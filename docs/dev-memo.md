@@ -4,7 +4,7 @@
 > 它是开发备忘，不是规范、不是事实对象、不替代 `docs/v5-handoff.md` 的移交地位。
 > 最近更新：2026-08-24。
 >
-> **新会话续接指引（按序读）**：① 本文件（决策 #1–#12、待定项、核心定调）→ ② `docs/v5-handoff.md`（D1–D7 与起步进度）→ ③ `specs/00-理念与构成.md`（草案：§1/§2 逐字锁定 v4 原文，§3–§8 待起草）→ ④ 按需：`docs/dsh-platform-facts.md`（宿主能力全景）、`docs/study-absorption.md`（49 Study 吸收账）、`docs/v4-problem-ledger.md`（103 Spark + 152 WC 问题账）。
+> **新会话续接指引（按序读）**：① 本文件（决策 #1–#14、待定项 1–18、§7 核心定调、§8 起草记录、§9 交接快照）→ ② `docs/00-audit.md`（审计入口与 9 提交链；若外部审计已进行，先看结论）→ ③ `specs/00-理念与构成.md`（六章定稿 + 身份块 status: draft）→ ④ `docs/v5-handoff.md`（D1–D7）→ ⑤ 按需：`docs/dsh-platform-facts.md`、`docs/study-absorption.md`、`docs/v4-problem-ledger.md`。
 
 ## 1. 版本与状态
 
@@ -150,3 +150,26 @@
 ---
 
 （§1 为 v4 原文逐字复制，仅两处经 Human 同意修订；§2 基于 v4 原文，方案区经 Human 同意重组）
+
+## 9. 会话交接快照（2026-08-24 会话结束）
+
+**已完成（dev 分支 9 个提交，全部受控提交）**：
+- 00 根规范六章全部定稿并提交（最新提交 `18e8143`：审计文档）；身份块 `status: draft`。
+- 五份研究备忘 + `docs/00-audit.md` 审计文档就位；README/LICENSE/.gitignore 就位；版本号双轨（当前 `1.0.0-dev.1`）。
+- 管辖：dsh-ldvh 经独立配置受辖（`governed_single`）；Git Gate（commit-msg）已部署并真实触发。
+- 决策 #1–#14、待定项 1–18 全部成文。
+
+**进行中/挂起**：
+- 外部独立审计：`docs/00-audit.md` 已交付，启动话术已给 Human（见会话末尾）；审计结论未回。
+- 00 `status` 仍为 draft（转 active 属 Human Gate，见 §5.4.1）。
+
+**新会话建议的下一步（按序）**：
+1. 处理外部审计结论（有问题走 §5.4.2 受保护文档流程修改 00）；
+2. Human Gate 决定 00 转 active（或等 01 重建后）；
+3. 起草六维工作模型独立下位文档（编号待定——§2 方案④的下位承接）；
+4. 按决策 #13 以 00 授权推进下位规范重建（01 优先——校准身份块字段与 CLI 解析规则）；
+5. 待定项 1–18 逐项消化（见本文件 §5）。
+
+**会话级交还说明**：`check-workcase-handoff` 无当前 WorkCase 可检查（dsh-ldvh 事实库为空、0 个 WorkCase 对象），会话交还由本节快照承担。
+
+**未提交/未推送**：工作树干净；9 个提交均未 push（远端副作用需 Human 单独授权）。
