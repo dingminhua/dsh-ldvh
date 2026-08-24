@@ -1,0 +1,114 @@
+# LDVH v5 · 00 定稿审计文档（供独立 AI 复核）
+
+> 用途：本文件是**审计入口**。任何独立 AI（或 Human）可仅凭本文件 + 仓库文件 + Git 历史，核对 2026-08-24 会话中 LDVH v5 根规范 `specs/00-理念与构成.md` 的起草过程与结果。
+> 性质：开发备忘，非规范、非事实对象。生成时间：2026-08-24。
+
+---
+
+## 0. 审计对象与范围
+
+- **主审计对象**：`/Users/dmh2002/DshProject/dsh-ldvh/specs/00-理念与构成.md`（v5 根规范，六章 + ldvh_spec 身份块）。
+- **辅审计对象**：`docs/` 下五份备忘（dev-memo / v5-handoff / dsh-platform-facts / study-absorption / v4-problem-ledger）、README、LICENSE、`.gitignore`、Git 提交链。
+- **审计标准**：本文 §5 的「逐条可回指」要求——每个结论都能回到文件行号或 Git 提交。
+
+## 1. 背景与委托链
+
+1. v4 会话移交（2026-08-24）：`docs/v5-handoff.md`，决策 D1–D7。要点：v5 取代 v4；DSH 原生插件分发；从 00 重构；新仓库 `dsh-ldvh`；逐章起草；版本号双轨。
+2. 本会话 Human 指令链（均记录于 `docs/dev-memo.md` 决策 #1–#14）：§1 问题常量主体逐字锁定；§2 承上启下、方案区重组；五维→六维工作模型（思考改审查、新增检讨）；证据只为防自欺（#10）；不借第三方技术（#6）；DSH 宿主能力用透（#7）；先只做好 DSH（#11）；开源协议与 DSH 同协议（#12）；Human 直管 00、下位依据 00 起草执行评估审计（#13）；受保护文档五类（#14）。
+3. 治理前提（可核）：新仓库经独立配置 `/Users/dmh2002/DshProject/LDVH-GOVERNED-PROJECTS.yaml` 受辖（`resolve-governance-scope` 实测 `governed_single`）；Git Gate（commit-msg）已部署 `state=managed`。
+
+## 2. 产物清单（审计者可逐项打开）
+
+| 产物 | 路径 | 状态 |
+|---|---|---|
+| 根规范（六章 + 身份块） | `specs/00-理念与构成.md` | 已提交（dev） |
+| 开发备忘（决策 #1–#14、待定项 1–18、六维表、定调红线） | `docs/dev-memo.md` | 已提交（dev） |
+| v4 移交文档（D1–D7、大纲、六维映射） | `docs/v5-handoff.md` | 已提交（dev） |
+| DSH 宿主能力全景卡 | `docs/dsh-platform-facts.md` | 已提交（dev） |
+| 49 份 Study 吸收账 | `docs/study-absorption.md` | 已提交（dev） |
+| 103 Spark + 152 WorkCase 问题账 | `docs/v4-problem-ledger.md` | 已提交（dev） |
+| 对外门面（版本双轨/同协议） | `README.md` | 已提交（dev） |
+| 开源协议 | `LICENSE`（MIT，与 DSH 同协议） | 已提交（Initial commit） |
+
+## 3. 提交链（8 个提交，全部在 dev 分支，未 push）
+
+```
+5356137 docs(specs): 00 根规范六章全部定稿（多轮对抗复核）并补身份块
+0a644b0 docs(specs): 00 §4 价值标准定稿（经三份对抗复核重写）并同步轨迹评估备忘
+6ca2f83 docs(specs): 00 §3 技术架构章定稿（经三份对抗复核修订）并同步章序与六维
+277ad1c docs(specs): 00 §3「LDVH 的技术架构」起草定稿（五维工作模型为组织轴）
+571ef19 docs(specs): 00 §2 解决方案区按「受控调度 AI」重组定稿
+1c0eb2b docs(specs): 00 草案 §1/§2 经 Human 同意的局部修订并同步记录
+1b270ab docs(docs): 记录 v5 设计共识与研究备忘（五维重构/防自欺/宿主能力/吸收账/问题账）
+10861c5 docs(specs): 建立 LDVH v5 仓库骨架与 00 规范草案（dev 1.0.0-dev.1）
+```
+
+每个提交均含 LDVH 署名（`LDVH-Product-Name: deepseek-harness` / `LDVH-Model-Name: deepseek-v4-pro`）与 `Human-Gate:` trailer；每个提交都经 `precheck-git-commit` 机械预检（`mechanical_outcome=passed`）且 Git Gate 真实触发通过（提交时 stderr 有 `LDVH Git Gate (commit-msg) passed`，`snapshot_identity` 与预检一致），提交后 message 与预检字节一致（审计者可用 §5 的命令复验）。
+
+## 4. 各章起草过程（复核轮次与发现折叠）
+
+| 章 | 过程 |
+|---|---|
+| §1 为什么存在 | v4 原文主体逐字 + Human 同意 2 处修订（结尾定位句改「充分利用 DeepSeek Harness 开源的优势，深度绑定宿主机制」；工具清单句去 DSH）。修订记录见 `docs/dev-memo.md` §8。 |
+| §2 解决方案 | 基于 v4 原文：诊断三行 AI 行补「和多视角复核」；统领句「对 AI 执行者实施受控调度」；方案④改六维工作模型（价值标准条目移入 §4）；第 5 条改 DSH 原生插件承载三方式；目标 1 Helper CLI→Helper 服务；目标 3 外部验证→核对。 |
+| §3 技术架构 | 7 轮独立对抗复核（3 初稿 + 2 成稿 + 2 新角度），约 60 项发现全部折叠：宿主原生六面/自建九项/机械守护三层防线+fail-closed/吸收条件四条；Web 呈现面、辩证执行体、效用审计与日落、两层输出契约等均为对抗复核补入。 |
+| §4 价值标准 | 6 轮独立对抗复核：判断问题 13 条逐字保留 v4 原文（可 diff 核）；判据列重构为正向可观察信号；「审计轴」→「评判轴」；价值监督五条。 |
+| §5 边界与授权 | 7 轮独立对抗复核：授权包三要素+冻结+机械匹配；Human Gate（触发/受保护文档五类含 merge 治理/决策提请/回应效力）；Stop Conditions（触发+风险分层快通道/职责/恢复/能力边界）；全局效力约束；宿主适配原则。 |
+| §6 验证与交还 | 6 轮独立对抗复核：防自欺锚点/风险匹配/验证选择记录（关键声明判据）/层级互不可证/Helper 与 Git Gate 检查一致性/交还结构与两层输出契约。 |
+| 全章总检 | 1 轮 18 项（3 高 8 中 7 低）全部折叠。 |
+
+## 5. 独立验证命令（审计者可直接执行）
+
+```bash
+cd /Users/dmh2002/DshProject/dsh-ldvh
+
+# 1) 提交链与署名
+git log --oneline && git log -1 --format=%B
+
+# 2) §4 判断问题与 v4 原文逐字一致性（抽查 V1/HV4）
+diff <(grep -o "能否帮助 AI 根据当前目标和工作对象[^。]*" specs/00-理念与构成.md) \
+     <(grep -o "能否帮助 AI 根据当前目标和工作对象[^。]*" /Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4/specs/00-理念与构成.md)
+
+# 3) 受保护文档五类与决策 #14 一致
+grep -A2 "受保护文档" specs/00-理念与构成.md | head -4
+grep -A8 "受保护文档清单" docs/dev-memo.md | head -10
+
+# 4) 每章授权句齐全
+grep -n "下位规范不得改变或重新解释" specs/00-理念与构成.md
+
+# 5) 身份块可解析
+head -30 specs/00-理念与构成.md
+
+# 6) 六维与 §2 方案④一致
+grep -n "六维工作模型" specs/00-理念与构成.md
+
+# 7) 草稿件已移出（正文无「大纲」「逐章讨论稿」字样）
+grep -n "大纲\|逐章讨论稿\|未改一字" specs/00-理念与构成.md
+```
+
+## 6. 过程纪律声明（审计者可抽样复核）
+
+- **受控提交**：本会话所有 commit 均走 30 号模板流程（授权→声明文件→Index 核对→`precheck-git-commit`→不带 `--no-verify` 的真实提交→写后回读 message 字节一致→工作树干净）。
+- **对抗复核**：所有独立复核均为真实多代理并行（不同视角、只读、只出问题），复核报告中的发现均已折叠进正文或如实记录为「下沉/待定」。
+- **研究基础**：49 份 Study 全量、103 Spark、152 WorkCase 全量、DSH 宿主包清单（`app.asar.unpacked`）均为当次会话实读，摘要存于 docs/ 五份备忘，可回指 UID/行号。
+
+## 7. 诚实披露：已知边界与未决项
+
+1. `00` 身份块 `status: draft`——尚未转 `active`（转 active 属 Human Gate 事项，见 §5.4.1）。
+2. `code_consumption` 暂沿用 v4 职责标识符——待 01 规范模型基础规范重建时校准。
+3. 六维工作模型（读/写/遵守/审查/执行/检讨）逐维展开的独立下位文档**尚未起草**（编号待定）——§2 方案④只给了名分，展开是后续工作。
+4. 下位规范（01–09、20–38）全部未重建——按决策 #13 由 00 授权推进。
+5. 待定项 1–18 未闭环（见 `docs/dev-memo.md` §5），包括：`-dev.N` 与 03 §9.10 后缀冲突、Stop gate 缺口、事实对象命名、Spark→Intent 改名、生命周期改进等。
+6. 全部提交**未 push**（远端副作用需 Human 单独授权）。
+7. Git Gate 运行器与管辖判定 CLI 暂借 v4 launcher（`/Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4/ldvh`），v5 重建后受控替换。
+8. v4 仓库退役时点未决（Human 待重新决策）；v4 中有 3 个 Study 未提交、2 个 Spark 有未暂存修改（本会话未动 v4）。
+9. 本审计文档生成于提交 `5356137` 之后，已随一次独立受控提交入库（见 `git log`）；若本节内容与 Git 实际状态不符，以 Git 为准。
+
+## 8. 审计者应重点攻击的点（主动暴露）
+
+1. §2 方案④六维与 §3/§4/§5/§6 的承接是否真的完整（尤其遵守维/检讨维在技术章与边界章的落点）。
+2. 「防自欺」在 §3.3（服务目标）与 §6（权威定义）的分工是否自洽。
+3. 授权包（§5.3）与 §3.2 单调令牌、§3.3 权限层的关系是否闭环。
+4. 受保护文档五类清单与 §5.4.2 正文、决策 #14 是否一致，merge 治理是否有缺口。
+5. 身份块字段与 v4 01 规范模型的兼容性（status/authority/canonical_path/code_consumption）。
+6. §5.5 风险分层快通道与「预检覆盖不完整即停止」是否仍存在死锁路径。
