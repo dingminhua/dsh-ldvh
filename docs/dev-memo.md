@@ -4,7 +4,7 @@
 > 它是开发备忘，不是规范、不是事实对象、不替代 `docs/v5-handoff.md` 的移交地位。
 > 最近更新：2026-08-24。
 >
-> **新会话续接指引（按序读）**：① 本文件（决策 #1–#14、待定项 1–18、§6 核心定调、§8 起草记录、§9 交接快照）→ ② `docs/00-audit.md`（审计入口与 9 提交链；若外部审计已进行，先看结论）→ ③ `specs/00-理念与构成.md`（六章定稿 + 身份块 status: draft）→ ④ `docs/v5-handoff.md`（D1–D7）→ ⑤ 按需：`docs/dsh-platform-facts.md`、`docs/study-absorption.md`、`docs/v4-problem-ledger.md`。
+> **新会话续接指引（按序读）**：① 本文件（决策 #1–#14、待定项 1–18、§6 核心定调、§8 起草记录、§9 交接快照）→ ② `docs/00-audit.md`（审计入口与提交链；提交数以 `git log --oneline` 为准，若外部审计已进行，先看结论）→ ③ `specs/00-理念与构成.md`（六章定稿 + 身份块 status: draft）→ ④ `docs/v5-handoff.md`（D1–D7）→ ⑤ 按需：`docs/dsh-platform-facts.md`、`docs/study-absorption.md`、`docs/v4-problem-ledger.md`。
 
 ## 1. 版本与状态
 
