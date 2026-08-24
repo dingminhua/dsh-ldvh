@@ -13,7 +13,7 @@
 | D3 | **开源属性不变** | MIT License（已在新仓库根目录），**与 DSH 本体同协议**（DSH 桌面应用与 @deepseek-ai 核心包均 MIT，2026-08-24 核实）；可进 DSH 插件市场（dshfind），接受开源公共契约；开源的本意 = 让他人去做移植（DSH 之外平台的移植由社区完成），同协议降低移植门槛 |
 | D4 | **从 00 重构** | 新 00 基于 v4 `specs/00` 原文重构（经 Human 同意修订，2026-08-24）：§1 两处——结尾定位句改「充分利用 DeepSeek Harness 开源的优势，深度绑定宿主机制」、工具清单句去 DSH；§2 方案区重组——AI 诊断行补「和多视角复核」、统领句「对 AI 执行者实施受控调度」、方案④改「以读、写、遵守、审查、执行、检讨为六维工作模型」（价值标准条目移入 §4）、第 5 条改「DSH 原生插件承载 AI 编排执行/Git Gate/Web」、目标 1 Helper CLI→Helper 服务、目标 3 外部验证→核对；§3 按 Human 定改述为技术相关内容（宿主原生机制/自建机制/机械守护/技术吸收纪律），六维工作模型逐维展开归独立下位文档（编号待定）。00 保持薄，只定义「根 + 接口 + 原则」，字段/状态机/模板细节全部下沉到随搬运重建的下位规范 |
 | D5 | **新仓库** | `~/DshProject/dsh-ldvh`（remote: github.com/dingminhua/dsh-ldvh），main 分支，当前仅 LICENSE + initial commit |
-| D6 | **逐章起草** | 新 00 按大纲 §1–§8 逐章定稿（Human 逐章过目）；§1/§2 已锁定 v4 原文（见 D4），逐章讨论从 §3 起，不整篇写完再返工 |
+| D6 | **逐章起草** | 新 00 六章（§1–§6）已全部逐章定稿（Human 逐章过目 + 多轮独立对抗复核，2026-08-24），不整篇写完再返工 |
 | D7 | **版本号双轨** | v5 重新起算。对外发布版本（release）从 `1.0.0` 全新计数（与 v4 旧号脱钩）；开发迭代版本（dev）为同主版本带 `-dev.N` 后缀（如 `1.0.0-dev.1`）。二者共享 `MAJOR.MINOR.PATCH`：对外版本仅正式发布时递增，开发版本仅开发迭代时递增，互不污染；发布时封存干净三段式，dev 进入下一轮 |
 
 ## 2. 新 00 大纲（v5 重构版，待逐章定稿）
@@ -95,7 +95,7 @@ v4 仓库路径：`/Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4`（只�
 ## 6. 起步顺序（新会话执行）
 
 1. **骨架** ✅（已完成）：`.gitignore`（.venv/node_modules/.DS_Store 等）+ `README.md` 占位（声明 v5 定位：取代 v4、插件分发、开源）+ 版本号双轨（对外 `1.0.0` / 开发 `1.0.0-dev.N`，见 D7）+ 本文档已就位
-2. **起草新 00**（进行中）：落点规范源根 `specs/00-理念与构成.md`；§1/§2 已定稿（修订口径见 D4），§3「LDVH 的技术架构」已起草（经三份对抗性复核），逐章讨论从 §4 起，Human 逐章过目；最新设计共识（五维/防自欺/三件套/深度绑定）见 `docs/dev-memo.md`
+2. **起草新 00** ✅（已完成）：`specs/00-理念与构成.md` 六章（§1–§6）全部定稿（多轮独立对抗复核），身份块 status: draft 待转 active；修订口径见 D4，最新设计共识与待定项见 `docs/dev-memo.md`
 3. **登记管辖** ✅（已完成，2026-08-24）：按「独立工作区 dogfood」办理——新建独立配置 `/Users/dmh2002/DshProject/LDVH-GOVERNED-PROJECTS.yaml`（**不沿用**旧 `poker_hud_projects` 配置），登记 `dsh-ldvh` 为唯一管辖项目并设为 `default_project_id`；实测 `resolve-governance-scope` 返回 `config_status: valid` / `scope_status: governed_single` / `governed_project_id: dsh-ldvh`。此后事实写入走新规则。旧配置仍管辖 v4/poker 项目，其退役时点待 Human 重新决策
 4. **内核验证**：Helper CLI + Git Gate 在新仓库跑通一个真实任务（五维闭环试金石，先于大规模搬运）
 5. **选择性搬运**：8 ADR / 8 Pitfall → 10 open Spark 承接 → 高价值 Study 结论（受控重建，不复制文件）

@@ -4,7 +4,7 @@
 > 它是开发备忘，不是规范、不是事实对象、不替代 `docs/v5-handoff.md` 的移交地位。
 > 最近更新：2026-08-24。
 >
-> **新会话续接指引（按序读）**：① 本文件（决策 #1–#14、待定项 1–18、§7 核心定调、§8 起草记录、§9 交接快照）→ ② `docs/00-audit.md`（审计入口与 9 提交链；若外部审计已进行，先看结论）→ ③ `specs/00-理念与构成.md`（六章定稿 + 身份块 status: draft）→ ④ `docs/v5-handoff.md`（D1–D7）→ ⑤ 按需：`docs/dsh-platform-facts.md`、`docs/study-absorption.md`、`docs/v4-problem-ledger.md`。
+> **新会话续接指引（按序读）**：① 本文件（决策 #1–#14、待定项 1–18、§6 核心定调、§8 起草记录、§9 交接快照）→ ② `docs/00-audit.md`（审计入口与 9 提交链；若外部审计已进行，先看结论）→ ③ `specs/00-理念与构成.md`（六章定稿 + 身份块 status: draft）→ ④ `docs/v5-handoff.md`（D1–D7）→ ⑤ 按需：`docs/dsh-platform-facts.md`、`docs/study-absorption.md`、`docs/v4-problem-ledger.md`。
 
 ## 1. 版本与状态
 
@@ -12,7 +12,7 @@
   - 待决：`-dev.N` 与 v4 03 §9.10（pre-release 只许 `-alpha/-beta/-rc.N`）的冲突，重建 03 时写入新契约或改后缀。
 - **管辖**：独立配置 `/Users/dmh2002/DshProject/LDVH-GOVERNED-PROJECTS.yaml`，`dsh-ldvh` 为 `governed_single` 默认项目。
 - **首次受控提交**：`10861c5`（docs(specs)：骨架 + 00 草案；Git Gate 部署 managed、真实触发通过、message 字节一致）。
-- **未提交变更（截至 2026-08-24）**：00 六章（§1–§6）全部逐章定稿并经多轮独立对抗复核（§3×7 轮、§4×6 轮、§5×7 轮、§6×6 轮 + 全章总检）；00 已补 ldvh_spec 身份块（status: draft）、草稿件移入本章 §8 备查；未 commit，待受控提交。
+- **未提交变更（截至 2026-08-24）**：00 六章（§1–§6）全部逐章定稿并经多轮独立对抗复核（§3×7 轮、§4×6 轮、§5×7 轮、§6×6 轮 + 全章总检）；00 已补 ldvh_spec 身份块（status: draft）、草稿件移入本章 §8 备查；已全部受控提交（共 10 个提交，见 §9 会话交接快照）。
 - **过渡期借用 v4 事实**：新仓库自己的 Helper/Gate 尚未重建；当前管辖判定与 Git Gate 运行器借用 `/Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4/ldvh`，v5 重建后受控替换。
 - **v4**：原样保留为只读参考（规范/事实/代码均在 `/Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4`）；退役时点待 Human 重新决策。
 
@@ -61,7 +61,7 @@
 - 按需层（Study/事实全文）→ Helper F0–F4 渐进。
 - 预算与红线：`ctx.tokenMeter` + CJK 感知 + L0 容量上限；注入卡带来源标签+指纹；概率召回只做候选、永不进事实写入。
 
-**反思（思考维）**：四段闭环——
+**反思（审查维与检讨维）**：四段闭环——
 触发（行动单元交还/turn-end/goal 轮末/故障后）→ 辩证执行（subagent 独立复核 / subagent_fork 上下文继承 / ralph 全新视角 / workflow 多视角对抗）→ 使用证据（22/23 预检落实记录升格：没改变行动的积累=死积累）→ 受控回流（反思结论经 Helper 写成 Pitfall/ADR/Study/Spark）。
 - 效用审计：HV4 判据 + 周期价值审计（六维度）+ 日落机制（没用的积累退役）→ 自我进步 = 事实库净效用增长可观察。
 
@@ -102,7 +102,7 @@
     - 落地建议：session_comparability 固化为只读模块（立即做）；comparable 判定纳入 WorkCase 评分（立即做）；friction_profiler 检测重复/heredoc（缓做）；Helper 调用 MCP 工具化（缓做，需 09 Human Gate）。
     - 边界：轨迹是过程数据**不是事实源**，不得写入事实对象；只读、只聚合、不存原始；复盘结果经 Helper+Git Gate 双重校验才能形成事实；**不做**轨迹自动写事实、不做统一健康分（防回退外部审计簿记，决策 #10）。
 
-## 7. v5 核心定调（Human 定，2026-08-24）
+## 6. v5 核心定调（Human 定，2026-08-24）
 
 「引入新技术 + 深度绑定环境机制，解决 v4 存在的问题」——认可，并精确化为两句话：
 
@@ -115,12 +115,12 @@
 - **AI 面向的语义路由/引导文本必须单一权威来源、逐字节一致、不复制规则正文、不成为第二规则源**——载体可变：DSH 深度绑定下薄 Skill 三职责（身份告知/规则引导/模板路由）分别由插件 systemPrompt.section / pre-step 事件 / ldvh_call 工具承接，**Skill 未必存在**（Human 定，2026-08-24）；若保留 Skill 形态（如非 DSH 环境）同样受此不变式约束；
 - 受控写入唯一经 Helper、Git Gate 终闸不变（宿主 fs 观察策略只是辅助防线）。
 
-## 6. 关联备忘
+## 7. 关联备忘
 
 - `docs/v5-handoff.md` —— v4 移交文档（D1–D7、§6 进度、§7 风险）
 - `docs/dsh-platform-facts.md` —— DSH 宿主能力全景卡（含 v4 调研遗漏清单）
 - `docs/study-absorption.md` —— 49 份 Study 吸收账（可吸收/不引入/教训）
-- `specs/00-理念与构成.md` —— 00 草案（§1/§2 逐字 v4 原文；§3–§8 待按新共识重写占位）
+- `specs/00-理念与构成.md` —— 00 根规范（六章定稿 + 身份块 draft，待转 active）
 
 ## 8. 00 起草过程记录（自 specs/00 移出，2026-08-24）
 
@@ -172,4 +172,4 @@
 
 **会话级交还说明**：`check-workcase-handoff` 无当前 WorkCase 可检查（dsh-ldvh 事实库为空、0 个 WorkCase 对象），会话交还由本节快照承担。
 
-**未提交/未推送**：工作树干净；9 个提交均未 push（远端副作用需 Human 单独授权）。
+**未提交/未推送**：工作树干净；本次会话 10 个受控提交均未 push（Initial commit 在移交前已推远端 origin/main；push 需 Human 单独授权）。
