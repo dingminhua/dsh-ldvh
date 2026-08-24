@@ -95,6 +95,11 @@
 15. **Spark 或改名 Intent（Human 提议，重建 20 时讨论）**：现有 Spark 语义是「尚未形成确定承接位置的单一信息需求、发现、问题或缺口」，且字段里本就有 `intent`（意图）——改名为 Intent 更贴切。若改名，牵连全链：类型名/文件前缀（spark-→?）/规范编号 20 标题/Helper 操作与事实类型键/Web 呈现词，重建 20 时一并定。
 16. **事实对象文件名命名（Human 点名，重建 05/20–24 时讨论）**：现行命名 = `<类型>-<28 位 Crockford Base32(UUIDv7)>`，载体 ADR/Pitfall/Spark/WorkCase 用 `.yaml`、Study 用 `.md`。已知讨论候选：长 base32 难读难引用（v4.1.0 已退役六位短引用，只留全量 ID）；类型前缀与改名（Intent）联动；载体格式统一或分流；UUIDv7 时间序编码后不可读（人类可读性 vs 机器唯一性平衡）；引用/定位符形态（项目ID@object_id）与别名机制；open Spark 102 已记录 AI 写文件时的身份错误清单（UUID 版本错/locator 截断等）——命名对 AI 写入有真实摩擦。
 17. **Skill 存在形式（Human 定方向：深度绑定后未必有 Skill）**：DSH 绑定形态下三职责被插件面吸收（systemPrompt.section / pre-step / ldvh_call），Skill 可消失；非 DSH 环境形态（MCP server 出口 vs 保留 Skill vs 不承诺多环境）待定；移交文档 §4 红线「Skill 环境无关逐字节一致」按新不变式修订（单一权威来源/逐字节一致/不复制规则正文/不成第二规则源）。09 重建时一并定。
+18. **DSH 轨迹复盘行动摩擦（Human 点名，2026-08-24）**：DSH 的会话轨迹（zstd JSONL + SQLite FTS5 + 统计/遥测）可以复盘行动摩擦——既然深度融合就要用上。**独立代理评估已完成**，结论：
+    - 轨迹能力（verified）：43 种事件类型、tool/call↔result 配对、模型路由、审批链、压缩/重试/hook 事件、时间戳。
+    - 用途映射：①检讨维「使用证据」——tool/call↔result 配对 + precheck_id 判定「召回→落实」；②效用审计（HV4）——session_comparability 三值判定（comparable/not_comparable/inconclusive）作复用计量，WorkCase 评分前先跑；③摩擦复盘（095 对治）——重复调用/heredoc 拼接可自动检测（verified），无关动作/过度流程需语义层（unverified）；④执行可比性（[33] 已证明 6 会话出 3/6 comparable）；⑤模型路由审计、token 成本（cacheReadTokens 达输入 23 倍→复读问题）。
+    - 落地建议：session_comparability 固化为只读模块（立即做）；comparable 判定纳入 WorkCase 评分（立即做）；friction_profiler 检测重复/heredoc（缓做）；Helper 调用 MCP 工具化（缓做，需 09 Human Gate）。
+    - 边界：轨迹是过程数据**不是事实源**，不得写入事实对象；只读、只聚合、不存原始；复盘结果经 Helper+Git Gate 双重校验才能形成事实；**不做**轨迹自动写事实、不做统一健康分（防回退外部审计簿记，决策 #10）。
 
 ## 7. v5 核心定调（Human 定，2026-08-24）
 
