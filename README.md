@@ -8,7 +8,7 @@
 
 - **取代 v4**：v5 是新规则与实现源；v4（`ld-vibe-harness-v4`）整体降级为只读历史档案，不再新建事实、不再作为规则源。
 - **DSH 原生插件分发**：以 DeepSeek Harness（DSH）原生插件形态分发（`dsh plugin add ldvh`），同时保持开源。
-- **开源**：MIT License（见仓库根 [LICENSE](LICENSE)），可进入 DSH 插件市场，接受开源公共契约。
+- **开源**：MIT License（见仓库根 [LICENSE](LICENSE)），**与 DSH 本体同协议**；可进入 DSH 插件市场，接受开源公共契约。开源的本意是让其他人去做移植（DSH 之外平台的移植由社区完成），同协议降低移植门槛。
 
 ## 版本号双轨
 
