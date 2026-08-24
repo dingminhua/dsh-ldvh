@@ -68,6 +68,9 @@
 | CRDT/OT | study-01KZXN5TXNEX + 01M09W | 无实时多人需求前不引入 |
 | Firecrawl | study-01KZXN5TXNE5 | 仅证据获取候选，非默认依赖 |
 | Superpowers/Symphony/Codex 工作流 | study-01KZXN5TXNEC/01KZXN5TXNF5/01KZXN5TXNF7 | 过程设计参考，不改变 Gate |
+| Multica 产品形态（供应商无关运行时/Skills 导出/Docker 服务化/可回放执行日志/自动评论） | study-01M0TK7RF8EXQSYR2534B3C9J6 | 决策 #11 非 DSH 不考虑 + 决策 #10 审计向机制已砍 + 待定项 17 Skill 消失；Inbox 式「只在该决策时通知 Human」已对齐 §5.4.3 决策提请，无需吸收；仅确认「规则层 vs 操作系统层」上下层互补定位 |
+
+> 增补（2026-08-25）：上表末行为 2026-08-24 通读 49 份之后新增 Study（Multica，观察时点 2026-08-25）的评估结论，按 Human 指示落账。
 
 ## 3. 教训账（v5 重建时消化）
 
