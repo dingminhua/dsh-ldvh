@@ -59,7 +59,7 @@
 
 | 对象 | 来源 | 理由 |
 |---|---|---|
-| Obsidian 本体 | study-01KZXN5TXNFK | AI 侧关联发现已被 Helper 覆盖；Human 侧「双向链接+图谱浏览」作为 Web 能力形态**内部实现**（根因是关系数据稀疏：ADR 0/8、Pitfall 0/8 声明关系） |
+| Obsidian 本体 | study-01KZXN5TXNFK | AI 侧关联发现已被 Helper 覆盖；Human 侧「双向链接+图谱浏览」作为 Web 能力形态**内部实现**（根因是关系数据稀疏：ADR 0/8、Pitfall 0/8 声明关系）。另吸收「零摩擦链接文化」启发：稀疏的另一半原因是声明摩擦高，v5 对治 = 创建入口应声明项 + 候选关系提示（AI 确认后写入，不自动写） |
 | Kiro/Beads | study-01KZXN5TXNFV | 组织单位是 feature 粒度；H5 需独立方向锚；仅作 00 重梳理外部参照 |
 | Task Master AI | study-01KZXN5TXNFP | 外部任务编排，不替代 WorkCase |
 | 浮层+轮询+事件注入 Web 形态 | study-01M0PQHMRVEA | 红线：保持四层阅读器 |
