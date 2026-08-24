@@ -4,7 +4,7 @@
 > 它是开发备忘，不是规范、不是事实对象、不替代 `docs/v5-handoff.md` 的移交地位。
 > 最近更新：2026-08-25。
 >
-> **新会话续接指引（按序读）**：① 本文件（决策 #1–#14、待定项 1–21、§6 核心定调、§8 起草记录、§9 交接快照）→ ② `docs/00-audit.md`（审计入口与提交链；提交数以 `git log --oneline` 为准，若外部审计已进行，先看结论）→ ③ `specs/00-理念与构成.md`（六章定稿 + 身份块经 01 校准回填：去 status、加 dimensions、code_consumption 4 键）→ ④ `docs/v5-handoff.md`（D1–D7）→ ⑤ 按需：`docs/dsh-platform-facts.md`、`docs/study-absorption.md`、`docs/v4-problem-ledger.md`。
+> **新会话续接指引（按序读）**：① 本文件（决策 #1–#15、待定项 1–21、§6 核心定调、§8 起草记录、§9 交接快照）→ ② `docs/00-audit.md`（审计入口与提交链；提交数以 `git log --oneline` 为准，若外部审计已进行，先看结论）→ ③ `specs/00-理念与构成.md`（六章定稿 + 身份块经 01 校准回填：去 status、加 dimensions、code_consumption 4 键）→ ④ `docs/v5-handoff.md`（D1–D7）→ ⑤ 按需：`docs/dsh-platform-facts.md`、`docs/study-absorption.md`、`docs/v4-problem-ledger.md`。
 
 ## 1. 版本与状态
 
@@ -36,6 +36,7 @@
 12. **开源协议对齐（Human 定，2026-08-24）：DSH 用什么协议，我们就用什么协议**——已核实 DSH 本体为 MIT（本地证据：`dsh-plugin-desktop` 2.0.2 与 @deepseek-ai 核心包 dsh/dsh-agent/dsh-tools/dsh-subagent/dsh-workflow 等 package.json license 全部 MIT）；dsh-ldvh 现有 LICENSE 即 MIT（v4 决策 D3 已就位），**协议已对齐，无需变更**。开源的本意 = 让其他人去做移植（DSH 之外的平台移植由社区完成），同协议降低移植门槛。
 13. **治理分工（Human 定，2026-08-24）：Human 直管 00 文档**——下位规范/Code/Web/事实/执行/评估/审计全部**依据 00 起草、执行、评估、审计**。因此 00 必须是**完整的根契约**：根 + 接口 + 原则 + 授权 + 边界 + 验证轴都要在 00 内写全，不留空口授权；下位只承接、不得重新解释（沿用 v4 00 §3 的写法：「本文只授权相应职责，不绑定具体编号或文件；下位规范不得改变或重新解释本章定义」）。回指机制 = 身份块 + 职责标识符 + CLI 现取，随下游规范重建自然成立，00 正文不写死映射。
 14. **受保护文档清单（Human 定，2026-08-24）**：v4 保护三件（00 第 1–8 章 / canonical Skill / README）；v5 Skill 消失，清单更新为**五类**：①00；②README；③**插件 AI 面向语义文本**（规则引导与模板路由文本——Skill 的直接继承人，v4 保护 Skill 的理由原样适用）；④LICENSE；⑤版本声明点（CHANGELOG 与插件清单 version 字段）。修改均须 Human 逐段同意 + 独立审核 + 只含该文档的独立 commit。考虑项：六维工作模型文档属下位（按 00 授权起草，不必逐字保护）；仓库外 LDVH-GOVERNED-PROJECTS.yaml 是管辖登记，自带配置规则约束。
+15. **Git 提交信息简化（Human 定，2026-08-25）**：v5 的 Git 提交 header 只保留类型（type），**去掉范围（scope）**——例如 `docs: …`、`specs: …`；类型本身已足以区分目标文件类别，范围信息冗余。生效时点：v5 提交契约（06 事实源与信息溯源规范）与 v5 自己的 Git Gate 重建时写入；**过渡期沿用 v4 Gate**（仍强制 `type(scope)` + scope 闭集），提交继续用 `docs(docs):`/`docs(specs):` 等双段格式直至替换。
 
 ## 3. 六维工作模型（Human 定法，取代移交文档 §3 映射表）
 
