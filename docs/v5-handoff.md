@@ -24,9 +24,8 @@
 ├─ §2 解决方案          ← 基于 v4 00 §2 原文；方案区经 Human 同意重组（受控调度统领句/第 5 条插件化/减摩擦目标句，2026-08-24）：三要素（规范/事实/模板）
 │                          + 三通道（编排执行 / Git Gate / Web）
 │                          + 价值标准 V1-V8 / HV1-HV5
-├─ §3 五维工作模型      ← 新增（组织轴）：
-│                         读 / 写 / 遵守 / 思考 / 执行（Human 新定 2026-08-24；原「行动」并入「执行」）
-│                         每维：最小职责 / 触发条件 / 机械入口 / Human 边界 / 验证证据
+├─ §3 LDVH 的技术架构    ← 章名 Human 定（2026-08-24）；五维工作模型为组织轴：读 / 写 / 遵守 / 思考 / 执行
+│                         每维：最小职责 / 触发条件 / 机械入口 / Human 边界 / 防自欺锚点
 ├─ §4 机械守护           ← 升格（DSH 时代的新守护层）：
 │                         Git Gate 终闸（最后的把关，不入五维）/ 受控写入边界 /
 │                         Host Hook 与插件事件（turn-end 锁恢复、pre-step 引导时机）/
@@ -104,7 +103,7 @@ v4 仓库路径：`/Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4`（只�
 ## 6. 起步顺序（新会话执行）
 
 1. **骨架** ✅（已完成）：`.gitignore`（.venv/node_modules/.DS_Store 等）+ `README.md` 占位（声明 v5 定位：取代 v4、插件分发、开源）+ 版本号双轨（对外 `1.0.0` / 开发 `1.0.0-dev.N`，见 D7）+ 本文档已就位
-2. **起草新 00**（进行中）：落点规范源根 `specs/00-理念与构成.md`；§1/§2 已逐字锁定 v4 原文（见 D4），逐章讨论从 §3 起，Human 逐章过目；最新设计共识（五维新定/防自欺/三件套/深度绑定）见 `docs/dev-memo.md`
+2. **起草新 00**（进行中）：落点规范源根 `specs/00-理念与构成.md`；§1/§2 已定稿（修订口径见 D4），§3「LDVH 的技术架构」已起草（经三份对抗性复核），逐章讨论从 §4 起，Human 逐章过目；最新设计共识（五维/防自欺/三件套/深度绑定）见 `docs/dev-memo.md`
 3. **登记管辖** ✅（已完成，2026-08-24）：按「独立工作区 dogfood」办理——新建独立配置 `/Users/dmh2002/DshProject/LDVH-GOVERNED-PROJECTS.yaml`（**不沿用**旧 `poker_hud_projects` 配置），登记 `dsh-ldvh` 为唯一管辖项目并设为 `default_project_id`；实测 `resolve-governance-scope` 返回 `config_status: valid` / `scope_status: governed_single` / `governed_project_id: dsh-ldvh`。此后事实写入走新规则。旧配置仍管辖 v4/poker 项目，其退役时点待 Human 重新决策
 4. **内核验证**：Helper CLI + Git Gate 在新仓库跑通一个真实任务（五维闭环试金石，先于大规模搬运）
 5. **选择性搬运**：8 ADR / 8 Pitfall → 10 open Spark 承接 → 高价值 Study 结论（受控重建，不复制文件）
