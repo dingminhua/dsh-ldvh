@@ -4,7 +4,7 @@
 > 它是开发备忘，不是规范、不是事实对象、不替代 `docs/v5-handoff.md` 的移交地位。
 > 最近更新：2026-08-25。
 >
-> **新会话续接指引（按序读）**：① 本文件（决策 #1–#14、待定项 1–21、§6 核心定调、§8 起草记录、§9 交接快照）→ ② `docs/00-audit.md`（审计入口与提交链；提交数以 `git log --oneline` 为准，若外部审计已进行，先看结论）→ ③ `specs/00-理念与构成.md`（六章定稿 + 身份块 status: draft）→ ④ `docs/v5-handoff.md`（D1–D7）→ ⑤ 按需：`docs/dsh-platform-facts.md`、`docs/study-absorption.md`、`docs/v4-problem-ledger.md`。
+> **新会话续接指引（按序读）**：① 本文件（决策 #1–#14、待定项 1–21、§6 核心定调、§8 起草记录、§9 交接快照）→ ② `docs/00-audit.md`（审计入口与提交链；提交数以 `git log --oneline` 为准，若外部审计已进行，先看结论）→ ③ `specs/00-理念与构成.md`（六章定稿 + 身份块经 01 校准回填：去 status、加 dimensions、code_consumption 4 键）→ ④ `docs/v5-handoff.md`（D1–D7）→ ⑤ 按需：`docs/dsh-platform-facts.md`、`docs/study-absorption.md`、`docs/v4-problem-ledger.md`。
 
 ## 1. 版本与状态
 
@@ -123,7 +123,7 @@
 - `docs/v5-handoff.md` —— v4 移交文档（D1–D7、§6 进度、§7 风险）
 - `docs/dsh-platform-facts.md` —— DSH 宿主能力全景卡（含 v4 调研遗漏清单）
 - `docs/study-absorption.md` —— 49 份 Study 吸收账（可吸收/不引入/教训）
-- `specs/00-理念与构成.md` —— 00 根规范（六章定稿 + 身份块 draft，待转 active）
+- `specs/00-理念与构成.md` —— 00 根规范（六章定稿 + 身份块经 01 校准回填：去 status、加 dimensions、code_consumption 4 键）
 
 ## 8. 00 起草过程记录（自 specs/00 移出，2026-08-24）
 
@@ -155,6 +155,8 @@
 （§1 为 v4 原文逐字复制，仅两处经 Human 同意修订；§2 基于 v4 原文，方案区经 Human 同意重组）
 
 ## 9. 会话交接快照（2026-08-24 会话结束）
+
+> 本节为 2026-08-24 历史快照；其中「status: draft」「00 转 active」等表述已被 2026-08-25 取消规范生命周期的决定取代（见 §9.1 与 01 §5.2）。
 
 **已完成（dev 分支，全部受控提交；提交数以 `git log --oneline` 为准）**：
 - 00 根规范六章全部定稿并提交（提交链以 `git log --oneline` 为准）；身份块 `status: draft`。
@@ -190,5 +192,5 @@
 **下一会话建议（按序）**：
 1. **01 规范模型基础规范重建**（Human 已指示启动；修改提案先逐项呈报 Human 同意）；
 2. 待定项 11 展开：内部关联五环节（声明/证据/谱系/消费/机械校验）必决问题清单；
-3. 00 转 active 时点（Human Gate：现在转 vs 等 01 重建后转）；
+3. 已完成：00 身份块回填（3e45129）与头部注记删除（3f8659c）；下位规范重建按 01 编号终表继续（02 事实模型 / 03 行动模板 / 04 六维工作模型…）；
 4. 待定项 1–21 逐项消化（见本文件 §5）。
