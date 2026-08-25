@@ -6,7 +6,7 @@
 
 ## 0. 开工必读（执行者纪律）
 
-1. **本仓库受 LDVH 管辖**（`governed_single`，配置 `/Users/dmh2002/DshProject/LDVH-GOVERNED-PROJECTS.yaml`）。若会话技能目录有 `ldvh` 技能，先加载；Git Gate 运行器与管辖判定 CLI 过渡期借用 v4 launcher：`/Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4/ldvh`。
+1. **本仓库受 LDVH 管辖**。过渡期仍借 v4 配置 `/Users/dmh2002/DshProject/LDVH-GOVERNED-PROJECTS.yaml`（`governed_single`）与 v4 launcher `/Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4/ldvh` 做判定与 Git Gate；v5 目标管辖模式已定为用户 `dsh-dvh` 目录登记制度（dev-memo 决策 #16/#22，细节实施时讨论）。若会话技能目录有 `ldvh` 技能，先加载。
 2. **受控提交流程（每个 commit 都必须）**：
    - 明确声明候选文件清单，只 stage 声明文件，核对真实 Index 路径集合与 staged diff；
    - 完整 message 写入工作树外临时文件（`/tmp/`），调用 `ldvh call precheck-git-commit`（request 含 `work_object_locators: ["/Users/dmh2002/DshProject/dsh-ldvh"]` 与 `arguments.message`），必须 `outcome=ok` 且 `result.mechanical_outcome=passed`；
@@ -65,7 +65,7 @@
 
 ### 步骤 12：v5 自己的 Helper 服务与 Git Gate 实现
 
-过渡期借用的 v4 launcher 替换为 v5 实现（受控替换，见 dev-memo 过渡期条目）；Git Gate 按 06 契约（type-only header）重建。
+过渡期借用的 v4 launcher 替换为 v5 实现（受控替换，见 dev-memo 过渡期条目）；Git Gate 按 06 契约（type-only header）重建。v5 管辖判定随同切换为用户 `dsh-dvh` 目录登记制度（dev-memo 决策 #16/#22，登记细节实施时再讨论并经 Human Gate 定案），不再沿用 `LDVH-GOVERNED-PROJECTS.yaml` 判定。
 
 ## 3. 完成定义与交还
 
