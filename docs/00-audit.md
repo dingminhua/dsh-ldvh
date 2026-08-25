@@ -178,3 +178,9 @@ grep -n "大纲\|逐章讨论稿\|未改一字" specs/00-理念与构成.md
 - **交叉引用准确性**：判定“引用准确，无错误”。逐条核验 05 对 00（§3.1/§3.3/§4/§5/§5.4/§5.5/§6）、01（§5.4/§6.1/§7/§9.2）、02（六维/机制指向）、03（§7.2/§8.8/F0–F4）、04（§9.2/template_key/definition_ref）的全部引用均真实、指向正确。
 - **对 v5-rebuild-plan 步骤 5 完备性**：判定“完备”。步骤 5 五项要求（插件工具直通、请求/响应 envelope、L0–L4 与 F0–F4 操作接口、responsibility_key 与 01 §7 同义、00 §3.1 工具面承接）全部覆盖；起草纪律第 6 条（双审核→Human 审→受控提交、无 status、无生命周期状态）合规；仍为薄骨架未膨胀（无全局 DTO/错误码表/CLI 偷渡/领域语义抢占）。
 - **结论**：交叉引用与计划完备性两项独立复核均通过；05 草案（238 行）收敛，待 Human 审阅并授权受控提交。
+
+### 9.9 05 Helper 服务规范受控提交记录（2026-08-25）
+
+- `40c8f3e docs(specs): 起草05 Helper服务规范薄骨架`：提交 `specs/05-Helper服务规范.md`（238 行）。`precheck-git-commit` outcome=ok / mechanical_outcome=passed；LDVH Git Gate（commit-msg）passed，snapshot_identity 与预检一致；提交后 message 字节一致（diff 空）；工作树干净。
+- `2ba5ef3 docs(docs): 记录管辖登记制度决策与05审核复核`：提交 `docs/dev-memo.md`、`docs/00-audit.md`、`docs/v5-rebuild-plan.md`。预检、Git Gate、message 字节一致均通过。
+- **结论**：05 步骤 5 完成（薄骨架 → 双独立审核 → 四轴对抗审计 → 四轮复核 → Human 审 → 受控提交）；下位规范 02/03/04/05 与 00/01 边界一致已复核。两笔均未 push（push 需 Human 单独授权）。
