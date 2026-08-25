@@ -42,11 +42,13 @@ manifest 存在、工具注册成功、页面加载或发布完成，均不单�
 4. 06 事实源与信息溯源规范：Git Gate 部署形态、受控提交契约；
 5. 07 工作对象与管辖范围规范：管辖登记制度在 Helper/Git Gate 侧的消费方式。
 
+05/06/07 为协作来源，非本文上位依据。
+
 ## 3. 职责边界
 
 ### 3.1 本文负责
 
-- manifest 字段声明（名称/版本/入口/权限声明/市场字段）、工具注册缝（`ctx.tools.register` 承载 05 操作，schema 归 05，08 定注册时机与装载）、引导面注入形式与预算、turn/end 事件时机接入、`ctx.userQuestions`/`ctx.authorization` 交互面接入、07 登记制度在 Helper/Git Gate 侧的消费方式；
+- manifest 字段声明（名称/版本/入口/权限声明/市场字段）、工具注册缝（`ctx.tools.register` 承载 05 操作，schema 归 05，08 定注册时机与装载）、引导面注入形式与预算、turn/end 事件时机接入、`ctx.userQuestions`/`ctx.authorization` 交互面接入、07 登记制度在 Helper/Git Gate/Skill/Web 侧的消费方式（呈现细节归 07/10，08 只定义 DSH 宿主接入点）；
 - 机械守护部署（不变量/文件观察策略/Git Gate 安装形态/沙箱分层）、版本号双轨与分发渠道、README 与 CHANGELOG 格式要求、00 §5.4.2 五类受保护文档在 DSH 域的承接。
 
 ### 3.2 本文不负责
@@ -120,7 +122,7 @@ README 是 DSH 插件市场的用户第一眼界面，遵循行业通用格式�
 
 ### 6.5 版本声明点
 
-CHANGELOG 版本条目 + 插件 manifest 版本字段（+ README 版本行）共同构成 00 §5.4.2 的"版本声明点"受保护文档。三者版本号必须一致，漂移按停止条件处理。
+CHANGELOG 版本条目、插件 manifest 版本字段、README 版本行三者共同构成 00 §5.4.2 的"版本声明点"受保护文档。三者版本号必须一致，漂移按停止条件处理。
 
 ### 6.6 受保护文档承接
 
