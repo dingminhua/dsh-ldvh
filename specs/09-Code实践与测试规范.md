@@ -78,7 +78,7 @@ ldvh_spec:
 
 **Helper 操作契约**：Helper 仅负责共同请求/响应的解析与异常拦截，具体领域逻辑通过调用规范独立实现完成，不得在 Helper 中直接实现领域逻辑。
 
-**Git Gate 共享**：Git commit-msg 与 pre-push 的机械预检逻辑必须与 Helper precheck 共享同一校验器库函数，校验器约定位于 `src/rules/06-facts/validators.ts`（路径为设计约定，实现前须确认存在且通过测试）。
+**Git Gate 共享**：Git commit-msg 的机械预检逻辑必须与 Helper precheck 共享同一校验器库函数，校验器约定位于 `src/rules/06-facts/validators.ts`（路径为设计约定，实现前须确认存在且通过测试）。`pre-push` 不纳入当前 v5 核心范围：它既不是当前 Git Gate，也不作为当前提交成立条件，仅保留为未来 push 能力接入时的候选安全措施；当前 v5 不实现、不要求、不部署 pre-push。
 
 **管辖登记共享**：所有判定当前项目是否被管辖的代码必须调用 07 实现的唯一管辖判定逻辑，判定逻辑约定位于 `src/rules/07-governance/judge.ts`（路径为设计约定，实现前须确认存在且通过测试），拒绝在各处独立解析文件。
 
