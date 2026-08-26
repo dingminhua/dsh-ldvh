@@ -14,9 +14,9 @@ ldvh_spec:
   basis:
     - "ldvh-root"
     - "specification-model-foundation"
-    - "six-dimension-work-model"
+    - "eight-dimension-work-model"
   authorized_attachments: []
-  dimensions: ["read", "write", "comply", "review", "execute", "reflect"]
+  dimensions: ["read", "write", "comply", "deliberate", "review", "execute", "reflect", "consolidate"]
 ```
 
 > 本文为 v5 重建草案
@@ -34,7 +34,7 @@ ldvh_spec:
 
 ## 2. 规范依据
 
-1. 00 §3.3 机械守护、§5.5 Stop Conditions；
+1. 00 §3.4 机械保障、§7.2 Stop Conditions 和 §7.4 Output Envelope；
 2. 05 Helper 服务规范：公开操作与共同 envelope 的接口约束；
 3. 06 事实源与信息溯源规范：Git Gate 拦截、提交消息验证的接口；
 4. 07 工作对象与管辖范围规范：管辖判定读取的接口；
@@ -66,7 +66,7 @@ ldvh_spec:
 
 **命名约定**：文件与子目录小写 kebab-case，测试以 `.test.ts` 结尾，函数 camelCase，类 PascalCase。
 
-**测试基线**：每个机械规则必须有对应单元或集成测试，覆盖正反向用例、边界条件、异常处理，拒绝零测试实现。
+**测试基线**：每个机械规则必须有对应单元或集成测试，覆盖正反向用例、边界条件、异常处理，拒绝零测试实现。代码实现与其验证测试须由不同代理或不同 AI 分任，避免同源自证；具体分任方式由主控按风险组织，不写死为单一宿主机制。
 
 **Lint 与格式化**：ESLint + Prettier 统一配置，提交前必须通过静态分析，`git diff --check` 无空白错误。
 
@@ -74,13 +74,17 @@ ldvh_spec:
 
 ## 5. 契约实现纪律
 
-**单一实现原则**：05 操作、06 校验、07 管辖判断及 08 插件行为在代码中必须是单点实现，严禁复制副本逻辑。
+**单一实现原则**：下述职责分别由 05、06、07、08 定义唯一领域语义，09 只规定实现纪律，不替它们定义接口或行为。对应 Code 必须通过单一职责入口实现，严禁复制副本逻辑。
 
 **Helper 操作契约**：Helper 仅负责共同请求/响应的解析与异常拦截，具体领域逻辑通过调用规范独立实现完成，不得在 Helper 中直接实现领域逻辑。
 
-**Git Gate 共享**：Git commit-msg 的机械预检逻辑必须与 Helper precheck 共享同一校验器库函数，校验器约定位于 `src/rules/06-facts/validators.ts`（路径为设计约定，实现前须确认存在且通过测试）。`pre-push` 不纳入当前 v5 核心范围：它既不是当前 Git Gate，也不作为当前提交成立条件，仅保留为未来 push 能力接入时的候选安全措施；当前 v5 不实现、不要求、不部署 pre-push。
+**Git Gate 共享**：Git commit-msg 与 Helper precheck 必须调用 06 定义的同一校验职责入口；具体路径由实现登记，不由 09 替 06 预定。`pre-push` 不纳入当前 v5 核心范围，不实现、不要求、不部署。
 
-**管辖登记共享**：所有判定当前项目是否被管辖的代码必须调用 07 实现的唯一管辖判定逻辑，判定逻辑约定位于 `src/rules/07-governance/judge.ts`（路径为设计约定，实现前须确认存在且通过测试），拒绝在各处独立解析文件。
+**管辖登记共享**：所有消费方必须调用 07 定义的唯一管辖判定职责入口，拒绝在各处独立解析；具体实现路径由 07/09 在实现时登记。
+
+**机械签名**：提交、事实 `change_log` 和协同回报所需的 provider/model 必须由 Code 从 DSH 权威会话或请求记录取得，不允许 AI 自填、用部署默认值替代或由调用方覆盖。空白会话、历史会话和模型切换场景必须有确定性取值与不可用结果。
+
+**Output Envelope**：09 只定义并验证主控 Output Envelope 的单一生成职责；08 定义 DSH 宿主承载、写入时机、消费方和验收流映射，10 定义 Human 呈现。Human 可读正文由同一结构派生或经一致性检查，二者不得矛盾；Helper 共同响应只是输入，不得冒充主控交还。
 
 ## 6. 验证与证据边界
 
