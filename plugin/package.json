@@ -1,0 +1,77 @@
+{
+  "name": "dsh-ldvh",
+  "version": "1.0.0-dev.1",
+  "description": "LD Vibe Harness — DeepSeek Harness 原生插件：Web 信息呈现、Git 机械守护与 AI 工作引导的宿主接入（webServer 路由 + Sidebar/全屏面板 + 设置面板）。",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "ldvh",
+    "ld-vibe-harness",
+    "governance"
+  ],
+  "author": "dingminhua",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dingminhua/dsh-ldvh.git",
+    "directory": "plugin"
+  },
+  "homepage": "https://github.com/dingminhua/dsh-ldvh#readme",
+  "bugs": {
+    "url": "https://github.com/dingminhua/dsh-ldvh/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "icon": "icons/ldvh-plugin-icon-128.png",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "icons",
+    "cordis.patch.yml",
+    "web/dist",
+    "LICENSE",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "build:web": "cd web && pnpm build",
+    "lint": "eslint ."
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-settings": "0.1.0-rc.6"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-client-ui-primitives": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-settings": "0.1.0-rc.6"
+  }
+}
