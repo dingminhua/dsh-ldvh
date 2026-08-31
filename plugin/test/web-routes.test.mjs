@@ -60,10 +60,10 @@ async function disposeHarness(harness) {
 }
 
 const enabledDocument = {
-	"dsh-ldvh": { governanceDirectory: "", webEnabled: true }
+	"dsh-ldvh": { webEnabled: true }
 };
 const disabledDocument = {
-	"dsh-ldvh": { governanceDirectory: "", webEnabled: false }
+	"dsh-ldvh": { webEnabled: false }
 };
 
 test("registers both prefix routes when webServer exists and web is enabled by default", async () => {

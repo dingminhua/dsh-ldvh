@@ -49,18 +49,18 @@ plugin/
 
 ## 4. 设置面板（Host Schema + Client UI）
 
-设置面板承载三类配置：**管辖项目登记管理**、**默认管辖配置存放目录**、**Web 路由开关**。管辖登记以 07 为唯一权威，插件不建立第二套登记定义。
+设置面板承载三类内容：**管辖项目登记管理**、**登记载体位置说明**、**LDVH Web 呈现控制**。管辖登记以 07 为唯一权威，插件不建立第二套登记定义。
 
-### 4.1 默认管辖配置存放目录
+### 4.1 固定登记载体位置
 
-- 字段：`governanceDirectory`（默认管辖配置存放目录）。
-- 默认值：DSH 正式 API 解析的用户配置根下的 `ldvh/` 目录（`dshHomePath("ldvh")`，默认 `~/.dsh/ldvh`，识别 `$DSH_HOME`），不硬编码系统路径（07 §5.1）。
-- 该目录是登记载体 `governed-projects.yaml` 的存放位置；留空使用默认值。
-- UI：路径输入 + 帮助文本（说明绝对路径要求、留空默认位置、最终解析位置）。
+- 登记载体固定为 DSH 正式用户配置根下的 `ldvh/governed-projects.yaml`，通过 DSH 正式用户配置路径 API 解析实际根目录，不硬编码任何平台路径（07 §5.1）。
+- 该载体与普通插件设置同属 DSH 用户配置体系，但使用独立文件承载独立 Schema、原子写入、并发守卫与写后回读，不并入通用 `settings.yaml`。
+- 用户不能修改登记位置；删除 `governanceDirectory` 设置字段及其路径输入、目录选择、复制路径、打开目录能力。
+- UI 只说明“管辖项目配置由 LDVH 自动保存在 DSH 用户配置目录下的 `ldvh/governed-projects.yaml`”，不展示实际绝对路径。
 
 ### 4.2 管辖项目登记管理
 
-- 列表：读取登记载体，展示 `projects[]`（id/path/name/description）与 `default_project_id`，并附载体实际路径。
+- 列表：读取登记载体，展示 `projects[]`（id/path/name/description）与 `default_project_id`；普通设置界面不展示登记载体的实际绝对路径。
 - 登记：Human 在设置面板表达登记意图并提供项目目录后，校验该目录为 Git 项目（存在 `.git`，07 §5.5），按 07 Schema 原子写入，回读确认。
 - 取消登记：Human 明确要求取消时，从 `projects[]` 移除对应项并回读确认（07 §5.7）。
 - 默认项目：设置/取消 `default_project_id`；`projects: []` 时必须为空，项目非空时必须精确匹配一个 `projects[].id`（07 §5.2）。
@@ -69,7 +69,7 @@ plugin/
 
 ### 4.3 Client 侧 UI（`lib/client.js`）
 
-- 注册 `settings.plugin.item` 行 → 渲染设置面板：管辖项目管理（列表/登记/取消/默认项目）+ 默认管辖配置存放目录 + Web 开关 + 保存/放弃（脏检查 + 校验）。
+- 注册 `settings.plugin.item` 行 → 渲染设置面板：管辖项目管理（列表/登记/取消/默认项目）+ 固定登记载体位置说明 + LDVH Web 呈现控制 + 保存/放弃（脏检查 + 校验）。
 - 注册 `conversation.view` 视图 tab（id: `ldvh`，与 trajectory 同构）→ 会话区 header 出现「LDVH」tab，点击后在会话 body 呈现 Web 页面。
 - 视图 body：加载中 / iframe 呈现 `/ldvh/` / 错误态（服务不可用提示 + 重试 + 引导到插件设置）。Session 作用域：视图随会话切换，读取会话快照走标准 kit。
 
@@ -132,22 +132,26 @@ ctx.effect(() => {
 1. ✅ 调查参考插件工程规范（已完成）
 2. ✅ 盘点 v4 Web（已完成）
 3. ✅ 核验 DSH 官方 Tab/Sidebar/Web 服务接口（已完成）
-4. ⛳ 沉淀方案（本文档）
-5. 建立 `plugin/` 骨架（package.json、cordis.patch.yml、lib/index.js、lib/client.js 空壳、test）
-6. 迁入 v4 web 并最小适配，webServer 路由跑通
-7. 实现设置面板（Schema + UI）
-8. 实现 `conversation.view` LDVH 视图 tab（与 trajectory 同构，iframe 呈现）
-9. 实现插件管理 Web 启停控制
-10. 验证：插件加载、Web 可访问、侧边栏入口、面板打开、停用/重启、卸载清理、not_governed 零干扰
-11. 补齐发布门面（README 双语、CHANGELOG、RELEASING、版本号）
+4. ✅ 形成 v4 管辖/Git Gate 精确迁移清单（见 `docs/v4-governance-git-gate-migration-checklist.md`）
+5. **当前 DSH 兼容基线**：将 peer/dev 依赖对齐 DSH Desktop 2.0.4 / `@deepseek-ai/dsh 0.1.2-alpha.1`，重新测试并真实 link 安装；未完成前不得声明支持当前 DSH
+6. **市场工程基线**：补齐 plugin README 双语、CHANGELOG、LICENSE、icons、CI、完整 npm pack；真实 UI 完成后添加 screenshots.json 和市场登记 YAML
+7. 建立并验证 `plugin/` 骨架（Host/Client、cordis.patch、设置卡片、`conversation.view`、webServer 路由）
+8. 按迁移清单批次 B/C 迁入管辖只读与写入核心，完成设置页项目管理
+9. 按迁移清单批次 D/E/F 迁入 Git Gate inspect、安装事务与共享 validator
+10. 迁入 v4 Web 并最小适配，webServer 路由跑通
+11. 实现插件管理 Web 启停控制及完整错误呈现
+12. 验证：当前 DSH 真实加载、Web、视图 tab、管辖、Git Gate、停用/重启/卸载、not_governed 零干扰
+13. npm pack / 安装 / 升级 / 卸载 / 市场截图与提交前检查
+
+当前兼容性与市场缺口见 `docs/dsh-current-version-and-market-gap.md`。
 
 ## 9. 完成条件
 
 1. `dsh plugin add` 安装后插件可加载，无报错；
 2. Web 前端经 `/ldvh/` 可访问，后端 API 经 `/ldvh/api` 可用；
 3. 会话区出现「LDVH」视图 tab（与 trajectory 同构），点击正确呈现 Web；
-4. 设置面板可配置管辖目录与 Web 开关，保存生效；
-5. 插件管理可停用/重启 Web，失败有明确提示；
+4. 设置面板说明固定登记载体位置，并可配置 LDVH Web 呈现挂载，保存生效；
+5. 设置页可关闭/开启 LDVH Web 呈现；开启后自动检查可用状态，失败有明确提示，不提供重复的检测或重启操作；
 6. 插件卸载后 webServer 路由被清理，无残留进程/端口占用；
 7. not_governed 项目零干扰；
 8. 发布门面齐全且与能力一致（README 不超前宣传）。
@@ -155,6 +159,6 @@ ctx.effect(() => {
 ## 10. 开放问题（实施中确认）
 
 1. v4 Express 业务是否保留 Express 路由层还是全部改为原生 handler（决策影响适配量）；
-2. `governanceDirectory` 为空时的默认位置（DSH 用户配置根下 `ldvh/`？仍需与 07 对齐）；
+2. 登记载体固定位置已按 07 §5.1 定案，不再作为开放问题；
 3. SPA basename（`/ldvh/` 前缀下 BrowserRouter 配置）；
 4. `conversation.view` 会话作用域下 iframe 的地址与会话切换语义（视图随会话走，必要时按会话注入 `/ldvh/?session=<id>`）。
