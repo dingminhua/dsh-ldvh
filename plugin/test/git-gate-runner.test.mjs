@@ -88,7 +88,7 @@ test("blocks a message that misses or duplicates a signature trailer", async () 
 			"关键变更:",
 			"- item",
 			"",
-			"LDVH-Product-Name: deepseek-harness",
+			"LDVH-Provider: deepseek-harness",
 		].join("\n");
 		await writeFile(messageFile, missing);
 		let result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
@@ -102,9 +102,9 @@ test("blocks a message that misses or duplicates a signature trailer", async () 
 			"关键变更:",
 			"- item",
 			"",
-			"LDVH-Product-Name: a",
-			"LDVH-Product-Name: b",
-			"LDVH-Model-Name: c",
+			"LDVH-Provider: a",
+			"LDVH-Provider: b",
+			"LDVH-Model: c",
 		].join("\n");
 		await writeFile(messageFile, duplicated);
 		result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
@@ -146,5 +146,47 @@ test("fails cleanly when the message file cannot be read", async () => {
 		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile: join(root, "missing-msg.txt") }));
 		assert.equal(result.code, 1);
 		assert.match(result.stderr, /LDVH Git Gate \(commit-msg\) unavailable/);
+	});
+});
+
+test("rejects legacy Product-Name/Model-Name trailers and accepts only LDVH-Provider/LDVH-Model", async () => {
+	await withTemp("ldvh-ggr.", async (base) => {
+		const root = await initRepo(base); // README staged -> Index non-empty
+		const messageFile = join(root, "msg.txt");
+
+		// Legacy trailer: header and 关键变更段 are compliant, but the
+		// signature trailer still uses the retired LDVH-Product-Name /
+		// LDVH-Model-Name names — exactly one of each, which the gate
+		// must still reject because the names themselves are wrong.
+		const legacy = [
+			"chore(x): fine header",
+			"",
+			"关键变更:",
+			"- item",
+			"",
+			"LDVH-Product-Name: x",
+			"LDVH-Model-Name: y",
+		].join("\n");
+		await writeFile(messageFile, legacy);
+		const rejected = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(rejected.code, 1);
+		assert.match(rejected.stderr, /validation\/signature_trailer_missing/);
+		assert.doesNotMatch(rejected.stderr, /header_invalid|key_changes_required/);
+
+		// The new trailer is accepted with the same header + 关键变更段,
+		// proving the gate's contract is precisely the new field names.
+		const current = [
+			"chore(x): fine header",
+			"",
+			"关键变更:",
+			"- item",
+			"",
+			"LDVH-Provider: x",
+			"LDVH-Model: y",
+		].join("\n");
+		await writeFile(messageFile, current);
+		const accepted = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(accepted.code, 0, accepted.stderr);
+		assert.match(accepted.stderr, /LDVH Git Gate \(commit-msg\) passed/);
 	});
 });

@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const HEADER_PATTERN = /^(feat|fix|docs|refactor|test|chore|build|ci|perf|style)(?:\([a-z0-9-]+\))?: .+/;
-const SIGNATURES = ["LDVH-Product-Name", "LDVH-Model-Name"];
+const SIGNATURES = ["LDVH-Provider", "LDVH-Model"];
 
 function valueAfter(args, flag) {
   const index = args.indexOf(flag);

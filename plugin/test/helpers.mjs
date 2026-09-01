@@ -25,8 +25,8 @@ export const VALID_COMMIT_MESSAGE = [
 	"关键变更:",
 	"- wire commit-msg gate into git",
 	"",
-	"LDVH-Product-Name: deepseek-harness",
-	"LDVH-Model-Name: test",
+	"LDVH-Provider: deepseek-harness",
+	"LDVH-Model: test",
 ].join("\n");
 
 /** Run a git command against a worktree and return trimmed stdout. */
