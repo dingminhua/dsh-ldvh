@@ -11,20 +11,23 @@
 // setting: turning the switch off removes the routes; turning it on registers
 // them and the Client automatically probes availability. Lifecycle is otherwise
 // owned by ctx.effect: disabling the plugin
-// removes the routes and releases every resource. When the host has no
-// webServer (headless), the plugin fails closed.
+// removes the routes and releases every resource. The webServer service is a
+// declared injection, so the plugin activates only in compositions that
+// actually provide it (DSH Desktop / web profiles); headless compositions
+// without a webServer never activate this plugin.
 
 import z from "@deepseek-ai/schemastery";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readGovernedProjects } from "./governed-projects.js";
+import { ensureRegistrationCarrier, readGovernedProjects } from "./governed-projects.js";
 import { createGovernanceHandler } from "./host-api.js";
 
 const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const GATE_RUNNER_PATH = fileURLToPath(new URL("./git-gate-runner.js", import.meta.url));
 
 export const name = "dsh-ldvh";
+export const inject = ["webServer"];
 
 const LDVH_SETTINGS_NAMESPACE = settingsNamespace("dsh-ldvh");
 
@@ -119,15 +122,23 @@ function registerWebRoutes(webServer, dshHomePath) {
 export function apply(ctx) {
   const state = { settingsSource: void 0, disposeRoutes: null };
 
-  const webServer = ctx.get("webServer");
+  // The webServer service is a declared injection (see `inject` above): the
+  // plugin activates only once the service is up. This removes the historic
+  // race where `ctx.get("webServer")` snapshotted the service during plugin
+  // tree loading (before dsh-host-webserver had provided it), silently
+  // skipping route registration forever — "absent at apply time" used to be
+  // mistaken for the steady-state headless case.
+  const webServer = ctx.webServer;
   const dshHomePath = ctx.get("dshHomePath");
 
   // Sync the web route registration with the live setting:
   //   webEnabled on  → register (mount) the /ldvh routes;
   //   webEnabled off → unregister (unmount) them.
-  // No-op when the host webServer is absent (fail-closed, no route is claimed).
   function syncRoutes() {
-    if (webServer === void 0) return;
+    if (webServer === void 0) {
+      ctx.logger.warn("[dsh-ldvh] webServer service lost before route sync; routes are unmounted");
+      return;
+    }
     const enabled = webEnabled(state);
 
     if (enabled) {
@@ -143,8 +154,9 @@ export function apply(ctx) {
   }
 
   // The settings seam owns its injected lifecycle and provides a live source
-  // thunk plus change notifications. Register it unconditionally so the web
-  // settings row is available even when the host webServer is not mounted.
+  // thunk plus change notifications. It declares its own `settings` injection
+  // internally, so the settings row appears once the settings service is up
+  // (independent of when our own fiber activated on webServer).
   installSettingsSection(ctx, LDVH_SETTINGS_NAMESPACE, LDVH_SETTINGS_SCHEMA, {}, {
     setSource: (current) => {
       state.settingsSource = current;
@@ -153,15 +165,26 @@ export function apply(ctx) {
     onChange: () => { syncRoutes(); }
   });
 
-  // Prime one read-only governance inspection at Host startup. The result is
-  // deliberately not cached as authority: UI/CLI operations re-read their
-  // actual files. This validates that every launch checks registered project
-  // and Hook versions without silently installing or updating anything.
+  // Startup carrier lifecycle (Human-confirmed design): plugin load ensures
+  // an empty registration carrier exists — installing the plugin puts the
+  // empty file in place, adding a governed project updates it. Only a
+  // missing file is created; existing carriers are never rewritten here and
+  // corrupt or unreadable ones stay fail-closed (logged, not overwritten).
+  // The follow-up inspection is read-only and its result is deliberately not
+  // cached as authority: UI/CLI operations re-read their actual files. This
+  // validates that every launch checks registered projects and Hook versions
+  // without silently installing or updating anything.
   if (typeof dshHomePath === "function") {
-    Promise.resolve(readGovernedProjects(dshHomePath)).then((result) => {
-      if (!result.ok) ctx.logger.warn("[dsh-ldvh] governed-project startup inspection unavailable: %s", result.error.message);
-      else ctx.logger.info("[dsh-ldvh] inspected %d governed project(s) at startup", result.value.projects.length);
-    }).catch((error) => ctx.logger.warn(error));
+    Promise.resolve(ensureRegistrationCarrier(dshHomePath))
+      .then((ensured) => {
+        if (ensured.created) ctx.logger.info("[dsh-ldvh] initialized empty governed-projects registration carrier");
+        return readGovernedProjects(dshHomePath);
+      })
+      .then((result) => {
+        if (!result.ok) ctx.logger.warn("[dsh-ldvh] governed-project startup inspection unavailable: %s", result.error.message);
+        else ctx.logger.info("[dsh-ldvh] inspected %d governed project(s) at startup", result.value.projects.length);
+      })
+      .catch((error) => ctx.logger.warn(error));
   }
 
   // Plugin-level cleanup: remove routes and drop the live source.

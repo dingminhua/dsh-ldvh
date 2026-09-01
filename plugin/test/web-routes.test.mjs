@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import test from "node:test";
 import { Context } from "@deepseek-ai/cordis";
 import { SettingsProvider } from "@deepseek-ai/dsh-settings";
+import { parse as parseYaml } from "yaml";
 import * as ldvhPlugin from "../lib/index.js";
+import { withTemp } from "./helpers.mjs";
 
 class MemorySettings extends SettingsProvider {
 	constructor(ctx, document) {
@@ -39,10 +43,15 @@ class MemoryWebServer {
 	}
 }
 
-async function createHarness(document = {}, { withWebServer = true } = {}) {
+async function createHarness(document = {}, { withWebServer = true, deferWebServer = false, dshHomePath } = {}) {
 	const root = new Context();
+	// deferWebServer keeps the MemoryWebServer instance in the harness but
+	// withholds the `provide` call: the plugin mounts while webServer is
+	// absent, reproducing the real-host ordering where the service comes up
+	// only after the plugin fiber already exists.
 	const webServer = withWebServer ? new MemoryWebServer() : void 0;
-	if (webServer !== void 0) root.provide("webServer", webServer);
+	if (webServer !== void 0 && !deferWebServer) root.provide("webServer", webServer);
+	if (dshHomePath !== void 0) root.provide("dshHomePath", dshHomePath);
 
 	const settings = new MemorySettings(root, document);
 	await settings.load().then((loaded) => settings.publish(loaded));
@@ -96,16 +105,63 @@ test("does not register routes when webEnabled is false", async () => {
 	}
 });
 
-test("fails closed when the host webServer is absent (no claim, no crash)", async () => {
-	const harness = await createHarness({}, { withWebServer: false });
+test("stays inactive when the host webServer is absent (no apply, no claim, no crash)", async () => {
+	// New semantics: the plugin declares `inject: ["webServer"]`, so without
+	// the service its fiber stays INACTIVE and apply() never runs. The harness
+	// keeps a MemoryWebServer instance (deferWebServer) but never provides it —
+	// a headless composition. `await fiber` on an INACTIVE fiber settles
+	// immediately (it does not hang), no route is claimed, and nothing crashes.
+	const harness = await createHarness({}, { deferWebServer: true });
 	try {
-		// With no webServer the plugin must load and register nothing; the
-		// settings row should still be available (settings seam is separate).
-		assert.equal(harness.webServer, void 0);
+		assert.equal(harness.root.get("webServer"), void 0, "webServer service must not be provided");
+		assert.equal(harness.webServer.routes("prefix").length, 0, "no route must be claimed while the plugin stays inactive");
 	} finally {
 		await disposeHarness(harness);
 	}
 });
+
+test("registers both routes when webServer is provided after the plugin mounts (inject race regression)", async () => {
+	// Regression for the injection timing bug: the plugin used to snapshot
+	// ctx.get("webServer") during apply, so mounting before the host webServer
+	// service came up froze the value as undefined and silently skipped route
+	// registration forever. With `inject: ["webServer"]` the fiber stays
+	// INACTIVE until the service appears; providing it afterwards must notify →
+	// reload → re-run apply() and register both routes.
+	const harness = await createHarness({}, { deferWebServer: true });
+	try {
+		// Mounted before webServer existed: nothing claimed yet.
+		assert.equal(harness.webServer.routes("prefix").length, 0, "no routes before webServer is provided");
+
+		// The host now brings the webServer service up.
+		harness.root.provide("webServer", harness.webServer);
+
+		// The notify → reload → apply chain settles asynchronously; poll.
+		await waitForRoutes(harness.webServer, 2);
+
+		const apiRoutes = harness.webServer.routes("prefix").filter((r) => r.path === "/ldvh/api");
+		const spaRoutes = harness.webServer.routes("prefix").filter((r) => r.path === "/ldvh");
+		assert.equal(apiRoutes.length, 1, "expected exactly one /ldvh/api route");
+		assert.equal(spaRoutes.length, 1, "expected exactly one /ldvh route");
+	} finally {
+		await disposeHarness(harness);
+	}
+});
+
+/**
+ * Poll until the given webServer records the expected number of live prefix
+ * routes (used when activation settles asynchronously after a service is
+ * provided post-mount). Fails the test on timeout.
+ */
+async function waitForRoutes(webServer, expectedCount, timeoutMs = 2000) {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		if (webServer.routes("prefix").length === expectedCount) return;
+		if (Date.now() >= deadline) {
+			assert.fail(`expected ${expectedCount} prefix routes within ${timeoutMs}ms; got ${webServer.routes("prefix").length}`);
+		}
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+}
 
 test("publishing webEnabled false unregisters routes; true re-registers them", async () => {
 	const harness = await createHarness(enabledDocument);
@@ -148,4 +204,40 @@ test("supports a clean remount", async () => {
 	} finally {
 		await harness.root.fiber.dispose();
 	}
+});
+
+/**
+ * Poll for a file to appear (the plugin's startup carrier chain is
+ * fire-and-forget, so the write is not awaited by apply()).
+ * Returns the file content once readable; fails the test on timeout.
+ */
+async function waitForCarrier(filePath, timeoutMs = 2000) {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		try {
+			return await readFile(filePath, "utf8");
+		} catch (error) {
+			if (error?.code !== "ENOENT") throw error;
+		}
+		if (Date.now() >= deadline) {
+			assert.fail(`registration carrier ${filePath} did not appear within ${timeoutMs}ms`);
+		}
+		await new Promise((resolve) => setTimeout(resolve, 40));
+	}
+}
+
+test("apply() ensures the empty registration carrier when dshHomePath is available", async () => {
+	await withTemp("dsh-ldvh-web-routes-", async (tempRoot) => {
+		const dshHomePath = (...segments) => join(tempRoot, ...segments);
+		const harness = await createHarness({}, { dshHomePath });
+		try {
+			const carrierPath = join(tempRoot, "ldvh", "governed-projects.yaml");
+			const content = await waitForCarrier(carrierPath);
+			const document = parseYaml(content);
+			assert.equal(document.schema_version, 1, "freshly created carrier must declare schema_version 1");
+			assert.deepEqual(document.projects, [], "freshly created carrier must register no projects");
+		} finally {
+			await disposeHarness(harness);
+		}
+	});
 });

@@ -43,22 +43,22 @@ test("requires absolute workspace-root, worktree, and message-file", async () =>
 	});
 });
 
-test("rejects a workspace-root that is inside or equal to the governed Git root", async () => {
+test("accepts a workspace-root inside or equal to the governed Git root", async () => {
 	await withTemp("ldvh-ggr.", async (base) => {
-		const root = await initRepo(base);
+		const root = await initRepo(base); // README staged -> Index non-empty
 		const messageFile = join(root, "msg.txt");
 		await writeFile(messageFile, VALID_COMMIT_MESSAGE);
 
-		// workspace-root == worktree
+		// workspace-root == worktree (runtime sits inside the governed repo)
 		let result = await runNode(runnerArgs({ workspaceRoot: root, worktree: root, messageFile }));
-		assert.equal(result.code, 1);
-		assert.match(result.stderr, /workspace-root must be outside or above/);
+		assert.equal(result.code, 0, result.stderr);
+		assert.match(result.stderr, /LDVH Git Gate \(commit-msg\) passed/);
 
-		// workspace-root inside the worktree
+		// workspace-root is a subdirectory of the worktree
 		await mkdir(join(root, "inner"));
 		result = await runNode(runnerArgs({ workspaceRoot: join(root, "inner"), worktree: root, messageFile }));
-		assert.equal(result.code, 1);
-		assert.match(result.stderr, /workspace-root must be outside or above/);
+		assert.equal(result.code, 0, result.stderr);
+		assert.match(result.stderr, /LDVH Git Gate \(commit-msg\) passed/);
 	});
 });
 

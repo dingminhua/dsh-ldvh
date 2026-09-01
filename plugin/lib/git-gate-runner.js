@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -46,10 +46,12 @@ async function main(argv) {
   const messageFile = valueAfter(argv, "--message-file");
   const indexFile = valueAfter(argv, "--index-file");
   if (![workspaceRoot, worktree, messageFile].every((value) => typeof value === "string" && isAbsolute(value))) throw new Error("workspace-root, worktree, and message-file must be absolute paths");
+  // The workspace root may legitimately live inside the governed repo: link
+  // installs and self-governing (dogfood) repos ship the plugin runtime under
+  // the very tree the gate protects, so only absolute-path validation applies.
+  // The v5 gate is anchored by the user-config registration, not by a v4-style
+  // external workspace layout.
   const root = resolve(worktree);
-  const workspace = resolve(workspaceRoot);
-  const rel = relative(root, workspace);
-  if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) throw new Error("workspace-root must be outside or above the governed Git root");
   const message = await readFile(messageFile, "utf8");
   const issues = validateMessage(message);
   const diff = await git(root, ["diff", "--cached", "--binary", "--no-ext-diff"], indexFile);

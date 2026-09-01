@@ -11,7 +11,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 import {
+	ensureRegistrationCarrier,
 	HOOK_BUNDLE_VERSION,
 	initializeFactSource,
 	inspectCandidate,
@@ -487,19 +489,103 @@ test("unregisterProject rejects an id/path that is not registered", async () => 
 	});
 });
 
-test("unregisterProject detects a stale expected fingerprint", async () => {
-	await withTemp("ldvh-gp.", async (base) => {
-		const rootA = await initRepo(base, { name: "a" });
-		const rootB = await initRepo(base, { name: "b" });
-		const home = join(base, "home");
-		const dsh = dshHome(home);
-		await installProject(dsh, { id: "beta", path: rootB }, { runnerPath, workspaceRoot: base });
-		const fingerprint = (await readGovernedProjects(dsh)).value.fingerprint;
-		await installProject(dsh, { id: "alpha", path: rootA }, { runnerPath, workspaceRoot: base });
+	test("unregisterProject detects a stale expected fingerprint", async () => {
+		await withTemp("ldvh-gp.", async (base) => {
+			const rootA = await initRepo(base, { name: "a" });
+			const rootB = await initRepo(base, { name: "b" });
+			const home = join(base, "home");
+			const dsh = dshHome(home);
+			await installProject(dsh, { id: "beta", path: rootB }, { runnerPath, workspaceRoot: base });
+			const fingerprint = (await readGovernedProjects(dsh)).value.fingerprint;
+			await installProject(dsh, { id: "alpha", path: rootA }, { runnerPath, workspaceRoot: base });
 
-		const result = await unregisterProject(dsh, { id: "beta", path: rootB, expectedFingerprint: fingerprint });
-		assert.equal(result.ok, false);
-		assert.equal(result.error.code, "conflict");
-		assert.match(result.error.message, /refresh before retrying/);
+			const result = await unregisterProject(dsh, { id: "beta", path: rootB, expectedFingerprint: fingerprint });
+			assert.equal(result.ok, false);
+			assert.equal(result.error.code, "conflict");
+			assert.match(result.error.message, /refresh before retrying/);
+		});
 	});
-});
+
+	// ---------------------------------------------------------------------------
+	// ensureRegistrationCarrier
+	// ---------------------------------------------------------------------------
+
+	test("ensureRegistrationCarrier creates the carrier for an empty DSH home", async () => {
+		await withTemp("ldvh-gp.", async (base) => {
+			const home = join(base, "home");
+			const dsh = dshHome(home);
+			const carrierPath = dsh("ldvh", "governed-projects.yaml");
+
+			const ensured = await ensureRegistrationCarrier(dsh);
+			assert.equal(ensured.created, true);
+			assert.ok(typeof ensured.fingerprint === "string" && ensured.fingerprint.length > 0);
+
+			// the carrier exists and parses as YAML
+			const stat = await lstat(carrierPath);
+			assert.ok(stat.isFile(), "carrier must exist after ensureRegistrationCarrier");
+			const raw = await readFile(carrierPath, "utf8");
+			const document = parseYaml(raw);
+			assert.equal(typeof document, "object");
+			assert.equal(document.schema_version, 1);
+			assert.deepEqual(document.projects, []);
+			assert.equal(document.default_project_id, "");
+			assert.equal(typeof document.governance_instance_name, "string");
+			assert.ok(document.governance_instance_name.length > 0);
+			assert.equal(typeof document.product_description, "string");
+			assert.ok(document.product_description.length > 0);
+
+			// the follow-up read-only inspection agrees: empty but initialized
+			const result = await readGovernedProjects(dsh);
+			assert.equal(result.ok, true);
+			assert.equal(result.value.initialized, true);
+			assert.deepEqual(result.value.projects, []);
+		});
+	});
+
+	test("ensureRegistrationCarrier is idempotent and never rewrites an existing carrier", async () => {
+		await withTemp("ldvh-gp.", async (base) => {
+			const home = join(base, "home");
+			const dsh = dshHome(home);
+			const carrierPath = dsh("ldvh", "governed-projects.yaml");
+
+			const first = await ensureRegistrationCarrier(dsh);
+			assert.equal(first.created, true);
+
+			const before = await readFile(carrierPath, "utf8");
+			const second = await ensureRegistrationCarrier(dsh);
+			assert.equal(second.created, false);
+			assert.equal(second.fingerprint, first.fingerprint, "existing carrier must keep its fingerprint");
+			const after = await readFile(carrierPath, "utf8");
+			assert.equal(after, before, "existing carrier must not be rewritten byte-for-byte");
+		});
+	});
+
+	test("ensureRegistrationCarrier fails closed on an invalid carrier and leaves it untouched", async () => {
+		await withTemp("ldvh-gp.", async (base) => {
+			const home = join(base, "home");
+			const dsh = dshHome(home);
+			const carrierPath = dsh("ldvh", "governed-projects.yaml");
+			await mkdir(join(home, "ldvh"), { recursive: true });
+			const invalid = "schema_version: 2\nprojects: []\n";
+			await writeFile(carrierPath, invalid);
+
+			await assert.rejects(ensureRegistrationCarrier(dsh), /schema_version/);
+			const after = await readFile(carrierPath, "utf8");
+			assert.equal(after, invalid, "invalid carrier must stay byte-for-byte unchanged");
+		});
+	});
+
+	test("ensureRegistrationCarrier fails closed on a non-parsable carrier and leaves it untouched", async () => {
+		await withTemp("ldvh-gp.", async (base) => {
+			const home = join(base, "home");
+			const dsh = dshHome(home);
+			const carrierPath = dsh("ldvh", "governed-projects.yaml");
+			await mkdir(join(home, "ldvh"), { recursive: true });
+			const garbage = "not: [valid: yaml: {unclosed\n";
+			await writeFile(carrierPath, garbage);
+
+			await assert.rejects(ensureRegistrationCarrier(dsh));
+			const after = await readFile(carrierPath, "utf8");
+			assert.equal(after, garbage, "non-parsable carrier must stay byte-for-byte unchanged");
+		});
+	});

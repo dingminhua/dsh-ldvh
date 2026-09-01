@@ -167,6 +167,18 @@ export async function initializeFactSource(projectRoot) {
   return factSourceStatus(projectRoot);
 }
 
+export async function ensureRegistrationCarrier(dshHomePath) {
+  const filename = registrationPath(dshHomePath);
+  await mkdir(dirname(filename), { recursive: true, mode: 0o700 });
+  return withFileLock(filename, async () => {
+    const current = await readRegistration(dshHomePath);
+    if (current.exists) return { created: false, fingerprint: current.fingerprint };
+    const content = stringifyYaml(emptyDocument());
+    await writeFileAtomic(filename, content, { mode: 0o600, dirMode: 0o700 });
+    return { created: true, fingerprint: fingerprint(content) };
+  });
+}
+
 export async function registerProject(dshHomePath, input) {
   const identity = await resolveGitRoot(input.path);
   const filename = registrationPath(dshHomePath);

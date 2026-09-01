@@ -172,6 +172,7 @@ window.__ModuleLoader__.load({
       "row.projectIncomplete": "未就绪",
       "row.operationFailed": "操作失败",
       "row.apiUnavailable": "LDVH 服务暂不可用，请稍后重试或检查 Web 呈现开关",
+      "row.projectsUnavailable": "管辖项目列表暂不可用，请先查看上方 Web 呈现状态。",
       "row.webEnabled": "启用 LDVH Web 呈现",
       "row.webHint": "关闭时移除 LDVH 页面和 API；开启后自动挂载并检查是否可用。",
       "row.status": "Web 呈现状态",
@@ -221,6 +222,7 @@ window.__ModuleLoader__.load({
       "row.projectIncomplete": "Not ready",
       "row.operationFailed": "Operation failed",
       "row.apiUnavailable": "The LDVH service is unavailable. Retry later or check the Web presentation switch.",
+      "row.projectsUnavailable": "The governed-project list is unavailable. Check the Web presentation status above first.",
       "row.webEnabled": "Enable LDVH Web presentation",
       "row.webHint": "Turning it off removes the LDVH page and API; turning it on mounts them and checks availability automatically.",
       "row.status": "Web presentation status",
@@ -324,7 +326,7 @@ window.__ModuleLoader__.load({
       var toastState = React.useState(null);
       var toastSeq = React.useRef(0);
       var webStatusState = React.useState({ checking: true, api: false, page: false });
-      var projectsState = React.useState({ loading: true, value: null, error: null });
+      var projectsState = React.useState({ loading: true, value: null, error: null, unavailable: false });
       var candidateState = React.useState({ path: "", id: "" });
       var addingState = React.useState(false);
       var projectBusyState = React.useState(false);
@@ -332,16 +334,21 @@ window.__ModuleLoader__.load({
       var directoryPicker = props.directoryPicker;
 
       function loadProjects() {
-        projectsState[1]({ loading: true, value: projectsState[0].value, error: null });
+        projectsState[1]({ loading: true, value: projectsState[0].value, error: null, unavailable: false });
         callLdvhApi("/governed-projects")
           .then(function (result) {
             if (!result || result.ok !== true) throw new Error(result && result.error ? result.error.message : "project list unavailable");
-            projectsState[1]({ loading: false, value: result.value, error: null });
+            projectsState[1]({ loading: false, value: result.value, error: null, unavailable: false });
           })
           .catch(function (error) {
             var message = String(error.message || error);
             var isTransport = message.indexOf("LDVH 服务返回了空响应") !== -1 || message.indexOf("LDVH 服务返回了无法解析的响应") !== -1 || message.indexOf("fetch") !== -1 || message.indexOf("network") !== -1 || message.indexOf("Failed to fetch") !== -1;
-            projectsState[1]({ loading: false, value: null, error: isTransport ? t("row.apiUnavailable") : message });
+            // A transport-level failure is the same condition the Web
+            // presentation status row already reports at the top. The reason
+            // is stated once, next to that status (Human-confirmed); the
+            // projects panel only marks itself unavailable with a pointer
+            // instead of repeating the error.
+            projectsState[1]({ loading: false, value: null, error: isTransport ? null : message, unavailable: isTransport });
           });
       }
 
@@ -407,7 +414,7 @@ window.__ModuleLoader__.load({
       function inspectProject(path) {
         projectBusyState[1](true);
         callLdvhApi("/governed-projects/inspect", { path: path }).then(function () { loadProjects(); }).catch(function (error) {
-          projectsState[1]({ loading: false, value: projectsState[0].value, error: String(error.message || error) });
+          projectsState[1]({ loading: false, value: projectsState[0].value, error: String(error.message || error), unavailable: false });
         }).finally(function () { projectBusyState[1](false); });
       }
       function uninstallProjectHook(path) {
@@ -416,7 +423,7 @@ window.__ModuleLoader__.load({
           if (!result || result.ok !== true) throw new Error(result && result.error ? result.error.message : "uninstall failed");
           loadProjects();
         }).catch(function (error) {
-          projectsState[1]({ loading: false, value: projectsState[0].value, error: String(error.message || error) });
+          projectsState[1]({ loading: false, value: projectsState[0].value, error: String(error.message || error), unavailable: false });
         }).finally(function () { projectBusyState[1](false); });
       }
       function unregisterGovernance(project) {
@@ -427,7 +434,7 @@ window.__ModuleLoader__.load({
           if (!result || result.ok !== true) throw new Error(result && result.error ? result.error.message : "unregister failed");
           loadProjects();
         }).catch(function (error) {
-          projectsState[1]({ loading: false, value: projectsState[0].value, error: String(error.message || error) });
+          projectsState[1]({ loading: false, value: projectsState[0].value, error: String(error.message || error), unavailable: false });
         }).finally(function () { projectBusyState[1](false); });
       }
 
@@ -475,6 +482,10 @@ window.__ModuleLoader__.load({
         React.createElement("span", null, t("row.status")),
         React.createElement("span", { className: serviceValueClass }, serviceValueText)
       );
+      // The single place a transport-level failure is explained (moved up
+      // from the projects panel, Human-confirmed): shown only when the switch
+      // is on and the probes actually failed.
+      var serviceIssue = ws.checking || !enabledState[0] || serviceOk ? null : t("row.apiUnavailable");
       var idError = computeIdError(candidateState[0].id, projectsState[0].value && projectsState[0].value.projects);
       var idErrorText = idErrorMessage(idError, t);
       var idInputClass = "ldv-settings-input" + (idError && idError !== "required" ? " is-error" : "");
@@ -484,15 +495,20 @@ window.__ModuleLoader__.load({
             React.createElement("span", { className: "ldv-governance-empty-icon", "aria-hidden": "true" }, "…"),
             React.createElement("span", { className: "ldv-governance-empty-text" }, t("row.projectsLoading"))
           )
-        : (projectsState[0].error
-          ? React.createElement("div", { className: "ldv-governance-error", role: "alert" }, projectsState[0].error)
-          : ((projectsState[0].value && projectsState[0].value.projects || []).length === 0
-            ? React.createElement("div", { className: "ldv-governance-empty" },
-                React.createElement("span", { className: "ldv-governance-empty-icon", "aria-hidden": "true" }, "∅"),
-                React.createElement("span", { className: "ldv-governance-empty-title" }, t("row.projectsEmptyTitle")),
-                React.createElement("span", { className: "ldv-governance-empty-text" }, t("row.projectsEmptyText"))
-              )
-            : React.createElement("div", { className: "ldv-projects" }, (projectsState[0].value.projects || []).map(function (project) {
+        : (projectsState[0].unavailable
+          // Transport-level failure: the reason lives once next to the Web
+          // presentation status above; the panel only points up (no duplicate
+          // error box) and does not pretend the project list is empty.
+          ? React.createElement("span", { className: "ldv-settings-hint" }, t("row.projectsUnavailable"))
+          : (projectsState[0].error
+            ? React.createElement("div", { className: "ldv-governance-error", role: "alert" }, projectsState[0].error)
+            : ((projectsState[0].value && projectsState[0].value.projects || []).length === 0
+              ? React.createElement("div", { className: "ldv-governance-empty" },
+                  React.createElement("span", { className: "ldv-governance-empty-icon", "aria-hidden": "true" }, "∅"),
+                  React.createElement("span", { className: "ldv-governance-empty-title" }, t("row.projectsEmptyTitle")),
+                  React.createElement("span", { className: "ldv-governance-empty-text" }, t("row.projectsEmptyText"))
+                )
+              : React.createElement("div", { className: "ldv-projects" }, (projectsState[0].value.projects || []).map(function (project) {
               var hook = project.status && project.status.hook;
               var ready = project.status && project.status.factSource && project.status.factSource.state === "ready" && hook && hook.state === "managed";
               return React.createElement("article", { className: "ldv-project-card", key: project.id },
@@ -509,7 +525,7 @@ window.__ModuleLoader__.load({
                   React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-outline", disabled: projectBusyState[0], onClick: function () { unregisterGovernance(project); } }, t("row.unregister"))
                 )
               );
-            }))));
+            })))));
       return React.createElement("section", { className: "ldv-settings" },
         React.createElement("section", { className: "ldv-web-panel" },
           React.createElement("div", { className: "ldv-web-panel-head" },
@@ -528,7 +544,10 @@ window.__ModuleLoader__.load({
             )
           ),
           React.createElement("div", { className: "ldv-web-panel-body" },
-            React.createElement("div", { className: "ldv-status" }, serviceStatus)
+            React.createElement("div", { className: "ldv-status" },
+              serviceStatus,
+              serviceIssue ? React.createElement("span", { className: "ldv-settings-hint" }, serviceIssue) : null
+            )
           )
         ),
         React.createElement("section", { className: "ldv-governance-note" },
