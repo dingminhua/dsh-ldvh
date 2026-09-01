@@ -168,10 +168,21 @@ async function preflight(rendered, identity) {
     // A synthetic index keeps the preflight independent of the worktree's
     // transient staging state: the gate proves its real `git diff --cached`
     // path against a known non-empty index instead of requiring the user
-    // to have something staged at install/update time. The orphan blob is
-    // garbage-collectable and the temp dir is removed in finally.
+    // to have something staged at install/update time. `git diff --cached`
+    // compares the index against HEAD, so the synthetic index must be seeded
+    // from HEAD first — otherwise a repository with committed history would
+    // diff "delete every tracked file" (megabytes) and blow the runner's
+    // maxBuffer. On a repository without any commit, read-tree fails and the
+    // single-entry index correctly diffs against the empty tree instead.
+    // The orphan blob is garbage-collectable and the temp dir is removed in
+    // finally.
     await writeFile(blobFile, "ldvh-preflight\n", "utf8");
     const blob = await runGit(identity.projectRoot, ["hash-object", "-w", blobFile]);
+    try {
+      await runGit(identity.projectRoot, ["read-tree", "HEAD"], { env: { GIT_INDEX_FILE: preflightIndex } });
+    } catch {
+      /* no HEAD yet (empty repository): start from the empty tree */
+    }
     await runGit(identity.projectRoot, ["update-index", "--add", "--cacheinfo", `100644,${blob},ldvh-preflight`], { env: { GIT_INDEX_FILE: preflightIndex } });
     const blocked = await invokeHook(hook, invalid, identity.projectRoot, { LDVH_PREFLIGHT_INDEX: preflightIndex });
     if (blocked.code === 0) throw new Error("Git Hook preflight did not block an invalid message");

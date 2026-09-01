@@ -264,6 +264,43 @@ test("real commit-msg: illegal commit is blocked, legal commit passes", async ()
 	});
 });
 
+test("preflight synthetic index stays tiny on a repository with commit history", async () => {
+	await withTemp("ldvh-hm.", async (base) => {
+		const root = await initRepo(base);
+		// initRepo staged README but did not commit: the first commit seeds
+		// real history with a non-empty HEAD tree.
+		await git(root, ["commit", "-m", "initial"]);
+		// Add several large files so HEAD's tree is megabytes in size. The
+		// runner's internal `git diff --cached` buffer is 4MB; pre-fix, the
+		// single-entry synthetic index diffs as "delete every tracked file"
+		// against HEAD, so a multi-MB tree blows that buffer. The fixed
+		// `read-tree HEAD` seed keeps the synthetic diff at ~150 bytes.
+		const chunk = "y".repeat(1024);
+		for (let i = 0; i < 6; i++) {
+			const name = `bulk-${i}.txt`;
+			await writeFile(join(root, name), chunk.repeat(1200)); // ~1.2MB each
+			await git(root, ["add", name]);
+		}
+		await git(root, ["commit", "-m", "chore(code): add bulk files"]);
+
+		const install = await installHook({ projectRoot: root, runnerPath, workspaceRoot: base });
+		assert.equal(install.ok, true, install.error?.message);
+		assert.equal(install.value.state, "managed");
+	});
+});
+
+test("preflight still succeeds on a repository without any commit", async () => {
+	await withTemp("ldvh-hm.", async (base) => {
+		// initRepo stages README but never commits, so HEAD does not exist and
+		// `read-tree HEAD` fails — the preflight must fall back to starting the
+		// synthetic index from the empty tree and still install cleanly.
+		const root = await initRepo(base);
+		const install = await installHook({ projectRoot: root, runnerPath, workspaceRoot: base });
+		assert.equal(install.ok, true, install.error?.message);
+		assert.equal(install.value.state, "managed");
+	});
+});
+
 // ---------------------------------------------------------------------------
 // Third-party Hook is never written
 // ---------------------------------------------------------------------------
