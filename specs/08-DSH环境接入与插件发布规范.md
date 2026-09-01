@@ -119,8 +119,10 @@ DSH 结构化问询入口承载 Human Gate 决策提请、计划审查与验收�
 
 - **运行时不变量**：通过 DSH 正式不变量入口在装载完成、受控写入前和会话交还前执行来源已定义的断言；具体入口待核验，不替代 00 §3.4 三层防线。
 - **文件观察策略**：通过 DSH 正式文件观察入口执行 read-before-edit 与 version-guarded write；对 07 登记载体，08 只核验宿主是否能满足 07 已定义的跨平台原子写入、冲突拒绝与回读要求，并向实现暴露核验结果，不复制其写入算法。具体 API 待当前 DSH 版本核验，预期版本、指纹或锁不一致时拒绝写入。
-- **Git Gate 部署**：commit-msg 钩子安装到管辖项目 `.git/hooks/`，安装前检查既有钩子避免覆盖 Human 自建钩子；部署后须确认 `managed` 状态（已安装、路径正确、版本匹配），未确认不得声称已就绪；事件检查用 06 定义的同一 validator。
-- **权限预设与沙箱分层**：`workspace-write`（默认，工作区路径内读写与执行，无需 Human 授权）/ `danger-full-access`（跨工作区与系统级，需 Human 授权）；分层语义归 00 §3.4 的 fail-closed 授权边界与 00 §4.1 的 Human 授权决定，08 只定义宿主接入方式，AI 不得自行扩权。
+- **Git Gate 部署**：commit-msg 钩子安装到由项目 Git 根解析所得的 Git common-dir `hooks/commit-msg`，不得简单假设 `<worktree>/.git/hooks/`；主 worktree 与 linked worktree 共享同一 common-dir，独立 clone 分别部署。安装前检查既有钩子，非 LDVH 资产一律 `conflict` 且零写入，不覆盖 Human 自建钩子；部署后须确认 `managed` 状态（归属、路径、内容与版本一致），未确认不得声称已就绪；事件检查用 06 定义的同一 validator。
+- **管辖项目安装事务**：Human 在设置页选择的目录必须是实际 Git 根。点击“安装”后，登记项目、创建或校验项目内 `ldvh-base/`、安装或更新当前版本 Git Hook 均为必需步骤而非选项；任一步失败都不得报告管辖已就绪。设置页“卸载”只卸载 LDVH 托管 Hook，保留登记与 `ldvh-base/`；“取消管辖”自动卸载 LDVH 托管 Hook并移除登记，但永久保留 `ldvh-base/` 与其中事实对象。每次 DSH 启动对全部登记项目执行一次只读状态检查，版本不一致只报告并等待 Human 点击安装/更新，不静默修改。
+- **设置页写入与权限降级**：设置页按钮在空闲状态没有 Agent、call id 与开放 turn，不能复用 `ctx.approval.request()` 或模型工具的 `sandbox_permissions` 一次性升权；普通插件 Host 自动安装只受当前 OS 文件权限约束。安装先完成只读预检，确认所有目标、Hook 所有权和回滚边界后再写入；OS 拒绝写入时 fail-closed、回滚本次可安全回滚的变化，不使用 `sudo` 或管理员 PowerShell。此时可提供同一 LDVH CLI 语义的精确平台命令和 DSH Desktop 正式“打开终端”入口作为降级，macOS/Windows 仅在路径引用和终端载体上不同；用户执行后必须回到设置页重新“检查”，终端退出码不单独证明就绪。
+- **权限预设与沙箱分层**：`workspace-write`（默认，工作区路径内读写与执行，无需 Human 授权）/ `danger-full-access`（跨工作区与系统级，需 Human 授权）只约束 Agent 工具调用；分层语义归 00 §3.4 的 fail-closed 授权边界与 00 §4.1 的 Human 授权决定，08 只定义宿主接入方式，AI 不得把聊天工具授权转移给设置页按钮，也不得自行扩权。
 
 ## 7. 发布与公共门面
 

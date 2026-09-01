@@ -26,6 +26,9 @@
   },
   "type": "module",
   "main": "lib/index.js",
+  "bin": {
+    "dsh-ldvh": "lib/bin.js"
+  },
   "icon": "icons/ldvh-plugin-icon-128.png",
   "exports": {
     ".": "./lib/index.js",
@@ -60,11 +63,15 @@
     }
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.1"
+    "@deepseek-ai/dsh-atomic-write": "^0.1.2-alpha.1",
+    "@deepseek-ai/dsh-home-paths": "^0.1.2-alpha.1",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "yaml": "^2.8.1"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-settings": "^0.1.0-rc.6 || ^0.1.1-rc.2 || >=0.1.2-alpha.1 <0.2.0",
-    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6 || ^0.1.1-rc.2 || >=0.1.2-alpha.1 <0.2.0"
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6 || ^0.1.1-rc.2 || >=0.1.2-alpha.1 <0.2.0",
+    "@deepseek-ai/dsh-host-webserver": ">=0.1.2-alpha.1 <0.2.0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-client-ui-primitives": {

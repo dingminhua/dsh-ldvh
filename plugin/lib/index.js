@@ -16,6 +16,13 @@
 
 import z from "@deepseek-ai/schemastery";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { readGovernedProjects } from "./governed-projects.js";
+import { createGovernanceHandler } from "./host-api.js";
+
+const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const GATE_RUNNER_PATH = fileURLToPath(new URL("./git-gate-runner.js", import.meta.url));
 
 export const name = "dsh-ldvh";
 
@@ -30,6 +37,12 @@ const LDVH_SETTINGS_SCHEMA = z.object({
 
 const API_PREFIX = "/ldvh/api";
 const SPA_PREFIX = "/ldvh";
+
+function json(res, statusCode, body) {
+  res.statusCode = statusCode;
+  res.setHeader("content-type", "application/json; charset=utf-8");
+  res.end(JSON.stringify(body));
+}
 
 /** True when a request method should be served for static/SPA content. */
 function isSafeMethod(method) {
@@ -58,23 +71,25 @@ code{background:#202126;padding:2px 6px;border-radius:6px}</style>
 <p>后端健康检查：<code>/ldvh/api/health</code></p></main></html>`);
 }
 
-/** Minimal backend handler until the migrated v4 services are wired in. */
-function apiHandler(req, res) {
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    res.statusCode = 405;
-    res.setHeader("allow", "GET, HEAD");
-    res.end(JSON.stringify({ ok: false, error: { code: "METHOD_NOT_ALLOWED" } }));
-    return;
-  }
-  if (req.url === "/health" || req.url === "/health/") {
-    res.statusCode = 200;
-    res.setHeader("content-type", "application/json; charset=utf-8");
-    res.end(JSON.stringify({ ok: true, service: "dsh-ldvh", status: "ok", prefix: API_PREFIX }));
-    return;
-  }
-  res.statusCode = 404;
-  res.setHeader("content-type", "application/json; charset=utf-8");
-  res.end(JSON.stringify({ ok: false, error: { code: "NOT_FOUND" }, path: req.url }));
+/** LDVH API handler: health plus governed-project lifecycle operations. */
+function createApiHandler(dshHomePath) {
+  const governance = createGovernanceHandler({ dshHomePath, runnerPath: GATE_RUNNER_PATH, workspaceRoot: PACKAGE_ROOT });
+  return async function apiHandler(req, res) {
+    const rawPath = new URL(req.url ?? "/", "http://ldvh.local").pathname;
+    const path = rawPath === API_PREFIX ? "/" : (rawPath.startsWith(`${API_PREFIX}/`) ? rawPath.slice(API_PREFIX.length) : rawPath);
+    if ((path === "/health" || path === "/health/") && (req.method === "GET" || req.method === "HEAD")) {
+      json(res, 200, { ok: true, service: "dsh-ldvh", status: "ok", prefix: API_PREFIX });
+      return;
+    }
+    const handled = await governance(req, res);
+    if (handled !== false) return;
+    if (!["GET", "HEAD", "POST"].includes(req.method)) {
+      res.setHeader("allow", "GET, HEAD, POST");
+      json(res, 405, { ok: false, error: { code: "METHOD_NOT_ALLOWED" } });
+      return;
+    }
+    json(res, 404, { ok: false, error: { code: "NOT_FOUND" }, path });
+  };
 }
 
 /** Read the live web-enabled switch from the settings source. Absent = default enabled. */
@@ -84,11 +99,11 @@ function webEnabled(state) {
 }
 
 /** Register both web routes; returns a single disposer removing both. */
-function registerWebRoutes(webServer) {
+function registerWebRoutes(webServer, dshHomePath) {
   const apiDisposer = webServer.register({
     kind: "prefix",
     path: API_PREFIX,
-    handler: apiHandler
+    handler: typeof dshHomePath === "function" ? createApiHandler(dshHomePath) : createApiHandler(() => { throw new Error("DSH user configuration root is unavailable"); })
   });
   const spaDisposer = webServer.register({
     kind: "prefix",
@@ -105,6 +120,7 @@ export function apply(ctx) {
   const state = { settingsSource: void 0, disposeRoutes: null };
 
   const webServer = ctx.get("webServer");
+  const dshHomePath = ctx.get("dshHomePath");
 
   // Sync the web route registration with the live setting:
   //   webEnabled on  → register (mount) the /ldvh routes;
@@ -116,7 +132,7 @@ export function apply(ctx) {
 
     if (enabled) {
       if (state.disposeRoutes === null) {
-        state.disposeRoutes = registerWebRoutes(webServer);
+        state.disposeRoutes = registerWebRoutes(webServer, dshHomePath);
         ctx.logger.info("[dsh-ldvh] web routes registered under %s / %s", SPA_PREFIX, API_PREFIX);
       }
     } else if (state.disposeRoutes !== null) {
@@ -136,6 +152,17 @@ export function apply(ctx) {
     },
     onChange: () => { syncRoutes(); }
   });
+
+  // Prime one read-only governance inspection at Host startup. The result is
+  // deliberately not cached as authority: UI/CLI operations re-read their
+  // actual files. This validates that every launch checks registered project
+  // and Hook versions without silently installing or updating anything.
+  if (typeof dshHomePath === "function") {
+    Promise.resolve(readGovernedProjects(dshHomePath)).then((result) => {
+      if (!result.ok) ctx.logger.warn("[dsh-ldvh] governed-project startup inspection unavailable: %s", result.error.message);
+      else ctx.logger.info("[dsh-ldvh] inspected %d governed project(s) at startup", result.value.projects.length);
+    }).catch((error) => ctx.logger.warn(error));
+  }
 
   // Plugin-level cleanup: remove routes and drop the live source.
   ctx.effect(() => () => {

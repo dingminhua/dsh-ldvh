@@ -61,9 +61,13 @@ plugin/
 ### 4.2 管辖项目登记管理
 
 - 列表：读取登记载体，展示 `projects[]`（id/path/name/description）与 `default_project_id`；普通设置界面不展示登记载体的实际绝对路径。
-- 登记：Human 在设置面板表达登记意图并提供项目目录后，校验该目录为 Git 项目（存在 `.git`，07 §5.5），按 07 Schema 原子写入，回读确认。
-- 取消登记：Human 明确要求取消时，从 `projects[]` 移除对应项并回读确认（07 §5.7）。
+- 候选：Human 先选择目录，Host 必须确认该路径本身就是 realpath 后的非 bare Git 根并解析 Git common-dir；非 Git 目录、仓库子目录、不可访问路径均不可安装。
+- 安装：一个不可拆分的受控事务必须完成登记项目、创建或校验项目内 `ldvh-base/`（五类事实对象目录）、安装或更新 Git common-dir 的当前 commit-msg Hook，再分项回读；任一步失败都不得显示已就绪。
+- 卸载：设置页“卸载”只卸载 LDVH 托管 Hook，保留登记、默认项目和 `ldvh-base/` 全部事实对象；此后综合状态为未就绪。
+- 取消管辖：Human 明确要求时，自动卸载 LDVH 托管 Hook并从 `projects[]` 移除项目，始终保留 `ldvh-base/`；默认项目按 07 Schema 同步调整。Hook 所有权不明、冲突或卸载失败时不得先移除登记。
+- 检查：按钮只读检查登记、Git 根、`ldvh-base/`、common-dir、Hook 所有权、内容与版本；每次 DSH 启动自动检查全部登记项目一次，仅报告 `absent/managed/outdated/conflict/unavailable`，不静默安装或更新。
 - 默认项目：设置/取消 `default_project_id`；`projects: []` 时必须为空，项目非空时必须精确匹配一个 `projects[].id`（07 §5.2）。
+- 权限：设置页 Host 先按 OS 用户权限自动执行；系统拒绝写入时 fail-closed 并回滚本次可安全回滚变化，提供统一 LDVH CLI 的平台正确命令与 DSH Terminal 打开入口作为降级。DSH 的 Agent approval/sandbox 升权不能用于空闲设置按钮。
 - 前置状态：载体不可读/不可写/权限不足/Schema 无效时统一呈现 `unavailable` 与精确缺口，不伪装为可执行、不伪装为「未管辖」（07 §7）。
 - 并发：写入前每次重新读取并验证当前 Schema，冲突返回冲突并提示重新读取（07 §5.6）。
 

@@ -97,7 +97,7 @@
 - unborn repository（尚无 HEAD）；
 - 插件升级后 runner 路径与 bundle 版本变化；
 - DSH Human Gate 取消/拒绝时零写入；
-- 设置页登记后只 inspect、不自动安装；
+- 设置页选择实际 Git 根后，“安装”不可选地执行登记、创建或校验 `ldvh-base/`、安装或更新 Hook；任一步失败均不得显示已就绪；
 - 独立 clone 单独确认，linked worktree 共享一次安装；
 - 第三方 commit-msg/prepare-commit-msg 冲突呈现且零写入。
 
@@ -145,12 +145,14 @@
 
 - 迁入 HookState/common-dir/worktree 枚举；
 - 设置页显示状态和诊断；
-- 登记后只 inspect，不安装。
+- DSH 启动时自动 inspect 全部登记项目，设置页“检查”也只读执行同一检查；
+- 新增项目由“安装”事务完成登记、`ldvh-base/` 初始化与 Hook 安装，不再采用“先登记后只 inspect”的旧方案。
 
 ### 批次 E：Git Gate 安装/升级/卸载
 
 - 迁入 manager 事务、rollback 和 preflight；
-- DSH Human Gate；
+- 设置页 Host 先按 OS 用户权限自动执行；权限拒绝时 fail-closed，并生成统一 LDVH CLI 的 macOS/Windows 正确命令及 DSH Terminal 降级入口，不把 `ctx.approval.request()` 或 Agent `sandbox_permissions` 误用到空闲设置按钮；
+- “卸载”只卸载 Hook并保留登记与 `ldvh-base/`；“取消管辖”自动卸载 Hook、移除登记并保留 `ldvh-base/`；
 - 第三方 Hook conflict 零写入；
 - linked worktree/独立 clone 验证。
 
@@ -167,5 +169,5 @@
 3. 默认配置目录是否固定在 DSH_HOME 内；
 4. v4 配置是否只允许手动导入且保留旧文件；
 5. 第三方 commit-msg 是否继续 v4 的 conflict/零写入（建议是）；
-6. 登记后是否只 inspect，安装需单独确认（建议是）；
+6. 已定案：新增项目的“安装”一次明确执行登记、`ldvh-base/` 初始化和 Hook 安装；启动自动 inspect，写入不自动发生；
 7. Python 核心是否按本清单打包进插件而不迁写 JavaScript（建议是）。
