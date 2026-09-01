@@ -125,6 +125,10 @@
 26. **00 最终七章结构（Human 定，2026-08-26）**：在“Human 只能把握少量信息、只制定原则和方向；AI 依据原则扩展细节并经风险匹配的独立对抗审核”前提下，00 采用七章：①LDVH 为什么存在；②LDVH 的解决方案；③LDVH 的构成与工作原则；④Human 的决定权；⑤AI 的责任；⑥V/HV 双轨价值评判标准；⑦防自欺、Stop Conditions 与交还。第一、二章已定。第三章只保留八维根定义、三类语义要素、规范源/事实源、技术与机械保障、DSH 插件四种交付方式及下位承接义务的必要解释，细节下沉；第四章集中 Human 目标/授权/重大取舍/风险接受/验收、根决定清单、Human Gate、受保护文档、可决提请和回应效力；第五章集中单一主控 AI 最终负责、非全知、委派不转责、可强制规则与实施性选择边界、下位独立对抗审核义务和反稀释；第六章保留 V/HV 编号、名称、判断问题、价值边界及价值纪律；第七章保留列举式防自欺锚点、Stop 根触发/恢复、风险匹配和交还最小结构。Human 长期内化八项根方案、根决定清单和防自欺底线；八维、V/HV、受保护文档、Stop 与交还是需要时查用的硬清单；API、字段、状态机、Hook、CAS、attempt、审核 checklist 和验证命令均下沉。**（Human 更正，2026-08-27：第三章章名定名为「LDVH 的构成解析」，不采用「构成与工作原则」；本章内容分配不变，交付方式数量表述同步按 #23 更正为四种。）**
 27. **签名记录 provider 与 model，并改为机械签名（Human 需求，2026-08-26）**：后续重建签名/署名契约时，只记录当次实际使用的 `provider` 与 `model` 两个值，例如 `provider: zzztoken-glm`、`model: glm-5.2`，不再记录平台或产品字段。签名信息由 Code 从 DSH 的权威会话/请求记录中机械取得并写入，AI 不负责判断、选择或填写。Git trailer、事实对象 `change_log` 及其它签名载体须统一遵循，不再要求 `LDVH-Product-Name` 或等价平台信息。实施时需明确空白会话、历史会话与模型切换的机械取值规则，且不得把部署默认模型误当作已发生调用所使用的实际模型。
 28. **协同回报附带 provider 与 model（Human 需求，2026-08-26）**：协同代理、子代理、AgentTeams 成员或外部 CLI 在向主控回报结果时，必须附带本次执行实际使用的 `provider` 与 `model`，使主控能按来源理解结果，Human 能持续掌握不同供应商与模型的实际质量。调用方应通过 DSH 的 `session.models` API 机械读取：使用环境变量 `DSH_SESSION_ID` 定位当前会话，向 `$DSH_WEB_URL/api/session.models` 发送 `client-request`，方法为 `session.models`、payload 为 `{ "sessionId": "$DSH_SESSION_ID" }`，取响应中的 `result.value.current.provider` 与 `result.value.current.model`；后续如 DSH 提供更直接的正式工具或命令，应改用该入口。该信息由工具取得，不要求代理自行判断或凭提示词声明；主控汇总时应保留每个回报各自的两个值，不用主控自身模型覆盖。
+29. **提交签名契约定案：LDVH-Provider + LDVH-Model 两行，机械取得（Human 定，2026-09-02）**：commit trailer 只保留 `LDVH-Provider` 与 `LDVH-Model` 两行，取值从当次会话权威记录（`DSH_SESSION_JSONL` 所指流的末条 `model/selection` 或 `request/context` 路由事件）逐字注入，AI 不判断、选择或填写。**不设 Human-Gate 行**（Human 裁定：自报文本无机械来源、无法防自欺；授权事实存在于会话记录，机械校验由未来授权包承接）。**签名值零清理原则（Human 更正，2026-09-02）**：不剥 `-vision` 等路由变体后缀、不筛选"真正的当前文本路由"、不因值疑似滞后而换源——末条路由事件即答案；把机械值当异常筛选就是 AI 语义判断否决机械记录。实例：图像入上下文后 vision-router 切走不切回，后续纯文本轮真实运行在 vision 路由上，签 `zzztoken-glm-vision` 是准确值而非异常。06 已按此修订（`fa1be55`/`61389f4`），实现决策 #27 的落地。
+30. **设置页操作语义定案（Human 定，2026-09-02）**：设置页不提供单独"卸载"操作（独立卸载制造"登记在、Hook 无"的半退出中间态；CLI 保留为逃生路径）；「取消管辖」为完整退出事务（卸载 Hook + 移除登记 + 永久保留 ldvh-base/ 与事实对象）；新增条件渲染的「更新」按钮——仅当 Hook `absent/outdated` 或事实源 `absent/incomplete`（可修复闭集）时出现，执行幂等安装事务；`conflict`/`unavailable` 不可修复状态只呈现原因，不提供更新操作。08 §6 与 10 §6.5 已同步（`10ffc3d`）。
+31. **登记载体生命周期定案（Human 定，2026-09-02）**：插件加载时确保空登记载体存在（`ensureRegistrationCarrier`，仅 ENOENT 时原子创建、已存在不改写、损坏 fail-closed 不覆盖）——"安装→空文件、添加项目→更新"的生命周期由插件自身承接，AI 会话不得直接写载体（我曾因 CLI 直写 + 申请升权被纠正，正确路径是设置页安装事务，Host 进程按 OS 用户权限执行）。
+32. **ldvh Skill 正式退役（Human 决定，2026-09-02）**：全机四处 skill 安装删除（~/.agents 与 ~/.claude 活跃安装、Documents 备份、kimi-desktop 共享），v4 仓库内源文件作为历史档案保留。三职责由插件全面承接：身份告知/规则引导 → systemPrompt 注入、模板路由 → 未来插件工具面、机械守护 → v5 闸已验证。**AI 工作引导（P0）成为 skill 退役后的当前真空，为下一批次最高优先**。
 
 ## 5.1 当前阶段决策（2026-09-15）
 
@@ -211,27 +215,28 @@
 
 **未提交/未推送**：该段是历史快照；当前状态见下方最新快照，push 始终需 Human 单独授权。
 
-### 9.2 最新开发快照（2026-09-15）
+### 9.2 最新开发快照（2026-09-02 Git Gate 闭环日）
 
-**已完成**：
-- 00–10 与 01.Att.01–03 已完成重构、固定章节统一、规范依据格式统一、十维全文综合审核与反例修复；最新提交 `358d0f8 docs(specs): 统一规范依据身份格式`。
-- v5 管辖位置、Schema、三态、跨平台路径/权限、原子写入与 v4 迁移规则已由 Human 确认并写入 07；08/09 分别承接宿主核验与实现测试。
-- `dev` 相对 `origin/dev` 领先 30 个提交，全部未 push；在本阶段文档修改前工作树干净。
+**已完成（今日 9 提交，`ad86486`→`257a171`，全部经真实闸门放行，待 push）**：
+- **Web 路由注册时序 bug 修复**：`ctx.get("webServer")` 快照改为声明式 `inject:["webServer"]`（对齐官方 frontend-static 模式）。该 bug 使路由在真实宿主上**从未注册成功过**（历史日志 7 次启动 0 次注册；测试因 provide 顺序恰好相反而全绿——与 preflight maxBuffer bug 同构的"测试环境掩盖真实环境"案例）。修复后 4 次启动 4 次注册成功。
+- **v5 管辖闭环（dogfood 全通）**：本仓库以 v5 规则自我登记（载体 `~/.dsh/ldvh/governed-projects.yaml`，插件加载自动初始化空文件）；安装事务真实走通（Git 根解析 + ldvh-base 五目录 + Hook 托管）；取消管辖→重装路径验证（契约行为全部正确）；巡检日志确认日常形态（`inspected 1 governed project(s)`）。
+- **Git Gate v5 闸上岗**：commit-msg Hook `managed/1.0.0-dev.1`，真实放行 5 个提交；preflight 修复合成索引（`read-tree HEAD` 打底——单条目索引在有历史仓库等价"删除全部文件"，4.53MB diff 击穿 4MB maxBuffer；空仓库走空树兜底）；预检与提交 `snapshot_identity` 一致性验证。
+- **机械签名落地**：trailer 两行 `LDVH-Provider`/`LDVH-Model` 从 `DSH_SESSION_JSONL` 末条路由事件管道注入（决策 #29），实测签出 `zzztoken-glm-vision`/`glm-5.3`（vision 路由经记录验证为真实当前路由，非异常）。
+- **设置卡片按钮重设计**（决策 #30）、规范同步 08/10（卸载→更新语义）、06 修订（移除 Human-Gate 行）、CHANGELOG 补记、5 份调研文档收录（context-plugins/workflow/deep-research/study-reread/mnemon）。
+- **ldvh Skill 退役**（决策 #32）：全机四处删除，DSH 技能目录已刷新确认。
 
-**当前进行中**：
-- 对齐开发计划与实际状态；建立 `docs/eight-dimension-action-baseline.md`，用真实场景展开八维输入、触发、输出、转交、停止、事实候选、Human Gate 和机械入口。
+**当前进行中**：无挂起工作项；工作树干净。
 
-**下一步**：
-1. 独立审核八维行动展开基线并经 Human 确认；
-2. 按基线依次建立 20–24；
-3. 再建立 30–38；
-4. 核验 DSH 实际能力后进入 05–10 的 Code/Web 实现。
+**下一步（已与 Human 对齐，按序）**：
+1. **P0 最小插件替代 Skill**（skill 退役后的 AI 工作引导真空，最高优先）：会话启动管辖三态判定（governed/not_governed/unavailable）→ `systemPrompt.section` 最小规则引导（01 §10.4 七锚点）→ `ctx.tools.register` 第一批工具（resolve-governance-scope、read-specification-candidates/content 按 L0–L4、discover-ldvh-capabilities、precheck-git-commit）→ not_governed 零干扰 + unavailable fail-closed（完成判据绑定计划 §15 九条）。
+2. P0 前置实测：`ctx.tools` 调用上下文如何拿到调用者会话身份（precheck 校验 provider/model 回指权威记录的前提）。
+3. 之后二选一：20 Spark 起草（阶段 B，输入已齐）或 v4 Web 迁入（大块工程，建议独立时段）。
 
 **未完成/残留风险**：
-- 20–24、30–38 尚未建立；
-- v5 管辖运行时尚未实现和迁移，当前 v4 配置仅为过渡输入；
-- DSH 正式 API、事件、权限、user-data 和 Output Envelope 宿主承载仍需实测；
-- 本文和八维基线属于 docs 开发输入，不取得规范效力。
+- 20–24、30–38 尚未建立（阶段 B/C 未动）；
+- LDVH Web SPA 仍为占位页（v4 迁移待做）；安装/卸载流程 Windows 验证 unverified；
+- precheck-git-commit / Helper 工具面未实现（P0 范围）；机械签名的 JSONL 尾读在 Helper 内的固化形态待 P0 定案；
+- 决策 #28 的 `session.models` API 通道已由本会话 JSONL 尾读殊途同归验证，但该 API 本身未实测。
 
 ### 9.1 会话交接快照（2026-08-25 会话）
 

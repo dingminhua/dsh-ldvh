@@ -16,22 +16,23 @@
 7. 普通规范固定前四章与后四章、V/HV 单段映射、七列验证表及 basis/§2 身份格式已统一。
 8. 00–10 与附件已完成十维全文综合审核、跨规范反例复核和修复闭环。
 9. v5 管辖登记设计已由 Human 确认：DSH 用户配置根下 `ldvh/governed-projects.yaml`、v4 兼容 Schema + `schema_version: 1`、三态判定、跨平台路径与原子写入、v4 单次迁移。
+10. **Git Gate 闭环（2026-09-02）**：v5 管辖在 dsh-ldvh 仓库自身 dogfood 全通——载体自动初始化、安装/取消/重装事务真实验证、commit-msg Hook `managed` 真实放行 5 个提交、巡检日志确认日常形态。修复两个"测试环境掩盖真实环境"缺陷（路由注册时序、preflight 合成索引 maxBuffer）。机械签名落地（决策 #29）。里程碑 4 的 Git Gate 半边完成。
 
 ### 1.2 当前 Git 状态
 
 - 分支：`dev`。
-- 相对 `origin/dev`：领先 30 个提交。
-- 最新提交：`358d0f8 docs(specs): 统一规范依据身份格式`。
+- 相对 `origin/dev`：领先 39 个提交（含 2026-09-02 的 9 个，全部经真实闸门放行）。
+- 最新提交：`257a171 docs(code): 补记 Unreleased 变更日志至当前实现`。
 - 当前未 push；push 仍需 Human 单独授权。
-- 本阶段开始前工作树干净；当前只允许出现本计划、开发备忘与八维设计候选的修改。
+- 工作树干净。
 
 ### 1.3 尚未完成
 
 1. 20–24 事实类型规范尚未建立。
 2. 30–38 行动模板规范尚未建立。
-3. DSH 当前版本的实际工具、事件、user-data、权限与宿主承载能力尚未逐项验证。
-4. v5 Helper、规范解析、事实模型、管辖判定、Git Gate、Code 与 Web 实现尚未开始。
-5. v4 配置仍仅为过渡期 Helper/Git Gate 输入；尚未执行 v5 登记载体迁移。
+3. DSH 宿主承载能力部分验证（webServer 注入/路由、settings、slots、事件 ctx.on、DSH_SESSION_JSONL 机械源已实测）；工具注册（ctx.tools）、systemPrompt、user-data 其余面仍待逐项验证。
+4. v5 实现分项状态：**管辖判定与 Git Gate 已实现并 dogfood 闭环（2026-09-02）**；插件 Code 骨架可用（设置卡片/视图 tab/CLI）；Helper 工具面、规范解析（L0–L4）、事实对象操作、Web SPA 未开始。
+5. v4 过渡配置不再被读取（v5 载体已就位并登记首个项目）；旧 `LDVH-GOVERNED-PROJECTS.yaml` 留作历史档案，v4 单次迁移流程已无需执行（Human 裁定 2026-09-02：不存在迁移，v5 视角直接生效）。
 
 ## 2. 当前阶段目标：八维真实行动展开
 
