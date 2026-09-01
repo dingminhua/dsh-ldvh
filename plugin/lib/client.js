@@ -165,7 +165,8 @@ window.__ModuleLoader__.load({
       "row.chooseProject": "选择 Git 根目录…",
       "row.install": "安装",
       "row.installBusy": "安装中…",
-      "row.uninstall": "卸载 Hook",
+      "row.update": "更新",
+      "row.updateBusy": "更新中…",
       "row.unregister": "取消管辖",
       "row.check": "检查",
       "row.projectReady": "已就绪",
@@ -215,7 +216,8 @@ window.__ModuleLoader__.load({
       "row.chooseProject": "Choose Git root…",
       "row.install": "Install",
       "row.installBusy": "Installing…",
-      "row.uninstall": "Uninstall Hook",
+      "row.update": "Update",
+      "row.updateBusy": "Updating…",
       "row.unregister": "Stop governing",
       "row.check": "Check",
       "row.projectReady": "Ready",
@@ -417,14 +419,19 @@ window.__ModuleLoader__.load({
           projectsState[1]({ loading: false, value: projectsState[0].value, error: String(error.message || error), unavailable: false });
         }).finally(function () { projectBusyState[1](false); });
       }
-      function uninstallProjectHook(path) {
+      // "更新" runs the idempotent install transaction: it updates an
+      // outdated managed Hook, repairs a missing/incomplete fact source, and
+      // re-registers as a no-op when the entry already matches.
+      function updateProject(project) {
         projectBusyState[1](true);
-        callLdvhApi("/governed-projects/uninstall-hook", { path: path }).then(function (result) {
-          if (!result || result.ok !== true) throw new Error(result && result.error ? result.error.message : "uninstall failed");
-          loadProjects();
-        }).catch(function (error) {
-          projectsState[1]({ loading: false, value: projectsState[0].value, error: String(error.message || error), unavailable: false });
-        }).finally(function () { projectBusyState[1](false); });
+        callLdvhApi("/governed-projects/install", { path: project.path, id: project.id, name: project.name || project.id })
+          .then(function (result) {
+            if (!result || result.ok !== true) throw new Error(result && result.error ? result.error.message : "update failed");
+            loadProjects();
+          })
+          .catch(function (error) {
+            projectsState[1]({ loading: false, value: projectsState[0].value, error: String(error.message || error), unavailable: false });
+          }).finally(function () { projectBusyState[1](false); });
       }
       function unregisterGovernance(project) {
         projectBusyState[1](true);
@@ -510,7 +517,18 @@ window.__ModuleLoader__.load({
                 )
               : React.createElement("div", { className: "ldv-projects" }, (projectsState[0].value.projects || []).map(function (project) {
               var hook = project.status && project.status.hook;
-              var ready = project.status && project.status.factSource && project.status.factSource.state === "ready" && hook && hook.state === "managed";
+              var factSource = project.status && project.status.factSource;
+              var ready = factSource && factSource.state === "ready" && hook && hook.state === "managed";
+              // Repairable = the install transaction can fix it: a missing or
+              // outdated managed Hook, or an uninitialized/incomplete fact
+              // source. Conflict/unavailable states are NOT repairable here
+              // (install refuses) and are explained by the detail line below.
+              var repairable = (hook && ["absent", "outdated"].includes(hook.state)) || (factSource && ["absent", "incomplete"].includes(factSource.state));
+              var notReadyDetail = ready ? null
+                : ((factSource && factSource.state !== "ready" && factSource.detail)
+                  || (hook && hook.state !== "managed" && hook.detail)
+                  || (project.status && project.status.error && project.status.error.message)
+                  || null);
               return React.createElement("article", { className: "ldv-project-card", key: project.id },
                 React.createElement("div", { className: "ldv-project-head" },
                   React.createElement("span", { className: "ldv-project-idline" },
@@ -519,9 +537,10 @@ window.__ModuleLoader__.load({
                   ),
                   React.createElement("span", { className: ready ? "ldv-status-value ldv-status-ok" : "ldv-status-value ldv-status-fail" }, ready ? t("row.projectReady") : t("row.projectIncomplete"))
                 ),
+                notReadyDetail ? React.createElement("span", { className: "ldv-settings-hint" }, notReadyDetail) : null,
                 React.createElement("div", { className: "ldv-project-actions" },
                   React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-outline", disabled: projectBusyState[0], onClick: function () { inspectProject(project.path); } }, t("row.check")),
-                  React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-outline", disabled: projectBusyState[0] || !hook || !["managed", "outdated"].includes(hook.state), onClick: function () { uninstallProjectHook(project.path); } }, t("row.uninstall")),
+                  repairable ? React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-primary", disabled: projectBusyState[0], onClick: function () { updateProject(project); } }, projectBusyState[0] ? t("row.updateBusy") : t("row.update")) : null,
                   React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-outline", disabled: projectBusyState[0], onClick: function () { unregisterGovernance(project); } }, t("row.unregister"))
                 )
               );

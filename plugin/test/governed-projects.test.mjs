@@ -290,11 +290,13 @@ test("installProject rejects a bare repository", async () => {
 
 test("installProject rolls back the fact source when the Hook preflight fails", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
-		// No staged change -> installHook preflight rejects a valid message,
-		// so the whole install fails after ldvh-base was created.
-		const root = await initRepo(base, { stage: false });
+		// A broken runnerPath makes the preflight's Hook exec fail, so the
+		// install aborts after ldvh-base was created. (Preflight no longer
+		// depends on the real Index, so an empty Index can no longer trigger
+		// this path.)
+		const root = await initRepo(base);
 		const home = join(base, "home");
-		const result = await installProject(dshHome(home), { id: "p", path: root }, { runnerPath, workspaceRoot: base });
+		const result = await installProject(dshHome(home), { id: "p", path: root }, { runnerPath: join(base, "missing-runner.js"), workspaceRoot: base });
 		assert.equal(result.ok, false);
 		assert.equal(result.error.code, "installation_failed");
 		assert.deepEqual(result.error.details.rollback, []);

@@ -158,11 +158,31 @@ test("inspectHook reports digest tampering as a conflict and never deletes it", 
 });
 
 test("cleanGitEnvironment strips ambient Git override variables", () => {
-	const env = cleanGitEnvironment({ GIT_DIR: "/sneaky", GIT_WORK_TREE: "/sneaky", MY_VAR: "keep" });
-	assert.equal(env.GIT_DIR, undefined);
-	assert.equal(env.GIT_WORK_TREE, undefined);
-	assert.equal(env.MY_VAR, "keep");
-	assert.equal(env.GIT_TERMINAL_PROMPT, "0");
+	// 新契约：先从继承的 process.env 剥离环境 GIT_* 覆盖变量，再合并调用方
+	// 显式传入的 extra——显式传入的 GIT_* 现在会存活（如 preflight 的 GIT_INDEX_FILE）。
+	const keys = ["GIT_DIR", "GIT_WORK_TREE", "MY_VAR"];
+	const snapshot = new Map(keys.map((key) => [key, Object.prototype.hasOwnProperty.call(process.env, key) ? process.env[key] : undefined]));
+	try {
+		process.env.GIT_DIR = "/ambient-git-dir";
+		process.env.GIT_WORK_TREE = "/ambient-work-tree";
+		process.env.MY_VAR = "keep-me";
+		// (a) ambient overrides are stripped, unrelated vars survive, prompts off
+		const plain = cleanGitEnvironment({});
+		assert.equal(plain.GIT_DIR, undefined, "ambient GIT_DIR must be stripped");
+		assert.equal(plain.GIT_WORK_TREE, undefined, "ambient GIT_WORK_TREE must be stripped");
+		assert.equal(plain.MY_VAR, "keep-me", "unrelated ambient vars must survive");
+		assert.equal(plain.GIT_TERMINAL_PROMPT, "0");
+		// (b) explicit extras win over ambient stripping
+		const explicit = cleanGitEnvironment({ GIT_INDEX_FILE: "/explicit/preflight-index", GIT_DIR: "/explicit-dir" });
+		assert.equal(explicit.GIT_INDEX_FILE, "/explicit/preflight-index", "explicit GIT_INDEX_FILE must survive");
+		assert.equal(explicit.GIT_DIR, "/explicit-dir", "explicit GIT_DIR must survive");
+		assert.equal(explicit.MY_VAR, "keep-me", "unrelated ambient vars survive alongside explicit extras");
+	} finally {
+		for (const [key, value] of snapshot) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	}
 });
 
 // ---------------------------------------------------------------------------
@@ -207,13 +227,17 @@ test("installHook recreates the hooks directory when it is missing", async () =>
 	});
 });
 
-test("installHook aborts when the candidate Index is empty (preflight)", async () => {
+test("installHook succeeds on a clean tree via the synthetic preflight index", async () => {
 	await withTemp("ldvh-hm.", async (base) => {
-		// No staged change: the runner refuses empty Indexes, so the preflight
-		// valid-message check fails and the Hook must not be written.
+		// Nothing staged: preflight builds a synthetic Index (hash-object -w +
+		// update-index --cacheinfo through GIT_INDEX_FILE) instead of requiring
+		// a real staged change, so a clean tree installs fine.
 		const root = await initRepo(base, { stage: false });
-		await assert.rejects(installHook({ projectRoot: root, runnerPath, workspaceRoot: base }), /preflight/);
-		await assert.rejects(readFile(join(root, ".git", "hooks", "commit-msg")), (error) => error?.code === "ENOENT");
+		const install = await installHook({ projectRoot: root, runnerPath, workspaceRoot: base });
+		assert.equal(install.ok, true, install.error?.message);
+		assert.equal(install.value.state, "managed");
+		// the real Index is still empty: preflight must not touch staging state
+		assert.equal(await git(root, ["diff", "--cached"]), "", "the real Index must stay empty");
 	});
 });
 

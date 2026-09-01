@@ -102,8 +102,8 @@ test("domain-error red box (ldv-governance-error) is reserved for non-transport 
 		source.includes(errorBranchFragment),
 		"domain error branch must still render ldv-governance-error with role=alert",
 	);
-	// inspect / uninstall / unregister 的 catch 仍把 message 写入 error、unavailable: false。
-	for (const op of ["inspectProject", "uninstallProjectHook", "unregisterGovernance"]) {
+	// inspect / update / unregister 的 catch 仍把 message 写入 error、unavailable: false。
+	for (const op of ["inspectProject", "updateProject", "unregisterGovernance"]) {
 		assert.ok(
 			source.includes(op),
 			`op handler ${op} must exist (sanity)`,
@@ -112,8 +112,67 @@ test("domain-error red box (ldv-governance-error) is reserved for non-transport 
 	// 这三个 catch 都使用统一的非 transport 写入：error 字符串、unavailable: false。
 	assert.ok(
 		source.includes("error: String(error.message || error), unavailable: false"),
-		"non-transport failures (inspect/uninstall/unregister) must still write error text + unavailable: false",
+		"non-transport failures (inspect/update/unregister) must still write error text + unavailable: false",
 	);
+});
+
+test("project card actions: uninstall removed, Update only when repairable, notReadyDetail hint", () => {
+	// 卸载按钮与其处理函数已删除：源码不得再引用 row.uninstall / uninstallProjectHook。
+	assert.ok(
+		!source.includes("uninstallProjectHook"),
+		"client must not reference the removed uninstallProjectHook",
+	);
+	assert.ok(
+		!source.includes('"row.uninstall"'),
+		"locale key row.uninstall must be removed with the uninstall button",
+	);
+	// repairable 判定：Hook absent/outdated 或 fact source absent/incomplete 可修复。
+	assert.ok(
+		source.includes('["absent", "outdated"].includes(hook.state)'),
+		"repairable must treat absent/outdated Hook states as fixable",
+	);
+	assert.ok(
+		source.includes('["absent", "incomplete"].includes(factSource.state)'),
+		"repairable must treat absent/incomplete fact source states as fixable",
+	);
+	// 更新按钮仅在 repairable 时渲染，并调用 updateProject(project)（幂等安装事务）。
+	assert.ok(
+		source.includes(
+			'repairable ? React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-primary", disabled: projectBusyState[0], onClick: function () { updateProject(project); } }',
+		),
+		"update button must render only when repairable and call updateProject(project)",
+	);
+	assert.ok(
+		source.includes('projectBusyState[0] ? t("row.updateBusy") : t("row.update")'),
+		"update button must show row.updateBusy while busy and row.update otherwise",
+	);
+	// notReadyDetail 原因链：factSource.detail → hook.detail → status.error.message，
+	// 未就绪且非空时以 ldv-settings-hint 渲染在卡片头下方。
+	assert.ok(
+		source.includes("var notReadyDetail = ready ? null"),
+		"notReadyDetail must be computed per project card",
+	);
+	assert.ok(
+		source.includes('(factSource && factSource.state !== "ready" && factSource.detail)'),
+		"notReadyDetail chain must start with factSource.detail",
+	);
+	assert.ok(
+		source.includes('(hook && hook.state !== "managed" && hook.detail)'),
+		"notReadyDetail chain must fall back to hook.detail",
+	);
+	assert.ok(
+		source.includes("(project.status && project.status.error && project.status.error.message)"),
+		"notReadyDetail chain must fall back to status.error.message",
+	);
+	assert.ok(
+		source.includes('notReadyDetail ? React.createElement("span", { className: "ldv-settings-hint" }, notReadyDetail) : null'),
+		"notReadyDetail must render as ldv-settings-hint under the card head",
+	);
+	// 中英 locale 均提供 row.update 与 row.updateBusy。
+	assert.ok(source.includes('"row.update": "更新"'), "LDVH_ZH must define row.update");
+	assert.ok(source.includes('"row.updateBusy": "更新中…"'), "LDVH_ZH must define row.updateBusy");
+	assert.ok(source.includes('"row.update": "Update"'), "LDVH_EN must define row.update");
+	assert.ok(source.includes('"row.updateBusy": "Updating…"'), "LDVH_EN must define row.updateBusy");
 });
 
 test("Web status row exposes a single serviceIssue hint on transport failure", () => {

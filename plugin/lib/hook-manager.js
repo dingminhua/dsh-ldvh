@@ -11,11 +11,15 @@ const GIT_TIMEOUT_MS = 10000;
 export const HOOK_BUNDLE_VERSION = "1.0.0-dev.1";
 
 function cleanGitEnvironment(extra = {}) {
-  const env = { ...process.env, ...extra, GIT_TERMINAL_PROMPT: "0" };
+  // Strip AMBIENT Git override variables from the inherited environment
+  // first, then apply the caller's explicit overrides on top: a value the
+  // caller passes deliberately (e.g. a preflight GIT_INDEX_FILE) must win,
+  // while ambient overrides from the surrounding shell never leak through.
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
   for (const key of Object.keys(env)) {
     if (["GIT_COMMON_DIR", "GIT_CONFIG_COUNT", "GIT_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_WORK_TREE"].includes(key) || key.startsWith("GIT_CONFIG_KEY_") || key.startsWith("GIT_CONFIG_VALUE_")) delete env[key];
   }
-  return env;
+  return { ...env, ...extra };
 }
 
 async function runGit(worktree, args, options = {}) {
@@ -87,7 +91,14 @@ export function renderHook({ runnerPath, workspaceRoot, bundleVersion = HOOK_BUN
     '  /*|[A-Za-z]:\\\\*|//*) message_file=$1 ;;',
     '  *) message_file="$worktree/$1" ;;',
     "esac",
-    `exec node ${runner} git-commit-msg --workspace-root ${workspace} --worktree "$worktree" --message-file "$message_file"`,
+    `set -- git-commit-msg --workspace-root ${workspace} --worktree "$worktree" --message-file "$message_file"`,
+    // The preflight passes a synthetic index through LDVH_PREFLIGHT_INDEX so
+    // the gate proves its real diff path without touching the worktree's
+    // staging state; real commits never set this variable.
+    'if [ -n "${LDVH_PREFLIGHT_INDEX:-}" ]; then',
+    '  set -- "$@" --index-file "$LDVH_PREFLIGHT_INDEX"',
+    "fi",
+    `exec node ${runner} "$@"`,
     ""
   ].join("\n");
   return `#!/bin/sh\n${MARKER_PREFIX}${digest(body)}\n${body}`;
@@ -147,15 +158,24 @@ async function preflight(rendered, identity) {
   const hook = join(tempDir, "commit-msg");
   const invalid = join(tempDir, "invalid-message");
   const valid = join(tempDir, "valid-message");
+  const blobFile = join(tempDir, "preflight-blob");
+  const preflightIndex = join(tempDir, "preflight-index");
   try {
     await mkdir(tempDir, { mode: 0o700 });
     await writeFile(hook, rendered, { mode: 0o755 });
     await writeFile(invalid, "bad\n", "utf8");
     await writeFile(valid, "chore(code): preflight\n\n关键变更:\n- validate hook\n\nLDVH-Product-Name: deepseek-harness\nLDVH-Model-Name: preflight\n", "utf8");
-    const originalIndex = await runGit(identity.projectRoot, ["rev-parse", "--git-path", "index"]);
-    const blocked = await invokeHook(hook, invalid, identity.projectRoot, { GIT_INDEX_FILE: originalIndex });
+    // A synthetic index keeps the preflight independent of the worktree's
+    // transient staging state: the gate proves its real `git diff --cached`
+    // path against a known non-empty index instead of requiring the user
+    // to have something staged at install/update time. The orphan blob is
+    // garbage-collectable and the temp dir is removed in finally.
+    await writeFile(blobFile, "ldvh-preflight\n", "utf8");
+    const blob = await runGit(identity.projectRoot, ["hash-object", "-w", blobFile]);
+    await runGit(identity.projectRoot, ["update-index", "--add", "--cacheinfo", `100644,${blob},ldvh-preflight`], { env: { GIT_INDEX_FILE: preflightIndex } });
+    const blocked = await invokeHook(hook, invalid, identity.projectRoot, { LDVH_PREFLIGHT_INDEX: preflightIndex });
     if (blocked.code === 0) throw new Error("Git Hook preflight did not block an invalid message");
-    const allowed = await invokeHook(hook, valid, identity.projectRoot, { GIT_INDEX_FILE: originalIndex });
+    const allowed = await invokeHook(hook, valid, identity.projectRoot, { LDVH_PREFLIGHT_INDEX: preflightIndex });
     if (allowed.code !== 0) throw new Error(`Git Hook preflight rejected a valid message: ${allowed.stderr || allowed.stdout}`);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
