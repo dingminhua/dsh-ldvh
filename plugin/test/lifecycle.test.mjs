@@ -245,3 +245,41 @@ test("lifecycle: fiber cleanup removes the session-scopes entry", async () => {
 		assert.deepEqual(registry.installedAgentIds(), [], "agent removed from registry");
 	});
 });
+
+// ---------------------------------------------------------------------------
+// triggers: turn-level seams (skeleton, content empty)
+// ---------------------------------------------------------------------------
+
+test("turn triggers: turn-stopping and turn/end fire with gate evaluation, foreign agent ignored", async () => {
+	const { createTurnTriggers } = await import("../lib/triggers.js");
+	const agent = makeAgent("s1", "/cwd");
+	const triggers = createTurnTriggers(agent, {
+		getScopeState: () => "governed",
+		log: { info() {}, warn() {} }
+	});
+	// Foreign agent's turn-stopping is ignored.
+	triggers.onTurnStopping({ agent: makeAgent("s2", "/cwd"), turn: 9 });
+	assert.equal(triggers.snapshot().turnStoppingSeen, 0);
+	// Own agent fires, gate evaluated as open.
+	triggers.onTurnStopping({ agent, turn: 1 });
+	const afterStop = triggers.snapshot();
+	assert.equal(afterStop.turnStoppingSeen, 1);
+	assert.equal(afterStop.lastReflectionGate, "open");
+	assert.equal(afterStop.lastTurn, 1);
+	// turn/end bookkeeping fires only for own session and turn/end type.
+	triggers.onSessionEvent(agent.session, { type: "turn/end", data: { turn: 1 } });
+	triggers.onSessionEvent(agent.session, { type: "session/event", data: {} });
+	triggers.onSessionEvent({ other: true }, { type: "turn/end", data: { turn: 2 } });
+	assert.equal(triggers.snapshot().turnEndSeen, 1);
+});
+
+test("turn triggers: not_governed gate evaluates closed", async () => {
+	const { createTurnTriggers } = await import("../lib/triggers.js");
+	const agent = makeAgent("s1", "/cwd");
+	const triggers = createTurnTriggers(agent, {
+		getScopeState: () => "not_governed",
+		log: { info() {}, warn() {} }
+	});
+	triggers.onTurnStopping({ agent, turn: 3 });
+	assert.equal(triggers.snapshot().lastReflectionGate, "closed");
+});

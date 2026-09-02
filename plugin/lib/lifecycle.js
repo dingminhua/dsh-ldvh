@@ -22,6 +22,7 @@
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { registerLdvhTools } from "./ldvh-tools.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
+import { createTurnTriggers } from "./triggers.js";
 
 export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes }) {
   // Per-agent runtime records: agentId -> { toolsDisposer, scopeState }.
@@ -106,9 +107,18 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       const onPreStep = createPreStepHandler(agent, {
         isGoverned: () => record.scopeState === "governed"
       });
+      // Turn-level triggers (turn-stopping reflection seam + turn/end
+      // bookkeeping seam): mounted now, content empty (Human strategy
+      // 2026-09-03: 先占位后填内容).
+      const turnTriggers = createTurnTriggers(agent, {
+        getScopeState: () => record.scopeState,
+        log: ctx.logger
+      });
       const stops = [
         agent.ctx.on("system-prompt/assemble", (assembly, context, next) => onAssemble(assembly, context, next)),
         agent.ctx.on("agent/pre-step", (payload, next) => onPreStep.handler(payload, next), { prepend: true }),
+        agent.ctx.on("agent/turn-stopping", (payload) => turnTriggers.onTurnStopping(payload)),
+        agent.ctx.on("session/event", (session, event) => turnTriggers.onSessionEvent(session, event)),
         agent.ctx.on("agent/session-start", () => {
           // Prime the pre-step channel (every session-start source: startup /
           // resume / clear / compact) so the next step-1 is evaluated fresh
