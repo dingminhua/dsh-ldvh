@@ -28,10 +28,10 @@ const GOVERNED_GUIDANCE = `【LDVH 管辖会话最小引导】
 管辖状态：ldvh_resolve_governance_scope。完整规则以规范源原文为准，本引导不复制规则正文。`;
 
 const UNAVAILABLE_GUIDANCE = `【LDVH 管辖状态不可用】
-LDVH 管辖登记当前不可读取（fail-closed）。在状态恢复前：
-- 不要假定本项目受辖或不受辖；
-- LDVH 受控操作（规范读取、precheck、受控提交声明）暂停，按 specs/00 §7.2 暂停受影响行动；
-- 可用 ldvh_resolve_governance_scope 查看具体原因，或在 DSH 设置页检查管辖登记。`;
+LDVH 管辖登记当前不可读取。本项目暂按不受管辖处理（与 not_governed 一致），但状态确为「不可用」而非「不受辖」，不得据此认定本项目不受辖。
+- 行动：与不受辖一致——不启用 LDVH 受控操作，不声明本项目受辖；
+- 原因与处理：检查 DSH 用户配置根下的 ldvh/governed-projects.yaml 是否可读且格式正确（可能原因见 specs/07 §5.3：配置根不可用、登记载体不可读、权限未核验、访问被拒或 Schema 无效），或在 DSH 设置页的管辖项目页查看具体原因。
+完整规则以规范源原文为准，本引导不复制规则正文。`;
 
 /**
  * Guidance text for a governance state. not_governed returns "" — the empty
