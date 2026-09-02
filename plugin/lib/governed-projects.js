@@ -170,34 +170,30 @@ export async function readGovernedProjects(dshHomePath) {
  * name, description) with status left undefined when no inspection data
  * exists (the scope judge must not treat missing status as a failure).
  *
- * The parsed result is cached in-process keyed by (path, mtimeMs, size):
- * the registration carrier changes only through register/unregister writes
- * (atomic replace), so an unchanged file is served from memory — the hot
- * path becomes one stat() plus containment compares instead of a YAML read
- * and parse. Any fs error is fail-closed (never a cached success), exactly
- * like the uncached path.
+ * NO CACHING (Human gate 2026-09-03): every call reads and parses the
+ * registration carrier from disk. The earlier mtime cache was removed because
+ * 07 §5.3 forbids "using cache to backfill a judgement" — the authority for
+ * every judgement must be the current file content, not a memo. The cost of
+ * a single YAML read + parse is microseconds; the former 104 ms bottleneck
+ * was a git-inspection subprocess that has already been removed, so no cache
+ * is needed for speed either. Canonical project roots are still pre-resolved
+ * once per call (per-carrier-change realpath), because that is part of the
+ * judgement semantics, not a cache.
  */
-const indexCache = new Map();
-
 export async function readGovernedProjectIndex(dshHomePath) {
   const path = registrationPath(dshHomePath);
-  let status;
   try {
-    status = await stat(path);
+    await stat(path);
   } catch (error) {
     if (error?.code === "ENOENT") {
-      indexCache.delete(path);
       return success({ initialized: false, projects: [], defaultProjectId: "", fingerprint: null });
     }
-    indexCache.delete(path);
     return failure("registration_unavailable", String(error?.message || error));
   }
-  const cached = indexCache.get(path);
-  if (cached !== undefined && cached.mtimeMs === status.mtimeMs && cached.size === status.size) return cached.result;
   try {
     const registration = await readRegistration(dshHomePath);
-    // Pre-resolve each registered project's canonical root ONCE per carrier
-    // change (install-time paths are already canonical; this also absorbs a
+    // Pre-resolve each registered project's canonical root ONCE per call
+    // (install-time paths are already canonical; this also absorbs a
     // hand-edited alias like /var vs /private/var on macOS). The judgement
     // hot path then does zero fs calls per project — a pure string compare.
     const projects = [];
@@ -210,16 +206,13 @@ export async function readGovernedProjectIndex(dshHomePath) {
       }
       projects.push({ ...project, canonicalPath });
     }
-    const result = success({
+    return success({
       initialized: registration.exists,
       projects,
       defaultProjectId: registration.document.default_project_id,
       fingerprint: registration.fingerprint
     });
-    indexCache.set(path, { mtimeMs: status.mtimeMs, size: status.size, result });
-    return result;
   } catch (error) {
-    indexCache.delete(path);
     return failure("registration_unavailable", String(error?.message || error));
   }
 }

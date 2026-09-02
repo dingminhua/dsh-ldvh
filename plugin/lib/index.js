@@ -1,20 +1,26 @@
-// dsh-ldvh — LD Vibe Harness host-plane plugin.
+// dsh-ldvh — LD Vibe Harness host-plane plugin (assembly layer).
 //
-// Registers the `dsh-ldvh` settings section (LDVH Web presentation mount
-// control) and, when the host `webServer` service is loaded,
-// serves the LDVH Web under two prefix routes:
+// This module only ASSEMBLES: settings section, registration-carrier
+// startup self-check, the per-agent lifecycle registry (framework doc §4
+// points 1–2, 4–5), and the web surface mounted through a soft
+// ctx.inject(["webServer"]) callback (point 3) so headless compositions
+// still get the full core (governance judgement, guidance, tools).
 //
-//   /ldvh/api  — the migrated backend (business services from v4 web/api)
-//   /ldvh      — the migrated frontend SPA (built dist, static + index fallback)
+// Web routes (only when a webServer exists):
+//   /ldvh/api   — backend API (health + governed-project lifecycle ops)
+//   /ldvh       — frontend SPA (placeholder until the v4 web migration)
+//   /ldvh/state — always-on governance-state endpoint for the Client mark
+//                 (independent of the webEnabled presentation switch)
 //
-// The web routes are registered/unregistered against the live `webEnabled`
-// setting: turning the switch off removes the routes; turning it on registers
-// them and the Client automatically probes availability. Lifecycle is otherwise
-// owned by ctx.effect: disabling the plugin
-// removes the routes and releases every resource. The webServer service is a
-// declared injection, so the plugin activates only in compositions that
-// actually provide it (DSH Desktop / web profiles); headless compositions
-// without a webServer never activate this plugin.
+// What deliberately does NOT live here anymore (batch-1 rewrite):
+//   - the global systemPrompt.section guidance channel (removed by Human
+//     decision 2026-09-03 — the per-agent assemble waterfall in
+//     guidance.js is the single injection path);
+//   - governance judgement caches (removed by Human decision 2026-09-03 —
+//     07 §5.3: every judgement reads the registration carrier for real);
+//   - host-level agent/session-start tool registration and the manual
+//     agent Map (replaced by lifecycle.js: agent/created + per-agent
+//     fiber effects + roots-only gate + adoption of already-live agents).
 
 import z from "@deepseek-ai/schemastery";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
@@ -22,15 +28,15 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureRegistrationCarrier, readGovernedProjects } from "./governed-projects.js";
 import { createGovernanceHandler } from "./host-api.js";
+import { createLifecycleRegistry } from "./lifecycle.js";
+import { createSessionScopes } from "./session-scopes.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
-import { registerLdvhTools } from "./ldvh-tools.js";
-import { GUIDANCE_SECTION_NAME, GUIDANCE_SECTION_ORDER, guidanceTextFor } from "./guidance-text.js";
 
 const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const GATE_RUNNER_PATH = fileURLToPath(new URL("./git-gate-runner.js", import.meta.url));
 
 export const name = "dsh-ldvh";
-export const inject = ["webServer", "tools", "systemPrompt"];
+export const inject = ["tools", "settings", "systemPrompt"];
 
 const LDVH_SETTINGS_NAMESPACE = settingsNamespace("dsh-ldvh");
 
@@ -134,19 +140,16 @@ function registerWebRoutes(webServer, dshHomePath) {
  * Web mount is switched off.
  *
  * Two query forms, in priority order:
- *   1. `?sessionId=` — the Client dock Slot only receives a sessionId (cwd
- *      lives in the Client's own sessions list, which that Slot does not
- *      get), so the Host looks the scope up in the table it populated at
- *      agent/session-start. One authority: the same judgement the tools and
- *      the guidance section already use.
- *   2. `?cwd=` — a direct lookup, kept for callers that already know the cwd.
+ *   1. `?sessionId=` — answered from the session-scopes table populated by
+ *      the per-agent lifecycle (session-start and assemble). An unknown
+ *      sessionId is NOT guessed: it answers `unknown`, and the Client
+ *      renders nothing (fail-closed — no mark is safer than a false green).
+ *   2. `?cwd=` — a direct judgement call, kept for callers that know the cwd.
  *
- * An unknown sessionId is NOT guessed: it answers `unknown`, and the Client
- * renders nothing (fail-closed — no mark is safer than a false green mark).
  * Only identity is returned: no paths, no settings — this is a status
  * indicator, not a settings surface.
  */
-function registerStateRoute(webServer, resolveScope, sessionScopes) {
+function registerStateRoute(webServer, sessionScopes, dshHomePath) {
   return webServer.register({
     kind: "prefix",
     path: STATE_PREFIX,
@@ -176,7 +179,7 @@ function registerStateRoute(webServer, resolveScope, sessionScopes) {
           return;
         }
         try {
-          const scope = await resolveScope(cwd);
+          const scope = await resolveGovernanceScope(dshHomePath, cwd);
           json(res, 200, {
             ok: true,
             state: scope.state,
@@ -193,65 +196,65 @@ function registerStateRoute(webServer, resolveScope, sessionScopes) {
 }
 
 export function apply(ctx) {
-  const state = { settingsSource: void 0, disposeRoutes: null, disposeStateRoute: null };
-  // sessionId -> resolved scope, for the Client governance indicator. The dock
-  // Slot only receives a sessionId (cwd lives in the Client's own sessions
-  // list, which that Slot does not get), so the Host answers "what is this
-  // session's state?" from this table instead of re-deriving it.
-  // Populated on agent/session-start, removed on agent/disposed, cleared on
-  // plugin disposal. Declared here, before the route registration below uses
-  // it (a later `const` declaration would throw a TDZ ReferenceError).
-  const sessionScopes = new Map();
-
-  // The webServer service is a declared injection (see `inject` above): the
-  // plugin activates only once the service is up. This removes the historic
-  // race where `ctx.get("webServer")` snapshotted the service during plugin
-  // tree loading (before dsh-host-webserver had provided it), silently
-  // skipping route registration forever — "absent at apply time" used to be
-  // mistaken for the steady-state headless case.
-  const webServer = ctx.webServer;
+  const state = { settingsSource: void 0, syncRoutes: void 0 };
+  const sessionScopes = createSessionScopes();
   const dshHomePath = ctx.get("dshHomePath");
 
-  // Sync the web route registration with the live setting:
-  //   webEnabled on  → register (mount) the /ldvh routes;
-  //   webEnabled off → unregister (unmount) them.
-  function syncRoutes() {
-    if (webServer === void 0) {
-      ctx.logger.warn("[dsh-ldvh] webServer service lost before route sync; routes are unmounted");
-      return;
-    }
-    const enabled = webEnabled(state);
+  // Per-agent lifecycle: agent/created install + adoption of already-live
+  // agents; guidance injection, tools guard and the pre-step skeleton all
+  // live behind this registry (framework doc §4 points 1–2, 4–5).
+  const lifecycle = createLifecycleRegistry(ctx, {
+    dshHomePath,
+    workspaceRoot: PACKAGE_ROOT,
+    sessionScopes
+  });
+  const stopLifecycle = lifecycle.start();
 
-    if (enabled) {
-      if (state.disposeRoutes === null) {
-        state.disposeRoutes = registerWebRoutes(webServer, dshHomePath);
-        ctx.logger.info("[dsh-ldvh] web routes registered under %s / %s", SPA_PREFIX, API_PREFIX);
+  // Soft web mount (framework doc §4 point 3): the webServer service is NOT a
+  // hard injection anymore. In compositions that provide one, this child
+  // fiber mounts the routes; headless compositions simply never run the
+  // callback and the core (judgement/guidance/tools) is unaffected. The
+  // child fiber is disposed with the plugin, so every route registered here
+  // is cleaned up automatically on stop/update (audit D confirmed).
+  ctx.inject(["webServer"], (webCtx) => {
+    const webServer = webCtx.webServer;
+    if (webServer === undefined) return;
+    const disposeStateRoute = registerStateRoute(webServer, sessionScopes, dshHomePath);
+    webCtx.logger.info("[dsh-ldvh] governance-state route registered under %s", STATE_PREFIX);
+    let disposeRoutes = null;
+    const syncRoutes = () => {
+      if (webEnabled(state)) {
+        if (disposeRoutes === null) {
+          disposeRoutes = registerWebRoutes(webServer, dshHomePath);
+          webCtx.logger.info("[dsh-ldvh] web routes registered under %s / %s", SPA_PREFIX, API_PREFIX);
+        }
+      } else if (disposeRoutes !== null) {
+        disposeRoutes();
+        disposeRoutes = null;
+        webCtx.logger.info("[dsh-ldvh] web routes unmounted by setting");
       }
-    } else if (state.disposeRoutes !== null) {
-      state.disposeRoutes();
-      state.disposeRoutes = null;
-      ctx.logger.info("[dsh-ldvh] web routes unmounted by setting");
-    }
-  }
-
-  // The governance-state route is NOT part of syncRoutes: it must stay
-  // mounted while the plugin runs, regardless of the Web-presentation switch.
-  // `cachedGovernanceScope` is a hoisted function declaration defined below.
-  if (webServer !== undefined) {
-    state.disposeStateRoute = registerStateRoute(webServer, cachedGovernanceScope, sessionScopes);
-    ctx.logger.info("[dsh-ldvh] governance-state route registered under %s", STATE_PREFIX);
-  }
+    };
+    syncRoutes();
+    state.syncRoutes = syncRoutes;
+    webCtx.effect(() => () => {
+      if (disposeRoutes !== null) {
+        try { disposeRoutes(); } catch { /* already removed */ }
+        disposeRoutes = null;
+      }
+      try { disposeStateRoute(); } catch { /* already removed */ }
+      if (state.syncRoutes === syncRoutes) state.syncRoutes = void 0;
+    }, "dsh-ldvh: web routes and state route");
+  });
 
   // The settings seam owns its injected lifecycle and provides a live source
   // thunk plus change notifications. It declares its own `settings` injection
-  // internally, so the settings row appears once the settings service is up
-  // (independent of when our own fiber activated on webServer).
+  // internally, so the settings row appears once the settings service is up.
   installSettingsSection(ctx, LDVH_SETTINGS_NAMESPACE, LDVH_SETTINGS_SCHEMA, {}, {
     setSource: (current) => {
       state.settingsSource = current;
-      syncRoutes();
+      state.syncRoutes?.();
     },
-    onChange: () => { syncRoutes(); }
+    onChange: () => { state.syncRoutes?.(); }
   });
 
   // Startup carrier lifecycle (Human-confirmed design): plugin load ensures
@@ -259,10 +262,8 @@ export function apply(ctx) {
   // empty file in place, adding a governed project updates it. Only a
   // missing file is created; existing carriers are never rewritten here and
   // corrupt or unreadable ones stay fail-closed (logged, not overwritten).
-  // The follow-up inspection is read-only and its result is deliberately not
-  // cached as authority: UI/CLI operations re-read their actual files. This
-  // validates that every launch checks registered projects and Hook versions
-  // without silently installing or updating anything.
+  // The follow-up inspection is read-only: every launch checks registered
+  // projects without silently installing or updating anything.
   if (typeof dshHomePath === "function") {
     Promise.resolve(ensureRegistrationCarrier(dshHomePath))
       .then((ensured) => {
@@ -276,150 +277,13 @@ export function apply(ctx) {
       .catch((error) => ctx.logger.warn(error));
   }
 
-  // P0 AI-facing surface: minimal rule guidance (systemPrompt section, the
-  // text is a function so it re-evaluates at every prompt assembly) and the
-  // first LDVH tool batch, both gated on the live governance three-state.
-  //   governed    -> guidance section with the seven 00 anchors + 5 tools
-  //   not_governed -> empty guidance text (filtered at assembly = zero
-  //                   interference) + no tools (§15 item 1)
-  //   unavailable -> fail-closed guidance section + no tools (§15 item 3)
-  // The section function resolves the caller session's cwd from the
-  // assembly context; per-step re-evaluation means a mid-session install or
-  // cancellation of governance takes effect on the next assembly without a
-  // restart.
-  //
-  // Tool registration is AGENT-SCOPED, not global: registering through the
-  // started agent's own context (dsh-scope ScopedLayers) makes the batch
-  // visible to that agent's session only — a not_governed session in the
-  // same host never sees the tools even while a governed session has them.
-  // The guidance section keeps its global registration with per-assembly
-  // text: not_governed evaluates to "" which assembly filters out (the
-  // zero-interference guarantee).
-  const scopeCache = new Map();      // cwd -> { fingerprint, promise } — async resolution
-  const resolvedScopes = new Map();  // cwd -> scope object — SYNCHRONOUS snapshot
-  const agentDisposers = new Map();
-
-  function cachedGovernanceScope(cwd) {
-    const unavailable = { state: "unavailable", detail: "session working directory is unavailable" };
-    if (typeof cwd !== "string" || cwd.length === 0) return Promise.resolve(unavailable);
-    const cached = scopeCache.get(cwd);
-    if (cached !== undefined) return cached.promise;
-    const promise = resolveGovernanceScope(dshHomePath, cwd).then((scope) => {
-      // Snapshot the resolved scope synchronously so the guidance section
-      // (which dsh-system-prompt evaluates SYNCHRONOUSLY, never awaiting a
-      // Promise) can read the current state without an async text function.
-      resolvedScopes.set(cwd, scope);
-      // Invalidate other cached entries when the registration fingerprint
-      // moved (project added/removed) so a mid-session governance change is
-      // visible on the next evaluation.
-      const fingerprint = scope.registrationFingerprint ?? null;
-      for (const [key, entry] of scopeCache) {
-        if (key === cwd) continue;
-        if (entry.fingerprint !== fingerprint) scopeCache.delete(key);
-      }
-      return scope;
-    }).catch((error) => {
-      const scope = { state: "unavailable", detail: String(error?.message ?? error) };
-      resolvedScopes.set(cwd, scope);
-      return scope;
-    });
-    scopeCache.set(cwd, { fingerprint: null, promise });
-    promise.then((scope) => {
-      const entry = scopeCache.get(cwd);
-      if (entry !== undefined) entry.fingerprint = scope.registrationFingerprint ?? null;
-    });
-    return promise;
-  }
-
-  // IMPORTANT (real-host contract): dsh-system-prompt evaluates section.text
-  // SYNCHRONOUSLY at every prompt assembly — an async text function would
-  // return a Promise and crash interpolate() with `text.indexOf is not a
-  // function`. So the section text is a SYNC function reading the resolved
-  // snapshot (filled by the async session-start path / cachedGovernanceScope
-  // resolution above). Before the snapshot exists the text is "" — assembly
-  // filters empty sections, which is exactly the not_governed zero-interference
-  // guarantee and is fail-safe.
-  ctx.systemPrompt.section({
-    name: GUIDANCE_SECTION_NAME,
-    order: GUIDANCE_SECTION_ORDER,
-    text(context) {
-      const cwd = context?.agent?.session?.header?.cwd;
-      if (typeof cwd === "string") {
-        const scope = resolvedScopes.get(cwd);
-        if (scope !== undefined) return guidanceTextFor(scope.state);
-        // Snapshot not ready yet: kick the async resolution (it writes the
-        // snapshot for the NEXT assembly) and return "" now — assembly
-        // filters empty sections, which is the fail-safe zero-interference
-        // path (never an asserted wrong state).
-        void cachedGovernanceScope(cwd);
-        return "";
-      }
-      return "";
-    }
-  });
-
-  function syncToolsForAgent(agent, scope) {
-    const agentId = agent?.id ?? agent?.session?.header?.id;
-    if (typeof agentId !== "string") return;
-    const registerable = scope.state === "governed" && agent?.ctx !== undefined;
-    const existing = agentDisposers.get(agentId);
-    if (registerable && existing === undefined) {
-      const dispose = registerLdvhTools(agent.ctx, {
-        dshHomePath,
-        workspaceRoot: PACKAGE_ROOT,
-        sessionPersistence: () => ctx.get("sessionPersistence")
-      });
-      agentDisposers.set(agentId, { dispose, agent });
-      ctx.logger.info("[dsh-ldvh] registered LDVH tool batch (agent-scoped) for governed session %s", agentId);
-    } else if (!registerable && existing !== undefined) {
-      try { existing.dispose(); } catch { /* already removed */ }
-      agentDisposers.delete(agentId);
-      ctx.logger.info("[dsh-ldvh] unregistered LDVH tool batch (governance state: %s)", scope.state);
-    }
-  }
-
-  // Sessions start with a live scope resolution; agent disposal (cordis
-  // effect on the agent's own fiber) removes its scoped registrations, so
-  // only the started-agent bookkeeping needs explicit handling here.
-  //
-  // The resolved scope is also recorded by session id for the Client
-  // governance indicator: the dock Slot receives only a sessionId (no cwd —
-  // cwd lives in the Client's sessions list, which that Slot does not get),
-  // so the Host answers "what is this session's state?" from this table.
-  ctx.on("agent/session-start", async ({ agent }) => {
-    const cwd = agent?.session?.header?.cwd;
-    if (typeof cwd !== "string") return;
-    const scope = await cachedGovernanceScope(cwd);
-    const sessionId = agent?.session?.header?.id;
-    if (typeof sessionId === "string") sessionScopes.set(sessionId, scope);
-    syncToolsForAgent(agent, scope);
-  });
-  ctx.on("agent/disposed", ({ agent }) => {
-    const agentId = agent?.id ?? agent?.session?.header?.id;
-    if (typeof agentId === "string") agentDisposers.delete(agentId);
-    const sessionId = agent?.session?.header?.id;
-    if (typeof sessionId === "string") sessionScopes.delete(sessionId);
-  });
-
-
-
-  // Plugin-level cleanup: remove routes, every agent-scoped tool batch, and
-  // drop the live source. (Agent-scoped registrations also die with their
-  // own fibers; this sweep covers agents outliving the plugin.)
+  // Plugin-level cleanup: stop the lifecycle registry (agent/created
+  // listener + adoption bookkeeping) and drop the session-scopes table.
+  // Per-agent hooks and tools die with their own agent fibers; the web
+  // child fiber dies with the plugin.
   ctx.effect(() => () => {
-    if (state.disposeRoutes !== null) {
-      try { state.disposeRoutes(); } catch { /* already removed */ }
-      state.disposeRoutes = null;
-    }
-    if (state.disposeStateRoute !== null) {
-      try { state.disposeStateRoute(); } catch { /* already removed */ }
-      state.disposeStateRoute = null;
-    }
-    for (const { dispose } of agentDisposers.values()) {
-      try { dispose(); } catch { /* already removed */ }
-    }
-    agentDisposers.clear();
+    try { stopLifecycle(); } catch { /* already removed */ }
     sessionScopes.clear();
     state.settingsSource = void 0;
-  }, "dsh-ldvh: web routes, state route, and tools");
+  }, "dsh-ldvh: lifecycle registry and session scopes");
 }
