@@ -843,7 +843,7 @@ window.__ModuleLoader__.load({
     }
 
     // ── apply: inject the contributions ──────────────────────────────────
-    var inject = ["slots", "locale", "settingsScope"];
+    var inject = ["slots", "locale", "settingsScope", "uiConversation"];
 
     function apply(ctx) {
       try {
@@ -880,25 +880,60 @@ window.__ModuleLoader__.load({
 
         // 3) governance-state mark inside the conversation flow
         //    (conversation.chat.turnTail, chain/session). Human decision
-        //    (2026-09-02): the mark appears ONCE — under the first completed
-        //    turn of a governed session — and scrolls with the flow, instead
-        //    of a persistent row above the composer. Chain semantics (verified
-        //    against dsh-client-ui-renderer renderOutletContent + the
-        //    dsh-deliverables precedent): select(owner) is called per
-        //    completed turn; the first non-null entry is elected and its
-        //    component renders above that turn's usage/actions footer. Turn
-        //    ids are sequential per session record (verified in the session
-        //    JSONL: 1,2,3…), so `turn 1` is a stable anchor for "the
-        //    conversation's first turn" — including continued conversations,
-        //    whose replayed history is renumbered into the new record.
+        //    (2026-09-02): appears ONCE, scrolls with the flow. Human
+        //    refinement (2026-09-03): the anchor is the turn in which the
+        //    governance-confirmation TOOL was actually CALLED
+        //    (ldvh_resolve_governance_scope) — "the API was called, so the
+        //    line shows up there" — not a fixed turn number (a continued
+        //    conversation replays history as turn 1, where no confirmation
+        //    happened).
+        //
+        //    Mechanism (deliverables precedent, dsh-client-ui-deliverables
+        //    definition): a client-side event definition watches tool/call,
+        //    records { claimed: true } on the matching turn's aggregate data
+        //    (turn.data), and publishes no view node of its own. The chain
+        //    select then elects that turn. "Once" = lowest claimed turn id
+        //    across the session record: later confirmations are recorded but
+        //    do not spawn a second mark (turn ids are sequential per session,
+        //    verified in the session JSONL).
+        var LDVH_SCOPE_TOOL = "ldvh_resolve_governance_scope";
+        var scopeClaimDefinition = {
+          kind: "ldvh-scope-claim",
+          match: function (event) {
+            if (event.type === "tool/call" && event.data.name === LDVH_SCOPE_TOOL) return {
+              id: "ldvh-scope-claim",
+              role: "update"
+            };
+            return null;
+          },
+          start: function () { return { turns: {} }; },
+          update: function (context, match) {
+            if (match.event.type !== "tool/call") return context.state;
+            var turnId = String(match.event.data.turn);
+            var turns = Object.assign({}, context.state.turns);
+            turns[turnId] = true;
+            return { turns: turns };
+          },
+          publication: function (match) { return match.event.type === "tool/call" ? "immediate" : "none"; },
+          buildLocationData: function () { return null; }
+        };
+        ctx.uiConversation.events.register(scopeClaimDefinition);
+
         ctx.slots.inject("conversation.chat.turnTail", function () {
           return ctx.slots.register({
             name: "conversation.chat.turnTail",
             select: function (owner) {
-              var turnId = owner && owner.turn ? owner.turn.turn : void 0;
-              // Accept the raw number and its string form; anything else —
-              // including a missing turn — declines (renders nothing).
-              if (turnId !== 1 && turnId !== "1") return null;
+              var turn = owner && owner.turn;
+              if (!turn) return null;
+              var claim = turn.data.get("ldvh-scope-claim");
+              if (claim === void 0 || claim.turns === void 0) return null;
+              var turnId = String(turn.turn);
+              if (claim.turns[turnId] !== true) return null;
+              // "Show once": if a LOWER turn id is also claimed, decline —
+              // the earlier confirmation owns the mark.
+              for (var key in claim.turns) {
+                if (Object.prototype.hasOwnProperty.call(claim.turns, key) && Number(key) < Number(turnId)) return null;
+              }
               return { mark: true };
             },
             // inject receives the sessionId (a string) for session-scoped

@@ -17,7 +17,10 @@ test("matches the WorkBuddy plugin-card shell contract", () => {
 });
 
 test("uses the WorkBuddy client registration and degradation pattern", () => {
-	assert.ok(source.includes('var inject = ["slots", "locale", "settingsScope"]'));
+	// inject grew beyond the WorkBuddy baseline: uiConversation is required by
+	// the ldvh-scope-claim event definition (turn-anchored governance mark,
+	// deliverables-style), which the baseline settings card never needed.
+	assert.ok(source.includes('var inject = ["slots", "locale", "settingsScope", "uiConversation"]'));
 	assert.ok(source.includes('ctx.effect(function ()'));
 	assert.ok(source.includes('ctx.locale.register(LDVH_NS, { zh: LDVH_ZH, en: LDVH_EN })'));
 	assert.ok(source.includes('ctx.locale.bind(LDVH_NS)'));
