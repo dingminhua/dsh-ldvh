@@ -880,42 +880,70 @@ window.__ModuleLoader__.load({
 
         // 3) governance-state mark inside the conversation flow
         //    (conversation.chat.turnTail, chain/session). Human decision
-        //    (2026-09-02): appears ONCE, scrolls with the flow. Human
-        //    refinement (2026-09-03): the anchor is the turn in which the
-        //    governance-confirmation TOOL was actually CALLED
-        //    (ldvh_resolve_governance_scope) — "the API was called, so the
-        //    line shows up there" — not a fixed turn number (a continued
-        //    conversation replays history as turn 1, where no confirmation
-        //    happened).
+        //    (2026-09-02): appears in the flow, scrolls with it, never a
+        //    persistent row. Human refinement (2026-09-03): the anchor is the
+        //    turn in which the governance-confirmation TOOL was actually
+        //    CALLED (ldvh_resolve_governance_scope) — "the API was called,
+        //    so the line shows up there" — not a fixed turn number (a
+        //    continued conversation replays history as turn 1, where no
+        //    confirmation happened). Any turn that calls the confirmation
+        //    tool shows the mark at its tail; confirmations are rare (one
+        //    per session in practice), so this stays quiet by construction.
         //
         //    Mechanism (deliverables precedent, dsh-client-ui-deliverables
         //    definition): a client-side event definition watches tool/call,
         //    records { claimed: true } on the matching turn's aggregate data
         //    (turn.data), and publishes no view node of its own. The chain
-        //    select then elects that turn. "Once" = lowest claimed turn id
-        //    across the session record: later confirmations are recorded but
-        //    do not spawn a second mark (turn ids are sequential per session,
-        //    verified in the session JSONL).
+        //    select then elects that turn.
+        //
+        //    Definition contract (dsh-client-ui-deliverables, read line by
+        //    line): ONE INSTANCE PER TURN (`id: String(turn)`), initialized
+        //    on turn/start (`role: "start"` — without a start match the
+        //    instance never exists and every update is dropped, which is
+        //    exactly why the first version of this definition silently did
+        //    nothing), and `buildLocationData(context, "turn")` is what
+        //    actually WRITES the value into `turn.data` under the definition
+        //    kind — omitting it leaves `turn.data.get(kind)` undefined
+        //    forever. "Show once" needs no cross-turn scan: the chain select
+        //    is called per turn, and the earliest claimed turn simply is the
+        //    first one whose tail elects this entry.
         var LDVH_SCOPE_TOOL = "ldvh_resolve_governance_scope";
         var scopeClaimDefinition = {
           kind: "ldvh-scope-claim",
           match: function (event) {
+            if (event.type === "turn/start") return {
+              id: String(event.data.turn),
+              role: "start"
+            };
             if (event.type === "tool/call" && event.data.name === LDVH_SCOPE_TOOL) return {
-              id: "ldvh-scope-claim",
+              id: String(event.data.turn),
               role: "update"
             };
             return null;
           },
-          start: function () { return { turns: {} }; },
+          start: function (context, match) {
+            if (match.event.type !== "turn/start") throw new Error("ldvh-scope-claim start requires turn/start");
+            return {
+              turn: match.event.data.turn,
+              claimed: false
+            };
+          },
           update: function (context, match) {
             if (match.event.type !== "tool/call") return context.state;
-            var turnId = String(match.event.data.turn);
-            var turns = Object.assign({}, context.state.turns);
-            turns[turnId] = true;
-            return { turns: turns };
+            return {
+              turn: context.state.turn,
+              claimed: true
+            };
           },
           publication: function (match) { return match.event.type === "tool/call" ? "immediate" : "none"; },
-          buildLocationData: function () { return null; }
+          buildLocationData: function (context, scope) {
+            return scope !== "turn" || context.state === void 0 ? null : {
+              kind: "turn",
+              turn: context.state.turn,
+              key: "ldvh-scope-claim",
+              value: { claimed: context.state.claimed }
+            };
+          }
         };
         ctx.uiConversation.events.register(scopeClaimDefinition);
 
@@ -926,14 +954,7 @@ window.__ModuleLoader__.load({
               var turn = owner && owner.turn;
               if (!turn) return null;
               var claim = turn.data.get("ldvh-scope-claim");
-              if (claim === void 0 || claim.turns === void 0) return null;
-              var turnId = String(turn.turn);
-              if (claim.turns[turnId] !== true) return null;
-              // "Show once": if a LOWER turn id is also claimed, decline —
-              // the earlier confirmation owns the mark.
-              for (var key in claim.turns) {
-                if (Object.prototype.hasOwnProperty.call(claim.turns, key) && Number(key) < Number(turnId)) return null;
-              }
+              if (claim === void 0 || claim.claimed !== true) return null;
               return { mark: true };
             },
             // inject receives the sessionId (a string) for session-scoped
