@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, mkdir, writeFile, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import test from "node:test";
 import { Context } from "@deepseek-ai/cordis";
 import { SettingsProvider } from "@deepseek-ai/dsh-settings";
@@ -307,4 +308,88 @@ test("apply() ensures the empty registration carrier when dshHomePath is availab
 			await disposeHarness(harness);
 		}
 	});
+});
+
+/**
+ * Drive one registered prefix handler in memory and return { status, body }.
+ * The harness records handlers rather than serving HTTP, so tests call them
+ * directly with a minimal req/res pair.
+ */
+async function callRoute(webServer, path, query) {
+	const route = webServer.routes("prefix").find((r) => path.startsWith(r.path));
+	assert.ok(route !== undefined, `no registered prefix route serves ${path}`);
+	const url = new URL(path + (query === undefined ? "" : query), "http://ldvh.local");
+	const chunks = [];
+	const res = {
+		statusCode: 0,
+		headers: {},
+		setHeader(name, value) { this.headers[name] = value; },
+		end(text) { chunks.push(String(text)); }
+	};
+	await route.handler({ url: url.toString(), method: "GET" }, res);
+	return { status: res.statusCode, body: chunks.length === 0 ? null : JSON.parse(chunks.join("")) };
+}
+
+// ---------------------------------------------------------------------------
+// /ldvh/state/governance endpoint behaviour
+// ---------------------------------------------------------------------------
+
+test("state endpoint answers unknown for an untracked sessionId (fail-closed, never guessed)", async () => {
+	const harness = await createHarness();
+	try {
+		const result = await callRoute(harness.webServer, "/ldvh/state/governance", "?sessionId=not-a-known-session");
+		assert.equal(result.status, 200);
+		assert.equal(result.body.state, "unknown", "an untracked session must not be guessed as governed or not_governed");
+		assert.equal(result.body.project, null);
+	} finally {
+		await disposeHarness(harness);
+	}
+});
+
+test("state endpoint rejects a request with neither sessionId nor cwd", async () => {
+	const harness = await createHarness();
+	try {
+		const result = await callRoute(harness.webServer, "/ldvh/state/governance", "");
+		assert.equal(result.status, 400);
+		assert.equal(result.body.ok, false);
+	} finally {
+		await disposeHarness(harness);
+	}
+});
+
+test("state endpoint resolves a cwd directly against the real registration", async () => {
+	const tempRoot = await mkdtemp(join(tmpdir(), "dsh-ldvh-state-"));
+	const dshHomePath = (...segments) => join(tempRoot, ...segments);
+	try {
+		await mkdir(join(tempRoot, "ldvh"), { recursive: true });
+		await writeFile(
+			join(tempRoot, "ldvh", "governed-projects.yaml"),
+			[
+				"schema_version: 1",
+				"governance_instance_name: t",
+				"product_description: t",
+				"projects:",
+				"  - id: probe-project",
+				`    path: ${tempRoot}`,
+				"    name: probe-project",
+				"default_project_id: probe-project",
+				""
+			].join("\n"),
+			"utf8"
+		);
+		const harness = await createHarness({}, { dshHomePath });
+		try {
+			const governed = await callRoute(harness.webServer, "/ldvh/state/governance", "?cwd=" + encodeURIComponent(tempRoot));
+			assert.equal(governed.body.state, "governed");
+			assert.equal(governed.body.project.name, "probe-project");
+
+			const outside = await callRoute(harness.webServer, "/ldvh/state/governance", "?cwd=" + encodeURIComponent(join(tempRoot, "..")));
+			assert.equal(outside.body.state, "not_governed");
+			assert.equal(outside.body.project, null);
+		} finally {
+			await disposeHarness(harness);
+		}
+	} finally {
+		await rm(tempRoot, { recursive: true, force: true });
+	}
 });

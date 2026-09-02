@@ -685,13 +685,17 @@ window.__ModuleLoader__.load({
     // governance claim.
     function LdvhGovernanceMark(props) {
       var t = props.t;
-      var session = props.session;
-      var cwd = session && session.header ? session.header.cwd : null;
+      var sessionId = props.sessionId;
       var state = React.useState(null);
       React.useEffect(function () {
-        if (typeof cwd !== "string" || cwd.length === 0) return undefined;
+        if (typeof sessionId !== "string" || sessionId.length === 0) return undefined;
         var cancelled = false;
-        fetch("/ldvh/state/governance?cwd=" + encodeURIComponent(cwd), { method: "GET", cache: "no-store" })
+        // The Host owns the cwd→state judgement (it already resolves it for
+        // the tools and the guidance section). The Client only knows its
+        // sessionId, which `inject` receives — the dock Slot's props carry no
+        // cwd (verified: cwd lives in useSessions().byId[…], which this Slot
+        // does not receive).
+        fetch("/ldvh/state/governance?sessionId=" + encodeURIComponent(sessionId), { method: "GET", cache: "no-store" })
           .then(function (r) { return r.json(); })
           .then(function (body) {
             if (cancelled) return;
@@ -701,7 +705,7 @@ window.__ModuleLoader__.load({
             if (!cancelled) state[1](null);
           });
         return function () { cancelled = true; };
-      }, [cwd]);
+      }, [sessionId]);
 
       var value = state[0];
       if (value === null || value.state !== "governed") return null;
@@ -801,7 +805,9 @@ window.__ModuleLoader__.load({
             id: "ldvh-governance-mark",
             order: 10,
             label: function () { return t("mark.governed"); },
-            inject: function (session) { return { t: t, session: session }; }
+            // inject receives the sessionId (a string). The session hooks are
+            // injected by the Slot host itself, not returned from here.
+            inject: function (sessionId) { return { t: t, sessionId: sessionId }; }
           }, LdvhGovernanceMark);
         });
       } catch (error) {

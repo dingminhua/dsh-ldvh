@@ -133,12 +133,20 @@ function registerWebRoutes(webServer, dshHomePath) {
  * signal, not a Web-panel feature — the indicator must keep working when the
  * Web mount is switched off.
  *
- * The Client supplies its own session cwd, so the Host stays a pure lookup
- * over the SAME cached judgement the tools and the guidance section use (one
- * authority, no second judgement path). Only identity is returned: no paths,
- * no settings — this is a status indicator, not a settings surface.
+ * Two query forms, in priority order:
+ *   1. `?sessionId=` — the Client dock Slot only receives a sessionId (cwd
+ *      lives in the Client's own sessions list, which that Slot does not
+ *      get), so the Host looks the scope up in the table it populated at
+ *      agent/session-start. One authority: the same judgement the tools and
+ *      the guidance section already use.
+ *   2. `?cwd=` — a direct lookup, kept for callers that already know the cwd.
+ *
+ * An unknown sessionId is NOT guessed: it answers `unknown`, and the Client
+ * renders nothing (fail-closed — no mark is safer than a false green mark).
+ * Only identity is returned: no paths, no settings — this is a status
+ * indicator, not a settings surface.
  */
-function registerStateRoute(webServer, resolveScope) {
+function registerStateRoute(webServer, resolveScope, sessionScopes) {
   return webServer.register({
     kind: "prefix",
     path: STATE_PREFIX,
@@ -146,9 +154,25 @@ function registerStateRoute(webServer, resolveScope) {
       const url = new URL(req.url ?? "/", "http://ldvh.local");
       const path = url.pathname === STATE_PREFIX ? "/" : url.pathname.slice(STATE_PREFIX.length);
       if ((path === "/governance" || path === "/governance/") && (req.method === "GET" || req.method === "HEAD")) {
+        const sessionId = url.searchParams.get("sessionId");
+        if (typeof sessionId === "string" && sessionId.length > 0) {
+          const known = sessionScopes.get(sessionId);
+          if (known === undefined) {
+            // Not yet resolved (or not an LDVH-tracked session): report
+            // unknown rather than guessing governed/not_governed.
+            json(res, 200, { ok: true, state: "unknown", project: null });
+            return;
+          }
+          json(res, 200, {
+            ok: true,
+            state: known.state,
+            project: known.project === undefined ? null : { id: known.project.id, name: known.project.name ?? null }
+          });
+          return;
+        }
         const cwd = url.searchParams.get("cwd");
         if (typeof cwd !== "string" || cwd.length === 0) {
-          json(res, 400, { ok: false, error: { code: "MISSING_CWD" } });
+          json(res, 400, { ok: false, error: { code: "MISSING_QUERY" }, detail: "sessionId or cwd is required" });
           return;
         }
         try {
@@ -170,6 +194,14 @@ function registerStateRoute(webServer, resolveScope) {
 
 export function apply(ctx) {
   const state = { settingsSource: void 0, disposeRoutes: null, disposeStateRoute: null };
+  // sessionId -> resolved scope, for the Client governance indicator. The dock
+  // Slot only receives a sessionId (cwd lives in the Client's own sessions
+  // list, which that Slot does not get), so the Host answers "what is this
+  // session's state?" from this table instead of re-deriving it.
+  // Populated on agent/session-start, removed on agent/disposed, cleared on
+  // plugin disposal. Declared here, before the route registration below uses
+  // it (a later `const` declaration would throw a TDZ ReferenceError).
+  const sessionScopes = new Map();
 
   // The webServer service is a declared injection (see `inject` above): the
   // plugin activates only once the service is up. This removes the historic
@@ -206,7 +238,7 @@ export function apply(ctx) {
   // mounted while the plugin runs, regardless of the Web-presentation switch.
   // `cachedGovernanceScope` is a hoisted function declaration defined below.
   if (webServer !== undefined) {
-    state.disposeStateRoute = registerStateRoute(webServer, cachedGovernanceScope);
+    state.disposeStateRoute = registerStateRoute(webServer, cachedGovernanceScope, sessionScopes);
     ctx.logger.info("[dsh-ldvh] governance-state route registered under %s", STATE_PREFIX);
   }
 
@@ -349,15 +381,24 @@ export function apply(ctx) {
   // Sessions start with a live scope resolution; agent disposal (cordis
   // effect on the agent's own fiber) removes its scoped registrations, so
   // only the started-agent bookkeeping needs explicit handling here.
+  //
+  // The resolved scope is also recorded by session id for the Client
+  // governance indicator: the dock Slot receives only a sessionId (no cwd —
+  // cwd lives in the Client's sessions list, which that Slot does not get),
+  // so the Host answers "what is this session's state?" from this table.
   ctx.on("agent/session-start", async ({ agent }) => {
     const cwd = agent?.session?.header?.cwd;
     if (typeof cwd !== "string") return;
     const scope = await cachedGovernanceScope(cwd);
+    const sessionId = agent?.session?.header?.id;
+    if (typeof sessionId === "string") sessionScopes.set(sessionId, scope);
     syncToolsForAgent(agent, scope);
   });
   ctx.on("agent/disposed", ({ agent }) => {
     const agentId = agent?.id ?? agent?.session?.header?.id;
     if (typeof agentId === "string") agentDisposers.delete(agentId);
+    const sessionId = agent?.session?.header?.id;
+    if (typeof sessionId === "string") sessionScopes.delete(sessionId);
   });
 
 
@@ -378,6 +419,7 @@ export function apply(ctx) {
       try { dispose(); } catch { /* already removed */ }
     }
     agentDisposers.clear();
+    sessionScopes.clear();
     state.settingsSource = void 0;
   }, "dsh-ldvh: web routes, state route, and tools");
 }
