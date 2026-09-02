@@ -116,7 +116,8 @@ test("assemble: foreign agent id and aborted signal pass through untouched", asy
 
 test("pre-step skeleton: reject / aborted / step!==1 pass through; nothing appended at step 1", async () => {
 	const agent = makeAgent("s1", "/cwd");
-	const handler = createPreStepHandler(agent, { isGoverned: () => true });
+	const channel = createPreStepHandler(agent, { isGoverned: () => true });
+	const handler = channel.handler;
 	const enter = { kind: "enter", messages: [{ role: "user", content: [] }] };
 	const reject = { kind: "reject", reason: "x" };
 
@@ -128,6 +129,21 @@ test("pre-step skeleton: reject / aborted / step!==1 pass through; nothing appen
 	assert.equal(r3.messages.length, 1, "step!==1: untouched");
 	const r4 = await handler({ agent, step: 1, signal: {} }, async () => enter);
 	assert.equal(r4.messages.length, 1, "step 1 skeleton appends nothing this batch");
+});
+
+test("pre-step channel: prime() marks the next step-1; own plugin message exercises the ownRequest gate", async () => {
+	const agent = makeAgent("s1", "/cwd");
+	const channel = createPreStepHandler(agent, { isGoverned: () => true });
+	const enter = { kind: "enter", messages: [{ role: "user", content: [] }] };
+	// prime() is the session-start seam: it must not throw and the following
+	// step-1 still passes through with no injection this batch.
+	channel.prime();
+	const r1 = await channel.handler({ agent, step: 1, signal: {} }, async () => enter);
+	assert.equal(r1.messages.length, 1);
+	// A message sourced from this plugin exercises the ownRequest gate.
+	const ownTurn = { kind: "enter", messages: [{ role: "user", content: [], source: { kind: "plugin", plugin: "dsh-ldvh" } }] };
+	const r2 = await channel.handler({ agent, step: 1, signal: {} }, async () => ownTurn);
+	assert.equal(r2.messages.length, 1, "ownRequest turn passes through untouched");
 });
 
 // ---------------------------------------------------------------------------

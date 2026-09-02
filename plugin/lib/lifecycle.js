@@ -108,10 +108,12 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       });
       const stops = [
         agent.ctx.on("system-prompt/assemble", (assembly, context, next) => onAssemble(assembly, context, next)),
-        agent.ctx.on("agent/pre-step", (payload, next) => onPreStep(payload, next), { prepend: true }),
+        agent.ctx.on("agent/pre-step", (payload, next) => onPreStep.handler(payload, next), { prepend: true }),
         agent.ctx.on("agent/session-start", () => {
-          // State record + judgement warm-start only; tools and guidance are
-          // owned by install()/assemble.
+          // Prime the pre-step channel (every session-start source: startup /
+          // resume / clear / compact) so the next step-1 is evaluated fresh
+          // (mnemon primePending shape). Then state record + warm-start.
+          onPreStep.prime();
           void resolve(agent?.session?.header?.cwd).then((scope) => {
             if (!agents.has(agentId)) return; // disposed while judging
             const sessionId = sessionIdOf(agent);

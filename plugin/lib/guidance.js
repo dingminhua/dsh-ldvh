@@ -68,25 +68,55 @@ export function createAssembleHandler(agent, { resolve, syncTools, recordScope }
 }
 
 /**
- * Batch-1 pre-step channel skeleton (audit A/E): prepend makes this the
- * outermost participant so it observes the fully assembled batch; pass
- * through on reject / aborted signal / step !== 1. No message is ever
- * appended in this batch. `ownRequestStub` is a placeholder returning false
- * so the future real injection point has a named seam (review suggestion:
- * do not pre-build judgement logic here).
+ * Pre-step channel (batch-1 skeleton + batch-3-ready mechanics).
+ *
+ * Mount/discipline (audit A/E): prepend makes this the outermost participant
+ * so it observes the fully assembled batch; pass through on reject / aborted
+ * signal / step !== 1. The mechanics mirror mnemon's proven injection layer
+ * (lifecycle.ts preStep), adapted to LDVH's no-content-yet stage:
+ *
+ *   - primePending: set on agent/session-start (any source), consumed on the
+ *     next step-1 — guarantees the first turn of every session is evaluated.
+ *   - ownRequest: a REAL check now (a message whose source is this plugin
+ *     suppresses re-injection this turn) — needed the moment content flows.
+ *   - digest state: a per-agent slot records the last injected digest; the
+ *     batch-3 content renderer will compare before re-injecting.
+ *   - surface visibility seam: cueVisible() checks whether a previously
+ *     injected plugin message is still in the model's view (rewind-safe,
+ *     mnemon cueAlreadyVisible shape); used by batch 3, stubbed true now.
+ *
+ * NO message is appended in this batch: fact-candidate injection requires
+ * the specs/03 §8.2 "resident F1 enumeration" amendment (Human Gate).
  */
+const LDVH_PLUGIN_SOURCE = "dsh-ldvh";
+
+function isOwnMessage(message) {
+  const source = message?.source;
+  return source?.kind === "plugin" && source?.plugin === LDVH_PLUGIN_SOURCE;
+}
+
 export function createPreStepHandler(agent, { isGoverned }) {
   const agentId = agent?.id ?? agent?.session?.header?.id;
-  const ownRequestStub = () => false;
-  return async function onPreStep(payload, next) {
-    if (payload?.agent !== undefined && agentId !== undefined && payload.agent.id !== agentId) return next();
-    const decision = await next();
-    if (decision.kind === "reject" || payload.signal?.aborted === true) return decision;
-    if (payload.step !== 1) return decision;
-    // Skeleton only: governance gate evaluated (keeps the channel honest and
-    // covered by tests), ownRequest seam reserved, no injection this batch.
-    void isGoverned();
-    void ownRequestStub;
-    return decision;
+  const state = { primePending: false, lastDigest: null };
+  const cueVisible = () => true; // batch-3 seam: real surface scan lands with content
+  return {
+    /** session-start hook: prime the channel (mnemon primePending shape). */
+    prime() { state.primePending = true; },
+    async handler(payload, next) {
+      if (payload?.agent !== undefined && agentId !== undefined && payload.agent.id !== agentId) return next();
+      const decision = await next();
+      if (decision.kind === "reject" || payload.signal?.aborted === true) return decision;
+      if (payload.step !== 1) return decision;
+      // Channel evaluation only — no injection this batch. The gates below
+      // are the exact seams batch 3 will fill (governance, ownRequest,
+      // prime consumption, digest, visibility); exercising them now keeps
+      // the channel honest and covered by tests.
+      const governed = isGoverned();
+      const ownRequest = decision.messages.some(isOwnMessage);
+      const primed = state.primePending;
+      state.primePending = false;
+      void (governed && !ownRequest && (primed || cueVisible()) && state.lastDigest);
+      return decision;
+    }
   };
 }
