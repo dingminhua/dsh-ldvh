@@ -131,10 +131,18 @@ window.__ModuleLoader__.load({
          renders RED (Human 2026-09-03 update — it still ACTS as
          not_governed; the colour only makes the degraded state visible),
          not_governed renders nothing. The trailing duration uses tabular
-         digits so "· 12.3s" does not jitter between turns. */
-      ".ldv-mark{display:inline-flex;align-items:center;gap:6px;padding:2px 0 6px;color:var(--dsw-alias-state-positive,#3fb950);font-size:12px;line-height:16px;font-variant-numeric:tabular-nums;user-select:none}" +
+         digits so "· 12.3s" does not jitter between turns.
+
+         Human style direction (2026-09-03): present it as a PLAIN TEXT LINE
+         — a small solid dot + text, all in one colour. No glow ring around
+         the dot (the 3px box-shadow halo read as a status ICON — the same
+         look as the settings-card dot, which is intentional THERE and wrong
+         here), and the font size matches the official in-flow text rows
+         (--dsh-content-font-size-secondary, the same variable the shipped
+         usage-summary row uses) instead of the smaller 12px widget size. */
+      ".ldv-mark{display:inline-flex;align-items:center;gap:6px;padding:2px 0 6px;color:var(--dsw-alias-state-positive,#3fb950);font-size:var(--dsh-content-font-size-secondary,13px);line-height:20px;font-variant-numeric:tabular-nums;user-select:none}" +
       ".ldv-mark-unavailable{color:var(--dsw-alias-state-error-primary,#f85149)}" +
-      ".ldv-mark-dot{width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 18%,transparent);flex:none}";
+      ".ldv-mark-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}";
 
     if (typeof document !== "undefined") {
       var cssId = "dsh-ldvh/client.css";
