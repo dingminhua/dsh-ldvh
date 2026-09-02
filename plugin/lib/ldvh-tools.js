@@ -269,7 +269,13 @@ function makeExecute(deps) {
       .map(([key, operation]) => {
         const declared = true; // declared in this tool batch per 05 §6.1 shape
         const implemented = true; // an implementation is locatable in this plugin
-        const callableHere = governed.state === "governed" || key === "resolve-governance-scope";
+        // discover itself is only registered for governed sessions (index.js
+        // gate), so `governed.state` is "governed" whenever this runs. A
+        // `|| key === "resolve-governance-scope"` branch used to sit here but
+        // was unreachable dead code: under the not_governed-default model
+        // (unavailable is a not_governed special case), NO operation is
+        // callable outside governed sessions — including the scope resolver.
+        const callableHere = governed.state === "governed";
         return {
           operation_key: key,
           dsh_tool_name: operation.toolName,

@@ -824,11 +824,21 @@ test("guidanceTextFor returns an empty string for not_governed (zero-interferenc
 	assert.equal(guidanceTextFor("not_governed"), "");
 });
 
-test("guidanceTextFor returns the fail-closed text for unavailable", () => {
+test("guidanceTextFor unavailable: reports unavailable but acts as not_governed", () => {
+	// Human decision (2026-09-02): unavailable is a SPECIAL CASE of
+	// not_governed — behaviour is identical (no tools, no controlled
+	// operations), except that unavailable additionally reports the
+	// condition and how to check it. So the text must NOT claim the
+	// project is ungoverned (that would guess over an unreadable
+	// registration), and must NOT tell AI to call a tool (no ldvh_* tool
+	// is registered outside governed sessions — the deadlock the
+	// independent audit found).
 	const text = guidanceTextFor("unavailable");
 	assert.ok(text.length > 0);
 	assert.match(text, /不可用/);
-	assert.match(text, /fail-closed|不要假定|暂停/);
+	assert.match(text, /不受管辖处理/);
+	assert.match(text, /不得据此认定本项目不受辖/);
+	assert.ok(!/ldvh_[a-z_]+/.test(text), "unavailable guidance must not recommend tools that are not registered");
 });
 
 test("GUIDANCE_SECTION_NAME and ORDER are exported constants", () => {
