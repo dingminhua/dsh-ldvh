@@ -125,7 +125,12 @@ window.__ModuleLoader__.load({
       ".ldv-btn-outline{border:1px solid var(--dsw-alias-border-l2,#36373b);background:transparent;color:var(--dsw-alias-label-secondary,#b8b8b8)}" +
       ".ldv-btn-primary:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#5686fe) 88%,#fff)}" +
       ".ldv-btn-outline:hover:not(:disabled){border-color:var(--dsw-alias-label-dimmed,#777)}" +
-      ".ldv-btn:disabled{opacity:.5;cursor:default}";
+      ".ldv-btn:disabled{opacity:.5;cursor:default}" +
+      /* Governance-state mark: only `governed` renders anything (green).
+         not_governed and unavailable render nothing at all — unavailable is a
+         not_governed special case, so it must not claim a colour of its own. */
+      ".ldv-mark{display:inline-flex;align-items:center;gap:6px;color:var(--dsw-alias-state-positive,#3fb950);font-size:12px;line-height:16px;user-select:none}" +
+      ".ldv-mark-dot{width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 18%,transparent)}";
 
     if (typeof document !== "undefined") {
       var cssId = "dsh-ldvh/client.css";
@@ -189,7 +194,9 @@ window.__ModuleLoader__.load({
       "view.label": "LDVH",
       "view.loading": "正在加载 LDVH Web…",
       "view.error": "LDVH Web 当前不可用，请检查插件设置中的路由开关，或稍后重试。",
-      "view.retry": "重试"
+      "view.retry": "重试",
+      "mark.governed": "本项目受 LDVH 管辖",
+      "mark.governedWithName": "本项目受 LDVH 管辖：{name}"
     };
     var LDVH_EN = {
       "row.title": "LD Vibe Harness (dsh-ldvh)",
@@ -240,7 +247,9 @@ window.__ModuleLoader__.load({
       "view.label": "LDVH",
       "view.loading": "Loading LDVH Web…",
       "view.error": "LDVH Web is unavailable. Check the route switch in plugin settings, or try again later.",
-      "view.retry": "Retry"
+      "view.retry": "Retry",
+      "mark.governed": "This project is governed by LDVH",
+      "mark.governedWithName": "Governed by LDVH: {name}"
     };
 
     // Mechanical ID validation. Slug rule mirrors chooseProject(): lowercase
@@ -664,6 +673,48 @@ window.__ModuleLoader__.load({
       );
     }
 
+    // ── governance-state mark (conversation.input.dock) ──────────────────
+    // A single green dot + label, shown ONLY for `governed`. not_governed and
+    // unavailable render null: they carry no colour, and unavailable is a
+    // not_governed special case, so it must not invent a third signal. The
+    // state comes from the Host's always-on /ldvh/state endpoint (NOT
+    // /ldvh/api, which the Web-presentation switch can unmount).
+    //
+    // Fail-closed: any unknown/unresolved state renders nothing. Showing no
+    // mark is the safe default; showing a wrong green mark would be a false
+    // governance claim.
+    function LdvhGovernanceMark(props) {
+      var t = props.t;
+      var session = props.session;
+      var cwd = session && session.header ? session.header.cwd : null;
+      var state = React.useState(null);
+      React.useEffect(function () {
+        if (typeof cwd !== "string" || cwd.length === 0) return undefined;
+        var cancelled = false;
+        fetch("/ldvh/state/governance?cwd=" + encodeURIComponent(cwd), { method: "GET", cache: "no-store" })
+          .then(function (r) { return r.json(); })
+          .then(function (body) {
+            if (cancelled) return;
+            state[1](body && body.ok === true ? body : null);
+          })
+          .catch(function () {
+            if (!cancelled) state[1](null);
+          });
+        return function () { cancelled = true; };
+      }, [cwd]);
+
+      var value = state[0];
+      if (value === null || value.state !== "governed") return null;
+      var name = value.project && value.project.name ? value.project.name : null;
+      var label = name ? t("mark.governedWithName").replace("{name}", name) : t("mark.governed");
+      return React.createElement(
+        "div",
+        { className: "ldv-mark", title: label },
+        React.createElement("span", { className: "ldv-mark-dot" }),
+        React.createElement("span", null, label)
+      );
+    }
+
     // ── LDVH conversation view: iframe /ldvh/ with loading/error states ──
     // Rendered inside the session body when the "LDVH" tab is active
     // (conversation.view ring, exactly like the trajectory view).
@@ -739,6 +790,19 @@ window.__ModuleLoader__.load({
             label: function () { return t("view.label"); },
             inject: function (sessionId) { return { t: t, sessionId: sessionId }; }
           }, LdvhConversationView);
+        });
+
+        // 3) governance-state mark above the composer (conversation.input.dock,
+        //    list/session). Only `governed` renders; the component itself is
+        //    fail-closed and returns null for every other or unknown state.
+        ctx.slots.inject("conversation.input.dock", function () {
+          return ctx.slots.register({
+            name: "conversation.input.dock",
+            id: "ldvh-governance-mark",
+            order: 10,
+            label: function () { return t("mark.governed"); },
+            inject: function (session) { return { t: t, session: session }; }
+          }, LdvhGovernanceMark);
         });
       } catch (error) {
         // Match WorkBuddy's browser failure boundary: Host remains functional,

@@ -122,6 +122,17 @@ const disabledDocument = {
 	"dsh-ldvh": { webEnabled: false }
 };
 
+/**
+ * Route inventory under the current contract:
+ *   - 2 web routes (/ldvh/api + /ldvh), gated on the `webEnabled` setting.
+ *   - 1 always-on governance-state route (/ldvh/state) for the Client
+ *     indicator: it must survive the Web switch, because "is this session
+ *     governed?" is a governance signal, not a Web-panel feature.
+ */
+const WEB_ROUTE_COUNT = 2;
+const STATE_ROUTE_COUNT = 1;
+const TOTAL_ROUTE_COUNT = WEB_ROUTE_COUNT + STATE_ROUTE_COUNT;
+
 test("registers both prefix routes when webServer exists and web is enabled by default", async () => {
 	const harness = await createHarness();
 	try {
@@ -137,16 +148,25 @@ test("registers both prefix routes when webServer exists and web is enabled by d
 test("registers routes when web is explicitly enabled", async () => {
 	const harness = await createHarness(enabledDocument);
 	try {
-		assert.equal(harness.webServer.routes("prefix").length, 2);
+		assert.equal(harness.webServer.routes("prefix").length, TOTAL_ROUTE_COUNT);
 	} finally {
 		await disposeHarness(harness);
 	}
 });
 
-test("does not register routes when webEnabled is false", async () => {
+test("does not register web routes when webEnabled is false, but the state route stays mounted", async () => {
 	const harness = await createHarness(disabledDocument);
 	try {
-		assert.equal(harness.webServer.routes("prefix").length, 0);
+		// The web routes are unmounted by the switch...
+		const apiRoutes = harness.webServer.routes("prefix").filter((r) => r.path === "/ldvh/api");
+		const spaRoutes = harness.webServer.routes("prefix").filter((r) => r.path === "/ldvh");
+		assert.equal(apiRoutes.length, 0, "expected no /ldvh/api route while web is disabled");
+		assert.equal(spaRoutes.length, 0, "expected no /ldvh route while web is disabled");
+		// ...but the governance-state route must survive: the indicator is a
+		// governance signal and must not depend on the Web-presentation switch.
+		const stateRoutes = harness.webServer.routes("prefix").filter((r) => r.path === "/ldvh/state");
+		assert.equal(stateRoutes.length, STATE_ROUTE_COUNT, "governance-state route must stay mounted regardless of the web switch");
+		assert.equal(harness.webServer.routes("prefix").length, STATE_ROUTE_COUNT);
 	} finally {
 		await disposeHarness(harness);
 	}
@@ -183,7 +203,7 @@ test("registers both routes when webServer is provided after the plugin mounts (
 		harness.root.provide("webServer", harness.webServer);
 
 		// The notify → reload → apply chain settles asynchronously; poll.
-		await waitForRoutes(harness.webServer, 2);
+		await waitForRoutes(harness.webServer, TOTAL_ROUTE_COUNT);
 
 		const apiRoutes = harness.webServer.routes("prefix").filter((r) => r.path === "/ldvh/api");
 		const spaRoutes = harness.webServer.routes("prefix").filter((r) => r.path === "/ldvh");
@@ -213,18 +233,18 @@ async function waitForRoutes(webServer, expectedCount, timeoutMs = 2000) {
 test("publishing webEnabled false unregisters routes; true re-registers them", async () => {
 	const harness = await createHarness(enabledDocument);
 	try {
-		assert.equal(harness.webServer.routes("prefix").length, 2);
+		assert.equal(harness.webServer.routes("prefix").length, TOTAL_ROUTE_COUNT);
 
-		// Turn the web switch off: routes must be removed (service "stopped").
-		// The settings watcher chain is asynchronous, so yield a macrotask.
+		// Turn the web switch off: the web routes must be removed, but the
+		// governance-state route must remain mounted.
 		harness.settings.publish(disabledDocument);
 		await new Promise((resolve) => setImmediate(resolve));
-		assert.equal(harness.webServer.routes("prefix").length, 0, "expected routes removed after disabling");
+		assert.equal(harness.webServer.routes("prefix").length, STATE_ROUTE_COUNT, "expected web routes removed, state route kept");
 
-		// Turn it back on: routes must return (service "restarted").
+		// Turn it back on: the web routes must return.
 		harness.settings.publish(enabledDocument);
 		await new Promise((resolve) => setImmediate(resolve));
-		assert.equal(harness.webServer.routes("prefix").length, 2, "expected routes restored after re-enabling");
+		assert.equal(harness.webServer.routes("prefix").length, TOTAL_ROUTE_COUNT, "expected routes restored after re-enabling");
 	} finally {
 		await disposeHarness(harness);
 	}
@@ -232,9 +252,9 @@ test("publishing webEnabled false unregisters routes; true re-registers them", a
 
 test("disposal removes every registered route", async () => {
 	const harness = await createHarness(enabledDocument);
-	assert.equal(harness.webServer.routes("prefix").length, 2);
+	assert.equal(harness.webServer.routes("prefix").length, TOTAL_ROUTE_COUNT);
 	await harness.fiber.dispose();
-	assert.equal(harness.webServer.routes("prefix").length, 0, "expected all routes removed after plugin disposal");
+	assert.equal(harness.webServer.routes("prefix").length, 0, "expected all routes removed after plugin disposal (state route included)");
 	await harness.root.fiber.dispose();
 });
 
@@ -246,7 +266,7 @@ test("supports a clean remount", async () => {
 
 		const remounted = harness.root.registry.plugin(ldvhPlugin);
 		await remounted;
-		assert.equal(harness.webServer.routes("prefix").length, 2, "expected routes after clean remount");
+		assert.equal(harness.webServer.routes("prefix").length, TOTAL_ROUTE_COUNT, "expected routes after clean remount");
 		await remounted.dispose();
 	} finally {
 		await harness.root.fiber.dispose();

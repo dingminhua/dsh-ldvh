@@ -43,6 +43,9 @@ const LDVH_SETTINGS_SCHEMA = z.object({
 
 const API_PREFIX = "/ldvh/api";
 const SPA_PREFIX = "/ldvh";
+// Always-on governance-state endpoint for the Client indicator. Separate from
+// /ldvh/api so the indicator survives the Web-presentation switch.
+const STATE_PREFIX = "/ldvh/state";
 
 function json(res, statusCode, body) {
   res.statusCode = statusCode;
@@ -122,8 +125,51 @@ function registerWebRoutes(webServer, dshHomePath) {
   };
 }
 
+/**
+ * Register the always-on governance-state endpoint for the Client indicator.
+ *
+ * Deliberately separate from `registerWebRoutes`: /ldvh/api is gated on the
+ * `webEnabled` setting, but "is this session governed?" is a governance
+ * signal, not a Web-panel feature — the indicator must keep working when the
+ * Web mount is switched off.
+ *
+ * The Client supplies its own session cwd, so the Host stays a pure lookup
+ * over the SAME cached judgement the tools and the guidance section use (one
+ * authority, no second judgement path). Only identity is returned: no paths,
+ * no settings — this is a status indicator, not a settings surface.
+ */
+function registerStateRoute(webServer, resolveScope) {
+  return webServer.register({
+    kind: "prefix",
+    path: STATE_PREFIX,
+    handler: async (req, res) => {
+      const url = new URL(req.url ?? "/", "http://ldvh.local");
+      const path = url.pathname === STATE_PREFIX ? "/" : url.pathname.slice(STATE_PREFIX.length);
+      if ((path === "/governance" || path === "/governance/") && (req.method === "GET" || req.method === "HEAD")) {
+        const cwd = url.searchParams.get("cwd");
+        if (typeof cwd !== "string" || cwd.length === 0) {
+          json(res, 400, { ok: false, error: { code: "MISSING_CWD" } });
+          return;
+        }
+        try {
+          const scope = await resolveScope(cwd);
+          json(res, 200, {
+            ok: true,
+            state: scope.state,
+            project: scope.project === undefined ? null : { id: scope.project.id, name: scope.project.name ?? null }
+          });
+        } catch (error) {
+          json(res, 200, { ok: false, state: "unavailable", detail: String(error?.message ?? error) });
+        }
+        return;
+      }
+      json(res, 404, { ok: false, error: { code: "NOT_FOUND" } });
+    }
+  });
+}
+
 export function apply(ctx) {
-  const state = { settingsSource: void 0, disposeRoutes: null };
+  const state = { settingsSource: void 0, disposeRoutes: null, disposeStateRoute: null };
 
   // The webServer service is a declared injection (see `inject` above): the
   // plugin activates only once the service is up. This removes the historic
@@ -154,6 +200,14 @@ export function apply(ctx) {
       state.disposeRoutes = null;
       ctx.logger.info("[dsh-ldvh] web routes unmounted by setting");
     }
+  }
+
+  // The governance-state route is NOT part of syncRoutes: it must stay
+  // mounted while the plugin runs, regardless of the Web-presentation switch.
+  // `cachedGovernanceScope` is a hoisted function declaration defined below.
+  if (webServer !== undefined) {
+    state.disposeStateRoute = registerStateRoute(webServer, cachedGovernanceScope);
+    ctx.logger.info("[dsh-ldvh] governance-state route registered under %s", STATE_PREFIX);
   }
 
   // The settings seam owns its injected lifecycle and provides a live source
@@ -306,6 +360,8 @@ export function apply(ctx) {
     if (typeof agentId === "string") agentDisposers.delete(agentId);
   });
 
+
+
   // Plugin-level cleanup: remove routes, every agent-scoped tool batch, and
   // drop the live source. (Agent-scoped registrations also die with their
   // own fibers; this sweep covers agents outliving the plugin.)
@@ -314,10 +370,14 @@ export function apply(ctx) {
       try { state.disposeRoutes(); } catch { /* already removed */ }
       state.disposeRoutes = null;
     }
+    if (state.disposeStateRoute !== null) {
+      try { state.disposeStateRoute(); } catch { /* already removed */ }
+      state.disposeStateRoute = null;
+    }
     for (const { dispose } of agentDisposers.values()) {
       try { dispose(); } catch { /* already removed */ }
     }
     agentDisposers.clear();
     state.settingsSource = void 0;
-  }, "dsh-ldvh: web routes and tools");
+  }, "dsh-ldvh: web routes, state route, and tools");
 }
