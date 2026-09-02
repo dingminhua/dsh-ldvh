@@ -137,8 +137,12 @@ window.__ModuleLoader__.load({
              and cap at --dsh-composer-card-max-width (the composer's own box);
            - `margin: 0 auto` centres it over the composer;
            - `flex: none` stops the stack from stretching it.
-         Without these the mark floats at the container's left edge. */
-      ".ldv-mark{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,16px) - var(--dsh-composer-side-clearance,16px) - var(--dsh-composer-dock-inset,8px) - var(--dsh-composer-dock-inset,8px));max-width:calc(var(--dsh-composer-card-max-width,952px) - var(--dsh-composer-dock-inset,8px) - var(--dsh-composer-dock-inset,8px));margin:0 auto calc(0px - var(--dsh-composer-stack-gap,6px) - 3px);padding:0 var(--dsh-composer-dock-inset,8px);flex:none;display:flex;align-items:center;gap:6px;color:var(--dsw-alias-state-positive,#3fb950);font-size:12px;line-height:16px;user-select:none}" +
+         Without these the mark floats at the container's left edge.
+
+         Vertical nudge: QueueDock's own bottom margin is -(gap) - 3px. The
+         Human asked for the mark to sit 2px higher, so the extra term is 5px
+         (3 + 2). Change ONLY that number to re-tune the height. */
+      ".ldv-mark{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,16px) - var(--dsh-composer-side-clearance,16px) - var(--dsh-composer-dock-inset,8px) - var(--dsh-composer-dock-inset,8px));max-width:calc(var(--dsh-composer-card-max-width,952px) - var(--dsh-composer-dock-inset,8px) - var(--dsh-composer-dock-inset,8px));margin:0 auto calc(0px - var(--dsh-composer-stack-gap,6px) - 5px);padding:0 var(--dsh-composer-dock-inset,8px);flex:none;display:flex;align-items:center;gap:6px;color:var(--dsw-alias-state-positive,#3fb950);font-size:12px;line-height:16px;user-select:none}" +
       ".ldv-mark-dot{width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 18%,transparent);flex:none}";
 
     if (typeof document !== "undefined") {
