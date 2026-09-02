@@ -128,9 +128,18 @@ window.__ModuleLoader__.load({
       ".ldv-btn:disabled{opacity:.5;cursor:default}" +
       /* Governance-state mark: only `governed` renders anything (green).
          not_governed and unavailable render nothing at all — unavailable is a
-         not_governed special case, so it must not claim a colour of its own. */
-      ".ldv-mark{display:inline-flex;align-items:center;gap:6px;color:var(--dsw-alias-state-positive,#3fb950);font-size:12px;line-height:16px;user-select:none}" +
-      ".ldv-mark-dot{width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 18%,transparent)}";
+         not_governed special case, so it must not claim a colour of its own.
+
+         Box geometry mirrors the shipped QueueDock contribution
+         (dsh-client-ui-conversation QueueDock.module.css `.dock`), which is
+         what aligns a `conversation.input.dock` entry with the composer card:
+           - width/max-width subtract the composer side clearance + dock inset
+             and cap at --dsh-composer-card-max-width (the composer's own box);
+           - `margin: 0 auto` centres it over the composer;
+           - `flex: none` stops the stack from stretching it.
+         Without these the mark floats at the container's left edge. */
+      ".ldv-mark{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,16px) - var(--dsh-composer-side-clearance,16px) - var(--dsh-composer-dock-inset,8px) - var(--dsh-composer-dock-inset,8px));max-width:calc(var(--dsh-composer-card-max-width,952px) - var(--dsh-composer-dock-inset,8px) - var(--dsh-composer-dock-inset,8px));margin:0 auto calc(0px - var(--dsh-composer-stack-gap,6px) - 3px);padding:0 var(--dsh-composer-dock-inset,8px);flex:none;display:flex;align-items:center;gap:6px;color:var(--dsw-alias-state-positive,#3fb950);font-size:12px;line-height:16px;user-select:none}" +
+      ".ldv-mark-dot{width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 18%,transparent);flex:none}";
 
     if (typeof document !== "undefined") {
       var cssId = "dsh-ldvh/client.css";
