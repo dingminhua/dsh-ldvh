@@ -126,16 +126,14 @@ window.__ModuleLoader__.load({
       ".ldv-btn-primary:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#5686fe) 88%,#fff)}" +
       ".ldv-btn-outline:hover:not(:disabled){border-color:var(--dsw-alias-label-dimmed,#777)}" +
       ".ldv-btn:disabled{opacity:.5;cursor:default}" +
-      /* Governance-state mark: only `governed` renders anything (green).
-         not_governed and unavailable render nothing at all — unavailable is a
-         not_governed special case, so it must not claim a colour of its own.
-
-         Lives inline in the conversation flow (under the first completed
-         turn's tail), so plain inline-flex geometry is enough — no dock box
-         model needed. The historical dock geometry (composer clearance /
-         card-max-width / negative bottom margin) was removed when the mark
-         moved off the composer; see git history if it ever needs to return. */
-      ".ldv-mark{display:inline-flex;align-items:center;gap:6px;padding:2px 0 6px;color:var(--dsw-alias-state-positive,#3fb950);font-size:12px;line-height:16px;user-select:none}" +
+      /* Governance-state mark (conversation flow, under the first completed
+         turn): `governed` renders GREEN (Human 2026-09-02), `unavailable`
+         renders RED (Human 2026-09-03 update — it still ACTS as
+         not_governed; the colour only makes the degraded state visible),
+         not_governed renders nothing. The trailing duration uses tabular
+         digits so "· 12.3s" does not jitter between turns. */
+      ".ldv-mark{display:inline-flex;align-items:center;gap:6px;padding:2px 0 6px;color:var(--dsw-alias-state-positive,#3fb950);font-size:12px;line-height:16px;font-variant-numeric:tabular-nums;user-select:none}" +
+      ".ldv-mark-unavailable{color:var(--dsw-alias-state-error-primary,#f85149)}" +
       ".ldv-mark-dot{width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 18%,transparent);flex:none}";
 
     if (typeof document !== "undefined") {
@@ -202,7 +200,9 @@ window.__ModuleLoader__.load({
       "view.error": "LDVH Web 当前不可用，请检查插件设置中的路由开关，或稍后重试。",
       "view.retry": "重试",
       "mark.governed": "本项目受 LDVH 管辖",
-      "mark.governedWithName": "本项目受 LDVH 管辖：{name}"
+      "mark.governedWithName": "本项目受 LDVH 管辖：{name}",
+      "mark.unavailable": "LDVH 管辖状态不可用",
+      "mark.unavailableHint": "管辖登记当前不可读取，本项目暂按不受管辖处理。处理方法：检查 DSH 用户配置根下 ldvh/governed-projects.yaml 是否可读且格式正确，或在 DSH 设置页查看管辖项目。"
     };
     var LDVH_EN = {
       "row.title": "LD Vibe Harness (dsh-ldvh)",
@@ -255,7 +255,9 @@ window.__ModuleLoader__.load({
       "view.error": "LDVH Web is unavailable. Check the route switch in plugin settings, or try again later.",
       "view.retry": "Retry",
       "mark.governed": "This project is governed by LDVH",
-      "mark.governedWithName": "Governed by LDVH: {name}"
+      "mark.governedWithName": "Governed by LDVH: {name}",
+      "mark.unavailable": "LDVH governance state unavailable",
+      "mark.unavailableHint": "The governed-projects registration cannot be read; this session is treated as ungoverned for now. Check that ldvh/governed-projects.yaml under the DSH user-config root is readable and valid, or inspect the governed-projects page in DSH settings."
     };
 
     // Mechanical ID validation. Slug rule mirrors chooseProject(): lowercase
@@ -747,9 +749,42 @@ window.__ModuleLoader__.load({
       }, [sessionId]);
 
       var value = state[0];
-      if (value === null || value.state !== "governed") return null;
+      if (value === null) return null;
+
+      // Turn duration, straight off the Turn object the turnTail ownerProps
+      // already carry. Same formula the shipped footer uses:
+      // Math.max(0, end.time - start.time) (dsh-client-ui-chat
+      // TurnTailNodeView). Renders only when both timestamps exist.
+      var turn = props.turn;
+      var runMs = turn && turn.start !== void 0 && turn.end !== void 0
+        ? Math.max(0, turn.end.time - turn.start.time)
+        : null;
+      var durationLabel = null;
+      if (runMs !== null) {
+        var seconds = runMs / 1000;
+        durationLabel = seconds < 60
+          ? seconds.toFixed(1) + "s"
+          : Math.floor(seconds / 60) + "m " + Math.round(seconds % 60) + "s";
+      }
+
+      if (value.state === "unavailable") {
+        // Human decision (2026-09-03 update): unavailable shows a RED mark in
+        // the flow. It still ACTS as not_governed (no tools, no controlled
+        // operations) — the colour only makes the degraded state visible; the
+        // full remediation path lives in the system-prompt guidance, the
+        // tooltip keeps a one-line pointer.
+        var unavailableLabel = t("mark.unavailable");
+        return React.createElement(
+          "div",
+          { className: "ldv-mark ldv-mark-unavailable", title: t("mark.unavailableHint") },
+          React.createElement("span", { className: "ldv-mark-dot" }),
+          React.createElement("span", null, durationLabel === null ? unavailableLabel : unavailableLabel + " · " + durationLabel)
+        );
+      }
+      if (value.state !== "governed") return null;
       var name = value.project && value.project.name ? value.project.name : null;
       var label = name ? t("mark.governedWithName").replace("{name}", name) : t("mark.governed");
+      if (durationLabel !== null) label = label + " · " + durationLabel;
       return React.createElement(
         "div",
         { className: "ldv-mark", title: label },
