@@ -20,6 +20,12 @@ The format follows Keep a Changelog. This development changelog records only imp
 ### Changed
 
 - Web-route registration now uses a declarative `webServer` injection (fixes the load-order race where routes never registered on real hosts).
+- `output.schema` is now open (`{ type: "object", additionalProperties: true }`), matching dsh-mnemon. It constrains our own handler return, not a model emission — model output is constrained by `parameters`, which stays strict. The per-field output schema is what rejected every structured gap noted below.
+
+### Fixed
+
+- `ldvh_*` tool results never reached the model: `output.render` returned a bare string, but the DSH tool layer calls `result.content.some(...)` on the result, throwing `content.some is not a function` and silently failing the whole tool batch. `renderEnvelope` now returns an array of content blocks through a single `text()` choke point (the dsh-mnemon idiom), so a bare-string return is structurally impossible rather than merely absent (contract verified against `dsh-tools` and the MCP spec).
+- `gaps` schema rejected the structured scan gaps (`{ responsibility_key, canonical_path, reason }`) emitted by `scanSpecCandidates`; the renderer stringifies structured gaps instead of printing `[object Object]`.
 
 ### Known
 

@@ -22,12 +22,15 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureRegistrationCarrier, readGovernedProjects } from "./governed-projects.js";
 import { createGovernanceHandler } from "./host-api.js";
+import { resolveGovernanceScope } from "./governance-scope.js";
+import { registerLdvhTools } from "./ldvh-tools.js";
+import { GUIDANCE_SECTION_NAME, GUIDANCE_SECTION_ORDER, guidanceTextFor } from "./guidance-text.js";
 
 const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const GATE_RUNNER_PATH = fileURLToPath(new URL("./git-gate-runner.js", import.meta.url));
 
 export const name = "dsh-ldvh";
-export const inject = ["webServer"];
+export const inject = ["webServer", "tools", "systemPrompt"];
 
 const LDVH_SETTINGS_NAMESPACE = settingsNamespace("dsh-ldvh");
 
@@ -187,12 +190,134 @@ export function apply(ctx) {
       .catch((error) => ctx.logger.warn(error));
   }
 
-  // Plugin-level cleanup: remove routes and drop the live source.
+  // P0 AI-facing surface: minimal rule guidance (systemPrompt section, the
+  // text is a function so it re-evaluates at every prompt assembly) and the
+  // first LDVH tool batch, both gated on the live governance three-state.
+  //   governed    -> guidance section with the seven 00 anchors + 5 tools
+  //   not_governed -> empty guidance text (filtered at assembly = zero
+  //                   interference) + no tools (§15 item 1)
+  //   unavailable -> fail-closed guidance section + no tools (§15 item 3)
+  // The section function resolves the caller session's cwd from the
+  // assembly context; per-step re-evaluation means a mid-session install or
+  // cancellation of governance takes effect on the next assembly without a
+  // restart.
+  //
+  // Tool registration is AGENT-SCOPED, not global: registering through the
+  // started agent's own context (dsh-scope ScopedLayers) makes the batch
+  // visible to that agent's session only — a not_governed session in the
+  // same host never sees the tools even while a governed session has them.
+  // The guidance section keeps its global registration with per-assembly
+  // text: not_governed evaluates to "" which assembly filters out (the
+  // zero-interference guarantee).
+  const scopeCache = new Map();      // cwd -> { fingerprint, promise } — async resolution
+  const resolvedScopes = new Map();  // cwd -> scope object — SYNCHRONOUS snapshot
+  const agentDisposers = new Map();
+
+  function cachedGovernanceScope(cwd) {
+    const unavailable = { state: "unavailable", detail: "session working directory is unavailable" };
+    if (typeof cwd !== "string" || cwd.length === 0) return Promise.resolve(unavailable);
+    const cached = scopeCache.get(cwd);
+    if (cached !== undefined) return cached.promise;
+    const promise = resolveGovernanceScope(dshHomePath, cwd).then((scope) => {
+      // Snapshot the resolved scope synchronously so the guidance section
+      // (which dsh-system-prompt evaluates SYNCHRONOUSLY, never awaiting a
+      // Promise) can read the current state without an async text function.
+      resolvedScopes.set(cwd, scope);
+      // Invalidate other cached entries when the registration fingerprint
+      // moved (project added/removed) so a mid-session governance change is
+      // visible on the next evaluation.
+      const fingerprint = scope.registrationFingerprint ?? null;
+      for (const [key, entry] of scopeCache) {
+        if (key === cwd) continue;
+        if (entry.fingerprint !== fingerprint) scopeCache.delete(key);
+      }
+      return scope;
+    }).catch((error) => {
+      const scope = { state: "unavailable", detail: String(error?.message ?? error) };
+      resolvedScopes.set(cwd, scope);
+      return scope;
+    });
+    scopeCache.set(cwd, { fingerprint: null, promise });
+    promise.then((scope) => {
+      const entry = scopeCache.get(cwd);
+      if (entry !== undefined) entry.fingerprint = scope.registrationFingerprint ?? null;
+    });
+    return promise;
+  }
+
+  // IMPORTANT (real-host contract): dsh-system-prompt evaluates section.text
+  // SYNCHRONOUSLY at every prompt assembly — an async text function would
+  // return a Promise and crash interpolate() with `text.indexOf is not a
+  // function`. So the section text is a SYNC function reading the resolved
+  // snapshot (filled by the async session-start path / cachedGovernanceScope
+  // resolution above). Before the snapshot exists the text is "" — assembly
+  // filters empty sections, which is exactly the not_governed zero-interference
+  // guarantee and is fail-safe.
+  ctx.systemPrompt.section({
+    name: GUIDANCE_SECTION_NAME,
+    order: GUIDANCE_SECTION_ORDER,
+    text(context) {
+      const cwd = context?.agent?.session?.header?.cwd;
+      if (typeof cwd === "string") {
+        const scope = resolvedScopes.get(cwd);
+        if (scope !== undefined) return guidanceTextFor(scope.state);
+        // Snapshot not ready yet: kick the async resolution (it writes the
+        // snapshot for the NEXT assembly) and return "" now — assembly
+        // filters empty sections, which is the fail-safe zero-interference
+        // path (never an asserted wrong state).
+        void cachedGovernanceScope(cwd);
+        return "";
+      }
+      return "";
+    }
+  });
+
+  function syncToolsForAgent(agent, scope) {
+    const agentId = agent?.id ?? agent?.session?.header?.id;
+    if (typeof agentId !== "string") return;
+    const registerable = scope.state === "governed" && agent?.ctx !== undefined;
+    const existing = agentDisposers.get(agentId);
+    if (registerable && existing === undefined) {
+      const dispose = registerLdvhTools(agent.ctx, {
+        dshHomePath,
+        workspaceRoot: PACKAGE_ROOT,
+        sessionPersistence: () => ctx.get("sessionPersistence")
+      });
+      agentDisposers.set(agentId, { dispose, agent });
+      ctx.logger.info("[dsh-ldvh] registered LDVH tool batch (agent-scoped) for governed session %s", agentId);
+    } else if (!registerable && existing !== undefined) {
+      try { existing.dispose(); } catch { /* already removed */ }
+      agentDisposers.delete(agentId);
+      ctx.logger.info("[dsh-ldvh] unregistered LDVH tool batch (governance state: %s)", scope.state);
+    }
+  }
+
+  // Sessions start with a live scope resolution; agent disposal (cordis
+  // effect on the agent's own fiber) removes its scoped registrations, so
+  // only the started-agent bookkeeping needs explicit handling here.
+  ctx.on("agent/session-start", async ({ agent }) => {
+    const cwd = agent?.session?.header?.cwd;
+    if (typeof cwd !== "string") return;
+    const scope = await cachedGovernanceScope(cwd);
+    syncToolsForAgent(agent, scope);
+  });
+  ctx.on("agent/disposed", ({ agent }) => {
+    const agentId = agent?.id ?? agent?.session?.header?.id;
+    if (typeof agentId === "string") agentDisposers.delete(agentId);
+  });
+
+  // Plugin-level cleanup: remove routes, every agent-scoped tool batch, and
+  // drop the live source. (Agent-scoped registrations also die with their
+  // own fibers; this sweep covers agents outliving the plugin.)
   ctx.effect(() => () => {
     if (state.disposeRoutes !== null) {
       try { state.disposeRoutes(); } catch { /* already removed */ }
       state.disposeRoutes = null;
     }
+    for (const { dispose } of agentDisposers.values()) {
+      try { dispose(); } catch { /* already removed */ }
+    }
+    agentDisposers.clear();
     state.settingsSource = void 0;
-  }, "dsh-ldvh: web routes");
+  }, "dsh-ldvh: web routes and tools");
 }

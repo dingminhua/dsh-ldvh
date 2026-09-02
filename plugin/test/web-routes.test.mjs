@@ -43,6 +43,47 @@ class MemoryWebServer {
 	}
 }
 
+/**
+ * Minimal tools-registry stub: records register() calls and hands back
+ * disposers, so tests can assert the LDVH tool batch lifecycle without a
+ * real dsh-tools service.
+ */
+class MemoryTools {
+	constructor() {
+		this.registered = [];
+	}
+
+	register(definition) {
+		const entry = { ...definition, removed: false };
+		this.registered.push(entry);
+		return () => { entry.removed = true; };
+	}
+
+	live() {
+		return this.registered.filter((entry) => !entry.removed);
+	}
+}
+
+/**
+ * Minimal systemPrompt stub: records section() registrations and their
+ * disposers, mirroring the dsh-system-prompt ScopedLayers lifecycle.
+ */
+class MemorySystemPrompt {
+	constructor() {
+		this.sections = [];
+	}
+
+	section(section) {
+		const entry = { ...section, removed: false };
+		this.sections.push(entry);
+		return () => { entry.removed = true; };
+	}
+
+	live() {
+		return this.sections.filter((entry) => !entry.removed);
+	}
+}
+
 async function createHarness(document = {}, { withWebServer = true, deferWebServer = false, dshHomePath } = {}) {
 	const root = new Context();
 	// deferWebServer keeps the MemoryWebServer instance in the harness but
@@ -52,6 +93,12 @@ async function createHarness(document = {}, { withWebServer = true, deferWebServ
 	const webServer = withWebServer ? new MemoryWebServer() : void 0;
 	if (webServer !== void 0 && !deferWebServer) root.provide("webServer", webServer);
 	if (dshHomePath !== void 0) root.provide("dshHomePath", dshHomePath);
+	// The plugin also injects the P0 AI-facing services; provide recording
+	// stubs so its fiber activates in tests exactly like on the real host.
+	const tools = new MemoryTools();
+	root.provide("tools", tools);
+	const systemPrompt = new MemorySystemPrompt();
+	root.provide("systemPrompt", systemPrompt);
 
 	const settings = new MemorySettings(root, document);
 	await settings.load().then((loaded) => settings.publish(loaded));
@@ -60,7 +107,7 @@ async function createHarness(document = {}, { withWebServer = true, deferWebServ
 	const fiber = root.registry.plugin(ldvhPlugin);
 	await fiber;
 
-	return { root, settings, webServer, fiber };
+	return { root, settings, webServer, tools, systemPrompt, fiber };
 }
 
 async function disposeHarness(harness) {

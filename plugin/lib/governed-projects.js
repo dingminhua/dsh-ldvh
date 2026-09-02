@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, readFile, realpath } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -156,6 +156,70 @@ export async function readGovernedProjects(dshHomePath) {
     }
     return success({ initialized: registration.exists, projects, defaultProjectId: registration.document.default_project_id, fingerprint: registration.fingerprint });
   } catch (error) {
+    return failure("registration_unavailable", String(error?.message || error));
+  }
+}
+
+/**
+ * LIGHTWEIGHT registration index for the high-frequency governance-scope
+ * entry point (specs/07 judgement runs on every prompt assembly and every
+ * tool call; specs/08 §6.2 rate discipline). Unlike readGovernedProjects it
+ * performs NO per-project inspection — no git subprocess, no hook check, no
+ * fact-source stat — only the single YAML registration read, parse and
+ * fingerprint. Result projects carry plain registration fields (id, path,
+ * name, description) with status left undefined when no inspection data
+ * exists (the scope judge must not treat missing status as a failure).
+ *
+ * The parsed result is cached in-process keyed by (path, mtimeMs, size):
+ * the registration carrier changes only through register/unregister writes
+ * (atomic replace), so an unchanged file is served from memory — the hot
+ * path becomes one stat() plus containment compares instead of a YAML read
+ * and parse. Any fs error is fail-closed (never a cached success), exactly
+ * like the uncached path.
+ */
+const indexCache = new Map();
+
+export async function readGovernedProjectIndex(dshHomePath) {
+  const path = registrationPath(dshHomePath);
+  let status;
+  try {
+    status = await stat(path);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      indexCache.delete(path);
+      return success({ initialized: false, projects: [], defaultProjectId: "", fingerprint: null });
+    }
+    indexCache.delete(path);
+    return failure("registration_unavailable", String(error?.message || error));
+  }
+  const cached = indexCache.get(path);
+  if (cached !== undefined && cached.mtimeMs === status.mtimeMs && cached.size === status.size) return cached.result;
+  try {
+    const registration = await readRegistration(dshHomePath);
+    // Pre-resolve each registered project's canonical root ONCE per carrier
+    // change (install-time paths are already canonical; this also absorbs a
+    // hand-edited alias like /var vs /private/var on macOS). The judgement
+    // hot path then does zero fs calls per project — a pure string compare.
+    const projects = [];
+    for (const project of registration.document.projects) {
+      let canonicalPath = null;
+      try {
+        canonicalPath = await realpath(project.path);
+      } catch {
+        canonicalPath = null; // registered root vanished: carried as non-matchable
+      }
+      projects.push({ ...project, canonicalPath });
+    }
+    const result = success({
+      initialized: registration.exists,
+      projects,
+      defaultProjectId: registration.document.default_project_id,
+      fingerprint: registration.fingerprint
+    });
+    indexCache.set(path, { mtimeMs: status.mtimeMs, size: status.size, result });
+    return result;
+  } catch (error) {
+    indexCache.delete(path);
     return failure("registration_unavailable", String(error?.message || error));
   }
 }
