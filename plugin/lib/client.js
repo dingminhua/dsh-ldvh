@@ -130,23 +130,12 @@ window.__ModuleLoader__.load({
          not_governed and unavailable render nothing at all — unavailable is a
          not_governed special case, so it must not claim a colour of its own.
 
-         Box geometry mirrors the shipped QueueDock contribution
-         (dsh-client-ui-conversation QueueDock.module.css `.dock`), which is
-         what aligns a `conversation.input.dock` entry with the composer card:
-           - width/max-width subtract the composer side clearance + dock inset
-             and cap at --dsh-composer-card-max-width (the composer's own box);
-           - `margin: 0 auto` centres it over the composer;
-           - `flex: none` stops the stack from stretching it.
-         Without these the mark floats at the container's left edge.
-
-         Vertical nudge: QueueDock's own bottom margin is -(gap) - 3px, i.e. a
-         NEGATIVE bottom margin that pulls the dock down onto the composer.
-         Direction matters: a LARGER extra term makes the negative margin
-         bigger, shrinks the gap, and moves the mark DOWN. To move it UP the
-         extra term must be SMALLER. Cumulative Human tuning: 3px baseline,
-         then +2px up, then +1px more = 3px above baseline = 0px extra.
-         Change ONLY that number to re-tune the height. */
-      ".ldv-mark{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,16px) - var(--dsh-composer-side-clearance,16px) - var(--dsh-composer-dock-inset,8px) - var(--dsh-composer-dock-inset,8px));max-width:calc(var(--dsh-composer-card-max-width,952px) - var(--dsh-composer-dock-inset,8px) - var(--dsh-composer-dock-inset,8px));margin:0 auto calc(0px - var(--dsh-composer-stack-gap,6px) - 0px);padding:0 var(--dsh-composer-dock-inset,8px);flex:none;display:flex;align-items:center;gap:6px;color:var(--dsw-alias-state-positive,#3fb950);font-size:12px;line-height:16px;user-select:none}" +
+         Lives inline in the conversation flow (under the first completed
+         turn's tail), so plain inline-flex geometry is enough — no dock box
+         model needed. The historical dock geometry (composer clearance /
+         card-max-width / negative bottom margin) was removed when the mark
+         moved off the composer; see git history if it ever needs to return. */
+      ".ldv-mark{display:inline-flex;align-items:center;gap:6px;padding:2px 0 6px;color:var(--dsw-alias-state-positive,#3fb950);font-size:12px;line-height:16px;user-select:none}" +
       ".ldv-mark-dot{width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 18%,transparent);flex:none}";
 
     if (typeof document !== "undefined") {
@@ -690,12 +679,14 @@ window.__ModuleLoader__.load({
       );
     }
 
-    // ── governance-state mark (conversation.input.dock) ──────────────────
-    // A single green dot + label, shown ONLY for `governed`. not_governed and
-    // unavailable render null: they carry no colour, and unavailable is a
-    // not_governed special case, so it must not invent a third signal. The
-    // state comes from the Host's always-on /ldvh/state endpoint (NOT
-    // /ldvh/api, which the Web-presentation switch can unmount).
+    // ── governance-state mark (conversation.chat.turnTail, turn 1) ────────
+    // A single green dot + label, shown ONLY for `governed` and only under
+    // the conversation's first completed turn (see the registration below).
+    // not_governed and unavailable render null: they carry no colour, and
+    // unavailable is a not_governed special case, so it must not invent a
+    // third signal. The state comes from the Host's always-on /ldvh/state
+    // endpoint (NOT /ldvh/api, which the Web-presentation switch can
+    // unmount).
     //
     // Fail-closed: any unresolved state renders nothing. Showing no mark is
     // the safe default; showing a wrong green mark would be a false governance
@@ -844,17 +835,32 @@ window.__ModuleLoader__.load({
           }, LdvhConversationView);
         });
 
-        // 3) governance-state mark above the composer (conversation.input.dock,
-        //    list/session). Only `governed` renders; the component itself is
-        //    fail-closed and returns null for every other or unknown state.
-        ctx.slots.inject("conversation.input.dock", function () {
+        // 3) governance-state mark inside the conversation flow
+        //    (conversation.chat.turnTail, chain/session). Human decision
+        //    (2026-09-02): the mark appears ONCE — under the first completed
+        //    turn of a governed session — and scrolls with the flow, instead
+        //    of a persistent row above the composer. Chain semantics (verified
+        //    against dsh-client-ui-renderer renderOutletContent + the
+        //    dsh-deliverables precedent): select(owner) is called per
+        //    completed turn; the first non-null entry is elected and its
+        //    component renders above that turn's usage/actions footer. Turn
+        //    ids are sequential per session record (verified in the session
+        //    JSONL: 1,2,3…), so `turn 1` is a stable anchor for "the
+        //    conversation's first turn" — including continued conversations,
+        //    whose replayed history is renumbered into the new record.
+        ctx.slots.inject("conversation.chat.turnTail", function () {
           return ctx.slots.register({
-            name: "conversation.input.dock",
-            id: "ldvh-governance-mark",
-            order: 10,
-            label: function () { return t("mark.governed"); },
-            // inject receives the sessionId (a string). The session hooks are
-            // injected by the Slot host itself, not returned from here.
+            name: "conversation.chat.turnTail",
+            select: function (owner) {
+              var turnId = owner && owner.turn ? owner.turn.turn : void 0;
+              // Accept the raw number and its string form; anything else —
+              // including a missing turn — declines (renders nothing).
+              if (turnId !== 1 && turnId !== "1") return null;
+              return { mark: true };
+            },
+            // inject receives the sessionId (a string) for session-scoped
+            // slots; the mark fetches the governance state from the Host with
+            // it (see LdvhGovernanceMark).
             inject: function (sessionId) { return { t: t, sessionId: sessionId }; }
           }, LdvhGovernanceMark);
         });
