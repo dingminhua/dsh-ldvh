@@ -143,10 +143,10 @@ window.__ModuleLoader__.load({
          NEGATIVE bottom margin that pulls the dock down onto the composer.
          Direction matters: a LARGER extra term makes the negative margin
          bigger, shrinks the gap, and moves the mark DOWN. To move it UP the
-         extra term must be SMALLER. The Human asked for 2px higher, so the
-         baseline 3px becomes 1px (3 - 2). Change ONLY that number to re-tune
-         the height. */
-      ".ldv-mark{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,16px) - var(--dsh-composer-side-clearance,16px) - var(--dsh-composer-dock-inset,8px) - var(--dsh-composer-dock-inset,8px));max-width:calc(var(--dsh-composer-card-max-width,952px) - var(--dsh-composer-dock-inset,8px) - var(--dsh-composer-dock-inset,8px));margin:0 auto calc(0px - var(--dsh-composer-stack-gap,6px) - 1px);padding:0 var(--dsh-composer-dock-inset,8px);flex:none;display:flex;align-items:center;gap:6px;color:var(--dsw-alias-state-positive,#3fb950);font-size:12px;line-height:16px;user-select:none}" +
+         extra term must be SMALLER. Cumulative Human tuning: 3px baseline,
+         then +2px up, then +1px more = 3px above baseline = 0px extra.
+         Change ONLY that number to re-tune the height. */
+      ".ldv-mark{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,16px) - var(--dsh-composer-side-clearance,16px) - var(--dsh-composer-dock-inset,8px) - var(--dsh-composer-dock-inset,8px));max-width:calc(var(--dsh-composer-card-max-width,952px) - var(--dsh-composer-dock-inset,8px) - var(--dsh-composer-dock-inset,8px));margin:0 auto calc(0px - var(--dsh-composer-stack-gap,6px) - 0px);padding:0 var(--dsh-composer-dock-inset,8px);flex:none;display:flex;align-items:center;gap:6px;color:var(--dsw-alias-state-positive,#3fb950);font-size:12px;line-height:16px;user-select:none}" +
       ".ldv-mark-dot{width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 18%,transparent);flex:none}";
 
     if (typeof document !== "undefined") {
