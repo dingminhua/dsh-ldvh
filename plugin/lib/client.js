@@ -697,9 +697,21 @@ window.__ModuleLoader__.load({
     // state comes from the Host's always-on /ldvh/state endpoint (NOT
     // /ldvh/api, which the Web-presentation switch can unmount).
     //
-    // Fail-closed: any unknown/unresolved state renders nothing. Showing no
-    // mark is the safe default; showing a wrong green mark would be a false
-    // governance claim.
+    // Fail-closed: any unresolved state renders nothing. Showing no mark is
+    // the safe default; showing a wrong green mark would be a false governance
+    // claim.
+    //
+    // RETRY: the Host records a session's scope when its agent/session-start
+    // fires, which can happen AFTER the page has already rendered this mark
+    // (observed: route mounted 23:21:08, component fetched 23:21:09, session
+    // registered 23:21:15). `unknown` is therefore a TRANSIENT answer, not a
+    // verdict — a single fetch that lands in that window would leave the mark
+    // blank forever. So `unknown` (and transport failure) retries with a short
+    // backoff, capped so a session that truly never starts does not poll
+    // indefinitely. Definitive states (governed / not_governed / unavailable)
+    // never retry.
+    var MARK_RETRY_DELAY_MS = 1500;
+    var MARK_RETRY_LIMIT = 20;
     function LdvhGovernanceMark(props) {
       var t = props.t;
       var sessionId = props.sessionId;
@@ -707,20 +719,39 @@ window.__ModuleLoader__.load({
       React.useEffect(function () {
         if (typeof sessionId !== "string" || sessionId.length === 0) return undefined;
         var cancelled = false;
+        var attempts = 0;
         // The Host owns the cwd→state judgement (it already resolves it for
         // the tools and the guidance section). The Client only knows its
         // sessionId, which `inject` receives — the dock Slot's props carry no
         // cwd (verified: cwd lives in useSessions().byId[…], which this Slot
         // does not receive).
-        fetch("/ldvh/state/governance?sessionId=" + encodeURIComponent(sessionId), { method: "GET", cache: "no-store" })
-          .then(function (r) { return r.json(); })
-          .then(function (body) {
-            if (cancelled) return;
-            state[1](body && body.ok === true ? body : null);
-          })
-          .catch(function () {
-            if (!cancelled) state[1](null);
-          });
+        function attempt() {
+          if (cancelled) return;
+          fetch("/ldvh/state/governance?sessionId=" + encodeURIComponent(sessionId), { method: "GET", cache: "no-store" })
+            .then(function (r) { return r.json(); })
+            .then(function (body) {
+              if (cancelled) return;
+              var resolved = body && body.ok === true && body.state !== "unknown";
+              if (resolved) {
+                state[1](body);
+              } else if (attempts < MARK_RETRY_LIMIT) {
+                attempts += 1;
+                setTimeout(attempt, MARK_RETRY_DELAY_MS);
+              } else {
+                state[1](null);
+              }
+            })
+            .catch(function () {
+              if (cancelled) return;
+              if (attempts < MARK_RETRY_LIMIT) {
+                attempts += 1;
+                setTimeout(attempt, MARK_RETRY_DELAY_MS);
+              } else {
+                state[1](null);
+              }
+            });
+        }
+        attempt();
         return function () { cancelled = true; };
       }, [sessionId]);
 
