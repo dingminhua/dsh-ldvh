@@ -9,8 +9,13 @@
 // Web routes (only when a webServer exists):
 //   /ldvh/api   — backend API (health + governed-project lifecycle ops)
 //   /ldvh       — frontend SPA (placeholder until the v4 web migration)
-//   /ldvh/state — always-on governance-state endpoint for the Client mark
-//                 (independent of the webEnabled presentation switch)
+//   /ldvh/state — always-on governance-state endpoint (independent of the
+//                 webEnabled presentation switch). Client-mark consumers were
+//                 removed with the UI marks (Human 2026-09-04: context-
+//                 injection row supersedes them); the endpoint remains as the
+//                 machine-checkable state surface (E2 backfill: 稳态可查),
+//                 and the ldvh_resolve_governance_scope tool path shares the
+//                 same judgement source.
 //
 // What deliberately does NOT live here anymore (batch-1 rewrite):
 //   - the global systemPrompt.section guidance channel (removed by Human

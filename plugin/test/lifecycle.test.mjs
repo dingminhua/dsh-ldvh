@@ -614,9 +614,19 @@ test("pre-step: judgment change injects a visible context-injection row (plugin 
 	assert.match(injected.content[0].text, /【LDVH 管辖判定】governed/);
 	assert.equal(first.messages.length, baseMessages.length + 1);
 
-	// Same notice again (steady state): NO new row.
-	const second = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: [...baseMessages] }));
-	assert.equal(second.messages.length, baseMessages.length, "unchanged judgment does not re-inject");
+	// Same notice again with the row still present in the batch (steady
+	// state): NO new row — loss detection only fires when the row is gone.
+	const second = await handler.handler(
+		{ agent, step: 1, signal: {} },
+		async () => ({ kind: "enter", messages: [...baseMessages, injected] })
+	);
+	assert.equal(second.messages.length, baseMessages.length + 1, "unchanged judgment does not re-inject");
+
+	// Rewind/clear edge case (re-review finding): the row vanished from the
+	// batch but the digest still matches — must re-inject, not stay silent.
+	const afterRewind = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: [...baseMessages] }));
+	assert.equal(afterRewind.messages.length, baseMessages.length + 1, "lost row is re-injected after rewind/clear");
+	assert.match(afterRewind.messages[afterRewind.messages.length - 1].content[0].text, /【LDVH 管辖判定】governed/);
 
 	// Judgment changed: a new row appears (digest differs).
 	const third = await handler.handler(
@@ -637,7 +647,8 @@ test("pre-step: judgment change injects a visible context-injection row (plugin 
 	const changedInjected = changed.messages[changed.messages.length - 1];
 	assert.match(changedInjected.content[0].text, /管辖状态变更】governed → unavailable/, "migration row injected on change");
 
-	// A turn that already carries our own message is left untouched (rewind-safe).
+	// A turn that already carries our own message with the SAME notice is
+	// left untouched (replay-safe).
 	const withOwn = [...baseMessages, injected];
 	const fourth = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: withOwn }));
 	assert.equal(fourth.messages.length, withOwn.length, "own message suppresses re-injection");

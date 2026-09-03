@@ -164,7 +164,6 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
   // assemble handler's recordScope). Injected as a visible row when it
   // differs from the last injected digest.
   const getNoticeText = typeof noticeText === "function" ? noticeText : () => null;
-  const cueVisible = () => true; // batch-3 seam: real surface scan lands with content
   return {
     /** session-start hook: prime the channel (mnemon primePending shape). */
     prime() { state.primePending = true; },
@@ -189,21 +188,30 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
       if (decision.kind === "reject" || payload.signal?.aborted === true) return decision;
       if (payload.step !== 1) return decision;
       const currentNotice = getNoticeText();
-      if (currentNotice !== null && currentNotice !== "") {
-        const ownRequest = decision.messages.some(isOwnMessage);
-        const changed = currentNotice !== state.lastDigest;
-        const primed = state.primePending;
-        state.primePending = false;
-        if (!ownRequest && changed) {
-          state.lastDigest = currentNotice;
-          return {
-            kind: "enter",
-            messages: [...decision.messages, createPluginMessage(currentNotice, (typeof noticeSummary === "function" ? noticeSummary() : noticeSummary) ?? "LDVH 管辖判定")]
-          };
-        }
-      } else {
-        state.primePending = false;
+      state.primePending = false;
+      if (currentNotice === null || currentNotice === "") return decision;
+      // Loss detection (re-review finding, 2026-09-04): the digest gate alone
+      // meant a rewind to before our row, or a cleared conversation, silently
+      // lost the visible notice forever (lastDigest still matched, no
+      // re-injection). The real cue-visibility check: a row is "visible" only
+      // when it is still in THIS turn's message batch. If it is gone, treat
+      // the notice as changed and re-inject — the rewind/clear edge cases
+      // recover automatically (mnemon cueAlreadyVisible shape).
+      const ownMessage = decision.messages.find(isOwnMessage);
+      const changed = currentNotice !== state.lastDigest;
+      if (ownMessage === undefined || changed) {
+        // Row absent (first turn, rewind, or cleared conversation) or the
+        // notice changed: inject one fresh row. This is the loss-recovery
+        // path the digest gate alone could not cover (re-review finding).
+        state.lastDigest = currentNotice;
+        return {
+          kind: "enter",
+          messages: [...decision.messages, createPluginMessage(currentNotice, (typeof noticeSummary === "function" ? noticeSummary() : noticeSummary) ?? "LDVH 管辖判定")]
+        };
       }
+      // Row present and notice unchanged: refresh the text in place so a
+      // stale row never lingers after the judgment moved on between turns.
+      ownMessage.content = [{ type: "text", text: currentNotice }];
       return decision;
     }
   };

@@ -126,34 +126,7 @@ window.__ModuleLoader__.load({
       ".ldv-btn-primary:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#5686fe) 88%,#fff)}" +
       ".ldv-btn-outline:hover:not(:disabled){border-color:var(--dsw-alias-label-dimmed,#777)}" +
       ".ldv-btn:disabled{opacity:.5;cursor:default}" +
-      /* Governance-state mark (conversation flow, under the first completed
-         turn): `governed` renders GREEN (Human 2026-09-02), `unavailable`
-         renders RED (Human 2026-09-03 update — it still ACTS as
-         not_governed; the colour only makes the degraded state visible),
-         not_governed renders nothing. The trailing duration uses tabular
-         digits so "· 12.3s" does not jitter between turns.
-
-         Human style direction (2026-09-03): present it as a PLAIN TEXT LINE
-         — a small solid dot + text, all in one colour. No glow ring around
-         the dot (the 3px box-shadow halo read as a status ICON — the same
-         look as the settings-card dot, which is intentional THERE and wrong
-         here), and the font size matches the official in-flow text rows
-         (--dsh-content-font-size-secondary, the same variable the shipped
-         usage-summary row uses) instead of the smaller 12px widget size. */
-      ".ldv-mark{display:inline-flex;align-items:center;gap:6px;padding:2px 0 6px;color:var(--dsw-alias-state-positive,#3fb950);font-size:var(--dsh-content-font-size-secondary,13px);line-height:20px;font-variant-numeric:tabular-nums;user-select:none}" +
-      ".ldv-mark-unavailable{color:var(--dsw-alias-state-error-primary,#f85149)}" +
-      ".ldv-mark-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}" +
-      /* Header mark: a small compact chip rendered in the conversation header's
-         actions row. Human style direction (2026-09-03): a ROUNDED-SQUARE pill
-         — distinct from the in-flow mark's plain dot. Colours mirror the
-         turnTail mark: green = governed, red = unavailable, grey = not_governed.
-         Dot + text in one colour, no border/glow. */
-      ".ldv-hdr-mark{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:11px;background:transparent;font-size:11px;line-height:16px;font-weight:500;cursor:default;user-select:none}" +
-      ".ldv-hdr-mark-dot{width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}" +
-      ".ldv-hdr-mark-governed{color:var(--dsw-alias-state-positive,#3fb950)}" +
-      ".ldv-hdr-mark-unavailable{color:var(--dsw-alias-state-error-primary,#f85149)}" +
-      ".ldv-hdr-mark-not-governed{color:var(--dsw-alias-label-tertiary,#999)}";
-
+      "";
     if (typeof document !== "undefined") {
       var cssId = "dsh-ldvh/client.css";
       if (!document.querySelector("style[data-plugin-css='" + cssId + "']")) {
@@ -217,22 +190,6 @@ window.__ModuleLoader__.load({
       "view.loading": "正在加载 LDVH Web…",
       "view.error": "LDVH Web 当前不可用，请检查插件设置中的路由开关，或稍后重试。",
       "view.retry": "重试",
-      "mark.governed": "本项目受 LDVH 管辖",
-      "mark.governedWithName": "本项目受 LDVH 管辖：{name}",
-      "mark.unavailable": "LDVH 管辖状态不可用",
-      "mark.unavailableHint": "管辖登记当前不可读取，本项目暂按不受管辖处理。处理方法：检查 DSH 用户配置根下 ldvh/governed-projects.yaml 是否可读且格式正确，或在 DSH 设置页查看管辖项目。",
-      // Session-header governance chip. Sits in the conversation header's
-      // actions row (alongside dsh-client-ui-subagent's lineage dropdown),
-      // independent of any tool call, so it covers subagent sessions too
-      // (the turnTail mark relies on the ldvh_resolve_governance_scope
-      // claim, which subagents never produce).
-      "mark.hdr.governed": "本会话受 LDVH 管辖",
-      "mark.hdr.governedWithName": "本会话受 LDVH 管辖：{name}",
-      "mark.hdr.notGoverned": "本会话不受 LDVH 管辖",
-      "mark.hdr.unavailable": "LDVH 管辖状态不可用",
-      "mark.hdr.unavailableHint": "管辖登记当前不可读取，本会话暂按不受管辖处理。",
-      "mark.hdr.parentNotGoverned": "委派来源不受 LDVH 管辖",
-      "mark.hdr.parentUnavailable": "委派来源管辖状态不可用"
     };
     var LDVH_EN = {
       "row.title": "LD Vibe Harness (dsh-ldvh)",
@@ -284,18 +241,6 @@ window.__ModuleLoader__.load({
       "view.loading": "Loading LDVH Web…",
       "view.error": "LDVH Web is unavailable. Check the route switch in plugin settings, or try again later.",
       "view.retry": "Retry",
-      "mark.governed": "This project is governed by LDVH",
-      "mark.governedWithName": "Governed by LDVH: {name}",
-      "mark.unavailable": "LDVH governance state unavailable",
-      "mark.unavailableHint": "The governed-projects registration cannot be read; this session is treated as ungoverned for now. Check that ldvh/governed-projects.yaml under the DSH user-config root is readable and valid, or inspect the governed-projects page in DSH settings.",
-      // Session-header governance chip (conversation.session.header.actions).
-      "mark.hdr.governed": "Governed by LDVH",
-      "mark.hdr.governedWithName": "Governed by LDVH: {name}",
-      "mark.hdr.notGoverned": "Not governed by LDVH",
-      "mark.hdr.unavailable": "LDVH governance state unavailable",
-      "mark.hdr.unavailableHint": "The governed-projects registration cannot be read; this session is treated as ungoverned for now.",
-      "mark.hdr.parentNotGoverned": "Parent not governed by LDVH",
-      "mark.hdr.parentUnavailable": "Parent governance state unavailable"
     };
 
     // Mechanical ID validation. Slug rule mirrors chooseProject(): lowercase
@@ -719,236 +664,6 @@ window.__ModuleLoader__.load({
       );
     }
 
-    // ── governance-state mark (conversation.chat.turnTail, turn 1) ────────
-    // A single green dot + label, shown ONLY for `governed` and only under
-    // the conversation's first completed turn (see the registration below).
-    // not_governed and unavailable render null: they carry no colour, and
-    // unavailable is a not_governed special case, so it must not invent a
-    // third signal. The state comes from the Host's always-on /ldvh/state
-    // endpoint (NOT /ldvh/api, which the Web-presentation switch can
-    // unmount).
-    //
-    // Fail-closed: any unresolved state renders nothing. Showing no mark is
-    // the safe default; showing a wrong green mark would be a false governance
-    // claim.
-    //
-    // RETRY: the Host records a session's scope when its agent/session-start
-    // fires, which can happen AFTER the page has already rendered this mark
-    // (observed: route mounted 23:21:08, component fetched 23:21:09, session
-    // registered 23:21:15). `unknown` is therefore a TRANSIENT answer, not a
-    // verdict — a single fetch that lands in that window would leave the mark
-    // blank forever. So `unknown` (and transport failure) retries with a short
-    // backoff, capped so a session that truly never starts does not poll
-    // indefinitely. Definitive states (governed / not_governed / unavailable)
-    // never retry.
-    var MARK_RETRY_DELAY_MS = 1500;
-    var MARK_RETRY_LIMIT = 20;
-    function LdvhGovernanceMark(props) {
-      var t = props.t;
-      var sessionId = props.sessionId;
-      var state = React.useState(null);
-      React.useEffect(function () {
-        if (typeof sessionId !== "string" || sessionId.length === 0) return undefined;
-        var cancelled = false;
-        var attempts = 0;
-        // The Host owns the cwd→state judgement (it already resolves it for
-        // the tools and the guidance section). The Client only knows its
-        // sessionId, which `inject` receives — the dock Slot's props carry no
-        // cwd (verified: cwd lives in useSessions().byId[…], which this Slot
-        // does not receive).
-        function attempt() {
-          if (cancelled) return;
-          fetch("/ldvh/state/governance?sessionId=" + encodeURIComponent(sessionId), { method: "GET", cache: "no-store" })
-            .then(function (r) { return r.json(); })
-            .then(function (body) {
-              if (cancelled) return;
-              var resolved = body && body.ok === true && body.state !== "unknown";
-              if (resolved) {
-                state[1](body);
-              } else if (attempts < MARK_RETRY_LIMIT) {
-                attempts += 1;
-                setTimeout(attempt, MARK_RETRY_DELAY_MS);
-              } else {
-                state[1](null);
-              }
-            })
-            .catch(function () {
-              if (cancelled) return;
-              if (attempts < MARK_RETRY_LIMIT) {
-                attempts += 1;
-                setTimeout(attempt, MARK_RETRY_DELAY_MS);
-              } else {
-                state[1](null);
-              }
-            });
-        }
-        attempt();
-        return function () { cancelled = true; };
-      }, [sessionId]);
-
-      var value = state[0];
-      if (value === null) return null;
-
-      // Turn duration, straight off the Turn object the turnTail ownerProps
-      // already carry. Same formula the shipped footer uses:
-      // Math.max(0, end.time - start.time) (dsh-client-ui-chat
-      // TurnTailNodeView). Renders only when both timestamps exist.
-      var turn = props.turn;
-      var runMs = turn && turn.start !== void 0 && turn.end !== void 0
-        ? Math.max(0, turn.end.time - turn.start.time)
-        : null;
-      var durationLabel = null;
-      if (runMs !== null) {
-        var seconds = runMs / 1000;
-        durationLabel = seconds < 60
-          ? seconds.toFixed(1) + "s"
-          : Math.floor(seconds / 60) + "m " + Math.round(seconds % 60) + "s";
-      }
-
-      if (value.state === "unavailable") {
-        // Human decision (2026-09-03 update): unavailable shows a RED mark in
-        // the flow. It still ACTS as not_governed (no tools, no controlled
-        // operations) — the colour only makes the degraded state visible; the
-        // full remediation path lives in the system-prompt guidance, the
-        // tooltip keeps a one-line pointer.
-        var unavailableLabel = t("mark.unavailable");
-        return React.createElement(
-          "div",
-          { className: "ldv-mark ldv-mark-unavailable", title: t("mark.unavailableHint") },
-          React.createElement("span", { className: "ldv-mark-dot" }),
-          React.createElement("span", null, durationLabel === null ? unavailableLabel : unavailableLabel + " · " + durationLabel)
-        );
-      }
-      if (value.state !== "governed") return null;
-      var name = value.project && value.project.name ? value.project.name : null;
-      var label = name ? t("mark.governedWithName").replace("{name}", name) : t("mark.governed");
-      if (durationLabel !== null) label = label + " · " + durationLabel;
-      return React.createElement(
-        "div",
-        { className: "ldv-mark", title: label },
-        React.createElement("span", { className: "ldv-mark-dot" }),
-        React.createElement("span", null, label)
-      );
-    }
-
-    // ── session-header governance mark ────────────────────────────────────
-    // Renders a compact pill in the conversation header's actions row
-    // (conversation.session.header.actions, kind: "list"). Always-on: fetches
-    // governance state from the Host's /ldvh/state/governance endpoint
-    // (same always-on state route as LdvhGovernanceMark; the /ldvh/api route
-    // is not used so the mark stays accurate even when Web presentation is off).
-    //
-    // State mapping:
-    //   governed           → GREEN pill "Governed by LDVH [· projectName]"
-    //   not_governed       → GREY pill "Not governed by LDVH"
-    //   unavailable        → RED pill "LDVH governance state unavailable"
-    //   unknown (transient) → renders null (keep polling, 20 attempts)
-    //
-    // Subagent sessions: a subagent's own /ldvh/state/governance query will
-    // return not_governed (ldvh_resolve_governance_scope never fires for a
-    // subagent's cwd). This is correct: the mark should show the subagent is
-    // not independently governed. It does NOT inherit the parent's governed
-    // state — that inheritance is a Host-side delegation concept (child.js)
-    // that applies to tools and guidance, not to the UI layer.
-    //
-    // The pill is placed in the actions row (right of the session title, before
-    // the trailing utilities). Because actions is kind: "list", multiple
-    // registrations coexist; we use priority: 10 (higher than the default 0) so
-    // this renders after standard actions, at the trailing end of the row.
-    function LdvhHeaderMark(props) {
-      var t = props.t;
-      var useSessions = props.useSessions;
-      // sessionId from the conversation store (scope: "session" provides
-      // useSessions as a standard hook). For a subagent session, the root is
-      // the parent conversation; for a root session, it is the session
-      // itself. Take the first non-subagent summary as the conversation root.
-      var sessionId = useSessions(function (s) {
-        if (!s || !s.byId) return null;
-        var root = null;
-        for (var id in s.byId) {
-          var sum = s.byId[id];
-          if (sum && sum.origin !== "subagent") {
-            root = id;
-            break;
-          }
-        }
-        return root || null;
-      });
-      var govState = React.useState(null);
-      React.useEffect(function () {
-        if (typeof sessionId !== "string" || sessionId.length === 0) {
-          govState[1](null);
-          return undefined;
-        }
-        var cancelled = false;
-        var attempts = 0;
-        function attempt() {
-          if (cancelled) return;
-          fetch("/ldvh/state/governance?sessionId=" + encodeURIComponent(sessionId), { method: "GET", cache: "no-store" })
-            .then(function (r) { return r.json(); })
-            .then(function (body) {
-              if (cancelled) return;
-              if (body && body.ok === true && body.state !== "unknown") {
-                govState[1](body);
-              } else if (attempts < MARK_RETRY_LIMIT) {
-                attempts += 1;
-                setTimeout(attempt, MARK_RETRY_DELAY_MS);
-              } else {
-                govState[1](null);
-              }
-            })
-            .catch(function () {
-              if (cancelled) return;
-              if (attempts < MARK_RETRY_LIMIT) {
-                attempts += 1;
-                setTimeout(attempt, MARK_RETRY_DELAY_MS);
-              } else {
-                govState[1](null);
-              }
-            });
-        }
-        attempt();
-        return function () { cancelled = true; };
-      }, [sessionId]);
-
-      var value = govState[0];
-      // Transient unknown: keep rendering null until resolved or capped.
-      if (value === null) return null;
-
-      var dot = React.createElement("span", { className: "ldv-hdr-mark-dot" });
-
-      if (value.state === "unavailable") {
-        return React.createElement(
-          "div",
-          { className: "ldv-hdr-mark ldv-hdr-mark-unavailable", title: t("mark.hdr.unavailableHint") },
-          dot,
-          React.createElement("span", null, t("mark.hdr.unavailable"))
-        );
-      }
-
-      if (value.state !== "governed") {
-        // not_governed
-        return React.createElement(
-          "div",
-          { className: "ldv-hdr-mark ldv-hdr-mark-not-governed", title: t("mark.hdr.notGoverned") },
-          dot,
-          React.createElement("span", null, t("mark.hdr.notGoverned"))
-        );
-      }
-
-      var name = value.project && value.project.name ? value.project.name : null;
-      var label = name ? t("mark.hdr.governedWithName").replace("{name}", name) : t("mark.hdr.governed");
-      return React.createElement(
-        "div",
-        { className: "ldv-hdr-mark ldv-hdr-mark-governed", title: label },
-        dot,
-        React.createElement("span", null, label)
-      );
-    }
-
-    // ── LDVH conversation view: iframe /ldvh/ with loading/error states ──
-    // Rendered inside the session body when the "LDVH" tab is active
-    // (conversation.view ring, exactly like the trajectory view).
     function LdvhConversationView(props) {
       var t = props.t;
       var viewState = React.useState({ checking: true, ready: false, failed: false });
@@ -988,7 +703,7 @@ window.__ModuleLoader__.load({
     }
 
     // ── apply: inject the contributions ──────────────────────────────────
-    var inject = ["slots", "locale", "settingsScope", "uiConversation"];
+    var inject = ["slots", "locale", "settingsScope"];
 
     function apply(ctx) {
       try {
@@ -1023,103 +738,7 @@ window.__ModuleLoader__.load({
           }, LdvhConversationView);
         });
 
-        // 3) governance-state mark inside the conversation flow
-        //    (conversation.chat.turnTail, chain/session). Human decision
-        //    (2026-09-02): appears in the flow, scrolls with it, never a
-        //    persistent row. Human refinement (2026-09-03): the anchor is the
-        //    turn in which the governance-confirmation TOOL was actually
-        //    CALLED (ldvh_resolve_governance_scope) — "the API was called,
-        //    so the line shows up there" — not a fixed turn number (a
-        //    continued conversation replays history as turn 1, where no
-        //    confirmation happened). Any turn that calls the confirmation
-        //    tool shows the mark at its tail; confirmations are rare (one
-        //    per session in practice), so this stays quiet by construction.
-        //
-        //    Mechanism (deliverables precedent, dsh-client-ui-deliverables
-        //    definition): a client-side event definition watches tool/call,
-        //    records { claimed: true } on the matching turn's aggregate data
-        //    (turn.data), and publishes no view node of its own. The chain
-        //    select then elects that turn.
-        //
-        //    Definition contract (dsh-client-ui-deliverables, read line by
-        //    line): ONE INSTANCE PER TURN (`id: String(turn)`), initialized
-        //    on turn/start (`role: "start"` — without a start match the
-        //    instance never exists and every update is dropped, which is
-        //    exactly why the first version of this definition silently did
-        //    nothing), and `buildLocationData(context, "turn")` is what
-        //    actually WRITES the value into `turn.data` under the definition
-        //    kind — omitting it leaves `turn.data.get(kind)` undefined
-        //    forever. "Show once" needs no cross-turn scan: the chain select
-        //    is called per turn, and the earliest claimed turn simply is the
-        //    first one whose tail elects this entry.
-        var LDVH_SCOPE_TOOL = "ldvh_resolve_governance_scope";
-        var scopeClaimDefinition = {
-          kind: "ldvh-scope-claim",
-          match: function (event) {
-            if (event.type === "turn/start") return {
-              id: String(event.data.turn),
-              role: "start"
-            };
-            if (event.type === "tool/call" && event.data.name === LDVH_SCOPE_TOOL) return {
-              id: String(event.data.turn),
-              role: "update"
-            };
-            return null;
-          },
-          start: function (context, match) {
-            if (match.event.type !== "turn/start") throw new Error("ldvh-scope-claim start requires turn/start");
-            return {
-              turn: match.event.data.turn,
-              claimed: false
-            };
-          },
-          update: function (context, match) {
-            if (match.event.type !== "tool/call") return context.state;
-            return {
-              turn: context.state.turn,
-              claimed: true
-            };
-          },
-          publication: function (match) { return match.event.type === "tool/call" ? "immediate" : "none"; },
-          buildLocationData: function (context, scope) {
-            return scope !== "turn" || context.state === void 0 ? null : {
-              kind: "turn",
-              turn: context.state.turn,
-              key: "ldvh-scope-claim",
-              value: { claimed: context.state.claimed }
-            };
-          }
-        };
-        ctx.uiConversation.events.register(scopeClaimDefinition);
 
-        ctx.slots.inject("conversation.chat.turnTail", function () {
-          return ctx.slots.register({
-            name: "conversation.chat.turnTail",
-            select: function (owner) {
-              var turn = owner && owner.turn;
-              if (!turn) return null;
-              var claim = turn.data.get("ldvh-scope-claim");
-              if (claim === void 0 || claim.claimed !== true) return null;
-              return { mark: true };
-            },
-            // inject receives the sessionId (a string) for session-scoped
-            // slots; the mark fetches the governance state from the Host with
-            // it (see LdvhGovernanceMark).
-            inject: function (sessionId) { return { t: t, sessionId: sessionId }; }
-          }, LdvhGovernanceMark);
-        });
-
-        // Session-header governance pill.  priority 10 places it after
-        // standard actions (typically priority 0).  kind: "list" means it
-        // coexists with other actions registrations (including
-        // dsh-client-ui-subagent's SubagentHeaderLineage at priority 0).
-        ctx.slots.inject("conversation.session.header.actions", function () {
-          return ctx.slots.register({
-            name: "conversation.session.header.actions",
-            priority: 10,
-            inject: function (sessionId, actions) { return { t: t, useSessions: actions.useSessions }; }
-          }, LdvhHeaderMark);
-        });
       } catch (error) {
         // Match WorkBuddy's browser failure boundary: Host remains functional,
         // developers see the cause, users do not get a page-level red banner.
