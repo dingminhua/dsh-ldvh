@@ -54,7 +54,10 @@ test("assemble: governed splices the guidance section into the current assembly"
 	assert.deepEqual(scopes, ["governed"], "tools guard consulted with judged state");
 });
 
-test("assemble: not_governed removes any stale section and registers nothing", async () => {
+test("assemble: not_governed REPLACES any stale section with the one-line judgment (Human 2026-09-04)", async () => {
+	// Supersedes zero-interference removal: not_governed now carries a
+	// one-line judgment notice, so a stale governed section is REPLACED by
+	// the not_governed notice, not deleted.
 	const agent = makeAgent("s1", "/cwd");
 	const handler = createAssembleHandler(agent, {
 		resolve: async () => ({ state: "not_governed" }),
@@ -63,7 +66,37 @@ test("assemble: not_governed removes any stale section and registers nothing", a
 	});
 	const withStale = { ...assembly(), sections: [...assembly().sections, { name: GUIDANCE_SECTION_NAME, text: "stale" }] };
 	const result = await handler(withStale, { agent }, async () => withStale);
-	assert.deepEqual(result.sections.map((section) => section.name), ["other"], "stale guidance removed, zero interference");
+	const section = result.sections.find((entry) => entry.name === GUIDANCE_SECTION_NAME);
+	assert.ok(section, "not_governed section present (one-line judgment)");
+	assert.match(section.text, /【LDVH 管辖判定】not_governed/);
+	assert.ok(!section.text.includes("stale"), "stale governed body replaced");
+});
+
+test("assemble: judgment change mid-session prepends the migration notice (已切换到 pattern)", async () => {
+	const agent = makeAgent("s1", "/cwd");
+	let state = "governed";
+	const handler = createAssembleHandler(agent, {
+		resolve: async () => ({ state }),
+		syncTools: () => {},
+		recordScope: () => {}
+	});
+	// First judgement: no migration line (nothing to migrate from).
+	const first = await handler(assembly(), { agent }, async () => assembly());
+	const firstSection = first.sections.find((entry) => entry.name === GUIDANCE_SECTION_NAME);
+	assert.ok(!firstSection.text.includes("管辖状态变更"), "first judgement has no migration line");
+	assert.match(firstSection.text, /【LDVH 管辖判定】governed/);
+
+	// Same state again: still no migration line.
+	const second = await handler(assembly(), { agent }, async () => assembly());
+	assert.ok(!second.sections.find((entry) => entry.name === GUIDANCE_SECTION_NAME).text.includes("管辖状态变更"));
+
+	// State changes: migration line FIRST, then the new judgment line.
+	state = "unavailable";
+	const third = await handler(assembly(), { agent }, async () => assembly());
+	const thirdSection = third.sections.find((entry) => entry.name === GUIDANCE_SECTION_NAME);
+	assert.match(thirdSection.text, /【LDVH 管辖状态变更】governed → unavailable/);
+	assert.match(thirdSection.text, /【LDVH 管辖判定】unavailable/);
+	assert.ok(thirdSection.text.indexOf("管辖状态变更") < thirdSection.text.indexOf("管辖判定"), "migration line comes first");
 });
 
 test("assemble: unavailable injects the fail-closed section", async () => {
@@ -163,7 +196,8 @@ function makeHostCtx() {
 		fire(event, payload) {
 			for (const listener of listeners[event] ?? []) listener(payload);
 		},
-		agentEffects: []
+		agentEffects: [],
+		registeredTools: []
 	};
 	return ctx;
 }
@@ -184,7 +218,16 @@ function makeInstallableAgent(id, cwd, ctx, { root = true } = {}) {
 				ctx.agentEffects.push({ agentId: id, event, listener });
 				return () => {};
 			},
-			tools: undefined
+			// Real agent contexts always provide a tools registry. Leaving it
+			// undefined made registerLdvhTools throw, which aborted syncTools
+			// BEFORE setScope/propagateToChildren — silently disabling parent
+			// state propagation under test only (live hosts were unaffected).
+			tools: {
+				register: (descriptor) => {
+					ctx.registeredTools.push(descriptor?.name ?? "unknown");
+					return () => {};
+				}
+			}
 		},
 		owner: root ? undefined : "parent"
 	};
@@ -326,4 +369,276 @@ test("child: subagent with a live governed parent is installed with delegated st
 		// Child installed without crashing; the mechanism is mounted (its
 		// content seams are empty by design this batch).
 	});
+});
+
+// ---------------------------------------------------------------------------
+// child: delegation-chain visibility (2026-09-04)
+// ---------------------------------------------------------------------------
+
+/** Pull the listener a child registered for one agent-scoped event. */
+function childListener(ctx, agentId, event) {
+	const found = ctx.agentEffects.filter((entry) => entry.agentId === agentId && entry.event === event);
+	return found.length === 0 ? undefined : found[found.length - 1].listener;
+}
+
+test("child: parent governance migration propagates to already-installed children (R2e)", async () => {
+	await withTemp("ldvh-lc.", async (base) => {
+		const home = join(base, "home");
+		const repo = await initRepo(base);
+		await registerProject(dshHome(home), { id: "demo", path: repo });
+
+		const ctx = makeHostCtx();
+		const parent = makeInstallableAgent("parent", repo, ctx);
+		const sessionScopes = createSessionScopes();
+		const registry = createLifecycleRegistry(ctx, { dshHomePath: dshHome(home), workspaceRoot: base, sessionScopes });
+
+		ctx.agents = { roots: () => [parent], get: (id) => (id === "parent" ? parent : undefined) };
+		registry.start();
+		ctx.fire("agent/created", { agent: parent });
+		for (let attempt = 0; attempt < 50 && sessionScopes.get("parent") === undefined; attempt += 1) {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+		assert.equal(sessionScopes.get("parent")?.state, "governed");
+
+		const child = makeInstallableAgent("child", repo, ctx, { root: false });
+		child.session.header.origin = "subagent";
+		child.session.header.parentSession = "parent";
+		ctx.fire("agent/created", { agent: child });
+
+		const before = registry.childSnapshots();
+		assert.equal(before.length, 1, "child is visible in the child snapshot channel");
+		assert.equal(before[0].agentId, "child");
+		assert.equal(before[0].parentAgentId, "parent");
+		assert.equal(before[0].scopeState, "governed", "child inherits the parent's judged state");
+		assert.equal(before[0].toolsRegistered, false, "children never register tools");
+
+		// Parent migrates AFTER the child installed — the R2e counter-example.
+		// Without propagation the child would keep the stale "governed".
+		const parentLifecycle = registry.snapshotOf("parent");
+		assert.equal(parentLifecycle.scopeState, "governed");
+		// Drive the same code path a real migration takes: syncTools -> setScope
+		// -> propagateToChildren. resolveGovernanceScope re-judges after the
+		// registration is removed from under the parent's cwd.
+		const { unregisterProject } = await import("../lib/governed-projects.js");
+		await unregisterProject(dshHome(home), { id: "demo", path: repo });
+		const assemble = childListener(ctx, "parent", "system-prompt/assemble");
+		assert.ok(assemble, "parent registered an assemble handler");
+		const payload = { sections: [], contexts: [], tools: [] };
+		await assemble(payload, { agent: parent }, async () => payload);
+
+		const after = registry.childSnapshots()[0];
+		assert.equal(after.scopeState, "not_governed", "child state followed the parent migration");
+		assert.ok(after.propagationCount >= 2, `propagation was recorded (count=${after.propagationCount})`);
+		assert.ok(after.activityCount >= 2, "both the install and the propagation are on the activity trail");
+	});
+});
+
+test("child: turn-end captures the conclusion; list-all omits the trail, single query includes it", async () => {
+	await withTemp("ldvh-lc.", async (base) => {
+		const home = join(base, "home");
+		const repo = await initRepo(base);
+		await registerProject(dshHome(home), { id: "demo", path: repo });
+
+		const ctx = makeHostCtx();
+		const parent = makeInstallableAgent("parent", repo, ctx);
+		const sessionScopes = createSessionScopes();
+		const registry = createLifecycleRegistry(ctx, { dshHomePath: dshHome(home), workspaceRoot: base, sessionScopes });
+
+		ctx.agents = { roots: () => [parent], get: (id) => (id === "parent" ? parent : undefined) };
+		registry.start();
+		ctx.fire("agent/created", { agent: parent });
+
+		const child = makeInstallableAgent("child", repo, ctx, { root: false });
+		child.session.header.origin = "subagent";
+		child.session.header.parentSession = "parent";
+		ctx.fire("agent/created", { agent: child });
+
+		// Event path is the DSH-verified one: session/event with type
+		// "turn/end" carrying { turn, reason }, then walk back through
+		// session.events for that turn's assistant/message. (There is no
+		// agent/turn-end in DSH — an earlier version of this seam used it and
+		// could never fire.)
+		const onSessionEvent = childListener(ctx, "child", "session/event");
+		assert.ok(onSessionEvent, "child registered a session/event seam");
+
+		// No turn has ended yet: conclusion is null (a real state, not a gap).
+		assert.equal(registry.childConclusionOf("child"), null);
+		assert.equal(registry.childSnapshots()[0].hasConclusion, false);
+
+		// Build a realistic session.events tail: turn 1 assistant text, then
+		// the turn/end signal for turn 1.
+		child.session.events = [
+			{ type: "turn/start", data: { turn: 1 } },
+			{ type: "assistant/message", data: { turn: 1, message: { content: [{ type: "text", text: "done: 3 files" }] } } }
+		];
+		onSessionEvent(child.session, { type: "turn/end", data: { turn: 1, reason: { kind: "completed" } } });
+
+		assert.equal(registry.childConclusionOf("child"), "done: 3 files");
+		const snap = registry.childSnapshots()[0];
+		assert.equal(snap.hasConclusion, true);
+		assert.equal(snap.conclusionLength, "done: 3 files".length);
+
+		// A turn/end for a turn with no assistant/message leaves the previous
+		// conclusion untouched (it must not silently clear real data).
+		onSessionEvent(child.session, { type: "turn/end", data: { turn: 2, reason: { kind: "completed" } } });
+		assert.equal(registry.childConclusionOf("child"), "done: 3 files", "unmatched turn does not clobber");
+
+		// Non-text blocks only -> empty string is the recorded outcome.
+		child.session.events = [
+			{ type: "assistant/message", data: { turn: 3, message: { content: [{ type: "tool_use", name: "x" }] } } }
+		];
+		onSessionEvent(child.session, { type: "turn/end", data: { turn: 3, reason: { kind: "completed" } } });
+		assert.equal(registry.childConclusionOf("child"), "", "textless turn is an empty conclusion, not null");
+
+		// Events from a different session are ignored.
+		onSessionEvent({ events: [] }, { type: "turn/end", data: { turn: 4, reason: { kind: "completed" } } });
+		assert.equal(registry.childConclusionOf("child"), "", "foreign session ignored");
+
+		// Activity trail is retrievable per child.
+		const trail = registry.childActivityOf("child");
+		assert.ok(Array.isArray(trail) && trail.length > 0, "child has a readable activity trail");
+		assert.ok(trail.some((entry) => entry.hook === "child/conclusion"), "conclusion is on the trail");
+		assert.equal(registry.childActivityOf("missing"), null, "unknown child returns null, not undefined");
+	});
+});
+
+test("child: unknown child ids and missing seams degrade without throwing", async () => {
+	await withTemp("ldvh-lc.", async (base) => {
+		const home = join(base, "home");
+		const ctx = makeHostCtx();
+		const sessionScopes = createSessionScopes();
+		const registry = createLifecycleRegistry(ctx, { dshHomePath: dshHome(home), workspaceRoot: base, sessionScopes });
+		registry.start();
+		assert.deepEqual(registry.childSnapshots(), [], "no children -> empty list");
+		assert.equal(registry.childConclusionOf("nope"), null);
+		assert.equal(registry.childActivityOf("nope"), null);
+	});
+});
+
+test("tools: the governed root registers the tool batch including subagent collection", async () => {
+	await withTemp("ldvh-lc.", async (base) => {
+		const home = join(base, "home");
+		const repo = await initRepo(base);
+		await registerProject(dshHome(home), { id: "demo", path: repo });
+
+		const ctx = makeHostCtx();
+		const parent = makeInstallableAgent("parent", repo, ctx);
+		// Capture the real registration list instead of trusting a flag.
+		const registered = [];
+		parent.ctx.tools = {
+			register(descriptor) {
+				registered.push(descriptor?.name ?? descriptor?.toolName ?? "unknown");
+				return () => {};
+			}
+		};
+
+		const sessionScopes = createSessionScopes();
+		const registry = createLifecycleRegistry(ctx, { dshHomePath: dshHome(home), workspaceRoot: base, sessionScopes });
+
+		ctx.agents = { roots: () => [parent], get: (id) => (id === "parent" ? parent : undefined) };
+		registry.start();
+		ctx.fire("agent/created", { agent: parent });
+		for (let attempt = 0; attempt < 50 && registered.length === 0; attempt += 1) {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+
+		// The seven core operations plus the subagent collection tool.
+		assert.ok(registered.includes("ldvh_resolve_governance_scope"), `registered: ${registered.join(", ")}`);
+		assert.ok(
+			registered.includes("ldvh_collect_subagent_results"),
+			"children Map must be passed to registerLdvhTools or this tool is silently skipped"
+		);
+	});
+});
+
+test("child: a finished child stays collectable after its fiber disposes", async () => {
+	await withTemp("ldvh-lc.", async (base) => {
+		const home = join(base, "home");
+		const repo = await initRepo(base);
+		await registerProject(dshHome(home), { id: "demo", path: repo });
+
+		const ctx = makeHostCtx();
+		const parent = makeInstallableAgent("parent", repo, ctx);
+		const sessionScopes = createSessionScopes();
+		const registry = createLifecycleRegistry(ctx, { dshHomePath: dshHome(home), workspaceRoot: base, sessionScopes });
+
+		ctx.agents = { roots: () => [parent], get: (id) => (id === "parent" ? parent : undefined) };
+		registry.start();
+		ctx.fire("agent/created", { agent: parent });
+
+		const child = makeInstallableAgent("child", repo, ctx, { root: false });
+		child.session.header.origin = "subagent";
+		child.session.header.parentSession = "parent";
+		ctx.fire("agent/created", { agent: child });
+
+		// The child does its work and its turn ends.
+		const onSessionEvent = childListener(ctx, "child", "session/event");
+		child.session.events = [
+			{ type: "assistant/message", data: { turn: 1, message: { content: [{ type: "text", text: "all done" }] } } }
+		];
+		onSessionEvent(child.session, { type: "turn/end", data: { turn: 1, reason: { kind: "completed" } } });
+		assert.equal(registry.childConclusionOf("child"), "all done", "conclusion captured while live");
+
+		// Now the child's fiber disposes — this is what used to erase it.
+		await child.disposeFiber();
+
+		// The whole point: the result is still collectable afterwards.
+		assert.equal(registry.childConclusionOf("child"), "all done", "conclusion survives disposal");
+		const snap = registry.childSnapshots().find((entry) => entry.agentId === "child");
+		assert.ok(snap, "finished child still appears in snapshots");
+		assert.equal(snap.conclusionLength, "all done".length);
+		assert.ok(registry.childActivityOf("child").length > 0, "activity trail survives disposal");
+	});
+});
+
+test("pre-step: judgment change injects a visible context-injection row (plugin message)", async () => {
+	const agent = makeAgent("s1", "/cwd");
+	const channel = { primePending: true, lastDigest: null };
+	const handler = createPreStepHandler(agent, {
+		isGoverned: () => true,
+		channel,
+		noticeText: () => "【LDVH 管辖判定】governed —— 本会话受 LDVH 管辖。",
+		noticeSummary: () => "本会话受 LDVH 管辖"
+	});
+	const baseMessages = [{ id: "u1", role: "user", content: [{ type: "text", text: "hi" }], source: { kind: "user" } }];
+
+	// First step-1 after priming: the row is appended.
+	const first = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: [...baseMessages] }));
+	assert.equal(first.kind, "enter");
+	const injected = first.messages[first.messages.length - 1];
+	assert.notEqual(injected, baseMessages[baseMessages.length - 1], "a new message was appended");
+	assert.equal(injected.source.kind, "plugin");
+	assert.equal(injected.source.plugin, "dsh-ldvh");
+	assert.equal(injected.source.summary, "本会话受 LDVH 管辖");
+	assert.equal(injected.source.form, "notice", "notice form renders the summary inline");
+	assert.match(injected.content[0].text, /【LDVH 管辖判定】governed/);
+	assert.equal(first.messages.length, baseMessages.length + 1);
+
+	// Same notice again (steady state): NO new row.
+	const second = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: [...baseMessages] }));
+	assert.equal(second.messages.length, baseMessages.length, "unchanged judgment does not re-inject");
+
+	// Judgment changed: a new row appears (digest differs).
+	const third = await handler.handler(
+		{ agent, step: 1, signal: {} },
+		async () => ({ kind: "enter", messages: [...baseMessages] }),
+		undefined,
+		undefined
+	).catch(() => null);
+	// Simulate the change by mutating the notice via a fresh channel state:
+	const channel2 = { primePending: false, lastDigest: "【LDVH 管辖判定】governed —— 本会话受 LDVH 管辖。" };
+	const handler2 = createPreStepHandler(agent, {
+		isGoverned: () => false,
+		channel: channel2,
+		noticeText: () => "【LDVH 管辖状态变更】governed → unavailable\n【LDVH 管辖判定】unavailable —— 登记不可读，按不受辖处理。",
+		noticeSummary: "LDVH 管辖判定"
+	});
+	const changed = await handler2.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: [...baseMessages] }));
+	const changedInjected = changed.messages[changed.messages.length - 1];
+	assert.match(changedInjected.content[0].text, /管辖状态变更】governed → unavailable/, "migration row injected on change");
+
+	// A turn that already carries our own message is left untouched (rewind-safe).
+	const withOwn = [...baseMessages, injected];
+	const fourth = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: withOwn }));
+	assert.equal(fourth.messages.length, withOwn.length, "own message suppresses re-injection");
 });

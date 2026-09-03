@@ -19,10 +19,24 @@
 // sessionScopes publication (the mark belongs to the human-facing root
 // conversation), no pre-step channel. The hooks exist so future content
 // lands in an already-mounted place.
+//
+// 2026-09-04 (delegation-chain visibility): the previous record was a bare
+// `{ scopeState }`, which made the delegation chain invisible. Children now
+// own a DelegatedChildRecord — still lighter than roots, but with an activity
+// trail, a conclusion slot and explicit parent-state propagation. See
+// agent-lifecycle.js for why this is NOT an AgentLifecycle.
 
 import { guidanceTextFor } from "./guidance-text.js";
+import { DelegatedChildRecord } from "./agent-lifecycle.js";
 
-export function createChildInstaller(ctx, { agents, children, sessionScopes }) {
+/**
+ * Bound on retained finished-child records. Map insertion order gives us
+ * FIFO eviction for free. Deliberately small: this is a result-collection
+ * window, not a durable store (durability belongs to the fact source / 06).
+ */
+const RETIRED_LIMIT = 50;
+
+export function createChildInstaller(ctx, { agents, children, sessionScopes, retiredChildren }) {
   /**
    * Install the child lifecycle for one subagent. Returns true when the
    * child was installed (parent found and governed chain established).
@@ -37,21 +51,48 @@ export function createChildInstaller(ctx, { agents, children, sessionScopes }) {
     const parent = parentId === undefined || parentId === "" || agentsService === undefined
       ? undefined
       : agentsService.get(parentId);
+    // Live verification diagnostics (2026-09-04): the delegation chain reported
+    // "Found 0 child record(s)" on a real governed session. These lines answer
+    // exactly WHERE the chain breaks — origin flag, lineage key, parent lookup —
+    // without guessing. Keep them at info level; they fire once per subagent.
+    ctx.logger.info(
+      "[dsh-ldvh] installChild probe: agent=%s origin=%s parentSession=%s parentLookup=%s ourAgentsHasParent=%s ourAgentsHasSelf=%s",
+      agentId,
+      agent?.session?.header?.origin ?? "<none>",
+      parentId ?? "<none>",
+      parent === undefined ? "MISS" : "HIT",
+      typeof parentId === "string" ? String(agents.has(parentId)) : "<n/a>",
+      agents.has(agentId) ? "yes(should-not-happen)" : "no"
+    );
     if (parent === undefined || parent === agent) return false; // orphan: no authority
 
     // Delegation: inherit the parent's governed chain. The parent's lifecycle
     // record holds its current judged state; an ungoverned parent produces a
     // child that stays equally quiet (zero-interference along the chain).
     const parentRecord = agents.get(parentId ?? parent?.id ?? parent?.session?.header?.id);
-    const delegatedScopeState = parentRecord?.scopeState ?? null;
 
-    const record = { scopeState: delegatedScopeState };
+    const record = new DelegatedChildRecord(agent, parentId ?? null);
+    record.applyParentScope(parentRecord?.scopeState ?? null, { source: "install" });
 
     const dispose = agent.ctx.effect(() => {
       const stops = [];
       const cleanup = () => {
         for (const stop of stops.reverse()) {
           try { stop(); } catch { /* already removed */ }
+        }
+        // Live children are removed on dispose (memory safety), but the record
+        // survives in retiredChildren so the root can still collect the result
+        // of a child that already finished. Without this, result collection
+        // only ever saw children that were still running — which is exactly
+        // the case nobody needs, since you collect a result AFTER it ends.
+        if (retiredChildren !== undefined && !retiredChildren.has(agentId)) {
+          record.retiredAt = new Date().toISOString();
+          record.retired = true;
+          retiredChildren.set(agentId, { record });
+          while (retiredChildren.size > RETIRED_LIMIT) {
+            const oldest = retiredChildren.keys().next().value;
+            retiredChildren.delete(oldest);
+          }
         }
         children.delete(agentId);
       };
@@ -77,7 +118,55 @@ export function createChildInstaller(ctx, { agents, children, sessionScopes }) {
         stops.push(agent.ctx.on("agent/pre-step", (payload, next) => next()));
         stops.push(agent.ctx.on("agent/session-start", () => {
           // Refresh the delegated state if the parent's judgement moved.
-          record.scopeState = agents.get(parentId ?? parent?.id ?? parent?.session?.header?.id)?.scopeState ?? record.scopeState;
+          // (Install-time and propagated changes also land here; this is the
+          // safety net for a parent that judged after the child installed.)
+          record.applyParentScope(
+            agents.get(parentId ?? parent?.id ?? parent?.session?.header?.id)?.scopeState ?? null,
+            { source: "session-start" }
+          );
+        }));
+        // Conclusion seam: capture the child's final assistant text so the
+        // root can collect it.
+        //
+        // Event choice (2026-09-04, verified against DSH 2.0.4): there is NO
+        // `agent/turn-end` event — the real agent-scoped events are
+        // agent/{created,disposed,error,pre-step,request,request-error,
+        // session-start,status,turn-stopping}. `agent/turn-stopping` fires
+        // with payload { turn, signal } only (no message content). The turn
+        // close signal that carries a turn number is the session-scoped
+        // `session/event` with type "turn/end" (payload { turn, reason }),
+        // which is what triggers.js already uses. So we take the turn number
+        // there and walk back through session.events for that turn's
+        // assistant/message — the same read path dsh-agent-loop itself uses
+        // to restore its projection (session.events.findLast(...)).
+        stops.push(agent.ctx.on("session/event", (session, event) => {
+          if (session !== agent?.session) return;
+          if (event?.type !== "turn/end") return;
+          try {
+            const turn = event?.data?.turn;
+            if (turn === undefined || turn === null) return;
+            const events = agent.session?.events;
+            if (!Array.isArray(events)) return;
+            // Walk back from the end to the most recent assistant/message
+            // belonging to this exact turn. Earlier turns are irrelevant and
+            // must not overwrite a later conclusion with a stale one.
+            for (let index = events.length - 1; index >= 0; index -= 1) {
+              const entry = events[index];
+              if (entry?.type !== "assistant/message") continue;
+              if (entry?.data?.turn !== turn) continue;
+              const blocks = entry?.data?.message?.content;
+              if (!Array.isArray(blocks)) return;
+              const text = blocks
+                .filter((block) => block !== null && typeof block === "object" && block.type === "text")
+                .map((block) => (typeof block.text === "string" ? block.text : ""))
+                .join("");
+              record.setConclusion(text);
+              return;
+            }
+          } catch (error) {
+            // A conclusion capture failure must never break the child turn.
+            ctx.logger.warn("[dsh-ldvh] child conclusion capture failed for %s: %s", agentId, String(error?.message ?? error));
+          }
         }));
       } catch (error) {
         cleanup();
@@ -87,7 +176,7 @@ export function createChildInstaller(ctx, { agents, children, sessionScopes }) {
     }, `dsh-ldvh: child lifecycle ${agentId}`);
 
     children.set(agentId, { dispose, record });
-    ctx.logger.info("[dsh-ldvh] installed child lifecycle for subagent %s (delegated state: %s)", agentId, delegatedScopeState ?? "none");
+    ctx.logger.info("[dsh-ldvh] installed child lifecycle for subagent %s (delegated state: %s)", agentId, record.scopeState ?? "none");
     return true;
   };
 }

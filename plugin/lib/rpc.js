@@ -19,6 +19,19 @@ export function registerLdvhRpc(connection, { lifecycle }) {
   if (typeof connection.handle === "function") {
     disposers.push(connection.handle("ldvh/lifecycle-snapshots", () => lifecycle.snapshots()));
   }
+  // Delegated child channels (2026-09-04, REAL, read-only): the root-only
+  // snapshots() above cannot see children (children live in a separate Map),
+  // so the delegation chain needs its own channels. Guarded by typeof checks
+  // because older lifecycle seams/tests may not expose them yet.
+  if (typeof connection.handle === "function" && typeof lifecycle.childSnapshots === "function") {
+    disposers.push(connection.handle("ldvh/child-snapshots", () => lifecycle.childSnapshots()));
+  }
+  if (typeof connection.handle === "function" && typeof lifecycle.childActivityOf === "function") {
+    disposers.push(connection.handle("ldvh/child-activity", (childId) => lifecycle.childActivityOf(childId) ?? null));
+  }
+  if (typeof connection.handle === "function" && typeof lifecycle.childConclusionOf === "function") {
+    disposers.push(connection.handle("ldvh/child-conclusion", (childId) => lifecycle.childConclusionOf(childId)));
+  }
   return () => {
     for (const dispose of disposers.reverse()) {
       try { dispose?.(); } catch { /* already removed */ }

@@ -21,6 +21,7 @@ import { parseSpecDocument, extractHeadings, resolveHeadingPath, contentFingerpr
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { currentRouteValues } from "./session-signature.js";
 import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment } from "./commit-validation.js";
+import { registerSubagentResultTool } from "./subagent-result.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -467,6 +468,13 @@ export function registerLdvhTools(ctx, deps) {
   for (const [operationKey, operation] of Object.entries(OPERATIONS)) {
     const handler = handlers[operationKey];
     disposers.push(ctx.tools.register(toolDescriptor(operationKey, operation, handler)));
+  }
+  // Append subagent result collection tool (root-session only, governed only).
+  if (deps.children !== undefined) {
+    disposers.push(registerSubagentResultTool(ctx, {
+      dshHomePath: deps.dshHomePath,
+      children: deps.children
+    }));
   }
   return () => {
     for (const dispose of disposers) {

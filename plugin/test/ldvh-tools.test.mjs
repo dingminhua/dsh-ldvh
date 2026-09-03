@@ -820,8 +820,16 @@ test("guidanceTextFor returns the governed text with the seven 00 anchors", () =
 	}
 });
 
-test("guidanceTextFor returns an empty string for not_governed (zero-interference)", () => {
-	assert.equal(guidanceTextFor("not_governed"), "");
+test("guidanceTextFor not_governed: one-line judgment notice (Human 2026-09-04 上下文注入决定)", () => {
+	// Supersedes the former zero-interference shape (not_governed → "").
+	// The judgment must now be TOLD to the AI for every state — including
+	// not_governed — as a single judgment line plus a minimal body.
+	const text = guidanceTextFor("not_governed");
+	assert.ok(text.length > 0, "not_governed must carry text now");
+	assert.match(text, /【LDVH 管辖判定】not_governed/);
+	assert.match(text, /不受 LDVH 管辖/);
+	// Minimal: no seven-anchor body leaks into non-governed sessions.
+	assert.ok(!text.includes("八维"), "non-governed body must stay minimal");
 });
 
 test("guidanceTextFor unavailable: reports unavailable but acts as not_governed", () => {

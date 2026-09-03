@@ -142,7 +142,17 @@ window.__ModuleLoader__.load({
          usage-summary row uses) instead of the smaller 12px widget size. */
       ".ldv-mark{display:inline-flex;align-items:center;gap:6px;padding:2px 0 6px;color:var(--dsw-alias-state-positive,#3fb950);font-size:var(--dsh-content-font-size-secondary,13px);line-height:20px;font-variant-numeric:tabular-nums;user-select:none}" +
       ".ldv-mark-unavailable{color:var(--dsw-alias-state-error-primary,#f85149)}" +
-      ".ldv-mark-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}";
+      ".ldv-mark-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}" +
+      /* Header mark: a small compact chip rendered in the conversation header's
+         actions row. Human style direction (2026-09-03): a ROUNDED-SQUARE pill
+         — distinct from the in-flow mark's plain dot. Colours mirror the
+         turnTail mark: green = governed, red = unavailable, grey = not_governed.
+         Dot + text in one colour, no border/glow. */
+      ".ldv-hdr-mark{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:11px;background:transparent;font-size:11px;line-height:16px;font-weight:500;cursor:default;user-select:none}" +
+      ".ldv-hdr-mark-dot{width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}" +
+      ".ldv-hdr-mark-governed{color:var(--dsw-alias-state-positive,#3fb950)}" +
+      ".ldv-hdr-mark-unavailable{color:var(--dsw-alias-state-error-primary,#f85149)}" +
+      ".ldv-hdr-mark-not-governed{color:var(--dsw-alias-label-tertiary,#999)}";
 
     if (typeof document !== "undefined") {
       var cssId = "dsh-ldvh/client.css";
@@ -210,7 +220,19 @@ window.__ModuleLoader__.load({
       "mark.governed": "本项目受 LDVH 管辖",
       "mark.governedWithName": "本项目受 LDVH 管辖：{name}",
       "mark.unavailable": "LDVH 管辖状态不可用",
-      "mark.unavailableHint": "管辖登记当前不可读取，本项目暂按不受管辖处理。处理方法：检查 DSH 用户配置根下 ldvh/governed-projects.yaml 是否可读且格式正确，或在 DSH 设置页查看管辖项目。"
+      "mark.unavailableHint": "管辖登记当前不可读取，本项目暂按不受管辖处理。处理方法：检查 DSH 用户配置根下 ldvh/governed-projects.yaml 是否可读且格式正确，或在 DSH 设置页查看管辖项目。",
+      // Session-header governance chip. Sits in the conversation header's
+      // actions row (alongside dsh-client-ui-subagent's lineage dropdown),
+      // independent of any tool call, so it covers subagent sessions too
+      // (the turnTail mark relies on the ldvh_resolve_governance_scope
+      // claim, which subagents never produce).
+      "mark.hdr.governed": "本会话受 LDVH 管辖",
+      "mark.hdr.governedWithName": "本会话受 LDVH 管辖：{name}",
+      "mark.hdr.notGoverned": "本会话不受 LDVH 管辖",
+      "mark.hdr.unavailable": "LDVH 管辖状态不可用",
+      "mark.hdr.unavailableHint": "管辖登记当前不可读取，本会话暂按不受管辖处理。",
+      "mark.hdr.parentNotGoverned": "委派来源不受 LDVH 管辖",
+      "mark.hdr.parentUnavailable": "委派来源管辖状态不可用"
     };
     var LDVH_EN = {
       "row.title": "LD Vibe Harness (dsh-ldvh)",
@@ -265,7 +287,15 @@ window.__ModuleLoader__.load({
       "mark.governed": "This project is governed by LDVH",
       "mark.governedWithName": "Governed by LDVH: {name}",
       "mark.unavailable": "LDVH governance state unavailable",
-      "mark.unavailableHint": "The governed-projects registration cannot be read; this session is treated as ungoverned for now. Check that ldvh/governed-projects.yaml under the DSH user-config root is readable and valid, or inspect the governed-projects page in DSH settings."
+      "mark.unavailableHint": "The governed-projects registration cannot be read; this session is treated as ungoverned for now. Check that ldvh/governed-projects.yaml under the DSH user-config root is readable and valid, or inspect the governed-projects page in DSH settings.",
+      // Session-header governance chip (conversation.session.header.actions).
+      "mark.hdr.governed": "Governed by LDVH",
+      "mark.hdr.governedWithName": "Governed by LDVH: {name}",
+      "mark.hdr.notGoverned": "Not governed by LDVH",
+      "mark.hdr.unavailable": "LDVH governance state unavailable",
+      "mark.hdr.unavailableHint": "The governed-projects registration cannot be read; this session is treated as ungoverned for now.",
+      "mark.hdr.parentNotGoverned": "Parent not governed by LDVH",
+      "mark.hdr.parentUnavailable": "Parent governance state unavailable"
     };
 
     // Mechanical ID validation. Slug rule mirrors chooseProject(): lowercase
@@ -801,6 +831,121 @@ window.__ModuleLoader__.load({
       );
     }
 
+    // ── session-header governance mark ────────────────────────────────────
+    // Renders a compact pill in the conversation header's actions row
+    // (conversation.session.header.actions, kind: "list"). Always-on: fetches
+    // governance state from the Host's /ldvh/state/governance endpoint
+    // (same always-on state route as LdvhGovernanceMark; the /ldvh/api route
+    // is not used so the mark stays accurate even when Web presentation is off).
+    //
+    // State mapping:
+    //   governed           → GREEN pill "Governed by LDVH [· projectName]"
+    //   not_governed       → GREY pill "Not governed by LDVH"
+    //   unavailable        → RED pill "LDVH governance state unavailable"
+    //   unknown (transient) → renders null (keep polling, 20 attempts)
+    //
+    // Subagent sessions: a subagent's own /ldvh/state/governance query will
+    // return not_governed (ldvh_resolve_governance_scope never fires for a
+    // subagent's cwd). This is correct: the mark should show the subagent is
+    // not independently governed. It does NOT inherit the parent's governed
+    // state — that inheritance is a Host-side delegation concept (child.js)
+    // that applies to tools and guidance, not to the UI layer.
+    //
+    // The pill is placed in the actions row (right of the session title, before
+    // the trailing utilities). Because actions is kind: "list", multiple
+    // registrations coexist; we use priority: 10 (higher than the default 0) so
+    // this renders after standard actions, at the trailing end of the row.
+    function LdvhHeaderMark(props) {
+      var t = props.t;
+      var useSessions = props.useSessions;
+      // sessionId from the conversation store (scope: "session" provides
+      // useSessions as a standard hook). For a subagent session, the root is
+      // the parent conversation; for a root session, it is the session
+      // itself. Take the first non-subagent summary as the conversation root.
+      var sessionId = useSessions(function (s) {
+        if (!s || !s.byId) return null;
+        var root = null;
+        for (var id in s.byId) {
+          var sum = s.byId[id];
+          if (sum && sum.origin !== "subagent") {
+            root = id;
+            break;
+          }
+        }
+        return root || null;
+      });
+      var govState = React.useState(null);
+      React.useEffect(function () {
+        if (typeof sessionId !== "string" || sessionId.length === 0) {
+          govState[1](null);
+          return undefined;
+        }
+        var cancelled = false;
+        var attempts = 0;
+        function attempt() {
+          if (cancelled) return;
+          fetch("/ldvh/state/governance?sessionId=" + encodeURIComponent(sessionId), { method: "GET", cache: "no-store" })
+            .then(function (r) { return r.json(); })
+            .then(function (body) {
+              if (cancelled) return;
+              if (body && body.ok === true && body.state !== "unknown") {
+                govState[1](body);
+              } else if (attempts < MARK_RETRY_LIMIT) {
+                attempts += 1;
+                setTimeout(attempt, MARK_RETRY_DELAY_MS);
+              } else {
+                govState[1](null);
+              }
+            })
+            .catch(function () {
+              if (cancelled) return;
+              if (attempts < MARK_RETRY_LIMIT) {
+                attempts += 1;
+                setTimeout(attempt, MARK_RETRY_DELAY_MS);
+              } else {
+                govState[1](null);
+              }
+            });
+        }
+        attempt();
+        return function () { cancelled = true; };
+      }, [sessionId]);
+
+      var value = govState[0];
+      // Transient unknown: keep rendering null until resolved or capped.
+      if (value === null) return null;
+
+      var dot = React.createElement("span", { className: "ldv-hdr-mark-dot" });
+
+      if (value.state === "unavailable") {
+        return React.createElement(
+          "div",
+          { className: "ldv-hdr-mark ldv-hdr-mark-unavailable", title: t("mark.hdr.unavailableHint") },
+          dot,
+          React.createElement("span", null, t("mark.hdr.unavailable"))
+        );
+      }
+
+      if (value.state !== "governed") {
+        // not_governed
+        return React.createElement(
+          "div",
+          { className: "ldv-hdr-mark ldv-hdr-mark-not-governed", title: t("mark.hdr.notGoverned") },
+          dot,
+          React.createElement("span", null, t("mark.hdr.notGoverned"))
+        );
+      }
+
+      var name = value.project && value.project.name ? value.project.name : null;
+      var label = name ? t("mark.hdr.governedWithName").replace("{name}", name) : t("mark.hdr.governed");
+      return React.createElement(
+        "div",
+        { className: "ldv-hdr-mark ldv-hdr-mark-governed", title: label },
+        dot,
+        React.createElement("span", null, label)
+      );
+    }
+
     // ── LDVH conversation view: iframe /ldvh/ with loading/error states ──
     // Rendered inside the session body when the "LDVH" tab is active
     // (conversation.view ring, exactly like the trajectory view).
@@ -962,6 +1107,18 @@ window.__ModuleLoader__.load({
             // it (see LdvhGovernanceMark).
             inject: function (sessionId) { return { t: t, sessionId: sessionId }; }
           }, LdvhGovernanceMark);
+        });
+
+        // Session-header governance pill.  priority 10 places it after
+        // standard actions (typically priority 0).  kind: "list" means it
+        // coexists with other actions registrations (including
+        // dsh-client-ui-subagent's SubagentHeaderLineage at priority 0).
+        ctx.slots.inject("conversation.session.header.actions", function () {
+          return ctx.slots.register({
+            name: "conversation.session.header.actions",
+            priority: 10,
+            inject: function (sessionId, actions) { return { t: t, useSessions: actions.useSessions }; }
+          }, LdvhHeaderMark);
         });
       } catch (error) {
         // Match WorkBuddy's browser failure boundary: Host remains functional,

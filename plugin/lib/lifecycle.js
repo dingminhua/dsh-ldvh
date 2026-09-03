@@ -22,6 +22,7 @@
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { registerLdvhTools } from "./ldvh-tools.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
+import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
 import { createTurnTriggers } from "./triggers.js";
 import { createChildInstaller } from "./child.js";
 import { AgentLifecycle } from "./agent-lifecycle.js";
@@ -32,8 +33,15 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
   // hook cleanup rides the agent fiber.
   const agents = new Map();
   // Subagent lifecycles: agentId -> { dispose, record } (child.js mechanism).
+  // Only LIVE children: the entry is removed when the child's fiber disposes.
   const children = new Map();
-  const installChild = createChildInstaller(ctx, { agents, children, sessionScopes });
+  // Finished children: agentId -> { record }. A finished child is exactly the
+  // one you want to collect a result from, so deleting its record on dispose
+  // made result collection useless — verified live: the tool always reported
+  // "Found 0 child record(s)" because the subagent had already ended. Bounded
+  // FIFO eviction; this is a collection window, not a durable store.
+  const retiredChildren = new Map();
+  const installChild = createChildInstaller(ctx, { agents, children, sessionScopes, retiredChildren });
 
   function agentIdOf(agent) {
     return agent?.id ?? agent?.session?.header?.id;
@@ -59,12 +67,37 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         lifecycle.toolsDisposer = registerLdvhTools(agent.ctx, {
           dshHomePath,
           workspaceRoot,
-          sessionPersistence: () => ctx.get("sessionPersistence")
+          sessionPersistence: () => ctx.get("sessionPersistence"),
+          // Delegation chain: the children Map is the data source for
+          // ldvh_collect_subagent_results. Without it that tool is skipped by
+          // its own guard (ldvh-tools.js: `deps.children !== undefined`) and
+          // never registers — found in live verification, not by unit tests.
+          children
         });
         lifecycle.activity.record("tools/registered", { count: 5 });
         ctx.logger.info("[dsh-ldvh] registered LDVH tool batch (agent-scoped) for governed session %s", agentId);
       } catch (error) {
-        ctx.logger.warn("[dsh-ldvh] tool registration failed for %s: %s", agentId, String(error?.message ?? error));
+        // Two different failures land here and must not be conflated:
+        //   - ReferenceError / TypeError = a wiring defect in OUR code (a
+        //     missing import, a renamed export). It is silent today apart
+        //     from this line, and it makes tools vanish with no other trace.
+        //   - anything else = a genuine host/environment refusal.
+        // Keep the fail-soft behaviour (a session must not die because a tool
+        // batch failed) but make the defect class unmistakable in the log,
+        // and record it on the activity trail so /ldvh/state and the activity
+        // reader can see it instead of only a console line.
+        const isDefect = error instanceof ReferenceError || error instanceof TypeError;
+        const detail = String(error?.message ?? error);
+        ctx.logger[isDefect ? "error" : "warn"](
+          "[dsh-ldvh] tool registration %s for %s: %s",
+          isDefect ? "DEFECT (wiring bug, not an environment refusal)" : "failed",
+          agentId,
+          detail
+        );
+        lifecycle.activity.record(isDefect ? "tools/registration-defect" : "tools/registration-failed", {
+          state: scope.state,
+          detail
+        });
       }
     } else if (!shouldRegister && lifecycle.toolsDisposer !== null) {
       try { lifecycle.toolsDisposer(); } catch { /* already removed */ }
@@ -73,6 +106,43 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       ctx.logger.info("[dsh-ldvh] unregistered LDVH tool batch (governance state: %s)", scope.state);
     }
     lifecycle.setScope(scope);
+    // Delegation-chain propagation (2026-09-04): a parent judgement change
+    // must reach already-installed children. Without this, a child that
+    // installed while the parent was `governed` keeps that stale state after
+    // the parent later migrates — the exact R2e counter-example (child.js only
+    // refreshed on its own session-start, which for an already-running child
+    // never fires again).
+    propagateToChildren(scope.state, agentId);
+  }
+
+  /**
+   * Push a parent judgement change to every live child of that parent.
+   * Idempotent: DelegatedChildRecord.applyParentScope ignores no-op values,
+   * so repeated propagation does not inflate the activity trail.
+   */
+  /** Live children first, then finished ones — see children/retiredChildren. */
+  function childRecords() {
+    const live = [...children.values()].map(({ record }) => record);
+    const done = [...retiredChildren.values()]
+      .filter(({ record }) => !children.has(record.agentId))
+      .map(({ record }) => record);
+    return [...live, ...done];
+  }
+
+  /** One child by id, live or finished. */
+  function lookupChild(childId) {
+    return children.get(childId)?.record ?? retiredChildren.get(childId)?.record ?? null;
+  }
+
+  function propagateToChildren(state, parentAgentId) {
+    for (const [childId, { record }] of children) {
+      if (record.parentAgentId !== parentAgentId) continue;
+      const changed = record.applyParentScope(state, { source: "parent-propagation" });
+      if (changed) {
+        ctx.logger.info("[dsh-ldvh] propagated parent governance state %s to child %s (count: %d)",
+          state ?? "none", childId, record.propagationCount);
+      }
+    }
   }
 
   function install(agent) {
@@ -103,6 +173,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         if (!agents.has(agentId)) return; // disposed while judging (audit F)
         const sessionId = sessionIdOf(agent);
         if (typeof sessionId === "string") sessionScopes.set(sessionId, scope);
+        // Keep the full resolved scope for the first-turn visible-notice
+        // fallback (pre-step runs before the first assemble; see below).
+        lifecycle.lastScope = scope;
         syncTools(agent, scope);
       }).catch((error) => {
         ctx.logger.warn("[dsh-ldvh] initial governance judgement failed for %s: %s", agentId, String(error?.message ?? error));
@@ -114,11 +187,27 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         recordScope: (scope) => {
           const sessionId = sessionIdOf(agent);
           if (typeof sessionId === "string" && agents.has(agentId)) sessionScopes.set(sessionId, scope);
+          // Publish the notice text for the pre-step visible-row injector:
+          // the full judgment card, prefixed by the migration line when the
+          // state changed (guidance.js owns the shape).
+          lifecycle.noticeText = scope.noticeText ?? null;
+          lifecycle.lastScope = scope;
         }
       });
       const onPreStep = createPreStepHandler(agent, {
         isGoverned: () => lifecycle.scopeState === "governed",
-        channel: lifecycle.preStep
+        channel: lifecycle.preStep,
+        // Visible judgment row (Human 2026-09-04 "这里要能看到啊"): the
+        // assemble handler updates noticeText on every judgement; the
+        // pre-step injects it as a DSH-native context-injection row whenever
+        // it differs from the last injected one.
+        // First-turn fallback: the pre-step (prepend) runs BEFORE the first
+        // assemble, so lifecycle.noticeText is still null on turn 1 — but the
+        // install-time judgement already stored the full scope. Build the
+        // complete card from it so the very first turn gets its visible row.
+        noticeText: () => lifecycle.noticeText ?? (lifecycle.lastScope !== undefined && lifecycle.lastScope !== null ? noticeTextFor(lifecycle.lastScope) : null),
+        // Inline row title (Human 2026-09-04): "上下文注入 · dsh-ldvh · 本会话受 LDVH 管辖"
+        noticeSummary: () => noticeSummaryFor(lifecycle.scopeState)
       });
       // Turn-level triggers (turn-stopping reflection seam + turn/end
       // bookkeeping seam): mounted now, content empty (Human strategy
@@ -179,6 +268,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           try { dispose(); } catch { /* already removed */ }
         }
         children.clear();
+        retiredChildren.clear();
         for (const agentId of [...agents.keys()]) agents.delete(agentId);
       };
     },
@@ -192,6 +282,23 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
     },
     snapshotOf(agentId) {
       return agents.get(agentId)?.snapshot();
+    },
+    /**
+     * Delegated child snapshots (2026-09-04). Previously the Web/RPC surface
+     * only saw roots, which made the delegation chain invisible at exactly the
+     * same time the rules asked for it to be visible. Children are returned
+     * with the same consumer shape as roots where the fields overlap.
+     */
+    childSnapshots() {
+      return childRecords().map((record) => record.snapshot());
+    },
+    /** Full activity trail for one child (entries, not just the count). */
+    childActivityOf(childId) {
+      return lookupChild(childId)?.activitySnapshot() ?? null;
+    },
+    /** The child's captured final text, or null when not yet concluded. */
+    childConclusionOf(childId) {
+      return lookupChild(childId)?.conclusion ?? null;
     }
   };
 }
