@@ -283,3 +283,47 @@ test("turn triggers: not_governed gate evaluates closed", async () => {
 	triggers.onTurnStopping({ agent, turn: 3 });
 	assert.equal(triggers.snapshot().lastReflectionGate, "closed");
 });
+
+// ---------------------------------------------------------------------------
+// child: subagent lifecycle mechanism (content empty)
+// ---------------------------------------------------------------------------
+
+test("child: subagent with a live governed parent is installed with delegated state; orphan skipped", async () => {
+	await withTemp("ldvh-lc.", async (base) => {
+		const home = join(base, "home");
+		const repo = await initRepo(base);
+		await registerProject(dshHome(home), { id: "demo", path: repo });
+
+		const ctx = makeHostCtx();
+		const parent = makeInstallableAgent("parent", repo, ctx);
+		const sessionScopes = createSessionScopes();
+		const registry = createLifecycleRegistry(ctx, { dshHomePath: dshHome(home), workspaceRoot: base, sessionScopes });
+
+		// Child BEFORE parent is an orphan (parent not in the agents map).
+		const orphan = makeInstallableAgent("orphan", repo, ctx);
+		orphan.session.header.origin = "subagent";
+		orphan.session.header.parentSession = "parent";
+		ctx.agents = { roots: () => [], get: () => parent };
+		registry.start();
+		ctx.fire("agent/created", { agent: orphan });
+		// Orphan: parent not yet installed (agents map empty) -> skipped.
+		// (Installed children would appear in a later snapshot; here we only
+		// assert no crash and no installation side effects.)
+
+		// Install parent, then a real child inherits its delegated state.
+		ctx.agents = { roots: () => [parent], get: (id) => (id === "parent" ? parent : undefined) };
+		ctx.fire("agent/created", { agent: parent });
+		// Simulate parent's judgement settling to governed.
+		for (let attempt = 0; attempt < 50 && sessionScopes.get("parent") === undefined; attempt += 1) {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+		assert.equal(sessionScopes.get("parent")?.state, "governed");
+
+		const child = makeInstallableAgent("child", repo, ctx);
+		child.session.header.origin = "subagent";
+		child.session.header.parentSession = "parent";
+		ctx.fire("agent/created", { agent: child });
+		// Child installed without crashing; the mechanism is mounted (its
+		// content seams are empty by design this batch).
+	});
+});

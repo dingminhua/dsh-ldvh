@@ -23,11 +23,15 @@ import { resolveGovernanceScope } from "./governance-scope.js";
 import { registerLdvhTools } from "./ldvh-tools.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { createTurnTriggers } from "./triggers.js";
+import { createChildInstaller } from "./child.js";
 
 export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes }) {
   // Per-agent runtime records: agentId -> { toolsDisposer, scopeState }.
   // The Map is bookkeeping only; hook cleanup rides the agent fiber.
   const agents = new Map();
+  // Subagent lifecycles: agentId -> { dispose, record } (child.js mechanism).
+  const children = new Map();
+  const installChild = createChildInstaller(ctx, { agents, children, sessionScopes });
 
   function agentIdOf(agent) {
     return agent?.id ?? agent?.session?.header?.id;
@@ -71,12 +75,16 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
     const agentId = agentIdOf(agent);
     if (typeof agentId !== "string") return;
     if (agents.has(agentId)) return;
-    // Roots-only gate: subagents (origin === 'subagent') and any non-root
-    // agent are skipped this batch (Human pending; zero-interference). The
-    // agents service is read via ctx.get: host compositions always provide
-    // it, but a minimal test/fabricated ctx may not — absence means there is
-    // no roster to check against, which we treat as "not a root we can
-    // verify" (skip, fail-closed).
+    // Subagents take the child path (mechanism mounted, content empty —
+    // see child.js); any other non-root agent is skipped.
+    if (agent?.session?.header?.origin === "subagent") {
+      installChild(agent);
+      return;
+    }
+    // Roots-only gate: the agents service is read via ctx.get: host
+    // compositions always provide it, but a minimal test/fabricated ctx may
+    // not — absence means there is no roster to check against, which we
+    // treat as "not a root we can verify" (skip, fail-closed).
     const agentsService = ctx.get("agents");
     if (agentsService === undefined || !agentsService.roots().includes(agent)) return;
 
@@ -160,6 +168,10 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       }
       return () => {
         try { disposeCreated(); } catch { /* already removed */ }
+        for (const { dispose } of children.values()) {
+          try { dispose(); } catch { /* already removed */ }
+        }
+        children.clear();
         for (const agentId of [...agents.keys()]) agents.delete(agentId);
       };
     },
