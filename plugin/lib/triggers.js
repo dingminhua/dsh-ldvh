@@ -31,12 +31,14 @@ function eventTurn(event) {
 
 /**
  * Create the turn-level trigger set for one agent.
- * `getScopeState()` reads the lifecycle record's current judged state;
- * `log` is the host logger. Returns handlers + an observability snapshot.
+ * `getScopeState()` reads the lifecycle's current judged state; `turns` is
+ * the marker object owned by the AgentLifecycle (single per-agent home —
+ * falls back to a local one for direct/test usage); `activity` optionally
+ * receives hook-action entries. `log` is the host logger.
  */
-export function createTurnTriggers(agent, { getScopeState, log }) {
+export function createTurnTriggers(agent, { getScopeState, turns, activity, log }) {
   const agentId = agent?.id ?? agent?.session?.header?.id;
-  const state = {
+  const state = turns ?? {
     turnStoppingSeen: 0,
     turnEndSeen: 0,
     lastTurn: undefined,
@@ -59,6 +61,7 @@ export function createTurnTriggers(agent, { getScopeState, log }) {
       // write). Skeleton only records that the point fired and whether the
       // gate was open.
       state.lastReflectionGate = governed() ? "open" : "closed";
+      activity?.record("turn/stopping", { turn: state.lastTurn, gate: state.lastReflectionGate });
     },
 
     /** session/event — turn/end bookkeeping seam. Skeleton: marker only. */
@@ -66,6 +69,7 @@ export function createTurnTriggers(agent, { getScopeState, log }) {
       if (session !== agent?.session || event?.type !== "turn/end") return;
       state.turnEndSeen += 1;
       state.lastTurn = eventTurn(event) ?? state.lastTurn;
+      activity?.record("turn/end", { turn: state.lastTurn });
       // Content seam (future batch): turn-close settlement — release any
       // pinned per-turn state, reconcile enumeration digests, schedule
       // deferred reflection (mnemon idleReview timing shape, LDVH

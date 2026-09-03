@@ -95,9 +95,11 @@ function isOwnMessage(message) {
   return source?.kind === "plugin" && source?.plugin === LDVH_PLUGIN_SOURCE;
 }
 
-export function createPreStepHandler(agent, { isGoverned }) {
+export function createPreStepHandler(agent, { isGoverned, channel } = {}) {
   const agentId = agent?.id ?? agent?.session?.header?.id;
-  const state = { primePending: false, lastDigest: null };
+  // Channel state lives on the AgentLifecycle object (single per-agent
+  // home); fall back to a local state for direct/test usage without one.
+  const state = channel ?? { primePending: false, lastDigest: null };
   const cueVisible = () => true; // batch-3 seam: real surface scan lands with content
   return {
     /** session-start hook: prime the channel (mnemon primePending shape). */

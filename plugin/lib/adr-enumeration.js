@@ -93,3 +93,25 @@ export async function renderActiveAdrEnumeration(projectRoot) {
   const digest = createHash("sha256").update(raw, "utf8").digest("hex");
   return { text: escapePromptText(raw), digest, active: adrs.length, truncated, problems };
 }
+
+/**
+ * Render with last-good degrade (mnemon reconcile shape): on success the
+ * result is stored on `holder` (an object with a `lastGoodEnumeration`
+ * field, e.g. the AgentLifecycle); on failure the last good render is
+ * returned with `degraded: true` instead of letting an error reach the
+ * prompt. First-ever failure yields the empty result (nothing stale to
+ * serve — fail quiet, never invent content).
+ */
+export async function renderWithLastGood(holder, projectRoot) {
+  try {
+    const result = await renderActiveAdrEnumeration(projectRoot);
+    holder.lastGoodEnumeration = result;
+    return { ...result, degraded: false };
+  } catch (error) {
+    const last = holder.lastGoodEnumeration;
+    if (last === null || last === undefined) {
+      return { text: null, digest: null, active: 0, truncated: false, problems: [{ file: null, issue: String(error?.message ?? error) }], degraded: true };
+    }
+    return { ...last, degraded: true };
+  }
+}

@@ -31,6 +31,7 @@ import { createGovernanceHandler } from "./host-api.js";
 import { createLifecycleRegistry } from "./lifecycle.js";
 import { createSessionScopes } from "./session-scopes.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
+import { registerLdvhRpc, registerLdvhCommands } from "./rpc.js";
 
 const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const GATE_RUNNER_PATH = fileURLToPath(new URL("./git-gate-runner.js", import.meta.url));
@@ -244,6 +245,20 @@ export function apply(ctx) {
       try { disposeStateRoute(); } catch { /* already removed */ }
       if (state.syncRoutes === syncRoutes) state.syncRoutes = void 0;
     }, "dsh-ldvh: web routes and state route");
+  });
+
+  // RPC + slash-command surface (mnemon parity, SKELETON): only in Web
+  // compositions (connection service present). The lifecycle snapshot
+  // channel is real and read-only; commands are placeholders.
+  ctx.inject(["connection"], (connectionCtx) => {
+    const connection = connectionCtx.connection;
+    if (connection === undefined) return;
+    const disposeRpc = registerLdvhRpc(connection, { lifecycle });
+    const disposeCommands = registerLdvhCommands(connectionCtx.get?.("commands") ?? ctx.get("commands"));
+    connectionCtx.effect(() => () => {
+      try { disposeRpc(); } catch { /* already removed */ }
+      try { disposeCommands(); } catch { /* already removed */ }
+    }, "dsh-ldvh: rpc and commands");
   });
 
   // The settings seam owns its injected lifecycle and provides a live source

@@ -24,10 +24,12 @@ import { registerLdvhTools } from "./ldvh-tools.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { createTurnTriggers } from "./triggers.js";
 import { createChildInstaller } from "./child.js";
+import { AgentLifecycle } from "./agent-lifecycle.js";
 
 export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes }) {
-  // Per-agent runtime records: agentId -> { toolsDisposer, scopeState }.
-  // The Map is bookkeeping only; hook cleanup rides the agent fiber.
+  // Per-agent lifecycle objects (agent-lifecycle.js): single home for all
+  // per-agent state + snapshot() diagnostics. The Map is bookkeeping only;
+  // hook cleanup rides the agent fiber.
   const agents = new Map();
   // Subagent lifecycles: agentId -> { dispose, record } (child.js mechanism).
   const children = new Map();
@@ -49,26 +51,28 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
   function syncTools(agent, scope) {
     const agentId = agentIdOf(agent);
     if (typeof agentId !== "string") return;
-    const record = agents.get(agentId);
-    if (record === undefined) return;
+    const lifecycle = agents.get(agentId);
+    if (lifecycle === undefined) return;
     const shouldRegister = scope.state === "governed" && agent?.ctx !== undefined;
-    if (shouldRegister && record.toolsDisposer === null) {
+    if (shouldRegister && lifecycle.toolsDisposer === null) {
       try {
-        record.toolsDisposer = registerLdvhTools(agent.ctx, {
+        lifecycle.toolsDisposer = registerLdvhTools(agent.ctx, {
           dshHomePath,
           workspaceRoot,
           sessionPersistence: () => ctx.get("sessionPersistence")
         });
+        lifecycle.activity.record("tools/registered", { count: 5 });
         ctx.logger.info("[dsh-ldvh] registered LDVH tool batch (agent-scoped) for governed session %s", agentId);
       } catch (error) {
         ctx.logger.warn("[dsh-ldvh] tool registration failed for %s: %s", agentId, String(error?.message ?? error));
       }
-    } else if (!shouldRegister && record.toolsDisposer !== null) {
-      try { record.toolsDisposer(); } catch { /* already removed */ }
-      record.toolsDisposer = null;
+    } else if (!shouldRegister && lifecycle.toolsDisposer !== null) {
+      try { lifecycle.toolsDisposer(); } catch { /* already removed */ }
+      lifecycle.toolsDisposer = null;
+      lifecycle.activity.record("tools/unregistered", { state: scope.state });
       ctx.logger.info("[dsh-ldvh] unregistered LDVH tool batch (governance state: %s)", scope.state);
     }
-    record.scopeState = scope.state;
+    lifecycle.setScope(scope);
   }
 
   function install(agent) {
@@ -88,8 +92,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
     const agentsService = ctx.get("agents");
     if (agentsService === undefined || !agentsService.roots().includes(agent)) return;
 
-    const record = { toolsDisposer: null, scopeState: null };
-    agents.set(agentId, record);
+    const lifecycle = new AgentLifecycle(agent);
+    agents.set(agentId, lifecycle);
 
     agent.ctx.effect(() => {
       // Tools at install time (audit A/C): the initial async judgement
@@ -113,13 +117,16 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         }
       });
       const onPreStep = createPreStepHandler(agent, {
-        isGoverned: () => record.scopeState === "governed"
+        isGoverned: () => lifecycle.scopeState === "governed",
+        channel: lifecycle.preStep
       });
       // Turn-level triggers (turn-stopping reflection seam + turn/end
       // bookkeeping seam): mounted now, content empty (Human strategy
       // 2026-09-03: 先占位后填内容).
       const turnTriggers = createTurnTriggers(agent, {
-        getScopeState: () => record.scopeState,
+        getScopeState: () => lifecycle.scopeState,
+        turns: lifecycle.turns,
+        activity: lifecycle.activity,
         log: ctx.logger
       });
       const stops = [
@@ -144,9 +151,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         for (const stop of stops.reverse()) {
           try { stop(); } catch { /* already removed */ }
         }
-        if (record.toolsDisposer !== null) {
-          try { record.toolsDisposer(); } catch { /* already removed */ }
-          record.toolsDisposer = null;
+        if (lifecycle.toolsDisposer !== null) {
+          try { lifecycle.toolsDisposer(); } catch { /* already removed */ }
+          lifecycle.toolsDisposer = null;
         }
         const sessionId = sessionIdOf(agent);
         if (typeof sessionId === "string") sessionScopes.delete(sessionId);
@@ -178,6 +185,13 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
     /** Test/introspection seam. */
     installedAgentIds() {
       return [...agents.keys()];
+    },
+    /** Per-agent lifecycle snapshots for diagnostics/Web (mnemon parity). */
+    snapshots() {
+      return [...agents.values()].map((lifecycle) => lifecycle.snapshot());
+    },
+    snapshotOf(agentId) {
+      return agents.get(agentId)?.snapshot();
     }
   };
 }
