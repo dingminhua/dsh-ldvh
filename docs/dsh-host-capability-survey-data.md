@@ -1,5 +1,8 @@
 # DSH Host 能力调查数据报告
 
+> ⚠️ **基线过时（2026-09-06 发现）**：本文基于旧版解包。上游已更新 **0.1.2-rc.1（desktop 2.0.5）**。全量差异与逐项证据见 **docs/dsh-0.1.2-upgrade-survey.md**（本文修订前以该调查为准）。
+
+
 > 调查日期：2025-XX-XX
 > 调查范围：DeepSeek Harness（Desktop版，app.asar.unpacked 解包路径）
 > 置信度三分法：A = 源码直接确认 / B = 间接推导 / C = 推测，需实地验证

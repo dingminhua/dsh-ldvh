@@ -1,5 +1,8 @@
 # DSH 宿主能力全景卡（dsh-ldvh 平台事实备忘）
 
+> ⚠️ **基线过时（2026-09-06 发现）**：本文基于旧版解包。上游已更新 **0.1.2-rc.1（desktop 2.0.5）**。全量差异与逐项证据见 **docs/dsh-0.1.2-upgrade-survey.md**（本文修订前以该调查为准）。
+
+
 > 用途：v5 骨架 §4 机械守护 / §7 边界授权 / §8 验证交还 起草的宿主能力依据。
 > 观察环境：DeepSeek Harness desktop 2.0.2（@deepseek-ai/dsh 0.1.1-rc.2），观察时间 2026-08-24。
 > 证据：`/Applications/DSH Desktop.app/Contents/Resources/app.asar.unpacked/node_modules/@deepseek-ai/` 包清单与 package.json 描述、`~/.dsh/` 结构、`~/.dsh/settings.yaml`、当前会话第一手工具面。

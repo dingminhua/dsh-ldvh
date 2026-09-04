@@ -1,5 +1,8 @@
 # DSH 宿主能力调查：交互面（问询/授权）与呈现面（Slot/theme/Web）事实报告
 
+> ⚠️ **基线过时（2026-09-06 发现）**：本文基于旧版解包。上游已更新 **0.1.2-rc.1（desktop 2.0.5）**。全量差异与逐项证据见 **docs/dsh-0.1.2-upgrade-survey.md**（本文修订前以该调查为准）。
+
+
 > 调查日期：2026-09-05
 > 调查范围：DeepSeek Harness Desktop 版（app.asar.unpacked 解包源码）+ 本机 `~/.dsh` 实测
 > 上游文档：`docs/dsh-host-capability-survey-data.md`（数据面/事件流调查，本文不重复其内容）

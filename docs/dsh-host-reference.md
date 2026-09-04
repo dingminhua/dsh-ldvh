@@ -1,5 +1,8 @@
 # DSH Host Service & Event Reference
 
+> ⚠️ **基线过时（2026-09-06 发现）**：本文基于旧版解包。上游已更新 **0.1.2-rc.1（desktop 2.0.5）**。全量差异与逐项证据见 **docs/dsh-0.1.2-upgrade-survey.md**（本文修订前以该调查为准）。
+
+
 > **Scope**: DeepSeek Harness host composition — Cordis services, event channels, and
 > agent-lifecycle hooks available to plugins and agent presets. All identifiers,
 > shapes, and behaviors are derived from the packed `app.asar.unpacked` checkout at
