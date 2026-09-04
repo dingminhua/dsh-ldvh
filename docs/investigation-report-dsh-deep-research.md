@@ -1,156 +1,168 @@
-# dsh-deep-research 单项调研：自适应深度研究编排器对 LDVH 的参考价值
+# dsh-deep-research 深度调研：控制论/信息论自适应深度研究编排器对 LDVH 的吸收参考
 
-> 性质：开发设计输入，非规范、非事实对象。
-> 调研对象：[omdsh-dev/dsh-deep-research](https://github.com/omdsh-dev/dsh-deep-research)（npm 名 `@dsh-external/dsh-deep-research` v0.1.0，MIT，作者 dsh2026）。已迁出至 `/Users/dmh2002/DshProject/dsh-deep-research`（2026-09-01 克隆快照，11 commits，2026-08-06 至 08-12）。
-> 方法：主控第一手源码核验（全仓库仅 1 个源文件 + 1 个测试文件，已逐行通读），并**实际运行了其回归测试**（6/6 通过——本调研系列中唯一执行过测试套件的项目）。
-> 与前两份调研的关系：七插件调研（`investigation-report-context-plugins.md`）聚焦上下文管理（读维）；dsh_workflow 调研（`investigation-report-dsh-workflow.md`）聚焦持久流程治理（执行/写维）；本项聚焦**审议维与复核维**——"把一次调查/研究做成自适应闭环"的设计模式，同时它是"寄生在官方 workflow 引擎上做扩展"的最小样本，与 dsh_workflow（自建引擎）形成架构路线的两极对照。
+> 性质声明：开发设计输入（非规范、非事实对象）。  
+> 调研对象：[omdsh-dev/dsh-deep-research](https://github.com/omdsh-dev/dsh-deep-research)（`@dsh-external/dsh-deep-research` v0.1.0，MIT，源码 checkout 位于 `/Users/dmh2002/DshProject/dsh-deep-research`）。  
+> 方法：主控第一手源码全量通读（`src/index.ts` 559 行、`package.json` 46 行、`cordis.patch.yml` 8 行、`lib/types/index.js` 531 行、`lib/types/index.d.ts` 80 行、`test/regression.test.mjs` 605 行），并实跑回归测试（`node --test`，6/6 场景全绿）。
 
 ---
 
-## 0. 执行摘要
+## 0. 一句话结论
 
-1. **极简主义样本**：整个插件 = 1 个源文件（559 行，其中 ~210 行是 workflow 脚本字符串）+ 1 个测试文件 + cordis.patch（6 行）。与 dsh_workflow 的 5435 行自建引擎相比，它证明了"官方 workflow 引擎（`ctx.workflows`）之上做编排扩展"的最低成本形态——**零自研调度、零网络逻辑、零 UI 面**。
-2. **设计理念与 LDVH 高度同源**：三态证据模型（confirmed/uncertain/gaps）几乎就是 LDVH `completed/not_completed/gaps` 交还语义的研究版；规划先行定义"答案空间"（scope/acceptance）对应 LDVH"审议先收敛方案再执行"；对抗性审查对应复核维的独立视角。**它是目前调研过的项目里与 LDVH 00 §9"诚实报告"哲学最贴近的一个。**
-3. **自适应闭环的收敛判据值得吸收**：边际信息增益为零即停（信息论）+ 轮次硬上限 + 队列语义（超并发的子问题跨轮续研绝不丢弃）——LDVH 审议维"扩散后收敛"、执行维"最小充分"的信息论化表达。
-4. **对 LDVH 最大的架构启示是"引擎与编排分离"**：它自己只是"编排策略提供者"，运行时全靠官方引擎（worker 隔离、并发上限、取消传播、进度事件、wf-runs 记录）。LDVH 五件套的执行层若走 dsh_workflow 式自建，本插件演示了另一条路：**策略插件化 + 引擎宿主化**。
-5. **风险**：单文件交付、peer 钉 0.0.1 线（旧一代）、11 commits 单作者、无 CI——但测试设计（镜像引擎的 vm 仿真 + 6 场景回归）质量意外地高。
+1. **理论到机制的高保真映射**：将控制论（参考信号校准、Ashby 必要多样性、自适应控制）与信息论（条件熵、EIG 边际信息增益、率失真压缩、信道冗余纠错）完全编译为确定性的结构化 Schema、提示词感知循环与停止判据，而非玄学概念。
+2. **三态证据与诚实交付**：以 `confirmed` / `uncertain` / `gaps` 结构化对象强制表达条件不确定性，在综合报告中保留矛盾与已验证盲区，并附带未压缩的原始证据底稿，与 LDVH 00 §7/§9"防自欺与诚实报告"理念深度同构。
+3. **闭环收敛与队列不变量**：以"上一轮边际增益为零"作为信息论收敛信号，叠加 `depth + 1` 硬上限与先进先出队列语义（超并发子问题跨轮保留绝不静默丢弃），杜绝无节制发散。
+4. **极致克制的宿主寄生架构**：单一插件入口仅注册 1 个模型工具，零网络请求、零 UI 扩展、不注册 skills，全量复用官方 `ctx.workflows` 引擎（Worker 线程隔离、并发上限、取消传播）。
 
 ---
 
 ## 1. 项目概况
 
-| 维度 | 现状 |
-|---|---|
-| 定位 | "把 deep-research 流程做成 DSH 扩展插件，基于官方 workflow 引擎（`ctx.workflows`），按控制论 + 信息论设计——不是固定提示词流水线，而是活的、自适应的研究闭环" |
-| 规模 | src/index.ts 单文件 559 行（含 ~210 行 workflow 脚本字符串）；test/regression.test.mjs 1 个文件 6 个场景；lib/types/index.js 为编译产物（npm/lib 模式入口） |
-| 提交史 | 11 commits，2026-08-06 至 08-12（一周），作者 dsh2026；演化轨迹清晰可见：初始 plugin → bundle 形态 → 原生 TS 重构 → 队列语义修复 → 回归套件 → 编译入口 → provider 兼容声明 |
-| 测试 | **已实测：6/6 通过**（`node --test 'test/**'`）；零依赖（node:test + node:vm 仿真引擎运行时） |
-| 依赖 | peer：`@deepseek-ai/dsh-tools ^0.0.1`、`@deepseek-ai/dsh-workflow ^0.0.1`、`cordis ^4.0.0-rc.7`；dev 仅 typescript + @types/node |
-| 文档 | README 123 行：理论→机制映射表（7 行理论对照）、结构、参数、配置、设计说明、Profile 兼容性 |
-
-**cordis.patch.yml**：仅 `insert` 一行 `id: dsh-deep-research`——bundle 补丁把插件行插入任何声明了它的 profile。
+- **定位与版本**：`@dsh-external/dsh-deep-research` v0.1.0（`package.json:2-4`），定位于基于 DSH 官方 workflow 引擎的自适应深度研究编排插件（`package.json:3`）。
+- **代码规模**：极简单文件架构。源码 `src/index.ts` 共 559 行（含约 210 行静态 workflow 脚本）；编译入口 `lib/types/index.js`（531 行）与类型 `lib/types/index.d.ts`（80 行）；测试 `test/regression.test.mjs`（605 行）；安装补丁 `cordis.patch.yml`（8 行）。
+- **依赖关系**：无任何第三方运行时依赖。`peerDependencies` 声明 `@deepseek-ai/dsh-tools: ^0.0.1`、`@deepseek-ai/dsh-workflow: ^0.0.1`、`cordis: ^4.0.0-rc.7`（`package.json:32-36`）；通过 `cordis.patch.yml`（`cordis.patch.yml:6-8`）将自身插入 Profile。
+- **Commit 历史**：共 11 个 commit（2026-08-06 至 08-12，作者 dsh2026）。演进链：原型搭建(`1616eb4`) → bundle patch 改写(`46ca346`) → 原生 TS 重构(`afa0762`) → 队列语义与 null config 修复(`fc72fdb`) → 回归测试集成(`405e781`) → 构建产物与 Profile 兼容文档(`094bdf1`, `c0b329e`)。
 
 ---
 
-## 2. DSH 接入机制（第一手核验）
+## 2. 核心数据模型 / 工作流设计：控制论与信息论的工程映射
 
-- **inject 门控**（`src/index.ts:70`）：`inject = ['tools', 'workflows']`——**官方 workflow 服务在场才激活**；profile 无 workflows provider 时插件保持 pending（README:119-123 明确这一行为并给出处理指引，还自述了 Web Profile 组合可能不提供该 provider 的兼容坑）。
-- **唯一模型工具 `deep_research`**（`src/index.ts:401-538`）：`defineTool` + `ctx.tools.register`；6 个参数（topic 必填，purpose/questions/depth/synthesize/review 可选）；输出 schema 带 ok/report/review 三字段。
-- **引擎调用**（`src/index.ts:483-516`）：`ctx.workflows.start({ script: SCRIPT, meta: WorkflowMeta, args, subagentProvider?, maxTotalAgents?, parent, signal: exec.signal })`——脚本为**静态文本**（String.raw，无模板插值、无注入面，动态输入全部走 `args`）；meta 声明 8 个 phase（规划/研究·第1-4轮/综合/审查，`src/index.ts:489-500`——phase 标题必须精确匹配引擎约定，有注释说明）。
-- **取消传播**：`exec.signal` 传入 workflow run，用户取消时子代理随之中止（README:112）。
-- **模型分层**（`src/index.ts:477-481`）：四角色（planner/researcher/synthesizer/reviewer）各自可配独立模型，缺省继承父路由——"规划/综合用强模型、研究用便宜模型"的成本策略。
-- **生命周期**：`await run.result` + `await run.dispose()`（`src/index.ts:518-519`）——非 completed 即抛错并把 stopReason/error 带给主代理。
-- **刻意不做的事**（README:109-114）：不注册 skill（与 skill 体系分开，触发靠工具描述）；不碰 TUI（无 tuiPrompt/overlay/system-prompt 注入，规避槽位 disposed 类崩溃）；插件零网络逻辑（搜索/抓取全靠子代理继承的内置 `web_search`/`web_fetch`）。
+项目将抽象学术概念逐一具象化为工程 Schema 与流程控制（`src/index.ts:12-46`）：
 
----
-
-## 3. 编排设计（核心：一个字符串里的自适应闭环）
-
-### 3.1 理论→机制映射（README:10-18，全在脚本中兑现）
-
-| 理论 | 落地 |
-|---|---|
-| 参考信号校准（控制论） | 规划先定义**答案空间**（scope：研究支撑什么判断/决策）+ 每个子问题的**验收标准**（acceptance） |
-| Ashby 必要多样性定律 | 枚举信息维度，每子问题映射一个维度，输出 `coverage_gaps` 覆盖度自检 |
-| 信息 = 不确定性减少 | 研究子代理三态证据 confirmed/uncertain/gaps（条件熵的工程表达） |
-| 边际增益递减 ⇒ 无限搜索是错的 | 预测→行动→更新→**边际增益验证**；连续零增益即停 + 轮次硬上限 |
-| 自适应控制 | 闭环再规划：每轮收集 high-priority 缺口自动派发下一轮；规划盲区被定向侦察验证（假设被实验检验） |
-| 率失真 | 综合子代理有损压缩：只保留对结论有区分度的信息 |
-| 信道冗余/纠错 | 可选对抗性审查 = 奇偶校验：引用抽查、覆盖度审计、矛盾/过度自信标注 |
-
-### 3.2 脚本结构（`src/index.ts:173-383`）
-
-**规划阶段**：planner 输出结构化 JSON（scope/dimensions/questions/coverage_gaps，PLANNER_SCHEMA `src/index.ts:88-117`）；**盲区假设不丢弃而是入队**（`src/index.ts:239`：`gaps.map(g => ({ question: g, dimension: '盲区侦察', blind: true }))`）——被后续轮次实际验证，若信息其实可得自动补充研究，若确实不可得作为"已验证盲区"写入报告。
-
-**研究闭环**（`src/index.ts:276-312`）：
-- 队列语义：`pending = [...pending.slice(maxParallel), ...leads]`——本轮超并发的子问题留在队首下轮续研（**绝不静默丢弃**，git 史 fc72fdb 专门修复过此点），high-priority 缺口排在它们之后；
-- 收敛判据双重：无新 high-priority 缺口（边际增益≈0）或 `round < depth + 1` 轮次上限；
-- 研究者提示词内嵌感知-行动循环（第 0 步先写当前最佳答案 → 预测高熵点与预期增益 → 行动 → 三态更新 → 边际增益自问）与三停准则（`src/index.ts:262-265`）；来源评估分级（A 政府/学术 → D 自媒体，`src/index.ts:266-268`）；"宁可不确认，也不要编造"。
-
-**综合阶段**（opt-out）：率失真提示词——"不确定性本身就是重要信息，必须保留而非掩盖"（`src/index.ts:342`）；报告六节结构（摘要/背景/核心发现按维度/不确定性与矛盾/信息缺口与已验证盲区/结论）；**附原始证据状态全文**（`src/index.ts:350`：`report + '\n\n---\n\n## 附录：原始证据状态\n\n' + intermediate`——最终报告可回溯到三态证据底稿）。
-
-**审查阶段**（opt-in）：五维对抗审查（引用纠错——幻觉来源=信道噪声必须标出/覆盖度审计——对照规划维度/矛盾保留/时效性/过度自信，`src/index.ts:359-364`）；只输出审查意见不改写报告本身；给出"需要补充研究的最高优先级缺口"供下一步定向研究。
-
-**返回值**（`src/index.ts:375-382`）：report + review + **量化元数据**（rounds/subquestions/completed/failed）——完成度可见。
-
-### 3.3 测试设计（`test/regression.test.mjs`，已实测 6/6）
-
-零依赖回归：从 src/index.ts 抽取 SCRIPT 字符串 → `node:vm` 仿真引擎运行时（phase/agent/parallel/args 全局钩子，agent 按 label 从 mock 队列取值）→ 6 个场景：①questions 已给跳过规划单轮收敛 ②high-priority 缺口自动进第 2 轮直到零增益 ③无 questions 时规划+盲区侦察入队 ④工具注册与输出 schema 编译 ⑤参数校验（空 topic/depth>3 抛错且**不进入** workflows.start）⑥队列语义（超 maxParallel 跨轮续研全部被研究）。工具注册层测试优先动态 import 真实模块、失败退化为 vm 求值剥离后的源码——**对"源码即运行时"交付形态的完整测试策略**。
-
----
-
-## 4. 对 LDVH 的参考价值（重点）
-
-### 4.1 审议维：先定"答案空间"再行动
-
-规划代理先界定 scope（研究要支撑什么判断/决策）再拆解——与 LDVH 审议维"把 Human 意图经信息读取与约束收敛为可执行方案"同构。**可借鉴的具体形式**：WorkCase/Study 类事实对象的创建入口应先要求"purpose/用途"声明（缺省时 AI 声明假设用途并显式标注——本插件 planner 的做法，`src/index.ts:216`：'若用途未说明，明确写出你假设的用途'）；Study 的调研问题应先过"验收标准"定义（acceptance：怎样算回答了）。
-
-### 4.2 复核维：三态证据 + 对抗审查 + 量化完成度
-
-- **三态证据模型**（confirmed/uncertain/gaps）与 LDVH 交还语义（completed/not_completed/gaps，00 §7.4）几乎逐字对应——本插件证明该语义可以内嵌到**子代理提示词与结构化输出 schema**里强制执行（RESEARCHER_SCHEMA 的 required 字段即语义约束），而非只靠规范文本要求 AI 自觉。LDVH 的 Helper 响应与事实对象状态字段可同构：每个 claim 带 confidence 与 source。
-- **对抗性审查作为独立角色**（opt-in，五维清单）——对应 LDVH 复核维"独立/对抗执行体"的按需启用（00 §5 最小充分原则）；其"只输出意见不改写报告本身"的边界纪律值得照抄（复核不越权修改）。
-- **完成度量化**（rounds/subquestions/completed/failed 显式返回）——LDVH 交还应带同款量化（读了多少规范/召回多少事实/验证多少声明/失败几项），而非只有结论。
-
-### 4.3 读维：证据可回指链
-
-最终报告 + **附录原始证据状态**（三态底稿全文附加）——"AI 提炼输出永远是候选 + 原文回指"（read-dimension-understanding §8）的现成实现：压缩报告可回溯到未压缩底稿。LDVH 的 Study 对象与 Web 呈现可采用同款两层结构（结论层 + 证据层）。
-
-### 4.4 执行维：收敛判据与队列语义
-
-- **边际增益为零即停**：审议扩散（多方案/多视角）的收敛判据可借鉴信息论表述——"新一轮没有产生新的高优先级缺口"就是停止信号，避免无限发散；
-- **轮次硬上限**（depth+1）：一切自适应循环配硬上限兜底——LDVH 行动模板的停止条件设计参照；
-- **队列不丢弃**：超并发/超预算的工作项留在队列显式续处理——对应 WorkCase work items 的 pending 语义（不因单轮容量限制静默丢弃任务）。
-
-### 4.5 架构启示：引擎与编排分离（与 dsh_workflow 两极对照）
-
-| | dsh-deep-research | dsh_workflow |
+| 理论维度 | 理论内核 | 源码工程机制落地（file:line） |
 |---|---|---|
-| 引擎 | **官方 `ctx.workflows`**（worker 隔离/并发上限/取消/进度/wf-runs 全宿主提供） | **自建引擎**（QuickJS VM + 自建 run graph + effect cache） |
-| 编排 | 一个静态脚本文本（策略层） | 完整服务 + catalog + 生命周期 API |
-| 交付 | 单文件、零构建、源码即运行时 | 5435 行 + 构建产物 + 兼容矩阵 |
-| 治理 | 无（信任宿主引擎的 caps） | 完整（审批/验证证据/effect cache 门槛） |
-| 适用 | 单次策略性编排 | 长期流程资产 |
-
-**对 LDVH 五件套执行层的启示**：LDVH 的"Helper 确定性执行"更接近两极的中间——确定性操作（受控写入/CAS/审计）必须自建（宿主没有），但**调度原语应尽量用宿主**（本插件路线）。v5-handoff §4 的"插件五件套 + Host Hook"吸收 agent-teams 调度器与吸收 DSH 原生 workflow 引擎并不冲突：**策略 LDVH 自持，引擎宿主化**。若 LDVH 需要类似 deep-research 的调查行动模板（Study 类），本插件的"静态脚本 + 结构化 args + 引擎 meta 声明 phase"是最低摩擦的落地形态。
-
-### 4.6 LDVH 应避免/警惕的
-
-1. **单文件 559 行含 210 行脚本文本**——脚本体与宿主代码混在一个字符串里，测试要靠 vm 仿真抽取（本插件测试设计高明地消化了这点，但维护性仍是隐患）；LDVH 行动模板若走脚本形态应模板文件独立、可分别测试；
-2. **peer 钉 0.0.1 线 + 无 CI + 单作者一周**——成熟度低；其"源码即运行时"依赖 DSH 源码启动器的 tsx hook 与 Node ≥22.18 原生剥离的精确行为（node_modules 内文件被原生剥离拒绝——README:39-43），**对宿主加载机制的高度耦合**是 LDVH 08 规范应记录的兼容坑；
-3. **结构化输出的引擎依赖**：planner/researcher 的 schema 约束依赖引擎的 structured capture；引擎不支持时退化为纯文本（DSH rc.2 缺捕获问题在 dsh_workflow 中有专门修复，本插件未处理此坑）；
-4. **对抗审查无预算/轮次上限声明**（审查子代理自身无 LIMIT 约束）——审查也是成本，LDVH 复核维的"最小充分视角"应给审查也配上界。
-
-### 4.7 与 LDVH 哲学的直接共鸣点（收束）
-
-这个项目最有价值的不是代码（559 行），而是它**把"如何诚实地做一次调查"编译成了可执行的机制**：先声明答案空间与验收标准（防参考信号错校准）、按多样性定律拆解并自审覆盖（防盲区）、三态证据带置信与来源（防过度自信）、边际增益为零即停（防无限搜索）、盲区假设被实验验证而非静态接受（防假设冒充事实）、报告保留不确定性与矛盾（防掩盖）、最终报告附证据底稿（防失真不可回溯）、可选对抗审查（防幻觉来源）。——这八条每一条都能在 LDVH 00（防自欺/诚实报告）与 02（审议/复核/反思维判据）里找到直接对应，可以作为"LDVH 研究类行动模板（Study 模板）"的行为规格输入。
+| **参考信号校准**（控制论） | 闭环系统若参考信号偏差，后续调节全部失效 | 规划代理首先界定答案空间 `scope`（明确支撑何种决策），并为子问题逐一指定验收标准 `acceptance`（`src/index.ts:92,106,216,219`）。 |
+| **Ashby 必要多样性**（控制论） | 控制器的多样性必须匹配被控系统的多样性，否则必有盲区 | 枚举主题的信息维度 `dimensions`，强制各子问题映射所属维度，并自审声明覆盖缺口 `coverage_gaps`（`src/index.ts:93-96,111-114,218-219`）。 |
+| **条件熵显式化**（信息论） | 信息即不确定性的减少，未知状态必须具象化 | 证据强制归入三态模型 `confirmed` / `uncertain` / `gaps`，显式追踪置信度与优先级（`src/index.ts:120-163,260`）。 |
+| **EIG 边际增益**（信息论） | 边际收益递减，搜索应在增益衰减至阈值时停止 | 提示词驱动"预测高熵点→行动→更新→边际验证"闭环；连续一轮零增益或高优先级缺口清空立即停机（`src/index.ts:257-265`）。 |
+| **自适应感知-行动**（控制论） | 流程是活的，环境反馈驱动状态机自发调整 | 轮次间动态收集 high-priority gaps 作为新子问题派发；规划假设的盲区作为实验假设由研究轮定向侦察验证（`src/index.ts:239,280-312`）。 |
+| **率失真有损压缩**（信息论） | 给定报告容量（率），最大化保留决策区分度（最小失真） | 综合代理只保留对最终判断有区分度的结论，明确保留不确定性与矛盾，并附录完整原始证据底稿（`src/index.ts:337-351`）。 |
+| **信道纠错奇偶校验**（信息论） | 对抗信道噪声与幻觉生成 | 独立审查代理进行五维对抗性审查（引用可达性抽查、维度覆盖审计、冲突与过度自信标注），只提意见不改写正文（`src/index.ts:356-373`）。 |
 
 ---
 
-## 5. 证据清单（主控第一手核验，全仓库已通读）
+## 3. 工具与子代理：deep_research 工具参数、模型分层与调度
 
-| 结论 | 证据 |
-|---|---|
-| 单文件规模与结构 | src/index.ts 559 行（wc -l 实测）；包入口直指源码，零构建（README:27,39-43） |
-| inject 门控（依赖官方 workflow 服务） | src/index.ts:70；README:119-123（pending 行为与 Profile 兼容） |
-| 唯一工具 deep_research + 6 参数 | src/index.ts:401-439 |
-| 引擎调用（script/meta/args/parent/signal） | src/index.ts:483-516；meta phase 精确匹配注释 492-493 |
-| 静态脚本无注入面 | src/index.ts:165-172（String.raw + args 驱动注释） |
-| PLANNER/RESEARCHER 结构化 schema | src/index.ts:88-117,120-163 |
-| 盲区假设入队不丢弃 | src/index.ts:236-239；git fc72fdb（队列语义修复） |
-| 自适应闭环 + 双收敛判据 | src/index.ts:276-312（`while (pending.length > 0 && round < depth + 1)`） |
-| 三态证据 + 来源分级 + 不编造纪律 | src/index.ts:260-272（研究者提示词） |
-| 综合保留不确定性 + 证据附录 | src/index.ts:342,350 |
-| 对抗审查五维 + 不改写报告 | src/index.ts:354-372 |
-| 量化完成度返回 | src/index.ts:375-382 |
-| 模型分层四角色 | src/index.ts:477-481；README:68-69,104 |
-| 取消传播 | README:112；src/index.ts:515 |
-| 测试 6/6 实测通过 | `node --test 'test/**'` 实测输出；测试文件头注释（镜像引擎机制说明） |
-| 11 commits 演化轨迹 | git log（2026-08-06 至 08-12） |
-| peer 0.0.1 线 | package.json:32-36 |
+- **工具注册与参数规范**：通过 `ctx.tools.register(defineTool({...}))` 注册 `deep_research`（`src/index.ts:401-402`）。
+  - 参数集：`topic`（必填）、`purpose`（定义答案空间）、`questions`（直接传入跳过规划）、`depth`（1/2/3 容差档位，对应 2/3/4 轮硬上限）、`synthesize`（默认 true）、`review`（默认 false）（`src/index.ts:414-440,469-472`）。
+  - 输出契约：严格返回 JSON `{ ok, report, review? }`，并提供文本渲染函数（`src/index.ts:442-456,532-536`）。
+- **四级模型分层（成本/精度解耦）**：
+  - 支持角色独立配置：`plannerModel`（规划）、`researcherModel`（并行调研）、`synthesizerModel`（报告综合）、`reviewerModel`（对抗审阅）（`src/index.ts:76-80,388-391`）。
+  - 调度执行时组装为 `models` 字典透传至脚本（`src/index.ts:477-481`），脚本内调用各代理时动态解构注入（`src/index.ts:225,288,347,370`）。缺省时完全继承父代理路由。
+- **子代理调度与宿主集成**：
+  - 插件自身不编写子代理调度器，全量调用宿主 `ctx.workflows.start({...})`（`src/index.ts:483`）。
+  - 传递 `parent: exec.agent`（`src/index.ts:459,514`）、`signal: exec.signal`（`src/index.ts:515`），支持宿主级生命周期管理与取消级联。
 
-### 未验证/残留风险
+---
 
-- 未在真实 DSH 环境安装运行（测试通过的是 vm 仿真层，非真实引擎与真实子代理）；
-- peer 钉 `^0.0.1`（dsh-tools/dsh-workflow）与 `cordis ^4.0.0-rc.7`——在当前 DSH Desktop 2.0.4（0.1.2-alpha 线）上的实际兼容性未验证；`ctx.workflows.start` 的 meta/args 形状可能已变；
-- 结构化输出在引擎缺原生捕获时的退化行为未验证（dsh_workflow 有专门修复，本插件未见处理）；
-- 本报告为设计输入，不构成任何机制"已在 LDVH 实现"的证明。
+## 4. 自适应闭环实现：并行、缺口反馈、重规划与停止条件
+
+研究执行阶段是完整的自适应闭环状态机（`src/index.ts:276-312`）：
+1. **第 1 轮并行研究**：
+   - 若用户未提供 `questions`，规划代理产出子问题及 `coverage_gaps`；盲区假设作为 `blind: true` 标记直接并入待研队列 `subs`（`src/index.ts:239`）。
+   - 首轮从 `pending` 截取最多 `maxParallel`（默认 4）个任务，使用 `parallel(batch.map(...))` 触发并发 Worker（`src/index.ts:283-284,398`）。
+2. **动态缺口收集与重规划**：
+   - 每轮结束后，遍历当前批次返回的 `RESEARCHER_SCHEMA` 结果，抽取 `priority === 'high'` 的 gaps（`src/index.ts:298-307`）。
+   - 去重后生成补充研究课题 `leads`（`src/index.ts:305`），标明 `followUp: true`（在提示词中明确标注为针对上一轮缺口的补充研究，`src/index.ts:244`）。
+3. **队列语义不变量（杜绝丢弃）**：
+   - 待研队列更新式：`pending = [...pending.slice(maxParallel), ...leads]`（`src/index.ts:308`）。
+   - 核心不变量：单轮处理未完的剩余子问题保留在队首，下一轮优先消费；新发现的高优先级缺口排在队尾追加，绝不丢弃（`src/index.ts:309-311`，修复自 commit `fc72fdb`）。
+4. **收敛判据与停止条件**：
+   - 外部循环硬停止：`while (pending.length > 0 && round < depth + 1)`（`src/index.ts:280`）。当轮次耗尽或待研队列为空时终止。
+   - 内部信息论收敛：当且仅当某轮未产生任何新的 high-priority gap 且队首无积压时，`leads` 为空导致 `pending` 耗尽自然收敛（`src/index.ts:311-312`）。单个研究员内部亦遵从零增益停止准则（`src/index.ts:262-264`）。
+
+---
+
+## 5. 证据表达与覆盖率审计：三态证据、盲区侦察与对抗性审查
+
+- **三态证据结构化 Schema**：
+  - `RESEARCHER_SCHEMA`（`src/index.ts:120-163`）强制要求返回 `confirmed`（必须含结论、引用 URL、置信度高/中/低）、`uncertain`（疑点与原因）、`gaps`（未获信息与优先级）。
+  - 格式化输出函数 `renderFindings`（`src/index.ts:183-205`）将三态证据如实转换为 Markdown。若未获得任何确认事实，明确标注"未获得任何可确认的证据"（`src/index.ts:203`）。
+- **盲区侦察与覆盖度假设检验**：
+  - 规划代理主动声明 `coverage_gaps`（`src/index.ts:111-114,219`），即承认现有认知之不足。
+  - 盲区不被隐瞒，而是转化为 `blind: true` 的侦察任务进入研究闭环（`src/index.ts:239`），提示研究员专门验证是否公开信息确实匮乏（`src/index.ts:246-248`）。验证结果作为"已验证盲区"写入最终报告（`src/index.ts:342`）。
+- **率失真综合与附录保真**：
+  - 综合代理提示词明确要求"不确定性本身就是重要信息，必须保留而非掩盖"，严禁编造（`src/index.ts:342-343`）。
+  - 输出报告末尾强制附加完整原始证据底稿：`report + '\n\n---\n\n## 附录：原始证据状态\n\n' + intermediate`（`src/index.ts:350`），确保高层压缩结论与底层三态证据链可回溯。
+- **独立对抗性审查（五维奇偶校验）**：
+  - 审查代理独立于综合代理（`src/index.ts:354-373`），五维审查清单：①引用纠错（URL 真实性与观点支撑度，将幻觉定义为信道噪声）、②覆盖度审计（对照规划阶段 dimensions 查漏）、③信息矛盾检视、④时效性判定、⑤过度自信识别（`src/index.ts:358-364`）。
+  - 严格遵守边界纪律：仅输出审查意见与补充缺口，绝不直接改写报告正文（`src/index.ts:365`）。
+
+---
+
+## 6. 复用官方能力的边界：依赖、调度与隔离
+
+- **Plugin 边界（不是 Skill）**：
+  - 插件明确不注册 Skill（`src/index.ts:3-7`），不入侵用户提示词槽位，无 TUI overlay 依赖，消除 slot disposed 崩溃隐患。
+  - 仅作为一个标准 Cordis 插件，依赖 `inject = ['tools', 'workflows']`（`src/index.ts:70`），提供 1 个纯粹的外部工具。
+- **完全复用官方 Workflow 引擎**：
+  - 编排逻辑全部写在静态文本 `SCRIPT` 中（`src/index.ts:173-383`），交由官方 Worker 线程引擎执行。
+  - 工作流运行环境的原语直接来自宿主：`agent`（子代理调用）、`parallel`（并发屏障）、`phase`（进度阶段上报）（`src/index.ts:207,227,242,284,336,355`）。
+- **零外部网络逻辑与沙盒继承**：
+  - 插件自身不发任何 HTTP 请求，亦未内置网络抓取代码。研究子代理提示词显式引导使用宿主内置的 `web_search` / `web_fetch` 工具（`src/index.ts:231,255,259,357`），完全继承宿主的安全审计与沙盒权限。
+- **取消传播与故障隔离**：
+  - 执行上下文绑定 `signal: exec.signal`（`src/index.ts:515`），父会话中断时信号自动级联终止子代理。
+  - 单个子问题研究失败仅在报告中标记占位符（`src/index.ts:327`），不导致整批研究崩溃；汇总统计精确返回 `completed` 与 `failed` 指标（`src/index.ts:380-381`）。
+
+---
+
+## 7. 对 LDVH 的参考价值（核心）
+
+### 7.1 调研维的可移植隐喻
+1. **理论映射为确定性工程机制**：LDVH 的理念（如反自欺、诚实报告、最小充分）不可仅停留于提示词规训，应借鉴本项目做法，将其转化为结构化 Output Schema（强校验字段）、阶段循环与代码级退出阈值。
+2. **EIG 边际增益的停止条件**：在 LDVH 的审议维与反思维中，多方案扩散与调研探索常陷入无限发散。引入"连续单轮边际增益为零（无新增确认事实）"作为机械收敛条件，可大幅收紧 Token 预算。
+3. **模型分层与角色特化**：将任务解耦为 Planner（强逻辑）、Researcher（低成本搜索抓取）、Synthesizer（精炼归纳）与 Reviewer（批判审阅），为 LDVH 的多子代理协同提供了兼顾成本与精度的落地方案。
+4. **三态证据模型（confirmed/uncertain/gaps）**：直接对应 LDVH 交还状态的三态表达（`completed` / `not_completed` / `gaps`），为 LDVH 的事实对象构建（如 Study / Review 事实底稿）提供了天然的属性字段模板。
+
+### 7.2 与已有调研项目的异同对比
+- **vs `dsh-solo-thinking`（多分支思考树）**：
+  - `solo-thinking` 侧重**交互式长程发散**，以独立 DSH Session 为节点，构建人类可审阅、带侧边栏 UI 的思考树，依赖人机共同决策推进。
+  - `dsh-deep-research` 侧重**自主式短程收敛**，运行于无头 Worker 线程，以信息增益为单一目标实现全自动闭环探索，无长程持久树，无 UI 面。
+- **vs `dsh-mnemon`（记忆控制平面）**：
+  - `mnemon` 侧重**跨会话的知识治理**，拥有三代际令牌（Catalog/Topology/Guard）、持久化 JSON 事实源、LRU 归档与 revision 冲突拦截，属于稳态存储。
+  - `dsh-deep-research` 侧重**会话内的即时证据采集**，产物为单次 Markdown 报告与临时证据底稿，不碰跨会话记忆，属于瞬态工作流。
+
+### 7.3 LDVH 应避免的陷阱
+1. **严禁二次包装成冗余插件**：LDVH 应遵循"吸收=思想，交付=LDVH 自己的实现"原则，吸纳其控制论/信息论状态机内核，而不要直接引入其插件代码作为不可控外部黑盒。
+2. **避免大段内嵌脚本字符串**：本项目将 210 行 JS 编排代码以 `String.raw` 字符串硬编码于 TS 文件中（`src/index.ts:173`），导致语法高亮缺失、静态类型失效、单元测试依赖 `vm.Script` 抽取。LDVH 编写工作流模板必须坚持模块化与独立文件测试。
+3. **防止控制论术语的空转欺瞒**：控制论名词若脱离具体的 Schema 与终止判定，极易沦为 LLM 自嗨的空洞修辞。LDVH 落地时必须确保每个理论声明都有断言级代码把关。
+
+---
+
+## 8. 证据与未验证范围
+
+### 8.1 已核验源码证据
+- 插件入口与 inject 声明：`src/index.ts:67,70`
+- 数据 Schema 定义：`src/index.ts:88-117`（PLANNER）、`120-163`（RESEARCHER）
+- 工作流脚本与动态执行逻辑：`src/index.ts:173-383`
+- 工具注册契约与参数解析：`src/index.ts:401-440,464-472`
+- 宿主 Workflow 启动与生命周期管理：`src/index.ts:483-520`
+- 补丁定义与包声明：`cordis.patch.yml:6-8`、`package.json:1-46`
+- 回归测试用例设计与 vm 隔离执行：`test/regression.test.mjs:1-605`（全量测试在 Node 22 环境下实跑 6/6 通过）
+
+### 8.2 未验证范围与风险
+- **真实 LLM 线上环境表现**：测试使用的是 `test/regression.test.mjs` 中的 Mock 数据，真实大模型在生成复杂 Schema 时是否存在 JSON 解析失败、幻觉字段等退化现象未在真机 Profile 下长期实测。
+- **旧版 Peer 依赖兼容性**：其声明的 `@deepseek-ai/dsh-workflow: ^0.0.1` 属于早期版本规范，在最新 DSH 宿主环境下的 API 演进兼容度未经真机加载确认。
+
+> **声明**：本文仅为 LDVH 架构演进与调研维设计的输入参考，不构成任何机制已在 LDVH 落地或可免除审计的证明。
+
+---
+
+## 9. 关键词句回指（file:line）
+
+- 插件名称与服务注入：`src/index.ts:67,70`
+- 规划输出 Schema（答案空间/维度/盲区）：`src/index.ts:88-117`
+- 研究员三态证据 Schema（confirmed/uncertain/gaps）：`src/index.ts:120-163`
+- 规划阶段提示词（定义答案空间与验收标准）：`src/index.ts:211-220`
+- 盲区侦察任务转化与标记注入：`src/index.ts:239`
+- 研究员感知-行动循环与停止准则提示词：`src/index.ts:256-265`
+- 自适应研究循环与并行批处理：`src/index.ts:280-289`
+- 缺口收集与跟进任务提取：`src/index.ts:296-307`
+- 队列保护语义（未处理子问题跨轮续研）：`src/index.ts:308-311`
+- 综合代理率失真提示词（保留不确定性与盲区）：`src/index.ts:337-343`
+- 报告与三态证据底稿拼接：`src/index.ts:350`
+- 对抗性审查代理提示词与五维清单：`src/index.ts:356-365`
+- 工具定义与参数校验：`src/index.ts:401-440,464-472`
+- 宿主 Workflow 启动与取消信号透传：`src/index.ts:483-516`
+- 工作流生命周期销毁：`src/index.ts:518-520`
+- Profile Bundle 补丁注入：`cordis.patch.yml:6-8`
+- 回归测试 6 场景 vm 验证：`test/regression.test.mjs:177,205,232,497,516,574`
