@@ -3,7 +3,7 @@
 > 性质：开发设计输入（非规范、非事实对象），供八维反思维/沉淀维与 20–24/30–38、`eight-dimension-action-baseline.md` 起草参考。
 > 任务来源：Human 观察到 dsh-mnemon 在 session 中注入 "Review the inherited completed checkpoint now."，要求研究该记忆系统的**触发时机、触发方式、以及记录后如何读取**，并评估对 LDVH 反思/沉淀维的意义。
 > 研究对象：dsh-mnemon v0.4.4（已调研，见 `docs/investigation-report-dsh-mnemon.md`）。本文件聚焦其"idle checkpoint review"（空闲检查点复查）完整链路。
-> 方法：主控第一手源码核验（lifecycle.ts / subagent.ts / review-activity.ts / memory-view.ts / tools.ts / guidance.ts），所有引用回指代码位置。
+> 方法：主控第一手源码核验（lifecycle.ts / subagent.ts / review-activity.ts / memory-view.ts / tools.ts / guidance.ts），所有引用回指代码位置；§9 为同一机制在本机的实测故障取证（session 流交叉，非源码推断）。
 > 关联：八维讨论记录 §5.4（反思何时触发、避免每轮复盘、HV4 只增不减）、§6.6–6.10（闲聊→提炼→沉淀定位：可检索档案 + Spark=记录有价值闲聊）、读维 F0-F4 分层召回、writebackMode/recallMode。
 
 ---
@@ -112,4 +112,35 @@ REVIEW_PERSONA + REVIEW_TOOLS 规定**三层不同目的地、每层准入不等
 
 - "至多一次"如何从 persona 升为 Host 计数（LDVH 若吸收须自行实现，不能照搬其薄弱点）；
 - 三重门控的阈值（320/600 字符、threshold 5）能否直接迁移到 LDVH，还是需据 LDVH 实际 action 频率重标定（本文件不预设）；
+- 复查失败的兜底记录、Mnemon runtime pin 的并发归属与释放策略如何设计（实测故障依据见 §9）；
 - 本文为设计输入，不构成任何机制已在 LDVH 落实的证明；落 20-24/30-38 与行动基线前按受控流程另行处理。
+
+## 9. 实测故障观察（2026-09-04，本机第一手取证）
+
+> 上述 §2–§5 为源码核验；本节是**同一机制在本机真实运行的一次完整故障实录**——研究该机制当天，它恰好被本项目的 dsh-ldvh 工作会话触发并故障，两条 session 流交叉取证。日期以 session 流 time 字段与 git 提交时间的机器时间戳为准（2026-09-04）；对话内文本与提交信息正文自称"2026-09-06"，两处不一致，未裁断。
+
+### 9.1 故障时间线（父/子两流按 seq 对齐）
+
+| 机器时间 | 流 | 事件 |
+|---|---|---|
+| 16:12:36 | 父 `session-d181f1ff` | turn 35 完成（八维串联战果总结 + 提交 `43a2d4c`；末步 usage `totalTokens: 200285`）。文本量、工具多样性必然过 §2 三重门槛 |
+| 16:13:06 | 子 `6b065362…` | 复查 fork 创建：one-shot / provider=fork / label "Mnemon idle checkpoint review"；**seed=49,620 事件全量继承**；prompt 即 §3 那句 "Review the inherited completed checkpoint now."；路由 deepseek-v4-flash@zzztoken（contextWindow 512,000） |
+| 16:16:31 | 父 | 用户发「继续」→ turn 36 立即 `turn/end` 错误：**"Mnemon runtime is already pinned for Agent session-d181f1ff-…"**（code UNKNOWN）。父会话被卡死，此后父流再无任何事件 |
+| 16:18:06 | 子 | 首次请求 `finish.reason=error`：**"pi-ai stream idle timeout after 300000ms"（TIMEOUT）**——请求发出整整 300 秒零输出 |
+| 16:18:07 | 子 | `llm/retry` #1（max 5）启动后，子流再无任何事件——**复查零产出死亡** |
+| 16:19+ | 新会话 | Mnemon 快照正常注入（runtime pin 已随复查会话死亡释放） |
+
+### 9.2 故障 A：大上下文复查请求整段流式超时
+
+复查 fork 继承全量历史（父会话末轮 usage 约 20 万 token 量级），走 deepseek-v4-flash + zzztoken 中转：300 秒 idle timeout 零字节 → 重试挂起 → 会话死亡。**因果归因不裁断**——超时只能证明"大 seed × 该路由"组合实测不可用，不能证明单一因素。后果：复查完全未执行，且**无任何兜底记录**——若无人事后取证，这轮"值得复盘"的判定就静默丢失了。
+
+### 9.3 故障 B：复查在飞期间 Mnemon runtime pin 阻塞父会话
+
+pin 以 Agent 会话为粒度（错误消息点名父 Agent id）。复查 fork 在飞时，**父会话自己的下一轮直接报错终止**——一个"默认不动、最多动一处"的后台复查，失败时能把主会话卡死。父会话无重试、无自动恢复迹象；用户视角是「继续」指令无声失败（错误只在会话流里，未回报给用户）。
+
+### 9.4 对 LDVH 反思维/沉淀维的新教训（补充 §6 表）
+
+1. **复查失败必须有机械兜底记录**：至少留一条"复查未执行 + 原因"的痕迹（呼应 06 "机械可证"），不能让"值得复盘"的判定静默蒸发；
+2. **后台复查绝不得阻塞前台**：LDVH 若吸收 fork 复盘会话，pin 归属/释放/并发要在设计里明确——父会话继续工作必须是独立通路（这是比 §6 "at most one 靠 persona" 更根本的反面教训：连"不动"的复查都能伤到主会话）；
+3. **复查通道按"继承全量历史"量级选型**：路由、预算、超时都要按最坏 seed 大小定，且大上下文下 5 分钟超时可能根本不够首字节；
+4. **取证方法可复用**：`zstd -d` 解开父/子两条 `session.jsonl.zstd`，按事件 seq 与 time 交叉对时间线（本次完整故障链就是这样对出来的）。
