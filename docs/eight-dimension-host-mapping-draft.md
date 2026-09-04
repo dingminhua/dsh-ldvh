@@ -1,7 +1,7 @@
 # 八维宿主指向表草案（讨论工作稿）
 
 > 性质：**讨论工作稿（非规范、非候选、非事实对象）**——Human 与主控逐维讨论的记录，供后续起草规范修订候选时引用；全部外部调查结论附来源，可直接用于对抗审核。
-> 更新：2026-09-05（读维、写维、遵守维三轮完成）
+> 更新：2026-09-05（读维、写维、遵守维三轮完成）；2026-09-06（串联复过第一站：读维——三条定案确认 + F0–F4 事实层五条设计裁决，见 §1.1；第二站：遵守维——四条结论，见 §3.1）
 > 依据：docs/dsh-host-reference.md（617 行）、docs/dsh-host-capability-survey-data.md（687 行）、docs/dsh-host-capability-survey-interaction-ui.md（622 行）三份宿主能力盘点 + 联网调查（来源逐条附）
 > 状态：结构全部定案（八维保留，Human 2026-09-05）——读/写/遵守/审议/复核/反思/沉淀七维内容定案；执行维暂缓（五点）；反思自查标准与项目清单、沉淀表达方式三点未决留开放
 > **接续说明（Human 2026-09-05 定：八维有依赖关系，明天串联再过一遍）**：本文档是跨会话接续的锚点——新会话从「依赖关系图」入手即可恢复全部上下文；每维定案的依据、外部来源、内部锚点、吸收去向全部在文中可查。
@@ -80,6 +80,8 @@
 
 **串联讨论的推荐顺序**（明天从这开始）：按数据流「读→遵守→审议→执行→复核→写→反思→沉淀」走一圈，每站验两件事：**上游给的东西够不够用** + **下游接得住吗**。三个未决口袋（执行五点、反思两点、沉淀一点）在串联中带到时顺手收，不单独开题。
 
+**串联顺序修订（Human 2026-09-06 裁定）**：第三站改为**审议+执行联合站**——Human 直觉「审议涉及团队控制的问题，要和团队控制一起讨论」，与 §4.4 定案第 5 条（审议与执行同构，都是行动编排）互证：两维共享团队控制底座（spawn/信息传递/漂移防护/中断恢复/结果回收/成本控制），分开讨论必然重复；执行维五点未决的真正原因正是底座未清。联合站三段结构：①团队控制底座（维度无关）→ ②审议用法映射 → ③执行用法映射（五点未决顺势收口）。执行维「暂缓」随之解冻重估。
+
 **接续锚点速查**：
 
 | 想接续什么 | 看哪里 |
@@ -108,6 +110,40 @@
 | 会话记录读取 | sessionPersistence.readRaw、sessionQuery | 官方投影/查询服务 | readRaw 已用（签名尾读）；sessionQuery 未探索 | ⚠️ 待探索 |
 
 **已发现未修缺陷（Human 定「先记录不急着修」）**：ldvh-tools.js 第 77 行 `specsRoot = join(projectRoot, "specs")` 把规范源按**管辖项目路径**寻址——两层混淆。今天能跑纯因唯一管辖项目 = dsh-ldvh 仓库自身（dogfood 巧合）；管辖第二项目起 specs 扫描 ENOENT → unavailable，规范永不可读。修法取决于「LDVH 分发形态」（specs 随插件包 / 全局注册 LDVH 仓库路径 / governed-projects.yaml 登记），**属 08 修订要定的事**。
+
+### 1.1 读维串联复过定案（Human 裁定，2026-09-06）
+
+串联复过第一站。先过定案本身，再以「v4 现状盘点 + 行业联网调查」双份一手报告为依据，完成 F0–F4 事实层设计裁决。
+
+**定案确认（三条）**：
+
+1. **两通道划分成立**（规范层全局一份 / 事实层每项目各自）——读维承重墙，不变。
+2. **读维无其他形态**——委派链信息传递（Handoff）不算读，归审议/沉淀侧。
+3. **「控制上下文负担」= 渐进披露本身即要求，暂不量化**；新增传导关系：**它对写维是要求**（写入侧须考虑将来被读的形态与体积）。
+
+**事实层 F0–F4 设计裁决（五条）**：
+
+| # | 裁决 | 内容 |
+|---|---|---|
+| 1 | **F0 常驻枚举 = 仅 ADR（对象级）+ Pitfall（标签级）** | ADR 是规则性约束（不读会犯错），对象级常驻（标题+决定+适用条件，v4 当前 5 份 active，极轻）。Pitfall 是经验性知识（读了少走弯路），常驻只到**标签层**——注入「现有哪几类问题」的标签清单 |
+| 2 | **Pitfall 三级渐进链** | 标签（常驻）→ 按标签取标题列表 → 标题对得上再读正文（六段）。结构性好处：常驻成本只随**标签数**涨不随对象数涨——问题域收敛、对象无限积累 |
+| 3 | **Pitfall 元数据新增必填 `tags` 字段**（问题域/技术域关键词） | 面向检索，比 v4 trigger_conditions 更机器化；标签枚举须有登记处（防标签漂移/同义发散）。**⚠️ 待补：标签规范**（Human 2026-09-06 记——标签如何定义、命名、归并、演进，须有一纸规范，后续补写） |
+| 4 | **存储格式与 v4 一致 = YAML** | 统一元数据骨架（object_id/object_uid/fact_type_key/title/status/created_at/updated_at/change_log 含三方签名）直接继承 v4，不重设计；物理路径即发现路径 |
+| 5 | **首批范围 = ADR + Pitfall 两类**（承接 v4 的 8+8 欠账） | Spark / Study / WorkCase 去向、Charter/Goal 类型化，分开再定（Charter/Goal 轻量起步路线见 4.5，不变） |
+
+**F 层映射定案**：
+
+| 层 | 语义 | 说明 |
+|---|---|---|
+| F0 | 常驻枚举：ADR 对象级（标题/决定/适用条件）+ Pitfall 标签级（问题域清单） | ADR 枚举已实现待接线（adr-enumeration.js，见 §3）；Pitfall 标签云待建 |
+| F1 | 候选清单（按类型/标签列出，带路由描述） | Pitfall 二级（标签→标题列表）在此层 |
+| F2 | 单对象结构摘要（身份块+章节/字段骨架） | ADR 的 Y-Statement 式摘要、Pitfall 六段一句话版在此层 |
+| F3 | 精确节/字段读取 | 对应 L3 |
+| F4 | 全文 | 对应 L4 |
+
+**调查依据（两份一手报告）**：
+- **v4 现状盘点**（2026-09-06 子代理只读调研 /Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4）：五类事实对象共 310 份（ADR 8 / Pitfall 8 / Spark 94 / Study 53 / WorkCase 157）；统一元数据骨架已收敛并经实战验证；Pitfall 六段（症状/触发条件/根因/解决/规避/验证摘要）为多轮修订后固定结构；ADR 已有 `trigger_signal` 必填字段（= Claude Skills description 规范的本土先例）；v4 无 Charter 类型；无静态注册表，物理路径即发现路径；v4 已有 F1/F2 雏形（facts/repository.py read_fact_object）。
+- **行业联网调查**（2026-09-06 子代理，来源见附录 A #17–#30）：行业三层披露（元数据 ~100t / 正文 <5000t / 附件按需）与 F0–F4 五层不矛盾——F1–F3 是对「正文级」的细分，规范层 L0–L4 已验证该细分对 AI 自主寻址有效；元数据质量决定触发质量（description = 是什么+何时用+触发关键词）；不可变+状态机+supersede 指针是 ADR 生态最强共识（Nygard→adr-tools→log4brains），v4 retired/discarded+disposition_summary 同构可继承；ADR 摘要层行业验证形态 = Y-Statement 六要素单句；postmortem 模板（Google SRE）字段与 v4 Pitfall 六段高度同构。
 
 ---
 
@@ -192,6 +228,15 @@
 **Human 决定（相互作用）**：暂不动 03；机械字段纪律重申为现行规范；写前指纹门采用 SHA-256 非 mtime；03 §9.4 重新诠释攒进大批次。
 
 **v4 内容搬运欠账（继承事项）**：8 ADR + 8 Pitfall 从 v4 仓库受控搬运（/Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4，只读参考）——随 F0–F4 事实层批次；搬运即写维模型第一个真实用户。
+
+### 3.1 遵守维串联复过记录（2026-09-06）
+
+串联第二站。结论四条：
+
+1. **定案第 1 条表述修订（与读维 §1.1 对齐）**：常驻枚举从「ADR/Pitfall 常驻枚举注入」改为「**ADR 对象级常驻 + Pitfall 标签级常驻**」（Human 裁定 Pitfall 也是常驻，但常驻的是标签层；见 §1.1 裁决 1/2）。**标签规范待补**（Human 2026-09-06 记：标签定义、命名、归并、演进须有一纸规范——待办已登记 §1.1 裁决 3）。
+2. **ADR 枚举接线维持挂起**（Human 定「先挂着，事实对象都还没起草」）——顺序依据成立：枚举注入以存在 active ADR 为前提，内容先于机制接线。解冻时机=事实层首批起草/搬运完成之后。
+3. **pre-execute 网关归写维站讨论**（Human 指正：拦截写操作属「写」的议题，不属遵守维）——本维只保留「机械触发合法性」的结论（定案第 2 条），网关实现排期移至写维站。
+4. **定案第 2–5 条复核**：Human 明确「现在完全无法判断」——四条维持原定案不推翻，不视作串联确认；带实际使用经验回来再验（与 §6.4/§7.3 未决口袋同等待遇）。
 
 ---
 
@@ -448,6 +493,15 @@ Claude plan mode 的弱点（反衬 Human 论点二）：Phase 3 对齐判据靠
 | 19 | Rajiv Prab：Using Subagents（13 步工作流） | https://software.rajivprab.com/2026/07/13/using-subagents-to-improve-claude-code/ | 复核维：fresh subagent 复核、分权制衡（reward hacking 对策）、文件为信道、review 循环终止条件、审计链 |
 | 20 | spec-kit Issue #1865（verify-tasks 提案） | https://github.com/github/spec-kit/issues/1865 | 复核维：[X] 任务真做了的机械验证（文件存在+diff+模式匹配） |
 | 21 | 9 并行复核 agent 配置（HAMY 博客） | https://hamy.xyz/blog/2026-02_code-reviews-claude-subagents | 复核维：多视角并行复核的实践实例（test/lint/review/security/quality/test-quality/perf/deps/simplification 九路） |
+| 22 | Michael Nygard：ADR 起点（2011） | https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions | 读维 F 层：ADR 五节结构；编号单调不复用；superseded 指针式演变（不可变+指针共识源头） |
+| 23 | MADR 官网与模板精读 | https://adr.github.io/madr/ ；https://ozimmer.ch/practices/2022/11/22/MADRTemplatePrimer.html | 读维 F 层：ADR frontmatter 元数据（status/date/deciders/consulted/informed）；Confirmation 节（与复核维对齐）；大项目子目录分类 |
+| 24 | Y-Statement（Olaf Zimmermann） | https://ozimmer.ch/practices/2020/04/27/ArchitectureDecisionMaking.html | 读维 F2 摘要层：六要素单句（context/facing/decided/neglected/achieve/accepting）= 行业验证的一屏决策摘要 |
+| 25 | adr-tools / log4brains / adr-tooling | https://github.com/npryce/adr-tools ；https://github.com/thomvaill/log4brains ；https://adr.github.io/adr-tooling/ | 读维枚举层：行业事实标准=编号+标题+status(+date)，可由文件名/frontmatter/git log 推导；索引靠生成式 TOC+搜索而非全文扫描 |
+| 26 | Agent Skills 开放规范 | https://agentskills.io/specification | 读维预算锚点：元数据 ~100 tokens/skill 预载、正文 <5000 tokens/<500 行、资源按需一层深 |
+| 27 | Anthropic：Effective context engineering | https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents | 读维总原则：最小高信号 token 集；稳定关键上下文预载+JIT 探索混合策略；文件系统即元数据 |
+| 28 | Claude Code Memory 官方文档 | https://code.claude.com/docs/en/memory | 读维预算锚点：CLAUDE.md <200 行、auto memory 前 200 行/25KB；子目录按需加载=两层披露先例 |
+| 29 | Google SRE blameless postmortem（示例+文化章） | https://sre.google/sre-book/example-postmortem/ ；https://sre.google/sre-book/postmortem-culture/ | 读维 Pitfall 对照：postmortem 字段（Impact/Root Causes/Trigger/Resolution/Lessons/Where we got lucky/Action Items）与 v4 六段高度同构；「为机器可分析增强元数据」是 Google 自己的模板演进方向 |
+| 30 | incident.io：SRE post-mortem 最佳实践 | https://incident.io/blog/sre-incident-postmortem-best-practices | 读维 Pitfall：最小机器可检索元数据集（编号/标题/类型/状态/严重度/日期/Owner/关联）；Severity 分级先例 |
 
 ## 附录 B：内部证据锚点（供对抗审核核对）
 
@@ -478,6 +532,7 @@ Claude plan mode 的弱点（反衬 Human 论点二）：Phase 3 对齐判据靠
 | 23 | v4 Spark=分流器（disposition_summary 后退役） | 同仓库 sparks/ 首个 YAML 全文核验（intent+disposition_summary「已由 adr-0006 和 workcase-0013 承接，不再保留独立待处置内容」） |
 | 24 | mnemon idle review（反思触发参照） | ~/.dsh/profiles/desktop/node_modules/dsh-mnemon lib/index.js scheduleIdleReview（调查报告 §5.4）；lastAccessedAt 进索引 LRU 归档（§3.1） |
 | 25 | 八维→七维受影响的规范文本 | 实测 grep：00 行 75/92/96+§4.2；01 §8.1+Att.01；02 行 25/160+§6–13；03/08/10 各行 38 basis；插件 guidance-text.js 七锚点（受保护文本） |
+| 26 | v4 事实对象全量盘点（2026-09-06 子代理只读调研） | v4 仓库 ldvh-base/：ADR 8（均 ~44 行，含 trigger_signal 必填字段）/ Pitfall 8（均 ~41 行，六段闭合：symptoms/trigger_conditions/root_cause/resolution/avoidance/validation_summary）/ Spark 94 / Study 53（唯一纯 Markdown）/ WorkCase 157；统一元数据骨架 object_id/object_uid/fact_type_key/title/status/created_at/updated_at/change_log（签名三元组）；无静态注册表，物理路径即发现路径；F1/F2 雏形 code/ldvh/facts/repository.py read_fact_object；无 Charter 类型（web/api/services/facts.ts 行 23 ACTIVE_OBJECT_TYPES 五类） |
 
 ## 附录 C：外部思想吸收清单（Human 定调 2026-09-05）
 
