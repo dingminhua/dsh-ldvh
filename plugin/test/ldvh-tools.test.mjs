@@ -812,7 +812,7 @@ test("every tool descriptor declares the DSH registration contract", () => {
 test("guidanceTextFor returns the governed text with the seven 00 anchors", () => {
 	const text = guidanceTextFor("governed");
 	assert.ok(text.length > 0);
-	// 00 anchors: identity block, §2 root scheme, §3.1 eight dimensions,
+	// 00 anchors: identity block, §2 root scheme, §3.1 work model,
 	// §4 Human decision rights, §5 AI responsibilities, §6 dual-track
 	// values, §7 anti-self-deception / Stop / handover.
 	for (const anchor of ["身份块", "§2", "§3.1", "§4", "§5", "§6", "§7"]) {
@@ -829,7 +829,7 @@ test("guidanceTextFor not_governed: one-line judgment notice (Human 2026-09-04 �
 	assert.match(text, /【LDVH 管辖判定】not_governed/);
 	assert.match(text, /不受 LDVH 管辖/);
 	// Minimal: no seven-anchor body leaks into non-governed sessions.
-	assert.ok(!text.includes("八维"), "non-governed body must stay minimal");
+	assert.ok(!text.includes("工作模型"), "non-governed body must stay minimal");
 });
 
 test("guidanceTextFor unavailable: reports unavailable but acts as not_governed", () => {

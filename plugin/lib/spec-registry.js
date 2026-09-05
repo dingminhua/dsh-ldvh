@@ -21,7 +21,7 @@ const ROOT_ONLY_FIELDS = ["authority", "code_consumption"];
 // plus optional supersedes — no attachment_kind, scope, basis, parent_spec,
 // relation, dimensions, authorized_attachments or related_specs.
 const ATTACHMENT_FIELDS = ["attachment_key", "attachment_id", "title", "canonical_path", "positioning", "supersedes"];
-const DIMENSION_VALUES = ["read", "write", "comply", "deliberate", "review", "execute", "reflect", "consolidate"];
+const DIMENSION_VALUES = ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"];
 const RELATION_VALUES = ["refines"];
 const ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const SPEC_ID_PATTERN = /^[0-9]{2,}$/;
@@ -164,7 +164,7 @@ export function parseIdentityBlock(yamlText) {
       if (identity.title !== "理念与构成" || identity.specId !== "00" || identity.canonicalPath !== "specs/00-理念与构成.md" || identity.parentSpec !== "" || identity.relation !== "") return reject("identity/field_invalid", "root profile fixed values do not match 01.Att.02 §3");
       const dimensions = validateDimensions(identity.dimensions, { required: true });
       if (!dimensions.ok) return dimensions;
-      if (JSON.stringify(dimensions.value) !== JSON.stringify(DIMENSION_VALUES)) return reject("identity/field_invalid", "the root profile must declare the full eight dimensions in canonical order");
+      if (JSON.stringify(dimensions.value) !== JSON.stringify(DIMENSION_VALUES)) return reject("identity/field_invalid", "the root profile must declare the full seven dimensions in canonical order");
       const basis = validateStringList(identity.basis, "basis", { allowEmpty: true });
       if (!basis.ok) return basis;
       identity.basis = basis.value;

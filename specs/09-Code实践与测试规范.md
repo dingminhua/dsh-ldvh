@@ -14,9 +14,9 @@ ldvh_spec:
   basis:
     - "ldvh-root"
     - "specification-model-foundation"
-    - "eight-dimension-work-model"
+    - "work-model-foundation"
   authorized_attachments: []
-  dimensions: ["read", "write", "comply", "deliberate", "review", "execute", "reflect", "consolidate"]
+  dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
 ```
 
 ## 1. 价值判断
@@ -35,7 +35,7 @@ ldvh_spec:
 
 1. `ldvh-root`：00 §3.4 的技术支撑与机械保障、§7.1 的防自欺锚点、§7.2 的 Stop Conditions、§7.4 的 Output Envelope 与交还；
 2. `specification-model-foundation`：01 §6 的身份块契约、§7 的共同章节结构、§10 的 L0–L4 读取层级与 Code 消费入口解析契约、§12 的独立对抗审核；
-3. `eight-dimension-work-model`：02 执行维与复核维对实现、测试与完成声明的机制指向。
+3. `work-model-foundation`：02 编排技术支撑与复核制度对实现、测试与完成声明的机制指向。
 
 TypeScript、pnpm、Vitest 与构建工具只提供工程语法和执行能力，不取得 LDVH 领域语义权威。
 

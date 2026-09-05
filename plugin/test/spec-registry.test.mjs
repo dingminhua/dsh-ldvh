@@ -517,6 +517,27 @@ test("parseIdentityBlock rejects dimensions with an out-of-set value", () => {
 	assert.equal(result.error.code, "identity/field_invalid");
 });
 
+test("parseIdentityBlock rejects ordinary specs declaring retired old-dimension values (regression: work-model restructure)", () => {
+	// 2026-09-07 restructure retired deliberate/review/execute/reflect/consolidate
+	// from the closed set. A spec still declaring any of them must be rejected.
+	const yaml = `ldvh_spec:
+  spec_key: "demo"
+  spec_id: "99"
+  spec_kind: "spec"
+  title: "示例"
+  canonical_path: "specs/99-示例.md"
+  parent_spec: ""
+  relation: ""
+  positioning: "p"
+  scope: "s"
+  dimensions: ["read", "deliberate"]
+`;
+	const result = parseIdentityBlock(yaml);
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "identity/field_invalid");
+	assert.match(result.error.message, /outside the closed set/);
+});
+
 // ---------------------------------------------------------------------------
 // parseIdentityBlock: title and canonical_path
 // ---------------------------------------------------------------------------
@@ -589,8 +610,8 @@ const rootYaml = `ldvh_spec:
   scope: "根范围"
   basis: []
   related_specs: ["specification-model-foundation"]
-  dimensions: ["read", "write", "comply", "deliberate", "review", "execute", "reflect", "consolidate"]
-  code_consumption: ["ldvh-root", "specification-model-foundation", "eight-dimension-work-model", "fact-model-foundation", "action-template-foundation", "helper-service-boundary", "fact-source-traceability", "work-object-and-governance", "dsh-environment-binding", "code-practice-and-test", "web-presentation-and-interaction"]
+  dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
+  code_consumption: ["ldvh-root", "specification-model-foundation", "work-model-foundation", "fact-model-foundation", "action-template-foundation", "helper-service-boundary", "fact-source-traceability", "work-object-and-governance", "dsh-environment-binding", "code-practice-and-test", "web-presentation-and-interaction"]
 `;
 
 test("parseIdentityBlock accepts a fully legal root profile", () => {
@@ -598,7 +619,7 @@ test("parseIdentityBlock accepts a fully legal root profile", () => {
 	assert.equal(result.ok, true, result.error?.message);
 	assert.equal(result.value.responsibilityKey, "ldvh-root");
 	assert.equal(result.value.authority, "active");
-	assert.equal(result.value.dimensions.length, 8);
+	assert.equal(result.value.dimensions.length, 7);
 });
 
 test("parseIdentityBlock accepts a root profile with an empty related_specs list (per 01.Att.02 §3 table)", () => {
@@ -621,7 +642,7 @@ test("parseIdentityBlock accepts a root profile with an empty related_specs list
   scope: "根范围"
   basis: []
   related_specs: []
-  dimensions: ["read", "write", "comply", "deliberate", "review", "execute", "reflect", "consolidate"]
+  dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
   code_consumption: ["specification-model-foundation"]
 `;
 	const result = parseIdentityBlock(yaml);
@@ -630,8 +651,8 @@ test("parseIdentityBlock accepts a root profile with an empty related_specs list
 
 test("parseIdentityBlock rejects a root profile whose dimensions order is not canonical", () => {
 	const tampered = rootYaml.replace(
-		'dimensions: ["read", "write", "comply", "deliberate", "review", "execute", "reflect", "consolidate"]',
-		'dimensions: ["write", "read", "comply", "deliberate", "review", "execute", "reflect", "consolidate"]',
+		'dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]',
+		'dimensions: ["write", "read", "orchestrate", "memory", "research", "discussion", "comply"]',
 	);
 	const result = parseIdentityBlock(tampered);
 	assert.equal(result.ok, false);
@@ -645,7 +666,7 @@ test("parseIdentityBlock rejects a root profile whose code_consumption uses snak
 	// says reject; the implementation rejects. Real specs/00 therefore
 	// fails to parse, which is the test that the contract is alive.
 	const tampered = rootYaml.replace(
-		'code_consumption: ["ldvh-root", "specification-model-foundation", "eight-dimension-work-model", "fact-model-foundation", "action-template-foundation", "helper-service-boundary", "fact-source-traceability", "work-object-and-governance", "dsh-environment-binding", "code-practice-and-test", "web-presentation-and-interaction"]',
+		'code_consumption: ["ldvh-root", "specification-model-foundation", "work-model-foundation", "fact-model-foundation", "action-template-foundation", "helper-service-boundary", "fact-source-traceability", "work-object-and-governance", "dsh-environment-binding", "code-practice-and-test", "web-presentation-and-interaction"]',
 		'code_consumption: ["spec_identity_block", "spec_read_contract"]',
 	);
 	const result = parseIdentityBlock(tampered);
@@ -919,7 +940,7 @@ const plainSpecYaml = `ldvh_spec:
   scope: "s"
   basis: ["ldvh-root"]
   authorized_attachments: []
-  related_specs: ["eight-dimension-work-model"]
+  related_specs: ["work-model-foundation"]
   dimensions: ["read", "write"]
 `;
 
@@ -957,7 +978,7 @@ test("projectLayer L2 adds relation fields but not authority/code_consumption", 
 	assert.equal(out.parent_spec, "");
 	assert.equal(out.relation, "");
 	assert.deepEqual(out.authorized_attachments, []);
-	assert.deepEqual(out.related_specs, ["eight-dimension-work-model"]);
+	assert.deepEqual(out.related_specs, ["work-model-foundation"]);
 	assert.deepEqual(out.dimensions, ["read", "write"]);
 	assert.equal(out.authority, undefined);
 	assert.equal(out.code_consumption, undefined);

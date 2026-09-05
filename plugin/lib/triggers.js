@@ -11,7 +11,7 @@
 //   system-prompt/assemble   guidance injection + tools guard           [ACTIVE]
 //   agent/pre-step           resident-enumeration channel               [SKELETON: gates live, no content]
 //   agent/session-start      priming + session-scope record             [ACTIVE]
-//   agent/turn-stopping      reflection seam (八维·反思)                 [SKELETON]
+//   agent/turn-stopping      reflection seam (memory-system reflection sub-mechanism)                 [SKELETON]
 //   session/event turn/end   turn-close bookkeeping (release, settle)   [SKELETON]
 //   agent/disposed           (fiber-owned cleanup — no hook needed)     [implicit]
 //

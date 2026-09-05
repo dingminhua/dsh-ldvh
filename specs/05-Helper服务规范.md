@@ -14,9 +14,9 @@ ldvh_spec:
   basis:
     - "ldvh-root"
     - "specification-model-foundation"
-    - "eight-dimension-work-model"
+    - "work-model-foundation"
   authorized_attachments: []
-  dimensions: ["read", "write", "comply", "deliberate", "review", "execute", "reflect", "consolidate"]
+  dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
 ```
 
 ## 1. 价值判断
@@ -35,7 +35,7 @@ Helper 存在、工具注册成功、操作被发现、请求返回或载体被�
 
 1. `ldvh-root`：00 §3.4 的机械保障、§3.5 的 Helper 确定性执行、§4–§5 的授权与责任、§7 的防自欺、Stop Conditions 与交还；
 2. `specification-model-foundation`：01 §6 的身份块契约、§7 的共同章节结构、§9 的当前规则源条件、§10 的读取层级与最小规则引导、§12 的独立对抗审核；
-3. `eight-dimension-work-model`：02 对 Helper 确定性执行的八维机制指向与非默认仪式边界。
+3. `work-model-foundation`：02 对 Helper 确定性执行的机制指向与非默认仪式边界。
 
 本文不依赖额外外部语法或行业标准定义 Helper 服务语义。
 

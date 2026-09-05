@@ -6,7 +6,7 @@
 // implementation commit marks it as implemented-as-candidate, not confirmed.
 //
 // Contract (specs/01 §10.4): the minimal guidance names the seven 00 anchors
-// — identity block, §2 root scheme, §3.1 eight dimensions, §4 Human decision
+// — identity block, §2 root scheme, §3.1 work model, §4 Human decision
 // rights, §5 AI responsibilities, §6 dual-track values, §7 anti-self-deception/
 // Stop/handover — WITHOUT copying rule text (no second rule source, 08 §5.3
 // single-authority red line). Anchor names calibrate to the current 00 text.
@@ -80,8 +80,8 @@ export function migrationLineFor(fromState, toState) {
 
 const GOVERNED_GUIDANCE = `本会话工作锚点（specs/00-理念与构成.md）：
 1. 身份块——每个 specs/ 载体首部 ldvh_spec/ldvh_attachment 声明身份、依据与关系
-2. §2 根方案——八维工作模型 + 三类语义构成要素 + 规范源/事实源 + 插件四种价值交付
-3. §3.1 八维——读、写、遵守、审议、复核、执行、反思、沉淀
+2. §2 根方案——技术支撑与四大业务系统构成的工作模型 + 三类语义构成要素 + 规范源/事实源 + 插件四种价值交付
+3. §3.1 工作模型——技术支撑（读/写/编排）+ 业务系统（记忆/调研/讨论/遵守）+ 制度（复核/沉淀等贯穿）
 4. §4 Human 决定权——根决定清单、Human Gate 与受保护文档
 5. §5 AI 责任——单一主控最终负责、非全知、委派不转责、反稀释
 6. §6 双轨价值——V1–V8 / HV1–HV5

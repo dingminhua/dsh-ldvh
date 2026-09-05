@@ -3,8 +3,8 @@
 //
 // mnemon treats the durable session event log as a data SOURCE: it scans
 // turn/start→turn/end to find the open turn, archives messages per turn, and
-// counts tool calls from tool/call events. LDVH's reflection dimension
-// (八维·反思) will need exactly these primitives ("user corrected the AI"
+// counts tool calls from tool/call events. LDVH's reflection sub-mechanism of the memory system
+// will need exactly these primitives ("user corrected the AI"
 // is a message-pattern recognition over turn events). The primitives are
 // mounted now so the reflection batch reads from here instead of re-learning
 // the event shapes.
