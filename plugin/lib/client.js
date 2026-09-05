@@ -120,12 +120,13 @@ window.__ModuleLoader__.load({
       ".ldv-view-frame{position:absolute;inset:0;width:100%;height:100%;border:0}" +
       ".ldv-view-state{position:absolute;inset:0;display:grid;place-items:center;gap:10px;align-content:center;text-align:center;padding:24px}" +
       ".ldv-view-state p{font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary,#b8b8b8);margin:0;max-width:520px}" +
-      ".ldv-btn{box-sizing:border-box;height:30px;padding:0 14px;border-radius:8px;font:inherit;font-size:12px;cursor:pointer}" +
-      ".ldv-btn-primary{border:1px solid var(--dsw-alias-state-business-primary,#5686fe);background:var(--dsw-alias-state-business-primary,#5686fe);color:#fff}" +
-      ".ldv-btn-outline{border:1px solid var(--dsw-alias-border-l2,#36373b);background:transparent;color:var(--dsw-alias-label-secondary,#b8b8b8)}" +
-      ".ldv-btn-primary:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#5686fe) 88%,#fff)}" +
-      ".ldv-btn-outline:hover:not(:disabled){border-color:var(--dsw-alias-label-dimmed,#777)}" +
-      ".ldv-btn:disabled{opacity:.5;cursor:default}" +
+      ".ldv-btn{appearance:none;font:inherit;cursor:pointer;border:1px solid transparent;border-radius:8px;padding:5px 14px;font-size:13px;line-height:1.5}" +
+      ".ldv-btn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#5686fe);outline-offset:1px}" +
+      ".ldv-btn-primary{background:var(--dsw-alias-label-primary,#e6e6e6);color:var(--dsw-alias-bg-layer-3,#202126)}" +
+      ".ldv-btn-outline{border-color:var(--dsw-alias-border-l2,#36373b);color:var(--dsw-alias-label-secondary,#b8b8b8);background:transparent;font-weight:500}" +
+      ".ldv-btn-primary:hover:not(:disabled){opacity:.9}" +
+      ".ldv-btn-outline:hover:not(:disabled){color:var(--dsw-alias-label-primary,#e6e6e6);border-color:var(--dsw-alias-label-dimmed,#777);background:rgba(255,255,255,.04)}" +
+      ".ldv-btn:disabled{opacity:.4;cursor:default}" +
       "";
     if (typeof document !== "undefined") {
       var cssId = "dsh-ldvh/client.css";
@@ -182,6 +183,7 @@ window.__ModuleLoader__.load({
       "row.statusUnmounted": "未挂载",
       "row.statusFail": "运行异常",
       "row.save": "保存",
+      "row.saving": "保存中…",
       "row.discard": "放弃修改",
       "row.saved": "已保存",
       "row.saveFailed": "保存失败，请重试。",
@@ -233,7 +235,8 @@ window.__ModuleLoader__.load({
       "row.statusUnmounted": "Not mounted",
       "row.statusFail": "Unavailable",
       "row.save": "Save",
-      "row.discard": "Discard",
+      "row.saving": "Saving…",
+      "row.discard": "Discard changes",
       "row.saved": "Saved",
       "row.saveFailed": "Could not save. Try again.",
       "row.toastSaved": "LDVH settings saved.",
@@ -630,7 +633,7 @@ window.__ModuleLoader__.load({
             ? React.createElement("span", { className: "ldv-settings-footer-status" }, t("row.saved"))
             : (saveErrorState[0] ? React.createElement("span", { className: "ldv-settings-footer-error", role: "alert" }, t("row.saveFailed")) : null),
           React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-outline", disabled: !dirtyState[0] || busyState[0], onClick: discard }, t("row.discard")),
-          React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-primary", disabled: saveDisabled, onClick: save }, busyState[0] ? (t("row.save") + "\u2026") : t("row.save"))
+          React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-primary", disabled: saveDisabled, onClick: save }, busyState[0] ? t("row.saving") : t("row.save"))
         ),
         toastState[0] ? React.createElement(Toast, { key: toastState[0].seq, text: toastState[0].text, onDone: function () { toastState[1](null); } }) : null
       );
