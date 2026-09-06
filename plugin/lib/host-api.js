@@ -27,7 +27,7 @@ export function createGovernanceHandler(options) {
       if (path === "/governed-projects" && req.method === "GET") return json(res, 200, await readGovernedProjects(options.dshHomePath));
       // Web 呈现偏好（项目颜色）：插件设置卡与 Web 设置页共用的读写面。
       if (path === "/governed-projects/with-colors" && req.method === "GET") return json(res, 200, await readGovernedProjectsWithColors(options.dshHomePath));
-      if (path === "/governed-projects/color" && req.method === "PUT") {
+      if (path === "/governed-projects/color" && req.method === "POST") {
         const input = await readJson(req);
         return json(res, 200, await updateProjectColor(options.dshHomePath, input.projectId, input.color === undefined ? null : input.color));
       }

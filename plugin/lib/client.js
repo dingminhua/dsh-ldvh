@@ -455,7 +455,13 @@ window.__ModuleLoader__.load({
         projectBusyState[1](true);
         callLdvhApi("/governed-projects/color", { projectId: projectId, color: color })
           .then(function (result) {
-            if (!result || result.ok !== true) throw new Error(result && result.error ? result.error.message : "color update failed");
+            if (!result || result.ok !== true) {
+              // error 可能是 {message} 也可能是字符串（代理 404 等）——两种都给出可读文本，
+              // 不留空 message（空 message 经 String(error) 会变成裸 "Error"）。
+              var raw = result && result.error;
+              var text = raw && typeof raw.message === "string" ? raw.message : (typeof raw === "string" ? raw : "color update failed");
+              throw new Error(text);
+            }
             loadProjects();
           })
           .catch(function (error) {
