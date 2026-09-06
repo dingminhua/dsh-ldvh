@@ -620,7 +620,7 @@ function parameterSchemaFor(operationKey) {
     description: "AI-supplied type fields; Code assigns object_uid/fact_type_key/created_at/change_log",
     properties: {
       title: { type: "string" },
-      status: { type: "string", enum: ["active"] },
+      status: { type: "string", enum: ["active", "retired"], description: "create must be active; update may transition to retired (24 §9)" },
       research_question: { type: "string" },
       research_purpose: { type: "string" },
       stopping_reason: { type: "string", enum: ["sufficient", "no-gain", "round-cap"] },
@@ -704,7 +704,7 @@ function parameterSchemaFor(operationKey) {
           survey_body: { type: "string", description: "create, exploratory only: the survey-stage markdown (四个固定 H3); omit for directed" },
           object_uid: { type: "string", description: "update: target object" },
           expected_fingerprint: { type: "string", description: "update: CAS baseline fingerprint from your last precise read" },
-          frontmatter_after: researchFrontmatter,
+          frontmatter_after: (() => { const { required: _r, ...rest } = researchFrontmatter; return { ...rest, description: "update: the complete target frontmatter (all fields; schema required relaxed here — handler validates completeness via CAS+writer)" }; })(),
           analysis_body_after: { type: "string", description: "update: the complete target analysis body" },
           survey_body_after: { type: "string", description: "update, exploratory only: the complete target survey body (sub-stage immutable)" },
           change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry" }

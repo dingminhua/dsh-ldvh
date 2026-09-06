@@ -1,3 +1,4 @@
+const { validateJsonSchemaValue } = await import("/Applications/DSH Desktop.app/Contents/Resources/app.asar.unpacked/node_modules/@deepseek-ai/dsh-tools/lib/index.js");
 // Tests for plugin/lib/research-tools.js — the runtime wiring of the
 // research mechanical layer (specs/11 state machine + specs/24 writer) into
 // the governed ldvh_* tool surface.
@@ -396,4 +397,56 @@ test("write missing required fields is invalid_request (zero write)", async () =
     const noBody = await handlers["ldvh_research_write"].execute({ action: "create", frontmatter_draft: validFrontmatterDraft() }, exec(repo));
     assert.equal(noBody.outcome, "invalid_request");
   });
+});
+
+// ---------------------------------------------------------------------------
+// Schema validation unit tests (S6 from the independent audit — the schema
+// layer's rejection paths are not covered by handler fixtures)
+// ---------------------------------------------------------------------------
+
+test("write schema: create missing required frontmatter fields is rejected at schema layer", async () => {
+  const { toolDescriptorFor, OPERATIONS } = await import("../lib/research-tools.js");
+  const desc = toolDescriptorFor("research-write-object", OPERATIONS["research-write-object"], async () => ({}));
+  const violations = validateJsonSchemaValue(desc.parameters, {
+    action: "create",
+    frontmatter_draft: { title: "only-title" }
+  }, "args");
+  assert.ok(violations.length > 0, "should reject");
+  assert.ok(violations.some((v) => v.includes("research_question")));
+});
+
+test("write schema: urls as object shape (the model mis-shape) is rejected with a clear message", async () => {
+  const { toolDescriptorFor, OPERATIONS } = await import("../lib/research-tools.js");
+  const desc = toolDescriptorFor("research-write-object", OPERATIONS["research-write-object"], async () => ({}));
+  const violations = validateJsonSchemaValue(desc.parameters, {
+    action: "create",
+    frontmatter_draft: { title: "t", research_question: "q", research_purpose: "p", stopping_reason: "round-cap", urls: { item: { ref: "x" } } }
+  }, "args");
+  assert.ok(violations.some((v) => v.includes("urls") && v.includes("array")), "urls object-shape must be rejected with 'must be an array'");
+});
+
+test("write schema: update with retired status passes (24 §9 lifecycle transition)", async () => {
+  const { toolDescriptorFor, OPERATIONS } = await import("../lib/research-tools.js");
+  const desc = toolDescriptorFor("research-write-object", OPERATIONS["research-write-object"], async () => ({}));
+  const violations = validateJsonSchemaValue(desc.parameters, {
+    action: "update",
+    object_uid: "x",
+    expected_fingerprint: "y",
+    change_summary: "retire",
+    frontmatter_after: { status: "retired" }
+  }, "args");
+  assert.equal(violations.length, 0, JSON.stringify(violations));
+});
+
+test("write schema: partial update (title only) passes schema layer", async () => {
+  const { toolDescriptorFor, OPERATIONS } = await import("../lib/research-tools.js");
+  const desc = toolDescriptorFor("research-write-object", OPERATIONS["research-write-object"], async () => ({}));
+  const violations = validateJsonSchemaValue(desc.parameters, {
+    action: "update",
+    object_uid: "x",
+    expected_fingerprint: "y",
+    change_summary: "rename",
+    frontmatter_after: { title: "新标题" }
+  }, "args");
+  assert.equal(violations.length, 0, JSON.stringify(violations));
 });
