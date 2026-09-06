@@ -29,10 +29,11 @@
 
 import z from "@deepseek-ai/schemastery";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureRegistrationCarrier, readGovernedProjects } from "./governed-projects.js";
 import { createGovernanceHandler } from "./host-api.js";
+import { createProxyHandler, createSpaHandler, createWebApiProcess } from "./web-mount.js";
 import { createLifecycleRegistry } from "./lifecycle.js";
 import { createSessionScopes } from "./session-scopes.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
@@ -40,6 +41,19 @@ import { registerLdvhRpc, registerLdvhCommands } from "./rpc.js";
 
 const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const GATE_RUNNER_PATH = fileURLToPath(new URL("./git-gate-runner.js", import.meta.url));
+const WEB_DIST_DIR = join(PACKAGE_ROOT, "web", "dist");
+const WEB_API_PORT = Number(process.env.LDVH_WEB_API_PORT ?? 3299);
+/**
+ * ⚠️ 临时桥接（docs/README-MIGRATION.md 同款声明）：Web 的 Express API 事实
+ * 读取依赖 v4 归档的 Python Helper 与 v4 工作区配置。DSH Helper 集成落地后
+ * 这里改指 v5 登记载体。与 plugin/web/restart.sh 保持同一数据源。
+ */
+const WEB_API_BRIDGE_ENV = {
+  LDVH_ROOT: "/Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4",
+  LDVH_WORKSPACE_ROOT: "/Users/dmh2002/poker_hud_projects",
+  LDVH_HELPER_EXECUTABLE: "/Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4/ldvh",
+  LDVH_WEB_WORKTREE_LOCATOR: "/Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4",
+};
 
 export const name = "dsh-ldvh";
 export const inject = ["tools", "settings", "systemPrompt"];
@@ -65,38 +79,17 @@ function json(res, statusCode, body) {
   res.end(JSON.stringify(body));
 }
 
-/** True when a request method should be served for static/SPA content. */
-function isSafeMethod(method) {
-  return method === "GET" || method === "HEAD";
-}
-
 /**
- * Minimal SPA static server used until the v4 frontend dist is wired in.
- * Serves the plugin's own index placeholder; replaced by the migrated v4
- * `web/dist` handler in the web migration step.
+ * LDVH API handler: health plus governed-project lifecycle operations, then a
+ * fall-through proxy to the migrated Web Express child process. Local routes
+ * (health + /governed-projects* governance endpoints) keep priority; every
+ * other /ldvh/api path belongs to the Web API surface and is proxied.
  */
-function spaHandler(req, res) {
-  if (!isSafeMethod(req.method)) {
-    res.statusCode = 405;
-    res.setHeader("allow", "GET, HEAD");
-    res.end("method not allowed");
-    return;
-  }
-  res.statusCode = 200;
-  res.setHeader("content-type", "text/html; charset=utf-8");
-  res.end(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>LDVH</title>
-<style>body{font-family:system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0;background:#101114;color:#e6e6e6}
-main{max-width:640px;padding:24px;text-align:center}h1{font-size:20px}p{color:#b8b8b8;line-height:1.6}
-code{background:#202126;padding:2px 6px;border-radius:6px}</style>
-<main><h1>LDVH Web</h1><p>这是 dsh-ldvh 插件的占位页面。<br>v4 Web 迁入并构建后，此页面将由 LDVH 信息呈现界面替换。</p>
-<p>后端健康检查：<code>/ldvh/api/health</code></p></main></html>`);
-}
-
-/** LDVH API handler: health plus governed-project lifecycle operations. */
-function createApiHandler(dshHomePath) {
+function createApiHandler(dshHomePath, webApiProxy) {
   const governance = createGovernanceHandler({ dshHomePath, runnerPath: GATE_RUNNER_PATH, workspaceRoot: PACKAGE_ROOT });
   return async function apiHandler(req, res) {
-    const rawPath = new URL(req.url ?? "/", "http://ldvh.local").pathname;
+    const url = new URL(req.url ?? "/", "http://ldvh.local");
+    const rawPath = url.pathname;
     const path = rawPath === API_PREFIX ? "/" : (rawPath.startsWith(`${API_PREFIX}/`) ? rawPath.slice(API_PREFIX.length) : rawPath);
     if ((path === "/health" || path === "/health/") && (req.method === "GET" || req.method === "HEAD")) {
       json(res, 200, { ok: true, service: "dsh-ldvh", status: "ok", prefix: API_PREFIX });
@@ -104,6 +97,10 @@ function createApiHandler(dshHomePath) {
     }
     const handled = await governance(req, res);
     if (handled !== false) return;
+    if (webApiProxy !== null) {
+      await webApiProxy(req, res, path, url.search);
+      return;
+    }
     if (!["GET", "HEAD", "POST"].includes(req.method)) {
       res.setHeader("allow", "GET, HEAD, POST");
       json(res, 405, { ok: false, error: { code: "METHOD_NOT_ALLOWED" } });
@@ -119,17 +116,24 @@ function webEnabled(state) {
   return section === void 0 || section === null ? true : section.webEnabled !== false;
 }
 
-/** Register both web routes; returns a single disposer removing both. */
-function registerWebRoutes(webServer, dshHomePath) {
+/**
+ * Register both web routes; returns a single disposer removing both. The Web
+ * API child process is owned by the caller (created once per webServer mount,
+ * outliving webEnabled toggles but disposed with the fiber) — route
+ * registration and process lifetime are deliberately decoupled: toggling the
+ * presentation switch must not kill a possibly in-flight child restart.
+ */
+function registerWebRoutes(webServer, dshHomePath, webApiProcess) {
+  const webApiProxy = createProxyHandler(webApiProcess);
   const apiDisposer = webServer.register({
     kind: "prefix",
     path: API_PREFIX,
-    handler: typeof dshHomePath === "function" ? createApiHandler(dshHomePath) : createApiHandler(() => { throw new Error("DSH user configuration root is unavailable"); })
+    handler: typeof dshHomePath === "function" ? createApiHandler(dshHomePath, webApiProxy) : createApiHandler(() => { throw new Error("DSH user configuration root is unavailable"); }, webApiProxy)
   });
   const spaDisposer = webServer.register({
     kind: "prefix",
     path: SPA_PREFIX,
-    handler: spaHandler
+    handler: createSpaHandler(WEB_DIST_DIR)
   });
   return () => {
     try { apiDisposer(); } catch { /* already removed */ }
@@ -227,11 +231,20 @@ export function apply(ctx) {
     if (webServer === undefined) return;
     const disposeStateRoute = registerStateRoute(webServer, sessionScopes, dshHomePath);
     webCtx.logger.info("[dsh-ldvh] governance-state route registered under %s", STATE_PREFIX);
+    // Web API 子进程：随 webServer 注入块创建/销毁（与 webEnabled 切换解耦——
+    // 切换只挂/卸路由，不杀进程；插件停止/更新时统一处置）。懒启动：只有真的
+    // 有 /ldvh/api 代理请求才会 spawn，测试与纯治理会话零开销。
+    const webApiProcess = createWebApiProcess({
+      webRoot: join(PACKAGE_ROOT, "web"),
+      port: WEB_API_PORT,
+      env: WEB_API_BRIDGE_ENV,
+      logger: webCtx.logger,
+    });
     let disposeRoutes = null;
     const syncRoutes = () => {
       if (webEnabled(state)) {
         if (disposeRoutes === null) {
-          disposeRoutes = registerWebRoutes(webServer, dshHomePath);
+          disposeRoutes = registerWebRoutes(webServer, dshHomePath, webApiProcess);
           webCtx.logger.info("[dsh-ldvh] web routes registered under %s / %s", SPA_PREFIX, API_PREFIX);
         }
       } else if (disposeRoutes !== null) {
@@ -247,6 +260,7 @@ export function apply(ctx) {
         try { disposeRoutes(); } catch { /* already removed */ }
         disposeRoutes = null;
       }
+      try { webApiProcess.dispose(); } catch { /* best effort */ }
       try { disposeStateRoute(); } catch { /* already removed */ }
       if (state.syncRoutes === syncRoutes) state.syncRoutes = void 0;
     }, "dsh-ldvh: web routes and state route");

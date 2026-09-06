@@ -12,7 +12,8 @@
     "test": "npm run test:web:api",
     "test:web:api": "tsx --test tests/api/*.test.ts",
     "server:dev": "nodemon",
-    "dev": "npm run server:dev & npm run client:dev --"
+    "dev": "npm run server:dev & npm run client:dev --",
+    "build:dsh": "tsc -b && vite build --base=/ldvh/"
   },
   "dependencies": {
     "clsx": "^2.1.1",
