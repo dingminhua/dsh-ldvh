@@ -1536,7 +1536,7 @@ function FactAssociationStateIcon({ state, tooltip }: { state: FactAssociationSt
   );
 }
 
-function SparkCardContent({ obj }: { obj: ObjectItem }) {
+export function SparkCardContent({ obj }: { obj: ObjectItem }) {
   const terminal = hasSparkDiscardFact(obj) || hasSparkImplementedFact(obj) || hasSparkResolvedFact(obj);
   return terminal ? <SparkTerminalCardContent obj={obj} /> : null;
 }
@@ -1601,7 +1601,7 @@ function AdrTerminalCardContent({ obj }: { obj: ObjectItem }) {
   );
 }
 
-function AdrCardContent({ obj }: { obj: ObjectItem }) {
+export function AdrCardContent({ obj }: { obj: ObjectItem }) {
   if (obj.status === 'retired') return <AdrTerminalCardContent obj={obj} />;
   return null;
 }
@@ -1615,7 +1615,7 @@ function StudyTerminalCardContent({ obj }: { obj: ObjectItem }) {
   );
 }
 
-function StudyCardContent({ obj }: { obj: ObjectItem }) {
+export function StudyCardContent({ obj }: { obj: ObjectItem }) {
   if (obj.status === 'retired') return <StudyTerminalCardContent obj={obj} />;
   return null;
 }

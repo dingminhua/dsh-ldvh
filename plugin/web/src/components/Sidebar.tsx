@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useState } from 'react';
 import type { ElementType } from 'react';
 import {
@@ -32,6 +32,21 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
   { to: '/project-files', labelKey: 'nav.projectFiles', icon: FolderTree },
   { to: '/changes', labelKey: 'nav.changes', icon: GitPullRequestArrow },
   { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog },
+  { to: '/settings', labelKey: 'nav.settings', icon: Settings },
+];
+
+/** 联邦作用域导航（全部管辖计划 Step 4）：
+ * 聚焦→联邦聚焦页；五类对象→联邦聚合列表；目录/变更/提交是单项目专属页，联邦态灰显。 */
+const FEDERATION_NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon; disabled?: boolean }[] = [
+  { to: '/federation', labelKey: 'nav.cognition', icon: LayoutDashboard },
+  { to: '/federation/objects/spark', labelKey: 'nav.sparks', icon: OBJECT_TYPE_ICONS.spark },
+  { to: '/federation/objects/workcase', labelKey: 'nav.workcases', icon: OBJECT_TYPE_ICONS.workcase },
+  { to: '/federation/objects/adr', labelKey: 'nav.adrs', icon: OBJECT_TYPE_ICONS.adr },
+  { to: '/federation/objects/pitfall', labelKey: 'nav.pitfalls', icon: OBJECT_TYPE_ICONS.pitfall },
+  { to: '/federation/objects/study', labelKey: 'nav.studies', icon: OBJECT_TYPE_ICONS.study },
+  { to: '/project-files', labelKey: 'nav.projectFiles', icon: FolderTree, disabled: true },
+  { to: '/changes', labelKey: 'nav.changes', icon: GitPullRequestArrow, disabled: true },
+  { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog, disabled: true },
   { to: '/settings', labelKey: 'nav.settings', icon: Settings },
 ];
 
@@ -78,6 +93,9 @@ export default function Sidebar({ collapsed, compact = false, onToggle }: Sideba
   const { locale, setLocale, t } = useI18n();
   const { mode, cycleTheme } = useTheme();
   const [visibleTooltip, setVisibleTooltip] = useState<{ key: string; position: TooltipPosition } | null>(null);
+  const location = useLocation();
+  const federationActive = location.pathname === '/federation' || location.pathname.startsWith('/federation/');
+  const navItems: { to: string; labelKey: LocaleKey; icon: NavIcon; disabled?: boolean }[] = federationActive ? FEDERATION_NAV_ITEMS : NAV_ITEMS;
   const isCollapsed = compact || collapsed;
   const languageLabel = t(getLanguageSwitchKey(locale));
   const sidebarToggleLabel = isCollapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar');
@@ -117,11 +135,23 @@ export default function Sidebar({ collapsed, compact = false, onToggle }: Sideba
         }`}
       >
         <ul className="flex flex-col gap-0.5">
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <li key={item.to}>
+              {item.disabled ? (
+                <span
+                  aria-disabled="true"
+                  title={t('federation.singleProjectOnly')}
+                  className={`ldvh-card-title relative flex cursor-not-allowed items-center rounded-md opacity-40 ${
+                    isCollapsed ? 'h-10 justify-center px-0' : 'gap-2.5 px-3 py-2'
+                  } text-ldvh-text-secondary`}
+                >
+                  <item.icon size={16} className="flex-shrink-0" />
+                  {!isCollapsed && <span className="truncate">{getNavItemLabel(item, t)}</span>}
+                </span>
+              ) : (
               <NavLink
                 to={item.to}
-                end={item.to === '/'}
+                end={item.to === '/' || item.to === '/federation'}
                 aria-label={isCollapsed ? getNavItemLabel(item, t) : undefined}
                 title={isCollapsed ? getNavItemLabel(item, t) : undefined}
                 onMouseEnter={(event) => showTooltip(`nav-${item.to}`, event.currentTarget)}
@@ -149,6 +179,7 @@ export default function Sidebar({ collapsed, compact = false, onToggle }: Sideba
                   />
                 )}
               </NavLink>
+              )}
             </li>
           ))}
         </ul>

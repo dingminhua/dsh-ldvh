@@ -69,6 +69,43 @@ function latestTimestamp(items: Array<Record<string, unknown>>): string | undefi
   return latest
 }
 
+router.get('/objects', async (req: Request, res: Response): Promise<void> => {
+  const type = String(req.query.type ?? '')
+  const OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'study'] as const
+  if (!(OBJECT_TYPES as readonly string[]).includes(type)) {
+    res.status(400).json({ ok: false, error: `Unsupported object type: ${type || '(missing)'}` })
+    return
+  }
+  const objectType = type as typeof OBJECT_TYPES[number]
+  try {
+    const settings = await readGovernedProjectsSettings()
+    const issues: string[] = []
+    const projectOptions = settings.projects.map((project) => ({
+      id: project.id,
+      name: project.name || project.id,
+      ...(project.color ? { color: project.color } : {}),
+    }))
+    const items = (await Promise.all(settings.projects.map(async (project) => {
+      const scope = { worktreeLocator: project.path, governedProjectId: project.id }
+      const result = await listObjects(objectType, undefined, undefined, scope)
+      const listing = itemsOf(result)
+      if (listing.error) issues.push(`${project.name || project.id}: ${listing.error}`)
+      return listing.items.map((item): Record<string, unknown> => ({
+        ...item,
+        federationProject: {
+          id: project.id,
+          name: project.name || project.id,
+          ...(project.color ? { color: project.color } : {}),
+        },
+      }))
+    }))).flat()
+    items.sort((a, b) => String(b.updated_at ?? '').localeCompare(String(a.updated_at ?? '')))
+    res.json({ ok: true, type: objectType, generatedAt: new Date().toISOString(), projects: projectOptions, items, issues })
+  } catch (error) {
+    res.status(422).json({ ok: false, error: error instanceof Error ? error.message : String(error) })
+  }
+})
+
 router.get('/overview', async (_req: Request, res: Response): Promise<void> => {
   const generatedAt = new Date().toISOString()
   try {

@@ -1091,3 +1091,27 @@ export async function fetchFederationOverview(): Promise<FederationOverviewData>
   return request<FederationOverviewData>('/federation/overview');
 }
 
+export interface FederationProjectOption {
+  id: string;
+  name: string;
+  color?: string;
+}
+
+export interface FederationObjectItem extends ObjectItem {
+  federationProject: FederationProjectOption;
+}
+
+export interface FederationObjectsData {
+  ok: boolean;
+  type: string;
+  generatedAt: string;
+  projects: FederationProjectOption[];
+  items: FederationObjectItem[];
+  issues: string[];
+}
+
+export async function fetchFederationObjects(type: string): Promise<FederationObjectsData> {
+  const params = new URLSearchParams({ type });
+  return request<FederationObjectsData>(`/federation/objects?${params.toString()}`);
+}
+
