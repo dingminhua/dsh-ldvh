@@ -136,8 +136,8 @@ function webEnabled(state) {
  * registration and process lifetime are deliberately decoupled: toggling the
  * presentation switch must not kill a possibly in-flight child restart.
  */
-function registerWebRoutes(webServer, dshHomePath, webApiProcess) {
-  const webApiProxy = createProxyHandler(webApiProcess);
+function registerWebRoutes(webServer, dshHomePath, webApiProcess, logger) {
+  const webApiProxy = createProxyHandler(webApiProcess, logger);
   const apiDisposer = webServer.register({
     kind: "prefix",
     path: API_PREFIX,
@@ -146,7 +146,7 @@ function registerWebRoutes(webServer, dshHomePath, webApiProcess) {
   const spaDisposer = webServer.register({
     kind: "prefix",
     path: SPA_PREFIX,
-    handler: createSpaHandler(WEB_DIST_DIR)
+    handler: createSpaHandler(WEB_DIST_DIR, logger)
   });
   return () => {
     try { apiDisposer(); } catch { /* already removed */ }
@@ -253,11 +253,18 @@ export function apply(ctx) {
       env: webApiBridgeEnv(dshHomePath),
       logger: webCtx.logger,
     });
+    // 预热：挂载即启动子进程（懒启动省的是空闲会话的一次 ~0.3s，代价却是
+    // 每次 DSH 重启后首次打开 Web 的整段冷启动等待——Human 反馈"比之前卡"的主因之一）。
+    void webApiProcess.ensureReady().then(() => {
+      webCtx.logger.info("[dsh-ldvh] web api child warmed up on port %s", WEB_API_PORT);
+    }).catch((error) => {
+      webCtx.logger.warn("[dsh-ldvh] web api warm-up failed (will retry on first request): %s", error?.message ?? error);
+    });
     let disposeRoutes = null;
     const syncRoutes = () => {
       if (webEnabled(state)) {
         if (disposeRoutes === null) {
-          disposeRoutes = registerWebRoutes(webServer, dshHomePath, webApiProcess);
+          disposeRoutes = registerWebRoutes(webServer, dshHomePath, webApiProcess, webCtx.logger);
           webCtx.logger.info("[dsh-ldvh] web routes registered under %s / %s", SPA_PREFIX, API_PREFIX);
         }
       } else if (disposeRoutes !== null) {

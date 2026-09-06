@@ -8,6 +8,7 @@ import express, {
   type NextFunction,
 } from 'express'
 import cors from 'cors'
+import compression from 'compression'
 import dotenv from 'dotenv'
 import authRoutes from './routes/auth.js'
 import objectsRoutes from './routes/objects.js'
@@ -33,6 +34,9 @@ app.use(cors({
 }))
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
+// gzip API JSON——挂载链全程在 Electron 主进程事件循环上，压缩把跨进程字节数
+// 降 5-10 倍，直接降低宿主忙时（模型流式输出期间）每个请求的排队代价。
+app.use(compression())
 app.use('/api', (_req: Request, res: Response, next: NextFunction): void => {
   res.setHeader('Cache-Control', 'no-store')
   next()

@@ -90,7 +90,7 @@ code{background:#202126;padding:2px 6px;border-radius:6px}</style>
  * 回 index.html，交给前端路由）；dist 缺失时退占位页。
  * handler 收到的 req.url 含 /ldvh 前缀（与既有 apiHandler 同一约定）。
  */
-export function createSpaHandler(distDir) {
+export function createSpaHandler(distDir, logger) {
   return async function spaHandler(req, res) {
     if (!isSafeMethod(req.method)) {
       res.statusCode = 405;
@@ -106,14 +106,54 @@ export function createSpaHandler(distDir) {
       sendDistPlaceholder(res);
       return;
     }
+    const startedAt = Date.now();
+    const finish = (filePath) => {
+      const elapsed = Date.now() - startedAt;
+      if (elapsed > 300 && logger) logger.warn("[dsh-ldvh spa] slow static %s %s -> %sms", req.method, stripped, elapsed);
+      void filePath;
+    };
+    const acceptsGzip = String(req.headers["accept-encoding"] ?? "").includes("gzip");
     const candidate = resolveStaticCandidate(distDir, stripped);
     if (candidate !== null) {
       try {
         const stat = await lstat(candidate);
-        if (stat.isFile()) { sendFile(res, candidate, req.method); return; }
+        if (stat.isFile()) {
+          // 预压缩优先：build:dsh 的 gzip 后处理产物（.gz）比在线压缩省掉整段 CPU，
+          // 且把跨事件循环字节数降到 1/4（1.8MB bundle → ~450KB）。
+          if (acceptsGzip) {
+            try {
+              const gzStat = await lstat(`${candidate}.gz`);
+              if (gzStat.isFile()) {
+                res.setHeader("content-encoding", "gzip");
+                res.setHeader("vary", "accept-encoding");
+                sendFile(res, `${candidate}.gz`, req.method);
+                finish(candidate);
+                return;
+              }
+            } catch { /* no precompressed variant */ }
+          }
+          res.setHeader("vary", "accept-encoding");
+          sendFile(res, candidate, req.method);
+          finish(candidate);
+          return;
+        }
       } catch { /* fall through to SPA */ }
     }
+    // SPA fallback 也走预压缩 index.html.gz。
+    if (acceptsGzip) {
+      try {
+        const gzStat = await lstat(join(distDir, "index.html.gz"));
+        if (gzStat.isFile()) {
+          res.setHeader("content-encoding", "gzip");
+          res.setHeader("vary", "accept-encoding");
+          sendFile(res, join(distDir, "index.html.gz"), req.method);
+          finish("index.html.gz");
+          return;
+        }
+      } catch { /* no precompressed variant */ }
+    }
     sendFile(res, join(distDir, "index.html"), req.method);
+    finish("index.html");
   };
 }
 
@@ -162,7 +202,7 @@ export function createWebApiProcess(options) {
       // 在普通 node 宿主（测试 harness）下此变量无害被忽略。
       const proc = (await import("node:child_process")).spawn(command.exec, command.argv, {
         cwd: webRoot,
-        env: { ...process.env, ...env, ELECTRON_RUN_AS_NODE: "1", PORT: String(port) },
+        env: { ...process.env, ...env, ELECTRON_RUN_AS_NODE: "1", PORT: String(port), LDVH_WEB_BIND_HOST: "127.0.0.1" },
         stdio: ["ignore", "pipe", "pipe"],
       });
       spawned = proc;
@@ -235,7 +275,7 @@ function forwardableHeaders(headers) {
  * strippedPath 是已剥去 /ldvh/api 前缀的路径（如 /settings/governed-projects），
  * 子进程侧目标为 /api{strippedPath}。
  */
-export function createProxyHandler(manager) {
+export function createProxyHandler(manager, logger) {
   return async function proxyHandler(req, res, strippedPath, search) {
     const ready = await manager.ensureReady();
     if (ready === null) {
@@ -254,6 +294,7 @@ export function createProxyHandler(manager) {
         return;
       }
     }
+    const proxiedAt = Date.now();
     const target = `http://127.0.0.1:${ready.port}/api${strippedPath}${search ?? ""}`;
     const headers = forwardableHeaders(req.headers);
     if (body !== null) headers["content-length"] = String(body.length);
@@ -274,6 +315,10 @@ export function createProxyHandler(manager) {
     }
     const responseHeaders = forwardableHeaders(upstream.headers);
     res.writeHead(upstream.statusCode ?? 502, responseHeaders);
+    upstream.on("close", () => {
+      const elapsed = Date.now() - proxiedAt;
+      if (elapsed > 300 && logger) logger.warn("[dsh-ldvh web-api] slow proxy %s %s -> %sms", req.method, strippedPath, elapsed);
+    });
     let total = 0;
     upstream.on("data", (chunk) => {
       total += chunk.length;
