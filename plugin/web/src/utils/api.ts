@@ -829,6 +829,7 @@ export interface GovernedProject {
   name: string;
   description: string;
   path: string;
+  color?: string;
   docsPath: string;
   ldvhBasePath: string;
   worktrees: ProjectWorktree[];
@@ -946,7 +947,7 @@ export async function fetchProjectFilesProjects(): Promise<ProjectFilesProjectsD
   return request<ProjectFilesProjectsData>('/project-files/projects');
 }
 
-export interface GovernedProjectSetting { id: string; path: string; name?: string }
+export interface GovernedProjectSetting { id: string; path: string; name?: string; color?: string }
 export interface GovernedProjectsSettingsData {
   ok: boolean;
   workspaceRoot: string;

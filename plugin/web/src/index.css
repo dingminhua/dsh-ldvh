@@ -246,6 +246,34 @@
   color-scheme: dark;
 }
 
+/* 项目色彩标识（全部管辖计划 Step 2）——第三正交维度（不侵占类型色/状态色）。
+   键名闭集与哈希兜底见 shared/projectColors.ts；此处只定义亮暗两套色值。 */
+:root {
+  --ldvh-pj-emerald: #059669;
+  --ldvh-pj-sky: #0284c7;
+  --ldvh-pj-violet: #7c3aed;
+  --ldvh-pj-amber: #d97706;
+  --ldvh-pj-rose: #e11d48;
+  --ldvh-pj-cyan: #0891b2;
+  --ldvh-pj-indigo: #4f46e5;
+  --ldvh-pj-orange: #ea580c;
+  --ldvh-pj-teal: #0d9488;
+  --ldvh-pj-fuchsia: #c026d3;
+}
+
+:root.dark {
+  --ldvh-pj-emerald: #34d399;
+  --ldvh-pj-sky: #38bdf8;
+  --ldvh-pj-violet: #a78bfa;
+  --ldvh-pj-amber: #fbbf24;
+  --ldvh-pj-rose: #fb7185;
+  --ldvh-pj-cyan: #22d3ee;
+  --ldvh-pj-indigo: #818cf8;
+  --ldvh-pj-orange: #fb923c;
+  --ldvh-pj-teal: #2dd4bf;
+  --ldvh-pj-fuchsia: #e879f9;
+}
+
 html,
 body,
 #root {

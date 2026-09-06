@@ -28,6 +28,7 @@ export type GovernedProject = {
   name: string
   description: string
   path: string
+  color?: string
 }
 
 /** A verified project worktree is sufficient for read-only file and Git access. */
@@ -71,6 +72,7 @@ export async function loadProjects(): Promise<GovernedProject[]> {
       name: configured?.name || project.id,
       description: '由 Code 管辖解析确认的 Git worktree',
       path: project.path,
+      ...(configured?.color ? { color: configured.color } : {}),
     }
   })
 }

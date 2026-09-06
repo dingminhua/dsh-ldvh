@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, FolderGit2, GitBranch, Loader2, RefreshCw } from 'lucide-react';
 import { useI18n } from '@/i18n/context';
+import { projectColorVar, resolvedProjectColorKey } from '@/shared/projectColors';
 import { useProjectScope } from '@/utils/projectContext';
 
 export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
@@ -107,14 +108,19 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
                   ? project.worktrees
                   : [{ path: project.path, isMain: true }];
                 const projectSelected = project.id === selectedProjectId;
+                const projectColorKey = resolvedProjectColorKey(project.color, project.id);
+                const projectColor = projectColorVar(projectColorKey);
                 return (
                   <section key={project.id} className="overflow-hidden rounded-lg border border-ldvh-text-secondary/25 bg-ldvh-panel shadow-sm shadow-black/[0.03]">
-                    <div className={`flex min-w-0 items-center gap-2 border-b border-ldvh-border border-l-[3px] px-3 py-2.5 ${projectSelected ? 'border-l-ldvh-accent bg-ldvh-accent/[0.06]' : 'border-l-ldvh-text-secondary/50 bg-ldvh-text-secondary/[0.045]'}`}>
+                    <div className={`flex min-w-0 items-center gap-2 border-b border-ldvh-border border-l-[3px] px-3 py-2.5 ${projectSelected ? 'bg-ldvh-accent/[0.06]' : 'bg-ldvh-text-secondary/[0.045]'}`} style={{ borderLeftColor: projectColor }}>
                       <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${projectSelected ? 'bg-ldvh-accent/15 text-ldvh-accent' : 'bg-ldvh-text-secondary/10 text-ldvh-text-secondary'}`}>
                         <FolderGit2 size={15} />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[15px] font-semibold leading-5 text-ldvh-text-primary">{project.name || project.id}</span>
+                        <span className="flex items-center gap-1.5">
+                          <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: projectColor }} title={projectColorKey} />
+                          <span className="block truncate text-[15px] font-semibold leading-5 text-ldvh-text-primary">{project.name || project.id}</span>
+                        </span>
                         <span className="ldvh-meta mt-0.5 block truncate">{project.id}</span>
                       </span>
                       <span className="shrink-0 rounded-full border border-ldvh-text-secondary/20 bg-ldvh-panel/70 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-ldvh-text-secondary">

@@ -173,3 +173,56 @@ test('rejects stale or invalid updates and leaves the configuration untouched', 
   assert.equal(invalid.response.status, 422)
   assert.equal(fs.readFileSync(configPath, 'utf8'), beforeContent)
 })
+
+test('project color round-trips through save, clear and rejects unknown palette keys', async () => {
+  const initial = await request('/api/settings/governed-projects')
+  const fingerprint = String(initial.body.fingerprint)
+
+  // 设置显式色
+  const colored = await request('/api/settings/governed-projects', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      expectedFingerprint: fingerprint,
+      projects: [
+        { id: 'first', path: firstProject, name: 'First project', color: 'emerald' },
+        { id: 'second', path: secondProject, name: 'Second project' },
+      ],
+    }),
+  })
+  assert.equal(colored.response.status, 200, JSON.stringify(colored.body))
+  assert.deepEqual(colored.body.projects, [
+    { id: 'first', path: firstProject, name: 'First project', color: 'emerald' },
+    { id: 'second', path: secondProject, name: 'Second project' },
+  ])
+  const prefsPath = path.join(workspaceRoot, 'LDVH-WEB-PREFERENCES.yaml')
+  assert.match(fs.readFileSync(prefsPath, 'utf8'), /first: emerald/)
+  assert.doesNotMatch(fs.readFileSync(configPath, 'utf8'), /color:/)
+
+  // 清除显式色（回到自动取色）
+  const cleared = await request('/api/settings/governed-projects', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      expectedFingerprint: colored.body.fingerprint,
+      projects: [
+        { id: 'first', path: firstProject, name: 'First project' },
+        { id: 'second', path: secondProject, name: 'Second project' },
+      ],
+    }),
+  })
+  assert.equal(cleared.response.status, 200, JSON.stringify(cleared.body))
+  const clearedProjects = cleared.body.projects as Array<{ id: string; color?: string }>
+  assert.equal(clearedProjects.find((item) => item.id === 'first')?.color, undefined)
+  assert.equal(fs.existsSync(prefsPath), false, 'clearing every color removes the preferences file')
+
+  // 非法色板键名拒绝且配置不动
+  const before = fs.readFileSync(configPath, 'utf8')
+  const invalid = await request('/api/settings/governed-projects', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      expectedFingerprint: cleared.body.fingerprint,
+      projects: [{ id: 'first', path: firstProject, name: 'First project', color: 'hot-pink' }],
+    }),
+  })
+  assert.equal(invalid.response.status, 422)
+  assert.equal(fs.readFileSync(configPath, 'utf8'), before)
+})

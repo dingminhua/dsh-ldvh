@@ -4,6 +4,7 @@ import PageHeader from '@/components/PageHeader';
 import { fetchGovernedProjectsSettings, fetchWorkspaceWorktrees, saveGovernedProjectsSettings, verifyGovernedProjectsSettings, type GovernedProjectSetting, type GovernedProjectsSettingsData, type WorkspaceWorktree } from '@/utils/api';
 import { useProjectScope } from '@/utils/projectContext';
 import { useI18n } from '@/i18n/context';
+import { PROJECT_COLOR_KEYS, projectColorVar, resolvedProjectColorKey, type ProjectColorKey } from '@/shared/projectColors';
 
 const blankProject = (): GovernedProjectSetting => ({ id: '', path: '', name: '' });
 
@@ -52,6 +53,11 @@ export default function Settings() {
     if (!settings || normalizedName === (project.name ?? '')) return;
     void save(settings.projects.map((item) => item.id === project.id ? { ...item, ...(normalizedName ? { name: normalizedName } : { name: undefined }) } : item));
   };
+  const setColor = (project: GovernedProjectSetting, color: ProjectColorKey | null) => {
+    if (!settings || color === project.color) return;
+    void save(settings.projects.map((item) => item.id === project.id ? { ...item, ...(color ? { color } : { color: undefined }) } : item));
+  };
+
   const remove = (project: GovernedProjectSetting) => {
     if (!settings || !window.confirm(t('settings.removeConfirm', { project: project.name || project.id }))) return;
     const projects = settings.projects.filter((item) => item.id !== project.id);
@@ -103,7 +109,7 @@ export default function Settings() {
           {verifiedMessage && <p className="mt-3 flex items-center gap-2 text-sm text-emerald-500"><CheckCircle2 size={16} />{verifiedMessage}</p>}
           <div className="mt-4 grid max-w-sm gap-2"><label className="grid gap-1"><span className="ldvh-meta">{t('settings.defaultProject')}</span><select value={settings.defaultProjectId} disabled={saving || !settings.projects.length} onChange={(event) => void save(settings.projects, event.target.value)} className="rounded-md border border-ldvh-border bg-ldvh-bg px-2.5 py-2 text-sm outline-none focus:border-ldvh-accent">{settings.projects.map((project) => <option key={project.id} value={project.id}>{project.name || project.id}</option>)}</select></label><div className="flex items-center gap-2"><button type="button" disabled={saving || !settings.projects.length} onClick={() => void save(settings.projects, settings.defaultProjectId)} className="ldvh-card-title inline-flex w-fit items-center gap-2 rounded-md border border-ldvh-border px-3 py-2 text-ldvh-text-secondary hover:text-ldvh-text-primary disabled:opacity-50"><Save size={15} />{t('settings.saveDefault')}</button><span className="ldvh-meta">{settings.hasExplicitDefault ? t('settings.defaultExplicit') : t('settings.defaultFallback')}</span></div></div>
           <div className="mt-4 grid gap-3">
-            {settings.projects.map((project) => <ProjectRow key={project.id} project={project} saving={saving} onRename={rename} onRemove={remove} />)}
+            {settings.projects.map((project) => <ProjectRow key={project.id} project={project} saving={saving} onRename={rename} onColor={setColor} onRemove={remove} />)}
           </div>
         </div>
         <section className="mt-5 rounded-xl border border-ldvh-border bg-ldvh-panel p-4">
@@ -135,10 +141,30 @@ function WorktreeRow({ worktree, saving, onAdd }: { worktree: WorkspaceWorktree;
   return <div className="rounded-lg border border-ldvh-border p-3"><div className="flex min-w-0 flex-wrap items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-x-2 gap-y-1"><GitBranch size={15} className="shrink-0 text-ldvh-accent" /><span className="ldvh-caption-strong">{worktree.branch || t('settings.detachedHead')}</span>{worktree.isMain && <span className="rounded-full border border-ldvh-accent/30 bg-ldvh-accent/5 px-1.5 py-0.5 text-[11px] text-ldvh-accent">{t('settings.mainWorktree')}</span>}{worktree.head && <code className="ldvh-meta">{worktree.head}</code>}</div><p className="ldvh-meta mt-1 break-all">{worktree.path}</p>{status ? <p className="ldvh-meta mt-2">{t('settings.worktreeStatus', { staged: String(status.staged), unstaged: String(status.unstaged), untracked: String(status.untracked), conflicted: String(status.conflicted) })}</p> : <p className="ldvh-meta mt-2">{t('settings.worktreeStatusUnavailable')}</p>}</div>{worktree.registeredProjectId ? <span className="ldvh-caption shrink-0 rounded-md bg-emerald-500/10 px-2 py-1 text-emerald-600 dark:text-emerald-300">{t('settings.worktreeRegistered', { id: worktree.registeredProjectId })}</span> : worktree.governedProjectId ? <span className="ldvh-caption shrink-0 rounded-md bg-sky-500/10 px-2 py-1 text-sky-600 dark:text-sky-300">{t('settings.worktreeGovernedBy', { id: worktree.governedProjectId })}</span> : <button type="button" disabled={saving} onClick={() => onAdd(worktree)} className="ldvh-card-title shrink-0 rounded-md border border-ldvh-accent/40 px-3 py-2 text-ldvh-accent hover:bg-ldvh-accent/5 disabled:opacity-50">{t('settings.addWorktree')}</button>}</div></div>;
 }
 
-function ProjectRow({ project, saving, onRename, onRemove }: { project: GovernedProjectSetting; saving: boolean; onRename: (project: GovernedProjectSetting, name: string) => void; onRemove: (project: GovernedProjectSetting) => void }) {
+function ProjectRow({ project, saving, onRename, onColor, onRemove }: { project: GovernedProjectSetting; saving: boolean; onRename: (project: GovernedProjectSetting, name: string) => void; onColor: (project: GovernedProjectSetting, color: ProjectColorKey | null) => void; onRemove: (project: GovernedProjectSetting) => void }) {
   const [name, setName] = useState(project.name ?? '');
   const { t } = useI18n();
-  return <div className="rounded-lg border border-ldvh-border p-3"><div className="grid gap-3 lg:grid-cols-[1fr_1.5fr_1fr_auto] lg:items-end"><Field label={t('settings.projectId')} value={project.id} readOnly /><Field label={t('settings.projectPath')} value={project.path} readOnly /><Field label={t('settings.nickname')} value={name} onChange={setName} /><div className="flex gap-2"><button type="button" disabled={saving} aria-label={t('settings.saveNickname')} onClick={() => onRename(project, name)} className="rounded-md border border-ldvh-border p-2 text-ldvh-text-secondary hover:text-ldvh-text-primary"><Save size={15} /></button><button type="button" disabled={saving} aria-label={t('settings.removeProject')} onClick={() => onRemove(project)} className="rounded-md border border-red-500/30 p-2 text-red-400"><Trash2 size={15} /></button></div></div></div>;
+  return <div className="rounded-lg border border-ldvh-border p-3"><div className="grid gap-3 lg:grid-cols-[1fr_1.5fr_1fr_auto] lg:items-end"><Field label={t('settings.projectId')} value={project.id} readOnly /><Field label={t('settings.projectPath')} value={project.path} readOnly /><Field label={t('settings.nickname')} value={name} onChange={setName} /><div className="flex gap-2"><button type="button" disabled={saving} aria-label={t('settings.saveNickname')} onClick={() => onRename(project, name)} className="rounded-md border border-ldvh-border p-2 text-ldvh-text-secondary hover:text-ldvh-text-primary"><Save size={15} /></button><button type="button" disabled={saving} aria-label={t('settings.removeProject')} onClick={() => onRemove(project)} className="rounded-md border border-red-500/30 p-2 text-red-400"><Trash2 size={15} /></button></div></div>
+    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-ldvh-border pt-3">
+      <span className="ldvh-meta shrink-0">{t('settings.projectColor')}</span>
+      <PalettePicker project={project} saving={saving} onColor={onColor} />
+    </div>
+  </div>;
+}
+
+/** 项目色板选择器：预制十色 + 自动（按 ID 稳定取色）。显式选择实线环，自动态虚线环标在哈希色上。 */
+function PalettePicker({ project, saving, onColor }: { project: GovernedProjectSetting; saving: boolean; onColor: (project: GovernedProjectSetting, color: ProjectColorKey | null) => void }) {
+  const { t } = useI18n();
+  const explicit = project.color as ProjectColorKey | undefined;
+  const autoKey = resolvedProjectColorKey(undefined, project.id);
+  return <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={t('settings.projectColor')}>
+    {PROJECT_COLOR_KEYS.map((key) => {
+      const isExplicit = explicit === key;
+      const isAuto = explicit === undefined && autoKey === key;
+      return <button key={key} type="button" disabled={saving} aria-label={key} aria-pressed={isExplicit} title={isAuto ? `${key} · ${t('settings.colorAuto')}` : key} onClick={() => onColor(project, isExplicit ? null : key)} className={`flex h-5 w-5 items-center justify-center rounded-full transition-transform disabled:opacity-50 ${isExplicit || isAuto ? '' : 'hover:scale-110'}`} style={{ backgroundColor: projectColorVar(key), opacity: isAuto ? 0.75 : 1, boxShadow: isExplicit ? `0 0 0 2px var(--ldvh-panel), 0 0 0 3.5px ${projectColorVar(key)}` : isAuto ? `0 0 0 2px var(--ldvh-panel), 0 0 0 3px ${projectColorVar(key)}` : undefined }} />;
+    })}
+    <button type="button" disabled={saving || explicit === undefined} onClick={() => onColor(project, null)} className="ldvh-meta rounded-md border border-ldvh-border px-2 py-0.5 text-ldvh-text-secondary transition-colors hover:border-ldvh-accent/40 hover:text-ldvh-accent disabled:opacity-40">{t('settings.colorAuto')}</button>
+  </div>;
 }
 
 function Field({ label, value, onChange, required, readOnly }: { label: string; value: string; onChange?: (value: string) => void; required?: boolean; readOnly?: boolean }) {

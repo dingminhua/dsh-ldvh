@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { readFile, rename, writeFile } from 'node:fs/promises'
+import { readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import yaml from 'js-yaml'
 import { LDVH_WORKSPACE_ROOT } from './pytools.js'
+import { isProjectColorKey } from '../../shared/projectColors.ts'
 import { verifyWebGovernanceConfiguration } from './governanceScope.js'
 
-export type GovernedProjectSetting = { id: string; path: string; name?: string }
+export type GovernedProjectSetting = { id: string; path: string; name?: string; color?: string }
 type Configuration = { governance_instance_name: string; product_description: string; projects: Array<Record<string, unknown>>; default_project_id?: string }
 
 const ROOT_FIELDS = new Set(['governance_instance_name', 'product_description', 'projects', 'default_project_id'])
@@ -27,6 +28,7 @@ function projectSettings(projects: Array<Record<string, unknown>>): GovernedProj
     id: typeof project.id === 'string' ? project.id : '',
     path: typeof project.path === 'string' ? project.path : '',
     ...(typeof project.name === 'string' && project.name ? { name: project.name } : {}),
+    ...(isProjectColorKey(project.color) ? { color: project.color } : {}),
   }))
 }
 
@@ -39,7 +41,15 @@ function normalizeProjects(input: unknown): GovernedProjectSetting[] {
     if (value.name !== undefined && typeof value.name !== 'string') {
       throw new Error(`第 ${index + 1} 个项目的简称必须是字符串`)
     }
-    return { id: value.id, path: value.path, ...(typeof value.name === 'string' ? { name: value.name } : {}) }
+    if (value.color !== undefined && !isProjectColorKey(value.color)) {
+      throw new Error(`第 ${index + 1} 个项目的颜色必须是预制色板键名（shared/projectColors 的闭集成员）`)
+    }
+    return {
+      id: value.id,
+      path: value.path,
+      ...(typeof value.name === 'string' ? { name: value.name } : {}),
+      ...(isProjectColorKey(value.color) ? { color: value.color } : {}),
+    }
   })
 }
 
@@ -69,6 +79,37 @@ function normalizeDefaultProjectId(input: unknown, projects: GovernedProjectSett
   return value
 }
 
+/** Web 呈现偏好（项目颜色）独立载体——与管辖配置分离：
+ * 颜色是呈现偏好不是管辖事实，且管辖配置 Schema 由 Helper 校验（v4 不认识 color 字段）。
+ * 键为项目 ID，值必须为色板键名（shared/projectColors 闭集）。 */
+function preferencesPath(): string { return path.join(LDVH_WORKSPACE_ROOT, 'LDVH-WEB-PREFERENCES.yaml') }
+
+function parseProjectColors(content: string): Map<string, string> {
+  const colors = new Map<string, string>()
+  let value: unknown
+  try { value = yaml.load(content) } catch { return colors }
+  if (!isRecord(value) || !isRecord(value.project_colors)) return colors
+  for (const [id, color] of Object.entries(value.project_colors)) {
+    if (isProjectColorKey(color)) colors.set(id, color)
+  }
+  return colors
+}
+
+async function readProjectColors(): Promise<Map<string, string>> {
+  try { return parseProjectColors(await readFile(preferencesPath(), 'utf8')) }
+  catch { return new Map() }
+}
+
+async function writeProjectColors(colors: Map<string, string>): Promise<void> {
+  const filePath = preferencesPath()
+  const ordered: Record<string, string> = {}
+  for (const id of [...colors.keys()].sort()) ordered[id] = colors.get(id) as string
+  const next = yaml.dump({ project_colors: ordered }, { lineWidth: 120, noRefs: true })
+  const temporaryPath = `${filePath}.${randomUUID()}.tmp`
+  await writeFile(temporaryPath, next, 'utf8')
+  await rename(temporaryPath, filePath)
+}
+
 function header(content: string): string {
   const match = /^(.*?)(?=^governance_instance_name:)/ms.exec(content)
   return match?.[1] ?? ''
@@ -80,7 +121,10 @@ export async function readGovernedProjectsSettings() {
   try { content = await readFile(filePath, 'utf8') }
   catch (error) { throw new Error(`管辖项目配置不可读取：${error instanceof Error ? error.message : String(error)}`) }
   const config = parse(content)
-  const projects = projectSettings(config.projects)
+  const colors = await readProjectColors()
+  const projects = projectSettings(config.projects).map((project) => (
+    colors.has(project.id) ? { ...project, color: colors.get(project.id) } : project
+  ))
   return {
     workspaceRoot: LDVH_WORKSPACE_ROOT,
     configPath: filePath,
@@ -113,6 +157,8 @@ export async function updateGovernedProjectsSettings(input: unknown, expectedFin
     }
     if (project.name?.trim()) next.name = project.name.trim()
     else delete next.name
+    // color 不进管辖配置（Helper Schema 不认识该字段）——由 writeProjectColors 落偏好文件。
+    delete next.color
     return next
   })
   if (defaultProjectId) config.default_project_id = defaultProjectId
@@ -128,5 +174,13 @@ export async function updateGovernedProjectsSettings(input: unknown, expectedFin
     await rename(temporaryPath, filePath)
     throw error
   }
+  // 颜色落偏好文件（不进管辖配置——Helper Schema 不认识该字段）；管辖写入成功后才应用。
+  const previousColors = await readProjectColors()
+  for (const project of projects) {
+    if (project.color) previousColors.set(project.id, project.color)
+    else previousColors.delete(project.id)
+  }
+  if (previousColors.size === 0) await rm(preferencesPath(), { force: true })
+  else await writeProjectColors(previousColors)
   return readGovernedProjectsSettings()
 }
