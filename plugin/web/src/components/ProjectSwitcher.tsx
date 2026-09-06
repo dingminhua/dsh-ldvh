@@ -12,7 +12,7 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
   const { projects, selectedProject, selectedProjectId, selectedWorktree, selectedWorktreePath, loading, error, selectProject, reloadProjects } = useProjectScope();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const federationActive = location.pathname === '/federation';
+  const federationActive = location.pathname === '/federation' || location.pathname.startsWith('/federation/');
   const triggerLabel = federationActive ? t('projectSwitcher.allProjects') : (selectedProject?.name || t('projectSwitcher.choose'));
   const triggerBranch = federationActive ? '' : (selectedWorktree?.branch || (selectedProject ? t('projectSwitcher.detached') : ''));
 
@@ -170,6 +170,9 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
                           onClick={() => {
                             selectProject(project.id, worktree.path);
                             setOpen(false);
+                            // 联邦态选项目 = 离开联邦作用域回单项目视图；
+                            // 不导航的话路由停在 /federation，页面与 trigger 仍呈联邦态（看似切换无效）。
+                            if (federationActive) navigate('/');
                           }}
                           className={`group flex w-full min-w-0 items-center gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors ${
                             selected
