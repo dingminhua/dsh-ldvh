@@ -36,8 +36,8 @@ const RESEARCH_TYPE_KEY = "research";
 /** Directory under the fact-source root that carries Research objects. */
 export const RESEARCH_DIRECTORY = "researches";
 
-const MAIN_H2_DIRECTED = ["调研问题", "输入与边界", "已证实", "未证实与缺口", "停止与后续"];
-const MAIN_H2_EXPLORATORY = ["调研问题", "调查阶段", "输入与边界", "已证实", "未证实与缺口", "停止与后续"];
+const MAIN_H2_DIRECTED = ["研究问题", "输入与边界", "关键发现", "未证实与缺口", "建议", "后续分流"];
+const MAIN_H2_EXPLORATORY = ["研究问题", "输入与边界", "调查阶段", "关键发现", "未证实与缺口", "建议", "后续分流"];
 const SURVEY_H3 = ["调查问题与范围", "调查方法与来源", "调查发现", "调查停止与交接"];
 
 const CONFIDENCE_VALUES = new Set(["high", "medium", "low"]);
@@ -51,7 +51,7 @@ const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
   "urls", "relations", "change_log",
   "research_question", "research_purpose", "stopping_reason",
-  "confirmed", "uncertain", "gaps",
+  "confirmed_statements", "uncertain", "gaps",
   "implications", "clarification_log",
 ]);
 
@@ -126,38 +126,17 @@ export function validateResearchFrontmatter(frontmatter) {
     issues.push(`stopping_reason: must be one of ${[...STOPPING_REASONS].join("/")}`);
   }
 
-  const { confirmed = [], uncertain = [], gaps = [] } = frontmatter;
-  if (!Array.isArray(confirmed) || !Array.isArray(uncertain) || !Array.isArray(gaps)) {
-    issues.push("confirmed/uncertain/gaps: must be arrays");
+  const { confirmed_statements = [], uncertain = [], gaps = [] } = frontmatter;
+  if (!Array.isArray(confirmed_statements) || !Array.isArray(uncertain) || !Array.isArray(gaps)) {
+    issues.push("confirmed_statements/uncertain/gaps: must be arrays");
     return { ok: false, issues };
   }
-  if (confirmed.length === 0 && uncertain.length === 0 && gaps.length === 0) {
-    issues.push("three-state invariant: at least one of confirmed/uncertain/gaps must be present");
+  if (confirmed_statements.length === 0 && uncertain.length === 0 && gaps.length === 0) {
+    issues.push("three-state invariant: at least one of confirmed_statements/uncertain/gaps must be present");
   }
-
-  const urlRefs = new Set((frontmatter.urls ?? []).map((u) => u.ref).filter((r) => typeof r === "string"));
-
-  for (const c of confirmed) {
-    if (typeof c.statement !== "string" || c.statement.length === 0) {
-      issues.push("confirmed[].statement: required non-empty");
-    }
-    if (!CONFIDENCE_VALUES.has(c.confidence)) {
-      issues.push(`confirmed[].confidence: must be high/medium/low, got ${JSON.stringify(c.confidence)}`);
-    }
-    if (!Array.isArray(c.quotes) || c.quotes.length === 0) {
-      issues.push("confirmed[].quotes: at least one quote required (citation loop)");
-      continue;
-    }
-    for (const q of c.quotes) {
-      if (typeof q.text !== "string" || q.text.length === 0) {
-        issues.push("quotes[].text: required non-empty verbatim excerpt");
-      }
-      if (typeof q.anchor !== "string" || q.anchor.length === 0) {
-        issues.push("quotes[].anchor: required non-empty locator");
-      }
-      if (typeof q.source !== "string" || !urlRefs.has(q.source)) {
-        issues.push(`quotes[].source: must match a urls[].ref exactly, got ${JSON.stringify(q.source)}`);
-      }
+  for (const s of confirmed_statements) {
+    if (typeof s !== "string" || s.length === 0) {
+      issues.push("confirmed_statements[]: members must be non-empty strings");
     }
   }
 
@@ -171,8 +150,8 @@ export function validateResearchFrontmatter(frontmatter) {
     if (!PRIORITY_VALUES.has(g.priority)) issues.push(`gaps[].priority: must be high/medium/low, got ${JSON.stringify(g.priority)}`);
   }
 
-  if (frontmatter.stopping_reason === "sufficient" && confirmed.length === 0) {
-    issues.push("stopping consistency: sufficient requires non-empty confirmed");
+  if (frontmatter.stopping_reason === "sufficient" && confirmed_statements.length === 0) {
+    issues.push("stopping consistency: sufficient requires non-empty confirmed_statements");
   }
   if (frontmatter.stopping_reason === "sufficient") {
     const hasHighGap = gaps.some((g) => g.priority === "high");
@@ -182,10 +161,10 @@ export function validateResearchFrontmatter(frontmatter) {
     issues.push("stopping consistency: round-cap must declare unmet scope in gaps");
   }
 
-  const statements = new Set(confirmed.map((c) => c.statement));
+  const statements = new Set(confirmed_statements);
   for (const impl of frontmatter.implications ?? []) {
     if (typeof impl.finding_ref !== "string" || !statements.has(impl.finding_ref)) {
-      issues.push(`implications[].finding_ref: must match a confirmed[].statement exactly, got ${JSON.stringify(impl.finding_ref)}`);
+      issues.push(`implications[].finding_ref: must match a confirmed_statements[] member exactly, got ${JSON.stringify(impl.finding_ref)}`);
     }
     if (typeof impl.implication !== "string" || impl.implication.length === 0) {
       issues.push("implications[].implication: required non-empty");
@@ -198,7 +177,7 @@ export function validateResearchFrontmatter(frontmatter) {
     if (!ANSWERED_BY.has(cl.answered_by)) issues.push(`clarification_log[].answered_by: must be human/external/ai, got ${JSON.stringify(cl.answered_by)}`);
   }
 
-  if (frontmatter.status === "retired" && confirmed.length === 0) {
+  if (frontmatter.status === "retired" && confirmed_statements.length === 0) {
     issues.push("lifecycle: retired object must retain its confirmed evidence (read-only)");
   }
 
@@ -287,6 +266,88 @@ export function validateBodyStructure(body) {
   }
 
   return { ok: issues.length === 0, issues, exploratory: hasSurvey };
+}
+
+/**
+ * Extract finding units from the 关键发现 section: each H3 is a unit.
+ * Returns array of { title, content, traceRef, traceAnchor } — traceRef/traceAnchor
+ * are null when the unit has no valid 溯源 anchor line.
+ */
+export function extractFindingUnits(body) {
+  const lines = body.split("\n");
+  const units = [];
+  let inSection = false;
+  let current = null;
+  for (const line of lines) {
+    if (line.startsWith("## ")) {
+      if (current) units.push(current);
+      current = null;
+      inSection = line.slice(3).trim() === "关键发现";
+      continue;
+    }
+    if (inSection && line.startsWith("### ")) {
+      if (current) units.push(current);
+      current = { title: line.slice(4).trim(), lines: [] };
+      continue;
+    }
+    if (current) current.lines.push(line);
+  }
+  if (current) units.push(current);
+
+  // Parse trace anchor: last non-empty line matching 溯源：<ref>（<anchor>）
+  const TRACE_PATTERN = /^溯源：(https?:\/\/\S+?)（(.+?)）\s*$/;
+  return units.map((u) => {
+    const contentLines = u.lines.filter((l) => l.trim().length > 0);
+    let traceRef = null;
+    let traceAnchor = null;
+    const lastLine = contentLines[contentLines.length - 1] ?? "";
+    const m = lastLine.match(TRACE_PATTERN);
+    if (m) {
+      traceRef = m[1];
+      traceAnchor = m[2];
+    }
+    return {
+      title: u.title,
+      content: u.lines.join("\n").trim(),
+      traceRef,
+      traceAnchor,
+      hasTrace: m !== null,
+    };
+  });
+}
+
+/**
+ * Cross-validate: confirmed_statements ↔ finding units ↔ trace anchors.
+ * Returns { ok, issues }.
+ */
+export function validateIndexBodyCoherence(frontmatter, body) {
+  const issues = [];
+  const urlRefs = new Set((frontmatter.urls ?? []).map((u) => u.ref).filter((r) => typeof r === "string"));
+  const units = extractFindingUnits(body);
+  const statements = frontmatter.confirmed_statements ?? [];
+
+  if (statements.length > 0 && units.length === 0) {
+    issues.push("index-body coherence: confirmed_statements is non-empty but 关键发现 has no finding units");
+  }
+
+  // Invariant 7: every confirmed_statement matches a finding unit declaration (H3 title)
+  const unitTitles = new Set(units.map((u) => u.title));
+  for (const s of statements) {
+    if (!unitTitles.has(s)) {
+      issues.push(`index-body coherence: confirmed_statement "${s.slice(0, 40)}..." has no verbatim finding unit (H3 title) match`);
+    }
+  }
+
+  // Invariant 2: every finding unit has a valid trace anchor with ref ∈ urls
+  for (const u of units) {
+    if (!u.hasTrace) {
+      issues.push(`trace anchor: finding unit "${u.title.slice(0, 40)}..." has no 溯源：<ref>（<anchor>） line`);
+    } else if (!urlRefs.has(u.traceRef)) {
+      issues.push(`trace anchor: ref "${u.traceRef}" in unit "${u.title.slice(0, 40)}..." does not match any urls[].ref`);
+    }
+  }
+
+  return { ok: issues.length === 0, issues };
 }
 
 // ---------------------------------------------------------------------------
@@ -382,6 +443,12 @@ export async function createResearchObject(args) {
     return failure("research/substage_mismatch", `body structure implies ${bodyCheck.exploratory ? "exploratory" : "directed"} but surveyBody says ${exploratory ? "exploratory" : "directed"}`);
   }
 
+  // Index-body coherence (24 §8 invariants 2/7): statements ↔ units ↔ anchors
+  const coherenceCheck = validateIndexBodyCoherence(frontmatter, body);
+  if (!coherenceCheck.ok) {
+    return failure("research/coherence_invalid", "index-body coherence failed", { issues: coherenceCheck.issues });
+  }
+
   // Write (single flat file, atomic)
   const typeDir = join(factSourceRoot, RESEARCH_DIRECTORY);
   await mkdir(typeDir, { recursive: true });
@@ -398,8 +465,10 @@ export async function createResearchObject(args) {
  * right after 调研问题 and before 输入与边界.
  */
 function insertSurveySection(analysisBody, surveyH3Content) {
+  // New v4-skeleton order: ...研究问题 → 输入与边界 → 调查阶段 → 关键发现...
+  // Insert AFTER 输入与边界 (i.e., before 关键发现).
   const lines = analysisBody.split("\n");
-  const insertIndex = lines.findIndex((line) => line.trim() === "## 输入与边界");
+  const insertIndex = lines.findIndex((line) => line.trim() === "## 关键发现");
   if (insertIndex === -1) {
     return analysisBody + "\n\n## 调查阶段\n\n" + surveyH3Content + "\n";
   }
@@ -515,6 +584,12 @@ export async function updateResearchObject(args) {
   }
   if (bodyCheck.exploratory !== isExploratory) {
     return failure("research/substage_mismatch", "updated body structure does not match declared sub-stage");
+  }
+
+  // Index-body coherence on update
+  const coherenceCheck = validateIndexBodyCoherence(fm, body);
+  if (!coherenceCheck.ok) {
+    return failure("research/coherence_invalid", "index-body coherence failed on update", { issues: coherenceCheck.issues });
   }
 
   // Atomic single-file write

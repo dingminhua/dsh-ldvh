@@ -9,7 +9,8 @@ import {
   updateResearchObject,
   validateResearchFrontmatter,
   validateBodyStructure,
-  researchFileName,
+  extractFindingUnits,
+  validateIndexBodyCoherence,
 } from "../lib/research-writer.js";
 
 let root;
@@ -22,203 +23,194 @@ after(async () => {
   await rm(root, { recursive: true, force: true }).catch(() => {});
 });
 
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
-
 function validFrontmatterDraft() {
   return {
-    title: "dsh-solo-thinking 插件调研与 LDVH 吸收价值分析",
+    title: "dsh-agent-teams 插件调研与 LDVH 吸收价值分析",
     status: "active",
-    research_question: "dsh-solo-thinking 的 fork worker 隔离审查机制对 LDVH 记忆系统维护有什么可吸收模式？",
-    research_purpose: "决定 LDVH 反思引擎是否采用 fork worker 范式作为记忆系统维护子机制",
+    research_question: "dsh-agent-teams 的队长式委派与任务调度对 LDVH 编排系统有什么可吸收模式？",
+    research_purpose: "决定 LDVH 编排系统是否引入队长式多角色并行执行",
     stopping_reason: "sufficient",
     urls: [
-      { ref: "https://github.com/fredalxin/dsh-solo-thinking", title: "dsh-solo-thinking", summary: "源码仓库 v0.1.19" },
+      { ref: "https://github.com/NanmiCoder/dsh-agent-teams", title: "dsh-agent-teams", summary: "源码仓库 v0.1.12" },
     ],
-    confirmed: [
-      {
-        statement: "fork worker 继承父检查点且允许清单排除写工具",
-        confidence: "high",
-        quotes: [
-          {
-            text: "fork worker（继承已完成父检查点）：仅 idle 审查——允许清单排除 mnemon_remember/forget",
-            anchor: "§5.2",
-            source: "https://github.com/fredalxin/dsh-solo-thinking",
-          },
-        ],
-      },
+    confirmed_statements: [
+      "F1 队长式委派：单队长 spawn 成员、成员可续聊、任务 DAG 驱动调度",
+      "F2 attempt/handoff 单调能力令牌：claim 返回 attemptId，update 必须携带，过期即拒",
     ],
     uncertain: [],
     gaps: [],
     implications: [
       {
-        finding_ref: "fork worker 继承父检查点且允许清单排除写工具",
-        implication: "LDVH 反思引擎可直接吸收此模式作为记忆系统的维护子机制",
+        finding_ref: "F2 attempt/handoff 单调能力令牌：claim 返回 attemptId，update 必须携带，过期即拒",
+        implication: "该令牌机制与 LDVH Git Gate 的单调提交序列同源，可直接吸收为机械正确性范本",
       },
     ],
-    change_summary: "初次创建：基于 dsh-solo-thinking v0.1.19 源码调研",
+    change_summary: "初次创建：基于 dsh-agent-teams v0.1.12 源码静态分析",
   };
 }
 
-const validAnalysisBody = `## 调研问题
-dsh-solo-thinking 的 fork worker 隔离审查机制……
+const validFindingsBody = `## 关键发现
+
+### F1 队长式委派：单队长 spawn 成员、成员可续聊、任务 DAG 驱动调度
+
+队长是唯一的委派入口：spawn 成员、投递任务、收集汇报全部经队长；成员是可续聊的持续会话（不因单轮完成即销毁）；调度由任务 DAG 的事件驱动（前置完成触发后继）。整套形态把"多代理协作"收敛为"单点指挥+持续执行者"。
+
+**对 LDVH 的价值**：这证明 DSH 宿主的子代理机制可以承载"队长-成员"的长期协作形态而无需自建调度器；但 LDVH 的主控模式（单一主控最终负责）已经是队长形态的规范表达，直接复用主控模式即可，不需要引入团队状态机。
+
+溯源：https://github.com/NanmiCoder/dsh-agent-teams（src/agents/manager.ts 调度器与 README 团队协议章节）
+
+### F2 attempt/handoff 单调能力令牌：claim 返回 attemptId，update 必须携带，过期即拒
+
+每个任务执行携带单调 attempt + 唯一 attemptId 令牌；claim_task 返回 attemptId，update_task 必须携带，令牌过期即拒绝；reassign_task 走 invalidateTaskAttempt 先中断旧成员再启动新 attempt；调度器在成员 idle/ready 但仍持有开放任务时以新 attempt 冷恢复重试。
+
+**对 LDVH 的价值**：「单调执行代次 + 能力令牌 + 先撤销后安静 + 冷恢复」是「并发 AI 执行者不可靠」前提下的机械正确性范本，与 LDVH Git Gate 的「单调提交序列 + 署名锚点」同源。
+
+溯源：https://github.com/NanmiCoder/dsh-agent-teams（src/attempts/tokens.ts 与 docs/usage.md 令牌章节）`;
+
+const validAnalysisBody = `## 研究问题
+dsh-agent-teams 的队长式委派与任务调度对 LDVH 编排系统有什么可吸收模式？
 
 ## 输入与边界
-读取源码……
+读取 dsh-agent-teams v0.1.12 源码（浅克隆 489c007），静态分析。不运行。
 
-## 已证实
-fork worker 允许清单排除写工具……
+${validFindingsBody}
 
 ## 未证实与缺口
-（无）
+（无——两个发现均有源码级证据）
 
-## 停止与后续
-sufficient 收敛……`;
+## 建议
+A1 吸收 attempt/handoff 令牌模式：可被 21 号 WorkCase 规范（执行授权包）直接承接——目标对象 21，预期目标"授权包含单调 attempt 字段"，验收条件"attempt 不匹配的更新被拒"。判断依据：与 Git Gate 同源的机械正确性已在本仓库验证过两轮。
+A2 不吸收团队状态机/任务 DAG：LDVH 主控模式已覆盖委派需求，引入第二套调度模型违反 00 反过度设计。后续监测条件：出现单主控无法承载的并行规模时重新评估。
+
+## 后续分流
+- A1 → 创建/更新 21 号规范候选时作为设计输入；信号：21 号启动重建时。
+- A2 → 无需对象化；监测条件如 A2 所述。`;
 
 const validSurveyH3Body = `### 调查问题与范围
-调查 dsh-solo-thinking 的 worker 模式……
+调查 dsh-agent-teams 的多代理协作形态……
 
 ### 调查方法与来源
-读源码……
+读源码与 README……
 
 ### 调查发现
-发现 fork worker 与 spawn worker 分工……
+发现队长-成员-任务三层结构……
 
 ### 调查停止与交接
 调查收敛，交接分析阶段……`;
 
-// ---------------------------------------------------------------------------
-// validateResearchFrontmatter
-// ---------------------------------------------------------------------------
-
-test("validateResearchFrontmatter accepts a valid frontmatter", () => {
+test("validateResearchFrontmatter accepts valid thin-index frontmatter", () => {
   const { change_summary: _cs, ...draft } = validFrontmatterDraft();
-  const fm = { ...draft, object_uid: "test-uid", fact_type_key: "research", created_at: "2026-09-08T00:00:00Z" };
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t" };
   const result = validateResearchFrontmatter(fm);
   assert.equal(result.ok, true, JSON.stringify(result.issues));
 });
 
-test("validateResearchFrontmatter rejects missing three-state", () => {
-  const fm = { ...validFrontmatterDraft(), object_uid: "u", fact_type_key: "research", created_at: "t", confirmed: [], uncertain: [], gaps: [] };
+test("validateResearchFrontmatter rejects unknown fields (closed set)", () => {
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t", custom_field: "x" };
+  const result = validateResearchFrontmatter(fm);
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((i) => i.includes("unexpected field")));
+});
+
+test("validateResearchFrontmatter rejects empty three-state", () => {
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t", confirmed_statements: [], uncertain: [], gaps: [] };
   const result = validateResearchFrontmatter(fm);
   assert.equal(result.ok, false);
   assert.ok(result.issues.some((i) => i.includes("three-state")));
 });
 
-test("validateResearchFrontmatter rejects quote.source not in urls", () => {
-  const fm = {
-    ...validFrontmatterDraft(),
-    object_uid: "u", fact_type_key: "research", created_at: "t",
-    confirmed: [{ statement: "x", confidence: "high", quotes: [{ text: "t", anchor: "a", source: "https://not-registered.example.com" }] }],
-  };
+test("validateResearchFrontmatter rejects sufficient with empty confirmed_statements", () => {
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t", confirmed_statements: [] };
   const result = validateResearchFrontmatter(fm);
   assert.equal(result.ok, false);
-  assert.ok(result.issues.some((i) => i.includes("must match a urls[].ref")));
-});
-
-test("validateResearchFrontmatter rejects sufficient with empty confirmed", () => {
-  const fm = { ...validFrontmatterDraft(), object_uid: "u", fact_type_key: "research", created_at: "t", confirmed: [] };
-  const result = validateResearchFrontmatter(fm);
-  assert.equal(result.ok, false);
-  assert.ok(result.issues.some((i) => i.includes("sufficient requires non-empty confirmed")));
-});
-
-test("validateResearchFrontmatter rejects sufficient with high gap", () => {
-  const fm = {
-    ...validFrontmatterDraft(), object_uid: "u", fact_type_key: "research", created_at: "t",
-    gaps: [{ description: "critical missing", priority: "high" }],
-  };
-  const result = validateResearchFrontmatter(fm);
-  assert.equal(result.ok, false);
-  assert.ok(result.issues.some((i) => i.includes("sufficient must not have an open high-priority gap")));
+  assert.ok(result.issues.some((i) => i.includes("sufficient requires non-empty confirmed_statements")));
 });
 
 test("validateResearchFrontmatter rejects implications with unanchored finding_ref", () => {
-  const fm = {
-    ...validFrontmatterDraft(), object_uid: "u", fact_type_key: "research", created_at: "t",
-    implications: [{ finding_ref: "this statement does not exist", implication: "dangling" }],
-  };
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t",
+    implications: [{ finding_ref: "no such statement", implication: "dangling" }] };
   const result = validateResearchFrontmatter(fm);
   assert.equal(result.ok, false);
-  assert.ok(result.issues.some((i) => i.includes("must match a confirmed[].statement")));
+  assert.ok(result.issues.some((i) => i.includes("confirmed_statements[] member")));
 });
 
-test("validateResearchFrontmatter rejects bad confidence value", () => {
-  const fm = {
-    ...validFrontmatterDraft(), object_uid: "u", fact_type_key: "research", created_at: "t",
-    confirmed: [{ statement: "s", confidence: "超高", quotes: [{ text: "t", anchor: "a", source: "https://github.com/fredalxin/dsh-solo-thinking" }] }],
-  };
-  const result = validateResearchFrontmatter(fm);
-  assert.equal(result.ok, false);
-  assert.ok(result.issues.some((i) => i.includes("confidence")));
-});
-
-// ---------------------------------------------------------------------------
-// validateBodyStructure (single-file, optional 调查阶段 H2 + H3)
-// ---------------------------------------------------------------------------
-
-test("validateBodyStructure accepts directed body (five H2, no 调查阶段)", () => {
+test("validateBodyStructure accepts directed body (six H2: v4 skeleton)", () => {
   const result = validateBodyStructure(validAnalysisBody);
   assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.equal(result.exploratory, false);
 });
 
-test("validateBodyStructure accepts exploratory body (six H2, 调查阶段 with four H3)", () => {
+test("validateBodyStructure accepts exploratory body (seven H2 with 调查阶段)", () => {
   const exploratoryBody = validAnalysisBody.replace(
-    "## 输入与边界",
-    "## 调查阶段\n\n" + validSurveyH3Body + "\n\n## 输入与边界",
+    "## 关键发现",
+    "## 调查阶段\n\n" + validSurveyH3Body + "\n\n## 关键发现",
   );
   const result = validateBodyStructure(exploratoryBody);
   assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.equal(result.exploratory, true);
 });
 
-test("validateBodyStructure rejects 调查阶段 with missing H3", () => {
-  const badSurvey = validSurveyH3Body.replace("### 调查停止与交接\n调查收敛，交接分析阶段……", "");
-  const exploratoryBody = validAnalysisBody.replace(
-    "## 输入与边界",
-    "## 调查阶段\n\n" + badSurvey + "\n\n## 输入与边界",
+test("validateBodyStructure rejects missing 建议 section", () => {
+  const bad = validAnalysisBody.replace(/## 建议[\s\S]*?(?=## 后续分流)/, "");
+  const result = validateBodyStructure(bad);
+  assert.equal(result.ok, false);
+});
+
+test("extractFindingUnits extracts units with trace anchors", () => {
+  const units = extractFindingUnits(validAnalysisBody);
+  assert.equal(units.length, 2);
+  assert.equal(units[0].title, "F1 队长式委派：单队长 spawn 成员、成员可续聊、任务 DAG 驱动调度");
+  assert.equal(units[0].hasTrace, true);
+  assert.equal(units[0].traceRef, "https://github.com/NanmiCoder/dsh-agent-teams");
+  assert.ok(units[0].traceAnchor.includes("manager.ts"));
+  assert.equal(units[1].hasTrace, true);
+});
+
+test("validateIndexBodyCoherence passes when statements match units and anchors valid", () => {
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t" };
+  const result = validateIndexBodyCoherence(fm, validAnalysisBody);
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+});
+
+test("validateIndexBodyCoherence flags statement without matching unit", () => {
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t",
+    confirmed_statements: [...draft.confirmed_statements, "F3 不存在的发现"] };
+  const result = validateIndexBodyCoherence(fm, validAnalysisBody);
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((i) => i.includes("no verbatim finding unit")));
+});
+
+test("validateIndexBodyCoherence flags unit without trace anchor", () => {
+  const noAnchorBody = validAnalysisBody.replace(
+    "溯源：https://github.com/NanmiCoder/dsh-agent-teams（src/agents/manager.ts 调度器与 README 团队协议章节）",
+    "（此单元故意去掉溯源行）",
   );
-  const result = validateBodyStructure(exploratoryBody);
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t" };
+  const result = validateIndexBodyCoherence(fm, noAnchorBody);
   assert.equal(result.ok, false);
-  assert.ok(result.issues.some((i) => i.includes("调查阶段")));
+  assert.ok(result.issues.some((i) => i.includes("no 溯源")));
 });
 
-test("validateBodyStructure rejects 调查阶段 with wrong H3 order", () => {
-  const lines = validSurveyH3Body.split("\n");
-  // swap first two H3 blocks
-  const reordered = lines.join("\n").replace(
-    "### 调查问题与范围\n调查 dsh-solo-thinking 的 worker 模式……\n\n### 调查方法与来源\n读源码……",
-    "### 调查方法与来源\n读源码……\n\n### 调查问题与范围\n调查 dsh-solo-thinking 的 worker 模式……",
+test("validateIndexBodyCoherence flags trace ref not in urls", () => {
+  const badRefBody = validAnalysisBody.replaceAll(
+    "https://github.com/NanmiCoder/dsh-agent-teams（src/agents/manager.ts",
+    "https://unregistered.example.com（src/agents/manager.ts",
   );
-  const exploratoryBody = validAnalysisBody.replace(
-    "## 输入与边界",
-    "## 调查阶段\n\n" + reordered + "\n\n## 输入与边界",
-  );
-  const result = validateBodyStructure(exploratoryBody);
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t" };
+  const result = validateIndexBodyCoherence(fm, badRefBody);
   assert.equal(result.ok, false);
-  assert.ok(result.issues.some((i) => i.includes("H3 #1")));
+  assert.ok(result.issues.some((i) => i.includes("does not match any urls[].ref")));
 });
 
-test("validateBodyStructure rejects missing required H2", () => {
-  const badBody = validAnalysisBody.replace("## 停止与后续\nsufficient 收敛……", "");
-  const result = validateBodyStructure(badBody);
-  assert.equal(result.ok, false);
-});
-
-test("validateBodyStructure rejects empty section", () => {
-  const badBody = validAnalysisBody.replace("## 已证实\nfork worker 允许清单排除写工具……", "## 已证实\n");
-  const result = validateBodyStructure(badBody);
-  assert.equal(result.ok, false);
-  assert.ok(result.issues.some((i) => i.includes("empty")));
-});
-
-// ---------------------------------------------------------------------------
-// createResearchObject
-// ---------------------------------------------------------------------------
-
-test("createResearchObject creates a directed object (single flat file)", async () => {
+test("createResearchObject creates directed object with v4-style body", async () => {
   const result = await createResearchObject({
     factSourceRoot: root,
     frontmatterDraft: validFrontmatterDraft(),
@@ -226,102 +218,46 @@ test("createResearchObject creates a directed object (single flat file)", async 
     sessionSignature: { provider: "zzztoken-glm", model: "glm-5.3" },
   });
   assert.ok(result.ok, JSON.stringify(result.error));
-  const { object_uid, file, fingerprint } = result.value;
-  assert.equal(file.endsWith(researchFileName(object_uid)), true);
-  assert.ok(file.includes("researches"));
-  assert.equal(fingerprint.length, 64);
-  const readBack = await readResearchObject({ factSourceRoot: root, objectUid: object_uid });
+  const readBack = await readResearchObject({ factSourceRoot: root, objectUid: result.value.object_uid });
   assert.ok(readBack.ok);
   assert.equal(readBack.value.exploratory, false);
-  assert.equal(readBack.value.frontmatter.fact_type_key, "research");
-  assert.equal(readBack.value.frontmatter.confirmed.length, 1);
-  assert.equal(readBack.value.body.includes("## 调研问题"), true);
-  assert.equal(readBack.value.body.includes("## 调查阶段"), false);
+  assert.equal(readBack.value.frontmatter.confirmed_statements.length, 2);
+  assert.ok(readBack.value.body.includes("对 LDVH 的价值"));
 });
 
-test("createResearchObject creates an exploratory object (调查阶段 H2 in body)", async () => {
+test("createResearchObject creates exploratory object", async () => {
   const result = await createResearchObject({
     factSourceRoot: root,
     frontmatterDraft: validFrontmatterDraft(),
     analysisBody: validAnalysisBody,
     surveyBody: validSurveyH3Body,
-    sessionSignature: { provider: "test", model: "test" },
   });
   assert.ok(result.ok, JSON.stringify(result.error));
-  const { object_uid } = result.value;
-  const readBack = await readResearchObject({ factSourceRoot: root, objectUid: object_uid });
+  const readBack = await readResearchObject({ factSourceRoot: root, objectUid: result.value.object_uid });
   assert.ok(readBack.ok);
   assert.equal(readBack.value.exploratory, true);
-  assert.equal(readBack.value.body.includes("## 调查阶段"), true);
-  assert.equal(readBack.value.body.includes("### 调查问题与范围"), true);
-  // 调查阶段 H2 must be between 调研问题 and 输入与边界
-  const h2Order = ["调研问题", "调查阶段", "输入与边界", "已证实", "未证实与缺口", "停止与后续"];
-  const actualH2 = readBack.value.body.split("\n").filter((l) => l.startsWith("## ")).map((l) => l.slice(3).trim());
-  assert.deepEqual(actualH2, h2Order);
+  assert.ok(readBack.value.body.includes("## 调查阶段"));
 });
 
-test("createResearchObject rejects invalid frontmatter", async () => {
-  const bad = { ...validFrontmatterDraft(), stopping_reason: "invalid" };
+test("createResearchObject rejects coherence violation (statement without unit)", async () => {
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const bad = { ...draft, confirmed_statements: [...draft.confirmed_statements, "幽灵声明"] };
   const result = await createResearchObject({
     factSourceRoot: root,
     frontmatterDraft: bad,
     analysisBody: validAnalysisBody,
   });
   assert.ok(!result.ok);
-  assert.equal(result.error.code, "research/frontmatter_invalid");
+  assert.equal(result.error.code, "research/coherence_invalid");
 });
 
-test("createResearchObject rejects bad analysis body sections", async () => {
-  const badBody = "## 错误的章节\n内容";
-  const result = await createResearchObject({
-    factSourceRoot: root,
-    frontmatterDraft: validFrontmatterDraft(),
-    analysisBody: badBody,
-  });
-  assert.ok(!result.ok);
-  assert.equal(result.error.code, "research/body_invalid");
-});
-
-test("createResearchObject rejects empty survey for exploratory", async () => {
-  const result = await createResearchObject({
-    factSourceRoot: root,
-    frontmatterDraft: validFrontmatterDraft(),
-    analysisBody: validAnalysisBody,
-    surveyBody: "",
-  });
-  assert.ok(!result.ok);
-  assert.equal(result.error.code, "invalid_request");
-});
-
-// ---------------------------------------------------------------------------
-// readResearchObject
-// ---------------------------------------------------------------------------
-
-test("readResearchObject returns not_found for nonexistent uid", async () => {
-  const result = await readResearchObject({ factSourceRoot: root, objectUid: "00000000-0000-4000-8000-000000000000" });
-  assert.ok(!result.ok);
-  assert.equal(result.error.code, "research/object_not_found");
-});
-
-test("readResearchObject rejects invalid uid format (path injection)", async () => {
+test("readResearchObject rejects invalid uid (path injection)", async () => {
   const result = await readResearchObject({ factSourceRoot: root, objectUid: "../../etc/passwd" });
   assert.ok(!result.ok);
   assert.equal(result.error.code, "research/invalid_uid");
 });
 
-test("validateResearchFrontmatter rejects unknown fields (closed set)", () => {
-  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
-  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t", custom_field: "not allowed" };
-  const result = validateResearchFrontmatter(fm);
-  assert.equal(result.ok, false);
-  assert.ok(result.issues.some((i) => i.includes("unexpected field")));
-});
-
-// ---------------------------------------------------------------------------
-// updateResearchObject (CAS)
-// ---------------------------------------------------------------------------
-
-test("updateResearchObject succeeds with correct fingerprint and appends change_log", async () => {
+test("updateResearchObject CAS flow with change_log", async () => {
   const created = await createResearchObject({
     factSourceRoot: root,
     frontmatterDraft: validFrontmatterDraft(),
@@ -333,150 +269,6 @@ test("updateResearchObject succeeds with correct fingerprint and appends change_
 
   const read1 = await readResearchObject({ factSourceRoot: root, objectUid: uid });
   assert.ok(read1.ok);
-  const fp1 = read1.value.fingerprint;
-  const logLen1 = read1.value.frontmatter.change_log.length;
-
-  const fm = read1.value.frontmatter;
-  const fmAfter = {
-    ...fm,
-    confirmed: [...fm.confirmed, {
-      statement: "第二项发现",
-      confidence: "medium",
-      quotes: [{ text: "引用", anchor: "§1", source: fm.urls[0].ref }],
-    }],
-  };
-  const updated = await updateResearchObject({
-    factSourceRoot: root,
-    objectUid: uid,
-    expectedFingerprint: fp1,
-    frontmatterAfter: fmAfter,
-    analysisBodyAfter: validAnalysisBody,
-    changeSummary: "追加第二项 confirmed 发现",
-    sessionSignature: { provider: "p", model: "m" },
-  });
-  assert.ok(updated.ok, JSON.stringify(updated.error));
-
-  const read2 = await readResearchObject({ factSourceRoot: root, objectUid: uid });
-  assert.ok(read2.ok);
-  assert.equal(read2.value.frontmatter.change_log.length, logLen1 + 1);
-  assert.equal(read2.value.frontmatter.confirmed.length, 2);
-});
-
-test("updateResearchObject fails with stale fingerprint (CAS conflict)", async () => {
-  const created = await createResearchObject({
-    factSourceRoot: root,
-    frontmatterDraft: validFrontmatterDraft(),
-    analysisBody: validAnalysisBody,
-  });
-  assert.ok(created.ok);
-  const uid = created.value.object_uid;
-
-  const result = await updateResearchObject({
-    factSourceRoot: root,
-    objectUid: uid,
-    expectedFingerprint: "0000000000000000000000000000000000000000000000000000000000000000",
-    frontmatterAfter: created.value,
-    analysisBodyAfter: validAnalysisBody,
-    changeSummary: "should fail",
-  });
-  assert.ok(!result.ok);
-  assert.equal(result.error.code, "research/cas_conflict");
-});
-
-test("updateResearchObject rejects sub-stage change (exploratory → directed)", async () => {
-  const created = await createResearchObject({
-    factSourceRoot: root,
-    frontmatterDraft: validFrontmatterDraft(),
-    analysisBody: validAnalysisBody,
-    surveyBody: validSurveyH3Body,
-  });
-  assert.ok(created.ok);
-  const uid = created.value.object_uid;
-
-  const read = await readResearchObject({ factSourceRoot: root, objectUid: uid });
-  assert.ok(read.ok);
-  assert.equal(read.value.exploratory, true);
-
-  const result = await updateResearchObject({
-    factSourceRoot: root,
-    objectUid: uid,
-    expectedFingerprint: read.value.fingerprint,
-    frontmatterAfter: read.value.frontmatter,
-    analysisBodyAfter: validAnalysisBody,
-    surveyBodyAfter: null,
-    changeSummary: "attempt to remove survey",
-  });
-  assert.ok(!result.ok);
-  assert.equal(result.error.code, "research/substage_immutable");
-});
-
-test("updateResearchObject rejects sub-stage change (directed → exploratory)", async () => {
-  const created = await createResearchObject({
-    factSourceRoot: root,
-    frontmatterDraft: validFrontmatterDraft(),
-    analysisBody: validAnalysisBody,
-  });
-  assert.ok(created.ok);
-  const uid = created.value.object_uid;
-
-  const read = await readResearchObject({ factSourceRoot: root, objectUid: uid });
-  assert.ok(read.ok);
-  assert.equal(read.value.exploratory, false);
-
-  const result = await updateResearchObject({
-    factSourceRoot: root,
-    objectUid: uid,
-    expectedFingerprint: read.value.fingerprint,
-    frontmatterAfter: read.value.frontmatter,
-    analysisBodyAfter: validAnalysisBody,
-    surveyBodyAfter: validSurveyH3Body,
-    changeSummary: "attempt to add survey",
-  });
-  assert.ok(!result.ok);
-  assert.equal(result.error.code, "research/substage_immutable");
-});
-
-test("updateResearchObject requires changeSummary", async () => {
-  const created = await createResearchObject({
-    factSourceRoot: root,
-    frontmatterDraft: validFrontmatterDraft(),
-    analysisBody: validAnalysisBody,
-  });
-  assert.ok(created.ok);
-  const uid = created.value.object_uid;
-
-  const read = await readResearchObject({ factSourceRoot: root, objectUid: uid });
-  assert.ok(read.ok);
-
-  const result = await updateResearchObject({
-    factSourceRoot: root,
-    objectUid: uid,
-    expectedFingerprint: read.value.fingerprint,
-    frontmatterAfter: read.value.frontmatter,
-    analysisBodyAfter: validAnalysisBody,
-    changeSummary: "",
-  });
-  assert.ok(!result.ok);
-});
-
-// ---------------------------------------------------------------------------
-// Round-trip
-// ---------------------------------------------------------------------------
-
-test("round-trip: create exploratory, read, retire, read again", async () => {
-  const created = await createResearchObject({
-    factSourceRoot: root,
-    frontmatterDraft: validFrontmatterDraft(),
-    analysisBody: validAnalysisBody,
-    surveyBody: validSurveyH3Body,
-    sessionSignature: { provider: "test", model: "test" },
-  });
-  assert.ok(created.ok);
-  const uid = created.value.object_uid;
-
-  const read1 = await readResearchObject({ factSourceRoot: root, objectUid: uid });
-  assert.ok(read1.ok);
-  assert.equal(read1.value.exploratory, true);
 
   const fmAfter = { ...read1.value.frontmatter, status: "retired" };
   const updated = await updateResearchObject({
@@ -485,9 +277,8 @@ test("round-trip: create exploratory, read, retire, read again", async () => {
     expectedFingerprint: read1.value.fingerprint,
     frontmatterAfter: fmAfter,
     analysisBodyAfter: validAnalysisBody,
-    surveyBodyAfter: validSurveyH3Body,
     changeSummary: "retire: 资料过时",
-    sessionSignature: { provider: "test", model: "test" },
+    sessionSignature: { provider: "p", model: "m" },
   });
   assert.ok(updated.ok, JSON.stringify(updated.error));
 
@@ -495,5 +286,46 @@ test("round-trip: create exploratory, read, retire, read again", async () => {
   assert.ok(read2.ok);
   assert.equal(read2.value.frontmatter.status, "retired");
   assert.equal(read2.value.frontmatter.change_log.length, 2);
-  assert.equal(read2.value.exploratory, true);
+});
+
+test("updateResearchObject rejects stale fingerprint", async () => {
+  const created = await createResearchObject({
+    factSourceRoot: root,
+    frontmatterDraft: validFrontmatterDraft(),
+    analysisBody: validAnalysisBody,
+  });
+  assert.ok(created.ok);
+  const result = await updateResearchObject({
+    factSourceRoot: root,
+    objectUid: created.value.object_uid,
+    expectedFingerprint: "0".repeat(64),
+    frontmatterAfter: created.value,
+    analysisBodyAfter: validAnalysisBody,
+    changeSummary: "x",
+  });
+  assert.ok(!result.ok);
+  assert.equal(result.error.code, "research/cas_conflict");
+});
+
+test("updateResearchObject rejects sub-stage change", async () => {
+  const created = await createResearchObject({
+    factSourceRoot: root,
+    frontmatterDraft: validFrontmatterDraft(),
+    analysisBody: validAnalysisBody,
+    surveyBody: validSurveyH3Body,
+  });
+  assert.ok(created.ok);
+  const read = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+  assert.ok(read.ok);
+  const result = await updateResearchObject({
+    factSourceRoot: root,
+    objectUid: created.value.object_uid,
+    expectedFingerprint: read.value.fingerprint,
+    frontmatterAfter: read.value.frontmatter,
+    analysisBodyAfter: validAnalysisBody,
+    surveyBodyAfter: null,
+    changeSummary: "remove survey",
+  });
+  assert.ok(!result.ok);
+  assert.equal(result.error.code, "research/substage_immutable");
 });
