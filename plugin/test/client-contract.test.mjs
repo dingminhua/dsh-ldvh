@@ -180,10 +180,10 @@ test("project card actions: uninstall removed, Update only when repairable, notR
 });
 
 test("betterSidebar LDVH tab registers as a soft dependency with iframe fallback states", () => {
-	// 软依赖：ctx.get 探测（未装 dsh-better-sidebar 的宿主零影响），
-	// 不是 inject 硬依赖——注入列表保持 WorkBuddy 基线。
-	assert.ok(source.includes('var betterSidebar = ctx.get("betterSidebar")'));
-	assert.ok(!source.includes('inject(["betterSidebar"]'), "must not hard-inject the optional betterSidebar service");
+	// 软依赖：ctx.inject 订阅服务可用性（apply 时未就绪也会等）
+	// ——不能用 ctx.get 快照（加载顺序问题）；服务缺失时本插件照常工作。
+	assert.ok(source.includes('ctx.inject(["betterSidebar"]'), "must subscribe via ctx.inject, not ctx.get");
+	assert.ok(!source.includes('var betterSidebar = ctx.get("betterSidebar")'), "ctx.get snapshot is unreliable for late-bound services");
 	// 注册形态：专属 id、single 实例、图标、iframe 指向 /ldvh/。
 	assert.ok(source.includes('id: "dsh-ldvh:web"'));
 	assert.ok(source.includes('single: true'));

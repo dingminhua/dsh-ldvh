@@ -779,11 +779,13 @@ window.__ModuleLoader__.load({
           }, LdvhSettingsCard);
         });
 
-        // 2b) betterSidebar「LDVH」tab（软依赖：装了 dsh-better-sidebar 才有；
-        // ctx.get 探测而非 inject 硬依赖，未装时本插件照常工作）。
-        var betterSidebar = ctx.get("betterSidebar");
-        if (betterSidebar !== undefined && typeof betterSidebar.registerTab === "function") {
-          ctx.effect(function () {
+        // 2b) betterSidebar「LDVH」tab
+        // 软注入：ctx.inject 订阅服务可用性（apply 时未就绪也会等）
+        // ——比 ctx.get 快照更可靠；服务缺失时直接跳过，本插件照常工作。
+        ctx.inject(["betterSidebar"], function (scope) {
+          var betterSidebar = scope.betterSidebar;
+          if (!betterSidebar || typeof betterSidebar.registerTab !== "function") return;
+          scope.effect(function () {
             return betterSidebar.registerTab({
               id: "dsh-ldvh:web",
               title: function () { return t("sidebar.label"); },
@@ -803,7 +805,7 @@ window.__ModuleLoader__.load({
               }
             });
           }, "dsh-ldvh: better sidebar tab");
-        }
+        });
 
         // 2) LDVH view tab, trajectory-analogue (conversation.view / list / session)
         ctx.slots.inject("conversation.view", function () {
