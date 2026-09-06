@@ -87,7 +87,7 @@ v4 Study 规范与实例、11 号调研系统规范候选（调研流程规则�
 
 | fact_type_key | summary | definition_ref |
 |---|---|---|
-| `research` | 以外部对象为主体、已终止且形成可回指三态证据与引用闭环的一轮深度调研（调查+分析一体），回答"这个东西是什么、怎么用、边界在哪" | `research-fact-type::5. 类型定位与价值` |
+| `research` | 以外部对象为主体、已终止且形成可回指三态证据与引用闭环的一轮深度调研（调查+分析一体），回答"这个东西是什么、怎么用、边界在哪"，并给出对管辖项目的帮助与启发 | `research-fact-type::5. 类型定位与价值` |
 
 Research 是 02 §10 调研业务系统的产物类型：主控围绕 `research_question` 搜集外部证据，直到停止判据成立，再把已证实、未证实与缺口三态证据经受控创建对象化。进行中的搜索、阅读与实验不产生对象；只有已终止、问题明确、证据可回指且结论具有跨行动引用或复读价值的一轮深度调研才形成 Research。
 
@@ -147,7 +147,7 @@ Research 与 v4 Study 的关系以语义收窄重定：v4 `report_kind=external_
 | `输入与边界` | 实际读取的外部来源如何分工（每项 `urls` 的用途或限制）、观察时点与版本、分析方法（静态分析、文档阅读、试运行等）、不覆盖范围与来源冲突；探索型说明分析如何承接调查报告 | 只复制 URL 列表，或用无法重新定位的模糊说明代替来源 |
 | `已证实` | 逐项展开 `confirmed`：声明、置信度、摘录文本与锚点/来源、对 `research_purpose` 的支持或限制 | 一段压缩结论、无摘录的断言、把推断写成已证实 |
 | `未证实与缺口` | 逐项展开 `uncertain` 与 `gaps`：疑点与原因、缺口描述与优先级、对判断的阻塞范围 | 堆砌免责声明或省略真实缺口 |
-| `停止与后续` | 说明 `stopping_reason` 的判断依据；仍在变化的来源的复核条件；未决项与缺口的后续承载方向（流向 22/21/20 或后续调研，或明确无需承接） | 只写"后续再看"、占位语或无依据的停止声明 |
+| `停止与后续` | 说明 `stopping_reason` 的判断依据；逐项展开 `implications`（对管辖项目的帮助与启发，锚定到 confirmed 发现）；仍在变化的来源的复核条件；未决项与缺口的后续承载方向（流向 22/21/20 或后续调研，或明确无需承接） | 只写"后续再看"、占位语、悬空的启发（不锚定具体发现）或无依据的停止声明 |
 
 调查报告 md（探索型必在）正文必须按顺序各出现且只出现一次以下非空 H2：
 
@@ -194,6 +194,9 @@ frontmatter 是三态与引用的机器权威，任何正文（主 md 或调查�
 | `research-clarification-answer` | `clarification_log[].answer` | string | 得到的回答或确认摘要 | 不表示回答正确或已达成共识 | 必填非空 |
 | `research-clarification-answered-by` | `clarification_log[].answered_by` | string | 回答来源 | 不表示该来源权威 | 必填；闭集 `human`/`external`/`ai`：human 为 Human 澄清，external 为从外部资料澄清，ai 为 AI 自行收敛且已影响方向的澄清 |
 | `research-clarification-at` | `clarification_log[].at` | string | 澄清发生时点 | 不表示对象创建时点 | 可选 |
+| `research-implications` | `implications` | array | 调研结论对管辖项目的帮助与启发：每个 confirmed 发现对 `research_purpose` 所述项目判断的支持、限制或修正 | 不表示已采纳、已决定或已授权行动 | 条件；有项目含义时出现；成员必填 `finding_ref`、`implication` |
+| `research-implications-finding-ref` | `implications[].finding_ref` | string | 所指 confirmed 发现的 statement 文本 | 不表示该发现已获 Human 确认 | 必填非空；必须逐字等于某条 `confirmed[].statement` |
+| `research-implications-implication` | `implications[].implication` | string | 该发现对项目判断的帮助或启发的一句话说明 | 不表示方案决策、选哪个的建议或行动授权 | 必填非空；只说明支持/限制/修正，不产出选型结论 |
 
 字段间不变量：
 
@@ -202,7 +205,8 @@ frontmatter 是三态与引用的机器权威，任何正文（主 md 或调查�
 3. 停止一致性：`stopping_reason=sufficient` 时 `confirmed` 必填非空且不存在阻塞 `research_purpose` 结论的 `high` 优先级缺口；`stopping_reason=round-cap` 时必须在 `gaps` 或正文"停止与后续"中声明未覆盖范围；
 4. 生命周期约束：`status=retired` 时禁止新增或实质修改 `confirmed` 条目，只允许配套更正或退出说明的更新；
 5. 未知字段处理：frontmatter 出现本文与 03 §6.1 之外字段时，该对象不得作为 Research 消费，直到完成字段准入或修正；
-6. 载体一致性：目录成员文件闭集与子阶段一致（探索型必有调查报告 md、明确方向型禁有），frontmatter 只存在于主 md，调查报告 md 不承载字段、不得改变或弱化 frontmatter 语义。
+6. 载体一致性：目录成员文件闭集与子阶段一致（探索型必有调查报告 md、明确方向型禁有），frontmatter 只存在于主 md，调查报告 md 不承载字段、不得改变或弱化 frontmatter 语义；
+7. 启发锚定不变量：每条 `implications[].finding_ref` 必须逐字等于某条 `confirmed[].statement`——启发不悬空，每条项目含义都锚定到具体已证实发现。
 
 ## 9. 状态与生命周期
 
