@@ -125,7 +125,7 @@ Research 与 v4 Study 的关系以语义收窄重定：v4 `report_kind=external_
 
 `fact_type_key` 固定为 `research`。对象身份与公共字段语义按 03 §6.1 承接。
 
-载体是**一个平铺单文件**（一对象一文件承载；03 §6.2 点 2 允许类型定义载体格式、目录与文件承载方式）：对象文件为事实源根目录（`ldvh-base/`）下 `researches/` 类型目录中的 `researches/research-<uid>.md`，其中 `<uid>` 为 `object_uid` 的规范文本表示（编码规则由 05/09 承接）；文件头为 YAML frontmatter（03 §6.1 公共字段与本文 §8 专属字段），其后为 markdown 正文。事实源根目录与工作树整体布局、路径安全和符号链接规则由 06 承接，03 不建立第二套检查器。旧对象标识（v4 `object_id`）只作迁移输入，不进入 canonical 对象、关系目标或 CAS 身份（03 §6.2）。
+载体是**一个平铺单文件**（一对象一文件承载；03 §6.2 点 2 允许类型定义载体格式、目录与文件承载方式）：对象文件为事实源根目录（`ldvh-base/`）下 `researches/` 类型目录中的 `researches/research-<uid>.md`，其中 `<uid>` 为 `object_uid` 的规范文本表示（编码规则由 05/09 承接）；文件头为 YAML frontmatter（03 §6.1 公共字段与本文 §8 专属字段），其后为 markdown 正文。事实对象使用 frontmatter 而非规范的 ```yaml 代码块身份块，是有意的形态区分：规范的代码块身份块是文档自描述内容、读者需要看到；事实对象的 frontmatter 是机器索引层、对读者隐藏是设计意图（markdown 预览器不渲染 frontmatter 即符合预期）。事实源根目录与工作树整体布局、路径安全和符号链接规则由 06 承接，03 不建立第二套检查器。旧对象标识（v4 `object_id`）只作迁移输入，不进入 canonical 对象、关系目标或 CAS 身份（03 §6.2）。
 
 该单文件是对象唯一当前权威载体（03 §6.2 点 1）与机器权威入口：F1/F2 卡片、索引、Web 视图与 Helper 响应均以它为入口，且均为派生结果。
 
