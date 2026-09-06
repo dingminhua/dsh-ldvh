@@ -236,8 +236,15 @@ test("web mount placements: two checkboxes gated by the master switch + refresh 
 	assert.ok(source.includes('scope.set("showInConversationTab"') && source.includes('scope.set("showInSidebarTab"'), "save persists both placements");
 	assert.ok(source.includes('checked: enabledState[0] && convTabState[0]') && source.includes('checked: enabledState[0] && sidebarTabState[0]'), "checkboxes visually checked only when master is on");
 	assert.ok(source.includes('disabled: !enabledState[0]'), "checkboxes disabled when master switch is off");
-	assert.ok(source.includes('mountSettings.webEnabled && mountSettings.showInSidebarTab'), "sidebar tab registers only when master + sidebar placement are on");
-	assert.ok(source.includes('mountSettings.webEnabled && mountSettings.showInConversationTab'), "conversation tab registers only when master + conversation placement are on");
+	// 订阅驱动：apply 时设置可能未 ready（一次性快照会静默走默认全开——Human 实测
+	// 复选框不生效的根因），必须经 ldvhScope.subscribe 在 ready/变更时应用投放开关。
+	assert.ok(source.includes("ldvhScope.subscribe"), "mount placement is subscription-driven, not a one-shot snapshot");
+	assert.ok(source.includes('var sidebarOn = webOn && value && value.showInSidebarTab !== false'), "sidebar placement derived from master + checkbox");
+	assert.ok(source.includes('var conversationOn = webOn && value && value.showInConversationTab !== false'), "conversation placement derived from master + checkbox");
+	assert.ok(source.includes('if (sidebarOn && mountDisposers.sidebar === null)'), "sidebar tab mounts only when placement on");
+	assert.ok(source.includes('else if (!sidebarOn && mountDisposers.sidebar !== null)'), "sidebar tab unmounts when placement off");
+	assert.ok(source.includes('if (conversationOn && mountDisposers.conversation === null)'), "conversation tab mounts only when placement on");
+	assert.ok(source.includes('else if (!conversationOn && mountDisposers.conversation !== null)'), "conversation tab unmounts when placement off");
 	assert.ok(source.includes('"row.mountHint"'), "refresh hint key exists");
 	assert.ok(source.includes('保存后刷新页面生效'), "LDVH_ZH mount hint states the refresh requirement");
 	assert.ok(source.includes('Takes effect after saving and reloading'), "LDVH_EN mount hint states the refresh requirement");

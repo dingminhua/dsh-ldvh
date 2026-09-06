@@ -821,56 +821,82 @@ window.__ModuleLoader__.load({
           }, LdvhSettingsCard);
         });
 
-        // 投放面设置：注册时读取一次 + 订阅变更（保存后刷新页面才重新注册——
-        // 插槽注册在页面加载时执行，运行中变更不强推，提示词已写明刷新生效）。
-        var mountSettings = { webEnabled: true, showInConversationTab: true, showInSidebarTab: true };
+        // 投放面设置：订阅驱动（apply 时设置服务可能尚未 ready——一次性快照会
+        // 静默落到默认全开，Human 实测复选框不生效的根因）。订阅变更流：每次
+        // 快照变化重算投放开关并按需重挂/卸挂两个视图；ready 之前的变更静默
+        // 等待（未挂载状态没有要撤销的东西，不存在闪烁问题）。
+        var mountDisposers = { sidebar: null, conversation: null };
+        var registerSidebarTab = function () {
+          // 软注入：ctx.inject 订阅服务可用性（apply 时未就绪也会等）——
+          // 服务缺失时直接跳过，本插件照常工作。
+          var disposeInject = ctx.inject(["betterSidebar"], function (scope) {
+            var betterSidebar = scope.betterSidebar;
+            if (!betterSidebar || typeof betterSidebar.registerTab !== "function") return;
+            var disposeEffect = scope.effect(function () {
+              mountDisposers.sidebar = function () {
+                try { disposeEffect(); } catch (alreadyGone) { }
+              };
+              return betterSidebar.registerTab({
+                id: "dsh-ldvh:web",
+                title: function () { return t("sidebar.label"); },
+                icon: function (size) {
+                  return React.createElement("img", { src: LDVH_ICON, width: size, height: size, alt: "LDVH", style: { borderRadius: "3px" } });
+                },
+                order: 35,
+                single: true,
+                component: function (tabProps) {
+                  return React.createElement(LdvhSidebarTab, { t: t, scope: tabProps && tabProps.scope });
+                }
+              });
+            }, "dsh-ldvh: better sidebar tab");
+          });
+          return function () { try { disposeInject(); } catch (alreadyGone) { } };
+        };
+        var registerConversationTab = function () {
+          var disposeInject = ctx.slots.inject("conversation.view", function () {
+            mountDisposers.conversation = function () { try { disposeInject(); } catch (alreadyGone) { } };
+            return ctx.slots.register({
+              name: "conversation.view",
+              id: "ldvh",
+              order: 20,
+              label: function () { return t("view.label"); },
+              inject: function (sessionId) { return { t: t, sessionId: sessionId }; }
+            }, LdvhConversationView);
+          });
+        };
+
+        var applyMountSettings = function (value) {
+          var webOn = !value || value.webEnabled !== false;
+          var sidebarOn = webOn && value && value.showInSidebarTab !== false;
+          var conversationOn = webOn && value && value.showInConversationTab !== false;
+          if (sidebarOn && mountDisposers.sidebar === null) {
+            registerSidebarTab();
+          } else if (!sidebarOn && mountDisposers.sidebar !== null) {
+            var offSidebar = mountDisposers.sidebar;
+            mountDisposers.sidebar = null;
+            try { offSidebar(); } catch (alreadyGone) { }
+          }
+          if (conversationOn && mountDisposers.conversation === null) {
+            registerConversationTab();
+          } else if (!conversationOn && mountDisposers.conversation !== null) {
+            var offConversation = mountDisposers.conversation;
+            mountDisposers.conversation = null;
+            try { offConversation(); } catch (alreadyGone) { }
+          }
+        };
+
+        // 订阅设置变更：ready 前静默等待；每次快照变化（含首次 ready）应用投放开关。
+        ctx.effect(function () {
+          return ldvhScope.subscribe(function () {
+            var snap = ldvhScope.getSnapshot();
+            if (snap && snap.status === "ready") applyMountSettings(snap.value || {});
+          });
+        }, "dsh-ldvh: mount placement subscription");
+        // apply 时若已 ready（服务先于本插件就绪）立即应用一次。
         try {
           var initialSnap = ldvhScope.getSnapshot();
-          if (initialSnap && initialSnap.status === "ready" && initialSnap.value) {
-            mountSettings.webEnabled = initialSnap.value.webEnabled !== false;
-            mountSettings.showInConversationTab = initialSnap.value.showInConversationTab !== false;
-            mountSettings.showInSidebarTab = initialSnap.value.showInSidebarTab !== false;
-          }
-        } catch (mountError) { /* 默认全开 */ }
-
-        // 2b) betterSidebar「LDVH」tab（总闸+侧栏复选框都开才注册）
-        // 软注入：ctx.inject 订阅服务可用性（apply 时未就绪也会等）
-        // ——比 ctx.get 快照更可靠；服务缺失时直接跳过，本插件照常工作。
-        if (mountSettings.webEnabled && mountSettings.showInSidebarTab) ctx.inject(["betterSidebar"], function (scope) {
-          var betterSidebar = scope.betterSidebar;
-          if (!betterSidebar || typeof betterSidebar.registerTab !== "function") return;
-          scope.effect(function () {
-            return betterSidebar.registerTab({
-              id: "dsh-ldvh:web",
-              title: function () { return t("sidebar.label"); },
-              icon: function (size) {
-                return React.createElement("img", {
-                  src: LDVH_ICON,
-                  width: size,
-                  height: size,
-                  alt: "LDVH",
-                  style: { borderRadius: "3px" }
-                });
-              },
-              order: 35,
-              single: true,
-              component: function (tabProps) {
-                return React.createElement(LdvhSidebarTab, { t: t, scope: tabProps && tabProps.scope });
-              }
-            });
-          }, "dsh-ldvh: better sidebar tab");
-        });
-
-        // 2) LDVH view tab（总闸+对话 Tab 复选框都开才注册）
-        if (mountSettings.webEnabled && mountSettings.showInConversationTab) ctx.slots.inject("conversation.view", function () {
-          return ctx.slots.register({
-            name: "conversation.view",
-            id: "ldvh",
-            order: 20,
-            label: function () { return t("view.label"); },
-            inject: function (sessionId) { return { t: t, sessionId: sessionId }; }
-          }, LdvhConversationView);
-        });
+          if (initialSnap && initialSnap.status === "ready") applyMountSettings(initialSnap.value || {});
+        } catch (mountError) { /* 订阅会补上 */ }
 
 
       } catch (error) {
