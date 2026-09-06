@@ -5,7 +5,7 @@
  * shared read-back/CAS contract from specs/03 §9:
  *
  *  - create:  one-object-one-directory multi-md carrier
- *             (ldvh-base/research/<uid>/ with research-<uid>.md main md
+ *             (ldvh-base/researches/<uid>/ with research-<uid>.md main md
  *             and, for exploratory research, survey-<uid>.md).
  *             All member files are written in a single atomic directory
  *             creation; Code assigns object_uid + created_at; the
@@ -34,7 +34,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 const RESEARCH_TYPE_KEY = "research";
 
 /** Directory under the fact-source root that carries Research objects. */
-export const RESEARCH_DIRECTORY = "research";
+export const RESEARCH_DIRECTORY = "researches";
 
 const MAIN_MD_H2 = ["调研问题", "输入与边界", "已证实", "未证实与缺口", "停止与后续"];
 const SURVEY_MD_H2 = ["调查问题与范围", "调查方法与来源", "调查发现", "调查停止与交接"];

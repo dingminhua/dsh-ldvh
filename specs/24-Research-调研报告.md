@@ -125,7 +125,7 @@ Research 与 v4 Study 的关系以语义收窄重定：v4 `report_kind=external_
 
 `fact_type_key` 固定为 `research`。对象身份与公共字段语义按 03 §6.1 承接。
 
-载体是**一个目录**（一对象一目录的多 md 承载；03 §6.2 点 2 允许类型定义载体格式、目录与文件承载方式）：对象目录为事实源根目录（`ldvh-base/`）下 `research/` 类型目录中的 `research/<uid>/`，其中 `<uid>` 为 `object_uid` 的规范文本表示（编码规则由 05/09 承接）；事实源根目录与工作树整体布局、路径安全和符号链接规则由 06 承接，03 不建立第二套检查器。旧对象标识（v4 `object_id`）只作迁移输入，不进入 canonical 对象、关系目标或 CAS 身份（03 §6.2）。
+载体是**一个目录**（一对象一目录的多 md 承载；03 §6.2 点 2 允许类型定义载体格式、目录与文件承载方式）：对象目录为事实源根目录（`ldvh-base/`）下 `researches/` 类型目录中的 `researches/<uid>/`，其中 `<uid>` 为 `object_uid` 的规范文本表示（编码规则由 05/09 承接）；事实源根目录与工作树整体布局、路径安全和符号链接规则由 06 承接，03 不建立第二套检查器。旧对象标识（v4 `object_id`）只作迁移输入，不进入 canonical 对象、关系目标或 CAS 身份（03 §6.2）。
 
 对象目录内成员文件闭集如下：
 
@@ -279,7 +279,7 @@ F4 来源展开发生在需要核对具体摘录、版本或观察时点时：�
 
 状态转换 `active → retired` 经受控更新完成：after 含新状态与退出依据摘要，不允许普通编辑 direct writing canonical 载体。多对象边界：新调研创建与旧对象 `retired` 是两个单对象操作，不声明原子性；`relations` 随对象创建写入（03 §9.6）。
 
-迁移边界：v4 `report_kind=external_research`（28 份）对象与 docs/ 既有调研备忘是迁移输入，须逐份重满足本文 §6 准入并补全三态证据与引用闭环后，经受控创建按实际子阶段进入 `research/` 类型目录；探索型按先调查报告 md、后分析报告 md 的同一创建写入，明确方向型只写主 md；v4 frontmatter 中本文不承载的字段（如 `abstract`、`recommendation_summary`）在迁移创建时删除，不进入 canonical frontmatter，如需保留迁移历史可在 `change_log` 摘要中说明；v4 `technical_assessment` 与 `internal_audit` 不迁入本类型（前者由讨论系统产物类型承接，后者由复核制度结论封存通道承载，对应类型规范完成前该类对象暂缓迁移）；v4 Study 类型名废弃、不设单独类型规范；legacy `object_id` 只作迁移输入，不进入 canonical 对象、关系目标或 CAS 身份（03 §6.1、§6.2）。删除边界按 03 §10 承接。
+迁移边界：v4 `report_kind=external_research`（28 份）对象与 docs/ 既有调研备忘是迁移输入，须逐份重满足本文 §6 准入并补全三态证据与引用闭环后，经受控创建按实际子阶段进入 `researches/` 类型目录；探索型按先调查报告 md、后分析报告 md 的同一创建写入，明确方向型只写主 md；v4 frontmatter 中本文不承载的字段（如 `abstract`、`recommendation_summary`）在迁移创建时删除，不进入 canonical frontmatter，如需保留迁移历史可在 `change_log` 摘要中说明；v4 `technical_assessment` 与 `internal_audit` 不迁入本类型（前者由讨论系统产物类型承接，后者由复核制度结论封存通道承载，对应类型规范完成前该类对象暂缓迁移）；v4 Study 类型名废弃、不设单独类型规范；legacy `object_id` 只作迁移输入，不进入 canonical 对象、关系目标或 CAS 身份（03 §6.1、§6.2）。删除边界按 03 §10 承接。
 
 ## 14. 类型特有验证与类型退出
 
