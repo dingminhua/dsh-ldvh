@@ -563,6 +563,87 @@ function renderEnvelope(operationKey, value) {
 const OUTPUT_SCHEMA = { type: "object", additionalProperties: true };
 
 function parameterSchemaFor(operationKey) {
+  // Models mis-shape open objects ({"item": ...} instead of arrays) when they
+  // see additionalProperties:true with no declared properties — the schema is
+  // the model's instruction sheet, so every Research data object/array
+  // declares its shape explicitly (mirrors 24 §8 field contract).
+  const urlEntry = {
+    type: "object",
+    properties: {
+      ref: { type: "string", description: "absolute HTTP(S) URL" },
+      title: { type: "string", description: "source title" },
+      summary: { type: "string", description: "what this source supports/limits" }
+    },
+    required: ["ref"],
+    additionalProperties: false
+  };
+  const implicationEntry = {
+    type: "object",
+    properties: {
+      finding_ref: { type: "string", description: "must match a confirmed_statements member verbatim" },
+      implication: { type: "string", description: "one-sentence project implication" }
+    },
+    required: ["finding_ref", "implication"],
+    additionalProperties: false
+  };
+  const gapEntry = {
+    type: "object",
+    properties: {
+      description: { type: "string" },
+      priority: { type: "string", enum: ["high", "medium", "low"] },
+      blocked_scope: { type: "string" }
+    },
+    required: ["description", "priority"],
+    additionalProperties: false
+  };
+  const uncertainEntry = {
+    type: "object",
+    properties: {
+      issue: { type: "string" },
+      reason: { type: "string" }
+    },
+    required: ["issue", "reason"],
+    additionalProperties: false
+  };
+  const relationEntry = {
+    type: "object",
+    properties: {
+      relation_key: { type: "string", enum: ["inspired-by", "informs", "updates"] },
+      target: { type: "object", properties: { object_uid: { type: "string" } }, required: ["object_uid"], additionalProperties: false }
+    },
+    required: ["relation_key", "target"],
+    additionalProperties: false
+  };
+  // The Research frontmatter draft (24 §8 type fields; Code assigns identity).
+  const researchFrontmatter = {
+    type: "object",
+    description: "AI-supplied type fields; Code assigns object_uid/fact_type_key/created_at/change_log",
+    properties: {
+      title: { type: "string" },
+      status: { type: "string", enum: ["active"] },
+      research_question: { type: "string" },
+      research_purpose: { type: "string" },
+      stopping_reason: { type: "string", enum: ["sufficient", "no-gain", "round-cap"] },
+      urls: { type: "array", items: urlEntry, description: "external sources (at least one)" },
+      confirmed_statements: { type: "array", items: { type: "string" }, description: "finding-unit declaration index (verbatim H3 titles of the 关键发现 section)" },
+      uncertain: { type: "array", items: uncertainEntry },
+      gaps: { type: "array", items: gapEntry },
+      implications: { type: "array", items: implicationEntry },
+      clarification_log: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { question: { type: "string" }, answer: { type: "string" }, answered_by: { type: "string", enum: ["human", "external", "ai"] } },
+          required: ["question", "answer", "answered_by"],
+          additionalProperties: false
+        }
+      },
+      relations: { type: "array", items: relationEntry },
+      change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
+    },
+    required: ["title", "research_question", "research_purpose", "stopping_reason", "urls"],
+    additionalProperties: false
+  };
   const findingSchema = {
     type: "object",
     properties: {
@@ -571,10 +652,16 @@ function parameterSchemaFor(operationKey) {
       evidence: {
         type: "object",
         description: "confirmed only: { text (verbatim quote), source (HTTP(S) URL), anchor (relocatable locator), confidence (high/medium/low) }",
-        additionalProperties: true
+        properties: {
+          text: { type: "string" },
+          source: { type: "string" },
+          anchor: { type: "string" },
+          confidence: { type: "string", enum: ["high", "medium", "low"] }
+        },
+        additionalProperties: false
       },
-      issue: { type: "object", description: "uncertain only: { issue, reason }", additionalProperties: true },
-      gap: { type: "object", description: "gap only: { description, priority (high/medium/low) }", additionalProperties: true },
+      issue: { type: "object", description: "uncertain only: { issue, reason }", properties: { issue: { type: "string" }, reason: { type: "string" } }, required: ["issue", "reason"], additionalProperties: false },
+      gap: { type: "object", description: "gap only: { description, priority (high/medium/low) }", properties: { description: { type: "string" }, priority: { type: "string", enum: ["high", "medium", "low"] } }, required: ["description", "priority"], additionalProperties: false },
       sub_question_key: { type: "string", description: "Optional: tag this finding to a sub-question for coverage checks" }
     },
     required: ["statement", "state"],
@@ -593,7 +680,7 @@ function parameterSchemaFor(operationKey) {
           session_id: { type: "string", description: "submit-round/finalize/state: session id from create" },
           findings: { type: "array", items: findingSchema, description: "submit-round: raw findings for this round" },
           body: { type: "string", description: "audit-citation/check-delivery: the report markdown to audit" },
-          confirmed: { type: "array", description: "audit-citation: the confirmed evidence array from finalize", additionalProperties: true }
+          confirmed: { type: "array", items: { type: "string" }, description: "audit-citation: the confirmed statements array from finalize" }
         },
         required: ["action"],
         additionalProperties: false
@@ -612,12 +699,12 @@ function parameterSchemaFor(operationKey) {
         type: "object",
         properties: {
           action: { type: "string", enum: ["create", "update"] },
-          frontmatter_draft: { type: "object", description: "create: AI-supplied type fields (title, research_question, research_purpose, stopping_reason, urls, confirmed_statements, uncertain, gaps, implications, clarification_log, relations); Code assigns identity fields", additionalProperties: true },
+          frontmatter_draft: researchFrontmatter,
           analysis_body: { type: "string", description: "create: the analysis markdown (研究问题/输入与边界/关键发现/未证实与缺口/建议/后续分流 H2)" },
           survey_body: { type: "string", description: "create, exploratory only: the survey-stage markdown (四个固定 H3); omit for directed" },
           object_uid: { type: "string", description: "update: target object" },
           expected_fingerprint: { type: "string", description: "update: CAS baseline fingerprint from your last precise read" },
-          frontmatter_after: { type: "object", description: "update: the complete target frontmatter", additionalProperties: true },
+          frontmatter_after: researchFrontmatter,
           analysis_body_after: { type: "string", description: "update: the complete target analysis body" },
           survey_body_after: { type: "string", description: "update, exploratory only: the complete target survey body (sub-stage immutable)" },
           change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry" }
