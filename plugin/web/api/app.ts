@@ -16,6 +16,7 @@ import docsRoutes from './routes/docs.js'
 import projectFilesRoutes from './routes/project-files.js'
 import settingsRoutes from './routes/settings.js'
 import cognitionRoutes from './routes/cognition.js'
+import federationRoutes from './routes/federation.js'
 import { primeWebGovernanceScope } from './services/governanceScope.js'
 
 dotenv.config()
@@ -47,6 +48,7 @@ app.use('/api/docs', docsRoutes)
 app.use('/api/project-files', projectFilesRoutes)
 app.use('/api/settings', settingsRoutes)
 app.use('/api/cognition', cognitionRoutes)
+app.use('/api/federation', federationRoutes)
 
 /**
  * health

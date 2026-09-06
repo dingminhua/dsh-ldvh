@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom';
 import { I18nProvider } from '@/i18n/context';
 import Layout from '@/components/Layout';
 import CognitionCenter from '@/pages/CognitionCenter';
+import Federation from '@/pages/Federation';
 import ProjectFiles from '@/pages/ProjectFiles';
 import Changes from '@/pages/Changes';
 import ObjectList from '@/pages/ObjectList';
@@ -16,6 +17,7 @@ function AppRoutes() {
     <Layout>
       <Routes>
         <Route path="/" element={<CognitionCenter />} />
+        <Route path="/federation" element={<Federation />} />
         <Route path="/project-files" element={<ProjectFiles />} />
         <Route path="/changes" element={<Changes />} />
         <Route path="/objects/:type" element={<ObjectList />} />

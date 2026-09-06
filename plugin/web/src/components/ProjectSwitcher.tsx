@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, FolderGit2, GitBranch, Loader2, RefreshCw } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Check, ChevronDown, FolderGit2, GitBranch, Globe2, Loader2, RefreshCw } from 'lucide-react';
 import { useI18n } from '@/i18n/context';
 import { projectColorVar, resolvedProjectColorKey } from '@/shared/projectColors';
 import { useProjectScope } from '@/utils/projectContext';
 
 export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
   const { t } = useI18n();
+  const location = useLocation();
+  const navigate = useNavigate();
   const { projects, selectedProject, selectedProjectId, selectedWorktree, selectedWorktreePath, loading, error, selectProject, reloadProjects } = useProjectScope();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const triggerLabel = selectedProject?.name || t('projectSwitcher.choose');
-  const triggerBranch = selectedWorktree?.branch || (selectedProject ? t('projectSwitcher.detached') : '');
+  const federationActive = location.pathname === '/federation';
+  const triggerLabel = federationActive ? t('projectSwitcher.allProjects') : (selectedProject?.name || t('projectSwitcher.choose'));
+  const triggerBranch = federationActive ? '' : (selectedWorktree?.branch || (selectedProject ? t('projectSwitcher.detached') : ''));
 
   useEffect(() => {
     if (!open) return;
@@ -44,7 +48,7 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
         } ${collapsed ? 'h-9 w-9 justify-center' : 'h-12 w-full gap-2 px-2.5 text-left'}`}
       >
         {collapsed ? (
-          <FolderGit2 size={15} className="shrink-0" />
+          federationActive ? <Globe2 size={15} className="shrink-0" /> : <FolderGit2 size={15} className="shrink-0" />
         ) : (
           <>
             <span className="min-w-0 flex-1">
@@ -89,6 +93,31 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
           </div>
 
           <div className="max-h-[min(70vh,34rem)] overflow-y-auto p-2.5">
+            <button
+              type="button"
+              role="option"
+              aria-selected={federationActive}
+              onClick={() => {
+                navigate('/federation');
+                setOpen(false);
+              }}
+              className={`group flex w-full min-w-0 items-center gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors ${
+                federationActive
+                  ? 'border border-ldvh-accent/45 border-l-4 border-l-ldvh-accent bg-ldvh-accent/10 pl-2 text-ldvh-text-primary'
+                  : 'border-transparent text-ldvh-text-primary hover:border-ldvh-border hover:bg-ldvh-panel'
+              }`}
+            >
+              <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${federationActive ? 'bg-ldvh-accent text-white' : 'bg-ldvh-border/25 text-ldvh-text-secondary group-hover:text-ldvh-text-primary'}`}>
+                <Globe2 size={12} />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-sm">{t('projectSwitcher.allProjects')}</span>
+              {projects.length > 0 && (
+                <span className="shrink-0 rounded-full border border-ldvh-text-secondary/20 bg-ldvh-panel/70 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-ldvh-text-secondary">
+                  {t('projectSwitcher.projectCount', { count: String(projects.length) })}
+                </span>
+              )}
+            </button>
+            <div className="my-2 border-t border-ldvh-border" />
             {loading ? (
               <div className="ldvh-body-muted flex items-center justify-center gap-2 px-3 py-6">
                 <Loader2 size={14} className="animate-spin" />

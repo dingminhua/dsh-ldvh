@@ -1054,3 +1054,40 @@ export async function fetchProjectGitCommitFileDiff(projectId: string, hash: str
   const params = new URLSearchParams({ projectId, path: filePath });
   return request<ProjectGitDiffData>(`/project-files/git/commit/${encodeURIComponent(hash)}/diff?${params.toString()}`);
 }
+
+export interface FederationProjectCard {
+  id: string;
+  name: string;
+  path: string;
+  color?: string;
+  isDefault: boolean;
+  sparkOpen?: number;
+  sparkP1?: number;
+  activeWorkCases?: number;
+  pendingDecisions?: number;
+  lastActivityAt?: string;
+  issues: string[];
+}
+
+export interface FederationCrossSpark {
+  projectId: string;
+  projectName: string;
+  color?: string;
+  objectId: string;
+  title: string;
+  priority?: string;
+  updatedAt?: string;
+}
+
+export interface FederationOverviewData {
+  ok: boolean;
+  generatedAt: string;
+  defaultProjectId: string;
+  projects: FederationProjectCard[];
+  crossProjectSparks: FederationCrossSpark[];
+}
+
+export async function fetchFederationOverview(): Promise<FederationOverviewData> {
+  return request<FederationOverviewData>('/federation/overview');
+}
+
