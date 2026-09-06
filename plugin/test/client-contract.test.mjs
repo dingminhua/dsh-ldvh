@@ -259,6 +259,10 @@ test("plugin settings card hosts the project color palette (web settings page is
 	assert.ok(source.includes('typeof raw === "string" ? raw : "color update failed"'), "color error extraction survives string-shaped errors");
 	assert.ok(source.includes('callLdvhApi("/governed-projects/with-colors")'), "project list carries colors via with-colors endpoint");
 	assert.ok(source.includes("ldv-palette-dot-active"), "explicit selection has an active ring");
+	// 色点必须用内联色值：--ldvh-pj-* 变量是 Web 应用 CSS 的命名空间，宿主设置卡
+	// 页面没有这些变量，var() 引用会让色点透明不可见（Human 实测截图确认）。
+	assert.ok(source.includes("PROJECT_COLOR_VALUES"), "palette uses inline hex values, not host-undefined CSS variables");
+	assert.ok(source.indexOf("var(--ldvh-pj-") === -1, "palette never references host-undefined CSS vars");
 	assert.ok(source.includes('"row.colorAuto"'), "auto-color reset button exists");
 	assert.ok(source.includes('"row.projectColor"'), "project color label exists");
 });

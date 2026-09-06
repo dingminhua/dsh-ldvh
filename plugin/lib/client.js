@@ -450,7 +450,14 @@ window.__ModuleLoader__.load({
       }
       // 项目颜色：调色板交互（十色闭集与 Web shared/projectColors.ts 同源）。
       var PROJECT_COLOR_KEYS = ["emerald", "sky", "violet", "amber", "rose", "cyan", "indigo", "orange", "teal", "fuchsia"];
-      function projectColorVar(key) { return "var(--ldvh-pj-" + key + ")"; }
+      // 直接色值（不依赖 --ldvh-pj-* 变量——那是 Web 应用 index.css 的命名空间，
+      // 插件设置卡渲染在 DSH 宿主页面里没有这些变量，var() 回落会让色点透明不可见）。
+      // 取值与 Web 深色主题一致（宿主设置面板是深色底）。
+      var PROJECT_COLOR_VALUES = {
+        emerald: "#34d399", sky: "#38bdf8", violet: "#a78bfa", amber: "#fbbf24", rose: "#fb7185",
+        cyan: "#22d3ee", indigo: "#818cf8", orange: "#fb923c", teal: "#2dd4bf", fuchsia: "#e879f9"
+      };
+      function projectColorVar(key) { return PROJECT_COLOR_VALUES[key] || "#999999"; }
       function setProjectColor(projectId, color) {
         projectBusyState[1](true);
         callLdvhApi("/governed-projects/color", { projectId: projectId, color: color })
