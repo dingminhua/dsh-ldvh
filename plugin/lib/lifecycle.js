@@ -74,7 +74,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // never registers — found in live verification, not by unit tests.
           children
         });
-        lifecycle.activity.record("tools/registered", { count: 5 });
+        lifecycle.activity.record("tools/registered", { count: 8 });
         ctx.logger.info("[dsh-ldvh] registered LDVH tool batch (agent-scoped) for governed session %s", agentId);
       } catch (error) {
         // Two different failures land here and must not be conflated:

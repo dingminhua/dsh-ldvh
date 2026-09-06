@@ -23,7 +23,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
@@ -54,6 +54,11 @@ const VALID_FM_KEYS = new Set([
   "confirmed_statements", "uncertain", "gaps",
   "implications", "clarification_log",
 ]);
+
+/** Relation keys allowed for Research (24 §11). */
+const RELATION_KEYS = new Set(["inspired-by", "informs", "updates"]);
+/** Relation keys explicitly forbidden for Research (24 §11). */
+const FORBIDDEN_RELATION_KEYS = new Set(["supersedes", "depends-on"]);
 
 /** UUID format check (W3: path-injection guard). */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -182,6 +187,92 @@ export function validateResearchFrontmatter(frontmatter) {
   }
 
   return { ok: issues.length === 0, issues };
+}
+
+/**
+ * Validate the relations contract (24 §11 + 03 §7.2).
+ *
+ * Mechanical scope (24 §14): relation_key closed set, minimal target shape,
+ * updates cardinality and self-reference, duplicate edges. Target *type*
+ * closed sets for cross-type keys (inspired-by/informs → spark/workcase/adr)
+ * need target resolution, which lands with the 20–22 type rebuilds — the
+ * `updates` target IS resolvable in our own directory and is checked by the
+ * create/update flows (research/relation_target_unresolvable).
+ *
+ * @param {object} frontmatter — the complete frontmatter (relations optional)
+ * @param {string|null} selfUid — this object's uid (self-reference check);
+ *   null skips the self-check (pure validation without an assigned identity)
+ * @returns {{ok: boolean, issues: string[]}}
+ */
+export function validateResearchRelations(frontmatter, selfUid = null) {
+  const issues = [];
+  const relations = frontmatter.relations;
+  if (relations === undefined) return { ok: true, issues };
+  if (!Array.isArray(relations)) {
+    issues.push("relations: must be an array (03 §7.2)");
+    return { ok: false, issues };
+  }
+
+  const seen = new Set();
+  let updatesCount = 0;
+  for (const rel of relations) {
+    if (typeof rel !== "object" || rel === null) {
+      issues.push("relations[]: members must be objects");
+      continue;
+    }
+    // 03 §7.2 minimal shape: entries keep only relation_key + target —
+    // no copied target titles, explanations or reverse navigation.
+    const relExtra = Object.keys(rel).filter((k) => k !== "relation_key" && k !== "target");
+    if (relExtra.length > 0) {
+      issues.push(`relations[]: entry carries fields beyond relation_key/target (${relExtra.join(", ")}) — 03 §7.2 minimal shape`);
+    }
+
+    const key = rel.relation_key;
+    if (FORBIDDEN_RELATION_KEYS.has(key)) {
+      issues.push(`relations[]: relation_key "${key}" is forbidden for Research (24 §11)`);
+      continue;
+    }
+    if (typeof key !== "string" || !RELATION_KEYS.has(key)) {
+      issues.push(`relations[]: relation_key ${JSON.stringify(key)} not in closed set {inspired-by, informs, updates} (24 §11)`);
+      continue;
+    }
+
+    const target = rel.target;
+    if (typeof target !== "object" || target === null || typeof target.object_uid !== "string" || !UUID_PATTERN.test(target.object_uid)) {
+      // This also rejects v4 legacy ids (study-XXXX…) and legacy triples:
+      // canonical targets are object_uid only (03 §7.2, 24 §11).
+      issues.push(`relations[]: target.object_uid must be a canonical UUID (03 §7.2); got ${JSON.stringify(target?.object_uid)}`);
+      continue;
+    }
+    const targetExtra = Object.keys(target).filter((k) => k !== "object_uid");
+    if (targetExtra.length > 0) {
+      issues.push(`relations[]: target carries fields beyond object_uid (${targetExtra.join(", ")}) — 03 §7.2 minimal shape`);
+    }
+
+    if (key === "updates") {
+      updatesCount += 1;
+      if (updatesCount > 1) issues.push("relations[]: at most one updates relation per object (24 §11)");
+      if (selfUid !== null && target.object_uid === selfUid) issues.push("relations[]: updates target must not be the object itself (24 §11)");
+    }
+
+    const dedupe = `${key}::${target.object_uid}`;
+    if (seen.has(dedupe)) issues.push(`relations[]: duplicate relation ${key} → ${target.object_uid}`);
+    seen.add(dedupe);
+  }
+  return { ok: issues.length === 0, issues };
+}
+
+/**
+ * Extract the resolvable updates-target uid (24 §11: 目标必须可解析且不等于自身),
+ * or null when there is none to resolve.
+ */
+function updatesTargetUid(frontmatter, selfUid) {
+  for (const rel of frontmatter.relations ?? []) {
+    if (rel?.relation_key === "updates" && rel?.target?.object_uid !== selfUid) {
+      return rel.target.object_uid;
+    }
+  }
+  return null;
 }
 
 /**
@@ -434,6 +525,21 @@ export async function createResearchObject(args) {
   if (!fmCheck.ok) {
     return failure("research/frontmatter_invalid", "frontmatter failed mechanical checks", { issues: fmCheck.issues });
   }
+  // Relations contract (24 §11): closed keys, shape, updates cardinality,
+  // plus resolvability of the updates target inside our own directory.
+  const relCheck = validateResearchRelations(frontmatter, uid);
+  if (!relCheck.ok) {
+    return failure("research/relations_invalid", "relations failed mechanical checks", { issues: relCheck.issues });
+  }
+  const targetUid = updatesTargetUid(frontmatter, uid);
+  if (targetUid !== null) {
+    const targetPath = objectFilePath(factSourceRoot, targetUid);
+    try {
+      await access(targetPath);
+    } catch {
+      return failure("research/relation_target_unresolvable", `updates target ${targetUid} does not resolve to an existing Research object`);
+    }
+  }
 
   const bodyCheck = validateBodyStructure(body);
   if (!bodyCheck.ok) {
@@ -577,6 +683,20 @@ export async function updateResearchObject(args) {
   const fmCheck = validateResearchFrontmatter(fm);
   if (!fmCheck.ok) {
     return failure("research/frontmatter_invalid", "updated frontmatter failed mechanical checks", { issues: fmCheck.issues });
+  }
+  // Relations contract on update (24 §11), incl. updates-target resolvability.
+  const relCheck = validateResearchRelations(fm, objectUid);
+  if (!relCheck.ok) {
+    return failure("research/relations_invalid", "updated relations failed mechanical checks", { issues: relCheck.issues });
+  }
+  const targetUid = updatesTargetUid(fm, objectUid);
+  if (targetUid !== null) {
+    const targetPath = objectFilePath(factSourceRoot, targetUid);
+    try {
+      await access(targetPath);
+    } catch {
+      return failure("research/relation_target_unresolvable", `updates target ${targetUid} does not resolve to an existing Research object`);
+    }
   }
   const bodyCheck = validateBodyStructure(body);
   if (!bodyCheck.ok) {
