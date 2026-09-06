@@ -78,6 +78,11 @@ const LDVH_SETTINGS_SCHEMA = z.object({
   // webServer at startup (and on toggle). The host webServer itself always
   // runs — this switch only governs LDVH's routes, not the web service.
   webEnabled: z.boolean().default(true),
+  // Web 呈现入口的两个投放面（仅在 webEnabled 开启时生效）：对话 Tab =
+  // conversation.view 插槽；侧边栏 = betterSidebar LDVH tab。关闭总闸等同
+  // 两项全关。变更后需刷新页面（客户端插槽注册在页面加载时执行）。
+  showInConversationTab: z.boolean().default(true),
+  showInSidebarTab: z.boolean().default(true),
 }).default({});
 
 const API_PREFIX = "/ldvh/api";

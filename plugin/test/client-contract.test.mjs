@@ -229,3 +229,17 @@ test("LDVH_ZH and LDVH_EN both provide row.projectsUnavailable copy", () => {
 		"row.projectsUnavailable must not reuse the row.apiUnavailable wording",
 	);
 });
+
+test("web mount placements: two checkboxes gated by the master switch + refresh hint", () => {
+	// 设置行读写两投放面字段，总闸关闭时复选框禁用；挂载注册读取一次性快照条件化。
+	assert.ok(source.includes('convTabState') && source.includes('sidebarTabState'), "settings row keeps placement states");
+	assert.ok(source.includes('scope.set("showInConversationTab"') && source.includes('scope.set("showInSidebarTab"'), "save persists both placements");
+	assert.ok(source.includes('checked: enabledState[0] && convTabState[0]') && source.includes('checked: enabledState[0] && sidebarTabState[0]'), "checkboxes visually checked only when master is on");
+	assert.ok(source.includes('disabled: !enabledState[0]'), "checkboxes disabled when master switch is off");
+	assert.ok(source.includes('mountSettings.webEnabled && mountSettings.showInSidebarTab'), "sidebar tab registers only when master + sidebar placement are on");
+	assert.ok(source.includes('mountSettings.webEnabled && mountSettings.showInConversationTab'), "conversation tab registers only when master + conversation placement are on");
+	assert.ok(source.includes('"row.mountHint"'), "refresh hint key exists");
+	assert.ok(source.includes('保存后刷新页面生效'), "LDVH_ZH mount hint states the refresh requirement");
+	assert.ok(source.includes('Takes effect after saving and reloading'), "LDVH_EN mount hint states the refresh requirement");
+});
+

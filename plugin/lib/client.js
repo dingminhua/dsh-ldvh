@@ -90,6 +90,13 @@ window.__ModuleLoader__.load({
       "@media(max-width:560px){.ldv-governance-add{padding:14px}.ldv-governance-path-control{display:grid;gap:8px}.ldv-governance-path-control .ldv-settings-input{border-radius:10px}.ldv-governance-path-control .ldv-btn{border-left:1px solid var(--dsw-alias-border-l2,#36373b);border-radius:10px}.ldv-governance-add-actions{justify-content:stretch}.ldv-governance-add-actions .ldv-btn{flex:1;min-width:0}.ldv-project-actions{justify-content:stretch}.ldv-project-actions .ldv-btn{flex:1}}" +
       ".ldv-web-panel{overflow:hidden;border:1px solid var(--dsw-alias-border-l2,#36373b);border-radius:12px;background:linear-gradient(145deg,var(--dsw-alias-bg-layer-2,#232529),var(--dsw-alias-bg-layer-3,#202126))}" +
       ".ldv-web-panel-head{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 14px;border-bottom:1px solid var(--dsw-alias-border-l2,#36373b)}" +
+      ".ldv-mount-toggles{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:10px}" +
+      ".ldv-check{display:inline-flex;align-items:center;gap:7px;cursor:pointer;min-height:20px}" +
+      ".ldv-check-disabled{cursor:not-allowed;opacity:.45}" +
+      ".ldv-check input{width:14px;height:14px;accent-color:var(--dsw-alias-state-business-primary,#5686fe);cursor:pointer;flex:none;margin:0}" +
+      ".ldv-check-disabled input{cursor:not-allowed}" +
+      ".ldv-check-label{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#c2c2c2);user-select:none}" +
+      ".ldv-mount-hint{display:block;margin-top:8px}" +
       ".ldv-web-panel-copy{display:flex;flex-direction:column;gap:3px;min-width:0}" +
       ".ldv-web-panel-title{font-size:13px;font-weight:600;line-height:19px;color:var(--dsw-alias-label-primary,#e6e6e6)}" +
       ".ldv-web-panel-desc{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#999)}" +
@@ -178,6 +185,9 @@ window.__ModuleLoader__.load({
       "row.apiUnavailable": "LDVH 服务暂不可用，请稍后重试或检查 Web 呈现开关",
       "row.projectsUnavailable": "管辖项目列表暂不可用，请先查看上方 Web 呈现状态。",
       "row.webEnabled": "启用 LDVH Web 呈现",
+      "row.mountConversationTab": "加入到对话 Tab",
+      "row.mountSidebarTab": "加入到侧边栏",
+      "row.mountHint": "保存后刷新页面生效；关闭 Web 呈现总开关时，两项投放均不生效。",
       "row.webHint": "关闭时移除 LDVH 页面和 API；开启后自动挂载并检查是否可用。",
       "row.status": "Web 呈现状态",
       "row.statusChecking": "检测中…",
@@ -232,6 +242,9 @@ window.__ModuleLoader__.load({
       "row.apiUnavailable": "The LDVH service is unavailable. Retry later or check the Web presentation switch.",
       "row.projectsUnavailable": "The governed-project list is unavailable. Check the Web presentation status above first.",
       "row.webEnabled": "Enable LDVH Web presentation",
+      "row.mountConversationTab": "Add to conversation tab",
+      "row.mountSidebarTab": "Add to sidebar",
+      "row.mountHint": "Takes effect after saving and reloading the page; when the Web presentation switch is off, neither placement is active.",
       "row.webHint": "Turning it off removes the LDVH page and API; turning it on mounts them and checks availability automatically.",
       "row.status": "Web presentation status",
       "row.statusChecking": "Checking…",
@@ -328,6 +341,8 @@ window.__ModuleLoader__.load({
       var snap = useSettingsScopeSnapshot(scope);
       var value = (snap && snap.status === "ready" && snap.value) || {};
       var enabledState = React.useState(value.webEnabled !== false);
+      var convTabState = React.useState(value.showInConversationTab !== false);
+      var sidebarTabState = React.useState(value.showInSidebarTab !== false);
       var dirtyState = React.useState(false);
       var busyState = React.useState(false);
       var savedState = React.useState(false);
@@ -367,6 +382,8 @@ window.__ModuleLoader__.load({
         if (dirtyState[0] || busyState[0]) return;
         var next = (snap && snap.status === "ready" && snap.value) || {};
         enabledState[1](next.webEnabled !== false);
+        convTabState[1](next.showInConversationTab !== false);
+        sidebarTabState[1](next.showInSidebarTab !== false);
         savedState[1](false);
         saveErrorState[1](false);
       }, [snap ? snap.revision : -1, dirtyState[0], busyState[0]]);
@@ -462,6 +479,8 @@ window.__ModuleLoader__.load({
         busyState[1](true);
         Promise.resolve()
           .then(function () { return scope.set("webEnabled", !!enabledState[0]); })
+          .then(function () { return scope.set("showInConversationTab", !!convTabState[0]); })
+          .then(function () { return scope.set("showInSidebarTab", !!sidebarTabState[0]); })
           .then(function () {
             busyState[1](false);
             dirtyState[1](false);
@@ -573,7 +592,30 @@ window.__ModuleLoader__.load({
             React.createElement("div", { className: "ldv-status" },
               serviceStatus,
               serviceIssue ? React.createElement("span", { className: "ldv-settings-hint" }, serviceIssue) : null
-            )
+            ),
+            React.createElement("div", { className: "ldv-mount-toggles" },
+              React.createElement("label", { className: "ldv-check" + (enabledState[0] ? "" : " ldv-check-disabled") },
+                React.createElement("input", {
+                  type: "checkbox",
+                  checked: enabledState[0] && convTabState[0],
+                  disabled: !enabledState[0],
+                  "aria-label": t("row.mountConversationTab"),
+                  onChange: function (e) { convTabState[1](e.target.checked); markDirty(); }
+                }),
+                React.createElement("span", { className: "ldv-check-label" }, t("row.mountConversationTab"))
+              ),
+              React.createElement("label", { className: "ldv-check" + (enabledState[0] ? "" : " ldv-check-disabled") },
+                React.createElement("input", {
+                  type: "checkbox",
+                  checked: enabledState[0] && sidebarTabState[0],
+                  disabled: !enabledState[0],
+                  "aria-label": t("row.mountSidebarTab"),
+                  onChange: function (e) { sidebarTabState[1](e.target.checked); markDirty(); }
+                }),
+                React.createElement("span", { className: "ldv-check-label" }, t("row.mountSidebarTab"))
+              )
+            ),
+            React.createElement("span", { className: "ldv-settings-hint ldv-mount-hint" }, t("row.mountHint"))
           )
         ),
         React.createElement("section", { className: "ldv-governance-note" },
@@ -779,10 +821,22 @@ window.__ModuleLoader__.load({
           }, LdvhSettingsCard);
         });
 
-        // 2b) betterSidebar「LDVH」tab
+        // 投放面设置：注册时读取一次 + 订阅变更（保存后刷新页面才重新注册——
+        // 插槽注册在页面加载时执行，运行中变更不强推，提示词已写明刷新生效）。
+        var mountSettings = { webEnabled: true, showInConversationTab: true, showInSidebarTab: true };
+        try {
+          var initialSnap = ldvhScope.getSnapshot();
+          if (initialSnap && initialSnap.status === "ready" && initialSnap.value) {
+            mountSettings.webEnabled = initialSnap.value.webEnabled !== false;
+            mountSettings.showInConversationTab = initialSnap.value.showInConversationTab !== false;
+            mountSettings.showInSidebarTab = initialSnap.value.showInSidebarTab !== false;
+          }
+        } catch (mountError) { /* 默认全开 */ }
+
+        // 2b) betterSidebar「LDVH」tab（总闸+侧栏复选框都开才注册）
         // 软注入：ctx.inject 订阅服务可用性（apply 时未就绪也会等）
         // ——比 ctx.get 快照更可靠；服务缺失时直接跳过，本插件照常工作。
-        ctx.inject(["betterSidebar"], function (scope) {
+        if (mountSettings.webEnabled && mountSettings.showInSidebarTab) ctx.inject(["betterSidebar"], function (scope) {
           var betterSidebar = scope.betterSidebar;
           if (!betterSidebar || typeof betterSidebar.registerTab !== "function") return;
           scope.effect(function () {
@@ -807,8 +861,8 @@ window.__ModuleLoader__.load({
           }, "dsh-ldvh: better sidebar tab");
         });
 
-        // 2) LDVH view tab, trajectory-analogue (conversation.view / list / session)
-        ctx.slots.inject("conversation.view", function () {
+        // 2) LDVH view tab（总闸+对话 Tab 复选框都开才注册）
+        if (mountSettings.webEnabled && mountSettings.showInConversationTab) ctx.slots.inject("conversation.view", function () {
           return ctx.slots.register({
             name: "conversation.view",
             id: "ldvh",
