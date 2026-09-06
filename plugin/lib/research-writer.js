@@ -23,7 +23,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
@@ -46,6 +46,18 @@ const STOPPING_REASONS = new Set(["sufficient", "no-gain", "round-cap"]);
 const STATUSES = new Set(["active", "retired"]);
 const ANSWERED_BY = new Set(["human", "external", "ai"]);
 
+/** Closed set of frontmatter keys (24 §8: unknown fields are rejected). */
+const VALID_FM_KEYS = new Set([
+  "object_uid", "fact_type_key", "title", "created_at", "status",
+  "urls", "relations", "change_log",
+  "research_question", "research_purpose", "stopping_reason",
+  "confirmed", "uncertain", "gaps",
+  "implications", "clarification_log",
+]);
+
+/** UUID format check (W3: path-injection guard). */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // ---------------------------------------------------------------------------
 // Result helpers
 // ---------------------------------------------------------------------------
@@ -64,6 +76,13 @@ function success(value) {
 
 export function validateResearchFrontmatter(frontmatter) {
   const issues = [];
+
+  // Closed-set check (24 §8.5): unknown fields reject the object
+  for (const k of Object.keys(frontmatter)) {
+    if (!VALID_FM_KEYS.has(k)) {
+      issues.push(`frontmatter: unexpected field "${k}" (closed-set violation, 24 §8)`);
+    }
+  }
 
   if (typeof frontmatter.object_uid !== "string" || frontmatter.object_uid.length === 0) {
     issues.push("object_uid: required non-empty string");
@@ -291,7 +310,22 @@ function buildFileContent(frontmatter, body) {
 async function atomicWriteFile(filePath, content) {
   const tmp = `${filePath}.tmp`;
   await writeFile(tmp, content, "utf8");
+  // Write verification (W4): read back and compare before rename —
+  // catches partial writes (disk-full at flush time, etc.)
+  const written = await readFile(tmp, "utf8");
+  if (written !== content) {
+    await unlink(tmp).catch(() => {});
+    throw new Error("atomic write verification failed: written content does not match");
+  }
   await rename(tmp, filePath);
+}
+
+/** Validate objectUid format (W3 path-injection guard). */
+function assertValidUid(objectUid) {
+  if (typeof objectUid !== "string" || !UUID_PATTERN.test(objectUid)) {
+    return false;
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,7 +355,9 @@ export async function createResearchObject(args) {
   // Code-assigned identity (03 §6.2)
   const uid = randomUUID();
   const now = new Date().toISOString();
-  const frontmatter = { ...frontmatterDraft };
+  // Strip caller-only params (change_summary is a call argument, not object metadata)
+  const { change_summary: _stripped, ...draftFields } = frontmatterDraft;
+  const frontmatter = { ...draftFields };
   frontmatter.object_uid = uid;
   frontmatter.fact_type_key = RESEARCH_TYPE_KEY;
   frontmatter.created_at = now;
@@ -378,6 +414,9 @@ function insertSurveySection(analysisBody, surveyH3Content) {
 
 export async function readResearchObject(args) {
   const { factSourceRoot, objectUid } = args;
+  if (!assertValidUid(objectUid)) {
+    return failure("research/invalid_uid", "objectUid must be a valid UUID");
+  }
   const filePath = objectFilePath(factSourceRoot, objectUid);
 
   let content;
@@ -424,6 +463,9 @@ export async function updateResearchObject(args) {
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return failure("research/change_summary_required", "changeSummary is required for update");
   }
+  if (!assertValidUid(args.objectUid)) {
+    return failure("research/invalid_uid", "objectUid must be a valid UUID");
+  }
 
   const current = await readResearchObject({ factSourceRoot, objectUid });
   if (!current.ok) return current;
@@ -448,7 +490,9 @@ export async function updateResearchObject(args) {
   }
 
   // Build updated frontmatter
-  const fm = { ...frontmatterAfter };
+  // Strip caller-only params before building the persistent frontmatter
+  const { change_summary: _strippedUpdate, ...afterFields } = frontmatterAfter;
+  const fm = { ...afterFields };
   fm.object_uid = objectUid;
   fm.fact_type_key = RESEARCH_TYPE_KEY;
   fm.created_at = current.value.frontmatter.created_at;

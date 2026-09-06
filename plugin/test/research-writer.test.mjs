@@ -93,7 +93,8 @@ const validSurveyH3Body = `### 调查问题与范围
 // ---------------------------------------------------------------------------
 
 test("validateResearchFrontmatter accepts a valid frontmatter", () => {
-  const fm = { ...validFrontmatterDraft(), object_uid: "test-uid", fact_type_key: "research", created_at: "2026-09-08T00:00:00Z" };
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "test-uid", fact_type_key: "research", created_at: "2026-09-08T00:00:00Z" };
   const result = validateResearchFrontmatter(fm);
   assert.equal(result.ok, true, JSON.stringify(result.issues));
 });
@@ -297,9 +298,23 @@ test("createResearchObject rejects empty survey for exploratory", async () => {
 // ---------------------------------------------------------------------------
 
 test("readResearchObject returns not_found for nonexistent uid", async () => {
-  const result = await readResearchObject({ factSourceRoot: root, objectUid: "nonexistent-uid" });
+  const result = await readResearchObject({ factSourceRoot: root, objectUid: "00000000-0000-4000-8000-000000000000" });
   assert.ok(!result.ok);
   assert.equal(result.error.code, "research/object_not_found");
+});
+
+test("readResearchObject rejects invalid uid format (path injection)", async () => {
+  const result = await readResearchObject({ factSourceRoot: root, objectUid: "../../etc/passwd" });
+  assert.ok(!result.ok);
+  assert.equal(result.error.code, "research/invalid_uid");
+});
+
+test("validateResearchFrontmatter rejects unknown fields (closed set)", () => {
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t", custom_field: "not allowed" };
+  const result = validateResearchFrontmatter(fm);
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((i) => i.includes("unexpected field")));
 });
 
 // ---------------------------------------------------------------------------
