@@ -632,7 +632,7 @@ function WorkCaseReadingNode({
       headerMeta={headerMeta}
       onToggle={() => setState((current) => getReadingNodeNextState(current))}
     >
-      <div className={contentVariant === "semantic" ? "grid gap-3" : "ldvh-study-node-content"}>
+      <div className={contentVariant === "semantic" ? "grid gap-3" : "ldvh-research-node-content"}>
         {note && <ReadingBoundaryNote value={note} />}
         <div className={contentVariant === "semantic" ? "grid gap-3" : "divide-y divide-ldvh-border/60"}>
           {children}

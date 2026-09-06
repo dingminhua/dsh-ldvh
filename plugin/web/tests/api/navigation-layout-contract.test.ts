@@ -33,7 +33,7 @@ test('studies are followed by the ordered directory, workspace changes, and comm
   assert.match(app, /<Route path="\/changes" element=\{<Changes \/>\} \/>/);
   assert.match(
     sidebar,
-    /\{ to: '\/objects\/study'.*\},\s*\{ to: '\/project-files'/s,
+    /\{ to: '\/objects\/research'.*\},\s*\{ to: '\/project-files'/s,
   );
   assert.match(sidebar, /title=\{isCollapsed \? getNavItemLabel\(item, t\) : undefined\}/);
   assert.match(sidebar, /position \? 'fixed' : 'absolute left-full top-1\/2 ml-2'/);

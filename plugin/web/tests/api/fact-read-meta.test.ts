@@ -10,20 +10,20 @@ import {
 
 test('source metadata is consumable only from a readable exact result', () => {
   const meta = getFactReadMeta({
-    canonical_path: 'ldvh-base/studies/study-0010.md',
+    canonical_path: 'ldvh-base/researches/research-0010.md',
     carrier: 'markdown',
     read_status: 'readable',
   });
 
   assert.equal(isReadableFact(meta), true);
-  assert.equal(meta.canonicalPath, 'ldvh-base/studies/study-0010.md');
+  assert.equal(meta.canonicalPath, 'ldvh-base/researches/research-0010.md');
   assert.equal(meta.carrier, 'markdown');
 });
 
 test('a route target, ID, or expected path alone never becomes a source path', () => {
   const fromNavigation = getFactReadMeta({
-    target: 'study-0010',
-    object_id: 'study-0010',
+    target: 'research-0010',
+    object_id: 'research-0010',
     carrier: 'markdown',
     read_status: 'readable',
   });
@@ -32,15 +32,15 @@ test('a route target, ID, or expected path alone never becomes a source path', (
 
   const failure = getFactReadMeta({
     fact_read_failure: true,
-    canonical_path: 'ldvh-base/studies/study-0010.md',
+    canonical_path: 'ldvh-base/researches/research-0010.md',
     carrier: 'markdown',
     read_status: 'unreadable',
-    read_issues: [{ code: 'yaml_parse_failed', path: 'ldvh-base/studies/study-0010.md', message: 'frontmatter cannot be parsed' }],
+    read_issues: [{ code: 'yaml_parse_failed', path: 'ldvh-base/researches/research-0010.md', message: 'frontmatter cannot be parsed' }],
   });
   assert.equal(isReadableFact(failure), false);
-  assert.equal(failure.canonicalPath, 'ldvh-base/studies/study-0010.md');
+  assert.equal(failure.canonicalPath, 'ldvh-base/researches/research-0010.md');
   assert.equal(failure.issues[0]?.category, 'yaml_parse_failed');
-  assert.equal(failure.issues[0]?.fieldPath, 'ldvh-base/studies/study-0010.md');
+  assert.equal(failure.issues[0]?.fieldPath, 'ldvh-base/researches/research-0010.md');
   assert.equal(failure.issues[0]?.summary, 'frontmatter cannot be parsed');
 });
 

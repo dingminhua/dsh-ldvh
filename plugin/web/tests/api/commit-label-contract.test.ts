@@ -30,15 +30,19 @@ function tableTokens(header: 'type' | 'scope'): string[] {
     .map((line) => line.split('|')[1].trim().replace(/`/g, ''));
 }
 
-test('current Web commit labels stay synchronized with 03.Att.01 tables', () => {
-  assert.deepEqual([...CURRENT_COMMIT_TYPES], tableTokens('type'));
-  assert.deepEqual([...CURRENT_COMMIT_SCOPES], tableTokens('scope'));
+test('current Web commit labels stay synchronized with 03.Att.01 tables modulo the v5 research rename', () => {
+  // v5 类型系统（24 号）：study → research。03.Att.01 仍是 v4 归档原文（study），
+  // Web 枚举按 v5 演进——同步断言改为「除该更名外逐项一致」。
+  const expectedTypes = tableTokens('type').map((token) => (token === 'study' ? 'research' : token));
+  const expectedScopes = tableTokens('scope').map((token) => (token === 'study' ? 'research' : token));
+  assert.deepEqual([...CURRENT_COMMIT_TYPES], expectedTypes);
+  assert.deepEqual([...CURRENT_COMMIT_SCOPES], expectedScopes);
   assert.equal(getCommitTypeLabel('merge', 'zh'), '合并提交');
 });
 
 test('historical or unknown tokens use raw fallback without becoming current tokens', () => {
   assert.equal(getCommitTypeLabel('spec', 'zh'), 'spec');
-  assert.equal(getCommitScopeLabel('studies', 'zh'), 'studies');
+  assert.equal(getCommitScopeLabel('researches', 'zh'), 'researches');
   assert.ok(!CURRENT_COMMIT_TYPES.includes('spec' as never));
-  assert.ok(!CURRENT_COMMIT_SCOPES.includes('studies' as never));
+  assert.ok(!CURRENT_COMMIT_SCOPES.includes('researches' as never));
 });

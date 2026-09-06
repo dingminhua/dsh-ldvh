@@ -330,7 +330,7 @@ export interface WorkCaseRouteTarget {
 
 export interface WorkCaseRelationTarget {
   governed_project_id: string;
-  fact_type_key: 'workcase' | 'spark' | 'adr' | 'pitfall' | 'study';
+  fact_type_key: 'workcase' | 'spark' | 'adr' | 'pitfall' | 'research';
   object_id: string;
 }
 

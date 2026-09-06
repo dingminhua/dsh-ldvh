@@ -274,7 +274,7 @@ export function FactReadingContent({
     <>
       {objType === 'workcase' ? (
         <WorkCaseReadingLayout obj={obj as WorkCaseDetailData} locale={locale} />
-      ) : objType === 'study' ? (
+      ) : objType === 'research' ? (
         <StudyReadingLayout
           obj={obj}
           extraEntries={primaryEntries}
@@ -308,7 +308,7 @@ export function FactReadingContent({
       <FieldIssuesSection value={obj.field_issues} />
       <UnparsedStructuresSection value={obj.unparsed_structures} />
 
-      {(carrier === 'yaml' || objType === 'study') && (
+      {(carrier === 'yaml' || objType === 'research') && (
         <YamlDataNode
           yamlSource={reconstructFactYaml(obj)}
           title={t('objectDetail.yamlSource')}
@@ -955,7 +955,7 @@ export function EvidenceReadingNodes({ value }: { value: string }) {
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ldvh-text-secondary/45" aria-hidden="true" />
             <span>{section.title}</span>
           </div>
-          <div className="ldvh-study-node-content pl-3">
+          <div className="ldvh-research-node-content pl-3">
             <div className="ldvh-inline-markdown max-w-none">
               <Markdown remarkPlugins={[remarkGfm]}>{section.body}</Markdown>
             </div>
@@ -1317,7 +1317,7 @@ export function StudyReadingLayout({
           fieldKey={fieldKey}
           value={value}
           locale={locale}
-          objType="study"
+          objType="research"
           objectPath={objectPath}
         />
       ))}
@@ -1425,7 +1425,7 @@ export function StudyTextNodeContent({
   const text = String(value);
 
   return (
-    <div className={`ldvh-study-node-content min-w-0 ${compact ? 'ldvh-study-node-content-compact' : ''} ${className}`}>
+    <div className={`ldvh-research-node-content min-w-0 ${compact ? 'ldvh-research-node-content-compact' : ''} ${className}`}>
       <div className="ldvh-inline-markdown max-w-none min-w-0 overflow-hidden break-words">
         <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
       </div>

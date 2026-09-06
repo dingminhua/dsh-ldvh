@@ -10,8 +10,8 @@ const fixtures = [
   { type: 'adr', id: 'adr-0001', directory: 'adrs', carrier: 'yaml', body: 'object_id: adr-0001\nfact_type_key: adr\ntitle: ADR fixture\nstatus: active\n' },
   { type: 'pitfall', id: 'pitfall-0001', directory: 'pitfalls', carrier: 'yaml', body: 'object_id: pitfall-0001\nfact_type_key: pitfall\ntitle: Pitfall fixture\nstatus: active\n' },
   {
-    type: 'study', id: 'study-0001', directory: 'studies', carrier: 'markdown',
-    body: '---\nobject_id: study-0001\nfact_type_key: study\ntitle: Study fixture\nstatus: active\n---\n\n## 研究问题\n\nFixture body.\n',
+    type: 'research', id: 'research-0001', directory: 'researches', carrier: 'markdown',
+    body: '---\nobject_id: research-0001\nfact_type_key: research\ntitle: Study fixture\nstatus: active\n---\n\n## 研究问题\n\nFixture body.\n',
   },
 ] as const;
 
@@ -36,11 +36,11 @@ test('local exact reads carry source metadata for each local carrier, while list
       assert.equal(result.data.fact_read_failure, undefined);
     }
 
-    const listed = await listObjects('study', undefined, undefined, scope);
+    const listed = await listObjects('research', undefined, undefined, scope);
     if (!listed.ok) throw new Error(listed.error);
     assert.equal(listed.ok, true);
     const candidate = (listed.data.items as Array<Record<string, unknown>>)[0];
-    assert.equal(candidate?.object_id, 'study-0001');
+    assert.equal(candidate?.object_id, 'research-0001');
     assert.equal('canonical_path' in (candidate ?? {}), false);
     assert.equal('carrier' in (candidate ?? {}), false);
     assert.equal(candidate?.read_status, 'readable');
@@ -112,15 +112,15 @@ test('UID-native object ids open through the exact-read detail path', async () =
 test('identity and required-field problems remain readable field-level results', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-web-facts-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
-  const studyDir = path.join(root, 'ldvh-base', 'studies');
+  const studyDir = path.join(root, 'ldvh-base', 'researches');
   await mkdir(studyDir, { recursive: true });
   await writeFile(
-    path.join(studyDir, 'study-0002.md'),
-    '---\nobject_id: study-9999\nfact_type_key: study\nstatus: active\n---\n\n## 研究问题\n\nBroken identity.\n',
+    path.join(studyDir, 'research-0002.md'),
+    '---\nobject_id: research-9999\nfact_type_key: research\nstatus: active\n---\n\n## 研究问题\n\nBroken identity.\n',
     'utf8',
   );
   try {
-    const readable = await showObject('study-0002', scope);
+    const readable = await showObject('research-0002', scope);
     if (!readable.ok) throw new Error(readable.error);
     assert.equal(readable.ok, true);
     assert.equal(readable.summary.read_status, undefined);
@@ -129,18 +129,18 @@ test('identity and required-field problems remain readable field-level results',
     assert.equal(readable.data.status, 'active');
     const issues = readable.data.field_issues as Array<Record<string, unknown>>;
     assert.deepEqual(issues.map((issue) => [issue.path, issue.reason]).sort(), [
-      ['abstract', 'missing'],
       ['created_at', 'missing'],
-      ['object_id', 'identity_mismatch'], ['research_question', 'missing'], ['title', 'missing'],
+      ['object_id', 'identity_mismatch'],
+      ['research_purpose', 'missing'], ['research_question', 'missing'], ['title', 'missing'],
       ['updated_at', 'missing'],
     ]);
 
-    const missing = await showObject('study-9999', scope);
+    const missing = await showObject('research-9999', scope);
     if (!missing.ok) throw new Error(missing.error);
     assert.equal(missing.ok, true);
     assert.equal(missing.summary.read_status, 'unreadable');
     assert.equal(missing.data.fact_read_failure, true);
-    assert.equal(missing.data.canonical_path, 'ldvh-base/studies/study-9999.md');
+    assert.equal(missing.data.canonical_path, 'ldvh-base/researches/research-9999.md');
     assert.equal(missing.data.report_body, undefined);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -162,7 +162,7 @@ test('list responses keep per-object read failures and collection coverage in th
     assert.deepEqual((candidate?.read_issues as Array<Record<string, unknown>>).map((issue) => issue.code), ['yaml_parse_failed']);
     assert.deepEqual(listed.issues.map((issue) => issue.code), ['yaml_parse_failed']);
 
-    const notIntegrated = await listObjects('study', undefined, undefined, scope);
+    const notIntegrated = await listObjects('research', undefined, undefined, scope);
     if (!notIntegrated.ok) throw new Error(notIntegrated.error);
     assert.equal(notIntegrated.data.coverage_status, 'type_not_integrated');
     assert.deepEqual((notIntegrated.data.collection_issues as Array<Record<string, unknown>>).map((issue) => issue.code), ['type_not_integrated']);
@@ -188,7 +188,7 @@ test('fact list cards project every formal association through exact readable ta
         'object_id: spark-0001', 'fact_type_key: spark', 'title: Spark source', 'status: open', 'relations:',
         '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0001',
         '  - relation_key: informs', '    target:', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0001',
-        '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: study', '      object_id: study-9999',
+        '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: research', '      object_id: research-9999',
         '  - relation_key: related-to', '    target:', '      object_uid: 0198f1c7-8a2b-7c3d-9e4f-123456789abc',
         '  - relation_key: related-to', '    target:', '      object_uid: 0198f1c7-8a2b-7c3d-9e4f-123456789abc', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0001',
         '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0001', '      copied_title: Bad target',
@@ -212,7 +212,7 @@ test('fact list cards project every formal association through exact readable ta
       },
       {
         relationKey: 'related-to',
-        target: { governedProjectId: 'fixture', factTypeKey: 'study', objectId: 'study-9999' },
+        target: { governedProjectId: 'fixture', factTypeKey: 'research', objectId: 'research-9999' },
         available: false,
       },
       {

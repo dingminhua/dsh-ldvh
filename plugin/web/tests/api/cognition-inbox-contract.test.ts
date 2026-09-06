@@ -172,7 +172,7 @@ test('recent hotspots preserve only fact activity and one-hop formal relation sh
   const clusters = hotspots.clusters as Array<Record<string, unknown>>
   const primaryKeys = new Set<string>()
   const assertNode = (node: Record<string, unknown>) => {
-    assert.ok(['workcase', 'adr', 'pitfall', 'spark', 'study'].includes(String(node.type)))
+    assert.ok(['workcase', 'adr', 'pitfall', 'spark', 'research'].includes(String(node.type)))
     assert.match(String(node.id), /^(workcase|adr|pitfall|spark|study)-(?:\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})$/)
     assert.equal(typeof node.title, 'string')
     assert.equal(typeof node.typeColor, 'string')
@@ -242,7 +242,7 @@ test('recent hotspot builder does not absorb transitive peers and rejects invali
       { relation_key: 'related-to', target: target('spark', 'spark-0003') },
     ]),
     fact('spark', 'spark-0003', 'open'),
-    fact('study', 'study-0001', 'active', [
+    fact('research', 'research-0001', 'active', [
       { relation_key: 'informs', target: target('spark', 'spark-0001') },
     ]),
     fact('workcase', 'workcase-0001', 'open', [
@@ -260,7 +260,7 @@ test('recent hotspot builder does not absorb transitive peers and rejects invali
   assert.equal(result.clusters[0].primary.id, 'spark-0001')
   assert.deepEqual(
     result.clusters[0].relations.map((relation) => `${relation.direction}:${relation.relationKey}:${relation.node.id}`),
-    ['outgoing:related-to:spark-0002', 'incoming:informs:study-0001'],
+    ['outgoing:related-to:spark-0002', 'incoming:informs:research-0001'],
   )
   assert.equal(result.clusters[0].relations.some((relation) => relation.node.id === 'spark-0003'), false)
   assert.equal(result.clusters[0].relations.some((relation) => relation.node.id === 'workcase-0002'), false)
@@ -440,7 +440,7 @@ test('recent activity accepts only explicit windows and groups fact change-log e
     assert.equal(Number(recent.total), items.length)
     assert.ok(Number(recent.eventTotal) >= items.length)
     for (const item of items) {
-      assert.ok(['workcase', 'adr', 'pitfall', 'spark', 'study'].includes(String(item.type)))
+      assert.ok(['workcase', 'adr', 'pitfall', 'spark', 'research'].includes(String(item.type)))
       assert.ok(['created', 'updated'].includes(String(item.activity)))
       assert.match(String(item.occurredAt), RFC3339)
       if (item.signature !== undefined) {

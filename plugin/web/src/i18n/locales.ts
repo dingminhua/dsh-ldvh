@@ -83,7 +83,9 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     active: { zh: '活跃', en: 'Active' },
     discarded: { zh: '已废弃', en: 'Discarded' },
   },
-  study: {
+  research: {
+    active: { zh: '活跃', en: 'Active' },
+    superseded: { zh: '已被取代', en: 'Superseded' },
     retired: { zh: '已废弃', en: 'Retired' },
   },
 };
@@ -99,7 +101,7 @@ export const TYPE_DESCRIPTION_LOCALES: Record<string, { zh: string; en: string }
   adr: { zh: '决策记录', en: 'Architecture Decision Record' },
   pitfall: { zh: '可复用经验', en: 'Reusable pitfalls' },
   spark: { zh: '待分流的火花', en: 'Spark pending routing' },
-  study: { zh: '研究', en: 'Study' },
+  research: { zh: '调研', en: 'Research' },
   change: { zh: '提交', en: 'Commit' },
 };
 
@@ -122,7 +124,7 @@ export const TYPE_LOCALES: Record<string, { zh: string; en: string }> = {
   adr: { zh: '决策', en: 'ADR' },
   pitfall: { zh: '经验', en: 'Pitfall' },
   spark: { zh: '火花', en: 'Spark' },
-  study: { zh: '研究', en: 'Study' },
+  research: { zh: '调研', en: 'Research' },
   change: { zh: '提交', en: 'Commit' },
 };
 
@@ -545,7 +547,7 @@ const COMMIT_SCOPE_LOCALES: Record<string, { zh: string; en: string }> = {
   code: { zh: 'Code', en: 'Code' }, web: { zh: 'Web', en: 'Web' },
   tests: { zh: 'Tests', en: 'Tests' }, config: { zh: '配置', en: 'Config' },
   workcase: { zh: '工作', en: 'WorkCase' }, adr: { zh: '决策', en: 'ADR' },
-  spark: { zh: '火花', en: 'Spark' }, study: { zh: '研究', en: 'Study' },
+  spark: { zh: '火花', en: 'Spark' }, research: { zh: '调研', en: 'Research' },
   pitfall: { zh: '经验', en: 'Pitfall' },
 };
 

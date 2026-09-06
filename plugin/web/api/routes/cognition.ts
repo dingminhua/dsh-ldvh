@@ -314,7 +314,7 @@ function buildRecentActivityItem(
     ...(signature ? { signature } : {}),
     ...(type === 'workcase' ? { progress_group: progressGroup } : { status }),
     ...(priorityRank(raw.priority) < 4 && typeof raw.priority === 'string' ? { priority: raw.priority } : {}),
-    ...(type === 'study' && typeof raw.report_kind === 'string' ? { report_kind: raw.report_kind } : {}),
+    ...(type === 'research' && typeof raw.report_kind === 'string' ? { report_kind: raw.report_kind } : {}),
     read_status: String(raw.read_status ?? 'unknown'),
     field_issues: Array.isArray(raw.field_issues) ? raw.field_issues as Array<Record<string, unknown>> : [],
     unparsed_structures: Array.isArray(raw.unparsed_structures) ? raw.unparsed_structures as Array<Record<string, unknown>> : [],
@@ -602,7 +602,7 @@ function isDisplayableFormalRelation(
     }
     return false
   }
-  if (source.type === 'study') {
+  if (source.type === 'research') {
     return (relationKey === 'inspired-by' || relationKey === 'informs')
       && (target.type === 'spark' || target.type === 'workcase' || target.type === 'adr')
   }
@@ -757,7 +757,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       listObjects('pitfall', undefined, undefined, factScope),
       listObjects('adr', undefined, undefined, factScope),
       listObjects('spark', undefined, undefined, factScope),
-      listObjects('study', undefined, undefined, factScope),
+      listObjects('research', undefined, undefined, factScope),
     ])
     const issues: CognitionIssue[] = []
     let sparkHealth: ReturnType<typeof buildSparkHealth> | undefined
@@ -865,7 +865,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       ['pitfall', pitfallResult],
       ['adr', adrResult],
       ['spark', sparkResult],
-      ['study', studyResult],
+      ['research', studyResult],
     ]
     for (const [type, source] of recentSources) {
       if (!source.ok || !('data' in source)) {
@@ -888,7 +888,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     try {
       const graphFacts: RecentHotspotBuildItem[] = []
       const activityByFact = new Map<string, RecentHotspotRef[]>()
-      const graphTypes: ObjectType[] = ['workcase', 'adr', 'pitfall', 'spark', 'study']
+      const graphTypes: ObjectType[] = ['workcase', 'adr', 'pitfall', 'spark', 'research']
       const graphResults = await Promise.all(graphTypes.map(async (type) => [type, await listLocalFacts(type, factScope)] as const))
       for (const [type, result] of graphResults) {
         if (result.status !== 'complete') {

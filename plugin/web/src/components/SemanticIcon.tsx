@@ -49,7 +49,7 @@ export const OBJECT_TYPE_ICONS: Record<string, SemanticIconComponent> = {
   adr: FileSignature,
   pitfall: Lightbulb,
   spark: Sparkles,
-  study: FileSearchCornerIcon,
+  research: FileSearchCornerIcon,
   change: GitCommit,
   changelog: GitHubSilhouetteIcon,
 };

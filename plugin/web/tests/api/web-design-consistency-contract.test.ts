@@ -253,11 +253,11 @@ test('WorkCase semantic blocks keep the compact 14/13px by 22px hierarchy', () =
 test('fact reading unordered-list markers stay centered on the first text line', () => {
   const styles = read('src/index.css');
   const markerRule = styles.slice(
-    styles.indexOf('.ldvh-study-node-content .ldvh-inline-markdown :where(ul > li)::before'),
-    styles.indexOf('.ldvh-study-node-content .ldvh-inline-markdown :where(ol > li)::marker'),
+    styles.indexOf('.ldvh-research-node-content .ldvh-inline-markdown :where(ul > li)::before'),
+    styles.indexOf('.ldvh-research-node-content .ldvh-inline-markdown :where(ol > li)::marker'),
   );
 
   assert.match(markerRule, /top: calc\(0\.875em - 1px\);/);
   assert.match(markerRule, /transform: translateY\(-50%\);/);
-  assert.match(styles, /\.ldvh-study-node-content\.ldvh-spark-reading-prose[\s\S]{0,180}top: 12px;/);
+  assert.match(styles, /\.ldvh-research-node-content\.ldvh-spark-reading-prose[\s\S]{0,180}top: 12px;/);
 });

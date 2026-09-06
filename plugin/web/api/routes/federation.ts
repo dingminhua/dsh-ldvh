@@ -71,7 +71,7 @@ function latestTimestamp(items: Array<Record<string, unknown>>): string | undefi
 
 router.get('/objects', async (req: Request, res: Response): Promise<void> => {
   const type = String(req.query.type ?? '')
-  const OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'study'] as const
+  const OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research'] as const
   if (!(OBJECT_TYPES as readonly string[]).includes(type)) {
     res.status(400).json({ ok: false, error: `Unsupported object type: ${type || '(missing)'}` })
     return

@@ -5,7 +5,7 @@
  * entry retains its 05.Att.01 field_key and is mechanically reconciled with
  * 05.Att.01, the type bindings, and 08.Att.01 by fact-field-contract.test.ts.
  */
-export const FACT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'study'] as const
+export const FACT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research'] as const
 
 export type FactType = (typeof FACT_TYPES)[number]
 export type FieldExpectation = 'string' | 'number' | 'array' | 'object'
@@ -92,26 +92,28 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     evolution: field('evolution', 'array', false),
     disposition_summary: field('disposition-summary', 'string', false),
   },
-  study: {
+  // v5 Research（24 号规范薄索引）：frontmatter 字段面以调研对象为准——
+  // research_question/research_purpose/stopping_reason 必填，urls（ref 锚点形态）/
+  // confirmed_statements（声明索引）/uncertain/gaps/implications 数组；正文承载研究主体。
+  research: {
     ...common,
-    report_kind: field('study-report-kind', 'string', false),
-    urls: field('urls', 'array', false),
-    input_refs: field('study-input-refs', 'array', false),
+    research_question: field('research-question', 'string', true),
+    research_purpose: field('research-purpose', 'string', true),
+    stopping_reason: field('research-stopping-reason', 'string', false),
+    confirmed_statements: field('research-confirmed-statements', 'array', false),
+    uncertain: field('research-uncertain', 'array', false),
+    gaps: field('research-gaps', 'array', false),
+    implications: field('research-implications', 'array', false),
     disposition_summary: field('disposition-summary', 'string', false),
-    research_question: field('study-research-question', 'string', true),
-    abstract: field('study-abstract', 'string', true),
-    research_intent: field('study-research-intent', 'string', false),
-    recommendation_summary: field('study-recommendation-summary', 'string', false),
-    report_body: field('study-report-body', 'string', false),
   },
 }
 
-/** List candidates never carry a Study Markdown body. */
+/** List candidates never carry the Research Markdown body. */
 export const FACT_LIST_FIELD_NAMES: Record<Exclude<FactType, 'workcase'>, readonly string[]> = {
   adr: Object.keys(FACT_FIELD_CONTRACT.adr),
   pitfall: Object.keys(FACT_FIELD_CONTRACT.pitfall),
   spark: Object.keys(FACT_FIELD_CONTRACT.spark),
-  study: Object.keys(FACT_FIELD_CONTRACT.study).filter((name) => !['report_body', 'input_refs'].includes(name)),
+  research: Object.keys(FACT_FIELD_CONTRACT.research),
 }
 
 /**
@@ -124,5 +126,5 @@ export const FACT_TERMINAL_STATUSES: Record<FactType, readonly string[]> = {
   adr: ['retired'],
   pitfall: ['discarded'],
   spark: ['implemented', 'discarded'],
-  study: ['retired'],
+  research: ['retired'],
 }

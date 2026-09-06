@@ -92,27 +92,27 @@ test('groups ordinary relations by target type rather than their relation key', 
   const relations = projectFactReadingAssociations({
     relations: [
       { relation_key: 'related-to', target: { governed_project_id: 'sample', fact_type_key: 'spark', object_id: 'spark-0002' } },
-      { relation_key: 'depends-on', target: { governed_project_id: 'sample', fact_type_key: 'study', object_id: 'study-0001' } },
+      { relation_key: 'depends-on', target: { governed_project_id: 'sample', fact_type_key: 'research', object_id: 'research-0001' } },
       { relation_key: 'related-to', target: { governed_project_id: 'sample', fact_type_key: 'spark', object_id: 'spark-0003' } },
     ],
   }).relations;
   assert.deepEqual(groupRelationsByTargetType(relations).map((group) => [group.factTypeKey, group.relations.map((relation) => 'objectId' in relation.target ? relation.target.objectId : relation.target.objectUid)]), [
     ['spark', ['spark-0002', 'spark-0003']],
-    ['study', ['study-0001']],
+    ['research', ['research-0001']],
   ]);
 });
 
 test('exact read metadata never becomes an object content field', () => {
   const entries = getObjectDetailContentEntries({
     object_uid: '019ffc1f-36b6-7175-891f-a3ba657b5ec0',
-    object_id: 'study-0001',
-    fact_type_key: 'study',
+    object_id: 'research-0001',
+    fact_type_key: 'research',
     status: 'active',
-    canonical_path: 'ldvh-base/studies/study-0001.md',
+    canonical_path: 'ldvh-base/researches/research-0001.md',
     carrier: 'markdown',
     read_status: 'readable',
     read_issues: [],
     report_body: '## 研究问题',
-  }, 'study');
+  }, 'research');
   assert.deepEqual(entries, [['report_body', '## 研究问题']]);
 });

@@ -9,7 +9,7 @@ export const CATEGORY_COLORS: Record<string, string> = {
   adr: '#a855f7',     // purple
   pitfall: '#ef4444', // red
   spark: '#eab308',   // amber
-  study: '#14b8a6',   // teal
+  research: '#14b8a6',   // teal
   external_research: '#0ea5e9', // sky — Study 报告类型，与研究(teal)区分
   internal_audit: '#8b5cf6',   // violet — Study 报告类型
   technical_assessment: '#f59e0b', // amber — Study 报告类型

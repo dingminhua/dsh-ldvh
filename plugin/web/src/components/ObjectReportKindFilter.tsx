@@ -5,7 +5,8 @@ import { getFieldValueLabel } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 
 /**
- * Study 报告类型（report_kind）标签筛选器。
+ * 【v5 已下线】v4 Study 的 report_kind 筛选器——v5 Research（24 号薄索引）无此字段。
+ * 组件保留为空实现以防外部引用悬空；列表页已不再挂载。
  *
  * 与 ObjectStatusFilter / ObjectPriorityFilter 同构：ldvh-tab-list 按钮 + 计数。
  * 选项来自当前事实列表（按 report_kind 聚合计数），不新增后端契约；在启用状态下

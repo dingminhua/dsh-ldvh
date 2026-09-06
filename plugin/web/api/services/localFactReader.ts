@@ -16,7 +16,7 @@ export const FACT_TYPE_DIRS = {
   adr: 'adrs',
   pitfall: 'pitfalls',
   spark: 'sparks',
-  study: 'studies',
+  research: 'researches',
 } as const
 
 export const FACT_TYPE_CARRIERS = {
@@ -24,7 +24,7 @@ export const FACT_TYPE_CARRIERS = {
   adr: '.yaml',
   pitfall: '.yaml',
   spark: '.yaml',
-  study: '.md',
+  research: '.md',
 } as const
 
 export type LocalFactType = FactType
@@ -95,7 +95,7 @@ function expectedFileName(type: LocalFactType, objectId: string): string {
 }
 
 function carrierFor(type: LocalFactType): LocalFactCarrier {
-  return type === 'study' ? 'markdown' : 'yaml'
+  return type === 'research' ? 'markdown' : 'yaml'
 }
 
 function metadataFor(scope: LocalFactScope, type: LocalFactType, objectId: string): LocalFactMetadata {
@@ -110,7 +110,10 @@ function metadataFor(scope: LocalFactScope, type: LocalFactType, objectId: strin
 
 function isExpectedCarrierName(type: LocalFactType, fileName: string): boolean {
   const extension = FACT_TYPE_CARRIERS[type].replace('.', '\\.')
-  return new RegExp(`^${type}-(?:\\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})${extension}$`).test(fileName)
+  const idSegment = type === 'research'
+    ? '(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})'
+    : '(?:\\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})'
+  return new RegExp(`^${type}-${idSegment}${extension}$`).test(fileName)
 }
 
 function expectedManifestPath(metadata: LocalFactMetadata): string {
@@ -155,7 +158,7 @@ const RECORD_ARRAY_FIELDS: Partial<Record<LocalFactType, ReadonlySet<string>>> =
   spark: new Set(['evolution', 'relations', 'change_log']),
   adr: new Set(['change_log']),
   pitfall: new Set(['change_log']),
-  study: new Set(['change_log']),
+  research: new Set(['change_log']),
 }
 
 function isConsumableRecordMember(type: LocalFactType, field: string, member: Record<string, unknown>): boolean {
@@ -221,6 +224,10 @@ function projectFields(type: LocalFactType, objectId: string, parsed: Record<str
   const factObject: Record<string, unknown> = {}
   const fieldIssues: FieldIssue[] = []
   const unparsedStructures: UnparsedStructure[] = []
+  // v5 身份语义：research 对象的 object_id 由文件名承载（writer 不写进 frontmatter）。
+  // 读取时以文件名推导值注入 all，供 object-id 契约字段消费；显式写入且不一致
+  // 的仍走下方 identity_mismatch 校验。
+  if (all.object_id === undefined && objectId) all.object_id = objectId
   for (const [field, contract] of Object.entries(expected)) {
     const { expected: kind } = contract
     const value = all[field]
@@ -335,7 +342,9 @@ export async function listLocalFacts(type: LocalFactType, scope: LocalFactScope)
   return { status: 'complete', items: await Promise.all(fileNames.map((fileName) => readItemFile(scope, type, fileName))), issues }
 }
 
-const FACT_OBJECT_ID_PATTERN = /^(workcase|adr|pitfall|spark|study)-(?:\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
+// v5 research 对象 ID 为 UUID（research-writer randomUUID 带 8-4-4-4-12 连字符段）；
+// 其余四类型保留 v4 形态（纯序号或 ULID25）。
+const FACT_OBJECT_ID_PATTERN = /^(workcase|adr|pitfall|spark|research)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
 
 export async function readLocalFact(type: LocalFactType, objectId: string, scope: LocalFactScope): Promise<{ status: 'ok'; item: LocalFactItem } | { status: 'not_found' | 'type_not_integrated'; metadata: LocalFactMetadata; issues: LocalFactIssue[] }> {
   const metadata = metadataFor(scope, type, objectId)

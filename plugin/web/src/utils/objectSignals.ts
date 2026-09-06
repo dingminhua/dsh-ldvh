@@ -3,7 +3,7 @@ import { getFieldLabel, getFieldValueLabel } from '../i18n/locales.ts';
 type SignalField = 'priority';
 
 export type ObjectSignalSource = Partial<Record<SignalField, unknown>>;
-export type SignalObjectType = 'workcase' | 'adr' | 'pitfall' | 'spark' | 'study' | 'change' | string;
+export type SignalObjectType = 'workcase' | 'adr' | 'pitfall' | 'spark' | 'research' | 'change' | string;
 
 export const SIGNAL_FIELDS: SignalField[] = ['priority'];
 

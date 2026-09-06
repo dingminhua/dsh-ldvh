@@ -6,7 +6,6 @@ import SegmentedControl from '@/components/SegmentedControl';
 import StatusBadge from '@/components/StatusBadge';
 import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
 import ObjectStatusFilter from '@/components/ObjectStatusFilter';
-import ObjectReportKindFilter, { type StudyReportKind } from '@/components/ObjectReportKindFilter';
 import WorkCaseProgressFilter from '@/components/WorkCaseProgressFilter';
 import WorkCaseProgressTrack from '@/components/WorkCaseProgressTrack';
 import ObjectPriorityFilter from '@/components/ObjectPriorityFilter';
@@ -1267,7 +1266,7 @@ export function ObjectCardFrame({
           >
             {getTypeLabel(obj.type, locale)}
           </span>
-          {obj.type === 'study' && obj.report_kind && (
+          {obj.type === 'research' && obj.report_kind && (
             <span
               className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center rounded-md border px-1.5 text-[10px] font-medium leading-3"
               style={{ backgroundColor: `${CATEGORY_COLORS[obj.report_kind] || CATEGORY_COLORS.other}18`, borderColor: `${CATEGORY_COLORS[obj.report_kind] || CATEGORY_COLORS.other}55`, color: CATEGORY_COLORS[obj.report_kind] || CATEGORY_COLORS.other }}
@@ -1656,10 +1655,6 @@ export default function ObjectList() {
   const isPriorityApplicable = currentType === 'spark'
     ? activeStatus === 'open' || activeStatus === null
     : currentType === 'workcase' && activeProgressGroup !== 'closed' && activeProgressGroup !== 'discarded';
-  const reportKindParam = searchParams.get('report_kind');
-  const activeReportKind: StudyReportKind | null = currentType === 'study' && reportKindParam
-    ? (reportKindParam as StudyReportKind)
-    : null;
 
   useEffect(() => {
     const removesLegacyCategory = currentType === 'spark' && searchParams.has('category');
@@ -1711,20 +1706,10 @@ export default function ObjectList() {
       return title.includes(normalizedObjectSearch) || objectId.includes(normalizedObjectSearch);
     })
     : sortedItems;
-  if (currentType === 'study' && activeReportKind) {
-    filteredItems = filteredItems.filter((item) => item.report_kind === activeReportKind);
-  }
 
   const handleStatusChange = (status: string | null) => {
     const nextParams = new URLSearchParams(searchParams);
     writeListStatusParam(currentType, nextParams, status);
-    setSearchParams(nextParams);
-  };
-
-  const handleReportKindChange = (reportKind: StudyReportKind | null) => {
-    const nextParams = new URLSearchParams(searchParams);
-    if (reportKind) nextParams.set('report_kind', reportKind);
-    else nextParams.delete('report_kind');
     setSearchParams(nextParams);
   };
 
@@ -1925,7 +1910,7 @@ export default function ObjectList() {
       );
     }
 
-    if (currentType === 'study') {
+    if (currentType === 'research') {
       return (
         <ObjectCardFrame key={obj.id} obj={obj} locale={locale} onOpen={openObject} showNonActiveReason={false}>
           <StudyCardContent obj={obj} />
@@ -1954,18 +1939,6 @@ export default function ObjectList() {
             />
           </div>
         )}
-        {currentType === 'study' && (
-          <div className="mb-2 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
-            <ObjectReportKindFilter
-              sourceItems={items}
-              activeReportKind={activeReportKind}
-              onChange={handleReportKindChange}
-              allItemsCount={items.length}
-              loading={loading}
-              coverageStatus={coverageStatus}
-            />
-          </div>
-        )}
         <div className="relative flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1.5">
             {currentType === 'workcase' ? (
@@ -1982,7 +1955,7 @@ export default function ObjectList() {
               </>
             ) : (
               <>
-                {currentType === 'spark' || currentType === 'study' ? <span className="ldvh-meta shrink-0 text-ldvh-text-secondary">{t('objectList.lifecycleFilter')}</span> : null}
+                {currentType === 'spark' || currentType === 'research' ? <span className="ldvh-meta shrink-0 text-ldvh-text-secondary">{t('objectList.lifecycleFilter')}</span> : null}
                 <ObjectStatusFilter
                   type={currentType}
                   activeStatus={activeStatus}

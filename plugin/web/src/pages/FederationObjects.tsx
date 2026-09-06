@@ -23,7 +23,7 @@ import { useI18n } from '@/i18n/context';
 import { getTypeLabel } from '@/i18n/locales';
 import { projectColorVar, resolvedProjectColorKey } from '@/shared/projectColors';
 
-const OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'study'] as const;
+const OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research'] as const;
 
 /** 项目筛选 chips：全部 + 每项目一枚（色点 + 名称），单选，v4 tab 视觉。 */
 function ProjectFilterChips({
@@ -120,7 +120,7 @@ export default function FederationObjects() {
     if (currentType === 'adr') return <AdrCardContent obj={item} />;
     if (currentType === 'pitfall') return <PitfallCardContent obj={item} />;
     if (currentType === 'spark') return <SparkCardContent obj={item} />;
-    if (currentType === 'study') return <StudyCardContent obj={item} />;
+    if (currentType === 'research') return <StudyCardContent obj={item} />;
     if (currentType === 'workcase') {
       // WorkCase 联邦卡不复制单项目列表的阶段卡片投影（依赖当前项目的投影服务），
       // 只呈现目标一行——进入项目后阅读完整阶段卡片。

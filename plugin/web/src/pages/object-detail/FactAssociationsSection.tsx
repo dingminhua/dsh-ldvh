@@ -51,7 +51,7 @@ export function FactAssociationsSection({
           currentProjectId={currentProjectId}
           locale={locale}
           showRelationKey={showRelationKey}
-          semanticRelationLabels={factTypeKey === 'study'}
+          semanticRelationLabels={factTypeKey === 'research'}
         />
         <UnresolvedGroup items={associations.unresolved} locale={locale} />
       </div>

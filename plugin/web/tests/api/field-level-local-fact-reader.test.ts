@@ -96,11 +96,11 @@ test('field-level reader keeps recoverable field defects separate from unreadabl
 test('unclosed Markdown frontmatter is the only Study field-path failure that becomes unreadable', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
-  const directory = path.join(root, 'ldvh-base', 'studies');
+  const directory = path.join(root, 'ldvh-base', 'researches');
   await mkdir(directory, { recursive: true });
   try {
-    await writeFile(path.join(directory, 'study-0001.md'), '---\nobject_id: study-0001\n', 'utf8');
-    const detail = await readLocalFact('study', 'study-0001', scope);
+    await writeFile(path.join(directory, 'research-0001.md'), '---\nobject_id: research-0001\n', 'utf8');
+    const detail = await readLocalFact('research', 'research-0001', scope);
     assert.equal(detail.status, 'ok');
     if (detail.status === 'ok') {
       assert.equal(detail.item.read_status, 'unreadable');

@@ -255,7 +255,7 @@ function DocPreview({ content }: { content: PanelContent }) {
         <article className="rounded-lg border border-ldvh-border bg-ldvh-panel px-4 py-4 shadow-sm shadow-black/10">
           <MarkdownPreview
             content={docContent}
-            className={docVariant === 'study-report' ? 'ldvh-study-report-preview' : undefined}
+            className={docVariant === 'study-report' ? 'ldvh-research-report-preview' : undefined}
           />
           {truncated && <p className="ldvh-caption mt-3">{t('readingPanel.truncated')}</p>}
         </article>
@@ -573,7 +573,7 @@ export function CommitDetailContent({
               }));
             }}
           >
-            <div className="ldvh-study-node-content">
+            <div className="ldvh-research-node-content">
               <MarkdownPreview
                 content={section.content}
                 className="ldvh-inline-markdown ldvh-commit-body-markdown max-w-none"

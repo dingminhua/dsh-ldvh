@@ -264,7 +264,7 @@ function PitfallReadingNode({
 
 export function PitfallTextNodeContent({ value }: { value: unknown }) {
   return (
-    <div className="ldvh-study-node-content">
+    <div className="ldvh-research-node-content">
       <div className="ldvh-inline-markdown max-w-none">
         <Markdown remarkPlugins={[remarkGfm]}>{String(value)}</Markdown>
       </div>

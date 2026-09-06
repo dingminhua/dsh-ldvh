@@ -8,7 +8,7 @@ test('Spark association UI reads only relations', () => {
   assert.match(source, /projectFactReadingAssociations/);
   assert.doesNotMatch(source, /projectMaterials|evidenceMaterials|externalInputs/);
   assert.doesNotMatch(source, /getTypeLabel\(factTypeKey, locale\)/);
-  assert.match(source, /semanticRelationLabels=\{factTypeKey === 'study'\}/);
+  assert.match(source, /semanticRelationLabels=\{factTypeKey === 'research'\}/);
   assert.match(source, /getFieldLabel\(`relation_\$\{key\.replace/);
 });
 

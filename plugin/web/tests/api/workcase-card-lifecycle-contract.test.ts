@@ -198,7 +198,7 @@ test('terminal status labels remain type-specific across fact types', () => {
   assert.equal(getObjectStatusLocale('pitfall', 'draft', 'zh'), '待确认');
   assert.equal(getObjectStatusLocale('pitfall', 'active', 'zh'), '活跃');
   assert.equal(getObjectStatusLocale('pitfall', 'discarded', 'zh'), '已废弃');
-  assert.equal(getObjectStatusLocale('study', 'retired', 'zh'), '已废弃');
+  assert.equal(getObjectStatusLocale('research', 'retired', 'zh'), '已废弃');
 });
 
 test('closure proposals are labelled as proposals instead of established terminal outcomes', () => {

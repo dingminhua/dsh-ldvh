@@ -25,7 +25,7 @@ test('WorkCase detail source consumes only the single current shape in one fixed
   );
   const objectDetail = fs.readFileSync(path.join(repositoryRoot, 'web/src/pages/ObjectDetail.tsx'), 'utf8');
 
-  assert.match(layout, /contentVariant === "semantic" \? "grid gap-3" : "ldvh-study-node-content"/);
+  assert.match(layout, /contentVariant === "semantic" \? "grid gap-3" : "ldvh-research-node-content"/);
   assert.match(layout, /contentVariant === "semantic" \? "grid gap-3" : "divide-y divide-ldvh-border\/60"/);
   const panel = fs.readFileSync(
     path.join(repositoryRoot, 'web/src/components/reading-panel/PanelContent.tsx'),

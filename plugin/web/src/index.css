@@ -150,7 +150,7 @@
     line-height: 1.375rem;
   }
 
-  .ldvh-study-node-content-compact .ldvh-inline-markdown {
+  .ldvh-research-node-content-compact .ldvh-inline-markdown {
     @apply text-[13px] leading-5;
   }
 
@@ -480,26 +480,26 @@ input::-moz-focus-inner {
 
 /* Study reports are evidence-heavy documents.  Keep their source Markdown intact,
    but give its top-level evidence list and recommendations a readable scan rhythm. */
-.ldvh-study-report-preview {
+.ldvh-research-report-preview {
   max-width: 54rem;
   margin-inline: auto;
   font-size: 0.9375rem;
   line-height: 1.85;
 }
 
-.ldvh-study-report-preview > :where(h2, h3) {
+.ldvh-research-report-preview > :where(h2, h3) {
   margin-top: 2rem;
 }
 
-.ldvh-study-report-preview > :where(h2):first-child {
+.ldvh-research-report-preview > :where(h2):first-child {
   margin-top: 0;
 }
 
-.ldvh-study-report-preview > :where(p) {
+.ldvh-research-report-preview > :where(p) {
   max-width: 46rem;
 }
 
-.ldvh-study-report-preview > ul {
+.ldvh-research-report-preview > ul {
   display: grid;
   gap: 0.55rem;
   margin: 1rem 0 1.25rem;
@@ -507,7 +507,7 @@ input::-moz-focus-inner {
   list-style: none;
 }
 
-.ldvh-study-report-preview > ul > li {
+.ldvh-research-report-preview > ul > li {
   position: relative;
   margin: 0;
   padding: 0.7rem 0.85rem 0.7rem 1.65rem;
@@ -518,7 +518,7 @@ input::-moz-focus-inner {
   line-height: 1.8;
 }
 
-.ldvh-study-report-preview > ul > li::before {
+.ldvh-research-report-preview > ul > li::before {
   content: '';
   position: absolute;
   /* Center the marker on the first text line, not on the list card. */
@@ -530,7 +530,7 @@ input::-moz-focus-inner {
   background: rgb(var(--ldvh-accent));
 }
 
-.ldvh-study-report-preview > ol {
+.ldvh-research-report-preview > ol {
   display: grid;
   gap: 0.7rem;
   margin: 1rem 0 1.25rem;
@@ -538,7 +538,7 @@ input::-moz-focus-inner {
   list-style: none;
 }
 
-.ldvh-study-report-preview > ol > li {
+.ldvh-research-report-preview > ol > li {
   position: relative;
   margin: 0;
   min-height: 3rem;
@@ -550,7 +550,7 @@ input::-moz-focus-inner {
   line-height: 1.82;
 }
 
-.ldvh-study-report-preview > ol > li::before {
+.ldvh-research-report-preview > ol > li::before {
   content: '';
   position: absolute;
   top: 1.5rem;
@@ -566,7 +566,7 @@ input::-moz-focus-inner {
   margin-bottom: 0.375rem;
 }
 
-.ldvh-study-node-content-compact .ldvh-inline-markdown :where(p, ul, ol, pre, blockquote) {
+.ldvh-research-node-content-compact .ldvh-inline-markdown :where(p, ul, ol, pre, blockquote) {
   margin-top: 0.125rem;
   margin-bottom: 0.125rem;
 }
@@ -702,18 +702,18 @@ input::-moz-focus-inner {
   background: rgb(var(--ldvh-border) / 0.28);
 }
 
-.ldvh-study-node-content {
+.ldvh-research-node-content {
   border: 1px solid rgb(var(--ldvh-border));
   border-radius: 0.5rem;
   background: rgb(var(--ldvh-bg) / 0.4);
   padding: 0.5rem 0.75rem;
 }
 
-.ldvh-study-node-content .ldvh-inline-markdown {
+.ldvh-research-node-content .ldvh-inline-markdown {
   color: rgb(var(--ldvh-text-secondary) / 0.92);
 }
 
-.ldvh-study-node-content .ldvh-inline-markdown :where(h2, h3, h4, h5, h6) {
+.ldvh-research-node-content .ldvh-inline-markdown :where(h2, h3, h4, h5, h6) {
   margin-top: 0.75rem;
   margin-bottom: 0.35rem;
   font-size: 0.875rem;
@@ -722,29 +722,29 @@ input::-moz-focus-inner {
   color: rgb(var(--ldvh-text-secondary));
 }
 
-.ldvh-study-node-content .ldvh-inline-markdown :where(h2, h3, h4, h5, h6):first-child {
+.ldvh-research-node-content .ldvh-inline-markdown :where(h2, h3, h4, h5, h6):first-child {
   margin-top: 0;
 }
 
-.ldvh-study-node-content .ldvh-inline-markdown :where(strong) {
+.ldvh-research-node-content .ldvh-inline-markdown :where(strong) {
   color: rgb(var(--ldvh-text-secondary));
 }
 
-.ldvh-study-node-content .ldvh-inline-markdown :where(code) {
+.ldvh-research-node-content .ldvh-inline-markdown :where(code) {
   color: rgb(var(--ldvh-accent));
 }
 
-.ldvh-study-node-content .ldvh-inline-markdown :where(p) {
+.ldvh-research-node-content .ldvh-inline-markdown :where(p) {
   margin-top: 0;
   margin-bottom: 0.75rem;
   line-height: 1.85;
 }
 
-.ldvh-study-node-content .ldvh-inline-markdown :where(p:last-child) {
+.ldvh-research-node-content .ldvh-inline-markdown :where(p:last-child) {
   margin-bottom: 0;
 }
 
-.ldvh-study-node-content .ldvh-inline-markdown :where(ul, ol) {
+.ldvh-research-node-content .ldvh-inline-markdown :where(ul, ol) {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
@@ -753,7 +753,7 @@ input::-moz-focus-inner {
   padding-left: 1.45rem;
 }
 
-.ldvh-study-node-content .ldvh-inline-markdown :where(li) {
+.ldvh-research-node-content .ldvh-inline-markdown :where(li) {
   margin-top: 0;
   margin-bottom: 0;
   min-height: 1.55rem;
@@ -761,36 +761,36 @@ input::-moz-focus-inner {
   line-height: 1.75;
 }
 
-.ldvh-study-node-content.ldvh-spark-reading-prose .ldvh-inline-markdown,
-.ldvh-study-node-content.ldvh-spark-reading-prose .ldvh-inline-markdown :where(p, li) {
+.ldvh-research-node-content.ldvh-spark-reading-prose .ldvh-inline-markdown,
+.ldvh-research-node-content.ldvh-spark-reading-prose .ldvh-inline-markdown :where(p, li) {
   line-height: 26px;
 }
 
 /* Preserve a readable group break when Markdown follows a list with a new paragraph. */
-.ldvh-study-node-content.ldvh-spark-reading-prose .ldvh-inline-markdown :where(ul, ol) + p {
+.ldvh-research-node-content.ldvh-spark-reading-prose .ldvh-inline-markdown :where(ul, ol) + p {
   margin-top: 12px;
 }
 
 /* Optically center the custom marker on Spark's fixed 26px reading line. */
-.ldvh-study-node-content.ldvh-spark-reading-prose .ldvh-inline-markdown :where(ul > li)::before {
+.ldvh-research-node-content.ldvh-spark-reading-prose .ldvh-inline-markdown :where(ul > li)::before {
   top: 12px;
 }
 
-.ldvh-study-node-content .ldvh-inline-markdown :where(ul) {
+.ldvh-research-node-content .ldvh-inline-markdown :where(ul) {
   padding-left: 0;
   list-style: none;
 }
 
-.ldvh-study-node-content .ldvh-inline-markdown :where(ol) {
+.ldvh-research-node-content .ldvh-inline-markdown :where(ol) {
   list-style: decimal;
 }
 
-.ldvh-study-node-content .ldvh-inline-markdown :where(ul > li) {
+.ldvh-research-node-content .ldvh-inline-markdown :where(ul > li) {
   position: relative;
   padding-left: 1.55rem;
 }
 
-.ldvh-study-node-content .ldvh-inline-markdown :where(ul > li)::before {
+.ldvh-research-node-content .ldvh-inline-markdown :where(ul > li)::before {
   content: "";
   position: absolute;
   left: 0.35rem;
@@ -803,7 +803,7 @@ input::-moz-focus-inner {
   box-shadow: 0 0 0 3px rgb(var(--ldvh-text-secondary) / 0.08);
 }
 
-.ldvh-study-node-content .ldvh-inline-markdown :where(ol > li)::marker {
+.ldvh-research-node-content .ldvh-inline-markdown :where(ol > li)::marker {
   color: rgb(var(--ldvh-text-secondary) / 0.82);
 }
 
