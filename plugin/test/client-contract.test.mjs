@@ -179,6 +179,20 @@ test("project card actions: uninstall removed, Update only when repairable, notR
 	assert.ok(source.includes('"row.updateBusy": "Updating & repairing…"'), "LDVH_EN must define row.updateBusy");
 });
 
+test("betterSidebar LDVH tab registers as a soft dependency with iframe fallback states", () => {
+	// 软依赖：ctx.get 探测（未装 dsh-better-sidebar 的宿主零影响），
+	// 不是 inject 硬依赖——注入列表保持 WorkBuddy 基线。
+	assert.ok(source.includes('var betterSidebar = ctx.get("betterSidebar")'));
+	assert.ok(!source.includes('inject(["betterSidebar"]'), "must not hard-inject the optional betterSidebar service");
+	// 注册形态：专属 id、single 实例、图标、iframe 指向 /ldvh/。
+	assert.ok(source.includes('id: "dsh-ldvh:web"'));
+	assert.ok(source.includes('single: true'));
+	assert.ok(source.includes('src: "/ldvh/"'));
+	assert.ok(source.includes('betterSidebar.registerTab'));
+	// 降级：与 conversation.view 同一健康检查模式（checking/failed/retry）。
+	assert.ok(source.includes('LdvhSidebarTab'));
+});
+
 test("Web status row exposes a single serviceIssue hint on transport failure", () => {
 	// 顶部新增 serviceIssue 变量，条件为 checking / 未启用 / 正常 时为 null，仅当开关开启且探测失败时为 t("row.apiUnavailable")。
 	assert.ok(

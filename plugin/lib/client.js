@@ -168,6 +168,8 @@ window.__ModuleLoader__.load({
       "row.installBusy": "安装中…",
       "row.update": "更新修复",
       "row.updateBusy": "更新修复中…",
+      "sidebar.label": "LDVH",
+      "sidebar.title": "LDVH 信息呈现",
       "row.unregister": "取消管辖",
       "row.check": "检查",
       "row.projectReady": "已就绪",
@@ -220,6 +222,8 @@ window.__ModuleLoader__.load({
       "row.installBusy": "Installing…",
       "row.update": "Update & Repair",
       "row.updateBusy": "Updating & repairing…",
+      "sidebar.label": "LDVH",
+      "sidebar.title": "LDVH presentation",
       "row.unregister": "Stop governing",
       "row.check": "Check",
       "row.projectReady": "Ready",
@@ -667,6 +671,51 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /**
+     * betterSidebar「LDVH」tab：iframe 加载 /ldvh（与 LdvhConversationView
+     * 同一健康检查/降级模式——Web 路由未挂载时给说明与重试，不给破 iframe）。
+     * 沙箱说明：better-sidebar 对与 GUI 同源的页面强制不透明源沙箱（无
+     * allow-same-origin），Web 侧已给 localStorage 加守卫（useTheme），
+     * API 走相对路径 fetch 不受沙箱影响。
+     */
+    function LdvhSidebarTab(props) {
+      var t = props.t;
+      var viewState = React.useState({ checking: true, ready: false, failed: false });
+      React.useEffect(function () {
+        var cancelled = false;
+        checkHealth(function (ok) {
+          if (cancelled) return;
+          viewState[1](ok ? { checking: false, ready: true, failed: false } : { checking: false, ready: false, failed: true });
+        });
+        return function () { cancelled = true; };
+      }, []);
+      function retry() {
+        viewState[1]({ checking: true, ready: false, failed: false });
+        checkHealth(function (ok) {
+          viewState[1](ok ? { checking: false, ready: true, failed: false } : { checking: false, ready: false, failed: true });
+        });
+      }
+      var state = viewState[0];
+      var body = null;
+      if (state.checking) {
+        body = React.createElement("div", { className: "ldv-view-state" },
+          React.createElement("p", null, t("view.loading"))
+        );
+      } else if (state.failed) {
+        body = React.createElement("div", { className: "ldv-view-state" },
+          React.createElement("p", null, t("view.error")),
+          React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-primary", onClick: retry }, t("view.retry"))
+        );
+      } else {
+        body = React.createElement("iframe", {
+          className: "ldv-view-frame",
+          src: "/ldvh/",
+          title: t("sidebar.title")
+        });
+      }
+      return React.createElement("div", { className: "ldv-view" }, body);
+    }
+
     function LdvhConversationView(props) {
       var t = props.t;
       var viewState = React.useState({ checking: true, ready: false, failed: false });
@@ -729,6 +778,32 @@ window.__ModuleLoader__.load({
             inject: rowInjected
           }, LdvhSettingsCard);
         });
+
+        // 2b) betterSidebar「LDVH」tab（软依赖：装了 dsh-better-sidebar 才有；
+        // ctx.get 探测而非 inject 硬依赖，未装时本插件照常工作）。
+        var betterSidebar = ctx.get("betterSidebar");
+        if (betterSidebar !== undefined && typeof betterSidebar.registerTab === "function") {
+          ctx.effect(function () {
+            return betterSidebar.registerTab({
+              id: "dsh-ldvh:web",
+              title: function () { return t("sidebar.label"); },
+              icon: function (size) {
+                return React.createElement("img", {
+                  src: LDVH_ICON,
+                  width: size,
+                  height: size,
+                  alt: "LDVH",
+                  style: { borderRadius: "3px" }
+                });
+              },
+              order: 35,
+              single: true,
+              component: function (tabProps) {
+                return React.createElement(LdvhSidebarTab, { t: t, scope: tabProps && tabProps.scope });
+              }
+            });
+          }, "dsh-ldvh: better sidebar tab");
+        }
 
         // 2) LDVH view tab, trajectory-analogue (conversation.view / list / session)
         ctx.slots.inject("conversation.view", function () {
