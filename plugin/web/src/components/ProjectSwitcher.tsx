@@ -136,7 +136,9 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
                 const worktrees = project.worktrees.length > 0
                   ? project.worktrees
                   : [{ path: project.path, isMain: true }];
-                const projectSelected = project.id === selectedProjectId;
+                // 联邦态是唯一选中项：项目/worktree 的旧选中态必须熄灭，
+                // 否则「全部管辖」高亮下项目卡与分支行仍亮着，视觉上像多选。
+                const projectSelected = !federationActive && project.id === selectedProjectId;
                 const projectColorKey = resolvedProjectColorKey(project.color, project.id);
                 const projectColor = projectColorVar(projectColorKey);
                 return (
@@ -158,7 +160,7 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
                     </div>
                     <div className="grid gap-1 bg-ldvh-bg/30 p-1.5">
                     {worktrees.map((worktree) => {
-                      const selected = project.id === selectedProjectId && worktree.path === selectedWorktreePath;
+                      const selected = !federationActive && project.id === selectedProjectId && worktree.path === selectedWorktreePath;
                       const branch = worktree.branch || t('projectSwitcher.detached');
                       return (
                         <button
