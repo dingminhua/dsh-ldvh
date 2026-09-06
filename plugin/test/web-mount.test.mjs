@@ -8,6 +8,7 @@ import http from "node:http";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 import test from "node:test";
 import { createProxyHandler, createSpaHandler, createWebApiProcess } from "../lib/web-mount.js";
 
@@ -57,6 +58,30 @@ test("spa handler serves dist assets, SPA fallback, and blocks traversal", async
     // 非 GET/HEAD → 405
     const post = await fetch(`${base}/ldvh/`, { method: "POST" });
     assert.equal(post.status, 405);
+  });
+});
+
+test("spa handler serves precompressed .gz with the ORIGINAL content type (not octet-stream)", async () => {
+  const dist = await mkdtemp(join(tmpdir(), "ldvh-web-mount-gz-"));
+  await writeFile(join(dist, "index.html"), "<html>app</html>");
+  await writeFile(join(dist, "index.html.gz"), gzipSync("<html>app</html>"));
+  await mkdir(join(dist, "assets"), { recursive: true });
+  await writeFile(join(dist, "assets", "app.js"), "console.log('app')");
+  await writeFile(join(dist, "assets", "app.js.gz"), gzipSync("console.log('app')"));
+  const handler = createSpaHandler(dist);
+  await withHandler(handler, async (base) => {
+    const html = await fetch(`${base}/ldvh`, { headers: { "accept-encoding": "gzip" } });
+    assert.equal(html.status, 200);
+    assert.equal(html.headers.get("content-encoding"), "gzip");
+    // 回归断言：content-type 必须是原始类型——曾按 .gz 后缀误判 octet-stream，
+    // 浏览器把 iframe 页面当下载处理（Electron tab 触发下载保存）。
+    assert.match(html.headers.get("content-type"), /text\/html/);
+    const js = await fetch(`${base}/ldvh/assets/app.js`, { headers: { "accept-encoding": "gzip" } });
+    assert.equal(js.status, 200);
+    assert.equal(js.headers.get("content-encoding"), "gzip");
+    assert.match(js.headers.get("content-type"), /text\/javascript/);
+    // 内容不变（fetch 对 content-encoding: gzip 已自动解压）
+    assert.equal(await js.text(), "console.log('app')");
   });
 });
 

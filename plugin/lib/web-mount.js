@@ -62,7 +62,10 @@ function sendFile(res, filePath, method) {
     res.end("static read failed");
   });
   stream.on("open", () => {
-    const type = MIME_TYPES[extname(filePath).toLowerCase()] ?? "application/octet-stream";
+    // 预压缩变体（.gz）的 MIME 按原始后缀计算——按 .gz 算成 octet-stream 会让
+    // 浏览器下载而不是渲染（Electron iframe 同样触发下载保存）。
+    const typeSuffix = filePath.endsWith(".gz") ? extname(filePath.slice(0, -3)) : extname(filePath);
+    const type = MIME_TYPES[typeSuffix.toLowerCase()] ?? "application/octet-stream";
     res.setHeader("content-type", type);
     res.setHeader("cache-control", filePath.includes(`${sep}assets${sep}`) ? "public, max-age=31536000, immutable" : "no-cache");
   });
