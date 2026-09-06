@@ -155,9 +155,13 @@ export function createWebApiProcess(options) {
   function spawnOnce() {
     starting = (async () => {
       if (disposed) return null;
+      // ELECTRON_RUN_AS_NODE：宿主是 Electron（DSH Desktop）时 process.execPath
+      // 指向 Electron 二进制——直接 spawn 等于启动新应用实例（撞单实例锁即退，
+      // 实测 child exited with code 0）。该标志让 Electron 以纯 Node 模式运行；
+      // 在普通 node 宿主（测试 harness）下此变量无害被忽略。
       const proc = (await import("node:child_process")).spawn(command.exec, command.argv, {
         cwd: webRoot,
-        env: { ...process.env, ...env, PORT: String(port) },
+        env: { ...process.env, ...env, ELECTRON_RUN_AS_NODE: "1", PORT: String(port) },
         stdio: ["ignore", "pipe", "pipe"],
       });
       spawned = proc;
