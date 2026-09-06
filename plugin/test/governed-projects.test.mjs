@@ -27,7 +27,7 @@ import {
 import { realpath } from "node:fs/promises";
 import { git, initRepo, runnerPath, withTemp } from "./helpers.mjs";
 
-const FACT_DIRECTORIES = ["sparks", "workcases", "adrs", "pitfalls", "studies"];
+const FACT_DIRECTORIES = ["sparks", "workcases", "adrs", "pitfalls", "researches"];
 
 /** Build a dshHomePath-style function rooted at an arbitrary temp dir. */
 const dshHome = (home) => (...segments) => join(home, ...segments);
@@ -83,7 +83,7 @@ test("initializeFactSource creates the five fact directories and reports ready",
 		const root = await initRepo(base);
 		const status = await initializeFactSource(root);
 		assert.equal(status.state, "ready");
-		assert.deepEqual(FACT_DIRECTORIES, ["sparks", "workcases", "adrs", "pitfalls", "studies"]);
+		assert.deepEqual(FACT_DIRECTORIES, ["sparks", "workcases", "adrs", "pitfalls", "researches"]);
 		for (const name of FACT_DIRECTORIES) {
 			const stat = await lstat(join(root, "ldvh-base", name));
 			assert.ok(stat.isDirectory(), `${name} must be a directory inside ldvh-base`);
@@ -97,10 +97,10 @@ test("fact source is incomplete when a directory is missing", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
 		const root = await initRepo(base);
 		await initializeFactSource(root);
-		await rm(join(root, "ldvh-base", "studies"), { recursive: true, force: true });
+		await rm(join(root, "ldvh-base", "researches"), { recursive: true, force: true });
 		const inspected = await inspectCandidate(root);
 		assert.equal(inspected.value.factSource.state, "incomplete");
-		assert.match(inspected.value.factSource.detail, /studies/);
+		assert.match(inspected.value.factSource.detail, /researches/);
 	});
 });
 
