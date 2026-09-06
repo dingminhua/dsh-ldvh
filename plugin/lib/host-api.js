@@ -1,4 +1,5 @@
 import { inspectCandidate, installProject, readGovernedProjects, unregisterProject, uninstallHook } from "./governed-projects.js";
+import { readGovernedProjectsWithColors, updateProjectColor } from "./web-preferences.js";
 
 function json(res, statusCode, body) {
   res.statusCode = statusCode;
@@ -24,6 +25,12 @@ export function createGovernanceHandler(options) {
     const path = rawPath === prefix ? "/" : (rawPath.startsWith(`${prefix}/`) ? rawPath.slice(prefix.length) : rawPath);
     try {
       if (path === "/governed-projects" && req.method === "GET") return json(res, 200, await readGovernedProjects(options.dshHomePath));
+      // Web 呈现偏好（项目颜色）：插件设置卡与 Web 设置页共用的读写面。
+      if (path === "/governed-projects/with-colors" && req.method === "GET") return json(res, 200, await readGovernedProjectsWithColors(options.dshHomePath));
+      if (path === "/governed-projects/color" && req.method === "PUT") {
+        const input = await readJson(req);
+        return json(res, 200, await updateProjectColor(options.dshHomePath, input.projectId, input.color === undefined ? null : input.color));
+      }
       if (path === "/governed-projects/inspect" && req.method === "POST") {
         const input = await readJson(req);
         return json(res, 200, await inspectCandidate(input.path));

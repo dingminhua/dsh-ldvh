@@ -1,7 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, FolderPlus, GitBranch, Loader2, RefreshCw, Save, ShieldCheck, Trash2 } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
-import { fetchGovernedProjectsSettings, fetchWorkspaceWorktrees, saveGovernedProjectsSettings, verifyGovernedProjectsSettings, type GovernedProjectSetting, type GovernedProjectsSettingsData, type WorkspaceWorktree } from '@/utils/api';
+import { fetchGovernedProjectsSettings, fetchWorkspaceWorktrees, setProjectColor, type GovernedProjectSetting, type GovernedProjectsSettingsData, type WorkspaceWorktree } from '@/utils/api';
 import { useProjectScope } from '@/utils/projectContext';
 import { useI18n } from '@/i18n/context';
 import { PROJECT_COLOR_KEYS, projectColorVar, resolvedProjectColorKey, type ProjectColorKey } from '@/shared/projectColors';
@@ -27,47 +27,23 @@ export default function Settings() {
   }, []);
   useEffect(reload, [reload]);
 
-  const save = async (projects: GovernedProjectSetting[], requestedDefaultProjectId = settings?.defaultProjectId ?? ''): Promise<boolean> => {
-    if (!settings) return false;
-    setSaving(true); setError(null);
-    try {
-      const next = await saveGovernedProjectsSettings(projects, settings.fingerprint, requestedDefaultProjectId);
-      setSettings(next); reloadProjects(); setVerifiedMessage(t('settings.savedVerified'));
-      return true;
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { setSaving(false); }
-    return false;
-  };
-
-  const verify = async () => {
-    setVerifying(true); setError(null); setVerifiedMessage(null);
-    try {
-      await verifyGovernedProjectsSettings();
-      setVerifiedMessage(t('settings.currentVerified'));
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { setVerifying(false); }
-  };
-
-  const rename = (project: GovernedProjectSetting, name: string) => {
-    const normalizedName = name.trim();
-    if (!settings || normalizedName === (project.name ?? '')) return;
-    void save(settings.projects.map((item) => item.id === project.id ? { ...item, ...(normalizedName ? { name: normalizedName } : { name: undefined }) } : item));
-  };
+  // 管辖登记的写路径已归 DSH 插件设置卡（07 规范登记面）——本页只读呈现；
+  // 唯一的写交互是项目颜色（呈现偏好，独立载体，经 /settings/governed-projects/color）。
+  const rename = (_project: GovernedProjectSetting, _name: string) => { /* read-only */ };
   const setColor = (project: GovernedProjectSetting, color: ProjectColorKey | null) => {
-    if (!settings || color === project.color) return;
-    void save(settings.projects.map((item) => item.id === project.id ? { ...item, ...(color ? { color } : { color: undefined }) } : item));
+    if (!settings || color === (project.color ?? null)) return;
+    void (async () => {
+      try {
+        const next = await setProjectColor(project.id, color);
+        setSettings({ ...settings, projects: next.projects });
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      }
+    })();
   };
 
-  const remove = (project: GovernedProjectSetting) => {
-    if (!settings || !window.confirm(t('settings.removeConfirm', { project: project.name || project.id }))) return;
-    const projects = settings.projects.filter((item) => item.id !== project.id);
-    void save(projects, project.id === settings.defaultProjectId ? (projects[0]?.id ?? '') : settings.defaultProjectId);
-  };
-  const add = (event: FormEvent) => {
-    event.preventDefault();
-    if (!settings) return;
-    void save([...settings.projects, newProject]).then((saved) => { if (saved) setNewProject(blankProject); });
-  };
+  const remove = (_project: GovernedProjectSetting) => { /* read-only */ };
+  const add = (_event: FormEvent) => { /* read-only */ };
   const refreshWorktrees = async () => {
     setWorktreeLoading(true); setError(null);
     try { setWorktrees((await fetchWorkspaceWorktrees()).items); }
@@ -104,10 +80,10 @@ export default function Settings() {
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-red-700 dark:text-red-300"><span>{error}</span><button type="button" onClick={reload} className="ldvh-card-title rounded-md border border-red-500/30 px-3 py-2 text-red-700 hover:bg-red-500/10 dark:text-red-200">{t('settings.retryLoad')}</button></div>
       ) : settings && <>
         <div className="mt-6 rounded-xl border border-ldvh-border bg-ldvh-panel p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3"><p className="ldvh-caption-strong">{t('settings.governedProjects')}</p><button type="button" disabled={saving || verifying} onClick={() => void verify()} className="ldvh-card-title inline-flex items-center gap-2 rounded-md border border-ldvh-border px-3 py-2 text-ldvh-text-secondary hover:text-ldvh-text-primary disabled:opacity-50"><ShieldCheck size={15} />{verifying ? t('settings.verifying') : t('settings.verifyCurrent')}</button></div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><p className="ldvh-caption-strong">{t('settings.governedProjects')}</p><button type="button" disabled title={t('settings.readOnlyHint')} className="ldvh-card-title inline-flex items-center gap-2 rounded-md border border-ldvh-border px-3 py-2 text-ldvh-text-secondary hover:text-ldvh-text-primary disabled:opacity-50"><ShieldCheck size={15} />{verifying ? t('settings.verifying') : t('settings.verifyCurrent')}</button></div>
           <p className="ldvh-meta mt-1 break-all">{settings.configPath}</p>
           {verifiedMessage && <p className="mt-3 flex items-center gap-2 text-sm text-emerald-500"><CheckCircle2 size={16} />{verifiedMessage}</p>}
-          <div className="mt-4 grid max-w-sm gap-2"><label className="grid gap-1"><span className="ldvh-meta">{t('settings.defaultProject')}</span><select value={settings.defaultProjectId} disabled={saving || !settings.projects.length} onChange={(event) => void save(settings.projects, event.target.value)} className="rounded-md border border-ldvh-border bg-ldvh-bg px-2.5 py-2 text-sm outline-none focus:border-ldvh-accent">{settings.projects.map((project) => <option key={project.id} value={project.id}>{project.name || project.id}</option>)}</select></label><div className="flex items-center gap-2"><button type="button" disabled={saving || !settings.projects.length} onClick={() => void save(settings.projects, settings.defaultProjectId)} className="ldvh-card-title inline-flex w-fit items-center gap-2 rounded-md border border-ldvh-border px-3 py-2 text-ldvh-text-secondary hover:text-ldvh-text-primary disabled:opacity-50"><Save size={15} />{t('settings.saveDefault')}</button><span className="ldvh-meta">{settings.hasExplicitDefault ? t('settings.defaultExplicit') : t('settings.defaultFallback')}</span></div></div>
+          <div className="mt-4 grid max-w-sm gap-2"><label className="grid gap-1"><span className="ldvh-meta">{t('settings.defaultProject')}</span><select value={settings.defaultProjectId} disabled title={t('settings.readOnlyHint')} onChange={undefined} className="rounded-md border border-ldvh-border bg-ldvh-bg px-2.5 py-2 text-sm outline-none focus:border-ldvh-accent">{settings.projects.map((project) => <option key={project.id} value={project.id}>{project.name || project.id}</option>)}</select></label><div className="flex items-center gap-2"><button type="button" disabled title={t('settings.readOnlyHint')} className="ldvh-card-title inline-flex w-fit items-center gap-2 rounded-md border border-ldvh-border px-3 py-2 text-ldvh-text-secondary hover:text-ldvh-text-primary disabled:opacity-50"><Save size={15} />{t('settings.saveDefault')}</button><span className="ldvh-meta">{settings.hasExplicitDefault ? t('settings.defaultExplicit') : t('settings.defaultFallback')}</span></div></div>
           <div className="mt-4 grid gap-3">
             {settings.projects.map((project) => <ProjectRow key={project.id} project={project} saving={saving} onRename={rename} onColor={setColor} onRemove={remove} />)}
           </div>

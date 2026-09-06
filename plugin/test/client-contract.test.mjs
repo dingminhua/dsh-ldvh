@@ -250,3 +250,13 @@ test("web mount placements: two checkboxes gated by the master switch + refresh 
 	assert.ok(source.includes('Takes effect after saving and reloading'), "LDVH_EN mount hint states the refresh requirement");
 });
 
+test("plugin settings card hosts the project color palette (web settings page is read-only)", () => {
+	// 调色板搬进插件设置卡：十色闭集 + callLdvhApi 颜色端点 + 自动取色重置。
+	assert.ok(source.includes("PROJECT_COLOR_KEYS"), "palette closed set is embedded in the settings card");
+	assert.ok(source.includes('callLdvhApi("/governed-projects/color"'), "palette writes go through the plugin color endpoint");
+	assert.ok(source.includes('callLdvhApi("/governed-projects/with-colors")'), "project list carries colors via with-colors endpoint");
+	assert.ok(source.includes("ldv-palette-dot-active"), "explicit selection has an active ring");
+	assert.ok(source.includes('"row.colorAuto"'), "auto-color reset button exists");
+	assert.ok(source.includes('"row.projectColor"'), "project color label exists");
+});
+

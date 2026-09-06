@@ -62,6 +62,7 @@ function webApiBridgeEnv(dshHomePath) {
   };
   try {
     env.LDVH_GOVERNED_PROJECTS_CONFIG = dshHomePath("ldvh", "governed-projects.yaml");
+    env.LDVH_WEB_PREFERENCES = dshHomePath("ldvh", "web-preferences.yaml");
   } catch {
     // DSH 用户配置根不可用时保持环境不含载体路径——Web 侧如实报配置不可读。
   }

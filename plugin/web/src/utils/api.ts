@@ -1118,3 +1118,10 @@ export async function fetchFederationObjects(type: string): Promise<FederationOb
   return request<FederationObjectsData>(`/federation/objects?${params.toString()}`);
 }
 
+export async function setProjectColor(projectId: string, color: string | null): Promise<GovernedProjectsSettingsData> {
+  return request<GovernedProjectsSettingsData>('/settings/governed-projects/color', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId, color }),
+  });
+}

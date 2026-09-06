@@ -89,7 +89,13 @@ function normalizeDefaultProjectId(input: unknown, projects: GovernedProjectSett
 /** Web 呈现偏好（项目颜色）独立载体——与管辖配置分离：
  * 颜色是呈现偏好不是管辖事实，且管辖配置 Schema 由 Helper 校验（v4 不认识 color 字段）。
  * 键为项目 ID，值必须为色板键名（shared/projectColors 闭集）。 */
-function preferencesPath(): string { return path.join(LDVH_WORKSPACE_ROOT, 'LDVH-WEB-PREFERENCES.yaml') }
+/** 颜色偏好载体：挂载模式经 LDVH_WEB_PREFERENCES 指向 dshHome 下（与登记载体同目录，
+ * 由插件设置卡读写）；未设置时保持 v4 布局（开发模式行为不变）。 */
+function preferencesPath(): string {
+  return process.env.LDVH_WEB_PREFERENCES
+    ? path.resolve(process.env.LDVH_WEB_PREFERENCES)
+    : path.join(LDVH_WORKSPACE_ROOT, 'LDVH-WEB-PREFERENCES.yaml')
+}
 
 function parseProjectColors(content: string): Map<string, string> {
   const colors = new Map<string, string>()
@@ -189,5 +195,19 @@ export async function updateGovernedProjectsSettings(input: unknown, expectedFin
   }
   if (previousColors.size === 0) await rm(preferencesPath(), { force: true })
   else await writeProjectColors(previousColors)
+  return readGovernedProjectsSettings()
+}
+
+/** 仅更新单项目颜色（偏好载体）——供 Web/插件设置卡的调色板交互；
+ * 不触碰管辖登记 YAML（那是插件安装事务的地盘）。 */
+export async function updateProjectColor(projectId: string, color?: string): Promise<{ projects: GovernedProjectSetting[] }> {
+  if (color !== undefined && !isProjectColorKey(color)) {
+    throw new Error(`颜色必须是预制色板键名（shared/projectColors 的闭集成员）`)
+  }
+  const colors = await readProjectColors()
+  if (color) colors.set(projectId, color)
+  else colors.delete(projectId)
+  if (colors.size === 0) await rm(preferencesPath(), { force: true })
+  else await writeProjectColors(colors)
   return readGovernedProjectsSettings()
 }

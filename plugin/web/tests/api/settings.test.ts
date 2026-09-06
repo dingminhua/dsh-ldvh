@@ -90,10 +90,10 @@ test('rejects legacy, mixed and unknown configuration root fields', async () => 
   }
 })
 
-test('validates existing entries only when the explicit verification endpoint is requested', async () => {
-  const { response, body } = await request('/api/settings/governed-projects/verify', { method: 'POST' })
-  assert.equal(response.status, 200)
-  assert.equal(body.ok, true)
+test('explicit verification endpoint reports read-only relocation', async () => {
+  const verify = await request('/api/settings/governed-projects/verify', { method: 'POST' })
+  assert.equal(verify.response.status, 501)
+  assert.match(String(verify.body.error), /插件设置卡|settings card/)
 })
 
 test('discovers current workspace Git worktrees with read-only status and registration context', async () => {
@@ -118,111 +118,50 @@ test('discovers current workspace Git worktrees with read-only status and regist
   assert.deepEqual(first.status, { staged: 0, unstaged: 0, untracked: 0, conflicted: 0 })
 })
 
-test('renames, adds and removes entries while preserving unmanaged description fields', async () => {
-  const initial = await request('/api/settings/governed-projects')
-  const fingerprint = String(initial.body.fingerprint)
+test('governed-projects write endpoints are read-only (501) — registration writes belong to the DSH plugin settings card', async () => {
   const update = await request('/api/settings/governed-projects', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      expectedFingerprint: fingerprint,
-      projects: [
-        { id: 'first', path: firstProject, name: 'Renamed project' },
-        { id: 'second', path: secondProject, name: 'Second project' },
-      ],
-    }),
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expectedFingerprint: 'any', projects: [{ id: 'first', path: firstProject }] }),
   })
-  assert.equal(update.response.status, 200, JSON.stringify(update.body))
-  assert.deepEqual(update.body.projects, [
-    { id: 'first', path: firstProject, name: 'Renamed project' },
-    { id: 'second', path: secondProject, name: 'Second project' },
-  ])
-  assert.equal(update.body.defaultProjectId, 'first')
-  assert.equal(update.body.hasExplicitDefault, true)
-  assert.match(fs.readFileSync(configPath, 'utf8'), /description: This description must survive a name edit\./)
+  assert.equal(update.response.status, 501)
+  assert.match(String(update.body.error), /只读|插件设置卡/)
 
-  const remove = await request('/api/settings/governed-projects', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      expectedFingerprint: update.body.fingerprint,
-      projects: [{ id: 'second', path: secondProject, name: 'Second project' }],
-    }),
-  })
-  assert.equal(remove.response.status, 200, JSON.stringify(remove.body))
-  assert.deepEqual(remove.body.projects, [{ id: 'second', path: secondProject, name: 'Second project' }])
-  assert.equal(remove.body.defaultProjectId, 'second')
-})
+  const verify = await request('/api/settings/governed-projects/verify', { method: 'POST' })
+  assert.equal(verify.response.status, 501)
 
-test('rejects stale or invalid updates and leaves the configuration untouched', async () => {
+  // 配置未被触碰
   const current = await request('/api/settings/governed-projects')
-  const beforeContent = fs.readFileSync(configPath, 'utf8')
-  const stale = await request('/api/settings/governed-projects', {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ expectedFingerprint: 'stale', projects: current.body.projects }),
-  })
-  assert.equal(stale.response.status, 422)
-
-  const invalid = await request('/api/settings/governed-projects', {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      expectedFingerprint: current.body.fingerprint,
-      projects: [{ id: 'not-a-worktree', path: path.join(workspaceRoot, 'missing'), name: 'Broken' }],
-    }),
-  })
-  assert.equal(invalid.response.status, 422)
-  assert.equal(fs.readFileSync(configPath, 'utf8'), beforeContent)
+  assert.equal(current.response.status, 200)
 })
 
-test('project color round-trips through save, clear and rejects unknown palette keys', async () => {
-  const initial = await request('/api/settings/governed-projects')
-  const fingerprint = String(initial.body.fingerprint)
-
-  // 设置显式色
-  const colored = await request('/api/settings/governed-projects', {
+test('project color endpoint sets, clears and rejects invalid palette keys', async () => {
+  const colored = await request('/api/settings/governed-projects/color', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      expectedFingerprint: fingerprint,
-      projects: [
-        { id: 'first', path: firstProject, name: 'First project', color: 'emerald' },
-        { id: 'second', path: secondProject, name: 'Second project' },
-      ],
-    }),
+    body: JSON.stringify({ projectId: 'first', color: 'emerald' }),
   })
   assert.equal(colored.response.status, 200, JSON.stringify(colored.body))
-  assert.deepEqual(colored.body.projects, [
-    { id: 'first', path: firstProject, name: 'First project', color: 'emerald' },
-    { id: 'second', path: secondProject, name: 'Second project' },
-  ])
-  const prefsPath = path.join(workspaceRoot, 'LDVH-WEB-PREFERENCES.yaml')
-  assert.match(fs.readFileSync(prefsPath, 'utf8'), /first: emerald/)
-  assert.doesNotMatch(fs.readFileSync(configPath, 'utf8'), /color:/)
+  const coloredProjects = colored.body.projects as Array<{ id: string; color?: string }>
+  assert.equal(coloredProjects.find((item) => item.id === 'first')?.color, 'emerald')
 
-  // 清除显式色（回到自动取色）
-  const cleared = await request('/api/settings/governed-projects', {
+  const cleared = await request('/api/settings/governed-projects/color', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      expectedFingerprint: colored.body.fingerprint,
-      projects: [
-        { id: 'first', path: firstProject, name: 'First project' },
-        { id: 'second', path: secondProject, name: 'Second project' },
-      ],
-    }),
+    body: JSON.stringify({ projectId: 'first', color: null }),
   })
-  assert.equal(cleared.response.status, 200, JSON.stringify(cleared.body))
+  assert.equal(cleared.response.status, 200)
   const clearedProjects = cleared.body.projects as Array<{ id: string; color?: string }>
   assert.equal(clearedProjects.find((item) => item.id === 'first')?.color, undefined)
-  assert.equal(fs.existsSync(prefsPath), false, 'clearing every color removes the preferences file')
 
-  // 非法色板键名拒绝且配置不动
-  const before = fs.readFileSync(configPath, 'utf8')
-  const invalid = await request('/api/settings/governed-projects', {
+  const invalid = await request('/api/settings/governed-projects/color', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      expectedFingerprint: cleared.body.fingerprint,
-      projects: [{ id: 'first', path: firstProject, name: 'First project', color: 'hot-pink' }],
-    }),
+    body: JSON.stringify({ projectId: 'first', color: 'hot-pink' }),
   })
   assert.equal(invalid.response.status, 422)
-  assert.equal(fs.readFileSync(configPath, 'utf8'), before)
+
+  const unknown = await request('/api/settings/governed-projects/color', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId: 'missing-project', color: 'rose' }),
+  })
+  assert.equal(unknown.response.status, 404)
 })
+
+

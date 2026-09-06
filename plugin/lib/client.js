@@ -97,6 +97,13 @@ window.__ModuleLoader__.load({
       ".ldv-check-disabled input{cursor:not-allowed}" +
       ".ldv-check-label{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#c2c2c2);user-select:none}" +
       ".ldv-mount-hint{display:block;margin-top:8px}" +
+      ".ldv-palette{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2,#36373b)}" +
+      ".ldv-palette-label{font-size:12px;color:var(--dsw-alias-label-tertiary,#999);flex:none}" +
+      ".ldv-palette-dot{width:18px;height:18px;border-radius:50%;border:none;padding:0;cursor:pointer;flex:none;transition:transform .12s}" +
+      ".ldv-palette-dot:hover{transform:scale(1.18)}" +
+      ".ldv-palette-dot:disabled{cursor:not-allowed;opacity:.5}" +
+      ".ldv-palette-dot-active{box-shadow:0 0 0 2px var(--dsw-alias-bg-layer-3,#202126),0 0 0 3.5px #fff}" +
+      ".ldv-palette-reset{padding:2px 8px;font-size:11px;line-height:16px}" +
       ".ldv-web-panel-copy{display:flex;flex-direction:column;gap:3px;min-width:0}" +
       ".ldv-web-panel-title{font-size:13px;font-weight:600;line-height:19px;color:var(--dsw-alias-label-primary,#e6e6e6)}" +
       ".ldv-web-panel-desc{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#999)}" +
@@ -185,6 +192,8 @@ window.__ModuleLoader__.load({
       "row.apiUnavailable": "LDVH 服务暂不可用，请稍后重试或检查 Web 呈现开关",
       "row.projectsUnavailable": "管辖项目列表暂不可用，请先查看上方 Web 呈现状态。",
       "row.webEnabled": "启用 LDVH Web 呈现",
+      "row.projectColor": "项目颜色",
+      "row.colorAuto": "自动取色",
       "row.mountConversationTab": "加入到对话 Tab",
       "row.mountSidebarTab": "加入到侧边栏",
       "row.mountHint": "保存后刷新页面生效；关闭 Web 呈现总开关时，两项投放均不生效。",
@@ -242,6 +251,8 @@ window.__ModuleLoader__.load({
       "row.apiUnavailable": "The LDVH service is unavailable. Retry later or check the Web presentation switch.",
       "row.projectsUnavailable": "The governed-project list is unavailable. Check the Web presentation status above first.",
       "row.webEnabled": "Enable LDVH Web presentation",
+      "row.projectColor": "Project color",
+      "row.colorAuto": "Auto color",
       "row.mountConversationTab": "Add to conversation tab",
       "row.mountSidebarTab": "Add to sidebar",
       "row.mountHint": "Takes effect after saving and reloading the page; when the Web presentation switch is off, neither placement is active.",
@@ -359,7 +370,7 @@ window.__ModuleLoader__.load({
 
       function loadProjects() {
         projectsState[1]({ loading: true, value: projectsState[0].value, error: null, unavailable: false });
-        callLdvhApi("/governed-projects")
+        callLdvhApi("/governed-projects/with-colors")
           .then(function (result) {
             if (!result || result.ok !== true) throw new Error(result && result.error ? result.error.message : "project list unavailable");
             projectsState[1]({ loading: false, value: result.value, error: null, unavailable: false });
@@ -436,6 +447,20 @@ window.__ModuleLoader__.load({
           })
           .catch(function (error) { installErrorState[1](t("row.operationFailed") + ": " + String(error.message || error)); })
           .finally(function () { projectBusyState[1](false); });
+      }
+      // 项目颜色：调色板交互（十色闭集与 Web shared/projectColors.ts 同源）。
+      var PROJECT_COLOR_KEYS = ["emerald", "sky", "violet", "amber", "rose", "cyan", "indigo", "orange", "teal", "fuchsia"];
+      function projectColorVar(key) { return "var(--ldvh-pj-" + key + ")"; }
+      function setProjectColor(projectId, color) {
+        projectBusyState[1](true);
+        callLdvhApi("/governed-projects/color", { projectId: projectId, color: color })
+          .then(function (result) {
+            if (!result || result.ok !== true) throw new Error(result && result.error ? result.error.message : "color update failed");
+            loadProjects();
+          })
+          .catch(function (error) {
+            projectsState[1]({ loading: false, value: projectsState[0].value, error: String(error.message || error), unavailable: false });
+          }).finally(function () { projectBusyState[1](false); });
       }
       function inspectProject(path) {
         projectBusyState[1](true);
@@ -564,6 +589,24 @@ window.__ModuleLoader__.load({
                   React.createElement("span", { className: ready ? "ldv-status-value ldv-status-ok" : "ldv-status-value ldv-status-fail" }, ready ? t("row.projectReady") : t("row.projectIncomplete"))
                 ),
                 notReadyDetail ? React.createElement("span", { className: "ldv-settings-hint" }, notReadyDetail) : null,
+                React.createElement("div", { className: "ldv-palette", role: "group", "aria-label": t("row.projectColor") },
+                  React.createElement("span", { className: "ldv-palette-label" }, t("row.projectColor")),
+                  PROJECT_COLOR_KEYS.map(function (key) {
+                    var isExplicit = project.color === key;
+                    return React.createElement("button", {
+                      key: key, type: "button",
+                      className: "ldv-palette-dot" + (isExplicit ? " ldv-palette-dot-active" : ""),
+                      title: key, "aria-label": key, "aria-pressed": isExplicit,
+                      disabled: projectBusyState[0],
+                      style: { backgroundColor: projectColorVar(key) },
+                      onClick: function () { setProjectColor(project.id, isExplicit ? null : key); }
+                    });
+                  }),
+                  project.color ? React.createElement("button", {
+                    type: "button", className: "ldv-btn ldv-btn-outline ldv-palette-reset",
+                    disabled: projectBusyState[0], onClick: function () { setProjectColor(project.id, null); }
+                  }, t("row.colorAuto")) : null
+                ),
                 React.createElement("div", { className: "ldv-project-actions" },
                   React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-outline", disabled: projectBusyState[0], onClick: function () { inspectProject(project.path); } }, t("row.check")),
                   repairable ? React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-primary", disabled: projectBusyState[0], onClick: function () { updateProject(project); } }, projectBusyState[0] ? t("row.updateBusy") : t("row.update")) : null,
