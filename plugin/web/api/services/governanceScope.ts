@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { constants, realpathSync, statSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
+import yaml from 'js-yaml'
 import path from 'node:path'
 import { LDVH_ROOT, LDVH_WORKSPACE_ROOT } from './pytools.js'
 
@@ -81,8 +82,81 @@ function configuredWorkspaceRoot(): string {
   return path.resolve(raw)
 }
 
+/** v5 登记模式：LDVH_GOVERNED_PROJECTS_CONFIG 指向 v5 登记载体
+ * （~/.dsh/ldvh/governed-projects.yaml，由 DSH 插件安装事务拥有）。
+ * 该模式下治理验证不经过 v4 Python Helper——Node 直接解析载器并逐项目做
+ * git 身份解析（与插件 resolveGitRoot 同语义：路径须为 Git 根、非 bare）。 */
+function v5CarrierPath(): string | null {
+  const configured = process.env.LDVH_GOVERNED_PROJECTS_CONFIG
+  return configured ? path.resolve(configured) : null
+}
+
 function configurationPath(): string {
-  return path.join(configuredWorkspaceRoot(), 'LDVH-GOVERNED-PROJECTS.yaml')
+  return v5CarrierPath() ?? path.join(configuredWorkspaceRoot(), 'LDVH-GOVERNED-PROJECTS.yaml')
+}
+
+function gitEnvironment(): NodeJS.ProcessEnv {
+  const env = { ...process.env }
+  for (const key of Object.keys(env)) {
+    if (key === 'GIT_CONFIG_COUNT' || key.startsWith('GIT_CONFIG_KEY_') || key.startsWith('GIT_CONFIG_VALUE_')
+      || ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY'].includes(key)) delete env[key]
+  }
+  return env
+}
+
+function gitQuery(worktree: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile('git', ['-C', worktree, ...args], { env: gitEnvironment(), encoding: 'utf8', timeout: 10_000 }, (error, stdout) => {
+      if (error) reject(error)
+      else resolve(String(stdout).trim())
+    })
+  })
+}
+
+/** 单项目 git 身份解析；不可验证（非 Git 根/bare/不存在）返回 null——降级剔除。 */
+async function resolveV5ProjectIdentity(projectPath: string): Promise<{ projectRoot: string, gitCommonDir: string } | null> {
+  try {
+    const requested = await realpath(projectPath)
+    const top = await gitQuery(projectPath, ['rev-parse', '--show-toplevel'])
+    const common = await gitQuery(projectPath, ['rev-parse', '--path-format=absolute', '--git-common-dir'])
+    const canonicalRoot = await realpath(top)
+    if (canonicalRoot !== requested) return null
+    return { projectRoot: canonicalRoot, gitCommonDir: await realpath(common) }
+  } catch {
+    return null
+  }
+}
+
+async function resolveV5CarrierScope(carrierPath: string, fingerprint: string): Promise<VerifiedScopeSnapshot> {
+  let content: string
+  try { content = await readFile(carrierPath, 'utf8') }
+  catch (error) {
+    throw new WebGovernanceError(`Governance configuration is unavailable: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  let document: unknown
+  try { document = yaml.load(content) }
+  catch (error) {
+    throw new WebGovernanceError(`Governance configuration is not valid: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  if (!isRecord(document) || !Array.isArray(document.projects)) {
+    throw new WebGovernanceError('Governance configuration is not valid: v5 carrier must declare a projects list')
+  }
+  const defaultProjectId = typeof document.default_project_id === 'string' ? document.default_project_id : ''
+  const verified: WebGovernedProject[] = []
+  for (const entry of document.projects) {
+    if (!isRecord(entry) || typeof entry.id !== 'string' || !entry.id.trim()
+      || typeof entry.path !== 'string' || !entry.path.trim()) continue
+    const identity = await resolveV5ProjectIdentity(entry.path)
+    if (identity) verified.push({ id: entry.id, path: identity.projectRoot, gitCommonDir: identity.gitCommonDir })
+  }
+  if (verified.length === 0) {
+    throw new WebGovernanceError('Governance resolution is not verified: no registered project has a verifiable Git worktree')
+  }
+  const locator = normalizedExistingPath(configuredLocator())
+  const current = verified.find((project) => project.path === locator)
+    ?? verified.find((project) => project.id === defaultProjectId)
+    ?? verified[0]
+  return { configurationFingerprint: fingerprint, current, projects: verified }
 }
 
 async function configurationFingerprint(): Promise<string> {
@@ -194,6 +268,8 @@ function projectsFromResolution(current: Record<string, unknown>): WebGovernedPr
 }
 
 async function refreshVerifiedScope(fingerprint: string): Promise<VerifiedScopeSnapshot> {
+  const carrier = v5CarrierPath()
+  if (carrier !== null) return resolveV5CarrierScope(carrier, fingerprint)
   const locator = configuredLocator()
   const resolution = verifiedResolution(await invokeGovernanceScope(locator, configuredWorkspaceRoot()), locator)
   return {
@@ -255,6 +331,11 @@ export async function verifyWebGovernanceConfiguration(): Promise<void> {
     throw new WebGovernanceError(`Governance configuration is unavailable: ${error instanceof Error ? error.message : String(error)}`)
   }
   verifiedSnapshot = null
+  const carrier = v5CarrierPath()
+  if (carrier !== null) {
+    await resolveV5CarrierScope(carrier, fingerprint)
+    return
+  }
   const response = await invokeGovernanceScope(configuredWorkspaceRoot(), configuredWorkspaceRoot())
   if (response.outcome !== 'ok' || !isRecord(response.result) || response.result.config_status !== 'valid') {
     const result = isRecord(response.result) ? response.result : {}

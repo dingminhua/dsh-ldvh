@@ -9,9 +9,16 @@ import { verifyWebGovernanceConfiguration } from './governanceScope.js'
 export type GovernedProjectSetting = { id: string; path: string; name?: string; color?: string }
 type Configuration = { governance_instance_name: string; product_description: string; projects: Array<Record<string, unknown>>; default_project_id?: string }
 
-const ROOT_FIELDS = new Set(['governance_instance_name', 'product_description', 'projects', 'default_project_id'])
+// schema_version 是 v5 登记载体（~/.dsh/ldvh/governed-projects.yaml）的根字段，容忍之。
+const ROOT_FIELDS = new Set(['governance_instance_name', 'product_description', 'projects', 'default_project_id', 'schema_version'])
 
-function configPath(): string { return path.join(LDVH_WORKSPACE_ROOT, 'LDVH-GOVERNED-PROJECTS.yaml') }
+/** v5 登记模式：LDVH_GOVERNED_PROJECTS_CONFIG 指向 v5 登记载体（与 governanceScope.configurationPath 同源）；
+ * 未设置时保持 v4 布局（LDVH_WORKSPACE_ROOT/LDVH-GOVERNED-PROJECTS.yaml）。 */
+function configPath(): string {
+  return process.env.LDVH_GOVERNED_PROJECTS_CONFIG
+    ? path.resolve(process.env.LDVH_GOVERNED_PROJECTS_CONFIG)
+    : path.join(LDVH_WORKSPACE_ROOT, 'LDVH-GOVERNED-PROJECTS.yaml')
+}
 function fingerprint(content: string): string { return createHash('sha256').update(content).digest('hex') }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value && typeof value === 'object' && !Array.isArray(value)) }
 

@@ -8,8 +8,9 @@
  * 3. createProxyHandler(manager)  —— /ldvh/api 未命中插件本地路由（health +
  *    governed-projects 治理端点）时代理到子进程。
  *
- * ⚠️ 临时桥接（docs/README-MIGRATION.md 同款声明）：子进程的 Helper 环境
- * 指向 v4 归档（事实数据源）。DSH Helper 集成落地后改指 v5 登记载体。
+ * 环境由调用方（index.js webApiBridgeEnv）注入：v5 登记模式——
+ * LDVH_GOVERNED_PROJECTS_CONFIG 指向 v5 登记载体，治理验证走 Node git 解析，
+ * 不依赖 v4 Python Helper。限制见 README-MIGRATION.md。
  */
 import http from "node:http";
 import { createReadStream } from "node:fs";

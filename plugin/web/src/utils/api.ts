@@ -8,7 +8,7 @@ import type {
 // 基址跟随 vite base：dev（BASE_URL='/'）保持 '/api' 走 vite 代理；
 // DSH 挂载构建（vite build --base=/ldvh/）下请求落在 '/ldvh/api'——由插件
 // 的 /ldvh/api 路由（本地治理端点 + Web API 子进程代理）承接。
-const API_BASE = `${import.meta.env.BASE_URL}api`;
+const API_BASE = `${import.meta.env?.BASE_URL ?? '/'}api`;
 const inFlightRequests = new Map<string, Promise<unknown>>();
 
 /** Selected governed-project id, kept in sync by ProjectScopeProvider. Appended to

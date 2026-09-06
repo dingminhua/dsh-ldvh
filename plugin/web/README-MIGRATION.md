@@ -36,6 +36,11 @@ LDVH_SPEC_ROOT=<v4 归档> LDVH_WORKSPACE_ROOT=/tmp/sandbox \
 node --import tsx --test tests/api/settings.test.ts
 ```
 
+## 挂载模式与数据源（2026-09-08 接线定稿）
+
+- **DSH 挂载（/ldvh）= v5 登记模式**：Web API 子进程经 `LDVH_GOVERNED_PROJECTS_CONFIG` 直读 v5 登记载体（`~/.dsh/ldvh/governed-projects.yaml`，插件安装事务拥有）；治理验证为 Express 侧 Node git 解析（与插件 resolveGitRoot 同语义），**不依赖 v4 Python Helper**。已知边界：v5 调研对象在 `ldvh-base/researches/`（research 读取引擎属后续接线），study 类型列表在 v5 项目上为空是如实呈现；Settings 页对登记载体的写入沿用 v4 轻写入语义（CAS + 原子改名），与插件安装事务并存——07 语义的最终归位属后续。
+- **独立开发（restart.sh）= v4 归档模式**：环境变量指向 v4 归档，用于查看 v4 历史数据（152 WC / 103 Spark），行为与迁移前一致。
+
 ## 已知状态（2026-09-08 迁移验证）
 
 - **210/212 用例通过**。

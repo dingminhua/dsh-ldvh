@@ -48,12 +48,25 @@ const WEB_API_PORT = Number(process.env.LDVH_WEB_API_PORT ?? 3299);
  * 读取依赖 v4 归档的 Python Helper 与 v4 工作区配置。DSH Helper 集成落地后
  * 这里改指 v5 登记载体。与 plugin/web/restart.sh 保持同一数据源。
  */
-const WEB_API_BRIDGE_ENV = {
-  LDVH_ROOT: "/Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4",
-  LDVH_WORKSPACE_ROOT: "/Users/dmh2002/poker_hud_projects",
-  LDVH_HELPER_EXECUTABLE: "/Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4/ldvh",
-  LDVH_WEB_WORKTREE_LOCATOR: "/Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4",
-};
+/**
+ * Web API 子进程的 v5 登记模式环境：LDVH_GOVERNED_PROJECTS_CONFIG 指向 v5 登记载体
+ * （dshHomePath 下 ldvh/governed-projects.yaml，由本插件的安装事务拥有）——读取链
+ * 不再经过 v4 Python Helper，治理验证由 Express 侧 Node git 解析完成（与插件
+ * resolveGitRoot 同语义）。已知限制（README-MIGRATION.md）：v5 的调研对象在
+ * ldvh-base/researches/（research 读取引擎属后续接线），study 类型列表在 v5
+ * 项目上为空是如实呈现。
+ */
+function webApiBridgeEnv(dshHomePath) {
+  const env = {
+    LDVH_WORKSPACE_ROOT: dirname(PACKAGE_ROOT),
+  };
+  try {
+    env.LDVH_GOVERNED_PROJECTS_CONFIG = dshHomePath("ldvh", "governed-projects.yaml");
+  } catch {
+    // DSH 用户配置根不可用时保持环境不含载体路径——Web 侧如实报配置不可读。
+  }
+  return env;
+}
 
 export const name = "dsh-ldvh";
 export const inject = ["tools", "settings", "systemPrompt"];
@@ -237,7 +250,7 @@ export function apply(ctx) {
     const webApiProcess = createWebApiProcess({
       webRoot: join(PACKAGE_ROOT, "web"),
       port: WEB_API_PORT,
-      env: WEB_API_BRIDGE_ENV,
+      env: webApiBridgeEnv(dshHomePath),
       logger: webCtx.logger,
     });
     let disposeRoutes = null;
