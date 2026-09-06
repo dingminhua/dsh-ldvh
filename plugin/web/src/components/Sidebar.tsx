@@ -10,7 +10,6 @@ import {
   Moon,
   Monitor,
   PanelLeft,
-  Settings,
   type LucideProps,
 } from 'lucide-react';
 import { useI18n } from '@/i18n/context';
@@ -32,7 +31,6 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
   { to: '/project-files', labelKey: 'nav.projectFiles', icon: FolderTree },
   { to: '/changes', labelKey: 'nav.changes', icon: GitPullRequestArrow },
   { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog },
-  { to: '/settings', labelKey: 'nav.settings', icon: Settings },
 ];
 
 /** 联邦作用域导航（全部管辖计划 Step 4）：
@@ -47,7 +45,6 @@ const FEDERATION_NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon; di
   { to: '/project-files', labelKey: 'nav.projectFiles', icon: FolderTree, disabled: true },
   { to: '/changes', labelKey: 'nav.changes', icon: GitPullRequestArrow, disabled: true },
   { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog, disabled: true },
-  { to: '/settings', labelKey: 'nav.settings', icon: Settings },
 ];
 
 function getNavItemLabel(item: (typeof NAV_ITEMS)[number], t: (key: LocaleKey) => string): string {

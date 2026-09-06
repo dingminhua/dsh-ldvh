@@ -45,22 +45,15 @@ test('studies are followed by the ordered directory, workspace changes, and comm
   assert.match(locales, /'nav\.projectFiles': '目录'/);
 });
 
-test('settings is the final navigation entry and only exposes governed-project configuration', () => {
+test('settings has no web surface — registration and colors live in the DSH plugin settings card', () => {
+  // Human 2026-09-08 决策：Web 内的设置页移除。管辖登记与项目颜色的唯一管理面
+  // 是 DSH 插件设置卡（07 规范登记面）；Web 是纯呈现层。
   const app = fs.readFileSync(path.resolve('src/App.tsx'), 'utf8');
   const sidebar = fs.readFileSync(path.resolve('src/components/Sidebar.tsx'), 'utf8');
-  const settings = fs.readFileSync(path.resolve('src/pages/Settings.tsx'), 'utf8');
-  const locales = fs.readFileSync(path.resolve('src/i18n/locales.ts'), 'utf8');
-
-  assert.match(app, /<Route path="\/settings" element=\{<Settings \/>\} \/>/);
-  assert.match(sidebar, /\{ to: '\/changelog'[\s\S]*\{ to: '\/settings', labelKey: 'nav\.settings'[\s\S]*\];/);
-  assert.match(settings, /t\('settings\.configOnly'\)/);
-  assert.match(settings, /useI18n/);
-  assert.match(settings, /t\('settings\.gitNotice'\)/);
-  assert.match(settings, /t\('settings\.defaultProject'\)/);
-  assert.match(settings, /t\('settings\.saveDefault'\)/);
-  assert.match(locales, /'settings\.title': '设置'/);
-  assert.match(locales, /'settings\.title': 'Settings'/);
-  assert.doesNotMatch(settings, /fetchProjectGit|fetchObject|saveObject/);
+  assert.doesNotMatch(app, /<Route path="\/settings"/);
+  assert.doesNotMatch(sidebar, /to: '\/settings'/);
+  assert.doesNotMatch(sidebar, /'nav\.settings'/);
+  assert.equal(fs.existsSync(path.resolve('src/pages/Settings.tsx')), false, 'Settings page must be deleted');
 });
 
 test('the governed project switcher lives beside the brand in global navigation', () => {
