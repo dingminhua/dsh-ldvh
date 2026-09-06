@@ -14,7 +14,6 @@ ldvh_spec:
   basis:
     - "ldvh-root"
     - "specification-model-foundation"
-    - "work-model-foundation"
     - "fact-model-foundation"
   authorized_attachments: []
   dimensions: ["research"]
@@ -32,12 +31,11 @@ ldvh_spec:
 
 ## 2. 规范依据
 
-本文直接依据：
+本文直接依据（结构父规范 `work-model-foundation` 的 02 §10 调研系统定义自动适用，不重复列出）：
 
 1. `ldvh-root`：00 §2 的根方案、§3.1 调研系统定位、§4 的 Human 决定权、§5 的 AI 责任、§6 的价值标准与 §7 的防自欺、Stop Conditions 与交还；
 2. `specification-model-foundation`：01 §6 的身份块契约、§7 的普通规范共同章节结构与 §9 的当前规则源条件；
-3. `work-model-foundation`：02 §10 调研系统的职责、判据、机制指向与边界；
-4. `fact-model-foundation`：03 §6 的公共身份字段（object_uid/fact_type_key/title/created_at/urls/relations/change_log）、§11 的类型规范共同结构（十三个必填问题）。
+3. `fact-model-foundation`：03 §6 的公共身份字段（object_uid/fact_type_key/title/created_at/urls/relations/change_log）、§11 的类型规范共同结构（十三个必填问题）。
 
 本文不依赖额外外部语法或行业标准定义调研系统语义。dsh-deep-research 的控制论/信息论机制只作设计输入，不进入本文规范依据。发生冲突或权威关系无法确认时，按 00 §7.2 暂停受影响范围并完成对齐。
 
