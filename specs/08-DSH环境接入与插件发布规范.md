@@ -1,6 +1,4 @@
-# DSH 环境接入与插件发布规范
-
-```yaml
+---
 ldvh_spec:
   spec_key: "dsh-environment-integration"
   spec_id: "08"
@@ -17,7 +15,10 @@ ldvh_spec:
     - "work-model-foundation"
   authorized_attachments: []
   dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
-```
+---
+
+# DSH 环境接入与插件发布规范
+
 
 ## 1. 价值判断
 

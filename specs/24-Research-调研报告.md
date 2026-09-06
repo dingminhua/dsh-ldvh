@@ -1,6 +1,4 @@
-# Research / 调研报告
-
-```yaml
+---
 ldvh_spec:
   spec_key: "research-fact-type"
   spec_id: "24"
@@ -15,7 +13,10 @@ ldvh_spec:
     - "work-model-foundation"
   authorized_attachments: []
   dimensions: ["research"]
-```
+---
+
+# Research / 调研报告
+
 
 
 ## 1. 价值判断

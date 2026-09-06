@@ -1,6 +1,4 @@
-# Code 实践与测试规范
-
-```yaml
+---
 ldvh_spec:
   spec_key: "code-engineering-practices"
   spec_id: "09"
@@ -17,7 +15,10 @@ ldvh_spec:
     - "work-model-foundation"
   authorized_attachments: []
   dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
-```
+---
+
+# Code 实践与测试规范
+
 
 ## 1. 价值判断
 

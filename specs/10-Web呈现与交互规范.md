@@ -1,6 +1,4 @@
-# Web 呈现与交互规范
-
-```yaml
+---
 ldvh_spec:
   spec_key: "web-presentation-interaction"
   spec_id: "10"
@@ -17,7 +15,10 @@ ldvh_spec:
     - "work-model-foundation"
   authorized_attachments: []
   dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
-```
+---
+
+# Web 呈现与交互规范
+
 
 ## 1. 价值判断
 

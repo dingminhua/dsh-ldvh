@@ -38,24 +38,28 @@ function isNonEmptyString(value) {
 }
 
 /**
- * Split the fixed-position identity block: the file's first line must be the
- * single H1, followed by exactly one blank line and one ```yaml fence
- * (01.Att.02 §1). The identity block is the file-head formation — a later
- * ```yaml fence inside the body (an example block) does not form a second
- * identity block and is not rejected. Returns the H1 text, the yaml block
- * text and the 1-based line where the block opens.
+ * Split the fixed-position identity block: the file must open with a YAML
+ * frontmatter formation (`---` fence at line 1, closed by a matching `---`)
+ * containing the identity mapping (01.Att.02 §1, unified frontmatter form).
+ * The first markdown line after the frontmatter must be the single H1.
+ * A later ```yaml fence inside the body (an example block) does not form a
+ * second identity block and is not rejected. Returns the H1 text, the yaml
+ * block text and the 1-based line where the block opens.
  */
 export function splitIdentityBlock(markdownText) {
   const lines = markdownText.split("\n");
-  if (!/^# \S/.test(lines[0] ?? "")) return reject("identity/h1_missing", "first line must be the single H1 heading");
+  if (lines[0] !== "---") return reject("identity/fence_missing", "frontmatter fence must open at line 1");
+  const closeIndex = lines.indexOf("---", 1);
+  if (closeIndex === -1) return reject("identity/fence_unclosed", "the frontmatter fence is never closed");
+  const yamlText = lines.slice(1, closeIndex).join("\n");
+  const afterFence = closeIndex + 1;
+  if (lines[afterFence] !== "") return reject("identity/block_position", "frontmatter close must be followed by exactly one blank line before the H1");
+  const h1Index = lines.findIndex((line, i) => i > afterFence && /^# \S/.test(line));
+  if (h1Index === -1) return reject("identity/h1_missing", "the file must contain exactly one H1 after the frontmatter");
   const h1Count = lines.filter((line) => /^# /.test(line)).length;
   if (h1Count > 1) return reject("identity/h1_missing", "the file must contain exactly one H1");
-  const h1 = lines[0].slice(2).trim();
-  if (lines[1] !== "") return reject("identity/block_position", "H1 must be followed by exactly one blank line before the yaml fence");
-  if (lines[2] !== "```yaml") return reject("identity/fence_missing", "the yaml fence must open the identity block at line 3");
-  const closeIndex = lines.indexOf("```", 3);
-  if (closeIndex === -1) return reject("identity/fence_unclosed", "the yaml fence is never closed");
-  return { ok: true, value: { h1, yamlText: lines.slice(3, closeIndex).join("\n"), yamlLine: 3, totalLines: lines.length } };
+  const h1 = lines[h1Index].slice(2).trim();
+  return { ok: true, value: { h1, yamlText, yamlLine: 1, totalLines: lines.length } };
 }
 
 /**

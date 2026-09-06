@@ -1,6 +1,4 @@
-# Helper 服务规范
-
-```yaml
+---
 ldvh_spec:
   spec_key: "helper-service-contract"
   spec_id: "05"
@@ -17,7 +15,10 @@ ldvh_spec:
     - "work-model-foundation"
   authorized_attachments: []
   dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
-```
+---
+
+# Helper 服务规范
+
 
 ## 1. 价值判断
 

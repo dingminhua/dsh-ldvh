@@ -11,6 +11,7 @@ import {
   validateBodyStructure,
   extractFindingUnits,
   validateIndexBodyCoherence,
+  validateResearchRelations,
 } from "../lib/research-writer.js";
 
 let root;
@@ -328,4 +329,98 @@ test("updateResearchObject rejects sub-stage change", async () => {
   });
   assert.ok(!result.ok);
   assert.equal(result.error.code, "research/substage_immutable");
+});
+
+// ---------------------------------------------------------------------------
+// Relations contract (specs/24 §11 + 03 §7.2) — T4 enforcement
+// ---------------------------------------------------------------------------
+
+test("validateResearchRelations accepts relations omitted entirely", () => {
+  const check = validateResearchRelations(validFrontmatterDraft(), null);
+  assert.ok(check.ok, JSON.stringify(check.issues));
+});
+
+test("validateResearchRelations accepts closed-set keys with canonical targets", () => {
+  const check = validateResearchRelations({
+    relations: [
+      { relation_key: "inspired-by", target: { object_uid: "11111111-1111-4111-8111-111111111111" } },
+      { relation_key: "informs", target: { object_uid: "22222222-2222-4222-8222-222222222222" } },
+    ],
+  }, null);
+  assert.ok(check.ok, JSON.stringify(check.issues));
+});
+
+test("validateResearchRelations rejects forbidden keys (supersedes/depends-on)", () => {
+  for (const key of ["supersedes", "depends-on"]) {
+    const check = validateResearchRelations({
+      relations: [{ relation_key: key, target: { object_uid: "11111111-1111-4111-8111-111111111111" } }],
+    }, null);
+    assert.ok(!check.ok);
+    assert.ok(check.issues.some((i) => i.includes("forbidden")));
+  }
+});
+
+test("validateResearchRelations rejects unknown relation_key", () => {
+  const check = validateResearchRelations({
+    relations: [{ relation_key: "cites", target: { object_uid: "11111111-1111-4111-8111-111111111111" } }],
+  }, null);
+  assert.ok(!check.ok);
+  assert.ok(check.issues.some((i) => i.includes("closed set")));
+});
+
+test("validateResearchRelations rejects v4 legacy target ids and legacy triples", () => {
+  const legacy = validateResearchRelations({
+    relations: [{ relation_key: "informs", target: { object_uid: "study-01M0SPKT43E1" } }],
+  }, null);
+  assert.ok(!legacy.ok);
+  assert.ok(legacy.issues.some((i) => i.includes("canonical UUID")));
+  const triple = validateResearchRelations({
+    relations: [{ relation_key: "informs", target: { object_id: "study-01M0SPKT43E1", fact_type_key: "spark", title: "x" } }],
+  }, null);
+  assert.ok(!triple.ok);
+  assert.ok(triple.issues.some((i) => i.includes("target.object_uid")));
+});
+
+test("validateResearchRelations enforces updates cardinality, self-reference and dedupe", () => {
+  const two = validateResearchRelations({
+    relations: [
+      { relation_key: "updates", target: { object_uid: "33333333-3333-4333-8333-333333333333" } },
+      { relation_key: "updates", target: { object_uid: "44444444-4444-4444-8444-444444444444" } },
+    ],
+  }, null);
+  assert.ok(!two.ok);
+  assert.ok(two.issues.some((i) => i.includes("at most one updates")));
+  const self = validateResearchRelations({
+    relations: [{ relation_key: "updates", target: { object_uid: "55555555-5555-4555-8555-555555555555" } }],
+  }, "55555555-5555-4555-8555-555555555555");
+  assert.ok(!self.ok);
+  assert.ok(self.issues.some((i) => i.includes("itself")));
+  const dup = validateResearchRelations({
+    relations: [
+      { relation_key: "informs", target: { object_uid: "11111111-1111-4111-8111-111111111111" } },
+      { relation_key: "informs", target: { object_uid: "11111111-1111-4111-8111-111111111111" } },
+    ],
+  }, null);
+  assert.ok(!dup.ok);
+  assert.ok(dup.issues.some((i) => i.includes("duplicate")));
+});
+
+test("createResearchObject rejects invalid relations but accepts resolvable updates target", async () => {
+  const bad = { ...validFrontmatterDraft(), relations: [{ relation_key: "supersedes", target: { object_uid: "11111111-1111-4111-8111-111111111111" } }] };
+  const rejected = await createResearchObject({ factSourceRoot: root, frontmatterDraft: bad, analysisBody: validAnalysisBody });
+  assert.ok(!rejected.ok);
+  assert.equal(rejected.error.code, "research/relations_invalid");
+
+  // Create a first object, then a second one updating it — resolvable target passes.
+  const first = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody });
+  assert.ok(first.ok);
+  const secondDraft = { ...validFrontmatterDraft(), relations: [{ relation_key: "updates", target: { object_uid: first.value.object_uid } }] };
+  const second = await createResearchObject({ factSourceRoot: root, frontmatterDraft: secondDraft, analysisBody: validAnalysisBody });
+  assert.ok(second.ok, JSON.stringify(second.error));
+
+  // A dangling updates target must fail resolution.
+  const dangling = { ...validFrontmatterDraft(), relations: [{ relation_key: "updates", target: { object_uid: "99999999-9999-4999-8999-999999999999" } }] };
+  const failed = await createResearchObject({ factSourceRoot: root, frontmatterDraft: dangling, analysisBody: validAnalysisBody });
+  assert.ok(!failed.ok);
+  assert.equal(failed.error.code, "research/relation_target_unresolvable");
 });

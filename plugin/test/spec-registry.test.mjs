@@ -46,7 +46,7 @@ function identityBlock(yamlObject) {
 
 /** Wrap h1 + identity block + optional body in a full spec document. */
 function specDoc(h1, yamlObject, body = "## 1. Demo\n\n正文。") {
-	return `# ${h1}\n\n\`\`\`yaml\n${identityBlock(yamlObject)}\n\`\`\`\n\n${body}`;
+	return `---\n${identityBlock(yamlObject)}\n---\n\n# ${h1}\n\n${body}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -58,45 +58,45 @@ test("splitIdentityBlock accepts the canonical file-head formation", () => {
 	const result = splitIdentityBlock(text);
 	assert.equal(result.ok, true);
 	assert.equal(result.value.h1, "示例规范");
-	assert.equal(result.value.yamlLine, 3);
+	assert.equal(result.value.yamlLine, 1);
 	assert.equal(result.value.totalLines, text.split("\n").length);
 });
 
 test("splitIdentityBlock rejects an empty file", () => {
 	const result = splitIdentityBlock("");
 	assert.equal(result.ok, false);
-	assert.equal(result.error.code, "identity/h1_missing");
+	assert.equal(result.error.code, "identity/fence_missing");
 });
 
 test("splitIdentityBlock rejects a missing H1", () => {
-	const result = splitIdentityBlock("```yaml\nfoo: 1\n```\n");
+	const result = splitIdentityBlock("---\nfoo: 1\n---\n\n正文没有标题。\n");
 	assert.equal(result.ok, false);
 	assert.equal(result.error.code, "identity/h1_missing");
 });
 
 test("splitIdentityBlock rejects multiple H1 headings", () => {
-	const text = "# 一级\n\n```yaml\nx: 1\n```\n\n# 又一个\n";
+	const text = "---\nx: 1\n---\n\n# 一级\n\n# 又一个\n";
 	const result = splitIdentityBlock(text);
 	assert.equal(result.ok, false);
 	assert.equal(result.error.code, "identity/h1_missing");
 });
 
 test("splitIdentityBlock rejects H1 followed by a non-blank line", () => {
-	const text = "# 一级\n文本\n```yaml\nx: 1\n```\n";
+	const text = "---\nx: 1\n---\n# 一级\n文本\n";
 	const result = splitIdentityBlock(text);
 	assert.equal(result.ok, false);
 	assert.equal(result.error.code, "identity/block_position");
 });
 
 test("splitIdentityBlock rejects when the fence is not on line 3", () => {
-	const text = "# 一级\n\nnot a fence\n```yaml\nx: 1\n```\n";
+	const text = "# 一级\n\nnot a fence\n---\nx: 1\n---\n";
 	const result = splitIdentityBlock(text);
 	assert.equal(result.ok, false);
 	assert.equal(result.error.code, "identity/fence_missing");
 });
 
 test("splitIdentityBlock rejects an unclosed fence", () => {
-	const text = "# 一级\n\n```yaml\nx: 1\n";
+	const text = "---\nx: 1\n";
 	const result = splitIdentityBlock(text);
 	assert.equal(result.ok, false);
 	assert.equal(result.error.code, "identity/fence_unclosed");

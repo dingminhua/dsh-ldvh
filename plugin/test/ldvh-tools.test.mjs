@@ -63,9 +63,7 @@ function descriptors() {
 // Shared fixtures
 // ---------------------------------------------------------------------------
 
-const SAMPLE_SPEC_01 = `# 规范示例一
-
-\`\`\`yaml
+const SAMPLE_SPEC_01 = `---
 ldvh_spec:
   spec_key: "sample-spec-1"
   spec_id: "11"
@@ -79,7 +77,9 @@ ldvh_spec:
   basis: ["sample-spec-2"]
   authorized_attachments: []
   dimensions: ["read", "write"]
-\`\`\`
+---
+
+# 规范示例一
 
 ## 1. 价值
 
@@ -100,9 +100,7 @@ ldvh_spec:
 最后正文。
 `;
 
-const SAMPLE_SPEC_02 = `# 规范示例二
-
-\`\`\`yaml
+const SAMPLE_SPEC_02 = `---
 ldvh_spec:
   spec_key: "sample-spec-2"
   spec_id: "12"
@@ -116,23 +114,25 @@ ldvh_spec:
   basis: []
   authorized_attachments: []
   dimensions: ["read", "write"]
-\`\`\`
+---
+
+# 规范示例二
 
 ## 1. 价值
 
 正文段落。
 `;
 
-const SAMPLE_ATTACHMENT = `# 附件示例
-
-\`\`\`yaml
+const SAMPLE_ATTACHMENT = `---
 ldvh_attachment:
   attachment_key: "sample-attachment-1"
   attachment_id: "11.Att.01"
   title: "附件示例"
   canonical_path: "specs/attachments/11.Att.01-附件示例.md"
   positioning: "附件定位"
-\`\`\`
+---
+
+# 附件示例
 
 ## 1. 节
 
