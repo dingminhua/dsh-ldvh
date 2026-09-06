@@ -173,10 +173,10 @@ test("project card actions: uninstall removed, Update only when repairable, notR
 		"notReadyDetail must render as ldv-settings-hint under the card head",
 	);
 	// 中英 locale 均提供 row.update 与 row.updateBusy。
-	assert.ok(source.includes('"row.update": "更新"'), "LDVH_ZH must define row.update");
-	assert.ok(source.includes('"row.updateBusy": "更新中…"'), "LDVH_ZH must define row.updateBusy");
-	assert.ok(source.includes('"row.update": "Update"'), "LDVH_EN must define row.update");
-	assert.ok(source.includes('"row.updateBusy": "Updating…"'), "LDVH_EN must define row.updateBusy");
+	assert.ok(source.includes('"row.update": "更新修复"'), "LDVH_ZH must define row.update");
+	assert.ok(source.includes('"row.updateBusy": "更新修复中…"'), "LDVH_ZH must define row.updateBusy");
+	assert.ok(source.includes('"row.update": "Update & Repair"'), "LDVH_EN must define row.update");
+	assert.ok(source.includes('"row.updateBusy": "Updating & repairing…"'), "LDVH_EN must define row.updateBusy");
 });
 
 test("Web status row exposes a single serviceIssue hint on transport failure", () => {
