@@ -259,6 +259,13 @@ test("plugin settings card hosts the project color palette (web settings page is
 	assert.ok(source.includes('typeof raw === "string" ? raw : "color update failed"'), "color error extraction survives string-shaped errors");
 	assert.ok(source.includes('callLdvhApi("/governed-projects/with-colors")'), "project list carries colors via with-colors endpoint");
 	assert.ok(source.includes("ldv-palette-dot-active"), "explicit selection has an active ring");
+	// 交互定案（Human 2026-09-08）：选中色点打勾；自动取色是排他锁——勾选后
+	// 色点全部暗掉禁用（ldv-palette-dot-locked），取消勾选才恢复选色。
+	assert.ok(source.includes("ldv-palette-check"), "selected dot renders a check mark");
+	assert.ok(source.includes('var locked = !project.color'), "auto color locks the palette dots");
+	assert.ok(source.includes("ldv-palette-dot-locked"), "locked dots dim via CSS class");
+	assert.ok(source.includes("checked: !project.color"), "auto-color is a checkbox bound to absence of explicit color");
+	assert.ok(source.includes('e.target.checked ? null : "emerald"'), "unchecking auto picks a color to unlock");
 	// 色点必须用内联色值：--ldvh-pj-* 变量是 Web 应用 CSS 的命名空间，宿主设置卡
 	// 页面没有这些变量，var() 引用会让色点透明不可见（Human 实测截图确认）。
 	assert.ok(source.includes("PROJECT_COLOR_VALUES"), "palette uses inline hex values, not host-undefined CSS variables");

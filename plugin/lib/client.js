@@ -103,7 +103,12 @@ window.__ModuleLoader__.load({
       ".ldv-palette-dot:hover{transform:scale(1.18)}" +
       ".ldv-palette-dot:disabled{cursor:not-allowed;opacity:.5}" +
       ".ldv-palette-dot-active{box-shadow:0 0 0 2px var(--dsw-alias-bg-layer-3,#202126),0 0 0 3.5px #fff}" +
-      ".ldv-palette-reset{padding:2px 8px;font-size:11px;line-height:16px}" +
+      ".ldv-palette-dot{position:relative}" +
+      ".ldv-palette-check{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.55);pointer-events:none}" +
+      ".ldv-palette-dot-locked{opacity:.25}" +
+      ".ldv-palette-dot-locked:hover{transform:none}" +
+      ".ldv-palette-auto{flex:none;margin-left:4px}" +
+      ".ldv-palette-auto-on .ldv-check-label{color:var(--dsw-alias-state-business-primary,#5686fe);font-weight:600}" +
       ".ldv-web-panel-copy{display:flex;flex-direction:column;gap:3px;min-width:0}" +
       ".ldv-web-panel-title{font-size:13px;font-weight:600;line-height:19px;color:var(--dsw-alias-label-primary,#e6e6e6)}" +
       ".ldv-web-panel-desc{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#999)}" +
@@ -606,19 +611,29 @@ window.__ModuleLoader__.load({
                   React.createElement("span", { className: "ldv-palette-label" }, t("row.projectColor")),
                   PROJECT_COLOR_KEYS.map(function (key) {
                     var isExplicit = project.color === key;
+                    // 自动取色是排他锁：勾选后色点全部暗掉禁用，须先取消勾选才能再选色。
+                    var locked = !project.color;
                     return React.createElement("button", {
                       key: key, type: "button",
-                      className: "ldv-palette-dot" + (isExplicit ? " ldv-palette-dot-active" : ""),
+                      className: "ldv-palette-dot" + (isExplicit ? " ldv-palette-dot-active" : "") + (locked ? " ldv-palette-dot-locked" : ""),
                       title: key, "aria-label": key, "aria-pressed": isExplicit,
-                      disabled: projectBusyState[0],
+                      disabled: projectBusyState[0] || locked,
                       style: { backgroundColor: projectColorVar(key) },
-                      onClick: function () { setProjectColor(project.id, isExplicit ? null : key); }
-                    });
+                      onClick: function () { setProjectColor(project.id, key); }
+                    },
+                      isExplicit ? React.createElement("span", { className: "ldv-palette-check", "aria-hidden": "true" }, "\u2713") : null
+                    );
                   }),
-                  project.color ? React.createElement("button", {
-                    type: "button", className: "ldv-btn ldv-btn-outline ldv-palette-reset",
-                    disabled: projectBusyState[0], onClick: function () { setProjectColor(project.id, null); }
-                  }, t("row.colorAuto")) : null
+                  React.createElement("label", { className: "ldv-check ldv-palette-auto" + (!project.color ? " ldv-palette-auto-on" : "") },
+                    React.createElement("input", {
+                      type: "checkbox",
+                      checked: !project.color,
+                      disabled: projectBusyState[0],
+                      "aria-label": t("row.colorAuto"),
+                      onChange: function (e) { setProjectColor(project.id, e.target.checked ? null : "emerald"); }
+                    }),
+                    React.createElement("span", { className: "ldv-check-label" }, t("row.colorAuto"))
+                  )
                 ),
                 React.createElement("div", { className: "ldv-project-actions" },
                   React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-outline", disabled: projectBusyState[0], onClick: function () { inspectProject(project.path); } }, t("row.check")),
