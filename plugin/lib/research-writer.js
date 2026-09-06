@@ -304,7 +304,7 @@ function fileFingerprint(content) {
 }
 
 function buildFileContent(frontmatter, body) {
-  return `---\n${stringifyYaml(frontmatter)}---\n\n${body.trim()}\n`;
+  return `---\n${stringifyYaml(frontmatter, { lineWidth: 0 })}---\n\n${body.trim()}\n`;
 }
 
 async function atomicWriteFile(filePath, content) {
