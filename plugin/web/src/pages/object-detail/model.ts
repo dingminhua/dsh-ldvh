@@ -1,0 +1,128 @@
+export const META_KEYS = [
+  'id',
+  'object_uid',
+  'object_id',
+  'type',
+  'fact_type_key',
+  'status',
+  'created',
+  'created_at',
+  'updated',
+  'updated_at',
+  'title',
+  'title_en',
+  'title_zh',
+  'path',
+  'object_ref',
+  'canonical_path',
+  'absolute_path',
+  'carrier',
+  'content_fingerprint',
+  'coverage_status',
+  'read_status',
+  'field_issues',
+  'unparsed_structures',
+  'observed_at',
+  'read_issues',
+  'fact_read_failure',
+  'factAssociations',
+];
+
+export const COMMON_AUXILIARY_META_KEYS = ['priority'];
+export const AUXILIARY_META_KEYS_BY_TYPE: Record<string, string[]> = {
+  spark: ['priority'],
+  pitfall: [],
+};
+
+const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
+  workcase: [
+    'goal', 'scope', 'phase', 'summary', 'resume_from', 'waiting_on', 'blocking_summary', 'change_log',
+    'success_criterion_definitions', 'success_criterion_results', 'plan_version', 'work_items',
+    'creation_reviews', 'execution_approval', 'result_version', 'result_summary',
+    'controller_check_summary', 'result_reviews', 'validation_summary', 'closure_proposal',
+    'closure_outcome', 'disposition_summary', 'residual_responsibilities', 'urls', 'relations',
+  ],
+  adr: [
+    'decision_question', 'decision', 'applicability', 'trigger_signal',
+    'rationale', 'consequences',
+    'change_log', 'urls', 'relations', 'disposition_summary',
+  ],
+  pitfall: [
+    'symptoms', 'trigger_conditions', 'scope_of_impact', 'applicability', 'validation_summary', 'root_cause',
+    'resolution', 'avoidance', 'change_log', 'urls', 'relations',
+    'disposition_summary',
+  ],
+  spark: [
+    'summary', 'evolution', 'change_log', 'urls', 'relations',
+    'disposition_summary',
+  ],
+  study: [
+    'research_intent', 'research_question', 'abstract', 'recommendation_summary', 'report_body',
+    'change_log', 'urls', 'disposition_summary',
+  ],
+};
+
+export type RelatedContentEntry = [string, unknown[]];
+
+/** Current governed project identity from the read metadata, shared by association readers. */
+export function getCurrentProjectId(obj: Record<string, unknown>): string | undefined {
+  const ref = obj.object_ref;
+  if (!ref || typeof ref !== 'object' || Array.isArray(ref)) return undefined;
+  const projectId = (ref as Record<string, unknown>).governed_project_id;
+  return typeof projectId === 'string' ? projectId : undefined;
+}
+
+function isRelatedContentField(fieldKey: string) {
+  return fieldKey === 'urls';
+}
+
+function hasContent(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'string') return value.trim().length > 0;
+  return value !== null && value !== undefined;
+}
+
+export function sortRelatedContentEntries(entries: RelatedContentEntry[]) {
+  return [...entries].sort((a, b) => a[0].localeCompare(b[0], 'en'));
+}
+
+export function splitRelatedContentEntries(entries: Array<[string, unknown]>) {
+  const primaryEntries: Array<[string, unknown]> = [];
+  const relatedEntries: RelatedContentEntry[] = [];
+
+  entries.forEach((entry) => {
+    if (isRelatedContentField(entry[0])) {
+      if (Array.isArray(entry[1]) && hasContent(entry[1])) {
+        relatedEntries.push([entry[0], entry[1]]);
+      }
+    } else {
+      primaryEntries.push(entry);
+    }
+  });
+
+  return {
+    primaryEntries,
+    relatedEntries: sortRelatedContentEntries(relatedEntries),
+  };
+}
+
+export function getObjectDetailContentEntries(obj: Record<string, unknown>, objType: string) {
+  const auxiliaryMetaKeys = Array.from(new Set([...(AUXILIARY_META_KEYS_BY_TYPE[objType] || []), ...COMMON_AUXILIARY_META_KEYS]));
+  const contentEntries = Object.entries(obj).filter(
+    ([key]) => !META_KEYS.includes(key) && !auxiliaryMetaKeys.includes(key),
+  );
+
+  const fieldOrder = FIELD_ORDER_BY_TYPE[objType] || [];
+  if (fieldOrder.length > 0) {
+    contentEntries.sort((a, b) => {
+      const aIdx = fieldOrder.indexOf(a[0]);
+      const bIdx = fieldOrder.indexOf(b[0]);
+      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+      if (aIdx !== -1) return -1;
+      if (bIdx !== -1) return 1;
+      return 0;
+    });
+  }
+
+  return contentEntries;
+}
