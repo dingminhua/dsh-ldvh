@@ -60,11 +60,17 @@ function itemsOf(result: unknown): { items: Array<Record<string, unknown>>; erro
   return { items: [], error }
 }
 
-function latestTimestamp(items: Array<Record<string, unknown>>): string | undefined {
+function latestChangeLogAt(items: Array<Record<string, unknown>>): string | undefined {
   let latest: string | undefined
   for (const item of items) {
-    const value = item.updated_at
-    if (typeof value === 'string' && (!latest || value > latest)) latest = value
+    const log = item.change_log
+    if (!Array.isArray(log)) continue
+    for (let index = log.length - 1; index >= 0; index -= 1) {
+      const entry = log[index]
+      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) continue
+      const at = (entry as Record<string, unknown>).at
+      if (typeof at === 'string' && at.length > 0 && (!latest || at > latest)) { latest = at; break }
+    }
   }
   return latest
 }
@@ -148,7 +154,7 @@ router.get('/overview', async (_req: Request, res: Response): Promise<void> => {
         card.pendingDecisions = (card.pendingDecisions ?? 0)
           + pitfalls.items.filter((item) => item.status === 'draft').length
       }
-      const lastActivityAt = latestTimestamp([...sparks.items, ...workCases.items, ...pitfalls.items])
+      const lastActivityAt = latestChangeLogAt([...sparks.items, ...workCases.items, ...pitfalls.items])
       if (lastActivityAt) card.lastActivityAt = lastActivityAt
       return card
     }))

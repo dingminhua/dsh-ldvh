@@ -362,6 +362,22 @@ function getFactChangeLogCount(changeLog: unknown): number {
 }
 
 /**
+ * 最近更新时间：03 §6.1 不保留公共 updated_at，变更时间由 change_log 承载，
+ * 故取末条有效流水的 at 作为权威最近更新时刻；无有效流水时返回 undefined
+ * （调用方按缺失处理，不回退到 created_at 或 Git 提交时间）。
+ */
+function getLatestChangeLogAt(changeLog: unknown): string | undefined {
+  if (!Array.isArray(changeLog)) return undefined
+  for (let index = changeLog.length - 1; index >= 0; index -= 1) {
+    const entry = changeLog[index]
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const at = (entry as Record<string, unknown>).at
+    if (typeof at === 'string' && at.trim().length > 0 && Number.isFinite(parseTimestamp(at))) return at
+  }
+  return undefined
+}
+
+/**
  * 将事实对象自身的流水转为近期动态。流水只约定 `at`，没有独立动作字段；
  * 因此第一条有效记录表示受控创建，之后的记录表示受控更新。没有可读流水的
  * 旧事实才使用 created_at / updated_at 作为兼容回退，绝不从 Git 提交反推事件。
@@ -393,7 +409,8 @@ export function buildFactActivityItems(
   }
 
   const createdAt = raw.created_at
-  const updatedAt = raw.updated_at
+  // 03 §6.1：最近更新时间取 change_log 末条流水的 at，不读 updated_at。
+  const updatedAt = getLatestChangeLogAt(raw.change_log)
   const fallback: RecentActivityBuildItem[] = []
   if (timestampInWindow(createdAt, start, end)) {
     fallback.push(buildRecentActivityItem(raw, type, 'created', createdAt))
@@ -501,7 +518,8 @@ export function buildSparkHealth(rawItems: Array<Record<string, unknown>>, obser
     openTotal += 1
     const priority = priorityRank(raw.priority) < 4 && typeof raw.priority === 'string' ? raw.priority : undefined
     if (priority) openByPriority[priority] = (openByPriority[priority] ?? 0) + 1
-    const updatedAt = typeof raw.updated_at === 'string' ? raw.updated_at : ''
+    // 03 §6.1：最近更新时间取 change_log 末条流水的 at，不读 updated_at。
+    const updatedAt = getLatestChangeLogAt(raw.change_log) ?? ''
     const days = silentDays(updatedAt, observedAt)
     if (days === null) continue
     const signature = getLatestFactChangeSignature(raw.change_log)
@@ -806,7 +824,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
             ...(typeof raw.title_en === 'string' ? { title_en: raw.title_en } : {}),
             ...(typeof raw.title_zh === 'string' ? { title_zh: raw.title_zh } : {}),
             priority: typeof raw.priority === 'string' ? raw.priority : undefined,
-            updated_at: typeof raw.updated_at === 'string' ? raw.updated_at : undefined,
+            updated_at: getLatestChangeLogAt(raw.change_log),
             read_status: String(raw.read_status ?? 'unknown'), projection: raw,
             field_issues: Array.isArray(raw.field_issues) ? (raw.field_issues as Array<Record<string, unknown>>) : [],
             unparsed_structures: Array.isArray(raw.unparsed_structures) ? (raw.unparsed_structures as Array<Record<string, unknown>>) : [],
@@ -825,7 +843,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
           ...(typeof raw.title_en === 'string' ? { title_en: raw.title_en } : {}),
           ...(typeof raw.title_zh === 'string' ? { title_zh: raw.title_zh } : {}),
           priority: typeof raw.priority === 'string' ? raw.priority : undefined,
-          updated_at: typeof raw.updated_at === 'string' ? raw.updated_at : undefined,
+          updated_at: getLatestChangeLogAt(raw.change_log),
           read_status: String(raw.read_status ?? 'unknown'), projection: raw,
           field_issues: Array.isArray(raw.field_issues) ? (raw.field_issues as Array<Record<string, unknown>>) : [],
           unparsed_structures: Array.isArray(raw.unparsed_structures) ? (raw.unparsed_structures as Array<Record<string, unknown>>) : [],
@@ -848,7 +866,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
           ...(typeof raw.object_uid === 'string' ? { object_uid: raw.object_uid } : {}),
           ...(typeof raw.title_en === 'string' ? { title_en: raw.title_en } : {}),
           ...(typeof raw.title_zh === 'string' ? { title_zh: raw.title_zh } : {}),
-          updated_at: typeof raw.updated_at === 'string' ? raw.updated_at : undefined,
+          updated_at: getLatestChangeLogAt(raw.change_log),
           read_status: String(raw.read_status ?? 'unknown'), projection: raw,
           field_issues: Array.isArray(raw.field_issues) ? (raw.field_issues as Array<Record<string, unknown>>) : [],
           unparsed_structures: Array.isArray(raw.unparsed_structures) ? (raw.unparsed_structures as Array<Record<string, unknown>>) : [],

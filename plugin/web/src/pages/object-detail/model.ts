@@ -8,7 +8,7 @@ export const META_KEYS = [
   'created',
   'created_at',
   'updated',
-  'updated_at',
+  // 03 §6.1：不保留公共 updated_at，变更时间由 change_log 条目的 at 承担。
   'title',
   'title_en',
   'title_zh',

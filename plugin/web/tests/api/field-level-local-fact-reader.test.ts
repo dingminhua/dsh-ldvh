@@ -9,7 +9,6 @@ const base = [
   'fact_type_key: adr',
   'status: active',
   'created_at: "2026-01-01"',
-  'updated_at: "2026-01-02"',
   'decision_question: Which option?',
   'decision: Use the current option',
   'applicability: This fixture',
@@ -119,7 +118,7 @@ test('WorkCase object fields and malformed consumed array members remain visible
   try {
     await writeFile(path.join(directory, 'workcase-0001.yaml'), [
       'object_id: workcase-0001', 'fact_type_key: workcase', 'title: Object fields',
-      'status: open', 'created_at: "2026-01-01"', 'updated_at: "2026-01-02"',
+      'status: open', 'created_at: "2026-01-01"',
       'execution_authorization:', '  action_ceiling: Stay in scope',
       'execution_approval:', '  subject_version: 1', 'closure_proposal:', '  proposed_outcome: partial',
       'work_items:', '  - item_id: item-valid', '    goal: Keep this item', '  - malformed member',
@@ -150,12 +149,12 @@ test('Spark evolution members without a timestamp and forbidden Pitfall tags rem
   try {
     await writeFile(path.join(sparkDir, 'spark-0001.yaml'), [
       'object_id: spark-0001', 'fact_type_key: spark', 'title: Missing event time',
-      'status: open', 'summary: Current observation', 'created_at: "2026-01-01"', 'updated_at: "2026-01-02"',
+      'status: open', 'summary: Current observation', 'created_at: "2026-01-01"',
       'evolution:', '  - summary: This entry has no source time',
     ].join('\n'), 'utf8');
     await writeFile(path.join(pitfallDir, 'pitfall-0001.yaml'), [
       'object_id: pitfall-0001', 'fact_type_key: pitfall', 'title: Forbidden tag',
-      'status: active', 'created_at: "2026-01-01"', 'updated_at: "2026-01-02"', 'tags: [legacy]',
+      'status: active', 'created_at: "2026-01-01"', 'tags: [legacy]',
     ].join('\n'), 'utf8');
 
     const spark = await readLocalFact('spark', 'spark-0001', scope);
@@ -181,7 +180,7 @@ test('change_log accepts the current three-field signature shape without retired
   try {
     await writeFile(path.join(directory, 'spark-0003.yaml'), [
       'object_id: spark-0003', 'fact_type_key: spark', 'title: Current signature',
-      'status: open', 'priority: P1', 'summary: Current observation', 'created_at: "2026-01-01"', 'updated_at: "2026-01-02"',
+      'status: open', 'priority: P1', 'summary: Current observation', 'created_at: "2026-01-01"',
       'change_log:',
       '  - signature:', '      product_name: Cindy', '      model_name: gpt-5.6-luna', '      agent_runtime_name: codex-cli',
       '    at: "2026-01-01T00:00:00+08:00"', '    summary: Current entry',
@@ -207,7 +206,7 @@ test('change_log accepts the canonical and legacy signature shapes', async () =>
   try {
     await writeFile(path.join(directory, 'spark-0002.yaml'), [
       'object_id: spark-0002', 'fact_type_key: spark', 'title: Signature compatibility',
-      'status: open', 'summary: Current observation', 'created_at: "2026-01-01T00:00:00+08:00"', 'updated_at: "2026-01-02T00:00:00+08:00"',
+      'status: open', 'summary: Current observation', 'created_at: "2026-01-01T00:00:00+08:00"',
       'change_log:',
       '  - signature:', '      model_id: gpt-5', '      agent_workbench: Cindy',
       '    session_id: canonical-session', '    at: "2026-01-01T00:00:00+08:00"', '    summary: Canonical entry',
@@ -237,7 +236,7 @@ test('change_log consumes the two-field signature contract and exposes incomplet
   try {
     await writeFile(path.join(directory, 'spark-0001.yaml'), [
       'object_id: spark-0001', 'fact_type_key: spark', 'title: Trace contract', 'status: open', 'priority: P1',
-      'created_at: "2026-01-01"', 'updated_at: "2026-01-02"', 'summary: Read contract', 'change_log:',
+      'created_at: "2026-01-01"', 'summary: Read contract', 'change_log:',
       '  - signature:', '      agent_id: codex', '      host_environment: Cindy',
       '    session_id: session-one', '    at: "2026-01-01T00:00:00+08:00"', '    summary: Created',
       '  - signature:', '      agent_id: codex', '      host_environment: Cindy', '      signer_type: ai-agent',

@@ -25,9 +25,8 @@ const common = {
   title: field('title', 'string', true),
   status: field('status', 'string', true),
   created_at: field('created-at', 'string', true),
-  // 03 §6.1 明文不保留公共 updated_at：变更时间由 change_log[].at 承担，
-  // 故它不是必填——否则每个合规对象都会误报 missing。
-  updated_at: field('updated-at', 'string', false),
+  // 03 §6.1 明文不保留公共 updated_at：变更时间由 change_log[].at 承担。
+  // 该字段已从公共契约移除——排序与回退一律取 change_log 末条流水的 at。
   change_log: field('change-log', 'array', false),
   urls: field('urls', 'array', false),
   relations: field('relations', 'array', false),

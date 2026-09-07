@@ -631,7 +631,7 @@ test('fact activity builder reads change_log first and only falls back for legac
     title: '流水驱动的热点',
     status: 'open',
     created_at: '2026-08-01T00:00:00Z',
-    updated_at: '2026-08-01T04:00:00Z',
+    // 03 §6.1：不保留公共 updated_at，最近更新时间由 change_log 末条 at 承担。
     change_log: [
       { at: '2026-08-01T01:00:00Z', summary: '创建' },
       { at: '2026-08-01T03:00:00Z', summary: '更新' },
@@ -643,6 +643,8 @@ test('fact activity builder reads change_log first and only falls back for legac
     'updated:2026-08-01T03:00:00Z',
   ])
 
+  // 无可用流水时没有可据实声明的更新时间：只产出 created（取 created_at），
+  // 不再因 updated_at 字段消失而伪造 updated 事件。
   const legacy = buildFactActivityItems(
     { ...raw, change_log: [{ at: 'invalid' }] },
     'spark',
@@ -651,7 +653,6 @@ test('fact activity builder reads change_log first and only falls back for legac
   )
   assert.deepEqual(legacy.map((item) => `${item.activity}:${item.occurred_at}`), [
     'created:2026-08-01T00:00:00Z',
-    'updated:2026-08-01T04:00:00Z',
   ])
 })
 
