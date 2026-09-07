@@ -30,6 +30,11 @@ const EXACT_READ_METADATA_FIELDS = new Set([
   'coverage_status',
   'observed_at',
   'read_issues',
+  // report_body 是 markdown 载体正文的读取层投影名（localFactReader 把正文塞进
+  // 投影对象时起的名字），不是 frontmatter 字段——对象文件里它不存在。YAML 源
+  // 视图只呈现机器索引层（frontmatter），正文由分节阅读布局与阅读面板承载；
+  // 不排除会把整篇正文伪装成一个 YAML 字段并造成双重呈现。
+  'report_body',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {

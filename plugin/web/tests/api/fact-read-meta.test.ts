@@ -79,6 +79,29 @@ test('reconstructed carrier data excludes exact-read metadata without dropping f
   });
 });
 
+test('YAML 源视图不含 report_body——markdown 正文不是 frontmatter 字段（24 §7）', () => {
+  const fact = projectFactObjectFields({
+    object_id: 'research-0001',
+    fact_type_key: 'research',
+    title: '调研',
+    status: 'active',
+    research_question: 'Q?',
+    // report_body 是读取层给 markdown 正文的投影名：文件里不存在该 frontmatter
+    // 字段。YAML 源视图必须排除，否则整篇正文被伪装成一个 YAML 字段并双重呈现。
+    report_body: '## 研究问题\nQ?\n\n## 关键发现\n…',
+    carrier: 'markdown',
+    read_status: 'readable',
+  });
+
+  assert.deepEqual(fact, {
+    object_id: 'research-0001',
+    fact_type_key: 'research',
+    title: '调研',
+    status: 'active',
+    research_question: 'Q?',
+  });
+});
+
 test('reconstructed YAML preserves strings that resemble YAML scalars', () => {
   const source = {
     object_id: 'workcase-0010',
