@@ -144,6 +144,15 @@ function parseMarkdownWithFrontmatter(content: string): { metadata: Record<strin
   }
 }
 
+/** 契约中以 string 承载、且 YAML 可能解析为 Date 的时间字段。 */
+const TIMESTAMP_FIELDS: ReadonlySet<string> = new Set([
+  'created_at', 'updated_at', 'retired_at', 'occurred_at', 'resolved_at', 'closed_at',
+])
+
+function isTimestampField(field: string): boolean {
+  return TIMESTAMP_FIELDS.has(field)
+}
+
 function matchesExpectation(value: unknown, expected: FieldExpectation): boolean {
   if (expected === 'array') return Array.isArray(value)
   if (expected === 'object') return isRecord(value)
@@ -164,12 +173,18 @@ const RECORD_ARRAY_FIELDS: Partial<Record<LocalFactType, ReadonlySet<string>>> =
 
 function isConsumableRecordMember(type: LocalFactType, field: string, member: Record<string, unknown>): boolean {
   if (field === 'change_log') {
-    return typeof member.at === 'string' && member.at.trim().length > 0
+    // 签名不是流水条目的准入条件：只读取对应事实流水的完整署名（cognition.ts 同款纪律），
+    // 缺失或不识别的形态不补造也不误判——at + summary 成立即可消费，
+    // 否则无 signature 的历史/工具流水会被误报为 unparseable_member。
+    // at 同样可能是 YAML 解析出的 Date（未加引号的 ISO 时间戳），按文本归一化后判定。
+    const at = member.at instanceof Date ? member.at.toISOString() : member.at
+    return typeof at === 'string' && at.trim().length > 0
       && typeof member.summary === 'string' && member.summary.trim().length > 0
-      && isConsumableChangeLogSignature(member.signature)
+      && (member.signature === undefined || isConsumableChangeLogSignature(member.signature))
   }
   if (type !== 'spark' || field !== 'evolution') return true
-  return typeof member.at === 'string' && member.at.trim().length > 0
+  const evolutionAt = member.at instanceof Date ? member.at.toISOString() : member.at
+  return typeof evolutionAt === 'string' && evolutionAt.trim().length > 0
     && typeof member.summary === 'string' && member.summary.trim().length > 0
 }
 
@@ -231,7 +246,12 @@ function projectFields(type: LocalFactType, objectId: string, parsed: Record<str
   if (all.object_id === undefined && objectId) all.object_id = objectId
   for (const [field, contract] of Object.entries(expected)) {
     const { expected: kind } = contract
-    const value = all[field]
+    const value0 = all[field]
+    // YAML 会把未加引号的 ISO 时间戳解析为 Date 对象，而契约要求 string——
+    // 时间字段按 ISO 8601 归一化后再判定，避免合规值被误报 type_mismatch。
+    const value = kind === 'string' && isTimestampField(field) && value0 instanceof Date
+      ? value0.toISOString()
+      : value0
     if (value === undefined || value === null) {
       if (contract.required) fieldIssues.push({ path: field, reason: 'missing', expected: kind })
       continue

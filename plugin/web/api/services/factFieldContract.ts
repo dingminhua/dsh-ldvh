@@ -109,16 +109,24 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     clarification_log: field('research-clarification-log', 'array', false),
     retirement_reason: field('retirement-reason', 'string', false),
     retired_at: field('retired-at', 'string', false),
+    // 正文承载研究主体（24 §7 固定 H2/H3），由阅读布局按 H2 分节解析并呈现。
+    // 属已消费字段：不登记会被判为 unconsumed_field，误报为未解析结构。
+    report_body: field('research-report-body', 'string', false),
     disposition_summary: field('disposition-summary', 'string', false),
   },
 }
 
-/** List candidates never carry the Research Markdown body. */
+/**
+ * List candidates never carry the Research Markdown body (24 §12 F1：卡片只投影
+ * 最小权威字段，不投影发现单元与正文)。report_body 只属详情阅读面，
+ * 登记进 FACT_FIELD_CONTRACT 是让它不被判为 unconsumed_field（详情消费），
+ * 但必须从列表投影中排除，否则列表会带上整篇正文。
+ */
 export const FACT_LIST_FIELD_NAMES: Record<Exclude<FactType, 'workcase'>, readonly string[]> = {
   adr: Object.keys(FACT_FIELD_CONTRACT.adr),
   pitfall: Object.keys(FACT_FIELD_CONTRACT.pitfall),
   spark: Object.keys(FACT_FIELD_CONTRACT.spark),
-  research: Object.keys(FACT_FIELD_CONTRACT.research),
+  research: Object.keys(FACT_FIELD_CONTRACT.research).filter((field) => field !== 'report_body'),
 }
 
 /**
