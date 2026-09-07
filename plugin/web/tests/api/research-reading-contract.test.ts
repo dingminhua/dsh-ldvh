@@ -41,9 +41,9 @@ test('Research detail keeps the v5 reading layout: overview inline + fixed H2 bo
   assert.match(detail, /entry\.priority/);
   assert.match(detail, /RESEARCH_GAP_PRIORITY_CLASS/);
 
-  // 启发与澄清记录：implications finding_ref / clarification_log。
-  assert.match(detail, /export function ResearchImplicationsNode/);
-  assert.match(detail, /entry\.finding_ref/);
+  // 澄清记录节点保留；启发节点（frontmatter implications 的解释性呈现）已移除——
+  // Human 2026-09-09 三次定案（截图红框标注）：机器索引不在 web 解析呈现。
+  assert.doesNotMatch(detail, /ResearchImplicationsNode/);
   assert.match(detail, /export function ResearchClarificationLogNode/);
   assert.match(detail, /entry\.question/);
   assert.match(detail, /entry\.answer/);
@@ -77,20 +77,23 @@ test('Research finding units render as structured cards with provenance anchor l
   assert.match(detail, /<FactAssociationsSection obj=\{obj\} locale=\{locale\} \/>\s*\n\s*<RelatedContentSection entries=\{relatedEntries\} locale=\{locale\} \/>\s*\n\s*<ChangeLogReadingNode/);
 });
 
-test('Research drops the YAML source node—machine index is not parsed or presented in web; research-report panel variant stays', () => {
+test('Research keeps the YAML source node with display-time ordering; the implications node stays removed; research-report panel variant stays', () => {
   const panel = source('src/components/reading-panel/PanelContent.tsx');
   const panelContext = source('src/utils/panelContext.tsx');
   const detail = source('src/pages/ObjectDetail.tsx');
+  const factReadMeta = source('src/utils/factReadMeta.ts');
   const reference = source('src/components/ReferenceCard.tsx');
   const associations = source('src/pages/object-detail/FactAssociationsSection.tsx');
 
-  // Human 2026-09-09 二次定案（在确认该内容为机器索引之后）：research 的
-  // frontmatter 是机器索引层——内容是机器看的，web 不解析呈现。阅读布局已
-  // 解释性覆盖全部 frontmatter 字段，原文审计归 Git；YAML 源节点仅保留给
-  // yaml 载体对象（v4 归档）。
-  assert.match(detail, /carrier === 'yaml' && \(/);
-  assert.doesNotMatch(detail, /objType === 'research'\) && \(/);
+  // Human 2026-09-09 三次定案（截图红框澄清）：YAML 源节点保留——展示时按
+  // 24 §7 规范阅读序排序（yaml_source 原文解析后重排，不注入不过滤）；
+  // 被移除的是「启发」节点（frontmatter implications 的解释性呈现）——机器
+  // 索引不在 web 解析呈现，机器索引原文只在 YAML 源节点以原文形式出现。
+  assert.match(detail, /\(carrier === 'yaml' \|\| objType === 'research'\) && \(/);
   assert.match(detail, /<YamlDataNode/);
+  assert.match(detail, /sortedResearchFrontmatterYaml/);
+  assert.match(factReadMeta, /RESEARCH_FRONTMATTER_DISPLAY_ORDER/);
+  assert.doesNotMatch(detail, /ResearchImplicationsNode/);
   assert.match(panel, /carrier === 'markdown'/);
   assert.match(panel, /ldvh-research-report-preview/);
   assert.match(panelContext, /docVariant\?: 'research-report'/);

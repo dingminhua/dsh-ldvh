@@ -33,7 +33,8 @@ import { formatDateTime } from '@/utils/dateFormat';
 import { getSignalClassName, getSignalText, isSignalField } from '@/utils/objectSignals';
 import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
-import { getFactReadMeta, isReadableFact, reconstructFactYaml, type FactCarrier, type FactReadMeta } from '@/utils/factReadMeta';
+import { getFactReadMeta, isReadableFact, reconstructFactYaml, sortedResearchFrontmatterYaml, type FactCarrier, type FactReadMeta } from '@/utils/factReadMeta';
+import { getObjectUpdatedAt } from '@/utils/factChangeLog';
 import { isResolvedWorkCasePresentationProjection } from '@/shared/workcaseStatus';
 import { WorkCaseReadingLayout } from '@/pages/object-detail/WorkCaseReadingLayout';
 import { AdrReadingLayout, ChangeLogReadingNode, PitfallReadingLayout, PitfallTextNodeContent, SparkReadingLayout } from '@/pages/object-detail/FactReadingLayouts';
@@ -216,7 +217,7 @@ export default function ObjectDetail() {
                 statusLabel={headerStatus ? getObjectStatusLocale(objType, headerStatus, locale) : undefined}
                 source={obj}
                 locale={locale}
-                updated={<ObjectUpdatedMeta source={obj} updatedAt={(obj.updated_at ?? obj.updated) as string | undefined} />}
+                updated={<ObjectUpdatedMeta source={obj} updatedAt={getObjectUpdatedAt(obj)} />}
                 auxiliaryMetaEntries={auxiliaryMetaEntries}
                 customMetaEntries={[]}
                 extraBadges={reportKindBadge}
@@ -314,13 +315,16 @@ export function FactReadingContent({
       <FieldIssuesSection value={obj.field_issues} />
       <UnparsedStructuresSection value={obj.unparsed_structures} />
 
-      {/* YAML 源节点仅保留给 yaml 载体（v4 归档）。research 的 frontmatter 是
-          机器索引层（Human 2026-09-09 二次定案，在确认该内容为机器索引之后：
-          内容是机器看的，web 不解析呈现）——阅读布局已解释性覆盖全部字段，
-          原文审计归 Git。 */}
-      {carrier === 'yaml' && (
+      {/* YAML 源节点（Human 2026-09-09 三次定案，截图红框标注要显示的区块）：
+          research 展示时按 24 §7 规范阅读序排序（内容保真——以原文解析的真实
+          字段为界，不注入不过滤）；yaml 载体（v4 归档）原文直显。frontmatter
+          机器索引的解释性呈现（启发节点）已按 Human 划线标注移除——机器索引
+          只在此节点以原文形式呈现，不再被 web 解析渲染。 */}
+      {(carrier === 'yaml' || objType === 'research') && (
         <YamlDataNode
-          yamlSource={typeof obj.yaml_source === 'string' ? obj.yaml_source : reconstructFactYaml(obj)}
+          yamlSource={objType === 'research'
+            ? sortedResearchFrontmatterYaml(obj.yaml_source) ?? reconstructFactYaml(obj)
+            : typeof obj.yaml_source === 'string' ? obj.yaml_source : reconstructFactYaml(obj)}
           title={t('objectDetail.yamlSource')}
         />
       )}
@@ -1477,7 +1481,10 @@ export function ResearchReadingLayout({
           <StudyTextNodeContent value={section.body} />
         </ResearchBodyNode>
       ))}
-      <ResearchImplicationsNode obj={obj} locale={locale} />
+      {/* 启发节点（frontmatter implications 的解释性呈现）已移除——Human
+          2026-09-09 三次定案（截图划线标注）：机器索引不在 web 解析呈现；
+          implications 的内容判断已由发现单元的价值判断承载，机器索引只在
+          YAML 源节点以原文形式呈现。 */}
       <ResearchClarificationLogNode obj={obj} locale={locale} />
       {extraPrimaryEntries.map(([fieldKey, value]) => (
         <ContentField
@@ -1647,31 +1654,6 @@ export function ResearchUncertainGapsNode({
           </div>
         )}
         {narrative && <StudyTextNodeContent value={narrative} />}
-      </div>
-    </ResearchBodyNode>
-  );
-}
-
-/** 「启发」：implications 的 finding_ref 锚定呈现（finding_ref 逐字对应 confirmed_statements 成员）。 */
-export function ResearchImplicationsNode({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
-  const implications = Array.isArray(obj.implications)
-    ? obj.implications.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'))
-    : [];
-  if (implications.length === 0) return null;
-
-  return (
-    <ResearchBodyNode title={getFieldLabel('implications', locale)}>
-      <div className="flex flex-col gap-2">
-        {implications.map((entry, index) => (
-          <div key={`implication-${index}`} className="flex min-w-0 flex-col gap-1 rounded-md border border-ldvh-border/50 bg-ldvh-bg/40 px-3 py-2">
-            {typeof entry.finding_ref === 'string' && entry.finding_ref.trim().length > 0 && (
-              <div className="ldvh-meta-muted break-words">{entry.finding_ref}</div>
-            )}
-            {typeof entry.implication === 'string' && (
-              <StudyTextNodeContent value={entry.implication} compact />
-            )}
-          </div>
-        ))}
       </div>
     </ResearchBodyNode>
   );
