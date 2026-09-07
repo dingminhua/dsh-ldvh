@@ -53,7 +53,8 @@ function RouteMemoryReporter() {
   useEffect(() => {
     try {
       if (window.parent !== window) {
-        window.parent.postMessage({ type: 'ldvh:navigate', pathname: location.pathname }, '*');
+        const base = import.meta.env?.BASE_URL ?? '/';
+        window.parent.postMessage({ type: 'ldvh:navigate', pathname: `${base}${location.pathname}`.replace('//', '/') }, '*');
       }
     } catch { /* 跨域或沙箱异常：记忆特性静默降级 */ }
   }, [location.pathname]);
