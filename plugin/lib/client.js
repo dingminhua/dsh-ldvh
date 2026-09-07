@@ -874,7 +874,7 @@ window.__ModuleLoader__.load({
       } else {
         body = React.createElement("iframe", {
           className: "ldv-view-frame",
-          src: "/ldvh/",
+          src: ldvhFrameLocation,
           title: t("view.label")
         });
       }

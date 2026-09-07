@@ -187,7 +187,7 @@ test("betterSidebar LDVH tab registers as a soft dependency with iframe fallback
 	// 注册形态：专属 id、single 实例、图标、iframe 指向 /ldvh/。
 	assert.ok(source.includes('id: "dsh-ldvh:web"'));
 	assert.ok(source.includes('single: true'));
-	assert.ok(source.includes('src: "/ldvh/"'));
+	assert.ok(source.includes('src: ldvhFrameLocation'));
 	assert.ok(source.includes('betterSidebar.registerTab'));
 	// 降级：与 conversation.view 同一健康检查模式（checking/failed/retry）。
 	assert.ok(source.includes('LdvhSidebarTab'));
