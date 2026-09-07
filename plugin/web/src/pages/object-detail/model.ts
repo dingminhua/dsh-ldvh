@@ -56,9 +56,12 @@ const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
     'summary', 'evolution', 'change_log', 'urls', 'relations',
     'disposition_summary',
   ],
-  study: [
-    'research_intent', 'research_question', 'abstract', 'recommendation_summary', 'report_body',
-    'change_log', 'urls', 'disposition_summary',
+  // v5 Research（24 号薄索引）：正文 report_body 由阅读布局按 H2 分节呈现，
+  // 其余为 frontmatter 概览/三态/启发字段的兜底排序。
+  research: [
+    'research_question', 'research_purpose', 'stopping_reason',
+    'confirmed_statements', 'uncertain', 'gaps', 'implications', 'clarification_log',
+    'report_body', 'change_log', 'urls', 'disposition_summary',
   ],
 };
 

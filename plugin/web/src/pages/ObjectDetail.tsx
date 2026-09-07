@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Code2, ExternalLink, FileText, History } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Code2, ExternalLink, FileText, History, Link2 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -70,9 +70,14 @@ export type { RelatedContentEntry };
 export { WorkCaseReadingLayout } from '@/pages/object-detail/WorkCaseReadingLayout';
 export { AdrReadingLayout, PitfallReadingLayout, SparkReadingLayout } from '@/pages/object-detail/FactReadingLayouts';
 
-const STUDY_READING_NODE_FIELDS = new Set([
-  'research_intent', 'research_question', 'abstract', 'recommendation_summary', 'report_body',
-  'report_kind', 'input_refs', 'change_log',
+// v5 Research（24 号薄索引）阅读布局消费的字段全集：固定 H2 正文（report_body）、
+// 概览与三态索引、退出语义；v4 study 遗留字段（research_intent/abstract/
+// recommendation_summary/report_kind/input_refs）不在此集合，落入 ContentField 兜底。
+const RESEARCH_READING_NODE_FIELDS = new Set([
+  'research_question', 'research_purpose', 'stopping_reason',
+  'confirmed_statements', 'uncertain', 'gaps', 'implications', 'clarification_log',
+  'retirement_reason', 'retired_at',
+  'report_body', 'change_log',
 ]);
 const FORMAL_ASSOCIATION_FIELDS = new Set(['relations']);
 export type ReadingNodeState = 'collapsed' | 'expanded';
@@ -155,6 +160,7 @@ export default function ObjectDetail() {
     : undefined;
   const headerStatus = getObjectHeaderStatus(objType, objStatus, obj);
   const typeColor = CATEGORY_COLORS[objType] || CATEGORY_COLORS.other;
+  // v4 Study 遗留徽章：仅 v4 归档对象携带 report_kind 时出现；v5 Research 无此字段（24 §12）。
   const reportKind = typeof obj.report_kind === 'string' ? obj.report_kind : undefined;
   const reportKindColor = reportKind ? (CATEGORY_COLORS[reportKind] || CATEGORY_COLORS.other) : undefined;
   const reportKindBadge = reportKind && reportKindColor ? (
@@ -275,7 +281,7 @@ export function FactReadingContent({
       {objType === 'workcase' ? (
         <WorkCaseReadingLayout obj={obj as WorkCaseDetailData} locale={locale} />
       ) : objType === 'research' ? (
-        <StudyReadingLayout
+        <ResearchReadingLayout
           obj={obj}
           extraEntries={primaryEntries}
           relatedEntries={relatedEntries}
@@ -1221,71 +1227,181 @@ export function EmptyHint({ text }: { text: string }) {
   return <span className="ldvh-body-muted">{text}</span>;
 }
 
-/** 内容字段：根据字段类型选择渲染方式和样式 */
-function basename(path: string) {
-  return path.split('/').filter(Boolean).pop() || path;
+// ===================== v5 Research 阅读布局（24 号规范薄索引结构） =====================
+
+/** 24 号规范 §7 的正文固定 H2 顺序（「调查阶段」探索型专属）。 */
+const RESEARCH_BODY_SECTION_ORDER = [
+  '研究问题', '输入与边界', '调查阶段', '关键发现', '未证实与缺口', '建议', '后续分流',
+] as const;
+
+type ResearchBodySection = { title: string; body: string };
+
+/** 正文按固定 H2 分节（前端解析，跟随 EvidenceReadingNodes 的既有先例）。 */
+export function parseResearchBodySections(body: string): ResearchBodySection[] {
+  const lines = body.split('\n');
+  const sections: Array<{ title: string; body: string[] }> = [];
+  let current: { title: string; body: string[] } | null = null;
+  for (const line of lines) {
+    const heading = line.match(/^##\s+(.+?)\s*$/);
+    if (heading) {
+      current = { title: heading[1].trim(), body: [] };
+      sections.push(current);
+      continue;
+    }
+    current?.body.push(line);
+  }
+  return sections
+    .map((section) => ({ title: section.title, body: section.body.join('\n').trim() }))
+    .filter((section) => section.body.length > 0 && section.title.length > 0)
+    .sort((a, b) => {
+      const aIndex = RESEARCH_BODY_SECTION_ORDER.indexOf(a.title as (typeof RESEARCH_BODY_SECTION_ORDER)[number]);
+      const bIndex = RESEARCH_BODY_SECTION_ORDER.indexOf(b.title as (typeof RESEARCH_BODY_SECTION_ORDER)[number]);
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return 0;
+    });
 }
 
-const STUDY_READING_NODES: Array<{ field: string; kind: 'text' | 'report' }> = [
-  { field: 'research_intent', kind: 'text' },
-  { field: 'abstract', kind: 'text' },
-  { field: 'recommendation_summary', kind: 'text' },
-  { field: 'report_body', kind: 'report' },
-];
+/** 判断正文节是否属于 24 号规范的固定 H2（未知节由布局以「补充内容」兜底呈现）。 */
+export function isKnownResearchBodySection(title: string): boolean {
+  return (RESEARCH_BODY_SECTION_ORDER as readonly string[]).includes(title);
+}
 
-function StudyInputRefsNode({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
-  const inputRefs = Array.isArray(obj.input_refs)
-    ? obj.input_refs.filter((value): value is Record<string, unknown> => Boolean(value && typeof value === 'object'))
-    : [];
-  const [state, setState] = useState<ReadingNodeState>('collapsed');
-  if (inputRefs.length === 0) return null;
+type ResearchProvenance = { ref?: string; anchor?: string; body: string };
 
+/** 发现单元的溯源锚点行提取（24 §10 格式：`溯源：<ref>（<锚点>）`，锚点行从正文剥离单独回指）。 */
+export function extractResearchProvenance(unitBody: string): ResearchProvenance {
+  const match = unitBody.match(/^溯源：(https?:\/\/\S+?)（(.+?)）[。]?\s*$/m);
+  if (!match) return { body: unitBody.trim() };
+  const [, ref, anchor] = match;
+  return { ref, anchor: anchor.trim(), body: unitBody.replace(match[0], '').trim() };
+}
+
+type ResearchFindingUnit = { title: string; body: string; provenanceRef?: string; provenanceAnchor?: string };
+
+/** 「关键发现」段按 H3 切分发现单元（每单元：声明标题 + 观察/价值判断正文 + 溯源锚点行）。 */
+export function parseResearchFindingUnits(sectionBody: string): ResearchFindingUnit[] {
+  const lines = sectionBody.split('\n');
+  const units: Array<{ title: string; body: string[] }> = [];
+  let current: { title: string; body: string[] } | null = null;
+  for (const line of lines) {
+    const heading = line.match(/^###\s+(.+?)\s*$/);
+    if (heading) {
+      current = { title: heading[1].trim(), body: [] };
+      units.push(current);
+      continue;
+    }
+    current?.body.push(line);
+  }
+  return units
+    .map((unit) => {
+      const raw = unit.body.join('\n').trim();
+      const provenance = extractResearchProvenance(raw);
+      return {
+        title: unit.title,
+        body: provenance.body,
+        provenanceRef: provenance.ref,
+        provenanceAnchor: provenance.anchor,
+      };
+    })
+    .filter((unit) => unit.body.length > 0 || unit.provenanceRef !== undefined);
+}
+
+function findResearchUrlTitle(urls: unknown, ref: string): string | undefined {
+  if (!Array.isArray(urls)) return undefined;
+  const hit = urls.find((entry): entry is { ref: string; title?: string } => (
+    Boolean(entry && typeof entry === 'object' && !Array.isArray(entry))
+    && typeof (entry as Record<string, unknown>).ref === 'string'
+    && (entry as Record<string, unknown>).ref === ref
+  ));
+  return hit?.title;
+}
+
+/** 溯源锚点行：ref 回指 urls 条目（title 展示，可点击回查原文——F4 展开入口）。 */
+export function ResearchProvenanceLine({ provenanceRef, provenanceAnchor, urls }: {
+  provenanceRef: string;
+  provenanceAnchor?: string;
+  urls: unknown;
+}) {
+  const { t } = useI18n();
+  const title = findResearchUrlTitle(urls, provenanceRef);
   return (
-    <ReadingNodeSection
-      title={getFieldLabel('input_refs', locale)}
-      state={state}
-      locale={locale}
-      onToggle={() => setState((current) => getReadingNodeNextState(current))}
-    >
-      <div className="divide-y divide-ldvh-border/60">
-        {inputRefs.map((ref, index) => {
-          const meta = [
-            typeof ref.kind === 'string' ? ref.kind : null,
-            typeof ref.version === 'string' ? ref.version : null,
-            typeof ref.observed_at === 'string' ? formatDateTime(ref.observed_at) : null,
-          ].filter((value): value is string => Boolean(value));
-
-          return (
-            <div key={`${String(ref.kind)}-${String(ref.locator)}-${index}`} className="min-w-0 py-2.5 first:pt-0 last:pb-0">
-              {meta.length > 0 && (
-                <div className="ldvh-meta flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 font-medium text-ldvh-text-primary/80">
-                  <span aria-hidden="true" className="h-1 w-1 shrink-0 self-center rounded-full bg-ldvh-text-primary/55" />
-                  {meta.map((value, metaIndex) => (
-                    <span key={`${value}-${metaIndex}`} className="inline-flex items-center gap-x-1.5">
-                      {metaIndex > 0 && <span aria-hidden="true">·</span>}
-                      <span>{value}</span>
-                    </span>
-                  ))}
-                </div>
-              )}
-              {typeof ref.locator === 'string' && (
-                <p className="mt-1 ldvh-meta break-words text-ldvh-text-secondary/80">{ref.locator}</p>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </ReadingNodeSection>
+    <div className="ldvh-meta mt-3 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 border-t border-ldvh-border/40 pt-2 text-ldvh-text-secondary/85">
+      <Link2 size={12} className="shrink-0" aria-hidden="true" />
+      <span className="shrink-0">{t('objectDetail.researchBody.provenance')}</span>
+      <span aria-hidden="true" className="shrink-0">：</span>
+      <a
+        href={provenanceRef}
+        target="_blank"
+        rel="noreferrer"
+        className="min-w-0 break-all text-ldvh-accent transition-colors hover:underline"
+      >
+        {title ?? provenanceRef}
+      </a>
+      {provenanceAnchor && <span className="min-w-0 break-words">（{provenanceAnchor}）</span>}
+    </div>
   );
 }
 
-export function StudyReadingLayout({
+/** 停止原因与三态计数的元数据行（active 呈现 stopping_reason；retired 呈现退出语义）。 */
+export function ResearchStoppingMetaRow({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
+  const status = typeof obj.status === 'string' ? obj.status : '';
+  const confirmedCount = Array.isArray(obj.confirmed_statements) ? obj.confirmed_statements.length : 0;
+  const uncertainCount = Array.isArray(obj.uncertain) ? obj.uncertain.length : 0;
+  const gapsCount = Array.isArray(obj.gaps) ? obj.gaps.length : 0;
+
+  if (status === 'retired') {
+    const reason = typeof obj.retirement_reason === 'string' ? obj.retirement_reason : null;
+    const retiredAt = typeof obj.retired_at === 'string' ? formatDateTime(obj.retired_at) : null;
+    if (!reason && !retiredAt) return null;
+    const meta = [
+      reason ? getFieldLabel('retirement_reason', locale) : null,
+      reason,
+      retiredAt,
+    ].filter(Boolean);
+    return (
+      <div className="ldvh-meta flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 font-medium text-ldvh-text-primary/80">
+        <span aria-hidden="true" className="h-1 w-1 shrink-0 self-center rounded-full bg-ldvh-text-primary/55" />
+        {meta.map((value, index) => (
+          <span key={`${value}-${index}`} className="inline-flex min-w-0 items-center gap-x-1.5">
+            {index > 0 && <span aria-hidden="true">·</span>}
+            <span className="break-words">{value}</span>
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  const stoppingReason = typeof obj.stopping_reason === 'string' ? obj.stopping_reason : null;
+  if (!stoppingReason) return null;
+  return (
+    <div className="ldvh-meta flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 font-medium text-ldvh-text-primary/80">
+      <span aria-hidden="true" className="h-1 w-1 shrink-0 self-center rounded-full bg-ldvh-text-primary/55" />
+      <span className="shrink-0">{getFieldLabel('stopping_reason', locale)}</span>
+      <span aria-hidden="true" className="shrink-0">·</span>
+      <span className="shrink-0">{getFieldValueLabel('stopping_reason', stoppingReason, locale)}</span>
+      <span aria-hidden="true" className="shrink-0">·</span>
+      <span className="tabular-nums">{confirmedCount}</span>
+      <span className="shrink-0">{getFieldLabel('confirmed_statements', locale)}</span>
+      <span aria-hidden="true" className="shrink-0">·</span>
+      <span className="tabular-nums">{uncertainCount}</span>
+      <span className="shrink-0">{getFieldLabel('uncertain', locale)}</span>
+      <span aria-hidden="true" className="shrink-0">·</span>
+      <span className="tabular-nums">{gapsCount}</span>
+      <span className="shrink-0">{getFieldLabel('gaps', locale)}</span>
+    </div>
+  );
+}
+
+/** v5 Research 阅读布局：概览内联（正文固定 H2 分节）+ 发现单元 + 三态 + 溯源锚点回指。
+ * 设计语言沿用 v4：ReadingNodeSection 折叠节点、ContentField 兜底、尾部固定序列。 */
+export function ResearchReadingLayout({
   obj,
   extraEntries,
   relatedEntries,
   locale,
   objectPath,
-  carrier,
 }: {
   obj: Record<string, unknown>;
   extraEntries: Array<[string, unknown]>;
@@ -1294,23 +1410,65 @@ export function StudyReadingLayout({
   objectPath?: string;
   carrier?: FactCarrier;
 }) {
+  const { t } = useI18n();
+  const bodySections = parseResearchBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
+  const sectionOf = (title: string) => bodySections.find((section) => section.title === title);
   const extraPrimaryEntries = extraEntries.filter(
-    ([fieldKey]) => !STUDY_READING_NODE_FIELDS.has(fieldKey) && !FORMAL_ASSOCIATION_FIELDS.has(fieldKey),
+    ([fieldKey]) => !RESEARCH_READING_NODE_FIELDS.has(fieldKey) && !FORMAL_ASSOCIATION_FIELDS.has(fieldKey),
   );
+
+  // 「研究问题」正文缺失时以 frontmatter 薄索引兜底（research_question + research_purpose）。
+  const questionBody = sectionOf('研究问题')?.body ?? [
+    typeof obj.research_question === 'string' && obj.research_question.trim() ? obj.research_question.trim() : null,
+    typeof obj.research_purpose === 'string' && obj.research_purpose.trim() ? obj.research_purpose.trim() : null,
+  ].filter(Boolean).join('\n\n');
+  const inputsBody = sectionOf('输入与边界')?.body;
+  const investigationBody = sectionOf('调查阶段')?.body;
+  const findingsSection = sectionOf('关键发现');
+  const unverifiedBody = sectionOf('未证实与缺口')?.body;
+  const recommendationsBody = sectionOf('建议')?.body;
+  const routingBody = sectionOf('后续分流')?.body;
+  const extraSections = bodySections.filter((section) => !isKnownResearchBodySection(section.title));
 
   return (
     <div className="mb-6 flex flex-col gap-5">
-      {STUDY_READING_NODES.map((node) => (
-        <StudyReadingNode
-          key={node.field}
-          title={getFieldLabel(node.field, locale)}
-          value={obj[node.field]}
-          locale={locale}
-          kind={node.kind}
-          objectPath={objectPath}
-          carrier={carrier}
-        />
+      <ResearchStoppingMetaRow obj={obj} locale={locale} />
+      {questionBody && (
+        <ResearchBodyNode title={t('objectDetail.researchBody.question')}>
+          <StudyTextNodeContent value={questionBody} />
+        </ResearchBodyNode>
+      )}
+      {inputsBody && (
+        <ResearchBodyNode title={t('objectDetail.researchBody.inputs')}>
+          <StudyTextNodeContent value={inputsBody} />
+        </ResearchBodyNode>
+      )}
+      {investigationBody && (
+        <ResearchBodyNode title={t('objectDetail.researchBody.investigation')} initial="collapsed">
+          <StudyTextNodeContent value={investigationBody} />
+        </ResearchBodyNode>
+      )}
+      {findingsSection && (
+        <ResearchKeyFindingsNode sectionBody={findingsSection.body} obj={obj} />
+      )}
+      <ResearchUncertainGapsNode obj={obj} locale={locale} narrative={unverifiedBody} />
+      {recommendationsBody && (
+        <ResearchBodyNode title={t('objectDetail.researchBody.recommendations')}>
+          <StudyTextNodeContent value={recommendationsBody} />
+        </ResearchBodyNode>
+      )}
+      {routingBody && (
+        <ResearchBodyNode title={t('objectDetail.researchBody.routing')}>
+          <StudyTextNodeContent value={routingBody} />
+        </ResearchBodyNode>
+      )}
+      {extraSections.map((section) => (
+        <ResearchBodyNode key={section.title} title={`${t('objectDetail.researchBody.unknownSection')} · ${section.title}`}>
+          <StudyTextNodeContent value={section.body} />
+        </ResearchBodyNode>
       ))}
+      <ResearchImplicationsNode obj={obj} locale={locale} />
+      <ResearchClarificationLogNode obj={obj} locale={locale} />
       {extraPrimaryEntries.map(([fieldKey, value]) => (
         <ContentField
           key={fieldKey}
@@ -1323,93 +1481,219 @@ export function StudyReadingLayout({
       ))}
       <FactAssociationsSection obj={obj} locale={locale} />
       <RelatedContentSection entries={relatedEntries} locale={locale} />
-      <StudyInputRefsNode obj={obj} locale={locale} />
       <ChangeLogReadingNode value={obj.change_log} issue={fieldIssue(obj, 'change_log')} locale={locale} />
     </div>
   );
 }
 
-function StudyReadingNode({
+/** 正文节的折叠承载（调查阶段等过程性内容默认 collapsed）。 */
+function ResearchBodyNode({
   title,
-  value,
-  locale,
-  kind,
-  objectPath,
-  carrier,
+  initial = 'expanded',
+  headerMeta,
+  children,
 }: {
   title: string;
-  value: unknown;
-  locale: string;
-  kind: 'text' | 'report';
-  objectPath?: string;
-  carrier?: FactCarrier;
+  initial?: ReadingNodeState;
+  headerMeta?: ReactNode;
+  children: ReactNode;
 }) {
-  const [state, setState] = useState<ReadingNodeState>('expanded');
-  if (!hasDetailContent(value)) return null;
-
+  const { locale } = useI18n();
+  const [state, setState] = useState<ReadingNodeState>(initial);
   return (
     <ReadingNodeSection
       title={title}
       state={state}
       locale={locale}
+      headerMeta={headerMeta}
       onToggle={() => setState((current) => getReadingNodeNextState(current))}
     >
-      {kind === 'report' ? (
-        <StudyReportBodyEntry value={value} objectPath={objectPath} carrier={carrier} />
-      ) : (
-        <StudyTextNodeContent value={value} />
-      )}
+      {children}
     </ReadingNodeSection>
   );
 }
 
-function StudyReportBodyEntry({
-  value,
-  objectPath,
-  carrier,
+/** 「关键发现」：发现单元卡片列表（声明标题 + 观察/价值判断 + 溯源锚点行回指）。 */
+export function ResearchKeyFindingsNode({
+  sectionBody,
+  obj,
 }: {
-  value: unknown;
-  objectPath?: string;
-  carrier?: FactCarrier;
+  sectionBody: string;
+  obj: Record<string, unknown>;
 }) {
   const { t } = useI18n();
-  const { openPanel } = usePanel();
-  const docPath = objectPath;
-  const title = objectPath ? basename(objectPath) : t('objectDetail.reportBody');
-  const openLabel = t('objectDetail.openReadingPanel');
-  const openReportBody = () => {
-    if (!docPath || carrier !== 'markdown') return;
-    openPanel({
-      type: 'doc',
-      title,
-      docPath,
-      data: String(value),
-      carrier,
-      docVariant: 'study-report',
-    });
-  };
+  const units = parseResearchFindingUnits(sectionBody);
+  const confirmedCount = Array.isArray(obj.confirmed_statements) ? obj.confirmed_statements.length : 0;
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    openReportBody();
-  };
-
-  if (!docPath || carrier !== 'markdown') return null;
+  if (units.length === 0) {
+    return (
+      <ResearchBodyNode title={t('objectDetail.researchBody.findings')}>
+        <StudyTextNodeContent value={sectionBody} />
+      </ResearchBodyNode>
+    );
+  }
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={openReportBody}
-      onKeyDown={handleKeyDown}
-      title={openLabel}
-      className="ldvh-body group flex min-h-10 w-full cursor-pointer items-center gap-2 rounded-md px-1.5 py-2 text-left transition-colors hover:bg-ldvh-border/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
+    <ResearchBodyNode
+      title={t('objectDetail.researchBody.findings')}
+      headerMeta={
+        <span className="ldvh-meta-muted">
+          {units.length} · {t('objectDetail.researchBody.findingUnits')}
+          {confirmedCount > 0 && confirmedCount !== units.length ? ` · ${confirmedCount}` : ''}
+        </span>
+      }
     >
-      <FileText size={13} className="shrink-0 text-ldvh-accent" />
-      <span className="ldvh-meta-primary min-w-0 flex-1 truncate">{title}</span>
-      <ChevronRight size={14} className="shrink-0 text-ldvh-text-secondary/70" />
-    </div>
+      <div className="flex flex-col gap-3">
+        {units.map((unit, index) => (
+          <div
+            key={`${unit.title}-${index}`}
+            className="min-w-0 rounded-lg border border-ldvh-border/60 bg-ldvh-bg/40 p-3"
+          >
+            <div className="ldvh-card-title-prominent flex min-w-0 items-start gap-2">
+              <span className="ldvh-meta-muted shrink-0 pt-0.5">{String(index + 1).padStart(2, '0')}</span>
+              <span className="min-w-0 break-words">{unit.title}</span>
+            </div>
+            {unit.body && <StudyTextNodeContent value={unit.body} compact className="mt-2" />}
+            {unit.provenanceRef ? (
+              <ResearchProvenanceLine
+                provenanceRef={unit.provenanceRef}
+                provenanceAnchor={unit.provenanceAnchor}
+                urls={obj.urls}
+              />
+            ) : (
+              <div className="ldvh-meta mt-3 border-t border-ldvh-border/40 pt-2 text-amber-700 dark:text-amber-300">
+                {t('objectDetail.researchBody.noProvenance')}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </ResearchBodyNode>
+  );
+}
+
+const RESEARCH_GAP_PRIORITY_CLASS: Record<string, string> = {
+  high: 'border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400',
+  medium: 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  low: 'border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary',
+};
+
+/** 「未证实与缺口」：frontmatter 三态（uncertain/gaps）结构化 + 正文叙述补充。 */
+export function ResearchUncertainGapsNode({
+  obj,
+  locale,
+  narrative,
+}: {
+  obj: Record<string, unknown>;
+  locale: string;
+  narrative?: string;
+}) {
+  const { t } = useI18n();
+  const uncertain = Array.isArray(obj.uncertain)
+    ? obj.uncertain.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'))
+    : [];
+  const gaps = Array.isArray(obj.gaps)
+    ? obj.gaps.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'))
+    : [];
+  if (uncertain.length === 0 && gaps.length === 0 && !narrative) return null;
+
+  return (
+    <ResearchBodyNode title={t('objectDetail.researchBody.unverified')}>
+      <div className="flex flex-col gap-4">
+        {uncertain.length > 0 && (
+          <div className="flex flex-col gap-2">
+            {uncertain.map((entry, index) => (
+              <div key={`uncertain-${index}`} className="min-w-0 rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2">
+                <div className="ldvh-caption-strong text-ldvh-text-primary">
+                  {typeof entry.issue === 'string' ? entry.issue : getFieldLabel('issue', locale)}
+                </div>
+                {typeof entry.reason === 'string' && (
+                  <p className="ldvh-caption mt-1 break-words text-ldvh-text-secondary">{entry.reason}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {gaps.length > 0 && (
+          <div className="flex flex-col gap-2">
+            {gaps.map((entry, index) => {
+              const priority = typeof entry.priority === 'string' ? entry.priority : '';
+              const priorityClass = RESEARCH_GAP_PRIORITY_CLASS[priority] ?? RESEARCH_GAP_PRIORITY_CLASS.low;
+              return (
+                <div key={`gap-${index}`} className="flex min-w-0 flex-col gap-1.5 rounded-md border border-ldvh-border/50 bg-ldvh-bg/40 px-3 py-2">
+                  <div className="flex min-w-0 items-start gap-2">
+                    {priority && (
+                      <span className={`ldvh-chip shrink-0 rounded border px-1.5 py-0.5 text-[10px] leading-4 ${priorityClass}`}>
+                        {getFieldValueLabel('priority', priority, locale)}
+                      </span>
+                    )}
+                    <p className="ldvh-caption min-w-0 flex-1 break-words text-ldvh-text-primary">
+                      {typeof entry.description === 'string' ? entry.description : String(entry)}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {narrative && <StudyTextNodeContent value={narrative} />}
+      </div>
+    </ResearchBodyNode>
+  );
+}
+
+/** 「启发」：implications 的 finding_ref 锚定呈现（finding_ref 逐字对应 confirmed_statements 成员）。 */
+export function ResearchImplicationsNode({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
+  const implications = Array.isArray(obj.implications)
+    ? obj.implications.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'))
+    : [];
+  if (implications.length === 0) return null;
+
+  return (
+    <ResearchBodyNode title={getFieldLabel('implications', locale)}>
+      <div className="flex flex-col gap-2">
+        {implications.map((entry, index) => (
+          <div key={`implication-${index}`} className="flex min-w-0 flex-col gap-1 rounded-md border border-ldvh-border/50 bg-ldvh-bg/40 px-3 py-2">
+            {typeof entry.finding_ref === 'string' && entry.finding_ref.trim().length > 0 && (
+              <div className="ldvh-meta-muted break-words">{entry.finding_ref}</div>
+            )}
+            {typeof entry.implication === 'string' && (
+              <StudyTextNodeContent value={entry.implication} compact />
+            )}
+          </div>
+        ))}
+      </div>
+    </ResearchBodyNode>
+  );
+}
+
+/** 「澄清记录」：clarification_log（只收改变方向的实质澄清，默认折叠）。 */
+export function ResearchClarificationLogNode({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
+  const entries = Array.isArray(obj.clarification_log)
+    ? obj.clarification_log.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'))
+    : [];
+  if (entries.length === 0) return null;
+
+  return (
+    <ResearchBodyNode title={getFieldLabel('clarification_log', locale)} initial="collapsed"
+      headerMeta={<span className="ldvh-meta-muted">{entries.length}</span>}
+    >
+      <div className="divide-y divide-ldvh-border/60">
+        {entries.map((entry, index) => (
+          <div key={`clarification-${index}`} className="py-2.5 first:pt-0 last:pb-0">
+            {typeof entry.question === 'string' && (
+              <p className="ldvh-caption-strong break-words text-ldvh-text-primary">{entry.question}</p>
+            )}
+            {typeof entry.answer === 'string' && (
+              <p className="ldvh-caption mt-1 break-words text-ldvh-text-secondary">{entry.answer}</p>
+            )}
+            {typeof entry.answered_by === 'string' && (
+              <p className="ldvh-meta-muted mt-1">{getFieldValueLabel('answered_by', entry.answered_by, locale)}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </ResearchBodyNode>
   );
 }
 

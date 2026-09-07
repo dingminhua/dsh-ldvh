@@ -130,7 +130,7 @@ export interface ObjectItem {
   change_log?: unknown;
   disposition_summary?: string;
   relations?: Array<Record<string, unknown>>;
-  /** Study-specific */
+  /** v4 Study 专属（v4 归档模式下仍可见）；v5 Research 无此字段，卡片摘要由 research_question 承担（24 §12）。 */
   report_kind?: 'external_research' | 'internal_audit' | 'technical_assessment' | 'comparison';
   input_refs?: Array<Record<string, unknown>>;
   /** 跨工作区合并元数据 */
@@ -604,8 +604,8 @@ export interface CognitionRecentActivityItem {
   /** WorkCase 只携带派生 progress_group；其它对象携带自身当前状态。 */
   progress_group?: WorkCaseProgressGroup;
   status?: string;
-  /** Study 报告类型，用于活动卡片上投影类型徽章。 */
-  report_kind?: string;
+  /** v5 Research 卡片摘要（24 §12 F1 投影）；v4 report_kind 已下线。 */
+  research_question?: string;
   read_status: string;
   field_issues?: FieldIssue[];
   unparsed_structures?: UnparsedStructure[];

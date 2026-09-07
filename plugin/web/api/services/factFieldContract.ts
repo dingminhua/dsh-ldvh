@@ -93,8 +93,10 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     disposition_summary: field('disposition-summary', 'string', false),
   },
   // v5 Research（24 号规范薄索引）：frontmatter 字段面以调研对象为准——
-  // research_question/research_purpose/stopping_reason 必填，urls（ref 锚点形态）/
-  // confirmed_statements（声明索引）/uncertain/gaps/implications 数组；正文承载研究主体。
+  // research_question/research_purpose 必填，stopping_reason（闭集 sufficient/
+  // no-gain/round-cap）/confirmed_statements（声明索引）/uncertain/gaps/
+  // implications/clarification_log 数组，retired 时 retirement_reason/retired_at；
+  // 正文承载研究主体（Web 呈现层按 H2 分节解析）。
   research: {
     ...common,
     research_question: field('research-question', 'string', true),
@@ -104,6 +106,9 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     uncertain: field('research-uncertain', 'array', false),
     gaps: field('research-gaps', 'array', false),
     implications: field('research-implications', 'array', false),
+    clarification_log: field('research-clarification-log', 'array', false),
+    retirement_reason: field('retirement-reason', 'string', false),
+    retired_at: field('retired-at', 'string', false),
     disposition_summary: field('disposition-summary', 'string', false),
   },
 }

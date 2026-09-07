@@ -1266,14 +1266,6 @@ export function ObjectCardFrame({
           >
             {getTypeLabel(obj.type, locale)}
           </span>
-          {obj.type === 'research' && obj.report_kind && (
-            <span
-              className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center rounded-md border px-1.5 text-[10px] font-medium leading-3"
-              style={{ backgroundColor: `${CATEGORY_COLORS[obj.report_kind] || CATEGORY_COLORS.other}18`, borderColor: `${CATEGORY_COLORS[obj.report_kind] || CATEGORY_COLORS.other}55`, color: CATEGORY_COLORS[obj.report_kind] || CATEGORY_COLORS.other }}
-            >
-              {getFieldValueLabel('report_kind', obj.report_kind, locale)}
-            </span>
-          )}
           <PriorityIcon source={obj} type={obj.type} locale={locale} size="xs" />
           <span
             className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center gap-1 rounded-md border border-ldvh-accent/25 bg-ldvh-accent/5 px-[5px] text-[10px] font-medium leading-3 text-ldvh-accent"
@@ -1615,8 +1607,17 @@ function StudyTerminalCardContent({ obj }: { obj: ObjectItem }) {
 }
 
 export function StudyCardContent({ obj }: { obj: ObjectItem }) {
+  const { locale } = useI18n();
   if (obj.status === 'retired') return <StudyTerminalCardContent obj={obj} />;
-  return null;
+  // v5 F1 卡片投影（24 §12）：research_question 作摘要行，不投影三态内容、发现单元或子阶段。
+  const question = obj.research_question?.trim();
+  if (!question) return null;
+  return (
+    <section className="min-w-0 rounded-md border border-ldvh-border/50 bg-ldvh-bg/40 px-3 py-2.5">
+      <h3 className="ldvh-caption-strong text-ldvh-text-secondary">{getFieldLabel('research_question', locale)}</h3>
+      <p className="ldvh-caption mt-1 break-words text-ldvh-text-primary/85">{question}</p>
+    </section>
+  );
 }
 
 export default function ObjectList() {

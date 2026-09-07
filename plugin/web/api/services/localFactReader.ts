@@ -158,7 +158,8 @@ const RECORD_ARRAY_FIELDS: Partial<Record<LocalFactType, ReadonlySet<string>>> =
   spark: new Set(['evolution', 'relations', 'change_log']),
   adr: new Set(['change_log']),
   pitfall: new Set(['change_log']),
-  research: new Set(['change_log']),
+  // confirmed_statements 是字符串数组（声明句索引，24 §8），不进记录成员检查。
+  research: new Set(['uncertain', 'gaps', 'implications', 'clarification_log', 'change_log']),
 }
 
 function isConsumableRecordMember(type: LocalFactType, field: string, member: Record<string, unknown>): boolean {

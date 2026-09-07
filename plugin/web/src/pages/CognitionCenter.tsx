@@ -411,12 +411,12 @@ function RecentActivityRow({ item }: { item: CognitionRecentActivityItem }) {
         >
           {getTypeLabel(item.type, locale)}
         </span>
-        {item.type === 'research' && item.report_kind && (
+        {item.type === 'research' && item.research_question && (
           <span
-            className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center rounded-md border px-1.5 text-[10px] font-medium leading-3"
-            style={{ backgroundColor: `${CATEGORY_COLORS[item.report_kind] || CATEGORY_COLORS.other}18`, borderColor: `${CATEGORY_COLORS[item.report_kind] || CATEGORY_COLORS.other}55`, color: CATEGORY_COLORS[item.report_kind] || CATEGORY_COLORS.other }}
+            className="ldvh-caption min-w-0 truncate text-ldvh-text-secondary"
+            title={`${getFieldLabel('research_question', locale)}: ${item.research_question}`}
           >
-            {getFieldValueLabel('report_kind', item.report_kind, locale)}
+            {getFieldLabel('research_question', locale)}: {item.research_question}
           </span>
         )}
         <PriorityIcon source={item} type={item.type} locale={locale} size="xs" />

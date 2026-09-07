@@ -122,8 +122,8 @@ interface RecentActivityBuildItem {
   status?: string
   progress_group?: WorkCaseProgressGroup
   priority?: string
-  /** Study 报告类型，便于 Web 在近期活动卡片上投影类型徽章。 */
-  report_kind?: string
+  /** v5 起 Research 不再投影 v4 report_kind；改用 research_question 作卡片摘要（24 §12）。 */
+  research_question?: string
   read_status: string
   field_issues: Array<Record<string, unknown>>
   unparsed_structures: Array<Record<string, unknown>>
@@ -314,7 +314,10 @@ function buildRecentActivityItem(
     ...(signature ? { signature } : {}),
     ...(type === 'workcase' ? { progress_group: progressGroup } : { status }),
     ...(priorityRank(raw.priority) < 4 && typeof raw.priority === 'string' ? { priority: raw.priority } : {}),
-    ...(type === 'research' && typeof raw.report_kind === 'string' ? { report_kind: raw.report_kind } : {}),
+    // v5 Research F1 投影（24 §12）：research_question 作卡片摘要，不再投影 v4 report_kind。
+    ...(type === 'research' && typeof raw.research_question === 'string' && raw.research_question.trim().length > 0
+      ? { research_question: raw.research_question }
+      : {}),
     read_status: String(raw.read_status ?? 'unknown'),
     field_issues: Array.isArray(raw.field_issues) ? raw.field_issues as Array<Record<string, unknown>> : [],
     unparsed_structures: Array.isArray(raw.unparsed_structures) ? raw.unparsed_structures as Array<Record<string, unknown>> : [],
@@ -999,7 +1002,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       relativeTime: getRelativeTime(build.occurred_at, locale),
       typeColor: getTypeColor(build.type),
       ...(build.priority !== undefined ? { priority: build.priority } : {}),
-      ...(build.report_kind !== undefined ? { report_kind: build.report_kind } : {}),
+      ...(build.research_question !== undefined ? { research_question: build.research_question } : {}),
       ...(build.type === 'workcase' && build.progress_group !== undefined
         ? { progress_group: build.progress_group }
         : build.type !== 'workcase' && build.status !== undefined ? { status: build.status } : {}),
