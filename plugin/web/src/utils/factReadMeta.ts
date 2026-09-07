@@ -1,4 +1,4 @@
-import { load as loadYaml, dump as dumpYaml } from 'js-yaml';
+import { dump as dumpYaml } from 'js-yaml';
 
 export type FactCarrier = 'yaml' | 'markdown' | 'directory';
 export type FactReadStatus = 'readable' | 'unreadable';
@@ -114,46 +114,4 @@ export function reconstructFactYaml(value: Record<string, unknown>): string {
     lineWidth: -1,
     sortKeys: false,
   });
-}
-
-/**
- * 24 §7 规范阅读序（展示层约定，Human 2026-09-09 定）：语义块在前（标题/状态/
- * 研究三要素/三态证据/澄清启发/退出语义），引用与身份居后，change_log 沉底。
- * 与 plugin/lib/research-writer.js 的 FRONTMATTER_FIELD_ORDER 同源同值。
- */
-const RESEARCH_FRONTMATTER_DISPLAY_ORDER = [
-  'title', 'status',
-  'research_question', 'research_purpose', 'stopping_reason',
-  'confirmed_statements', 'uncertain', 'gaps', 'clarification_log', 'implications',
-  'retirement_reason', 'retired_at',
-  'urls', 'relations',
-  'object_uid', 'fact_type_key', 'created_at',
-  'change_log',
-];
-
-/**
- * 展示时按 24 §7 规范阅读序重排 research frontmatter（Human 2026-09-09：
- * 不强制书写顺序，展示的时候排序）。内容保真：以 yaml_source 原文解析出的
- * 真实字段为界——不注入（如文件名推导的 object_id 不出现）、不过滤（未知
- * 字段按原序跟在阅读序之后，有什么显示什么），只重排键序。原文不可解析时
- * 原样返回（有问题看得见），不静默兜底。
- */
-export function sortedResearchFrontmatterYaml(rawSource: unknown): string | undefined {
-  if (typeof rawSource !== 'string' || rawSource.length === 0) return undefined;
-  let parsed: unknown;
-  try {
-    parsed = loadYaml(rawSource);
-  } catch {
-    return rawSource;
-  }
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return rawSource;
-  const source = parsed as Record<string, unknown>;
-  const ordered: Record<string, unknown> = {};
-  for (const key of RESEARCH_FRONTMATTER_DISPLAY_ORDER) {
-    if (key in source) ordered[key] = source[key];
-  }
-  for (const key of Object.keys(source)) {
-    if (!(key in ordered)) ordered[key] = source[key];
-  }
-  return dumpYaml(ordered, { noRefs: true, lineWidth: -1, sortKeys: false });
 }
