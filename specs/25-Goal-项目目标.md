@@ -12,7 +12,6 @@ ldvh_spec:
   positioning: "定义 Goal 事实类型的目的、对象边界、子目标锚点与载体、状态生命周期、消费点与受控操作，是项目级单例冻结锚的唯一类型权威"
   scope: "适用于管辖项目中承载项目目标的单例 Goal 对象及其子目标锚点（SG-n）、状态翻转与修订级联；不定义调研执行流程、讨论收敛、Initiative 类型语义或蓝图投影格式"
   basis:
-    - "fact-model-foundation"
     - "source-of-truth-traceability"
   authorized_attachments: []
   dimensions: ["comply"]
