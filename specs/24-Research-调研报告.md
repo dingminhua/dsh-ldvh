@@ -128,6 +128,8 @@ Research 与 v4 Study 的关系以语义收窄重定：v4 `report_kind=external_
 
 该单文件是对象唯一当前权威载体（03 §6.2 点 1）与机器权威入口：F1/F2 卡片、索引、Web 视图与 Helper 响应均以它为入口，且均为派生结果。
 
+frontmatter 字段按下列固定顺序书写（Human 2026-09-09 定；字段闭集不变，本条只定顺序）：`title`、`status`、`research_question`、`research_purpose`、`stopping_reason`、`confirmed_statements`、`uncertain`、`gaps`、`clarification_log`、`implications`、`retirement_reason`、`retired_at`、`urls`、`relations`、`object_uid`、`fact_type_key`、`created_at`、`change_log`——语义块在前（标题与状态为扫读入口，研究三要素继之，三态证据与澄清启发随之，退出语义次之），引用（urls/relations）与身份（uid/类型/创建时间）居后，流水（`change_log`）沉底。该顺序是**可读性约定而非语义**——YAML 映射本身无序，未在列表中的条件字段按其逻辑位跳过；由写入端机械执行（无论调用方传入何种键序），读取端不校验、不因此拒绝消费。
+
 `content_fingerprint` 绑定该文件的规范化内容：文件任何变化都改变指纹，读取、更新与回读以整个文件为边界；算法、编码与共同响应字段由 05/09 承接（03 §6.1），03 不建立第二套检查器。
 
 正文必须按顺序各出现且只出现一次以下非空 H2，其中**`调查阶段` 为探索型专属的可选 H2**（明确方向型禁在、探索型必在）：
