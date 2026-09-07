@@ -1,4 +1,5 @@
-import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter, Navigate, Routes, Route, useLocation } from 'react-router-dom';
 import { I18nProvider } from '@/i18n/context';
 import Layout from '@/components/Layout';
 import CognitionCenter from '@/pages/CognitionCenter';
@@ -34,6 +35,7 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter basename={import.meta.env?.BASE_URL}>
+      <RouteMemoryReporter />
       <I18nProvider>
         <ProjectScopeProvider>
           <AppRoutes />
@@ -41,4 +43,19 @@ export default function App() {
       </I18nProvider>
     </BrowserRouter>
   );
+}
+
+/** 侧栏 iframe 位置记忆：路由变化时通知宿主（better-sidebar 切 tab 重挂 iframe
+ * 会回到初始 src——宿主记录本路径后，重建的 iframe 直接落回用户停留的页面）。
+ * 沙箱允许 postMessage；独立浏览器窗口里 parent===window 时静默跳过。 */
+function RouteMemoryReporter() {
+  const location = useLocation();
+  useEffect(() => {
+    try {
+      if (window.parent !== window) {
+        window.parent.postMessage({ type: 'ldvh:navigate', pathname: location.pathname }, '*');
+      }
+    } catch { /* 跨域或沙箱异常：记忆特性静默降级 */ }
+  }, [location.pathname]);
+  return null;
 }

@@ -791,6 +791,20 @@ window.__ModuleLoader__.load({
      * allow-same-origin），Web 侧已给 localStorage 加守卫（useTheme），
      * API 走相对路径 fetch 不受沙箱影响。
      */
+    // iframe 位置记忆：better-sidebar 切 tab 会重挂内容组件（visible 翻转使
+    // TabContent memo 失效），iframe 重建即回 /ldvh/ 主页。Web 应用侧路由变化
+    // postMessage 通知（沙箱允许 postMessage），模块级变量在组件重挂间保留，
+    // 重建的 iframe 以记忆路径为初始 src——用户停留的页面不再丢失。
+    var ldvhFrameLocation = "/ldvh/";
+    // 测试环境（无 window）守卫：模块加载期不炸，宿主正常注册。
+    if (typeof window !== "undefined" && typeof window.addEventListener === "function") window.addEventListener("message", function (event) {
+      if (event.source === window) return;
+      var data = event.data;
+      if (data && typeof data === "object" && data.type === "ldvh:navigate" && typeof data.pathname === "string") {
+        if (data.pathname.indexOf("/ldvh") === 0) ldvhFrameLocation = data.pathname;
+      }
+    });
+
     function LdvhSidebarTab(props) {
       var t = props.t;
       var viewState = React.useState({ checking: true, ready: false, failed: false });
@@ -822,7 +836,7 @@ window.__ModuleLoader__.load({
       } else {
         body = React.createElement("iframe", {
           className: "ldv-view-frame",
-          src: "/ldvh/",
+          src: ldvhFrameLocation,
           title: t("sidebar.title")
         });
       }
