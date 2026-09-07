@@ -639,6 +639,11 @@ function parameterSchemaFor(operationKey) {
         }
       },
       relations: { type: "array", items: relationEntry },
+      retirement_reason: {
+        type: "string",
+        enum: ["outdated", "superseded", "out-of-scope", "rejected"],
+        description: "create MUST NOT supply this; update may set when transitioning active → retired (24 §9)"
+      },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
     required: ["title", "research_question", "research_purpose", "stopping_reason", "urls"],

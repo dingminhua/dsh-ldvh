@@ -45,6 +45,7 @@ const PRIORITY_VALUES = new Set(["high", "medium", "low"]);
 const STOPPING_REASONS = new Set(["sufficient", "no-gain", "round-cap"]);
 const STATUSES = new Set(["active", "retired"]);
 const ANSWERED_BY = new Set(["human", "external", "ai"]);
+const RETIREMENT_REASONS = new Set(["outdated", "superseded", "out-of-scope", "rejected"]);
 
 /** Closed set of frontmatter keys (24 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
@@ -53,6 +54,7 @@ const VALID_FM_KEYS = new Set([
   "research_question", "research_purpose", "stopping_reason",
   "confirmed_statements", "uncertain", "gaps",
   "implications", "clarification_log",
+  "retirement_reason", "retired_at",
 ]);
 
 /** Relation keys allowed for Research (24 §11). */
@@ -60,8 +62,8 @@ const RELATION_KEYS = new Set(["inspired-by", "informs", "updates"]);
 /** Relation keys explicitly forbidden for Research (24 §11). */
 const FORBIDDEN_RELATION_KEYS = new Set(["supersedes", "depends-on"]);
 
-/** UUID format check (W3: path-injection guard). */
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** UUID format check (W3: path-injection guard). 03 §6.1：canonical UUIDv4（版本位 4）。 */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // ---------------------------------------------------------------------------
 // Result helpers
@@ -79,7 +81,7 @@ function success(value) {
 // Validation (the mechanical slice of specs/24 §6, §8, §13)
 // ---------------------------------------------------------------------------
 
-export function validateResearchFrontmatter(frontmatter) {
+export function validateResearchFrontmatter(frontmatter, { allowRetiredAtMissing = false } = {}) {
   const issues = [];
 
   // Closed-set check (24 §8.5): unknown fields reject the object
@@ -184,6 +186,39 @@ export function validateResearchFrontmatter(frontmatter) {
 
   if (frontmatter.status === "retired" && confirmed_statements.length === 0) {
     issues.push("lifecycle: retired object must retain its confirmed evidence (read-only)");
+  }
+
+  // 24 §9 invariant 9: retirement completeness
+  // `allowRetiredAtMissing` is true during the update flow for a retirement
+  // transition: Code injects retired_at after validation passes, so the check
+  // must not fire on the incoming frontmatter. Static callers (type checks)
+  // use the default false to enforce the requirement end-to-end.
+  if (frontmatter.status === "retired") {
+    if (typeof frontmatter.retirement_reason !== "string" || frontmatter.retirement_reason.length === 0) {
+      issues.push("lifecycle: status=retired requires non-empty retirement_reason (closed set: outdated/superseded/out-of-scope/rejected)");
+    } else if (!RETIREMENT_REASONS.has(frontmatter.retirement_reason)) {
+      issues.push(`lifecycle: retirement_reason must be one of ${[...RETIREMENT_REASONS].join("/")}, got ${JSON.stringify(frontmatter.retirement_reason)}`);
+    }
+    if (!allowRetiredAtMissing && (typeof frontmatter.retired_at !== "string" || frontmatter.retired_at.length === 0)) {
+      issues.push("lifecycle: status=retired requires retired_at (ISO 8601, Code-assigned — AI must not supply this field)");
+    }
+    // Cross-field: retirement_reason=superseded requires an updates relation (checked in create/update flows)
+  } else {
+    // active status must not carry retirement fields
+    if (frontmatter.retirement_reason !== undefined) {
+      issues.push("lifecycle: retirement_reason must not be present when status=active");
+    }
+    if (frontmatter.retired_at !== undefined) {
+      issues.push("lifecycle: retired_at must not be present when status=active");
+    }
+  }
+
+  // Cross-field invariant: retirement_reason=superseded requires an updates relation
+  if (frontmatter.status === "retired" && frontmatter.retirement_reason === "superseded") {
+    const hasUpdates = (frontmatter.relations ?? []).some((r) => r?.relation_key === "updates");
+    if (!hasUpdates) {
+      issues.push("lifecycle: retirement_reason=superseded requires at least one updates relation in relations[] pointing to the replacement Research");
+    }
   }
 
   return { ok: issues.length === 0, issues };
@@ -307,8 +342,12 @@ function h3TitlesInSection(body, h2Title) {
 
 /**
  * Validate the body structure. Returns { ok, issues, exploratory }.
+ * When `retirementMode` is true (caller is validating a retired object),
+ * enforces 24 §9: 建议 section's last bullet must answer "在何种条件下仍
+ * 可被回查" (lightweight mechanical sniff — at least one of the listed
+ * keywords must appear, semantic truth is AI/in-dependent-review scope).
  */
-export function validateBodyStructure(body) {
+export function validateBodyStructure(body, retirementMode = false) {
   const issues = [];
   const h2 = h2Titles(body);
   const hasSurvey = h2.includes("调查阶段");
@@ -352,6 +391,22 @@ export function validateBodyStructure(body) {
         const title = sec.split("\n")[0].trim();
         const content = sec.slice(sec.indexOf("\n") + 1).trim();
         if (content.length === 0) issues.push(`调查阶段: H3 "${title}" is empty`);
+      }
+    }
+  }
+
+  // 24 §9: when retiring, 建议 section's last bullet must answer
+  // "在何种条件下仍可被回查". Lightweight mechanical sniff — at least one
+  // of the keywords 回查/仍可/留存/后续/再触发/仍可消费 must appear
+  // somewhere in the 建议 section.
+  if (retirementMode) {
+    const sections2 = body.split(/^## /m).slice(1);
+    const adviceSection = sections2.find((s) => s.split("\n")[0].trim() === "建议");
+    if (adviceSection) {
+      const keywords = ["回查", "仍可", "留存", "后续", "再触发", "仍可消费", "检索"];
+      const hasKeyword = keywords.some((k) => adviceSection.includes(k));
+      if (!hasKeyword) {
+        issues.push("retired 24 §9: 建议 section must explicitly state under which conditions this object may still be referenced back (轻量机械提示: 至少含「回查/仍可/留存/后续/再触发/仍可消费/检索」之一)");
       }
     }
   }
@@ -438,6 +493,22 @@ export function validateIndexBodyCoherence(frontmatter, body) {
     }
   }
 
+  // Invariant 10 (24 §8): the 研究问题 body section must contain the
+  // frontmatter research_question verbatim — frontmatter is the single
+  // authoritative text, the body only expands around it. Prevents the two
+  // occurrences from evolving into divergent second fact sources.
+  const question = typeof frontmatter.research_question === "string"
+    ? frontmatter.research_question.trim()
+    : "";
+  if (question.length > 0) {
+    const sections = body.split(/^## /m).slice(1);
+    const qSection = sections.find((s) => s.split("\n")[0].trim() === "研究问题");
+    const qContent = qSection ? qSection.slice(qSection.indexOf("\n") + 1).trim() : "";
+    if (!qContent.includes(question)) {
+      issues.push(`question-coherence: 研究问题 section must contain research_question verbatim (24 §8 invariant 10): "${question.slice(0, 40)}..."`);
+    }
+  }
+
   return { ok: issues.length === 0, issues };
 }
 
@@ -513,7 +584,13 @@ export async function createResearchObject(args) {
   frontmatter.object_uid = uid;
   frontmatter.fact_type_key = RESEARCH_TYPE_KEY;
   frontmatter.created_at = now;
-  frontmatter.status = frontmatterDraft.status ?? "active";
+  // 24 §9 invariant 9: when creating with status=retired, Code still must NOT
+  // (24 §9: "初态只能是 active"; create must be active). Reject explicitly to
+  // make the contract visible at the create boundary.
+  if (frontmatter.status === "retired") {
+    return failure("research/initial_state_violation", "create must initialise as status=active; retired is a transition, not an initial state (24 §9)");
+  }
+  frontmatter.status = "active";
   frontmatter.change_log = [{
     at: now,
     ...sessionSignature,
@@ -665,12 +742,30 @@ export async function updateResearchObject(args) {
   }
 
   // Build updated frontmatter
-  // Strip caller-only params before building the persistent frontmatter
-  const { change_summary: _strippedUpdate, ...afterFields } = frontmatterAfter;
+  // Strip caller-only params before building the persistent frontmatter.
+  // Also strip Code-managed fields (retired_at) that AI must not supply.
+  const { change_summary: _strippedUpdate, retired_at: _strippedRetiredAt, ...afterFields } = frontmatterAfter;
   const fm = { ...afterFields };
   fm.object_uid = objectUid;
   fm.fact_type_key = RESEARCH_TYPE_KEY;
   fm.created_at = current.value.frontmatter.created_at;
+
+  // 24 §9: active → retired transition; Code fills retired_at from the
+  // transition wall clock (AI must not supply this field).
+  const prevStatus = current.value.frontmatter.status;
+  const nextStatus = fm.status;
+  if (nextStatus === "retired") {
+    if (prevStatus === "retired") {
+      return failure("research/status_terminal", "status=retired is terminal and cannot be re-entered (24 §9)");
+    }
+    if (prevStatus !== "active") {
+      return failure("research/status_transition_invalid", `transition ${prevStatus} → retired is not allowed (24 §9: only active → retired)`);
+    }
+    // Code-managed retired_at
+    fm.retired_at = new Date().toISOString();
+  } else if (nextStatus === "active" && prevStatus === "retired") {
+    return failure("research/status_terminal", "status=retired is terminal and cannot be re-opened (24 §9)");
+  }
 
   const prevLog = Array.isArray(current.value.frontmatter.change_log) ? current.value.frontmatter.change_log : [];
   fm.change_log = [...prevLog, {
@@ -698,7 +793,7 @@ export async function updateResearchObject(args) {
       return failure("research/relation_target_unresolvable", `updates target ${targetUid} does not resolve to an existing Research object`);
     }
   }
-  const bodyCheck = validateBodyStructure(body);
+  const bodyCheck = validateBodyStructure(body, fm.status === "retired");
   if (!bodyCheck.ok) {
     return failure("research/body_invalid", "updated body failed structure checks", { issues: bodyCheck.issues });
   }

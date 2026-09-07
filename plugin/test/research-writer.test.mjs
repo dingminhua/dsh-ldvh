@@ -211,6 +211,31 @@ test("validateIndexBodyCoherence flags trace ref not in urls", () => {
   assert.ok(result.issues.some((i) => i.includes("does not match any urls[].ref")));
 });
 
+test("validateIndexBodyCoherence flags 研究问题 section missing question verbatim (24 §8 invariant 10)", () => {
+  // 正文研究问题段改写了问题措辞（frontmatter 有「对 LDVH 编排系统」，正文没有）——漂移即拒。
+  const driftedBody = validAnalysisBody.replace(
+    "dsh-agent-teams 的队长式委派与任务调度对 LDVH 编排系统有什么可吸收模式？",
+    "dsh-agent-teams 的队长式委派对编排有什么可吸收模式？（措辞已漂移）",
+  );
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t" };
+  const result = validateIndexBodyCoherence(fm, driftedBody);
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((i) => i.includes("must contain research_question verbatim")));
+});
+
+test("validateIndexBodyCoherence accepts 研究问题 section that expands around the verbatim question", () => {
+  // 原文逐字在场 + 其外展开背景：合法。
+  const expandedBody = validAnalysisBody.replace(
+    "dsh-agent-teams 的队长式委派与任务调度对 LDVH 编排系统有什么可吸收模式？",
+    "dsh-agent-teams 的队长式委派与任务调度对 LDVH 编排系统有什么可吸收模式？\n\n调研对象为 dsh-agent-teams v0.1.12（单队长多成员的任务编排插件）；本轮调研为 LDVH 编排系统是否引入队长式多角色并行执行提供依据。",
+  );
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t" };
+  const result = validateIndexBodyCoherence(fm, expandedBody);
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+});
+
 test("createResearchObject creates directed object with v4-style body", async () => {
   const result = await createResearchObject({
     factSourceRoot: root,
@@ -271,7 +296,7 @@ test("updateResearchObject CAS flow with change_log", async () => {
   const read1 = await readResearchObject({ factSourceRoot: root, objectUid: uid });
   assert.ok(read1.ok);
 
-  const fmAfter = { ...read1.value.frontmatter, status: "retired" };
+  const fmAfter = { ...read1.value.frontmatter, status: "retired", retirement_reason: "outdated" };
   const updated = await updateResearchObject({
     factSourceRoot: root,
     objectUid: uid,
@@ -423,4 +448,245 @@ test("createResearchObject rejects invalid relations but accepts resolvable upda
   const failed = await createResearchObject({ factSourceRoot: root, frontmatterDraft: dangling, analysisBody: validAnalysisBody });
   assert.ok(!failed.ok);
   assert.equal(failed.error.code, "research/relation_target_unresolvable");
+});
+
+// ---------------------------------------------------------------------------
+// Retirement contract (24 §8 retirement_reason + §9 retired invariants)
+// ---------------------------------------------------------------------------
+
+test("validateResearchFrontmatter requires retirement_reason when status=retired", () => {
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t", status: "retired" };
+  const result = validateResearchFrontmatter(fm);
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((i) => i.includes("retirement_reason")));
+});
+
+test("validateResearchFrontmatter rejects retirement_reason with closed-set violation", () => {
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t", status: "retired", retirement_reason: "anything-else" };
+  const result = validateResearchFrontmatter(fm);
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((i) => i.includes("retirement_reason must be one of")));
+});
+
+test("validateResearchFrontmatter requires retired_at when status=retired", () => {
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t", status: "retired", retirement_reason: "outdated" };
+  const result = validateResearchFrontmatter(fm);
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((i) => i.includes("retired_at")));
+});
+
+test("validateResearchFrontmatter rejects retirement fields when status=active", () => {
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t", retirement_reason: "outdated" };
+  const result = validateResearchFrontmatter(fm);
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((i) => i.includes("retirement_reason must not be present when status=active")));
+});
+
+test("validateResearchFrontmatter requires updates relation when retirement_reason=superseded", () => {
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t", status: "retired", retirement_reason: "superseded", retired_at: "2026-09-07T00:50:00.000Z" };
+  const result = validateResearchFrontmatter(fm);
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((i) => i.includes("superseded requires at least one updates relation")));
+});
+
+test("validateResearchFrontmatter accepts retired with valid retirement_reason and retired_at", () => {
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const fm = { ...draft, object_uid: "u", fact_type_key: "research", created_at: "t", status: "retired", retirement_reason: "out-of-scope", retired_at: "2026-09-07T00:50:00.000Z" };
+  const result = validateResearchFrontmatter(fm);
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+});
+
+test("createResearchObject rejects status=retired on initial create (24 §9 initial state)", async () => {
+  const { change_summary: _cs, ...draft } = validFrontmatterDraft();
+  const bad = { ...draft, status: "retired", retirement_reason: "out-of-scope", retired_at: "2026-09-07T00:50:00.000Z" };
+  const result = await createResearchObject({ factSourceRoot: root, frontmatterDraft: bad, analysisBody: validAnalysisBody });
+  assert.ok(!result.ok);
+  assert.equal(result.error.code, "research/initial_state_violation");
+});
+
+test("updateResearchObject rejects status=retired without retirement_reason", async () => {
+  const created = await createResearchObject({
+    factSourceRoot: root,
+    frontmatterDraft: validFrontmatterDraft(),
+    analysisBody: validAnalysisBody,
+  });
+  assert.ok(created.ok);
+  const read1 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+  assert.ok(read1.ok);
+  const fmAfter = { ...read1.value.frontmatter, status: "retired" };
+  const updated = await updateResearchObject({
+    factSourceRoot: root,
+    objectUid: created.value.object_uid,
+    expectedFingerprint: read1.value.fingerprint,
+    frontmatterAfter: fmAfter,
+    analysisBodyAfter: validAnalysisBody,
+    changeSummary: "retire without reason",
+  });
+  assert.ok(!updated.ok);
+  assert.equal(updated.error.code, "research/frontmatter_invalid");
+  assert.ok(updated.error.details.issues.some((i) => i.includes("retirement_reason")));
+});
+
+test("updateResearchObject rejects AI-supplied retired_at (Code-managed only)", async () => {
+  const created = await createResearchObject({
+    factSourceRoot: root,
+    frontmatterDraft: validFrontmatterDraft(),
+    analysisBody: validAnalysisBody,
+  });
+  assert.ok(created.ok);
+  const read1 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+  assert.ok(read1.ok);
+  const fmAfter = { ...read1.value.frontmatter, status: "retired", retirement_reason: "outdated", retired_at: "1999-01-01T00:00:00.000Z" };
+  const updated = await updateResearchObject({
+    factSourceRoot: root,
+    objectUid: created.value.object_uid,
+    expectedFingerprint: read1.value.fingerprint,
+    frontmatterAfter: fmAfter,
+    analysisBodyAfter: validAnalysisBody,
+    changeSummary: "retire with bad retired_at",
+  });
+  assert.ok(updated.ok, JSON.stringify(updated.error));
+  // Code should overwrite AI-supplied retired_at with wall-clock now
+  const read2 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+  assert.ok(read2.ok);
+  assert.notEqual(read2.value.frontmatter.retired_at, "1999-01-01T00:00:00.000Z");
+});
+
+test("updateResearchObject rejects retirement_reason=superseded without updates relation", async () => {
+  const created = await createResearchObject({
+    factSourceRoot: root,
+    frontmatterDraft: validFrontmatterDraft(),
+    analysisBody: validAnalysisBody,
+  });
+  assert.ok(created.ok);
+  const read1 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+  assert.ok(read1.ok);
+  const fmAfter = { ...read1.value.frontmatter, status: "retired", retirement_reason: "superseded" };
+  const updated = await updateResearchObject({
+    factSourceRoot: root,
+    objectUid: created.value.object_uid,
+    expectedFingerprint: read1.value.fingerprint,
+    frontmatterAfter: fmAfter,
+    analysisBodyAfter: validAnalysisBody,
+    changeSummary: "retire superseded without relation",
+  });
+  assert.ok(!updated.ok);
+  assert.equal(updated.error.code, "research/frontmatter_invalid");
+  assert.ok(updated.error.details.issues.some((i) => i.includes("superseded requires at least one updates relation")));
+});
+
+test("updateResearchObject accepts retirement_reason=superseded with resolvable updates relation", async () => {
+  // first: a replacement
+  const replacement = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody });
+  assert.ok(replacement.ok);
+  // second: the one that will be retired
+  const created = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody });
+  assert.ok(created.ok);
+  const read1 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+  assert.ok(read1.ok);
+  const fmAfter = {
+    ...read1.value.frontmatter,
+    status: "retired",
+    retirement_reason: "superseded",
+    relations: [{ relation_key: "updates", target: { object_uid: replacement.value.object_uid } }],
+  };
+  const updated = await updateResearchObject({
+    factSourceRoot: root,
+    objectUid: created.value.object_uid,
+    expectedFingerprint: read1.value.fingerprint,
+    frontmatterAfter: fmAfter,
+    analysisBodyAfter: validAnalysisBody,
+    changeSummary: "retire superseded with replacement",
+  });
+  assert.ok(updated.ok, JSON.stringify(updated.error));
+  const read2 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+  assert.ok(read2.ok);
+  assert.equal(read2.value.frontmatter.status, "retired");
+  assert.equal(read2.value.frontmatter.retirement_reason, "superseded");
+  assert.ok(typeof read2.value.frontmatter.retired_at === "string" && read2.value.frontmatter.retired_at.length > 0);
+});
+
+test("updateResearchObject rejects transition retired → active (terminal)", async () => {
+  const replacement = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody });
+  const created = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody });
+  const read1 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+  // First, retire
+  const retireFm = { ...read1.value.frontmatter, status: "retired", retirement_reason: "superseded", relations: [{ relation_key: "updates", target: { object_uid: replacement.value.object_uid } }] };
+  const retired = await updateResearchObject({
+    factSourceRoot: root, objectUid: created.value.object_uid,
+    expectedFingerprint: read1.value.fingerprint,
+    frontmatterAfter: retireFm, analysisBodyAfter: validAnalysisBody,
+    changeSummary: "retire",
+  });
+  assert.ok(retired.ok);
+  // Now try to re-open
+  const read2 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+  const reopenFm = { ...read2.value.frontmatter, status: "active" };
+  delete reopenFm.retirement_reason; delete reopenFm.retired_at;
+  const reopened = await updateResearchObject({
+    factSourceRoot: root, objectUid: created.value.object_uid,
+    expectedFingerprint: read2.value.fingerprint,
+    frontmatterAfter: reopenFm, analysisBodyAfter: validAnalysisBody,
+    changeSummary: "reopen",
+  });
+  assert.ok(!reopened.ok);
+  assert.equal(reopened.error.code, "research/status_terminal");
+});
+
+test("validateBodyStructure flags retired 建议 section without a 'still-referable' keyword", () => {
+  const badRetireBody = `## 研究问题
+验证 retired 退出说明是否生效。
+
+## 输入与边界
+仅工具面。
+
+## 关键发现
+
+### 24 号 retired 硬约束
+正文 24 §9 退出完整性不变量。
+
+溯源：https://github.com/NanmiCoder/dsh-agent-teams（README）
+
+## 未证实与缺口
+无。
+
+## 建议
+A1 修复方法 X：本次调研完成，无行动建议，文件仅作内部存档。
+
+## 后续分流
+- A1 → 归档`;
+  const check = validateBodyStructure(badRetireBody, true);
+  assert.equal(check.ok, false);
+  assert.ok(check.issues.some((i) => i.includes("建议 section must explicitly state")));
+});
+
+test("validateBodyStructure accepts retired 建议 section with a 'still-referable' keyword", () => {
+  const goodRetireBody = `## 研究问题
+验证 retired 退出说明是否生效。
+
+## 输入与边界
+仅工具面。
+
+## 关键发现
+
+### 24 号 retired 硬约束
+正文 24 §9 退出完整性不变量。
+
+溯源：https://github.com/NanmiCoder/dsh-agent-teams（README）
+
+## 未证实与缺口
+无。
+
+## 建议
+A1 修复方法 X：研究→执行断链由回查条件说明补足——可被后续 ADR 在重新评估时检索本对象。
+
+## 后续分流
+- A1 → 修复`;
+  const check = validateBodyStructure(goodRetireBody, true);
+  assert.equal(check.ok, true, JSON.stringify(check.issues));
 });
