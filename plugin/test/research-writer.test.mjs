@@ -1,8 +1,9 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 import {
   createResearchObject,
   readResearchObject,
@@ -689,4 +690,26 @@ A1 修复方法 X：研究→执行断链由回查条件说明补足——可被
 - A1 → 修复`;
   const check = validateBodyStructure(goodRetireBody, true);
   assert.equal(check.ok, true, JSON.stringify(check.issues));
+});
+
+test("frontmatter fields are written in the canonical reading order regardless of caller key order (24 §7)", async () => {
+  // 故意按字母序传入 draft——写出必须仍是规范序：语义块在前、流水沉底。
+  const alphabetical = {};
+  for (const key of Object.keys(validFrontmatterDraft()).sort()) alphabetical[key] = validFrontmatterDraft()[key];
+  const result = await createResearchObject({
+    factSourceRoot: root,
+    frontmatterDraft: alphabetical,
+    analysisBody: validAnalysisBody,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result.issues ?? result.error));
+  const raw = await readFile(join(root, "researches", `research-${result.value.object_uid}.md`), "utf8");
+  const fmEnd = raw.indexOf("\n---\n", 5);
+  const fm = parseYaml(raw.slice(4, fmEnd));
+  const keys = Object.keys(fm);
+  // 24 §7：title 首位，change_log 沉底，语义序（question 在 confirmed 之前）。
+  assert.equal(keys[0], "title");
+  assert.equal(keys.at(-1), "change_log");
+  assert.ok(keys.indexOf("research_question") < keys.indexOf("confirmed_statements"));
+  assert.ok(keys.indexOf("stopping_reason") < keys.indexOf("confirmed_statements"));
+  assert.ok(keys.indexOf("urls") < keys.indexOf("object_uid"));
 });

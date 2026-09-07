@@ -527,7 +527,37 @@ function fileFingerprint(content) {
 }
 
 function buildFileContent(frontmatter, body) {
-  return `---\n${stringifyYaml(frontmatter, { lineWidth: 0 })}---\n\n${body.trim()}\n`;
+  return `---\n${stringifyYaml(orderFrontmatterFields(frontmatter), { lineWidth: 0 })}---\n\n${body.trim()}\n`;
+}
+
+/**
+ * 24 §7 frontmatter 字段书写序（Human 2026-09-09 定）：语义块在前（标题/状态/
+ * 研究三要素/三态证据/澄清启发/退出语义），引用与身份居后，change_log 沉底。
+ * 字段闭集不变——本函数只重排键序，不新增、不删除、不改值。无论调用方以何种
+ * 键序传入（create 的 draft 或 update 的 frontmatter_after），写出一律规范序。
+ * 顺序是可读性约定而非语义（YAML 映射无序），未在表中的条件字段自然跳过。
+ */
+const FRONTMATTER_FIELD_ORDER = [
+  "title", "status",
+  "research_question", "research_purpose", "stopping_reason",
+  "confirmed_statements", "uncertain", "gaps", "clarification_log", "implications",
+  "retirement_reason", "retired_at",
+  "urls", "relations",
+  "object_uid", "fact_type_key", "created_at",
+  "change_log",
+];
+
+function orderFrontmatterFields(frontmatter) {
+  const ordered = {};
+  for (const key of FRONTMATTER_FIELD_ORDER) {
+    if (key in frontmatter) ordered[key] = frontmatter[key];
+  }
+  // 闭集校验已保证无表外字段；防御性保留任何遗漏键（原序跟在表后），
+  // 避免未来字段准入与书写序登记不同步时静默丢字段。
+  for (const key of Object.keys(frontmatter)) {
+    if (!(key in ordered)) ordered[key] = frontmatter[key];
+  }
+  return ordered;
 }
 
 async function atomicWriteFile(filePath, content) {
