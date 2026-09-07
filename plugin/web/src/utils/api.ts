@@ -121,6 +121,8 @@ export interface ObjectItem {
   absolute_path?: string;
   carrier?: FactCarrier;
   read_status?: FactReadStatus;
+  /** 文件中 YAML 部分的逐字原文，YAML 源视图直显（有什么就显示什么）。 */
+  yaml_source?: string;
   field_issues?: FieldIssue[];
   unparsed_structures?: UnparsedStructure[];
   read_issues?: Array<Record<string, unknown>>;

@@ -257,3 +257,64 @@ test('change_log consumes the two-field signature contract and exposes incomplet
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('yaml_source carries the verbatim YAML text — unknown fields, order and comments preserved', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  const directory = path.join(root, 'ldvh-base', 'researches');
+  await mkdir(directory, { recursive: true });
+  try {
+    // 顺序非字母序、含注释、含契约外未知字段 tags —— yaml_source 必须逐字保留这三者。
+    const rawFrontmatter = [
+      '# 顶部注释：机器索引层',
+      'title: 原文保真夹具',
+      'tags: [legacy]', '  # 契约外字段，直显必须保留',
+      'status: active',
+      'fact_type_key: research',
+      'created_at: "2026-01-01"',
+      'research_question: 夹具问题？',
+      'research_purpose: 验证原文透传',
+      'stopping_reason: sufficient',
+    ].join('\n');
+    await writeFile(
+      path.join(directory, 'research-0009.md'),
+      `---\n${rawFrontmatter}\n---\n\n## 研究问题\n\n夹具问题？\n`,
+      'utf8',
+    );
+    const detail = await readLocalFact('research', 'research-0009', scope);
+    assert.equal(detail.status, 'ok');
+    if (detail.status === 'ok') {
+      assert.equal(detail.item.read_status, 'readable');
+      assert.equal(detail.item.yaml_source, rawFrontmatter);
+      assert.ok(detail.item.yaml_source.includes('# 顶部注释'));
+      assert.ok(detail.item.yaml_source.indexOf('title:') < detail.item.yaml_source.indexOf('tags:'));
+      // 未知字段进入未解析结构（契约面如实报告），但 yaml_source 仍逐字保留它。
+      assert.ok((detail.item.unparsed_structures ?? []).some((s) => s.path === 'tags'));
+      assert.ok(detail.item.yaml_source.includes('tags: [legacy]'));
+      // 注入字段不进 yaml_source：object_id 由文件名推导，文件里没有。
+      assert.ok(!detail.item.yaml_source.includes('object_id'));
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('yaml carrier objects carry the whole file as yaml_source', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  const directory = path.join(root, 'ldvh-base', 'adrs');
+  await mkdir(directory, { recursive: true });
+  try {
+    const rawFile = `# 文件级注释\nobject_uid: 0198f1c7-8a2b-7c3d-9e4f-123456789abc\nobject_id: adr-0007\n${base}\n`;
+    await writeFile(path.join(directory, 'adr-0007.yaml'), rawFile, 'utf8');
+    const detail = await readLocalFact('adr', 'adr-0007', scope);
+    assert.equal(detail.status, 'ok');
+    if (detail.status === 'ok') {
+      assert.equal(detail.item.read_status, 'readable');
+      // 逐字原文含尾随换行——不做任何修剪。
+      assert.equal(detail.item.yaml_source, rawFile);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

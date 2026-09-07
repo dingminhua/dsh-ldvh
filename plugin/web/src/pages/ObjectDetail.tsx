@@ -316,7 +316,10 @@ export function FactReadingContent({
 
       {(carrier === 'yaml' || objType === 'research') && (
         <YamlDataNode
-          yamlSource={reconstructFactYaml(obj)}
+          // 有什么就显示什么：优先直显文件中 YAML 部分的逐字原文（yaml_source），
+          // 它保留原始顺序、注释与引号风格，未知字段不被过滤、注入字段不被添加——
+          // Human 能据此发现文件本身的问题。reconstruction 仅作 yaml_source 缺席的兜底。
+          yamlSource={typeof obj.yaml_source === 'string' ? obj.yaml_source : reconstructFactYaml(obj)}
           title={t('objectDetail.yamlSource')}
         />
       )}

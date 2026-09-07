@@ -65,6 +65,9 @@ export type LocalFactMetadata = {
 export type LocalFactItem = LocalFactMetadata & {
   read_status: LocalFactReadStatus
   source_content_fingerprint: string | null
+  /** 文件中 YAML 部分的逐字原文（markdown 载体=两 --- 标记之间；yaml 载体=整个文件）。
+   *  供 YAML 源视图直显——有什么就显示什么，未经过解析、过滤或重排。 */
+  yaml_source?: string | null
   fact_object: Record<string, unknown> | null
   field_issues: FieldIssue[]
   unparsed_structures: UnparsedStructure[]
@@ -124,23 +127,26 @@ function looksLikeFactCarrier(fileName: string): boolean {
   return /\.(?:yaml|yml|md)$/i.test(fileName)
 }
 
-function parseMarkdownWithFrontmatter(content: string): { metadata: Record<string, unknown> | null; body: string; issues: LocalFactIssue[] } {
+function parseMarkdownWithFrontmatter(content: string): { metadata: Record<string, unknown> | null; frontmatterSource: string; body: string; issues: LocalFactIssue[] } {
   const lines = content.split(/\r?\n/)
   if (lines[0]?.trim() !== '---') {
-    return { metadata: null, body: '', issues: [{ code: 'frontmatter_missing', message: 'Markdown 缺少 frontmatter' }] }
+    return { metadata: null, frontmatterSource: '', body: '', issues: [{ code: 'frontmatter_missing', message: 'Markdown 缺少 frontmatter' }] }
   }
   const end = lines.findIndex((line, index) => index > 0 && line.trim() === '---')
   if (end === -1) {
-    return { metadata: null, body: '', issues: [{ code: 'frontmatter_unclosed', message: 'frontmatter 未闭合' }] }
+    return { metadata: null, frontmatterSource: '', body: '', issues: [{ code: 'frontmatter_unclosed', message: 'frontmatter 未闭合' }] }
   }
+  // frontmatterSource 是喂给 yaml.load 的同一份原始文本（两标记之间的逐字内容，
+  // 含注释、原顺序、原引号风格）——yaml_source 直显用它，保证「有什么显示什么」。
+  const frontmatterSource = lines.slice(1, end).join('\n')
   try {
-    const value = yaml.load(lines.slice(1, end).join('\n'))
+    const value = yaml.load(frontmatterSource)
     if (!isRecord(value)) {
-      return { metadata: null, body: '', issues: [{ code: 'frontmatter_parse_failed', message: 'frontmatter 顶层不是键值映射' }] }
+      return { metadata: null, frontmatterSource, body: '', issues: [{ code: 'frontmatter_parse_failed', message: 'frontmatter 顶层不是键值映射' }] }
     }
-    return { metadata: value, body: lines.slice(end + 1).join('\n').replace(/^\s*\n/, ''), issues: [] }
+    return { metadata: value, frontmatterSource, body: lines.slice(end + 1).join('\n').replace(/^\s*\n/, ''), issues: [] }
   } catch (error) {
-    return { metadata: null, body: '', issues: [{ code: 'frontmatter_parse_failed', message: `frontmatter YAML 解析失败：${error instanceof Error ? error.message : String(error)}` }] }
+    return { metadata: null, frontmatterSource, body: '', issues: [{ code: 'frontmatter_parse_failed', message: `frontmatter YAML 解析失败：${error instanceof Error ? error.message : String(error)}` }] }
   }
 }
 
@@ -299,6 +305,7 @@ function readable(
   metadata: LocalFactMetadata,
   sourceContentFingerprint: string,
   projected: Pick<LocalFactItem, 'fact_object' | 'field_issues' | 'unparsed_structures'>,
+  yamlSource?: string,
 ): LocalFactItem {
   const objectUid = projected.fact_object?.object_uid
   return {
@@ -308,6 +315,7 @@ function readable(
       : {}),
     read_status: 'readable',
     source_content_fingerprint: sourceContentFingerprint,
+    ...(yamlSource !== undefined ? { yaml_source: yamlSource } : {}),
     ...projected,
     issues: [],
   }
@@ -332,6 +340,7 @@ async function readItemFile(scope: LocalFactScope, type: LocalFactType, fileName
       metadata,
       sourceContentFingerprint,
       projectFields(type, objectId, parsed.metadata, { report_body: parsed.body }),
+      parsed.frontmatterSource,
     )
   }
   let parsed: unknown
@@ -343,7 +352,8 @@ async function readItemFile(scope: LocalFactScope, type: LocalFactType, fileName
   if (!isRecord(parsed)) {
     return unreadable(metadata, [{ code: 'yaml_parse_failed', message: 'YAML 顶层不是键值映射' }])
   }
-  return readable(metadata, sourceContentFingerprint, projectFields(type, objectId, parsed, {}))
+  // yaml 载体整个文件即 YAML：yaml_source 为全文逐字原文。
+  return readable(metadata, sourceContentFingerprint, projectFields(type, objectId, parsed, {}), content)
 }
 
 function directoryStatus(scope: LocalFactScope, type: LocalFactType): LocalFactList | null {

@@ -35,6 +35,9 @@ const EXACT_READ_METADATA_FIELDS = new Set([
   // 视图只呈现机器索引层（frontmatter），正文由分节阅读布局与阅读面板承载；
   // 不排除会把整篇正文伪装成一个 YAML 字段并造成双重呈现。
   'report_body',
+  // yaml_source 是文件中 YAML 部分的逐字原文（读取层透传），YAML 源视图直接
+  // 直显它本身；仅当它缺席时 reconstruction 才兜底，且不得把它当事实字段重建。
+  'yaml_source',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {

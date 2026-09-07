@@ -636,6 +636,8 @@ export async function showObject(id: string, scope?: LocalFactScope): Promise<We
       canonical_path: item.canonical_path,
       carrier: item.carrier,
       read_status: item.read_status,
+      // YAML 源视图直显用：文件中 YAML 部分的逐字原文（有什么就显示什么）。
+      ...(typeof item.yaml_source === 'string' ? { yaml_source: item.yaml_source } : {}),
       field_issues: item.field_issues,
       unparsed_structures: item.unparsed_structures,
       read_issues: item.issues,
