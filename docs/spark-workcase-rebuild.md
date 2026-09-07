@@ -259,7 +259,7 @@ AI 侧：漂移→Gate 1 引用链（WC↔Initiative↔goal 对不上即暴露�
 
 1. 「项目」是管辖系统保留词——任何新类型不得含 project/项目；
 2. 「工作包」已被 02 §3.1 用于 WC 级收口模式——PMBOK 的 work package 不再可用；
-3. 「目标/Goal」已由 25 号占用（项目级单例）；OKR 家族的 Objective/KR 语感与其相邻，下层目标家族词只到 Initiative；
+3. 「目标/Goal」已由 25 号占用（项目级单例）；OKR 家族的 Objective/KR 语感与其相邻，下层目标家族词只到 Initiative；**注**：`sub-goal`（SG-x）是 25 号 goal 对象**内部的字段名**与锚点编号，**不是独立类型、不占类型命名空间**——2026-09-09 由原「G-SC（成功标准锚点）」改名而来（Human 裁定：sub-goal 更直观；语义=「要达成什么」的目标维度，与 Initiative「做什么」的工作维度一眼可分）；
 4. Charter 已裁定归规范源（项目级 spec），事实源不得复用。
 
 ### 5.10 goal.md 落地设计（Human 2026-09-08 裁定 12，25 号规范正文素材）
