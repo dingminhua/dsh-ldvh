@@ -1433,6 +1433,12 @@ export function ResearchReadingLayout({
   return (
     <div className="mb-6 flex flex-col gap-5">
       <ResearchStoppingMetaRow obj={obj} locale={locale} />
+      {/* 24 §12 消费边界：retired 对象不作为当前证据输入，显式提示避免被当作当前结论引用。 */}
+      {obj.status === 'retired' && (
+        <p className="ldvh-caption rounded-md border border-zinc-400/25 border-l-2 border-l-zinc-400 bg-zinc-500/5 px-3.5 py-2.5 text-zinc-600/80 dark:text-zinc-300/80">
+          {t('objectDetail.researchBody.retiredNotice')}
+        </p>
+      )}
       {questionBody && (
         <ResearchBodyNode title={t('objectDetail.researchBody.question')}>
           <StudyTextNodeContent value={questionBody} />

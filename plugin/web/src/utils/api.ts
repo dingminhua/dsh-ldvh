@@ -138,6 +138,9 @@ export interface ObjectItem {
   mainWorktreeDiffers?: boolean;
   research_intent?: string;
   research_question?: string;
+  /** v5 Research F1 投影字段（24 §12）：卡片只投影 research_question/research_purpose/stopping_reason。 */
+  research_purpose?: string;
+  stopping_reason?: string;
   abstract?: string;
   recommendation_summary?: string;
   summary?: string;

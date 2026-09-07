@@ -1609,13 +1609,32 @@ function StudyTerminalCardContent({ obj }: { obj: ObjectItem }) {
 export function StudyCardContent({ obj }: { obj: ObjectItem }) {
   const { locale } = useI18n();
   if (obj.status === 'retired') return <StudyTerminalCardContent obj={obj} />;
-  // v5 F1 卡片投影（24 §12）：research_question 作摘要行，不投影三态内容、发现单元或子阶段。
+  // v5 F1 卡片投影（24 §12）：只投影最小权威字段——research_question / research_purpose /
+  // stopping_reason；不投影三态内容、发现单元或子阶段，不在卡片层解释结论当前性。
   const question = obj.research_question?.trim();
-  if (!question) return null;
+  const purpose = obj.research_purpose?.trim();
+  const stoppingReason = typeof obj.stopping_reason === 'string' ? obj.stopping_reason : null;
+  if (!question && !purpose && !stoppingReason) return null;
   return (
     <section className="min-w-0 rounded-md border border-ldvh-border/50 bg-ldvh-bg/40 px-3 py-2.5">
-      <h3 className="ldvh-caption-strong text-ldvh-text-secondary">{getFieldLabel('research_question', locale)}</h3>
-      <p className="ldvh-caption mt-1 break-words text-ldvh-text-primary/85">{question}</p>
+      {question && (
+        <>
+          <h3 className="ldvh-caption-strong text-ldvh-text-secondary">{getFieldLabel('research_question', locale)}</h3>
+          <p className="ldvh-caption mt-1 break-words text-ldvh-text-primary/85">{question}</p>
+        </>
+      )}
+      {purpose && (
+        <p className="ldvh-caption mt-1.5 break-words text-ldvh-text-secondary">
+          <span className="text-ldvh-text-secondary/80">{getFieldLabel('research_purpose', locale)}：</span>
+          {purpose}
+        </p>
+      )}
+      {stoppingReason && (
+        <p className="ldvh-caption mt-1 text-ldvh-text-secondary">
+          <span className="text-ldvh-text-secondary/80">{getFieldLabel('stopping_reason', locale)}：</span>
+          {getFieldValueLabel('stopping_reason', stoppingReason, locale)}
+        </p>
+      )}
     </section>
   );
 }
