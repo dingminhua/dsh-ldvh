@@ -380,7 +380,8 @@ function getLatestChangeLogAt(changeLog: unknown): string | undefined {
 /**
  * 将事实对象自身的流水转为近期动态。流水只约定 `at`，没有独立动作字段；
  * 因此第一条有效记录表示受控创建，之后的记录表示受控更新。没有可读流水的
- * 旧事实才使用 created_at / updated_at 作为兼容回退，绝不从 Git 提交反推事件。
+ * 旧事实才使用 created_at 作为兼容回退（不读 updated_at——03 第 6.1 节不保留
+ * 该公共字段），绝不从 Git 提交反推事件。
  */
 export function buildFactActivityItems(
   raw: Record<string, unknown>,
@@ -492,6 +493,7 @@ function compareSilentSpark(a: SparkHealthBuildItem, b: SparkHealthBuildItem): n
   if (a.silent_days !== b.silent_days) return b.silent_days - a.silent_days
   const priorityDifference = priorityRank(a.priority) - priorityRank(b.priority)
   if (priorityDifference !== 0) return priorityDifference
+  // updated_at 为内部结构字段，已由 change_log 末条 at 填充。
   const timeDelta = compareTimestamps(b.updated_at, a.updated_at)
   if (timeDelta !== 0) return timeDelta
   return a.object_id.localeCompare(b.object_id)
