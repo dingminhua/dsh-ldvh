@@ -177,11 +177,36 @@ export function createWebApiProcess(options) {
     command = { exec: process.execPath, argv: ["--import", "tsx", "api/server.ts"] },
     readinessPath = "/api/health",
     readinessTimeoutMs = 30_000,
+    watchSource = true,
   } = options ?? {};
   let spawned = null;
   let exited = true;
   let starting = null;
   let disposed = false;
+  // 源码热刷新：监听 api/ 目录（子进程跑的是 link: 仓库的实时文件——源码更新后
+  // 长驻子进程仍是旧码，须杀掉让下次请求重拉）。1s 去抖避免构建期连杀。
+  let watchTimer = null;
+  let watcher = null;
+  if (watchSource) {
+    import("node:fs").then((fs) => {
+      watcher = fs.watch(join(webRoot, "api"), { recursive: true }, () => {
+        if (disposed) return;
+        if (watchTimer !== null) clearTimeout(watchTimer);
+        watchTimer = setTimeout(() => {
+          watchTimer = null;
+          if (!disposed && spawned !== null && !exited) {
+            if (logger) logger.info("[dsh-ldvh web-api] source change detected, recycling child for next request");
+            try { spawned.kill("SIGTERM"); } catch { /* best effort */ }
+            setTimeout(() => { try { spawned.kill("SIGKILL"); } catch { /* best effort */ } }, 3000).unref?.();
+          }
+        }, 1000);
+      });
+      watcher.on("error", () => { /* watch 不可用时静默退化为手动重启 */ });
+      // unref：watcher 不阻止进程退出——宿主进程常驻不受影响，而测试进程
+      // （apply 全链拉起管理器但不 dispose 的场景）不会被泄漏的 watcher 挂死。
+      watcher.unref?.();
+    }).catch(() => { /* fs 不可用（理论不可达） */ });
+  }
 
   async function pollReadiness() {
     const deadline = Date.now() + readinessTimeoutMs;
@@ -245,6 +270,7 @@ export function createWebApiProcess(options) {
     },
     dispose() {
       disposed = true;
+      try { watcher?.close(); } catch { /* already closed */ }
       if (spawned !== null && !exited) {
         const proc = spawned;
         try { proc.kill("SIGTERM"); } catch { /* best effort */ }
