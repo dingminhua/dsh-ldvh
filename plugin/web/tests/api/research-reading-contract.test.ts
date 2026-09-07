@@ -77,15 +77,19 @@ test('Research finding units render as structured cards with provenance anchor l
   assert.match(detail, /<FactAssociationsSection obj=\{obj\} locale=\{locale\} \/>\s*\n\s*<RelatedContentSection entries=\{relatedEntries\} locale=\{locale\} \/>\s*\n\s*<ChangeLogReadingNode/);
 });
 
-test('Research markdown carrier keeps YAML source node and research-report panel variant', () => {
+test('Research markdown carrier drops the YAML source node; research-report panel variant stays', () => {
   const panel = source('src/components/reading-panel/PanelContent.tsx');
   const panelContext = source('src/utils/panelContext.tsx');
   const detail = source('src/pages/ObjectDetail.tsx');
   const reference = source('src/components/ReferenceCard.tsx');
   const associations = source('src/pages/object-detail/FactAssociationsSection.tsx');
 
-  // carrier=markdown 的对象仍提供 YAML 源折叠查看（frontmatter 机器索引对读者透明的兜底）。
-  assert.match(detail, /\(carrier === 'yaml' \|\| objType === 'research'\) && \(/);
+  // Human 2026-09-09 定：research 的阅读布局已解释性呈现全部 frontmatter 字段
+  // （机器索引对人冗余，且原文直显后折叠预览被字母序的 confirmed_statements 噪音占据），
+  // web 不再为 research 渲染 YAML 源节点；问题发现由 field_issues/unparsed_structures
+  // 两节承担，原文审计归 Git。YAML 源节点仅保留给 yaml 载体对象（v4 归档）。
+  assert.match(detail, /carrier === 'yaml' && \(/);
+  assert.doesNotMatch(detail, /objType === 'research'\) && \(/);
   assert.match(detail, /<YamlDataNode/);
   assert.match(panel, /carrier === 'markdown'/);
   assert.match(panel, /ldvh-research-report-preview/);
