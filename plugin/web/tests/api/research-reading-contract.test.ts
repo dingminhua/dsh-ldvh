@@ -77,20 +77,23 @@ test('Research finding units render as structured cards with provenance anchor l
   assert.match(detail, /<FactAssociationsSection obj=\{obj\} locale=\{locale\} \/>\s*\n\s*<RelatedContentSection entries=\{relatedEntries\} locale=\{locale\} \/>\s*\n\s*<ChangeLogReadingNode/);
 });
 
-test('Research markdown carrier drops the YAML source node; research-report panel variant stays', () => {
+test('Research keeps the YAML source node with display-time canonical ordering; research-report panel variant stays', () => {
   const panel = source('src/components/reading-panel/PanelContent.tsx');
   const panelContext = source('src/utils/panelContext.tsx');
   const detail = source('src/pages/ObjectDetail.tsx');
+  const factReadMeta = source('src/utils/factReadMeta.ts');
   const reference = source('src/components/ReferenceCard.tsx');
   const associations = source('src/pages/object-detail/FactAssociationsSection.tsx');
 
-  // Human 2026-09-09 定：research 的阅读布局已解释性呈现全部 frontmatter 字段
-  // （机器索引对人冗余，且原文直显后折叠预览被字母序的 confirmed_statements 噪音占据），
-  // web 不再为 research 渲染 YAML 源节点；问题发现由 field_issues/unparsed_structures
-  // 两节承担，原文审计归 Git。YAML 源节点仅保留给 yaml 载体对象（v4 归档）。
-  assert.match(detail, /carrier === 'yaml' && \(/);
-  assert.doesNotMatch(detail, /objType === 'research'\) && \(/);
+  // Human 2026-09-09 修正后定案：research 保留 YAML 源节点，展示时按 24 §7
+  // 规范阅读序排序（Human 原话：不强制书写顺序，展示的时候排序就可以了）。
+  // 内容保真：以 yaml_source 原文解析的真实字段为界——不注入（无 object_id）、
+  // 不过滤（未知字段跟在阅读序之后），只重排键序。
+  assert.match(detail, /\(carrier === 'yaml' \|\| objType === 'research'\) && \(/);
   assert.match(detail, /<YamlDataNode/);
+  assert.match(detail, /sortedResearchFrontmatterYaml/);
+  assert.match(factReadMeta, /RESEARCH_FRONTMATTER_DISPLAY_ORDER/);
+  assert.match(factReadMeta, /'title', 'status',\s*\n\s*'research_question', 'research_purpose', 'stopping_reason',/);
   assert.match(panel, /carrier === 'markdown'/);
   assert.match(panel, /ldvh-research-report-preview/);
   assert.match(panelContext, /docVariant\?: 'research-report'/);

@@ -33,7 +33,7 @@ import { formatDateTime } from '@/utils/dateFormat';
 import { getSignalClassName, getSignalText, isSignalField } from '@/utils/objectSignals';
 import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
-import { getFactReadMeta, isReadableFact, reconstructFactYaml, type FactCarrier, type FactReadMeta } from '@/utils/factReadMeta';
+import { getFactReadMeta, isReadableFact, reconstructFactYaml, sortedResearchFrontmatterYaml, type FactCarrier, type FactReadMeta } from '@/utils/factReadMeta';
 import { isResolvedWorkCasePresentationProjection } from '@/shared/workcaseStatus';
 import { WorkCaseReadingLayout } from '@/pages/object-detail/WorkCaseReadingLayout';
 import { AdrReadingLayout, ChangeLogReadingNode, PitfallReadingLayout, PitfallTextNodeContent, SparkReadingLayout } from '@/pages/object-detail/FactReadingLayouts';
@@ -314,16 +314,14 @@ export function FactReadingContent({
       <FieldIssuesSection value={obj.field_issues} />
       <UnparsedStructuresSection value={obj.unparsed_structures} />
 
-      {/* YAML 源节点仅保留给 yaml 载体对象（v4 归档）。research（markdown 载体）
-          的阅读布局已解释性呈现全部 frontmatter 字段，机器索引原文对人冗余——
-          Human 2026-09-09 定：web 不重复显示机器索引；问题发现由
-          FieldIssues/UnparsedStructures 两节承担，原文审计归 Git。 */}
-      {carrier === 'yaml' && (
+      {/* YAML 源节点（Human 2026-09-09 修正后定案）：research 展示时按 24 §7
+          规范阅读序排序（内容保真——以原文解析的真实字段为界，不注入不过滤）；
+          yaml 载体（v4 归档）原文直显（无 research 序，文件即事实）。 */}
+      {(carrier === 'yaml' || objType === 'research') && (
         <YamlDataNode
-          // 有什么就显示什么：直显文件中 YAML 部分的逐字原文（yaml_source），
-          // 保留原始顺序、注释与引号风格，未知字段不被过滤、注入字段不被添加。
-          // reconstruction 仅作 yaml_source 缺席的兜底。
-          yamlSource={typeof obj.yaml_source === 'string' ? obj.yaml_source : reconstructFactYaml(obj)}
+          yamlSource={objType === 'research'
+            ? sortedResearchFrontmatterYaml(obj.yaml_source) ?? reconstructFactYaml(obj)
+            : typeof obj.yaml_source === 'string' ? obj.yaml_source : reconstructFactYaml(obj)}
           title={t('objectDetail.yamlSource')}
         />
       )}
