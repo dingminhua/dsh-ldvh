@@ -275,11 +275,13 @@ function projectFields(type: LocalFactType, objectId: string, parsed: Record<str
   if (typeof all.fact_type_key === 'string' && all.fact_type_key !== type) {
     fieldIssues.push({ path: 'fact_type_key', reason: 'identity_mismatch', expected: type, raw_value: all.fact_type_key })
   }
-  if (all.object_uid !== undefined && (typeof all.object_uid !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(all.object_uid))) {
+  // 03 §6.1：object_uid 为 canonical UUIDv4（版本位 4）。时间语义由 created_at 与
+  // change_log[].at 承担，不由身份字段编码——不校验时间戳有序形态（UUIDv7）。
+  if (all.object_uid !== undefined && (typeof all.object_uid !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(all.object_uid))) {
     fieldIssues.push({
       path: 'object_uid',
       reason: 'identity_mismatch',
-      expected: 'canonical lowercase UUIDv7',
+      expected: 'canonical lowercase UUIDv4',
       raw_value: all.object_uid,
     })
   }

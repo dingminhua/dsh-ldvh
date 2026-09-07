@@ -128,11 +128,12 @@ test('identity and required-field problems remain readable field-level results',
     assert.equal(readable.data.fact_read_failure, undefined);
     assert.equal(readable.data.status, 'active');
     const issues = readable.data.field_issues as Array<Record<string, unknown>>;
+    // 03 §6.1 明文不保留公共 updated_at（变更时间由 change_log[].at 承担），
+    // 故它不再属必填、不出现在缺失清单中。
     assert.deepEqual(issues.map((issue) => [issue.path, issue.reason]).sort(), [
       ['created_at', 'missing'],
       ['object_id', 'identity_mismatch'],
       ['research_purpose', 'missing'], ['research_question', 'missing'], ['title', 'missing'],
-      ['updated_at', 'missing'],
     ]);
 
     const missing = await showObject('research-9999', scope);
