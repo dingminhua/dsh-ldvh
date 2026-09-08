@@ -23,7 +23,7 @@ const GOAL_TINT = 'rgb(20 184 166)';
 
 export default function FocusV2() {
   const { t } = useI18n();
-  const [goal, setGoal] = useState<{ title: string; status: string; sub_goals: { id: string; text: string }[]; plan_items: { text: string; serves: string | null }[] } | null>(null);
+  const [goal, setGoal] = useState<{ title: string; status: string; statement: string; sub_goals: { id: string; text: string }[]; plan_items: { text: string; serves: string | null }[] } | null>(null);
   const [goalMissing, setGoalMissing] = useState(false);
   const [goalError, setGoalError] = useState<string | null>(null);
 
@@ -81,6 +81,7 @@ export default function FocusV2() {
               </span>
             )}
           </div>
+          {goal?.statement && <p className="mt-2 text-sm leading-relaxed text-ldvh-text-secondary">{goal.statement}</p>}
           {goalMissing && <p className="mt-1 text-xs text-ldvh-text-secondary">{t('focusV2.goalMissing')}</p>}
           {goalError && <p className="mt-1 text-xs text-red-400">{goalError}</p>}
           <div className="mt-2 flex flex-wrap gap-2">

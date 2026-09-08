@@ -749,6 +749,7 @@ export interface CognitionGoalData {
     goal_key: string;
     title: string;
     status: string;
+    statement: string;
     sub_goals: { id: string; text: string }[];
     plan_items: { text: string; serves: string | null }[];
   };

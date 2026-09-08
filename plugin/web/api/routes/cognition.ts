@@ -1100,6 +1100,15 @@ router.get('/goal', async (req: Request, res: Response): Promise<void> => {
       return
     }
 
+    // 目标陈述解析：「## 目标陈述」H2 下的段落（到下一个 H2 为止，去首尾空白）。
+    let statement = ''
+    const stmtMatch = /^##\s*目标陈述\s*$/m.exec(body)
+    if (stmtMatch) {
+      const stmtSection = body.slice(stmtMatch.index + stmtMatch[0].length)
+      const nextH2 = /^##\s/m.exec(stmtSection)
+      statement = (nextH2 ? stmtSection.slice(0, nextH2.index) : stmtSection).trim()
+    }
+
     // 子目标解析：正文里 `SG-n …` 行（目标陈述段与子目标段都按原文抽取，避免臆造进度）。
     const subGoals: GoalSubGoal[] = []
     const sgRe = /^\s*(SG-\d+)[:：]?\s+(.+)$/
@@ -1137,6 +1146,7 @@ router.get('/goal', async (req: Request, res: Response): Promise<void> => {
         goal_key: typeof meta.goal_key === 'string' ? meta.goal_key : 'project-goal',
         title: typeof meta.title === 'string' ? meta.title : '',
         status: typeof meta.status === 'string' ? meta.status : 'active',
+        statement,
         sub_goals: subGoals,
         plan_items: planItems,
       },
