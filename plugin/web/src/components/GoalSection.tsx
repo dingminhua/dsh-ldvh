@@ -10,9 +10,9 @@
  */
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { ChevronDown, ChevronUp, Target } from 'lucide-react';
-import CopyPathButton from '@/components/CopyPathButton';
 import { fetchCognitionGoal, ApiRequestError } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
+import { copyText } from '@/utils/clipboard';
 
 /** 区头键盘可达的展开/收起（与原聚焦页 CognitionCenter 区头一致的交互）。 */
 function toggleOnKeyboard(event: KeyboardEvent<HTMLDivElement>, toggle: () => void) {
@@ -27,6 +27,13 @@ export default function GoalSection() {
   const [goalMissing, setGoalMissing] = useState(false);
   const [goalError, setGoalError] = useState<string | null>(null);
   const [goalExpanded, setGoalExpanded] = useState(true);
+  const [copied, setCopied] = useState<'adjust' | 'create' | null>(null);
+
+  async function handleCopy(text: string, kind: 'adjust' | 'create') {
+    await copyText(text);
+    setCopied(kind);
+    window.setTimeout(() => setCopied((current) => (current === kind ? null : current)), 1500);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -62,18 +69,17 @@ export default function GoalSection() {
         <h3 className="ldvh-section-title min-w-0">{t('focusV2.goalTitle')}</h3>
         <span className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
           {goal && (
-            <span
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => event.stopPropagation()}
-              role="presentation"
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleCopy(t('focusV2.promptAdjustGoal'), 'adjust');
+              }}
+              className="shrink-0 text-[11px] font-normal text-ldvh-text-secondary/55 transition-colors hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
+              title={t('focusV2.promptAdjustGoal')}
             >
-              <CopyPathButton
-                path={t('focusV2.promptAdjustGoal')}
-                label={t('focusV2.btnAdjustGoal')}
-                copiedLabel={t('focusV2.btnCopied')}
-                size="md"
-              />
-            </span>
+              {copied === 'adjust' ? t('focusV2.btnCopied') : t('focusV2.hintAdjustGoal')}
+            </button>
           )}
         </span>
       </div>
@@ -88,17 +94,17 @@ export default function GoalSection() {
               </span>
             </div>
             {goalMissing && (
-              <div className="mt-2">
-                <p className="ldvh-caption min-w-0 text-ldvh-text-secondary/70">{t('focusV2.goalEmptyHint')}</p>
-                <div className="mt-2">
-                  <CopyPathButton
-                    path={t('focusV2.promptSetGoal')}
-                    label={t('focusV2.btnSetGoal')}
-                    copiedLabel={t('focusV2.btnCopied')}
-                    size="md"
-                  />
-                </div>
-              </div>
+              <button
+                type="button"
+                onClick={() => void handleCopy(t('focusV2.promptSetGoal'), 'create')}
+                className="mt-2 block w-full rounded-md text-left transition-colors hover:bg-ldvh-bg/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
+                title={t('focusV2.promptSetGoal')}
+              >
+                <span className="ldvh-caption block text-ldvh-text-secondary/80">{t('focusV2.hintCreateGoal')}</span>
+                <span className="mt-0.5 block text-[11px] text-ldvh-text-secondary/50">
+                  {copied === 'create' ? t('focusV2.btnCopied') : t('focusV2.hintCreateExample')}
+                </span>
+              </button>
             )}
             {goalError && <p className="mt-1 text-xs text-red-400">{goalError}</p>}
             {goal?.statement && (
