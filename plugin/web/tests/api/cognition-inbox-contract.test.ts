@@ -592,6 +592,43 @@ test('recent activity accepts current change-log signatures and ignores legacy f
   assert.deepEqual(view.environmentUsage, [{ value: 'Cindy', count: 1 }])
 })
 
+test('recent activity reads the v5 flat provider/model change_log shape with Date instances (specs/03 §6.1, 09)', async () => {
+  const { buildFactActivityItems, buildRecentActivityView, buildSparkHealth } = await import('../../api/routes/cognition.ts')
+  // v5 writer 写出的扁平流水（specs/09 provider/model 权威对）；YAML 未加引号的
+  // at 在进程内是 Date 实例（js-yaml），无公共 updated_at（03 §6.1）。
+  const raw = {
+    object_id: 'research-0001', title: 'Flat attribution', status: 'active',
+    change_log: [
+      { at: new Date('2026-09-06T07:48:23.255Z'), provider: 'zzztoken-glm', model: 'glm-5.3', summary: '受控创建' },
+      { at: new Date('2026-09-07T18:53:00.235Z'), provider: 'zzztoken-glm', model: 'glm-5.3', summary: '更新' },
+    ],
+  }
+  const builds = buildFactActivityItems(raw, 'research', Date.parse('2026-09-06T00:00:00Z'), Date.parse('2026-09-08T00:00:00Z'))
+  assert.deepEqual(builds.map((build) => `${build.activity}:${build.occurred_at}`), [
+    'created:2026-09-06T07:48:23.255Z',
+    'updated:2026-09-07T18:53:00.235Z',
+  ])
+  // 区分键形态：provider/model 原词携键（供应商 id 逐字呈现，Human 2026-09-10 定案）。
+  assert.deepEqual(builds[builds.length - 1]?.signature, { provider: 'zzztoken-glm', model: 'glm-5.3' })
+
+  // 用量聚合：供应商维度逐字计数（不首字母大写）。
+  const view = buildRecentActivityView(builds)
+  assert.deepEqual(view.modelUsage, [{ value: 'glm-5.3', count: 2 }])
+  assert.deepEqual(view.environmentUsage, [{ value: 'zzztoken-glm', count: 2 }])
+
+  // Spark 健康度同样读 v5 扁平署名与 Date 形态的 at。
+  const health = buildSparkHealth([{
+    object_id: 'spark-0009', title: 'Flat spark', status: 'open',
+    change_log: [
+      { at: new Date('2026-09-06T07:48:23.255Z'), provider: 'zzztoken-glm', model: 'glm-5.3', summary: '受控创建' },
+    ],
+  }], Date.parse('2026-09-08T00:00:00Z'))
+  const openItem = health.openItems[0]
+  assert.equal(openItem?.updated_at, '2026-09-06T07:48:23.255Z')
+  assert.equal(openItem?.activity_count, 1)
+  assert.deepEqual(openItem?.signature, { provider: 'zzztoken-glm', model: 'glm-5.3' })
+})
+
 test('recent activity retains a current partial signature without inventing a model name', async () => {
   const { buildFactActivityItems, buildRecentActivityView } = await import('../../api/routes/cognition.ts')
   const raw = {

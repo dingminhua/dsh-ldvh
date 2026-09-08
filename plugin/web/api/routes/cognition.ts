@@ -23,6 +23,14 @@ import {
   type WorkCaseProgressGroup,
   type WorkCaseProgressStep,
 } from '../../shared/workcaseStatus.js'
+import {
+  countChangeLogEntries,
+  getLatestChangeLogAt,
+  getLatestChangeLogSignature,
+  readChangeLogEntrySignature,
+  toChangeLogAtText,
+  type ChangeLogSignature,
+} from '../../shared/factChangeLog.js'
 import { normalizeSignature } from '../../shared/signature.js'
 import { ProjectScopeError, requestProject } from '../services/requestScope.js'
 import { compareTimestamps, getRelativeTime, parseTimestamp } from '../services/time.js'
@@ -122,8 +130,6 @@ interface RecentActivityBuildItem {
   status?: string
   progress_group?: WorkCaseProgressGroup
   priority?: string
-  /** v5 起 Research 不再投影 v4 report_kind；改用 research_question 作卡片摘要（24 §12）。 */
-  research_question?: string
   read_status: string
   field_issues: Array<Record<string, unknown>>
   unparsed_structures: Array<Record<string, unknown>>
@@ -157,11 +163,8 @@ interface SparkHealthBuildItem {
   unparsed_structures: Array<Record<string, unknown>>
 }
 
-/** 面向 Web 的当前两字段事实流水署名；历史字段只读兼容但不投影。 */
-interface FactChangeSignature {
-  productName?: string
-  modelName?: string
-}
+/** 面向 Web 的当前两字段事实流水署名；历史字段只读兼容但不投影。单一实现在 shared/factChangeLog。 */
+type FactChangeSignature = ChangeLogSignature
 
 export interface RecentHotspotBuildItem {
   type: ObjectType
@@ -314,68 +317,13 @@ function buildRecentActivityItem(
     ...(signature ? { signature } : {}),
     ...(type === 'workcase' ? { progress_group: progressGroup } : { status }),
     ...(priorityRank(raw.priority) < 4 && typeof raw.priority === 'string' ? { priority: raw.priority } : {}),
-    // v5 Research F1 投影（24 §12）：research_question 作卡片摘要，不再投影 v4 report_kind。
-    ...(type === 'research' && typeof raw.research_question === 'string' && raw.research_question.trim().length > 0
-      ? { research_question: raw.research_question }
-      : {}),
     read_status: String(raw.read_status ?? 'unknown'),
     field_issues: Array.isArray(raw.field_issues) ? raw.field_issues as Array<Record<string, unknown>> : [],
     unparsed_structures: Array.isArray(raw.unparsed_structures) ? raw.unparsed_structures as Array<Record<string, unknown>> : [],
   }
 }
 
-function readFactChangeSignature(value: unknown): FactChangeSignature | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-  const record = value as Record<string, unknown>
-  const { productName, modelName } = normalizeSignature({
-    productName: record.product_name,
-    modelName: record.model_name,
-  })
-  return productName || modelName
-    ? {
-      ...(productName ? { productName } : {}),
-      ...(modelName ? { modelName } : {}),
-    }
-    : undefined
-}
 
-/** 与 ObjectUpdatedMeta 同源：倒序取最新一条完整事实流水署名，不以对象头字段补造。 */
-function getLatestFactChangeSignature(changeLog: unknown): FactChangeSignature | undefined {
-  if (!Array.isArray(changeLog)) return undefined
-  for (let index = changeLog.length - 1; index >= 0; index -= 1) {
-    const entry = changeLog[index]
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
-    const signature = readFactChangeSignature((entry as Record<string, unknown>).signature)
-    if (signature) return signature
-  }
-  return undefined
-}
-
-/** 只统计带有效发生时刻的对象修改流水；未解析成员不作为修改数。 */
-function getFactChangeLogCount(changeLog: unknown): number {
-  if (!Array.isArray(changeLog)) return 0
-  return changeLog.filter((entry) => {
-    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return false
-    const at = (entry as Record<string, unknown>).at
-    return typeof at === 'string' && Number.isFinite(parseTimestamp(at))
-  }).length
-}
-
-/**
- * 最近更新时间：03 §6.1 不保留公共 updated_at，变更时间由 change_log 承载，
- * 故取末条有效流水的 at 作为权威最近更新时刻；无有效流水时返回 undefined
- * （调用方按缺失处理，不回退到 created_at 或 Git 提交时间）。
- */
-function getLatestChangeLogAt(changeLog: unknown): string | undefined {
-  if (!Array.isArray(changeLog)) return undefined
-  for (let index = changeLog.length - 1; index >= 0; index -= 1) {
-    const entry = changeLog[index]
-    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) continue
-    const at = (entry as Record<string, unknown>).at
-    if (typeof at === 'string' && at.trim().length > 0 && Number.isFinite(parseTimestamp(at))) return at
-  }
-  return undefined
-}
 
 /**
  * 将事实对象自身的流水转为近期动态。流水只约定 `at`，没有独立动作字段；
@@ -394,9 +342,11 @@ export function buildFactActivityItems(
   for (let index = 0; index < changeLog.length; index += 1) {
     const entry = changeLog[index]
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
-    const at = (entry as Record<string, unknown>).at
-    if (timestampInWindow(at, start, end)) {
-      logged.push({ occurredAt: at, index, signature: readFactChangeSignature((entry as Record<string, unknown>).signature) })
+    // YAML 未加引号的时间戳在进程内是 Date 实例——先归一为文本再判窗口；
+    // 署名读取 v5 扁平 provider/model 与 v4 嵌套 signature 两种形态。
+    const at = toChangeLogAtText((entry as Record<string, unknown>).at)
+    if (at !== undefined && timestampInWindow(at, start, end)) {
+      logged.push({ occurredAt: at, index, signature: readChangeLogEntrySignature(entry) })
     }
   }
   if (logged.length > 0) {
@@ -459,8 +409,9 @@ export function buildRecentActivityView(builds: RecentActivityBuildItem[]): {
       }
     }
     if (build.signature) {
-      const { modelName: model } = normalizeSignature(build.signature)
-      const environment = formatAttributionEnvironment(build.signature.productName)
+      // 单次归一取两个维度：v5 provider 逐字（供应商 id 不美化），
+      // v4 product_name 走既有归一（'cindy'→'Cindy' 等契约行为保持）。
+      const { modelName: model, productName: environment } = normalizeSignature(build.signature)
       if (model) models.set(model, (models.get(model) ?? 0) + 1)
       if (environment) environments.set(environment, (environments.get(environment) ?? 0) + 1)
     }
@@ -474,12 +425,6 @@ export function buildRecentActivityView(builds: RecentActivityBuildItem[]): {
     modelUsage: [...models.entries()].map(([value, count]) => ({ value, count })).sort(compareUsage),
     environmentUsage: [...environments.entries()].map(([value, count]) => ({ value, count })).sort(compareUsage),
   }
-}
-
-/** One responsibility environment: product name (agent_runtime_name retired). */
-function formatAttributionEnvironment(productName?: string): string | undefined {
-  const { productName: normalizedProductName } = normalizeSignature({ productName })
-  return normalizedProductName || undefined
 }
 
 function silentDays(updatedAt: unknown, observedAt: number): number | null {
@@ -524,7 +469,7 @@ export function buildSparkHealth(rawItems: Array<Record<string, unknown>>, obser
     const updatedAt = getLatestChangeLogAt(raw.change_log) ?? ''
     const days = silentDays(updatedAt, observedAt)
     if (days === null) continue
-    const signature = getLatestFactChangeSignature(raw.change_log)
+    const signature = getLatestChangeLogSignature(raw.change_log)
     const item: SparkHealthBuildItem = {
       object_id: String(raw.object_id ?? ''),
       ...(typeof raw.object_uid === 'string' ? { object_uid: raw.object_uid } : {}),
@@ -534,7 +479,7 @@ export function buildSparkHealth(rawItems: Array<Record<string, unknown>>, obser
       ...(priority ? { priority } : {}),
       updated_at: updatedAt,
       ...(signature ? { signature } : {}),
-      activity_count: getFactChangeLogCount(raw.change_log),
+      activity_count: countChangeLogEntries(raw.change_log),
       silent_days: days,
       read_status: String(raw.read_status ?? 'unknown'),
       field_issues: Array.isArray(raw.field_issues) ? raw.field_issues as Array<Record<string, unknown>> : [],
@@ -1022,7 +967,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       relativeTime: getRelativeTime(build.occurred_at, locale),
       typeColor: getTypeColor(build.type),
       ...(build.priority !== undefined ? { priority: build.priority } : {}),
-      ...(build.research_question !== undefined ? { research_question: build.research_question } : {}),
       ...(build.type === 'workcase' && build.progress_group !== undefined
         ? { progress_group: build.progress_group }
         : build.type !== 'workcase' && build.status !== undefined ? { status: build.status } : {}),

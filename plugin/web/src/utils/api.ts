@@ -609,14 +609,12 @@ export interface CognitionRecentActivityItem {
   /** WorkCase 只携带派生 progress_group；其它对象携带自身当前状态。 */
   progress_group?: WorkCaseProgressGroup;
   status?: string;
-  /** v5 Research 卡片摘要（24 §12 F1 投影）；v4 report_kind 已下线。 */
-  research_question?: string;
   read_status: string;
   field_issues?: FieldIssue[];
   unparsed_structures?: UnparsedStructure[];
 }
 
-/** 近期事实流水的完整署名维度用量；只按 change_log[].signature 计数。 */
+/** 近期事实流水的完整署名维度用量；按 change_log 流水署名计数（v5 扁平 provider/model 或 v4 嵌套 signature）。 */
 export interface CognitionRecentActivityAttributionUsage {
   value: string;
   count: number;
@@ -800,6 +798,10 @@ export type GitPushStatus = 'pushed' | 'unpushed' | 'incoming' | 'unknown';
 export interface CommitSignature {
   productName?: string;
   modelName?: string;
+  /** v5 扁平署名原词（LDVH-Provider/LDVH-Model trailer 与 change_log provider/model）——
+   *  逐字携键到显示层，经 normalizeSignature 逐字呈现（供应商 id 不美化）。 */
+  provider?: string;
+  model?: string;
 }
 
 export interface CommitDetailPanelData {

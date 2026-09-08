@@ -411,14 +411,8 @@ function RecentActivityRow({ item }: { item: CognitionRecentActivityItem }) {
         >
           {getTypeLabel(item.type, locale)}
         </span>
-        {item.type === 'research' && item.research_question && (
-          <span
-            className="ldvh-caption min-w-0 truncate text-ldvh-text-secondary"
-            title={`${getFieldLabel('research_question', locale)}: ${item.research_question}`}
-          >
-            {getFieldLabel('research_question', locale)}: {item.research_question}
-          </span>
-        )}
+        {/* Human 2026-09-10 定案：近期动态行不显示研究问题——该行是动态摘要不是
+            F1 卡（24 §12 的 research_question 卡片摘要投影归对象列表卡片承载）。 */}
         <PriorityIcon source={item} type={item.type} locale={locale} size="xs" />
         <ActivityCountBadge count={item.activityCount} label={t('cognition.recent.activityCount', { count: String(item.activityCount) })} />
         <span className="ml-auto flex shrink-0 items-center gap-1.5">

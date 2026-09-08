@@ -16,6 +16,7 @@ import {
   getSparkImplementedPresentationStatus,
   isSparkPresentationStatus,
 } from '../../shared/sparkImplementationStatus.ts'
+import { getLatestChangeLogAt } from '../../shared/factChangeLog.js'
 
 const router = Router()
 
@@ -106,8 +107,21 @@ function normalizeItem(value: unknown): ListedObject | null {
     title_zh: toStringValue(value.title_zh) || undefined,
     path: v4Object ? toStringValue(value.canonical_path) : toStringValue(value.path),
     created: v4Object ? toStringValue(value.created_at) || undefined : toStringValue(value.created) || undefined,
-    updated: v4Object ? toStringValue(value.updated_at) : toStringValue(value.updated),
+    // 03 §6.1 不保留公共 updated_at：v4 归档对象优先自身 updated_at/updated，
+    // v5 对象回退 change_log 末条流水 at（列表排序与卡片落款共用此值）。
+    updated: resolveListItemUpdated(value),
   }
+}
+
+/**
+ * 列表项的最近更新时刻：updated_at → updated → change_log 末条有效流水 at。
+ * 无任何可用时刻时返回空串（既有排序兜底按 id 比较）。
+ */
+function resolveListItemUpdated(value: Record<string, unknown>): string {
+  return toStringValue(value.updated_at)
+    || toStringValue(value.updated)
+    || getLatestChangeLogAt(value.change_log)
+    || ''
 }
 
 function getResultItems(result: unknown): ListedObject[] {

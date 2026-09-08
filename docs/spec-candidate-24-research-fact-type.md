@@ -197,6 +197,8 @@ frontmatter 是三态与引用的机器权威，任何正文（主 md 或调查�
 | `research-implications` | `implications` | array | 调研结论对管辖项目的帮助与启发：每个 confirmed 发现对 `research_purpose` 所述项目判断的支持、限制或修正 | 不表示已采纳、已决定或已授权行动 | 条件；有项目含义时出现；成员必填 `finding_ref`、`implication` |
 | `research-implications-finding-ref` | `implications[].finding_ref` | string | 所指 confirmed 发现的 statement 文本 | 不表示该发现已获 Human 确认 | 必填非空；必须逐字等于某条 `confirmed[].statement` |
 | `research-implications-implication` | `implications[].implication` | string | 该发现对项目判断的帮助或启发的一句话说明 | 不表示方案决策、选哪个的建议或行动授权 | 必填非空；只说明支持/限制/修正，不产出选型结论 |
+| `retirement-reason` | `retirement_reason` | string | 退出当前调研入口的原因语义标签 | 不表示对象删除或来源失效 | `status=retired` 时必填；闭集 `outdated`（外部资料过时/失效）/`superseded`（被新调研更新）/`out-of-scope`（调研范围不再相关）/`rejected`（本对象自始为工具端到端验证等非业务承载）；`status=active` 时禁填 |
+| `retired-at` | `retired_at` | string | 对象进入 retired 状态的精确时间戳 | 不表示创建时间或最后修改时间 | `status=retired` 时必填；ISO 8601 格式；由 Code 托管，AI 不得提供或覆盖；`status=active` 时禁填 |
 
 字段间不变量：
 
@@ -207,6 +209,7 @@ frontmatter 是三态与引用的机器权威，任何正文（主 md 或调查�
 5. 未知字段处理：frontmatter 出现本文与 03 §6.1 之外字段时，该对象不得作为 Research 消费，直到完成字段准入或修正；
 6. 载体一致性：目录成员文件闭集与子阶段一致（探索型必有调查报告 md、明确方向型禁有），frontmatter 只存在于主 md，调查报告 md 不承载字段、不得改变或弱化 frontmatter 语义；
 7. 启发锚定不变量：每条 `implications[].finding_ref` 必须逐字等于某条 `confirmed[].statement`——启发不悬空，每条项目含义都锚定到具体已证实发现。
+8. 退出完整性不变量：`status=retired` 时 frontmatter 必填 `retirement_reason`（闭集）且 `retired_at`（ISO 8601）由 Code 托管；`retirement_reason=superseded` 时 frontmatter `relations[]` 必含一条 `updates` 关系指向可解析的替代 Research；`status=active` 时 frontmatter 禁填 `retirement_reason` 与 `retired_at`；不变量违规时该对象不得作为当前 Research 消费（24 §15）。
 
 ## 9. 状态与生命周期
 
@@ -215,7 +218,7 @@ frontmatter 是三态与引用的机器权威，任何正文（主 md 或调查�
 | status | 语义 | 必须成立 |
 |---|---|---|
 | `active` | 在所述来源、观察时点、停止与限制范围内可作为当前调研入口 | 只能是新建初态；全部核心字段、三态证据、引用闭环、目录文件集与正文成立；不证明外部事实仍当前、来源真实或结论已采纳 |
-| `retired` | 不再作为当前调研入口，包括资料失效、外部对象版本变化、被新调研更新或范围不再相关 | 转换时 `change_log` 摘要必须说明退出依据，正文"停止与后续"同步说明；不要求或建立替代关系 |
+| `retired` | 不再作为当前调研入口，包括资料失效、外部对象版本变化、被新调研更新、范围不再相关或本对象自始即为工具面端到端验证等非业务承载 | 唯一转换是 `active → retired`；转换时 frontmatter 必填 `retirement_reason`（闭集 `outdated`/`superseded`/`out-of-scope`/`rejected`）与 `retired_at`（ISO 8601，Code 托管），且当 `retirement_reason=superseded` 时 frontmatter 的 `relations[]` 必含一条 `updates` 关系指向替代对象；`change_log` 末条摘要必须说明退出依据；正文`建议`段最后一条必须显式回答"本对象在何种条件下仍可被回查"以保证"研究→执行"承接不断裂；不要求或自动建立其他替代关系 |
 
 不设进行中状态：进行中的调研是运行状态（02 §5.4），不进入事实源，终止后才经受控创建成为对象。未形成对象的调研取消不入档；已对象化后的撤销属删除边界，不属状态。重新调研同一外部对象时新建 Research，旧对象按生命周期处置为 `retired`，不以 `supersedes` 关系表达替代。
 
@@ -278,7 +281,7 @@ F4 来源展开发生在需要核对具体摘录、版本或观察时点时：�
 
 更新与更正按 03 §9.5 承接；类型特有约束：CAS 以完整对象目录为单位（指纹绑定全部成员文件），不得只替换目录中单个 md 而忽略其余成员——即使变化只涉及调查报告 md 的正文，也必须以完整目录为单位提交，主 md frontmatter 的三态字段如因调查发现变化须同步更新（主 md frontmatter 是三态的机器权威，调查报告 md 不得有独立于 frontmatter 的证据状态）。
 
-状态转换 `active → retired` 经受控更新完成：after 含新状态与退出依据摘要，不允许普通编辑 direct writing canonical 载体。多对象边界：新调研创建与旧对象 `retired` 是两个单对象操作，不声明原子性；`relations` 随对象创建写入（03 §9.6）。
+状态转换 `active → retired` 经受控更新完成：after 含新状态、`retirement_reason`（闭集）与 Code 托管填写的 `retired_at`，当 `retirement_reason=superseded` 时同时携带一条 `updates` 关系指向可解析的替代 Research；`change_summary` 必须据实说明退出依据；正文`建议`段最后一条必须显式回答"本对象在何种条件下仍可被回查"以保证"研究→执行"承接不断裂（与 §9 退出完整性不变量对齐）；不允许普通编辑 direct writing canonical 载体。多对象边界：新调研创建与旧对象 `retired` 是两个单对象操作，不声明原子性；`relations` 随对象创建写入（03 §9.6）。
 
 迁移边界：v4 `report_kind=external_research`（28 份）对象与 docs/ 既有调研备忘是迁移输入，须逐份重满足本文 §6 准入并补全三态证据与引用闭环后，经受控创建按实际子阶段进入 `research/` 类型目录；探索型按先调查报告 md、后分析报告 md 的同一创建写入，明确方向型只写主 md；v4 frontmatter 中本文不承载的字段（如 `abstract`、`recommendation_summary`）在迁移创建时删除，不进入 canonical frontmatter，如需保留迁移历史可在 `change_log` 摘要中说明；v4 `technical_assessment` 与 `internal_audit` 不迁入本类型（前者由讨论系统产物类型承接，后者由复核制度结论封存通道承载，对应类型规范完成前该类对象暂缓迁移）；v4 Study 类型名废弃、不设单独类型规范；legacy `object_id` 只作迁移输入，不进入 canonical 对象、关系目标或 CAS 身份（03 §6.1、§6.2）。删除边界按 03 §10 承接。
 

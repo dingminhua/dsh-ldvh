@@ -336,3 +336,33 @@ test('commit signature display reads only current LDVH trailers', () => {
     'LDVH-Product-Name: cindy',
   ].join('\n')), { modelName: 'gpt-5.6-terra', productName: 'Cindy' })
 })
+
+test('commit signature display reads the v5 LDVH-Provider/LDVH-Model trailers (specs/06 §6.1)', () => {
+  // v5 受控提交的权威 trailer 词汇：以区分键逐字返回（供应商 id 不美化——
+  // 签名值零清理原则），显示层经 normalizeSignature 合并呈现。
+  assert.deepEqual(parseCommitSignature([
+    'LDVH-Provider: modlens-zzztoken-glm',
+    'LDVH-Model: glm-5.3',
+  ].join('\n')), {
+    provider: 'modlens-zzztoken-glm',
+    model: 'glm-5.3',
+  })
+  // 只有 provider 也可读（模型缺省不补造）。
+  assert.deepEqual(parseCommitSignature([
+    'LDVH-Provider: zzztoken-glm',
+  ].join('\n')), { provider: 'zzztoken-glm' })
+  // v4 词汇与 v5 词汇同时出现时 v4 优先（真实提交只带一种词汇，防御性约定）。
+  assert.deepEqual(parseCommitSignature([
+    'LDVH-Product-Name: Cindy',
+    'LDVH-Model-Name: gpt-5.6-luna',
+    'LDVH-Provider: zzztoken-glm',
+    'LDVH-Model: glm-5.3',
+  ].join('\n')), {
+    productName: 'Cindy',
+    modelName: 'gpt-5.6-luna',
+  })
+  // LDVH-Model 不会误匹配 LDVH-Model-Name（键名精确匹配）。
+  assert.deepEqual(parseCommitSignature([
+    'LDVH-Model-Name: gpt-5.6-luna',
+  ].join('\n')), { modelName: 'gpt-5.6-luna' })
+})

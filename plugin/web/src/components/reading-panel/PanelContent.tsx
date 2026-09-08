@@ -21,6 +21,7 @@ import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import { getCommitScopeLabel, getCommitTypeLabel } from '@/utils/commitLabels';
 import { formatDateTime } from '@/utils/dateFormat';
 import { getFactReadMeta, isReadableFact, type FactReadMeta } from '@/utils/factReadMeta';
+import { getObjectUpdatedAt } from '@/utils/factChangeLog';
 import {
   getCommitBodySectionsForReading,
   getCommitNodeNextState,
@@ -157,7 +158,7 @@ function ObjectPreview({ content }: { content: PanelContent }) {
         statusLabel={headerStatus ? getObjectStatusLocale(objectType || '', headerStatus, locale) : undefined}
         source={obj || {}}
         locale={locale}
-        updated={<ObjectUpdatedMeta source={obj || {}} updatedAt={(obj?.updated_at ?? obj?.updated) as string | undefined} />}
+        updated={<ObjectUpdatedMeta source={obj || {}} updatedAt={getObjectUpdatedAt(obj)} />}
         auxiliaryMetaEntries={obj ? getAuxiliaryMetaEntries(obj, objectType || '') : []}
         copyLabel={t('common.copyObjectId')}
         copiedLabel={t('common.copiedObjectId')}

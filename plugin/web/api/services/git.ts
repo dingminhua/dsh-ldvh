@@ -27,6 +27,9 @@ export type GitPushStatus = 'pushed' | 'unpushed' | 'incoming' | 'unknown'
 export type GitCommitSignature = {
   productName?: string
   modelName?: string
+  /** v5 扁平署名原词（LDVH-Provider/LDVH-Model）——逐字携键，显示层不美化。 */
+  provider?: string
+  model?: string
 }
 
 export interface GitLogEntry {
@@ -129,17 +132,33 @@ function getCommitTrailerValue(body: string, key: string): string | undefined {
  * the compact commit identity only exposes the model/agent and host when present.
  */
 export function parseCommitSignature(body: string): GitCommitSignature | undefined {
-  const productName = normalizeSignature({
-    productName: getCommitTrailerValue(body, 'LDVH-Product-Name'),
-    modelName: getCommitTrailerValue(body, 'LDVH-Model-Name'),
-  }).productName || undefined
-  const modelName = normalizeSignature({
-    productName: getCommitTrailerValue(body, 'LDVH-Product-Name'),
-    modelName: getCommitTrailerValue(body, 'LDVH-Model-Name'),
-  }).modelName || undefined
-  return productName || modelName
-    ? { productName, modelName }
-    : undefined
+  // specs/06 §6.1 权威 trailer 是 LDVH-Provider/LDVH-Model（v5）；
+  // LDVH-Product-Name/LDVH-Model-Name（v4 归档词汇）保持可读。
+  // v4 词汇存在时优先按 v4 消费（归一 productName/modelName）；
+  // 否则 v5 词汇以区分键逐字返回（供应商 id 不美化，键名精确匹配不冲突）。
+  const v4ProductName = getCommitTrailerValue(body, 'LDVH-Product-Name')
+  const v4ModelName = getCommitTrailerValue(body, 'LDVH-Model-Name')
+  if (v4ProductName || v4ModelName) {
+    const { productName, modelName } = normalizeSignature({
+      productName: v4ProductName,
+      modelName: v4ModelName,
+    })
+    if (productName || modelName) {
+      return {
+        ...(productName ? { productName } : {}),
+        ...(modelName ? { modelName } : {}),
+      }
+    }
+  }
+  const provider = getCommitTrailerValue(body, 'LDVH-Provider')
+  const model = getCommitTrailerValue(body, 'LDVH-Model')
+  if (provider || model) {
+    return {
+      ...(provider ? { provider } : {}),
+      ...(model ? { model } : {}),
+    }
+  }
+  return undefined
 }
 
 /**

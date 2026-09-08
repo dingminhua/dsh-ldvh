@@ -103,9 +103,14 @@ function parseChangeLogEntries(value: unknown): ChangeLogEntry[] {
     const signatureRecord = signature && typeof signature === 'object' && !Array.isArray(signature)
       ? signature as Record<string, unknown>
       : null;
+    // v5 扁平 provider/model 流水与 v4 嵌套 signature 形态均可读——
+    // 扩展后的 normalizeSignature 让 provider 逐字落位 productName（供应商 id
+    // 不美化），v4 product_name 保持既有归一；此处直接渲染，无二次归一。
     const normalizedSignature = normalizeSignature({
       productName: signatureRecord?.product_name,
       modelName: signatureRecord?.model_name,
+      provider: record.provider,
+      model: record.model,
     });
     const productName = normalizedSignature.productName || undefined;
     const modelName = normalizedSignature.modelName || undefined;
