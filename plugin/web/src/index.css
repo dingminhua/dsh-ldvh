@@ -18,7 +18,7 @@
   }
 
   .ldvh-card-title {
-    @apply text-base font-medium leading-6 text-ldvh-text-primary;
+    @apply text-sm font-medium leading-5 text-ldvh-text-primary;
   }
 
   /* Shared neutral surface for an object title on cards and reading headers. */
@@ -32,7 +32,7 @@
   }
 
   .ldvh-card-title-prominent {
-    @apply text-base font-semibold leading-6 text-ldvh-text-primary;
+    @apply text-sm font-semibold leading-5 text-ldvh-text-primary;
   }
 
   .ldvh-card-decision-title {

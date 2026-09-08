@@ -144,9 +144,9 @@ test('five fact types use distinct stable hue assignments', () => {
   for (const color of typeColors) assert.match(colors, new RegExp(`'${color}'|\\\"${color}\\\"`));
 });
 
-test('prominent card title follows the documented 16px by 24px hierarchy', () => {
+test('prominent card title follows the documented 14px by 20px hierarchy', () => {
   const styles = read('src/index.css');
-  assert.match(styles, /\.ldvh-card-title-prominent[\s\S]*text-base font-semibold leading-6/);
+  assert.match(styles, /\.ldvh-card-title-prominent[\s\S]*text-sm font-semibold leading-5/);
   assert.match(styles, /\.ldvh-inline-markdown\.ldvh-card-decision-body[\s\S]*text-xs leading-5/);
 });
 
