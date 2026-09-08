@@ -547,7 +547,7 @@ function toggleOnKeyboard(event: KeyboardEvent<HTMLDivElement>, toggle: () => vo
   toggle();
 }
 
-export default function CognitionCenter() {
+export default function CognitionCenter({ hideCommitHotspots = false }: { hideCommitHotspots?: boolean } = {}) {
   const [data, setData] = useState<CognitionData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [inboxExpanded, setInboxExpanded] = useState(true);
@@ -1060,7 +1060,9 @@ export default function CognitionCenter() {
         </section>
       </div>
 
-      {/* 模块三：以事实流水为热点中心，仅展开一跳正式关系；不推断语义关联或重要性。 */}
+      {/* 模块三：以事实流水为热点中心，仅展开一跳正式关系；不推断语义关联或重要性。
+          可经 hideCommitHotspots 隐藏——蓝图(v5)聚焦页以长期意图区取代此动态热点呈现。 */}
+      {!hideCommitHotspots && (
       <section className="mt-4 rounded-xl border border-ldvh-border bg-ldvh-panel p-4">
         <div
           role="button"
@@ -1159,6 +1161,7 @@ export default function CognitionCenter() {
           </div>
         )}
       </section>
+      )}
     </div>
   );
 }

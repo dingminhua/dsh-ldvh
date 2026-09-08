@@ -149,7 +149,7 @@ export default function FocusV2() {
         <span>{t('focusV2.below')}</span>
       </div>
 
-      <CognitionCenter />
+      <CognitionCenter hideCommitHotspots />
     </div>
   );
 }
