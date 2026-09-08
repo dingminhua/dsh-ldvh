@@ -85,16 +85,10 @@ export default function GoalSection() {
         </span>
       </div>
 
-      {/* 目标卡 + 子目标列表：仅在展开时渲染 */}
+      {/* 目标内容 + 子目标列表：仅在展开时渲染（无标题，区块内直接是目标内容） */}
       {goalExpanded && (
         <div id="cognition-goal-content">
-          <div className="min-w-0 rounded-md border border-ldvh-border/45 bg-ldvh-bg/40 px-3 py-2.5">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <span className="ldvh-card-title min-w-0 font-semibold">
-                {goalError ? t('focusV2.goalMissing') : goal ? goal.title : '…'}
-              </span>
-            </div>
-            {goalMissing && (
+          {goalMissing && (
               <button
                 type="button"
                 onClick={() => void handleCopy(t('focusV2.promptSetGoal'), 'create')}
@@ -109,9 +103,8 @@ export default function GoalSection() {
             )}
             {goalError && <p className="mt-1 text-xs text-red-400">{goalError}</p>}
             {goal?.statement && (
-              <p className="mt-2 text-sm leading-relaxed text-ldvh-text-secondary">{goal.statement}</p>
+              <p className="text-xs leading-relaxed text-ldvh-text-secondary">{goal.statement}</p>
             )}
-          </div>
 
           {goal && goal.sub_goals.length > 0 && (
             <div className="mt-4">
@@ -125,7 +118,7 @@ export default function GoalSection() {
                     <span className="ldvh-chip ldvh-chip-sm shrink-0 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent">
                       {sg.id}
                     </span>
-                    <span className="ldvh-card-title min-w-0 flex-1 leading-relaxed">{sg.text}</span>
+                    <span className="min-w-0 flex-1 text-xs leading-relaxed text-ldvh-text-primary">{sg.text}</span>
                   </li>
                 ))}
               </ul>
