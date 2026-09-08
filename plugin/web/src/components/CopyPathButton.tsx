@@ -9,6 +9,7 @@ interface CopyPathButtonProps {
   toneStyle?: CSSProperties;
   label?: string;
   copiedLabel?: string;
+  size?: 'sm' | 'md';
 }
 
 async function copyText(text: string) {
@@ -32,7 +33,7 @@ async function copyText(text: string) {
   document.body.removeChild(textarea);
 }
 
-export default function CopyPathButton({ path, className = '', toneClassName, toneStyle, label: labelOverride, copiedLabel }: CopyPathButtonProps) {
+export default function CopyPathButton({ path, className = '', toneClassName, toneStyle, label: labelOverride, copiedLabel, size = 'sm' }: CopyPathButtonProps) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
@@ -50,6 +51,7 @@ export default function CopyPathButton({ path, className = '', toneClassName, to
   const buttonClassName = copied
     ? 'bg-emerald-500/10 text-emerald-400'
     : toneClassName ?? 'bg-transparent text-ldvh-text-secondary/70 hover:bg-ldvh-border/30 hover:text-ldvh-accent';
+  const sizeClass = size === 'md' ? 'h-8 w-8' : 'h-7 w-7';
 
   const handleClick = async (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -71,7 +73,7 @@ export default function CopyPathButton({ path, className = '', toneClassName, to
         onFocus={() => setShowTooltip(true)}
         onBlur={() => setShowTooltip(false)}
         onClick={handleClick}
-        className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent transition-colors focus-visible:border-ldvh-accent/50 focus-visible:outline-none ${buttonClassName}`}
+        className={`inline-flex ${sizeClass} shrink-0 items-center justify-center rounded-md border border-transparent transition-colors focus-visible:border-ldvh-accent/50 focus-visible:outline-none ${buttonClassName}`}
         style={copied ? undefined : toneStyle}
         aria-label={label}
       >

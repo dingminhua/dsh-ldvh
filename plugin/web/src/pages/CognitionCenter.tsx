@@ -695,6 +695,7 @@ export default function CognitionCenter({ hideCommitHotspots = false }: { hideCo
               path={buildModuleSummary(data, locale, t)}
               label={t('cognition.copyModuleSummary')}
               copiedLabel={t('cognition.copiedModuleSummary')}
+              size="md"
             />
             <button
               type="button"
@@ -773,6 +774,7 @@ export default function CognitionCenter({ hideCommitHotspots = false }: { hideCo
               path={buildActiveWorkCaseSummary(data, locale, t)}
               label={t('cognition.active.copyModuleSummary')}
               copiedLabel={t('cognition.active.copiedModuleSummary')}
+              size="md"
             />
             <button
               type="button"
@@ -866,6 +868,7 @@ export default function CognitionCenter({ hideCommitHotspots = false }: { hideCo
               path={buildRecentActivitySummary(data, locale, t)}
               label={t('cognition.recent.copyModuleSummary')}
               copiedLabel={t('cognition.recent.copiedModuleSummary')}
+              size="md"
             />
             <button
               type="button"
@@ -982,6 +985,7 @@ export default function CognitionCenter({ hideCommitHotspots = false }: { hideCo
                 path={buildSparkHealthSummary(data, locale, t)}
                 label={t('cognition.sparkHealth.copyModuleSummary')}
                 copiedLabel={t('cognition.sparkHealth.copiedModuleSummary')}
+                size="md"
               />
             )}
             <button
@@ -1106,6 +1110,7 @@ export default function CognitionCenter({ hideCommitHotspots = false }: { hideCo
                 path={buildRecentHotspotSummary(data, locale, t)}
                 label={t('cognition.commitHotspots.copyModuleSummary')}
                 copiedLabel={t('cognition.commitHotspots.copiedModuleSummary')}
+                size="md"
               />
             )}
             <button

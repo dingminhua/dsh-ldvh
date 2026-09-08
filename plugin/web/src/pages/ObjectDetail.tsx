@@ -79,6 +79,8 @@ const RESEARCH_READING_NODE_FIELDS = new Set([
   'confirmed_statements', 'uncertain', 'gaps', 'implications', 'clarification_log',
   'retirement_reason', 'retired_at',
   'report_body', 'change_log',
+  // yaml_source 已由底部 YamlDataNode 以完整 YAML 原文呈现，字段级不再重复落入 ContentField。
+  'yaml_source',
 ]);
 const FORMAL_ASSOCIATION_FIELDS = new Set(['relations']);
 export type ReadingNodeState = 'collapsed' | 'expanded';
@@ -1353,56 +1355,6 @@ export function ResearchProvenanceLine({ provenanceRef, provenanceAnchor, urls }
   );
 }
 
-/** 停止原因与三态计数的元数据行（active 呈现 stopping_reason；retired 呈现退出语义）。 */
-export function ResearchStoppingMetaRow({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
-  const status = typeof obj.status === 'string' ? obj.status : '';
-  const confirmedCount = Array.isArray(obj.confirmed_statements) ? obj.confirmed_statements.length : 0;
-  const uncertainCount = Array.isArray(obj.uncertain) ? obj.uncertain.length : 0;
-  const gapsCount = Array.isArray(obj.gaps) ? obj.gaps.length : 0;
-
-  if (status === 'retired') {
-    const reason = typeof obj.retirement_reason === 'string' ? obj.retirement_reason : null;
-    const retiredAt = typeof obj.retired_at === 'string' ? formatDateTime(obj.retired_at) : null;
-    if (!reason && !retiredAt) return null;
-    const meta = [
-      reason ? getFieldLabel('retirement_reason', locale) : null,
-      reason ? getFieldValueLabel('retirement_reason', reason, locale) : null,
-      retiredAt,
-    ].filter(Boolean);
-    return (
-      <div className="ldvh-meta flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 font-medium text-ldvh-text-primary/80">
-        <span aria-hidden="true" className="h-1 w-1 shrink-0 self-center rounded-full bg-ldvh-text-primary/55" />
-        {meta.map((value, index) => (
-          <span key={`${value}-${index}`} className="inline-flex min-w-0 items-center gap-x-1.5">
-            {index > 0 && <span aria-hidden="true">·</span>}
-            <span className="break-words">{value}</span>
-          </span>
-        ))}
-      </div>
-    );
-  }
-
-  const stoppingReason = typeof obj.stopping_reason === 'string' ? obj.stopping_reason : null;
-  if (!stoppingReason) return null;
-  return (
-    <div className="ldvh-meta flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 font-medium text-ldvh-text-primary/80">
-      <span aria-hidden="true" className="h-1 w-1 shrink-0 self-center rounded-full bg-ldvh-text-primary/55" />
-      <span className="shrink-0">{getFieldLabel('stopping_reason', locale)}</span>
-      <span aria-hidden="true" className="shrink-0">·</span>
-      <span className="shrink-0">{getFieldValueLabel('stopping_reason', stoppingReason, locale)}</span>
-      <span aria-hidden="true" className="shrink-0">·</span>
-      <span className="tabular-nums">{confirmedCount}</span>
-      <span className="shrink-0">{getFieldLabel('confirmed_statements', locale)}</span>
-      <span aria-hidden="true" className="shrink-0">·</span>
-      <span className="tabular-nums">{uncertainCount}</span>
-      <span className="shrink-0">{getFieldLabel('uncertain', locale)}</span>
-      <span aria-hidden="true" className="shrink-0">·</span>
-      <span className="tabular-nums">{gapsCount}</span>
-      <span className="shrink-0">{getFieldLabel('gaps', locale)}</span>
-    </div>
-  );
-}
-
 /** v5 Research 阅读布局：概览内联（正文固定 H2 分节）+ 发现单元 + 三态 + 溯源锚点回指。
  * 阅读语言与详情共享：ReadingNodeSection 折叠节点、ContentField 兜底、尾部固定序列。 */
 export function ResearchReadingLayout({
@@ -1441,7 +1393,6 @@ export function ResearchReadingLayout({
 
   return (
     <div className="mb-6 flex flex-col gap-5">
-      <ResearchStoppingMetaRow obj={obj} locale={locale} />
       {/* 24 §12 消费边界：retired 对象不作为当前证据输入，显式提示避免被当作当前结论引用。 */}
       {obj.status === 'retired' && (
         <p className="ldvh-caption rounded-md border border-zinc-400/25 border-l-2 border-l-zinc-400 bg-zinc-500/5 px-3.5 py-2.5 text-zinc-600/80 dark:text-zinc-300/80">
@@ -1568,7 +1519,6 @@ export function ResearchKeyFindingsNode({
             className="min-w-0 rounded-lg border border-ldvh-border/60 bg-ldvh-bg/40 p-3"
           >
             <div className="ldvh-card-title-prominent flex min-w-0 items-start gap-2">
-              <span className="ldvh-meta-muted shrink-0 pt-0.5">{String(index + 1).padStart(2, '0')}</span>
               <span className="min-w-0 break-words">{unit.title}</span>
             </div>
             {unit.body && <ResearchTextNodeContent value={unit.body} compact className="mt-2" />}

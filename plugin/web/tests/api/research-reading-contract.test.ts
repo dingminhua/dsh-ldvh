@@ -68,12 +68,7 @@ test('Research finding units render as structured cards with provenance anchor l
   // 缺锚点行的发现单元用警示色呈现（不静默）。
   assert.match(detail, /objectDetail\.researchBody\.noProvenance/);
 
-  // 停止原因元数据行：stopping_reason 闭集本地化 + 三态计数。
-  assert.match(detail, /export function ResearchStoppingMetaRow/);
-  assert.match(detail, /getFieldValueLabel\('stopping_reason', stoppingReason, locale\)/);
-  assert.match(detail, /Array\.isArray\(obj\.confirmed_statements\) \? obj\.confirmed_statements\.length : 0/);
-
-  // 尾部固定序列：FactAssociations → RelatedContent → ChangeLog（v4 设计语言保留）。
+  // 尾部固定序列：FactAssociations → RelatedContent → ChangeLog（设计语言保留）。
   assert.match(detail, /<FactAssociationsSection obj=\{obj\} locale=\{locale\} \/>\s*\n\s*<RelatedContentSection entries=\{relatedEntries\} locale=\{locale\} \/>\s*\n\s*<ChangeLogReadingNode/);
 });
 
