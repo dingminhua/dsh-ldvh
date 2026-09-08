@@ -14,6 +14,7 @@ import { useEffect, useState, type KeyboardEvent } from 'react';
 import { AlertCircle, ChevronDown, ChevronUp, CirclePlay, GitFork, HeartPulse, History, Inbox } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
 import CopyPathButton from '@/components/CopyPathButton';
+import GoalSection from '@/components/GoalSection';
 import ObjectReferenceCopyButton from '@/components/ObjectReferenceCopyButton';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import {
@@ -673,6 +674,9 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
   return (
     <div className={`flex min-h-full flex-col${embedded ? '' : ' p-6'}`}>
       <PageHeader title={t('cognition.title')} subtitle={t('cognition.subtitle')} />
+
+      {/* 模块零 目标：Goal(25) 投影，置顶于待决定事项之前 */}
+      <GoalSection />
 
       {/* 模块一 待决定事项：全宽主面板，置顶（02 §3） */}
       <section className="rounded-xl border border-ldvh-border bg-ldvh-panel p-4">
