@@ -113,7 +113,7 @@ export default function GoalSection() {
               <ul className="divide-y divide-ldvh-border/70">
                 {goal.sub_goals.map((sg) => (
                   <li key={sg.id} className="flex min-w-0 items-start gap-2 py-2">
-                    <span className="ldvh-chip ldvh-chip-sm shrink-0 translate-y-[2px] border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent">
+                    <span className="ldvh-chip ldvh-chip-sm shrink-0 -translate-y-px border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent">
                       {sg.id}
                     </span>
                     <span className="min-w-0 flex-1 text-xs leading-relaxed text-ldvh-text-secondary">{sg.text}</span>
