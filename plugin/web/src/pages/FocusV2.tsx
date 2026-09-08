@@ -4,9 +4,9 @@
  * 目的：在保留原「聚焦」(CognitionCenter) 之上的提案预览，让 Human 对照与修复。
  * 结构自上而下：
  *   1. 顶部新增「长期意图区」——Goal(25) 真实投影（fetchCognitionGoal 读 goal.md，
- *      含目标陈述与 sub-goal SG-n 概览；裁定 13 后无 Initiative 层，「进行中/已完成」
- *      区块的数据源是 WC（21 号未建）、「下一步」是 BLUEPRINT 手写区（未建）——
- *      无数据源的区块不渲染，待 21 号与蓝图落地后接入）。
+ *      含目标陈述、sub-goal SG-n 概览与「下一步」计划区（裁定 14：计划并入 goal）；
+ *      「进行中/已完成」区块的数据源是 WC（21 号未建）、「悬而未决」是 Spark（20 号未建）——
+ *      无数据源的区块不渲染，待 21/20 号落地后接入）。
  *   2. 下方原样嵌入 <CognitionCenter />，其内实现一行不改（含自身数据获取与五模块）。
  *
  * 只读、无写入口；蓝图区仅是目标的可视投影，不构成第二事实源（00 §3.3）。
@@ -23,7 +23,7 @@ const GOAL_TINT = 'rgb(20 184 166)';
 
 export default function FocusV2() {
   const { t } = useI18n();
-  const [goal, setGoal] = useState<{ title: string; status: string; sub_goals: { id: string; text: string }[] } | null>(null);
+  const [goal, setGoal] = useState<{ title: string; status: string; sub_goals: { id: string; text: string }[]; plan_items: { text: string; serves: string | null }[] } | null>(null);
   const [goalMissing, setGoalMissing] = useState(false);
   const [goalError, setGoalError] = useState<string | null>(null);
 
@@ -94,6 +94,27 @@ export default function FocusV2() {
               </span>
             ))}
           </div>
+        </div>
+        {/* 下一步（裁定 14：goal.md 计划区投影） */}
+        <div className="mt-3 rounded-lg border border-ldvh-border bg-ldvh-panel/70 p-3">
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ldvh-text-secondary">
+            {t('focusV2.nextSteps')}
+          </div>
+          {(goal && goal.plan_items.length > 0) ? (
+            <ol className="divide-y divide-ldvh-border/60">
+              {goal.plan_items.map((item, idx) => (
+                <li key={idx} className="flex min-w-0 items-center gap-2 py-1.5 text-sm">
+                  <span className="shrink-0 text-[11px] font-semibold text-ldvh-text-secondary">{idx + 1}.</span>
+                  <span className="min-w-0 flex-1 truncate text-ldvh-text-primary">{item.text}</span>
+                  {item.serves && (
+                    <span className="shrink-0 rounded-md border border-teal-400/30 bg-teal-500/10 px-1.5 py-px text-[11px] font-semibold" style={{ color: GOAL_TINT }}>{item.serves}</span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="py-1 text-xs text-ldvh-text-secondary">{goal ? t('focusV2.planEmpty') : '…'}</p>
+          )}
         </div>
         <p className="mt-2 text-[11px] text-ldvh-text-secondary/80">{t('focusV2.pendingBlocksNote')}</p>
       </section>

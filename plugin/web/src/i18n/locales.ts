@@ -741,7 +741,9 @@ export const UI_LOCALES = {
     'focusV2.blueprintNote': '来源：goal.md（投影，非第二事实源）',
     'focusV2.currentGoal': '当前目标 · Goal',
     'focusV2.subGoals': '子目标达成概览',
-    'focusV2.pendingBlocksNote': '进行中/已完成/下一步/悬而未决区块待数据源落地（21 号 WorkCase 与 BLUEPRINT.md）后接入。',
+    'focusV2.nextSteps': '下一步 · Next',
+    'focusV2.planEmpty': '计划区为空——所有安排已物化为工作或暂无排队事项。',
+    'focusV2.pendingBlocksNote': '进行中/已完成/悬而未决区块待数据源落地（21 号 WorkCase 与 20 号 Spark）后接入。',
     'focusV2.below': '下方 = 原「聚焦」页（原样嵌入，未改动）',
     'focusV2.goalMissing': 'goal.md 尚未创建——请在 DSH 会话中对 AI 说「帮我进行项目初始化」。',
 
@@ -1363,7 +1365,9 @@ export const UI_LOCALES = {
     'focusV2.blueprintNote': 'Source: goal.md (projection, not a second fact source)',
     'focusV2.currentGoal': 'Current Goal',
     'focusV2.subGoals': 'Sub-goal progress',
-    'focusV2.pendingBlocksNote': 'In-progress / completed / next / open-question blocks will be wired once their data sources land (spec 21 WorkCase and BLUEPRINT.md).',
+    'focusV2.nextSteps': 'Next Steps',
+    'focusV2.planEmpty': 'Plan section is empty — all arrangements are materialized or nothing is queued.',
+    'focusV2.pendingBlocksNote': 'In-progress / completed / open-question blocks will be wired once their data sources land (spec 21 WorkCase and spec 20 Spark).',
     'focusV2.below': 'Below = original "Focus" page (embedded verbatim, unchanged)',
     'focusV2.goalMissing': 'goal.md not yet created — say "help me initialize the project" to the AI in a DSH session.',
 

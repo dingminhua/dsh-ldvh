@@ -750,6 +750,7 @@ export interface CognitionGoalData {
     title: string;
     status: string;
     sub_goals: { id: string; text: string }[];
+    plan_items: { text: string; serves: string | null }[];
   };
   error?: string;
   code?: string;
