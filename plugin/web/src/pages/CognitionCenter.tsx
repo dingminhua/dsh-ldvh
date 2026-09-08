@@ -547,7 +547,7 @@ function toggleOnKeyboard(event: KeyboardEvent<HTMLDivElement>, toggle: () => vo
   toggle();
 }
 
-export default function CognitionCenter({ hideCommitHotspots = false }: { hideCommitHotspots?: boolean } = {}) {
+export default function CognitionCenter({ hideCommitHotspots = false, embedded = false }: { hideCommitHotspots?: boolean; embedded?: boolean } = {}) {
   const [data, setData] = useState<CognitionData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [inboxExpanded, setInboxExpanded] = useState(true);
@@ -671,7 +671,7 @@ export default function CognitionCenter({ hideCommitHotspots = false }: { hideCo
   )))];
 
   return (
-    <div className="flex min-h-full flex-col p-6">
+    <div className={`flex min-h-full flex-col${embedded ? '' : ' p-6'}`}>
       <PageHeader title={t('cognition.title')} subtitle={t('cognition.subtitle')} />
 
       {/* 模块一 待决定事项：全宽主面板，置顶（02 §3） */}
