@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, Globe2, Inbox, Layers, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Inbox, Layers, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
 import { fetchFederationOverview, type FederationOverviewData, type FederationProjectCard } from '@/utils/api';
 import { formatDateTime } from '@/utils/dateFormat';
@@ -52,7 +52,7 @@ export default function Federation() {
             type="button"
             disabled={loading}
             onClick={load}
-            className="ldvh-card-title inline-flex items-center gap-2 rounded-md border border-ldvh-border px-3 py-2 text-ldvh-text-secondary transition-colors hover:border-ldvh-accent/35 hover:text-ldvh-text-primary disabled:opacity-50"
+            className="ldvh-page-toolbar-action"
           >
             <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
             {t('federation.refresh')}
@@ -62,7 +62,7 @@ export default function Federation() {
       </PageHeader>
 
       {loading && !data ? (
-        <div className="flex justify-center py-16"><Loader2 className="animate-spin" /></div>
+        <div className="ldvh-body-muted flex justify-center py-20"><Loader2 className="animate-spin" /></div>
       ) : error ? (
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-red-700 dark:text-red-300">
           <span>{error}</span>
@@ -71,17 +71,16 @@ export default function Federation() {
       ) : data && (
         <>
           {data.projects.length === 0 ? (
-            <div className="rounded-xl border border-ldvh-border bg-ldvh-panel p-8 text-center">
-              <Globe2 size={22} className="mx-auto text-ldvh-text-secondary" />
-              <p className="ldvh-body-muted mt-3">{t('federation.noProjects')}</p>
+            <div className="ldvh-body-muted py-20 text-center">
+              {t('federation.noProjects')}
             </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="ldvh-section-grid">
               {data.projects.map((project) => {
                 const colorKey = resolvedProjectColorKey(project.color, project.id);
                 const color = projectColorVar(colorKey);
                 return (
-                  <section key={project.id} className="flex flex-col overflow-hidden rounded-xl border border-ldvh-border bg-ldvh-panel border-l-[3px]" style={{ borderLeftColor: color }}>
+                  <section key={project.id} className="flex flex-col overflow-hidden rounded-lg border border-ldvh-border bg-ldvh-panel border-l-[3px]" style={{ borderLeftColor: color }}>
                     <div className="flex min-w-0 items-center gap-2 border-b border-ldvh-border px-3.5 py-3">
                       <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
                       <span className="min-w-0 flex-1">

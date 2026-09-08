@@ -150,7 +150,7 @@ export default function FederationObjects() {
             type="button"
             disabled={loading}
             onClick={load}
-            className="ldvh-card-title inline-flex items-center gap-2 rounded-md border border-ldvh-border px-3 py-2 text-ldvh-text-secondary transition-colors hover:border-ldvh-accent/35 hover:text-ldvh-text-primary disabled:opacity-50"
+            className="ldvh-page-toolbar-action"
           >
             <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
             {t('federation.refresh')}
@@ -176,15 +176,15 @@ export default function FederationObjects() {
       )}
 
       {loading && items.length === 0 ? (
-        <div className="flex justify-center py-16"><Loader2 className="animate-spin" /></div>
+        <div className="ldvh-body-muted flex justify-center py-20"><Loader2 className="animate-spin" /></div>
       ) : error ? (
         <div className="mt-2 rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-red-700 dark:text-red-300">{error}</div>
       ) : visibleItems.length === 0 ? (
-        <div className="rounded-xl border border-ldvh-border bg-ldvh-panel p-8 text-center">
-          <p className="ldvh-body-muted">{t('federation.noObjects')}</p>
+        <div className="ldvh-body-muted py-20 text-center">
+          {t('federation.noObjects')}
         </div>
       ) : (
-        <div className="grid items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <div className="ldvh-section-grid items-stretch">
           {visibleItems.map((item) => {
             const project = item.federationProject;
             const color = projectColorVar(resolvedProjectColorKey(project.color, project.id));
