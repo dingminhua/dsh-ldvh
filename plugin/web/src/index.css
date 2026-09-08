@@ -133,7 +133,7 @@
   }
 
   .ldvh-reading-title {
-    @apply text-xs font-semibold leading-4 text-ldvh-text-primary;
+    @apply text-lg font-semibold leading-7 text-ldvh-text-primary;
   }
 
   .ldvh-inline-markdown {

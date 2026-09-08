@@ -97,7 +97,7 @@ test('object detail headers use compact metadata and title-scaled type icons', (
     objectDetail.indexOf('function HeaderDateMeta'),
   );
 
-  assert.match(identityHeader, /const titleFontSize = compact \? 12 : 18/);
+  assert.match(identityHeader, /const titleFontSize = compact \? 18 : 18/);
   assert.match(identityHeader, /const titleIconSize = Math\.round\(titleFontSize \* 1\.15\)/);
   assert.match(identityHeader, /const activityCount = Array\.isArray\(source\.change_log\) \? source\.change_log\.length : 0/);
   assert.match(identityHeader, /ldvh-chip inline-flex h-\[18px\] shrink-0 items-center justify-center rounded-md border px-1\.5 text-\[10px\] font-medium leading-3/);

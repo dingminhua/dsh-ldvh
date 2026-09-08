@@ -613,8 +613,8 @@ export function ObjectIdentityHeader({
   const { selectedProjectId } = useProjectScope();
   const TitleTag = compact ? 'h3' : 'h1';
   const titleClassName = compact ? 'ldvh-reading-title' : 'ldvh-page-title';
-  // Human 2026-09-09 二次定案：详情标题 18px（阅读面板 12px 不变）；图标随字号同步。
-  const titleFontSize = compact ? 12 : 18;
+  // Human 2026-09-09 二次定案：主标题与阅读面板标题均 18px；图标随字号同步。
+  const titleFontSize = compact ? 18 : 18;
   const titleIconSize = Math.round(titleFontSize * 1.15);
   const activityCount = Array.isArray(source.change_log) ? source.change_log.length : 0;
   const remainingAuxiliaryMetaEntries = auxiliaryMetaEntries.filter(([key]) => key !== 'priority');
