@@ -173,12 +173,11 @@ BLUEPRINT.md = goal + active WC + open Spark 的投影（唯一 authored 规划�
 
 ### 5.3 蓝图（BLUEPRINT.md，非类型特殊载体）
 
-仓库根、节点级受控更新、六区块双区制：
+仓库根、节点级受控更新、五区块双区制（裁定 13 后从六砍五——「当前子目标」与「进行中」数据源相同，一个分组视图够用）：
 
 | 区块 | 性质 | 来源 |
 |---|---|---|
 | 当前目标 | 投影 | goal.md 稳定层 |
-| 当前子目标 | 投影 | active WC 按 SG-n 分组 |
 | 下一步 | **手写**（全库唯一 authored 规划区） | 排队工作排序 + 未物化安排 |
 | 已完成 | 投影 | closed WC 关闭链（按 SG-n 分组） |
 | 进行中 | 投影 | open WC（按 SG-n 分组） |
@@ -300,7 +299,7 @@ serves 受影响 sub-goal 的 active WC → 标记「goal-changed 待核对」
 
 - Human 填的原始一句话（口语原样）：「做一个治理框架，让 AI 长程协作开发稳定、可控、高效」；
 - AI 精化提议——陈述收紧：「建成一个深度绑定 DSH 的 AI 协作治理框架，让长程 Vibe Coding 稳定、可控、高效，并经受真实长程项目的使用验证」；G-SC 草案四条：G-SC-1 规范体系（00–26）全部成为当前规则源成员且互咬（进行中）；G-SC-2 七类型事实对象在真实工作流中完成一轮出生→消费→关闭（进行中）；G-SC-3 插件能力面 dogfood 闭环（部分达成）；G-SC-4 至少一个 LDVH 自举之外的真实长程项目从概念走到产品（未开始——外部验证硬标准）；
-- 样例自证三点：一句话与精化分离是必要的（松话一回合收紧）；LDVH 是「陈述≈使命」的边界案例——G-SC-4 才是防「永远达不成」的闸；「v5 建成」被自然消化为 G-SC-1..3 合集+蓝图「当前专项」叙述，不占任何一层。
+- 样例自证三点：一句话与精化分离是必要的（松话一回合收紧）；LDVH 是「陈述≈使命」的边界案例——G-SC-4 才是防「永远达不成」的闸；「v5 建成」被自然消化为 G-SC-1..3 合集+蓝图投影叙述，不占任何一层。
 
 ---
 
@@ -388,7 +387,7 @@ workflows YAML 引擎与四层定制栈（Spec Kit）；社区市场信任模型
 ✅ 已成：11 调研系统 + 24 Research（research-writer/session 落地，347 测试绿；载体已定平铺单文件）
 
 立即可做（不依赖类型重建）：
-  ⓪ BLUEPRINT.md 手工初版（无前置——「规划散落」的最短解；六区块双区制见 §5.3）
+  ⓪ BLUEPRINT.md 手工初版（无前置——「规划散落」的最短解；五区块双区制见 §5.3）
   ① K1 规则 ID 体系 → Git Gate 现有检查对表（纯机械增强，不动规范）
   ② K2 规模变体试点 → 04 实现层（微/常/大三档，同门禁小工件）
 
@@ -487,4 +486,4 @@ v4 WC 三阶段（需求审核+执行+结果审计）的摩擦病灶在需求审
 
 已删除的九份中间文档（内容已收敛进本文）：`docs/investigation-report-github-spec-kit.md`、`docs/spec-tools-research/{SHARED-BRIEF,SYNTHESIS,dsh-openspec,dsh-specflow,spec-driven-keel,dsh-spec-loop,dsh-spec-collab}.md`、`.subagent-map-output.md`。本文引用的 file:line 均指向上表快照，可独立复核。
 
-> 相关但不在本文范围（保留原状）：`docs/v4-v5-spec-migration-matrix.md`（21/34 首批迁移的权威清单）、`docs/v4-problem-ledger.md`（v4 问题全账）、`docs/v5-handoff.md`（迁移纪律）、`docs/spec-candidate-11-research-system.md`（11 号候选）、`docs/blueprint-feature-draft.md`（蓝图功能草案，§5.3 的前驱——六区块结构以其为基，双区制为本架构演进）。
+> 相关但不在本文范围（保留原状）：`docs/v4-v5-spec-migration-matrix.md`（21/34 首批迁移的权威清单）、`docs/v4-problem-ledger.md`（v4 问题全账）、`docs/v5-handoff.md`（迁移纪律）、`docs/spec-candidate-11-research-system.md`（11 号候选）、`docs/blueprint-feature-draft.md`（蓝图功能草案，§5.3 的前驱——六区块结构以其为基，双区制为本架构演进；裁定 13 后已收敛为五区块）。
