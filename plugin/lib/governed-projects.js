@@ -9,7 +9,7 @@ import { HOOK_BUNDLE_VERSION, inspectHook, installHook, uninstallHook as removeM
 
 const execFileAsync = promisify(execFile);
 const REGISTRATION_RELATIVE_PATH = ["ldvh", "governed-projects.yaml"];
-// v5 类型系统（24 号 Research 已落 researches/；initiatives/goal 待 25/26 号规范定稿后加入——见 docs/incident-fact-directories-v4-legacy.md）
+// v5 类型系统（24 Research 已落 researches/、25 Goal 已落 goal.md；Initiative 层已砍除——裁定 13；20/21/22/23 待建）
 const FACT_DIRECTORIES = ["sparks", "workcases", "adrs", "pitfalls", "researches"];
 
 function failure(code, message, details = {}) {
