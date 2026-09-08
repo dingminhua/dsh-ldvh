@@ -100,7 +100,7 @@ export default function FocusV2() {
           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ldvh-text-secondary">
             {t('focusV2.nextSteps')}
           </div>
-          {(goal && goal.plan_items.length > 0) ? (
+          {(goal && (goal.plan_items?.length ?? 0) > 0) ? (
             <ol className="divide-y divide-ldvh-border/60">
               {goal.plan_items.map((item, idx) => (
                 <li key={idx} className="flex min-w-0 items-center gap-2 py-1.5 text-sm">
