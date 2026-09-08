@@ -12,7 +12,7 @@
  * 本页为讨论载体（docs/blueprint-web-presentation-discussion.md），未裁决为正式首页。
  */
 import { useEffect, useState } from 'react';
-import { FlaskConical, Target, Layers, ListTodo } from 'lucide-react';
+import { FlaskConical, Target, Layers, ListTodo, Compass } from 'lucide-react';
 import CognitionCenter from '@/pages/CognitionCenter';
 import CopyPathButton from '@/components/CopyPathButton';
 import { fetchCognitionGoal, ApiRequestError } from '@/utils/api';
@@ -23,7 +23,7 @@ const GOAL_TINT = 'rgb(20 184 166)';
 
 export default function FocusV2() {
   const { t } = useI18n();
-  const [goal, setGoal] = useState<{ title: string; status: string; statement: string; sub_goals: { id: string; text: string }[]; plan_items: { text: string; serves: string | null }[] } | null>(null);
+  const [goal, setGoal] = useState<{ title: string; status: string; statement: string; method: string; sub_goals: { id: string; text: string }[]; plan_items: { text: string; serves: string | null }[] } | null>(null);
   const [goalMissing, setGoalMissing] = useState(false);
   const [goalError, setGoalError] = useState<string | null>(null);
 
@@ -113,6 +113,29 @@ export default function FocusV2() {
             ))}
           </div>
         </div>
+      </section>
+
+      {/* ============ 方法区 ============ */}
+      <section className="mb-4 overflow-hidden rounded-xl border border-purple-400/20 bg-ldvh-panel p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <Compass size={14} className="text-purple-400" aria-hidden="true" />
+          <span className="ldvh-section-title text-purple-400">{t('focusV2.methodTitle')}</span>
+          <span className="ml-auto flex items-center gap-2">
+            {goal && (
+              <CopyPathButton
+                path={t('focusV2.promptAdjustMethod')}
+                label={t('focusV2.btnAdjustMethod')}
+                copiedLabel={t('focusV2.btnCopied')}
+                size="md"
+              />
+            )}
+          </span>
+        </div>
+        {goal?.method ? (
+          <div className="whitespace-pre-wrap text-sm leading-relaxed text-ldvh-text-secondary">{goal.method}</div>
+        ) : (
+          <p className="py-1 text-xs text-ldvh-text-secondary">{goal ? t('focusV2.methodEmptyHint') : '…'}</p>
+        )}
       </section>
 
       {/* ============ 规划区 ============ */}

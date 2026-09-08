@@ -1117,7 +1117,17 @@ router.get('/goal', async (req: Request, res: Response): Promise<void> => {
       if (match) subGoals.push({ id: match[1].trim(), text: match[2].trim() })
     }
 
-    // 计划区解析（裁定 14）：「## 下一步」H2 下的有序列表条目，`<安排> → SG-n` 尾部
+    // 方法区解析：「## 方法」H2 下的全部内容（到下一个 H2 为止）。
+    // 方法 = 实现本项目采用的方法（LDVH 项目引用 00 第 2 节根方案；其它项目由 AI 书写）。
+    let method = ''
+    const methodMatch = /^##\s*方法\s*$/m.exec(body)
+    if (methodMatch) {
+      const methodSection = body.slice(methodMatch.index + methodMatch[0].length)
+      const nextH2 = /^##\s/m.exec(methodSection)
+      method = (nextH2 ? methodSection.slice(0, nextH2.index) : methodSection).trim()
+    }
+
+    // 计划区解析（裁定 14）：「## 规划」H2 下的有序列表条目，`<安排> → SG-n` 尾部
     // 标注为建议性 serves（仅展示；真正绑定发生在 WC 的 Gate 1）。无该 H2 时为空数组。
     const planItems: GoalPlanItem[] = []
     const planMatch = /^##\s*(?:规划|下一步)\s*$/m.exec(body)
@@ -1147,6 +1157,7 @@ router.get('/goal', async (req: Request, res: Response): Promise<void> => {
         title: typeof meta.title === 'string' ? meta.title : '',
         status: typeof meta.status === 'string' ? meta.status : 'active',
         statement,
+        method,
         sub_goals: subGoals,
         plan_items: planItems,
       },
