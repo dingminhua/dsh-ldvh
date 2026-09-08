@@ -85,7 +85,6 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
   },
   research: {
     active: { zh: '活跃', en: 'Active' },
-    superseded: { zh: '已被取代', en: 'Superseded' },
     retired: { zh: '已废弃', en: 'Retired' },
   },
 };
@@ -444,6 +443,13 @@ export const FIELD_VALUE_LOCALES: Record<string, Record<string, { zh: string; en
     sufficient: { zh: '证据充分收敛', en: 'Sufficient' },
     'no-gain': { zh: '零增益收敛', en: 'No Gain' },
     'round-cap': { zh: '轮次上限收敛', en: 'Round Cap' },
+  },
+  // 24 §8 退出原因闭集（与 plugin/lib/research-writer.js RETIREMENT_REASONS 同源）。
+  retirement_reason: {
+    outdated: { zh: '已过时', en: 'Outdated' },
+    superseded: { zh: '已被取代', en: 'Superseded' },
+    'out-of-scope': { zh: '超出范围', en: 'Out of Scope' },
+    rejected: { zh: '已否决', en: 'Rejected' },
   },
   signer_type: {
     human: { zh: 'Human', en: 'Human' },

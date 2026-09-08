@@ -614,7 +614,7 @@ export function ObjectIdentityHeader({
   const TitleTag = compact ? 'h3' : 'h1';
   const titleClassName = compact ? 'ldvh-reading-title' : 'ldvh-page-title';
   // Human 2026-09-09 二次定案：主标题与阅读面板标题均 18px；图标随字号同步。
-  const titleFontSize = compact ? 18 : 18;
+  const titleFontSize = 18;
   const titleIconSize = Math.round(titleFontSize * 1.15);
   const activityCount = Array.isArray(source.change_log) ? source.change_log.length : 0;
   const remainingAuxiliaryMetaEntries = auxiliaryMetaEntries.filter(([key]) => key !== 'priority');
@@ -1366,7 +1366,7 @@ export function ResearchStoppingMetaRow({ obj, locale }: { obj: Record<string, u
     if (!reason && !retiredAt) return null;
     const meta = [
       reason ? getFieldLabel('retirement_reason', locale) : null,
-      reason,
+      reason ? getFieldValueLabel('retirement_reason', reason, locale) : null,
       retiredAt,
     ].filter(Boolean);
     return (

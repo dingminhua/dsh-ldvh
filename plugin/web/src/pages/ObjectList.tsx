@@ -437,7 +437,7 @@ function ExecutionAuthorizationCard({
           className="shrink-0 text-sky-600 dark:text-sky-300"
           aria-hidden="true"
         />
-        <h3 className="ldvh-card-decision-title min-w-0 text-ldvh-text">
+        <h3 className="ldvh-card-decision-title min-w-0">
           {t('objectDetail.workcaseExecutionAuthorization')}
         </h3>
       </div>
@@ -1597,7 +1597,7 @@ export function AdrCardContent({ obj }: { obj: ObjectItem }) {
   return null;
 }
 
-function StudyTerminalCardContent({ obj }: { obj: ObjectItem }) {
+function ResearchTerminalCardContent({ obj }: { obj: ObjectItem }) {
   const { t } = useI18n();
   const disposition = obj.disposition_summary?.trim() || t('objectList.dispositionMissing');
 
@@ -1607,7 +1607,7 @@ function StudyTerminalCardContent({ obj }: { obj: ObjectItem }) {
 }
 
 export function StudyCardContent({ obj }: { obj: ObjectItem }) {
-  if (obj.status === 'retired') return <StudyTerminalCardContent obj={obj} />;
+  if (obj.status === 'retired') return <ResearchTerminalCardContent obj={obj} />;
   // Human 2026-09-09 定：活跃状态的调研卡片不显示研究问题/调研目的/停止原因
   // 块——这些字段在详情页阅读布局呈现，列表卡片保持克制（24 §12 F1 允许投影
   // 但不强制；需要核对原文时 YAML 源节点有排序后的 frontmatter）。

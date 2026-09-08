@@ -70,7 +70,7 @@ const RECENT_HOTSPOT_TERMINAL_STATUSES: Record<string, Set<string>> = {
   adr: new Set(['retired']),
   pitfall: new Set(['discarded']),
   spark: new Set(['implemented', 'discarded']),
-  study: new Set(['retired']),
+  research: new Set(['retired']),
 };
 
 function getRecentHotspotStatusGroup(node: CognitionRecentHotspotNode): Exclude<RecentHotspotStatusFilter, 'all'> {

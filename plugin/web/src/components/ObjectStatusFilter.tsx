@@ -30,7 +30,7 @@ const FALLBACK_STATUSES_BY_TYPE: Record<string, string[]> = {
   adr: ['active', 'retired'],
   pitfall: ['draft', 'active', 'discarded'],
   spark: ['open', 'unclosed', 'settled', 'discarded'],
-  study: ['active', 'retired'],
+  research: ['active', 'retired'],
 };
 
 interface ObjectStatusFilterProps {
