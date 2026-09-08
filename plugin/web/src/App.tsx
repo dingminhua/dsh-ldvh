@@ -12,6 +12,7 @@ import ObjectList from '@/pages/ObjectList';
 import ObjectDetail from '@/pages/ObjectDetail';
 import Changelog from '@/pages/Changelog';
 import ChangelogDetail from '@/pages/ChangelogDetail';
+import Help from '@/pages/Help';
 import { ProjectScopeProvider } from '@/utils/projectContext';
 
 function AppRoutes() {
@@ -28,6 +29,7 @@ function AppRoutes() {
         <Route path="/objects/:type/:id" element={<ObjectDetail />} />
         <Route path="/changelog" element={<Changelog />} />
         <Route path="/changelog/:hash" element={<ChangelogDetail />} />
+        <Route path="/help" element={<Help />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

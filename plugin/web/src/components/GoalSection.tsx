@@ -104,7 +104,7 @@ export default function GoalSection() {
             {goalError && <p className="mt-1 text-xs text-red-400">{goalError}</p>}
             {goal?.statement && (
               <div className="rounded-md border border-ldvh-border/20 bg-ldvh-bg/20 px-2.5 py-2">
-                <p className="text-xs leading-relaxed text-ldvh-text-secondary">{goal.statement}</p>
+                <p className="text-sm leading-relaxed text-ldvh-text-primary">{goal.statement}</p>
               </div>
             )}
 
@@ -116,7 +116,7 @@ export default function GoalSection() {
                     <span className="ldvh-chip ldvh-chip-sm shrink-0 translate-y-[2px] border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent">
                       {sg.id}
                     </span>
-                    <span className="min-w-0 flex-1 text-xs leading-relaxed text-ldvh-text-primary">{sg.text}</span>
+                    <span className="min-w-0 flex-1 text-xs leading-relaxed text-ldvh-text-secondary">{sg.text}</span>
                   </li>
                 ))}
               </ul>
