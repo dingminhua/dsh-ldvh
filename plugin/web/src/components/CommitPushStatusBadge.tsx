@@ -63,7 +63,7 @@ export default function CommitPushStatusBadge({
       </span>
       {showTooltip ? (
         <span
-          className="pointer-events-none absolute right-0 top-full z-20 mt-1 whitespace-nowrap rounded-md border border-ldvh-border bg-ldvh-panel px-2 py-1 text-[10px] font-medium leading-4 text-ldvh-text-primary shadow-md"
+          className="pointer-events-none absolute right-0 top-full z-20 mt-1 whitespace-nowrap rounded-md border border-ldvh-border bg-ldvh-panel px-2 py-1 text-xs font-medium leading-4 text-ldvh-text-primary shadow-md"
           role="tooltip"
         >
           {label}

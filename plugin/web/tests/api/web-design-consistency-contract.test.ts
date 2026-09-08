@@ -63,7 +63,7 @@ test('object list cards use the compact metadata shared by reading surfaces', ()
     objectList.indexOf('function hasSparkResolvedFact'),
   );
 
-  assert.match(cardFrame, /ldvh-chip inline-flex h-\[18px\] shrink-0 items-center justify-center rounded-md border px-1\.5 text-\[10px\] font-medium leading-3/);
+  assert.match(cardFrame, /ldvh-chip-sm/);
   assert.match(cardFrame, /const activityCount = Array\.isArray\(obj\.change_log\) \? obj\.change_log\.length : 0/);
   assert.match(cardFrame, /<History size=\{12\} aria-hidden="true" \/>[\s\S]{0,80}<span>\{activityCount\}<\/span>/);
   assert.match(cardFrame, /<ObjectIdentityActions[\s\S]{0,460}compact/);
@@ -84,7 +84,7 @@ test('object list cards use the compact metadata shared by reading surfaces', ()
   assert.doesNotMatch(priorityIcon, /font-mono/);
   assert.match(statusBadge, /font-sans font-medium/);
   assert.doesNotMatch(statusBadge, /font-mono/);
-  assert.match(capabilityBadge, /h-\[18px\][\s\S]*text-\[10px\] font-sans font-medium leading-3/);
+  assert.match(capabilityBadge, /ldvh-chip-sm/);
   assert.match(objectList, /filteredItems\.map\(\(obj\) => renderObjectCard\(obj\)\)/);
   assert.match(identityActions, /compact\?: boolean/);
   assert.match(identityActions, /variant=\{compact \? 'compact' : undefined\}/);
@@ -100,7 +100,7 @@ test('object detail headers use compact metadata and title-scaled type icons', (
   assert.match(identityHeader, /const titleFontSize = 18/);
   assert.match(identityHeader, /const titleIconSize = Math\.round\(titleFontSize \* 1\.15\)/);
   assert.match(identityHeader, /const activityCount = Array\.isArray\(source\.change_log\) \? source\.change_log\.length : 0/);
-  assert.match(identityHeader, /ldvh-chip inline-flex h-\[18px\] shrink-0 items-center justify-center rounded-md border px-1\.5 text-\[10px\] font-medium leading-3/);
+  assert.match(identityHeader, /ldvh-chip-sm/);
   assert.match(identityHeader, /<History size=\{12\} aria-hidden="true" \/>[\s\S]{0,80}<span>\{activityCount\}<\/span>/);
   assert.match(identityHeader, /showCopyAction=\{showCopyAction\}[\s\S]{0,80}compact/);
   // Human 2026-09-09：标题缩 2 级后多行标题图标垂直居中（items-center，去掉 mt-0.5）。
@@ -191,7 +191,7 @@ test('recent hotspots keep a compact relationship overview and a focused one-hop
   assert.match(graph, /cognition\.commitHotspots\.workRelation\.related/);
   assert.match(graph, /getFieldLabel\(`relation_\$\{relationKey\.replace/);
   assert.match(graph, /className="ml-auto flex min-w-0 flex-wrap items-center justify-end/);
-  assert.match(graph, /ldvh-chip inline-flex h-\[18px\] items-center justify-center gap-1 rounded-md border border-ldvh-accent\/25 bg-ldvh-accent\/5 px-\[5px\] text-\[10px\] font-medium leading-3 text-ldvh-accent/);
+  assert.match(graph, /ldvh-chip-sm/);
   assert.match(graph, /<History size=\{12\}/);
   assert.match(graph, /mode === 'expanded'/);
   assert.match(graph, /markerStart=\{directions\.incoming/);

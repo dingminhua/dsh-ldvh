@@ -81,7 +81,7 @@ export default function ObjectReportKindFilter({
             >
               <span
                 aria-hidden="true"
-                className="inline-flex h-[18px] shrink-0 items-center justify-center rounded-md border px-1.5 text-[10px] font-medium leading-3"
+                className="ldvh-chip-sm"
                 style={{ backgroundColor: `${color}18`, borderColor: `${color}55`, color }}
               >
                 {getFieldValueLabel('report_kind', kind, locale)}

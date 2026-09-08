@@ -434,12 +434,12 @@ function CommitIdentitySection({
   const categoryMeta = headerMetaItems.length > 0 ? (
     <span className="flex min-w-0 items-center gap-2">
       <span
-        className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center rounded-md border border-ldvh-border bg-ldvh-bg px-1.5 text-[10px] font-medium leading-3 text-ldvh-text-secondary"
+        className="ldvh-chip-sm border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary"
       >
         {labels.commit}
       </span>
       <span
-        className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center rounded-md border px-1.5 text-[10px] font-medium leading-3"
+        className="ldvh-chip-sm"
         style={{ backgroundColor: `${commitColor}18`, borderColor: `${commitColor}55`, color: commitColor }}
       >
         {headerMetaItems[0]}

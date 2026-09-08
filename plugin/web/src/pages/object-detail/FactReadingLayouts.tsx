@@ -14,7 +14,7 @@ import {
 import {
   ReadingNodeSection,
   RelatedContentSection,
-  StudyTextNodeContent,
+  ResearchTextNodeContent,
   getReadingNodeNextState,
   hasDetailContent,
   type ReadingNodeState,
@@ -192,7 +192,7 @@ function AdrReadingNode({
       {issue ? <FieldProblem issue={issue} /> : kind === 'date' ? (
         <span className="ldvh-definition-text">{formatDateTime(String(value))}</span>
       ) : (
-        <StudyTextNodeContent value={value} />
+        <ResearchTextNodeContent value={value} />
       )}
     </ReadingNodeSection>
   );
@@ -368,7 +368,7 @@ function SparkReadingNode({
       onToggle={() => setState((current) => getReadingNodeNextState(current))}
     >
       {issue ? <FieldProblem issue={issue} /> : <>
-      {kind === 'intent' && <StudyTextNodeContent value={obj.intent} className="ldvh-spark-reading-prose" />}
+      {kind === 'intent' && <ResearchTextNodeContent value={obj.intent} className="ldvh-spark-reading-prose" />}
       {kind === 'summary' && <SparkSummaryNode value={obj.summary} />}
       {kind === 'evolution' && <SparkEvolutionNode value={obj.evolution} />}
       {kind === 'terminal' && <SparkTerminalNode obj={obj} />}
@@ -379,7 +379,7 @@ function SparkReadingNode({
 
 function SparkSummaryNode({ value }: { value: unknown }) {
   return (
-    <StudyTextNodeContent
+    <ResearchTextNodeContent
       value={value}
       className="ldvh-spark-reading-prose"
     />
@@ -387,7 +387,7 @@ function SparkSummaryNode({ value }: { value: unknown }) {
 }
 
 function SparkEvolutionNode({ value }: { value: unknown }) {
-  if (!Array.isArray(value)) return <StudyTextNodeContent value={value} />;
+  if (!Array.isArray(value)) return <ResearchTextNodeContent value={value} />;
   const entries = value
     .map((item, index) => parseSparkEvolutionEntry(item, index))
     .filter((entry): entry is SparkEvolutionEntry => Boolean(entry))
@@ -403,7 +403,7 @@ function SparkEvolutionNode({ value }: { value: unknown }) {
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ldvh-accent" aria-hidden="true" />
             <SparkEvolutionTime value={entry.at} />
           </div>
-          <StudyTextNodeContent value={entry.summary} compact />
+          <ResearchTextNodeContent value={entry.summary} compact />
         </div>
       ))}
     </div>
@@ -447,7 +447,7 @@ function SparkTerminalNode({ obj }: { obj: Record<string, unknown> }) {
           <SparkTerminalTime value={updatedAt} />
         </div>
       )}
-      {disposition && <StudyTextNodeContent value={disposition} compact />}
+      {disposition && <ResearchTextNodeContent value={disposition} compact />}
     </div>
   );
 }

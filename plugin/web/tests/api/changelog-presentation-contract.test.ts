@@ -79,7 +79,9 @@ test('breaking and push-state badges use one presentation in list and detail ide
   ]);
 
   assert.match(badge, /<Unplug size=\{10\}/);
-  assert.match(badge, /text-\[10px\]/);
+  // v5 现状：紧凑徽章统一走 ldvh-chip-sm 语义类，不再手写 text-[10px]。
+  assert.match(badge, /ldvh-chip-sm/);
+  assert.doesNotMatch(badge, /text-\[10px\]/);
   assert.doesNotMatch(badge, /className="ml-1\.5/);
   assert.match(badge, /t\('changelog\.breakingChange'\)/);
   assert.match(list, /entry\.isBreaking && \(\s*<CommitBreakingBadge \/>/);

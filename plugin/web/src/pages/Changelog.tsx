@@ -209,12 +209,12 @@ export default function Changelog() {
               <div className="flex min-w-0 items-center justify-between gap-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <span
-                    className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center rounded-md border border-ldvh-border bg-ldvh-bg px-1.5 text-[10px] font-medium leading-3 text-ldvh-text-secondary"
+                    className="ldvh-chip-sm border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary"
                   >
                     {t('changelog.commit')}
                   </span>
                   <span
-                    className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center rounded-md border px-1.5 text-[10px] font-medium leading-3"
+                    className="ldvh-chip-sm"
                     style={{ backgroundColor: `${typeColor}18`, borderColor: `${typeColor}55`, color: typeColor }}
                   >
                     {getCommitTypeLabel(entry.category, locale)}

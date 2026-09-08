@@ -1261,26 +1261,26 @@ export function ObjectCardFrame({
       <div className="flex min-w-0 items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span
-            className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center rounded-md border px-1.5 text-[10px] font-medium leading-3"
+            className="ldvh-chip-sm"
             style={{ backgroundColor: `${typeColor}18`, borderColor: `${typeColor}55`, color: typeColor }}
           >
             {getTypeLabel(obj.type, locale)}
           </span>
           <PriorityIcon source={obj} type={obj.type} locale={locale} size="xs" />
           <span
-            className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center gap-1 rounded-md border border-ldvh-accent/25 bg-ldvh-accent/5 px-[5px] text-[10px] font-medium leading-3 text-ldvh-accent"
+            className="ldvh-chip-sm gap-1 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent"
             title={t('cognition.recent.activityCount', { count: String(activityCount) })}
           >
             <History size={12} aria-hidden="true" />
             <span>{activityCount}</span>
           </span>
           {obj.sourceBranch && (
-            <span className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-[5px] text-[10px] font-medium leading-3 text-amber-600 dark:text-amber-400">
+            <span className="ldvh-chip-sm gap-1 border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
               {t('objectList.sourceBranch', { branch: obj.sourceBranch })}
             </span>
           )}
           {obj.mainWorktreeDiffers && (
-            <span className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center gap-1 rounded-md border border-sky-500/30 bg-sky-500/10 px-[5px] text-[10px] font-medium leading-3 text-sky-600 dark:text-sky-400">
+            <span className="ldvh-chip-sm gap-1 border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400">
               {t('objectList.mainWorktreeDiffers')}
             </span>
           )}
@@ -1606,7 +1606,7 @@ function ResearchTerminalCardContent({ obj }: { obj: ObjectItem }) {
   );
 }
 
-export function StudyCardContent({ obj }: { obj: ObjectItem }) {
+export function ResearchCardContent({ obj }: { obj: ObjectItem }) {
   if (obj.status === 'retired') return <ResearchTerminalCardContent obj={obj} />;
   // Human 2026-09-09 定：活跃状态的调研卡片不显示研究问题/调研目的/停止原因
   // 块——这些字段在详情页阅读布局呈现，列表卡片保持克制（24 §12 F1 允许投影
@@ -1908,7 +1908,7 @@ export default function ObjectList() {
     if (currentType === 'research') {
       return (
         <ObjectCardFrame key={obj.id} obj={obj} locale={locale} onOpen={openObject} showNonActiveReason={false}>
-          <StudyCardContent obj={obj} />
+          <ResearchCardContent obj={obj} />
         </ObjectCardFrame>
       );
     }

@@ -52,7 +52,7 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
         ) : (
           <>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13px] font-medium leading-4">{triggerLabel}</span>
+              <span className="ldvh-card-title block truncate text-ldvh-text-primary">{triggerLabel}</span>
               {triggerBranch && <span className="ldvh-meta mt-0.5 flex items-center gap-1 truncate"><GitBranch size={11} className="shrink-0" />{triggerBranch}</span>}
             </span>
             <ChevronDown size={13} className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -73,7 +73,7 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
               <div className="flex items-center gap-2">
                 <p className="ldvh-caption-strong">{t('projectSwitcher.label')}</p>
                 {!loading && !error && projects.length > 0 && (
-                  <span className="rounded-full border border-ldvh-text-secondary/20 bg-ldvh-bg px-1.5 py-0.5 text-[10px] font-semibold leading-none text-ldvh-text-secondary">
+                  <span className="rounded-full border border-ldvh-text-secondary/20 bg-ldvh-bg px-1.5 py-0.5 text-xs font-semibold leading-none text-ldvh-text-secondary">
                     {t('projectSwitcher.projectCount', { count: String(projects.length) })}
                   </span>
                 )}
@@ -112,7 +112,7 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
               </span>
               <span className="min-w-0 flex-1 truncate text-sm">{t('projectSwitcher.allProjects')}</span>
               {projects.length > 0 && (
-                <span className="shrink-0 rounded-full border border-ldvh-text-secondary/20 bg-ldvh-panel/70 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-ldvh-text-secondary">
+                <span className="shrink-0 rounded-full border border-ldvh-text-secondary/20 bg-ldvh-panel/70 px-1.5 py-0.5 text-xs font-semibold leading-none text-ldvh-text-secondary">
                   {t('projectSwitcher.projectCount', { count: String(projects.length) })}
                 </span>
               )}
@@ -150,11 +150,11 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-1.5">
                           <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: projectColor }} title={projectColorKey} />
-                          <span className="block truncate text-[15px] font-semibold leading-5 text-ldvh-text-primary">{project.name || project.id}</span>
+                          <span className="ldvh-card-title-prominent block truncate">{project.name || project.id}</span>
                         </span>
                         <span className="ldvh-meta mt-0.5 block truncate">{project.id}</span>
                       </span>
-                      <span className="shrink-0 rounded-full border border-ldvh-text-secondary/20 bg-ldvh-panel/70 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-ldvh-text-secondary">
+                      <span className="shrink-0 rounded-full border border-ldvh-text-secondary/20 bg-ldvh-panel/70 px-1.5 py-0.5 text-xs font-semibold leading-none text-ldvh-text-secondary">
                         {t('projectSwitcher.worktreeCount', { count: String(worktrees.length) })}
                       </span>
                     </div>
@@ -185,9 +185,9 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
                           <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${selected ? 'bg-ldvh-accent text-white' : 'bg-ldvh-border/25 text-ldvh-text-secondary group-hover:text-ldvh-text-primary'}`}>
                             <GitBranch size={12} />
                           </span>
-                          <span className="flex min-w-0 flex-1 items-center gap-2 text-[15px] font-semibold leading-5 text-ldvh-text-primary">
+                          <span className="ldvh-card-title flex min-w-0 flex-1 items-center gap-2">
                             <span className="truncate">{branch}</span>
-                            {worktree.isMain && <span className="shrink-0 rounded-full border border-ldvh-accent/25 bg-ldvh-panel px-1.5 py-0.5 text-[10px] font-medium leading-none text-ldvh-accent">{t('projectSwitcher.mainWorktree')}</span>}
+                            {worktree.isMain && <span className="shrink-0 rounded-full border border-ldvh-accent/25 bg-ldvh-panel px-1.5 py-0.5 text-xs font-medium leading-none text-ldvh-accent">{t('projectSwitcher.mainWorktree')}</span>}
                           </span>
                           {selected && <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-ldvh-accent text-white"><Check size={10} strokeWidth={3} /></span>}
                         </button>

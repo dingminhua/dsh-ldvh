@@ -166,7 +166,7 @@ export default function ObjectDetail() {
   const reportKindColor = reportKind ? (CATEGORY_COLORS[reportKind] || CATEGORY_COLORS.other) : undefined;
   const reportKindBadge = reportKind && reportKindColor ? (
     <span
-      className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center rounded-md border px-1.5 text-[10px] font-medium leading-3"
+      className="ldvh-chip-sm"
       style={{ backgroundColor: `${reportKindColor}18`, borderColor: `${reportKindColor}55`, color: reportKindColor }}
     >
       {getFieldValueLabel('report_kind', reportKind, locale)}
@@ -227,12 +227,12 @@ export default function ObjectDetail() {
               {(obj.mainWorktreeDiffers === true || (typeof obj.sourceBranch === 'string' && obj.sourceBranch.length > 0)) && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {obj.mainWorktreeDiffers === true && (
-                    <span className="ldvh-chip inline-flex h-[22px] shrink-0 items-center justify-center gap-1 rounded-md border border-sky-500/30 bg-sky-500/10 px-2 text-[11px] font-medium leading-3 text-sky-600 dark:text-sky-400">
+                    <span className="ldvh-chip-sm gap-1 border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400">
                       {t('objectList.mainWorktreeDiffers')}
                     </span>
                   )}
                   {typeof obj.sourceBranch === 'string' && obj.sourceBranch.length > 0 && (
-                    <span className="ldvh-chip inline-flex h-[22px] shrink-0 items-center justify-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 text-[11px] font-medium leading-3 text-amber-600 dark:text-amber-400">
+                    <span className="ldvh-chip-sm gap-1 border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
                       {t('objectList.sourceBranch', { branch: obj.sourceBranch })}
                     </span>
                   )}
@@ -634,7 +634,7 @@ export function ObjectIdentityHeader({
           <div className="mb-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             {showTypeBadge && (
               <span
-                className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center rounded-md border px-1.5 text-[10px] font-medium leading-3"
+                className="ldvh-chip-sm"
                 style={{ backgroundColor: `${typeColor}18`, borderColor: `${typeColor}55`, color: typeColor }}
               >
                 {typeLabel}
@@ -644,7 +644,7 @@ export function ObjectIdentityHeader({
             <PriorityIcon source={source} type={objectType} locale={locale} size="xs" />
             {showActivityCount && (
               <span
-                className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center gap-1 rounded-md border border-ldvh-accent/25 bg-ldvh-accent/5 px-[5px] text-[10px] font-medium leading-3 text-ldvh-accent"
+                className="ldvh-chip-sm gap-1 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent"
                 title={t('cognition.recent.activityCount', { count: String(activityCount) })}
               >
                 <History size={12} aria-hidden="true" />
@@ -1404,7 +1404,7 @@ export function ResearchStoppingMetaRow({ obj, locale }: { obj: Record<string, u
 }
 
 /** v5 Research 阅读布局：概览内联（正文固定 H2 分节）+ 发现单元 + 三态 + 溯源锚点回指。
- * 设计语言沿用 v4：ReadingNodeSection 折叠节点、ContentField 兜底、尾部固定序列。 */
+ * 阅读语言与详情共享：ReadingNodeSection 折叠节点、ContentField 兜底、尾部固定序列。 */
 export function ResearchReadingLayout({
   obj,
   extraEntries,
@@ -1450,17 +1450,17 @@ export function ResearchReadingLayout({
       )}
       {questionBody && (
         <ResearchBodyNode title={t('objectDetail.researchBody.question')}>
-          <StudyTextNodeContent value={questionBody} />
+          <ResearchTextNodeContent value={questionBody} />
         </ResearchBodyNode>
       )}
       {inputsBody && (
         <ResearchBodyNode title={t('objectDetail.researchBody.inputs')}>
-          <StudyTextNodeContent value={inputsBody} />
+          <ResearchTextNodeContent value={inputsBody} />
         </ResearchBodyNode>
       )}
       {investigationBody && (
         <ResearchBodyNode title={t('objectDetail.researchBody.investigation')} initial="collapsed">
-          <StudyTextNodeContent value={investigationBody} />
+          <ResearchTextNodeContent value={investigationBody} />
         </ResearchBodyNode>
       )}
       {findingsSection && (
@@ -1469,17 +1469,17 @@ export function ResearchReadingLayout({
       <ResearchUncertainGapsNode obj={obj} locale={locale} narrative={unverifiedBody} />
       {recommendationsBody && (
         <ResearchBodyNode title={t('objectDetail.researchBody.recommendations')}>
-          <StudyTextNodeContent value={recommendationsBody} />
+          <ResearchTextNodeContent value={recommendationsBody} />
         </ResearchBodyNode>
       )}
       {routingBody && (
         <ResearchBodyNode title={t('objectDetail.researchBody.routing')}>
-          <StudyTextNodeContent value={routingBody} />
+          <ResearchTextNodeContent value={routingBody} />
         </ResearchBodyNode>
       )}
       {extraSections.map((section) => (
         <ResearchBodyNode key={section.title} title={`${t('objectDetail.researchBody.unknownSection')} · ${section.title}`}>
-          <StudyTextNodeContent value={section.body} />
+          <ResearchTextNodeContent value={section.body} />
         </ResearchBodyNode>
       ))}
       {/* 启发节点（frontmatter implications 的解释性呈现）已移除——Human
@@ -1546,7 +1546,7 @@ export function ResearchKeyFindingsNode({
   if (units.length === 0) {
     return (
       <ResearchBodyNode title={t('objectDetail.researchBody.findings')}>
-        <StudyTextNodeContent value={sectionBody} />
+        <ResearchTextNodeContent value={sectionBody} />
       </ResearchBodyNode>
     );
   }
@@ -1571,7 +1571,7 @@ export function ResearchKeyFindingsNode({
               <span className="ldvh-meta-muted shrink-0 pt-0.5">{String(index + 1).padStart(2, '0')}</span>
               <span className="min-w-0 break-words">{unit.title}</span>
             </div>
-            {unit.body && <StudyTextNodeContent value={unit.body} compact className="mt-2" />}
+            {unit.body && <ResearchTextNodeContent value={unit.body} compact className="mt-2" />}
             {unit.provenanceRef ? (
               <ResearchProvenanceLine
                 provenanceRef={unit.provenanceRef}
@@ -1641,7 +1641,7 @@ export function ResearchUncertainGapsNode({
                 <div key={`gap-${index}`} className="flex min-w-0 flex-col gap-1.5 rounded-md border border-ldvh-border/50 bg-ldvh-bg/40 px-3 py-2">
                   <div className="flex min-w-0 items-start gap-2">
                     {priority && (
-                      <span className={`ldvh-chip shrink-0 rounded border px-1.5 py-0.5 text-[10px] leading-4 ${priorityClass}`}>
+                      <span className={`ldvh-chip-sm shrink-0 rounded border ${priorityClass}`}>
                         {getFieldValueLabel('priority', priority, locale)}
                       </span>
                     )}
@@ -1654,7 +1654,7 @@ export function ResearchUncertainGapsNode({
             })}
           </div>
         )}
-        {narrative && <StudyTextNodeContent value={narrative} />}
+        {narrative && <ResearchTextNodeContent value={narrative} />}
       </div>
     </ResearchBodyNode>
   );
@@ -1690,7 +1690,7 @@ export function ResearchClarificationLogNode({ obj, locale }: { obj: Record<stri
   );
 }
 
-export function StudyTextNodeContent({
+export function ResearchTextNodeContent({
   value,
   compact = false,
   className = '',

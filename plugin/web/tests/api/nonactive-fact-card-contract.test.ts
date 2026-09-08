@@ -24,5 +24,5 @@ test('non-active Spark, ADR, Pitfall, and Study cards share the terminal card gr
   assert.doesNotMatch(source, /<CopyPathButton path={obj\.path}/);
   assert.match(source, /<ObjectIdentityActions[\s\S]{0,260}target={obj\.id}/);
   assert.match(source, /copyLabel={t\('common\.copyObjectId'\)}/);
-  assert.match(source, /currentType === 'research'[\s\S]*showNonActiveReason={false}[\s\S]*StudyCardContent/);
+  assert.match(source, /currentType === 'research'[\s\S]*showNonActiveReason={false}[\s\S]*ResearchCardContent/);
 });

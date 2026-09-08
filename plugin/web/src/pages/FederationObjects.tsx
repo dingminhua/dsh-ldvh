@@ -1,7 +1,7 @@
 /**
  * 联邦对象列表（全部管辖计划 Step 4）——五类事实对象的跨项目聚合视图。
  *
- * 卡片语言沿用 v4 ObjectList 基线（ObjectCardFrame + 各类型内容组件原样复用）；
+ * 卡片语言沿用统一对象卡基线（ObjectCardFrame + 各类型内容组件原样复用）；
  * 联邦增量仅两处：卡片顶部项目色 chip（来源维度标识）与项目筛选 chips。
  * 打开对象即进入其所属项目的单项目详情（selectProject + 导航），本页不复制详情阅读。
  * 单项目专属页（目录/变更/提交）在联邦态由 Sidebar 灰显，不在本页处理。
@@ -15,7 +15,7 @@ import {
   AdrCardContent,
   PitfallCardContent,
   SparkCardContent,
-  StudyCardContent,
+  ResearchCardContent,
 } from '@/pages/ObjectList';
 import { fetchFederationObjects, type FederationObjectItem, type FederationProjectOption } from '@/utils/api';
 import { useProjectScope } from '@/utils/projectContext';
@@ -25,7 +25,7 @@ import { projectColorVar, resolvedProjectColorKey } from '@/shared/projectColors
 
 const OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research'] as const;
 
-/** 项目筛选 chips：全部 + 每项目一枚（色点 + 名称），单选，v4 tab 视觉。 */
+/** 项目筛选 chips：全部 + 每项目一枚（色点 + 名称），单选，tab 视觉。 */
 function ProjectFilterChips({
   projects,
   active,
@@ -120,7 +120,7 @@ export default function FederationObjects() {
     if (currentType === 'adr') return <AdrCardContent obj={item} />;
     if (currentType === 'pitfall') return <PitfallCardContent obj={item} />;
     if (currentType === 'spark') return <SparkCardContent obj={item} />;
-    if (currentType === 'research') return <StudyCardContent obj={item} />;
+    if (currentType === 'research') return <ResearchCardContent obj={item} />;
     if (currentType === 'workcase') {
       // WorkCase 联邦卡不复制单项目列表的阶段卡片投影（依赖当前项目的投影服务），
       // 只呈现目标一行——进入项目后阅读完整阶段卡片。

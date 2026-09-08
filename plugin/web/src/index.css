@@ -90,6 +90,13 @@
     @apply text-xs font-medium leading-4;
   }
 
+  /* Compact chip for tight 18px status/priority badges. Kept as a semantic
+     token so callers never hand-roll a bare `text-[10px]`, matching the
+     type-scale rule in docs/01 §1.4. */
+  .ldvh-chip-sm {
+    @apply inline-flex h-[18px] shrink-0 items-center justify-center gap-0.5 rounded-md border px-1.5 text-[10px] font-medium leading-3;
+  }
+
   .ldvh-tab-list {
     @apply flex flex-wrap items-center gap-1.5;
   }

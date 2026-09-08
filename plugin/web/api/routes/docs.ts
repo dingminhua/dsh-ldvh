@@ -1,5 +1,5 @@
 /**
- * GET /api/docs?path=specs/21-ADR-决策.md — 读取项目内文档内容
+ * GET /api/docs?path=specs/03-事实模型基础规范.md — 读取项目内文档内容
  */
 import { Router, type Request, type Response } from 'express'
 import { readFile } from 'fs/promises'

@@ -2,9 +2,9 @@
  * 全部管辖联邦聚焦页（全部管辖计划 Step 3）。
  *
  * 只读跨项目汇总：项目卡网格（悬置/推进/待决定计数 + 最后动态 + 进入项目）
- * 与跨项目悬置 Top 列表（项目色标识来源维度）。卡片语言沿用 v4 设计基线
+ * 与跨项目悬置 Top 列表（项目色标识来源维度）。卡片语言沿用统一设计系统
  * （ldvh-card / ldvh-meta / 左色条 = 项目色第三正交维度，不侵占类型色与状态色）。
- * 单项目详情一律经「进入项目」回到该项目的 v4 页面，本页不复制对象阅读功能。
+ * 单项目详情一律经「进入项目」回到该项目的单项目页面，本页不复制对象阅读功能。
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -85,8 +85,8 @@ export default function Federation() {
                       <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-2">
-                          <span className="truncate text-[15px] font-semibold leading-5 text-ldvh-text-primary">{project.name}</span>
-                          {project.isDefault && <span className="shrink-0 rounded-full border border-ldvh-accent/30 bg-ldvh-accent/5 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-ldvh-accent">{t('federation.defaultProject')}</span>}
+                          <span className="ldvh-card-title-prominent truncate max-w-full leading-5 text-ldvh-text-primary">{project.name}</span>
+                          {project.isDefault && <span className="shrink-0 rounded-full border border-ldvh-accent/30 bg-ldvh-accent/5 px-1.5 py-0.5 text-xs font-semibold leading-none text-ldvh-accent">{t('federation.defaultProject')}</span>}
                         </span>
                         <span className="ldvh-meta mt-0.5 block truncate">{project.id}</span>
                       </span>
@@ -144,7 +144,7 @@ export default function Federation() {
                   return (
                     <div key={`${spark.projectId}/${spark.objectId}`} className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-ldvh-border/60 bg-ldvh-bg/40 px-3 py-2">
                       {spark.priority && (
-                        <span className="ldvh-chip inline-flex h-5 shrink-0 items-center rounded-md border border-amber-500/40 bg-amber-500/10 px-1.5 text-[10px] font-semibold leading-none text-amber-700 dark:text-amber-300" aria-label={spark.priority}>
+                        <span className="ldvh-chip-sm items-center border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300" aria-label={spark.priority}>
                           {spark.priority}
                         </span>
                       )}

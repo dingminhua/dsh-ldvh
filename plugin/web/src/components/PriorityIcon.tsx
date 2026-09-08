@@ -17,19 +17,21 @@ export default function PriorityIcon({
   if (!priority) return null;
 
   const label = getPriorityLabel(priority, locale) ?? priority;
-  const sizeClassName = size === 'lg'
-    ? 'h-7 px-2'
-    : size === 'sm'
-      ? 'h-5 px-1.5'
-      : size === 'xs'
-        ? 'h-[18px] px-[5px] text-[10px] leading-3'
+  // xs 挡用紧凑 chip（10px）；其余用标准 chip（12px）。
+  const compact = size === 'xs';
+  const sizeClassName = compact
+    ? 'h-[18px] leading-3'
+    : size === 'lg'
+      ? 'h-7 px-2'
+      : size === 'sm'
+        ? 'h-5 px-1.5'
         : 'h-6 px-2';
 
   return (
     <span
       aria-label={label}
       title={label}
-      className={`ldvh-chip inline-flex shrink-0 items-center justify-center rounded-md border font-sans font-medium ${sizeClassName} ${getPriorityIconClassName(priority)} ${className}`}
+      className={`${compact ? 'ldvh-chip-sm' : 'ldvh-chip'} inline-flex shrink-0 items-center justify-center rounded-md border font-sans font-medium ${sizeClassName} ${getPriorityIconClassName(priority)} ${className}`}
     >
       {priority}
     </span>

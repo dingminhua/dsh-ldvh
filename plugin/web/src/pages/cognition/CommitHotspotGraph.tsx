@@ -295,7 +295,7 @@ function HotspotRelationLegend({ relationKeys }: { relationKeys: string[] }) {
     <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-1">
         <span className="inline-flex items-center gap-1.5 ldvh-caption text-ldvh-text-secondary">
           <span
-            className="ldvh-chip inline-flex h-[18px] items-center justify-center gap-1 rounded-md border border-ldvh-accent/25 bg-ldvh-accent/5 px-[5px] text-[10px] font-medium leading-3 text-ldvh-accent"
+            className="ldvh-chip-sm gap-1 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent"
             aria-hidden="true"
           >
             <History size={12} />
@@ -432,7 +432,7 @@ function HotspotNodeCard({
       <div className="flex h-full min-w-0 flex-col items-center justify-center gap-2 px-3 py-2.5">
         <div data-hotspot-node-header className="flex min-w-0 shrink-0 flex-wrap items-center justify-center gap-x-2 gap-y-1">
           <span
-            className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center rounded-md border px-1.5 text-[10px] font-medium leading-3"
+            className="ldvh-chip-sm"
             style={{ backgroundColor: `${node.typeColor}18`, borderColor: `${node.typeColor}55`, color: node.typeColor }}
           >
             {getTypeLabel(node.type, locale)}
@@ -440,7 +440,7 @@ function HotspotNodeCard({
           <PriorityIcon source={node} type={node.type} locale={locale} size="xs" />
           {node.activityRefs.length > 0 && (
             <span
-              className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center gap-1 rounded-md border border-ldvh-accent/25 bg-ldvh-accent/5 px-[5px] text-[10px] font-medium leading-3 text-ldvh-accent"
+              className="ldvh-chip-sm gap-1 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent"
               title={t('cognition.commitHotspots.commitRefs')}
             >
               <History size={12} aria-hidden="true" />
