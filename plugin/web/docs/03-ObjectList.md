@@ -5,6 +5,8 @@
 > API：`GET /api/objects/:type`；WorkCase 使用 `?progress=<progress_group>`，另允许 Web 派生分类 `?progress=discarded`；其它对象按各自契约使用 `?status=<status>`
 > 图标规范：[`09-图标语义规范.md`](./09-图标语义规范.md)
 
+> **v5 增量基线**：v5 迁移后的类型更名（Study→Research）、联邦视图、项目色彩与字号定案见 [`11-v5Web开发增量.md`](./11-v5Web开发增量.md)；与本文冲突时以 11 号为准。
+
 ## 1. 页面目标
 
 对象列表用于浏览单一对象类型下的事实对象，并通过该对象类型的浏览分类快速缩小范围。WorkCase 使用 Web 派生的“进展分组”，不能把它写成事实状态或生命周期。

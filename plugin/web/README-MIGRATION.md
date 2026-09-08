@@ -52,6 +52,19 @@ node --import tsx --test tests/api/settings.test.ts
 
 ## 后续步骤（本目标剩余）
 
-2. 色板数据层（governed-projects.yaml `color` 字段 + Settings 色板选择器 + 切换器色点）
-3. 全部管辖作用域（切换器「全部管辖」选项 + 联邦聚焦页 + 联邦聚合 API）
-4. 联邦列表（跨项目聚合 + 项目色 chip + 项目筛选 chips；单项目专属页联邦态灰显）
+2. 色板数据层（governed-projects.yaml `color` 字段 + Settings 色板选择器 + 切换器色点）——**已落地**（项目色彩第三正交维度，`shared/projectColors.ts` + `--ldvh-pj-*` 令牌）
+3. 全部管辖作用域（切换器「全部管辖」选项 + 联邦聚焦页 + 联邦聚合 API）——**已落地**（`/federation`、`/federation/objects/:type`，项目色 chip 与筛选）
+4. 联邦列表（跨项目聚合 + 项目色 chip + 项目筛选 chips；单项目专属页联邦态灰显）——**已落地**
+
+## 设计语言一致性审计（2026-09-10）
+
+v5 迁移后对整体设计语言做了一致性审计，修复清单与 v5 增量基线见 [`docs/11-v5Web开发增量.md`](./docs/11-v5Web开发增量.md)。要点：
+
+- 事实模型同步收尾：`ObjectStatusFilter` / `CognitionCenter` 的 `study` 兜底键改 `research`；`retirement_reason` 枚举加入 i18n 闭集映射并本地化展示。
+- 联邦两页对齐 v4 卡片语言：`ldvh-section-grid`（容器驱动，去 `sm:/md:/xl:` 断点列数）、`ldvh-page-toolbar-action` 令牌按钮、无框 `py-20` 空态/加载态、数字指标改 `text-xl`。
+- 清理死类与冗余：`ObjectList` 的 `text-ldvh-text`（未定义令牌）、`ObjectDetail` 标题字号冗余三元式；`StudyTerminalCardContent` 更名 `ResearchTerminalCardContent`。
+- 文档：01/10 更新上位规范引用（v5 编号：03 事实模型、10 Web 呈现、09 Code、07 管辖、24 Research）与字号定案；新增 11 号 v5 增量文档并挂入各页面文档索引。
+
+> 契约测试 spec 载体收敛（2026-09-10 后）：v4 编号的 spec 附件与类型规范文件（`08-Web 呈现与交互规范.md`、`22-ADR-决策.md`、`23-Pitfall-踩坑经验.md`、`03/05/08 .Att` 附件）在 v5 已被代码模块取代——`shared/workcaseStatus.ts`（进展分组/四步）、`shared/projectColors.ts`、`src/utils/commitLabels.ts`、`api/services/factFieldContract.ts`、`src/i18n/locales.ts`。相应契约测试（workcase-presentation-spec-contract 前 4 例、commit-label-contract、fact-field-contract、fact-reading-headings-contract）已改为从代码模块自洽断言，**不再依赖 v4 归档，可在 v5 仓库直接解析**。
+
+> 契约测试 v5 现状全绿（2026-09-10 后）：除上文的 spec 载体收敛外，B 类 API 集成用例的 v4 Python Helper 依赖也已解除——治理范围一律改走 Node git 解析分支（`governanceScope` 的 `LDVH_GOVERNED_PROJECTS_CONFIG` v5 登记模式）。为此：`cognition-inbox-contract` 默认读取 dsh-ldvh 所在工作区管辖配置；`project-files` / `commit-dto` 指向自建测试治理 YAML；`changelog-presentation-contract` 的徽章断言对齐 v5 当前源码（Badge 不再带 `ml-1.5`，`headerMetaItems` 内联进类型 chip）。当前 `node --import tsx --test tests/api/*.test.ts` **244/244 全绿**，不再依赖 v4 归档。
