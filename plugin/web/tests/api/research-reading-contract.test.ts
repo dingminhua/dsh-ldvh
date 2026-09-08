@@ -135,8 +135,10 @@ test('Research projection order and i18n labels cover the v5 thin-index fields',
   assert.match(locales, /'objectDetail\.researchBody\.question': 'Research Question'/);
   assert.match(locales, /'objectDetail\.researchBody\.findings': 'Key Findings'/);
 
-  // 列表卡片：F1 投影的 research_question 摘要行；v4 report_kind chip 移除。
-  assert.match(list, /obj\.research_question\?\.trim\(\)/);
+  // 列表卡片：活跃调研不渲染内容块（Human 2026-09-09 定——研究问题/目的/
+  // 停止原因在详情页呈现，卡片保持克制）；v4 report_kind chip 移除。
+  assert.match(list, /export function StudyCardContent/);
+  assert.doesNotMatch(list, /obj\.research_question\?\.trim\(\)/);
   assert.doesNotMatch(list, /obj\.report_kind/);
 });
 
