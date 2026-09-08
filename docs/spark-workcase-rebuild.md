@@ -1,7 +1,7 @@
 # Spark 与 WorkCase 重建总纲（唯一讨论锚点）
 
 > 性质：讨论工作稿 + 调研收敛文档（非规范、非事实对象）。
-> 地位：**本文是 Spark（20 号）、WorkCase（21 号）、Goal（25 号候选）、Initiative（26 号候选）重建的唯一讨论锚点**——Human 指令（2026-09-06）：相关讨论此后只通过本文档展开，不再另开分散报告。
+> 地位：**本文是 Spark（20 号）、WorkCase（21 号）、Goal（25 号）重建的唯一讨论锚点（Initiative 26 号已砍除——裁定 13）**——Human 指令（2026-09-06）：相关讨论此后只通过本文档展开，不再另开分散报告。
 > 来源：收敛自已删除的九份文档（Spec Kit 调研、五 DSH 生态项目调研七件、v5 机制地图）+ v4 深读 + 本线架构问答。
 > 收敛时间：2026-09-06；**2026-09-08 更新：事实对象架构定稿 v2 并入（§5，Human 基本认可）**。关键证据携带源仓库路径（六个迁出快照仍在 `/Users/dmh2002/DshProject/`，见 §11），file:line 可复核。
 
@@ -9,30 +9,27 @@
 
 ## 0. 一段话总纲
 
-v4 用 24 天（103 Spark + 152 WorkCase）验证了「项目尺度治理」可行但死于自身重量；Spec Kit（133,595★）验证了「feature 尺度生成纪律」的市场；五个 DSH 生态项目从不同方向证明「单元端点治理」是全生态的结构性空位。三场调研拼合后的结论：**LDVH 的成立条件 = 用 Spec Kit 级的轻，做 v4 级的治理**。2026-09-08 架构问答收敛出完整方案（§5）：**一个锚（goal）、一条分解链（Initiative→WC）、一间候诊室（Spark）、一个知识库（ADR/Pitfall/Research）、一张规划面（蓝图）**——七类型 + 蓝图特殊载体，每层一个职责、一种变化频率、一组消费点。
+v4 用 24 天（103 Spark + 152 WorkCase）验证了「项目尺度治理」可行但死于自身重量；Spec Kit（133,595★）验证了「feature 尺度生成纪律」的市场；五个 DSH 生态项目从不同方向证明「单元端点治理」是全生态的结构性空位。三场调研拼合后的结论：**LDVH 的成立条件 = 用 Spec Kit 级的轻，做 v4 级的治理**。2026-09-08 架构问答收敛出完整方案（§5）：**一个锚（goal）、一条分解链（sub-goal→WC）、一间候诊室（Spark）、一个知识库（ADR/Pitfall/Research）、一张规划面（蓝图）**——七类型 + 蓝图特殊载体，每层一个职责、一种变化频率、一组消费点。
 
 ---
 
-## 1. 四层概念图（v2，含 Initiative）
+## 1. 三层概念图（v3，裁定 13 砍 Initiative）
 
 ```
 goal.md          为什么 · 算成什么样          1 个｜年+ 尺度｜冻结（改动=Human Gate）
-   │             目标陈述 + G-SC-x 项目级成功标准（锚点永不换号）
+   │             目标陈述 + sub-goal SG-n 子目标锚点（锚点永不换号）
    ▼
-Initiative            哪个专项 · 何时收官             5–15 个｜月级尺度｜并行 active 1–3
-   │             专项陈述 + 完成判定；serves: G-SC-x（受控开/关）
-   ▼
-WorkCase        执行件：授权·执行·验证·残留     多个｜天/周尺度｜Gate 1 必引所属 Initiative
+WorkCase        执行件：授权·执行·验证·残留     多个｜天/周尺度｜Gate 1 必引 sub-goal 锚点
    │             Gate1 授权 → 执行 → 复核 → Gate2 关闭（四态终态）
    ▼
 任务勾选         今天做什么                    WC 内部（T 编号 + [P] 并行标记 + 勾选）
 
-Spark 横切全部层级（Goal 层方向疑问 / Initiative 层专项疑点 / WC 层执行发现的候诊室）
-BLUEPRINT.md = goal + active Initiative + WC + open Spark 的投影（唯一 authored 规划区）
+Spark 横切全部层级（Goal 层方向疑问 / WC 层执行发现的候诊室）
+BLUEPRINT.md = goal + active WC + open Spark 的投影（唯一 authored 规划区）
 ```
 
-- **引用链（机械可查）**：`WC → Initiative（serves）→ G-SC → goal`，每级只引上一级，不跳级。
-- **粒度错位的实例证据**：v4 是 24 天 152 个 WC（日均 6 个），领域分布几乎全是维护性工作，没有一个是产品意义上的 feature；Spec Kit 的 feature 是数天级产品能力单元。Initiative 吸收产品轴（feature ≈ Initiative 的产品语义特例）与专项轴。
+- **引用链（机械可查）**：`WC → sub-goal（serves: SG-n）→ goal`，每级只引上一级，不跳级。
+- **粒度错位的实例证据**：v4 是 24 天 152 个 WC（日均 6 个），领域分布几乎全是维护性工作，没有一个是产品意义上的 feature；Spec Kit 的 feature 是数天级产品能力单元。sub-goal 吸收产品轴（feature ≈ SG-n 的产品语义特例——feature 直接 serves 某条子目标）与专项轴。
 - **Spark 对应的空位**：Spec Kit 完全没有「悬置想法」层——想法只存在于聊天里。六样本光谱里另一个无人占据的位置。
 - 谱系考古：`.trae/specs/`（本机 Trae 时代 v3 原型遗物，OpenSpec 格式族）显示 Task 轴（acceptance 勾选清单+独立 agent 验证）在 Trae 时期已被 Human 自己搭过——分层概念是长期演化结果，非新发明。
 
@@ -144,13 +141,13 @@ BLUEPRINT.md = goal + active Initiative + WC + open Spark 的投影（唯一 aut
 
 ## 5. 事实对象架构定稿（v2，Human 基本认可 2026-09-08）
 
-> 认可口径（Human 原话引）：「一个锚（goal）、一条分解链（Initiative→WC）、一间候诊室（Spark）、一个知识库（ADR/Pitfall/Research）、一张规划面（蓝图）——七类型 + 两特殊载体，每层一个职责、一种变化频率、一组消费点。」精确记账：七个类型（21 WC / 20 Spark / 25 Goal / 26 Initiative / 22 ADR / 23 Pitfall / 24 Research）+ 蓝图（非类型投影文档）；goal 为七类型之一但采用单例免机械特例。
+> 认可口径（Human 原话引，裁定 10 时代）：「一个锚（goal）、一条分解链、一间候诊室（Spark）、一个知识库（ADR/Pitfall/Research）、一张规划面（蓝图）。」**裁定 13 更新**：分解链= sub-goal→WC（两层），类型= 六个（21 WC / 20 Spark / 25 Goal / 22 ADR / 23 Pitfall / 24 Research）+ 蓝图（非类型投影文档）；goal 为六类型之一但采用单例免机械特例。
 
 ### 5.0 设计公理（四条）
 
-1. **按消费点设型，不按信息分类学设型**——每个对象必须回答「哪个流程位**必引**它」；v1 阶段目标是「先造再找消费点」的反面教材，Initiative 是「消费点先暴露缺口」（Gate 1 引用位、蓝图投影、锚点稳定性）的正面示范。
+1. **按消费点设型，不按信息分类学设型**——每个对象必须回答「哪个流程位**必引**它」；v1 阶段目标是「先造再找消费点」的反面教材，sub-goal 是「消费点先暴露缺口」（Gate 1 引用位、蓝图投影、锚点稳定性）的正面示范。
 2. **变化频率决定载体重量**——冻结的住锚、月级的住轻容器、节点级的住活文档、日级的住事实对象；频率混装 = dev-memo 病根。
-3. **单例用路径约束，多例才用身份机械**——goal.md 免 UID/目录/F0 召回；Initiative 及以下用全套身份机械。
+3. **单例用路径约束，多例才用身份机械**——goal.md 免 UID/目录/F0 召回；多例类型用全套身份机械。
 4. **被历史引用的锚点，定义处必须低频稳定**——WC 是不可变历史，它引用的上游（Initiative→G-SC）不能住在常动文档里。
 
 ### 5.1 三层语义模型（内容按时间指向分层）
@@ -158,23 +155,21 @@ BLUEPRINT.md = goal + active Initiative + WC + open Spark 的投影（唯一 aut
 | 层 | 内容 | 消费方式 |
 |---|---|---|
 | **知识层**（已定之事·回溯记录） | ADR / Pitfall / Research | 行动前预检、审议上下文、故障调查入口——「回溯记录、前瞻消费」，不承载「接下来做什么」 |
-| **前向层**（未来安排） | goal（锚）→ Initiative（专项）→ WC（执行件） | Gate 1/Gate 2 强制引用；蓝图投影；跨会话恢复 |
+| **前向层**（未来安排） | goal（锚）→ sub-goal（SG-n）→ WC（执行件） | Gate 1/Gate 2 强制引用；蓝图投影；跨会话恢复 |
 | **悬置层**（未定之事） | Spark | 召回、查重、分流——宽进严出的候诊室，横切全部层级 |
 
-### 5.2 事实对象名册（七件）
+### 5.2 事实对象名册（六件，裁定 13 砍 Initiative 后）
 
 | 对象 | 编号 | 层 | 承载 | 状态机 | 实例量 | 创建/变更权 | 结构性消费点 |
 |---|---|---|---|---|---|---|---|
 | **WorkCase** | 21 | 前向·执行 | 授权包、执行、验证、残留责任 | open→closed；completed/partial/not-achieved/cancelled | 多（v4 日均 6） | 受控创建；C2 授权钉扎 | Gate 1/2 模板强制引用；蓝图「进行中/已完成」；跨会话恢复 |
 | **Spark** | 20 | 悬置 | intent/summary/evolution 三分工 | open→implemented/discarded | 多（v4 103） | AI 问句准入 | 新主题召回；创建任何对象前查重；蓝图「悬而未决」 |
 | **goal.md** | 25 | 前向·锚 | 目标陈述 + G-SC-x（冻结锚点）+ status | active→achieved（=项目收官，唯一翻转） | **单例** | Human Gate | Gate 1 链顶；蓝图「当前目标」投影源；讨论三件套之一 |
-| **Initiative** | 26 | 前向·专项 | 专项陈述 + 完成判定 + serves:G-SC-x | active→closed（翻篇=受控操作+Human 确认） | 5–15/项目，并行 active 1–3 | 受控开/关 | **Gate 1 直接引用对象**；蓝图「当前专项/下一步」投影；关闭刷新「已完成」 |
 | **ADR** | 22 | 知识 | 决定/备选与理由/适用范围/证据 | active/retired | 低频 | 受控创建 | 遵守预检、审议上下文（「历史上否过什么」） |
 | **Pitfall** | 23 | 知识 | 症状/触发条件/规避/验证 | active/discarded | 低频 | 受控创建 | 执行前预检、故障调查入口 |
 | **Research** | 24 ✅已建 | 知识 | 三态证据、引用闭环、implications | — | 按需 | 11 号调研系统全链路 | 调研入口（已实现）；方案论证 |
 
 - **goal.md 单例三免**：免 UID（路径 `ldvh-base/goal.md` 即身份，仓库先例 specs/00）、免目录/文件名编码、免 F0 召回（直读）；写入入口拒绝重复创建 = 免费基数校验。
-- **Initiative 轻在哪**：无自己的成功标准体系（完成判定是翻篇条件，不是 SC 层级）；无预排 WC 列表（成员关系由 WC 的 Gate 1 引用建立，倒挂挂靠）；无执行语义。载体 `ldvh-base/initiatives/initiative-<uid>.md`。
 
 ### 5.3 蓝图（BLUEPRINT.md，非类型特殊载体）
 
@@ -183,10 +178,10 @@ BLUEPRINT.md = goal + active Initiative + WC + open Spark 的投影（唯一 aut
 | 区块 | 性质 | 来源 |
 |---|---|---|
 | 当前目标 | 投影 | goal.md 稳定层 |
-| 当前专项 | 投影 | active Initiative 列表 |
-| 下一步 | **手写**（全库唯一 authored 规划区） | 排队 Initiative 排序 + 未物化安排 |
-| 已完成 | 投影 | closed Initiative 及其名下 WC 关闭链 |
-| 进行中 | 投影 | open WC（按 Initiative 分组） |
+| 当前子目标 | 投影 | active WC 按 SG-n 分组 |
+| 下一步 | **手写**（全库唯一 authored 规划区） | 排队工作排序 + 未物化安排 |
+| 已完成 | 投影 | closed WC 关闭链（按 SG-n 分组） |
+| 进行中 | 投影 | open WC（按 SG-n 分组） |
 | 悬而未决 | 投影 | open Spark |
 
 红线：不是第二事实源——手写区只放未物化安排，物化即变 WC 引用；投影沿引用链机械可重建，不依赖散文。
@@ -196,9 +191,9 @@ BLUEPRINT.md = goal + active Initiative + WC + open Spark 的投影（唯一 aut
 | 候选 | 归宿 | 一句话 |
 |---|---|---|
 | 阶段目标（v1 设计） | **退役** | 带成功标准状态机的重阶段是过度设计；其意图/实体/判定/历史四部分各有归宿（蓝图手写区 / WC / WC 关闭链 / 蓝图 git 历史） |
-| Milestone / Phase | 无对象 | 是 Initiative 内部叙述（完成判定的展开），不设状态机 |
-| Feature | Initiative 的产品语义特例 | 产品项目里 feature≈Initiative；外部流水线工件（Spec Kit specs/ 目录等）经端点契约收割后挂靠对应 Initiative，不做副本 |
-| Plan（规划） | 视图，非对象 | = 冻结锚 + active Initiative + WC + Spark 联查投影；对象化即第二事实源 |
+| Milestone / Phase | 无对象 | 是 WC 的内部叙述，不设状态机 |
+| Feature | sub-goal 的产品语义特例 | 产品项目里 feature≈SG-n；外部流水线工件（Spec Kit specs/ 目录等）经端点契约收割后挂靠对应 sub-goal，不做副本 |
+| Plan（规划） | 视图，非对象 | = 冻结锚 + sub-goal + WC + Spark 联查投影；对象化即第二事实源 |
 | Charter | 规范源（项目级 spec） | 「必须被遵守」是规则语义，进 specs/ 不进事实源 |
 | 使用证据/效用账本 | 关系字段 + 轨迹只读聚合 | 待定项 18 已定 |
 | 反思流水 | 运行状态 | 只记录不行动；采纳后经沉淀分流落位 |
@@ -208,22 +203,17 @@ BLUEPRINT.md = goal + active Initiative + WC + open Spark 的投影（唯一 aut
 
 ```
 Spark（候诊室，横切三层）
-  ├─ 值得追·是工作 ──────▶ WC（物化；Gate 1 引 Initiative）
-  ├─ 值得追·是专项 ──────▶ Initiative（开新专项；罕见）
-  ├─ 动了方向本身 ────────▶ goal.md 修订（Human Gate；极罕见）
+  ├─ 值得追·是工作 ──────▶ WC（物化；Gate 1 引 SG-n）
+  ├─   ├─ 动了方向本身 ────────▶ goal.md 修订（Human Gate；极罕见）
   ├─ 想清且属知识 ────────▶ ADR / Research
   ├─ 验证出坑 ────────────▶ Pitfall
   └─ 不追 ────────────────▶ discarded（留尸不占坑）
 
-Initiative 生命周期
-  开专项（受控创建，serves 某条 G-SC）→ 挂靠 WC 们（Gate 1 引用建立）
-  → 完成判定满足 → 关闭（翻篇）→ 蓝图「已完成」刷新；名下未了 WC 处置显式化
-
 WC 关闭（Gate 2）
   → 沉淀判断：值得留的 → ADR/Pitfall/Research/模板改进
-  → 蓝图投影刷新；外部流水线工件经端点契约收割挂 Initiative
+  → 蓝图投影刷新；外部流水线工件经端点契约收割挂 sub-goal
 
-引用链：WC → Initiative（serves）→ G-SC → goal，全链机械可查
+引用链：WC → sub-goal（serves: SG-n）→ goal，全链机械可查
 ```
 
 ### 5.6 家族统一约定
@@ -234,12 +224,12 @@ WC 关闭（Gate 2）
 
 | 痛点 | 承载 |
 |---|---|
-| 1 规划模糊、来去不可答 | goal（为什么/去哪）+ Initiative 链（走过哪些专项）+ 蓝图（现在哪） |
+| 1 规划模糊、来去不可答 | goal（为什么/去哪）+ sub-goal 锚点链 + 蓝图（现在哪） |
 | 2 灵感流失 | Spark（v4 103 实例验证） |
-| 3 进展断续 | WC + Initiative 分组 + 蓝图投影（双粒度恢复） |
+| 3 进展断续 | WC + sub-goal 分组 + 蓝图投影（双粒度恢复） |
 | 4 经验沉没 | ADR/Pitfall/Research + 关闭沉淀端点 + 预检消费 |
 
-AI 侧：漂移→Gate 1 引用链（WC↔Initiative↔goal 对不上即暴露）；自欺→C2 授权钉扎 + WC 四态终态 + B3 复核专属勾选权；遗忘→结构性消费点（接线，不靠召回）。
+AI 侧：漂移→Gate 1 引用链（WC↔sub-goal↔goal 对不上即暴露）；自欺→C2 授权钉扎 + WC 四态终态 + B3 复核专属勾选权；遗忘→结构性消费点（接线，不靠召回）。
 
 ### 5.8 命名对表（业界通行做法核查，2026-09-08）
 
@@ -272,7 +262,7 @@ AI:   你想做一个什么项目？说说想实现什么
 Human: 口语描述（松、多句、带背景均可）
 AI:   提炼目标陈述 + G-SC 草案（编号锚点）→ 逐条确认/修改/删除
 AI:   受控写入 ldvh-base/goal.md（change_log 首条，会话署名）
-AI:   顺手提议「要不要先立一两个 Initiative？」（可选跟跑，goal 可先独自存在）
+AI:   顺手提议「要不要先精化几条 sub-goal？」（可选跟跑，goal 可先独自存在）
 ```
 
 理由：表单只拿到字符串，精化与事实源关联仍需对话——流程切成两半两半都别扭；对话形态人只说想说的话、AI 负责变成结构，摩擦最低。「项目初始化对话」有固定形态（触发句/引导步骤/产出契约），登记为行动模板候选（30-38 段），暂由引导段指引 AI 行为。
@@ -297,13 +287,12 @@ AI:   顺手提议「要不要先立一两个 Initiative？」（可选跟跑，
 ```
 goal.md 修订（Human Gate + change_log 一句话理由；AI 只能提议修订——C1 模式）
   ▼ 机械扫描（纯引用链查询，无 AI 判断）
-serves 受影响 G-SC 的 active Initiative → 标记「goal-changed 待核对」
-  ▼ 逐专项核对（AI+Human，每专项一次便宜的局部确认）
-调整内容 / 关闭 / 保持原样（各留 change_log）→ 名下 active WC 标记待核对
-  ▼ WC 核对：Gate 1 授权依据变化 → C2 局部重批（不整单重走）→ 到此为止
+serves 受影响 sub-goal 的 active WC → 标记「goal-changed 待核对」
+  ▼ 逐 WC 核对（AI+Human）
+调整内容 / 关闭 / 保持原样（各留 change_log），按 C2 语义局部重批 → 到此为止
 ```
 
-四约束：①**只到 active 对象**（closed 是历史，锚定的是当时的 goal，不重写——级联半径天然有限：active Initiative 1–3 个）；②**Spark 明确豁免**（横切三层不锚定 goal，想法是否还值得追是 Spark 自己的事）；③**每一跳是标记非动作**（机械层只找受影响者/打标/生成待办；改动永远发生在那一层的对话里）；④**频率兜底**（goal 修订是季度级罕见事件，级联虽环节多但每次面对小集合）。与 C2 共用同一套标记/待办机械，不为 goal 单独发明。
+三约束（裁定 13 简化后）：①**只到 active 对象**（closed 是历史，锚定的是当时的 goal，不重写）；②**Spark 明确豁免**（横切不锚定 goal）；③**每一跳是标记非动作**（机械层只找受影响者/打标/生成待办；改动永远发生在对话里）。与 C2 共用同一套标记/待办机械，不为 goal 单独发明。
 
 **升级路径**（存量管辖项目）：「更新修复」按钮扩展第三职能（刷 Hook+补事实源+**补 goal 检测**）；或首次 AI 会话检测缺失引导初始化；Web 横幅持续显示直至补齐。
 
@@ -332,7 +321,7 @@ serves 受影响 G-SC 的 active Initiative → 标记「goal-changed 待核对�
 
 **优先迁移保留**：spark-0040（知识激活主线）——它是 12 号记忆系统的现成需求陈述。
 
-**分流去向（v2 更新）**：见 §5.5——新增「值得追·是专项 → Initiative」「动了方向本身 → goal.md 修订（Human Gate）」两条。
+**分流去向（v2 更新）**：见 §5.5——新增「动了方向本身 → goal.md 修订（Human Gate）」。
 
 ---
 
@@ -343,12 +332,12 @@ serves 受影响 G-SC 的 active Initiative → 标记「goal-changed 待核对�
 **本轮新增设计输入**：
 1. **C1 AI 提案对象模式**（spec-collab 四层门）：`ldvh_*` 工具改造——AI 调用只产出提案对象（候选 patch/结构化发现/待办），写正式状态（受控写入/状态转换/关闭）的动作走 human 专属入口；
 2. **C2 授权钉扎 + 受影响范围自动失效**：Gate 1 授权绑定 commit 快照；执行中范围变化→受影响 scope 授权自动失效→生成 reconfirm 待办，**局部重批不整单重走**（wc-62「批准的与做的相反」的机械正解）；
-3. **端点契约五契位**（外部流水线产物如何被接住）：specflow goal-complete 接缝（最干净）/ keel AUDIT 三件套（结果+证据+偏差+复盘 = Gate 2 关闭提案的证据结构）/ openspec、spec-loop 的 archive 变更集 / spec-collab ReadyPackage+sha256——选型随 21 号实施定；收割产物挂靠对应 **Initiative**（§5.4 Feature 归宿）；
-4. **粒度裁决规则（v2 更新）**：WC = 可独立关闭的责任单元（天/周尺度，通常比 feature 小）；Initiative 是其上的分组容器（月级，并行 1–3）；feature 是 Initiative 的产品语义特例，可来自外部流水线；
+3. **端点契约五契位**（外部流水线产物如何被接住）：specflow goal-complete 接缝（最干净）/ keel AUDIT 三件套（结果+证据+偏差+复盘 = Gate 2 关闭提案的证据结构）/ openspec、spec-loop 的 archive 变更集 / spec-collab ReadyPackage+sha256——选型随 21 号实施定；收割产物挂靠对应 **sub-goal**（§5.4 Feature 归宿）；
+4. **粒度裁决规则（v2 更新）**：WC = 可独立关闭的责任单元（天/周尺度，通常比 feature 小）；sub-goal 是其上的分组锚点（月级）；feature 是 sub-goal 的产品语义特例，可来自外部流水线；
 5. **F1 复选框任务级进度**：tasks.md 形态（`[ ]`/`[x]`+T 编号+[P] 并行标记）作为 work items 的下限形态——30-38 模板从勾选框下限开始长，每加一层机制须回答「防 v4 哪个实际发生过的问题」，答不出不加；
 6. **K1 关闭条件规则 ID**：21 的关闭判定每条给稳定 ID，Gate 输出 {rule, severity, line} 结构化 finding；
 7. **B3 reviewer-owned 勾选权**：独立复核的最便宜形态——快通道档用「只能由复核方勾的清单」，标准档以上才上 subagent 对抗（对治 v4 独立审核 7 次返工的重量）；
-8. **Gate 1 引用位（v2 更新）**：终态引用对象为所属 **Initiative**（链：WC→Initiative→G-SC→goal）；Initiative（26 号）落地前允许过渡直引 G-SC，落地后切换——21 号实现时预留引用位抽象。
+8. **Gate 1 引用位（v2 更新）**：终态引用对象为 **sub-goal 锚点**（链：WC→SG-n→goal）。
 
 **开放问题（随实施裁决）**：attempt 单调令牌 vs v4 指纹 CAS 的取舍；快通道准入判据（keel 规模变体判据可参考）；授权包字段集瘦身（v4 八组件 → 最小充分集）；Output Envelope 五方循环引用切分（02 定语义字段 / 05 定序列化 / 其余只引用——Spec Kit「Done When 三勾+Completion Report」为最小参照）。
 
@@ -405,13 +394,11 @@ workflows YAML 引擎与四层定制栈（Spec Kit）；社区市场信任模型
 
 类型重建窗口（每步走质量链：候选起草 → 独立对抗审核 → Human 终审 → 受控提交）：
   ③ 21 WorkCase（最重投入：C1 提案对象模式 + C2 授权钉扎 + F1 勾选框下限 + B3 复核专属勾选权；
-     Gate 1 引用位预留 Initiative 抽象，26 号落地前过渡直引 G-SC）
+     Gate 1 引用位直引 sub-goal SG-n）
   ④ 20 Spark（问句准入替代 25 条 Stop；三分工保留；spark-0040 优先迁移）
   ⑤ goal.md + 25 号迷你规范（~80 行；单例三免；首个实例=狗粮「建成 LDVH」；
      落地设计已定稿见 §5.10——初始化对话采集/G-SC 延后精化/C2 链式级联/三位置分工）
-  ⑥ Initiative + 26 号迷你规范（~100 行；Gate 1 引用切换至 Initiative）
-     （⑤⑥ 同批走正式 Human Gate：七类型名单是 00 §4.2 根决定——架构已基本认可，正式批准随重建启动）
-  ⑦ 22 ADR / 23 Pitfall 最小骨架（4 字段下限；消费点[Gate 1 预检位]做实后再丰满；
+  ⑥ 22 ADR / 23 Pitfall 最小骨架（4 字段下限；消费点[Gate 1 预检位]做实后再丰满；
      字段减法定案继承——trigger_signal/scope_of_impact/action_relevance 不回来）
 
 存量迁移（随类型落地、走受控入口，不 git 复制）：
@@ -465,15 +452,15 @@ v4 WC 三阶段（需求审核+执行+结果审计）的摩擦病灶在需求审
 |---|---|---|---|
 | 1 | Spark 查重入口的轻量化形态（防「绕过查重直接开新」） | 20 | 开放 |
 | 2 | evolution 上限/priority 字段去留 | 20 | 开放 |
-| 3 | Spark→Research 分流判据（含 Spark→Initiative/goal 修订的新分流路径） | 20/24/26 | 开放 |
+| 3 | Spark→Research 分流判据（含 Spark→goal 修订的新分流路径） | 20/24 | 开放 |
 | 4 | attempt 令牌 vs 指纹 CAS | 21/08 | 开放 |
 | 5 | 快通道准入判据（「小工作」的定义；keel 规模变体判据参考） | 21/04 | 开放 |
 | 6 | 授权包字段集瘦身（八组件→最小充分集） | 21 | 开放 |
-| 7 | 端点契约五契位选型 + 收割产物挂靠 Initiative 的具体格式 | 21/26 | 开放 |
+| 7 | 端点契约五契位选型 + 收割产物挂靠 sub-goal 的具体格式 | 21 | 开放 |
 | 8 | Output Envelope 循环引用切分（02/05 权责） | 02/05 | 开放 |
 | 9 | 独立复核分层（B3 清单 vs subagent 对抗的档位线） | 21/04 | 开放 |
-| 10 | Initiative 完成判定的形态（清单式 vs 叙述式） | 26 | 开放 |
-| 11 | Initiative 关闭时名下未了 WC 的处置语义（强制收口 vs 显式转专项） | 26 | 开放 |
+| — | ~~Initiative 完成判定的形态~~ | — | **已关闭**：Initiative 层砍除（裁定 13） |
+| — | ~~Initiative 关闭时名下未了 WC 的处置语义~~ | — | **已关闭**：Initiative 层砍除（裁定 13） |
 | 12 | goal.md 措辞与 G-SC 初始集 | 25 | 开放（LDVH 自填样例已备 §5.10，起草时呈 Human 审） |
 | 13 | 讨论视角切分方法（方案空间怎么切出互不重叠的候选路线） | 12 | 开放 |
 | 14 | 依据装配的召回入口（复用 Gate 1 链顶/新建讨论前置装配器） | 12/08 | 开放 |
