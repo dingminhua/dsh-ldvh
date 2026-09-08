@@ -36,7 +36,7 @@ test('current Web commit labels are a complete closed set with full locale mappi
   assert.equal(new Set(scopes).size, scopes.length, 'commit scopes 不应有重复');
   // v5 类型系统：research 取代 v4 的 study，作为提交范围承载。
   assert.ok(scopes.includes('research'));
-  assert.ok(!scopes.includes('study'), 'v5 不应再保留 study 范围');
+  assert.ok(!scopes.includes('study' as (typeof scopes)[number]), 'v5 不应再保留 study 范围');
 
   // 每个闭集成员都有中英文标签，且闭集与 locales 提供的标签对照一致。
   for (const type of types) assertEveryTypeHasLabel(type);
