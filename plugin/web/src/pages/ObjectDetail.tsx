@@ -613,8 +613,10 @@ export function ObjectIdentityHeader({
   const { selectedProjectId } = useProjectScope();
   const TitleTag = compact ? 'h3' : 'h1';
   const titleClassName = compact ? 'ldvh-reading-title' : 'ldvh-page-title';
-  const titleFontSize = compact ? 16 : 20;
-  const titleIconSize = Math.round(titleFontSize * 1.25);
+  // 标题字号缩 2 级后（Human 2026-09-09）：主标题 14px、阅读标题 12px；
+  // 图标随字号同步（约 1.15 倍），多行时与标题垂直居中。
+  const titleFontSize = compact ? 12 : 14;
+  const titleIconSize = Math.round(titleFontSize * 1.15);
   const activityCount = Array.isArray(source.change_log) ? source.change_log.length : 0;
   const remainingAuxiliaryMetaEntries = auxiliaryMetaEntries.filter(([key]) => key !== 'priority');
   const hasFooterMeta = showDefaultDates
@@ -669,8 +671,8 @@ export function ObjectIdentityHeader({
             )}
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-            <TitleTag className={`${titleClassName} ldvh-object-title-tray flex min-w-0 flex-1 basis-full translate-y-0.5 items-start gap-2 break-words px-2.5 py-2`}>
-              <ObjectTypeIcon type={objectType} size={titleIconSize} className="mt-0.5 shrink-0" style={{ color: typeColor }} />
+            <TitleTag className={`${titleClassName} ldvh-object-title-tray flex min-w-0 flex-1 basis-full translate-y-0.5 items-center gap-2 break-words px-2.5 py-2`}>
+              <ObjectTypeIcon type={objectType} size={titleIconSize} className="shrink-0" style={{ color: typeColor }} />
               <span className="min-w-0">{title}</span>
             </TitleTag>
             {inlineTitleMeta.length > 0 && (

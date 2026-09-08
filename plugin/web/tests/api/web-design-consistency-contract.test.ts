@@ -97,13 +97,14 @@ test('object detail headers use compact metadata and title-scaled type icons', (
     objectDetail.indexOf('function HeaderDateMeta'),
   );
 
-  assert.match(identityHeader, /const titleFontSize = compact \? 16 : 20/);
-  assert.match(identityHeader, /const titleIconSize = Math\.round\(titleFontSize \* 1\.25\)/);
+  assert.match(identityHeader, /const titleFontSize = compact \? 12 : 14/);
+  assert.match(identityHeader, /const titleIconSize = Math\.round\(titleFontSize \* 1\.15\)/);
   assert.match(identityHeader, /const activityCount = Array\.isArray\(source\.change_log\) \? source\.change_log\.length : 0/);
   assert.match(identityHeader, /ldvh-chip inline-flex h-\[18px\] shrink-0 items-center justify-center rounded-md border px-1\.5 text-\[10px\] font-medium leading-3/);
   assert.match(identityHeader, /<History size=\{12\} aria-hidden="true" \/>[\s\S]{0,80}<span>\{activityCount\}<\/span>/);
   assert.match(identityHeader, /showCopyAction=\{showCopyAction\}[\s\S]{0,80}compact/);
-  assert.match(identityHeader, /translate-y-0\.5 items-start gap-2[\s\S]{0,220}<ObjectTypeIcon type=\{objectType\} size=\{titleIconSize\} className="mt-0\.5 shrink-0"/);
+  // Human 2026-09-09：标题缩 2 级后多行标题图标垂直居中（items-center，去掉 mt-0.5）。
+  assert.match(identityHeader, /translate-y-0\.5 items-center gap-2[\s\S]{0,220}<ObjectTypeIcon type=\{objectType\} size=\{titleIconSize\} className="shrink-0"/);
   assert.match(identityHeader, /mb-1\.5 flex min-w-0 flex-wrap items-center/);
   assert.match(identityHeader, /mt-1\.5 flex min-w-0 flex-wrap items-center justify-end/);
   assert.match(identityHeader, /showDefaultDates && <span className="opacity-70"><HeaderDateMeta value=\{updated\} \/><\/span>/);
@@ -143,9 +144,9 @@ test('five fact types use distinct stable hue assignments', () => {
   for (const color of typeColors) assert.match(colors, new RegExp(`'${color}'|\\\"${color}\\\"`));
 });
 
-test('prominent card title follows the documented 16px by 24px hierarchy', () => {
+test('prominent card title follows the documented 14px by 20px hierarchy', () => {
   const styles = read('src/index.css');
-  assert.match(styles, /\.ldvh-card-title-prominent[\s\S]*text-base font-semibold leading-6/);
+  assert.match(styles, /\.ldvh-card-title-prominent[\s\S]*text-sm font-semibold leading-5/);
   assert.match(styles, /\.ldvh-inline-markdown\.ldvh-card-decision-body[\s\S]*text-xs leading-5/);
 });
 

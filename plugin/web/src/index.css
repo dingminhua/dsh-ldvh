@@ -6,7 +6,7 @@
 
 @layer components {
   .ldvh-page-title {
-    @apply text-xl font-semibold leading-7 text-ldvh-text-primary;
+    @apply text-sm font-semibold leading-5 text-ldvh-text-primary;
   }
 
   .ldvh-page-subtitle {
@@ -18,7 +18,7 @@
   }
 
   .ldvh-card-title {
-    @apply text-sm font-medium leading-5 text-ldvh-text-primary;
+    @apply text-[11px] font-medium leading-4 text-ldvh-text-primary;
   }
 
   /* Shared neutral surface for an object title on cards and reading headers. */
@@ -32,7 +32,7 @@
   }
 
   .ldvh-card-title-prominent {
-    @apply text-base font-semibold leading-6 text-ldvh-text-primary;
+    @apply text-sm font-semibold leading-5 text-ldvh-text-primary;
   }
 
   .ldvh-card-decision-title {
@@ -133,7 +133,7 @@
   }
 
   .ldvh-reading-title {
-    @apply text-base font-semibold leading-6 text-ldvh-text-primary;
+    @apply text-xs font-semibold leading-4 text-ldvh-text-primary;
   }
 
   .ldvh-inline-markdown {
