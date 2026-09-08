@@ -9,7 +9,7 @@
  * 只读、无写入口；本区仅是目标的可视投影，不构成第二事实源（00 §3.3）。
  */
 import { useEffect, useState, type KeyboardEvent } from 'react';
-import { Target } from 'lucide-react';
+import { ChevronDown, ChevronUp, Target } from 'lucide-react';
 import CopyPathButton from '@/components/CopyPathButton';
 import { fetchCognitionGoal, ApiRequestError } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
@@ -60,7 +60,6 @@ export default function GoalSection() {
       >
         <Target size={16} className="shrink-0 text-ldvh-accent" aria-hidden="true" />
         <h3 className="ldvh-section-title min-w-0">{t('focusV2.goalTitle')}</h3>
-        {goal && <span className="ldvh-meta shrink-0 text-ldvh-text-secondary/70">{goal.status}</span>}
         <span className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
           {goal && (
             <span
@@ -87,11 +86,6 @@ export default function GoalSection() {
               <span className="ldvh-card-title min-w-0 font-semibold">
                 {goalError ? t('focusV2.goalMissing') : goal ? goal.title : '…'}
               </span>
-              {goal && (
-                <span className="ldvh-chip ldvh-chip-sm shrink-0 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent">
-                  {goal.status}
-                </span>
-              )}
             </div>
             {goalMissing && (
               <div className="mt-2">
