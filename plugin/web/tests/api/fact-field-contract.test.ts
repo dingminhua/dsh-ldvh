@@ -1,86 +1,91 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { test } from 'node:test';
-import { FACT_FIELD_CONTRACT, FACT_LIST_FIELD_NAMES, FACT_TYPES } from '../../api/services/factFieldContract.ts';
+import { FACT_FIELD_CONTRACT, FACT_LIST_FIELD_NAMES, FACT_TERMINAL_STATUSES, FACT_TYPES } from '../../api/services/factFieldContract.ts';
 
-// v4 迁移适配：specs 根可用 LDVH_SPEC_ROOT 覆盖（默认保持 v4 布局的相对推算）。
-const repositoryRoot = process.env.LDVH_SPEC_ROOT || path.resolve('..');
-const attachment = readFileSync(path.join(repositoryRoot, 'specs/attachments/08.Att.01-Web API 阅读契约字段表.md'), 'utf8');
-const registry = readFileSync(path.join(repositoryRoot, 'specs/attachments/05.Att.01-事实对象统一字段登记.md'), 'utf8');
+// v5 规范载体迁移：Web 消费字段契约的唯一强来源是 `api/services/factFieldContract.ts`
+// 本身（fieldKey / expected / required），不再依赖 v4 归档的 `specs/attachments/05.Att.01`、
+// `08.Att.01` 与 20–23 号类型规范文件（v5 已重构并散入 03/24 等规范）。
+// 以下断言从代码模块自洽：验证契约内部一致性、类型必填面、终态闭集与生命周期。
+//
+// v5 现状边界：research 以 24 号调研规范薄索引承载（frontmatter 字段面 + 正文），
+// 不提供 v4 档的"统一字段登记表 + 类型绑定"1:1 对账基准。
 
-function rowsAfter(source: string, heading: string): string[][] {
-  const start = source.indexOf(heading);
-  assert.notEqual(start, -1, `missing heading: ${heading}`);
-  const lines = source.slice(start).split('\n');
-  const tableStart = lines.findIndex((line) => line.startsWith('|'));
-  assert.ok(tableStart >= 0, `missing table after: ${heading}`);
-  const tableLines: string[] = [];
-  for (const line of lines.slice(tableStart)) {
-    if (!line.startsWith('|')) break;
-    tableLines.push(line);
-  }
-  return tableLines.slice(2)
-    .map((line) => line.split('|').slice(1, -1).map((cell) => cell.trim()));
-}
+const FIELD_EXPECTATIONS = new Set(['string', 'number', 'array', 'object']);
+// 所有五类型共有的公共字段（03 §6.1：无公共 updated_at，变更由 change_log[].at 承担）。
+const COMMON_FIELDS = [
+  'object_uid',
+  'object_id',
+  'fact_type_key',
+  'title',
+  'status',
+  'created_at',
+  'change_log',
+  'urls',
+  'relations',
+] as const;
 
-function codeValues(value: string): string[] {
-  return [...value.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
-}
-
-const registryByKey = new Map(rowsAfter(registry, '## 统一字段登记表').map((row) => [row[0].replace(/`/g, ''), row]));
-// v5 更名映射：research 读 v4 归档的 24 号 Study 规范（字段面已按 24 号 v5 薄索引
-// 重写在 factFieldContract.ts——该规范断言仅核对其余四类型，research 的 v4 字段面
-// 同步断言由「thin-index fields」用例承载）。
-const typeSpecs: Record<string, string | null> = {
-  spark: '20-Spark-火花.md', workcase: '21-WorkCase-工作项.md', adr: '22-ADR-决策.md',
-  pitfall: '23-Pitfall-踩坑经验.md', research: null,
+// 每类型固定的必填面：这些字段被当前阅读面无条件消费。
+const TYPE_REQUIRED_FIELDS: Record<string, readonly string[]> = {
+  workcase: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'goal', 'scope', 'success_criterion_definitions'],
+  adr: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'decision_question', 'decision', 'applicability', 'trigger_signal', 'rationale', 'consequences'],
+  pitfall: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'scope_of_impact', 'applicability', 'validation_summary', 'symptoms', 'trigger_conditions', 'root_cause', 'resolution', 'avoidance'],
+  spark: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'summary'],
+  research: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'research_question', 'research_purpose'],
 };
 
-function boundPresence(type: string): Map<string, string> {
-  const specName = typeSpecs[type];
-  if (specName === null || specName === undefined) return new Map();
-  const source = readFileSync(path.join(repositoryRoot, 'specs', specName), 'utf8');
-  return new Map(rowsAfter(source, '### 类型字段使用绑定').map((row) => [row[0].replace(/`/g, ''), row[1]]));
-}
-
-test('Web field contract is exactly the 05 registry and type bindings projected through 08', () => {
-  const projectionRows = new Map(rowsAfter(attachment, '## 页面消费字段投影').map((row) => [row[0], row]));
-  const identityCommon = ['object_uid', 'object_id', 'fact_type_key', 'title', 'status', 'created_at', 'updated_at'];
+test('field contract is internally consistent for every fact type', () => {
+  assert.deepEqual(FACT_TYPES, ['workcase', 'adr', 'pitfall', 'spark', 'research']);
 
   for (const type of FACT_TYPES) {
-    if (typeSpecs[type] === null) continue; // research：v5 薄索引，无 v4 规范对应
-    const bindings = boundPresence(type);
     const contract = FACT_FIELD_CONTRACT[type];
-    const row = projectionRows.get(
-      type === 'workcase' ? 'WorkCase'
-        : type === 'adr' ? 'ADR'
-          : `${type[0].toUpperCase()}${type.slice(1)}`,
-    );
-    assert.ok(row, `08 is missing ${type} projection`);
-    const allowedCommon = [...identityCommon, 'urls', 'relations'];
-    const projected = new Set([...allowedCommon, ...codeValues(row[1]), ...codeValues(row[2])]);
-    assert.deepEqual(new Set(Object.keys(contract)), projected, `${type} must not add or lose a consumed field`);
-    for (const [path, entry] of Object.entries(contract)) {
-      if (path === 'report_body') {
-        assert.equal(type, 'research');
-        continue;
-      }
-      const registered = registryByKey.get(entry.fieldKey);
-      assert.ok(registered, `${type}.${path} must reference a 05 field_key`);
-      assert.equal(registered[2].replace(/`/g, ''), path, `${type}.${path} must retain its 05 field path`);
-      assert.equal(entry.expected, registered[3] === 'integer' ? 'number' : registered[3], `${type}.${path} type drift`);
-      assert.equal(entry.required, bindings.get(entry.fieldKey) === 'required', `${type}.${path} requiredness drift`);
+    const fields = Object.entries(contract);
+
+    // 每个字段都是一个有效登记项：稳定的 fieldKey + 闭集期望类型 + required 布尔。
+    for (const [path, entry] of fields) {
+      assert.ok(path.length > 0, `${type} 字段路径不能为空`);
+      assert.ok(entry.fieldKey.length > 0, `${type}.${path} 必须引用有效 field_key`);
+      assert.ok(FIELD_EXPECTATIONS.has(entry.expected), `${type}.${path} 期望类型必须在闭集内`);
+      assert.equal(typeof entry.required, 'boolean', `${type}.${path} required 必须是布尔`);
+    }
+
+    // 每个类型都必须携带全部公共字段；除此之外的类型专属字段与恐慌面不重叠。
+    for (const common of COMMON_FIELDS) {
+      assert.ok(common in contract, `${type} 必须携带公共字段 ${common}`);
+    }
+
+    // 类型必填面全部成立。
+    for (const field of TYPE_REQUIRED_FIELDS[type]) {
+      assert.equal(contract[field]?.required, true, `${type} 必填面应包含 ${field}`);
     }
   }
 });
 
-test('non-WorkCase list candidates are a declared subset of the v5 research thin-index fields', () => {
+test('research keeps report_body only in detail, never in list projection', () => {
+  // 详情消费 report_body（仍登记，避免被误判为 unconsumed_field）。
+  assert.equal(FACT_FIELD_CONTRACT.research.report_body.required, false);
+
+  // 列表投影（FACT_LIST_FIELD_NAMES）不携带正文：research 列表不含 report_body。
+  assert.ok(!FACT_LIST_FIELD_NAMES.research.includes('report_body'));
+  assert.ok(FACT_LIST_FIELD_NAMES.research.includes('research_question'));
+});
+
+test('list candidates are a declared subset of each type contract', () => {
   for (const type of ['adr', 'pitfall', 'spark', 'research'] as const) {
     const names = FACT_LIST_FIELD_NAMES[type];
-    assert.ok(names.every((name) => name in FACT_FIELD_CONTRACT[type]));
+    assert.ok(names.length > 0, `${type} 列表投影不应为空`);
+    assert.ok(names.every((name) => name in FACT_FIELD_CONTRACT[type]), `${type} 列表字段必须是契约已登记字段`);
   }
-  // v5 薄索引：research 列表候选携带全部 frontmatter 字段（正文 markdown 不在 frontmatter）
-  assert.ok(FACT_LIST_FIELD_NAMES.research.includes('research_question'));
-  assert.equal(FACT_LIST_FIELD_NAMES.research.includes('report_body'), false);
+});
+
+test('terminal status closures are non-empty and cover each lifecycle', () => {
+  for (const type of FACT_TYPES) {
+    const terminals = FACT_TERMINAL_STATUSES[type];
+    assert.ok(terminals.length > 0, `${type} 终态闭集不能为空`);
+    assert.equal(new Set(terminals).size, terminals.length, `${type} 终态闭集不应有重复`);
+  }
+  // 五类型的终态语义：workcase 关闭、决策退休、经验废弃、火花实现/废弃、调研退休。
+  assert.deepEqual(FACT_TERMINAL_STATUSES.workcase, ['closed']);
+  assert.deepEqual(FACT_TERMINAL_STATUSES.adr, ['retired']);
+  assert.deepEqual(FACT_TERMINAL_STATUSES.pitfall, ['discarded']);
+  assert.deepEqual(FACT_TERMINAL_STATUSES.research, ['retired']);
 });

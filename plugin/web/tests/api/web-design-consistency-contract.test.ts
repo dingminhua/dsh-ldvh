@@ -97,7 +97,7 @@ test('object detail headers use compact metadata and title-scaled type icons', (
     objectDetail.indexOf('function HeaderDateMeta'),
   );
 
-  assert.match(identityHeader, /const titleFontSize = compact \? 18 : 18/);
+  assert.match(identityHeader, /const titleFontSize = 18/);
   assert.match(identityHeader, /const titleIconSize = Math\.round\(titleFontSize \* 1\.15\)/);
   assert.match(identityHeader, /const activityCount = Array\.isArray\(source\.change_log\) \? source\.change_log\.length : 0/);
   assert.match(identityHeader, /ldvh-chip inline-flex h-\[18px\] shrink-0 items-center justify-center rounded-md border px-1\.5 text-\[10px\] font-medium leading-3/);
@@ -261,4 +261,30 @@ test('fact reading unordered-list markers stay centered on the first text line',
   assert.match(markerRule, /top: calc\(0\.875em - 1px\);/);
   assert.match(markerRule, /transform: translateY\(-50%\);/);
   assert.match(styles, /\.ldvh-research-node-content\.ldvh-spark-reading-prose[\s\S]{0,180}top: 12px;/);
+});
+
+
+test('Federation pages reuse the shared layout grammar and do not invent viewport grid variants', () => {
+  const federation = read('src/pages/Federation.tsx');
+  const federationObjects = read('src/pages/FederationObjects.tsx');
+
+  // 卡片列表必须使用容器驱动网格（design-consistency 01 §1.5），不可用 sm:/md:/xl: 断点列数。
+  assert.match(federation, /ldvh-section-grid/);
+  assert.match(federationObjects, /ldvh-section-grid/);
+  assert.doesNotMatch(federation, /sm:grid-cols|md:grid-cols|xl:grid-cols/);
+  assert.doesNotMatch(federationObjects, /sm:grid-cols|md:grid-cols|xl:grid-cols/);
+
+  // 空态与加载态沿用 v4 无框 py-20 + 居中弱文本语法；不能发明盒式空态。
+  assert.match(federation, /ldvh-body-muted\s+py-20\s+text-center/);
+  assert.match(federationObjects, /ldvh-body-muted\s+py-20\s+text-center/);
+  assert.match(federation, /ldvh-body-muted\s+flex\s+justify-center\s+py-20/);
+  assert.match(federationObjects, /ldvh-body-muted\s+flex\s+justify-center\s+py-20/);
+  assert.doesNotMatch(federation, /rounded-xl border border-ldvh-border bg-ldvh-panel p-8/);
+  assert.doesNotMatch(federationObjects, /rounded-xl border border-ldvh-border bg-ldvh-panel p-8/);
+
+  // 刷新工具按钮必须复用设计系统令牌，不可手搓独立样式。
+  assert.match(federation, /ldvh-page-toolbar-action/);
+  assert.match(federationObjects, /ldvh-page-toolbar-action/);
+  assert.doesNotMatch(federation, /rounded-md border border-ldvh-border px-3 py-2 text-ldvh-text-secondary/);
+  assert.doesNotMatch(federationObjects, /rounded-md border border-ldvh-border px-3 py-2 text-ldvh-text-secondary/);
 });

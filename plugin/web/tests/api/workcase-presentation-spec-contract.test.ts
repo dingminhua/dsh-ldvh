@@ -3,146 +3,143 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 
-// v4 迁移适配：specs 根可用 LDVH_SPEC_ROOT 覆盖（默认保持 v4 布局的相对推算）。
-const repositoryRoot = process.env.LDVH_SPEC_ROOT || path.resolve(import.meta.dirname, '../../..');
+// v5 规范载体迁移：WorkCase 外部卡片的呈现契约（进展分组、四步结果、plan_revising、
+// plan_confirmation / closure_confirmation 输入区）由代码模块强制承载，不再依赖 v4
+// 归档的 `specs/08-Web 呈现与交互规范.md` 等编号文件。以下断言从实际代码模块自洽，
+// 与既有第 5-8 个测试的代码自洽模式保持一致。
+const WEB_DIR = path.resolve(import.meta.dirname, '../..');
 
-function source(relativePath: string): string {
-  return fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
+/** 读取 plugin/web 下源码；容忍可选 `web/` 前缀（旧式指向仓库根的来源）。 */
+function readWebSource(relativePath: string): string {
+  const clean = relativePath.startsWith('web/') ? relativePath.slice('web/'.length) : relativePath;
+  return fs.readFileSync(path.join(WEB_DIR, clean), 'utf8');
 }
 
-function workCaseCardSection(): string {
-  const webSpec = source('specs/08-Web 呈现与交互规范.md');
-  return webSpec.slice(
-    webSpec.indexOf('### 7.4 WorkCase 外部卡片的进展分组投影'),
-    webSpec.indexOf('## 8. Web 交互边界'),
-  );
+/** 进展分组闭集与顺序是唯一强来源（shared/workcaseStatus.ts），五个值一字不差。 */
+function progressGroupsViaStatus(): readonly string[] {
+  const workflow = readWebSource('shared/workcaseStatus.ts');
+  const block = workflow.match(/WORKCASE_PROGRESS_GROUP_ORDER = \[[\s\S]*?\n\] as const/);
+  assert.ok(block, 'workcaseStatus.ts must declare WORKCASE_PROGRESS_GROUP_ORDER');
+  return (block[0].match(/'([^']+)'/g) ?? []).map((token) => token.replace(/'/g, ''));
 }
 
-test('Specs define five progress groups and retain a four-step result track', () => {
-  const cardSection = workCaseCardSection();
+/** 四步结果闭集与顺序是唯一强来源（shared/workcaseStatus.ts）。 */
+function progressStepsViaStatus(): readonly string[] {
+  const workflow = readWebSource('shared/workcaseStatus.ts');
+  const block = workflow.match(/WORKCASE_PROGRESS_STEP_ORDER = \[[\s\S]*?\n\] as const/);
+  assert.ok(block, 'workcaseStatus.ts must declare WORKCASE_PROGRESS_STEP_ORDER');
+  return (block[0].match(/'([^']+)'/g) ?? []).map((token) => token.replace(/'/g, ''));
+}
 
-  assert.match(cardSection, /不是 WorkCase 的 `status`、`phase`、生命周期分类/);
-  assert.match(cardSection, /不得显示为“生命周期”“生命周期分类”/);
-  assert.match(cardSection, /每张 WorkCase 外部 Card 必须直接、可识别地显示其当前 `progress_group`/);
-  assert.match(cardSection, /Dashboard 的 WorkCase 聚合键必须命名为 `byProgressGroup`/);
-  assert.match(cardSection, /条目必须以 `progress_group` 承载这五个值/);
-  assert.match(cardSection, /不得把派生分组写入名为 `status` 的字段/);
-  assert.match(cardSection, /另以 `source_status` 原样承载/);
-  assert.match(cardSection, /\| `plan_confirmation` \| 方案待确认 \|/);
-  assert.match(cardSection, /\| `progressing` \| 推进中 \|/);
-  assert.match(cardSection, /\| `termination_cleanup` \| 终止善后中 \|/);
-  assert.match(cardSection, /实际存在的 Human 等待或责任阻塞另行呈现，不改变进展分组/);
-  assert.match(cardSection, /\| `closure_confirmation` \| 关闭待确认 \|/);
-  assert.match(cardSection, /\| `closed` \| 已关闭 \|/);
-  assert.match(cardSection, /Human 已依据完整关闭提案完成普通 Gate2，或 Human 主动中止后的专属善后事务已经完成/);
-  assert.match(cardSection, /固定以“关闭提案”为标题/);
-  assert.match(cardSection, /不得取代“关闭提案”标题/);
-  assert.match(cardSection, /“目标达成 \/ 部分达成 \/ 未达成 \/ 取消”/);
-  assert.match(cardSection, /英文为“Achieved \/ Partial \/ Not achieved \/ Cancel”/);
-  assert.match(cardSection, /标签不得再重复“提议结论 \/ Proposed conclusion”前缀/);
-  assert.match(cardSection, /不得显示裸“完成 \/ Completed”/);
-  assert.match(cardSection, /提案使用稳定的中性提案图标和独立的琥珀色提案色调/);
-  assert.match(cardSection, /Card 与详情均不得在“终态处置”旁重复显示“完成”/);
-  assert.doesNotMatch(cardSection, /Human 已批准当前结果与报告/);
-  assert.match(cardSection, /\| `item_execution` \| 工作项执行 \| 当前工作项推进 \|/);
-  assert.match(cardSection, /\| `controller_self_check` \| 主控自检 \| 完整结果投影形成 \|/);
-  assert.match(cardSection, /\| `independent_review` \| 结果复核 \| 当前结果的实际 Reviewer 第二视角；稳定键不证明实际方法为 subagent 或执行环境独立 \|/);
-  assert.match(cardSection, /\| `controller_synthesis` \| 主控收敛 \| 关闭提案形成 \|/);
-  assert.match(cardSection, /确定性 `status \+ phase` 映射.*闭集只见 21 §9\.3，本节不重复/);
+/** 进展分组到中文标题的映射唯一来源于 locales.ts 的 progressGroup 段。 */
+function progressGroupLocales(): Map<string, { zh: string; en: string }> {
+  const locales = readWebSource('src/i18n/locales.ts');
+  const result = new Map<string, { zh: string; en: string }>();
+  for (const key of ['plan_confirmation', 'progressing', 'termination_cleanup', 'closure_confirmation', 'closed']) {
+    const m = locales.match(new RegExp(`${key}: \\{ zh: '([^']+)', en: '([^']+)' \\}`));
+    assert.ok(m, `locales.ts must carry ${key} progress-group label`);
+    result.set(key, { zh: m[1], en: m[2] });
+  }
+  return result;
+}
+
+test('progress groups are a closed five-value set with ordered four-step result track', () => {
+  const groups = progressGroupsViaStatus();
+  assert.deepEqual(groups, ['plan_confirmation', 'progressing', 'termination_cleanup', 'closure_confirmation', 'closed']);
+
+  const steps = progressStepsViaStatus();
+  assert.deepEqual(steps, ['item_execution', 'controller_self_check', 'independent_review', 'controller_synthesis']);
+
+  const locales = progressGroupLocales();
+  assert.equal(locales.get('plan_confirmation')!.zh, '方案待确认');
+  assert.equal(locales.get('progressing')!.zh, '推进中');
+  assert.equal(locales.get('termination_cleanup')!.zh, '终止善后中');
+  assert.equal(locales.get('closure_confirmation')!.zh, '关闭待确认');
+  assert.equal(locales.get('closed')!.zh, '已关闭');
+
+  // 四步由共享轨迹组件按 WORKCASE_PROGRESS_STEP_ORDER 渲染，不新增第五步。
+  const track = readWebSource('src/components/WorkCaseProgressTrack.tsx');
+  assert.match(track, /WORKCASE_PROGRESS_STEP_ORDER\.map/);
+  // 进度跟踪消费 current_snapshot_projection 的四步位置，不读裸 phase。
+  assert.match(track, /progressStep\??: WorkCaseProgressStep \| null/);
 });
 
-test('Specs place plan revision outside the four-step track without losing current facts', () => {
-  const cardSection = workCaseCardSection();
+test('plan revision stays inside "progressing" without highlighting a four-step position', () => {
+  const workflow = readWebSource('shared/workcaseStatus.ts');
+  const contract = readWebSource('shared/workcasePresentationContract.generated.ts');
+  const track = readWebSource('src/components/WorkCaseProgressTrack.tsx');
+  const locales = readWebSource('src/i18n/locales.ts');
 
-  assert.match(cardSection, /`lifecycle_position=plan_revising` 投影为“推进中”但省略 `progress_step`/);
-  assert.match(cardSection, /`lifecycle_position=plan_revising` 时，Card 必须在“推进中”下明确显示“方案修订中”/);
-  assert.match(cardSection, /不得高亮四步中的任一项/);
-  assert.match(cardSection, /不得新增第五个稳定 `progress_step`/);
-  assert.match(cardSection, /真实 active item、`waiting_on` 与 `blocking_summary` 仍按当前事实显示/);
+  // plan_revising 投影到推进中但省略 progress_step（轨迹外位置），不新增第五个 step。
+  assert.match(contract, /"plan_revising"/);
+  assert.match(workflow, /WORKCASE_PROGRESS_STEP_ORDER = \[/);
+  assert.match(track, /const planRevising = lifecyclePosition === 'plan_revising'/);
+  assert.match(track, /if \(planRevising\)/);
+  // 方案修订中的专属标签与"轨道外"提示由 locales 提供。
+  assert.match(locales, /plan_revising: \{ zh: '方案修订中'/);
+  assert.match(locales, /workcaseOutsideProgressTrack/);
 });
 
-test('Specs fix plan-confirmation and progressing Card inputs to the latest fields', () => {
-  const cardSection = workCaseCardSection();
+test('plan-confirmation and progressing Card inputs read the latest WorkCase fields', () => {
+  const objectList = readWebSource('src/pages/ObjectList.tsx');
 
-  assert.match(cardSection, /`plan_confirmation` Card 是 Gate1 的对象入口。在通用对象身份、标题和进展分组之外，\*\*计划与授权概览区\*\*显示以下三项 Human 阅读入口/);
-  assert.match(cardSection, /\*\*目标\*\*：直接读取当前 WorkCase 的 `goal`/);
-  assert.match(cardSection, /\*\*成功标准\*\*：直接读取 `success_criterion_definitions\[\]\.statement`/);
-  assert.match(cardSection, /\*\*执行授权边界\*\*：直接读取 `execution_authorization`，确定性显示允许动作、禁止项和实际存在的 Human 前置条件数量/);
-  assert.match(cardSection, /Card 不提供执行授权的展开、折叠或条目正文/);
-  assert.match(cardSection, /完整授权基线仅在同源详情页呈现/);
-  assert.match(cardSection, /Human 在 Gate1 操作前必须进入详情阅读完整 authorized action、目标范围、影响范围、风险、回滚/);
-  assert.match(cardSection, /字段缺失或不可读时必须明确显示相应信息缺失并禁用批准/);
-  assert.match(cardSection, /成功标准是没有先后关系的并列集合，在 Card 中必须统一使用圆点/);
-  assert.match(cardSection, /在判断输入区之外另设独立的当前状态提示区，完整显示顶层 `blocking_summary`/);
-  assert.match(cardSection, /该提示不构成第四项阅读入口/);
-  assert.match(cardSection, /`progressing` Card 在相同通用对象身份、标题和进展分组之外，正文只显示“目标”和“当前情况”两个区域/);
-  assert.match(cardSection, /不得引入全局轮次、返回次数、审核次数、完成比例或其它过程计数/);
-  assert.match(cardSection, /当前环节为 `item_execution` 时，Card 必须完整列出全部当前 work item/);
-  assert.match(cardSection, /不显示“已完成 N\/T”或其它进度比例/);
-  assert.match(cardSection, /`completed` 项在前并使用完成勾选/);
-  assert.match(cardSection, /`in_progress` 项随后，以当前强调样式突出/);
-  assert.match(cardSection, /`pending` 项以弱化样式置于进行中\/阻塞项之后/);
-  assert.match(cardSection, /`cancelled` 项也必须保留并明确标识/);
-  assert.match(cardSection, /其它推进环节不展开完整工作项清单/);
-  assert.match(cardSection, /渲染顺序不表示推进顺序/);
-  assert.match(cardSection, /不得把 `item-03` 改写成“第三项”/);
-  assert.match(cardSection, /当 `waiting_on` 实际存在时.*“等待对象”标题完整显示正在等待的对象或条件/);
-  assert.match(cardSection, /“阻塞说明”标题附加完整显示顶层 `blocking_summary`/);
-  assert.match(cardSection, /附加完整显示顶层 `blocking_summary`/);
-  assert.match(cardSection, /每条成功标准必须按与工作项一致的对象语法形成独立轻量对象/);
-  assert.match(cardSection, /结果摘要作为默认收起的次级内容/);
-  assert.match(cardSection, /只保留小号文字与相邻箭头，不使用整行色块或完整边框/);
-  assert.match(cardSection, /工作项的预期结果、方法边界和工作项结果遵守同一轻量披露层级/);
-  assert.match(cardSection, /只由当前 `success_criterion_results` 是否实际存在决定，不得按 `phase` 推断/);
-  assert.match(cardSection, /外部 Card 仍使用本节定义的紧凑圆点清单/);
-  assert.match(cardSection, /`progressing` Card 不显示成功标准、scope、依赖、方法、完整工作项计划中的预期结果或执行细节、执行态势条/);
-  assert.doesNotMatch(cardSection, /progress_history|第 N 轮|轮次未记录/);
+  // plan_confirmation Card 是 Gate1 入口：读取 goal + success_criterion_definitions + execution_authorization。
+  assert.match(objectList, /export function WorkCasePlanConfirmationContent/);
+  assert.match(objectList, /<WorkCaseGoalSection goal=\{goal\} t=\{t\} \/>/);
+  assert.match(objectList, /successCriterionDefinitions=\{obj\.success_criterion_definitions\}/);
+  assert.match(objectList, /executionAuthorization=\{obj\.execution_authorization\}/);
+
+  // progressing Card 只显示"目标"与"当前情况"两区，经 WorkCaseGoalSection supporting + WorkCaseProgressTrack。
+  assert.match(objectList, /export function WorkCaseProgressingContent/);
+  assert.match(objectList, /<WorkCaseGoalSection goal=\{goal\} t=\{t\} emphasis="supporting" \/>/);
+  assert.match(objectList, /t\('objectDetail\.workcaseCurrentSnapshot'\)/);
+
+  // 顶层 blocking_summary 与 waiting_on 在判断输入区外独立呈现，不构成第四项阅读入口。
+  assert.match(objectList, /export function WorkCaseBlockingNotice/);
+  assert.match(objectList, /export function WorkCaseWaitingOnNotice/);
+  assert.match(objectList, /isBlocked && <WorkCaseBlockingNotice blockingSummary=\{blockingSummary\}/);
+
+  // 工作项按 status 排序（completed 前、in_progress 突出、pending 弱化、cancelled 保留），不显示完成比例。
+  const progressing = objectList.slice(objectList.indexOf('export function WorkCaseProgressingContent'));
+  assert.match(progressing, /completed: 0, in_progress: 1, blocked: 2, pending: 3, cancelled: 4/);
+  assert.doesNotMatch(progressing, /已完成 N\/T/);
+  // 不允许把 item-03 写成"第三项"，且无全局轮次计数。
+  assert.doesNotMatch(progressing, /第 N 轮|轮次未记录|item-03/);
 });
 
-test('Specs define the closure-decision input zone and shared formal associations for closure confirmation cards', () => {
-  const cardSection = workCaseCardSection();
+test('closure-confirmation Card defines a decision-input zone and reuses shared associations', () => {
+  const objectList = readWebSource('src/pages/ObjectList.tsx');
+  const api = readWebSource('src/utils/api.ts');
 
-  assert.match(cardSection, /`closure_confirmation` Card 在通用对象身份、标题、进展分组和更新时间之外，正文定义以下两区/);
-  assert.match(cardSection, /\*\*关闭判断输入区\*\*：回答“当前请求确认的是哪一种关闭结论与责任处置”/);
-  assert.match(cardSection, /\*\*目标\*\*：直接读取当前 WorkCase 的 `goal`/);
-  assert.match(cardSection, /\*\*关闭结论（提议）\*\*：该语义块固定以“关闭提案”为标题/);
-  assert.match(cardSection, /直接读取 `closure_proposal\.proposed_outcome`/);
-  assert.match(cardSection, /`completed \/ partial \/ not-achieved \/ cancelled` 四值闭集的紧凑本地化标签/);
-  assert.match(cardSection, /“关闭提案”标题已经提供提议身份/);
-  assert.match(cardSection, /必须在标题旁使用弱信号标签表达/);
-  assert.match(cardSection, /不渲染为大面积实心色块或强告警色/);
-  assert.match(cardSection, /\*\*处置摘要\*\*：直接读取 `closure_proposal\.proposed_disposition_summary`，完整显示/);
-  assert.match(cardSection, /\*\*遗留事项处置建议\*\*：直接读取 `closure_proposal\.residual_decisions\[\]`/);
-  assert.match(cardSection, /`route_existing`“路由到已有对象”、`suggest_spark`“建议后续建立 Spark”、`accept_stop`“接受停止”/);
-  assert.match(cardSection, /各项是没有先后关系的并列集合，使用与处置语义相称的状态图标/);
-  assert.match(cardSection, /route_existing 显示已回读目标的当前标题与类型/);
-  assert.match(cardSection, /直接读取 `closure_proposal\.spark_suggestions\[\]`/);
-  assert.match(cardSection, /`closure_proposal` 缺失、结构不符或其必要成员不可读时/);
-  assert.match(cardSection, /Web 也不得为 `closure_proposal` 补写生成的占位提案/);
-  assert.match(cardSection, /正式 `relations` 由所有五类事实对象 Card 统一呈现，而不是链接、URL、材料或引用列表/);
-  assert.match(cardSection, /所有可读关联目标（包括已关闭与已废弃的终态目标）均保留/);
-  assert.match(cardSection, /活跃 → 推进中 → 待处理 → 已关闭 → 已废弃/);
-  assert.match(cardSection, /`contributed-to` 只是其中一类正式关联，不再在 WorkCase Card 另设“后续贡献”模块/);
-  assert.match(cardSection, /不根据 relation key 推断分流、依赖、承接责任或终态处置/);
-  assert.match(cardSection, /不提供 promote、discard、批量审核或自动过期控件/);
-  assert.match(cardSection, /`closure_confirmation` Card 不显示关闭完整性诊断/);
-  assert.match(cardSection, /除关闭判断输入区与通用正式关联区外，不展开成功标准结果、结果与验证、主控自检、独立结果复核或执行统计/);
-  assert.match(cardSection, /`gate2_position_blocked` 必须改用 blocker-qualified closure-position Card/);
-  assert.match(cardSection, /首先显示“关闭位置受阻”及完整 `blocking_summary`/);
-  assert.match(cardSection, /不得显示 Gate 2 判断入口、readiness 话术或关闭操作/);
-  assert.match(cardSection, /关闭决定由专属事务消费，不持久化 approval 或关闭时间收据/);
-  assert.match(cardSection, /详情“关闭提案”节点把 `proposed_outcome` 的紧凑分类放在“关闭提案”标题行/);
-  assert.match(cardSection, /`closed` Card 使用与上述关闭 Card 相同的扫读结构/);
-  assert.match(cardSection, /route_existing 从 `routed-to` 与当前 target title 呈现/);
-  assert.match(cardSection, /正式 `relations` 由所有五类事实对象 Card 统一呈现/);
-  assert.doesNotMatch(cardSection, /control-contract|workcase_profile|closure_requested_at|review_requested_at|closure_approval/);
+  // 关闭判断输入区：目标 + 关闭提案（proposed_outcome / disposition_summary / residual_decisions / spark_suggestions）。
+  assert.match(objectList, /export function WorkCaseClosureConfirmationContent/);
+  assert.match(objectList, /WorkCaseGoalSection goal=\{goal\} t=\{t\} \/>/);
+  // 关闭提案固定以"关闭提案"为标题。
+  assert.match(objectList, /t\('objectList\.workcaseClosureProposal'\)/);
+  // 四值闭集 proposed_outcome + 三类处置 disposition。
+  assert.match(objectList, /completed: 'border-emerald-400\/25/);
+  assert.match(objectList, /partial: 'border-amber-400\/25/);
+  assert.match(objectList, /'not-achieved': 'border-red-400\/25/);
+  assert.match(objectList, /cancelled: 'border-zinc-400\/25/);
+  assert.match(objectList, /route_existing: 'border-emerald-400\/25/);
+  assert.match(objectList, /suggest_spark: 'border-emerald-400\/25/);
+  assert.match(objectList, /accept_stop: 'border-cyan-400\/25/);
+  assert.match(objectList, /closureProposal\.residualDecisions/);
+  assert.match(objectList, /closureProposal\.sparkSuggestions/);
+
+  // 正式 relations 复用共享关联行；WorkCase 不引入 approve/expire 控件。
+  assert.match(api, /WorkCaseContributionTarget/);
+
+  // 关闭决定由专属事务消费，不持久化 approval / 关闭时间收据。
+  assert.doesNotMatch(api, /\bclosure_approval\b/);
+  assert.doesNotMatch(api, /\bclosure_requested_at\b/);
 });
 
 test('Cognition Center reuses pending and progressing WorkCase Cards with secondary reading', () => {
-  const cognitionCenter = source('web/src/pages/CognitionCenter.tsx');
-  const objectList = source('web/src/pages/ObjectList.tsx');
-  const apiTypes = source('web/src/utils/api.ts');
-  const cognitionRoute = source('web/api/routes/cognition.ts');
+  const cognitionCenter = readWebSource('src/pages/CognitionCenter.tsx');
+  const objectList = readWebSource('src/pages/ObjectList.tsx');
+  const apiTypes = readWebSource('src/utils/api.ts');
+  const cognitionRoute = readWebSource('api/routes/cognition.ts');
 
   // 收件箱卡片沿用对象 Card，标题只打开次级阅读面板，不发生路由跳转。
   assert.match(cognitionCenter, /CognitionInboxItem/);
@@ -198,13 +195,13 @@ test('Current Web WorkCase sources reject retired fields and states', () => {
   const retiredTokens = /\b(?:orchestration|execution_items|success_criteria|verification_evidence|closure_evidence|review_needed|closure_approval|closure_requested_at|review_requested_at|done|skipped)\b/;
 
   for (const relativePath of currentWorkCaseSources) {
-    assert.doesNotMatch(source(relativePath), retiredTokens, relativePath);
+    assert.doesNotMatch(readWebSource(relativePath), retiredTokens, relativePath);
   }
 });
 
 test('Current WorkCase phases have direct labels and colors with no retired display keys', () => {
-  const locales = source('web/src/i18n/locales.ts');
-  const colors = source('web/src/utils/statusColors.ts');
+  const locales = readWebSource('web/src/i18n/locales.ts');
+  const colors = readWebSource('web/src/utils/statusColors.ts');
 
   assert.match(locales, /plan_revising: \{ zh: '方案修订中', en: 'Plan Revision' \}/);
   assert.match(locales, /controller_checking: \{ zh: '主控自检中', en: 'Controller Self-check' \}/);
@@ -219,10 +216,10 @@ test('Current WorkCase phases have direct labels and colors with no retired disp
 });
 
 test('Fact projections provide no application-level refresh controls', () => {
-  const objectList = source('web/src/pages/ObjectList.tsx');
-  const objectDetail = source('web/src/pages/ObjectDetail.tsx');
-  const cognitionCenter = source('web/src/pages/CognitionCenter.tsx');
-  const panelContent = source('web/src/components/reading-panel/PanelContent.tsx');
+  const objectList = readWebSource('web/src/pages/ObjectList.tsx');
+  const objectDetail = readWebSource('web/src/pages/ObjectDetail.tsx');
+  const cognitionCenter = readWebSource('web/src/pages/CognitionCenter.tsx');
+  const panelContent = readWebSource('web/src/components/reading-panel/PanelContent.tsx');
 
   const refreshableSources = [objectList, objectDetail, cognitionCenter, panelContent].join('\n');
   assert.doesNotMatch(refreshableSources, /useManualFactRefresh|refreshFacts|RefreshCw|setInterval|visibilitychange|FACT_REFRESH_INTERVAL_MS/);

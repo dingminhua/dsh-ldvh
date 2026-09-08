@@ -17,7 +17,7 @@ test('non-active Spark, ADR, Pitfall, and Study cards share the terminal card gr
   assert.match(source, /function SparkTerminalCardContent/);
   assert.match(source, /function AdrTerminalCardContent/);
   assert.match(source, /function PitfallTerminalCardContent/);
-  assert.match(source, /function StudyTerminalCardContent/);
+  assert.match(source, /function ResearchTerminalCardContent/);
   assert.doesNotMatch(source, /<TerminalFactPanel[^>]*title=/);
   assert.match(source, /<ObjectIdentityActions[\s\S]{0,160}status={presentedStatus}/);
   assert.doesNotMatch(source, /showStatusBadge/);

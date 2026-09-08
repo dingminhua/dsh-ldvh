@@ -25,6 +25,12 @@ let server: Server
 let baseUrl = ''
 
 before(async () => {
+  // v5 现状：治理范围经 Node git 解析（不依赖 v4 Python Helper）。默认读取 dsh-ldvh
+  // 所在工作区的管辖配置，使 HTTP 集成用例在真实 /ldvh/api 语义下运行；CI 可用
+  // LDVH_GOVERNED_PROJECTS_CONFIG 覆盖指向其它登记载体。
+  const workspaceGovernance = path.resolve(repositoryRoot, '../../..', 'LDVH-GOVERNED-PROJECTS.yaml')
+  process.env.LDVH_GOVERNED_PROJECTS_CONFIG ??= workspaceGovernance
+  process.env.LDVH_WORKSPACE_ROOT ??= path.resolve(repositoryRoot, '../../..')
   const { default: app } = await import('../../api/app.ts')
   server = app.listen(0)
   const address = server.address() as AddressInfo
@@ -445,9 +451,10 @@ test('recent activity accepts only explicit windows and groups fact change-log e
       assert.match(String(item.occurredAt), RFC3339)
       if (item.signature !== undefined) {
         const signature = item.signature as Record<string, unknown>
-        const presentValues = [signature.productName, signature.modelName]
+        // v5 扁平签名（provider/model）与 v4 嵌套形态（productName/modelName）任一成立。
+        const presentValues = [signature.provider, signature.model, signature.productName, signature.modelName]
           .filter((value) => value !== undefined)
-        assert.ok(presentValues.length > 0)
+        assert.ok(presentValues.length > 0, 'signature 必须携带至少一个署名值')
         for (const value of presentValues) assert.equal(typeof value, 'string')
       }
       assert.ok(Number(item.activityCount) >= 1)

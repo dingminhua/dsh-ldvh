@@ -11,8 +11,6 @@ const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ldvh-project-files-
 const projectRoot = path.join(workspaceRoot, 'demo')
 const alternateWorktreeRoot = path.join(workspaceRoot, 'demo-alternate')
 const secondaryProjectRoot = path.join(workspaceRoot, 'secondary')
-// v4 迁移适配：仓库根可用 LDVH_ROOT 覆盖（默认保持 v4 布局的相对推算）。
-const repositoryRoot = process.env.LDVH_ROOT || path.resolve(import.meta.dirname, '../../..')
 fs.mkdirSync(path.join(projectRoot, 'assets'), { recursive: true })
 fs.mkdirSync(path.join(projectRoot, '.private'), { recursive: true })
 fs.mkdirSync(path.join(projectRoot, 'specs'), { recursive: true })
@@ -39,7 +37,9 @@ fs.writeFileSync(
 
 process.env.LDVH_ROOT = projectRoot
 process.env.LDVH_WORKSPACE_ROOT = workspaceRoot
-process.env.LDVH_HELPER_EXECUTABLE = path.join(repositoryRoot, 'ldvh')
+// v5 现状：治理范围经 Node git 解析，不依赖 v4 Python Helper。登记载体指向本测试
+// 自建的工作区治理 YAML，触发 governanceScope 的 Node git 分支。CI 可用覆盖。
+process.env.LDVH_GOVERNED_PROJECTS_CONFIG = path.resolve(workspaceRoot, 'LDVH-GOVERNED-PROJECTS.yaml')
 process.env.LDVH_WEB_WORKTREE_LOCATOR = projectRoot
 
 const svgContent = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5"/></svg>\n'
@@ -188,25 +188,21 @@ test('rejects Project Files when Code governance cannot verify the workspace', a
   }
 })
 
-test('retries a recovered Helper without requiring a configuration change', async () => {
-  const configPath = path.join(workspaceRoot, 'LDVH-GOVERNED-PROJECTS.yaml')
-  const originalConfig = fs.readFileSync(configPath, 'utf8')
-  const unavailableHelper = path.join(workspaceRoot, 'unavailable-helper')
-  const configuredHelper = process.env.LDVH_HELPER_EXECUTABLE
-  fs.writeFileSync(unavailableHelper, '#!/bin/sh\necho helper temporarily unavailable >&2\nexit 1\n')
-  fs.chmodSync(unavailableHelper, 0o755)
-  fs.writeFileSync(configPath, `${originalConfig}# Recovery fixture keeps this fingerprint stable.\n`)
-  process.env.LDVH_HELPER_EXECUTABLE = unavailableHelper
+test('recovers a restored governance carrier without a restart', async () => {
+  // v5 现状等价语义：登记载体（LDVH_GOVERNED_PROJECTS_CONFIG）临时不可读时，
+  // 治理范围解析失败并如实返回；载体恢复后，同一进程的下一次请求无需重启即再次可用
+  // （governanceScope.currentVerifiedScope 对失败解析不缓存，交由后续请求重试）。
+  const configPath = process.env.LDVH_GOVERNED_PROJECTS_CONFIG!
+  const parkedPath = path.join(workspaceRoot, 'LDVH-GOVERNED-PROJECTS.parked')
+  fs.renameSync(configPath, parkedPath)
   try {
     const failed = await get('/api/project-files/projects')
     assert.equal(failed.response.status, 500)
-    assert.match(String(failed.body.error), /Governance resolver unavailable/)
-
-    process.env.LDVH_HELPER_EXECUTABLE = configuredHelper
-    const recovered = await get('/api/project-files/projects')
-    assert.equal(recovered.response.status, 200, JSON.stringify(recovered.body))
+    assert.match(String(failed.body.error), /Governance configuration is unavailable/)
   } finally {
-    process.env.LDVH_HELPER_EXECUTABLE = configuredHelper
-    fs.writeFileSync(configPath, originalConfig)
+    fs.renameSync(parkedPath, configPath)
   }
+
+  const recovered = await get('/api/project-files/projects')
+  assert.equal(recovered.response.status, 200, JSON.stringify(recovered.body))
 })

@@ -14,7 +14,7 @@ test('V4 fact lists keep every declared lifecycle status tab even when its count
 
   assert.match(filter, /adr: \['active', 'retired'\]/)
   assert.match(filter, /pitfall: \['draft', 'active', 'discarded'\]/)
-  assert.match(filter, /study: \['active', 'retired'\]/)
+  assert.match(filter, /research: \['active', 'retired'\]/)
   assert.match(filter, /if \(!\(type in FALLBACK_STATUSES_BY_TYPE\)\) return sortedOptions;/)
   assert.match(filter, /if \(displayOptions\.length <= 1 && !\(type in FALLBACK_STATUSES_BY_TYPE\)\) return null;/)
 })

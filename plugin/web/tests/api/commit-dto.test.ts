@@ -10,8 +10,6 @@ import { parseCommitSignature } from '../../api/services/git.ts'
 
 const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ldvh-commit-dto-workspace-'))
 const projectRoot = path.join(workspaceRoot, 'demo')
-// v4 迁移适配：仓库根可用 LDVH_ROOT 覆盖（默认保持 v4 布局的相对推算）。
-const repositoryRoot = process.env.LDVH_ROOT || path.resolve(import.meta.dirname, '../../..')
 fs.mkdirSync(projectRoot, { recursive: true })
 fs.mkdirSync(path.join(projectRoot, 'ldvh-base', 'sparks'), { recursive: true })
 fs.writeFileSync(
@@ -155,13 +153,12 @@ fs.writeFileSync(
 )
 process.env.LDVH_ROOT = projectRoot
 process.env.LDVH_WORKSPACE_ROOT = workspaceRoot
-process.env.LDVH_HELPER_EXECUTABLE = path.join(repositoryRoot, 'ldvh')
+// v5 现状：治理范围经 Node git 解析，不依赖 v4 Python Helper。登记载体指向本测试
+// 自建的工作区治理 YAML，触发 governanceScope 的 Node git 分支。CI 可用覆盖。
+process.env.LDVH_GOVERNED_PROJECTS_CONFIG = path.resolve(workspaceRoot, 'LDVH-GOVERNED-PROJECTS.yaml')
 process.env.LDVH_WEB_WORKTREE_LOCATOR = projectRoot
 process.env.LDVH_WEB_WORKSPACE_ROOT = workspaceRoot
 process.env.LDVH_WEB_GOVERNED_PROJECT_ID = 'demo'
-process.env.LDVH_WEB_PYTHON = process.platform === 'win32'
-  ? path.join(repositoryRoot, '.venv', 'Scripts', 'python.exe')
-  : path.join(repositoryRoot, '.venv', 'bin', 'python')
 
 let server: Server
 let baseUrl = ''

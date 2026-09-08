@@ -137,6 +137,7 @@ test('Research projection order and i18n labels cover the v5 thin-index fields',
 
   // 列表卡片：活跃调研不渲染内容块（Human 2026-09-09 定——研究问题/目的/
   // 停止原因在详情页呈现，卡片保持克制）；v4 report_kind chip 移除。
+  assert.match(locales, /retirement_reason: \{\s*\n\s*outdated: \{ zh: '[^']+', en: '[^']+' \},\s*\n\s*superseded: \{ zh: '[^']+', en: '[^']+' \},\s*\n\s*'out-of-scope': \{ zh: '[^']+', en: '[^']+' \},\s*\n\s*rejected: \{ zh: '[^']+', en: '[^']+' \},\s*\n\s*\},/);
   assert.match(list, /export function StudyCardContent/);
   assert.doesNotMatch(list, /obj\.research_question\?\.trim\(\)/);
   assert.doesNotMatch(list, /obj\.report_kind/);

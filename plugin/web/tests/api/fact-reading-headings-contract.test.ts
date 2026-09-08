@@ -4,53 +4,54 @@ import path from 'node:path';
 import { test } from 'node:test';
 
 /**
- * ADR/Pitfall 详情区段标题的唯一语义来源是 22 §5.3 与 23 §5.3 定义的两个汉字投影标题。
- * 本测试从两份规范原文解析投影标题，并断言 locales.ts 的中文标题逐项一致，
- * Web 侧不再维护第二份标题词表。任何改标题都必须先改规范，再同步 locales。
+ * ADR/Pitfall 详情区段标题的唯一语义来源是 `src/i18n/locales.ts` 的字段标签映射
+ * （经 getFieldLabel 消费）。v4 归档由 specs/22、23 号规范的投影标题承载，v5 已把
+ * 权威载体收敛到 locales.ts（见 docs/11-v5Web开发增量）：任何改标题都必须先改
+ * locales.ts，详情布局经 getFieldLabel 原样消费，不维护第二份标题词表。
  */
-function parseProjectionHeadings(spec: string, window: number): Record<string, string> {
-  const start = spec.indexOf('当 Web 或其它 Human 阅读面');
-  assert.ok(start >= 0, '规范投影段落应可定位');
-  const section = spec.slice(start, start + window);
-  const headings: Record<string, string> = {};
-  /* 匹配 `标题`（`字段名`）模式 */
-  const pairRe = /`([^`]+)`（`([^`]+)`）/g;
-  let m: RegExpExecArray | null;
-  while ((m = pairRe.exec(section)) !== null) {
-    headings[m[2]] = m[1];
-  }
-  /* 匹配 `字段名` 另以 `标题` 呈现（终态处置） */
-  const tailRe = /`([^`]+)` 另以 `([^`]+)` 呈现/g;
-  while ((m = tailRe.exec(section)) !== null) {
-    headings[m[1]] = m[2];
-  }
-  return headings;
+const LOCALES_PATH = path.resolve('src/i18n/locales.ts');
+const LOCALES = fs.readFileSync(LOCALES_PATH, 'utf8');
+const LAYOUT_PATH = path.resolve('src/pages/object-detail/FactReadingLayouts.tsx');
+const LAYOUT = fs.readFileSync(LAYOUT_PATH, 'utf8');
+
+/** 从 layout 的 READING_NODES 数组提取全部字段名。 */
+function extractNodeFields(nodeArrayName: string): string[] {
+  const block = LAYOUT.match(new RegExp(`const ${nodeArrayName}[\\s\\S]*?\\]`));
+  assert.ok(block, `${nodeArrayName} 数组应可定位`);
+  return (block[0].match(/field: '([^']+)'/g) ?? []).map((token) => token.match(/field: '([^']+)'/)![1]);
 }
 
-test('ADR/Pitfall detail headings follow 22 §5.3 / 23 §5.3 and locales.ts carries exactly those titles', () => {
-  // v4 迁移适配：specs 根可用 LDVH_SPEC_ROOT 覆盖（默认保持 v4 布局的相对推算）。
-  const specRoot = process.env.LDVH_SPEC_ROOT || '..';
-  const adrSpec = fs.readFileSync(path.resolve(specRoot, 'specs/22-ADR-决策.md'), 'utf8');
-  const pitfallSpec = fs.readFileSync(path.resolve(specRoot, 'specs/23-Pitfall-踩坑经验.md'), 'utf8');
+/** locales.ts 必须为某字段提供中文/英文标题，且与 raw 字段名不同。 */
+function assertFieldLocalized(field: string): void {
+  // getFieldLabel 返回的标题必须以字段登记形式存在：`{ FIELD_NAME }: { zh: '..', en: '..' }`。
+  const m = LOCALES.match(new RegExp(`\\b${field}: \\{ zh: '([^']+)', en: '([^']+)' \\}`));
+  assert.ok(m, `locales.ts 应为字段 ${field} 提供中文/英文标题登记`);
+  assert.ok(m[1].length > 0, `字段 ${field} 中文标题不能为空`);
+  assert.ok(m[2].length > 0, `字段 ${field} 英文标题不能为空`);
+}
 
-  const adr = parseProjectionHeadings(adrSpec, 900);
-  const pitfall = parseProjectionHeadings(pitfallSpec, 900);
-  assert.ok(Object.keys(adr).length >= 5, '22 投影标题应至少覆盖 5 个字段');
-  assert.ok(Object.keys(pitfall).length >= 8, '23 投影标题应至少覆盖 8 个字段');
-  const expected = { ...adr, ...pitfall };
+test('ADR and Pitfall detail headings all resolve through locales.ts field labels', () => {
+  const adrFields = extractNodeFields('ADR_READING_NODES');
+  const pitfallFields = extractNodeFields('PITFALL_READING_NODES');
 
-  const locales = fs.readFileSync(path.resolve('src/i18n/locales.ts'), 'utf8');
-  const layout = fs.readFileSync(path.resolve('src/pages/object-detail/FactReadingLayouts.tsx'), 'utf8');
+  // 覆盖两大核心段落集，防止详情标题漂移。
+  assert.ok(adrFields.length >= 6, 'ADR 阅读节点应覆盖核心决策字段');
+  assert.ok(pitfallFields.length >= 8, 'Pitfall 阅读节点应覆盖核心经验字段');
 
-  for (const [field, zh] of Object.entries(expected)) {
-    assert.match(
-      locales,
-      new RegExp(`${field}: \\{ zh: '${zh}'`),
-      `locales.ts 应为字段 ${field} 提供规范标题「${zh}」`,
-    );
-  }
+  for (const field of adrFields) assertFieldLocalized(field);
+  for (const field of pitfallFields) assertFieldLocalized(field);
+});
 
-  assert.match(layout, /title={getFieldLabel\(node\.field, locale\)}/);
-  assert.match(layout, /getObjectStatusLocale\('spark'/);
-  assert.doesNotMatch(layout, /locale === 'en'/);
+test('detail layouts consume field labels through the shared resolver, not hardcoded copy', () => {
+  // 标题统一经 getFieldLabel / getObjectStatusLocale 解析。
+  assert.match(LAYOUT, /title=\{getFieldLabel\(node\.field, locale\)\}/);
+  assert.match(LAYOUT, /getObjectStatusLocale\('spark'/);
+  // 不允许详情布局内按语言就地拼写标题。
+  assert.doesNotMatch(LAYOUT, /locale === 'en'/);
+  assert.doesNotMatch(LAYOUT, /zh: '/);
+});
+
+test('change_log reading node stays shared across fact detail layouts', () => {
+  assert.match(LAYOUT, /export function ChangeLogReadingNode/);
+  assert.match(LAYOUT, /getFieldLabel\('change_log', locale\)/);
 });
