@@ -67,20 +67,21 @@ export default function GoalSection() {
       >
         <Target size={16} className="shrink-0 text-ldvh-accent" aria-hidden="true" />
         <h3 className="ldvh-section-title min-w-0">{t('focusV2.goalTitle')}</h3>
-        <span className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
-          {goal && (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                void handleCopy(t('focusV2.promptAdjustGoal'), 'adjust');
-              }}
-              className="shrink-0 text-[11px] font-normal text-ldvh-text-secondary/55 transition-colors hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
-              title={t('focusV2.promptAdjustGoal')}
-            >
-              {copied === 'adjust' ? t('focusV2.btnCopied') : t('focusV2.hintAdjustGoal')}
-            </button>
-          )}
+        <span className="ml-auto flex min-w-0 shrink-0 items-center">
+          <button
+            type="button"
+            aria-expanded={goalExpanded}
+            aria-controls="cognition-goal-content"
+            onClick={(event) => {
+              event.stopPropagation();
+              setGoalExpanded((expanded) => !expanded);
+            }}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ldvh-text-secondary transition-colors hover:bg-ldvh-bg hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ldvh-accent/50"
+            title={t(goalExpanded ? 'focusV2.collapseSection' : 'focusV2.expandSection')}
+          >
+            {goalExpanded ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
+            <span className="sr-only">{t(goalExpanded ? 'focusV2.collapseSection' : 'focusV2.expandSection')}</span>
+          </button>
         </span>
       </div>
 
