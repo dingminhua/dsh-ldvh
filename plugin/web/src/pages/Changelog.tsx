@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertCircle } from 'lucide-react';
-import CopyPathButton from '@/components/CopyPathButton';
 import CommitBreakingBadge from '@/components/CommitBreakingBadge';
 import CommitPushStatusBadge from '@/components/CommitPushStatusBadge';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
@@ -225,11 +224,6 @@ export default function Changelog() {
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <CommitPushStatusBadge status={entry.pushStatus} />
-                  <CopyPathButton
-                    path={getCommitCopyContext(entry)}
-                    label={t('changelog.copyContext')}
-                    copiedLabel={t('changelog.copiedContext')}
-                  />
                 </div>
               </div>
               <div className="ldvh-object-title-tray -mx-1 flex min-w-0 items-center gap-1.5 px-2.5 py-2 text-left transition-colors group-hover/card:bg-ldvh-bg/55">

@@ -10,7 +10,6 @@ import {
   Loader2,
   Rows3,
 } from 'lucide-react';
-import CopyPathButton from '@/components/CopyPathButton';
 import PageHeader from '@/components/PageHeader';
 import { useI18n } from '@/i18n/context';
 import {
@@ -237,7 +236,6 @@ export default function Changes() {
                           </span>
                         </span>
                       </button>
-                      <CopyPathButton path={entry.absolutePath} />
                     </div>
                   );
                 })}
@@ -300,9 +298,6 @@ export default function Changes() {
                                     {entry.path}
                                   </span>
                                 </span>
-                                <CopyPathButton
-                                  path={entry.absolutePath}
-                                />
                               </div>
                             ))}
                           </div>
@@ -358,7 +353,7 @@ export default function Changes() {
                   {t('changes.splitDiff')}
                 </button>
               </div>
-              <CopyPathButton path={diff.data?.absolutePath} />
+
             </div>
           </div>
           <div className="min-h-[36rem] min-w-0 p-4 xl:min-h-0 xl:flex-1 xl:overflow-hidden">

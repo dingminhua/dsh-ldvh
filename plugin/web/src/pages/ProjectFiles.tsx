@@ -8,7 +8,6 @@ import {
   FolderOpen,
   Loader2,
 } from 'lucide-react';
-import CopyPathButton from '@/components/CopyPathButton';
 import MarkdownPreview from '@/components/MarkdownPreview';
 import PageHeader from '@/components/PageHeader';
 import { useI18n } from '@/i18n/context';
@@ -222,7 +221,6 @@ export default function ProjectFiles() {
                         </span>
                       </span>
                     </button>
-                    <CopyPathButton path={entry.absolutePath} />
                   </div>
                 ))}
               </div>
@@ -239,7 +237,7 @@ export default function ProjectFiles() {
                 {filePanel.data && <p className="ldvh-meta truncate">{filePanel.data.path}</p>}
               </div>
             </div>
-            <CopyPathButton path={filePanel.data?.absolutePath} />
+
           </div>
           <div className="min-h-[36rem] min-w-0 p-4 xl:min-h-0 xl:flex-1 xl:overflow-hidden">
             {filePanel.loading ? (

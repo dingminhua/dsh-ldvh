@@ -13,7 +13,6 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { AlertCircle, ChevronDown, ChevronUp, CirclePlay, GitFork, HeartPulse, History, Inbox } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
-import CopyPathButton from '@/components/CopyPathButton';
 import GoalSection from '@/components/GoalSection';
 import ObjectReferenceCopyButton from '@/components/ObjectReferenceCopyButton';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
@@ -695,12 +694,6 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
             <span className="ldvh-meta shrink-0 text-ldvh-text-secondary/70">{data.inbox.total}</span>
           )}
           <span className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
-            <CopyPathButton
-              path={buildModuleSummary(data, locale, t)}
-              label={t('cognition.copyModuleSummary')}
-              copiedLabel={t('cognition.copiedModuleSummary')}
-              size="md"
-            />
             <button
               type="button"
               aria-expanded={inboxExpanded}
@@ -774,12 +767,6 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
             <span className="ldvh-meta shrink-0 text-ldvh-text-secondary/70">{data.activeWorkCases.total}</span>
           )}
           <span className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
-            <CopyPathButton
-              path={buildActiveWorkCaseSummary(data, locale, t)}
-              label={t('cognition.active.copyModuleSummary')}
-              copiedLabel={t('cognition.active.copiedModuleSummary')}
-              size="md"
-            />
             <button
               type="button"
               aria-expanded={activeExpanded}
@@ -868,12 +855,6 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
             ))}
           </div>
           <span className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
-            <CopyPathButton
-              path={buildRecentActivitySummary(data, locale, t)}
-              label={t('cognition.recent.copyModuleSummary')}
-              copiedLabel={t('cognition.recent.copiedModuleSummary')}
-              size="md"
-            />
             <button
               type="button"
               aria-expanded={recentExpanded}
@@ -984,14 +965,6 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
             ))}
           </div>
           <span className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
-            {sparkHealth && (
-              <CopyPathButton
-                path={buildSparkHealthSummary(data, locale, t)}
-                label={t('cognition.sparkHealth.copyModuleSummary')}
-                copiedLabel={t('cognition.sparkHealth.copiedModuleSummary')}
-                size="md"
-              />
-            )}
             <button
               type="button"
               aria-expanded={sparkHealthExpanded}
@@ -1109,14 +1082,6 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
             </div>
           )}
           <span className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
-            {recentHotspots && (
-              <CopyPathButton
-                path={buildRecentHotspotSummary(data, locale, t)}
-                label={t('cognition.commitHotspots.copyModuleSummary')}
-                copiedLabel={t('cognition.commitHotspots.copiedModuleSummary')}
-                size="md"
-              />
-            )}
             <button
               type="button"
               aria-expanded={recentHotspotsExpanded}
