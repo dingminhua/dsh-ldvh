@@ -3,7 +3,6 @@ import { BrowserRouter, Navigate, Routes, Route, useLocation } from 'react-route
 import { I18nProvider } from '@/i18n/context';
 import Layout from '@/components/Layout';
 import CognitionCenter from '@/pages/CognitionCenter';
-import FocusV2 from '@/pages/FocusV2';
 import Federation from '@/pages/Federation';
 import FederationObjects from '@/pages/FederationObjects';
 import ProjectFiles from '@/pages/ProjectFiles';
@@ -20,7 +19,6 @@ function AppRoutes() {
     <Layout>
       <Routes>
         <Route path="/" element={<CognitionCenter />} />
-        <Route path="/focus-v2" element={<FocusV2 />} />
         <Route path="/federation" element={<Federation />} />
         <Route path="/federation/objects/:type" element={<FederationObjects />} />
         <Route path="/project-files" element={<ProjectFiles />} />
