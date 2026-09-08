@@ -1061,14 +1061,12 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 /**
  * GET /api/cognition/goal — 蓝图「当前目标」投影的机械来源读取（specs/25 直读消费点）。
  *
- * 读取被管辖项目 worktree 下的单例 goal.md，仅投影蓝图所需的窄字段：
- * 目标陈述 + 子目标(SG-n)清单 + 计划区条目（裁定 14「下一步」H2）。此处不做任何 AI 判断或派生——只把 goal.md 原文里
+ * 读取被管辖项目 worktree 下的单例 goal.md，仅投影蓝图所需的窄字段：目标陈述 + 子目标(SG-n)清单。此处不做任何 AI 判断或派生——只把 goal.md 原文里
  * 的结构化字段搬给前端；服务端不缓存、不回写、不建索引（25 §10 消费点直读）。
  * 该路由仅为蓝图首页（/focus-v2 测试页）提供 goal.md 的读取入口，不承载 Goal 类型
  * 的创建/更新/翻转等受控操作（那些走 AI 受控写入路径）。
  */
 type GoalSubGoal = { id: string; text: string }
-type GoalPlanItem = { text: string; serves: string | null }
 router.get('/goal', async (req: Request, res: Response): Promise<void> => {
   try {
     const project = await requestProject(req)
@@ -1117,39 +1115,6 @@ router.get('/goal', async (req: Request, res: Response): Promise<void> => {
       if (match) subGoals.push({ id: match[1].trim(), text: match[2].trim() })
     }
 
-    // 方法区解析：「## 方法」H2 下的全部内容（到下一个 H2 为止）。
-    // 方法 = 实现本项目采用的方法（LDVH 项目引用 00 第 2 节根方案；其它项目由 AI 书写）。
-    let method = ''
-    const methodMatch = /^##\s*方法\s*$/m.exec(body)
-    if (methodMatch) {
-      const methodSection = body.slice(methodMatch.index + methodMatch[0].length)
-      const nextH2 = /^##\s/m.exec(methodSection)
-      method = (nextH2 ? methodSection.slice(0, nextH2.index) : methodSection).trim()
-    }
-
-    // 计划区解析（裁定 14）：「## 规划」H2 下的有序列表条目，`<安排> → SG-n` 尾部
-    // 标注为建议性 serves（仅展示；真正绑定发生在 WC 的 Gate 1）。无该 H2 时为空数组。
-    const planItems: GoalPlanItem[] = []
-    const planMatch = /^##\s*(?:规划|下一步)\s*$/m.exec(body)
-    if (planMatch) {
-      const planSection = body.slice(planMatch.index + planMatch[0].length)
-      const nextH2 = /^##\s/m.exec(planSection)
-      const planBody = nextH2 ? planSection.slice(0, nextH2.index) : planSection
-      const planLineRe = /^\s*\d+[.、]\s*(.+)$/
-      for (const line of planBody.split('\n')) {
-        const m = planLineRe.exec(line)
-        if (!m) continue
-        let text = m[1].trim()
-        let serves: string | null = null
-        const arrow = /\s*(?:→|->)\s*(SG-\d+)\s*$/.exec(text)
-        if (arrow) {
-          serves = arrow[1]
-          text = text.slice(0, arrow.index).trim()
-        }
-        planItems.push({ text, serves })
-      }
-    }
-
     res.json({
       ok: true,
       goal: {
@@ -1157,9 +1122,7 @@ router.get('/goal', async (req: Request, res: Response): Promise<void> => {
         title: typeof meta.title === 'string' ? meta.title : '',
         status: typeof meta.status === 'string' ? meta.status : 'active',
         statement,
-        method,
         sub_goals: subGoals,
-        plan_items: planItems,
       },
     })
   } catch (err) {
