@@ -35,6 +35,9 @@ import { normalizeSignature } from '../../shared/signature.js'
 import { ProjectScopeError, requestProject } from '../services/requestScope.js'
 import { compareTimestamps, getRelativeTime, parseTimestamp } from '../services/time.js'
 import { getTypeColor } from '../services/typeColors.js'
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
+import yaml from 'js-yaml'
 
 const router = Router()
 
@@ -1052,6 +1055,74 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     }
     console.error('Cognition aggregation failed', err)
     res.status(500).json({ ok: false, error: 'Cognition aggregation failed' })
+  }
+})
+
+/**
+ * GET /api/cognition/goal — 蓝图「当前目标」投影的机械来源读取（specs/25 直读消费点）。
+ *
+ * 读取被管辖项目 worktree 下的单例 goal.md，仅投影蓝图所需的窄字段：
+ * 目标陈述 + 子目标(SG-n)清单。此处不做任何 AI 判断或派生——只把 goal.md 原文里
+ * 的结构化字段搬给前端；服务端不缓存、不回写、不建索引（25 §10 消费点直读）。
+ * 该路由仅为蓝图首页（/focus-v2 测试页）提供 goal.md 的读取入口，不承载 Goal 类型
+ * 的创建/更新/翻转等受控操作（那些走 AI 受控写入路径）。
+ */
+type GoalSubGoal = { id: string; text: string }
+router.get('/goal', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const project = await requestProject(req)
+    const goalPath = path.join(project.path, 'ldvh-base', 'goal.md')
+    let raw: string
+    try {
+      raw = await readFile(goalPath, 'utf-8')
+    } catch (err) {
+      res.status(404).json({ ok: false, error: 'goal.md 不存在——Goal 事实对象尚未创建', exitCode: 'goal_missing' })
+      return
+    }
+    const lines = raw.split(/\r?\n/)
+    if (lines[0]?.trim() !== '---') {
+      res.status(500).json({ ok: false, error: 'goal.md 缺少 frontmatter', code: 'frontmatter_missing' })
+      return
+    }
+    const endIdx = lines.findIndex((line, index) => index > 0 && line.trim() === '---')
+    if (endIdx === -1) {
+      res.status(500).json({ ok: false, error: 'goal.md frontmatter 未闭合', code: 'frontmatter_unclosed' })
+      return
+    }
+    const metaLines = lines.slice(1, endIdx).join('\n')
+    const body = lines.slice(endIdx + 1).join('\n')
+    let meta: Record<string, unknown>
+    try {
+      meta = yaml.load(metaLines) as Record<string, unknown>
+    } catch (err) {
+      res.status(500).json({ ok: false, error: 'goal.md frontmatter 解析失败', code: 'frontmatter_parse_failed' })
+      return
+    }
+
+    // 子目标解析：正文里 `SG-n …` 行（目标陈述段与子目标段都按原文抽取，避免臆造进度）。
+    const subGoals: GoalSubGoal[] = []
+    const sgRe = /^\s*(SG-\d+)[:：]?\s+(.+)$/
+    for (const line of body.split('\n')) {
+      const match = sgRe.exec(line)
+      if (match) subGoals.push({ id: match[1].trim(), text: match[2].trim() })
+    }
+
+    res.json({
+      ok: true,
+      goal: {
+        goal_key: typeof meta.goal_key === 'string' ? meta.goal_key : 'project-goal',
+        title: typeof meta.title === 'string' ? meta.title : '',
+        status: typeof meta.status === 'string' ? meta.status : 'active',
+        sub_goals: subGoals,
+      },
+    })
+  } catch (err) {
+    if (err instanceof ProjectScopeError) {
+      res.status(400).json({ ok: false, error: err.message })
+      return
+    }
+    console.error('Goal read failed', err)
+    res.status(500).json({ ok: false, error: 'Goal read failed' })
   }
 })
 

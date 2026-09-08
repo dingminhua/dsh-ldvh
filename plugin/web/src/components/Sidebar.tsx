@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { ElementType } from 'react';
 import {
   LayoutDashboard,
+  FlaskConical,
   Globe,
   FolderTree,
   GitPullRequestArrow,
@@ -23,6 +24,7 @@ type NavIcon = ElementType<LucideProps>;
 
 const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
   { to: '/', labelKey: 'nav.cognition', icon: LayoutDashboard },
+  { to: '/focus-v2', labelKey: 'nav.focusV2', icon: FlaskConical },
   { to: '/objects/spark', labelKey: 'nav.sparks', icon: OBJECT_TYPE_ICONS.spark },
   { to: '/objects/workcase', labelKey: 'nav.workcases', icon: OBJECT_TYPE_ICONS.workcase },
   { to: '/objects/adr', labelKey: 'nav.adrs', icon: OBJECT_TYPE_ICONS.adr },
