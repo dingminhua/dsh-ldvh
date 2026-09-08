@@ -428,22 +428,29 @@ function CommitIdentitySection({
     </span>
   ) : timeText;
   const typeLabel = labels.commit;
-  // Human 2026-09-09：「提交」类型徽章不显示——标题已说明这是提交；类别徽章
-  // （格式调整等）与 breaking 徽章保留。
-  const headerMeta = entry?.category ? getCommitTypeLabel(entry.category, locale) : '';
-  const categoryMeta = headerMeta ? (
-    <span
-      className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center rounded-md border px-1.5 text-[10px] font-medium leading-3"
-      style={{ backgroundColor: `${commitColor}18`, borderColor: `${commitColor}55`, color: commitColor }}
-    >
-      {headerMeta}
+  const headerMetaItems = [
+    entry?.category ? getCommitTypeLabel(entry.category, locale) : '',
+  ].filter(Boolean);
+  const categoryMeta = headerMetaItems.length > 0 ? (
+    <span className="flex min-w-0 items-center gap-2">
+      <span
+        className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center rounded-md border border-ldvh-border bg-ldvh-bg px-1.5 text-[10px] font-medium leading-3 text-ldvh-text-secondary"
+      >
+        {labels.commit}
+      </span>
+      <span
+        className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center rounded-md border px-1.5 text-[10px] font-medium leading-3"
+        style={{ backgroundColor: `${commitColor}18`, borderColor: `${commitColor}55`, color: commitColor }}
+      >
+        {headerMetaItems[0]}
+      </span>
     </span>
   ) : null;
 
   return (
     <ObjectIdentityHeader
       title={title}
-      id={headerMeta}
+      id={headerMetaItems.join(' · ')}
       target={copyValue}
       objectType="changelog"
       typeColor={CATEGORY_COLORS.other} // 图标用中性色，与"提交"徽章一致；类别色只体现在 category badge 上
@@ -454,7 +461,8 @@ function CommitIdentitySection({
       showDefaultDates={false}
       showTypeBadge={false}
       showActivityCount={false}
-      titleMetaEntries={[{ label: labels.time, value: timeValue }]}
+      // Human 2026-09-09：落款不显示「提交」label——时间/署名本身已自明。
+      titleMetaEntries={[{ label: '', value: timeValue }]}
       titleMetaAlign="footerEnd"
       copyLabel={labels.copyHash}
       copiedLabel={labels.copiedHash}
