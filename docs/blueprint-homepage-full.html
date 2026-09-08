@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LDVH 首页完整形态 Mockup — 蓝图首页（完整版）</title>
+<style>
+  :root{
+    /* 采用真实 LDVH v5 深色 token 值 */
+    --ldvh-bg: 10 10 15;
+    --ldvh-panel: 18 18 26;
+    --ldvh-panel2: 24 24 34;
+    --ldvh-border: 30 30 46;
+    --ldvh-text-primary: 228 228 231;
+    --ldvh-text-secondary: 161 161 170;
+    --ldvh-accent: 0 212 170;
+    --t-goal:#00d4aa;      /* Goal=teal accent */
+    --t-init:#fb923c;      /* Initiative=orange(新类型色待定候选) */
+    --t-wc:#3b82f6;        /* workcase blue */
+    --t-adr:#a855f7; --t-spark:#eab308; --t-research:#14b8a6; --t-pitfall:#ef4444;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:rgb(var(--ldvh-bg));color:rgb(var(--ldvh-text-primary));
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.5}
+  /* ===== 应用骨架：左导航 + 主区 ===== */
+  .app{display:flex;height:100vh;overflow:hidden}
+  .nav{width:220px;flex:none;border-right:1px solid rgb(var(--ldvh-border));
+    background:rgb(var(--ldvh-panel));padding:14px 10px;overflow-y:auto}
+  .nav-brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;padding:4px 8px 14px}
+  .nav-brand .mark{width:20px;height:20px;border-radius:6px;background:rgb(var(--ldvh-accent));display:inline-flex;align-items:center;justify-content:center;color:#041018;font-weight:800;font-size:11px}
+  .nav-item{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:8px;color:rgb(var(--ldvh-text-secondary));font-size:13px;cursor:pointer}
+  .nav-item:hover{background:rgba(255,255,255,.04);color:rgb(var(--ldvh-text-primary))}
+  .nav-item.active{background:rgba(var(--ldvh-accent),.12);color:rgb(var(--ldvh-accent))}
+  .nav-item .ic{width:16px;text-align:center;font-size:13px}
+  .nav-sec{font-size:10px;letter-spacing:.1em;color:rgb(var(--ldvh-text-secondary));opacity:.6;padding:14px 9px 5px;text-transform:uppercase}
+  .main{flex:1;overflow-y:auto;min-width:0}
+  .main-inner{max-width:1080px;margin:0 auto;padding:20px 24px 80px}
+  .crumb{font-size:12px;color:rgb(var(--ldvh-text-secondary));margin-bottom:2px}
+  .page-title{font-size:20px;font-weight:700;display:flex;align-items:center;gap:10px}
+  .page-title .tag{font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;background:rgba(var(--ldvh-accent),.14);color:rgb(var(--ldvh-accent))}
+  .page-sub{font-size:13px;color:rgb(var(--ldvh-text-secondary));margin:3px 0 16px}
+
+  /* ===== 顶部长期意图区（新增提案） ===== */
+  .blueprint{background:linear-gradient(135deg,#0e1f24,#0f1626);border:1px solid rgba(var(--ldvh-accent),.28);
+    border-radius:14px;padding:18px 20px;margin-bottom:18px;position:relative}
+  .bp-head{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .bp-badge{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--t-goal)}
+  .bp-badge.new{background:rgba(var(--ldvh-accent),.12);border:1px solid rgba(var(--ldvh-accent),.3);color:rgb(var(--ldvh-accent));padding:1px 7px;border-radius:6px}
+  .bp-line{margin:0 6px;flex:1;height:1px;background:rgba(var(--ldvh-border),.9)}
+  /* goal 卡 */
+  .goal{display:flex;gap:12px;align-items:flex-start;background:rgba(255,255,255,.02);border:1px solid rgb(var(--ldvh-border));border-radius:10px;padding:12px 14px}
+  .goal-ic{width:30px;height:30px;border-radius:8px;background:rgba(var(--ldvh-accent),.15);display:flex;align-items:center;justify-content:center;font-size:15px;flex:none}
+  .goal-body{flex:1;min-width:0}
+  .goal-row1{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .goal-title{font-size:15px;font-weight:650}
+  .st{font-size:11px;padding:1px 8px;border-radius:999px;font-weight:600}
+  .st-active{background:rgba(var(--ldvh-accent),.16);color:rgb(var(--ldvh-accent))}
+  .goal-path{font-family:ui-monospace,monospace;font-size:11px;color:rgb(var(--ldvh-text-secondary))}
+  .goal-desc{color:rgb(var(--ldvh-text-secondary));font-size:13px;margin-top:3px}
+  .sg-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  .sg{display:flex;align-items:center;gap:8px;background:rgb(var(--ldvh-panel));border:1px solid rgb(var(--ldvh-border));border-radius:9px;padding:6px 11px;font-size:12.5px}
+  .sg .id{color:var(--t-goal);font-weight:700;font-size:11px}
+  .sg .bar{width:52px;height:5px;border-radius:3px;background:rgb(var(--ldvh-border));overflow:hidden}
+  .sg .bar i{display:block;height:100%;background:rgb(var(--ldvh-accent))}
+  .sg .pct{font-size:11px;color:var(--t-goal);font-weight:650}
+  /* 蓝图 4 区 */
+  .bp-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin-top:12px}
+  .bp-cell{background:rgb(var(--ldvh-panel));border:1px solid rgb(var(--ldvh-border));border-radius:10px;padding:12px 13px}
+  .bp-cap{font-size:11px;font-weight:650;letter-spacing:.05em;color:rgb(var(--ldvh-text-secondary));text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .bp-cap .n{margin-left:auto;font-size:11px}
+  .it-row{display:flex;flex-direction:column;gap:2px;padding:5px 0;border-bottom:1px dashed rgb(var(--ldvh-border))}
+  .it-row:last-child{border-bottom:none}
+  .it-name{font-size:13px;display:flex;align-items:center;gap:6px}
+  .pill{font-size:10px;font-weight:600;padding:1px 7px;border-radius:999px;flex:none}
+  .p-doing{background:rgba(var(--ldvh-accent),.15);color:rgb(var(--ldvh-accent))}
+  .p-next{background:rgba(79,140,255,.16);color:#7aa7ff}
+  .p-done{background:rgba(148,163,184,.16);color:#a8b3cc}
+  .p-open{background:rgba(234,179,8,.16);color:#eab308}
+  .it-meta{font-size:11px;color:rgb(var(--ldvh-text-secondary));display:flex;gap:8px;flex-wrap:wrap}
+  .it-meta .serves{color:#7ad;font-size:11px}
+  .bp-note{font-size:11px;color:rgb(var(--ldvh-text-secondary));opacity:.8;margin-top:8px}
+  .src{margin-left:auto;font-family:ui-monospace,monospace;font-size:10px;color:rgb(var(--ldvh-text-secondary));opacity:.7}
+
+  /* ===== 现有模块（保真还原，含顶栏头） ===== */
+  .keep-note{display:flex;align-items:center;gap:8px;font-size:12px;color:#3ecf8e;margin:6px 0 10px}
+  .keep-note .dot{width:8px;height:8px;border-radius:50%;background:#3ecf8e;flex:none}
+  .mod{border:1px solid rgb(var(--ldvh-border));background:rgb(var(--ldvh-panel));border-radius:12px;padding:14px 16px;margin-bottom:14px}
+  .mod-h{display:flex;align-items:center;gap:8px;cursor:pointer}
+  .mod-h .ic{color:rgb(var(--ldvh-accent));flex:none}
+  .mod-h h3{font-size:14px;font-weight:600;margin:0;color:rgb(var(--ldvh-text-primary))}
+  .mod-h .cnt{font-size:12px;color:rgb(var(--ldvh-text-secondary))}
+  .mod-h .sp{flex:1}
+  .chev{color:rgb(var(--ldvh-text-secondary))}
+  .card{background:rgb(var(--ldvh-panel2));border:1px solid rgb(var(--ldvh-border));border-radius:9px;padding:10px 13px;margin-top:10px}
+  .decision{border-left:2px solid #d97706;background:rgba(217,119,6,.05)}
+  .card-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}
+  .card-head b{font-weight:550}
+  .cmeta{font-size:11px;color:rgb(var(--ldvh-text-secondary));margin-top:3px}
+  .ctype{font-size:10px;padding:1px 7px;border-radius:6px;font-weight:600}
+  .ct-gate{background:rgba(234,179,8,.16);color:#eab308}
+  .ct-block{background:rgba(239,68,68,.15);color:#f87171}
+  .ct-wc{background:rgba(59,130,246,.16);color:#7aa7ff}
+  .ct-pit{background:rgba(239,68,68,.14);color:#fca5a5}
+  .ct-pos{font-family:ui-monospace,monospace;font-size:10px;color:rgb(var(--ldvh-text-secondary))}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-bottom:14px}
+  .empty{text-align:center;padding:18px 0;color:rgb(var(--ldvh-text-secondary));font-size:12.5px}
+  .mini{font-size:11px;color:rgb(var(--ldvh-text-secondary))}
+  .legend{font-size:12px;color:rgb(var(--ldvh-text-secondary));margin:2px 0 10px}
+  .legend b{color:rgb(var(--ldvh-text-primary))}
+
+  .legendbar{display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:rgb(var(--ldvh-text-secondary));border-top:1px solid rgb(var(--ldvh-border));margin-top:22px;padding-top:12px}
+  .legendbar span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:10px;height:10px;border-radius:3px;display:inline-block}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 左导航（示意，忠实还原现有 SPA 侧栏） -->
+  <nav class="nav">
+    <div class="nav-brand"><span class="mark">L</span>LDVH</div>
+    <div class="nav-item active"><span class="ic">◎</span>聚焦</div>
+    <div class="nav-item"><span class="ic">✦</span>Sparks</div>
+    <div class="nav-item"><span class="ic">⛏</span>WorkCases</div>
+    <div class="nav-item"><span class="ic">🖋</span>ADRs</div>
+    <div class="nav-item"><span class="ic">⚡</span>Pitfalls</div>
+    <div class="nav-item"><span class="ic">⌕</span>调研 (Research)</div>
+    <div class="nav-item"><span class="ic">🧩</span>Initiative<span style="margin-left:auto;font-size:9px;background:var(--t-init);color:#1a1208;border-radius:4px;padding:0 4px">新</span></div>
+    <div class="nav-sec">Records</div>
+    <div class="nav-item"><span class="ic">⇄</span>联邦视图</div>
+    <div class="nav-item"><span class="ic">◫</span>项目文件</div>
+    <div class="nav-item"><span class="ic">⚑</span>变更 / Changelog</div>
+  </nav>
+
+  <!-- 主内容 -->
+  <main class="main">
+    <div class="main-inner">
+      <div class="crumb">dsh-ldvh › 项目认知中心</div>
+      <div class="page-title">聚焦 <span class="tag">蓝图首页 · 提案</span></div>
+      <div class="page-sub">长期意图与当前事态的单页总览 —— 顶部为<strong>新增</strong>长期意图区，下方为现有五模块（原样保留）</div>
+
+      <!-- ① 顶部长期意图区（提案新增） -->
+      <section class="blueprint">
+        <div class="bp-head">
+          <span class="bp-badge new">NEW · 长期意图区</span>
+          <span class="bp-badge">Project Blueprint</span>
+          <span class="bp-line"></span>
+          <span class="src">来源：goal.md · initiatives/ · Gate1 反查（投影，非第二事实源）</span>
+        </div>
+
+        <div class="goal">
+          <div class="goal-ic">🎯</div>
+          <div class="goal-body">
+            <div class="goal-row1">
+              <span class="goal-title">让长程 Vibe Coding 更稳定、更可控、更高效</span>
+              <span class="st st-active">active</span>
+            </div>
+            <div class="goal-desc">目标陈述（直读 goal.md 单例冻结锚）。修订史经 Git + change_log；点击可回读完整 goal.md。</div>
+            <div class="sg-list">
+              <div class="sg"><span class="id">SG-1</span><span>AI 受控持久作业</span><span class="bar"><i style="width:100%"></i></span><span class="pct">达成</span></div>
+              <div class="sg"><span class="id">SG-2</span><span>事实对象结构化留档</span><span class="bar"><i style="width:60%"></i></span><span class="pct">3/5</span></div>
+              <div class="sg"><span class="id">SG-3</span><span>Web 项目信息呈现</span><span class="bar"><i style="width:33%"></i></span><span class="pct">1/3</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bp-cols">
+          <div class="bp-cell">
+            <div class="bp-cap">当前专项<span class="n">· Active Initiative</span></div>
+            <div class="it-row">
+              <div class="it-name">🧩 蓝图首页 Web 呈现 <span class="pill p-doing">推进中</span></div>
+              <div class="it-meta"><span class="serves">serves SG-3</span><span>2 WC 进行中</span></div>
+            </div>
+            <div class="it-row">
+              <div class="it-name">🧩 调研系统实现里程碑 <span class="pill p-doing">推进中</span></div>
+              <div class="it-meta"><span class="serves">serves SG-2</span></div>
+            </div>
+            <div class="bp-note">投影：active 且依赖已满足（spec26 §10）· 点条目进 Initiative 详情</div>
+          </div>
+          <div class="bp-cell">
+            <div class="bp-cap">下一步 <span class="n">依赖拓扑排序</span></div>
+            <div class="it-row"><div class="it-name">🧩 Initiative 进对象系统 <span class="pill p-next">↳ 依赖 I-调研</span></div><div class="it-meta"><span class="serves">serves SG-3</span></div></div>
+            <div class="it-row"><div class="it-name">🧩 spec10 蓝图投影章节 <span class="pill p-next">↳ 依赖上项</span></div></div>
+            <div class="bp-note">仅排序、不阻塞 Gate1 授权（spec26 依赖定性）</div>
+          </div>
+          <div class="bp-cell">
+            <div class="bp-cap">已完成 <span class="n">演进脉络</span></div>
+            <div class="it-row"><div class="it-name">🧩 工作模型重构 <span class="pill p-done">closed</span></div><div class="it-meta">5 WC · SG-1</div></div>
+            <div class="it-row"><div class="it-name">🧩 Research 类型落地 <span class="pill p-done">closed</span></div></div>
+          </div>
+          <div class="bp-cell">
+            <div class="bp-cap">悬而未决</div>
+            <div class="it-row"><div class="it-name">D1 长期意图区版面 <span class="pill p-open">待 Human</span></div></div>
+            <div class="it-row"><div class="it-name">spec10 蓝图受保护与否 <span class="pill p-open">待 Human</span></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 分割说明 -->
+      <div class="keep-note"><span class="dot"></span>以下为现有「聚焦」页真实五模块 —— 原样保留、一行不改，仅整体让位下移（本 mockup 忠实还原其形态与示例数据）</div>
+
+      <!-- 模块一 待决定事项（全宽置顶） -->
+      <section class="mod">
+        <div class="mod-h"><span class="ic">📥</span><h3>待决定事项</h3><span class="cnt">3</span><span class="sp"></span><span class="chev">⌄</span></div>
+        <div class="card decision">
+          <div class="card-head"><span class="ctype ct-gate">Human Gate</span><b>蓝图在 LDVH 中如何呈现</b></div>
+          <div class="cmeta">决定对象：docs/blueprint-web-presentation-discussion.md · 含 D1–D5 决策点</div>
+        </div>
+        <div class="card decision">
+          <div class="card-head"><span class="ctype ct-block">Blocked</span><b>WC · 蓝图首页投影</b></div>
+          <div class="cmeta">阻塞位置 <span class="ct-pos">wc-…/gate</span> — 阻塞于 D1 待裁决</div>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="ctype ct-pit">pitfall · draft</span><b>蓝图腐化风险：区块手写维护成本</b></div>
+        </div>
+      </section>
+
+      <div class="grid2">
+        <!-- 推进中 WorkCases -->
+        <section class="mod" style="margin-bottom:0">
+          <div class="mod-h"><span class="ic">⛏</span><h3>推进中 WorkCases</h3><span class="cnt">2</span></div>
+          <div class="card"><div class="card-head"><span class="ctype ct-wc">wc</span><b>蓝图首页投影 / 长期意图区</b></div>
+            <div class="cmeta">目标位置 <span class="ct-pos">…/blueprint-intent-area</span></div></div>
+          <div class="card"><div class="card-head"><span class="ctype ct-wc">wc</span><b>Initiative 类型注册与呈现</b></div></div>
+        </section>
+        <!-- Spark 健康度 -->
+        <section class="mod" style="margin-bottom:0">
+          <div class="mod-h"><span class="ic">✦</span><h3>Spark 健康度</h3><span class="cnt">7d</span></div>
+          <div class="card"><div class="card-head"><b>状态分布</b></div>
+            <div class="cmeta">terminal 12 · open 5 · 静默 ≥7 天 2 条</div></div>
+          <div class="card"><div class="card-head"><b>静默 open</b></div><div class="cmeta">spark-xxx · 12 天未活动</div></div>
+        </section>
+        <!-- 近期动态 -->
+        <section class="mod" style="margin-bottom:0">
+          <div class="mod-h"><span class="ic">🕘</span><h3>近期动态</h3><span class="cnt">7d</span></div>
+          <div class="card"><div class="card-head"><span class="ctype ct-wc">workcase</span><b>蓝图 Web 呈现讨论</b></div>
+            <div class="cmeta">change_log · 2 活动 · 1 模型使用</div></div>
+          <div class="card"><div class="card-head"><span class="ctype" style="background:rgba(20,184,166,.15);color:#2dd4bf">research</span><b>《蓝图业界做法调研》更新</b></div></div>
+        </section>
+        <!-- 近期热点 -->
+        <section class="mod" style="margin-bottom:0">
+          <div class="mod-h"><span class="ic">🔥</span><h3>近期热点</h3><span class="cnt">progressing</span></div>
+          <div class="card"><div class="card-head"><b>蓝图 · Goal · Initiative</b></div>
+            <div class="cmeta">簇 1 · 关系：serves SG-n × 3 · 7d</div></div>
+        </section>
+      </div>
+
+      <div class="legendbar">
+        <span><span class="sw" style="background:var(--t-goal)"></span>Goal 单例 · 顶部目标锚</span>
+        <span><span class="sw" style="background:var(--t-init)"></span>Initiative 多例 · 对象通道（新类型色候选）</span>
+        <span><span class="sw" style="background:#3ecf8e"></span>下方五模块 = 现有实现原样保留</span>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

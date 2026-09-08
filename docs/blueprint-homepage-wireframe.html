@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>蓝图首页 Wireframe — LDVH / 聚焦（Cognition Center）升级草案</title>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#171d2e; --panel2:#1c2336; --line:#2a3350;
+    --ink:#e6e9f2; --muted:#8b93ab; --muted2:#5d6380;
+    --goal:#14b8a6; --init:#f97316; --wc:#3b82f6; --research:#14b8a6;
+    --amber:#eab308; --red:#ef4444; --teal:#2dd4bf; --accent:#4f8cff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.5}
+  .wrap{max-width:1120px;margin:0 auto;padding:28px 20px 60px}
+  h1{font-size:20px;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:24px}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+  /* 设计语言辅助说明 */
+  .keyline{border:1px dashed var(--line);border-radius:10px;padding:8px 12px;color:var(--muted);
+    font-size:12px;background:#12172a;margin-bottom:22px}
+  .keyline b{color:var(--ink)}
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 9px;border-radius:999px;
+    border:1px solid var(--line);color:var(--muted);background:var(--panel)}
+  .chip .dot{width:7px;height:7px}
+
+  /* ===== 顶部长期意图区 ===== */
+  .intent{background:linear-gradient(135deg,#14202e,#141d33);border:1px solid var(--line);
+    border-radius:16px;padding:20px;margin-bottom:26px}
+  .intent-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+  .intent-kicker{font-size:11px;letter-spacing:.12em;color:var(--goal);text-transform:uppercase;font-weight:600}
+  .intent-goal{font-size:17px;font-weight:600;flex:1}
+  .intent-state{font-size:12px;color:var(--muted)}
+  .intent-state b{color:var(--teal)}
+  .sg{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+  .sg-chip{background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+    padding:7px 12px;font-size:13px;display:flex;gap:10px;align-items:center}
+  .sg-id{color:var(--muted);font-size:11px;font-weight:700}
+  .sg-txt{color:var(--ink)}
+  .sg-prog{color:var(--goal);font-size:12px;font-weight:600}
+  .sg-bar{width:56px;height:5px;background:#2a3350;border-radius:3px;overflow:hidden}
+  .sg-fill{height:100%;background:var(--goal)}
+  .divider{height:1px;background:var(--line);margin:14px 0}
+  .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+  .cell{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+  .cell-title{font-size:13px;font-weight:600;margin-bottom:10px;display:flex;gap:8px;align-items:center}
+  .cell-title .dot{width:8px;height:8px}
+  .cap{font-size:11px;color:var(--muted2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px;font-weight:600}
+  .kv{display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:1px dashed #242d47}
+  .kv:last-child{border-bottom:none}
+  .kv .k{color:var(--muted)}
+  .lead-txt{color:var(--ink);margin:0 0 8px}
+  .footnote{font-size:11px;color:var(--muted2);margin-top:8px}
+  .badge{font-size:11px;padding:1px 8px;border-radius:999px;font-weight:600}
+  .b-active{background:rgba(45,212,191,.15);color:var(--teal)}
+  .b-next{background:rgba(79,140,255,.15);color:#7aa7ff}
+  .b-done{background:rgba(148,163,184,.15);color:#a8b3cc}
+  .b-open{background:rgba(234,179,8,.15);color:var(--amber)}
+
+  /* ===== 下方现状五模块区（原样承接示意） ===== */
+  .legend{margin-top:30px;margin-bottom:10px;font-size:13px;font-weight:600;color:var(--muted)}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+  .mod{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px}
+  .mod-head{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .mod-head .n{font-size:13px;font-weight:600;flex:1}
+  .mod-head .cnt{font-size:12px;color:var(--muted2)}
+  .card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:8px;font-size:13px}
+  .card:last-child{margin-bottom:0}
+  .card .t{font-weight:500}
+  .card .d{color:var(--muted);font-size:12px;margin-top:2px}
+  .pill{font-size:10px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin-left:6px}
+  .arrow{color:var(--muted2);font-size:11px;margin-left:4px}
+
+  .note{background:#12172a;border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-top:26px;font-size:13px}
+  .note h3{margin:0 0 8px;font-size:14px;color:var(--amber)}
+  .note ul{margin:6px 0 0;padding-left:18px;color:var(--muted)}
+  .note li{margin:4px 0}
+  .note code{background:#0d1220;padding:1px 6px;border-radius:6px;font-size:12px;color:#8fd3ff}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1><span class="dot" style="background:var(--accent)"></span>蓝图首页 Wireframe（草案）</h1>
+  <div class="sub">LDVH「聚焦 / Cognition Center」路由 <code>/</code> 升级为 <b>蓝图首页</b> —— 长期意图区 + 现状模块区</div>
+
+  <div class="keyline">
+    <b>说明</b>：这是为讨论 D1–D5 做的纯示意 mockup（非真实数据、非代码）。上方橙色虚线框 = 「长期意图区」新增（Goal/Initiative 投影，补 HV5/HV4）；下方 = 现有五模块区域示意保留承接。
+  </div>
+
+  <!-- ================= 顶部长期意图区 ================= -->
+  <section class="intent">
+    <div class="intent-head">
+      <span class="intent-kicker">Project Blueprint · 长期意图</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+      <span class="badge b-active">active</span>
+      <div class="intent-goal">让长程 Vibe Coding 更稳定、更可控、更高效</div>
+      <span class="intent-state"><b>Goal</b> · goal.md 单例冻结锚</span>
+    </div>
+    <div class="footnote">目标陈述直读 goal.md（非第二事实源）。修订史 / 状态翻转经 Git + change_log。</div>
+
+    <div class="sg">
+      <div class="sg-chip">
+        <span class="sg-id">SG-1</span><span class="sg-txt">AI 受控持久作业</span>
+        <span class="sg-bar"><span class="sg-fill" style="width:80%"></span></span><span class="sg-prog">2/2 · 达成</span>
+      </div>
+      <div class="sg-chip">
+        <span class="sg-id">SG-2</span><span class="sg-txt">事实对象结构化留档</span>
+        <span class="sg-bar"><span class="sg-fill" style="width:55%"></span></span><span class="sg-prog">3/5</span>
+      </div>
+      <div class="sg-chip">
+        <span class="sg-id">SG-3</span><span class="sg-txt">Web 项目信息呈现</span>
+        <span class="sg-bar"><span class="sg-fill" style="width:35%"></span></span><span class="sg-prog">1/3</span>
+      </div>
+    </div>
+    <div class="footnote">sub-goal 达成概览：serves 反查各 SG-n 名下的 Initiative / WorkCase 关闭链机械聚合（D2 待定细化）。</div>
+
+    <div class="divider"></div>
+    <div class="row">
+      <!-- 当前专项 -->
+      <div class="cell">
+        <div class="cap">当前专项 · Active Initiative</div>
+        <div class="kv"><span class="k">I-01 蓝图首页 Web 呈现</span><span class="badge b-active">推进中</span></div>
+        <div class="kv"><span class="k">I-02 调研系统实现里程碑</span><span class="badge b-active">推进中</span></div>
+        <div class="kv"><span class="k">serves：SG-2 / SG-3</span><span class="arrow">→ 归属展示</span></div>
+        <div class="footnote">投影：active 且依赖已满足的 Initiative（spec26 §10 消费点）。点条目进 Initiative 详情。</div>
+      </div>
+      <!-- 下一步 -->
+      <div class="cell">
+        <div class="cap">下一步 · 依赖拓扑排序</div>
+        <div class="kv"><span class="k">I-03 Initiative 进对象系统</span><span class="badge b-next">依赖 I-02</span></div>
+        <div class="kv"><span class="k">I-04 spec10 蓝图投影章节</span><span class="badge b-next">依赖 I-03</span></div>
+        <div class="footnote">按 depends_on 拓扑排序；仅供排序，不阻塞 Gate1 授权（spec26）。</div>
+      </div>
+      <!-- 已完成/悬而未决 -->
+      <div class="cell">
+        <div class="cap">已完成 · 演进脉络</div>
+        <div class="kv"><span class="k">I-05 工作模型重构</span><span class="badge b-done">closed</span></div>
+        <div class="kv"><span class="k">I-06 Research 类型落地</span><span class="badge b-done">closed</span></div>
+        <div class="cap" style="margin-top:10px">悬而未决</div>
+        <div class="kv"><span class="k">D1 长期意图区版面位置</span><span class="badge b-open">待 Human</span></div>
+        <div class="kv"><span class="k">spec10 蓝图受保护与否</span><span class="badge b-open">待 Human</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 下方现状模块区：原样保留，示意占位 ================= -->
+  <div class="legend" style="color:#3ecf8e">
+    ▼ 下方区域 = 现有「聚焦」页内容 —— <b style="color:#3ecf8e">保持原样、一行不改</b>（仅整块下移），以下为忠实占位示意，非重排
+  </div>
+  <div style="border:1px solid rgba(62,207,142,.5);border-radius:16px;padding:14px 16px;background:rgba(62,207,142,.04)">
+    <div style="color:#3ecf8e;font-size:12px;margin-bottom:10px">
+      五个现有模块维持当前实现：各自独立的展开/收起、加载/空态/错误态、过滤器与「复制模块摘要」—— 本提案一律不动。它们只是从"页面起点"整体让位给上方的长期意图区。
+    </div>
+    <div class="mod" style="opacity:.92">
+      <div class="mod-head"><span class="dot" style="background:var(--amber)"></span><span class="n">模块一 · 待决定事项（inbox）</span><span class="cnt">展开/收起</span></div>
+      <div class="card" style="background:transparent;border-style:dashed"><span class="t">= 现实现，原样保留</span></div>
+    </div>
+    <div class="grid2">
+      <div class="mod"><div class="mod-head"><span class="dot" style="background:var(--wc)"></span><span class="n">推进中 WorkCases</span></div>
+        <div class="card" style="background:transparent;border-style:dashed"><span class="t">= 现实现，原样保留</span></div></div>
+      <div class="mod"><div class="mod-head"><span class="dot" style="background:var(--teal)"></span><span class="n">近期动态（recentActivity）</span></div>
+        <div class="card" style="background:transparent;border-style:dashed"><span class="t">= 现实现，原样保留</span></div></div>
+      <div class="mod"><div class="mod-head"><span class="dot" style="background:#f97316"></span><span class="n">Spark 健康度</span></div>
+        <div class="card" style="background:transparent;border-style:dashed"><span class="t">= 现实现，原样保留</span></div></div>
+      <div class="mod"><div class="mod-head"><span class="dot" style="background:#a855f7"></span><span class="n">近期热点（recentHotspots）</span></div>
+        <div class="card" style="background:transparent;border-style:dashed"><span class="t">= 现实现，原样保留</span></div></div>
+    </div>
+  </div>
+
+  <div class="note">
+    <h3>◆ 本稿想传达的意图（读这张草图看这 4 点）</h3>
+    <ul>
+      <li><b>蓝图 = 首页顶部长期意图区</b>，不是单独文档/单独页面；下方现状模块继续承接当前事态 —— 单页活文档（调研 F3）。</li>
+      <li><b>Goal</b>（橙色标识 <code>goal.md</code> 单例）做「目标陈述 + SG-n 达成概览」顶部投影，不进左侧对象列表/详情；点击最多回读 goal.md（D2）。</li>
+      <li><b>Initiative</b> 走右侧与下方列表的「多例对象」通道（自带状态徽章 active/next/done），serves 显示归属、depends_on 决定下一步排序（D3/D4）。</li>
+      <li>「已完成 / 进行中 / 下一步 / 悬而未决」四块 = 从草案 6 区块按调研 F2 收敛为「投影(GitHub) + authored(Linear)」两块形态，避免手写维护成本。</li>
+      <li><b>下方面板 = 现有聚焦页五个模块原样保留</b>（本稿以绿色虚线框忠实占位，非重排）—— 提案只在顶部<b>新增</b>一个长期意图区，不改写任何现有模块逻辑。</li>
+    </ul>
+  </div>
+
+</div>
+</body>
+</html>
