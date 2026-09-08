@@ -1120,7 +1120,7 @@ router.get('/goal', async (req: Request, res: Response): Promise<void> => {
     // 计划区解析（裁定 14）：「## 下一步」H2 下的有序列表条目，`<安排> → SG-n` 尾部
     // 标注为建议性 serves（仅展示；真正绑定发生在 WC 的 Gate 1）。无该 H2 时为空数组。
     const planItems: GoalPlanItem[] = []
-    const planMatch = /^##\s*下一步\s*$/m.exec(body)
+    const planMatch = /^##\s*(?:规划|下一步)\s*$/m.exec(body)
     if (planMatch) {
       const planSection = body.slice(planMatch.index + planMatch[0].length)
       const nextH2 = /^##\s/m.exec(planSection)

@@ -3,18 +3,18 @@
  *
  * 目的：在保留原「聚焦」(CognitionCenter) 之上的提案预览，让 Human 对照与修复。
  * 结构自上而下：
- *   1. 顶部新增「长期意图区」——Goal(25) 真实投影（fetchCognitionGoal 读 goal.md，
- *      含目标陈述、sub-goal SG-n 概览与「下一步」计划区（裁定 14：计划并入 goal）；
- *      「进行中/已完成」区块的数据源是 WC（21 号未建）、「悬而未决」是 Spark（20 号未建）——
- *      无数据源的区块不渲染，待 21/20 号落地后接入）。
+ *   1. 「目标」区（goal.md 陈述+子目标投影）+「规划」区（goal.md 规划区投影），
+ *      各带复制提示词按钮（一句话触发 AI 对话——方法论在 AI 内部，提示词只是触发器）。
+ *   2. 下方原样嵌入 <CognitionCenter />（当前状态）。
  *   2. 下方原样嵌入 <CognitionCenter />，其内实现一行不改（含自身数据获取与五模块）。
  *
  * 只读、无写入口；蓝图区仅是目标的可视投影，不构成第二事实源（00 §3.3）。
  * 本页为讨论载体（docs/blueprint-web-presentation-discussion.md），未裁决为正式首页。
  */
 import { useEffect, useState } from 'react';
-import { FlaskConical, Target, Layers } from 'lucide-react';
+import { FlaskConical, Target, Layers, ListTodo } from 'lucide-react';
 import CognitionCenter from '@/pages/CognitionCenter';
+import CopyPathButton from '@/components/CopyPathButton';
 import { fetchCognitionGoal, ApiRequestError } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
 
@@ -58,15 +58,22 @@ export default function FocusV2() {
         <p className="ldvh-page-subtitle mt-1">{t('focusV2.subtitle')}</p>
       </div>
 
-      {/* ============ 顶部长期意图区（提案新增） ============ */}
-      <section className="mb-5 overflow-hidden rounded-xl border border-teal-400/25 bg-gradient-to-br from-[#0e1f24] via-ldvh-panel to-[#111a2e] p-4 dark:border-teal-400/25">
+      {/* ============ 目标区 ============ */}
+      <section className="mb-4 overflow-hidden rounded-xl border border-teal-400/25 bg-gradient-to-br from-[#0e1f24] via-ldvh-panel to-[#111a2e] p-4 dark:border-teal-400/25">
         <div className="mb-3 flex items-center gap-2">
           <Target size={14} style={{ color: GOAL_TINT }} aria-hidden="true" />
-          <span className="ldvh-section-title" style={{ color: GOAL_TINT }}>{t('focusV2.blueprint')}</span>
-          <span className="ml-auto hidden font-mono text-[11px] text-ldvh-text-secondary/70 sm:inline">{t('focusV2.blueprintNote')}</span>
+          <span className="ldvh-section-title" style={{ color: GOAL_TINT }}>{t('focusV2.goalTitle')}</span>
+          <span className="ml-auto flex items-center gap-2">
+            {goal && (
+              <CopyPathButton
+                path={t('focusV2.promptAdjustGoal')}
+                label={t('focusV2.btnAdjustGoal')}
+                copiedLabel={t('focusV2.btnCopied')}
+                size="md"
+              />
+            )}
+          </span>
         </div>
-
-        {/* Goal 卡（真实数据：goal.md 投影 + sub-goal 概览） */}
         <div className="rounded-lg border border-ldvh-border bg-ldvh-panel/70 p-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-ldvh-text-primary">
@@ -81,9 +88,19 @@ export default function FocusV2() {
               </span>
             )}
           </div>
-          {goal?.statement && <p className="mt-2 text-sm leading-relaxed text-ldvh-text-secondary">{goal.statement}</p>}
-          {goalMissing && <p className="mt-1 text-xs text-ldvh-text-secondary">{t('focusV2.goalMissing')}</p>}
+          {goalMissing && (
+            <div className="mt-2">
+              <p className="text-xs text-ldvh-text-secondary">{t('focusV2.goalEmptyHint')}</p>
+              <CopyPathButton
+                path={t('focusV2.promptSetGoal')}
+                label={t('focusV2.btnSetGoal')}
+                copiedLabel={t('focusV2.btnCopied')}
+                size="md"
+              />
+            </div>
+          )}
           {goalError && <p className="mt-1 text-xs text-red-400">{goalError}</p>}
+          {goal?.statement && <p className="mt-2 text-sm leading-relaxed text-ldvh-text-secondary">{goal.statement}</p>}
           <div className="mt-2 flex flex-wrap gap-2">
             {(goal ? goal.sub_goals : []).map((sg) => (
               <span
@@ -96,28 +113,47 @@ export default function FocusV2() {
             ))}
           </div>
         </div>
-        {/* 下一步（裁定 14：goal.md 计划区投影） */}
-        <div className="mt-3 rounded-lg border border-ldvh-border bg-ldvh-panel/70 p-3">
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ldvh-text-secondary">
-            {t('focusV2.nextSteps')}
-          </div>
-          {(goal && (goal.plan_items?.length ?? 0) > 0) ? (
-            <ol className="divide-y divide-ldvh-border/60">
-              {goal.plan_items.map((item, idx) => (
-                <li key={idx} className="flex min-w-0 items-center gap-2 py-1.5 text-sm">
-                  <span className="shrink-0 text-[11px] font-semibold text-ldvh-text-secondary">{idx + 1}.</span>
-                  <span className="min-w-0 flex-1 truncate text-ldvh-text-primary">{item.text}</span>
-                  {item.serves && (
-                    <span className="shrink-0 rounded-md border border-teal-400/30 bg-teal-500/10 px-1.5 py-px text-[11px] font-semibold" style={{ color: GOAL_TINT }}>{item.serves}</span>
-                  )}
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="py-1 text-xs text-ldvh-text-secondary">{goal ? t('focusV2.planEmpty') : '…'}</p>
-          )}
+      </section>
+
+      {/* ============ 规划区 ============ */}
+      <section className="mb-5 overflow-hidden rounded-xl border border-blue-400/20 bg-ldvh-panel p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <ListTodo size={14} className="text-blue-400" aria-hidden="true" />
+          <span className="ldvh-section-title text-blue-400">{t('focusV2.planTitle')}</span>
+          <span className="ml-auto flex items-center gap-2">
+            {goal && (goal.plan_items?.length ?? 0) > 0 && (
+              <CopyPathButton
+                path={t('focusV2.promptAdjustPlan')}
+                label={t('focusV2.btnAdjustPlan')}
+                copiedLabel={t('focusV2.btnCopied')}
+                size="md"
+              />
+            )}
+            {goal && (goal.plan_items?.length ?? 0) === 0 && (
+              <CopyPathButton
+                path={t('focusV2.promptCreatePlan')}
+                label={t('focusV2.btnCreatePlan')}
+                copiedLabel={t('focusV2.btnCopied')}
+                size="md"
+              />
+            )}
+          </span>
         </div>
-        <p className="mt-2 text-[11px] text-ldvh-text-secondary/80">{t('focusV2.pendingBlocksNote')}</p>
+        {(goal && (goal.plan_items?.length ?? 0) > 0) ? (
+          <ol className="divide-y divide-ldvh-border/60">
+            {goal.plan_items.map((item, idx) => (
+              <li key={idx} className="flex min-w-0 items-center gap-2 py-1.5 text-sm">
+                <span className="shrink-0 text-[11px] font-semibold text-ldvh-text-secondary">{idx + 1}.</span>
+                <span className="min-w-0 flex-1 truncate text-ldvh-text-primary">{item.text}</span>
+                {item.serves && (
+                  <span className="shrink-0 rounded-md border border-teal-400/30 bg-teal-500/10 px-1.5 py-px text-[11px] font-semibold" style={{ color: GOAL_TINT }}>{item.serves}</span>
+                )}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="py-1 text-xs text-ldvh-text-secondary">{goal ? t('focusV2.planEmptyHint') : '…'}</p>
+        )}
       </section>
 
       {/* 下方 = 原聚焦页（原样嵌入） */}
