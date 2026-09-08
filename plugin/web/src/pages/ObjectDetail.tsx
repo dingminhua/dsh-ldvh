@@ -1522,17 +1522,6 @@ export function ResearchKeyFindingsNode({
               <span className="min-w-0 break-words">{unit.title}</span>
             </div>
             {unit.body && <ResearchTextNodeContent value={unit.body} compact className="mt-2" />}
-            {unit.provenanceRef ? (
-              <ResearchProvenanceLine
-                provenanceRef={unit.provenanceRef}
-                provenanceAnchor={unit.provenanceAnchor}
-                urls={obj.urls}
-              />
-            ) : (
-              <div className="ldvh-meta mt-3 border-t border-ldvh-border/40 pt-2 text-amber-700 dark:text-amber-300">
-                {t('objectDetail.researchBody.noProvenance')}
-              </div>
-            )}
           </div>
         ))}
       </div>
@@ -1546,7 +1535,8 @@ const RESEARCH_GAP_PRIORITY_CLASS: Record<string, string> = {
   low: 'border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary',
 };
 
-/** 「未证实与缺口」：frontmatter 三态（uncertain/gaps）结构化 + 正文叙述补充。 */
+/** 「未证实与缺口」：frontmatter 三态（uncertain/gaps）结构化为主；
+ * 正文叙述仅在无结构化数据时兜底呈现，避免同一批数据重复渲染。 */
 export function ResearchUncertainGapsNode({
   obj,
   locale,
@@ -1604,7 +1594,10 @@ export function ResearchUncertainGapsNode({
             })}
           </div>
         )}
-        {narrative && <ResearchTextNodeContent value={narrative} />}
+        {/* 叙述兜底：frontmatter 已结构化呈现时不再重复渲染正文（避免同一数据两遍）。 */}
+        {narrative && uncertain.length === 0 && gaps.length === 0 && (
+          <ResearchTextNodeContent value={narrative} />
+        )}
       </div>
     </ResearchBodyNode>
   );

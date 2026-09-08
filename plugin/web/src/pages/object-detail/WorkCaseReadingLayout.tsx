@@ -700,7 +700,7 @@ function NextRequiredControlStep({
         <Icon size={WORKCASE_DETAIL_SEMANTIC_ICON_SIZE} strokeWidth={2} className="shrink-0" aria-hidden="true" />
         <span className={`ldvh-detail-semantic-title min-w-0 break-words ${styles.body}`}>{label}</span>
         {humanGate && (
-          <span className="rounded-full border border-violet-400/25 bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-700/80 dark:text-violet-200/85">
+          <span className="ldvh-chip shrink-0 rounded-full border border-violet-400/25 bg-violet-500/10 px-2 py-0.5 text-violet-700/80 dark:text-violet-200/85">
             {t('objectDetail.workcaseNextControlStepHumanDecision')}
           </span>
         )}

@@ -95,26 +95,26 @@ export default function Federation() {
                       <div className="grid grid-cols-3 gap-2">
                         <div className="rounded-md border border-ldvh-border/60 bg-ldvh-bg/40 px-2.5 py-2">
                           <p className="ldvh-caption-strong flex items-center gap-1.5"><Sparkles size={12} />{t('federation.sparkOpen')}</p>
-                          <p className="mt-0.5 text-lg font-semibold leading-6 text-ldvh-text-primary">
+                          <p className="mt-0.5 ldvh-stat-value">
                             {countText(project.sparkOpen)}
-                            {project.sparkP1 !== undefined && project.sparkP1 > 0 && <span className="ml-1.5 text-xs font-semibold text-amber-600 dark:text-amber-300">P1 × {project.sparkP1}</span>}
+                            {project.sparkP1 !== undefined && project.sparkP1 > 0 && <span className="ldvh-chip-sm ml-1.5 border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300">P1 × {project.sparkP1}</span>}
                           </p>
                         </div>
                         <div className="rounded-md border border-ldvh-border/60 bg-ldvh-bg/40 px-2.5 py-2">
                           <p className="ldvh-caption-strong flex items-center gap-1.5"><Layers size={12} />{t('federation.activeWorkCases')}</p>
-                          <p className="mt-0.5 text-lg font-semibold leading-6 text-ldvh-text-primary">{countText(project.activeWorkCases)}</p>
+                          <p className="mt-0.5 ldvh-stat-value">{countText(project.activeWorkCases)}</p>
                         </div>
                         <div className="rounded-md border border-ldvh-border/60 bg-ldvh-bg/40 px-2.5 py-2">
                           <p className="ldvh-caption-strong flex items-center gap-1.5"><Inbox size={12} />{t('federation.pendingDecisions')}</p>
-                          <p className="mt-0.5 text-lg font-semibold leading-6 text-ldvh-text-primary">{countText(project.pendingDecisions)}</p>
+                          <p className="mt-0.5 ldvh-stat-value">{countText(project.pendingDecisions)}</p>
                         </div>
                       </div>
                       <p className="ldvh-meta">{t('federation.lastActivity')}: {project.lastActivityAt ? formatDateTime(project.lastActivityAt) : '—'}</p>
                       {project.issues.length > 0 && (
                         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2">
-                          <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-300"><AlertTriangle size={12} />{t('federation.projectIssues')}</p>
+                          <p className="ldvh-caption-strong flex items-center gap-1.5 text-amber-700 dark:text-amber-300"><AlertTriangle size={12} />{t('federation.projectIssues')}</p>
                           <ul className="mt-1 list-disc space-y-0.5 pl-4">
-                            {project.issues.map((issue) => <li key={issue} className="text-xs leading-5 text-amber-700 dark:text-amber-300/90">{issue}</li>)}
+                            {project.issues.map((issue) => <li key={issue} className="ldvh-caption text-amber-700 dark:text-amber-300/90">{issue}</li>)}
                           </ul>
                         </div>
                       )}

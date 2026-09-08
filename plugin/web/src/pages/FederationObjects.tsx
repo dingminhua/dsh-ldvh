@@ -168,9 +168,9 @@ export default function FederationObjects() {
 
       {issues.length > 0 && (
         <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-          <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-300"><AlertTriangle size={12} />{t('federation.projectIssues')}</p>
+          <p className="ldvh-caption-strong flex items-center gap-1.5 text-amber-700 dark:text-amber-300"><AlertTriangle size={12} />{t('federation.projectIssues')}</p>
           <ul className="mt-1 list-disc space-y-0.5 pl-4">
-            {issues.map((issue) => <li key={issue} className="text-xs leading-5 text-amber-700 dark:text-amber-300/90">{issue}</li>)}
+            {issues.map((issue) => <li key={issue} className="ldvh-caption text-amber-700 dark:text-amber-300/90">{issue}</li>)}
           </ul>
         </div>
       )}

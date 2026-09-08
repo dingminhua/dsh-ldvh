@@ -65,8 +65,7 @@ test('Research finding units render as structured cards with provenance anchor l
   assert.match(detail, /target="_blank"/);
   assert.match(detail, /unit\.provenanceRef !== undefined/);
 
-  // 缺锚点行的发现单元用警示色呈现（不静默）。
-  assert.match(detail, /objectDetail\.researchBody\.noProvenance/);
+  // 溯源行不在发现单元卡内渲染（Human 定案：web 端隐藏溯源锚点行，数据层正文保留原样）。
 
   // 尾部固定序列：FactAssociations → RelatedContent → ChangeLog（设计语言保留）。
   assert.match(detail, /<FactAssociationsSection obj=\{obj\} locale=\{locale\} \/>\s*\n\s*<RelatedContentSection entries=\{relatedEntries\} locale=\{locale\} \/>\s*\n\s*<ChangeLogReadingNode/);

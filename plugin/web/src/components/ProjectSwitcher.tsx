@@ -110,9 +110,9 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
               <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${federationActive ? 'bg-ldvh-accent text-white' : 'bg-ldvh-border/25 text-ldvh-text-secondary group-hover:text-ldvh-text-primary'}`}>
                 <Globe2 size={12} />
               </span>
-              <span className="min-w-0 flex-1 truncate text-sm">{t('projectSwitcher.allProjects')}</span>
+              <span className="ldvh-card-title min-w-0 flex-1 truncate">{t('projectSwitcher.allProjects')}</span>
               {projects.length > 0 && (
-                <span className="shrink-0 rounded-full border border-ldvh-text-secondary/20 bg-ldvh-panel/70 px-1.5 py-0.5 text-xs font-semibold leading-none text-ldvh-text-secondary">
+                <span className="ldvh-chip-sm shrink-0 rounded-full border-ldvh-text-secondary/20 bg-ldvh-panel/70 px-1.5 py-0.5 font-semibold leading-none text-ldvh-text-secondary">
                   {t('projectSwitcher.projectCount', { count: String(projects.length) })}
                 </span>
               )}

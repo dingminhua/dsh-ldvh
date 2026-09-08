@@ -329,7 +329,7 @@ function CommitMetric({
 
   return (
     <div className="rounded-md border border-ldvh-border bg-ldvh-bg px-3 py-2 text-center">
-      <div className={`font-mono text-lg font-semibold leading-tight ${toneClass}`}>{value}</div>
+      <div className={`ldvh-stat-value font-mono leading-tight ${toneClass}`}>{value}</div>
       <div className="ldvh-caption mt-0.5">{label}</div>
     </div>
   );
