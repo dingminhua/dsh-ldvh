@@ -103,19 +103,17 @@ export default function GoalSection() {
             )}
             {goalError && <p className="mt-1 text-xs text-red-400">{goalError}</p>}
             {goal?.statement && (
-              <p className="text-xs leading-relaxed text-ldvh-text-secondary">{goal.statement}</p>
+              <div className="rounded-md border border-ldvh-border/20 bg-ldvh-bg/20 px-2.5 py-2">
+                <p className="text-xs leading-relaxed text-ldvh-text-secondary">{goal.statement}</p>
+              </div>
             )}
 
           {goal && goal.sub_goals.length > 0 && (
-            <div className="mt-4">
-              <div className="mb-1.5 flex items-center gap-2">
-                <span className="ldvh-caption min-w-0 text-ldvh-text-secondary/70">{t('focusV2.subGoalTitle')}</span>
-                <span className="ldvh-meta shrink-0 text-ldvh-text-secondary/70">{goal.sub_goals.length}</span>
-              </div>
+            <div className="mt-3">
               <ul className="divide-y divide-ldvh-border/70">
                 {goal.sub_goals.map((sg) => (
                   <li key={sg.id} className="flex min-w-0 items-start gap-2 py-2">
-                    <span className="ldvh-chip ldvh-chip-sm shrink-0 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent">
+                    <span className="ldvh-chip ldvh-chip-sm shrink-0 translate-y-[2px] border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent">
                       {sg.id}
                     </span>
                     <span className="min-w-0 flex-1 text-xs leading-relaxed text-ldvh-text-primary">{sg.text}</span>
