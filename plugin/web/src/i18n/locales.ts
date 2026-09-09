@@ -284,6 +284,11 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   analysis: { zh: '分析', en: 'Analysis' },
   mitigation: { zh: '缓解措施', en: 'Mitigation' },
   resolution: { zh: '方案', en: 'Resolution' },
+  // v5 Pitfall（23 号）正文七段阅读布局标题（正文段标题与 v4 字段名解耦）。
+  pitfall_symptoms: { zh: '症状', en: 'Symptoms' },
+  pitfall_triggers: { zh: '触发条件', en: 'Trigger Conditions' },
+  pitfall_resolution: { zh: '解决', en: 'Resolution Applied' },
+  pitfall_scope_section: { zh: '影响与适用范围', en: 'Impact & Applicability' },
   workcase: { zh: '工作', en: 'WorkCase' },
   // 21 定义的单一当前 WorkCase 字段；不存在历史形状显示分支。
   goal: { zh: '目标', en: 'Goal' },

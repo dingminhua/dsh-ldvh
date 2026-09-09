@@ -25,6 +25,7 @@ import { registerSubagentResultTool } from "./subagent-result.js";
 import { registerResearchTools } from "./research-tools.js";
 import { registerSparkTools } from "./spark-tools.js";
 import { registerAdrTools } from "./adr-tools.js";
+import { registerPitfallTools } from "./pitfall-tools.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -479,6 +480,8 @@ export function registerLdvhTools(ctx, deps) {
   disposers.push(registerSparkTools(ctx, deps));
   // ADR mechanical layer (specs/22 writer), same registration surface.
   disposers.push(registerAdrTools(ctx, deps));
+  // Pitfall mechanical layer (specs/23 writer), same registration surface.
+  disposers.push(registerPitfallTools(ctx, deps));
   return () => {
     for (const dispose of disposers) {
       try { dispose(); } catch { /* already removed */ }

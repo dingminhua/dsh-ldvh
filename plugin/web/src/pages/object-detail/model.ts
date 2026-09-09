@@ -51,10 +51,13 @@ const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
     'decision', 'scope', 'trigger_signal', 'report_body',
     'retirement_reason', 'retired_at', 'change_log', 'urls', 'relations',
   ],
+  // v5 Pitfall（23 号规范）：阅读布局按字段契约序消费（scope →
+  // trigger_signal → 终态 disposition），正文 report_body 由布局按 H2 七段
+  // （症状/触发条件/根因/解决/规避/验证/影响与适用范围+条件证据）分节呈现
+  // ——此处只做 ContentField 兜底排序。
   pitfall: [
-    'symptoms', 'trigger_conditions', 'scope_of_impact', 'applicability', 'validation_summary', 'root_cause',
-    'resolution', 'avoidance', 'change_log', 'urls', 'relations',
-    'disposition_summary',
+    'scope', 'trigger_signal', 'report_body',
+    'disposition', 'change_log', 'urls',
   ],
   // v5 Spark（20 号规范）：阅读布局按字段契约序消费（question → scope_boundary
   // → intent → summary → 演变 → 终态 disposition），正文 report_body 由布局按
