@@ -133,6 +133,8 @@ interface RecentActivityBuildItem {
   status?: string
   progress_group?: WorkCaseProgressGroup
   priority?: string
+  /** Spark 的 goal.md 子目标锚点（20 §6 serves_sg），条件出现。 */
+  serves_sg?: string
   read_status: string
   field_issues: Array<Record<string, unknown>>
   unparsed_structures: Array<Record<string, unknown>>
@@ -320,6 +322,7 @@ function buildRecentActivityItem(
     ...(signature ? { signature } : {}),
     ...(type === 'workcase' ? { progress_group: progressGroup } : { status }),
     ...(priorityRank(raw.priority) < 4 && typeof raw.priority === 'string' ? { priority: raw.priority } : {}),
+    ...(type === 'spark' && typeof raw.serves_sg === 'string' && raw.serves_sg.trim() ? { serves_sg: raw.serves_sg } : {}),
     read_status: String(raw.read_status ?? 'unknown'),
     field_issues: Array.isArray(raw.field_issues) ? raw.field_issues as Array<Record<string, unknown>> : [],
     unparsed_structures: Array.isArray(raw.unparsed_structures) ? raw.unparsed_structures as Array<Record<string, unknown>> : [],
@@ -970,6 +973,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       relativeTime: getRelativeTime(build.occurred_at, locale),
       typeColor: getTypeColor(build.type),
       ...(build.priority !== undefined ? { priority: build.priority } : {}),
+      ...(build.serves_sg !== undefined ? { serves_sg: build.serves_sg } : {}),
       ...(build.type === 'workcase' && build.progress_group !== undefined
         ? { progress_group: build.progress_group }
         : build.type !== 'workcase' && build.status !== undefined ? { status: build.status } : {}),

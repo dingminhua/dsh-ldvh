@@ -5,17 +5,24 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { listLocalFacts, readLocalFact, type LocalFactScope } from '../../api/services/localFactReader.ts';
 
+// v5 ADR 载体（22 §7）：.md + frontmatter + 正文；字段面按 22 §8 闭集——
+// decision/scope 必填，trigger_signal 条件；v4 的 decision_question/applicability/
+// rationale/consequences 已随 22 号移除。文件名编码 UID（兼容纯序号/ULID 段）。
 const base = [
   'fact_type_key: adr',
   'status: active',
   'created_at: "2026-01-01"',
-  'decision_question: Which option?',
   'decision: Use the current option',
-  'applicability: This fixture',
-  'trigger_signal: Test trigger condition',
-  'rationale: It is sufficient here',
-  'consequences: No production effect',
+  'scope: Applies to this fixture',
 ].join('\n');
+
+/** 组装 v5 ADR markdown 载体正文（frontmatter + H1 + 决定段）。 */
+function adrMarkdownCarrier(objectUid: string, extraFrontmatter = ''): string {
+  const frontmatterLines = ['---', `object_uid: ${objectUid}`, 'title: UID projection'];
+  if (extraFrontmatter.trim()) frontmatterLines.push(extraFrontmatter);
+  frontmatterLines.push(...base.split('\n'), '---');
+  return [...frontmatterLines, '', '# UID projection', '', '## 决定', '', 'Use the current option', ''].join('\n');
+}
 
 test('field-level reader preserves canonical UID authority without adding a derived identity field', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
@@ -23,16 +30,14 @@ test('field-level reader preserves canonical UID authority without adding a deri
   const directory = path.join(root, 'ldvh-base', 'adrs');
   await mkdir(directory, { recursive: true });
   try {
-    await writeFile(
-      path.join(directory, 'adr-0001.yaml'),
-      `object_uid: 0198f1c7-8a2b-7c3d-9e4f-123456789abc\nobject_id: adr-0001\ntitle: UID projection\n${base}\n`,
-      'utf8',
-    );
+    // 22 §7：文件名编码 UID（adr-<uid>.md），frontmatter 携带 object_uid。
+    const uid = '0198f1c7-8a2b-7c3d-9e4f-123456789abc';
+    await writeFile(path.join(directory, `adr-${uid}.md`), adrMarkdownCarrier(uid), 'utf8');
     const listed = await listLocalFacts('adr', scope);
-    assert.equal(listed.items[0]?.fact_object?.object_uid, '0198f1c7-8a2b-7c3d-9e4f-123456789abc');
+    assert.equal(listed.items[0]?.fact_object?.object_uid, uid);
     const retiredField = ['short', 'ref'].join('_');
     assert.equal(listed.items[0]?.fact_object?.[retiredField], undefined);
-    assert.deepEqual(listed.items[0]?.authority_ref, { object_uid: '0198f1c7-8a2b-7c3d-9e4f-123456789abc' });
+    assert.deepEqual(listed.items[0]?.authority_ref, { object_uid: uid });
     assert.equal(listed.items[0]?.unparsed_structures.some((item) => item.path === 'object_uid'), false);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -44,11 +49,12 @@ test('field-level reader discovers a UID-native Crockford carrier name', async (
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
   const directory = path.join(root, 'ldvh-base', 'adrs');
   await mkdir(directory, { recursive: true });
+  // 22 §7 兼容段：ULID25 文件名在 ADR 预期载体名闭集内（.md 载体）。
   const objectId = 'adr-01KZXN5TXNEBSRC6HHGTBQKAJ4';
   try {
     await writeFile(
-      path.join(directory, `${objectId}.yaml`),
-      `object_uid: 019ffb52-ebb5-72f3-861a-31869779aa44\nobject_id: ${objectId}\ntitle: UID locator\n${base}\n`,
+      path.join(directory, `${objectId}.md`),
+      adrMarkdownCarrier('019ffb52-ebb5-72f3-861a-31869779aa44'),
       'utf8',
     );
     const listed = await listLocalFacts('adr', scope);
@@ -65,12 +71,45 @@ test('field-level reader keeps recoverable field defects separate from unreadabl
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
   const directory = path.join(root, 'ldvh-base', 'adrs');
   await mkdir(directory, { recursive: true });
+  /** 组装 ADR markdown 载体：frontmatterExtra 覆盖默认 title 行以构造字段缺陷。 */
+  const carrierWith = (frontmatterLines: string[]) => [
+    '---',
+    ...frontmatterLines,
+    ...base.split('\n'),
+    '---',
+    '',
+    '# Field defects',
+    '',
+    '## 决定',
+    '',
+    'Use the current option',
+    '',
+  ].join('\n');
   try {
-    await writeFile(path.join(directory, 'adr-0001.yaml'), `object_id: adr-0001\n${base}\n`, 'utf8');
-    await writeFile(path.join(directory, 'adr-0002.yaml'), `object_id: adr-0002\ntitle: [not, text]\n${base}\n`, 'utf8');
-    await writeFile(path.join(directory, 'adr-0003.yaml'), `object_id: adr-0003\ntitle: Legacy\nlegacy_owner: old\n${base}\n`, 'utf8');
-    await writeFile(path.join(directory, 'adr-0004.yaml'), `object_id: adr-0004\ntitle: Nested\nunknown_tree:\n  before: after\n${base}\n`, 'utf8');
-    await writeFile(path.join(directory, 'adr-0005.yaml'), 'object_id: [unterminated\n', 'utf8');
+    // adr-0001：缺 title（field_issues 可恢复缺陷）。
+    await writeFile(path.join(directory, 'adr-0001.md'), carrierWith([
+      'object_uid: 11111111-2222-4333-8444-555555555555',
+    ]), 'utf8');
+    // adr-0002：title 类型不匹配。
+    await writeFile(path.join(directory, 'adr-0002.md'), carrierWith([
+      'object_uid: 11111111-2222-4333-8444-555555555556',
+      'title: [not, text]',
+    ]), 'utf8');
+    // adr-0003：契约外未知字段（unconsumed_field）。
+    await writeFile(path.join(directory, 'adr-0003.md'), carrierWith([
+      'object_uid: 11111111-2222-4333-8444-555555555557',
+      'title: Legacy',
+      'legacy_owner: old',
+    ]), 'utf8');
+    // adr-0004：契约外嵌套未知结构。
+    await writeFile(path.join(directory, 'adr-0004.md'), carrierWith([
+      'object_uid: 11111111-2222-4333-8444-555555555558',
+      'title: Nested',
+      'unknown_tree:',
+      '  before: after',
+    ]), 'utf8');
+    // adr-0005：frontmatter 未闭合（markdown 载体的 unreadable 形态）。
+    await writeFile(path.join(directory, 'adr-0005.md'), '---\nobject_id: [unterminated\n', 'utf8');
 
     const listed = await listLocalFacts('adr', scope);
     assert.equal(listed.status, 'complete');
@@ -82,7 +121,7 @@ test('field-level reader keeps recoverable field defects separate from unreadabl
     assert.deepEqual(byId.get('adr-0003')?.unparsed_structures, [{ path: 'legacy_owner', reason: 'unconsumed_field', raw_value: 'old' }]);
     assert.deepEqual(byId.get('adr-0004')?.unparsed_structures, [{ path: 'unknown_tree', reason: 'unconsumed_field', raw_value: { before: 'after' } }]);
     assert.equal(byId.get('adr-0005')?.read_status, 'unreadable');
-    assert.equal(byId.get('adr-0005')?.issues[0]?.code, 'yaml_parse_failed');
+    assert.equal(byId.get('adr-0005')?.issues[0]?.code, 'frontmatter_unclosed');
 
     const detail = await readLocalFact('adr', 'adr-0003', scope);
     assert.equal(detail.status, 'ok');
@@ -402,12 +441,14 @@ test('yaml_source carries the verbatim YAML text — unknown fields, order and c
 test('yaml carrier objects carry the whole file as yaml_source', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
-  const directory = path.join(root, 'ldvh-base', 'adrs');
+  // 22 §7：ADR 已是 markdown 载体——yaml 全文直显由仍是 yaml 载体的
+  // workcase 承载验证（同机 03 §6.1 公共读取契约）。
+  const directory = path.join(root, 'ldvh-base', 'workcases');
   await mkdir(directory, { recursive: true });
   try {
-    const rawFile = `# 文件级注释\nobject_uid: 0198f1c7-8a2b-7c3d-9e4f-123456789abc\nobject_id: adr-0007\n${base}\n`;
-    await writeFile(path.join(directory, 'adr-0007.yaml'), rawFile, 'utf8');
-    const detail = await readLocalFact('adr', 'adr-0007', scope);
+    const rawFile = `# 文件级注释\nobject_uid: 0198f1c7-8a2b-7c3d-9e4f-123456789abc\nobject_id: workcase-0007\nfact_type_key: workcase\ntitle: YAML carrier\nstatus: open\ncreated_at: "2026-01-01"\n`;
+    await writeFile(path.join(directory, 'workcase-0007.yaml'), rawFile, 'utf8');
+    const detail = await readLocalFact('workcase', 'workcase-0007', scope);
     assert.equal(detail.status, 'ok');
     if (detail.status === 'ok') {
       assert.equal(detail.item.read_status, 'readable');

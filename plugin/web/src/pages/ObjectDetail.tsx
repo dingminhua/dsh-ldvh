@@ -14,6 +14,7 @@ import CopyPathButton from '@/components/CopyPathButton';
 import ObjectReferenceCopyButton from '@/components/ObjectReferenceCopyButton';
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
+import ServesSgBadge from '@/components/ServesSgBadge';
 import { hasUnavailableIndependentSubagentReview } from '@/shared/workcaseCapability';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
@@ -620,7 +621,8 @@ export function ObjectIdentityHeader({
   const titleFontSize = 18;
   const titleIconSize = Math.round(titleFontSize * 1.15);
   const activityCount = Array.isArray(source.change_log) ? source.change_log.length : 0;
-  const remainingAuxiliaryMetaEntries = auxiliaryMetaEntries.filter(([key]) => key !== 'priority');
+  // serves_sg 已标签化到类型徽标后（20 §6 SG-n 锚点），不再进 footer 元信息行。
+  const remainingAuxiliaryMetaEntries = auxiliaryMetaEntries.filter(([key]) => key !== 'priority' && key !== 'serves_sg');
   const hasFooterMeta = showDefaultDates
     || remainingAuxiliaryMetaEntries.length > 0
     || customMetaEntries.length > 0;
@@ -643,6 +645,7 @@ export function ObjectIdentityHeader({
                 {typeLabel}
               </span>
             )}
+            <ServesSgBadge value={source.serves_sg} locale={locale} />
             {extraBadges}
             <PriorityIcon source={source} type={objectType} locale={locale} size="xs" />
             {showActivityCount && (

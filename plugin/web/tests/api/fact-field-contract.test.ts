@@ -32,7 +32,8 @@ const COMMON_FIELD_EXEMPTIONS: Record<string, readonly string[]> = {
 // 每类型固定的必填面：这些字段被当前阅读面无条件消费。
 const TYPE_REQUIRED_FIELDS: Record<string, readonly string[]> = {
   workcase: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'goal', 'scope', 'success_criterion_definitions'],
-  adr: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'decision_question', 'decision', 'applicability', 'trigger_signal', 'rationale', 'consequences'],
+  // 22 §8：decision/scope 必填（trigger_signal/retirement_reason/retired_at 条件）。
+  adr: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'decision', 'scope'],
   pitfall: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'scope_of_impact', 'applicability', 'validation_summary', 'symptoms', 'trigger_conditions', 'root_cause', 'resolution', 'avoidance'],
   // 20 §8：question/scope_boundary/intent/summary 必填（evolution/serves_sg/
   // disposition/relations 条件出现）。

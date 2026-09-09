@@ -23,7 +23,8 @@ export const FACT_TYPE_CARRIERS = {
   workcase: '.yaml',
   // v5 ADR（22 §7）：YAML frontmatter（机器权威）+ markdown 正文，同 spark/research 形态。
   adr: '.md',
-  pitfall: '.yaml',
+  // v5 Pitfall（23 §7）：同上，frontmatter + markdown。
+  pitfall: '.md',
   // v5 Spark（20 §7）：YAML frontmatter（机器权威）+ markdown 正文，同 research 形态。
   spark: '.md',
   research: '.md',
@@ -100,8 +101,8 @@ function expectedFileName(type: LocalFactType, objectId: string): string {
 }
 
 function carrierFor(type: LocalFactType): LocalFactCarrier {
-  // v5 markdown 载体类型：frontmatter（机器权威）+ 正文（20 §7 / 22 §7 / 24 §7）。
-  return type === 'research' || type === 'spark' || type === 'adr' ? 'markdown' : 'yaml'
+  // v5 markdown 载体类型：frontmatter（机器权威）+ 正文（20 §7 / 22 §7 / 23 §7 / 24 §7）。
+  return type === 'research' || type === 'spark' || type === 'adr' || type === 'pitfall' ? 'markdown' : 'yaml'
 }
 
 function metadataFor(scope: LocalFactScope, type: LocalFactType, objectId: string): LocalFactMetadata {
@@ -116,9 +117,10 @@ function metadataFor(scope: LocalFactScope, type: LocalFactType, objectId: strin
 
 function isExpectedCarrierName(type: LocalFactType, fileName: string): boolean {
   const extension = FACT_TYPE_CARRIERS[type].replace('.', '\\.')
-  // v5 markdown 载体类型（spark/research）：object_uid 为 UUIDv4，文件名编码 UID；
-  // 纯序号/ULID25 段保留兼容读取。其余类型维持 v4 形态（纯序号或 ULID25）。
-  const idSegment = type === 'research' || type === 'spark'
+  // v5 markdown 载体类型（spark/research/adr）：object_uid 为 UUIDv4（22 §7 同
+  // spark/research 形态，文件名编码 UID）；纯序号/ULID25 段保留兼容读取。
+  // 其余类型维持 v4 形态（纯序号或 ULID25）。
+  const idSegment = type === 'research' || type === 'spark' || type === 'adr'
     ? '(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})'
     : '(?:\\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})'
   return new RegExp(`^${type}-${idSegment}${extension}$`).test(fileName)
@@ -378,16 +380,21 @@ export async function listLocalFacts(type: LocalFactType, scope: LocalFactScope)
   const entries = await readdir(baseDirOf(scope, type), { withFileTypes: true })
   const carriers = entries.filter((entry) => entry.isFile() && looksLikeFactCarrier(entry.name))
   const fileNames = carriers.filter((entry) => isExpectedCarrierName(type, entry.name)).map((entry) => entry.name).sort((left, right) => left.localeCompare(right))
+  // 22 §7：v5 markdown 类型（spark/research/adr）文件名编码 UID；其余类型维持 NNNN/ULID。
+  const v5UidCarrier = type === 'research' || type === 'spark' || type === 'adr'
   const issues = carriers.filter((entry) => !isExpectedCarrierName(type, entry.name)).map((entry) => ({
     code: 'unexpected_fact_carrier' as const,
-    message: `${type} 正式载体必须是 ${type}-NNNN${FACT_TYPE_CARRIERS[type]}，已忽略错载体 ${entry.name}`,
+    message: v5UidCarrier
+      ? `${type} 正式载体必须是 ${type}-<uid>${FACT_TYPE_CARRIERS[type]}，已忽略错载体 ${entry.name}`
+      : `${type} 正式载体必须是 ${type}-NNNN${FACT_TYPE_CARRIERS[type]}，已忽略错载体 ${entry.name}`,
     path: path.posix.join('ldvh-base', FACT_TYPE_DIRS[type], entry.name),
   }))
   return { status: 'complete', items: await Promise.all(fileNames.map((fileName) => readItemFile(scope, type, fileName))), issues }
 }
 
-// v5 markdown 载体类型（spark/research）对象 ID 为 UUID（writer randomUUID
-// 带 8-4-4-4-12 连字符段）；其余类型保留 v4 形态（纯序号或 ULID25）。
+// v5 markdown 载体类型（spark/research/adr）对象 ID 为 UUID（writer randomUUID
+// 带 8-4-4-4-12 连字符段，22 §7 与 20/24 同形态）；其余类型保留 v4 形态
+// （纯序号或 ULID25）。
 const FACT_OBJECT_ID_PATTERN = /^(workcase|adr|pitfall|spark|research)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
 
 export async function readLocalFact(type: LocalFactType, objectId: string, scope: LocalFactScope): Promise<{ status: 'ok'; item: LocalFactItem } | { status: 'not_found' | 'type_not_integrated'; metadata: LocalFactMetadata; issues: LocalFactIssue[] }> {

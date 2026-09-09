@@ -7,7 +7,11 @@ import { listObjects, showObject } from '../../api/services/facts.ts';
 import { type LocalFactScope } from '../../api/services/localFactReader.ts';
 
 const fixtures = [
-  { type: 'adr', id: 'adr-0001', directory: 'adrs', carrier: 'yaml', body: 'object_id: adr-0001\nfact_type_key: adr\ntitle: ADR fixture\nstatus: active\n' },
+  // 22 §7：v5 ADR 为 markdown 载体（frontmatter + 正文）；文件名编码 UID。
+  {
+    type: 'adr', id: 'adr-4f6c1d2e-9a3b-4c8d-8e7f-2b1c3d4e5f6a', directory: 'adrs', carrier: 'markdown',
+    body: '---\nfact_type_key: adr\ntitle: ADR fixture\nstatus: active\ndecision: Use the current option\nscope: Applies to this fixture\ncreated_at: "2026-01-01"\n---\n\n# ADR fixture\n\n## 决定\n\nUse the current option\n',
+  },
   { type: 'pitfall', id: 'pitfall-0001', directory: 'pitfalls', carrier: 'yaml', body: 'object_id: pitfall-0001\nfact_type_key: pitfall\ntitle: Pitfall fixture\nstatus: active\n' },
   {
     type: 'research', id: 'research-0001', directory: 'researches', carrier: 'markdown',
@@ -60,9 +64,10 @@ test('fact list projections preserve full UID authority without derived identity
   try {
     await mkdir(path.join(root, 'ldvh-base', 'adrs'), { recursive: true });
     await mkdir(path.join(root, 'ldvh-base', 'workcases'), { recursive: true });
+    // 22 §7：ADR markdown 载体，文件名编码 UID。
     await writeFile(
-      path.join(root, 'ldvh-base', 'adrs', 'adr-0001.yaml'),
-      `object_uid: ${adrUid}\nobject_id: adr-0001\nfact_type_key: adr\ntitle: UID ADR\nstatus: active\n`,
+      path.join(root, 'ldvh-base', 'adrs', `adr-${adrUid}.md`),
+      `---\nobject_uid: ${adrUid}\nfact_type_key: adr\ntitle: UID ADR\nstatus: active\ndecision: Use option A\nscope: Fixture scope\ncreated_at: "2026-01-01"\n---\n\n# UID ADR\n`,
       'utf8',
     );
     await writeFile(
@@ -169,15 +174,16 @@ test('list responses keep per-object read failures and collection coverage in th
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
   const adrDir = path.join(root, 'ldvh-base', 'adrs');
   await mkdir(adrDir, { recursive: true });
-  await writeFile(path.join(adrDir, 'adr-0001.yaml'), 'object_id: [unterminated\n', 'utf8');
+  // 22 §7：ADR markdown 载体——未闭合 frontmatter 是 unreadable 形态。
+  await writeFile(path.join(adrDir, 'adr-0001.md'), '---\nobject_id: [unterminated\n', 'utf8');
   try {
     const listed = await listObjects('adr', undefined, undefined, scope);
     if (!listed.ok) throw new Error(listed.error);
     const candidate = (listed.data.items as Array<Record<string, unknown>>)[0];
     assert.equal(candidate?.read_status, 'unreadable');
     assert.equal(candidate?.check_status, undefined);
-    assert.deepEqual((candidate?.read_issues as Array<Record<string, unknown>>).map((issue) => issue.code), ['yaml_parse_failed']);
-    assert.deepEqual(listed.issues.map((issue) => issue.code), ['yaml_parse_failed']);
+    assert.deepEqual((candidate?.read_issues as Array<Record<string, unknown>>).map((issue) => issue.code), ['frontmatter_unclosed']);
+    assert.deepEqual(listed.issues.map((issue) => issue.code), ['frontmatter_unclosed']);
 
     const notIntegrated = await listObjects('research', undefined, undefined, scope);
     if (!notIntegrated.ok) throw new Error(notIntegrated.error);

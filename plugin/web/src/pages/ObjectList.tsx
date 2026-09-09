@@ -11,6 +11,7 @@ import WorkCaseProgressTrack from '@/components/WorkCaseProgressTrack';
 import ObjectPriorityFilter from '@/components/ObjectPriorityFilter';
 import PriorityIcon from '@/components/PriorityIcon';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
+import ServesSgBadge from '@/components/ServesSgBadge';
 import SummaryText from '@/components/SummaryText';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import { WorkCaseCriteriaList, WORKCASE_CRITERIA_SURFACE_CLASS } from '@/components/WorkCaseCriteriaList';
@@ -1252,6 +1253,7 @@ export function ObjectCardFrame({
           >
             {getTypeLabel(obj.type, locale)}
           </span>
+          <ServesSgBadge value={obj.serves_sg} locale={locale} />
           <PriorityIcon source={obj} type={obj.type} locale={locale} size="xs" />
           <span
             className="ldvh-chip-sm gap-1 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent"
@@ -1569,11 +1571,18 @@ export function PitfallCardContent({ obj }: { obj: ObjectItem }) {
 }
 
 function AdrTerminalCardContent({ obj }: { obj: ObjectItem }) {
-  const { t } = useI18n();
-  const disposition = obj.disposition_summary?.trim() || t('objectList.dispositionMissing');
+  const { t, locale } = useI18n();
+  // 22 §9：ADR 终态原因由 retirement_reason 承载（闭集 superseded/outdated/
+  // out-of-scope）；v4 disposition_summary 已不属 ADR 字段闭集。
+  const rawReason = typeof obj.retirement_reason === 'string' && obj.retirement_reason.trim()
+    ? obj.retirement_reason.trim()
+    : '';
+  const reason = rawReason
+    ? getFieldValueLabel('retirement_reason', rawReason, locale)
+    : t('objectList.dispositionMissing');
 
   return (
-    <TerminalFactPanel tone="retired" content={formatReasonText(disposition)} />
+    <TerminalFactPanel tone="retired" content={formatReasonText(reason)} />
   );
 }
 
@@ -1583,11 +1592,18 @@ export function AdrCardContent({ obj }: { obj: ObjectItem }) {
 }
 
 function ResearchTerminalCardContent({ obj }: { obj: ObjectItem }) {
-  const { t } = useI18n();
-  const disposition = obj.disposition_summary?.trim() || t('objectList.dispositionMissing');
+  const { t, locale } = useI18n();
+  // 24 §9：Research 终态原因由 retirement_reason 承载（闭集含 rejected）；
+  // v4 disposition_summary 已不属 24 号字段闭集。
+  const rawReason = typeof obj.retirement_reason === 'string' && obj.retirement_reason.trim()
+    ? obj.retirement_reason.trim()
+    : '';
+  const reason = rawReason
+    ? getFieldValueLabel('retirement_reason', rawReason, locale)
+    : t('objectList.dispositionMissing');
 
   return (
-    <TerminalFactPanel tone="retired" content={formatReasonText(disposition)} />
+    <TerminalFactPanel tone="retired" content={formatReasonText(reason)} />
   );
 }
 

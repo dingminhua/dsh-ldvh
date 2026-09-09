@@ -63,15 +63,22 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     closure_outcome: field('workcase-closure-outcome', 'string', false),
     termination: field('workcase-termination', 'object', false),
   },
+  // v5 ADR（22 §8 薄索引）：decision/scope 必填（正文对应段逐字包含）、
+  // trigger_signal 条件出现（遵守预检消费）、终态字段随 status 约束
+  // （retirement_reason/retired_at 仅 retired，§9）；正文「决策背景/决定/
+  // 备选与理由/后果/适用范围/证据」由 report_body 承载。v4 的
+  // decision_question/applicability/rationale/consequences/disposition_summary
+  // 已随 22 号移除（分析性长文本住正文，不留 frontmatter 字段）。
   adr: {
     ...common,
-    disposition_summary: field('disposition-summary', 'string', false),
-    decision_question: field('adr-decision-question', 'string', true),
     decision: field('adr-decision', 'string', true),
-    applicability: field('adr-applicability', 'string', true),
-    trigger_signal: field('adr-trigger-signal', 'string', true),
-    rationale: field('adr-rationale', 'string', true),
-    consequences: field('adr-consequences', 'string', true),
+    scope: field('adr-scope', 'string', true),
+    trigger_signal: field('adr-trigger-signal', 'string', false),
+    retirement_reason: field('adr-retirement-reason', 'string', false),
+    retired_at: field('adr-retired-at', 'string', false),
+    // 正文承载（22 §8 固定 H2），由阅读布局按 H2 分节解析呈现；不登记会被
+    // 判为 unconsumed_field，且必须从列表投影排除。
+    report_body: field('adr-report-body', 'string', false),
   },
   pitfall: {
     ...common,
@@ -143,7 +150,7 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
  * 但必须从列表投影中排除，否则列表会带上整篇正文。
  */
 export const FACT_LIST_FIELD_NAMES: Record<Exclude<FactType, 'workcase'>, readonly string[]> = {
-  adr: Object.keys(FACT_FIELD_CONTRACT.adr),
+  adr: Object.keys(FACT_FIELD_CONTRACT.adr).filter((field) => field !== 'report_body'),
   pitfall: Object.keys(FACT_FIELD_CONTRACT.pitfall),
   spark: Object.keys(FACT_FIELD_CONTRACT.spark).filter((field) => field !== 'report_body'),
   research: Object.keys(FACT_FIELD_CONTRACT.research).filter((field) => field !== 'report_body'),

@@ -31,14 +31,26 @@ function assertFieldLocalized(field: string): void {
 }
 
 test('ADR and Pitfall detail headings all resolve through locales.ts field labels', () => {
-  const adrFields = extractNodeFields('ADR_READING_NODES');
-  const pitfallFields = extractNodeFields('PITFALL_READING_NODES');
+  // v5 ADR（22 §8）布局不再使用 READING_NODES 数组——正文固定 H2 六段由
+  // ADR_BODY_SECTION_ORDER 分节呈现，frontmatter 兜底标题经 getFieldLabel 消费。
+  const adrSectionOrder = LAYOUT.match(/const ADR_BODY_SECTION_ORDER = \[([^\]]+)\]/);
+  assert.ok(adrSectionOrder, 'ADR 正文固定节序应可定位');
+  const adrTitles = (adrSectionOrder[1].match(/'([^']+)'/g) ?? []).map((token) => token.slice(1, -1));
+  assert.deepEqual(adrTitles, ['决策背景', '决定', '备选与理由', '后果', '适用范围', '证据']);
 
+  const pitfallFields = extractNodeFields('PITFALL_READING_NODES');
   // 覆盖两大核心段落集，防止详情标题漂移。
-  assert.ok(adrFields.length >= 6, 'ADR 阅读节点应覆盖核心决策字段');
   assert.ok(pitfallFields.length >= 8, 'Pitfall 阅读节点应覆盖核心经验字段');
 
-  for (const field of adrFields) assertFieldLocalized(field);
+  // ADR 布局的 frontmatter 兜底标题必须经 getFieldLabel 消费且 locales 有登记。
+  const adrLabelFields = ['decision_context', 'decision', 'alternatives', 'decision_consequences', 'scope', 'evidence', 'trigger_signal'];
+  for (const field of adrLabelFields) {
+    assert.ok(
+      LAYOUT.includes(`getFieldLabel('${field}', locale)`),
+      `ADR 布局必须经 getFieldLabel 消费 ${field}`,
+    );
+    assertFieldLocalized(field);
+  }
   for (const field of pitfallFields) assertFieldLocalized(field);
 });
 

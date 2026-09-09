@@ -16,6 +16,7 @@ import PageHeader from '@/components/PageHeader';
 import GoalSection from '@/components/GoalSection';
 import ObjectReferenceCopyButton from '@/components/ObjectReferenceCopyButton';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
+import ServesSgBadge from '@/components/ServesSgBadge';
 import {
   ObjectCardFrame,
   PitfallCardContent,
@@ -411,6 +412,7 @@ function RecentActivityRow({ item }: { item: CognitionRecentActivityItem }) {
         >
           {getTypeLabel(item.type, locale)}
         </span>
+        <ServesSgBadge value={item.serves_sg} locale={locale} />
         {/* Human 2026-09-10 定案：近期动态行不显示研究问题——该行是动态摘要不是
             F1 卡（24 §12 的 research_question 卡片摘要投影归对象列表卡片承载）。 */}
         <PriorityIcon source={item} type={item.type} locale={locale} size="xs" />

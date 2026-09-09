@@ -82,6 +82,7 @@ export interface ObjectItem {
   lifecycle_position?: WorkCaseLifecyclePosition;
   phase?: string;
   goal?: string;
+  /** workcase 目标范围；22 §8 ADR scope（必填）复用同声明。 */
   scope?: string;
   waiting_on?: string;
   blocking_summary?: string;
@@ -106,9 +107,11 @@ export interface ObjectItem {
   closureProposal?: WorkCaseClosureProposalCard;
   /** closed Card 的终态关闭扫读投影；不反推原 proposal 身份 */
   closureTerminal?: WorkCaseClosureTerminalCard;
-  /** ADR-specific fields */
+  /** ADR-specific（22 §8：decision 必填；scope 见上公共段；trigger_signal/终态字段条件） */
   decision?: string;
-  consequences?: string;
+  trigger_signal?: string;
+  retirement_reason?: string;
+  retired_at?: string;
   /** Spark-specific（20 §8：v5 字段闭集） */
   evolution?: Array<Record<string, unknown>>;
   question?: string;
@@ -612,6 +615,8 @@ export interface CognitionRecentActivityItem {
   relativeTime: string;
   typeColor: string;
   priority?: string;
+  /** Spark 的 goal.md 子目标锚点（20 §6 serves_sg），条件出现。 */
+  serves_sg?: string;
   /** WorkCase 只携带派生 progress_group；其它对象携带自身当前状态。 */
   progress_group?: WorkCaseProgressGroup;
   status?: string;
