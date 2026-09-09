@@ -24,7 +24,7 @@
 //      gate, reject/abort pass-through and ownRequest stub are all in place
 //      and tested before content ever flows.
 
-import { GUIDANCE_SECTION_NAME, guidanceTextFor, judgmentLineFor, migrationLineFor, noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
+import { GUIDANCE_SECTION_NAME, guidanceTextFor, migrationLineFor, noticeTextFor } from "./guidance-text.js";
 
 /**
  * Build the assemble-waterfall handler for ONE agent. `resolve(cwd)` must be

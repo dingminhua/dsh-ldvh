@@ -14,7 +14,7 @@
  */
 import http from "node:http";
 import { createReadStream } from "node:fs";
-import { lstat, readFile } from "node:fs/promises";
+import { lstat } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
 
 const MIME_TYPES = {

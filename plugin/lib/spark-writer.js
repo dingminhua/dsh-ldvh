@@ -33,7 +33,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { access, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
@@ -453,7 +453,9 @@ function orderFrontmatterFields(frontmatter) {
 }
 
 async function atomicWriteFile(filePath, content) {
-  const tmp = `${filePath}.tmp`;
+  // Random tmp suffix (F8): a deterministic `${filePath}.tmp` would let two
+  // concurrent writers on the same path clobber each other's staging file.
+  const tmp = `${filePath}.${randomUUID().slice(0, 8)}.tmp`;
   await writeFile(tmp, content, "utf8");
   // Write verification: read back and compare before rename —
   // catches partial writes (disk-full at flush time, etc.)
@@ -604,6 +606,103 @@ export async function readSparkObject(args) {
     body_issues: structure.issues,
     fingerprint: fileFingerprint(content),
   });
+}
+
+// ---------------------------------------------------------------------------
+// List / F0–F1 discovery (specs/03 §8, specs/20 §12)
+// ---------------------------------------------------------------------------
+//
+// Merge/split sequencing memo (Human-ratified deferral, gap 2 of the 2026-09
+// review): multi-object atomicity is NOT implemented — merge/split runs as
+// two single-object updates until the 21 WorkCase wave rebuilds it (C2
+// cascade has the same need). Until then the safe order is SOURCE-FIRST:
+// write the source (discarded + relations) before appending the merge-source
+// note on the target's change_log. A failure then leaves at most "target
+// missing one additive bookkeeping note" (recoverable, idempotent re-append),
+// never a premature "merged-from X" claim on a target whose source is still
+// open (a false statement).
+
+/**
+ * Enumerate Spark objects (F0/F1: deterministic filter + minimal projection).
+ *
+ * - Reads every `spark-<uid>.md` in the sparks directory and projects the
+ *   dedup-relevant fields (title + question are the semantic comparison
+ *   inputs per 20 §6.2).
+ * - Default status filter: open only (20 §12: implemented/discarded stay out
+ *   of ordinary unresolved candidates); `includeTerminal: true` includes all.
+ * - `limit` caps the returned items (03 §8.1: no silent truncation — a cap
+ *   hit returns `complete: false` plus the unfiltered total).
+ * - Files that fail to parse are reported in `invalid` — never skipped
+ *   silently (03 §8.1 F0 includes the invalid/unavailable object list).
+ * - A missing sparks directory is a valid empty state, not an error.
+ */
+export async function listSparkObjects(args) {
+  const { factSourceRoot, includeTerminal = false, limit = 200 } = args;
+  if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
+    return failure("invalid_request", "factSourceRoot is required");
+  }
+  if (!Number.isInteger(limit) || limit < 1) {
+    return failure("invalid_request", "limit must be a positive integer");
+  }
+
+  const typeDir = join(factSourceRoot, SPARK_DIRECTORY);
+  let entries;
+  try {
+    entries = await readdir(typeDir, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return success({ items: [], total: 0, complete: true, invalid: [] });
+    }
+    return failure("spark/directory_unavailable", `cannot read sparks directory: ${error.message}`);
+  }
+
+  const invalid = [];
+  const items = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const nameMatch = entry.name.match(/^spark-([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.md$/i);
+    if (!nameMatch) continue; // non-carrier files (e.g. tmp staging) are not objects
+    const uid = nameMatch[1].toLowerCase();
+    let content;
+    try {
+      content = await readFile(join(typeDir, entry.name), "utf8");
+    } catch (error) {
+      invalid.push({ file: entry.name, reason: `unreadable: ${error.message}` });
+      continue;
+    }
+    const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n/);
+    if (!fmMatch) {
+      invalid.push({ file: entry.name, reason: "no YAML frontmatter block" });
+      continue;
+    }
+    let frontmatter;
+    try {
+      frontmatter = parseYaml(fmMatch[1]);
+    } catch (error) {
+      invalid.push({ file: entry.name, reason: `frontmatter parse error: ${error.message}` });
+      continue;
+    }
+    const status = frontmatter.status;
+    if (!STATUSES.has(status)) {
+      invalid.push({ file: entry.name, reason: `status ${JSON.stringify(status)} outside the closed set` });
+      continue;
+    }
+    if (!includeTerminal && status !== "open") continue;
+    items.push({
+      object_uid: uid,
+      title: typeof frontmatter.title === "string" ? frontmatter.title : "",
+      status,
+      question: typeof frontmatter.question === "string" ? frontmatter.question : "",
+      serves_sg: typeof frontmatter.serves_sg === "string" ? frontmatter.serves_sg : undefined,
+      created_at: typeof frontmatter.created_at === "string" ? frontmatter.created_at : "",
+    });
+  }
+
+  // Newest first — the natural order for dedup scans and resumption.
+  items.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
+  const complete = items.length <= limit;
+  const projected = complete ? items : items.slice(0, limit);
+  return success({ items: projected, total: items.length, complete, invalid });
 }
 
 // ---------------------------------------------------------------------------

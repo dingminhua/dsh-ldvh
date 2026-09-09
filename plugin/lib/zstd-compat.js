@@ -28,7 +28,7 @@ import { ZstdDecompress, zstdDecompressSync } from "node:zlib";
 const MAGIC = [0x28, 0xb5, 0x2f, 0xfd];
 
 function isMagic(buffer, offset) {
-  return buffer[offset] === 0x28 && buffer[offset + 1] === 0xb5 && buffer[offset + 2] === 0x2f && buffer[offset + 3] === 0xfd;
+  return MAGIC.every((byte, i) => buffer[offset + i] === byte);
 }
 
 function nextMagic(buffer, from) {

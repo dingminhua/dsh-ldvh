@@ -6,6 +6,9 @@
 //
 //   - spark-read-object  (effect: read)             — precise F3 read by
 //     object_uid: frontmatter, body, mechanical issues and fingerprint.
+//   - spark-list-objects (effect: read)             — F0/F1 discovery:
+//     dedup-relevant projection (title/question/status/serves_sg),
+//     open-only by default.
 //   - spark-write-object (effect: may_change_state) — controlled create
 //     (C1 proposal confirmed by Human) and CAS update with change_log,
 //     against the governed project's fact source.
@@ -13,13 +16,14 @@
 // Authorities: specs/05 §6 (operation declaration + common envelope),
 // §9.3 (may_change_state), specs/03 §9 (controlled read/create/update,
 // write-back read-back), specs/20 §13 (type-specific mechanical checks).
-// Dedup (20 §6.2) is AI semantic work recorded in the creation proposal —
-// no similarity machinery here (03 §8.2).
+// Dedup semantic comparison (20 §6.2) is AI work recorded in the creation
+// proposal — the list tool only supplies the deterministic inputs.
 
 import {
   createSparkObject,
   readSparkObject,
   updateSparkObject,
+  listSparkObjects,
 } from "./spark-writer.js";
 import { currentRouteValues } from "./session-signature.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
@@ -29,6 +33,11 @@ const OPERATIONS = {
   "spark-read-object": {
     toolName: "ldvh_spark_read",
     summary: "Precise read of one Spark fact object by object_uid: frontmatter, body, mechanical issues and file fingerprint (specs/03 §9.2, specs/20 §13)",
+    effect: "read"
+  },
+  "spark-list-objects": {
+    toolName: "ldvh_spark_list",
+    summary: "Enumerate Spark fact objects (F0/F1 discovery): dedup-relevant projection (title/question/status/serves_sg) for the governed project; open-only by default (specs/03 §8, specs/20 §12)",
     effect: "read"
   },
   "spark-write-object": {
@@ -54,17 +63,6 @@ function invalidRequest(operationKey, gap, requested) {
     scope: { requested: requested ?? null, completed: [], not_completed: [requested ?? operationKey] },
     sources: [],
     gaps: [gap],
-    verification: { checks: [], passed: false },
-    follow_up: []
-  });
-}
-
-function rejected(operationKey, gaps, sources) {
-  return envelope(operationKey, "rejected", {
-    result: null,
-    scope: { requested: operationKey, completed: [], not_completed: [operationKey] },
-    sources: sources ?? [],
-    gaps,
     verification: { checks: [], passed: false },
     follow_up: []
   });
@@ -123,15 +121,19 @@ async function executeReadObject(args, exec, deps) {
     });
   }
   const value = read.value;
+  const fm = value.frontmatter;
   return envelope("spark-read-object", "completed", {
     result: {
       object_uid: value.object_uid,
       file: value.file,
       fingerprint: value.fingerprint,
-      status: value.frontmatter.status,
+      title: typeof fm.title === "string" ? fm.title : undefined,
+      status: fm.status,
+      question: typeof fm.question === "string" ? fm.question : undefined,
+      serves_sg: typeof fm.serves_sg === "string" ? fm.serves_sg : undefined,
       body_valid: value.body_valid,
       body_issues: value.body_issues,
-      frontmatter: value.frontmatter,
+      frontmatter: fm,
       body: value.body,
     },
     scope: { requested: objectUid, completed: [objectUid], not_completed: value.body_valid ? [] : ["body-structure (mechanical issues present — see body_issues)"] },
@@ -139,6 +141,59 @@ async function executeReadObject(args, exec, deps) {
     gaps: value.body_valid ? [] : value.body_issues,
     verification: { checks: ["frontmatter-parse", "body-structure"], passed: value.body_valid },
     follow_up: ["spark-write-object action=update with the observed fingerprint when a controlled change is needed"]
+  });
+}
+
+async function executeListObject(args, exec, deps) {
+  const governed = await governedProject(deps.dshHomePath, exec);
+  if (!governed.ok) {
+    return envelope("spark-list-objects", "unavailable", {
+      result: null,
+      scope: { requested: "list", completed: [], not_completed: ["list"] },
+      sources: [],
+      gaps: [`governance state is ${governed.scope.state}: fact-object discovery serves governed sessions only`],
+      verification: { checks: ["governance-scope"], passed: false },
+      follow_up: []
+    });
+  }
+  const includeTerminal = args?.status === "all";
+  const limit = typeof args?.limit === "number" && Number.isInteger(args.limit) && args.limit > 0 ? args.limit : 200;
+  const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
+  const listed = await listSparkObjects({ factSourceRoot, includeTerminal, limit });
+  if (!listed.ok) {
+    return envelope("spark-list-objects", "unavailable", {
+      result: null,
+      scope: { requested: "list", completed: [], not_completed: ["list"] },
+      sources: [{ kind: "fact-object", path: join(factSourceRoot, "sparks") }],
+      gaps: [`${listed.error.code}: ${listed.error.message}`],
+      verification: { checks: ["directory-scan"], passed: false },
+      follow_up: []
+    });
+  }
+  const value = listed.value;
+  const gaps = value.invalid.map((entry) => `invalid carrier ${entry.file}: ${entry.reason}`);
+  if (!value.complete) {
+    gaps.push(`projection truncated at limit=${limit} of ${value.total} matching objects — narrow the filter or raise the limit; do not treat this page as the full set (03 §8.1)`);
+  }
+  return envelope("spark-list-objects", value.complete ? "completed" : "partial", {
+    result: {
+      count: value.items.length,
+      total: value.complete ? value.items.length : value.total,
+      filter: includeTerminal ? "all" : "open",
+      items: value.items,
+    },
+    scope: {
+      requested: "list",
+      completed: value.complete ? ["list"] : [`first ${value.items.length} of ${value.total}`],
+      not_completed: value.complete ? [] : [`${value.total - value.items.length} objects beyond the limit`],
+    },
+    sources: [{ kind: "fact-object", path: join(factSourceRoot, "sparks") }],
+    gaps,
+    verification: { checks: ["directory-scan", "frontmatter-parse"], passed: gaps.length === 0 },
+    follow_up: [
+      "dedup (20 §6.2) is a semantic comparison over title/question — performed by the AI on this projection, never by the tool",
+      "spark-read-object for the F3 full content of any candidate",
+    ]
   });
 }
 
@@ -184,7 +239,7 @@ async function executeWriteObject(args, exec, deps) {
     if (!readBack.ok || readBack.value.fingerprint !== created.value.fingerprint) {
       return envelope("spark-write-object", "partial", {
         result: { object_uid: created.value.object_uid, file: created.value.file, fingerprint: created.value.fingerprint, read_back: "failed" },
-        scope: { requested: "create", completed: ["create"], not_completed: ["read-back"] },
+        scope: { requested: "create", completed: ["create"], not_completed: ["read-back"], residual_risks: ["write landed but is unverified — file state unknown until re-read"] },
         sources: [{ kind: "fact-object", path: created.value.file }],
         gaps: [`created but read-back failed: ${readBack.ok ? "fingerprint mismatch" : readBack.error.message}`],
         verification: { checks: ["create"], passed: false },
@@ -242,7 +297,7 @@ async function executeWriteObject(args, exec, deps) {
   if (!readBack.ok || readBack.value.fingerprint !== updated.value.fingerprint) {
     return envelope("spark-write-object", "partial", {
       result: { object_uid: objectUid, fingerprint: updated.value.fingerprint, read_back: "failed" },
-      scope: { requested: "update", completed: ["update"], not_completed: ["read-back"] },
+      scope: { requested: "update", completed: ["update"], not_completed: ["read-back"], residual_risks: ["write landed but is unverified — file state unknown until re-read"] },
       sources: [{ kind: "fact-object", path: join(factSourceRoot, "sparks") }],
       gaps: [`updated but read-back failed: ${readBack.ok ? "fingerprint mismatch" : readBack.error.message}`],
       verification: { checks: ["update"], passed: false },
@@ -306,8 +361,23 @@ function renderEnvelope(operationKey, value) {
   const lines = [`LDVH ${env.operation_key ?? operationKey}: ${env.outcome ?? "unknown"}`];
   const result = env.result;
   if (result?.object_uid !== undefined) lines.push(`object: ${result.object_uid}`);
-  if (result?.fingerprint !== undefined) lines.push(`fingerprint: ${String(result.fingerprint).slice(0, 16)}…`);
+  if (result?.title !== undefined) lines.push(`title: ${result.title}`);
   if (result?.status !== undefined) lines.push(`status: ${result.status}`);
+  if (result?.serves_sg !== undefined) lines.push(`serves_sg: ${result.serves_sg}`);
+  if (result?.question !== undefined) lines.push(`question: ${result.question}`);
+  // Full fingerprint, never truncated (03 §9.5): the render output is the
+  // model's only window on the tool result — a truncated fingerprint makes
+  // the CAS baseline unobtainable and blocks every controlled update.
+  if (result?.fingerprint !== undefined) lines.push(`fingerprint: ${result.fingerprint}`);
+  if (result?.body_valid !== undefined) lines.push(`body_valid: ${result.body_valid}`);
+  if (result?.read_back?.ok !== undefined) lines.push(`read_back: ${result.read_back.ok ? "ok" : "FAILED"}`);
+  if (result?.actual_ref !== undefined) lines.push(`file: ${result.actual_ref}`);
+  if (result?.count !== undefined) lines.push(`count: ${result.count}${result.total !== undefined && result.total !== result.count ? ` (of ${result.total})` : ""}`);
+  if (Array.isArray(result?.items)) {
+    for (const item of result.items) {
+      lines.push(`- ${item.object_uid} [${item.status}] ${item.title}${item.serves_sg ? ` (${item.serves_sg})` : ""}`);
+    }
+  }
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${change.object_uid}`);
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
   return text(lines.join("\n"));
@@ -366,6 +436,15 @@ function parameterSchemaFor(operationKey) {
         required: ["object_uid"],
         additionalProperties: false
       };
+    case "spark-list-objects":
+      return {
+        type: "object",
+        properties: {
+          status: { type: "string", enum: ["open", "all"], description: "open = default (ordinary unresolved candidates only, 20 §12); all = include implemented/discarded for historical tracing" },
+          limit: { type: "number", description: "max items returned (default 200; exceeding the cap returns a partial page with the true total — never a silent truncation, 03 §8.1)" }
+        },
+        additionalProperties: false
+      };
     case "spark-write-object":
       return {
         type: "object",
@@ -420,6 +499,7 @@ export function toolDescriptorFor(operationKey, operation, handler) {
 export function registerSparkTools(ctx, deps) {
   const handlers = {
     "spark-read-object": (args, exec) => executeReadObject(args, exec, deps),
+    "spark-list-objects": (args, exec) => executeListObject(args, exec, deps),
     "spark-write-object": (args, exec) => executeWriteObject(args, exec, deps),
   };
   const disposers = [];

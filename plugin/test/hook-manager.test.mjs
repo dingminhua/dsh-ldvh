@@ -254,7 +254,7 @@ test("real commit-msg: illegal commit is blocked, legal commit passes", async ()
 		assert.match(blocked.stderr, /validation\/header_invalid/);
 		// nothing was committed and the staged change survived
 		const porcelain = await git(root, ["status", "--porcelain"]);
-		assert.match(porcelain, /^A  README\.md/m);
+		assert.match(porcelain, /^A {2}README\.md/m);
 
 		// Legal message: full conventional header + 关键变更 + signatures.
 		const passed = await gitOk(root, ["commit", "-m", VALID_COMMIT_MESSAGE]);

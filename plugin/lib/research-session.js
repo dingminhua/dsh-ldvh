@@ -271,7 +271,7 @@ export function auditCitationLoop(body, confirmed) {
   }
 
   // Check that every confirmed entry is referenced at least once (informational, not a hard fail)
-  for (const [stmt, { num }] of index) {
+  for (const [, { num }] of index) {
     if (!usedNumbers.has(num)) {
       // Not an error — unreferenced evidence is allowed (may be context)
     }

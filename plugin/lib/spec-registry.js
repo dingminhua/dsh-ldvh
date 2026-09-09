@@ -72,7 +72,7 @@ function assertIdentityShape(yamlText) {
   const seen = new Set();
   for (const line of yamlText.split("\n")) {
     if (/^\s*(#|$)/.test(line)) continue;
-    const match = line.match(/^  ([A-Za-z_][A-Za-z0-9_-]*):(.*)$/);
+    const match = line.match(/^ {2}([A-Za-z_][A-Za-z0-9_-]*):(.*)$/);
     if (match === null) continue;
     const [, key, rest] = match;
     if (seen.has(key)) return reject("identity/duplicate_key", `duplicate top-level key "${key}"`);

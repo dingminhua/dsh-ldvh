@@ -53,7 +53,6 @@ function require_handlers() {
       const handlers = {};
       // Same construction as registerResearchTools (kept in sync by the
       // registration test below, which asserts the real path registers 3 tools).
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const mod = researchToolsModule;
       const stubCtx = {
         tools: {
@@ -449,4 +448,47 @@ test("write schema: partial update (title only) passes schema layer", async () =
     frontmatter_after: { title: "新标题" }
   }, "args");
   assert.equal(violations.length, 0, JSON.stringify(violations));
+});
+
+// ---------------------------------------------------------------------------
+// renderEnvelope: full fingerprint + rich semantic lines (F: 渲染层修复)
+// ---------------------------------------------------------------------------
+//
+// The render output is the model's only window on the tool result (03 §9.5).
+// A truncated fingerprint would make the CAS baseline unobtainable; the
+// research read render must carry the complete 64-char SHA-256 and the
+// semantic fields (title/status/sub_stage/body_valid).
+
+test("render: research read output carries the FULL 64-char fingerprint and semantic lines (no ellipsis truncation)", async () => {
+  await withTemp("ldvh-rt.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const handlers = governedHandlers(home, base);
+
+    const created = await handlers["ldvh_research_write"].execute(
+      { action: "create", frontmatter_draft: validFrontmatterDraft(), analysis_body: ANALYSIS_BODY },
+      exec(repo)
+    );
+    assert.equal(created.outcome, "completed", JSON.stringify(created));
+    const uid = created.result.object_uid;
+    const fp = created.result.fingerprint;
+    assert.match(fp, /^[0-9a-f]{64}$/, "fingerprint must be a full 64-char hex SHA-256");
+
+    const readOut = await handlers["ldvh_research_read"].execute({ object_uid: uid }, exec(repo));
+    assert.equal(readOut.outcome, "completed", JSON.stringify(readOut));
+
+    // The descriptor render is what the model sees — drive the real descriptor.
+    const raw = require_handlers().createHandlers({
+      dshHomePath: dshHome(home),
+      workspaceRoot: base,
+      sessionPersistence: () => undefined,
+    });
+    const blocks = raw["ldvh_research_read"].output.render({ object_uid: uid }, { envelope: readOut });
+    const text = blocks.map((b) => b.text).join("\n");
+    assert.ok(text.includes(`fingerprint: ${fp}`), `render must carry the complete fingerprint:\n${text}`);
+    assert.ok(text.includes("title: 工具接入调研（测试夹具）"), `render must carry the title:\n${text}`);
+    assert.ok(text.includes("status: active"), `render must carry the status:\n${text}`);
+    assert.ok(text.includes("sub_stage: directed"), `render must carry sub_stage:\n${text}`);
+    assert.ok(text.includes("body_valid: true"), `render must carry body_valid:\n${text}`);
+    assert.ok(!text.includes("…"), "render must not truncate with an ellipsis");
+  });
 });

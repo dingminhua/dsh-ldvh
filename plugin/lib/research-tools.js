@@ -26,7 +26,6 @@
 
 import {
   analyzeClarificationNeeds,
-  shapeEvidence,
   auditCitationLoop,
   checkDeliveryContract,
   ResearchSession,
@@ -367,6 +366,8 @@ async function executeReadObject(args, exec, deps) {
       object_uid: value.object_uid,
       file: value.file,
       fingerprint: value.fingerprint,
+      title: typeof value.frontmatter.title === "string" ? value.frontmatter.title : undefined,
+      research_question: typeof value.frontmatter.research_question === "string" ? value.frontmatter.research_question : undefined,
       status: value.frontmatter.status,
       sub_stage: value.exploratory ? "exploratory" : "directed",
       body_valid: value.body_valid,
@@ -551,7 +552,17 @@ function renderEnvelope(operationKey, value) {
   const result = env.result;
   if (result?.session_id !== undefined) lines.push(`session: ${result.session_id}`);
   if (result?.object_uid !== undefined) lines.push(`object: ${result.object_uid}`);
-  if (result?.fingerprint !== undefined) lines.push(`fingerprint: ${String(result.fingerprint).slice(0, 16)}…`);
+  if (result?.title !== undefined) lines.push(`title: ${result.title}`);
+  if (result?.status !== undefined) lines.push(`status: ${result.status}`);
+  if (result?.sub_stage !== undefined) lines.push(`sub_stage: ${result.sub_stage}`);
+  if (result?.research_question !== undefined) lines.push(`question: ${result.research_question}`);
+  // Full fingerprint, never truncated (03 §9.5): the render output is the
+  // model's only window on the tool result — a truncated fingerprint makes
+  // the CAS baseline unobtainable and blocks every controlled update.
+  if (result?.fingerprint !== undefined) lines.push(`fingerprint: ${result.fingerprint}`);
+  if (result?.body_valid !== undefined) lines.push(`body_valid: ${result.body_valid}`);
+  if (result?.read_back?.ok !== undefined) lines.push(`read_back: ${result.read_back.ok ? "ok" : "FAILED"}`);
+  if (result?.file !== undefined) lines.push(`file: ${result.file}`);
   if (result?.stop !== undefined) lines.push(`converged: ${result.stop}${result.reason ? ` (${result.reason})` : ""}`);
   if (result?.round_number !== undefined) lines.push(`round: ${result.round_number}/${result.max_rounds ?? "?"}`);
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${change.object_uid}`);

@@ -40,7 +40,6 @@ const MAIN_H2_DIRECTED = ["研究问题", "输入与边界", "关键发现", "�
 const MAIN_H2_EXPLORATORY = ["研究问题", "输入与边界", "调查阶段", "关键发现", "未证实与缺口", "建议", "后续分流"];
 const SURVEY_H3 = ["调查问题与范围", "调查方法与来源", "调查发现", "调查停止与交接"];
 
-const CONFIDENCE_VALUES = new Set(["high", "medium", "low"]);
 const PRIORITY_VALUES = new Set(["high", "medium", "low"]);
 const STOPPING_REASONS = new Set(["sufficient", "no-gain", "round-cap"]);
 const STATUSES = new Set(["active", "retired"]);
@@ -562,7 +561,9 @@ function orderFrontmatterFields(frontmatter) {
 }
 
 async function atomicWriteFile(filePath, content) {
-  const tmp = `${filePath}.tmp`;
+  // Random tmp suffix (F8): a deterministic `${filePath}.tmp` would let two
+  // concurrent writers on the same path clobber each other's staging file.
+  const tmp = `${filePath}.${randomUUID().slice(0, 8)}.tmp`;
   await writeFile(tmp, content, "utf8");
   // Write verification (W4): read back and compare before rename —
   // catches partial writes (disk-full at flush time, etc.)
