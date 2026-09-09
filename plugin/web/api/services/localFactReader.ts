@@ -21,7 +21,8 @@ export const FACT_TYPE_DIRS = {
 
 export const FACT_TYPE_CARRIERS = {
   workcase: '.yaml',
-  adr: '.yaml',
+  // v5 ADR（22 §7）：YAML frontmatter（机器权威）+ markdown 正文，同 spark/research 形态。
+  adr: '.md',
   pitfall: '.yaml',
   // v5 Spark（20 §7）：YAML frontmatter（机器权威）+ markdown 正文，同 research 形态。
   spark: '.md',
@@ -99,8 +100,8 @@ function expectedFileName(type: LocalFactType, objectId: string): string {
 }
 
 function carrierFor(type: LocalFactType): LocalFactCarrier {
-  // v5 markdown 载体类型：frontmatter（机器权威）+ 正文（20 §7 / 24 §7）。
-  return type === 'research' || type === 'spark' ? 'markdown' : 'yaml'
+  // v5 markdown 载体类型：frontmatter（机器权威）+ 正文（20 §7 / 22 §7 / 24 §7）。
+  return type === 'research' || type === 'spark' || type === 'adr' ? 'markdown' : 'yaml'
 }
 
 function metadataFor(scope: LocalFactScope, type: LocalFactType, objectId: string): LocalFactMetadata {

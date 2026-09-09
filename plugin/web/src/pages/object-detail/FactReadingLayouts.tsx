@@ -3,7 +3,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatDateTime } from '@/utils/dateFormat';
 import { useI18n } from '@/i18n/context';
-import { getFieldLabel, getObjectStatusLocale } from '@/i18n/locales';
+import { getFieldLabel, getFieldValueLabel, getObjectStatusLocale } from '@/i18n/locales';
 import { normalizeSignature } from '../../../shared/signature';
 import { FactAssociationsSection } from '@/pages/object-detail/FactAssociationsSection';
 import { sortRelatedContentEntries, type RelatedContentEntry } from '@/pages/object-detail/model';
@@ -124,16 +124,41 @@ function parseChangeLogEntries(value: unknown): ChangeLogEntry[] {
   }).reverse();
 }
 
-const ADR_READING_NODES: Array<{ field: string; kind?: 'date' }> = [
-  { field: 'decision_question' },
-  { field: 'decision' },
-  { field: 'applicability' },
-  { field: 'trigger_signal' },
-  { field: 'rationale' },
-  { field: 'consequences' },
-  { field: 'disposition_summary' },
-];
+/** 22 号规范 §8 的正文固定 H2（「证据」条件出现——urls 非空时必在）。 */
+const ADR_BODY_SECTION_ORDER = ['决策背景', '决定', '备选与理由', '后果', '适用范围', '证据'] as const;
 
+type AdrBodySection = { title: string; body: string };
+
+/** 正文按固定 H2 分节（前端解析，跟随 spark 的 parseSparkBodySections 先例）。 */
+function parseAdrBodySections(body: string): AdrBodySection[] {
+  const lines = body.split('\n');
+  const sections: Array<{ title: string; body: string[] }> = [];
+  let current: { title: string; body: string[] } | null = null;
+  for (const line of lines) {
+    const heading = line.match(/^##\s+(.+?)\s*$/);
+    if (heading) {
+      current = { title: heading[1].trim(), body: [] };
+      sections.push(current);
+      continue;
+    }
+    current?.body.push(line);
+  }
+  return sections
+    .map((section) => ({ title: section.title, body: section.body.join('\n').trim() }))
+    .filter((section) => section.body.length > 0 && section.title.length > 0)
+    .sort((a, b) => {
+      const aIndex = ADR_BODY_SECTION_ORDER.indexOf(a.title as (typeof ADR_BODY_SECTION_ORDER)[number]);
+      const bIndex = ADR_BODY_SECTION_ORDER.indexOf(b.title as (typeof ADR_BODY_SECTION_ORDER)[number]);
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return 0;
+    });
+}
+
+/** v5 ADR 阅读布局（22 §8）：正文固定 H2 五段（+条件证据）分节优先、
+ * frontmatter 字段兜底，节序跟随字段契约（决策背景 → 决定 → 备选与理由
+ * → 后果 → 适用范围 → 证据 → trigger_signal → 终态去向）。 */
 export function AdrReadingLayout({
   obj,
   relatedEntries,
@@ -143,18 +168,34 @@ export function AdrReadingLayout({
   relatedEntries: RelatedContentEntry[];
   locale: string;
 }) {
+  const bodySections = parseAdrBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
+  const sectionOf = (title: string) => bodySections.find((section) => section.title === title);
+  // 22 §8：正文是 decision/scope 的自然语言承载——正文节优先，缺失时以
+  // frontmatter 字段兜底（同 spark 的先例）。
+  const proseFrom = (sectionTitle: string, fieldValue: unknown): string => {
+    const body = sectionOf(sectionTitle)?.body;
+    if (body) return body;
+    return typeof fieldValue === 'string' && fieldValue.trim() ? fieldValue.trim() : '';
+  };
+
+  const context = sectionOf('决策背景')?.body ?? '';
+  const decision = proseFrom('决定', obj.decision);
+  const alternatives = sectionOf('备选与理由')?.body ?? '';
+  const consequences = sectionOf('后果')?.body ?? '';
+  const scopeProse = proseFrom('适用范围', obj.scope);
+  const evidence = sectionOf('证据')?.body ?? '';
+  const triggerSignal = typeof obj.trigger_signal === 'string' && obj.trigger_signal.trim() ? obj.trigger_signal.trim() : '';
+
   return (
     <div className="mb-6 flex flex-col gap-5">
-      {ADR_READING_NODES.map((node) => (
-        <AdrReadingNode
-          key={node.field}
-          title={getFieldLabel(node.field, locale)}
-          value={obj[node.field]}
-          issue={fieldIssue(obj, node.field)}
-          locale={locale}
-          kind={node.kind}
-        />
-      ))}
+      <AdrProseNode title={getFieldLabel('decision_context', locale)} value={context} locale={locale} />
+      <AdrProseNode title={getFieldLabel('decision', locale)} value={decision} locale={locale} issue={fieldIssue(obj, 'decision')} />
+      <AdrProseNode title={getFieldLabel('alternatives', locale)} value={alternatives} locale={locale} />
+      <AdrProseNode title={getFieldLabel('decision_consequences', locale)} value={consequences} locale={locale} />
+      <AdrProseNode title={getFieldLabel('scope', locale)} value={scopeProse} locale={locale} issue={fieldIssue(obj, 'scope')} />
+      <AdrProseNode title={getFieldLabel('evidence', locale)} value={evidence} locale={locale} />
+      <AdrProseNode title={getFieldLabel('trigger_signal', locale)} value={triggerSignal} locale={locale} issue={fieldIssue(obj, 'trigger_signal')} />
+      <AdrTerminalReadingNode obj={obj} locale={locale} />
       <FactAssociationsSection obj={obj} locale={locale} />
       <RelatedContentSection entries={relatedEntries} locale={locale} />
       <ChangeLogReadingNode
@@ -166,21 +207,56 @@ export function AdrReadingLayout({
   );
 }
 
-function AdrReadingNode({
+/** 22 §9 终态去向：retired 的 reason（本地化闭集）+ 退出时间 + 被谁替代。 */
+function AdrTerminalReadingNode({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
+  const { t } = useI18n();
+  const [state, setState] = useState<ReadingNodeState>('expanded');
+  const isRetired = obj.status === 'retired';
+  if (!isRetired) return null;
+
+  const reason = typeof obj.retirement_reason === 'string' && obj.retirement_reason.trim()
+    ? obj.retirement_reason.trim()
+    : null;
+  const supersededBy = Array.isArray(obj.relations)
+    ? obj.relations.find((rel) => (rel as { relation_key?: string }).relation_key === 'superseded-by')
+    : null;
+  const supersededByUid = typeof supersededBy === 'object' && supersededBy !== null
+    ? String((supersededBy as { target?: { object_uid?: string } }).target?.object_uid ?? '')
+    : '';
+
+  const reasonText = reason ? getFieldValueLabel('retirement_reason', reason, locale) || reason : t('objectList.dispositionMissing');
+  const retiredAt = typeof obj.retired_at === 'string' && obj.retired_at ? formatDateTime(obj.retired_at) : '';
+  const content = [
+    `${getFieldLabel('retirement_reason', locale)}：${reasonText}`,
+    retiredAt ? `${getFieldLabel('retired_at', locale)}：${retiredAt}` : '',
+    supersededByUid ? `superseded-by → ${supersededByUid}` : '',
+  ].filter(Boolean).join('\n');
+
+  return (
+    <ReadingNodeSection
+      title={getObjectStatusLocale('adr', 'retired', locale)}
+      state={state}
+      locale={locale}
+      onToggle={() => setState((current) => getReadingNodeNextState(current))}
+    >
+      <ResearchTextNodeContent value={content} compact />
+    </ReadingNodeSection>
+  );
+}
+
+function AdrProseNode({
   title,
   value,
-  issue,
   locale,
-  kind,
+  issue,
 }: {
   title: string;
-  value: unknown;
-  issue?: FieldPresentationIssue;
+  value: string;
   locale: string;
-  kind?: 'date';
+  issue?: FieldPresentationIssue;
 }) {
   const [state, setState] = useState<ReadingNodeState>('expanded');
-  if (!hasDetailContent(value) && !issue) return null;
+  if (!value && !issue) return null;
 
   return (
     <ReadingNodeSection
@@ -189,9 +265,7 @@ function AdrReadingNode({
       locale={locale}
       onToggle={() => setState((current) => getReadingNodeNextState(current))}
     >
-      {issue ? <FieldProblem issue={issue} /> : kind === 'date' ? (
-        <span className="ldvh-definition-text">{formatDateTime(String(value))}</span>
-      ) : (
+      {issue ? <FieldProblem issue={issue} /> : (
         <ResearchTextNodeContent value={value} />
       )}
     </ReadingNodeSection>

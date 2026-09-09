@@ -43,10 +43,13 @@ const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
     'controller_check_summary', 'result_reviews', 'validation_summary', 'closure_proposal',
     'closure_outcome', 'disposition_summary', 'residual_responsibilities', 'urls', 'relations',
   ],
+  // v5 ADR（22 号规范）：阅读布局按字段契约序消费（decision → scope →
+  // trigger_signal → 终态 retirement_reason/retired_at/relations），正文
+  // report_body 由布局按 H2 五段（决策背景/决定/备选与理由/后果/适用范围
+  // +条件证据）分节呈现——此处只做 ContentField 兜底排序。
   adr: [
-    'decision_question', 'decision', 'applicability', 'trigger_signal',
-    'rationale', 'consequences',
-    'change_log', 'urls', 'relations', 'disposition_summary',
+    'decision', 'scope', 'trigger_signal', 'report_body',
+    'retirement_reason', 'retired_at', 'change_log', 'urls', 'relations',
   ],
   pitfall: [
     'symptoms', 'trigger_conditions', 'scope_of_impact', 'applicability', 'validation_summary', 'root_cause',
