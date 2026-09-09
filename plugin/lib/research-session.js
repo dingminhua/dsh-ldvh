@@ -195,19 +195,33 @@ export function shapeEvidence(finding) {
       };
     }
     case "uncertain": {
-      const { issue, reason } = finding;
+      // The tool schema (research-tools.js findingSchema) declares `issue`
+      // as a nested object { issue, reason }, mirroring the Research
+      // frontmatter uncertain entry — read the fields from there, never
+      // from the finding top level.
+      const payload = finding.issue;
+      if (typeof payload !== "object" || payload === null) {
+        return { ok: false, error: { code: "evidence/issue_missing", message: 'uncertain requires a nested issue object { issue, reason } under "issue"' } };
+      }
+      const { issue, reason } = payload;
       if (typeof issue !== "string" || issue.length === 0) {
-        return { ok: false, error: { code: "evidence/issue_missing", message: "uncertain requires an issue" } };
+        return { ok: false, error: { code: "evidence/issue_missing", message: 'uncertain requires a nested issue object { issue, reason } under "issue"' } };
       }
       if (typeof reason !== "string" || reason.length === 0) {
-        return { ok: false, error: { code: "evidence/reason_missing", message: "uncertain requires a reason" } };
+        return { ok: false, error: { code: "evidence/reason_missing", message: "uncertain requires a reason inside the issue object" } };
       }
       return { ok: true, value: { issue, reason } };
     }
     case "gap": {
-      const { description, priority } = finding;
+      // Same contract: `gap` is a nested object { description, priority },
+      // mirroring the Research frontmatter gaps entry.
+      const payload = finding.gap;
+      if (typeof payload !== "object" || payload === null) {
+        return { ok: false, error: { code: "evidence/description_missing", message: 'gap requires a nested gap object { description, priority } under "gap"' } };
+      }
+      const { description, priority } = payload;
       if (typeof description !== "string" || description.length === 0) {
-        return { ok: false, error: { code: "evidence/description_missing", message: "gap requires a description" } };
+        return { ok: false, error: { code: "evidence/description_missing", message: 'gap requires a nested gap object { description, priority } under "gap"' } };
       }
       const p = priority ?? "medium";
       if (!["high", "medium", "low"].includes(p)) {
@@ -337,7 +351,13 @@ export class ResearchSession {
     if (this.urls.has(ref)) {
       return { ok: true, value: this.urls.get(ref) }; // idempotent
     }
-    const entry = { ref, title, summary };
+    // Normalize to lossless-JSON-safe strings: undefined summary/title
+    // values would break the harness tool-output round-trip at finalize.
+    const entry = {
+      ref,
+      title: typeof title === "string" && title.length > 0 ? title : ref,
+      summary: typeof summary === "string" ? summary : "",
+    };
     this.urls.set(ref, entry);
     return { ok: true, value: entry };
   }
@@ -363,9 +383,11 @@ export class ResearchSession {
         if (raw.state === "confirmed") {
           roundConfirmed.push(shaped.value);
           this.confirmed.push(shaped.value);
-          // Auto-register source if not yet registered
+          // Auto-register source if not yet registered (summary is filled
+          // by the caller via registerSource; auto-registration carries
+          // an empty summary — the entry stays lossless-JSON-safe).
           if (raw.evidence?.source) {
-            this.registerSource(raw.evidence.source, raw.evidence.source_title ?? raw.evidence.source, undefined);
+            this.registerSource(raw.evidence.source, raw.evidence.source_title ?? raw.evidence.source, "");
           }
         } else if (raw.state === "uncertain") {
           this.uncertain.push(shaped.value);

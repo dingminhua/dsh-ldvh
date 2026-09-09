@@ -122,15 +122,48 @@ test("shapeEvidence rejects confirmed with non-HTTP source", () => {
 });
 
 test("shapeEvidence accepts a valid uncertain finding", () => {
-  const result = shapeEvidence({ statement: "s", state: "uncertain", issue: "冲突", reason: "两个来源说法不一致" });
+  const result = shapeEvidence({ statement: "s", state: "uncertain", issue: { issue: "冲突", reason: "两个来源说法不一致" } });
   assert.ok(result.ok);
   assert.equal(result.value.issue, "冲突");
 });
 
 test("shapeEvidence accepts a valid gap finding", () => {
-  const result = shapeEvidence({ statement: "s", state: "gap", description: "缺少价格数据", priority: "high" });
+  const result = shapeEvidence({ statement: "s", state: "gap", gap: { description: "缺少价格数据", priority: "high" } });
   assert.ok(result.ok);
   assert.equal(result.value.priority, "high");
+});
+
+test("shapeEvidence reads uncertain/gap from the nested objects declared by the tool schema", () => {
+  // Regression (2026-09-10 R1): the tool schema (research-tools.js
+  // findingSchema) declares `issue`/`gap` as nested objects mirroring the
+  // Research frontmatter entries; shapeEvidence used to read flat top-level
+  // fields, so AI callers following the schema were always rejected with a
+  // misleading error.
+  const uncertain = shapeEvidence({
+    statement: "s", state: "uncertain",
+    issue: { issue: "冲突", reason: "两个来源说法不一致" },
+  });
+  assert.ok(uncertain.ok, JSON.stringify(uncertain.error));
+  assert.deepEqual(uncertain.value, { issue: "冲突", reason: "两个来源说法不一致" });
+
+  const gap = shapeEvidence({
+    statement: "s", state: "gap",
+    gap: { description: "缺少价格数据", priority: "high" },
+  });
+  assert.ok(gap.ok, JSON.stringify(gap.error));
+  assert.deepEqual(gap.value, { description: "缺少价格数据", priority: "high" });
+});
+
+test("shapeEvidence rejects flat uncertain/gap fields with a schema-shaped error", () => {
+  // Flat fields (the old bug's implicit contract) must fail loudly so the
+  // caller follows the schema-declared nested shape.
+  const uncertain = shapeEvidence({ statement: "s", state: "uncertain", issue: "顶层字段", reason: "顶层字段" });
+  assert.ok(!uncertain.ok);
+  assert.equal(uncertain.error.code, "evidence/issue_missing");
+
+  const gap = shapeEvidence({ statement: "s", state: "gap", description: "顶层字段", priority: "high" });
+  assert.ok(!gap.ok);
+  assert.equal(gap.error.code, "evidence/description_missing");
 });
 
 test("shapeEvidence rejects unknown state", () => {
@@ -250,10 +283,10 @@ test("ResearchSession round-cap flow with gaps declared", () => {
   session.registerSource("https://example.com", "example", "");
   session.submitRound([
     { statement: "partial", state: "confirmed", sub_question_key: "q1", evidence: { text: "t", anchor: "a", source: "https://example.com", confidence: "low" } },
-    { statement: "g", state: "gap", description: "q2 and q3 uncovered", priority: "medium" },
+    { statement: "g", state: "gap", gap: { description: "q2 and q3 uncovered", priority: "medium" } },
   ]);
   session.submitRound([
-    { statement: "more", state: "gap", description: "still uncovered", priority: "low" },
+    { statement: "more", state: "gap", gap: { description: "still uncovered", priority: "low" } },
   ]);
 
   const final = session.finalize();
@@ -267,6 +300,26 @@ test("ResearchSession finalize rejects unconverged session", () => {
   const result = session.finalize();
   assert.ok(!result.ok);
   assert.equal(result.error.code, "session/not_converged");
+});
+
+test("finalize returns lossless-JSON-safe urls after auto-registration (no undefined summary)", () => {
+  // Regression (2026-09-10 R1): submitRound's auto registerSource used to
+  // pass an undefined summary; the finalize bundle then failed the harness
+  // lossless-JSON round-trip with an "invalid output" tool error.
+  const session = new ResearchSession({ question: "q", purpose: "p", maxRounds: 3 });
+  session.submitRound([
+    { statement: "s", state: "confirmed", evidence: { text: "t", anchor: "a", source: "https://auto-registered.com", confidence: "high" } },
+  ]);
+  const final = session.finalize();
+  assert.ok(final.ok, JSON.stringify(final.error));
+  assert.equal(final.value.urls.length, 1);
+  const [entry] = final.value.urls;
+  assert.equal(entry.ref, "https://auto-registered.com");
+  assert.equal(typeof entry.title, "string");
+  assert.equal(entry.summary, "");
+  // Harness round-trip: undefined values would silently vanish here.
+  const roundTripped = JSON.parse(JSON.stringify(final.value));
+  assert.deepEqual(roundTripped.urls, final.value.urls);
 });
 
 test("ResearchSession rejects confirmed with unregistered source at finalize", () => {

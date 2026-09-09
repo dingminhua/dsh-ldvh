@@ -26,6 +26,8 @@ The format follows Keep a Changelog. This development changelog records only imp
 
 - `ldvh_*` tool results never reached the model: `output.render` returned a bare string, but the DSH tool layer calls `result.content.some(...)` on the result, throwing `content.some is not a function` and silently failing the whole tool batch. `renderEnvelope` now returns an array of content blocks through a single `text()` choke point (the dsh-mnemon idiom), so a bare-string return is structurally impossible rather than merely absent (contract verified against `dsh-tools` and the MCP spec).
 - `gaps` schema rejected the structured scan gaps (`{ responsibility_key, canonical_path, reason }`) emitted by `scanSpecCandidates`; the renderer stringifies structured gaps instead of printing `[object Object]`.
+- `ldvh_research_session` submit-round rejected schema-compliant uncertain/gap findings: the tool schema declares `issue`/`gap` as nested objects (mirroring the Research frontmatter entries) while `shapeEvidence` read flat top-level fields, so AI callers following the schema were always rejected with a misleading error (2026-09-10 R1 field report). The shaper now reads the nested payloads and the error messages point at the declared shape.
+- `ldvh_research_session` finalize was unusable: submit-round's automatic source registration passed an `undefined` summary, so the finalize bundle's `urls` array failed the harness lossless-JSON round-trip with an "invalid output" tool error. `registerSource` now normalizes title/summary to strings and auto-registration carries an empty summary; regression tests pin both fixes.
 
 ### Known
 
