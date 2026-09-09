@@ -34,7 +34,8 @@ const TYPE_REQUIRED_FIELDS: Record<string, readonly string[]> = {
   workcase: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'goal', 'scope', 'success_criterion_definitions'],
   // 22 §8：decision/scope 必填（trigger_signal/retirement_reason/retired_at 条件）。
   adr: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'decision', 'scope'],
-  pitfall: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'scope_of_impact', 'applicability', 'validation_summary', 'symptoms', 'trigger_conditions', 'root_cause', 'resolution', 'avoidance'],
+  // 23 §8：scope 必填（trigger_signal/disposition 条件；六要素住正文）。
+  pitfall: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'scope'],
   // 20 §8：question/scope_boundary/intent/summary 必填（evolution/serves_sg/
   // disposition/relations 条件出现）。
   spark: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'question', 'scope_boundary', 'intent', 'summary'],

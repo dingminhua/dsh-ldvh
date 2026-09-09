@@ -16,7 +16,6 @@ import {
   RelatedContentSection,
   ResearchTextNodeContent,
   getReadingNodeNextState,
-  hasDetailContent,
   type ReadingNodeState,
 } from '@/pages/ObjectDetail';
 

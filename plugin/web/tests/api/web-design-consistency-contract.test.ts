@@ -7,14 +7,6 @@ function read(relativePath: string) {
   return fs.readFileSync(path.resolve(relativePath), 'utf8');
 }
 
-function collectSourceFiles(directory: string): string[] {
-  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const filePath = path.join(directory, entry.name);
-    if (entry.isDirectory()) return collectSourceFiles(filePath);
-    return /\.(?:css|ts|tsx)$/.test(entry.name) ? [filePath] : [];
-  });
-}
-
 test('compact width only changes the shell navigation and secondary reading placement', () => {
   const styles = read('src/index.css');
   const layout = read('src/components/Layout.tsx');
@@ -132,7 +124,7 @@ test('fact reading labels use the central locale registry', () => {
   const layouts = read('src/pages/object-detail/FactReadingLayouts.tsx');
   const associations = read('src/pages/object-detail/FactAssociationsSection.tsx');
 
-  assert.match(layouts, /getFieldLabel\(node\.field, locale\)/);
+  assert.match(layouts, /title=\{getFieldLabel\('[^']+', locale\)\}/);
   assert.match(layouts, /getObjectStatusLocale\('spark'/);
   assert.doesNotMatch(layouts, /locale === 'en'/);
   assert.match(associations, /getLocalizedObjectTitle\(source, locale\)/);
@@ -142,7 +134,7 @@ test('five fact types use distinct stable hue assignments', () => {
   const colors = read('src/utils/categoryColors.ts');
   const typeColors = ['#3b82f6', '#a855f7', '#ef4444', '#eab308', '#14b8a6'];
   assert.equal(new Set(typeColors).size, 5);
-  for (const color of typeColors) assert.match(colors, new RegExp(`'${color}'|\\\"${color}\\\"`));
+  for (const color of typeColors) assert.match(colors, new RegExp(`'${color}'|"${color}"`));
 });
 
 test('prominent card title follows the documented 14px by 20px hierarchy', () => {

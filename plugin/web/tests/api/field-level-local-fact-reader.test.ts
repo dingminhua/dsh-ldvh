@@ -210,13 +210,29 @@ test('Spark evolution members without a timestamp and forbidden Pitfall tags rem
       'Current observation',
       '',
     ].join('\n'), 'utf8');
-    await writeFile(path.join(pitfallDir, 'pitfall-0001.yaml'), [
-      'object_id: pitfall-0001', 'fact_type_key: pitfall', 'title: Forbidden tag',
-      'status: active', 'created_at: "2026-01-01"', 'tags: [legacy]',
+    await writeFile(path.join(pitfallDir, 'pitfall-7f4a5c2e-9d31-4b6f-8a07-3e0f5c91b2d4.md'), [
+      '---',
+      'object_uid: 7f4a5c2e-9d31-4b6f-8a07-3e0f5c91b2d4',
+      'fact_type_key: pitfall', 'title: Forbidden tag',
+      'status: active', 'created_at: "2026-01-01"',
+      'scope: 任何写入遗留 frontmatter 标签的对象。',
+      'tags: [legacy]',
+      '---',
+      '',
+      '# Forbidden tag',
+      '',
+      '## 症状',
+      '',
+      'legacy 标签出现',
+      '',
+      '## 影响与适用范围',
+      '',
+      '任何写入遗留 frontmatter 标签的对象。',
+      '',
     ].join('\n'), 'utf8');
 
     const spark = await readLocalFact('spark', 'spark-3f2504e0-4f89-41d3-9a0c-0305e82c3301', scope);
-    const pitfall = await readLocalFact('pitfall', 'pitfall-0001', scope);
+    const pitfall = await readLocalFact('pitfall', 'pitfall-7f4a5c2e-9d31-4b6f-8a07-3e0f5c91b2d4', scope);
     assert.equal(spark.status, 'ok');
     assert.equal(pitfall.status, 'ok');
     if (spark.status === 'ok') {

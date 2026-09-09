@@ -14,13 +14,6 @@ const LOCALES = fs.readFileSync(LOCALES_PATH, 'utf8');
 const LAYOUT_PATH = path.resolve('src/pages/object-detail/FactReadingLayouts.tsx');
 const LAYOUT = fs.readFileSync(LAYOUT_PATH, 'utf8');
 
-/** 从 layout 的 READING_NODES 数组提取全部字段名。 */
-function extractNodeFields(nodeArrayName: string): string[] {
-  const block = LAYOUT.match(new RegExp(`const ${nodeArrayName}[\\s\\S]*?\\]`));
-  assert.ok(block, `${nodeArrayName} 数组应可定位`);
-  return (block[0].match(/field: '([^']+)'/g) ?? []).map((token) => token.match(/field: '([^']+)'/)![1]);
-}
-
 /** locales.ts 必须为某字段提供中文/英文标题，且与 raw 字段名不同。 */
 function assertFieldLocalized(field: string): void {
   // getFieldLabel 返回的标题必须以字段登记形式存在：`{ FIELD_NAME }: { zh: '..', en: '..' }`。
@@ -38,9 +31,12 @@ test('ADR and Pitfall detail headings all resolve through locales.ts field label
   const adrTitles = (adrSectionOrder[1].match(/'([^']+)'/g) ?? []).map((token) => token.slice(1, -1));
   assert.deepEqual(adrTitles, ['决策背景', '决定', '备选与理由', '后果', '适用范围', '证据']);
 
-  const pitfallFields = extractNodeFields('PITFALL_READING_NODES');
-  // 覆盖两大核心段落集，防止详情标题漂移。
-  assert.ok(pitfallFields.length >= 8, 'Pitfall 阅读节点应覆盖核心经验字段');
+  // v5 Pitfall（23 §8）同构：正文固定 H2 七段（+条件证据）由
+  // PITFALL_BODY_SECTION_ORDER 分节呈现，frontmatter 兜底标题经 getFieldLabel 消费。
+  const pitfallSectionOrder = LAYOUT.match(/const PITFALL_BODY_SECTION_ORDER = \[([^\]]+)\]/);
+  assert.ok(pitfallSectionOrder, 'Pitfall 正文固定节序应可定位');
+  const pitfallTitles = (pitfallSectionOrder[1].match(/'([^']+)'/g) ?? []).map((token) => token.slice(1, -1));
+  assert.deepEqual(pitfallTitles, ['症状', '触发条件', '根因', '解决', '规避', '验证', '影响与适用范围', '证据']);
 
   // ADR 布局的 frontmatter 兜底标题必须经 getFieldLabel 消费且 locales 有登记。
   const adrLabelFields = ['decision_context', 'decision', 'alternatives', 'decision_consequences', 'scope', 'evidence', 'trigger_signal'];
@@ -51,12 +47,21 @@ test('ADR and Pitfall detail headings all resolve through locales.ts field label
     );
     assertFieldLocalized(field);
   }
-  for (const field of pitfallFields) assertFieldLocalized(field);
+  // Pitfall 布局的正文段/frontmatter 兜底标题必须经 getFieldLabel 消费且 locales 有登记。
+  const pitfallLabelFields = ['pitfall_symptoms', 'pitfall_triggers', 'root_cause', 'pitfall_resolution', 'avoidance', 'validation_summary', 'pitfall_scope_section', 'evidence', 'trigger_signal'];
+  for (const field of pitfallLabelFields) {
+    assert.ok(
+      LAYOUT.includes(`getFieldLabel('${field}', locale)`),
+      `Pitfall 布局必须经 getFieldLabel 消费 ${field}`,
+    );
+    assertFieldLocalized(field);
+  }
 });
 
 test('detail layouts consume field labels through the shared resolver, not hardcoded copy', () => {
-  // 标题统一经 getFieldLabel / getObjectStatusLocale 解析。
-  assert.match(LAYOUT, /title=\{getFieldLabel\(node\.field, locale\)\}/);
+  // 标题统一经 getFieldLabel / getObjectStatusLocale 解析；v5 布局不再有
+  // READING_NODES 数组（正文分节 + 直调兜底），断言语义为「标题经共享 resolver」。
+  assert.match(LAYOUT, /title=\{getFieldLabel\('[^']+', locale\)\}/);
   assert.match(LAYOUT, /getObjectStatusLocale\('spark'/);
   // 不允许详情布局内按语言就地拼写标题。
   assert.doesNotMatch(LAYOUT, /locale === 'en'/);
