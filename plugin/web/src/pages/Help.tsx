@@ -18,6 +18,7 @@ import {
   Repeat,
   Rocket,
   Search,
+  Sparkles,
   Target,
   Workflow,
   type LucideProps,
@@ -98,6 +99,14 @@ export default function Help() {
           })}
         </ol>
       </section>
+
+      {/* Spark 承载说明：对话中未能收敛的想法记录为 Spark，新对话可从某个 Spark 开始 */}
+      <div className="mt-4 flex items-start gap-3 rounded-lg border border-ldvh-border bg-ldvh-panel px-3.5 py-3">
+        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-ldvh-accent/25 bg-ldvh-accent/10 text-ldvh-accent">
+          <Sparkles size={14} aria-hidden="true" />
+        </span>
+        <p className="ldvh-body-muted">{t('help.sparkNote')}</p>
+      </div>
 
       {/* 循环提示：流程可迭代，执行中沉淀的 Spark 可再次进入调研与讨论 */}
       <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-ldvh-accent/25 bg-ldvh-accent/5 px-3.5 py-3">
