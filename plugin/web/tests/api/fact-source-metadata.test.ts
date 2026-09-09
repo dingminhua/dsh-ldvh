@@ -100,7 +100,7 @@ test('UID-native object ids open through the exact-read detail path', async () =
       [
         '---',
         `object_uid: ${objectUid}`,
-        'fact_type_key: spark-fact-type',
+        'fact_type_key: spark',
         'title: UID Spark',
         'status: open',
         'question: ULID 定位符能否走精确回读？',

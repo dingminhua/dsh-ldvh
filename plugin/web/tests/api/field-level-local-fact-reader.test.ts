@@ -147,8 +147,8 @@ test('Spark evolution members without a timestamp and forbidden Pitfall tags rem
   await mkdir(sparkDir, { recursive: true });
   await mkdir(pitfallDir, { recursive: true });
   try {
-    // v5 Spark 载体（20 §7）：.md + frontmatter + 正文；文件名编码 UID。
-    // 本夹具用短名 fact_type_key（24 号 research 先例）——读取层两种写法都收。
+    // v5 Spark 载体（20 §7）：.md + frontmatter + 正文；文件名编码 UID；
+    // fact_type_key 为类型短名（03 §6.1 值域，24 号 research 同形）。
     await writeFile(path.join(sparkDir, 'spark-3f2504e0-4f89-41d3-9a0c-0305e82c3301.md'), [
       '---',
       'object_uid: 3f2504e0-4f89-41d3-9a0c-0305e82c3301',
@@ -194,17 +194,59 @@ test('Spark evolution members without a timestamp and forbidden Pitfall tags rem
   }
 });
 
+test('fact_type_key values outside the registered short-name closure surface as identity_mismatch', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  const directory = path.join(root, 'ldvh-base', 'sparks');
+  await mkdir(directory, { recursive: true });
+  try {
+    // 03 §6.1（对齐后）：fact_type_key 值域为类型短名——spec_key 形态
+    // （`spark-fact-type`，规范文档层身份键）不作为字段值；写入它属于值域
+    // 漂移，读取层如实报 identity_mismatch（不静默归一），对象保持 readable
+    // 供 Human 在字段问题面核对原文。
+    await writeFile(path.join(directory, 'spark-7c4d5e6f-8a9b-4c0d-9e1f-2b3c4d5e6f7a.md'), [
+      '---',
+      'object_uid: 7c4d5e6f-8a9b-4c0d-9e1f-2b3c4d5e6f7a',
+      'fact_type_key: spark-fact-type',
+      'title: Out-of-closure value',
+      'status: open',
+      'created_at: "2026-01-01"',
+      'question: 值域外的 fact_type_key 是否被如实暴露？',
+      'scope_boundary: 只验证身份校验。',
+      'intent: 锁定对齐后的值域。',
+      'summary: Closure guard fixture.',
+      '---',
+      '',
+      '# Out-of-closure value',
+    ].join('\n'), 'utf8');
+
+    const detail = await readLocalFact('spark', 'spark-7c4d5e6f-8a9b-4c0d-9e1f-2b3c4d5e6f7a', scope);
+    assert.equal(detail.status, 'ok');
+    if (detail.status === 'ok') {
+      assert.equal(detail.item.read_status, 'readable');
+      assert.ok(detail.item.field_issues.some((issue) => (
+        issue.path === 'fact_type_key'
+        && issue.reason === 'identity_mismatch'
+        && issue.expected === 'spark'
+        && issue.raw_value === 'spark-fact-type'
+      )));
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('change_log accepts the current three-field signature shape without retired session_id', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
   const directory = path.join(root, 'ldvh-base', 'sparks');
   await mkdir(directory, { recursive: true });
   try {
-    // 规范键形式 fact_type_key（20 §8：spark-fact-type）——与短名写法并存收。
+    // v5 Spark 载体（20 §7）：fact_type_key 为类型短名（03 §6.1 值域）。
     await writeFile(path.join(directory, 'spark-0d5c3e2a-7b1f-4c8e-8f2a-9d4b6e8a1c3d.md'), [
       '---',
       'object_uid: 0d5c3e2a-7b1f-4c8e-8f2a-9d4b6e8a1c3d',
-      'fact_type_key: spark-fact-type',
+      'fact_type_key: spark',
       'title: Current signature',
       'status: open',
       'created_at: "2026-01-01"',
@@ -224,7 +266,7 @@ test('change_log accepts the current three-field signature shape without retired
     assert.equal(detail.status, 'ok');
     if (detail.status === 'ok') {
       assert.equal(detail.item.read_status, 'readable');
-      assert.equal(detail.item.fact_object?.fact_type_key, 'spark-fact-type');
+      assert.equal(detail.item.fact_object?.fact_type_key, 'spark');
       assert.equal((detail.item.fact_object?.change_log as unknown[])?.length, 1);
       assert.deepEqual(detail.item.unparsed_structures, []);
     }
@@ -242,7 +284,7 @@ test('change_log accepts the canonical and legacy signature shapes', async () =>
     await writeFile(path.join(directory, 'spark-6a1b2c3d-4e5f-4a6b-9c8d-7e6f5a4b3c2d.md'), [
       '---',
       'object_uid: 6a1b2c3d-4e5f-4a6b-9c8d-7e6f5a4b3c2d',
-      'fact_type_key: spark-fact-type',
+      'fact_type_key: spark',
       'title: Signature compatibility',
       'status: open',
       'created_at: "2026-01-01T00:00:00+08:00"',

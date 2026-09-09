@@ -100,7 +100,7 @@ Spark 是悬置层的事实类型：承载「尚未形成确定承接位置」�
 
 | 项 | 定案 |
 |---|---|
-| `fact_type_key` | `spark-fact-type`（唯一类型定义来源即本规范） |
+| `fact_type_key` | `spark`（类型短名，与 24 号 `research` 同形；回指由本表登记声明建立——本规范 spec_key `spark-fact-type` 是规范文档层身份键，不作为字段值，03 §6.1） |
 | 载体 | 平铺单文件：YAML frontmatter（机器权威）+ markdown 正文；`ldvh-base/sparks/spark-<uid>.md` |
 | 权威位置 | `ldvh-base/sparks/`；目录基数校验，文件名编码 UID |
 | 公共字段 | `object_uid`（UUIDv4）、`fact_type_key`、`title`、`status`、`created_at`、`change_log`（首修后必有） |
@@ -113,7 +113,7 @@ frontmatter 闭集：
 
 | 字段 | 类型 | 必填性 | 语义 | 约束 |
 |---|---|---|---|---|
-| `fact_type_key` | string | 必填 | `spark-fact-type` | 唯一合法值 |
+| `fact_type_key` | string | 必填 | `spark` | 唯一合法值（类型短名，03 §6.1 值域） |
 | `object_uid` | UUIDv4 | 必填 | Code 生成 | 创建时落定，永不改变 |
 | `title` | string | 必填 | 问题标题 | ≤ 30 字；供候选定位与 Human 扫读 |
 | `question` | string | 必填 | 持续待答的问题 | 单句；不可判定；悬置语义 |

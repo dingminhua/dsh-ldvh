@@ -87,10 +87,9 @@ function normalizeItem(value: unknown): ListedObject | null {
   const v4Object = typeof value.object_id === 'string' && typeof value.fact_type_key === 'string'
   const id = toStringValue(value.object_id) || toStringValue(value.id)
   if (!id) return null
-  // fact_type_key 载体值归一：规范键形式（20 §8 spark-fact-type）映射到短类型名，
-  // 保证类型路由/配色/过滤在两种写法下一致（规范族写法待对齐，原值见 yaml_source）。
-  const rawType = toStringValue(value.fact_type_key) || toStringValue(value.type)
-  const type = rawType.replace(/-fact-type$/, '')
+  // 03 §6.1：fact_type_key 载体值为类型短名（各类型规范登记的值域）——直接
+  // 透传，无归一化；非短名形态由读取层报 identity_mismatch，路由层不再兜底。
+  const type = toStringValue(value.fact_type_key) || toStringValue(value.type)
   const status = toStringValue(value.status)
   const progressProjection = type === 'workcase' && isResolvedWorkCasePresentationProjection(value.current_snapshot_projection)
     ? value.current_snapshot_projection

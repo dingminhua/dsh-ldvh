@@ -284,11 +284,11 @@ function projectFields(type: LocalFactType, objectId: string, parsed: Record<str
   if (typeof all.object_id === 'string' && all.object_id !== objectId) {
     fieldIssues.push({ path: 'object_id', reason: 'identity_mismatch', expected: objectId, raw_value: all.object_id })
   }
-  // fact_type_key 载体值：短名（24 号 research 先例，现有 research 对象同款）与
-  // 规范键形式（20 §8：spark-fact-type）并收——规范族对该值的写法尚未对齐
-  // （24 vs 20/25，待 Human 裁定），Web 读取层两者都不误报；严格合法性判定
-  // 属 Core/Git Gate。展示层经 normalizeFactTypeKey 归一为短名。
-  if (typeof all.fact_type_key === 'string' && all.fact_type_key !== type && all.fact_type_key !== `${type}-fact-type`) {
+  // 03 §6.1：fact_type_key 载体值为类型短名（各类型规范「身份与载体」登记的
+  // 值域；spec_key 是规范文档层标识，不作为字段值）。严格闭集校验——出现
+  // 其它形态（含 spec_key 形态的 `<type>-fact-type`）如实报告 identity_mismatch，
+  // 不静默归一，防止规范族值域漂移被展示层吞掉。
+  if (typeof all.fact_type_key === 'string' && all.fact_type_key !== type) {
     fieldIssues.push({ path: 'fact_type_key', reason: 'identity_mismatch', expected: type, raw_value: all.fact_type_key })
   }
   // 03 §6.1：object_uid 为 canonical UUIDv4（版本位 4）。时间语义由 created_at 与

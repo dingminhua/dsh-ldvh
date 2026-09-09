@@ -119,13 +119,8 @@ function factAssociationTargetKey(target: FactAssociationTarget): string {
   return `${target.governedProjectId}\u0000${target.factTypeKey}\u0000${target.objectId}`
 }
 
-/** 规范族对 frontmatter `fact_type_key` 的载体值尚未对齐（24 号 research 用短名
- *  `research`，20 号 spark 声明 `spark-fact-type`）——展示层归一化：剥离
- *  `-fact-type` 后缀映射到短类型名，使类型路由/配色/关联解析在两种写法下一致。
- *  原值仍由 yaml_source 逐字保留；严格合法性判定属 Core/Git Gate，不在 Web 层。 */
-function normalizeFactTypeKey(value: string): string {
-  return value.replace(/-fact-type$/, '')
-}
+// 03 §6.1：fact_type_key 载体值为类型短名（各类型规范登记的值域），关联目标
+// 与路由直接按短名比较——无归一化层；spec_key 形态的值由读取层报 identity_mismatch。
 
 function projectFactAssociationTarget(value: unknown): FactAssociationTarget | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -141,7 +136,7 @@ function projectFactAssociationTarget(value: unknown): FactAssociationTarget | n
     || typeof target.object_id !== 'string' || !target.object_id.trim()) return null
   return {
     governedProjectId: target.governed_project_id,
-    factTypeKey: normalizeFactTypeKey(target.fact_type_key),
+    factTypeKey: target.fact_type_key,
     objectId: target.object_id,
   }
 }
@@ -310,7 +305,7 @@ function projectRelationTarget(value: unknown, uidTargets?: FactUidTargetIndex):
   if (typeof target.governed_project_id !== 'string' || !target.governed_project_id.trim()
     || typeof target.fact_type_key !== 'string' || !target.fact_type_key.trim()
     || typeof target.object_id !== 'string' || !target.object_id.trim()) return null
-  return { governedProjectId: target.governed_project_id, factTypeKey: normalizeFactTypeKey(target.fact_type_key), objectId: target.object_id }
+  return { governedProjectId: target.governed_project_id, factTypeKey: target.fact_type_key, objectId: target.object_id }
 }
 
 function projectProposalRouteTarget(value: unknown, uidTargets?: FactUidTargetIndex): Record<string, string> | null {
