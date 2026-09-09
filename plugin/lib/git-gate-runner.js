@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { validateMessage, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding } from "./commit-validation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -34,9 +34,13 @@ async function main(argv) {
   const message = await readFile(messageFile, "utf8");
   const issues = validateMessage(message);
   const diff = await git(root, ["diff", "--cached", "--binary", "--no-ext-diff"], indexFile);
-  if (diff.length === 0) issues.push("git/index_empty: candidate Index is empty");
+  if (diff.length === 0) issues.push(newFinding("git/index_empty", "candidate Index is empty"));
+  const correspondence = checkKeyChangesAgainstDiff(message, diff);
+  if (!correspondence.ok) issues.push(...correspondence.issues);
   if (issues.length > 0) {
-    process.stderr.write("LDVH Git Gate (commit-msg) failed:\n" + issues.map((issue) => `- ${issue}`).join("\n") + "\n");
+    // Structured findings (K1): human-readable stderr keeps the rule ID so the
+    // failing check is referenceable; line stays null for diff-level findings.
+    process.stderr.write("LDVH Git Gate (commit-msg) failed:\n" + issues.map((issue) => `- ${issue.rule}: ${issue.message}`).join("\n") + "\n");
     return 1;
   }
   const snapshot = snapshotIdentity(diff, message);

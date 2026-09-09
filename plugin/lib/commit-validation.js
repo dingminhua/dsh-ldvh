@@ -38,24 +38,61 @@ export const HEADER_PATTERN = /^(feat|fix|docs|refactor|test|chore|build|ci|perf
 export const SIGNATURES = ["LDVH-Provider", "LDVH-Model"];
 export const SOURCE_FINGERPRINT = createHash("sha256").update("dsh-ldvh-git-gate-v1", "utf8").digest("hex");
 
+// ---------------------------------------------------------------------------
+// K1 rule registry — the single authority for every mechanical finding the
+// validator can emit (anchor doc §8.1 K1: stable rule IDs so findings are
+// referenceable {rule, severity, line}). Emitting an unregistered rule throws
+// (fail-loud registry discipline); adding a rule means adding it here first.
+// ---------------------------------------------------------------------------
+
+export const GATE_RULES = Object.freeze({
+  "validation/header_invalid": Object.freeze({ severity: "blocking", description: "first line must be a conventional commit header" }),
+  "validation/key_changes_required": Object.freeze({ severity: "blocking", description: "body must contain exactly one 关键变更: section with non-empty items" }),
+  "validation/signature_trailer_missing": Object.freeze({ severity: "blocking", description: "footer requires exactly one LDVH-Provider: and one LDVH-Model: line" }),
+  "validation/key_change_unmatched": Object.freeze({ severity: "blocking", description: "a 关键变更 item names no staged change (06 §6.1: no items absent from the diff)" }),
+  "validation/staged_path_uncovered": Object.freeze({ severity: "blocking", description: "a staged diff path is covered by no 关键变更 item (06 §6.1: no diff change may be omitted; K1 bidirectional, Human 2026-09-10)" }),
+  "validation/signature_provider_mismatch": Object.freeze({ severity: "blocking", description: "trailer LDVH-Provider does not match the authoritative session record" }),
+  "validation/signature_model_mismatch": Object.freeze({ severity: "blocking", description: "trailer LDVH-Model does not match the authoritative session record" }),
+  "git/index_empty": Object.freeze({ severity: "blocking", description: "candidate Index is empty" })
+});
+
+/** Mechanical-artifact exemption for the bidirectional coverage check
+ *  (06 §6.2 item 3 reverse half): basenames listed here are generated
+ *  artifacts that a 关键变更 item is not expected to name. First batch:
+ *  package-lock.json (Human 2026-09-10). Extending this list is an
+ *  implementation-registry change; the exemption CATEGORY is spec-level. */
+export const EXEMPT_BASENAMES = Object.freeze(["package-lock.json", "pnpm-lock.yaml"]);
+
+export function isExemptPath(path) {
+  const base = path.split("/").pop() ?? path;
+  return EXEMPT_BASENAMES.includes(base);
+}
+
+/** Build one structured finding; `rule` must be registered. */
+export function newFinding(rule, message, line = null) {
+  const entry = GATE_RULES[rule];
+  if (entry === undefined) throw new Error(`unregistered gate rule: ${rule}`);
+  return { rule, severity: entry.severity, message, line };
+}
+
 /**
  * Validate a commit message against the v5 contract (06 §6.1, transition
  * header format per decision #15): conventional header, exactly one
  * `关键变更:` section with at least one non-empty `- ` item, and exactly one
- * non-empty trailer line for each signature. Returns a list of stable issue
- * codes with messages (empty = valid).
+ * non-empty trailer line for each signature. Returns structured findings
+ * {rule, severity, message, line} (empty = valid).
  */
 export function validateMessage(message) {
   const issues = [];
   const lines = message.replace(/\r\n/g, "\n").split("\n");
-  if (!HEADER_PATTERN.test(lines[0] ?? "")) issues.push("validation/header_invalid: first line must be a conventional commit header");
+  if (!HEADER_PATTERN.test(lines[0] ?? "")) issues.push(newFinding("validation/header_invalid", "first line must be a conventional commit header", 1));
   const keyIndexes = lines.flatMap((line, index) => (line === "关键变更:" ? [index] : []));
   if (keyIndexes.length !== 1 || !lines.slice(keyIndexes[0] + 1).some((line) => line.startsWith("- ") && line.slice(2).trim().length > 0)) {
-    issues.push("validation/key_changes_required: body must contain one 关键变更: section with a non-empty - item");
+    issues.push(newFinding("validation/key_changes_required", "body must contain one 关键变更: section with a non-empty - item", keyIndexes.length === 1 ? keyIndexes[0] + 1 : null));
   }
   for (const name of SIGNATURES) {
     const matches = lines.filter((line) => line.startsWith(`${name}:`) && line.slice(name.length + 1).trim().length > 0);
-    if (matches.length !== 1) issues.push(`validation/signature_trailer_missing: footer requires exactly one ${name}:`);
+    if (matches.length !== 1) issues.push(newFinding("validation/signature_trailer_missing", `footer requires exactly one ${name}:`, null));
   }
   return issues;
 }
@@ -66,34 +103,44 @@ export function snapshotIdentity(diff, message) {
 }
 
 /**
- * Check that each `关键变更:` `- ` item corresponds to the staged diff
- * (06 §6.2 item 3, mechanically decidable part): every non-empty item must
- * be matchable against the diff's changed paths or hunks, the list must not
- * be empty, and there must be no item naming a change absent from the diff.
- * The correspondence is content-level, not word-level: an item "matches"
- * when the diff touches the artifact the item names (path or clearly
- * identifiable subject). Items that cannot be mechanically matched are
- * reported as unverifiable — never silently accepted.
+ * Check the `关键变更:` items against the staged diff, BOTH directions
+ * (06 §6.1: "每个 - 列表项必须与本次提交的 diff 逐条对应——不得列出 diff
+ * 中不存在的变更项，也不得遗漏 diff 中实际存在的变更项").
+ *
+ * Forward: every non-empty item must match a changed path (the v5-built
+ * half — items naming absent changes are rejected).
+ * Reverse (K1 bidirectional, Human 2026-09-10): every non-exempt changed
+ * path must be covered by at least one item. This is the tripwire that turns
+ * silent staged-content pollution (e.g. a parallel session's `git add`
+ * landing in a shared Index) into a loud rejection. The correspondence is
+ * the same deliberately loose mechanical slice as the forward direction
+ * (itemMatchesPath below); known limitation: a same-directory pollution
+ * where some item happens to contain a shared directory word (e.g.
+ * "plugin") is not caught — the mechanically decidable slice accepts
+ * diffstat-style area naming.
  */
 export function checkKeyChangesAgainstDiff(message, diff) {
   const lines = message.replace(/\r\n/g, "\n").split("\n");
   const keyIndex = lines.findIndex((line) => line === "关键变更:");
-  if (keyIndex === -1) return { ok: false, issues: ["validation/key_changes_required: no 关键变更: section"] };
+  if (keyIndex === -1) return { ok: false, issues: [newFinding("validation/key_changes_required", "no 关键变更: section", null)] };
   const items = [];
-  for (const line of lines.slice(keyIndex + 1)) {
+  for (const [offset, line] of lines.slice(keyIndex + 1).entries()) {
     if (line === "关键变更:") { items.length = 0; break; } // second section: caught by validateMessage
     if (line.startsWith("- ")) {
       const text = line.slice(2).trim();
-      if (text.length > 0) items.push(text);
+      if (text.length > 0) items.push({ text, line: keyIndex + 1 + offset });
     }
   }
-  if (items.length === 0) return { ok: false, issues: ["validation/key_changes_required: 关键变更: has no non-empty item"] };
+  if (items.length === 0) return { ok: false, issues: [newFinding("validation/key_changes_required", "关键变更: has no non-empty item", keyIndex + 1)] };
   const changedPaths = extractDiffPaths(diff);
   const unmatched = [];
   for (const item of items) {
-    if (!changedPaths.some((path) => itemMatchesPath(item, path))) unmatched.push(item);
+    if (!changedPaths.some((path) => itemMatchesPath(item.text, path))) unmatched.push(item);
   }
-  if (unmatched.length > 0) return { ok: false, issues: unmatched.map((item) => `validation/key_change_unmatched: no staged change corresponds to "${item}"`) };
+  if (unmatched.length > 0) return { ok: false, issues: unmatched.map((item) => newFinding("validation/key_change_unmatched", `no staged change corresponds to "${item.text}"`, item.line)) };
+  // Reverse half: every non-exempt staged path must be covered by some item.
+  const uncovered = changedPaths.filter((path) => !isExemptPath(path) && !items.some((item) => itemMatchesPath(item.text, path)));
+  if (uncovered.length > 0) return { ok: false, issues: uncovered.map((path) => newFinding("validation/staged_path_uncovered", `staged path "${path}" is not covered by any 关键变更 item`, null)) };
   return { ok: true, changedPaths };
 }
 

@@ -23,7 +23,7 @@ export const VALID_COMMIT_MESSAGE = [
 	"chore(code): add ldvh gate",
 	"",
 	"关键变更:",
-	"- wire commit-msg gate into git",
+	"- seed README.md test carrier",
 	"",
 	"LDVH-Provider: deepseek-harness",
 	"LDVH-Model: test",

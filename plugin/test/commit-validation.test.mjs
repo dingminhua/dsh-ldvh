@@ -13,6 +13,10 @@ import {
 	checkKeyChangesAgainstDiff,
 	snapshotIdentity,
 	validateMessage,
+	GATE_RULES,
+	newFinding,
+	isExemptPath,
+	EXEMPT_BASENAMES,
 } from "../lib/commit-validation.js";
 
 /** A canonical, fully-legal commit message. */
@@ -70,19 +74,19 @@ test("validateMessage accepts the transition-period scoped header (e.g. chore(co
 test("validateMessage rejects a missing header", () => {
 	const msg = ["关键变更:", "- x", "", "LDVH-Provider: a", "LDVH-Model: b"].join("\n");
 	const issues = validateMessage(msg);
-	assert.ok(issues.some((i) => i.startsWith("validation/header_invalid")));
+	assert.ok(issues.some((i) => i.rule.startsWith("validation/header_invalid")));
 });
 
 test("validateMessage rejects a non-conventional header", () => {
 	const msg = ["Bug fix on Tuesday", "", "关键变更:", "- x", "", "LDVH-Provider: a", "LDVH-Model: b"].join("\n");
 	const issues = validateMessage(msg);
-	assert.ok(issues.some((i) => i.startsWith("validation/header_invalid")));
+	assert.ok(issues.some((i) => i.rule.startsWith("validation/header_invalid")));
 });
 
 test("validateMessage rejects an unknown header type", () => {
 	const msg = ["quantum: add gate", "", "关键变更:", "- x", "", "LDVH-Provider: a", "LDVH-Model: b"].join("\n");
 	const issues = validateMessage(msg);
-	assert.ok(issues.some((i) => i.startsWith("validation/header_invalid")));
+	assert.ok(issues.some((i) => i.rule.startsWith("validation/header_invalid")));
 });
 
 // ---------------------------------------------------------------------------
@@ -92,19 +96,19 @@ test("validateMessage rejects an unknown header type", () => {
 test("validateMessage rejects a missing 关键变更: section", () => {
 	const msg = ["chore: add gate", "", "free-form body", "", "LDVH-Provider: a", "LDVH-Model: b"].join("\n");
 	const issues = validateMessage(msg);
-	assert.ok(issues.some((i) => i.startsWith("validation/key_changes_required")));
+	assert.ok(issues.some((i) => i.rule.startsWith("validation/key_changes_required")));
 });
 
 test("validateMessage rejects a 关键变更: section with no non-empty - items", () => {
 	const msg = ["chore: add gate", "", "关键变更:", "  -", "", "LDVH-Provider: a", "LDVH-Model: b"].join("\n");
 	const issues = validateMessage(msg);
-	assert.ok(issues.some((i) => i.startsWith("validation/key_changes_required")));
+	assert.ok(issues.some((i) => i.rule.startsWith("validation/key_changes_required")));
 });
 
 test("validateMessage rejects multiple 关键变更: sections", () => {
 	const msg = ["chore: add gate", "", "关键变更:", "- one", "", "关键变更:", "- two", "", "LDVH-Provider: a", "LDVH-Model: b"].join("\n");
 	const issues = validateMessage(msg);
-	assert.ok(issues.some((i) => i.startsWith("validation/key_changes_required")));
+	assert.ok(issues.some((i) => i.rule.startsWith("validation/key_changes_required")));
 });
 
 // ---------------------------------------------------------------------------
@@ -114,25 +118,25 @@ test("validateMessage rejects multiple 关键变更: sections", () => {
 test("validateMessage rejects a message missing LDVH-Provider", () => {
 	const msg = ["chore: add gate", "", "关键变更:", "- x", "", "LDVH-Model: test"].join("\n");
 	const issues = validateMessage(msg);
-	assert.ok(issues.some((i) => i.includes("LDVH-Provider")));
+	assert.ok(issues.some((i) => i.message.includes("LDVH-Provider")));
 });
 
 test("validateMessage rejects a message missing LDVH-Model", () => {
 	const msg = ["chore: add gate", "", "关键变更:", "- x", "", "LDVH-Provider: deepseek-harness"].join("\n");
 	const issues = validateMessage(msg);
-	assert.ok(issues.some((i) => i.includes("LDVH-Model")));
+	assert.ok(issues.some((i) => i.message.includes("LDVH-Model")));
 });
 
 test("validateMessage rejects a duplicate LDVH-Provider trailer", () => {
 	const msg = ["chore: add gate", "", "关键变更:", "- x", "", "LDVH-Provider: a", "LDVH-Provider: b", "LDVH-Model: m"].join("\n");
 	const issues = validateMessage(msg);
-	assert.ok(issues.some((i) => i.includes("LDVH-Provider")));
+	assert.ok(issues.some((i) => i.message.includes("LDVH-Provider")));
 });
 
 test("validateMessage rejects an empty LDVH-Provider trailer", () => {
 	const msg = ["chore: add gate", "", "关键变更:", "- x", "", "LDVH-Provider: ", "LDVH-Model: m"].join("\n");
 	const issues = validateMessage(msg);
-	assert.ok(issues.some((i) => i.includes("LDVH-Provider")));
+	assert.ok(issues.some((i) => i.message.includes("LDVH-Provider")));
 });
 
 // ---------------------------------------------------------------------------
@@ -217,14 +221,14 @@ test("checkKeyChangesAgainstDiff returns ok:false when the 关键变更: section
 	const msg = ["chore: no items", "", "free body", "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
 	const result = checkKeyChangesAgainstDiff(msg, "");
 	assert.equal(result.ok, false);
-	assert.ok(result.issues.some((i) => i.includes("no 关键变更:")));
+	assert.ok(result.issues.some((i) => i.message.includes("no 关键变更:")));
 });
 
 test("checkKeyChangesAgainstDiff returns ok:false when the 关键变更: section has no items", () => {
 	const msg = ["chore: no items", "", "关键变更:", "  -", "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
 	const result = checkKeyChangesAgainstDiff(msg, "");
 	assert.equal(result.ok, false);
-	assert.ok(result.issues.some((i) => i.includes("no non-empty item")));
+	assert.ok(result.issues.some((i) => i.message.includes("no non-empty item")));
 });
 
 test("checkKeyChangesAgainstDiff returns key_change_unmatched for an item naming a change absent from the diff", () => {
@@ -232,7 +236,7 @@ test("checkKeyChangesAgainstDiff returns key_change_unmatched for an item naming
 	const msg = ["chore: rename", "", "关键变更:", "- rename bar.js to baz.js", "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
 	const result = checkKeyChangesAgainstDiff(msg, diff);
 	assert.equal(result.ok, false);
-	assert.ok(result.issues.some((i) => i.startsWith("validation/key_change_unmatched") && i.includes("bar.js")));
+	assert.ok(result.issues.some((i) => i.rule.startsWith("validation/key_change_unmatched") && i.message.includes("bar.js")));
 });
 
 test("checkKeyChangesAgainstDiff accepts a diff with no diff lines (no path-level claim)", () => {
@@ -243,7 +247,7 @@ test("checkKeyChangesAgainstDiff accepts a diff with no diff lines (no path-leve
 	const msg = ["chore: x", "", "关键变更:", "- describe anything", "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
 	const result = checkKeyChangesAgainstDiff(msg, "");
 	assert.equal(result.ok, false);
-	assert.ok(result.issues.some((i) => i.startsWith("validation/key_change_unmatched")));
+	assert.ok(result.issues.some((i) => i.rule.startsWith("validation/key_change_unmatched")));
 });
 
 test("checkKeyChangesAgainstDiff handles a second 关键变更: section by zeroing items (re-collected by validateMessage upstream)", () => {
@@ -272,4 +276,145 @@ test("SIGNATURES is the canonical two-element list", () => {
 
 test("SOURCE_FINGERPRINT is a 64-hex string and stable", () => {
 	assert.match(SOURCE_FINGERPRINT, /^[0-9a-f]{64}$/);
+});
+
+
+// ---------------------------------------------------------------------------
+// K1 rule registry + structured findings
+// ---------------------------------------------------------------------------
+
+test("GATE_RULES registers every rule the validator emits, each with severity and description", () => {
+	const expected = [
+		"validation/header_invalid",
+		"validation/key_changes_required",
+		"validation/signature_trailer_missing",
+		"validation/key_change_unmatched",
+		"validation/staged_path_uncovered",
+		"validation/signature_provider_mismatch",
+		"validation/signature_model_mismatch",
+		"git/index_empty",
+	];
+	assert.deepEqual(Object.keys(GATE_RULES).sort(), expected.sort());
+	for (const entry of Object.values(GATE_RULES)) {
+		assert.equal(typeof entry.severity, "string");
+		assert.equal(typeof entry.description, "string");
+		assert.ok(entry.description.length > 0);
+	}
+});
+
+test("newFinding builds a structured finding for a registered rule and throws for an unknown one", () => {
+	const finding = newFinding("validation/header_invalid", "first line must be a conventional commit header", 1);
+	assert.equal(finding.rule, "validation/header_invalid");
+	assert.equal(finding.severity, "blocking");
+	assert.equal(finding.line, 1);
+	assert.equal(finding.message, "first line must be a conventional commit header");
+	assert.throws(() => newFinding("validation/not_a_rule", "x"), /unregistered gate rule/);
+});
+
+test("validateMessage returns structured findings with rule/severity/message fields", () => {
+	const issues = validateMessage("not a header\n\n关键变更:\n- x\n\nLDVH-Provider: a\n");
+	assert.ok(issues.length > 0);
+	for (const issue of issues) {
+		assert.ok(typeof issue === "object" && issue !== null);
+		assert.ok(GATE_RULES[issue.rule] !== undefined, `unregistered rule emitted: ${issue.rule}`);
+		assert.equal(issue.severity, GATE_RULES[issue.rule].severity);
+		assert.ok(typeof issue.message === "string");
+	}
+});
+
+// ---------------------------------------------------------------------------
+// Bidirectional coverage (06 §6.1 不得遗漏 half; K1, Human 2026-09-10)
+// ---------------------------------------------------------------------------
+
+test("checkKeyChangesAgainstDiff rejects a staged path covered by no item (bidirectional)", () => {
+	const diff = [
+		"diff --git a/specs/08-x.md b/specs/08-x.md",
+		"diff --git a/plugin/lib/research-session.js b/plugin/lib/research-session.js",
+		"",
+	].join("\n");
+	const msg = [
+		"chore: only specs",
+		"",
+		"关键变更:",
+		"- specs/08 回填",
+		"",
+		"LDVH-Provider: a",
+		"LDVH-Model: m",
+	].join("\n");
+	const result = checkKeyChangesAgainstDiff(msg, diff);
+	assert.equal(result.ok, false);
+	const uncovered = result.issues.find((i) => i.rule === "validation/staged_path_uncovered");
+	assert.ok(uncovered !== undefined);
+	assert.ok(uncovered.message.includes("research-session.js"));
+});
+
+test("checkKeyChangesAgainstDiff passes when items cover every staged path (grouping via directory word)", () => {
+	const diff = [
+		"diff --git a/plugin/lib/spark-tools.js b/plugin/lib/spark-tools.js",
+		"diff --git a/plugin/lib/spark-writer.js b/plugin/lib/spark-writer.js",
+		"",
+	].join("\n");
+	const msg = [
+		"feat(spark): 机械层",
+		"",
+		"关键变更:",
+		"- plugin/lib Spark 机械层（spark-tools 接线与 spark-writer 写入）",
+		"",
+		"LDVH-Provider: a",
+		"LDVH-Model: m",
+	].join("\n");
+	const result = checkKeyChangesAgainstDiff(msg, diff);
+	assert.equal(result.ok, true);
+	assert.deepEqual(result.changedPaths.sort(), ["plugin/lib/spark-tools.js", "plugin/lib/spark-writer.js"].sort());
+});
+
+test("checkKeyChangesAgainstDiff exempts registered mechanical artifacts from the reverse half", () => {
+	const diff = [
+		"diff --git a/plugin/package.json b/plugin/package.json",
+		"diff --git a/plugin/package-lock.json b/plugin/package-lock.json",
+		"",
+	].join("\n");
+	const msg = [
+		"chore(deps): bump",
+		"",
+		"关键变更:",
+		"- package.json 新增依赖",
+		"",
+		"LDVH-Provider: a",
+		"LDVH-Model: m",
+	].join("\n");
+	const result = checkKeyChangesAgainstDiff(msg, diff);
+	assert.equal(result.ok, true);
+});
+
+test("checkKeyChangesAgainstDiff reverse half distinguishes precise-path coverage from area-word coverage", () => {
+	// The uncovered path plugin/lib/research-session.js shares no segment
+	// with the item; the covered path matches via the full explicit path
+	// text inside the item (not via a bare directory word).
+	const diff = [
+		"diff --git a/specs/08-x.md b/specs/08-x.md",
+		"diff --git a/plugin/lib/research-session.js b/plugin/lib/research-session.js",
+		"",
+	].join("\n");
+	const msg = [
+		"chore: only specs",
+		"",
+		"关键变更:",
+		"- specs/08-x.md 回填",
+		"",
+		"LDVH-Provider: a",
+		"LDVH-Model: m",
+	].join("\n");
+	const result = checkKeyChangesAgainstDiff(msg, diff);
+	assert.equal(result.ok, false);
+	assert.ok(result.issues.some((i) => i.rule === "validation/staged_path_uncovered" && i.message.includes("research-session.js")));
+});
+
+test("isExemptPath matches the registered basenames only", () => {
+	assert.equal(isExemptPath("plugin/package-lock.json"), true);
+	assert.equal(isExemptPath("package-lock.json"), true);
+	assert.equal(isExemptPath("src/package-lock.json"), true);
+	assert.equal(isExemptPath("plugin/package.json"), false);
+	assert.equal(isExemptPath("plugin/web/pnpm-lock.yaml"), true);
+	assert.deepEqual([...EXEMPT_BASENAMES], ["package-lock.json", "pnpm-lock.yaml"]);
 });

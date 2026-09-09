@@ -20,18 +20,12 @@ import { promisify } from "node:util";
 import { parseSpecDocument, extractHeadings, resolveHeadingPath, contentFingerprint, projectLayer } from "./spec-registry.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { currentRouteValues } from "./session-signature.js";
-import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding } from "./commit-validation.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
 import { registerResearchTools } from "./research-tools.js";
 import { registerSparkTools } from "./spark-tools.js";
 
 const execFileAsync = promisify(execFile);
-
-/** Shared Git invocation with the same cleaned environment as the gate. */
-async function git(worktree, args) {
-  const result = await execFileAsync("git", ["-C", worktree, ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024, env: cleanGitEnvironment() });
-  return result.stdout;
-}
 
 const OPERATIONS = {
   "resolve-governance-scope": {
@@ -75,7 +69,6 @@ function sources(entry) {
 
 /** Scan the specs/ tree of a governed project root for candidate carriers. */
 async function scanSpecCandidates(projectRoot) {
-  const results = [];
   const specsRoot = join(projectRoot, "specs");
   let entries;
   try {
@@ -120,7 +113,7 @@ async function scanSpecCandidates(projectRoot) {
 }
 
 function makeExecute(deps) {
-  const { dshHomePath, workspaceRoot } = deps;
+  const { dshHomePath } = deps;
 
   async function executeResolveGovernanceScope(args, exec) {
     const cwd = exec?.agent?.session?.header?.cwd;
@@ -334,7 +327,7 @@ function makeExecute(deps) {
     // Staged diff over the governed project root.
     let diff;
     try {
-      const result = await execFileAsync("git", ["-C", governed.project.path, "diff", "--cached", "--binary", "--no-ext-diff"], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+      const result = await execFileAsync("git", ["-C", governed.project.path, "diff", "--cached", "--binary", "--no-ext-diff"], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024, env: cleanGitEnvironment() });
       diff = result.stdout;
     } catch (error) {
       return envelope("precheck-git-commit", "unavailable", {
@@ -347,7 +340,7 @@ function makeExecute(deps) {
       });
     }
     const issues = [...validateMessage(message)];
-    if (diff.length === 0) issues.push("git/index_empty: candidate Index is empty");
+    if (diff.length === 0) issues.push(newFinding("git/index_empty", "candidate Index is empty"));
     const correspondence = checkKeyChangesAgainstDiff(message, diff);
     if (!correspondence.ok) issues.push(...correspondence.issues);
     // Signature values must trace back to the authoritative session record.
@@ -365,9 +358,9 @@ function makeExecute(deps) {
     //   unverifiable  — no positive failure, but the signature values cannot
     //                   be traced (routing source unavailable): the check is
     //                   incomplete, not failed.
-    const structuralTrailerOk = message.includes("LDVH-Provider:") && message.includes("LDVH-Model:") && validateMessage(message).every((issue) => !issue.startsWith("validation/signature_trailer_missing"));
+    const structuralTrailerOk = message.includes("LDVH-Provider:") && message.includes("LDVH-Model:") && validateMessage(message).every((issue) => issue.rule !== "validation/signature_trailer_missing");
     const hasValueMismatch = signatureCheck.issues.length > 0;
-    const hasNonSignatureFailure = issues.some((issue) => !issue.startsWith("validation/signature_"));
+    const hasNonSignatureFailure = issues.some((issue) => !issue.rule.startsWith("validation/signature_"));
     let mechanicalOutcome;
     if (hasNonSignatureFailure || !structuralTrailerOk || hasValueMismatch) mechanicalOutcome = "failed";
     else if (!route.ok) mechanicalOutcome = "unverifiable";
@@ -402,10 +395,10 @@ function makeExecute(deps) {
     }
     const issues = [];
     if (providerLine !== undefined && providerLine.slice("LDVH-Provider:".length).trim() !== route.value.provider) {
-      issues.push(`validation/signature_provider_mismatch: trailer LDVH-Provider does not match the authoritative session record (${route.value.provider})`);
+      issues.push(newFinding("validation/signature_provider_mismatch", `trailer LDVH-Provider does not match the authoritative session record (${route.value.provider})`));
     }
     if (modelLine !== undefined && modelLine.slice("LDVH-Model:".length).trim() !== route.value.model) {
-      issues.push(`validation/signature_model_mismatch: trailer LDVH-Model does not match the authoritative session record (${route.value.model})`);
+      issues.push(newFinding("validation/signature_model_mismatch", `trailer LDVH-Model does not match the authoritative session record (${route.value.model})`));
     }
     return { ok: issues.length === 0, hardFail: issues.length > 0, issues };
   }

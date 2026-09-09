@@ -164,7 +164,7 @@ async function preflight(rendered, identity) {
     await mkdir(tempDir, { mode: 0o700 });
     await writeFile(hook, rendered, { mode: 0o755 });
     await writeFile(invalid, "bad\n", "utf8");
-    await writeFile(valid, "chore(code): preflight\n\n关键变更:\n- validate hook\n\nLDVH-Provider: deepseek-harness\nLDVH-Model: preflight\n", "utf8");
+    await writeFile(valid, "chore(code): preflight\n\n关键变更:\n- add ldvh-preflight synthetic index entry\n\nLDVH-Provider: deepseek-harness\nLDVH-Model: preflight\n", "utf8");
     // A synthetic index keeps the preflight independent of the worktree's
     // transient staging state: the gate proves its real `git diff --cached`
     // path against a known non-empty index instead of requiring the user

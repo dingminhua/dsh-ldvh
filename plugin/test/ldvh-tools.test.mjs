@@ -485,6 +485,7 @@ test("precheck-git-commit returns passed when the route source agrees with the t
 			"",
 			"关键变更:",
 			"- create feature.txt with the new line",
+			"- seed README.md test carrier",
 			"",
 			"LDVH-Provider: deepseek-harness",
 			"LDVH-Model: test",
@@ -527,6 +528,7 @@ test("precheck-git-commit returns failed when the trailer values do not match th
 			"",
 			"关键变更:",
 			"- create feature.txt with the new line",
+			"- seed README.md test carrier",
 			"",
 			"LDVH-Provider: WRONG-VENDOR",
 			"LDVH-Model: WRONG-MODEL",
@@ -540,8 +542,8 @@ test("precheck-git-commit returns failed when the trailer values do not match th
 		assert.equal(envelope.outcome, "completed");
 		assert.equal(envelope.result.mechanical_outcome, "failed");
 		// a positive mismatch is reported as a concrete issue
-		assert.ok(envelope.result.issues.some((i) => i.startsWith("validation/signature_provider_mismatch")));
-		assert.ok(envelope.result.issues.some((i) => i.startsWith("validation/signature_model_mismatch")));
+		assert.ok(envelope.result.issues.some((i) => i.rule.startsWith("validation/signature_provider_mismatch")));
+		assert.ok(envelope.result.issues.some((i) => i.rule.startsWith("validation/signature_model_mismatch")));
 		// no snapshot_identity on a failed precheck
 		assert.equal(envelope.result.snapshot_identity, undefined);
 		// signature_source still surfaces the authoritative values that
@@ -568,6 +570,7 @@ test("precheck-git-commit returns failed when the trailer is structurally incomp
 			"",
 			"关键变更:",
 			"- create feature.txt",
+			"- seed README.md test carrier",
 			"",
 			"LDVH-Provider: deepseek-harness",
 		].join("\n");
@@ -576,7 +579,7 @@ test("precheck-git-commit returns failed when the trailer is structurally incomp
 		assert.equal(envelope.outcome, "completed");
 		assert.equal(envelope.result.mechanical_outcome, "failed");
 		// the structural defect is the deciding issue; route is irrelevant
-		assert.ok(envelope.result.issues.some((i) => i.includes("LDVH-Model")));
+		assert.ok(envelope.result.issues.some((i) => i.message.includes("LDVH-Model")));
 	});
 });
 
@@ -593,6 +596,7 @@ test("precheck-git-commit returns failed when the trailer values are empty (no r
 			"",
 			"关键变更:",
 			"- create feature.txt",
+			"- seed README.md test carrier",
 			"",
 			"LDVH-Provider: ",
 			"LDVH-Model: test",
@@ -600,7 +604,7 @@ test("precheck-git-commit returns failed when the trailer values are empty (no r
 		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
 		const envelope = await handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: root } } } });
 		assert.equal(envelope.result.mechanical_outcome, "failed");
-		assert.ok(envelope.result.issues.some((i) => i.includes("LDVH-Provider")));
+		assert.ok(envelope.result.issues.some((i) => i.message.includes("LDVH-Provider")));
 	});
 });
 
@@ -643,7 +647,7 @@ test("precheck-git-commit returns failed when a 关键变更: item names a chang
 		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
 		const envelope = await handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: root } } } });
 		assert.equal(envelope.result.mechanical_outcome, "failed");
-		assert.ok(envelope.result.issues.some((i) => i.includes("bar.js")));
+		assert.ok(envelope.result.issues.some((i) => i.message.includes("bar.js")));
 	});
 });
 
@@ -666,6 +670,7 @@ test("precheck-git-commit returns unverifiable (NOT passed) when the route sourc
 			"",
 			"关键变更:",
 			"- create feature.txt with the new line",
+			"- seed README.md test carrier",
 			"",
 			"LDVH-Provider: deepseek-harness",
 			"LDVH-Model: test",
@@ -705,6 +710,7 @@ test("precheck-git-commit returns unverifiable when the session log exists but c
 			"",
 			"关键变更:",
 			"- create feature.txt",
+			"- seed README.md test carrier",
 			"",
 			"LDVH-Provider: deepseek-harness",
 			"LDVH-Model: test",
