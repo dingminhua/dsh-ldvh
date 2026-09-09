@@ -472,7 +472,10 @@ export function toolDescriptorFor(operationKey, operation, handler) {
     async execute(args, exec) {
       try {
         const result = await handler(args, exec);
-        return { envelope: result };
+        // Prune undefined values (JSON round-trip): the harness lossless-JSON
+        // validation rejects them, and conditional fields legitimately produce
+        // undefined on objects where they are absent.
+        return { envelope: JSON.parse(JSON.stringify(result)) };
       } catch (error) {
         return {
           envelope: envelope(operationKey, "execution_error", {
