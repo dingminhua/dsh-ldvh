@@ -23,6 +23,7 @@ import { currentRouteValues } from "./session-signature.js";
 import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment } from "./commit-validation.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
 import { registerResearchTools } from "./research-tools.js";
+import { registerSparkTools } from "./spark-tools.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -480,6 +481,8 @@ export function registerLdvhTools(ctx, deps) {
   // Research mechanical layer (specs/11 state machine + specs/24 writer),
   // same registration surface: governed sessions only.
   disposers.push(registerResearchTools(ctx, deps));
+  // Spark mechanical layer (specs/20 writer), same registration surface.
+  disposers.push(registerSparkTools(ctx, deps));
   return () => {
     for (const dispose of disposers) {
       try { dispose(); } catch { /* already removed */ }
