@@ -48,7 +48,7 @@ DSH 插件与市场规范只提供宿主接口和发布格式，不取得 LDVH �
 
 1. manifest 字段声明（名称/版本/入口/权限声明/市场字段）与插件身份入口（§5.1）；
 2. 工具注册缝的接入语义：领域操作的输入语义约束由 05 及各领域来源定义，DSH 工具层实际工具名称、输入 schema 形态、注册时机与权限配置由 08 按当前 DSH 版本核验并定义（§5.2）；
-3. 引导面注入形式与预算、turn/end 事件时机接入、`ctx.userQuestions`/`ctx.authorization` 交互面接入（§5.3–§5.5）；
+3. 引导面注入形式与预算、turn/end 事件时机接入（turn/end 为会话事件类型，经 `session/event` 载荷分发）、`ctx.userQuestions` 问询面与审批通道授权承载接入（§5.3–§5.5）；
 4. 07 登记制度在 Helper/Git Gate/Skill/Web 侧的 DSH 宿主接入点（呈现细节归 07/10）（§5.6）；
 5. 机械守护部署：运行时不变量、文件观察策略、Git Gate 安装形态、沙箱分层（§6）；
 6. 版本号双轨与分发渠道、README 与 CHANGELOG 格式要求、00 §4.3 五类受保护文档在 DSH 域的承接、Output Envelope 宿主承载（§7）。
@@ -93,33 +93,33 @@ manifest（`package.json` 或 DSH 市场规定的文件）为插件身份入口�
 
 ### 5.2 工具注册缝
 
-05 定义的 Helper 操作应经 DSH 正式工具注册入口接入；`ctx.tools.register` 与 `activate` 仅为待按当前 DSH 版本核验的候选名称。领域操作的输入语义约束由 05 及各领域来源定义；DSH 工具层实际工具名称、输入 schema 形态、注册时机、权限配置与呈现/错误映射由 08 按当前 DSH 版本核验并定义（承接 05 §5.1 分派），09 实现并测试。实际入口核验前不得声明已经接入，注册成功也不证明操作可调用、授权成立或实际可用。
+05 定义的 Helper 操作经 DSH 正式工具注册入口 `ctx.tools.register(defineTool({name, description, parameters, output, execute}))` 接入，返回 disposer；参数经 JSON Schema 编译校验（违规抛 ToolArgsError）；守卫通道 `ctx.tools.guard(guard)` 注册单调守卫（任何 guard 可拒不可放行，guard 在 tools/pre-execute 之后求值），执行链全序为 pre-policy → guards → around-dispatch → post-policy → 内容终结 → 通知；上述形态在 DSH 0.1.2-rc.1 与 0.1.5-alpha.1 一致（源码双版对照核验，2026-09-10），实际注册以装载后注册状态检查为准。领域操作的输入语义约束由 05 及各领域来源定义（承接 05 §5.1 分派），权限配置遵循 §5.1 manifest 权限声明，09 实现并测试；注册成功不证明操作可调用、授权成立或实际可用。
 
 ### 5.3 引导面
 
 最小规则引导（内容锚点由 01 §10.4 定义）经两种机制注入：
 
-- 会话冷启动引导入口：注入 01 §10.4 定义的最小规则引导 00 锚点，具体入口名称与预算计量能力待按当前 DSH 版本核验；
-- 行动前引导入口：在来源定义的触发时机提供事实候选与模板路由，具体事件名称待按当前 DSH 版本核验。
+- 会话冷启动引导入口：经 `system-prompt/assemble` waterfall（(assembly, context, next) 三参、返回组装权威）注入 01 §10.4 定义的最小规则引导 00 锚点；注入以 agent 身份为前提，无 agent 上下文不注入。DSH 宿主未提供注入预算计量 API（两版核验，如实为缺口）；预算控制由 LDVH 侧承担——引导文本单一权威源，体量以固定常量承载，变更走受控提交；
+- 行动前引导入口：经 `agent/pre-step` waterfall 事件（载荷 {agent, messages, turn, step, signal}）在来源定义的触发时机提供事实候选与模板路由；事件形态两版一致。
 
 注入内容由 01 定义、注入形式与预算由 08 定义；内容须单一权威来源、逐字节一致、不复制规则正文、不成为第二规则源。
 
 ### 5.4 事件面
 
-行动与结束事件用于承载模板路由、执行状态更新、交还处理和资源清理；具体事件名称与承载能力待当前 DSH 版本核验，核验前不得声明已接入。中断恢复共同语义由 02 定义，08 只承接宿主接入时机；终止时机无已验证原生事件，暂不接入。
+行动与结束事件接入下列已核验事件（形态在 DSH 0.1.2-rc.1 与 0.1.5-alpha.1 一致，源码双版对照核验 2026-09-10）：`agent/created`（emit {agent}）、`agent/session-start`（emit {agent, source}）、`agent/pre-step`（waterfall）、`agent/turn-stopping`（serial {agent, turn, signal}）、`system-prompt/assemble`（waterfall）、`session/event`（emit (session, event)，turn/end 为会话事件类型、经其载荷分发），用于承载模板路由、执行状态更新、交还处理和资源清理。工具生命周期观察可经官方 `tools/change`（emit）挂载（LDVH 当前未消费）。中断恢复共同语义由 02 定义，08 只承接宿主接入时机；终止时机无已验证原生事件，维持不接入。
 
 ### 5.5 交互面
 
-DSH 结构化问询入口承载 Human Gate 决策提请、计划审查与验收交还；授权入口承载 Human 对行动范围、作用边界与后续方向的明确允许。具体 API 名称待按当前 DSH 版本核验；授权包结构仍待 WorkCase/授权承接规范定义。
+DSH 结构化问询入口为 `ctx.userQuestions.ask(request)`（validation + scoped answerer waterfall；调用者限制 CALLER_NOT_LIVE/DELEGATED_CALLER——子代理直接问人被拒），承载 Human Gate 决策提请、计划审查与验收交还。行动授权不设独立宿主 API：由 DSH 审批通道（user-approval，ApprovalPolicy 'ask'|'never'，与沙箱三档固化联动）与 00 §4 Human 决定权组合承载。语义区分：宿主存在 `ctx.authorization` 服务，但它是凭证获取流程注册表（credential-obtaining flows），不是行动授权通道，本规范不将其作为授权入口消费。授权包结构仍待 WorkCase/授权承接规范定义。问询授权面三包源码（user-questions、user-approval、tool-ask-user）两版零变更（2026-09-10 核验）。
 
 ### 5.6 管辖登记接入
 
-07 是登记位置、Schema、路径、权限目标、三态判定、写入与迁移规则的唯一权威；Helper、Git Gate、Skill 与 Web 统一消费其结果。08 只承接宿主接入：核验 DSH/Electron 正式 user-data/config API 能否提供 07 所需配置根，登记跨工作区读写授权，并把宿主 ACL/沙箱结果映射为 07 的 `available` 或 `unavailable`。具体 API、权限和原子文件能力须按当前 DSH 版本实际核验；核验前不得声明接入已可用，也不在 08 复制 07 的 Schema 或写入规程。
+07 是登记位置、Schema、路径、权限目标、三态判定、写入与迁移规则的唯一权威；Helper、Git Gate、Skill 与 Web 统一消费其结果。08 只承接宿主接入：接入点为 `ctx.get('dshHomePath')` 服务（boot 时 provide，两版源码零 diff；宿主以 DSH_HOME 环境变量与 ~/.dsh 默认根提供，无 Electron userData 级 API），配置根为 dshHomePath 下 `ldvh/governed-projects.yaml`，跨工作区读写经该路径；宿主 ACL/沙箱结果映射为 07 的 `available` 或 `unavailable`。08 不复制 07 的 Schema 或写入规程。
 
 ## 6. 机械守护部署
 
-- **运行时不变量**：通过 DSH 正式不变量入口在装载完成、受控写入前和会话交还前执行来源已定义的断言；具体入口待核验，不替代 00 §3.4 三层防线。
-- **文件观察策略**：通过 DSH 正式文件观察入口执行 read-before-edit 与 version-guarded write；对 07 登记载体，08 只核验宿主是否能满足 07 已定义的跨平台原子写入、冲突拒绝与回读要求，并向实现暴露核验结果，不复制其写入算法。具体 API 待当前 DSH 版本核验，预期版本、指纹或锁不一致时拒绝写入。
+- **运行时不变量**：经 DSH 正式不变量注册器 `ctx.invariants.register(packageName, installer)` 在装载完成、受控写入前和会话交还前执行来源已定义的断言（InvariantInstaller = (ctx, fail) => void|Promise，fail 抛 InvariantError code='INVARIANT' 带 packageName 归因；官方包 permission-presets 以 inject: ['invariants'] 同法消费；该入口 src 在 DSH 0.1.2-rc.1 与 0.1.5-alpha.1 字节级一致，2026-09-10 核验）；不替代 00 §3.4 三层防线。
+- **文件观察策略**：经 DSH 守卫式写保护承载（如实：宿主无文件 watch 服务）：读观察经 `fs/observed` 事件；写守卫经 `writeText(target, content, {kind:'replaceIfVersion', version})` 与 `editText(..., {version})` 版本守卫，配合 `fs/write-intent` 与 `fs/edit-intent` waterfall 挂载 LDVH 策略；`fs-observation-policy` 提供 FS_NOT_OBSERVED / FS_STALE_VERSION 拒绝语义，版本或指纹不一致时拒绝写入（签名两版零变化，2026-09-10 核验）。对 07 登记载体，08 只核验宿主满足 07 已定义的跨平台原子写入、冲突拒绝与回读要求并向实现暴露结果，不复制其写入算法。
 - **Git Gate 部署**：commit-msg 钩子安装到由项目 Git 根解析所得的 Git common-dir `hooks/commit-msg`，不得简单假设 `<worktree>/.git/hooks/`；主 worktree 与 linked worktree 共享同一 common-dir，独立 clone 分别部署。安装前检查既有钩子，非 LDVH 资产一律 `conflict` 且零写入，不覆盖 Human 自建钩子；部署后须确认 `managed` 状态（归属、路径、内容与版本一致），未确认不得声称已就绪；事件检查用 06 定义的同一 validator。
 - **管辖项目安装事务**：Human 在设置页选择的目录必须是实际 Git 根。点击“安装”后，登记项目、创建或校验项目内 `ldvh-base/`、安装或更新当前版本 Git Hook 均为必需步骤而非选项；任一步失败都不得报告管辖已就绪。设置页不提供单独的“卸载”操作；“取消管辖”自动卸载 LDVH 托管 Hook并移除登记，但永久保留 `ldvh-base/` 与其中事实对象。每次 DSH 启动对全部登记项目执行一次只读状态检查；检查或巡检发现 Hook 过时或事实源缺失时，设置页对可修复状态（Hook `absent/outdated` 或事实源 `absent/incomplete`）呈现“更新”操作，执行同一安装事务修复；`conflict` 或 `unavailable` 不可修复状态只呈现原因，不提供更新操作。版本不一致只报告并等待 Human 点击安装/更新，不静默修改。
 - **设置页写入与权限降级**：设置页按钮在空闲状态没有 Agent、call id 与开放 turn，不能复用 `ctx.approval.request()` 或模型工具的 `sandbox_permissions` 一次性升权；普通插件 Host 自动安装只受当前 OS 文件权限约束。安装先完成只读预检，确认所有目标、Hook 所有权和回滚边界后再写入；OS 拒绝写入时 fail-closed、回滚本次可安全回滚的变化，不使用 `sudo` 或管理员 PowerShell。此时可提供同一 LDVH CLI 语义的精确平台命令和 DSH Desktop 正式“打开终端”入口作为降级，macOS/Windows 仅在路径引用和终端载体上不同；用户执行后必须回到设置页重新“检查”，终端退出码不单独证明就绪。
@@ -153,7 +153,7 @@ CHANGELOG 版本条目、插件 manifest 版本字段、README 版本行三者�
 
 ### 7.7 Output Envelope 宿主承载
 
-09 负责 Output Envelope 的单一生成与一致性实现；本规范只承接其在 DSH 中的存储位置、写入时机、消费方和宿主验收流映射，不定义或复制生成逻辑。具体机制待当前 DSH 能力核验后定案；未核验前不得声明已存在宿主承载。
+09 负责 Output Envelope 的单一生成与一致性实现；本规范只承接其在 DSH 中的存储位置、写入时机、消费方和宿主验收流映射，不定义或复制生成逻辑。核验结论（2026-09-10，源码双版对照）：宿主两版均无交还产物专用存储入口，且 0.1.5 存在两处升级陷阱（session-persistence 服务直调接口整体移除换 handle 所有权式；存储事件对白名单外类型默认拒绝，ignorable:true 为唯一逃生口）。定案（Human 2026-09-10）：Output Envelope 由 LDVH 自持久化于本地存储区（DSH home 下 `~/.dsh/ldvh/` 域，与管辖登记同级的先例承载），定位为本地记忆、与记忆系统绑定处理——载体形态、生命周期与保留策略随记忆系统设计定案；不进项目事实源目录（判据：事实对象=项目转移时跟目录走、他人接手可共享的内容，handovers 不具备），不写宿主会话事件流、不依赖 session-persistence API。宿主侧（Web）只读投影呈现（经 dshHomePath 通道）。机器承载建成前，交还维持 Human 可读正文并如实披露承载未建（按 02 §17 处理），不得声明已存在宿主承载。
 
 ## 8. 验证与证据边界
 
@@ -161,7 +161,7 @@ CHANGELOG 版本条目、插件 manifest 版本字段、README 版本行三者�
 |---|---|---|---|---|---|---|
 | 插件 manifest | 插件起草、发布或修改 manifest 时 | 字段完整、格式合规、与实际能力一致 | manifest 文件与 DSH 市场规范 | manifest 解析检查 | 当次身份与声明的机械完整性；不证明能力可用或授权成立 | 修复字段，不发布不一致版本 |
 | 工具注册 | 插件装载后 | DSH 当前环境已实际注册目标工具 | 宿主注册观察 | 注册状态检查 | 工具面可发现（本行为 DSH 接入域验证权威；05 §10 同名行只验证 Helper 服务工具面语义）；不证明操作可调用、Human 授权或语义正确 | 未注册时按不可用交还，不伪造接入声明 |
-| 引导面注入 | 会话冷启动或行动前触发时 | 注入内容与 01 §10.4 单一权威来源一致且未超预算 | 注入内容观察与来源比对 | 注入核对 | 当次注入范围；不证明内容正确或 AI 已遵守 | 超预算或漂移时暂停受影响注入并修复 |
+| 引导面注入 | 会话冷启动或行动前触发时 | 注入内容与 01 §10.4 单一权威来源一致且未超 LDVH 侧常量预算 | 注入内容观察与来源比对 | 注入核对 | 当次注入范围；不证明内容正确或 AI 已遵守 | 超预算或漂移时暂停受影响注入并修复 |
 | Git Gate 部署 | 部署后或宣称就绪前 | 钩子存在、`managed` 状态已确认（已安装、路径正确、版本匹配） | `.git/hooks` 观察与 managed 确认记录 | 部署状态检查 | 部署状态成立；不证明实际阻断有效或绕过不存在 | 未确认时不得声称就绪，暂停受控提交声明 |
 | 权限预设 | 装载或扩权请求时 | 权限边界已声明且沙箱分层与声明一致 | manifest 权限声明与宿主沙箱观察 | 权限一致性检查 | 当次声明与分层一致；不证明越权被实际拒绝 | 不一致时拒绝执行并按 00 §7.2 交还 |
 | 版本声明点 | 每次发布前 | CHANGELOG 条目、manifest 版本与 README 版本行一致 | 三处版本观察 | 版本一致性检查 | 当次版本对齐；不证明功能完整或价值成立 | 漂移时按 §10 处理，暂停发布 |
