@@ -115,10 +115,12 @@ test('files and changes share a compact divided page toolbar without application
   for (const page of [filesPage, changesPage]) {
     assert.match(page, /ldvh-page-toolbar mb-4/);
     assert.match(page, /<PageHeader[^>]* compact \/>/);
-    assert.match(page, /ldvh-page-toolbar-badge/);
+    // Human 2026-09-11 UI 收敛：四页（聚焦/项目文件/变更/帮助）头部只保留
+    // 标题与分割线——toolbar badge（只读标识）与副标题均移除。
+    assert.doesNotMatch(page, /ldvh-page-toolbar-badge/);
+    assert.doesNotMatch(page, /subtitle=/);
     assert.doesNotMatch(page, /ldvh-page-toolbar-action|RefreshCcw|changes\.reload|projectFiles\.reload/);
   }
   assert.match(styles, /\.ldvh-page-toolbar \{\s*@apply[^;]*border-b[^;]*pb-4;/s);
-  assert.match(styles, /\.ldvh-page-toolbar-(?:badge|action) \{\s*@apply[^;]*h-8/s);
   assert.doesNotMatch(changesPage, /changes\.(activeProject|activeProjectHint|projectScopeHint)/);
 });

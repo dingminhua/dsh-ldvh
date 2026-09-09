@@ -42,7 +42,9 @@ export default function Help() {
 
   return (
     <div className="ldvh-page-frame">
-      <PageHeader title={t('help.title')} subtitle={t('help.subtitle')} />
+      <div className="ldvh-page-toolbar mb-4 min-w-0 shrink-0">
+        <PageHeader title={t('help.title')} compact />
+      </div>
 
       {/* 主题横幅：Vibe 开发步骤的循环流程概览 */}
       <div className="relative mb-5 overflow-hidden rounded-xl border border-ldvh-accent/20 bg-gradient-to-br from-ldvh-accent/12 via-ldvh-accent/5 to-transparent px-4 py-5 sm:px-5">

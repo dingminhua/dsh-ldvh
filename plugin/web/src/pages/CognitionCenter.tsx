@@ -672,7 +672,9 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
 
   return (
     <div className={`flex min-h-full flex-col${embedded ? '' : ' p-6'}`}>
-      <PageHeader title={t('cognition.title')} subtitle={t('cognition.subtitle')} />
+      <div className="ldvh-page-toolbar mb-4 min-w-0 shrink-0">
+        <PageHeader title={t('cognition.title')} compact />
+      </div>
 
       {/* 模块零 目标：Goal(25) 投影，置顶于待决定事项之前 */}
       <GoalSection />

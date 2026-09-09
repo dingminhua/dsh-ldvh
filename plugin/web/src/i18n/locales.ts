@@ -771,7 +771,6 @@ export const UI_LOCALES = {
     'focusV2.promptSetGoal': '我要创建目标',
 
     'cognition.title': '聚焦',
-    'cognition.subtitle': '现在有哪些事在等你决定，每个决定需要看什么。本页只读，决定在 AI 对话中作出，经 Helper 受控写入回写事实源。',
     'cognition.derivedView': '派生视图',
     'cognition.inbox.title': '待决定事项',
     'cognition.inbox.empty': '当前没有待你决定的事项',
@@ -1177,7 +1176,6 @@ export const UI_LOCALES = {
     'objectDetail.workcaseTerminalDispositionBoundary': '记录 WorkCase 停止后的分类与责任去向；分流关系不表示目标已经接受、开始或完成责任。',
 
     'projectFiles.title': '项目文件',
-    'projectFiles.subtitle': '浏览当前管辖项目的目录和文件内容。',
     'projectFiles.showHiddenFiles': '显示隐藏文件',
     'projectFiles.fileBrowser': '项目文件浏览',
     'projectFiles.preview': '文件预览',
@@ -1188,11 +1186,8 @@ export const UI_LOCALES = {
     'projectFiles.chooseFile': '选择左侧文件后在这里阅读。',
     'projectFiles.binary': '这是二进制文件，Web 仅展示路径和大小。',
     'projectFiles.truncated': '内容已按安全上限截断。',
-    'projectFiles.readOnly': '只读',
 
     'changes.title': '工作区变更',
-    'changes.subtitle': '查看当前项目尚未进入提交历史的文件变化。',
-    'changes.readOnly': '只读',
     'changes.files': '变更文件',
     'changes.otherBranches': '其他分支',
     'changes.otherBranchesClean': '无待提交变更',
@@ -1284,7 +1279,6 @@ export const UI_LOCALES = {
     'common.read': '阅读',
 
     'help.title': '帮助',
-    'help.subtitle': 'LDVH 的使用引导：Vibe 开发步骤与各模块的配合方式。',
     'help.vibeSteps.title': 'Vibe 开发步骤',
     'help.vibeSteps.tagline': '目标 → 调研 → 讨论 → 分解 → 执行 · 循环推进',
     'help.vibeSteps.subtitle': '与 AI 协作推进项目的循环流程：目标 → 调研 → 讨论 → 分解 → 执行，过程中的想法沉淀为 Spark。',
@@ -1413,7 +1407,6 @@ export const UI_LOCALES = {
     'focusV2.promptSetGoal': 'I want to create a goal',
 
     'cognition.title': 'Focus',
-    'cognition.subtitle': 'What is waiting for your decision right now, and what each decision needs. This page is read-only; decisions are made in the AI conversation and written back to the fact source via controlled Helper writes.',
     'cognition.derivedView': 'Derived view',
     'cognition.inbox.title': 'Pending Decisions',
     'cognition.inbox.empty': 'Nothing is waiting for your decision right now',
@@ -1819,7 +1812,6 @@ export const UI_LOCALES = {
     'objectDetail.workcaseTerminalDispositionBoundary': 'This records how the WorkCase stopped and where responsibility went; a routed relation does not mean the target accepted, started, or completed it.',
 
     'projectFiles.title': 'Project Files',
-    'projectFiles.subtitle': 'Browse directories and file content in the current governed project.',
     'projectFiles.showHiddenFiles': 'Show hidden files',
     'projectFiles.fileBrowser': 'Project File Browser',
     'projectFiles.preview': 'File Preview',
@@ -1830,11 +1822,8 @@ export const UI_LOCALES = {
     'projectFiles.chooseFile': 'Select a file on the left to read it here.',
     'projectFiles.binary': 'This is a binary file; the web view only shows path and size.',
     'projectFiles.truncated': 'Content was truncated at the safety limit.',
-    'projectFiles.readOnly': 'Read-only',
 
     'changes.title': 'Workspace Changes',
-    'changes.subtitle': 'Inspect file changes that have not entered commit history.',
-    'changes.readOnly': 'Read-only',
     'changes.files': 'Changed Files',
     'changes.otherBranches': 'Other Branches',
     'changes.otherBranchesClean': 'No pending changes',
@@ -1926,7 +1915,6 @@ export const UI_LOCALES = {
     'common.read': 'Read',
 
     'help.title': 'Help',
-    'help.subtitle': 'LDVH usage guide: the Vibe development workflow and how modules work together.',
     'help.vibeSteps.title': 'Vibe Development Workflow',
     'help.vibeSteps.tagline': 'Goal → Research → Discuss → Break down → Execute · Iterate',
     'help.vibeSteps.subtitle': 'The iterative workflow for working with AI: goal → research → discussion → breakdown → execution, capturing ideas as Sparks along the way.',

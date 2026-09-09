@@ -107,7 +107,6 @@ export default function ProjectFiles() {
   } = useProjectFilesController();
   const copy = {
     title: t('projectFiles.title'),
-    subtitle: t('projectFiles.subtitle'),
     showHiddenFiles: t('projectFiles.showHiddenFiles'),
     fileBrowser: t('projectFiles.fileBrowser'),
     preview: t('projectFiles.preview'),
@@ -117,7 +116,6 @@ export default function ProjectFiles() {
     chooseFile: t('projectFiles.chooseFile'),
     binary: t('projectFiles.binary'),
     truncated: t('projectFiles.truncated'),
-    readOnly: t('projectFiles.readOnly'),
   };
 
   if (projectsLoading) {
@@ -142,7 +140,9 @@ export default function ProjectFiles() {
   if (projects.length === 0) {
     return (
       <div className="ldvh-page-frame">
-        <PageHeader title={copy.title} subtitle={copy.subtitle} />
+        <div className="ldvh-page-toolbar mb-4 min-w-0 shrink-0">
+          <PageHeader title={copy.title} compact />
+        </div>
         <EmptyState text={copy.noProjects} />
       </div>
     );
@@ -151,7 +151,9 @@ export default function ProjectFiles() {
   if (!projectId) {
     return (
       <div className="ldvh-page-frame">
-        <PageHeader title={copy.title} subtitle={copy.subtitle} />
+        <div className="ldvh-page-toolbar mb-4 min-w-0 shrink-0">
+          <PageHeader title={copy.title} compact />
+        </div>
         <EmptyState text={t('projectFiles.chooseProjectGlobally')} />
       </div>
     );
@@ -160,10 +162,7 @@ export default function ProjectFiles() {
   return (
     <div className="ldvh-page-frame flex min-h-full min-w-0 flex-col overflow-x-hidden xl:h-full">
       <div className="ldvh-page-toolbar mb-4 min-w-0 shrink-0">
-        <PageHeader title={copy.title} subtitle={copy.subtitle} compact />
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="ldvh-page-toolbar-badge">{copy.readOnly}</span>
-        </div>
+        <PageHeader title={copy.title} compact />
       </div>
 
       <div className="grid min-w-0 gap-6 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(18rem,28rem)_minmax(0,1fr)]">
