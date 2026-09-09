@@ -23,7 +23,8 @@ export const FACT_TYPE_CARRIERS = {
   workcase: '.yaml',
   adr: '.yaml',
   pitfall: '.yaml',
-  spark: '.yaml',
+  // v5 Spark（20 §7）：YAML frontmatter（机器权威）+ markdown 正文，同 research 形态。
+  spark: '.md',
   research: '.md',
 } as const
 
@@ -98,7 +99,8 @@ function expectedFileName(type: LocalFactType, objectId: string): string {
 }
 
 function carrierFor(type: LocalFactType): LocalFactCarrier {
-  return type === 'research' ? 'markdown' : 'yaml'
+  // v5 markdown 载体类型：frontmatter（机器权威）+ 正文（20 §7 / 24 §7）。
+  return type === 'research' || type === 'spark' ? 'markdown' : 'yaml'
 }
 
 function metadataFor(scope: LocalFactScope, type: LocalFactType, objectId: string): LocalFactMetadata {
@@ -113,7 +115,9 @@ function metadataFor(scope: LocalFactScope, type: LocalFactType, objectId: strin
 
 function isExpectedCarrierName(type: LocalFactType, fileName: string): boolean {
   const extension = FACT_TYPE_CARRIERS[type].replace('.', '\\.')
-  const idSegment = type === 'research'
+  // v5 markdown 载体类型（spark/research）：object_uid 为 UUIDv4，文件名编码 UID；
+  // 纯序号/ULID25 段保留兼容读取。其余类型维持 v4 形态（纯序号或 ULID25）。
+  const idSegment = type === 'research' || type === 'spark'
     ? '(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})'
     : '(?:\\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})'
   return new RegExp(`^${type}-${idSegment}${extension}$`).test(fileName)
@@ -170,6 +174,8 @@ const RECORD_ARRAY_FIELDS: Partial<Record<LocalFactType, ReadonlySet<string>>> =
     'success_criterion_definitions', 'success_criterion_results', 'work_items',
     'creation_reviews', 'result_reviews', 'residual_responsibilities', 'relations', 'change_log',
   ]),
+  // v5 Spark：evolution 成员 {at, summary}（20 §8），relations 仅 merged-into/
+  // split-into（03 §7.2 公共形状），不进值级展开。
   spark: new Set(['evolution', 'relations', 'change_log']),
   adr: new Set(['change_log']),
   pitfall: new Set(['change_log']),
@@ -278,7 +284,11 @@ function projectFields(type: LocalFactType, objectId: string, parsed: Record<str
   if (typeof all.object_id === 'string' && all.object_id !== objectId) {
     fieldIssues.push({ path: 'object_id', reason: 'identity_mismatch', expected: objectId, raw_value: all.object_id })
   }
-  if (typeof all.fact_type_key === 'string' && all.fact_type_key !== type) {
+  // fact_type_key 载体值：短名（24 号 research 先例，现有 research 对象同款）与
+  // 规范键形式（20 §8：spark-fact-type）并收——规范族对该值的写法尚未对齐
+  // （24 vs 20/25，待 Human 裁定），Web 读取层两者都不误报；严格合法性判定
+  // 属 Core/Git Gate。展示层经 normalizeFactTypeKey 归一为短名。
+  if (typeof all.fact_type_key === 'string' && all.fact_type_key !== type && all.fact_type_key !== `${type}-fact-type`) {
     fieldIssues.push({ path: 'fact_type_key', reason: 'identity_mismatch', expected: type, raw_value: all.fact_type_key })
   }
   // 03 §6.1：object_uid 为 canonical UUIDv4（版本位 4）。时间语义由 created_at 与
@@ -375,8 +385,8 @@ export async function listLocalFacts(type: LocalFactType, scope: LocalFactScope)
   return { status: 'complete', items: await Promise.all(fileNames.map((fileName) => readItemFile(scope, type, fileName))), issues }
 }
 
-// v5 research 对象 ID 为 UUID（research-writer randomUUID 带 8-4-4-4-12 连字符段）；
-// 其余四类型保留 v4 形态（纯序号或 ULID25）。
+// v5 markdown 载体类型（spark/research）对象 ID 为 UUID（writer randomUUID
+// 带 8-4-4-4-12 连字符段）；其余类型保留 v4 形态（纯序号或 ULID25）。
 const FACT_OBJECT_ID_PATTERN = /^(workcase|adr|pitfall|spark|research)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
 
 export async function readLocalFact(type: LocalFactType, objectId: string, scope: LocalFactScope): Promise<{ status: 'ok'; item: LocalFactItem } | { status: 'not_found' | 'type_not_integrated'; metadata: LocalFactMetadata; issues: LocalFactIssue[] }> {

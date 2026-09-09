@@ -14,8 +14,7 @@ const STATUS_FILTER_ORDER = [
   'proposed',
   'accepted',
   'open',
-  'settled',
-  'unclosed',
+  'implemented',
   'discarded',
   'archived',
   'retired',
@@ -29,7 +28,8 @@ const statusOrderIndex = new Map(STATUS_FILTER_ORDER.map((status, index) => [sta
 const FALLBACK_STATUSES_BY_TYPE: Record<string, string[]> = {
   adr: ['active', 'retired'],
   pitfall: ['draft', 'active', 'discarded'],
-  spark: ['open', 'unclosed', 'settled', 'discarded'],
+  // 20 §9 状态闭集：open（悬置中）→ implemented（落实/交接）/ discarded（废弃/合并/拆分）。
+  spark: ['open', 'implemented', 'discarded'],
   research: ['active', 'retired'],
 };
 

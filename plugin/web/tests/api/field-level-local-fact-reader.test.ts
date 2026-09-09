@@ -147,23 +147,45 @@ test('Spark evolution members without a timestamp and forbidden Pitfall tags rem
   await mkdir(sparkDir, { recursive: true });
   await mkdir(pitfallDir, { recursive: true });
   try {
-    await writeFile(path.join(sparkDir, 'spark-0001.yaml'), [
-      'object_id: spark-0001', 'fact_type_key: spark', 'title: Missing event time',
-      'status: open', 'summary: Current observation', 'created_at: "2026-01-01"',
-      'evolution:', '  - summary: This entry has no source time',
+    // v5 Spark 载体（20 §7）：.md + frontmatter + 正文；文件名编码 UID。
+    // 本夹具用短名 fact_type_key（24 号 research 先例）——读取层两种写法都收。
+    await writeFile(path.join(sparkDir, 'spark-3f2504e0-4f89-41d3-9a0c-0305e82c3301.md'), [
+      '---',
+      'object_uid: 3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+      'fact_type_key: spark',
+      'title: Missing event time',
+      'status: open',
+      'created_at: "2026-01-01"',
+      'question: 何时必须补充演变时间？',
+      'scope_boundary: 只验证成员形态，不验证语义。',
+      'intent: 保留时间戳缺失的可视性。',
+      'summary: Current observation',
+      'evolution:',
+      '  - summary: This entry has no source time',
+      '---',
+      '',
+      '# Missing event time',
+      '',
+      '## 当前理解',
+      '',
+      'Current observation',
+      '',
     ].join('\n'), 'utf8');
     await writeFile(path.join(pitfallDir, 'pitfall-0001.yaml'), [
       'object_id: pitfall-0001', 'fact_type_key: pitfall', 'title: Forbidden tag',
       'status: active', 'created_at: "2026-01-01"', 'tags: [legacy]',
     ].join('\n'), 'utf8');
 
-    const spark = await readLocalFact('spark', 'spark-0001', scope);
+    const spark = await readLocalFact('spark', 'spark-3f2504e0-4f89-41d3-9a0c-0305e82c3301', scope);
     const pitfall = await readLocalFact('pitfall', 'pitfall-0001', scope);
     assert.equal(spark.status, 'ok');
     assert.equal(pitfall.status, 'ok');
-    if (spark.status === 'ok') assert.deepEqual(spark.item.unparsed_structures, [{
-      path: 'evolution[0]', reason: 'unparseable_member', raw_value: { summary: 'This entry has no source time' },
-    }]);
+    if (spark.status === 'ok') {
+      assert.equal(spark.item.read_status, 'readable');
+      assert.deepEqual(spark.item.unparsed_structures, [{
+        path: 'evolution[0]', reason: 'unparseable_member', raw_value: { summary: 'This entry has no source time' },
+      }]);
+    }
     if (pitfall.status === 'ok') assert.deepEqual(pitfall.item.unparsed_structures, [{
       path: 'tags', reason: 'unconsumed_field', raw_value: ['legacy'],
     }]);
@@ -178,18 +200,31 @@ test('change_log accepts the current three-field signature shape without retired
   const directory = path.join(root, 'ldvh-base', 'sparks');
   await mkdir(directory, { recursive: true });
   try {
-    await writeFile(path.join(directory, 'spark-0003.yaml'), [
-      'object_id: spark-0003', 'fact_type_key: spark', 'title: Current signature',
-      'status: open', 'priority: P1', 'summary: Current observation', 'created_at: "2026-01-01"',
+    // 规范键形式 fact_type_key（20 §8：spark-fact-type）——与短名写法并存收。
+    await writeFile(path.join(directory, 'spark-0d5c3e2a-7b1f-4c8e-8f2a-9d4b6e8a1c3d.md'), [
+      '---',
+      'object_uid: 0d5c3e2a-7b1f-4c8e-8f2a-9d4b6e8a1c3d',
+      'fact_type_key: spark-fact-type',
+      'title: Current signature',
+      'status: open',
+      'created_at: "2026-01-01"',
+      'question: 当前署名形态是否可读？',
+      'scope_boundary: 只验证 change_log 成员形态。',
+      'intent: 署名兼容性回归。',
+      'summary: Current observation',
       'change_log:',
       '  - signature:', '      product_name: Cindy', '      model_name: gpt-5.6-luna', '      agent_runtime_name: codex-cli',
       '    at: "2026-01-01T00:00:00+08:00"', '    summary: Current entry',
+      '---',
+      '',
+      '# Current signature',
     ].join('\n'), 'utf8');
 
-    const detail = await readLocalFact('spark', 'spark-0003', scope);
+    const detail = await readLocalFact('spark', 'spark-0d5c3e2a-7b1f-4c8e-8f2a-9d4b6e8a1c3d', scope);
     assert.equal(detail.status, 'ok');
     if (detail.status === 'ok') {
       assert.equal(detail.item.read_status, 'readable');
+      assert.equal(detail.item.fact_object?.fact_type_key, 'spark-fact-type');
       assert.equal((detail.item.fact_object?.change_log as unknown[])?.length, 1);
       assert.deepEqual(detail.item.unparsed_structures, []);
     }
@@ -204,9 +239,17 @@ test('change_log accepts the canonical and legacy signature shapes', async () =>
   const directory = path.join(root, 'ldvh-base', 'sparks');
   await mkdir(directory, { recursive: true });
   try {
-    await writeFile(path.join(directory, 'spark-0002.yaml'), [
-      'object_id: spark-0002', 'fact_type_key: spark', 'title: Signature compatibility',
-      'status: open', 'summary: Current observation', 'created_at: "2026-01-01T00:00:00+08:00"',
+    await writeFile(path.join(directory, 'spark-6a1b2c3d-4e5f-4a6b-9c8d-7e6f5a4b3c2d.md'), [
+      '---',
+      'object_uid: 6a1b2c3d-4e5f-4a6b-9c8d-7e6f5a4b3c2d',
+      'fact_type_key: spark-fact-type',
+      'title: Signature compatibility',
+      'status: open',
+      'created_at: "2026-01-01T00:00:00+08:00"',
+      'question: 历史署名形态是否仍可读？',
+      'scope_boundary: 只验证 change_log 成员形态。',
+      'intent: 署名向后兼容。',
+      'summary: Current observation',
       'change_log:',
       '  - signature:', '      model_id: gpt-5', '      agent_workbench: Cindy',
       '    session_id: canonical-session', '    at: "2026-01-01T00:00:00+08:00"', '    summary: Canonical entry',
@@ -214,9 +257,12 @@ test('change_log accepts the canonical and legacy signature shapes', async () =>
       '    session_id: legacy-session', '    at: "2026-01-02T00:00:00+08:00"', '    summary: Legacy entry',
       '  - signature:', '      model_id: gpt-5', '      host_name: InterimHost',
       '    session_id: interim-session', '    at: "2026-01-03T00:00:00+08:00"', '    summary: Interim entry',
+      '---',
+      '',
+      '# Signature compatibility',
     ].join('\n'), 'utf8');
 
-    const detail = await readLocalFact('spark', 'spark-0002', scope);
+    const detail = await readLocalFact('spark', 'spark-6a1b2c3d-4e5f-4a6b-9c8d-7e6f5a4b3c2d', scope);
     assert.equal(detail.status, 'ok');
     if (detail.status === 'ok') {
       assert.equal(detail.item.read_status, 'readable');
@@ -234,15 +280,27 @@ test('change_log consumes the two-field signature contract and exposes incomplet
   const directory = path.join(root, 'ldvh-base', 'sparks');
   await mkdir(directory, { recursive: true });
   try {
-    await writeFile(path.join(directory, 'spark-0001.yaml'), [
-      'object_id: spark-0001', 'fact_type_key: spark', 'title: Trace contract', 'status: open', 'priority: P1',
-      'created_at: "2026-01-01"', 'summary: Read contract', 'change_log:',
+    await writeFile(path.join(directory, 'spark-9f8e7d6c-5b4a-4c3d-8e9f-0a1b2c3d4e5f.md'), [
+      '---',
+      'object_uid: 9f8e7d6c-5b4a-4c3d-8e9f-0a1b2c3d4e5f',
+      'fact_type_key: spark',
+      'title: Trace contract',
+      'status: open',
+      'created_at: "2026-01-01"',
+      'question: 未识别的署名形态是否暴露为未解析？',
+      'scope_boundary: 只验证 change_log 成员形态。',
+      'intent: 防止坏流水静默丢弃。',
+      'summary: Read contract',
+      'change_log:',
       '  - signature:', '      agent_id: codex', '      host_environment: Cindy',
       '    session_id: session-one', '    at: "2026-01-01T00:00:00+08:00"', '    summary: Created',
       '  - signature:', '      agent_id: codex', '      host_environment: Cindy', '      signer_type: ai-agent',
       '    session_id: session-two', '    at: "2026-01-02T00:00:00+08:00"', '    summary: Retired shape',
+      '---',
+      '',
+      '# Trace contract',
     ].join('\n'), 'utf8');
-    const detail = await readLocalFact('spark', 'spark-0001', scope);
+    const detail = await readLocalFact('spark', 'spark-9f8e7d6c-5b4a-4c3d-8e9f-0a1b2c3d4e5f', scope);
     assert.equal(detail.status, 'ok');
     if (detail.status === 'ok') {
       assert.equal((detail.item.fact_object?.change_log as unknown[])?.length, 2);

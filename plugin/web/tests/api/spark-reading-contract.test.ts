@@ -56,8 +56,29 @@ test('Spark terminal headings distinguish implemented and discarded with a legac
 
   assert.match(source, /obj\.status === 'implemented' \|\| obj\.status === 'discarded'/);
   assert.match(source, /getObjectStatusLocale\('spark', String\(obj\.status\), locale\)/);
-  assert.match(source, /labelKey: 'routing'/);
   assert.match(list, /tone=\{obj\.status === 'implemented' \? 'implemented' : 'retired'\}/);
   assert.match(badge, /objectType === 'spark' && status === 'discarded'/);
   assert.match(badge, /objectType === 'adr' && status === 'retired'/);
+});
+
+test('Spark reading layout parses fixed H2 body sections with frontmatter fallback', () => {
+  const source = fs.readFileSync(path.resolve('src/pages/object-detail/FactReadingLayouts.tsx'), 'utf8');
+
+  // 20 §8 正文固定 H2：当前理解/调查问题/调查边界/演变（保留意图无正文节）。
+  assert.match(source, /SPARK_BODY_SECTION_ORDER = \['当前理解', '调查问题', '调查边界', '演变'\]/);
+  assert.match(source, /function parseSparkBodySections/);
+  // 正文节优先、frontmatter 兜底（同 research「研究问题」的先例）。
+  assert.match(source, /proseFrom\('调查问题', obj\.question\)/);
+  assert.match(source, /proseFrom\('调查边界', obj\.scope_boundary\)/);
+  assert.match(source, /proseFrom\('当前理解', obj\.summary\)/);
+  // 节序跟随字段契约：question → scope_boundary → intent → summary。
+  assert.match(source, /getFieldLabel\('question', locale\)[\s\S]*?getFieldLabel\('scope_boundary', locale\)[\s\S]*?getFieldLabel\('intent', locale\)[\s\S]*?getFieldLabel\('current_understanding', locale\)/);
+  // 20 §8：终态去向由 disposition 承载（implemented/discarded 时必填，
+  // 缺失时如实标注，不以空占位代替判断）。spark 阅读面不再读 v4 的
+  // disposition_summary/updated_at（ADR/Pitfall 节点仍合法使用前者）。
+  assert.match(source, /obj\.disposition/);
+  assert.doesNotMatch(source, /obj\.disposition_summary/);
+  assert.doesNotMatch(source, /obj\.updated_at/);
+  // 演变：结构化流水优先，正文节兜底。
+  assert.match(source, /SparkEvolutionReadingNode/);
 });

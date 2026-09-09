@@ -97,7 +97,6 @@ export default function Federation() {
                           <p className="ldvh-caption-strong flex items-center gap-1.5"><Sparkles size={12} />{t('federation.sparkOpen')}</p>
                           <p className="mt-0.5 ldvh-stat-value">
                             {countText(project.sparkOpen)}
-                            {project.sparkP1 !== undefined && project.sparkP1 > 0 && <span className="ldvh-chip-sm ml-1.5 border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300">P1 × {project.sparkP1}</span>}
                           </p>
                         </div>
                         <div className="rounded-md border border-ldvh-border/60 bg-ldvh-bg/40 px-2.5 py-2">
@@ -143,11 +142,6 @@ export default function Federation() {
                   const color = projectColorVar(colorKey);
                   return (
                     <div key={`${spark.projectId}/${spark.objectId}`} className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-ldvh-border/60 bg-ldvh-bg/40 px-3 py-2">
-                      {spark.priority && (
-                        <span className="ldvh-chip-sm items-center border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300" aria-label={spark.priority}>
-                          {spark.priority}
-                        </span>
-                      )}
                       <span className="min-w-0 flex-1 truncate text-sm text-ldvh-text-primary">{spark.title}</span>
                       <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ldvh-border px-1.5 py-0.5" title={spark.projectId}>
                         <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />

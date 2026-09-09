@@ -23,7 +23,6 @@ export interface FederationProjectCard {
   color?: string
   isDefault: boolean
   sparkOpen?: number
-  sparkP1?: number
   activeWorkCases?: number
   pendingDecisions?: number
   lastActivityAt?: string
@@ -36,18 +35,11 @@ export interface FederationCrossSpark {
   color?: string
   objectId: string
   title: string
-  priority?: string
   updatedAt?: string
 }
 
 const PENDING_WORKCASE_PHASES = new Set(['human_plan_confirming', 'human_closure_confirming'])
 const CROSS_SPARK_LIMIT = 8
-const PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3']
-
-function priorityRank(priority: unknown): number {
-  const index = PRIORITY_ORDER.indexOf(String(priority ?? ''))
-  return index === -1 ? PRIORITY_ORDER.length : index
-}
 
 function itemsOf(result: unknown): { items: Array<Record<string, unknown>>; error?: string } {
   if (result && typeof result === 'object' && 'ok' in result && (result as { ok: boolean }).ok && 'data' in result) {
@@ -141,9 +133,9 @@ router.get('/overview', async (_req: Request, res: Response): Promise<void> => {
       }
       let openSparks: Array<Record<string, unknown>> = []
       if (!sparks.error) {
+        // 20 §8/§14.2：v5 Spark 无 priority 字段——联邦卡只投影 open 计数。
         openSparks = sparks.items.filter((item) => item.status === 'open')
         card.sparkOpen = openSparks.length
-        card.sparkP1 = openSparks.filter((item) => item.priority === 'P1').length
       }
       if (openSparks.length > 0) openSparksByProject.set(project.id, openSparks)
       if (!workCases.error) {
@@ -166,14 +158,9 @@ router.get('/overview', async (_req: Request, res: Response): Promise<void> => {
         ...(card.color ? { color: card.color } : {}),
         objectId: String(item.object_id ?? item.id ?? ''),
         title: String(item.title ?? ''),
-        priority: typeof item.priority === 'string' ? item.priority : undefined,
         updatedAt: typeof item.updated_at === 'string' ? item.updated_at : undefined,
       })))
-      .sort((a, b) => {
-        const byPriority = priorityRank(a.priority) - priorityRank(b.priority)
-        if (byPriority !== 0) return byPriority
-        return (a.updatedAt ?? '').localeCompare(b.updatedAt ?? '')
-      })
+      .sort((a, b) => (a.updatedAt ?? '').localeCompare(b.updatedAt ?? ''))
       .slice(0, CROSS_SPARK_LIMIT)
 
     res.json({ ok: true, generatedAt, defaultProjectId: settings.defaultProjectId, projects: cards, crossProjectSparks })

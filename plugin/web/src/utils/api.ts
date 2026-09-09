@@ -109,8 +109,14 @@ export interface ObjectItem {
   /** ADR-specific fields */
   decision?: string;
   consequences?: string;
-  /** Spark-specific */
+  /** Spark-specific（20 §8：v5 字段闭集） */
   evolution?: Array<Record<string, unknown>>;
+  question?: string;
+  scope_boundary?: string;
+  intent?: string;
+  serves_sg?: string;
+  /** 终态去向与理由（implemented/discarded 时必填） */
+  disposition?: string;
   /** Exact-read formal relation targets for every fact list card. */
   factAssociations?: FactCardAssociation[];
   /** Exact field-level source metadata. */
@@ -1091,7 +1097,6 @@ export interface FederationProjectCard {
   color?: string;
   isDefault: boolean;
   sparkOpen?: number;
-  sparkP1?: number;
   activeWorkCases?: number;
   pendingDecisions?: number;
   lastActivityAt?: string;
@@ -1104,7 +1109,6 @@ export interface FederationCrossSpark {
   color?: string;
   objectId: string;
   title: string;
-  priority?: string;
   updatedAt?: string;
 }
 

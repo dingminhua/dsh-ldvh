@@ -484,7 +484,7 @@ test('progressing cards show only goal and current situation facts', () => {
 test('list ordering supports updated and created time descending with a deterministic locator tiebreaker', () => {
   const list = source('src/pages/ObjectList.tsx');
   const start = list.indexOf('function sortObjectsForList');
-  const end = list.indexOf('function sparkViewItem', start);
+  const end = list.indexOf('export function ObjectCardFrame', start);
   const sorting = list.slice(start, end);
 
   assert.ok(start >= 0 && end > start);

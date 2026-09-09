@@ -30,7 +30,8 @@ export const META_KEYS = [
 
 export const COMMON_AUXILIARY_META_KEYS = ['priority'];
 export const AUXILIARY_META_KEYS_BY_TYPE: Record<string, string[]> = {
-  spark: ['priority'],
+  // 20 §8：serves_sg（SG-n 轻量锚点）在元信息行呈现；priority 已随 v5 移除。
+  spark: ['serves_sg'],
   pitfall: [],
 };
 
@@ -52,9 +53,12 @@ const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
     'resolution', 'avoidance', 'change_log', 'urls', 'relations',
     'disposition_summary',
   ],
+  // v5 Spark（20 号规范）：阅读布局按字段契约序消费（question → scope_boundary
+  // → intent → summary → 演变 → 终态 disposition），正文 report_body 由布局按
+  // H2 分节呈现——此处只做 ContentField 兜底排序。
   spark: [
-    'summary', 'evolution', 'change_log', 'urls', 'relations',
-    'disposition_summary',
+    'question', 'scope_boundary', 'intent', 'summary', 'evolution', 'report_body',
+    'change_log', 'relations', 'disposition',
   ],
   // v5 Research（24 号薄索引）：正文 report_body 由阅读布局按 H2 分节呈现，
   // 其余为 frontmatter 概览/三态/启发字段的兜底排序。

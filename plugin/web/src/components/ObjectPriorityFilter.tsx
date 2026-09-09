@@ -3,7 +3,8 @@ import type { FactCoverageStatus, ObjectStatusOption } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
 import PriorityIcon from '@/components/PriorityIcon';
 
-const SPARK_PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3'];
+// WorkCase 优先级档位（v4 字段，21 号定稿前保留；Spark 已按 20 号移除 priority）。
+const PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3'];
 
 interface ObjectPriorityFilterProps {
   activePriority: string | null;
@@ -26,13 +27,13 @@ export default function ObjectPriorityFilter({
 }: ObjectPriorityFilterProps) {
   const { t, locale } = useI18n();
   const counts = useMemo(() => new Map(options.map((option) => [option.status, option.count])), [options]);
-  const total = SPARK_PRIORITY_ORDER.reduce((sum, priority) => sum + (counts.get(priority) ?? 0), 0);
+  const total = PRIORITY_ORDER.reduce((sum, priority) => sum + (counts.get(priority) ?? 0), 0);
 
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5" aria-label={t('objectList.priorityFilter')}>
       <span className="ldvh-meta shrink-0 text-ldvh-text-secondary">{t('objectList.priorityFilter')}</span>
       <div className="ldvh-tab-list" role="group" aria-label={t('objectList.priorityFilter')}>
-        {SPARK_PRIORITY_ORDER.map((priority) => (
+        {PRIORITY_ORDER.map((priority) => (
           <button
             key={priority}
             type="button"

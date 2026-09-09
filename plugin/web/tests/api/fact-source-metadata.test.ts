@@ -93,9 +93,25 @@ test('UID-native object ids open through the exact-read detail path', async () =
   const objectUid = '019ffb52-ebb5-724c-881f-4f0f7d97038f';
   try {
     await mkdir(path.join(root, 'ldvh-base', 'sparks'), { recursive: true });
+    // v5 Spark 载体（20 §7）：.md + frontmatter + 正文；ULID 定位符与 UUID 形态
+    // 的文件名都在预期载体名闭集内。
     await writeFile(
-      path.join(root, 'ldvh-base', 'sparks', `${objectId}.yaml`),
-      `object_uid: ${objectUid}\nobject_id: ${objectId}\nfact_type_key: spark\ntitle: UID Spark\nstatus: open\n`,
+      path.join(root, 'ldvh-base', 'sparks', `${objectId}.md`),
+      [
+        '---',
+        `object_uid: ${objectUid}`,
+        'fact_type_key: spark-fact-type',
+        'title: UID Spark',
+        'status: open',
+        'question: ULID 定位符能否走精确回读？',
+        'scope_boundary: 只验证身份路径。',
+        'intent: UID 定位兼容性回归。',
+        'summary: UID-native 定位夹具。',
+        '---',
+        '',
+        '# UID Spark',
+        '',
+      ].join('\n'),
       'utf8',
     );
     const result = await showObject(objectId, scope);
@@ -184,9 +200,15 @@ test('fact list cards project every formal association through exact readable ta
       'utf8',
     );
     await writeFile(
-      path.join(root, 'ldvh-base', 'sparks', 'spark-0001.yaml'),
+      path.join(root, 'ldvh-base', 'sparks', 'spark-0001.md'),
       [
-        'object_id: spark-0001', 'fact_type_key: spark', 'title: Spark source', 'status: open', 'relations:',
+        '---',
+        'object_id: spark-0001', 'fact_type_key: spark', 'title: Spark source', 'status: open',
+        'question: 关联投影是否走精确可读目标？',
+        'scope_boundary: 只验证关联投影机械。',
+        'intent: 关联目标解析回归。',
+        'summary: Spark source',
+        'relations:',
         '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0001',
         '  - relation_key: informs', '    target:', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0001',
         '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: research', '      object_id: research-9999',
@@ -194,6 +216,9 @@ test('fact list cards project every formal association through exact readable ta
         '  - relation_key: related-to', '    target:', '      object_uid: 0198f1c7-8a2b-7c3d-9e4f-123456789abc', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0001',
         '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0001', '      copied_title: Bad target',
         '  - malformed relation',
+        '---',
+        '',
+        '# Spark source',
         '',
       ].join('\n'),
       'utf8',

@@ -85,13 +85,32 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     resolution: field('pitfall-resolution', 'string', true),
     avoidance: field('pitfall-avoidance', 'string', true),
   },
+  // v5 Spark（20 号规范）：悬置问题的字段闭集——question/scope_boundary/
+  // intent/summary 必填；evolution（{at, summary} 流水）/serves_sg（SG-n 轻
+  // 量锚点）/disposition（终态去向）条件出现；relations 仅 merged-into/
+  // split-into（§11）。本类型不设 urls（§10：悬置问题不直接接受外部证据，
+  // 由 11 号调研系统收集）与 priority（§14.2：v4 存量不迁入）——故不展开
+  // common 的 urls，也不用 v4 的 disposition_summary（终态去向由 disposition
+  // 承载）。正文四节（当前理解/调查问题/调查边界/演变）由 report_body 承载。
   spark: {
-    ...common,
-    intent: field('spark-intent', 'string', false),
+    object_uid: field('object-uid', 'string', false),
+    object_id: field('object-id', 'string', true),
+    fact_type_key: field('fact-type-key', 'string', true),
+    title: field('title', 'string', true),
+    status: field('status', 'string', true),
+    created_at: field('created-at', 'string', true),
+    change_log: field('change-log', 'array', false),
+    relations: field('relations', 'array', false),
+    question: field('spark-question', 'string', true),
+    scope_boundary: field('spark-scope-boundary', 'string', true),
+    intent: field('spark-intent', 'string', true),
     summary: field('current-summary', 'string', true),
-    priority: field('priority', 'string', false),
     evolution: field('evolution', 'array', false),
-    disposition_summary: field('disposition-summary', 'string', false),
+    serves_sg: field('spark-serves-sg', 'string', false),
+    disposition: field('spark-disposition', 'string', false),
+    // 正文承载（20 §8 固定 H2），由阅读布局按 H2 分节解析呈现；不登记会被
+    // 判为 unconsumed_field，且必须从列表投影排除。
+    report_body: field('spark-report-body', 'string', false),
   },
   // v5 Research（24 号规范薄索引）：frontmatter 字段面以调研对象为准——
   // research_question/research_purpose 必填，stopping_reason（闭集 sufficient/
@@ -118,15 +137,15 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
 }
 
 /**
- * List candidates never carry the Research Markdown body (24 §12 F1：卡片只投影
- * 最小权威字段，不投影发现单元与正文)。report_body 只属详情阅读面，
+ * List candidates never carry the Markdown body (Spark 20 §12 / Research 24 §12
+ * F1：卡片只投影最小权威字段，不投影正文)。report_body 只属详情阅读面，
  * 登记进 FACT_FIELD_CONTRACT 是让它不被判为 unconsumed_field（详情消费），
  * 但必须从列表投影中排除，否则列表会带上整篇正文。
  */
 export const FACT_LIST_FIELD_NAMES: Record<Exclude<FactType, 'workcase'>, readonly string[]> = {
   adr: Object.keys(FACT_FIELD_CONTRACT.adr),
   pitfall: Object.keys(FACT_FIELD_CONTRACT.pitfall),
-  spark: Object.keys(FACT_FIELD_CONTRACT.spark),
+  spark: Object.keys(FACT_FIELD_CONTRACT.spark).filter((field) => field !== 'report_body'),
   research: Object.keys(FACT_FIELD_CONTRACT.research).filter((field) => field !== 'report_body'),
 }
 

@@ -12,37 +12,57 @@ const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ldvh-commit-dto-wor
 const projectRoot = path.join(workspaceRoot, 'demo')
 fs.mkdirSync(projectRoot, { recursive: true })
 fs.mkdirSync(path.join(projectRoot, 'ldvh-base', 'sparks'), { recursive: true })
+// v5 Spark 载体（20 §7）：.md + frontmatter + 正文；无 priority（§14.2 不迁入）、
+// 无 urls（§10）——更新时间由 change_log[].at 承担（03 §6.1 无公共 updated_at）。
 fs.writeFileSync(
-  path.join(projectRoot, 'ldvh-base', 'sparks', 'spark-0001.yaml'),
+  path.join(projectRoot, 'ldvh-base', 'sparks', 'spark-0001.md'),
   [
+    '---',
     'title: Dashboard 时间字段回归',
     'status: open',
-    'priority: P2',
-    'source_refs:',
-    '- kind: repository-path',
-    '  locator: specs/08.md',
-    'summary: 固定 V4 updated_at 在 Dashboard 中的相对时间投影。',
+    'question: 列表更新时间是否取 change_log 末条 at？',
+    'scope_boundary: 只验证列表投影的时间排序。',
+    'intent: 固定列表时间字段回归。',
+    'summary: 固定 v5 change_log 承载的更新时间在 Dashboard 中的相对时间投影。',
     'object_id: spark-0001',
     'fact_type_key: spark',
     "created_at: '2026-07-20T08:00:00+08:00'",
-    "updated_at: '2026-07-20T08:00:00+08:00'",
+    'change_log:',
+    "  - at: '2026-07-20T08:00:00+08:00'",
+    '    summary: 创建夹具。',
+    '---',
+    '',
+    '# Dashboard 时间字段回归',
+    '',
+    '## 当前理解',
+    '',
+    '固定 v5 change_log 承载的更新时间在 Dashboard 中的相对时间投影。',
     '',
   ].join('\n'),
 )
 fs.writeFileSync(
-  path.join(projectRoot, 'ldvh-base', 'sparks', 'spark-0002.yaml'),
+  path.join(projectRoot, 'ldvh-base', 'sparks', 'spark-0002.md'),
   [
-    'title: Dashboard 优先级筛选回归',
+    '---',
+    'title: Dashboard 状态筛选回归',
     'status: open',
-    'priority: P1',
-    'source_refs:',
-    '- kind: repository-path',
-    '  locator: specs/08.md',
-    'summary: 固定 Spark 生命周期与优先级交集筛选。',
+    'question: 状态闭集三态在列表中是否正确计数？',
+    'scope_boundary: 只验证状态 tab 计数。',
+    'intent: 固定 Spark 生命周期筛选回归。',
+    'summary: 固定 Spark 生命周期筛选（v5 无优先级维度）。',
     'object_id: spark-0002',
     'fact_type_key: spark',
     "created_at: '2026-07-19T08:00:00+08:00'",
-    "updated_at: '2026-07-19T08:00:00+08:00'",
+    'change_log:',
+    "  - at: '2026-07-19T08:00:00+08:00'",
+    '    summary: 创建夹具。',
+    '---',
+    '',
+    '# Dashboard 状态筛选回归',
+    '',
+    '## 当前理解',
+    '',
+    '固定 Spark 生命周期筛选（v5 无优先级维度）。',
     '',
   ].join('\n'),
 )
@@ -269,21 +289,18 @@ test('preserves the shared commit DTO across current API consumers', async () =>
     { status: 'P3', count: 0 },
   ])
 
-  const prioritizedSparks = await getJson('/api/objects/spark?status=open&priority=P1') as {
+  // 20 §8/§14.2：v5 Spark 无 priority——状态闭集三态直接过滤，无优先级维度。
+  const openSparks = await getJson('/api/objects/spark?status=open') as {
     data: {
       items: Array<Record<string, unknown>>
       statusOptions: Array<{ status: string; count: number }>
-      priorityOptions: Array<{ status: string; count: number }>
+      priorityOptions?: Array<{ status: string; count: number }>
     }
   }
-  assert.deepEqual(prioritizedSparks.data.items.map((item) => item.object_id), ['spark-0002'])
-  assert.deepEqual(prioritizedSparks.data.priorityOptions, [
-    { status: 'P0', count: 0 },
-    { status: 'P1', count: 1 },
-    { status: 'P2', count: 1 },
-    { status: 'P3', count: 0 },
-  ])
-  assert.ok(prioritizedSparks.data.statusOptions.some((option) => option.status === 'open' && option.count === 2))
+  // 更新时间降序（change_log 末条 at 承担）：spark-0001（07-20）先于 spark-0002（07-19）。
+  assert.deepEqual(openSparks.data.items.map((item) => item.object_id), ['spark-0001', 'spark-0002'])
+  assert.equal(openSparks.data.priorityOptions, undefined)
+  assert.ok(openSparks.data.statusOptions.some((option) => option.status === 'open' && option.count === 2))
 
   const reviewWorkcases = await getJson('/api/objects/workcase?progress=progressing') as {
     data: { items: Array<Record<string, unknown>> }

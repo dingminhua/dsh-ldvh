@@ -83,7 +83,8 @@ test('Research keeps the YAML source node with display-time ordering; the implic
   // 24 §7 规范阅读序排序（yaml_source 原文解析后重排，不注入不过滤）；
   // 被移除的是「启发」节点（frontmatter implications 的解释性呈现）——机器
   // 索引不在 web 解析呈现，机器索引原文只在 YAML 源节点以原文形式出现。
-  assert.match(detail, /\(carrier === 'yaml' \|\| objType === 'research'\) && \(/);
+  // v5 markdown 载体类型（research/spark，20 §7 / 24 §7）均呈现该节点。
+  assert.match(detail, /\(carrier === 'yaml' \|\| objType === 'research' \|\| objType === 'spark'\) && \(/);
   assert.match(detail, /<YamlDataNode/);
   assert.match(detail, /sortedResearchFrontmatterYaml/);
   assert.match(factReadMeta, /RESEARCH_FRONTMATTER_DISPLAY_ORDER/);

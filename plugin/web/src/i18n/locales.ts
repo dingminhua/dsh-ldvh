@@ -44,8 +44,6 @@ export const STATUS_LOCALES: Record<string, { zh: string; en: string }> = {
   open: { zh: '未关闭', en: 'Open' },
   routed: { zh: '已分流', en: 'Routed' },
   implemented: { zh: '已关闭', en: 'Implemented' },
-  settled: { zh: '已落实', en: 'Settled' },
-  unclosed: { zh: '未闭环', en: 'Unclosed' },
   degraded: { zh: '受限', en: 'Limited' },
   needs_human_gate: { zh: '需确认', en: 'Needs Gate' },
   pass: { zh: '通过', en: 'Pass' },
@@ -74,9 +72,11 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     retired: { zh: '已废弃', en: 'Retired' },
   },
   spark: {
-    open: { zh: '待处理', en: 'Pending' },
-    settled: { zh: '已落实', en: 'Settled' },
-    unclosed: { zh: '未闭环', en: 'Unclosed' },
+    // 20 §9 状态闭集：open（悬置中）/ implemented（落实或交接，只结束入口
+    // 职责，不代表下游完成）/ discarded（废弃或被合并/拆分）。
+    open: { zh: '悬置中', en: 'Suspended' },
+    implemented: { zh: '已落实', en: 'Implemented' },
+    discarded: { zh: '已废弃', en: 'Discarded' },
   },
   pitfall: {
     draft: { zh: '待确认', en: 'Pending confirmation' },
@@ -99,7 +99,7 @@ export const TYPE_DESCRIPTION_LOCALES: Record<string, { zh: string; en: string }
   workcase: { zh: '需要持续保存当前计划、推进状态、质量关口与关闭判断的工作责任', en: 'A work responsibility that preserves its current plan, progress, quality gates, and closure decision' },
   adr: { zh: '决策记录', en: 'Architecture Decision Record' },
   pitfall: { zh: '可复用经验', en: 'Reusable pitfalls' },
-  spark: { zh: '待分流的火花', en: 'Spark pending routing' },
+  spark: { zh: '悬置问题——尚未形成确定承接位置的信息需求、发现、问题或缺口（20 §5）', en: 'A suspended question: an information need, finding, problem, or gap without a definitive carrying position yet' },
   research: { zh: '调研', en: 'Research' },
   change: { zh: '提交', en: 'Commit' },
 };
@@ -185,14 +185,20 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   relation_contributed_to: { zh: '贡献了', en: 'Contributed To' },
   relation_informs: { zh: '提供参考', en: 'Informs' },
   relation_inspired_by: { zh: '受启发于', en: 'Inspired By' },
+  // 20 §11：Spark 关系闭集仅合并/拆分两键（目标必须可解析且为 open）。
+  relation_merged_into: { zh: '合并入', en: 'Merged Into' },
+  relation_split_into: { zh: '拆分为', en: 'Split Into' },
   user_intent: { zh: '用户意图', en: 'User Intent' },
-  intent: { zh: '意图', en: 'Intent' },
+  // 20 §8：intent = 保留理由与后续方向（为什么值得保留 + 后续判断方向）。
+  intent: { zh: '保留意图', en: 'Intent' },
   description: { zh: '描述', en: 'Description' },
   evolution: { zh: '演变记录', en: 'Evolution' },
   change_log: { zh: '修改流水', en: 'Change Log' },
   routing: { zh: '分流', en: 'Routing' },
   trigger_signal: { zh: '触发信号', en: 'Trigger Signal' },
   disposition_summary: { zh: '处置', en: 'Disposition' },
+  // 20 §8：Spark 终态去向与理由（implemented/discarded 时必填）。
+  disposition: { zh: '去向', en: 'Disposition' },
   termination: { zh: '终止善后', en: 'Termination Cleanup' },
   initiated_at: { zh: '中止发起时间', en: 'Termination Initiated At' },
   source_status: { zh: '起始状态', en: 'Source Status' },
@@ -227,6 +233,12 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   blob_oid: { zh: 'Blob OID', en: 'Blob OID' },
   research_question: { zh: '研究问题', en: 'Research Question' },
   research_purpose: { zh: '调研目的', en: 'Research Purpose' },
+  // 20 §8：Spark 悬置问题字段——question（单句待答）/scope_boundary（何时停止）/
+  // serves_sg（goal.md 子目标锚点）/current_understanding（summary 正文节的展示名）。
+  question: { zh: '调查问题', en: 'Question' },
+  scope_boundary: { zh: '调查边界', en: 'Investigation Boundary' },
+  serves_sg: { zh: '服务子目标', en: 'Serves Sub-goal' },
+  current_understanding: { zh: '当前理解', en: 'Current Understanding' },
   stopping_reason: { zh: '停止原因', en: 'Stopping Reason' },
   confirmed_statements: { zh: '已证实声明', en: 'Confirmed Statements' },
   uncertain: { zh: '未证实', en: 'Uncertain' },
@@ -616,8 +628,6 @@ export const STATUS_HINT_LOCALES: Record<string, { zh: string; en: string }> = {
   pending: { zh: '待分流处理', en: 'Pending routing' },
   proposed: { zh: '提案中', en: 'Proposed' },
   closed: { zh: '已关闭', en: 'Closed' },
-  settled: { zh: '已落实，无待处理关联', en: 'Settled, no open associations' },
-  unclosed: { zh: '已关闭，但关联对象仍处于活动状态', en: 'Closed, but associated objects are still active' },
 };
 
 export function getStatusHint(status: string, locale: string): string {
@@ -631,6 +641,25 @@ export function getObjectStatusHint(type: string, status: string, locale: string
     return locale === 'en'
       ? 'Current effective decision'
       : '当前有效决策';
+  }
+  // 20 §1/§9：implemented 只结束 Spark 入口职责，不代表下游完成——终态语义
+  // 在提示层显式限定，防「交了就当完成」的自欺。
+  if (type === 'spark') {
+    if (status === 'open') {
+      return locale === 'en'
+        ? 'Still suspended: pending recall, judgement, split, or routing'
+        : '仍在悬置：尚待召回、判断、拆分或分流';
+    }
+    if (status === 'implemented') {
+      return locale === 'en'
+        ? 'Fulfilled or handed over; only closes this entry, not downstream work'
+        : '已落实或已交接——只结束本入口职责，不代表下游完成';
+    }
+    if (status === 'discarded') {
+      return locale === 'en'
+        ? 'No longer tracked, or merged/split into other sparks'
+        : '不再跟踪，或已被合并/拆分到其他火花';
+    }
   }
   return getStatusHint(status, locale);
 }

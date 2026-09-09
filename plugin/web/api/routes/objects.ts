@@ -12,10 +12,6 @@ import {
   isResolvedWorkCasePresentationProjection,
   isWorkCaseProgressGroup,
 } from '../../shared/workcaseStatus.ts'
-import {
-  getSparkImplementedPresentationStatus,
-  isSparkPresentationStatus,
-} from '../../shared/sparkImplementationStatus.ts'
 import { getLatestChangeLogAt } from '../../shared/factChangeLog.js'
 
 const router = Router()
@@ -51,7 +47,9 @@ function getWorkCaseListGroup(item: ListedObject): WorkCaseListGroup | undefined
   return item.progress_group === 'termination_cleanup' ? 'closed' : item.progress_group as WorkCaseListGroup
 }
 
-const SPARK_PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3']
+// WorkCase 列表优先级档位（v4 字段，21 号 WorkCase 规范定稿前保留；
+// Spark 已按 20 §8/§14.2 移除 priority——v5 火花无此字段）。
+const PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3']
 
 const STATUS_PRIORITY: Record<string, number> = {
   draft: 8,
@@ -89,7 +87,10 @@ function normalizeItem(value: unknown): ListedObject | null {
   const v4Object = typeof value.object_id === 'string' && typeof value.fact_type_key === 'string'
   const id = toStringValue(value.object_id) || toStringValue(value.id)
   if (!id) return null
-  const type = toStringValue(value.fact_type_key) || toStringValue(value.type)
+  // fact_type_key 载体值归一：规范键形式（20 §8 spark-fact-type）映射到短类型名，
+  // 保证类型路由/配色/过滤在两种写法下一致（规范族写法待对齐，原值见 yaml_source）。
+  const rawType = toStringValue(value.fact_type_key) || toStringValue(value.type)
+  const type = rawType.replace(/-fact-type$/, '')
   const status = toStringValue(value.status)
   const progressProjection = type === 'workcase' && isResolvedWorkCasePresentationProjection(value.current_snapshot_projection)
     ? value.current_snapshot_projection
@@ -131,11 +132,6 @@ function getResultItems(result: unknown): ListedObject[] {
     .filter((item): item is ListedObject => Boolean(item))
 }
 
-function getRawItems(result: unknown): Array<Record<string, unknown>> {
-  if (!isRecord(result) || !isRecord(result.data) || !Array.isArray(result.data.items)) return []
-  return result.data.items.filter(isRecord)
-}
-
 function countByStatus(items: Array<{ status: string }>): Record<string, number> {
   return items.reduce<Record<string, number>>((counts, item) => {
     counts[item.status] = (counts[item.status] ?? 0) + 1
@@ -164,30 +160,8 @@ function getStatusOptions(items: ListedObject[]): StatusOption[] {
     })
 }
 
-/** For Spark lists, replace the single `implemented` bucket with two
- *  presentation-level buckets (`settled` / `unclosed`) derived from each
- *  item's factAssociations. The raw status remains `implemented`. */
-function getSparkStatusOptions(items: ListedObject[]): StatusOption[] {
-  const counts = new Map<string, number>()
-  for (const item of items) {
-    let key = item.status
-    if (item.status === 'implemented') {
-      key = getSparkImplementedPresentationStatus(
-        item.factAssociations as Parameters<typeof getSparkImplementedPresentationStatus>[0],
-      )
-    }
-    counts.set(key, (counts.get(key) ?? 0) + 1)
-  }
-  const priority: Record<string, number> = { open: 11, settled: 22, unclosed: 23, discarded: 24 }
-  return [...counts.entries()]
-    .map(([status, count]) => ({ status, count }))
-    .sort((a, b) => {
-      const statusDelta = (priority[a.status] ?? 50) - (priority[b.status] ?? 50)
-      if (statusDelta !== 0) return statusDelta
-      if (a.count !== b.count) return b.count - a.count
-      return a.status.localeCompare(b.status)
-    })
-}
+/** v4 遗留的 settled/unclosed 展示拆桶已随 20 号规范移除：Spark 状态闭集
+ *  open/implemented/discarded 直接呈现（§9），不再从关联推导展示态。 */
 
 function getPriorityOptions(items: ListedObject[]): StatusOption[] {
   const counts = countByStatus(
@@ -195,7 +169,7 @@ function getPriorityOptions(items: ListedObject[]): StatusOption[] {
       .filter((item) => typeof item.priority === 'string')
       .map((item) => ({ status: item.priority as string })),
   )
-  return SPARK_PRIORITY_ORDER.map((status) => ({ status, count: counts[status] ?? 0 }))
+  return PRIORITY_ORDER.map((status) => ({ status, count: counts[status] ?? 0 }))
 }
 
 function getWorkCaseProgressOptions(items: ListedObject[]): ProgressOption[] {
@@ -207,25 +181,6 @@ function getWorkCaseProgressOptions(items: ListedObject[]): ProgressOption[] {
   }
   return [...WORKCASE_PROGRESS_GROUP_ORDER.filter((group) => group !== 'termination_cleanup'), 'discarded']
     .map((group) => ({ group, count: counts.get(group) ?? 0 }))
-}
-
-function matchesSparkListFilter(item: ListedObject, status?: string, priority?: string): boolean {
-  let statusMatch: boolean
-  if (!status) {
-    statusMatch = true
-  } else if (isSparkPresentationStatus(status)) {
-    if (item.status !== 'implemented') {
-      statusMatch = false
-    } else {
-      const presentation = getSparkImplementedPresentationStatus(
-        item.factAssociations as Parameters<typeof getSparkImplementedPresentationStatus>[0],
-      )
-      statusMatch = presentation === status
-    }
-  } else {
-    statusMatch = item.status === status
-  }
-  return statusMatch && (!priority || item.priority === priority)
 }
 
 async function listObjectSummaries(type: ObjectType, scope: LocalFactScope): Promise<ListedObject[]> {
@@ -257,7 +212,7 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
     res.status(400).json({ ok: false, error: `Invalid WorkCase progress group: ${progress}` })
     return
   }
-  const priority = (type === 'spark' || type === 'workcase') && typeof req.query.priority === 'string'
+  const priority = type === 'workcase' && typeof req.query.priority === 'string'
     ? req.query.priority
     : undefined
   let factScope
@@ -270,55 +225,42 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
     }
     throw scopeError
   }
-  const result = await listObjects(type, undefined, type === 'workcase' || type === 'spark' ? undefined : status, factScope)
+  // v5 Spark 与通用类型同路径：状态闭集（open/implemented/discarded，20 §9）
+  // 直接下推过滤；WorkCase 保持 progress/priority 组内过滤。
+  const result = await listObjects(type, undefined, type === 'workcase' ? undefined : status, factScope)
 
   if (!result.ok) {
     res.status(typeof result.exitCode === 'string' ? 503 : 500).json(result)
     return
   }
 
-  const rawItems = getRawItems(result)
   const allItems = getResultItems(result)
   const items = type === 'workcase'
     ? allItems.filter((item) => (
       !progress || getWorkCaseListGroup(item) === progress
     ) && (!priority || item.priority === priority))
-    : type === 'spark'
-      ? allItems.filter((item) => matchesSparkListFilter(item, status, priority))
-      : allItems
+    : allItems
   if (isRecord(result.data)) {
-    const statusItems = type === 'workcase' || type === 'spark'
+    const statusItems = type === 'workcase'
       ? allItems
       : status ? await listObjectSummaries(type, factScope) : items
     if (type === 'workcase') {
       result.data.progressOptions = getWorkCaseProgressOptions(allItems)
-    } else if (type === 'spark') {
-      result.data.statusOptions = getSparkStatusOptions(statusItems)
     } else {
       result.data.statusOptions = getStatusOptions(statusItems)
     }
     result.data.statusTotal = statusItems.length
-    if (type === 'spark' || type === 'workcase') {
+    if (type === 'workcase') {
       // Priority counts reflect the current status/progress filter (not
       // priority itself), so the tab numbers stay consistent with the list.
-      const priorityGroupItems = type === 'workcase'
-        ? progress
-          ? allItems.filter((item) => getWorkCaseListGroup(item) === progress)
-          : allItems
-        : type === 'spark' && status
-          ? allItems.filter((item) => matchesSparkListFilter(item, status))
-          : allItems
+      const priorityGroupItems = progress
+        ? allItems.filter((item) => getWorkCaseListGroup(item) === progress)
+        : allItems
       result.data.priorityOptions = getPriorityOptions(priorityGroupItems)
     }
   }
   if (isRecord(result.data)) {
-    result.data.items = type === 'spark'
-      ? rawItems
-        .map(normalizeItem)
-        .filter((item): item is ListedObject => Boolean(item))
-        .filter((item) => matchesSparkListFilter(item, status, priority))
-        .sort(compareByUpdatedDesc)
-      : sortByUpdatedDesc(items)
+    result.data.items = sortByUpdatedDesc(items)
   }
 
   res.json(result)

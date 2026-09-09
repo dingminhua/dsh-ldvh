@@ -319,10 +319,11 @@ export function FactReadingContent({
 
       {/* YAML 源节点（Human 2026-09-09 三次定案，截图红框标注要显示的区块）：
           research 展示时按 24 §7 规范阅读序排序（内容保真——以原文解析的真实
-          字段为界，不注入不过滤）；yaml 载体（v4 归档）原文直显。frontmatter
-          机器索引的解释性呈现（启发节点）已按 Human 划线标注移除——机器索引
-          只在此节点以原文形式呈现，不再被 web 解析渲染。 */}
-      {(carrier === 'yaml' || objType === 'research') && (
+          字段为界，不注入不过滤）；v5 markdown 载体类型（spark/research）与
+          yaml 载体（v4 归档）原文直显。frontmatter 机器索引的解释性呈现（启发
+          节点）已按 Human 划线标注移除——机器索引只在此节点以原文形式呈现，
+          不再被 web 解析渲染。 */}
+      {(carrier === 'yaml' || objType === 'research' || objType === 'spark') && (
         <YamlDataNode
           yamlSource={objType === 'research'
             ? sortedResearchFrontmatterYaml(obj.yaml_source) ?? reconstructFactYaml(obj)

@@ -11,7 +11,9 @@ import { FACT_FIELD_CONTRACT, FACT_LIST_FIELD_NAMES, FACT_TERMINAL_STATUSES, FAC
 // 不提供 v4 档的"统一字段登记表 + 类型绑定"1:1 对账基准。
 
 const FIELD_EXPECTATIONS = new Set(['string', 'number', 'array', 'object']);
-// 所有五类型共有的公共字段（03 §6.1：无公共 updated_at，变更由 change_log[].at 承担）。
+// 所有类型共有的公共字段（03 §6.1：无公共 updated_at，变更由 change_log[].at 承担）。
+// 例外：spark 不携带 urls（20 §10：悬置问题不直接接受外部证据，由 11 号调研
+// 系统收集）——公共面按类型声明豁免，不做静默宽放。
 const COMMON_FIELDS = [
   'object_uid',
   'object_id',
@@ -23,13 +25,18 @@ const COMMON_FIELDS = [
   'urls',
   'relations',
 ] as const;
+const COMMON_FIELD_EXEMPTIONS: Record<string, readonly string[]> = {
+  spark: ['urls'],
+};
 
 // 每类型固定的必填面：这些字段被当前阅读面无条件消费。
 const TYPE_REQUIRED_FIELDS: Record<string, readonly string[]> = {
   workcase: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'goal', 'scope', 'success_criterion_definitions'],
   adr: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'decision_question', 'decision', 'applicability', 'trigger_signal', 'rationale', 'consequences'],
   pitfall: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'scope_of_impact', 'applicability', 'validation_summary', 'symptoms', 'trigger_conditions', 'root_cause', 'resolution', 'avoidance'],
-  spark: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'summary'],
+  // 20 §8：question/scope_boundary/intent/summary 必填（evolution/serves_sg/
+  // disposition/relations 条件出现）。
+  spark: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'question', 'scope_boundary', 'intent', 'summary'],
   research: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'research_question', 'research_purpose'],
 };
 
@@ -48,8 +55,10 @@ test('field contract is internally consistent for every fact type', () => {
       assert.equal(typeof entry.required, 'boolean', `${type}.${path} required 必须是布尔`);
     }
 
-    // 每个类型都必须携带全部公共字段；除此之外的类型专属字段与恐慌面不重叠。
+    // 每个类型都必须携带全部公共字段（豁免清单除外）。
+    const exempted = COMMON_FIELD_EXEMPTIONS[type] ?? [];
     for (const common of COMMON_FIELDS) {
+      if (exempted.includes(common)) continue;
       assert.ok(common in contract, `${type} 必须携带公共字段 ${common}`);
     }
 
@@ -69,6 +78,26 @@ test('research keeps report_body only in detail, never in list projection', () =
   assert.ok(FACT_LIST_FIELD_NAMES.research.includes('research_question'));
 });
 
+test('spark carries the 20-spec field closure without v4 leftovers', () => {
+  // v4 遗留字段不进 v5 闭集：priority 不迁入（20 §14.2）、无 urls（§10）、
+  // 终态去向由 disposition 承载而非 disposition_summary（§8）。
+  assert.ok(!('priority' in FACT_FIELD_CONTRACT.spark), 'spark 不应登记 priority');
+  assert.ok(!('urls' in FACT_FIELD_CONTRACT.spark), 'spark 不应登记 urls');
+  assert.ok(!('disposition_summary' in FACT_FIELD_CONTRACT.spark), 'spark 不应登记 disposition_summary');
+
+  // 20 §8 类型字段：serves_sg（SG-n 轻量锚点）/disposition（终态去向）条件出现。
+  assert.equal(FACT_FIELD_CONTRACT.spark.serves_sg.expected, 'string');
+  assert.equal(FACT_FIELD_CONTRACT.spark.serves_sg.required, false);
+  assert.equal(FACT_FIELD_CONTRACT.spark.disposition.expected, 'string');
+  assert.equal(FACT_FIELD_CONTRACT.spark.disposition.required, false);
+  assert.equal(FACT_FIELD_CONTRACT.spark.evolution.expected, 'array');
+
+  // 正文 report_body 只在详情阅读，不复制进列表投影（同 research）。
+  assert.ok(!FACT_LIST_FIELD_NAMES.spark.includes('report_body'));
+  assert.ok(FACT_LIST_FIELD_NAMES.spark.includes('question'));
+  assert.ok(FACT_LIST_FIELD_NAMES.spark.includes('serves_sg'));
+});
+
 test('list candidates are a declared subset of each type contract', () => {
   for (const type of ['adr', 'pitfall', 'spark', 'research'] as const) {
     const names = FACT_LIST_FIELD_NAMES[type];
@@ -83,9 +112,11 @@ test('terminal status closures are non-empty and cover each lifecycle', () => {
     assert.ok(terminals.length > 0, `${type} 终态闭集不能为空`);
     assert.equal(new Set(terminals).size, terminals.length, `${type} 终态闭集不应有重复`);
   }
-  // 五类型的终态语义：workcase 关闭、决策退休、经验废弃、火花实现/废弃、调研退休。
+  // 各类型的终态语义：workcase 关闭、决策退休、经验废弃、火花落实/废弃（20 §9
+  // 状态闭集 open/implemented/discarded，implemented 与 discarded 均为终态）、调研退休。
   assert.deepEqual(FACT_TERMINAL_STATUSES.workcase, ['closed']);
   assert.deepEqual(FACT_TERMINAL_STATUSES.adr, ['retired']);
   assert.deepEqual(FACT_TERMINAL_STATUSES.pitfall, ['discarded']);
+  assert.deepEqual(FACT_TERMINAL_STATUSES.spark, ['implemented', 'discarded']);
   assert.deepEqual(FACT_TERMINAL_STATUSES.research, ['retired']);
 });

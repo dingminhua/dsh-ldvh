@@ -277,18 +277,42 @@ export function PitfallTextNodeContent({ value }: { value: unknown }) {
   );
 }
 
-const SPARK_READING_NODES: Array<{
-  field: string;
-  labelKey?: string;
-  kind: 'intent' | 'summary' | 'evolution' | 'terminal';
-}> = [
-  { field: 'intent', kind: 'intent' },
-  { field: 'summary', labelKey: 'current_summary', kind: 'summary' },
-  { field: 'evolution', kind: 'evolution' },
-  { field: 'terminal', labelKey: 'routing', kind: 'terminal' },
-];
+/** 20 号规范 §8 的正文固定 H2（「保留意图」无正文节，frontmatter 专属）。 */
+const SPARK_BODY_SECTION_ORDER = ['当前理解', '调查问题', '调查边界', '演变'] as const;
+
+type SparkBodySection = { title: string; body: string };
+
+/** 正文按固定 H2 分节（前端解析，跟随 research 的 parseResearchBodySections 先例）。 */
+function parseSparkBodySections(body: string): SparkBodySection[] {
+  const lines = body.split('\n');
+  const sections: Array<{ title: string; body: string[] }> = [];
+  let current: { title: string; body: string[] } | null = null;
+  for (const line of lines) {
+    const heading = line.match(/^##\s+(.+?)\s*$/);
+    if (heading) {
+      current = { title: heading[1].trim(), body: [] };
+      sections.push(current);
+      continue;
+    }
+    current?.body.push(line);
+  }
+  return sections
+    .map((section) => ({ title: section.title, body: section.body.join('\n').trim() }))
+    .filter((section) => section.body.length > 0 && section.title.length > 0)
+    .sort((a, b) => {
+      const aIndex = SPARK_BODY_SECTION_ORDER.indexOf(a.title as (typeof SPARK_BODY_SECTION_ORDER)[number]);
+      const bIndex = SPARK_BODY_SECTION_ORDER.indexOf(b.title as (typeof SPARK_BODY_SECTION_ORDER)[number]);
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return 0;
+    });
+}
+
 type SparkEvolutionEntry = { key: string; at: string; summary: string };
 
+/** v5 Spark 阅读布局（20 §8）：正文固定 H2 分节优先、frontmatter 字段兜底，
+ * 节序跟随字段契约（question → scope_boundary → intent → summary → 演变 → 终态）。 */
 export function SparkReadingLayout({
   obj,
   locale,
@@ -296,18 +320,31 @@ export function SparkReadingLayout({
   obj: Record<string, unknown>;
   locale: string;
 }) {
+  const bodySections = parseSparkBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
+  const sectionOf = (title: string) => bodySections.find((section) => section.title === title);
+  // 20 §8：正文是 question/scope_boundary/summary 的自然语言承载——正文节
+  // 优先，缺失时以 frontmatter 字段兜底（同 research「研究问题」的先例）。
+  const proseFrom = (sectionTitle: string, fieldValue: unknown): string => {
+    const body = sectionOf(sectionTitle)?.body;
+    if (body) return body;
+    return typeof fieldValue === 'string' && fieldValue.trim() ? fieldValue.trim() : '';
+  };
+
+  const question = proseFrom('调查问题', obj.question);
+  const boundary = proseFrom('调查边界', obj.scope_boundary);
+  const intent = typeof obj.intent === 'string' && obj.intent.trim() ? obj.intent.trim() : '';
+  const understanding = proseFrom('当前理解', obj.summary);
+  const evolutionEntries = Array.isArray(obj.evolution) && obj.evolution.length > 0 ? obj.evolution : null;
+  const evolutionProse = evolutionEntries === null ? sectionOf('演变')?.body ?? '' : '';
+
   return (
     <div className="mb-6 flex flex-col gap-5">
-      {SPARK_READING_NODES.map((node) => (
-        <SparkReadingNode
-          key={node.field}
-          title={getSparkReadingNodeTitle(node, obj, locale)}
-          obj={obj}
-          locale={locale}
-          kind={node.kind}
-          issue={fieldIssue(obj, node.field)}
-        />
-      ))}
+      <SparkProseNode title={getFieldLabel('question', locale)} value={question} locale={locale} issue={fieldIssue(obj, 'question')} />
+      <SparkProseNode title={getFieldLabel('scope_boundary', locale)} value={boundary} locale={locale} issue={fieldIssue(obj, 'scope_boundary')} />
+      <SparkProseNode title={getFieldLabel('intent', locale)} value={intent} locale={locale} issue={fieldIssue(obj, 'intent')} />
+      <SparkProseNode title={getFieldLabel('current_understanding', locale)} value={understanding} locale={locale} issue={fieldIssue(obj, 'summary')} />
+      <SparkEvolutionReadingNode entries={evolutionEntries} prose={evolutionProse} locale={locale} issue={fieldIssue(obj, 'evolution')} />
+      <SparkTerminalReadingNode obj={obj} locale={locale} />
       <FactAssociationsSection
         obj={obj}
         locale={locale}
@@ -323,42 +360,19 @@ export function SparkReadingLayout({
   );
 }
 
-function getSparkReadingNodeTitle(
-  node: (typeof SPARK_READING_NODES)[number],
-  obj: Record<string, unknown>,
-  locale: string,
-) {
-  if (node.kind === 'terminal') {
-    if (obj.status === 'implemented' || obj.status === 'discarded') {
-      return getObjectStatusLocale('spark', String(obj.status), locale);
-    }
-  }
-  return getFieldLabel(node.labelKey ?? node.field, locale);
-}
-
-function SparkReadingNode({
+function SparkProseNode({
   title,
-  obj,
+  value,
   locale,
-  kind,
   issue,
 }: {
   title: string;
-  obj: Record<string, unknown>;
+  value: string;
   locale: string;
-  kind: 'intent' | 'summary' | 'evolution' | 'terminal';
   issue?: FieldPresentationIssue;
 }) {
   const [state, setState] = useState<ReadingNodeState>('expanded');
-  const hasContent = kind === 'intent'
-    ? hasDetailContent(obj.intent)
-    : kind === 'summary'
-    ? hasDetailContent(obj.summary)
-    : kind === 'evolution'
-      ? hasDetailContent(obj.evolution)
-      : hasSparkTerminalContent(obj);
-
-  if (!hasContent && !issue) return null;
+  if (!value && !issue) return null;
 
   return (
     <ReadingNodeSection
@@ -367,22 +381,41 @@ function SparkReadingNode({
       locale={locale}
       onToggle={() => setState((current) => getReadingNodeNextState(current))}
     >
-      {issue ? <FieldProblem issue={issue} /> : <>
-      {kind === 'intent' && <ResearchTextNodeContent value={obj.intent} className="ldvh-spark-reading-prose" />}
-      {kind === 'summary' && <SparkSummaryNode value={obj.summary} />}
-      {kind === 'evolution' && <SparkEvolutionNode value={obj.evolution} />}
-      {kind === 'terminal' && <SparkTerminalNode obj={obj} />}
-      </>}
+      {issue ? <FieldProblem issue={issue} /> : (
+        <ResearchTextNodeContent value={value} className="ldvh-spark-reading-prose" />
+      )}
     </ReadingNodeSection>
   );
 }
 
-function SparkSummaryNode({ value }: { value: unknown }) {
+function SparkEvolutionReadingNode({
+  entries,
+  prose,
+  locale,
+  issue,
+}: {
+  entries: unknown[] | null;
+  prose: string;
+  locale: string;
+  issue?: FieldPresentationIssue;
+}) {
+  const [state, setState] = useState<ReadingNodeState>('expanded');
+  // 20 §8：evolution 是 {at, summary} 结构化流水（关键转折，上限 20 项）；
+  // 正文「演变」节是其行文承载，frontmatter 缺失时兜底。
+  const hasContent = (entries !== null && entries.length > 0) || prose.length > 0;
+  if (!hasContent && !issue) return null;
+
   return (
-    <ResearchTextNodeContent
-      value={value}
-      className="ldvh-spark-reading-prose"
-    />
+    <ReadingNodeSection
+      title={getFieldLabel('evolution', locale)}
+      state={state}
+      locale={locale}
+      onToggle={() => setState((current) => getReadingNodeNextState(current))}
+    >
+      {issue ? <FieldProblem issue={issue} /> : entries !== null
+        ? <SparkEvolutionNode value={entries} />
+        : <ResearchTextNodeContent value={prose} className="ldvh-spark-reading-prose" />}
+    </ReadingNodeSection>
   );
 }
 
@@ -433,38 +466,31 @@ function SparkEvolutionTime({ value }: { value: string }) {
   );
 }
 
-function SparkTerminalNode({ obj }: { obj: Record<string, unknown> }) {
-  const updatedAt = typeof obj.updated_at === 'string' && obj.updated_at.trim().length > 0 ? obj.updated_at : null;
-  const disposition = typeof obj.disposition_summary === 'string' && obj.disposition_summary.trim().length > 0
-    ? obj.disposition_summary
+/** 20 §8/§9：disposition ⇔ 终态。终态节标题用状态语义（implemented ≠ 下游
+ * 完成）；异常残留在 open 的 disposition 以字段名兜底呈现，不吞掉异常数据。 */
+function SparkTerminalReadingNode({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
+  const { t } = useI18n();
+  const [state, setState] = useState<ReadingNodeState>('expanded');
+  const disposition = typeof obj.disposition === 'string' && obj.disposition.trim().length > 0
+    ? obj.disposition.trim()
     : null;
+  const isTerminal = obj.status === 'implemented' || obj.status === 'discarded';
+  if (!isTerminal && !disposition) return null;
+
+  const title = isTerminal
+    ? getObjectStatusLocale('spark', String(obj.status), locale)
+    : getFieldLabel('disposition', locale);
+  // 终态必填去向（20 §8）：缺失时如实标注，不以空占位代替判断。
+  const content = disposition ?? t('objectList.dispositionMissing');
 
   return (
-    <div className="min-w-0 rounded-md border border-ldvh-border/45 bg-ldvh-bg/45 px-3 py-2">
-      {updatedAt && (
-        <div className="mb-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ldvh-accent" aria-hidden="true" />
-          <SparkTerminalTime value={updatedAt} />
-        </div>
-      )}
-      {disposition && <ResearchTextNodeContent value={disposition} compact />}
-    </div>
+    <ReadingNodeSection
+      title={title}
+      state={state}
+      locale={locale}
+      onToggle={() => setState((current) => getReadingNodeNextState(current))}
+    >
+      <ResearchTextNodeContent value={content} compact />
+    </ReadingNodeSection>
   );
-}
-
-function SparkTerminalTime({ value }: { value: string }) {
-  const [date, time] = formatDateTime(value).split(' ');
-  return (
-    <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 font-mono tabular-nums">
-      <span className="ldvh-caption-strong min-w-0 break-words text-ldvh-text-secondary">{date}</span>
-      {time && <span className="ldvh-meta-muted min-w-0 break-words leading-4">{time}</span>}
-    </div>
-  );
-}
-
-function hasSparkTerminalContent(obj: Record<string, unknown>) {
-  const status = typeof obj.status === 'string' ? obj.status : '';
-  return status === 'implemented'
-    || status === 'discarded'
-    || hasDetailContent(obj.disposition_summary);
 }

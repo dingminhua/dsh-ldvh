@@ -19,7 +19,6 @@ import { useI18n } from '@/i18n/context';
 import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeLabel } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import { getFactReadMeta, isReadableFact } from '@/utils/factReadMeta';
-import { getSparkImplementedPresentationStatus } from '@/utils/sparkImplementationStatus';
 import { ALL_STATUS_PARAM, getEffectiveListStatus, writeListStatusParam } from '@/utils/listStatus';
 import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
@@ -1216,18 +1215,6 @@ function sortObjectsForList(items: ObjectItem[], sort: ObjectListSort): ObjectIt
   });
 }
 
-function sparkViewItem(value: ObjectItem): ObjectItem {
-  if (value.fact_type_key !== 'spark' || typeof value.object_id !== 'string') return value;
-  return {
-    ...value,
-    id: value.object_id,
-    type: value.fact_type_key,
-    path: value.canonical_path ?? '',
-    created: value.created_at,
-    updated: value.updated_at ?? '',
-  };
-}
-
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function ObjectCardFrame({
@@ -1247,10 +1234,9 @@ export function ObjectCardFrame({
 }) {
   const { t } = useI18n();
   const { selectedProjectId } = useProjectScope();
-  const presentedStatus = displayStatus
-    ?? (obj.type === 'spark' && obj.status === 'implemented'
-      ? getSparkImplementedPresentationStatus(obj.factAssociations)
-      : obj.status);
+  // 20 §9：Spark 状态闭集直接呈现（open/implemented/discarded）——v4 从关联
+  // 推导 settled/unclosed 展示态的逻辑已随规范移除。
+  const presentedStatus = displayStatus ?? obj.status;
   const typeColor = CATEGORY_COLORS[obj.type] || CATEGORY_COLORS.other;
   const activityCount = Array.isArray(obj.change_log) ? obj.change_log.length : 0;
   const nonActiveReason = getNonActiveReason(obj, t);
@@ -1326,10 +1312,6 @@ export function ObjectCardFrame({
   );
 }
 
-function hasSparkResolvedFact(obj: ObjectItem) {
-  return false;
-}
-
 function hasSparkDiscardFact(obj: ObjectItem) {
   return obj.status === 'discarded';
 }
@@ -1370,7 +1352,8 @@ function TerminalFactPanel({
 
 function SparkTerminalCardContent({ obj }: { obj: ObjectItem }) {
   const { t } = useI18n();
-  const reason = obj.disposition_summary?.trim() || t('objectList.dispositionMissing');
+  // 20 §8：终态去向由 disposition 承载（进入终态时必填）。
+  const reason = obj.disposition?.trim() || t('objectList.dispositionMissing');
 
   return (
     <TerminalFactPanel tone={obj.status === 'implemented' ? 'implemented' : 'retired'} content={formatReasonText(reason)} />
@@ -1528,7 +1511,9 @@ function FactAssociationStateIcon({ state, tooltip }: { state: FactAssociationSt
 }
 
 export function SparkCardContent({ obj }: { obj: ObjectItem }) {
-  const terminal = hasSparkDiscardFact(obj) || hasSparkImplementedFact(obj) || hasSparkResolvedFact(obj);
+  // 活跃（open）卡片保持克制：question/scope_boundary/summary 在详情阅读布局
+  // 呈现（与 2026-09-09 Research 活跃卡片同款裁定；20 §12 F1 允许投影但不强制）。
+  const terminal = hasSparkDiscardFact(obj) || hasSparkImplementedFact(obj);
   return terminal ? <SparkTerminalCardContent obj={obj} /> : null;
 }
 
@@ -1643,13 +1628,14 @@ export default function ObjectList() {
   const priorityParam = searchParams.get('priority');
   const sortParam = searchParams.get('sort');
   const activeSort: ObjectListSort = sortParam === 'created_desc' ? sortParam : 'updated_desc';
-  const supportsPriorityNavigation = currentType === 'spark' || currentType === 'workcase';
+  // 优先级导航仅 WorkCase 保留（v4 字段，21 号定稿前不动）；Spark 已按
+  // 20 §8/§14.2 移除 priority——v5 火花无此字段，不再提供过滤。
+  const supportsPriorityNavigation = currentType === 'workcase';
   const activePriority = supportsPriorityNavigation && ['P0', 'P1', 'P2', 'P3'].includes(priorityParam ?? '')
     ? priorityParam
     : null;
-  const isPriorityApplicable = currentType === 'spark'
-    ? activeStatus === 'open' || activeStatus === null
-    : currentType === 'workcase' && activeProgressGroup !== 'closed' && activeProgressGroup !== 'discarded';
+  const isPriorityApplicable = currentType === 'workcase'
+    && activeProgressGroup !== 'closed' && activeProgressGroup !== 'discarded';
 
   useEffect(() => {
     const removesLegacyCategory = currentType === 'spark' && searchParams.has('category');
@@ -1676,7 +1662,7 @@ export default function ObjectList() {
     fetchObjects(currentType, activeStatus ?? undefined, activePriority ?? undefined, activeProgressGroup ?? undefined)
       .then((result) => {
         const receivedItems = result.data?.items ?? [];
-        const nextItems = (currentType === 'spark' ? receivedItems.map(sparkViewItem) : receivedItems)
+        const nextItems = receivedItems
           .filter((item) => !isDeprecatedListCard(item) || searchParams.get('status') === ALL_STATUS_PARAM || activeStatus === item.status);
         setItems(nextItems);
         setStatusOptions(result.data?.statusOptions ?? []);
