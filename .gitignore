@@ -34,3 +34,6 @@ __pycache__/
 
 # Local / untracked scratch
 *.local
+
+# DSH runtime scratch (vision-router artifacts, not project content)
+.dsh-vision-router/
