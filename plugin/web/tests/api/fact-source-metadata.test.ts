@@ -12,7 +12,11 @@ const fixtures = [
     type: 'adr', id: 'adr-4f6c1d2e-9a3b-4c8d-8e7f-2b1c3d4e5f6a', directory: 'adrs', carrier: 'markdown',
     body: '---\nfact_type_key: adr\ntitle: ADR fixture\nstatus: active\ndecision: Use the current option\nscope: Applies to this fixture\ncreated_at: "2026-01-01"\n---\n\n# ADR fixture\n\n## 决定\n\nUse the current option\n',
   },
-  { type: 'pitfall', id: 'pitfall-0001', directory: 'pitfalls', carrier: 'yaml', body: 'object_id: pitfall-0001\nfact_type_key: pitfall\ntitle: Pitfall fixture\nstatus: active\n' },
+  // 23 §7：v5 Pitfall 为 markdown 载体（frontmatter + 正文）；文件名编码 UID。
+  {
+    type: 'pitfall', id: 'pitfall-7f4a5c2e-9d31-4b6f-8a07-3e0f5c91b2d4', directory: 'pitfalls', carrier: 'markdown',
+    body: '---\nfact_type_key: pitfall\ntitle: Pitfall fixture\nstatus: active\nscope: Applies to this fixture\ncreated_at: "2026-01-01"\n---\n\n# Pitfall fixture\n\n## 影响与适用范围\n\nApplies to this fixture\n',
+  },
   {
     type: 'research', id: 'research-0001', directory: 'researches', carrier: 'markdown',
     body: '---\nobject_id: research-0001\nfact_type_key: research\ntitle: Study fixture\nstatus: active\n---\n\n## 研究问题\n\nFixture body.\n',

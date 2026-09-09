@@ -272,18 +272,41 @@ function AdrProseNode({
   );
 }
 
-const PITFALL_READING_NODES: Array<{ field: string }> = [
-  { field: 'symptoms' },
-  { field: 'trigger_conditions' },
-  { field: 'scope_of_impact' },
-  { field: 'applicability' },
-  { field: 'validation_summary' },
-  { field: 'root_cause' },
-  { field: 'resolution' },
-  { field: 'avoidance' },
-  { field: 'disposition_summary' },
-];
+/** 23 号规范 §8 的正文固定 H2（「证据」条件出现——urls 非空时必在）。 */
+const PITFALL_BODY_SECTION_ORDER = ['症状', '触发条件', '根因', '解决', '规避', '验证', '影响与适用范围', '证据'] as const;
 
+type PitfallBodySection = { title: string; body: string };
+
+/** 正文按固定 H2 分节（前端解析，跟随 spark/adr 的分节先例）。 */
+function parsePitfallBodySections(body: string): PitfallBodySection[] {
+  const lines = body.split('\n');
+  const sections: Array<{ title: string; body: string[] }> = [];
+  let current: { title: string; body: string[] } | null = null;
+  for (const line of lines) {
+    const heading = line.match(/^##\s+(.+?)\s*$/);
+    if (heading) {
+      current = { title: heading[1].trim(), body: [] };
+      sections.push(current);
+      continue;
+    }
+    current?.body.push(line);
+  }
+  return sections
+    .map((section) => ({ title: section.title, body: section.body.join('\n').trim() }))
+    .filter((section) => section.body.length > 0 && section.title.length > 0)
+    .sort((a, b) => {
+      const aIndex = PITFALL_BODY_SECTION_ORDER.indexOf(a.title as (typeof PITFALL_BODY_SECTION_ORDER)[number]);
+      const bIndex = PITFALL_BODY_SECTION_ORDER.indexOf(b.title as (typeof PITFALL_BODY_SECTION_ORDER)[number]);
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return 0;
+    });
+}
+
+/** v5 Pitfall 阅读布局（23 §8）：正文固定 H2 七段（+条件证据）分节优先、
+ * frontmatter 字段兜底，节序跟随字段契约（症状 → 触发条件 → 根因 → 解决
+ * → 规避 → 验证 → 影响与适用范围 → 证据 → trigger_signal → 终态处置）。 */
 export function PitfallReadingLayout({
   obj,
   relatedEntries,
@@ -293,17 +316,38 @@ export function PitfallReadingLayout({
   relatedEntries: RelatedContentEntry[];
   locale: string;
 }) {
+  const bodySections = parsePitfallBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
+  const sectionOf = (title: string) => bodySections.find((section) => section.title === title);
+  // 23 §8：正文是 scope 的自然语言承载——正文节优先，缺失时以
+  // frontmatter 字段兜底（同 spark/adr 先例）。
+  const proseFrom = (sectionTitle: string, fieldValue: unknown): string => {
+    const body = sectionOf(sectionTitle)?.body;
+    if (body) return body;
+    return typeof fieldValue === 'string' && fieldValue.trim() ? fieldValue.trim() : '';
+  };
+
+  const symptoms = sectionOf('症状')?.body ?? '';
+  const triggers = sectionOf('触发条件')?.body ?? '';
+  const rootCause = sectionOf('根因')?.body ?? '';
+  const resolutionApplied = sectionOf('解决')?.body ?? '';
+  const avoidance = sectionOf('规避')?.body ?? '';
+  const validation = sectionOf('验证')?.body ?? '';
+  const scopeProse = proseFrom('影响与适用范围', obj.scope);
+  const evidence = sectionOf('证据')?.body ?? '';
+  const triggerSignal = typeof obj.trigger_signal === 'string' && obj.trigger_signal.trim() ? obj.trigger_signal.trim() : '';
+
   return (
     <div className="mb-6 flex flex-col gap-5">
-      {PITFALL_READING_NODES.map((node) => (
-        <PitfallReadingNode
-          key={node.field}
-          title={getFieldLabel(node.field, locale)}
-          value={obj[node.field]}
-          issue={fieldIssue(obj, node.field)}
-          locale={locale}
-        />
-      ))}
+      <AdrProseNode title={getFieldLabel('pitfall_symptoms', locale)} value={symptoms} locale={locale} />
+      <AdrProseNode title={getFieldLabel('pitfall_triggers', locale)} value={triggers} locale={locale} />
+      <AdrProseNode title={getFieldLabel('root_cause', locale)} value={rootCause} locale={locale} />
+      <AdrProseNode title={getFieldLabel('pitfall_resolution', locale)} value={resolutionApplied} locale={locale} />
+      <AdrProseNode title={getFieldLabel('avoidance', locale)} value={avoidance} locale={locale} />
+      <AdrProseNode title={getFieldLabel('validation_summary', locale)} value={validation} locale={locale} />
+      <AdrProseNode title={getFieldLabel('pitfall_scope_section', locale)} value={scopeProse} locale={locale} issue={fieldIssue(obj, 'scope')} />
+      <AdrProseNode title={getFieldLabel('evidence', locale)} value={evidence} locale={locale} />
+      <AdrProseNode title={getFieldLabel('trigger_signal', locale)} value={triggerSignal} locale={locale} issue={fieldIssue(obj, 'trigger_signal')} />
+      <PitfallTerminalReadingNode obj={obj} locale={locale} />
       <FactAssociationsSection obj={obj} locale={locale} />
       <RelatedContentSection entries={sortRelatedContentEntries(relatedEntries)} locale={locale} />
       <ChangeLogReadingNode
@@ -315,19 +359,21 @@ export function PitfallReadingLayout({
   );
 }
 
-function PitfallReadingNode({
-  title,
-  value,
-  issue,
-  locale,
-}: {
-  title: string;
-  value: unknown;
-  issue?: FieldPresentationIssue;
-  locale: string;
-}) {
+/** 23 §9 终态处置：discarded 的 disposition（去向与理由）。 */
+function PitfallTerminalReadingNode({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
+  const { t } = useI18n();
   const [state, setState] = useState<ReadingNodeState>('expanded');
-  if (!hasDetailContent(value) && !issue) return null;
+  const disposition = typeof obj.disposition === 'string' && obj.disposition.trim().length > 0
+    ? obj.disposition.trim()
+    : null;
+  const isTerminal = obj.status === 'discarded';
+  if (!isTerminal && !disposition) return null;
+
+  const title = isTerminal
+    ? getObjectStatusLocale('pitfall', String(obj.status), locale)
+    : getFieldLabel('disposition', locale);
+  // 终态必填去向（23 §8）：缺失时如实标注，不以空占位代替判断。
+  const content = disposition ?? t('objectList.dispositionMissing');
 
   return (
     <ReadingNodeSection
@@ -336,7 +382,7 @@ function PitfallReadingNode({
       locale={locale}
       onToggle={() => setState((current) => getReadingNodeNextState(current))}
     >
-      {issue ? <FieldProblem issue={issue} /> : <PitfallTextNodeContent value={value} />}
+      <PitfallTextNodeContent value={content} />
     </ReadingNodeSection>
   );
 }

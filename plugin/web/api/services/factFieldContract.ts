@@ -80,17 +80,21 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     // 判为 unconsumed_field，且必须从列表投影排除。
     report_body: field('adr-report-body', 'string', false),
   },
+  // v5 Pitfall（23 §8 薄索引）：scope 必填（正文「影响与适用范围」段逐字
+  // 包含）、trigger_signal 条件出现（依赖版本/环境变化时重审）、终态
+  // disposition 仅 discarded（§9）；正文「症状/触发条件/根因/解决/规避/
+  // 验证/影响与适用范围/证据」由 report_body 承载。v4 的 symptoms/
+  // trigger_conditions/root_cause/resolution/avoidance/scope_of_impact/
+  // applicability/validation_summary/disposition_summary 已随 23 号移除
+  // （分析性长文本住正文，不留 frontmatter 字段）。
   pitfall: {
     ...common,
-    disposition_summary: field('disposition-summary', 'string', false),
-    scope_of_impact: field('pitfall-scope-of-impact', 'string', true),
-    applicability: field('adr-applicability', 'string', true),
-    validation_summary: field('workcase-validation-summary', 'string', true),
-    symptoms: field('pitfall-symptoms', 'string', true),
-    trigger_conditions: field('pitfall-trigger-conditions', 'string', true),
-    root_cause: field('pitfall-root-cause', 'string', true),
-    resolution: field('pitfall-resolution', 'string', true),
-    avoidance: field('pitfall-avoidance', 'string', true),
+    scope: field('pitfall-scope', 'string', true),
+    trigger_signal: field('pitfall-trigger-signal', 'string', false),
+    disposition: field('pitfall-disposition', 'string', false),
+    // 正文承载（23 §8 固定 H2），由阅读布局按 H2 分节解析呈现；不登记会被
+    // 判为 unconsumed_field，且必须从列表投影排除。
+    report_body: field('pitfall-report-body', 'string', false),
   },
   // v5 Spark（20 号规范）：悬置问题的字段闭集——question/scope_boundary/
   // intent/summary 必填；evolution（{at, summary} 流水）/serves_sg（SG-n 轻
@@ -151,7 +155,7 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
  */
 export const FACT_LIST_FIELD_NAMES: Record<Exclude<FactType, 'workcase'>, readonly string[]> = {
   adr: Object.keys(FACT_FIELD_CONTRACT.adr).filter((field) => field !== 'report_body'),
-  pitfall: Object.keys(FACT_FIELD_CONTRACT.pitfall),
+  pitfall: Object.keys(FACT_FIELD_CONTRACT.pitfall).filter((field) => field !== 'report_body'),
   spark: Object.keys(FACT_FIELD_CONTRACT.spark).filter((field) => field !== 'report_body'),
   research: Object.keys(FACT_FIELD_CONTRACT.research).filter((field) => field !== 'report_body'),
 }

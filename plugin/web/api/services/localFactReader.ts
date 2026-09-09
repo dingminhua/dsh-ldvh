@@ -117,10 +117,10 @@ function metadataFor(scope: LocalFactScope, type: LocalFactType, objectId: strin
 
 function isExpectedCarrierName(type: LocalFactType, fileName: string): boolean {
   const extension = FACT_TYPE_CARRIERS[type].replace('.', '\\.')
-  // v5 markdown 载体类型（spark/research/adr）：object_uid 为 UUIDv4（22 §7 同
-  // spark/research 形态，文件名编码 UID）；纯序号/ULID25 段保留兼容读取。
-  // 其余类型维持 v4 形态（纯序号或 ULID25）。
-  const idSegment = type === 'research' || type === 'spark' || type === 'adr'
+  // v5 markdown 载体类型（spark/research/adr/pitfall）：object_uid 为 UUIDv4
+  // （20 §7 / 22 §7 / 23 §7 / 24 §7，文件名编码 UID）；纯序号/ULID25 段保留
+  // 兼容读取。其余类型维持 v4 形态（纯序号或 ULID25）。
+  const idSegment = type === 'research' || type === 'spark' || type === 'adr' || type === 'pitfall'
     ? '(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})'
     : '(?:\\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})'
   return new RegExp(`^${type}-${idSegment}${extension}$`).test(fileName)
