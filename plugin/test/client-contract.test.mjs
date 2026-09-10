@@ -274,3 +274,20 @@ test("plugin settings card hosts the project color palette (web settings page is
 	assert.ok(source.includes('"row.projectColor"'), "project color label exists");
 });
 
+test("settings footer carries the 鼓励一下 cheer link (family-wide pattern)", () => {
+	// 同族插件（dsh-sub-cli / dsh-subagent-default-model / dsh-connect-workbuddy /
+	// dsh-connect-trae）在设置卡页脚左侧都有“鼓励一下 ★”外链；LDVH 对齐：
+	// URL 常量指向本仓库 + zh/en row.cheer 文案 + footer-left 曝光位。
+	assert.ok(
+		source.includes('var LDVH_GITHUB_URL = "https://github.com/dingminhua/dsh-ldvh"'),
+		"GitHub URL constant must target the dsh-ldvh repo",
+	);
+	assert.ok(source.includes('"row.cheer": "鼓励一下"'), "LDVH_ZH must define row.cheer");
+	assert.ok(source.includes('"row.cheer": "Star on GitHub"'), "LDVH_EN must define row.cheer");
+	assert.ok(source.includes('className: "ldv-settings-cheer"'), "footer renders the cheer anchor");
+	assert.ok(source.includes('href: LDVH_GITHUB_URL'), "cheer anchor points at the repo constant");
+	assert.ok(source.includes('target: "_blank"'), "cheer link opens in a new tab");
+	assert.ok(source.includes('rel: "noopener noreferrer"'), "cheer link is noopener noreferrer");
+	assert.ok(source.includes("ldv-settings-footer-left"), "cheer link sits in the footer-left container");
+	assert.ok(source.includes("ldv-settings-cheer-star"), "cheer link carries the star glyph");
+});

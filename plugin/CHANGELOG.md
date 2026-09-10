@@ -16,6 +16,7 @@ The format follows Keep a Changelog. This development changelog records only imp
 - Governed-project lifecycle: registration carrier at the DSH user-config root (auto-initialized empty at plugin load), Git-root resolution, ldvh-base fact-source initialization, install/update/unregister transactions with rollback, and the `dsh-ldvh governed-project` CLI.
 - Git Gate: managed commit-msg hook (install/inspect/preflight with a synthetic index), message contract (header / 关键变更 / LDVH-Provider + LDVH-Model trailers mechanically sourced from the DSH session record).
 - Settings-card governed-project management (list / add / check / conditional update / unregister) and single-source Web status reporting.
+- Settings-card footer “鼓励一下 ★” cheer link to the GitHub repo (family-wide pattern from dsh-sub-cli / dsh-subagent-default-model: URL constant + zh/en `row.cheer` copy + footer-left placement, with the save status moving into the left container).
 
 ### Changed
 
