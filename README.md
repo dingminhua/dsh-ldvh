@@ -33,6 +33,6 @@ v5 重新起算，对外发布版本与开发迭代版本分离（决策 D7）�
 1. ~~**骨架**~~：`.gitignore` + `README.md` 占位 ✅
 2. ~~起草新 00~~ ✅：`specs/00-理念与构成.md` 六章（§1–§6）全部定稿（多轮独立对抗复核），身份块经 01 校准回填（去 status、加 dimensions、code_consumption 4 键）
 3. ~~**登记管辖**~~ ✅：独立配置 `../LDVH-GOVERNED-PROJECTS.yaml`（dsh-ldvh 受辖，governed_single）
-4. 内核验证（Helper CLI + Git Gate 在新仓库跑通真实任务）
+4. 内核验证（LDVH CLI + Git Gate 在新仓库跑通真实任务）
 5. 选择性搬运（ADR / Pitfall / Spark / Study 受控重建）
 6. DSH 绑定（插件五件套 + 记忆预热 + 队长式执行）
