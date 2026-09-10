@@ -36,7 +36,7 @@ Web 呈现与交互解决 Human 难以直接观察 LDVH 状态、依据、授权
 
 1. `ldvh-root`：00 §3.5 的 DSH 原生插件与 Web 信息呈现、§4 的 Human 决定权、§6.2 的 HV 组价值、§7.4 的交还与 Output Envelope；
 2. `specification-model-foundation`：01 §7 的共同章节结构、§9 的当前规则源条件、§12 的独立对抗审核；
-3. `work-model-foundation`：02 读能力承载与沉淀制度对 Human 阅读入口与效用呈现的机制指向。
+3. `work-model-foundation`：02 读能力承载与记忆与反思系统对 Human 阅读入口与效用呈现的机制指向。
 
 Web 与可访问性标准只提供呈现和交互技术参考，不取得 LDVH 领域语义权威。
 
