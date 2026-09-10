@@ -10,7 +10,7 @@ LD Vibe Harness（LDVH）的 DeepSeek Harness 原生插件。目标是在 DSH �
 - 管辖项目和默认管辖配置管理；
 - Git Gate 状态、安装、升级和卸载；
 - LDVH Web 信息呈现；
-- AI 工作引导与确定性 Helper 入口。
+- AI 工作引导与确定性 LDVH CLI 入口。
 
 ## 当前已实现
 

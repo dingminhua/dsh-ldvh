@@ -10,7 +10,7 @@ The native DeepSeek Harness plugin for LD Vibe Harness (LDVH). Its target capabi
 - governed-project and default governance configuration management;
 - Git Gate inspection, installation, upgrade, and removal;
 - LDVH Web presentation;
-- AI guidance and deterministic Helper entry points.
+- AI guidance and deterministic LDVH CLI entry points.
 
 ## Implemented so far
 
