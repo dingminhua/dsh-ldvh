@@ -6,10 +6,10 @@
 //
 // Real-corpus assertion: the real specs/01–10 and the three attachments must
 // all parse as `ok: true` — that is the v5 self-consistency check. specs/00
-// is the documented exception (its `code_consumption` values use snake_case
-// instead of the responsibility-identifier kebab-case pattern), so it is
-// intentionally NOT part of the bulk parse and is asserted separately as
-// the known contract violation.
+// was formerly the documented exception (its `code_consumption` values used
+// snake_case instead of the responsibility-identifier kebab-case pattern);
+// those values were fixed to kebab-case in the 2026-09-10 §2/§3 restructure,
+// so specs/00 is now asserted separately as parsing successfully as well.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readdir, readFile } from "node:fs/promises";
@@ -1033,13 +1033,14 @@ test("parseSpecDocument parses every real specs/01..10 and the three attachments
 	}
 });
 
-test("parseSpecDocument rejects the real specs/00 because of the documented code_consumption contract violation", async () => {
+test("parseSpecDocument parses the real specs/00 after the code_consumption contract fix", async () => {
 	const text = await readFile(join(specsRoot, "00-理念与构成.md"), "utf8");
 	const result = parseSpecDocument(text, "specs/00-理念与构成.md");
 	// The contract says code_consumption members must match the
-	// responsibility-identifier regex `[a-z][a-z0-9]*(?:-[a-z0-9]+)*`;
-	// specs/00 uses snake_case values like spec_identity_block, which the
-	// implementation correctly rejects as `identity/field_invalid`.
-	assert.equal(result.ok, false, "specs/00 should be rejected per the responsibility-identifier contract");
-	assert.equal(result.error.code, "identity/field_invalid");
+	// responsibility-identifier regex `[a-z][a-z0-9]*(?:-[a-z0-9]+)*`.
+	// specs/00 formerly used snake_case values (spec_identity_block …), which
+	// the implementation correctly rejected as `identity/field_invalid`; the
+	// values were fixed to kebab-case in the 2026-09-10 §2/§3 restructure, so
+	// the real root spec now parses like every other current member.
+	assert.equal(result.ok, true, `specs/00 failed: ${result.error?.code} ${result.error?.message}`);
 });
