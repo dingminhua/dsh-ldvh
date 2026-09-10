@@ -59,6 +59,14 @@ const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
     'scope', 'trigger_signal', 'report_body',
     'disposition', 'change_log', 'urls',
   ],
+  // v5 Friction（26 号规范）：阅读布局按字段契约序消费（phenomenon →
+  // attribution → impact → serves_sg → 终态 relations），正文 report_body 由
+  // 布局按 H2 三段（现象/入账依据+条件处置）分节呈现——此处只做 ContentField
+  // 兜底排序。
+  friction: [
+    'phenomenon', 'attribution', 'impact', 'serves_sg', 'report_body',
+    'change_log', 'relations',
+  ],
   // v5 Spark（20 号规范）：阅读布局按字段契约序消费（question → scope_boundary
   // → intent → summary → 演变 → 终态 disposition），正文 report_body 由布局按
   // H2 分节呈现——此处只做 ContentField 兜底排序。

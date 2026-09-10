@@ -613,3 +613,92 @@ function SparkTerminalReadingNode({ obj, locale }: { obj: Record<string, unknown
     </ReadingNodeSection>
   );
 }
+
+/** 26 号规范 §8 的正文固定 H2（「处置」条件出现——resolved/deferred 时）。 */
+const FRICTION_BODY_SECTION_ORDER = ['现象', '入账依据', '处置'] as const;
+
+type FrictionBodySection = { title: string; body: string };
+
+/** 正文按固定 H2 分节（前端解析，跟随 spark/adr/pitfall 的分节先例）。 */
+function parseFrictionBodySections(body: string): FrictionBodySection[] {
+  const lines = body.split('\n');
+  const sections: Array<{ title: string; body: string[] }> = [];
+  let current: { title: string; body: string[] } | null = null;
+  for (const line of lines) {
+    const heading = line.match(/^##\s+(.+?)\s*$/);
+    if (heading) {
+      current = { title: heading[1].trim(), body: [] };
+      sections.push(current);
+      continue;
+    }
+    current?.body.push(line);
+  }
+  return sections
+    .map((section) => ({ title: section.title, body: section.body.join('\n').trim() }))
+    .filter((section) => section.body.length > 0 && section.title.length > 0)
+    .sort((a, b) => {
+      const aIndex = FRICTION_BODY_SECTION_ORDER.indexOf(a.title as (typeof FRICTION_BODY_SECTION_ORDER)[number]);
+      const bIndex = FRICTION_BODY_SECTION_ORDER.indexOf(b.title as (typeof FRICTION_BODY_SECTION_ORDER)[number]);
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return 0;
+    });
+}
+
+/** v5 Friction 阅读布局（26 §8）：正文三段（现象/入账依据+条件处置）分节
+ * 优先、frontmatter 字段兜底；节序跟随字段契约（现象 → 归因 → impact →
+ * 入账依据 → 处置 → serves_sg → resolved 的 informs 解药）。 */
+export function FrictionReadingLayout({
+  obj,
+  relatedEntries,
+  locale,
+}: {
+  obj: Record<string, unknown>;
+  relatedEntries: RelatedContentEntry[];
+  locale: string;
+}) {
+  const bodySections = parseFrictionBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
+  const sectionOf = (title: string) => bodySections.find((section) => section.title === title);
+  // 26 §8：正文是 phenomenon 的自然语言承载——正文节优先，缺失时以
+  // frontmatter 字段兜底（同 spark/adr/pitfall 先例）。
+  const proseFrom = (sectionTitle: string, fieldValue: unknown): string => {
+    const body = sectionOf(sectionTitle)?.body;
+    if (body) return body;
+    return typeof fieldValue === 'string' && fieldValue.trim() ? fieldValue.trim() : '';
+  };
+
+  const phenomenon = proseFrom('现象', obj.phenomenon);
+  const basis = sectionOf('入账依据')?.body ?? '';
+  const disposition = sectionOf('处置')?.body ?? '';
+  const attribution = typeof obj.attribution === 'string' && obj.attribution.trim() ? obj.attribution.trim() : '';
+  const impact = typeof obj.impact === 'string' && obj.impact.trim() ? obj.impact.trim() : '';
+  const servesSg = typeof obj.serves_sg === 'string' && obj.serves_sg.trim() ? obj.serves_sg.trim() : '';
+  const informsEdges = Array.isArray(obj.relations)
+    ? obj.relations.filter((rel) => (rel as { relation_key?: string }).relation_key === 'informs')
+    : [];
+  const informsText = informsEdges.length > 0
+    ? informsEdges.map((rel) => String((rel as { target?: { object_uid?: string } }).target?.object_uid ?? '')).filter(Boolean).join(' → ')
+    : '';
+
+  return (
+    <div className="mb-6 flex flex-col gap-5">
+      <AdrProseNode title={getFieldLabel('phenomenon', locale)} value={phenomenon} locale={locale} issue={fieldIssue(obj, 'phenomenon')} />
+      <AdrProseNode title={getFieldLabel('attribution', locale)} value={attribution} locale={locale} issue={fieldIssue(obj, 'attribution')} />
+      <AdrProseNode title={getFieldLabel('impact', locale)} value={impact} locale={locale} issue={fieldIssue(obj, 'impact')} />
+      <AdrProseNode title={getFieldLabel('friction_basis', locale)} value={basis} locale={locale} />
+      <AdrProseNode title={getFieldLabel('friction_disposition', locale)} value={disposition} locale={locale} />
+      <AdrProseNode title={getFieldLabel('serves_sg', locale)} value={servesSg} locale={locale} />
+      {informsText ? (
+        <AdrProseNode title={getFieldLabel('relation_informs', locale)} value={`informs → ${informsText}`} locale={locale} />
+      ) : null}
+      <FactAssociationsSection obj={obj} locale={locale} />
+      <RelatedContentSection entries={sortRelatedContentEntries(relatedEntries)} locale={locale} />
+      <ChangeLogReadingNode
+        value={obj.change_log}
+        issue={fieldIssue(obj, 'change_log')}
+        locale={locale}
+      />
+    </div>
+  );
+}

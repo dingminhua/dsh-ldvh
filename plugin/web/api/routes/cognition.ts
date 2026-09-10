@@ -219,7 +219,7 @@ function priorityRank(priority: unknown): number {
 
 /** 与 localFactReader.metadataFor 一致：按事实类型返回当前 canonical path。 */
 function canonicalPath(type: InboxObjectType, objectId: string): string {
-  return `ldvh-base/${type === 'workcase' ? 'workcases' : 'pitfalls'}/${objectId}.yaml`
+  return `ldvh-base/${type === 'workcase' ? 'workcases' : type === 'friction' ? 'frictions' : 'pitfalls'}/${objectId}${type === 'workcase' ? '.yaml' : '.md'}`
 }
 
 function factKey(type: string, objectId: string, objectUid?: string): string {
@@ -862,7 +862,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     try {
       const graphFacts: RecentHotspotBuildItem[] = []
       const activityByFact = new Map<string, RecentHotspotRef[]>()
-      const graphTypes: ObjectType[] = ['workcase', 'adr', 'pitfall', 'spark', 'research']
+      const graphTypes: ObjectType[] = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction']
       const graphResults = await Promise.all(graphTypes.map(async (type) => [type, await listLocalFacts(type, factScope)] as const))
       for (const [type, result] of graphResults) {
         if (result.status !== 'complete') {

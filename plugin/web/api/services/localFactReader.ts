@@ -17,6 +17,7 @@ export const FACT_TYPE_DIRS = {
   pitfall: 'pitfalls',
   spark: 'sparks',
   research: 'researches',
+  friction: 'frictions',
 } as const
 
 export const FACT_TYPE_CARRIERS = {
@@ -28,6 +29,8 @@ export const FACT_TYPE_CARRIERS = {
   // v5 Spark（20 §7）：YAML frontmatter（机器权威）+ markdown 正文，同 research 形态。
   spark: '.md',
   research: '.md',
+  // v5 Friction（26 §7）：同上，frontmatter + markdown。
+  friction: '.md',
 } as const
 
 export type LocalFactType = FactType
@@ -101,8 +104,8 @@ function expectedFileName(type: LocalFactType, objectId: string): string {
 }
 
 function carrierFor(type: LocalFactType): LocalFactCarrier {
-  // v5 markdown 载体类型：frontmatter（机器权威）+ 正文（20 §7 / 22 §7 / 23 §7 / 24 §7）。
-  return type === 'research' || type === 'spark' || type === 'adr' || type === 'pitfall' ? 'markdown' : 'yaml'
+  // v5 markdown 载体类型：frontmatter（机器权威）+ 正文（20 §7 / 22 §7 / 23 §7 / 24 §7 / 26 §7）。
+  return type === 'research' || type === 'spark' || type === 'adr' || type === 'pitfall' || type === 'friction' ? 'markdown' : 'yaml'
 }
 
 function metadataFor(scope: LocalFactScope, type: LocalFactType, objectId: string): LocalFactMetadata {

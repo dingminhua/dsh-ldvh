@@ -87,6 +87,13 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     active: { zh: '活跃', en: 'Active' },
     retired: { zh: '已废弃', en: 'Retired' },
   },
+  friction: {
+    // 26 §9 状态闭集：open（待修的账）/ resolved（已销账，informs 指向解药）/
+    // deferred（缓议的账，可重新激活）。
+    open: { zh: '待修', en: 'Open' },
+    resolved: { zh: '已销账', en: 'Resolved' },
+    deferred: { zh: '缓议', en: 'Deferred' },
+  },
 };
 
 export function getObjectStatusLocale(type: string, status: string, locale: string): string {
@@ -373,6 +380,11 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   decision_consequences: { zh: '后果', en: 'Consequences' },
   evidence: { zh: '证据', en: 'Evidence' },
   impact: { zh: '影响范围', en: 'Impact' },
+  // v5 Friction（26 号）阅读布局标题。
+  phenomenon: { zh: '现象', en: 'Phenomenon' },
+  attribution: { zh: '归因', en: 'Attribution' },
+  friction_basis: { zh: '入账依据', en: 'Ledger Basis' },
+  friction_disposition: { zh: '处置', en: 'Disposition' },
   category: { zh: '分类', en: 'Category' },
   priority: { zh: '优先级', en: 'Priority' },
   assignee: { zh: '执行者', en: 'Assignee' },

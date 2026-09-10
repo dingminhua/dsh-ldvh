@@ -40,10 +40,12 @@ const TYPE_REQUIRED_FIELDS: Record<string, readonly string[]> = {
   // disposition/relations 条件出现）。
   spark: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'question', 'scope_boundary', 'intent', 'summary'],
   research: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'research_question', 'research_purpose'],
+  // 26 §8：phenomenon/impact 必填（attribution/serves_sg/relations 条件）。
+  friction: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'phenomenon', 'impact'],
 };
 
 test('field contract is internally consistent for every fact type', () => {
-  assert.deepEqual(FACT_TYPES, ['workcase', 'adr', 'pitfall', 'spark', 'research']);
+  assert.deepEqual(FACT_TYPES, ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction']);
 
   for (const type of FACT_TYPES) {
     const contract = FACT_FIELD_CONTRACT[type];

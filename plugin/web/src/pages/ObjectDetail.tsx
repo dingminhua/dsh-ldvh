@@ -38,7 +38,7 @@ import { getFactReadMeta, isReadableFact, reconstructFactYaml, sortedResearchFro
 import { getObjectUpdatedAt } from '@/utils/factChangeLog';
 import { isResolvedWorkCasePresentationProjection } from '@/shared/workcaseStatus';
 import { WorkCaseReadingLayout } from '@/pages/object-detail/WorkCaseReadingLayout';
-import { AdrReadingLayout, ChangeLogReadingNode, PitfallReadingLayout, PitfallTextNodeContent, SparkReadingLayout } from '@/pages/object-detail/FactReadingLayouts';
+import { AdrReadingLayout, ChangeLogReadingNode, FrictionReadingLayout, PitfallReadingLayout, PitfallTextNodeContent, SparkReadingLayout } from '@/pages/object-detail/FactReadingLayouts';
 import { FactAssociationsSection } from '@/pages/object-detail/FactAssociationsSection';
 import { fieldIssue } from '@/pages/object-detail/fieldIssues';
 import {
@@ -70,7 +70,7 @@ export {
 };
 export type { RelatedContentEntry };
 export { WorkCaseReadingLayout } from '@/pages/object-detail/WorkCaseReadingLayout';
-export { AdrReadingLayout, PitfallReadingLayout, SparkReadingLayout } from '@/pages/object-detail/FactReadingLayouts';
+export { AdrReadingLayout, FrictionReadingLayout, PitfallReadingLayout, SparkReadingLayout } from '@/pages/object-detail/FactReadingLayouts';
 
 // v5 Research（24 号薄索引）阅读布局消费的字段全集：固定 H2 正文（report_body）、
 // 概览与三态索引、退出语义；v4 study 遗留字段（research_intent/abstract/
@@ -297,6 +297,8 @@ export function FactReadingContent({
         <AdrReadingLayout obj={obj} relatedEntries={relatedEntries} locale={locale} />
       ) : objType === 'pitfall' ? (
         <PitfallReadingLayout obj={obj} relatedEntries={relatedEntries} locale={locale} />
+      ) : objType === 'friction' ? (
+        <FrictionReadingLayout obj={obj} relatedEntries={relatedEntries} locale={locale} />
       ) : objType === 'spark' ? (
         <SparkReadingLayout obj={obj} locale={locale} />
       ) : (

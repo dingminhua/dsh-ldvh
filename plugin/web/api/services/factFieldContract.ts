@@ -5,7 +5,7 @@
  * entry retains its 05.Att.01 field_key and is mechanically reconciled with
  * 05.Att.01, the type bindings, and 08.Att.01 by fact-field-contract.test.ts.
  */
-export const FACT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research'] as const
+export const FACT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction'] as const
 
 export type FactType = (typeof FACT_TYPES)[number]
 export type FieldExpectation = 'string' | 'number' | 'array' | 'object'
@@ -96,6 +96,19 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     // 判为 unconsumed_field，且必须从列表投影排除。
     report_body: field('pitfall-report-body', 'string', false),
   },
+  // v5 Friction（26 号规范）：改进账本的字段闭集——phenomenon/impact 必填
+  //（现象单句 + 影响闭集 light/medium/heavy）；attribution 条件后补、
+  // serves_sg 条件（框架摩擦挂 SG-3）、relations 仅 resolved 时的 informs。
+  // 本类型不设 urls（26 §10：摩擦是内部体验）与 trigger_signal（重审信号由
+  // 处置段的重启条件承载）——故不展开 common 的 urls。正文三节（现象/入账
+  // 依据/条件处置）由 report_body 承载。
+  friction: {
+    ...common,
+    phenomenon: field('friction-phenomenon', 'string', true),
+    attribution: field('friction-attribution', 'string', false),
+    impact: field('friction-impact', 'string', true),
+    report_body: field('friction-report-body', 'string', false),
+  },
   // v5 Spark（20 号规范）：悬置问题的字段闭集——question/scope_boundary/
   // intent/summary 必填；evolution（{at, summary} 流水）/serves_sg（SG-n 轻
   // 量锚点）/disposition（终态去向）条件出现；relations 仅 merged-into/
@@ -171,4 +184,6 @@ export const FACT_TERMINAL_STATUSES: Record<FactType, readonly string[]> = {
   pitfall: ['discarded'],
   spark: ['implemented', 'discarded'],
   research: ['retired'],
+  // 26 §9：resolved 终态；deferred 可逆（重新激活），不是终态。
+  friction: ['resolved'],
 }
