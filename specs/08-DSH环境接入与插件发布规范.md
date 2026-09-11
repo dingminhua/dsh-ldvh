@@ -8,7 +8,7 @@ ldvh_spec:
   parent_spec: ""
   relation: ""
   positioning: "定义 DSH 宿主下的插件接入（manifest/工具注册/引导面/事件时机/交互面）、机械守护部署（Git Gate/不变量/沙箱）、发布与项目门面（版本号/README/CHANGELOG）"
-  scope: "适用于 DSH 宿主下 LDVH 插件的接入、部署、发布与公共门面；不定义 Helper 服务契约、事实模型、行动模板、Web 呈现或 Code 实现细节"
+  scope: "适用于 DSH 宿主下 LDVH 插件的接入、部署、发布与公共门面；不定义 Helper 服务契约、事实模型、业务系统规范、Web 呈现或 Code 实现细节"
   basis:
     - "ldvh-root"
     - "specification-model-foundation"
@@ -26,7 +26,7 @@ ldvh_spec:
 
 插件身份与能力入口主要支撑 V1；权限、沙箱与工具注册边界主要支撑 V3 和 HV2；引导面、事件面与机械守护主要支撑 V4；版本声明、README、CHANGELOG 与回读核对主要支撑 V5 和 HV3。
 
-本规范只定义 DSH 宿主接入、部署和发布门面；Helper 服务、事实/模板语义、提交契约、Code 实现和 Web 交互由 03–07、09、10 与实际环境承接。
+本规范只定义 DSH 宿主接入、部署和发布门面；Helper 服务、事实与业务系统规范语义、提交契约、Code 实现和 Web 交互由 03–07、09、10 与实际环境承接。
 
 manifest 存在、工具注册成功、钩子安装、页面加载或发布完成，只能证明相应接入或发布范围，不能单独证明能力可用、授权成立、行动完成或价值兑现。
 
@@ -56,7 +56,7 @@ DSH 插件与市场规范只提供宿主接口和发布格式，不取得 LDVH �
 ### 3.2 本文不负责
 
 1. Helper 服务契约、公开操作声明、传输 envelope——归 05；
-2. 事实字段、状态机、CRUD、CAS、content_fingerprint——归 03；行动模板步骤、触发条件、完成门禁——归 04；
+2. 事实字段、状态机、CRUD、CAS、content_fingerprint——归 03；业务系统规范步骤、触发条件、完成门禁——归 04；
 3. 事实源定义、受控提交契约、precheck 语义——归 06；管辖登记 Schema、判定逻辑——归 07；
 4. 代码实现、构建、测试、CI/CD——归 09；Web 呈现、四层阅读器、UI 组件——归 10；
 5. 通用 Hook 抽象、跨平台适配、非 DSH 环境接入、MCP 网关——本文红线禁止（§11）。
@@ -81,7 +81,7 @@ DSH 插件与市场规范只提供宿主接口和发布格式，不取得 LDVH �
 
 ### 4.3 明确排除与证明边界
 
-非 DSH 宿主、跨平台移植与非 LDVH 插件不在本文适用范围；本规范不定义 Helper 服务、事实模型、行动模板、Web 呈现或 Code 实现细节。
+非 DSH 宿主、跨平台移植与非 LDVH 插件不在本文适用范围；本规范不定义 Helper 服务、事实模型、业务系统规范、Web 呈现或 Code 实现细节。
 
 manifest 存在、工具注册成功、钩子安装或发布完成，只证明当次接入的机械范围，不单独证明能力可用、授权成立、工作完成或价值兑现。
 
@@ -100,13 +100,13 @@ manifest（`package.json` 或 DSH 市场规定的文件）为插件身份入口�
 最小规则引导（内容锚点由 01 §10.4 定义）经两种机制注入：
 
 - 会话冷启动引导入口：经 `system-prompt/assemble` waterfall（(assembly, context, next) 三参、返回组装权威）注入 01 §10.4 定义的最小规则引导 00 锚点；注入以 agent 身份为前提，无 agent 上下文不注入。DSH 宿主未提供注入预算计量 API（两版核验，如实为缺口）；预算控制由 LDVH 侧承担——引导文本单一权威源，体量以固定常量承载，变更走受控提交；
-- 行动前引导入口：经 `agent/pre-step` waterfall 事件（载荷 {agent, messages, turn, step, signal}）在来源定义的触发时机提供事实候选与模板路由；事件形态两版一致。
+- 行动前引导入口：经 `agent/pre-step` waterfall 事件（载荷 {agent, messages, turn, step, signal}）在来源定义的触发时机提供事实候选与既有行动结构路由；事件形态两版一致。
 
 注入内容由 01 定义、注入形式与预算由 08 定义；内容须单一权威来源、逐字节一致、不复制规则正文、不成为第二规则源。
 
 ### 5.4 事件面
 
-行动与结束事件接入下列已核验事件（形态在 DSH 0.1.2-rc.1 与 0.1.5-alpha.1 一致，源码双版对照核验 2026-09-10）：`agent/created`（emit {agent}）、`agent/session-start`（emit {agent, source}）、`agent/pre-step`（waterfall）、`agent/turn-stopping`（serial {agent, turn, signal}）、`system-prompt/assemble`（waterfall）、`session/event`（emit (session, event)，turn/end 为会话事件类型、经其载荷分发），用于承载模板路由、执行状态更新、交还处理和资源清理。工具生命周期观察可经官方 `tools/change`（emit）挂载（LDVH 当前未消费）。中断恢复共同语义由 02 定义，08 只承接宿主接入时机；终止时机无已验证原生事件，维持不接入。
+行动与结束事件接入下列已核验事件（形态在 DSH 0.1.2-rc.1 与 0.1.5-alpha.1 一致，源码双版对照核验 2026-09-10）：`agent/created`（emit {agent}）、`agent/session-start`（emit {agent, source}）、`agent/pre-step`（waterfall）、`agent/turn-stopping`（serial {agent, turn, signal}）、`system-prompt/assemble`（waterfall）、`session/event`（emit (session, event)，turn/end 为会话事件类型、经其载荷分发），用于承载既有行动结构路由、执行状态更新、交还处理和资源清理。工具生命周期观察可经官方 `tools/change`（emit）挂载（LDVH 当前未消费）。中断恢复共同语义由 02 定义，08 只承接宿主接入时机；终止时机无已验证原生事件，维持不接入。
 
 ### 5.5 交互面
 
