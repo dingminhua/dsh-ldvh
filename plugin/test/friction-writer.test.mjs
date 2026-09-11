@@ -29,6 +29,7 @@ import {
   validateFrictionBodyStructure,
   validateCarrierCoherence,
 } from "../lib/friction-writer.js";
+import { authoritativeSignature } from "../lib/signature-channel.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -130,7 +131,7 @@ async function createAndRead(root, overrides = {}) {
     factSourceRoot: root,
     frontmatterDraft: draft,
     bodyMarkdown: validBodyMarkdown(draft),
-    sessionSignature: { provider: "p", model: "m" },
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
   });
   assert.ok(created.ok, JSON.stringify(created.error));
   const read = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
@@ -206,6 +207,28 @@ test("create: with serves_sg SG-3 resolves against goal.md succeeds (26 §8/§13
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
     const { draft, created, read } = await createAndRead(root, { serves_sg: "SG-3" });
     assert.equal(read.value.frontmatter.serves_sg, "SG-3");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 签名通道负向 (specs/03 §6.1 + specs/09 机械签名)
+// ---------------------------------------------------------------------------
+
+test("create: plain sessionSignature is ignored — unsigned change_log entry (specs/09)", async () => {
+  await withTemp("friction-writer.", async (root) => {
+    const draft = validFrontmatterDraft();
+    const created = await createFrictionObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: { provider: "forged", model: "self-filled" },
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+    const read = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.ok(read.ok, JSON.stringify(read.error));
+    const entry = read.value.frontmatter.change_log[0];
+    assert.equal(entry.provider, undefined, "unbranded signature must not land in change_log");
+    assert.equal(entry.model, undefined, "unbranded signature must not land in change_log");
   });
 });
 
@@ -723,7 +746,7 @@ test("update: supplement-level — status unchanged, phenomenon unchanged, attri
       frontmatterAfter: { ...read.value.frontmatter, attribution: "CI 配置问题" },
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "归因后补",
-      sessionSignature: { provider: "p", model: "m" },
+      sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
     });
     assert.ok(updated.ok, JSON.stringify(updated.error));
 

@@ -141,7 +141,7 @@ const createResult = await createResearchObject({
     change_summary: "初次创建：基于 Linear/Notion 官方文档的业界蓝图调研（明确方向型，单 md）",
   },
   analysisBody,
-  sessionSignature: { provider: "zzztoken-glm", model: "glm-5.3" },
+  // signature-channel（specs/09 机械签名）：直调 writer 一律无署名；权威署名以 Git Gate 提交 trailer 为准。
 });
 
 console.log("Create ok:", createResult.ok);

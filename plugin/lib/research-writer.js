@@ -27,6 +27,8 @@ import { access, mkdir, readFile, rename, unlink, writeFile } from "node:fs/prom
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
+import { resolveAuthoritativeSignature } from "./signature-channel.js";
+
 // ---------------------------------------------------------------------------
 // Constants (specs/24 §8, §13)
 // ---------------------------------------------------------------------------
@@ -625,7 +627,7 @@ export async function createResearchObject(args) {
   frontmatter.status = "active";
   frontmatter.change_log = [{
     at: now,
-    ...sessionSignature,
+    ...resolveAuthoritativeSignature(sessionSignature),
     summary: frontmatterDraft.change_summary ?? "受控创建 Research 对象",
   }];
 
@@ -802,7 +804,7 @@ export async function updateResearchObject(args) {
   const prevLog = Array.isArray(current.value.frontmatter.change_log) ? current.value.frontmatter.change_log : [];
   fm.change_log = [...prevLog, {
     at: new Date().toISOString(),
-    ...sessionSignature,
+    ...resolveAuthoritativeSignature(sessionSignature),
     summary: changeSummary,
   }];
 

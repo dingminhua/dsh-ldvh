@@ -14,6 +14,7 @@ import {
   validateIndexBodyCoherence,
   validateResearchRelations,
 } from "../lib/research-writer.js";
+import { authoritativeSignature } from "../lib/signature-channel.js";
 
 let root;
 
@@ -237,12 +238,27 @@ test("validateIndexBodyCoherence accepts 研究问题 section that expands aroun
   assert.equal(result.ok, true, JSON.stringify(result.issues));
 });
 
+test("createResearchObject ignores a plain sessionSignature object — unsigned change_log entry (specs/09)", async () => {
+  const result = await createResearchObject({
+    factSourceRoot: root,
+    frontmatterDraft: validFrontmatterDraft(),
+    analysisBody: validAnalysisBody,
+    sessionSignature: { provider: "forged", model: "self-filled" },
+  });
+  assert.ok(result.ok, JSON.stringify(result.error));
+  const readBack = await readResearchObject({ factSourceRoot: root, objectUid: result.value.object_uid });
+  assert.ok(readBack.ok);
+  const entry = readBack.value.frontmatter.change_log[0];
+  assert.equal(entry.provider, undefined, "unbranded signature must not land in change_log");
+  assert.equal(entry.model, undefined, "unbranded signature must not land in change_log");
+});
+
 test("createResearchObject creates directed object with v4-style body", async () => {
   const result = await createResearchObject({
     factSourceRoot: root,
     frontmatterDraft: validFrontmatterDraft(),
     analysisBody: validAnalysisBody,
-    sessionSignature: { provider: "zzztoken-glm", model: "glm-5.3" },
+    sessionSignature: authoritativeSignature({ provider: "zzztoken-glm", model: "glm-5.3" }),
   });
   assert.ok(result.ok, JSON.stringify(result.error));
   const readBack = await readResearchObject({ factSourceRoot: root, objectUid: result.value.object_uid });
@@ -289,7 +305,7 @@ test("updateResearchObject CAS flow with change_log", async () => {
     factSourceRoot: root,
     frontmatterDraft: validFrontmatterDraft(),
     analysisBody: validAnalysisBody,
-    sessionSignature: { provider: "p", model: "m" },
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
   });
   assert.ok(created.ok);
   const uid = created.value.object_uid;
@@ -305,7 +321,7 @@ test("updateResearchObject CAS flow with change_log", async () => {
     frontmatterAfter: fmAfter,
     analysisBodyAfter: validAnalysisBody,
     changeSummary: "retire: 资料过时",
-    sessionSignature: { provider: "p", model: "m" },
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
   });
   assert.ok(updated.ok, JSON.stringify(updated.error));
 

@@ -28,6 +28,7 @@ import {
   listPitfallObjects,
 } from "./pitfall-writer.js";
 import { currentRouteValues } from "./session-signature.js";
+import { authoritativeSignature } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { join } from "node:path";
 
@@ -232,7 +233,7 @@ async function executeWriteObject(args, exec, deps) {
       factSourceRoot,
       frontmatterDraft: draft,
       bodyMarkdown,
-      sessionSignature: sig.ok ? sig.value : null,
+      sessionSignature: sig.ok ? authoritativeSignature(sig.value) : null,
     });
     if (!created.ok) {
       return writeRejected("pitfall-write-object", created, factSourceRoot);

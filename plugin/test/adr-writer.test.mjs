@@ -22,6 +22,7 @@ import {
   adrFileName,
   ADR_DIRECTORY,
 } from "../lib/adr-writer.js";
+import { authoritativeSignature } from "../lib/signature-channel.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -67,7 +68,7 @@ async function createAndRead(root, overrides = {}) {
     factSourceRoot: root,
     frontmatterDraft: draft,
     bodyMarkdown: validBodyMarkdown(draft),
-    sessionSignature: { provider: "p", model: "m" },
+    sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
   });
   assert.ok(created.ok, JSON.stringify(created.error));
   const read = await readAdrObject({ factSourceRoot: root, objectUid: created.value.object_uid });
@@ -145,6 +146,28 @@ test("create: urls non-empty with 证据 body section present succeeds (22 §8 �
     assert.ok(read.ok);
     assert.equal(read.value.body_valid, true);
     assert.equal(read.value.frontmatter.urls.length, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 签名通道负向 (specs/03 §6.1 + specs/09 机械签名)
+// ---------------------------------------------------------------------------
+
+test("create: plain sessionSignature is ignored — unsigned change_log entry (specs/09)", async () => {
+  await withTemp("adr-writer.", async (root) => {
+    const draft = validFrontmatterDraft();
+    const created = await createAdrObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: { provider: "forged", model: "self-filled" },
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+    const read = await readAdrObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.ok(read.ok, JSON.stringify(read.error));
+    const entry = read.value.frontmatter.change_log[0];
+    assert.equal(entry.provider, undefined, "unbranded signature must not land in change_log");
+    assert.equal(entry.model, undefined, "unbranded signature must not land in change_log");
   });
 });
 
@@ -424,7 +447,7 @@ test("update: active→active body-only errata succeeds, appends exactly one cha
       frontmatterAfter: read.value.frontmatter,
       bodyMarkdownAfter: body2,
       changeSummary: "勘误：修正决策背景表述",
-      sessionSignature: { provider: "p", model: "m" },
+      sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
     });
     assert.ok(updated.ok, JSON.stringify(updated.error));
 

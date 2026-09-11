@@ -97,7 +97,7 @@ const result = await createResearchObject({
     ],
   },
   analysisBody,
-  sessionSignature: { provider: "zzztoken-glm", model: "glm-5.3" },
+  // signature-channel（specs/09 机械签名）：直调 writer 一律无署名；权威署名以 Git Gate 提交 trailer 为准。
 });
 
 if (!result.ok) {
@@ -120,7 +120,7 @@ for (const uid of [PREV_UID]) {
       frontmatterAfter: { ...prev.value.frontmatter, status: "retired" },
       analysisBodyAfter: prev.value.body,
       changeSummary: "retire：载体形态已迭代（规范 77a562b 回到 v4 研究形态）——由 v4 形态新对象替代",
-      sessionSignature: { provider: "zzztoken-glm", model: "glm-5.3" },
+      // signature-channel（specs/09 机械签名）：直调 writer 一律无署名；权威署名以 Git Gate 提交 trailer 为准。
     });
     console.log("Retired", uid.slice(0, 8) + ":", retired.ok);
   }

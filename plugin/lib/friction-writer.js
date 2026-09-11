@@ -35,6 +35,8 @@ import { access, mkdir, readFile, readdir, rename, unlink, writeFile } from "nod
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
+import { resolveAuthoritativeSignature } from "./signature-channel.js";
+
 // ---------------------------------------------------------------------------
 // Constants (specs/26 §7, §8, §9, §11)
 // ---------------------------------------------------------------------------
@@ -433,7 +435,7 @@ export async function createFrictionObject(args) {
   }
   frontmatter.change_log = [{
     at: now,
-    ...sessionSignature,
+    ...resolveAuthoritativeSignature(sessionSignature),
     summary: frontmatterDraft.change_summary ?? "受控创建 Friction 对象",
   }];
 
@@ -598,7 +600,7 @@ export async function updateFrictionObject(args) {
   const prevLog = Array.isArray(current.value.frontmatter.change_log) ? current.value.frontmatter.change_log : [];
   fm.change_log = [...prevLog, {
     at: new Date().toISOString(),
-    ...sessionSignature,
+    ...resolveAuthoritativeSignature(sessionSignature),
     summary: changeSummary,
   }];
 

@@ -37,6 +37,8 @@ import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/pro
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
+import { resolveAuthoritativeSignature } from "./signature-channel.js";
+
 // ---------------------------------------------------------------------------
 // Constants (specs/20 §7, §8, §9, §11)
 // ---------------------------------------------------------------------------
@@ -514,7 +516,7 @@ export async function createSparkObject(args) {
   }
   frontmatter.change_log = [{
     at: now,
-    ...sessionSignature,
+    ...resolveAuthoritativeSignature(sessionSignature),
     summary: frontmatterDraft.change_summary ?? "受控创建 Spark 对象",
   }];
 
@@ -756,7 +758,7 @@ export async function updateSparkObject(args) {
   const prevLog = Array.isArray(current.value.frontmatter.change_log) ? current.value.frontmatter.change_log : [];
   fm.change_log = [...prevLog, {
     at: new Date().toISOString(),
-    ...sessionSignature,
+    ...resolveAuthoritativeSignature(sessionSignature),
     summary: changeSummary,
   }];
 

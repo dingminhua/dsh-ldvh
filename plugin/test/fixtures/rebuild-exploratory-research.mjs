@@ -126,7 +126,7 @@ const result = await createResearchObject({
   },
   analysisBody,
   surveyBody,
-  sessionSignature: { provider: "zzztoken-glm", model: "glm-5.3" },
+  // signature-channel（specs/09 机械签名）：直调 writer 一律无署名；权威署名以 Git Gate 提交 trailer 为准。
 });
 
 if (!result.ok) {
@@ -145,7 +145,7 @@ if (prevRead.ok) {
     frontmatterAfter: { ...prevRead.value.frontmatter, status: "retired" },
     analysisBodyAfter: prevRead.value.body,
     changeSummary: "retire：正文仅罗列调查发现无研究分析（已证实段=frontmatter 复述），子阶段应为探索型（调查+分析）——由探索型新对象替代",
-    sessionSignature: { provider: "zzztoken-glm", model: "glm-5.3" },
+    // signature-channel（specs/09 机械签名）：直调 writer 一律无署名；权威署名以 Git Gate 提交 trailer 为准。
   });
   console.log("Previous retired:", retired.ok);
 }

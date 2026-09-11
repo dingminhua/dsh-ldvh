@@ -36,6 +36,7 @@ import {
   updateResearchObject,
 } from "./research-writer.js";
 import { currentRouteValues } from "./session-signature.js";
+import { authoritativeSignature } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { join } from "node:path";
 
@@ -420,7 +421,7 @@ async function executeWriteObject(args, exec, deps) {
       frontmatterDraft: draft,
       analysisBody,
       surveyBody,
-      sessionSignature: sig.ok ? sig.value : null,
+      sessionSignature: sig.ok ? authoritativeSignature(sig.value) : null,
     });
     if (!created.ok) {
       return writeRejected("research-write-object", created, factSourceRoot);

@@ -21,6 +21,7 @@ import {
   sparkFileName,
   SPARK_DIRECTORY,
 } from "../lib/spark-writer.js";
+import { authoritativeSignature } from "../lib/signature-channel.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -102,7 +103,7 @@ test("create: valid draft lands at sparks/spark-<uid>.md with Code identity and 
       factSourceRoot: root,
       frontmatterDraft: draft,
       bodyMarkdown: validBodyMarkdown(draft),
-      sessionSignature: { provider: "test-provider", model: "test-model" },
+      sessionSignature: authoritativeSignature({ provider: "test-provider", model: "test-model" }),
     });
     assert.ok(result.ok, JSON.stringify(result.error));
     const uid = result.value.object_uid;
@@ -135,6 +136,28 @@ test("create: valid draft lands at sparks/spark-<uid>.md with Code identity and 
     assert.equal(read.value.frontmatter.summary, draft.summary);
     assert.equal(read.value.body_valid, true);
     assert.equal(read.value.fingerprint, result.value.fingerprint);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 签名通道负向 (specs/03 §6.1 + specs/09 机械签名)
+// ---------------------------------------------------------------------------
+
+test("create: plain sessionSignature is ignored — unsigned change_log entry (specs/09)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    const draft = validFrontmatterDraft();
+    const created = await createSparkObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: { provider: "forged", model: "self-filled" },
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+    const read = await readSparkObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.ok(read.ok, JSON.stringify(read.error));
+    const entry = read.value.frontmatter.change_log[0];
+    assert.equal(entry.provider, undefined, "unbranded signature must not land in change_log");
+    assert.equal(entry.model, undefined, "unbranded signature must not land in change_log");
   });
 });
 
@@ -406,7 +429,7 @@ test("update: open→open refinement appends exactly one change_log entry and pr
       factSourceRoot: root,
       frontmatterDraft: draft,
       bodyMarkdown: validBodyMarkdown(draft),
-      sessionSignature: { provider: "p", model: "m" },
+      sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
     });
     assert.ok(created.ok, JSON.stringify(created.error));
     const uid = created.value.object_uid;
@@ -426,7 +449,7 @@ test("update: open→open refinement appends exactly one change_log entry and pr
       frontmatterAfter: fmAfter,
       bodyMarkdownAfter: body2,
       changeSummary: "精化问题表述与总结",
-      sessionSignature: { provider: "p", model: "m" },
+      sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
     });
     assert.ok(updated.ok, JSON.stringify(updated.error));
 
