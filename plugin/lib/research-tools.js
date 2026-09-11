@@ -4,7 +4,7 @@
 // tool surface so the main controller can actually drive them from a live
 // session:
 //
-//   - research-session.js (specs/11 §5–§8+§10): the research session state
+//   - research-session.js (specs/30 §5–§8+§10): the research session state
 //     machine — clarification analysis, three-layer convergence, three-state
 //     evidence shaping, citation-loop audit, delivery contract, and the
 //     round-driven ResearchSession. Exposed as ONE tool whose `action`
@@ -42,7 +42,7 @@ import { join } from "node:path";
 const OPERATIONS = {
   "research-session-machine": {
     toolName: "ldvh_research_session",
-    summary: "Drive the specs/11 research session state machine: clarify the question, submit evidence rounds (three-state + citation loop), audit convergence, and finalize the evidence bundle (specs/11 §5–§8, §10)",
+    summary: "Drive the specs/30 research session state machine: clarify the question, submit evidence rounds (three-state + citation loop), audit convergence, and finalize the evidence bundle (specs/30 §5–§8, §10)",
     effect: "read"
   },
   "research-read-object": {
@@ -137,7 +137,7 @@ async function signatureFor(deps, exec) {
 }
 
 // ---------------------------------------------------------------------------
-// research-session-machine handlers (specs/11 mechanical slice)
+// research-session-machine handlers (specs/30 mechanical slice)
 // ---------------------------------------------------------------------------
 
 function executeSessionAction(args, exec) {
@@ -176,7 +176,7 @@ function executeClarify(args) {
   return Promise.resolve(envelope("research-session-machine", "completed", {
     result: analysis.value,
     scope: { requested: "clarify", completed: ["clarify"], not_completed: [] },
-    sources: [{ kind: "spec", path: "specs/11-调研系统规范.md", section: "5. 调研入口澄清" }],
+    sources: [{ kind: "spec", path: "specs/30-调研系统规范.md", section: "5. 调研入口澄清" }],
     gaps: [],
     verification: { checks: ["ambiguity-heuristics"], passed: true },
     follow_up: analysis.value.needsClarification
@@ -201,7 +201,7 @@ function executeSessionCreate(args) {
   return Promise.resolve(envelope("research-session-machine", "completed", {
     result: { session_id: id, max_rounds: session.maxRounds, sub_questions: session.subQuestions.length },
     scope: { requested: "create", completed: ["create"], not_completed: [] },
-    sources: [{ kind: "spec", path: "specs/11-调研系统规范.md", section: "6. 三层收敛判定" }],
+    sources: [{ kind: "spec", path: "specs/30-调研系统规范.md", section: "6. 三层收敛判定" }],
     gaps: [],
     verification: { checks: ["session-created"], passed: true },
     follow_up: ["action=submit-round with findings (each: statement, state, evidence/issue/gap)"]
@@ -235,7 +235,7 @@ function executeSubmitRound(args) {
       completed: round.accepted.length > 0 ? [`round ${session.roundNumber}: ${round.accepted.length} finding(s) accepted`] : [],
       not_completed: round.rejected.length > 0 ? [`${round.rejected.length} finding(s) rejected (reshape and resubmit)`] : []
     },
-    sources: [{ kind: "spec", path: "specs/11-调研系统规范.md", section: "7. 三态证据结构" }],
+    sources: [{ kind: "spec", path: "specs/30-调研系统规范.md", section: "7. 三态证据结构" }],
     gaps: round.rejected.length > 0 ? round.rejected.map((r) => `${r.error?.code}: ${r.error?.message}`) : [],
     verification: { checks: ["evidence-shaping", "convergence-evaluation"], passed: round.rejected.length === 0 },
     follow_up: round.stop
@@ -257,7 +257,7 @@ function executeAuditCitation(args) {
   return Promise.resolve(envelope("research-session-machine", audit.ok ? "completed" : "rejected", {
     result: { ok: audit.ok, issues: audit.issues },
     scope: { requested: "audit-citation", completed: audit.ok ? ["citation loop"] : [], not_completed: audit.ok ? [] : ["citation loop"] },
-    sources: [{ kind: "spec", path: "specs/11-调研系统规范.md", section: "8. 引用闭环" }],
+    sources: [{ kind: "spec", path: "specs/30-调研系统规范.md", section: "8. 引用闭环" }],
     gaps: audit.issues,
     verification: { checks: ["citation-loop-audit"], passed: audit.ok },
     follow_up: audit.ok ? [] : ["fix the cited issues; the report must not be delivered while the audit fails (11 §8.3)"]
@@ -273,7 +273,7 @@ function executeCheckDelivery(args) {
   return Promise.resolve(envelope("research-session-machine", check.ok ? "completed" : "rejected", {
     result: { ok: check.ok, issues: check.issues },
     scope: { requested: "check-delivery", completed: check.ok ? ["placeholder scan"] : [], not_completed: check.ok ? [] : ["placeholder scan"] },
-    sources: [{ kind: "spec", path: "specs/11-调研系统规范.md", section: "10. 交付合同" }],
+    sources: [{ kind: "spec", path: "specs/30-调研系统规范.md", section: "10. 交付合同" }],
     gaps: check.issues,
     verification: { checks: ["placeholder-scan"], passed: check.ok },
     follow_up: check.ok ? [] : ["fill the placeholders and re-run; fail loud, no half-finished report (11 §10.3)"]
@@ -293,7 +293,7 @@ function executeFinalize(args) {
   return Promise.resolve(envelope("research-session-machine", "completed", {
     result: { session_id: id, ...bundle.value },
     scope: { requested: "finalize", completed: ["evidence bundle"], not_completed: [] },
-    sources: [{ kind: "spec", path: "specs/11-调研系统规范.md", section: "6. 三层收敛判定" }],
+    sources: [{ kind: "spec", path: "specs/30-调研系统规范.md", section: "6. 三层收敛判定" }],
     gaps: [],
     verification: { checks: ["three-state-invariants", "stopping-consistency", "citation-loop"], passed: true },
     follow_up: ["research-write-object action=create to persist the Research object (specs/24 §13)"]
@@ -688,7 +688,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          action: { type: "string", enum: ["clarify", "create", "submit-round", "audit-citation", "check-delivery", "finalize", "state"], description: "State-machine entry (specs/11 §5–§8, §10)" },
+          action: { type: "string", enum: ["clarify", "create", "submit-round", "audit-citation", "check-delivery", "finalize", "state"], description: "State-machine entry (specs/30 §5–§8, §10)" },
           question: { type: "string", description: "clarify/create: the research question" },
           purpose: { type: "string", description: "clarify/create: the project judgement this research supports" },
           sub_questions: { type: "array", items: { type: "string" }, description: "create: sub-question keys for sufficient-coverage checks" },

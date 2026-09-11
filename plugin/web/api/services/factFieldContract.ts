@@ -113,7 +113,7 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
   // intent/summary 必填；evolution（{at, summary} 流水）/serves_sg（SG-n 轻
   // 量锚点）/disposition（终态去向）条件出现；relations 仅 merged-into/
   // split-into（§11）。本类型不设 urls（§10：悬置问题不直接接受外部证据，
-  // 由 11 号调研系统收集）与 priority（§14.2：v4 存量不迁入）——故不展开
+  // 由 30 号调研系统收集）与 priority（§14.2：v4 存量不迁入）——故不展开
   // common 的 urls，也不用 v4 的 disposition_summary（终态去向由 disposition
   // 承载）。正文四节（当前理解/调查问题/调查边界/演变）由 report_body 承载。
   spark: {

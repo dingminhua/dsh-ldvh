@@ -1,7 +1,7 @@
 /**
  * dsh-ldvh — Research session runner (minimal research sub-agent orchestration).
  *
- * Implements the mechanical slice of specs/11 §5–§8:
+ * Implements the mechanical slice of specs/30 §5–§8:
  *
  *  - §5 入口澄清: detect ambiguity in the research question and produce
  *    ≤3 clarification questions (the caller surfaces them to Human;
@@ -12,7 +12,7 @@
  *  - §8 引用闭环: verbatim-quote citation loop discipline.
  *
  * This module is a pure state machine + validator: it does NOT spawn
- * sub-agents itself (that is the 编排 layer's job per specs/11 §11.3).
+ * sub-agents itself (that is the 编排 layer's job per specs/30 §11.3).
  * The caller (main controller or a workflow) drives the rounds and feeds
  * back raw findings; this module validates, classifies into three states,
  * tracks convergence, and produces the final validated evidence bundle
@@ -241,7 +241,7 @@ export function shapeEvidence(finding) {
 /**
  * Audit the citation loop of a research report body against the evidence.
  *
- * Checks (specs/11 §8.3):
+ * Checks (specs/30 §8.3):
  *  1. Every [n] reference in the body has a corresponding confirmed entry
  *  2. Quoted text in the body matches the evidence verbatim
  *  3. No unanchored quotes (must have both source and anchor)

@@ -12,7 +12,7 @@ import { FACT_FIELD_CONTRACT, FACT_LIST_FIELD_NAMES, FACT_TERMINAL_STATUSES, FAC
 
 const FIELD_EXPECTATIONS = new Set(['string', 'number', 'array', 'object']);
 // 所有类型共有的公共字段（03 §6.1：无公共 updated_at，变更由 change_log[].at 承担）。
-// 例外：spark 不携带 urls（20 §10：悬置问题不直接接受外部证据，由 11 号调研
+// 例外：spark 不携带 urls（20 §10：悬置问题不直接接受外部证据，由 30 号调研
 // 系统收集）——公共面按类型声明豁免，不做静默宽放。
 const COMMON_FIELDS = [
   'object_uid',

@@ -1,6 +1,6 @@
 const { validateJsonSchemaValue } = await import("/Applications/DSH Desktop.app/Contents/Resources/app.asar.unpacked/node_modules/@deepseek-ai/dsh-tools/lib/index.js");
 // Tests for plugin/lib/research-tools.js — the runtime wiring of the
-// research mechanical layer (specs/11 state machine + specs/24 writer) into
+// research mechanical layer (specs/30 state machine + specs/24 writer) into
 // the governed ldvh_* tool surface.
 //
 // Coverage follows the sibling ldvh-tools.test.mjs pattern: handlers are
@@ -81,7 +81,7 @@ function validFrontmatterDraft() {
     title: "工具接入调研（测试夹具）",
     status: "active",
     research_question: "调研机械层工具接入对主控工作流有什么影响？",
-    research_purpose: "验证 specs/11+24 机械层的运行时通道",
+    research_purpose: "验证 specs/30+24 机械层的运行时通道",
     stopping_reason: "sufficient",
     urls: [
       { ref: "https://example.com/docs/guide", title: "Example Guide", summary: "机制说明" },
