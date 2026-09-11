@@ -8,7 +8,7 @@ ldvh_spec:
   parent_spec: ""
   relation: ""
   positioning: "定义 DSH 宿主下的插件接入（manifest/工具注册/引导面/事件时机/交互面）、机械守护部署（Git Gate/不变量/沙箱）、发布与项目门面（版本号/README/CHANGELOG）"
-  scope: "适用于 DSH 宿主下 LDVH 插件的接入、部署、发布与公共门面；不定义 Helper 服务契约、事实模型、业务系统规范、Web 呈现或 Code 实现细节"
+  scope: "适用于 DSH 宿主下 LDVH 插件的接入、部署、发布与公共门面；不定义 LDVH CLI 服务契约、事实模型、业务系统规范、Web 呈现或 Code 实现细节"
   basis:
     - "ldvh-root"
     - "specification-model-foundation"
@@ -26,7 +26,7 @@ ldvh_spec:
 
 插件身份与能力入口主要支撑 V1；权限、沙箱与工具注册边界主要支撑 V3 和 HV2；引导面、事件面与机械守护主要支撑 V4；版本声明、README、CHANGELOG 与回读核对主要支撑 V5 和 HV3。
 
-本规范只定义 DSH 宿主接入、部署和发布门面；Helper 服务、事实与业务系统规范语义、提交契约、Code 实现和 Web 交互由 03–07、09、10 与实际环境承接。
+本规范只定义 DSH 宿主接入、部署和发布门面；LDVH CLI 确定性服务、事实与业务系统规范语义、提交契约、Code 实现和 Web 交互由 03–07、09、10 与实际环境承接。
 
 manifest 存在、工具注册成功、钩子安装、页面加载或发布完成，只能证明相应接入或发布范围，不能单独证明能力可用、授权成立、行动完成或价值兑现。
 
@@ -49,13 +49,13 @@ DSH 插件与市场规范只提供宿主接口和发布格式，不取得 LDVH �
 1. manifest 字段声明（名称/版本/入口/权限声明/市场字段）与插件身份入口（§5.1）；
 2. 工具注册缝的接入语义：领域操作的输入语义约束由 05 及各领域来源定义，DSH 工具层实际工具名称、输入 schema 形态、注册时机与权限配置由 08 按当前 DSH 版本核验并定义（§5.2）；
 3. 引导面注入形式与预算、turn/end 事件时机接入（turn/end 为会话事件类型，经 `session/event` 载荷分发）、`ctx.userQuestions` 问询面与审批通道授权承载接入（§5.3–§5.5）；
-4. 07 登记制度在 Helper/Git Gate/Skill/Web 侧的 DSH 宿主接入点（呈现细节归 07/10）（§5.6）；
+4. 07 登记制度在 LDVH CLI/Git Gate/Skill/Web 侧的 DSH 宿主接入点（呈现细节归 07/10）（§5.6）；
 5. 机械守护部署：运行时不变量、文件观察策略、Git Gate 安装形态、沙箱分层（§6）；
 6. 版本号双轨与分发渠道、README 与 CHANGELOG 格式要求、00 §4.3 五类受保护文档在 DSH 域的承接、Output Envelope 宿主承载（§7）。
 
 ### 3.2 本文不负责
 
-1. Helper 服务契约、公开操作声明、传输 envelope——归 05；
+1. LDVH CLI 服务契约、公开操作声明、传输 envelope——归 05；
 2. 事实字段、状态机、CRUD、CAS、content_fingerprint——归 03；业务系统规范步骤、触发条件、完成门禁——归 04；
 3. 事实源定义、受控提交契约、precheck 语义——归 06；管辖登记 Schema、判定逻辑——归 07；
 4. 代码实现、构建、测试、CI/CD——归 09；Web 呈现、四层阅读器、UI 组件——归 10；
@@ -63,7 +63,7 @@ DSH 插件与市场规范只提供宿主接口和发布格式，不取得 LDVH �
 
 ### 3.3 相邻规范分工与唯一权威
 
-05 是 Helper 服务契约与领域操作输入语义的唯一权威，06 是 Git Gate 与提交检查语义的唯一权威，07 是管辖判定语义的唯一权威，09 是 Code 实现与测试的唯一权威，10 是 Web 呈现与交互的唯一权威；08 只定义 DSH 宿主接入点、部署形态与发布门面，不另建第二权威。
+05 是 LDVH CLI 服务契约与领域操作输入语义的唯一权威，06 是 Git Gate 与提交检查语义的唯一权威，07 是管辖判定语义的唯一权威，09 是 Code 实现与测试的唯一权威，10 是 Web 呈现与交互的唯一权威；08 只定义 DSH 宿主接入点、部署形态与发布门面，不另建第二权威。
 
 ## 4. 适用范围
 
@@ -81,7 +81,7 @@ DSH 插件与市场规范只提供宿主接口和发布格式，不取得 LDVH �
 
 ### 4.3 明确排除与证明边界
 
-非 DSH 宿主、跨平台移植与非 LDVH 插件不在本文适用范围；本规范不定义 Helper 服务、事实模型、业务系统规范、Web 呈现或 Code 实现细节。
+非 DSH 宿主、跨平台移植与非 LDVH 插件不在本文适用范围；本规范不定义 LDVH CLI 确定性服务、事实模型、业务系统规范、Web 呈现或 Code 实现细节。
 
 manifest 存在、工具注册成功、钩子安装或发布完成，只证明当次接入的机械范围，不单独证明能力可用、授权成立、工作完成或价值兑现。
 
@@ -93,7 +93,7 @@ manifest（`package.json` 或 DSH 市场规定的文件）为插件身份入口�
 
 ### 5.2 工具注册缝
 
-05 定义的 Helper 操作经 DSH 正式工具注册入口 `ctx.tools.register(defineTool({name, description, parameters, output, execute}))` 接入，返回 disposer；参数经 JSON Schema 编译校验（违规抛 ToolArgsError）；守卫通道 `ctx.tools.guard(guard)` 注册单调守卫（任何 guard 可拒不可放行，guard 在 tools/pre-execute 之后求值），执行链全序为 pre-policy → guards → around-dispatch → post-policy → 内容终结 → 通知；上述形态在 DSH 0.1.2-rc.1 与 0.1.5-alpha.1 一致（源码双版对照核验，2026-09-10），实际注册以装载后注册状态检查为准。领域操作的输入语义约束由 05 及各领域来源定义（承接 05 §5.1 分派），权限配置遵循 §5.1 manifest 权限声明，09 实现并测试；注册成功不证明操作可调用、授权成立或实际可用。
+05 定义的 LDVH CLI 操作经 DSH 正式工具注册入口 `ctx.tools.register(defineTool({name, description, parameters, output, execute}))` 接入，返回 disposer；参数经 JSON Schema 编译校验（违规抛 ToolArgsError）；守卫通道 `ctx.tools.guard(guard)` 注册单调守卫（任何 guard 可拒不可放行，guard 在 tools/pre-execute 之后求值），执行链全序为 pre-policy → guards → around-dispatch → post-policy → 内容终结 → 通知；上述形态在 DSH 0.1.2-rc.1 与 0.1.5-alpha.1 一致（源码双版对照核验，2026-09-10），实际注册以装载后注册状态检查为准。领域操作的输入语义约束由 05 及各领域来源定义（承接 05 §5.1 分派），权限配置遵循 §5.1 manifest 权限声明，09 实现并测试；注册成功不证明操作可调用、授权成立或实际可用。
 
 ### 5.3 引导面
 
@@ -114,7 +114,7 @@ DSH 结构化问询入口为 `ctx.userQuestions.ask(request)`（validation + sco
 
 ### 5.6 管辖登记接入
 
-07 是登记位置、Schema、路径、权限目标、三态判定、写入与迁移规则的唯一权威；Helper、Git Gate、Skill 与 Web 统一消费其结果。08 只承接宿主接入：接入点为 `ctx.get('dshHomePath')` 服务（boot 时 provide，两版源码零 diff；宿主以 DSH_HOME 环境变量与 ~/.dsh 默认根提供，无 Electron userData 级 API），配置根为 dshHomePath 下 `ldvh/governed-projects.yaml`，跨工作区读写经该路径；宿主 ACL/沙箱结果映射为 07 的 `available` 或 `unavailable`。08 不复制 07 的 Schema 或写入规程。
+07 是登记位置、Schema、路径、权限目标、三态判定、写入与迁移规则的唯一权威；LDVH CLI、Git Gate、Skill 与 Web 统一消费其结果。08 只承接宿主接入：接入点为 `ctx.get('dshHomePath')` 服务（boot 时 provide，两版源码零 diff；宿主以 DSH_HOME 环境变量与 ~/.dsh 默认根提供，无 Electron userData 级 API），配置根为 dshHomePath 下 `ldvh/governed-projects.yaml`，跨工作区读写经该路径；宿主 ACL/沙箱结果映射为 07 的 `available` 或 `unavailable`。08 不复制 07 的 Schema 或写入规程。
 
 ## 6. 机械守护部署
 
@@ -162,7 +162,7 @@ CHANGELOG 版本条目、插件 manifest 版本字段、README 版本行三者�
 | 验证对象 | 验证时机 | 成立条件 | 可接受依据 | 验证入口 | 可证明范围 | 未满足时的处理 |
 |---|---|---|---|---|---|---|
 | 插件 manifest | 插件起草、发布或修改 manifest 时 | 字段完整、格式合规、与实际能力一致 | manifest 文件与 DSH 市场规范 | manifest 解析检查 | 当次身份与声明的机械完整性；不证明能力可用或授权成立 | 修复字段，不发布不一致版本 |
-| 工具注册 | 插件装载后 | DSH 当前环境已实际注册目标工具 | 宿主注册观察 | 注册状态检查 | 工具面可发现（本行为 DSH 接入域验证权威；05 §10 同名行只验证 Helper 服务工具面语义）；不证明操作可调用、Human 授权或语义正确 | 未注册时按不可用交还，不伪造接入声明 |
+| 工具注册 | 插件装载后 | DSH 当前环境已实际注册目标工具 | 宿主注册观察 | 注册状态检查 | 工具面可发现（本行为 DSH 接入域验证权威；05 §10 同名行只验证 LDVH CLI 服务工具面语义）；不证明操作可调用、Human 授权或语义正确 | 未注册时按不可用交还，不伪造接入声明 |
 | 引导面注入 | 会话冷启动或行动前触发时 | 注入内容与 01 §10.4 单一权威来源一致且未超 LDVH 侧常量预算 | 注入内容观察与来源比对 | 注入核对 | 当次注入范围；不证明内容正确或 AI 已遵守 | 超预算或漂移时暂停受影响注入并修复 |
 | Git Gate 部署 | 部署后或宣称就绪前 | 钩子存在、`managed` 状态已确认（已安装、路径正确、版本匹配） | `.git/hooks` 观察与 managed 确认记录 | 部署状态检查 | 部署状态成立；不证明实际阻断有效或绕过不存在 | 未确认时不得声称就绪，暂停受控提交声明 |
 | 权限预设 | 装载或扩权请求时 | 权限边界已声明且沙箱分层与声明一致 | manifest 权限声明与宿主沙箱观察 | 权限一致性检查 | 当次声明与分层一致；不证明越权被实际拒绝 | 不一致时拒绝执行并按 00 §7.2 交还 |

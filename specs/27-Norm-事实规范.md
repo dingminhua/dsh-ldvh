@@ -200,7 +200,7 @@ Count(direction_key = d ∧ status = "active") ≤ 1
 
 1. **第一层：受控写入前**（**待实现**）——受控写入入口在创建/更新前扫描 `ldvh-base/norms/` 全部现存 Norm 载体、解析 frontmatter，发现同 `direction_key` 的 active Norm 时拒绝写入（`ERR_DIRECTION_ALREADY_EXISTS`）。
 2. **第二层：提交前 Git Gate**（**待实现**）——即使绕过受控写入工具（手工编辑或 shell 写入），提交时 Git Gate 遍历工作树与暂存区的 `ldvh-base/norms/norm-*.md`，提取 active Norm 的 `direction_key` 构建频次 Map，任何 key 出现次数 > 1 则拒绝提交。
-3. **第三层：消费/读取诊断**（**待实现**）——主控通过 Helper 读取或 Web 投影 Norm 时，若发现 active 方向冲突，两份冲突规范均不得作为当前生效规则返回（fail-closed，对齐 01 §9.1「同一编号映射到多个候选时，全部受影响候选均不得进入成员读取」），报告 `gaps: [{ reason: "direction_collision", direction_key: "..." }]`。
+3. **第三层：消费/读取诊断**（**待实现**）——主控通过 LDVH CLI 读取或 Web 投影 Norm 时，若发现 active 方向冲突，两份冲突规范均不得作为当前生效规则返回（fail-closed，对齐 01 §9.1「同一编号映射到多个候选时，全部受影响候选均不得进入成员读取」），报告 `gaps: [{ reason: "direction_collision", direction_key: "..." }]`。
 
 **三层实现前不得声称唯一性已被机械保障**（00 §7.1）。实现落地后，本节应回填各层的实际入口与验证方式。
 
@@ -305,4 +305,4 @@ Human 决定只证明决定及其作用范围，不替代查重判断、directio
 4. 不设 `norm_source` 或类似的「指向元规范」字段——事实规范的效力来自规范源层级与 active 状态，不靠路径挂靠（Human 撤回该设计，理由见 00 §3.3）；
 5. 不为「成体系」的语义完备性设立无法机械判定的强制质量门槛——4 段骨架是弱机械门槛（验形），语义质量由 AI 审核与 Human Gate 保障（验质）；
 6. 不把 direction_key 扩展为层级键或树状结构——kebab-case 是扁平标识，方向层级以正文定位说明，不以字段编码；
-7. 不为 Norm 建缓存/索引/投影副本——消费点经 Helper 或 Web 按需读取，不建第二权威。
+7. 不为 Norm 建缓存/索引/投影副本——消费点经 LDVH CLI 或 Web 按需读取，不建第二权威。
