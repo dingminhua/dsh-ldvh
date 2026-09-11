@@ -18,6 +18,9 @@ export const FACT_TYPE_DIRS = {
   spark: 'sparks',
   research: 'researches',
   friction: 'frictions',
+  // v5 Norm（27 号 §7）：事实规范落 ldvh-base/norms/（目录名 = 类型短名复数，
+  // 与既有五类同惯例）。注意不与仓库根 specs/（元规范）混同。
+  norm: 'norms',
 } as const
 
 export const FACT_TYPE_CARRIERS = {
@@ -31,6 +34,8 @@ export const FACT_TYPE_CARRIERS = {
   research: '.md',
   // v5 Friction（26 §7）：同上，frontmatter + markdown。
   friction: '.md',
+  // v5 Norm（27 号 §7）：同上，frontmatter（机器权威）+ markdown 正文。
+  norm: '.md',
 } as const
 
 export type LocalFactType = FactType

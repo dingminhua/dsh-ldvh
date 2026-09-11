@@ -5,7 +5,7 @@
  * entry retains its 05.Att.01 field_key and is mechanically reconciled with
  * 05.Att.01, the type bindings, and 08.Att.01 by fact-field-contract.test.ts.
  */
-export const FACT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction'] as const
+export const FACT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm'] as const
 
 export type FactType = (typeof FACT_TYPES)[number]
 export type FieldExpectation = 'string' | 'number' | 'array' | 'object'
@@ -158,6 +158,20 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     report_body: field('research-report-body', 'string', false),
     disposition_summary: field('disposition-summary', 'string', false),
   },
+  // v5 Norm（27 号规范）：事实规范的字段闭集——direction_key（专属方向键，
+  // 唯一性公式 Count(direction_key=d ∧ status="active") ≤ 1）必填；title/
+  // status/created_at/change_log 走 common；retirement_reason/retired_at
+  // 条件出现（retired 必填、active 禁现，同 22 号形态）。本类型不设 urls
+  // （规则住正文）与 relations（跨方向以正文引用实现，§9）。正文四段固定
+  // H2 骨架（方向定位与适用范围／核心规则体系／约束与反模式／验证与遵从性
+  // 检查）由 body 承载，不登记为独立字段。
+  norm: {
+    ...common,
+    direction_key: field('norm-direction-key', 'string', true),
+    retirement_reason: field('retirement-reason', 'string', false),
+    retired_at: field('retired-at', 'string', false),
+    body: field('norm-body', 'string', false),
+  },
 }
 
 /**
@@ -171,6 +185,11 @@ export const FACT_LIST_FIELD_NAMES: Record<Exclude<FactType, 'workcase'>, readon
   pitfall: Object.keys(FACT_FIELD_CONTRACT.pitfall).filter((field) => field !== 'report_body'),
   spark: Object.keys(FACT_FIELD_CONTRACT.spark).filter((field) => field !== 'report_body'),
   research: Object.keys(FACT_FIELD_CONTRACT.research).filter((field) => field !== 'report_body'),
+  // friction（26 号）此前遗漏于本表，而 FACT_TERMINAL_STATUSES 已含 friction——
+  // 列表投影缺 friction 会使其字段被判为未登记。此处补齐。
+  friction: Object.keys(FACT_FIELD_CONTRACT.friction).filter((field) => field !== 'report_body'),
+  // norm（27 号）：正文由 body 承载，列表投影不携带全文（同 report_body 纪律）。
+  norm: Object.keys(FACT_FIELD_CONTRACT.norm).filter((field) => field !== 'body'),
 }
 
 /**
@@ -186,4 +205,20 @@ export const FACT_TERMINAL_STATUSES: Record<FactType, readonly string[]> = {
   research: ['retired'],
   // 26 §9：resolved 终态；deferred 可逆（重新激活），不是终态。
   friction: ['resolved'],
+  // 27 号 §9：active/retired 两态，retired 为终态（不重开）。
+  norm: ['retired'],
+}
+
+/**
+ * v5 事实类型 → 载体目录名（ldvh-base/ 下）。目录名 = 类型短名复数（03 §6.1 惯例）。
+ * 25 Goal 为单例（ldvh-base/goal.md），不占目录，故不在本表。
+ */
+export const FACT_TYPE_DIR_NAMES: Record<FactType, string> = {
+  workcase: 'workcases',
+  adr: 'adrs',
+  pitfall: 'pitfalls',
+  spark: 'sparks',
+  research: 'researches',
+  friction: 'frictions',
+  norm: 'norms',
 }

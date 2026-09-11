@@ -27,7 +27,9 @@ import {
 import { realpath } from "node:fs/promises";
 import { git, initRepo, runnerPath, withTemp } from "./helpers.mjs";
 
-const FACT_DIRECTORIES = ["sparks", "workcases", "adrs", "pitfalls", "researches"];
+// Mirrors FACT_DIRECTORIES in ../lib/governed-projects.js. Kept in lockstep with
+// the lib (03 §6.1: 目录名 = 类型短名复数); the deepEqual assertion below pins it.
+const FACT_DIRECTORIES = ["sparks", "workcases", "adrs", "pitfalls", "researches", "frictions", "norms"];
 
 /** Build a dshHomePath-style function rooted at an arbitrary temp dir. */
 const dshHome = (home) => (...segments) => join(home, ...segments);
@@ -83,7 +85,7 @@ test("initializeFactSource creates the five fact directories and reports ready",
 		const root = await initRepo(base);
 		const status = await initializeFactSource(root);
 		assert.equal(status.state, "ready");
-		assert.deepEqual(FACT_DIRECTORIES, ["sparks", "workcases", "adrs", "pitfalls", "researches"]);
+		assert.deepEqual(FACT_DIRECTORIES, ["sparks", "workcases", "adrs", "pitfalls", "researches", "frictions", "norms"]);
 		for (const name of FACT_DIRECTORIES) {
 			const stat = await lstat(join(root, "ldvh-base", name));
 			assert.ok(stat.isDirectory(), `${name} must be a directory inside ldvh-base`);
