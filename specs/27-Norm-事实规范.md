@@ -46,7 +46,7 @@ Norm 对象存在、处于 active 或正文包含规则条目，均不能单独�
 2. Norm 的身份与载体（多例、平铺单文件、`ldvh-base/norms/norm-<uid>.md`）；
 3. Norm 的字段契约（frontmatter 闭集、正文四段固定 H2 骨架、direction_key 专属字段）；
 4. Norm 的状态闭集（active/retired）与终态处理；
-5. Norm 的方向清单与反重复机制（唯一性公式、三道防线）；
+5. Norm 的方向清单与反重复机制（唯一性公式、三层设计契约及其实现状态）；
 6. Norm 的关系契约（不使用 relations 字段）；
 7. Norm 的召回与消费点（遵守预检、讨论装配、审计核对、Web 呈现）；
 8. Norm 的受控操作（创建、受控更新、退役）。
@@ -158,7 +158,7 @@ frontmatter 闭集（全部必填，除标注外创建时一次落定）：
 
 `direction_key` 与 `title` 的区别：`direction_key` 是机器标识（唯一性校验、索引、跨规范检索），`title` 是人类可读短标题（扫读定位、Web 呈现）。`direction_key` 不随标题修改而改变（纯标题修正不改 direction_key，参见 §13.2 勘误边界）。
 
-字段间不变量：`direction_key` 格式符合正则（机械校验）；同一 `direction_key` 在 active 集合中至多一个（§11 唯一性公式，三道防线保障）；`retirement_reason`/`retired_at` 随 `status` 约束（§9）；正文四段固定 H2 全部存在且各段非空（机械校验）；未知字段不进入 canonical 对象。
+字段间不变量：`direction_key` 格式符合正则（机械校验）；同一 `direction_key` 在 active 集合中至多一个（§11 唯一性公式；其三层机械承载待实现，见 §11 与 §14）；`retirement_reason`/`retired_at` 随 `status` 约束（§9）；正文四段固定 H2 全部存在且各段非空（机械校验）；未知字段不进入 canonical 对象。
 
 ## 9. 关系契约
 
@@ -194,22 +194,28 @@ Count(direction_key = d ∧ status = "active") ≤ 1
 
 同一 `direction_key` 在历史全集中可以有多份（1 份 active + N 份 retired）。退役的 Norm 保留为只读历史档案。若未来重启该方向，新 Norm 分配新的 `object_uid`，方向键可以复用。机械校验器在检查唯一性时，过滤条件是 `status === "active"`。
 
-**三道防线（写入前拒绝 / Git Gate 拦截 / 消费端 fail-closed）**：
+**唯一性的三层设计契约（写入前拒绝 / Git Gate 拦截 / 消费端 fail-closed）——设计已定义，实现待补**：
 
-1. **第一道：受控写入前**——受控写入入口在创建/更新前扫描 `ldvh-base/norms/` 全部现存 Norm 载体，解析 frontmatter；发现同 direction_key 的 active Norm 时直接拒绝写入（`ERR_DIRECTION_ALREADY_EXISTS`）。
-2. **第二道：提交前 Git Gate**——即使绕过受控写入工具（手工编辑或 shell 写入），提交时 Git Gate 遍历暂存区与工作树的 `ldvh-base/norms/norm-*.md`，断言每个文件 direction_key 合法、提取所有 active Norm 的 direction_key 构建频次 Map，任何 key 出现次数 > 1 则拒绝提交。
-3. **第三道：消费/读取诊断**——主控通过 Helper 读取或 Web 投影 Norm 时，若发现 active 方向冲突，两份冲突规范均不得作为当前生效规则返回（fail-closed，对齐 01 §9.1「同一编号映射到多个候选时，全部受影响候选均不得进入成员读取」），报告 `gaps: [{ reason: "direction_collision", direction_key: "..." }]`。
+本节定义唯一性在架构上**应当**由哪三层承载。**截至本文定稿，这三层尚未实现**，因此「同一 direction_key 在 active 集合中至多一个」当前**只有规范要求，没有机械保障**；在实现落地前，唯一性由 §6.2 的创建前查重与 Human Gate 核对承担，其残余缺口按 §14「未实现范围」如实登记。
+
+1. **第一层：受控写入前**（**待实现**）——受控写入入口在创建/更新前扫描 `ldvh-base/norms/` 全部现存 Norm 载体、解析 frontmatter，发现同 `direction_key` 的 active Norm 时拒绝写入（`ERR_DIRECTION_ALREADY_EXISTS`）。
+2. **第二层：提交前 Git Gate**（**待实现**）——即使绕过受控写入工具（手工编辑或 shell 写入），提交时 Git Gate 遍历工作树与暂存区的 `ldvh-base/norms/norm-*.md`，提取 active Norm 的 `direction_key` 构建频次 Map，任何 key 出现次数 > 1 则拒绝提交。
+3. **第三层：消费/读取诊断**（**待实现**）——主控通过 Helper 读取或 Web 投影 Norm 时，若发现 active 方向冲突，两份冲突规范均不得作为当前生效规则返回（fail-closed，对齐 01 §9.1「同一编号映射到多个候选时，全部受影响候选均不得进入成员读取」），报告 `gaps: [{ reason: "direction_collision", direction_key: "..." }]`。
+
+**三层实现前不得声称唯一性已被机械保障**（00 §7.1）。实现落地后，本节应回填各层的实际入口与验证方式。
 
 **反重复版的「一方向一规范」判据**：
 
-- **反重复**：同一方向至多由一份规范承载——上述唯一性公式与三道防线保障；
+- **反重复**：同一方向至多由一份 active 规范承载——**目标状态**由上述唯一性公式与三层设计契约承载；**当前状态**由 §6.2 查重与 Human Gate 承担（三层未实现）；
 - **允许合并**：一份规范可聚合多个强相关方向（如 LDVH 元规范 09=Code 含代码+测试、10=Web 含呈现+交互）——合并判据见 §6.1「三条都高度重合才考虑合并」；
 - **方向内子主题可拆文件但不得升格新方向**：方向规范正文中可按 H3 划分子主题；若需拆分为独立文件，该文件不建立新 Norm 对象、不分配新 direction_key，而是作为正文扩展或附件承载（03 §7.2）；
 - **跨方向约束以主规范承载 + 他处引用实现，禁止重复定义**：同一规则只在一个方向的 Norm 中定义，它处只引用不重述（参见 §9）。
 
+**判据的机械可实现性边界（如实声明）**：本判据能机械保证的**仅限于字面 `direction_key` 的互斥**。以下情形**机械层无法识别**，只能由 §6.2 创建前查重（AI 语义比对）与 Human Gate 承担：同义异名（如 `web` 与 `frontend` 指向同一方向）、上下位重叠（如 `backend` 与 `api`）。因此「一方向一规范」是**字面层可机械、语义层不可机械**的判据，不得表述为已获完整机械保障。
+
 ## 12. 授权附件
 
-本节承担 27 号的授权附件结构角色。本规范授权以下附件，其内容由本文 §5（类型定位与价值）、§6.1（对象边界与消歧判据）、§11（受控操作与三道防线）已经定义并授权：
+本节承担 27 号的授权附件结构角色。本规范授权以下附件，其内容由本文 §5（类型定位与价值）、§6.1（对象边界与消歧判据）、§11（受控操作与唯一性三层设计契约）已经定义并授权：
 
 - `norm-direction-catalog`：Norm 可承载的**方向参考清单**（五层约 42 个方向）、各方向的必需性与 LDVH 元规范覆盖状态，以及清单的使用说明。位于 `specs/attachments/27.Att.01-Norm方向清单.md`。
 
@@ -222,8 +228,8 @@ Count(direction_key = d ∧ status = "active") ≤ 1
 ### 13.1 类型特有验证
 
 - **查重结果记录**：创建提案必含查重结论（同 direction_key active 已存在 → 不新建，走更新或替代）；
-- **direction_key 合法性**：符合 `^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$` 正则（机械校验）；
-- **direction_key 唯一性**：active 集合内无冲突（三道防线中的第一道保障）；
+- **direction_key 合法性**：符合 `^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$` 正则（机械校验）。该正则的**唯一权威来源**是 [01.Att.02-规范身份字段表](attachments/01.Att.02-规范身份字段表.md) §2「共同值格式」的**职责标识符**闭集 `[a-z][a-z0-9]*(?:-[a-z0-9]+)*`（本文的全串匹配语义等价于 `plugin/lib/spec-registry.js` 的 `ID_PATTERN` 全串校验；此处不复制定义，只回指来源）。类型专属字段采用既有标识符格式，不建立第二套命名规则；
+- **direction_key 唯一性**：active 集合内无冲突（目标状态；三层机械承载待实现，当前由 §6.2 查重与 Human Gate 承担）；
 - **正文骨架完整**：四段固定 H2 全部存在且各段非空（机械校验——H2 标题与段落存在性）；
 - **终态完整性**：retired 必有 `retirement_reason` + `retired_at`；superseded 时须确认替代 Norm 已存在可解析；
 - **状态-字段不变量**：active 不得带终态字段（`retirement_reason`/`retired_at`）；非 superseded 的 retired 不得带替代关系。
@@ -245,7 +251,7 @@ Count(direction_key = d ∧ status = "active") ≤ 1
 | 验证对象 | 验证时机 | 成立条件 | 可接受依据 | 验证入口 | 可证明范围 | 未满足时的处理 |
 |---|---|---|---|---|---|---|
 | 身份与方向键 | 创建、更新或精确读取时 | YAML 可解析；direction_key 符合正则；fact_type_key = "norm"；title ≤ 40 字 | 当前载体与本文 §8 | 机械解析与正则校验 | 当次载体身份与 direction_key 合法性 | 拒绝创建/更新；修复后重走 |
-| 方向键唯一性 | 创建时 | 同一 direction_key 在 active 集合中至多一个 | 全量扫描 ldvh-base/norms/ 全部 Norm 载体 | 写入前扫描（第一道防线） | 当次扫描的 active 集合范围 | 拒绝创建（ERR_DIRECTION_ALREADY_EXISTS）；要求走更新或替代路径 |
+| 方向键唯一性 | 创建时 | 同一 direction_key 在 active 集合中至多一个 | 全量扫描 ldvh-base/norms/ 全部 Norm 载体 | **待实现**（§11 第一层）；实现前退回 §6.2 查重 + Human Gate | 当次扫描的 active 集合范围 | 拒绝创建（ERR_DIRECTION_ALREADY_EXISTS）；要求走更新或替代路径 |
 | 正文骨架 | 创建、更新时 | 四段固定 H2 全部存在且各段非空 | 当前载体正文结构 | 机械（H2 标题与段落存在性校验） | 当次载体结构完整性 | 拒绝创建/更新；补齐骨架后重走 |
 | 查重已执行 | 创建时 | 创建提案含查重结论（direction_key + title 语义比对） | 提案记录 | AI 语义审核 | 当次查重范围 | 补查重后重走创建 |
 | 终态完整性 | 终态流转时 | retirement_reason/retired_at 齐备；superseded 时替代 Norm 可解析 | 对象全文与目标读取结果 | 机械（字段+关系校验） | 当次终态机械范围 | 拒绝流转；补齐后重走 |
@@ -253,6 +259,16 @@ Count(direction_key = d ∧ status = "active") ≤ 1
 | 跨方向约束一致性 | 更新时 | 引用他方向规则时指向的 Norm 存在且 active | 引用目标读取结果 | AI 语义审核 | 当次引用的可解析范围 | 保留未解析引用为 gap；不静默忽略 |
 
 机械结果与语义判断互不替代。本章不能单独证明规则正确、适用、已被遵守——这些由消费点的真实使用核对；未实现与不可用范围保留为 gaps。
+
+**本类型当前的未实现范围（gaps，如实登记）**：
+
+| 缺口 | 影响 | 在实现前的替代保障 |
+|---|---|---|
+| 唯一性三层机械承载（§11）未实现 | 「同一 direction_key 至多一份 active」无机械拦截；重复只能事后发现 | §6.2 创建前查重（AI 语义）+ Human Gate 核对 |
+| Norm 受控写入器未实现 | 无 `ERR_DIRECTION_ALREADY_EXISTS` 拒绝路径；创建暂依赖通用受控写入 | 03 §9 通用受控写入契约 + 回读验证 |
+| 语义层同义异名/上下位重叠不可机械识别（§11 边界） | `web` 与 `frontend` 可并存而不被拦截 | §6.2 查重 + Human Gate 最终裁定 |
+
+**本节不得因上述缺口被改写为「已保障」**；缺口闭合后应回填对应行并移除。
 
 ## 15. Human Gate
 
