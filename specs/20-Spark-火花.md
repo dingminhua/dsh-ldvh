@@ -209,7 +209,7 @@ frontmatter 闭集：
 
 ## 13. 受控操作
 
-- **创建**：C1 提案对象模式（重建锚点 §7 本轮新增 1，机制待 04/21 统一登记）——AI 只产出提案对象（含查重结果），Human 确认后经受控创建入口落盘；或初始化对话「发现 Gap」时主动创建（此时 goal.md 可能尚未建立，Spark 不声明 serves_sg，与 25 §10「goal.md 缺失时读操作与 Spark 探索不拦」一致）。创建前必须查重。机械检查：字段闭集合法、question 单句可读、scope_boundary 完整、serves_sg（若声明）匹配 goal.md 存在的 SG-n。创建后精确回读。
+- **创建**：C1 提案对象模式（重建锚点 §7 本轮新增 1，机制待 04/21 统一登记）——AI 只产出提案对象（含查重结果），Human 确认后经受控创建入口落盘；或初始化对话「发现 Gap」时主动创建（此时 goal.md 可能尚未建立，Spark 不声明 serves_sg，与 25 §10「goal.md 缺失时读操作与 Spark 探索不拦」一致）。创建前必须查重。机械校验：字段闭集合法、question 单句可读、scope_boundary 完整、serves_sg（若声明）匹配 goal.md 存在的 SG-n。创建后精确回读。
 - **更新**（问题/边界精化、演变追加）：03 §9.5 受控更新；CAS 以完整文件为单位，绑定 `content_fingerprint`；每次恰好一条 change_log（含理由）；必须先经 Human 确认（问题/边界大改）。
 - **合并/拆分**：Human Gate 确认；原 Spark 经受控更新进入 discarded 并写 merged-into/split-into 关系；目标 Spark 经受控创建或受控更新；各自追加 change_log。多对象操作按 03 §9 多对象原子性边界处理——不得先写孤立新对象再补关系。
 - **状态转换**（implemented/discarded）：Human Gate 确认；AI 先做 F3/F4 核对；Code 检查闭集、字段、关系、CAS 与回读。

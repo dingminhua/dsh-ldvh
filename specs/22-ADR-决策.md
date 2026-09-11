@@ -119,7 +119,7 @@ frontmatter 闭集（分析性长文本一律住正文，frontmatter 只留薄�
 | `object_uid` | UUIDv4 | 必填 | Code 生成 | 创建时落定，永不改变 |
 | `title` | string | 必填 | 决策短标题 | ≤ 30 字；供候选定位与 Human 扫读 |
 | `status` | string | 必填 | `active` / `retired` | 初态必为 `active` |
-| `decision` | string | 必填 | 决定陈述 | 单句（句终符 。？！至多一个且若存在必须结尾，同 20 号 question 机械检查）；正文「决定」段逐字包含 |
+| `decision` | string | 必填 | 决定陈述 | 单句（句终符 。？！至多一个且若存在必须结尾，同 20 号 question 机械校验）；正文「决定」段逐字包含 |
 | `scope` | string | 必填 | 适用范围陈述 | 正文「适用范围」段逐字包含；何时适用/不适用由正文展开 |
 | `trigger_signal` | string | 条件 | 重新审视信号 | 存在真实重审前提时写（如「当 X 出现时重审本决策」：版本发布、SG-4 落地、依赖变更）；无真实信号时省略（03 §6.1 条件字段——不得以占位文本伪造）；供遵守预检消费 |
 | `urls` | array | 条件 | 支撑决策的外部 HTTP(S) 证据 | 出现时非空；`urls` 非空 ⇒ 正文「证据」段必填 |
@@ -142,7 +142,7 @@ frontmatter 闭集（分析性长文本一律住正文，frontmatter 只留薄�
 ## 证据            ← 支撑决策的内部引用（research 对象 uid）与外部来源（可选；urls 非空时必填）
 ```
 
-字段间不变量：`decision` 单句可读（机械检查同 20 号 question 模式）；`disposition` 类终态字段随状态约束（§9）；`relations` 与 `retirement_reason`/`retired_at` 的出现条件互斥绑定（§9.2）；未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
+字段间不变量：`decision` 单句可读（机械校验同 20 号 question 模式）；`disposition` 类终态字段随状态约束（§9）；`relations` 与 `retirement_reason`/`retired_at` 的出现条件互斥绑定（§9.2）；未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
 
 ## 9. 状态与生命周期
 
@@ -203,7 +203,7 @@ frontmatter 闭集（分析性长文本一律住正文，frontmatter 只留薄�
 
 ## 13. 受控操作
 
-- **创建**：AI 产出提案对象（含查重结论与完整四要素），Human 确认后经受控创建入口落盘——典型入口是讨论收敛的四路分流（12 §10.1 已定决策→ADR），Human 直接裁定后记录是第二入口。机械检查：字段闭集合法、decision 单句、title ≤ 30 字、urls 形状、载体结构（H2 固定序 + urls 非空时「证据」段必在）、载体内聚（decision/scope 逐字）。创建后精确回读。
+- **创建**：AI 产出提案对象（含查重结论与完整四要素），Human 确认后经受控创建入口落盘——典型入口是讨论收敛的四路分流（12 §10.1 已定决策→ADR），Human 直接裁定后记录是第二入口。机械校验：字段闭集合法、decision 单句、title ≤ 30 字、urls 形状、载体结构（H2 固定序 + urls 非空时「证据」段必在）、载体内聚（decision/scope 逐字）。创建后精确回读。
 - **勘误级更新**：03 §9.5 受控更新；CAS 以完整文件为单位；每次恰好一条 change_log（注明勘误性质）；decision/scope 逐字段不变（机械比对，变了拒绝——走替代路径）。
 - **终态流转（retired）**：Human Gate；AI 先精确读取 F3，核对 retirement_reason 与证据；superseded 时校验替代者 ADR 存在可解析；Code 检查闭集、字段、关系、CAS 与回读。
 - **删除**：不存在删除操作。retired ADR 随 `ldvh-base/adrs/` 保留为历史基线。
@@ -250,7 +250,7 @@ frontmatter 闭集（分析性长文本一律住正文，frontmatter 只留薄�
 
 ### 16.1 决定边界
 
-Human 决定只证明决定及其作用范围，不替代查重判断、载体校验、装配相关性判断或终态机械检查。本文成为当前规则源成员时的 01 §8.1 登记与受影响引用同步，按 01 §8.2 的登记变化义务随本次规范新建一并执行。
+Human 决定只证明决定及其作用范围，不替代查重判断、载体校验、装配相关性判断或终态机械校验。本文成为当前规则源成员时的 01 §8.1 登记与受影响引用同步，按 01 §8.2 的登记变化义务随本次规范新建一并执行。
 
 ## 17. Stop Conditions
 

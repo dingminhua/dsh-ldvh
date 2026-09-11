@@ -144,7 +144,7 @@ Enforcement：goal.md 缺失时 Gate 1 无法受理（授权无锚可引，架�
 
 ## 11. 受控操作
 
-- 创建：仅经「项目初始化对话」路径（触发句「帮我进行项目初始化」；Web 横幅指路）。机械检查：goal.md 不存在（否则拒绝——单例 fail-closed）、`goal_key=project-goal`、title 非空、status=active、目标陈述 H2 存在且非空。创建后回读。安装表单不是创建路径。
+- 创建：仅经「项目初始化对话」路径（触发句「帮我进行项目初始化」；Web 横幅指路）。机械校验：goal.md 不存在（否则拒绝——单例 fail-closed）、`goal_key=project-goal`、title 非空、status=active、目标陈述 H2 存在且非空。创建后回读。安装表单不是创建路径。
 - 更新（陈述精化、sub-goal 补入/增改、作废标记）：03 §9.5 受控更新；CAS 以完整文件为单位，绑定 `content_fingerprint`；每次恰好一条 change_log（含理由）；必须先经 Human 确认（C1 模式）。
 - goal 修订级联（C2 链式扩展）：修订落盘后机械扫描 `serves` 受影响 sub-goal 的 active WC，逐个标记 `goal-changed 待核对` 并生成待办；核对（调整/关闭/保持，各留各自 change_log），按 21 号 C2 语义局部重批。只到 active 对象；Spark 豁免；每跳是标记非动作；Goal 侧不为级联存储任何下游状态。
 - 状态翻转（achieved）：Human Gate；AI 汇总逐条 sub-goal 证据链提议，Human 判定；翻转即冻结。
