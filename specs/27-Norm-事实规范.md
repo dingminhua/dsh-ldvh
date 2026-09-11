@@ -42,7 +42,7 @@ Norm 对象存在、处于 active 或正文包含规则条目，均不能单独�
 ### 3.1 本文负责
 
 1. Norm 类型的目的、对象边界与「成体系」的定义判据；
-2. Norm 的身份与载体（多例、平铺单文件、`ldvh-base/specs/norm-<uid>.md`）；
+2. Norm 的身份与载体（多例、平铺单文件、`ldvh-base/norms/norm-<uid>.md`）；
 3. Norm 的字段契约（frontmatter 闭集、正文四段固定 H2 骨架、direction_key 专属字段）；
 4. Norm 的状态闭集（active/retired）与终态处理；
 5. Norm 的方向清单与反重复机制（唯一性公式、三道防线）；
@@ -67,7 +67,7 @@ Norm 对象存在、处于 active 或正文包含规则条目，均不能单独�
 
 ### 4.1 适用对象
 
-1. 管辖项目中的多例 Norm 对象（`ldvh-base/specs/norm-*.md`）；
+1. 管辖项目中的多例 Norm 对象（`ldvh-base/norms/norm-*.md`）；
 2. Norm 的方向键、状态、正文骨架与规则内容。
 
 ### 4.2 适用场景
@@ -119,8 +119,8 @@ Norm 是项目侧事实规范层的系统化类型：承载管辖项目中一个
 | 项 | 定案 |
 |---|---|
 | `fact_type_key` | `norm`（类型短名，03 §6.1 值域） |
-| 载体 | 平铺单文件：YAML frontmatter（机器权威）+ markdown 正文；`ldvh-base/specs/norm-<uid>.md` |
-| 权威位置 | `ldvh-base/specs/`；目录基数校验，文件名编码 UID |
+| 载体 | 平铺单文件：YAML frontmatter（机器权威）+ markdown 正文；`ldvh-base/norms/norm-<uid>.md` |
+| 权威位置 | `ldvh-base/norms/`；目录基数校验，文件名编码 UID |
 | 公共字段 | `object_uid`（UUIDv4，Code 生成）、`fact_type_key`（`norm`）、`title`、`created_at`（Code 填写）、`status`（active/retired）、`change_log`（Code 托管流水） |
 | 不采用字段 | `urls`（规则内容住正文，不依赖外部 HTTP 来源；03 §6.1「字段缺省遵循类型来源」）、`relations`（Norm 之间不建立结构化关系，跨方向约束以主规范承载 + 他处引用实现，参见 §9） |
 
@@ -161,7 +161,7 @@ frontmatter 闭集（全部必填，除标注外创建时一次落定）：
 
 不使用 `relations` 字段（类型来源声明不采用，03 §7.2 允许）。理由：方向规范之间不建立结构化对象关系。跨方向的规则约束（如「安全方向的规则适用于 API 方向的接口设计」）以「主规范承载 + 他处引用」实现——安全方向 Norm 正文承载完整安全规则，API 方向 Norm 正文中以自然语言引用安全方向的相关条目，不建立双向结构化关系。此设计禁止重复定义：同一规则只在一个方向的 Norm 中定义，它处只引用不重述。
 
-方向规范与 ADR 的边界处理：当零散 ADR 决策沉淀为成体系的事实规范后，相关 ADR 应当按 22 号的退役路径处理（retired，retirement_reason 由 22 号闭集定义）；ADR 的 change_log 中注明「规则已完整并入事实规范 `ldvh-base/specs/norm-<uid>.md`（方向：`<direction_key>`），退出约束，转为历史依据」。Norm 不建立指回 ADR 的结构化关系——ADR 可作为决策来源在正文自然语言中引用。
+方向规范与 ADR 的边界处理：当零散 ADR 决策沉淀为成体系的事实规范后，相关 ADR 应当按 22 号的退役路径处理（retired，retirement_reason 由 22 号闭集定义）；ADR 的 change_log 中注明「规则已完整并入事实规范 `ldvh-base/norms/norm-<uid>.md`（方向：`<direction_key>`），退出约束，转为历史依据」。Norm 不建立指回 ADR 的结构化关系——ADR 可作为决策来源在正文自然语言中引用。
 
 ## 10. 召回与消费
 
@@ -181,7 +181,7 @@ frontmatter 闭集（全部必填，除标注外创建时一次落定）：
 - **创建**：AI 产出提案对象（含查重结论、direction_key 合法性与完整四段正文），Human 确认后经受控创建入口落盘。机械校验：字段闭集合法、direction_key 符合正则、同一 direction_key 无 active 冲突、title ≤ 40 字、正文四段固定 H2 全部存在且非空。创建后精确回读。
 - **受控更新**：03 §9.5 受控更新；CAS 以完整文件为单位；每次恰好一条 change_log（注明修订内容与理由）。active 状态下可受控更新（方向规范是长效文档，需支持规则修订）。更新的 direction_key 不得改变（纯标题修正不改 direction_key，管辖范畴实质漂移则走退役+新建路径）。方向定位与适用范围段的实质变更（管辖范畴扩大或缩小）应视为新 Norm（新 direction_key 或旧 Norm 退役 + 新 Norm 建立），不走更新。
 - **退役（retired）**：Human Gate；AI 先精确读取 F3，核对 retirement_reason 与证据；Code 检查闭集、字段与回读。理由闭集：`superseded`（被新 Norm 替代——新 Norm 已存在且可解析）、`outdated`（环境或前提变化使规范失效，无单一替代者）、`out-of-scope`（规范管辖范围整体不再属于本项目）。
-- **删除**：不存在删除操作。retired Norm 随 `ldvh-base/specs/` 保留为历史档案。
+- **删除**：不存在删除操作。retired Norm 随 `ldvh-base/norms/` 保留为历史档案。
 
 **唯一性公式（反重复）**：
 
@@ -193,8 +193,8 @@ Count(direction_key = d ∧ status = "active") ≤ 1
 
 **三道防线（写入前拒绝 / Git Gate 拦截 / 消费端 fail-closed）**：
 
-1. **第一道：受控写入前**——受控写入入口在创建/更新前扫描 `ldvh-base/specs/` 全部现存 Norm 载体，解析 frontmatter；发现同 direction_key 的 active Norm 时直接拒绝写入（`ERR_DIRECTION_ALREADY_EXISTS`）。
-2. **第二道：提交前 Git Gate**——即使绕过受控写入工具（手工编辑或 shell 写入），提交时 Git Gate 遍历暂存区与工作树的 `ldvh-base/specs/norm-*.md`，断言每个文件 direction_key 合法、提取所有 active Norm 的 direction_key 构建频次 Map，任何 key 出现次数 > 1 则拒绝提交。
+1. **第一道：受控写入前**——受控写入入口在创建/更新前扫描 `ldvh-base/norms/` 全部现存 Norm 载体，解析 frontmatter；发现同 direction_key 的 active Norm 时直接拒绝写入（`ERR_DIRECTION_ALREADY_EXISTS`）。
+2. **第二道：提交前 Git Gate**——即使绕过受控写入工具（手工编辑或 shell 写入），提交时 Git Gate 遍历暂存区与工作树的 `ldvh-base/norms/norm-*.md`，断言每个文件 direction_key 合法、提取所有 active Norm 的 direction_key 构建频次 Map，任何 key 出现次数 > 1 则拒绝提交。
 3. **第三道：消费/读取诊断**——主控通过 Helper 读取或 Web 投影 Norm 时，若发现 active 方向冲突，两份冲突规范均不得作为当前生效规则返回（fail-closed，对齐 01 §9.1「同一编号映射到多个候选时，全部受影响候选均不得进入成员读取」），报告 `gaps: [{ reason: "direction_collision", direction_key: "..." }]`。
 
 **反重复版的「一方向一规范」判据**：
@@ -312,7 +312,7 @@ Count(direction_key = d ∧ status = "active") ≤ 1
 | 验证对象 | 验证时机 | 成立条件 | 可接受依据 | 验证入口 | 可证明范围 | 未满足时的处理 |
 |---|---|---|---|---|---|---|
 | 身份与方向键 | 创建、更新或精确读取时 | YAML 可解析；direction_key 符合正则；fact_type_key = "norm"；title ≤ 40 字 | 当前载体与本文 §8 | 机械解析与正则校验 | 当次载体身份与 direction_key 合法性 | 拒绝创建/更新；修复后重走 |
-| 方向键唯一性 | 创建时 | 同一 direction_key 在 active 集合中至多一个 | 全量扫描 ldvh-base/specs/ 全部 Norm 载体 | 写入前扫描（第一道防线） | 当次扫描的 active 集合范围 | 拒绝创建（ERR_DIRECTION_ALREADY_EXISTS）；要求走更新或替代路径 |
+| 方向键唯一性 | 创建时 | 同一 direction_key 在 active 集合中至多一个 | 全量扫描 ldvh-base/norms/ 全部 Norm 载体 | 写入前扫描（第一道防线） | 当次扫描的 active 集合范围 | 拒绝创建（ERR_DIRECTION_ALREADY_EXISTS）；要求走更新或替代路径 |
 | 正文骨架 | 创建、更新时 | 四段固定 H2 全部存在且各段非空 | 当前载体正文结构 | 机械（H2 标题与段落存在性校验） | 当次载体结构完整性 | 拒绝创建/更新；补齐骨架后重走 |
 | 查重已执行 | 创建时 | 创建提案含查重结论（direction_key + title 语义比对） | 提案记录 | AI 语义审核 | 当次查重范围 | 补查重后重走创建 |
 | 终态完整性 | 终态流转时 | retirement_reason/retired_at 齐备；superseded 时替代 Norm 可解析 | 对象全文与目标读取结果 | 机械（字段+关系校验） | 当次终态机械范围 | 拒绝流转；补齐后重走 |
