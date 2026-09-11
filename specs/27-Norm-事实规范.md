@@ -145,7 +145,7 @@ frontmatter 闭集（全部必填，除标注外创建时一次落定）：
 | `retired_at` | RFC3339 | 条件 | Code 填写 | retired 必填、active 禁现 |
 | `change_log` | array | 条件 | 变更流水 | 首修后必有；每次恰好一条 |
 
-`direction_key` 是本类型的专属字段（符合 03 §6.1「20–24 分别登记专属字段增量」的既有惯例，对照 22 的 `decision`、24 的 `research_question`）。它是机器可验证的方向标识，与 `object_uid`（全局唯一标识）语义完全不同：`direction_key` 定义「这份规范管哪个方向」和「唯一性约束的作用域」，`object_uid` 定义「这份对象是谁」。
+`direction_key` 是本类型的专属字段（符合 03 §6.1「各事实类型规范分别登记专属字段增量」的既有惯例，对照 22 的 `decision`、24 的 `research_question`）。它是机器可验证的方向标识，与 `object_uid`（全局唯一标识）语义完全不同：`direction_key` 定义「这份规范管哪个方向」和「唯一性约束的作用域」，`object_uid` 定义「这份对象是谁」。
 
 正文四段固定 H2 骨架（创建时必须全部存在且各段非空）：
 
