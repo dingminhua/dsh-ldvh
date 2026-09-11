@@ -5,6 +5,7 @@
  * acceptance criteria; routing with signals).
  */
 import { createResearchObject, readResearchObject, updateResearchObject } from "../../lib/research-writer.js";
+import { shellAuthoritativeSignature } from "../../lib/session-signature.js";
 
 const ROOT = "/Users/dmh2002/DshProject/dsh-ldvh/ldvh-base";
 const PREV_UID = "75547e46-77fb-45ad-98d7-341bf4f864b8";
@@ -97,7 +98,7 @@ const result = await createResearchObject({
     ],
   },
   analysisBody,
-  // signature-channel（specs/09 机械签名）：直调 writer 一律无署名；权威署名以 Git Gate 提交 trailer 为准。
+  sessionSignature: await shellAuthoritativeSignature(),
 });
 
 if (!result.ok) {
@@ -120,7 +121,7 @@ for (const uid of [PREV_UID]) {
       frontmatterAfter: { ...prev.value.frontmatter, status: "retired" },
       analysisBodyAfter: prev.value.body,
       changeSummary: "retire：载体形态已迭代（规范 77a562b 回到 v4 研究形态）——由 v4 形态新对象替代",
-      // signature-channel（specs/09 机械签名）：直调 writer 一律无署名；权威署名以 Git Gate 提交 trailer 为准。
+      sessionSignature: await shellAuthoritativeSignature(),
     });
     console.log("Retired", uid.slice(0, 8) + ":", retired.ok);
   }

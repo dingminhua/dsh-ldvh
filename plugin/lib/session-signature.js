@@ -9,16 +9,33 @@
 // IS the answer; treating a mechanical value as an anomaly to filter is AI
 // semantic judgment overriding the mechanical record.
 //
-// Host access path (verified against DSH source, see
-// docs/p0-implementation-plan.md §0): a tool execution's `exec.agent` is the
-// Agent object; `ctx.get("sessionPersistence").locate(agent.session.header)`
-// returns `{ kind, path }` for the jsonl backend — the same source the
-// dsh-shell-env `session-persistence` contributor uses to inject
-// DSH_SESSION_JSONL into shell tool executions. Reading it directly from the
-// Host process avoids depending on the shell environment.
+// Two source paths read the SAME authoritative record (specs/09 机械签名:
+// 值必须由 Code 从 DSH 权威会话记录取得，不允许 AI 自填或调用方覆盖):
+//
+//   - Host path `currentRouteValues(sessionPersistence, agent)`: used by the
+//     ldvh_* tools layer inside the DSH host process. The sessionPersistence
+//     service resolves the log via ctx.get("sessionPersistence")
+//     .locate(agent.session.header) — verified against DSH source, see
+//     docs/p0-implementation-plan.md §0.
+//
+//   - Shell path `currentRouteValuesFromShellEnvironment()` /
+//     `shellAuthoritativeSignature()`: used by scripts spawned from DSH
+//     shell tool executions (the bash an agent runs). DSH injects
+//     DSH_SESSION_ID/DSH_HOME (and, in deployments with the dsh-shell-env
+//     session-persistence contributor, DSH_SESSION_JSONL) into the child
+//     environment, so a script can locate ITS OWN session's authoritative
+//     log without any agent relay: env → log → tail-read → branded carrier.
+//     shellAuthoritativeSignature() returns the signature-channel branded
+//     carrier the fact-object writers accept — the sanctioned way for a
+//     direct writer call to land a mechanically-correct signature instead
+//     of an unsigned entry. Valid ONLY in DSH shell-child processes; the
+//     host process env does not identify the calling session, so the tools
+//     layer must keep using the host path.
 
 import { decompressZstdStream } from "./zstd-compat.js";
-import { readFile } from "node:fs/promises";
+import { authoritativeSignature } from "./signature-channel.js";
+import { access, readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 const ROUTING_EVENT_TYPES = new Set(["model/selection", "request/context"]);
 
@@ -63,6 +80,21 @@ export function splitJsonlLines(text) {
 }
 
 /**
+ * Read one session-log file into text. Session logs are multi-frame zstd
+ * streams (one frame per appended event batch); decompressZstdStream walks
+ * every frame boundary and reproduces `zstd -dc` output byte-for-byte. An
+ * uncompressed log is also a legitimate persistence configuration.
+ */
+async function readSessionLogText(path) {
+  const raw = await readFile(path);
+  try {
+    return (await decompressZstdStream(raw)).toString("utf8");
+  } catch {
+    return raw.toString("utf8");
+  }
+}
+
+/**
  * Read the authoritative session log for an agent and extract the mechanical
  * signature pair. `sessionPersistence` is the DSH service (obtained via
  * ctx.get); `agent` is the tool-execution/assembly-context Agent object.
@@ -75,21 +107,93 @@ export async function currentRouteValues(sessionPersistence, agent) {
   const location = sessionPersistence.locate?.(agent.session.header);
   if (location === undefined || location === null) return { ok: false, reason: "persistence backend has no log location for this session" };
   if (location.kind !== "jsonl") return { ok: false, reason: `persistence backend "${location.kind}" is not the jsonl authority` };
-  let raw;
+  let text;
   try {
-    raw = await readFile(location.path);
+    text = await readSessionLogText(location.path);
   } catch (error) {
     return { ok: false, reason: `session log unreadable: ${String(error?.message ?? error)}` };
   }
+  return extractRouteValuesFromLines(splitJsonlLines(text));
+}
+
+// ---------------------------------------------------------------------------
+// Shell-environment source (specs/09 机械签名: the Code channel for direct
+// writer calls made by scripts spawned from DSH shell tool executions)
+// ---------------------------------------------------------------------------
+
+/** The authoritative log file name inside a session directory on disk. */
+const SHELL_SESSION_LOG_BASENAME = "session.v3.jsonl.zstd";
+
+/**
+ * Resolve THIS shell's authoritative session-log path from the DSH-injected
+ * environment. Resolution order:
+ *   1. DSH_SESSION_JSONL — the dsh-shell-env session-persistence contributor
+ *      injects it directly in deployments that run it.
+ *   2. On-disk layout — $DSH_HOME/sessions/<encoded-cwd>/<DSH_SESSION_ID>/
+ *      session.v3.jsonl.zstd, located by scanning the sessions directory for
+ *      the (UUID-unique) session id. Exactly one match is required; zero or
+ *      several matches resolve to an unavailable result — never a guess.
+ * Fails closed (unavailable result) when the environment carries no DSH
+ * shell identity, so plain CI/dev shells never fabricate a signature.
+ */
+async function shellSessionLogPath() {
+  const direct = process.env.DSH_SESSION_JSONL;
+  if (typeof direct === "string" && direct.length > 0) return { ok: true, value: direct };
+  const home = process.env.DSH_HOME;
+  const sessionId = process.env.DSH_SESSION_ID;
+  if (typeof home !== "string" || home.length === 0) return { ok: false, reason: "shell environment carries no DSH_HOME" };
+  if (typeof sessionId !== "string" || sessionId.length === 0) return { ok: false, reason: "shell environment carries no DSH_SESSION_ID" };
+  if (/[/\\]|\.\./.test(sessionId)) return { ok: false, reason: "DSH_SESSION_ID is not a safe path segment" };
+  let entries;
+  try {
+    entries = await readdir(join(home, "sessions"), { withFileTypes: true });
+  } catch {
+    return { ok: false, reason: `sessions directory unreadable under ${home}` };
+  }
+  const matches = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const candidate = join(home, "sessions", entry.name, sessionId, SHELL_SESSION_LOG_BASENAME);
+    try {
+      await access(candidate);
+      matches.push(candidate);
+    } catch {
+      // No log for this session under this cwd encoding — keep scanning.
+    }
+  }
+  if (matches.length === 1) return { ok: true, value: matches[0] };
+  if (matches.length === 0) return { ok: false, reason: `no session log for ${sessionId} under ${home}/sessions` };
+  return { ok: false, reason: `ambiguous session logs for ${sessionId}: ${matches.length} matches` };
+}
+
+/**
+ * Read the calling shell's own authoritative session log (DSH shell-child
+ * processes only — the host process env does not identify the calling
+ * session) and extract the mechanical signature pair, same tail-read
+ * semantics as currentRouteValues.
+ */
+export async function currentRouteValuesFromShellEnvironment() {
+  const located = await shellSessionLogPath();
+  if (!located.ok) return { ok: false, reason: located.reason };
   let text;
   try {
-    // Session logs are multi-frame zstd streams (one frame per appended
-    // event batch); decompressZstdStream walks every frame boundary and
-    // reproduces `zstd -dc` output byte-for-byte.
-    text = (await decompressZstdStream(raw)).toString("utf8");
-  } catch {
-    // An uncompressed log is also a legitimate persistence configuration.
-    text = raw.toString("utf8");
+    text = await readSessionLogText(located.value);
+  } catch (error) {
+    return { ok: false, reason: `session log unreadable: ${String(error?.message ?? error)}` };
   }
   return extractRouteValuesFromLines(splitJsonlLines(text));
+}
+
+/**
+ * The sanctioned signature source for DIRECT writer calls made by scripts:
+ * resolves this shell's authoritative route and wraps it into the
+ * signature-channel branded carrier the fact-object writers stamp into
+ * change_log entries. Returns null when the authoritative record is
+ * unavailable (plain/CI shells, missing log, no routing event) — the caller
+ * then passes null and the entry renders unsigned. The agent never touches
+ * the value: env → session log → tail-read → brand, all inside Code.
+ */
+export async function shellAuthoritativeSignature() {
+  const route = await currentRouteValuesFromShellEnvironment();
+  return route.ok ? authoritativeSignature(route.value) : null;
 }

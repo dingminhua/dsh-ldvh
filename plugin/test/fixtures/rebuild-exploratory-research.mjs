@@ -8,6 +8,7 @@
  */
 import { rm } from "node:fs/promises";
 import { createResearchObject, readResearchObject, updateResearchObject } from "../../lib/research-writer.js";
+import { shellAuthoritativeSignature } from "../../lib/session-signature.js";
 
 const ROOT = "/Users/dmh2002/DshProject/dsh-ldvh/ldvh-base";
 const PREV_UID = "31c2cf86-0d84-4ef9-b0db-8dab9f67bfdd";
@@ -126,7 +127,7 @@ const result = await createResearchObject({
   },
   analysisBody,
   surveyBody,
-  // signature-channel（specs/09 机械签名）：直调 writer 一律无署名；权威署名以 Git Gate 提交 trailer 为准。
+  sessionSignature: await shellAuthoritativeSignature(),
 });
 
 if (!result.ok) {
@@ -145,7 +146,7 @@ if (prevRead.ok) {
     frontmatterAfter: { ...prevRead.value.frontmatter, status: "retired" },
     analysisBodyAfter: prevRead.value.body,
     changeSummary: "retire：正文仅罗列调查发现无研究分析（已证实段=frontmatter 复述），子阶段应为探索型（调查+分析）——由探索型新对象替代",
-    // signature-channel（specs/09 机械签名）：直调 writer 一律无署名；权威署名以 Git Gate 提交 trailer 为准。
+    sessionSignature: await shellAuthoritativeSignature(),
   });
   console.log("Previous retired:", retired.ok);
 }

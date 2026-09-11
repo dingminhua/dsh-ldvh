@@ -4,6 +4,7 @@
  * first object (d5bd2681, directory-era + loose evidence).
  */
 import { createResearchObject, readResearchObject, updateResearchObject } from "../../lib/research-writer.js";
+import { shellAuthoritativeSignature } from "../../lib/session-signature.js";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -106,7 +107,7 @@ const result = await createResearchObject({
     implications,
   },
   analysisBody,
-  // signature-channel（specs/09 机械签名）：直调 writer 一律无署名；权威署名以 Git Gate 提交 trailer 为准。
+  sessionSignature: await shellAuthoritativeSignature(),
 });
 
 if (!result.ok) {
@@ -130,7 +131,7 @@ if (oldRead.ok) {
     frontmatterAfter: { ...oldRead.value.frontmatter, status: "retired" },
     analysisBodyAfter: oldRead.value.body,
     changeSummary: "retire：证据纪律不严（发现 7 来源错配）且载体为已废弃的目录结构——由严格证据纪律版新对象替代",
-    // signature-channel（specs/09 机械签名）：直调 writer 一律无署名；权威署名以 Git Gate 提交 trailer 为准。
+    sessionSignature: await shellAuthoritativeSignature(),
   });
   console.log("Old object retired:", retired.ok);
 } else {

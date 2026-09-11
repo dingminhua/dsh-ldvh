@@ -1,5 +1,6 @@
 import { ResearchSession } from "../../lib/research-session.js";
 import { createResearchObject, readResearchObject } from "../../lib/research-writer.js";
+import { shellAuthoritativeSignature } from "../../lib/session-signature.js";
 
 const session = new ResearchSession({
   question: "主流项目管理工具如何设计项目蓝图（当前状态总览）功能——固定结构、更新机制与 Human 交互形态是什么？",
@@ -141,7 +142,7 @@ const createResult = await createResearchObject({
     change_summary: "初次创建：基于 Linear/Notion 官方文档的业界蓝图调研（明确方向型，单 md）",
   },
   analysisBody,
-  // signature-channel（specs/09 机械签名）：直调 writer 一律无署名；权威署名以 Git Gate 提交 trailer 为准。
+  sessionSignature: await shellAuthoritativeSignature(),
 });
 
 console.log("Create ok:", createResult.ok);
