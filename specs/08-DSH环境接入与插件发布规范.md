@@ -149,7 +149,9 @@ CHANGELOG 版本条目、插件 manifest 版本字段、README 版本行三者�
 
 ### 7.6 受保护文档承接
 
-00 §4.3 五类在 DSH 域的映射：00（`specs/00-理念与构成.md`）、README（`README.md`）、插件 AI 面向语义文本（systemPrompt.section 与模板路由文本）、LICENSE（`LICENSE`）、版本声明点（CHANGELOG + manifest 版本 + README 版本行）。五类修改均须先展示现有内容与准确候选、说明差异与原因，经独立审核并取得 Human 明确同意，且形成只包含相应受保护文档的独立提交（完整流程以 00 §4.3 为准）。08 不削弱其保护地位；受保护文件清单的变更须经 Human Gate。
+00 §4.3 五类在 DSH 域的映射：00（`specs/00-理念与构成.md`）、README（`README.md`）、插件 AI 面向语义文本（经 `system-prompt/assemble` 注入的 `ldvh:minimal-guidance` 段，文本源为 `plugin/lib/guidance-text.js`）、LICENSE（`LICENSE`）、版本声明点（CHANGELOG + manifest 版本 + README 版本行）。五类修改均须先展示现有内容与准确候选、说明差异与原因，经独立审核并取得 Human 明确同意，且形成只包含相应受保护文档的独立提交（完整流程以 00 §4.3 为准）。08 不削弱其保护地位；受保护文件清单的变更须经 Human Gate。
+
+**本行登记的更正记录（2026-09-12）**：原文写作「`systemPrompt.section` 与模板路由文本」，但该全局注入通道**已被 Human 决定移除**（2026-09-03，见 `plugin/lib/guidance.js` 与 `plugin/lib/index.js` 的注释），现行唯一引导注入点为 `system-prompt/assemble` waterfall，段名为 `ldvh:minimal-guidance`；「模板路由」亦随行动模板退役而不再作为机制名。本次更正**只修正登记位置、不改变保护对象**——受保护文本仍是同一份「插件 AI 面向语义文本」，只是其承载位置登记改为实际存在的通道。
 
 ### 7.7 Output Envelope 宿主承载
 
