@@ -154,9 +154,11 @@ git mv docs/dsh-current-version-and-market-gap.md docs/archive/
 
 **效果**：根目录 86 → 78；历史全保留；风险最低。同步更新 `archive/README.md` 索引。
 
-### 方案 B：归档 E 类全部 15 份
+### 方案 B：归档 E 类全部 15 份 —— ✅ **已执行（2026-09-13）**
 
 在 A 基础上，另加已由 Spark 覆盖的 7 份（`read-dimension`、`restructure-decision-list`、`deliberation-input-restructure`、`execution-usage-mapping`、`deliberation-usage-mapping`、`team-control-foundation-draft`、`analysis-upper-spec-size`）。
+
+**执行结果**：方案 A（8 份）+ 方案 B（7 份）= **15 份已归档**，docs 根目录 **88 → 73**；`archive/` 34 → 49；全部 `git mv`，零删除。详见 `docs/archive/README.md` §〇/§〇之一。
 
 ### 方案 C（不推荐）：删除
 

@@ -33,11 +33,33 @@
 
 ```bash
 cd /Users/dmh2002/DshProject/dsh-ldvh
-ls docs/*.md | wc -l            # 80（原 88）
-ls docs/archive/*.md | wc -l    # 42（原 34）
-git status --porcelain | grep -c '^R'   # 8（真重命名）
+ls docs/*.md | wc -l            # 73（原 88）
+ls docs/archive/*.md | wc -l    # 49（原 34）
+git status --porcelain | grep -c '^R'   # 15（真重命名）
 git status --porcelain | grep '^D'      # 空（零删除）
 ```
+
+---
+
+## 〇之一、2026-09-13 第二批之二归档（7 份 · 依清理对照表方案 B）
+
+**背景**：方案 A 归档 8 份后，Human 指示执行方案 B——把「已由 Spark 覆盖、且不属效力证据」的 7 份一并归档。
+
+| 文件 | 行 | 覆盖它的 Spark |
+|---|---|---|
+| `read-dimension-understanding.md` | 148 | `47396b7f`「读维认知小结的落地」、`64ae68ac`「管辖判定操作的名实错配」 |
+| `restructure-decision-list-2026-09-10.md` | 149 | `dbffddd2`「执行系统（单元执行）的建立」、`64754323`「Git Gate 的 fail-open 通路」、`2e79939a`「21 号 WorkCase 规范立项」 |
+| `deliberation-input-restructure-2026-09-10.md` | 128 | `dbffddd2`「执行系统（单元执行）的建立」 |
+| `execution-usage-mapping-draft.md` | 156 | `a1209317`「底座两用法映射的落地」 |
+| `deliberation-usage-mapping-draft.md` | 98 | `a1209317`「底座两用法映射的落地」 |
+| `team-control-foundation-draft.md` | 204 | `a1209317`「底座两用法映射的落地」 |
+| `analysis-upper-spec-size-and-ownership.md` | 167 | `f2287321`「上层规范体量与归属」 |
+
+**判据**：这 7 份**不属 `01 §9.2` 第 8 项（独立审核记录）的载体**，其内容已由事实源 Spark 承载，故归档不影响任何规范成立条件。
+
+**纪律**：本批同样**全部 `git mv`**，零删除。归档后正文与 Spark 的 `summary` 并存——Spark 是语义快照，原文细节（完整推导、字段清单、行业对照）仍可回读。
+
+**累计效果**：docs 根目录 **88 → 73**（两批共归档 15 份），`archive/` 34 → 49。
 
 ---
 
