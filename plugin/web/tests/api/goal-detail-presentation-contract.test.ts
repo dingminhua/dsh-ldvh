@@ -87,11 +87,21 @@ test('goal detail page routes through the shared reading layout', () => {
 test('secondary reading panel resolves the singleton via the direct-read route', () => {
   const panel = read('src/components/reading-panel/PanelContent.tsx');
   const recentRow = read('src/pages/CognitionCenter.tsx');
+  const goalDetail = read('src/pages/GoalDetail.tsx');
+  const identityActions = read('src/components/ObjectIdentityActions.tsx');
 
   // 面板 object 预览对 goal 特判走 /cognition/goal（不占 /objects/:type/:id）。
   assert.match(panel, /objectType === 'goal'\s*\n\s*\? fetchCognitionGoal\(\)/);
-  // 近期动态行：goal 不提供 @对象引用复制（25 §5 路径即身份，引用形态对 AI 路由无意义）。
-  assert.match(recentRow, /item\.type !== 'goal' && <ObjectReferenceCopyButton/);
+  // Human 定案 2026-09-12：goal 不显示状态徽章（详情/面板/近期动态三处一致），
+  // 复制按钮与其他对象一致（ObjectReferenceCopyButton 白名单含 goal），
+  // 引用形态为 projectId@目标md路径（25 §5 单例路径即身份）。
+  assert.match(panel, /const status = objectType === 'goal' \? undefined : readable/);
+  assert.match(panel, /target=\{objectType === 'goal' \? readMeta\.canonicalPath \?\? objectId : objectId\}/);
+  assert.match(identityActions, /\|\| objectType === 'goal'\)\) && \(/);
+  assert.match(recentRow, /\{status && item\.type !== 'goal' && <StatusBadge/);
+  assert.match(recentRow, /objectId=\{item\.type === 'goal' \? 'ldvh-base\/goal\.md' : item\.id\}/);
+  // 详情页不传 status（头部无状态徽章）。
+  assert.doesNotMatch(goalDetail, /status=\{headerStatus\}/);
 });
 
 test('cognition goal section exposes the detail entry', () => {

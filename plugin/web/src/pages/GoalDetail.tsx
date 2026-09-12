@@ -14,7 +14,7 @@ import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import { fetchCognitionGoal, ApiRequestError, type CognitionGoalData } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
-import { getLocalizedObjectTitle, getObjectStatusLocale, getTypeLabel } from '@/i18n/locales';
+import { getLocalizedObjectTitle, getTypeLabel } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import { getFactReadMeta } from '@/utils/factReadMeta';
 import { getObjectUpdatedAt } from '@/utils/factChangeLog';
@@ -84,7 +84,6 @@ export default function GoalDetail() {
 
   const obj = goal as unknown as Record<string, unknown>;
   const readMeta = getFactReadMeta(obj);
-  const headerStatus = typeof goal.status === 'string' ? goal.status : undefined;
   const typeColor = CATEGORY_COLORS.goal;
   // 25 §5：单例路径即身份——canonical_path 固定 ldvh-base/goal.md，复制目标即路径。
   const copyTarget = goal.canonical_path ?? 'ldvh-base/goal.md';
@@ -104,8 +103,8 @@ export default function GoalDetail() {
           objectType="goal"
           typeColor={typeColor}
           typeLabel={getTypeLabel('goal', locale)}
-          status={headerStatus}
-          statusLabel={headerStatus ? getObjectStatusLocale('goal', headerStatus, locale) : undefined}
+          // Human 定案 2026-09-12：goal 不显示状态徽章——active/achieved 由
+          // 阅读布局与近期动态的时间线承载，头部保持单例冻结锚的克制形态。
           source={obj}
           locale={locale}
           updated={<ObjectUpdatedMeta source={obj} updatedAt={getObjectUpdatedAt(obj)} />}

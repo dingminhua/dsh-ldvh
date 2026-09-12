@@ -418,9 +418,10 @@ function RecentActivityRow({ item }: { item: CognitionRecentActivityItem }) {
         <PriorityIcon source={item} type={item.type} locale={locale} size="xs" />
         <ActivityCountBadge count={item.activityCount} label={t('cognition.recent.activityCount', { count: String(item.activityCount) })} />
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
-          {status && <StatusBadge status={status} statusLabel={getObjectStatusLocale(item.type, status, locale)} objectType={item.type} size="xs" variant="compact" />}
-          {/* 25 号 Goal 单例：路径即身份，@对象引用形态对 AI 路由无意义——不提供引用复制。 */}
-          {item.type !== 'goal' && <ObjectReferenceCopyButton projectId={selectedProjectId} objectId={item.id} />}
+          {/* Human 定案 2026-09-12：goal 不显示状态徽章；复制与其他对象一致
+              （projectId@目标md路径——goal 单例路径即身份，引用形态是 md 路径）。 */}
+          {status && item.type !== 'goal' && <StatusBadge status={status} statusLabel={getObjectStatusLocale(item.type, status, locale)} objectType={item.type} size="xs" variant="compact" />}
+          <ObjectReferenceCopyButton projectId={selectedProjectId} objectId={item.type === 'goal' ? 'ldvh-base/goal.md' : item.id} />
         </span>
       </div>
       <div

@@ -721,7 +721,9 @@ test('WorkCase identity uses the same progress group as its list Card', () => {
   assert.doesNotMatch(objectDetail, /deriveWorkCaseProgressProjection|getWorkCaseProgressProjection/);
   assert.match(objectDetail, /status=\{headerStatus\}/);
   assert.match(objectDetail, /statusLabel=\{headerStatus \? getObjectStatusLocale\(objType, headerStatus, locale\) : undefined\}/);
-  assert.match(panel, /const headerStatus = getObjectHeaderStatus\(objectType \|\| '', status, obj \|\| \{\}\)/);
+  // goal 单例不显示状态徽章（Human 定案 2026-09-12）——status===undefined 时
+  // 跳过投影；WorkCase 的 status 恒有值，投影语义不变。
+  assert.match(panel, /const headerStatus = status === undefined \? undefined : getObjectHeaderStatus\(objectType \|\| '', status, obj \|\| \{\}\)/);
   assert.doesNotMatch(objectDetail, /secondaryStatus/);
 });
 

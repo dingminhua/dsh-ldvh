@@ -48,10 +48,10 @@ export default function ObjectIdentityActions({
         />
       )}
       {actionBadges}
-      {(showCopyAction && (objectType === 'workcase' || objectType === 'adr' || objectType === 'pitfall' || objectType === 'spark' || objectType === 'research' || objectType === 'friction' || objectType === 'norm')) && (
+      {(showCopyAction && (objectType === 'workcase' || objectType === 'adr' || objectType === 'pitfall' || objectType === 'spark' || objectType === 'research' || objectType === 'friction' || objectType === 'norm' || objectType === 'goal')) && (
         <ObjectReferenceCopyButton projectId={projectId} objectId={target} label={copyLabel} copiedLabel={copiedLabel} />
       )}
-      {(showCopyAction && objectType !== 'workcase' && objectType !== 'adr' && objectType !== 'pitfall' && objectType !== 'spark' && objectType !== 'research' && objectType !== 'friction' && objectType !== 'norm') && (
+      {(showCopyAction && objectType !== 'workcase' && objectType !== 'adr' && objectType !== 'pitfall' && objectType !== 'spark' && objectType !== 'research' && objectType !== 'friction' && objectType !== 'norm' && objectType !== 'goal') && (
         <CopyPathButton path={target} label={copyLabel} copiedLabel={copiedLabel} />
       )}
     </div>
