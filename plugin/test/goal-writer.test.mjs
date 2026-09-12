@@ -437,3 +437,124 @@ test("goal tools: an invalid action is an invalid_request, not a write", async (
 	const r = await handlers["goal-write-object"]({ action: "delete" }, {});
 	assert.equal(r.outcome, "invalid_request");
 });
+
+// ---------------------------------------------------------------------------
+// 回归：独立审核发现的缺陷（2026-09-12）
+// ---------------------------------------------------------------------------
+
+test("REGRESSION: read→echo-back update is idempotent — the H1 is never doubled", async () => {
+	await withTemp("goal-rt.", async (base) => {
+		const root = await freshRoot(base);
+		await createGoalObject({
+			factSourceRoot: root,
+			frontmatterDraft: { title: "T", change_summary: "init" },
+			bodyMarkdown: validBody(),
+			sessionSignature: SIG,
+		});
+		// Feed back exactly what read returned, three times. `readGoalObject`
+		// returns the body INCLUDING the H1, so a non-idempotent assembly
+		// doubles it — which is what happened to the real goal.md (94a51bf).
+		for (let i = 1; i <= 3; i += 1) {
+			const cur = await readGoalObject({ factSourceRoot: root });
+			const r = await updateGoalObject({
+				factSourceRoot: root,
+				expectedFingerprint: cur.value.fingerprint,
+				frontmatterAfter: { ...cur.value.frontmatter },
+				bodyMarkdownAfter: cur.value.body,
+				changeSummary: `round ${i}`,
+				sessionSignature: SIG,
+			});
+			assert.equal(r.ok, true, `round ${i}: ${JSON.stringify(r.error)}`);
+			const after = await readGoalObject({ factSourceRoot: root });
+			assert.equal((after.value.body.match(/^#\s+\S/gm) ?? []).length, 1, `round ${i} must leave exactly one H1`);
+			assert.equal(after.value.body_valid, true);
+		}
+	});
+});
+
+test("REGRESSION: a duplicated H1 is a mechanical failure, not 'valid'", () => {
+	const doubled = "# 项目目标\n\n# 项目目标\n\n## 目标陈述\n\nx。\n\n## 子目标\n\nSG-1 一\n";
+	const r = validateGoalBodyStructure(doubled);
+	assert.equal(r.ok, false);
+	assert.ok(r.issues.some((i) => /exactly one H1/.test(i)), JSON.stringify(r.issues));
+});
+
+test("REGRESSION: a malformed anchor cannot escape the stability check (25 §12)", async () => {
+	await withTemp("goal-anchor.", async (base) => {
+		const root = await freshRoot(base);
+		await createGoalObject({
+			factSourceRoot: root,
+			frontmatterDraft: { title: "T", change_summary: "init" },
+			bodyMarkdown: validBody("SG-1 一\nSG-2 二\n"),
+			sessionSignature: SIG,
+		});
+		const cur = await readGoalObject({ factSourceRoot: root });
+		// Each malformed shape must be REFUSED with a precise code — otherwise
+		// the anchor stops parsing (anchor: null), becomes invisible to the
+		// comparison, and deleting it would be silently accepted.
+		for (const [label, sub] of [
+			["no separator", "SG-3三"],
+			["colon", "SG-3: 三"],
+			["zero index", "SG-0 三"],
+		]) {
+			const r = await updateGoalObject({
+				factSourceRoot: root,
+				expectedFingerprint: cur.value.fingerprint,
+				frontmatterAfter: { ...cur.value.frontmatter },
+				bodyMarkdownAfter: `## 目标陈述\n\n这是一个项目目标陈述。\n\n## 子目标\n\nSG-1 一\nSG-2 二\n${sub}\n`,
+				changeSummary: label,
+				sessionSignature: SIG,
+			});
+			assert.equal(r.ok, false, `${label} must be refused`);
+			assert.ok(
+				["goal/anchor_unparsable", "goal/anchor_instability"].includes(r.error.code),
+				`${label}: unexpected code ${r.error.code}`
+			);
+		}
+	});
+});
+
+test("parseSubGoals tolerates a list marker and reports anchor-shaped failures", () => {
+	// A leading marker is tolerated (hand-edited files may use one).
+	assert.equal(parseSubGoals("- SG-1 判据")[0].anchor, "SG-1");
+	assert.equal(parseSubGoals("* SG-2 判据")[0].anchor, "SG-2");
+	// `SG-0` parses but is flagged non-canonical.
+	const zero = parseSubGoals("SG-0 判据")[0];
+	assert.equal(zero.anchor, "SG-0");
+	assert.equal(zero.malformed, true);
+	// Anchor-shaped text that does not parse carries a reason so the writer can
+	// refuse instead of silently ignoring it.
+	const broken = parseSubGoals("SG-3: 判据")[0];
+	assert.equal(broken.anchor, null);
+	assert.match(String(broken.reason), /looks like a sub-goal anchor/);
+});
+
+test("REGRESSION: the carrier FILE mode is checked, not just the directory (07 §5.6)", async () => {
+	if (process.platform === "win32") return;
+	const { evaluateRegistrationEntry } = await import("../lib/governed-projects.js");
+	const { chmod: ch } = await import("node:fs/promises");
+	await withTemp("ldvh-filemode.", async (base) => {
+		const home = join(base, "home");
+		const dir = join(home, "ldvh");
+		await mkdir(dir, { recursive: true });
+		await ch(dir, 0o700);
+		const file = join(dir, "governed-projects.yaml");
+		await writeFile(file, [
+			"schema_version: 1", "governance_instance_name: T", "product_description: T",
+			"projects: []", 'default_project_id: ""', "",
+		].join("\n"));
+
+		// Directory correct, file world-readable → must be refused.
+		await ch(file, 0o644);
+		const resolveHome = (...p) => join(home, ...p);
+		const wide = await evaluateRegistrationEntry(resolveHome);
+		assert.equal(wide.ok, false);
+		assert.equal(wide.error.code, "registration_permission_unverified");
+		assert.match(wide.error.message, /file permission is wider than 0600/);
+
+		// Compliant 0600 → accepted.
+		await ch(file, 0o600);
+		const ok = await evaluateRegistrationEntry(resolveHome);
+		assert.equal(ok.ok, true, JSON.stringify(ok));
+	});
+});

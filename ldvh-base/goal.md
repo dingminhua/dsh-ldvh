@@ -16,9 +16,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补记署名核对：本文件此前 4 条流水形成于 Goal 受控写入实现之前（无 provider/model），属历史条目，不予改写；本次经受控入口重写以确认对象状态与正文一致，并补记权威署名（03 §6.1：署名由 Code 托管）
+  - at: 2026-09-12T20:27:42.645Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 修正文重复 H1：写入器的 read→update 往返非幂等，导致 94a51bf 补记署名时把「# 项目目标」写入两次；本次修复写入器（装配前去重）并校正本文件
 ---
-
-# 项目目标
 
 # 项目目标
 

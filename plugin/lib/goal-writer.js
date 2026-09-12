@@ -129,8 +129,23 @@ async function atomicWriteFile(filePath, content) {
   await rename(tmp, filePath);
 }
 
+/**
+ * Strip a leading H1 from a body fragment.
+ *
+ * `readGoalObject` returns the body exactly as stored — which INCLUDES the H1
+ * line. Callers legitimately feed that body straight back on update (the tool
+ * layer does), so assembly must not prepend a second H1. Found 2026-09-12: the
+ * round trip doubled the H1 and the structure check did not notice.
+ */
+function stripLeadingH1(text) {
+  return typeof text === "string" ? text.replace(/^\s*#\s+[^\n]*\n?/, "") : text;
+}
+
+/** Assemble the carrier body: exactly one H1, then the markdown body. */
 function assembleBody(title, bodyMarkdown) {
-  return `# 项目目标\n\n${bodyMarkdown.trim()}`;
+  // The H1 is fixed for this type (25 §6 shows `# 项目目标`); `title` is the
+  // frontmatter short title and deliberately does NOT become the H1.
+  return `# 项目目标\n\n${stripLeadingH1(bodyMarkdown).trim()}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -157,20 +172,43 @@ export function splitBodySections(body) {
 
 /**
  * Parse sub-goal entries from the 子目标 section.
+ *
  * 25 §6: one entry per line, `SG-n <可判定的达成条件>`; an anchor marked
  * obsolete in place stays present (25 §7 原位作废) — the marker is textual.
+ *
+ * Robustness matters here for a security-ish reason: an anchor that FAILS to
+ * parse becomes invisible to the stability check, and deleting an invisible
+ * anchor used to be silently accepted (found 2026-09-12). So a leading list
+ * marker is tolerated, and any line that LOOKS like an anchor but does not
+ * match the canon is reported as `malformed` rather than being treated as an
+ * ordinary prose line.
  */
 export function parseSubGoals(sectionText) {
   const entries = [];
   for (const raw of sectionText.split("\n")) {
     const line = raw.trim();
     if (line.length === 0) continue;
-    const m = line.match(/^(SG-\d+)\s+(.*)$/);
-    if (m === null) {
-      entries.push({ anchor: null, text: line, malformed: true });
+    // Tolerate a leading markdown list marker — a hand-edited file may use one.
+    const withoutMarker = line.replace(/^([-*+]|\d+\.)\s+/, "");
+    const m = withoutMarker.match(/^(SG-\d+)\s+(.*)$/);
+    if (m !== null) {
+      const valid = SG_ANCHOR_PATTERN.test(m[1]);
+      entries.push({
+        anchor: m[1],
+        text: m[2].trim(),
+        malformed: !valid,
+        ...(valid ? {} : { reason: `anchor ${m[1]} is not in the canonical SG-n form (25 §6 requires SG-<positive integer>)` }),
+      });
       continue;
     }
-    entries.push({ anchor: m[1], text: m[2].trim(), malformed: false });
+    // Does it LOOK like a failed anchor? (`SG3`, `SG-3:`, `SG-3三`, `SG-0`…)
+    const looksLikeAnchor = /^SG/i.test(withoutMarker);
+    entries.push({
+      anchor: null,
+      text: line,
+      malformed: true,
+      ...(looksLikeAnchor ? { reason: `line looks like a sub-goal anchor but does not match "SG-n <判据>": ${JSON.stringify(line)}` } : {}),
+    });
   }
   return entries;
 }
@@ -229,6 +267,13 @@ export function validateGoalBodyStructure(body, { allowEmptySubGoals = true } = 
   const issues = [];
   if (!/^# 项目目标\s*$/m.test(body)) {
     issues.push("body: must contain the H1 \"# 项目目标\" (25 §6)");
+  }
+  // Exactly ONE H1 (25 §6 shows a single top-level heading). A duplicated H1 is
+  // what a non-idempotent read→update round trip produces; it must be a
+  // mechanical failure, not silently "valid".
+  const h1Count = (body.match(/^#\s+\S/gm) ?? []).length;
+  if (h1Count > 1) {
+    issues.push(`body: must contain exactly one H1, found ${h1Count} (25 §6)`);
   }
   const sections = splitBodySections(body);
   const headings = sections.map((s) => s.heading);
@@ -429,10 +474,24 @@ export async function updateGoalObject(args) {
   }
 
   // sub-goal anchor stability (25 §11/§12) — compare BEFORE writing.
-  const prevAnchors = current.value.sub_goals.filter((s) => s.anchor !== null).map((s) => s.anchor);
+  //
+  // Malformed anchors must NOT be filtered away silently: an anchor that fails
+  // to parse is invisible to the comparison, so deleting it would be accepted.
+  // Refuse while either side carries an anchor-shaped line that does not canon-
+  // parse; the caller must fix the text (25 §12 requires 修改后重走受控更新).
+  const prevParsed = current.value.sub_goals;
   const nextBody = assembleBody(fm.title, bodyMarkdownAfter);
-  const nextSubText = splitBodySections(nextBody).find((s) => s.heading === "子目标")?.text ?? "";
-  const nextAnchors = parseSubGoals(nextSubText).filter((s) => s.anchor !== null).map((s) => s.anchor);
+  const nextParsed = parseSubGoals(splitBodySections(nextBody).find((s) => s.heading === "子目标")?.text ?? "");
+  const badAnchors = [
+    ...prevParsed.filter((s) => s.anchor === null && s.reason !== undefined).map((s) => `existing: ${s.reason}`),
+    ...nextParsed.filter((s) => s.anchor === null && s.reason !== undefined).map((s) => `target: ${s.reason}`),
+    ...nextParsed.filter((s) => s.anchor !== null && s.malformed).map((s) => `target: ${s.reason ?? `anchor ${s.anchor} is not canonical`}`),
+  ];
+  if (badAnchors.length > 0) {
+    return failure("goal/anchor_unparsable", "sub-goal anchors could not be parsed; refusing so an anchor cannot silently escape the stability check (25 §11/§12)", { issues: badAnchors });
+  }
+  const prevAnchors = prevParsed.filter((s) => s.anchor !== null).map((s) => s.anchor);
+  const nextAnchors = nextParsed.filter((s) => s.anchor !== null).map((s) => s.anchor);
   const stability = validateAnchorStability(prevAnchors, nextAnchors);
   if (!stability.ok) {
     return failure("goal/anchor_instability", "sub-goal anchor stability violated (25 §11/§12)", { issues: stability.issues });

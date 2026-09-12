@@ -460,6 +460,31 @@ export async function evaluateRegistrationEntry(dshHomePath) {
     if (overShared) {
       return unavailable(REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED, "registration carrier directory permission is wider than 0700 (07 §5.6)", { path: root, mode: rootStat.mode & 0o777 });
     }
+    // 07 §5.6 requires 目录 0700 **与** 文件 0600 — the FILE half was missing
+    // (found 2026-09-12): a hand-chmod'ed or legacy world-readable carrier
+    // passed the preconditions. Check the file too when it exists; a missing
+    // file is fine because creation writes 0600.
+    const carrierFile = registrationPath(dshHomePath);
+    let fileStat = null;
+    try {
+      fileStat = await stat(carrierFile);
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        return unavailable(REGISTRATION_UNAVAILABLE_CODES.CARRIER_UNAVAILABLE, `registration carrier file is not statable: ${String(error?.message || error)}`, { path: carrierFile });
+      }
+    }
+    if (fileStat !== null) {
+      if (!fileStat.isFile()) {
+        return unavailable(REGISTRATION_UNAVAILABLE_CODES.CARRIER_UNAVAILABLE, "registration carrier path exists but is not a regular file", { path: carrierFile });
+      }
+      if ((fileStat.mode & 0o077) !== 0) {
+        return unavailable(
+          REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED,
+          "registration carrier file permission is wider than 0600 (07 §5.6 requires 目录 0700 与 文件 0600)",
+          { path: carrierFile, mode: fileStat.mode & 0o777 }
+        );
+      }
+    }
   }
   try {
     const current = await readRegistration(dshHomePath);
