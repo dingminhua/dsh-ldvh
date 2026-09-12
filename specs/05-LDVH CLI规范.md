@@ -37,7 +37,7 @@ LDVH CLI 存在、工具注册成功、操作被发现、请求返回或载体�
 
 1. `ldvh-root`：00 §3.4 的机械保障、§3.5 的 LDVH CLI 确定性执行、§4–§5 的授权与责任、§7 的防自欺、Stop Conditions 与交还；
 2. `specification-model-foundation`：01 §6 的身份块契约、§7 的共同章节结构、§9 的当前规则源条件、§10 的读取层级与最小规则引导、§12 的独立对抗审核；
-3. `work-model-foundation`：02 对 LDVH CLI 确定性执行的机制指向与非默认仪式边界；
+3. `work-model-foundation`：02 §6–§8 的读/写/编排三能力承载对 LDVH CLI 确定性执行的机制指向，及 §5.1 的非默认仪式边界；
 4. `fact-model-foundation`：03 §8.2 的事实消费进入条件与召回分层（本文 §9 的交付前提）、§9.8 的 `partial_scope` 交还形状（本文 §8 的划界对象）。
 
 本文不依赖额外外部语法或行业标准定义 LDVH CLI 服务语义。
