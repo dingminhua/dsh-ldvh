@@ -13,6 +13,8 @@ ldvh_spec:
     - "ldvh-root"
     - "specification-model-foundation"
     - "work-model-foundation"
+    - "fact-model-foundation"
+    - "source-of-truth-traceability"
   authorized_attachments: []
   dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
 ---
@@ -36,11 +38,13 @@ ldvh_spec:
 
 1. `ldvh-root`：00 §3.4 的技术与机械保障、§7.1 的防自欺锚点、§7.2 的 Stop Conditions、§7.4 的 Output Envelope 与交还；
 2. `specification-model-foundation`：01 §6 的身份块契约、§7 的共同章节结构、§10 的 L0–L4 读取层级与 Code 消费入口解析契约、§12 的独立对抗审核；
-3. `work-model-foundation`：02 编排能力承载、复核与校验制度对实现、测试与完成声明的机制指向。
+3. `work-model-foundation`：02 编排能力承载、复核与校验制度对实现、测试与完成声明的机制指向；
+4. `fact-model-foundation`：03 §6.1 的公共字段署名要求（事实 `change_log` 的 provider/model 由 Code 从权威记录取得，本文 §6 的机械签名实现受其约束）；
+5. `source-of-truth-traceability`：06 §6.1 的 message 契约（提交署名 trailer 的格式与来源要求，本文 §6 的机械签名实现受其约束）。
 
 TypeScript、pnpm、Vitest 与构建工具只提供工程语法和执行能力，不取得 LDVH 领域语义权威。
 
-05–08 是协作来源，不是本文的规范依据；历史规范、开发备忘和既有实现只作为设计输入，不取得规范效力。本文不重新解释 00–02；发生冲突或权威关系无法确认时，按 00 §7.2 暂停受影响范围并完成对齐。
+05、07、08 是协作来源，不是本文的规范依据；历史规范、开发备忘和既有实现只作为设计输入，不取得规范效力。本文不重新解释 00–02；发生冲突或权威关系无法确认时，按 00 §7.2 暂停受影响范围并完成对齐。
 
 ## 3. 职责边界
 
@@ -111,7 +115,7 @@ TypeScript、pnpm、Vitest 与构建工具只提供工程语法和执行能力�
 
 **机械签名**：提交（06 §6.1）、事实 `change_log`（03 公共字段署名要求）及其它来源后续定义的回报结构所需的 provider/model 必须由 Code 从 DSH 权威会话或请求记录取得，不允许 AI 自填、用部署默认值替代或由调用方覆盖；来源尚未定义所需签名的回报结构不在此列。空白会话、历史会话和模型切换场景必须有确定性取值与不可用结果。
 
-**Output Envelope**：09 只定义并验证主控 Output Envelope 的单一生成职责；08 定义 DSH 宿主承载、写入时机、消费方和验收流映射，10 定义 Human 呈现。Human 可读正文由同一结构派生或经一致性检查，二者不得矛盾；LDVH CLI 共同响应只是输入，不得冒充主控交还。
+**Output Envelope**：09 只规定并验证主控 Output Envelope 的**单一生成职责**（Envelope 的最低语义由 00 §7.4 定义，09 不定义其形状）；08 定义 DSH 宿主承载、写入时机、消费方和验收流映射，10 定义 Human 呈现。Human 可读正文由同一结构派生或经一致性检查，二者不得矛盾；LDVH CLI 共同响应只是输入，不得冒充主控交还。
 
 ## 7. 验证与证据边界
 
