@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
-import { inspectCandidate, installProject, readGovernedProjects, unregisterProject, uninstallHook } from "./governed-projects.js";
+import { inspectCandidate, installProject, readGovernedProjects, registerProjectFromEntry, unregisterProject, uninstallHook } from "./governed-projects.js";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
 import { join } from "node:path";
 
@@ -16,7 +16,7 @@ function valueAfter(args, flag) {
 }
 
 function usage() {
-  process.stderr.write("Usage: dsh-ldvh governed-project <list|inspect|install|uninstall-hook|unregister> [--project ABSOLUTE_GIT_ROOT] [--id PROJECT_ID]\n");
+  process.stderr.write("Usage: dsh-ldvh governed-project <list|inspect|install|uninstall-hook|unregister|register> [--project ABSOLUTE_GIT_ROOT] [--id PROJECT_ID]\n");
 }
 
 async function main(argv) {
@@ -47,7 +47,19 @@ async function main(argv) {
         description: valueAfter(argv, "--description")
       }, { runnerPath, workspaceRoot: packageRoot });
     } else if (command === "uninstall-hook") result = await uninstallHook(project);
-    else if (command === "unregister") {
+    else if (command === "register") {
+      const id = valueAfter(argv, "--id");
+      if (id === void 0) {
+        process.stderr.write("register requires --id PROJECT_ID\n");
+        return 2;
+      }
+      result = await registerProjectFromEntry(dshHomePath, {
+        id,
+        path: project,
+        name: valueAfter(argv, "--name"),
+        description: valueAfter(argv, "--description")
+      });
+    } else if (command === "unregister") {
       const id = valueAfter(argv, "--id");
       if (id === void 0) {
         process.stderr.write("unregister requires --id PROJECT_ID\n");

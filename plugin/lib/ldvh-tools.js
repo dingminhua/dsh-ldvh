@@ -17,8 +17,10 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { parseSpecDocument, extractHeadings, resolveHeadingPath, contentFingerprint, projectLayer } from "./spec-registry.js";
+import { parseSpecDocument, extractHeadings, resolveHeadingPath, contentFingerprint, projectLayer, parseOperationDeclarations as parseDeclarationTable } from "./spec-registry.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
+import { evaluateRegistrationEntry, registerProjectFromEntry, unregisterProject } from "./governed-projects.js";
+import { bindMembershipEvidence } from "./membership-evidence.js";
 import { currentRouteValues } from "./session-signature.js";
 import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding } from "./commit-validation.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
@@ -55,6 +57,16 @@ const OPERATIONS = {
     toolName: "ldvh_precheck_git_commit",
     summary: "Run the read-only mechanical precheck over a controlled-commit candidate message and the current staged Index (specs/06 §6.2)",
     effect: "read"
+  },
+  "register-governed-project": {
+    toolName: "ldvh_register_governed_project",
+    summary: "Register a Git project as LDVH-governed through the 07 §5.4 AI entry (preconditions checked; atomic write + read-back)",
+    effect: "may_change_state"
+  },
+  "unregister-governed-project": {
+    toolName: "ldvh_unregister_governed_project",
+    summary: "Remove a project's LDVH governance registration through the 07 §5.7 AI entry (07 §5.4 preconditions checked)",
+    effect: "may_change_state"
   }
 };
 
@@ -263,13 +275,31 @@ function makeExecute(deps) {
         reason: `${collision.kind}: ${collision.paths.length} candidates collide — all withheld from member reads until resolved`
       }))
     ];
+    // specs/01 §9.2 items 8/9/11/12: the mechanically checkable sub-parts are
+    // concluded only when the caller asks for them (`evidence: true`), because
+    // item 11 shells out to git per carrier. The semantic remainder is always
+    // reported alongside, so an item table can never be read as a membership
+    // verdict.
+    let evidence = null;
+    if (args?.evidence === true) {
+      evidence = await bindMembershipEvidence(governed.project.path, selected, {
+        bindings: typeof args?.evidence_bindings === "object" && args.evidence_bindings !== null ? args.evidence_bindings : {},
+        reviews: Array.isArray(args?.evidence_reviews) ? args.evidence_reviews : [],
+        decisions: Array.isArray(args?.evidence_decisions) ? args.evidence_decisions : []
+      });
+    }
     return envelope("read-specification-candidates", "completed", {
-      result: { layer, candidates },
+      result: { layer, candidates, ...(evidence !== null ? { membership_evidence: evidence } : {}) },
       scope: { requested: requestedKey ?? "all", completed: selected.map((m) => m.identity.responsibilityKey), not_completed: [] },
       sources: sources({ kind: "governed-project", path: governed.project.path, scan: "specs/", snapshot: scan.snapshot }),
-      gaps: scanGaps,
-      verification: { checks: ["identity-parse", "layer-projection", "excluded-name-filter", "collision-detection", "snapshot-binding"], passed: true },
-      follow_up: ["read-specification-content for L3/L4 of any candidate"]
+      gaps: [...scanGaps, ...(evidence?.gaps ?? [])],
+      verification: {
+        checks: ["identity-parse", "layer-projection", "excluded-name-filter", "collision-detection", "snapshot-binding", ...(evidence !== null ? ["membership-evidence-mechanical-subparts"] : [])],
+        passed: true
+      },
+      follow_up: evidence !== null
+        ? ["membership_evidence.membership_proven is always false — the semantic remainder requires AI review and the Human decision (01 §9.2)"]
+        : ["read-specification-content for L3/L4 of any candidate"]
     });
   }
 
@@ -369,11 +399,22 @@ function makeExecute(deps) {
   async function executeDiscoverCapabilities(args, exec) {
     const requestedOperation = typeof args?.operation_key === "string" && args.operation_key.length > 0 ? args.operation_key : null;
     const governed = await resolveGovernanceScope(dshHomePath, exec?.agent?.session?.header?.cwd);
+    // 05 §6.1「发现的机械义务」: the discovery entry MUST actually parse the
+    // source declaration and fill the classification from the parse result —
+    // "不得以常量或假设值代替解析结果". So `declared` and `implemented` below
+    // come from real parsing of the declaring spec carrier, not from a
+    // hardcoded `true`. An unparsable/missing declaration yields a precise
+    // reason and the operation is reported as a diagnostic, never as declared.
+    const declarations = await parseOperationDeclarations(governed.state === "governed" ? governed.project.path : null);
+    const declarationReporter = [];
     const entries = Object.entries(OPERATIONS)
       .filter(([key]) => requestedOperation === null || key === requestedOperation)
       .map(([key, operation]) => {
-        const declared = true; // declared in this tool batch per 05 §6.1 shape
-        const implemented = true; // an implementation is locatable in this plugin
+        const declaration = declarations.get(key) ?? null;
+        const declared = declaration !== null;
+        // An implementation is locatable when the registered DSH tool has a
+        // handler in this batch (the operation table is built from handlers).
+        const implemented = typeof handlers[key] === "function";
         // discover itself is only registered for governed sessions (index.js
         // gate), so `governed.state` is "governed" whenever this runs. A
         // `|| key === "resolve-governance-scope"` branch used to sit here but
@@ -381,13 +422,40 @@ function makeExecute(deps) {
         // (unavailable is a not_governed special case), NO operation is
         // callable outside governed sessions — including the scope resolver.
         const callableHere = governed.state === "governed";
+        const anchorsOk = declared && declaration.anchor_errors.length === 0;
+        if (!declared) {
+          declarationReporter.push({
+            operation_key: key,
+            reason: declarations.reason ?? "no declaration table found in the declaring source",
+            detail: "per 05 §6.1 an operation with an unparsable or missing declaration must be reported as a diagnostic, not returned as declared"
+          });
+        } else if (!anchorsOk) {
+          declarationReporter.push({
+            operation_key: key,
+            reason: `declared contract anchor(s) do not resolve: ${declaration.anchor_errors.join("; ")}`,
+            detail: "05 §6.1: a contract that cannot be resolved mechanically equals an undeclared operation"
+          });
+        }
+        // 05 §5 结果分类闭集: 已声明 / 已实现 / 当次可调用 / 不可用.
+        // The classification must FOLLOW the parse result, never fall back to a
+        // positive label when parsing failed: an unresolved declaration is
+        // reported as `不可用` with the precise reason in `declaration_errors`,
+        // NOT as `已声明` (which would assert a declaration that was not found).
+        const availability = !anchorsOk
+          ? "不可用"
+          : (implemented ? (callableHere ? "当次可调用" : "不可用") : "已声明");
         return {
           operation_key: key,
           dsh_tool_name: operation.toolName,
           summary: operation.summary,
           effect: operation.effect,
-          availability: declared && implemented ? (callableHere ? "当次可调用" : "不可用") : "已声明",
-          availability_detail: callableHere ? null : `session governance state is ${governed.state}; this operation serves governed sessions`
+          availability,
+          availability_detail: !anchorsOk
+            ? (declarationReporter[declarationReporter.length - 1]?.reason ?? "declaration could not be parsed")
+            : (callableHere ? null : `session governance state is ${governed.state}; this operation serves governed sessions`),
+          declaration: declared && anchorsOk
+            ? { source: declaration.source, source_path: declaration.source_path, arguments_contract: declaration.arguments_contract, result_contract: declaration.result_contract }
+            : null
         };
       });
     if (requestedOperation !== null && entries.length === 0) {
@@ -401,12 +469,23 @@ function makeExecute(deps) {
       });
     }
     return envelope("discover-ldvh-capabilities", "completed", {
-      result: { operations: entries },
+      result: { operations: entries, ...(declarationReporter.length > 0 ? { undeclared_or_unresolvable: declarationReporter } : {}) },
       scope: { requested: requestedOperation ?? "all", completed: entries.map((e) => e.operation_key), not_completed: [] },
       sources: sources({ kind: "tool-batch", module: "plugin/lib/ldvh-tools.js" }),
-      gaps: governed.state === "unavailable" ? [`governance registration unavailable: ${governed.detail}`] : [],
-      verification: { checks: ["declaration-table", "governance-scope"], passed: true },
-      follow_up: []
+      // 05 §6.1: an operation whose declaration could not be parsed is reported
+      // HERE as a diagnostic with a precise reason — never silently classified
+      // as declared and never dropped.
+      gaps: [
+        ...(governed.state === "unavailable" ? [`governance registration unavailable: ${governed.detail}`] : []),
+        ...declarationReporter.map((entry) => `${entry.operation_key}: ${entry.reason}`)
+      ],
+      verification: {
+        checks: ["declaration-table-parse", "declaration-anchor-resolution", "governance-scope"],
+        passed: declarationReporter.length === 0
+      },
+      follow_up: declarationReporter.length > 0
+        ? ["add or fix the 05 §6.1 declaration table in the declaring source; an undeclared operation must not be treated as available"]
+        : []
     });
   }
 
@@ -512,12 +591,111 @@ function makeExecute(deps) {
     return { ok: issues.length === 0, hardFail: issues.length > 0, issues };
   }
 
+  /**
+   * 07 §5.4 AI entry. Every precondition is checked before any write; an
+   * unmet precondition is `unavailable` with the precise reason code, never a
+   * success-shaped partial. The session cwd is the project under registration
+   * when the caller omits `path` (the spec's "用户 … 表达把当前项目设为管辖"
+   * wording), otherwise the explicit path is used.
+   */
+  async function executeRegisterGovernedProject(args, exec) {
+    const cwd = exec?.agent?.session?.header?.cwd;
+    const target = typeof args?.path === "string" && args.path.length > 0 ? args.path : cwd;
+    if (typeof target !== "string" || target.length === 0) {
+      return envelope("register-governed-project", "invalid_request", {
+        result: null,
+        scope: { requested: null, completed: [], not_completed: ["project path"] },
+        sources: [],
+        gaps: ["no project path available: supply `path` or run inside the project directory"],
+        verification: { checks: [], passed: false },
+        follow_up: []
+      });
+    }
+    const result = await registerProjectFromEntry(dshHomePath, {
+      id: args?.id,
+      path: target,
+      name: typeof args?.name === "string" && args.name.length > 0 ? args.name : void 0,
+      description: typeof args?.description === "string" && args.description.length > 0 ? args.description : void 0
+    });
+    if (!result.ok) {
+      const outcome = result.unavailable === true ? "unavailable" : "rejected";
+      return envelope("register-governed-project", outcome, {
+        result: null,
+        scope: { requested: target, completed: [], not_completed: ["registration"] },
+        sources: [],
+        gaps: [`${result.error.code}: ${result.error.message}`],
+        verification: { checks: ["preconditions"], passed: false },
+        follow_up: ["resolve the reported precondition, then retry; do not claim the project is governed"]
+      });
+    }
+    return envelope("register-governed-project", "completed", {
+      result: result.value,
+      scope: { requested: target, completed: result.value.changed ? ["registration", "read-back"] : ["registration-check"], not_completed: [] },
+      sources: sources({ kind: "registration", path: result.value.registration.path, fingerprint: result.value.registration.fingerprint }),
+      gaps: [],
+      verification: { checks: ["preconditions", "git-root", "atomic-write", "read-back"], passed: true },
+      follow_up: result.value.changed ? ["resolve-governance-scope"] : []
+    });
+  }
+
+  /** 07 §5.7 AI entry: the same precondition gate, then removal + read-back. */
+  async function executeUnregisterGovernedProject(args, exec) {
+    const cwd = exec?.agent?.session?.header?.cwd;
+    const target = typeof args?.path === "string" && args.path.length > 0 ? args.path : cwd;
+    if (typeof args?.id !== "string" || args.id.length === 0 || typeof target !== "string" || target.length === 0) {
+      return envelope("unregister-governed-project", "invalid_request", {
+        result: null,
+        scope: { requested: target ?? null, completed: [], not_completed: ["id", "project path"] },
+        sources: [],
+        gaps: ["unregister requires both `id` and a resolvable project path"],
+        verification: { checks: [], passed: false },
+        follow_up: []
+      });
+    }
+    const preconditions = await evaluateRegistrationEntry(dshHomePath);
+    if (!preconditions.ok) {
+      return envelope("unregister-governed-project", "unavailable", {
+        result: null,
+        scope: { requested: target, completed: [], not_completed: ["unregistration"] },
+        sources: [],
+        gaps: [`${preconditions.error.code}: ${preconditions.error.message}`],
+        verification: { checks: ["preconditions"], passed: false },
+        follow_up: ["resolve the reported precondition, then retry"]
+      });
+    }
+    const result = await unregisterProject(dshHomePath, {
+      id: args.id,
+      path: target,
+      nextDefaultProjectId: typeof args?.next_default_project_id === "string" ? args.next_default_project_id : void 0
+    });
+    if (!result.ok) {
+      return envelope("unregister-governed-project", "rejected", {
+        result: null,
+        scope: { requested: target, completed: [], not_completed: ["unregistration"] },
+        sources: [],
+        gaps: [`${result.error.code}: ${result.error.message}`],
+        verification: { checks: ["preconditions", "git-root"], passed: false },
+        follow_up: ["confirm the id and path, then retry"]
+      });
+    }
+    return envelope("unregister-governed-project", "completed", {
+      result: { removed: args.id, hook: result.value.hook?.state ?? null, fact_source_preserved: result.value.factSourcePreserved },
+      scope: { requested: target, completed: ["hook-removal", "unregistration", "read-back"], not_completed: [] },
+      sources: sources({ kind: "registration", path: "ldvh/governed-projects.yaml", fingerprint: result.value.registration?.fingerprint ?? null }),
+      gaps: [],
+      verification: { checks: ["preconditions", "git-root", "atomic-write", "read-back"], passed: true },
+      follow_up: []
+    });
+  }
+
   const handlers = {
     "resolve-governance-scope": executeResolveGovernanceScope,
     "read-specification-candidates": executeReadSpecificationCandidates,
     "read-specification-content": executeReadSpecificationContent,
     "discover-ldvh-capabilities": executeDiscoverCapabilities,
-    "precheck-git-commit": executePrecheckGitCommit
+    "precheck-git-commit": executePrecheckGitCommit,
+    "register-governed-project": executeRegisterGovernedProject,
+    "unregister-governed-project": executeUnregisterGovernedProject
   };
 
   return { handlers, OPERATIONS };
@@ -564,6 +742,57 @@ export function toolDescriptor(operationKey, operation, handler) {
       render: (args, value) => renderEnvelope(operationKey, value)
     }
   };
+}
+
+/**
+ * Parse the 05 §6.1 operation declarations out of the declaring spec carriers
+ * of a governed project. This is the mechanical obligation of 05 §6.1: the
+ * discovery entry must actually parse the sources, not substitute constants.
+ *
+ * It reads each candidate carrier's TEXT, parses its declaration table, and
+ * resolves each contract anchor through the shared heading-path resolver. A
+ * row whose anchors do not resolve stays in the map carrying `anchor_errors`,
+ * so the caller reports it instead of silently treating it as declared.
+ *
+ * NOTE the two-argument contract: this wrapper takes the PROJECT ROOT and does
+ * the file reading; `parseDeclarationTable` takes the carrier TEXT. Passing a
+ * path straight to the latter parses nothing (a path has no newlines and no
+ * header row), which is a silent total failure — hence the split is explicit.
+ */
+async function parseOperationDeclarations(projectRoot) {
+  const merged = new Map();
+  const setReason = (reason) => Object.defineProperty(merged, "reason", { value: reason, enumerable: false });
+  if (typeof projectRoot !== "string" || projectRoot.length === 0) {
+    setReason("no governed project root available to parse declarations from");
+    return merged;
+  }
+  const scan = await scanSpecCandidates(projectRoot);
+  if (!scan.ok) {
+    setReason(`declaration sources are unscannable: ${scan.reason}`);
+    return merged;
+  }
+  const reasons = [];
+  for (const member of scan.members) {
+    const rows = parseDeclarationTable(member.markdownText, (headingPath) => resolveHeadingPath(member.markdownText, headingPath).ok);
+    if (rows.size === 0) {
+      if (rows.reason !== undefined) reasons.push(`${member.repoPath}: ${rows.reason}`);
+      continue;
+    }
+    const sourceKey = member.identity?.responsibilityKey ?? member.repoPath;
+    for (const [operationKey, row] of rows) {
+      // First declaring source wins; a duplicate declaration is itself a
+      // defect (05 §6.1: operation_key is globally unique) — report, keep first.
+      if (merged.has(operationKey)) {
+        merged.get(operationKey).anchor_errors.push(`duplicate declaration also found in ${member.repoPath}`);
+        continue;
+      }
+      merged.set(operationKey, { ...row, source: sourceKey, source_path: member.repoPath });
+    }
+  }
+  if (merged.size === 0) {
+    setReason(reasons.length > 0 ? reasons.join("; ") : "no operation declaration table found in any candidate carrier");
+  }
+  return merged;
 }
 
 export function registerLdvhTools(ctx, deps) {
@@ -613,12 +842,39 @@ function parameterSchemaFor(operationKey) {
   switch (operationKey) {
     case "resolve-governance-scope":
       return { type: "object", properties: {}, additionalProperties: false };
+    case "register-governed-project":
+      return {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Project id to register under (required; unique among registered projects)" },
+          path: { type: "string", description: "Absolute Git root to register; omit to use the session working directory (07 §5.4)" },
+          name: { type: "string", description: "Optional display name" },
+          description: { type: "string", description: "Optional purpose description" }
+        },
+        required: ["id"],
+        additionalProperties: false
+      };
+    case "unregister-governed-project":
+      return {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Registered project id to remove" },
+          path: { type: "string", description: "Absolute Git root of the project; omit to use the session working directory" },
+          next_default_project_id: { type: "string", description: "Required when removing the current default project and others remain (07 §5.7)" }
+        },
+        required: ["id"],
+        additionalProperties: false
+      };
     case "read-specification-candidates":
       return {
         type: "object",
         properties: {
           responsibility_key: { type: "string", description: "Target spec_key or attachment_key; omit to enumerate all candidates" },
-          layer: { type: "string", enum: ["L0", "L1", "L2"], description: "Disclosure layer (specs/01 §10.2); default L0" }
+          layer: { type: "string", enum: ["L0", "L1", "L2"], description: "Disclosure layer (specs/01 §10.2); default L0" },
+          evidence: { type: "boolean", description: "Conclude the mechanically checkable sub-parts of specs/01 §9.2 items 8/9/11/12 (reads git history; default false)" },
+          evidence_bindings: { type: "object", description: "Recorded fingerprint bindings per canonical_path (item 12); carriers without one are reported as gaps, never as passes", additionalProperties: true },
+          evidence_reviews: { type: "array", description: "Review records [{ref, date?, carriers?}] — item 8 concludes existence only", items: { type: "object", additionalProperties: true } },
+          evidence_decisions: { type: "array", description: "Human decision records [{ref, date?, carriers?}] — item 9 concludes existence only", items: { type: "object", additionalProperties: true } }
         },
         additionalProperties: false
       };

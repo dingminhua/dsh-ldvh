@@ -20,11 +20,29 @@
 // looking for a project.
 
 import { realpath } from "node:fs/promises";
-import { readGovernedProjectIndex } from "./governed-projects.js";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { readGovernedProjectIndex, resolveGitCommonDir } from "./governed-projects.js";
+
+const execFileAsync = promisify(execFile);
 
 function withinRoot(root, candidate) {
   if (candidate === root) return true;
   return candidate.startsWith(root.endsWith("/") ? root : root + "/");
+}
+
+/**
+ * Resolve the cwd's own Git common-dir, or null when it is not inside a Git
+ * work tree at all (or Git is unavailable). 07 §5.3: a linked worktree is
+ * identified deterministically through the common-dir, never through branch,
+ * remote or a stored worktree list.
+ */
+async function commonDirOf(path) {
+  try {
+    return await resolveGitCommonDir(path);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -73,6 +91,25 @@ export async function resolveGovernanceScope(dshHomePath, cwd) {
         project: { id: project.id, path: project.path, name: project.name ?? null, description: project.description ?? null },
         registrationFingerprint: registration.value.fingerprint
       };
+    }
+  }
+  // 07 §5.3 linked-worktree clause: a linked worktree of a registered project
+  // has a toplevel that is NOT the registered root, so the containment check
+  // above cannot see it. Identity is then decided by the Git common-dir —
+  // exactly one common-dir is shared by a main worktree and all of its linked
+  // worktrees. This runs only after every direct containment check missed, so
+  // the hot path (cwd inside the registered root) never pays for a subprocess.
+  const cwdCommonDir = await commonDirOf(realCwd);
+  if (cwdCommonDir !== null) {
+    for (const project of registration.value.projects) {
+      if (project.canonicalPath === null) continue;
+      if (await commonDirOf(project.canonicalPath) === cwdCommonDir) {
+        return {
+          state: "governed",
+          project: { id: project.id, path: project.path, name: project.name ?? null, description: project.description ?? null },
+          registrationFingerprint: registration.value.fingerprint
+        };
+      }
     }
   }
   return { state: "not_governed", detail: "session working directory is not inside a registered governed project" };

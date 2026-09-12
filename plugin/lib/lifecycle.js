@@ -26,6 +26,7 @@ import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
 import { createTurnTriggers } from "./triggers.js";
 import { createChildInstaller } from "./child.js";
 import { AgentLifecycle } from "./agent-lifecycle.js";
+import { recordJudgementForGuard } from "./host-seams.js";
 
 export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes }) {
   // Per-agent lifecycle objects (agent-lifecycle.js): single home for all
@@ -106,6 +107,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       ctx.logger.info("[dsh-ldvh] unregistered LDVH tool batch (governance state: %s)", scope.state);
     }
     lifecycle.setScope(scope);
+    // Federate the judgement to the synchronous tools.guard (08 §6): the guard
+    // cannot await, so it consults the last judgement recorded for the cwd.
+    recordJudgementForGuard(agent?.session?.header?.cwd, scope.state);
     // Delegation-chain propagation (2026-09-04): a parent judgement change
     // must reach already-installed children. Without this, a child that
     // installed while the parent was `governed` keeps that stale state after

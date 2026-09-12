@@ -16,6 +16,25 @@ const REGISTRATION_RELATIVE_PATH = ["ldvh", "governed-projects.yaml"];
 // 已按类型短名复数惯例补齐。
 const FACT_DIRECTORIES = ["sparks", "workcases", "adrs", "pitfalls", "researches", "frictions", "norms"];
 
+/**
+ * 07 §5.4 precondition vocabulary. The registration entries are enabled only
+ * after 08 has verified cross-workspace write permission and the carrier has
+ * been confirmed by a Human Gate; while any precondition is unmet the entry
+ * must report `unavailable` with the precise reason from this closed set and
+ * must not be presented as executable.
+ */
+export const REGISTRATION_UNAVAILABLE_CODES = Object.freeze({
+  USER_CONFIG_ROOT_UNAVAILABLE: "user_config_root_unavailable",
+  CARRIER_UNAVAILABLE: "registration_carrier_unavailable",
+  PERMISSION_UNVERIFIED: "registration_permission_unverified",
+  ACCESS_DENIED: "registration_access_denied",
+  SCHEMA_INVALID: "registration_schema_invalid"
+});
+
+function unavailable(code, message, details = {}) {
+  return { ok: false, unavailable: true, error: { code, message, details } };
+}
+
 function failure(code, message, details = {}) {
   return { ok: false, error: { code, message, details } };
 }
@@ -118,6 +137,25 @@ export async function resolveGitRoot(candidate) {
   const common = await git(requested, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
   const commonDir = await realpath(common);
   return { projectRoot: canonicalRoot, gitCommonDir: commonDir };
+}
+
+/**
+ * Resolve the Git common-dir for an arbitrary path inside a work tree.
+ * Authority: 07 §5.3 — linked worktrees are identified deterministically
+ * through the common-dir (`git rev-parse --git-common-dir`), never through
+ * branch, remote or a stored worktree list. A main worktree and every one of
+ * its linked worktrees share exactly one common-dir, while their toplevels
+ * differ; that is what makes the containment check below work for a linked
+ * worktree whose toplevel is NOT the registered root.
+ *
+ * Throws when the path is not inside a work tree (not a repository) or Git
+ * is unavailable — callers treat that as "no common-dir", not as a match.
+ */
+export async function resolveGitCommonDir(candidate) {
+  if (typeof candidate !== "string" || candidate.trim().length === 0 || !isAbsolute(candidate)) throw new Error("path must be a non-empty absolute path");
+  const requested = await realpath(candidate);
+  const common = await git(requested, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  return realpath(common);
 }
 
 async function factSourceStatus(projectRoot) {
@@ -326,6 +364,123 @@ export async function unregisterProject(dshHomePath, input) {
     const next = validateDocument({ ...current.document, projects, default_project_id: defaultProjectId });
     await writeFileAtomic(filename, stringifyYaml(next), { mode: 0o600, dirMode: 0o700 });
     return success({ registration: await readRegistration(dshHomePath), hook: removedHook.value, factSourcePreserved: join(identity.projectRoot, "ldvh-base") });
+  });
+}
+
+/**
+ * Evaluate the 07 §5.4 preconditions for the AI registration entry.
+ * Preconditions are checked in the spec's reported order; the first unmet one
+ * decides the reported code. This never writes anything.
+ *
+ * The carrier is owned by this plugin's install transaction and is created on
+ * startup (ensureRegistrationCarrier), so a missing carrier directory is a
+ * real precondition failure, not something this entry silently creates.
+ */
+export async function evaluateRegistrationEntry(dshHomePath) {
+  if (typeof dshHomePath !== "function") {
+    return unavailable(REGISTRATION_UNAVAILABLE_CODES.USER_CONFIG_ROOT_UNAVAILABLE, "DSH user configuration root is unavailable");
+  }
+  let root;
+  try {
+    root = dirname(registrationPath(dshHomePath));
+  } catch (error) {
+    return unavailable(REGISTRATION_UNAVAILABLE_CODES.USER_CONFIG_ROOT_UNAVAILABLE, `DSH user configuration root is unavailable: ${String(error?.message || error)}`);
+  }
+  let rootStat;
+  try {
+    rootStat = await stat(root);
+  } catch (error) {
+    return unavailable(REGISTRATION_UNAVAILABLE_CODES.CARRIER_UNAVAILABLE, `registration carrier directory is unavailable: ${String(error?.message || error)}`, { path: root });
+  }
+  if (!rootStat.isDirectory()) {
+    return unavailable(REGISTRATION_UNAVAILABLE_CODES.CARRIER_UNAVAILABLE, "registration carrier path exists but is not a directory", { path: root });
+  }
+  // 07 §5.6: Unix directory/files are 0700/0600. A carrier whose mode grants
+  // group/other access is out of contract and the entry must not silently
+  // "fix" it; the caller sees the precise reason instead.
+  if (process.platform === "win32") {
+    // 07 §5.6 Windows clause: inherit the DSH user-config ACL, never fake POSIX
+    // mode; when the ACL cannot be verified the high-risk write must
+    // fail-closed. This implementation has no ACL verifier, so the honest
+    // outcome is `registration_permission_unverified` — NOT a silent pass.
+    // Reporting success here would be exactly the "claim protection the seam
+    // did not deliver" failure 08 §6 forbids.
+    return unavailable(
+      REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED,
+      "registration carrier ACL cannot be verified on this platform (07 §5.6: high-risk writes fail closed)",
+      { path: root, platform: process.platform }
+    );
+  }
+  {
+    const writable = (rootStat.mode & 0o700) === 0o700;
+    const overShared = (rootStat.mode & 0o077) !== 0;
+    if (!writable) {
+      return unavailable(REGISTRATION_UNAVAILABLE_CODES.ACCESS_DENIED, "registration carrier directory is not writable by the current user", { path: root, mode: rootStat.mode & 0o777 });
+    }
+    if (overShared) {
+      return unavailable(REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED, "registration carrier directory permission is wider than 0700 (07 §5.6)", { path: root, mode: rootStat.mode & 0o777 });
+    }
+  }
+  try {
+    const current = await readRegistration(dshHomePath);
+    if (current.exists && current.document === void 0) {
+      return unavailable(REGISTRATION_UNAVAILABLE_CODES.SCHEMA_INVALID, "registration carrier does not satisfy the v5 schema (07 §5.2)");
+    }
+    return { ok: true, value: { carrier: current.path, exists: current.exists, fingerprint: current.fingerprint } };
+  } catch (error) {
+    return unavailable(REGISTRATION_UNAVAILABLE_CODES.SCHEMA_INVALID, `registration carrier is not parseable or violates the schema: ${String(error?.message || error)}`);
+  }
+}
+
+/**
+ * 07 §5.4 AI entry: register the current project as LDVH-governed.
+ *
+ * Contract (this is the "AI 入口" clause, not the install flow):
+ *  1. the current project must not already be in the list — the entry first
+ *     reads the carrier and refuses to write a duplicate (no repeat write);
+ *  2. the entry only proceeds when every 07 §5.4 precondition holds;
+ *  3. the write is atomic and conflict-rejecting (07 §5.6), then read back.
+ *
+ * Unlike installProject this entry deliberately does NOT initialize a fact
+ * source or install a Git hook: 07 §5.4 governs registration only, and the
+ * hook/fact-source lifecycle belongs to the install transaction.
+ */
+export async function registerProjectFromEntry(dshHomePath, input) {
+  const preconditions = await evaluateRegistrationEntry(dshHomePath);
+  if (!preconditions.ok) return preconditions;
+  if (typeof input?.id !== "string" || input.id.trim().length === 0) return failure("invalid_input", "id must be a non-empty string");
+  let identity;
+  try {
+    identity = await resolveGitRoot(input.path);
+  } catch (error) {
+    return failure("candidate_invalid", String(error?.message || error));
+  }
+  const filename = registrationPath(dshHomePath);
+  return withFileLock(filename, async () => {
+    const current = await readRegistration(dshHomePath);
+    if (input.expectedFingerprint !== void 0 && input.expectedFingerprint !== current.fingerprint) {
+      return failure("conflict", "governed projects changed; refresh before retrying");
+    }
+    // 07 §5.4 step 1: confirm the current project is not already listed.
+    if (current.document.projects.some((entry) => entry.path === identity.projectRoot)) {
+      return success({ changed: false, reason: "already_registered", registration: { path: filename, fingerprint: current.fingerprint } });
+    }
+    if (current.document.projects.some((entry) => entry.id === input.id)) {
+      return failure("conflict", "project id is already registered to another entry");
+    }
+    const next = validateDocument({
+      ...current.document,
+      projects: [...current.document.projects, { id: input.id, path: identity.projectRoot, ...(input.name ? { name: input.name } : {}), ...(input.description ? { description: input.description } : {}) }],
+      default_project_id: current.document.projects.length === 0 ? input.id : current.document.default_project_id
+    });
+    await writeFileAtomic(filename, stringifyYaml(next), { mode: 0o600, dirMode: 0o700 });
+    // 07 §5.6: re-read and re-parse after the atomic replace.
+    const readBack = await readRegistration(dshHomePath);
+    return success({
+      changed: true,
+      project: { id: input.id, path: identity.projectRoot, gitCommonDir: identity.gitCommonDir },
+      registration: { path: filename, fingerprint: readBack.fingerprint }
+    });
   });
 }
 

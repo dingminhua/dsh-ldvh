@@ -289,6 +289,83 @@ export function contentFingerprint(text) {
 }
 
 /**
+ * Parse the public-operation declaration table of a specification carrier.
+ *
+ * Authority: specs/05 §6.1. The table shape is fixed:
+ *
+ *   | operation_key | summary | effect | arguments_contract | result_contract |
+ *
+ * and each contract cell MUST be `<spec_key 或 attachment_key>::<精确标题文本>`
+ * whose heading text is a mechanically addressable `H2` or `H2/H3` path. 05
+ * §6.1 makes parsing MANDATORY for the discovery entry:
+ *
+ *   能力发现入口必须实际解析来源声明并据其结果填充分类，不得以常量或假设值
+ *   代替解析结果
+ *
+ * so this returns the parsed rows plus, per row, any contract anchor that does
+ * NOT resolve. A non-resolving anchor means the operation is not validly
+ * declared ("解析失败…等于未声明").
+ *
+ * @returns Map<operation_key, row> with a non-enumerable `reason` property
+ *          describing why the map is empty when no table was found.
+ */
+export function parseOperationDeclarations(specText, resolveAnchor) {
+  const rows = new Map();
+  if (typeof specText !== "string" || specText.length === 0) {
+    Object.defineProperty(rows, "reason", { value: "declaring source text is unavailable", enumerable: false });
+    return rows;
+  }
+  const lines = specText.split("\n");
+  const header = /^\|\s*operation_key\s*\|\s*summary\s*\|\s*effect\s*\|\s*arguments_contract\s*\|\s*result_contract\s*\|\s*$/;
+  // A source may carry MORE THAN ONE declaration table (e.g. 05 §6.1 holds the
+  // shape template first and 05's own operation declarations second). Collect
+  // every table rather than stopping at the first hit.
+  const tableStarts = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (header.test(lines[i].trim())) tableStarts.push(i + 2);
+  }
+  if (tableStarts.length === 0) {
+    Object.defineProperty(rows, "reason", { value: "no 05 §6.1 operation declaration table in the declaring source", enumerable: false });
+    return rows;
+  }
+  for (const start of tableStarts) {
+  for (let i = start; i < lines.length; i += 1) {
+    const line = lines[i].trim();
+    if (!line.startsWith("|")) break;
+    // Cells may be code-formatted (`value`); strip one layer of backticks so
+    // the closed-set and anchor checks compare the literal text, not markup.
+    const cells = line.split("|").slice(1, -1).map((cell) => cell.trim().replace(/^`(.*)`$/s, "$1").trim());
+    if (cells.length < 5) continue;
+    const [operationKey, summary, effect, argumentsContract, resultContract] = cells;
+    if (operationKey === "" || /^-+$/.test(operationKey)) continue;
+    // 05 §6.1: the shape table uses `<...>` placeholders and is explicitly NOT
+    // a declaration. Skip placeholder rows so a template is never mistaken for
+    // a real operation (and never becomes a phantom "declared" entry).
+    if (operationKey.startsWith("<")) continue;
+    // 05 §6.1: effect is a closed set.
+    const effectValid = effect === "read" || effect === "may_change_state";
+    const anchorErrors = [];
+    if (!effectValid) anchorErrors.push(`effect "${effect}" is outside the closed set (read|may_change_state)`);
+    for (const [label, contract] of [["arguments_contract", argumentsContract], ["result_contract", resultContract]]) {
+      if (!contract.includes("::")) {
+        anchorErrors.push(`${label} does not use the <source>::<heading path> form`);
+        continue;
+      }
+      if (typeof resolveAnchor === "function") {
+        const headingPath = contract.slice(contract.indexOf("::") + 2).trim();
+        if (!resolveAnchor(headingPath)) anchorErrors.push(`${label} heading path does not resolve: ${headingPath}`);
+      }
+    }
+    rows.set(operationKey, { operation_key: operationKey, summary, effect, arguments_contract: argumentsContract, result_contract: resultContract, anchor_errors: anchorErrors });
+  }
+  }
+  if (rows.size === 0) {
+    Object.defineProperty(rows, "reason", { value: "declaration table present but carries no operation rows", enumerable: false });
+  }
+  return rows;
+}
+
+/**
  * Project an identity to a disclosure layer (01.Att.03 §4). Each layer adds
  * content on top of the previous one; the projection never claims validity
  * beyond disclosure depth. Optional relation fields are omitted when absent.

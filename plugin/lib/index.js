@@ -36,6 +36,7 @@ import { createGovernanceHandler } from "./host-api.js";
 import { createProxyHandler, createSpaHandler, createWebApiProcess } from "./web-mount.js";
 import { createLifecycleRegistry } from "./lifecycle.js";
 import { createSessionScopes } from "./session-scopes.js";
+import { createHostSeams } from "./host-seams.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { registerLdvhRpc, registerLdvhCommands } from "./rpc.js";
 
@@ -238,6 +239,19 @@ export function apply(ctx) {
     sessionScopes
   });
   const stopLifecycle = lifecycle.start();
+
+  // specs/08 §6: consume the host seams this composition provides. Each seam
+  // is registered on this plugin's own fiber, so nothing survives stop/update.
+  // Unconsumed seams are reported in the lifecycle snapshot rather than hidden
+  // (08 §6 forbids claiming protection a seam's absence did not deliver).
+  const hostSeams = createHostSeams();
+  const seamsInstall = hostSeams.install(ctx, { dshHomePath });
+  ctx.effect(() => () => {
+    try { seamsInstall.dispose(); } catch { /* already removed */ }
+  }, "dsh-ldvh: host seam consumption");
+  for (const seam of hostSeams.snapshot()) {
+    if (seam.consumed) ctx.logger.info("[dsh-ldvh] host seam consumed: %s (%s)", seam.seam, seam.detail);
+  }
 
   // Soft web mount (framework doc §4 point 3): the webServer service is NOT a
   // hard injection anymore. In compositions that provide one, this child

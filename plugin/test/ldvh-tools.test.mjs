@@ -537,7 +537,7 @@ test("read-specification-content returns rejected for an ambiguous heading path"
 // discover-ldvh-capabilities
 // ---------------------------------------------------------------------------
 
-test("discover-ldvh-capabilities enumerates all five operations", async () => {
+test("discover-ldvh-capabilities enumerates all operations", async () => {
 	const { handlers } = makeExec({ dshHomePath: dshHome("/nope"), workspaceRoot: "/nope", sessionPersistence: () => undefined });
 	const envelope = await handlers["discover-ldvh-capabilities"]({}, {});
 	assertEnvelopeShape(envelope, "discover-ldvh-capabilities", "completed");
@@ -547,7 +547,10 @@ test("discover-ldvh-capabilities enumerates all five operations", async () => {
 		"precheck-git-commit",
 		"read-specification-candidates",
 		"read-specification-content",
+		// 07 §5.4 / §5.7 AI entries, declared per 05 §6.1 in specs/07.
+		"register-governed-project",
 		"resolve-governance-scope",
+		"unregister-governed-project",
 	]);
 	for (const op of envelope.result.operations) {
 		assert.ok(typeof op.dsh_tool_name === "string" && op.dsh_tool_name.startsWith("ldvh_"));
