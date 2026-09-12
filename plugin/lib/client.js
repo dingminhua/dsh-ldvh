@@ -455,7 +455,7 @@ window.__ModuleLoader__.load({
         if (!candidateState[0].path || !candidateState[0].id || projectBusyState[0]) return;
         projectBusyState[1](true);
         installErrorState[1](null);
-        callLdvhApi("/governed-projects/install", { path: candidateState[0].path, id: candidateState[0].id, name: candidateState[0].id })
+        callLdvhApi("/governed-projects/install", { path: candidateState[0].path, id: candidateState[0].id, name: candidateState[0].id, human_confirmed: true })
           .then(function (result) {
             if (!result || result.ok !== true) throw new Error(result && result.error ? result.error.message : "installation failed");
             closeAddForm();
@@ -502,7 +502,7 @@ window.__ModuleLoader__.load({
       // re-registers as a no-op when the entry already matches.
       function updateProject(project) {
         projectBusyState[1](true);
-        callLdvhApi("/governed-projects/install", { path: project.path, id: project.id, name: project.name || project.id })
+        callLdvhApi("/governed-projects/install", { path: project.path, id: project.id, name: project.name || project.id, human_confirmed: true })
           .then(function (result) {
             if (!result || result.ok !== true) throw new Error(result && result.error ? result.error.message : "update failed");
             loadProjects();
@@ -515,7 +515,7 @@ window.__ModuleLoader__.load({
         projectBusyState[1](true);
         var projects = projectsState[0].value && projectsState[0].value.projects || [];
         var nextDefault = projects.find(function (entry) { return entry.id !== project.id; });
-        callLdvhApi("/governed-projects/unregister", { id: project.id, path: project.path, nextDefaultProjectId: nextDefault ? nextDefault.id : "" }).then(function (result) {
+        callLdvhApi("/governed-projects/unregister", { id: project.id, path: project.path, nextDefaultProjectId: nextDefault ? nextDefault.id : "", human_confirmed: true }).then(function (result) {
           if (!result || result.ok !== true) throw new Error(result && result.error ? result.error.message : "unregister failed");
           loadProjects();
         }).catch(function (error) {

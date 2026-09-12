@@ -31,6 +31,7 @@ import { currentRouteValues } from "./session-signature.js";
 import { authoritativeSignature } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { join } from "node:path";
+import { registerWriteShapedTool } from "./host-seams.js";
 
 const OPERATIONS = {
   "pitfall-read-object": {
@@ -45,6 +46,7 @@ const OPERATIONS = {
   },
   "pitfall-write-object": {
     toolName: "ldvh_pitfall_write",
+    writeShaped: true,
     summary: "Controlled write of Pitfall fact objects: create (after Human-confirmed proposal incl. dedup result) and CAS update with change_log; active→active is errata/supplement-only (scope field-identical, 23 §9.3), active→discarded is terminal (specs/03 §9.4–§9.5, specs/23 §13)",
     effect: "may_change_state"
   }
@@ -491,6 +493,10 @@ export function registerPitfallTools(ctx, deps) {
   };
   const disposers = [];
   for (const [operationKey, operation] of Object.entries(OPERATIONS)) {
+    // Coverage is registered from the declaration itself, so the guard's target
+    // set always matches the tools this build really exposes (a hardcoded list
+    // drifts into phantom or stale entries).
+    if (operation.writeShaped === true) registerWriteShapedTool(operation.toolName);
     disposers.push(ctx.tools.register(toolDescriptorFor(operationKey, operation, handlers[operationKey])));
   }
   return () => {

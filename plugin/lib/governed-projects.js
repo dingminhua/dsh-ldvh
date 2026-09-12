@@ -100,8 +100,29 @@ function validateDocument(value) {
   };
 }
 
+/**
+ * Read-observation recorder for the registration carrier (08 §6 `fs/observed`).
+ *
+ * Set once at plugin install (`setCarrierObserver`). It is injected rather than
+ * imported to keep governed-projects.js free of a cycle back into host-seams.js.
+ * When unset (tests, CLI use), reads simply do not record — the same behaviour
+ * as a composition without the seam, never a fabricated observation.
+ */
+let carrierObserver = null;
+
+/** Install the observation recorder; pass null to detach. */
+export function setCarrierObserver(observer) {
+  carrierObserver = typeof observer === "function" ? observer : null;
+}
+
 async function readRegistration(dshHomePath) {
   const path = registrationPath(dshHomePath);
+  // 08 §6 read half: record what LDVH actually observed, so a later write can
+  // be guarded against a version the host really reported. This runs BEFORE the
+  // read and reports absence too (an absent carrier is an observation).
+  if (carrierObserver !== null) {
+    try { await carrierObserver(path); } catch { /* observation is best-effort; never block a read */ }
+  }
   let content;
   try {
     content = await readFile(path, "utf8");
@@ -279,6 +300,14 @@ export async function ensureRegistrationCarrier(dshHomePath) {
   });
 }
 
+/**
+ * Unguarded registration write — the primitive used by `installProject`.
+ *
+ * It performs NO 07 §5.6 consent check. It exists so the installation
+ * transaction can register as one step of a Human-initiated action; it is NOT
+ * an entry point. Anything that registers on behalf of an AI caller must use
+ * `registerProjectFromEntry` (which gates), never this.
+ */
 export async function registerProject(dshHomePath, input) {
   const identity = await resolveGitRoot(input.path);
   const filename = registrationPath(dshHomePath);
@@ -299,6 +328,17 @@ export async function registerProject(dshHomePath, input) {
   });
 }
 
+/**
+ * The installation transaction (08 §5.2): register + fact source + Git hook.
+ *
+ * HUMAN INTENT CARRIER: 08 §5.2 defines this transaction as initiated by the
+ * Human clicking "安装" in the settings page ("点击『安装』后，登记项目、创建
+ * 或校验…均为必需步骤"), so the click IS the 07 §5.6 explicit intent. This
+ * function therefore does not ask again — it is the carrier of an intent that
+ * already happened. Callers must not invoke it from an AI-initiated path: the
+ * AI registration entry is `registerProjectFromEntry` below, which DOES gate
+ * on a fresh consent.
+ */
 export async function installProject(dshHomePath, input, runtime) {
   const candidate = await inspectCandidate(input.path);
   if (!candidate.ok) return candidate;

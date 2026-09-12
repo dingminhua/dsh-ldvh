@@ -20,7 +20,7 @@ import {
 	registerProjectFromEntry,
 	resolveGitCommonDir,
 } from "../lib/governed-projects.js";
-import { createHostSeams, recordJudgementForGuard } from "../lib/host-seams.js";
+import { createHostSeams, recordJudgementForGuard, observedVersionFor, resetObservations, writeShapedTools, registerWriteShapedTool } from "../lib/host-seams.js";
 import { bindMembershipEvidence } from "../lib/membership-evidence.js";
 import { makeExecute } from "../lib/ldvh-tools.js";
 import { git, initRepo, withTemp } from "./helpers.mjs";
@@ -236,36 +236,129 @@ function fullComposition() {
 		get: (key) => ({
 			tools: { guard: (fn) => { seen.guard += 1; seen.guardFn = fn; return () => {}; } },
 			invariants: { register: (name, factory) => { seen.invariants += 1; seen.invariantFactory = factory; seen.invariantName = name; return () => {}; } },
-			userQuestions: { ask: async (request) => { seen.userQuestions += 1; return { answer: "ok", request }; } },
+			userQuestions: { ask: async (request) => { seen.userQuestions += 1; seen.lastAsk = request; return { answers: [{ id: "ldvh-registration-consent", selected: "确认" }] }; } },
+			// The host fs service is what supplies a REAL FsVersion (stat →
+			// {version, type}); without it LDVH cannot observe at all.
+			fs: {
+				resolve: async (path) => ({ targetKey: `tk:${path}`, displayPath: path }),
+				stat: async () => ({ version: "v-real", type: "file" }),
+			},
 		}[key]),
-		on: (event, fn) => { seen.on.push(event); return () => {}; },
+		on: (event, fn) => { seen.on.push(event); seen.listeners = seen.listeners ?? {}; seen.listeners[event] = fn; return () => {}; },
+		emit: (...args) => { seen.emitted = seen.emitted ?? []; seen.emitted.push(args); },
 		logger: { info() {} },
 	};
 	return { ctx, seen };
 }
 
-test("item6: only seams whose requirement is actually met are reported as consumed (08 §6)", async () => {
+test("item6: every seam whose requirement is met reports consumed (08 §6)", async () => {
 	const { ctx, seen } = fullComposition();
 	const seams = createHostSeams();
 	const install = seams.install(ctx, { dshHomePath: () => "/tmp/none" });
 
 	assert.equal(seen.guard, 1, "ctx.tools.guard must receive exactly one monotonic guard");
 	assert.equal(seen.invariants, 1, "ctx.invariants.register must receive one installer");
-	assert.deepEqual(seen.on, ["fs/observed"]);
+	// Both halves of fs/observed: the read-observation listener AND the write
+	// version-guard waterfalls (08 §6 requires both).
+	assert.deepEqual(seen.on.slice().sort(), ["edit-intent", "fs/observed", "fs/write-intent"].map((e) => (e === "edit-intent" ? "fs/edit-intent" : e)).sort());
 
 	const status = Object.fromEntries(seams.snapshot().map((s) => [s.seam, s]));
-	assert.equal(status["ctx.tools.register"].state, "consumed");
-	assert.equal(status["ctx.tools.guard"].state, "consumed");
-	assert.equal(status["ctx.invariants.register"].state, "consumed");
-	// These two are NOT honestly "consumed": mounting a counting listener is
-	// not a read observation, and exposing `ask` without routing anything
-	// through it routes nothing. Claiming otherwise is the exact false claim
-	// 08 §6 forbids.
-	assert.equal(status["fs/observed"].consumed, false);
-	assert.equal(status["fs/observed"].state, "partial");
-	assert.equal(status["ctx.userQuestions.ask"].consumed, false);
-	assert.equal(status["ctx.userQuestions.ask"].state, "available");
+	for (const key of ["ctx.tools.register", "ctx.tools.guard", "ctx.invariants.register", "fs/observed", "ctx.userQuestions.ask"]) {
+		assert.equal(status[key].state, "consumed", `${key} should be consumed: ${JSON.stringify(status[key])}`);
+	}
 	install.dispose();
+});
+
+test("item6: fs/observed read half obtains a REAL version from the host fs service", async () => {
+	const { ctx, seen } = fullComposition();
+	const seams = createHostSeams();
+	seams.install(ctx, { dshHomePath: () => "/tmp/none" });
+	resetObservations();
+
+	// The version must come from the host (fs.stat), never be invented.
+	const result = await seams.observePath("/some/carrier.yaml");
+	assert.equal(result.observed, true);
+	assert.equal(result.kind, "present");
+	assert.equal(result.version, "v-real", "the version must be the host-reported one");
+	assert.equal(observedVersionFor({ targetKey: "tk:/some/carrier.yaml", displayPath: "/some/carrier.yaml" }), "v-real");
+	assert.ok(seen.emitted?.some(([e]) => e === "fs/observed"), "the observation must be emitted");
+
+	// With no fs service, observation must FAIL rather than fabricate a version.
+	const bareCtx = { get: () => undefined, on: () => () => {}, logger: { info() {} } };
+	const bareSeams = createHostSeams();
+	const bareInstall = bareSeams.install(bareCtx, { dshHomePath: () => "/tmp/none" });
+	const failed = await bareSeams.observePath("/some/carrier.yaml");
+	assert.equal(failed.observed, false);
+	assert.match(failed.reason, /fs service is unavailable/);
+	// …and the seam must not claim full consumption without the fs service.
+	assert.notEqual(bareSeams.snapshot().find((s) => s.seam === "fs/observed").state, "consumed");
+	bareInstall.dispose();
+	resetObservations();
+});
+
+test("item6: the write guard keys to the observed version and never invents one", async () => {
+	const { ctx, seen } = fullComposition();
+	const seams = createHostSeams();
+	const install = seams.install(ctx, { dshHomePath: () => "/tmp/none" });
+	resetObservations();
+
+	const observed = await seams.observePath("/some/carrier.yaml");
+	// An observed target gets a version-guarded intent.
+	const guarded = await seen.listeners["fs/write-intent"](observed.target, undefined, () => undefined);
+	assert.deepEqual(guarded, { kind: "replaceIfVersion", version: "v-real" });
+	// An unobserved target yields no LDVH intent (falls through to host policy).
+	const untouched = await seen.listeners["fs/write-intent"]({ targetKey: "tk:other", displayPath: "/x" }, undefined, () => ({ kind: "createIfAbsent" }));
+	assert.deepEqual(untouched, { kind: "createIfAbsent" });
+	// edit-intent is guarded the same way.
+	const edited = await seen.listeners["fs/edit-intent"](observed.target, undefined, () => undefined);
+	assert.deepEqual(edited, { kind: "replaceIfVersion", version: "v-real" });
+
+	// An absent observation clears the recorded version.
+	seen.listeners["fs/observed"](observed.target, { kind: "absent" }, undefined);
+	assert.equal(observedVersionFor(observed.target), undefined);
+	install.dispose();
+	resetObservations();
+});
+
+test("item6: the 07 §5.6 Human Gate routes consent through ctx.userQuestions.ask and fails closed", async () => {
+	const { ctx, seen } = fullComposition();
+	const seams = createHostSeams();
+	seams.install(ctx, { dshHomePath: () => "/tmp/none" });
+
+	// An affirmative answer grants.
+	const granted = await seams.requestRegistrationConsent({ action: "register", projectId: "p1", projectPath: "/p" });
+	assert.equal(granted.granted, true);
+	assert.equal(seen.userQuestions, 1, "consent must actually go through the host answerer");
+	assert.ok(seen.lastAsk, "the request must be a real one");
+
+	// No seam registry / no answerer ⇒ NOT granted (07 §5.6: silence is not intent).
+	const bare = createHostSeams();
+	bare.install({ get: () => undefined, logger: { info() {} } }, { dshHomePath: () => "/tmp/none" });
+	const denied = await bare.requestRegistrationConsent({ action: "register", projectId: "p1", projectPath: "/p" });
+	assert.equal(denied.granted, false);
+	assert.match(denied.reason, /cannot be assumed|no human-answerer/);
+});
+
+test("item6: a non-affirmative or failed answer never grants consent", async () => {
+	// Explicit decline.
+	const declineCtx = {
+		get: (k) => k === "userQuestions" ? { ask: async () => ({ answers: [{ id: "ldvh-registration-consent", selected: "取消" }] }) } : undefined,
+		on: () => () => {}, logger: { info() {} }
+	};
+	const s1 = createHostSeams();
+	s1.install(declineCtx, { dshHomePath: () => "/tmp/none" });
+	assert.equal((await s1.requestRegistrationConsent({ action: "register", projectId: "p", projectPath: "/p" })).granted, false);
+
+	// The answerer throws.
+	const throwCtx = {
+		get: (k) => k === "userQuestions" ? { ask: async () => { throw new Error("answerer down"); } } : undefined,
+		on: () => () => {}, logger: { info() {} }
+	};
+	const s2 = createHostSeams();
+	s2.install(throwCtx, { dshHomePath: () => "/tmp/none" });
+	const failed = await s2.requestRegistrationConsent({ action: "register", projectId: "p", projectPath: "/p" });
+	assert.equal(failed.granted, false);
+	assert.match(failed.reason, /consent request failed/);
 });
 
 test("item6: an absent seam is reported as unconsumed, never as protected (08 §6)", async () => {
@@ -285,6 +378,14 @@ test("item6: the guard covers write-shaped ldvh_ tools and denies by returning a
 	seams.install(ctx, { dshHomePath: () => "/tmp/none" });
 	const guard = seen.guardFn;
 
+	// Coverage is derived from declarations, not hardcoded: the two 07
+	// registration entries are covered from the start, and a fact-type writer
+	// joins the set when its module registers. Register spark's here so the
+	// test exercises a real shipped name rather than a phantom one.
+	assert.deepEqual(writeShapedTools(), ["ldvh_register_governed_project", "ldvh_unregister_governed_project"]);
+	registerWriteShapedTool("ldvh_spark_write");
+	assert.ok(writeShapedTools().includes("ldvh_spark_write"));
+
 	// Authoritative contract (cordis Inspect, Service `tools`):
 	//   type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined
 	// The call name is `execution.name`; there is no `tool` / `scopeState`.
@@ -301,8 +402,11 @@ test("item6: the guard covers write-shaped ldvh_ tools and denies by returning a
 	assert.equal(typeof denial, "string", "a guard denies by returning a string, not an object");
 	assert.match(denial, /unavailable/);
 
-	// …read-shaped operations stay allowed, and a governed cwd is untouched.
+	// …read-shaped operations stay allowed, and a not_governed cwd is left
+	// alone (registering is how such a cwd becomes governed).
 	assert.equal(guard({ name: "ldvh_spark_write", agent: agentAt("/other") }), undefined);
+	recordJudgementForGuard("/p", "not_governed");
+	assert.equal(guard({ name: "ldvh_spark_write", agent: agentAt("/p") }), undefined);
 	recordJudgementForGuard("/p", "governed");
 	assert.equal(guard({ name: "ldvh_spark_write", agent: agentAt("/p") }), undefined);
 });
@@ -592,5 +696,136 @@ test("item4: an undeclared operation is reported as unavailable + diagnostic, ne
 		assert.equal(envelope.result.undeclared_or_unresolvable.length, envelope.result.operations.length);
 		assert.equal(envelope.verification.passed, false);
 		assert.ok(envelope.gaps.length >= envelope.result.operations.length);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// item 6 (cont.) — 07 §5.6 Human Gate is not bypassable by any entry point
+// ---------------------------------------------------------------------------
+
+test("item6: the CLI register/unregister entries refuse without explicit Human intent (07 §5.6)", async () => {
+	await withTemp("ldvh-gate-cli.", async (base) => {
+		const repo = await initRepo(base, { name: "p" });
+		await git(repo, ["commit", "-qm", "init"]);
+		const home = join(base, "home");
+		await writeCarrier(home);
+		const binPath = new URL("../lib/bin.js", import.meta.url).pathname;
+		const { execFile } = await import("node:child_process");
+		const { promisify } = await import("node:util");
+		const run = promisify(execFile);
+		const runCli = async (args) => {
+			try {
+				const { stdout } = await run(process.execPath, [binPath, "governed-project", ...args], { env: { ...process.env, DSH_HOME: home } });
+				return { code: 0, stdout };
+			} catch (error) {
+				return { code: error.code ?? 1, stdout: error.stdout ?? "" };
+			}
+		};
+
+		// Without the explicit-intent carrier: refused, nothing written.
+		const refused = await runCli(["register", "--project", repo, "--id", "p1"]);
+		assert.equal(refused.code, 1);
+		assert.equal(JSON.parse(refused.stdout).error.code, "human_intent_required");
+		const listed = await runCli(["list"]);
+		assert.equal(JSON.parse(listed.stdout).value.projects.length, 0, "a refused registration must not write");
+
+		// With it: the Human's explicit intent is recorded and the write proceeds.
+		const granted = await runCli(["register", "--project", repo, "--id", "p1", "--human-confirmed"]);
+		assert.equal(granted.code, 0, granted.stdout);
+		assert.equal(JSON.parse(granted.stdout).ok, true);
+	});
+});
+
+test("item6: the Web unregister route requires an explicit human_confirmed flag (07 §5.6)", async () => {
+	await withTemp("ldvh-gate-web.", async (base) => {
+		const repo = await initRepo(base, { name: "p" });
+		await git(repo, ["commit", "-qm", "init"]);
+		const home = join(base, "home");
+		await writeCarrier(home);
+		await registerProjectFromEntry(dshHome(home), { id: "p1", path: repo });
+
+		const { createGovernanceHandler } = await import("../lib/host-api.js");
+		const handler = createGovernanceHandler({ dshHomePath: dshHome(home), runnerPath: "/x", workspaceRoot: base });
+		const call = async (body) => {
+			const req = { url: "/ldvh/api/governed-projects/unregister", method: "POST", [Symbol.asyncIterator]: async function* () { yield Buffer.from(JSON.stringify(body)); } };
+			let payload = null;
+			const res = { statusCode: 0, headers: {}, setHeader(k, v) { this.headers[k] = v; }, writeHead() {}, end(text) { payload = JSON.parse(text); } };
+			const handled = await handler(req, res);
+			// The handler signals "not handled" with `false`; a matched route
+			// writes a JSON payload instead.
+			assert.notEqual(handled, false, "the route must be matched");
+			assert.ok(payload !== null, "the route must produce a JSON payload");
+			return payload;
+		};
+
+		// No explicit intent ⇒ refused, project still registered.
+		const refused = await call({ id: "p1", path: repo });
+		assert.equal(refused.ok, false);
+		assert.equal(refused.error.code, "human_intent_required");
+
+		// Explicit intent ⇒ proceeds.
+		const granted = await call({ id: "p1", path: repo, human_confirmed: true });
+		assert.equal(granted.ok, true);
+	});
+});
+
+test("item6: the CLI install entry is gated too — it registers the project (07 §5.4/§5.6)", async () => {
+	await withTemp("ldvh-gate-install.", async (base) => {
+		const repo = await initRepo(base, { name: "p" });
+		await git(repo, ["commit", "-qm", "init"]);
+		const home = join(base, "home");
+		await writeCarrier(home);
+		const binPath = new URL("../lib/bin.js", import.meta.url).pathname;
+		const { execFile } = await import("node:child_process");
+		const { promisify } = await import("node:util");
+		const run = promisify(execFile);
+		const runCli = async (args) => {
+			try {
+				const { stdout } = await run(process.execPath, [binPath, "governed-project", ...args], { env: { ...process.env, DSH_HOME: home } });
+				return { code: 0, stdout };
+			} catch (error) {
+				return { code: error.code ?? 1, stdout: error.stdout ?? "", stderr: error.stderr ?? "" };
+			}
+		};
+
+		// `install` performs a registration write, so a bare invocation must be
+		// refused exactly like `register` — otherwise the whole gate is
+		// bypassable by picking the other command.
+		const refused = await runCli(["install", "--project", repo, "--id", "p1"]);
+		assert.equal(refused.code, 1);
+		assert.equal(JSON.parse(refused.stdout).error.code, "human_intent_required");
+		// Nothing may be written by a refused install.
+		const listed = await runCli(["list"]);
+		assert.equal(JSON.parse(listed.stdout).value.projects.length, 0, "a refused install must not register");
+
+		// Removing the managed hook weakens a live protection: also gated.
+		const hookRefused = await runCli(["uninstall-hook", "--project", repo]);
+		assert.equal(hookRefused.code, 1);
+		assert.equal(JSON.parse(hookRefused.stdout).error.code, "human_intent_required");
+	});
+});
+
+test("item6: the Web install and uninstall-hook routes require explicit intent (07 §5.6)", async () => {
+	await withTemp("ldvh-gate-web2.", async (base) => {
+		const repo = await initRepo(base, { name: "p" });
+		await git(repo, ["commit", "-qm", "init"]);
+		const home = join(base, "home");
+		await writeCarrier(home);
+		const { createGovernanceHandler } = await import("../lib/host-api.js");
+		const handler = createGovernanceHandler({ dshHomePath: dshHome(home), runnerPath: "/x", workspaceRoot: base });
+		const call = async (route, body) => {
+			const req = { url: `/ldvh/api${route}`, method: "POST", [Symbol.asyncIterator]: async function* () { yield Buffer.from(JSON.stringify(body)); } };
+			let payload = null;
+			const res = { setHeader() {}, writeHead() {}, end(t) { payload = JSON.parse(t); } };
+			await handler(req, res);
+			return payload;
+		};
+
+		for (const route of ["/governed-projects/install", "/governed-projects/uninstall-hook"]) {
+			// Bare request ⇒ no intent ⇒ refused.
+			const refused = await call(route, { path: repo, id: "p1" });
+			assert.equal(refused.ok, false, `${route} must refuse without intent`);
+			assert.equal(refused.error.code, "human_intent_required");
+		}
 	});
 });

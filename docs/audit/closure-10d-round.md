@@ -79,17 +79,20 @@
 3. ~~**`03 §9.6` 与 20 合并/拆分流程的操作层张力**~~ → **已由 `084c311` 处置**：`20 §9.4` 依 `03 §9.6` 定义非原子例外三情形（SOURCE-FIRST／CREATE-FIRST／先建后结），`§14.1` 补校验条目。原分类表误将其列为「待 Human 定方案」，现已闭合。（此前该行状态未随提交同步，本次更正。）
 4. ~~**`07 §5.4` AI 登记入口与五个错误码**：零实现，且未按 `05 §6.1` 声明、未入本登记。~~ → **已由本次提交实现**：`registerProjectFromEntry`（原子写入 + 冲突拒绝 + 回读、重复登记零写入）、`evaluateRegistrationEntry`（五个错误码按 `07 §5.4`/`§5.6` 前置条件分类报告，Windows ACL 不可核验时 fail-closed 而非静默通过）；`specs/07 §5.4` 补入 `05 §6.1` 公开操作声明并核验锚点可解析；`specs/05 §6.1` 补入四个 LDVH 核心操作声明，并把形状模板标注为占位符。登记入口经 `ldvh_register_governed_project` / `ldvh_unregister_governed_project` 与 CLI `register` 暴露。
 5. ~~**`07` linked worktree 判定缺口**：`governance-scope.js` 无 common-dir 逻辑。~~ → **已由本次提交实现**：`resolveGitCommonDir` + `resolveGovernanceScope` 在包含判定全部落空后以 Git common-dir 判定同一项目；`07 §8` 补「linked worktree 身份一致」验证行。经真实 linked worktree 与无关仓库对照验证。
-6. ~~**`08 §5.2` `ctx.tools.guard` 与 `§6` 四类宿主缝**：实现缺失已披露，但实现本身未补齐。~~ → **部分闭合，如实登记**：`plugin/lib/host-seams.js` 经各缝入口实际注册并返回 disposer；`08 §6` 补「逐缝消费的可报告要求」、`§8` 补「宿主缝消费」验证行。**现状（据实）**：`ctx.tools.register`／`ctx.tools.guard`／`ctx.invariants.register` 三道**已消费**；`fs/observed` 为 **partial**（写版本守卫已由原子写入承担，读观察半只挂监听、未实现，故**不主张**该缝已消费）；`ctx.userQuestions.ask` 为 **available**（入口已暴露，尚无人经它提请，故**不主张**已消费）。`snapshot()` 以 consumed/partial/available/absent 四态如实报告，未消费项不被省略。
+6. ~~**`08 §5.2` `ctx.tools.guard` 与 `§6` 四类宿主缝**：实现缺失已披露，但实现本身未补齐。~~ → **已闭合**：`plugin/lib/host-seams.js` 经各缝入口实际注册并返回 disposer。**五道缝现状**：`ctx.tools.register`／`ctx.tools.guard`／`ctx.invariants.register`／`fs/observed`／`ctx.userQuestions.ask` **均已消费**——其中：
+   - `fs/observed` **两半齐备**：读一侧经 `recordObservation()` 记录并发出实际读到的观察（拒绝凭空构造版本），写一侧经 `fs/write-intent`／`fs/edit-intent` 挂载 `replaceIfVersion` 版本守卫，且只对已观察过的目标主张版本；
+   - `ctx.userQuestions.ask` 有**实际调用点**：`07 §5.6`「登记或取消仅由 Human 明确意图触发」的提请经该入口发出，未获肯定答复（否定／答非所问／入口不可用／提请失败）一律 fail-closed 拒绝写入。
+   `08 §6` 逐缝消费要求表已按两半与调用点细化，`§8` 保留「宿主缝消费」验证行。
+   - **Human Gate 不可旁路**：`07 §5.4` 的**全部**登记载体写入路径——AI 工具、Web 路由、CLI 子命令，含 `install` 与 `uninstall-hook`——均已加 intent 载体；`07 §5.6` 新增「入口的穷尽性与其 intent 载体」表与「intent 载体的强度分级」，据实区分强（宿主答问）／中（界面动作）／弱（CLI 自述）三类载体，并禁止以弱载体主张强结论。`registerProject` 已标注为**无门禁写入原语、非入口**。
 7. **`17` 号与 `32`–`39` 业务系统规范**：尚未建立（依 `01 §8.1` 号位表，`32` 工作执行、`33` 规则遵守、`34` 目标与蓝图、`35` 记忆与反思四个号位对应已登记系统但无规范；`36`–`39` 未分配给具体系统）。**更正**：原表述含「`17` 号（预留）」，但 `01 §8.1` 编号登记表已无 `17`（号段化改造后不存在该编号），该引用为过期项，本次删除。
 8. **`21`、`23`、`26` 内部语义级问题**：本轮未编目。
 
-**注**：第 2、3 项已闭合（第 3 项由早前提交闭合、本次更正登记）；第 1、4、5 项由本次提交闭合；第 6 项**部分闭合**并如实记载逐缝现状；第 7、8 项仍开放。本清单不是承诺排期，处置顺序由 Human 决定。
+**注**：第 2、3 项已闭合（第 3 项由早前提交闭合、本次更正登记）；第 1、4、5、6 项由本次改动闭合；第 7、8 项仍开放。本清单不是承诺排期，处置顺序由 Human 决定。
 
 **按可处置性分类**（供排期参考）：
 
 | 类别 | 项 | 说明 |
 |---|---|---|
-| 需补实现（技术工作） | 6（余下两面） | `fs/observed` 的读观察半、`ctx.userQuestions.ask` 的实际提请路径；补齐后须同步更新 `08 §6` 与本次的 §6 消费状态描述 |
 | 待建规范（方向） | 7 | 四个业务系统规范（`17` 号引用已更正为不存在） |
 | 审核空白（未编目） | 8 | `21`/`23`/`26` 内部语义未经系统审核 |
 

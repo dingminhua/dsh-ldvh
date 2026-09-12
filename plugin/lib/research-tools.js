@@ -39,6 +39,7 @@ import { currentRouteValues } from "./session-signature.js";
 import { authoritativeSignature } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { join } from "node:path";
+import { registerWriteShapedTool } from "./host-seams.js";
 
 const OPERATIONS = {
   "research-session-machine": {
@@ -53,6 +54,7 @@ const OPERATIONS = {
   },
   "research-write-object": {
     toolName: "ldvh_research_write",
+    writeShaped: true,
     summary: "Controlled write of Research fact objects: create (exploratory or directed) and CAS update with change_log, against the governed project's fact source (specs/03 §9.4–§9.5, specs/24 §13)",
     effect: "may_change_state"
   }
@@ -772,6 +774,10 @@ export function registerResearchTools(ctx, deps) {
   };
   const disposers = [];
   for (const [operationKey, operation] of Object.entries(OPERATIONS)) {
+    // Coverage is registered from the declaration itself, so the guard's target
+    // set always matches the tools this build really exposes (a hardcoded list
+    // drifts into phantom or stale entries).
+    if (operation.writeShaped === true) registerWriteShapedTool(operation.toolName);
     disposers.push(ctx.tools.register(toolDescriptorFor(operationKey, operation, handlers[operationKey])));
   }
   return () => {

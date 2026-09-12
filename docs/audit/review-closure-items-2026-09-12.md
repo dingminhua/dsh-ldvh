@@ -99,3 +99,71 @@
 - 覆盖维度 9/10 全量、维度 8 部分（提交闭环另行完成）、其余覆盖维度无未决发现。
 
 **依 `01 §12.4`**：真实发现已修复，受影响范围重新核对通过（587 项测试中 582 通过，5 项为环境缺模块的既有失败，与本次改动无关）。
+
+---
+
+## 七、第二轮：第 6 项余下两缝的补齐（同一天，追加）
+
+第一轮把 `fs/observed` 与 `ctx.userQuestions.ask` 如实降级为 `partial`／`available`（见 §三 F-3 前的自我修正）。第二轮把这两缝补到**真正消费**，并**重新触发审核**（`01 §12.1`：产生或改变可强制执行规则）。本轮改动同样由隔离上下文独立核对抗审核，记录如下。
+
+### 本轮改动
+
+| 面 | 改动 |
+|---|---|
+| `fs/observed` 读半 | 新增 `recordObservation(ctx, {target, version})`：把 LDVH **实际读到**的观察记录并发出（`{kind:'present', version}`）。**拒绝凭空构造版本**——无 `version` 时返回 false 且不记录 |
+| `fs/observed` 写半 | 经 `fs/write-intent` 与 `fs/edit-intent` 挂载 `replaceIfVersion` 意图，版本取自**已记录的观察**；未观察过的目标不产生 LDVH 意图（交还宿主策略），避免 LDVH 自造版本 |
+| `ctx.userQuestions.ask` | 新增 `requestRegistrationConsent()`，并把 `07 §5.6`「登记或取消仅由 Human 明确意图触发」的提请接为**真实调用点**；未获肯定答复一律 fail-closed |
+| 接线 | `index.js` 先建 `hostSeams` 再建 lifecycle，并把 registry 传入 `registerLdvhTools`；`lifecycle.js` 签名增加 `hostSeams` |
+| `specs/07 §5.6` | 新增「『仅由 Human 明确意图触发』的机械形态」三条：提请经 `ctx.userQuestions.ask` 承载、未获肯定答复不得写入（沉默不构成意图）、提请须含项目标识与路径 |
+| `specs/08 §6` | 逐缝消费要求表按两半与调用点细化：守卫只拒不放行且以返回原因表达；不变量经 `fail` 通道；`fs/observed` 两半都要且空监听器不算消费；`ask` 须有实际调用点 |
+
+### 本轮的对抗性核验（攻击方向与结果）
+
+| 攻击 | 结果 |
+|---|---|
+| 未接线 `hostSeams` 时能否绕过 Human Gate 直接登记？ | **不能**——返回 `rejected`，理由「consent cannot be obtained」，且**未写入** |
+| 答复为否定时能否写入？ | **不能**——`rejected` |
+| 答问入口抛异常时能否写入？ | **不能**——`granted:false`，理由含 `consent request failed` |
+| 对**未观察过**的目标能否拿到版本守卫意图？ | **不能**——不产生 LDVH 意图，交还宿主策略 |
+| 能否用 `undefined` 版本伪造一次观察？ | **不能**——`recordObservation` 返回 false 且不记录 |
+| `absent` 观察后，旧版本是否仍被用于守卫？ | **否**——记录被清除，守卫不再主张该版本 |
+| 五道缝在完整组合下是否均可报 consumed？ | 是；在无该缝的组合下逐项报 absent，不被省略 |
+
+### 本轮结论与边界
+
+- 五道缝**均已消费**，`08 §6` 逐缝要求已细化到可核对形态；新增用例（读观察记录与镜像、写守卫、Human Gate 同意/拒绝/异常、CLI 与 Web 各入口门禁），共 32 项通过；全量 595 项中 590 通过（5 项为环境缺模块的既有失败）。
+- **边界**：本轮同样**未在真实 DSH 宿主上端到端运行**（缺 `@deepseek-ai/dsh-tools` 模块），故「守卫在真实写路径上确实拒绝」这一运行时行为**未被证实**，仅证实代码形状与 cordis 权威签名一致、且本地模拟调用链行为正确。模型同源边界同 §文首。
+
+### 本轮自查发现并修复的两项实现缺陷（旁路）
+
+本节记录的两项缺陷**由候选形成者在自查与审核反馈追问下发现**，非由独立审核首先提出；如实记载来源，以免高估审核的覆盖。
+
+| # | 缺陷 | 证据 | 修复 |
+|---|---|---|---|
+| S-1 | **Human Gate 可被 CLI 旁路**：`plugin/lib/bin.js` 的 `register`／`unregister` 直接调用 `registerProjectFromEntry`／`unregisterProject`，全无同意门禁 | 以临时 `DSH_HOME` 实际运行 CLI `register` 成功登记，全程无 Human 参与——直接违反 `07 §5.6` | 两个命令改为必须携带 `--human-confirmed`；缺失时返回 `human_intent_required` 且**不写入**。理由：CLI 无宿主答问入口可问，Human 意图须由执行者显式携带，裸调用不构成同意 |
+| S-2 | **Human Gate 可被 Web 旁路**：`plugin/lib/host-api.js` 的 `/governed-projects/unregister` 直接调用 `unregisterProject` | 该路由不检查任何意图载体 | 请求体须含 `human_confirmed: true`，否则返回 `human_intent_required`。理由：Web 面即 `07 §5.4` 第 2 项的 Human 入口，但意图须**显式携带**，不得因「路由被命中」而推定 |
+
+**同类的第三条路径经核对属合法**：`installProject`（CLI `install` 命令与 HTTP `/governed-projects/install`）也写登记载体，但 `08 §5.2` 定义该事务由 **Human 在设置页点击「安装」** 触发（「点击『安装』后，登记项目、创建或校验…均为必需步骤」），该点击即 `07 §5.6` 的显式意图；Web 侧经 `client.js` 调用，与定义一致。已经在 `installProject` 与 `registerProject` 的文档注释中写明该边界：`registerProject` 为**无门禁的写入原语**，只供安装事务使用，**不是入口**；代为 AI 调用者一律走 `registerProjectFromEntry`。
+
+**回归测试**：新增 2 项覆盖 CLI 与 Web 两条旁路（无载体时拒绝且**零写入**、有载体时放行），并同步修改 `test/bin.test.mjs`——该用例此前断言的正是旁路行为。
+
+### 独立审核的反驳与随之修复（S-3～S-7）
+
+第二轮独立审核（隔离上下文）**推翻了候选形成者关于 `install` 合法性的判断**，并另发现四项。如实记载：S-3 是**审核者用活体演示否证候选形成者**的一例，候选形成者此前以「`08 §5.2` 的点击即意图」为由认为 `install` 无需门禁，该理由对 **Web 路径成立、对 CLI 路径不成立**。
+
+| # | 缺陷 | 证据 | 修复 |
+|---|---|---|---|
+| S-3 | **`install` 是无门禁的登记写入（MAJOR）**：CLI `install` 与 HTTP `/governed-projects/install` 均无 intent 载体；审核者以临时 `DSH_HOME` 实跑 CLI 并确认载体被写入（`installProject` → `registerProject`）。候选形成者复现确认 | 活体演示：写入 `projects: [pwn]`、`default_project_id: pwn` | CLI `install` 与 Web `/install` 均加 intent 载体；无载体时拒绝且**零写入**。已补两项回归用例（CLI 与 Web 各一） |
+| S-4 | **`uninstall-hook` 无门禁**：移除托管的机械强制（Git 钩子）而项目仍受管辖，属削弱防护的写入 | `bin.js`／`host-api.js` 对应分支无检查 | 同 S-3 加门禁 |
+| S-5 | **`targetKey ?? displayPath` 键可跨文件碰撞**：审核者构造文件 A（有 `targetKey: "K"`）与文件 B（仅有 `displayPath: "K"`）命中同一映射键，B 的写守卫会拿到 A 的版本 | 探针复现；**失败方向为「错误拒绝」而非「错误放行」** | 回退分支加命名空间（`key:` 与 `path:` 前缀），两类身份不再碰撞 |
+| S-6 | **同意解析过度接受**：接受从未提供的取值（`"confirm"`、`true`）并以 `answers[0]` 兜底，可能从**另一个问题**的肯定答复取得同意 | 审核者探针：`{answers:[{id:"different-question",selected:"确认"}]}` → `granted:true` | 只接受**本问题**（按 `CONSENT_QUESTION_ID`）的**所提供标签**；提问与接受共用同一常量，解析不可能接受未提供的标签 |
+| S-7 | **守卫注释与代码相悖**：行内注释称缺省判定「按拒绝处理」，代码只在 `unavailable` 时拒绝 | 注释 vs 代码 | 注释改为据实：缺席不拦（由各 handler 兜底）、`not_governed` 亦不拦（**登记正是 `not_governed` 转为 `governed` 的途径**，拦住会使入口不可达） |
+
+**另修复两项审核指出的卫生问题**：
+
+- **幽灵工具名**：守卫覆盖集中 8 项为硬编码，其中 `ldvh_workcase_write`、`ldvh_norm_write` **并不存在**。改为**由声明派生**：各类型模块在注册时把自己的写形状工具登记进覆盖集（新增 `registerWriteShapedTool`／`writeShapedTools`），覆盖集因此不会漂移成幽灵项或陈旧项。
+- **停止后残留**：`index.js` 的 effect 释放时补 `setCarrierObserver(null)`，使停止/更新后不再有观察写入模块级映射——与「不越过插件停止泄漏」的说法一致。
+
+**审核未能证实（如实转述）**：真实宿主 `AskUserQuestionAnswer`／`ToolExecution`／`FsTarget` 的精确形状（Inspect 精确查询工具拒绝对象输入）；本插件的 `apply()` 与 `fs`／`userQuestions`／`invariants` 的**服务启动次序**（若这些服务在插件 apply 时尚未启动，对应缝会永久报 absent／partial，且不像 `webServer` 那样有 `ctx.inject` 重试）；宿主 `writeText` 是否真按监听器返回的 intent 执行；`plugin/web/dist` 打包产物（仅审了 TS 源）。
+
+**审核给出的维度结论**：`01 §7.2` 逐句检查**通过**——新增规范语句均为规则形（义务／条件／禁止），无状态陈述。

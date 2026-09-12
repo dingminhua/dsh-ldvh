@@ -31,7 +31,7 @@ import z from "@deepseek-ai/schemastery";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ensureRegistrationCarrier, readGovernedProjects } from "./governed-projects.js";
+import { ensureRegistrationCarrier, readGovernedProjects, setCarrierObserver } from "./governed-projects.js";
 import { createGovernanceHandler } from "./host-api.js";
 import { createProxyHandler, createSpaHandler, createWebApiProcess } from "./web-mount.js";
 import { createLifecycleRegistry } from "./lifecycle.js";
@@ -231,27 +231,39 @@ export function apply(ctx) {
   const dshHomePath = ctx.get("dshHomePath");
 
   // Per-agent lifecycle: agent/created install + adoption of already-live
+  // specs/08 §6: consume the host seams this composition provides. Installed
+  // BEFORE the lifecycle, because the lifecycle hands the registry to the tool
+  // batch so the 07 §5.6 Human Gate can route through ctx.userQuestions.ask.
+  // Each seam is registered on this plugin's own fiber, so nothing survives
+  // stop/update. Unconsumed seams are reported in snapshot() rather than
+  // hidden (08 §6 forbids claiming protection a seam's absence did not deliver).
+  const hostSeams = createHostSeams();
+  const seamsInstall = hostSeams.install(ctx, { dshHomePath });
+  ctx.effect(() => () => {
+    try { seamsInstall.dispose(); } catch { /* already removed */ }
+    // Detach the read observer too: without this, a stopped plugin would keep
+    // recording observations into the module map, contradicting the "nothing
+    // leaks past plugin stop" discipline.
+    try { setCarrierObserver(null); } catch { /* already detached */ }
+  }, "dsh-ldvh: host seam consumption");
+  for (const seam of hostSeams.snapshot()) {
+    ctx.logger.info("[dsh-ldvh] host seam %s: %s (%s)", seam.state, seam.seam, seam.detail);
+  }
+  // 08 §6 read half, wired to the real read path: every LDVH read of the
+  // registration carrier records an authoritative observation, so the
+  // fs/write-intent guard below keys writes to a host-reported version.
+  setCarrierObserver((carrierPath) => hostSeams.observePath(carrierPath));
+
+  // Per-agent lifecycle: agent/created install + adoption of already-live
   // agents; guidance injection, tools guard and the pre-step skeleton all
   // live behind this registry (framework doc §4 points 1–2, 4–5).
   const lifecycle = createLifecycleRegistry(ctx, {
     dshHomePath,
     workspaceRoot: PACKAGE_ROOT,
-    sessionScopes
+    sessionScopes,
+    hostSeams
   });
   const stopLifecycle = lifecycle.start();
-
-  // specs/08 §6: consume the host seams this composition provides. Each seam
-  // is registered on this plugin's own fiber, so nothing survives stop/update.
-  // Unconsumed seams are reported in the lifecycle snapshot rather than hidden
-  // (08 §6 forbids claiming protection a seam's absence did not deliver).
-  const hostSeams = createHostSeams();
-  const seamsInstall = hostSeams.install(ctx, { dshHomePath });
-  ctx.effect(() => () => {
-    try { seamsInstall.dispose(); } catch { /* already removed */ }
-  }, "dsh-ldvh: host seam consumption");
-  for (const seam of hostSeams.snapshot()) {
-    if (seam.consumed) ctx.logger.info("[dsh-ldvh] host seam consumed: %s (%s)", seam.seam, seam.detail);
-  }
 
   // Soft web mount (framework doc §4 point 3): the webServer service is NOT a
   // hard injection anymore. In compositions that provide one, this child

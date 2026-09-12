@@ -28,7 +28,7 @@ import { createChildInstaller } from "./child.js";
 import { AgentLifecycle } from "./agent-lifecycle.js";
 import { recordJudgementForGuard } from "./host-seams.js";
 
-export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes }) {
+export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes, hostSeams }) {
   // Per-agent lifecycle objects (agent-lifecycle.js): single home for all
   // per-agent state + snapshot() diagnostics. The Map is bookkeeping only;
   // hook cleanup rides the agent fiber.
@@ -73,7 +73,10 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // ldvh_collect_subagent_results. Without it that tool is skipped by
           // its own guard (ldvh-tools.js: `deps.children !== undefined`) and
           // never registers — found in live verification, not by unit tests.
-          children
+          children,
+          // 08 §6: the registration entries route their 07 §5.6 Human Gate
+          // consent through ctx.userQuestions.ask via this registry.
+          hostSeams
         });
         lifecycle.activity.record("tools/registered", { count: 8 });
         ctx.logger.info("[dsh-ldvh] registered LDVH tool batch (agent-scoped) for governed session %s", agentId);

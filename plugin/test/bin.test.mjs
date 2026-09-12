@@ -31,7 +31,7 @@ test("prints usage and exits 2 on malformed invocations", async () => {
 		assert.equal(result.code, 2);
 		assert.match(result.stderr, /Usage/);
 
-		result = await runBin(["governed-project", "install", "--project", base], home);
+		result = await runBin(["governed-project", "install", "--project", base, "--human-confirmed"], home);
 		assert.equal(result.code, 2);
 		assert.match(result.stderr, /install requires --id/);
 	});
@@ -82,7 +82,7 @@ test("install, list, and uninstall-hook round-trip through the CLI", async () =>
 		const home = join(base, "home");
 
 		const install = await runBin(
-			["governed-project", "install", "--project", root, "--id", "cli-proj", "--name", "CLI Test"],
+			["governed-project", "install", "--project", root, "--id", "cli-proj", "--name", "CLI Test", "--human-confirmed"],
 			home,
 		);
 		assert.equal(install.code, 0, install.stderr);
@@ -99,7 +99,7 @@ test("install, list, and uninstall-hook round-trip through the CLI", async () =>
 		assert.equal(listParsed.value.projects.length, 1);
 		assert.equal(listParsed.value.projects[0].name, "CLI Test");
 
-		const uninstall = await runBin(["governed-project", "uninstall-hook", "--project", root], home);
+		const uninstall = await runBin(["governed-project", "uninstall-hook", "--project", root, "--human-confirmed"], home);
 		assert.equal(uninstall.code, 0, uninstall.stderr);
 		assert.equal(JSON.parse(uninstall.stdout).ok, true);
 
@@ -112,7 +112,7 @@ test("install, list, and uninstall-hook round-trip through the CLI", async () =>
 test("install failure propagates as ok:false with exit 1", async () => {
 	await withTemp("ldvh-bin.", async (base) => {
 		const home = join(base, "home");
-		const result = await runBin(["governed-project", "install", "--project", join(base, "not-a-repo"), "--id", "x"], home);
+		const result = await runBin(["governed-project", "install", "--project", join(base, "not-a-repo"), "--id", "x", "--human-confirmed"], home);
 		assert.equal(result.code, 1);
 		const parsed = JSON.parse(result.stdout);
 		assert.equal(parsed.ok, false);
@@ -128,7 +128,7 @@ test("uninstall-hook refuses a third-party Hook and exits 1", async () => {
 		await writeFile(hookPath, thirdParty, { mode: 0o755 });
 		const home = join(base, "home");
 
-		const result = await runBin(["governed-project", "uninstall-hook", "--project", root], home);
+		const result = await runBin(["governed-project", "uninstall-hook", "--project", root, "--human-confirmed"], home);
 		assert.equal(result.code, 1);
 		assert.equal(JSON.parse(result.stdout).ok, false);
 		assert.equal(await readFile(hookPath, "utf8"), thirdParty);
@@ -139,7 +139,7 @@ test("a legal commit passes through the installed CLI Hook (end-to-end)", async 
 	await withTemp("ldvh-bin.", async (base) => {
 		const root = await initRepo(base);
 		const home = join(base, "home");
-		const install = await runBin(["governed-project", "install", "--project", root, "--id", "e2e"], home);
+		const install = await runBin(["governed-project", "install", "--project", root, "--id", "e2e", "--human-confirmed"], home);
 		assert.equal(install.code, 0, install.stderr);
 
 		const passed = await gitOk(root, ["commit", "-m", VALID_COMMIT_MESSAGE]);
@@ -161,10 +161,16 @@ test("unregister removes the project and clears the default through the CLI", as
 	await withTemp("ldvh-bin.", async (base) => {
 		const root = await initRepo(base);
 		const home = join(base, "home");
-		const install = await runBin(["governed-project", "install", "--project", root, "--id", "cli-proj"], home);
+		const install = await runBin(["governed-project", "install", "--project", root, "--id", "cli-proj", "--human-confirmed"], home);
 		assert.equal(install.code, 0, install.stderr);
 
-		const unregister = await runBin(["governed-project", "unregister", "--project", root, "--id", "cli-proj"], home);
+		// 07 §5.6: cancellation requires explicit Human intent. A bare
+		// invocation is not consent, so the CLI must refuse it.
+		const refused = await runBin(["governed-project", "unregister", "--project", root, "--id", "cli-proj"], home);
+		assert.equal(refused.code, 1);
+		assert.equal(JSON.parse(refused.stdout).error.code, "human_intent_required");
+
+		const unregister = await runBin(["governed-project", "unregister", "--project", root, "--id", "cli-proj", "--human-confirmed"], home);
 		assert.equal(unregister.code, 0, unregister.stderr);
 		const parsed = JSON.parse(unregister.stdout);
 		assert.equal(parsed.ok, true);

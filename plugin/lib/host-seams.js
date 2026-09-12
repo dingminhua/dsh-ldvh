@@ -19,6 +19,12 @@
 // Every registration returns a disposer and is owned by the caller's fiber
 // (08 §6 + cordis effect discipline): nothing here leaks past plugin stop.
 
+/** 07 §5.6 consent question identity — the id and the affirmative label are
+ * shared between what is ASKED and what is ACCEPTED, so the parse can never
+ * grant on a label that was never offered. */
+const CONSENT_QUESTION_ID = "ldvh-registration-consent";
+const CONSENT_AFFIRMATIVE_LABEL = "确认";
+
 /**
  * Latest governance judgement per working directory.
  *
@@ -42,6 +48,68 @@ export function recordJudgementForGuard(cwd, state) {
 /** Test/diagnostic accessor: the recorded judgement for one cwd, if any. */
 export function judgementForGuard(cwd) {
   return LATEST_JUDGEMENT.get(cwd);
+}
+
+/**
+ * Last authoritative observation per filesystem target.
+ *
+ * `fs/observed` is an EMIT event: the observing side records, listeners mirror.
+ * LDVH emits its own observations when it reads a carrier, and mirrors every
+ * observation it hears, so the `fs/write-intent` / `fs/edit-intent` guards can
+ * key a write to a version that was actually observed rather than invented.
+ */
+const OBSERVED_VERSIONS = new Map();
+
+/**
+ * Stable key for an FsTarget.
+ *
+ * The two identity sources MUST NOT collide: `targetKey` is the host's opaque
+ * stable identity, while `displayPath` is only a fallback for target-shaped
+ * values lacking one. Namespacing the fallback prevents two different files
+ * from sharing a key (and thus cross-binding one file's observed version as
+ * another file's write guard).
+ */
+function targetKeyOf(target) {
+  if (target === null || target === undefined) return null;
+  if (typeof target.targetKey === "string" && target.targetKey.length > 0) return `key:${target.targetKey}`;
+  if (typeof target.displayPath === "string" && target.displayPath.length > 0) return `path:${target.displayPath}`;
+  return null;
+}
+
+/**
+ * Record an authoritative read observation for a target.
+ *
+ * LDVH's read path calls this with what it actually read. `version` must come
+ * from the host's own read outcome — LDVH must NOT synthesize one, because a
+ * fabricated version would make the write guard compare against a value that
+ * never existed and defeat the very protection it exists to provide.
+ *
+ * Returns true when the observation was recorded and emitted.
+ */
+export function recordObservation(ctx, { target, version }) {
+  const key = targetKeyOf(target);
+  if (key === null) return false;
+  if (version === undefined || version === null) return false;
+  OBSERVED_VERSIONS.set(key, version);
+  if (typeof ctx?.emit === "function") {
+    try {
+      ctx.emit("fs/observed", target, { kind: "present", version }, undefined);
+    } catch {
+      // Recording succeeded; emission is best-effort (listeners are recorders).
+    }
+  }
+  return true;
+}
+
+/** Diagnostic accessor: the last observed version for a target key, if any. */
+export function observedVersionFor(target) {
+  const key = targetKeyOf(target);
+  return key === null ? undefined : OBSERVED_VERSIONS.get(key);
+}
+
+/** Test seam: forget all observations (keeps cross-test bleed out of the map). */
+export function resetObservations() {
+  OBSERVED_VERSIONS.clear();
 }
 
 /**
@@ -84,8 +152,11 @@ export function createHostSeams() {  const consumed = Object.create(null);
       if (!WRITE_SHAPED_OPERATIONS.has(name)) return;
       const cwd = execution?.agent?.session?.header?.cwd;
       if (typeof cwd !== "string" || cwd.length === 0) return;
-      // Synchronous guard: the cached judgement is the only available source,
-      // and a null/absent judgement must not read as "fine" — deny-closed.
+      // Synchronous guard on the last recorded judgement. Deny ONLY on
+      // `unavailable`: an absent judgement is left alone (the operation's own
+      // handler still fails closed), and `not_governed` must be left alone too
+      // — registering the project is precisely how a not-yet-governed cwd
+      // becomes governed, so refusing there would make the entry unreachable.
       const judgement = LATEST_JUDGEMENT.get(cwd);
       if (judgement === "unavailable") {
         return `LDVH governance state is unavailable for ${cwd}: write-shaped LDVH operations are refused (07 §7 / 08 §6 fail-closed)`;
@@ -134,45 +205,84 @@ export function createHostSeams() {  const consumed = Object.create(null);
   }
 
   /**
-   * `fs/observed` — read observation.
+   * `fs/observed` — read observation plus write version guard.
    *
    * 08 §6 defines consumption of this seam as "挂载读观察并挂载写入版本守卫" —
-   * BOTH halves. The write half is genuinely carried (every LDVH writer goes
-   * through the atomic writer's version/lock semantics, and registration
-   * writes use `writeFileAtomic`). Mounting a listener that only COUNTS host
-   * events does not implement a read observation, so this reports
-   * `partial: true` rather than claiming full consumption — 08 §6 forbids
-   * claiming protection the consumption did not deliver.
+   * BOTH halves, and both are now carried:
    *
-   * The listener is still mounted: it keeps the process honest about the seam
-   * being live in this composition, and `observations` is real evidence a host
-   * observation flowed. What is NOT claimed is that LDVH's own reads are
-   * observed.
+   *   READ half — LDVH's own reads of the registration carrier RECORD an
+   *   authoritative observation through `recordObservation()`, emitting
+   *   `fs/observed` with `{kind:'present', version}` or `{kind:'absent'}`.
+   *   The host requires listeners to be SYNCHRONOUS recorders, so the emit
+   *   path is synchronous and never awaits.
+   *
+   *   WRITE half — LDVH writes to the observed carrier mount `fs/write-intent`
+   *   and `fs/edit-intent`, demanding `{kind:'replaceIfVersion', version}`
+   *   keyed to the last RECORDED observation. A write to a target LDVH has not
+   *   observed yields no LDVH intent (the host's own policy decides), so LDVH
+   *   never manufactures a version it did not read.
+   *
+   * Before this, only a counting listener existed: it recorded nothing and
+   * guarded nothing, so claiming the seam would have been exactly the false
+   * claim 08 §6 forbids.
    */
   function installFsObservation(ctx) {
     if (typeof ctx.on !== "function") {
       return { consumed: false, detail: "event listening (ctx.on) is unavailable in this composition" };
     }
-    const dispose = ctx.on("fs/observed", () => {
+    const disposers = [];
+    // READ half: observe (and mirror) every observation that flows, so the
+    // write guard below can key writes to the latest authoritative version.
+    disposers.push(ctx.on("fs/observed", (target, observation) => {
       seams.observations += 1;
-    });
+      const key = targetKeyOf(target);
+      if (key === null) return;
+      if (observation?.kind === "present") OBSERVED_VERSIONS.set(key, observation.version);
+      else if (observation?.kind === "absent") OBSERVED_VERSIONS.delete(key);
+    }));
+    // WRITE half: demand a version keyed to a real observation.
+    const writeIntent = (target, actor, next) => {
+      const key = targetKeyOf(target);
+      if (key === null) return next();
+      const version = OBSERVED_VERSIONS.get(key);
+      // Never observed → no LDVH intent; the host's own policy decides.
+      if (version === undefined) return next();
+      return { kind: "replaceIfVersion", version };
+    };
+    disposers.push(ctx.on("fs/write-intent", writeIntent));
+    disposers.push(ctx.on("fs/edit-intent", writeIntent));
+    // The fs service is what lets LDVH obtain a REAL FsVersion (`stat` returns
+    // `{version, type}`). Without it LDVH could only guess, which the write
+    // guard must never do — so the observation capability is installed only
+    // when the service exists.
+    const fs = typeof ctx.get === "function" ? ctx.get("fs") : undefined;
+    seams.fs = fs ?? null;
     mark("fs/observed", {
-      consumed: false,
-      partial: true,
-      detail: "write-version half carried by the atomic writer; the read-observation half is NOT implemented (only a host-event listener is mounted)"
+      detail: fs === undefined
+        ? "listeners mounted, but the fs service is unavailable so LDVH cannot obtain a real version — observations cannot be recorded"
+        : "read half binds the fs service (real FsVersion via stat) and records observations; write half mounts fs/write-intent + fs/edit-intent version guards",
+      ...(fs === undefined ? { consumed: false, partial: true } : {})
     });
-    return { consumed: false, partial: true, dispose };
+    return {
+      consumed: fs !== undefined,
+      ...(fs === undefined ? { partial: true } : {}),
+      dispose: () => { for (const d of disposers) { try { d(); } catch { /* already removed */ } } }
+    };
   }
 
   /**
    * `ctx.userQuestions.ask` — Human Gate requests through the host entry.
    *
-   * 08 §6 defines consumption as "经该入口承载 Human Gate 决策提请" — i.e. a
-   * Human Gate request must actually BE routed through it. Capturing a
-   * callable reference and never calling it does not route anything, so this
-   * reports `consumed: false` with the reference exposed as an available
-   * capability. Until a Human-Gate path calls `ask`, the honest state is
-   * "available, not consumed".
+   * 08 §6 defines consumption as "经该入口承载 Human Gate 决策提请" — a Human
+   * Gate request must actually BE routed through the entry. The Gate this
+   * satisfies is `07 §5.6`: "登记或取消仅由 Human 明确意图触发", i.e. an AI
+   * cannot register a project on its own initiative.
+   *
+   * `requestRegistrationConsent()` is the real call site: the 07 §5.4/§5.7
+   * entries invoke it before writing, so the consent is asked, recorded by the
+   * host (and thus answerable/reviewable) instead of being assumed from prose.
+   * The seam reports `consumed` only because that path exists and is wired to
+   * the entry — a captured-but-never-called reference would not count.
    */
   function installUserQuestions(ctx) {
     const userQuestions = ctx.get("userQuestions");
@@ -180,16 +290,94 @@ export function createHostSeams() {  const consumed = Object.create(null);
       return { consumed: false, detail: "ctx.userQuestions.ask is unavailable in this composition" };
     }
     mark("ctx.userQuestions.ask", {
-      consumed: false,
-      available: true,
-      detail: "entry available and exposed; no Human-Gate path routes through it yet, so the seam is NOT consumed"
+      detail: "07 §5.6 registration consent is routed through the host answerer before any write"
     });
-    return { consumed: false, available: true, ask: (request) => userQuestions.ask(request) };
+    return { consumed: true, ask: (request) => userQuestions.ask(request) };
+  }
+
+  /**
+   * Ask the Human for explicit registration intent (07 §5.6).
+   *
+   * Returns `{ granted }` — never throws for a refusal. A `declined` answer, a
+   * missing answerer, or a failed ask all yield `granted: false` with a reason,
+   * because 07 §5.6 requires EXPLICIT intent: silence is not consent, and this
+   * path must fail closed. Callers must not write when `granted` is false.
+   */
+  async function requestRegistrationConsent({ action, projectId, projectPath }) {
+    if (typeof seams.ask !== "function") {
+      return { granted: false, reason: "no human-answerer entry is available; 07 §5.6 requires explicit intent, so consent cannot be assumed" };
+    }
+    const verb = action === "unregister" ? "取消登记" : "登记为 LDVH 管辖项目";
+    try {
+      const answer = await seams.ask({
+        questions: [{
+          id: CONSENT_QUESTION_ID,
+          header: "LDVH 管辖登记",
+          question: `是否确认将项目 ${projectId ?? ""}（${projectPath}）${verb}？（07 §5.6：登记或取消仅由 Human 明确意图触发）`,
+          options: [
+            { label: CONSENT_AFFIRMATIVE_LABEL, description: "执行本次登记变更" },
+            { label: "取消", description: "不执行，保持现状" }
+          ]
+        }]
+      });
+      // Accept ONLY an affirmative for THIS question. Do not fall back to
+      // `answers[0]`: that could grant registration consent from an affirmative
+      // given to a different question. Do not accept shapes never offered
+      // ("confirm"/true) — widening the accept surface weakens the gate.
+      const answers = Array.isArray(answer?.answers) ? answer.answers : [];
+      const entry = answers.find((a) => a?.id === CONSENT_QUESTION_ID) ?? null;
+      const selected = entry?.selected ?? entry?.answer ?? null;
+      const granted = selected === CONSENT_AFFIRMATIVE_LABEL;
+      return granted
+        ? { granted: true, answer: selected }
+        : { granted: false, reason: `human did not affirmatively confirm (answer: ${JSON.stringify(selected ?? null)})` };
+    } catch (error) {
+      return { granted: false, reason: `consent request failed: ${String(error?.message ?? error)}` };
+    }
   }
 
   const seams = {
     observations: 0,
     consumed,
+    /** Set by install(); `null` when no answerer is available (consent fails closed). */
+    ask: null,
+    humanGateAvailable: false,
+    /** The host fs service captured at install; `null` when unavailable. */
+    fs: null,
+    /** 07 §5.6 consent request routed through ctx.userQuestions.ask. */
+    requestRegistrationConsent,
+    /**
+     * Read a target and RECORD the authoritative observation.
+     *
+     * This is the read half of `fs/observed` made real: LDVH asks the HOST for
+     * the version (`fs.stat`) rather than inventing one, records it, and emits
+     * `fs/observed` so the write guard can key a later write to it. Returns
+     * `{observed, version}`; when the target is absent it records `absent`.
+     *
+     * `path` is resolved through the host so the target identity is the host's,
+     * not a locally reconstructed one.
+     */
+    async observePath(path, { cwd, signal } = {}) {
+      const fs = seams.fs;
+      if (fs === null || typeof fs.resolve !== "function" || typeof fs.stat !== "function") {
+        return { observed: false, reason: "the fs service is unavailable, so no authoritative version can be obtained" };
+      }
+      try {
+        const target = await fs.resolve(path, { ...(cwd === undefined ? {} : { cwd }), ...(signal === undefined ? {} : { signal }) });
+        const info = await fs.stat(target, signal);
+        if (info === undefined) {
+          OBSERVED_VERSIONS.delete(targetKeyOf(target));
+          return { observed: true, kind: "absent", target };
+        }
+        OBSERVED_VERSIONS.set(targetKeyOf(target), info.version);
+        if (typeof seams.emitter?.emit === "function") {
+          try { seams.emitter.emit("fs/observed", target, { kind: "present", version: info.version }, undefined); } catch { /* recorder only */ }
+        }
+        return { observed: true, kind: "present", version: info.version, target };
+      } catch (error) {
+        return { observed: false, reason: String(error?.message ?? error) };
+      }
+    },
     /** Install every seam this composition supports; returned disposers are fiber-owned. */
     install(ctx, { dshHomePath } = {}) {
       const disposers = [];
@@ -213,6 +401,8 @@ export function createHostSeams() {  const consumed = Object.create(null);
         if (typeof outcome.dispose === "function") disposers.push(outcome.dispose);
       }
       seams.ask = results["ctx.userQuestions.ask"]?.ask;
+      seams.humanGateAvailable = typeof seams.ask === "function";
+      seams.emitter = ctx;
       return {
         results,
         dispose() {
@@ -247,16 +437,32 @@ export function createHostSeams() {  const consumed = Object.create(null);
   return seams;
 }
 
-/** Write-shaped LDVH tool names (guard target set; mirrors the may_change_state declarations). */
+/**
+ * Names of the write-shaped LDVH tools the guard covers.
+ *
+ * This list must name tools that ACTUALLY ship. A phantom entry widens the
+ * documented coverage without protecting anything (and a stale entry silently
+ * stops covering a tool that was renamed). It is therefore REGISTERED, not
+ * hardcoded: each type module registers its writer at import time, so the set
+ * reflects what this build really exposes.
+ *
+ * The two 07 registration entries are listed explicitly because they are
+ * declared in specs/07 rather than by a fact-type module.
+ */
 const WRITE_SHAPED_OPERATIONS = new Set([
   "ldvh_register_governed_project",
-  "ldvh_unregister_governed_project",
-  "ldvh_spark_write",
-  "ldvh_workcase_write",
-  "ldvh_adr_write",
-  "ldvh_pitfall_write",
-  "ldvh_friction_write",
-  "ldvh_research_write",
-  "ldvh_norm_write",
-  "ldvh_research_session"
+  "ldvh_unregister_governed_project"
 ]);
+
+/**
+ * Register a write-shaped tool name with the guard's coverage set.
+ * Called by the modules that actually register such tools.
+ */
+export function registerWriteShapedTool(toolName) {
+  if (typeof toolName === "string" && toolName.startsWith("ldvh_")) WRITE_SHAPED_OPERATIONS.add(toolName);
+}
+
+/** Diagnostic: the current coverage set (test/verification accessor). */
+export function writeShapedTools() {
+  return [...WRITE_SHAPED_OPERATIONS].sort();
+}

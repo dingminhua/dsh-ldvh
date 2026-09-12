@@ -29,6 +29,7 @@ import { currentRouteValues } from "./session-signature.js";
 import { authoritativeSignature } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { join } from "node:path";
+import { registerWriteShapedTool } from "./host-seams.js";
 
 const OPERATIONS = {
   "spark-read-object": {
@@ -43,6 +44,7 @@ const OPERATIONS = {
   },
   "spark-write-object": {
     toolName: "ldvh_spark_write",
+    writeShaped: true,
     summary: "Controlled write of Spark fact objects: create (after Human-confirmed C1 proposal incl. dedup result) and CAS update with change_log, against the governed project's fact source (specs/03 §9.4–§9.5, specs/20 §13)",
     effect: "may_change_state"
   }
@@ -508,6 +510,10 @@ export function registerSparkTools(ctx, deps) {
   };
   const disposers = [];
   for (const [operationKey, operation] of Object.entries(OPERATIONS)) {
+    // Coverage is registered from the declaration itself, so the guard's target
+    // set always matches the tools this build really exposes (a hardcoded list
+    // drifts into phantom or stale entries).
+    if (operation.writeShaped === true) registerWriteShapedTool(operation.toolName);
     disposers.push(ctx.tools.register(toolDescriptorFor(operationKey, operation, handlers[operationKey])));
   }
   return () => {

@@ -35,16 +35,34 @@ export function createGovernanceHandler(options) {
         const input = await readJson(req);
         return json(res, 200, await inspectCandidate(input.path));
       }
+      // 07 §5.4/§5.6: the install transaction registers the project (plus hook
+      // and fact source), so the request must carry the Human's intent
+      // explicitly — the settings-page click supplies it on the Web path.
       if (path === "/governed-projects/install" && req.method === "POST") {
         const input = await readJson(req);
+        if (input?.human_confirmed !== true) {
+          return json(res, 200, { ok: false, error: { code: "human_intent_required", message: "07 §5.6 requires explicit Human intent: the request must carry human_confirmed: true", details: { field: "human_confirmed" } } });
+        }
         return json(res, 200, await installProject(options.dshHomePath, input, { runnerPath: options.runnerPath, workspaceRoot: options.workspaceRoot }));
       }
+      // Removing the managed hook weakens a live protection while the project
+      // stays governed, so it carries the same intent requirement.
       if (path === "/governed-projects/uninstall-hook" && req.method === "POST") {
         const input = await readJson(req);
+        if (input?.human_confirmed !== true) {
+          return json(res, 200, { ok: false, error: { code: "human_intent_required", message: "07 §5.6 requires explicit Human intent: the request must carry human_confirmed: true", details: { field: "human_confirmed" } } });
+        }
         return json(res, 200, await uninstallHook(input.path));
       }
       if (path === "/governed-projects/unregister" && req.method === "POST") {
         const input = await readJson(req);
+        // 07 §5.6: cancellation requires explicit Human intent. The Web surface
+        // IS the Human-facing entry (07 §5.4 item 2), so a UI action carries
+        // that intent — but it must be carried EXPLICITLY in the request, not
+        // assumed merely because the route was reached.
+        if (input?.human_confirmed !== true) {
+          return json(res, 200, { ok: false, error: { code: "human_intent_required", message: "07 §5.6 requires explicit Human intent: the request must carry human_confirmed: true", details: { field: "human_confirmed" } } });
+        }
         return json(res, 200, await unregisterProject(options.dshHomePath, input));
       }
       return false;

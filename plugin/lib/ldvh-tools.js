@@ -211,6 +211,22 @@ async function scanSpecCandidates(projectRoot) {
 function makeExecute(deps) {
   const { dshHomePath } = deps;
 
+  /**
+   * 07 §5.6 Human Gate: obtain explicit intent before a registration write.
+   *
+   * Routed through `ctx.userQuestions.ask` (08 §6). When the composition has no
+   * seam registry or no answerer, consent CANNOT be obtained — and 07 §5.6's
+   * "仅由 Human 明确意图触发" means the operation must fail closed rather than
+   * proceed on the caller's say-so.
+   */
+  async function requestConsent(depsRef, { action, projectId, projectPath }) {
+    const gate = depsRef?.hostSeams;
+    if (gate === undefined || typeof gate.requestRegistrationConsent !== "function") {
+      return { granted: false, reason: "no host seam registry is wired, so 07 §5.6 consent cannot be obtained" };
+    }
+    return gate.requestRegistrationConsent({ action, projectId, projectPath });
+  }
+
   async function executeResolveGovernanceScope(args, exec) {
     const cwd = exec?.agent?.session?.header?.cwd;
     const scope = await resolveGovernanceScope(dshHomePath, cwd);
@@ -611,6 +627,20 @@ function makeExecute(deps) {
         follow_up: []
       });
     }
+    // 07 §5.6: "登记或取消仅由 Human 明确意图触发". The consent is requested
+    // through ctx.userQuestions.ask before ANY write, and a non-affirmative
+    // answer (or an unavailable answerer) fails closed — silence is not intent.
+    const consent = await requestConsent(deps, { action: "register", projectId: args?.id, projectPath: target });
+    if (consent.granted !== true) {
+      return envelope("register-governed-project", "rejected", {
+        result: null,
+        scope: { requested: target, completed: [], not_completed: ["human-consent", "registration"] },
+        sources: [],
+        gaps: [`07 §5.6 requires explicit Human intent: ${consent.reason}`],
+        verification: { checks: ["human-gate"], passed: false },
+        follow_up: ["obtain explicit Human intent, then retry"]
+      });
+    }
     const result = await registerProjectFromEntry(dshHomePath, {
       id: args?.id,
       path: target,
@@ -661,6 +691,18 @@ function makeExecute(deps) {
         gaps: [`${preconditions.error.code}: ${preconditions.error.message}`],
         verification: { checks: ["preconditions"], passed: false },
         follow_up: ["resolve the reported precondition, then retry"]
+      });
+    }
+    // 07 §5.6: cancellation likewise requires explicit Human intent.
+    const consent = await requestConsent(deps, { action: "unregister", projectId: args.id, projectPath: target });
+    if (consent.granted !== true) {
+      return envelope("unregister-governed-project", "rejected", {
+        result: null,
+        scope: { requested: target, completed: [], not_completed: ["human-consent", "unregistration"] },
+        sources: [],
+        gaps: [`07 §5.6 requires explicit Human intent: ${consent.reason}`],
+        verification: { checks: ["human-gate"], passed: false },
+        follow_up: ["obtain explicit Human intent, then retry"]
       });
     }
     const result = await unregisterProject(dshHomePath, {
