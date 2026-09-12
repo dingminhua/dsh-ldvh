@@ -30,11 +30,11 @@ export const META_KEYS = [
 
 export const COMMON_AUXILIARY_META_KEYS = ['priority'];
 export const AUXILIARY_META_KEYS_BY_TYPE: Record<string, string[]> = {
-  // 20 §8：serves_sg（SG-n 轻量锚点）在元信息行呈现；priority 已随 v5 移除。
-  spark: ['serves_sg'],
+  // 20 §8：serves（SG-n 轻量锚点）在元信息行呈现；priority 已随 v5 移除。
+  spark: ['serves'],
   pitfall: [],
-  // 26 §8：friction 的 serves_sg（框架摩擦挂 SG-3）同 spark 在元信息行呈现。
-  friction: ['serves_sg'],
+  // 26 §8：friction 的 serves（框架摩擦挂 SG-3）同 spark 在元信息行呈现。
+  friction: ['serves'],
 };
 
 const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
@@ -62,11 +62,11 @@ const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
     'disposition', 'change_log', 'urls',
   ],
   // v5 Friction（26 号规范）：阅读布局按字段契约序消费（phenomenon →
-  // attribution → impact → serves_sg → 终态 relations），正文 report_body 由
+  // attribution → impact → serves → 终态 relations），正文 report_body 由
   // 布局按 H2 三段（现象/入账依据+条件处置）分节呈现——此处只做 ContentField
   // 兜底排序。
   friction: [
-    'phenomenon', 'attribution', 'impact', 'serves_sg', 'report_body',
+    'phenomenon', 'attribution', 'impact', 'serves', 'report_body',
     'change_log', 'relations',
   ],
   // v5 Norm（27 号规范）：阅读布局按字段契约序消费（direction_key → 终态

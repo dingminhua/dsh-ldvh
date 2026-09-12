@@ -301,28 +301,28 @@ test("update: CAS normal flow completed with new fingerprint; CAS conflict rejec
 });
 
 // ---------------------------------------------------------------------------
-// serves_sg resolution through the tool (20 §13/§17.1 wiring)
+// serves resolution through the tool (20 §13/§17.1 wiring)
 // ---------------------------------------------------------------------------
 
-test("create: serves_sg resolution flows through the tool (SG-1 ok, SG-99 rejected)", async () => {
+test("create: serves resolution flows through the tool (SG-1 ok, SG-99 rejected)", async () => {
   await withTemp("spark-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
 
     const ok = await run(descriptors, "ldvh_spark_write", {
       action: "create",
-      frontmatter_draft: { ...validFrontmatterDraft(), serves_sg: "SG-1" },
+      frontmatter_draft: { ...validFrontmatterDraft(), serves: "SG-1" },
       body_markdown: validBodyMarkdown(),
     }, repo);
     assert.equal(ok.outcome, "completed", JSON.stringify(ok));
 
     const bad = await run(descriptors, "ldvh_spark_write", {
       action: "create",
-      frontmatter_draft: { ...validFrontmatterDraft(), serves_sg: "SG-99" },
+      frontmatter_draft: { ...validFrontmatterDraft(), serves: "SG-99" },
       body_markdown: validBodyMarkdown(),
     }, repo);
     assert.equal(bad.outcome, "rejected");
-    assert.ok(bad.gaps.some((g) => g.includes("serves_sg_unresolvable")));
+    assert.ok(bad.gaps.some((g) => g.includes("serves_unresolvable")));
     const files = await readdir(join(repo, "ldvh-base", "sparks"));
     assert.equal(files.length, 1); // only the SG-1 object landed
   });
@@ -367,7 +367,7 @@ test("render: spark read output carries the FULL 64-char fingerprint and semanti
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
 
-    const draft = { ...validFrontmatterDraft(), serves_sg: "SG-1" };
+    const draft = { ...validFrontmatterDraft(), serves: "SG-1" };
     const created = await run(descriptors, "ldvh_spark_write", {
       action: "create",
       frontmatter_draft: draft,
@@ -386,7 +386,7 @@ test("render: spark read output carries the FULL 64-char fingerprint and semanti
     assert.ok(text.includes(`fingerprint: ${fp}`), `render must carry the complete fingerprint:\n${text}`);
     assert.ok(text.includes(`title: ${draft.title}`), `render must carry the title:\n${text}`);
     assert.ok(text.includes("status: open"), `render must carry the status:\n${text}`);
-    assert.ok(text.includes("serves_sg: SG-1"), `render must carry serves_sg:\n${text}`);
+    assert.ok(text.includes("serves: SG-1"), `render must carry serves:\n${text}`);
     assert.ok(text.includes(`question: ${draft.question}`), `render must carry the question:\n${text}`);
     assert.ok(text.includes("body_valid: true"), `render must carry body_valid:\n${text}`);
     assert.ok(!text.includes("…"), "render must not truncate with an ellipsis");
@@ -397,7 +397,7 @@ test("render: spell/default descriptor uses the same envelope rendering with no 
   await withTemp("spark-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
-    const draft = { ...validFrontmatterDraft(), serves_sg: "SG-2" };
+    const draft = { ...validFrontmatterDraft(), serves: "SG-2" };
     const created = await run(descriptors, "ldvh_spark_write", {
       action: "create",
       frontmatter_draft: draft,
@@ -449,12 +449,12 @@ test("list: missing sparks directory is a valid empty state (completed, count 0)
   });
 });
 
-test("list: open-only by default, status=all includes terminal; projection carries uid/title/status/question/serves_sg", async () => {
+test("list: open-only by default, status=all includes terminal; projection carries uid/title/status/question/serves", async () => {
   await withTemp("spark-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
 
-    // two open sparks (one with serves_sg) + one implemented (via update)
+    // two open sparks (one with serves) + one implemented (via update)
     const mkDraft = (title, question, more = {}) => {
       const draft = {
         ...validFrontmatterDraft(),
@@ -468,8 +468,8 @@ test("list: open-only by default, status=all includes terminal; projection carri
     };
     const open1 = await run(descriptors, "ldvh_spark_write", {
       action: "create",
-      frontmatter_draft: mkDraft("悬置甲（工具清单）", "问题甲如何进入清单投影？", { serves_sg: "SG-1" }),
-      body_markdown: validBodyMarkdown(mkDraft("悬置甲（工具清单）", "问题甲如何进入清单投影？", { serves_sg: "SG-1" })),
+      frontmatter_draft: mkDraft("悬置甲（工具清单）", "问题甲如何进入清单投影？", { serves: "SG-1" }),
+      body_markdown: validBodyMarkdown(mkDraft("悬置甲（工具清单）", "问题甲如何进入清单投影？", { serves: "SG-1" })),
     }, repo);
     assert.equal(open1.outcome, "completed", JSON.stringify(open1));
 
@@ -519,7 +519,7 @@ test("list: open-only by default, status=all includes terminal; projection carri
       assert.ok(item.question.length > 0, "item must project question");
     }
     const withSg = openOnly.result.items.find((i) => i.object_uid === open1.result.object_uid);
-    assert.equal(withSg.serves_sg, "SG-1", "serves_sg must be projected when declared");
+    assert.equal(withSg.serves, "SG-1", "serves must be projected when declared");
     assert.equal(openOnly.result.items.find((i) => i.object_uid === terminal.result.object_uid), undefined, "terminal spark must not appear in open-only list");
 
     // status=all: all three
@@ -663,10 +663,10 @@ test("schema: spark-write-object enforces the frontmatter_draft shape", async ()
 });
 
 // ---------------------------------------------------------------------------
-// E: update 时新增 serves_sg（SG-1 成功 / SG-99 rejected 零写入）
+// E: update 时新增 serves（SG-1 成功 / SG-99 rejected 零写入）
 // ---------------------------------------------------------------------------
 
-test("update: adding serves_sg works for an existing SG and is rejected (zero-write) for an unknown SG", async () => {
+test("update: adding serves works for an existing SG and is rejected (zero-write) for an unknown SG", async () => {
   await withTemp("spark-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
@@ -682,21 +682,21 @@ test("update: adding serves_sg works for an existing SG and is rejected (zero-wr
 
     const read1 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
     assert.equal(read1.outcome, "completed");
-    assert.equal(read1.result.serves_sg, undefined, "fixture created without serves_sg");
+    assert.equal(read1.result.serves, undefined, "fixture created without serves");
 
     // SG-1 exists in goal.md → update succeeds
     const updated = await run(descriptors, "ldvh_spark_write", {
       action: "update",
       object_uid: uid,
       expected_fingerprint: read1.result.fingerprint,
-      frontmatter_after: { ...read1.result.frontmatter, serves_sg: "SG-1" },
+      frontmatter_after: { ...read1.result.frontmatter, serves: "SG-1" },
       body_markdown_after: validBodyMarkdown(draft),
       change_summary: "补充子目标归属 SG-1",
     }, repo);
     assert.equal(updated.outcome, "completed", JSON.stringify(updated));
-    assert.ok(updated.verification.checks.includes("serves_sg-resolution"));
+    assert.ok(updated.verification.checks.includes("serves-resolution"));
     const read2 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
-    assert.equal(read2.result.serves_sg, "SG-1");
+    assert.equal(read2.result.serves, "SG-1");
 
     // second object: SG-99 does not exist in goal.md → rejected with zero writes
     const draft2 = { ...validFrontmatterDraft(), title: "另一悬置（错误SG）", question: "伪造子目标归属是否被拒绝？", summary: "总结：错误SG" };
@@ -714,15 +714,15 @@ test("update: adding serves_sg works for an existing SG and is rejected (zero-wr
       action: "update",
       object_uid: uid2,
       expected_fingerprint: read2b.result.fingerprint,
-      frontmatter_after: { ...read2b.result.frontmatter, serves_sg: "SG-99" },
+      frontmatter_after: { ...read2b.result.frontmatter, serves: "SG-99" },
       body_markdown_after: validBodyMarkdown(draft2),
       change_summary: "伪造 SG-99",
     }, repo);
     assert.equal(rejected.outcome, "rejected", JSON.stringify(rejected));
-    assert.ok(rejected.gaps.some((g) => g.includes("serves_sg_unresolvable")), JSON.stringify(rejected.gaps));
+    assert.ok(rejected.gaps.some((g) => g.includes("serves_unresolvable")), JSON.stringify(rejected.gaps));
     const after = await readFile(join(repo, "ldvh-base", "sparks", `spark-${uid2}.md`), "utf8");
     assert.equal(after, before, "rejected update must leave the carrier untouched");
     const rerun = await run(descriptors, "ldvh_spark_read", { object_uid: uid2 }, repo);
-    assert.equal(rerun.result.serves_sg, undefined);
+    assert.equal(rerun.result.serves, undefined);
   });
 });

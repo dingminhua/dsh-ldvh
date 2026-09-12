@@ -36,11 +36,11 @@ const TYPE_REQUIRED_FIELDS: Record<string, readonly string[]> = {
   adr: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'decision', 'scope'],
   // 23 §8：scope 必填（trigger_signal/disposition 条件；六要素住正文）。
   pitfall: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'scope'],
-  // 20 §8：question/scope_boundary/intent/summary 必填（evolution/serves_sg/
+  // 20 §8：question/scope_boundary/intent/summary 必填（evolution/serves/
   // disposition/relations 条件出现）。
   spark: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'question', 'scope_boundary', 'intent', 'summary'],
   research: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'research_question', 'research_purpose'],
-  // 26 §8：phenomenon/impact 必填（attribution/serves_sg/relations 条件）。
+  // 26 §8：phenomenon/impact 必填（attribution/serves/relations 条件）。
   friction: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'phenomenon', 'impact'],
   // 27 号 §8：direction_key 必填（retirement_reason/retired_at 条件，retired 时必填）。
   norm: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'direction_key'],
@@ -91,9 +91,9 @@ test('spark carries the 20-spec field closure without v4 leftovers', () => {
   assert.ok(!('urls' in FACT_FIELD_CONTRACT.spark), 'spark 不应登记 urls');
   assert.ok(!('disposition_summary' in FACT_FIELD_CONTRACT.spark), 'spark 不应登记 disposition_summary');
 
-  // 20 §8 类型字段：serves_sg（SG-n 轻量锚点）/disposition（终态去向）条件出现。
-  assert.equal(FACT_FIELD_CONTRACT.spark.serves_sg.expected, 'string');
-  assert.equal(FACT_FIELD_CONTRACT.spark.serves_sg.required, false);
+  // 20 §8 类型字段：serves（SG-n 轻量锚点）/disposition（终态去向）条件出现。
+  assert.equal(FACT_FIELD_CONTRACT.spark.serves.expected, 'string');
+  assert.equal(FACT_FIELD_CONTRACT.spark.serves.required, false);
   assert.equal(FACT_FIELD_CONTRACT.spark.disposition.expected, 'string');
   assert.equal(FACT_FIELD_CONTRACT.spark.disposition.required, false);
   assert.equal(FACT_FIELD_CONTRACT.spark.evolution.expected, 'array');
@@ -101,7 +101,7 @@ test('spark carries the 20-spec field closure without v4 leftovers', () => {
   // 正文 report_body 只在详情阅读，不复制进列表投影（同 research）。
   assert.ok(!FACT_LIST_FIELD_NAMES.spark.includes('report_body'));
   assert.ok(FACT_LIST_FIELD_NAMES.spark.includes('question'));
-  assert.ok(FACT_LIST_FIELD_NAMES.spark.includes('serves_sg'));
+  assert.ok(FACT_LIST_FIELD_NAMES.spark.includes('serves'));
 });
 
 test('list candidates are a declared subset of each type contract', () => {

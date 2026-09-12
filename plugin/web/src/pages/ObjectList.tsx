@@ -1253,7 +1253,7 @@ export function ObjectCardFrame({
           >
             {getTypeLabel(obj.type, locale)}
           </span>
-          <ServesSgBadge value={obj.serves_sg} locale={locale} />
+          <ServesSgBadge value={obj.serves} locale={locale} />
           <PriorityIcon source={obj} type={obj.type} locale={locale} size="xs" />
           <span
             className="ldvh-chip-sm gap-1 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent"

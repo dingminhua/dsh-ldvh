@@ -29,7 +29,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 // Fixtures
 // ---------------------------------------------------------------------------
 
-// goal.md fixture: 20 §13 / 25 §6 — serves_sg must match an SG-n anchor in
+// goal.md fixture: 20 §13 / 25 §6 — serves must match an SG-n anchor in
 // the ## 子目标 section.
 const GOAL_MD_FIXTURE = `---
 goal_key: project-goal
@@ -275,35 +275,35 @@ test("create: missing or empty question/scope_boundary/intent/summary rejected (
   }
 });
 
-test("create: serves_sg declared but goal.md missing rejected (20 §17.1 stop condition)", async () => {
+test("create: serves declared but goal.md missing rejected (20 §17.1 stop condition)", async () => {
   await withTemp("spark-writer.", async (root) => {
     // no goal.md in root
     const result = await createSparkObject({
       factSourceRoot: root,
-      frontmatterDraft: { ...validFrontmatterDraft(), serves_sg: "SG-1" },
+      frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-1" },
       bodyMarkdown: validBodyMarkdown(),
     });
     assert.ok(!result.ok);
-    assert.equal(result.error.code, "spark/serves_sg_unresolvable");
+    assert.equal(result.error.code, "spark/serves_unresolvable");
   });
 });
 
-test("create: serves_sg=SG-99 not present in goal.md rejected (20 §13)", async () => {
+test("create: serves=SG-99 not present in goal.md rejected (20 §13)", async () => {
   await withTemp("spark-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
     const result = await createSparkObject({
       factSourceRoot: root,
-      frontmatterDraft: { ...validFrontmatterDraft(), serves_sg: "SG-99" },
+      frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-99" },
       bodyMarkdown: validBodyMarkdown(),
     });
     assert.ok(!result.ok);
-    assert.equal(result.error.code, "spark/serves_sg_unresolvable");
+    assert.equal(result.error.code, "spark/serves_unresolvable");
   });
 });
 
-test("create: serves_sg undeclared succeeds even when goal.md is missing (20 §17.1: 未声明时不停止)", async () => {
+test("create: serves undeclared succeeds even when goal.md is missing (20 §17.1: 未声明时不停止)", async () => {
   await withTemp("spark-writer.", async (root) => {
-    // no goal.md in root, no serves_sg declared → no stop condition (25 §10)
+    // no goal.md in root, no serves declared → no stop condition (25 §10)
     const result = await createSparkObject({
       factSourceRoot: root,
       frontmatterDraft: validFrontmatterDraft(),
@@ -892,17 +892,17 @@ test("readGoalAnchors parses SG-n anchors from the ## 子目标 section", async 
   });
 });
 
-test("create with serves_sg matching a goal.md anchor succeeds (20 §13)", async () => {
+test("create with serves matching a goal.md anchor succeeds (20 §13)", async () => {
   await withTemp("spark-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
     const result = await createSparkObject({
       factSourceRoot: root,
-      frontmatterDraft: { ...validFrontmatterDraft(), serves_sg: "SG-1" },
+      frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-1" },
       bodyMarkdown: validBodyMarkdown(),
     });
     assert.ok(result.ok, JSON.stringify(result.error));
     const read = await readSparkObject({ factSourceRoot: root, objectUid: result.value.object_uid });
-    assert.equal(read.value.frontmatter.serves_sg, "SG-1");
+    assert.equal(read.value.frontmatter.serves, "SG-1");
   });
 });
 

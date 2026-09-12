@@ -10,7 +10,7 @@
  *             generates the H1 from title; creation validates the
  *             type-specific mechanical checks (closed sets, question
  *             single-sentence, scope_boundary presence, fixed H2 sections,
- *             serves_sg ↔ goal.md SG-n, carrier coherence).
+ *             serves ↔ goal.md SG-n, carrier coherence).
  *  - read:    returns frontmatter + body + file-level content
  *             fingerprint (SHA-256).
  *  - update:  CAS — the caller must supply the fingerprint observed at
@@ -57,14 +57,14 @@ const STATUSES = new Set(["open", "implemented", "discarded"]);
 /** Relation keys allowed for Spark (20 §11 — closed set of exactly two). */
 const SPARK_RELATION_KEYS = new Set(["merged-into", "split-into"]);
 
-/** serves_sg anchor shape (25 §6: SG-n, frozen, never renumbered). */
+/** serves anchor shape (25 §6: SG-n, frozen, never renumbered). */
 const SG_ANCHOR_PATTERN = /^SG-[1-9]\d*$/;
 
 /** Closed set of frontmatter keys (20 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
   "question", "scope_boundary", "intent", "summary",
-  "evolution", "serves_sg", "disposition", "relations", "change_log",
+  "evolution", "serves", "disposition", "relations", "change_log",
 ]);
 
 /** Evolution cap (20 §8: 上限 20 项). */
@@ -145,11 +145,11 @@ export function validateSparkFrontmatter(frontmatter) {
     }
   }
 
-  // serves_sg shape; goal.md resolution happens in the create/update flows
+  // serves shape; goal.md resolution happens in the create/update flows
   // (needs the fact source root; 20 §13: 若声明，匹配 goal.md 存在的 SG-n).
-  if (frontmatter.serves_sg !== undefined) {
-    if (typeof frontmatter.serves_sg !== "string" || !SG_ANCHOR_PATTERN.test(frontmatter.serves_sg)) {
-      issues.push(`serves_sg: must match SG-n (e.g. SG-4), got ${JSON.stringify(frontmatter.serves_sg)}`);
+  if (frontmatter.serves !== undefined) {
+    if (typeof frontmatter.serves !== "string" || !SG_ANCHOR_PATTERN.test(frontmatter.serves)) {
+      issues.push(`serves: must match SG-n (e.g. SG-4), got ${JSON.stringify(frontmatter.serves)}`);
     }
   }
 
@@ -287,13 +287,13 @@ function relationTargetUids(frontmatter, selfUid) {
 }
 
 // ---------------------------------------------------------------------------
-// goal.md anchor reading (20 §13: serves_sg 必须匹配 goal.md 存在的 SG-n)
+// goal.md anchor reading (20 §13: serves 必须匹配 goal.md 存在的 SG-n)
 // ---------------------------------------------------------------------------
 
 /**
  * Read the SG-n anchors from the governed project's goal.md (## 子目标
  * section). Returns { ok, anchors:Set } or { ok:false, reason } when
- * goal.md is missing/unreadable (20 §17.1: declaring serves_sg with no
+ * goal.md is missing/unreadable (20 §17.1: declaring serves with no
  * resolvable goal.md is a stop condition → reject at the flow level).
  */
 export async function readGoalAnchors(factSourceRoot) {
@@ -435,7 +435,7 @@ function buildFileContent(frontmatter, body) {
 const FRONTMATTER_FIELD_ORDER = [
   "title", "status",
   "question", "scope_boundary", "intent", "summary",
-  "evolution", "serves_sg",
+  "evolution", "serves",
   "disposition", "relations",
   "object_uid", "fact_type_key", "created_at",
   "change_log",
@@ -530,14 +530,14 @@ export async function createSparkObject(args) {
     return failure("spark/relations_invalid", "relations failed mechanical checks", { issues: relCheck.issues });
   }
 
-  // serves_sg resolution (20 §13): declared → must match a goal.md SG-n
-  if (frontmatter.serves_sg !== undefined) {
+  // serves resolution (20 §13): declared → must match a goal.md SG-n
+  if (frontmatter.serves !== undefined) {
     const goal = await readGoalAnchors(factSourceRoot);
     if (!goal.ok) {
-      return failure("spark/serves_sg_unresolvable", `serves_sg declared (${frontmatter.serves_sg}) but goal.md is not readable: ${goal.reason} (20 §17.1)`);
+      return failure("spark/serves_unresolvable", `serves declared (${frontmatter.serves}) but goal.md is not readable: ${goal.reason} (20 §17.1)`);
     }
-    if (!goal.anchors.has(frontmatter.serves_sg)) {
-      return failure("spark/serves_sg_unresolvable", `serves_sg ${frontmatter.serves_sg} does not match any SG-n in goal.md 子目标 (available: ${[...goal.anchors].join(", ") || "none"})`);
+    if (!goal.anchors.has(frontmatter.serves)) {
+      return failure("spark/serves_unresolvable", `serves ${frontmatter.serves} does not match any SG-n in goal.md 子目标 (available: ${[...goal.anchors].join(", ") || "none"})`);
     }
   }
 
@@ -695,7 +695,7 @@ export async function listSparkObjects(args) {
       title: typeof frontmatter.title === "string" ? frontmatter.title : "",
       status,
       question: typeof frontmatter.question === "string" ? frontmatter.question : "",
-      serves_sg: typeof frontmatter.serves_sg === "string" ? frontmatter.serves_sg : undefined,
+      serves: typeof frontmatter.serves === "string" ? frontmatter.serves : undefined,
       created_at: typeof frontmatter.created_at === "string" ? frontmatter.created_at : "",
     });
   }
@@ -772,14 +772,14 @@ export async function updateSparkObject(args) {
     return failure("spark/relations_invalid", "updated relations failed mechanical checks", { issues: relCheck.issues });
   }
 
-  // serves_sg resolution on the updated object (20 §13)
-  if (fm.serves_sg !== undefined) {
+  // serves resolution on the updated object (20 §13)
+  if (fm.serves !== undefined) {
     const goal = await readGoalAnchors(factSourceRoot);
     if (!goal.ok) {
-      return failure("spark/serves_sg_unresolvable", `serves_sg declared (${fm.serves_sg}) but goal.md is not readable: ${goal.reason} (20 §17.1)`);
+      return failure("spark/serves_unresolvable", `serves declared (${fm.serves}) but goal.md is not readable: ${goal.reason} (20 §17.1)`);
     }
-    if (!goal.anchors.has(fm.serves_sg)) {
-      return failure("spark/serves_sg_unresolvable", `serves_sg ${fm.serves_sg} does not match any SG-n in goal.md 子目标 (available: ${[...goal.anchors].join(", ") || "none"})`);
+    if (!goal.anchors.has(fm.serves)) {
+      return failure("spark/serves_unresolvable", `serves ${fm.serves} does not match any SG-n in goal.md 子目标 (available: ${[...goal.anchors].join(", ") || "none"})`);
     }
   }
 

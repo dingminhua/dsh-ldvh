@@ -112,7 +112,7 @@ export interface ObjectItem {
   trigger_signal?: string;
   retirement_reason?: string;
   retired_at?: string;
-  /** Friction-specific（26 §8：phenomenon/impact 必填；attribution/serves_sg 条件） */
+  /** Friction-specific（26 §8：phenomenon/impact 必填；attribution/serves 条件） */
   phenomenon?: string;
   attribution?: string;
   impact?: string;
@@ -123,7 +123,7 @@ export interface ObjectItem {
   question?: string;
   scope_boundary?: string;
   intent?: string;
-  serves_sg?: string;
+  serves?: string;
   /** 终态去向与理由（implemented/discarded 时必填） */
   disposition?: string;
   /** Exact-read formal relation targets for every fact list card. */
@@ -621,8 +621,8 @@ export interface CognitionRecentActivityItem {
   relativeTime: string;
   typeColor: string;
   priority?: string;
-  /** Spark 的 goal.md 子目标锚点（20 §6 serves_sg），条件出现。 */
-  serves_sg?: string;
+  /** Spark 的 goal.md 子目标锚点（20 §6 serves），条件出现。 */
+  serves?: string;
   /** WorkCase 只携带派生 progress_group；其它对象携带自身当前状态。 */
   progress_group?: WorkCaseProgressGroup;
   status?: string;

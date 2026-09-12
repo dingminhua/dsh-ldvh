@@ -135,7 +135,7 @@ async function executeReadObject(args, exec, deps) {
       phenomenon: typeof fm.phenomenon === "string" ? fm.phenomenon : undefined,
       attribution: typeof fm.attribution === "string" ? fm.attribution : undefined,
       impact: typeof fm.impact === "string" ? fm.impact : undefined,
-      serves_sg: typeof fm.serves_sg === "string" ? fm.serves_sg : undefined,
+      serves: typeof fm.serves === "string" ? fm.serves : undefined,
       body_valid: value.body_valid,
       body_issues: value.body_issues,
       frontmatter: fm,
@@ -320,7 +320,7 @@ async function executeWriteObject(args, exec, deps) {
     scope: { requested: "update", completed: ["update", "read-back"], not_completed: [] },
     sources: [{ kind: "fact-object", path: readBack.value.file, content_fingerprint: updated.value.fingerprint }],
     gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
-    verification: { checks: ["cas-baseline", "frontmatter-closed-set", "phenomenon-single-sentence", "body-structure", "carrier-coherence", "serves_sg-resolution", "relations-contract", "transition-guards", "atomic-write", "read-back"], passed: true },
+    verification: { checks: ["cas-baseline", "frontmatter-closed-set", "phenomenon-single-sentence", "body-structure", "carrier-coherence", "serves-resolution", "relations-contract", "transition-guards", "atomic-write", "read-back"], passed: true },
     follow_up: ["use the NEW fingerprint from this result for the next update; committing goes through the controlled-commit contract (specs/06)"]
   });
 }
@@ -332,7 +332,7 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
   const mechanicalCodes = new Set([
     "friction/frontmatter_invalid", "friction/body_invalid", "friction/coherence_invalid",
     "friction/initial_state_violation", "friction/status_transition_invalid", "friction/status_terminal",
-    "friction/relations_invalid", "friction/relation_target_unresolvable", "friction/serves_sg_unresolvable",
+    "friction/relations_invalid", "friction/relation_target_unresolvable", "friction/serves_unresolvable",
     "friction/cas_conflict", "friction/change_summary_required", "friction/invalid_uid",
     "invalid_request",
   ]);
@@ -406,7 +406,7 @@ function parameterSchemaFor(operationKey) {
       phenomenon: { type: "string", description: "single-sentence phenomenon statement (non-conclusion, e.g. 「CI 平均 8 分钟」 not 「CI 太慢」); must appear verbatim in the 现象 body section" },
       attribution: { type: "string", description: "which subsystem/spec/process the obstacle roots in; omit when not yet attributable (backfill via supplement update)" },
       impact: { type: "string", enum: ["light", "medium", "heavy"], description: "impact rating; consumers anchored in 26 §12 (F1 projection, metric aggregation) and the heavy-bypasses-buffer birth path" },
-      serves_sg: { type: "string", description: "e.g. SG-3 (framework frictions); must match an SG-n in goal.md 子目标; omit when not applicable" },
+      serves: { type: "string", description: "e.g. SG-3 (framework frictions); must match an SG-n in goal.md 子目标; omit when not applicable" },
       relations: { type: "array", items: { type: "object", properties: { relation_key: { type: "string", enum: ["informs"] }, target: { type: "object", properties: { object_uid: { type: "string" } }, required: ["object_uid"], additionalProperties: false } }, required: ["relation_key", "target"], additionalProperties: false }, description: "informs 1..n pointing at remedy objects (ADR/WorkCase uids); only on resolved (26 §11)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },

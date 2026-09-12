@@ -37,7 +37,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 // Fixtures
 // ---------------------------------------------------------------------------
 
-// goal.md fixture: 26 §6 / §8 — serves_sg must match an SG-n anchor in
+// goal.md fixture: 26 §6 / §8 — serves must match an SG-n anchor in
 // the ## 子目标 section. Contains SG-3 specifically required by tests.
 const GOAL_MD_FIXTURE = `---
 goal_key: framework-goal
@@ -202,11 +202,11 @@ test("create: with attribution backfilled succeeds (26 §8 conditional field)", 
   });
 });
 
-test("create: with serves_sg SG-3 resolves against goal.md succeeds (26 §8/§13)", async () => {
+test("create: with serves SG-3 resolves against goal.md succeeds (26 §8/§13)", async () => {
   await withTemp("friction-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
-    const { draft, created, read } = await createAndRead(root, { serves_sg: "SG-3" });
-    assert.equal(read.value.frontmatter.serves_sg, "SG-3");
+    const { draft, created, read } = await createAndRead(root, { serves: "SG-3" });
+    assert.equal(read.value.frontmatter.serves, "SG-3");
   });
 });
 
@@ -335,29 +335,29 @@ test("create: impact outside closed set rejected (26 §8 impact 闭集)", async 
   });
 });
 
-test("create: serves_sg=SG-99 not in goal.md rejected (26 §13)", async () => {
+test("create: serves=SG-99 not in goal.md rejected (26 §13)", async () => {
   await withTemp("friction-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
     const result = await createFrictionObject({
       factSourceRoot: root,
-      frontmatterDraft: { ...validFrontmatterDraft(), serves_sg: "SG-99" },
+      frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-99" },
       bodyMarkdown: validBodyMarkdown(),
     });
     assert.ok(!result.ok);
-    assert.equal(result.error.code, "friction/serves_sg_unresolvable");
+    assert.equal(result.error.code, "friction/serves_unresolvable");
   });
 });
 
-test("create: serves_sg declared but goal.md missing rejected (26 §13)", async () => {
+test("create: serves declared but goal.md missing rejected (26 §13)", async () => {
   await withTemp("friction-writer.", async (root) => {
     // no goal.md in root
     const result = await createFrictionObject({
       factSourceRoot: root,
-      frontmatterDraft: { ...validFrontmatterDraft(), serves_sg: "SG-3" },
+      frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-3" },
       bodyMarkdown: validBodyMarkdown(),
     });
     assert.ok(!result.ok);
-    assert.equal(result.error.code, "friction/serves_sg_unresolvable");
+    assert.equal(result.error.code, "friction/serves_unresolvable");
   });
 });
 
@@ -833,10 +833,10 @@ test("list: empty frictions directory is a valid empty state (26 §12)", async (
   });
 });
 
-test("list: 1 open + 1 deferred + 1 resolved — default lists 2, includeResolved lists 3; projection carries uid/title/status/impact/attribution/serves_sg", async () => {
+test("list: 1 open + 1 deferred + 1 resolved — default lists 2, includeResolved lists 3; projection carries uid/title/status/impact/attribution/serves", async () => {
   await withTemp("friction-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
-    const draftA = { ...validFrontmatterDraft(), title: "甲摩擦", serves_sg: "SG-3" };
+    const draftA = { ...validFrontmatterDraft(), title: "甲摩擦", serves: "SG-3" };
     const a = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draftA, bodyMarkdown: validBodyMarkdown(draftA) });
     assert.ok(a.ok, JSON.stringify(a.error));
 
@@ -884,7 +884,7 @@ test("list: 1 open + 1 deferred + 1 resolved — default lists 2, includeResolve
       assert.ok(typeof item.impact === "string" && item.impact.length > 0, "item must project impact");
     }
     const withSg = listed.value.items.find((i) => i.object_uid === a.value.object_uid);
-    assert.equal(withSg.serves_sg, "SG-3");
+    assert.equal(withSg.serves, "SG-3");
     const withAttr = listed.value.items.find((i) => i.object_uid === b.value.object_uid);
     assert.equal(withAttr.attribution, "外部工具");
 

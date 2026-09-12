@@ -121,7 +121,7 @@ frontmatter 闭集（账本类型必须轻——入账摩擦高于摩擦本身�
 | `phenomenon` | string | 必填 | 现象单句陈述 | 非结论（「CI 平均 8 分钟」不是「CI 太慢」）；正文「现象」段逐字包含 |
 | `attribution` | string | 条件 | 归因陈述 | 指向哪个子系统/规范/流程；入账时归因未定可省略，后补走补充级更新；出现时非空 |
 | `impact` | string | 必填 | 影响评级 | 闭集 `light` / `medium` / `heavy`——机械消费方在本文 §12 定义（F1 投影含 impact、度量按状态×影响聚合）与设计定稿的出生路径「重大即显」通道（heavy 跳过攒熟直接提议）；非装饰字段 |
-| `serves_sg` | string | 条件 | 服务的 SG-n | 框架摩擦挂 SG-3；项目摩擦按所属项目目标；goal.md 无该锚点时省略 |
+| `serves` | string | 条件 | 服务的 SG-n | 框架摩擦挂 SG-3；项目摩擦按所属项目目标；goal.md 无该锚点时省略 |
 | `relations` | array | 条件 | `informs` 指向解药（见 §9） | 仅 resolved 时出现 |
 | `created_at` | RFC3339 | 必填 | Code 填写 | AI 不得填写 |
 | `change_log` | array | 条件 | 变更流水 | 首修后必有；每次恰好一条 |
@@ -134,7 +134,7 @@ frontmatter 闭集（账本类型必须轻——入账摩擦高于摩擦本身�
 ## 处置            ← 解药记录或推迟理由（条件出现——resolved/deferred 时；必答：怎么解的+解药指引，或为何暂缓+重启条件）
 ```
 
-字段间不变量：`phenomenon` 载体内聚（正文现象段逐字包含）；`relations` 出现 ⇔ `status=resolved`；`attribution`/`serves_sg` 出现时非空；未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
+字段间不变量：`phenomenon` 载体内聚（正文现象段逐字包含）；`relations` 出现 ⇔ `status=resolved`；`attribution`/`serves` 出现时非空；未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
 
 ## 9. 状态与生命周期
 

@@ -648,7 +648,7 @@ function parseFrictionBodySections(body: string): FrictionBodySection[] {
 
 /** v5 Friction 阅读布局（26 §8）：正文三段（现象/入账依据+条件处置）分节
  * 优先、frontmatter 字段兜底；节序跟随字段契约（现象 → 归因 → impact →
- * 入账依据 → 处置 → serves_sg → resolved 的 informs 解药）。 */
+ * 入账依据 → 处置 → serves → resolved 的 informs 解药）。 */
 export function FrictionReadingLayout({
   obj,
   relatedEntries,
@@ -673,7 +673,7 @@ export function FrictionReadingLayout({
   const disposition = sectionOf('处置')?.body ?? '';
   const attribution = typeof obj.attribution === 'string' && obj.attribution.trim() ? obj.attribution.trim() : '';
   const impact = typeof obj.impact === 'string' && obj.impact.trim() ? obj.impact.trim() : '';
-  const servesSg = typeof obj.serves_sg === 'string' && obj.serves_sg.trim() ? obj.serves_sg.trim() : '';
+  const servesSg = typeof obj.serves === 'string' && obj.serves.trim() ? obj.serves.trim() : '';
   const informsEdges = Array.isArray(obj.relations)
     ? obj.relations.filter((rel) => (rel as { relation_key?: string }).relation_key === 'informs')
     : [];
@@ -688,7 +688,7 @@ export function FrictionReadingLayout({
       <AdrProseNode title={getFieldLabel('impact', locale)} value={impact} locale={locale} issue={fieldIssue(obj, 'impact')} />
       <AdrProseNode title={getFieldLabel('friction_basis', locale)} value={basis} locale={locale} />
       <AdrProseNode title={getFieldLabel('friction_disposition', locale)} value={disposition} locale={locale} />
-      <AdrProseNode title={getFieldLabel('serves_sg', locale)} value={servesSg} locale={locale} />
+      <AdrProseNode title={getFieldLabel('serves', locale)} value={servesSg} locale={locale} />
       {informsText ? (
         <AdrProseNode title={getFieldLabel('relation_informs', locale)} value={`informs → ${informsText}`} locale={locale} />
       ) : null}

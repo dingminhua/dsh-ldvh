@@ -7,7 +7,7 @@
 //   - spark-read-object  (effect: read)             — precise F3 read by
 //     object_uid: frontmatter, body, mechanical issues and fingerprint.
 //   - spark-list-objects (effect: read)             — F0/F1 discovery:
-//     dedup-relevant projection (title/question/status/serves_sg),
+//     dedup-relevant projection (title/question/status/serves),
 //     open-only by default.
 //   - spark-write-object (effect: may_change_state) — controlled create
 //     (C1 proposal confirmed by Human) and CAS update with change_log,
@@ -38,7 +38,7 @@ const OPERATIONS = {
   },
   "spark-list-objects": {
     toolName: "ldvh_spark_list",
-    summary: "Enumerate Spark fact objects (F0/F1 discovery): dedup-relevant projection (title/question/status/serves_sg) for the governed project; open-only by default (specs/03 §8, specs/20 §12)",
+    summary: "Enumerate Spark fact objects (F0/F1 discovery): dedup-relevant projection (title/question/status/serves) for the governed project; open-only by default (specs/03 §8, specs/20 §12)",
     effect: "read"
   },
   "spark-write-object": {
@@ -131,7 +131,7 @@ async function executeReadObject(args, exec, deps) {
       title: typeof fm.title === "string" ? fm.title : undefined,
       status: fm.status,
       question: typeof fm.question === "string" ? fm.question : undefined,
-      serves_sg: typeof fm.serves_sg === "string" ? fm.serves_sg : undefined,
+      serves: typeof fm.serves === "string" ? fm.serves : undefined,
       body_valid: value.body_valid,
       body_issues: value.body_issues,
       frontmatter: fm,
@@ -259,7 +259,7 @@ async function executeWriteObject(args, exec, deps) {
       scope: { requested: "create", completed: ["create", "read-back"], not_completed: [] },
       sources: [{ kind: "fact-object", path: created.value.file, content_fingerprint: created.value.fingerprint }],
       gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
-      verification: { checks: ["frontmatter-closed-set", "question-single-sentence", "body-structure", "carrier-coherence", "serves_sg-resolution", "atomic-write", "read-back"], passed: true },
+      verification: { checks: ["frontmatter-closed-set", "question-single-sentence", "body-structure", "carrier-coherence", "serves-resolution", "atomic-write", "read-back"], passed: true },
       follow_up: ["the object is created and read back; committing it to Git goes through the controlled-commit contract (specs/06)"]
     });
   }
@@ -316,7 +316,7 @@ async function executeWriteObject(args, exec, deps) {
     scope: { requested: "update", completed: ["update", "read-back"], not_completed: [] },
     sources: [{ kind: "fact-object", path: readBack.value.file, content_fingerprint: updated.value.fingerprint }],
     gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
-    verification: { checks: ["cas-baseline", "frontmatter-closed-set", "question-single-sentence", "body-structure", "carrier-coherence", "serves_sg-resolution", "relations-contract", "terminal-state-guard", "atomic-write", "read-back"], passed: true },
+    verification: { checks: ["cas-baseline", "frontmatter-closed-set", "question-single-sentence", "body-structure", "carrier-coherence", "serves-resolution", "relations-contract", "terminal-state-guard", "atomic-write", "read-back"], passed: true },
     follow_up: ["use the NEW fingerprint from this result for the next update; committing goes through the controlled-commit contract (specs/06)"]
   });
 }
@@ -327,7 +327,7 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
   // availability failures (carrier/IO-level problems). Both are zero-write.
   const mechanicalCodes = new Set([
     "spark/frontmatter_invalid", "spark/body_invalid", "spark/coherence_invalid",
-    "spark/relations_invalid", "spark/relation_target_unresolvable", "spark/serves_sg_unresolvable",
+    "spark/relations_invalid", "spark/relation_target_unresolvable", "spark/serves_unresolvable",
     "spark/initial_state_violation", "spark/status_transition_invalid", "spark/status_terminal",
     "spark/cas_conflict", "spark/change_summary_required", "spark/invalid_uid",
     "invalid_request",
@@ -364,7 +364,7 @@ function renderEnvelope(operationKey, value) {
   if (result?.object_uid !== undefined) lines.push(`object: ${result.object_uid}`);
   if (result?.title !== undefined) lines.push(`title: ${result.title}`);
   if (result?.status !== undefined) lines.push(`status: ${result.status}`);
-  if (result?.serves_sg !== undefined) lines.push(`serves_sg: ${result.serves_sg}`);
+  if (result?.serves !== undefined) lines.push(`serves: ${result.serves}`);
   if (result?.question !== undefined) lines.push(`question: ${result.question}`);
   // Full fingerprint, never truncated (03 §9.5): the render output is the
   // model's only window on the tool result — a truncated fingerprint makes
@@ -376,7 +376,7 @@ function renderEnvelope(operationKey, value) {
   if (result?.count !== undefined) lines.push(`count: ${result.count}${result.total !== undefined && result.total !== result.count ? ` (of ${result.total})` : ""}`);
   if (Array.isArray(result?.items)) {
     for (const item of result.items) {
-      lines.push(`- ${item.object_uid} [${item.status}] ${item.title}${item.serves_sg ? ` (${item.serves_sg})` : ""}`);
+      lines.push(`- ${item.object_uid} [${item.status}] ${item.title}${item.serves ? ` (${item.serves})` : ""}`);
     }
   }
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${change.object_uid}`);
@@ -419,7 +419,7 @@ function parameterSchemaFor(operationKey) {
       intent: { type: "string", description: "why this is worth keeping + the follow-up direction" },
       summary: { type: "string", description: "complete current semantic snapshot; must appear verbatim in the 当前理解 body section" },
       evolution: { type: "array", items: evolutionEntry, description: "substantive-pivot log (cap 20); when non-empty the body must carry a 演变 H2 section" },
-      serves_sg: { type: "string", description: "e.g. SG-4; must match an SG-n in goal.md 子目标; omit when not applicable" },
+      serves: { type: "string", description: "e.g. SG-4; must match an SG-n in goal.md 子目标; omit when not applicable" },
       disposition: { type: "string", description: "terminal destination and scope; required iff status is implemented/discarded, forbidden while open" },
       relations: { type: "array", items: relationEntry, description: "merged-into (cardinality 1) / split-into (1..n); only on discarded, targets must be existing open sparks (20 §11)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }

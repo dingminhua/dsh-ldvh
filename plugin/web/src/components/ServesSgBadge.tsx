@@ -1,7 +1,7 @@
 import { Target } from 'lucide-react';
 import { getFieldLabel } from '@/i18n/locales';
 
-/** serves_sg（20 §6：goal.md 子目标的 SG-n 轻量锚点，条件出现）归一为列表。
+/** serves（20 §6：goal.md 子目标的 SG-n 轻量锚点，条件出现）归一为列表。
  * 规范当前为单值 string；渲染兼容 string[]，规范演进为数组时无需改前端。 */
 function normalizeServesSgList(value: unknown): string[] {
   if (typeof value === 'string') {
@@ -20,7 +20,7 @@ function normalizeServesSgList(value: unknown): string[] {
 export default function ServesSgBadge({ value, locale }: { value: unknown; locale: string }) {
   const values = normalizeServesSgList(value);
   if (values.length === 0) return null;
-  const label = getFieldLabel('serves_sg', locale);
+  const label = getFieldLabel('serves', locale);
   return (
     <>
       {values.map((sg) => (

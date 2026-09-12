@@ -250,10 +250,10 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   research_question: { zh: '研究问题', en: 'Research Question' },
   research_purpose: { zh: '调研目的', en: 'Research Purpose' },
   // 20 §8：Spark 悬置问题字段——question（单句待答）/scope_boundary（何时停止）/
-  // serves_sg（goal.md 子目标锚点）/current_understanding（summary 正文节的展示名）。
+  // serves（goal.md 子目标锚点）/current_understanding（summary 正文节的展示名）。
   question: { zh: '调查问题', en: 'Question' },
   scope_boundary: { zh: '调查边界', en: 'Investigation Boundary' },
-  serves_sg: { zh: '服务子目标', en: 'Serves Sub-goal' },
+  serves: { zh: '服务子目标', en: 'Serves Sub-goal' },
   current_understanding: { zh: '当前理解', en: 'Current Understanding' },
   stopping_reason: { zh: '停止原因', en: 'Stopping Reason' },
   confirmed_statements: { zh: '已证实声明', en: 'Confirmed Statements' },

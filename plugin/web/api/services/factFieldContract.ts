@@ -98,7 +98,7 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
   },
   // v5 Friction（26 号规范）：改进账本的字段闭集——phenomenon/impact 必填
   //（现象单句 + 影响闭集 light/medium/heavy）；attribution 条件后补、
-  // serves_sg 条件（框架摩擦挂 SG-3）、relations 仅 resolved 时的 informs。
+  // serves 条件（框架摩擦挂 SG-3）、relations 仅 resolved 时的 informs。
   // 本类型不设 urls（26 §10：摩擦是内部体验）与 trigger_signal（重审信号由
   // 处置段的重启条件承载）——故不展开 common 的 urls。正文三节（现象/入账
   // 依据/条件处置）由 report_body 承载。
@@ -110,7 +110,7 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     report_body: field('friction-report-body', 'string', false),
   },
   // v5 Spark（20 号规范）：悬置问题的字段闭集——question/scope_boundary/
-  // intent/summary 必填；evolution（{at, summary} 流水）/serves_sg（SG-n 轻
+  // intent/summary 必填；evolution（{at, summary} 流水）/serves（SG-n 轻
   // 量锚点）/disposition（终态去向）条件出现；relations 仅 merged-into/
   // split-into（§11）。本类型不设 urls（§10：悬置问题不直接接受外部证据，
   // 由 30 号调研系统收集）与 priority（§14.2：v4 存量不迁入）——故不展开
@@ -130,7 +130,7 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     intent: field('spark-intent', 'string', true),
     summary: field('current-summary', 'string', true),
     evolution: field('evolution', 'array', false),
-    serves_sg: field('spark-serves-sg', 'string', false),
+    serves: field('spark-serves-sg', 'string', false),
     disposition: field('spark-disposition', 'string', false),
     // 正文承载（20 §8 固定 H2），由阅读布局按 H2 分节解析呈现；不登记会被
     // 判为 unconsumed_field，且必须从列表投影排除。

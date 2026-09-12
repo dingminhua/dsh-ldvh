@@ -124,7 +124,7 @@ frontmatter 闭集：
 | `intent` | string | 必填 | 保留理由与后续方向 | 为什么值得保留；后续需要判断的方向 |
 | `summary` | string | 必填 | 完整的当前语义快照 | 当前已确认判断、边界、候选方向、未决事项；使未读原聊天的后续执行者可独立理解；只承载当前仍适用的理解，不复制创建原因或过程日志 |
 | `evolution` | array | 条件 | 关键语义转折流水 | 只在问题焦点、边界、判断方向或承接方向发生实质变化时追加；每项 `{at, summary}`；当前仍适用的内容必须先进入 `summary`，`evolution` 只说明变化与影响（上限 20 项） |
-| `serves_sg` | string | 条件 | 服务的 SG-n | goal.md 子目标锚点；轻量归属引用，不参与 goal 修订级联（25 §11 豁免）；不存在时省略 |
+| `serves` | string | 条件 | 服务的 SG-n | goal.md 子目标锚点；轻量归属引用，不参与 goal 修订级联（25 §11 豁免）；不存在时省略 |
 | `status` | string | 必填 | `open` / `implemented` / `discarded` | 初态 `open` |
 | `disposition` | string | 条件 | 终态去向与理由 | 进入终态时必填；说明落实/交接/废弃/合并/拆分去向 |
 | `relations` | array | 条件 | 合并/拆分关系（merged-into/split-into） | 仅合并/拆分时出现；按 03 §7.2 公共形状；目标必须可解析且为 open（§11） |
@@ -141,7 +141,7 @@ frontmatter 闭集：
  ## 演变            ← evolution 的正文承载；跨会话接力理解（条件出现）
 ```
 
-字段间不变量：`question` 必须单句可读；`scope_boundary` 必须明确何时停止；`intent` 必须回答「为什么保留 + 后续方向」；`summary` 必须使未读原聊天的后续执行者理解当前已知道什么、如何判断、仍需处置什么（先问当前仍适用的内容是否必须进入 `summary`，是则必须写入，`evolution` 只记变化）；`disposition` 出现 ⇔ `status ∈ {implemented, discarded}`；`serves_sg` 出现时必须匹配 goal.md 存在的 SG-n。未知字段处理：按 03 §6.1，未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
+字段间不变量：`question` 必须单句可读；`scope_boundary` 必须明确何时停止；`intent` 必须回答「为什么保留 + 后续方向」；`summary` 必须使未读原聊天的后续执行者理解当前已知道什么、如何判断、仍需处置什么（先问当前仍适用的内容是否必须进入 `summary`，是则必须写入，`evolution` 只记变化）；`disposition` 出现 ⇔ `status ∈ {implemented, discarded}`；`serves` 出现时必须匹配 goal.md 存在的 SG-n。未知字段处理：按 03 §6.1，未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
 
 ## 9. 状态与生命周期
 
@@ -257,7 +257,7 @@ frontmatter 闭集：
 
 ## 13. 受控操作
 
-- **创建**：C1 提案对象模式（模式内容见重建锚点 §7；其与 04/21 的统一登记由相应来源承接）——AI 只产出提案对象（含查重结果），Human 确认后经受控创建入口落盘；或初始化对话「发现 Gap」时主动创建（此时 goal.md 可能尚未建立，Spark 不声明 serves_sg，与 25 §10「goal.md 缺失时读操作与 Spark 探索不拦」一致）。创建前必须查重。机械校验：字段闭集合法、question 单句可读、scope_boundary 完整、serves_sg（若声明）匹配 goal.md 存在的 SG-n。创建后精确回读。
+- **创建**：C1 提案对象模式（模式内容见重建锚点 §7；其与 04/21 的统一登记由相应来源承接）——AI 只产出提案对象（含查重结果），Human 确认后经受控创建入口落盘；或初始化对话「发现 Gap」时主动创建（此时 goal.md 可能尚未建立，Spark 不声明 serves，与 25 §10「goal.md 缺失时读操作与 Spark 探索不拦」一致）。创建前必须查重。机械校验：字段闭集合法、question 单句可读、scope_boundary 完整、serves（若声明）匹配 goal.md 存在的 SG-n。创建后精确回读。
 - **更新**（问题/边界精化、演变追加）：03 §9.5 受控更新；CAS 以完整文件为单位，绑定 `content_fingerprint`；每次恰好一条 change_log（含理由）；必须先经 Human 确认（问题/边界大改）。
 - **合并/拆分**：Human Gate 确认；原 Spark 经受控更新进入 discarded 并写 merged-into/split-into 关系；目标 Spark 经受控创建或受控更新；各自追加 change_log。**本类型明示的非原子例外见 §9.4**——合并/拆分不得先写孤立新对象再补关系（03 §9.6 的禁止项），但允许按本节定义的两步顺序执行。
 - **状态转换**（implemented/discarded）：Human Gate 确认；AI 先做 F3/F4 核对；Code 检查闭集、字段、关系、CAS 与回读。
@@ -294,7 +294,7 @@ frontmatter 闭集：
 |---|---|---|---|---|---|---|
 | question 可读性 | 创建时 | question 单句，语义清晰 | Human 确认记录 | AI 初审+Human 终审 | 问题可被调研系统采纳 | 拒绝创建；要求澄清 |
 | scope_boundary 完整 | 创建时 | 何时停止调查边界明确 | Human 确认 | 机械字段检查 | 调查范围边界 | 拒绝；要求补充 |
-| serves_sg 有效 | 创建时 | serves_sg 匹配 goal.md 存在 SG-n | goal.md 子目标回读 | 机械（编号匹配） | 锚点解析成功 | 拒绝；或拒绝 goal 引用 |
+| serves 有效 | 创建时 | serves 匹配 goal.md 存在 SG-n | goal.md 子目标回读 | 机械（编号匹配） | 锚点解析成功 | 拒绝；或拒绝 goal 引用 |
 | 查重已执行 | 创建时 | 创建提案含查重结论 | 提案记录 | AI 语义审核 | 当次查重范围 | 补查重后重走创建 |
 | 状态转换合法 | 变更时 | open→implemented/discarded 逻辑一致 | 处置依据 + Human 确认 | 审核 + 机械 | 转换合法性 | 反向转换报错 |
 | 合并/拆分去向 | 变更时 | discarded + 关系目标可解析且为 open | 目标 Spark 回读 | 机械（关系目标解析+状态检查） | 合并/拆分去向完整性 | 视为未完整关闭，暂停并修复 |
@@ -318,7 +318,7 @@ Human 决定只证明决定及其作用范围，不替代问题语义审核、�
 
 本文不新增根停止类型。领域触发与最小影响范围：
 
-1. 创建时声明了 serves_sg 但 goal.md 缺失或该 SG-n 不存在（悬置无锚可引；未声明 serves_sg 时 goal.md 缺失不停止——25 §10 读操作与 Spark 探索不拦）；
+1. 创建时声明了 serves 但 goal.md 缺失或该 SG-n 不存在（悬置无锚可引；未声明 serves 时 goal.md 缺失不停止——25 §10 读操作与 Spark 探索不拦）；
 2. question 为空或不可读；
 3. scope_boundary 缺失；
 4. AI 未经 Human 确认直接进入终态（implemented/discarded）；

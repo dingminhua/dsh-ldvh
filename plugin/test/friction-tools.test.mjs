@@ -95,7 +95,7 @@ async function governedFixture(base) {
   const repo = await initRepo(base);
   await mkdir(join(repo, "ldvh-base", "frictions"), { recursive: true });
   // goal.md lives at the fact-source root (ldvh-base/) — the writer resolves
-  // serves_sg anchors from factSourceRoot, not the repo root.
+  // serves anchors from factSourceRoot, not the repo root.
   await writeFile(join(repo, "ldvh-base", "goal.md"), GOAL_MD_FIXTURE, "utf8");
   await registerProject(dshHome(home), { id: "demo", path: repo });
   return { home, repo };
@@ -121,7 +121,7 @@ async function seedFriction(root, overrides = {}) {
 }
 
 async function seedResolvedFriction(root, adrUid) {
-  const { draft, created } = await seedFriction(root, { title: "待销账摩擦", serves_sg: "SG-3" });
+  const { draft, created } = await seedFriction(root, { title: "待销账摩擦", serves: "SG-3" });
   const read = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
   const updated = await updateFrictionObject({
     factSourceRoot: root,
@@ -391,7 +391,7 @@ test("friction-write-object create: completed envelope with read-back", async ()
       "ldvh_friction_write",
       {
         action: "create",
-        frontmatter_draft: { ...validFrontmatterDraft(), serves_sg: "SG-3" },
+        frontmatter_draft: { ...validFrontmatterDraft(), serves: "SG-3" },
         body_markdown: validBodyMarkdown(),
       },
       repo

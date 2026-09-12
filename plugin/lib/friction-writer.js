@@ -68,7 +68,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 /** Closed set of frontmatter keys (26 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
-  "phenomenon", "attribution", "impact", "serves_sg", "relations", "change_log",
+  "phenomenon", "attribution", "impact", "serves", "relations", "change_log",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -149,10 +149,10 @@ export function validateFrictionFrontmatter(frontmatter) {
     }
   }
 
-  // serves_sg shape; goal.md resolution happens in the create/update flows.
-  if (frontmatter.serves_sg !== undefined) {
-    if (typeof frontmatter.serves_sg !== "string" || !/^SG-[1-9]\d*$/.test(frontmatter.serves_sg)) {
-      issues.push(`serves_sg: must match SG-n (e.g. SG-3), got ${JSON.stringify(frontmatter.serves_sg)}`);
+  // serves shape; goal.md resolution happens in the create/update flows.
+  if (frontmatter.serves !== undefined) {
+    if (typeof frontmatter.serves !== "string" || !/^SG-[1-9]\d*$/.test(frontmatter.serves)) {
+      issues.push(`serves: must match SG-n (e.g. SG-3), got ${JSON.stringify(frontmatter.serves)}`);
     }
   }
 
@@ -226,7 +226,7 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
 }
 
 // ---------------------------------------------------------------------------
-// goal.md anchor reading (serves_sg resolution — same contract as spark 20 §13)
+// goal.md anchor reading (serves resolution — same contract as spark 20 §13)
 // ---------------------------------------------------------------------------
 
 export async function readGoalAnchors(factSourceRoot) {
@@ -359,7 +359,7 @@ function buildFileContent(frontmatter, body) {
  */
 const FRONTMATTER_FIELD_ORDER = [
   "title", "status",
-  "phenomenon", "attribution", "impact", "serves_sg",
+  "phenomenon", "attribution", "impact", "serves",
   "relations",
   "object_uid", "fact_type_key", "created_at",
   "change_log",
@@ -449,14 +449,14 @@ export async function createFrictionObject(args) {
     return failure("friction/relations_invalid", "relations failed mechanical checks", { issues: relCheck.issues });
   }
 
-  // serves_sg resolution (26 §13): declared → must match a goal.md SG-n
-  if (frontmatter.serves_sg !== undefined) {
+  // serves resolution (26 §13): declared → must match a goal.md SG-n
+  if (frontmatter.serves !== undefined) {
     const goal = await readGoalAnchors(factSourceRoot);
     if (!goal.ok) {
-      return failure("friction/serves_sg_unresolvable", `serves_sg declared (${frontmatter.serves_sg}) but goal.md is not readable: ${goal.reason}`);
+      return failure("friction/serves_unresolvable", `serves declared (${frontmatter.serves}) but goal.md is not readable: ${goal.reason}`);
     }
-    if (!goal.anchors.has(frontmatter.serves_sg)) {
-      return failure("friction/serves_sg_unresolvable", `serves_sg ${frontmatter.serves_sg} does not match any SG-n in goal.md 子目标 (available: ${[...goal.anchors].join(", ") || "none"})`);
+    if (!goal.anchors.has(frontmatter.serves)) {
+      return failure("friction/serves_unresolvable", `serves ${frontmatter.serves} does not match any SG-n in goal.md 子目标 (available: ${[...goal.anchors].join(", ") || "none"})`);
     }
   }
 
@@ -614,14 +614,14 @@ export async function updateFrictionObject(args) {
     return failure("friction/relations_invalid", "updated relations failed mechanical checks", { issues: relCheck.issues });
   }
 
-  // serves_sg resolution on the updated object (26 §13)
-  if (fm.serves_sg !== undefined) {
+  // serves resolution on the updated object (26 §13)
+  if (fm.serves !== undefined) {
     const goal = await readGoalAnchors(factSourceRoot);
     if (!goal.ok) {
-      return failure("friction/serves_sg_unresolvable", `serves_sg declared (${fm.serves_sg}) but goal.md is not readable: ${goal.reason}`);
+      return failure("friction/serves_unresolvable", `serves declared (${fm.serves}) but goal.md is not readable: ${goal.reason}`);
     }
-    if (!goal.anchors.has(fm.serves_sg)) {
-      return failure("friction/serves_sg_unresolvable", `serves_sg ${fm.serves_sg} does not match any SG-n in goal.md 子目标 (available: ${[...goal.anchors].join(", ") || "none"})`);
+    if (!goal.anchors.has(fm.serves)) {
+      return failure("friction/serves_unresolvable", `serves ${fm.serves} does not match any SG-n in goal.md 子目标 (available: ${[...goal.anchors].join(", ") || "none"})`);
     }
   }
 
@@ -734,7 +734,7 @@ export async function listFrictionObjects(args) {
       status,
       impact: typeof frontmatter.impact === "string" ? frontmatter.impact : "",
       attribution: typeof frontmatter.attribution === "string" ? frontmatter.attribution : undefined,
-      serves_sg: typeof frontmatter.serves_sg === "string" ? frontmatter.serves_sg : undefined,
+      serves: typeof frontmatter.serves === "string" ? frontmatter.serves : undefined,
       created_at: typeof frontmatter.created_at === "string" ? frontmatter.created_at : "",
     });
   }

@@ -55,7 +55,7 @@ WorkCase 对象存在、处于 open 状态、Gate 记录齐全或 attempt 令牌
 4. WorkCase 的状态闭集与生命周期（draft/open/closed 与四种 outcome）；
 5. **Gate 1 与 Gate 2 授权语义**（授权包、C2 钉扎与局部重批）；
 6. **attempt 令牌与冷恢复的类型侧契约**；
-7. WorkCase 的关系契约（`serves` 指向 Goal sub-goal、`contributed-to` 指向 Pitfall）；
+7. WorkCase 的字段与关系契约（锚点型字段 `serves` 引用 Goal sub-goal，`contributed-to` 关系指向 Pitfall）；
 8. WorkCase 的召回与消费点、受控操作与类型退出。
 
 ### 3.2 本文不负责
@@ -284,7 +284,6 @@ attempt 令牌回答「当前谁在做、做到哪里」，**不承载任何授�
 |---|---|---|
 | attempt 的宿主实现（见 §10.4 第 4 项） | 不得声称 V6 接续与 HV2 受控可续中**依赖 attempt 的部分**已兑现 | **无**——在该实现补齐前，这些价值主张不成立 |
 | 34 号规范的建立（见 `10 §6.2`） | 不得声称 `10 §6.2` 的 provisional 措辞已随之更新 | 本文 §3.3 已声明 Gate 语义随本文定稿不再 provisional，故 34 号未建不影响本文效力 |
-| 锚点型字段命名的统一（见 `03 §7.2`） | 不得据字段名差异（`serves` vs `serves_sg`）推断语义差异 | `03 §7.2` 已登记三方同步纪律；同步完成前各类型现行登记名继续有效 |
 
 **本节不得因依赖补齐而被改写为「已承接」或「已保障」**；依赖闭合后应删除对应行。
 
