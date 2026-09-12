@@ -48,7 +48,7 @@
   ],
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "build:web": "cd web && pnpm build",
+    "build:web": "cd web && pnpm build:dsh",
     "lint": "eslint ."
   },
   "dsh": {
