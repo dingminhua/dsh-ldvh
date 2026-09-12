@@ -13,6 +13,7 @@ ldvh_spec:
     - "ldvh-root"
     - "specification-model-foundation"
     - "work-model-foundation"
+    - "fact-model-foundation"
   authorized_attachments: []
   dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
 ---
@@ -36,11 +37,12 @@ LDVH CLI 存在、工具注册成功、操作被发现、请求返回或载体�
 
 1. `ldvh-root`：00 §3.4 的机械保障、§3.5 的 LDVH CLI 确定性执行、§4–§5 的授权与责任、§7 的防自欺、Stop Conditions 与交还；
 2. `specification-model-foundation`：01 §6 的身份块契约、§7 的共同章节结构、§9 的当前规则源条件、§10 的读取层级与最小规则引导、§12 的独立对抗审核；
-3. `work-model-foundation`：02 对 LDVH CLI 确定性执行的机制指向与非默认仪式边界。
+3. `work-model-foundation`：02 对 LDVH CLI 确定性执行的机制指向与非默认仪式边界；
+4. `fact-model-foundation`：03 §8.2 的事实消费进入条件与召回分层（本文 §9 的交付前提）、§9.8 的 `partial_scope` 交还形状（本文 §8 的划界对象）。
 
 本文不依赖额外外部语法或行业标准定义 LDVH CLI 服务语义。
 
-03、04、06–10 是协作来源，不是本文的规范依据；历史规范、平台研究、实现和测试只作为设计输入，不取得规范效力。本规范无结构父规范，`parent_spec` 与 `relation` 均为空字符串且成对保留。发生冲突或权威关系无法确认时，按 00 §7.2 暂停受影响范围并完成对齐。
+04、06–10 是协作来源，不是本文的规范依据；历史规范、平台研究、实现和测试只作为设计输入，不取得规范效力。本规范无结构父规范，`parent_spec` 与 `relation` 均为空字符串且成对保留。发生冲突或权威关系无法确认时，按 00 §7.2 暂停受影响范围并完成对齐。
 
 ## 3. 职责边界
 
