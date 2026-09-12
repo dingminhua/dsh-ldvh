@@ -44,7 +44,7 @@ ldvh_spec:
 5. `source-of-truth-traceability`：06 §6.1 的 message 契约（提交署名 trailer 的格式与来源要求，本文 §6 的机械签名实现受其约束）；
 6. `work-object-governance-scope`：07 §5 的管辖登记制度契约（Schema、路径语义、三态判定、写入与迁移规则；本文 §6 的登记共享实现与 §10 的测试基线依其派生）。
 
-TypeScript、pnpm、Vitest 与构建工具只提供工程语法和执行能力，不取得 LDVH 领域语义权威。
+JavaScript 运行时、包管理器、测试运行器与构建工具只提供工程语法和执行能力，不取得 LDVH 领域语义权威。
 
 05、08、10 是协作来源，不是本文的规范依据；历史规范、开发备忘和既有实现只作为设计输入，不取得规范效力。
 
@@ -95,15 +95,15 @@ TypeScript、pnpm、Vitest 与构建工具只提供工程语法和执行能力�
 
 ## 5. 工程纪律
 
-**目录结构**：规范实现位于 `src/rules/`（按规范 ID 分文件夹），测试文件位于 `tests/` 或与实现同目录，工具配置位于 `tools/`。
+**目录结构**：宿主插件实现位于 `plugin/lib/`（平铺，按职责分文件）；测试文件位于 `plugin/test/`，命名 `<主题>.test.mjs`；Web 面实现位于 `plugin/web/`，构建产物为 `plugin/web/dist/`；插件与 Web 的依赖清单分别为 `plugin/package.json` 与 `plugin/web/package.json`。本节描述**当前实际结构**；结构迁移须先改本节并同步实现，不得在实现未到位时以目标结构代替现状。
 
-**命名约定**：文件与子目录小写 kebab-case，测试以 `.test.ts` 结尾，函数 camelCase，类 PascalCase。
+**命名约定**：文件与子目录小写 kebab-case，测试以 `.test.mjs` 结尾，函数 camelCase，类 PascalCase。
 
-**测试基线**：每个机械规则必须有对应单元或集成测试，覆盖正反向用例、边界条件、异常处理，拒绝零测试实现。代码实现与其验证测试须由不同代理或不同 AI 分任，避免同源自证；具体分任方式由主控按风险组织，不写死为单一宿主机制。
+**测试基线**：每个机械规则必须有对应单元或集成测试，覆盖正反向用例、边界条件、异常处理，拒绝零测试实现。代码实现与其验证测试须由不同代理或不同 AI 分任，避免同源自证；具体分任方式由主控按风险组织，不写死为单一宿主机制。测试运行入口为 `node --test test/*.test.mjs`。
 
-**Lint 与格式化**：ESLint + Prettier 统一配置，提交前必须通过静态分析，`git diff --check` 无空白错误。
+**Lint 与格式化**：ESLint 统一配置，提交前必须通过静态分析，`git diff --check` 无空白错误。格式化不设独立工具链。
 
-**工具链**：TypeScript（Strict 模式），pnpm 管理依赖，Vitest 测试运行器，Vite/Rollup/ESBuild 构建工具。
+**工具链**：JavaScript（ESM，`"type": "module"`），npm 管理依赖（`package-lock.json`），`node --test` 为测试运行器，Web 面使用 Vite 构建。本节所述工具链为**当前实际使用**的工具链；引入 TypeScript、pnpm、Vitest 或其它替代工具链属实现升级，须先改本节并完成相应迁移，不得以计划中的工具链作为当前工程纪律的依据。
 
 ## 6. 契约实现纪律
 
@@ -120,6 +120,8 @@ TypeScript、pnpm、Vitest 与构建工具只提供工程语法和执行能力�
 **机械签名**：提交（06 §6.1）、事实 `change_log`（03 公共字段署名要求）及其它来源后续定义的回报结构所需的 provider/model 必须由 Code 从 DSH 权威会话或请求记录取得，不允许 AI 自填、用部署默认值替代或由调用方覆盖；来源尚未定义所需签名的回报结构不在此列。空白会话、历史会话和模型切换场景必须有确定性取值与不可用结果。
 
 **Output Envelope**：09 只规定并验证主控 Output Envelope 的**单一生成职责**（Envelope 的最低语义由 00 §7.4 定义，09 不定义其形状）；08 定义 DSH 宿主承载、写入时机、消费方和验收流映射，10 定义 Human 呈现。Human 可读正文由同一结构派生或经一致性检查，二者不得矛盾；LDVH CLI 共同响应只是输入，不得冒充主控交还。
+
+**当前实现状态（缺口披露）**：Output Envelope 的生成实现**尚未建成**——`plugin/` 内无任何 Envelope 生成或一致性检查实现。因此本款为**条件式要求**：在实现补齐之前，不得据本文主张 Envelope 已生成、已校验或交还已完成；仅有 Human 可读正文时，须按 02 §19 暂停交还完成声明并披露未兑现范围，不得以本款的规定性表述代替实现证据。
 
 ## 7. 验证与证据边界
 

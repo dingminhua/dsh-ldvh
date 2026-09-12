@@ -123,9 +123,21 @@ DSH 结构化问询入口为 `ctx.userQuestions.ask(request)`（validation + sco
 - **运行时不变量**：经 DSH 正式不变量注册器 `ctx.invariants.register(packageName, installer)` 在装载完成、受控写入前和会话交还前执行来源已定义的断言（InvariantInstaller = (ctx, fail) => void|Promise，fail 抛 InvariantError code='INVARIANT' 带 packageName 归因；官方包 permission-presets 以 inject: ['invariants'] 同法消费；该入口 src 在 DSH 0.1.2-rc.1 与 0.1.5-alpha.1 字节级一致，2026-09-10 核验）；不替代 00 §3.4 三层防线。
 - **文件观察策略**：经 DSH 守卫式写保护承载（如实：宿主无文件 watch 服务）：读观察经 `fs/observed` 事件；写守卫经 `writeText(target, content, {kind:'replaceIfVersion', version})` 与 `editText(..., {version})` 版本守卫，配合 `fs/write-intent` 与 `fs/edit-intent` waterfall 挂载 LDVH 策略；`fs-observation-policy` 提供 FS_NOT_OBSERVED / FS_STALE_VERSION 拒绝语义，版本或指纹不一致时拒绝写入（签名两版零变化，2026-09-10 核验）。对 07 登记载体，08 只核验宿主满足 07 已定义的跨平台原子写入、冲突拒绝与回读要求并向实现暴露结果，不复制其写入算法。
 - **Git Gate 部署**：commit-msg 钩子安装到由项目 Git 根解析所得的 Git common-dir `hooks/commit-msg`，不得简单假设 `<worktree>/.git/hooks/`；主 worktree 与 linked worktree 共享同一 common-dir，独立 clone 分别部署。安装前检查既有钩子，非 LDVH 资产一律 `conflict` 且零写入，不覆盖 Human 自建钩子；部署后须确认 `managed` 状态（归属、路径、内容与版本一致），未确认不得声称已就绪；事件检查用 06 定义的同一 validator。
-- **管辖项目安装事务**：Human 在设置页选择的目录必须是实际 Git 根。点击“安装”后，登记项目、创建或校验项目内 `ldvh-base/`、安装或更新当前版本 Git Hook 均为必需步骤而非选项；任一步失败都不得报告管辖已就绪。设置页不提供单独的“卸载”操作；“取消管辖”自动卸载 LDVH 托管 Hook并移除登记，但永久保留 `ldvh-base/` 与其中事实对象。每次 DSH 启动对全部登记项目执行一次只读状态检查；检查或巡检发现 Hook 过时或事实源缺失时，设置页对可修复状态（Hook `absent/outdated` 或事实源 `absent/incomplete`）呈现“更新”操作，执行同一安装事务修复；`conflict` 或 `unavailable` 不可修复状态只呈现原因，不提供更新操作。版本不一致只报告并等待 Human 点击安装/更新，不静默修改。
+- **管辖项目安装事务**：Human 在设置页选择的目录必须是实际 Git 根。点击“安装”后，登记项目、创建或校验项目内 `ldvh-base/`、安装或更新当前版本 Git Hook 均为必需步骤而非选项；任一步失败都不得报告管辖已就绪。设置页不提供单独的“卸载”操作；“取消管辖”自动卸载 LDVH 托管 Hook并移除登记，但永久保留 `ldvh-base/` 与其中事实对象。每次 DSH 启动对全部登记项目执行一次只读状态检查；检查或巡检发现 Hook 过时或事实源缺失时，安装事务须能修复可修复状态（Hook `absent/outdated` 或事实源 `absent/incomplete`）；`conflict` 或 `unavailable` 属不可修复状态，事务不得对其执行写入。**上述状态的呈现形态与交互区分由 10 §6.5 定义，本文不复述**；08 只定义事务的步骤、状态闭集与失败处置。版本不一致只报告并等待 Human 点击安装/更新，不静默修改。
 - **设置页写入与权限降级**：设置页按钮在空闲状态没有 Agent、call id 与开放 turn，不能复用 `ctx.approval.request()` 或模型工具的 `sandbox_permissions` 一次性升权；普通插件 Host 自动安装只受当前 OS 文件权限约束。安装先完成只读预检，确认所有目标、Hook 所有权和回滚边界后再写入；OS 拒绝写入时 fail-closed、回滚本次可安全回滚的变化，不使用 `sudo` 或管理员 PowerShell。此时可提供同一 LDVH CLI 语义的精确平台命令和 DSH Desktop 正式“打开终端”入口作为降级，macOS/Windows 仅在路径引用和终端载体上不同；用户执行后必须回到设置页重新“检查”，终端退出码不单独证明就绪。
 - **权限预设与沙箱分层**：`workspace-write`（默认，工作区路径内读写与执行，无需 Human 授权）/ `danger-full-access`（跨工作区与系统级，需 Human 授权）只约束 Agent 工具调用；分层语义归 00 §3.4 的 fail-closed 授权边界与 00 §4.1 的 Human 授权决定，08 只定义宿主接入方式，AI 不得把聊天工具授权转移给设置页按钮，也不得自行扩权。
+
+**LDVH 消费状态（缺口披露）**：上列宿主缝分为「已消费」与「已声明未消费」两类，必须分别对待，不得以宿主缝存在推断 LDVH 已受其保护：
+
+| 宿主缝 | LDVH 是否消费 | 后果 |
+|---|---|---|
+| `ctx.tools.register` | 已消费 | 工具注册与参数校验生效 |
+| `ctx.tools.guard` | **未消费** | LDVH 未注册任何单调守卫；执行链中 guards 段对 LDVH 操作无实际约束 |
+| `ctx.invariants.register` | **未消费** | 运行时不变量断言未部署；本节所述检查时机不对 LDVH 操作生效 |
+| `fs/observed` 读观察 | **未消费** | 读观察事件未挂载；写入版本守卫（`writeText`/`editText` 的 `{version}`）未挂载 |
+| `ctx.userQuestions.ask` | **未消费** | Human Gate 决策提请未经该入口；审批通道为当前实际载体 |
+
+未消费各项均为**条件式要求**：在实现补齐之前，不得据本文主张相应防护已部署、已生效或已 fail-closed，也不得把「提交通过」「工具调用成功」引为不变量、守卫或版本屏障已执行的证据。补齐后须同步更新本表，并纳入 §8 的验证对象。
 
 ## 7. 发布与公共门面
 
