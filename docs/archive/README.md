@@ -7,6 +7,40 @@
 
 ---
 
+## 〇、2026-09-13 第二批归档（8 份 · 依清理对照表方案 A）
+
+**背景**：Human 2026-09-13 目标——「把 docs 里需要推进的工作都转入 spark，之后 docs 目录要进行大量的清理」。转入完成后（事实源 Spark 3 → 24），依 `docs/docs-cleanup-retention-table.md` **方案 A** 执行第二批归档。
+
+| 文件 | 行 | 归档依据 |
+|---|---|---|
+| `v4-v5-spec-migration-matrix.md` | 118 | **Human 裁定 2026-09-13：不存在迁移了**；ADR `1aad60bc`「v4 存量零迁移」 |
+| `v4-web-migration-survey.md` | 297 | Web 已迁入插件（`plugin/web/` 已存在），盘点使命完成 |
+| `trae-memory-analysis.md` | 88 | 已由 Spark `b8cd2268`「LDVH 记忆系统」的调研依据链承载 |
+| `workbuddy-memory-analysis.md` | 79 | 同上 |
+| `concept-systems-and-institutions-2026-09-11.md` | 631 | §12.5 已终局裁定「六系统，无缺口」；已由 Spark `2916e3d5` 覆盖 |
+| `business-systems-overview.md` | 162 | 00 §3.1 已定六系统（其自述「00 §3.1 仍是唯一权威」） |
+| `00-hierarchy-check-2026-09-11.md` | 112 | §4.2 待裁定项**已闭合**（00 §2 制度条款已补入，经核） |
+| `dsh-current-version-and-market-gap.md` | 128 | 已由 Spark `76ee7b7b`「上游 DSH 能力变化的吸收」覆盖 |
+
+**纪律说明**：
+1. 本批**全部为 `git mv`**（8 份均为真重命名，git 历史保留；零删除）；
+2. **归档 ≠ 判断其内容无价值**——其中多份的内容已转入事实源 Spark，但 Spark 的 `summary` 是语义快照，原文含更完整细节（推导、行业对照、字段清单），故**归档保留而非删除**；
+3. 完整的逐份「可删/应留」判据见 `docs/docs-cleanup-retention-table.md`（该表建议保留在根，理由：是清理决策自身依据）。
+
+**第二部分（未执行）**：对照表方案 B 尚列 7 份「已由 Spark 覆盖」的归档候选（`read-dimension-understanding`、`restructure-decision-list`、`deliberation-input-restructure`、`execution-usage-mapping-draft`、`deliberation-usage-mapping-draft`、`team-control-foundation-draft`、`analysis-upper-spec-size-and-ownership`），**待 Human 逐项勾选后归档**。
+
+**核验命令**：
+
+```bash
+cd /Users/dmh2002/DshProject/dsh-ldvh
+ls docs/*.md | wc -l            # 80（原 88）
+ls docs/archive/*.md | wc -l    # 42（原 34）
+git status --porcelain | grep -c '^R'   # 8（真重命名）
+git status --porcelain | grep '^D'      # 空（零删除）
+```
+
+---
+
 ## 一、为什么归档而不是删除
 
 | 理由 | 说明 |
@@ -44,10 +78,44 @@
 | `spec-candidate-11-research-system.md` | 11 | `specs/11-调研系统规范.md` |
 | `spec-candidate-24-research-fact-type.md` | 24 | `specs/24-Research-调研报告.md` |
 | `spec-candidate-25-goal-fact-type.md` | 25 | `specs/25-Goal-项目目标.md` |
-| `spec-candidate-2026-09-03-action-visibility.md` | 行动可见性 | 已由 `specs/02`/`10` 相关条文承接（**未逐条核实**） |
-| `spec-candidate-2026-09-06-handover-three-state-envelope.md` | 交还 envelope | 已由 `specs/05`/`08` 承接（**未逐条核实**） |
+| `spec-candidate-2026-09-03-action-visibility.md` | 行动可见性 | ❌ **未承接（原判误，2026-09-13 核实更正）**——见下方 §二之一 |
+| `spec-candidate-2026-09-06-handover-three-state-envelope.md` | 交还 envelope | ⚠️ **部分承接**——见下方 §二之一 |
 
 **⚠️ 唯一未归档的候选稿**：`spec-candidate-30-goal-decomposition.md` —— 目标是 **30 号段（业务系统段），尚未建立**，保留在 `docs/` 根以备后续使用。
+
+### 二之一、两份候选的「已承接」判断经核实更正（2026-09-13）
+
+上表原将两份候选记为「已由 specs 承接（未逐条核实）」。经**逐条机械核验**，该判断对一份为**误判**、对另一份**不完整**：
+
+#### ① `spec-candidate-2026-09-03-action-visibility.md` —— 误判，**从未应用**
+
+| 核验项 | 命令/依据 | 结果 |
+|---|---|---|
+| `specs/` 是否含该术语 | `grep -rn '行动可见性' specs/` | **零命中** |
+| `08` 是否新增 §5.7「行动可见性」 | 读 `08` 章节目录 | **无 §5.7**（章节止于 §6「机械守护部署」） |
+| `10` 是否新增 §7.1「会话内管辖与行动标记」 | 读 `10` 章节目录 | **无 §7.1**（现 §7 为「管辖登记与项目切换」） |
+
+该候选经**两轮独立对抗审核**后停在中途：复审（`review-report-2026-09-04b-*`）判定 13 项均已落点，但新发现 R1–R6 未处置（R1 能力夸大、R2 核对缺口均为 high），建议「进入 Human 终审前由主控处理」——**流程停在此处，未进终审、未应用**。
+
+**处置**：已建为 Spark「行动可见性候选停摆」，方向未被承接，须由 Human 决定继续修复应用或正式退出。**原「归档=口径已被取代」的记述对该文件不成立**（其口径从未生效）。
+
+#### ② `spec-candidate-2026-09-06-handover-three-state-envelope.md` —— 部分承接
+
+已承接：`specs/05` 定义了共同 envelope、`gaps` 字段与 `partial/unavailable/rejected/invalid_request/exec_error` 响应状态（§8 区域，见 05:186/193/231/238）；`specs/08:60` 明确「传输 envelope 归 05」。
+
+**未承接**：该候选的核心贡献是**三态（已证实/未证实/残留风险）的属性字段**（置信度、优先级、验证方法、溯源）——其 §1.1 自述「00 §7.4 只有自然语言描述，**没有属性字段**——实现者无法机械区分『未证实』与『残留风险』」。此结构化字段定义在 `specs/05` 中**未见对应条文**。
+
+**处置**：该候选属**部分承接**；其未承接部分（三态属性字段）是否仍需落地，待 Human 判断。本次未另建 Spark（承接判定证据不足以支撑一条独立方向），如实登记于此。
+
+**核验命令**：
+
+```bash
+cd /Users/dmh2002/DshProject/dsh-ldvh
+grep -rn '行动可见性' specs/ | wc -l          # 0
+grep -n '^### 5\.7\|^## 5\.7' specs/08-*.md   # 无输出
+grep -n '^### 7\.1' specs/10-*.md             # 无输出
+grep -n 'gaps' specs/05-*.md | head           # 有（已承接部分）
+```
 
 ### B. v4/v5 迁移遗留（4 份）
 
@@ -114,4 +182,4 @@ git log --follow docs/archive/spec-candidate-11-research-system.md   # 历史保
 1. **本索引须与实际内容一致**：新增归档时同步更新本文件。
 2. **归档不等于失效判断**：某文档被归档仅表示「其口径已被取代或任务已完成」，不表示其内容无价值。
 3. **`docs/` 整体不具规范效力**：任何归档/恢复动作都不改变 `specs/` 的当前规则源。
-4. **残留不确定**：`spec-candidate-2026-09-03-action-visibility.md` 与 `spec-candidate-2026-09-06-handover-three-state-envelope.md` 的「已被取代」判断**未逐条核实**；`v4-v5-spec-migration-matrix.md`／`v4-web-migration-survey.md` 是否仍被引用**未核实**。
+4. **残留不确定**：~~`spec-candidate-2026-09-03-action-visibility.md` 与 `spec-candidate-2026-09-06-handover-three-state-envelope.md` 的「已被取代」判断**未逐条核实**~~ → **已于 2026-09-13 核实并更正**，见 §二之一；`v4-v5-spec-migration-matrix.md`／`v4-web-migration-survey.md` 是否仍被引用**未核实**。
