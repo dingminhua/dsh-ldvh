@@ -10,6 +10,8 @@
  */
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { ChevronDown, ChevronUp, Target } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Maximize2 } from 'lucide-react';
 import { fetchCognitionGoal, ApiRequestError } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
 import { copyText } from '@/utils/clipboard';
@@ -23,6 +25,7 @@ function toggleOnKeyboard(event: KeyboardEvent<HTMLDivElement>, toggle: () => vo
 
 export default function GoalSection() {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const [goal, setGoal] = useState<{ title: string; status: string; statement: string; sub_goals: { id: string; text: string }[] } | null>(null);
   const [goalMissing, setGoalMissing] = useState(false);
   const [goalError, setGoalError] = useState<string | null>(null);
@@ -67,7 +70,23 @@ export default function GoalSection() {
       >
         <Target size={16} className="shrink-0 text-ldvh-accent" aria-hidden="true" />
         <h3 className="ldvh-section-title min-w-0">{t('focusV2.goalTitle')}</h3>
-        <span className="ml-auto flex min-w-0 shrink-0 items-center">
+        <span className="ml-auto flex min-w-0 shrink-0 items-center gap-1">
+          {/* 详情入口：/goal 单例详情页（25 §5 单例三免——无 tab 无 card，
+              完整阅读面走直读路由承载）。 */}
+          {goal && (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                navigate('/goal');
+              }}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ldvh-text-secondary transition-colors hover:bg-ldvh-bg hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ldvh-accent/50"
+              title={t('goalDetail.openDetail')}
+              aria-label={t('goalDetail.openDetail')}
+            >
+              <Maximize2 size={14} aria-hidden="true" />
+            </button>
+          )}
           <button
             type="button"
             aria-expanded={goalExpanded}

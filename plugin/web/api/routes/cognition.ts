@@ -120,7 +120,9 @@ interface ActiveWorkCaseBuildItem {
 }
 
 interface RecentActivityBuildItem {
-  type: ObjectType
+  /** 25 号 Goal 是单例冻结锚（非 ACTIVE_OBJECT_TYPES 多例）——change_log 流水
+   * 同样进近期动态，type='goal' 走消费点直读而非对象列表。 */
+  type: ObjectType | 'goal'
   object_id: string
   object_uid?: string
   title: string
@@ -300,7 +302,7 @@ function compareRecentActivity(a: RecentActivityBuildItem, b: RecentActivityBuil
 
 function buildRecentActivityItem(
   raw: Record<string, unknown>,
-  type: ObjectType,
+  type: ObjectType | 'goal',
   activity: RecentActivityKind,
   occurredAt: string,
   signature?: FactChangeSignature,
@@ -339,7 +341,7 @@ function buildRecentActivityItem(
  */
 export function buildFactActivityItems(
   raw: Record<string, unknown>,
-  type: ObjectType,
+  type: ObjectType | 'goal',
   start: number,
   end: number,
 ): RecentActivityBuildItem[] {
@@ -855,6 +857,29 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         recentBuilds.push(...buildFactActivityItems(raw, type, recentStart, parseTimestamp(generatedAt)))
       }
     }
+    // 25 号 Goal：单例冻结锚的 change_log 修订史也进近期动态（§6 修订史是 HV5
+    // 演进链第一环）。goal.md 尚未创建是合法状态（项目初始化前），静默跳过；
+    // 存在但不可读时如实披露。单例路径即身份，object_id 以 'goal' 稳定填充。
+    const goalRecord = await readGoalRecord(project)
+    if (goalRecord.status === 'readable') {
+      recentBuilds.push(...buildFactActivityItems(
+        {
+          ...goalRecord.raw,
+          object_id: 'goal',
+          // 读取层判定结果随条目携带：readable 已由 readGoalRecord 成立（否则
+          // 走 unreadable 分支），不注入会让展示层回退 'unknown' 误报红字；
+          // 轻校验的 field_issues 如实带入（goal.md 字段问题可见）。
+          read_status: 'readable',
+          field_issues: goalRecord.fieldIssues,
+          unparsed_structures: [],
+        },
+        'goal',
+        recentStart,
+        parseTimestamp(generatedAt),
+      ))
+    } else if (goalRecord.status === 'unreadable') {
+      issues.push({ section: 'recentActivity', code: 'goal_unreadable', message: goalRecord.issues[0]?.message ?? 'goal.md 读取失败' })
+    }
     recentBuilds.sort(compareRecentActivity)
 
     // 模块三与近期动态共用事实 change_log；只读取当前正式关系，不从 Git、标题或关键词推断关联。
@@ -1065,68 +1090,134 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 /**
  * GET /api/cognition/goal — 蓝图「当前目标」投影的机械来源读取（specs/25 直读消费点）。
  *
- * 读取被管辖项目 worktree 下的单例 goal.md，仅投影蓝图所需的窄字段：目标陈述 + 子目标(SG-n)清单。此处不做任何 AI 判断或派生——只把 goal.md 原文里
- * 的结构化字段搬给前端；服务端不缓存、不回写、不建索引（25 §10 消费点直读）。
- * 该路由仅为蓝图首页（/focus-v2 测试页）提供 goal.md 的读取入口，不承载 Goal 类型
- * 的创建/更新/翻转等受控操作（那些走 AI 受控写入路径）。
+ * 读取被管辖项目 worktree 下的单例 goal.md，投影字段覆盖两档消费：蓝图窄字段
+ * （目标陈述 + 子目标 SG-n 清单）与详情阅读面（created_at + change_log 修订史 +
+ * 读取层元数据——canonical_path/carrier/read_status 供前端 getFactReadMeta 消费）。
+ * 此处不做任何 AI 判断或派生——只把 goal.md 原文里的结构化字段搬给前端；服务端
+ * 不缓存、不回写、不建索引（25 §10 消费点直读）。该路由不承载 Goal 类型的
+ * 创建/更新/翻转等受控操作（那些走 AI 受控写入路径）。
  */
 type GoalSubGoal = { id: string; text: string }
+
+/** 25 号 Goal 的必填字段闭集（§6 frontmatter 全必填）——呈现层轻校验，
+ * 只报告 missing，不做类型系统级契约（Goal 不走 FACT_FIELD_CONTRACT 单例豁免）。 */
+const GOAL_REQUIRED_FIELDS = ['goal_key', 'title', 'status', 'created_at'] as const
+
+type GoalRecord =
+  | { status: 'missing' }
+  | { status: 'unreadable'; issues: Array<{ code: string; message: string; path?: string }> }
+  | {
+      status: 'readable'
+      raw: Record<string, unknown>
+      frontmatterSource: string
+      statement: string
+      subGoals: GoalSubGoal[]
+      fieldIssues: Array<{ path: string; reason: 'missing' | 'identity_mismatch'; expected: string; raw_value?: unknown }>
+      issues: Array<{ code: string; message: string; path?: string }>
+    }
+
+/** 单例 goal.md 读取与解析（/goal 直读路由与近期动态共用；25 §5 路径即身份）。 */
+async function readGoalRecord(project: { path: string }): Promise<GoalRecord> {
+  const goalPath = path.join(project.path, 'ldvh-base', 'goal.md')
+  let raw: string
+  try {
+    raw = await readFile(goalPath, 'utf-8')
+  } catch {
+    return { status: 'missing' }
+  }
+  const lines = raw.split(/\r?\n/)
+  if (lines[0]?.trim() !== '---') {
+    return { status: 'unreadable', issues: [{ code: 'frontmatter_missing', message: 'goal.md 缺少 frontmatter', path: 'ldvh-base/goal.md' }] }
+  }
+  const endIdx = lines.findIndex((line, index) => index > 0 && line.trim() === '---')
+  if (endIdx === -1) {
+    return { status: 'unreadable', issues: [{ code: 'frontmatter_unclosed', message: 'goal.md frontmatter 未闭合', path: 'ldvh-base/goal.md' }] }
+  }
+  const frontmatterSource = lines.slice(1, endIdx).join('\n')
+  const body = lines.slice(endIdx + 1).join('\n')
+  let meta: Record<string, unknown>
+  try {
+    meta = yaml.load(frontmatterSource) as Record<string, unknown>
+  } catch (err) {
+    return { status: 'unreadable', issues: [{ code: 'frontmatter_parse_failed', message: `goal.md frontmatter 解析失败：${err instanceof Error ? err.message : String(err)}`, path: 'ldvh-base/goal.md' }] }
+  }
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
+    return { status: 'unreadable', issues: [{ code: 'frontmatter_parse_failed', message: 'goal.md frontmatter 顶层不是键值映射', path: 'ldvh-base/goal.md' }] }
+  }
+
+  // 目标陈述解析：「## 目标陈述」H2 下的段落（到下一个 H2 为止，去首尾空白）。
+  let statement = ''
+  const stmtMatch = /^##\s*目标陈述\s*$/m.exec(body)
+  if (stmtMatch) {
+    const stmtSection = body.slice(stmtMatch.index + stmtMatch[0].length)
+    const nextH2 = /^##\s/m.exec(stmtSection)
+    statement = (nextH2 ? stmtSection.slice(0, nextH2.index) : stmtSection).trim()
+  }
+
+  // 子目标解析：正文里 `SG-n …` 行（目标陈述段与子目标段都按原文抽取，避免臆造进度）。
+  const subGoals: GoalSubGoal[] = []
+  const sgRe = /^\s*(SG-\d+)[:：]?\s+(.+)$/
+  for (const line of body.split('\n')) {
+    const match = sgRe.exec(line)
+    if (match) subGoals.push({ id: match[1].trim(), text: match[2].trim() })
+  }
+
+  // 呈现层轻校验：必填闭集 missing + goal_key 固定值 identity（25 §6/§10）。
+  const fieldIssues: Array<{ path: string; reason: 'missing' | 'identity_mismatch'; expected: string; raw_value?: unknown }> = []
+  for (const fieldKey of GOAL_REQUIRED_FIELDS) {
+    const value = (meta as Record<string, unknown>)[fieldKey]
+    if (value === undefined || value === null || (typeof value === 'string' && !value.trim())) {
+      fieldIssues.push({ path: fieldKey, reason: 'missing', expected: 'string' })
+    }
+  }
+  if (typeof meta.goal_key === 'string' && meta.goal_key !== 'project-goal') {
+    fieldIssues.push({ path: 'goal_key', reason: 'identity_mismatch', expected: 'project-goal', raw_value: meta.goal_key })
+  }
+
+  return {
+    status: 'readable',
+    raw: { ...meta },
+    frontmatterSource,
+    statement,
+    subGoals,
+    fieldIssues,
+    issues: [],
+  }
+}
+
 router.get('/goal', async (req: Request, res: Response): Promise<void> => {
   try {
     const project = await requestProject(req)
-    const goalPath = path.join(project.path, 'ldvh-base', 'goal.md')
-    let raw: string
-    try {
-      raw = await readFile(goalPath, 'utf-8')
-    } catch (err) {
+    const record = await readGoalRecord(project)
+    if (record.status === 'missing') {
       res.status(404).json({ ok: false, error: 'goal.md 不存在——Goal 事实对象尚未创建', exitCode: 'goal_missing' })
       return
     }
-    const lines = raw.split(/\r?\n/)
-    if (lines[0]?.trim() !== '---') {
-      res.status(500).json({ ok: false, error: 'goal.md 缺少 frontmatter', code: 'frontmatter_missing' })
+    if (record.status === 'unreadable') {
+      const first = record.issues[0]
+      res.status(500).json({ ok: false, error: first?.message ?? 'goal.md 读取失败', code: first?.code ?? 'goal_read_failed' })
       return
     }
-    const endIdx = lines.findIndex((line, index) => index > 0 && line.trim() === '---')
-    if (endIdx === -1) {
-      res.status(500).json({ ok: false, error: 'goal.md frontmatter 未闭合', code: 'frontmatter_unclosed' })
-      return
-    }
-    const metaLines = lines.slice(1, endIdx).join('\n')
-    const body = lines.slice(endIdx + 1).join('\n')
-    let meta: Record<string, unknown>
-    try {
-      meta = yaml.load(metaLines) as Record<string, unknown>
-    } catch (err) {
-      res.status(500).json({ ok: false, error: 'goal.md frontmatter 解析失败', code: 'frontmatter_parse_failed' })
-      return
-    }
-
-    // 目标陈述解析：「## 目标陈述」H2 下的段落（到下一个 H2 为止，去首尾空白）。
-    let statement = ''
-    const stmtMatch = /^##\s*目标陈述\s*$/m.exec(body)
-    if (stmtMatch) {
-      const stmtSection = body.slice(stmtMatch.index + stmtMatch[0].length)
-      const nextH2 = /^##\s/m.exec(stmtSection)
-      statement = (nextH2 ? stmtSection.slice(0, nextH2.index) : stmtSection).trim()
-    }
-
-    // 子目标解析：正文里 `SG-n …` 行（目标陈述段与子目标段都按原文抽取，避免臆造进度）。
-    const subGoals: GoalSubGoal[] = []
-    const sgRe = /^\s*(SG-\d+)[:：]?\s+(.+)$/
-    for (const line of body.split('\n')) {
-      const match = sgRe.exec(line)
-      if (match) subGoals.push({ id: match[1].trim(), text: match[2].trim() })
-    }
-
+    const meta = record.raw
     res.json({
       ok: true,
       goal: {
         goal_key: typeof meta.goal_key === 'string' ? meta.goal_key : 'project-goal',
         title: typeof meta.title === 'string' ? meta.title : '',
         status: typeof meta.status === 'string' ? meta.status : 'active',
-        statement,
-        sub_goals: subGoals,
+        statement: record.statement,
+        sub_goals: record.subGoals,
+        // 详情阅读面投影（25 §6 修订史是 HV5 演进链第一环）：
+        created_at: typeof meta.created_at === 'string' ? meta.created_at : undefined,
+        change_log: Array.isArray(meta.change_log) ? meta.change_log : [],
+        // 读取层元数据：与多例类型的 exact-read 投影同形态，供前端 getFactReadMeta
+        // 消费（25 §5 单例路径即身份——canonical_path 固定）。
+        canonical_path: 'ldvh-base/goal.md',
+        carrier: 'markdown',
+        read_status: 'readable',
+        field_issues: record.fieldIssues,
+        unparsed_structures: [],
+        read_issues: record.issues,
       },
     })
   } catch (err) {

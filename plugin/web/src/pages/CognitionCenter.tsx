@@ -419,7 +419,8 @@ function RecentActivityRow({ item }: { item: CognitionRecentActivityItem }) {
         <ActivityCountBadge count={item.activityCount} label={t('cognition.recent.activityCount', { count: String(item.activityCount) })} />
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           {status && <StatusBadge status={status} statusLabel={getObjectStatusLocale(item.type, status, locale)} objectType={item.type} size="xs" variant="compact" />}
-          <ObjectReferenceCopyButton projectId={selectedProjectId} objectId={item.id} />
+          {/* 25 号 Goal 单例：路径即身份，@对象引用形态对 AI 路由无意义——不提供引用复制。 */}
+          {item.type !== 'goal' && <ObjectReferenceCopyButton projectId={selectedProjectId} objectId={item.id} />}
         </span>
       </div>
       <div

@@ -8,6 +8,7 @@ import FederationObjects from '@/pages/FederationObjects';
 import ProjectFiles from '@/pages/ProjectFiles';
 import Changes from '@/pages/Changes';
 import ObjectList from '@/pages/ObjectList';
+import GoalDetail from '@/pages/GoalDetail';
 import ObjectDetail from '@/pages/ObjectDetail';
 import Changelog from '@/pages/Changelog';
 import ChangelogDetail from '@/pages/ChangelogDetail';
@@ -24,6 +25,8 @@ function AppRoutes() {
         <Route path="/project-files" element={<ProjectFiles />} />
         <Route path="/changes" element={<Changes />} />
         <Route path="/objects/:type" element={<ObjectList />} />
+        {/* 25 号 Goal 单例：无 tab 无 card，详情直读路由承载（/api/cognition/goal）。 */}
+        <Route path="/goal" element={<GoalDetail />} />
         <Route path="/objects/:type/:id" element={<ObjectDetail />} />
         <Route path="/changelog" element={<Changelog />} />
         <Route path="/changelog/:hash" element={<ChangelogDetail />} />

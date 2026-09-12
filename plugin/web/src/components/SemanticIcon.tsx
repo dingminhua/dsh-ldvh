@@ -11,6 +11,7 @@ import {
   Shovel,
   Snail,
   Sparkles,
+  Target,
   Workflow,
   type LucideProps,
 } from 'lucide-react';
@@ -59,6 +60,10 @@ export const OBJECT_TYPE_ICONS: Record<string, SemanticIconComponent> = {
   // 27 号 Norm：事实规范——成体系方向规范（尺=约束与度量的直观物；
   // Human 定案 2026-09-12，取代 ScrollText）。
   norm: Ruler,
+  // 25 号 Goal：项目目标——单例冻结锚（靶心=全部前向工作的统一引用顶点；
+  // 与认知中心目标区同图标语义）。单例三免（无 tab 无 card），详情经
+  // /goal 直读路由承载。
+  goal: Target,
   change: GitCommit,
   changelog: GitHubSilhouetteIcon,
 };

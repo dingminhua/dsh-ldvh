@@ -16,7 +16,7 @@ import {
 } from '@/pages/ObjectDetail';
 import { getCommitDetailLabels, getLocalizedObjectTitle, getObjectStatusLocale, getToggleLabel, getTypeLabel, type CommitDetailLabels } from '@/i18n/locales';
 import { normalizeSignature } from '../../../shared/signature';
-import { fetchDocContent, fetchObjectDetail, type CommitDetailPanelData, type CommitSignature, type DocContent, type ObjectDetail as ApiObjectDetail } from '@/utils/api';
+import { fetchCognitionGoal, fetchDocContent, fetchObjectDetail, type CommitDetailPanelData, type CommitSignature, type DocContent, type ObjectDetail as ApiObjectDetail } from '@/utils/api';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import { getCommitScopeLabel, getCommitTypeLabel } from '@/utils/commitLabels';
 import { formatDateTime } from '@/utils/dateFormat';
@@ -111,12 +111,22 @@ function ObjectPreview({ content }: { content: PanelContent }) {
     let cancelled = false;
     setDetail(null);
     setError(null);
-    fetchObjectDetail(objectType, objectId)
+    // 25 号 Goal 单例：路径即身份（无 :id 通道），走 /api/cognition/goal 直读
+    // 并转成与 exact-read 同形的 detail（goal 字段即投影对象）。
+    const loader = objectType === 'goal'
+      ? fetchCognitionGoal().then((result) => {
+          if (result.goal) {
+            return { ok: true as const, action: 'show', target: 'goal', summary: { id: 'goal', type: 'goal', status: result.goal.status }, data: result.goal } as unknown as ApiObjectDetail;
+          }
+          throw new Error(result.error ?? 'goal.md 读取失败');
+        })
+      : fetchObjectDetail(objectType, objectId);
+    loader
       .then((result) => {
         if (!cancelled) setDetail(result);
       })
       .catch((e) => {
-        if (!cancelled) setError(e.message);
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       });
 
     return () => {

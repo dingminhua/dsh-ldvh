@@ -99,6 +99,12 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     active: { zh: '生效中', en: 'Active' },
     retired: { zh: '已退役', en: 'Retired' },
   },
+  goal: {
+    // 25 号 §7 状态闭集：active（项目存续期常态）/ achieved（收官判定，
+    // 全部 sub-goal 达成后 Human 终局判定；冻结为历史档案）。
+    active: { zh: '生效中', en: 'Active' },
+    achieved: { zh: '已达成', en: 'Achieved' },
+  },
 };
 
 export function getObjectStatusLocale(type: string, status: string, locale: string): string {
@@ -115,6 +121,7 @@ export const TYPE_DESCRIPTION_LOCALES: Record<string, { zh: string; en: string }
   research: { zh: '调研', en: 'Research' },
   friction: { zh: '摩擦账本——应该修但还没修的系统性阻碍（26 §1）', en: 'An improvement ledger: systemic obstacles that should be fixed but are not yet (26)' },
   norm: { zh: '事实规范——一个工程方向的成体系规则体系（27 §1）', en: 'A fact-carried norm: the systematic rule system of one engineering direction' },
+  goal: { zh: '项目目标——单例冻结锚：目标陈述 + sub-goal 子目标（25 §1）', en: 'The project goal: a singleton frozen anchor of statement and sub-goals' },
   change: { zh: '提交', en: 'Commit' },
 };
 
@@ -140,6 +147,7 @@ export const TYPE_LOCALES: Record<string, { zh: string; en: string }> = {
   research: { zh: '调研', en: 'Research' },
   friction: { zh: '摩擦', en: 'Friction' },
   norm: { zh: '规范', en: 'Norm' },
+  goal: { zh: '目标', en: 'Goal' },
   change: { zh: '提交', en: 'Commit' },
 };
 
@@ -402,6 +410,10 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   norm_rules: { zh: '核心规则体系', en: 'Core Rule System' },
   norm_constraints: { zh: '约束与反模式', en: 'Constraints & Anti-patterns' },
   norm_compliance: { zh: '验证与遵从性检查', en: 'Verification & Compliance' },
+  // v5 Goal（25 号）详情阅读布局标题：目标陈述（冻结区——为什么 + 要实现什么）
+  // 与子目标（SG-n 可判定的达成条件，冻结区）。
+  goal_statement: { zh: '目标陈述', en: 'Goal Statement' },
+  goal_sub_goals: { zh: '子目标', en: 'Sub-goals' },
   category: { zh: '分类', en: 'Category' },
   priority: { zh: '优先级', en: 'Priority' },
   assignee: { zh: '执行者', en: 'Assignee' },
@@ -740,6 +752,20 @@ export function getObjectStatusHint(type: string, status: string, locale: string
         : '已退役：保留为只读历史档案，不重开';
     }
   }
+  // 25 号 §7：active 是项目存续期常态；achieved 是全部 sub-goal 达成后的
+  // Human 终局判定——冻结为历史档案。
+  if (type === 'goal') {
+    if (status === 'active') {
+      return locale === 'en'
+        ? 'The current frozen anchor all work is measured against'
+        : '当前生效的项目目标锚——全部前向工作的统一引用顶点';
+    }
+    if (status === 'achieved') {
+      return locale === 'en'
+        ? 'All sub-goals achieved and closed out; frozen as history'
+        : '全部子目标达成并收官：冻结为历史档案';
+    }
+  }
   return getStatusHint(status, locale);
 }
 
@@ -755,6 +781,10 @@ export const UI_LOCALES = {
     'nav.studies': '调研',
     'nav.frictions': '摩擦',
     'nav.norms': '规范',
+
+    'goalDetail.openDetail': '查看目标详情',
+    'goalDetail.missingTitle': '项目目标尚未创建',
+    'goalDetail.missingBody': 'goal.md 不存在——Goal 事实对象尚未创建（项目初始化前的合法状态）。创建走 AI 受控写入路径，Web 是纯呈现层。',
     'nav.changes': '变更',
     'nav.changelog': '提交',
     'nav.help': '帮助',
@@ -1395,6 +1425,10 @@ export const UI_LOCALES = {
     'nav.studies': 'Research',
     'nav.frictions': 'Frictions',
     'nav.norms': 'Norms',
+
+    'goalDetail.openDetail': 'Open goal detail',
+    'goalDetail.missingTitle': 'The project goal has not been created yet',
+    'goalDetail.missingBody': 'goal.md does not exist — the Goal fact object has not been created (a legal state before project initialization). Creation goes through the AI controlled-write path; the Web is a pure presentation layer.',
     'nav.changes': 'Changes',
     'nav.changelog': 'Commit Records',
     'nav.help': 'Help',

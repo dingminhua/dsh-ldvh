@@ -446,7 +446,8 @@ test('recent activity accepts only explicit windows and groups fact change-log e
     assert.equal(Number(recent.total), items.length)
     assert.ok(Number(recent.eventTotal) >= items.length)
     for (const item of items) {
-      assert.ok(['workcase', 'adr', 'pitfall', 'spark', 'research'].includes(String(item.type)))
+      // 25 号 Goal：单例冻结锚的 change_log 修订史同样进近期动态（type='goal'）。
+      assert.ok(['workcase', 'adr', 'pitfall', 'spark', 'research', 'goal'].includes(String(item.type)))
       assert.ok(['created', 'updated'].includes(String(item.activity)))
       assert.match(String(item.occurredAt), RFC3339)
       if (item.signature !== undefined) {

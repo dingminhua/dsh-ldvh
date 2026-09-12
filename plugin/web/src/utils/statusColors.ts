@@ -29,6 +29,8 @@ export const STATUS_COLORS: Record<string, { light: string; dark: string }> = {
   // 26 §9：Friction deferred（缓议的账）——明确暂缓的琥珀色，与 open（同琥珀族
   // 待办语义）区分于 resolved（灰，已销账）。复用 deferred 独立键以便后续分色。
   deferred: { light: '#ca8a04', dark: '#eab308' },
+  // 25 §7：Goal achieved（全部 sub-goal 达成的收官判定）——正向达成绿色。
+  achieved: { light: '#059669', dark: '#00d4aa' },
 rejected: { light: '#dc2626', dark: '#ef4444' },
   deprecated: { light: '#dc2626', dark: '#ef4444' },
   discarded: { light: '#dc2626', dark: '#ef4444' },

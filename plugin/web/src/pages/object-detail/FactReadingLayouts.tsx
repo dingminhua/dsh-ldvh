@@ -823,3 +823,62 @@ function NormTerminalReadingNode({ obj, locale }: { obj: Record<string, unknown>
     </ReadingNodeSection>
   );
 }
+
+/** v5 Goal 阅读布局（25 号 §6）：单例冻结锚的详情阅读面——目标陈述（冻结区，
+ * 为什么 + 要实现什么）→ 子目标（SG-n 可判定的达成条件）→ 修订史（change_log
+ * 是 HV5 演进链第一环，复用共享流水节点）。Goal 无 relations/urls（25 §5
+ * 链顶无上游；路径即身份）。 */
+export function GoalReadingLayout({
+  obj,
+  locale,
+}: {
+  obj: Record<string, unknown>;
+  locale: string;
+}) {
+  const [subGoalsState, setSubGoalsState] = useState<ReadingNodeState>('expanded');
+  const statement = typeof obj.statement === 'string' && obj.statement.trim()
+    ? obj.statement.trim()
+    : '';
+  const subGoals = Array.isArray(obj.sub_goals)
+    ? obj.sub_goals.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+        const record = entry as Record<string, unknown>;
+        if (typeof record.id !== 'string' || !record.id.trim()) return [];
+        if (typeof record.text !== 'string' || !record.text.trim()) return [];
+        return [{ id: record.id.trim(), text: record.text.trim() }];
+      })
+    : [];
+
+  return (
+    <div className="mb-6 flex flex-col gap-5">
+      {/* 目标陈述（冻结区）：一段话，写给未来会话与新读者。 */}
+      <AdrProseNode title={getFieldLabel('goal_statement', locale)} value={statement} locale={locale} />
+      {/* 子目标（冻结区）：SG-n 锚点 + 可判定的达成条件——与认知中心目标区
+          同渲染语法（chip + 文本行），冻结永不换号（25 §4）。 */}
+      {subGoals.length > 0 && (
+        <ReadingNodeSection
+          title={getFieldLabel('goal_sub_goals', locale)}
+          state={subGoalsState}
+          locale={locale}
+          headerMeta={<span className="ldvh-meta-muted">{subGoals.length}</span>}
+          onToggle={() => setSubGoalsState((current) => getReadingNodeNextState(current))}
+        >
+          <ul className="divide-y divide-ldvh-border/70">
+            {subGoals.map((subGoal) => (
+              <li key={subGoal.id} className="flex min-w-0 items-start gap-2 py-2 first:pt-0 last:pb-0">
+                <span className="ldvh-chip ldvh-chip-sm shrink-0 border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                  {subGoal.id}
+                </span>
+                <span className="min-w-0 flex-1 text-xs leading-relaxed text-ldvh-text-secondary">{subGoal.text}</span>
+              </li>
+            ))}
+          </ul>
+        </ReadingNodeSection>
+      )}
+      <ChangeLogReadingNode
+        value={obj.change_log}
+        locale={locale}
+      />
+    </div>
+  );
+}
