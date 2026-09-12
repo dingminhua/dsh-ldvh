@@ -1,23 +1,22 @@
-# Spark / 火花
-
-```yaml
+---
 ldvh_spec:
   spec_key: "spark-fact-type"
   spec_id: "20"
   spec_kind: "spec"
-  title: "Spark / 火花"
+  title: "Spark-火花"
   canonical_path: "specs/20-Spark-火花.md"
   parent_spec: "fact-model-foundation"
   relation: "refines"
   positioning: "定义 Spark 事实类型的目的、对象边界、字段、状态、方向主线语义、合并/拆分关系与终态处理，是一切值得跨行动推进之事的出生地与主线入口"
   scope: "适用于管辖项目中承载方向主线与悬置问题的 Spark 对象；不定义调研执行流程（交给 30 号调研系统）、不定义 WorkCase 授权、也不定义 Initiative 专项"
   basis:
-    - "fact-model-foundation"
     - "source-of-truth-traceability"
     - "goal-fact-type"
   authorized_attachments: []
   dimensions: ["research"]
-```
+---
+
+# Spark-火花
 
 ## 1. 价值判断
 
@@ -135,11 +134,11 @@ frontmatter 闭集：
 正文 H2：
 
 ```
-# <title>
-## 当前理解        ← summary 的正文承载；完整语义快照（必填）
-## 调查问题        ← question 的自然语言展开；方向的待答问题与其当前已答/未答状态（必填）
-## 调查边界        ← scope_boundary 的自然语言展开；何时停止（必填）
-## 演变            ← evolution 的正文承载；跨会话接力理解（条件出现）
+ # <title>
+ ## 当前理解        ← summary 的正文承载；完整语义快照（必填）
+ ## 调查问题        ← question 的自然语言展开；方向的待答问题与其当前已答/未答状态（必填）
+ ## 调查边界        ← scope_boundary 的自然语言展开；何时停止（必填）
+ ## 演变            ← evolution 的正文承载；跨会话接力理解（条件出现）
 ```
 
 字段间不变量：`question` 必须单句可读；`scope_boundary` 必须明确何时停止；`intent` 必须回答「为什么保留 + 后续方向」；`summary` 必须使未读原聊天的后续执行者理解当前已知道什么、如何判断、仍需处置什么（先问当前仍适用的内容是否必须进入 `summary`，是则必须写入，`evolution` 只记变化）；`disposition` 出现 ⇔ `status ∈ {implemented, discarded}`；`serves_sg` 出现时必须匹配 goal.md 存在的 SG-n。未知字段处理：按 03 §6.1，未知字段不进入 canonical 对象，不得以空字段或占位代替判断。

@@ -3,7 +3,7 @@ ldvh_spec:
   spec_key: "research-fact-type"
   spec_id: "24"
   spec_kind: "spec"
-  title: "Research / 调研报告"
+  title: "Research-调研报告"
   canonical_path: "specs/24-Research-调研报告.md"
   parent_spec: "fact-model-foundation"
   relation: "refines"
@@ -15,7 +15,7 @@ ldvh_spec:
   dimensions: ["research"]
 ---
 
-# Research / 调研报告
+# Research-调研报告
 
 
 

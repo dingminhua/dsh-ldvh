@@ -1,11 +1,9 @@
-# Goal / 项目目标
-
-```yaml
+---
 ldvh_spec:
   spec_key: "goal-fact-type"
   spec_id: "25"
   spec_kind: "spec"
-  title: "Goal / 项目目标"
+  title: "Goal-项目目标"
   canonical_path: "specs/25-Goal-项目目标.md"
   parent_spec: "fact-model-foundation"
   relation: "refines"
@@ -15,7 +13,9 @@ ldvh_spec:
     - "source-of-truth-traceability"
   authorized_attachments: []
   dimensions: ["comply"]
-```
+---
+
+# Goal-项目目标
 
 ## 1. 价值判断
 
@@ -98,9 +98,9 @@ frontmatter 闭集（全部必填，除标注外创建时一次落定）：
 正文两块固定 H2：
 
 ```
-# 项目目标
-## 目标陈述        ← 为什么 + 要实现什么；一段话；写给未来会话与新读者（冻结区）
-## 子目标          ← sub-goal 条目列表；每条一行：`SG-n <可判定的达成条件>`（冻结区）
+ # 项目目标
+ ## 目标陈述        ← 为什么 + 要实现什么；一段话；写给未来会话与新读者（冻结区）
+ ## 子目标          ← sub-goal 条目列表；每条一行：`SG-n <可判定的达成条件>`（冻结区）
 ```
 
 **方法与规划两区已移除**（2026-09-10 Human 决定简化）：方法与规划后续重新设计，当前 goal.md 只承载目标陈述与子目标；原规划内容回归锚点文档建设顺序承载。
