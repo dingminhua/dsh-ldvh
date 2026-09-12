@@ -4,6 +4,7 @@
 // the OS temp dir and removes it again when the test finishes, so no test
 // ever writes outside its own temporary area.
 import { execFile } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -122,4 +123,35 @@ export async function initRepo(base, { name = "repo", stage = true } = {}) {
  */
 export function testSignature({ provider = "test-provider", model = "test-model" } = {}) {
 	return authoritativeSignature({ provider, model });
+}
+
+/**
+ * A file-backed sessionPersistence mock for the TOOLS-layer tests.
+ *
+ * The tools resolve the mechanical signature through the real host channel
+ * (`currentRouteValues(deps.sessionPersistence(), exec.agent)`), so — unlike
+ * writer-level tests, which hand over `testSignature()` directly — the tools
+ * tests must provide a service that `locate`s a real session log carrying a
+ * routing event. The log is a plain (uncompressed) JSONL file, which
+ * `readSessionLogText` accepts as a legitimate persistence configuration.
+ *
+ * Returns the `() => service` thunk shaped exactly like `makeDeps`'s other
+ * deferred services. Tests that exercise the unavailable-signature refusal
+ * keep passing `() => undefined`.
+ */
+export function sessionPersistenceWithRoutingLog(base, { provider = "test-provider", model = "test-model" } = {}) {
+	const logPath = join(base, "session.v3.jsonl");
+	const lines = [
+		JSON.stringify({ type: "user/prompt", data: { text: "hi" } }),
+		JSON.stringify({ type: "model/selection", data: { provider, model } }),
+	].join("\n");
+	// The log is written lazily on the first locate() call: deps factories are
+	// also used by render/schema tests whose base paths (e.g. "/nope") exist
+	// only as placeholders and must never be written to.
+	return () => ({
+		locate: () => {
+			writeFileSync(logPath, lines, "utf8");
+			return { kind: "jsonl", path: logPath };
+		},
+	});
 }

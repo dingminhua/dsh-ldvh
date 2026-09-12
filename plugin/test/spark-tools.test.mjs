@@ -6,14 +6,14 @@
 // driven through registerSparkTools's descriptors with a mock ctx.tools
 // registry, a real governed-project fixture (tmp repo + registration), and
 // the full 05 §8 envelope shape is asserted, not just the result.
-const { validateJsonSchemaValue } = await import("/Applications/DSH Desktop.app/Contents/Resources/app.asar.unpacked/node_modules/@deepseek-ai/dsh-tools/lib/index.js");
+import { validateJsonSchemaValue } from "@deepseek-ai/dsh-tools";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as sparkToolsModule from "../lib/spark-tools.js";
 import { registerProject } from "../lib/governed-projects.js";
-import { initRepo, withTemp } from "./helpers.mjs";
+import { initRepo, sessionPersistenceWithRoutingLog, withTemp } from "./helpers.mjs";
 
 const dshHome = (home) => (...segments) => join(home, ...segments);
 
@@ -102,7 +102,7 @@ function makeDeps(home, base) {
   return {
     dshHomePath: dshHome(home),
     workspaceRoot: base,
-    sessionPersistence: () => undefined,
+    sessionPersistence: sessionPersistenceWithRoutingLog(base),
   };
 }
 

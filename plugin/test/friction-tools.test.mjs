@@ -7,7 +7,7 @@
 // mock ctx.tools registry, a real governed-project fixture, the full envelope
 // shape is asserted, and the friction-writer.create* / update* are used to
 // seed scenario data that the tools then consume.
-const { validateJsonSchemaValue } = await import("/Applications/DSH Desktop.app/Contents/Resources/app.asar.unpacked/node_modules/@deepseek-ai/dsh-tools/lib/index.js");
+import { validateJsonSchemaValue } from "@deepseek-ai/dsh-tools";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -15,7 +15,7 @@ import { join } from "node:path";
 import * as frictionToolsModule from "../lib/friction-tools.js";
 import { createFrictionObject, readFrictionObject, updateFrictionObject, listFrictionObjects, readGoalAnchors } from "../lib/friction-writer.js";
 import { registerProject } from "../lib/governed-projects.js";
-import { initRepo, withTemp } from "./helpers.mjs";
+import { initRepo, sessionPersistenceWithRoutingLog, testSignature, withTemp } from "./helpers.mjs";
 
 const dshHome = (home) => (...segments) => join(home, ...segments);
 
@@ -105,7 +105,7 @@ function makeDeps(home, base) {
   return {
     dshHomePath: dshHome(home),
     workspaceRoot: base,
-    sessionPersistence: () => undefined,
+    sessionPersistence: sessionPersistenceWithRoutingLog(base),
   };
 }
 
@@ -115,6 +115,7 @@ async function seedFriction(root, overrides = {}) {
     factSourceRoot: root,
     frontmatterDraft: draft,
     bodyMarkdown: validBodyMarkdown(draft),
+    sessionSignature: testSignature(),
   });
   assert.ok(created.ok, JSON.stringify(created.error));
   return { draft, created };
@@ -134,6 +135,7 @@ async function seedResolvedFriction(root, adrUid) {
     },
     bodyMarkdownAfter: validBodyMarkdown(draft) + "\n\n## 处置\n已解决。",
     changeSummary: "销账",
+    sessionSignature: testSignature(),
   });
   assert.ok(updated.ok, JSON.stringify(updated.error));
   return { draft, created, read, updated };
@@ -149,6 +151,7 @@ async function seedDeferredFriction(root, overrides = {}) {
     frontmatterAfter: { ...read.value.frontmatter, status: "deferred" },
     bodyMarkdownAfter: validBodyMarkdown(draft) + "\n\n## 处置\n暂时搁置。",
     changeSummary: "转为缓议",
+    sessionSignature: testSignature(),
   });
   assert.ok(updated.ok, JSON.stringify(updated.error));
   return { draft, created, read, updated };

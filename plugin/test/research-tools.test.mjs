@@ -1,4 +1,4 @@
-const { validateJsonSchemaValue } = await import("/Applications/DSH Desktop.app/Contents/Resources/app.asar.unpacked/node_modules/@deepseek-ai/dsh-tools/lib/index.js");
+import { validateJsonSchemaValue } from "@deepseek-ai/dsh-tools";
 // Tests for plugin/lib/research-tools.js — the runtime wiring of the
 // research mechanical layer (specs/30 state machine + specs/24 writer) into
 // the governed ldvh_* tool surface.
@@ -13,7 +13,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registerProject } from "../lib/governed-projects.js";
-import { initRepo, withTemp } from "./helpers.mjs";
+import { initRepo, sessionPersistenceWithRoutingLog, withTemp } from "./helpers.mjs";
 import { OPERATIONS, toolDescriptorFor } from "../lib/research-tools.js";
 
 const dshHome = (home) => (...segments) => join(home, ...segments);
@@ -251,7 +251,7 @@ function governedHandlers(home, base) {
   const raw = require_handlers().createHandlers({
     dshHomePath: dshHome(home),
     workspaceRoot: base,
-    sessionPersistence: () => undefined,
+    sessionPersistence: sessionPersistenceWithRoutingLog(base),
   });
   const unwrapped = {};
   for (const [name, descriptor] of Object.entries(raw)) {
