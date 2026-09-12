@@ -74,7 +74,11 @@
 
 **核验**：`grep -n 'resolveAuthoritativeSignature' plugin/lib/signature-channel.js`——降级语义；抽样核对全库对象流水署名覆盖。
 
-**同形不同源的既有缺口**：`ldvh-base/goal.md` 的 4 条流水**全部无署名**，其时间早于 writer 工具化，且 `plugin/lib/` 下**无 goal writer**（25 号无受控写入实现）。属独立实现缺口，未随本项处置。
+**同形不同源的既有缺口（已闭合）**：`ldvh-base/goal.md` 的 4 条流水**全部无署名**，其时间早于 writer 工具化，且 `plugin/lib/` 下**无 goal writer**（25 号无受控写入实现）。
+
+**已由本次补齐**：新增 `plugin/lib/goal-writer.js`（单例类型的受控创建/读取/CAS 更新）与 `plugin/lib/goal-tools.js`（`ldvh_goal_read` / `ldvh_goal_write`），实现 `25 §5–§7 §11 §12` 的机械切片——路径即身份（免 `object_uid`/`fact_type_key`/类型子目录）、单例 fail-closed（存在即拒绝创建）、正文恰为「目标陈述／子目标」两区、SG-n 锚点稳定性（不删不改号不重排，只可原位作废）、`achieved` 为终态且冻结、每次修订必含理由，并沿用 03 §6.1/09 的署名闸门（无签名即拒绝写入）。`goal.md` 的历史 4 条流水**不改写**，另经受控入口补记一条带权威署名的核对流水。
+
+同时消除一处**三实现分歧**：`readGoalAnchors` 此前在 `spark-writer.js` 与 `friction-writer.js` 各有一份逐字重复的实现（且与 goal-writer 的签名不同），现统一委托 `goal-writer.js`，goal 解析的单一权威落回 25 号类型模块。
 
 
 ## 八、方法说明

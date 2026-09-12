@@ -36,6 +36,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature, resolveAuthoritativeSignature } from "./signature-channel.js";
+import { readGoalAnchors as readGoalAnchorsFromGoal } from "./goal-writer.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/26 §7, §8, §9, §11)
@@ -230,27 +231,12 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
 // ---------------------------------------------------------------------------
 
 export async function readGoalAnchors(factSourceRoot) {
-  const goalPath = join(factSourceRoot, "goal.md");
-  let content;
-  try {
-    content = await readFile(goalPath, "utf8");
-  } catch (error) {
-    return { ok: false, reason: `cannot read goal.md: ${error.message}` };
-  }
-  const anchors = new Set();
-  const lines = content.split("\n");
-  let inSubGoals = false;
-  for (const line of lines) {
-    if (line.startsWith("## ")) {
-      inSubGoals = line.slice(3).trim() === "子目标";
-      continue;
-    }
-    if (inSubGoals) {
-      const m = line.match(/^\s*(?:[-*]\s*)?(SG-[1-9]\d*)\b/);
-      if (m) anchors.add(m[1]);
-    }
-  }
-  return { ok: true, anchors };
+  // Single authority for goal.md parsing (25 §6/§12): delegate to the Goal
+  // writer rather than re-implementing the 子目标 scan here. Two copies used to
+  // exist (spark + friction) and could drift from the type's own contract.
+  const goal = await readGoalAnchorsFromGoal({ factSourceRoot });
+  if (!goal.ok) return { ok: false, reason: goal.error?.message ?? "cannot read goal.md" };
+  return { ok: true, anchors: new Set(goal.value.anchors) };
 }
 
 // ---------------------------------------------------------------------------

@@ -29,6 +29,7 @@ import { registerSparkTools } from "./spark-tools.js";
 import { registerAdrTools } from "./adr-tools.js";
 import { registerPitfallTools } from "./pitfall-tools.js";
 import { registerFrictionTools } from "./friction-tools.js";
+import { registerGoalTools } from "./goal-tools.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -862,6 +863,8 @@ export function registerLdvhTools(ctx, deps) {
   disposers.push(registerPitfallTools(ctx, deps));
   // Friction mechanical layer (specs/26 writer), same registration surface.
   disposers.push(registerFrictionTools(ctx, deps));
+  // Goal mechanical layer (specs/25 writer) — singleton type, same surface.
+  disposers.push(registerGoalTools(ctx, deps));
   return () => {
     for (const dispose of disposers) {
       try { dispose(); } catch { /* already removed */ }
