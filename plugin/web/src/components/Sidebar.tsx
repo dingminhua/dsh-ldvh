@@ -6,11 +6,11 @@ import {
   Globe,
   FolderTree,
   GitPullRequestArrow,
+  MapPinned,
   Sun,
   Moon,
   Monitor,
   PanelLeft,
-  CircleHelp,
   type LucideProps,
 } from 'lucide-react';
 import { useI18n } from '@/i18n/context';
@@ -34,7 +34,9 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
   { to: '/project-files', labelKey: 'nav.projectFiles', icon: FolderTree },
   { to: '/changes', labelKey: 'nav.changes', icon: GitPullRequestArrow },
   { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog },
-  { to: '/help', labelKey: 'nav.help', icon: CircleHelp },
+  // 帮助=带钉地图（导览/漫游指南；Human 定案 2026-09-12 终选——历经
+  // CircleHelp→MapPinned→单独问号→回到 MapPinned）。
+  { to: '/help', labelKey: 'nav.help', icon: MapPinned },
 ];
 
 /** 联邦作用域导航（全部管辖计划 Step 4）：
@@ -51,7 +53,7 @@ const FEDERATION_NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon; di
   { to: '/project-files', labelKey: 'nav.projectFiles', icon: FolderTree, disabled: true },
   { to: '/changes', labelKey: 'nav.changes', icon: GitPullRequestArrow, disabled: true },
   { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog, disabled: true },
-  { to: '/help', labelKey: 'nav.help', icon: CircleHelp },
+  { to: '/help', labelKey: 'nav.help', icon: MapPinned },
 ];
 
 function getNavItemLabel(item: (typeof NAV_ITEMS)[number], t: (key: LocaleKey) => string): string {

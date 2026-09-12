@@ -5,11 +5,11 @@ import {
   GitCommit,
   Github,
   FileSignature,
-  Flame,
   Lightbulb,
   Link2,
-  ScrollText,
+  Ruler,
   Shovel,
+  Snail,
   Sparkles,
   Workflow,
   type LucideProps,
@@ -46,16 +46,19 @@ function FileSearchCornerIcon({ size = 16, className, strokeWidth = 2, ...props 
   );
 }
 
+
 export const OBJECT_TYPE_ICONS: Record<string, SemanticIconComponent> = {
   workcase: Shovel,
   adr: FileSignature,
   pitfall: Lightbulb,
   spark: Sparkles,
   research: FileSearchCornerIcon,
-  // 26 号 Friction：摩擦账本——待修阻碍的账目（火焰=摩擦生热，阻碍待修）。
-  friction: Flame,
-  // 27 号 Norm：事实规范——成体系方向规范（卷轴文本=规则体系）。
-  norm: ScrollText,
+  // 26 号 Friction：摩擦账本——待修阻碍的账目（蜗牛=摩擦的体感结果：
+  // 系统性阻碍拖慢每一次工作；Human 定案 2026-09-12，取代 Flame）。
+  friction: Snail,
+  // 27 号 Norm：事实规范——成体系方向规范（尺=约束与度量的直观物；
+  // Human 定案 2026-09-12，取代 ScrollText）。
+  norm: Ruler,
   change: GitCommit,
   changelog: GitHubSilhouetteIcon,
 };

@@ -58,8 +58,12 @@ test('both types carry icons, colors, type labels, and status closures', () => {
   const typeColors = read('api/services/typeColors.ts');
   const locales = read('src/i18n/locales.ts');
 
-  assert.match(icons, /friction: Flame,/);
-  assert.match(icons, /norm: ScrollText,/);
+  // friction=Snail（Human 定案 2026-09-12：蜗牛=摩擦的体感结果——系统性
+  // 阻碍拖慢每一次工作；取代首版的 Flame）。
+  assert.match(icons, /friction: Snail,/);
+  // norm=Ruler（Human 定案 2026-09-12：尺=约束与度量的直观物；取代首版
+  // 的 ScrollText）。
+  assert.match(icons, /norm: Ruler,/);
   assert.match(colors, /friction: '#f97316'/);
   assert.match(colors, /norm: '#8b5cf6'/);
   assert.match(typeColors, /friction: '#f97316'/);
