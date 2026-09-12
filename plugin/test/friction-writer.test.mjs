@@ -14,7 +14,11 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { withTemp } from "./helpers.mjs";
+import { testSignature, withTemp } from "./helpers.mjs";
+
+// 03 §6.1 / 09: every write carries the authoritative signature. Domain-rule
+// tests supply a branded test carrier; the signature gate has its own cases.
+const TEST_SIGNATURE = testSignature();
 import {
   createFrictionObject,
   readFrictionObject,
@@ -214,21 +218,20 @@ test("create: with serves SG-3 resolves against goal.md succeeds (26 §8/§13)",
 // 签名通道负向 (specs/03 §6.1 + specs/09 机械签名)
 // ---------------------------------------------------------------------------
 
-test("create: plain sessionSignature is ignored — unsigned change_log entry (specs/09)", async () => {
+test("create: a forged plain sessionSignature is REFUSED — no unsigned change_log entry (specs/09)", async () => {
   await withTemp("friction-writer.", async (root) => {
     const draft = validFrontmatterDraft();
+    // Human 2026-09-12: changelog must be mechanically signed; a write that
+    // cannot be signed is refused rather than recorded unsigned.
     const created = await createFrictionObject({
       factSourceRoot: root,
       frontmatterDraft: draft,
       bodyMarkdown: validBodyMarkdown(draft),
       sessionSignature: { provider: "forged", model: "self-filled" },
     });
-    assert.ok(created.ok, JSON.stringify(created.error));
-    const read = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
-    assert.ok(read.ok, JSON.stringify(read.error));
-    const entry = read.value.frontmatter.change_log[0];
-    assert.equal(entry.provider, undefined, "unbranded signature must not land in change_log");
-    assert.equal(entry.model, undefined, "unbranded signature must not land in change_log");
+    assert.equal(created.ok, false, "a forged carrier must not produce a write");
+    assert.equal(created.error.code, "signature_unavailable");
+    assert.match(created.error.message, /REPORT TO HUMAN/);
   });
 });
 
@@ -243,6 +246,7 @@ test("create: non-open initial status is rejected (26 §9 — 初态必须 open)
         factSourceRoot: root,
         frontmatterDraft: { ...validFrontmatterDraft(), status },
         bodyMarkdown: validBodyMarkdown(),
+        sessionSignature: TEST_SIGNATURE,
       });
       assert.ok(!result.ok, `${status} should be rejected`);
       assert.equal(result.error.code, "friction/initial_state_violation");
@@ -259,6 +263,7 @@ test("create: relations at creation rejected (26 §11: informs only on resolved)
         relations: [{ relation_key: "informs", target: { object_uid: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" } }],
       },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/frontmatter_invalid");
@@ -271,6 +276,7 @@ test("create: unknown frontmatter field rejected (26 §8 closed set)", async () 
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), custom_field: "x" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/frontmatter_invalid");
@@ -284,6 +290,7 @@ test("create: title longer than 30 chars rejected (26 §8 title ≤ 30 字)", as
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), title: "长".repeat(31) },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/frontmatter_invalid");
@@ -296,6 +303,7 @@ test("create: phenomenon missing or empty rejected (26 §8 required)", async () 
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), phenomenon: "" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result1.ok);
     assert.equal(result1.error.code, "friction/frontmatter_invalid");
@@ -304,6 +312,7 @@ test("create: phenomenon missing or empty rejected (26 §8 required)", async () 
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), phenomenon: undefined },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result2.ok);
     assert.equal(result2.error.code, "friction/frontmatter_invalid");
@@ -316,6 +325,7 @@ test("create: phenomenon with double terminals rejected (26 §8 single-sentence)
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), phenomenon: "CI 慢。构建还失败。" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/frontmatter_invalid");
@@ -328,6 +338,7 @@ test("create: impact outside closed set rejected (26 §8 impact 闭集)", async 
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), impact: "critical" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/frontmatter_invalid");
@@ -342,6 +353,7 @@ test("create: serves=SG-99 not in goal.md rejected (26 §13)", async () => {
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-99" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/serves_unresolvable");
@@ -355,6 +367,7 @@ test("create: serves declared but goal.md missing rejected (26 §13)", async () 
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-3" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/serves_unresolvable");
@@ -367,6 +380,7 @@ test("create: attribution empty string rejected (26 §8 conditional — present 
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), attribution: "" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/frontmatter_invalid");
@@ -381,7 +395,7 @@ test("create: body with wrong H2 order rejected (26 §8 fixed order)", async () 
       `## 入账依据\n重复出现多次。`,
       `## 现象\n${draft.phenomenon}\n展开。`,
     ].join("\n\n");
-    const result = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: wrongOrder });
+    const result = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: wrongOrder , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/body_invalid");
   });
@@ -391,7 +405,7 @@ test("create: body missing required H2 sections rejected (26 §8 必填两段)",
   await withTemp("friction-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const onlyPhenomenon = `## 现象\n${draft.phenomenon}\n展开。`;
-    const result = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: onlyPhenomenon });
+    const result = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: onlyPhenomenon , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/body_invalid");
   });
@@ -401,7 +415,7 @@ test("create: open status with 处置 section rejected (26 §8 条件出现 — 
   await withTemp("friction-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const bodyWithDisposition = validBodyMarkdown(draft) + "\n\n## 处置\n不应出现在 open。";
-    const result = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: bodyWithDisposition });
+    const result = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: bodyWithDisposition , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/body_invalid");
   });
@@ -412,7 +426,7 @@ test("create: carrier coherence — phenomenon not verbatim in 现象 section re
     const draft = validFrontmatterDraft();
     const drifted = draft.phenomenon.replace("8 分钟", "10 分钟");
     const body = validBodyMarkdown(draft).replace(draft.phenomenon, drifted);
-    const result = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body });
+    const result = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/coherence_invalid");
     assert.ok(result.error.details.issues.some((i) => i.includes("carrier coherence")), JSON.stringify(result.error.details.issues));
@@ -427,7 +441,7 @@ test("create: empty H2 section rejected (26 §8 body must carry content)", async
       `## 入账依据\n\n`,
       `## 附注\n\n`,
     ].join("\n\n");
-    const result = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: emptySection });
+    const result = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: emptySection , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/body_invalid");
     assert.ok(result.error.details.issues.some((i) => i.includes("is empty")), JSON.stringify(result.error.details.issues));
@@ -449,6 +463,7 @@ test("state machine: open→deferred succeeds and lands 处置段 (26 §9.2)", a
       frontmatterAfter: { ...read.value.frontmatter, status: "deferred" },
       bodyMarkdownAfter: deferredBodyMarkdown(),
       changeSummary: "转为缓议",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated.ok, JSON.stringify(updated.error));
 
@@ -470,6 +485,7 @@ test("state machine: deferred→open reactivation succeeds (26 §9.2 可逆)", a
       frontmatterAfter: { ...r1.value.frontmatter, status: "deferred" },
       bodyMarkdownAfter: deferredBodyMarkdown(),
       changeSummary: "转为缓议",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated1.ok, JSON.stringify(updated1.error));
 
@@ -481,6 +497,7 @@ test("state machine: deferred→open reactivation succeeds (26 §9.2 可逆)", a
       frontmatterAfter: { ...r1.value.frontmatter, status: "open" },
       bodyMarkdownAfter: validBodyMarkdown(),
       changeSummary: "重新激活",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated2.ok, JSON.stringify(updated2.error));
 
@@ -509,6 +526,7 @@ test("state machine: open→resolved with 1 informs relation to existing ADR suc
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "销账",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated.ok, JSON.stringify(updated.error));
 
@@ -537,6 +555,7 @@ test("state machine: resolved object update returns status_terminal (26 §9.2 �
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "销账",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated1.ok, JSON.stringify(updated1.error));
 
@@ -551,6 +570,7 @@ test("state machine: resolved object update returns status_terminal (26 §9.2 �
       frontmatterAfter: { ...read2.value.frontmatter, title: "试图重开" },
       bodyMarkdownAfter: validBodyMarkdown(),
       changeSummary: "试图修改终态对象",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!updated2.ok);
     assert.equal(updated2.error.code, "friction/status_terminal");
@@ -571,6 +591,7 @@ test("state machine: deferred→resolved succeeds with informs written at that t
       frontmatterAfter: { ...r1.value.frontmatter, status: "deferred" },
       bodyMarkdownAfter: deferredBodyMarkdown(),
       changeSummary: "转为缓议",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated1.ok, JSON.stringify(updated1.error));
 
@@ -586,6 +607,7 @@ test("state machine: deferred→resolved succeeds with informs written at that t
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "事后销账",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated2.ok, JSON.stringify(updated2.error));
 
@@ -607,6 +629,7 @@ test("state machine: resolving without informs → friction/relations_invalid (2
       frontmatterAfter: { ...r1.value.frontmatter, status: "resolved" },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "试图不带 informs 销账",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/relations_invalid");
@@ -627,6 +650,7 @@ test("state machine: informs target not resolvable → friction/relation_target_
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "销账指向不存在对象",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/relation_target_unresolvable");
@@ -666,6 +690,7 @@ test("state machine: informs target pointing to spark file (wrong type) → rela
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "销账指向 spark 文件",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/relation_target_unresolvable");
@@ -688,6 +713,7 @@ test("state machine: open→deferred with relations → relations_invalid (26 §
       },
       bodyMarkdownAfter: deferredBodyMarkdown(),
       changeSummary: "试图在 deferred 时带关系",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/relations_invalid");
@@ -708,6 +734,7 @@ test("state machine: deferred→open with relations → relations_invalid (26 §
       frontmatterAfter: { ...r1.value.frontmatter, status: "deferred" },
       bodyMarkdownAfter: deferredBodyMarkdown(),
       changeSummary: "转为缓议",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated1.ok, JSON.stringify(updated1.error));
 
@@ -723,6 +750,7 @@ test("state machine: deferred→open with relations → relations_invalid (26 §
       },
       bodyMarkdownAfter: validBodyMarkdown(),
       changeSummary: "重新激活带关系",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/relations_invalid");
@@ -774,6 +802,7 @@ test("update: status change in supposed-supplement is rejected (26 §9.3 补充�
       frontmatterAfter: { ...read.value.frontmatter, status: "deferred" },
       bodyMarkdownAfter: deferredBodyMarkdown(),
       changeSummary: "试图在补充中改状态",
+      sessionSignature: TEST_SIGNATURE,
     });
     // Status change IS allowed via the update path (it IS a transition, not a supplement boundary violation in the writer)
     // The transition guards will validate it; this is the standard transition path
@@ -837,16 +866,16 @@ test("list: 1 open + 1 deferred + 1 resolved — default lists 2, includeResolve
   await withTemp("friction-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
     const draftA = { ...validFrontmatterDraft(), title: "甲摩擦", serves: "SG-3" };
-    const a = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draftA, bodyMarkdown: validBodyMarkdown(draftA) });
+    const a = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draftA, bodyMarkdown: validBodyMarkdown(draftA) , sessionSignature: TEST_SIGNATURE});
     assert.ok(a.ok, JSON.stringify(a.error));
 
     const draftB = { ...validFrontmatterDraft(), title: "乙摩擦", attribution: "外部工具" };
-    const b = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draftB, bodyMarkdown: validBodyMarkdown(draftB) });
+    const b = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draftB, bodyMarkdown: validBodyMarkdown(draftB) , sessionSignature: TEST_SIGNATURE});
     assert.ok(b.ok, JSON.stringify(b.error));
 
     // Create a third and resolve it (needs ADR)
     const draftC = { ...validFrontmatterDraft(), title: "丙摩擦" };
-    const c = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draftC, bodyMarkdown: validBodyMarkdown(draftC) });
+    const c = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draftC, bodyMarkdown: validBodyMarkdown(draftC) , sessionSignature: TEST_SIGNATURE});
     assert.ok(c.ok, JSON.stringify(c.error));
     const readC = await readFrictionObject({ factSourceRoot: root, objectUid: c.value.object_uid });
     const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -862,6 +891,7 @@ test("list: 1 open + 1 deferred + 1 resolved — default lists 2, includeResolve
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "销账",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(resolvedC.ok, JSON.stringify(resolvedC.error));
 
@@ -903,7 +933,7 @@ test("list: limit truncation reports total and complete:false (03 §8.1)", async
   await withTemp("friction-writer.", async (root) => {
     for (const title of ["摩擦甲", "摩擦乙", "摩擦丙"]) {
       const draft = { ...validFrontmatterDraft(), title };
-      const result = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+      const result = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
       assert.ok(result.ok, JSON.stringify(result.error));
     }
     const listed = await listFrictionObjects({ factSourceRoot: root, limit: 2 });
@@ -917,7 +947,7 @@ test("list: limit truncation reports total and complete:false (03 §8.1)", async
 test("list: bad carrier (valid uid filename without frontmatter) lands in invalid, never silently skipped", async () => {
   await withTemp("friction-writer.", async (root) => {
     const draft = { ...validFrontmatterDraft(), title: "合法载体" };
-    const created = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+    const created = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
     assert.ok(created.ok, JSON.stringify(created.error));
 
     const badUid = "123e4567-e89b-42d3-a456-426614174000";
@@ -937,7 +967,7 @@ test("list: bad carrier (valid uid filename without frontmatter) lands in invali
 test("list: bad carrier with invalid status lands in invalid (26 §12)", async () => {
   await withTemp("friction-writer.", async (root) => {
     const draft = { ...validFrontmatterDraft(), title: "合法载体" };
-    const created = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+    const created = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
     assert.ok(created.ok, JSON.stringify(created.error));
 
     // Write a file with an invalid status

@@ -222,9 +222,24 @@ async function executeWriteObject(args, exec, deps) {
   }
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
   const sig = await signatureFor(deps, exec);
-  // Signature unavailability does not block the write (specs/06 attaches the
-  // authoritative signature at commit time via the Git Gate); the change_log
-  // entry just carries no provider/model then. Reported honestly in gaps.
+  // Human requirement 2026-09-12: "changelog 和提交都要机械署名，不能署名的
+  // 要报告 human". The commit half is already enforced by the Git Gate
+  // trailer rules; this is the object half. When the authoritative
+  // signature cannot be obtained the write is REFUSED and reported here,
+  // rather than recorded as an unsigned stable fact (03 §6.1 says Code
+  // fills the signature; 09 requires a definite unavailable outcome for
+  // blank/historical sessions and model switches).
+  if (!sig.ok) {
+    return envelope("spark-write-object", "unavailable", {
+      result: null,
+      scope: { requested: action, completed: [], not_completed: [action] },
+      sources: [],
+      gaps: [`signature_unavailable: the authoritative provider/model could not be read from the DSH session record (${sig.reason}). `
+        + "REFUSE to write an unsigned change_log entry; REPORT TO HUMAN — this write cannot be signed and must not be recorded as a stable fact."],
+      verification: { checks: ["governance-scope", "signature-source"], passed: false },
+      follow_up: ["human must resolve the session signature source, then retry"]
+    });
+  }
 
   if (action === "create") {
     const draft = args?.frontmatter_draft;

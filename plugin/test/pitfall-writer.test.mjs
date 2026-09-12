@@ -12,7 +12,11 @@ import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { withTemp } from "./helpers.mjs";
+import { testSignature, withTemp } from "./helpers.mjs";
+
+// 03 §6.1 / 09: every write carries the authoritative signature. Domain-rule
+// tests supply a branded test carrier; the signature gate has its own cases.
+const TEST_SIGNATURE = testSignature();
 import {
   createPitfallObject,
   readPitfallObject,
@@ -129,6 +133,7 @@ test("create: urls non-empty with 证据 body section present succeeds (23 §8 �
       factSourceRoot: root,
       frontmatterDraft: draft,
       bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(result.ok, JSON.stringify(result.error));
     const read = await readPitfallObject({ factSourceRoot: root, objectUid: result.value.object_uid });
@@ -143,21 +148,20 @@ test("create: urls non-empty with 证据 body section present succeeds (23 §8 �
 // 签名通道负向 (specs/03 §6.1 + specs/09 机械签名)
 // ---------------------------------------------------------------------------
 
-test("create: plain sessionSignature is ignored — unsigned change_log entry (specs/09)", async () => {
+test("create: a forged plain sessionSignature is REFUSED — no unsigned change_log entry (specs/09)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = validFrontmatterDraft();
+    // Human 2026-09-12: changelog must be mechanically signed; a write that
+    // cannot be signed is refused rather than recorded unsigned.
     const created = await createPitfallObject({
       factSourceRoot: root,
       frontmatterDraft: draft,
       bodyMarkdown: validBodyMarkdown(draft),
       sessionSignature: { provider: "forged", model: "self-filled" },
     });
-    assert.ok(created.ok, JSON.stringify(created.error));
-    const read = await readPitfallObject({ factSourceRoot: root, objectUid: created.value.object_uid });
-    assert.ok(read.ok, JSON.stringify(read.error));
-    const entry = read.value.frontmatter.change_log[0];
-    assert.equal(entry.provider, undefined, "unbranded signature must not land in change_log");
-    assert.equal(entry.model, undefined, "unbranded signature must not land in change_log");
+    assert.equal(created.ok, false, "a forged carrier must not produce a write");
+    assert.equal(created.error.code, "signature_unavailable");
+    assert.match(created.error.message, /REPORT TO HUMAN/);
   });
 });
 
@@ -172,6 +176,7 @@ test("create: non-active initial status is rejected (23 §9 初态必须 active)
         factSourceRoot: root,
         frontmatterDraft: { ...validFrontmatterDraft(), status },
         bodyMarkdown: validBodyMarkdown(),
+        sessionSignature: TEST_SIGNATURE,
       });
       assert.ok(!result.ok, `${status} should be rejected`);
       assert.equal(result.error.code, "pitfall/initial_state_violation");
@@ -185,6 +190,7 @@ test("create: disposition at creation is rejected (23 §8: disposition ⇔ disca
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), disposition: "前提消失" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "pitfall/frontmatter_invalid");
@@ -197,6 +203,7 @@ test("create: unknown frontmatter field rejected (23 §8 closed set)", async () 
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), custom_field: "x" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "pitfall/frontmatter_invalid");
@@ -210,6 +217,7 @@ test("create: title longer than 30 chars rejected (23 §8 title ≤ 30 字)", as
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), title: "长".repeat(31) },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "pitfall/frontmatter_invalid");
@@ -227,6 +235,7 @@ test("create: missing or empty scope rejected (23 §8 required)", async () => {
         factSourceRoot: root,
         frontmatterDraft: mutated,
         bodyMarkdown: validBodyMarkdown({ ...draft, scope: mutated.scope || "占位" }),
+        sessionSignature: TEST_SIGNATURE,
       });
       assert.ok(!result.ok, `${variant} scope should reject`);
       assert.equal(result.error.code, "pitfall/frontmatter_invalid");
@@ -240,6 +249,7 @@ test("create: trigger_signal empty string rejected (03 §6.1 conditional field f
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), trigger_signal: "" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "pitfall/frontmatter_invalid");
@@ -253,6 +263,7 @@ test("create: urls empty array rejected as fabricated conditional field (23 §8 
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), urls: [] },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "pitfall/frontmatter_invalid");
@@ -272,7 +283,7 @@ test("create: body with wrong H2 order rejected (23 §8 fixed order)", async () 
       `## 验证\n已观察结果与覆盖。`,
       `## 影响与适用范围\n${draft.scope}\n范围。`,
     ].join("\n\n");
-    const result = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: wrongOrder });
+    const result = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: wrongOrder , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "pitfall/body_invalid");
   });
@@ -289,7 +300,7 @@ test("create: body missing a required H2 section rejected (23 §8 必填七段)"
       `## 验证\n已观察结果与覆盖。`,
       `## 影响与适用范围\n${draft.scope}\n范围。`,
     ].join("\n\n");
-    const result = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: missing });
+    const result = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: missing , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "pitfall/body_invalid");
   });
@@ -307,7 +318,7 @@ test("create: empty H2 section rejected (23 §8 body must carry content)", async
       `## 验证\n已观察结果与覆盖。`,
       `## 影响与适用范围\n${draft.scope}\n范围。`,
     ].join("\n\n");
-    const result = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: emptySection });
+    const result = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: emptySection , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "pitfall/body_invalid");
     assert.ok(result.error.details.issues.some((i) => i.includes("is empty")), JSON.stringify(result.error.details.issues));
@@ -321,7 +332,7 @@ test("create: urls non-empty but body lacks 证据 section rejected (23 §8 条�
     });
     // validBodyMarkdown builds 证据 iff urls non-empty — strip it to force the violation
     const bodyWithoutEvidence = validBodyMarkdown(draft).split("\n\n## 证据")[0];
-    const result = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: bodyWithoutEvidence });
+    const result = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: bodyWithoutEvidence , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "pitfall/body_invalid");
     assert.ok(result.error.details.issues.some((i) => i.includes("证据")), JSON.stringify(result.error.details.issues));
@@ -333,7 +344,7 @@ test("create: carrier coherence — drifted scope not verbatim rejected (23 §8/
     const draft = validFrontmatterDraft();
     const drifted = draft.scope.replace("适用于", "针对");
     const body = validBodyMarkdown().replace(draft.scope, drifted);
-    const result = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body });
+    const result = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "pitfall/coherence_invalid");
     assert.ok(result.error.details.issues.some((i) => i.includes("carrier coherence")), JSON.stringify(result.error.details.issues));
@@ -355,6 +366,7 @@ test("update: active→active with scope change rejected as supplement-boundary 
       frontmatterAfter: { ...read.value.frontmatter, scope: "该经验不再适用于任何场景。" },
       bodyMarkdownAfter: validBodyMarkdown({ ...draft, scope: "该经验不再适用于任何场景。" }),
       changeSummary: "试图改写影响范围",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "pitfall/supplement_boundary");
@@ -416,6 +428,7 @@ test("update: active→discarded with disposition succeeds and lands disposition
       frontmatterAfter: { ...read.value.frontmatter, status: "discarded", disposition: "前提消失：SG-4 已回滚该变更，机制不再存在。" },
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "经验不再适用",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated.ok, JSON.stringify(updated.error));
 
@@ -438,6 +451,7 @@ test("update: active object with disposition rejected (23 §8: disposition ⇔ d
       frontmatterAfter: { ...read.value.frontmatter, disposition: "不该出现在 active" },
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "试图给 active 挂 disposition",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "pitfall/frontmatter_invalid");
@@ -455,6 +469,7 @@ test("update: discarded object is read-only — further update rejected as pitfa
       frontmatterAfter: { ...read.value.frontmatter, status: "discarded", disposition: "前提消失，机制不再存在。" },
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "转入 discarded",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(r1.ok, JSON.stringify(r1.error));
 
@@ -467,6 +482,7 @@ test("update: discarded object is read-only — further update rejected as pitfa
       frontmatterAfter: { ...read2.value.frontmatter, title: "试图重开" },
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "试图重开终态",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!r2.ok);
     assert.equal(r2.error.code, "pitfall/status_terminal");
@@ -492,16 +508,16 @@ test("list: 2 active + 1 discarded — default lists only 2, includeTerminal lis
   await withTemp("pitfall-writer.", async (root) => {
     const draftA = { ...validFrontmatterDraft(), title: "甲坑位" };
     delete draftA.trigger_signal; // signal-free object: projection must omit the key
-    const a = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draftA, bodyMarkdown: validBodyMarkdown(draftA) });
+    const a = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draftA, bodyMarkdown: validBodyMarkdown(draftA) , sessionSignature: TEST_SIGNATURE});
     assert.ok(a.ok, JSON.stringify(a.error));
 
     const draftB = { ...validFrontmatterDraft(), title: "乙坑位", trigger_signal: "当 SG-4 依赖升级时重审本经验" };
-    const b = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draftB, bodyMarkdown: validBodyMarkdown(draftB) });
+    const b = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draftB, bodyMarkdown: validBodyMarkdown(draftB) , sessionSignature: TEST_SIGNATURE});
     assert.ok(b.ok, JSON.stringify(b.error));
 
     // discard the third one via a terminal transition
     const draftC = { ...validFrontmatterDraft(), title: "丙坑位" };
-    const c = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draftC, bodyMarkdown: validBodyMarkdown(draftC) });
+    const c = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draftC, bodyMarkdown: validBodyMarkdown(draftC) , sessionSignature: TEST_SIGNATURE});
     assert.ok(c.ok, JSON.stringify(c.error));
     const readC = await readPitfallObject({ factSourceRoot: root, objectUid: c.value.object_uid });
     const discarded = await updatePitfallObject({
@@ -511,6 +527,7 @@ test("list: 2 active + 1 discarded — default lists only 2, includeTerminal lis
       frontmatterAfter: { ...readC.value.frontmatter, status: "discarded", disposition: "前提消失，机制不再存在。" },
       bodyMarkdownAfter: validBodyMarkdown(draftC),
       changeSummary: "转入 discarded",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(discarded.ok, JSON.stringify(discarded.error));
 
@@ -550,7 +567,7 @@ test("list: limit truncation reports total and complete:false — never a silent
   await withTemp("pitfall-writer.", async (root) => {
     for (const title of ["坑位甲", "坑位乙", "坑位丙"]) {
       const draft = { ...validFrontmatterDraft(), title };
-      const result = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+      const result = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
       assert.ok(result.ok, JSON.stringify(result.error));
     }
     const listed = await listPitfallObjects({ factSourceRoot: root, limit: 2 });
@@ -564,7 +581,7 @@ test("list: limit truncation reports total and complete:false — never a silent
 test("list: bad carrier (valid uid filename without frontmatter) lands in invalid, never silently skipped", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const draft = { ...validFrontmatterDraft(), title: "合法载体" };
-    const created = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+    const created = await createPitfallObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
     assert.ok(created.ok, JSON.stringify(created.error));
 
     const badUid = "123e4567-e89b-42d3-a456-426614174000";

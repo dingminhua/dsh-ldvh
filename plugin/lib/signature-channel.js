@@ -53,3 +53,35 @@ export function resolveAuthoritativeSignature(arg) {
   if (typeof value.model !== "string" || value.model.length === 0) return null;
   return { provider: value.provider, model: value.model };
 }
+
+/**
+ * Writer-side GATE: a change_log entry must carry the authoritative signature.
+ *
+ * Human requirement (2026-09-12): "changelog 和提交都要机械署名，不能署名的
+ * 要报告 human". The commit half is already enforced (06 §6.1 trailer rules are
+ * `blocking`); this is the object half.
+ *
+ * `03 §6.1` says the entry's `at`, signature and identity are filled BY CODE —
+ * it never permits omitting the signature. `09` adds that unavailable-signature
+ * situations (blank/historical session, model switch) must have a
+ * "确定性取值与不可用结果" — i.e. a DEFINITE unavailable outcome, not a silent
+ * unsigned write.
+ *
+ * So the writer refuses to write when no signature can be resolved, and returns
+ * a precise, Human-reportable reason. The caller must surface it (not retry,
+ * not fill a placeholder — `09` forbids AI self-signing or deployment defaults).
+ *
+ * @returns {{ ok: true, signature: {provider, model} } | { ok: false, code, message }}
+ */
+export function requireAuthoritativeSignature(carrier, { context = "change_log entry" } = {}) {
+  const signature = resolveAuthoritativeSignature(carrier);
+  if (signature !== null) return { ok: true, signature };
+  return {
+    ok: false,
+    code: "signature_unavailable",
+    message: `refusing to write ${context} without the authoritative provider/model: `
+      + "no branded session signature was supplied (09 机械签名 requires Code to obtain it from the DSH "
+      + "authoritative session record; AI must not self-fill, use a deployment default, or have a caller override it). "
+      + "REPORT TO HUMAN: this write cannot be signed, so it must not be recorded as a stable fact."
+  };
+}

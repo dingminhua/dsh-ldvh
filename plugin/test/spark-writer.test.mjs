@@ -11,7 +11,11 @@ import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { withTemp } from "./helpers.mjs";
+import { testSignature, withTemp } from "./helpers.mjs";
+
+// 03 §6.1 / 09: every write carries the authoritative signature. Domain-rule
+// tests supply a branded test carrier; the signature gate has its own cases.
+const TEST_SIGNATURE = testSignature();
 import {
   createSparkObject,
   readSparkObject,
@@ -143,21 +147,21 @@ test("create: valid draft lands at sparks/spark-<uid>.md with Code identity and 
 // 签名通道负向 (specs/03 §6.1 + specs/09 机械签名)
 // ---------------------------------------------------------------------------
 
-test("create: plain sessionSignature is ignored — unsigned change_log entry (specs/09)", async () => {
+test("create: a forged plain sessionSignature is REFUSED — no unsigned change_log entry (specs/09)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
+    // Human 2026-09-12: changelog must be mechanically signed; a write that
+    // cannot be signed is refused rather than recorded unsigned. A plain
+    // {provider,model} object is NOT a signature (09 forbids AI self-filling).
     const created = await createSparkObject({
       factSourceRoot: root,
       frontmatterDraft: draft,
       bodyMarkdown: validBodyMarkdown(draft),
       sessionSignature: { provider: "forged", model: "self-filled" },
     });
-    assert.ok(created.ok, JSON.stringify(created.error));
-    const read = await readSparkObject({ factSourceRoot: root, objectUid: created.value.object_uid });
-    assert.ok(read.ok, JSON.stringify(read.error));
-    const entry = read.value.frontmatter.change_log[0];
-    assert.equal(entry.provider, undefined, "unbranded signature must not land in change_log");
-    assert.equal(entry.model, undefined, "unbranded signature must not land in change_log");
+    assert.equal(created.ok, false, "a forged carrier must not produce a write");
+    assert.equal(created.error.code, "signature_unavailable");
+    assert.match(created.error.message, /REPORT TO HUMAN/);
   });
 });
 
@@ -172,6 +176,7 @@ test("create: non-open initial status is rejected (20 §9 initial state)", async
         factSourceRoot: root,
         frontmatterDraft: { ...validFrontmatterDraft(), status },
         bodyMarkdown: validBodyMarkdown(),
+        sessionSignature: TEST_SIGNATURE,
       });
       assert.ok(!result.ok, `${status} should be rejected`);
       assert.equal(result.error.code, "spark/initial_state_violation");
@@ -185,6 +190,7 @@ test("create: disposition at creation is rejected (20 §8: disposition ⇔ termi
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), disposition: "已落实" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/frontmatter_invalid");
@@ -200,6 +206,7 @@ test("create: relations at creation are rejected (20 §11: merge/split relations
         relations: [{ relation_key: "merged-into", target: { object_uid: "11111111-1111-4111-8111-111111111111" } }],
       },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/frontmatter_invalid");
@@ -212,6 +219,7 @@ test("create: unknown frontmatter field rejected (20 §8 closed set)", async () 
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), custom_field: "x" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/frontmatter_invalid");
@@ -225,6 +233,7 @@ test("create: title longer than 30 chars rejected (20 §8 ≤ 30 字)", async ()
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), title: "长".repeat(31) },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/frontmatter_invalid");
@@ -237,6 +246,7 @@ test("create: question with two sentence terminals rejected (20 §8 single sente
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), question: "如何验证机械层？如何验证边界？" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/frontmatter_invalid");
@@ -249,6 +259,7 @@ test("create: question whose terminal is not at the end rejected (20 §8 single 
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), question: "如何验证机械层？后续说明" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/frontmatter_invalid");
@@ -260,7 +271,7 @@ test("create: missing or empty question/scope_boundary/intent/summary rejected (
     await withTemp("spark-writer.", async (root) => {
       const missing = { ...validFrontmatterDraft() };
       delete missing[field];
-      const r1 = await createSparkObject({ factSourceRoot: root, frontmatterDraft: missing, bodyMarkdown: validBodyMarkdown() });
+      const r1 = await createSparkObject({ factSourceRoot: root, frontmatterDraft: missing, bodyMarkdown: validBodyMarkdown() , sessionSignature: TEST_SIGNATURE});
       assert.ok(!r1.ok, `${field} missing should reject`);
       assert.equal(r1.error.code, "spark/frontmatter_invalid");
 
@@ -268,6 +279,7 @@ test("create: missing or empty question/scope_boundary/intent/summary rejected (
         factSourceRoot: root,
         frontmatterDraft: { ...validFrontmatterDraft(), [field]: "" },
         bodyMarkdown: validBodyMarkdown(),
+        sessionSignature: TEST_SIGNATURE,
       });
       assert.ok(!r2.ok, `${field} empty should reject`);
       assert.equal(r2.error.code, "spark/frontmatter_invalid");
@@ -282,6 +294,7 @@ test("create: serves declared but goal.md missing rejected (20 §17.1 stop condi
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-1" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/serves_unresolvable");
@@ -295,6 +308,7 @@ test("create: serves=SG-99 not present in goal.md rejected (20 §13)", async () 
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-99" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/serves_unresolvable");
@@ -308,6 +322,7 @@ test("create: serves undeclared succeeds even when goal.md is missing (20 §17.1
       factSourceRoot: root,
       frontmatterDraft: validFrontmatterDraft(),
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(result.ok, JSON.stringify(result.error));
   });
@@ -317,7 +332,7 @@ test("create: body with wrong H2 order rejected (20 §8 fixed order)", async () 
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const wrongOrder = `## 调查问题\n${draft.question}\n背景。\n\n## 当前理解\n${draft.summary}\n说明。\n\n## 调查边界\n${draft.scope_boundary}\n边界。`;
-    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: wrongOrder });
+    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: wrongOrder , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/body_invalid");
   });
@@ -327,7 +342,7 @@ test("create: body missing 调查边界 section rejected (20 §8 required H2)", 
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const missingBoundary = `## 当前理解\n${draft.summary}\n说明。\n\n## 调查问题\n${draft.question}\n背景。`;
-    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: missingBoundary });
+    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: missingBoundary , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/body_invalid");
   });
@@ -337,7 +352,7 @@ test("create: empty H2 section rejected (20 §8 body must carry content)", async
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const emptySection = `## 当前理解\n${draft.summary}\n说明。\n\n## 调查问题\n\n## 调查边界\n${draft.scope_boundary}\n边界。`;
-    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: emptySection });
+    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: emptySection , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/body_invalid");
     assert.ok(result.error.details.issues.some((i) => i.includes("is empty")), JSON.stringify(result.error.details.issues));
@@ -349,7 +364,7 @@ test("create: evolution non-empty but body lacks 演变 section rejected (20 §8
     const draft = { ...validFrontmatterDraft(), evolution: [{ at: "2026-09-09T12:00:00Z", summary: "焦点转向机械层边界" }] };
     // validBodyMarkdown builds 演变 iff evolution non-empty — strip it to force the violation
     const bodyWithoutEvolution = validBodyMarkdown(draft).split("\n\n## 演变")[0];
-    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: bodyWithoutEvolution });
+    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: bodyWithoutEvolution , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/body_invalid");
   });
@@ -361,7 +376,7 @@ test("create: evolution omitted (no pivots) but body has 演变 section rejected
     // then out of contract (20 §8: 演变 条件出现, only when evolution non-empty)
     const draft = validFrontmatterDraft(); // no evolution key
     const bodyWithEvolution = validBodyMarkdown(draft) + "\n\n## 演变\n不应出现的演变段。";
-    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: bodyWithEvolution });
+    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: bodyWithEvolution , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/body_invalid");
     assert.ok(result.error.details.issues.some((i) => i.includes("演变")), JSON.stringify(result.error.details.issues));
@@ -375,7 +390,7 @@ test("create: empty evolution array rejected as fabricated conditional field", a
     // is invalid regardless of body content.
     const draft = { ...validFrontmatterDraft(), evolution: [] };
     const bodyWithEvolution = validBodyMarkdown(draft) + "\n\n## 演变\n不应出现的演变段。";
-    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: bodyWithEvolution });
+    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: bodyWithEvolution , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/frontmatter_invalid");
     assert.ok(result.error.details.issues.some((i) => i.includes("evolution")), JSON.stringify(result.error.details.issues));
@@ -387,7 +402,7 @@ test("create: carrier coherence — drifted question not verbatim rejected (24 �
     const draft = validFrontmatterDraft();
     const driftedQuestion = draft.question.replace("如何", "怎样");
     const body = `## 当前理解\n${draft.summary}\n说明。\n\n## 调查问题\n${driftedQuestion}\n背景。\n\n## 调查边界\n${draft.scope_boundary}\n边界。`;
-    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body });
+    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/coherence_invalid");
     assert.ok(result.error.details.issues.some((i) => i.includes("question verbatim")), JSON.stringify(result.error.details.issues));
@@ -399,7 +414,7 @@ test("create: carrier coherence — drifted scope_boundary not verbatim rejected
     const draft = validFrontmatterDraft();
     const driftedBoundary = draft.scope_boundary.replace("仅以", "只用");
     const body = `## 当前理解\n${draft.summary}\n说明。\n\n## 调查问题\n${draft.question}\n背景。\n\n## 调查边界\n${driftedBoundary}\n边界。`;
-    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body });
+    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/coherence_invalid");
     assert.ok(result.error.details.issues.some((i) => i.includes("scope_boundary verbatim")), JSON.stringify(result.error.details.issues));
@@ -411,7 +426,7 @@ test("create: carrier coherence — drifted summary not verbatim rejected", asyn
     const draft = validFrontmatterDraft();
     const driftedSummary = draft.summary.replace("已实现", "已完成");
     const body = `## 当前理解\n${driftedSummary}\n说明。\n\n## 调查问题\n${draft.question}\n背景。\n\n## 调查边界\n${draft.scope_boundary}\n边界。`;
-    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body });
+    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/coherence_invalid");
     assert.ok(result.error.details.issues.some((i) => i.includes("summary verbatim")), JSON.stringify(result.error.details.issues));
@@ -467,7 +482,7 @@ test("update: open→open refinement appends exactly one change_log entry and pr
 test("update: open→implemented requires disposition (20 §8/§14.1); succeeds with it", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
-    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
     assert.ok(created.ok);
     const uid = created.value.object_uid;
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
@@ -482,6 +497,7 @@ test("update: open→implemented requires disposition (20 §8/§14.1); succeeds 
       frontmatterAfter: noDisposition,
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "转入 implemented",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!r1.ok);
     assert.equal(r1.error.code, "spark/frontmatter_invalid");
@@ -500,6 +516,7 @@ test("update: open→implemented requires disposition (20 §8/§14.1); succeeds 
       frontmatterAfter: withDisposition,
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "转入 implemented",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(r2.ok, JSON.stringify(r2.error));
     const read2 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
@@ -512,7 +529,7 @@ test("update: open→implemented requires disposition (20 §8/§14.1); succeeds 
 test("update: open→discarded plain (no relations) succeeds (20 §9.2)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
-    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
     assert.ok(created.ok);
     const uid = created.value.object_uid;
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
@@ -530,6 +547,7 @@ test("update: open→discarded plain (no relations) succeeds (20 §9.2)", async 
       frontmatterAfter: discarding,
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "转入 discarded",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated.ok, JSON.stringify(updated.error));
     const read2 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
@@ -546,7 +564,7 @@ test("update: open→discarded plain (no relations) succeeds (20 §9.2)", async 
 test("update: stale fingerprint rejected as CAS conflict (20 §13, 03 §9.5)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
-    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
     assert.ok(created.ok);
     const result = await updateSparkObject({
       factSourceRoot: root,
@@ -555,6 +573,7 @@ test("update: stale fingerprint rejected as CAS conflict (20 §13, 03 §9.5)", a
       frontmatterAfter: {},
       bodyMarkdownAfter: validBodyMarkdown(),
       changeSummary: "x",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/cas_conflict");
@@ -564,7 +583,7 @@ test("update: stale fingerprint rejected as CAS conflict (20 §13, 03 §9.5)", a
 test("update: terminal implemented object is read-only (20 §9.2 终态不重开)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
-    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
     assert.ok(created.ok);
     const uid = created.value.object_uid;
 
@@ -573,6 +592,7 @@ test("update: terminal implemented object is read-only (20 §9.2 终态不重开
     const r1 = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read1.value.fingerprint,
       frontmatterAfter: toImpl, bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "转入 implemented",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(r1.ok, JSON.stringify(r1.error));
 
@@ -580,6 +600,7 @@ test("update: terminal implemented object is read-only (20 §9.2 终态不重开
     const r2 = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read2.value.fingerprint,
       frontmatterAfter: { ...read2.value.frontmatter, title: "试图重开" }, bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "试图重开",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!r2.ok);
     assert.equal(r2.error.code, "spark/status_terminal");
@@ -589,7 +610,7 @@ test("update: terminal implemented object is read-only (20 §9.2 终态不重开
 test("update: terminal discarded object is read-only (20 §9.2 终态不重开)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
-    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
     assert.ok(created.ok);
     const uid = created.value.object_uid;
 
@@ -598,6 +619,7 @@ test("update: terminal discarded object is read-only (20 §9.2 终态不重开)"
     const r1 = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read1.value.fingerprint,
       frontmatterAfter: toDiscard, bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "转入 discarded",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(r1.ok, JSON.stringify(r1.error));
 
@@ -605,6 +627,7 @@ test("update: terminal discarded object is read-only (20 §9.2 终态不重开)"
     const r2 = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read2.value.fingerprint,
       frontmatterAfter: { ...read2.value.frontmatter, title: "试图重开" }, bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "试图重开",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!r2.ok);
     assert.equal(r2.error.code, "spark/status_terminal");
@@ -614,13 +637,14 @@ test("update: terminal discarded object is read-only (20 §9.2 终态不重开)"
 test("update: status outside closed set rejected (20 §9 closed set)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
-    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
     assert.ok(created.ok);
     const uid = created.value.object_uid;
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     const result = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read1.value.fingerprint,
       frontmatterAfter: { ...read1.value.frontmatter, status: "archived" }, bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "x",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/status_transition_invalid");
@@ -630,13 +654,14 @@ test("update: status outside closed set rejected (20 §9 closed set)", async () 
 test("update: open object with disposition rejected (20 §8: disposition ⇔ terminal)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
-    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
     assert.ok(created.ok);
     const uid = created.value.object_uid;
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     const result = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read1.value.fingerprint,
       frontmatterAfter: { ...read1.value.frontmatter, disposition: "不应出现" }, bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "x",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/frontmatter_invalid");
@@ -646,7 +671,7 @@ test("update: open object with disposition rejected (20 §8: disposition ⇔ ter
 test("update: open object with relations rejected (20 §11 status gating)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
-    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
     assert.ok(created.ok);
     const uid = created.value.object_uid;
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
@@ -657,6 +682,7 @@ test("update: open object with relations rejected (20 §11 status gating)", asyn
         relations: [{ relation_key: "merged-into", target: { object_uid: "11111111-1111-4111-8111-111111111111" } }],
       },
       bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "x",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/relations_invalid");
@@ -666,7 +692,7 @@ test("update: open object with relations rejected (20 §11 status gating)", asyn
 test("update: merged-into with cardinality 2 rejected (20 §11 cardinality 1)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
-    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
     assert.ok(created.ok);
     const uid = created.value.object_uid;
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
@@ -680,6 +706,7 @@ test("update: merged-into with cardinality 2 rejected (20 §11 cardinality 1)", 
         ],
       },
       bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "合并",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/relations_invalid");
@@ -690,7 +717,7 @@ test("update: merged-into with cardinality 2 rejected (20 §11 cardinality 1)", 
 test("update: merged-into and split-into mixed rejected (20 §9.3/§11 no mixing)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
-    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
     assert.ok(created.ok);
     const uid = created.value.object_uid;
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
@@ -704,6 +731,7 @@ test("update: merged-into and split-into mixed rejected (20 §9.3/§11 no mixing
         ],
       },
       bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "混用",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/relations_invalid");
@@ -714,7 +742,7 @@ test("update: merged-into and split-into mixed rejected (20 §9.3/§11 no mixing
 test("update: merge target that does not exist rejected (20 §11 目标可解析)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
-    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
     assert.ok(created.ok);
     const uid = created.value.object_uid;
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
@@ -725,6 +753,7 @@ test("update: merge target that does not exist rejected (20 §11 目标可解析
         relations: [{ relation_key: "merged-into", target: { object_uid: "99999999-9999-4999-8999-999999999999" } }],
       },
       bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "合并",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/relation_target_unresolvable");
@@ -738,6 +767,7 @@ test("update: merge target exists but is not open rejected (20 §11 target must 
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), title: "目标 Spark B" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(b.ok, JSON.stringify(b.error));
     const bUid = b.value.object_uid;
@@ -746,11 +776,12 @@ test("update: merge target exists but is not open rejected (20 §11 target must 
       factSourceRoot: root, objectUid: bUid, expectedFingerprint: readB1.value.fingerprint,
       frontmatterAfter: { ...readB1.value.frontmatter, status: "implemented", disposition: "已落实。" },
       bodyMarkdownAfter: validBodyMarkdown(), changeSummary: "目标转入 implemented",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(bImpl.ok, JSON.stringify(bImpl.error));
 
     // A merges into the now-terminal B
-    const a = await createSparkObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), bodyMarkdown: validBodyMarkdown() });
+    const a = await createSparkObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), bodyMarkdown: validBodyMarkdown() , sessionSignature: TEST_SIGNATURE});
     assert.ok(a.ok);
     const readA = await readSparkObject({ factSourceRoot: root, objectUid: a.value.object_uid });
     const result = await updateSparkObject({
@@ -760,6 +791,7 @@ test("update: merge target exists but is not open rejected (20 §11 target must 
         relations: [{ relation_key: "merged-into", target: { object_uid: bUid } }],
       },
       bodyMarkdownAfter: validBodyMarkdown(), changeSummary: "合并",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/relation_target_unresolvable");
@@ -769,7 +801,7 @@ test("update: merge target exists but is not open rejected (20 §11 target must 
 test("update: implemented with split-into relations rejected (20 §9.1/§14.1 implemented never carries merge/split relations)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
-    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
     assert.ok(created.ok);
     const uid = created.value.object_uid;
     const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
@@ -780,6 +812,7 @@ test("update: implemented with split-into relations rejected (20 §9.1/§14.1 im
         relations: [{ relation_key: "split-into", target: { object_uid: "11111111-1111-4111-8111-111111111111" } }],
       },
       bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "拆分却写成 implemented",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/relations_invalid");
@@ -796,11 +829,13 @@ test("merge: A read-back then discarded+merged-into→B (B stays open) succeeds"
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), title: "A 被合并议题" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     const b = await createSparkObject({
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), title: "B 合并目标" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(a.ok && b.ok, JSON.stringify({ a: a.error, b: b.error }));
 
@@ -817,6 +852,7 @@ test("merge: A read-back then discarded+merged-into→B (B stays open) succeeds"
       },
       bodyMarkdownAfter: validBodyMarkdown(),
       changeSummary: "合并进 B",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated.ok, JSON.stringify(updated.error));
 
@@ -838,17 +874,20 @@ test("split: A discarded+split-into→B,C (both open) succeeds (20 §9.3 拆分)
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), title: "B 子议题" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     const c = await createSparkObject({
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), title: "C 子议题" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(b.ok && c.ok, JSON.stringify({ b: b.error, c: c.error }));
     const a = await createSparkObject({
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), title: "A 原议题" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(a.ok, JSON.stringify(a.error));
 
@@ -864,6 +903,7 @@ test("split: A discarded+split-into→B,C (both open) succeeds (20 §9.3 拆分)
       },
       bodyMarkdownAfter: validBodyMarkdown(),
       changeSummary: "拆分为 B、C",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated.ok, JSON.stringify(updated.error));
 
@@ -899,6 +939,7 @@ test("create with serves matching a goal.md anchor succeeds (20 §13)", async ()
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-1" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(result.ok, JSON.stringify(result.error));
     const read = await readSparkObject({ factSourceRoot: root, objectUid: result.value.object_uid });
@@ -914,7 +955,7 @@ test("create: evolution with 21 entries exceeds the cap (20 §8 上限 20 项)",
   await withTemp("spark-writer.", async (root) => {
     const evolution = Array.from({ length: 21 }, (_, i) => ({ at: `2026-09-0${(i % 9) + 1}T00:00:00Z`, summary: `第 ${i} 次转折` }));
     const draft = { ...validFrontmatterDraft(), evolution };
-    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+    const result = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/frontmatter_invalid");
     assert.ok(result.error.details.issues.some((i) => i.includes("cap")), JSON.stringify(result.error.details.issues));
@@ -924,13 +965,13 @@ test("create: evolution with 21 entries exceeds the cap (20 §8 上限 20 项)",
 test("create: evolution entry missing at or summary rejected (20 §8 evolution shape)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const missingAt = { ...validFrontmatterDraft(), evolution: [{ summary: "无 at" }] };
-    const r1 = await createSparkObject({ factSourceRoot: root, frontmatterDraft: missingAt, bodyMarkdown: validBodyMarkdown(missingAt) });
+    const r1 = await createSparkObject({ factSourceRoot: root, frontmatterDraft: missingAt, bodyMarkdown: validBodyMarkdown(missingAt) , sessionSignature: TEST_SIGNATURE});
     assert.ok(!r1.ok);
     assert.equal(r1.error.code, "spark/frontmatter_invalid");
     assert.ok(r1.error.details.issues.some((i) => i.includes("at")), JSON.stringify(r1.error.details.issues));
 
     const missingSummary = { ...validFrontmatterDraft(), evolution: [{ at: "2026-09-09T12:00:00Z" }] };
-    const r2 = await createSparkObject({ factSourceRoot: root, frontmatterDraft: missingSummary, bodyMarkdown: validBodyMarkdown(missingSummary) });
+    const r2 = await createSparkObject({ factSourceRoot: root, frontmatterDraft: missingSummary, bodyMarkdown: validBodyMarkdown(missingSummary) , sessionSignature: TEST_SIGNATURE});
     assert.ok(!r2.ok);
     assert.equal(r2.error.code, "spark/frontmatter_invalid");
     assert.ok(r2.error.details.issues.some((i) => i.includes("summary")), JSON.stringify(r2.error.details.issues));

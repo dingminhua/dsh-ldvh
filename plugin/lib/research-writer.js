@@ -27,7 +27,7 @@ import { access, mkdir, readFile, rename, unlink, writeFile } from "node:fs/prom
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
-import { resolveAuthoritativeSignature } from "./signature-channel.js";
+import { requireAuthoritativeSignature, resolveAuthoritativeSignature } from "./signature-channel.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/24 §8, §13)
@@ -591,6 +591,12 @@ function assertValidUid(objectUid) {
 
 export async function createResearchObject(args) {
   const { factSourceRoot, frontmatterDraft, analysisBody, surveyBody = null, sessionSignature = null } = args;
+  // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
+  // signed BY CODE and may not be written unsigned. Without a branded carrier the
+  // write is REFUSED; the caller reports it for Human handling (09 requires a
+  // definite unavailable outcome for blank/historical sessions).
+  const sig = requireAuthoritativeSignature(sessionSignature);
+  if (!sig.ok) return failure(sig.code, sig.message);
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
     return failure("invalid_request", "factSourceRoot is required");
   }
@@ -627,7 +633,7 @@ export async function createResearchObject(args) {
   frontmatter.status = "active";
   frontmatter.change_log = [{
     at: now,
-    ...resolveAuthoritativeSignature(sessionSignature),
+    ...sig.signature,
     summary: frontmatterDraft.change_summary ?? "受控创建 Research 对象",
   }];
 
@@ -745,6 +751,12 @@ export async function readResearchObject(args) {
 
 export async function updateResearchObject(args) {
   const { factSourceRoot, objectUid, expectedFingerprint, frontmatterAfter, analysisBodyAfter, surveyBodyAfter = null, changeSummary, sessionSignature = null } = args;
+  // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
+  // signed BY CODE and may not be written unsigned. Without a branded carrier the
+  // write is REFUSED; the caller reports it for Human handling (09 requires a
+  // definite unavailable outcome for blank/historical sessions).
+  const sig = requireAuthoritativeSignature(sessionSignature);
+  if (!sig.ok) return failure(sig.code, sig.message);
 
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return failure("research/change_summary_required", "changeSummary is required for update");
@@ -804,7 +816,7 @@ export async function updateResearchObject(args) {
   const prevLog = Array.isArray(current.value.frontmatter.change_log) ? current.value.frontmatter.change_log : [];
   fm.change_log = [...prevLog, {
     at: new Date().toISOString(),
-    ...resolveAuthoritativeSignature(sessionSignature),
+    ...sig.signature,
     summary: changeSummary,
   }];
 

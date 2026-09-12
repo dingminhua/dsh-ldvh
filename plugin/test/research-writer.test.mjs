@@ -16,6 +16,10 @@ import {
 } from "../lib/research-writer.js";
 import { authoritativeSignature } from "../lib/signature-channel.js";
 
+// 03 §6.1 / 09: every write carries the authoritative signature. Domain-rule
+// tests supply a branded test carrier; the signature gate has its own cases.
+const TEST_SIGNATURE = authoritativeSignature({ provider: "test-provider", model: "test-model" });
+
 let root;
 
 before(async () => {
@@ -238,19 +242,18 @@ test("validateIndexBodyCoherence accepts 研究问题 section that expands aroun
   assert.equal(result.ok, true, JSON.stringify(result.issues));
 });
 
-test("createResearchObject ignores a plain sessionSignature object — unsigned change_log entry (specs/09)", async () => {
+test("createResearchObject REFUSES a forged plain sessionSignature — no unsigned change_log entry (specs/09)", async () => {
+  // Human 2026-09-12: changelog must be mechanically signed; a write that cannot
+  // be signed is refused rather than recorded unsigned.
   const result = await createResearchObject({
     factSourceRoot: root,
     frontmatterDraft: validFrontmatterDraft(),
     analysisBody: validAnalysisBody,
     sessionSignature: { provider: "forged", model: "self-filled" },
   });
-  assert.ok(result.ok, JSON.stringify(result.error));
-  const readBack = await readResearchObject({ factSourceRoot: root, objectUid: result.value.object_uid });
-  assert.ok(readBack.ok);
-  const entry = readBack.value.frontmatter.change_log[0];
-  assert.equal(entry.provider, undefined, "unbranded signature must not land in change_log");
-  assert.equal(entry.model, undefined, "unbranded signature must not land in change_log");
+  assert.equal(result.ok, false, "a forged carrier must not produce a write");
+  assert.equal(result.error.code, "signature_unavailable");
+  assert.match(result.error.message, /REPORT TO HUMAN/);
 });
 
 test("createResearchObject creates directed object with v4-style body", async () => {
@@ -274,6 +277,7 @@ test("createResearchObject creates exploratory object", async () => {
     frontmatterDraft: validFrontmatterDraft(),
     analysisBody: validAnalysisBody,
     surveyBody: validSurveyH3Body,
+    sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(result.ok, JSON.stringify(result.error));
   const readBack = await readResearchObject({ factSourceRoot: root, objectUid: result.value.object_uid });
@@ -289,6 +293,7 @@ test("createResearchObject rejects coherence violation (statement without unit)"
     factSourceRoot: root,
     frontmatterDraft: bad,
     analysisBody: validAnalysisBody,
+    sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(!result.ok);
   assert.equal(result.error.code, "research/coherence_invalid");
@@ -336,6 +341,7 @@ test("updateResearchObject rejects stale fingerprint", async () => {
     factSourceRoot: root,
     frontmatterDraft: validFrontmatterDraft(),
     analysisBody: validAnalysisBody,
+    sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(created.ok);
   const result = await updateResearchObject({
@@ -345,6 +351,7 @@ test("updateResearchObject rejects stale fingerprint", async () => {
     frontmatterAfter: created.value,
     analysisBodyAfter: validAnalysisBody,
     changeSummary: "x",
+    sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(!result.ok);
   assert.equal(result.error.code, "research/cas_conflict");
@@ -356,6 +363,7 @@ test("updateResearchObject rejects sub-stage change", async () => {
     frontmatterDraft: validFrontmatterDraft(),
     analysisBody: validAnalysisBody,
     surveyBody: validSurveyH3Body,
+    sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(created.ok);
   const read = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
@@ -368,6 +376,7 @@ test("updateResearchObject rejects sub-stage change", async () => {
     analysisBodyAfter: validAnalysisBody,
     surveyBodyAfter: null,
     changeSummary: "remove survey",
+    sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(!result.ok);
   assert.equal(result.error.code, "research/substage_immutable");
@@ -449,20 +458,20 @@ test("validateResearchRelations enforces updates cardinality, self-reference and
 
 test("createResearchObject rejects invalid relations but accepts resolvable updates target", async () => {
   const bad = { ...validFrontmatterDraft(), relations: [{ relation_key: "supersedes", target: { object_uid: "11111111-1111-4111-8111-111111111111" } }] };
-  const rejected = await createResearchObject({ factSourceRoot: root, frontmatterDraft: bad, analysisBody: validAnalysisBody });
+  const rejected = await createResearchObject({ factSourceRoot: root, frontmatterDraft: bad, analysisBody: validAnalysisBody , sessionSignature: TEST_SIGNATURE});
   assert.ok(!rejected.ok);
   assert.equal(rejected.error.code, "research/relations_invalid");
 
   // Create a first object, then a second one updating it — resolvable target passes.
-  const first = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody });
+  const first = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody , sessionSignature: TEST_SIGNATURE});
   assert.ok(first.ok);
   const secondDraft = { ...validFrontmatterDraft(), relations: [{ relation_key: "updates", target: { object_uid: first.value.object_uid } }] };
-  const second = await createResearchObject({ factSourceRoot: root, frontmatterDraft: secondDraft, analysisBody: validAnalysisBody });
+  const second = await createResearchObject({ factSourceRoot: root, frontmatterDraft: secondDraft, analysisBody: validAnalysisBody , sessionSignature: TEST_SIGNATURE});
   assert.ok(second.ok, JSON.stringify(second.error));
 
   // A dangling updates target must fail resolution.
   const dangling = { ...validFrontmatterDraft(), relations: [{ relation_key: "updates", target: { object_uid: "99999999-9999-4999-8999-999999999999" } }] };
-  const failed = await createResearchObject({ factSourceRoot: root, frontmatterDraft: dangling, analysisBody: validAnalysisBody });
+  const failed = await createResearchObject({ factSourceRoot: root, frontmatterDraft: dangling, analysisBody: validAnalysisBody , sessionSignature: TEST_SIGNATURE});
   assert.ok(!failed.ok);
   assert.equal(failed.error.code, "research/relation_target_unresolvable");
 });
@@ -521,7 +530,7 @@ test("validateResearchFrontmatter accepts retired with valid retirement_reason a
 test("createResearchObject rejects status=retired on initial create (24 §9 initial state)", async () => {
   const { change_summary: _cs, ...draft } = validFrontmatterDraft();
   const bad = { ...draft, status: "retired", retirement_reason: "out-of-scope", retired_at: "2026-09-07T00:50:00.000Z" };
-  const result = await createResearchObject({ factSourceRoot: root, frontmatterDraft: bad, analysisBody: validAnalysisBody });
+  const result = await createResearchObject({ factSourceRoot: root, frontmatterDraft: bad, analysisBody: validAnalysisBody , sessionSignature: TEST_SIGNATURE});
   assert.ok(!result.ok);
   assert.equal(result.error.code, "research/initial_state_violation");
 });
@@ -531,6 +540,7 @@ test("updateResearchObject rejects status=retired without retirement_reason", as
     factSourceRoot: root,
     frontmatterDraft: validFrontmatterDraft(),
     analysisBody: validAnalysisBody,
+    sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(created.ok);
   const read1 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
@@ -543,6 +553,7 @@ test("updateResearchObject rejects status=retired without retirement_reason", as
     frontmatterAfter: fmAfter,
     analysisBodyAfter: validAnalysisBody,
     changeSummary: "retire without reason",
+    sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(!updated.ok);
   assert.equal(updated.error.code, "research/frontmatter_invalid");
@@ -554,6 +565,7 @@ test("updateResearchObject rejects AI-supplied retired_at (Code-managed only)", 
     factSourceRoot: root,
     frontmatterDraft: validFrontmatterDraft(),
     analysisBody: validAnalysisBody,
+    sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(created.ok);
   const read1 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
@@ -566,6 +578,7 @@ test("updateResearchObject rejects AI-supplied retired_at (Code-managed only)", 
     frontmatterAfter: fmAfter,
     analysisBodyAfter: validAnalysisBody,
     changeSummary: "retire with bad retired_at",
+    sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(updated.ok, JSON.stringify(updated.error));
   // Code should overwrite AI-supplied retired_at with wall-clock now
@@ -579,6 +592,7 @@ test("updateResearchObject rejects retirement_reason=superseded without updates 
     factSourceRoot: root,
     frontmatterDraft: validFrontmatterDraft(),
     analysisBody: validAnalysisBody,
+    sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(created.ok);
   const read1 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
@@ -591,6 +605,7 @@ test("updateResearchObject rejects retirement_reason=superseded without updates 
     frontmatterAfter: fmAfter,
     analysisBodyAfter: validAnalysisBody,
     changeSummary: "retire superseded without relation",
+    sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(!updated.ok);
   assert.equal(updated.error.code, "research/frontmatter_invalid");
@@ -599,10 +614,10 @@ test("updateResearchObject rejects retirement_reason=superseded without updates 
 
 test("updateResearchObject accepts retirement_reason=superseded with resolvable updates relation", async () => {
   // first: a replacement
-  const replacement = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody });
+  const replacement = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody , sessionSignature: TEST_SIGNATURE});
   assert.ok(replacement.ok);
   // second: the one that will be retired
-  const created = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody });
+  const created = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody , sessionSignature: TEST_SIGNATURE});
   assert.ok(created.ok);
   const read1 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
   assert.ok(read1.ok);
@@ -619,6 +634,7 @@ test("updateResearchObject accepts retirement_reason=superseded with resolvable 
     frontmatterAfter: fmAfter,
     analysisBodyAfter: validAnalysisBody,
     changeSummary: "retire superseded with replacement",
+    sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(updated.ok, JSON.stringify(updated.error));
   const read2 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
@@ -629,8 +645,8 @@ test("updateResearchObject accepts retirement_reason=superseded with resolvable 
 });
 
 test("updateResearchObject rejects transition retired → active (terminal)", async () => {
-  const replacement = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody });
-  const created = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody });
+  const replacement = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody , sessionSignature: TEST_SIGNATURE});
+  const created = await createResearchObject({ factSourceRoot: root, frontmatterDraft: validFrontmatterDraft(), analysisBody: validAnalysisBody , sessionSignature: TEST_SIGNATURE});
   const read1 = await readResearchObject({ factSourceRoot: root, objectUid: created.value.object_uid });
   // First, retire
   const retireFm = { ...read1.value.frontmatter, status: "retired", retirement_reason: "superseded", relations: [{ relation_key: "updates", target: { object_uid: replacement.value.object_uid } }] };
@@ -639,6 +655,7 @@ test("updateResearchObject rejects transition retired → active (terminal)", as
     expectedFingerprint: read1.value.fingerprint,
     frontmatterAfter: retireFm, analysisBodyAfter: validAnalysisBody,
     changeSummary: "retire",
+    sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(retired.ok);
   // Now try to re-open
@@ -650,6 +667,7 @@ test("updateResearchObject rejects transition retired → active (terminal)", as
     expectedFingerprint: read2.value.fingerprint,
     frontmatterAfter: reopenFm, analysisBodyAfter: validAnalysisBody,
     changeSummary: "reopen",
+    sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(!reopened.ok);
   assert.equal(reopened.error.code, "research/status_terminal");
@@ -716,6 +734,7 @@ test("frontmatter fields are written in the canonical reading order regardless o
     factSourceRoot: root,
     frontmatterDraft: alphabetical,
     analysisBody: validAnalysisBody,
+    sessionSignature: TEST_SIGNATURE,
   });
   assert.equal(result.ok, true, JSON.stringify(result.issues ?? result.error));
   const raw = await readFile(join(root, "researches", `research-${result.value.object_uid}.md`), "utf8");

@@ -908,3 +908,86 @@ test("signature: an UNBRANDED carrier is refused by the writer (branding is the 
 	assert.equal(resolveAuthoritativeSignature({ provider: "p", model: "m" }), null, "a plain object must resolve to null");
 	assert.equal(resolveAuthoritativeSignature(branded && authoritativeSignature(branded)), null, "branding an already-branded carrier must not pass");
 });
+
+// ---------------------------------------------------------------------------
+// Human 要求 2026-09-12：changelog 与提交都要机械署名，不能署名的要报告 Human
+// ---------------------------------------------------------------------------
+
+test("signature: the writers REFUSE an unsigned change_log write (03 §6.1 / 09)", async () => {
+	await withTemp("ldvh-siggate.", async (base) => {
+		const { mkdir } = await import("node:fs/promises");
+		const { createSparkObject } = await import("../lib/spark-writer.js");
+		const root = join(base, "root");
+		await mkdir(root, { recursive: true });
+		const draft = { title: "T", question: "Q?", scope_boundary: "S", intent: "I", summary: "M", change_summary: "x" };
+		const body = "## 当前理解\n\nM\n\n## 调查问题\n\nQ?\n\n## 调查边界\n\nS\n";
+
+		// No signature at all → refused, and the reason names Human handling.
+		const unsigned = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body });
+		assert.equal(unsigned.ok, false);
+		assert.equal(unsigned.error.code, "signature_unavailable");
+		assert.match(unsigned.error.message, /REPORT TO HUMAN/);
+
+		// A forged/plain object is NOT a signature → also refused (09 forbids
+		// AI self-filling or a caller overriding the value).
+		const forged = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body, sessionSignature: { provider: "forged", model: "self-filled" } });
+		assert.equal(forged.ok, false);
+		assert.equal(forged.error.code, "signature_unavailable");
+
+		// Nothing was written by either refusal.
+		const { readdir } = await import("node:fs/promises");
+		const entries = await readdir(root).catch(() => []);
+		assert.deepEqual(entries, [], "a refused write must not create a fact source");
+	});
+});
+
+test("signature: the commit layer keeps rejecting an unsigned commit message (06 §6.1)", async () => {
+	const { validateMessage } = await import("../lib/commit-validation.js");
+	const unsigned = ["fix: x", "", "关键变更:", "- y"].join("\n");
+	const findings = validateMessage(unsigned);
+	assert.ok(
+		findings.some((f) => f.rule === "validation/signature_trailer_missing" && f.severity === "blocking"),
+		"a commit message without LDVH-Provider/LDVH-Model must be blocking"
+	);
+	const signed = ["fix: x", "", "关键变更:", "- y", "", "LDVH-Provider: p", "LDVH-Model: m"].join("\n");
+	assert.equal(validateMessage(signed).length, 0);
+});
+
+test("signature: the tools layer refuses and reports Human when the route is unavailable", async () => {
+	await withTemp("ldvh-sigroute.", async (base) => {
+		// `spark-tools` registers its own tool batch; drive it through the same
+		// registry the plugin uses, with sessionPersistence absent so the
+		// authoritative route cannot be read.
+		const repo = await initRepo(base, { name: "p" });
+		await git(repo, ["commit", "-qm", "init"]);
+		const home = join(base, "home");
+		await writeCarrier(home);
+		await registerProjectFromEntry(dshHome(home), { id: "p", path: repo });
+
+		const { registerSparkTools } = await import("../lib/spark-tools.js");
+		const registered = new Map();
+		const ctx = {
+			tools: { register: (def) => { registered.set(def.name, def); return () => {}; } },
+		};
+		registerSparkTools(ctx, { dshHomePath: dshHome(home), sessionPersistence: () => undefined });
+		const writeTool = registered.get("ldvh_spark_write");
+		assert.ok(writeTool, `ldvh_spark_write must register; got ${[...registered.keys()].join(", ")}`);
+
+		const result = await writeTool.execute({
+			action: "create",
+			frontmatter_draft: { title: "T", question: "Q?", scope_boundary: "S", intent: "I", summary: "M", change_summary: "x" },
+			body_markdown: "## 当前理解\n\nM\n\n## 调查问题\n\nQ?\n\n## 调查边界\n\nS\n",
+		}, { agent: { session: { header: { cwd: repo } } } });
+
+		const envelope = result.envelope;
+		assert.equal(envelope.outcome, "unavailable", JSON.stringify(envelope).slice(0, 400));
+		assert.ok(envelope.gaps.some((g) => /signature_unavailable/.test(g)), JSON.stringify(envelope.gaps));
+		assert.ok(envelope.gaps.some((g) => /REPORT TO HUMAN/.test(g)), "the report must name Human handling");
+
+		// Nothing may have been written.
+		const { readdir } = await import("node:fs/promises");
+		const base2 = join(repo, "ldvh-base", "sparks");
+		const sparks = await readdir(base2).catch(() => []);
+		assert.deepEqual(sparks, [], "no Spark may be written unsigned");
+	});
+});

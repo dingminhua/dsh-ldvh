@@ -36,7 +36,7 @@ import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/pro
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
-import { resolveAuthoritativeSignature } from "./signature-channel.js";
+import { requireAuthoritativeSignature, resolveAuthoritativeSignature } from "./signature-channel.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/22 §7, §8, §9, §11)
@@ -438,6 +438,12 @@ function urlsCount(frontmatter) {
 
 export async function createAdrObject(args) {
   const { factSourceRoot, frontmatterDraft, bodyMarkdown, sessionSignature = null } = args;
+  // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
+  // signed BY CODE and may not be written unsigned. Without a branded carrier the
+  // write is REFUSED; the caller reports it for Human handling (09 requires a
+  // definite unavailable outcome for blank/historical sessions).
+  const sig = requireAuthoritativeSignature(sessionSignature);
+  if (!sig.ok) return failure(sig.code, sig.message);
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
     return failure("invalid_request", "factSourceRoot is required");
   }
@@ -471,7 +477,7 @@ export async function createAdrObject(args) {
   }
   frontmatter.change_log = [{
     at: now,
-    ...resolveAuthoritativeSignature(sessionSignature),
+    ...sig.signature,
     summary: frontmatterDraft.change_summary ?? "受控创建 ADR 对象",
   }];
 
@@ -561,6 +567,12 @@ export async function updateAdrObject(args) {
     factSourceRoot, objectUid, expectedFingerprint,
     frontmatterAfter, bodyMarkdownAfter, changeSummary, sessionSignature = null,
   } = args;
+  // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
+  // signed BY CODE and may not be written unsigned. Without a branded carrier the
+  // write is REFUSED; the caller reports it for Human handling (09 requires a
+  // definite unavailable outcome for blank/historical sessions).
+  const sig = requireAuthoritativeSignature(sessionSignature);
+  if (!sig.ok) return failure(sig.code, sig.message);
 
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return failure("adr/change_summary_required", "changeSummary is required for update");
@@ -620,7 +632,7 @@ export async function updateAdrObject(args) {
   const prevLog = Array.isArray(current.value.frontmatter.change_log) ? current.value.frontmatter.change_log : [];
   fm.change_log = [...prevLog, {
     at: new Date().toISOString(),
-    ...resolveAuthoritativeSignature(sessionSignature),
+    ...sig.signature,
     summary: changeSummary,
   }];
 

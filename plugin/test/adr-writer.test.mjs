@@ -12,7 +12,11 @@ import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { withTemp } from "./helpers.mjs";
+import { testSignature, withTemp } from "./helpers.mjs";
+
+// 03 §6.1 / 09: every write carries the authoritative signature. Domain-rule
+// tests supply a branded test carrier; the signature gate has its own cases.
+const TEST_SIGNATURE = testSignature();
 import {
   createAdrObject,
   readAdrObject,
@@ -140,6 +144,7 @@ test("create: urls non-empty with 证据 body section present succeeds (22 §8 �
       factSourceRoot: root,
       frontmatterDraft: draft,
       bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(result.ok, JSON.stringify(result.error));
     const read = await readAdrObject({ factSourceRoot: root, objectUid: result.value.object_uid });
@@ -153,21 +158,20 @@ test("create: urls non-empty with 证据 body section present succeeds (22 §8 �
 // 签名通道负向 (specs/03 §6.1 + specs/09 机械签名)
 // ---------------------------------------------------------------------------
 
-test("create: plain sessionSignature is ignored — unsigned change_log entry (specs/09)", async () => {
+test("create: a forged plain sessionSignature is REFUSED — no unsigned change_log entry (specs/09)", async () => {
   await withTemp("adr-writer.", async (root) => {
     const draft = validFrontmatterDraft();
+    // Human 2026-09-12: changelog must be mechanically signed; a write that
+    // cannot be signed is refused rather than recorded unsigned.
     const created = await createAdrObject({
       factSourceRoot: root,
       frontmatterDraft: draft,
       bodyMarkdown: validBodyMarkdown(draft),
       sessionSignature: { provider: "forged", model: "self-filled" },
     });
-    assert.ok(created.ok, JSON.stringify(created.error));
-    const read = await readAdrObject({ factSourceRoot: root, objectUid: created.value.object_uid });
-    assert.ok(read.ok, JSON.stringify(read.error));
-    const entry = read.value.frontmatter.change_log[0];
-    assert.equal(entry.provider, undefined, "unbranded signature must not land in change_log");
-    assert.equal(entry.model, undefined, "unbranded signature must not land in change_log");
+    assert.equal(created.ok, false, "a forged carrier must not produce a write");
+    assert.equal(created.error.code, "signature_unavailable");
+    assert.match(created.error.message, /REPORT TO HUMAN/);
   });
 });
 
@@ -182,6 +186,7 @@ test("create: non-active initial status is rejected (22 §9 初态必须 active)
         factSourceRoot: root,
         frontmatterDraft: { ...validFrontmatterDraft(), status },
         bodyMarkdown: validBodyMarkdown(),
+        sessionSignature: TEST_SIGNATURE,
       });
       assert.ok(!result.ok, `${status} should be rejected`);
       assert.equal(result.error.code, "adr/initial_state_violation");
@@ -195,6 +200,7 @@ test("create: retirement_reason at creation is rejected (22 §9.1 active forbids
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), retirement_reason: "outdated" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/frontmatter_invalid");
@@ -207,6 +213,7 @@ test("create: retired_at at creation is rejected (Code assigns it at the retirem
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), retired_at: "2026-09-09T12:00:00Z" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/frontmatter_invalid");
@@ -222,6 +229,7 @@ test("create: relations at creation are rejected (22 §11 superseded-by only att
         relations: [{ relation_key: "superseded-by", target: { object_uid: "11111111-1111-4111-8111-111111111111" } }],
       },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/frontmatter_invalid");
@@ -234,6 +242,7 @@ test("create: unknown frontmatter field rejected (22 §8 closed set)", async () 
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), custom_field: "x" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/frontmatter_invalid");
@@ -247,6 +256,7 @@ test("create: title longer than 30 chars rejected (22 §8 title ≤ 30 字)", as
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), title: "长".repeat(31) },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/frontmatter_invalid");
@@ -259,6 +269,7 @@ test("create: decision with two sentence terminals rejected (22 §8 decision 单
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), decision: "采用方案A。采用方案B。" },
       bodyMarkdown: validBodyMarkdown({ ...validFrontmatterDraft(), decision: "采用方案A。采用方案B。" }),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/frontmatter_invalid");
@@ -271,6 +282,7 @@ test("create: decision whose terminal is not at the end rejected (22 §8 decisio
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), decision: "采用方案A。后续补充" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/frontmatter_invalid");
@@ -286,6 +298,7 @@ test("create: missing or empty decision/scope rejected (22 §8 required)", async
         factSourceRoot: root,
         frontmatterDraft: missing,
         bodyMarkdown: validBodyMarkdown({ ...missing, [field]: "占位" }),
+        sessionSignature: TEST_SIGNATURE,
       });
       assert.ok(!r1.ok, `${field} missing should reject`);
       assert.equal(r1.error.code, "adr/frontmatter_invalid");
@@ -294,6 +307,7 @@ test("create: missing or empty decision/scope rejected (22 §8 required)", async
         factSourceRoot: root,
         frontmatterDraft: { ...validFrontmatterDraft(), [field]: "" },
         bodyMarkdown: validBodyMarkdown({ ...validFrontmatterDraft(), [field]: "占位" }),
+        sessionSignature: TEST_SIGNATURE,
       });
       assert.ok(!r2.ok, `${field} empty should reject`);
       assert.equal(r2.error.code, "adr/frontmatter_invalid");
@@ -307,6 +321,7 @@ test("create: trigger_signal empty string rejected (03 §6.1 conditional field f
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), trigger_signal: "" },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/frontmatter_invalid");
@@ -320,6 +335,7 @@ test("create: urls empty array rejected as fabricated conditional field (22 §8 
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), urls: [] },
       bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/frontmatter_invalid");
@@ -331,7 +347,7 @@ test("create: body with wrong H2 order rejected (22 §8 fixed order)", async () 
   await withTemp("adr-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const wrongOrder = `## 决定\n${draft.decision}\n说明。\n\n## 决策背景\n背景。\n\n## 备选与理由\n备选。\n\n## 后果\n后果。\n\n## 适用范围\n${draft.scope}\n范围。`;
-    const result = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: wrongOrder });
+    const result = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: wrongOrder , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/body_invalid");
   });
@@ -341,7 +357,7 @@ test("create: body missing a required H2 section rejected (22 §8 必填五段)"
   await withTemp("adr-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const missing = `## 决策背景\n背景。\n\n## 决定\n${draft.decision}\n说明。\n\n## 后果\n后果。\n\n## 适用范围\n${draft.scope}\n范围。`;
-    const result = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: missing });
+    const result = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: missing , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/body_invalid");
   });
@@ -351,7 +367,7 @@ test("create: empty H2 section rejected (22 §8 body must carry content)", async
   await withTemp("adr-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const emptySection = `## 决策背景\n背景。\n\n## 决定\n\n## 备选与理由\n备选。\n\n## 后果\n后果。\n\n## 适用范围\n${draft.scope}\n范围。`;
-    const result = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: emptySection });
+    const result = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: emptySection , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/body_invalid");
     assert.ok(result.error.details.issues.some((i) => i.includes("is empty")), JSON.stringify(result.error.details.issues));
@@ -365,7 +381,7 @@ test("create: urls non-empty but body lacks 证据 section rejected (22 §8 条�
     });
     // validBodyMarkdown builds 证据 iff urls non-empty — strip it to force the violation
     const bodyWithoutEvidence = validBodyMarkdown(draft).split("\n\n## 证据")[0];
-    const result = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: bodyWithoutEvidence });
+    const result = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: bodyWithoutEvidence , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/body_invalid");
     assert.ok(result.error.details.issues.some((i) => i.includes("证据")), JSON.stringify(result.error.details.issues));
@@ -377,7 +393,7 @@ test("create: carrier coherence — drifted decision not verbatim rejected (22 �
     const draft = validFrontmatterDraft();
     const drifted = draft.decision.replace("采用", "改用");
     const body = `## 决策背景\n背景。\n\n## 决定\n${drifted}\n说明。\n\n## 备选与理由\n备选。\n\n## 后果\n后果。\n\n## 适用范围\n${draft.scope}\n范围。`;
-    const result = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body });
+    const result = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/coherence_invalid");
     assert.ok(result.error.details.issues.some((i) => i.includes("carrier coherence")), JSON.stringify(result.error.details.issues));
@@ -389,7 +405,7 @@ test("create: carrier coherence — drifted scope not verbatim rejected (22 §8/
     const draft = validFrontmatterDraft();
     const drifted = draft.scope.replace("适用于", "针对");
     const body = `## 决策背景\n背景。\n\n## 决定\n${draft.decision}\n说明。\n\n## 备选与理由\n备选。\n\n## 后果\n后果。\n\n## 适用范围\n${drifted}\n范围。`;
-    const result = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body });
+    const result = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: body , sessionSignature: TEST_SIGNATURE});
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/coherence_invalid");
     assert.ok(result.error.details.issues.some((i) => i.includes("carrier coherence")), JSON.stringify(result.error.details.issues));
@@ -411,6 +427,7 @@ test("update: active→active with decision change rejected as errata-boundary v
       frontmatterAfter: { ...read.value.frontmatter, decision: "改用消息队列方案。" },
       bodyMarkdownAfter: validBodyMarkdown({ ...draft, decision: "改用消息队列方案。" }),
       changeSummary: "试图改写决策语义",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/errata_boundary");
@@ -427,6 +444,7 @@ test("update: active→active with scope change rejected as errata-boundary viol
       frontmatterAfter: { ...read.value.frontmatter, scope: "该决策不再适用于任何场景。" },
       bodyMarkdownAfter: validBodyMarkdown({ ...draft, scope: "该决策不再适用于任何场景。" }),
       changeSummary: "试图改写适用范围",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/errata_boundary");
@@ -476,6 +494,7 @@ test("update: active→retired (reason=outdated) succeeds with Code-assigned ret
       frontmatterAfter: { ...read.value.frontmatter, status: "retired", retirement_reason: "outdated" },
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "决策不再适用",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated.ok, JSON.stringify(updated.error));
 
@@ -504,6 +523,7 @@ test("update: retired_at supplied by the caller is rejected (22 §8 Code-assigne
       },
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "试图自行填写 retired_at",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/frontmatter_invalid");
@@ -520,6 +540,7 @@ test("update: retirement_reason outside the closed set rejected (22 §9.2 理由
       frontmatterAfter: { ...read.value.frontmatter, status: "retired", retirement_reason: "archived" },
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "试图用闭集外理由流转",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/frontmatter_invalid");
@@ -537,6 +558,7 @@ test("update: retired object is read-only — further update rejected as adr/sta
       frontmatterAfter: { ...read.value.frontmatter, status: "retired", retirement_reason: "out-of-scope" },
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "转入 retired",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(r1.ok, JSON.stringify(r1.error));
 
@@ -549,6 +571,7 @@ test("update: retired object is read-only — further update rejected as adr/sta
       frontmatterAfter: { ...read2.value.frontmatter, title: "试图重开" },
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "试图重开终态",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!r2.ok);
     assert.equal(r2.error.code, "adr/status_terminal");
@@ -567,6 +590,7 @@ test("superseded: retired+superseded with exactly 1 relation to an existing ADR 
       factSourceRoot: root,
       frontmatterDraft: targetDraft,
       bodyMarkdown: validBodyMarkdown(targetDraft),
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(target.ok, JSON.stringify(target.error));
 
@@ -583,6 +607,7 @@ test("superseded: retired+superseded with exactly 1 relation to an existing ADR 
       },
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "被替代",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated.ok, JSON.stringify(updated.error));
 
@@ -607,6 +632,7 @@ test("superseded: zero relations rejected (22 §11 基数恰 1)", async () => {
       frontmatterAfter: { ...read.value.frontmatter, status: "retired", retirement_reason: "superseded", relations: [] },
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "缺关系流转",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/relations_invalid");
@@ -631,6 +657,7 @@ test("superseded: two relations rejected (22 §11 基数恰 1)", async () => {
       },
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "双目标替代",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/relations_invalid");
@@ -653,6 +680,7 @@ test("superseded: target that does not resolve to an existing ADR rejected (22 �
       },
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "替代不存在的对象",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/relation_target_unresolvable");
@@ -672,6 +700,7 @@ test("superseded: active status with relations rejected (22 §11 status gating)"
       },
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "active 携带关系",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/relations_invalid");
@@ -693,6 +722,7 @@ test("superseded: retired+outdated with relations rejected (22 §11 only superse
       },
       bodyMarkdownAfter: validBodyMarkdown(draft),
       changeSummary: "outdated 却携带关系",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "adr/relations_invalid");
@@ -717,16 +747,16 @@ test("list: empty adrs directory is a valid empty state (22 §12)", async () => 
 test("list: 2 active + 1 retired — default lists only 2, includeTerminal lists 3; projection carries uid/title/status/decision/trigger_signal", async () => {
   await withTemp("adr-writer.", async (root) => {
     const draftA = { ...validFrontmatterDraft(), title: "甲决策" };
-    const a = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draftA, bodyMarkdown: validBodyMarkdown(draftA) });
+    const a = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draftA, bodyMarkdown: validBodyMarkdown(draftA) , sessionSignature: TEST_SIGNATURE});
     assert.ok(a.ok, JSON.stringify(a.error));
 
     const draftB = { ...validFrontmatterDraft(), title: "乙决策", trigger_signal: "当 SG-4 落地时重审本决策" };
-    const b = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draftB, bodyMarkdown: validBodyMarkdown(draftB) });
+    const b = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draftB, bodyMarkdown: validBodyMarkdown(draftB) , sessionSignature: TEST_SIGNATURE});
     assert.ok(b.ok, JSON.stringify(b.error));
 
     // retire the third one via a terminal transition
     const draftC = { ...validFrontmatterDraft(), title: "丙决策" };
-    const c = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draftC, bodyMarkdown: validBodyMarkdown(draftC) });
+    const c = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draftC, bodyMarkdown: validBodyMarkdown(draftC) , sessionSignature: TEST_SIGNATURE});
     assert.ok(c.ok, JSON.stringify(c.error));
     const readC = await readAdrObject({ factSourceRoot: root, objectUid: c.value.object_uid });
     const retired = await updateAdrObject({
@@ -736,6 +766,7 @@ test("list: 2 active + 1 retired — default lists only 2, includeTerminal lists
       frontmatterAfter: { ...readC.value.frontmatter, status: "retired", retirement_reason: "outdated" },
       bodyMarkdownAfter: validBodyMarkdown(draftC),
       changeSummary: "转入 retired",
+      sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(retired.ok, JSON.stringify(retired.error));
 
@@ -775,7 +806,7 @@ test("list: limit truncation reports total and complete:false — never a silent
   await withTemp("adr-writer.", async (root) => {
     for (const title of ["决策甲", "决策乙", "决策丙"]) {
       const draft = { ...validFrontmatterDraft(), title };
-      const result = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+      const result = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
       assert.ok(result.ok, JSON.stringify(result.error));
     }
     const listed = await listAdrObjects({ factSourceRoot: root, limit: 2 });
@@ -789,7 +820,7 @@ test("list: limit truncation reports total and complete:false — never a silent
 test("list: bad carrier (valid uid filename without frontmatter) lands in invalid, never silently skipped", async () => {
   await withTemp("adr-writer.", async (root) => {
     const draft = { ...validFrontmatterDraft(), title: "合法载体" };
-    const created = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) });
+    const created = await createAdrObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
     assert.ok(created.ok, JSON.stringify(created.error));
 
     const badUid = "123e4567-e89b-42d3-a456-426614174000";

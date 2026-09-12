@@ -67,7 +67,10 @@
 
 **已修复**：① 以 `shellAuthoritativeSignature()` 正规通道为受影响对象补记署名流水（原无署名条目保留，`change_log` 只追加）；② 五个 `signatureFor()` 改为在源头返回品牌载体，并移除调用点重复包装（`authoritativeSignature()` 非幂等）；③ 新增回归用例，以撤销修复验证其确实失败。
 
-**仍缺的机械闸门（未处置，待 Human 定）**：`resolveAuthoritativeSignature()` 的既定语义是**安全降级**——非品牌载体解析为 `null`，流水写成无署名，而**没有任何机械层报告该缺失**。`03 §6.1` 只规定署名「由 Code 托管」，**从未规定「署名缺失必须拒绝写入」**，故本项缺口在规范侧亦无载体。改为显式报告或拒绝写入属**实质修改**（`01 §12.1`），须独立审核后另议。
+**机械闸门（Human 决定 2026-09-12，已实现）**：Human 明确要求「**changelog 和提交都要机械署名，不能署名的要报告 human**」。据此：
+- **提交层**：无 `LDVH-Provider`/`LDVH-Model` 的提交消息命中 `signature_trailer_missing`（blocking），Git Gate 拦截——此前即已如此。
+- **对象层（本次补齐）**：`requireAuthoritativeSignature()` 成为**写入闸门**——非品牌载体（含 `null`、普通对象、伪造形态）一律**拒绝写入**并返回 `signature_unavailable`；工具层在取得权威路由失败时提前返回 `unavailable`，gaps 明确写出「REPORT TO HUMAN」。原「安全降级为无署名」的语义**已被本决定取代**。
+- **依据**：`03 §6.1`「署名…由 Code 托管」从不允许省略；`09`「空白会话、历史会话和模型切换场景必须有确定性取值与**不可用结果**」——不可用结果即拒绝，而非静默写入。
 
 **核验**：`grep -n 'resolveAuthoritativeSignature' plugin/lib/signature-channel.js`——降级语义；抽样核对全库对象流水署名覆盖。
 

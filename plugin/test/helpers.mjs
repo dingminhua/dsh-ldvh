@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { authoritativeSignature } from "../lib/signature-channel.js";
 
 export const execFileAsync = promisify(execFile);
 
@@ -77,8 +78,7 @@ export async function runNode(args, options = {}) {
  * Create a temp directory, run fn(dir), then unconditionally remove it.
  * Every test should wrap its Git work in this helper so nothing leaks.
  */
-export async function withTemp(prefix, fn) {
-	const dir = await mkdtemp(join(tmpdir(), prefix));
+export async function withTemp(prefix, fn) {	const dir = await mkdtemp(join(tmpdir(), prefix));
 	try {
 		return await fn(dir);
 	} finally {
@@ -106,4 +106,20 @@ export async function initRepo(base, { name = "repo", stage = true } = {}) {
 		await git(root, ["add", "README.md"]);
 	}
 	return root;
+}
+
+/**
+ * A branded authoritative signature for tests that exercise DOMAIN rules.
+ *
+ * `03 §6.1` / `09` require every `change_log` entry to carry the authoritative
+ * provider/model, and the writers now REFUSE to write without one (Human
+ * requirement 2026-09-12: a write that cannot be signed must be reported, not
+ * silently recorded). Tests about some other rule are not about the signature,
+ * so they supply this carrier and the gate stays satisfied.
+ *
+ * Tests that DO exercise the gate pass `sessionSignature: null` (or a forged
+ * plain object) explicitly and assert the refusal.
+ */
+export function testSignature({ provider = "test-provider", model = "test-model" } = {}) {
+	return authoritativeSignature({ provider, model });
 }
