@@ -829,3 +829,82 @@ test("item6: the Web install and uninstall-hook routes require explicit intent (
 		}
 	});
 });
+
+// ---------------------------------------------------------------------------
+// 署名落章：工具层的 update 路径必须与 create 路径同样带品牌载体
+// (bug found 2026-09-12: sig.value was passed unbranded, silently writing an
+//  unsigned change_log entry while the envelope still reported sig.ok === true)
+// ---------------------------------------------------------------------------
+
+test("signature: updates land a signed change_log entry through the real writer", async () => {
+	await withTemp("ldvh-sign.", async (base) => {
+		const { mkdir } = await import("node:fs/promises");
+		const { parse: parseYaml } = await import("yaml");
+		const { createSparkObject, updateSparkObject, readSparkObject } = await import("../lib/spark-writer.js");
+		const { authoritativeSignature } = await import("../lib/signature-channel.js");
+		const root = join(base, "root");
+		await mkdir(root, { recursive: true });
+
+		const branded = authoritativeSignature({ provider: "workbuddy", model: "deepseek-v4.1-flash" });
+		const q = "这个字段该叫什么？", sb = "定名后即停", sm = "当前理解快照";
+		const created = await createSparkObject({
+			factSourceRoot: root,
+			frontmatterDraft: { title: "T", question: q, scope_boundary: sb, intent: "I", summary: sm, change_summary: "init" },
+			bodyMarkdown: `## 当前理解\n\n${sm}\n\n## 调查问题\n\n${q}\n\n## 调查边界\n\n${sb}\n`,
+			sessionSignature: branded,
+		});
+		assert.equal(created.ok, true, JSON.stringify(created.error));
+
+		// Update through the same branded carrier the tools layer now supplies.
+		const { readFile } = await import("node:fs/promises");
+		const cur = await readSparkObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+		const text = await readFile(cur.value.file, "utf8");
+		const fm = parseYaml(text.match(/^---\n([\s\S]*?)\n---\n/)[1]);
+		const body = text.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/)[1];
+		const updated = await updateSparkObject({
+			factSourceRoot: root,
+			objectUid: created.value.object_uid,
+			expectedFingerprint: cur.value.fingerprint,
+			frontmatterAfter: fm,
+			bodyMarkdownAfter: body,
+			changeSummary: "second change",
+			sessionSignature: branded,
+		});
+		assert.equal(updated.ok, true, JSON.stringify(updated.error));
+
+		const after = await readFile(cur.value.file, "utf8");
+		const afterFm = parseYaml(after.match(/^---\n([\s\S]*?)\n---\n/)[1]);
+		const last = afterFm.change_log[afterFm.change_log.length - 1];
+		assert.equal(last.provider, "workbuddy", "the update entry must carry the authoritative provider");
+		assert.equal(last.model, "deepseek-v4.1-flash");
+
+		// The defect was in the TOOLS layer, not the writer: `sig.value` was
+		// passed unbranded, so the writer dropped it while the envelope still
+		// reported sig.ok === true. Assert the structural fix directly — the
+		// tools layer's signatureFor must hand out a BRANDED carrier, so no
+		// caller can pass a shape the writer silently ignores.
+		const { authoritativeSignature: brand, resolveAuthoritativeSignature: resolve } = await import("../lib/signature-channel.js");
+		const { readFile: rf } = await import("node:fs/promises");
+		for (const mod of ["spark-tools", "adr-tools", "friction-tools", "pitfall-tools", "research-tools"]) {
+			const src = await rf(new URL(`../lib/${mod}.js`, import.meta.url), "utf8");
+			assert.match(
+				src,
+				/return \{ ok: true, value: authoritativeSignature\(\{ provider: route\.value\.provider, model: route\.value\.model \}\) \};/,
+				`${mod}: signatureFor must return the BRANDED carrier (an unbranded one is silently dropped by the writer)`
+			);
+			// And no call site may pass the raw route object shape.
+			assert.doesNotMatch(src, /sessionSignature: sig\.ok \? \{ provider:/, `${mod}: callers must not construct a plain signature`);
+		}
+	});
+});
+
+test("signature: an UNBRANDED carrier is refused by the writer (branding is the gate)", async () => {
+	const { authoritativeSignature, resolveAuthoritativeSignature } = await import("../lib/signature-channel.js");
+	// Branding at the source is what makes the tools layer incapable of passing
+	// the wrong shape; double-branding must NOT silently degrade to a signed-
+	// looking value either.
+	const branded = authoritativeSignature({ provider: "p", model: "m" });
+	assert.deepEqual(resolveAuthoritativeSignature(branded), { provider: "p", model: "m" });
+	assert.equal(resolveAuthoritativeSignature({ provider: "p", model: "m" }), null, "a plain object must resolve to null");
+	assert.equal(resolveAuthoritativeSignature(branded && authoritativeSignature(branded)), null, "branding an already-branded carrier must not pass");
+});

@@ -86,7 +86,11 @@ async function governedProject(dshHomePath, exec) {
 async function signatureFor(deps, exec) {
   const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
   if (!route.ok) return { ok: false, reason: route.reason };
-  return { ok: true, value: { provider: route.value.provider, model: route.value.model } };
+  // Return the BRANDED carrier, not a plain object: the writers only accept
+  // the branded form, and returning a plain object here is what let the
+  // update paths silently drop the signature (found 2026-09-12). Branding
+  // at the source makes it impossible for a caller to pass the wrong one.
+  return { ok: true, value: authoritativeSignature({ provider: route.value.provider, model: route.value.model }) };
 }
 
 // ---------------------------------------------------------------------------
@@ -235,7 +239,7 @@ async function executeWriteObject(args, exec, deps) {
       factSourceRoot,
       frontmatterDraft: draft,
       bodyMarkdown,
-      sessionSignature: sig.ok ? authoritativeSignature(sig.value) : null,
+      sessionSignature: sig.ok ? sig.value : null,
     });
     if (!created.ok) {
       return writeRejected("pitfall-write-object", created, factSourceRoot);
@@ -294,6 +298,10 @@ async function executeWriteObject(args, exec, deps) {
     frontmatterAfter,
     bodyMarkdownAfter,
     changeSummary,
+    // Update path MUST brand the carrier exactly like the create path: a plain
+    // {provider,model} object is rejected by resolveAuthoritativeSignature(), so
+    // passing sig.value here silently wrote an unsigned change_log entry while
+    // the envelope still reported sig.ok === true (no gap). Found 2026-09-12.
     sessionSignature: sig.ok ? sig.value : null,
   });
   if (!updated.ok) {

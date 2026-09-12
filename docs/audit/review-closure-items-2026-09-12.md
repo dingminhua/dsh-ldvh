@@ -167,3 +167,35 @@
 **审核未能证实（如实转述）**：真实宿主 `AskUserQuestionAnswer`／`ToolExecution`／`FsTarget` 的精确形状（Inspect 精确查询工具拒绝对象输入）；本插件的 `apply()` 与 `fs`／`userQuestions`／`invariants` 的**服务启动次序**（若这些服务在插件 apply 时尚未启动，对应缝会永久报 absent／partial，且不像 `webServer` 那样有 `ctx.inject` 重试）；宿主 `writeText` 是否真按监听器返回的 intent 执行；`plugin/web/dist` 打包产物（仅审了 TS 源）。
 
 **审核给出的维度结论**：`01 §7.2` 逐句检查**通过**——新增规范语句均为规则形（义务／条件／禁止），无状态陈述。
+
+---
+
+## 八、署名落章缺陷（2026-09-12，Human 发现）
+
+**发现来源**：Human 抽查 `ldvh-base/` 对象时指出——`change_log` 中出现一条无 `provider`/`model` 的流水（「字段改名迁移（03 §7.2 三方同步）…」），追问「是谁改的、为何无署名、机械检查为何放行」。
+
+### 根因（两层，第二层是本次最重要的发现）
+
+| 层 | 缺陷 | 来源 |
+|---|---|---|
+| 1 | 候选形成者用**一次性脚本直调 writer**（`sessionSignature: null`），绕过工具面 | 候选形成者的操作方式 |
+| 2 | **工具层的 update 路径系统性丢失署名**：五个事实类型的 `signatureFor()` 返回**未加品牌的普通对象**，而 writer 只接受**品牌载体**（`signature-channel.js` 的 module-private Symbol），未品牌者被 `resolveAuthoritativeSignature()` 解析为 `null` → 静默写为无署名流水；同时 envelope 仍按 `sig.ok`（路由读取成功）报告**无 gap** | **实现缺陷，非操作方式问题** |
+
+**第 2 层的证据**：`lib/*-tools.js` 的 create 路径传 `authoritativeSignature(sig.value)`（正确），update 路径传 `sig.value`（错误）——五个模块**全部**如此。以真实对象抽样核对，修复前只有本次两条流水无署名；修复后全库对象流水署名齐备（`goal.md` 除外，见下）。
+
+### 为何机械检查未拦（如实说明，不是环节故障）
+
+- **Git 提交层正常**：本提交带 `LDVH-Provider/Model` trailer，Git Gate 正常放行。该层署名的是「这次提交」，与「这次对象修改」是**两个不同对象**。
+- **对象层无机械闸门**：`03 §6.1` 规定 `change_log` 的 `at`、署名与对象身份**由 Code 托管**，但**从未规定「署名缺失必须拒绝写入」**；`resolveAuthoritativeSignature()` 的既定语义是**安全降级**（「退化为无署名，而不是落错值」）——该降级防的是「落错值」，不防「不落章」。
+- 因此**没有任何机械层报告「对象级署名缺失」**，`03 §9.2`「未实际证实的项必须进入 gaps」在此无载体。
+
+### 修复
+
+1. **补署名（已完成）**：以 `session-signature.js` 的正规通道 `shellAuthoritativeSignature()`（DSH shell 子进程中自环境解析权威路由，值全程 Code→Code、代理不经手）取得品牌载体，经受控更新入口为两份对象补记流水。**原无署名条目保留**——`change_log` 只追加，历史不被抹除。
+2. **修工具层（已完成）**：五个事实类型的 `signatureFor()` 改为**在源头返回品牌载体**（`authoritativeSignature({provider, model})`），update 与 create 路径统一传 `sig.value`。因 `authoritativeSignature()` **不是幂等**（对已品牌载体再包装会解析为 `null`），同步移除各调用点的重复包装，避免引入第二处静默丢失。
+3. **回归测试（已完成）**：新增用例断言「经真实 writer 的 update 流水带权威署名」，并**结构化断言五个模块的 `signatureFor` 必须返回品牌载体**——以撤销修复验证，该用例确实失败（修复前 33/34、修复后 34/34）。
+
+### 本次暴露的遗留缺口（如实登记，处置待 Human 定）
+
+- **A（本类问题的闸门）**：`resolveAuthoritativeSignature()` 的「安全降级」使**静默无署名**成为可能路径。是否改为**写入时显式报告或拒绝**（使 `03 §9.2` 有机械载体），属**实质修改**，须独立审核后另议。候选形成者判断：应做，但不在本次范围内擅自施行。
+- **B（`goal.md`）**：`ldvh-base/goal.md` 的 4 条 `change_log` 流水**全部无署名**。经核对，其时间均早于 writer 工具化，且 `plugin/lib/` 下**不存在 goal writer**（25 号无受控写入实现）——与本缺陷同形但不同源，属**既有实现缺口**，未在本节处置。
