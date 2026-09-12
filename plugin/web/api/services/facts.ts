@@ -20,7 +20,9 @@ import {
   type CrossWorktreeMeta,
 } from './crossWorktreeMerger.js'
 
-export const ACTIVE_OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction'] as const
+// 27 号 §7：norm 事实规范与既有六类同路径（ldvh-base/norms/，localFactReader
+// 已登记载体与目录）——纳入列表/详情/关联解析的活跃类型面。
+export const ACTIVE_OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm'] as const
 export const OBJECT_TYPES = ACTIVE_OBJECT_TYPES
 export type ObjectType = (typeof OBJECT_TYPES)[number]
 
@@ -621,7 +623,7 @@ async function buildCrossWorktreeMeta(
   }
 }
 
-const OBJECT_ID_PATTERN = /^(workcase|adr|pitfall|spark|research|friction)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
+const OBJECT_ID_PATTERN = /^(workcase|adr|pitfall|spark|research|friction|norm)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
 
 export async function showObject(id: string, scope?: LocalFactScope): Promise<WebFactResult | WebFactError> {
   const match = OBJECT_ID_PATTERN.exec(id)

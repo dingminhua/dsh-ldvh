@@ -58,5 +58,5 @@ export function hasChecklist(value: string) {
 export function isObjectRef(refId: string) {
   const match = refId.match(/^([a-z]+)-\d+$/);
   if (!match) return false;
-  return ['workcase', 'adr', 'pitfall', 'spark', 'research'].includes(match[1]);
+  return ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm'].includes(match[1]);
 }

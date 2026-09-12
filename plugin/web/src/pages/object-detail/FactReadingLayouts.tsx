@@ -702,3 +702,124 @@ export function FrictionReadingLayout({
     </div>
   );
 }
+
+/** 27 号 §8 的正文固定 H2 四段骨架（方向定位与适用范围／核心规则体系／
+ * 约束与反模式／验证与遵从性检查——创建时必须全部存在且各段非空）。 */
+const NORM_BODY_SECTION_ORDER = ['方向定位与适用范围', '核心规则体系', '约束与反模式', '验证与遵从性检查'] as const;
+
+type NormBodySection = { title: string; body: string };
+
+/** 正文按固定 H2 分节（前端解析，跟随 spark/adr/pitfall/friction 的分节先例）。 */
+function parseNormBodySections(body: string): NormBodySection[] {
+  const lines = body.split('\n');
+  const sections: Array<{ title: string; body: string[] }> = [];
+  let current: { title: string; body: string[] } | null = null;
+  for (const line of lines) {
+    const heading = line.match(/^##\s+(.+?)\s*$/);
+    if (heading) {
+      current = { title: heading[1].trim(), body: [] };
+      sections.push(current);
+      continue;
+    }
+    current?.body.push(line);
+  }
+  return sections
+    .map((section) => ({ title: section.title, body: section.body.join('\n').trim() }))
+    .filter((section) => section.body.length > 0 && section.title.length > 0)
+    .sort((a, b) => {
+      const aIndex = NORM_BODY_SECTION_ORDER.indexOf(a.title as (typeof NORM_BODY_SECTION_ORDER)[number]);
+      const bIndex = NORM_BODY_SECTION_ORDER.indexOf(b.title as (typeof NORM_BODY_SECTION_ORDER)[number]);
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return 0;
+    });
+}
+
+/** v5 Norm 阅读布局（27 号 §8）：direction_key（机器方向标识）以方向键节点
+ * 呈现；正文固定 H2 四段分节呈现（核心规则体系可含 H3 子节，直接渲染
+ * markdown）；节序跟随字段契约，终态退出去向（retirement_reason +
+ * retired_at）在末位。norm 不使用 relations（27 §9），无 FactAssociations。 */
+export function NormReadingLayout({
+  obj,
+  locale,
+}: {
+  obj: Record<string, unknown>;
+  locale: string;
+}) {
+  const { t } = useI18n();
+  const bodySections = parseNormBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
+  const sectionOf = (title: string) => bodySections.find((section) => section.title === title);
+
+  const directionKey = typeof obj.direction_key === 'string' && obj.direction_key.trim()
+    ? obj.direction_key.trim()
+    : '';
+  const positioning = sectionOf('方向定位与适用范围')?.body ?? '';
+  const rules = sectionOf('核心规则体系')?.body ?? '';
+  const constraints = sectionOf('约束与反模式')?.body ?? '';
+  const compliance = sectionOf('验证与遵从性检查')?.body ?? '';
+
+  return (
+    <div className="mb-6 flex flex-col gap-5">
+      {/* 方向键是 norm 的机器身份（唯一性校验/索引/跨规范检索），与标题的
+          人类可读定位互补——以专节置顶呈现，缺失时如实标注。 */}
+      {directionKey ? (
+        <section className="min-w-0 rounded-md border border-ldvh-border/80 border-l-2 border-l-violet-400/70 bg-ldvh-bg/65 px-3.5 py-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h3 className="ldvh-card-decision-title min-w-0 text-violet-700/85 dark:text-violet-200/85">
+              {getFieldLabel('direction_key', locale)}
+            </h3>
+            <code className="ldvh-chip-sm min-w-0 shrink-0 break-all border-violet-400/35 bg-violet-500/10 font-mono text-violet-700 dark:text-violet-300">
+              {directionKey}
+            </code>
+          </div>
+        </section>
+      ) : (
+        <p className="ldvh-meta rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-amber-700 dark:text-amber-300">
+          {t('objectList.normDirectionKeyMissing')}
+        </p>
+      )}
+      <AdrProseNode title={getFieldLabel('norm_positioning', locale)} value={positioning} locale={locale} />
+      <AdrProseNode title={getFieldLabel('norm_rules', locale)} value={rules} locale={locale} />
+      <AdrProseNode title={getFieldLabel('norm_constraints', locale)} value={constraints} locale={locale} />
+      <AdrProseNode title={getFieldLabel('norm_compliance', locale)} value={compliance} locale={locale} />
+      <NormTerminalReadingNode obj={obj} locale={locale} />
+      <ChangeLogReadingNode
+        value={obj.change_log}
+        issue={fieldIssue(obj, 'change_log')}
+        locale={locale}
+      />
+    </div>
+  );
+}
+
+/** 27 号 §9/§11 终态去向：retired 的 reason（本地化闭集，同 22 号形态：
+ * superseded/outdated/out-of-scope）+ 退役时间。retired 终态不重开。 */
+function NormTerminalReadingNode({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
+  const { t } = useI18n();
+  const [state, setState] = useState<ReadingNodeState>('expanded');
+  const isRetired = obj.status === 'retired';
+  if (!isRetired) return null;
+
+  const reason = typeof obj.retirement_reason === 'string' && obj.retirement_reason.trim()
+    ? obj.retirement_reason.trim()
+    : null;
+  const retiredAt = typeof obj.retired_at === 'string' && obj.retired_at ? formatDateTime(obj.retired_at) : '';
+
+  const reasonText = reason ? getFieldValueLabel('retirement_reason', reason, locale) || reason : t('objectList.dispositionMissing');
+  const content = [
+    `${getFieldLabel('retirement_reason', locale)}：${reasonText}`,
+    retiredAt ? `${getFieldLabel('retired_at', locale)}：${retiredAt}` : '',
+  ].filter(Boolean).join('\n');
+
+  return (
+    <ReadingNodeSection
+      title={getObjectStatusLocale('norm', 'retired', locale)}
+      state={state}
+      locale={locale}
+      onToggle={() => setState((current) => getReadingNodeNextState(current))}
+    >
+      <ResearchTextNodeContent value={content} compact />
+    </ReadingNodeSection>
+  );
+}

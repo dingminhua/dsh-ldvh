@@ -94,6 +94,11 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     resolved: { zh: '已销账', en: 'Resolved' },
     deferred: { zh: '缓议', en: 'Deferred' },
   },
+  norm: {
+    // 27 号 §9 状态闭集：active（生效中）/ retired（已退役，终态不重开）。
+    active: { zh: '生效中', en: 'Active' },
+    retired: { zh: '已退役', en: 'Retired' },
+  },
 };
 
 export function getObjectStatusLocale(type: string, status: string, locale: string): string {
@@ -108,6 +113,8 @@ export const TYPE_DESCRIPTION_LOCALES: Record<string, { zh: string; en: string }
   pitfall: { zh: '可复用经验', en: 'Reusable pitfalls' },
   spark: { zh: '悬置问题——尚未形成确定承接位置的信息需求、发现、问题或缺口（20 §5）', en: 'A suspended question: an information need, finding, problem, or gap without a definitive carrying position yet' },
   research: { zh: '调研', en: 'Research' },
+  friction: { zh: '摩擦账本——应该修但还没修的系统性阻碍（26 §1）', en: 'An improvement ledger: systemic obstacles that should be fixed but are not yet (26)' },
+  norm: { zh: '事实规范——一个工程方向的成体系规则体系（27 §1）', en: 'A fact-carried norm: the systematic rule system of one engineering direction' },
   change: { zh: '提交', en: 'Commit' },
 };
 
@@ -131,6 +138,8 @@ export const TYPE_LOCALES: Record<string, { zh: string; en: string }> = {
   pitfall: { zh: '经验', en: 'Pitfall' },
   spark: { zh: '火花', en: 'Spark' },
   research: { zh: '调研', en: 'Research' },
+  friction: { zh: '摩擦', en: 'Friction' },
+  norm: { zh: '规范', en: 'Norm' },
   change: { zh: '提交', en: 'Commit' },
 };
 
@@ -385,6 +394,14 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   attribution: { zh: '归因', en: 'Attribution' },
   friction_basis: { zh: '入账依据', en: 'Ledger Basis' },
   friction_disposition: { zh: '处置', en: 'Disposition' },
+  // v5 Norm（27 号）阅读布局标题：direction_key 是机器方向标识（唯一性/索引），
+  // 正文四段固定 H2 骨架（方向定位与适用范围/核心规则体系/约束与反模式/
+  // 验证与遵从性检查）。
+  direction_key: { zh: '方向键', en: 'Direction Key' },
+  norm_positioning: { zh: '方向定位与适用范围', en: 'Direction Positioning & Scope' },
+  norm_rules: { zh: '核心规则体系', en: 'Core Rule System' },
+  norm_constraints: { zh: '约束与反模式', en: 'Constraints & Anti-patterns' },
+  norm_compliance: { zh: '验证与遵从性检查', en: 'Verification & Compliance' },
   category: { zh: '分类', en: 'Category' },
   priority: { zh: '优先级', en: 'Priority' },
   assignee: { zh: '执行者', en: 'Assignee' },
@@ -472,6 +489,12 @@ export const FIELD_VALUE_LOCALES: Record<string, Record<string, { zh: string; en
     high: { zh: '高', en: 'High' },
     medium: { zh: '中', en: 'Medium' },
     low: { zh: '低', en: 'Low' },
+  },
+  // 26 §8：friction impact 闭集——light/medium/heavy（非装饰字段，度量按状态×影响聚合）。
+  impact: {
+    light: { zh: '轻', en: 'Light' },
+    medium: { zh: '中', en: 'Medium' },
+    heavy: { zh: '重', en: 'Heavy' },
   },
   stopping_reason: {
     sufficient: { zh: '证据充分收敛', en: 'Sufficient' },
@@ -610,6 +633,8 @@ const COMMIT_SCOPE_LOCALES: Record<string, { zh: string; en: string }> = {
   workcase: { zh: '工作', en: 'WorkCase' }, adr: { zh: '决策', en: 'ADR' },
   spark: { zh: '火花', en: 'Spark' }, research: { zh: '调研', en: 'Research' },
   pitfall: { zh: '经验', en: 'Pitfall' },
+  friction: { zh: '摩擦', en: 'Friction' },
+  norm: { zh: '规范', en: 'Norm' },
 };
 
 export function getCategoryLabel(category: string, locale: string): string {
@@ -680,7 +705,39 @@ export function getObjectStatusHint(type: string, status: string, locale: string
     if (status === 'discarded') {
       return locale === 'en'
         ? 'No longer tracked, or merged/split into other sparks'
-        : '不再跟踪，或已被合并/拆分到其他火花';
+        : '不再跟踪，或已被合并/拆分到其他火花'
+    }
+  }
+  // 26 §9：账目语义限定——open 参与攒账与度量，resolved 由 informs 指向解药，
+  // deferred 是活账（重新激活的候选源）。
+  if (type === 'friction') {
+    if (status === 'open') {
+      return locale === 'en'
+        ? 'An unpaid ledger entry: pending fix, counted toward accumulation and metrics'
+        : '待修的账：参与攒账与度量，尚待修复';
+    }
+    if (status === 'resolved') {
+      return locale === 'en'
+        ? 'Fixed and settled; the remedy is traceable via its informs relation'
+        : '已修复销账：解药经 informs 关系可追溯';
+    }
+    if (status === 'deferred') {
+      return locale === 'en'
+        ? 'Explicitly postponed but still on the books; can be reactivated'
+        : '明确暂缓但保留账面：可重新激活';
+    }
+  }
+  // 27 号 §9：active 是当前生效规则（同 ADR active 语义限定）；retired 终态不重开。
+  if (type === 'norm') {
+    if (status === 'active') {
+      return locale === 'en'
+        ? 'Currently effective norm for its direction'
+        : '该方向当前生效的规范';
+    }
+    if (status === 'retired') {
+      return locale === 'en'
+        ? 'Retired; kept as read-only history, not reopened'
+        : '已退役：保留为只读历史档案，不重开';
     }
   }
   return getStatusHint(status, locale);
@@ -696,6 +753,8 @@ export const UI_LOCALES = {
     'nav.pitfalls': '经验',
     'nav.sparks': '火花',
     'nav.studies': '调研',
+    'nav.frictions': '摩擦',
+    'nav.norms': '规范',
     'nav.changes': '变更',
     'nav.changelog': '提交',
     'nav.help': '帮助',
@@ -1019,6 +1078,8 @@ export const UI_LOCALES = {
     'objectList.workcaseItemStageMismatch': '工作项状态与当前环节不一致',
     'objectList.workcaseCriteriaCount': '{count} 项',
     'objectList.workcaseFieldMissing': '未记录',
+    'objectList.frictionPhenomenonMissing': '现象缺失',
+    'objectList.normDirectionKeyMissing': '方向键缺失',
     'objectList.workcaseGateFieldMalformed': '结构不完整或不合法',
     'objectList.workcaseAuthorizedActionCount': '{count} 项允许动作',
     'objectList.workcaseProhibitedActionCount': '{count} 项禁止项',
@@ -1332,6 +1393,8 @@ export const UI_LOCALES = {
     'nav.pitfalls': 'Pitfalls',
     'nav.sparks': 'Sparks',
     'nav.studies': 'Research',
+    'nav.frictions': 'Frictions',
+    'nav.norms': 'Norms',
     'nav.changes': 'Changes',
     'nav.changelog': 'Commit Records',
     'nav.help': 'Help',
@@ -1655,6 +1718,8 @@ export const UI_LOCALES = {
     'objectList.workcaseItemStageMismatch': 'Work item states do not match the current step',
     'objectList.workcaseCriteriaCount': '{count} criteria',
     'objectList.workcaseFieldMissing': 'Not recorded',
+    'objectList.frictionPhenomenonMissing': 'Phenomenon missing',
+    'objectList.normDirectionKeyMissing': 'Direction key missing',
     'objectList.workcaseGateFieldMalformed': 'Incomplete or malformed structure',
     'objectList.workcaseAuthorizedActionCount': '{count} authorized actions',
     'objectList.workcaseProhibitedActionCount': '{count} prohibitions',

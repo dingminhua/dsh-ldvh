@@ -112,6 +112,12 @@ export interface ObjectItem {
   trigger_signal?: string;
   retirement_reason?: string;
   retired_at?: string;
+  /** Friction-specific（26 §8：phenomenon/impact 必填；attribution/serves_sg 条件） */
+  phenomenon?: string;
+  attribution?: string;
+  impact?: string;
+  /** Norm-specific（27 §8：direction_key 必填；retirement_reason/retired_at 终态条件） */
+  direction_key?: string;
   /** Spark-specific（20 §8：v5 字段闭集） */
   evolution?: Array<Record<string, unknown>>;
   question?: string;
@@ -344,7 +350,7 @@ export interface WorkCaseRouteTarget {
 
 export interface WorkCaseRelationTarget {
   governed_project_id: string;
-  fact_type_key: 'workcase' | 'spark' | 'adr' | 'pitfall' | 'research';
+  fact_type_key: 'workcase' | 'spark' | 'adr' | 'pitfall' | 'research' | 'friction' | 'norm';
   object_id: string;
 }
 

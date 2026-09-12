@@ -5,8 +5,10 @@ import {
   GitCommit,
   Github,
   FileSignature,
+  Flame,
   Lightbulb,
   Link2,
+  ScrollText,
   Shovel,
   Sparkles,
   Workflow,
@@ -50,6 +52,10 @@ export const OBJECT_TYPE_ICONS: Record<string, SemanticIconComponent> = {
   pitfall: Lightbulb,
   spark: Sparkles,
   research: FileSearchCornerIcon,
+  // 26 号 Friction：摩擦账本——待修阻碍的账目（火焰=摩擦生热，阻碍待修）。
+  friction: Flame,
+  // 27 号 Norm：事实规范——成体系方向规范（卷轴文本=规则体系）。
+  norm: ScrollText,
   change: GitCommit,
   changelog: GitHubSilhouetteIcon,
 };

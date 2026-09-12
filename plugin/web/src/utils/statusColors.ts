@@ -26,6 +26,9 @@ export const STATUS_COLORS: Record<string, { light: string; dark: string }> = {
   capability_gap: { light: '#ca8a04', dark: '#eab308' },
   evidence_gap: { light: '#ca8a04', dark: '#eab308' },
   fact_conflict: { light: '#ea580c', dark: '#fb923c' },
+  // 26 §9：Friction deferred（缓议的账）——明确暂缓的琥珀色，与 open（同琥珀族
+  // 待办语义）区分于 resolved（灰，已销账）。复用 deferred 独立键以便后续分色。
+  deferred: { light: '#ca8a04', dark: '#eab308' },
 rejected: { light: '#dc2626', dark: '#ef4444' },
   deprecated: { light: '#dc2626', dark: '#ef4444' },
   discarded: { light: '#dc2626', dark: '#ef4444' },

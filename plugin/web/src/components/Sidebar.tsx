@@ -29,6 +29,8 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
   { to: '/objects/adr', labelKey: 'nav.adrs', icon: OBJECT_TYPE_ICONS.adr },
   { to: '/objects/pitfall', labelKey: 'nav.pitfalls', icon: OBJECT_TYPE_ICONS.pitfall },
   { to: '/objects/research', labelKey: 'nav.studies', icon: OBJECT_TYPE_ICONS.research },
+  { to: '/objects/friction', labelKey: 'nav.frictions', icon: OBJECT_TYPE_ICONS.friction },
+  { to: '/objects/norm', labelKey: 'nav.norms', icon: OBJECT_TYPE_ICONS.norm },
   { to: '/project-files', labelKey: 'nav.projectFiles', icon: FolderTree },
   { to: '/changes', labelKey: 'nav.changes', icon: GitPullRequestArrow },
   { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog },
@@ -36,7 +38,7 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
 ];
 
 /** 联邦作用域导航（全部管辖计划 Step 4）：
- * 聚焦→联邦聚焦页；五类对象→联邦聚合列表；目录/变更/提交是单项目专属页，联邦态灰显。 */
+ * 聚焦→联邦聚焦页；七类对象→联邦聚合列表；目录/变更/提交是单项目专属页，联邦态灰显。 */
 const FEDERATION_NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon; disabled?: boolean }[] = [
   { to: '/federation', labelKey: 'nav.cognition', icon: LayoutDashboard },
   { to: '/federation/objects/spark', labelKey: 'nav.sparks', icon: OBJECT_TYPE_ICONS.spark },
@@ -44,6 +46,8 @@ const FEDERATION_NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon; di
   { to: '/federation/objects/adr', labelKey: 'nav.adrs', icon: OBJECT_TYPE_ICONS.adr },
   { to: '/federation/objects/pitfall', labelKey: 'nav.pitfalls', icon: OBJECT_TYPE_ICONS.pitfall },
   { to: '/federation/objects/research', labelKey: 'nav.studies', icon: OBJECT_TYPE_ICONS.research },
+  { to: '/federation/objects/friction', labelKey: 'nav.frictions', icon: OBJECT_TYPE_ICONS.friction },
+  { to: '/federation/objects/norm', labelKey: 'nav.norms', icon: OBJECT_TYPE_ICONS.norm },
   { to: '/project-files', labelKey: 'nav.projectFiles', icon: FolderTree, disabled: true },
   { to: '/changes', labelKey: 'nav.changes', icon: GitPullRequestArrow, disabled: true },
   { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog, disabled: true },

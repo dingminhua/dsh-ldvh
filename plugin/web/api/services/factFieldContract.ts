@@ -164,13 +164,14 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
   // 条件出现（retired 必填、active 禁现，同 22 号形态）。本类型不设 urls
   // （规则住正文）与 relations（跨方向以正文引用实现，§9）。正文四段固定
   // H2 骨架（方向定位与适用范围／核心规则体系／约束与反模式／验证与遵从性
-  // 检查）由 body 承载，不登记为独立字段。
+  // 检查）由 report_body 承载——读取层对 markdown 载体统一以 report_body
+  // 投影正文（同 20/22/23/24/26 形态），不登记为独立字段。
   norm: {
     ...common,
     direction_key: field('norm-direction-key', 'string', true),
     retirement_reason: field('retirement-reason', 'string', false),
     retired_at: field('retired-at', 'string', false),
-    body: field('norm-body', 'string', false),
+    report_body: field('norm-body', 'string', false),
   },
 }
 
@@ -188,8 +189,9 @@ export const FACT_LIST_FIELD_NAMES: Record<Exclude<FactType, 'workcase'>, readon
   // friction（26 号）此前遗漏于本表，而 FACT_TERMINAL_STATUSES 已含 friction——
   // 列表投影缺 friction 会使其字段被判为未登记。此处补齐。
   friction: Object.keys(FACT_FIELD_CONTRACT.friction).filter((field) => field !== 'report_body'),
-  // norm（27 号）：正文由 body 承载，列表投影不携带全文（同 report_body 纪律）。
-  norm: Object.keys(FACT_FIELD_CONTRACT.norm).filter((field) => field !== 'body'),
+  // norm（27 号）：正文以 report_body 承载（读取层统一投影），列表投影不
+  // 携带全文（同其余 markdown 类型纪律）。
+  norm: Object.keys(FACT_FIELD_CONTRACT.norm).filter((field) => field !== 'report_body'),
 }
 
 /**

@@ -11,5 +11,5 @@ export const LDVH_ROOT = process.env.LDVH_ROOT || path.resolve(__dirname, '../..
 export const LDVH_WORKSPACE_ROOT = process.env.LDVH_WORKSPACE_ROOT || path.dirname(LDVH_ROOT)
 
 /** 当前工作对象类型（与 services/facts.ts ACTIVE_OBJECT_TYPES 同源；权威列表以 facts.ts 为准） */
-export const OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction'] as const
+export const OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm'] as const
 export type ObjectType = (typeof OBJECT_TYPES)[number]

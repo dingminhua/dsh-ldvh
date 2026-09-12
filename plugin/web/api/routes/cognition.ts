@@ -219,7 +219,7 @@ function priorityRank(priority: unknown): number {
 
 /** 与 localFactReader.metadataFor 一致：按事实类型返回当前 canonical path。 */
 function canonicalPath(type: InboxObjectType, objectId: string): string {
-  return `ldvh-base/${type === 'workcase' ? 'workcases' : type === 'friction' ? 'frictions' : 'pitfalls'}/${objectId}${type === 'workcase' ? '.yaml' : '.md'}`
+  return `ldvh-base/${type === 'workcase' ? 'workcases' : 'pitfalls'}/${objectId}${type === 'workcase' ? '.yaml' : '.md'}`
 }
 
 function factKey(type: string, objectId: string, objectUid?: string): string {

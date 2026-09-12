@@ -17,7 +17,7 @@ import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import { WorkCaseCriteriaList, WORKCASE_CRITERIA_SURFACE_CLASS } from '@/components/WorkCaseCriteriaList';
 import { fetchObjectDetail, fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type ObjectDetail, type ObjectItem, type ObjectStatusOption, type WorkCaseClosureProposalCard, type WorkCaseClosureTerminalCard, type WorkCaseContributionTarget, type WorkCaseExecutionItem, type WorkCaseListGroup, type WorkCaseProgressOption, type WorkCaseSparkSuggestionCard } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
-import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeLabel } from '@/i18n/locales';
+import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeDescription, getTypeLabel } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import { getFactReadMeta, isReadableFact } from '@/utils/factReadMeta';
 import { ALL_STATUS_PARAM, getEffectiveListStatus, writeListStatusParam } from '@/utils/listStatus';
@@ -1478,6 +1478,12 @@ function getFactAssociationState(association: FactCardAssociation): FactAssociat
     if (association.progressGroup === 'plan_confirmation' || association.progressGroup === 'closure_confirmation') return 'pending';
     if (association.progressGroup === 'progressing' || association.progressGroup === 'termination_cleanup') return 'progressing';
   }
+  // 26 §9：friction 关联目标——open/deferred 是活账（待修/缓议均待处理），resolved 已销。
+  if (targetType === 'friction') {
+    if (association.status === 'open' || association.status === 'deferred') return 'pending';
+    if (association.status === 'resolved') return 'closed';
+  }
+  // 27 号 §9：norm 关联目标——retired 已退役（历史档案），active 生效中（下方默认）。
   if (association.status === 'retired') return 'discarded';
   return 'active';
 }
@@ -1613,6 +1619,104 @@ export function ResearchCardContent({ obj }: { obj: ObjectItem }) {
   // 块——这些字段在详情页阅读布局呈现，列表卡片保持克制（24 §12 F1 允许投影
   // 但不强制；需要核对原文时 YAML 源节点有排序后的 frontmatter）。
   return null;
+}
+
+/** 26 §12 F1 投影要素的列表承载：phenomenon（现象单句）+ impact（影响评级
+ * 闭集，非装饰字段）+ attribution（归因，条件出现）。卡片正文段复用 pitfall
+ * 活跃决策块的 amber 表面语法，但语义归账本（待修的账）。 */
+const FRICTION_IMPACT_CHIP_CLASS: Record<string, string> = {
+  light: 'border-emerald-400/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  medium: 'border-amber-400/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+  heavy: 'border-rose-400/40 bg-rose-500/10 text-rose-700 dark:text-rose-300',
+};
+
+export function FrictionCardContent({ obj }: { obj: ObjectItem }) {
+  const { t, locale } = useI18n();
+  // 26 §9：三态都无 frontmatter 处置字段——resolved/deferred 的处置段住正文
+  //（详情页阅读）；resolved 的解药由 informs 关系行（FactAssociationsCardContent）
+  // 呈现。列表卡片只承载 F1 投影要素，不伪造处置摘要。
+  const phenomenon = typeof obj.phenomenon === 'string' && obj.phenomenon.trim() ? obj.phenomenon.trim() : '';
+  const attribution = typeof obj.attribution === 'string' && obj.attribution.trim() ? obj.attribution.trim() : '';
+  const impact = typeof obj.impact === 'string' && obj.impact.trim() ? obj.impact.trim() : '';
+  const impactLabel = impact ? getFieldValueLabel('impact', impact, locale) : '';
+  const impactChipClass = impact ? FRICTION_IMPACT_CHIP_CLASS[impact] : undefined;
+
+  return (
+    <section className="min-w-0 rounded-md border border-amber-400/20 border-l-2 border-l-amber-400/70 bg-amber-500/[0.025] px-3.5 py-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <h3 className="ldvh-card-decision-title min-w-0 text-amber-700/85 dark:text-amber-200/85">
+          {getFieldLabel('phenomenon', locale)}
+        </h3>
+        {impactChipClass && (
+          <span className={`ldvh-chip-sm shrink-0 ${impactChipClass}`} title={`${getFieldLabel('impact', locale)}: ${impactLabel}`}>
+            {impactLabel}
+          </span>
+        )}
+      </div>
+      {phenomenon ? (
+        <div className={`${WORKCASE_CARD_TITLE_BODY_GAP_CLASS} min-w-0 break-words`}>
+          <SummaryText
+            value={phenomenon}
+            collapseThreshold={420}
+            className="ldvh-card-decision-body [&_p]:my-0 text-amber-950/70 dark:text-amber-100/75"
+          />
+        </div>
+      ) : (
+        <p className={`ldvh-card-decision-body ${WORKCASE_CARD_TITLE_BODY_GAP_CLASS} text-red-400`}>
+          {t('objectList.frictionPhenomenonMissing')}
+        </p>
+      )}
+      {attribution && (
+        <div className="ldvh-meta mt-1.5 min-w-0 break-words text-ldvh-text-secondary/80">
+          {getFieldLabel('attribution', locale)}：{attribution}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** 27 号 §10 F1 投影要素的列表承载：direction_key（方向键——同一 direction_key
+ * 至多一个 active Norm，是机器可验证的方向标识）。retired 终态原因由
+ * retirement_reason 承载（闭集同 22 号形态）。 */
+function NormTerminalCardContent({ obj }: { obj: ObjectItem }) {
+  const { t, locale } = useI18n();
+  const rawReason = typeof obj.retirement_reason === 'string' && obj.retirement_reason.trim()
+    ? obj.retirement_reason.trim()
+    : '';
+  const reason = rawReason
+    ? getFieldValueLabel('retirement_reason', rawReason, locale)
+    : t('objectList.dispositionMissing');
+
+  return (
+    <TerminalFactPanel tone="retired" content={formatReasonText(reason)} />
+  );
+}
+
+export function NormCardContent({ obj }: { obj: ObjectItem }) {
+  const { locale } = useI18n();
+  if (obj.status === 'retired') return <NormTerminalCardContent obj={obj} />;
+  // 活跃规范卡片承载 direction_key（27 §8 专属字段：管哪个方向）——正文四段
+  //（方向定位/核心规则体系/约束与反模式/验证与遵从性检查）住详情页阅读布局。
+  const directionKey = typeof obj.direction_key === 'string' && obj.direction_key.trim()
+    ? obj.direction_key.trim()
+    : '';
+  if (!directionKey) return null;
+
+  return (
+    <section className="min-w-0 rounded-md border border-violet-400/20 border-l-2 border-l-violet-400/70 bg-violet-500/[0.025] px-3.5 py-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <h3 className="ldvh-card-decision-title min-w-0 text-violet-700/85 dark:text-violet-200/85">
+          {getFieldLabel('direction_key', locale)}
+        </h3>
+        <code className="ldvh-chip-sm min-w-0 shrink-0 truncate border-violet-400/35 bg-violet-500/10 font-mono text-violet-700 dark:text-violet-300">
+          {directionKey}
+        </code>
+      </div>
+      <p className={`ldvh-caption ${WORKCASE_CARD_TITLE_BODY_GAP_CLASS} text-ldvh-text-secondary/80`}>
+        {getTypeDescription(obj.type, locale)}
+      </p>
+    </section>
+  );
 }
 
 export default function ObjectList() {
@@ -1915,6 +2019,22 @@ export default function ObjectList() {
       );
     }
 
+    if (currentType === 'friction') {
+      return (
+        <ObjectCardFrame key={obj.id} obj={obj} locale={locale} onOpen={openObject} showNonActiveReason={false}>
+          <FrictionCardContent obj={obj} />
+        </ObjectCardFrame>
+      );
+    }
+
+    if (currentType === 'norm') {
+      return (
+        <ObjectCardFrame key={obj.id} obj={obj} locale={locale} onOpen={openObject} showNonActiveReason={false}>
+          <NormCardContent obj={obj} />
+        </ObjectCardFrame>
+      );
+    }
+
 
     return (
       <ObjectCardFrame key={obj.id} obj={obj} locale={locale} onOpen={openObject}>
@@ -1952,7 +2072,7 @@ export default function ObjectList() {
               </>
             ) : (
               <>
-                {currentType === 'spark' || currentType === 'research' ? <span className="ldvh-meta shrink-0 text-ldvh-text-secondary">{t('objectList.lifecycleFilter')}</span> : null}
+                {currentType === 'spark' || currentType === 'research' || currentType === 'friction' || currentType === 'norm' ? <span className="ldvh-meta shrink-0 text-ldvh-text-secondary">{t('objectList.lifecycleFilter')}</span> : null}
                 <ObjectStatusFilter
                   type={currentType}
                   activeStatus={activeStatus}

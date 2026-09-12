@@ -15,6 +15,10 @@ const STATUS_FILTER_ORDER = [
   'accepted',
   'open',
   'implemented',
+  // 26 §9：Friction 缓议的账（活账，可重新激活）——排在 resolved 前，
+  // 与「待办族 → 已决族」的既有序一致。
+  'deferred',
+  'resolved',
   'discarded',
   'archived',
   'retired',
@@ -31,6 +35,10 @@ const FALLBACK_STATUSES_BY_TYPE: Record<string, string[]> = {
   // 20 §9 状态闭集：open（悬置中）→ implemented（落实/交接）/ discarded（废弃/合并/拆分）。
   spark: ['open', 'implemented', 'discarded'],
   research: ['active', 'retired'],
+  // 26 §9 状态闭集：open（待修）→ resolved（已销账）/ deferred（缓议，可重新激活）。
+  friction: ['open', 'resolved', 'deferred'],
+  // 27 号 §9 状态闭集：active（生效中）→ retired（已退役，终态）。
+  norm: ['active', 'retired'],
 };
 
 interface ObjectStatusFilterProps {
