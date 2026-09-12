@@ -70,6 +70,47 @@ function sources(entry) {
   return [entry];
 }
 
+/**
+ * Defense 1 of specs/01 §9.1: a carrier whose name carries a draft, temp or
+ * backup marker never becomes a candidate, even when the rest of the name
+ * matches the canonical pattern. The excluded markers are matched on the
+ * whole name so `20-X.draft.md` (marker before the extension) and
+ * `20-X.md.draft` (marker after it) are both rejected.
+ */
+const EXCLUDED_NAME_MARKER = /\.(draft|tmp|temp|bak|backup|orig|swp|swo)$|~$|\.draft\.|\.tmp\.|\.temp\.|\.bak\.|\.orig\./;
+
+function isExcludedCarrierName(name) {
+  const withoutExtension = name.endsWith(".md") ? name.slice(0, -3) : name;
+  return EXCLUDED_NAME_MARKER.test(name) || EXCLUDED_NAME_MARKER.test(withoutExtension);
+}
+
+/**
+ * Defense 2 of specs/01 §9.1. Git paths compare as exact UTF-8 byte sequences
+ * (no case folding, no Unicode normalization); but two distinct paths that
+ * collide *after* NFC normalization or case folding are a cross-platform
+ * ambiguity and must reject every affected candidate. The same applies when
+ * two candidates claim one spec_id, responsibility_key or canonical_path.
+ * Returns one entry per collision group; an empty array means no collision.
+ */
+function detectCandidateCollisions(members) {
+  const collisions = new Map();
+  const addTo = (key, kind, member) => {
+    if (!collisions.has(key)) collisions.set(key, { kind, key, paths: [] });
+    const group = collisions.get(key);
+    if (!group.paths.includes(member.repoPath)) group.paths.push(member.repoPath);
+  };
+  for (const member of members) {
+    const { repoPath, identity } = member;
+    addTo(`spec_id\u0000${identity?.specId ?? ""}`, "duplicate_spec_id", member);
+    addTo(`key\u0000${identity?.responsibilityKey ?? ""}`, "duplicate_responsibility_key", member);
+    addTo(`path\u0000${identity?.canonicalPath ?? ""}`, "duplicate_canonical_path", member);
+    // Approximate-path ambiguity: normalize then case-fold the repo path.
+    const folded = repoPath.normalize("NFC").toLowerCase();
+    addTo(`folded\u0000${folded}`, "approximate_path_collision", member);
+  }
+  return [...collisions.values()].filter((group) => group.paths.length > 1);
+}
+
 /** Scan the specs/ tree of a governed project root for candidate carriers. */
 async function scanSpecCandidates(projectRoot) {
   const specsRoot = join(projectRoot, "specs");
@@ -80,17 +121,32 @@ async function scanSpecCandidates(projectRoot) {
     if (error?.code === "ENOENT") return { ok: false, reason: "specs/ directory not found in the governed project" };
     return { ok: false, reason: String(error?.message ?? error) };
   }
+  // Defense 1 (specs/01 §9.1): excluded carriers are reported as diagnostics
+  // with a precise reason rather than silently dropped.
+  const excluded = [];
   const files = [];
   for (const entry of entries) {
     if (!entry.isFile() || entry.isSymbolicLink()) continue;
-    if (/^[0-9]{2,}-[^/]+\.md$/.test(entry.name)) files.push(`specs/${entry.name}`);
+    if (!/^[0-9]{2,}-[^/]+\.md$/.test(entry.name)) continue;
+    const repoPath = `specs/${entry.name}`;
+    if (isExcludedCarrierName(entry.name)) {
+      excluded.push({ canonical_path: repoPath, reason: "excluded_name_marker: draft/temp/backup marker in file name" });
+      continue;
+    }
+    files.push(repoPath);
   }
   const attachmentsRoot = join(specsRoot, "attachments");
   try {
     const attachments = await readdir(attachmentsRoot, { withFileTypes: true });
     for (const entry of attachments) {
       if (!entry.isFile() || entry.isSymbolicLink()) continue;
-      if (/^[0-9]{2,}\.Att\.[0-9]{2,}-[^/]+\.md$/.test(entry.name)) files.push(`specs/attachments/${entry.name}`);
+      if (!/^[0-9]{2,}\.Att\.[0-9]{2,}-[^/]+\.md$/.test(entry.name)) continue;
+      const repoPath = `specs/attachments/${entry.name}`;
+      if (isExcludedCarrierName(entry.name)) {
+        excluded.push({ canonical_path: repoPath, reason: "excluded_name_marker: draft/temp/backup marker in file name" });
+        continue;
+      }
+      files.push(repoPath);
     }
   } catch {
     /* no attachments directory — not an error */
@@ -112,7 +168,32 @@ async function scanSpecCandidates(projectRoot) {
     }
     members.push({ identity: parsed.value.identity, markdownText: text, repoPath });
   }
-  return { ok: true, members, gaps };
+  // Defense 2 (specs/01 §9.1): when several candidates share a spec_id,
+  // responsibility_key or canonical_path — or collide once NFC-normalized or
+  // case-folded — every affected candidate is withheld from member reads
+  // until the collision is resolved. No candidate is chosen as the winner.
+  const collisions = detectCandidateCollisions(members, projectRoot);
+  const withheld = new Set(collisions.flatMap((collision) => collision.paths));
+  const admissible = members.filter((member) => !withheld.has(member.repoPath));
+  // Defense 3 (specs/01 §9.1): one scan yields one snapshot; the member set,
+  // the diagnostics and the fingerprint all describe that same snapshot.
+  const snapshot = {
+    worktree_root: projectRoot,
+    candidate_count: members.length,
+    candidate_set_fingerprint: contentFingerprint([...members].map((m) => m.repoPath).sort().join("\n")),
+    content_fingerprints: Object.fromEntries(
+      [...members].map((m) => [m.repoPath, contentFingerprint(m.markdownText)]).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    )
+  };
+  return {
+    ok: true,
+    members: admissible,
+    gaps,
+    excluded,
+    collisions,
+    withheld: [...withheld].sort(),
+    snapshot
+  };
 }
 
 function makeExecute(deps) {
@@ -171,12 +252,23 @@ function makeExecute(deps) {
       const outline = layer === "L2" ? extractHeadings(member.markdownText).map((h) => ({ level: h.level, text: h.text, line: h.line })) : undefined;
       return projectLayer(member.identity, layer, outline);
     });
+    // Defenses 1 and 2 of specs/01 §9.1 surface in `gaps` so an excluded or
+    // withheld carrier is visible as a diagnostic instead of vanishing.
+    const scanGaps = [
+      ...scan.gaps,
+      ...scan.excluded.map((entry) => ({ responsibility_key: null, canonical_path: entry.canonical_path, reason: entry.reason })),
+      ...scan.collisions.map((collision) => ({
+        responsibility_key: null,
+        canonical_path: collision.paths.join(", "),
+        reason: `${collision.kind}: ${collision.paths.length} candidates collide — all withheld from member reads until resolved`
+      }))
+    ];
     return envelope("read-specification-candidates", "completed", {
       result: { layer, candidates },
       scope: { requested: requestedKey ?? "all", completed: selected.map((m) => m.identity.responsibilityKey), not_completed: [] },
-      sources: sources({ kind: "governed-project", path: governed.project.path, scan: "specs/" }),
-      gaps: scan.gaps,
-      verification: { checks: ["identity-parse", "layer-projection"], passed: true },
+      sources: sources({ kind: "governed-project", path: governed.project.path, scan: "specs/", snapshot: scan.snapshot }),
+      gaps: scanGaps,
+      verification: { checks: ["identity-parse", "layer-projection", "excluded-name-filter", "collision-detection", "snapshot-binding"], passed: true },
       follow_up: ["read-specification-content for L3/L4 of any candidate"]
     });
   }
@@ -208,11 +300,25 @@ function makeExecute(deps) {
     }
     const member = scan.members.find((m) => m.identity.responsibilityKey === key);
     if (member === undefined) {
+      // specs/01 §9.1: a withheld (colliding) or name-excluded carrier must be
+      // reported as a non-member candidate with its precise reason, never
+      // silently reported as absent and never served as current rules.
+      const keyCollision = scan.collisions.find((group) => group.kind === "duplicate_responsibility_key" && group.key === `key\u0000${key}`);
+      const nameExcluded = scan.excluded.filter((entry) => entry.canonical_path.includes(key));
+      const reason = keyCollision !== undefined
+        ? `responsibility_key "${key}" collides across ${keyCollision.paths.length} candidates — all affected candidates withheld until resolved (specs/01 §9.1)`
+        : nameExcluded.length > 0
+          ? `"${key}" resolves only to a name-excluded carrier — non-member candidate (specs/01 §9.1)`
+          : `no member candidate carries responsibility_key "${key}"`;
       return envelope("read-specification-content", "rejected", {
         result: null, scope: { requested: key, completed: [], not_completed: [key] },
-        sources: sources({ kind: "governed-project", path: governed.project.path }),
-        gaps: [`no member candidate carries responsibility_key "${key}"`],
-        verification: { checks: ["key-lookup"], passed: false },
+        sources: sources({ kind: "governed-project", path: governed.project.path, snapshot: scan.snapshot }),
+        gaps: [
+          reason,
+          ...(keyCollision === undefined ? [] : keyCollision.paths),
+          ...nameExcluded.map((entry) => `${entry.canonical_path}: ${entry.reason}`)
+        ],
+        verification: { checks: ["key-lookup", "collision-detection"], passed: false },
         follow_up: ["read-specification-candidates to enumerate keys"]
       });
     }

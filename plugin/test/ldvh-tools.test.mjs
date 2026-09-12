@@ -14,6 +14,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdir, writeFile } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { guidanceTextFor, GUIDANCE_SECTION_NAME, GUIDANCE_SECTION_ORDER } from "../lib/guidance-text.js";
 import { makeExecute, OPERATIONS, renderEnvelope, toolDescriptor } from "../lib/ldvh-tools.js";
@@ -241,7 +242,7 @@ test("read-specification-candidates filters by responsibility_key when supplied"
 	});
 });
 
-test("read-specification-candidates returns rejected when no candidate matches the key", async () => {
+test("read-specification-candidates rejects a key that matches no candidate", async () => {
 	await withTemp("ldvh-tools.", async (base) => {
 		const home = join(base, "home");
 		const root = await initRepo(base);
@@ -252,6 +253,164 @@ test("read-specification-candidates returns rejected when no candidate matches t
 		assertEnvelopeShape(envelope, "read-specification-candidates", "rejected");
 		assert.equal(envelope.result, null);
 		assert.ok(envelope.gaps.some((g) => g.includes("no-such-key")));
+	});
+});
+
+// ---------------------------------------------------------------------------
+// specs/01 §9.1 defenses: excluded names, collision withholding, snapshot
+// ---------------------------------------------------------------------------
+
+/** Build a minimal parseable carrier with an explicit identity + file name. */
+function specCarrier({ key, id, title, canonicalPath }) {
+	return `---
+ldvh_spec:
+  spec_key: "${key}"
+  spec_id: "${id}"
+  spec_kind: "spec"
+  title: "${title}"
+  canonical_path: "${canonicalPath}"
+  parent_spec: "ldvh-root"
+  relation: "refines"
+  positioning: "p"
+  scope: "s"
+  basis: []
+  authorized_attachments: []
+  dimensions: ["read"]
+---
+
+# ${title}
+
+## 1. 价值
+
+正文段落。
+`;
+}
+
+test("01 §9.1 defense 1: a .draft carrier never enters candidate discovery", async () => {
+	await withTemp("ldvh-tools.", async (base) => {
+		const home = join(base, "home");
+		const root = await initRepo(base);
+		await writeSpecsTree(root);
+		// The audit counterexample: this name matches the canonical pattern.
+		await writeFile(
+			join(root, "specs", "13-规范示例三.draft.md"),
+			specCarrier({ key: "sample-spec-3", id: "13", title: "规范示例三", canonicalPath: "specs/13-规范示例三.draft.md" })
+		);
+		await registerProject(dshHome(home), { id: "demo", path: root });
+		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
+		const envelope = await handlers["read-specification-candidates"]({}, { agent: { session: { header: { cwd: root } } } });
+		assert.equal(envelope.outcome, "completed");
+		const keys = envelope.result.candidates.map((c) => c.responsibility_key);
+		assert.ok(!keys.includes("sample-spec-3"), "the .draft carrier must not become a candidate");
+		// Excluded carriers are visible as diagnostics, not silently dropped.
+		assert.ok(
+			envelope.gaps.some((g) => typeof g === "object" && g.reason?.includes("excluded_name_marker")),
+			"the excluded carrier must be reported with a precise reason"
+		);
+	});
+});
+
+test("01 §9.1 defense 1: every canonical-pattern excluded marker form is rejected", async () => {
+	await withTemp("ldvh-tools.", async (base) => {
+		const home = join(base, "home");
+		const root = await initRepo(base);
+		await writeSpecsTree(root);
+		// All four still end in .md, so all four reach the candidate pattern.
+		const names = ["14-甲.draft.md", "15-乙.tmp.md", "16-丙.bak.md", "17-丁.temp.md"];
+		for (const [index, name] of names.entries()) {
+			const id = String(14 + index);
+			await writeFile(join(root, "specs", name), specCarrier({ key: `sample-extra-${index}`, id, title: `额外${index}`, canonicalPath: `specs/${name}` }));
+		}
+		await registerProject(dshHome(home), { id: "demo", path: root });
+		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
+		const envelope = await handlers["read-specification-candidates"]({}, { agent: { session: { header: { cwd: root } } } });
+		const keys = envelope.result.candidates.map((c) => c.responsibility_key);
+		assert.deepEqual(keys.sort(), ["sample-attachment-1", "sample-spec-1", "sample-spec-2"], "no excluded name may become a candidate");
+		assert.equal(
+			envelope.gaps.filter((g) => typeof g === "object" && g.reason?.includes("excluded_name_marker")).length,
+			names.length,
+			"each excluded carrier must be reported exactly once"
+		);
+	});
+});
+
+test("01 §9.1 defense 2: colliding responsibility_key withholds every affected candidate", async () => {
+	await withTemp("ldvh-tools.", async (base) => {
+		const home = join(base, "home");
+		const root = await initRepo(base);
+		await mkdir(join(root, "specs"), { recursive: true });
+		// Two carriers claiming the same responsibility_key, each with its own
+		// consistent identity so only the key collides.
+		await writeFile(join(root, "specs", "21-甲.md"), specCarrier({ key: "shared-key", id: "21", title: "甲", canonicalPath: "specs/21-甲.md" }));
+		await writeFile(join(root, "specs", "22-乙.md"), specCarrier({ key: "shared-key", id: "22", title: "乙", canonicalPath: "specs/22-乙.md" }));
+		await registerProject(dshHome(home), { id: "demo", path: root });
+		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
+		const envelope = await handlers["read-specification-candidates"]({}, { agent: { session: { header: { cwd: root } } } });
+		assert.equal(envelope.outcome, "completed");
+		assert.deepEqual(envelope.result.candidates, [], "no colliding candidate may be served as a member");
+		assert.ok(
+			envelope.gaps.some((g) => typeof g === "object" && g.reason?.includes("duplicate_responsibility_key")),
+			"the collision must be reported with its kind"
+		);
+		// And the content read must refuse rather than pick the first match.
+		const read = await handlers["read-specification-content"]({ responsibility_key: "shared-key" }, { agent: { session: { header: { cwd: root } } } });
+		assert.equal(read.outcome, "rejected");
+		assert.ok(read.gaps.some((g) => String(g).includes("collides across")));
+	});
+});
+
+test("01 §9.1 defense 2: an approximate-path collision rejects both carriers", async () => {
+	await withTemp("ldvh-tools.", async (base) => {
+		const home = join(base, "home");
+		const root = await initRepo(base);
+		await mkdir(join(root, "specs"), { recursive: true });
+		// Same visible name, different Unicode composition: on a
+		// case-sensitive/NFC-normalizing checkout these can exist as two files
+		// that normalize to one path — the cross-platform ambiguity the rule
+		// guards. (The identity spec_id/canonical_path are kept distinct so that
+		// only the path-collision defense is under test.)
+		const composed = "41-caf\u00e9.md"; // é as one code point (NFC)
+		const decomposed = "41-cafe\u0301.md"; // e + combining acute (NFD)
+		await writeFile(join(root, "specs", composed), specCarrier({ key: "nfc-key", id: "41", title: "cafe1", canonicalPath: `specs/${composed}` }));
+		await writeFile(join(root, "specs", decomposed), specCarrier({ key: "nfd-key", id: "42", title: "cafe2", canonicalPath: `specs/${decomposed}` }));
+		await registerProject(dshHome(home), { id: "demo", path: root });
+		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
+		const envelope = await handlers["read-specification-candidates"]({}, { agent: { session: { header: { cwd: root } } } });
+		// Whether the host folds these into one file or keeps them apart, the
+		// invariant holds: no two candidates that normalize to the same path may
+		// both be served.
+		const served = envelope.result.candidates.map((c) => c.responsibility_key);
+		const collided = envelope.gaps.some((g) => typeof g === "object" && g.reason?.includes("approximate_path_collision"));
+		if (served.length === 2) {
+			assert.ok(collided, "two candidates normalizing to one path must be withheld and reported");
+			assert.deepEqual(served, [], "no colliding candidate may be served");
+		} else {
+			// The filesystem itself collapsed them to one file; the scan cannot
+			// and must not invent a second candidate.
+			assert.ok(served.length <= 2);
+		}
+	});
+});
+
+test("01 §9.1 defense 3: the envelope carries the snapshot the members came from", async () => {
+	await withTemp("ldvh-tools.", async (base) => {
+		const home = join(base, "home");
+		const root = await initRepo(base);
+		await writeSpecsTree(root);
+		await registerProject(dshHome(home), { id: "demo", path: root });
+		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
+		const envelope = await handlers["read-specification-candidates"]({}, { agent: { session: { header: { cwd: root } } } });
+		const snapshot = envelope.sources[0].snapshot;
+		assert.ok(snapshot, "the source must bind the scan snapshot");
+		assert.equal(await realpath(snapshot.worktree_root), await realpath(root));
+		assert.equal(snapshot.candidate_count, 3);
+		assert.equal(typeof snapshot.candidate_set_fingerprint, "string");
+		assert.equal(snapshot.candidate_set_fingerprint.length, 64);
+		// Every member's content fingerprint is bound in the same snapshot.
+		assert.equal(Object.keys(snapshot.content_fingerprints).length, 3);
+		for (const value of Object.values(snapshot.content_fingerprints)) {
+			assert.equal(value.length, 64);
+		}
 	});
 });
 
