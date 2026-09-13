@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { chmod, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -46,7 +46,10 @@ async function resolveIdentity(candidate) {
   if (await runGit(root, ["rev-parse", "--is-bare-repository"]) === "true") throw new Error("bare Git repositories cannot be governed projects");
   const commonRaw = await runGit(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
   const commonDir = await realpath(commonRaw);
-  if (commonRaw !== commonDir) throw new Error("Git common-dir must not traverse a symbolic link");
+  // Git prints forward slashes even on Windows while realpath returns native
+  // separators; resolve() normalizes both sides so only a REAL symlink
+  // traversal (a genuinely different resolved path) fails this check.
+  if (resolve(commonRaw) !== commonDir) throw new Error("Git common-dir must not traverse a symbolic link");
   const hookDirectory = join(commonDir, "hooks");
   try {
     const hookStat = await lstat(hookDirectory);
@@ -142,8 +145,39 @@ async function atomicReplace(path, content, expected) {
   }
 }
 
+let cachedShCommand;
+
+async function resolveShCommand() {
+  if (cachedShCommand) return cachedShCommand;
+  // Git for Windows ships sh.exe but does NOT put it on PATH (only cmd/ is);
+  // real Git hook execution uses Git's own sh regardless of PATH, so only the
+  // Node-side preflight needs this resolution. Derive candidates from the
+  // resolvable git executable, then fall back to PATH lookup.
+  const candidates = [];
+  try {
+    const execPath = (await execFileAsync("git", ["--exec-path"], { encoding: "utf8", timeout: GIT_TIMEOUT_MS })).stdout.trim();
+    if (execPath) {
+      const gitRoot = resolve(execPath, "..", "..", "..");
+      candidates.push(join(gitRoot, "bin", "sh.exe"), join(gitRoot, "usr", "bin", "sh.exe"));
+    }
+  } catch {
+    /* git resolution failed; fall through to the PATH candidates */
+  }
+  candidates.push("sh.exe", "sh");
+  for (const command of candidates) {
+    try {
+      await execFileAsync(command, ["-c", "exit 0"], { encoding: "utf8", timeout: GIT_TIMEOUT_MS });
+      cachedShCommand = command;
+      return cachedShCommand;
+    } catch {
+      /* try the next candidate */
+    }
+  }
+  throw new Error("no sh executable found for the Git Hook preflight (Git for Windows installs one)");
+}
+
 async function invokeHook(path, messageFile, cwd, env = {}) {
-  const command = process.platform === "win32" ? "sh" : path;
+  const command = process.platform === "win32" ? await resolveShCommand() : path;
   const args = process.platform === "win32" ? [path, messageFile] : [messageFile];
   try {
     const result = await execFileAsync(command, args, { cwd, env: cleanGitEnvironment(env), encoding: "utf8", timeout: 20000, maxBuffer: 1024 * 1024 });
