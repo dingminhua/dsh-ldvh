@@ -58,7 +58,7 @@ urls:
     summary: Research 类型规范：字段契约/启发锚定不变量，核对底稿附录缺口
     title: specs/24 Research 类型规范
   - ref: https://github.com/dmh2002/dsh-ldvh/blob/dev/specs/02-工作模型基础规范.md
-    summary: 工作模型：§10 调研业务系统定位（产出事实证据不自动授权）
+    summary: 工作模型：§9 调研业务系统定位（产出事实证据不自动授权）
     title: specs/02 工作模型基础规范
   - ref: https://github.com/dmh2002/dsh-ldvh/blob/dev/specs/00-理念与构成.md
     summary: 理念与构成：§7 防自欺机制（陷阱3间接落实路径）
@@ -74,17 +74,33 @@ change_log:
     provider: trae
     model: DeepSeek-V4-Flash-Official
     summary: 受控创建 Research 对象（补缺清单1：dsh-deep-research 控制论/信息论编排机制在 v5 调研系统的承接状态核对；源码未变不重复取证，聚焦 v4→v5 机制映射；9 confirmed + 1 uncertain + 2 gaps，round-cap 收敛）
+  - at: 2026-09-13T14:12:27.720Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 更正章号引用：02 §10→§9（02 号六业务系统章序重排后，「调研业务系统」现为 §9）
+  - at: 2026-09-13T14:18:57.719Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 修复上次更新引入的 implications 丢失（12 条误减为 4 条），恢复原始 12 条并保留 02 §10→§9 章号更正
+  - at: 2026-09-13T14:20:23.025Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 修复上次更新对其他 frontmatter 字段的无谓改写，恢复 research_purpose/stopping_reason/uncertain/gaps 原文并保留 02 §10→§9 章号更正
+  - at: 2026-09-13T14:25:29.916Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 更正章号引用：02 章序重排后同步全部引用（旧 §10 调研→§9）；仅改章号，其余字段与正文保持原文
 ---
 
 ## 研究问题
 
 dsh-deep-research（v0.1.0）控制论/信息论编排机制在 v5 调研系统（specs/11 + specs/24）中的承接状态：哪些机制已吸收为规范机制、哪些未吸收且对 LDVH 仍有参考价值、哪些是 v5 明确不采用的。
 
-本调研为 specs/11 调研系统与 specs/24 Research 类型规范的缺口核对提供依据。方法：确认 deep-research 源码未变（v0.1.0，最近 commit c0b329e/094bdf1 即 v4 报告引用，之后无新 commit），故不重复外部取证；聚焦 v4 已调研机制（docs/investigation-report-dsh-deep-research.md）与 v5 规范（specs/11 + specs/24 + specs/02 §10 + specs/00 §7）的逐项映射核对。
+本调研为 specs/11 调研系统与 specs/24 Research 类型规范的缺口核对提供依据。方法：确认 deep-research 源码未变（v0.1.0，最近 commit c0b329e/094bdf1 即 v4 报告引用，之后无新 commit），故不重复外部取证；聚焦 v4 已调研机制（docs/investigation-report-dsh-deep-research.md）与 v5 规范（specs/11 + specs/24 + specs/02 §9 + specs/00 §7）的逐项映射核对。
 
 ## 输入与边界
 
-输入：v4 调研报告 docs/investigation-report-dsh-deep-research.md（171 行，2026-09-05，源码级证据 file:line）；v5 规范 specs/11-调研系统规范.md、specs/24-Research-调研报告.md、specs/02 §10、specs/00 §7；deep-research 本机源码 ~/DshProject/dsh-deep-research（git log 确认无新 commit）。
+输入：v4 调研报告 docs/investigation-report-dsh-deep-research.md（171 行，2026-09-05，源码级证据 file:line）；v5 规范 specs/11-调研系统规范.md、specs/24-Research-调研报告.md、specs/02 §9、specs/00 §7；deep-research 本机源码 ~/DshProject/dsh-deep-research（git log 确认无新 commit）。
 
 边界：本调研核对 v4→v5 机制承接状态，不重新实跑 deep-research 回归测试（源码未变，v4 已实跑 6/6 全绿）；不横向对比其他项目（solo-thinking/mnemon 已由 R3/R4 承接）；不评估 specs/11 的实现质量，只核对规范层承接。
 
@@ -112,9 +128,9 @@ v4 deep-research 的 clarify-first（≤3 澄清问题 + 拒绝则驳回）在 v
 
 ### C4 调研=审议扩散工具的边界澄清已落实
 
-v4 报告 §7.1 澄清「调研不是第九维，是审议维扩散阶段工具」，在 v5 落实为 specs/02 §10 调研业务系统定位：调研产出事实证据，不自动产生行动授权或完成结论；调研结论进入事实源须满足 03 准入。
+v4 报告 §7.1 澄清「调研不是第九维，是审议维扩散阶段工具」，在 v5 落实为 specs/02 §9 调研业务系统定位：调研产出事实证据，不自动产生行动授权或完成结论；调研结论进入事实源须满足 03 准入。
 
-溯源：https://github.com/dmh2002/dsh-ldvh/blob/dev/specs/02-工作模型基础规范.md（§10）
+溯源：https://github.com/dmh2002/dsh-ldvh/blob/dev/specs/02-工作模型基础规范.md（§9）
 
 ### C5 round-cap 轮次上限已吸收
 
