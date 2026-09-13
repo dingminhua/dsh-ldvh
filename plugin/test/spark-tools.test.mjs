@@ -182,6 +182,76 @@ test("create: completed envelope, object_uid assigned, read-back ok, file on dis
 });
 
 // ---------------------------------------------------------------------------
+// create 正例: OPTIONAL fields must survive the tool plane (the aa12604 class)
+// ---------------------------------------------------------------------------
+
+test("create: optional fields (priority/serves) succeed through the tool plane and land on disk", async () => {
+  // WHY THIS EXISTS — this is the positive half of the aa12604 defect.
+  //
+  // aa12604 added Spark `priority` to the writer but not to spark-tools.js's
+  // JSON Schema. Because that schema declares `additionalProperties: false`,
+  // EVERY call carrying `priority` was rejected by DSH argument validation
+  // BEFORE the writer ran — and it sat latent across 727 green tests. The
+  // schema/writer agreement guard now proves the field is *declared*; it does
+  // NOT prove the field is *usable*. This test drives the field through the
+  // real tool plane end-to-end, so a future regression that drops an optional
+  // field from the schema fails here by rejection rather than by silence.
+  await withTemp("spark-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const descriptors = makeDescriptors(makeDeps(home, base));
+
+    const draft = validFrontmatterDraft({
+      priority: "P1",
+      serves: "SG-1",
+    });
+
+    // Guard the premise: this call only means something if the optional
+    // fields are actually present in the arguments we hand the tool plane.
+    assert.equal(draft.priority, "P1");
+    assert.equal(draft.serves, "SG-1");
+
+    const created = await run(descriptors, "ldvh_spark_write", {
+      action: "create",
+      frontmatter_draft: draft,
+      body_markdown: validBodyMarkdown(draft),
+    }, repo);
+
+    assert.equal(created.outcome, "completed", JSON.stringify(created));
+    const uid = created.result.object_uid;
+
+    // The optional values survived into the persisted object.
+    // `serves` is projected to the top level; `priority` lives in frontmatter.
+    const readBack = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
+    assert.equal(readBack.outcome, "completed", JSON.stringify(readBack));
+    assert.equal(readBack.result.serves, "SG-1", JSON.stringify(readBack.result));
+    assert.equal(readBack.result.frontmatter.priority, "P1", JSON.stringify(readBack.result.frontmatter));
+
+    // ...and onto disk, not merely into the in-memory envelope.
+    const raw = await readFile(join(repo, "ldvh-base", "sparks", `spark-${uid}.md`), "utf8");
+    assert.ok(raw.includes("priority: P1"), raw.slice(0, 400));
+    assert.ok(raw.includes("serves: SG-1"), raw.slice(0, 400));
+  });
+});
+
+test("create: optional-field calls are NOT rejected by tool-plane argument validation", async () => {
+  // The narrowest form of the aa12604 defect: the DSH argument validator, not
+  // the writer, is what rejected `priority`. Assert directly against the
+  // declared schema so the failure message names the real cause instead of
+  // surfacing as a generic rejection downstream.
+  const desc = sparkToolsModule.toolDescriptorFor(
+    "spark-write-object",
+    sparkToolsModule.OPERATIONS["spark-write-object"],
+    async () => ({}),
+  );
+  const violations = validateJsonSchemaValue(desc.parameters, {
+    action: "create",
+    frontmatter_draft: validFrontmatterDraft({ priority: "P1", serves: "SG-1" }),
+    body_markdown: validBodyMarkdown(),
+  }, "args");
+  assert.deepEqual(violations, [], JSON.stringify(violations));
+});
+
+// ---------------------------------------------------------------------------
 // create 机械拒绝 (zero write)
 // ---------------------------------------------------------------------------
 

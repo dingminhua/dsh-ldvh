@@ -27,6 +27,9 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
+// The very function the DSH runtime calls before a tool handler runs.
+import { validateJsonSchemaValue } from "@deepseek-ai/dsh-tools";
+
 import { VALID_FM_KEYS as SPARK_FM_KEYS } from "../lib/spark-writer.js";
 import { VALID_FM_KEYS as ADR_FM_KEYS } from "../lib/adr-writer.js";
 import { VALID_FM_KEYS as PITFALL_FM_KEYS } from "../lib/pitfall-writer.js";
@@ -98,15 +101,77 @@ async function writerKeysFromSource(fileName) {
 	return new Set([...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]));
 }
 
-/** The schema properties for the create-time frontmatter argument. */
-function frontmatterSchemaFields(descriptor) {
+/** Locate the create-time frontmatter argument and its declared schema. */
+function frontmatterSchema(descriptor) {
 	const key = Object.keys(descriptor.parameters.properties).find((name) => name.startsWith("frontmatter"));
 	assert.ok(key, `no frontmatter argument declared by ${descriptor.name}`);
-	const schema = descriptor.parameters.properties[key];
+	return { key, schema: descriptor.parameters.properties[key] };
+}
+
+/** The schema properties for the create-time frontmatter argument. */
+function frontmatterSchemaFields(descriptor) {
+	const { schema } = frontmatterSchema(descriptor);
 	return {
 		fields: new Set(Object.keys(schema.properties ?? {}).filter((field) => field !== "change_summary")),
 		additionalProperties: schema.additionalProperties,
 	};
+}
+
+/**
+ * Produce an argument value that satisfies a declared property schema.
+ *
+ * The goal is a call that carries ONE optional field and is otherwise
+ * schema-valid, so the reachability check below measures exactly one thing:
+ * whether the validator admits the field. Content semantics are NOT this
+ * test's business (the writers' own tests cover them), so placeholders are
+ * fine — but they must respect the declared type/enum or the check would fail
+ * on the filler instead of on the field under test.
+ */
+function valueSatisfying(schema) {
+	if (schema.const !== undefined) return schema.const;
+	if (Array.isArray(schema.enum) && schema.enum.length > 0) return schema.enum[0];
+	if (Array.isArray(schema.oneOf) && schema.oneOf.length > 0) return valueSatisfying(schema.oneOf[0]);
+	switch (schema.type) {
+		case "array":
+			return [];
+		case "integer":
+		case "number":
+			return 0;
+		case "boolean":
+			return false;
+		case "object": {
+			const out = {};
+			for (const [key, sub] of Object.entries(schema.properties ?? {})) out[key] = valueSatisfying(sub);
+			return out;
+		}
+		default:
+			return "x";
+	}
+}
+
+/**
+ * A minimal schema-valid argument object for the create action of a type,
+ * carrying every declared create-time argument the tool schema accepts.
+ */
+function minimalCreateArgs(type, descriptor) {
+	const { key, schema } = frontmatterSchema(descriptor);
+	const draft = {};
+	for (const [field, sub] of Object.entries(schema.properties ?? {})) {
+		draft[field] = valueSatisfying(sub);
+	}
+	for (const field of schema.required ?? []) {
+		if (draft[field] === undefined) draft[field] = "x";
+	}
+
+	const args = { action: "create", [key]: draft };
+	// Every other top-level argument the operation declares.
+	for (const [name, sub] of Object.entries(descriptor.parameters.properties)) {
+		if (name === key || name === "action") continue;
+		args[name] = valueSatisfying(sub);
+	}
+	const action = descriptor.parameters.properties.action;
+	if (Array.isArray(action?.enum) && action.enum.includes("create")) args.action = "create";
+	return args;
 }
 
 for (const type of TYPES) {
@@ -146,6 +211,108 @@ for (const type of TYPES) {
 		);
 	});
 }
+
+// ---------------------------------------------------------------------------
+// Reachability, proven through DSH's OWN argument validator
+// ---------------------------------------------------------------------------
+//
+// WHY THIS IS SEPARATE FROM THE FIELD-SET CHECK ABOVE:
+//
+// The check above compares two field *lists*. It proves a field is declared.
+// It does NOT prove a call carrying that field survives the validation the
+// DSH runtime actually performs — and that gap is exactly how aa12604 hid.
+//
+// The mechanism, read from @deepseek-ai/dsh-tools (lib/index.js):
+//   - `defineTool` builds `execute` as: `const violations = validate(args);
+//     if (violations.length > 0) throw new ToolArgsError(violations)`.
+//     Validation lives INSIDE defineTool's closure.
+//   - `ToolRuntime` dispatches with `await tool.execute(exec.arguments, exec)`
+//     and does NOT re-validate.
+//   - LDVH's `toolDescriptorFor` returns a RAW descriptor (it never calls
+//     defineTool), and the test mock registry just collects descriptors, so
+//     the tests drive `descriptor.execute(args)` directly.
+//
+// Consequence: neither the LDVH test suite NOR the LDVH runtime executes DSH's
+// argument validation on these tools. So we invoke the very same validator the
+// runtime would (`validateJsonSchemaValue(parameters, args, "")`) directly on
+// the descriptor's declared parameters. That is the closest faithful
+// reproduction available without a live harness, and it fails with the exact
+// message the defect produced:
+//   "frontmatter_draft.priority" is not a declared property (additionalProperties: false)
+
+test("schema/writer agreement: the DSH argument validator accepts every optional field", async () => {
+	// For each type, start from a schema-valid create call and then attach each
+	// AI-supplied OPTIONAL field the WRITER declares — taken from the writer's
+	// closed set, NOT from the schema. That independence is the whole point:
+	// if a field is missing from the schema, the writer's set still names it,
+	// we still attach it, and the validator rejects it here.
+	const failures = [];
+
+	for (const type of TYPES) {
+		const writerKeys = type.writerKeys ?? await writerKeysFromSource(type.writerFile);
+		const module = await type.load();
+		const operation = module.OPERATIONS[type.operationKey];
+		const descriptor = module.toolDescriptorFor(type.operationKey, operation, () => {});
+		const { key, schema } = frontmatterSchema(descriptor);
+
+		const base = minimalCreateArgs(type, descriptor);
+		const aiSupplied = [...writerKeys].filter((field) => !CODE_ASSIGNED.has(field));
+
+		for (const field of aiSupplied) {
+			const args = structuredClone(base);
+			// Only optional fields need probing; required ones are already in.
+			args[key][field] = schema.properties?.[field] !== undefined
+				? valueSatisfying(schema.properties[field])
+				: "x";
+
+			// The exact call the DSH runtime makes before the handler runs.
+			const violations = validateJsonSchemaValue(descriptor.parameters, args, "");
+			for (const violation of violations) failures.push(`${type.name}.${field}: ${violation}`);
+		}
+	}
+
+	assert.deepEqual(
+		failures,
+		[],
+		`calls valid at the writer level are rejected by the DSH argument validator before reaching it ` +
+		`(the aa12604 defect class):\n${failures.join("\n")}`,
+	);
+});
+
+test("schema/writer agreement: this guard actually detects the aa12604 defect", async () => {
+	// A guard that cannot fail proves nothing. Reconstruct the original defect
+	// in memory — drop an optional field from the declared schema — and assert
+	// the check above WOULD have caught it. Without this, the guard above
+	// could silently degrade into a no-op and still show green.
+	const module = await import("../lib/spark-tools.js");
+	const descriptor = module.toolDescriptorFor(
+		"spark-write-object",
+		module.OPERATIONS["spark-write-object"],
+		() => {},
+	);
+	const args = {
+		action: "create",
+		frontmatter_draft: { title: "t", question: "q?", scope_boundary: "s", intent: "i", summary: "m", priority: "P1" },
+		body_markdown: "b",
+	};
+
+	// Sanity: with the real schema, this call is valid.
+	assert.deepEqual(
+		validateJsonSchemaValue(descriptor.parameters, args, ""),
+		[],
+		"precondition failed: a priority-carrying call should already be valid",
+	);
+
+	// Now simulate the defect on a structuredClone of the schema.
+	const broken = structuredClone(descriptor.parameters);
+	delete broken.properties.frontmatter_draft.properties.priority;
+	const violations = validateJsonSchemaValue(broken, args, "");
+
+	assert.ok(
+		violations.some((v) => v.includes("priority")),
+		`the reachability check must detect a field missing from the schema, got: ${JSON.stringify(violations)}`,
+	);
+});
 
 test("schema/writer agreement: every fact-type writer is covered by this guard", async () => {
 	// A new type added without a guard entry would silently escape the check.
