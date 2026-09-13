@@ -445,6 +445,7 @@ function parameterSchemaFor(operationKey) {
       summary: { type: "string", description: "complete current semantic snapshot; must appear verbatim in the 当前理解 body section" },
       evolution: { type: "array", items: evolutionEntry, description: "substantive-pivot log (cap 20); when non-empty the body must carry a 演变 H2 section" },
       serves: { type: "string", description: "e.g. SG-4; must match an SG-n in goal.md 子目标; omit when not applicable" },
+      priority: { type: "string", enum: ["P0", "P1", "P2", "P3"], description: "suspension ordering tier (20 §8): closed set P0–P3, may appear only while status=open, terminal must omit it; optional — an untiered Spark is equally valid" },
       disposition: { type: "string", description: "terminal destination and scope; required iff status is implemented/discarded, forbidden while open" },
       relations: { type: "array", items: relationEntry, description: "merged-into (cardinality 1) / split-into (1..n); only on discarded, targets must be existing open sparks (20 §11)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
