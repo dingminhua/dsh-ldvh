@@ -24,6 +24,7 @@ import {
   readGoalAnchors,
   sparkFileName,
   SPARK_DIRECTORY,
+  validateSparkBodyStructure,
 } from "../lib/spark-writer.js";
 import { authoritativeSignature } from "../lib/signature-channel.js";
 
@@ -1070,4 +1071,44 @@ test("read: invalid uid shape rejected (03 §6.1 canonical uid)", async () => {
     assert.ok(!result.ok);
     assert.equal(result.error.code, "spark/invalid_uid");
   });
+});
+// ---------------------------------------------------------------------------
+// Body H1 uniqueness (20 §8 正文结构: the H1 comes from title and is the only
+// level-1 heading — the body itself starts at H2)
+// ---------------------------------------------------------------------------
+
+test("body structure: exactly one H1 — an extra title heading is rejected (20 §8)", () => {
+  const base = "## 当前理解\n\nA\n\n## 调查问题\n\nB\n\n## 调查边界\n\nC";
+
+  // The only accepted shape.
+  assert.ok(validateSparkBodyStructure(`# T\n\n${base}`, "T", 0).ok);
+
+  // An extra H1 slips past a first-line-only check, so it must be counted.
+  const dupConsecutive = validateSparkBodyStructure(`# T\n\n# T\n\n${base}`, "T", 0);
+  assert.ok(!dupConsecutive.ok, "consecutive duplicate H1 must be rejected");
+  assert.ok(dupConsecutive.issues.some((i) => i.includes("exactly 1 H1")), JSON.stringify(dupConsecutive.issues));
+
+  const dupMiddle = validateSparkBodyStructure(
+    "# T\n\n## 当前理解\n\nA\n\n# T\n\n## 调查问题\n\nB\n\n## 调查边界\n\nC", "T", 0);
+  assert.ok(!dupMiddle.ok, "H1 in the middle of the body must be rejected");
+
+  const dupLast = validateSparkBodyStructure(`# T\n\n${base}\n\n# T`, "T", 0);
+  assert.ok(!dupLast.ok, "trailing H1 must be rejected");
+
+  // The wrong title is caught by the existing first-line check.
+  assert.ok(!validateSparkBodyStructure(`# X\n\n${base}`, "T", 0).ok);
+});
+
+test("body structure: H1 scan follows CommonMark ATX semantics (20 §8)", () => {
+  const base = "## 当前理解\n\nA\n\n## 调查问题\n\nB\n\n## 调查边界\n\nC";
+
+  // Escapes that a naive `startsWith("# ")` scan would miss: CommonMark treats
+  // up to 3 leading spaces and a tab separator as the same ATX heading.
+  assert.ok(!validateSparkBodyStructure(`# T\n\n   # T\n\n${base}`, "T", 0).ok, "indented duplicate H1 must be counted");
+  assert.ok(!validateSparkBodyStructure(`# T\n\n#\tT\n\n${base}`, "T", 0).ok, "tab-separated duplicate H1 must be counted");
+
+  // Not false positives: these are all legal single-H1 carriers.
+  assert.ok(validateSparkBodyStructure(`# T   \n\n${base}`, "T", 0).ok, "trailing spaces on the H1 are legal");
+  assert.ok(validateSparkBodyStructure(`# T\n\n\u0060\u0060\u0060\n# T\n\u0060\u0060\u0060\n\n${base}`, "T", 0).ok, "a `#` inside a fenced code block is not a heading");
+  assert.ok(validateSparkBodyStructure(`# T\r\n\r\n${base.replace(/\n/g, "\r\n")}`, "T", 0).ok, "CRLF body is a legal carrier");
 });

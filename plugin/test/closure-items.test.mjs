@@ -861,12 +861,15 @@ test("signature: updates land a signed change_log entry through the real writer"
 		const text = await readFile(cur.value.file, "utf8");
 		const fm = parseYaml(text.match(/^---\n([\s\S]*?)\n---\n/)[1]);
 		const body = text.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/)[1];
+		// The writer generates the H1 from `title` (20 §8), so the body passed
+		// back in must start at H2 — re-feeding the stored H1 would produce two.
+		const bodyNoH1 = body.replace(/^\s*#\s.*\n/, "");
 		const updated = await updateSparkObject({
 			factSourceRoot: root,
 			objectUid: created.value.object_uid,
 			expectedFingerprint: cur.value.fingerprint,
 			frontmatterAfter: fm,
-			bodyMarkdownAfter: body,
+			bodyMarkdownAfter: bodyNoH1,
 			changeSummary: "second change",
 			sessionSignature: branded,
 		});

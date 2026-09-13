@@ -326,6 +326,32 @@ function h2Titles(body) {
 }
 
 /**
+ * Count ATX headings of the given level, following CommonMark semantics:
+ * up to 3 leading spaces, one or more spaces/tabs after the hashes, and
+ * trailing spaces permitted. Fenced code blocks are skipped — a `#` inside
+ * one is literal text, not a heading. (CRLF is normalised first so a trailing
+ * `\r` is not mistaken for part of the line content.)
+ */
+function countAtxHeadings(body, level) {
+  const lines = body.replace(/\r\n?/g, "\n").split("\n");
+  const pattern = new RegExp(`^ {0,3}#{${level}}(?!#)[ \\t]`);
+  let count = 0;
+  let fence = null;
+  for (const line of lines) {
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+      const marker = trimmed.slice(0, 3);
+      if (fence === null) fence = marker;
+      else if (fence === marker) fence = null;
+      continue;
+    }
+    if (fence !== null) continue;
+    if (pattern.test(line)) count += 1;
+  }
+  return count;
+}
+
+/**
  * Validate the assembled body structure. The body passed here is the full
  * file body starting with the generated `# ${title}` H1 (20 §8 template).
  * Returns { ok, issues }.
@@ -336,10 +362,22 @@ export function validateSparkBodyStructure(body, title, evolutionCount) {
   const expectEvolution = evolutionCount > 0;
   if (expectEvolution) expectedH2.push(BODY_H2_EVOLUTION);
 
-  const lines = body.split("\n");
+  const lines = body.replace(/\r\n?/g, "\n").split("\n");
   const firstNonEmpty = lines.find((l) => l.trim().length > 0) ?? "";
-  if (firstNonEmpty !== `# ${title}`) {
+  // Compare against the generated heading tolerating the CommonMark-legal
+  // spellings of the same ATX heading (indentation, tab separator, trailing
+  // spaces) — otherwise a valid carrier with trailing spaces is rejected.
+  if (firstNonEmpty.trimEnd().replace(/^ {0,3}/, "").replace(/(?<=^#+)[ \t]+/, " ") !== `# ${title}`) {
     issues.push(`body: first heading must be "# ${title}" (H1 generated from title, 20 §8)`);
+  }
+  // Exactly one H1: the title heading is the only level-1 heading, and the body
+  // starts at H2. Checking the first line alone would let an extra `# <title>`
+  // further down slip through. The scan follows CommonMark ATX semantics
+  // (≤3 leading spaces, space/tab after the hashes, trailing spaces allowed)
+  // and skips fenced code blocks, where a `#` is literal text, not a heading.
+  const h1Count = countAtxHeadings(body, 1);
+  if (h1Count !== 1) {
+    issues.push(`body: expected exactly 1 H1 heading, found ${h1Count} (20 §8: H1 由 Code 从 title 生成，正文自 H2 起)`);
   }
 
   const h2 = h2Titles(body);

@@ -24,6 +24,7 @@ import {
   listPitfallObjects,
   pitfallFileName,
   PITFALL_DIRECTORY,
+  validatePitfallBodyStructure,
 } from "../lib/pitfall-writer.js";
 import { authoritativeSignature } from "../lib/signature-channel.js";
 
@@ -654,4 +655,31 @@ test("list: bad carrier (valid uid filename without frontmatter) lands in invali
     assert.equal(listed.value.invalid[0].file, `pitfall-${badUid}.md`);
     assert.ok(listed.value.invalid[0].reason.includes("no YAML frontmatter block"), JSON.stringify(listed.value.invalid));
   });
+});
+// ---------------------------------------------------------------------------
+// Body H1 uniqueness (23 §8 正文固定结构: H1 comes from title, body starts H2)
+// ---------------------------------------------------------------------------
+
+test("body structure: exactly one H1 — an extra title heading is rejected (23 §8)", () => {
+  const secs = "## 症状\n\nA\n\n## 触发条件\n\nB\n\n## 根因\n\nC\n\n## 解决\n\nD\n\n## 规避\n\nE\n\n## 验证\n\nF\n\n## 影响与适用范围\n\nG";
+
+  assert.ok(validatePitfallBodyStructure(`# T\n\n${secs}`, "T", 0).ok);
+
+  const dupConsecutive = validatePitfallBodyStructure(`# T\n\n# T\n\n${secs}`, "T", 0);
+  assert.ok(!dupConsecutive.ok, "consecutive duplicate H1 must be rejected");
+  assert.ok(dupConsecutive.issues.some((i) => i.includes("exactly 1 H1")), JSON.stringify(dupConsecutive.issues));
+
+  assert.ok(!validatePitfallBodyStructure(`# T\n\n${secs}\n\n# T`, "T", 0).ok, "trailing H1 must be rejected");
+  assert.ok(!validatePitfallBodyStructure(`# X\n\n${secs}`, "T", 0).ok, "wrong title caught by first-line check");
+});
+
+test("body structure: H1 scan follows CommonMark ATX semantics (23 §8)", () => {
+  const secs = "## 症状\n\nA\n\n## 触发条件\n\nB\n\n## 根因\n\nC\n\n## 解决\n\nD\n\n## 规避\n\nE\n\n## 验证\n\nF\n\n## 影响与适用范围\n\nG";
+
+  assert.ok(!validatePitfallBodyStructure(`# T\n\n   # T\n\n${secs}`, "T", 0).ok, "indented duplicate H1 must be counted");
+  assert.ok(!validatePitfallBodyStructure(`# T\n\n#\tT\n\n${secs}`, "T", 0).ok, "tab-separated duplicate H1 must be counted");
+
+  assert.ok(validatePitfallBodyStructure(`# T   \n\n${secs}`, "T", 0).ok, "trailing spaces on the H1 are legal");
+  assert.ok(validatePitfallBodyStructure(`# T\n\n\u0060\u0060\u0060\n# T\n\u0060\u0060\u0060\n\n${secs}`, "T", 0).ok, "a `#` inside a fenced code block is not a heading");
+  assert.ok(validatePitfallBodyStructure(`# T\r\n\r\n${secs.replace(/\n/g, "\r\n")}`, "T", 0).ok, "CRLF body is a legal carrier");
 });
