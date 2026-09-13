@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
 	GOAL_RELATIVE_PATH,
 	createGoalObject,
@@ -382,7 +383,7 @@ test("splitBodySections returns the H2 sections in order", () => {
 test("readGoalAnchors reports the real repo goal (integration)", async () => {
 	// The repository's own goal.md must parse under this writer's contract —
 	// otherwise the writer and the live carrier disagree.
-	const root = new URL("../../ldvh-base", import.meta.url).pathname;
+	const root = fileURLToPath(new URL("../../ldvh-base", import.meta.url));
 	const r = await readGoalAnchors({ factSourceRoot: root });
 	assert.equal(r.ok, true, JSON.stringify(r.error));
 	assert.equal(r.value.status, "active");
