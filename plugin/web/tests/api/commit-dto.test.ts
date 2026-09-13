@@ -275,21 +275,20 @@ test('preserves the shared commit DTO across current API consumers', async () =>
     { group: 'closed', count: 1 },
   ])
 
-  // 20 §289 / 21 §8：v5 无 priority 字段——列表 API 不再提供 priority 过滤与投影。
+  // 21 §160：WorkCase 无 priority（字段闭集未含）——priority 参数被忽略，且无投影。
   const prioritizedWorkcases = await getJson('/api/objects/workcase?priority=P1') as {
     data: {
       items: Array<Record<string, unknown>>
       priorityOptions?: Array<{ status: string; count: number }>
     }
   }
-  // priority 参数已被忽略：不再按优先级收窄，返回全部 WorkCase。
   assert.deepEqual(
     prioritizedWorkcases.data.items.map((item) => item.object_id).sort(),
     ['workcase-0001', 'workcase-0002'],
   )
   assert.equal(prioritizedWorkcases.data.priorityOptions, undefined)
 
-  // 20 §8/§14.2：v5 Spark 无 priority——状态闭集三态直接过滤，无优先级维度。
+  // 20 §8（2026-09-13 Human 裁定）：Spark 有 priority——列表提供闭集 P0–P3 计数。
   const openSparks = await getJson('/api/objects/spark?status=open') as {
     data: {
       items: Array<Record<string, unknown>>
@@ -299,7 +298,12 @@ test('preserves the shared commit DTO across current API consumers', async () =>
   }
   // 更新时间降序（change_log 末条 at 承担）：spark-0001（07-20）先于 spark-0002（07-19）。
   assert.deepEqual(openSparks.data.items.map((item) => item.object_id), ['spark-0001', 'spark-0002'])
-  assert.equal(openSparks.data.priorityOptions, undefined)
+  assert.deepEqual(openSparks.data.priorityOptions, [
+    { status: 'P0', count: 0 },
+    { status: 'P1', count: 0 },
+    { status: 'P2', count: 0 },
+    { status: 'P3', count: 0 },
+  ])
   assert.ok(openSparks.data.statusOptions.some((option) => option.status === 'open' && option.count === 2))
 
   // 21 §160 三态过滤：open 命中 workcase-0001；closed 命中 workcase-0002（cancelled）。

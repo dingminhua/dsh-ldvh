@@ -157,9 +157,20 @@ function getStatusOptions(items: ListedObject[]): StatusOption[] {
 /** v4 遗留的 settled/unclosed 展示拆桶已随 20 号规范移除：Spark 状态闭集
  *  open/implemented/discarded 直接呈现（§9），不再从关联推导展示态。 */
 
-/** v5 无 priority 字段：20 §289（v4 priority 不迁入）与 21 §8 字段闭集均无此项，
- *  22 §271/23 §252/26 §258 判定 priority 类为无消费方装饰字段（03 §11.3-4）。
- *  列表 API 不再提供优先级过滤与对应计数投影。 */
+/** Spark 优先级档位（20 §8，2026-09-13 Human 裁定新增）：闭集 P0–P3，
+ *  AI 出初值、Human 可调整；仅 open 时出现。列表据此提供筛选与排序。
+ *  （WorkCase 侧仍无此字段——21 §160 字段闭集未含 priority。） */
+const SPARK_PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3'] as const
+
+function getSparkPriorityOptions(items: ListedObject[]): StatusOption[] {
+  const counts = new Map<string, number>()
+  for (const item of items) {
+    if (typeof item.priority !== 'string') continue
+    counts.set(item.priority, (counts.get(item.priority) ?? 0) + 1)
+  }
+  // 未分档的 Spark 不单列选项（20 §8 允许缺失），计数只反映已分档项。
+  return SPARK_PRIORITY_ORDER.map((status) => ({ status, count: counts.get(status) ?? 0 }))
+}
 
 /** WorkCase 列表状态分组（21 §160：状态闭集三值 draft/open/closed）。
  *
@@ -233,6 +244,14 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
     }
     throw scopeError
   }
+  // Spark 三联过滤之二：priority（20 §8）。非法值直接 400，避免静默忽略。
+  const priority = type === 'spark' && typeof req.query.priority === 'string'
+    ? req.query.priority
+    : undefined
+  if (priority && !SPARK_PRIORITY_ORDER.includes(priority as typeof SPARK_PRIORITY_ORDER[number])) {
+    res.status(400).json({ ok: false, error: `Invalid spark priority: ${priority} (20 §8: P0/P1/P2/P3)` })
+    return
+  }
   // v5 Spark 与通用类型同路径：状态闭集（open/implemented/discarded，20 §9）
   // 直接下推过滤；WorkCase 保持 progress 组内过滤。
   const result = await listObjects(type, undefined, type === 'workcase' ? undefined : status, factScope)
@@ -245,7 +264,9 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
   const allItems = getResultItems(result)
   const items = type === 'workcase'
     ? allItems.filter((item) => !progress || getWorkCaseListStatus(item) === progress)
-    : allItems
+    : type === 'spark'
+      ? allItems.filter((item) => !priority || item.priority === priority)
+      : allItems
   if (isRecord(result.data)) {
     const statusItems = type === 'workcase'
       ? allItems
@@ -254,6 +275,13 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
       result.data.progressOptions = getWorkCaseProgressOptions(allItems)
     } else {
       result.data.statusOptions = getStatusOptions(statusItems)
+    }
+    if (type === 'spark') {
+      // priority 计数与状态过滤同口径（反映当前池，非全量）。
+      const priorityPool = status
+        ? allItems.filter((item) => item.status === status)
+        : allItems
+      result.data.priorityOptions = getSparkPriorityOptions(priorityPool)
     }
     result.data.statusTotal = statusItems.length
   }

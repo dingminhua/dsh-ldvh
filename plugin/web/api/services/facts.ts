@@ -505,10 +505,10 @@ function projectCurrentWorkCaseCardShape(
       successCriteria: projectCriterionStatements(fact.success_criterion_definitions),
     })
   } else if (progress?.progress_group === 'progressing') {
-    Object.assign(projected, copyPresentFields(fact, ['priority', 'goal', 'waiting_on']))
+    Object.assign(projected, copyPresentFields(fact, ['goal', 'waiting_on']))
     Object.assign(projected, projectCardWorkItems(fact.work_items))
   } else if (progress?.progress_group === 'termination_cleanup') {
-    Object.assign(projected, copyPresentFields(fact, ['priority', 'goal', 'waiting_on', 'termination']))
+    Object.assign(projected, copyPresentFields(fact, ['goal', 'waiting_on', 'termination']))
   } else if (progress?.progress_group === 'closure_confirmation') {
     Object.assign(projected, copyPresentFields(fact, ['goal']))
     const closureProposal = projectClosureProposal(fact.closure_proposal, uidTargets)

@@ -65,8 +65,11 @@ const SG_ANCHOR_PATTERN = /^SG-[1-9]\d*$/;
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
   "question", "scope_boundary", "intent", "summary",
-  "evolution", "serves", "disposition", "relations", "change_log",
+  "evolution", "serves", "priority", "disposition", "relations", "change_log",
 ]);
+
+/** priority closed set (20 §8: P0–P3; AI 出初值，Human 可调整). */
+const PRIORITY_VALUES = new Set(["P0", "P1", "P2", "P3"]);
 
 /** Evolution cap (20 §8: 上限 20 项). */
 const MAX_EVOLUTION_ENTRIES = 20;
@@ -159,6 +162,24 @@ export function validateSparkFrontmatter(frontmatter) {
 
   if (!STATUSES.has(frontmatter.status)) {
     issues.push(`status: must be one of ${[...STATUSES].join("/")}`);
+  }
+
+  // priority closed set + state exclusivity (20 §8 字段间不变量):
+  //   闭集 P0–P3；仅 status=open 时允许出现，终态必须省略；允许缺失（未分档）。
+  if (frontmatter.priority !== undefined) {
+    if (
+      typeof frontmatter.priority !== "string" ||
+      !PRIORITY_VALUES.has(frontmatter.priority)
+    ) {
+      issues.push(
+        `priority: must be one of ${[...PRIORITY_VALUES].join("/")}, got ${JSON.stringify(frontmatter.priority)}`,
+      );
+    }
+    if (frontmatter.status !== "open") {
+      issues.push(
+        `priority: may appear only while status=open (20 §8 — 终态必须省略), got status=${JSON.stringify(frontmatter.status)}`,
+      );
+    }
   }
 
   // evolution (20 §8): array of {at, summary}, cap 20. 03 §6.1: a conditional
@@ -466,7 +487,7 @@ function buildFileContent(frontmatter, body) {
 const FRONTMATTER_FIELD_ORDER = [
   "title", "status",
   "question", "scope_boundary", "intent", "summary",
-  "evolution", "serves",
+  "evolution", "serves", "priority",
   "disposition", "relations",
   "object_uid", "fact_type_key", "created_at",
   "change_log",
@@ -733,6 +754,7 @@ export async function listSparkObjects(args) {
       status,
       question: typeof frontmatter.question === "string" ? frontmatter.question : "",
       serves: typeof frontmatter.serves === "string" ? frontmatter.serves : undefined,
+      priority: typeof frontmatter.priority === "string" ? frontmatter.priority : undefined,
       created_at: typeof frontmatter.created_at === "string" ? frontmatter.created_at : "",
     });
   }

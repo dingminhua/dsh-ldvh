@@ -125,6 +125,7 @@ frontmatter 闭集：
 | `summary` | string | 必填 | 完整的当前语义快照 | 当前已确认判断、边界、候选方向、未决事项；使未读原聊天的后续执行者可独立理解；只承载当前仍适用的理解，不复制创建原因或过程日志 |
 | `evolution` | array | 条件 | 关键语义转折流水 | 只在问题焦点、边界、判断方向或承接方向发生实质变化时追加；每项 `{at, summary}`；当前仍适用的内容必须先进入 `summary`，`evolution` 只说明变化与影响（上限 20 项） |
 | `serves` | string | 条件 | 服务的 SG-n | goal.md 子目标锚点；轻量归属引用，不参与 goal 修订级联（25 §11 豁免）；不存在时省略 |
+| `priority` | string | 条件 | 悬置排序档位 | 闭集 `P0`/`P1`/`P2`/`P3`；**AI 综合判断出初值，Human 可按情况调整**；`open` 时存在、终态省略；承载「悬置中的处置次序」，**非对象价值声明**（§9.1）；允许暂缺（未分档），不因缺失拒绝创建或更新 |
 | `status` | string | 必填 | `open` / `implemented` / `discarded` | 初态 `open` |
 | `disposition` | string | 条件 | 终态去向与理由 | 进入终态时必填；说明落实/交接/废弃/合并/拆分去向；**≤ 200 字符**（终态原因说明的阅读上限，§9.1） |
 | `relations` | array | 条件 | 合并/拆分关系（merged-into/split-into） | 仅合并/拆分时出现；按 03 §7.2 公共形状；目标必须可解析且为 open（§11） |
@@ -141,7 +142,7 @@ frontmatter 闭集：
  ## 演变            ← evolution 的正文承载；跨会话接力理解（条件出现）
 ```
 
-字段间不变量：`question` 必须单句可读；`scope_boundary` 必须明确何时停止；`intent` 必须回答「为什么保留 + 后续方向」；`summary` 必须使未读原聊天的后续执行者理解当前已知道什么、如何判断、仍需处置什么（先问当前仍适用的内容是否必须进入 `summary`，是则必须写入，`evolution` 只记变化）；`disposition` 出现 ⇔ `status ∈ {implemented, discarded}`；`serves` 出现时必须匹配 goal.md 存在的 SG-n。未知字段处理：按 03 §6.1，未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
+字段间不变量：`question` 必须单句可读；`scope_boundary` 必须明确何时停止；`intent` 必须回答「为什么保留 + 后续方向」；`summary` 必须使未读原聊天的后续执行者理解当前已知道什么、如何判断、仍需处置什么（先问当前仍适用的内容是否必须进入 `summary`，是则必须写入，`evolution` 只记变化）；`disposition` 出现 ⇔ `status ∈ {implemented, discarded}`；`priority` 仅 `status = open` 时允许出现，**终态必须省略**（与 `disposition` 互斥——二者分别标志悬置中与已终态）；`priority` 允许缺失（未分档）；`serves` 出现时必须匹配 goal.md 存在的 SG-n。未知字段处理：按 03 §6.1，未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
 
 ## 9. 状态与生命周期
 
@@ -151,9 +152,11 @@ frontmatter 闭集：
 
 | `status` | 语义 | 必须成立 |
 |---|---|---|
-| `open` | Spark 仍有未被稳定位置完整承接的内容，需要继续召回、判断、拆分或分流 | `disposition` 不得出现；已有关系不等于完整承接 |
-| `implemented` | Spark 限定的信息需求已由该 Spark 范围内的直接工作落实，或已把后续责任交给 WorkCase；只结束该 Spark 入口，不表示下游完成 | `disposition` 必填；不得有合并/拆分关系（那是 discarded 专属）；说明必须如实限定已落实或已交接的范围 |
-| `discarded` | 明确决定该信息不再继续跟踪；或该议题已被合并/拆分，原 Spark 不再以原形态存在 | `disposition` 必填；若声明了合并/拆分关系，目标必须可解析且为 `open` |
+| `open` | Spark 仍有未被稳定位置完整承接的内容，需要继续召回、判断、拆分或分流 | `disposition` 不得出现；已有关系不等于完整承接；`priority` 可出现（允许缺失） |
+| `implemented` | Spark 限定的信息需求已由该 Spark 范围内的直接工作落实，或已把后续责任交给 WorkCase；只结束该 Spark 入口，不表示下游完成 | `disposition` 必填；不得有合并/拆分关系（那是 discarded 专属）；说明必须如实限定已落实或已交接的范围；**`priority` 不得出现** |
+| `discarded` | 明确决定该信息不再继续跟踪；或该议题已被合并/拆分，原 Spark 不再以原形态存在 | `disposition` 必填；若声明了合并/拆分关系，目标必须可解析且为 `open`；**`priority` 不得出现** |
+
+**`priority` 的语义边界**：`priority` 承载的是**该 Spark 在其同类悬置项中的处置次序**，用于 Human 在 Web 列表按优先级筛选、排序（10 §5.2），以及 F1/F2 投影。它**不声明对象的价值或重要性**——价值由消费点引用与实际消费体现（22 §271、23 §252、26 §258 的红线针对的是「对象自我声明价值」，本字段不在其列）。它**不是必填**：未分档的 Spark 与已分档的同等合法，缺失不构成拒绝创建或更新的理由；`priority` 缺失或非法时，排序与筛选按其缺失处理，不得代为推定档位。**取值来源**：AI 综合当前目标、`serves` 指向的子目标、`scope_boundary` 所述停止条件、被引用关系与项目当前阶段给出初值（按 03 §8.2 的语义消费边界），Human 保留按情况调整的权力；该判断**不是机械校验**，机械侧只校验闭集与状态互斥（§14.1）。
 
 **`disposition` 的长度上限（机械校验）**：`disposition` 不超过 **200 字符**（判定单位与本规范 `title` 的同名上限一致，均为 UTF-16 码元计数；实现按 `.length` 判定）。终态原因说明是给后续读者与人扫读的定位信息，不是完整处置记录——完整理由属于正文、`change_log` 或承接对象。超限时拒绝写入（与 §11 的关系目标校验同为写入前置的机械条件，按 03 §9 的公共契约执行），不得截断后写入。
 
@@ -256,10 +259,11 @@ frontmatter 闭集：
 | Spark 讨论 | 每次扩散前 | question + scope_boundary + summary |
 | 讨论系统残项悬置 | 未收敛点分流时（31 号 §10.2） | 未决问题 + 判断标准与监测条件 |
 | 蓝图「悬而未决」区块 | 每次蓝图渲染（10 号） | open Spark 列表 |
+| Web 列表三联过滤与排序 | Human 浏览 Spark 列表时（10 §5.2、§5.4） | `priority` + `serves` + `status` 三条件筛选；按 `priority` 或时间排序 |
 
 注：「Spark→Research 分流判据」不作为本文的既定消费点声明；该判据由 24 与 30 相关机制在其来源中定义，本文不预设其内容。
 
-召回分层（03 §8）：F1 枚举 open Spark 计数（title + status）；F2 按类型、状态、稳定引用命中的候选卡（title/question/scope_boundary 有界摘录 + 命中依据）；F3/F4 按需展开完整对象。默认候选只包含 open Spark；implemented/discarded 不进入普通未处置候选，只在当前输入精确引用或需要追溯历史基线时以历史对象展开。AI 展开候选后必须重新比较当前主题、摘要和处置状态；Spark 被召回不表示应创建 WorkCase、恢复旧议题或提高其优先级。
+召回分层（03 §8）：F1 枚举 open Spark 计数（title + status + `priority` + `serves`）；F2 按类型、状态、稳定引用、`serves` 或 `priority` 命中的候选卡（title/question/scope_boundary 有界摘录 + 命中依据）；F3/F4 按需展开完整对象。默认候选只包含 open Spark；implemented/discarded 不进入普通未处置候选，只在当前输入精确引用或需要追溯历史基线时以历史对象展开。AI 展开候选后必须重新比较当前主题、摘要和处置状态；Spark 被召回不表示应创建 WorkCase、恢复旧议题或提高其优先级——**`priority` 是 Human 侧处置次序的呈现，召回行为本身不得据它自动提级或降级**。
 
 ## 13. 受控操作
 
@@ -286,7 +290,7 @@ frontmatter 闭集：
 
 字段契约变更必须声明对存量对象的迁移义务（重建锚点 §6 第 3 条，治 v4 backfill 之痛）：
 
-- **v4 存量 103 个 Spark**：不自动迁入 v5 载体。需经 Human 分批受控迁移，逐份满足：v4 `intent` → v5 `intent`（保留理由与后续方向）；v4 `summary` → v5 `summary`（当前语义快照）；v4 `evolution` → v5 `evolution`（关键转折流水）；v4 `priority` 不迁入（v5 无此字段）；v4 `disposition_summary` → v5 `disposition`（终态去向）；v4 `related-to` 关系不迁移为 v5 关系（v5 仅 merged-into/split-into 两键）。
+- **v4 存量 103 个 Spark**：不自动迁入 v5 载体。需经 Human 分批受控迁移，逐份满足：v4 `intent` → v5 `intent`（保留理由与后续方向）；v4 `summary` → v5 `summary`（当前语义快照）；v4 `evolution` → v5 `evolution`（关键转折流水）；v4 `priority` **不迁入**（该字段名在 v4 与 v5 语义不同——v4 的取值与判定纪律未经 v5 复核，迁移时一律以 v5 §8 重新分档或留空，不得直接搬运原值）；v4 `disposition_summary` → v5 `disposition`（终态去向）；v4 `related-to` 关系不迁移为 v5 关系（v5 仅 merged-into/split-into 两键）。
 - **缺失字段处理**：迁移后缺少 v5 必填字段（question/scope_boundary/summary）的对象，须在迁移时补齐或如实标记迁移不完整，不得以空值占位。
 - **未迁移的 v4 对象**：保留在 v4 仓库历史中，不进入 v5 事实源消费。
 - **迁移实现与验证**：迁移走受控入口（03 §9），逐份 CAS + 精确回读；未验证范围如实声明。
@@ -305,6 +309,8 @@ frontmatter 闭集：
 | serves 有效 | 创建时 | serves 匹配 goal.md 存在 SG-n | goal.md 子目标回读 | 机械（编号匹配） | 锚点解析成功 | 拒绝；或拒绝 goal 引用 |
 | 查重已执行 | 创建时 | 创建提案含查重结论 | 提案记录 | AI 语义审核 | 当次查重范围 | 补查重后重走创建 |
 | 状态转换合法 | 变更时 | open→implemented/discarded 逻辑一致 | 处置依据 + Human 确认 | 审核 + 机械 | 转换合法性 | 反向转换报错 |
+| priority 闭集与状态互斥 | 创建、更新时 | 取值属 `P0`–`P3`；出现时 `status = open`；终态不得出现 | 当前载体与本文 §8 | 机械（闭集 + 状态检查） | 当次字段合法性 | 拒绝写入；终态残留须清除 |
+| priority 分档适当性 | 创建、调整时 | 档位与当前目标、阶段及 `scope_boundary` 相称 | 分档理由（提案或 Human 调整记录） | **AI 综合判断 + Human 可调整** | 当次分档依据 | 由 Human 调整；不作机械拒绝 |
 | 合并/拆分去向 | 变更时 | discarded + 关系目标可解析且为 open | 目标 Spark 回读 | 机械（关系目标解析+状态检查） | 合并/拆分去向完整性 | 视为未完整关闭，暂停并修复 |
 | 状态-关系不变量 | 变更时 | implemented 无合并/拆分关系；discarded 带关系时目标可解析且为 open | 对象全文 + 关系闭集 | 机械校验 | 当次状态与关系一致性 | 拒绝；修正后重走 |
 

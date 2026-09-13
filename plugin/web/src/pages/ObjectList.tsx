@@ -9,6 +9,7 @@ import ObjectStatusFilter from '@/components/ObjectStatusFilter';
 import WorkCaseProgressFilter from '@/components/WorkCaseProgressFilter';
 import WorkCaseProgressTrack from '@/components/WorkCaseProgressTrack';
 import ServesSgFilter from '@/components/ServesSgFilter';
+import ObjectPriorityFilter from '@/components/ObjectPriorityFilter';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import ServesSgBadge from '@/components/ServesSgBadge';
 import SummaryText from '@/components/SummaryText';
@@ -1725,6 +1726,7 @@ export default function ObjectList() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState<ObjectItem[]>([]);
   const [statusOptions, setStatusOptions] = useState<ObjectStatusOption[]>([]);
+  const [priorityOptions, setPriorityOptions] = useState<ObjectStatusOption[]>([]);
   const [progressOptions, setProgressOptions] = useState<WorkCaseProgressOption[]>([]);
   const [statusTotal, setStatusTotal] = useState(0);
   const [coverageStatus, setCoverageStatus] = useState<FactCoverageStatus>('complete');
@@ -1750,6 +1752,13 @@ export default function ObjectList() {
     ? progressParam
     : null;
   const servesParam = searchParams.get('serves');
+  // Spark 三联过滤之三：priority（20 §8，仅 spark 生效；闭集 P0–P3）。
+  const priorityParam = searchParams.get('priority');
+  const supportsPriorityNavigation = currentType === 'spark';
+  const activePriority = supportsPriorityNavigation
+    && (priorityParam === 'P0' || priorityParam === 'P1' || priorityParam === 'P2' || priorityParam === 'P3')
+    ? priorityParam
+    : null;
   const sortParam = searchParams.get('sort');
   const activeSort: ObjectListSort = sortParam === 'created_desc' ? sortParam : 'updated_desc';
   // v5 无 priority 字段：20 §289（v4 priority 不迁入）与 21 §8 字段闭集均无此项，
@@ -1804,11 +1813,12 @@ export default function ObjectList() {
     setError(null);
     setStatusOptions([]);
     setProgressOptions([]);
+    setPriorityOptions([]);
     setStatusTotal(0);
     setCoverageStatus('complete');
     setCoverageProblemCount(0);
     setCoverageProblems([]);
-    fetchObjects(currentType, activeStatus ?? undefined, activeProgressGroup ?? undefined)
+    fetchObjects(currentType, activeStatus ?? undefined, activeProgressGroup ?? undefined, activePriority ?? undefined)
       .then((result) => {
         const receivedItems = result.data?.items ?? [];
         const nextItems = receivedItems
@@ -1816,6 +1826,7 @@ export default function ObjectList() {
         setItems(nextItems);
         setStatusOptions(result.data?.statusOptions ?? []);
         setProgressOptions(result.data?.progressOptions ?? []);
+        setPriorityOptions(result.data?.priorityOptions ?? []);
         setStatusTotal(result.data?.statusTotal ?? nextItems.length);
         setCoverageStatus(result.data?.coverage_status ?? 'complete');
         const nextCoverageProblems = result.data?.collection_issues ?? [];
@@ -1824,7 +1835,7 @@ export default function ObjectList() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [currentType, activeStatus, activeProgressGroup, statusParam]);
+  }, [currentType, activeStatus, activeProgressGroup, activePriority, statusParam]);
 
   const sortedItems = sortObjectsForList(items, activeSort);
   const normalizedObjectSearch = objectSearch.trim().toLowerCase();
@@ -1861,6 +1872,13 @@ export default function ObjectList() {
     nextParams.delete('status');
     if (group) nextParams.set('progress', group);
     else nextParams.delete('progress');
+    setSearchParams(nextParams);
+  };
+
+  const handlePriorityChange = (priority: string | null) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (priority) nextParams.set('priority', priority);
+    else nextParams.delete('priority');
     setSearchParams(nextParams);
   };
 
@@ -2087,7 +2105,20 @@ export default function ObjectList() {
   return (
     <div className="ldvh-page-frame">
       <div className="sticky top-0 z-20 -mx-6 -mt-6 mb-4 min-h-8 border-b border-ldvh-border bg-ldvh-bg/95 px-6 py-3 backdrop-blur">
-        {/* Spark 第二层筛选：serves_sg 子目标锚点（20 §6）——选项源跟随当前
+        {/* Spark 三联过滤之一：priority（20 §8，Human 裁定 2026-09-13）——
+            AI 出初值、Human 可调整；仅 open 时出现，故终态分组下不展示。 */}
+        {supportsPriorityNavigation && priorityOptions.length > 0 && (
+          <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <ObjectPriorityFilter
+              activePriority={activePriority}
+              onChange={handlePriorityChange}
+              options={priorityOptions}
+              loading={loading}
+              coverageStatus={coverageStatus}
+            />
+          </div>
+        )}
+        {/* Spark 三联过滤之二：serves_sg 子目标锚点（20 §6）——选项源跟随当前
             goal 的子目标动态生成（Human 定案 2026-09-13），计数同当前状态过滤。 */}
         {supportsServesSgNavigation && servesSgOptions.length > 0 && (
           <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">

@@ -130,6 +130,8 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     summary: field('current-summary', 'string', true),
     evolution: field('evolution', 'array', false),
     serves: field('spark-serves-sg', 'string', false),
+    // 20 §8：priority 闭集 P0–P3，AI 出初值、Human 可调整；仅 open 时出现。
+    priority: field('priority', 'string', false),
     disposition: field('spark-disposition', 'string', false),
     // 正文承载（20 §8 固定 H2），由阅读布局按 H2 分节解析呈现；不登记会被
     // 判为 unconsumed_field，且必须从列表投影排除。

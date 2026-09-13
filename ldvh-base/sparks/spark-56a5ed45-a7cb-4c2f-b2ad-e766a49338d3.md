@@ -13,6 +13,7 @@ summary: |-
 
   **注意**：`specs/27-Norm-事实规范.md` 已存在（Norm 类型已立项并定稿），与本文档 2026-09-03 提出的 Practice 候选**是否同一物的不同命名或不同设计**，须核对——这是本 Spark 的首要查重点。**讨论原则（Human 定）**：以「满足什么问题」为准入唯一依据；mnemon 的形态是参照不是模板；任何新类型在 20–24 重建之后按同节奏起草规范（编号待分配，可能 25+）。
 serves: SG-1
+priority: P2
 object_uid: 56a5ed45-a7cb-4c2f-b2ad-e766a49338d3
 fact_type_key: spark
 created_at: 2026-09-12T22:06:03.166Z
@@ -21,6 +22,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 受控创建 Spark 对象
+  - at: 2026-09-13T15:08:54.022Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 回填 priority=P2（20 §8 新增字段，Human 裁定 A；AI 出初值，Human 可随时调整）
 ---
 
 # 新事实类型候选准入

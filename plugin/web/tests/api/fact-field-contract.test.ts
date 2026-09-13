@@ -85,15 +85,18 @@ test('research keeps report_body only in detail, never in list projection', () =
 });
 
 test('spark carries the 20-spec field closure without v4 leftovers', () => {
-  // v4 遗留字段不进 v5 闭集：priority 不迁入（20 §14.2）、无 urls（§10）、
-  // 终态去向由 disposition 承载而非 disposition_summary（§8）。
-  assert.ok(!('priority' in FACT_FIELD_CONTRACT.spark), 'spark 不应登记 priority');
+  // v4 遗留字段不进 v5 闭集：无 urls（20 §10）、终态去向由 disposition 承载
+  // 而非 disposition_summary（§8）。priority 于 2026-09-13 由 Human 裁定新增
+  // （20 §8，非 v4 迁移），故在此登记为存在字段。
   assert.ok(!('urls' in FACT_FIELD_CONTRACT.spark), 'spark 不应登记 urls');
   assert.ok(!('disposition_summary' in FACT_FIELD_CONTRACT.spark), 'spark 不应登记 disposition_summary');
 
-  // 20 §8 类型字段：serves（SG-n 轻量锚点）/disposition（终态去向）条件出现。
+  // 20 §8 类型字段：serves（SG-n 轻量锚点）/priority（悬置排序档位，条件出现）
+  // /disposition（终态去向）均为条件字段。
   assert.equal(FACT_FIELD_CONTRACT.spark.serves.expected, 'string');
   assert.equal(FACT_FIELD_CONTRACT.spark.serves.required, false);
+  assert.equal(FACT_FIELD_CONTRACT.spark.priority.expected, 'string');
+  assert.equal(FACT_FIELD_CONTRACT.spark.priority.required, false);
   assert.equal(FACT_FIELD_CONTRACT.spark.disposition.expected, 'string');
   assert.equal(FACT_FIELD_CONTRACT.spark.disposition.required, false);
   assert.equal(FACT_FIELD_CONTRACT.spark.evolution.expected, 'array');

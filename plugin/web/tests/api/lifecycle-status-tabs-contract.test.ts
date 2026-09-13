@@ -36,22 +36,26 @@ test('retired has an explicit lifecycle status label', () => {
   assert.match(locales, /pitfall: \{[\s\S]*active: \{ zh: '活跃', en: 'Active' \}/)
 })
 
-test('no object list offers a priority filter (20 §289 / 21 §8 / 22 §271 / 23 §252 / 26 §258)', () => {
+test('Spark list carries three filters (priority/serves/lifecycle); WorkCase has no priority', () => {
   const list = source('src/pages/ObjectList.tsx')
   const route = source('api/routes/objects.ts')
 
   assert.match(list, /objectList\.lifecycleFilter/)
-  // v5 无 priority 字段：Spark（20 §289 v4 priority 不迁入）与 WorkCase（21 §8
-  // 字段闭集）均无此项；22 §271/23 §252/26 §258 判定 priority 类为无消费方
-  // 装饰字段（03 §11.3-4）。两侧列表与 API 均不再提供优先级导航。
-  assert.doesNotMatch(list, /ObjectPriorityFilter/)
-  assert.doesNotMatch(list, /supportsPriorityNavigation/)
-  assert.doesNotMatch(list, /activePriority/)
-  assert.doesNotMatch(route, /function getPriorityOptions/)
-  assert.doesNotMatch(route, /priorityOptions/)
-  // WorkCase 列表分组按 21 §160 三态收敛。
+  // 20 §8（2026-09-13 Human 裁定）：Spark 有 priority，列表提供三联过滤
+  // （priority + serves + 生命周期）。WorkCase 维持无此字段（21 §160 闭集）。
+  assert.match(list, /ObjectPriorityFilter/)
+  assert.match(list, /const supportsPriorityNavigation = currentType === 'spark'/)
+  assert.match(list, /activePriority/)
+  assert.match(route, /function getSparkPriorityOptions/)
+  assert.match(route, /priorityOptions/)
+  // priority 参数仅对 spark 生效（workcase 走 progress）。
+  assert.match(route, /const priority = type === 'spark' && typeof req\.query\.priority === 'string'/)
+  // WorkCase 列表分组按 21 §160 三态收敛，且无 priority 投影。
   assert.match(route, /const WORKCASE_LIST_STATUS_ORDER = \['draft', 'open', 'closed'\] as const/)
-  assert.match(list, /fetchObjects\(currentType, activeStatus \?\? undefined, activeProgressGroup \?\? undefined\)/)
+  assert.match(
+    list,
+    /fetchObjects\(currentType, activeStatus \?\? undefined, activeProgressGroup \?\? undefined, activePriority \?\? undefined\)/,
+  )
   assert.doesNotMatch(list, /const fetchStatus = currentType === 'spark'/)
   // Spark 状态闭集（open/implemented/discarded，20 §9）与通用类型同路径过滤；
   // v4 的 settled/unclosed 展示拆桶与 spark 专属过滤函数已移除。

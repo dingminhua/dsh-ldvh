@@ -792,6 +792,7 @@ export async function fetchObjects(
   type: string,
   status?: string,
   progress?: string,
+  priority?: string,
 ): Promise<{
   ok: boolean;
   summary: { count: number; coverage_status?: FactCoverageStatus };
@@ -802,6 +803,8 @@ export async function fetchObjects(
     collection_issues?: FactListProblem[];
     statusOptions?: ObjectStatusOption[];
     progressOptions?: WorkCaseProgressOption[];
+    /** Spark 三联过滤之 priority（20 §8）计数。 */
+    priorityOptions?: ObjectStatusOption[];
     statusTotal?: number;
     /** IDs absent from the current worktree's full object collection. */
   };
@@ -809,6 +812,7 @@ export async function fetchObjects(
   const params = new URLSearchParams();
   if (status) params.set('status', status);
   if (progress) params.set('progress', progress);
+  if (priority) params.set('priority', priority);
   const qs = params.toString();
   return request(`/objects/${type}${qs ? `?${qs}` : ''}`);
 }
