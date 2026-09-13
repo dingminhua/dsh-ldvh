@@ -436,12 +436,41 @@ window.__ModuleLoader__.load({
         return function () { cancelled = true; };
       }, [snap ? snap.revision : -1]);
 
+      // 采用选中的绝对路径：取消（null）不是错误，静默返回。
+      function adoptPickedPath(path) {
+        if (path === null || typeof path !== "string") return;
+        var leaf = path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "project";
+        candidateState[1]({ path: path, id: leaf.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "project" });
+      }
       function chooseProject() {
         if (projectBusyState[0]) return;
-        // 对齐宿主 directoryFlow 契约的 onError 语义：选择服务不可用与
-        // pick 失败都必须可见（表单错误位），绝不静默吞掉——否则像 Win32
-        // 原生选择器在 Electron 宿主下 spawn 失败这类环境故障，用户只会
-        // 看到「点了没反应」。手动输入路径始终是兜底通道。
+        // 目录选择梯级（镜像 DSH Desktop 浏览面板自身的接线）：
+        // ① Desktop 窗口预注入桥 window.__DSH_DESKTOP_PICK_DIRECTORY__
+        //    （经 /_dsh/desktop/pick-directory 直通主进程 Electron
+        //    dialog——win32 Desktop 内可靠的原生弹窗；以页面标记
+        //    dsh-desktop-platform=win32 门控，与宿主 browse surface 同款）；
+        // ② remote.directoryPicker.pick()（native 后端组合且选择器可用的宿主）。
+        // 失败一律进表单错误位（对齐宿主 directoryFlow 契约的 onError），
+        // 手动输入路径始终是兜底通道。
+        var desktopPick = null;
+        try {
+          if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("dsh-desktop-platform") === "win32"
+            && typeof window.__DSH_DESKTOP_PICK_DIRECTORY__ === "function") {
+            desktopPick = window.__DSH_DESKTOP_PICK_DIRECTORY__;
+          }
+        } catch (error) { /* window/query 不可用——走 remote 梯级 */ }
+        if (desktopPick !== null) {
+          projectBusyState[1](true);
+          installErrorState[1](null);
+          Promise.resolve(desktopPick()).then(function (path) {
+            projectBusyState[1](false);
+            adoptPickedPath(path === undefined ? null : path);
+          }).catch(function (error) {
+            projectBusyState[1](false);
+            installErrorState[1](t("row.pickFailed") + (error && error.message ? String(error.message) : ""));
+          });
+          return;
+        }
         if (!directoryPicker || typeof directoryPicker.pick !== "function") {
           installErrorState[1](t("row.pickUnavailable"));
           return;
@@ -451,8 +480,7 @@ window.__ModuleLoader__.load({
         Promise.resolve(directoryPicker.pick()).then(function (result) {
           projectBusyState[1](false);
           if (!result || result.ok !== true || typeof result.value !== "string") return;
-          var leaf = result.value.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "project";
-          candidateState[1]({ path: result.value, id: leaf.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "project" });
+          adoptPickedPath(result.value);
         }).catch(function (error) {
           projectBusyState[1](false);
           installErrorState[1](t("row.pickFailed") + (error && error.message ? String(error.message) : ""));

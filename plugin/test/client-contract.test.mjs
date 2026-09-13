@@ -69,6 +69,39 @@ test("loadProjects catch demotes transport failures to unavailable: true (no err
 	);
 });
 
+test("chooseProject uses the desktop pick-bridge ladder with visible failures", () => {
+	// 目录选择梯级：Desktop 窗口预注入桥优先（window.__DSH_DESKTOP_PICK_DIRECTORY__
+	// 经 /_dsh/desktop/pick-directory 直通主进程 Electron dialog——win32 Desktop
+	// 内可靠的原生弹窗，与宿主 browse surface 同款 dsh-desktop-platform=win32
+	// 门控），remote.directoryPicker.pick() 兜底；失败一律进表单错误位（对齐宿主
+	// directoryFlow 契约的 onError 一等公民语义），取消（null）静默返回；
+	// 路径框保持可手动编辑作为最终兜底。
+	assert.ok(
+		source.includes("window.__DSH_DESKTOP_PICK_DIRECTORY__"),
+		"the desktop pick bridge must be probed before the remote ladder",
+	);
+	assert.ok(
+		source.includes('new URLSearchParams(window.location.search).get("dsh-desktop-platform") === "win32"'),
+		"the desktop bridge must be gated on the desktop win32 page marker (host browse-surface gating)",
+	);
+	assert.ok(
+		source.includes("function adoptPickedPath(path)"),
+		"every picked path must funnel through adoptPickedPath (cancel = null is not an error)",
+	);
+	assert.ok(
+		source.includes('"row.pickFailed"') || source.includes('"row.pickFailed":'),
+		"pick failures must surface through the form error slot",
+	);
+	assert.ok(
+		source.includes('"row.pickUnavailable"') || source.includes('"row.pickUnavailable":'),
+		"a missing picker service must surface through the form error slot",
+	);
+	assert.ok(
+		!source.includes("readOnly: true"),
+		"the path field must stay manually editable (the always-available fallback)",
+	);
+});
+
 test("projectsState.unavailable branch renders a pointer hint, not a red error box", () => {
 	// unavailable 分支渲染 ldv-settings-hint + row.projectsUnavailable，不渲染红框、不渲染空列表态。
 	// 检查三元子句的关键词和产物，注释行可能出现在 ? 之前（缩进无关）。
