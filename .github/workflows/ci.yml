@@ -51,6 +51,14 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
+        with:
+          # 必须显式指定版本：action-setup@v4 未指定时既不读 lockfile 也无默认值，
+          # 直接以 "No pnpm version is specified" 失败（package.json 无
+          # packageManager 字段）。
+          # 取 11（与本地开发一致）：web/pnpm-workspace.yaml 只设 allowBuilds、
+          # 无 packages 字段，pnpm 9 会以 "packages field missing or empty" 拒绝；
+          # 10 与 11 均可用，取较新者以贴合本地环境。
+          version: 11
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
