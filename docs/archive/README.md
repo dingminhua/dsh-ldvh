@@ -27,7 +27,7 @@
 2. **归档 ≠ 判断其内容无价值**——其中多份的内容已转入事实源 Spark，但 Spark 的 `summary` 是语义快照，原文含更完整细节（推导、行业对照、字段清单），故**归档保留而非删除**；
 3. 完整的逐份「可删/应留」判据见 `docs/docs-cleanup-retention-table.md`（该表建议保留在根，理由：是清理决策自身依据）。
 
-**第二部分（未执行）**：对照表方案 B 尚列 7 份「已由 Spark 覆盖」的归档候选（`read-dimension-understanding`、`restructure-decision-list`、`deliberation-input-restructure`、`execution-usage-mapping-draft`、`deliberation-usage-mapping-draft`、`team-control-foundation-draft`、`analysis-upper-spec-size-and-ownership`），**待 Human 逐项勾选后归档**。
+**第二部分（已执行）**：对照表方案 B 所列 7 份「已由 Spark 覆盖」的归档候选（`read-dimension-understanding`、`restructure-decision-list`、`deliberation-input-restructure`、`execution-usage-mapping-draft`、`deliberation-usage-mapping-draft`、`team-control-foundation-draft`、`analysis-upper-spec-size-and-ownership`）**已全部归档**，见下方「〇之一」节与 `docs/docs-cleanup-retention-table.md` §方案 B。（本句原记「未执行／待 Human 逐项勾选」，与本文件同批次的执行记录矛盾，2026-09-13 据实更正。）
 
 **核验命令**：
 

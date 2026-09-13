@@ -37,7 +37,7 @@ manifest 存在、工具注册成功、钩子安装、页面加载或发布完�
 
 1. `ldvh-root`：00 §3.4 的技术与机械保障、§3.5 的四种价值交付方式、§4.3 的受保护内容、§4.4 的回应效力、§7 的防自欺、Stop Conditions 与交还；
 2. `specification-model-foundation`：01 §7 的共同章节结构、§9 的当前规则源条件、§10.4 的最小规则引导、§12 的独立对抗审核；
-3. `work-model-foundation`：02 §8 编排（能力承载）与 §9 记忆与反思（业务系统）对宿主接入与事件时机的机制指向，以及 §19 交还（含 Output Envelope）对宿主承载的边界；
+3. `work-model-foundation`：02 §8 编排（能力承载）与 §14 记忆与反思（业务系统）对宿主接入与事件时机的机制指向，以及 §19 交还（含 Output Envelope）对宿主承载的边界；
 4. `source-of-truth-traceability`：06 §6.3 的 Git Gate 事件检查（本文 §6 的 Hook 部署使用其定义的同一 validator）与 §6.1 的 message 契约（本文 §6 的 Git Gate 检查与其对齐）。
 
 DSH 插件与市场规范只提供宿主接口和发布格式，不取得 LDVH 领域语义权威。
