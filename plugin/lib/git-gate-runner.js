@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding } from "./commit-validation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -16,6 +16,63 @@ async function git(worktree, args, indexFile) {
   const env = cleanGitEnvironment(indexFile === void 0 ? {} : { GIT_INDEX_FILE: indexFile });
   const result = await execFileAsync("git", ["-C", worktree, ...args], { env, encoding: "utf8", timeout: 10000, maxBuffer: 4 * 1024 * 1024 });
   return result.stdout;
+}
+
+/**
+ * Gather the Norm carriers a commit would introduce, as { path, content }.
+ *
+ * Sources, unioned by path (the Index entry wins when both exist):
+ *   - every carrier STAGED in the candidate Index (authoritative for the commit);
+ *   - every carrier already committed or present in the working tree, so a
+ *     collision between a new carrier and an existing one is caught too. A gate
+ *     that only looked at the staged set would miss "add a second active Norm
+ *     for a direction that already has one".
+ *
+ * Fail-closed (27 §11): when a path cannot be read, it is returned with empty
+ * content so the uniqueness checker reports it as unparseable rather than
+ * silently dropping it.
+ */
+async function collectNormCarriers(worktree, changedPaths, indexFile) {
+  const carry = new Map();
+
+  // 1. Carriers present in the candidate Index (staged content, not the
+  //    possibly-newer working-tree copy).
+  let staged = [];
+  try {
+    staged = (await git(worktree, ["ls-files", "--cached", "-z"], indexFile)).split("\0").filter(Boolean);
+  } catch {
+    staged = [];
+  }
+  for (const path of staged) {
+    if (!isNormCarrierPath(path)) continue;
+    try {
+      carry.set(path, await git(worktree, ["show", `:${path}`], indexFile));
+    } catch {
+      carry.set(path, "");
+    }
+  }
+
+  // 2. Carriers on disk (committed or untracked) that this commit does not
+  //    remove — a collision against an existing active Norm still blocks.
+  const tracked = new Set(staged);
+  let onDisk = [];
+  try {
+    onDisk = (await git(worktree, ["ls-files", "--others", "--cached", "--exclude-standard", "-z"], indexFile)).split("\0").filter(Boolean);
+  } catch {
+    onDisk = [];
+  }
+  for (const path of new Set([...onDisk, ...changedPaths])) {
+    if (!isNormCarrierPath(path) || carry.has(path)) continue;
+    try {
+      carry.set(path, await readFile(resolve(worktree, path), "utf8"));
+    } catch {
+      // Deleted or unreadable: if it is also not in the Index this commit
+      // removes it, which cannot create a collision.
+      if (tracked.has(path)) carry.set(path, "");
+    }
+  }
+
+  return [...carry.entries()].map(([path, content]) => ({ path, content }));
 }
 
 async function main(argv) {
@@ -37,6 +94,18 @@ async function main(argv) {
   if (diff.length === 0) issues.push(newFinding("git/index_empty", "candidate Index is empty"));
   const correspondence = checkKeyChangesAgainstDiff(message, diff);
   if (!correspondence.ok) issues.push(...correspondence.issues);
+
+  // 27 §11 uniqueness, second layer: assert Count(direction_key=d ∧
+  // status="active") ≤ 1 across the carriers this commit would contain.
+  // The writer refuses such a write up front (layer 1) and consumption fails
+  // closed (layer 3), but neither covers a hand-edited or shell-written
+  // carrier — that is exactly the bypass this layer exists to catch.
+  const normCarriers = await collectNormCarriers(root, correspondence.changedPaths ?? [], indexFile);
+  if (normCarriers.length > 0) {
+    const uniqueness = checkNormDirectionUniqueness(normCarriers);
+    if (!uniqueness.ok) issues.push(...uniqueness.issues);
+  }
+
   if (issues.length > 0) {
     // Structured findings (K1): human-readable stderr keeps the rule ID so the
     // failing check is referenceable; line stays null for diff-level findings.

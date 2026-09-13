@@ -53,7 +53,9 @@ export const GATE_RULES = Object.freeze({
   "validation/staged_path_uncovered": Object.freeze({ severity: "blocking", description: "a staged diff path is covered by no 关键变更 item (06 §6.1: no diff change may be omitted; K1 bidirectional, Human 2026-09-10)" }),
   "validation/signature_provider_mismatch": Object.freeze({ severity: "blocking", description: "trailer LDVH-Provider does not match the authoritative session record" }),
   "validation/signature_model_mismatch": Object.freeze({ severity: "blocking", description: "trailer LDVH-Model does not match the authoritative session record" }),
-  "git/index_empty": Object.freeze({ severity: "blocking", description: "candidate Index is empty" })
+  "git/index_empty": Object.freeze({ severity: "blocking", description: "candidate Index is empty" }),
+  "facts/norm_direction_collision": Object.freeze({ severity: "blocking", description: "two or more ACTIVE Norm objects in ldvh-base/norms/ share one direction_key (27 §11 uniqueness second layer: the Git Gate traverses the index and refuses the commit)" }),
+  "facts/norm_carrier_unparseable": Object.freeze({ severity: "blocking", description: "a staged ldvh-base/norms/norm-*.md carrier cannot be parsed for the direction_key uniqueness assertion — an unreadable carrier cannot be proven conflict-free, so the gate fails closed rather than passing it" })
 });
 
 /** Mechanical-artifact exemption for the bidirectional coverage check
@@ -169,4 +171,88 @@ function itemMatchesPath(item, path) {
   // Diffstat-style summaries name the touched area; accept directory words.
   const segments = path.split("/").filter((segment) => segment.length > 2 && !/\d/.test(segment));
   return segments.some((segment) => item.includes(segment));
+}
+
+// ---------------------------------------------------------------------------
+// Fact-object uniqueness assertion (specs/27 §11 second layer — Git Gate)
+// ---------------------------------------------------------------------------
+
+/** Directory (under the repo root) that carries Norm fact-object carriers. */
+export const NORM_FACT_DIRECTORY = "ldvh-base/norms";
+
+/**
+ * Uniqueness formula from 27 §11:  Count(direction_key = d ∧ status = "active") ≤ 1
+ *
+ * The writer refuses such a write up front (layer 1) and the consuming side
+ * fails closed (layer 3), but neither covers a carrier written by hand or by a
+ * shell redirect. This is layer 2: at commit time, read every Norm carrier that
+ * the candidate tree would contain and refuse the commit when two ACTIVE ones
+ * share a direction_key.
+ *
+ * `carriers` is supplied by the caller as { path, content } pairs so this
+ * function stays pure and testable; the runner gathers them from the Index and
+ * the working tree (a staged carrier plus an unstaged sibling both land in the
+ * committed tree).
+ *
+ * Scope honesty: this asserts the uniqueness constraint over the carriers it is
+ * given. It does NOT validate rule quality, and per 27 §17 red line 5 it makes
+ * no claim about whether a Norm is genuinely "systematic".
+ */
+export function checkNormDirectionUniqueness(carriers) {
+  const issues = [];
+  const active = [];
+  for (const carrier of carriers) {
+    const parsed = parseNormCarrierFrontmatter(carrier.content);
+    if (!parsed.ok) {
+      issues.push(newFinding("facts/norm_carrier_unparseable", `${carrier.path}: ${parsed.reason} — cannot prove this carrier conflict-free (27 §11 second layer fails closed)`, null));
+      continue;
+    }
+    const { status, direction_key: directionKey } = parsed.frontmatter;
+    if (status === "active" && typeof directionKey === "string" && directionKey.length > 0) {
+      active.push({ path: carrier.path, direction_key: directionKey });
+    }
+  }
+
+  const byDirection = new Map();
+  for (const entry of active) {
+    const list = byDirection.get(entry.direction_key) ?? [];
+    list.push(entry);
+    byDirection.set(entry.direction_key, list);
+  }
+  for (const [directionKey, group] of byDirection) {
+    if (group.length > 1) {
+      issues.push(newFinding(
+        "facts/norm_direction_collision",
+        `${group.length} active Norm objects share direction_key "${directionKey}" (27 §11: Count(direction_key=d ∧ status=active) ≤ 1) — ${group.map((g) => g.path).join(", ")}; retire all but one before committing`,
+        null
+      ));
+    }
+  }
+  return { ok: issues.length === 0, issues };
+}
+
+/**
+ * Parse just enough YAML frontmatter to read status + direction_key. Kept local
+ * (rather than importing the Norm writer) so the Git Gate runner stays free of
+ * the writer's heavier dependency surface — the hook runs on every commit.
+ */
+function parseNormCarrierFrontmatter(content) {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return { ok: false, reason: "missing YAML frontmatter fence" };
+  const frontmatter = {};
+  for (const line of match[1].split("\n")) {
+    const field = line.match(/^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/);
+    if (field === null) continue;
+    let value = field[2].trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    frontmatter[field[1]] = value;
+  }
+  return { ok: true, frontmatter };
+}
+
+/** True when a repo-relative path is a Norm carrier this gate must inspect. */
+export function isNormCarrierPath(path) {
+  return path.startsWith(`${NORM_FACT_DIRECTORY}/`) && /\/norm-[^/]+\.md$/.test(path);
 }

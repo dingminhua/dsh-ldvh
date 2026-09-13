@@ -293,6 +293,8 @@ test("GATE_RULES registers every rule the validator emits, each with severity an
 		"validation/signature_provider_mismatch",
 		"validation/signature_model_mismatch",
 		"git/index_empty",
+		"facts/norm_direction_collision",
+		"facts/norm_carrier_unparseable",
 	];
 	assert.deepEqual(Object.keys(GATE_RULES).sort(), expected.sort());
 	for (const entry of Object.values(GATE_RULES)) {

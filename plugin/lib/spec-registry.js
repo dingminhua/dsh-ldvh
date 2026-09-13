@@ -23,7 +23,14 @@ const ROOT_ONLY_FIELDS = ["authority", "code_consumption"];
 const ATTACHMENT_FIELDS = ["attachment_key", "attachment_id", "title", "canonical_path", "positioning", "supersedes"];
 const DIMENSION_VALUES = ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"];
 const RELATION_VALUES = ["refines"];
-const ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+/**
+ * Responsibility-identifier pattern (01.Att.02 §2 共同值格式). Exported as the
+ * SINGLE authority for this format: 27 §13.1 requires Norm's `direction_key` to
+ * use this exact closed set and explicitly forbids establishing a second naming
+ * rule ("不建立第二套命名规则"), so the Norm writer imports it rather than
+ * re-declaring an equivalent regex that could silently drift.
+ */
+export const ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const SPEC_ID_PATTERN = /^[0-9]{2,}$/;
 const ATTACHMENT_ID_PATTERN = /^[0-9]{2,}\.Att\.[0-9]{2,}$/;
 const SPEC_PATH_PATTERN = /^specs\/[0-9]{2,}-[^/]+\.md$/;

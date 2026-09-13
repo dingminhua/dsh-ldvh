@@ -29,6 +29,7 @@ import { registerSparkTools } from "./spark-tools.js";
 import { registerAdrTools } from "./adr-tools.js";
 import { registerPitfallTools } from "./pitfall-tools.js";
 import { registerFrictionTools } from "./friction-tools.js";
+import { registerNormTools } from "./norm-tools.js";
 import { registerGoalTools } from "./goal-tools.js";
 
 const execFileAsync = promisify(execFile);
@@ -863,6 +864,10 @@ export function registerLdvhTools(ctx, deps) {
   disposers.push(registerPitfallTools(ctx, deps));
   // Friction mechanical layer (specs/26 writer), same registration surface.
   disposers.push(registerFrictionTools(ctx, deps));
+  // Norm mechanical layer (specs/27 writer) — carries uniqueness layer 1
+  // (direction_key pre-write refusal) and layer 3 (consumption fail-closed);
+  // layer 2 (Git Gate) lives in git-gate-runner.js.
+  disposers.push(registerNormTools(ctx, deps));
   // Goal mechanical layer (specs/25 writer) — singleton type, same surface.
   disposers.push(registerGoalTools(ctx, deps));
   return () => {

@@ -743,3 +743,8 @@ export async function listFrictionObjects(args) {
   const projected = complete ? items : items.slice(0, limit);
   return success({ items: projected, total: items.length, complete, invalid });
 }
+
+// Exported for the schema/writer agreement guard (test/schema-writer-agreement.test.mjs):
+// the tool-plane JSON Schema must admit every field this closed set accepts, and a
+// field added here without a matching schema entry is unreachable via the tools.
+export { VALID_FM_KEYS };
