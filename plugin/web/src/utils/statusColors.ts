@@ -15,8 +15,9 @@ export const STATUS_COLORS: Record<string, { light: string; dark: string }> = {
   accepted: { light: '#059669', dark: '#00d4aa' },
   closed: { light: '#64748b', dark: '#94a3b8' },
   resolved: { light: '#6b7280', dark: '#6b7280' },
-  // 20 §9：Spark 终态 implemented（落实/交接）用中性收敛色，与 open（悬置，琥珀）区分。
-  implemented: { light: '#64748b', dark: '#94a3b8' },
+  // 20 §9：Spark 终态 implemented（落实/交接）用正向达成绿（Human 定案
+  // 2026-09-13），与 open（悬置，琥珀）、discarded（废弃，红）区分。
+  implemented: { light: '#059669', dark: '#00d4aa' },
   open: { light: '#d97706', dark: '#f59e0b' },
   pending: { light: '#d97706', dark: '#f59e0b' },
   draft: { light: '#d97706', dark: '#f59e0b' },

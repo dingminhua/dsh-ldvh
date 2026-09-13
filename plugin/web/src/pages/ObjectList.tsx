@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { Activity, ArrowRight, CalendarClock, Circle, CircleAlert, CircleCheck, CircleMinus, CirclePlay, ClipboardList, Clock3, History, Lightbulb, ListChecks, Search, ShieldCheck, Target } from 'lucide-react';
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
@@ -9,13 +9,14 @@ import ObjectStatusFilter from '@/components/ObjectStatusFilter';
 import WorkCaseProgressFilter from '@/components/WorkCaseProgressFilter';
 import WorkCaseProgressTrack from '@/components/WorkCaseProgressTrack';
 import ObjectPriorityFilter from '@/components/ObjectPriorityFilter';
+import ServesSgFilter from '@/components/ServesSgFilter';
 import PriorityIcon from '@/components/PriorityIcon';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import ServesSgBadge from '@/components/ServesSgBadge';
 import SummaryText from '@/components/SummaryText';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import { WorkCaseCriteriaList, WORKCASE_CRITERIA_SURFACE_CLASS } from '@/components/WorkCaseCriteriaList';
-import { fetchObjectDetail, fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type ObjectDetail, type ObjectItem, type ObjectStatusOption, type WorkCaseClosureProposalCard, type WorkCaseClosureTerminalCard, type WorkCaseContributionTarget, type WorkCaseExecutionItem, type WorkCaseListGroup, type WorkCaseProgressOption, type WorkCaseSparkSuggestionCard } from '@/utils/api';
+import { fetchCognitionGoal, fetchObjectDetail, fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type ObjectDetail, type ObjectItem, type ObjectStatusOption, type WorkCaseClosureProposalCard, type WorkCaseClosureTerminalCard, type WorkCaseContributionTarget, type WorkCaseExecutionItem, type WorkCaseListGroup, type WorkCaseProgressOption, type WorkCaseSparkSuggestionCard } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
 import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeDescription, getTypeLabel } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
@@ -1331,8 +1332,8 @@ function TerminalFactPanel({
 }) {
   const styles = {
     implemented: {
-      panel: 'border-slate-400/25 border-l-slate-400 bg-slate-500/5',
-      body: 'text-slate-600/75 dark:text-slate-300/75',
+      panel: 'border-emerald-400/25 border-l-emerald-400 bg-emerald-500/5',
+      body: 'text-emerald-700/75 dark:text-emerald-300/75',
     },
     retired: {
       panel: 'border-zinc-400/25 border-l-zinc-400 bg-zinc-500/5',
@@ -1734,6 +1735,9 @@ export default function ObjectList() {
   const [coverageProblems, setCoverageProblems] = useState<FactListProblem[]>([]);
   const [objectSearch, setObjectSearch] = useState('');
   const [isObjectSearchOpen, setIsObjectSearchOpen] = useState(false);
+  // Spark 第二层筛选（serves_sg）：选项源跟随当前 goal 的子目标（25 号
+  // sub_goals——SG 数量与变化以 goal 为准，Human 定案 2026-09-13）。
+  const [servesSgOptions, setServesSgOptions] = useState<Array<{ id: string; text: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { t, locale } = useI18n();
@@ -1746,6 +1750,7 @@ export default function ObjectList() {
     ? progressParam as WorkCaseListGroup
     : null;
   const priorityParam = searchParams.get('priority');
+  const servesParam = searchParams.get('serves');
   const sortParam = searchParams.get('sort');
   const activeSort: ObjectListSort = sortParam === 'created_desc' ? sortParam : 'updated_desc';
   // 优先级导航仅 WorkCase 保留（v4 字段，21 号定稿前不动）；Spark 已按
@@ -1756,18 +1761,49 @@ export default function ObjectList() {
     : null;
   const isPriorityApplicable = currentType === 'workcase'
     && activeProgressGroup !== 'closed' && activeProgressGroup !== 'discarded';
+  // serves 筛选只在 spark 生效，且仅当选项（goal 子目标）包含该值时激活。
+  const supportsServesSgNavigation = currentType === 'spark';
+  const activeServesSg = supportsServesSgNavigation && servesSgOptions.some((option) => option.id === servesParam)
+    ? servesParam
+    : null;
 
   useEffect(() => {
     const removesLegacyCategory = currentType === 'spark' && searchParams.has('category');
     const removesWorkCaseStatus = currentType === 'workcase' && searchParams.has('status');
     const removesForeignProgress = currentType !== 'workcase' && searchParams.has('progress');
-    if (!removesLegacyCategory && !removesWorkCaseStatus && !removesForeignProgress) return;
+    const removesForeignServes = currentType !== 'spark' && searchParams.has('serves');
+    if (!removesLegacyCategory && !removesWorkCaseStatus && !removesForeignProgress && !removesForeignServes) return;
     const nextParams = new URLSearchParams(searchParams);
     if (removesLegacyCategory) nextParams.delete('category');
     if (removesWorkCaseStatus) nextParams.delete('status');
     if (removesForeignProgress) nextParams.delete('progress');
+    if (removesForeignServes) nextParams.delete('serves');
     setSearchParams(nextParams, { replace: true });
   }, [currentType, searchParams, setSearchParams]);
+
+  // serves 选项源：跟随当前 goal 的子目标（25 号）——goal 未创建是合法状态，
+  // 静默保持空选项（筛选层不渲染）。
+  useEffect(() => {
+    if (currentType !== 'spark') {
+      setServesSgOptions([]);
+      return;
+    }
+    let cancelled = false;
+    fetchCognitionGoal()
+      .then((data) => {
+        if (cancelled) return;
+        const subGoals = Array.isArray(data.goal?.sub_goals) ? data.goal.sub_goals : [];
+        setServesSgOptions(subGoals
+          .filter((sg): sg is { id: string; text: string } => Boolean(sg && typeof sg.id === 'string' && sg.id.trim() && typeof sg.text === 'string'))
+          .map((sg) => ({ id: sg.id.trim(), text: sg.text })));
+      })
+      .catch(() => {
+        if (!cancelled) setServesSgOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentType]);
 
   useEffect(() => {
     setLoading(true);
@@ -1807,6 +1843,21 @@ export default function ObjectList() {
       return title.includes(normalizedObjectSearch) || objectId.includes(normalizedObjectSearch);
     })
     : sortedItems;
+  // 第二层筛选：serves（20 §6 子目标锚点，1e21a1f D-9 统一定名）——按当前
+  // goal 子目标过滤（前端应用，items 已按状态过滤，计数与过滤同口径）。
+  if (activeServesSg) {
+    filteredItems = filteredItems.filter((item) => item.serves === activeServesSg);
+  }
+  // SG 计数：当前状态过滤后的 spark 池按 serves 聚合（与 WorkCase priority
+  // 计数同口径——反映当前过滤器，不是全量）。
+  const servesSgCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of sortedItems) {
+      const sg = typeof item.serves === 'string' && item.serves.trim() ? item.serves.trim() : null;
+      if (sg) counts.set(sg, (counts.get(sg) ?? 0) + 1);
+    }
+    return counts;
+  }, [sortedItems]);
 
   const handleStatusChange = (status: string | null) => {
     const nextParams = new URLSearchParams(searchParams);
@@ -1828,6 +1879,16 @@ export default function ObjectList() {
       nextParams.set('priority', priority);
     } else {
       nextParams.delete('priority');
+    }
+    setSearchParams(nextParams);
+  };
+
+  const handleServesSgChange = (servesSg: string | null) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (servesSg) {
+      nextParams.set('serves', servesSg);
+    } else {
+      nextParams.delete('serves');
     }
     setSearchParams(nextParams);
   };
@@ -2051,6 +2112,21 @@ export default function ObjectList() {
               activePriority={activePriority}
               onChange={handlePriorityChange}
               options={priorityOptions}
+              loading={loading}
+              coverageStatus={coverageStatus}
+            />
+          </div>
+        )}
+        {/* Spark 第二层筛选：serves_sg 子目标锚点（20 §6）——选项源跟随当前
+            goal 的子目标动态生成（Human 定案 2026-09-13），计数同当前状态过滤。 */}
+        {supportsServesSgNavigation && servesSgOptions.length > 0 && (
+          <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <ServesSgFilter
+              activeServesSg={activeServesSg}
+              onChange={handleServesSgChange}
+              options={servesSgOptions}
+              counts={servesSgCounts}
+              total={sortedItems.length}
               loading={loading}
               coverageStatus={coverageStatus}
             />

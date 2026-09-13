@@ -72,9 +72,10 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     retired: { zh: '已废弃', en: 'Retired' },
   },
   spark: {
-    // 20 §9 状态闭集：open（悬置中）/ implemented（落实或交接，只结束入口
+    // 20 §9 状态闭集：open（待处理——尚待召回、判断、拆分或分流；Human 定案
+    // 2026-09-13 改称，原「悬置中」）/ implemented（落实或交接，只结束入口
     // 职责，不代表下游完成）/ discarded（废弃或被合并/拆分）。
-    open: { zh: '悬置中', en: 'Suspended' },
+    open: { zh: '待处理', en: 'Pending' },
     implemented: { zh: '已落实', en: 'Implemented' },
     discarded: { zh: '已废弃', en: 'Discarded' },
   },
@@ -1013,6 +1014,7 @@ export const UI_LOCALES = {
     'objectList.lifecycleFilter': '生命周期',
     'objectList.progressGroupFilter': '进展分组',
     'objectList.priorityFilter': '优先级',
+    'objectList.servesSgFilter': '服务子目标',
     'objectList.sort': '排序',
     'objectList.sortUpdatedDesc': '最后更新 ↓',
     'objectList.sortCreatedDesc': '创建时间 ↓',
@@ -1657,6 +1659,7 @@ export const UI_LOCALES = {
     'objectList.lifecycleFilter': 'Lifecycle',
     'objectList.progressGroupFilter': 'Progress group',
     'objectList.priorityFilter': 'Priority',
+    'objectList.servesSgFilter': 'Serves sub-goal',
     'objectList.sort': 'Sort',
     'objectList.sortUpdatedDesc': 'Last updated ↓',
     'objectList.sortCreatedDesc': 'Created ↓',

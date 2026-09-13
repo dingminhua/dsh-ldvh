@@ -22,6 +22,8 @@ export default function StatusBadge({ status, statusLabel, objectType = '', size
     || (objectType === 'friction' && status === 'resolved')
     || (objectType === 'norm' && status === 'retired')
     ? '#6b7280'
+    // 20 §9：spark implemented（落实/交接）走正向达成绿（Human 定案
+    // 2026-09-13），不再是中性灰——落实是正结果不是收敛。
     : getStatusColor(status);
   const compact = variant === 'compact' || size === 'xs';
   const sizeClasses = compact

@@ -28,7 +28,9 @@ test('retired has an explicit lifecycle status label', () => {
 
   assert.match(locales, /retired: \{ zh: '已废弃', en: 'Retired' \}/)
   assert.match(locales, /implemented: \{ zh: '已关闭', en: 'Implemented' \}/)
-  assert.match(colors, /implemented: \{ light: '#64748b', dark: '#94a3b8' \}/)
+  // 20 §9：spark implemented（落实/交接）正向达成绿（Human 定案 2026-09-13
+  // 取代中性灰——落实是正结果）。
+  assert.match(colors, /implemented: \{ light: '#059669', dark: '#00d4aa' \}/)
   assert.match(colors, /closed: \{ light: '#64748b', dark: '#94a3b8' \}/)
   assert.match(locales, /pitfall: \{[\s\S]*draft: \{ zh: '待确认', en: 'Pending confirmation' \}/)
   assert.match(locales, /pitfall: \{[\s\S]*active: \{ zh: '活跃', en: 'Active' \}/)
