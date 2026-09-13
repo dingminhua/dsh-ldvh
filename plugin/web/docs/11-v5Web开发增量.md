@@ -3,7 +3,7 @@
 > 基于 v4 Web 开发基线（`01-全局设计约束.md`、`09-图标语义规范.md`、`10-Web开发现状与设计语言基线.md`）建立。
 > v4 基线原样平移后迁移至 `web/`，v5 增量与一致性审计记录在此。迁移纪律见 [`README-MIGRATION.md`](../README-MIGRATION.md)。
 >
-> 上位与直接依据：`specs/03-事实模型基础规范.md`、`specs/10-Web 呈现与交互规范.md`、`specs/07-工作对象与管辖范围规范.md`、`specs/24-Research-调研报告.md`、`specs/09-Code 实践与测试规范.md`。
+> 上位与直接依据：`specs/03-事实模型基础规范.md`、`specs/10-Web 呈现与交互规范.md`、`specs/07-管辖范围规范.md`、`specs/24-Research-调研报告.md`、`specs/09-Code 实践与测试规范.md`。
 
 ## 1. v5 迁移核心决策（Human 定案）
 

@@ -567,7 +567,7 @@ test("item1: item 11 requires the controlled-commit signature, not merely a comm
 test("item4: operation declarations are PARSED from the source, not hardcoded (05 §6.1)", async () => {
 	const { readFile } = await import("node:fs/promises");
 	const { resolveHeadingPath, parseOperationDeclarations } = await import("../lib/spec-registry.js");
-	const specPath = new URL("../../specs/07-工作对象与管辖范围规范.md", import.meta.url);
+	const specPath = new URL("../../specs/07-管辖范围规范.md", import.meta.url);
 	const md = await readFile(specPath, "utf8");
 	const rows = parseOperationDeclarations(md, (headingPath) => resolveHeadingPath(md, headingPath).ok);
 	// Both 07 §5.4/§5.7 entries must be found, with their contract anchors
