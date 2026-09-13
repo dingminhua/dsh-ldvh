@@ -58,3 +58,18 @@
 1. 是否创建该 Pitfall（需逐字确认标题、scope）？
 2. `title` 是否采用「无基址构建致 SPA 白屏」？
 3. `trigger_signal` 是否符合「真实信号、非占位」要求（03 §6.1）？
+
+---
+
+## 处置结果（2026-09-13）
+
+**已按本提案创建，Human 已确认。**
+
+- `object_uid`：`af594d4d-0bcc-4b43-a469-1ebaee928d97`
+- 载体：`ldvh-base/pitfalls/pitfall-af594d4d-0bcc-4b43-a469-1ebaee928d97.md`
+- 指纹：`05add59d4d10f54617539971532edad3e3eb3f254f46cae7ef5061921c580e4d`
+- 状态：`active`；回读 `body_valid: true`
+
+确认项采纳情况：title 采用「无基址构建致 SPA 白屏」（13 字符，≤ 30 字）；`scope` 与 `trigger_signal` 按提案原文落盘。
+
+本文件为该项决定的提案与确认留痕；经验本体以 Pitfall 对象为准，本文件不取得规范效力。
