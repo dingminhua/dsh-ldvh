@@ -189,6 +189,14 @@ export function createWebApiProcess(options) {
   let watcher = null;
   if (watchSource) {
     import("node:fs").then((fs) => {
+      // 竞态防护：import() 是异步的，watcher 要等这个 then 回调才存在；若
+      // dispose() 在这之前同步跑完，它会看到 watcher 仍为 null 而跳过 close，
+      // 随后这里再创建的 watcher 就再也没人关闭——进程被永久挂住。
+      //
+      // 该泄漏在 macOS 上被 watcher.unref?.() 掩盖（darwin 的 FSEvent 支持
+      // unref），但 Linux 的 inotify 句柄**不受 unref 影响**，实测进程无法退出。
+      // 故不能只依赖 unref：dispose 之后一律不再创建，已创建的一律在 dispose 关闭。
+      if (disposed) return;
       watcher = fs.watch(join(webRoot, "api"), { recursive: true }, () => {
         if (disposed) return;
         if (watchTimer !== null) clearTimeout(watchTimer);
@@ -202,8 +210,15 @@ export function createWebApiProcess(options) {
         }, 1000);
       });
       watcher.on("error", () => { /* watch 不可用时静默退化为手动重启 */ });
-      // unref：watcher 不阻止进程退出——宿主进程常驻不受影响，而测试进程
-      // （apply 全链拉起管理器但不 dispose 的场景）不会被泄漏的 watcher 挂死。
+      // 二次检查：watcher 创建与赋值之间不会让出事件循环，但仍保留此关口，
+      // 以便 dispose 在任何 await 边界之后发生也能覆盖到。
+      if (disposed) {
+        try { watcher.close(); } catch { /* already closed */ }
+        watcher = null;
+        return;
+      }
+      // unref 只是补充手段（darwin 有效、Linux inotify 无效），真正的保障是
+      // dispose() 中的显式 close。
       watcher.unref?.();
     }).catch(() => { /* fs 不可用（理论不可达） */ });
   }
@@ -270,7 +285,15 @@ export function createWebApiProcess(options) {
     },
     dispose() {
       disposed = true;
+      // 显式关闭 watcher：这是进程能退出的**唯一可靠保障**——watcher.unref?.()
+      // 在 Linux 的 inotify 下无效（实测进程被永久挂住），只在 darwin 生效。
       try { watcher?.close(); } catch { /* already closed */ }
+      watcher = null;
+      // 清掉待触发的去抖定时器，避免 dispose 后仍有回调计划执行。
+      if (watchTimer !== null) {
+        clearTimeout(watchTimer);
+        watchTimer = null;
+      }
       if (spawned !== null && !exited) {
         const proc = spawned;
         try { proc.kill("SIGTERM"); } catch { /* best effort */ }

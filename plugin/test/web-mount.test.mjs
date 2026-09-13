@@ -4,6 +4,7 @@
  * 子进程管理器（自定义命令 spawn → 就绪 → dispose）。
  */
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import http from "node:http";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -194,4 +195,62 @@ test("web api process manager spawns a custom command, becomes ready, and dispos
   assert.equal(manager.isRunning(), false);
   // dispose 后 ensureReady 返回 null（不再复活）
   assert.equal(await manager.ensureReady(), null);
+});
+
+test("dispose() racing the async watcher import does not keep the process alive", async () => {
+  // 回归：createWebApiProcess 用 import("node:fs").then(...) 异步创建 fs.watch。
+  // 若 dispose() 在该 then 回调之前同步跑完，它会看到 watcher 仍为 null 而跳过
+  // close，随后创建出来的 watcher 再无机会关闭——进程被永久挂住。
+  //
+  // 失败模式只在**子进程退出**时可见，且仅在某些平台：darwin 的 FSEvent 支持
+  // unref（掩盖该缺陷），Linux 的 inotify 句柄不受 unref 影响（CI 的 plugin job
+  // 因此挂起 30 分钟以上；同一份代码在 macOS 上 15 秒跑完）。
+  //
+  // 由于 darwin 上 unref 会掩盖该缺陷，**本用例在 macOS 上恒通过**；它的实际
+  // 守护发生在 Linux（CI 的 plugin job 跑全套，HEAD 版在那里 exit=124 挂起，
+  // 修复后 exit=0）。此处直接断言子进程能否自然退出——超时即失败。
+  //
+  // watchSource 需为 true 且 webRoot/api 存在，才能走到 fs.watch 分支。
+  const webRoot = await mkdtemp(join(tmpdir(), "ldvh-watch-race-"));
+  await mkdir(join(webRoot, "api"), { recursive: true });
+  await writeFile(join(webRoot, "api", "server.ts"), "// race fixture\n");
+
+  const script = `
+    import { createWebApiProcess } from ${JSON.stringify(new URL("../lib/web-mount.js", import.meta.url).href)};
+    const manager = createWebApiProcess({
+      webRoot: ${JSON.stringify(webRoot)},
+      port: 45999,
+      env: {},
+      watchSource: true,
+    });
+    // 抢在 import("node:fs") 的 then 回调之前 dispose。
+    manager.dispose();
+    // 让出事件循环，使那个异步回调有机会跑（修复后它应直接返回，不建 watcher）。
+    await new Promise((done) => setTimeout(done, 300));
+    console.log("SCRIPT_DONE");
+  `;
+
+  const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+  child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+
+  // 兜底看门狗：仅在句柄泄漏时触发。它保证用例本身不会永久挂住整轮测试，
+  // 同时把「未退出」判为失败（而非让 CI 超时这种更难诊断的形式）。
+  const watchdog = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* gone */ } }, 20_000);
+  const exit = await new Promise((resolve) => {
+    child.on("exit", (code, signal) => resolve({ code, signal }));
+  });
+  clearTimeout(watchdog);
+
+  assert.match(stdout, /SCRIPT_DONE/, `子进程应跑完脚本：${stderr}`);
+  assert.equal(
+    exit.code,
+    0,
+    `dispose() 与异步 watcher 创建竞态时进程应能正常退出，实际 code=${exit.code} signal=${exit.signal}——` +
+      "残留的 fs.watch 句柄在 Linux 上会使进程永久挂起（macOS 因 unref 生效而掩盖）",
+  );
 });
