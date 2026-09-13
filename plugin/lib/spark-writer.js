@@ -74,6 +74,9 @@ const MAX_EVOLUTION_ENTRIES = 20;
 /** Title cap (20 §8: ≤ 30 字). */
 const MAX_TITLE_LENGTH = 30;
 
+/** Terminal-reason cap (20 §8/§9.1: disposition ≤ 200 字符). */
+const MAX_DISPOSITION_LENGTH = 200;
+
 /** UUID format check (03 §6.1 canonical UUIDv4, version nibble 4). */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -191,6 +194,10 @@ export function validateSparkFrontmatter(frontmatter) {
   } else {
     if (typeof frontmatter.disposition !== "string" || frontmatter.disposition.length === 0) {
       issues.push("disposition: required non-empty when status is implemented/discarded (20 §8/§14.1)");
+    } else if (frontmatter.disposition.length > MAX_DISPOSITION_LENGTH) {
+      // 20 §9.1: the terminal reason is a scannable locator, not the full
+      // disposal record. Reject rather than truncate.
+      issues.push(`disposition: must be ≤ ${MAX_DISPOSITION_LENGTH} characters (20 §9.1), got ${frontmatter.disposition.length}`);
     }
   }
 

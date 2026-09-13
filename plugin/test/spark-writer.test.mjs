@@ -526,6 +526,58 @@ test("update: open→implemented requires disposition (20 §8/§14.1); succeeds 
   });
 });
 
+test("update: disposition longer than 200 characters is rejected (20 §9.1)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    const draft = validFrontmatterDraft();
+    const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
+    assert.ok(created.ok);
+    const uid = created.value.object_uid;
+    const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    assert.ok(read1.ok);
+
+    // 201 -> rejected; the reason must NOT be silently truncated. (Attempted
+    // on the still-open object: a terminal object is read-only, §9.2, so the
+    // length check must be exercised on the transition that would set it.)
+    const overCap = { ...read1.value.frontmatter, status: "implemented", disposition: "x".repeat(201) };
+    const r = await updateSparkObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: read1.value.fingerprint,
+      frontmatterAfter: overCap,
+      bodyMarkdownAfter: validBodyMarkdown(draft),
+      changeSummary: "超限终态说明",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!r.ok);
+    assert.equal(r.error.code, "spark/frontmatter_invalid");
+    assert.ok(
+      r.error.details.issues.some((i) => i.includes("disposition") && i.includes("200")),
+      JSON.stringify(r.error.details.issues)
+    );
+
+    // The rejected write left no trace: the object is still open.
+    const read2 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(read2.value.frontmatter.status, "open");
+    assert.equal(read2.value.fingerprint, read1.value.fingerprint);
+
+    // Exactly 200 -> accepted (boundary is inclusive).
+    const atCap = { ...read2.value.frontmatter, status: "implemented", disposition: "y".repeat(200) };
+    const okUpdate = await updateSparkObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: read2.value.fingerprint,
+      frontmatterAfter: atCap,
+      bodyMarkdownAfter: validBodyMarkdown(draft),
+      changeSummary: "边界内终态说明",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(okUpdate.ok, JSON.stringify(okUpdate.error));
+
+    const read3 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(read3.value.frontmatter.disposition.length, 200);
+  });
+});
+
 test("update: open→discarded plain (no relations) succeeds (20 §9.2)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();

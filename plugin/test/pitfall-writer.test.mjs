@@ -441,6 +441,47 @@ test("update: active→discarded with disposition succeeds and lands disposition
   });
 });
 
+test("update: disposition longer than 200 characters is rejected (23 §9.1)", async () => {
+  await withTemp("pitfall-writer.", async (root) => {
+    const { draft, read } = await createAndRead(root);
+
+    // 201 -> rejected; the reason must NOT be silently truncated.
+    const overCap = await updatePitfallObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: read.value.fingerprint,
+      frontmatterAfter: { ...read.value.frontmatter, status: "discarded", disposition: "x".repeat(201) },
+      bodyMarkdownAfter: validBodyMarkdown(draft),
+      changeSummary: "超限终态说明",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!overCap.ok);
+    assert.equal(overCap.error.code, "pitfall/frontmatter_invalid");
+    assert.ok(
+      overCap.error.details.issues.some((i) => i.includes("disposition") && i.includes("200")),
+      JSON.stringify(overCap.error.details.issues)
+    );
+
+    // Rejected write left no trace. 200 -> accepted (boundary is inclusive).
+    const read2 = await readPitfallObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+    assert.equal(read2.value.fingerprint, read.value.fingerprint);
+
+    const atCap = await updatePitfallObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: read2.value.fingerprint,
+      frontmatterAfter: { ...read2.value.frontmatter, status: "discarded", disposition: "y".repeat(200) },
+      bodyMarkdownAfter: validBodyMarkdown(draft),
+      changeSummary: "边界内终态说明",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(atCap.ok, JSON.stringify(atCap.error));
+
+    const read3 = await readPitfallObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+    assert.equal(read3.value.frontmatter.disposition.length, 200);
+  });
+});
+
 test("update: active object with disposition rejected (23 §8: disposition ⇔ discarded)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const { draft, read } = await createAndRead(root);
