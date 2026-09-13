@@ -72,7 +72,7 @@
 | ADR | 1 | `1aad60bc` v4 存量零迁移 |
 | WorkCase | 0 | — |
 | Research | 21 | — |
-| Norm | 0 | `ldvh-base/norms/` 目录为空 |
+| Norm | 0 | `ldvh-base/norms/` 无对象（**2026-09-13 修正**：原记「目录为空」失实——当时目录**不存在**，已补建） |
 | Goal | 1 | `goal.md`（SG-1～SG-4） |
 
 ---
@@ -118,7 +118,7 @@
 |---|---|
 | 来源 | `docs/fact-norm-design-consolidated.md` §0 C12 |
 | 拟 question | 启动引导假定 `specs/00` 存在，而安装流程从不创建 `specs/` —— 该假定如何消解？ |
-| 开放证据 | C12 标 `[未承接 / 待决]`；`ldvh-base/norms/` 经核实**为空目录** |
+| 开放证据 | C12 标 `[未承接 / 待决]`；`ldvh-base/norms/` 无对象（**2026-09-13 修正**：原记「经核实为空目录」失实——该核实建立在错误观察上，当时目录不存在） |
 | 停止边界 | 安装流程处理 `specs/` 缺失的路径定案（创建 / 降级 / 如实报告）并写入规范时停止 |
 | 查重 | ✅ 无同题 Spark |
 | 承载 SG | SG-3、SG-4 |
@@ -129,7 +129,7 @@
 |---|---|
 | 来源 | `docs/fact-norm-design-consolidated.md` §0 C11 |
 | 拟 question | `ldvh-base/norms/` 实现侧（目录、FACT_DIRECTORIES、writer、Git Gate 断言）应如何建成？ |
-| 开放证据 | C11 原文「实现侧**全部未建**」；已核实 `norms/` 为空 |
+| 开放证据 | C11 原文「实现侧**全部未建**」；已核实 `norms/` 无对象（**2026-09-13 修正**：原记「已核实 `norms/` 为空」失实，当时目录不存在；目录本身已补建，C11 的 writer/Gate 缺口仍成立） |
 | 停止边界 | Norm 可受控创建、可召回、Git Gate 覆盖时停止 |
 | 查重 | ✅ 无同题 Spark（说明：本条**未来最可能被消化为 WorkCase**，但按 Human 口径先入 Spark） |
 | 承载 SG | SG-1、SG-2 |
@@ -353,7 +353,7 @@
 **已核实（机械）**：
 - `docs/` 130 份的分布与性质声明；`archive/` 34 份、`audit/` 8 份
 - 事实源基线：sparks=3、frictions=0、pitfalls=2、adrs=1、workcases=0、researches=21、norms=0
-- `ldvh-base/norms/` **为空目录**（C11 成立）
+- `ldvh-base/norms/` 无对象（C11 成立）。**2026-09-13 修正**：本节原记「`ldvh-base/norms/` **为空目录**」失实——该目录当时**不存在**（`workcases/`、`frictions/` 同样不存在）。「不存在」与「空目录」在本系统**不等价**：`factSourceStatus()` 判「空」为 `ready`、判「缺」为 `incomplete`，故 §7 原「已核实（机械）」的该项结论建立在错误观察上。三目录已补建，状态回归 `ready`。
 - `specs/` 无 30–38 段（仅 30、31）；`specs/04` **仍存在**
 - `BLUEPRINT.md` **不存在**（蓝图未落地）
 - A 组 12 条来源文档的正文精读（开放状态逐一核实）

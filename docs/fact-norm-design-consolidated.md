@@ -465,7 +465,7 @@ $ grep -n 'norm_source' specs/ plugin/   # 仅 specs/27:356 的禁令
 
 | 层 | 文件:行 | 动作 |
 |---|---|---|
-| plugin 常量 | `plugin/lib/governed-projects.js:13` | `FACT_DIRECTORIES` 加 `"norms"`；**并顺带修正既有漂移**：加 `"frictions"`、移除 `"workcases"`（21 未建、目录不存在 → 消除「声明-缺失」漂移） |
+| plugin 常量 | `plugin/lib/governed-projects.js:13` | `FACT_DIRECTORIES` 加 `"norms"`；**并顺带修正既有漂移**：加 `"frictions"`、移除 `"workcases"`（21 未建、目录不存在 → 消除「声明-缺失」漂移）。**2026-09-13 更新**：`FACT_DIRECTORIES:17` 实已含全部 7 类（含 `norms`/`frictions`/`workcases`），故本行「加 `norms`」动作已完成；三缺失目录亦已补建，`factSourceStatus()` 现为 `ready`。**本行原提议的「移除 `workcases`」不建议执行**——WorkCase 是 20/21/25 号规范确立的事实类型，移除声明会让类型无承载目录；正解是保留声明并补建目录（已按此执行）。 |
 | plugin 测试 | `plugin/test/governed-projects.test.mjs:30,86` | 同步常量（**注意**：该测试**自己复制了一份常量**，`deepEqual` 断言的是自己那份 = 自查，与 lib **解耦**、可静默漂移——实测已验证漂移存在） |
 | web 常量 | `plugin/web/api/services/factFieldContract.ts:8` | `FACT_TYPES` 加 `'norm'` |
 | web 测试 | `plugin/web/tests/api/fact-field-contract.test.ts:48` | `assert.deepEqual(FACT_TYPES, [...])` **必须同步**，否则测试失败（此处断言的是**导入的真实常量**，与上一条相反） |
@@ -607,7 +607,7 @@ specs/00-理念与构成.md:170-182           # §4.3 受保护内容五类
 6. `22 §6.3:99`/`§15:275` 承认「决策可被承接进规范源」，而 `22:127`/`:162`/`:149` 的闭集**无法表达该事件**；本仓库 `adrs/` 无 retired 实例（缺口未被触发）。
 7. `specs/03` §6.1 允许类型专属字段增量 → `direction_key` 无需修改 03 正文。
 8. `direction_key` 的精确排他与骨架校验可机械实现；**语义同义异名不可机械防止**。
-9. 实现侧全部未建（`norms/` 目录、常量、writer、Git Gate 断言、Web 契约与视图）。
+9. 实现侧全部未建（`norms/` 目录、常量、writer、Git Gate 断言、Web 契约与视图）。**2026-09-13 修正**：本项「`norms/` 目录」部分已不成立——目录已补建，`FACT_DIRECTORIES`（`governed-projects.js:17`）与 web 侧 `FACT_TYPE_DIRS`/`FACT_TYPES` 均已含 Norm；**仍成立的是 writer 与 Git Gate 断言缺席**。另需更正一处本文件内部的**自相矛盾**：C11 原文记「`ldvh-base/norms/` **不存在**」（与实测一致），而 `docs/docs-to-spark-census.md` 转述为「**为空目录**」并标为「已核实（机械）」——后者失实，「不存在」与「空目录」在 `factSourceStatus()` 下分判 `incomplete` / `ready`，不等价。
 10. 既有漂移两处：`frictions` 不在种子清单；`workcases` 在清单但目录不存在（已产生用户可见 `incomplete` 误报）。
 11. `spec-drift-inventory` 的 D1–D6 在收敛时点**全部已消解或已处置**（§11）。
 
