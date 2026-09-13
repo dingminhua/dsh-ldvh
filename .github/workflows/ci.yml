@@ -22,7 +22,11 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 对齐宿主 dsh-plugin-desktop 的 engines.node（^22.19.0 || >=24.0.0）。
+          # 本插件以 Cordis 插件行跑在宿主进程内，与宿主共用 Node 运行时，故 CI
+          # 应贴近真实运行环境。代码实际下限为 22.15.0（node:zlib 的
+          # ZstdDecompress 自 v22.15.0 起提供），22.19.0 满足并留有余量。
+          node-version: '22.19'
           cache: npm
           cache-dependency-path: plugin/package-lock.json
 
@@ -55,17 +59,18 @@ jobs:
           # 必须显式指定版本：action-setup@v4 未指定时既不读 lockfile 也无默认值，
           # 直接以 "No pnpm version is specified" 失败（package.json 无
           # packageManager 字段）。
-          # 取 10：pnpm 11 要求 Node >= 22.13，与本 job 的 node-version 20 冲突
-          # （实测报 ERR_UNKNOWN_BUILTIN_MODULE 与 "requires at least Node.js v22.13"）；
-          # pnpm 9 则拒绝本仓库的 pnpm-workspace.yaml（只设 allowBuilds、无 packages
-          # 字段，报 "packages field missing or empty"）。10 兼容 Node 20，
-          # 且实测可完成 --frozen-lockfile 安装。
+          # 取 10：pnpm 9 拒绝本仓库的 pnpm-workspace.yaml（只设 allowBuilds、无
+          # packages 字段，报 "packages field missing or empty"）；pnpm 11 要求
+          # Node >= 22.13，在本 job 早期使用 Node 20 时曾报 ERR_UNKNOWN_BUILTIN_MODULE
+          # 而失败。pnpm 10 对 Node 无此约束，且实测可完成 --frozen-lockfile 安装，
+          # 在 Node 22.19 下同样通过。保持 10 可避免版本与 Node 的耦合。
           version: 10
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 同 plugin job：对齐宿主 engines.node（^22.19.0 || >=24.0.0）。
+          node-version: '22.19'
           cache: pnpm
           cache-dependency-path: plugin/web/pnpm-lock.yaml
 

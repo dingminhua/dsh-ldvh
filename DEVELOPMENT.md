@@ -5,7 +5,7 @@
 - DSH Desktop `2.0.4`
 - `@deepseek-ai/dsh` `0.1.2-alpha.1`
 - desktop profile：`~/.dsh/profiles/desktop`
-- Node.js `>=20`
+- Node.js `>=22.15.0`（`lib/zstd-compat.js` 依赖 `node:zlib` 的 zstd API，自 v22.15.0 起提供；DSH 宿主 `dsh-plugin-desktop` 自身要求 `^22.19.0 || >=24.0.0`，CI 取 `22.19`）
 
 ## 首次安装
 

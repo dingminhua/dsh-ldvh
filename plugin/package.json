@@ -22,7 +22,7 @@
     "url": "https://github.com/dingminhua/dsh-ldvh/issues"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.15.0"
   },
   "type": "module",
   "main": "lib/index.js",
