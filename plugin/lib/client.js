@@ -179,7 +179,7 @@ window.__ModuleLoader__.load({
       "row.projectsPanelTitle": "管辖项目",
       "row.addProject": "新增管辖项目",
       "row.addProjectTitle": "新增管辖项目",
-      "row.addProjectHint": "选择一个 Git 仓库根目录，安装会同时完成登记、初始化 ldvh-base/ 并安装 Git Hook。",
+      "row.addProjectHint": "选择或手动输入一个 Git 仓库根目录（绝对路径），安装会同时完成登记、初始化 ldvh-base/ 并安装 Git Hook。",
       "row.cancelAdd": "取消",
       "row.projectsEmptyTitle": "还没有管辖项目",
       "row.projectsEmptyText": "新增后，LDVH 才会在该项目中启用事实源与 Git Gate。",
@@ -192,6 +192,8 @@ window.__ModuleLoader__.load({
       "row.projectIdErrorLength": "长度需在 1–64 字符之间。",
       "row.projectIdErrorDuplicate": "此 ID 已被其他管辖项目使用。",
       "row.chooseProject": "选择 Git 根目录…",
+      "row.pickFailed": "选择文件夹失败：",
+      "row.pickUnavailable": "当前环境没有可用的目录选择服务，请直接在路径框中手动输入 Git 根目录。",
       "row.install": "安装",
       "row.installBusy": "安装中…",
       "row.update": "更新修复",
@@ -239,7 +241,7 @@ window.__ModuleLoader__.load({
       "row.projectsPanelTitle": "Governed projects",
       "row.addProject": "Add governed project",
       "row.addProjectTitle": "Add governed project",
-      "row.addProjectHint": "Pick a Git repository root. Installing registers the project, initializes ldvh-base/, and installs the Git Hook in one step.",
+      "row.addProjectHint": "Pick a Git repository root, or type its absolute path manually. Installing registers the project, initializes ldvh-base/, and installs the Git Hook in one step.",
       "row.cancelAdd": "Cancel",
       "row.projectsEmptyTitle": "No governed project yet",
       "row.projectsEmptyText": "Add one to enable the fact source and Git Gate for that project.",
@@ -252,6 +254,8 @@ window.__ModuleLoader__.load({
       "row.projectIdErrorLength": "Must be between 1 and 64 characters.",
       "row.projectIdErrorDuplicate": "This ID is already used by another governed project.",
       "row.chooseProject": "Choose Git root…",
+      "row.pickFailed": "Folder selection failed: ",
+      "row.pickUnavailable": "No directory-picker service is available in this environment; type the Git root path manually.",
       "row.install": "Install",
       "row.installBusy": "Installing…",
       "row.update": "Update & Repair",
@@ -433,14 +437,26 @@ window.__ModuleLoader__.load({
       }, [snap ? snap.revision : -1]);
 
       function chooseProject() {
-        if (!directoryPicker || typeof directoryPicker.pick !== "function" || projectBusyState[0]) return;
+        if (projectBusyState[0]) return;
+        // 对齐宿主 directoryFlow 契约的 onError 语义：选择服务不可用与
+        // pick 失败都必须可见（表单错误位），绝不静默吞掉——否则像 Win32
+        // 原生选择器在 Electron 宿主下 spawn 失败这类环境故障，用户只会
+        // 看到「点了没反应」。手动输入路径始终是兜底通道。
+        if (!directoryPicker || typeof directoryPicker.pick !== "function") {
+          installErrorState[1](t("row.pickUnavailable"));
+          return;
+        }
         projectBusyState[1](true);
+        installErrorState[1](null);
         Promise.resolve(directoryPicker.pick()).then(function (result) {
           projectBusyState[1](false);
           if (!result || result.ok !== true || typeof result.value !== "string") return;
           var leaf = result.value.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "project";
           candidateState[1]({ path: result.value, id: leaf.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "project" });
-        }).catch(function () { projectBusyState[1](false); });
+        }).catch(function (error) {
+          projectBusyState[1](false);
+          installErrorState[1](t("row.pickFailed") + (error && error.message ? String(error.message) : ""));
+        });
       }
       function openAddForm() {
         installErrorState[1](null);
@@ -731,7 +747,7 @@ window.__ModuleLoader__.load({
                     React.createElement("div", { className: "ldv-governance-add-field" },
                       React.createElement("span", { className: "ldv-governance-add-label" }, t("row.projectPath")),
                       React.createElement("span", { className: "ldv-governance-path-control" },
-                        React.createElement("input", { className: "ldv-settings-input", value: candidateState[0].path, readOnly: true, "aria-label": t("row.projectPath"), placeholder: t("row.projectPath") }),
+                        React.createElement("input", { className: "ldv-settings-input", value: candidateState[0].path, disabled: projectBusyState[0], "aria-label": t("row.projectPath"), placeholder: t("row.projectPath"), onChange: function (event) { candidateState[1]({ path: event.target.value, id: candidateState[0].id }); } }),
                         React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-outline", disabled: projectBusyState[0], onClick: chooseProject }, t("row.chooseProject"))
                       )
                     ),
