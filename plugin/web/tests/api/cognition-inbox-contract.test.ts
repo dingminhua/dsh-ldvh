@@ -11,26 +11,54 @@
  */
 
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import type { Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import os from 'node:os'
 import path from 'node:path'
 import { after, before, test } from 'node:test'
 import { projectRecentHotspotFact, type RecentHotspotBuildItem } from '../../api/routes/cognition.ts'
 import { compareTimestamps } from '../../api/services/time.ts'
 
+/** Web 源码根：供读取前端源文件的静态契约用例使用（与治理范围无关）。 */
 const repositoryRoot = path.resolve(import.meta.dirname, '../..')
 
 let server: Server
 let baseUrl = ''
 
 before(async () => {
-  // v5 现状：治理范围经 Node git 解析（不依赖 v4 Python Helper）。默认读取 dsh-ldvh
-  // 所在工作区的管辖配置，使 HTTP 集成用例在真实 /ldvh/api 语义下运行；CI 可用
-  // LDVH_GOVERNED_PROJECTS_CONFIG 覆盖指向其它登记载体。
-  const workspaceGovernance = path.resolve(repositoryRoot, '../../..', 'LDVH-GOVERNED-PROJECTS.yaml')
-  process.env.LDVH_GOVERNED_PROJECTS_CONFIG ??= workspaceGovernance
-  process.env.LDVH_WORKSPACE_ROOT ??= path.resolve(repositoryRoot, '../../..')
+  // 本用例自建治理登记载体，不依赖仓库外的机器本地配置。
+  //
+  // 此前该文件默认指向 `<repo>/../../LDVH-GOVERNED-PROJECTS.yaml`（机器工作区文件），
+  // 该文件不在版本控制内：本地存在故用例通过，CI 全新检出时 ENOENT，
+  // 导致 14 个用例必然失败（治理配置不可用）。现改为在临时目录内自建 git 仓库
+  // 与登记载体，使用例在任何环境（含 CI）自足。
+  const workspaceRoot = mkdtempSync(path.join(os.tmpdir(), 'ldvh-cognition-workspace-'))
+  const projectRoot = path.join(workspaceRoot, 'demo')
+  mkdirSync(path.join(projectRoot, 'ldvh-base', 'sparks'), { recursive: true })
+  execFileSync('git', ['-C', projectRoot, 'init', '-q'])
+  execFileSync('git', ['-C', projectRoot, 'config', 'user.email', 'tests@example.com'])
+  execFileSync('git', ['-C', projectRoot, 'config', 'user.name', 'LDVH Tests'])
+
+  const governanceConfig = path.join(workspaceRoot, 'LDVH-GOVERNED-PROJECTS.yaml')
+  writeFileSync(governanceConfig, [
+    'governance_instance_name: Cognition Contract Tests',
+    'product_description: |',
+    '  cognition-inbox-contract 自建工作区。',
+    'projects:',
+    '  - id: demo',
+    `    path: ${projectRoot}`,
+    '    name: Demo',
+    '    description: Temp governed project for the cognition contract.',
+    'default_project_id: demo',
+    '',
+  ].join('\n'))
+
+  process.env.LDVH_GOVERNED_PROJECTS_CONFIG = governanceConfig
+  process.env.LDVH_WORKSPACE_ROOT = workspaceRoot
+  process.env.LDVH_WEB_WORKTREE_LOCATOR = projectRoot
+
   const { default: app } = await import('../../api/app.ts')
   server = app.listen(0)
   const address = server.address() as AddressInfo
