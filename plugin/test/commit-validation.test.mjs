@@ -17,6 +17,8 @@ import {
 	newFinding,
 	isExemptPath,
 	EXEMPT_BASENAMES,
+	checkNormDirectionUniqueness,
+	isNormCarrierPath,
 } from "../lib/commit-validation.js";
 
 /** A canonical, fully-legal commit message. */
@@ -260,6 +262,83 @@ test("checkKeyChangesAgainstDiff handles a second 关键变更: section by zeroi
 	const result = checkKeyChangesAgainstDiff(msg, diff);
 	// After zeroing, the items list is empty => the missing-items branch fires.
 	assert.equal(result.ok, false);
+});
+
+// ---------------------------------------------------------------------------
+// Norm direction_key uniqueness — 27 §11 second layer (Git Gate)
+//
+// This layer is the ONLY one that sees a hand-edited or shell-written carrier
+// (layer 1 is bypassed when the writer is not used, layer 3 only fails closed
+// at read time), so a silent skip here is a real uniqueness hole.
+// ---------------------------------------------------------------------------
+
+/** A minimal Norm carrier with the fields the gate's parser reads. */
+function normCarrier(frontmatter) {
+	return `---\ntitle: T\n${frontmatter}\n---\n\n# T\n`;
+}
+
+const NORM_A = "ldvh-base/norms/norm-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.md";
+const NORM_B = "ldvh-base/norms/norm-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.md";
+
+test("norm uniqueness: two ACTIVE carriers on one direction_key are blocked (27 §11)", () => {
+	const result = checkNormDirectionUniqueness([
+		{ path: NORM_A, content: normCarrier("status: active\ndirection_key: code-style") },
+		{ path: NORM_B, content: normCarrier("status: active\ndirection_key: code-style") },
+	]);
+	assert.equal(result.ok, false);
+	const collision = result.issues.find((issue) => issue.rule === "facts/norm_direction_collision");
+	assert.ok(collision, "a shared active direction_key must raise norm_direction_collision");
+	// The finding must name both carriers so the Human can act on it directly.
+	assert.ok(collision.message.includes(NORM_A));
+	assert.ok(collision.message.includes(NORM_B));
+});
+
+test("norm uniqueness: a CRLF carrier is parsed, not silently skipped (fail-open regression)", () => {
+	// Regression: the fence regex accepts CRLF but the field loop split on "\n"
+	// alone, so every line kept a trailing "\r". `\s*` swallowed it and `(.*)$`
+	// then matched nothing, dropping the whole line — including `status`. Both
+	// carriers were skipped and the duplicate direction_key committed
+	// unchallenged. CRLF is ordinary on Windows checkouts, so this was a
+	// realistic bypass of the layer 27 §11 declares fail-closed.
+	const crlf = (frontmatter) => normCarrier(frontmatter).replace(/\n/g, "\r\n");
+	const result = checkNormDirectionUniqueness([
+		{ path: NORM_A, content: crlf("status: active\ndirection_key: code-style") },
+		{ path: NORM_B, content: crlf("status: active\ndirection_key: code-style") },
+	]);
+	assert.equal(result.ok, false, "a CRLF duplicate must still be blocked");
+	assert.ok(result.issues.some((issue) => issue.rule === "facts/norm_direction_collision"));
+});
+
+test("norm uniqueness: retired carriers do not occupy a direction (27 §11 counts active only)", () => {
+	const result = checkNormDirectionUniqueness([
+		{ path: NORM_A, content: normCarrier("status: active\ndirection_key: code-style") },
+		{ path: NORM_B, content: normCarrier("status: retired\ndirection_key: code-style") },
+	]);
+	assert.equal(result.ok, true, "reusing a direction after retirement is legal");
+});
+
+test("norm uniqueness: distinct direction_keys coexist", () => {
+	const result = checkNormDirectionUniqueness([
+		{ path: NORM_A, content: normCarrier("status: active\ndirection_key: code-style") },
+		{ path: NORM_B, content: normCarrier("status: active\ndirection_key: error-handling") },
+	]);
+	assert.equal(result.ok, true);
+});
+
+test("norm uniqueness: an unparseable carrier fails closed, never counts as clean", () => {
+	const result = checkNormDirectionUniqueness([{ path: NORM_A, content: "no frontmatter at all" }]);
+	assert.equal(result.ok, false, "an unreadable carrier cannot be proven conflict-free");
+	assert.ok(result.issues.some((issue) => issue.rule === "facts/norm_carrier_unparseable"));
+});
+
+test("norm uniqueness: an empty carrier set is trivially clean", () => {
+	assert.equal(checkNormDirectionUniqueness([]).ok, true);
+});
+
+test("isNormCarrierPath recognises only norms/ carriers", () => {
+	assert.equal(isNormCarrierPath(NORM_A), true);
+	assert.equal(isNormCarrierPath("ldvh-base/norms/readme.md"), false);
+	assert.equal(isNormCarrierPath("ldvh-base/sparks/spark-x.md"), false);
 });
 
 // ---------------------------------------------------------------------------

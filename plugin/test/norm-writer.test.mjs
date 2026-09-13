@@ -446,6 +446,35 @@ test("tools: write is registered as write-shaped so the guard covers it", async 
 	);
 });
 
+test("tools: output.render returns an array of content blocks (never a bare string)", () => {
+	// Regression guard for the `content.some is not a function` incident: the
+	// DSH tool layer calls `result.content.some((block) => block.type ===
+	// "image")` on EVERY tool result, so a string return kills the whole batch
+	// before the model ever sees it. All three Norm tools are exercised, and
+	// both string and structured gaps must survive.
+	for (const operationKey of Object.keys(OPERATIONS)) {
+		const descriptor = toolDescriptorFor(operationKey, OPERATIONS[operationKey], () => {});
+		const blocks = descriptor.output.render({}, {
+			envelope: {
+				operation_key: operationKey,
+				outcome: "partial",
+				result: null,
+				gaps: ["plain gap", { responsibility_key: null, reason: "structured" }],
+				follow_up: [],
+			},
+		});
+		assert.ok(Array.isArray(blocks), `${operationKey}: render must return an array`);
+		assert.ok(blocks.length > 0, `${operationKey}: render must return at least one block`);
+		for (const block of blocks) {
+			assert.equal(typeof block.type, "string", `${operationKey}: each block needs a string type`);
+			assert.equal(typeof block.text, "string", `${operationKey}: each text block needs string text`);
+		}
+		// The exact call dsh-tools performs on the result.
+		assert.equal(blocks.some((block) => block.type === "image"), false);
+		assert.ok(!blocks[0].text.includes("[object Object]"), "structured gaps must not render as [object Object]");
+	}
+});
+
 test("tools: read/list are declared read-effect; write is may_change_state", () => {
 	assert.equal(OPERATIONS["norm-read-object"].effect, "read");
 	assert.equal(OPERATIONS["norm-list-objects"].effect, "read");

@@ -26,12 +26,17 @@
 // retirement are Human decisions — this tool is the mechanical carrier, not
 // the decision).
 //
-// HONEST SCOPE (00 §7.1): layers 2 (Git Gate) and 3 (consumption fail-closed)
-// are NOT both present in this build. 27 §11 forbids claiming the uniqueness
-// constraint is mechanically guaranteed until all three exist, so neither this
-// module nor its tool descriptions assert that. Dedup semantic comparison
-// (27 §6.2, 同义异名) is AI work recorded in the creation proposal — the list
-// tool only supplies the deterministic inputs.
+// UNIQUENESS THREE-LAYER STATUS (27 §11): all three layers are now present —
+//   1. pre-write refusal  — norm-writer.js / this module (ERR_DIRECTION_ALREADY_EXISTS)
+//   2. Git Gate interception — commit-validation.js checkNormDirectionUniqueness,
+//      driven by git-gate-runner.js collectNormCarriers (covers hand-edited and
+//      shell-written carriers the writer never sees)
+//   3. consumption fail-closed — the list handler withholds every colliding
+//      active Norm and reports direction_collision
+// The gate's carrier parser normalises CRLF before reading fields; without that
+// a CRLF-checked-out carrier was silently skipped and layer 2 failed OPEN.
+// Dedup semantic comparison (27 §6.2, 同义异名) remains AI work recorded in the
+// creation proposal — the list tool only supplies the deterministic inputs.
 
 import {
   createNormObject,
@@ -381,17 +386,33 @@ function writeRejected(operationKey, result, factSourceRoot, action) {
 // Rendering (05 §8 human-readable envelope)
 // ---------------------------------------------------------------------------
 
+/**
+ * The single choke point for tool output (the `text()` idiom ldvh-tools.js
+ * uses for all of its tools).
+ *
+ * output.render MUST return an ARRAY of content blocks. dsh-tools feeds the
+ * return through `result.content.some((block) => block.type === "image")`, so
+ * a bare string throws `content.some is not a function` and the result never
+ * reaches the model — a silent total failure of every Norm tool call that no
+ * handler-level test can catch.
+ */
+function text(body) {
+  return [{ type: "text", text: body }];
+}
+
 function renderEnvelope(operationKey, value) {
   const env = value?.envelope ?? value ?? {};
   const lines = [`LDVH ${env.operation_key ?? operationKey}: ${env.outcome ?? "unknown"}`];
   if (env.result) lines.push(JSON.stringify(env.result, null, 2));
   if (Array.isArray(env.gaps) && env.gaps.length > 0) {
-    lines.push("gaps:", ...env.gaps.map((gap) => `  - ${gap}`));
+    // Gaps may be structured records (05 §8 traceability), so stringify them
+    // rather than interpolating them as [object Object].
+    lines.push("gaps:", ...env.gaps.map((gap) => `  - ${typeof gap === "string" ? gap : JSON.stringify(gap)}`));
   }
   if (Array.isArray(env.follow_up) && env.follow_up.length > 0) {
-    lines.push("follow-up:", ...env.follow_up.map((item) => `  - ${item}`));
+    lines.push("follow-up:", ...env.follow_up.map((item) => `  - ${typeof item === "string" ? item : JSON.stringify(item)}`));
   }
-  return lines.join("\n");
+  return text(lines.join("\n"));
 }
 
 const OUTPUT_SCHEMA = { type: "object", additionalProperties: true };

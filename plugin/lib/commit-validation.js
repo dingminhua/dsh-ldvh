@@ -240,7 +240,15 @@ function parseNormCarrierFrontmatter(content) {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return { ok: false, reason: "missing YAML frontmatter fence" };
   const frontmatter = {};
-  for (const line of match[1].split("\n")) {
+  // Normalise CRLF -> LF BEFORE splitting. The fence regex above deliberately
+  // accepts CRLF, so splitting on "\n" alone leaves a trailing "\r" on every
+  // line. That "\r" is swallowed by the regex's `\s*` and then makes `(.*)$`
+  // unmatchable, so such lines are dropped entirely — including `status`. The
+  // carrier is then silently skipped and a duplicate direction_key commits
+  // unchallenged: a FAIL-OPEN in the very layer 27 §11 declares fail-closed.
+  // Normalising first mirrors validateMessage/checkKeyChangesAgainstDiff, which
+  // already apply this same "\r\n" -> "\n" step in this file.
+  for (const line of match[1].replace(/\r\n/g, "\n").split("\n")) {
     const field = line.match(/^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/);
     if (field === null) continue;
     let value = field[2].trim();
