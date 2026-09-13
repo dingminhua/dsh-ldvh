@@ -1330,13 +1330,15 @@ function TerminalFactPanel({
   tone: 'implemented' | 'retired';
   content: string;
 }) {
+  // Human 定案 2026-09-13：终态说明框保留背景色与框线颜色，仅去掉左侧
+  // 加粗竖线——四边同为 1px 细线（border-l-2 与独立 border-l 色移除）。
   const styles = {
     implemented: {
-      panel: 'border-emerald-400/25 border-l-emerald-400 bg-emerald-500/5',
+      panel: 'border-emerald-400/25 bg-emerald-500/5',
       body: 'text-emerald-700/75 dark:text-emerald-300/75',
     },
     retired: {
-      panel: 'border-zinc-400/25 border-l-zinc-400 bg-zinc-500/5',
+      panel: 'border-zinc-400/25 bg-zinc-500/5',
       body: 'text-zinc-600/75 dark:text-zinc-300/75',
     },
   }[tone];
@@ -1344,7 +1346,7 @@ function TerminalFactPanel({
   return (
     <section
       onClick={(event) => event.stopPropagation()}
-      className={`min-w-0 cursor-default rounded-md border border-l-2 px-3.5 py-3 ${styles.panel}`}
+      className={`min-w-0 cursor-default rounded-md border px-3.5 py-3 ${styles.panel}`}
     >
       <div className="ldvh-terminal-fact-content min-w-0 break-words">
         <SummaryText value={content} collapseThreshold={Number.MAX_SAFE_INTEGER} className={`ldvh-card-decision-body [&_p]:my-0 ${styles.body}`} />
