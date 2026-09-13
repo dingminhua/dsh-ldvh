@@ -33,9 +33,9 @@
 
 ```bash
 cd /Users/dmh2002/DshProject/dsh-ldvh
-ls docs/*.md | wc -l            # 73（原 88）
-ls docs/archive/*.md | wc -l    # 49（原 34）
-git status --porcelain | grep -c '^R'   # 15（真重命名）
+ls docs/*.md | wc -l            # 76（原 88；方案 A+B 后 73，本批 3 份归档后含新增普查/提案类为 76）
+ls docs/archive/*.md | wc -l    # 52（原 34）
+git status --porcelain | grep -c '^R'   # 18（三批真重命名累计）
 git status --porcelain | grep '^D'      # 空（零删除）
 ```
 
@@ -60,6 +60,24 @@ git status --porcelain | grep '^D'      # 空（零删除）
 **纪律**：本批同样**全部 `git mv`**，零删除。归档后正文与 Spark 的 `summary` 并存——Spark 是语义快照，原文细节（完整推导、字段清单、行业对照）仍可回读。
 
 **累计效果**：docs 根目录 **88 → 73**（两批共归档 15 份），`archive/` 34 → 49。
+
+---
+
+## 〇之二、2026-09-14 第三批归档（3 份 · docs 清理收尾）
+
+**背景**：docs 清理收尾批次——两份候选稿的前提已失效、一份调查记录已完成修复，均归档保留完整过程。
+
+| 文件 | 行 | 归档依据 |
+|---|---|---|
+| `spec-candidate-30-goal-decomposition.md` | 47 | 候选前提**已失效**：自述「30 号段（业务系统段）尚未建立」，而 30 号已建成 `specs/30-调研系统规范.md`（调研系统，`1fbc862`／`6438652` 号段化）；「行动模板」概念已随 00 重构退役（`3b1e3e6`），其 `parent_spec: action-template-foundation` 无上位依据；对应方向已由 Spark `2916e3d5` 处置 |
+| `HANDOVER-04-business-system-foundation.md` | — | 移交文档使命完成：04 已**改造**为 `specs/04-业务系统基础规范.md`（`spec_key: business-system-foundation`，`supersedes: action-template-foundation`，`bb026e7`），任务已实现 |
+| `ci-plugin-job-node-version-investigation.md` | 132 | 调查记录，正文自述「仅调查，未修复」，但修复已随 `92d1fed`（2026-09-13，CI Node 20 → 22.19 对齐宿主）落地；保留全文以承载调查与验证过程（726/726、269/269） |
+
+**判据**：`spec-candidate-30` 属「候选前提失效」（非效力证据载体）；HANDOVER-04 属「移交完成」（任务已实现）；ci-investigation 属「调查记录，修复已落地」（过程证据保留）。
+
+**纪律**：本批**全部 `git mv`**，零删除。
+
+**累计效果**：第三批归档 3 份后实测——docs 根目录 **76** 份、`archive/` **52** 份（方案 A＋B 后根为 73，其后新增普查/清理/提案类文档至 79，本批再减 3 至 76）。
 
 ---
 
@@ -103,7 +121,7 @@ git status --porcelain | grep '^D'      # 空（零删除）
 | `spec-candidate-2026-09-03-action-visibility.md` | 行动可见性 | ❌ **未承接（原判误，2026-09-13 核实更正）**——见下方 §二之一 |
 | `spec-candidate-2026-09-06-handover-three-state-envelope.md` | 交还 envelope | ⚠️ **部分承接**——见下方 §二之一 |
 
-**⚠️ 唯一未归档的候选稿**：`spec-candidate-30-goal-decomposition.md` —— 目标是 **30 号段（业务系统段），尚未建立**，保留在 `docs/` 根以备后续使用。
+**⚠️ ~~唯一未归档的候选稿~~（2026-09-14 已归档）**：`spec-candidate-30-goal-decomposition.md` —— 原注「目标是 **30 号段（业务系统段），尚未建立**」的前提现已失效：`specs/30-调研系统规范.md` 已建立（30 号段＝调研系统），「行动模板」概念已退役。该候选已随第三批归档（见上方「〇之二」）。
 
 ### 二之一、两份候选的「已承接」判断经核实更正（2026-09-13）
 
@@ -174,14 +192,16 @@ grep -n 'gaps' specs/05-*.md | head           # 有（已承接部分）
 
 ## 三、保留在 `docs/` 根的内容（未归档）
 
+> 本节所列「保留在根」条目以本索引建立时（2026-09-12）的状态为准；其后方案 A／B（2026-09-13）与第三批（2026-09-14）已把部分原列条目归档——已在行内以删除线标注。归档明细以上方各批表为权威。
+
 | 类 | 文件 | 保留理由 |
 |---|---|---|
 | **事故/P0 记录** | `p0-*`（4）、`incident-fact-directories-v4-legacy.md` | **唯一记录**；事故与复现步骤是历史事实依据 |
 | **评审报告** | `review-*`（4） | 独立审核记录，是 `specs/01` §12 效力溯源的证据 |
-| **执行记录** | `spec-sync-batch1-log.md`、`00-ch3-5-review-disposition-*.md`、`00-hierarchy-check-*.md` | 记录「何时、因何做了何变更」 |
-| **决定溯源** | `dev-memo.md`、`concept-systems-and-institutions-2026-09-11.md`、`pending-human-decisions-2026-09-11.md`、`action-plan-2026-09-10.md`、`restructure-decision-list-2026-09-10.md` | 含 Human 决定编号与理由 |
-| **未完成输入** | `spec-candidate-30-goal-decomposition.md`、`memory-system-design-prompt.md`、`blueprint-*`、`team-control-foundation-draft.md` | 目标尚未建立，可能仍被消费 |
-| **迁移依据** | `v4-v5-spec-migration-matrix.md`、`v4-web-migration-survey.md` | 可能仍被引用（未核实） |
+| **执行记录** | `spec-sync-batch1-log.md`、`00-ch3-5-review-disposition-*.md`、~~`00-hierarchy-check-*.md`~~（已归档，方案 A） | 记录「何时、因何做了何变更」 |
+| **决定溯源** | `dev-memo.md`、`concept-systems-and-institutions-2026-09-11.md`、`pending-human-decisions-2026-09-11.md`、`action-plan-2026-09-10.md`、~~`restructure-decision-list-2026-09-10.md`~~（已归档，方案 B） | 含 Human 决定编号与理由 |
+| **未完成输入** | ~~`spec-candidate-30-goal-decomposition.md`~~（已归档，2026-09-14：30 号段已建成、行动模板退役，前提失效）、`memory-system-design-prompt.md`、`blueprint-*`、~~`team-control-foundation-draft.md`~~（已归档，方案 B） | 目标尚未建立，可能仍被消费（spec-candidate-30 例外，见 §〇之二） |
+| **迁移依据** | ~~`v4-v5-spec-migration-matrix.md`~~、~~`v4-web-migration-survey.md`~~（均已归档，方案 A） | 原「可能仍被引用（未核实）」——方案 A 已据「不存在迁移了」归档（ADR `1aad60bc`） |
 | **本轮产出** | `fact-norm-design-consolidated.md`、`docs-cleanup-assessment.md` | 结论尚未全部落地 |
 
 ---

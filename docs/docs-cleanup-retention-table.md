@@ -4,6 +4,7 @@
 > **目的**：Human 2026-09-13 目标——「把 docs 里需要推进的工作都转入 spark，之后 docs 目录要进行大量的清理」。本表回答：**转入已完成（24 条 Spark），现在哪些可以清、哪些必须留、凭什么。**
 > **基准**：`dev` 分支工作树，2026-09-13；docs/ 根 86 份 + `archive/` 34 份 + `audit/` 8 份 + 本表 1 份 = 129 份。
 > **纪律**：本表**不执行**删除（`docs-cleanup-assessment.md`：删除也是机制变更，须说明收益与风险）。跟踪状态：**86 份根目录文档全部已被 git 跟踪**（`docs-to-spark-census.md` 未跟踪）——删除均可 `git log` 回溯。
+> **基准后更正（2026-09-14 补记）**：本表为 2026-09-13 早间的决策输入快照；其后方案 A＋B 共 15 份已按本表 E 类归档（根 86 → 73，`archive/` 34 → 49，见 `docs/archive/README.md` §〇／§〇之一），且 `docs-to-spark-census.md` **已随普查提交入库（不再未跟踪，G 类失效）**。本批（2026-09-14）另归档 3 份（`spec-candidate-30-goal-decomposition.md`、`HANDOVER-04-business-system-foundation.md`、`ci-plugin-job-node-version-investigation.md`），根 .md 现 76、`archive/` 现 52（见 archive README §〇之二）。下表各分类仍按原基准陈述，归档明细以 archive README 为最新权威。
 
 ---
 
@@ -88,7 +89,7 @@
 | `fact-norm-design-consolidated.md` | 635 | `351a0b17`、`89df677f`、`6f5adc82` | 汇总文档，含 §0 十三项结论表 |
 | `blueprint-feature-draft.md` | 113 | `5862b615` | 含 Human 原话与需求 |
 | `blueprint-web-presentation-discussion.md` | 75 | `5862b615` | 含 D1/D5 待决细节 |
-| `spec-candidate-30-goal-decomposition.md` | 178 | `2916e3d5` | **30 号段未建立**，是有效输入 |
+| `spec-candidate-30-goal-decomposition.md` | 178 | `2916e3d5` | ~~30 号段未建立，是有效输入~~ —— **前提已失效，2026-09-14 归档**（30 号已建成 `specs/30-调研系统规范.md`；行动模板退役） |
 
 **关键**：`spark-workcase-rebuild.md` 自述是 20/21/25 重建的**唯一讨论锚点**（Human 指令），**强烈建议保留**。
 

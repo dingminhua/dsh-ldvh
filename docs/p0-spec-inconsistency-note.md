@@ -1,6 +1,7 @@
 # P0 开发中发现的规范矛盾记录
 
-> 性质：开发备忘条目，非规范、非事实对象。待 Human 决定后删除或转入正式记录。
+> 性质：开发备忘条目，非规范、非事实对象。
+> **处置结果（2026-09-13 补记）**：本矛盾已按候选方向 **A** 修复——00 身份块 `code_consumption` 四键改为 kebab-case（`spec-identity-block` / `spec-read-contract` / `minimal-guidance-profile` / `ldvh-cli-boundary`，第 4 键由 `helper_service_boundary` 更名），随 `d3a9f88`「00 身份块 code_consumption 修合规」提交落地；00 已通过机械解析校验（`spec-registry` 全量自测通过）。本记录作为 P0 阶段发现的矛盾与修复路径保留，供溯源。
 
 ## 矛盾：00 `code_consumption` 值与 Att.02 §3 字段格式不一致
 

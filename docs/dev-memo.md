@@ -1,10 +1,10 @@
 # dsh-ldvh 开发备忘（主记）
 
 > 本文件记录 LDVH v5 重构的开发决策、设计主线与待定项，随讨论持续更新。
-> 它是开发备忘，不是规范、不是事实对象、不替代 `docs/v5-handoff.md` 的移交地位。
-> 最近更新：2026-09-15。
+> 它是开发备忘，不是规范、不是事实对象、不替代 `docs/archive/v5-handoff.md` 的移交地位。
+> 最近更新：2026-09-14。
 >
-> **新会话续接指引（按序读）**：① `docs/v5-rebuild-plan.md`（下位规范重建执行计划，接手执行先读）→ ② 本文件（决策 #1–#28、待定项清单、§6 核心定调、§8 起草记录、§9 交接快照）→ ③ `docs/00-audit.md`（审计入口与提交链；提交数以 `git log --oneline` 为准，若外部审计已进行，先看结论）→ ④ `specs/00-理念与构成.md`（七章 Human 根契约定稿 + 身份块经 01 校准回填：去 status、加 dimensions 八键、code_consumption 4 键）→ ⑤ `docs/v5-handoff.md`（D1–D7）→ ⑥ 按需：`docs/dsh-platform-facts.md`、`docs/study-absorption.md`、`docs/v4-problem-ledger.md`。
+> **新会话续接指引（按序读）**：① `docs/archive/v5-rebuild-plan.md`（下位规范重建执行计划，接手执行先读）→ ② 本文件（决策 #1–#28、待定项清单、§6 核心定调、§8 起草记录、§9 交接快照）→ ③ `docs/00-audit.md`（审计入口与提交链；提交数以 `git log --oneline` 为准，若外部审计已进行，先看结论）→ ④ `specs/00-理念与构成.md`（七章 Human 根契约定稿 + 身份块经 01 校准回填：去 status、加 dimensions 七键、code_consumption 4 键）→ ⑤ `docs/archive/v5-handoff.md`（D1–D7）→ ⑥ 按需：`docs/archive/v4-problem-ledger.md`；`docs/dsh-platform-facts.md`、`docs/study-absorption.md` 已删除，内容已分别落档为 `ldvh-base/researches/` 宿主能力全景与吸收账 Research 对象（`3cf6e66`／`f682051`）。
 
 ## 1. 版本与状态
 
@@ -12,7 +12,7 @@
   - 待决：`-dev.N` 与 v4 03 §9.10（pre-release 只许 `-alpha/-beta/-rc.N`）的冲突，重建 03 时写入新契约或改后缀。
 - **管辖（过渡现状与 v5 定案）**：当前运行时仍借用 `/Users/dmh2002/DshProject/LDVH-GOVERNED-PROJECTS.yaml` 与 v4 Helper/Gate；v5 目标已由 Human 定案为 DSH 正式用户配置根下 `ldvh/governed-projects.yaml`，采用 v4 兼容字段 + `schema_version: 1`、`governed/not_governed/unavailable` 三态、跨平台路径/ACL/原子写入和一次性迁移，完整权威契约见 07 §5。新实现切换前不得把过渡配置误写成 v5 权威。
 - **首次受控提交**：`10861c5`（docs(specs)：骨架 + 00 草案；Git Gate 部署 managed、真实触发通过、message 字节一致）。
-- **00 定稿与提交状态（截至 2026-08-27）**：00 已定稿并全部受控提交——早期六章（§1–§6）逐章定稿并经多轮独立对抗复核（§3×7 轮、§4×6 轮、§5×7 轮、§6×6 轮 + 全章总检）；2026-08-26 起按 #23–#26 重构为七章 Human 根契约并收口（构成解析定名、四种价值交付方式、审核义务归位第五章，提交 `ff3a6b3`/`b385493`）；00 身份块已按 01 校准（去 status、dimensions 八键、code_consumption 4 键），草稿件存本章 §8 备查；提交链见 §9 会话交接快照，提交数以 `git log --oneline` 为准。
+- **00 定稿与提交状态（截至 2026-08-27）**：00 已定稿并全部受控提交——早期六章（§1–§6）逐章定稿并经多轮独立对抗复核（§3×7 轮、§4×6 轮、§5×7 轮、§6×6 轮 + 全章总检）；2026-08-26 起按 #23–#26 重构为七章 Human 根契约并收口（构成解析定名、四种价值交付方式、审核义务归位第五章，提交 `ff3a6b3`/`b385493`）；00 身份块已按 01 校准（去 status、dimensions 七键、code_consumption 4 键），草稿件存本章 §8 备查；提交链见 §9 会话交接快照，提交数以 `git log --oneline` 为准。
 - **过渡期借用 v4 事实**：新仓库自己的 Helper/Gate 尚未重建；当前管辖判定与 Git Gate 运行器借用 `/Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4/ldvh`，v5 重建后受控替换。
 - **v4**：原样保留为只读参考（规范/事实/代码均在 `/Users/dmh2002/poker_hud_projects/ld-vibe-harness-v4`）；退役时点待 Human 重新决策。
 
@@ -133,7 +133,7 @@
 ## 5.1 当前阶段决策（2026-09-15）
 
 1. 00–10 与 01.Att.01–03 的基础规范阶段已完成，并完成固定章节统一、十维全文综合审核、跨规范反例复核和受控提交；实际提交链以 `git log --oneline` 为准。
-2. 不直接进入 20–24 或 30–38。先以 `docs/eight-dimension-action-baseline.md` 展开八维真实行动组合，验证输入、触发、输出、转交、停止、事实候选、Human Gate 与机械入口。
+2. 不直接进入 20–24 或 30–38。先以 `docs/eight-dimension-action-baseline.md` 展开八维真实行动组合（该文件已被 `4326dc3` 清理，因旧八维口径随 00 重构为七维 dimensions 而作废；本条决策本身保留——即先以真实行动组合验证再起草）。
 3. 事实类型必须从真实八维场景推导候选产生、沉淀准入、受控写入、召回、验证与退出；行动模板必须从真实场景提炼维度组合，不得把八维固化为顺序步骤。
 4. 八维基线是开发设计输入，不是规范或事实对象；需经独立审核和 Human 确认后才用于起草 20–24 与 30–38。
 5. **v4 实现吸收优先（Human 定方向）**：v5 不从零重写已有能力。开始实现前必须先读取 v4 对应规范、Code、tests、事实样例、问题记录和相关提交，优先直接复用或提取适配已经验证的算法与边界；只有与 v5 当前规范或 DSH 接入边界不兼容时才重写。
@@ -156,10 +156,10 @@
 
 ## 7. 关联备忘
 
-- `docs/v5-handoff.md` —— v4 移交文档（D1–D7、§6 进度、§7 风险）
-- `docs/dsh-platform-facts.md` —— DSH 宿主能力全景卡（含 v4 调研遗漏清单）
-- `docs/study-absorption.md` —— 49 份 Study 吸收账（可吸收/不引入/教训）
-- `specs/00-理念与构成.md` —— 00 根规范（七章 Human 根契约定稿 + 身份块经 01 校准回填：去 status、加 dimensions 八键、code_consumption 4 键）
+- `docs/archive/v5-handoff.md` —— v4 移交文档（D1–D7、§6 进度、§7 风险）
+- 宿主能力全景卡（原 `docs/dsh-platform-facts.md`，已删除）→ 内容落档 `ldvh-base/researches/`（`3cf6e66`）
+- 49 份 Study 吸收账（原 `docs/study-absorption.md`，已删除）→ 内容落档 `ldvh-base/researches/`（`f682051`；可吸收/不引入/教训）
+- `specs/00-理念与构成.md` —— 00 根规范（七章 Human 根契约定稿 + 身份块经 01 校准回填：去 status、加 dimensions 七键、code_consumption 4 键）
 
 ## 8. 00 起草过程记录（自 specs/00 移出，2026-08-24）
 
