@@ -651,9 +651,11 @@ export function ObjectIdentityHeader({
                 {typeLabel}
               </span>
             )}
+            {/* Human 定案 2026-09-13：标签序与列表卡头一致——类型 → 优先级 →
+                SG → 修改次数（详情/面板/卡片/近期动态/健康度统一）。 */}
+            <PriorityIcon source={source} type={objectType} locale={locale} size="xs" />
             <ServesSgBadge value={source.serves} locale={locale} />
             {extraBadges}
-            <PriorityIcon source={source} type={objectType} locale={locale} size="xs" />
             {showActivityCount && (
               <span
                 className="ldvh-chip-sm gap-1 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent"

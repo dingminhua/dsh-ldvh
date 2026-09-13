@@ -114,7 +114,9 @@ test('detail identity header keeps status immediately before its copy control', 
     identityHeader.indexOf('<div className="flex min-w-0 flex-wrap items-center gap-x-3'),
   );
 
-  assert.match(identityRow, /\{extraBadges\}[\s\S]*<PriorityIcon[\s\S]*className="ml-auto shrink-0"[\s\S]*<ObjectIdentityActions/);
+  // Human 定案 2026-09-13：标签序与列表卡头一致——类型 → 优先级 → SG →
+  // 修改次数（extraBadges 随后；状态与复制控件保持行尾）。
+  assert.match(identityRow, /<PriorityIcon[\s\S]*<ServesSgBadge[\s\S]*\{extraBadges\}[\s\S]*className="ml-auto shrink-0"[\s\S]*<ObjectIdentityActions/);
   const identityActions = read('src/components/ObjectIdentityActions.tsx');
   assert.match(identityActions, /\{statusLeadingBadges\}[\s\S]{0,120}\{status && \([\s\S]{0,320}\{actionBadges\}/);
   assert.doesNotMatch(identityHeader, /&& compact[\s\S]{0,180}<ObjectIdentityActions/);

@@ -648,6 +648,8 @@ export interface CognitionSparkHealthItem {
   title_en?: string;
   title_zh?: string;
   priority?: string;
+  /** Spark 的 goal.md 子目标锚点（20 §6 serves），条件出现。 */
+  serves?: string;
   updatedAt: string;
   /** 最近一条完整 change_log 署名，与事实卡片落款一致。 */
   signature?: CommitSignature;

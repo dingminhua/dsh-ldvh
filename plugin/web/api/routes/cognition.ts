@@ -160,6 +160,8 @@ interface SparkHealthBuildItem {
   title_en?: string
   title_zh?: string
   priority?: string
+  /** 20 §6 serves（SG-n 子目标锚点），健康度行与卡头同标签序。 */
+  serves?: string
   updated_at: string
   /** 取最近一条具备完整署名的事实流水，与对象卡片落款规则一致。 */
   signature?: FactChangeSignature
@@ -486,6 +488,9 @@ export function buildSparkHealth(rawItems: Array<Record<string, unknown>>, obser
       ...(typeof raw.title_en === 'string' ? { title_en: raw.title_en } : {}),
       ...(typeof raw.title_zh === 'string' ? { title_zh: raw.title_zh } : {}),
       ...(priority ? { priority } : {}),
+      // 20 §6 serves（SG-n 子目标锚点）：健康度行与卡头同标签序（Human 定案
+      // 2026-09-13：类型 → 优先级 → SG → 修改次数）。
+      ...(typeof raw.serves === 'string' && raw.serves.trim() ? { serves: raw.serves } : {}),
       updated_at: updatedAt,
       ...(signature ? { signature } : {}),
       activity_count: countChangeLogEntries(raw.change_log),
@@ -1048,6 +1053,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
             ...(item.title_en !== undefined ? { title_en: item.title_en } : {}),
             ...(item.title_zh !== undefined ? { title_zh: item.title_zh } : {}),
             ...(item.priority !== undefined ? { priority: item.priority } : {}),
+            ...(item.serves !== undefined ? { serves: item.serves } : {}),
             updatedAt: item.updated_at,
             ...(item.signature !== undefined ? { signature: item.signature } : {}),
             activityCount: item.activity_count,
@@ -1065,6 +1071,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
             ...(item.title_en !== undefined ? { title_en: item.title_en } : {}),
             ...(item.title_zh !== undefined ? { title_zh: item.title_zh } : {}),
             ...(item.priority !== undefined ? { priority: item.priority } : {}),
+            ...(item.serves !== undefined ? { serves: item.serves } : {}),
             updatedAt: item.updated_at,
             ...(item.signature !== undefined ? { signature: item.signature } : {}),
             activityCount: item.activity_count,
