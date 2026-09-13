@@ -7,7 +7,7 @@ import { useI18n } from '@/i18n/context';
  * 选项源跟随当前 goal 的子目标动态生成（25 号 goal.md 的 sub_goals——
  * Human 定案 2026-09-13：SG 的数量与变化以 goal 为准，Spark 列表按其筛选）；
  * 计数按当前状态过滤后的 spark 池统计（与 WorkCase priority 计数同口径，
- * 反映当前过滤器而非全量）。形态对齐 ObjectPriorityFilter 的 tab 语法。
+ * 反映当前过滤器而非全量）。形态对齐 ObjectStatusFilter 的 tab 语法。
  */
 interface ServesSgFilterOption {
   id: string;

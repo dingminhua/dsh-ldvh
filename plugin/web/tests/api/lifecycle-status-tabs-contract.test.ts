@@ -36,22 +36,23 @@ test('retired has an explicit lifecycle status label', () => {
   assert.match(locales, /pitfall: \{[\s\S]*active: \{ zh: '活跃', en: 'Active' \}/)
 })
 
-test('Spark list keeps lifecycle tabs only; priority stays WorkCase-only (20 §8/§14.2)', () => {
+test('no object list offers a priority filter (20 §289 / 21 §8 / 22 §271 / 23 §252 / 26 §258)', () => {
   const list = source('src/pages/ObjectList.tsx')
-  const priorityFilter = source('src/components/ObjectPriorityFilter.tsx')
   const route = source('api/routes/objects.ts')
 
   assert.match(list, /objectList\.lifecycleFilter/)
-  assert.match(list, /ObjectPriorityFilter/)
-  assert.match(list, /fetchObjects\(currentType, activeStatus \?\? undefined, activePriority \?\? undefined, activeProgressGroup \?\? undefined\)/)
+  // v5 无 priority 字段：Spark（20 §289 v4 priority 不迁入）与 WorkCase（21 §8
+  // 字段闭集）均无此项；22 §271/23 §252/26 §258 判定 priority 类为无消费方
+  // 装饰字段（03 §11.3-4）。两侧列表与 API 均不再提供优先级导航。
+  assert.doesNotMatch(list, /ObjectPriorityFilter/)
+  assert.doesNotMatch(list, /supportsPriorityNavigation/)
+  assert.doesNotMatch(list, /activePriority/)
+  assert.doesNotMatch(route, /function getPriorityOptions/)
+  assert.doesNotMatch(route, /priorityOptions/)
+  // WorkCase 列表分组按 21 §160 三态收敛。
+  assert.match(route, /const WORKCASE_LIST_STATUS_ORDER = \['draft', 'open', 'closed'\] as const/)
+  assert.match(list, /fetchObjects\(currentType, activeStatus \?\? undefined, activeProgressGroup \?\? undefined\)/)
   assert.doesNotMatch(list, /const fetchStatus = currentType === 'spark'/)
-  assert.ok(list.indexOf('<ObjectPriorityFilter') < list.indexOf("t('objectList.lifecycleFilter')"))
-  // v5 Spark 无 priority（20 §14.2 不迁入）——优先级导航仅 WorkCase 保留。
-  assert.match(list, /const supportsPriorityNavigation = currentType === 'workcase'/)
-  assert.match(priorityFilter, /const PRIORITY_ORDER = \['P0', 'P1', 'P2', 'P3'\]/)
-  assert.match(priorityFilter, /import PriorityIcon from '@\/components\/PriorityIcon'/)
-  assert.match(priorityFilter, /<PriorityIcon source=\{\{ priority \}\} type="spark" locale=\{locale\} size="xs" \/>/)
-  assert.match(route, /function getPriorityOptions/)
   // Spark 状态闭集（open/implemented/discarded，20 §9）与通用类型同路径过滤；
   // v4 的 settled/unclosed 展示拆桶与 spark 专属过滤函数已移除。
   assert.doesNotMatch(route, /matchesSparkListFilter|getSparkStatusOptions|getSparkImplementedPresentationStatus/)

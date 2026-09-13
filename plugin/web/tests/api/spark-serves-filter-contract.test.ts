@@ -20,7 +20,7 @@ test('serves filter component follows the shared tab filter grammar', () => {
 
   // 选项源动态传入（goal 子目标决定），非固定档位。
   assert.match(component, /interface ServesSgFilterOption \{\s*\n\s*id: string;\s*\n\s*text: string;\s*\n\}/);
-  // tab 形态与 ObjectPriorityFilter 同语法（ldvh-tab-button + ldvh-tab-list）。
+  // tab 形态与 ObjectStatusFilter 同语法（ldvh-tab-button + ldvh-tab-list）。
   assert.match(component, /ldvh-tab-button \$\{active \? 'ldvh-tab-button-active' : 'ldvh-tab-button-idle'\}/);
   // SG id 以 mono 呈现，title 携带子目标全文（扫读定位 + 完整判定条件悬停可见）。
   assert.match(component, /<span className="font-mono">\{option\.id\}<\/span>/);

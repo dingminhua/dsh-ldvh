@@ -267,27 +267,27 @@ test('preserves the shared commit DTO across current API consumers', async () =>
   assert.equal('executionItemsProjectionValid' in closedWorkcase, false)
   assert.equal('successCriteria' in closedWorkcase, false)
   assert.equal('success_criterion_definitions' in closedWorkcase, false)
+  // 21 §160：列表分组 = 状态闭集三态 draft/open/closed（此前为 v4 五值进展分组）。
+  // workcase-0001 status=open；workcase-0002 status=closed（cancelled）。
   assert.deepEqual(workcases.data.progressOptions, [
-    { group: 'plan_confirmation', count: 0 },
-    { group: 'progressing', count: 1 },
-    { group: 'closure_confirmation', count: 0 },
-    { group: 'closed', count: 0 },
-    { group: 'discarded', count: 1 },
+    { group: 'draft', count: 0 },
+    { group: 'open', count: 1 },
+    { group: 'closed', count: 1 },
   ])
 
+  // 20 §289 / 21 §8：v5 无 priority 字段——列表 API 不再提供 priority 过滤与投影。
   const prioritizedWorkcases = await getJson('/api/objects/workcase?priority=P1') as {
     data: {
       items: Array<Record<string, unknown>>
-      priorityOptions: Array<{ status: string; count: number }>
+      priorityOptions?: Array<{ status: string; count: number }>
     }
   }
-  assert.deepEqual(prioritizedWorkcases.data.items.map((item) => item.object_id), ['workcase-0001'])
-  assert.deepEqual(prioritizedWorkcases.data.priorityOptions, [
-    { status: 'P0', count: 0 },
-    { status: 'P1', count: 1 },
-    { status: 'P2', count: 0 },
-    { status: 'P3', count: 0 },
-  ])
+  // priority 参数已被忽略：不再按优先级收窄，返回全部 WorkCase。
+  assert.deepEqual(
+    prioritizedWorkcases.data.items.map((item) => item.object_id).sort(),
+    ['workcase-0001', 'workcase-0002'],
+  )
+  assert.equal(prioritizedWorkcases.data.priorityOptions, undefined)
 
   // 20 §8/§14.2：v5 Spark 无 priority——状态闭集三态直接过滤，无优先级维度。
   const openSparks = await getJson('/api/objects/spark?status=open') as {
@@ -302,7 +302,8 @@ test('preserves the shared commit DTO across current API consumers', async () =>
   assert.equal(openSparks.data.priorityOptions, undefined)
   assert.ok(openSparks.data.statusOptions.some((option) => option.status === 'open' && option.count === 2))
 
-  const reviewWorkcases = await getJson('/api/objects/workcase?progress=progressing') as {
+  // 21 §160 三态过滤：open 命中 workcase-0001；closed 命中 workcase-0002（cancelled）。
+  const reviewWorkcases = await getJson('/api/objects/workcase?progress=open') as {
     data: { items: Array<Record<string, unknown>> }
   }
   assert.deepEqual(reviewWorkcases.data.items.map((item) => item.object_id), ['workcase-0001'])
@@ -310,12 +311,11 @@ test('preserves the shared commit DTO across current API consumers', async () =>
   const closedWorkcases = await getJson('/api/objects/workcase?progress=closed') as {
     data: { items: Array<Record<string, unknown>> }
   }
-  assert.deepEqual(closedWorkcases.data.items.map((item) => item.object_id), [])
+  assert.deepEqual(closedWorkcases.data.items.map((item) => item.object_id), ['workcase-0002'])
 
-  const discardedWorkcases = await getJson('/api/objects/workcase?progress=discarded') as {
-    data: { items: Array<Record<string, unknown>> }
-  }
-  assert.deepEqual(discardedWorkcases.data.items.map((item) => item.object_id), ['workcase-0002'])
+  // v4 的 discarded 分组已随五值进展分组一并移除（非 21 §160 三态之一）。
+  const discardedResponse = await fetch(`${baseUrl}/api/objects/workcase?progress=discarded`)
+  assert.equal(discardedResponse.status, 400)
 
   const workcaseDetail = await getJson('/api/objects/workcase/workcase-0001') as {
     summary: Record<string, unknown>

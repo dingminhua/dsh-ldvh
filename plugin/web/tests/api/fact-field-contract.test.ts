@@ -97,11 +97,20 @@ test('spark carries the 20-spec field closure without v4 leftovers', () => {
   assert.equal(FACT_FIELD_CONTRACT.spark.disposition.expected, 'string');
   assert.equal(FACT_FIELD_CONTRACT.spark.disposition.required, false);
   assert.equal(FACT_FIELD_CONTRACT.spark.evolution.expected, 'array');
-
   // 正文 report_body 只在详情阅读，不复制进列表投影（同 research）。
   assert.ok(!FACT_LIST_FIELD_NAMES.spark.includes('report_body'));
   assert.ok(FACT_LIST_FIELD_NAMES.spark.includes('question'));
   assert.ok(FACT_LIST_FIELD_NAMES.spark.includes('serves'));
+});
+
+test('workcase carries the 21-spec field closure without v4 leftovers', () => {
+  // 21 §8 字段闭集无 priority；v5 两侧均无优先级字段（20 §289 / 22 §271 /
+  // 23 §252 / 26 §258——priority 类为无消费方装饰字段，03 §11.3-4）。
+  assert.ok(!('priority' in FACT_FIELD_CONTRACT.workcase), 'workcase 不应登记 priority');
+  // 21 §8 锚点型 serves：本契约仅登记 spark 侧（spark-serves-sg）。WorkCase 的
+  // serves 由 21 §8 定义并在读路径解析，未登记于本 Web 读取契约——此处如实记录
+  // 现状，不臆断其存在。
+  assert.ok(!('serves' in FACT_FIELD_CONTRACT.workcase));
 });
 
 test('list candidates are a declared subset of each type contract', () => {

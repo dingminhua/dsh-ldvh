@@ -8,9 +8,7 @@ import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatus
 import ObjectStatusFilter from '@/components/ObjectStatusFilter';
 import WorkCaseProgressFilter from '@/components/WorkCaseProgressFilter';
 import WorkCaseProgressTrack from '@/components/WorkCaseProgressTrack';
-import ObjectPriorityFilter from '@/components/ObjectPriorityFilter';
 import ServesSgFilter from '@/components/ServesSgFilter';
-import PriorityIcon from '@/components/PriorityIcon';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import ServesSgBadge from '@/components/ServesSgBadge';
 import SummaryText from '@/components/SummaryText';
@@ -28,7 +26,6 @@ import { compareRfc3339Timestamps } from '@/shared/timestamp';
 import {
   WORKCASE_PROGRESS_STEP_ORDER,
   isResolvedWorkCasePresentationProjection,
-  isWorkCaseProgressGroup,
   type WorkCaseLifecyclePosition,
   type WorkCaseProgressGroup,
   type WorkCaseProgressStep,
@@ -1255,7 +1252,6 @@ export function ObjectCardFrame({
             {getTypeLabel(obj.type, locale)}
           </span>
           <ServesSgBadge value={obj.serves} locale={locale} />
-          <PriorityIcon source={obj} type={obj.type} locale={locale} size="xs" />
           <span
             className="ldvh-chip-sm gap-1 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent"
             title={t('cognition.recent.activityCount', { count: String(activityCount) })}
@@ -1730,7 +1726,6 @@ export default function ObjectList() {
   const [items, setItems] = useState<ObjectItem[]>([]);
   const [statusOptions, setStatusOptions] = useState<ObjectStatusOption[]>([]);
   const [progressOptions, setProgressOptions] = useState<WorkCaseProgressOption[]>([]);
-  const [priorityOptions, setPriorityOptions] = useState<ObjectStatusOption[]>([]);
   const [statusTotal, setStatusTotal] = useState(0);
   const [coverageStatus, setCoverageStatus] = useState<FactCoverageStatus>('complete');
   const [coverageProblemCount, setCoverageProblemCount] = useState(0);
@@ -1748,21 +1743,18 @@ export default function ObjectList() {
   const statusParam = searchParams.get('status');
   const activeStatus = currentType === 'workcase' ? null : getEffectiveListStatus(currentType, statusParam);
   const progressParam = searchParams.get('progress');
-  const activeProgressGroup = currentType === 'workcase' && (isWorkCaseProgressGroup(progressParam) || progressParam === 'discarded')
-    ? progressParam as WorkCaseListGroup
+  // WorkCase 列表筛选 = 21 §160 三态（draft/open/closed）。
+  const isWorkCaseListGroup = (value: string | null): value is WorkCaseListGroup =>
+    value === 'draft' || value === 'open' || value === 'closed';
+  const activeProgressGroup = currentType === 'workcase' && isWorkCaseListGroup(progressParam)
+    ? progressParam
     : null;
-  const priorityParam = searchParams.get('priority');
   const servesParam = searchParams.get('serves');
   const sortParam = searchParams.get('sort');
   const activeSort: ObjectListSort = sortParam === 'created_desc' ? sortParam : 'updated_desc';
-  // 优先级导航仅 WorkCase 保留（v4 字段，21 号定稿前不动）；Spark 已按
-  // 20 §8/§14.2 移除 priority——v5 火花无此字段，不再提供过滤。
-  const supportsPriorityNavigation = currentType === 'workcase';
-  const activePriority = supportsPriorityNavigation && ['P0', 'P1', 'P2', 'P3'].includes(priorityParam ?? '')
-    ? priorityParam
-    : null;
-  const isPriorityApplicable = currentType === 'workcase'
-    && activeProgressGroup !== 'closed' && activeProgressGroup !== 'discarded';
+  // v5 无 priority 字段：20 §289（v4 priority 不迁入）与 21 §8 字段闭集均无此项，
+  // 且 22 §271/23 §252/26 §258 判定 priority 类为无消费方装饰字段（03 §11.3-4
+  // 要求字段扩展先说明消费方）。两侧 tab 均不提供优先级过滤。
   // serves 筛选只在 spark 生效，且仅当选项（goal 子目标）包含该值时激活。
   const supportsServesSgNavigation = currentType === 'spark';
   const activeServesSg = supportsServesSgNavigation && servesSgOptions.some((option) => option.id === servesParam)
@@ -1812,12 +1804,11 @@ export default function ObjectList() {
     setError(null);
     setStatusOptions([]);
     setProgressOptions([]);
-    setPriorityOptions([]);
     setStatusTotal(0);
     setCoverageStatus('complete');
     setCoverageProblemCount(0);
     setCoverageProblems([]);
-    fetchObjects(currentType, activeStatus ?? undefined, activePriority ?? undefined, activeProgressGroup ?? undefined)
+    fetchObjects(currentType, activeStatus ?? undefined, activeProgressGroup ?? undefined)
       .then((result) => {
         const receivedItems = result.data?.items ?? [];
         const nextItems = receivedItems
@@ -1825,7 +1816,6 @@ export default function ObjectList() {
         setItems(nextItems);
         setStatusOptions(result.data?.statusOptions ?? []);
         setProgressOptions(result.data?.progressOptions ?? []);
-        setPriorityOptions(result.data?.priorityOptions ?? []);
         setStatusTotal(result.data?.statusTotal ?? nextItems.length);
         setCoverageStatus(result.data?.coverage_status ?? 'complete');
         const nextCoverageProblems = result.data?.collection_issues ?? [];
@@ -1834,7 +1824,7 @@ export default function ObjectList() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [currentType, activeStatus, activePriority, activeProgressGroup, statusParam]);
+  }, [currentType, activeStatus, activeProgressGroup, statusParam]);
 
   const sortedItems = sortObjectsForList(items, activeSort);
   const normalizedObjectSearch = objectSearch.trim().toLowerCase();
@@ -1850,8 +1840,7 @@ export default function ObjectList() {
   if (activeServesSg) {
     filteredItems = filteredItems.filter((item) => item.serves === activeServesSg);
   }
-  // SG 计数：当前状态过滤后的 spark 池按 serves 聚合（与 WorkCase priority
-  // 计数同口径——反映当前过滤器，不是全量）。
+  // SG 计数：当前状态过滤后的 spark 池按 serves 聚合（反映当前过滤器，不是全量）。
   const servesSgCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of sortedItems) {
@@ -1872,16 +1861,6 @@ export default function ObjectList() {
     nextParams.delete('status');
     if (group) nextParams.set('progress', group);
     else nextParams.delete('progress');
-    setSearchParams(nextParams);
-  };
-
-  const handlePriorityChange = (priority: string | null) => {
-    const nextParams = new URLSearchParams(searchParams);
-    if (priority) {
-      nextParams.set('priority', priority);
-    } else {
-      nextParams.delete('priority');
-    }
     setSearchParams(nextParams);
   };
 
@@ -2108,17 +2087,6 @@ export default function ObjectList() {
   return (
     <div className="ldvh-page-frame">
       <div className="sticky top-0 z-20 -mx-6 -mt-6 mb-4 min-h-8 border-b border-ldvh-border bg-ldvh-bg/95 px-6 py-3 backdrop-blur">
-        {supportsPriorityNavigation && isPriorityApplicable && (
-          <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <ObjectPriorityFilter
-              activePriority={activePriority}
-              onChange={handlePriorityChange}
-              options={priorityOptions}
-              loading={loading}
-              coverageStatus={coverageStatus}
-            />
-          </div>
-        )}
         {/* Spark 第二层筛选：serves_sg 子目标锚点（20 §6）——选项源跟随当前
             goal 的子目标动态生成（Human 定案 2026-09-13），计数同当前状态过滤。 */}
         {supportsServesSgNavigation && servesSgOptions.length > 0 && (

@@ -10,7 +10,6 @@ import type { LocalFactScope } from '../services/localFactReader.js'
 import {
   WORKCASE_PROGRESS_GROUP_ORDER,
   isResolvedWorkCasePresentationProjection,
-  isWorkCaseProgressGroup,
 } from '../../shared/workcaseStatus.ts'
 import { getLatestChangeLogAt } from '../../shared/factChangeLog.js'
 
@@ -46,10 +45,6 @@ function getWorkCaseListGroup(item: ListedObject): WorkCaseListGroup | undefined
   if (typeof item.progress_group !== 'string') return undefined
   return item.progress_group === 'termination_cleanup' ? 'closed' : item.progress_group as WorkCaseListGroup
 }
-
-// WorkCase 列表优先级档位（v4 字段，21 号 WorkCase 规范定稿前保留；
-// Spark 已按 20 §8/§14.2 移除 priority——v5 火花无此字段）。
-const PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3']
 
 const STATUS_PRIORITY: Record<string, number> = {
   draft: 8,
@@ -162,24 +157,40 @@ function getStatusOptions(items: ListedObject[]): StatusOption[] {
 /** v4 遗留的 settled/unclosed 展示拆桶已随 20 号规范移除：Spark 状态闭集
  *  open/implemented/discarded 直接呈现（§9），不再从关联推导展示态。 */
 
-function getPriorityOptions(items: ListedObject[]): StatusOption[] {
-  const counts = countByStatus(
-    items
-      .filter((item) => typeof item.priority === 'string')
-      .map((item) => ({ status: item.priority as string })),
-  )
-  return PRIORITY_ORDER.map((status) => ({ status, count: counts[status] ?? 0 }))
+/** v5 无 priority 字段：20 §289（v4 priority 不迁入）与 21 §8 字段闭集均无此项，
+ *  22 §271/23 §252/26 §258 判定 priority 类为无消费方装饰字段（03 §11.3-4）。
+ *  列表 API 不再提供优先级过滤与对应计数投影。 */
+
+/** WorkCase 列表状态分组（21 §160：状态闭集三值 draft/open/closed）。
+ *
+ *  此前投影 v4 的五值进展分组。21 §160 只承认三态，故列表分组收敛为三态：
+ *  plan_confirmation → draft、progressing → open、closure_confirmation/closed/
+ *  termination_cleanup → closed。plan_confirmation/closure_confirmation 的
+ *  认知中心待办语义由 cognition.ts 经 progress_group 独立消费，不受此处影响。 */
+function getWorkCaseListStatus(item: ListedObject): string | undefined {
+  if (typeof item.status === 'string' && ['draft', 'open', 'closed'].includes(item.status)) {
+    return item.status
+  }
+  // 兼容路径：仅有 progress_group 投影时按 21 §160 三态归并。
+  const group = getWorkCaseListGroup(item)
+  if (!group) return undefined
+  if (group === 'plan_confirmation') return 'draft'
+  if (group === 'progressing') return 'open'
+  if (group === 'discarded') return 'closed'
+  // closure_confirmation / closed / termination_cleanup
+  return 'closed'
 }
+
+const WORKCASE_LIST_STATUS_ORDER = ['draft', 'open', 'closed'] as const
 
 function getWorkCaseProgressOptions(items: ListedObject[]): ProgressOption[] {
   const counts = new Map<string, number>()
   for (const item of items) {
-    const group = getWorkCaseListGroup(item)
-    if (!group) continue
-    counts.set(group, (counts.get(group) ?? 0) + 1)
+    const status = getWorkCaseListStatus(item)
+    if (!status) continue
+    counts.set(status, (counts.get(status) ?? 0) + 1)
   }
-  return [...WORKCASE_PROGRESS_GROUP_ORDER.filter((group) => group !== 'termination_cleanup'), 'discarded']
-    .map((group) => ({ group, count: counts.get(group) ?? 0 }))
+  return WORKCASE_LIST_STATUS_ORDER.map((group) => ({ group, count: counts.get(group) ?? 0 }))
 }
 
 async function listObjectSummaries(type: ObjectType, scope: LocalFactScope): Promise<ListedObject[]> {
@@ -204,16 +215,14 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
   }
 
   const status = typeof req.query.status === 'string' ? req.query.status : undefined
+  // WorkCase 列表筛选按 21 §160 三态（draft/open/closed）。
   const progress = type === 'workcase' && typeof req.query.progress === 'string'
     ? req.query.progress
     : undefined
-  if (progress && !isWorkCaseProgressGroup(progress) && progress !== 'discarded') {
-    res.status(400).json({ ok: false, error: `Invalid WorkCase progress group: ${progress}` })
+  if (progress && !WORKCASE_LIST_STATUS_ORDER.includes(progress as typeof WORKCASE_LIST_STATUS_ORDER[number])) {
+    res.status(400).json({ ok: false, error: `Invalid WorkCase list status: ${progress} (21 §160: draft/open/closed)` })
     return
   }
-  const priority = type === 'workcase' && typeof req.query.priority === 'string'
-    ? req.query.priority
-    : undefined
   let factScope
   try {
     factScope = await requestFactScope(req)
@@ -225,7 +234,7 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
     throw scopeError
   }
   // v5 Spark 与通用类型同路径：状态闭集（open/implemented/discarded，20 §9）
-  // 直接下推过滤；WorkCase 保持 progress/priority 组内过滤。
+  // 直接下推过滤；WorkCase 保持 progress 组内过滤。
   const result = await listObjects(type, undefined, type === 'workcase' ? undefined : status, factScope)
 
   if (!result.ok) {
@@ -235,9 +244,7 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
 
   const allItems = getResultItems(result)
   const items = type === 'workcase'
-    ? allItems.filter((item) => (
-      !progress || getWorkCaseListGroup(item) === progress
-    ) && (!priority || item.priority === priority))
+    ? allItems.filter((item) => !progress || getWorkCaseListStatus(item) === progress)
     : allItems
   if (isRecord(result.data)) {
     const statusItems = type === 'workcase'
@@ -249,14 +256,6 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
       result.data.statusOptions = getStatusOptions(statusItems)
     }
     result.data.statusTotal = statusItems.length
-    if (type === 'workcase') {
-      // Priority counts reflect the current status/progress filter (not
-      // priority itself), so the tab numbers stay consistent with the list.
-      const priorityGroupItems = progress
-        ? allItems.filter((item) => getWorkCaseListGroup(item) === progress)
-        : allItems
-      result.data.priorityOptions = getPriorityOptions(priorityGroupItems)
-    }
   }
   if (isRecord(result.data)) {
     result.data.items = sortByUpdatedDesc(items)

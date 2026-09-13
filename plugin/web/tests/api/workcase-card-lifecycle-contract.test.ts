@@ -175,7 +175,9 @@ test('termination cleanup is presented with closed cards and only its terminal r
   const progressFilter = source('src/components/WorkCaseProgressFilter.tsx');
   assert.match(list, /const displayProgressGroup = progressGroup === 'termination_cleanup' \? 'closed' : progressGroup/);
   assert.doesNotMatch(list, /<WorkCaseTerminationContent/);
-  assert.match(progressFilter, /options\.filter\(\(\{ group \}\) => group !== 'termination_cleanup'\)/);
+  // 列表筛选器按 21 §160 三态收敛：终端清理并入 closed，不再单列 progress group。
+  assert.match(progressFilter, /const WORKCASE_STATUS_ORDER = \['draft', 'open', 'closed'\] as const/);
+  assert.match(progressFilter, /\(WORKCASE_STATUS_ORDER as readonly string\[\]\)\.includes\(group\)/);
   assert.doesNotMatch(progressFilter, /WORKCASE_PROGRESS_GROUP_ORDER/);
 
   const closedCard = projectCurrentCard({

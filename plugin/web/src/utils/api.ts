@@ -221,8 +221,10 @@ export interface WorkCaseProgressOption {
   count: number;
 }
 
-/** Web-only list classification; `discarded` is derived from a closed cancelled WorkCase. */
-export type WorkCaseListGroup = WorkCaseProgressGroup | 'discarded';
+/** WorkCase 列表筛选分组 = 21 §160 状态闭集三值（draft/open/closed）。
+ *  此前为 v4 五值进展分组；进度相位（progress_group）仍由认知中心独立消费，
+ *  不再充当列表筛选维度。 */
+export type WorkCaseListGroup = 'draft' | 'open' | 'closed';
 
 export type FactCoverageStatus = 'complete' | 'partial' | 'unavailable' | 'type_not_integrated';
 
@@ -789,7 +791,6 @@ export async function fetchCognitionGoal(): Promise<CognitionGoalData> {
 export async function fetchObjects(
   type: string,
   status?: string,
-  priority?: string,
   progress?: string,
 ): Promise<{
   ok: boolean;
@@ -801,14 +802,12 @@ export async function fetchObjects(
     collection_issues?: FactListProblem[];
     statusOptions?: ObjectStatusOption[];
     progressOptions?: WorkCaseProgressOption[];
-    priorityOptions?: ObjectStatusOption[];
     statusTotal?: number;
     /** IDs absent from the current worktree's full object collection. */
   };
 }> {
   const params = new URLSearchParams();
   if (status) params.set('status', status);
-  if (priority) params.set('priority', priority);
   if (progress) params.set('progress', progress);
   const qs = params.toString();
   return request(`/objects/${type}${qs ? `?${qs}` : ''}`);

@@ -39,7 +39,6 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     summary: field('current-summary', 'string', false),
     resume_from: field('workcase-resume-from', 'string', false),
     waiting_on: field('workcase-waiting-on', 'string', false),
-    priority: field('priority', 'string', false),
     disposition_summary: field('disposition-summary', 'string', false),
     goal: field('workcase-goal', 'string', true),
     scope: field('workcase-scope', 'string', true),
