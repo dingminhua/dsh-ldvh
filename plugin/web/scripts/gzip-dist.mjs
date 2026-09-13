@@ -6,8 +6,9 @@
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { fileURLToPath } from 'node:url';
 
-const dist = new URL('../dist', import.meta.url).pathname;
+const dist = fileURLToPath(new URL('../dist', import.meta.url));
 const GZIP_EXTENSIONS = ['.js', '.css', '.html', '.svg', '.json'];
 
 async function collect(dir) {
