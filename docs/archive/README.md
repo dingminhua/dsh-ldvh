@@ -81,6 +81,22 @@ git status --porcelain | grep '^D'      # 空（零删除）
 
 ---
 
+## 〇之三、2026-09-14 第四批归档（1 份 · 机制被取代）
+
+**背景**：Human 指示「直接归档」。本文为一次性运行产物，其主张的机制已由 Human 裁定取代。
+
+| 文件 | 行 | 归档依据 |
+|---|---|---|
+| `spark-next-action-triage-2026-09-13.md` | 107 | **判读基数过期 + 机制被取代**：本文记「23 条 open Spark」，实际为 21 条（`80e9524` 已将两条转终态，发生在本文判读之后）；其主张「用可执行性 + 被指向数替代优先级」已被 Human 2026-09-13 裁定取代——**直接引入 `priority` 字段**（20 §8），21 条 open 已全部回填，Web 提供三联过滤（priority + serves + 生命周期），见 `aa12604`。**保留价值**：文中 §0.1「被指向数衡量顺序而非价值」与 §3 的 4 处分类误差自我更正，仍可作为该指标的使用边界参考 |
+
+**判据**：属「机制被取代」——非前提失实，而是同一问题已由 Human 裁定的另一方案解决。
+
+**纪律**：`git mv`，零删除；文首已加过期警示（含三项过期原因与现行依据指向）。
+
+**累计效果**：本批后实测——docs 根目录 **75** 份、`archive/` **53** 份。
+
+---
+
 ## 一、为什么归档而不是删除
 
 | 理由 | 说明 |
@@ -210,12 +226,14 @@ grep -n 'gaps' specs/05-*.md | head           # 有（已承接部分）
 
 ```bash
 cd /Users/dmh2002/DshProject/dsh-ldvh
-ls docs/archive/*.md | wc -l              # 33
-ls docs/*.md | wc -l                      # 46
-git status --porcelain | grep -c '^R'     # 24（已跟踪文件的真实重命名）
+ls docs/archive/*.md | wc -l              # 53（含本目录 README）
+ls docs/*.md | wc -l                      # 75
+git status --porcelain | grep -c '^R'     # 重命名数（随批次变化）
 git status --porcelain | grep '^D'        # 空（无删除）
 git log --follow docs/archive/spec-candidate-11-research-system.md   # 历史保留
 ```
+
+**计数口径**：`ls docs/archive/*.md` 含本索引 `README.md` 自身；上述数字为 2026-09-14 第四批归档后的实测值。根目录与归档区计数随每批变动，**以实测为准**，本节数字仅作对照。
 
 ---
 
