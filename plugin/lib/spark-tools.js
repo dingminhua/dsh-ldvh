@@ -7,7 +7,7 @@
 //   - spark-read-object  (effect: read)             — precise F3 read by
 //     object_uid: frontmatter, body, mechanical issues and fingerprint.
 //   - spark-list-objects (effect: read)             — F0/F1 discovery:
-//     dedup-relevant projection (title/question/status/serves),
+//     dedup-relevant projection (title/question/status/serves/refs),
 //     open-only by default.
 //   - spark-write-object (effect: may_change_state) — controlled create
 //     (C1 proposal confirmed by Human) and CAS update with change_log,
@@ -39,7 +39,7 @@ const OPERATIONS = {
   },
   "spark-list-objects": {
     toolName: "ldvh_spark_list",
-    summary: "Enumerate Spark fact objects (F0/F1 discovery): dedup-relevant projection (title/question/status/serves) for the governed project; open-only by default (specs/03 §8, specs/20 §12)",
+    summary: "Enumerate Spark fact objects (F0/F1 discovery): dedup-relevant projection (title/question/status/serves/refs) for the governed project; open-only by default (specs/03 §8, specs/20 §12)",
     effect: "read"
   },
   "spark-write-object": {
@@ -138,6 +138,7 @@ async function executeReadObject(args, exec, deps) {
       status: fm.status,
       question: typeof fm.question === "string" ? fm.question : undefined,
       serves: typeof fm.serves === "string" ? fm.serves : undefined,
+      refs: Array.isArray(fm.refs) && fm.refs.length > 0 ? fm.refs : undefined,
       body_valid: value.body_valid,
       body_issues: value.body_issues,
       frontmatter: fm,
@@ -280,7 +281,7 @@ async function executeWriteObject(args, exec, deps) {
       scope: { requested: "create", completed: ["create", "read-back"], not_completed: [] },
       sources: [{ kind: "fact-object", path: created.value.file, content_fingerprint: created.value.fingerprint }],
       gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
-      verification: { checks: ["frontmatter-closed-set", "question-single-sentence", "body-structure", "carrier-coherence", "serves-resolution", "atomic-write", "read-back"], passed: true },
+      verification: { checks: ["frontmatter-closed-set", "question-single-sentence", "body-structure", "carrier-coherence", "serves-resolution", "refs-resolution", "atomic-write", "read-back"], passed: true },
       follow_up: ["the object is created and read back; committing it to Git goes through the controlled-commit contract (specs/06)"]
     });
   }
@@ -341,7 +342,7 @@ async function executeWriteObject(args, exec, deps) {
     scope: { requested: "update", completed: ["update", "read-back"], not_completed: [] },
     sources: [{ kind: "fact-object", path: readBack.value.file, content_fingerprint: updated.value.fingerprint }],
     gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
-    verification: { checks: ["cas-baseline", "frontmatter-closed-set", "question-single-sentence", "body-structure", "carrier-coherence", "serves-resolution", "relations-contract", "terminal-state-guard", "atomic-write", "read-back"], passed: true },
+    verification: { checks: ["cas-baseline", "frontmatter-closed-set", "question-single-sentence", "body-structure", "carrier-coherence", "serves-resolution", "refs-resolution", "relations-contract", "terminal-state-guard", "atomic-write", "read-back"], passed: true },
     follow_up: ["use the NEW fingerprint from this result for the next update; committing goes through the controlled-commit contract (specs/06)"]
   });
 }
@@ -352,7 +353,7 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
   // availability failures (carrier/IO-level problems). Both are zero-write.
   const mechanicalCodes = new Set([
     "spark/frontmatter_invalid", "spark/body_invalid", "spark/coherence_invalid",
-    "spark/relations_invalid", "spark/relation_target_unresolvable", "spark/serves_unresolvable",
+    "spark/relations_invalid", "spark/relation_target_unresolvable", "spark/serves_unresolvable", "spark/refs_unresolvable",
     "spark/initial_state_violation", "spark/status_transition_invalid", "spark/status_terminal",
     "spark/cas_conflict", "spark/change_summary_required", "spark/invalid_uid",
     "invalid_request",
@@ -390,6 +391,11 @@ function renderEnvelope(operationKey, value) {
   if (result?.title !== undefined) lines.push(`title: ${result.title}`);
   if (result?.status !== undefined) lines.push(`status: ${result.status}`);
   if (result?.serves !== undefined) lines.push(`serves: ${result.serves}`);
+  // refs (20 §8): verbose on the single-object read (uid + resolved title when
+  // available) so the model can see associations without a second call.
+  if (Array.isArray(result?.refs) && result.refs.length > 0) {
+    lines.push(`refs: ${result.refs.map((r) => r?.title ? `${r.object_uid} (${r.title})` : r?.object_uid ?? JSON.stringify(r)).join(", ")}`);
+  }
   if (result?.question !== undefined) lines.push(`question: ${result.question}`);
   // Full fingerprint, never truncated (03 §9.5): the render output is the
   // model's only window on the tool result — a truncated fingerprint makes
@@ -401,7 +407,7 @@ function renderEnvelope(operationKey, value) {
   if (result?.count !== undefined) lines.push(`count: ${result.count}${result.total !== undefined && result.total !== result.count ? ` (of ${result.total})` : ""}`);
   if (Array.isArray(result?.items)) {
     for (const item of result.items) {
-      lines.push(`- ${item.object_uid} [${item.status}] ${item.title}${item.serves ? ` (${item.serves})` : ""}`);
+      lines.push(`- ${item.object_uid} [${item.status}] ${item.title}${item.serves ? ` (${item.serves})` : ""}${Array.isArray(item.refs) && item.refs.length > 0 ? ` → ${item.refs.map((r) => r?.object_uid ?? r).join(", ")}` : ""}`);
     }
   }
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${change.object_uid}`);
@@ -433,6 +439,13 @@ function parameterSchemaFor(operationKey) {
     required: ["relation_key", "target"],
     additionalProperties: false
   };
+  /** refs target (03 §7.2 minimal shape: object_uid only, no title copies). */
+  const refsEntry = {
+    type: "object",
+    properties: { object_uid: { type: "string", description: "canonical object_uid of an existing same-project fact object" } },
+    required: ["object_uid"],
+    additionalProperties: false
+  };
   const sparkFrontmatter = {
     type: "object",
     description: "AI-supplied type fields; Code assigns object_uid/fact_type_key/created_at/change_log and generates the H1 from title",
@@ -445,6 +458,7 @@ function parameterSchemaFor(operationKey) {
       summary: { type: "string", description: "complete current semantic snapshot; must appear verbatim in the 当前理解 body section" },
       evolution: { type: "array", items: evolutionEntry, description: "substantive-pivot log (cap 20); when non-empty the body must carry a 演变 H2 section" },
       serves: { type: "string", description: "e.g. SG-4; must match an SG-n in goal.md 子目标; omit when not applicable" },
+      refs: { type: "array", items: refsEntry, description: "related fact objects (03 §7.2 关联引用型, 20 §8): any type; target status is NOT checked (an association survives the target closing); every target must resolve to an existing, readable, same-project object_uid or the write is rejected; cap 10; state-neutral; omit when none. Surfaced on the F1 list card for Human scanning." },
       priority: { type: "string", enum: ["P0", "P1", "P2", "P3"], description: "suspension ordering tier (20 §8): closed set P0–P3, may appear only while status=open, terminal must omit it; optional — an untiered Spark is equally valid" },
       disposition: { type: "string", description: "terminal destination and scope; required iff status is implemented/discarded, forbidden while open" },
       relations: { type: "array", items: relationEntry, description: "merged-into (cardinality 1) / split-into (1..n); only on discarded, targets must be existing open sparks (20 §11)" },

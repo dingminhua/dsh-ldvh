@@ -25,6 +25,8 @@ import {
   sparkFileName,
   SPARK_DIRECTORY,
   validateSparkBodyStructure,
+  resolveRefsTargets,
+  listSparkObjects,
 } from "../lib/spark-writer.js";
 import { authoritativeSignature } from "../lib/signature-channel.js";
 
@@ -1111,4 +1113,247 @@ test("body structure: H1 scan follows CommonMark ATX semantics (20 §8)", () => 
   assert.ok(validateSparkBodyStructure(`# T   \n\n${base}`, "T", 0).ok, "trailing spaces on the H1 are legal");
   assert.ok(validateSparkBodyStructure(`# T\n\n\u0060\u0060\u0060\n# T\n\u0060\u0060\u0060\n\n${base}`, "T", 0).ok, "a `#` inside a fenced code block is not a heading");
   assert.ok(validateSparkBodyStructure(`# T\r\n\r\n${base.replace(/\n/g, "\r\n")}`, "T", 0).ok, "CRLF body is a legal carrier");
+});
+
+// ---------------------------------------------------------------------------
+// refs (20 §8 + 03 §7.2 关联引用型) — 关联的事实对象引用
+// ---------------------------------------------------------------------------
+
+/** A minimal other-type fact object whose object_uid refs can target. */
+async function seedResearch(root, uid, title = "目标调研对象") {
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(join(root, "researches"), { recursive: true });
+  await writeFile(
+    join(root, "researches", `research-${uid}.md`),
+    `---\nobject_uid: ${uid}\ntitle: ${title}\nstatus: active\n---\n\n## 研究问题\nfixture\n`,
+    "utf8",
+  );
+}
+
+const REF_UID = "0ca1ab2c-7976-431b-a3d2-2f9e346ff345";
+const OTHER_UID = "11111111-2222-4333-8444-555555555555";
+
+test("refs: create with a resolvable target lands and round-trips (20 §8, 03 §7.2)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    await seedResearch(root, REF_UID);
+    const draft = { ...validFrontmatterDraft(), refs: [{ object_uid: REF_UID }] };
+    const result = await createSparkObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(result.ok, JSON.stringify(result.error));
+    const read = await readSparkObject({ factSourceRoot: root, objectUid: result.value.object_uid });
+    assert.deepEqual(read.value.frontmatter.refs, [{ object_uid: REF_UID }]);
+  });
+});
+
+test("refs: unresolvable target is a zero-write rejection (03 §7.2 mechanical boundary)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    const draft = { ...validFrontmatterDraft(), refs: [{ object_uid: REF_UID }] };
+    const result = await createSparkObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!result.ok);
+    assert.equal(result.error.code, "spark/refs_unresolvable");
+    // Zero-write: no carrier left behind.
+    const { readdir } = await import("node:fs/promises");
+    const entries = await readdir(join(root, SPARK_DIRECTORY)).catch(() => []);
+    assert.deepEqual(entries.filter((f) => f.endsWith(".md")), []);
+  });
+});
+
+test("refs: a target in another project's directory set is not resolvable (同项目约束)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    const draft = { ...validFrontmatterDraft(), refs: [{ object_uid: OTHER_UID }] };
+    const result = await createSparkObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!result.ok);
+    assert.equal(result.error.code, "spark/refs_unresolvable");
+  });
+});
+
+test("refs: non-canonical uid shape rejected by the field contract", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    const draft = { ...validFrontmatterDraft(), refs: [{ object_uid: "not-a-uid" }] };
+    const result = await createSparkObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!result.ok);
+    assert.equal(result.error.code, "spark/frontmatter_invalid");
+    assert.ok(result.error.details.issues.some((i) => i.includes("canonical UUIDv4")));
+  });
+});
+
+test("refs: empty array rejected (03 §6.1 — no fabricated conditional field)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    const draft = { ...validFrontmatterDraft(), refs: [] };
+    const result = await createSparkObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!result.ok);
+    assert.equal(result.error.code, "spark/frontmatter_invalid");
+    assert.ok(result.error.details.issues.some((i) => i.includes("fabricates a conditional field")));
+  });
+});
+
+test("refs: cap of 10 entries enforced (20 §8)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    const refs = Array.from({ length: 11 }, (_, i) => ({
+      object_uid: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+    }));
+    const draft = { ...validFrontmatterDraft(), refs };
+    const result = await createSparkObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!result.ok);
+    assert.equal(result.error.code, "spark/frontmatter_invalid");
+    assert.ok(result.error.details.issues.some((i) => i.includes("cap")));
+  });
+});
+
+test("refs: target title must NOT be copied into the carrier (03 §7.2 minimal shape)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    await seedResearch(root, REF_UID);
+    const draft = { ...validFrontmatterDraft(), refs: [{ object_uid: REF_UID, title: "抄来的标题" }] };
+    const result = await createSparkObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!result.ok);
+    assert.equal(result.error.code, "spark/frontmatter_invalid");
+    assert.ok(result.error.details.issues.some((i) => i.includes("beyond object_uid")));
+  });
+});
+
+test("refs: duplicate targets rejected (03 §7.2 invariant 3 — no synonymous duplicates)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    await seedResearch(root, REF_UID);
+    const draft = { ...validFrontmatterDraft(), refs: [{ object_uid: REF_UID }, { object_uid: REF_UID }] };
+    const result = await createSparkObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!result.ok);
+    assert.equal(result.error.code, "spark/frontmatter_invalid");
+    assert.ok(result.error.details.issues.some((i) => i.includes("duplicate target")));
+  });
+});
+
+test("refs: a closed (discarded) target stays a legal reference (20 §8 — state-neutral)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    // A target whose own status is terminal must still resolve: the association
+    // is a fact about the past and does not expire when the target closes.
+    await seedResearch(root, REF_UID);
+    await writeFile(
+      join(root, "researches", `research-${REF_UID}.md`),
+      `---\nobject_uid: ${REF_UID}\ntitle: 已废弃的目标\nstatus: retired\n---\n\n## 研究问题\nfixture\n`,
+      "utf8",
+    );
+    const draft = { ...validFrontmatterDraft(), refs: [{ object_uid: REF_UID }] };
+    const result = await createSparkObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(result.ok, JSON.stringify(result.error));
+  });
+});
+
+test("refs: update may add and remove associations (state-neutral, no status gate)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    await seedResearch(root, REF_UID);
+    const draft = { ...validFrontmatterDraft() };
+    const created = await createSparkObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+    const uid = created.value.object_uid;
+
+    const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    // read-back body carries the generated H1; the update entry takes the body
+    // from H2 down (20 §8: the H1 is generated by Code, not supplied).
+    const bodyAfter = read1.value.body.replace(/^#\s.*\r?\n\r?\n?/, "");
+    const upd = await updateSparkObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: read1.value.fingerprint,
+      frontmatterAfter: { ...read1.value.frontmatter, refs: [{ object_uid: REF_UID }] },
+      bodyMarkdownAfter: bodyAfter,
+      changeSummary: "补充关联",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(upd.ok, JSON.stringify(upd.error));
+
+    const read2 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    assert.deepEqual(read2.value.frontmatter.refs, [{ object_uid: REF_UID }]);
+  });
+});
+
+test("refs: F1 list projection carries refs for the Human card (20 §12)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    await seedResearch(root, REF_UID);
+    const draft = { ...validFrontmatterDraft(), refs: [{ object_uid: REF_UID }] };
+    const created = await createSparkObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+    const listed = await listSparkObjects({ factSourceRoot: root });
+    assert.ok(listed.ok, JSON.stringify(listed.error));
+    const item = listed.value.items.find((i) => i.object_uid === created.value.object_uid);
+    assert.deepEqual(item.refs, [{ object_uid: REF_UID }]);
+  });
+});
+
+test("refs: resolution reports the target type and title for projection (不做第二权威)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    await seedResearch(root, REF_UID, "蓝图业界调研");
+    const resolved = await resolveRefsTargets(root, [{ object_uid: REF_UID }]);
+    assert.ok(resolved.ok, JSON.stringify(resolved));
+    assert.equal(resolved.resolved.get(REF_UID).type, "research");
+    assert.equal(resolved.resolved.get(REF_UID).title, "蓝图业界调研");
+  });
+});
+
+test("refs: omitted stays omitted (03 §6.1 — no empty placeholder written)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    const draft = validFrontmatterDraft();
+    const result = await createSparkObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(result.ok, JSON.stringify(result.error));
+    const raw = await readFile(join(root, SPARK_DIRECTORY, sparkFileName(result.value.object_uid)), "utf8");
+    assert.ok(!raw.includes("refs:"), "refs must not be materialised as an empty placeholder");
+  });
 });

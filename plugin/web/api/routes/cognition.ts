@@ -138,6 +138,8 @@ interface RecentActivityBuildItem {
   priority?: string
   /** Spark 的 goal.md 子目标锚点（20 §6 serves），条件出现。 */
   serves?: string
+  /** 关联的事实对象引用（03 §7.2 / 20 §8 refs），条件出现。 */
+  refs?: Array<{ object_uid: string; title?: string; type?: string }>
   read_status: string
   field_issues: Array<Record<string, unknown>>
   unparsed_structures: Array<Record<string, unknown>>
@@ -162,6 +164,8 @@ interface SparkHealthBuildItem {
   priority?: string
   /** 20 §6 serves（SG-n 子目标锚点），健康度行与卡头同标签序。 */
   serves?: string
+  /** 20 §8 refs（关联事实对象引用），与卡头同标签序。 */
+  refs?: Array<{ object_uid: string; title?: string; type?: string }>
   updated_at: string
   /** 取最近一条具备完整署名的事实流水，与对象卡片落款规则一致。 */
   signature?: FactChangeSignature
@@ -303,18 +307,54 @@ function compareRecentActivity(a: RecentActivityBuildItem, b: RecentActivityBuil
   return a.object_id.localeCompare(b.object_id)
 }
 
+/**
+ * refs（03 §7.2 关联引用型 / 20 §8）：把 frontmatter 的 refs 归一为呈现用条目。
+ *
+ * 规范形态是 `{ object_uid }[]`（03 §7.2 最小形状：对象内不复制目标标题）。
+ * 这里解析出的 title/type 是**派生投影**——由 titleIndex 机械反查得到，
+ * 供 Human 在卡片上扫读；不写回对象，也不构成第二权威（03 §7.2 第 4 条）。
+ * 目标查不到时保留 uid 原值：关系/引用存在只证明声明被记录，不得降格为
+ * 「无关联」（03 §7.2 第 5 条的同精神处理）。
+ */
+function projectRefs(
+  raw: unknown,
+  titleIndex: Map<string, { title?: string; type?: string }>,
+): Array<{ object_uid: string; title?: string; type?: string }> | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined
+  const out: Array<{ object_uid: string; title?: string; type?: string }> = []
+  const seen = new Set<string>()
+  for (const entry of raw) {
+    const uid = typeof entry === 'string'
+      ? entry
+      : (entry && typeof entry === 'object' && typeof (entry as { object_uid?: unknown }).object_uid === 'string'
+        ? (entry as { object_uid: string }).object_uid
+        : undefined)
+    if (!uid || !uid.trim() || seen.has(uid)) continue
+    seen.add(uid)
+    const hit = titleIndex.get(uid)
+    out.push({
+      object_uid: uid,
+      ...(hit?.title ? { title: hit.title } : {}),
+      ...(hit?.type ? { type: hit.type } : {}),
+    })
+  }
+  return out.length > 0 ? out : undefined
+}
+
 function buildRecentActivityItem(
   raw: Record<string, unknown>,
   type: ObjectType | 'goal',
   activity: RecentActivityKind,
   occurredAt: string,
   signature?: FactChangeSignature,
+  titleIndex: Map<string, { title?: string; type?: string }> = new Map(),
 ): RecentActivityBuildItem {
   const object_id = String(raw.object_id ?? '')
   const status = String(raw.status ?? 'unknown')
   const progressGroup = type === 'workcase'
     ? currentWorkCaseProjection(raw)?.progress_group
     : undefined
+  const refs = type === 'spark' ? projectRefs(raw.refs, titleIndex) : undefined
   return {
     type,
     object_id,
@@ -328,6 +368,7 @@ function buildRecentActivityItem(
     ...(type === 'workcase' ? { progress_group: progressGroup } : { status }),
     ...(priorityRank(raw.priority) < 4 && typeof raw.priority === 'string' ? { priority: raw.priority } : {}),
     ...(type === 'spark' && typeof raw.serves === 'string' && raw.serves.trim() ? { serves: raw.serves } : {}),
+    ...(refs !== undefined ? { refs } : {}),
     read_status: String(raw.read_status ?? 'unknown'),
     field_issues: Array.isArray(raw.field_issues) ? raw.field_issues as Array<Record<string, unknown>> : [],
     unparsed_structures: Array.isArray(raw.unparsed_structures) ? raw.unparsed_structures as Array<Record<string, unknown>> : [],
@@ -347,6 +388,7 @@ export function buildFactActivityItems(
   type: ObjectType | 'goal',
   start: number,
   end: number,
+  titleIndex: Map<string, { title?: string; type?: string }> = new Map(),
 ): RecentActivityBuildItem[] {
   const changeLog = Array.isArray(raw.change_log) ? raw.change_log : []
   const logged: Array<{ occurredAt: string; index: number; signature?: FactChangeSignature }> = []
@@ -367,6 +409,7 @@ export function buildFactActivityItems(
       index === 0 ? 'created' : 'updated',
       occurredAt,
       signature,
+      titleIndex,
     ))
   }
 
@@ -375,10 +418,10 @@ export function buildFactActivityItems(
   const updatedAt = getLatestChangeLogAt(raw.change_log)
   const fallback: RecentActivityBuildItem[] = []
   if (timestampInWindow(createdAt, start, end)) {
-    fallback.push(buildRecentActivityItem(raw, type, 'created', createdAt))
+    fallback.push(buildRecentActivityItem(raw, type, 'created', createdAt, undefined, titleIndex))
   }
   if (timestampInWindow(updatedAt, start, end) && updatedAt !== createdAt) {
-    fallback.push(buildRecentActivityItem(raw, type, 'updated', updatedAt))
+    fallback.push(buildRecentActivityItem(raw, type, 'updated', updatedAt, undefined, titleIndex))
   }
   return fallback
 }
@@ -456,7 +499,11 @@ function compareSilentSpark(a: SparkHealthBuildItem, b: SparkHealthBuildItem): n
 }
 
 /** Spark 健康度只聚合当前状态与更新时间；不从更新时间推断实际分流发生时刻。 */
-export function buildSparkHealth(rawItems: Array<Record<string, unknown>>, observedAt: number) {
+export function buildSparkHealth(
+  rawItems: Array<Record<string, unknown>>,
+  observedAt: number,
+  titleIndex: Map<string, { title?: string; type?: string }> = new Map(),
+) {
   const terminalByStatus = { implemented: 0, discarded: 0 }
   const openByPriority: Record<string, number> = {}
   const openItems: SparkHealthBuildItem[] = []
@@ -491,6 +538,9 @@ export function buildSparkHealth(rawItems: Array<Record<string, unknown>>, obser
       // 20 §6 serves（SG-n 子目标锚点）：健康度行与卡头同标签序（Human 定案
       // 2026-09-13：类型 → 优先级 → SG → 修改次数）。
       ...(typeof raw.serves === 'string' && raw.serves.trim() ? { serves: raw.serves } : {}),
+      // 20 §8 refs：关联对象 chip，与卡头同标签序
+      // （类型 → 优先级 → SG → refs → 修改次数）。
+      ...(projectRefs(raw.refs, titleIndex) !== undefined ? { refs: projectRefs(raw.refs, titleIndex) } : {}),
       updated_at: updatedAt,
       ...(signature ? { signature } : {}),
       activity_count: countChangeLogEntries(raw.change_log),
@@ -741,6 +791,24 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       listObjects('spark', undefined, undefined, factScope),
       listObjects('research', undefined, undefined, factScope),
     ])
+    // refs 目标标题索引（03 §7.2 派生投影）：由已加载的事实列表机械反查
+    // object_uid → { title, type }，供卡片呈现关联对象的可读标题。目标可能是
+    // 任意事实类型（跨类型引用），故索引覆盖本次已加载的全部集合；查不到时
+    // 保留 uid 原值，不降格为「无关联」（03 §7.2 第 5 条同精神）。
+    const refsTitleIndex = new Map<string, { title?: string; type?: string }>()
+    for (const source of [workCaseResult, pitfallResult, adrResult, sparkResult, studyResult]) {
+      if (!source?.ok || !('data' in source)) continue
+      const data = source.data as { items?: Array<Record<string, unknown>> }
+      for (const item of Array.isArray(data.items) ? data.items : []) {
+        const uid = typeof item.object_uid === 'string' ? item.object_uid : undefined
+        if (!uid) continue
+        refsTitleIndex.set(uid, {
+          ...(typeof item.title === 'string' ? { title: item.title } : {}),
+          type: String(item.type ?? ''),
+        })
+      }
+    }
+
     const issues: CognitionIssue[] = []
     let sparkHealth: ReturnType<typeof buildSparkHealth> | undefined
     if (!sparkResult.ok || !('data' in sparkResult)) {
@@ -751,7 +819,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       for (const issue of Array.isArray(data.collection_issues) ? data.collection_issues : []) {
         issues.push({ ...toIssue(issue), section: 'sparkHealth' })
       }
-      sparkHealth = buildSparkHealth(data.items, parseTimestamp(generatedAt))
+      sparkHealth = buildSparkHealth(data.items, parseTimestamp(generatedAt), refsTitleIndex)
     }
     const builds: InboxBuildItem[] = []
     const activeWorkCaseBuilds: ActiveWorkCaseBuildItem[] = []
@@ -860,7 +928,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         issues.push({ ...toIssue(issue), section: 'recentActivity' })
       }
       for (const raw of sourceData.items) {
-        recentBuilds.push(...buildFactActivityItems(raw, type, recentStart, parseTimestamp(generatedAt)))
+        recentBuilds.push(...buildFactActivityItems(raw, type, recentStart, parseTimestamp(generatedAt), refsTitleIndex))
       }
     }
     // 25 号 Goal：单例冻结锚的 change_log 修订史也进近期动态（§6 修订史是 HV5
@@ -882,6 +950,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         'goal',
         recentStart,
         parseTimestamp(generatedAt),
+        refsTitleIndex,
       ))
     } else if (goalRecord.status === 'unreadable') {
       issues.push({ section: 'recentActivity', code: 'goal_unreadable', message: goalRecord.issues[0]?.message ?? 'goal.md 读取失败' })
@@ -948,6 +1017,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         entry.isBlocked = build.blocking_overlay === true
       }
       else entry.status = 'draft'
+      // refs（03 §7.2 / 20 §8）：关联对象 chip，与卡头标签序一致
+      // （类型 → 优先级 → SG → refs → 修改次数）。
+      if (build.refs !== undefined) entry.refs = build.refs
       // priority 缺失/非法落 P3 之后并省略优先级信号（Q8）。
       if (priorityRank(build.priority) < 4 && typeof build.priority === 'string') entry.priority = build.priority
       // updated_at 缺失排最后并省略时间显示（Q8）。
@@ -1005,6 +1077,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       typeColor: getTypeColor(build.type),
       ...(build.priority !== undefined ? { priority: build.priority } : {}),
       ...(build.serves !== undefined ? { serves: build.serves } : {}),
+      ...(build.refs !== undefined ? { refs: build.refs } : {}),
       ...(build.type === 'workcase' && build.progress_group !== undefined
         ? { progress_group: build.progress_group }
         : build.type !== 'workcase' && build.status !== undefined ? { status: build.status } : {}),
@@ -1054,6 +1127,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
             ...(item.title_zh !== undefined ? { title_zh: item.title_zh } : {}),
             ...(item.priority !== undefined ? { priority: item.priority } : {}),
             ...(item.serves !== undefined ? { serves: item.serves } : {}),
+            ...(item.refs !== undefined ? { refs: item.refs } : {}),
             updatedAt: item.updated_at,
             ...(item.signature !== undefined ? { signature: item.signature } : {}),
             activityCount: item.activity_count,
@@ -1072,6 +1146,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
             ...(item.title_zh !== undefined ? { title_zh: item.title_zh } : {}),
             ...(item.priority !== undefined ? { priority: item.priority } : {}),
             ...(item.serves !== undefined ? { serves: item.serves } : {}),
+            ...(item.refs !== undefined ? { refs: item.refs } : {}),
             updatedAt: item.updated_at,
             ...(item.signature !== undefined ? { signature: item.signature } : {}),
             activityCount: item.activity_count,

@@ -130,6 +130,10 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     summary: field('current-summary', 'string', true),
     evolution: field('evolution', 'array', false),
     serves: field('spark-serves-sg', 'string', false),
+    // 03 §7.2 关联引用型 / 20 §8：refs 为状态中立的事实对象引用（目标
+    // object_uid，不校验目标状态），用于列表卡与详情呈现「本议题关联了
+    // 哪些对象」。未登记会被判为 unconsumed_field 并从列表投影排除。
+    refs: field('spark-refs', 'array', false),
     // 20 §8：priority 闭集 P0–P3，AI 出初值、Human 可调整；仅 open 时出现。
     priority: field('priority', 'string', false),
     disposition: field('spark-disposition', 'string', false),

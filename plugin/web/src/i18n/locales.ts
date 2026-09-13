@@ -263,6 +263,9 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   question: { zh: '调查问题', en: 'Question' },
   scope_boundary: { zh: '调查边界', en: 'Investigation Boundary' },
   serves: { zh: '服务子目标', en: 'Serves Sub-goal' },
+  // 03 §7.2 关联引用型 / 20 §8：refs 为关联的事实对象引用，列表卡与详情头
+  // 以 chip 呈现，使 Human 无需读全文即可看到本议题与哪些对象相关。
+  refs: { zh: '关联对象', en: 'Related Objects' },
   current_understanding: { zh: '当前理解', en: 'Current Understanding' },
   stopping_reason: { zh: '停止原因', en: 'Stopping Reason' },
   confirmed_statements: { zh: '已证实声明', en: 'Confirmed Statements' },

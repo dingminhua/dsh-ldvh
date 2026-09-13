@@ -13,6 +13,7 @@ import ObjectPriorityFilter from '@/components/ObjectPriorityFilter';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
 import ServesSgBadge from '@/components/ServesSgBadge';
+import RefsBadge from '@/components/RefsBadge';
 import SummaryText from '@/components/SummaryText';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import { WorkCaseCriteriaList, WORKCASE_CRITERIA_SURFACE_CLASS } from '@/components/WorkCaseCriteriaList';
@@ -1254,9 +1255,13 @@ export function ObjectCardFrame({
             {getTypeLabel(obj.type, locale)}
           </span>
           {/* Human 定案 2026-09-13：卡头标签序 = 类型 → 优先级 → SG → 修改次数；
-              方案 A——条件字段有值才显示（20 §8 priority 仅 open 时出现）。 */}
+              方案 A——条件字段有值才显示（20 §8 priority 仅 open 时出现）。
+              2026-09-13 延伸：refs 关联对象 chip 紧随 SG 之后、修改次数之前——
+              二者同属「本对象的归属与关联」语义组，且 refs 有 3 项折叠上限，
+              不会破坏卡头的高度可预期性。 */}
           <PriorityIcon source={obj} type={obj.type} locale={locale} size="xs" />
           <ServesSgBadge value={obj.serves} locale={locale} />
+          <RefsBadge value={obj.refs} locale={locale} />
           <span
             className="ldvh-chip-sm gap-1 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent"
             title={t('cognition.recent.activityCount', { count: String(activityCount) })}

@@ -61,11 +61,23 @@ const SPARK_RELATION_KEYS = new Set(["merged-into", "split-into"]);
 /** serves anchor shape (25 §6: SG-n, frozen, never renumbered). */
 const SG_ANCHOR_PATTERN = /^SG-[1-9]\d*$/;
 
+/**
+ * refs entry cap (20 §8). Bounds the F1 card projection — the field exists so
+ * a Human can scan "what is this spark related to" on the list card, so an
+ * unbounded list would defeat its own purpose (03 §15 item 9: no value
+ * self-declaration through association volume).
+ */
+const MAX_REFS_ENTRIES = 10;
+
+/** object_uid shape accepted in refs targets (03 §6.1: canonical UUIDv4). */
+const OBJECT_UID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 /** Closed set of frontmatter keys (20 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
   "question", "scope_boundary", "intent", "summary",
-  "evolution", "serves", "priority", "disposition", "relations", "change_log",
+  "evolution", "serves", "refs", "priority", "disposition", "relations", "change_log",
 ]);
 
 /** priority closed set (20 §8: P0–P3; AI 出初值，Human 可调整). */
@@ -159,6 +171,48 @@ export function validateSparkFrontmatter(frontmatter) {
       issues.push(`serves: must match SG-n (e.g. SG-4), got ${JSON.stringify(frontmatter.serves)}`);
     }
   }
+
+  // refs (20 §8, 03 §7.2 关联引用型): array of {object_uid} targets. Shape is
+  // checked here; target *resolution* (exists / readable / same project)
+  // needs the fact-source root and happens in the create/update flows, same
+  // split as serves ↔ goal.md. 03 §6.1: an empty array fabricates a
+  // conditional field and is rejected.
+  if (frontmatter.refs !== undefined) {
+    if (!Array.isArray(frontmatter.refs)) {
+      issues.push("refs: must be an array of {object_uid}");
+    } else if (frontmatter.refs.length === 0) {
+      issues.push("refs: must be omitted when there is no association — an empty array fabricates a conditional field (03 §6.1)");
+    } else {
+      if (frontmatter.refs.length > MAX_REFS_ENTRIES) {
+        issues.push(`refs: exceeds the ${MAX_REFS_ENTRIES}-entry cap (20 §8)`);
+      }
+      const seenTargets = new Set();
+      for (const entry of frontmatter.refs) {
+        if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+          issues.push("refs[]: members must be objects of shape {object_uid}");
+          continue;
+        }
+        // 03 §7.2 minimal shape: target reference only. No title copies.
+        const extra = Object.keys(entry).filter((k) => k !== "object_uid");
+        if (extra.length > 0) {
+          issues.push(`refs[]: entry carries fields beyond object_uid (${extra.join(", ")}) — 03 §7.2 keeps target title/explanation out of the carrier`);
+        }
+        const target = entry.object_uid;
+        if (typeof target !== "string" || !OBJECT_UID_PATTERN.test(target)) {
+          issues.push(`refs[].object_uid: must be a canonical UUIDv4 object_uid, got ${JSON.stringify(target)}`);
+          continue;
+        }
+        if (seenTargets.has(target)) {
+          issues.push(`refs[]: duplicate target ${target} (03 §7.2 invariant 3 — no synonymous duplicates)`);
+        }
+        seenTargets.add(target);
+      }
+    }
+  }
+
+  // refs is state-neutral (20 §8): terminal sparks keep their historical
+  // references — an association is a fact about the past and does not expire
+  // when the spark closes. No status gate is applied here.
 
   if (!STATUSES.has(frontmatter.status)) {
     issues.push(`status: must be one of ${[...STATUSES].join("/")}`);
@@ -332,6 +386,80 @@ export async function readGoalAnchors(factSourceRoot) {
   const goal = await readGoalAnchorsFromGoal({ factSourceRoot });
   if (!goal.ok) return { ok: false, reason: goal.error?.message ?? "cannot read goal.md" };
   return { ok: true, anchors: new Set(goal.value.anchors) };
+}
+
+/**
+ * Resolve `refs` targets against the fact source (03 §7.2 关联引用型, 20 §8).
+ *
+ * Mechanical boundary (03 §7.2): only existence, readability and same-project
+ * membership are checked. Semantic relevance, target status and association
+ * value stay in AI/Human judgement and are explicitly NOT decided here.
+ *
+ * Returns { ok:true, resolved:Map<uid,{type,title}> } or
+ *         { ok:false, missing:[uid], reason }.
+ *
+ * Note the deliberate asymmetry with `relations`: a missing refs target is a
+ * *zero-write rejection* (03 §7.2 mechanical boundary), not a silent drop —
+ * dropping would make the carrier claim fewer associations than were declared.
+ */
+export async function resolveRefsTargets(factSourceRoot, refs) {
+  if (!Array.isArray(refs) || refs.length === 0) return { ok: true, resolved: new Map() };
+
+  const dirs = [
+    ["spark", SPARK_DIRECTORY],
+    ["workcase", "workcases"],
+    ["adr", "adrs"],
+    ["pitfall", "pitfalls"],
+    ["research", "researches"],
+    ["friction", "frictions"],
+    ["norm", "norms"],
+  ];
+
+  // Build an index of uid -> {type, title} by scanning the same-project fact
+  // directories once. Files are small and this runs only on write paths that
+  // already touch the fact source.
+  const index = new Map();
+  for (const [type, dir] of dirs) {
+    const abs = join(factSourceRoot, dir);
+    let entries;
+    try {
+      entries = await readdir(abs, { withFileTypes: true });
+    } catch {
+      continue; // directory absent = type not integrated in this project
+    }
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      if (!/\.(md|yaml|yml)$/.test(entry.name)) continue;
+      const raw = await readFile(join(abs, entry.name), "utf8").catch(() => null);
+      if (raw === null) continue;
+      const uidMatch = raw.match(/^object_uid:\s*["']?([0-9a-fA-F-]{36})["']?\s*$/m);
+      if (!uidMatch) continue;
+      const titleMatch = raw.match(/^title:\s*["']?(.*?)["']?\s*$/m);
+      index.set(uidMatch[1].toLowerCase(), {
+        type,
+        title: titleMatch ? titleMatch[1] : undefined,
+      });
+    }
+  }
+
+  const resolved = new Map();
+  const missing = [];
+  for (const entry of refs) {
+    const uid = typeof entry === "string" ? entry : entry?.object_uid;
+    if (typeof uid !== "string") continue;
+    const hit = index.get(uid.toLowerCase());
+    if (hit === undefined) missing.push(uid);
+    else resolved.set(uid, hit);
+  }
+
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      missing,
+      reason: `refs target(s) not resolvable in this project: ${missing.join(", ")} (03 §7.2 — targets must be existing, readable, same-project fact objects)`,
+    };
+  }
+  return { ok: true, resolved };
 }
 
 // ---------------------------------------------------------------------------
@@ -599,6 +727,15 @@ export async function createSparkObject(args) {
     }
   }
 
+  // refs target resolution (03 §7.2, 20 §8): declared → every target must be
+  // an existing, readable, same-project fact object. Zero-write rejection.
+  if (frontmatter.refs !== undefined) {
+    const refsCheck = await resolveRefsTargets(factSourceRoot, frontmatter.refs);
+    if (!refsCheck.ok) {
+      return failure("spark/refs_unresolvable", refsCheck.reason, { missing: refsCheck.missing });
+    }
+  }
+
   // Body structure + carrier coherence
   const body = assembleBody(frontmatter.title, bodyMarkdown);
   const evolutionCount = Array.isArray(frontmatter.evolution) ? frontmatter.evolution.length : 0;
@@ -754,6 +891,13 @@ export async function listSparkObjects(args) {
       status,
       question: typeof frontmatter.question === "string" ? frontmatter.question : "",
       serves: typeof frontmatter.serves === "string" ? frontmatter.serves : undefined,
+      // refs (20 §8/§12): carried into F1 so the Human list card can show what
+      // this spark is related to. Targets are enriched with type/title for
+      // readability only — this is a derived projection, never written back
+      // (03 §7.2 invariant 4: no second authority).
+      refs: Array.isArray(frontmatter.refs) && frontmatter.refs.length > 0
+        ? frontmatter.refs.map((entry) => ({ object_uid: entry?.object_uid })).filter((entry) => typeof entry.object_uid === "string")
+        : undefined,
       priority: typeof frontmatter.priority === "string" ? frontmatter.priority : undefined,
       created_at: typeof frontmatter.created_at === "string" ? frontmatter.created_at : "",
     });
@@ -851,6 +995,14 @@ export async function updateSparkObject(args) {
     }
     if (!goal.anchors.has(fm.serves)) {
       return failure("spark/serves_unresolvable", `serves ${fm.serves} does not match any SG-n in goal.md 子目标 (available: ${[...goal.anchors].join(", ") || "none"})`);
+    }
+  }
+
+  // refs target resolution on the updated object (03 §7.2, 20 §8)
+  if (fm.refs !== undefined) {
+    const refsCheck = await resolveRefsTargets(factSourceRoot, fm.refs);
+    if (!refsCheck.ok) {
+      return failure("spark/refs_unresolvable", refsCheck.reason, { missing: refsCheck.missing });
     }
   }
 
