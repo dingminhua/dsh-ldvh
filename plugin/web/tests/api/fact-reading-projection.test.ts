@@ -26,7 +26,7 @@ test('contributed-to relations project through with their stable target', () => 
 });
 
 test('UID relation targets remain visible as stable references', () => {
-  const objectUid = '0198f1c7-8a2b-7c3d-9e4f-123456789abc';
+  const objectUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc';
   const projected = projectFactReadingAssociations({
     relations: [{ relation_key: 'related-to', target: { object_uid: objectUid } }],
   });
@@ -37,7 +37,7 @@ test('UID relation targets remain visible as stable references', () => {
 });
 
 test('a uniquely resolved UID relation keeps UID authority and a separate detail locator', () => {
-  const objectUid = '0198f1c7-8a2b-7c3d-9e4f-123456789abc';
+  const objectUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc';
   const resolvedTarget = { governedProjectId: 'sample', factTypeKey: 'workcase', objectId: 'workcase-0002' };
   const projected = projectFactReadingAssociations({
     relations: [{ relation_key: 'related-to', target: { object_uid: objectUid } }],
@@ -71,7 +71,7 @@ test('legacy reference fields are not projected', () => {
 });
 
 test('malformed relations stay visible as unresolved', () => {
-  const objectUid = '0198f1c7-8a2b-7c3d-9e4f-123456789abc';
+  const objectUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc';
   const projected = projectFactReadingAssociations({
     relations: [
       { relation_key: 'related-to', target: { object_id: 'spark-0002' } },
@@ -104,7 +104,7 @@ test('groups ordinary relations by target type rather than their relation key', 
 
 test('exact read metadata never becomes an object content field', () => {
   const entries = getObjectDetailContentEntries({
-    object_uid: '019ffc1f-36b6-7175-891f-a3ba657b5ec0',
+    object_uid: '019ffc1f-36b6-4175-891f-a3ba657b5ec0',
     object_id: 'research-0001',
     fact_type_key: 'research',
     status: 'active',

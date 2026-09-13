@@ -673,7 +673,7 @@ test('closure confirmation projects a stable closure-proposal subset only when w
 });
 
 test('closure confirmation preserves UID route targets without rewriting them to legacy triples', () => {
-  const objectUid = '0198f1c7-8a2b-7c3d-9e4f-123456789abc';
+  const objectUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc';
   const projected = projectCurrentCard({
     object_id: 'workcase-0112',
     fact_type_key: 'workcase',
@@ -701,7 +701,7 @@ test('closure confirmation preserves UID route targets without rewriting them to
 });
 
 test('UID-only WorkCase route targets resolve to readable locators when the UID is unique', () => {
-  const objectUid = '0198f1c7-8a2b-7c3d-9e4f-123456789abc';
+  const objectUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc';
   const uidTargets = new Map([[objectUid, {
     governedProjectId: 'sample',
     factTypeKey: 'spark',

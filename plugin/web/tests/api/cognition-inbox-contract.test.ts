@@ -302,8 +302,8 @@ test('recent hotspot builder does not absorb transitive peers and rejects invali
 
 test('recent hotspots use UID identity, preserve UID activity, and reject mixed targets', async () => {
   const { buildRecentHotspots } = await import('../../api/routes/cognition.ts')
-  const firstUid = '0198f1c7-8a2b-7c3d-9e4f-123456789abc'
-  const secondUid = '0198f1c7-8a2b-7c3d-9e4f-123456789abd'
+  const firstUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc'
+  const secondUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abd'
   const facts: RecentHotspotBuildItem[] = [
     {
       type: 'spark', object_id: 'spark-0001', object_uid: firstUid,
@@ -378,7 +378,7 @@ test('recent hotspot projection preserves full UID identity for readable nodes',
     source_content_fingerprint: null,
     fact_object: {
       object_id: 'spark-0103',
-      object_uid: '019ffb52-ebb5-7812-9630-8e7aad44da3d',
+      object_uid: '019ffb52-ebb5-4812-9630-8e7aad44da3d',
       title: '可读热点',
       status: 'open',
       relations: [],
@@ -392,7 +392,7 @@ test('recent hotspot projection preserves full UID identity for readable nodes',
     {
       type: 'spark',
       object_id: 'spark-0103',
-      object_uid: '019ffb52-ebb5-7812-9630-8e7aad44da3d',
+      object_uid: '019ffb52-ebb5-4812-9630-8e7aad44da3d',
       title: '可读热点',
       status: 'open',
       read_status: 'readable',
@@ -574,7 +574,7 @@ test('recent activity environment usage merges Codex Desktop and Codex into one 
 
 test('duplicate object UIDs never merge distinct activity objects', async () => {
   const { buildRecentActivityView } = await import('../../api/routes/cognition.ts')
-  const duplicateUid = '0198f1c7-8a2b-7c3d-9e4f-123456789abc'
+  const duplicateUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc'
   const common = {
     type: 'spark' as const, title: 'Duplicate UID', activity: 'updated' as const,
     status: 'open', read_status: 'readable', field_issues: [], unparsed_structures: [],

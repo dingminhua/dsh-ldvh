@@ -63,8 +63,8 @@ test('local exact reads carry source metadata for each local carrier, while list
 test('fact list projections preserve full UID authority without derived identity fields', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-web-facts-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
-  const adrUid = '0198f1c7-8a2b-7c3d-9e4f-123456789abc';
-  const workCaseUid = '0198f1c7-8a2b-7c3d-9e4f-123456789abd';
+  const adrUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc';
+  const workCaseUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abd';
   try {
     await mkdir(path.join(root, 'ldvh-base', 'adrs'), { recursive: true });
     await mkdir(path.join(root, 'ldvh-base', 'workcases'), { recursive: true });
@@ -99,7 +99,7 @@ test('UID-native object ids open through the exact-read detail path', async () =
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-web-facts-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
   const objectId = 'spark-01KZXN5TXNFTKR60XNHDPSKV6D';
-  const objectUid = '019ffb52-ebb5-724c-881f-4f0f7d97038f';
+  const objectUid = '019ffb52-ebb5-424c-881f-4f0f7d97038f';
   try {
     await mkdir(path.join(root, 'ldvh-base', 'sparks'), { recursive: true });
     // v5 Spark 载体（20 §7）：.md + frontmatter + 正文；ULID 定位符与 UUID 形态
@@ -206,7 +206,7 @@ test('fact list cards project every formal association through exact readable ta
     await mkdir(path.join(root, 'ldvh-base', 'workcases'), { recursive: true });
     await writeFile(
       path.join(root, 'ldvh-base', 'workcases', 'workcase-0001.yaml'),
-      'object_uid: 0198f1c7-8a2b-7c3d-9e4f-123456789abc\nobject_id: workcase-0001\nfact_type_key: workcase\ntitle: Target title\ntitle_zh: 关联目标\nstatus: open\nphase: executing\n',
+      'object_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc\nobject_id: workcase-0001\nfact_type_key: workcase\ntitle: Target title\ntitle_zh: 关联目标\nstatus: open\nphase: executing\n',
       'utf8',
     );
     await writeFile(
@@ -222,8 +222,8 @@ test('fact list cards project every formal association through exact readable ta
         '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0001',
         '  - relation_key: informs', '    target:', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0001',
         '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: research', '      object_id: research-9999',
-        '  - relation_key: related-to', '    target:', '      object_uid: 0198f1c7-8a2b-7c3d-9e4f-123456789abc',
-        '  - relation_key: related-to', '    target:', '      object_uid: 0198f1c7-8a2b-7c3d-9e4f-123456789abc', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0001',
+        '  - relation_key: related-to', '    target:', '      object_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc',
+        '  - relation_key: related-to', '    target:', '      object_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0001',
         '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0001', '      copied_title: Bad target',
         '  - malformed relation',
         '---',
@@ -253,7 +253,7 @@ test('fact list cards project every formal association through exact readable ta
       },
       {
         relationKey: 'related-to',
-        target: { objectUid: '0198f1c7-8a2b-7c3d-9e4f-123456789abc' },
+        target: { objectUid: '0198f1c7-8a2b-4c3d-9e4f-123456789abc' },
         resolvedTarget: { governedProjectId: 'fixture', factTypeKey: 'workcase', objectId: 'workcase-0001' },
         available: true,
         title: 'Target title',

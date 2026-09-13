@@ -10,6 +10,7 @@ import { lstat, readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import yaml from 'js-yaml'
 import { FACT_FIELD_CONTRACT, type FactType, type FieldExpectation } from './factFieldContract.js'
+import { canonicalUid } from '../../shared/factIdentity.js'
 
 export const FACT_TYPE_DIRS = {
   workcase: 'workcases',
@@ -304,7 +305,7 @@ function projectFields(type: LocalFactType, objectId: string, parsed: Record<str
   }
   // 03 §6.1：object_uid 为 canonical UUIDv4（版本位 4）。时间语义由 created_at 与
   // change_log[].at 承担，不由身份字段编码——不校验时间戳有序形态（UUIDv7）。
-  if (all.object_uid !== undefined && (typeof all.object_uid !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(all.object_uid))) {
+  if (all.object_uid !== undefined && !canonicalUid(all.object_uid)) {
     fieldIssues.push({
       path: 'object_uid',
       reason: 'identity_mismatch',
@@ -331,9 +332,7 @@ function readable(
   const objectUid = projected.fact_object?.object_uid
   return {
     ...metadata,
-    ...(typeof objectUid === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(objectUid)
-      ? { authority_ref: { object_uid: objectUid } }
-      : {}),
+    ...(canonicalUid(objectUid) ? { authority_ref: { object_uid: objectUid } } : {}),
     read_status: 'readable',
     source_content_fingerprint: sourceContentFingerprint,
     ...(yamlSource !== undefined ? { yaml_source: yamlSource } : {}),

@@ -6,6 +6,7 @@ import {
   type LocalFactMetadata,
   type LocalFactScope,
 } from './localFactReader.js'
+import { canonicalUid } from '../../shared/factIdentity.js'
 import { resolveCurrentWebProject, WebGovernanceError } from './governanceScope.js'
 import {
   deriveWorkCasePresentationProjection,
@@ -114,7 +115,10 @@ type LegacyFactAssociationTarget = {
 type FactAssociationTarget = LegacyFactAssociationTarget | { objectUid: string }
 type FactUidTargetIndex = Map<string, LegacyFactAssociationTarget | null>
 
-const UUID_V7_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+// 03 §6.1：canonical object_uid 是 UUIDv4（版本位 4），规范明文不采用时间有序的
+// UUIDv7——此处曾误用 v7 形态，使每个按规范创建的对象都无法被认作关联目标，
+// uidTargets 索引恒空、全部关联降级为「关联信息不可用」。单一权威判定见
+// shared/factIdentity.canonicalUid()，全读取层复用它而不是各自维护正则。
 
 function factAssociationTargetKey(target: FactAssociationTarget): string {
   if ('objectUid' in target) return `uid\u0000${target.objectUid}`
@@ -128,7 +132,7 @@ function projectFactAssociationTarget(value: unknown): FactAssociationTarget | n
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const target = value as Record<string, unknown>
   const keys = Object.keys(target)
-  if (keys.length === 1 && typeof target.object_uid === 'string' && UUID_V7_PATTERN.test(target.object_uid)) {
+  if (keys.length === 1 && canonicalUid(target.object_uid)) {
     return { objectUid: target.object_uid }
   }
   if (keys.length !== 3
@@ -153,7 +157,7 @@ async function currentProjectUidTargets(scope: LocalFactScope): Promise<FactUidT
     const listed = await listLocalFacts(type, scope)
     for (const item of listed.items) {
       const objectUid = item.fact_object?.object_uid
-      if (item.read_status !== 'readable' || typeof objectUid !== 'string' || !UUID_V7_PATTERN.test(objectUid)) continue
+      if (item.read_status !== 'readable' || !canonicalUid(objectUid)) continue
       const targets = matches.get(objectUid) ?? []
       targets.push({
         governedProjectId: scope.governedProjectId,
@@ -275,7 +279,7 @@ function projectContributedToTargets(value: unknown, uidTargets?: FactUidTargetI
     const target = relation.target
     if (!target || typeof target !== 'object' || Array.isArray(target)) return []
     const triple = target as Record<string, unknown>
-    if (Object.keys(triple).length === 1 && typeof triple.object_uid === 'string' && UUID_V7_PATTERN.test(triple.object_uid)) {
+    if (Object.keys(triple).length === 1 && canonicalUid(triple.object_uid)) {
       const resolvedTarget = uidTargets?.get(triple.object_uid)
       return [{ objectUid: triple.object_uid, ...(resolvedTarget ? {
         governedProjectId: resolvedTarget.governedProjectId,
@@ -296,7 +300,7 @@ const RESIDUAL_DISPOSITIONS = new Set(['route_existing', 'suggest_spark', 'accep
 function projectRelationTarget(value: unknown, uidTargets?: FactUidTargetIndex): Record<string, string> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const target = value as Record<string, unknown>
-  if (Object.keys(target).length === 1 && typeof target.object_uid === 'string' && UUID_V7_PATTERN.test(target.object_uid)) {
+  if (Object.keys(target).length === 1 && canonicalUid(target.object_uid)) {
     const resolvedTarget = uidTargets?.get(target.object_uid)
     return { objectUid: target.object_uid, ...(resolvedTarget ? {
       governedProjectId: resolvedTarget.governedProjectId,

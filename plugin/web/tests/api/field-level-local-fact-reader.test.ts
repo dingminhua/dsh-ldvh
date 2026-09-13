@@ -31,7 +31,7 @@ test('field-level reader preserves canonical UID authority without adding a deri
   await mkdir(directory, { recursive: true });
   try {
     // 22 §7：文件名编码 UID（adr-<uid>.md），frontmatter 携带 object_uid。
-    const uid = '0198f1c7-8a2b-7c3d-9e4f-123456789abc';
+    const uid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc';
     await writeFile(path.join(directory, `adr-${uid}.md`), adrMarkdownCarrier(uid), 'utf8');
     const listed = await listLocalFacts('adr', scope);
     assert.equal(listed.items[0]?.fact_object?.object_uid, uid);
@@ -54,13 +54,13 @@ test('field-level reader discovers a UID-native Crockford carrier name', async (
   try {
     await writeFile(
       path.join(directory, `${objectId}.md`),
-      adrMarkdownCarrier('019ffb52-ebb5-72f3-861a-31869779aa44'),
+      adrMarkdownCarrier('019ffb52-ebb5-42f3-861a-31869779aa44'),
       'utf8',
     );
     const listed = await listLocalFacts('adr', scope);
     assert.equal(listed.items.length, 1);
     assert.equal(listed.items[0]?.object_ref.object_id, objectId);
-    assert.equal(listed.items[0]?.fact_object?.object_uid, '019ffb52-ebb5-72f3-861a-31869779aa44');
+    assert.equal(listed.items[0]?.fact_object?.object_uid, '019ffb52-ebb5-42f3-861a-31869779aa44');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -462,7 +462,7 @@ test('yaml carrier objects carry the whole file as yaml_source', async () => {
   const directory = path.join(root, 'ldvh-base', 'workcases');
   await mkdir(directory, { recursive: true });
   try {
-    const rawFile = `# 文件级注释\nobject_uid: 0198f1c7-8a2b-7c3d-9e4f-123456789abc\nobject_id: workcase-0007\nfact_type_key: workcase\ntitle: YAML carrier\nstatus: open\ncreated_at: "2026-01-01"\n`;
+    const rawFile = `# 文件级注释\nobject_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc\nobject_id: workcase-0007\nfact_type_key: workcase\ntitle: YAML carrier\nstatus: open\ncreated_at: "2026-01-01"\n`;
     await writeFile(path.join(directory, 'workcase-0007.yaml'), rawFile, 'utf8');
     const detail = await readLocalFact('workcase', 'workcase-0007', scope);
     assert.equal(detail.status, 'ok');

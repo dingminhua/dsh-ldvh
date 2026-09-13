@@ -16,6 +16,7 @@
 import { Router, type Request, type Response } from 'express'
 import { listObjects, type ObjectType } from '../services/facts.js'
 import { listLocalFacts, type LocalFactItem } from '../services/localFactReader.js'
+import { canonicalUid } from '../../shared/factIdentity.js'
 import {
   deriveWorkCasePresentationProjection,
   isResolvedWorkCasePresentationProjection,
@@ -225,7 +226,7 @@ function canonicalPath(type: InboxObjectType, objectId: string): string {
 }
 
 function factKey(type: string, objectId: string, objectUid?: string): string {
-  return objectUid && /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(objectUid)
+  return canonicalUid(objectUid)
     ? `uid:${objectUid}`
     : `legacy:${type}:${objectId}`
 }
