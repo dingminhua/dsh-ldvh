@@ -500,7 +500,7 @@ test("update: active object with disposition rejected (23 §8: disposition ⇔ d
   });
 });
 
-test("update: discarded object is read-only — further update rejected as pitfall/status_terminal (23 §9.2 终态不重开)", async () => {
+test("update: discarded object allows content correction but not reopening (23 §9.2)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
     const { draft, read } = await createAndRead(root);
     const r1 = await updatePitfallObject({
@@ -514,19 +514,37 @@ test("update: discarded object is read-only — further update rejected as pitfa
     });
     assert.ok(r1.ok, JSON.stringify(r1.error));
 
+    // Content correction on the terminal object is allowed (23 §9.3).
     const read2 = await readPitfallObject({ factSourceRoot: root, objectUid: read.value.object_uid });
     assert.equal(read2.value.frontmatter.status, "discarded");
     const r2 = await updatePitfallObject({
       factSourceRoot: root,
       objectUid: read.value.object_uid,
       expectedFingerprint: read2.value.fingerprint,
-      frontmatterAfter: { ...read2.value.frontmatter, title: "试图重开" },
+      frontmatterAfter: { ...read2.value.frontmatter, disposition: "更正后的废弃依据。" },
       bodyMarkdownAfter: validBodyMarkdown(draft),
-      changeSummary: "试图重开终态",
+      changeSummary: "更正终态理由",
       sessionSignature: TEST_SIGNATURE,
     });
-    assert.ok(!r2.ok);
-    assert.equal(r2.error.code, "pitfall/status_terminal");
+    assert.ok(r2.ok, JSON.stringify(r2.error));
+
+    const read3 = await readPitfallObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+    assert.equal(read3.value.frontmatter.disposition, "更正后的废弃依据。");
+    assert.equal(read3.value.frontmatter.status, "discarded", "correction must not change status");
+    assert.equal(read3.value.frontmatter.change_log.length, 3, "every update appends exactly one change_log entry");
+
+    // Reopen stays forbidden.
+    const reopen = await updatePitfallObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: read3.value.fingerprint,
+      frontmatterAfter: { ...read3.value.frontmatter, status: "active" },
+      bodyMarkdownAfter: validBodyMarkdown(draft),
+      changeSummary: "试图重开",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!reopen.ok);
+    assert.equal(reopen.error.code, "pitfall/status_terminal");
   });
 });
 

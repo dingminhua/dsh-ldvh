@@ -632,7 +632,7 @@ test("update: stale fingerprint rejected as CAS conflict (20 §13, 03 §9.5)", a
   });
 });
 
-test("update: terminal implemented object is read-only (20 §9.2 终态不重开)", async () => {
+test("update: terminal implemented object allows content correction with a change_log (20 §9.2)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
@@ -648,18 +648,34 @@ test("update: terminal implemented object is read-only (20 §9.2 终态不重开
     });
     assert.ok(r1.ok, JSON.stringify(r1.error));
 
+    // Content correction on a terminal object is allowed (status unchanged).
     const read2 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    const corrected = { ...read2.value.frontmatter, title: "更正后的标题" };
     const r2 = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read2.value.fingerprint,
-      frontmatterAfter: { ...read2.value.frontmatter, title: "试图重开" }, bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "试图重开",
+      frontmatterAfter: corrected, bodyMarkdownAfter: validBodyMarkdown({ ...draft, title: "更正后的标题" }), changeSummary: "更正终态记录的文字",
       sessionSignature: TEST_SIGNATURE,
     });
-    assert.ok(!r2.ok);
-    assert.equal(r2.error.code, "spark/status_terminal");
+    assert.ok(r2.ok, JSON.stringify(r2.error));
+
+    const read3 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(read3.value.frontmatter.title, "更正后的标题");
+    assert.equal(read3.value.frontmatter.status, "implemented", "correction must not change status");
+    assert.equal(read3.value.frontmatter.change_log.length, 3, "every update appends exactly one change_log entry");
+
+    // Status reversal (reopen) stays forbidden.
+    const read4 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    const reopen = await updateSparkObject({
+      factSourceRoot: root, objectUid: uid, expectedFingerprint: read4.value.fingerprint,
+      frontmatterAfter: { ...read4.value.frontmatter, status: "open" }, bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "试图重开",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!reopen.ok);
+    assert.equal(reopen.error.code, "spark/status_terminal");
   });
 });
 
-test("update: terminal discarded object is read-only (20 §9.2 终态不重开)", async () => {
+test("update: terminal discarded object allows content correction but not reopening (20 §9.2)", async () => {
   await withTemp("spark-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const created = await createSparkObject({ factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft) , sessionSignature: TEST_SIGNATURE});
@@ -675,14 +691,28 @@ test("update: terminal discarded object is read-only (20 §9.2 终态不重开)"
     });
     assert.ok(r1.ok, JSON.stringify(r1.error));
 
+    // Content correction on the terminal discarded object is allowed.
     const read2 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
     const r2 = await updateSparkObject({
       factSourceRoot: root, objectUid: uid, expectedFingerprint: read2.value.fingerprint,
-      frontmatterAfter: { ...read2.value.frontmatter, title: "试图重开" }, bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "试图重开",
+      frontmatterAfter: { ...read2.value.frontmatter, disposition: "更正后的终态理由。" }, bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "更正终态理由",
       sessionSignature: TEST_SIGNATURE,
     });
-    assert.ok(!r2.ok);
-    assert.equal(r2.error.code, "spark/status_terminal");
+    assert.ok(r2.ok, JSON.stringify(r2.error));
+
+    const read3 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(read3.value.frontmatter.disposition, "更正后的终态理由。");
+    assert.equal(read3.value.frontmatter.status, "discarded");
+
+    // Reopen stays forbidden.
+    const read4 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    const r3 = await updateSparkObject({
+      factSourceRoot: root, objectUid: uid, expectedFingerprint: read4.value.fingerprint,
+      frontmatterAfter: { ...read4.value.frontmatter, status: "open" }, bodyMarkdownAfter: validBodyMarkdown(draft), changeSummary: "试图重开",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!r3.ok);
+    assert.equal(r3.error.code, "spark/status_terminal");
   });
 });
 

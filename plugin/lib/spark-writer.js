@@ -739,11 +739,17 @@ export async function updateSparkObject(args) {
     return failure("spark/cas_conflict", `fingerprint mismatch: expected ${expectedFingerprint}, actual ${current.value.fingerprint}`);
   }
 
-  // 20 §9.2: terminal states are read-only (终态不重开；更正走 05 事实更正，
-  // 不是本入口的领域状态转换)
+  // 20 §9.2: a terminal state must NOT be reopened (status may not change),
+  // but the object's content stays correctable — a terminal record that is
+  // wrong, over-long or stale is fixed in place with a change_log entry,
+  // never by faking a status transition.
   const prevStatus = current.value.frontmatter.status;
-  if (prevStatus === "implemented" || prevStatus === "discarded") {
-    return failure("spark/status_terminal", `status=${prevStatus} is terminal and the object is read-only (20 §9.2); later unresolved info belongs to a NEW open Spark`);
+  const prevTerminal = prevStatus === "implemented" || prevStatus === "discarded";
+  if (prevTerminal) {
+    const requested = frontmatterAfter?.status;
+    if (requested !== undefined && requested !== prevStatus) {
+      return failure("spark/status_terminal", `status=${prevStatus} is terminal; reopen (status=${requested}) is forbidden (20 §9.2) — content correction is allowed, status reversal is not; later unresolved info belongs to a NEW open Spark`);
+    }
   }
 
   // Build updated frontmatter; strip the call-only param

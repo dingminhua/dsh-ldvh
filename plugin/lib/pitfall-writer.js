@@ -467,11 +467,16 @@ export async function updatePitfallObject(args) {
     return failure("pitfall/cas_conflict", `fingerprint mismatch: expected ${expectedFingerprint}, actual ${current.value.fingerprint}`);
   }
 
-  // 23 §9.2: terminal states are read-only (终态不重开；错误终态记录按 05
-  // 事实更正修正，不是本入口的领域状态转换)
+  // 23 §9.2: a terminal state must NOT be reopened (status may not change),
+  // but the object's content stays correctable via §9.3 勘误与补充级更新 — a
+  // wrong or over-long terminal record is fixed in place with a change_log
+  // entry, never by faking a status transition.
   const prevStatus = current.value.frontmatter.status;
   if (prevStatus === "discarded") {
-    return failure("pitfall/status_terminal", "status=discarded is terminal and the object is read-only (23 §9.2); a substantively changed mechanism goes through a NEW Pitfall object");
+    const requested = frontmatterAfter?.status;
+    if (requested !== undefined && requested !== prevStatus) {
+      return failure("pitfall/status_terminal", `status=discarded is terminal; reopen (status=${requested}) is forbidden (23 §9.2) — content correction via §9.3 is allowed, status reversal is not; a substantively changed mechanism goes through a NEW Pitfall object`);
+    }
   }
 
   // Build updated frontmatter; strip the call-only param
