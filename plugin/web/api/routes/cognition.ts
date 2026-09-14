@@ -93,6 +93,8 @@ interface InboxBuildItem {
   blocking_overlay?: boolean
   priority?: string
   updated_at?: string
+  /** 关联的事实对象引用（03 §7.2 关联引用型 / 20 §8 refs），条件出现 */
+  refs?: Array<{ object_uid: string; title?: string; type?: string }>
   read_status: string
   projection: Record<string, unknown>
   field_issues: Array<Record<string, unknown>>

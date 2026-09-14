@@ -90,6 +90,8 @@ export interface ObjectItem {
   created?: string;
   updated: string;
   priority?: string;
+  /** 关联的事实对象引用（03 §7.2 关联引用型 / 20 §8 refs），条件出现 */
+  refs?: { object_uid: string; title?: string; type?: string }[];
   executionItemsProjectionValid?: boolean;
   executionItems?: WorkCaseExecutionItem[];
   successCriteria?: string[];
