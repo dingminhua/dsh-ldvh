@@ -407,7 +407,11 @@ function renderEnvelope(operationKey, value) {
   if (result?.count !== undefined) lines.push(`count: ${result.count}${result.total !== undefined && result.total !== result.count ? ` (of ${result.total})` : ""}`);
   if (Array.isArray(result?.items)) {
     for (const item of result.items) {
-      lines.push(`- ${item.object_uid} [${item.status}] ${item.title}${item.serves ? ` (${item.serves})` : ""}${Array.isArray(item.refs) && item.refs.length > 0 ? ` → ${item.refs.map((r) => r?.object_uid ?? r).join(", ")}` : ""}`);
+      // F1 projection must render title + status + priority + serves + refs
+      // (20 §12). priority was carried by the writer projection but never
+      // printed here, so the model could not see the ordering tier the spec
+      // promises; missing priority is legal (未分档) and renders as no tag.
+      lines.push(`- ${item.object_uid} [${item.status}]${item.priority ? ` ${item.priority}` : ""} ${item.title}${item.serves ? ` (${item.serves})` : ""}${Array.isArray(item.refs) && item.refs.length > 0 ? ` → ${item.refs.map((r) => r?.object_uid ?? r).join(", ")}` : ""}`);
     }
   }
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${change.object_uid}`);
