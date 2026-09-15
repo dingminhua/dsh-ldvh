@@ -224,6 +224,61 @@ async function projectFactCardAssociations(
   }))
 }
 
+/**
+ * refs（03 §7.2 关联引用型 / 20 §8）：把普通内容关联投影为可读的关联条目。
+ *
+ * 与 projectFactCardAssociations 的分工（03 §7.2「分工纪律」）：`relations`
+ * 承载生命周期关系（合并/拆分/替代），`refs` 承载普通内容关联；两者语义
+ * **互不替代**，因此这里产出的是并列的独立字段 `factRefs`，绝不并入
+ * relations 数组、也不为其编造 relation key（refs 不参与关系闭集校验）。
+ *
+ * 解析失败（目标不可解析/不可读/跨项目）时保留该条并标 available:false，
+ * 由呈现层如实标注——03 §7.2 机械校验边界：目标解析失败不得降级为空数组
+ * 或静默丢弃该条目。
+ */
+async function projectFactRefs(
+  item: LocalFactItem,
+  scope: LocalFactScope,
+  uidTargets: FactUidTargetIndex,
+): Promise<Array<Record<string, unknown>>> {
+  const refs = item.fact_object?.refs
+  if (!Array.isArray(refs)) return []
+  const out: Array<Record<string, unknown>> = []
+  const seen = new Set<string>()
+  for (const candidate of refs) {
+    const objectUid = typeof candidate === 'string'
+      ? candidate
+      : (candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+        ? (candidate as { object_uid?: unknown }).object_uid
+        : undefined)
+    if (typeof objectUid !== 'string' || !objectUid.trim() || seen.has(objectUid)) continue
+    seen.add(objectUid)
+    const locator = uidTargets.get(objectUid) ?? null
+    if (!locator || locator.governedProjectId !== scope.governedProjectId || !isObjectType(locator.factTypeKey)) {
+      out.push({ objectUid, available: false })
+      continue
+    }
+    const exact = await readLocalFact(locator.factTypeKey, locator.objectId, scope)
+    if (exact.status !== 'ok' || exact.item.read_status !== 'readable' || exact.item.fact_object === null) {
+      out.push({ objectUid, available: false })
+      continue
+    }
+    const source = exact.item.fact_object
+    if (typeof source.title !== 'string' || !source.title.trim()) {
+      out.push({ objectUid, available: false })
+      continue
+    }
+    out.push({
+      objectUid,
+      available: true,
+      resolvedTarget: locator,
+      title: source.title,
+      ...copyPresentFields(source, ['title_en', 'title_zh', 'status']),
+    })
+  }
+  return out
+}
+
 async function projectListItemWithAssociations(
   type: ObjectType,
   item: LocalFactItem,
@@ -654,6 +709,9 @@ export async function showObject(id: string, scope?: LocalFactScope): Promise<We
     const uidTargets = await currentProjectUidTargets(resolvedScope)
     const associations = await projectFactCardAssociations(item, resolvedScope, uidTargets)
     if (associations.length > 0) data.factAssociations = associations
+    // 03 §7.2 关联引用型 / 20 §8：refs 与 relations 并列投影、互不并入。
+    const refs = await projectFactRefs(item, resolvedScope, uidTargets)
+    if (refs.length > 0) data.factRefs = refs
     if (type === 'workcase') {
       const projection = deriveWorkCasePresentationProjection(
         item.fact_object.status,

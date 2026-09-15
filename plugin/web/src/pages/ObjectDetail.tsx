@@ -15,7 +15,6 @@ import ObjectReferenceCopyButton from '@/components/ObjectReferenceCopyButton';
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
 import ServesSgBadge from '@/components/ServesSgBadge';
-import RefsBadge from '@/components/RefsBadge';
 import { hasUnavailableIndependentSubagentReview } from '@/shared/workcaseCapability';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
@@ -656,7 +655,6 @@ export function ObjectIdentityHeader({
                 SG → 修改次数（详情/面板/卡片/近期动态/健康度统一）。 */}
             <PriorityIcon source={source} type={objectType} locale={locale} size="xs" />
             <ServesSgBadge value={source.serves} locale={locale} />
-            <RefsBadge value={source.refs} locale={locale} />
             {extraBadges}
             {showActivityCount && (
               <span

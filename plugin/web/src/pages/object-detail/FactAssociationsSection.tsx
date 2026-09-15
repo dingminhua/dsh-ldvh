@@ -11,6 +11,8 @@ import {
 import {
   groupRelationsByTargetType,
   projectFactReadingAssociations,
+  projectFactReadingRefs,
+  type ReadingRef,
   type ReadingRelation,
   type UnresolvedAssociation,
 } from '@/pages/object-detail/factReadingProjection';
@@ -30,12 +32,15 @@ export function FactAssociationsSection({
   obj: Record<string, unknown>;
   locale: string;
   title?: string;
-  variant?: 'detailed' | 'spark';
   showRelationKey?: boolean;
 }) {
   const [state, setState] = useState<ReadingNodeState>('expanded');
   const associations = projectFactReadingAssociations(obj);
-  if (associations.relations.length === 0 && associations.unresolved.length === 0) return null;
+  // 03 §7.2 关联引用型 / 20 §8：refs 是普通内容关联，与 relations 并列呈现、
+  // 语义互不并入（relations 承载生命周期关系）。二者共用同一种可点行渲染，
+  // 但数据上始终是两个独立集合。
+  const refs = projectFactReadingRefs(obj);
+  if (associations.relations.length === 0 && associations.unresolved.length === 0 && refs.length === 0) return null;
   const currentProjectId = getCurrentProjectId(obj);
   const factTypeKey = typeof obj.fact_type_key === 'string' ? obj.fact_type_key : typeof obj.type === 'string' ? obj.type : undefined;
   return (
@@ -53,9 +58,96 @@ export function FactAssociationsSection({
           showRelationKey={showRelationKey}
           semanticRelationLabels={factTypeKey === 'research'}
         />
+        <RefGroup refs={refs} currentProjectId={currentProjectId} locale={locale} />
         <UnresolvedGroup items={associations.unresolved} locale={locale} />
       </div>
     </ReadingNodeSection>
+  );
+}
+
+/**
+ * refs 关联对象行（03 §7.2 关联引用型 / 20 §8）。
+ *
+ * 与 RelationGroup 并列但**独立**：refs 不定义 relation key、不参与关系
+ * 闭集校验，因此这里不渲染 relation key chip，也不并入 relations 列表。
+ */
+function RefGroup({ refs, currentProjectId, locale }: {
+  refs: ReadingRef[];
+  currentProjectId?: string;
+  locale: string;
+}) {
+  if (refs.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-1">
+      {refs.map((ref) => (
+        <RefTarget key={ref.originPath} entry={ref} currentProjectId={currentProjectId} locale={locale} />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * 单条 refs 目标行：复用与 relations 相同的可点行形态（图标 + 标题 + 状态
+ * 徽章 + 跳转箭头）。
+ *
+ * Hook 纪律：本组件无条件调用 usePanel/useState/useEffect，**是否可读的分支
+ * 在 hook 之后**——否则条件挂载会破坏 hook 调用序（react-hooks/rules-of-hooks）。
+ * 目标不可读时如实标注 uid，不伪造本地对象（03 §7.2 第 5 条同精神：目标解析
+ * 失败不得降级为「无关联」）。
+ */
+function RefTarget({ entry, currentProjectId, locale }: {
+  entry: ReadingRef;
+  currentProjectId?: string;
+  locale: string;
+}) {
+  const { isOpen: panelOpen, content: panelContent, openPanel } = usePanel();
+  const [detail, setDetail] = useState<ObjectDetail | null>(null);
+  const locator = entry.resolvedTarget;
+  const readable = Boolean(locator && currentProjectId && locator.governedProjectId === currentProjectId);
+
+  useEffect(() => {
+    if (!readable || !locator) {
+      setDetail(null);
+      return;
+    }
+    let cancelled = false;
+    setDetail(null);
+    fetchObjectDetail(locator.factTypeKey, locator.objectId)
+      .then((value) => { if (!cancelled) setDetail(value); })
+      .catch(() => { if (!cancelled) setDetail(null); });
+    return () => { cancelled = true; };
+  }, [readable, locator?.factTypeKey, locator?.objectId]);
+
+  if (!readable || !locator) {
+    return (
+      <div className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-2">
+        <ObjectTypeIcon type="uid" size={13} className="shrink-0" style={{ color: CATEGORY_COLORS.other }} />
+        <span className="ldvh-meta-primary min-w-0 flex-1 truncate">{entry.objectUid}</span>
+      </div>
+    );
+  }
+
+  const status = detail?.summary.status;
+  const readMeta = getFactReadMeta(detail?.data);
+  const title = relationTargetTitle(detail, readMeta, locale);
+  const typeColor = CATEGORY_COLORS[locator.factTypeKey] || CATEGORY_COLORS.other;
+  const isCurrentPanelOpen = Boolean(panelOpen && panelContent?.type === 'object'
+    && panelContent.objectType === locator.factTypeKey && panelContent.objectId === locator.objectId);
+  const PanelIcon = isCurrentPanelOpen ? ChevronLeft : ChevronRight;
+  const open = () => openPanel({ type: 'object', title, objectType: locator.factTypeKey, objectId: locator.objectId });
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    open();
+  };
+
+  return (
+    <div role="button" tabIndex={0} onClick={open} onKeyDown={onKeyDown} className="group flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-2 text-left transition-colors hover:bg-ldvh-border/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50">
+      <ObjectTypeIcon type={locator.factTypeKey} size={13} className="shrink-0" style={{ color: typeColor }} />
+      <span className="ldvh-meta-primary min-w-0 flex-1 truncate group-hover:text-ldvh-accent">{title}</span>
+      {status && <StatusBadge status={status} statusLabel={getObjectStatusLocale(locator.factTypeKey, status, locale)} objectType={locator.factTypeKey} size="xs" />}
+      <PanelIcon size={16} className="shrink-0 text-ldvh-text-secondary/70 transition-colors group-hover:text-ldvh-accent" aria-hidden="true" />
+    </div>
   );
 }
 
@@ -143,20 +235,27 @@ function ReadableRelationTarget({ relation, locale, showRelationKey }: {
 }) {
   const target = relation.target;
   const locator = relation.resolvedTarget ?? ('governedProjectId' in target ? target : null);
-  if (!locator) {
-    return <ExternalRelationTarget relation={relation} locale={locale} showRelationKey={showRelationKey} />;
-  }
+  // Hook 纪律：hook 必须先于任何条件分支调用，否则 locator 从有到无（或反之）
+  // 会破坏调用序（react-hooks/rules-of-hooks）。
   const { isOpen: panelOpen, content: panelContent, openPanel } = usePanel();
   const [detail, setDetail] = useState<ObjectDetail | null>(null);
 
   useEffect(() => {
+    if (!locator) {
+      setDetail(null);
+      return;
+    }
     let cancelled = false;
     setDetail(null);
     fetchObjectDetail(locator.factTypeKey, locator.objectId)
       .then((value) => { if (!cancelled) setDetail(value); })
       .catch(() => { if (!cancelled) setDetail(null); });
     return () => { cancelled = true; };
-  }, [locator.factTypeKey, locator.objectId]);
+  }, [locator?.factTypeKey, locator?.objectId]);
+
+  if (!locator) {
+    return <ExternalRelationTarget relation={relation} locale={locale} showRelationKey={showRelationKey} />;
+  }
 
   const status = detail?.summary.status;
   const readMeta = getFactReadMeta(detail?.data);

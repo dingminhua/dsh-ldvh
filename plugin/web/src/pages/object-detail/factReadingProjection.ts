@@ -28,6 +28,57 @@ export type FactReadingAssociations = {
   unresolved: UnresolvedAssociation[];
 };
 
+/**
+ * refs（03 §7.2 关联引用型 / 20 §8）的阅读投影条目。
+ *
+ * 与 ReadingRelation 的关键区别：**没有 relationKey**。refs 是引用型承载
+ * 而非关系型声明，不定义 relation key、不参与关系闭集校验（03 §7.2）；
+ * 因此它在类型上就不可能被误并入 relations 数组。
+ */
+export type ReadingRef = {
+  originPath: string;
+  objectUid: string;
+  resolvedTarget?: {
+    governedProjectId: string;
+    factTypeKey: string;
+    objectId: string;
+  };
+};
+
+/**
+ * 从精确读取投影 factRefs 归一出 refs 条目。
+ *
+ * 与 projectFactReadingAssociations 并列调用、**不合并**——03 §7.2 分工纪律
+ * 要求 `relations` 不得承载普通内容关联、`refs` 不得承载生命周期关系，
+ * 二者语义互不替代。
+ */
+export function projectFactReadingRefs(obj: Record<string, unknown>): ReadingRef[] {
+  if (!Array.isArray(obj.factRefs)) return [];
+  const out: ReadingRef[] = [];
+  const seen = new Set<string>();
+  obj.factRefs.forEach((entry, index) => {
+    if (!isRecord(entry) || typeof entry.objectUid !== 'string' || !entry.objectUid.trim()) return;
+    if (seen.has(entry.objectUid)) return;
+    seen.add(entry.objectUid);
+    const resolved = isRecord(entry.resolvedTarget)
+      && typeof entry.resolvedTarget.governedProjectId === 'string'
+      && typeof entry.resolvedTarget.factTypeKey === 'string'
+      && typeof entry.resolvedTarget.objectId === 'string'
+      ? {
+        governedProjectId: entry.resolvedTarget.governedProjectId,
+        factTypeKey: entry.resolvedTarget.factTypeKey,
+        objectId: entry.resolvedTarget.objectId,
+      }
+      : undefined;
+    out.push({
+      originPath: `factRefs[${index}]`,
+      objectUid: entry.objectUid,
+      ...(resolved ? { resolvedTarget: resolved } : {}),
+    });
+  });
+  return out;
+}
+
 export type RelationTargetTypeGroup = {
   factTypeKey: string;
   relations: ReadingRelation[];

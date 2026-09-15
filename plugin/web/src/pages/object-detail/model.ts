@@ -26,6 +26,11 @@ export const META_KEYS = [
   'read_issues',
   'fact_read_failure',
   'factAssociations',
+  // 03 §7.2 关联引用型 / 20 §8：factRefs 是 refs 的精确读取投影，由
+  // 「关联对象」阅读节点消费（与 relations 节点并列、语义互不并入）；
+  // 列入 META_KEYS 以免作为未映射字段落入通用字段区重复呈现。
+  'factRefs',
+  'refs',
 ];
 
 export const COMMON_AUXILIARY_META_KEYS = ['priority'];
