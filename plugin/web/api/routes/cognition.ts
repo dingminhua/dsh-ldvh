@@ -8,9 +8,9 @@
  * 的事实热点及一跳正式关系）与 issues（模块级降级）。
  * 数据经 Web 字段级直读（localFactReader / facts.ts 的 listObjects），不复用 /api/dashboard 聚合逻辑。
  *
- * 命名纪律（02 §7 第 3 条）：WorkCase 条目只携带 progress_group；待决类型 inboxKind
- * 表示 Human 的计划批准、关闭确认、阻塞待处置或 Pitfall draft 审核。progress_group
- * 决定两个既有行动模块的唯一归属；blocking_overlay 只改变 Human-position 的呈现类型。
+ * 命名纪律（02 §7 第 3 条）：WorkCase 条目只携带 group（21 号三态直读派生组）；
+ * 待决类型 inboxKind 表示 Human 的计划批准（Gate 1）或关闭确认（Gate 2）。
+ * group 决定两个既有行动模块（待办收件 / 推进中事项）的唯一归属。
  */
 
 import { Router, type Request, type Response } from 'express'
@@ -18,12 +18,10 @@ import { listObjects, type ObjectType } from '../services/facts.js'
 import { listLocalFacts, type LocalFactItem } from '../services/localFactReader.js'
 import { canonicalUid } from '../../shared/factIdentity.js'
 import {
-  deriveWorkCasePresentationProjection,
-  isResolvedWorkCasePresentationProjection,
-  type ResolvedWorkCasePresentationProjection,
-  type WorkCaseProgressGroup,
-  type WorkCaseProgressStep,
-} from '../../shared/workcaseStatus.js'
+  deriveWorkCaseV5View,
+  type WorkCaseV5View,
+  type WorkCaseV5Group,
+} from '../../shared/workcaseLifecycle.js'
 import {
   countChangeLogEntries,
   getLatestChangeLogAt,
@@ -76,8 +74,9 @@ const IDENTITY_PROJECTION_KEYS = new Set([
   'field_issues',
   'unparsed_structures',
   'current_snapshot_projection',
-  'progress_group',
-  'progress_step',
+  'group',
+  'outcome',
+  'has_result_draft',
 ])
 
 interface InboxBuildItem {
@@ -88,9 +87,7 @@ interface InboxBuildItem {
   title: string
   title_en?: string
   title_zh?: string
-  progress_group?: WorkCaseProgressGroup
-  lifecycle_position?: ResolvedWorkCasePresentationProjection['lifecycle_position']
-  blocking_overlay?: boolean
+  group?: WorkCaseV5Group
   priority?: string
   updated_at?: string
   /** 关联的事实对象引用（03 §7.2 关联引用型 / 20 §8 refs），条件出现 */
@@ -104,10 +101,7 @@ interface InboxBuildItem {
 
 interface ActiveWorkCaseBuildItem {
   type: 'workcase'
-  progress_group: 'progressing' | 'termination_cleanup'
-  progress_step?: WorkCaseProgressStep
-  lifecycle_position: ResolvedWorkCasePresentationProjection['lifecycle_position']
-  blocking_overlay: boolean
+  group: 'executing'
   object_id: string
   object_uid?: string
   title: string
@@ -136,7 +130,7 @@ interface RecentActivityBuildItem {
   /** 只读取对应事实流水的完整署名；兼容时间标记不伪造署名。 */
   signature?: FactChangeSignature
   status?: string
-  progress_group?: WorkCaseProgressGroup
+  group?: WorkCaseV5Group
   priority?: string
   /** Spark 的 goal.md 子目标锚点（20 §6 serves），条件出现。 */
   serves?: string
@@ -190,10 +184,9 @@ export interface RecentHotspotBuildItem {
   title_en?: string
   title_zh?: string
   status?: string
-  progress_group?: WorkCaseProgressGroup
+  group?: WorkCaseV5Group
   priority?: string
   read_status: string
-  lifecycle_position?: ResolvedWorkCasePresentationProjection['lifecycle_position']
   relations: unknown
 }
 
@@ -230,7 +223,7 @@ function priorityRank(priority: unknown): number {
 
 /** 与 localFactReader.metadataFor 一致：按事实类型返回当前 canonical path。 */
 function canonicalPath(type: InboxObjectType, objectId: string): string {
-  return `ldvh-base/${type === 'workcase' ? 'workcases' : 'pitfalls'}/${objectId}${type === 'workcase' ? '.yaml' : '.md'}`
+  return `ldvh-base/${type === 'workcase' ? 'workcases' : 'pitfalls'}/${objectId}${type === 'workcase' ? '.md' : '.md'}`
 }
 
 function factKey(type: string, objectId: string, objectUid?: string): string {
@@ -239,17 +232,16 @@ function factKey(type: string, objectId: string, objectUid?: string): string {
     : `legacy:${type}:${objectId}`
 }
 
-function deriveInboxKind(projection: ResolvedWorkCasePresentationProjection): InboxKind | null {
-  if (projection.progress_group !== 'plan_confirmation' && projection.progress_group !== 'closure_confirmation') {
-    return null
-  }
-  if (projection.blocking_overlay) return 'blocked_resolution'
-  if (projection.progress_group === 'plan_confirmation' && projection.handoff_narrative_key === 'gate1_waiting') {
-    return 'plan_confirmation'
-  }
-  if (projection.progress_group === 'closure_confirmation' && projection.handoff_narrative_key === 'gate2_waiting') {
-    return 'closure_confirmation'
-  }
+/**
+ * 21 号三态直读收件判定（与列表筛选器共用同一派生函数，防口径漂移）：
+ *   - group=pending_gate1 ⇒ 'plan_confirmation'（Gate 1 待批收件）
+ *   - group=awaiting_gate2 ⇒ 'closure_confirmation'（Gate 2 待关收件）
+ *   - executing / closed ⇒ 不进待办收件（返回 null）
+ */
+function deriveInboxKind(view: WorkCaseV5View): InboxKind | null {
+  if (view.resolution !== 'resolved' || view.group === null) return null
+  if (view.group === 'pending_gate1') return 'plan_confirmation'
+  if (view.group === 'awaiting_gate2') return 'closure_confirmation'
   return null
 }
 
@@ -295,10 +287,15 @@ function timestampInWindow(value: unknown, start: number, end: number): value is
   return Number.isFinite(timestamp) && timestamp >= start && timestamp <= end
 }
 
-function currentWorkCaseProjection(raw: Record<string, unknown>): ResolvedWorkCasePresentationProjection | null {
-  return isResolvedWorkCasePresentationProjection(raw.current_snapshot_projection)
-    ? raw.current_snapshot_projection
-    : null
+/** 21 号三态直读：由 item 可得字段派生 WorkCaseV5View（列表项与详情项均携带 status/outcome/report_body/fingerprint）。 */
+function currentWorkCaseProjection(raw: Record<string, unknown>): WorkCaseV5View | null {
+  const view = deriveWorkCaseV5View(
+    raw.status,
+    raw.outcome,
+    raw.report_body,
+    raw.source_content_fingerprint,
+  )
+  return view.resolution === 'resolved' ? view : null
 }
 
 function compareRecentActivity(a: RecentActivityBuildItem, b: RecentActivityBuildItem): number {
@@ -353,8 +350,8 @@ function buildRecentActivityItem(
 ): RecentActivityBuildItem {
   const object_id = String(raw.object_id ?? '')
   const status = String(raw.status ?? 'unknown')
-  const progressGroup = type === 'workcase'
-    ? currentWorkCaseProjection(raw)?.progress_group
+  const group = type === 'workcase'
+    ? currentWorkCaseProjection(raw)?.group ?? undefined
     : undefined
   const refs = type === 'spark' ? projectRefs(raw.refs, titleIndex) : undefined
   return {
@@ -367,7 +364,7 @@ function buildRecentActivityItem(
     activity,
     occurred_at: occurredAt,
     ...(signature ? { signature } : {}),
-    ...(type === 'workcase' ? { progress_group: progressGroup } : { status }),
+    ...(type === 'workcase' ? { group } : { status }),
     ...(priorityRank(raw.priority) < 4 && typeof raw.priority === 'string' ? { priority: raw.priority } : {}),
     ...(type === 'spark' && typeof raw.serves === 'string' && raw.serves.trim() ? { serves: raw.serves } : {}),
     ...(refs !== undefined ? { refs } : {}),
@@ -579,15 +576,10 @@ export function projectRecentHotspotFact(item: LocalFactItem, type: ObjectType):
   const title = typeof raw.title === 'string' && raw.title.trim() ? raw.title : null
   if (title === null) return null
   const status = typeof raw.status === 'string' ? raw.status : undefined
-  const currentProjection = type === 'workcase'
-    ? deriveWorkCasePresentationProjection(raw.status, raw.phase, item.source_content_fingerprint)
+  const currentView = type === 'workcase'
+    ? deriveWorkCaseV5View(raw.status, raw.outcome, raw.report_body, item.source_content_fingerprint)
     : null
-  const progressGroup = currentProjection?.resolution === 'resolved'
-    ? currentProjection.progress_group
-    : undefined
-  const discardedWorkCase = type === 'workcase'
-    && progressGroup === 'closed'
-    && raw.closure_outcome === 'cancelled'
+  const group = currentView?.resolution === 'resolved' ? currentView.group : undefined
   const priority = priorityRank(raw.priority) < 4 && typeof raw.priority === 'string' ? raw.priority : undefined
   return {
     type,
@@ -596,11 +588,8 @@ export function projectRecentHotspotFact(item: LocalFactItem, type: ObjectType):
     title,
     ...(typeof raw.title_en === 'string' ? { title_en: raw.title_en } : {}),
     ...(typeof raw.title_zh === 'string' ? { title_zh: raw.title_zh } : {}),
-    ...(discardedWorkCase ? { status: 'discarded' } : status ? { status } : {}),
-    ...(currentProjection?.resolution === 'resolved'
-      ? { lifecycle_position: currentProjection.lifecycle_position }
-      : {}),
-    ...(type === 'workcase' && progressGroup ? { progress_group: progressGroup } : {}),
+    ...(status ? { status } : {}),
+    ...(type === 'workcase' && group ? { group } : {}),
     ...(priority ? { priority } : {}),
     read_status: item.read_status,
     relations: raw.relations,
@@ -617,18 +606,16 @@ function isDisplayableFormalRelation(
     return false
   }
   if (source.type === 'workcase') {
-    if (!source.status || !['open', 'blocked', 'closed'].includes(source.status)) return false
+    if (!source.status || !['draft', 'open', 'closed'].includes(source.status)) return false
     if (relationKey === 'related-to') return true
     if (relationKey === 'depends-on') {
-      return source.status !== 'closed'
-        && source.lifecycle_position !== undefined
-        && source.lifecycle_position !== 'human_closure_confirming'
+      return source.group !== 'closed'
         && target.type === 'workcase'
-        && (target.status === 'open' || target.status === 'blocked')
+        && (target.status === 'open' || target.status === 'draft')
     }
     if (relationKey === 'routed-to') {
       return source.status === 'closed'
-        && ((target.type === 'workcase' && ['open', 'blocked', 'closed'].includes(target.status ?? ''))
+        && ((target.type === 'workcase' && ['draft', 'open', 'closed'].includes(target.status ?? ''))
       || (target.type === 'spark' && ['open', 'implemented', 'discarded'].includes(target.status ?? '')))
     }
     if (relationKey === 'contributed-to') {
@@ -657,8 +644,8 @@ function compareHotspotNode(a: RecentHotspotNode, b: RecentHotspotNode): number 
   const timeDelta = compareTimestamps(bLatest, aLatest)
   if (timeDelta !== 0) return timeDelta
   // 活跃度相同时，非终态 WorkCase 只作为稳定的阅读顺序兜底，不覆盖事实热点本身。
-  const aWorkCase = a.type === 'workcase' && a.progress_group !== 'closed'
-  const bWorkCase = b.type === 'workcase' && b.progress_group !== 'closed'
+  const aWorkCase = a.type === 'workcase' && a.group !== 'closed'
+  const bWorkCase = b.type === 'workcase' && b.group !== 'closed'
   if (aWorkCase !== bWorkCase) return aWorkCase ? -1 : 1
   return factKey(a.type, a.id).localeCompare(factKey(b.type, b.id))
 }
@@ -741,7 +728,7 @@ export function buildRecentHotspots(
       ...(item.title_en !== undefined ? { title_en: item.title_en } : {}),
       ...(item.title_zh !== undefined ? { title_zh: item.title_zh } : {}),
       ...(item.status !== undefined ? { status: item.status } : {}),
-      ...(item.progress_group !== undefined ? { progress_group: item.progress_group } : {}),
+      ...(item.group !== undefined ? { group: item.group } : {}),
       ...(item.priority !== undefined ? { priority: item.priority } : {}),
       read_status: item.read_status,
       typeColor: getTypeColor(item.type),
@@ -839,17 +826,14 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         const object_id = String(raw.object_id ?? '')
         const progress = currentWorkCaseProjection(raw)
         if (progress === null) {
-          issues.push({ section: 'inbox', code: 'progress_group_unresolved', message: `WorkCase ${object_id} 的当次 current_snapshot_projection 未 resolved，未收入收件箱`, object_ref: object_id })
-          issues.push({ section: 'activeWorkCases', code: 'progress_group_unresolved', message: `WorkCase ${object_id} 的当次 current_snapshot_projection 未 resolved，未收入推进中事项`, object_ref: object_id })
+          issues.push({ section: 'inbox', code: 'workcase_view_unresolved', message: `WorkCase ${object_id} 的三态直读视图未 resolved，未收入收件箱 / 推进中事项`, object_ref: object_id })
+          issues.push({ section: 'activeWorkCases', code: 'workcase_view_unresolved', message: `WorkCase ${object_id} 的三态直读视图未 resolved，未收入推进中事项`, object_ref: object_id })
           continue
         }
-        const progressGroup = progress.progress_group
-        if (progress.progress_group === 'progressing' || progress.progress_group === 'termination_cleanup') {
+        // 21 号三态直读：executing ⇒ 推进中事项；pending_gate1 / awaiting_gate2 ⇒ 待办收件。
+        if (progress.group === 'executing') {
           activeWorkCaseBuilds.push({
-            type: 'workcase', progress_group: progress.progress_group,
-            ...(progress.progress_step ? { progress_step: progress.progress_step } : {}),
-            lifecycle_position: progress.lifecycle_position,
-            blocking_overlay: progress.blocking_overlay,
+            type: 'workcase', group: 'executing',
             object_id, title: String(raw.title ?? object_id),
             ...(typeof raw.object_uid === 'string' ? { object_uid: raw.object_uid } : {}),
             ...(typeof raw.title_en === 'string' ? { title_en: raw.title_en } : {}),
@@ -866,9 +850,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         const inboxKind = deriveInboxKind(progress)
         if (inboxKind === null) continue
         builds.push({
-          type: 'workcase', inboxKind, progress_group: progressGroup,
-          lifecycle_position: progress.lifecycle_position,
-          blocking_overlay: progress.blocking_overlay,
+          type: 'workcase', inboxKind, group: progress.group ?? undefined,
           object_id, title: String(raw.title ?? object_id),
           ...(typeof raw.object_uid === 'string' ? { object_uid: raw.object_uid } : {}),
           ...(typeof raw.title_en === 'string' ? { title_en: raw.title_en } : {}),
@@ -1014,9 +996,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         card,
       }
       if (build.type === 'workcase') {
-        entry.progress_group = build.progress_group
-        entry.lifecycle_position = build.lifecycle_position
-        entry.isBlocked = build.blocking_overlay === true
+        entry.group = build.group
       }
       else entry.status = 'draft'
       // refs（03 §7.2 / 20 §8）：关联对象 chip，与卡头标签序一致
@@ -1047,10 +1027,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         ...(build.title_zh !== undefined ? { title_zh: build.title_zh } : {}),
         relativeTime: getRelativeTime(build.updated_at ?? '', locale),
         typeColor: getTypeColor('workcase'),
-        progress_group: build.progress_group,
-        ...(build.progress_step ? { progress_step: build.progress_step } : {}),
-        lifecycle_position: build.lifecycle_position,
-        isBlocked: build.blocking_overlay,
+        group: build.group,
         read_status: build.read_status,
         card,
       }
@@ -1080,8 +1057,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       ...(build.priority !== undefined ? { priority: build.priority } : {}),
       ...(build.serves !== undefined ? { serves: build.serves } : {}),
       ...(build.refs !== undefined ? { refs: build.refs } : {}),
-      ...(build.type === 'workcase' && build.progress_group !== undefined
-        ? { progress_group: build.progress_group }
+      ...(build.type === 'workcase' && build.group !== undefined
+        ? { group: build.group }
         : build.type !== 'workcase' && build.status !== undefined ? { status: build.status } : {}),
       read_status: build.read_status,
       ...(build.field_issues.length > 0 ? { field_issues: build.field_issues } : {}),

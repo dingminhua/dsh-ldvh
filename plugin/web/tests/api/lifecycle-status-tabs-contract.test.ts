@@ -51,10 +51,12 @@ test('Spark list carries three filters (priority/serves/lifecycle); WorkCase has
   // priority 参数仅对 spark 生效（workcase 走 progress）。
   assert.match(route, /const priority = type === 'spark' && typeof req\.query\.priority === 'string'/)
   // WorkCase 列表分组按 21 §160 三态收敛，且无 priority 投影。
-  assert.match(route, /const WORKCASE_LIST_STATUS_ORDER = \['draft', 'open', 'closed'\] as const/)
+  // v5：三态直读 + 五档派生筛选（WORKCASE_V5_FILTER_VALUES）——progress 词汇已废弃。
+  assert.match(route, /WORKCASE_V5_FILTER_VALUES/)
+  assert.match(route, /Invalid WorkCase lifecycle filter/)
   assert.match(
     list,
-    /fetchObjects\(currentType, activeStatus \?\? undefined, activeProgressGroup \?\? undefined, activePriority \?\? undefined\)/,
+    /fetchObjects\(currentType, activeStatus \?\? undefined, activeLifecycle \?\? undefined, activePriority \?\? undefined\)/,
   )
   assert.doesNotMatch(list, /const fetchStatus = currentType === 'spark'/)
   // Spark 状态闭集（open/implemented/discarded，20 §9）与通用类型同路径过滤；

@@ -200,10 +200,11 @@ test('recent hotspots keep a compact relationship overview and a focused one-hop
   assert.match(graph, /data-hotspot-node-header[\s\S]*node\.activityRefs\.length[\s\S]*status/);
   const cognition = read('src/pages/CognitionCenter.tsx');
   const cognitionApi = read('api/routes/cognition.ts');
-  assert.match(cognitionApi, /discardedWorkCase[\s\S]*closure_outcome === 'cancelled'/);
+  // v5：cancelled 是 closed 的 outcome 四值之一，不再映射 v4 的 discarded 组。
+  assert.doesNotMatch(cognitionApi, /discardedWorkCase|closure_outcome/);
   assert.match(cognitionApi, /item\.status !== undefined \? \{ status: item\.status \}/);
-  assert.match(cognition, /workcase: new Set\(\['closed', 'discarded'\]\)/);
-  assert.match(graph, /const status = node\.status \?\? \(node\.type === 'workcase' \? node\.progress_group : undefined\)/);
+  assert.match(cognition, /workcase: new Set\(\['closed'\]\)/);
+  assert.match(graph, /const status = node\.status \?\? \(node\.type === 'workcase' \? node\.group : undefined\)/);
   assert.match(graph, /const titleFontSize = primary \? \(expanded \? 18 : 16\) : 14/);
   assert.match(graph, /const titleIconSize = titleFontSize/);
   assert.match(graph, /size=\{titleIconSize\}/);
@@ -242,8 +243,11 @@ test('WorkCase semantic blocks keep the compact 14/13px by 22px hierarchy', () =
   assert.match(styles, /\.ldvh-detail-semantic-title[\s\S]*text-sm font-semibold[\s\S]*line-height: 1\.375rem/);
   assert.match(styles, /\.ldvh-detail-semantic-body[\s\S]*font-size: 0\.8125rem[\s\S]*line-height: 1\.375rem/);
   assert.match(styles, /\.ldvh-inline-markdown\.ldvh-detail-semantic-body[\s\S]*font-size: 0\.8125rem[\s\S]*line-height: 1\.375rem/);
-  assert.match(layout, /const WORKCASE_DETAIL_SEMANTIC_ICON_SIZE = 14/);
+  // v5：语义块的字号层级由 styles 承载（上面三条 CSS 断言）；布局层不再
+  // 持有 v4 的图标尺寸常量与 styles.body 形态。
+  assert.doesNotMatch(layout, /WORKCASE_DETAIL_SEMANTIC_ICON_SIZE/);
   assert.doesNotMatch(layout, /className=\{`ldvh-body \$\{styles\.body\}`\}/);
+  assert.match(layout, /ldvh-card-decision-body/);
 });
 
 test('fact reading unordered-list markers stay centered on the first text line', () => {

@@ -34,33 +34,26 @@ const common = {
 
 
 export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
+  // 21 号 §8 frontmatter 闭集（v5）。v4 字段（phase/work_items/goal/
+  // success_criterion_*/execution_approval/closure_proposal/…）已全部
+  // 退出传输契约——21 号对象不携带它们，投影层也不再认识它们。
+  // urls 不在 workcase 契约中：21 §8 明文「不采用 urls」。
   workcase: {
-    ...common,
-    summary: field('current-summary', 'string', false),
-    resume_from: field('workcase-resume-from', 'string', false),
-    waiting_on: field('workcase-waiting-on', 'string', false),
-    disposition_summary: field('disposition-summary', 'string', false),
-    goal: field('workcase-goal', 'string', true),
+    // common minus urls：21 §8 明文「不采用 urls」。
+    ...(({ urls: _omitUrls, ...rest }) => rest)(common),
+    summary: field('workcase-summary', 'string', true),
+    serves: field('workcase-serves', 'string', false),
     scope: field('workcase-scope', 'string', true),
-    success_criterion_definitions: field('workcase-success-criterion-definitions', 'array', true),
-    success_criterion_results: field('workcase-success-criterion-results', 'array', false),
-    residual_responsibilities: field('workcase-residual-responsibilities', 'array', false),
-    phase: field('workcase-phase', 'string', false),
-    plan_version: field('workcase-plan-version', 'number', false),
-    work_items: field('workcase-items', 'array', false),
-    creation_reviews: field('workcase-creation-reviews', 'array', false),
-    execution_authorization: field('workcase-execution-authorization', 'object', false),
-    execution_approval: field('workcase-execution-approval', 'object', false),
-    result_version: field('workcase-result-version', 'number', false),
-    result_summary: field('workcase-overall-result-summary', 'string', false),
-    controller_check_summary: field('workcase-controller-check-summary', 'string', false),
-    result_reviews: field('workcase-result-reviews', 'array', false),
-    validation_summary: field('workcase-validation-summary', 'string', false),
-    blocking_summary: field('workcase-blocking-summary', 'string', false),
-    closure_proposal: field('workcase-closure-proposal', 'object', false),
-    spark_suggestions: field('workcase-spark-suggestions', 'array', false),
-    closure_outcome: field('workcase-closure-outcome', 'string', false),
-    termination: field('workcase-termination', 'object', false),
+    plan: field('workcase-plan', 'array', true),
+    gate_1: field('workcase-gate-1', 'object', false),
+    attempt: field('workcase-attempt', 'object', false),
+    result: field('workcase-result', 'object', false),
+    outcome: field('workcase-outcome', 'string', false),
+    // transport-only：报告正文（非 frontmatter 字段）。「待批准关闭」派生
+    // 判据需要「open ∧ 正文含 ## 结果 节」——body 经 localFactReader 的
+    // extra 通道进入此处，随 fact_object 一起传输（10 号呈现契约登记的
+    // 派生规则，不写回对象）。
+    report_body: field('workcase-report-body', 'string', false),
   },
   // v5 ADR（22 §8 薄索引）：decision/scope 必填（正文对应段逐字包含）、
   // trigger_signal 条件出现（遵守预检消费）、终态字段随 status 约束

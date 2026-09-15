@@ -67,70 +67,109 @@ fs.writeFileSync(
   ].join('\n'),
 )
 fs.mkdirSync(path.join(projectRoot, 'ldvh-base', 'workcases'), { recursive: true })
+// 21 §7 载体（.md + frontmatter）与 §8 字段闭集（v5）：open 执行中对象
+// 携带 attempt 现场；plan 每项 {step, done_criteria}。
 fs.writeFileSync(
-  path.join(projectRoot, 'ldvh-base', 'workcases', 'workcase-0001.yaml'),
+  path.join(projectRoot, 'ldvh-base', 'workcases', 'workcase-0198f1c7-8a2b-4c3d-9e4f-123456789aaa.md'),
   [
+    '---',
     'title: Dashboard WorkCase 投影回归',
     'status: open',
-    'priority: P1',
+    'created_at: ' + "'2026-07-20T06:00:00+08:00'",
     'summary: 当前结果等待独立复核。',
-    'resume_from: 继续独立复核。',
-    'goal: 固定当前 WorkCase 的 Web 投影。',
-    'scope: 仅测试。',
-    'success_criterion_definitions:',
-    '- criterion_id: criterion-01',
-    '  statement: 当前标准已满足。',
-    'phase: independent_reviewing',
-    'plan_version: 1',
-    'work_items:',
-    '- item_id: item-01',
-    '  goal: 完成实现',
-    '  expected_result: 实现完成。',
-    '  approach_summary: 按测试边界完成实现。',
-    '  status: completed',
-    '  result_summary: 已完成。',
-    'execution_approval:',
-    '  subject_version: 1',
-    "  approved_at: '2026-07-20T06:00:00+08:00'",
-    '  summary: Human 已批准。',
-    'result_version: 1',
-    'success_criterion_results:',
-    '- criterion_id: criterion-01',
-    '  outcome: satisfied',
-    '  summary: 已满足。',
-    'result_summary: 当前实现已经形成。',
-    'controller_check_summary: 已完成自检。',
-    'validation_summary: 已检查当前 Web 投影。',
-    'waiting_on: 等待独立复核。',
-    'object_id: workcase-0001',
+    'scope: 做什么：固定 v5 投影；不做什么：语义判断。',
+    'plan:',
+    '  - step: 完成实现',
+    '    done_criteria: 实现完成且测试通过。',
+    '  - step: 独立复核',
+    '    done_criteria: 复核报告留档。',
+    'gate_1:',
+    '  approved_at: ' + "'2026-07-20T06:30:00+08:00'",
+    '  approver: human-test',
+    '  authorization_fingerprint: ' + 'a'.repeat(64),
+    '  scope_snapshot: 做什么：固定 v5 投影；不做什么：语义判断。',
+    'attempt:',
+    '  attempt_id: 1',
+    '  started_at: ' + "'2026-07-20T06:30:00+08:00'",
+    '  controller: controller-a',
+    '  heartbeat_at: ' + "'2026-07-20T07:00:00+08:00'",
+    'object_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789aaa',
+    'object_id: workcase-0198f1c7-8a2b-4c3d-9e4f-123456789aaa',
     'fact_type_key: workcase',
-    "created_at: '2026-07-20T06:00:00+08:00'",
-    "updated_at: '2026-07-20T07:00:00+08:00'",
+    'change_log:',
+    '  - at: ' + "'2026-07-20T07:00:00+08:00'",
+    '    summary: 执行进展。',
+    '---',
+    '',
+    '# Dashboard WorkCase 投影回归',
+    '',
+    '## 摘要',
+    '',
+    '当前结果等待独立复核。',
+    '',
+    '## 授权范围',
+    '',
+    '做什么：固定 v5 投影；不做什么：语义判断。',
+    '',
+    '## 计划',
+    '',
+    '- 完成实现：判据——实现完成且测试通过。',
+    '- 独立复核：判据——复核报告留档。',
+    '',
+    '## 执行',
+    '',
+    '- attempt 1 运行中。',
     '',
   ].join('\n'),
 )
 fs.writeFileSync(
-  path.join(projectRoot, 'ldvh-base', 'workcases', 'workcase-0002.yaml'),
+  path.join(projectRoot, 'ldvh-base', 'workcases', 'workcase-0198f1c7-8a2b-4c3d-9e4f-123456789bbb.md'),
   [
-    'title: Dashboard 已废弃 WorkCase 投影回归',
+    '---',
+    'title: Dashboard 已关闭 WorkCase 投影回归',
     'status: closed',
-    'goal: 固定无 phase 的 closed WorkCase Web 投影。',
-    'scope: 仅测试 cancelled 关闭的废弃分组。',
-    'success_criterion_definitions:',
-    '- criterion_id: criterion-closed-group',
-    '  statement: 取消关闭对象进入已废弃分组。',
-    'success_criterion_results:',
-    '- criterion_id: criterion-closed-group',
-    '  outcome: satisfied',
-    '  summary: 列表与 Dashboard 均投影为已废弃。',
-    'result_summary: closed 投影已经形成。',
-    'validation_summary: 已检查无 phase 的 closed 投影。',
-    'closure_outcome: cancelled',
-    'disposition_summary: 当前责任已取消并废弃。',
-    'object_id: workcase-0002',
+    'created_at: ' + "'2026-07-20T05:00:00+08:00'",
+    'summary: 固定 closed 投影。',
+    'scope: 做什么：固定 closed 投影；不做什么：其它。',
+    'plan:',
+    '  - step: 唯一步骤',
+    '    done_criteria: 关闭即达成。',
+    'outcome: cancelled',
+    'result:',
+    '  criteria_checks:',
+    '    - satisfied: false',
+    '      evidence: 未执行即取消。',
+    '  achieved_scope: 取消关闭，实际未发生执行。',
+    '  residual: []',
+    'object_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789bbb',
+    'object_id: workcase-0198f1c7-8a2b-4c3d-9e4f-123456789bbb',
     'fact_type_key: workcase',
-    "created_at: '2026-07-20T05:00:00+08:00'",
-    "updated_at: '2026-07-20T05:30:00+08:00'",
+    'change_log:',
+    '  - at: ' + "'2026-07-20T05:30:00+08:00'",
+    '    summary: cancelled 关闭。',
+    '---',
+    '',
+    '# Dashboard 已关闭 WorkCase 投影回归',
+    '',
+    '## 摘要',
+    '',
+    '固定 closed 投影。',
+    '',
+    '## 授权范围',
+    '',
+    '做什么：固定 closed 投影；不做什么：其它。',
+    '',
+    '## 计划',
+    '',
+    '- 唯一步骤：判据——关闭即达成。',
+    '',
+    '## 执行',
+    '',
+    '- 未执行即取消。',
+    '',
+    '## 结果',
+    '',
+    '- 取消关闭，实际未发生执行。',
     '',
   ].join('\n'),
 )
@@ -229,64 +268,68 @@ test('preserves the shared commit DTO across current API consumers', async () =>
   const workcases = await getJson('/api/objects/workcase') as {
     data: {
       items: Array<Record<string, unknown>>
-      progressOptions: Array<Record<string, unknown>>
+      lifecycleOptions: Array<Record<string, unknown>>
     }
   }
-  const workcase = workcases.data.items.find((item) => item.object_id === 'workcase-0001')
-  const closedWorkcase = workcases.data.items.find((item) => item.object_id === 'workcase-0002')
+  const workcase = workcases.data.items.find((item) => item.object_id === 'workcase-0198f1c7-8a2b-4c3d-9e4f-123456789aaa')
+  const closedWorkcase = workcases.data.items.find((item) => item.object_id === 'workcase-0198f1c7-8a2b-4c3d-9e4f-123456789bbb')
   assert.ok(workcase)
   assert.ok(closedWorkcase)
+  // v5 三态直读：open 对象带派生 group=executing 与 attempt 现场。
   assert.equal(workcase.status, 'open')
-  assert.equal(workcase.phase, 'independent_reviewing')
-  assert.equal('responsibilityStatus' in workcase, false)
-  assert.equal(workcase.progress_group, 'progressing')
-  assert.equal(workcase.progress_step, 'independent_review')
-  assert.equal(workcase.executionItemsProjectionValid, true)
-  assert.deepEqual(workcase.executionItems, [{
-    id: 'item-01',
-    title: '完成实现',
-    status: 'completed',
-  }])
-  assert.equal('executionItemTotal' in workcase, false)
-  assert.equal('executionItemDone' in workcase, false)
-  assert.equal('executionItemCancelled' in workcase, false)
-  assert.equal('executionItemsActive' in workcase, false)
-  assert.equal('progressHistoryState' in workcase, false)
-  assert.equal('progressRound' in workcase, false)
+  assert.equal(workcase.group, 'executing')
+  assert.equal(workcase.has_result_draft, false)
+  assert.equal('phase' in workcase, false)
+  assert.equal('progress_group' in workcase, false)
+  assert.equal('progress_step' in workcase, false)
+  assert.equal('executionItems' in workcase, false)
   assert.equal('successCriteria' in workcase, false)
   assert.equal('success_criterion_definitions' in workcase, false)
   assert.equal('work_items' in workcase, false)
-  assert.equal('hasPlanConfirmedAt' in workcase, false)
-  assert.equal('hasClosureRequestedAt' in workcase, false)
-  assert.equal('hasVerificationEvidence' in workcase, false)
-  assert.equal('hasClosureEvidence' in workcase, false)
+  assert.equal('priority' in workcase, false)
+  assert.equal('responsibilityStatus' in workcase, false)
+  // closed 对象：group=closed + outcome 徽标（cancelled 不再映射 discarded）。
   assert.equal(closedWorkcase.status, 'closed')
-  assert.equal(closedWorkcase.progress_group, 'closed')
+  assert.equal(closedWorkcase.group, 'closed')
+  assert.equal(closedWorkcase.outcome, 'cancelled')
   assert.equal('progress_step' in closedWorkcase, false)
   assert.equal('executionItems' in closedWorkcase, false)
-  assert.equal('executionItemsProjectionValid' in closedWorkcase, false)
   assert.equal('successCriteria' in closedWorkcase, false)
   assert.equal('success_criterion_definitions' in closedWorkcase, false)
-  // 21 §160：列表分组 = 状态闭集三态 draft/open/closed（此前为 v4 五值进展分组）。
-  // workcase-0001 status=open；workcase-0002 status=closed（cancelled）。
-  assert.deepEqual(workcases.data.progressOptions, [
-    { group: 'draft', count: 0 },
-    { group: 'open', count: 1 },
+  // v5 五档筛选聚合（Human 2026-09-15 定案）：all 恒在尾。
+  assert.deepEqual(workcases.data.lifecycleOptions, [
+    { group: 'pending_gate1', count: 0 },
+    { group: 'executing', count: 1 },
+    { group: 'awaiting_gate2', count: 0 },
     { group: 'closed', count: 1 },
+    { group: 'all', count: 2 },
   ])
 
-  // 21 §160：WorkCase 无 priority（字段闭集未含）——priority 参数被忽略，且无投影。
+  // 21 §8：WorkCase 无 priority（字段闭集未含）——priority 参数被忽略，且无投影。
   const prioritizedWorkcases = await getJson('/api/objects/workcase?priority=P1') as {
     data: {
       items: Array<Record<string, unknown>>
       priorityOptions?: Array<{ status: string; count: number }>
     }
   }
-  assert.deepEqual(
-    prioritizedWorkcases.data.items.map((item) => item.object_id).sort(),
-    ['workcase-0001', 'workcase-0002'],
-  )
   assert.equal(prioritizedWorkcases.data.priorityOptions, undefined)
+
+  // ?lifecycle= 五档筛选：executing 只返回 open 无结果节对象。
+  const executingWorkcases = await getJson('/api/objects/workcase?lifecycle=executing') as {
+    data: { items: Array<Record<string, unknown>> }
+  }
+  assert.deepEqual(
+    executingWorkcases.data.items.map((item) => item.object_id),
+    ['workcase-0198f1c7-8a2b-4c3d-9e4f-123456789aaa'],
+  )
+  // ?lifecycle=closed 返回终态对象（cancelled 亦属 closed 组）。
+  const closedQuery = await getJson('/api/objects/workcase?lifecycle=closed') as {
+    data: { items: Array<Record<string, unknown>> }
+  }
+  assert.deepEqual(
+    closedQuery.data.items.map((item) => item.object_id),
+    ['workcase-0198f1c7-8a2b-4c3d-9e4f-123456789bbb'],
+  )
 
   // 20 §8（2026-09-13 Human 裁定）：Spark 有 priority——列表提供闭集 P0–P3 计数。
   const openSparks = await getJson('/api/objects/spark?status=open') as {
@@ -306,22 +349,26 @@ test('preserves the shared commit DTO across current API consumers', async () =>
   ])
   assert.ok(openSparks.data.statusOptions.some((option) => option.status === 'open' && option.count === 2))
 
-  // 21 §160 三态过滤：open 命中 workcase-0001；closed 命中 workcase-0002（cancelled）。
-  const reviewWorkcases = await getJson('/api/objects/workcase?progress=open') as {
+  // v5 五档筛选：executing 命中 open 无结果节对象；closed 命中终态（cancelled 亦属 closed）。
+  const reviewWorkcases = await getJson('/api/objects/workcase?lifecycle=executing') as {
     data: { items: Array<Record<string, unknown>> }
   }
-  assert.deepEqual(reviewWorkcases.data.items.map((item) => item.object_id), ['workcase-0001'])
+  assert.deepEqual(reviewWorkcases.data.items.map((item) => item.object_id), ['workcase-0198f1c7-8a2b-4c3d-9e4f-123456789aaa'])
 
-  const closedWorkcases = await getJson('/api/objects/workcase?progress=closed') as {
+  const closedWorkcases = await getJson('/api/objects/workcase?lifecycle=closed') as {
     data: { items: Array<Record<string, unknown>> }
   }
-  assert.deepEqual(closedWorkcases.data.items.map((item) => item.object_id), ['workcase-0002'])
+  assert.deepEqual(closedWorkcases.data.items.map((item) => item.object_id), ['workcase-0198f1c7-8a2b-4c3d-9e4f-123456789bbb'])
 
-  // v4 的 discarded 分组已随五值进展分组一并移除（非 21 §160 三态之一）。
+  // v4 的 ?progress= 词汇已废弃（400 并指向新参数）；非法 lifecycle 值亦 400。
   const discardedResponse = await fetch(`${baseUrl}/api/objects/workcase?progress=discarded`)
   assert.equal(discardedResponse.status, 400)
+  const legacyProgressResponse = await fetch(`${baseUrl}/api/objects/workcase?progress=open`)
+  assert.equal(legacyProgressResponse.status, 400)
+  const badLifecycleResponse = await fetch(`${baseUrl}/api/objects/workcase?lifecycle=unknown_group`)
+  assert.equal(badLifecycleResponse.status, 400)
 
-  const workcaseDetail = await getJson('/api/objects/workcase/workcase-0001') as {
+  const workcaseDetail = await getJson('/api/objects/workcase/workcase-0198f1c7-8a2b-4c3d-9e4f-123456789aaa') as {
     summary: Record<string, unknown>
   }
   assert.equal(workcaseDetail.summary.status, 'open')

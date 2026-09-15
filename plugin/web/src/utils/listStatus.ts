@@ -1,4 +1,5 @@
-import { WORKCASE_DEFAULT_LIST_STATUS } from '@/shared/workcaseStatus';
+// 21 号三态：WorkCase 列表无默认状态过滤（默认全部；筛选走 ?lifecycle= 五档）。
+const WORKCASE_DEFAULT_LIST_STATUS: string | null = null;
 
 const DEFAULT_ACTIVE_TYPES = new Set(['adr', 'pitfall', 'research', 'norm']);
 

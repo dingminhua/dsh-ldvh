@@ -31,14 +31,12 @@ import {
   getTypeLabel,
 } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
-import { formatDateTime } from '@/utils/dateFormat';
 import { getSignalClassName, getSignalText, isSignalField } from '@/utils/objectSignals';
 import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { getFactReadMeta, isReadableFact, reconstructFactYaml, sortedResearchFrontmatterYaml, type FactCarrier, type FactReadMeta } from '@/utils/factReadMeta';
 import { getObjectUpdatedAt } from '@/utils/factChangeLog';
-import { isResolvedWorkCasePresentationProjection } from '@/shared/workcaseStatus';
-import { WorkCaseReadingLayout } from '@/pages/object-detail/WorkCaseReadingLayout';
+import WorkCaseReadingLayout from '@/pages/object-detail/WorkCaseReadingLayout';
 import { AdrReadingLayout, ChangeLogReadingNode, FrictionReadingLayout, GoalReadingLayout, NormReadingLayout, PitfallReadingLayout, PitfallTextNodeContent, SparkReadingLayout } from '@/pages/object-detail/FactReadingLayouts';
 import { FactAssociationsSection } from '@/pages/object-detail/FactAssociationsSection';
 import { fieldIssue } from '@/pages/object-detail/fieldIssues';
@@ -70,7 +68,7 @@ export {
   splitRelatedContentEntries,
 };
 export type { RelatedContentEntry };
-export { WorkCaseReadingLayout } from '@/pages/object-detail/WorkCaseReadingLayout';
+export { default as WorkCaseReadingLayout } from '@/pages/object-detail/WorkCaseReadingLayout';
 export { AdrReadingLayout, FrictionReadingLayout, GoalReadingLayout, NormReadingLayout, PitfallReadingLayout, SparkReadingLayout } from '@/pages/object-detail/FactReadingLayouts';
 
 // v5 Research（24 号薄索引）阅读布局消费的字段全集：固定 H2 正文（report_body）、
@@ -564,9 +562,10 @@ export function getObjectHeaderStatus(
   source: Record<string, unknown>,
 ): string | undefined {
   if (objectType !== 'workcase') return status;
-  if (!isResolvedWorkCasePresentationProjection(source.current_snapshot_projection)) return 'unknown';
-  if (source.current_snapshot_projection.progress_group === 'closed' && source.closure_outcome === 'cancelled') return 'discarded';
-  return source.current_snapshot_projection.progress_group;
+  // 21 号三态直读：列表/详情头状态直接用派生 group（pending_gate1/executing/awaiting_gate2/closed）。
+  const group = source.group;
+  if (typeof group === 'string') return group;
+  return typeof status === 'string' ? status : 'unknown';
 }
 
 export function ObjectIdentityHeader({

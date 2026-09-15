@@ -25,7 +25,9 @@ export const FACT_TYPE_DIRS = {
 } as const
 
 export const FACT_TYPE_CARRIERS = {
-  workcase: '.yaml',
+  // 21 §7：WorkCase 载体为 frontmatter（机器权威）+ markdown 正文（## 结果 /
+  // ## 执行 等节由读取层按 H2 解析；正文经 extra 通道投影为 report_body）。
+  workcase: '.md',
   // v5 ADR（22 §7）：YAML frontmatter（机器权威）+ markdown 正文，同 spark/research 形态。
   adr: '.md',
   // v5 Pitfall（23 §7）：同上，frontmatter + markdown。
@@ -110,8 +112,9 @@ function expectedFileName(type: LocalFactType, objectId: string): string {
 }
 
 function carrierFor(type: LocalFactType): LocalFactCarrier {
-  // v5 markdown 载体类型：frontmatter（机器权威）+ 正文（20 §7 / 22 §7 / 23 §7 / 24 §7 / 26 §7 / 27 §7）。
-  return type === 'research' || type === 'spark' || type === 'adr' || type === 'pitfall' || type === 'friction' || type === 'norm' ? 'markdown' : 'yaml'
+  // v5 markdown 载体类型：frontmatter（机器权威）+ 正文（20 §7 / 21 §7 / 22 §7 /
+  // 23 §7 / 24 §7 / 26 §7 / 27 §7，正文经 extra 通道投影为 report_body）。
+  return type === 'workcase' || type === 'research' || type === 'spark' || type === 'adr' || type === 'pitfall' || type === 'friction' || type === 'norm' ? 'markdown' : 'yaml'
 }
 
 function metadataFor(scope: LocalFactScope, type: LocalFactType, objectId: string): LocalFactMetadata {
@@ -126,10 +129,10 @@ function metadataFor(scope: LocalFactScope, type: LocalFactType, objectId: strin
 
 function isExpectedCarrierName(type: LocalFactType, fileName: string): boolean {
   const extension = FACT_TYPE_CARRIERS[type].replace('.', '\\.')
-  // v5 markdown 载体类型（spark/research/adr/pitfall/friction/norm）：object_uid
-  // 为 UUIDv4（20 §7 / 22 §7 / 23 §7 / 24 §7 / 26 §7 / 27 §7，文件名编码 UID）；
+  // v5 markdown 载体类型（workcase/spark/research/adr/pitfall/friction/norm）：object_uid
+  // 为 UUIDv4（21 §7 / 20 §7 / 22 §7 / 23 §7 / 24 §7 / 26 §7 / 27 §7，文件名编码 UID）；
   // 纯序号/ULID25 段保留兼容读取。其余类型维持 v4 形态（纯序号或 ULID25）。
-  const idSegment = type === 'research' || type === 'spark' || type === 'adr' || type === 'pitfall' || type === 'friction' || type === 'norm'
+  const idSegment = type === 'workcase' || type === 'research' || type === 'spark' || type === 'adr' || type === 'pitfall' || type === 'friction' || type === 'norm'
     ? '(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})'
     : '(?:\\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})'
   return new RegExp(`^${type}-${idSegment}${extension}$`).test(fileName)
@@ -182,9 +185,11 @@ function matchesExpectation(value: unknown, expected: FieldExpectation): boolean
 }
 
 const RECORD_ARRAY_FIELDS: Partial<Record<LocalFactType, ReadonlySet<string>>> = {
+  // 21 §8 v5 数组字段闭集：plan（{step, done_criteria}[]）/ change_log / relations。
+  // v4 字段（success_criterion_definitions/work_items/closure_proposal/…）已退出
+  // 契约，出现即如实判为 unconsumed_field，不再当作合规模版成员。
   workcase: new Set([
-    'success_criterion_definitions', 'success_criterion_results', 'work_items',
-    'creation_reviews', 'result_reviews', 'residual_responsibilities', 'relations', 'change_log',
+    'plan', 'relations', 'change_log',
   ]),
   // v5 Spark：evolution 成员 {at, summary}（20 §8），relations 仅 merged-into/
   // split-into（03 §7.2 公共形状），不进值级展开。
@@ -387,8 +392,8 @@ export async function listLocalFacts(type: LocalFactType, scope: LocalFactScope)
   const entries = await readdir(baseDirOf(scope, type), { withFileTypes: true })
   const carriers = entries.filter((entry) => entry.isFile() && looksLikeFactCarrier(entry.name))
   const fileNames = carriers.filter((entry) => isExpectedCarrierName(type, entry.name)).map((entry) => entry.name).sort((left, right) => left.localeCompare(right))
-  // 22 §7：v5 markdown 类型（spark/research/adr/pitfall/friction/norm）文件名编码 UID；其余类型维持 NNNN/ULID。
-  const v5UidCarrier = type === 'research' || type === 'spark' || type === 'adr' || type === 'pitfall' || type === 'friction' || type === 'norm'
+  // 21 §7：v5 markdown 类型（workcase/spark/research/adr/pitfall/friction/norm）文件名编码 UID；其余类型维持 NNNN/ULID。
+  const v5UidCarrier = type === 'workcase' || type === 'research' || type === 'spark' || type === 'adr' || type === 'pitfall' || type === 'friction' || type === 'norm'
   const issues = carriers.filter((entry) => !isExpectedCarrierName(type, entry.name)).map((entry) => ({
     code: 'unexpected_fact_carrier' as const,
     message: v5UidCarrier

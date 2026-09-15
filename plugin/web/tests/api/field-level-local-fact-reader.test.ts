@@ -155,22 +155,46 @@ test('WorkCase object fields and malformed consumed array members remain visible
   const directory = path.join(root, 'ldvh-base', 'workcases');
   await mkdir(directory, { recursive: true });
   try {
-    await writeFile(path.join(directory, 'workcase-0001.yaml'), [
-      'object_id: workcase-0001', 'fact_type_key: workcase', 'title: Object fields',
+    // 21 §7 载体（.md + frontmatter）与 §8 字段闭集（v5）：plan 数组承载
+    // 合法成员与 malformed 成员的分离可见性；gate_1/attempt 为条件 object。
+    await writeFile(path.join(directory, 'workcase-3f2504e0-4f89-41d3-9a0c-0305e82c3301.md'), [
+      '---',
+      'object_uid: 3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+      'object_id: workcase-3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+      'fact_type_key: workcase', 'title: Object fields',
       'status: open', 'created_at: "2026-01-01"',
-      'execution_authorization:', '  action_ceiling: Stay in scope',
-      'execution_approval:', '  subject_version: 1', 'closure_proposal:', '  proposed_outcome: partial',
-      'work_items:', '  - item_id: item-valid', '    goal: Keep this item', '  - malformed member',
+      'summary: 验证 v5 字段与 malformed 成员分离可见。',
+      'scope: 做什么：字段可见性；不做什么：语义判断。',
+      'plan:',
+      '  - step: valid member', '    done_criteria: evidence-decidable',
+      '  - malformed member',
+      'gate_1:',
+      '  approved_at: "2026-01-02"', '  approver: human-test',
+      '  authorization_fingerprint: ' + 'a'.repeat(64),
+      '  scope_snapshot: 同 scope',
+      'attempt:',
+      '  attempt_id: 1', '  started_at: "2026-01-02"', '  controller: controller-a', '  heartbeat_at: "2026-01-02"',
+      '---',
+      '',
+      '# Object fields',
+      '',
+      '## 摘要',
+      '',
+      '验证 v5 字段与 malformed 成员分离可见。',
+      '',
     ].join('\n'), 'utf8');
 
-    const detail = await readLocalFact('workcase', 'workcase-0001', scope);
+    const detail = await readLocalFact('workcase', 'workcase-3f2504e0-4f89-41d3-9a0c-0305e82c3301', scope);
     assert.equal(detail.status, 'ok');
     if (detail.status === 'ok') {
-      assert.equal(detail.item.fact_object?.execution_authorization && typeof detail.item.fact_object.execution_authorization, 'object');
-      assert.equal(detail.item.fact_object?.execution_approval && typeof detail.item.fact_object.execution_approval, 'object');
-      assert.equal(detail.item.fact_object?.closure_proposal && typeof detail.item.fact_object.closure_proposal, 'object');
+      assert.equal(detail.item.read_status, 'readable');
+      assert.equal(typeof detail.item.fact_object?.gate_1, 'object');
+      assert.equal(typeof detail.item.fact_object?.attempt, 'object');
+      // 正文经 extra 通道进入 fact_object（派生判据通道）。
+      assert.match(String(detail.item.fact_object?.report_body ?? ''), /## 摘要/);
+      // malformed plan 成员单独可见，不吞掉合法成员。
       assert.deepEqual(detail.item.unparsed_structures, [{
-        path: 'work_items[1]', reason: 'unparseable_member', raw_value: 'malformed member',
+        path: 'plan[1]', reason: 'unparseable_member', raw_value: 'malformed member',
       }]);
     }
   } finally {
@@ -454,22 +478,24 @@ test('yaml_source carries the verbatim YAML text — unknown fields, order and c
   }
 });
 
-test('yaml carrier objects carry the whole file as yaml_source', async () => {
+test('markdown carriers carry their frontmatter verbatim as yaml_source', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
   const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
-  // 22 §7：ADR 已是 markdown 载体——yaml 全文直显由仍是 yaml 载体的
-  // workcase 承载验证（同机 03 §6.1 公共读取契约）。
+  // 21 §7：全部 v5 类型已是 markdown 载体——yaml_source 承载 frontmatter
+  // 逐字原文（含注释、原顺序、原引号风格），正文由 report_body 承载。
   const directory = path.join(root, 'ldvh-base', 'workcases');
   await mkdir(directory, { recursive: true });
   try {
-    const rawFile = `# 文件级注释\nobject_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc\nobject_id: workcase-0007\nfact_type_key: workcase\ntitle: YAML carrier\nstatus: open\ncreated_at: "2026-01-01"\n`;
-    await writeFile(path.join(directory, 'workcase-0007.yaml'), rawFile, 'utf8');
-    const detail = await readLocalFact('workcase', 'workcase-0007', scope);
+    const frontmatter = '# frontmatter 级注释\nobject_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc\nobject_id: workcase-0198f1c7-8a2b-4c3d-9e4f-123456789abc\nfact_type_key: workcase\ntitle: Markdown carrier\nstatus: open\ncreated_at: "2026-01-01"\nsummary: 验证 frontmatter 直显。\nscope: 做什么：yaml_source 逐字；不做什么：正文。\nplan:\n  - step: one\n    done_criteria: two';
+    await writeFile(path.join(directory, 'workcase-0198f1c7-8a2b-4c3d-9e4f-123456789abc.md'), `---\n${frontmatter}\n---\n\n# Markdown carrier\n\n## 摘要\n\n验证 frontmatter 直显。\n`, 'utf8');
+    const detail = await readLocalFact('workcase', 'workcase-0198f1c7-8a2b-4c3d-9e4f-123456789abc', scope);
     assert.equal(detail.status, 'ok');
     if (detail.status === 'ok') {
       assert.equal(detail.item.read_status, 'readable');
-      // 逐字原文含尾随换行——不做任何修剪。
-      assert.equal(detail.item.yaml_source, rawFile);
+      // frontmatter 逐字原文（含尾随换行）——不做任何修剪。
+      assert.equal(detail.item.yaml_source, frontmatter);
+      // 正文走 report_body 通道，不混入 yaml_source。
+      assert.match(String(detail.item.fact_object?.report_body ?? ''), /## 摘要/);
     }
   } finally {
     await rm(root, { recursive: true, force: true });

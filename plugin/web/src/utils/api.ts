@@ -1,9 +1,11 @@
 import type { FactCarrier, FactReadStatus } from '@/utils/factReadMeta';
 import type {
-  WorkCaseHandoffReason,
-  WorkCaseLifecyclePosition,
-  WorkCaseNextRequiredControlStep,
-} from '@/shared/workcaseStatus';
+  WorkCaseV5View,
+  WorkCaseV5Status,
+  WorkCaseV5Outcome,
+  WorkCaseV5Group,
+  WorkCaseV5Filter,
+} from '@/shared/workcaseLifecycle';
 
 // 基址跟随 vite base：dev（BASE_URL='/'）保持 '/api' 走 vite 代理；
 // DSH 挂载构建（vite build --base=/ldvh/）下请求落在 '/ldvh/api'——由插件
@@ -30,44 +32,13 @@ function withProjectScope(url: string): string {
   return `${pathname}${query ? `?${query}` : ''}`;
 }
 
-export type WorkCaseProgressGroup = 'plan_confirmation' | 'progressing' | 'termination_cleanup' | 'closure_confirmation' | 'closed';
-export type WorkCaseProgressStep = 'item_execution' | 'controller_self_check' | 'independent_review' | 'controller_synthesis';
+// 21 号三态直读 + 派生分组（v5）。筛选五档与派生 group 共用 workcaseLifecycle 派生函数。
+export type { WorkCaseV5View, WorkCaseV5Status, WorkCaseV5Outcome, WorkCaseV5Group, WorkCaseV5Filter };
+/** 列表筛选五档值（pending_gate1/executing/awaiting_gate2/closed/all）。 */
+export const WORKCASE_V5_FILTER_VALUES = ['pending_gate1', 'executing', 'awaiting_gate2', 'closed', 'all'] as const;
 
-export type WorkCasePresentationUnresolvedReason =
-  | 'missing_source_content_fingerprint'
-  | 'missing_status'
-  | 'unsupported_status'
-  | 'missing_phase'
-  | 'unexpected_phase'
-  | 'closed_with_phase'
-  | 'invalid_status_phase_combination';
-
-export interface ResolvedWorkCaseCurrentSnapshotProjection {
-  contract_identity: 'workcase-current-snapshot-presentation/2';
-  resolution: 'resolved';
-  source_content_fingerprint: string;
-  lifecycle_position: WorkCaseLifecyclePosition;
-  handoff_narrative_key: string;
-  next_required_control_step: WorkCaseNextRequiredControlStep;
-  progress_group: WorkCaseProgressGroup;
-  progress_step: WorkCaseProgressStep | null;
-  blocking_overlay: boolean;
-  handoff_allowed: boolean;
-  handoff_reason: WorkCaseHandoffReason;
-}
-
-export interface UnresolvedWorkCaseCurrentSnapshotProjection {
-  contract_identity: 'workcase-current-snapshot-presentation/2';
-  resolution: 'unresolved';
-  source_content_fingerprint: string | null;
-  unresolved_reason: WorkCasePresentationUnresolvedReason;
-  handoff_allowed: boolean;
-  handoff_reason: WorkCaseHandoffReason;
-}
-
-export type WorkCaseCurrentSnapshotProjection =
-  | ResolvedWorkCaseCurrentSnapshotProjection
-  | UnresolvedWorkCaseCurrentSnapshotProjection;
+/** WorkCase 列表项的派生分组（21 号三态直读派生）。 */
+export type WorkCaseListGroup = WorkCaseV5Group;
 
 export interface ObjectItem {
   id: string;
@@ -76,39 +47,31 @@ export interface ObjectItem {
   title_en?: string;
   title_zh?: string;
   status: string;
-  progress_group?: string;
-  progress_step?: string;
-  current_snapshot_projection?: WorkCaseCurrentSnapshotProjection;
-  lifecycle_position?: WorkCaseLifecyclePosition;
+  /** 21 号三态直读派生分组（pending_gate1/executing/awaiting_gate2/closed）。 */
+  group?: WorkCaseV5Group;
+  outcome?: WorkCaseV5Outcome;
+  has_result_draft?: boolean;
+  current_snapshot_projection?: WorkCaseV5View;
   phase?: string;
-  goal?: string;
   /** workcase 目标范围；22 §8 ADR scope（必填）复用同声明。 */
   scope?: string;
-  waiting_on?: string;
-  blocking_summary?: string;
   path: string;
   created?: string;
   updated: string;
   priority?: string;
   /** 关联的事实对象引用（03 §7.2 关联引用型 / 20 §8 refs），条件出现 */
   refs?: { object_uid: string; title?: string; type?: string }[];
-  executionItemsProjectionValid?: boolean;
-  executionItems?: WorkCaseExecutionItem[];
-  successCriteria?: string[];
-  success_criterion_definitions?: WorkCaseCriterionDefinition[] | unknown;
-  work_items?: WorkCaseItem[] | unknown;
-  creation_reviews?: WorkCaseReview[] | unknown;
-  execution_authorization?: WorkCaseExecutionAuthorization | unknown;
   independentSubagentUnavailable?: boolean;
-  execution_approval?: WorkCaseExecutionApproval | unknown;
-  termination?: WorkCaseTermination | unknown;
-  closure_outcome?: 'completed' | 'partial' | 'not-achieved' | 'cancelled';
-  /** closure_confirmation Card 的“后续贡献”区；仅实际声明 contributed-to 时出现 */
-  contributedTo?: WorkCaseContributionTarget[];
-  /** closure_confirmation Card 的关闭判断输入区；仅 closure_proposal 结构合法时出现 */
-  closureProposal?: WorkCaseClosureProposalCard;
-  /** closed Card 的终态关闭扫读投影；不反推原 proposal 身份 */
-  closureTerminal?: WorkCaseClosureTerminalCard;
+  // v5 WorkCase 字段（21 §8 闭集）：plan/attempt/result/gate_1。
+  // summary 与 serves 已在其它类型段声明（类型 string?，共用），不重复。
+  plan?: Array<{ step?: string; done_criteria?: string }>;
+  attempt?: { attempt_id?: unknown; controller?: string; heartbeat_at?: string };
+  result?: {
+    criteria_checks?: Array<{ satisfied?: string; evidence?: string }>;
+    achieved_scope?: string;
+    residual?: string;
+  };
+  gate_1?: { approved_at?: string; approver?: string };
   /** ADR-specific（22 §8：decision 必填；scope 见上公共段；trigger_signal/终态字段条件） */
   decision?: string;
   trigger_signal?: string;
@@ -195,16 +158,9 @@ export interface FactCardAssociation {
   title_en?: string;
   title_zh?: string;
   status?: string;
-  closureOutcome?: 'completed' | 'partial' | 'not-achieved' | 'cancelled';
-  progressGroup?: WorkCaseProgressGroup;
+  /** WorkCase 关联目标携带 21 号派生 group（v5；facts.ts 投影，非对象字段）。 */
+  group?: WorkCaseV5Group;
   available: boolean;
-}
-
-export interface WorkCaseExecutionItem {
-  id: string;
-  title: string;
-  status: 'pending' | 'in_progress' | 'blocked' | 'completed' | 'cancelled';
-  blockingReason?: string;
 }
 
 export interface UrlItem {
@@ -218,15 +174,11 @@ export interface ObjectStatusOption {
   count: number;
 }
 
-export interface WorkCaseProgressOption {
-  group: string;
+/** WorkCase 列表筛选五档聚合（v5）：group + 计数。 */
+export interface WorkCaseLifecycleOption {
+  group: WorkCaseV5Filter;
   count: number;
 }
-
-/** WorkCase 列表筛选分组 = 21 §160 状态闭集三值（draft/open/closed）。
- *  此前为 v4 五值进展分组；进度相位（progress_group）仍由认知中心独立消费，
- *  不再充当列表筛选维度。 */
-export type WorkCaseListGroup = 'draft' | 'open' | 'closed';
 
 export type FactCoverageStatus = 'complete' | 'partial' | 'unavailable' | 'type_not_integrated';
 
@@ -276,215 +228,54 @@ export interface RelatedObjectSummary {
   evidenceRefs?: string[];
 }
 
-export interface WorkCaseCriterionDefinition {
-  criterion_id: string;
-  statement: string;
+// 21 号 v5 WorkCase 投影类型（§8 字段闭集）。
+export interface WorkCasePlanStep {
+  step?: string;
+  done_criteria?: string;
 }
 
-export interface WorkCaseCriterionResult {
-  criterion_id: string;
-  outcome: 'satisfied' | 'not_satisfied' | 'not_verified';
-  summary: string;
+export interface WorkCaseResultCheck {
+  satisfied?: string;
+  evidence?: string;
 }
 
-export interface WorkCaseItem {
-  item_id: string;
-  goal: string;
-  expected_result: string;
-  status: 'pending' | 'in_progress' | 'blocked' | 'completed' | 'cancelled';
-  depends_on?: string[];
-  approach_summary?: string;
-  template_keys?: string[];
-  template_deviation_summary?: string;
-  current_summary?: string;
-  resume_from?: string;
-  blocking_summary?: string;
-  result_summary?: string;
+export interface WorkCaseResult {
+  criteria_checks?: WorkCaseResultCheck[];
+  achieved_scope?: string;
+  residual?: string;
 }
 
-export interface WorkCaseReview {
-  reviewer: string;
-  reviewed_at: string;
-  subject_version: number;
-  scope: string;
-  conclusion: 'pass' | 'pass_with_followups' | 'changes_required' | 'blocked';
-  feedback?: string[];
-  controller_resolution?: string;
-  actual_method?: 'subagent-read-only' | 'same-ai-switched-role-read-only';
-  capability_evidence?: string[];
-  assurance_gap?: string;
-  human_disclosure_summary?: string;
-  human_disclosed_at?: string;
+export interface WorkCaseAttempt {
+  attempt_id?: unknown;
+  controller?: string;
+  heartbeat_at?: string;
+  started_at?: string;
 }
 
-export interface WorkCaseExecutionApproval {
-  subject_version: number;
-  approved_at: string;
-  summary: string;
-  baseline_fingerprint: string;
-  source_refs: string[];
+export interface WorkCaseGate1 {
+  approved_at?: string;
+  approver?: string;
 }
 
-export interface WorkCaseAuthorizedAction {
-  action_id: string;
-  summary: string;
-  target_scope: string;
-  effect_scope: string;
-  risk_summary: string;
-  rollback_summary: string;
-  rule_refs: string[];
-}
-
-export interface WorkCaseExecutionAuthorization {
-  authorized_actions: WorkCaseAuthorizedAction[];
-  action_ceiling: string;
-  prohibited_actions: string[];
-  allowed_adjustments: string;
-  verification_and_rollback: string;
-  out_of_bounds_handling: string;
-  human_prerequisites?: string[];
-}
-
-export interface WorkCaseRouteTarget {
-  governed_project_id: string;
-  fact_type_key: 'workcase' | 'spark';
-  object_id: string;
-  content_fingerprint: string;
-}
-
-export interface WorkCaseRelationTarget {
-  governed_project_id: string;
-  fact_type_key: 'workcase' | 'spark' | 'adr' | 'pitfall' | 'research' | 'friction' | 'norm';
-  object_id: string;
-}
-
-export interface WorkCaseRelation {
-  relation_key: 'depends-on' | 'routed-to' | 'contributed-to' | 'related-to';
-  target: WorkCaseRelationTarget;
-}
-
-/** closure_confirmation Card 只消费稳定目标三元组，不复制目标标题。 */
-export interface WorkCaseContributionTarget {
-  governedProjectId?: string;
-  factTypeKey?: string;
-  objectId?: string;
-  objectUid?: string;
-}
-
-/**
- * closure_confirmation Card 只消费关闭提案的稳定子集，不透传整对象；
- * route target 只携带稳定三元组，标题与类型由当前目标回读呈现。
- */
-export interface WorkCaseClosureProposalCard {
-  proposedOutcome: 'completed' | 'partial' | 'not-achieved' | 'cancelled';
-  dispositionSummary: string;
-  residualDecisions: WorkCaseResidualDecisionCard[];
-  sparkSuggestions: WorkCaseSparkSuggestionCard[];
-}
-
-export interface WorkCaseResidualDecisionCard {
-  residualId: string;
-  summary: string;
-  proposedDisposition: 'route_existing' | 'suggest_spark' | 'accept_stop';
-  routeTarget?: WorkCaseContributionTarget;
-}
-
-export interface WorkCaseSparkSuggestionCard {
-  suggestionId: string;
-  suggestionKind: 'constrained_responsibility' | 'follow_up_opportunity';
-  summary: string;
-  followUpSummary: string;
-  restrictionReason?: string;
-  impactSummary?: string;
-  resumeCondition?: string;
-}
-
-export interface WorkCaseClosureTerminalCard {
-  outcome: 'completed' | 'partial' | 'not-achieved' | 'cancelled';
-  dispositionSummary: string;
-  routedTo: WorkCaseContributionTarget[];
-  acceptedStop: Array<{ residualId: string; summary: string }>;
-  sparkSuggestions: WorkCaseSparkSuggestionCard[];
-}
-
-export interface WorkCaseResidualDecision {
-  residual_id: string;
-  summary: string;
-  proposed_disposition: 'route_existing' | 'suggest_spark' | 'accept_stop';
-  route_target?: WorkCaseRouteTarget;
-  spark_suggestion_id?: string;
-}
-
-export interface WorkCaseClosureProposal {
-  proposed_outcome: 'completed' | 'partial' | 'not-achieved' | 'cancelled';
-  proposed_disposition_summary: string;
-  residual_decisions?: WorkCaseResidualDecision[];
-  spark_suggestions?: WorkCaseSparkSuggestion[];
-}
-
-export interface WorkCaseSparkSuggestion {
-  suggestion_id: string;
-  suggestion_kind: 'constrained_responsibility' | 'follow_up_opportunity';
-  summary: string;
-  follow_up_summary: string;
-  restriction_reason?: string;
-  impact_summary?: string;
-  resume_condition?: string;
-}
-
-export interface WorkCaseResidualResponsibility {
-  residual_id: string;
-  summary: string;
-}
-
-export interface WorkCaseTermination extends Record<string, unknown> {
-  reason: string;
-  cleanup_status: 'pending' | 'blocked' | 'completed';
-  cleanup_summary: string;
-  retained_scope?: string[];
-  discarded_scope?: string[];
-  unverified_scope?: string[];
-  relationship_impacts?: string[];
-  quality_steps?: string[];
-}
-
-/** Exact-detail fields from the single current WorkCase contract. */
+/** Exact-detail fields from the single current WorkCase contract (21 §8 三态直读). */
 export interface WorkCaseDetailData extends Record<string, unknown> {
   object_id: string;
   fact_type_key: 'workcase';
   title: string;
-  status: 'open' | 'blocked' | 'closed';
+  status: WorkCaseV5Status;
   created_at: string;
   updated_at: string;
-  goal: string;
-  scope: string;
-  success_criterion_definitions: WorkCaseCriterionDefinition[];
-  current_snapshot_projection?: WorkCaseCurrentSnapshotProjection;
-  phase?: 'human_plan_confirming' | 'plan_revising' | 'executing' | 'controller_checking' | 'independent_reviewing' | 'closure_preparing' | 'human_closure_confirming' | 'termination_preparing';
-  priority?: 'P0' | 'P1' | 'P2' | 'P3';
   summary?: string;
-  resume_from?: string;
-  waiting_on?: string;
-  blocking_summary?: string;
-  plan_version?: number;
-  work_items?: WorkCaseItem[];
-  creation_reviews?: WorkCaseReview[];
-  execution_authorization?: WorkCaseExecutionAuthorization;
-  execution_approval?: WorkCaseExecutionApproval;
-  result_version?: number;
-  success_criterion_results?: WorkCaseCriterionResult[];
-  result_summary?: string;
-  controller_check_summary?: string;
-  result_reviews?: WorkCaseReview[];
-  validation_summary?: string;
-  closure_proposal?: WorkCaseClosureProposal;
-  closure_outcome?: 'completed' | 'partial' | 'not-achieved' | 'cancelled';
-  termination?: WorkCaseTermination;
-  disposition_summary?: string;
-  residual_responsibilities?: WorkCaseResidualResponsibility[];
-  spark_suggestions?: WorkCaseSparkSuggestion[];
-  relations?: WorkCaseRelation[];
-  urls?: UrlItem[];
+  serves?: string;
+  scope?: string;
+  plan?: WorkCasePlanStep[];
+  attempt?: WorkCaseAttempt;
+  result?: WorkCaseResult;
+  outcome?: WorkCaseV5Outcome;
+  gate_1?: WorkCaseGate1;
+  change_log?: unknown[];
+  current_snapshot_projection?: WorkCaseV5View;
+  relations?: Array<Record<string, unknown>>;
 }
 
 export interface ObjectDetail<TData extends Record<string, unknown> = Record<string, unknown>> {
@@ -542,20 +333,14 @@ export type CognitionInboxKind = 'plan_confirmation' | 'closure_confirmation' | 
  * 不含对象身份字段（id/title/status 等在条目层）。
  */
 export interface CognitionInboxCard extends Record<string, unknown> {
-  goal?: string;
+  summary?: string;
+  serves?: string;
   scope?: string;
-  waiting_on?: string;
-  blocking_summary?: string;
-  executionItemsProjectionValid?: boolean;
-  executionItems?: WorkCaseExecutionItem[];
-  successCriteria?: string[];
-  success_criterion_definitions?: WorkCaseCriterionDefinition[] | unknown;
-  work_items?: WorkCaseItem[] | unknown;
-  creation_reviews?: WorkCaseReview[] | unknown;
-  execution_authorization?: WorkCaseExecutionAuthorization | unknown;
-  execution_approval?: WorkCaseExecutionApproval | unknown;
-  closureProposal?: WorkCaseClosureProposalCard;
-  contributedTo?: WorkCaseContributionTarget[];
+  plan?: WorkCasePlanStep[];
+  attempt?: WorkCaseAttempt;
+  result?: WorkCaseResult;
+  outcome?: WorkCaseV5Outcome;
+  gate_1?: WorkCaseGate1;
 }
 
 interface CognitionInboxItemBase {
@@ -578,13 +363,11 @@ interface CognitionInboxItemBase {
   read_issues?: Array<Record<string, unknown>>;
 }
 
-/** WorkCase 条目只携带 progress_group，不复用来源 status 语义。 */
+/** 21 号三态直读：WorkCase 待办收件只携带派生 group（pending_gate1 / awaiting_gate2）。 */
 export interface CognitionWorkCaseInboxItem extends CognitionInboxItemBase {
   type: 'workcase';
-  progress_group: 'plan_confirmation' | 'closure_confirmation';
-  lifecycle_position: WorkCaseLifecyclePosition;
-  isBlocked: boolean;
-  inboxKind: 'plan_confirmation' | 'closure_confirmation' | 'blocked_resolution';
+  group: WorkCaseV5Group;
+  inboxKind: 'plan_confirmation' | 'closure_confirmation';
 }
 
 /** Pitfall draft 的待确认是类型专属状态，按来源状态直接呈现。 */
@@ -596,13 +379,10 @@ export interface CognitionPitfallInboxItem extends CognitionInboxItemBase {
 
 export type CognitionInboxItem = CognitionWorkCaseInboxItem | CognitionPitfallInboxItem;
 
-/** 处于结果推进主链的 WorkCase；与两个 Human Gate 的待决定事项互斥。 */
+/** 处于执行主链的 WorkCase（group=executing）；与两个 Human Gate 的待决定事项互斥。 */
 export interface CognitionActiveWorkCaseItem extends Omit<CognitionInboxItemBase, 'inboxKind'> {
   type: 'workcase';
-  progress_group: 'progressing' | 'termination_cleanup';
-  progress_step?: WorkCaseProgressStep;
-  lifecycle_position: WorkCaseLifecyclePosition;
-  isBlocked: boolean;
+  group: 'executing';
 }
 
 /** 近期动态由事实对象自身的 change_log 派生；不承载 Git 提交记录或字段级 diff。 */
@@ -630,8 +410,8 @@ export interface CognitionRecentActivityItem {
   /** 关联的事实对象引用（03 §7.2 关联引用型 / 20 §8 refs），条件出现；
    * 可携带派生的 title/type 供呈现，不写回对象。 */
   refs?: { object_uid: string; title?: string; type?: string }[];
-  /** WorkCase 只携带派生 progress_group；其它对象携带自身当前状态。 */
-  progress_group?: WorkCaseProgressGroup;
+  /** WorkCase 只携带派生 group；其它对象携带自身当前状态。 */
+  group?: WorkCaseV5Group;
   status?: string;
   read_status: string;
   field_issues?: FieldIssue[];
@@ -698,8 +478,8 @@ export interface CognitionRecentHotspotNode {
   title: string;
   title_en?: string;
   title_zh?: string;
-  /** WorkCase 仅携带派生 progress_group；其它对象携带自身状态。 */
-  progress_group?: WorkCaseProgressGroup;
+  /** WorkCase 仅携带派生 group；其它对象携带自身状态。 */
+  group?: WorkCaseV5Group;
   status?: string;
   priority?: string;
   read_status: string;
@@ -801,7 +581,7 @@ export async function fetchCognitionGoal(): Promise<CognitionGoalData> {
 export async function fetchObjects(
   type: string,
   status?: string,
-  progress?: string,
+  lifecycle?: string,
   priority?: string,
 ): Promise<{
   ok: boolean;
@@ -812,7 +592,8 @@ export async function fetchObjects(
     observed_at?: string;
     collection_issues?: FactListProblem[];
     statusOptions?: ObjectStatusOption[];
-    progressOptions?: WorkCaseProgressOption[];
+    /** WorkCase 列表筛选五档聚合（v5）。 */
+    lifecycleOptions?: WorkCaseLifecycleOption[];
     /** Spark 三联过滤之 priority（20 §8）计数。 */
     priorityOptions?: ObjectStatusOption[];
     statusTotal?: number;
@@ -821,7 +602,7 @@ export async function fetchObjects(
 }> {
   const params = new URLSearchParams();
   if (status) params.set('status', status);
-  if (progress) params.set('progress', progress);
+  if (lifecycle) params.set('lifecycle', lifecycle);
   if (priority) params.set('priority', priority);
   const qs = params.toString();
   return request(`/objects/${type}${qs ? `?${qs}` : ''}`);

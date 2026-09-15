@@ -8,10 +8,7 @@ import {
 } from './localFactReader.js'
 import { canonicalUid } from '../../shared/factIdentity.js'
 import { resolveCurrentWebProject, WebGovernanceError } from './governanceScope.js'
-import {
-  deriveWorkCasePresentationProjection,
-  type WorkCaseCurrentSnapshotProjection,
-} from '../../shared/workcaseStatus.js'
+import { deriveWorkCaseV5View, type WorkCaseV5View } from '../../shared/workcaseLifecycle.js'
 import { hasUnavailableIndependentSubagentReview } from '../../shared/workcaseCapability.js'
 import { FACT_LIST_FIELD_NAMES } from './factFieldContract.js'
 import {
@@ -205,8 +202,13 @@ async function projectFactCardAssociations(
     if (exact.status !== 'ok' || exact.item.read_status !== 'readable' || exact.item.fact_object === null) return projection
     const source = exact.item.fact_object
     if (typeof source.title !== 'string' || !source.title.trim()) return projection
-    const workCasePresentation = locator.factTypeKey === 'workcase'
-      ? deriveWorkCasePresentationProjection(source.status, source.phase, exact.item.source_content_fingerprint)
+    const workCaseView = locator.factTypeKey === 'workcase'
+      ? deriveWorkCaseV5View(
+        source.status,
+        source.outcome,
+        source.report_body,
+        exact.item.source_content_fingerprint,
+      )
       : null
     return {
       ...projection,
@@ -214,11 +216,8 @@ async function projectFactCardAssociations(
       ...('objectUid' in target ? { resolvedTarget: locator } : {}),
       title: source.title,
       ...copyPresentFields(source, ['title_en', 'title_zh', 'status']),
-      ...(locator.factTypeKey === 'workcase' && typeof source.closure_outcome === 'string'
-        ? { closureOutcome: source.closure_outcome }
-        : {}),
-      ...(workCasePresentation?.resolution === 'resolved'
-        ? { progressGroup: workCasePresentation.progress_group }
+      ...(locator.factTypeKey === 'workcase' && workCaseView?.group
+        ? { group: workCaseView.group }
         : {}),
     }
   }))
@@ -241,293 +240,143 @@ function copyPresentFields(source: Record<string, unknown>, fields: readonly str
   return Object.fromEntries(fields.flatMap((field) => Object.prototype.hasOwnProperty.call(source, field) ? [[field, source[field]]] : []))
 }
 
-type CardWorkItem = { id: string; title: string; status: string; blockingReason?: string }
 
-function projectCardWorkItems(value: unknown): Record<string, unknown> {
-  if (!Array.isArray(value) || value.length === 0) return { executionItemsProjectionValid: false, executionItems: [] }
-  const items = value.map((candidate): CardWorkItem | null => {
-    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
-    const item = candidate as Record<string, unknown>
-    if (typeof item.item_id !== 'string' || !item.item_id.trim() || typeof item.goal !== 'string' || !item.goal.trim() || typeof item.status !== 'string' || !item.status.trim()) return null
-    return { id: item.item_id, title: item.goal, status: item.status, ...(typeof item.blocking_summary === 'string' && item.blocking_summary.trim() ? { blockingReason: item.blocking_summary } : {}) }
-  })
-  if (items.some((item) => item === null) || new Set((items as CardWorkItem[]).map((item) => item.id)).size !== items.length) return projectCardWorkItems(null)
-  const valid = items as CardWorkItem[]
-  return {
-    executionItemsProjectionValid: true,
-    executionItems: valid,
+
+/**
+ * 21 号 v5 呈现投影：从 v5 字段闭集（summary/serves/scope/plan/gate_1/attempt/
+ * result/outcome）派生列表卡与详情卡形状。不引入 v4 的 phase/work_items/
+ * closure_proposal 等字段；派生分组只由 workcaseLifecycle 给出，不写回对象。
+ */
+
+/** 提取 markdown 正文中某个 H2 节（## <heading>）的节体（不含标题行），忽略代码围栏。 */
+function extractMarkdownSection(body: unknown, heading: string): string | null {
+  if (typeof body !== 'string' || body.length === 0) return null
+  const lines = body.split(/\r?\n/)
+  let inFence = false
+  let fenceMarker = ''
+  let capturing = false
+  const collected: string[] = []
+  for (const line of lines) {
+    const fenceMatch = /^ {0,3}(```|~~~)/.exec(line)
+    if (fenceMatch) {
+      const marker = fenceMatch[1]
+      if (!inFence) {
+        inFence = true
+        fenceMarker = marker
+      } else if (marker === fenceMarker) {
+        inFence = false
+        fenceMarker = ''
+      }
+      continue
+    }
+    if (inFence) continue
+    const headingMatch = /^ {0,3}##\s+([^\s].*?)\s*$/.exec(line)
+    if (headingMatch) {
+      if (capturing) break
+      if (headingMatch[1].trim() === heading) capturing = true
+      continue
+    }
+    if (capturing) collected.push(line)
   }
+  if (!capturing) return null
+  const text = collected.join('\n').trim()
+  return text.length > 0 ? text : null
 }
 
-function projectCriterionStatements(value: unknown): string[] {
-  if (!Array.isArray(value) || value.length === 0) return []
+/** plan 数组投影为 {step, done_criteria} 摘要（21 §8）。 */
+function projectWorkCasePlan(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return []
   return value
     .map((candidate) => {
       if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
-      const statement = (candidate as Record<string, unknown>).statement
-      return typeof statement === 'string' && statement.trim() ? statement : null
+      const step = candidate as Record<string, unknown>
+      if (typeof step.step !== 'string' && typeof step.done_criteria !== 'string') return null
+      return {
+        ...(typeof step.step === 'string' ? { step: step.step } : {}),
+        ...(typeof step.done_criteria === 'string' ? { done_criteria: step.done_criteria } : {}),
+      }
     })
-    .filter((statement): statement is string => statement !== null)
+    .filter((item): item is Record<string, unknown> => item !== null)
 }
 
-function projectContributedToTargets(value: unknown, uidTargets?: FactUidTargetIndex): Array<Record<string, string>> {
-  if (!Array.isArray(value)) return []
-  return value.flatMap<Record<string, string>>((candidate) => {
-    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return []
-    const relation = candidate as Record<string, unknown>
-    if (relation.relation_key !== 'contributed-to') return []
-    const target = relation.target
-    if (!target || typeof target !== 'object' || Array.isArray(target)) return []
-    const triple = target as Record<string, unknown>
-    if (Object.keys(triple).length === 1 && canonicalUid(triple.object_uid)) {
-      const resolvedTarget = uidTargets?.get(triple.object_uid)
-      return [{ objectUid: triple.object_uid, ...(resolvedTarget ? {
-        governedProjectId: resolvedTarget.governedProjectId,
-        factTypeKey: resolvedTarget.factTypeKey,
-        objectId: resolvedTarget.objectId,
-      } : {}) }]
-    }
-    if (typeof triple.governed_project_id !== 'string' || !triple.governed_project_id.trim()
-      || triple.fact_type_key !== 'pitfall'
-      || typeof triple.object_id !== 'string' || !triple.object_id.trim()) return []
-    return [{ governedProjectId: triple.governed_project_id, factTypeKey: triple.fact_type_key, objectId: triple.object_id }]
-  })
-}
-
-const CLOSURE_PROPOSAL_OUTCOMES = new Set(['completed', 'partial', 'not-achieved', 'cancelled'])
-const RESIDUAL_DISPOSITIONS = new Set(['route_existing', 'suggest_spark', 'accept_stop'])
-
-function projectRelationTarget(value: unknown, uidTargets?: FactUidTargetIndex): Record<string, string> | null {
+/** result 投影：criteria_checks[{satisfied, evidence}] + achieved_scope + residual（21 §8）。 */
+function projectWorkCaseResult(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const target = value as Record<string, unknown>
-  if (Object.keys(target).length === 1 && canonicalUid(target.object_uid)) {
-    const resolvedTarget = uidTargets?.get(target.object_uid)
-    return { objectUid: target.object_uid, ...(resolvedTarget ? {
-      governedProjectId: resolvedTarget.governedProjectId,
-      factTypeKey: resolvedTarget.factTypeKey,
-      objectId: resolvedTarget.objectId,
-    } : {}) }
-  }
-  if (typeof target.governed_project_id !== 'string' || !target.governed_project_id.trim()
-    || typeof target.fact_type_key !== 'string' || !target.fact_type_key.trim()
-    || typeof target.object_id !== 'string' || !target.object_id.trim()) return null
-  return { governedProjectId: target.governed_project_id, factTypeKey: target.fact_type_key, objectId: target.object_id }
-}
-
-function projectProposalRouteTarget(value: unknown, uidTargets?: FactUidTargetIndex): Record<string, string> | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const target = value as Record<string, unknown>
-  const allowed = new Set(['object_uid', 'governed_project_id', 'fact_type_key', 'object_id', 'content_fingerprint'])
-  if (Object.keys(target).some((key) => !allowed.has(key))
-    || typeof target.content_fingerprint !== 'string'
-    || !/^[0-9a-f]{64}$/.test(target.content_fingerprint)) return null
-  const projected = projectRelationTarget(Object.fromEntries(Object.entries(target).filter(([key]) => key !== 'content_fingerprint')), uidTargets)
-  if (projected === null) return null
-  if ('objectUid' in projected) return projected
-  // 与后端 object_id_pattern 保持一致：接受 legacy 纯数字 ID 与 UID-native Base32 locator。
-  const typePrefix = projected.factTypeKey
-  if ((typePrefix === 'workcase' || typePrefix === 'spark')
-    && !new RegExp(`^${typePrefix}-(?:\\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$`).test(projected.objectId)) return null
-  return projected
-}
-
-function projectSparkSuggestions(value: unknown): Array<Record<string, string>> | null {
-  if (value === undefined) return []
-  if (!Array.isArray(value) || value.length === 0) return null
-  const projected: Array<Record<string, string>> = []
-  const identifiers = new Set<string>()
-  const allowed = new Set([
-    'suggestion_id', 'suggestion_kind', 'summary', 'follow_up_summary',
-    'restriction_reason', 'impact_summary', 'resume_condition',
-  ])
-  for (const candidate of value) {
-    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
-    const suggestion = candidate as Record<string, unknown>
-    if (Object.keys(suggestion).some((key) => !allowed.has(key))) return null
-    if (typeof suggestion.suggestion_id !== 'string' || !/^suggestion-[a-z0-9][a-z0-9-]*$/.test(suggestion.suggestion_id)
-      || identifiers.has(suggestion.suggestion_id)
-      || !['constrained_responsibility', 'follow_up_opportunity'].includes(String(suggestion.suggestion_kind))
-      || typeof suggestion.summary !== 'string' || !suggestion.summary.trim()
-      || typeof suggestion.follow_up_summary !== 'string' || !suggestion.follow_up_summary.trim()) return null
-    const constrainedFields = ['restriction_reason', 'impact_summary', 'resume_condition']
-    if (suggestion.suggestion_kind === 'constrained_responsibility'
-      && constrainedFields.some((key) => typeof suggestion[key] !== 'string' || !(suggestion[key] as string).trim())) return null
-    if (suggestion.suggestion_kind === 'follow_up_opportunity'
-      && constrainedFields.some((key) => key in suggestion)) return null
-    identifiers.add(suggestion.suggestion_id)
-    projected.push({
-      suggestionId: suggestion.suggestion_id,
-      suggestionKind: String(suggestion.suggestion_kind),
-      summary: suggestion.summary,
-      followUpSummary: suggestion.follow_up_summary,
-      ...(typeof suggestion.restriction_reason === 'string' ? { restrictionReason: suggestion.restriction_reason } : {}),
-      ...(typeof suggestion.impact_summary === 'string' ? { impactSummary: suggestion.impact_summary } : {}),
-      ...(typeof suggestion.resume_condition === 'string' ? { resumeCondition: suggestion.resume_condition } : {}),
-    })
-  }
-  return projected
-}
-
-function projectResidualDecisions(
-  value: unknown,
-  outcome: string,
-  suggestions: Array<Record<string, string>>,
-  uidTargets?: FactUidTargetIndex,
-): Array<Record<string, unknown>> | null {
-  if (value === undefined) return outcome === 'completed' ? [] : null
-  if (!Array.isArray(value) || value.length === 0 || outcome === 'completed') return null
-  const projected: Array<Record<string, unknown>> = []
-  const identifiers = new Set<string>()
-  const suggestionKinds = new Map(suggestions.map((item) => [item.suggestionId, item.suggestionKind]))
-  const allowed = new Set(['residual_id', 'summary', 'proposed_disposition', 'route_target', 'spark_suggestion_id'])
-  for (const candidate of value) {
-    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
-    const decision = candidate as Record<string, unknown>
-    if (Object.keys(decision).some((key) => !allowed.has(key))) return null
-    if (typeof decision.residual_id !== 'string' || !/^residual-[a-z0-9][a-z0-9-]*$/.test(decision.residual_id)
-      || identifiers.has(decision.residual_id)) return null
-    if (typeof decision.summary !== 'string' || !decision.summary.trim()) return null
-    if (typeof decision.proposed_disposition !== 'string' || !RESIDUAL_DISPOSITIONS.has(decision.proposed_disposition)) return null
-    const routeTarget = decision.proposed_disposition === 'route_existing' ? projectProposalRouteTarget(decision.route_target, uidTargets) : null
-    if (decision.proposed_disposition === 'route_existing'
-      && (routeTarget === null || ('factTypeKey' in routeTarget && !['workcase', 'spark'].includes(routeTarget.factTypeKey)))) return null
-    if (decision.proposed_disposition !== 'route_existing' && decision.route_target !== undefined) return null
-    if (decision.proposed_disposition === 'suggest_spark') {
-      if (typeof decision.spark_suggestion_id !== 'string'
-        || suggestionKinds.get(decision.spark_suggestion_id) !== 'constrained_responsibility') return null
-    } else if (decision.spark_suggestion_id !== undefined) return null
-    identifiers.add(decision.residual_id)
-    projected.push({
-      residualId: decision.residual_id,
-      summary: decision.summary,
-      proposedDisposition: decision.proposed_disposition,
-      ...(routeTarget ? { routeTarget } : {}),
-    })
-  }
-  return projected
-}
-
-/**
- * Projects the stable closure-decision subset consumed by the Card. The whole
- * projection is dropped unless every required proposal member is readable and
- * complete. No malformed decision or suggestion is silently omitted.
- */
-function projectClosureProposal(value: unknown, uidTargets?: FactUidTargetIndex): Record<string, unknown> | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const proposal = value as Record<string, unknown>
-  const allowed = new Set(['proposed_outcome', 'proposed_disposition_summary', 'residual_decisions', 'spark_suggestions'])
-  if (Object.keys(proposal).some((key) => !allowed.has(key))) return null
-  if (typeof proposal.proposed_outcome !== 'string' || !CLOSURE_PROPOSAL_OUTCOMES.has(proposal.proposed_outcome)) return null
-  if (typeof proposal.proposed_disposition_summary !== 'string' || !proposal.proposed_disposition_summary.trim()) return null
-  const suggestions = projectSparkSuggestions(proposal.spark_suggestions)
-  if (suggestions === null) return null
-  if (proposal.proposed_outcome === 'completed'
-    && suggestions.some((item) => item.suggestionKind === 'constrained_responsibility')) return null
-  const decisions = projectResidualDecisions(proposal.residual_decisions, proposal.proposed_outcome, suggestions, uidTargets)
-  if (decisions === null) return null
+  const result = value as Record<string, unknown>
+  const checks = Array.isArray(result.criteria_checks)
+    ? result.criteria_checks
+      .map((candidate) => {
+        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
+        const check = candidate as Record<string, unknown>
+        return {
+          ...(typeof check.satisfied === 'string' ? { satisfied: check.satisfied } : {}),
+          ...(typeof check.evidence === 'string' ? { evidence: check.evidence } : {}),
+        }
+      })
+      .filter((item): item is Record<string, unknown> => item !== null)
+    : []
   return {
-    proposedOutcome: proposal.proposed_outcome,
-    dispositionSummary: proposal.proposed_disposition_summary,
-    residualDecisions: decisions,
-    sparkSuggestions: suggestions,
+    ...(checks.length > 0 ? { criteria_checks: checks } : {}),
+    ...(typeof result.achieved_scope === 'string' ? { achieved_scope: result.achieved_scope } : {}),
+    ...(typeof result.residual === 'string' ? { residual: result.residual } : {}),
   }
 }
 
-function projectClosedDisposition(fact: Record<string, unknown>, uidTargets?: FactUidTargetIndex): Record<string, unknown> | null {
-  if (typeof fact.closure_outcome !== 'string' || !CLOSURE_PROPOSAL_OUTCOMES.has(fact.closure_outcome)) return null
-  if (typeof fact.disposition_summary !== 'string' || !fact.disposition_summary.trim()) return null
-  const suggestions = projectSparkSuggestions(fact.spark_suggestions)
-  if (suggestions === null) return null
-  const routedTo: Array<Record<string, string>> = []
-  if (Array.isArray(fact.relations)) {
-    for (const candidate of fact.relations) {
-      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue
-      const relation = candidate as Record<string, unknown>
-      if (relation.relation_key !== 'routed-to') continue
-      const target = projectRelationTarget(relation.target, uidTargets)
-      if (target === null || ('factTypeKey' in target && !['workcase', 'spark'].includes(target.factTypeKey))) return null
-      routedTo.push(target)
-    }
-  } else if (fact.relations !== undefined) return null
-  const acceptedStop: Array<Record<string, string>> = []
-  const residualIdentifiers = new Set<string>()
-  if (fact.residual_responsibilities !== undefined) {
-    if (!Array.isArray(fact.residual_responsibilities) || fact.residual_responsibilities.length === 0) return null
-    for (const candidate of fact.residual_responsibilities) {
-      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
-      const residual = candidate as Record<string, unknown>
-      if (typeof residual.residual_id !== 'string' || !residual.residual_id.trim()
-        || residualIdentifiers.has(residual.residual_id)
-        || typeof residual.summary !== 'string' || !residual.summary.trim()) return null
-      residualIdentifiers.add(residual.residual_id)
-      acceptedStop.push({ residualId: residual.residual_id, summary: residual.summary })
-    }
-  }
-  if (fact.closure_outcome === 'completed'
-    && (routedTo.length > 0 || acceptedStop.length > 0
-      || suggestions.some((item) => item.suggestionKind === 'constrained_responsibility'))) return null
-  if (fact.closure_outcome !== 'completed'
-    && routedTo.length === 0 && acceptedStop.length === 0
-    && !suggestions.some((item) => item.suggestionKind === 'constrained_responsibility')) return null
+/** gate_1 投影：approved_at / approver（21 §8）。 */
+function projectWorkCaseGate1(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const gate = value as Record<string, unknown>
   return {
-    outcome: fact.closure_outcome,
-    dispositionSummary: fact.disposition_summary,
-    routedTo,
-    acceptedStop,
-    sparkSuggestions: suggestions,
+    ...(typeof gate.approved_at === 'string' ? { approved_at: gate.approved_at } : {}),
+    ...(typeof gate.approver === 'string' ? { approver: gate.approver } : {}),
+  }
+}
+
+/** attempt 投影：attempt_id / controller / heartbeat_at（21 §8）。 */
+function projectWorkCaseAttempt(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const attempt = value as Record<string, unknown>
+  return {
+    ...(typeof attempt.attempt_id !== 'undefined' ? { attempt_id: attempt.attempt_id } : {}),
+    ...(typeof attempt.controller === 'string' ? { controller: attempt.controller } : {}),
+    ...(typeof attempt.heartbeat_at === 'string' ? { heartbeat_at: attempt.heartbeat_at } : {}),
   }
 }
 
 function projectCurrentWorkCaseCardShape(
   fact: Record<string, unknown>,
-  currentSnapshotProjection: WorkCaseCurrentSnapshotProjection,
-  uidTargets?: FactUidTargetIndex,
+  view: WorkCaseV5View,
 ): Record<string, unknown> {
-  const projected = copyPresentFields(fact, ['object_id', 'fact_type_key', 'title', 'status', 'phase', 'updated_at', 'change_log'])
-  projected.current_snapshot_projection = currentSnapshotProjection
+  // 恒复制：身份 + 标题 + 状态 + serves + 基础字段。
+  const projected = copyPresentFields(fact, [
+    'object_id', 'fact_type_key', 'title', 'status', 'serves', 'created_at', 'change_log',
+  ])
+  // 21 号三态直读视图序列化（current_snapshot_projection 改为 WorkCaseV5View）。
+  projected.current_snapshot_projection = view
+  if (view.group) projected.group = view.group
+  if (view.outcome) projected.outcome = view.outcome
+  if (view.has_result_draft) projected.has_result_draft = true
   if (hasUnavailableIndependentSubagentReview(fact)) projected.independentSubagentUnavailable = true
-  const progress = currentSnapshotProjection.resolution === 'resolved'
-    ? currentSnapshotProjection
-    : null
-  if (progress?.progress_group === 'plan_confirmation') {
-    // Gate 1 必须让 Human 看到被批准的完整执行基线。这里保留结构原值，
-    // 让前端可以区分“缺失/类型错误”与“合法空值”，而不是静默过滤 malformed 成员。
-    Object.assign(projected, copyPresentFields(fact, [
-      'priority',
-      'goal',
-      'scope',
-      'success_criterion_definitions',
-      'work_items',
-      'creation_reviews',
-      'execution_authorization',
-      'execution_approval',
-    ]), {
-      successCriteria: projectCriterionStatements(fact.success_criterion_definitions),
-    })
-  } else if (progress?.progress_group === 'progressing') {
-    Object.assign(projected, copyPresentFields(fact, ['goal', 'waiting_on']))
-    Object.assign(projected, projectCardWorkItems(fact.work_items))
-  } else if (progress?.progress_group === 'termination_cleanup') {
-    Object.assign(projected, copyPresentFields(fact, ['goal', 'waiting_on', 'termination']))
-  } else if (progress?.progress_group === 'closure_confirmation') {
-    Object.assign(projected, copyPresentFields(fact, ['goal']))
-    const closureProposal = projectClosureProposal(fact.closure_proposal, uidTargets)
-    if (closureProposal) projected.closureProposal = closureProposal
-    const contributedTo = projectContributedToTargets(fact.relations, uidTargets)
-    if (contributedTo.length > 0) projected.contributedTo = contributedTo
-  } else if (progress?.progress_group === 'closed') {
-    Object.assign(projected, copyPresentFields(fact, ['goal', 'termination', 'closure_outcome']))
-    const closureTerminal = projectClosedDisposition(fact, uidTargets)
-    if (closureTerminal) projected.closureTerminal = closureTerminal
-    const contributedTo = projectContributedToTargets(fact.relations, uidTargets)
-    if (contributedTo.length > 0) projected.contributedTo = contributedTo
-  }
-  if (progress?.blocking_overlay) {
-    Object.assign(projected, copyPresentFields(fact, ['blocking_summary']))
-  }
-  if (progress) {
-    projected.progress_group = progress.progress_group
-    if (progress.progress_step) projected.progress_step = progress.progress_step
+
+  if (view.status === 'draft') {
+    // draft：计划判据 + summary + scope + serves。
+    Object.assign(projected, copyPresentFields(fact, ['summary', 'scope', 'serves']))
+    const plan = projectWorkCasePlan(fact.plan)
+    if (plan.length > 0) projected.plan = plan
+  } else if (view.status === 'open') {
+    // open：attempt 现场 + plan + 「## 执行」节存在性标记。
+    const attempt = projectWorkCaseAttempt(fact.attempt)
+    if (attempt && Object.keys(attempt).length > 0) projected.attempt = attempt
+    const plan = projectWorkCasePlan(fact.plan)
+    if (plan.length > 0) projected.plan = plan
+    projected.has_execution_section = extractMarkdownSection(fact.report_body, '执行') !== null
+  } else if (view.status === 'closed') {
+    // closed：outcome 四值 + result 逐条核对 + gate_1 批准信息。
+    if (typeof fact.outcome === 'string') projected.outcome = fact.outcome
+    const result = projectWorkCaseResult(fact.result)
+    if (result && Object.keys(result).length > 0) projected.result = result
+    const gate1 = projectWorkCaseGate1(fact.gate_1)
+    if (gate1 && Object.keys(gate1).length > 0) projected.gate_1 = gate1
   }
   return projected
 }
@@ -537,12 +386,13 @@ export function projectCurrentWorkCaseCard(
   sourceContentFingerprint: string | null,
   uidTargets?: FactUidTargetIndex,
 ): Record<string, unknown> {
-  const currentSnapshotProjection = deriveWorkCasePresentationProjection(
+  const view = deriveWorkCaseV5View(
     fact.status,
-    fact.phase,
+    fact.outcome,
+    fact.report_body,
     sourceContentFingerprint,
   )
-  return projectCurrentWorkCaseCardShape(fact, currentSnapshotProjection, uidTargets)
+  return projectCurrentWorkCaseCardShape(fact, view)
 }
 
 export async function listObjects(type: ObjectType, _baseDir?: string, status?: string, scope?: LocalFactScope): Promise<WebFactResult | WebFactError> {
@@ -655,18 +505,17 @@ export async function showObject(id: string, scope?: LocalFactScope): Promise<We
     const associations = await projectFactCardAssociations(item, resolvedScope, uidTargets)
     if (associations.length > 0) data.factAssociations = associations
     if (type === 'workcase') {
-      const projection = deriveWorkCasePresentationProjection(
+      const projection = deriveWorkCaseV5View(
         item.fact_object.status,
-        item.fact_object.phase,
+        item.fact_object.outcome,
+        item.fact_object.report_body,
         item.source_content_fingerprint,
       )
       data.current_snapshot_projection = projection
       const currentCard = projectCurrentWorkCaseCard(item.fact_object, item.source_content_fingerprint, uidTargets)
       Object.assign(data, currentCard)
-      if (projection.resolution === 'resolved') {
-        data.progress_group = projection.progress_group
-        if (projection.progress_step) data.progress_step = projection.progress_step
-      }
+      if (projection.group) data.group = projection.group
+      if (projection.outcome) data.outcome = projection.outcome
     }
     const response = { ...result('show', id, data), summary: { id, type, ...(typeof data.status === 'string' ? { status: data.status } : {}) } }
     response.issues = [...item.issues, ...item.field_issues]

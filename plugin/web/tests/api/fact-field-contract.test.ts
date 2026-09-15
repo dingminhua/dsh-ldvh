@@ -27,11 +27,14 @@ const COMMON_FIELDS = [
 ] as const;
 const COMMON_FIELD_EXEMPTIONS: Record<string, readonly string[]> = {
   spark: ['urls'],
+  // 21 §8：WorkCase 不采用 urls——证据是当次执行的观察与回读，长期外部资料归 22/24。
+  workcase: ['urls'],
 };
 
 // 每类型固定的必填面：这些字段被当前阅读面无条件消费。
 const TYPE_REQUIRED_FIELDS: Record<string, readonly string[]> = {
-  workcase: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'goal', 'scope', 'success_criterion_definitions'],
+  // 21 §8：summary/scope/plan 必填（serves/gate_1/attempt/result/outcome 条件）。
+  workcase: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'summary', 'scope', 'plan'],
   // 22 §8：decision/scope 必填（trigger_signal/retirement_reason/retired_at 条件）。
   adr: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'decision', 'scope'],
   // 23 §8：scope 必填（trigger_signal/disposition 条件；六要素住正文）。
@@ -110,10 +113,24 @@ test('workcase carries the 21-spec field closure without v4 leftovers', () => {
   // 21 §8 字段闭集无 priority；v5 两侧均无优先级字段（20 §289 / 22 §271 /
   // 23 §252 / 26 §258——priority 类为无消费方装饰字段，03 §11.3-4）。
   assert.ok(!('priority' in FACT_FIELD_CONTRACT.workcase), 'workcase 不应登记 priority');
-  // 21 §8 锚点型 serves：本契约仅登记 spark 侧（spark-serves-sg）。WorkCase 的
-  // serves 由 21 §8 定义并在读路径解析，未登记于本 Web 读取契约——此处如实记录
-  // 现状，不臆断其存在。
-  assert.ok(!('serves' in FACT_FIELD_CONTRACT.workcase));
+  assert.ok(!('urls' in FACT_FIELD_CONTRACT.workcase), 'workcase 不应登记 urls（21 §8 明文不采用）');
+  // 21 §8 锚点型 serves（SG-n 轻量锚点，条件出现）。
+  assert.equal(FACT_FIELD_CONTRACT.workcase.serves.expected, 'string');
+  assert.equal(FACT_FIELD_CONTRACT.workcase.serves.required, false);
+  // 21 §8 结构化字段：plan 必填（数组）；gate_1/attempt/result 条件（object）；
+  // outcome 条件（string）。
+  assert.equal(FACT_FIELD_CONTRACT.workcase.plan.expected, 'array');
+  assert.equal(FACT_FIELD_CONTRACT.workcase.plan.required, true);
+  assert.equal(FACT_FIELD_CONTRACT.workcase.gate_1.expected, 'object');
+  assert.equal(FACT_FIELD_CONTRACT.workcase.attempt.expected, 'object');
+  assert.equal(FACT_FIELD_CONTRACT.workcase.result.expected, 'object');
+  assert.equal(FACT_FIELD_CONTRACT.workcase.outcome.expected, 'string');
+  // transport-only 正文（派生判据通道；不复制进列表投影）。
+  assert.equal(FACT_FIELD_CONTRACT.workcase.report_body.expected, 'string');
+  // v4 字段全部退出契约。
+  for (const retired of ['phase', 'work_items', 'goal', 'success_criterion_definitions', 'closure_proposal', 'execution_approval', 'closure_outcome', 'termination']) {
+    assert.ok(!(retired in FACT_FIELD_CONTRACT.workcase), `workcase 不应登记 v4 字段 ${retired}`);
+  }
 });
 
 test('list candidates are a declared subset of each type contract', () => {

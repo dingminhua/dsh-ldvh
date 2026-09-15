@@ -127,9 +127,9 @@ export default function FederationObjects() {
     if (currentType === 'norm') return <NormCardContent obj={item} />;
     if (currentType === 'workcase') {
       // WorkCase 联邦卡不复制单项目列表的阶段卡片投影（依赖当前项目的投影服务），
-      // 只呈现目标一行——进入项目后阅读完整阶段卡片。
-      if (typeof item.goal === 'string' && item.goal.trim()) {
-        return <p className="ldvh-card-decision-body">{item.goal}</p>;
+      // 只呈现语义快照一行（21 §8 summary）——进入项目后阅读完整阶段卡片。
+      if (typeof item.summary === 'string' && item.summary.trim()) {
+        return <p className="ldvh-card-decision-body">{item.summary}</p>;
       }
     }
     return null;

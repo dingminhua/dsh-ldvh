@@ -401,7 +401,7 @@ function HotspotNodeCard({
   const { locale, t } = useI18n();
   const { openPanel } = usePanel();
   const title = getLocalizedObjectTitle(node, locale, node.id);
-  const status = node.status ?? (node.type === 'workcase' ? node.progress_group : undefined);
+  const status = node.status ?? (node.type === 'workcase' ? node.group : undefined);
   const roleLabel = t(`cognition.commitHotspots.nodeRole.${role}` as LocaleKey);
   const primary = role === 'primary';
   const expanded = mode === 'expanded';

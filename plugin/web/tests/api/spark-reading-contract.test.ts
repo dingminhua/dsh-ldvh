@@ -22,13 +22,13 @@ test('every fact list card shows exact-read formal associations in a minimal sec
   assert.match(source, /whitespace-normal break-words/);
   assert.match(source, /openPanel\(\{ type: 'object', title, objectType: legacyTarget\.factTypeKey, objectId: legacyTarget\.objectId \}\)/);
   assert.doesNotMatch(source, /StatusBadge status=\{association\.status\}/);
-  assert.match(source, /function isDiscardedWorkCaseAssociation/);
+  // v5：cancelled 不再映射 discarded（21 号无此组）——isDiscardedWorkCaseAssociation 已删除。
+  assert.doesNotMatch(source, /isDiscardedWorkCaseAssociation/);
   assert.match(source, /function getFactAssociationState/);
   assert.match(source, /targetType === 'spark'/);
   assert.match(source, /association\.status === 'open'\) return 'pending'/);
-  assert.match(source, /association\.progressGroup === 'plan_confirmation' \|\| association\.progressGroup === 'closure_confirmation'/);
+  assert.match(source, /association\.group === 'pending_gate1' \|\| association\.group === 'awaiting_gate2'/);
   assert.match(source, /<FactAssociationStateIcon state=\{associationState\} tooltip=\{associationStateTooltip\} \/>/);
-  assert.match(source, /association\.closureOutcome === 'cancelled'/);
   assert.doesNotMatch(source, /isHiddenTerminalAssociation/);
   assert.match(source, /FACT_ASSOCIATION_STATE_RANK/);
   assert.match(source, /active: 0,[\s\S]*progressing: 1,[\s\S]*pending: 2,[\s\S]*closed: 3,[\s\S]*discarded: 4/);

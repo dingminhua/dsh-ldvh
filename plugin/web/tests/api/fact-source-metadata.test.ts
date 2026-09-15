@@ -75,8 +75,8 @@ test('fact list projections preserve full UID authority without derived identity
       'utf8',
     );
     await writeFile(
-      path.join(root, 'ldvh-base', 'workcases', 'workcase-0001.yaml'),
-      `object_uid: ${workCaseUid}\nobject_id: workcase-0001\nfact_type_key: workcase\ntitle: UID WorkCase\nstatus: open\nphase: executing\n`,
+      path.join(root, 'ldvh-base', 'workcases', `workcase-${workCaseUid}.md`),
+      `---\nobject_uid: ${workCaseUid}\nobject_id: workcase-${workCaseUid}\nfact_type_key: workcase\ntitle: UID WorkCase\nstatus: open\ncreated_at: "2026-01-01"\nsummary: UID 权威验证。\nscope: 做什么：UID 保真；不做什么：其它。\nplan:\n  - step: one\n    done_criteria: two\n---\n\n# UID WorkCase\n\n## 摘要\n\nUID 权威验证。\n`,
       'utf8',
     );
 
@@ -205,8 +205,8 @@ test('fact list cards project every formal association through exact readable ta
     await mkdir(path.join(root, 'ldvh-base', 'sparks'), { recursive: true });
     await mkdir(path.join(root, 'ldvh-base', 'workcases'), { recursive: true });
     await writeFile(
-      path.join(root, 'ldvh-base', 'workcases', 'workcase-0001.yaml'),
-      'object_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc\nobject_id: workcase-0001\nfact_type_key: workcase\ntitle: Target title\ntitle_zh: 关联目标\nstatus: open\nphase: executing\n',
+      path.join(root, 'ldvh-base', 'workcases', 'workcase-0198f1c7-8a2b-4c3d-9e4f-123456789abc.md'),
+      '---\nobject_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc\nobject_id: workcase-0198f1c7-8a2b-4c3d-9e4f-123456789abc\nfact_type_key: workcase\ntitle: Target title\ntitle_zh: 关联目标\nstatus: open\ncreated_at: "2026-01-01"\nsummary: 关联目标。\nscope: 做什么：被引用；不做什么：其它。\nplan:\n  - step: one\n    done_criteria: two\n---\n\n# Target title\n\n## 摘要\n\n关联目标。\n',
       'utf8',
     );
     await writeFile(
@@ -219,12 +219,12 @@ test('fact list cards project every formal association through exact readable ta
         'intent: 关联目标解析回归。',
         'summary: Spark source',
         'relations:',
-        '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0001',
-        '  - relation_key: informs', '    target:', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0001',
+        '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0198f1c7-8a2b-4c3d-9e4f-123456789abc',
+        '  - relation_key: informs', '    target:', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0198f1c7-8a2b-4c3d-9e4f-123456789abc',
         '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: research', '      object_id: research-9999',
         '  - relation_key: related-to', '    target:', '      object_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc',
-        '  - relation_key: related-to', '    target:', '      object_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0001',
-        '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0001', '      copied_title: Bad target',
+        '  - relation_key: related-to', '    target:', '      object_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789abc', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0198f1c7-8a2b-4c3d-9e4f-123456789abc',
+        '  - relation_key: related-to', '    target:', '      governed_project_id: fixture', '      fact_type_key: workcase', '      object_id: workcase-0198f1c7-8a2b-4c3d-9e4f-123456789abc', '      copied_title: Bad target',
         '  - malformed relation',
         '---',
         '',
@@ -240,11 +240,11 @@ test('fact list cards project every formal association through exact readable ta
     assert.deepEqual(item?.factAssociations, [
       {
         relationKey: 'related-to',
-        target: { governedProjectId: 'fixture', factTypeKey: 'workcase', objectId: 'workcase-0001' },
+        target: { governedProjectId: 'fixture', factTypeKey: 'workcase', objectId: 'workcase-0198f1c7-8a2b-4c3d-9e4f-123456789abc' },
         available: true,
         title: 'Target title',
         status: 'open',
-        progressGroup: 'progressing',
+        group: 'executing',
       },
       {
         relationKey: 'related-to',
@@ -254,11 +254,11 @@ test('fact list cards project every formal association through exact readable ta
       {
         relationKey: 'related-to',
         target: { objectUid: '0198f1c7-8a2b-4c3d-9e4f-123456789abc' },
-        resolvedTarget: { governedProjectId: 'fixture', factTypeKey: 'workcase', objectId: 'workcase-0001' },
+        resolvedTarget: { governedProjectId: 'fixture', factTypeKey: 'workcase', objectId: 'workcase-0198f1c7-8a2b-4c3d-9e4f-123456789abc' },
         available: true,
         title: 'Target title',
         status: 'open',
-        progressGroup: 'progressing',
+        group: 'executing',
       },
       { available: false },
       { available: false },

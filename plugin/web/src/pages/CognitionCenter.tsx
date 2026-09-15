@@ -21,11 +21,6 @@ import RefsBadge from '@/components/RefsBadge';
 import {
   ObjectCardFrame,
   PitfallCardContent,
-  WorkCaseBlockingNotice,
-  WorkCaseContributionsContent,
-  WorkCaseClosureConfirmationContent,
-  WorkCasePlanConfirmationContent,
-  WorkCaseProgressingContent,
 } from '@/pages/ObjectList';
 import StatusBadge from '@/components/StatusBadge';
 import PriorityIcon from '@/components/PriorityIcon';
@@ -44,8 +39,8 @@ import {
   type CognitionRecentActivityWindow,
   type CognitionSparkHealthItem,
   type ObjectItem,
-  type WorkCaseContributionTarget,
 } from '@/utils/api';
+import { WorkCaseCriteriaList } from '@/components/WorkCaseCriteriaList';
 import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { useI18n } from '@/i18n/context';
@@ -68,7 +63,7 @@ type RecentHotspotStatusFilter = 'all' | 'progressing' | 'decision' | 'settled';
 
 const RECENT_HOTSPOT_STATUS_FILTERS: RecentHotspotStatusFilter[] = ['all', 'progressing', 'decision', 'settled'];
 const RECENT_HOTSPOT_TERMINAL_STATUSES: Record<string, Set<string>> = {
-  workcase: new Set(['closed', 'discarded']),
+  workcase: new Set(['closed']),
   adr: new Set(['retired']),
   pitfall: new Set(['discarded']),
   spark: new Set(['implemented', 'discarded']),
@@ -78,8 +73,8 @@ const RECENT_HOTSPOT_TERMINAL_STATUSES: Record<string, Set<string>> = {
 function getRecentHotspotStatusGroup(node: CognitionRecentHotspotNode): Exclude<RecentHotspotStatusFilter, 'all'> {
   if (node.status && RECENT_HOTSPOT_TERMINAL_STATUSES[node.type]?.has(node.status)) return 'settled';
   if (node.type === 'workcase') {
-    if (node.progress_group === 'plan_confirmation' || node.progress_group === 'closure_confirmation') return 'decision';
-    if (node.progress_group === 'closed') return 'settled';
+    if (node.group === 'pending_gate1' || node.group === 'awaiting_gate2') return 'decision';
+    if (node.group === 'closed') return 'settled';
     return 'progressing';
   }
   if (node.type === 'pitfall' && node.status === 'draft') return 'decision';
@@ -206,47 +201,39 @@ function InboxItemReadNotes({ item, locale }: { item: CognitionCardItem; locale:
   );
 }
 
-function InboxCardContent({ item, t, locale, onOpenContribution }: { item: CognitionInboxItem; t: Translate; locale: string; onOpenContribution: (target: WorkCaseContributionTarget, title: string) => void }) {
+function InboxCardContent({ item, t }: { item: CognitionInboxItem; t: Translate }) {
   if (item.type === 'pitfall') return <PitfallCardContent obj={toObjectCard(item)} />;
-  if (item.inboxKind === 'blocked_resolution') {
-    return (
-      <div className="grid min-w-0 gap-2">
-        <WorkCaseBlockingNotice blockingSummary={item.card.blocking_summary} t={t} />
-        <section className="min-w-0 rounded-md border border-amber-400/25 border-l-2 border-l-amber-400 bg-amber-500/[0.035] px-3.5 py-3">
-          <h3 className="ldvh-card-decision-title text-amber-700/85 dark:text-amber-200/85">
-            {t('cognition.kind.blocked_resolution')}
-          </h3>
-          <p className="ldvh-card-decision-body mt-1.5 text-amber-950/70 dark:text-amber-100/75">
-            {t('cognition.blocked.position', {
-              position: getObjectStatusLocale('workcase', item.progress_group, locale),
-            })}
-          </p>
-        </section>
-      </div>
-    );
-  }
   if (item.inboxKind === 'plan_confirmation') {
     return (
-      <WorkCasePlanConfirmationContent
-        mode="card"
-        goal={item.card.goal}
-        successCriteria={item.card.successCriteria}
-        successCriterionDefinitions={item.card.success_criterion_definitions}
-        executionAuthorization={item.card.execution_authorization}
-        t={t}
-      />
+      <div className="grid min-w-0 gap-2">
+        {item.card.summary ? <p className="ldvh-card-decision-body">{item.card.summary}</p> : null}
+        {Array.isArray(item.card.plan) && item.card.plan.length > 0 ? (
+          <WorkCaseCriteriaList
+            items={item.card.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))}
+          />
+        ) : null}
+        <p className="ldvh-caption text-amber-500 dark:text-amber-400">{t('cognition.workcaseAwaitingGate1')}</p>
+      </div>
     );
   }
   if (item.inboxKind === 'closure_confirmation') {
     return (
-      <>
-        <WorkCaseClosureConfirmationContent
-          goal={item.card.goal}
-          closureProposal={item.card.closureProposal}
-          onOpenTarget={onOpenContribution}
-        />
-        <WorkCaseContributionsContent contributions={item.card.contributedTo} locale={locale} onOpenTarget={onOpenContribution} />
-      </>
+      <div className="grid min-w-0 gap-2">
+        {item.card.outcome ? (
+          <p className="ldvh-card-decision-body">
+            <span className="ldvh-chip">{t(`objectList.workcaseOutcome.${item.card.outcome}`)}</span>
+          </p>
+        ) : null}
+        {item.card.result?.criteria_checks && item.card.result.criteria_checks.length > 0 ? (
+          <WorkCaseCriteriaList
+            items={item.card.result.criteria_checks.map((c, index) => ({ key: String(index), statement: `${c.satisfied ?? ''} · ${c.evidence ?? ''}` }))}
+          />
+        ) : null}
+        {item.card.gate_1 ? (
+          <p className="ldvh-caption">{t('objectList.workcaseGate1', { approver: item.card.gate_1.approver ?? '—', approvedAt: item.card.gate_1.approved_at ?? '—' })}</p>
+        ) : null}
+        <p className="ldvh-caption text-violet-500 dark:text-violet-400">{t('cognition.workcaseAwaitingGate2')}</p>
+      </div>
     );
   }
   return null;
@@ -260,14 +247,8 @@ function toObjectCard(item: CognitionCardItem): ObjectItem {
     title: item.title,
     ...(item.title_en ? { title_en: item.title_en } : {}),
     ...(item.title_zh ? { title_zh: item.title_zh } : {}),
-    status: item.type === 'workcase'
-      ? item.isBlocked ? 'blocked' : item.progress_group
-      : item.status,
-    ...(item.type === 'workcase' ? { progress_group: item.progress_group } : {}),
-    ...(item.type === 'workcase' ? {
-      lifecycle_position: item.lifecycle_position,
-      ...('progress_step' in item && item.progress_step ? { progress_step: item.progress_step } : {}),
-    } : {}),
+    status: item.type === 'workcase' ? item.group : item.status,
+    ...(item.type === 'workcase' ? { group: item.group } : {}),
     path: item.canonical_path ?? '',
     updated: item.updatedAt ?? '',
     ...(item.priority ? { priority: item.priority } : {}),
@@ -292,19 +273,21 @@ function ActiveWorkCaseItemRow({ item }: { item: CognitionActiveWorkCaseItem }) 
         locale={locale}
         onOpen={() => openPanel({ type: 'object', title, objectType: 'workcase', objectId: item.id })}
         showNonActiveReason={false}
-        displayStatus="progressing"
+        displayStatus="executing"
       >
-        <WorkCaseProgressingContent
-          goal={item.card.goal}
-          lifecyclePosition={item.lifecycle_position}
-          progressStep={item.progress_step ?? null}
-          executionItemsProjectionValid={item.card.executionItemsProjectionValid ?? false}
-          executionItems={item.card.executionItems ?? []}
-          isBlocked={item.isBlocked}
-          waitingOn={item.card.waiting_on}
-          blockingSummary={item.card.blocking_summary}
-          t={t}
-        />
+        <div className="grid min-w-0 gap-2">
+          {item.card.attempt ? (
+            <p className="ldvh-card-decision-body">
+              {t('objectList.workcaseAttemptController', { controller: item.card.attempt.controller ?? '—' })}
+              {item.card.attempt.heartbeat_at ? ` · ${item.card.attempt.heartbeat_at}` : ''}
+            </p>
+          ) : null}
+          {Array.isArray(item.card.plan) && item.card.plan.length > 0 ? (
+            <WorkCaseCriteriaList
+              items={item.card.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))}
+            />
+          ) : null}
+        </div>
         <InboxItemReadNotes item={item} locale={locale} />
       </ObjectCardFrame>
     </li>
@@ -323,18 +306,11 @@ function InboxItemRow({ item }: { item: CognitionInboxItem }) {
         obj={objectCard}
         locale={locale}
         onOpen={() => openPanel({ type: 'object', title, objectType: item.type, objectId: item.id })}
-        displayStatus={item.type === 'workcase' && item.inboxKind === 'blocked_resolution' ? 'blocked' : undefined}
+        displayStatus={item.type === 'workcase' ? item.group : undefined}
       >
         <InboxCardContent
           item={item}
           t={t}
-          locale={locale}
-          onOpenContribution={(target, targetTitle) => openPanel({
-            type: 'object',
-            title: targetTitle,
-            objectType: target.factTypeKey,
-            objectId: target.objectId,
-          })}
         />
         <InboxItemReadNotes item={item} locale={locale} />
       </ObjectCardFrame>
@@ -400,7 +376,7 @@ function RecentActivityRow({ item }: { item: CognitionRecentActivityItem }) {
   const { selectedProjectId } = useProjectScope();
   const { openPanel } = usePanel();
   const title = getLocalizedObjectTitle(item, locale, item.id);
-  const status = item.type === 'workcase' ? item.progress_group : item.status;
+  const status = item.type === 'workcase' ? item.group : item.status;
   const typeColor = CATEGORY_COLORS[item.type] || CATEGORY_COLORS.other;
   const open = () => openPanel({ type: 'object', title, objectType: item.type, objectId: item.id });
   return (

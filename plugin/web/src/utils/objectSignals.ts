@@ -42,7 +42,8 @@ export function getSignalText(field: string, value: unknown, locale: string): st
 }
 
 export function getObjectPriority(source: ObjectSignalSource, type?: SignalObjectType): string | null {
-  if (type !== 'workcase' && type !== 'spark') return null;
+  // 21 号 WorkCase 字段闭集不含 priority（§160），priority 信号仅 Spark 携带（20 §8）。
+  if (type !== 'spark') return null;
   return normalizeSignalValue(source.priority);
 }
 

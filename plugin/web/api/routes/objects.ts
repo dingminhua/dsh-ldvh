@@ -8,9 +8,12 @@ import { ProjectScopeError, requestFactScope } from '../services/requestScope.js
 import { compareTimestamps } from '../services/time.js'
 import type { LocalFactScope } from '../services/localFactReader.js'
 import {
-  WORKCASE_PROGRESS_GROUP_ORDER,
-  isResolvedWorkCasePresentationProjection,
-} from '../../shared/workcaseStatus.ts'
+  WORKCASE_V5_FILTER_VALUES,
+  WORKCASE_V5_STATUSES,
+  type WorkCaseV5Filter,
+  type WorkCaseV5Group,
+  deriveWorkCaseV5View,
+} from '../../shared/workcaseLifecycle.js'
 import { getLatestChangeLogAt } from '../../shared/factChangeLog.js'
 
 const router = Router()
@@ -33,17 +36,31 @@ interface StatusOption {
   count: number
 }
 
-interface ProgressOption {
-  group: string
+/** v5 WorkCase 列表筛选五档（Human 2026-09-15 定案）。 */
+interface LifecycleOption {
+  group: WorkCaseV5Filter
   count: number
 }
 
-type WorkCaseListGroup = (typeof WORKCASE_PROGRESS_GROUP_ORDER)[number] | 'discarded'
+type WorkCaseListStatus = (typeof WORKCASE_V5_STATUSES)[number]
 
-function getWorkCaseListGroup(item: ListedObject): WorkCaseListGroup | undefined {
-  if (item.progress_group === 'closed' && item.closure_outcome === 'cancelled') return 'discarded'
-  if (typeof item.progress_group !== 'string') return undefined
-  return item.progress_group === 'termination_cleanup' ? 'closed' : item.progress_group as WorkCaseListGroup
+function getWorkCaseStatus(item: ListedObject): WorkCaseListStatus | null {
+  return WORKCASE_V5_STATUSES.includes(item.status as WorkCaseListStatus)
+    ? (item.status as WorkCaseListStatus)
+    : null
+}
+
+/** 由 item 可得字段（status / outcome / report_body / fingerprint）派生 v5 视图分组。 */
+function getWorkCaseV5Group(item: ListedObject): WorkCaseV5Group | null {
+  const status = getWorkCaseStatus(item)
+  if (status === null) return null
+  const view = deriveWorkCaseV5View(
+    status,
+    item.outcome ?? null,
+    item.report_body ?? null,
+    item.source_content_fingerprint ?? null,
+  )
+  return view.group
 }
 
 const STATUS_PRIORITY: Record<string, number> = {
@@ -79,15 +96,21 @@ function toStringValue(value: unknown, fallback = ''): string {
 
 function normalizeItem(value: unknown): ListedObject | null {
   if (!isRecord(value)) return null
-  const v4Object = typeof value.object_id === 'string' && typeof value.fact_type_key === 'string'
+  const v5Object = typeof value.object_id === 'string' && typeof value.fact_type_key === 'string'
   const id = toStringValue(value.object_id) || toStringValue(value.id)
   if (!id) return null
   // 03 §6.1：fact_type_key 载体值为类型短名（各类型规范登记的值域）——直接
   // 透传，无归一化；非短名形态由读取层报 identity_mismatch，路由层不再兜底。
   const type = toStringValue(value.fact_type_key) || toStringValue(value.type)
   const status = toStringValue(value.status)
-  const progressProjection = type === 'workcase' && isResolvedWorkCasePresentationProjection(value.current_snapshot_projection)
-    ? value.current_snapshot_projection
+
+  const v5View = type === 'workcase'
+    ? deriveWorkCaseV5View(
+      getWorkCaseStatus(value as ListedObject),
+      (value as Record<string, unknown>).outcome ?? null,
+      (value as Record<string, unknown>).report_body ?? null,
+      (value as Record<string, unknown>).source_content_fingerprint ?? null,
+    )
     : null
 
   return {
@@ -95,13 +118,14 @@ function normalizeItem(value: unknown): ListedObject | null {
     id,
     type,
     status,
-    progress_group: progressProjection?.progress_group,
-    progress_step: progressProjection?.progress_step ?? undefined,
+    // v5 WorkCase 派生分组（pending_gate1/executing/awaiting_gate2/closed），
+    // 由 workcaseLifecycle 统一派生，不写回对象；列表三态呈现仍可用 status。
+    ...(v5View ? { group: v5View.group, outcome: v5View.outcome, has_result_draft: v5View.has_result_draft } : {}),
     title: toStringValue(value.title),
     title_en: toStringValue(value.title_en) || undefined,
     title_zh: toStringValue(value.title_zh) || undefined,
-    path: v4Object ? toStringValue(value.canonical_path) : toStringValue(value.path),
-    created: v4Object ? toStringValue(value.created_at) || undefined : toStringValue(value.created) || undefined,
+    path: v5Object ? toStringValue(value.canonical_path) : toStringValue(value.path),
+    created: v5Object ? toStringValue(value.created_at) || undefined : toStringValue(value.created) || undefined,
     // 03 §6.1 不保留公共 updated_at：v4 归档对象优先自身 updated_at/updated，
     // v5 对象回退 change_log 末条流水 at（列表排序与卡片落款共用此值）。
     updated: resolveListItemUpdated(value),
@@ -154,9 +178,6 @@ function getStatusOptions(items: ListedObject[]): StatusOption[] {
     })
 }
 
-/** v4 遗留的 settled/unclosed 展示拆桶已随 20 号规范移除：Spark 状态闭集
- *  open/implemented/discarded 直接呈现（§9），不再从关联推导展示态。 */
-
 /** Spark 优先级档位（20 §8，2026-09-13 Human 裁定新增）：闭集 P0–P3，
  *  AI 出初值、Human 可调整；仅 open 时出现。列表据此提供筛选与排序。
  *  （WorkCase 侧仍无此字段——21 §160 字段闭集未含 priority。） */
@@ -172,36 +193,22 @@ function getSparkPriorityOptions(items: ListedObject[]): StatusOption[] {
   return SPARK_PRIORITY_ORDER.map((status) => ({ status, count: counts.get(status) ?? 0 }))
 }
 
-/** WorkCase 列表状态分组（21 §160：状态闭集三值 draft/open/closed）。
- *
- *  此前投影 v4 的五值进展分组。21 §160 只承认三态，故列表分组收敛为三态：
- *  plan_confirmation → draft、progressing → open、closure_confirmation/closed/
- *  termination_cleanup → closed。plan_confirmation/closure_confirmation 的
- *  认知中心待办语义由 cognition.ts 经 progress_group 独立消费，不受此处影响。 */
-function getWorkCaseListStatus(item: ListedObject): string | undefined {
-  if (typeof item.status === 'string' && ['draft', 'open', 'closed'].includes(item.status)) {
-    return item.status
-  }
-  // 兼容路径：仅有 progress_group 投影时按 21 §160 三态归并。
-  const group = getWorkCaseListGroup(item)
-  if (!group) return undefined
-  if (group === 'plan_confirmation') return 'draft'
-  if (group === 'progressing') return 'open'
-  if (group === 'discarded') return 'closed'
-  // closure_confirmation / closed / termination_cleanup
-  return 'closed'
-}
+/**
+ * WorkCase 列表筛选五档聚合（v5）：all 恒在，其余四档按派生 group 计数。
+ * 21 §160 状态闭集三值 + 派生判据「open ∧ 正文 ## 结果 节 ⇒ awaiting_gate2」。
+ */
+const WORKCASE_LIST_GROUP_ORDER: readonly WorkCaseV5Group[] = ['pending_gate1', 'executing', 'awaiting_gate2', 'closed']
 
-const WORKCASE_LIST_STATUS_ORDER = ['draft', 'open', 'closed'] as const
-
-function getWorkCaseProgressOptions(items: ListedObject[]): ProgressOption[] {
-  const counts = new Map<string, number>()
+function getWorkCaseLifecycleOptions(items: ListedObject[]): LifecycleOption[] {
+  const counts = new Map<WorkCaseV5Group, number>()
   for (const item of items) {
-    const status = getWorkCaseListStatus(item)
-    if (!status) continue
-    counts.set(status, (counts.get(status) ?? 0) + 1)
+    const group = getWorkCaseV5Group(item)
+    if (!group) continue
+    counts.set(group, (counts.get(group) ?? 0) + 1)
   }
-  return WORKCASE_LIST_STATUS_ORDER.map((group) => ({ group, count: counts.get(group) ?? 0 }))
+  const options: LifecycleOption[] = WORKCASE_LIST_GROUP_ORDER.map((group) => ({ group, count: counts.get(group) ?? 0 }))
+  options.push({ group: 'all', count: items.length })
+  return options
 }
 
 async function listObjectSummaries(type: ObjectType, scope: LocalFactScope): Promise<ListedObject[]> {
@@ -209,7 +216,6 @@ async function listObjectSummaries(type: ObjectType, scope: LocalFactScope): Pro
   if (!result.ok) return []
   return getResultItems(result)
 }
-
 
 /**
  * GET /api/objects/:type - 列出指定类型的对象
@@ -226,12 +232,23 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
   }
 
   const status = typeof req.query.status === 'string' ? req.query.status : undefined
-  // WorkCase 列表筛选按 21 §160 三态（draft/open/closed）。
-  const progress = type === 'workcase' && typeof req.query.progress === 'string'
-    ? req.query.progress
+  // v4 状态机随 21 号三态直读废弃：?progress= 不再接受，提示新参数。
+  if (typeof req.query.progress === 'string') {
+    res.status(400).json({
+      ok: false,
+      error: '?progress= 已随 v4 状态机废弃，改用 ?lifecycle=pending_gate1|executing|awaiting_gate2|closed|all',
+    })
+    return
+  }
+  // WorkCase 列表筛选按 v5 五档（pending_gate1/executing/awaiting_gate2/closed/all）。
+  const lifecycle = type === 'workcase' && typeof req.query.lifecycle === 'string'
+    ? req.query.lifecycle
     : undefined
-  if (progress && !WORKCASE_LIST_STATUS_ORDER.includes(progress as typeof WORKCASE_LIST_STATUS_ORDER[number])) {
-    res.status(400).json({ ok: false, error: `Invalid WorkCase list status: ${progress} (21 §160: draft/open/closed)` })
+  if (lifecycle && !WORKCASE_V5_FILTER_VALUES.includes(lifecycle as WorkCaseV5Filter)) {
+    res.status(400).json({
+      ok: false,
+      error: `Invalid WorkCase lifecycle filter: ${lifecycle} (v5: pending_gate1|executing|awaiting_gate2|closed|all)`,
+    })
     return
   }
   let factScope
@@ -253,7 +270,7 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
     return
   }
   // v5 Spark 与通用类型同路径：状态闭集（open/implemented/discarded，20 §9）
-  // 直接下推过滤；WorkCase 保持 progress 组内过滤。
+  // 直接下推过滤；WorkCase 走 lifecycle 派生分组过滤。
   const result = await listObjects(type, undefined, type === 'workcase' ? undefined : status, factScope)
 
   if (!result.ok) {
@@ -263,7 +280,11 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
 
   const allItems = getResultItems(result)
   const items = type === 'workcase'
-    ? allItems.filter((item) => !progress || getWorkCaseListStatus(item) === progress)
+    ? allItems.filter((item) => {
+      if (!lifecycle || lifecycle === 'all') return true
+      const group = getWorkCaseV5Group(item)
+      return group === lifecycle
+    })
     : type === 'spark'
       ? allItems.filter((item) => !priority || item.priority === priority)
       : allItems
@@ -272,7 +293,7 @@ router.get('/:type', async (req: Request, res: Response): Promise<void> => {
       ? allItems
       : status ? await listObjectSummaries(type, factScope) : items
     if (type === 'workcase') {
-      result.data.progressOptions = getWorkCaseProgressOptions(allItems)
+      result.data.lifecycleOptions = getWorkCaseLifecycleOptions(allItems)
     } else {
       result.data.statusOptions = getStatusOptions(statusItems)
     }
