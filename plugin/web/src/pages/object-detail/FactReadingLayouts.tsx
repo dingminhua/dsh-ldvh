@@ -468,7 +468,6 @@ export function SparkReadingLayout({
         obj={obj}
         locale={locale}
         title={getFieldLabel('fact_associations', locale)}
-        variant="spark"
       />
       <ChangeLogReadingNode
         value={obj.change_log}

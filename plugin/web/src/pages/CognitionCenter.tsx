@@ -17,7 +17,6 @@ import GoalSection from '@/components/GoalSection';
 import ObjectReferenceCopyButton from '@/components/ObjectReferenceCopyButton';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import ServesSgBadge from '@/components/ServesSgBadge';
-import RefsBadge from '@/components/RefsBadge';
 import {
   ObjectCardFrame,
   PitfallCardContent,
@@ -393,7 +392,6 @@ function RecentActivityRow({ item }: { item: CognitionRecentActivityItem }) {
             F1 卡（24 §12 的 research_question 卡片摘要投影归对象列表卡片承载）。 */}
         <PriorityIcon source={item} type={item.type} locale={locale} size="xs" />
         <ServesSgBadge value={item.serves} locale={locale} />
-        <RefsBadge value={item.refs} locale={locale} />
         <ActivityCountBadge count={item.activityCount} label={t('cognition.recent.activityCount', { count: String(item.activityCount) })} />
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           {/* Human 定案 2026-09-12：goal 不显示状态徽章；复制与其他对象一致
@@ -478,7 +476,6 @@ function SparkHealthRow({ item }: { item: CognitionSparkHealthItem }) {
         </span>
         <PriorityIcon source={item} type="spark" locale={locale} size="xs" />
         <ServesSgBadge value={item.serves} locale={locale} />
-        <RefsBadge value={item.refs} locale={locale} />
         <ActivityCountBadge count={item.activityCount} label={t('cognition.recent.activityCount', { count: String(item.activityCount) })} />
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           <StatusBadge status="open" statusLabel={getObjectStatusLocale('spark', 'open', locale)} objectType="spark" size="xs" variant="compact" />
@@ -736,7 +733,7 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
         )}
       </section>
 
-      {/* 推进中事项：只收纳 progress_group=progressing 的 WorkCase，并复用对象列表进行中 Card。 */}
+      {/* 推进中事项：只收纳派生 group=executing 的 WorkCase（v5 三态直读），并复用对象列表进行中 Card。 */}
       <section className="mt-4 rounded-xl border border-ldvh-border bg-ldvh-panel p-4">
         <div
           role="button"

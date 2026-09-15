@@ -306,54 +306,18 @@ function compareRecentActivity(a: RecentActivityBuildItem, b: RecentActivityBuil
   return a.object_id.localeCompare(b.object_id)
 }
 
-/**
- * refs（03 §7.2 关联引用型 / 20 §8）：把 frontmatter 的 refs 归一为呈现用条目。
- *
- * 规范形态是 `{ object_uid }[]`（03 §7.2 最小形状：对象内不复制目标标题）。
- * 这里解析出的 title/type 是**派生投影**——由 titleIndex 机械反查得到，
- * 供 Human 在卡片上扫读；不写回对象，也不构成第二权威（03 §7.2 第 4 条）。
- * 目标查不到时保留 uid 原值：关系/引用存在只证明声明被记录，不得降格为
- * 「无关联」（03 §7.2 第 5 条的同精神处理）。
- */
-function projectRefs(
-  raw: unknown,
-  titleIndex: Map<string, { title?: string; type?: string }>,
-): Array<{ object_uid: string; title?: string; type?: string }> | undefined {
-  if (!Array.isArray(raw) || raw.length === 0) return undefined
-  const out: Array<{ object_uid: string; title?: string; type?: string }> = []
-  const seen = new Set<string>()
-  for (const entry of raw) {
-    const uid = typeof entry === 'string'
-      ? entry
-      : (entry && typeof entry === 'object' && typeof (entry as { object_uid?: unknown }).object_uid === 'string'
-        ? (entry as { object_uid: string }).object_uid
-        : undefined)
-    if (!uid || !uid.trim() || seen.has(uid)) continue
-    seen.add(uid)
-    const hit = titleIndex.get(uid)
-    out.push({
-      object_uid: uid,
-      ...(hit?.title ? { title: hit.title } : {}),
-      ...(hit?.type ? { type: hit.type } : {}),
-    })
-  }
-  return out.length > 0 ? out : undefined
-}
-
 function buildRecentActivityItem(
   raw: Record<string, unknown>,
   type: ObjectType | 'goal',
   activity: RecentActivityKind,
   occurredAt: string,
   signature?: FactChangeSignature,
-  titleIndex: Map<string, { title?: string; type?: string }> = new Map(),
 ): RecentActivityBuildItem {
   const object_id = String(raw.object_id ?? '')
   const status = String(raw.status ?? 'unknown')
   const group = type === 'workcase'
     ? currentWorkCaseProjection(raw)?.group ?? undefined
     : undefined
-  const refs = type === 'spark' ? projectRefs(raw.refs, titleIndex) : undefined
   return {
     type,
     object_id,
@@ -367,7 +331,6 @@ function buildRecentActivityItem(
     ...(type === 'workcase' ? { group } : { status }),
     ...(priorityRank(raw.priority) < 4 && typeof raw.priority === 'string' ? { priority: raw.priority } : {}),
     ...(type === 'spark' && typeof raw.serves === 'string' && raw.serves.trim() ? { serves: raw.serves } : {}),
-    ...(refs !== undefined ? { refs } : {}),
     read_status: String(raw.read_status ?? 'unknown'),
     field_issues: Array.isArray(raw.field_issues) ? raw.field_issues as Array<Record<string, unknown>> : [],
     unparsed_structures: Array.isArray(raw.unparsed_structures) ? raw.unparsed_structures as Array<Record<string, unknown>> : [],
@@ -387,7 +350,6 @@ export function buildFactActivityItems(
   type: ObjectType | 'goal',
   start: number,
   end: number,
-  titleIndex: Map<string, { title?: string; type?: string }> = new Map(),
 ): RecentActivityBuildItem[] {
   const changeLog = Array.isArray(raw.change_log) ? raw.change_log : []
   const logged: Array<{ occurredAt: string; index: number; signature?: FactChangeSignature }> = []
@@ -408,7 +370,6 @@ export function buildFactActivityItems(
       index === 0 ? 'created' : 'updated',
       occurredAt,
       signature,
-      titleIndex,
     ))
   }
 
@@ -417,10 +378,10 @@ export function buildFactActivityItems(
   const updatedAt = getLatestChangeLogAt(raw.change_log)
   const fallback: RecentActivityBuildItem[] = []
   if (timestampInWindow(createdAt, start, end)) {
-    fallback.push(buildRecentActivityItem(raw, type, 'created', createdAt, undefined, titleIndex))
+    fallback.push(buildRecentActivityItem(raw, type, 'created', createdAt, undefined))
   }
   if (timestampInWindow(updatedAt, start, end) && updatedAt !== createdAt) {
-    fallback.push(buildRecentActivityItem(raw, type, 'updated', updatedAt, undefined, titleIndex))
+    fallback.push(buildRecentActivityItem(raw, type, 'updated', updatedAt, undefined))
   }
   return fallback
 }
@@ -501,7 +462,6 @@ function compareSilentSpark(a: SparkHealthBuildItem, b: SparkHealthBuildItem): n
 export function buildSparkHealth(
   rawItems: Array<Record<string, unknown>>,
   observedAt: number,
-  titleIndex: Map<string, { title?: string; type?: string }> = new Map(),
 ) {
   const terminalByStatus = { implemented: 0, discarded: 0 }
   const openByPriority: Record<string, number> = {}
@@ -537,9 +497,6 @@ export function buildSparkHealth(
       // 20 §6 serves（SG-n 子目标锚点）：健康度行与卡头同标签序（Human 定案
       // 2026-09-13：类型 → 优先级 → SG → 修改次数）。
       ...(typeof raw.serves === 'string' && raw.serves.trim() ? { serves: raw.serves } : {}),
-      // 20 §8 refs：关联对象 chip，与卡头同标签序
-      // （类型 → 优先级 → SG → refs → 修改次数）。
-      ...(projectRefs(raw.refs, titleIndex) !== undefined ? { refs: projectRefs(raw.refs, titleIndex) } : {}),
       updated_at: updatedAt,
       ...(signature ? { signature } : {}),
       activity_count: countChangeLogEntries(raw.change_log),
@@ -780,24 +737,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       listObjects('spark', undefined, undefined, factScope),
       listObjects('research', undefined, undefined, factScope),
     ])
-    // refs 目标标题索引（03 §7.2 派生投影）：由已加载的事实列表机械反查
-    // object_uid → { title, type }，供卡片呈现关联对象的可读标题。目标可能是
-    // 任意事实类型（跨类型引用），故索引覆盖本次已加载的全部集合；查不到时
-    // 保留 uid 原值，不降格为「无关联」（03 §7.2 第 5 条同精神）。
-    const refsTitleIndex = new Map<string, { title?: string; type?: string }>()
-    for (const source of [workCaseResult, pitfallResult, adrResult, sparkResult, studyResult]) {
-      if (!source?.ok || !('data' in source)) continue
-      const data = source.data as { items?: Array<Record<string, unknown>> }
-      for (const item of Array.isArray(data.items) ? data.items : []) {
-        const uid = typeof item.object_uid === 'string' ? item.object_uid : undefined
-        if (!uid) continue
-        refsTitleIndex.set(uid, {
-          ...(typeof item.title === 'string' ? { title: item.title } : {}),
-          type: String(item.type ?? ''),
-        })
-      }
-    }
-
     const issues: CognitionIssue[] = []
     let sparkHealth: ReturnType<typeof buildSparkHealth> | undefined
     if (!sparkResult.ok || !('data' in sparkResult)) {
@@ -808,7 +747,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       for (const issue of Array.isArray(data.collection_issues) ? data.collection_issues : []) {
         issues.push({ ...toIssue(issue), section: 'sparkHealth' })
       }
-      sparkHealth = buildSparkHealth(data.items, parseTimestamp(generatedAt), refsTitleIndex)
+      sparkHealth = buildSparkHealth(data.items, parseTimestamp(generatedAt))
     }
     const builds: InboxBuildItem[] = []
     const activeWorkCaseBuilds: ActiveWorkCaseBuildItem[] = []
@@ -912,7 +851,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         issues.push({ ...toIssue(issue), section: 'recentActivity' })
       }
       for (const raw of sourceData.items) {
-        recentBuilds.push(...buildFactActivityItems(raw, type, recentStart, parseTimestamp(generatedAt), refsTitleIndex))
+        recentBuilds.push(...buildFactActivityItems(raw, type, recentStart, parseTimestamp(generatedAt)))
       }
     }
     // 25 号 Goal：单例冻结锚的 change_log 修订史也进近期动态（§6 修订史是 HV5
@@ -934,7 +873,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         'goal',
         recentStart,
         parseTimestamp(generatedAt),
-        refsTitleIndex,
       ))
     } else if (goalRecord.status === 'unreadable') {
       issues.push({ section: 'recentActivity', code: 'goal_unreadable', message: goalRecord.issues[0]?.message ?? 'goal.md 读取失败' })

@@ -3,13 +3,21 @@ import { test } from 'node:test';
 import fs from 'node:fs';
 import path from 'node:path';
 
-test('Spark association UI reads only relations', () => {
+test('Spark association UI reads relations and refs as two separate sets', () => {
   const source = fs.readFileSync(path.resolve('src/pages/object-detail/FactAssociationsSection.tsx'), 'utf8');
   assert.match(source, /projectFactReadingAssociations/);
+  // 03 §7.2 分工纪律：refs 与 relations 并列呈现、互不并入（relations 承载
+  // 生命周期关系、refs 承载普通内容关联，不参与关系闭集校验）。
+  assert.match(source, /projectFactReadingRefs/);
+  assert.match(source, /<RefGroup refs=\{refs\}/);
   assert.doesNotMatch(source, /projectMaterials|evidenceMaterials|externalInputs/);
   assert.doesNotMatch(source, /getTypeLabel\(factTypeKey, locale\)/);
   assert.match(source, /semanticRelationLabels=\{factTypeKey === 'research'\}/);
   assert.match(source, /getFieldLabel\(`relation_\$\{key\.replace/);
+  // refs 不定义 relation key：RefGroup/RefTarget 渲染分支不得出现 relation key chip。
+  const refGroupSource = source.slice(source.indexOf('function RefGroup'), source.indexOf('function RelationGroup'));
+  assert.match(refGroupSource, /function RefTarget/);
+  assert.doesNotMatch(refGroupSource, /RelationKeyChip/);
 });
 
 test('every fact list card shows exact-read formal associations in a minimal secondary-reading row', () => {
@@ -17,6 +25,10 @@ test('every fact list card shows exact-read formal associations in a minimal sec
 
   assert.match(source, /function FactAssociationsCardContent/);
   assert.match(source, /associations=\{obj\.factAssociations\}/);
+  // refs 关联对象 chip 已从卡头移除：只在详情「关联对象」阅读节点呈现
+  // （10 §5.1 不渲染关联关系、10 §5.2 卡片网格不承载关联对象）。
+  assert.doesNotMatch(source, /RefsBadge/);
+  assert.doesNotMatch(source, /obj\.refs/);
   assert.match(source, /dedupeFactCardAssociations\(associations\)/);
   assert.match(source, /visibleAssociations\.map/);
   assert.match(source, /whitespace-normal break-words/);

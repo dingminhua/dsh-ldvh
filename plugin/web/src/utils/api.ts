@@ -59,8 +59,6 @@ export interface ObjectItem {
   created?: string;
   updated: string;
   priority?: string;
-  /** 关联的事实对象引用（03 §7.2 关联引用型 / 20 §8 refs），条件出现 */
-  refs?: { object_uid: string; title?: string; type?: string }[];
   independentSubagentUnavailable?: boolean;
   // v5 WorkCase 字段（21 §8 闭集）：plan/attempt/result/gate_1。
   // summary 与 serves 已在其它类型段声明（类型 string?，共用），不重复。
@@ -93,6 +91,10 @@ export interface ObjectItem {
   disposition?: string;
   /** Exact-read formal relation targets for every fact list card. */
   factAssociations?: FactCardAssociation[];
+  /** 03 §7.2 关联引用型 / 20 §8：refs 的精确读取投影。与 factAssociations
+   *  并列、语义互不并入（relations 承载生命周期关系，refs 承载普通内容
+   *  关联，不参与关系闭集校验）。 */
+  factRefs?: FactCardAssociation[];
   /** Exact field-level source metadata. */
   object_uid?: string;
   object_id?: string;
@@ -407,9 +409,6 @@ export interface CognitionRecentActivityItem {
   priority?: string;
   /** Spark 的 goal.md 子目标锚点（20 §6 serves），条件出现。 */
   serves?: string;
-  /** 关联的事实对象引用（03 §7.2 关联引用型 / 20 §8 refs），条件出现；
-   * 可携带派生的 title/type 供呈现，不写回对象。 */
-  refs?: { object_uid: string; title?: string; type?: string }[];
   /** WorkCase 只携带派生 group；其它对象携带自身当前状态。 */
   group?: WorkCaseV5Group;
   status?: string;
@@ -435,9 +434,6 @@ export interface CognitionSparkHealthItem {
   priority?: string;
   /** Spark 的 goal.md 子目标锚点（20 §6 serves），条件出现。 */
   serves?: string;
-  /** 关联的事实对象引用（03 §7.2 关联引用型 / 20 §8 refs），条件出现；
-   * 可携带派生的 title/type 供呈现，不写回对象。 */
-  refs?: { object_uid: string; title?: string; type?: string }[];
   updatedAt: string;
   /** 最近一条完整 change_log 署名，与事实卡片落款一致。 */
   signature?: CommitSignature;
