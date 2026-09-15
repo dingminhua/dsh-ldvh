@@ -35,6 +35,7 @@ import { VALID_FM_KEYS as ADR_FM_KEYS } from "../lib/adr-writer.js";
 import { VALID_FM_KEYS as PITFALL_FM_KEYS } from "../lib/pitfall-writer.js";
 import { VALID_FM_KEYS as FRICTION_FM_KEYS } from "../lib/friction-writer.js";
 import { VALID_FM_KEYS as NORM_FM_KEYS } from "../lib/norm-writer.js";
+import { VALID_FM_KEYS as WORKCASE_FM_KEYS } from "../lib/workcase-writer.js";
 
 const LIB = join(dirname(fileURLToPath(import.meta.url)), "..", "lib");
 
@@ -90,6 +91,12 @@ const TYPES = [
 		load: () => import("../lib/research-tools.js"),
 		operationKey: "research-write-object",
 		writerFile: "research-writer.js",
+	},
+	{
+		name: "workcase",
+		writerKeys: WORKCASE_FM_KEYS,
+		load: () => import("../lib/workcase-tools.js"),
+		operationKey: "workcase-write-object",
 	},
 ];
 

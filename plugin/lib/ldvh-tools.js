@@ -28,6 +28,7 @@ import { registerResearchTools } from "./research-tools.js";
 import { registerSparkTools } from "./spark-tools.js";
 import { registerAdrTools } from "./adr-tools.js";
 import { registerPitfallTools } from "./pitfall-tools.js";
+import { registerWorkcaseTools } from "./workcase-tools.js";
 import { registerFrictionTools } from "./friction-tools.js";
 import { registerNormTools } from "./norm-tools.js";
 import { registerGoalTools } from "./goal-tools.js";
@@ -862,6 +863,10 @@ export function registerLdvhTools(ctx, deps) {
   disposers.push(registerAdrTools(ctx, deps));
   // Pitfall mechanical layer (specs/23 writer), same registration surface.
   disposers.push(registerPitfallTools(ctx, deps));
+  // WorkCase mechanical layer (specs/21 writer) — the 工单 lifecycle:
+  // create/approve(Gate 1)/execute/close(Gate 2)/rebatch/cancel/revise
+  // with C2 authorization pinning and monotonic attempt tokens.
+  disposers.push(registerWorkcaseTools(ctx, deps));
   // Friction mechanical layer (specs/26 writer), same registration surface.
   disposers.push(registerFrictionTools(ctx, deps));
   // Norm mechanical layer (specs/27 writer) — carries uniqueness layer 1
