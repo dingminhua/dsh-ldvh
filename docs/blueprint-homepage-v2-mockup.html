@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>蓝图首页 v2 Mockup — 裁定 15 形态（2026-09-15）</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --panel:#ffffff; --border:#e5e7eb; --border-soft:#f3f4f6;
+    --ink:#111827; --ink-2:#4b5563; --ink-3:#9ca3af;
+    --goal:#14b8a6; --goal-bg:rgba(20,184,166,.08);
+    --wc:#3b82f6; --spark:#f59e0b; --authored:#d97706;
+    --green:#059669; --sky:#0284c7; --gray:#6b7280;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+       background:var(--bg);color:var(--ink);font-size:13.5px;line-height:1.65}
+  .app{display:flex;min-height:100vh}
+
+  /* ===== 左侧导航（示意 SPA 外壳） ===== */
+  .nav{width:196px;flex-shrink:0;background:#fff;border-right:1px solid var(--border);padding:16px 10px}
+  .nav-brand{font-weight:700;font-size:13px;color:var(--goal);padding:0 10px 12px;letter-spacing:.04em}
+  .nav a{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;color:var(--ink-2);
+         text-decoration:none;font-size:12.5px;margin-bottom:2px}
+  .nav a.active{background:var(--goal-bg);color:var(--goal);font-weight:600}
+  .nav a:hover{background:#f9fafb}
+  .nav .n-icon{width:15px;text-align:center;opacity:.85}
+  .nav .n-count{margin-left:auto;font-size:10.5px;color:var(--ink-3);background:#f3f4f6;
+                border-radius:999px;padding:0 6px}
+
+  /* ===== 页面 ===== */
+  .page{flex:1;min-width:0;max-width:980px;margin:0 auto;padding:22px 24px 70px}
+  .topbar{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;margin-bottom:4px}
+  .page-title{font-size:19px;font-weight:700}
+  .mock-tag{font-size:10.5px;color:var(--goal);border:1px solid var(--goal);border-radius:999px;
+            padding:1px 9px;font-weight:600;letter-spacing:.03em}
+  .page-sub{font-size:12px;color:var(--ink-3);margin-bottom:14px}
+  .page-sub b{color:var(--ink-2)}
+
+  .section{background:var(--panel);border:1px solid var(--border);border-radius:12px;
+           padding:15px 18px;margin-top:14px}
+  .sec-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px}
+  .kicker{font-size:10px;letter-spacing:.14em;color:var(--goal);font-weight:700;text-transform:uppercase}
+  .sec-title{font-size:14.5px;font-weight:650}
+  .chips{display:flex;flex-wrap:wrap;gap:5px}
+  .src-note{margin-left:auto;font-size:10.5px;color:var(--ink-3)}
+
+  .chip{font-size:10.5px;border-radius:999px;padding:1px 8px;border:1px solid;white-space:nowrap;font-weight:600}
+  .chip-exists{color:var(--green);border-color:rgba(5,150,105,.35);background:rgba(5,150,105,.06)}
+  .chip-new{color:var(--sky);border-color:rgba(2,132,199,.35);background:rgba(2,132,199,.06)}
+  .chip-authored{color:var(--authored);border-color:rgba(217,119,6,.35);background:rgba(217,119,6,.07)}
+  .chip-keep{color:var(--gray);border-color:#d1d5db;background:#f9fafb}
+  .chip-yield{color:#b91c1c;border-color:rgba(185,28,28,.3);background:rgba(185,28,28,.05)}
+  .chip-mock{color:#92400e;border-color:rgba(146,64,14,.35);background:rgba(251,191,36,.12)}
+  .chip-frozen{color:var(--goal);border-color:rgba(20,184,166,.4);background:var(--goal-bg)}
+
+  .footnote{font-size:11px;color:var(--ink-3);margin-top:9px;border-top:1px dashed var(--border-soft);padding-top:7px}
+
+  /* 长期意图区 */
+  .goal-box{border:1px solid rgba(20,184,166,.25);background:var(--goal-bg);border-radius:10px;padding:12px 14px}
+  .goal-title{font-size:15px;font-weight:700}
+  .goal-statement{font-size:12.5px;color:var(--ink-2);margin-top:2px}
+  .sg-row{display:flex;align-items:center;gap:10px;padding:8px 2px;border-top:1px solid var(--border-soft)}
+  .sg-row:first-of-type{border-top:none}
+  .sg-chip{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;font-weight:700;color:var(--goal);
+           border:1px solid rgba(20,184,166,.35);background:#fff;border-radius:6px;padding:1px 6px;flex-shrink:0}
+  .sg-text{font-size:12px;color:var(--ink-2);min-width:0;flex-shrink:1}
+  .sg-bar{height:7px;background:#e5e7eb;border-radius:4px;overflow:hidden;width:150px;flex-shrink:0}
+  .sg-fill{height:100%;background:var(--goal)}
+  .sg-meta{font-size:10.5px;color:var(--ink-3);flex-shrink:0;width:168px;text-align:right}
+
+  /* authored 下一步 */
+  .next-item{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--border-soft)}
+  .next-item:first-of-type{border-top:none}
+  .next-idx{width:20px;height:20px;border-radius:50%;background:rgba(217,119,6,.12);color:var(--authored);
+            font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
+  .next-body b{font-size:12.5px;font-weight:650}
+  .next-body .reason{font-size:11.5px;color:var(--ink-3)}
+
+  /* 演进脉络 timeline */
+  .tl{border-left:2px solid rgba(217,119,6,.35);margin-left:9px;padding-left:16px}
+  .tl-item{position:relative;padding:6px 0}
+  .tl-item::before{content:"";position:absolute;left:-21px;top:13px;width:8px;height:8px;border-radius:50%;
+                   background:var(--authored);opacity:.75}
+  .tl-date{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--authored);font-weight:700}
+  .tl-text{font-size:12px;color:var(--ink-2)}
+
+  /* 卡片网格 */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+  @media (max-width:860px){.grid2,.grid3{grid-template-columns:1fr}.sg-bar,.sg-meta{width:auto}}
+
+  .wc-item{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:7px 2px;border-top:1px solid var(--border-soft);font-size:12px}
+  .wc-item:first-of-type{border-top:none}
+  .wc-sg{font-family:ui-monospace,Menlo,monospace;font-size:10px;font-weight:700;color:var(--wc);
+         border:1px solid rgba(59,130,246,.35);border-radius:6px;padding:0 5px;background:#fff}
+  .pill{font-size:10px;border-radius:999px;padding:0 7px;font-weight:700}
+  .pill-closed{color:var(--green);background:rgba(5,150,105,.1)}
+  .pill-open{color:var(--wc);background:rgba(59,130,246,.1)}
+  .empty-hint{font-size:11px;color:var(--ink-3);padding:6px 2px;border-top:1px dashed var(--border-soft)}
+
+  /* Spark 行 */
+  .spark-item{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:7px 2px;border-top:1px solid var(--border-soft);font-size:12.5px}
+  .spark-item:first-of-type{border-top:none}
+  .p-chip{font-size:10px;font-weight:700;border-radius:6px;padding:0 6px;border:1px solid}
+  .p3{color:#b45309;border-color:rgba(180,83,9,.35);background:rgba(251,146,60,.08)}
+  .p2{color:#9333ea;border-color:rgba(147,51,234,.3);background:rgba(168,85,247,.07)}
+  .serves{font-size:10px;color:var(--goal);border:1px solid rgba(20,184,166,.35);border-radius:6px;padding:0 5px}
+
+  /* 健康条 / 动态 */
+  .health-bar{display:flex;height:26px;border-radius:6px;overflow:hidden;font-size:11px;font-weight:700;color:#fff}
+  .hb-green{background:rgba(5,150,105,.85);display:flex;align-items:center;justify-content:center}
+  .hb-red{background:rgba(244,63,94,.8);flex:1;display:flex;align-items:center;justify-content:center}
+  .act-row{display:flex;gap:8px;padding:6px 2px;border-top:1px solid var(--border-soft);font-size:11.5px;color:var(--ink-2)}
+  .act-row:first-of-type{border-top:none}
+  .act-hash{font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--ink-3);flex-shrink:0}
+
+  /* 让位条 */
+  .yield-strip{border:1px dashed #d1d5db;background:#f9fafb;border-radius:12px;padding:12px 18px;margin-top:14px;
+               display:flex;align-items:center;gap:10px;color:var(--ink-3);font-size:12px}
+  .yield-strip .chip-yield{flex-shrink:0}
+
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:16px;padding:12px 16px;background:#fff;
+          border:1px solid var(--border);border-radius:12px;font-size:11px;color:var(--ink-3)}
+  .legend .item{display:flex;align-items:center;gap:5px}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ 左侧导航（SPA 外壳示意） ============ -->
+  <nav class="nav">
+    <div class="nav-brand">LDVH</div>
+    <a href="#" class="active"><span class="n-icon">◎</span>聚焦 / 蓝图首页</a>
+    <a href="#"><span class="n-icon">📄</span>项目目标</a>
+    <a href="#"><span class="n-icon">🧾</span>工单<span class="n-count">0</span></a>
+    <a href="#"><span class="n-icon">✦</span>Spark<span class="n-count">40</span></a>
+    <a href="#"><span class="n-icon">⚖</span>ADR<span class="n-count">1</span></a>
+    <a href="#"><span class="n-icon">⚠</span>Pitfall<span class="n-count">6</span></a>
+    <a href="#"><span class="n-icon">🧪</span>Research<span class="n-count">10+</span></a>
+    <a href="#"><span class="n-icon">📏</span>Norm<span class="n-count">2</span></a>
+    <a href="#"><span class="n-icon">🪵</span>Friction<span class="n-count">2</span></a>
+    <a href="#"><span class="n-icon">🕘</span>变更记录</a>
+  </nav>
+
+  <!-- ============ 页面主体 ============ -->
+  <main class="page">
+    <div class="topbar">
+      <div class="page-title">聚焦 · 蓝图首页</div>
+      <span class="mock-tag">v2 Mockup · 裁定 15 形态</span>
+    </div>
+    <p class="page-sub">长期意图与当前事态的单页总览——顶部为 <b>Goal 投影 + authored 叙述区</b>（纵向目标视角），
+      下方<b>保留横向治理模块</b>。由现有 <b>/ 聚焦页（CognitionCenter）升级</b>而来，非新页面。</p>
+
+    <!-- ① 长期意图区 -->
+    <section class="section">
+      <div class="sec-head">
+        <span class="kicker">Project Blueprint · 长期意图</span>
+        <span class="chip chip-exists">✓ 已存在（GoalSection 升级）</span>
+        <span class="chip chip-new">＋ SG 达成概览（新增）</span>
+        <span class="src-note">源：goal.md 冻结区 · 机械投影 · 修订仅经 Human Gate</span>
+      </div>
+      <div class="goal-box">
+        <div class="goal-title">建成 LDVH v5 <span class="chip chip-frozen" style="margin-left:6px">单例冻结锚</span></div>
+        <p class="goal-statement">建成一个深度绑定 DSH 的 AI 协作治理框架，让长程 Vibe Coding 稳定、可控、高效，并通过构建、测试、迭代，使 LDVH 成为可被外部长程项目验证的治理载体。</p>
+      </div>
+      <div style="margin-top:10px">
+        <div class="sg-row">
+          <span class="sg-chip">SG-1</span>
+          <span class="sg-text">LDVH v5 规范体系（00–26）全部成为当前规则源成员且彼此互咬有效</span>
+          <span class="sg-bar"><span class="sg-fill" style="width:62%"></span></span>
+          <span class="sg-meta">2 closed · 3 open <span class="chip chip-mock" style="font-size:9px;padding:0 5px">示意</span></span>
+        </div>
+        <div class="sg-row">
+          <span class="sg-chip">SG-2</span>
+          <span class="sg-text">七类型事实对象在真实工作流中完成一轮出生→消费→关闭</span>
+          <span class="sg-bar"><span class="sg-fill" style="width:30%"></span></span>
+          <span class="sg-meta">6/7 类型已有对象 · 关闭链 0</span>
+        </div>
+        <div class="sg-row">
+          <span class="sg-chip">SG-3</span>
+          <span class="sg-text">LDVH 插件能力面完成 dogfood 闭环，日常使用无需人工补救</span>
+          <span class="sg-bar"><span class="sg-fill" style="width:45%"></span></span>
+          <span class="sg-meta">1 closed · 2 open</span>
+        </div>
+        <div class="sg-row">
+          <span class="sg-chip">SG-4</span>
+          <span class="sg-text">LDVH 之外，真实长程项目在治理下从概念走到交付（端到端验证）</span>
+          <span class="sg-bar"><span class="sg-fill" style="width:8%"></span></span>
+          <span class="sg-meta">0 closed · 0 open</span>
+        </div>
+      </div>
+      <p class="footnote">SG-n 行来自 goal.md 子目标（真实）；达成概览由 <b>serves 反查机械聚合</b>各 SG 名下 WorkCase 关闭链——聚合尚未实现，数字为示意。实现后点击 SG-n 行可展开名下 WC 明细。</p>
+    </section>
+
+    <!-- ② 下一步 -->
+    <section class="section">
+      <div class="sec-head">
+        <span class="kicker">Next · 下一步</span>
+        <span class="sec-title">按依赖拓扑排序</span>
+        <span class="chip chip-authored">✍ authored 区 · AI 起草 → 受控提交</span>
+        <span class="chip chip-new">＋ 净新增</span>
+        <span class="src-note">源：goal.md authored 区（裁定 15）· 只写投影写不出的「为什么」</span>
+      </div>
+      <div class="next-item">
+        <span class="next-idx">1</span>
+        <div class="next-body"><b>Git Gate 冻结区分类器</b><br>
+          <span class="reason">理由：authored 区与 specs/10 修订的硬前置（裁定 15 机械前提——不上线不开放）；fail-closed 四规则已定案，只欠实现。</span></div>
+      </div>
+      <div class="next-item">
+        <span class="next-idx">2</span>
+        <div class="next-body"><b>serves 反查聚合（SG-n 达成概览）</b><br>
+          <span class="reason">理由：纯机械、无前置依赖、可先行——本页长期意图区的进度条即其产物；也是「已完成/进行中按 SG 分组」的聚合入口。</span></div>
+      </div>
+      <div class="next-item">
+        <span class="next-idx">3</span>
+        <div class="next-body"><b>A 轨三项裁定：D1 版面 / D5 价值归属 / 更新触发</b><br>
+          <span class="reason">理由：零依赖零风险，裁完 specs/10 增补章节的内容骨架即齐（含 A2 数据来源与腐烂信号）。</span></div>
+      </div>
+      <p class="footnote">学 Linear：agent 起草、Human 验收；排序与理由是投影给不出的判断性内容。每次更新走 CAS + change_log 受控提交，Git Gate 冻结区分类器先行。</p>
+    </section>
+
+    <!-- ③ 演进脉络 -->
+    <section class="section">
+      <div class="sec-head">
+        <span class="kicker">Evolution · 演进脉络</span>
+        <span class="chip chip-authored">✍ authored 区 · 追加式</span>
+        <span class="chip chip-new">＋ 净新增 · HV5 核心</span>
+        <span class="src-note">源：goal.md authored 区 · 从哪来、为何拐弯（因果叙述，非事件流水）</span>
+      </div>
+      <div class="tl">
+        <div class="tl-item"><span class="tl-date">09-07</span><div class="tl-text">需求发现——Human：「工作蓝图每次都存在你的记忆里，我没法看到」；蓝图草案（六区块活文档）立项。</div></div>
+        <div class="tl-item"><span class="tl-date">09-08</span><div class="tl-text">业界调研得 F1 负结果（三家无枚举式区块先例）→ 裁定 13 砍 Initiative 层，蓝图收敛五区块。</div></div>
+        <div class="tl-item"><span class="tl-date">09-10</span><div class="tl-text">裁定 14「纯计算视图」被推翻——计划区移除后纯投影给不出判断性内容 → 裁定 15 定案：投影区块 + goal.md 内嵌 authored 区，四项冻结闭集。</div></div>
+        <div class="tl-item"><span class="tl-date">09-15</span><div class="tl-text">Web 六区块重合度盘点落档（spark-5862b615）→ 蓝图定性为聚焦页纵向重组，D5 变为有据可裁提案。</div></div>
+      </div>
+      <p class="footnote">与「近期动态」互补：动态 = 客观事件流水（机械投影）；脉络 = 判断性因果线（AI 起草）。历史由 Git + change_log 承载，不做独立历史页。</p>
+    </section>
+
+    <!-- ④ 已完成 / 进行中 -->
+    <div class="grid2">
+      <section class="section" style="margin-top:14px">
+        <div class="sec-head">
+          <span class="kicker">Done</span><span class="sec-title">已完成</span>
+          <span class="chip chip-new">＋ 净新增</span>
+          <span class="src-note">closed WC 关闭链 · 按 SG-n 分组投影</span>
+        </div>
+        <div class="wc-item">
+          <span class="wc-sg">SG-1</span>
+          <span style="flex:1">工单执行线阶段 1——WC 承载层最小版落地 <span class="chip chip-mock" style="font-size:9px;padding:0 5px">示意</span></span>
+          <span class="pill pill-closed">closed · completed</span>
+        </div>
+        <div class="empty-hint">其余 SG 名下暂无已关闭工单——空态如实呈现，不凭记忆补造。</div>
+        <p class="footnote">当前 workcases/ 目录为空（真实）；条目为示意。真实上线后由 serves 反查机械生成，严禁手抄。</p>
+      </section>
+      <section class="section" style="margin-top:14px">
+        <div class="sec-head">
+          <span class="kicker">Doing</span><span class="sec-title">进行中</span>
+          <span class="chip chip-exists" style="color:var(--gray);border-color:#d1d5db;background:#f9fafb">⟳ 同源重组</span>
+          <span class="src-note">open WC · 按 SG-n 分组投影</span>
+        </div>
+        <div class="wc-item">
+          <span class="wc-sg">SG-2</span>
+          <span style="flex:1">蓝图 authored 区维护链 <span class="chip chip-mock" style="font-size:9px;padding:0 5px">示意</span></span>
+          <span class="pill pill-open">open</span>
+        </div>
+        <div class="wc-item">
+          <span class="wc-sg">SG-3</span>
+          <span style="flex:1">Web 显示名统一交付收尾 <span class="chip chip-mock" style="font-size:9px;padding:0 5px">示意</span></span>
+          <span class="pill pill-open">open</span>
+        </div>
+        <p class="footnote">数据源与现有「推进中事项」模块完全同源（progress_group=progressing）——蓝图版仅多「按 SG-n 分组」一个维度，两个视图共享同一 API。</p>
+      </section>
+    </div>
+
+    <!-- ⑤ 悬而未决 -->
+    <section class="section">
+      <div class="sec-head">
+        <span class="kicker">Pending · 悬而未决</span>
+        <span class="sec-title">open Spark（项目方向视角）</span>
+        <span class="chip chip-new">＋ 投影</span>
+        <span class="src-note">源：Spark status=open · 机械投影 · 共 26 个 → 查看全部</span>
+      </div>
+      <div class="spark-item"><span style="flex:1">蓝图功能的最终形态</span><span class="serves">serves SG-1</span><span class="p-chip p3">P3</span></div>
+      <div class="spark-item"><span style="flex:1">工单执行线八阶段推进总纲</span><span class="serves">serves SG-2</span><span class="p-chip p3">P3</span></div>
+      <div class="spark-item"><span style="flex:1">端点契约五契位与外部工件收割</span><span class="serves">serves SG-1</span><span class="p-chip p2">P2</span></div>
+      <div class="spark-item"><span style="flex:1">LDVH 记忆系统</span><span class="p-chip p2">P2</span></div>
+      <div class="spark-item"><span style="flex:1">Git Gate 的 fail-open 通路</span><span class="p-chip p2">P2</span></div>
+      <p class="footnote">以下方「Spark 池健康」保留收口率治理视角；此处是<b>方向视角</b>——哪些想法还悬着。语义分工属 D5 待裁项：待决定事项=等 Human 操作的事，悬而未决=悬置的想法。</p>
+    </section>
+
+    <!-- ⑥ 待决定事项（活对象实时派生收件箱——全宽主面板） -->
+    <section class="section">
+      <div class="sec-head">
+        <span class="kicker">Inbox · 待决定事项</span>
+        <span class="sec-title">等 Human 操作的事</span>
+        <span class="chip chip-keep">⬇ 保留（全宽主面板）</span>
+        <span class="src-note">从活对象投影<b>实时派生</b>，非人工维护清单 · 排序 priority → updated_at</span>
+      </div>
+
+      <div class="wc-item" style="border-top:none">
+        <span class="wc-sg">WC</span>
+        <span style="flex:1">蓝图 authored 区维护链 <span class="chip chip-mock" style="font-size:9px;padding:0 5px">示意</span></span>
+        <span class="pill" style="color:#d97706;background:rgba(217,119,6,.1)">待批准计划 · 等待 Gate 1</span>
+      </div>
+      <div class="wc-item">
+        <span class="wc-sg">WC</span>
+        <span style="flex:1">serves 反查聚合 <span class="chip chip-mock" style="font-size:9px;padding:0 5px">示意</span></span>
+        <span class="pill" style="color:var(--sky);background:rgba(2,132,199,.1)">待确认关闭 · 等待 Gate 2</span>
+      </div>
+      <div class="wc-item">
+        <span class="wc-sg">WC</span>
+        <span style="flex:1">任一阶段阻塞中的工单 <span class="chip chip-mock" style="font-size:9px;padding:0 5px">示意</span></span>
+        <span class="pill" style="color:#b91c1c;background:rgba(185,28,28,.08)">阻塞待处置</span>
+      </div>
+      <div class="wc-item" style="opacity:.55">
+        <span class="wc-sg">Pitfall</span>
+        <span style="flex:1;text-decoration:line-through">draft 经验待审核</span>
+        <span class="pill" style="color:var(--ink-3);background:#f3f4f6">v4 残留死分支 · 恒空</span>
+      </div>
+
+      <div style="margin-top:10px;border-top:1px dashed var(--border-soft);padding-top:8px">
+        <p style="font-size:11px;color:var(--ink-3);margin-bottom:4px">▍对话级待决——真实存在，但 inbox 今日不收（是否纳入属 D5 范围问题）：</p>
+        <div class="spark-item" style="border-top:none;padding:4px 2px">
+          <span style="flex:1">A 轨三项裁定：D1 版面 / D5 价值归属 / 更新触发</span>
+          <span class="serves">spark-5862b615</span>
+        </div>
+        <div class="spark-item" style="border-top:none;padding:4px 2px">
+          <span style="flex:1">wireframe 陈旧注解判定 · 本轮范围（A 轨还是 B 轨先行）</span>
+          <span class="serves">spark-5862b615</span>
+        </div>
+      </div>
+
+      <p class="footnote">派生规则（活对象说明）：WC 按 current_snapshot_projection——progress_group=plan_confirmation 且 gate1_waiting → 待批准计划；closure_confirmation 且 gate2_waiting → 待确认关闭；任意阶段 blocking_overlay → 阻塞待处置。Pitfall 分支过滤 status=draft，但 v5 specs/23 已以「创建前置确认」替代 draft（状态闭集 active/discarded），该分支恒空——<b>代码与规范漂移，待清理</b>。今日 workcases/ 为空、6 个 pitfall 全 active，机械 inbox 实际为空态；上三行为工单线（M1）激活后的目标效果。</p>
+    </section>
+
+    <!-- ⑦ 保留的横向治理模块 -->
+    <div class="grid2">
+      <section class="section" style="margin-top:14px">
+        <div class="sec-head">
+          <span class="sec-title" style="font-size:13px">Spark 池健康</span>
+          <span class="chip chip-keep">⬇ 保留</span>
+        </div>
+        <div class="health-bar">
+          <div class="hb-green" style="width:35%">14 已收口</div>
+          <div class="hb-red">26 open</div>
+        </div>
+        <p class="footnote" style="margin-top:7px">真实数据：40 个 Spark（5 implemented + 9 discarded / 26 open）。收口率、静默派生与年龄筛选——池子治理视角。</p>
+      </section>
+      <section class="section" style="margin-top:14px">
+        <div class="sec-head">
+          <span class="sec-title" style="font-size:13px">近期动态</span>
+          <span class="chip chip-keep">⬇ 保留</span>
+        </div>
+        <div class="act-row"><span class="act-hash">f3b8e9a</span><span>docs(spark) 蓝图 spark 补入 Web 六区块重合度盘点</span></div>
+        <div class="act-row"><span class="act-hash">291c447</span><span>feat(workcase) 工单执行线阶段 1——承载层最小版落地</span></div>
+        <div class="act-row"><span class="act-hash">3dda20e</span><span>fix(spark) F1 列表行补齐 priority 投影</span></div>
+        <p class="footnote">事实 change_log 聚合 + 署名使用量（真实提交记录）。</p>
+      </section>
+    </div>
+
+    <!-- ⑦ 让位条 -->
+    <div class="yield-strip">
+      <span class="chip chip-yield">➜ 让位</span>
+      <span>近期热点区（commit hotspots）——蓝图形态上线后由顶部长期意图区取代此动态热点呈现；
+        <code style="font-size:10.5px">hideCommitHotspots</code> 开关已在代码中预留。</span>
+    </div>
+
+    <!-- 图例 -->
+    <div class="legend">
+      <span class="item"><span class="chip chip-exists">✓ 已存在</span>现状已有，升级复用</span>
+      <span class="item"><span class="chip chip-new">＋ 净新增</span>蓝图新增的区块</span>
+      <span class="item"><span class="chip chip-authored">✍ authored</span>AI 起草 · Human 验收</span>
+      <span class="item"><span class="chip chip-keep">⬇ 保留</span>横向治理模块原样保留</span>
+      <span class="item"><span class="chip chip-yield">➜ 让位</span>被长期意图区取代</span>
+      <span class="item"><span class="chip chip-mock">示意</span>非真实数据，实为目标效果</span>
+    </div>
+
+    <p style="margin-top:14px;font-size:11px;color:var(--ink-3)">
+      形态依据：裁定 15（2026-09-10）+ spark-5862b615「Web 现状与蓝图六区块重合度盘点」（f3b8e9a）。
+      真实数据：goal 陈述 / SG-n / 演进脉络事件 / Spark 清单与统计 / 近期动态提交。
+      示意数据：SG 进度数字、WC 条目（workcases/ 当前为空、serves 反查未实现）。
+      布局为 D1 提案（长期意图区置顶、原模块保留于下方），D1/D5 版面关系待 Human 裁定。
+      修订 v2.1（2026-09-15，Human 指正）：待决定事项按活对象实时派生规则展开为全宽主面板——WC 三类（gate1_waiting / gate2_waiting / blocking_overlay）+ Pitfall draft 死分支说明（v5 specs/23 创建前置确认替代，代码-规范漂移待清理）+ 对话级待决无机械载体标注为 D5 范围问题。
+    </p>
+  </main>
+</div>
+</body>
+</html>
