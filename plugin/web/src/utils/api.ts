@@ -249,6 +249,15 @@ export interface WorkCaseResult {
   residual?: string[];
 }
 
+/** 21 §8：复核节点概要的单条记录；`at`/署名由 Code 托管。 */
+export interface WorkCaseReviewEntry {
+  at?: string;
+  provider?: string;
+  model?: string;
+  /** 结构化概要，≤ 600 字符，含 02 §15 判据七要素。 */
+  summary?: string;
+}
+
 export interface WorkCaseAttempt {
   attempt_id?: unknown;
   controller?: string;
@@ -274,6 +283,8 @@ export interface WorkCaseDetailData extends Record<string, unknown> {
   scope?: string;
   plan?: WorkCasePlanStep[];
   attempt?: WorkCaseAttempt;
+  /** 21 §8：复核节点概要流水（Human 裁定 2026-09-16）。详情不入对象。 */
+  reviews?: WorkCaseReviewEntry[];
   result?: WorkCaseResult;
   outcome?: WorkCaseV5Outcome;
   gate_1?: WorkCaseGate1;

@@ -47,6 +47,10 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     plan: field('workcase-plan', 'array', true),
     gate_1: field('workcase-gate-1', 'object', false),
     attempt: field('workcase-attempt', 'object', false),
+    // 21 §8：复核节点概要流水（Human 裁定 2026-09-16）。每项
+    // {at, provider, model, summary}；summary ≤ 600 字符、条数 ≤ 20；
+    // 复核详情不入对象，此处只承载节点概要。
+    reviews: field('workcase-reviews', 'array', false),
     result: field('workcase-result', 'object', false),
     outcome: field('workcase-outcome', 'string', false),
     // transport-only：报告正文（非 frontmatter 字段）。「待批准关闭」派生

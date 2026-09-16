@@ -103,3 +103,26 @@ test('criteria use light objects in detail while the Card keeps its compact bull
   assert.match(criteriaList, /WorkCaseCriterionListItem/);
   assert.match(criteriaList, /statement\.trim\(\)/);
 });
+
+test('reviews node renders the review summaries and is wired into every lifecycle body (21 §8)', () => {
+  const layout = readSource('web/src/pages/object-detail/WorkCaseReadingLayout.tsx');
+  const api = readSource('web/src/utils/api.ts');
+  const locales = readSource('web/src/i18n/locales.ts');
+  const contract = readSource('web/api/services/factFieldContract.ts');
+
+  // 字段与类型：reviews 是 {at, provider, model, summary} 数组（21 §8）。
+  assert.match(api, /export interface WorkCaseReviewEntry/);
+  assert.match(api, /reviews\?: WorkCaseReviewEntry\[\]/);
+  assert.match(contract, /reviews: field\('workcase-reviews', 'array', false\)/);
+
+  // 呈现：节点存在、读 obj.reviews、并经 ReadingNodeSection 落位（10 §5.3）。
+  assert.match(layout, /function ReviewsNode\(/);
+  assert.match(layout, /Array\.isArray\(obj\.reviews\)/);
+  assert.match(layout, /entry\.summary/);
+  // 三个生命周期主体各接一次（draft / executing / closed）。
+  assert.equal((layout.match(/<ReviewsNode obj=\{obj\} locale=\{locale\} \/>/g) ?? []).length, 3);
+
+  // 词条：详情标题与列表组同源策略一致，须两地登记。
+  assert.match(locales, /'objectDetail\.workcaseReviews'/);
+  assert.match(layout, /objectDetail\.workcaseReviews/);
+});

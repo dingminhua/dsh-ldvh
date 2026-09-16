@@ -219,6 +219,41 @@ function ResidualNode({ obj }: { obj: WorkCaseDetailData }) {
   );
 }
 
+/** 21 §8：复核节点概要流水。呈现归 10 §5.3「变更历史（摘要形态）」——
+ * 复核详情不入对象，故此处只列节点概要（时间、署名、结论）。 */
+function ReviewsNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string }) {
+  const { t } = useI18n();
+  const [state, setState] = useState<ReadingNodeState>('expanded');
+  const entries = Array.isArray(obj.reviews) ? obj.reviews : [];
+  if (entries.length === 0) return null;
+
+  return (
+    <ReadingNodeSection
+      title={t('objectDetail.workcaseReviews')}
+      state={state}
+      locale={locale}
+      headerMeta={<span className="ldvh-meta-muted">{entries.length}</span>}
+      onToggle={() => setState((current) => getReadingNodeNextState(current))}
+    >
+      <div className="divide-y divide-ldvh-border/60">
+        {entries.map((entry, index) => (
+          <div key={index} className="py-2.5 first:pt-0 last:pb-0">
+            <div className="ldvh-meta flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 font-medium text-ldvh-text-primary/80">
+              <span aria-hidden="true" className="h-1 w-1 shrink-0 self-center rounded-full bg-ldvh-text-primary/55" />
+              {entry.at ? <span className="tabular-nums">{entry.at}</span> : null}
+              {entry.provider ? <><span aria-hidden="true">·</span><span>{entry.provider}</span></> : null}
+              {entry.model ? <><span aria-hidden="true">·</span><span>{entry.model}</span></> : null}
+            </div>
+            {entry.summary ? (
+              <p className="mt-1 min-w-0 break-words ldvh-card-decision-body">{entry.summary}</p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </ReadingNodeSection>
+  );
+}
+
 function DraftBody({ obj, locale }: { obj: WorkCaseDetailData; locale: string }) {
   const { t } = useI18n();
   return (
@@ -240,6 +275,7 @@ function DraftBody({ obj, locale }: { obj: WorkCaseDetailData; locale: string })
         markdown
       />
       <PlanNode obj={obj} locale={locale} />
+      <ReviewsNode obj={obj} locale={locale} />
       <p className="ldvh-caption text-amber-500 dark:text-amber-400">{t('objectDetail.workcaseAwaitingGate1')}</p>
     </>
   );
@@ -275,6 +311,7 @@ function ExecutingBody({ obj, locale }: { obj: WorkCaseDetailData; locale: strin
           </div>
         </ReadingNodeSection>
       ) : null}
+      <ReviewsNode obj={obj} locale={locale} />
       <PlanNode obj={obj} locale={locale} />
       {obj.has_result_draft ? (
         <p className="ldvh-caption text-violet-500 dark:text-violet-400">{t('objectDetail.workcaseResultDraftPresent')}</p>
@@ -330,6 +367,7 @@ function ClosedBody({ obj, locale }: { obj: WorkCaseDetailData; locale: string }
       ) : null}
       <ResidualNode obj={obj} />
       <PlanNode obj={obj} locale={locale} />
+      <ReviewsNode obj={obj} locale={locale} />
       {obj.gate_1 ? (
         <Gate1Node obj={obj} locale={locale} />
       ) : null}
