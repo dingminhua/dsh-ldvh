@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>近期动态改版设计 — 草稿</title>
+<!--
+  近期动态改版设计草稿 —— 讨论产物，非交付功能。
+
+  设计动机（Human 2026-09-16）：
+    认可「Spark 悬置」的「先给数字概览、再给明细」思想，要求把同一思想用到近期动态。
+
+  现状问题（实读 02-CognitionCenter.md §4.2 + 真实 API）：
+    1. 打开即见一长串条目，无整体规模感知——要滚动才知道窗口内有多少活动。
+    2. 三块信息（对象列表 / 署名 AI / 署名环境）平铺，主次不分。
+    3. 时间窗口切换只在标题栏，窗口间规模差异无对比（1d=5 对象 / 7d=63 对象，无提示）。
+
+  所有数字均来自真实 API（dsh-ldvh，2026-09-16 观察）：
+    1d → 5 对象 / 14 流水      3d → 13 对象 / 32 流水      7d → 63 对象 / 154 流水
+    署名模型（7d）：deepseek-v4.1-flash 131 · glm-5.3 20
+    署名环境（7d）：workbuddy 123 · zzztoken-glm 25 · workbuddy-global 3
+
+  定位：讨论工作稿。**不是产品功能**，不进 SPA、不交付。
+-->
+<style>
+  :root{
+    --bg:#0f1420; --panel:#171d2e; --panel2:#1c2336; --line:#2a3350;
+    --ink:#e6e9f2; --muted:#8b93ab; --muted2:#5d6380;
+    --wc:#3b82f6; --spark:#a855f7; --research:#14b8a6; --pitfall:#f97316;
+    --teal:#2dd4bf; --accent:#4f8cff; --copy:#22d3ee; --amber:#eab308;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.55}
+  .wrap{max-width:1180px;margin:0 auto;padding:26px 20px 80px}
+  h1{font-size:19px;margin:0 0 6px}
+  .sub{color:var(--muted);font-size:12.5px}
+  code{background:#0d1119;padding:1px 5px;border-radius:4px;font-size:11.5px;color:#a5b4fc}
+
+  .hint{margin:18px 0 22px;border:1px solid #22d3ee33;border-radius:10px;padding:11px 15px;
+    background:#22d3ee09;font-size:12.5px;color:var(--muted)}
+  .hint b{color:var(--copy)}
+
+  /* 对照标题 */
+  .cmp{display:grid;grid-template-columns:1fr;gap:6px;margin:26px 0 12px}
+  .cmp h2{font-size:15px;margin:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .badge{font-size:10.5px;padding:1.5px 8px;border-radius:999px;border:1px solid}
+  .badge.now{color:var(--muted);border-color:#5d638055;background:#5d638014}
+  .badge.new{color:var(--teal);border-color:#2dd4bf55;background:#2dd4bf14}
+  .cmpdesc{font-size:12.5px;color:var(--muted)}
+
+  .block{background:var(--panel);border:1px solid var(--line);border-radius:13px;overflow:hidden}
+  .block.old{border-style:dashed;opacity:.8}
+  .bhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:11px 17px;border-bottom:1px solid var(--line);background:var(--panel2)}
+  .bname{font-size:14.5px;font-weight:600}
+  .bsrc{font-size:11.5px;color:var(--muted);margin-left:auto}
+  .bbody{padding:14px 17px}
+
+  /* ── 窗口 Tab ── */
+  .tabs{display:flex;gap:6px}
+  .tab{font-size:11.5px;padding:2.5px 11px;border-radius:6px;border:1px solid var(--line);
+    background:#131a29;color:var(--muted);cursor:pointer}
+  .tab.on{border-color:#4f8cff66;background:#4f8cff1a;color:var(--accent);font-weight:600}
+
+  /* ── 概览统计（新设计的核心）── */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:9px;margin-bottom:13px}
+  .stat{background:#131a29;border:1px solid var(--line);border-radius:9px;padding:9px 11px}
+  .stat .n{font-size:19px;font-weight:700;line-height:1.2}
+  .stat .l{font-size:11px;color:var(--muted);margin-top:2px}
+  .stat .d{font-size:10px;color:var(--muted2);margin-top:1px}
+
+  /* ── 构成条 ── */
+  .bar{height:9px;border-radius:5px;background:#2a3350;overflow:hidden;display:flex;margin-bottom:6px}
+  .bar i{display:block;height:100%}
+  .barlegend{display:flex;gap:13px;font-size:11px;color:var(--muted);flex-wrap:wrap;margin-bottom:15px}
+  .barlegend span{display:inline-flex;align-items:center;gap:5px}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+
+  /* ── 署名双条 ── */
+  .sigrow{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:15px}
+  @media(max-width:720px){.sigrow{grid-template-columns:1fr}}
+  .sigbox{background:#131a29;border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+  .sigbox .h{font-size:11px;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .sig{display:flex;align-items:center;gap:8px;font-size:11.5px;margin-bottom:5px}
+  .sig .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    font-family:ui-monospace,Menlo,monospace;font-size:11px}
+  .sig .track{width:64px;height:5px;border-radius:3px;background:#2a3350;overflow:hidden;flex-shrink:0}
+  .sig .track i{display:block;height:100%;background:var(--accent)}
+  .sig .ct{font-size:10.5px;color:var(--muted2);min-width:26px;text-align:right}
+
+  /* ── 明细行 ── */
+  .rowlist{display:flex;flex-direction:column;gap:5px}
+  .row{display:flex;align-items:center;gap:9px;padding:7px 11px;border-radius:8px;
+    background:#131a29;border:1px solid transparent;font-size:13px;cursor:pointer}
+  .row:hover{border-color:var(--line)}
+  .row .ico{width:14px;height:14px;flex-shrink:0;opacity:.85}
+  .row .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .st{font-size:10.5px;padding:1px 7px;border-radius:999px;border:1px solid;flex-shrink:0}
+  .st.new{color:var(--teal);border-color:#2dd4bf55;background:#2dd4bf14}
+  .st.upd{color:var(--accent);border-color:#4f8cff55;background:#4f8cff14}
+  .row .ct{font-size:10.5px;color:var(--muted2);flex-shrink:0}
+  .row .cp{font-size:10.5px;padding:1px 8px;border-radius:5px;border:1px solid #22d3ee44;
+    background:#22d3ee0f;color:var(--copy);cursor:pointer;flex-shrink:0;opacity:.5}
+  .row:hover .cp{opacity:1}
+
+  .subhead{font-size:11.5px;color:var(--muted);margin:13px 0 6px;display:flex;align-items:center;gap:7px}
+  .subhead:first-child{margin-top:0}
+
+  .note{font-size:11.5px;color:var(--muted2);margin-top:11px;padding-top:10px;
+    border-top:1px dashed var(--line)}
+  .note b{color:var(--muted)}
+
+  .preview{margin-top:9px;padding:9px 11px;border-radius:8px;background:#0b0f18;
+    border:1px solid var(--line);font-family:ui-monospace,Menlo,monospace;font-size:11px;
+    color:#7dd3fc;white-space:pre-wrap;line-height:1.6}
+  .pl{font-family:-apple-system,sans-serif;font-size:10px;color:var(--muted2);
+    letter-spacing:.04em;margin-bottom:4px}
+
+  .pending{background:linear-gradient(135deg,#1a1424,#161c2e);border:1px solid #7c3aed44;
+    border-radius:13px;padding:16px 18px;margin-top:24px}
+  .pending h2{font-size:14px;margin:0 0 11px;color:#c4b5fd}
+  .pending .q{margin-bottom:13px;padding-left:15px;border-left:2px solid #7c3aed44}
+  .pending .qh{font-size:12.5px;color:#ddd6fe;font-weight:600;margin-bottom:4px}
+  .pending .qb{font-size:12.5px;color:var(--muted);line-height:1.6}
+  .pending ul{margin:5px 0 0;padding-left:17px;color:var(--muted);font-size:12.5px}
+  .pending li{margin-bottom:3px}
+  .opt{display:inline-block;font-size:11px;color:#a5b4fc;border:1px solid #6366f155;
+    background:#6366f114;padding:1px 7px;border-radius:5px;margin-right:5px}
+  .kbd{font-size:11px;background:#0d1119;border:1px solid var(--line);border-radius:4px;padding:1px 6px;color:#a5b4fc}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>近期动态 改版设计 <span style="font-size:12px;font-weight:400;color:var(--muted2)">草稿 · 讨论用</span></h1>
+  <div class="sub">
+    把「Spark 悬置」的<b>先概览、后明细</b>思想用到近期动态 ·
+    数字全部来自<b>真实 API</b>（dsh-ldvh，2026-09-16）
+  </div>
+
+  <div class="hint">
+    <b>核心改动一句话：</b>现在打开就是条目列表；改版后<b>先给一行规模数字 + 一条构成比例条</b>，
+    让你在 3 秒内知道「这个窗口里发生了什么、量级多大」，
+    再往下才是明细。署名双条从「第二、三阅读区」降格并进概览。
+  </div>
+
+  <!-- ══════════ 现状 ══════════ -->
+  <div class="cmp">
+    <h2>现状 <span class="badge now">02-CognitionCenter.md §4.2</span></h2>
+    <div class="cmpdesc">时间 Tab 在标题栏 → 直接进条目列表 → 下方才是两张署名条状图。</div>
+  </div>
+  <div class="block old">
+    <div class="bhead">
+      <span class="bname">近期动态</span>
+      <div class="tabs" style="margin-left:12px">
+        <span class="tab">最近 1 天</span><span class="tab">3 天</span><span class="tab on">1 周</span>
+      </div>
+      <span class="bsrc">默认显示 6 个对象，可局部展开</span>
+    </div>
+    <div class="bbody">
+      <div class="rowlist">
+        <div class="row"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"><path d="M12 3l2.2 5.3L20 9.6l-4.3 3.7L17 19l-5-2.9L7 19l1.3-5.7L4 9.6l5.8-1.3z"/></svg>
+          <span class="t">蓝图功能的最终形态</span><span class="st upd">更新</span><span class="ct">2 天前 · 3</span></div>
+        <div class="row"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span class="t">起草 32 号工单执行系统规范</span><span class="st upd">更新</span><span class="ct">2 天前 · 5</span></div>
+        <div class="row" style="color:var(--muted2)"><span style="width:14px;text-align:center">…</span>
+          <span class="t">还有 61 个对象（需滚动/展开才知道）</span></div>
+      </div>
+      <div class="note" style="border-top-color:#ef444444">
+        <b style="color:#f87171">问题：</b>① 看不到「窗口内共多少活动」——要滚到最后才知道；
+        ② 1 天窗口（5 对象）与 1 周窗口（63 对象）切换后<b>没有量级对比</b>，得靠感觉；
+        ③ 署名双条在最下方，是「谁改的」这类次要信息却占了独立阅读区。
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ 改版 ══════════ -->
+  <div class="cmp" style="margin-top:28px">
+    <h2>改版后 <span class="badge new">本设计</span></h2>
+    <div class="cmpdesc">概览（规模 + 构成 + 署名）→ 明细（按类型分组）。窗口切换保留，且概览随窗口即时反映量级。</div>
+  </div>
+  <div class="block">
+    <div class="bhead">
+      <span class="bname">近期动态</span>
+      <div class="tabs" style="margin-left:12px">
+        <span class="tab">1 天</span><span class="tab">3 天</span><span class="tab on">1 周</span>
+      </div>
+      <span class="bsrc" style="margin-left:auto">
+        <span class="cp" style="font-size:10.5px;padding:1.5px 8px;border-radius:5px;border:1px solid #22d3ee44;background:#22d3ee0f;color:var(--copy)">复制模块摘要</span>
+      </span>
+    </div>
+    <div class="bbody">
+
+      <!-- ① 概览：规模 -->
+      <div class="stats">
+        <div class="stat"><div class="n">63</div><div class="l">活跃对象</div><div class="d">窗口内被改动</div></div>
+        <div class="stat"><div class="n">154</div><div class="l">事实流水</div><div class="d">change_log 条数</div></div>
+        <div class="stat"><div class="n" style="color:var(--teal)">18</div><div class="l">新建</div><div class="d">首条流水</div></div>
+        <div class="stat"><div class="n" style="color:var(--accent)">45</div><div class="l">更新</div><div class="d">后续流水</div></div>
+      </div>
+
+      <!-- ② 构成条：按类型 -->
+      <div class="bar">
+        <i style="width:65%;background:var(--spark)"></i>
+        <i style="width:16%;background:var(--research)"></i>
+        <i style="width:10%;background:var(--wc)"></i>
+        <i style="width:8%;background:var(--pitfall)"></i>
+        <i style="width:1.6%;background:#64748b"></i>
+      </div>
+      <div class="barlegend">
+        <span><span class="dot" style="background:var(--spark)"></span> 火花 41</span>
+        <span><span class="dot" style="background:var(--research)"></span> 调研 10</span>
+        <span><span class="dot" style="background:var(--wc)"></span> 工单 6</span>
+        <span><span class="dot" style="background:var(--pitfall)"></span> 经验 5</span>
+        <span><span class="dot" style="background:#64748b"></span> 目标 1</span>
+      </div>
+
+      <!-- ③ 署名：降格进概览 -->
+      <div class="sigrow">
+        <div class="sigbox">
+          <div class="h">✎ 署名 AI（按流水数）</div>
+          <div class="sig"><span class="nm">deepseek-v4.1-flash</span>
+            <span class="track"><i style="width:100%"></i></span><span class="ct">131</span></div>
+          <div class="sig"><span class="nm">glm-5.3</span>
+            <span class="track"><i style="width:15%"></i></span><span class="ct">20</span></div>
+        </div>
+        <div class="sigbox">
+          <div class="h">⌂ 署名环境（按流水数）</div>
+          <div class="sig"><span class="nm">workbuddy</span>
+            <span class="track"><i style="width:100%"></i></span><span class="ct">123</span></div>
+          <div class="sig"><span class="nm">zzztoken-glm</span>
+            <span class="track"><i style="width:20%"></i></span><span class="ct">25</span></div>
+          <div class="sig"><span class="nm">workbuddy-global</span>
+            <span class="track"><i style="width:2.4%"></i></span><span class="ct">3</span></div>
+        </div>
+      </div>
+
+      <!-- ④ 明细：按类型分组 -->
+      <div class="subhead">火花 <span class="ct" style="color:var(--muted2)">41 项 · 显示 2 项</span></div>
+      <div class="rowlist">
+        <div class="row">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"><path d="M12 3l2.2 5.3L20 9.6l-4.3 3.7L17 19l-5-2.9L7 19l1.3-5.7L4 9.6l5.8-1.3z"/></svg>
+          <span class="t">蓝图功能的最终形态</span><span class="st upd">更新</span>
+          <span class="ct">2 天前 · 3</span><span class="cp">复制引用</span>
+        </div>
+        <div class="row">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"><path d="M12 3l2.2 5.3L20 9.6l-4.3 3.7L17 19l-5-2.9L7 19l1.3-5.7L4 9.6l5.8-1.3z"/></svg>
+          <span class="t">Utopia 治理机制吸收清单</span><span class="st upd">更新</span>
+          <span class="ct">3 天前 · 2</span><span class="cp">复制引用</span>
+        </div>
+      </div>
+      <div class="subhead">工单 <span class="ct" style="color:var(--muted2)">6 项 · 显示 2 项</span></div>
+      <div class="rowlist">
+        <div class="row">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span class="t">起草 32 号工单执行系统规范</span><span class="st upd">更新</span>
+          <span class="ct">2 天前 · 5</span><span class="cp">复制引用</span>
+        </div>
+        <div class="row">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span class="t">详情页 YAML 呈现推广到全类型</span><span class="st upd">更新</span>
+          <span class="ct">今天 · 1</span><span class="cp">复制引用</span>
+        </div>
+      </div>
+      <div class="subhead" style="color:var(--muted2)">调研 10 · 经验 5 · 目标 1 <span class="cp ghost" style="font-size:10.5px">展开</span></div>
+
+      <div class="preview">
+        <div class="pl">↓ 「复制模块摘要」产出（示意，含概览区）</div>近期动态（最近 1 周）
+total: 63 对象 / 154 流水（新建 18 · 更新 45）
+构成: 火花 41 · 调研 10 · 工单 6 · 经验 5 · 目标 1
+署名 AI: deepseek-v4.1-flash 131 · glm-5.3 20
+署名环境: workbuddy 123 · zzztoken-glm 25 · workbuddy-global 3
+- 火花《蓝图功能的最终形态》 · 更新 · 2 天前
+- 火花《Utopia 治理机制吸收清单》 · 更新 · 3 天前
+- 工单《起草 32 号工单执行系统规范》 · 更新 · 2 天前
+（另有 60 项）</div>
+
+      <div class="note">
+        <b>为什么署名要降格进概览：</b>「谁改的」是<b>规模性信息</b>（131 条 vs 20 条说明主力模型），
+        不是逐条信息。放概览里一眼看完，不必占一个独立阅读区、也不必单独「展开/收起」。
+        <b>署名缺失时不猜不归类</b>（沿用现有纪律）。
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ 设计说明 ══════════ -->
+  <div class="pending">
+    <h2>◈ 设计说明与待裁问题</h2>
+
+    <div class="q">
+      <div class="qh">改动 1　加「概览区」：4 个数字 + 一条构成比例条</div>
+      <div class="qb">
+        4 数字 = 活跃对象数 / 流水数 / 新建 / 更新。
+        构成条 = 按<b>类型</b>切分（火花 41 · 调研 10 · 工单 6 …），比例条 + 图例。
+        全部可从现有 API 直接算出（<code>items[].type</code>、<code>eventTotal</code>、<code>activity</code>），<b>无需新增后端字段</b>。
+      </div>
+    </div>
+
+    <div class="q">
+      <div class="qh">改动 2　署名双条从「独立阅读区」降为「概览的一部分」</div>
+      <div class="qb">
+        现在它们在中下方、默认各显示 6 项、有独立展开控制。
+        改版后进概览区右侧，<b>只显示前 2-3 名</b>（其余折叠），因为它回答的是"主力是谁"而非"全部是谁"。
+      </div>
+    </div>
+
+    <div class="q">
+      <div class="qh">改动 3　明细按类型分组</div>
+      <div class="qb">
+        现在是一条平铺列表（混着所有类型）。改版按类型分组，每组给「N 项 · 显示 M 项」。
+        <b>理由：</b>41 个火花和 1 个目标的"重要性"不同，平铺会淹没。
+        <b>但这条我不确定</b>——分组可能让"按时间看"的人觉得别扭。
+      </div>
+      <ul>
+        <li><span class="opt">A</span>按类型分组（上图）</li>
+        <li><span class="opt">B</span>保持平铺，只靠概览区给规模</li>
+        <li><span class="opt">C</span>默认平铺，给「按类型/按时间」切换</li>
+      </ul>
+    </div>
+
+    <div class="q">
+      <div class="qh">改动 4　复制摘要含概览</div>
+      <div class="qb">
+        摘要第一行给出规模与构成，再接明细——这样你把摘要粘进 AI 对话时，
+        AI 立刻知道"这个窗口发生了什么、量级多大"，而不是只看到几个标题。
+      </div>
+    </div>
+
+    <div class="q">
+      <div class="qh">需要你定的</div>
+      <ul>
+        <li>① 概览区的 4 个数字，<b>选对了吗</b>？（活跃对象/流水/新建/更新）要不要换成别的？</li>
+        <li>② 构成条按<b>类型</b>切分对吗？还是你更想看<b>按 SG-n</b>（哪些子目标在被推进）？</li>
+        <li>③ 改动 3 选 A / B / C？</li>
+        <li>④ 这套概览思想要不要<b>也用到 ③待你决定 / ④推进中</b>？（它们现在也是直接列表）</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
