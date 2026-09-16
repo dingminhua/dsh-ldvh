@@ -322,20 +322,23 @@ export function FactReadingContent({
       <FieldIssuesSection value={obj.field_issues} />
       <UnparsedStructuresSection value={obj.unparsed_structures} />
 
-      {/* YAML 源节点（Human 2026-09-09 三次定案，截图红框标注要显示的区块）：
-          research 展示时按 24 §7 规范阅读序排序（内容保真——以原文解析的真实
-          字段为界，不注入不过滤）；v5 markdown 载体类型（spark/research）与
-          yaml 载体（v4 归档）原文直显。frontmatter 机器索引的解释性呈现（启发
-          节点）已按 Human 划线标注移除——机器索引只在此节点以原文形式呈现，
-          不再被 web 解析渲染。 */}
-      {(carrier === 'yaml' || objType === 'research' || objType === 'spark') && (
-        <YamlDataNode
-          yamlSource={objType === 'research'
-            ? sortedResearchFrontmatterYaml(obj.yaml_source) ?? reconstructFactYaml(obj)
-            : typeof obj.yaml_source === 'string' ? obj.yaml_source : reconstructFactYaml(obj)}
-          title={t('objectDetail.yamlSource')}
-        />
-      )}
+      {/* YAML 源节点（Human 2026-09-09 三次定案，截图红框标注要显示的区块；
+          2026-09-16 推广到全部事实类型）：research 展示时按 24 §7 规范阅读序
+          排序（内容保真——以原文解析的真实字段为界，不注入不过滤）；其余类型
+          一律以 yaml_source 逐字原文直显，原文不可得时才回退重建。
+          不再按 objType 白名单挑选：事实源现状为八类全 markdown 载体，读取层
+          （localFactReader 的 readable()）对 markdown 载体一律透传 frontmatter
+          原文，白名单已无存在依据。例外：goal 走 /api/cognition/goal 独立路由，
+          该响应不投影 yaml_source，故 goal 落到 reconstructFactYaml 重建兜底
+          （非原文；残留见 workcase 63700bd2 的 Gate 2 记录）。
+          frontmatter 机器索引的解释性呈现（启发节点）已按 Human 划线标注移除
+          ——机器索引只在此节点以原文形式呈现，不再被 web 解析渲染。 */}
+      <YamlDataNode
+        yamlSource={objType === 'research'
+          ? sortedResearchFrontmatterYaml(obj.yaml_source) ?? reconstructFactYaml(obj)
+          : typeof obj.yaml_source === 'string' ? obj.yaml_source : reconstructFactYaml(obj)}
+        title={t('objectDetail.yamlSource')}
+      />
     </>
   );
 }
