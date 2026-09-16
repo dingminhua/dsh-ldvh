@@ -47,10 +47,10 @@ gate_1:
     plugin/lib writer/tools（已对齐）；不做蓝图新功能与 serves 筛选（未裁决，另行）；不迁移 v4 存量对象（21 §15.3
     另行）。
 attempt:
-  attempt_id: 1
-  started_at: 2026-09-15T21:58:57.171Z
-  controller: glm-5.3-main-controller
-  heartbeat_at: 2026-09-15T23:46:40.026Z
+  attempt_id: 3
+  started_at: 2026-09-16T13:45:38.977Z
+  controller: workbuddy/deepseek-v4.1-flash
+  heartbeat_at: 2026-09-16T13:45:38.977Z
 created_at: 2026-09-15T21:44:22.236Z
 change_log:
   - at: 2026-09-15T21:44:22.236Z
@@ -76,6 +76,18 @@ change_log:
     summary: 验证三件套全达标：tsc 0、测试 235/235、eslint 零新增净减 7（基线 50→43）；28 项 v4
       断言全改写、两个功能缺口补齐；剩余步骤 5（10 号登记 Human Gate）与受控提交 [attempt 1 heartbeat
       refreshed]
+  - at: 2026-09-16T13:44:57.334Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: "冷恢复接管——完成孤立 attempt 副作用核对（提交 e56ce02 属已发生未记录）并 takeover 分配 attempt
+      2；步骤 1-4/6 已完成，步骤 5 待 Gate [attempt 1 taken over → attempt 2 (controller:
+      glm-5.3-main-controller)]"
+  - at: 2026-09-16T13:45:38.977Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: "更正接管控制器身份——takeover 分配 attempt 3，controller 更正为
+      workbuddy/deepseek-v4.1-flash [attempt 2 taken over → attempt 3
+      (controller: workbuddy/deepseek-v4.1-flash)]"
 ---
 
 # Web 工单呈现三态重建
@@ -99,9 +111,18 @@ change_log:
 
 ## 执行
 
-- attempt 1 started（2026-09-15，controller: glm-5.3-main-controller）；Gate 1 授权范围见 gate_1.scope_snapshot。
-- 步骤 1 完成（2026-09-15）：factFieldContract workcase 契约重写为 21 号 §8 闭集（含 report_body 传输位）；report_body 数据链核实（列表/详情均可达）；v5UidCarrier 名单补 workcase。
-- 步骤 2-4 编码主体完成（2026-09-15）：子代理 9be33eb1 完成大块（18 文件净删约 4500 行 v4）后失败于 tsc 收敛，主控接手：workcaseLifecycle.ts 投影器（三态直读+五档派生+bodyHasResultSection 围栏配对判据，收货核对通过）；objects.ts ?lifecycle= 五档+400 指引；cognition InboxKind 三态判定；ReadingLayout 四分流重写；i18n 中英词条；v4 投影器与生成契约删除。
-- 步骤 6 前半完成（2026-09-15）：28 个旧 v4 契约断言逐文件改写为 v5（fact-field-contract 豁免与必填面、workcase-presentation-spec 重写为六测试 v5 版、workcase-detail-current 重写为七测试 v5 版、field-level/fact-source-metadata/commit-dto/fixtures 改 .md+21 号字段、lifecycle-tabs/spark-reading/web-design-consistency/nonactive 断言更新）；ReadingLayout 补两个 v5 重写时漏掉的功能（ObjectReferenceCopyButton 复制按钮、ChangeLogReadingNode 变更流水节点——真缺口非断言过时）；CognitionCenter 终态 Set 去 discarded；本单新增 unused 导入清理。**验证三件套：tsc 0 错误；测试 235/235 全绿；eslint 43 problems（21 errors）vs 干净基线 50 problems（23 errors）——零新增且净减 7。**
-- 剩余：步骤 5（10 号呈现契约登记——受保护变更，待 Human Gate 提请）与步骤 6 后半（全部变更受控提交）。
+- attempt 1 started at 2026-09-15T21:58:57.171Z (controller: glm-5.3-main-controller)。
+- 步骤 1–4 与步骤 6 前半完成，受控提交 e56ce02（feat(web): WorkCase 呈现三态重建，34 files changed, +1508/−7648）；heartbeat 末次刷新 2026-09-15T23:46:40Z。
+- 2026-09-16 冷恢复（21 §10.4）：确认该 attempt 为孤立 attempt（原 controller 属已中断会话，心跳陈旧约 9 小时）。已完成副作用范围核对——
+  - 「已发生未记录」：受控提交 e56ce02 实际已落盘步骤 1–4 与 6 前半，但对象 change_log 无该条目（末条 23:46:40Z 早于提交 23:54:03Z）；控制器已更替而 attempt.controller 未更新。
+  - 「已记录未发生」：未发现。步骤 5 记「剩余」且确未完成（specs/10 全文 0 处提及 WorkCase）。
+  - 未核对项（如实声明）：三件套未复跑、dist hash 未复算、authorization_fingerprint 未复算。
+- 副作用核对完成后执行 takeover：分配 attempt 3，controller 更正为 workbuddy/deepseek-v4.1-flash（21 §10.4 第 1、3 点）。
+- 本次补记后，剩余工作为**步骤 5**（specs/10 登记 WorkCase 呈现契约，属受保护变更，须 Human Gate）。
+
+## 结果（草稿，本单未关闭）
+
+- 步骤 1–4、6：已完成——证据：提交 e56ce02 落盘三态投影器、五档筛选与 outcome 四值徽标、认知中心 InboxKind 三态重建、详情与卡片 v5 字段消费清除，以及改写的契约测试；该提交的验证记录为 web 测试 241/241 全绿、tsc 0 错误。
+- 步骤 5：**未完成**——specs/10 尚未登记 WorkCase 呈现契约节；属受保护变更，须经 Human Gate 独立批准后受控提交。**未完成期间对象不得以 completed 关闭。**
+- 残留责任：步骤 5 未完成。若 Human 裁定该登记暂缓，建议 outcome=partial 并说明残留去向（转新建 WC 或明确不跟踪）。
 
