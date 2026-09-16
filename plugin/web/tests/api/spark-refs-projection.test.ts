@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { showObject } from '../../api/services/facts.ts';
+import { listObjects, showObject } from '../../api/services/facts.ts';
 import { type LocalFactScope } from '../../api/services/localFactReader.ts';
 
 /** 20 §8 refs 上限 10 项；此处用两条覆盖「可解析 + 不可解析」两种目标。 */
@@ -106,6 +106,49 @@ test('a Spark without refs exposes no factRefs field', async () => {
     if (!result.ok) throw new Error(result.error);
     assert.equal('factRefs' in result.data, false);
     assert.equal('factAssociations' in result.data, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+/**
+ * WorkCase 18fcee2c 根因回归：列表路径此前只投影 relations、从不投影 refs，
+ * 因此**所有**列表卡（含 open spark）的 factRefs 恒为 ABSENT，同一对象的关联
+ * 在列表与详情两层阅读器里不一致。本测试钉住两层契约一致。
+ */
+test('list cards project factRefs with the same contract as the detail read', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-web-listrefs-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  try {
+    const researchDir = path.join(root, 'ldvh-base', 'researches');
+    const sparkDir = path.join(root, 'ldvh-base', 'sparks');
+    await mkdir(researchDir, { recursive: true });
+    await mkdir(sparkDir, { recursive: true });
+    await writeFile(path.join(researchDir, `research-${SPARK_UID}.md`), research, 'utf8');
+    await writeFile(path.join(sparkDir, 'spark-0001.md'), spark, 'utf8');
+
+    const listed = await listObjects('spark', undefined, undefined, scope);
+    if (!listed.ok) throw new Error(listed.error);
+    const items = (listed.data as { items: Array<Record<string, unknown>> }).items;
+    const open = items.find((item) => item.object_id === 'spark-0001');
+    assert.ok(open, 'open spark must be listed');
+
+    // refs 在列表路径同样投影（可解析 + 不可解析两类条目都保留）。
+    const refs = open.factRefs as Array<Record<string, unknown>>;
+    assert.equal(Array.isArray(refs), true);
+    assert.equal(refs.length, 2);
+    assert.equal(refs[1].available, false);
+
+    // 分工纪律在列表路径同样成立：refs 不并入 relations。
+    const associations = open.factAssociations as Array<Record<string, unknown>>;
+    assert.equal(associations.length, 1);
+    assert.equal(associations[0].relationKey, 'merged-into');
+    assert.equal(refs.some((r) => r.relationKey !== undefined), false);
+
+    // 两层阅读器契约一致：列表投影与详情投影对同一对象给出同一 refs。
+    const detail = await showObject('spark-0001', scope);
+    if (!detail.ok) throw new Error(detail.error);
+    assert.deepEqual(open.factRefs, detail.data.factRefs);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

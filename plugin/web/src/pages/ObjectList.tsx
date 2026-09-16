@@ -215,9 +215,10 @@ export function ObjectCardFrame({
           </span>
           {/* Human 定案 2026-09-13：卡头标签序 = 类型 → 优先级 → SG → 修改次数；
               方案 A——条件字段有值才显示（20 §8 priority 仅 open 时出现）。
-              2026-09-13 延伸裁定移除：refs 关联对象 chip 曾紧随 SG 之后，现改为
-              只在详情「关联对象」阅读节点呈现（10 §5.1 字段级直读「不渲染关联
-              关系或语义解释」；10 §5.2 卡片网格不承载关联对象）。 */}
+              2026-09-13 延伸裁定移除卡头关联 chip；Human 裁定 2026-09-16
+              （WorkCase 18fcee2c）恢复关联呈现但**仍在卡体关联段**、不在卡头：
+              卡头保持身份/优先级/SG/修改次数的稳定扫描序，关联对象由
+              FactAssociationsCardContent 统一承载（relations 与 refs 并列）。 */}
           <PriorityIcon source={obj} type={obj.type} locale={locale} size="xs" />
           <ServesSgBadge value={obj.serves} locale={locale} />
           <span
@@ -270,7 +271,7 @@ export function ObjectCardFrame({
       </div>
       {showNonActiveReason && nonActiveReason && <StatusReasonNote reason={nonActiveReason} />}
       {children}
-      <FactAssociationsCardContent associations={obj.factAssociations} />
+      <FactAssociationsCardContent associations={obj.factAssociations} refs={obj.factRefs} />
       {/* Keep the identity → title → update rhythm stable; grid stretch leaves any spare space below. */}
       <div className="mt-1 flex min-w-0 items-center justify-end pt-0.5 text-right opacity-70">
         <ObjectUpdatedMeta source={obj} updatedAt={obj.updated} />
@@ -329,22 +330,29 @@ function SparkTerminalCardContent({ obj }: { obj: ObjectItem }) {
   );
 }
 
-function FactAssociationsCardContent({ associations }: { associations?: FactCardAssociation[] }) {
+function FactAssociationsCardContent({ associations, refs }: { associations?: FactCardAssociation[]; refs?: FactCardAssociation[] }) {
   const { t, locale } = useI18n();
-  if (!associations || associations.length === 0) return null;
-  const visibleAssociations = dedupeFactCardAssociations(associations)
-    .map((association, index) => ({ association, index }))
+  // 03 §7.2 分工纪律：relations（factAssociations）承载生命周期关系、refs
+  // （factRefs）承载普通内容关联，两者并列呈现、互不并入。同一目标同时出现
+  // 在两侧时不合并去重——它们是两条不同语义的记录。
+  const rows = [
+    ...(associations ?? []).map((association) => ({ association, source: 'relations' as const })),
+    ...(refs ?? []).map((association) => ({ association, source: 'refs' as const })),
+  ];
+  if (rows.length === 0) return null;
+  const visibleRows = dedupeFactCardAssociations(rows)
+    .map((row, index) => ({ row, index }))
     .sort((left, right) => {
-      const rankDelta = getFactAssociationStateRank(left.association) - getFactAssociationStateRank(right.association);
+      const rankDelta = getFactAssociationStateRank(left.row.association) - getFactAssociationStateRank(right.row.association);
       return rankDelta !== 0 ? rankDelta : left.index - right.index;
     })
-    .map(({ association }) => association);
-  if (visibleAssociations.length === 0) return null;
+    .map(({ row }) => row);
+  if (visibleRows.length === 0) return null;
 
   return (
     <section onClick={(event) => event.stopPropagation()} className="min-w-0 border-t border-ldvh-border/60 pt-1.5">
       <div className="divide-y divide-ldvh-border/45">
-        {visibleAssociations.map((association, index) => <FactAssociationCardRow key={`${association.target && 'objectUid' in association.target ? association.target.objectUid : `${association.target?.governedProjectId ?? 'unavailable'}:${association.target?.factTypeKey ?? 'unknown'}:${association.target?.objectId ?? index}`}:${index}`} association={association} locale={locale} unavailableLabel={t('objectList.associationUnavailable')} />)}
+        {visibleRows.map(({ association, source }, index) => <FactAssociationCardRow key={`${source}:${association.target && 'objectUid' in association.target ? association.target.objectUid : `${association.target?.governedProjectId ?? 'unavailable'}:${association.target?.factTypeKey ?? 'unknown'}:${association.target?.objectId ?? index}`}:${index}`} association={association} locale={locale} unavailableLabel={t('objectList.associationUnavailable')} />)}
       </div>
     </section>
   );
@@ -355,10 +363,10 @@ function associationLocator(association: FactCardAssociation) {
   return association.target && !('objectUid' in association.target) ? association.target : null;
 }
 
-function dedupeFactCardAssociations(associations: FactCardAssociation[]): FactCardAssociation[] {
+function dedupeFactCardAssociations<T extends { association: FactCardAssociation }>(rows: T[]): T[] {
   const seenTargets = new Set<string>();
-  return associations.filter((association) => {
-    const target = association.target;
+  return rows.filter((row) => {
+    const target = row.association.target;
     if (!target) return true;
     const targetKey = 'objectUid' in target
       ? `uid\u0000${target.objectUid}`
@@ -482,6 +490,12 @@ function FactAssociationStateIcon({ state, tooltip }: { state: FactAssociationSt
 export function SparkCardContent({ obj }: { obj: ObjectItem }) {
   // 活跃（open）卡片保持克制：question/scope_boundary/summary 在详情阅读布局
   // 呈现（与 2026-09-09 Research 活跃卡片同款裁定；20 §12 F1 允许投影但不强制）。
+  //
+  // Human 裁定 2026-09-16（本单扩围）：该克制只约束**正文段**，不约束关联呈现
+  // ——非终态卡的 refs/relations 与终态卡走同一条组件路径呈现（10 §5.2 卡片
+  // 网格承载「关联计数」；关联呈现由 ObjectCardFrame 统一承载，不经由本组件
+  // 的状态分支）。本组件因此只负责状态相关的正文段，返回 null 不再意味着
+  // 卡片无关联信息。
   const terminal = hasSparkDiscardFact(obj) || hasSparkImplementedFact(obj);
   return terminal ? <SparkTerminalCardContent obj={obj} /> : null;
 }

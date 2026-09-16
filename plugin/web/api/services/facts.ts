@@ -285,9 +285,15 @@ async function projectListItemWithAssociations(
   uidTargets: FactUidTargetIndex,
 ): Promise<Record<string, unknown>> {
   const associations = await projectFactCardAssociations(item, scope, uidTargets)
+  // 03 §7.2 分工纪律：refs 与 relations 并列投影、互不并入。列表卡与详情卡
+  // 共用同一投影契约——否则同一对象的关联在两层阅读器里不一致（10 §5.2
+  // 卡片网格承载「关联计数」）。此处只新增调用，解析规则仍由 projectFactRefs
+  // 单点承载（不新写逻辑）。
+  const refs = await projectFactRefs(item, scope, uidTargets)
   return {
     ...projectListItem(type, item, uidTargets),
     ...(associations.length > 0 ? { factAssociations: associations } : {}),
+    ...(refs.length > 0 ? { factRefs: refs } : {}),
   }
 }
 

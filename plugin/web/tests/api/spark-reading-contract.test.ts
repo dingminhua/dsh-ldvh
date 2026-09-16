@@ -25,12 +25,18 @@ test('every fact list card shows exact-read formal associations in a minimal sec
 
   assert.match(source, /function FactAssociationsCardContent/);
   assert.match(source, /associations=\{obj\.factAssociations\}/);
-  // refs 关联对象 chip 已从卡头移除：只在详情「关联对象」阅读节点呈现
-  // （10 §5.1 不渲染关联关系、10 §5.2 卡片网格不承载关联对象）。
+  // Human 裁定 2026-09-16（WorkCase 18fcee2c 扩围）：卡片网格恢复关联对象
+  // 呈现——refs 与 relations 走同一组件路径并列呈现（10 §5.2 卡片网格承载
+  // 「关联计数」）。原 2026-09-13「关联对象只在详情呈现」的裁定已对 refs
+  // 解除，但解除的是**呈现位置**、不是分工纪律：refs 仍不得并入 relations。
+  assert.match(source, /refs=\{obj\.factRefs\}/);
+  assert.match(source, /function FactAssociationsCardContent\(\{ associations, refs \}/);
+  assert.match(source, /source: 'refs' as const/);
+  assert.match(source, /source: 'relations' as const/);
+  // 卡头仍不携带 refs chip（呈现位置在卡体关联段，不在卡头）。
   assert.doesNotMatch(source, /RefsBadge/);
-  assert.doesNotMatch(source, /obj\.refs/);
-  assert.match(source, /dedupeFactCardAssociations\(associations\)/);
-  assert.match(source, /visibleAssociations\.map/);
+  assert.match(source, /dedupeFactCardAssociations\(rows\)/);
+  assert.match(source, /visibleRows\.map/);
   assert.match(source, /whitespace-normal break-words/);
   assert.match(source, /openPanel\(\{ type: 'object', title, objectType: legacyTarget\.factTypeKey, objectId: legacyTarget\.objectId \}\)/);
   assert.doesNotMatch(source, /StatusBadge status=\{association\.status\}/);
@@ -44,7 +50,7 @@ test('every fact list card shows exact-read formal associations in a minimal sec
   assert.doesNotMatch(source, /isHiddenTerminalAssociation/);
   assert.match(source, /FACT_ASSOCIATION_STATE_RANK/);
   assert.match(source, /active: 0,[\s\S]*progressing: 1,[\s\S]*pending: 2,[\s\S]*closed: 3,[\s\S]*discarded: 4/);
-  assert.match(source, /getFactAssociationStateRank\(left\.association\) - getFactAssociationStateRank\(right\.association\)/);
+  assert.match(source, /getFactAssociationStateRank\(left\.row\.association\) - getFactAssociationStateRank\(right\.row\.association\)/);
   assert.match(source, /association\.status === 'implemented'\) return 'closed'/);
   assert.match(source, /association\.status === 'discarded'\) return 'discarded'/);
   assert.match(source, /association\.status === 'retired'\) return 'discarded'/);
