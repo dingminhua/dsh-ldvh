@@ -37,6 +37,11 @@ test('every fact list card shows exact-read formal associations in a minimal sec
   assert.doesNotMatch(source, /RefsBadge/);
   assert.match(source, /dedupeFactCardAssociations\(rows\)/);
   assert.match(source, /visibleRows\.map/);
+  // 去重按来源分组隔离，且该隔离由 source 显式承载——不得依赖「refs 投影
+  // 恰好没有 target 字段」这一偶然事实（独立复核 2026-09-16 发现 1）。
+  assert.match(source, /const scopedKey = `\$\{row\.source\}\\u0000\$\{targetKey\}`/);
+  assert.match(source, /seenTargets\.add\(scopedKey\)/);
+  assert.match(source, /source: string \}/);
   assert.match(source, /whitespace-normal break-words/);
   assert.match(source, /openPanel\(\{ type: 'object', title, objectType: legacyTarget\.factTypeKey, objectId: legacyTarget\.objectId \}\)/);
   assert.doesNotMatch(source, /StatusBadge status=\{association\.status\}/);

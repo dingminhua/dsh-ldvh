@@ -334,7 +334,7 @@ function FactAssociationsCardContent({ associations, refs }: { associations?: Fa
   const { t, locale } = useI18n();
   // 03 §7.2 分工纪律：relations（factAssociations）承载生命周期关系、refs
   // （factRefs）承载普通内容关联，两者并列呈现、互不并入。同一目标同时出现
-  // 在两侧时不合并去重——它们是两条不同语义的记录。
+  // 在两侧时各留一条——隔离由下行的 source 分组去重键显式保证。
   const rows = [
     ...(associations ?? []).map((association) => ({ association, source: 'relations' as const })),
     ...(refs ?? []).map((association) => ({ association, source: 'refs' as const })),
@@ -363,7 +363,7 @@ function associationLocator(association: FactCardAssociation) {
   return association.target && !('objectUid' in association.target) ? association.target : null;
 }
 
-function dedupeFactCardAssociations<T extends { association: FactCardAssociation }>(rows: T[]): T[] {
+function dedupeFactCardAssociations<T extends { association: FactCardAssociation; source: string }>(rows: T[]): T[] {
   const seenTargets = new Set<string>();
   return rows.filter((row) => {
     const target = row.association.target;
@@ -371,8 +371,13 @@ function dedupeFactCardAssociations<T extends { association: FactCardAssociation
     const targetKey = 'objectUid' in target
       ? `uid\u0000${target.objectUid}`
       : `${target.governedProjectId}\u0000${target.factTypeKey}\u0000${target.objectId}`;
-    if (seenTargets.has(targetKey)) return false;
-    seenTargets.add(targetKey);
+    // 去重按来源分组隔离（03 §7.2）：同一目标同时被 relations 与 refs 指向时
+    // 是两条不同语义的记录，必须各留一条。此隔离由 source 显式承载——不得
+    // 依赖 refs 投影当前恰好没有 target 字段这一偶然事实（独立复核 2026-09-16
+    // 发现 1：一旦 refs 补上 target，跨组去重会静默丢弃 refs 条目）。
+    const scopedKey = `${row.source}\u0000${targetKey}`;
+    if (seenTargets.has(scopedKey)) return false;
+    seenTargets.add(scopedKey);
     return true;
   });
 }
