@@ -50,7 +50,7 @@ attempt:
   attempt_id: 3
   started_at: 2026-09-16T13:45:38.977Z
   controller: workbuddy/deepseek-v4.1-flash
-  heartbeat_at: 2026-09-16T14:32:44.306Z
+  heartbeat_at: 2026-09-16T14:33:44.755Z
 created_at: 2026-09-15T21:44:22.236Z
 change_log:
   - at: 2026-09-15T21:44:22.236Z
@@ -93,6 +93,11 @@ change_log:
     model: deepseek-v4.1-flash
     summary: 步骤 5 完成——specs/10 §5.5 登记 WorkCase 呈现契约（提交
       a656dd7）并新增一致性契约测试（bde9c9f）；六步判据全部达成 [attempt 3 heartbeat refreshed]
+  - at: 2026-09-16T14:33:44.755Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 更正结果节标题为纯「## 结果」并同步结果内容——原带后缀标题不合 21 §8，且致呈现层误判为 executing [attempt 3
+      heartbeat refreshed]
 ---
 
 # Web 工单呈现三态重建
@@ -124,10 +129,11 @@ change_log:
   - 未核对项（如实声明）：三件套未复跑、dist hash 未复算、authorization_fingerprint 未复算。
 - 副作用核对完成后执行 takeover：分配 attempt 3，controller 更正为 workbuddy/deepseek-v4.1-flash（21 §10.4 第 1、3 点）。
 - 2026-09-16 步骤 5 完成：获 Human 授权后登记 specs/10 §5.5 WorkCase 呈现契约，受控提交 a656dd7（仅含该规范文档，遵 00 §4.3 独立提交要求）；配套新增代码-规范一致性契约测试，受控提交 bde9c9f。
+- 2026-09-16 正文标题更正：结果节标题原写作「## 结果（草稿，本单未关闭）」，**该写法不合 21 §8**——正文 H2 须为纯标题「结果」（writer 的 sectionContent 与呈现层的派生判据均按精确匹配识别）。已更正为「## 结果」。**该更正同时修复了一个派生错误**：带后缀的标题使呈现层判定 group=executing 而非 awaiting_gate2。
 
-## 结果（草稿，本单未关闭）
+## 结果
 
-- 步骤 1–4、6：已完成——证据：提交 e56ce02 落盘三态投影器、五档筛选与 outcome 四值徽标、认知中心 InboxKind 三态重建、详情与卡片 v5 字段消费清除，以及改写的契约测试；该提交的验证记录为 web 测试 241/241 全绿、tsc 0 错误。
+- 步骤 1–4：已完成——证据：提交 e56ce02 落盘三态投影器、五档筛选与 outcome 四值徽标、认知中心 InboxKind 三态重建、详情与卡片 v5 字段消费清除，以及改写的契约测试；该提交的验证记录为 web 测试 241/241 全绿、tsc 0 错误。
 - 步骤 5：已完成——证据：specs/10 §5.5 登记 WorkCase 呈现契约（三态直读、四派生组与五档筛选、收件箱与交互入口接线、复核节点呈现、机械校验边界），提交 a656dd7；§5.5 每条声明均与实现逐条核对（三态/四值/五档闭集、pending_gate1 与 awaiting_gate2 判据、H2 围栏与缩进容错、cognition 复用同一派生结果）；提交 bde9c9f 新增一致性契约测试并经变异验证可失败。
 - 步骤 6：已完成——证据：web 测试 249/249 全绿（含改写与新增的契约测试）、tsc 0 错误、eslint 无新增；全部变更经 Git Gate 提交。
 - 残留责任：
