@@ -103,3 +103,34 @@ test('Fact projections provide no application-level refresh controls', () => {
   const refreshableSources = [objectList, objectDetail, cognitionCenter, panelContent].join('\n');
   assert.doesNotMatch(refreshableSources, /useManualFactRefresh|refreshFacts|RefreshCw|setInterval|visibilitychange|FACT_REFRESH_INTERVAL_MS/);
 });
+
+test('specs/10 §5.5 declares the same derivation the presentation layer implements', () => {
+  // 10 §5.5 是 WorkCase 呈现接线的登记处；21 号仍是类型权威（10 §3.3）。
+  // 本测试把 §5.5 声明与实现钉在一起，防两者漂移。
+  const spec = fs.readFileSync(path.resolve(WEB_DIR, '../../specs/10-Web呈现与交互规范.md'), 'utf8');
+  const lifecycle = readWebSource('shared/workcaseLifecycle.ts');
+
+  // §5.5 存在，且声明了四组与五档。
+  assert.match(spec, /### 5\.5 WorkCase 呈现契约/);
+  for (const group of ['pending_gate1', 'executing', 'awaiting_gate2', 'closed']) {
+    assert.ok(spec.includes(group), `§5.5 must name the derived group ${group}`);
+  }
+  assert.match(spec, /筛选提供五档/);
+
+  // 该节的派生判据与实现的闭集一致。
+  assert.match(lifecycle, /WORKCASE_V5_STATUSES = \['draft', 'open', 'closed'\]/);
+  assert.match(lifecycle, /WORKCASE_V5_OUTCOMES = \['completed', 'partial', 'not-achieved', 'cancelled'\]/);
+  assert.match(lifecycle, /WORKCASE_V5_FILTER_VALUES = \['pending_gate1', 'executing', 'awaiting_gate2', 'closed', 'all'\]/);
+
+  // §5.5 禁止用运行期状态派生「待批准关闭」，并声明共用同一派生函数。
+  assert.match(spec, /不得改用「Gate 2 已提请」一类运行期状态/);
+  assert.match(spec, /共用同一派生函数/);
+  // 收件箱确实复用同一派生结果（cognition 由 group 导出 InboxKind）。
+  const cognition = readWebSource('api/routes/cognition.ts');
+  assert.match(cognition, /view\.group === 'pending_gate1'\) return 'plan_confirmation'/);
+  assert.match(cognition, /view\.group === 'awaiting_gate2'\) return 'closure_confirmation'/);
+
+  // §5.5 声明 rules 不写回事实源。
+  assert.match(spec, /派生结果不写回事实源/);
+  assert.match(spec, /不写回对象/);
+});
