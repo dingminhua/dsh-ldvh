@@ -30,6 +30,7 @@ import {
   reviseWorkcaseObject,
   listWorkcaseObjects,
   computeAuthorizationFingerprint,
+  validateWorkcaseBodyStructure,
 } from "../lib/workcase-writer.js";
 import { authoritativeSignature } from "../lib/signature-channel.js";
 
@@ -682,4 +683,35 @@ test("list: default candidates carry draft+open only; closed appears with includ
     const cancelledItem = withClosed.value.items.find((i) => i.status === "closed");
     assert.equal(cancelledItem.outcome, "cancelled");
   });
+});
+
+// ---------------------------------------------------------------------------
+// Body structure: the 结果 section is optional while open (21 §8 条件出现)
+// ---------------------------------------------------------------------------
+// Regression for Friction bf73fad4: 结果 was treated as an expected section
+// only when requireResult, while the presence filter kept it unconditionally —
+// the two together made any open WorkCase carrying a Gate 2 result draft fail
+// with a length mismatch, leaving the v5 `awaiting_gate2` state unreachable.
+test("body structure: 结果 may be present while open (awaiting_gate2 draft)", () => {
+  const title = "T";
+  const core = `# ${title}\n\n## 摘要\n\ns\n\n## 授权范围\n\nsc\n\n## 计划\n\n- p\n`;
+  const exec = `\n## 执行\n\n- e\n`;
+  const result = `\n## 结果\n\n- r\n`;
+
+  // open (hasExecution, not requireResult): both with and without 结果 are valid.
+  assert.equal(validateWorkcaseBodyStructure(core + exec + result, title, { hasExecution: true, requireResult: false }).ok, true);
+  assert.equal(validateWorkcaseBodyStructure(core + exec, title, { hasExecution: true, requireResult: false }).ok, true);
+
+  // closed with gate_1 (hasExecution + requireResult): 结果 required.
+  assert.equal(validateWorkcaseBodyStructure(core + exec + result, title, { hasExecution: true, requireResult: true }).ok, true);
+  assert.equal(validateWorkcaseBodyStructure(core + exec, title, { hasExecution: true, requireResult: true }).ok, false);
+
+  // draft → closed cancelled (21 §9.2): no gate_1, but 结果 records the reason.
+  assert.equal(validateWorkcaseBodyStructure(core + result, title, { hasExecution: false, requireResult: true }).ok, true);
+  assert.equal(validateWorkcaseBodyStructure(core, title, { hasExecution: false, requireResult: true }).ok, false);
+
+  // A draft that is not closing: no 执行, and the section order still holds.
+  assert.equal(validateWorkcaseBodyStructure(core, title, { hasExecution: false, requireResult: false }).ok, true);
+  assert.equal(validateWorkcaseBodyStructure(core + exec, title, { hasExecution: false, requireResult: false }).ok, false);
+  assert.equal(validateWorkcaseBodyStructure(core + result + exec, title, { hasExecution: true, requireResult: false }).ok, false);
 });

@@ -489,9 +489,15 @@ export function validateWorkcaseFrontmatter(frontmatter) {
 export function validateWorkcaseBodyStructure(body, title, opts) {
   const issues = [];
   const { hasExecution, requireResult } = opts;
+  // 执行/结果 are conditional (21 §8):
+  //   - 执行 appears iff execution happened (status=open, or closed with gate_1);
+  //   - 结果 is REQUIRED when closed, but MAY appear while open as the Gate 2
+  //     draft — the very shape the v5 three-state view reads as `awaiting_gate2`
+  //     (deriveWorkCaseV5View). Treating 结果 as expected-only-when-closed made
+  //     that state unreachable (Friction bf73fad4).
   const expected = [...BODY_H2_CORE];
   if (hasExecution) expected.push(BODY_H2_EXECUTION);
-  if (requireResult) expected.push(BODY_H2_RESULT);
+  expected.push(BODY_H2_RESULT);
 
   const lines = body.replace(/\r\n?/g, "\n").split("\n");
   const firstNonEmpty = lines.find((l) => l.trim().length > 0) ?? "";
@@ -504,23 +510,33 @@ export function validateWorkcaseBodyStructure(body, title, opts) {
   }
 
   const h2 = h2Titles(body);
-  // 执行/结果 are conditional: they may appear only when allowed, and 结果
-  // is required when requireResult. Draft may carry neither.
+  // 执行 requires that execution actually happened (status=open, or closed with
+  // gate_1) — a pure draft never carries it.
   if (!hasExecution && h2.includes(BODY_H2_EXECUTION)) {
     issues.push(`body: "## 执行" must not be present before Gate 1 (draft carries no execution, 21 §8)`);
   }
+  // 结果 is NOT gated on execution: 21 §9.2 defines a legal `draft → closed
+  // (outcome=cancelled)` transition in which `result` records the cancellation
+  // reason and the range that never happened — so a draft being closed DOES
+  // carry 结果. Both open (Gate 2 draft) and that closed path may therefore
+  // present 结果. What remains forbidden is the reverse: a draft that is NOT
+  // being closed must not carry it. That is already enforced by requireResult
+  // below and by the caller's status pairing; no extra guard is added here.
   if (requireResult && !h2.includes(BODY_H2_RESULT)) {
     issues.push(`body: "## 结果" required when status=closed (21 §8)`);
   }
-  // Order check over the filtered set (core first, then 执行, then 结果).
-  const filtered = h2.filter((t) => [BODY_H2_EXECUTION, BODY_H2_RESULT].includes(t) ? true : BODY_H2_CORE.includes(t));
-  const expectedFiltered = expected;
-  if (filtered.length !== expectedFiltered.length) {
-    issues.push(`body: expected H2 sections (${expectedFiltered.join(" / ")}), found ${filtered.join(" / ") || "none"}`);
+  // Order check over the sections that ACTUALLY appear: the present set must be
+  // a prefix-preserving subsequence of [core..., 执行, 结果]. 结果 may legitimately
+  // be absent while open (Gate 2 draft not yet written) — comparing against the
+  // full expected list unconditionally is what broke awaiting_gate2.
+  const present = expected.filter((t) => h2.includes(t));
+  const filtered = h2.filter((t) => expected.includes(t));
+  if (filtered.length !== present.length) {
+    issues.push(`body: expected H2 sections (${present.join(" / ")}), found ${filtered.join(" / ") || "none"}`);
   } else {
-    for (let i = 0; i < expectedFiltered.length; i++) {
-      if (filtered[i] !== expectedFiltered[i]) {
-        issues.push(`body: H2 #${i + 1} expected "${expectedFiltered[i]}", found "${filtered[i]}"`);
+    for (let i = 0; i < present.length; i++) {
+      if (filtered[i] !== present[i]) {
+        issues.push(`body: H2 #${i + 1} expected "${present[i]}", found "${filtered[i]}"`);
       }
     }
   }
