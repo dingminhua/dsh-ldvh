@@ -50,7 +50,7 @@ attempt:
   attempt_id: 3
   started_at: 2026-09-16T13:45:38.977Z
   controller: workbuddy/deepseek-v4.1-flash
-  heartbeat_at: 2026-09-16T13:45:38.977Z
+  heartbeat_at: 2026-09-16T14:32:44.306Z
 created_at: 2026-09-15T21:44:22.236Z
 change_log:
   - at: 2026-09-15T21:44:22.236Z
@@ -88,6 +88,11 @@ change_log:
     summary: "更正接管控制器身份——takeover 分配 attempt 3，controller 更正为
       workbuddy/deepseek-v4.1-flash [attempt 2 taken over → attempt 3
       (controller: workbuddy/deepseek-v4.1-flash)]"
+  - at: 2026-09-16T14:32:44.306Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 步骤 5 完成——specs/10 §5.5 登记 WorkCase 呈现契约（提交
+      a656dd7）并新增一致性契约测试（bde9c9f）；六步判据全部达成 [attempt 3 heartbeat refreshed]
 ---
 
 # Web 工单呈现三态重建
@@ -115,14 +120,18 @@ change_log:
 - 步骤 1–4 与步骤 6 前半完成，受控提交 e56ce02（feat(web): WorkCase 呈现三态重建，34 files changed, +1508/−7648）；heartbeat 末次刷新 2026-09-15T23:46:40Z。
 - 2026-09-16 冷恢复（21 §10.4）：确认该 attempt 为孤立 attempt（原 controller 属已中断会话，心跳陈旧约 9 小时）。已完成副作用范围核对——
   - 「已发生未记录」：受控提交 e56ce02 实际已落盘步骤 1–4 与 6 前半，但对象 change_log 无该条目（末条 23:46:40Z 早于提交 23:54:03Z）；控制器已更替而 attempt.controller 未更新。
-  - 「已记录未发生」：未发现。步骤 5 记「剩余」且确未完成（specs/10 全文 0 处提及 WorkCase）。
+  - 「已记录未发生」：未发现。步骤 5 记「剩余」且当时确未完成。
   - 未核对项（如实声明）：三件套未复跑、dist hash 未复算、authorization_fingerprint 未复算。
 - 副作用核对完成后执行 takeover：分配 attempt 3，controller 更正为 workbuddy/deepseek-v4.1-flash（21 §10.4 第 1、3 点）。
-- 本次补记后，剩余工作为**步骤 5**（specs/10 登记 WorkCase 呈现契约，属受保护变更，须 Human Gate）。
+- 2026-09-16 步骤 5 完成：获 Human 授权后登记 specs/10 §5.5 WorkCase 呈现契约，受控提交 a656dd7（仅含该规范文档，遵 00 §4.3 独立提交要求）；配套新增代码-规范一致性契约测试，受控提交 bde9c9f。
 
 ## 结果（草稿，本单未关闭）
 
 - 步骤 1–4、6：已完成——证据：提交 e56ce02 落盘三态投影器、五档筛选与 outcome 四值徽标、认知中心 InboxKind 三态重建、详情与卡片 v5 字段消费清除，以及改写的契约测试；该提交的验证记录为 web 测试 241/241 全绿、tsc 0 错误。
-- 步骤 5：**未完成**——specs/10 尚未登记 WorkCase 呈现契约节；属受保护变更，须经 Human Gate 独立批准后受控提交。**未完成期间对象不得以 completed 关闭。**
-- 残留责任：步骤 5 未完成。若 Human 裁定该登记暂缓，建议 outcome=partial 并说明残留去向（转新建 WC 或明确不跟踪）。
+- 步骤 5：已完成——证据：specs/10 §5.5 登记 WorkCase 呈现契约（三态直读、四派生组与五档筛选、收件箱与交互入口接线、复核节点呈现、机械校验边界），提交 a656dd7；§5.5 每条声明均与实现逐条核对（三态/四值/五档闭集、pending_gate1 与 awaiting_gate2 判据、H2 围栏与缩进容错、cognition 复用同一派生结果）；提交 bde9c9f 新增一致性契约测试并经变异验证可失败。
+- 步骤 6：已完成——证据：web 测试 249/249 全绿（含改写与新增的契约测试）、tsc 0 错误、eslint 无新增；全部变更经 Git Gate 提交。
+- 残留责任：
+  - attempt 1 的控制器更替与提交 e56ce02 未记入 change_log 属历史既成事实，本次冷恢复已如实登记于执行节；对象 change_log 不作追溯改写（03 §6.1）。
+  - 提交 e56ce02 当时的三件套记录（241/241、tsc 0）来自该提交信息，本次未复跑复算，如实标为未复核。
+  - v4 存量对象迁移（21 §15.3）不在本单范围。
 
