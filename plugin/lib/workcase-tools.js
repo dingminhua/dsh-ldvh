@@ -485,6 +485,21 @@ function parameterSchemaFor(operationKey) {
       gate_1: { type: "object", description: "[Code-stamped on approve] {approved_at, approver, authorization_fingerprint, scope_snapshot} — AI does not supply it" },
       attempt: { type: "object", description: "[Code-managed] {attempt_id, started_at, controller, heartbeat_at} — heartbeat/takeover/reallocate via action=execute; carries NO authorization (21 §10.4)" },
       result: { type: "object", description: "[Code-stamped on close] {criteria_checks[], achieved_scope, residual[]} — drafts live in the body 结果 section while open" },
+      reviews: {
+        type: "array",
+        description: "复核节点概要流水（21 §8）：每次独立复核后追加一项。at 与 provider/model 由 Code 从会话记录托管，AI 不得自填；summary 为结构化概要，每项 ≤ 600 字符、至少含 02 §15 判据七要素（对象/基线/方法/覆盖/未覆盖/发现/保证边界）；复核详情不入对象；条数上限 20，达上限 fail-closed 拒绝新增",
+        items: {
+          type: "object",
+          properties: {
+            at: { type: "string", description: "[Code-managed] RFC3339 — stamped by the writer" },
+            provider: { type: "string", description: "[Code-managed] authoritative provider from the session record" },
+            model: { type: "string", description: "[Code-managed] authoritative model from the session record" },
+            summary: { type: "string", description: "复核节点概要：≤ 600 字符，含发现与处置去向" },
+          },
+          required: ["summary"],
+          additionalProperties: false,
+        },
+      },
       outcome: { type: "string", enum: ["completed", "partial", "not-achieved", "cancelled"], description: "[Code-stamped on close] 终态判定（21 §9.3）" },
       relations: {
         type: "array",

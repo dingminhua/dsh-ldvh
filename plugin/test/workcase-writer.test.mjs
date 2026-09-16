@@ -94,6 +94,11 @@ async function createDraft(root, overrides = {}) {
   return { created, draft, read: await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid }) };
 }
 
+/** assembleBody prepends the H1 from title; callers must pass the body without it. */
+function bodyWithoutH1(body) {
+  return String(body).replace(/^#\s+.*\n+/, "").replace(/\s+$/, "") + "\n";
+}
+
 async function approved(root, overrides = {}) {
   const { created } = await createDraft(root, overrides);
   const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
@@ -714,4 +719,130 @@ test("body structure: 结果 may be present while open (awaiting_gate2 draft)", 
   assert.equal(validateWorkcaseBodyStructure(core, title, { hasExecution: false, requireResult: false }).ok, true);
   assert.equal(validateWorkcaseBodyStructure(core + exec, title, { hasExecution: false, requireResult: false }).ok, false);
   assert.equal(validateWorkcaseBodyStructure(core + result + exec, title, { hasExecution: true, requireResult: false }).ok, false);
+});
+
+// ---------------------------------------------------------------------------
+// reviews — 复核节点概要流水（21 §8，Human 裁定 2026-09-16）
+// ---------------------------------------------------------------------------
+test("reviews: execute accepts a well-formed entry and persists it", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid, after } = await approved(root);
+    const fm = { ...after.value.frontmatter };
+    fm.reviews = [{
+      at: new Date().toISOString(),
+      provider: "test-provider",
+      model: "test-model",
+      summary: "对象：本单；基线：plan 判据；方法：隔离子代理只读复核；覆盖：步骤1-2；未覆盖：无；发现：无；保证边界：仅文本回读。",
+    }];
+    const res = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: fm,
+      bodyMarkdownAfter: bodyWithoutH1(after.value.body),
+      changeSummary: "录入复核概要",
+      sessionSignature: SIG(),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(read.value.frontmatter.reviews.length, 1);
+  });
+});
+
+test("reviews: summary over 600 chars is rejected (21 §8 cap)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid, after } = await approved(root);
+    const fm = { ...after.value.frontmatter };
+    fm.reviews = [{
+      at: new Date().toISOString(),
+      provider: "test-provider",
+      model: "test-model",
+      summary: "x".repeat(601),
+    }];
+    const res = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: fm,
+      bodyMarkdownAfter: bodyWithoutH1(after.value.body),
+      changeSummary: "超限复核",
+      sessionSignature: SIG(),
+    });
+    assert.ok(!res.ok);
+    assert.equal(res.error.code, "workcase/frontmatter_invalid");
+    assert.ok(JSON.stringify(res.error.details.issues).includes("600"), JSON.stringify(res.error.issues));
+  });
+});
+
+test("reviews: more than 20 entries is rejected — refuse, never truncate (21 §8 cap)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid, after } = await approved(root);
+    const fm = { ...after.value.frontmatter };
+    fm.reviews = Array.from({ length: 21 }, (_, i) => ({
+      at: new Date().toISOString(),
+      provider: "test-provider",
+      model: "test-model",
+      summary: `第 ${i + 1} 次复核`,
+    }));
+    const res = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: fm,
+      bodyMarkdownAfter: bodyWithoutH1(after.value.body),
+      changeSummary: "超条数复核",
+      sessionSignature: SIG(),
+    });
+    assert.ok(!res.ok);
+    assert.ok(JSON.stringify(res.error.details.issues).includes("20"), JSON.stringify(res.error.issues));
+  });
+});
+
+test("reviews: empty array is rejected — omit rather than fabricate a conditional field (03 §6.1)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid, after } = await approved(root);
+    const fm = { ...after.value.frontmatter };
+    fm.reviews = [];
+    const res = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: fm,
+      bodyMarkdownAfter: bodyWithoutH1(after.value.body),
+      changeSummary: "空复核数组",
+      sessionSignature: SIG(),
+    });
+    assert.ok(!res.ok);
+    assert.ok(JSON.stringify(res.error.details.issues).includes("omitted"), JSON.stringify(res.error.issues));
+  });
+});
+
+test("reviews: must not appear while status=draft (复核 occurs during execution)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { created } = await createDraft(root);
+    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    const fm = { ...before.value.frontmatter };
+    fm.reviews = [{
+      at: new Date().toISOString(),
+      provider: "test-provider",
+      model: "test-model",
+      summary: "草稿期不应有复核",
+    }];
+    const res = await reviseWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: created.value.object_uid,
+      expectedFingerprint: before.value.fingerprint,
+      frontmatterAfter: fm,
+      bodyMarkdownAfter: before.value.body,
+      changeSummary: "草稿期写入复核",
+      sessionSignature: SIG(),
+    });
+    assert.ok(!res.ok);
+    assert.ok(JSON.stringify(res.error.details.issues).includes("draft"), JSON.stringify(res.error.issues));
+  });
 });

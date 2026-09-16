@@ -115,9 +115,15 @@ const FINGERPRINT_PATTERN = /^[0-9a-f]{64}$/;
 export const VALID_FM_KEYS = new Set([
   "fact_type_key", "object_uid", "title", "status",
   "serves", "summary", "scope", "plan",
-  "gate_1", "attempt", "result", "outcome",
+  "gate_1", "attempt", "reviews", "result", "outcome",
   "relations", "created_at", "change_log",
 ]);
+
+/** 21 §8: `reviews` 单条 `summary` 的字符上限（Human 裁定 2026-09-16）。 */
+export const REVIEW_SUMMARY_MAX_CHARS = 600;
+
+/** 21 §8: `reviews` 的条数上限（起草者按 Human「其他按你推荐」授权定为 20，比照 20 §8 evolution）。 */
+export const REVIEW_ENTRIES_MAX = 20;
 
 // ---------------------------------------------------------------------------
 // Small helpers (shared conventions with the pitfall/spark writers)
@@ -299,6 +305,52 @@ function validateAttempt(frontmatter, issues) {
   }
 }
 
+/**
+ * 21 §8: `reviews` — 复核节点概要流水。
+ *
+ * 每项 `{at, provider, model, summary}`；`at`/署名由 Code 托管（此处只校验
+ * 形状与存在性），`summary` 非空且 ≤ 600 字符，条数 ≤ 20。
+ * 达上限 fail-closed：拒绝写入而非截断或压缩既有条目（防静默丢历史）。
+ * 只读复核不产生条目，故本字段缺失是合法状态（条件字段，03 §6.1）。
+ */
+function validateReviews(frontmatter, issues) {
+  const list = frontmatter.reviews;
+  if (list === undefined) return;
+  if (!Array.isArray(list)) {
+    issues.push("reviews: must be an array of {at, provider, model, summary} (21 §8)");
+    return;
+  }
+  if (list.length === 0) {
+    issues.push("reviews: must be omitted when there are no review entries — an empty array fabricates a conditional field (03 §6.1)");
+    return;
+  }
+  if (list.length > REVIEW_ENTRIES_MAX) {
+    issues.push(`reviews: exceeds the ${REVIEW_ENTRIES_MAX}-entry cap (21 §8); refuse rather than truncate or compress existing entries`);
+  }
+  list.forEach((entry, i) => {
+    if (!isPlainObject(entry)) {
+      issues.push(`reviews[${i}]: must be an object {at, provider, model, summary}`);
+      return;
+    }
+    const extra = Object.keys(entry).filter((k) => !["at", "provider", "model", "summary"].includes(k));
+    if (extra.length > 0) issues.push(`reviews[${i}]: unexpected field(s) ${extra.join(", ")} (only at/provider/model/summary)`);
+    if (typeof entry.at !== "string" || !RFC3339_PATTERN.test(entry.at)) {
+      issues.push(`reviews[${i}].at: required RFC3339 (Code-managed)`);
+    }
+    if (typeof entry.provider !== "string" || entry.provider.length === 0) {
+      issues.push(`reviews[${i}].provider: required non-empty (Code-managed authoritative signature)`);
+    }
+    if (typeof entry.model !== "string" || entry.model.length === 0) {
+      issues.push(`reviews[${i}].model: required non-empty (Code-managed authoritative signature)`);
+    }
+    if (typeof entry.summary !== "string" || entry.summary.trim().length === 0) {
+      issues.push(`reviews[${i}].summary: required non-empty (复核节点概要)`);
+    } else if (entry.summary.length > REVIEW_SUMMARY_MAX_CHARS) {
+      issues.push(`reviews[${i}].summary: ${entry.summary.length} chars exceeds the ${REVIEW_SUMMARY_MAX_CHARS}-char cap (21 §8)`);
+    }
+  });
+}
+
 function validateResult(frontmatter, issues) {
   const r = frontmatter.result;
   if (!isPlainObject(r)) {
@@ -412,6 +464,15 @@ export function validateWorkcaseFrontmatter(frontmatter) {
     }
   } else if (status === "open") {
     issues.push("attempt: required when status=open (21 §9.1)");
+  }
+  // reviews（21 §8）：条件字段，draft 期不得出现（复核只在执行期发生）；
+  // open/closed 均可携带，重批回退时保留（§9.2 不清空）。
+  if (frontmatter.reviews !== undefined) {
+    if (status === "draft") {
+      issues.push("reviews: must not be present while status=draft — 复核 occurs during execution, not before Gate 1 (21 §8/§9.1)");
+    } else {
+      validateReviews(frontmatter, issues);
+    }
   }
   // result/outcome 出现 ⇔ status=closed (§8)
   if (frontmatter.result !== undefined || frontmatter.outcome !== undefined) {
