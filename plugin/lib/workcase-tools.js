@@ -228,6 +228,23 @@ async function executeListObject(args, exec, deps) {
 
 const WRITE_ACTIONS = new Set(["create", "approve", "execute", "close", "rebatch", "cancel", "revise"]);
 
+/**
+ * 21 §10.1 Gate 1 提请必含要素中**没有对象字段承载**的那几项。
+ *
+ * 其余三项（计划步骤与判据 / serves / scope 两向）已分别由 `plan`、
+ * `serves`、`scope` 字段承载，故不在此重复要求。此处列出的四项在原实现
+ * 中既无字段、也无校验——`独立复核的安排` 因此可被静默遗漏（本会话
+ * WC-D `99957f65` 的实测实例）。
+ *
+ * 校验只覆盖「存在且非空」；内容是否恰当属 Human 判断（00 §4.2/§5）。
+ */
+const GATE1_REQUEST_KEYS = [
+  "independent_review",
+  "unauthorized_action_guard",
+  "unverified_scope_and_risks",
+  "approved_scope_and_next",
+];
+
 function requireString(args, key, action) {
   const v = args?.[key];
   return typeof v === "string" && v.length > 0 ? v : null;
@@ -285,6 +302,23 @@ async function executeWriteObject(args, exec, deps) {
       const controller = requireString(args, "controller", action);
       if (approver === null || controller === null) {
         return invalidRequest("workcase-write-object", "approver (the approving Human identity) and controller (the executing controller identity) are required for action=approve — Gate 1 stamps them into gate_1/attempt (21 §10.1/§10.4)", "approve");
+      }
+      // 21 §10.1: the Gate 1 request MUST contain the elements that no object
+      // field carries. plan/serves/scope are already fields, so they are not
+      // re-demanded here; the rest had NO carrier at all, which is how the
+      // 独立复核安排 requirement was silently omitted (Friction recorded
+      // 2026-09-16). Mechanical check is presence + non-empty only — whether
+      // the content is adequate stays with the Human (00 §4.2/§5).
+      const gate1Request = args?.gate1_request;
+      const missing = GATE1_REQUEST_KEYS.filter((key) => (
+        typeof gate1Request?.[key] !== "string" || gate1Request[key].trim().length === 0
+      ));
+      if (missing.length > 0) {
+        return invalidRequest(
+          "workcase-write-object",
+          `gate1_request is required for action=approve and must carry a non-empty string for each element (21 §10.1 提请必含; missing: ${missing.join(", ")}). These are the Gate 1 request elements with NO object-field carrier — omitting them would let an undeclared Gate 1 pass silently.`,
+          "approve",
+        );
       }
       result = await approveWorkcaseObject({ factSourceRoot, objectUid, expectedFingerprint, approver, controller, changeSummary, sessionSignature: sig.value });
     } else if (action === "execute") {
@@ -503,6 +537,17 @@ function parameterSchemaFor(operationKey) {
           body_markdown: { type: "string", description: "create: the body markdown starting with '## 摘要' (H2 sections 摘要/授权范围/计划; the H1 is generated from title)" },
           approver: { type: "string", description: "approve: the approving Human identity — stamped into gate_1.approver (21 §10.1)" },
           controller: { type: "string", description: "approve: the executing controller identity — stamped into attempt.controller (21 §10.4)" },
+          gate1_request: {
+            type: "object",
+            description: "approve: the Gate 1 request elements that have NO object-field carrier (21 §10.1 必含). Plan/serves/scope are already carried by fields and are not repeated here. Required keys: independent_review (独立复核的安排 — who runs it, how many perspectives), unauthorized_action_guard (越权动作被机械拒绝的机制), unverified_scope_and_risks (未验证范围与风险), approved_scope_and_next (批准的作用范围与后续方向). Each must be a non-empty string; omissions are rejected rather than passing silently.",
+            properties: {
+              independent_review: { type: "string", description: "独立复核的安排：由谁复核、几个视角、何时（21 §10.1 + 32 §12 按风险选最小充分视角）" },
+              unauthorized_action_guard: { type: "string", description: "越权动作被机械拒绝的机制" },
+              unverified_scope_and_risks: { type: "string", description: "未验证范围与风险" },
+              approved_scope_and_next: { type: "string", description: "批准的作用范围与后续方向" },
+            },
+            required: ["independent_review", "unauthorized_action_guard", "unverified_scope_and_risks", "approved_scope_and_next"],
+          },
           attempt_operation: { type: "string", enum: ["heartbeat", "takeover", "reallocate"], description: "execute: heartbeat (default — refresh heartbeat_at) | takeover (new controller, new monotonic attempt id) | reallocate (void + new id — 冷恢复 after side-effect reconciliation, 21 §10.4)" },
           new_controller: { type: "string", description: "execute: the new controller identity for takeover/reallocate" },
           outcome: { type: "string", enum: ["completed", "partial", "not-achieved", "cancelled"], description: "close: 终态判定（21 §9.3）" },
