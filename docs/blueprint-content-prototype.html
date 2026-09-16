@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>蓝图内容构成 — 草稿原型 v2</title>
+<!--
+  蓝图内容构成草稿原型 v2 —— 讨论产物，非交付功能。
+
+  v2 相对 v1 的修订（Human 2026-09-16 意见）：
+    - 「近期热点关系」删除（Human 裁定：不再需要）
+    - **恢复被 v1 简化掉的核心能力**：快速决策 + 复制事实对象连接与 AI 沟通
+        · 每条带 `复制对象引用` —— 机读定位符 `projectId@objectId`
+        · 每块带 `复制模块摘要` —— 人读文本 `类型《标题》`（供粘贴进 AI 对话）
+        · 决策入口 —— 点击标题开右侧同源次级阅读，决定在 AI 对话中作出
+    - 块头标注可操作项，使「这块能做什么」一目了然
+
+  ⚠ 交互在本草稿中为**示意**（点击不真开面板、复制为模拟）。
+    真交互沿用现有五模块的既有实现（02-CognitionCenter.md §0.2/§5）。
+
+  定位：讨论工作稿，与 docs/blueprint-homepage-*.html 同族。
+        **不是产品功能**；数据为真实事实源只读快照（2026-09-16）。
+-->
+<style>
+  :root{
+    --bg:#0f1420; --panel:#171d2e; --panel2:#1c2336; --line:#2a3350;
+    --ink:#e6e9f2; --muted:#8b93ab; --muted2:#5d6380;
+    --goal:#14b8a6; --wc:#3b82f6; --spark:#a855f7; --amber:#eab308;
+    --red:#ef4444; --teal:#2dd4bf; --accent:#4f8cff;
+    --mech:#38bdf8; --sem:#f59e0b; --absent:#5d6380;
+    --copy:#22d3ee;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.55}
+  .wrap{max-width:1180px;margin:0 auto;padding:26px 20px 80px}
+  h1{font-size:19px;margin:0 0 6px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .sub{color:var(--muted);font-size:12.5px}
+  code{background:#0d1119;padding:1px 5px;border-radius:4px;font-size:11.5px;color:#a5b4fc}
+
+  .legend{display:flex;gap:9px;flex-wrap:wrap;margin:16px 0 14px;
+    border:1px dashed var(--line);border-radius:10px;padding:10px 13px;background:#12172a}
+  .legend .item{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+
+  .howto{margin-bottom:20px;border:1px solid #22d3ee33;border-radius:10px;padding:12px 15px;
+    background:#22d3ee09;font-size:12.5px;color:var(--muted)}
+  .howto b{color:var(--copy)}
+
+  .block{background:var(--panel);border:1px solid var(--line);border-radius:13px;
+    margin-bottom:14px;overflow:hidden}
+  .bhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:11px 17px;border-bottom:1px solid var(--line);background:var(--panel2)}
+  .bnum{font-size:11px;font-weight:700;color:var(--muted2);letter-spacing:.05em}
+  .bname{font-size:15px;font-weight:600}
+  .bsrc{font-size:11.5px;color:var(--muted);display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+  .acts{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .tag{font-size:10.5px;padding:1.5px 8px;border-radius:999px;border:1px solid;white-space:nowrap}
+  .tag.mech{color:var(--mech);border-color:#38bdf855;background:#38bdf814}
+  .tag.sem{color:var(--sem);border-color:#f59e0b55;background:#f59e0b14}
+  .tag.absent{color:var(--absent);border-color:#5d638055;background:#5d638014}
+
+  /* 操作按钮（示意） */
+  .btn{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:2.5px 9px;
+    border-radius:6px;border:1px solid #22d3ee44;background:#22d3ee0f;color:var(--copy);
+    cursor:pointer;white-space:nowrap}
+  .btn:hover{background:#22d3ee1c}
+  .btn.ghost{border-color:#5d638055;background:#5d63800f;color:var(--muted)}
+  .btn.ghost:hover{background:#5d638020}
+  .btn svg{width:11px;height:11px}
+
+  .bbody{padding:14px 17px}
+
+  .goaltext{font-size:14.5px;line-height:1.7;padding:11px 14px;border-left:3px solid var(--goal);
+    background:#14b8a60d;border-radius:0 8px 8px 0;margin-bottom:13px}
+  .sglist{display:flex;flex-direction:column;gap:6px}
+  .sgrow{display:flex;align-items:center;gap:10px;padding:7px 11px;border:1px solid var(--line);
+    border-radius:9px;background:#131a29}
+  .sgid{font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:700;
+    color:var(--goal);min-width:38px}
+  .sgtext{flex:1;font-size:13px}
+  .sgbar{width:70px;height:5px;border-radius:3px;background:#2a3350;overflow:hidden;flex-shrink:0}
+  .sgbar i{display:block;height:100%;background:var(--teal)}
+  .sgcount{font-size:11px;color:var(--muted);min-width:76px;text-align:right;flex-shrink:0}
+
+  .authored-empty{border:1px dashed #f59e0b44;border-radius:9px;padding:12px 14px;
+    background:#f59e0b08;color:var(--muted);font-size:12.5px}
+  .authored-empty b{color:var(--sem)}
+  .sample{margin-top:10px;padding:10px 13px;border-radius:9px;background:#1a1f2e;
+    border:1px dashed var(--line);font-size:13px;color:var(--muted)}
+  .sample .label{font-size:10.5px;color:var(--sem);letter-spacing:.04em;margin-bottom:5px}
+
+  /* 条目行：可点决策 + 可复制 */
+  .rowlist{display:flex;flex-direction:column;gap:5px}
+  .row{display:flex;align-items:center;gap:9px;padding:7px 11px;border-radius:8px;
+    background:#131a29;border:1px solid transparent;font-size:13px}
+  .row:hover{border-color:var(--line)}
+  .row.decidable{cursor:pointer}
+  .row.decidable:hover{border-color:#6366f166;background:#161d31}
+  .row .ico{width:14px;height:14px;flex-shrink:0;opacity:.85}
+  .row .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .sg{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--goal);
+    border:1px solid #14b8a644;background:#14b8a611;padding:1px 6px;border-radius:999px;flex-shrink:0}
+  .row .st{font-size:10.5px;padding:1px 7px;border-radius:999px;border:1px solid;flex-shrink:0}
+  .st.open{color:var(--accent);border-color:#4f8cff55;background:#4f8cff14}
+  .st.draft{color:var(--muted);border-color:#5d638055;background:#5d638014}
+  .st.p1{color:var(--red);border-color:#ef444455;background:#ef444414}
+  .st.p2{color:var(--amber);border-color:#eab30855;background:#eab30814}
+  .st.p3{color:var(--muted2);border-color:#5d638055;background:#5d638014}
+  .st.q{color:var(--teal);border-color:#2dd4bf55;background:#2dd4bf14}
+  .row .copy{flex-shrink:0;opacity:.45}
+  .row:hover .copy{opacity:1}
+
+  .grouphead{font-size:11.5px;color:var(--muted);margin:11px 0 5px;display:flex;align-items:center;gap:7px}
+  .grouphead:first-child{margin-top:0}
+  .count{font-size:11px;color:var(--muted2)}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:9px;margin-bottom:13px}
+  .stat{background:#131a29;border:1px solid var(--line);border-radius:9px;padding:9px 11px}
+  .stat .n{font-size:19px;font-weight:700;line-height:1.2}
+  .stat .l{font-size:11px;color:var(--muted);margin-top:2px}
+  .bar{height:8px;border-radius:4px;background:#2a3350;overflow:hidden;display:flex;margin-bottom:6px}
+  .bar i{display:block;height:100%}
+  .barlegend{display:flex;gap:14px;font-size:11px;color:var(--muted);margin-bottom:14px}
+
+  .note{font-size:11.5px;color:var(--muted2);margin-top:10px;padding-top:9px;
+    border-top:1px dashed var(--line)}
+  .note b{color:var(--muted)}
+  .note code{font-size:11px}
+
+  /* 复制预览 */
+  .preview{margin-top:9px;padding:9px 11px;border-radius:8px;background:#0b0f18;
+    border:1px solid var(--line);font-family:ui-monospace,Menlo,monospace;font-size:11px;
+    color:#7dd3fc;white-space:pre-wrap;line-height:1.6}
+  .preview .pl{font-family:-apple-system,sans-serif;font-size:10px;color:var(--muted2);
+    letter-spacing:.04em;margin-bottom:4px}
+
+  .pending{background:linear-gradient(135deg,#1a1424,#161c2e);border:1px solid #7c3aed44;
+    border-radius:13px;padding:16px 18px;margin-top:22px}
+  .pending h2{font-size:14px;margin:0 0 11px;color:#c4b5fd;display:flex;align-items:center;gap:8px}
+  .pending .q{margin-bottom:13px;padding-left:15px;border-left:2px solid #7c3aed44}
+  .pending .qh{font-size:12.5px;color:#ddd6fe;font-weight:600;margin-bottom:4px}
+  .pending .qb{font-size:12.5px;color:var(--muted);line-height:1.6}
+  .pending ul{margin:5px 0 0;padding-left:17px;color:var(--muted);font-size:12.5px}
+  .pending li{margin-bottom:3px}
+  .opt{display:inline-block;font-size:11px;color:#a5b4fc;border:1px solid #6366f155;
+    background:#6366f114;padding:1px 7px;border-radius:5px;margin-right:5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>蓝图内容构成 <span style="font-size:12px;font-weight:400;color:var(--muted2)">草稿原型 v2 · 讨论用</span></h1>
+  <div class="sub">
+    按 Human 2026-09-16 意见修订（删热点关系 · 恢复决策与复制能力） ·
+    数据为 <b style="color:#8b93ab">dsh-ldvh 真实事实源只读快照（2026-09-16）</b>
+  </div>
+
+  <div class="legend">
+    <span class="item"><span class="dot" style="background:var(--mech)"></span> 机械派生</span>
+    <span class="item"><span class="dot" style="background:var(--sem)"></span> 语义判断（authored）</span>
+    <span class="item"><span class="dot" style="background:var(--absent)"></span> 尚未存在</span>
+    <span class="item"><span class="dot" style="background:var(--copy)"></span> 可复制／可决策</span>
+  </div>
+
+  <div class="howto">
+    <b>怎么用这一页（回应「快速决策 + 复制与 AI 沟通」）：</b><br>
+    · <b>要决定什么</b> —— ③ 待你决定 里每条<b>点击标题</b>会开右侧同源次级阅读，看完整依据；
+      决定本身仍在 AI 对话里作出，本页只读、不承载决定动作。<br>
+    · <b>怎么把它带给 AI</b> —— 两种复制粒度（都用现有实现）：
+      <b>逐条</b>是机读定位符 <code>dsh-ldvh@spark-xxxx</code>（AI 用它精确读取）；
+      <b>整块</b>是模块摘要，人读文本 <code>类型《标题》</code>（你直接粘进对话即可）。<br>
+    · <b>本页复制按钮为示意</b>，点击不真复制；真交互沿用现有五模块既有实现。
+  </div>
+
+  <!-- 墓碑 -->
+  <div class="note" style="margin:0 0 18px;border:1px dashed #ef444455;border-radius:10px;
+       padding:11px 15px;background:#ef444408;border-top:1px dashed #ef444455">
+    <b style="color:#f87171">v1 → v2 已删除：</b>「近期热点关系」区块（Human 2026-09-16 裁定：不再需要）。
+    理由：与 ⑦ 近期动态共用时间窗口，且「关系连线」对 Human 扫读价值低于对象详情。
+    <br><b style="color:#f87171">v1 已删：</b>「已完成」区块（与 ⑦ 信息重叠）。
+  </div>
+
+  <!-- ══════════ ① 项目目标 ══════════ -->
+  <div class="block">
+    <div class="bhead">
+      <span class="bnum">①</span><span class="bname">项目目标</span>
+      <span class="bsrc"><span class="tag mech">机械派生</span> goal.md</span>
+      <span class="acts">
+        <span class="btn ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>复制目标摘要</span>
+        <span class="btn ghost">开 goal.md</span>
+      </span>
+    </div>
+    <div class="bbody">
+      <div class="goaltext">
+        建成一个深度绑定 DSH 的 AI 协作治理框架，让长程 Vibe Coding 稳定、可控、高效，
+        并通过构建、测试、迭代，使 LDVH 成为可被外部长程项目验证的治理载体。
+      </div>
+      <div class="sglist">
+        <div class="sgrow"><span class="sgid">SG-1</span>
+          <span class="sgtext">LDVH v5 规范体系全部成为当前规则源成员且彼此互咬有效</span>
+          <span class="sgbar"><i style="width:62%"></i></span><span class="sgcount">20 悬置 · 0 工单</span></div>
+        <div class="sgrow"><span class="sgid">SG-2</span>
+          <span class="sgtext">七类型事实对象在真实工作流中完成一轮出生→消费→关闭</span>
+          <span class="sgbar"><i style="width:34%"></i></span><span class="sgcount">1 悬置 · 0 工单</span></div>
+        <div class="sgrow"><span class="sgid">SG-3</span>
+          <span class="sgtext">LDVH 插件能力面完成 dogfood 闭环，日常使用无需人工补救</span>
+          <span class="sgbar"><i style="width:48%"></i></span><span class="sgcount">6 悬置 · 4 工单</span></div>
+        <div class="sgrow"><span class="sgid">SG-4</span>
+          <span class="sgtext">真实长程项目在 LDVH 治理下从概念走到交付</span>
+          <span class="sgbar"><i style="width:8%"></i></span><span class="sgcount">1 悬置 · 0 工单</span></div>
+      </div>
+      <div class="note">
+        <b>命名：</b>原「当前目标」→ 项目目标（Human 裁定）。达成概览 = 该 SG-n 名下 open Spark 数 + 工单数（反查 <code>serves</code>）。进度条为示意，真实阈值待定。
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ② 下一步建议 ══════════ -->
+  <div class="block">
+    <div class="bhead">
+      <span class="bnum">②</span><span class="bname">下一步建议</span>
+      <span class="bsrc"><span class="tag sem">语义判断</span><span class="tag absent">尚未存在</span> goal.md authored 区</span>
+      <span class="acts">
+        <span class="btn ghost">与 AI 讨论下一步</span>
+      </span>
+    </div>
+    <div class="bbody">
+      <div class="authored-empty">
+        <b>此区块当前为空</b> —— 需写入 goal.md authored 区，该区尚未建立（裁定 15 硬前提：Git Gate 冻结区分类器先上线）。
+      </div>
+      <div class="sample">
+        <div class="label">若已开放，内容形态示意（非真实数据）</div>
+        「先落 Git Gate 冻结区分类器——它是 goal.md 分区保护的技术前提。不上线则 authored 区无法安全开放，整个蓝图方案要退回两文档形态。」
+      </div>
+      <div class="note">
+        <b>命名：</b>「下一步建议」——「建议」点明这是 AI 判断、可被否决。
+        <b>该块的复制价值特殊：</b>它是给你与 AI 讨论的<b>起点</b>，故操作是「与 AI 讨论下一步」而非「复制」。
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ③ 待你决定 ══════════ -->
+  <div class="block">
+    <div class="bhead">
+      <span class="bnum">③</span><span class="bname">待你决定</span>
+      <span class="bsrc"><span class="tag mech">机械派生</span> Gate 等待 + draft 经验</span>
+      <span class="acts">
+        <span class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>复制模块摘要</span>
+      </span>
+    </div>
+    <div class="bbody">
+      <div class="rowlist">
+        <div class="row decidable">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span class="t" title="点击开右侧次级阅读，看完整依据">spark 非终态卡关联呈现</span>
+          <span class="st q">待批准计划</span>
+          <span class="btn copy" title="复制对象引用 dsh-ldvh@workcase-…">复制引用</span>
+        </div>
+        <div class="row decidable">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span class="t" title="点击开右侧次级阅读，看完整依据">WorkCase tab 增加 SG 筛选</span>
+          <span class="st q">待批准计划</span>
+          <span class="btn copy" title="复制对象引用 dsh-ldvh@workcase-…">复制引用</span>
+        </div>
+      </div>
+      <div class="preview">
+        <div class="pl">↓ 「复制模块摘要」实际产出（示意）</div>待你决定
+total: 2 (待批准计划 2)
+- 工单《spark 非终态卡关联呈现》 · 待批准计划
+- 工单《WorkCase tab 增加 SG 筛选》 · 待批准计划</div>
+      <div class="note">
+        <b>决策路径（沿用现有实现）：</b>点标题 → 右侧同源次级阅读看依据 → 在 AI 对话里做决定 → AI 经 Helper 受控写入回写事实源。本页只读，不承载决定动作。
+        <b>复制粒度：</b>逐条给人读的 <code>类型《标题》</code> 用于对话；需要 AI 精确读取时用机读定位符 <code>dsh-ldvh@workcase-xxxx</code>。
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ④ 推进中 ══════════ -->
+  <div class="block">
+    <div class="bhead">
+      <span class="bnum">④</span><span class="bname">推进中</span>
+      <span class="bsrc"><span class="tag mech">机械派生</span> progressing 工单</span>
+      <span class="acts">
+        <span class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>复制模块摘要</span>
+      </span>
+    </div>
+    <div class="bbody">
+      <div class="grouphead"><span class="sg">SG-3</span> 插件 dogfood 闭环 <span class="count">3 项</span></div>
+      <div class="rowlist">
+        <div class="row decidable">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span class="t">详情页 YAML 呈现推广到全类型</span><span class="st open">open</span>
+          <span class="btn copy">复制引用</span>
+        </div>
+        <div class="row decidable">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span class="t">WorkCase card 与详情对齐设计语言</span><span class="st open">open</span>
+          <span class="btn copy">复制引用</span>
+        </div>
+      </div>
+      <div class="grouphead"><span style="color:var(--muted2)">未分组</span> <span class="count">1 项 · 无 serves</span></div>
+      <div class="rowlist">
+        <div class="row decidable">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span class="t">Web 工单呈现三态重建</span><span class="st open">open</span>
+          <span class="btn copy">复制引用</span>
+        </div>
+      </div>
+      <div class="note">
+        沿用现有「推进中事项」规则（<code>progress_group = progressing</code> 且 snapshot resolved）。
+        <b>待你裁：</b>无 <code>serves</code> 的工单怎么放？
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ⑤ Spark 悬置 ══════════ -->
+  <div class="block">
+    <div class="bhead">
+      <span class="bnum">⑤</span><span class="bname">Spark 悬置</span>
+      <span class="bsrc"><span class="tag mech">机械派生</span> 聚合统计 + 静默清单</span>
+      <span class="acts">
+        <span class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>复制模块摘要</span>
+        <span class="btn ghost">查看全部 29 项</span>
+      </span>
+    </div>
+    <div class="bbody">
+      <div class="stats">
+        <div class="stat"><div class="n">29</div><div class="l">悬置中</div></div>
+        <div class="stat"><div class="n" style="color:var(--red)">13</div><div class="l">P1 高优先</div></div>
+        <div class="stat"><div class="n" style="color:var(--amber)">7</div><div class="l">静默 ≥5 天</div></div>
+        <div class="stat"><div class="n" style="color:var(--teal)">12</div><div class="l">已收敛</div></div>
+      </div>
+      <div class="bar"><i style="width:71%;background:var(--teal)"></i><i style="width:29%;background:var(--spark)"></i></div>
+      <div class="barlegend">
+        <span><span class="dot" style="background:var(--teal)"></span> 已收敛 12</span>
+        <span><span class="dot" style="background:var(--spark)"></span> 悬置中 29</span>
+      </div>
+      <div class="grouphead">静默最久的 <span class="count">共 7 项超阈值 · 显示 6 项</span></div>
+      <div class="rowlist">
+        <div class="row decidable">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"><path d="M12 3l2.2 5.3L20 9.6l-4.3 3.7L17 19l-5-2.9L7 19l1.3-5.7L4 9.6l5.8-1.3z"/></svg>
+          <span class="t">行动可见性候选停摆</span><span class="st p3">P3</span><span class="count">31 天</span>
+          <span class="btn copy">复制引用</span>
+        </div>
+        <div class="row decidable">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"><path d="M12 3l2.2 5.3L20 9.6l-4.3 3.7L17 19l-5-2.9L7 19l1.3-5.7L4 9.6l5.8-1.3z"/></svg>
+          <span class="t">任务勾选框形态是否入规范</span><span class="st p1">P1</span><span class="count">18 天</span>
+          <span class="btn copy">复制引用</span>
+        </div>
+        <div class="row" style="color:var(--muted2)"><span style="width:14px;text-align:center">…</span>
+          <span class="t">另有 5 项超阈值</span>
+          <span class="btn ghost">展开全部</span>
+        </div>
+      </div>
+      <div class="preview">
+        <div class="pl">↓ 「复制模块摘要」实际产出（示意）</div>Spark 悬置
+total: 29 (悬置中 29 · 已收敛 12)
+- 静默 7 项（阈值 5 天）
+- 火花《行动可见性候选停摆》 · 静默 31 天
+- 火花《任务勾选框形态是否入规范》 · 静默 18 天</div>
+      <div class="note">
+        <b>命名：</b>「Spark 悬置」（Human 裁定）。派生沿用现有健康度指标，静默阈值沿用 API 常量。
+        <b>信息完整性：</b>v0 列 29 项标题 → 本块 4 数字 + 比例条 + 静默清单；
+        完整列表在 <code>/objects/spark</code>，本块另给「查看全部 29 项」入口。
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ⑥ 演进脉络 ══════════ -->
+  <div class="block">
+    <div class="bhead">
+      <span class="bnum">⑥</span><span class="bname">演进脉络</span>
+      <span class="bsrc"><span class="tag sem">语义判断</span><span class="tag absent">尚未存在</span> goal.md authored 区 · 追加式</span>
+      <span class="acts">
+        <span class="btn ghost">与 AI 讨论脉络</span>
+      </span>
+    </div>
+    <div class="bbody">
+      <div class="authored-empty">
+        <b>此区块当前为空</b> —— 同属 authored 区，与 ② 一起等待分类器。
+      </div>
+      <div class="sample">
+        <div class="label">示意：从哪来、为何拐弯（因果叙述）</div>
+        「裁定 13 砍掉 Initiative 后，goal.md 一度只剩目标陈述与子目标；裁定 14 又移除计划区，导致蓝图失去『下一步』的投影源；故裁定 15 翻转出 authored 区来承载判断性内容。」
+      </div>
+      <div class="note">
+        <b>与 ⑦ 的区别：</b>本块讲<b>为何拐弯</b>（因果判断，人/AI 写）；⑦ 列<b>谁在动</b>（时间流水，机械算）。
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ⑦ 近期动态 ══════════ -->
+  <div class="block">
+    <div class="bhead">
+      <span class="bnum">⑦</span><span class="bname">近期动态</span>
+      <span class="bsrc"><span class="tag mech">机械派生</span> 时间窗口内流水</span>
+      <span class="acts">
+        <span class="btn ghost">最近 1 天</span>
+        <span class="btn ghost">3 天</span>
+        <span class="btn ghost">1 周</span>
+        <span class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>复制模块摘要</span>
+      </span>
+    </div>
+    <div class="bbody">
+      <div class="rowlist">
+        <div class="row decidable">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span class="t">起草 32 号工单执行系统规范</span><span class="st open">关闭</span><span class="count">2 天前</span>
+          <span class="btn copy">复制引用</span>
+        </div>
+        <div class="row decidable">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"><path d="M12 3l2.2 5.3L20 9.6l-4.3 3.7L17 19l-5-2.9L7 19l1.3-5.7L4 9.6l5.8-1.3z"/></svg>
+          <span class="t">蓝图功能的最终形态</span><span class="st draft">更新</span><span class="count">2 天前</span>
+          <span class="btn copy">复制引用</span>
+        </div>
+        <div class="row" style="color:var(--muted2)"><span style="width:14px;text-align:center">…</span>
+          <span class="t">窗口内另有 12 条流水</span></div>
+      </div>
+      <div class="note">
+        <b>位置：</b>按你的裁定移到最后。<b>时间窗口</b>沿用现有规则（Human 显式选择，默认 1 天），不解释为「我离开期间」。
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ 待裁问题 ══════════ -->
+  <div class="pending">
+    <h2>◈ 请你判断</h2>
+
+    <div class="q">
+      <div class="qh">Q1　七块结构 + 决策/复制能力，现在对了吗？</div>
+      <div class="qb">
+        ①项目目标 ②下一步建议 ③待你决定 ④推进中 ⑤Spark 悬置 ⑥演进脉络 ⑦近期动态。
+        热点关系已删。每块恢复了「复制引用 / 复制模块摘要」，③④⑤⑦ 的条目可点开次级阅读。
+      </div>
+    </div>
+
+    <div class="q">
+      <div class="qh">Q2　复制粒度够不够用？</div>
+      <div class="qb">我用现有实现的两种粒度：</div>
+      <ul>
+        <li><span class="opt">逐条</span>机读定位符 <code>dsh-ldvh@spark-xxxx</code> —— AI 精确读取用</li>
+        <li><span class="opt">整块</span>人读摘要 <code>类型《标题》 · 状态</code> —— 你粘进对话用</li>
+      </ul>
+      <div class="qb" style="margin-top:5px">
+        你此前说「复制事实对象的连接」——我理解为要<b>带关系信息</b>。
+        现在摘要里只有 <code>类型《标题》</code>，<b>不含该对象关联了谁</b>。要不要补？
+      </div>
+    </div>
+
+    <div class="q">
+      <div class="qh">Q3　「快速决策」还需要什么？</div>
+      <div class="qb">
+        我理解为：一眼看到有几件事卡着 + 每条能看清依据 + 能一键带走给 AI。
+        现在 ③ 顶部有计数、条目可点开、有复制。<b>还缺什么？</b>
+        （比如：是否要显示「这个决定会影响什么」？）
+      </div>
+    </div>
+
+    <div class="q">
+      <div class="qh">Q4　②⑥ authored 区为空的处理</div>
+      <div class="qb">
+        两块现在必然空（等 Git Gate 分类器）。我给了「与 AI 讨论」入口而非复制——
+        因为空块没有可复制内容，但可以成为讨论起点。<b>这个处理对吗？</b>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
