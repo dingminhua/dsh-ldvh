@@ -237,14 +237,16 @@ export interface WorkCasePlanStep {
 }
 
 export interface WorkCaseResultCheck {
-  satisfied?: string;
+  /** 21 §9.3：布尔判定，来源 frontmatter `satisfied`。 */
+  satisfied?: boolean;
   evidence?: string;
 }
 
 export interface WorkCaseResult {
   criteria_checks?: WorkCaseResultCheck[];
   achieved_scope?: string;
-  residual?: string;
+  /** 21 §9.3：残留责任为字符串数组（可空数组表示无残留）。 */
+  residual?: string[];
 }
 
 export interface WorkCaseAttempt {

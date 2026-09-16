@@ -61,7 +61,8 @@ test('open detail exposes the attempt execution scene; draft awaits Gate 1', () 
   // draft 的待批准标识。
   assert.match(layout, /workcaseAwaitingGate1/);
   // 计划判据经 WorkCaseCriteriaList 呈现。
-  assert.match(layout, /PlanList/);
+  assert.match(layout, /PlanNode/);
+  assert.match(layout, /WorkCaseCriteriaList/);
 });
 
 test('ReadingLayout consumes only 21-spec fields — v4 field vocabulary is absent', () => {

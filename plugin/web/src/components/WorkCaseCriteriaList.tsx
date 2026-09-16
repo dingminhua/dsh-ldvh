@@ -1,8 +1,12 @@
 import SummaryText from '@/components/SummaryText';
 
 /**
- * WorkCase Card 使用的成功标准紧凑清单。
- * 详情页把标准呈现为带稳定身份和当前结果的轻量对象，不复用 Card 的信息密度。
+ * WorkCase 判据清单（列表卡与详情共用同一组件）。
+ *
+ * 列表卡直接使用 —— 紧凑的项目符号清单；
+ * 详情页用 `WORKCASE_CRITERIA_SURFACE_CLASS` 把它包成带稳定身份的轻量面板
+ * （10 §5.3 语义详情），即消费方在 WorkCaseReadingLayout 的 PlanNode /
+ * ResidualNode，而非在本组件内自行切换信息密度。
  */
 export const WORKCASE_CRITERIA_SURFACE_CLASS =
   'min-w-0 rounded-md border border-blue-400/20 border-l-2 border-l-blue-400/80 bg-blue-500/[0.025] px-3 py-2.5 dark:bg-blue-950/20';
