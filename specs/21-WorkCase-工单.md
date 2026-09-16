@@ -133,6 +133,7 @@ frontmatter 闭集：
 | `plan` | array | 必填 | 可执行计划步骤 | 每项 `{step, done_criteria}`；`done_criteria` 必须可被证据判定；格式齐全只待批准（31 §10.1 出口形态） |
 | `gate_1` | object | 条件 | Gate 1 批准记录与授权包 | 批准后必填：`{approved_at, approver, authorization_fingerprint, scope_snapshot}`；`authorization_fingerprint` 绑定当次 `plan` + `scope` 的内容指纹 |
 | `attempt` | object | 条件 | 当前执行 attempt 令牌 | 执行期必填：`{attempt_id, started_at, controller, heartbeat_at}`；`attempt_id` 由 Code 单调分配；至多一个活跃 attempt |
+| `reviews` | array | 条件 | 复核节点概要流水 | 每次独立复核后追加一项：`{at, provider, model, summary}`；`at` 与署名由 Code 托管；`summary` 为**结构化概要且每项 ≤ 600 字符**，至少含 02 §15 判据七要素（对象／基线／方法／覆盖／未覆盖／发现／保证边界）；**复核详情不入对象**（归会话 transcript）；条数上限 20，达上限 fail-closed 拒绝新增并报告；仅记录**实际执行**的复核，未执行不得伪造 |
 | `result` | object | 条件 | 执行结果核对结论 | 关闭提案时必填：`{criteria_checks[], achieved_scope, residual[]}`；`criteria_checks` 逐条对应 `plan[].done_criteria` |
 | `outcome` | string | 条件 | 终态判定 | `closed` 时必填，闭集 `completed` / `partial` / `not-achieved` / `cancelled` |
 | `status` | string | 必填 | `draft` / `open` / `closed` | 初态 `draft` |
@@ -153,7 +154,7 @@ frontmatter 闭集：
 
 （首行 H1 由 `title` 镜像，与 20/22–26 各类型规范同形态。）
 
-字段间不变量：`plan` 每项必须有非空 `done_criteria`；`gate_1` 出现 ⇔ `status ∈ {open, closed}`；`attempt` 出现 ⇔ `status = open`；`result` 与 `outcome` 出现 ⇔ `status = closed`；`result.criteria_checks` 必须与 `plan` 逐条对应（长度一致、顺序一致）；`outcome = completed` 时每条 `criteria_checks` 必须判为达成，否则 `outcome` 只能是 `partial`；`outcome = partial` 或 `not-achieved` 时 `residual` 必须非空；`serves` 出现时必须匹配 goal.md 中存在的 SG-n。未知字段处理：按 03 §6.1，未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
+字段间不变量：`plan` 每项必须有非空 `done_criteria`；`gate_1` 出现 ⇔ `status ∈ {open, closed}`；`attempt` 出现 ⇔ `status = open`；`result` 与 `outcome` 出现 ⇔ `status = closed`；`result.criteria_checks` 必须与 `plan` 逐条对应（长度一致、顺序一致）；`outcome = completed` 时每条 `criteria_checks` 必须判为达成，否则 `outcome` 只能是 `partial`；`outcome = partial` 或 `not-achieved` 时 `residual` 必须非空；`serves` 出现时必须匹配 goal.md 中存在的 SG-n；`reviews` 每项 `summary` 必须非空且 ≤ 600 字符、条数 ≤ 20，且 `reviews` 与 `change_log` 分立承担（前者记复核节点结论，后者记变更流水），互不替代。未知字段处理：按 03 §6.1，未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
 
 ## 9. 状态与生命周期
 
@@ -172,7 +173,11 @@ frontmatter 闭集：
 - `draft → open`（**Gate 1**）：Human 明确批准后经受控更新落盘 `gate_1` 并翻转状态；同一事务追加恰好一条 change_log。批准只覆盖 `scope_snapshot` 记载的范围。
 - `draft → closed`（`outcome = cancelled`）：计划未经执行即被明确取消，Human Gate；`result` 记录取消理由与未发生的范围。
 - `open → closed`（**Gate 2**）：Human 依据 `result` 逐条核对结论判定 `outcome` 后翻转；`complete` 不自动等于复核通过或整体完成（02 §11 边界）。
-- `open → draft`（**C2 局部重批**）：执行中 `plan` 或 `scope` 发生实质变化，使 `authorization_fingerprint` 不再匹配时，授权在受影响范围自动失效并回到待批准；`attempt` 作废（不续跑）。**回退时 `result` 与 `outcome` 必须一并清空**（保持「`result`/`outcome` 出现 ⇔ `status = closed`」不变量）——已取得的核对证据不留在对象字段中，而是写入当次 `change_log` 条目的语义摘要（记录「重批原因 + 当时已完成的 `criteria_checks` 快照结论」），作为历史依据保留。重批只针对受影响范围，不整单重走。
+- `open → draft`（**C2 局部重批**）：执行中 `plan` 或 `scope` 发生实质变化，使 `authorization_fingerprint` 不再匹配时，授权在受影响范围自动失效并回到待批准；`attempt` 作废（不续跑）。**回退时 `result` 与 `outcome` 必须一并清空**（保持「`result`/`outcome` 出现 ⇔ `status = closed`」不变量）——已取得的核对证据不留在对象字段中，而是写入当次 `change_log` 条目的语义摘要（记录「重批原因 + 当时已完成的 `criteria_checks` 快照结论」），作为历史依据保留。重批只针对受影响范围，不整单重走。**`reviews` 不在清空之列**：它记录「该次复核确实发生过」这一历史事实，与 `plan`/`scope` 是否被重批无关；重批后保留原值，其指向的旧计划范围由该条目的 `at` 与被重批的事实共同界定。
+
+**`reviews` 的录入时机与 C2 的关系**：录入属执行期受控更新（§14），随每次实际执行的独立复核追加。录入 `reviews` **不改变** `plan` 或 `scope`，故**不触发 C2**；反之，若复核发现导致 `plan`/`scope` 实质变化，则按上一条走 C2 局部重批。
+
+**复核结论与主控判断不一致时的处置**：主控打回重审，**同一次复核事项最多 3 次**；3 次后仍不一致，**停止自动循环并提请 Human 裁决**，不得发起第 4 次。该循环痕迹记入 `reviews`（每次重审追加对应条目）；达上限时追加一条标注「已达上限，待 Human 裁决」，**对象保持 `open`**，不为此新增状态值（遵 §19 第 5 条）。计数按「同一次复核事项」计，不跨事项累加。（依 Human 裁定 2026-09-16；与 31 §8 讨论系统「轮次上限 3 轮、达上限交 Human Gate」同形。）
 
 终态不直接重开：closed 后不得回到 draft 或 open。后来发现同范围仍需工单时创建新的 WorkCase，并在新对象的 `summary` 或 change_log 中说明接替的旧对象；若原终态记录本身错误，按事实更正规则修正，不把更正伪装成领域状态转换（与 20 §9.2 同纪律）。
 
@@ -194,6 +199,8 @@ frontmatter 闭集：
 ### 10.1 Gate 1（计划与执行授权关口）
 
 Gate 1 把格式齐全的 draft WorkCase 提交 Human 批准。提请必含（00 §4.4）：待批准的计划步骤与逐条完成判据；**本 WC 服务哪条 sub-goal**（直引 `serves` 的 SG-n，25 §10）；授权范围与明确排除（`scope`）；越权动作被机械拒绝的机制；独立复核的安排；未验证范围与风险；批准的作用范围与后续方向。
+
+其中前三项分别由 `plan`、`serves`、`scope` 字段承载；**其余四项在原实现中既无对象字段、也无写入校验**，故提请时须由 `gate1_request` 显式提供（缺任一项或为空即拒绝批准），使漏写无法静默通过。**该四项是提请要素，不因此成为对象字段**——运行期实际执行的复核结论记入 `reviews`，两者分工不重叠。（2026-09-16 修订：此前「独立复核的安排」可被静默遗漏，见本规范修订依据。）
 
 批准成立条件：Human 对准确候选与作用范围明确同意；`gate_1` 落盘且 `authorization_fingerprint` 绑定当次 `plan`+`scope` 内容指纹；状态翻转为 `open`；写后精确回读。Gate 1 不是技术验证入口（00 §4.2）：批准只证明授权及其范围，不证明计划正确、可执行或结果会达成。goal.md 缺失时 Gate 1 无法受理（授权无锚可引，25 §10 fail-closed）。
 
@@ -249,7 +256,9 @@ attempt 令牌回答「当前谁在做、做到哪里」，**不承载任何授�
 | 蓝图「进行中/已完成」 | 每次蓝图渲染（10 号） | draft/open/closed 列表与 `outcome` 概览 |
 | systemPrompt 注入 | 每会话（25 §10 已声明注入 active WC 列表一行摘要） | open WC 的 title + status + `serves` |
 
-召回分层（03 §8）：F1 枚举 open WC 计数（title + status + `serves`）；F2 按类型、状态、稳定引用或 `serves` 命中的候选卡（`title`/`summary`/`scope` 有界摘录 + 命中依据）；F3 展开完整对象（含 `plan`、`attempt`、`result`）；F4 按需展开引用的 Goal/ADR/Spark/Research/Pitfall。默认候选只含 draft 与 open；closed 只在精确引用、证据链反查或历史追溯时展开。AI 展开候选后必须重新核对当前目标与 `scope` 边界——WorkCase 被召回不表示应当续跑、不表示授权仍然覆盖、也不表示可以提高优先级。
+召回分层（03 §8）：F1 枚举 open WC 计数（title + status + `serves`）；F2 按类型、状态、稳定引用或 `serves` 命中的候选卡（`title`/`summary`/`scope` 有界摘录 + 命中依据）；F3 展开完整对象（含 `plan`、`attempt`、`reviews`、`result`）；F4 按需展开引用的 Goal/ADR/Spark/Research/Pitfall。默认候选只含 draft 与 open；closed 只在精确引用、证据链反查或历史追溯时展开。AI 展开候选后必须重新核对当前目标与 `scope` 边界——WorkCase 被召回不表示应当续跑、不表示授权仍然覆盖、也不表示可以提高优先级。**`reviews` 按节点呈现**（10 §5.3「变更历史（摘要形态）」），其详情不入对象、不构成召回内容。
+
+**`reviews` 与 `change_log` 的分工**（两者均为 Code 托管时间的流水，但承担不同语义，不互替）：`change_log` 回答「**发生过一次写入**」——每次 canonical 内容修改恰好一条，其条目数由**写入次数**驱动；`reviews` 回答「**第 N 次复核的结论是什么**」——每次实际执行的独立复核追加一条，其条目数由**复核次数**驱动。二者基数不一一对应（复核可为纯只读而不产生 `change_log`，按 03 §6.1「不记录读取…不产生流水」；亦可在一次写入中追加多条复核）。故 `change_log` 在结构上无法表达「第 N 次复核」，复核结论须由 `reviews` 承载。（Human 裁定 2026-09-16：必须独立的新字段。）
 
 **与 31 号的交接契约**：讨论收敛产物进入 WorkCase 时，31 §10.1 保证「格式齐全、只待 Gate 1 批准」，即 `summary`、`scope`、`plan`（含逐条 `done_criteria`）与 `serves` 四项可填且未收敛点已显式分流；本文据此不设需求审核阶段——方案构建的拉锯不进入 WorkCase 状态机。交接缺失任一项时，工作包回到 31 号补收敛，不得以 draft 状态长期承载「还在变的方案」。
 
@@ -257,7 +266,7 @@ attempt 令牌回答「当前谁在做、做到哪里」，**不承载任何授�
 
 - **创建（draft）**：C1 提案对象模式（AI 只产出提案对象，含查重结果；Human 确认后经受控创建入口落盘）。创建前必须查重。机械校验：字段闭集合法、`plan` 每项 `done_criteria` 非空、`scope` 同时含做什么与不做什么、`serves`（若声明）匹配 goal.md 存在的 SG-n、`status = draft` 且无 `gate_1`/`attempt`/`result`。创建后精确回读。
 - **Gate 1 批准（draft → open）**：Human Gate；AI 先做 F3 核对；Code 校验闭集、字段、指纹与回读；`gate_1` 与状态翻转与 change_log 在同一事务完成。
-- **执行期更新**（进度、`result` 草稿、attempt 续接或作废）：03 §9.5 受控更新；CAS 以完整文件为单位，绑定 `content_fingerprint`；每次实际修改恰好一条 change_log（含理由）。attempt 续接必须已按 §10.4 第 3 点核对副作用范围。
+- **执行期更新**（进度、`result` 草稿、`reviews` 录入、attempt 续接或作废）：03 §9.5 受控更新；CAS 以完整文件为单位，绑定 `content_fingerprint`；每次实际修改恰好一条 change_log（含理由）。attempt 续接必须已按 §10.4 第 3 点核对副作用范围。**`reviews` 录入的机械校验**：每项须为 `{at, provider, model, summary}`，`summary` 非空且 ≤ 600 字符，条数 ≤ 20；达上限时 fail-closed 拒绝新增并报告，**不得压缩或静默丢弃既有条目**；`at` 与署名由 Code 托管，AI 不得自填。**正文不设复核节**：复核详情不入对象，正文无须为其新增 H2。
 - **Gate 2 关闭（open → closed）**：Human Gate；`result` + `outcome` + 状态翻转 + `attempt` 收口 + change_log 同一事务完成；写后精确回读。
 - **局部重批（open → draft）**：由 §10.3 的授权失效触发；受影响范围重新组织后重走 Gate 1；`attempt` 作废；保留已取得的结果证据。
 - **关系变更**（`contributed-to`）：随该次对象修改走完整更新入口，由 Code 追加恰好一条 change_log（03 §7.2 第 7 条）。WC 与 Pitfall 不要求原子共同成立（Pitfall 可独立存在并被多处引用），不按 03 §9.6 伪原子处理；但不得先写孤立关系再补对象。
@@ -272,6 +281,7 @@ attempt 令牌回答「当前谁在做、做到哪里」，**不承载任何授�
 - 授权钉扎校验：`gate_1.authorization_fingerprint` 与当前 `plan`+`scope` 内容指纹一致，不一致即授权失效并生成局部重批待办；
 - attempt 唯一性：至多一个活跃 attempt；存在孤立 attempt 时，未完成副作用核对不得续跑或作废；
 - 关闭完整性：`closed` 时 `result` 非空、`outcome` 在闭集内、`criteria_checks` 与 `plan` 逐条对应且长度一致；
+- 复核记录完备性：`reviews` 每项形状为 `{at, provider, model, summary}`，`summary` 非空且 ≤ 600 字符，条数 ≤ 20；超限或形状非法即拒绝写入，不得截断、压缩或静默丢弃；
 - outcome 一致性：`outcome = completed` 时不得存在未达成的 `criteria_checks`；`partial`/`not-achieved` 时 `residual` 非空；
 - `serves` 有效性：声明时匹配 goal.md 中存在的 SG-n；
 - 关系闭集：`contributed-to` 目标必须可解析为同项目 Pitfall 对象；未知 relation key fail closed。
@@ -304,6 +314,7 @@ v4 存在 WorkCase 类对象（`docs/spark-workcase-rebuild.md` §5 记为高频
 | 授权钉扎一致 | 执行期每次写入前与关闭前 | `authorization_fingerprint` 与当前 `plan`+`scope` 指纹一致 | 对象全文 + 内容指纹计算 | 机械（指纹比对） | 当次授权覆盖范围的机械一致性 | 授权失效 → 局部重批；不得继续执行受影响范围 |
 | attempt 唯一与冷恢复 | 执行期、接管时 | 至多一个活跃 attempt；孤立 attempt 已核对副作用范围 | 对象 `attempt` + 实际文件/Git 状态 + 回读结果 | 机械（字段与状态检查）+ AI 核对 | 当次令牌状态与已核对的副作用范围 | 未核对前不续跑、不作废；如实交还残留 |
 | 关闭完整性 | Gate 2 前 | `result` 与 `outcome` 落盘；`criteria_checks` 与 `plan` 逐条对应 | 对象全文 | 机械（闭集、形状、对应关系） | 当次关闭记录的机械完整性 | 拒绝关闭；补齐记录 |
+| 复核记录完备 | 每次 `reviews` 写入前 | 每项形状合法、`summary` 非空且 ≤ 600 字符、条数 ≤ 20 | 对象 `reviews` 字段 | 机械（形状、长度、上限） | 当次复核记录的机械完备性；不证明复核独立、内容正确或结论成立 | 拒绝写入并报告，不得截断或静默丢弃 |
 | outcome 判定证据 | Gate 2 时 | 每条判据有可回读的核对结论；`partial`/`not-achieved` 的 `residual` 非空 | `criteria_checks` + 写后回读 + 机械校验结果 | AI 逐条语义核对 + Human 终判 | 各判据达成判定的证据覆盖 | 保持 open 或改判 outcome；不得补造证据 |
 | 关系目标可解析 | 关系变更或消费展开时 | `contributed-to` 目标可解析为同项目 Pitfall 对象 | 关系条目 + 目标读取结果 | 机械（一跳目标读取） | 当次一跳关系与目标读取范围 | 保留实际边并报告失败范围，不静默删除 |
 
@@ -350,5 +361,5 @@ Human 决定只证明决定及其作用范围，不替代计划可判定性审�
 6. 不在 WorkCase 复制 Goal、ADR、Spark、Research 或 Pitfall 的内容——引用 + F4 展开；
 7. 不建 `urls` 字段——外部长期资料归 22/24 号，WorkCase 只承载当次执行的观察与回读；
 8. 不为未来可能的并发执行预留多 attempt 字段——当前契约是至多一个活跃 attempt；
-9. 不因 Web 呈现方便而增加状态、阶段或字段——10 号按本文已定稿的语义接线；
+9. 不因 Web 呈现方便而增加状态、阶段或字段——10 号按本文已定稿的语义接线。**本条禁的是「以呈现便利为由倒逼类型语义」这一动机**（Human 认定 2026-09-16）：字段或状态的**增加**本身不由本条禁止，而由 §8 字段闭集的修改程序约束；`reviews` 即依该程序、以 00 §6.2 HV3「关键节点可回读」为依据引入，不属本条所指情形；
 10. 不把 Gate 1 授权模板分给 04 或 34 号——它是 WorkCase 类型语义的一部分，唯一权威是本文。
