@@ -115,6 +115,30 @@ async function approved(root, overrides = {}) {
   return { uid: created.value.object_uid, after: await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid }) };
 }
 
+/**
+ * 记录一条独立复核（21 §8），使工单满足 Gate 2 的关闭前置条件
+ * （21 §9.1/§14，Human 裁定 2026-09-17：关闭前须已存在至少一条 `reviews`）。
+ *
+ * `reviews` 只能在 status=open 时经 execute 落盘（close 不接受 frontmatterAfter），
+ * 故这里走 executeWorkcaseObject。返回可供 close 使用的最新对象。
+ */
+async function reviewed(root, approvedResult, summary = "对象：本单；基线：plan 判据；方法：隔离子代理只读复核；覆盖：全部判据；未覆盖：无；发现：无；保证边界：仅静态核对。") {
+  const { uid, after } = approvedResult;
+  const fm = { ...after.value.frontmatter };
+  fm.reviews = [{ summary }];
+  const res = await executeWorkcaseObject({
+    factSourceRoot: root,
+    objectUid: uid,
+    expectedFingerprint: after.value.fingerprint,
+    frontmatterAfter: fm,
+    bodyMarkdownAfter: bodyWithoutH1(after.value.body),
+    changeSummary: "录入独立复核概要",
+    sessionSignature: SIG(),
+  });
+  assert.ok(res.ok, JSON.stringify(res.error));
+  return { uid, after: await readWorkcaseObject({ factSourceRoot: root, objectUid: uid }) };
+}
+
 // ---------------------------------------------------------------------------
 // create (21 §14 C1 / §8 / §9)
 // ---------------------------------------------------------------------------
@@ -422,7 +446,8 @@ test("close: open→closed stamps result+outcome and retracts the attempt (收�
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const { draft } = await createDraft(root);
-    const { uid, after } = await approved(root);
+    // Gate 2 前置（21 §9.1/§14）：先记录独立复核，否则关闭被拒。
+    const { uid, after } = await reviewed(root, await approved(root));
     const body = `${draftBody(draft)}\n\n## 执行\n\n- 两步均完成。\n\n## 结果\n\n- 逐条核对：两步判据均达成。\n`;
     const res = await closeWorkcaseObject({
       factSourceRoot: root,
@@ -456,7 +481,8 @@ test("close: completed with an unmet criterion is rejected (21 §9.3/§15.1)", a
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const { draft } = await createDraft(root);
-    const { uid, after } = await approved(root);
+    // Gate 2 前置（21 §9.1/§14）：先记录独立复核，否则关闭被拒。
+    const { uid, after } = await reviewed(root, await approved(root));
     const bad = await closeWorkcaseObject({
       factSourceRoot: root,
       objectUid: uid,
@@ -483,7 +509,8 @@ test("close: partial without residual is rejected (21 §9.3)", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const { draft } = await createDraft(root);
-    const { uid, after } = await approved(root);
+    // Gate 2 前置（21 §9.1/§14）：先记录独立复核，否则关闭被拒。
+    const { uid, after } = await reviewed(root, await approved(root));
     const bad = await closeWorkcaseObject({
       factSourceRoot: root,
       objectUid: uid,
@@ -509,7 +536,8 @@ test("close: criteria_checks length must match plan (逐条对应, 21 §8)", asy
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const { draft } = await createDraft(root);
-    const { uid, after } = await approved(root);
+    // Gate 2 前置（21 §9.1/§14）：先记录独立复核，否则关闭被拒。
+    const { uid, after } = await reviewed(root, await approved(root));
     const bad = await closeWorkcaseObject({
       factSourceRoot: root,
       objectUid: uid,
@@ -526,6 +554,70 @@ test("close: criteria_checks length must match plan (逐条对应, 21 §8)", asy
     });
     assert.ok(!bad.ok);
     assert.ok(bad.error.details.issues.some((i) => i.includes("length")));
+  });
+});
+
+// Gate 2 前置：关闭前须已存在至少一条 reviews（21 §9.1/§8/§14，Human 裁定 2026-09-17）
+test("close: rejected when reviews is absent — 关闭前须已有独立复核记录 (21 §9.1/§14)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { draft } = await createDraft(root);
+    const { uid, after } = await approved(root); // 刻意不记录复核
+    const res = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      outcome: "completed",
+      result: {
+        criteria_checks: [
+          { satisfied: true, evidence: "writer 文件存在且 node --check 通过" },
+          { satisfied: true, evidence: "测试全部通过" },
+        ],
+        achieved_scope: "两步均在授权范围内完成。",
+        residual: [],
+      },
+      changeSummary: "试图无复核关闭",
+      bodyMarkdownAfter: `${draftBody(draft)}\n\n## 执行\n\n- 两步均完成。\n\n## 结果\n\n- 逐条核对：两步判据均达成。\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(!res.ok, "close without reviews must be rejected");
+    assert.equal(res.error.code, "workcase/review_required");
+    // 拒绝后对象保持 open（不得以终态掩盖复核缺失，21 §18）。
+    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(read.value.frontmatter.status, "open");
+    assert.equal(read.value.frontmatter.result, undefined);
+    assert.equal(read.value.frontmatter.outcome, undefined);
+  });
+});
+
+test("close: accepted once reviews exists — 有独立复核记录即可关闭 (21 §9.1/§14)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { draft } = await createDraft(root);
+    const { uid, after } = await reviewed(root, await approved(root));
+    assert.ok(Array.isArray(after.value.frontmatter.reviews) && after.value.frontmatter.reviews.length > 0);
+    const res = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      outcome: "completed",
+      result: {
+        criteria_checks: [
+          { satisfied: true, evidence: "writer 文件存在且 node --check 通过" },
+          { satisfied: true, evidence: "测试全部通过" },
+        ],
+        achieved_scope: "两步均在授权范围内完成。",
+        residual: [],
+      },
+      changeSummary: "有复核后关闭",
+      bodyMarkdownAfter: `${draftBody(draft)}\n\n## 执行\n\n- 两步均完成。\n\n## 结果\n\n- 逐条核对：两步判据均达成。\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(read.value.frontmatter.status, "closed");
+    // reviews 随关闭保留（21 §8：记录「复核确实发生过」）。
+    assert.equal(read.value.frontmatter.reviews.length, 1);
   });
 });
 
@@ -625,7 +717,8 @@ test("terminal: closed objects refuse execute/close/rebatch (21 §9.2 终态不�
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const { draft } = await createDraft(root);
-    const { uid, after } = await approved(root);
+    // Gate 2 前置（21 §9.1/§14）：先记录独立复核，否则关闭被拒。
+    const { uid, after } = await reviewed(root, await approved(root));
     const closed = await closeWorkcaseObject({
       factSourceRoot: root,
       objectUid: uid,

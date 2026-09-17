@@ -1048,6 +1048,26 @@ export async function closeWorkcaseObject(args) {
   if (fm.status !== "open") {
     return failure("workcase/transition_invalid", `Gate 2 closure requires status=open, got ${JSON.stringify(fm.status)} (21 §9.2)`);
   }
+  // Gate 2 前置条件（21 §9.1/§8/§14，Human 裁定 2026-09-17）：关闭前须已存在至少一条
+  // `reviews`（独立复核记录）。WorkCase 准入（§6 对象边界）已排除「当次行动可直接处理
+  // 的低风险改动」，故凡进入 WorkCase 者独立复核为必经环节，**不设低风险豁免**。
+  //
+  // 缺失时一律拒绝关闭——不得以正文自述或对话声明替代；无法执行独立复核时按 §18
+  // 停止条件处置（保持 open 并交还 Human），不得以 partial/cancelled 等终态掩盖。
+  //
+  // 注意隐含前置：`reviews` 只能在 status=open 时经 execute 落盘（close 不接受
+  // frontmatterAfter，stampReviewEntries 的唯一调用点在 executeWorkcaseObject），
+  // 故关闭时无法补写——复核须在执行期完成。
+  if (!Array.isArray(fm.reviews) || fm.reviews.length === 0) {
+    return failure(
+      "workcase/review_required",
+      "Gate 2 closure requires at least one reviews entry (independent review) before closing "
+      + "(21 §9.1/§8/§14, Human 裁定 2026-09-17). reviews is absent or empty — record the independent "
+      + "review via execute (status=open) first; if an independent review cannot be performed, do NOT "
+      + "close: hold the workcase open and hand back to Human (21 §18). "
+      + "The 结果 body section or a conversational statement does not substitute for a reviews entry.",
+    );
+  }
 
   const next = structuredClone(fm);
   next.status = "closed";

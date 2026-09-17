@@ -154,7 +154,7 @@ frontmatter 闭集：
 
 （首行 H1 由 `title` 镜像，与 20/22–26 各类型规范同形态。）
 
-字段间不变量：`plan` 每项必须有非空 `done_criteria`；`gate_1` 出现 ⇔ `status ∈ {open, closed}`；`attempt` 出现 ⇔ `status = open`；`result` 与 `outcome` 出现 ⇔ `status = closed`；`result.criteria_checks` 必须与 `plan` 逐条对应（长度一致、顺序一致）；`outcome = completed` 时每条 `criteria_checks` 必须判为达成，否则 `outcome` 只能是 `partial`；`outcome = partial` 或 `not-achieved` 时 `residual` 必须非空；`serves` 出现时必须匹配 goal.md 中存在的 SG-n；`reviews` 每项 `summary` 必须非空且 ≤ 600 字符、条数 ≤ 20，且 `reviews` 与 `change_log` 分立承担（前者记复核节点结论，后者记变更流水），互不替代。未知字段处理：按 03 §6.1，未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
+字段间不变量：`plan` 每项必须有非空 `done_criteria`；`gate_1` 出现 ⇔ `status ∈ {open, closed}`；`attempt` 出现 ⇔ `status = open`；`result` 与 `outcome` 出现 ⇔ `status = closed`；`result.criteria_checks` 必须与 `plan` 逐条对应（长度一致、顺序一致）；`outcome = completed` 时每条 `criteria_checks` 必须判为达成，否则 `outcome` 只能是 `partial`；`outcome = partial` 或 `not-achieved` 时 `residual` 必须非空；`serves` 出现时必须匹配 goal.md 中存在的 SG-n；`reviews` 每项 `summary` 必须非空且 ≤ 600 字符、条数 ≤ 20；**`status = closed` 时 `reviews` 必须非空**（关闭前须已存在至少一条独立复核记录，§9.1/§14）；且 `reviews` 与 `change_log` 分立承担（前者记复核节点结论，后者记变更流水），互不替代。未知字段处理：按 03 §6.1，未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
 
 ## 9. 状态与生命周期
 
@@ -166,7 +166,7 @@ frontmatter 闭集：
 |---|---|---|
 | `draft` | 计划格式齐全、只待 Gate 1 批准；或 C2 失效后待局部重批 | `gate_1` 不得出现；`attempt` 不得出现；`result`/`outcome` 不得出现 |
 | `open` | Gate 1 已批准，工单在授权范围内执行（含中断待恢复） | `gate_1` 必填且 `authorization_fingerprint` 与当前 `plan`+`scope` 指纹一致；`attempt` 必填 |
-| `closed` | 终态：Gate 2 已判定并落盘 | `result` 与 `outcome` 必填；`attempt` 已收口（不得有活跃 attempt） |
+| `closed` | 终态：Gate 2 已判定并落盘 | `result` 与 `outcome` 必填；`attempt` 已收口（不得有活跃 attempt）；**`reviews` 必填**（关闭前须已存在至少一条独立复核记录，§14） |
 
 ### 9.2 状态转换
 
@@ -267,7 +267,7 @@ attempt 令牌回答「当前谁在做、做到哪里」，**不承载任何授�
 - **创建（draft）**：C1 提案对象模式（AI 只产出提案对象，含查重结果；Human 确认后经受控创建入口落盘）。创建前必须查重。机械校验：字段闭集合法、`plan` 每项 `done_criteria` 非空、`scope` 同时含做什么与不做什么、`serves`（若声明）匹配 goal.md 存在的 SG-n、`status = draft` 且无 `gate_1`/`attempt`/`result`。创建后精确回读。
 - **Gate 1 批准（draft → open）**：Human Gate；AI 先做 F3 核对；Code 校验闭集、字段、指纹与回读；`gate_1` 与状态翻转与 change_log 在同一事务完成。
 - **执行期更新**（进度、`result` 草稿、`reviews` 录入、attempt 续接或作废）：03 §9.5 受控更新；CAS 以完整文件为单位，绑定 `content_fingerprint`；每次实际修改恰好一条 change_log（含理由）。attempt 续接必须已按 §10.4 第 3 点核对副作用范围。**`reviews` 录入的机械校验**：每项须为 `{at, provider, model, summary}`，`summary` 非空且 ≤ 600 字符，条数 ≤ 20；达上限时 fail-closed 拒绝新增并报告，**不得压缩或静默丢弃既有条目**；`at` 与署名由 Code 托管，AI 不得自填。**正文不设复核节**：复核详情不入对象，正文无须为其新增 H2。
-- **Gate 2 关闭（open → closed）**：Human Gate；`result` + `outcome` + 状态翻转 + `attempt` 收口 + change_log 同一事务完成；写后精确回读。
+- **Gate 2 关闭（open → closed）**：Human Gate；`result` + `outcome` + 状态翻转 + `attempt` 收口 + change_log 同一事务完成；写后精确回读。**关闭前置条件：`reviews` 须非空**——即关闭前须已存在至少一条 `reviews` 记录；缺失（字段不存在）时**一律拒绝关闭并报告**，不得以正文自述或对话声明替代。WorkCase 准入（§6 对象边界）已排除「当次行动可直接处理的低风险改动（不对象化）」，故凡进入 WorkCase 者，独立复核（§8、02 §15）为必经环节，不设低风险豁免。**无法执行独立复核时不得关闭**：按 §18 停止条件处置，保持 `open` 并交还 Human，不得以 `partial`/`cancelled` 等终态掩盖复核缺失。（依 Human 裁定 2026-09-17。）
 - **局部重批（open → draft）**：由 §10.3 的授权失效触发；受影响范围重新组织后重走 Gate 1；`attempt` 作废；保留已取得的结果证据。
 - **关系变更**（`contributed-to`）：随该次对象修改走完整更新入口，由 Code 追加恰好一条 change_log（03 §7.2 第 7 条）。WC 与 Pitfall 不要求原子共同成立（Pitfall 可独立存在并被多处引用），不按 03 §9.6 伪原子处理；但不得先写孤立关系再补对象。
 - **删除**：不存在删除操作。closed WorkCase 随 `ldvh-base/workcases/` 保留为历史基线与达成证据。
