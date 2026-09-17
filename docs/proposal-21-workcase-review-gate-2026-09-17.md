@@ -232,10 +232,13 @@ Human 于 2026-09-17 明确该类型的取舍原则（原话）：
 
 仍属未验证的：
 
-1. **「报告失败」的机械形态未定**：Human 已定**要报告失败**，但「失败」在 WC 上如何承载仍有实现选择——见 §6.4 的三种候选（拒绝关闭 / `reviews` 记录失败声明 / 两者并用）。**须在实施前定**。
+1. **存量 `open` 工单的过渡影响（本会话实测）**：当前 3 份 `open` 工单**全部无 `reviews`**（`ldvh-base/workcases/` 实测：WC-0002 三态重建、本单 YAML 推广、WorkCase card 对齐）。新门禁生效后，它们若按现状关闭会被挡。**须明确过渡规则**，两个候选：
+   - **(i) 不设过渡**：主控在关闭前补录 `reviews`（若确实做过复核）或走 (c) 的失败路径（若未做）。**起草者倾向此**——因为门禁的目的正是「不许无复核关闭」，对存量开例外会削弱该目的；
+   - **(ii) 设过渡期豁免**：对 gate 生效前已 `open` 的对象暂缓适用。**代价**：需为「生效时点」引入判定，而对象上无该时点字段（会引出新字段，违背庚案）。
+   > 特别地，**本单虽无 `reviews`，但确实做过独立复核**（本会话由隔离子代理执行），仅因当时 `reviews` 尚无盖戳路径而无法录入（该路径已于 commit `ca7ce70` 补齐）。故本单可在关闭前**如实补录**——这不构成伪造。
 2. **存量 `closed` 对象的处置未定**：庚案不追溯，但若 Human 要求补齐历史，需另议。
 3. **呈现改动未验证**：§4.2 改动二（由 `reviews` 派生「已复核」维度）的具体位置与形状未定稿——可能落在 10 §5.5 的派生组，也可能只作详情页维度（不入筛选档，以免改动四档闭集）。
-4. **既有「复核不可用」徽标是 v4 残留，对 v5 永不触发**（本会话实测）：`plugin/web/src/components/WorkCaseCapabilityStatusBadge.tsx` 经 `hasUnavailableIndependentSubagentReview` 读 `creation_reviews`/`result_reviews` 与 `actual_method === 'same-ai-switched-role-read-only'`——**这些均不在 21 §8 的 v5 字段闭集**（已核实：字段表零命中，存量 WC 对象零命中）。故该徽标虽仍被 `ObjectDetail.tsx` / `facts.ts` 引用，**对 v5 对象恒不显示**。其**意图**（暴露「复核不可用」）与 Human 本项决定一致，但需 v5 载体才能复活——这属 §6.4 的实现选择之一。
+4. **既有「复核不可用」徽标是 v4 残留，对 v5 永不触发**（本会话实测）：`plugin/web/src/components/WorkCaseCapabilityStatusBadge.tsx` 经 `hasUnavailableIndependentSubagentReview` 读 `creation_reviews`/`result_reviews` 与 `actual_method === 'same-ai-switched-role-read-only'`——**这些均不在 21 §8 的 v5 字段闭集**（已核实：字段表零命中，存量 WC 对象零命中）。故该徽标虽仍被 `ObjectDetail.tsx` / `facts.ts` 引用，**对 v5 对象恒不显示**。庚案**不为它新增 v5 载体**（那需新字段）；若 Human 希望该徽标复活，属另一议题。
 5. **未做**：未修改任何文件、未写入任何事实对象、未实施任何代码、未运行测试。
 
 ---
