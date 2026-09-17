@@ -122,6 +122,69 @@ fs.writeFileSync(
     '',
   ].join('\n'),
 )
+// 第三份夹具：status=open ∧ 正文**含** `## 结果` 节——即 10 §5.5 派生判据中
+// `awaiting_gate2`（待批准关闭）的**唯一**成立组合。
+//
+// 为什么必须单独补这一份：此前夹具只有「open 且无结果节」与「closed」两种，
+// `awaiting_gate2` 这条派生路径**从未被任何测试踩到**，于是列表投影剥离
+// `report_body` 后下游重算导致的恒 0 缺陷长期未被发现（现值 3 份真实工单受影响）。
+// 夹具必须覆盖每条派生路径——这正是本用例的回归防线。
+fs.writeFileSync(
+  path.join(projectRoot, 'ldvh-base', 'workcases', 'workcase-0198f1c7-8a2b-4c3d-9e4f-123456789ccc.md'),
+  [
+    '---',
+    'title: Dashboard 待关闭 WorkCase 派生回归',
+    'status: open',
+    'created_at: ' + "'2026-07-20T04:00:00+08:00'",
+    'summary: 固定 awaiting_gate2 派生。',
+    'scope: 做什么：固定 awaiting_gate2 派生；不做什么：其它。',
+    'plan:',
+    '  - step: 唯一步骤',
+    '    done_criteria: 结果节写完即待关闭。',
+    'gate_1:',
+    '  approved_at: ' + "'2026-07-20T04:30:00+08:00'",
+    '  approver: human-test',
+    '  authorization_fingerprint: ' + 'a'.repeat(64),
+    '  scope_snapshot: 做什么：固定 awaiting_gate2 派生；不做什么：其它。',
+    'attempt:',
+    '  attempt_id: 1',
+    '  started_at: ' + "'2026-07-20T04:30:00+08:00'",
+    '  controller: controller-a',
+    '  heartbeat_at: ' + "'2026-07-20T05:00:00+08:00'",
+    'object_uid: 0198f1c7-8a2b-4c3d-9e4f-123456789ccc',
+    'object_id: workcase-0198f1c7-8a2b-4c3d-9e4f-123456789ccc',
+    'fact_type_key: workcase',
+    'change_log:',
+    '  - at: ' + "'2026-07-20T05:00:00+08:00'",
+    '    summary: 执行进展。',
+    '---',
+    '',
+    '# Dashboard 待关闭 WorkCase 派生回归',
+    '',
+    '## 摘要',
+    '',
+    '固定 awaiting_gate2 派生。',
+    '',
+    '## 授权范围',
+    '',
+    '做什么：固定 awaiting_gate2 派生；不做什么：其它。',
+    '',
+    '## 计划',
+    '',
+    '- 唯一步骤：判据——结果节写完即待关闭。',
+    '',
+    '## 执行',
+    '',
+    '- attempt 1 运行中。',
+    '',
+    '## 结果',
+    '',
+    '### Gate 2 提请',
+    '',
+    '- 待 Human 裁决。',
+    '',
+  ].join('\n'),
+)
 fs.writeFileSync(
   path.join(projectRoot, 'ldvh-base', 'workcases', 'workcase-0198f1c7-8a2b-4c3d-9e4f-123456789bbb.md'),
   [
@@ -278,7 +341,10 @@ test('preserves the shared commit DTO across current API consumers', async () =>
   // v5 三态直读：open 对象带派生 group=executing 与 attempt 现场。
   assert.equal(workcase.status, 'open')
   assert.equal(workcase.group, 'executing')
-  assert.equal(workcase.has_result_draft, false)
+  // has_result_draft 沿用卡片投影的「存在即真」约定（同 group/outcome/
+  // independentSubagentUnavailable）：仅当为真时写字段，缺省即假。
+  // API 类型亦为可选（api.ts: `has_result_draft?: boolean`），前端按真值消费。
+  assert.equal(workcase.has_result_draft, undefined)
   assert.equal('phase' in workcase, false)
   assert.equal('progress_group' in workcase, false)
   assert.equal('progress_step' in workcase, false)
@@ -297,13 +363,41 @@ test('preserves the shared commit DTO across current API consumers', async () =>
   assert.equal('successCriteria' in closedWorkcase, false)
   assert.equal('success_criterion_definitions' in closedWorkcase, false)
   // v5 五档筛选聚合（Human 2026-09-15 定案）：all 恒在尾。
+  // 三份夹具：open 无结果节 → executing；open **含**结果节 → awaiting_gate2；
+  // closed → closed。（此前的断言期望 `awaiting_gate2: 0`——那对它当时的夹具是
+  // 事实，但因为夹具从不含「open + 结果节」，该档位的派生路径从未被验证，
+  // 掩盖了列表侧重算导致的恒 0 缺陷。）
   assert.deepEqual(workcases.data.lifecycleOptions, [
     { group: 'pending_gate1', count: 0 },
     { group: 'executing', count: 1 },
-    { group: 'awaiting_gate2', count: 0 },
+    { group: 'awaiting_gate2', count: 1 },
     { group: 'closed', count: 1 },
-    { group: 'all', count: 2 },
+    { group: 'all', count: 3 },
   ])
+
+  // `awaiting_gate2` 的判定必须走**权威派生结果**（卡片已算好并随列表项透传），
+  // 而不是列表层用被剥离的 `report_body` 重算——后者恒得 executing。
+  const awaitingGate2 = workcases.data.items.find(
+    (item) => item.object_id === 'workcase-0198f1c7-8a2b-4c3d-9e4f-123456789ccc',
+  )
+  assert.ok(awaitingGate2, 'the open-with-result fixture must appear in the list')
+  assert.equal(awaitingGate2.status, 'open')
+  assert.equal(
+    awaitingGate2.group,
+    'awaiting_gate2',
+    'an open WorkCase whose body carries a ## 结果 section must derive awaiting_gate2',
+  )
+  assert.equal(awaitingGate2.has_result_draft, true)
+
+  // 筛选与计数必须与该派生一致（?lifecycle=awaiting_gate2 返回的正是这一份）。
+  const filtered = await getJson('/api/objects/workcase?lifecycle=awaiting_gate2') as {
+    data: { items: Array<{ object_id: string }> }
+  }
+  assert.deepEqual(
+    filtered.data.items.map((item) => item.object_id),
+    ['workcase-0198f1c7-8a2b-4c3d-9e4f-123456789ccc'],
+    '?lifecycle=awaiting_gate2 must return exactly the open-with-result WorkCase',
+  )
 
   // 21 §8：WorkCase 无 priority（字段闭集未含）——priority 参数被忽略，且无投影。
   const prioritizedWorkcases = await getJson('/api/objects/workcase?priority=P1') as {

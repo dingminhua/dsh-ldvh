@@ -18,6 +18,7 @@ import { listObjects, type ObjectType } from '../services/facts.js'
 import { listLocalFacts, type LocalFactItem } from '../services/localFactReader.js'
 import { canonicalUid } from '../../shared/factIdentity.js'
 import {
+  WORKCASE_V5_STATUSES,
   deriveWorkCaseV5View,
   type WorkCaseV5View,
   type WorkCaseV5Group,
@@ -287,15 +288,41 @@ function timestampInWindow(value: unknown, start: number, end: number): value is
   return Number.isFinite(timestamp) && timestamp >= start && timestamp <= end
 }
 
-/** 21 号三态直读：由 item 可得字段派生 WorkCaseV5View（列表项与详情项均携带 status/outcome/report_body/fingerprint）。 */
+/**
+ * 21 号三态直读：读取 item 上**已由权威派生点写入**的 v5 视图。
+ *
+ * 权威派生点是 `facts.ts:projectCurrentWorkCaseCardShape`——它拿完整 fact（含
+ * `report_body`）算出 view，写入 `group`/`outcome`/`has_result_draft` 与
+ * `current_snapshot_projection`。
+ *
+ * **不得在此重算**：本函数的两处调用（`buildRecentActivityItem` 与收件箱主循环）
+ * 拿到的都是 `listObjects` 的列表项，而列表投影按载荷纪律剥离了 `report_body`
+ * （`factFieldContract.ts` 的 `FACT_LIST_FIELD_NAMES` 把 workcase 整体排除）。
+ * 从被剥离的输入重算只会得到 `executing`——这正是认知中心对「open ∧ 含结果节」
+ * 的工单不产生 **Gate 2 待办**（`inboxKind` 落空）的成因，与列表/筛选侧的
+ * `getWorkCaseV5Group` 缺陷同源。
+ *
+ * 读法：优先取 `current_snapshot_projection`（完整 view）；若缺失，则用已派生的
+ * `group` 等字段重建一个等价 view，保持返回形状不变。
+ */
 function currentWorkCaseProjection(raw: Record<string, unknown>): WorkCaseV5View | null {
-  const view = deriveWorkCaseV5View(
-    raw.status,
-    raw.outcome,
-    raw.report_body,
-    raw.source_content_fingerprint,
-  )
-  return view.resolution === 'resolved' ? view : null
+  const snapshot = raw.current_snapshot_projection
+  if (snapshot !== null && typeof snapshot === 'object' && !Array.isArray(snapshot)) {
+    const view = snapshot as WorkCaseV5View
+    if (view.resolution === 'resolved') return view
+  }
+  const group = raw.group
+  if (typeof group !== 'string') return null
+  if (!WORKCASE_V5_STATUSES.includes(raw.status as (typeof WORKCASE_V5_STATUSES)[number])) return null
+  return {
+    resolution: 'resolved',
+    reason: null,
+    fingerprint: null,
+    status: raw.status as WorkCaseV5View['status'],
+    group: group as WorkCaseV5View['group'],
+    outcome: (raw.outcome as WorkCaseV5View['outcome']) ?? null,
+    has_result_draft: raw.has_result_draft === true,
+  }
 }
 
 function compareRecentActivity(a: RecentActivityBuildItem, b: RecentActivityBuildItem): number {

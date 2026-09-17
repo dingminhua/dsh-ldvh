@@ -856,6 +856,31 @@ function appendChangeLog(frontmatter, sig, summary) {
   ];
 }
 
+/**
+ * 21 §8：`reviews` 的 `at` 与署名由 Code 托管，**AI 不得自填**。
+ *
+ * `validateReviews` 要求每项 `{at, provider, model, summary}` 三项非空，但在此之
+ * 前没有任何写路径为其盖戳——调用方被迫自填 at/provider/model，与 §8 的「AI 不得
+ * 自填」直接冲突（三重矛盾：规范说 Code 管、schema 标 Code-managed、实现却要求
+ * 调用方传值）。本函数补上缺失的盖戳路径，与 `appendChangeLog` 同一纪律：
+ * `at` 取 Code 时钟、`provider`/`model` 取权威会话记录（`sig.signature`）。
+ *
+ * 只接受调用方提供的 `summary`；其余三项一律覆盖，调用方传什么都会被丢弃
+ * （防自欺：署名不可由被署名的一方提供）。已有条目的 `at`/署名同样被重新盖戳，
+ * 使整份流水始终由 Code 权威产生，不留历史自填值。
+ *
+ * 传入非数组（含 undefined）时原样返回，不虚构字段（03 §6.1）。
+ */
+function stampReviewEntries(reviews, sig) {
+  if (!Array.isArray(reviews)) return reviews;
+  const at = new Date().toISOString();
+  return reviews.map((entry) => ({
+    at,
+    ...sig.signature,
+    summary: isPlainObject(entry) && typeof entry.summary === "string" ? entry.summary : "",
+  }));
+}
+
 /** C2 guard: while open, plan and scope are frozen (21 §10.3). */
 function assertAuthorizedPairFrozen(before, after, issuesRef) {
   const fpBefore = computeAuthorizationFingerprint(before.plan, before.scope);
@@ -963,6 +988,10 @@ export async function executeWorkcaseObject(args) {
   next.status = "open";
   next.gate_1 = fm.gate_1;
   next.change_log = fm.change_log;
+  // 21 §8：`reviews` 每项的 `at` 与署名同样由 Code 托管——AI 只提供 `summary`。
+  // 与 change_log 的 `appendChangeLog(fm, sig, …)` 同一纪律（署名来自权威会话记录，
+  // 不可由调用方填写）。见下方 stampReviewEntries 的说明。
+  next.reviews = stampReviewEntries(next.reviews, sig);
 
   // C2 guard (21 §10.3): plan/scope frozen while open.
   const c2Issues = [];

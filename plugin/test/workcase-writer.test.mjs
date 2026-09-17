@@ -750,6 +750,42 @@ test("reviews: execute accepts a well-formed entry and persists it", async () =>
   });
 });
 
+test("reviews: Code stamps at/provider/model — caller-supplied values are discarded (21 §8)", async () => {
+  // 21 §8：`at` 与署名由 Code 托管，**AI 不得自填**。此前无写路径盖戳，调用方
+  // 被迫自填（三重矛盾）。本用例锁定修复后的不变量：调用方传什么署名都会被
+  // 权威会话记录覆盖，调用方实际只能决定 `summary`。
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid, after } = await approved(root);
+    const fm = { ...after.value.frontmatter };
+    fm.reviews = [{
+      at: "1999-01-01T00:00:00.000Z", // 伪造的旧时间戳
+      provider: "forged-provider", // 伪造的署名
+      model: "forged-model",
+      summary: "对象：本单；基线：plan 判据；方法：隔离子代理只读复核；覆盖：无；未覆盖：无；发现：无；保证边界：仅文本回读。",
+    }];
+    const res = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: fm,
+      bodyMarkdownAfter: bodyWithoutH1(after.value.body),
+      changeSummary: "录入复核概要（署名防伪用例）",
+      sessionSignature: SIG(),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    const entry = read.value.frontmatter.reviews[0];
+    assert.notEqual(entry.at, "1999-01-01T00:00:00.000Z", "caller-supplied at must be overwritten by Code");
+    assert.notEqual(entry.provider, "forged-provider", "caller-supplied provider must be overwritten by the authoritative record");
+    assert.notEqual(entry.model, "forged-model", "caller-supplied model must be overwritten by the authoritative record");
+    assert.equal(typeof entry.provider, "string");
+    assert.ok(entry.provider.length > 0 && entry.model.length > 0, "the stamped signature must be non-empty");
+    // 调用方唯一能决定的是概要内容。
+    assert.match(entry.summary, /^对象：本单/);
+  });
+});
+
 test("reviews: summary over 600 chars is rejected (21 §8 cap)", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);

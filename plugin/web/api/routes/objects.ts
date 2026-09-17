@@ -12,7 +12,6 @@ import {
   WORKCASE_V5_STATUSES,
   type WorkCaseV5Filter,
   type WorkCaseV5Group,
-  deriveWorkCaseV5View,
 } from '../../shared/workcaseLifecycle.js'
 import { getLatestChangeLogAt } from '../../shared/factChangeLog.js'
 
@@ -50,17 +49,25 @@ function getWorkCaseStatus(item: ListedObject): WorkCaseListStatus | null {
     : null
 }
 
-/** 由 item 可得字段（status / outcome / report_body / fingerprint）派生 v5 视图分组。 */
+/**
+ * 读取 item 上**已由权威派生点写入**的 v5 分组。
+ *
+ * 不得在此重算：列表投影已按载荷纪律剥离 `report_body`（`factFieldContract.ts`
+ * 的 `FACT_LIST_FIELD_NAMES` 把 workcase 整体排除），从被剥离的输入重算只会
+ * 得到 `executing`。权威派生点是 `facts.ts:projectCurrentWorkCaseCardShape`，
+ * 它拿完整 fact 算好后写入 `group`（并同时写入 `current_snapshot_projection`）。
+ *
+ * 历史缺陷（已修）：本函数原先自行调用 `deriveWorkCaseV5View(item.status,
+ * item.outcome, item.report_body ?? null, …)`——`report_body` 在列表项上恒为
+ * undefined，于是「open ∧ 正文含结果节」的工单被误判为 executing，
+ * `?lifecycle=awaiting_gate2` 恒返回 0、tab 计数恒 0、认知中心不产生 Gate 2 待办。
+ */
 function getWorkCaseV5Group(item: ListedObject): WorkCaseV5Group | null {
-  const status = getWorkCaseStatus(item)
-  if (status === null) return null
-  const view = deriveWorkCaseV5View(
-    status,
-    item.outcome ?? null,
-    item.report_body ?? null,
-    item.source_content_fingerprint ?? null,
-  )
-  return view.group
+  if (getWorkCaseStatus(item) === null) return null
+  const group = (item as Record<string, unknown>).group
+  return typeof group === 'string' && WORKCASE_LIST_GROUP_ORDER.includes(group as WorkCaseV5Group)
+    ? (group as WorkCaseV5Group)
+    : null
 }
 
 const STATUS_PRIORITY: Record<string, number> = {
@@ -104,23 +111,20 @@ function normalizeItem(value: unknown): ListedObject | null {
   const type = toStringValue(value.fact_type_key) || toStringValue(value.type)
   const status = toStringValue(value.status)
 
-  const v5View = type === 'workcase'
-    ? deriveWorkCaseV5View(
-      getWorkCaseStatus(value as ListedObject),
-      (value as Record<string, unknown>).outcome ?? null,
-      (value as Record<string, unknown>).report_body ?? null,
-      (value as Record<string, unknown>).source_content_fingerprint ?? null,
-    )
-    : null
-
   return {
     ...value,
     id,
     type,
     status,
-    // v5 WorkCase 派生分组（pending_gate1/executing/awaiting_gate2/closed），
-    // 由 workcaseLifecycle 统一派生，不写回对象；列表三态呈现仍可用 status。
-    ...(v5View ? { group: v5View.group, outcome: v5View.outcome, has_result_draft: v5View.has_result_draft } : {}),
+    // v5 WorkCase 派生分组（pending_gate1/executing/awaiting_gate2/closed）**不由本层
+    // 计算**：权威派生点只有一个——`facts.ts` 的 `projectCurrentWorkCaseCardShape`，
+    // 它拿到完整 fact（含 report_body）后算出 view，并写入 `group` / `outcome` /
+    // `has_result_draft` / `current_snapshot_projection`。`...value` 已把该结果带过来。
+    //
+    // 此处**故意不再重算**（历史缺陷，见 `getWorkCaseV5Group` 的注释）：列表投影按
+    // 载荷纪律剥离了 `report_body`（列表只带最小权威字段，正文属详情阅读面），
+    // 从被剥离的输入重算只会得到 executing，并把卡片算好的 awaiting_gate2
+    // **覆盖掉**——这正是 awaiting_gate2 档位恒为 0 的成因。
     title: toStringValue(value.title),
     title_en: toStringValue(value.title_en) || undefined,
     title_zh: toStringValue(value.title_zh) || undefined,
