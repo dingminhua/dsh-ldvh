@@ -7,10 +7,19 @@ export const STATUS_COLORS: Record<string, { light: string; dark: string }> = {
   // 类型精确语义映射不符（呈现缺陷 D8）。该键不为任何事实对象的 status 取值
   // 承担颜色（仓库内无 `status: executing` 的对象），只服务 WorkCase 派生分组。
   executing: { light: '#0284c7', dark: '#38bdf8' },
-  // Human 待确认使用紫色系（docs/01 §1.10.2）：WorkCase 的两个 Human Gate 待办
-  // 组同族——pending_gate1（待批准执行）与 awaiting_gate2（待批准关闭）。此前
-  // 两者在 STATUS_COLORS 中无条目，徽标落中性灰，无法与「推进中」区分。
-  pending_gate1: { light: '#8b5cf6', dark: '#a78bfa' },
+  // WorkCase 的两个 Human Gate 待办组**必须显著不同色**（Human 2026-09-17 指令：
+  // 「待批准执行与待批准关闭，标签需要使用显著的不同颜色」）。二者语义相反——
+  // pending_gate1 是「工单还没开始」（status=draft，等 Gate 1 放行）；
+  // awaiting_gate2 是「工单已经做完，等 Human 验收」（status=open ∧ 正文含结果节）。
+  // 此前两者同为紫 #8b5cf6，Human 扫读时无法一眼分辨「尚未开始」与「已完工待验收」。
+  //
+  // 选定：pending_gate1 用琥珀（与 draft/pending 待办族同源，它本就是 draft 派生）、
+  // awaiting_gate2 保留紫（Human 待确认紫系，docs/01 §1.10.2）。
+  // 实测：色相距离 134°（浅色 #d97706 32° vs #8b5cf6 258°）/ 143°（暗色），两模式均远超阈值。
+  // 对比度按**本仓库真实底色**（index.css 的 --ldvh-bg）计：浅色 #f8f9fb 上 3.02:1 与
+  // 4.02:1、暗色 #0a0a0f 上 9.20:1 与 7.26:1——均达非正文文本的 3:1 可读线。
+  // （勿改用「白底 / 某个深色」这类仓库外基准代替：基准错时不可读的色值会静默通过。）
+  pending_gate1: { light: '#d97706', dark: '#f59e0b' },
   awaiting_gate2: { light: '#8b5cf6', dark: '#a78bfa' },
   controller_checking: { light: '#2563eb', dark: '#60a5fa' },
   independent_reviewing: { light: '#4f46e5', dark: '#818cf8' },

@@ -14,6 +14,7 @@ import ServesSgBadge from '@/components/ServesSgBadge';
 import SummaryText from '@/components/SummaryText';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import { WorkCaseCriteriaList } from '@/components/WorkCaseCriteriaList';
+import WorkCaseGroupHint from '@/components/WorkCaseGroupHint';
 import { workCaseCheckStatement } from '@/utils/workcaseCheckState';
 import { fetchCognitionGoal, fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type ObjectItem, type ObjectStatusOption, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
@@ -111,7 +112,7 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
         {Array.isArray(obj.plan) && obj.plan.length > 0 ? (
           <WorkCaseCriteriaList className="mt-1.5" items={obj.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))} />
         ) : null}
-        <p className="ldvh-caption mt-1.5 text-amber-500 dark:text-amber-400">{t('objectList.workcaseAwaitingGate1')}</p>
+        <WorkCaseGroupHint group="pending_gate1" messageKey="objectList.workcaseAwaitingGate1" className="ldvh-caption mt-1.5" />
       </div>
     );
   }
@@ -133,7 +134,7 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
   if (group === 'awaiting_gate2') {
     return (
       <div className="min-w-0">
-        <p className="ldvh-caption mt-1.5 text-violet-500 dark:text-violet-400">{t('objectList.workcaseAwaitingGate2')}</p>
+        <WorkCaseGroupHint group="awaiting_gate2" messageKey="objectList.workcaseAwaitingGate2" className="ldvh-caption mt-1.5" />
         {Array.isArray(obj.plan) && obj.plan.length > 0 ? (
           <WorkCaseCriteriaList className="mt-1.5" items={obj.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))} />
         ) : null}

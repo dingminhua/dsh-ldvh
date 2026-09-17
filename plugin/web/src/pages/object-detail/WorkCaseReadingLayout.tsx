@@ -3,6 +3,7 @@ import { useI18n } from '@/i18n/context';
 import { getFieldLabel } from '@/i18n/locales';
 import { type WorkCaseDetailData } from '@/utils/api';
 import { WorkCaseCriteriaList, WORKCASE_CRITERIA_SURFACE_CLASS } from '@/components/WorkCaseCriteriaList';
+import WorkCaseGroupHint from '@/components/WorkCaseGroupHint';
 import { workCaseCheckChipClass, workCaseCheckStateLabel } from '@/utils/workcaseCheckState';
 import {
   ChangeLogReadingNode,
@@ -270,13 +271,12 @@ function ResponsibilityNodes({ obj, locale }: { obj: WorkCaseDetailData; locale:
 }
 
 function DraftBody({ obj, locale }: { obj: WorkCaseDetailData; locale: string }) {
-  const { t } = useI18n();
   return (
     <>
       <ResponsibilityNodes obj={obj} locale={locale} />
       <PlanNode obj={obj} locale={locale} />
       <ReviewsNode obj={obj} locale={locale} />
-      <p className="ldvh-body-muted text-amber-600 dark:text-amber-400">{t('objectDetail.workcaseAwaitingGate1')}</p>
+      <WorkCaseGroupHint group="pending_gate1" messageKey="objectDetail.workcaseAwaitingGate1" className="ldvh-body-muted" />
     </>
   );
 }
@@ -314,9 +314,12 @@ function ExecutingBody({ obj, locale }: { obj: WorkCaseDetailData; locale: strin
       ) : null}
       <PlanNode obj={obj} locale={locale} />
       <ReviewsNode obj={obj} locale={locale} />
-      {obj.has_result_draft ? (
-        <p className="ldvh-body-muted text-violet-600 dark:text-violet-400">{t('objectDetail.workcaseResultDraftPresent')}</p>
-      ) : null}
+      {/* 此处原先还有一条 `obj.has_result_draft` 提示（着 awaiting_gate2 色）。
+          它是**不可达代码**：派生规则里 `has_result_draft` 为真 ⇔ 正文已含「## 结果」
+          节 ⇔ group 必为 `awaiting_gate2`（shared/workcaseLifecycle.ts），而本函数只在
+          `group === 'executing'` 时渲染，故该分支的条件恒为假。同一提示已由
+          `AwaitingGate2Body` 在其正确的分组内承载；保留它会误导为「executing 组也可能
+          出现关闭准备窗口」，并让一条提示的着色入参与所在分组不一致。 */}
     </>
   );
 }
@@ -326,7 +329,7 @@ function AwaitingGate2Body({ obj, locale }: { obj: WorkCaseDetailData; locale: s
   return (
     <>
       <ResponsibilityNodes obj={obj} locale={locale} />
-      <p className="ldvh-body-muted text-violet-600 dark:text-violet-400">{t('objectDetail.workcaseAwaitingGate2')}</p>
+      <WorkCaseGroupHint group="awaiting_gate2" messageKey="objectDetail.workcaseAwaitingGate2" className="ldvh-body-muted" />
       <ProseNode
         title={t('objectDetail.workcaseResultDraft')}
         value={typeof obj.report_body === 'string' ? obj.report_body : ''}

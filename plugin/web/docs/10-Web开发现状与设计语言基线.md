@@ -1,6 +1,6 @@
 # Web 开发现状与设计语言基线
 
-> 更新：2026-09-17（§4.2 WorkCase 阅读视角更新为 v5 语义）
+> 更新：2026-09-17（§4.2 WorkCase 阅读视角更新为 v5 语义；两个 Gate 待办组配色区分）
 > 范围：`web/` 当前参考实现、页面开发文档和后续 Web 修改入口
 > 上位文档：[`01-全局设计约束.md`](./01-全局设计约束.md)
 
@@ -131,7 +131,20 @@ WorkCase 的呈现状态由 `status` 闭集三值（`draft` / `open` / `closed`�
 | `awaiting_gate2` | `status = open` ∧ 正文**含** H2「结果」节 | 待批准关闭 |
 | `closed` | `status = closed` | 已关闭 |
 
-派生组是**呈现层派生值，不写回对象**。它必须经语义映射本地化呈现（`getObjectStatusLocale` / `getObjectStatusHint`），不得裸露 `pending_gate1` 一类 raw snake_case；语义色按 `docs/01` §1.10.2 的精确映射：两个 Human Gate 待办组（`pending_gate1` / `awaiting_gate2`）用紫色系，`executing` 用天蓝色系，`closed` 用低饱和蓝灰。徽标的 tooltip 必须说明「这是派生分组、不是来源 status 取值」，避免 Human 把派生值误读为对象字段。
+派生组是**呈现层派生值，不写回对象**。它必须经语义映射本地化呈现（`getObjectStatusLocale` / `getObjectStatusHint`），不得裸露 `pending_gate1` 一类 raw snake_case。
+
+四个派生组的语义色按 `docs/01` §1.10.2 的精确映射，且**两个 Human Gate 待办组必须显著不同色**（Human 指令 2026-09-17）——二者语义相反，同色会使 Human 无法一眼分辨「尚未开始」与「已完工待验收」：
+
+| 派生组 | 语义 | 配色 |
+|---|---|---|
+| `pending_gate1` | 工单尚未开始，等 Gate 1 放行 | 琥珀（与 `draft`/`pending` 待办族同源） |
+| `executing` | 正在执行 | 天蓝 |
+| `awaiting_gate2` | 工单已做完，等 Gate 2 验收 | 紫（Human 待确认紫系） |
+| `closed` | 已关闭 | 低饱和蓝灰 |
+
+**着色必须单一来源**：徽标经 `StatusBadge → getStatusColor`（`utils/statusColors.ts`），卡内状态提示行经 `WorkCaseGroupHint` 调用**同一个**函数——不得在业务组件里硬编码 `text-amber-*` / `text-violet-*` 一类颜色类。两条平行路径必然分歧：曾出现 `pending_gate1` 的徽标是紫、而它自己的卡内提示是琥珀的矛盾，即同一张卡片里两种颜色说同一件事。
+
+徽标的 tooltip 必须说明「这是派生分组、不是来源 status 取值」，避免 Human 把派生值误读为对象字段。
 
 「待批准关闭」以「正文含 H2 结果节」为派生依据，因为该节是 `specs/21` §8 定义的**关闭提案正文承载**（关闭提案时必填）；**不得改用「Gate 2 已提请」一类运行期状态**——那不是事实源中可读的稳定内容。H2 识别须忽略代码围栏内的行，并容许 ≤3 空格缩进。
 
@@ -173,13 +186,15 @@ WorkCase 详情用于完整理解同一项当前责任。它**不自行渲染对
 身份头部（共享，不在此布局内重复）
 摘要 / 服务子目标 / 授权范围（四组共有，有值即显示）
 待批准执行：计划与判据 / 复核节点 / 待 Gate 1 批准标识
-执行中：attempt 执行现场 / 计划与判据 / 复核节点 / 结果草稿标识
+执行中：attempt 执行现场 / 计划与判据 / 复核节点
 待批准关闭：待 Gate 2 关闭标识 / 结果草稿正文 / 计划与判据 / 复核节点
 已关闭：终态判定 / 结果逐条核对 / 已证实范围 / 残留责任 / 计划与判据 / 复核节点 / Gate 1 授权
 关联对象（共享）
 变更历史（共享，默认折叠）
 YAML 数据、未解析结构与字段问题汇总（共享，默认折叠）
 ```
+
+**「结果草稿标识」只属于 `awaiting_gate2`，不属于 `executing`**：派生规则里 `has_result_draft` 为真 ⇔ 正文已含「## 结果」节 ⇔ `group = awaiting_gate2`（`shared/workcaseLifecycle.ts` 同一次派生同时给出 group 与该标记），故 `executing` 组内该标记恒为假。任何在 `executing` 分支渲染「关闭准备窗口」的写法都是不可达代码，且会让一条提示的着色入参与所在分组不一致——不得恢复。
 
 详情正文段一律使用**详情阅读层级**（`ReadingNodeSection` + `ResearchTextNodeContent`，14px 阅读基准），与其余六类阅读布局同款。`docs/01` §1.4 第 4 条明确：卡片判断项正文只用于 Card 的有限行数扫描窗口，详情页和阅读面板仍使用各自正文层级，**不得随之缩小**——详情不得复用 `ldvh-card-decision-body`（12px 卡片扫描层级）承载事实正文。
 

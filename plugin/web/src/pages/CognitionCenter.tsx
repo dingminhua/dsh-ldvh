@@ -40,6 +40,7 @@ import {
   type ObjectItem,
 } from '@/utils/api';
 import { WorkCaseCriteriaList } from '@/components/WorkCaseCriteriaList';
+import WorkCaseGroupHint from '@/components/WorkCaseGroupHint';
 import { workCaseCheckStatement } from '@/utils/workcaseCheckState';
 import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
@@ -212,7 +213,7 @@ function InboxCardContent({ item, t }: { item: CognitionInboxItem; t: Translate 
             items={item.card.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))}
           />
         ) : null}
-        <p className="ldvh-caption text-amber-500 dark:text-amber-400">{t('cognition.workcaseAwaitingGate1')}</p>
+        <WorkCaseGroupHint group="pending_gate1" messageKey="cognition.workcaseAwaitingGate1" className="ldvh-caption" />
       </div>
     );
   }
@@ -232,7 +233,7 @@ function InboxCardContent({ item, t }: { item: CognitionInboxItem; t: Translate 
         {item.card.gate_1 ? (
           <p className="ldvh-caption">{t('objectList.workcaseGate1', { approver: item.card.gate_1.approver ?? '—', approvedAt: item.card.gate_1.approved_at ?? '—' })}</p>
         ) : null}
-        <p className="ldvh-caption text-violet-500 dark:text-violet-400">{t('cognition.workcaseAwaitingGate2')}</p>
+        <WorkCaseGroupHint group="awaiting_gate2" messageKey="cognition.workcaseAwaitingGate2" className="ldvh-caption" />
       </div>
     );
   }

@@ -289,3 +289,210 @@ test('v4 residue stays out of the WorkCase presentation chain', () => {
     assert.doesNotMatch(workcaseOrder, new RegExp(`'${v4Field}'`), `model.ts 的 WorkCase 字段序不得含 v4 字段 ${v4Field}`);
   }
 });
+
+// ── 2026-09-17 补充（WC 52314cf8）：两个 Gate 待办组配色区分 ─────────────────
+//
+// Human 指令（2026-09-17）：「待批准执行与待批准关闭，标签需要使用显著的不同颜色」。
+// 二者语义相反——pending_gate1 是「工单还没开始」（status=draft，等 Gate 1 放行）、
+// awaiting_gate2 是「工单已做完，等 Human 验收」（status=open ∧ 正文含结果节）——
+// 同色会使 Human 无法一眼分辨。此前两者同为紫 #8b5cf6，且同一卡片内徽标与卡内
+// 提示还走两条互不相通的着色路径（徽标经 STATUS_COLORS、提示硬编码 Tailwind 类），
+// 造成 pending_gate1 的徽标是紫、提示却是琥珀的自相矛盾。
+
+/**
+ * 剥掉 `//`、`*`、`/*` 起始的行——注释里的同形文本不得参与断言。
+ *
+ * 这不是洁癖：`statusColors.ts` 的注释里**真的**出现过同形的历史色值行
+ * （本单修复前后都留有解释性注释）。若断言直接跑原文，一条注释形式的历史条目
+ * 就会抢先命中，使「真实条目已改回同色」的回归完全逃逸——该逃逸已实测复现
+ * （16/16 全绿）。同一文件下文的提示行守卫早已采用同样的剥注释做法，此处补齐。
+ */
+function stripCommentLines(source: string): string {
+  return source
+    .split('\n')
+    .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+}
+
+/**
+ * 从 statusColors.ts 取出某键的浅色/暗色色值（不硬编码 hex，色值可演进）。
+ *
+ * 只接受**恰好一条**声明：多于一条说明存在重复定义（如注释假命中或并列条目），
+ * 此时断言失败而不是取「第一个」——取首个正是上面所述逃逸的成因。
+ */
+function statusColorPair(source: string, key: string): { light: string; dark: string } {
+  const code = stripCommentLines(source);
+  const matches = [...code.matchAll(new RegExp(`\\b${key}: \\{ light: '(#[0-9a-fA-F]{6})', dark: '(#[0-9a-fA-F]{6})' \\}`, 'g'))];
+  assert.equal(
+    matches.length,
+    1,
+    `statusColors.ts 必须为 ${key} 恰好声明一条 light/dark 色值（实际 ${matches.length} 条）——` +
+    '多条即重复定义或注释假命中，不得取首个',
+  );
+  return { light: matches[0][1], dark: matches[0][2] };
+}
+
+/** 色相角（0–360）。 */
+function hueOf(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  if (delta === 0) return 0;
+  let hue = max === r ? ((g - b) / delta) % 6 : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4;
+  hue *= 60;
+  return hue < 0 ? hue + 360 : hue;
+}
+
+/** 两色的最短色相距离（0–180）。 */
+function hueDistance(a: string, b: string): number {
+  const raw = Math.abs(hueOf(a) - hueOf(b));
+  return Math.min(raw, 360 - raw);
+}
+
+/** WCAG 相对亮度与对比度。 */
+function relativeLuminance(hex: string): number {
+  const channel = (value: number) => (value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+  const [r, g, b] = [1, 3, 5].map((i) => channel(parseInt(hex.slice(i, i + 2), 16) / 255));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrastRatio(a: string, b: string): number {
+  const la = relativeLuminance(a);
+  const lb = relativeLuminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+test('the two Gate groups never share a colour, in either theme mode', () => {
+  const statusColors = readSource('web/src/utils/statusColors.ts');
+  const gate1 = statusColorPair(statusColors, 'pending_gate1');
+  const gate2 = statusColorPair(statusColors, 'awaiting_gate2');
+
+  // 两条断言分别覆盖浅色与暗色：任一模态同色即失败——只查浅色会漏掉暗色回归。
+  assert.notEqual(gate1.light, gate2.light, '浅色模式下两个 Gate 组不得同色');
+  assert.notEqual(gate1.dark, gate2.dark, '暗色模式下两个 Gate 组不得同色');
+});
+
+test('the two Gate groups are far enough apart in hue to be told apart at a glance', () => {
+  const statusColors = readSource('web/src/utils/statusColors.ts');
+  const gate1 = statusColorPair(statusColors, 'pending_gate1');
+  const gate2 = statusColorPair(statusColors, 'awaiting_gate2');
+
+  // 阈值 60°：Human 指令要求「显著」。60° 是相邻色相族的边界——低于它，
+  // 两色会落进同一色族（如紫 258° 与品红 292° 仅差 34°），扫读时不可靠。
+  for (const [mode, a, b] of [['浅色', gate1.light, gate2.light], ['暗色', gate1.dark, gate2.dark]] as const) {
+    const distance = hueDistance(a, b);
+    assert.ok(
+      distance >= 60,
+      `${mode}模式下两个 Gate 组色相距离须 ≥60°（实际 ${distance.toFixed(0)}°：${a} vs ${b}）——Human 要求「显著的不同颜色」`,
+    );
+  }
+});
+
+test('both Gate group colours stay readable against their own background, in both modes', () => {
+  const statusColors = readSource('web/src/utils/statusColors.ts');
+  const gate1 = statusColorPair(statusColors, 'pending_gate1');
+  const gate2 = statusColorPair(statusColors, 'awaiting_gate2');
+
+  // 背景取**本仓库真实的** --ldvh-bg 两档（浅色与暗色各一条）。
+  // 不得用「白底/某个深色」这类仓库外假设：模式只测一半，或基准不是本仓库的底色，
+  // 都会让不可读的色值静默通过（该缺口已实测复现：暗值改成深底不可读仍 16/16 全绿）。
+  const pageBg = readSource('web/src/index.css');
+  const backgrounds = [...pageBg.matchAll(/--ldvh-bg:\s*(\d+)\s+(\d+)\s+(\d+)/g)];
+  assert.equal(
+    backgrounds.length,
+    2,
+    `index.css 的 --ldvh-bg 必须有浅/暗两档（实际 ${backgrounds.length} 条）`,
+  );
+  const toHex = (r: string, g: string, b: string) =>
+    `#${[r, g, b].map((v) => Number(v).toString(16).padStart(2, '0')).join('')}`;
+  const [lightBackground, darkBackground] = backgrounds.map((m) => toHex(m[1], m[2], m[3]));
+
+  // 3:1 —— 大字号/非正文文本的最低可读线（两组提示用 caption/body-muted 层级）。
+  // 四种组合逐一断言：任一模态不可读即失败。
+  const cases = [
+    ['pending_gate1 / 浅色', gate1.light, lightBackground],
+    ['pending_gate1 / 暗色', gate1.dark, darkBackground],
+    ['awaiting_gate2 / 浅色', gate2.light, lightBackground],
+    ['awaiting_gate2 / 暗色', gate2.dark, darkBackground],
+  ] as const;
+  for (const [label, hex, background] of cases) {
+    const ratio = contrastRatio(hex, background);
+    assert.ok(
+      ratio >= 3,
+      `${label} 对比度须 ≥3:1（${hex} vs ${background}，实际 ${ratio.toFixed(2)}:1）`,
+    );
+  }
+});
+
+test('group colour comes from one source — no hardcoded colour class in the hint sites', () => {
+  const hintComponent = readSource('web/src/components/WorkCaseGroupHint.tsx');
+  // 剥掉注释行后再断言：否则「注释里提到 getStatusColor」会让守卫误判通过
+  // （该缺口已实测：把调用换成内联三元、仅留下解释性注释，守卫曾逃逸一次）。
+  const hintCode = hintComponent
+    .split('\n')
+    .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+
+  // 取色必须经共享函数调用，且**以 group 为输入**——与徽标 StatusBadge 同一函数、
+  // 同一入参，配色不可能分歧。断言调用形态而非标识符出现，防止「保留 import
+  // 但改走内联色值」的绕过。
+  assert.match(
+    hintCode,
+    /getStatusColor\(group\)/,
+    '卡内提示必须调用 getStatusColor(group)——与徽标同函数、同入参',
+  );
+  assert.match(hintCode, /from '@\/utils\/statusColors'/);
+  // 不得在组件内自持任何 hex 色值（那等于又开了第二条取色路径）。
+  assert.doesNotMatch(
+    hintCode,
+    /#[0-9a-fA-F]{6}/,
+    'WorkCaseGroupHint 不得自持 hex 色值——色值唯一来源是 STATUS_COLORS',
+  );
+
+  // 两处 Gate 提示所在的三个呈现面：不得再出现硬编码颜色类（两条路径各自的痕迹）。
+  for (const surface of ['web/src/pages/ObjectList.tsx', 'web/src/pages/CognitionCenter.tsx', 'web/src/pages/object-detail/WorkCaseReadingLayout.tsx'] as const) {
+    const source = readSource(surface);
+    for (const site of ['workcaseAwaitingGate1', 'workcaseAwaitingGate2']) {
+      const line = source.split('\n').find((candidate) => candidate.includes(site));
+      if (line === undefined) continue;
+      assert.doesNotMatch(
+        line,
+        /text-(amber|violet|purple|orange)-\d/,
+        `${surface} 的 ${site} 提示不得硬编码颜色类——必须经 WorkCaseGroupHint 从唯一来源取色`,
+      );
+    }
+  }
+});
+
+test('the closure-window hint never lives in the executing branch (mutually exclusive with its group)', () => {
+  const layout = readSource('web/src/pages/object-detail/WorkCaseReadingLayout.tsx');
+  const lifecycle = readSource('web/shared/workcaseLifecycle.ts');
+
+  // 派生不变量：has_result_draft 为真 ⇔ 正文含「## 结果」节 ⇔ group=awaiting_gate2。
+  // 同一次派生同时给出 group 与该标记，故 executing 组内该标记恒为假。
+  assert.match(
+    lifecycle,
+    /group: hasResultDraft \? 'awaiting_gate2' : 'executing'/,
+    '派生规则必须保持 executing 与 awaiting_gate2 互斥',
+  );
+  assert.match(lifecycle, /has_result_draft: hasResultDraft/);
+
+  // 因此 executing 分支不得渲染关闭准备窗口提示（那是不可达代码，且着色入参
+  // 与所在分组不一致——2026-09-17 已由独立复核发现并移除）。
+  const executingBody = layout.slice(
+    layout.indexOf('function ExecutingBody('),
+    layout.indexOf('function AwaitingGate2Body('),
+  );
+  assert.ok(executingBody.length > 0, '必须能定位 ExecutingBody');
+  assert.doesNotMatch(
+    executingBody,
+    /workcaseResultDraftPresent/,
+    'executing 分支不得承载关闭准备窗口提示——该分支不可达',
+  );
+  assert.doesNotMatch(
+    executingBody,
+    /group="awaiting_gate2"/,
+    'executing 分支内的提示不得标为 awaiting_gate2 组——着色入参须等于所在分组',
+  );
+});

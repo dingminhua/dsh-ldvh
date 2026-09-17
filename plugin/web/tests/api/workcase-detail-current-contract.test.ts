@@ -55,9 +55,14 @@ test('open detail exposes the attempt execution scene; draft awaits Gate 1', () 
   assert.match(layout, /attempt\.controller/);
   assert.match(layout, /attempt\.attempt_id/);
   assert.match(layout, /attempt\.heartbeat_at/);
-  // 结果草稿标记（关闭准备窗口）。
-  assert.match(layout, /has_result_draft/);
-  assert.match(layout, /workcaseResultDraftPresent/);
+  // 结果草稿标记（关闭准备窗口）**不在 executing 分支**——2026-09-17 复核确认它是
+  // 不可达代码：has_result_draft 为真 ⇔ 正文含「## 结果」节 ⇔ group=awaiting_gate2，
+  // 而本组仅在 group=executing 时渲染，条件恒假。同一提示由 AwaitingGate2Body 承载。
+  assert.doesNotMatch(
+    layout,
+    /workcaseResultDraftPresent/,
+    'executing 分支不得再承载关闭准备窗口提示——该分支不可达，且其着色入参与所在分组不一致',
+  );
   // draft 的待批准标识。
   assert.match(layout, /workcaseAwaitingGate1/);
   // 计划判据经 WorkCaseCriteriaList 呈现。
