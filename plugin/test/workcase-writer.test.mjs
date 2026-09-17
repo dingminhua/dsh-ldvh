@@ -665,6 +665,98 @@ test("rebatch: open→draft voids the attempt, drops gate_1/result, and attempt 
 });
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// 授权钉扎校验与 Code 托管字段锁定（21 §15.1 / §9.2 / §8）
+// ---------------------------------------------------------------------------
+
+test("rebatch: rejected when plan+scope is unchanged — no C2 invalidation has occurred (21 §15.1/§10.3)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { draft } = await createDraft(root);
+    const { uid, after } = await approved(root);
+    // 刻意不改 plan/scope：指纹与 gate_1 存储值相同 ⇒ 无 C2 失效事由 ⇒ 必须拒绝。
+    const res = await rebatchWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: { ...draft },
+      bodyMarkdownAfter: draftBody(draft),
+      changeSummary: "无实质变化的滥用重批",
+      sessionSignature: SIG(),
+    });
+    assert.ok(!res.ok, "rebatch without a substantive plan/scope change must be rejected");
+    assert.equal(res.error.code, "workcase/c2_not_invalidated");
+    // 拒绝后对象必须保持 open（不得进入 draft 从而绕开 Gate 2 的关闭门禁）。
+    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(read.value.frontmatter.status, "open");
+    assert.ok(read.value.frontmatter.gate_1, "gate_1 must survive a rejected rebatch");
+  });
+});
+
+test("rebatch: caller-supplied change_log is discarded — audit history cannot be injected (03 §9.5/21 §8)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { draft } = await createDraft(root);
+    const { uid, after } = await approved(root);
+    const historyBefore = after.value.frontmatter.change_log.length;
+    assert.ok(historyBefore >= 2, "fixture should already carry creation + approval entries");
+    const nextDraft = { ...draft, plan: [...draft.plan, { step: "重批新增步骤", done_criteria: "新步骤可判定" }] };
+    // 注入伪造的 change_log（企图清空并替换全部审计历史）。
+    const forged = [{ at: "1999-01-01T00:00:00.000Z", provider: "FAKE", model: "FAKE", summary: "伪造的历史" }];
+    const res = await rebatchWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: { ...nextDraft, change_log: forged },
+      bodyMarkdownAfter: draftBody(nextDraft),
+      changeSummary: "重批（含伪造 change_log 注入）",
+      sessionSignature: SIG(),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    const entries = read.value.frontmatter.change_log;
+    // 真实历史必须留存，伪造条目必须被丢弃。
+    assert.ok(!entries.some((e) => e.summary === "伪造的历史"), "forged change_log entry must be discarded");
+    assert.ok(
+      entries.length > forged.length,
+      "the object's real audit history must be preserved (only appended to, never replaced)",
+    );
+    const last = entries[entries.length - 1];
+    assert.match(String(last.summary), /C2 局部重批/);
+    assert.equal(last.provider, "p", "the appended entry carries the authoritative signature (SIG() provider)");
+  });
+});
+
+test("rebatch: reviews are voided with their essentials recorded in change_log (21 §9.2/§176)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { draft } = await createDraft(root);
+    const { uid, after } = await reviewed(root, await approved(root));
+    assert.equal(after.value.frontmatter.reviews.length, 1, "fixture should carry one review");
+    const nextDraft = { ...draft, plan: [...draft.plan, { step: "重批新增步骤", done_criteria: "新步骤可判定" }] };
+    const res = await rebatchWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: nextDraft,
+      bodyMarkdownAfter: draftBody(nextDraft),
+      changeSummary: "范围实质变化，重批",
+      sessionSignature: SIG(),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    // draft 不得携带 reviews（21 §8 不变量），且重批要点须在 change_log 留痕（21:176 的历史要求）。
+    assert.equal(read.value.frontmatter.reviews, undefined, "reviews must not survive into draft");
+    const last = read.value.frontmatter.change_log[read.value.frontmatter.change_log.length - 1];
+    assert.match(
+      String(last.summary),
+      /reviews 随授权失效作废/,
+      "the voided review must leave a trace in change_log (history is not lost)",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // cancel / revise / terminal read-only (21 §9.2 / §14)
 // ---------------------------------------------------------------------------
 

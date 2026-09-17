@@ -1106,6 +1106,35 @@ export async function rebatchWorkcaseObject(args) {
     return failure("workcase/transition_invalid", `rebatch requires status=open (C2 invalidation happens while executing), got ${JSON.stringify(fm.status)} (21 §10.3)`);
   }
 
+  // 授权钉扎校验（21 §15.1 / §10.3）：局部重批的**法定前提**是「授权确已失效」——
+  // 即 `gate_1.authorization_fingerprint` 与当前 plan+scope 内容指纹**不一致**。
+  //
+  // 为何在此校验（而非在 open 期比对）：while open，plan/scope 被
+  // `assertAuthorizedPairFrozen` 冻结，故存储指纹恒等于当前内容指纹；真正的失效
+  // 只可能由「重批时改动 plan/scope」造成。因此本校验的形式是「新指纹必须**不等**
+  // 于存储指纹」——若相等，说明 plan/scope 未被实质改动，本次 rebatch 没有法定
+  // 事由，属滥用。
+  //
+  // 补此校验前，任何 open 工单都可被主动 rebatch（无须真实 C2 失效），再经
+  // draft→cancel 关闭——绕过 Gate 2 的关闭门禁（21 §14 的 reviews 前置）。
+  const gate1Fingerprint = fm.gate_1?.authorization_fingerprint;
+  if (typeof gate1Fingerprint === "string" && gate1Fingerprint.length > 0) {
+    const nextFingerprint = computeAuthorizationFingerprint(
+      stripCallerOnlyFields(frontmatterAfter).plan,
+      stripCallerOnlyFields(frontmatterAfter).scope,
+    );
+    if (nextFingerprint === gate1Fingerprint) {
+      return failure(
+        "workcase/c2_not_invalidated",
+        "rebatch requires the authorization to have actually been invalidated (21 §15.1/§10.3): the submitted "
+        + "plan+scope carries the SAME content fingerprint as gate_1.authorization_fingerprint, so no C2 invalidation "
+        + "has occurred. Local rebatch is only legal when plan or scope substantively changed (plan steps added/removed, "
+        + "done_criteria rewritten, scope widened or boundary rewritten). If nothing substantive changed, execute in place "
+        + "is the legal path — do not rebatch.",
+      );
+    }
+  }
+
   const next = structuredClone(stripCallerOnlyFields(frontmatterAfter));
   next.object_uid = fm.object_uid;
   next.fact_type_key = WORKCASE_TYPE_KEY;
@@ -1118,7 +1147,26 @@ export async function rebatchWorkcaseObject(args) {
   delete next.result;
   delete next.outcome;
   delete next.gate_1;
-  appendChangeLog(next, sig, `${changeSummary} [C2 局部重批 open→draft; attempt ${voidedAttempt ?? "none"} voided, gate_1 dropped — 重新组织后重走 Gate 1]`);
+  // Code 托管字段锁定（03 §9.5 / 21 §8）：`change_log` 是「每次实际修改恰好一条」的
+  // 权威流水，只能由 Code 追加。`next` 来自调用方 payload，故必须显式回落为
+  // `fm.change_log`——否则调用方可在 `frontmatter_after` 里注入伪造条目，把对象的
+  // 全部审计历史整体替换（起草者实测：传一条伪造条目即清空 2 条真实历史）。
+  // `execute`/`revise`/`cancel` 均已如此锁定，`rebatch` 此前漏做。
+  next.change_log = fm.change_log;
+  // `reviews` 处置（21 §9.2/§176）：重批使 `plan`/`scope` 实质变化，旧复核针对的是
+  // **旧授权范围**，故不得延续为当前授权下的复核记录。但 21:176 又要求「不丢历史」。
+  // 二者以 §9.2 对 `criteria_checks` 的既有处置范式调和：**作废字段值 + 要点入
+  // change_log**（复核概要的条目数/署名/时间以语义摘要形式留痕），既守住
+  // 「draft 不得携带 reviews」的既有不变量（writer:472），又不丢历史。
+  const voidedReviews = Array.isArray(fm.reviews) ? fm.reviews.length : 0;
+  delete next.reviews;
+  appendChangeLog(
+    next,
+    sig,
+    `${changeSummary} [C2 局部重批 open→draft; attempt ${voidedAttempt ?? "none"} voided, gate_1 dropped`
+    + `${voidedReviews > 0 ? `, ${voidedReviews} 条 reviews 随授权失效作废（旧复核针对旧 plan/scope；概要要点见本条语义摘要）` : ""}`
+    + ` — 重新组织后重走 Gate 1]`,
+  );
 
   const servesCheck = await resolveServes(factSourceRoot, next.serves);
   if (servesCheck) return servesCheck;

@@ -173,7 +173,7 @@ frontmatter 闭集：
 - `draft → open`（**Gate 1**）：Human 明确批准后经受控更新落盘 `gate_1` 并翻转状态；同一事务追加恰好一条 change_log。批准只覆盖 `scope_snapshot` 记载的范围。
 - `draft → closed`（`outcome = cancelled`）：计划未经执行即被明确取消，Human Gate；`result` 记录取消理由与未发生的范围。
 - `open → closed`（**Gate 2**）：Human 依据 `result` 逐条核对结论判定 `outcome` 后翻转；`complete` 不自动等于复核通过或整体完成（02 §11 边界）。
-- `open → draft`（**C2 局部重批**）：执行中 `plan` 或 `scope` 发生实质变化，使 `authorization_fingerprint` 不再匹配时，授权在受影响范围自动失效并回到待批准；`attempt` 作废（不续跑）。**回退时 `result` 与 `outcome` 必须一并清空**（保持「`result`/`outcome` 出现 ⇔ `status = closed`」不变量）——已取得的核对证据不留在对象字段中，而是写入当次 `change_log` 条目的语义摘要（记录「重批原因 + 当时已完成的 `criteria_checks` 快照结论」），作为历史依据保留。重批只针对受影响范围，不整单重走。**`reviews` 不在清空之列**：它记录「该次复核确实发生过」这一历史事实，与 `plan`/`scope` 是否被重批无关；重批后保留原值，其指向的旧计划范围由该条目的 `at` 与被重批的事实共同界定。
+- `open → draft`（**C2 局部重批**）：执行中 `plan` 或 `scope` 发生实质变化，使 `authorization_fingerprint` 不再匹配时，授权在受影响范围自动失效并回到待批准；`attempt` 作废（不续跑）。**回退时 `result` 与 `outcome` 必须一并清空**（保持「`result`/`outcome` 出现 ⇔ `status = closed`」不变量）——已取得的核对证据不留在对象字段中，而是写入当次 `change_log` 条目的语义摘要（记录「重批原因 + 当时已完成的 `criteria_checks` 快照结论」），作为历史依据保留。重批只针对受影响范围，不整单重走。**`reviews` 随授权失效而作废，其历史要点记入 `change_log`**：旧复核针对的是**旧 `plan`/`scope`**，重批改变了授权范围，故不得延续为当前授权下的复核记录——`draft` 不得携带 `reviews`（§9.1）。但「该次复核确实发生过」是**历史事实**，不因重批而消失，故其要点（条数、时间与署名）以语义摘要形式随该次重批的 `change_log` 条目留痕，与本条对 `criteria_checks` 的处置**同形**（见上）。重批后若需再次关闭，须按 §14 重新执行独立复核。（2026-09-17 修订：原文为「`reviews` 不在清空之列…重批后保留原值」，与 §9.1「`draft` 不得携带 `reviews`」不可调和——`rebatch` 的结果恰为 `draft`，该表述在实现上无法成立；改为「作废 + 要点入 `change_log`」，既守住 `draft` 不变量又不丢历史。）
 
 **`reviews` 的录入时机与 C2 的关系**：录入属执行期受控更新（§14），随每次实际执行的独立复核追加。录入 `reviews` **不改变** `plan` 或 `scope`，故**不触发 C2**；反之，若复核发现导致 `plan`/`scope` 实质变化，则按上一条走 C2 局部重批。
 
@@ -278,7 +278,7 @@ attempt 令牌回答「当前谁在做、做到哪里」，**不承载任何授�
 
 本类型在 03 §9 公共契约之外的特有验证（与固定收尾章节 §16 验证表互补）：
 
-- 授权钉扎校验：`gate_1.authorization_fingerprint` 与当前 `plan`+`scope` 内容指纹一致，不一致即授权失效并生成局部重批待办；
+- 授权钉扎校验：`gate_1.authorization_fingerprint` 与当前 `plan`+`scope` 内容指纹一致，不一致即授权失效并生成局部重批待办。**机械落地**：`status = open` 期间 `plan`/`scope` 被冻结（§10.3），故存储指纹恒等于当前内容指纹；真正的失效只可能由**重批时改动 `plan`/`scope`** 造成，故该校验落在 `rebatch` 入口——提交的 `plan`+`scope` 指纹**必须不等于** `gate_1.authorization_fingerprint`，相等即说明无 C2 失效事由，**拒绝该次重批**（`workcase/c2_not_invalidated`）。（2026-09-17 修订：此前该校验在实现中不存在——`authorization_fingerprint` 只被计算与形状校验，从无比对；后果是任何 `open` 工单可被主动重批并经 `draft → cancel` 关闭，绕开 Gate 2 的关闭门禁。）
 - attempt 唯一性：至多一个活跃 attempt；存在孤立 attempt 时，未完成副作用核对不得续跑或作废；
 - 关闭完整性：`closed` 时 `result` 非空、`outcome` 在闭集内、`criteria_checks` 与 `plan` 逐条对应且长度一致；
 - 复核记录完备性：`reviews` 每项形状为 `{at, provider, model, summary}`，`summary` 非空且 ≤ 600 字符，条数 ≤ 20；超限或形状非法即拒绝写入，不得截断、压缩或静默丢弃；
