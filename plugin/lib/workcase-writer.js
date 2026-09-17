@@ -137,6 +137,26 @@ function success(value) {
   return { ok: true, value };
 }
 
+/**
+ * 21 §8「执行」节记账纪律的**前置提示**载荷。
+ *
+ * 属纯告知：把当前 plan 的权威编号清单随写入响应一并交给调用方，使「计划步骤 N」
+ * 的 N 有据可依，而不必回查 frontmatter。**不含任何校验或拒绝规则**——同类机械
+ * 校验已被实测证伪（它抓不到纯「步骤 N」形态的原错误，却会拒绝如实引述该编号的
+ * 记述，并诱使作者不写编号以规避检查）。
+ *
+ * 在 approve 与 execute 两处返回：approve 是授权时点、execute 是实际写正文的
+ * 时点；跨会话接力时执行者未必持有 approve 的返回值，故两处都要给。
+ */
+function planStepReference(plan) {
+  const list = Array.isArray(plan) ? plan : [];
+  return {
+    rule: "正文引用计划步骤时使用「计划步骤 N」，N 以本清单为界；非计划步骤的执行事项（复核、补充验证、收尾等）独立描述，不得编入计划序号（21 §8）",
+    plan_length: list.length,
+    steps: list.map((item, index) => ({ n: index + 1, step: item.step })),
+  };
+}
+
 function h2Titles(body) {
   const out = [];
   const lines = body.replace(/\r\n?/g, "\n").split("\n");
@@ -938,7 +958,17 @@ export async function approveWorkcaseObject(args) {
     const content = sectionContent(body, BODY_H2_EXECUTION) ?? "";
     body = replaceSection(body, BODY_H2_EXECUTION, `${content}\n- attempt ${attemptId} started at ${now} (controller: ${controller})；Gate 1 授权范围见 gate_1.scope_snapshot。`);
   }
-  return writeValidated(factSourceRoot, next, body);
+  const written = await writeValidated(factSourceRoot, next, body);
+  // 21 §8「执行」节记账纪律的前置提示：授权是执行期写正文的**最早**时点，此处把当前
+  // plan 的权威编号清单直接交给调用方，使「计划步骤 N」的 N 有据可依，不必回查
+  // frontmatter。属**前置告知**，不含任何校验或拒绝规则——同类机械校验已被实测证伪
+  // （它抓不到纯「步骤 N」形态的原错误，却会拒绝如实引述该编号的记述）。此处只把
+  // 事实摆在写入之前。
+  if (!written.ok) return written;
+  return success({
+    ...written.value,
+    plan_step_reference: planStepReference(next.plan),
+  });
 }
 
 function replaceSection(body, h2Title, newContent) {
@@ -1022,7 +1052,10 @@ export async function executeWorkcaseObject(args) {
   if (relCheck) return relCheck;
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
-  return writeValidated(factSourceRoot, next, body);
+  // 跨会话接力时执行者未必持有 approve 的返回值，故 execute 亦带前置提示（纯告知）。
+  const written = await writeValidated(factSourceRoot, next, body);
+  if (!written.ok) return written;
+  return success({ ...written.value, plan_step_reference: planStepReference(next.plan) });
 }
 
 // ---------------------------------------------------------------------------

@@ -60,7 +60,7 @@ const OPERATIONS = {
   "workcase-write-object": {
     toolName: "ldvh_workcase_write",
     writeShaped: true,
-    summary: "Controlled write of WorkCase fact objects across the 工单 lifecycle: create (C1 提案, draft), approve (Gate 1: stamps authorization fingerprint + attempt 1), execute (open-period; plan/scope frozen by C2), close (Gate 2: result+outcome, attempt 收口), rebatch (C2 局部重批 open→draft), cancel (draft→closed cancelled), revise (draft evolution) (specs/03 §9.4–§9.5, specs/21 §14)",
+    summary: "Controlled write of WorkCase fact objects across the 工单 lifecycle: create (C1 提案, draft), approve (Gate 1: stamps authorization fingerprint + attempt 1; returns plan_step_reference — the authoritative 「计划步骤 N」清单), execute (open-period; plan/scope frozen by C2), close (Gate 2: result+outcome, attempt 收口), rebatch (C2 局部重批 open→draft), cancel (draft→closed cancelled), revise (draft evolution) (specs/03 §9.4–§9.5, specs/21 §14). 写「执行」节时引用计划步骤请用「计划步骤 N」（21 §8 记账纪律）",
     effect: "may_change_state"
   }
 };
@@ -585,7 +585,7 @@ function parameterSchemaFor(operationKey) {
             required: ["achieved_scope"],
             additionalProperties: false
           },
-          body_markdown_after: { type: "string", description: "execute/close/rebatch/cancel/revise: the complete next body starting with '## 摘要' (no H1 — generated from title)" },
+          body_markdown_after: { type: "string", description: "execute/close/rebatch/cancel/revise: the complete next body starting with '## 摘要' (no H1 — generated from title). 「执行」节记账纪律（21 §8）：引用计划步骤时写「计划步骤 N」，N 以当前 plan 为界（approve 返回的 plan_step_reference 给出权威清单）；复核、补充验证、收尾等非计划步骤事项独立描述，不要续编进计划序号——plan 的位置序号是该类型唯一的计划步骤编号体系" },
           ...casArgs,
           frontmatter_after: (() => { const { required: _r, ...rest } = workcaseFrontmatter; return { ...rest, description: "execute/rebatch/revise: the complete target frontmatter fields (Code-managed fields are overwritten by the writer)" }; })(),
         },
