@@ -54,8 +54,10 @@ result:
         7ec131fa…）。
       satisfied: true
   residual:
-    - specs/10 §5.2 正文尚未同步修订——Human 已裁定解除「卡片网格不承载关联对象」，但规范条文修订属另行议程，本单授权明示不改
-      specs/。
+    - 规范正文无需修订（原判断有误，2026-09-16 更正）：specs/10 §5.2 从未包含「卡片网格不承载关联对象」——该说法是
+      3e0cbcc 提交 message 的错误引注，§5.2 在该提交前后逐字相同，其首条要点明列「关联计数」，本就允许卡片承载关联。§5.1「不渲染关联关系」只约束第一层（字段级直读），与第二层卡片网格互不替代。错误引注已在本单
+      7e0f377 的代码注释中清除；本节原第一条遗留据此撤销。
+    - 2026-09-13 卡头撤 chip 的裁定理由可追溯地记录在一个错误规范引注上（实为呈现位置取舍，非规范要求）。卡头扫描序维持现状（本单未回退该裁定），但该裁定的**理由**不成立，登记为可追溯性缺陷。
     - refs 在列表卡复用生命周期状态图标（getFactAssociationState），语义上 refs
       为普通内容关联而非生命周期关系，可议但非本单引入。
     - FactCardAssociation 类型对 refs 条目的建模松弛（声明 target? 而 refs 实为
@@ -104,6 +106,14 @@ change_log:
       属执行期受控更新、要求对象为 open，本次在 Gate 2 关闭后才尝试写入故被机械拒绝，构成记录缺陷；复核本身已于
       2026-09-16 实际执行（结论「有条件通过」，其发现 1 已在本单内处置并提交 c1d0e26），非伪造。依 21 §9.2「若原终态记录本身错误，按事实更正规则修正，不把更正伪装成领域状态转换」与 03 §9.5，经
       Human 裁定在本对象补录 reviews，不重开、不新建对象。
+  - at: 2026-09-17T00:12:00.000Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 事实更正（非状态转换）——撤销「specs/10 §5.2 待修订」遗留并更正扩围依据。复核规范源原文与
+      Git 历史确认：§5.2 从未包含「卡片网格不承载关联对象」，其在 3e0cbcc 前后逐字相同且首条要点明列「关联计数」；该说法系
+      3e0cbcc 提交 message 的错误引注，被本单沿用并向 Human 转述。故本次扩围不构成规范面变更、无需规范修订（Human
+      裁定授权实现面改动仍然有效，仅其引用的规范理由不成立）；错误引注已在本单 7e0f377 的代码注释中清除。依
+      21 §9.2 按事实更正规则修正，不伪装为状态转换，specs/10 保持原样。
 ---
 
 # spark 非终态卡关联呈现
@@ -127,7 +137,8 @@ change_log:
 
 - attempt 1：2026-09-16T23:29:51.839Z 起（controller: dsh-ldvh 主控 AI（deepseek-v4.1-flash））；Gate 1 授权范围见 gate_1.scope_snapshot。
 - 现象核实与缺口定位（判据 1）：**推翻了本单创建时的假设**。SparkCardContent 对 open 返回 null 属实，但 ObjectCardFrame 无条件渲染关联段，故渲染层状态分支不构成缺口。真实缺口在数据层——`projectFactRefs` 只在 `showObject`（详情）调用，`projectListItemWithAssociations`（列表）只投影 relations 且**从不投影 refs**。实测 `listObjects('spark')` 全 44 项 `factRefs` 恒为 ABSENT；`factAssociations` 仅在部分终态 spark 出现。用户所见状的具体项 = spark-42086862（open，带 3 条 refs），其列表投影 `factRefs` 亦为 ABSENT，而详情投影为 3 条——同一对象的关联在两层阅读器不一致。
-- 扩围裁定（Human，2026-09-16）：上述定位使原 scope「复用现有组件路径、不为 spark 单独发明新形态」不足以修复现象（修复须动列表投影层并新增 refs 的卡片呈现路径）。Human 就两个候选方案裁定「按定位结果扩围：列表投影补 factRefs + 卡片呈现 refs，解除 10 §5.2『卡片网格不承载关联对象』的既有裁定」。本裁定为规范面变更的依据来源，规范正文同步归遗留项。
+- 扩围裁定（Human，2026-09-16）：上述定位使原 scope「复用现有组件路径、不为 spark 单独发明新形态」不足以修复现象（修复须动列表投影层并新增 refs 的卡片呈现路径）。Human 就两个候选方案裁定「按定位结果扩围：列表投影补 factRefs + 卡片呈现 refs」。
+- **扩围依据的更正（2026-09-16 本次补正）**：当时向 Human 转述的扩围选项写着「解除 10 §5.2『卡片网格不承载关联对象』的既有裁定」，该表述**错误**。复核规范源原文与 Git 历史后确认：specs/10 §5.2 从未包含此禁止性条文，该说法源自 3e0cbcc 的提交 message 错误引注，并被本单沿用。因此本次扩围**不构成规范面变更**、也不需要规范修订——它只是在规范本就允许的范围内（§5.2「关联计数」）恢复呈现。§5.1「不渲染关联关系」约束第一层字段级直读，与第二层卡片网格互不替代（§5 首段：四层互不替代）。Human 的扩围裁定本身仍然有效（它授权的是实现面改动），只是其引用的规范理由不成立。
 - 实施：`facts.ts` 列表路径补投影 `factRefs`（复用既有 `projectFactRefs`，解析规则单点未改）；`ObjectList.tsx` 的 `FactAssociationsCardContent` 并列消费 `factAssociations` 与 `factRefs`，非终态卡与终态卡走同一组件路径，卡头扫描序不变。
 - 独立复核（2026-09-16，冷读单视角）：结论 **有条件通过**——无越权改动、四项工程声明全部复核成立；发现 1「去重键不区分来源，当前『不合并去重』的安全来自 refs 恰好没有 target 字段这一偶然事实，一旦补上将静默丢弃 refs」已在本单内处置（去重键加 source 前缀分组隔离 + 断言钉住，提交 c1d0e26）。发现 2/5（既有类型建模松弛、refs 复用生命周期状态图标）非本单引入，登记为观察不处置。发现 4（gate_1.scope_snapshot 未随扩围回写）如实登记为授权记录的内部张力——snapshot 由 Code 在 approve 时机械加盖，本单不回改，扩围事实以 change_log 与 approve 摘要承载。
 
@@ -138,5 +149,5 @@ change_log:
 - 判据 3（契约测试断言）：**满足**。证据=`spark-refs-projection.test.ts` 新增「list cards project factRefs with the same contract as the detail read」（列表/详情两层一致 + 分工纪律）；`spark-reading-contract.test.ts` 以新断言取代已失效的「卡片不承载 refs」禁止断言（原 2026-09-13 裁定的禁止项被 Human 扩围显式解除）。
 - 判据 4（三件套、dist、受控提交）：**满足**。证据=tsc exit 0；web 测试 250/250 通过；eslint 无新增（`facts.ts` 残留 1 项为既有未用参数，仅行号位移 442→448，已对 HEAD 版本比对确认）；dist 重建且 index.html 引用新 hash（7e0f377 后 `index-BBWdRIOT.js`，c1d0e26 后 `index-CbXCDlKi.js`）；两次提交 Git Gate 均 passed（snapshot_identity `fccc69bd…` / `7ec131fa…`）。
 - achieved_scope：列表路径补投影 `factRefs` + 卡片呈现 `refs`（与 relations 同组件路径并列）+ 契约测试同步 + dist 重建 + 受控提交（7e0f377、c1d0e26）。open spark 卡关联呈现缺口已消除，两层阅读器契约一致。
-- residual：① `specs/10` §5.2 正文尚未同步修订——Human 已裁定解除该项，但规范条文修订属另行议程，本单不改 specs/（授权明示）；② refs 在列表卡复用生命周期状态图标（`getFactAssociationState`）语义上可议，非本单引入，未处置；③ `FactCardAssociation` 类型对 refs 条目的建模松弛（声明 `target?` 而 refs 实为 `objectUid`）系既有问题，未处置；④ 列表卡 ref 行数多时的视觉高度未做目视确认。
+- residual：① ~~`specs/10` §5.2 正文尚未同步修订~~ **本项已撤销（2026-09-16 更正）**：§5.2 从未包含该禁止条文，无需修订，详见「扩围依据的更正」；② refs 在列表卡复用生命周期状态图标（`getFactAssociationState`）语义上可议，非本单引入，未处置；③ `FactCardAssociation` 类型对 refs 条目的建模松弛（声明 `target?` 而 refs 实为 `objectUid`）系既有问题，未处置；④ 列表卡 ref 行数多时的视觉高度未做目视确认；⑤ 2026-09-13 卡头撤 chip 的理由记录在错误规范引注上，可追溯性缺陷。
 
