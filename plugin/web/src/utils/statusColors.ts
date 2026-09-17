@@ -2,7 +2,16 @@ export const STATUS_COLORS: Record<string, { light: string; dark: string }> = {
   active: { light: '#059669', dark: '#00d4aa' },
   human_plan_confirming: { light: '#8b5cf6', dark: '#a78bfa' },
   plan_revising: { light: '#0284c7', dark: '#38bdf8' },
-  executing: { light: '#059669', dark: '#00d4aa' },
+  // 21 号三态直读派生分组：executing（推进中）按 docs/01 §1.10.2 用**天蓝色系**
+  // ——此前为绿色，与「Human 待确认紫 / 推进中天蓝 / 已关闭低饱和蓝灰」的
+  // 类型精确语义映射不符（呈现缺陷 D8）。该键不为任何事实对象的 status 取值
+  // 承担颜色（仓库内无 `status: executing` 的对象），只服务 WorkCase 派生分组。
+  executing: { light: '#0284c7', dark: '#38bdf8' },
+  // Human 待确认使用紫色系（docs/01 §1.10.2）：WorkCase 的两个 Human Gate 待办
+  // 组同族——pending_gate1（待批准执行）与 awaiting_gate2（待批准关闭）。此前
+  // 两者在 STATUS_COLORS 中无条目，徽标落中性灰，无法与「推进中」区分。
+  pending_gate1: { light: '#8b5cf6', dark: '#a78bfa' },
+  awaiting_gate2: { light: '#8b5cf6', dark: '#a78bfa' },
   controller_checking: { light: '#2563eb', dark: '#60a5fa' },
   independent_reviewing: { light: '#4f46e5', dark: '#818cf8' },
   closure_preparing: { light: '#0284c7', dark: '#38bdf8' },

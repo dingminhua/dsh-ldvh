@@ -7,6 +7,9 @@ import SummaryText from '@/components/SummaryText';
  * 详情页用 `WORKCASE_CRITERIA_SURFACE_CLASS` 把它包成带稳定身份的轻量面板
  * （10 §5.3 语义详情），即消费方在 WorkCaseReadingLayout 的 PlanNode /
  * ResidualNode，而非在本组件内自行切换信息密度。
+ *
+ * 判据核对状态（satisfied 三态）的映射与呈现词条不在此文件——见
+ * `@/utils/workcaseCheckState`（详情/列表卡/收件箱共用的单一实现）。
  */
 export const WORKCASE_CRITERIA_SURFACE_CLASS =
   'min-w-0 rounded-md border border-blue-400/20 border-l-2 border-l-blue-400/80 bg-blue-500/[0.025] px-3 py-2.5 dark:bg-blue-950/20';

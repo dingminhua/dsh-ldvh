@@ -40,6 +40,7 @@ import {
   type ObjectItem,
 } from '@/utils/api';
 import { WorkCaseCriteriaList } from '@/components/WorkCaseCriteriaList';
+import { workCaseCheckStatement } from '@/utils/workcaseCheckState';
 import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { useI18n } from '@/i18n/context';
@@ -225,7 +226,7 @@ function InboxCardContent({ item, t }: { item: CognitionInboxItem; t: Translate 
         ) : null}
         {item.card.result?.criteria_checks && item.card.result.criteria_checks.length > 0 ? (
           <WorkCaseCriteriaList
-            items={item.card.result.criteria_checks.map((c, index) => ({ key: String(index), statement: `${c.satisfied ?? ''} · ${c.evidence ?? ''}` }))}
+            items={item.card.result.criteria_checks.map((c, index) => ({ key: String(index), statement: workCaseCheckStatement(c, t) }))}
           />
         ) : null}
         {item.card.gate_1 ? (

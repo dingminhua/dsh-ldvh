@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useI18n } from '@/i18n/context';
+import { getWorkCaseGroupLabel } from '@/i18n/locales';
 import type { FactCoverageStatus, WorkCaseLifecycleOption, WorkCaseListGroup, WorkCaseV5Filter } from '@/utils/api';
 
 /**
@@ -41,7 +42,7 @@ export default function WorkCaseProgressFilter({
   loading = false,
   coverageStatus = 'complete',
 }: WorkCaseProgressFilterProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const counts = useMemo(
     () => new Map(options.map((option) => [option.group, option.count])),
     [options],
@@ -69,7 +70,7 @@ export default function WorkCaseProgressFilter({
             onClick={() => onChange(group)}
             className={getButtonClass(activeGroup === group)}
           >
-            {t(`objectList.workcaseGroup.${group}`)}
+            {getWorkCaseGroupLabel(group, locale)}
             <span className="ldvh-tab-count">
               {loading ? '·' : formatCoverageCount(counts.get(group) ?? 0, coverageStatus)}
             </span>

@@ -64,9 +64,23 @@ export function getStatusLocale(status: string, locale: string): string {
 
 // 状态码可在不同事实对象中复用，但展示语义不必相同。Spark 的 `open`
 // 表示「尚待判断或分流」，不是 WorkCase 式的「未关闭」。
+//
+// 本表是**类型专属展示词条的唯一来源**：徽标（StatusBadge ← getObjectStatusLocale）、
+// 列表卡、详情身份头部、联邦与热点图都经 getObjectStatusLocale 取词条。筛选器的
+// 分组标签亦由此派生（见 WORKCASE_GROUP_STATUSES / getWorkCaseGroupLabel），
+// 不得在 UI_LOCALES 里再登记一份同义词条——两处登记必然漂移。
 const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: string }>> = {
   workcase: {
     discarded: { zh: '已废弃', en: 'Discarded' },
+    // 21 号三态直读的四个**派生分组**（不是来源 status，也不写回对象）。
+    // 此前本表缺这四条，回退到 STATUS_LOCALES 时只有 executing 与 closed 命中，
+    // pending_gate1 / awaiting_gate2 则原值直出——徽标显示 `pending_gate1` 这样的
+    // raw snake_case，违反 docs/01 §1.3「枚举值必须通过语义映射本地化」（缺陷 D7）。
+    pending_gate1: { zh: '待批准执行', en: 'Pending Gate 1' },
+    executing: { zh: '执行中', en: 'Executing' },
+    awaiting_gate2: { zh: '待批准关闭', en: 'Awaiting Gate 2' },
+    closed: { zh: '已关闭', en: 'Closed' },
+    unknown: { zh: '状态未知', en: 'Unknown status' },
   },
   adr: {
     retired: { zh: '已废弃', en: 'Retired' },
@@ -112,6 +126,24 @@ export function getObjectStatusLocale(type: string, status: string, locale: stri
   const objectEntry = OBJECT_STATUS_LOCALES[type]?.[status];
   if (objectEntry) return locale === 'en' ? objectEntry.en : objectEntry.zh;
   return getStatusLocale(status, locale);
+}
+
+/**
+ * WorkCase 派生分组的筛选五档顺序（含「全部」）。
+ *
+ * 分组展示词条由 `getObjectStatusLocale('workcase', group, locale)` 给出——
+ * 与徽标、列表卡、详情身份头部共用**同一张表**（单一来源，防口径漂移）。
+ */
+export const WORKCASE_GROUP_STATUSES = [
+  'pending_gate1',
+  'executing',
+  'awaiting_gate2',
+  'closed',
+] as const;
+
+/** 派生分组（或 'unknown'）的本地化词条——筛选器、徽标与详情同源。 */
+export function getWorkCaseGroupLabel(group: string, locale: string): string {
+  return getObjectStatusLocale('workcase', group, locale);
 }
 
 export const TYPE_DESCRIPTION_LOCALES: Record<string, { zh: string; en: string }> = {
@@ -705,6 +737,32 @@ export function getObjectStatusHint(type: string, status: string, locale: string
       ? 'Current effective decision'
       : '当前有效决策';
   }
+  // 21 号三态直读派生分组：徽标的 title 必须说清「这是呈现派生组、不是来源
+  // status」，否则 Human 会把 pending_gate1 误当成对象上的字段值。四组语义
+  // 依 specs/10 §5.5 登记的派生判据（draft → 待批准执行；open ∧ 正文含
+  // ## 结果 节 → 待批准关闭；open → 执行中；closed → 已关闭）。
+  if (type === 'workcase') {
+    if (status === 'pending_gate1') {
+      return locale === 'en'
+        ? 'Derived group: status=draft, awaiting Gate 1 approval (not a source status)'
+        : '派生分组：status=draft、待 Gate 1 批准（不是来源 status 取值）';
+    }
+    if (status === 'executing') {
+      return locale === 'en'
+        ? 'Derived group: status=open and the body has no ## Result section yet'
+        : '派生分组：status=open 且正文尚未出现「## 结果」节';
+    }
+    if (status === 'awaiting_gate2') {
+      return locale === 'en'
+        ? 'Derived group: status=open with a ## Result section, awaiting Gate 2 closure'
+        : '派生分组：status=open 且正文已含「## 结果」节，待 Gate 2 关闭';
+    }
+    if (status === 'closed') {
+      return locale === 'en'
+        ? 'Derived group: status=closed; the outcome badge carries the four-value terminal state'
+        : '派生分组：status=closed；终态由 outcome 四值徽标承载';
+    }
+  }
   // 20 §1/§9：implemented 只结束 Spark 入口职责，不代表下游完成——终态语义
   // 在提示层显式限定，防「交了就当完成」的自欺。
   if (type === 'spark') {
@@ -1107,11 +1165,6 @@ export const UI_LOCALES = {
     'objectList.workcaseNoCurrentItems': '尚无进行中工作项',
     'objectList.workcaseItemCompleted': '已完成',
     // 21 号三态直读 + 派生分组（WC-0002 呈现契约；派生规则：待批准关闭 = open ∧ 正文含 ## 结果 节）
-    'objectList.workcaseGroup.pending_gate1': '待批准执行',
-    'objectList.workcaseGroup.executing': '执行中',
-    'objectList.workcaseGroup.awaiting_gate2': '待批准关闭',
-    'objectList.workcaseGroup.closed': '已关闭',
-    'objectList.workcaseGroup.unknown': '状态未知',
     'objectList.workcaseOutcome.completed': '已完成',
     'objectList.workcaseOutcome.partial': '部分达成',
     'objectList.workcaseOutcome.not-achieved': '未达成',
@@ -1795,11 +1848,6 @@ export const UI_LOCALES = {
     'objectList.workcaseNoCurrentItems': 'No work item is in progress yet',
     'objectList.workcaseItemCompleted': 'Completed',
     // v5 lifecycle groups (21 §9 + WC-0002 presentation contract; awaiting-gate2 = open ∧ body has ## 结果)
-    'objectList.workcaseGroup.pending_gate1': 'Pending Gate 1',
-    'objectList.workcaseGroup.executing': 'Executing',
-    'objectList.workcaseGroup.awaiting_gate2': 'Awaiting Gate 2',
-    'objectList.workcaseGroup.closed': 'Closed',
-    'objectList.workcaseGroup.unknown': 'Unknown status',
     'objectList.workcaseOutcome.completed': 'Completed',
     'objectList.workcaseOutcome.partial': 'Partial',
     'objectList.workcaseOutcome.not-achieved': 'Not achieved',

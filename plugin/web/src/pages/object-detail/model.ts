@@ -43,12 +43,14 @@ export const AUXILIARY_META_KEYS_BY_TYPE: Record<string, string[]> = {
 };
 
 const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
+  // v5 WorkCase（21 §8 frontmatter 闭集 + 正文承载）。此表只作 ContentField
+  // 兜底排序——WorkCase 详情走专属布局 WorkCaseReadingLayout，不消费这里的顺序；
+  // 表中保留 21 号实际字段，不再列 v4 词汇（phase/work_items/closure_proposal/
+  // success_criterion_*/execution_approval/result_version/…）——那些字段已退出
+  // 字段闭集，列在此处只会误导后续维护者以为它们仍被消费。
   workcase: [
-    'goal', 'scope', 'phase', 'summary', 'resume_from', 'waiting_on', 'blocking_summary', 'change_log',
-    'success_criterion_definitions', 'success_criterion_results', 'plan_version', 'work_items',
-    'creation_reviews', 'execution_approval', 'result_version', 'result_summary',
-    'controller_check_summary', 'result_reviews', 'validation_summary', 'closure_proposal',
-    'closure_outcome', 'disposition_summary', 'residual_responsibilities', 'urls', 'relations',
+    'summary', 'serves', 'scope', 'plan', 'gate_1', 'attempt', 'reviews', 'result', 'outcome',
+    'change_log', 'relations',
   ],
   // v5 ADR（22 号规范）：阅读布局按字段契约序消费（decision → scope →
   // trigger_signal → 终态 retirement_reason/retired_at/relations），正文

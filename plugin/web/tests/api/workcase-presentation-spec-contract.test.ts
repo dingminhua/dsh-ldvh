@@ -85,8 +85,10 @@ test('v4 projection vocabulary no longer exists in the WorkCase presentation cha
 
 test('workcaseGroup and workcaseOutcome labels exist in both locales', () => {
   const locales = readWebSource('src/i18n/locales.ts');
+  // 2026-09-17：分组词条的唯一来源是 OBJECT_STATUS_LOCALES.workcase（类型专属表，
+  // 与徽标/筛选器/详情同源）；平行的 objectList.workcaseGroup.* 表已删除。
   for (const group of ['pending_gate1', 'executing', 'awaiting_gate2', 'closed', 'unknown']) {
-    assert.match(locales, new RegExp(`'objectList\\.workcaseGroup\\.${group}'`), `missing group label ${group}`);
+    assert.match(locales, new RegExp(`\\b${group}: \\{ zh:`), `missing group label ${group}`);
   }
   for (const outcome of ['completed', 'partial', 'not-achieved', 'cancelled']) {
     assert.match(locales, new RegExp(`'objectList\\.workcaseOutcome\\.${outcome}'`), `missing outcome label ${outcome}`);

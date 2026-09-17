@@ -10,6 +10,7 @@ import { canonicalUid } from '../../shared/factIdentity.js'
 import { resolveCurrentWebProject, WebGovernanceError } from './governanceScope.js'
 import { deriveWorkCaseV5View, type WorkCaseV5View } from '../../shared/workcaseLifecycle.js'
 import { hasUnavailableIndependentSubagentReview } from '../../shared/workcaseCapability.js'
+import { toRfc3339Text } from '../../shared/timestamp.js'
 import { FACT_LIST_FIELD_NAMES } from './factFieldContract.js'
 import {
   getWorktreeInfos,
@@ -309,41 +310,6 @@ function copyPresentFields(source: Record<string, unknown>, fields: readonly str
  * closure_proposal 等字段；派生分组只由 workcaseLifecycle 给出，不写回对象。
  */
 
-/** 提取 markdown 正文中某个 H2 节（## <heading>）的节体（不含标题行），忽略代码围栏。 */
-function extractMarkdownSection(body: unknown, heading: string): string | null {
-  if (typeof body !== 'string' || body.length === 0) return null
-  const lines = body.split(/\r?\n/)
-  let inFence = false
-  let fenceMarker = ''
-  let capturing = false
-  const collected: string[] = []
-  for (const line of lines) {
-    const fenceMatch = /^ {0,3}(```|~~~)/.exec(line)
-    if (fenceMatch) {
-      const marker = fenceMatch[1]
-      if (!inFence) {
-        inFence = true
-        fenceMarker = marker
-      } else if (marker === fenceMarker) {
-        inFence = false
-        fenceMarker = ''
-      }
-      continue
-    }
-    if (inFence) continue
-    const headingMatch = /^ {0,3}##\s+([^\s].*?)\s*$/.exec(line)
-    if (headingMatch) {
-      if (capturing) break
-      if (headingMatch[1].trim() === heading) capturing = true
-      continue
-    }
-    if (capturing) collected.push(line)
-  }
-  if (!capturing) return null
-  const text = collected.join('\n').trim()
-  return text.length > 0 ? text : null
-}
-
 /** plan 数组投影为 {step, done_criteria} 摘要（21 §8）。 */
 function projectWorkCasePlan(value: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(value)) return []
@@ -360,7 +326,16 @@ function projectWorkCasePlan(value: unknown): Array<Record<string, unknown>> {
     .filter((item): item is Record<string, unknown> => item !== null)
 }
 
-/** result 投影：criteria_checks[{satisfied, evidence}] + achieved_scope + residual（21 §8）。 */
+/**
+ * result 投影：criteria_checks[{satisfied, evidence}] + achieved_scope + residual（21 §8）。
+ *
+ * 21 §9.3 的字段真实类型是 `satisfied: boolean`、`residual: string[]`（21 §8
+ * frontmatter 闭集）。此前本函数按 `typeof === 'string'` 判定，对真实对象
+ * **恒不命中**：`residual` 是数组、`satisfied` 是布尔，两者都被静默丢弃——
+ * 于是 closed 详情的「逐条判据核对」全部退化为「未记录」、残留责任节点整体
+ * 消失（WorkCase 呈现保真缺陷 D1/D2）。此处按字段真实类型判定，**不放宽也不
+ * 收紧字段闭集**：类型不符者仍如实丢弃（由读取层的 field_issues 另行报告）。
+ */
 function projectWorkCaseResult(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const result = value as Record<string, unknown>
@@ -370,37 +345,71 @@ function projectWorkCaseResult(value: unknown): Record<string, unknown> | null {
         if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
         const check = candidate as Record<string, unknown>
         return {
-          ...(typeof check.satisfied === 'string' ? { satisfied: check.satisfied } : {}),
+          ...(typeof check.satisfied === 'boolean' ? { satisfied: check.satisfied } : {}),
           ...(typeof check.evidence === 'string' ? { evidence: check.evidence } : {}),
         }
       })
       .filter((item): item is Record<string, unknown> => item !== null)
     : []
+  const residual = Array.isArray(result.residual)
+    ? result.residual.filter((item): item is string => typeof item === 'string')
+    : null
   return {
     ...(checks.length > 0 ? { criteria_checks: checks } : {}),
     ...(typeof result.achieved_scope === 'string' ? { achieved_scope: result.achieved_scope } : {}),
-    ...(typeof result.residual === 'string' ? { residual: result.residual } : {}),
+    // 空数组是合法值（21 §9.3：`completed` 时 residual 可为空），必须与「缺失」
+    // 区分——丢失它会让详情无法区分「无残留」与「未记录残留」。
+    ...(residual !== null ? { residual } : {}),
   }
 }
 
-/** gate_1 投影：approved_at / approver（21 §8）。 */
+/**
+ * gate_1 投影：`approved_at` / `approver` / `authorization_fingerprint` / `scope_snapshot`
+ * （21 §8 声明的 gate_1 全四字段）。
+ *
+ * 两点必守：
+ * 1. `approved_at` 经 js-yaml 解析后是 `Date`（未加引号的 ISO 时间戳），不是字符串；
+ *    按 string 判定会把它丢弃，使详情取不到批准时间（缺陷 D3）。时间字段统一经
+ *    `toRfc3339Text` 归一为 RFC 3339 文本。
+ * 2. **必须保留 `authorization_fingerprint` 与 `scope_snapshot`**：它们是 C2 授权钉扎
+ *    的两个承载（21 §10.3）——指纹是「授权是否仍覆盖当前 plan+scope」的比对基准，
+ *    `scope_snapshot` 是越权拒绝的比对基准（21 §8 称其为 scope 的授权时快照）。
+ *    此前的投影只留 `approved_at`/`approver`，而 `showObject` 的装配顺序是
+ *    `data = {...fact_object}` 后 `Object.assign(data, currentCard)`——投影会**覆盖**
+ *    来源对象，于是这两个字段在 closed 详情被静默丢弃（open 因不投影 gate_1 反而
+ *    侥幸保留了原值，造成同一字段两种运行期形态）。
+ */
 function projectWorkCaseGate1(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const gate = value as Record<string, unknown>
+  const approvedAt = toRfc3339Text(gate.approved_at)
   return {
-    ...(typeof gate.approved_at === 'string' ? { approved_at: gate.approved_at } : {}),
+    ...(approvedAt !== undefined ? { approved_at: approvedAt } : {}),
     ...(typeof gate.approver === 'string' ? { approver: gate.approver } : {}),
+    ...(typeof gate.authorization_fingerprint === 'string'
+      ? { authorization_fingerprint: gate.authorization_fingerprint }
+      : {}),
+    ...(typeof gate.scope_snapshot === 'string' ? { scope_snapshot: gate.scope_snapshot } : {}),
   }
 }
 
-/** attempt 投影：attempt_id / controller / heartbeat_at（21 §8）。 */
+/**
+ * attempt 投影：attempt_id / controller / started_at / heartbeat_at（21 §8 §10.4）。
+ *
+ * `started_at` 与 `heartbeat_at` 同 gate_1 是 `Date`，且此前**根本未被复制**——
+ * open 详情的执行现场因此缺两格，而 `heartbeat_at` 正是 21 §10.4 判定 attempt
+ * 是否为孤立 attempt 的依据（缺陷 D4）。
+ */
 function projectWorkCaseAttempt(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const attempt = value as Record<string, unknown>
+  const startedAt = toRfc3339Text(attempt.started_at)
+  const heartbeatAt = toRfc3339Text(attempt.heartbeat_at)
   return {
     ...(typeof attempt.attempt_id !== 'undefined' ? { attempt_id: attempt.attempt_id } : {}),
     ...(typeof attempt.controller === 'string' ? { controller: attempt.controller } : {}),
-    ...(typeof attempt.heartbeat_at === 'string' ? { heartbeat_at: attempt.heartbeat_at } : {}),
+    ...(startedAt !== undefined ? { started_at: startedAt } : {}),
+    ...(heartbeatAt !== undefined ? { heartbeat_at: heartbeatAt } : {}),
   }
 }
 
@@ -419,25 +428,37 @@ function projectCurrentWorkCaseCardShape(
   if (view.has_result_draft) projected.has_result_draft = true
   if (hasUnavailableIndependentSubagentReview(fact)) projected.independentSubagentUnavailable = true
 
+  // gate_1 与状态无关地投影——21 §9.1 的「`gate_1` 出现 ⇔ `status ∈ {open, closed}`」
+  // 由**来源对象**保证（draft 对象本就不携带该字段，此处自然不产出）。此前它只在
+  // closed 分支投影，后果有二：①closed 走投影重建、open 走 `{...fact_object}` 原值
+  // 透传，同一字段出现两种运行期形态（open 的 `approved_at` 仍是 `Date`，closed 才是
+  // 归一文）；②重建会覆盖来源，而重建昔只含 2 个字段，于是 closed 详情的
+  // `authorization_fingerprint` 与 `scope_snapshot` 被静默丢弃——那是 C2 授权钉扎的
+  // 比对基准（21 §10.3）。统一为一处投影后，字段集与类型都不再随状态漂移。
+  if (fact.gate_1 !== undefined && fact.gate_1 !== null) {
+    const gate1 = projectWorkCaseGate1(fact.gate_1)
+    if (gate1 && Object.keys(gate1).length > 0) projected.gate_1 = gate1
+  }
+
   if (view.status === 'draft') {
     // draft：计划判据 + summary + scope + serves。
     Object.assign(projected, copyPresentFields(fact, ['summary', 'scope', 'serves']))
     const plan = projectWorkCasePlan(fact.plan)
     if (plan.length > 0) projected.plan = plan
   } else if (view.status === 'open') {
-    // open：attempt 现场 + plan + 「## 执行」节存在性标记。
+    // open：attempt 现场 + plan。不投影「## 执行 节存在性」——该标记零消费方
+    // （曾为 `has_execution_section`），属 v4 遗留的展示耦合；21 §8 未定义该字段，
+    // 21 §19 第 4 条亦明确「不为执行过程建完整日志字段」（过程在 transcript 与
+    // Git）。执行进展由 `attempt`（谁在做、做到哪里）与 change_log 承载。
     const attempt = projectWorkCaseAttempt(fact.attempt)
     if (attempt && Object.keys(attempt).length > 0) projected.attempt = attempt
     const plan = projectWorkCasePlan(fact.plan)
     if (plan.length > 0) projected.plan = plan
-    projected.has_execution_section = extractMarkdownSection(fact.report_body, '执行') !== null
   } else if (view.status === 'closed') {
-    // closed：outcome 四值 + result 逐条核对 + gate_1 批准信息。
+    // closed：outcome 四值 + result 逐条核对（gate_1 已在上方统一投影）。
     if (typeof fact.outcome === 'string') projected.outcome = fact.outcome
     const result = projectWorkCaseResult(fact.result)
     if (result && Object.keys(result).length > 0) projected.result = result
-    const gate1 = projectWorkCaseGate1(fact.gate_1)
-    if (gate1 && Object.keys(gate1).length > 0) projected.gate_1 = gate1
   }
   return projected
 }

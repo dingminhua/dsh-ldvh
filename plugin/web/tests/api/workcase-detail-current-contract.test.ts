@@ -78,15 +78,34 @@ test('ReadingLayout consumes only 21-spec fields — v4 field vocabulary is abse
 });
 
 test('detail identity uses the same group labels as the list filter (one source)', () => {
-  const layout = readSource('web/src/pages/object-detail/WorkCaseReadingLayout.tsx');
+  const filter = readSource('web/src/components/WorkCaseProgressFilter.tsx');
   const locales = readSource('web/src/i18n/locales.ts');
-  // GROUP_LABEL_KEY 的四组词条与筛选器同 key（objectList.workcaseGroup.*）。
-  for (const group of ['pending_gate1', 'executing', 'awaiting_gate2', 'closed']) {
-    assert.match(layout, new RegExp(`objectList\\.workcaseGroup\\.${group}`));
-    assert.match(locales, new RegExp(`'objectList\\.workcaseGroup\\.${group}'`));
+
+  // 2026-09-17：分组词条的**唯一来源**是 OBJECT_STATUS_LOCALES.workcase——
+  // 徽标（getObjectStatusLocale）、筛选器（getWorkCaseGroupLabel）与详情身份头部
+  // 共用同一张表。此前筛选器另走 UI_LOCALES 的 objectList.workcaseGroup.* 平行词条，
+  // 同一组字符串登记两处必然漂移，故该平行表已删除。
+  for (const group of ['pending_gate1', 'executing', 'awaiting_gate2', 'closed', 'unknown']) {
+    assert.match(
+      locales,
+      new RegExp(`\\b${group}: \\{ zh:`),
+      `派生分组 ${group} 必须登记于类型专属表`,
+    );
   }
-  // unknown 组有回落词条。
-  assert.match(layout, /objectList\.workcaseGroup\.unknown/);
+  // 筛选器经共享取值函数读词条，不自行键拼。
+  // 断言**调用点**而非 import——只匹配标识符会被「保留 import 但改回键拼」绕过
+  // （该变异已实测逃逸一次，故此处收紧为调用形态）。
+  assert.match(filter, /\{getWorkCaseGroupLabel\(group, locale\)\}/);
+  assert.doesNotMatch(
+    filter,
+    /objectList\.workcaseGroup\.\$\{/,
+    '筛选器不得自行拼分组键——分组词条必须经共享取值函数取，防两处漂移',
+  );
+  assert.doesNotMatch(
+    locales,
+    /'objectList\.workcaseGroup\./,
+    '平行词条表必须已删除——分组词条单一来源，防两处漂移',
+  );
 });
 
 test('field-level issues surface in place inside the WorkCase reading flow', () => {
@@ -119,8 +138,10 @@ test('reviews node renders the review summaries and is wired into every lifecycl
   assert.match(layout, /function ReviewsNode\(/);
   assert.match(layout, /Array\.isArray\(obj\.reviews\)/);
   assert.match(layout, /entry\.summary/);
-  // 三个生命周期主体各接一次（draft / executing / closed）。
-  assert.equal((layout.match(/<ReviewsNode obj=\{obj\} locale=\{locale\} \/>/g) ?? []).length, 3);
+  // 四个派生主体各接一次（draft / executing / awaiting_gate2 / closed）——
+  // 2026-09-17：awaiting_gate2 此前漏接 reviews，而 reviews 是复核节点概要流水，
+  // 与派生分组无关（21 §8），不得因对象处于某分组而消失。
+  assert.equal((layout.match(/<ReviewsNode obj=\{obj\} locale=\{locale\} \/>/g) ?? []).length, 4);
 
   // 词条：详情标题与列表组同源策略一致，须两地登记。
   assert.match(locales, /'objectDetail\.workcaseReviews'/);

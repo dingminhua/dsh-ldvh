@@ -62,14 +62,16 @@ export interface ObjectItem {
   independentSubagentUnavailable?: boolean;
   // v5 WorkCase 字段（21 §8 闭集）：plan/attempt/result/gate_1。
   // summary 与 serves 已在其它类型段声明（类型 string?，共用），不重复。
-  plan?: Array<{ step?: string; done_criteria?: string }>;
-  attempt?: { attempt_id?: unknown; controller?: string; heartbeat_at?: string };
-  result?: {
-    criteria_checks?: Array<{ satisfied?: string; evidence?: string }>;
-    achieved_scope?: string;
-    residual?: string;
-  };
-  gate_1?: { approved_at?: string; approver?: string };
+  //
+  // 这四项**复用**下方 WorkCaseDetailData 所用的同一组类型
+  // （WorkCasePlanStep/WorkCaseAttempt/WorkCaseResult/WorkCaseGate1），不在此
+  // 另起一套内联形状。此前列表侧内联声明 `satisfied?: string`、`residual?: string`，
+  // 与详情侧的 `boolean`/`string[]` 相互矛盾——同一字段两套类型使类型系统无法
+  // 拦截投影层的类型错位（WorkCase 呈现保真缺陷 D5）。契约只有一份。
+  plan?: WorkCasePlanStep[];
+  attempt?: WorkCaseAttempt;
+  result?: WorkCaseResult;
+  gate_1?: WorkCaseGate1;
   /** ADR-specific（22 §8：decision 必填；scope 见上公共段；trigger_signal/终态字段条件） */
   decision?: string;
   trigger_signal?: string;
@@ -268,6 +270,10 @@ export interface WorkCaseAttempt {
 export interface WorkCaseGate1 {
   approved_at?: string;
   approver?: string;
+  /** 21 §8/§10.3 C2 授权钉扎：绑定当次 `plan`+`scope` 的内容指纹（授权失效比对基准）。 */
+  authorization_fingerprint?: string;
+  /** 21 §8/§10.3 授权时的范围快照——越权拒绝的比对基准。 */
+  scope_snapshot?: string;
 }
 
 /** Exact-detail fields from the single current WorkCase contract (21 §8 三态直读). */

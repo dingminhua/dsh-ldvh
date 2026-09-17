@@ -1,4 +1,4 @@
-import { parseRfc3339Timestamp } from './timestamp.js'
+import { toRfc3339Text } from './timestamp.js'
 import { normalizeSignature } from './signature.js'
 
 /** change_log 流水署名的呈现形态（与 api.ts 的 CommitSignature 同构）。 */
@@ -16,15 +16,12 @@ export interface ChangeLogSignature {
  * 流水 at 的文本形态。YAML 未加引号的 ISO 时间戳会被 js-yaml 解析成 Date 实例
  * （HTTP 层序列化回字符串，进程内保持 Date），读取时统一归一为文本。
  * 字符串须为完整 RFC 3339 形态才算有效，与 cognition 原有判据一致。
+ *
+ * 归一实现唯一落在 `shared/timestamp.ts` 的 `toRfc3339Text`（09 §6 单一实现）——
+ * 读取层、投影层与本函数共用同一份，不得各自重写。
  */
 export function toChangeLogAtText(value: unknown): string | undefined {
-  if (value instanceof Date) {
-    return Number.isFinite(value.getTime()) ? value.toISOString() : undefined
-  }
-  if (typeof value !== 'string') return undefined
-  const trimmed = value.trim()
-  if (trimmed.length === 0) return undefined
-  return parseRfc3339Timestamp(trimmed) !== null ? trimmed : undefined
+  return toRfc3339Text(value)
 }
 
 /**

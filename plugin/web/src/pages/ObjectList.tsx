@@ -14,6 +14,7 @@ import ServesSgBadge from '@/components/ServesSgBadge';
 import SummaryText from '@/components/SummaryText';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import { WorkCaseCriteriaList } from '@/components/WorkCaseCriteriaList';
+import { workCaseCheckStatement } from '@/utils/workcaseCheckState';
 import { fetchCognitionGoal, fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type ObjectItem, type ObjectStatusOption, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
 import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeDescription, getTypeLabel } from '@/i18n/locales';
@@ -150,7 +151,7 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
         {obj.result?.criteria_checks && obj.result.criteria_checks.length > 0 ? (
           <WorkCaseCriteriaList
             className="mt-1.5"
-            items={obj.result.criteria_checks.map((c, index) => ({ key: String(index), statement: `${c.satisfied ?? ''} · ${c.evidence ?? ''}` }))}
+            items={obj.result.criteria_checks.map((c, index) => ({ key: String(index), statement: workCaseCheckStatement(c, t) }))}
           />
         ) : null}
         {obj.gate_1 ? (

@@ -3,7 +3,7 @@ import { useI18n } from '@/i18n/context';
 import { getFieldLabel } from '@/i18n/locales';
 import { type WorkCaseDetailData } from '@/utils/api';
 import { WorkCaseCriteriaList, WORKCASE_CRITERIA_SURFACE_CLASS } from '@/components/WorkCaseCriteriaList';
-import ObjectReferenceCopyButton from '@/components/ObjectReferenceCopyButton';
+import { workCaseCheckChipClass, workCaseCheckStateLabel } from '@/utils/workcaseCheckState';
 import {
   ChangeLogReadingNode,
   FieldProblem,
@@ -18,7 +18,6 @@ import {
 } from '@/pages/ObjectDetail';
 import { fieldIssue } from '@/pages/object-detail/fieldIssues';
 import type { WorkCaseV5Group, WorkCaseV5Outcome } from '@/shared/workcaseLifecycle';
-import { useProjectScope } from '@/utils/projectContext';
 
 type LayoutT = ReturnType<typeof useI18n>['t'];
 
@@ -34,41 +33,33 @@ const OUTCOME_LABEL_KEY: Record<WorkCaseV5Outcome, Parameters<LayoutT>[0]> = {
   cancelled: 'objectDetail.workcaseOutcome.cancelled',
 };
 
-const GROUP_LABEL_KEY: Record<WorkCaseV5Group, Parameters<LayoutT>[0]> = {
-  pending_gate1: 'objectList.workcaseGroup.pending_gate1',
-  executing: 'objectList.workcaseGroup.executing',
-  awaiting_gate2: 'objectList.workcaseGroup.awaiting_gate2',
-  closed: 'objectList.workcaseGroup.closed',
-};
-
 /** 21 号三态直读详情阅读面（v5）。外壳与正文段沿用其余六类阅读布局的既有
  * 承载（10 §5.3 语义详情、10 §12.7 长文须有折叠入口）：根容器
- * `mb-6 flex flex-col gap-5`、正文段 ReadingNodeSection、字段 DetailInlineField。 */
+ * `mb-6 flex flex-col gap-5`、正文段 ReadingNodeSection、字段 DetailInlineField。
+ *
+ * 不在此渲染对象身份块：类型/状态/标题/时间/复制入口由 `ObjectIdentityHeader`
+ * 统一承载（docs/01 §1.8.1 身份头部契约），详情页与右侧扩展阅读共用同一份。
+ * 此前本布局自渲染了一个 group chip + 裸 `status:` + 复制按钮的重复身份行，
+ * 与上游身份头部形成两套头部（缺陷 D9）。 */
 export default function WorkCaseReadingLayout({ obj, locale }: WorkCaseReadingLayoutProps) {
   const { t } = useI18n();
-  const { selectedProjectId: projectId } = useProjectScope();
-  const objectId = obj.object_id ?? obj.id;
   const group = (typeof obj.group === 'string' ? obj.group : obj.current_snapshot_projection?.group) as WorkCaseV5Group | undefined;
 
   return (
     <div className="mb-6 flex flex-col gap-5">
-      <section className="flex min-w-0 flex-wrap items-center gap-2">
-        <span className="ldvh-chip inline-flex items-center gap-1.5 rounded-md border border-ldvh-accent/25 bg-ldvh-accent/5 px-2 py-0.5 font-medium text-ldvh-accent">
-          {group ? t(GROUP_LABEL_KEY[group]) : t('objectList.workcaseGroup.unknown')}
-        </span>
-        {obj.status ? <span className="ldvh-meta-muted">status: {obj.status}</span> : null}
-        {projectId ? <ObjectReferenceCopyButton projectId={projectId} objectId={objectId} /> : null}
-      </section>
+      {/* 进展分组是呈现派生值（specs/10 §5.5），由身份头部徽标承载（
+          ObjectDetail 的 getObjectHeaderStatus 已把 group 传给它）。此处只在
+          派生不可判定时披露缺口——不回退、不伪造分组。 */}
+      {!group && (
+        <p className="ldvh-body-muted rounded-md border border-red-500/30 bg-red-500/[0.07] px-3 py-2 text-red-400">
+          {t('objectList.workcaseProgressGroupUnavailable')}
+        </p>
+      )}
 
       {group === 'pending_gate1' && <DraftBody obj={obj} locale={locale} />}
       {group === 'executing' && <ExecutingBody obj={obj} locale={locale} />}
       {group === 'awaiting_gate2' && <AwaitingGate2Body obj={obj} locale={locale} />}
       {group === 'closed' && <ClosedBody obj={obj} locale={locale} />}
-      {!group && (
-        <p className="ldvh-card-decision-body rounded-md border border-red-500/30 bg-red-500/[0.07] px-3 py-2 text-red-400">
-          {t('objectList.workcaseProgressGroupUnavailable')}
-        </p>
-      )}
 
       <FactAssociationsSection obj={obj} locale={locale} />
       <ChangeLogReadingNode
@@ -80,19 +71,23 @@ export default function WorkCaseReadingLayout({ obj, locale }: WorkCaseReadingLa
   );
 }
 
-/** 正文段统一走 ReadingNodeSection——与其余六类阅读布局同款可折叠节点。 */
+/** 正文段统一走 ReadingNodeSection——与其余六类阅读布局同款可折叠节点。
+ *
+ * 正文一律经 `ResearchTextNodeContent`（Markdown 渲染，14px 阅读基准）：六类
+ * 样板（ADR/Pitfall/Spark/Research/Friction/Norm）的正文节点全部用它。此前
+ * 本布局在非 markdown 分支退回 `ldvh-card-decision-body`（12px 卡片扫描层级），
+ * 违反 docs/01 §1.4 第 4 条「卡片判断项正文只用于 Card 的有限行数扫描窗口；
+ * 详情页和阅读面板仍使用各自正文层级，不得随之缩小」（缺陷 D10）。 */
 function ProseNode({
   title,
   value,
   locale,
   issue,
-  markdown = false,
 }: {
   title: string;
   value: string;
   locale: string;
   issue?: ReturnType<typeof fieldIssue>;
-  markdown?: boolean;
 }) {
   const [state, setState] = useState<ReadingNodeState>('expanded');
   if (!value && !issue) return null;
@@ -104,13 +99,7 @@ function ProseNode({
       locale={locale}
       onToggle={() => setState((current) => getReadingNodeNextState(current))}
     >
-      {issue ? (
-        <FieldProblem issue={issue} />
-      ) : markdown ? (
-        <ResearchTextNodeContent value={value} />
-      ) : (
-        <p className="ldvh-card-decision-body min-w-0 whitespace-pre-wrap break-words">{value}</p>
-      )}
+      {issue ? <FieldProblem issue={issue} /> : <ResearchTextNodeContent value={value} />}
     </ReadingNodeSection>
   );
 }
@@ -154,7 +143,8 @@ function PlanNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string }) 
 }
 
 /** result.criteria_checks：satisfied 是布尔（21 §8），按可读文本 + 可区分形态
- * 呈现——10 §12.8 禁止用颜色或图标单独承载状态，故必须带文字判读。 */
+ * 呈现——10 §12.8 禁止用颜色或图标单独承载状态，故必须带文字判读。
+ * 三态映射与列表卡/收件箱共用 `workCaseCheckState*`（单一实现，防口径漂移）。 */
 function ResultChecksNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string }) {
   const { t } = useI18n();
   const [state, setState] = useState<ReadingNodeState>('expanded');
@@ -171,20 +161,8 @@ function ResultChecksNode({ obj, locale }: { obj: WorkCaseDetailData; locale: st
       <ul className="grid min-w-0 gap-3">
         {checks.map((check, index) => (
           <li key={index} className="min-w-0">
-            <span
-              className={`ldvh-chip-sm w-fit ${
-                check.satisfied === true
-                  ? 'border-emerald-400/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                  : check.satisfied === false
-                  ? 'border-rose-400/40 bg-rose-500/10 text-rose-700 dark:text-rose-300'
-                  : 'border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary'
-              }`}
-            >
-              {check.satisfied === true
-                ? t('objectDetail.workcaseCheckSatisfied')
-                : check.satisfied === false
-                ? t('objectDetail.workcaseCheckUnsatisfied')
-                : t('objectDetail.workcaseCheckUnknown')}
+            <span className={`ldvh-chip-sm w-fit ${workCaseCheckChipClass(check.satisfied)}`}>
+              {workCaseCheckStateLabel(check.satisfied, t)}
             </span>
             {check.evidence ? (
               <p className="ldvh-caption mt-1 min-w-0 break-words">{check.evidence}</p>
@@ -197,7 +175,7 @@ function ResultChecksNode({ obj, locale }: { obj: WorkCaseDetailData; locale: st
 }
 
 /** result.residual 是数组（21 §8 §9.3），按列表呈现而非段落。 */
-function ResidualNode({ obj }: { obj: WorkCaseDetailData }) {
+function ResidualNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string }) {
   const { t } = useI18n();
   const [state, setState] = useState<ReadingNodeState>('expanded');
   const residual = Array.isArray(obj.result?.residual) ? obj.result.residual : [];
@@ -207,7 +185,7 @@ function ResidualNode({ obj }: { obj: WorkCaseDetailData }) {
     <ReadingNodeSection
       title={t('objectDetail.workcaseResidual')}
       state={state}
-      locale=""
+      locale={locale}
       onToggle={() => setState((current) => getReadingNodeNextState(current))}
     >
       <div className={WORKCASE_CRITERIA_SURFACE_CLASS}>
@@ -245,7 +223,7 @@ function ReviewsNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string 
               {entry.model ? <><span aria-hidden="true">·</span><span>{entry.model}</span></> : null}
             </div>
             {entry.summary ? (
-              <p className="mt-1 min-w-0 break-words ldvh-card-decision-body">{entry.summary}</p>
+              <p className="ldvh-detail-semantic-body mt-1 min-w-0 break-words">{entry.summary}</p>
             ) : null}
           </div>
         ))}
@@ -254,12 +232,26 @@ function ReviewsNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string 
   );
 }
 
-function DraftBody({ obj, locale }: { obj: WorkCaseDetailData; locale: string }) {
+/**
+ * 对象身份与授权范围的正文段（21 §8：`summary` / `serves` / `scope`）。
+ *
+ * 四个生命周期主体**共用**它。docs/10 §4.2 与 docs/01 §1.10 的同一条纪律：
+ * 「条件字段可以随事实是否形成而省略，但已存在字段不能因对象处于某个进展分组
+ * 而消失」。此前只有 DraftBody 渲染这三个字段，closed 详情因此看不到对象实际
+ * 携带的 summary/serves/scope（缺陷 D11）——分组只应改变**强调**，不应改变
+ * **在场字段集**。
+ */
+function ResponsibilityNodes({ obj, locale }: { obj: WorkCaseDetailData; locale: string }) {
   const { t } = useI18n();
   return (
     <>
       {obj.summary ? (
-        <p className="ldvh-card-decision-body min-w-0 break-words">{obj.summary}</p>
+        <ProseNode
+          title={getFieldLabel('summary', locale)}
+          value={typeof obj.summary === 'string' ? obj.summary : ''}
+          locale={locale}
+          issue={fieldIssue(obj, 'summary')}
+        />
       ) : null}
       <ProseNode
         title={t('objectDetail.workcaseServes')}
@@ -272,11 +264,19 @@ function DraftBody({ obj, locale }: { obj: WorkCaseDetailData; locale: string })
         value={typeof obj.scope === 'string' ? obj.scope : ''}
         locale={locale}
         issue={fieldIssue(obj, 'scope')}
-        markdown
       />
+    </>
+  );
+}
+
+function DraftBody({ obj, locale }: { obj: WorkCaseDetailData; locale: string }) {
+  const { t } = useI18n();
+  return (
+    <>
+      <ResponsibilityNodes obj={obj} locale={locale} />
       <PlanNode obj={obj} locale={locale} />
       <ReviewsNode obj={obj} locale={locale} />
-      <p className="ldvh-caption text-amber-500 dark:text-amber-400">{t('objectDetail.workcaseAwaitingGate1')}</p>
+      <p className="ldvh-body-muted text-amber-600 dark:text-amber-400">{t('objectDetail.workcaseAwaitingGate1')}</p>
     </>
   );
 }
@@ -288,6 +288,7 @@ function ExecutingBody({ obj, locale }: { obj: WorkCaseDetailData; locale: strin
 
   return (
     <>
+      <ResponsibilityNodes obj={obj} locale={locale} />
       {attempt ? (
         <ReadingNodeSection
           title={t('objectDetail.workcaseAttempt')}
@@ -311,10 +312,10 @@ function ExecutingBody({ obj, locale }: { obj: WorkCaseDetailData; locale: strin
           </div>
         </ReadingNodeSection>
       ) : null}
-      <ReviewsNode obj={obj} locale={locale} />
       <PlanNode obj={obj} locale={locale} />
+      <ReviewsNode obj={obj} locale={locale} />
       {obj.has_result_draft ? (
-        <p className="ldvh-caption text-violet-500 dark:text-violet-400">{t('objectDetail.workcaseResultDraftPresent')}</p>
+        <p className="ldvh-body-muted text-violet-600 dark:text-violet-400">{t('objectDetail.workcaseResultDraftPresent')}</p>
       ) : null}
     </>
   );
@@ -324,14 +325,15 @@ function AwaitingGate2Body({ obj, locale }: { obj: WorkCaseDetailData; locale: s
   const { t } = useI18n();
   return (
     <>
-      <p className="ldvh-caption text-violet-500 dark:text-violet-400">{t('objectDetail.workcaseAwaitingGate2')}</p>
+      <ResponsibilityNodes obj={obj} locale={locale} />
+      <p className="ldvh-body-muted text-violet-600 dark:text-violet-400">{t('objectDetail.workcaseAwaitingGate2')}</p>
       <ProseNode
         title={t('objectDetail.workcaseResultDraft')}
         value={typeof obj.report_body === 'string' ? obj.report_body : ''}
         locale={locale}
-        markdown
       />
       <PlanNode obj={obj} locale={locale} />
+      <ReviewsNode obj={obj} locale={locale} />
     </>
   );
 }
@@ -344,6 +346,7 @@ function ClosedBody({ obj, locale }: { obj: WorkCaseDetailData; locale: string }
 
   return (
     <>
+      <ResponsibilityNodes obj={obj} locale={locale} />
       {outcome ? (
         <ReadingNodeSection
           title={t('objectDetail.workcaseOutcome')}
@@ -362,10 +365,9 @@ function ClosedBody({ obj, locale }: { obj: WorkCaseDetailData; locale: string }
           title={t('objectDetail.workcaseAchievedScope')}
           value={result.achieved_scope}
           locale={locale}
-          markdown
         />
       ) : null}
-      <ResidualNode obj={obj} />
+      <ResidualNode obj={obj} locale={locale} />
       <PlanNode obj={obj} locale={locale} />
       <ReviewsNode obj={obj} locale={locale} />
       {obj.gate_1 ? (

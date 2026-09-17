@@ -34,7 +34,6 @@ const WORKCASE_SURFACES = [
   'web/src/components/WorkCaseProgressFilter.tsx',
   'web/src/components/WorkCaseCapabilityStatusBadge.tsx',
 ] as const;
-
 /** index.css 里定义的工具类集合。 */
 function definedUtilityClasses(): Set<string> {
   const css = readSource('web/src/index.css');
@@ -122,14 +121,19 @@ test('result.satisfied is boolean and presented as readable text, not a bare val
   const api = readSource('web/src/utils/api.ts');
   const layout = readSource('web/src/pages/object-detail/WorkCaseReadingLayout.tsx');
   const locales = readSource('web/src/i18n/locales.ts');
+  // 三态词条的**唯一实现**落在共享模块（详情/列表卡/收件箱共用，防口径漂移）。
+  const stateModule = readSource('web/src/utils/workcaseCheckState.ts');
 
   // 21 §9.3：satisfied 是布尔判定（真实对象为 true）。
   assert.match(api, /interface WorkCaseResultCheck \{[\s\S]*?satisfied\?: boolean/);
   // 10 §12.8：状态须有可读文本，不得只用颜色/图标承载。
   for (const key of ['workcaseCheckSatisfied', 'workcaseCheckUnsatisfied', 'workcaseCheckUnknown']) {
-    assert.match(layout, new RegExp(`objectDetail\\.${key}`), `详情必须呈现 ${key} 词条`);
+    assert.match(stateModule, new RegExp(`objectDetail\\.${key}`), `三态映射必须登记 ${key} 词条`);
     assert.match(locales, new RegExp(`'objectDetail\\.${key}'`), `词条 ${key} 必须已登记`);
   }
+  // 详情消费共享映射（不自行实现第二份三态判断）。
+  assert.match(layout, /workCaseCheckStateLabel/);
+  assert.match(layout, /workCaseCheckChipClass/);
   // 不再把布尔 join 进字符串（旧的裸 `true · evidence` 形态）。
   assert.doesNotMatch(layout, /c\.satisfied[^\n]*filter\(Boolean\)/);
 });
@@ -163,5 +167,125 @@ test('no zero-consumer WorkCase exports and no typo utility classes remain', () 
   // 拼写错误类（漏 v 的 `ldh-card-decision-body`）不得复活。
   for (const surface of WORKCASE_SURFACES) {
     assert.doesNotMatch(readSource(surface), /ldh-card-decision-body/, `${surface} 含拼写错误类`);
+  }
+});
+
+// ── 2026-09-17 补充（WC 364df30e）：本轮收敛新增的不变量守卫 ─────────────────
+
+test('detail does not re-render an identity block that ObjectIdentityHeader owns', () => {
+  const layout = readSource('web/src/pages/object-detail/WorkCaseReadingLayout.tsx');
+
+  // docs/01 §1.8.1 身份头部契约：类型标签+状态标签+object-id、标题、更新时间、
+  // 右上复制入口由共享 ObjectIdentityHeader 承载；详情与右侧扩展阅读同源。
+  // 布局自渲染第二套头部（曾为 group chip + 裸 `status:` + 复制按钮）即违约。
+  assert.doesNotMatch(
+    layout,
+    /status:\s*\{obj\.status\}/,
+    '详情不得裸露 `status:` 原值——状态由共享身份头部的语义徽标承载',
+  );
+  assert.doesNotMatch(
+    layout,
+    /ObjectReferenceCopyButton/,
+    '复制入口归共享身份头部（ObjectIdentityHeader），布局内不重复提供',
+  );
+});
+
+test('detail prose uses the detail reading level, not the 12px card scan level', () => {
+  const layout = readSource('web/src/pages/object-detail/WorkCaseReadingLayout.tsx');
+
+  // docs/01 §1.4 第 4 条：卡片判断项正文只用于 Card 的有限行数扫描窗口；
+  // 详情页和阅读面板仍使用各自正文层级，不得随之缩小。
+  // 只判 className 使用（注释中作为「已移除的旧做法」被提及不算违规）。
+  const classNames = Array.from(layout.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g))
+    .map((match) => `${match[1] ?? ''} ${match[2] ?? ''}`)
+    .join(' ');
+  assert.doesNotMatch(
+    classNames,
+    /ldvh-card-decision-body/,
+    '详情正文不得复用 12px 卡片扫描层级——须用详情阅读层级',
+  );
+  // 正文段与六类样板一致，经 ResearchTextNodeContent（Markdown + 14px 基准）。
+  assert.match(layout, /ResearchTextNodeContent/);
+});
+
+test('all four lifecycle bodies render the shared responsibility nodes (field presence is group-independent)', () => {
+  const layout = readSource('web/src/pages/object-detail/WorkCaseReadingLayout.tsx');
+
+  // docs/10 §4.2：条件字段可随事实是否形成而省略，但**已存在字段不能因对象处于
+  // 某个派生分组而消失**；分组只改变强调，不改变在场字段集。四个主体共用
+  // ResponsibilityNodes，故 summary/serves/scope 在 closed 详情同样在场。
+  assert.match(layout, /function ResponsibilityNodes\(/);
+  assert.equal(
+    (layout.match(/<ResponsibilityNodes obj=\{obj\} locale=\{locale\} \/>/g) ?? []).length,
+    4,
+    '四个派生主体（draft/executing/awaiting_gate2/closed）都必须渲染共有字段节',
+  );
+});
+
+test('derived groups are localized and colour-mapped — no raw snake_case reaches the badge', () => {
+  const locales = readSource('web/src/i18n/locales.ts');
+  const statusColors = readSource('web/src/utils/statusColors.ts');
+
+  // docs/01 §1.3：枚举值必须通过语义映射本地化（徽标经 getObjectStatusLocale
+  // 取词条）。此前 OBJECT_STATUS_LOCALES.workcase 缺这四条，pending_gate1 /
+  // awaiting_gate2 原值直出。
+  const workcaseBlock = locales.slice(
+    locales.indexOf('const OBJECT_STATUS_LOCALES'),
+    locales.indexOf('export function getObjectStatusLocale'),
+  );
+  for (const group of ['pending_gate1', 'executing', 'awaiting_gate2', 'closed', 'unknown']) {
+    assert.match(workcaseBlock, new RegExp(`\\b${group}: \\{ zh:`), `派生分组 ${group} 必须有类型专属展示词条`);
+  }
+
+  // docs/01 §1.10.2：Human 待确认用紫色系、推进中用天蓝色系——两个 Gate 待办组
+  // 与 executing 必须各有语义色条目（缺条目会落中性灰，无法区分）。
+  for (const group of ['pending_gate1', 'awaiting_gate2', 'executing']) {
+    assert.match(statusColors, new RegExp(`\\b${group}: \\{ light: '#`), `派生分组 ${group} 必须有语义色`);
+  }
+  // 推进中是天蓝而非绿：executing 不得与 active 同色。
+  assert.doesNotMatch(
+    statusColors,
+    /executing: \{ light: '#059669'/,
+    'executing（推进中）按 docs/01 §1.10.2 用天蓝色系，不得复用 active 的绿色',
+  );
+});
+
+test('criteria check state never reaches the UI as a bare boolean', () => {
+  const surfaces = ['web/src/pages/ObjectList.tsx', 'web/src/pages/CognitionCenter.tsx'] as const;
+  const stateModule = readSource('web/src/utils/workcaseCheckState.ts');
+
+  // 10 §12.8：状态须有可读文本与可区分形态。列表卡与收件箱此前把布尔插值进
+  // 字符串（`` `${c.satisfied} · ${c.evidence}` ``），页面显示裸 true/false。
+  for (const surface of surfaces) {
+    const source = readSource(surface);
+    assert.doesNotMatch(
+      source,
+      /\$\{c\.satisfied/,
+      `${surface} 不得把布尔插值进判据文本——须经共享三态映射取可读词条`,
+    );
+    assert.match(source, /workCaseCheckStatement/, `${surface} 必须消费共享三态映射`);
+  }
+  // 三态映射与详情共用同一实现（单一实现，防口径漂移）。
+  assert.match(stateModule, /export function workCaseCheckStateLabel/);
+  assert.match(stateModule, /export function workCaseCheckStatement/);
+  assert.match(readSource('web/src/pages/object-detail/WorkCaseReadingLayout.tsx'), /workCaseCheckStateLabel/);
+});
+
+test('v4 residue stays out of the WorkCase presentation chain', () => {
+  // 零消费者 v4 详情投影（含 v4 字段词汇）已删除。
+  assert.equal(
+    fs.existsSync(path.join(repositoryRoot, 'web/src/../shared/workcaseDetailProjection.ts')),
+    false,
+    'shared/workcaseDetailProjection.ts 是零消费者 v4 残留，已随本单删除',
+  );
+  // 零消费的 v4 展示耦合字段不得复活。
+  const facts = readSource('web/api/services/facts.ts');
+  const factsCode = facts.split('\n').filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line)).join('\n');
+  assert.doesNotMatch(factsCode, /has_execution_section/, 'has_execution_section 零消费且非 21 §8 字段');
+  // model.ts 的 WorkCase 字段序为 21 §8 闭集，不含 v4 词汇。
+  const model = readSource('web/src/pages/object-detail/model.ts');
+  const workcaseOrder = model.slice(model.indexOf('  workcase: ['), model.indexOf('  adr: ['));
+  for (const v4Field of ['phase', 'work_items', 'closure_proposal', 'success_criterion_definitions', 'execution_approval', 'result_version']) {
+    assert.doesNotMatch(workcaseOrder, new RegExp(`'${v4Field}'`), `model.ts 的 WorkCase 字段序不得含 v4 字段 ${v4Field}`);
   }
 });

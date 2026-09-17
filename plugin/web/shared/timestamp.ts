@@ -6,6 +6,29 @@ export interface Rfc3339Timestamp {
   fraction: string
 }
 
+/**
+ * 把一个时间字段的来源值归一为 RFC 3339 文本（无法归一时返回 undefined）。
+ *
+ * 为什么需要它：js-yaml 会把**未加引号**的 ISO 8601 时间戳解析为 `Date` 实例，
+ * 而事实契约（03 §6.1 与各类型规范）要求这些字段是 RFC 3339 文本。读取层的
+ * `localFactReader` 只对其 `TIMESTAMP_FIELDS` 白名单（顶层 created_at 等）做该
+ * 归一；嵌在 `gate_1` / `attempt` 等对象内的字段不经过那一步，因此在读取层之后
+ * 仍是 `Date`。任何「按 string 判定」的投影守卫都会把这些字段静默丢弃——
+ * 这是 WorkCase 呈现保真缺陷的根因。
+ *
+ * 这里是该归一化的**唯一实现**：`shared/factChangeLog.ts` 的 `toChangeLogAtText`
+ * 复用它，投影层亦复用它，不得各自重写一份。
+ */
+export function toRfc3339Text(value: unknown): string | undefined {
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value.toISOString() : undefined
+  }
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return undefined
+  return parseRfc3339Timestamp(trimmed) !== null ? trimmed : undefined
+}
+
 /** Convert Git's offset-bearing display form to an RFC 3339 input. */
 export function normalizeGitTimestampInput(value: string): string {
   const match = GIT_OFFSET_TIMESTAMP_RE.exec(value.trim())
