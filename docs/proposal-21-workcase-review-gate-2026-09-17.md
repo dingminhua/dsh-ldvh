@@ -172,7 +172,8 @@ Human 于 2026-09-17 明确该类型的取舍原则（原话）：
 |---|---|
 | 1「wc里需要有一个方法对应上这些生命周期」 | ⚠️ **部分**——close 前强制复核 = 复核环节有了机械出口；但不新增「方法/操作」 |
 | 2「需要一个专门的复核阶段」 | ✅ 由 `reviews` 派生「已复核」维度呈现 |
-| 3「复核不能被跳过」 | ⚠️ **`close` 路径达成，全局未达成**——Human 已复裁采 **E4 严格门禁**（§6.4）：`close` 硬拒绝 `reviews` 为空的一切关闭，无逃生舱。**但起草者独立发现一条绕过路径**：`open --rebatch--> draft --cancel--> closed`（`rebatch` 不校验 C2 是否真失效，`cancel` 不受门禁）——见 §6.4.1，处置待 Human 裁定。<br>故准确表述为「**`close` 路径不可跳过**」，而非绝对不可跳过。<br>（本行历经四次修正：初稿「直接满足」→ 与 (c) 矛盾被审核指出 → 「取决于形态」→ E4 后「达成」→ 发现绕过路径后限定范围。轨迹保留以明示修正过程） |
+| 3「复核不能被跳过」 | ⚠️ **`close` 路径达成，全局未达成**——Human 已复裁采 **E4 严格门禁**（§6.4）：`close` 硬拒绝 `reviews` 为空的一切关闭，无逃生舱。**但起草者独立发现一条绕过路径**：`open --rebatch--> draft --cancel--> closed`（`rebatch` 不校验 C2 是否真失效，`cancel` 不受门禁）——见 §6.4.1，处置待 Human 裁定。<br>故准确表述为「**`close` 路径不可跳过**」，而非绝对不可跳过。
+**更重要的限缩（第三轮审核发现，见 §6.4.3）**：E4 保证的「独立复核」在机械上等价于「存在一条 `reviews`」——**独立性无任何机械保障**（署名只证「谁写入」，不证「复核者独立」）。故本诉求的达成应表述为「**`close` 前必须有一条复核记录**」，而非「复核确已独立执行」。该项是 E4 正当性层面的缺口，须 Human 裁定。<br>（本行历经四次修正：初稿「直接满足」→ 与 (c) 矛盾被审核指出 → 「取决于形态」→ E4 后「达成」→ 发现绕过路径后限定范围。轨迹保留以明示修正过程） |
 | 4「执行中推进到哪一步要呈现」 | ✅ 由正文 `## 执行` 节承载（21:151 既定承载位「attempt 与执行进展的正文承载；跨会话接力」），**不新增字段** |
 
 ### 5.3 对 21 §19 反过度设计红线的适用性（逐条自检）
@@ -217,7 +218,11 @@ Human 于 2026-09-17 明确该类型的取舍原则（原话）：
 ### 6.4 新增什么负担与风险
 
 - **负担**：每次关闭前须已有 ≥1 条 `reviews`——即**每份关闭的工单至少执行一次复核**。这是**有意的成本**（02 §15 制度要求）；且因 21 §12 已滤掉简单任务，负担落在确实需要的工作上。
-- **风险 1（形式化）**：可能出现「为满足门禁而写一条空洞 `reviews`」。**缓解**：`summary` 已有 02 §15 七要素要求（对象/基线/方法/覆盖/未覆盖/发现/保证边界）与 ≤600 字约束；但**内容质量不可机械判**——如实声明：本门禁只保证「复核记录存在」，不保证「复核发生过或充分」。
+- **风险 1（正当性缺口，经第三轮审核升格）**：E4 **不保证复核发生、也不保证复核者独立**。
+  - 初稿表述为「只保证记录存在，不保证复核发生过或充分」——**强度不足**；
+  - 更正后的准确表述：**①** 主控可自行写一条 `summary` 即满足门禁（故「是否真发生」不可判）；**②** 署名由 `stampReviewEntries` 盖上**调用会话自己**的 provider/model（故「是否独立」亦不可判）——见 **§6.4.3（Blocker）**；
+  - `summary` 的 02 §15 七要素与 ≤600 字要求**无机械校验**（只在 21:136 有文字要求），故不构成缓解；
+  - **该缺口打击的是 E4 的正当性依据**（Human 复裁前提为「复核就是独立复核」），须 Human 裁定（§6.4.3 的 A/B/C 三选项）。
 - **风险 2（与既有 closed 对象的兼容）**：存量 `closed` 工单多数无 `reviews`。门禁**只作用于关闭动作**，不追溯已关闭对象（03 §6.1：不追溯改写）。
 - **风险 3（部分场景无从复核）——Human 已复裁：严格门禁（E4），不可复核即保持 open 并交还 Human。**
 
@@ -227,7 +232,7 @@ Human 于 2026-09-17 明确该类型的取舍原则（原话）：
 
   | 环节 | 规则 | 机械可判性 |
   |---|---|---|
-  | **门禁** | `close` 时 `reviews` 为空 → **一律拒绝**（硬门禁，无例外） | ✓ `reviews` 空/非空 |
+  | **门禁** | `close` 时 `reviews` 缺失或为空 → **一律拒绝**（硬门禁，无例外）。**判据须覆盖两种形态**：字段缺失（`undefined`）与空数组（`[]`）——后者会被既有校验拒绝写入（`workcase-writer.js:323-325`：「must be omitted when there are no review entries」），故实际只可能出现缺失形态；但门禁实现不应依赖该前提 | ✓ 字段缺失 / 空数组 / 非空数组三态 |
   | **不可复核时** | **保持 `open`**，进入 Stop Condition，**交还 Human** ——不落「失败态」、不自行关闭 | ✓ 由 `close` 被拒体现；处置走既有机制 |
 
   **规范改动仅一句**（§9 第 1 项）：「Gate 2 关闭前须已存在至少一条 `reviews`；缺失时拒绝关闭并报告，不得以正文自述替代。」——**不含**任何附加不变量。
@@ -273,7 +278,7 @@ open --[rebatch]--> draft --[cancel]--> closed (outcome=cancelled)
 
 | 步 | 代码事实 | 结论 |
 |---|---|---|
-| `rebatch`（open→draft） | `workcase-writer.js` 的 `rebatchWorkcaseObject` **只要求 `status=open`**（其余为指纹 CAS 与签名校验）；**不校验 `gate_1.authorization_fingerprint` 是否真的与当前 `plan`+`scope` 不符**——即不验证「C2 是否真的失效」 | 可被**主动调用**，无须真实授权失效 |
+| `rebatch`（open→draft） | `rebatchWorkcaseObject` **只要求 `status=open`**；其「指纹」校验是**文件内容指纹的 CAS**（乐观并发控制，`workcase-writer.js:840-853`），**与 C2 授权指纹无关**；它**不校验** `gate_1.authorization_fingerprint` 是否真的与当前 `plan`+`scope` 不符——即不验证「C2 是否真的失效」 | 可被**主动调用**，无须真实授权失效 |
 | `cancel`（draft→closed） | `cancelWorkcaseObject` 只要求 `status=draft`；其错误文案自述「an approved workcase must go through Gate 2 instead」 | **不受** E4 门禁约束 |
 
 即：一个 `open` 工单可经「重批回 draft 再取消」关闭，**全程无须任何 `reviews`**。
@@ -286,12 +291,13 @@ open --[rebatch]--> draft --[cancel]--> closed (outcome=cancelled)
 |---|---|---|
 | **(i) 接受为已知边界，如实披露** | 不改 E4；在规范中明写「`rebatch` 仅限真实 C2 失效，滥用即违规」，并在 Stop Conditions 中列出 | 依赖主控守规；与「机械门禁」的初衷有落差 |
 | **(ii) 收紧 `rebatch` 前置** | 在 `rebatch` 中**校验** `gate_1.authorization_fingerprint` 确与当前 `plan`+`scope` 不符，否则拒绝 | 属另一处规范+实现改动，**扩大本提案范围** |
-| **(iii) 门禁同时覆盖 `cancel`** | 要求「曾经 `gate_1` 出现过的对象，其 `closed` 一律须有 `reviews`」——即按「是否曾获授权」而非按「由哪个 action 关闭」设门禁 | 语义更准，但需在对象上判定「曾经 open」（`change_log` 可反推，或按 `gate_1` 存在性——但 `rebatch` 已删除 `gate_1`） |
+| **(iii) 门禁同时覆盖 `cancel`** | 按「是否曾获授权」设门禁，而非按「由哪个 action 关闭」 | 语义更准。初稿称「因 `gate_1` 被删故技术上卡住」——**该判断自相矛盾**（同表下一行已写「`change_log` 可反推」），经第三轮审核指出后更正：`change_log` 由 Code 托管（各写路径均 `next.change_log = fm.change_log`，调用方不可伪造），且含固定标记（`:923` `[gate_1 approved by …]`、`:1101` `[C2 局部重批 … gate_1 dropped …]`），**反推完全可行** |
+| **(iv) 补 §15.1 的 C2 校验（第三轮审核提出，起草者认为最根本）** | 21:281 要求的「`gate_1.authorization_fingerprint` 与当前 `plan`+`scope` 一致，不一致即授权失效」**在实现中根本不存在**——`approve`（`:918-925`）直接**重算并盖戳**，从不比对；`rebatch`（`:1069-1110`）全文无任何 fingerprint 校验。故源头不是「`rebatch` 可被滥用」，而是**C2 失效从未被机械检测** | 堵住真正的源头；但**扩大本提案范围**（涉 `approve` 与 `rebatch` 两处），属独立议题 |
 
-**起草者的初步判断**：(iii) 最贴合意图但技术上有难点（`rebatch` 会删 `gate_1`，故关闭时无法据它判定「曾获授权」）；(ii) 最直接（堵住源头）但扩大范围。**(i) 最保守**。
+**起草者的初步判断（经第三轮审核更正）**：**(iv) 最根本**（它指出真正的源头是 C2 校验缺失，而非某个 action 可被滥用），但范围最大；**(iii) 现技术上可行**（`change_log` 反推，初稿的「卡住」判断已更正）；**(i) 最保守**。
 
 **补充核验（起草者对 (iii) 难点与 action 面的复核）**：
-- `rebatchWorkcaseObject` 确有 `delete next.gate_1`（`workcase-writer.js:1099`），故关闭时无法据 `gate_1` 存在性判定「曾获授权」——(iii) 的技术难点**成立**；
+- `rebatchWorkcaseObject` 确有 `delete next.gate_1`（`workcase-writer.js:1100`），故关闭时无法据 `gate_1` 存在性判定「曾获授权」——(iii) 的技术难点**成立**；
 - 全部 7 个 action 的 status 前置与终态：`create`（无前置）、`approve`（需 draft）、`execute`（需 open）、`close`（需 open → closed，**受 E4 门禁**）、`rebatch`（需 open → draft）、`cancel`（需 draft → closed，**不受门禁**）、`revise`（需 draft → draft）。**恰好两条可达 `closed`，只有一条被守**——§6.4.1 的绕过判断由此得到完整支撑；
 - 附带核对：`revise` 不删 `gate_1`，但**不构成缺陷**——因为到达 `revise` 时对象必为 `draft`，而 21:167 规定 `draft` 不得携带 `gate_1`，故彼时它本不存在。**须 Human 选择**；在选定前，本提案的「不可跳过」应如实表述为「`close` 路径不可跳过」，而非绝对不可跳过。
 
@@ -302,24 +308,95 @@ open --[rebatch]--> draft --[cancel]--> closed (outcome=cancelled)
 | 一侧 | 原文 | 出处 |
 |---|---|---|
 | **规范要求保留** | 「**`reviews` 不在清空之列**：它记录『该次复核确实发生过』这一历史事实，与 `plan`/`scope` 是否被重批无关；重批后保留原值」 | `specs/21-WorkCase-工单.md:176` |
-| **实现要求删除** | 「reviews: **must not be present while status=draft** — 复核 occurs during execution, not before Gate 1」 | `plugin/lib/workcase-writer.js:473`（外层判断 `:471`），且**有测试固化**（`plugin/test/workcase-writer.test.mjs:860`） |
+| **实现要求删除** | 「reviews: **must not be present while status=draft** — 复核 occurs during execution, not before Gate 1」 | `plugin/lib/workcase-writer.js:472`（外层判断 `:471`），且**有测试固化**（`plugin/test/workcase-writer.test.mjs:860`） |
 
 **矛盾不可调和**：`rebatch` 的结果是 `status=draft`（`workcase-writer.js:1093`）。故「保留 reviews」与「draft 不得有 reviews」**不可能同时成立**。
 
 **起草者的实测**：直接调用 `validateWorkcaseFrontmatter({status:"draft", reviews:[…]})` → **REJECTED**，理由即上表右侧。另核对 `rebatchWorkcaseObject` 全文**未提及 `reviews`**——即它不显式保留也不显式清除，取决于调用方传什么；而调用方若依 21:176 传入，会被校验拒绝。
 
-**性质判定（三方均无显证错误）**：
-- 不是「实现漏做」——writer 的行为有测试固化，是**有意**的；
-- 21:176 的理由（复核是历史事实，与重批无关）**也成立**；
-- 实质是**规范未预见**「draft 禁 reviews」与「重批须保留 reviews」二者的冲突。
+**性质判定（经第三轮审核更正：是实现缺陷，不是「规范未预见」）**
+
+起草者初稿判为「三方均无显证错误、实质是规范未预见冲突」，并称「writer 的行为有测试固化，是**有意**的」。**该判定已被第三轮审核推翻，起草者亲验后接受**：
+
+| 初稿主张 | 更正后的事实 | 出处（已亲验） |
+|---|---|---|
+| 「有测试固化，故是有意的」 | ❌ **`test:860` 测的是 `revise`**（该测试体调 `reviseWorkcaseObject`），**不是 `rebatch`**；全仓库**无任何 rebatch × reviews 的测试** | `plugin/test/workcase-writer.test.mjs:860-884`（测试体 :872 调 revise）；`grep rebatchWorkcaseObject plugin/test/workcase-writer.test.mjs` 仅命中 :542/:648，均不涉 reviews |
+| 「writer 有意丢弃 reviews」 | ❌ `rebatch` 的 `next = structuredClone(stripCallerOnlyFields(frontmatterAfter))` 后只 `delete` attempt/result/outcome/gate_1（`:1097-1100`），**从未提及 `reviews`**——既未保留也未显式清除 | `plugin/lib/workcase-writer.js:1089, 1097-1100` |
+| — | ⚠️ **writer 自己的注释写着与 21:176 一致的意图**：「open/closed 均可携带，**重批回退时保留（§9.2 不清空）**」 | `plugin/lib/workcase-writer.js:469` |
+
+**结论**：这是**实现漏做**的典型指纹——**注释说保留、代码做不到、且无测试覆盖该组合**。故处置应是「**补实现 + 补测试**」，而非「规范未预见」。
+
+**处置方向（第三轮审核给出的第三方向，起草者认为优于初稿两个方向）**：
+> **让 `rebatch` 显式作废 `reviews`，并把其要点落入 `change_log`**——与 §9.2 对 `criteria_checks` 的**既有处置范式完全同形**（`workcase-writer.js:1094-1095` 注释即「已取得的核对证据写入 change_log 语义摘要」）。
+
+该方向同时解决三件事：①守住「draft 不得携带 reviews」的既有不变量；②不丢历史（要点入 change_log）；③与 §9.2 既有设计语言一致。此时 21:176 只需把「重批后**保留原值**」改为「重批后**保留其历史要点于 change_log**」。
+
+（初稿曾给的两个方向——「保留 21:176 字面改 writer」与「改为随授权失效改 21:176」——**均不如上述第三方向**：前者违反 draft 不变量，后者丢弃历史。）
 
 **与 E4 的关系（须一并裁定）**：
 - E4 要求「关闭前须有 `reviews`」；
 - 若某单重批后重走 Gate 1（draft → open → close），其原有 `reviews` **无法保留**（writer 拒），故该单**必须再做一次独立复核**才能关闭；
 - 这与 21:176「保留原值」的**字面意图相反**，但与 E4 的**精神一致**——因为重批改变了授权范围（`plan`/`scope` 变了），旧复核针对的是旧范围；
-- **故 E4 下 21:176 的「保留」条款须一并裁定**：是保留字面（允许 draft 携带 reviews，需改 writer 与其测试），还是改为「重批后 reviews 随授权失效」（需改 21:176）。
+- **该条款与 E4 相关，但不阻塞 E4 的实施**（初稿称「须一并裁定」措辞过强，经第三轮审核指出后更正）：不重批的工单完全不受此项影响。**建议同批裁定，但可解耦。**
 
-**待 Human 裁定**。此项**不影响 E4 本身可否实施**，但影响其与重批路径的衔接是否自洽。
+**待 Human 裁定**。此项**不影响 E4 本身可否实施**，但与重批路径的衔接需要收口（见 §6.4.3 对「须一并裁定」措辞的更正）。
+
+### 6.4.3 【Blocker】E4 的正当性缺口：独立性无任何机械保障
+
+**第三轮独立审核发现，起草者已亲验成立。这是本提案最严重的问题——它打击的不是 E4 的可实施性，而是 E4 的正当性依据。**
+
+#### 事实
+
+E4 的正当性来自 Human 的复裁前提：**「复核就是独立复核」**（§10.2.1）。而实现层**不提供任何独立性证据**：
+
+| 事实 | 出处（已亲验） |
+|---|---|
+| `reviews` 的署名由 `stampReviewEntries` 盖上 `sig.signature`（即 `{provider, model}`） | `plugin/lib/workcase-writer.js:874-881` |
+| 该 `provider`/`model` 取自**调用会话自身**的路由事件（`model/selection` 或 `request/context`） | `plugin/lib/session-signature.js:63-68`（`:57-68` 的解析逻辑） |
+| `stampReviewEntries` 的**唯一调用点**是 `executeWorkcaseObject`（:994） | 全文件 grep 确认 |
+
+#### 推论（这是问题的实质）
+
+**署名证明的是「谁写的」，不是「复核者是否独立于实施者」。**
+
+故：主控在执行期自行写一条 `summary: "…复核概要…"`，writer 会盖上**主控自己**的 provider/model，`reviews` 变为非空，**E4 校验通过**。即：
+
+> **E4 在机械上保证的「独立复核」，完全等价于「存在一条 `reviews` 条目」——与「该条目由独立于实施者的主体产出」无关。**
+
+这与 Human 的复裁前提（「复核**就是独立**复核」）**直接冲突**。本提案 §6.4 风险 1 曾把缺口表述为「只保证记录存在，不保证复核充分」——**该表述低估了缺口**：不是「内容质量不可判」，而是**连「是否独立」都不可判**。
+
+#### 可能的处置（须 Human 裁定）
+
+| 选项 | 做法 | 代价 |
+|---|---|---|
+| **(A) 承认 E4 为「存在性门禁」并改写正当性表述** | 明确 E4 只保证「关闭前有一条复核记录」，**不保证独立性**；独立性靠 persona 自律与主控守规 | 与 Human 复裁前提的落差须由 Human 认可；E4 的价值主张须大幅降级 |
+| **(B) 要求 `reviews` 记录隔离执行的可核验标记**（如复核子代理的 session id） | 使独立性**可核验** | **可能引入新字段 → 与「零新字段」红线冲突**；须 Human 裁定是否容忍该冲突，或改采窄字段 |
+| **(C) 不在 E4 层面解决** | 承认独立性属**机制层**问题（子代理隔离、persona、编排纪律），另立议题 | E4 保持「存在性门禁」，但须如实标注 |
+
+**起草者的初步判断**：**(A)+(C)**——E4 是**存在性门禁**，其价值在于「不许无记录关闭」，而非「保证独立」；独立性应由编排与 persona 机制承接（另立议题）。**但 Human 的复裁理由正是「独立复核」**，故 (A) 是对 Human 原意的**降格**，须 Human 明确接受或改为 (B)。
+
+#### 与此前的自评对照
+
+本提案 §6.4 风险 1 已声明「只保证记录存在，不保证复核充分」——该声明**方向正确但强度不足**。经本轮审核，缺口应升格为：**「不保证复核发生了，也不保证复核者独立」**（前者因可自行写 summary，后者因署名只证写入者）。已据此改写 §6.4 风险 1 与 §5.2 的表述。
+
+### 6.4.4 【Blocker】`reviews` 只能经 `execute` 落盘——§9 低估了改动面
+
+**第三轮独立审核发现，起草者已亲验成立。**
+
+| 事实 | 出处（已亲验） |
+|---|---|
+| `stampReviewEntries` 的**唯一调用点**是 `executeWorkcaseObject`（`next.reviews = stampReviewEntries(...)`） | `plugin/lib/workcase-writer.js:994` |
+| `closeWorkcaseObject` **不接受** `frontmatterAfter`，只收 `outcome`/`result`/`bodyMarkdownAfter` | `plugin/lib/workcase-writer.js:1029-1033` |
+| `cancelWorkcaseObject` 同样不接受 `frontmatterAfter` | `plugin/lib/workcase-writer.js:1116-1120` |
+
+**推论**：`reviews` **只能在 `status=open` 时经 `execute` 写入**；关闭动作本身**无法补写** `reviews`。
+
+故 E4 若实现为「`close` 时校验 `reviews` 非空」，则**每次关闭都必须先成功走过一次 `execute`**（以落盘 reviews）。这不是「加一个校验」，而是**对写路径的实质约束**：主控不能「先关闭再补记录」，必须在执行期就把复核结果落盘。
+
+**本提案 §9 第 2 项原写「`closeWorkcaseObject` 加对应校验」——该表述低估了改动面**，现更正为：
+
+> ① `closeWorkcaseObject` 加 `reviews` 非空校验（门禁）；
+> ② **说明 `reviews` 须先经 `execute` 落盘**（因 `close` 不接受 `frontmatterAfter`）——这是 E4 的**隐含前置**，须在规范与实现中一并说明，否则主控在关闭时才发现无法补写，会被迫把工单留在 `open`。
 
 ### 6.5 准备以什么证据核对
 
@@ -345,7 +422,7 @@ open --[rebatch]--> draft --[cancel]--> closed (outcome=cancelled)
 3. **呈现改动未验证**：§4.2 改动二（由 `reviews` 派生「已复核」维度）的具体位置与形状未定稿——可能落在 10 §5.5 的派生组，也可能只作详情页维度（不入筛选档，以免改动四档闭集）。
 4. **既有「复核不可用」徽标是 v4 残留，对 v5 永不触发**（本会话实测）：`plugin/web/src/components/WorkCaseCapabilityStatusBadge.tsx` 经 `hasUnavailableIndependentSubagentReview` 读 `creation_reviews`/`result_reviews` 与 `actual_method === 'same-ai-switched-role-read-only'`——**这些均不在 21 §8 的 v5 字段闭集**（已核实：字段表零命中，存量 WC 对象零命中）。故该徽标虽仍被 `ObjectList.tsx`（:6 导入、:253 渲染）与 `ObjectDetail.tsx`（:16 导入、:641 渲染）引用，**对 v5 对象恒不显示**。（更正：此前版本写作「`ObjectDetail.tsx` / `facts.ts`」有误——`facts.ts` 引用的是**判定函数** `hasUnavailableIndependentSubagentReview`（:420），不是徽标组件本身。）庚案**不为它新增 v5 载体**（那需新字段）；若 Human 希望该徽标复活，属另一议题。
 5. **二轮审核未完成（子代理中途失败）**：第二轮对抗审核在读完部分规范后中断，**未产出完整报告**。但它在中断前指出一处冲突，起草者已亲验成立并记入 §6.4.2（21:176「rebatch 保留 reviews」vs writer「draft 不得有 reviews」）。**故本轮修复稿仍未经完整审核。**
-6. **本提案现暴露两处与 E4 衔接的既有问题**，均须 Human 一并裁定：§6.4.1（rebatch→cancel 绕过）与 §6.4.2（21:176 与 writer 的冲突）。二者都不是 E4 引入的，但 E4 使它们变得相关。
+6. **本提案现暴露四处问题**（经三轮审核逐步发现）：§6.4.1（rebatch→cancel 绕过）、§6.4.2（21:176 与 writer 的冲突，实为实现漏做）、§6.4.3（**Blocker**：独立性无机械保障）、§6.4.4（**Blocker**：`reviews` 只能经 `execute` 落盘）。前两处与 E4 **相关但可解耦**（建议同批裁定）；后两处**直接决定 E4 能否成立**。
 7. **未做**：除「读取文件、调用 `validateWorkcaseFrontmatter` 做只读验证、枚举 action 前置」外，未修改任何文件、未写入任何事实对象、未实施任何代码改动、未运行测试套件。
 
 ---
@@ -367,7 +444,7 @@ open --[rebatch]--> draft --[cancel]--> closed (outcome=cancelled)
 **若 Human 批准庚案**，作用范围限于：
 
 1. `specs/21-WorkCase-工单.md` §14「Gate 2 关闭」条补**一句**前置条件：关闭前须已存在至少一条 `reviews`（独立复核）；缺失时一律拒绝关闭并报告；不可复核时保持 `open` 并交还 Human。**不含** (c) 方案曾需的附加不变量（已随 E4 取消）；
-2. `plugin/lib/workcase-writer.js` 的 `closeWorkcaseObject` 加对应校验；
+2. `plugin/lib/workcase-writer.js` 的 `closeWorkcaseObject` 加对应校验；**并说明其隐含前置**——`reviews` 只能经 `execute`（status=open）落盘（`close`/`cancel` 不接受 `frontmatterAfter`，`stampReviewEntries` 唯一调用点在 `:994`），故主控不能「先关闭再补记录」，须在执行期落盘（见 §6.4.4）；
 3. 补两个**行为**断言（空 `reviews` 被拒 / 非空通过）；
 4. 呈现层由 `reviews` 派生「已复核」维度（位置见 §7 第 4 项，可后置）。
 
@@ -419,6 +496,26 @@ open --[rebatch]--> draft --[cancel]--> closed (outcome=cancelled)
 | **High 3**：门禁把「复核」收窄为「独立复核」未披露 | **确认收窄**：「复核就是独立复核」 | §3.2.1 改为已确认，并补根规范依据（00 §1） |
 
 **E4 使审核的另两项发现自动消解**：High 4（出口② 对 `cancelled` 的新增要求）与 Low 9（「一句」vs「三条」不一致）——因为 E4 不设附加不变量，规范改动回归一句。
+
+### 10.2.2 第三轮审核（已完成，发现两个 Blocker）
+
+第二轮**中途失败**（未产出报告），故重发第三轮，并**刻意收窄范围**（只给 3 个具体问题，要求不通读全部规范）——该调整使本轮跑完。
+
+**总评：E4 不能以现状呈 Human。** 九项发现（2 Blocker / 2 High / 3 Medium / 2 Low），起草者**逐项亲验，全部成立**：
+
+| # | 级别 | 发现 | 处置 |
+|---|---|---|---|
+| 1 | **Blocker** | **独立性无机械保障**——署名取自调用会话自身路由事件，只证「谁写入」不证「复核者独立」；与 Human 复裁前提「复核就是独立复核」冲突 | ✅ 新增 §6.4.3，含 A/B/C 三处置选项待裁 |
+| 2 | **Blocker** | `reviews` 只能经 `execute` 落盘（`stampReviewEntries` 唯一调用点 `:994`；`close`/`cancel` 不接受 `frontmatterAfter`）——§9 原写「close 加校验」低估改动面 | ✅ 新增 §6.4.4；§9 第 2 项补隐含前置 |
+| 3 | High | §6.4.2 性质判定错误：`test:860` 测的是 **`revise`**，无任何 rebatch×reviews 测试；writer 注释 `:469` 自称「重批回退时保留」→ **注释与代码矛盾 = 实现漏做**，非「规范未预见」 | ✅ §6.4.2 已重写，采审核给出的第三方向 |
+| 4 | High | 处置选项不全：**`approve` 也不校验 C2**（`:918-925` 直接重算盖戳），21:281 的 C2 校验**在实现中不存在** | ✅ §6.4.1 新增选项 (iv) |
+| 5 | Medium | (iii) 的「技术难点成立」自相矛盾（`change_log` 反推可行） | ✅ 已更正 |
+| 6 | Medium | 行号两处（`delete next.gate_1` 实为 `:1100`；错误文案实为 `:472`） | ✅ 已勘误 |
+| 7 | Medium | 「须一并裁定」夸大相关性（§6.4.2 自认不影响 E4 实施） | ✅ 降级为「相关但可解耦，建议同批裁定」 |
+| 8 | Low | `reviews: []` 会被既有校验拒绝，E4 判据须覆盖 | ✅ 门禁判据改为三态（缺失/空数组/非空） |
+| 9 | Low | CAS 文件指纹易与 C2 授权指纹混淆 | ✅ 已注明二者不同 |
+
+**审核同时澄清一项起草者的疑问**：§15.2 的宿主未落地**不会**使所有 WC 无法关闭（§15.2 未涵盖独立复核子代理，且 `reviews` 写入不依赖 attempt 宿主）；但「无独立子代理时只能保持 `open`」是 E4 的真实代价，Human 已知悉，如实披露即可。
 
 ### 10.3 关于「Human 决定无持久化记录」（审核发现 6）
 
