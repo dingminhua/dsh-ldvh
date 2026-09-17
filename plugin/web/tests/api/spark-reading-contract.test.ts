@@ -33,8 +33,17 @@ test('every fact list card shows exact-read formal associations in a minimal sec
   assert.match(source, /function FactAssociationsCardContent\(\{ associations, refs \}/);
   assert.match(source, /source: 'refs' as const/);
   assert.match(source, /source: 'relations' as const/);
-  // 卡头仍不携带 refs chip（呈现位置在卡体关联段，不在卡头）。
+  // Human 复定 2026-09-16：列表卡头就是「类型 → 优先级 → SG → 修改次数」四项，
+  // 关联对象不进卡头（呈现取舍），只在卡体关联段呈现。该断言同时钉住：
+  // 卡头不得以任何形式的关联 chip 回归。
   assert.doesNotMatch(source, /RefsBadge/);
+  assert.doesNotMatch(source, /关联 chip[\s\S]{0,40}(随之|紧随)/);
+  const cardHead = source.slice(
+    source.indexOf('getTypeLabel(obj.type, locale)'),
+    source.indexOf('ObjectIdentityActions', source.indexOf('getTypeLabel(obj.type, locale)')),
+  );
+  assert.match(cardHead, /getTypeLabel\(obj\.type, locale\)[\s\S]*<PriorityIcon[\s\S]*<ServesSgBadge value=\{obj\.serves\}/);
+  assert.doesNotMatch(cardHead, /factRefs|factAssociations|RefsBadge/);
   assert.match(source, /dedupeFactCardAssociations\(rows\)/);
   assert.match(source, /visibleRows\.map/);
   // 去重按来源分组隔离，且该隔离由 source 显式承载——不得依赖「refs 投影

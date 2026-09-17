@@ -213,12 +213,16 @@ export function ObjectCardFrame({
           >
             {getTypeLabel(obj.type, locale)}
           </span>
-          {/* Human 定案 2026-09-13：卡头标签序 = 类型 → 优先级 → SG → 修改次数；
-              方案 A——条件字段有值才显示（20 §8 priority 仅 open 时出现）。
-              2026-09-13 延伸裁定移除卡头关联 chip；Human 裁定 2026-09-16
-              （WorkCase 18fcee2c）恢复关联呈现但**仍在卡体关联段**、不在卡头：
-              卡头保持身份/优先级/SG/修改次数的稳定扫描序，关联对象由
-              FactAssociationsCardContent 统一承载（relations 与 refs 并列）。 */}
+          {/* Human 定案：卡头标签序 = 类型 → 优先级 → SG → 修改次数；不设关联
+              chip（条件字段有值才显示，20 §8 priority 仅 open 时出现）。
+
+              Human 复定 2026-09-16：卡头就是这四项，关联对象不进卡头。此前
+              3e0cbcc 撤 chip 时写作「依据 10 §5.1 字段级直读不渲染关联关系、
+              10 §5.2 卡片网格不承载关联对象」——经核对，10 §5.2 从未包含该
+              禁止条文（其首条要点明列「关联计数」），§5.1 只约束第一层字段级
+              直读、与第二层卡片网格互不替代（10 §5 首段：四层互不替代）。故
+              此处改记为**呈现取舍**：卡头保持身份/优先级/SG/修改次数的稳定
+              扫描序，关联对象由卡体 FactAssociationsCardContent 承载。 */}
           <PriorityIcon source={obj} type={obj.type} locale={locale} size="xs" />
           <ServesSgBadge value={obj.serves} locale={locale} />
           <span
