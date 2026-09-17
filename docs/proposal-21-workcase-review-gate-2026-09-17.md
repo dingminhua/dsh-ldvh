@@ -290,6 +290,32 @@ open --[rebatch]--> draft --[cancel]--> closed (outcome=cancelled)
 
 **起草者的初步判断**：(iii) 最贴合意图但技术上有难点（`rebatch` 会删 `gate_1`，故关闭时无法据它判定「曾获授权」）；(ii) 最直接（堵住源头）但扩大范围。**(i) 最保守**。**须 Human 选择**；在选定前，本提案的「不可跳过」应如实表述为「`close` 路径不可跳过」，而非绝对不可跳过。
 
+### 6.4.2 第二处发现：21:176 的「rebatch 保留 reviews」与 writer 直接冲突
+
+**该冲突由二轮审核在中断前指出，起草者已亲验成立**（与 E4 无关，是**既有**的规范-实现不一致，但 E4 会放大它）：
+
+| 一侧 | 原文 | 出处 |
+|---|---|---|
+| **规范要求保留** | 「**`reviews` 不在清空之列**：它记录『该次复核确实发生过』这一历史事实，与 `plan`/`scope` 是否被重批无关；重批后保留原值」 | `specs/21-WorkCase-工单.md:176` |
+| **实现要求删除** | 「reviews: **must not be present while status=draft** — 复核 occurs during execution, not before Gate 1」 | `plugin/lib/workcase-writer.js:473`（外层判断 `:471`），且**有测试固化**（`plugin/test/workcase-writer.test.mjs:860`） |
+
+**矛盾不可调和**：`rebatch` 的结果是 `status=draft`（`workcase-writer.js:1093`）。故「保留 reviews」与「draft 不得有 reviews」**不可能同时成立**。
+
+**起草者的实测**：直接调用 `validateWorkcaseFrontmatter({status:"draft", reviews:[…]})` → **REJECTED**，理由即上表右侧。另核对 `rebatchWorkcaseObject` 全文**未提及 `reviews`**——即它不显式保留也不显式清除，取决于调用方传什么；而调用方若依 21:176 传入，会被校验拒绝。
+
+**性质判定（三方均无显证错误）**：
+- 不是「实现漏做」——writer 的行为有测试固化，是**有意**的；
+- 21:176 的理由（复核是历史事实，与重批无关）**也成立**；
+- 实质是**规范未预见**「draft 禁 reviews」与「重批须保留 reviews」二者的冲突。
+
+**与 E4 的关系（须一并裁定）**：
+- E4 要求「关闭前须有 `reviews`」；
+- 若某单重批后重走 Gate 1（draft → open → close），其原有 `reviews` **无法保留**（writer 拒），故该单**必须再做一次独立复核**才能关闭；
+- 这与 21:176「保留原值」的**字面意图相反**，但与 E4 的**精神一致**——因为重批改变了授权范围（`plan`/`scope` 变了），旧复核针对的是旧范围；
+- **故 E4 下 21:176 的「保留」条款须一并裁定**：是保留字面（允许 draft 携带 reviews，需改 writer 与其测试），还是改为「重批后 reviews 随授权失效」（需改 21:176）。
+
+**待 Human 裁定**。此项**不影响 E4 本身可否实施**，但影响其与重批路径的衔接是否自洽。
+
 ### 6.5 准备以什么证据核对
 
 - **机械**：`close` 时 `reviews` 非空的校验（writer 侧）。
@@ -313,7 +339,9 @@ open --[rebatch]--> draft --[cancel]--> closed (outcome=cancelled)
 2. **存量 `closed` 对象的处置未定**：庚案不追溯，但若 Human 要求补齐历史，需另议。
 3. **呈现改动未验证**：§4.2 改动二（由 `reviews` 派生「已复核」维度）的具体位置与形状未定稿——可能落在 10 §5.5 的派生组，也可能只作详情页维度（不入筛选档，以免改动四档闭集）。
 4. **既有「复核不可用」徽标是 v4 残留，对 v5 永不触发**（本会话实测）：`plugin/web/src/components/WorkCaseCapabilityStatusBadge.tsx` 经 `hasUnavailableIndependentSubagentReview` 读 `creation_reviews`/`result_reviews` 与 `actual_method === 'same-ai-switched-role-read-only'`——**这些均不在 21 §8 的 v5 字段闭集**（已核实：字段表零命中，存量 WC 对象零命中）。故该徽标虽仍被 `ObjectList.tsx`（:6 导入、:253 渲染）与 `ObjectDetail.tsx`（:16 导入、:641 渲染）引用，**对 v5 对象恒不显示**。（更正：此前版本写作「`ObjectDetail.tsx` / `facts.ts`」有误——`facts.ts` 引用的是**判定函数** `hasUnavailableIndependentSubagentReview`（:420），不是徽标组件本身。）庚案**不为它新增 v5 载体**（那需新字段）；若 Human 希望该徽标复活，属另一议题。
-5. **未做**：未修改任何文件、未写入任何事实对象、未实施任何代码、未运行测试。
+5. **二轮审核未完成（子代理中途失败）**：第二轮对抗审核在读完部分规范后中断，**未产出完整报告**。但它在中断前指出一处冲突，起草者已亲验成立并记入 §6.4.2（21:176「rebatch 保留 reviews」vs writer「draft 不得有 reviews」）。**故本轮修复稿仍未经完整审核。**
+6. **本提案现暴露两处与 E4 衔接的既有问题**，均须 Human 一并裁定：§6.4.1（rebatch→cancel 绕过）与 §6.4.2（21:176 与 writer 的冲突）。二者都不是 E4 引入的，但 E4 使它们变得相关。
+7. **未做**：除「读取文件、调用 `validateWorkcaseFrontmatter` 做只读验证、枚举 action 前置」外，未修改任何文件、未写入任何事实对象、未实施任何代码改动、未运行测试套件。
 
 ---
 
