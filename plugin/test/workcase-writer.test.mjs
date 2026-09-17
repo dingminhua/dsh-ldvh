@@ -666,32 +666,8 @@ test("rebatch: open→draft voids the attempt, drops gate_1/result, and attempt 
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// 授权钉扎校验与 Code 托管字段锁定（21 §15.1 / §9.2 / §8）
+// Code 托管字段锁定与 rebatch 的 reviews 处置（21 §9.2 / §8）
 // ---------------------------------------------------------------------------
-
-test("rebatch: rejected when plan+scope is unchanged — no C2 invalidation has occurred (21 §15.1/§10.3)", async () => {
-  await withTemp("workcase-writer.", async (root) => {
-    await seedGoal(root);
-    const { draft } = await createDraft(root);
-    const { uid, after } = await approved(root);
-    // 刻意不改 plan/scope：指纹与 gate_1 存储值相同 ⇒ 无 C2 失效事由 ⇒ 必须拒绝。
-    const res = await rebatchWorkcaseObject({
-      factSourceRoot: root,
-      objectUid: uid,
-      expectedFingerprint: after.value.fingerprint,
-      frontmatterAfter: { ...draft },
-      bodyMarkdownAfter: draftBody(draft),
-      changeSummary: "无实质变化的滥用重批",
-      sessionSignature: SIG(),
-    });
-    assert.ok(!res.ok, "rebatch without a substantive plan/scope change must be rejected");
-    assert.equal(res.error.code, "workcase/c2_not_invalidated");
-    // 拒绝后对象必须保持 open（不得进入 draft 从而绕开 Gate 2 的关闭门禁）。
-    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
-    assert.equal(read.value.frontmatter.status, "open");
-    assert.ok(read.value.frontmatter.gate_1, "gate_1 must survive a rejected rebatch");
-  });
-});
 
 test("rebatch: caller-supplied change_log is discarded — audit history cannot be injected (03 §9.5/21 §8)", async () => {
   await withTemp("workcase-writer.", async (root) => {
@@ -752,6 +728,44 @@ test("rebatch: reviews are voided with their essentials recorded in change_log (
       String(last.summary),
       /reviews 随授权失效作废/,
       "the voided review must leave a trace in change_log (history is not lost)",
+    );
+  });
+});
+
+test("rebatch: reviews smuggled in the payload are stripped — the delete is what enforces it (21 §8/§9.2)", async () => {
+  // 复核者指出：上一条用例的 payload 从未携带 reviews，故「draft 无 reviews」是被 payload
+  // 决定的，不是被 `delete next.reviews` 决定的——它对剥离行为**无判别力**。
+  // 本用例刻意让 payload **夹带** reviews，以真正压住剥离逻辑（去掉 delete 即失败）。
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { draft } = await createDraft(root);
+    const { uid, after } = await approved(root);
+    const nextDraft = { ...draft, plan: [...draft.plan, { step: "重批新增步骤", done_criteria: "新步骤可判定" }] };
+    const smuggled = [{
+      at: "2020-01-01T00:00:00.000Z",
+      provider: "smuggled-provider",
+      model: "smuggled-model",
+      summary: "夹带的复核条目，企图随重批带入 draft",
+    }];
+    const res = await rebatchWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: { ...nextDraft, reviews: smuggled },
+      bodyMarkdownAfter: draftBody(nextDraft),
+      changeSummary: "重批（payload 夹带 reviews）",
+      sessionSignature: SIG(),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(
+      read.value.frontmatter.reviews,
+      undefined,
+      "reviews smuggled through the payload must be stripped — draft never carries reviews (21 §8)",
+    );
+    assert.ok(
+      !JSON.stringify(read.value.frontmatter).includes("smuggled-provider"),
+      "no smuggled review content may survive anywhere in the frontmatter",
     );
   });
 });

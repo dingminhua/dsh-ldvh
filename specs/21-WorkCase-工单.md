@@ -278,7 +278,7 @@ attempt 令牌回答「当前谁在做、做到哪里」，**不承载任何授�
 
 本类型在 03 §9 公共契约之外的特有验证（与固定收尾章节 §16 验证表互补）：
 
-- 授权钉扎校验：`gate_1.authorization_fingerprint` 与当前 `plan`+`scope` 内容指纹一致，不一致即授权失效并生成局部重批待办。**机械落地**：`status = open` 期间 `plan`/`scope` 被冻结（§10.3），故存储指纹恒等于当前内容指纹；真正的失效只可能由**重批时改动 `plan`/`scope`** 造成，故该校验落在 `rebatch` 入口——提交的 `plan`+`scope` 指纹**必须不等于** `gate_1.authorization_fingerprint`，相等即说明无 C2 失效事由，**拒绝该次重批**（`workcase/c2_not_invalidated`）。（2026-09-17 修订：此前该校验在实现中不存在——`authorization_fingerprint` 只被计算与形状校验，从无比对；后果是任何 `open` 工单可被主动重批并经 `draft → cancel` 关闭，绕开 Gate 2 的关闭门禁。）
+- 授权钉扎校验：`gate_1.authorization_fingerprint` 与当前 `plan`+`scope` 内容指纹一致，不一致即授权失效并生成局部重批待办。**当前实现状态（2026-09-17 核实，如实声明）**：该校验在实现中**尚不完整**——`authorization_fingerprint` 目前只被计算（`approve` 时）与形状校验（64-hex），**未与当前 `plan`+`scope` 做内容比对**；`rebatch` 仅在 `status=open` 期间以「冻结」方式（`assertAuthorizedPairFrozen`）间接阻止 `plan`/`scope` 被原地改写。**已知缺口**：① `rebatch` 入口未校验本次重批是否真有法定失效事由（本文 §10.3 的三种情形）；② `cancel`（draft→closed）不校验 `reviews`，故「先 rebatch 回 draft 再 cancel」可绕开 §14 的关闭前置。**该缺口已识别但未在本轮修复**（见 `ldvh-base/workcases/workcase-8d2ba256-*` 的 Gate 2 结果与 residual）：修复需先解决「§10.3 情形 ③（`serves` 指向的 sub-goal 被修订）不改变 `plan`+`scope` 指纹」这一机械不可判问题——该情形依赖 25 §11 的 `goal-changed 待核对` 标记，而**该标记尚无实现**，故在信号落地前无法区分「滥用重批」与「情形 ③ 的合法重批」。（2026-09-17 修订：此前该校验在实现中不存在——`authorization_fingerprint` 只被计算与形状校验，从无比对；后果是任何 `open` 工单可被主动重批并经 `draft → cancel` 关闭，绕开 Gate 2 的关闭门禁。）
 - attempt 唯一性：至多一个活跃 attempt；存在孤立 attempt 时，未完成副作用核对不得续跑或作废；
 - 关闭完整性：`closed` 时 `result` 非空、`outcome` 在闭集内、`criteria_checks` 与 `plan` 逐条对应且长度一致；
 - 复核记录完备性：`reviews` 每项形状为 `{at, provider, model, summary}`，`summary` 非空且 ≤ 600 字符，条数 ≤ 20；超限或形状非法即拒绝写入，不得截断、压缩或静默丢弃；

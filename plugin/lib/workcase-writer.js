@@ -466,7 +466,10 @@ export function validateWorkcaseFrontmatter(frontmatter) {
     issues.push("attempt: required when status=open (21 §9.1)");
   }
   // reviews（21 §8）：条件字段，draft 期不得出现（复核只在执行期发生）；
-  // open/closed 均可携带，重批回退时保留（§9.2 不清空）。
+  // open/closed 均可携带。**重批回退时不保留**——旧复核针对旧 plan/scope，重批使
+  // 授权失效，故 rebatchWorkcaseObject 显式 `delete next.reviews`，并把作废要点记入
+  // change_log（21 §9.2，2026-09-17 修订：原文「不在清空之列、保留原值」与本节
+  // 「draft 不得携带 reviews」不可调和，已改为「作废 + 要点留痕」）。
   if (frontmatter.reviews !== undefined) {
     if (status === "draft") {
       issues.push("reviews: must not be present while status=draft — 复核 occurs during execution, not before Gate 1 (21 §8/§9.1)");
@@ -1104,35 +1107,6 @@ export async function rebatchWorkcaseObject(args) {
   const fm = current.value.frontmatter;
   if (fm.status !== "open") {
     return failure("workcase/transition_invalid", `rebatch requires status=open (C2 invalidation happens while executing), got ${JSON.stringify(fm.status)} (21 §10.3)`);
-  }
-
-  // 授权钉扎校验（21 §15.1 / §10.3）：局部重批的**法定前提**是「授权确已失效」——
-  // 即 `gate_1.authorization_fingerprint` 与当前 plan+scope 内容指纹**不一致**。
-  //
-  // 为何在此校验（而非在 open 期比对）：while open，plan/scope 被
-  // `assertAuthorizedPairFrozen` 冻结，故存储指纹恒等于当前内容指纹；真正的失效
-  // 只可能由「重批时改动 plan/scope」造成。因此本校验的形式是「新指纹必须**不等**
-  // 于存储指纹」——若相等，说明 plan/scope 未被实质改动，本次 rebatch 没有法定
-  // 事由，属滥用。
-  //
-  // 补此校验前，任何 open 工单都可被主动 rebatch（无须真实 C2 失效），再经
-  // draft→cancel 关闭——绕过 Gate 2 的关闭门禁（21 §14 的 reviews 前置）。
-  const gate1Fingerprint = fm.gate_1?.authorization_fingerprint;
-  if (typeof gate1Fingerprint === "string" && gate1Fingerprint.length > 0) {
-    const nextFingerprint = computeAuthorizationFingerprint(
-      stripCallerOnlyFields(frontmatterAfter).plan,
-      stripCallerOnlyFields(frontmatterAfter).scope,
-    );
-    if (nextFingerprint === gate1Fingerprint) {
-      return failure(
-        "workcase/c2_not_invalidated",
-        "rebatch requires the authorization to have actually been invalidated (21 §15.1/§10.3): the submitted "
-        + "plan+scope carries the SAME content fingerprint as gate_1.authorization_fingerprint, so no C2 invalidation "
-        + "has occurred. Local rebatch is only legal when plan or scope substantively changed (plan steps added/removed, "
-        + "done_criteria rewritten, scope widened or boundary rewritten). If nothing substantive changed, execute in place "
-        + "is the legal path — do not rebatch.",
-      );
-    }
   }
 
   const next = structuredClone(stripCallerOnlyFields(frontmatterAfter));

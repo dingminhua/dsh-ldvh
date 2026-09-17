@@ -55,7 +55,7 @@ attempt:
   attempt_id: 2
   started_at: 2026-09-17T08:00:20.335Z
   controller: deepseek-v4.1-flash@dsh-ldvh-session
-  heartbeat_at: 2026-09-17T08:00:20.335Z
+  heartbeat_at: 2026-09-17T09:14:02.449Z
 created_at: 2026-09-17T06:51:23.939Z
 change_log:
   - at: 2026-09-17T07:59:50.891Z
@@ -70,6 +70,12 @@ change_log:
     summary: Gate 1 重新批准（C2 局部重批后）——Human 确认扩围纳入缺口 C（rebatch 的 change_log
       可被调用方注入）；授权指纹重新绑定扩围后的 plan+scope，范围增至三处缺口 [gate_1 approved by Human;
       attempt 2 allocated to deepseek-v4.1-flash@dsh-ldvh-session]
+  - at: 2026-09-17T09:14:02.449Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 执行期记录：缺口 B/C 已修复（含修改前后对照与负向控制验证）；缺口 A 的判据经复核判定不成立并已回退，连同 cancel
+      侧门禁缺失另立一单；如实登记本对象 change_log 曾在缺口 C 修复前被截断（起草者过失） [attempt 2 heartbeat
+      refreshed]
 ---
 
 # C2 授权校验与 rebatch×reviews 处置
@@ -91,5 +97,27 @@ change_log:
 
 ## 执行
 
-- attempt 2 started at 2026-09-17T08:00:20.335Z (controller: deepseek-v4.1-flash@dsh-ldvh-session)；Gate 1 授权范围见 gate_1.scope_snapshot。
+- 步骤 1 完成：C2 缺口已核实——`authorization_fingerprint` 在实现中**仅被计算**（`approve` 时）与**形状校验**（64-hex），**从无任何代码将其与当前 `plan`+`scope` 比对**。全部 7 个 action 的 status 前置与终态亦已穷举：**恰好 `close` 与 `cancel` 两条可达 `closed`，而只有 `close` 受 E4 门禁**。
+- 步骤 1 期间**发现缺口 C**（超出原 scope）：`rebatch` 取调用方 payload 的 `change_log`，实测传入伪造条目即**清空对象全部审计历史**。经 Human 批准，以 **C2 局部重批**合法扩围（`open → draft → 重走 Gate 1`），scope 增列 (D)。
+- 步骤 2（**后经复核判定不成立并已回退**）：曾实现「重批时提交的 `plan`+`scope` 指纹必须不等于 `gate_1` 存储指纹」的判据。独立复核与起草者自查共同认定该判据**不成立**——21 §10.3 的第三种法定失效情形（`serves` 指向的 sub-goal 被修订）**不改变 `plan`+`scope` 指纹**，故该判据会**误拒合法重批**；且其判据为字节级相等，**改一个空格即可绕过**，未能真正阻断。**已回退**；缺口 A 与「`cancel` 侧无 `reviews` 门禁」合并另立一单。
+- 步骤 3 完成：`rebatch` 现显式锁定 `change_log` 为 `fm.change_log`（**改动前**：注入伪造条目即替换全部历史；**改动后**：伪造条目被丢弃、真实历史保留并追加）；`rebatch` 现显式 `delete next.reviews` 并将作废要点记入 `change_log`（**改动前**：携带 `reviews` 的重批被 writer 拒绝、对象卡在 `open`；**改动后**：通过且 `draft` 不含 `reviews`）。
+- 步骤 4 完成：writer 测试 **37/37**、eslint 0；受控提交 `6ac30ec`（初版）与本次修订提交。
+
+## 结果
+
+### Gate 2 提请
+
+- criteria_checks:
+  - 步骤 1 判据「列出 7 个 action 中哪些涉及 `authorization_fingerprint` 比对，以及未比对的确切位置，文件:行号可查」：**达成**。`authorization_fingerprint` 的全部出现均为形状与闭集校验（`validateGate1`）及 `approve` 时的计算盖戳——**无比对**；7 个 action 的终态经穷举确认恰好 `close`/`cancel` 可达 `closed`。证据见「## 执行」第 1 条。
+  - 步骤 2 判据「存在可机械判定的校验；绕过路径被测例覆盖并阻断」：**未达成**。所实现的判据经独立复核与起草者自查共同判定不成立（误拒 §10.3 情形 ③ 的合法重批；且字节级判据可被一个空格绕过），**已回退**。该缺口与 `cancel` 侧缺失合并另立一单。
+  - 步骤 3 判据「`rebatch` 的 reviews 处置显式、21:176 文本与实现一致；`change_log` 被锁定、注入的伪造条目被丢弃；两者均有行为测试断言」：**达成**。有修改前/后的对照证据（见「## 执行」步骤 3）；`specs/21-WorkCase-工单.md` §9.2 已同步修订；新增 3 条行为断言并有负向控制验证判别力（移除实现即失败）。
+  - 步骤 4 判据「writer 测试全绿、web 测试全绿、tsc 0 错误、eslint 无新增；受控提交且 Git Gate passed」：**部分达成**。writer 测试 37/37 全绿、eslint 0、受控提交与 Git Gate 均通过；**web 测试与 tsc 未能在本单验证**——因并发的另一会话正在修改 11 个 `plugin/web` 文件（未提交，处于中间态），其错误与本单改动无关（本单未触碰 `plugin/web`，且 web 测试不引用 writer）。
+- achieved_scope: 缺口 B（`rebatch` 与 `reviews` 的规范-实现冲突）与缺口 C（`rebatch` 的 `change_log` 可被注入）**已修复并有修改前后对照证据**，两者的行为测试均经负向控制验证具备判别力。缺口 A（C2 授权校验）**经核实真实存在，但本轮所实现的判据不成立、已回退，未达成**。
+- residual:
+  - **缺口 A 未修复，且已确认其在现有实现下不可机械判定**：21 §10.3 的第三种失效情形（`serves` 指向的 sub-goal 被修订）**不改变 `plan`+`scope` 指纹**，故无法以指纹比对区分「滥用重批」与「合法重批」；该区分依赖 25 §11 的 `goal-changed 待核对` 标记，而**该标记在实现中不存在**。建议另立一单，其前置为「先实现 25 §11 的级联信号」。
+  - **`cancel`（draft→closed）不校验 `reviews`**，与 21:169「`closed` ⇒ `reviews` 必填」冲突；故「先 `rebatch` 回 `draft` 再 `cancel`」仍可绕开 §14 的关闭前置。**该冲突先于本单存在**，建议与缺口 A 合并另立一单——「阻断绕过」的真正落点在**关闭侧**而非重批侧。
+  - **本对象自身的 `change_log` 曾被截断（起草者过失，如实登记）**：为合法扩围，起草者在**缺口 C 尚未修复时**运行了 `rebatch`；当时的 `rebatch` 取调用方 payload 的 `change_log`，起草者未传，故「受控创建」与「首次 Gate 1 批准」两条历史条目被整体替换（提交 `4753420` 版本含创建条目，其后版本不含）。按 03 §6.1「不追溯改写」，这两条**不予补回**；此处如实登记该事实与成因，不掩盖。这同时构成缺口 C 的**真实活体演示**——修复前该缺陷可被**无意**触发，不限于恶意注入。
+  - 步骤 4 的 web 测试与 tsc 因并发会话的未提交改动无法在本单验证（本单未触碰 `plugin/web`）。
+  - `gate_1` 缺失时 C2 校验 fail-open（带内不可达——`approve` 必盖章、`execute` 锁定 `gate_1`），独立复核建议改为 fail-closed；属另立单范围。
+  - 独立复核另指出 `specs/21-WorkCase-工单.md` §14 的局部重批条目未同步 `reviews` 处置（§9.2 与 §15.1 已修订），§14 条目待随另立单一并收口。
 
