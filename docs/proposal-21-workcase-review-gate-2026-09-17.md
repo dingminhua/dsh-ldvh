@@ -288,7 +288,12 @@ open --[rebatch]--> draft --[cancel]--> closed (outcome=cancelled)
 | **(ii) 收紧 `rebatch` 前置** | 在 `rebatch` 中**校验** `gate_1.authorization_fingerprint` 确与当前 `plan`+`scope` 不符，否则拒绝 | 属另一处规范+实现改动，**扩大本提案范围** |
 | **(iii) 门禁同时覆盖 `cancel`** | 要求「曾经 `gate_1` 出现过的对象，其 `closed` 一律须有 `reviews`」——即按「是否曾获授权」而非按「由哪个 action 关闭」设门禁 | 语义更准，但需在对象上判定「曾经 open」（`change_log` 可反推，或按 `gate_1` 存在性——但 `rebatch` 已删除 `gate_1`） |
 
-**起草者的初步判断**：(iii) 最贴合意图但技术上有难点（`rebatch` 会删 `gate_1`，故关闭时无法据它判定「曾获授权」）；(ii) 最直接（堵住源头）但扩大范围。**(i) 最保守**。**须 Human 选择**；在选定前，本提案的「不可跳过」应如实表述为「`close` 路径不可跳过」，而非绝对不可跳过。
+**起草者的初步判断**：(iii) 最贴合意图但技术上有难点（`rebatch` 会删 `gate_1`，故关闭时无法据它判定「曾获授权」）；(ii) 最直接（堵住源头）但扩大范围。**(i) 最保守**。
+
+**补充核验（起草者对 (iii) 难点与 action 面的复核）**：
+- `rebatchWorkcaseObject` 确有 `delete next.gate_1`（`workcase-writer.js:1099`），故关闭时无法据 `gate_1` 存在性判定「曾获授权」——(iii) 的技术难点**成立**；
+- 全部 7 个 action 的 status 前置与终态：`create`（无前置）、`approve`（需 draft）、`execute`（需 open）、`close`（需 open → closed，**受 E4 门禁**）、`rebatch`（需 open → draft）、`cancel`（需 draft → closed，**不受门禁**）、`revise`（需 draft → draft）。**恰好两条可达 `closed`，只有一条被守**——§6.4.1 的绕过判断由此得到完整支撑；
+- 附带核对：`revise` 不删 `gate_1`，但**不构成缺陷**——因为到达 `revise` 时对象必为 `draft`，而 21:167 规定 `draft` 不得携带 `gate_1`，故彼时它本不存在。**须 Human 选择**；在选定前，本提案的「不可跳过」应如实表述为「`close` 路径不可跳过」，而非绝对不可跳过。
 
 ### 6.4.2 第二处发现：21:176 的「rebatch 保留 reviews」与 writer 直接冲突
 
