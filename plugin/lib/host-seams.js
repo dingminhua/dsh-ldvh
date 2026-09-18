@@ -25,6 +25,27 @@
 const CONSENT_QUESTION_ID = "ldvh-registration-consent";
 const CONSENT_AFFIRMATIVE_LABEL = "确认";
 
+/**
+ * Read the selected label from one answer entry.
+ *
+ * The host service returns `selected` as an ARRAY of labels
+ * (`{answers:[{id, selected:["确认"]}]}`) — confirmed against the official
+ * consumer, which does `selected: [...answer.selected]`
+ * (dsh-tool-ask-user/lib/index.js:108), and reproduced against the live service
+ * on 2026-09-18. Treating it as a scalar made every comparison against a label
+ * string fail, so an answered question would still be read as "not chosen".
+ *
+ * A single-element array is unwrapped to its label. Multi-select answers keep
+ * only an exact single match: a multi-label answer must not accidentally
+ * satisfy a single-label gate.
+ */
+function selectedLabelOf(entry) {
+  if (entry === null || entry === undefined) return null;
+  const raw = entry.selected ?? entry.answer ?? null;
+  if (Array.isArray(raw)) return raw.length === 1 ? raw[0] : null;
+  return raw;
+}
+
 /** 21 §6.3 路由询问 identity — the Human decides between carrying the work as a
  * WorkCase or handling it directly. Same discipline as the registration consent:
  * the id and BOTH labels are shared between what is asked and what is accepted,
@@ -306,7 +327,30 @@ export function createHostSeams() {  const consumed = Object.create(null);
     mark("ctx.userQuestions.ask", {
       detail: "07 §5.6 registration consent is routed through the host answerer before any write"
     });
-    return { consumed: true, ask: (request) => userQuestions.ask(request) };
+    // The `agent` argument is MANDATORY in every real composition, not an
+    // optimisation. The answerer lives in the browser
+    // (`dsh-client-ui-user-questions` registers `user-questions/request` via
+    // `ctx.remote.$on`) and reaches the host through `dsh-api-remotes`, whose
+    // forwarding listener enforces (dsh-api-remotes/lib/index.js:115-119):
+    //
+    //   const carrierAgent = carrierKeyOf(this);
+    //   if (carrierAgent === void 0) return next();
+    //   const agent = request.agent;
+    //   if (agent === void 0 || agent !== carrierAgent) throw new TypeError(...)
+    //
+    // Without `agent` the forwarder declines and the waterfall exhausts to
+    // `noAnswerer` → NO_PROVIDER ("no user-questions answerer accepted the
+    // request"). Measured live 2026-09-18: the official ask_user_question tool
+    // (which passes `exec.agent`, dsh-tool-ask-user/lib/index.js:105) prompted
+    // the Human in this very session, while this seam — called without an
+    // agent — failed with NO_PROVIDER in the same session.
+    //
+    // Passing a *scoped* agent additionally narrows routing: `scopeTarget`
+    // admits untagged listeners plus tags matching the key, so the answerer of
+    // THIS agent is selected rather than a sibling's. The agent must be the
+    // live registry instance; `dsh-user-questions` rejects anything else with
+    // CALLER_NOT_LIVE.
+    return { consumed: true, ask: (request, agent) => userQuestions.ask(agent === undefined ? request : { ...request, agent }) };
   }
 
   /**
@@ -317,7 +361,7 @@ export function createHostSeams() {  const consumed = Object.create(null);
    * because 07 §5.6 requires EXPLICIT intent: silence is not consent, and this
    * path must fail closed. Callers must not write when `granted` is false.
    */
-  async function requestRegistrationConsent({ action, projectId, projectPath }) {
+  async function requestRegistrationConsent({ action, projectId, projectPath, agent }) {
     if (typeof seams.ask !== "function") {
       return { granted: false, reason: "no human-answerer entry is available; 07 §5.6 requires explicit intent, so consent cannot be assumed" };
     }
@@ -333,14 +377,14 @@ export function createHostSeams() {  const consumed = Object.create(null);
             { label: "取消", description: "不执行，保持现状" }
           ]
         }]
-      });
+      }, agent);
       // Accept ONLY an affirmative for THIS question. Do not fall back to
       // `answers[0]`: that could grant registration consent from an affirmative
       // given to a different question. Do not accept shapes never offered
       // ("confirm"/true) — widening the accept surface weakens the gate.
       const answers = Array.isArray(answer?.answers) ? answer.answers : [];
       const entry = answers.find((a) => a?.id === CONSENT_QUESTION_ID) ?? null;
-      const selected = entry?.selected ?? entry?.answer ?? null;
+      const selected = selectedLabelOf(entry);
       const granted = selected === CONSENT_AFFIRMATIVE_LABEL;
       return granted
         ? { granted: true, answer: selected }
@@ -369,7 +413,7 @@ export function createHostSeams() {  const consumed = Object.create(null);
    * WorkCase and what argues for direct handling). It is advisory text the
    * Human uses to decide; it is NOT part of what is accepted.
    */
-  async function requestWorkcaseRouting({ request, rationale }) {
+  async function requestWorkcaseRouting({ request, rationale, agent }) {
     if (typeof seams.ask !== "function") {
       return { granted: false, routedTo: null, reason: "no human-answerer entry is available; 21 §6.3 routing requires an explicit Human decision, so it cannot be assumed" };
     }
@@ -400,10 +444,10 @@ export function createHostSeams() {  const consumed = Object.create(null);
             { label: ROUTE_DIRECT_LABEL, description: "不创建对象，直接在当前行动中处理" }
           ]
         }]
-      });
+      }, agent);
       const answers = Array.isArray(answer?.answers) ? answer.answers : [];
       const entry = answers.find((a) => a?.id === ROUTE_QUESTION_ID) ?? null;
-      const selected = entry?.selected ?? entry?.answer ?? null;
+      const selected = selectedLabelOf(entry);
       if (selected === ROUTE_WORKCASE_LABEL) return { granted: true, routedTo: "workcase", answer: selected };
       if (selected === ROUTE_DIRECT_LABEL) {
         return { granted: false, routedTo: "direct", answer: selected, reason: "Human chose 直接执行 — 21 §6.3 不对象化" };

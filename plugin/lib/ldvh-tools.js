@@ -222,12 +222,15 @@ function makeExecute(deps) {
    * "仅由 Human 明确意图触发" means the operation must fail closed rather than
    * proceed on the caller's say-so.
    */
-  async function requestConsent(depsRef, { action, projectId, projectPath }) {
+  async function requestConsent(depsRef, { action, projectId, projectPath, agent }) {
     const gate = depsRef?.hostSeams;
     if (gate === undefined || typeof gate.requestRegistrationConsent !== "function") {
       return { granted: false, reason: "no host seam registry is wired, so 07 §5.6 consent cannot be obtained" };
     }
-    return gate.requestRegistrationConsent({ action, projectId, projectPath });
+    // `agent` is required by the host forwarder (see installUserQuestions): the
+    // browser answerer is reached through `api-remotes`, which drops a request
+    // carrying no agent (dsh-api-remotes/lib/index.js:115-119).
+    return gate.requestRegistrationConsent({ action, projectId, projectPath, agent });
   }
 
   async function executeResolveGovernanceScope(args, exec) {
@@ -633,7 +636,7 @@ function makeExecute(deps) {
     // 07 §5.6: "登记或取消仅由 Human 明确意图触发". The consent is requested
     // through ctx.userQuestions.ask before ANY write, and a non-affirmative
     // answer (or an unavailable answerer) fails closed — silence is not intent.
-    const consent = await requestConsent(deps, { action: "register", projectId: args?.id, projectPath: target });
+    const consent = await requestConsent(deps, { action: "register", projectId: args?.id, projectPath: target, agent: exec?.agent });
     if (consent.granted !== true) {
       return envelope("register-governed-project", "rejected", {
         result: null,
@@ -697,7 +700,7 @@ function makeExecute(deps) {
       });
     }
     // 07 §5.6: cancellation likewise requires explicit Human intent.
-    const consent = await requestConsent(deps, { action: "unregister", projectId: args.id, projectPath: target });
+    const consent = await requestConsent(deps, { action: "unregister", projectId: args.id, projectPath: target, agent: exec?.agent });
     if (consent.granted !== true) {
       return envelope("unregister-governed-project", "rejected", {
         result: null,

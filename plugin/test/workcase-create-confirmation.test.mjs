@@ -204,3 +204,39 @@ test("create: the superseded self-filled confirmation field is not persisted", a
     assert.doesNotMatch(serialized, /"human_confirmation"\s*:/, `the superseded field must not reappear; got: ${serialized.slice(0, 600)}`);
   });
 });
+
+test("create: the routing request carries the live agent (host forwarder requires it)", async () => {
+  await withTemp("workcase-route-g-", async (base) => {
+    // Measured 2026-09-18: without `agent` the host forwarder
+    // (dsh-api-remotes/lib/index.js:115-119) declines the request and the
+    // waterfall exhausts to NO_PROVIDER, so the browser answerer is never
+    // reached — the prompt silently fails to appear.
+    const seam = routingSeam(() => ({ granted: false, routedTo: "direct", reason: "x" }));
+    const { write, exec } = await setup(base, { hostSeams: seam });
+    await write.execute(createArgs(), exec);
+
+    assert.equal(seam.calls.length, 1, "the routing question must be asked once");
+    assert.ok(seam.calls[0].agent !== undefined, "the routing request must carry the live agent");
+    assert.equal(seam.calls[0].agent, exec.agent, "the agent must be the caller's own live agent");
+  });
+});
+
+test("create: an array-shaped selected answer is read correctly (host returns arrays)", async () => {
+  await withTemp("workcase-route-h-", async (base) => {
+    // The host returns `selected` as an ARRAY of labels
+    // (`{answers:[{id, selected:["建工单走流程"]}]}`), matching the official
+    // consumer's `[...answer.selected]` (dsh-tool-ask-user:108). Reading it as
+    // a scalar made every label comparison fail, so an answered question was
+    // still treated as unanswered — the prompt would appear, the Human would
+    // choose, and creation would still be rejected.
+    const seam = {
+      calls: [],
+      requestWorkcaseRouting: async () => ({ granted: true, routedTo: "workcase", answer: "建工单走流程" }),
+    };
+    const { write, exec } = await setup(base, { hostSeams: seam });
+    const result = await write.execute(createArgs(), exec);
+
+    const text = JSON.stringify(result);
+    assert.doesNotMatch(text, /did not choose a routing option/, `an affirmative answer must not be read as unanswered: ${text.slice(0, 500)}`);
+  });
+});

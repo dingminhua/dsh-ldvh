@@ -325,6 +325,10 @@ async function executeWriteObject(args, exec, deps) {
     const routing = await gate.requestWorkcaseRouting({
       request: args?.routing_request ?? null,
       rationale: args?.routing_rationale ?? null,
+      // The host forwarder reaches the browser answerer only when the request
+      // carries the live agent (dsh-api-remotes/lib/index.js:115-119); without
+      // it the waterfall exhausts to NO_PROVIDER in real compositions.
+      agent: exec?.agent,
     });
     if (routing.granted !== true) {
       return envelope("workcase-write-object", "rejected", {
