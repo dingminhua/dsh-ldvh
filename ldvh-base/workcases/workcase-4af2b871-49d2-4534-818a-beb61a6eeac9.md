@@ -3,6 +3,7 @@ fact_type_key: workcase
 object_uid: 4af2b871-49d2-4534-818a-beb61a6eeac9
 title: Web 工单呈现三态重建
 status: open
+serves: SG-3
 summary: 按 21 号定稿语义重建 Web 的 WorkCase 呈现链（2026-09-15 Human 裁决「登记+三态重建」的实施单）：投影器从
   v4 状态机（open/blocked/closed+phase 八值）改为 21 号三态直读（draft/open/closed +
   gate_1/attempt/result/outcome
@@ -50,7 +51,7 @@ attempt:
   attempt_id: 3
   started_at: 2026-09-16T13:45:38.977Z
   controller: workbuddy/deepseek-v4.1-flash
-  heartbeat_at: 2026-09-16T14:33:44.755Z
+  heartbeat_at: 2026-09-18T02:01:14.735Z
 created_at: 2026-09-15T21:44:22.236Z
 change_log:
   - at: 2026-09-15T21:44:22.236Z
@@ -98,6 +99,25 @@ change_log:
     model: deepseek-v4.1-flash
     summary: 更正结果节标题为纯「## 结果」并同步结果内容——原带后缀标题不合 21 §8，且致呈现层误判为 executing [attempt 3
       heartbeat refreshed]
+  - at: 2026-09-18T02:01:14.735Z
+    provider: workbuddy-global
+    model: deepseek-v4.1-flash
+    summary: 落档独立结果复核概要（reviews）：三提交与六判据经 worktree 实跑逐条核实达成；同时更正两处事实性错误——「e56ce02
+      验证记录 241/241」系归属错误（实为 235/235，241 出自后继 merge
+      10e3f79）与「已发生未记录」定性不成立（e56ce02 即本对象创建者），冷恢复处置形式经核实合规 [attempt 3 heartbeat
+      refreshed]
+reviews:
+  - at: 2026-09-18T02:01:14.735Z
+    provider: workbuddy-global
+    model: deepseek-v4.1-flash
+    summary: 对象：WC-4af2b871「Web 工单呈现三态重建」，status=open，无 reviews 记录。基线：21
+      §8/§9.3/§10.4/§15/§16、02 §15/§20、03 §6.1、10 §5.5、Gate 1
+      授权范围。方法：只读独立复核——git 对象/历史取证、源码实读、临时 worktree
+      实跑测试（用后移除）；不采信对象自述。覆盖：三提交存在性与内容；a656dd7 单文件性；§5.5 全文；C1–C6 逐条；bde9c9f 与
+      HEAD 测试实跑；tsc。未覆盖：e56ce02 当次三件套、eslint、页面实际渲染、fingerprint
+      比对。发现：①结果节「e56ce02 验证记录 241/241」系错误归属，实为 235/235（241 出自后继 merge
+      10e3f79）；②「e56ce02 属已发生未记录」定性不成立——该提交创建了本对象，change_log
+      与产物同提交落盘；③追加式不追溯改写处置合规。保证边界：仅证明当次可读层一致与实跑结果，不证明价值、页面效果与授权成立。
 ---
 
 # Web 工单呈现三态重建
@@ -130,6 +150,7 @@ change_log:
 - 副作用核对完成后执行 takeover：分配 attempt 3，controller 更正为 workbuddy/deepseek-v4.1-flash（21 §10.4 第 1、3 点）。
 - 2026-09-16 步骤 5 完成：获 Human 授权后登记 specs/10 §5.5 WorkCase 呈现契约，受控提交 a656dd7（仅含该规范文档，遵 00 §4.3 独立提交要求）；配套新增代码-规范一致性契约测试，受控提交 bde9c9f。
 - 2026-09-16 正文标题更正：结果节标题原写作「## 结果（草稿，本单未关闭）」，**该写法不合 21 §8**——正文 H2 须为纯标题「结果」（writer 的 sectionContent 与呈现层的派生判据均按精确匹配识别）。已更正为「## 结果」。**该更正同时修复了一个派生错误**：带后缀的标题使呈现层判定 group=executing 而非 awaiting_gate2。
+- 2026-09-18 独立结果复核落盘（reviews）：三提交存在性与内容、a656dd7 单文件性、specs/10 §5.5 全文、六步判据逐一核实（含在 bde9c9f 真实树上实跑 249/249 与 tsc）。复核指出上述「已发生未记录」的定性不成立——e56ce02 即本对象文件的创建者（`git log --diff-filter=A` 证实，父提交中不存在该路径），change_log 与产物在同一提交内一并生成；「末条早于提交 8 分钟」正因它就写在该提交里，原据时间先后推因果有误。冷恢复的**处置形式**（追加式、未改写既有条目）经复核确认合规，仅在事实认定上有此偏差，见 reviews 概要。
 
 ## 结果
 
@@ -140,4 +161,5 @@ change_log:
   - attempt 1 的控制器更替与提交 e56ce02 未记入 change_log 属历史既成事实，本次冷恢复已如实登记于执行节；对象 change_log 不作追溯改写（03 §6.1）。
   - 提交 e56ce02 当时的三件套记录（241/241、tsc 0）来自该提交信息，本次未复跑复算，如实标为未复核。
   - v4 存量对象迁移（21 §15.3）不在本单范围。
+  - 证据更正（2026-09-18 独立复核）：本节「步骤 1–4」条所记「提交 e56ce02 的验证记录为 web 测试 241/241」系**归属错误**——e56ce02 提交信息原文为 235/235；241/241 出自其后继 merge 10e3f79（自述「较合并前 235 增加分支带入的 refs 测试」），且系他人分支带入的结果。执行节所记「已发生未记录」的定性亦不成立（见执行节末条）。上述两项以 `reviews` 记载为准；原记录保留不改写（03 §6.1）。
 

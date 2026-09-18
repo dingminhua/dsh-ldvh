@@ -55,7 +55,7 @@ attempt:
   attempt_id: 2
   started_at: 2026-09-17T08:00:20.335Z
   controller: deepseek-v4.1-flash@dsh-ldvh-session
-  heartbeat_at: 2026-09-17T09:14:02.449Z
+  heartbeat_at: 2026-09-18T02:03:34.410Z
 created_at: 2026-09-17T06:51:23.939Z
 change_log:
   - at: 2026-09-17T07:59:50.891Z
@@ -76,6 +76,22 @@ change_log:
     summary: 执行期记录：缺口 B/C 已修复（含修改前后对照与负向控制验证）；缺口 A 的判据经复核判定不成立并已回退，连同 cancel
       侧门禁缺失另立一单；如实登记本对象 change_log 曾在缺口 C 修复前被截断（起草者过失） [attempt 2 heartbeat
       refreshed]
+  - at: 2026-09-18T02:03:34.410Z
+    provider: workbuddy-global
+    model: deepseek-v4.1-flash
+    summary: 落档独立结果复核概要（reviews）：缺口 B/C 修复经源码实读与负向控制核实属实、缺口 A 回退与 change_log
+      截断均属实；补记 §14:286 未同步、criteria_checks 正文形态需在 Gate 2 提请前转为 result
+      字段对象、以及另立单对象号 4005b67b/81c37ef0 的可追溯登记 [attempt 2 heartbeat refreshed]
+reviews:
+  - at: 2026-09-18T02:03:34.410Z
+    provider: workbuddy-global
+    model: deepseek-v4.1-flash
+    summary: 对象：workcase-8d2ba256（open，待 Gate 2）。基线：HEAD a56857f，工作树仅 6
+      项无关未跟踪文件。方法：行锚定读对象全文、读 writer 源码、实跑测试、/tmp 副本负向控制。覆盖：缺口 B/C 实现、缺口 A 回退、21
+      §9.2/§14/§15.1 文本、change_log 截断、37/37、eslint 0、另立单可追溯性。未覆盖：web 测试与
+      tsc（并发会话中间态）、25 §11 信号。发现：B/C 修复属实且负向控制判别力成立；A 回退属实；截断属实；§9.2 已同步、§14:286
+      未同步；新增——结果节 criteria_checks 为散文形态（在正文节，非 frontmatter result 字段），Gate 2
+      提请时须转为 {satisfied, evidence} 对象；对象亦无 reviews。保证边界：仅核实上述范围。
 ---
 
 # C2 授权校验与 rebatch×reviews 处置
@@ -90,9 +106,9 @@ change_log:
 
 ## 计划
 
-- 核实 C2 缺口的确切范围与适用路径：判据——列出全部 7 个 action 中哪些涉及 `authorization_fingerprint` 比对，以及 21:281 要求比对而实现未比对的确切位置，文件:行号可查
-- 补 C2 校验并处置授权失效路径：判据——存在可机械判定的校验（重批时新指纹必须不等于 `gate_1` 存储指纹，否则拒绝）；`open --rebatch--> draft --cancel--> closed` 的绕过路径被测例覆盖并阻断
-- 消解 rebatch 与 Code 托管字段的冲突（reviews 处置 + change_log 锁定）：判据——`rebatch` 对 `reviews` 的处置显式（作废 + 要点入 change_log），21:176 文本与实现一致；`rebatch` 显式锁定 `change_log` 为 `fm.change_log`，调用方注入的伪造条目被丢弃；两者均有行为测试断言
+- 核实 C2 缺口的确切范围与适用路径：判据——列出全部 7 个 action 中哪些涉及 authorization_fingerprint 比对，以及 21:281 要求比对而实现未比对的确切位置，文件:行号可查
+- 补 C2 校验并处置授权失效路径：判据——存在可机械判定的校验（重批时新指纹必须不等于 gate_1 存储指纹，否则拒绝）；open --rebatch--> draft --cancel--> closed 的绕过路径被测例覆盖并阻断
+- 消解 rebatch 与 Code 托管字段的冲突（reviews 处置 + change_log 锁定）：判据——rebatch 对 reviews 的处置显式（作废 + 要点入 change_log），21:176 文本与实现一致；rebatch 显式锁定 change_log 为 fm.change_log，调用方注入的伪造条目被丢弃；两者均有行为测试断言
 - 验证三件套与受控提交：判据——writer 测试全绿、web 测试全绿、tsc 0 错误、eslint 无新增；受控提交且 Git Gate passed
 
 ## 执行
@@ -102,6 +118,7 @@ change_log:
 - 步骤 2（**后经复核判定不成立并已回退**）：曾实现「重批时提交的 `plan`+`scope` 指纹必须不等于 `gate_1` 存储指纹」的判据。独立复核与起草者自查共同认定该判据**不成立**——21 §10.3 的第三种法定失效情形（`serves` 指向的 sub-goal 被修订）**不改变 `plan`+`scope` 指纹**，故该判据会**误拒合法重批**；且其判据为字节级相等，**改一个空格即可绕过**，未能真正阻断。**已回退**；缺口 A 与「`cancel` 侧无 `reviews` 门禁」合并另立一单。
 - 步骤 3 完成：`rebatch` 现显式锁定 `change_log` 为 `fm.change_log`（**改动前**：注入伪造条目即替换全部历史；**改动后**：伪造条目被丢弃、真实历史保留并追加）；`rebatch` 现显式 `delete next.reviews` 并将作废要点记入 `change_log`（**改动前**：携带 `reviews` 的重批被 writer 拒绝、对象卡在 `open`；**改动后**：通过且 `draft` 不含 `reviews`）。
 - 步骤 4 完成：writer 测试 **37/37**、eslint 0；受控提交 `6ac30ec`（初版）与本次修订提交。
+- 2026-09-18 独立结果复核落盘（reviews）：缺口 B/C 的修复经源码实读 + 实跑测试 + /tmp 副本负向控制核实属实，判别力成立；缺口 A 回退属实；`change_log` 截断属实（创建条目与首次 Gate 1 批准条目确已消失，成因与自述一致）。复核另确认 §9.2 已同步而 §14:286 仍未同步，且结果节的 `criteria_checks` 为正文散文形态（非 `result` 字段）——Gate 2 提请时须转为 `{satisfied, evidence}` 对象。
 
 ## 结果
 
@@ -120,4 +137,5 @@ change_log:
   - 步骤 4 的 web 测试与 tsc 因并发会话的未提交改动无法在本单验证（本单未触碰 `plugin/web`）。
   - `gate_1` 缺失时 C2 校验 fail-open（带内不可达——`approve` 必盖章、`execute` 锁定 `gate_1`），独立复核建议改为 fail-closed；属另立单范围。
   - 独立复核另指出 `specs/21-WorkCase-工单.md` §14 的局部重批条目未同步 `reviews` 处置（§9.2 与 §15.1 已修订），§14 条目待随另立单一并收口。
+  - 独立复核补充项（2026-09-18）：本结果节的 `criteria_checks` 现为**正文散文形态**，而 21 §8 的 `result` 字段要求 `criteria_checks` 每项为 `{satisfied: boolean, evidence: 非空字符串}` 且长度与 `plan` 一致——Gate 2 提请时须据此转写为对象形态（本项为提请前的转写要求，非对象缺陷）。另：本对象在复核时仍无 `reviews`，该记录由本次写入补足。建议后续清理时把「缺口 A 与 cancel 侧」的另立单对象号（`4005b67b`）与「§14 同步」的另立单对象号（`81c37ef0`）一并登记，便于追溯。
 
