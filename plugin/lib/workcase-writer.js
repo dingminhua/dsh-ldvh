@@ -260,11 +260,103 @@ export function computeAuthorizationFingerprint(plan, scope) {
 // Frontmatter validation (specs/21 §8 + §15.1)
 // ---------------------------------------------------------------------------
 
-function validatePlanShape(frontmatter, issues) {
+/**
+ * 21 §6.1（2026-09-18）：`plan` 只承载本工作包特有的实施工作，不承载 WorkCase
+ * 自身的生命周期关口。受控提交、独立复核、主控自查、Gate 批准及其收尾动作由
+ * 06 / 02 §15 与本文 §9、§14 承接，不得被写成 plan 的步骤或 done_criteria。
+ *
+ * 设计理由（见 §6.1）：关口与计划互为前置会形成循环——独立复核须待计划步骤
+ * 全部终止后执行，而关闭又须待复核完成；把关口写进 plan 会使该步骤既是「待复核
+ * 的对象」又是「复核本身」。
+ *
+ * v4 的教训（specs/21 前身 §4.3，commit 1e7d9584）：只写条文不管用——v4 补了
+ * 明文禁令后 2 天仍出现 item-gate-commit「受控提交」；且 v4 自认「Code 不判断
+ * 自然语言是否属于生命周期关口」。故本条**必须**配机械承载，且承载形态必须
+ * 窄到不误伤：只匹配**关口动词作谓语**的形态，不匹配「测试/检查」这类可作证据
+ * 的技术状态（§6.1 明文保留后者）。
+ *
+ * 边界（§6.1 末段）：只约束 plan 的内容，不约束正文叙述，不新增状态/字段/阶段；
+ * 不得据此增加其它校验。
+ */
+// 关口形态：谓词性动词 + 其对象。刻意要求**动词+对象**同现，避免把
+// 「提交前检查」「复核发现的问题」这类叙述中的名词用法误判为关口步骤。
+// 关口形态（§6.1）。刻意的窄化设计——只匹配「**执行**该关口」的谓语形态，
+// 不匹配「实现/开发该关口的机制」「调研该关口」这类**本单实施工作**。
+//
+// 依据（实测，2026-09-18）：宽泛匹配会把「实现提交校验逻辑」「复核模块实现」
+// 「调研 Git Gate 现状」误判为关口，那正是 v4 §4.3 的死结（「Code 不判断自然
+// 语言是否属于生命周期关口」）。故本条**只认谓语的形态**，不接受名词联想。
+//
+// 具体地：模式必须体现「对本次工作对象施加关口动作」，因此
+//   ① 裸名词（「提交校验」「复核模块」「Git Gate」）不算；
+//   ② 有「实现/开发/新增/补/修复/重构/调研/测试」等**建设性动词**在前时不算；
+//   ③ 仅当动词是**关口执行本身**（提交/复核/自查/提请/关闭/Gate 批准）时才命中。
+const GATE_EXECUTION_VERBS = "(提交|复核|审核|自查|提请|关闭|批准|审批|裁决|终审)";
+// 建设性动词前缀：出现即视为「在做这个机制的工作」，而非「在做这个关口」。
+const CONSTRUCTION_PREFIX = "(实现|开发|新增|添加|补|补齐|修复|修|重构|改造|调研|研究|设计|测试|验证|登记|记录|落档|梳理|审计|排查|核对现状|落盘|写|编写)";
+
+// ① 受控提交（06 §6.7）——口诀：动词必须是「提交」且不是「提交机制/提交逻辑」。
+const GATE_STEP_PATTERNS = [
+  // 「受控提交」「本地提交」「隔离提交」作谓语；前置建设性动词时豁免
+  new RegExp(`(?<!${CONSTRUCTION_PREFIX})(受控|本地|隔离)\\s*提交`),
+  new RegExp(`(?<!${CONSTRUCTION_PREFIX})提交\\s*(并|且|与|和|、|及)\\s*(回读|同步|推送|落档)`),
+  // ② Git Gate 作为**动作**（passed/passed 判定作为判据）——排除建设性语境
+  new RegExp(`(?<!${CONSTRUCTION_PREFIX})(Git\\s*Gate\\s*(passed|通过)|经\\s*Git\\s*Gate)`),
+  // ③ 独立复核 / 主控自查作为**执行**；「完成独立结果复核」命中
+  new RegExp(`完成[^，。;；]{0,12}(独立|对抗|就绪)?\\s*(结果)?\\s*复核`),
+  new RegExp(`(?<!${CONSTRUCTION_PREFIX})(独立|对抗)\\s*(结果)?\\s*复核(?!\\s*(模块|算法|机制|字段|逻辑|实现|入口|校验))`),
+  new RegExp(`完成\\s*独立\\s*(结果)?\\s*审核`),
+  /主控\s*自查/,
+  // ④ Gate 批准本身作为**执行**（「执行 Gate 2 关闭」「提请 Human 批准」）
+  new RegExp(`(执行|进行|完成|发起|提请)\\s*Gate\\s*[12]`, "i"),
+  new RegExp(`${GATE_EXECUTION_VERBS}\\s*(Human\\s*)?(批准|审批|裁决|终审)`),
+  /(受控|完成)?\s*关闭提案/,
+  // ⑤ 三件套的收尾并列形态（v5 现存写法，本身即制度收尾）
+  /(验证|跑|过)?\s*三件套/,
+];
+
+/** 命中的关口模式（返回描述性标签，供拒绝信息使用）。 */
+function detectLifecycleGate(step, doneCriteria) {
+  const haystack = `${step ?? ""}\n${doneCriteria ?? ""}`;
+  const hits = [];
+  for (const pattern of GATE_STEP_PATTERNS) {
+    const m = pattern.exec(haystack);
+    if (m && m[0].trim().length > 0) hits.push(m[0].trim());
+  }
+  return [...new Set(hits)];
+}
+
+/**
+ * 21 §6.1 关口门禁的适用范围判定（2026-09-18，Human 裁定方案 1）。
+ *
+ * 门禁针对的是「把关口**写成**计划」这一**面向未来**的行为，不是惩罚
+ * **已经写在计划里的历史记录**。故只在 plan 相对基线的**新增或改动**项上生效：
+ *
+ *   - 基线缺失（create / 无既有对象）：全部 plan 项皆为新，全部受检；
+ *   - 有基线：仅 `baselinePlan[i]` 不存在（新增项）或内容不等（改动项）时受检；
+ *     **逐字未改的既有项放行**。
+ *
+ * 理由（实测，2026-09-18）：存量 open 工单中 5 个已执行完毕、正待 Gate 2 关闭，
+ * 其 plan 末尾的关口步是**已兑现判据的历史记录**。若一律拒绝，则 `close` 写入
+ * 也被挡住 —— 而 close 是唯一出口，且 WorkCase 无删除操作（21 §14），会造成真实
+ * 死锁。逐字放行使「保留历史原样」与「门禁生效」不再冲突：历史不可改写，未来
+ * 不可再写。
+ *
+ * 注意这不构成豁免：任何**改动**既有项（哪怕只改一字）都会使它重新受检。
+ * 同位置的内容比对按 step+done_criteria 的精确字符串，不做归一化——归一化会
+ * 制造「一个空格」式的绕过面。
+ */
+function planItemNeedsGateCheck(item, baselineItem) {
+  if (baselineItem === undefined) return true;                  // 新增项
+  return !(item.step === baselineItem.step && item.done_criteria === baselineItem.done_criteria);
+}
+
+function validatePlanShape(frontmatter, issues, baselinePlan = null) {
   if (!Array.isArray(frontmatter.plan) || frontmatter.plan.length === 0) {
     issues.push("plan: must be a non-empty array of {step, done_criteria} (21 §8)");
     return;
   }
+  const baseline = Array.isArray(baselinePlan) ? baselinePlan : null;
   frontmatter.plan.forEach((item, i) => {
     if (!isPlainObject(item)) {
       issues.push(`plan[${i}]: must be an object of shape {step, done_criteria}`);
@@ -277,6 +369,23 @@ function validatePlanShape(frontmatter, issues) {
     }
     if (typeof item.done_criteria !== "string" || item.done_criteria.trim().length === 0) {
       issues.push(`plan[${i}].done_criteria: required non-empty and evidence-decidable (21 §6.1/§8)`);
+    }
+    // 21 §6.1：plan 不得承载生命周期关口（机械门禁，2026-09-18）。
+    // 只查 plan 内容；不查正文（§6.1 末段明文）。
+    // 只查新增/改动的项；逐字未改的既有项是历史记录，放行（见上方说明）。
+    if (!planItemNeedsGateCheck(item, baseline?.[i])) return;
+    const gates = detectLifecycleGate(item.step, item.done_criteria);
+    if (gates.length > 0) {
+      issues.push(
+        `plan[${i}]: step/done_criteria reads as a WorkCase lifecycle gate (${gates.join(" / ")}) — `
+        + "plan carries only this work package's own implementation work; 受控提交/独立复核/主控自查/Gate 批准 "
+        + "are carried by 06, 02 §15 and the status transitions (21 §6.1/§9/§14), NOT by a plan step. "
+        + "Remove it from plan: the gate still happens, it just is not a plan step. "
+        + "Note 21 §6.1 keeps test/lint/scan RESULTS admissible inside done_criteria and "
+        + "result.criteria_checks[].evidence — only the gate-as-a-step is rejected. "
+        + "(This check applies to new or modified plan items only; an item left byte-identical "
+        + "to the existing object is an unrewritable historical record and passes.)",
+      );
     }
   });
 }
@@ -428,8 +537,12 @@ function validateResult(frontmatter, issues) {
  * Mechanical frontmatter validation (21 §8 closed set + field invariants +
  * §15.1 type-specific checks). serves ⇔ goal.md resolution and relations
  * target resolution need the fact-source root and happen in the flows.
+ *
+ * `baselinePlan`（可选）：既有对象的当前 plan。用于 §6.1 关口门禁的适用范围
+ * 判定——只有相对基线**新增或改动**的项受检，逐字未改的既有项是历史记录，
+ * 放行（见 validatePlanShape 的说明）。create 与无既有对象时省略（全量受检）。
  */
-export function validateWorkcaseFrontmatter(frontmatter) {
+export function validateWorkcaseFrontmatter(frontmatter, baselinePlan = null) {
   const issues = [];
 
   for (const key of Object.keys(frontmatter)) {
@@ -455,7 +568,7 @@ export function validateWorkcaseFrontmatter(frontmatter) {
   if (typeof frontmatter.scope !== "string" || frontmatter.scope.trim().length === 0) {
     issues.push("scope: required non-empty (21 §8 — 授权范围与边界, 越权拒绝的比对基准)");
   }
-  validatePlanShape(frontmatter, issues);
+  validatePlanShape(frontmatter, issues, baselinePlan);
 
   if (frontmatter.serves !== undefined) {
     if (typeof frontmatter.serves !== "string" || !SG_ANCHOR_PATTERN.test(frontmatter.serves)) {
@@ -741,8 +854,16 @@ export async function readWorkcaseObject(args) {
 // Shared write path: validate + atomic write + read-back
 // ---------------------------------------------------------------------------
 
-async function writeValidated(factSourceRoot, frontmatter, body) {
-  const fmCheck = validateWorkcaseFrontmatter(frontmatter);
+/**
+ * 全部 7 个 action 的唯一落盘汇聚点。
+ *
+ * `baselinePlan`（可选）：既有对象的当前 plan，供 §6.1 关口门禁判定「新增/改动」
+ * 与否。create 不传（全部为新）；其余 action 一律传调用方已读到的 `fm.plan`——
+ * 这是 CAS 之外的第二道「不能靠改写既有内容绕过」的保障：baseline 来自**落盘前
+ * 读到的对象**，而非调用方 payload。
+ */
+async function writeValidated(factSourceRoot, frontmatter, body, baselinePlan = null) {
+  const fmCheck = validateWorkcaseFrontmatter(frontmatter, baselinePlan);
   if (!fmCheck.ok) {
     return failure("workcase/frontmatter_invalid", "frontmatter failed mechanical checks", { issues: fmCheck.issues });
   }
@@ -958,7 +1079,7 @@ export async function approveWorkcaseObject(args) {
     const content = sectionContent(body, BODY_H2_EXECUTION) ?? "";
     body = replaceSection(body, BODY_H2_EXECUTION, `${content}\n- attempt ${attemptId} started at ${now} (controller: ${controller})；Gate 1 授权范围见 gate_1.scope_snapshot。`);
   }
-  const written = await writeValidated(factSourceRoot, next, body);
+  const written = await writeValidated(factSourceRoot, next, body, fm.plan);
   // 21 §8「执行」节记账纪律的前置提示：授权是执行期写正文的**最早**时点，此处把当前
   // plan 的权威编号清单直接交给调用方，使「计划步骤 N」的 N 有据可依，不必回查
   // frontmatter。属**前置告知**，不含任何校验或拒绝规则——同类机械校验已被实测证伪
@@ -1053,7 +1174,7 @@ export async function executeWorkcaseObject(args) {
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
   // 跨会话接力时执行者未必持有 approve 的返回值，故 execute 亦带前置提示（纯告知）。
-  const written = await writeValidated(factSourceRoot, next, body);
+  const written = await writeValidated(factSourceRoot, next, body, fm.plan);
   if (!written.ok) return written;
   return success({ ...written.value, plan_step_reference: planStepReference(next.plan) });
 }
@@ -1115,7 +1236,7 @@ export async function closeWorkcaseObject(args) {
   appendChangeLog(next, sig, `${changeSummary} [gate_2 closed with outcome=${outcome}; attempt ${closedAttempt ?? "none"} retracted]`);
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
-  return writeValidated(factSourceRoot, next, body);
+  return writeValidated(factSourceRoot, next, body, fm.plan);
 }
 
 // ---------------------------------------------------------------------------
@@ -1181,7 +1302,7 @@ export async function rebatchWorkcaseObject(args) {
   if (relCheck) return relCheck;
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
-  return writeValidated(factSourceRoot, next, body);
+  return writeValidated(factSourceRoot, next, body, fm.plan);
 }
 
 // ---------------------------------------------------------------------------
@@ -1215,7 +1336,7 @@ export async function cancelWorkcaseObject(args) {
   appendChangeLog(next, sig, `${changeSummary} [cancelled before execution; no Gate 1 approval existed]`);
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
-  return writeValidated(factSourceRoot, next, body);
+  return writeValidated(factSourceRoot, next, body, fm.plan);
 }
 
 // ---------------------------------------------------------------------------
@@ -1256,7 +1377,7 @@ export async function reviseWorkcaseObject(args) {
   if (relCheck) return relCheck;
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
-  return writeValidated(factSourceRoot, next, body);
+  return writeValidated(factSourceRoot, next, body, fm.plan);
 }
 
 // ---------------------------------------------------------------------------
