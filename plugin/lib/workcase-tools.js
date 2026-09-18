@@ -523,8 +523,9 @@ function parameterSchemaFor(operationKey) {
     properties: {
       title: { type: "string", description: "工单短标题，≤ 30 字；不承载完成判据或结果结论" },
       status: { type: "string", enum: ["draft", "open", "closed"], description: "create must be draft; transitions are stamped by approve/close/rebatch/cancel (21 §9)" },
+      gist: { type: "string", description: "给 Human 扫读的一句话要点（21 §8）：这份工单要做什么、要 Human 决定什么。draft/open 时必填、closed 时条件；≤ 200 字符；纯文本——不得以编号引用（如「承 workcase-xxxx 的 residual」）、Markdown 标记或归因链开头，须自足可读；无正文承载。它服务 Human 分诊（卡面即提请面），与 summary（AI 接续快照，可长、可含编号与 Markdown）分工不重叠" },
       serves: { type: "string", description: "服务的 sub-goal 锚点，值形如 SG-3；必须匹配 goal.md 中存在的 SG-n；不是 relations 条目（21 §8）" },
-      summary: { type: "string", description: "要做什么的当前语义快照；使未读原计划的后续执行者可独立执行；必须逐字出现在「摘要」正文节" },
+      summary: { type: "string", description: "要做什么的当前语义快照（AI 向，不设长度上限）；使未读原计划的后续执行者可独立执行；必须逐字出现在「摘要」正文节" },
       scope: { type: "string", description: "授权范围与边界：必须同时回答「做什么」与「明确不做什么」；是越权拒绝的比对基准；必须逐字出现在「授权范围」正文节" },
       plan: {
         type: "array",

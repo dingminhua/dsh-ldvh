@@ -51,7 +51,7 @@ attempt:
   attempt_id: 3
   started_at: 2026-09-16T13:45:38.977Z
   controller: workbuddy/deepseek-v4.1-flash
-  heartbeat_at: 2026-09-18T02:01:14.735Z
+  heartbeat_at: 2026-09-18T11:21:15.367Z
 created_at: 2026-09-15T21:44:22.236Z
 change_log:
   - at: 2026-09-15T21:44:22.236Z
@@ -106,8 +106,12 @@ change_log:
       验证记录 241/241」系归属错误（实为 235/235，241 出自后继 merge
       10e3f79）与「已发生未记录」定性不成立（e56ce02 即本对象创建者），冷恢复处置形式经核实合规 [attempt 3 heartbeat
       refreshed]
+  - at: 2026-09-18T11:21:15.367Z
+    provider: workbuddy-global
+    model: deepseek-v4.1-flash
+    summary: 迁移：补齐 gist 要点字段（21 §8，WorkCase d5273e1c） [attempt 3 heartbeat refreshed]
 reviews:
-  - at: 2026-09-18T02:01:14.735Z
+  - at: 2026-09-18T11:21:15.367Z
     provider: workbuddy-global
     model: deepseek-v4.1-flash
     summary: 对象：WC-4af2b871「Web 工单呈现三态重建」，status=open，无 reviews 记录。基线：21
@@ -118,6 +122,7 @@ reviews:
       比对。发现：①结果节「e56ce02 验证记录 241/241」系错误归属，实为 235/235（241 出自后继 merge
       10e3f79）；②「e56ce02 属已发生未记录」定性不成立——该提交创建了本对象，change_log
       与产物同提交落盘；③追加式不追溯改写处置合规。保证边界：仅证明当次可读层一致与实跑结果，不证明价值、页面效果与授权成立。
+gist: 把 Web 的 WorkCase 呈现从 v4 八值状态机重建为三态直读，改五档筛选、重建认知中心收件箱，并清除 v4 残留。
 ---
 
 # Web 工单呈现三态重建

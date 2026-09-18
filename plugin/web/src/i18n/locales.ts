@@ -317,6 +317,9 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   validation_summary: { zh: '验证', en: 'Validation Notes' },
   body: { zh: '正文', en: 'Body' },
   report_body: { zh: '正文', en: 'Body' },
+  // 21 §8：gist 是给 Human 扫读的一句话要点，与 summary（给执行者的完整快照）
+  // 分工不同（10 §5.5）。词条须与 summary 可区分，不得同译。
+  gist: { zh: '要点', en: 'Gist' },
   summary: { zh: '摘要', en: 'Summary' },
   conclusion: { zh: '结论', en: 'Conclusion' },
   details: { zh: '详情', en: 'Details' },
@@ -1139,6 +1142,9 @@ export const UI_LOCALES = {
     'objectList.workcaseStateClosed': '工单已关闭',
     'objectList.workcaseProgressUnavailable': '进展信息不可判定',
     'objectList.workcaseProgressGroupUnavailable': '未能形成进展分组。',
+    // 10 §5.5「呈现降级」：gist 在 closed 时缺失合法（21 §8 终态只读）。卡面
+    // 如实降级，不以 summary 静默替代、也不留白。
+    'objectList.workcaseGistMissing': '（本对象未登记要点）',
     'objectList.workcaseStageUnavailable': '当前环节不可判定',
     'objectList.workcasePlanRevising': '方案修订中',
     'objectList.workcaseOutsideProgressTrack': '四步轨迹之外',
@@ -1821,6 +1827,7 @@ export const UI_LOCALES = {
     'objectList.workcaseStateClosed': 'WorkCase closed',
     'objectList.workcaseProgressUnavailable': 'Progress unavailable',
     'objectList.workcaseProgressGroupUnavailable': 'Unable to form a progress group from source status/phase.',
+    'objectList.workcaseGistMissing': '(no gist recorded)',
     'objectList.workcaseStageUnavailable': 'Current step unavailable',
     'objectList.workcasePlanRevising': 'Plan revision',
     'objectList.workcaseOutsideProgressTrack': 'Outside the four-step track',

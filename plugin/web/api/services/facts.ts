@@ -418,8 +418,12 @@ function projectCurrentWorkCaseCardShape(
   view: WorkCaseV5View,
 ): Record<string, unknown> {
   // 恒复制：身份 + 标题 + 状态 + serves + 基础字段。
+  // `gist`（21 §8）同样恒复制：它是**卡面**渲染的字段（10 §5.5「卡面与详情的
+  // 字段分工」），三个状态都要有——此前 summary 只在 draft 分支投影，open/closed
+  // 卡面因此拿不到可渲染文本。gist 不重复该错误：缺失与否由**来源对象**决定
+  // （closed 缺失合法，21 §8），投影只负责忠实搬运，不做状态分流。
   const projected = copyPresentFields(fact, [
-    'object_id', 'fact_type_key', 'title', 'status', 'serves', 'created_at', 'change_log',
+    'object_id', 'fact_type_key', 'title', 'status', 'serves', 'created_at', 'change_log', 'gist',
   ])
   // 21 号三态直读视图序列化（current_snapshot_projection 改为 WorkCaseV5View）。
   projected.current_snapshot_projection = view

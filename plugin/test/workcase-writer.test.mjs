@@ -31,6 +31,7 @@ import {
   listWorkcaseObjects,
   computeAuthorizationFingerprint,
   validateWorkcaseBodyStructure,
+  validateWorkcaseFrontmatter,
 } from "../lib/workcase-writer.js";
 import { authoritativeSignature } from "../lib/signature-channel.js";
 
@@ -57,6 +58,8 @@ async function seedPitfall(root, uid = "11111111-2222-4333-8444-555555555555") {
 function validDraft(overrides = {}) {
   return {
     title: "实现 X 的最小承载",
+    // 21 §8: gist（要点）—— draft/open 必填、≤ 200 字符、给 Human 扫读的一句话。
+    gist: "为 X 建立最小承载，使后续工作可复用。",
     serves: "SG-1",
     summary: "为 X 建立最小实现并通过测试，使后续工作可复用。",
     scope: "做什么：实现 X 的 writer 与测试；明确不做什么：不改 Web 呈现、不动规范条文。",
@@ -220,8 +223,101 @@ test("create: rejects unknown frontmatter fields — closed set (21 §8)", async
   });
 });
 
-test("create: rejects serves that matches no goal.md SG-n (21 §10.1 fail-closed)", async () => {
+// ---------------------------------------------------------------------------
+// 21 §8 `gist`（要点）—— draft/open 必填、≤ 200 字符、closed 条件
+// ---------------------------------------------------------------------------
+
+test("gist: draft without gist is rejected (21 §8 draft/open 必填)", async () => {
   await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const draft = validDraft();
+    delete draft.gist;
+    const bad = await createWorkcaseObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: draftBody(draft),
+      sessionSignature: SIG(),
+    });
+    assert.ok(!bad.ok);
+    assert.ok(
+      bad.error.details.issues.some((i) => i.includes("gist: required when status=draft")),
+      `expected a gist-required issue, got: ${JSON.stringify(bad.error.details.issues)}`,
+    );
+  });
+});
+
+test("gist: over 200 chars is rejected — refuse, never truncate (21 §8 扫读上限)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const draft = validDraft({ gist: "字".repeat(201) });
+    const bad = await createWorkcaseObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: draftBody(draft),
+      sessionSignature: SIG(),
+    });
+    assert.ok(!bad.ok);
+    assert.ok(bad.error.details.issues.some((i) => i.includes("exceeds the 200-char cap")));
+  });
+});
+
+test("gist: exactly 200 chars is accepted — the cap is inclusive (21 §8 边界)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const draft = validDraft({ gist: "字".repeat(200) });
+    const ok = await createWorkcaseObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: draftBody(draft),
+      sessionSignature: SIG(),
+    });
+    assert.ok(ok.ok, JSON.stringify(ok.error));
+  });
+});
+
+test("gist: empty or whitespace-only is rejected (21 §8 必填非空)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const draft = validDraft({ gist: "   " });
+    const bad = await createWorkcaseObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: draftBody(draft),
+      sessionSignature: SIG(),
+    });
+    assert.ok(!bad.ok);
+    assert.ok(bad.error.details.issues.some((i) => i.includes("gist: must be a non-empty string")));
+  });
+});
+
+test("gist: absent on a CLOSED object is NOT rejected — 终态只读、无入口可补写（21 §8 分层必填的负向控制）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    // 直接对 frontmatter 校验做负向控制：closed 且无 gist 必须通过。
+    // 这条断言的意义在于锁死「分层必填」不是「一律必填」——若实现被改成
+    // 无条件必填，本用例会失败，从而阻止那次会永久卡死存量 closed 对象的改动。
+    const closed = {
+      fact_type_key: "workcase",
+      object_uid: "11111111-1111-4111-8111-111111111111",
+      title: "T",
+      status: "closed",
+      summary: "s",
+      scope: "做什么：a。明确不做什么：b。",
+      plan: [{ step: "x", done_criteria: "y" }],
+      outcome: "cancelled",
+      result: { achieved_scope: "x" },
+      created_at: "2026-01-01T00:00:00.000Z",
+      change_log: [{ at: "2026-01-01T00:00:00.000Z", summary: "c" }],
+    };
+    const check = validateWorkcaseFrontmatter(closed);
+    assert.ok(
+      !check.issues.some((i) => i.includes("gist")),
+      `closed without gist must not raise a gist issue, got: ${JSON.stringify(check.issues)}`,
+    );
+  });
+});
+
+test("create: rejects serves that matches no goal.md SG-n (21 §10.1 fail-closed)", async () => {  await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const bad = await createWorkcaseObject({
       factSourceRoot: root,

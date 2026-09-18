@@ -97,7 +97,7 @@ WorkCase 是授权执行层的事实类型：**已批准工单及其结果审计
 
 ### 6.1 什么构成一个对象
 
-一个 WorkCase 对象 = 一份有边界的已批准（或待批准）工单：要做什么（`summary`）+ 授权范围与边界（`scope`）+ 可执行计划与逐条完成判据（`plan`）+ 当次执行者令牌（`attempt`）+ 结果核对结论与残留（`result`）。它必须可独立授权、可独立执行、可独立关闭、可独立审计。计划步骤的粒度判据：**一步能由单一执行者在一次连续执行中完成，且其完成判据可被证据判定**；不能判定的步骤必须先精化，不得以「已完成」的自述代替判据。
+一个 WorkCase 对象 = 一份有边界的已批准（或待批准）工单：给 Human 扫读的一句话要点（`gist`）+ 要做什么的完整语义快照（`summary`）+ 授权范围与边界（`scope`）+ 可执行计划与逐条完成判据（`plan`）+ 当次执行者令牌（`attempt`）+ 结果核对结论与残留（`result`）。它必须可独立授权、可独立执行、可独立关闭、可独立审计。计划步骤的粒度判据：**一步能由单一执行者在一次连续执行中完成，且其完成判据可被证据判定**；不能判定的步骤必须先精化，不得以「已完成」的自述代替判据。
 
 **`plan` 只承载本工作包特有的实施工作，不承载 WorkCase 自身的生命周期关口。** 受控提交（含 Git Gate 与提交前预检）、独立复核、主控自查、Gate 1/Gate 2 批准本身，以及它们的收尾动作，均由 §3.2 已声明的相邻规范（06、02 §15）与该类型自身的状态转换（§9、§14）承接，**不得被写成 `plan` 的步骤、`done_criteria` 或其"最后一步"**。典型非法反例：`step` 为「受控提交」「验证三件套与受控提交」「完成独立结果复核」「执行 Gate 2 关闭」。设计理由：关口与计划互为前置会形成循环——独立复核须待计划步骤全部终止后执行，而关闭又须待复核完成；把关口写进 `plan` 会使该步骤既是"待复核的对象"又是"复核本身"。
 
@@ -136,8 +136,9 @@ frontmatter 闭集：
 | `fact_type_key` | string | 必填 | `workcase` | 唯一合法值（类型短名，03 §6.1 值域） |
 | `object_uid` | UUIDv4 | 必填 | Code 生成 | 创建时落定，永不改变 |
 | `title` | string | 必填 | 工单短标题 | ≤ 30 字；供候选定位与 Human 扫读；不承载完成判据或结果结论 |
+| `gist` | string | 条件 | 给 Human 扫读的一句话要点：这份工单要做什么、要 Human 决定什么 | `draft`/`open` 时必填；`closed` 时条件（终态只读，缺失合法，不因缺失拒绝写入）；**≤ 200 字符**（UTF-16 码元计数，实现按 `.length` 判定）；**纯文本**——不承载编号引用、Markdown 标记或归因链；**无正文承载**（同 `title`，不设 H2 节）；与 `summary` 分工见下方「`gist` 与 `summary` 的分工」 |
 | `serves` | string | 条件 | 服务的 sub-goal 锚点，值形如 `SG-3` | 指向 `ldvh-base/goal.md` 中存在的 SG-n；goal.md 缺失或 sub-goal 空缺时省略（25 §10 读操作不拦）；**不是 `relations` 条目**——SG-n 是 goal.md 内的锚点，无 `object_uid`，不构成 03 §7.2 的关系目标 |
-| `summary` | string | 必填 | 要做什么的当前语义快照 | 使未读原计划的后续执行者可独立执行；只承载当前仍适用的范围，不复制讨论过程 |
+| `summary` | string | 必填 | 要做什么的当前语义快照（AI 向） | 使未读原计划的后续执行者可独立执行；只承载当前仍适用的范围，不复制讨论过程；**不设长度上限**——它是给执行者的完整快照，可含编号引用、对象标识与 Markdown 标记；Human 扫读面不消费本字段（见下方「`gist` 与 `summary` 的分工」） |
 | `scope` | string | 必填 | 授权范围与边界 | 必须同时回答「做什么」与「明确不做什么」；是越权拒绝的比对基准 |
 | `plan` | array | 必填 | 可执行计划步骤 | 每项 `{step, done_criteria}`；`done_criteria` 必须可被证据判定；格式齐全只待批准（31 §10.1 出口形态） |
 | `gate_1` | object | 条件 | Gate 1 批准记录与授权包 | 批准后必填：`{approved_at, approver, authorization_fingerprint, scope_snapshot}`；`authorization_fingerprint` 绑定当次 `plan` + `scope` 的内容指纹 |
@@ -163,13 +164,26 @@ frontmatter 闭集：
 
 （首行 H1 由 `title` 镜像，与 20/22–26 各类型规范同形态。）
 
+**`gist` 与 `summary` 的分工（Human 面 / AI 面）**：二者都回答「要做什么」，但服务不同读者，**不是同一文本的两种长度**。
+
+- `gist` 服务 **Human 分诊**：呈现在卡面（列表卡、聚焦收件箱、联邦对象卡，10 §5.5 的完整清单），Human 据此在扫读窗口内判断「这份工单要不要我处理」。故它必须是**自足的一句话**——不依赖读者先读 `title`、`scope` 或任何被引用的对象；不得以编号引用（如「承 `workcase-8d2ba256` 的 residual」）、Markdown 标记或归因链开头。
+- `summary` 服务 **AI 接续**：使未读原计划的后续执行者可独立执行。它可以长、可以含编号引用与对象标识、可以带 Markdown 标记——这些对执行者是有用信息，对扫读者是噪音。
+
+**根依据（00 §6.2 HV1 决策提请清晰可决）**：卡面即提请面。Human 在卡上形成不了范围清楚的理解时，提请不成立。此前二者由 `summary` 单字段承担，结果是同一个字段同时服务两个读者，两边都不称职——`summary` 的读者要求完整，`gist` 的读者要求短。
+
+**本分工不引入一致性机械校验**：`gist` 与 `summary` 描述同一件事的不同侧面，规范不要求前者是后者的子串或摘要。单独的 `summary` 修订不触发 `gist` 复核，反之亦然；但作者在修订其一时应检查另一是否仍如实（属写作纪律，非门禁）。
+
+**`gist` 的长度上限（机械校验）**：`gist` 不超过 **200 字符**（判定单位与本规范 `title` 的同名上限一致，均为 UTF-16 码元计数；实现按 `.length` 判定）。上限是**扫读上限**而非表达上限——完整叙述属 `summary`、正文或 `change_log`。超限时拒绝写入，**不得截断后写入**（与 20 §8 / 23 §8 的 `disposition` 上限同形，同一判定单位与拒绝纪律）。
+
 **「执行」节的记账纪律**：`plan` 的位置序号（第 1 项、第 2 项……）是本类型唯一的计划步骤编号体系。正文引用计划步骤时须使用显式形式「**计划步骤 N**」，N 以**当前** `plan` 数组为界。非计划步骤的执行事项（复核、补充验证、环境处理、收尾等）**独立描述，不得编入计划步骤序号**。本条只约束编号引用，不限制执行进展的叙述内容与详略。
 
 **本项纪律是写法约定，不是机械门禁**——本节不为其设任何拒绝规则，也不得据此新增校验。理由是已实测的：本纪律要区分的「引用本对象计划步骤」与「引述他对象的编号（含描述他人的编号错误）」在**字形上完全同形**，机械无法判定；而强制执行会造成两种确定损害——拒绝如实引述（诚实描述反被拦）、诱使作者不写编号以规避检查（执行记录的可核对性下降）。故本节只提供唯一合法写法，其可遵守性依靠工具层在写入时给出权威编号清单（见 §14 受控操作），**不依靠检查**。若日后确需机械保障，须先解决上述字形不可判定问题，不得以「校验越界」一类近似手段替代。
 
 `plan` 经 §10.3 局部重批而增删步骤后，历史记述中的旧序号不再指向当前 `plan` 的对应位置，须按下列之一处置：(a) 改以叙述形式（如「重批前的第 N 步」）使该处不再表现为当前计划的步骤序号；(b) 经 Human 授权按 03 §9.5 的事实更正修正该段记述。不得以「保留旧序号」为由使正文与当前 `plan` 长期不一致；也不得为迁就历史记述而改动 `plan` 的当前顺序——后者改变授权指纹，属 §10.3 的重批事由本不应由记账需要触发。本项与「历史记述不改写」的一般纪律不冲突：后者禁止的是**无授权**改写，Human 已授权的事实更正在本项允许之列。
 
-字段间不变量：`plan` 每项必须有非空 `done_criteria`；`gate_1` 出现 ⇔ `status ∈ {open, closed}`；`attempt` 出现 ⇔ `status = open`；`result` 与 `outcome` 出现 ⇔ `status = closed`；`result.criteria_checks` 必须与 `plan` 逐条对应（长度一致、顺序一致）；`outcome = completed` 时每条 `criteria_checks` 必须判为达成，否则 `outcome` 只能是 `partial`；`outcome = partial` 或 `not-achieved` 时 `residual` 必须非空；`serves` 出现时必须匹配 goal.md 中存在的 SG-n；`reviews` 每项 `summary` 必须非空且 ≤ 600 字符、条数 ≤ 20；**`status = closed` 时 `reviews` 必须非空**（关闭前须已存在至少一条独立复核记录，§9.1/§14）；且 `reviews` 与 `change_log` 分立承担（前者记复核节点结论，后者记变更流水），互不替代。未知字段处理：按 03 §6.1，未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
+字段间不变量：`plan` 每项必须有非空 `done_criteria`；**`gist` 在 `status ∈ {draft, open}` 时必填且 ≤ 200 字符，在 `status = closed` 时条件（缺失合法）**；`gate_1` 出现 ⇔ `status ∈ {open, closed}`；`attempt` 出现 ⇔ `status = open`；`result` 与 `outcome` 出现 ⇔ `status = closed`；`result.criteria_checks` 必须与 `plan` 逐条对应（长度一致、顺序一致）；`outcome = completed` 时每条 `criteria_checks` 必须判为达成，否则 `outcome` 只能是 `partial`；`outcome = partial` 或 `not-achieved` 时 `residual` 必须非空；`serves` 出现时必须匹配 goal.md 中存在的 SG-n；`reviews` 每项 `summary` 必须非空且 ≤ 600 字符、条数 ≤ 20；**`status = closed` 时 `reviews` 必须非空**（关闭前须已存在至少一条独立复核记录，§9.1/§14）；且 `reviews` 与 `change_log` 分立承担（前者记复核节点结论，后者记变更流水），互不替代。未知字段处理：按 03 §6.1，未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
+
+**`gist` 按状态分层必填的理由（如实登记）**：`closed` 是终态且本类型无删除操作（§14），**不存在任何受控入口能向 `closed` 对象补写字段**。若对 `closed` 也要求必填，则 2026-09-18 之前创建的 closed 对象将永久不合规，且该不合规**不可修复**——这是契约自身缺少出口，不是迁移遗漏。故 `closed` 取条件必填：终态记录是**已冻结的历史**，不因新字段的引入而被追溯判为不合规（与 03 §6.1「历史不改写」同纪律）。新建对象的 `closed` 态仍会自然携带 `gist`——它在 `draft`/`open` 期已必填并随对象延续。
 
 ## 9. 状态与生命周期
 
@@ -279,7 +293,7 @@ attempt 令牌回答「当前谁在做、做到哪里」，**不承载任何授�
 
 ## 14. 受控操作
 
-- **创建（draft）**：C1 提案对象模式（AI 只产出提案对象，含查重结果；Human 确认后经受控创建入口落盘）。创建前必须查重。机械校验：字段闭集合法、`plan` 每项 `done_criteria` 非空、`scope` 同时含做什么与不做什么、`serves`（若声明）匹配 goal.md 存在的 SG-n、`status = draft` 且无 `gate_1`/`attempt`/`result`。创建后精确回读。
+- **创建（draft）**：C1 提案对象模式（AI 只产出提案对象，含查重结果；Human 确认后经受控创建入口落盘）。创建前必须查重。机械校验：字段闭集合法、`gist` 非空且 ≤ 200 字符、`plan` 每项 `done_criteria` 非空、`scope` 同时含做什么与不做什么、`serves`（若声明）匹配 goal.md 存在的 SG-n、`status = draft` 且无 `gate_1`/`attempt`/`result`。创建后精确回读。
 - **Gate 1 批准（draft → open）**：Human Gate；AI 先做 F3 核对；Code 校验闭集、字段、指纹与回读；`gate_1` 与状态翻转与 change_log 在同一事务完成。
 - **执行期更新**（进度、`result` 草稿、`reviews` 录入、attempt 续接或作废）：03 §9.5 受控更新；CAS 以完整文件为单位，绑定 `content_fingerprint`；每次实际修改恰好一条 change_log（含理由）。attempt 续接必须已按 §10.4 第 3 点核对副作用范围。**`reviews` 录入的机械校验**：每项须为 `{at, provider, model, summary}`，`summary` 非空且 ≤ 600 字符，条数 ≤ 20；达上限时 fail-closed 拒绝新增并报告，**不得压缩或静默丢弃既有条目**；`at` 与署名由 Code 托管，AI 不得自填。**正文不设复核节**：复核详情不入对象，正文无须为其新增 H2。
 - **Gate 2 关闭（open → closed）**：Human Gate；`result` + `outcome` + 状态翻转 + `attempt` 收口 + change_log 同一事务完成；写后精确回读。**关闭前置条件：`reviews` 须非空**——即关闭前须已存在至少一条 `reviews` 记录；缺失（字段不存在）时**一律拒绝关闭并报告**，不得以正文自述或对话声明替代。WorkCase 准入（§6 对象边界）已排除「当次行动可直接处理的低风险改动（不对象化）」，故凡进入 WorkCase 者，独立复核（§8、02 §15）为必经环节，不设低风险豁免。**无法执行独立复核时不得关闭**：按 §18 停止条件处置，保持 `open` 并交还 Human，不得以 `partial`/`cancelled` 等终态掩盖复核缺失。（依 Human 裁定 2026-09-17。）
@@ -296,6 +310,7 @@ attempt 令牌回答「当前谁在做、做到哪里」，**不承载任何授�
 - 授权钉扎校验：`gate_1.authorization_fingerprint` 与当前 `plan`+`scope` 内容指纹一致，不一致即授权失效并生成局部重批待办。**当前实现状态（2026-09-17 核实，如实声明）**：该校验在实现中**尚不完整**——`authorization_fingerprint` 目前只被计算（`approve` 时）与形状校验（64-hex），**未与当前 `plan`+`scope` 做内容比对**；`rebatch` 仅在 `status=open` 期间以「冻结」方式（`assertAuthorizedPairFrozen`）间接阻止 `plan`/`scope` 被原地改写。**已知缺口**：① `rebatch` 入口未校验本次重批是否真有法定失效事由（本文 §10.3 的三种情形）；② `cancel`（draft→closed）不校验 `reviews`，故「先 rebatch 回 draft 再 cancel」可绕开 §14 的关闭前置。**该缺口已识别但未在本轮修复**（见 `ldvh-base/workcases/workcase-8d2ba256-*` 的 Gate 2 结果与 residual）：修复需先解决「§10.3 情形 ③（`serves` 指向的 sub-goal 被修订）不改变 `plan`+`scope` 指纹」这一机械不可判问题——该情形依赖 25 §11 的 `goal-changed 待核对` 标记，而**该标记尚无实现**，故在信号落地前无法区分「滥用重批」与「情形 ③ 的合法重批」。（2026-09-17 修订：此前该校验在实现中不存在——`authorization_fingerprint` 只被计算与形状校验，从无比对；后果是任何 `open` 工单可被主动重批并经 `draft → cancel` 关闭，绕开 Gate 2 的关闭门禁。）
 - attempt 唯一性：至多一个活跃 attempt；存在孤立 attempt 时，未完成副作用核对不得续跑或作废；
 - 关闭完整性：`closed` 时 `result` 非空、`outcome` 在闭集内、`criteria_checks` 与 `plan` 逐条对应且长度一致；
+- `gist` 完备性（§8）：`status ∈ {draft, open}` 时 `gist` 必填、非空且 ≤ 200 字符；超限或缺失即拒绝写入，不得截断后写入；`status = closed` 时本项不生效（终态只读，缺失合法——§8 已登记该分层必填的理由）。**未验证范围**：机械层只校验存在性与长度，**不校验内容是否达到「Human 扫读自足」的语义要求**（是否以编号引用或归因链开头、是否依赖读者先读其它字段）——该判断属 AI 语义审核与 Human 阅读，本项不声称超出机械边界。
 - 复核记录完备性：`reviews` 每项形状为 `{at, provider, model, summary}`，`summary` 非空且 ≤ 600 字符，条数 ≤ 20；超限或形状非法即拒绝写入，不得截断、压缩或静默丢弃；
 - outcome 一致性：`outcome = completed` 时不得存在未达成的 `criteria_checks`；`partial`/`not-achieved` 时 `residual` 非空；
 - `serves` 有效性：声明时匹配 goal.md 中存在的 SG-n；

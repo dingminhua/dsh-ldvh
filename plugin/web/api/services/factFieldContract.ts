@@ -41,6 +41,12 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
   workcase: {
     // common minus urls：21 §8 明文「不采用 urls」。
     ...(({ urls: _omitUrls, ...rest }) => rest)(common),
+    // 21 §8：`gist`（要点）是给 Human 扫读的一句话，draft/open 必填、closed
+    // 条件（终态只读、无受控入口可补写，缺失合法）。卡面渲染它而非 summary
+    // （10 §5.5「卡面与详情的字段分工」）。required=false 反映「按状态分层」：
+    // 契约的 required 是**跨状态**口径，而终态缺失合法，故不入
+    // TYPE_REQUIRED_FIELDS（那会要求所有状态都携带）。
+    gist: field('workcase-gist', 'string', false),
     summary: field('workcase-summary', 'string', true),
     serves: field('workcase-serves', 'string', false),
     scope: field('workcase-scope', 'string', true),

@@ -117,6 +117,12 @@ test('workcase carries the 21-spec field closure without v4 leftovers', () => {
   // 21 §8 锚点型 serves（SG-n 轻量锚点，条件出现）。
   assert.equal(FACT_FIELD_CONTRACT.workcase.serves.expected, 'string');
   assert.equal(FACT_FIELD_CONTRACT.workcase.serves.required, false);
+  // 21 §8：gist（要点）是给 Human 扫读的纯文本字段，draft/open 必填、closed
+  // 条件（终态只读，缺失合法）。契约的 required 是**跨状态**口径，故为 false；
+  // 「按状态分层必填」由 writer 承担（validateWorkcaseFrontmatter），此处只登记
+  // 字段存在性与类型，使卡面投影不会把它判为 unconsumed_field。
+  assert.equal(FACT_FIELD_CONTRACT.workcase.gist.expected, 'string');
+  assert.equal(FACT_FIELD_CONTRACT.workcase.gist.required, false);
   // 21 §8 结构化字段：plan 必填（数组）；gate_1/attempt/result 条件（object）；
   // outcome 条件（string）。
   assert.equal(FACT_FIELD_CONTRACT.workcase.plan.expected, 'array');

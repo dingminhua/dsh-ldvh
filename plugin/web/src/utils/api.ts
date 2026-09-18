@@ -72,6 +72,9 @@ export interface ObjectItem {
   attempt?: WorkCaseAttempt;
   result?: WorkCaseResult;
   gate_1?: WorkCaseGate1;
+  /** 21 §8：给 Human 扫读的一句话要点。卡面渲染它而非 summary（10 §5.5）；
+   * draft/open 必填、closed 条件（终态缺失合法，卡面须如实降级）。 */
+  gist?: string;
   /** ADR-specific（22 §8：decision 必填；scope 见上公共段；trigger_signal/终态字段条件） */
   decision?: string;
   trigger_signal?: string;
@@ -284,6 +287,9 @@ export interface WorkCaseDetailData extends Record<string, unknown> {
   status: WorkCaseV5Status;
   created_at: string;
   updated_at: string;
+  /** 21 §8：给 Human 扫读的一句话要点（≤200 字符、纯文本、无正文承载）。
+   * draft/open 必填，closed 条件（终态只读，缺失合法）。卡面渲染它而非 summary。 */
+  gist?: string;
   summary?: string;
   serves?: string;
   scope?: string;
@@ -354,6 +360,8 @@ export type CognitionInboxKind = 'plan_confirmation' | 'closure_confirmation' | 
  * 不含对象身份字段（id/title/status 等在条目层）。
  */
 export interface CognitionInboxCard extends Record<string, unknown> {
+  /** 21 §8：给 Human 扫读的一句话要点。聚焦收件箱卡体渲染它而非 summary（10 §5.5）。 */
+  gist?: string;
   summary?: string;
   serves?: string;
   scope?: string;

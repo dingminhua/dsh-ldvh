@@ -15,6 +15,7 @@ import SummaryText from '@/components/SummaryText';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import { WorkCaseCriteriaList } from '@/components/WorkCaseCriteriaList';
 import WorkCaseGroupHint from '@/components/WorkCaseGroupHint';
+import WorkCaseGistLine from '@/components/WorkCaseGistLine';
 import { workCaseCheckStatement } from '@/utils/workcaseCheckState';
 import { fetchCognitionGoal, fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type ObjectItem, type ObjectStatusOption, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
@@ -105,10 +106,14 @@ function StatusReasonNote({ reason }: { reason: StatusReason }) {
 /** 21 号三态直读列表 Card 主体（v5）。按 obj.group 分流 draft/open/closed 呈现。 */
 function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
   const group = obj.group ?? null;
+  // 10 §5.5「卡面与详情的字段分工」：卡体**首行恒为 `gist`**，四个派生组一致。
+  // 此前 pending_gate1 渲染 `summary`（完整快照，可长、可含 Markdown 标记），
+  // 而 open/closed 卡面根本没有可渲染的 Human 向文本——同一字段在四组间形态不一，
+  // 且卡面是扫读窗口（10 §5.2），放快照必然溢出。
   if (group === 'pending_gate1') {
     return (
       <div className="min-w-0">
-        {obj.summary ? <p className="ldvh-card-decision-body">{obj.summary}</p> : null}
+        <WorkCaseGistLine gist={obj.gist} />
         {Array.isArray(obj.plan) && obj.plan.length > 0 ? (
           <WorkCaseCriteriaList className="mt-1.5" items={obj.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))} />
         ) : null}
@@ -119,8 +124,9 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
   if (group === 'executing') {
     return (
       <div className="min-w-0">
+        <WorkCaseGistLine gist={obj.gist} />
         {obj.attempt ? (
-          <p className="ldvh-card-decision-body">
+          <p className="ldvh-caption mt-1.5">
             {t('objectList.workcaseAttemptController', { controller: obj.attempt.controller ?? '—' })}
             {obj.attempt.heartbeat_at ? ` · ${obj.attempt.heartbeat_at}` : ''}
           </p>
@@ -134,6 +140,7 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
   if (group === 'awaiting_gate2') {
     return (
       <div className="min-w-0">
+        <WorkCaseGistLine gist={obj.gist} />
         <WorkCaseGroupHint group="awaiting_gate2" messageKey="objectList.workcaseAwaitingGate2" className="ldvh-caption mt-1.5" />
         {Array.isArray(obj.plan) && obj.plan.length > 0 ? (
           <WorkCaseCriteriaList className="mt-1.5" items={obj.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))} />
@@ -144,8 +151,9 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
   if (group === 'closed') {
     return (
       <div className="min-w-0">
+        <WorkCaseGistLine gist={obj.gist} />
         {obj.outcome ? (
-          <p className="ldvh-card-decision-body">
+          <p className="ldvh-caption mt-1.5">
             <span className="ldvh-chip">{t(`objectList.workcaseOutcome.${obj.outcome}`)}</span>
           </p>
         ) : null}

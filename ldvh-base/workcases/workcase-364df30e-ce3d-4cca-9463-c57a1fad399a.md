@@ -58,7 +58,7 @@ attempt:
   attempt_id: 1
   started_at: 2026-09-17T07:58:10.850Z
   controller: deepseek-v4.1-flash@dsh-ldvh-session
-  heartbeat_at: 2026-09-17T08:40:28.013Z
+  heartbeat_at: 2026-09-18T11:21:15.354Z
 created_at: 2026-09-17T07:36:31.587Z
 change_log:
   - at: 2026-09-17T07:36:31.587Z
@@ -84,9 +84,13 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 写入 Gate 2 提请（逐条判据核对 + 已证实范围 + 残留责任） [attempt 1 heartbeat refreshed]
+  - at: 2026-09-18T11:21:15.354Z
+    provider: workbuddy-global
+    model: deepseek-v4.1-flash
+    summary: 迁移：补齐 gist 要点字段（21 §8，WorkCase d5273e1c） [attempt 1 heartbeat refreshed]
 reviews:
-  - at: 2026-09-17T08:40:28.013Z
-    provider: workbuddy
+  - at: 2026-09-18T11:21:15.354Z
+    provider: workbuddy-global
     model: deepseek-v4.1-flash
     summary: 对象：提交 48d1264（WorkCase 呈现保真与设计语言收敛）。基线：HEAD 前版 6ac30ec 与 specs/21
       §8/§9.3/§10.3/§10.4、specs/10 §5.5/§12、docs/01 §1.4
@@ -97,6 +101,7 @@ reviews:
       项提示——docs/archive/v4-web-migration-survey.md 仍列已删除文件名，但该目录自述不具规范效力且为 v4
       源树冻结盘点，不构成悬挂引用。保证边界：证明投影不再静默丢弃合规字段且未放宽闭集、测试具运行时判别力、设计语言与样板一致；不证明浏览器视觉层与
       Human 阅读可用性。
+gist: 修 WorkCase 呈现的字段类型守卫缺陷，统一前后端字段契约与派生分组配色，使详情阅读结构与已登记设计语言一致。
 ---
 
 # WorkCase 呈现保真与设计语言收敛

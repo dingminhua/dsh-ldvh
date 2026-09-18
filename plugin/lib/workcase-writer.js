@@ -114,10 +114,19 @@ const FINGERPRINT_PATTERN = /^[0-9a-f]{64}$/;
 /** Frontmatter closed set (21 §8). Anything beyond this is rejected. */
 export const VALID_FM_KEYS = new Set([
   "fact_type_key", "object_uid", "title", "status",
-  "serves", "summary", "scope", "plan",
+  "gist", "serves", "summary", "scope", "plan",
   "gate_1", "attempt", "reviews", "result", "outcome",
   "relations", "created_at", "change_log",
 ]);
+
+/**
+ * 21 §8: `gist`（要点）的字符上限 —— 给 Human 扫读的一句话要点。
+ *
+ * 判定单位与 `title` 的同名上限一致（UTF-16 码元，按 `.length`），
+ * 与 20 §8 / 23 §8 的 `disposition` 上限同形：上限是**扫读上限**而非表达上限，
+ * 超限拒绝写入，不得截断后写入（完整叙述属 summary/正文/change_log）。
+ */
+export const GIST_MAX_CHARS = 200;
 
 /** 21 §8: `reviews` 单条 `summary` 的字符上限（Human 裁定 2026-09-16）。 */
 export const REVIEW_SUMMARY_MAX_CHARS = 600;
@@ -564,6 +573,18 @@ export function validateWorkcaseFrontmatter(frontmatter, baselinePlan = null) {
   }
   if (typeof frontmatter.summary !== "string" || frontmatter.summary.trim().length === 0) {
     issues.push("summary: required non-empty (21 §8 — 使未读原计划的后续执行者可独立执行)");
+  }
+  // 21 §8: `gist` 按状态分层必填 —— draft/open 必填且 ≤ 200 字符；
+  // closed 条件（终态只读、无受控入口可补写，缺失合法，见 §8 分层必填的理由）。
+  // 该分层不是豁免：新建对象在 draft 期即必填，随对象延续到 closed。
+  if (frontmatter.gist !== undefined) {
+    if (typeof frontmatter.gist !== "string" || frontmatter.gist.trim().length === 0) {
+      issues.push("gist: must be a non-empty string (21 §8 — 给 Human 扫读的一句话要点)");
+    } else if (frontmatter.gist.length > GIST_MAX_CHARS) {
+      issues.push(`gist: ${frontmatter.gist.length} chars exceeds the ${GIST_MAX_CHARS}-char cap (21 §8 扫读上限); 完整叙述属 summary/正文，不得截断后写入`);
+    }
+  } else if (frontmatter.status === "draft" || frontmatter.status === "open") {
+    issues.push(`gist: required when status=${frontmatter.status} (21 §8 — draft/open 必填；closed 时条件，终态只读无入口可补写)`);
   }
   if (typeof frontmatter.scope !== "string" || frontmatter.scope.trim().length === 0) {
     issues.push("scope: required non-empty (21 §8 — 授权范围与边界, 越权拒绝的比对基准)");

@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
+import WorkCaseGistLine from '@/components/WorkCaseGistLine';
 import {
   ObjectCardFrame,
   AdrCardContent,
@@ -127,10 +128,10 @@ export default function FederationObjects() {
     if (currentType === 'norm') return <NormCardContent obj={item} />;
     if (currentType === 'workcase') {
       // WorkCase 联邦卡不复制单项目列表的阶段卡片投影（依赖当前项目的投影服务），
-      // 只呈现语义快照一行（21 §8 summary）——进入项目后阅读完整阶段卡片。
-      if (typeof item.summary === 'string' && item.summary.trim()) {
-        return <p className="ldvh-card-decision-body">{item.summary}</p>;
-      }
+      // 卡体首行同样渲染 gist（10 §5.5「卡面与详情的字段分工」适用于全部卡面，
+      // 不因卡片来自联邦视图而改变）——summary 是给执行者的完整快照，不进卡面。
+      // 进入项目后阅读完整阶段卡片。
+      return <WorkCaseGistLine gist={item.gist} />;
     }
     return null;
   };

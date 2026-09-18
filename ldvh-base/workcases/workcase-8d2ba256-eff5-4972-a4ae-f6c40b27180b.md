@@ -55,7 +55,7 @@ attempt:
   attempt_id: 2
   started_at: 2026-09-17T08:00:20.335Z
   controller: deepseek-v4.1-flash@dsh-ldvh-session
-  heartbeat_at: 2026-09-18T02:03:34.410Z
+  heartbeat_at: 2026-09-18T11:21:15.383Z
 created_at: 2026-09-17T06:51:23.939Z
 change_log:
   - at: 2026-09-17T07:59:50.891Z
@@ -82,8 +82,12 @@ change_log:
     summary: 落档独立结果复核概要（reviews）：缺口 B/C 修复经源码实读与负向控制核实属实、缺口 A 回退与 change_log
       截断均属实；补记 §14:286 未同步、criteria_checks 正文形态需在 Gate 2 提请前转为 result
       字段对象、以及另立单对象号 4005b67b/81c37ef0 的可追溯登记 [attempt 2 heartbeat refreshed]
+  - at: 2026-09-18T11:21:15.383Z
+    provider: workbuddy-global
+    model: deepseek-v4.1-flash
+    summary: 迁移：补齐 gist 要点字段（21 §8，WorkCase d5273e1c） [attempt 2 heartbeat refreshed]
 reviews:
-  - at: 2026-09-18T02:03:34.410Z
+  - at: 2026-09-18T11:21:15.383Z
     provider: workbuddy-global
     model: deepseek-v4.1-flash
     summary: 对象：workcase-8d2ba256（open，待 Gate 2）。基线：HEAD a56857f，工作树仅 6
@@ -92,6 +96,7 @@ reviews:
       tsc（并发会话中间态）、25 §11 信号。发现：B/C 修复属实且负向控制判别力成立；A 回退属实；截断属实；§9.2 已同步、§14:286
       未同步；新增——结果节 criteria_checks 为散文形态（在正文节，非 frontmatter result 字段），Gate 2
       提请时须转为 {satisfied, evidence} 对象；对象亦无 reviews。保证边界：仅核实上述范围。
+gist: 补上 C2 授权钉扎在实现层的缺口，并修正 rebatch 对 reviews 与 change_log 的处置，使授权失效可被机械检测。
 ---
 
 # C2 授权校验与 rebatch×reviews 处置

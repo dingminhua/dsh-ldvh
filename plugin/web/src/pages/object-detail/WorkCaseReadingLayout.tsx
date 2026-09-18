@@ -72,6 +72,45 @@ export default function WorkCaseReadingLayout({ obj, locale }: WorkCaseReadingLa
   );
 }
 
+/**
+ * `gist` 阅读节点（21 §8）：与 `ProseNode` **不同款**——`gist` 按 21 §8 是纯文本
+ * （「≤200 字符、纯文本、无正文承载」），故**不**经 Markdown 渲染。
+ *
+ * 若走 `ResearchTextNodeContent`，`gist` 里的字面 `*`、`_`、`` ` ``、`#` 会被
+ * 当作标记解析，把 Human 想读的字面文本吃掉或变形——而 21 §8 恰恰禁止在 `gist`
+ * 中放 Markdown。用纯文本渲染使「字段契约」与「呈现形态」一致：写进去什么样，
+ * 读出来什么样。
+ */
+function GistNode({
+  title,
+  value,
+  locale,
+  issue,
+}: {
+  title: string;
+  value: string;
+  locale: string;
+  issue?: ReturnType<typeof fieldIssue>;
+}) {
+  const [state, setState] = useState<ReadingNodeState>('expanded');
+  if (!value && !issue) return null;
+
+  return (
+    <ReadingNodeSection
+      title={title}
+      state={state}
+      locale={locale}
+      onToggle={() => setState((current) => getReadingNodeNextState(current))}
+    >
+      {issue ? (
+        <FieldProblem issue={issue} />
+      ) : (
+        <p className="ldvh-detail-semantic-body min-w-0 break-words">{value}</p>
+      )}
+    </ReadingNodeSection>
+  );
+}
+
 /** 正文段统一走 ReadingNodeSection——与其余六类阅读布局同款可折叠节点。
  *
  * 正文一律经 `ResearchTextNodeContent`（Markdown 渲染，14px 阅读基准）：六类
@@ -234,18 +273,33 @@ function ReviewsNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string 
 }
 
 /**
- * 对象身份与授权范围的正文段（21 §8：`summary` / `serves` / `scope`）。
+ * 对象身份与授权范围的正文段（21 §8：`gist` / `summary` / `serves` / `scope`）。
  *
  * 四个生命周期主体**共用**它。docs/10 §4.2 与 docs/01 §1.10 的同一条纪律：
  * 「条件字段可以随事实是否形成而省略，但已存在字段不能因对象处于某个进展分组
  * 而消失」。此前只有 DraftBody 渲染这三个字段，closed 详情因此看不到对象实际
  * 携带的 summary/serves/scope（缺陷 D11）——分组只应改变**强调**，不应改变
  * **在场字段集**。
+ *
+ * 10 §5.5 的字段分工在此落位：`gist` 与 `summary` **都**出现在详情，但形态不同——
+ * `gist` 是 21 §8 定义的**纯文本**要点（≤200 字符、无 Markdown 标记），故按纯文本
+ * 渲染；`summary` 是完整快照（可含 Markdown），故经 `ProseNode` 作 Markdown 节点。
+ * 二者不可合并：合并会让 Human 无法判断自己读的是扫读要点还是执行者快照。
  */
 function ResponsibilityNodes({ obj, locale }: { obj: WorkCaseDetailData; locale: string }) {
   const { t } = useI18n();
   return (
     <>
+      {/* 不在调用点用 `typeof obj.gist === 'string'` 把门——那会在 `gist` 类型不符
+         时把节点连同 `fieldIssue` 一起吞掉，正是 D11 那类「字段有问题却看不到」
+          的形态。改为恒调用，由 GistNode 内部按「有值或有 issue」决定是否渲染，
+          与下方 serves/scope 同款。 */}
+      <GistNode
+        title={getFieldLabel('gist', locale)}
+        value={typeof obj.gist === 'string' ? obj.gist : ''}
+        locale={locale}
+        issue={fieldIssue(obj, 'gist')}
+      />
       {obj.summary ? (
         <ProseNode
           title={getFieldLabel('summary', locale)}
