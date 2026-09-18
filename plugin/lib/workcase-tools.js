@@ -245,6 +245,25 @@ const GATE1_REQUEST_KEYS = [
   "approved_scope_and_next",
 ];
 
+// 21 §14 创建条目：「AI 只产出提案对象，含查重结果；Human 确认后经受控创建入口
+// 落盘」——C1 提案对象模式。
+//
+// 2026-09-18 修订：此前该「Human 确认」只存在于规范文字里，受控入口仅校验提案
+// 对象的字段合法性（status=draft、无 gate_1/attempt/result），因此「提案是否真被
+// Human 确认过」在机械层无任何承载。第一版修补要求 AI 自填 `human_confirmation`
+// 字符串——**那是伪保障**：AI 可自行编造，凭据真实性无从核验，与「拿到 Human 的
+// 意图」不是一回事。
+//
+// 现行做法：经宿主询问入口 `ctx.userQuestions.ask` 真正取得 Human 的**路由选择**
+// （Human 原话：「create 的时候没有拿到 human 是否创建 wc 的意图，就不能 create」）。
+// 与 `ldvh_register_governed_project` 的 07 §5.6 consent 同形（ldvh-tools.js:636），
+// 沿用同一 fail-closed 纪律：无答题器、询问失败、未作选择一律拒绝——静默不等于同意。
+//
+// 问的是**路由**（建工单 or 直接执行），不是**内容**：内容判断属 Gate 1
+// （21 §10.1 提请必含计划与逐条判据），届时 Human 手上有完整对象。创建时追问内容
+// 会要求 Human 做一个他还无从做出的判断，故本询问只承载「要不要以 WorkCase 承接」。
+// 提示语与选项由 host-seams.js 的 requestWorkcaseRouting 构造（单一实现）。
+
 function requireString(args, key, action) {
   const v = args?.[key];
   return typeof v === "string" && v.length > 0 ? v : null;
@@ -286,6 +305,40 @@ async function executeWriteObject(args, exec, deps) {
     const bodyMarkdown = args?.body_markdown;
     if (typeof draft !== "object" || draft === null || typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
       return invalidRequest("workcase-write-object", "frontmatter_draft (object) and body_markdown (markdown starting with '## 摘要') are required for action=create", "create");
+    }
+    // 21 §14 C1 / §6.3：创建前须经宿主询问入口取得 Human 的**路由选择**。
+    // 这不是「AI 声明问过了」，而是 Human 本人的答复由宿主记录；拿不到即拒绝。
+    // 无答题器 → fail-closed（静默不等于同意），与 07 §5.6 consent 同纪律。
+    const gate = deps?.hostSeams;
+    if (gate === undefined || typeof gate.requestWorkcaseRouting !== "function") {
+      return envelope("workcase-write-object", "unavailable", {
+        result: null,
+        scope: { requested: "create", completed: [], not_completed: ["create"] },
+        sources: [],
+        gaps: ["ctx.userQuestions.ask is not wired into this composition, so the 21 §6.3 routing decision "
+          + "cannot be obtained. 21 §14 C1 requires the Human's explicit confirmation before creation; "
+          + "REPORT TO HUMAN — an un-routed candidate must not silently become an object."],
+        verification: { checks: ["governance-scope", "human-routing"], passed: false },
+        follow_up: ["human must decide whether to carry this work as a WorkCase, then retry"]
+      });
+    }
+    const routing = await gate.requestWorkcaseRouting({
+      request: args?.routing_request ?? null,
+      rationale: args?.routing_rationale ?? null,
+    });
+    if (routing.granted !== true) {
+      return envelope("workcase-write-object", "rejected", {
+        result: null,
+        scope: { requested: "create", completed: [], not_completed: ["create"] },
+        sources: [],
+        gaps: [`21 §6.3/§14 C1 requires an explicit Human routing decision: ${routing.reason}`],
+        verification: { checks: ["governance-scope", "human-routing"], passed: false },
+        // 路由到「直接执行」是合法结论，不是错误：此时不应创建对象，
+        // 而应在当次行动内处理（21 §6.3 不对象化）。
+        follow_up: routing.routedTo === "direct"
+          ? ["handle the work directly in this action — do not create a WorkCase object (21 §6.3)"]
+          : ["obtain the Human's routing decision, then retry"]
+      });
     }
     result = await createWorkcaseObject({ factSourceRoot, frontmatterDraft: draft, bodyMarkdown, sessionSignature: sig.value });
   } else {
@@ -550,6 +603,15 @@ function parameterSchemaFor(operationKey) {
           action: { type: "string", enum: ["create", "approve", "execute", "close", "rebatch", "cancel", "revise"] },
           frontmatter_draft: workcaseFrontmatter,
           body_markdown: { type: "string", description: "create: the body markdown starting with '## 摘要' (H2 sections 摘要/授权范围/计划; the H1 is generated from title)" },
+          routing_request: { type: "string", description: "create: the Human's request in their own words, shown in the 21 §6.3 routing prompt (e.g. 「帮我把 X 改掉」). Optional but strongly recommended — it is what lets the Human recognise which piece of work is being routed." },
+          routing_rationale: {
+            type: "object",
+            description: "create: the AI's 21 §6.3 reasoning, shown in the routing prompt so the Human can judge. Advisory text only — it is not part of what is accepted.",
+            properties: {
+              forWorkcase: { type: "array", items: { type: "string" }, description: "倾向建工单的理由（如：涉及多处改动 / 需独立复核 / 可能跨会话）" },
+              forDirect: { type: "array", items: { type: "string" }, description: "倾向直接执行的理由（如：改动范围小、单文件）" },
+            },
+          },
           approver: { type: "string", description: "approve: the approving Human identity — stamped into gate_1.approver (21 §10.1)" },
           controller: { type: "string", description: "approve: the executing controller identity — stamped into attempt.controller (21 §10.4)" },
           gate1_request: {

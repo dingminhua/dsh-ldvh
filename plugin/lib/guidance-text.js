@@ -88,6 +88,7 @@ const GOVERNED_GUIDANCE = `本会话工作锚点（specs/00-理念与构成.md�
 7. §7 防自欺、Stop Conditions 与交还——机械锚点、暂停条件、最小交还结构
 规则读取：ldvh_read_specification_candidates / ldvh_read_specification_content（L0–L4 渐进披露）；
 能力发现：ldvh_discover_capabilities；受控提交前：ldvh_precheck_git_commit；
+建工单前：先按 specs/21 §6.3 判定这项工作是否需要 WorkCase 承接；判定为需要时，再经 ldvh_workcase_write(action=create) 的路由询问取得 Human 选择（建工单／直接执行），不得未经询问擅自创建。对象边界以 specs/21 §6.3 原文为准，本引导不复述其正文；
 管辖状态：ldvh_resolve_governance_scope。完整规则以规范源原文为准，本引导不复制规则正文。`;
 
 const UNAVAILABLE_GUIDANCE = `LDVH 管辖登记当前不可读取。本项目暂按不受管辖处理（与 not_governed 一致），但状态确为「不可用」而非「不受辖」，不得据此认定本项目不受辖。

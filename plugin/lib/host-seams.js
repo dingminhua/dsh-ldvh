@@ -25,6 +25,20 @@
 const CONSENT_QUESTION_ID = "ldvh-registration-consent";
 const CONSENT_AFFIRMATIVE_LABEL = "确认";
 
+/** 21 §6.3 路由询问 identity — the Human decides between carrying the work as a
+ * WorkCase or handling it directly. Same discipline as the registration consent:
+ * the id and BOTH labels are shared between what is asked and what is accepted,
+ * so the parse can never grant on a label that was never offered.
+ *
+ * This is a ROUTING question ("WorkCase or direct?"), NOT a content approval.
+ * The content judgement belongs to Gate 1 (21 §10.1), where the Human sees the
+ * whole object; asking for内容 here would demand a judgement the Human cannot
+ * yet make. Only the "carry it as a WorkCase" answer authorises creation —
+ * "handle it directly" means no object is created at all. */
+const ROUTE_QUESTION_ID = "ldvh-workcase-route";
+const ROUTE_WORKCASE_LABEL = "建工单走流程";
+const ROUTE_DIRECT_LABEL = "直接执行";
+
 /**
  * Latest governance judgement per working directory.
  *
@@ -336,6 +350,70 @@ export function createHostSeams() {  const consumed = Object.create(null);
     }
   }
 
+  /**
+   * Ask the Human to route this piece of work (21 §6.3 / §14 C1).
+   *
+   * `create` may only proceed when the Human explicitly chooses to carry the
+   * work as a WorkCase. Returns `{ granted, routedTo }`:
+   *   - granted=true,  routedTo="workcase" — create may proceed
+   *   - granted=false, routedTo="direct"   — the Human chose direct handling;
+   *                                          NO object is created
+   *   - granted=false, reason=…            — no answerer / failed ask / declined
+   *
+   * A missing answerer or a failed ask fails closed exactly like the
+   * registration consent: silence is not a routing decision, and 21 §6.3
+   * excludes "当次行动可直接处理的低风险改动" from objectification — so an
+   * un-routed candidate must NOT silently become an object either.
+   *
+   * `rationale` carries the AI's §6.3 reasoning (why it leans toward a
+   * WorkCase and what argues for direct handling). It is advisory text the
+   * Human uses to decide; it is NOT part of what is accepted.
+   */
+  async function requestWorkcaseRouting({ request, rationale }) {
+    if (typeof seams.ask !== "function") {
+      return { granted: false, routedTo: null, reason: "no human-answerer entry is available; 21 §6.3 routing requires an explicit Human decision, so it cannot be assumed" };
+    }
+    const leans = Array.isArray(rationale?.forWorkcase) ? rationale.forWorkcase.filter((x) => typeof x === "string" && x.trim().length > 0) : [];
+    const against = Array.isArray(rationale?.forDirect) ? rationale.forDirect.filter((x) => typeof x === "string" && x.trim().length > 0) : [];
+    const lines = [];
+    if (typeof request === "string" && request.trim().length > 0) lines.push(`你的要求：${request.trim()}`);
+    lines.push("");
+    lines.push("我判断这件事触及 21 §6.3 的取舍边界：");
+    if (leans.length > 0) {
+      lines.push("");
+      lines.push("倾向建工单的理由：");
+      for (const item of leans) lines.push(` · ${item}`);
+    }
+    if (against.length > 0) {
+      lines.push("");
+      lines.push("倾向直接执行的理由：");
+      for (const item of against) lines.push(` · ${item}`);
+    }
+    try {
+      const answer = await seams.ask({
+        questions: [{
+          id: ROUTE_QUESTION_ID,
+          header: "需要你的判断",
+          question: lines.join("\n"),
+          options: [
+            { label: ROUTE_WORKCASE_LABEL, description: "创建 WorkCase（draft），随后在 Gate 1 待办中审视内容" },
+            { label: ROUTE_DIRECT_LABEL, description: "不创建对象，直接在当前行动中处理" }
+          ]
+        }]
+      });
+      const answers = Array.isArray(answer?.answers) ? answer.answers : [];
+      const entry = answers.find((a) => a?.id === ROUTE_QUESTION_ID) ?? null;
+      const selected = entry?.selected ?? entry?.answer ?? null;
+      if (selected === ROUTE_WORKCASE_LABEL) return { granted: true, routedTo: "workcase", answer: selected };
+      if (selected === ROUTE_DIRECT_LABEL) {
+        return { granted: false, routedTo: "direct", answer: selected, reason: "Human chose 直接执行 — 21 §6.3 不对象化" };
+      }
+      return { granted: false, routedTo: null, reason: `human did not choose a routing option (answer: ${JSON.stringify(selected ?? null)})` };
+    } catch (error) {
+      return { granted: false, routedTo: null, reason: `routing request failed: ${String(error?.message ?? error)}` };
+    }
+  }
+
   const seams = {
     observations: 0,
     consumed,
@@ -346,6 +424,8 @@ export function createHostSeams() {  const consumed = Object.create(null);
     fs: null,
     /** 07 §5.6 consent request routed through ctx.userQuestions.ask. */
     requestRegistrationConsent,
+    /** 21 §6.3 routing request routed through ctx.userQuestions.ask. */
+    requestWorkcaseRouting,
     /**
      * Read a target and RECORD the authoritative observation.
      *
