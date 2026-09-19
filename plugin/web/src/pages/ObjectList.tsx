@@ -725,8 +725,9 @@ export default function ObjectList() {
   const [coverageProblems, setCoverageProblems] = useState<FactListProblem[]>([]);
   const [objectSearch, setObjectSearch] = useState('');
   const [isObjectSearchOpen, setIsObjectSearchOpen] = useState(false);
-  // Spark 第二层筛选（serves_sg）：选项源跟随当前 goal 的子目标（25 号
-  // sub_goals——SG 数量与变化以 goal 为准，Human 定案 2026-09-13）。
+  // serves_sg 第二层筛选（20 §6 serves / 21 §8）——spark 与 workcase 共用：
+  // 选项源跟随当前 goal 的子目标（25 号 sub_goals——SG 数量与变化以 goal 为准，
+  // Human 定案 2026-09-13）。
   const [servesSgOptions, setServesSgOptions] = useState<Array<{ id: string; text: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -755,8 +756,9 @@ export default function ObjectList() {
   // v5 无 priority 字段：20 §289（v4 priority 不迁入）与 21 §8 字段闭集均无此项，
   // 且 22 §271/23 §252/26 §258 判定 priority 类为无消费方装饰字段（03 §11.3-4
   // 要求字段扩展先说明消费方）。两侧 tab 均不提供优先级过滤。
-  // serves 筛选只在 spark 生效，且仅当选项（goal 子目标）包含该值时激活。
-  const supportsServesSgNavigation = currentType === 'spark';
+  // serves 筛选在 spark 与 workcase 生效（21 §8 与 20 §6 各自为其类型唯一权威），
+  // 且仅当选项（goal 子目标）包含该值时激活。
+  const supportsServesSgNavigation = currentType === 'spark' || currentType === 'workcase';
   const activeServesSg = supportsServesSgNavigation && servesSgOptions.some((option) => option.id === servesParam)
     ? servesParam
     : null;
@@ -765,7 +767,7 @@ export default function ObjectList() {
     const removesLegacyCategory = currentType === 'spark' && searchParams.has('category');
     const removesWorkCaseStatus = currentType === 'workcase' && searchParams.has('status');
     const removesForeignProgress = currentType !== 'workcase' && searchParams.has('progress');
-    const removesForeignServes = currentType !== 'spark' && searchParams.has('serves');
+    const removesForeignServes = currentType !== 'spark' && currentType !== 'workcase' && searchParams.has('serves');
     if (!removesLegacyCategory && !removesWorkCaseStatus && !removesForeignProgress && !removesForeignServes) return;
     const nextParams = new URLSearchParams(searchParams);
     if (removesLegacyCategory) nextParams.delete('category');
@@ -776,9 +778,9 @@ export default function ObjectList() {
   }, [currentType, searchParams, setSearchParams]);
 
   // serves 选项源：跟随当前 goal 的子目标（25 号）——goal 未创建是合法状态，
-  // 静默保持空选项（筛选层不渲染）。
+  // 静默保持空选项（筛选层不渲染）。spark 与 workcase 共用同一选项源与组件。
   useEffect(() => {
-    if (currentType !== 'spark') {
+    if (currentType !== 'spark' && currentType !== 'workcase') {
       setServesSgOptions([]);
       return;
     }
@@ -838,11 +840,14 @@ export default function ObjectList() {
     })
     : sortedItems;
   // 第二层筛选：serves（20 §6 子目标锚点，1e21a1f D-9 统一定名）——按当前
-  // goal 子目标过滤（前端应用，items 已按状态过滤，计数与过滤同口径）。
+  // goal 子目标过滤（前端应用，items 已按状态/lifecycle 过滤，计数与过滤同口径）。
+  // 与 workcase lifecycle 五档筛选叠加：lifecycle 由 fetchObjects 服务端先行过滤，
+  // serves 在此客户端二次过滤；两维度并存、顺序固定（先 lifecycle 后 serves），
+  // URL 参数 lifecycle 与 serves 各自独立共存。
   if (activeServesSg) {
     filteredItems = filteredItems.filter((item) => item.serves === activeServesSg);
   }
-  // SG 计数：当前状态过滤后的 spark 池按 serves 聚合（反映当前过滤器，不是全量）。
+  // SG 计数：当前状态/lifecycle 过滤后的对象池按 serves 聚合（反映当前过滤器，不是全量）。
   const servesSgCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of sortedItems) {
@@ -1022,8 +1027,9 @@ export default function ObjectList() {
             />
           </div>
         )}
-        {/* Spark 三联过滤之二：serves_sg 子目标锚点（20 §6）——选项源跟随当前
-            goal 的子目标动态生成（Human 定案 2026-09-13），计数同当前状态过滤。 */}
+        {/* serves_sg 子目标锚点第二层筛选（20 §6 / 21 §8）——spark 与 workcase
+            共用；选项源跟随当前 goal 的子目标动态生成（Human 定案 2026-09-13），
+            计数同当前状态过滤。 */}
         {supportsServesSgNavigation && servesSgOptions.length > 0 && (
           <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <ServesSgFilter

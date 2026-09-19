@@ -2,11 +2,12 @@ import type { FactCoverageStatus } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
 
 /**
- * Spark 的 serves_sg（SG-n 子目标锚点）筛选——第二层筛选（20 §6 serves）。
+ * serves_sg（SG-n 子目标锚点）第二层筛选（20 §6 serves / 21 §8）——spark 与
+ * workcase 共用此组件。
  *
  * 选项源跟随当前 goal 的子目标动态生成（25 号 goal.md 的 sub_goals——
- * Human 定案 2026-09-13：SG 的数量与变化以 goal 为准，Spark 列表按其筛选）；
- * 计数按当前状态过滤后的 spark 池统计（与 WorkCase priority 计数同口径，
+ * Human 定案 2026-09-13：SG 的数量与变化以 goal 为准，列表按其筛选）；
+ * 计数按当前状态过滤后的对象池统计（与 WorkCase lifecycle 计数同口径，
  * 反映当前过滤器而非全量）。形态对齐 ObjectStatusFilter 的 tab 语法。
  */
 interface ServesSgFilterOption {

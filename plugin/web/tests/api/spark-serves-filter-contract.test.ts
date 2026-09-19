@@ -35,8 +35,8 @@ test('serves filter component follows the shared tab filter grammar', () => {
 test('spark list applies the serves layer on top of the status filter', () => {
   const objectList = read('src/pages/ObjectList.tsx');
 
-  // 仅 spark 启用；激活值必须存在于 goal 子目标选项中（URL 伪造值不生效）。
-  assert.match(objectList, /const supportsServesSgNavigation = currentType === 'spark';/);
+  // spark 与 workcase 启用；激活值必须存在于 goal 子目标选项中（URL 伪造值不生效）。
+  assert.match(objectList, /const supportsServesSgNavigation = currentType === 'spark' \|\| currentType === 'workcase';/);
   assert.match(objectList, /servesSgOptions\.some\(\(option\) => option\.id === servesParam\)/);
   // 过滤在前端应用（items 已按状态过滤——计数与过滤同口径）。
   assert.match(objectList, /filteredItems\.filter\(\(item\) => item\.serves === activeServesSg\)/);
@@ -45,8 +45,8 @@ test('spark list applies the serves layer on top of the status filter', () => {
   // URL 参数 serves 的写/删与 priority 同模式。
   assert.match(objectList, /nextParams\.set\('serves', servesSg\);/);
   assert.match(objectList, /nextParams\.delete\('serves'\);/);
-  // 非 spark 类型清掉 serves 参数（与 removesForeignProgress 同款清理）。
-  assert.match(objectList, /const removesForeignServes = currentType !== 'spark' && searchParams\.has\('serves'\);/);
+  // 非 spark 且非 workcase 类型清掉 serves 参数（与 removesForeignProgress 同款清理）。
+  assert.match(objectList, /const removesForeignServes = currentType !== 'spark' && currentType !== 'workcase' && searchParams\.has\('serves'\);/);
   // 第二层筛选渲染在状态筛选行下方（与 WorkCase priority 行同构）。
   assert.match(objectList, /supportsServesSgNavigation && servesSgOptions\.length > 0 && \(/);
 });
@@ -55,7 +55,8 @@ test('serves options follow the current goal sub-goals dynamically', () => {
   const objectList = read('src/pages/ObjectList.tsx');
 
   // 选项源：/api/cognition/goal 的 sub_goals（25 号——SG 数量与变化以 goal 为准）。
-  assert.match(objectList, /if \(currentType !== 'spark'\) \{\s*\n\s*setServesSgOptions\(\[\]\);/);
+  // 守卫排除非 spark/非 workcase（goal 子目标决定选项，二者共用同一源）。
+  assert.match(objectList, /if \(currentType !== 'spark' && currentType !== 'workcase'\) \{\s*\n\s*setServesSgOptions\(\[\]\);/);
   assert.match(objectList, /fetchCognitionGoal\(\)\s*\n\s*\.then\(\(data\) => \{/);
   assert.match(objectList, /data\.goal\?\.sub_goals/);
   // goal 未创建是合法状态：静默保持空选项（筛选层不渲染）。
@@ -66,4 +67,23 @@ test('the serves filter i18n key is registered in both locales', () => {
   const locales = read('src/i18n/locales.ts');
   assert.match(locales, /'objectList\.servesSgFilter': '服务子目标',/);
   assert.match(locales, /'objectList\.servesSgFilter': 'Serves sub-goal',/);
+});
+
+test('workcase list enables the serves layer alongside the lifecycle filter', () => {
+  const objectList = read('src/pages/ObjectList.tsx');
+
+  // 开关放开到 spark 与 workcase（21 §8 与 20 §6 各自为其类型唯一权威）。
+  assert.match(objectList, /const supportsServesSgNavigation = currentType === 'spark' \|\| currentType === 'workcase';/);
+  // 激活值必须存在于 goal 子目标选项中（URL 伪造值不生效），与 spark 同判定。
+  assert.match(objectList, /servesSgOptions\.some\(\(option\) => option\.id === servesParam\)/);
+  // 客户端二次过滤（先 lifecycle 服务端、后 serves 客户端），与 spark 同实现。
+  assert.match(objectList, /filteredItems\.filter\(\(item\) => item\.serves === activeServesSg\)/);
+  // workcase 不清掉 serves 参数：清理守卫排除 workcase（与 removesForeignProgress 同款）。
+  assert.match(objectList, /const removesForeignServes = currentType !== 'spark' && currentType !== 'workcase' && searchParams\.has\('serves'\);/);
+  // 选项源守卫排除 workcase（goal 子目标决定），与 spark 共用同一源。
+  assert.match(objectList, /if \(currentType !== 'spark' && currentType !== 'workcase'\) \{\s*\n\s*setServesSgOptions\(\[\]\);/);
+  // 第二层筛选渲染守卫：spark 或 workcase 且选项非空。
+  assert.match(objectList, /supportsServesSgNavigation && servesSgOptions\.length > 0 && \(/);
+  // 计数按 lifecycle/状态过滤后的对象池聚合 serves（叠加口径一致）。
+  assert.match(objectList, /typeof item\.serves === 'string' && item\.serves\.trim\(\) \? item\.serves\.trim\(\) : null/);
 });
