@@ -63,8 +63,12 @@ test('open detail exposes the attempt execution scene; draft awaits Gate 1', () 
     /workcaseResultDraftPresent/,
     'executing 分支不得再承载关闭准备窗口提示——该分支不可达，且其着色入参与所在分组不一致',
   );
-  // draft 的待批准标识。
-  assert.match(layout, /workcaseAwaitingGate1/);
+  // 卡体内不再有派生分组提示行（Human 2026-09-19 定案：与卡头徽标同义，属冗余）。
+  assert.doesNotMatch(
+    layout,
+    /workcaseAwaitingGate/,
+    'ReadingLayout 不得再渲染派生分组提示行——分组语义由头部徽标承载',
+  );
   // 计划判据经 WorkCaseCriteriaList 呈现。
   assert.match(layout, /PlanNode/);
   assert.match(layout, /WorkCaseCriteriaList/);

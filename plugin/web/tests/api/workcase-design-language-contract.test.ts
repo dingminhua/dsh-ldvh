@@ -425,43 +425,35 @@ test('both Gate group colours stay readable against their own background, in bot
   }
 });
 
-test('group colour comes from one source — no hardcoded colour class in the hint sites', () => {
-  const hintComponent = readSource('web/src/components/WorkCaseGroupHint.tsx');
-  // 剥掉注释行后再断言：否则「注释里提到 getStatusColor」会让守卫误判通过
-  // （该缺口已实测：把调用换成内联三元、仅留下解释性注释，守卫曾逃逸一次）。
-  const hintCode = hintComponent
-    .split('\n')
-    .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
-    .join('\n');
-
-  // 取色必须经共享函数调用，且**以 group 为输入**——与徽标 StatusBadge 同一函数、
-  // 同一入参，配色不可能分歧。断言调用形态而非标识符出现，防止「保留 import
-  // 但改走内联色值」的绕过。
-  assert.match(
-    hintCode,
-    /getStatusColor\(group\)/,
-    '卡内提示必须调用 getStatusColor(group)——与徽标同函数、同入参',
+test('derived-group hint line is gone from every surface — group semantics live in the header badge', () => {
+  // Human 2026-09-19 定案：卡体/详情底部的派生分组提示行与卡头徽标同义
+  // （徽标 statusLabel = getObjectStatusLocale('workcase', group)），属同一张
+  // 卡片上说两遍，故六个落点全部移除、组件与词条一并删除。
+  //
+  // 本守卫防的是「再加回来」：任何呈现面重新出现该提示行或它的词条键即失败。
+  // 之所以按「组件不存在 + 词条键不存在 + 落点不存在」三重断言，是因为三者
+  // 可被分别绕过——只删落点留下组件与词条，或只删词条留下组件，都会让
+  // 「已移除」这句话失真。
+  const componentPath = path.join(repositoryRoot, 'web/src/components/WorkCaseGroupHint.tsx');
+  assert.equal(
+    fs.existsSync(componentPath),
+    false,
+    'WorkCaseGroupHint 组件已无消费者，必须删除（不得留零消费者导出，10 §12 反过度设计）',
   );
-  assert.match(hintCode, /from '@\/utils\/statusColors'/);
-  // 不得在组件内自持任何 hex 色值（那等于又开了第二条取色路径）。
+
+  const locales = readSource('web/src/i18n/locales.ts');
   assert.doesNotMatch(
-    hintCode,
-    /#[0-9a-fA-F]{6}/,
-    'WorkCaseGroupHint 不得自持 hex 色值——色值唯一来源是 STATUS_COLORS',
+    locales,
+    /workcaseAwaitingGate[12]'/,
+    '派生分组提示行的 i18n 词条已无消费者，必须删除',
   );
 
-  // 两处 Gate 提示所在的三个呈现面：不得再出现硬编码颜色类（两条路径各自的痕迹）。
   for (const surface of ['web/src/pages/ObjectList.tsx', 'web/src/pages/CognitionCenter.tsx', 'web/src/pages/object-detail/WorkCaseReadingLayout.tsx'] as const) {
-    const source = readSource(surface);
-    for (const site of ['workcaseAwaitingGate1', 'workcaseAwaitingGate2']) {
-      const line = source.split('\n').find((candidate) => candidate.includes(site));
-      if (line === undefined) continue;
-      assert.doesNotMatch(
-        line,
-        /text-(amber|violet|purple|orange)-\d/,
-        `${surface} 的 ${site} 提示不得硬编码颜色类——必须经 WorkCaseGroupHint 从唯一来源取色`,
-      );
-    }
+    assert.doesNotMatch(
+      readSource(surface),
+      /WorkCaseGroupHint|workcaseAwaitingGate/,
+      `${surface} 不得再渲染派生分组提示行——分组语义由头部徽标承载`,
+    );
   }
 });
 

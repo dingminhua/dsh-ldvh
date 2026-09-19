@@ -3,7 +3,6 @@ import { useI18n } from '@/i18n/context';
 import { getFieldLabel } from '@/i18n/locales';
 import { type WorkCaseDetailData } from '@/utils/api';
 import { WorkCaseCriteriaList, WORKCASE_CRITERIA_SURFACE_CLASS } from '@/components/WorkCaseCriteriaList';
-import WorkCaseGroupHint from '@/components/WorkCaseGroupHint';
 import { workCaseCheckChipClass, workCaseCheckStateLabel } from '@/utils/workcaseCheckState';
 import {
   ChangeLogReadingNode,
@@ -330,7 +329,6 @@ function DraftBody({ obj, locale }: { obj: WorkCaseDetailData; locale: string })
       <ResponsibilityNodes obj={obj} locale={locale} />
       <PlanNode obj={obj} locale={locale} />
       <ReviewsNode obj={obj} locale={locale} />
-      <WorkCaseGroupHint group="pending_gate1" messageKey="objectDetail.workcaseAwaitingGate1" className="ldvh-body-muted" />
     </>
   );
 }
@@ -383,7 +381,6 @@ function AwaitingGate2Body({ obj, locale }: { obj: WorkCaseDetailData; locale: s
   return (
     <>
       <ResponsibilityNodes obj={obj} locale={locale} />
-      <WorkCaseGroupHint group="awaiting_gate2" messageKey="objectDetail.workcaseAwaitingGate2" className="ldvh-body-muted" />
       <ProseNode
         title={t('objectDetail.workcaseResultDraft')}
         value={typeof obj.report_body === 'string' ? obj.report_body : ''}
