@@ -35,7 +35,37 @@ import { getStatusColor } from '@/utils/statusColors';
  * 不会出现「徽标琥珀、框边紫」这类两路取色的分歧。该取舍的边界如实登记——
  * 框色因此**同时**承载了分组语义，若某日要求「领域内容不与状态争色相」，须改为
  * 中性灰并把此处的分组呼应一并撤掉，不能只改颜色而留着「跟随分组」的注释。
+ *
+ * 正文配色单列于 `GIST_BOX_TEXT`（同色相更深一档）。框线与正文**必须分开取值**：
+ * 框线可用低透明度的分组色，正文不行——实测 `${color}dd` 在浅色下四组仅
+ * 2.49 / 3.05 / 3.12 / 3.34 : 1，三组低于正文 4.5:1 线。详见该表的注释。
  */
+
+/**
+ * 加框时的**正文**取色：按派生分组给一组同色相的可读文本对（浅色 / 暗色）。
+ *
+ * 为什么不与框线共用 `getStatusColor(group)` 那一个值：框线走的是**低透明度**
+ * （`${color}40` 描边、`${color}0d` 底），而正文若也用同一个值就只剩透明度这一个
+ * 差异轴可用，实测不可读——`${color}dd` 在浅色下四组只有 2.49 / 3.05 / 3.12 / 3.34 : 1，
+ * 三组低于正文 4.5:1，`pending_gate1` 甚至低于非正文的 3:1。故正文另取**同色相更深
+ * 的 token**，这正是本仓库既有做法（`ObjectList` 的覆盖度提示条：
+ * `border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300`）。
+ *
+ * 实测对比度（按本仓库真实底色 `--ldvh-bg` `#f8f9fb` / `#0a0a0f`，底色含 5% 分组色调）：
+ * pending_gate1 4.51:1 / 13.09:1、executing 4.77:1 / 13.17:1、
+ * awaiting_gate2 6.34:1 / 10.32:1、closed 9.23:1 / 12.86:1 —— 八项全部 ≥4.5:1。
+ *
+ * 「框」与「字」因此是**两条 token**，但仍是**同一个色相族**（amber / cyan / violet /
+ * slate），且都由本表单点登记：色相不会漂移，只有明度按可读性需求分层。若日后要求
+ * 改用中性灰，改这一张表即可，不必逐处找调用点。
+ */
+const GIST_BOX_TEXT: Record<'pending_gate1' | 'executing' | 'awaiting_gate2' | 'closed', string> = {
+  pending_gate1: 'text-amber-700 dark:text-amber-300',
+  executing: 'text-cyan-700 dark:text-cyan-300',
+  awaiting_gate2: 'text-violet-700 dark:text-violet-300',
+  closed: 'text-slate-700 dark:text-slate-300',
+};
+
 export default function WorkCaseGistLine({
   gist,
   group,
@@ -61,17 +91,18 @@ export default function WorkCaseGistLine({
   const text = typeof gist === 'string' && gist.trim().length > 0 ? gist : null;
   const missing = text === null;
 
+  // 取色经唯一来源（utils/statusColors 的 STATUS_COLORS）；分组缺省时该函数返回
+  // 中性灰兜底，不会自持 hex 色值——框体颜色因此不存在第二条路径。
+  const color = getStatusColor(group ?? 'unknown');
+
   const body = (
-    <p className={`${className} min-w-0 break-words ${missing ? 'italic text-ldvh-text-secondary' : ''}`}>
+    <p className={`${className} min-w-0 break-words ${boxed && !missing ? GIST_BOX_TEXT[group ?? 'closed'] : ''} ${missing ? 'italic text-ldvh-text-secondary' : ''}`}>
       {missing ? t('objectList.workcaseGistMissing') : text}
     </p>
   );
 
   if (!boxed) return body;
 
-  // 取色经唯一来源（utils/statusColors 的 STATUS_COLORS）；分组缺省时该函数返回
-  // 中性灰兜底，不会自持 hex 色值——框体颜色因此不存在第二条路径。
-  const color = getStatusColor(group ?? 'unknown');
   return (
     <section
       key={resolved}

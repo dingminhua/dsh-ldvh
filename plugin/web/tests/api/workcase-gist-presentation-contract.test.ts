@@ -293,6 +293,44 @@ test('gist 背景框：列表卡与聚焦收件箱加框，联邦卡与详情不
   }
   // 不加框时不产生 <section> 外壳（联邦卡与详情仍走原来的裸 <p>）。
   assert.match(codeOnly(gistLine), /if \(!boxed\) return body;/, '未加框须直接返回裸文本节点');
+
+  // 正文色必须与框色配套（Human 2026-09-19：「文字颜色也要配套」）。
+  //
+  // 断言的是**「框线取值」与「正文取值」是两条不同的路径**，而不是某个具体类名：
+  // 框线用低透明度的分组色可行，正文不行——实测同一个值降到 ${color}dd 时浅色下
+  // 四组仅 2.49 / 3.05 / 3.12 / 3.34 : 1，三组低于正文 4.5:1 线。若有人图省事把
+  // 正文改回 `color`，可读性会静默失效，故这里必须能红。
+  //
+  // 这里用 stripComments 而非 codeOnly：codeOnly 的模板字面量规则会把文件中**第一个
+  // 反引号之后**的全部文本抹掉（本组件用模板串拼透明度，正是该规则的落点），于是
+  // 位于其后的 GIST_BOX_TEXT 表在 codeOnly 下不可见，断言会恒假（已实测）。
+  const gistCode = stripComments(gistLine);
+  assert.match(
+    gistCode,
+    /text-(amber|cyan|violet|slate)-700 dark:text-(amber|cyan|violet|slate)-300/,
+    '正文须取可读的同色相 token（text-*-700 / dark:text-*-300），不得沿用框线的低透明度值',
+  );
+  // **必须断言 token 被真正接到渲染的 <p> 上**，而不只是「表里登记了」。
+  // 已实测的逃逸：把 `GIST_BOX_TEXT[...]` 从 className 里摘掉、但保留整张表，
+  // 只查表存在与否的断言会全绿，正文却已退回默认色（无配套）。
+  assert.match(
+    gistCode,
+    /className=\{`[^`]*\$\{boxed && !missing \? GIST_BOX_TEXT\[group/,
+    '正文 token 必须接入正文节点 className——只登记不接线等于没配套',
+  );
+  assert.doesNotMatch(
+    gistCode,
+    /style=\{\{ color: `\$\{color\}/,
+    '正文不得直接内联分组色——那是框线的取法，正文用它会低于可读对比度',
+  );
+  // 四个分组各须登记一个正文 token：少一个会让该组 gist 退回默认前景色（无配套）。
+  for (const group of ['pending_gate1', 'executing', 'awaiting_gate2', 'closed'] as const) {
+    assert.match(
+      gistCode,
+      new RegExp(`${group}: 'text-`),
+      `分组 ${group} 须登记配套的正文色 token`,
+    );
+  }
 });
 
 test('真实非终态载体都携带 gist，且不超过 21 §8 的 200 字符上限', async () => {
