@@ -112,7 +112,7 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
   if (group === 'pending_gate1') {
     return (
       <div className="min-w-0">
-        <WorkCaseGistLine gist={obj.gist} />
+        <WorkCaseGistLine gist={obj.gist} group="pending_gate1" boxed />
         {Array.isArray(obj.plan) && obj.plan.length > 0 ? (
           <WorkCaseCriteriaList className="mt-1.5" items={obj.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))} />
         ) : null}
@@ -122,7 +122,7 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
   if (group === 'executing') {
     return (
       <div className="min-w-0">
-        <WorkCaseGistLine gist={obj.gist} />
+        <WorkCaseGistLine gist={obj.gist} group="executing" boxed />
         {obj.attempt ? (
           <p className="ldvh-caption mt-1.5">
             {t('objectList.workcaseAttemptController', { controller: obj.attempt.controller ?? '—' })}
@@ -138,7 +138,7 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
   if (group === 'awaiting_gate2') {
     return (
       <div className="min-w-0">
-        <WorkCaseGistLine gist={obj.gist} />
+        <WorkCaseGistLine gist={obj.gist} group="awaiting_gate2" boxed />
         {Array.isArray(obj.plan) && obj.plan.length > 0 ? (
           <WorkCaseCriteriaList className="mt-1.5" items={obj.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))} />
         ) : null}
@@ -148,7 +148,7 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
   if (group === 'closed') {
     return (
       <div className="min-w-0">
-        <WorkCaseGistLine gist={obj.gist} />
+        <WorkCaseGistLine gist={obj.gist} group="closed" boxed />
         {obj.outcome ? (
           <p className="ldvh-caption mt-1.5">
             <span className="ldvh-chip">{t(`objectList.workcaseOutcome.${obj.outcome}`)}</span>

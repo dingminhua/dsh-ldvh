@@ -246,6 +246,55 @@ test('gist 词条在中英两语均登记，且与 summary 不同译', () => {
   assert.match(locales, /'objectList\.workcaseGistMissing': '\(no gist recorded\)'/);
 });
 
+test('gist 背景框：列表卡与聚焦收件箱加框，联邦卡与详情不加（Human 2026-09-19 定案）', () => {
+  const list = readSource('pages/ObjectList.tsx');
+  const cognition = readSource('pages/CognitionCenter.tsx');
+  const federation = readSource('pages/FederationObjects.tsx');
+  const layout = readSource('pages/object-detail/WorkCaseReadingLayout.tsx');
+  const gistLine = readSource('components/WorkCaseGistLine.tsx');
+
+  // 计数的剥离方式与 codeOnly 不同：codeOnly 会连字符串字面量一起抹掉，而本文件的
+  // 模板字面量规则会把它**之后**的全部文本吞掉（实测：加框行在 codeOnly 后计数恒为 0，
+  // 断言因此永远失败）。计数只需去注释——JSX 不落在注释里，注释里也没有该形态。
+  const stripComments = (source: string): string =>
+    source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const countBoxed = (source: string): number =>
+    (stripComments(source).match(/<WorkCaseGistLine[^>]*\sboxed\b/g) ?? []).length;
+
+  // 加框范围是 4（列表卡四个派生组）+ 3（聚焦收件箱三个卡体）= 7 处，一处不多不少。
+  // 按数量而非「存在 boxed」断言：少加一处会使该卡面的要点与相邻判据行同形并列，
+  // 多加一处（如落到联邦卡）则越出 Human 定下的范围——两者都必须红。
+  assert.equal(countBoxed(list), 4, '列表卡四个派生组各须加框');
+  assert.equal(countBoxed(cognition), 3, '聚焦收件箱三个卡体各须加框');
+  // 联邦对象卡与详情不在加框范围内（Human 定案只取列表卡 + 聚焦收件箱）。
+  assert.equal(
+    countBoxed(federation),
+    0,
+    '联邦对象卡的 gist 不得加框——Human 定案的范围只有列表卡与聚焦收件箱',
+  );
+  assert.equal(countBoxed(layout), 0, '详情页的 gist 节点不得加框');
+
+  // 加框必须经**唯一取色来源**（utils/statusColors），且以 group 为入参——与卡头
+  // 徽标同函数同入参，才不会出现「徽标琥珀、框边紫」的两路取色分歧。
+  assert.match(codeOnly(gistLine), /getStatusColor\(group/, '框色须经 getStatusColor(group) 取');
+  assert.match(gistLine, /from '@\/utils\/statusColors'/);
+  assert.doesNotMatch(
+    codeOnly(gistLine),
+    /#[0-9a-fA-F]{6}/,
+    'gist 组件不得自持 hex 色值——框色唯一来源是 STATUS_COLORS',
+  );
+  // 每个加框落点都必须把 group 传进去：缺 group 会静默退化为中性灰兜底，
+  // 而「颜色悄悄失准」正是本仓库反复出现的缺陷形态。
+  for (const [surface, source] of [['列表卡', list], ['聚焦收件箱', cognition]] as const) {
+    const withoutGroup = stripComments(source)
+      .split('\n')
+      .filter((line) => /<WorkCaseGistLine[^>]*\sboxed\b/.test(line) && !/group=/.test(line));
+    assert.deepEqual(withoutGroup, [], `${surface}的每个加框落点都须显式传 group`);
+  }
+  // 不加框时不产生 <section> 外壳（联邦卡与详情仍走原来的裸 <p>）。
+  assert.match(codeOnly(gistLine), /if \(!boxed\) return body;/, '未加框须直接返回裸文本节点');
+});
+
 test('真实非终态载体都携带 gist，且不超过 21 §8 的 200 字符上限', async () => {
   const ids = existingWorkCaseIds();
   assert.ok(ids.length > 0, `未找到任何 WorkCase 载体：${WORKCASE_DIR}`);

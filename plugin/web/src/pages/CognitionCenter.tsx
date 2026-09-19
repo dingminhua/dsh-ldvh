@@ -207,7 +207,7 @@ function InboxCardContent({ item, t }: { item: CognitionInboxItem; t: Translate 
   if (item.inboxKind === 'plan_confirmation') {
     return (
       <div className="grid min-w-0 gap-2">
-        <WorkCaseGistLine gist={item.card.gist} />
+        <WorkCaseGistLine gist={item.card.gist} group="pending_gate1" boxed />
         {Array.isArray(item.card.plan) && item.card.plan.length > 0 ? (
           <WorkCaseCriteriaList
             items={item.card.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))}
@@ -219,7 +219,7 @@ function InboxCardContent({ item, t }: { item: CognitionInboxItem; t: Translate 
   if (item.inboxKind === 'closure_confirmation') {
     return (
       <div className="grid min-w-0 gap-2">
-        <WorkCaseGistLine gist={item.card.gist} />
+        <WorkCaseGistLine gist={item.card.gist} group="awaiting_gate2" boxed />
         {item.card.outcome ? (
           <p className="ldvh-card-decision-body">
             <span className="ldvh-chip">{t(`objectList.workcaseOutcome.${item.card.outcome}`)}</span>
@@ -279,7 +279,7 @@ function ActiveWorkCaseItemRow({ item }: { item: CognitionActiveWorkCaseItem }) 
           {/* 10 §5.5 登记「聚焦收件箱卡体（待决定事项 / 推进中事项）」两处都渲染 gist。
               本行是「推进中事项」，此前只渲染 attempt 与 plan——卡体没有 Human 向
               文本。它与下方 InboxCardContent 是同一呈现契约的两个落点，不得只改一处。 */}
-          <WorkCaseGistLine gist={item.card.gist} />
+          <WorkCaseGistLine gist={item.card.gist} group="executing" boxed />
           {item.card.attempt ? (
             <p className="ldvh-card-decision-body">
               {t('objectList.workcaseAttemptController', { controller: item.card.attempt.controller ?? '—' })}
