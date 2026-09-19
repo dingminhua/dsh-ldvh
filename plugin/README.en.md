@@ -34,11 +34,13 @@ The native DeepSeek Harness plugin for LD Vibe Harness (LDVH). Its target capabi
 dsh plugin --profile desktop add /absolute/path/to/dsh-ldvh/plugin
 ```
 
-Restart DSH Desktop after installing or changing Host, Client, or bundle-patch code. Current target environment:
+Restart DSH Desktop after installing or changing Host, Client, or bundle-patch code. Current target environment (observed locally on 2026-09-20):
 
-- DSH Desktop `2.0.4`
-- `@deepseek-ai/dsh` `0.1.2-alpha.1`
-- Node.js `>=20`
+- DSH Desktop `2.0.13`
+- `@deepseek-ai/dsh` `0.1.5-rc.2`
+- Node.js `>=22.15.0` (code floor; the DSH host `dsh-plugin-desktop` itself requires `^22.19.0 || >=24.0.0`)
+
+What is registered here is the development target baseline, not verified support: of the six real-UI acceptance items required by `specs/08` §8, `/ldvh` and `/ldvh/api/health` are evidenced, while the settings card, conversation view, disable/restart, and uninstall cleanup have not been checked.
 
 ## Verification
 

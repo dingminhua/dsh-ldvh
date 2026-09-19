@@ -34,11 +34,13 @@ LD Vibe Harness（LDVH）的 DeepSeek Harness 原生插件。目标是在 DSH �
 dsh plugin --profile desktop add /absolute/path/to/dsh-ldvh/plugin
 ```
 
-安装或修改 Host/Client/bundle patch 后需要重启 DSH Desktop。当前开发目标环境：
+安装或修改 Host/Client/bundle patch 后需要重启 DSH Desktop。当前开发目标环境（本机观察值，2026-09-20）：
 
-- DSH Desktop `2.0.4`
-- `@deepseek-ai/dsh` `0.1.2-alpha.1`
-- Node.js `>=20`
+- DSH Desktop `2.0.13`
+- `@deepseek-ai/dsh` `0.1.5-rc.2`
+- Node.js `>=22.15.0`（代码下限；DSH 宿主 `dsh-plugin-desktop` 自身要求 `^22.19.0 || >=24.0.0`）
+
+本节登记的是开发目标基线，不等于已验证支持：`specs/08` §8 要求的真实 UI 验收六项中，`/ldvh` 与 `/ldvh/api/health` 已实证，设置卡片、会话视图、停用与重启、卸载清理尚未核对。
 
 ## 验证
 
