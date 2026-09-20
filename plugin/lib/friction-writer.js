@@ -36,6 +36,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature, resolveAuthoritativeSignature } from "./signature-channel.js";
+import { h2Titles, sectionContent } from "./markdown-structure.js";
 import { readGoalAnchors as readGoalAnchorsFromGoal } from "./goal-writer.js";
 
 // ---------------------------------------------------------------------------
@@ -243,20 +244,7 @@ export async function readGoalAnchors(factSourceRoot) {
 // Body structure + carrier coherence
 // ---------------------------------------------------------------------------
 
-function h2Titles(body) {
-  const titles = [];
-  for (const line of body.split("\n")) {
-    if (line.startsWith("## ")) titles.push(line.slice(3).trim());
-  }
-  return titles;
-}
 
-function sectionContent(body, h2Title) {
-  const sections = body.split(/^## /m).slice(1);
-  const sec = sections.find((s) => s.split("\n")[0].trim() === h2Title);
-  if (!sec) return null;
-  return sec.slice(sec.indexOf("\n") + 1).trim();
-}
 
 /**
  * Validate the assembled body structure. The body passed here is the full

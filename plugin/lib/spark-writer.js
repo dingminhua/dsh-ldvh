@@ -38,6 +38,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature, resolveAuthoritativeSignature } from "./signature-channel.js";
+import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
 import { readGoalAnchors as readGoalAnchorsFromGoal } from "./goal-writer.js";
 
 // ---------------------------------------------------------------------------
@@ -466,39 +467,10 @@ export async function resolveRefsTargets(factSourceRoot, refs) {
 // Body structure + carrier coherence
 // ---------------------------------------------------------------------------
 
-function h2Titles(body) {
-  const titles = [];
-  for (const line of body.split("\n")) {
-    if (line.startsWith("## ")) titles.push(line.slice(3).trim());
-  }
-  return titles;
-}
-
-/**
- * Count ATX headings of the given level, following CommonMark semantics:
- * up to 3 leading spaces, one or more spaces/tabs after the hashes, and
- * trailing spaces permitted. Fenced code blocks are skipped — a `#` inside
- * one is literal text, not a heading. (CRLF is normalised first so a trailing
- * `\r` is not mistaken for part of the line content.)
- */
-function countAtxHeadings(body, level) {
-  const lines = body.replace(/\r\n?/g, "\n").split("\n");
-  const pattern = new RegExp(`^ {0,3}#{${level}}(?!#)[ \\t]`);
-  let count = 0;
-  let fence = null;
-  for (const line of lines) {
-    const trimmed = line.trimStart();
-    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
-      const marker = trimmed.slice(0, 3);
-      if (fence === null) fence = marker;
-      else if (fence === marker) fence = null;
-      continue;
-    }
-    if (fence !== null) continue;
-    if (pattern.test(line)) count += 1;
-  }
-  return count;
-}
+// h2Titles / countAtxHeadings / sectionContent 已收敛到 markdown-structure.js
+// （单一权威实现）。收敛动因：同一结构判定曾在 6 个 writer 中各自实现且语义
+// 分叉——围栏内的「## 假标题」在部分实现中被当成真 H2（pitfall e8cadde1 的
+// 同构复发）。各 writer 不得再各自实现结构解析。
 
 /**
  * Validate the assembled body structure. The body passed here is the full
@@ -555,13 +527,6 @@ export function validateSparkBodyStructure(body, title, evolutionCount) {
   }
 
   return { ok: issues.length === 0, issues };
-}
-
-function sectionContent(body, h2Title) {
-  const sections = body.split(/^## /m).slice(1);
-  const sec = sections.find((s) => s.split("\n")[0].trim() === h2Title);
-  if (!sec) return null;
-  return sec.slice(sec.indexOf("\n") + 1).trim();
 }
 
 /**

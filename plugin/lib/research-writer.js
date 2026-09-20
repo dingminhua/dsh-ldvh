@@ -28,6 +28,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature, resolveAuthoritativeSignature } from "./signature-channel.js";
+import { h2Titles, h3TitlesInSection } from "./markdown-structure.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/24 §8, §13)
@@ -311,35 +312,9 @@ function updatesTargetUid(frontmatter, selfUid) {
   return null;
 }
 
-/**
- * Extract H2 titles (in order) from a markdown body.
- */
-function h2Titles(body) {
-  const titles = [];
-  for (const line of body.split("\n")) {
-    if (line.startsWith("## ")) titles.push(line.slice(3).trim());
-  }
-  return titles;
-}
-
-/**
- * Extract the H3 titles (in order) inside a given H2 section.
- */
-function h3TitlesInSection(body, h2Title) {
-  const lines = body.split("\n");
-  const titles = [];
-  let inSection = false;
-  for (const line of lines) {
-    if (line.startsWith("## ")) {
-      inSection = line.slice(3).trim() === h2Title;
-      continue;
-    }
-    if (inSection && line.startsWith("### ")) {
-      titles.push(line.slice(4).trim());
-    }
-  }
-  return titles;
-}
+// h2Titles / h3TitlesInSection 已收敛到 markdown-structure.js（单一权威实现）。
+// 收敛动因：同一结构判定曾在多个 writer 中各自实现且语义分叉——围栏内的
+// 「## 假标题」在部分实现中被当成真 H2（pitfall e8cadde1 的同构复发）。
 
 /**
  * Validate the body structure. Returns { ok, issues, exploratory }.

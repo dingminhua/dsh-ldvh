@@ -44,6 +44,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
+import { sectionContent } from "./markdown-structure.js";
 import { ID_PATTERN } from "./spec-registry.js";
 
 // ---------------------------------------------------------------------------
@@ -190,16 +191,7 @@ export function validateNormBodyStructure(body, title) {
   return { ok: issues.length === 0, issues };
 }
 
-/** Extract the text under one H2 section (up to the next H2), or null. */
-function sectionContent(body, heading) {
-  const lines = body.split("\n");
-  const target = `## ${heading}`;
-  const start = lines.findIndex((line) => line.trimEnd() === target);
-  if (start === -1) return null;
-  const rest = lines.slice(start + 1);
-  const end = rest.findIndex((line) => /^## /.test(line));
-  return (end === -1 ? rest : rest.slice(0, end)).join("\n");
-}
+// sectionContent 已收敛到 markdown-structure.js（单一权威实现）。
 
 /**
  * Carrier coherence (27 §8): frontmatter is the machine authority. Nothing in

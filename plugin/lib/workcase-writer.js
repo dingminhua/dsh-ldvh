@@ -72,6 +72,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature, resolveAuthoritativeSessionIdentity } from "./signature-channel.js";
+import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
 import { readGoalAnchors as readGoalAnchorsFromGoal } from "./goal-writer.js";
 
 // ---------------------------------------------------------------------------
@@ -166,38 +167,10 @@ function planStepReference(plan) {
   };
 }
 
-function h2Titles(body) {
-  const out = [];
-  const lines = body.replace(/\r\n?/g, "\n").split("\n");
-  let inFence = false;
-  for (const line of lines) {
-    if (/^\s*(```|~~~)/.test(line)) { inFence = !inFence; continue; }
-    if (inFence) continue;
-    const m = line.match(/^ {0,3}##[ \t]+(.+?)[ \t]*$/);
-    if (m) out.push(m[1].trim());
-  }
-  return out;
-}
-
-function countAtxHeadings(body, level) {
-  const hashes = "#".repeat(level);
-  let count = 0;
-  let inFence = false;
-  for (const line of body.replace(/\r\n?/g, "\n").split("\n")) {
-    if (/^\s*(```|~~~)/.test(line)) { inFence = !inFence; continue; }
-    if (inFence) continue;
-    const m = line.match(new RegExp(`^ {0,3}${hashes}[ \\t]+\\S`));
-    if (m) count += 1;
-  }
-  return count;
-}
-
-function sectionContent(body, h2Title) {
-  const sections = body.replace(/\r\n?/g, "\n").split(/^## /m);
-  const sec = sections.slice(1).find((s) => s.split("\n")[0].trim() === h2Title);
-  if (!sec) return null;
-  return sec.slice(sec.indexOf("\n") + 1).trim();
-}
+// h2Titles / countAtxHeadings / sectionContent 已收敛到 markdown-structure.js
+// （单一权威实现）。收敛动因：同一结构判定曾在 6 个 writer 中各自实现且语义
+// 分叉——本文件的实现原本跳代码围栏，而其余 5 份不跳，同一仓库内两份语义并存
+// （pitfall e8cadde1 的同构复发）。各 writer 不得再各自实现结构解析。
 
 export function workcaseFileName(uid) { return `workcase-${uid}.md`; }
 
