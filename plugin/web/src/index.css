@@ -718,8 +718,28 @@ input::-moz-focus-inner {
   padding: 0.5rem 0.75rem;
 }
 
+/* 阅读节点的正文取色：正文须达 4.5:1（本仓库既有「正文线」，见 WorkCaseGistLine
+   对框/字分取值的登记）。原值为 `text-secondary) / 0.92`，其 alpha 叠加使浅色壳底
+   上实测只有 4.05:1，低于该线；去掉 alpha 后浅色 4.74:1、暗色 7.46:1，两主题均过。
+   仅去掉这一个 alpha，不改色相，故节点间的主次层级不变。 */
 .ldvh-research-node-content .ldvh-inline-markdown {
-  color: rgb(var(--ldvh-text-secondary) / 0.92);
+  color: rgb(var(--ldvh-text-secondary));
+}
+
+/* 阅读宽度（measure）：长文正文须有舒适行宽，否则一行容纳过多字符，眼睛在换行时
+   容易串行——实测本壳内文本列宽约 792px，14px 字号下汉字约 57 字/行，超出中文正文
+   舒适区（约 25–40 字/行）约 1.4 倍，这是「大段文本读不下去」的排版成因之一。
+
+   取 40em（随字号缩放，汉字约 40 字/行、西文约 80 字符/行，落在舒适区上沿）。
+
+   只约束**行文元素**（p/li/标题/blockquote），不约束 table 与 pre：二者已是
+   `max-width:100%` + `overflow-x:auto` 的滚动容器，若一并收窄会在窄列里挤压表格。
+   故表格与代码块仍用满容器宽度。
+
+   本值是**呈现取值**，不是规范规则：10 号未登记行宽，此处按可读性取值并留此说明，
+   日后若 10 号登记了 measure，以规范为准并回来对齐。 */
+.ldvh-research-node-content .ldvh-inline-markdown :where(p, li, h1, h2, h3, h4, h5, h6, blockquote) {
+  max-width: 40em;
 }
 
 .ldvh-research-node-content .ldvh-inline-markdown :where(h2, h3, h4, h5, h6) {

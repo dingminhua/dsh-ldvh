@@ -287,3 +287,89 @@ test('Federation pages reuse the shared layout grammar and do not invent viewpor
   assert.doesNotMatch(federation, /rounded-md border border-ldvh-border px-3 py-2 text-ldvh-text-secondary/);
   assert.doesNotMatch(federationObjects, /rounded-md border border-ldvh-border px-3 py-2 text-ldvh-text-secondary/);
 });
+
+/**
+ * 阅读节点的正文可读性（两处实测缺陷，2026-09-20）。
+ *
+ * ① 对比度：正文取色原为 `rgb(var(--ldvh-text-secondary) / 0.92)`。alpha 并非
+ *    中性——它把文本色向底色混合，浅色壳底上实测 4.05:1，**低于本仓库既有的
+ *    「正文 4.5:1 线」**（该线由 WorkCaseGistLine 对框线/正文分取值的登记确立，
+ *    并已用于把 `${color}dd` 判为不可读）。去掉 alpha 后浅色 4.74:1、暗色 7.46:1。
+ *
+ *    本用例**复算对比度**，而不是只断言 CSS 字符串：断言字符串无法发现「换一个
+ *    同样带 alpha 的写法」，而复算能。色值从 index.css 的 token 读出，避免两边漂移。
+ *
+ * ② 行宽：长文正文一行容纳过多字符会串行。实测壳内文本列宽约 792px，14px 字号下
+ *    汉字约 57 字/行，超出中文正文舒适区（约 25–40 字/行）约 1.4 倍。已对行文元素
+ *    取 40em；表格与代码块是滚动容器，不得一并收窄。
+ */
+function relativeLuminance([r, g, b]: number[]): number {
+  const channel = (value: number) => {
+    const c = value / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
+
+function contrastRatio(fg: number[], bg: number[]): number {
+  const [hi, lo] = [relativeLuminance(fg), relativeLuminance(bg)].sort((a, b) => b - a);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** 从 index.css 的 `--name: r g b` 读 token（浅色取 :root，暗色取 :root.dark）。 */
+function readToken(styles: string, name: string, dark: boolean): number[] {
+  const scope = dark ? styles.slice(styles.indexOf(':root.dark')) : styles;
+  const match = new RegExp(`--${name}:\\s*(\\d+)\\s+(\\d+)\\s+(\\d+)`).exec(scope);
+  assert.ok(match, `index.css 必须定义令牌 --${name}${dark ? '（:root.dark）' : ''}`);
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+test('阅读节点的正文取色达到 4.5:1 —— 两个主题都复算，不只断言写法', () => {
+  const styles = read('src/index.css');
+
+  // 壳底 = --ldvh-bg 的 40% 叠在 --ldvh-panel（卡片底）上，与 .ldvh-research-node-content 一致。
+  const blend = (fg: number[], bg: number[], alpha: number) =>
+    fg.map((channel, index) => channel * alpha + bg[index] * (1 - alpha));
+
+  // 规则本身不得带 alpha——alpha 会把文本色拉向底色，是本次缺陷的成因。
+  assert.match(
+    styles,
+    /\.ldvh-research-node-content \.ldvh-inline-markdown\s*\{\s*color:\s*rgb\(var\(--ldvh-text-secondary\)\);/,
+    '阅读节点正文取色不得带 alpha（alpha 叠加曾使浅色下只有 4.05:1）',
+  );
+
+  for (const dark of [false, true]) {
+    const panel = readToken(styles, 'ldvh-panel', dark);
+    const bg = readToken(styles, 'ldvh-bg', dark);
+    const text = readToken(styles, 'ldvh-text-secondary', dark);
+    const shell = blend(bg, panel, 0.4);
+    const ratio = contrastRatio(text, shell);
+    const label = dark ? '暗色' : '浅色';
+    assert.ok(
+      ratio >= 4.5,
+      `${label}阅读节点正文对比度 ${ratio.toFixed(2)}:1 低于正文 4.5:1 线（壳底 ${shell.map(Math.round).join(',')}）`,
+    );
+  }
+});
+
+test('长文正文取舒适行宽，且不波及表格与代码块', () => {
+  const styles = read('src/index.css');
+
+  // 行文元素收窄到 40em（随字号缩放）。
+  const prose = /\.ldvh-research-node-content \.ldvh-inline-markdown :where\(([^)]*)\)\s*\{\s*max-width:\s*40em;/;
+  const match = prose.exec(styles);
+  assert.ok(match, '阅读节点的行文元素必须有 40em 行宽上限（实测 792px 约 57 字/行，超出舒适区）');
+  for (const selector of ['p', 'li', 'blockquote', 'h2']) {
+    assert.ok(
+      match![1].split(',').map((part) => part.trim()).includes(selector),
+      `行宽规则须覆盖 ${selector}（行文元素），实际为 ${match![1]}`,
+    );
+  }
+
+  // 表格与代码块不得进入行宽规则：二者已是 max-width:100% + overflow-x:auto 的
+  // 滚动容器，收窄会在窄列里挤压它们。
+  const covered = match![1].split(',').map((part) => part.trim());
+  assert.ok(!covered.includes('table'), '表格不得被行宽规则收窄（它是滚动容器）');
+  assert.ok(!covered.includes('pre'), '代码块不得被行宽规则收窄（它是滚动容器）');
+  assert.match(styles, /\.ldvh-inline-markdown :where\(table\)\s*\{\s*display: block;\s*max-width: 100%;\s*overflow-x: auto;/);
+});
