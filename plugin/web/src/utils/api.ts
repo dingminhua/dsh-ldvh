@@ -268,6 +268,17 @@ export interface WorkCaseAttempt {
   controller?: string;
   heartbeat_at?: string;
   started_at?: string;
+  /**
+   * 21 §8/§14：该 attempt 所属执行会话的权威身份（Code 从 DSH 会话记录取得，
+   * AI 不得自填）。它是**关闭侧独立性比对的基准**——21 §14 关闭前置条件二按条目
+   * 比对 `reviews[].session_id` 与 `implementer_session_id`。
+   *
+   * 缺席合法（身份不可得时 writer 条件展开）：**未知不等于独立**，故消费者不得把
+   * 缺失读作「无独立复核义务」（21 §14）。
+   */
+  session_id?: string;
+  /** 同一身份的 provenance（`host` 可采信 / `shell` 一律不计入，21 §14）。 */
+  session_source?: string;
 }
 
 export interface WorkCaseGate1 {

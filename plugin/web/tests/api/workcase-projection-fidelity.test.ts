@@ -271,3 +271,88 @@ test('投影按真实类型判定，不放宽字段闭集——类型不符者�
     'residual 必须只保留字符串成员，不把任意值等同为合规',
   );
 });
+
+test('attempt.session_id 在投影后存活——关闭侧独立性比对的基准必须可回读（D5）', async () => {
+  const ids = existingWorkCaseIds();
+  let asserted = 0;
+
+  for (const objectId of ids) {
+    const { detail, assembled, source } = await readAndAssemble(objectId);
+    if (detail.status !== 'ok' || !assembled || !source) continue;
+    const sourceAttempt = source.attempt as Record<string, unknown> | undefined;
+    if (!sourceAttempt || !('session_id' in sourceAttempt)) continue;
+
+    const placedAttempt = assembled.attempt as Record<string, unknown> | undefined;
+    assert.ok(
+      placedAttempt && 'session_id' in placedAttempt,
+      `${objectId}: attempt.session_id 在投影后丢失——21 §14 关闭前置条件二以它为独立性比对基准，`
+        + 'Human 在详情面将只能读到结论而看不到依据',
+    );
+    assert.equal(
+      placedAttempt.session_id,
+      sourceAttempt.session_id,
+      `${objectId}: attempt.session_id 必须逐字保留（它是身份基准，不得改写或归一）`,
+    );
+    // provenance 同样由 Code 托管；来源有则必须一并搬运（缺席即缺席，不得补默认值）。
+    if ('session_source' in sourceAttempt) {
+      assert.equal(
+        placedAttempt.session_source,
+        sourceAttempt.session_source,
+        `${objectId}: attempt.session_source 有值时必须搬运——它是「该身份是否可采信」的判据`,
+      );
+    }
+    asserted += 1;
+  }
+
+  assert.ok(asserted > 0, '至少应有一个真实对象的 attempt 带 session_id，本断言才有判别力');
+});
+
+test('attempt 投影覆盖 21 §8 登记的全部字段——白名单与字段登记不得分叉', () => {
+  // 这条守卫针对 D5 的**根因**：投影的白名单与 21 §8 的 `attempt` 字段登记是
+  // 两处权威。2be11478 新增 session_id 时后者更新、前者未同步，字段被静默丢弃，
+  // 而当时没有守卫能发现「白名单落后于登记」——运行时保真守卫当时只对真实载体
+  // 断言，恰好那个载体是 open 且带该字段才暴露；若换成一个不带该字段的载体集，
+  // 缺陷会继续潜伏。
+  //
+  // 故此处直接对**登记集**断言：21 §8 的 `attempt` 行登记了哪几个字段，投影就
+  // 必须搬运哪几个（Date 归一的 started_at/heartbeat_at 以输出名比对）。新增字段
+  // 若忘了同步白名单，本用例立即失败并点名缺失字段。
+  const REGISTERED = [
+    'attempt_id',       // 21 §8 attempt 令牌
+    'started_at',       // 同上（Date → RFC 3339 文本）
+    'controller',       // 当次主控执行者标识
+    'heartbeat_at',     // 21 §10.4 判定孤立 attempt 的依据（Date → RFC 3339 文本）
+    'session_id',       // 21 §14 关闭前置条件二的身份基准
+    'session_source',   // 同一身份的可采信来源（host / shell）
+  ];
+
+  const projected = projectCurrentWorkCaseCard({
+    status: 'open',
+    attempt: {
+      attempt_id: '7', controller: 'c', started_at: '2026-01-01T00:00:00+08:00',
+      heartbeat_at: '2026-01-01T00:00:00+08:00', session_id: 'session-x', session_source: 'host',
+    },
+  }, 'c'.repeat(64)) as Record<string, unknown>;
+
+  const attempt = projected.attempt as Record<string, unknown> | undefined;
+  assert.ok(attempt, 'open 状态必须投影 attempt（21 §9.1）');
+  const missing = REGISTERED.filter((field) => !(field in attempt));
+  assert.deepEqual(
+    missing,
+    [],
+    `以下 21 §8 登记的 attempt 字段未进入投影（白名单落后于字段登记）：${missing.join(', ')}`,
+  );
+});
+
+test('attempt 身份缺席时不得补默认值——「无身份」不等于「有身份」', () => {
+  // 21 §14：身份不可得不得解释为独立（未知 ≠ 独立）。投影若给 session_id 补一个
+  // 空串或占位，下游会把「无身份」误读为「有一个可比对的身份」。
+  const projected = projectCurrentWorkCaseCard({
+    status: 'open',
+    attempt: { attempt_id: '7', controller: 'c', started_at: '2026-01-01T00:00:00+08:00', heartbeat_at: '2026-01-01T00:00:00+08:00' },
+  }, 'd'.repeat(64)) as Record<string, unknown>;
+
+  const attempt = projected.attempt as Record<string, unknown>;
+  assert.equal('session_id' in attempt, false, '来源无 session_id 时投影不得凭空补上');
+  assert.equal('session_source' in attempt, false, '来源无 session_source 时投影不得补默认 host');
+});

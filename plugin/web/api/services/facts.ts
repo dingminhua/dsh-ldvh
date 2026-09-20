@@ -394,11 +394,27 @@ function projectWorkCaseGate1(value: unknown): Record<string, unknown> | null {
 }
 
 /**
- * attempt 投影：attempt_id / controller / started_at / heartbeat_at（21 §8 §10.4）。
+ * attempt 投影：21 §8 登记的全部字段——attempt_id / started_at / controller /
+ * heartbeat_at / session_id（+ Code 一并盖戳的 provenance `session_source`）。
  *
  * `started_at` 与 `heartbeat_at` 同 gate_1 是 `Date`，且此前**根本未被复制**——
  * open 详情的执行现场因此缺两格，而 `heartbeat_at` 正是 21 §10.4 判定 attempt
  * 是否为孤立 attempt 的依据（缺陷 D4）。
+ *
+ * **`session_id` / `session_source` 的补齐（缺陷 D5，2026-09-20）**：二者由
+ * workcase-2be11478 引入（21 §8 的 `attempt` 字段登记、§14 关闭前置条件二的身份
+ * 基准），但本投影的白名单**停留在此前的 4 个字段**，于是被静默丢弃。后果不是
+ * 样式问题而是**证据链断裂**：关闭侧独立性比对以 `attempt.session_id` 为基准，
+ * Human 在详情面无法回读这个基准值，只能读结论而看不到比对依据。
+ *
+ * 根因与 gate_1 同形：**白名单与字段登记是两处权威**，新增字段时后者更新而前者
+ * 未同步，且当时无守卫。现按 21 §8 的登记补齐；`web/tests/api/workcase-projection-
+ * fidelity.test.ts` 的运行时保真守卫（对真实载体逐字段对照）与此后新增的登记集
+ * 用例共同覆盖这条缝。
+ *
+ * 不做类型分流的理由同 gist：缺失与否由**来源对象**决定（`session_id` 在 identity
+ * 不可得时合法缺席——见 writer 的条件展开），投影只负责忠实搬运。故除 Date 归一
+ * 外不做类型判定，一律原值搬运，避免重演 D1–D4 那类「按错误类型判定 → 静默丢弃」。
  */
 function projectWorkCaseAttempt(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -410,6 +426,9 @@ function projectWorkCaseAttempt(value: unknown): Record<string, unknown> | null 
     ...(typeof attempt.controller === 'string' ? { controller: attempt.controller } : {}),
     ...(startedAt !== undefined ? { started_at: startedAt } : {}),
     ...(heartbeatAt !== undefined ? { heartbeat_at: heartbeatAt } : {}),
+    // 「无身份」不得被解释为「无该字段」：仅当来源确有值时才搬运，缺席即缺席。
+    ...(typeof attempt.session_id === 'string' ? { session_id: attempt.session_id } : {}),
+    ...(typeof attempt.session_source === 'string' ? { session_source: attempt.session_source } : {}),
   }
 }
 
