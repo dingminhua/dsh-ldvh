@@ -64,12 +64,14 @@ const OPERATIONS = {
   "register-governed-project": {
     toolName: "ldvh_register_governed_project",
     summary: "Register a Git project as LDVH-governed through the 07 §5.4 AI entry (preconditions checked; atomic write + read-back)",
-    effect: "may_change_state"
+    effect: "may_change_state",
+    awaitsHumanDecision: true
   },
   "unregister-governed-project": {
     toolName: "ldvh_unregister_governed_project",
     summary: "Remove a project's LDVH governance registration through the 07 §5.7 AI entry (07 §5.4 preconditions checked)",
-    effect: "may_change_state"
+    effect: "may_change_state",
+    awaitsHumanDecision: true
   }
 };
 
@@ -222,7 +224,7 @@ function makeExecute(deps) {
    * "仅由 Human 明确意图触发" means the operation must fail closed rather than
    * proceed on the caller's say-so.
    */
-  async function requestConsent(depsRef, { action, projectId, projectPath, agent }) {
+  async function requestConsent(depsRef, { action, projectId, projectPath, agent, signal }) {
     const gate = depsRef?.hostSeams;
     if (gate === undefined || typeof gate.requestRegistrationConsent !== "function") {
       return { granted: false, reason: "no host seam registry is wired, so 07 §5.6 consent cannot be obtained" };
@@ -230,7 +232,13 @@ function makeExecute(deps) {
     // `agent` is required by the host forwarder (see installUserQuestions): the
     // browser answerer is reached through `api-remotes`, which drops a request
     // carrying no agent (dsh-api-remotes/lib/index.js:115-119).
-    return gate.requestRegistrationConsent({ action, projectId, projectPath, agent });
+    //
+    // `signal` is likewise required, for a different reason: the operations
+    // carrying this ask declare NO wall-clock deadline (see
+    // `awaitsHumanDecision` in OPERATIONS). Without the caller's signal an
+    // abandoned session leaves the prompt pending forever; with it the ask
+    // aborts (ASK_ABORTED) and the operation fails closed.
+    return gate.requestRegistrationConsent({ action, projectId, projectPath, agent, signal });
   }
 
   async function executeResolveGovernanceScope(args, exec) {
@@ -636,7 +644,7 @@ function makeExecute(deps) {
     // 07 §5.6: "登记或取消仅由 Human 明确意图触发". The consent is requested
     // through ctx.userQuestions.ask before ANY write, and a non-affirmative
     // answer (or an unavailable answerer) fails closed — silence is not intent.
-    const consent = await requestConsent(deps, { action: "register", projectId: args?.id, projectPath: target, agent: exec?.agent });
+    const consent = await requestConsent(deps, { action: "register", projectId: args?.id, projectPath: target, agent: exec?.agent, signal: exec?.signal });
     if (consent.granted !== true) {
       return envelope("register-governed-project", "rejected", {
         result: null,
@@ -700,7 +708,7 @@ function makeExecute(deps) {
       });
     }
     // 07 §5.6: cancellation likewise requires explicit Human intent.
-    const consent = await requestConsent(deps, { action: "unregister", projectId: args.id, projectPath: target, agent: exec?.agent });
+    const consent = await requestConsent(deps, { action: "unregister", projectId: args.id, projectPath: target, agent: exec?.agent, signal: exec?.signal });
     if (consent.granted !== true) {
       return envelope("unregister-governed-project", "rejected", {
         result: null,
@@ -759,13 +767,27 @@ function makeExecute(deps) {
  * contract (open schema + array-rendering render) is assertable without a live
  * ctx.tools registry — the registration call itself was never the failure
  * point; result delivery was.
+ *
+ * `timeoutMs` is omitted for operations that block on a Human answer
+ * (`awaitsHumanDecision`). The host's timeout policy arms a wall-clock
+ * deadline from this field and substitutes `TOOL_TIMEOUT` for the real result
+ * once it has elapsed — so a declaration here would guarantee a wrong answer:
+ * a person cannot reply within the budget, and the replacement happens AFTER
+ * the true answer arrives (`dsh-tool-call-timeout-policy` awaits the tool,
+ * then reports the expiry). Omitting the field is the host-sanctioned way to
+ * declare "no deadline": `defineTool` skips the key entirely when it is
+ * `undefined`, and the policy wrapper returns `next()` unarmed. The official
+ * `ask_user_question` tool does exactly this.
+ *
+ * These operations are still cancellable — that is what `exec.signal` is for,
+ * and they now forward it to the ask seam.
  */
 export function toolDescriptor(operationKey, operation, handler) {
   return {
     name: operation.toolName,
     description: operation.summary,
     parameters: parameterSchemaFor(operationKey),
-    timeoutMs: 30000,
+    ...operation.awaitsHumanDecision === true ? {} : { timeoutMs: 30000 },
     async execute(args, exec) {
       try {
         const result = await handler(args, exec);

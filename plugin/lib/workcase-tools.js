@@ -61,6 +61,13 @@ const OPERATIONS = {
   "workcase-write-object": {
     toolName: "ldvh_workcase_write",
     writeShaped: true,
+    // `create` routes through the 21 §6.3 Human decision before it may proceed
+    // (requestWorkcaseRouting), so this tool can block on a person. The
+    // timeout budget is PER TOOL, not per action, so the whole tool must
+    // declare no wall-clock deadline — otherwise every non-create action
+    // silently pays for create's human wait. See the descriptor factory for
+    // why a deadline here would guarantee a wrong result rather than a slow one.
+    awaitsHumanDecision: true,
     summary: "Controlled write of WorkCase fact objects across the 工单 lifecycle: create (C1 提案, draft), approve (Gate 1: stamps authorization fingerprint + attempt 1; returns plan_step_reference — the authoritative 「计划步骤 N」清单), execute (open-period; plan/scope frozen by C2), close (Gate 2: result+outcome, attempt 收口; requires at least one review recorded by a session OTHER than the executor, workcase-2be11478), rebatch (C2 局部重批 open→draft), cancel (draft→closed cancelled), revise (draft evolution), record_review (append ONE review entry carrying the caller's Code-stamped session identity — the narrow channel for an isolated reviewer) (specs/03 §9.4–§9.5, specs/21 §14). 写「执行」节时引用计划步骤请用「计划步骤 N」（21 §8 记账纪律）",
     effect: "may_change_state"
   }
@@ -355,6 +362,11 @@ async function executeWriteObject(args, exec, deps) {
       // carries the live agent (dsh-api-remotes/lib/index.js:115-119); without
       // it the waterfall exhausts to NO_PROVIDER in real compositions.
       agent: exec?.agent,
+      // This ask has no wall-clock deadline (see `awaitsHumanDecision` in
+      // OPERATIONS): the caller's signal is the only release for an abandoned
+      // prompt, and forwarding it makes the ask abort (ASK_ABORTED) rather
+      // than hang.
+      signal: exec?.signal,
     });
     if (routing.granted !== true) {
       return envelope("workcase-write-object", "rejected", {
@@ -799,13 +811,22 @@ function parameterSchemaFor(operationKey) {
 
 /**
  * Build the registration descriptor for one operation.
+ *
+ * `timeoutMs` is omitted for operations that block on a Human answer
+ * (`awaitsHumanDecision`) — see the identical note in ldvh-tools.js. The host's
+ * timeout policy arms a deadline from this field and substitutes `TOOL_TIMEOUT`
+ * for the real result after it elapses, and it does so AFTER the tool resolves:
+ * a human answering at second 31 still had their answer discarded. Omitting the
+ * key is the host-sanctioned "no deadline" declaration (defineTool drops the
+ * key when undefined; the policy wrapper returns `next()` unarmed) and is what
+ * the official `ask_user_question` does.
  */
 export function toolDescriptorFor(operationKey, operation, handler) {
   return {
     name: operation.toolName,
     description: operation.summary,
     parameters: parameterSchemaFor(operationKey),
-    timeoutMs: 30000,
+    ...operation.awaitsHumanDecision === true ? {} : { timeoutMs: 30000 },
     async execute(args, exec) {
       try {
         const result = await handler(args, exec);

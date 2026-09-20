@@ -360,8 +360,12 @@ export function createHostSeams() {  const consumed = Object.create(null);
    * missing answerer, or a failed ask all yield `granted: false` with a reason,
    * because 07 §5.6 requires EXPLICIT intent: silence is not consent, and this
    * path must fail closed. Callers must not write when `granted` is false.
+   *
+   * `signal` is the calling tool's cancellation signal, forwarded so an
+   * abandoned session releases the prompt (ASK_ABORTED → fail closed) instead
+   * of leaving it pending forever — this ask has no wall-clock deadline.
    */
-  async function requestRegistrationConsent({ action, projectId, projectPath, agent }) {
+  async function requestRegistrationConsent({ action, projectId, projectPath, agent, signal }) {
     if (typeof seams.ask !== "function") {
       return { granted: false, reason: "no human-answerer entry is available; 07 §5.6 requires explicit intent, so consent cannot be assumed" };
     }
@@ -376,7 +380,14 @@ export function createHostSeams() {  const consumed = Object.create(null);
             { label: CONSENT_AFFIRMATIVE_LABEL, description: "执行本次登记变更" },
             { label: "取消", description: "不执行，保持现状" }
           ]
-        }]
+        }],
+        // The caller's cancellation MUST reach the question, or an abandoned
+        // session leaves this ask pending forever (the tool that hosts it
+        // declares no wall-clock deadline — see the `awaitsHumanDecision`
+        // operations). `ctx.userQuestions.ask` throws ASK_ABORTED on abort and
+        // the browser's PendingQuestion drops the prompt, so the operation
+        // fails closed instead of hanging.
+        ...(signal === undefined ? {} : { signal })
       }, agent);
       // Accept ONLY an affirmative for THIS question. Do not fall back to
       // `answers[0]`: that could grant registration consent from an affirmative
@@ -412,8 +423,12 @@ export function createHostSeams() {  const consumed = Object.create(null);
    * `rationale` carries the AI's §6.3 reasoning (why it leans toward a
    * WorkCase and what argues for direct handling). It is advisory text the
    * Human uses to decide; it is NOT part of what is accepted.
+   *
+   * `signal` is the calling tool's cancellation signal. It MUST be forwarded:
+   * this ask carries no wall-clock deadline (it waits for a human), so an
+   * abandoned session would otherwise leave the prompt pending forever.
    */
-  async function requestWorkcaseRouting({ request, rationale, agent }) {
+  async function requestWorkcaseRouting({ request, rationale, agent, signal }) {
     if (typeof seams.ask !== "function") {
       return { granted: false, routedTo: null, reason: "no human-answerer entry is available; 21 §6.3 routing requires an explicit Human decision, so it cannot be assumed" };
     }
@@ -443,7 +458,11 @@ export function createHostSeams() {  const consumed = Object.create(null);
             { label: ROUTE_WORKCASE_LABEL, description: "创建 WorkCase（draft），随后在 Gate 1 待办中审视内容" },
             { label: ROUTE_DIRECT_LABEL, description: "不创建对象，直接在当前行动中处理" }
           ]
-        }]
+        }],
+        // Same cancellation contract as requestRegistrationConsent: this ask
+        // imposes no wall-clock deadline, so the caller's signal is the ONLY
+        // way an abandoned prompt gets released (ASK_ABORTED → fail closed).
+        ...(signal === undefined ? {} : { signal })
       }, agent);
       const answers = Array.isArray(answer?.answers) ? answer.answers : [];
       const entry = answers.find((a) => a?.id === ROUTE_QUESTION_ID) ?? null;

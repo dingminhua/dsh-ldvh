@@ -60,6 +60,13 @@ function descriptors() {
 	return Object.entries(OPERATIONS).map(([operationKey, operation]) => toolDescriptor(operationKey, operation, handlers[operationKey]));
 }
 
+/** Tool names whose operation blocks on a Human answer (declared in OPERATIONS). */
+function operationsAwaitingHuman() {
+	return Object.values(OPERATIONS)
+		.filter((operation) => operation.awaitsHumanDecision === true)
+		.map((operation) => operation.toolName);
+}
+
 // ---------------------------------------------------------------------------
 // Shared fixtures
 // ---------------------------------------------------------------------------
@@ -967,9 +974,79 @@ test("every tool descriptor declares the DSH registration contract", () => {
 		assert.ok(descriptor.description.length > 0);
 		assert.equal(typeof descriptor.execute, "function");
 		assert.equal(typeof descriptor.output.render, "function");
-		assert.equal(descriptor.timeoutMs > 0, true);
 		// parameters stays strict: it constrains what the MODEL emits.
 		assert.equal(descriptor.parameters.type, "object");
+	}
+});
+
+// ---------------------------------------------------------------------------
+// Timeout budget vs. Human-facing asks
+// ---------------------------------------------------------------------------
+//
+// The host's timeout policy arms a wall-clock deadline from `timeoutMs` and
+// substitutes TOOL_TIMEOUT for the real result once it elapses — AFTER the tool
+// resolves. For an operation that waits on a person, a declared budget is
+// therefore not "slow", it is WRONG: the answer arrives and is then discarded.
+// So the contract is two-sided and both sides are pinned here.
+
+test("tools that never wait on a Human keep a bounded timeout budget", () => {
+	const bounded = descriptors().filter((d) => operationsAwaitingHuman().includes(d.name) === false);
+	assert.ok(bounded.length > 0, "expected at least one purely mechanical tool");
+	for (const descriptor of bounded) {
+		assert.equal(
+			descriptor.timeoutMs > 0,
+			true,
+			`tool ${descriptor.name}: mechanical tools must keep a positive timeoutMs`
+		);
+	}
+});
+
+test("tools that wait on a Human declare NO timeout budget", () => {
+	const awaiting = operationsAwaitingHuman();
+	assert.ok(awaiting.length > 0, "expected at least one Human-facing tool");
+	for (const descriptor of descriptors()) {
+		if (awaiting.includes(descriptor.name) === false) continue;
+		assert.equal(
+			"timeoutMs" in descriptor,
+			false,
+			`tool ${descriptor.name}: waiting on a Human must not carry timeoutMs — the host would discard the real answer`
+		);
+	}
+});
+
+test("Human-facing asks forward the caller's cancellation signal", async () => {
+	// Omitting timeoutMs removes the only wall-clock release, so the caller's
+	// signal becomes the sole way an abandoned prompt is freed. If this wiring
+	// regresses, the prompt hangs forever instead of failing closed.
+	//
+	// This drives the REAL handler through a recording seam. A source-text
+	// check would be a false guarantee here: the string "signal" also appears
+	// in requestConsent's own parameter list, so a regex passes even when every
+	// CALL SITE drops it (verified by mutation 2026-09-20).
+	const seen = [];
+	const seams = {
+		requestRegistrationConsent: async (payload) => {
+			seen.push(payload);
+			return { granted: false, reason: "test: declined" };
+		}
+	};
+	const { handlers } = makeExec({
+		dshHomePath: dshHome("/nope"),
+		workspaceRoot: "/nope",
+		sessionPersistence: () => undefined,
+		hostSeams: seams
+	});
+	const signal = new AbortController().signal;
+	// Registration reaches the consent ask only after its preconditions pass,
+	// which need a real Git root; the unregister path asks too, and both share
+	// requestConsent — so drive whichever one the environment lets through and
+	// assert on the seam call itself.
+	await handlers["register-governed-project"]({ path: "/nope" }, { agent: { session: { header: { cwd: "/nope" } } }, signal });
+	await handlers["unregister-governed-project"]({ id: "p1", path: "/nope" }, { agent: { session: { header: { cwd: "/nope" } } }, signal });
+
+	assert.ok(seen.length > 0, "expected the consent seam to be reached at least once");
+	for (const payload of seen) {
+		assert.equal(payload.signal, signal, "the consent ask must carry the caller's own signal");
 	}
 });
 

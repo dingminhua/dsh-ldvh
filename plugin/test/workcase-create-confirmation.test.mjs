@@ -242,6 +242,55 @@ test("create: an array-shaped selected answer is read correctly (host returns ar
 });
 
 // ---------------------------------------------------------------------------
+// Timeout budget vs. the Human-facing routing ask
+//
+// Measured 2026-09-20 in a real session: `ldvh_workcase_write(action=create)`
+// returned "Error: tool call timed out after 30000ms" while the routing prompt
+// was still on screen. The cause was the descriptor's hardcoded
+// `timeoutMs: 30000` — the host's timeout policy armed a 30s deadline and, on
+// expiry, substituted TOOL_TIMEOUT for the real result. A person cannot answer
+// within 30s, so the failure was guaranteed, not incidental; and because the
+// policy awaits the tool BEFORE reporting the expiry, an answer arriving at
+// second 31 was discarded even though it had been received.
+//
+// The fix is to declare NO wall-clock budget on this tool, which makes the
+// caller's cancellation signal the only release — hence both halves are pinned.
+test("create: the tool declares no timeoutMs (a Human cannot answer in 30s)", async () => {
+  await withTemp("workcase-route-i-", async (base) => {
+    const seam = routingSeam(() => ({ granted: false, routedTo: "direct", reason: "x" }));
+    const { write } = await setup(base, { hostSeams: seam });
+    assert.equal(
+      "timeoutMs" in write,
+      false,
+      "a declared budget on this tool discards the Human's real answer (host substitutes TOOL_TIMEOUT after the tool resolves)"
+    );
+  });
+});
+
+test("create: the routing request forwards the caller's cancellation signal", async () => {
+  await withTemp("workcase-route-j-", async (base) => {
+    // With no wall-clock deadline, the caller's signal is the ONLY way an
+    // abandoned prompt is released. Dropping it would trade "always times out"
+    // for "hangs forever" — strictly worse, since nothing would ever settle.
+    //
+    // The exec must carry a REAL signal: an exec without one cannot tell
+    // "forwarded correctly" from "dropped on the floor", which is exactly the
+    // distinction this test exists to make.
+    const seam = routingSeam(() => ({ granted: false, routedTo: "direct", reason: "x" }));
+    const { write, exec } = await setup(base, { hostSeams: seam });
+    const signal = new AbortController().signal;
+    await write.execute(createArgs(), { ...exec, signal });
+
+    assert.equal(seam.calls.length, 1, "the routing question must be asked once");
+    assert.ok(
+      seam.calls[0].signal !== undefined,
+      "the routing request must carry exec.signal so the ask aborts (ASK_ABORTED) instead of hanging"
+    );
+    assert.equal(seam.calls[0].signal, signal, "the forwarded signal must be the caller's own");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // record_review via the subagent relay (workcase-2be11478 计划步骤 4)
 //
 // 子代理本身不注册 ldvh_* 工具（lifecycle.js 对 origin==="subagent" 走 installChild
