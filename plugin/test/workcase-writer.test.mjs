@@ -362,14 +362,86 @@ test("create: rejects body whose 摘要 does not carry the authoritative summary
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const draft = validDraft();
+    // 夹具只让「摘要」漂移：计划部分走 draftBody 的标准写法（步骤+判据齐备），
+    // 以免判据缺失一并触发内聚失败、使本用例的断言对象不再单一。
+    const goodPlan = draftBody(draft).split("## 计划")[1];
     const bad = await createWorkcaseObject({
       factSourceRoot: root,
       frontmatterDraft: draft,
-      bodyMarkdown: `## 摘要\n\n这里故意写了一段和 frontmatter 不一致的内容。\n\n## 授权范围\n\n${draft.scope}\n\n## 计划\n\n${draft.plan.map((p) => `- ${p.step}`).join("\n")}\n`,
+      bodyMarkdown: `## 摘要\n\n这里故意写了一段和 frontmatter 不一致的内容。\n\n## 授权范围\n\n${draft.scope}\n\n## 计划${goodPlan}\n`,
       sessionSignature: SIG(),
     });
     assert.ok(!bad.ok);
     assert.equal(bad.error.code, "workcase/coherence_invalid");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 载体内聚的登记范围（21 §8 不变量 / §15.1 / §16）
+// ---------------------------------------------------------------------------
+// 登记范围恰好两项：① summary/scope 在正文对应段逐字出现；② plan[].step 在
+// 「计划」段按数组序出现。**判据不在其中**——§8 的「步骤 + 逐条完成判据」是对该节
+// 内容的描述，其机械子句只登记了「各 step 按数组序出现」；§16 把「计划可判定性」
+// 的验证入口登记为 **AI 语义审核 + Human 确认**。故本组用例同时钉住两侧边界：
+// 登记项必须被机械拦下，未登记项不得被机械拦下（后者防「越界校验」复活）。
+test("coherence: a body plan whose steps are not in array order is rejected (21 §15.1 按数组序)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const draft = validDraft();
+    // 步骤齐全但次序颠倒 —— 登记项，必须被拦
+    const reversed = [...draft.plan].reverse();
+    const bad = await createWorkcaseObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: `## 摘要\n\n${draft.summary}\n\n## 授权范围\n\n${draft.scope}\n\n## 计划\n\n${reversed.map((p) => `- ${p.step}：判据——${p.done_criteria}`).join("\n")}\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(!bad.ok, "步骤次序与数组不一致必须被拒绝");
+    assert.equal(bad.error.code, "workcase/coherence_invalid");
+  });
+});
+
+test("coherence: 判据未入正文 NOT rejected — 该项归 AI/Human，机器不拦 (21 §16 越界防线)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const draft = validDraft();
+    // 步骤逐字、按序出现，但一条判据都不写进正文。
+    // 这是 §16 登记给 AI 语义审核 + Human 确认的判断面，机械层必须放行——
+    // 若此处变红，说明有人把未登记的校验加了回来（本会话曾一度如此）。
+    const res = await createWorkcaseObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: `## 摘要\n\n${draft.summary}\n\n## 授权范围\n\n${draft.scope}\n\n## 计划\n\n${draft.plan.map((p) => `- ${p.step}`).join("\n")}\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(res.ok, `判据是否入正文不属机械校验范围（21 §16 归 AI/Human），不得拒绝：${JSON.stringify(res.error)}`);
+  });
+});
+
+test("coherence: summary/scope must appear verbatim in their sections (21 §15.1 逐字)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const draft = validDraft();
+    const plan = draft.plan.map((p) => `- ${p.step}：判据——${p.done_criteria}`).join("\n");
+
+    // ① 正文擅自改写 scope（frontmatter 是唯一权威文本）——必须拦
+    const drifted = await createWorkcaseObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: `## 摘要\n\n${draft.summary}\n\n## 授权范围\n\n这是与 frontmatter 不一致的授权范围。\n\n## 计划\n\n${plan}\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(!drifted.ok, "scope 漂移必须被拒绝");
+    assert.equal(drifted.error.code, "workcase/coherence_invalid");
+
+    // ② 逐字包含 + 追加说明 —— 合规：「逐字包含」不等于「不得追加」
+    const appended = await createWorkcaseObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: `## 摘要\n\n${draft.summary}\n\n## 授权范围\n\n${draft.scope}\n\n（补充说明：以上为授权复述。）\n\n## 计划\n\n${plan}\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(appended.ok, `追加说明不构成漂移：${JSON.stringify(appended.error)}`);
   });
 });
 
@@ -1042,6 +1114,47 @@ test("body structure: 结果 may be present while open (awaiting_gate2 draft)", 
   assert.equal(validateWorkcaseBodyStructure(core, title, { hasExecution: false, requireResult: false }).ok, true);
   assert.equal(validateWorkcaseBodyStructure(core + exec, title, { hasExecution: false, requireResult: false }).ok, false);
   assert.equal(validateWorkcaseBodyStructure(core + result + exec, title, { hasExecution: true, requireResult: false }).ok, false);
+});
+
+// ---------------------------------------------------------------------------
+// 「## 结果」的禁止侧（21 §8/§9.1）——判据是「既不执行、也不关闭」
+// ---------------------------------------------------------------------------
+// 缺口回归：此前该情形没有任何守卫。旧注释声称「已由 requireResult 与调用方的
+// 状态配对拦住」，但 requireResult 在 draft 未关闭时为 false，而调用方的状态配对
+// 只覆盖 frontmatter 的 `result` 字段、不覆盖正文节——实测一个未关闭的 draft
+// 携带「## 结果」可以落盘成功，注释描述的保护并不存在。
+test("body structure: a non-closing draft must NOT carry 结果 (21 §8/§9.1 禁止侧)", () => {
+  const title = "T";
+  const core = `# ${title}\n\n## 摘要\n\ns\n\n## 授权范围\n\nsc\n\n## 计划\n\n- p\n`;
+  const result = `\n## 结果\n\n- r\n`;
+
+  // 四个状态的穷举：只有「既不执行、也不关闭」的 draft 被禁止。
+  // ① draft 未关闭 —— 禁止
+  assert.equal(validateWorkcaseBodyStructure(core + result, title, { hasExecution: false, requireResult: false }).ok, false);
+  // 反向控制：同一 draft 不带结果节必须通过（守卫不得误伤正常草案）
+  assert.equal(validateWorkcaseBodyStructure(core, title, { hasExecution: false, requireResult: false }).ok, true);
+  // ② open（含 Gate 2 结果草稿 = awaiting_gate2）—— 允许
+  assert.equal(validateWorkcaseBodyStructure(`${core}\n## 执行\n\n- e\n` + result, title, { hasExecution: true, requireResult: false }).ok, true);
+  // ③ draft→closed(cancelled) —— 结果必填，故允许携带
+  assert.equal(validateWorkcaseBodyStructure(core + result, title, { hasExecution: false, requireResult: true }).ok, true);
+  // ④ closed with gate_1 —— 允许
+  assert.equal(validateWorkcaseBodyStructure(`${core}\n## 执行\n\n- e\n` + result, title, { hasExecution: true, requireResult: true }).ok, true);
+});
+
+test("body structure: create rejects a non-closing draft carrying 结果 (端到端，21 §14)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const draft = validDraft();
+    const bad = await createWorkcaseObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: `${draftBody(draft)}\n## 结果\n\n尚未执行却写了结果。\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(!bad.ok, "未关闭的 draft 携带结果节必须被拒绝");
+    assert.equal(bad.error.code, "workcase/body_invalid");
+    assert.ok(bad.error.details.issues.some((i) => i.includes("## 结果") && i.includes("neither executing nor closing")), JSON.stringify(bad.error.details.issues));
+  });
 });
 
 // ---------------------------------------------------------------------------

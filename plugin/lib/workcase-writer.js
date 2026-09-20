@@ -356,10 +356,10 @@ function detectLifecycleGate(step, doneCriteria) {
  * 制造「一个空格」式的绕过面。
  */
 /**
- * 21 §6.1 关口门禁的适用范围判定（2026-09-18，Human 裁定方案 1）。
+ * 计划项是否相对基线**新增或改动**。
  *
- * 门禁针对的是「把关口**写成**计划」这一**面向未来**的行为，不是惩罚
- * **已经写在计划里的历史记录**。故只在 plan 相对基线的**新增或改动**项上生效：
+ * 21 §6.1 的适用范围纪律：门禁针对「把关口**写成**计划」这一**面向未来**的行为，
+ * 不是惩罚已经写在计划里的历史记录。故只在 plan 相对基线的**新增或改动**项上生效：
  *
  *   - 基线缺失（create / 无既有对象）：全部 plan 项皆为新，全部受检；
  *   - 有基线：仅 `baselinePlan[i]` 不存在（新增项）或内容不等（改动项）时受检；
@@ -372,7 +372,7 @@ function detectLifecycleGate(step, doneCriteria) {
  * 不可再写。
  *
  * 注意这不构成豁免：任何**改动**既有项（哪怕只改一字）都会使它重新受检。
- * 同位置的内容比对按 step+done_criteria 的精确字符串，不做归一化——归一化会
+ * 同位置的内容比对按 `step`+`done_criteria` 的精确字符串，不做归一化——归一化会
  * 制造「一个空格」式的绕过面。
  */
 function planItemNeedsGateCheck(item, baselineItem) {
@@ -775,9 +775,19 @@ export function validateWorkcaseBodyStructure(body, title, opts) {
   // (outcome=cancelled)` transition in which `result` records the cancellation
   // reason and the range that never happened — so a draft being closed DOES
   // carry 结果. Both open (Gate 2 draft) and that closed path may therefore
-  // present 结果. What remains forbidden is the reverse: a draft that is NOT
-  // being closed must not carry it. That is already enforced by requireResult
-  // below and by the caller's status pairing; no extra guard is added here.
+  // present 结果.
+  //
+  // 反向仍被禁止：**既不处于执行期、也不在关闭**的 draft 不得携带 结果。
+  // 该情形恰好等价于 `!hasExecution && !requireResult`（见四个状态的穷举：
+  // draft 未关闭 / open / closed-with-gate_1 / draft→closed-cancelled）。
+  //
+  // 此前本项**没有任何守卫**：旧注释声称「已由 requireResult 与调用方的状态配对
+  // 拦住」，但 requireResult 在 draft 未关闭时为 false，而调用方的状态配对只覆盖
+  // frontmatter 的 `result` 字段，不覆盖正文的 `## 结果` 节——实测一个未关闭的
+  // draft 携带「## 结果」可以通过创建（注释描述的保护并不存在）。现补上该守卫。
+  if (!hasExecution && !requireResult && h2.includes(BODY_H2_RESULT)) {
+    issues.push(`body: "## 结果" must not be present for a draft that is neither executing nor closing (21 §8/§9.1 — 结果 is the carrier of the closure proposal; a bare draft has no result to record)`);
+  }
   if (requireResult && !h2.includes(BODY_H2_RESULT)) {
     issues.push(`body: "## 结果" required when status=closed (21 §8)`);
   }
@@ -813,10 +823,27 @@ export function validateWorkcaseBodyStructure(body, title, opts) {
 }
 
 /**
- * Carrier coherence (03 载体内聚, pitfall/spark precedent): frontmatter
- * summary / scope are the single authoritative texts — their body sections
- * must contain them verbatim. plan[].step must appear in order in the
- * 计划 section so the plan body cannot drift from the authoritative array.
+ * Carrier coherence (21 §8 不变量 / §15.1 / §16 载体内聚): frontmatter is the
+ * single authoritative text, and the body only expands it. Mechanical scope is
+ * exactly two things, as registered in four places (§8 字段间不变量、§14 创建
+ * 机械校验、§15.1 类型特有验证、§16 验证表):
+ *
+ *   ① `summary` / `scope` appear verbatim in their body sections (摘要 / 授权范围);
+ *   ② `plan[].step` appears in order in the 计划 section, so the body plan cannot
+ *      drift from the authoritative array.
+ *
+ * 比对为精确字符串，不做归一化（§15.1）。
+ *
+ * **本项不含 `plan[].done_criteria`（如实登记边界）**：§8 的「## 计划 ← 步骤 +
+ * 逐条完成判据」是对该节**内容**的描述，而其机械子句只登记了「各 `step` 按数组序
+ * 出现」；判据的可判定性由 §16 明确登记为 **AI 语义审核 + Human 确认**（非机械）。
+ * 故判据是否进入正文、是否可被证据判定，不由本函数校验。
+ *
+ * 本会话曾一度在此处增加「判据须逐字进入正文」的机械校验，并为其引入 §6.1 式的
+ * 基线豁免以避开存量死锁；经对照新登记的规范文本，该项**无任何登记**且与 §16 的
+ * 验证入口分配冲突，已移除。（旁证：登记范围内存量对象 16/16 无条件通过，无需任何
+ * 豁免；而多出的那一项需要专门引入豁免才不死锁——「需要豁免」本身即说明它超出了
+ * 登记范围。）
  */
 export function validateCarrierCoherence(frontmatter, body) {
   const issues = [];
@@ -914,12 +941,15 @@ export async function readWorkcaseObject(args) {
 // ---------------------------------------------------------------------------
 
 /**
- * 全部 7 个 action 的唯一落盘汇聚点。
+ * 全部 8 个 action 的唯一落盘汇聚点。
  *
  * `baselinePlan`（可选）：既有对象的当前 plan，供 §6.1 关口门禁判定「新增/改动」
- * 与否。create 不传（全部为新）；其余 action 一律传调用方已读到的 `fm.plan`——
- * 这是 CAS 之外的第二道「不能靠改写既有内容绕过」的保障：baseline 来自**落盘前
- * 读到的对象**，而非调用方 payload。
+ * 与否。create 不传（全部为新）；其余 action 一律传**落盘前读到的** `fm.plan`——
+ * 这是 CAS 之外的第二道「不能靠改写既有内容绕过」的保障：baseline 来自实际读到的
+ * 对象，而非调用方 payload。
+ *
+ * 载体内聚（§8/§15.1/§16）**不消费 baseline**：其登记范围（summary/scope 逐字 +
+ * plan[].step 按序）对存量对象本就 16/16 无条件通过，无需适用范围限制。
  */
 async function writeValidated(factSourceRoot, frontmatter, body, baselinePlan = null) {
   const fmCheck = validateWorkcaseFrontmatter(frontmatter, baselinePlan);
