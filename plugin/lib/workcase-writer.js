@@ -103,6 +103,160 @@ const BODY_H2_RESULT = "结果";
 /** Title cap (21 §8: ≤ 30 字). */
 const MAX_TITLE_LENGTH = 30;
 
+/**
+ * `summary` / `scope` 的结构化书写规则（21 §8 的书写纪律，机械校验）。
+ *
+ * **为什么需要**：`summary` 与 `scope` 是自由字符串字段，实测 16/16 份对象把它们
+ * 写成了单块整段（最长 1123 字符、零换行），而同一份文件的「计划」节 15/16 份
+ * 用了列表——差别不在作者，在字段类型：`plan` 是数组（schema 强制逐项），自由
+ * 字符串没有任何结构约定。结果是 720 字符的 `scope` 里明明有 5 个编号分点和
+ * 「做什么／明确不做什么」两段界线，却全部挤在一个段落里，Human 读不出层次。
+ *
+ * **规则**（两条，都只约束**书写形态**、不约束内容）：
+ *
+ * ① `scope` 必有两段**独占一行**的标签：「做什么：」与「明确不做什么：」，各带内容。
+ *    21 §8 已要求 `scope`「必须同时回答『做什么』与『明确不做什么』」，但原文只
+ *    要求**语义上同时回答**——实测 16/16 份确实都回答了，形态上却都是行内串联
+ *    （`做什么：A；B。明确不做什么：C。`）。本项把「同时回答」落成可读的两段。
+ *
+ * ② 超过阈值的长文本须用**空行分块**，且首块之外的每块首行须是**层次标记**
+ *    （`**标签**` / `### 标签` / `标签：`）。
+ *
+ * **阈值以下的短文本豁免**：短文本本就不难读，强制分块是形式主义。阈值取 200
+ * 字符——与 `gist` 的 200 字符上限同量级，且实测本仓短对象（42/81/170 字符）
+ * 天然落在其下，不需要为其增加书写负担。
+ *
+ * **为什么用「标签行」而不是固定小节名**：`summary` 的内容成分实测高度可变
+ * （现状核实 8/16、边界 4/16、依据 5/16），固定小节名会逼作者为凑格式而造节。
+ * 本规则只要求「有标记、能看出块在讲什么」，不规定块该叫什么——层次由作者定，
+ * 可读性由机械保证。
+ *
+ * **阈值与标签形式的取舍边界（如实声明）**：本项校验**形态可达性**，不校验
+ * 标签是否名副其实（写 `**现状核实**` 而内容其实是边界，机械无法判定），也不
+ * 校验内容是否真的「有层次」——后者属 AI 语义审核与 Human 阅读。与 21 §15.1
+ * 既有的 `gist` 完备性条目同形：机械层只到存在性与形态。
+ */
+const STRUCTURED_TEXT_MIN_CHARS = 200;
+
+/** 「做什么：」/「明确不做什么：」独占一行（允许尾随空白）。 */
+const SCOPE_WHAT_LINE = /^做什么[：:]\s*$/;
+const SCOPE_NOT_LINE = /^明确不做什么[：:]\s*$/;
+
+/**
+ * 层次标记行：`**标签**` / `### 标签` / `标签：`。
+ *
+ * 三种都接受的理由：本仓既有写法三种并存（`**现状核实**` 4/16、行内 `做什么：`、
+ * 正文 H3 小节），强制其一会在无收益处制造改写。共同要求是**该行独占一行且只有
+ * 标记本身**——那样它才能在视觉上分出一个块。
+ *
+ * 长度上限 40 字：避免把一句正文误判为标签（正文句子不会以 `：` 结尾且不足 40 字
+ * 还独占一行，但留此上限使判定更保守）。
+ */
+const LABEL_LINE_PATTERNS = [
+  /^\*\*[^*\n]{1,40}\*\*$/,
+  /^#{3,4}\s+\S/,
+  /^[^\n：:]{1,40}[：:]$/,
+];
+
+/** 空行分块（与 `## 摘要` 等正文节的分块语义一致）。 */
+function structuredTextBlocks(text) {
+  return text
+    .trim()
+    .split(/\n[ \t]*\n+/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+}
+
+function isLabelLine(line) {
+  const trimmed = line.trim();
+  return LABEL_LINE_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+/**
+ * 校验 `scope` 的两个标签段：各须**独占一行**，且标签下到下一个标签（或结尾）
+ * 之间须有内容。
+ *
+ * 注意与「行内写法」的区别：`做什么：A；B。明确不做什么：C。` 是**行内串联**，
+ * 两个标签都在，语义也回答了，但读起来仍是一整段——本项正是要把它判为不合规。
+ * 故判定用 `^...$`（独占一行），而非「文本含该子串」。
+ */
+function validateScopeLabelSections(scope, issues) {
+  const lines = scope.split("\n").map((line) => line.trim());
+  const sections = [
+    { name: "做什么", pattern: SCOPE_WHAT_LINE, index: -1 },
+    { name: "明确不做什么", pattern: SCOPE_NOT_LINE, index: -1 },
+  ];
+  for (const section of sections) {
+    section.index = lines.findIndex((line) => section.pattern.test(line));
+    if (section.index < 0) {
+      issues.push(
+        `scope: missing a line holding exactly "${section.name}：" (21 §8 — 必须同时回答「做什么」与「明确不做什么」；须各占一行成段，不得行内串联)`,
+      );
+    }
+  }
+  for (const section of sections) {
+    if (section.index < 0) continue;
+    const rest = lines.slice(section.index + 1);
+    const nextLabel = rest.findIndex((line) => SCOPE_WHAT_LINE.test(line) || SCOPE_NOT_LINE.test(line));
+    const body = (nextLabel < 0 ? rest : rest.slice(0, nextLabel)).join("\n").trim();
+    if (body === "") {
+      issues.push(`scope: section "${section.name}：" has no content (21 §8 — 标签下须列出该方向的具体范围)`);
+    }
+  }
+}
+
+/**
+ * 长文本（> STRUCTURED_TEXT_MIN_CHARS）须空行分块且块首有层次标记。
+ * 阈值以下直接放行（短文本豁免）。
+ */
+function validateStructuredText(text, field, issues) {
+  if (text.length <= STRUCTURED_TEXT_MIN_CHARS) return;
+  const blocks = structuredTextBlocks(text);
+  if (blocks.length < 2) {
+    issues.push(
+      `${field}: ${text.length} chars in a single block — long text must be split by blank lines (21 §8 书写纪律：结构固定清晰、有层次)`,
+    );
+    return;
+  }
+  for (let i = 1; i < blocks.length; i++) {
+    const head = blocks[i].split("\n")[0].trim();
+    if (!isLabelLine(head)) {
+      issues.push(
+        `${field}: block #${i + 1} starts with "${head.slice(0, 30)}" — every block after the first must open with a hierarchy marker line (**标签** / ### 标签 / 标签：) (21 §8 书写纪律)`,
+      );
+    }
+  }
+}
+
+/**
+ * 结构化书写的**适用范围**——与 §6.1 关口门禁同形：只校验相对基线**新增或改动**
+ * 的字段，逐字未改的既有字段放行。
+ *
+ * 理由（实测，2026-09-20）：存量 16 份对象中 15 份的 `summary` 或 `scope` 超过阈值
+ * 且为单块（其中 12 份是 draft/open 活对象）。若对 update 一律校验，则**追加一条
+ * `change_log` 都会被拒**——而 `close` 是唯一出口、本类型**无删除操作**（21 §14），
+ * 结果是这批工单永久无法关闭。这与 §6.1 引入基线豁免时面对的是同一个死锁：
+ * 新规则不应追溯惩罚既有历史。
+ *
+ * 豁免不构成绕过：
+ *   - 字段**被改动**（哪怕只改一字）即重新受检，须同时补齐结构；
+ *   - 新建对象（create）无基线，全部受检；
+ *   - 比对为精确字符串，不做归一化——归一化会制造「一个空格」式的绕过面。
+ *
+ * 如实登记边界：基线只覆盖 `summary`/`scope` 两个字段（这两者才是本规则的对象）；
+ * 未改动字段的**内容质量**不在本项范围（属 AI 语义审核与 Human 阅读）。
+ */
+function validateStructuredWriting(frontmatter, issues, baselineSummary, baselineScope) {
+  const changed = (current, baseline) => baseline === undefined || current !== baseline;
+  if (typeof frontmatter.scope === "string" && changed(frontmatter.scope, baselineScope)) {
+    validateScopeLabelSections(frontmatter.scope, issues);
+    validateStructuredText(frontmatter.scope, "scope", issues);
+  }
+  if (typeof frontmatter.summary === "string" && changed(frontmatter.summary, baselineSummary)) {
+    validateStructuredText(frontmatter.summary, "summary", issues);
+  }
+}
+
 /** Relations contract (21 §12): contributed-to → Pitfall only. */
 const ALLOWED_RELATION_KEYS = new Set(["contributed-to"]);
 const PITFALL_DIRECTORY = "pitfalls";
@@ -588,8 +742,12 @@ function validateResult(frontmatter, issues) {
  * `baselinePlan`（可选）：既有对象的当前 plan。用于 §6.1 关口门禁的适用范围
  * 判定——只有相对基线**新增或改动**的项受检，逐字未改的既有项是历史记录，
  * 放行（见 validatePlanShape 的说明）。create 与无既有对象时省略（全量受检）。
+ *
+ * `baselineSummary` / `baselineScope`（可选）：既有对象的当前 `summary` / `scope`。
+ * 用于 §8 书写纪律的适用范围判定，同 §6.1 的形态与理由——只有**改动**的字段
+ * 受检，逐字未改的既有字段放行（见 validateStructuredWriting）。
  */
-export function validateWorkcaseFrontmatter(frontmatter, baselinePlan = null) {
+export function validateWorkcaseFrontmatter(frontmatter, baselinePlan = null, baselineSummary, baselineScope) {
   const issues = [];
 
   for (const key of Object.keys(frontmatter)) {
@@ -627,6 +785,10 @@ export function validateWorkcaseFrontmatter(frontmatter, baselinePlan = null) {
   if (typeof frontmatter.scope !== "string" || frontmatter.scope.trim().length === 0) {
     issues.push("scope: required non-empty (21 §8 — 授权范围与边界, 越权拒绝的比对基准)");
   }
+  // 21 §8 书写纪律（结构化）：scope 的两个标签须各占一行成段；长文本须分块且有
+  // 层次标记。**适用范围同 §6.1 关口门禁**——只有**新增或改动**的字段受检，
+  // 逐字未改的既有字段放行（见 validateStructuredWriting 的说明）。
+  validateStructuredWriting(frontmatter, issues, baselineSummary, baselineScope);
   validatePlanShape(frontmatter, issues, baselinePlan);
 
   if (frontmatter.serves !== undefined) {
@@ -943,16 +1105,25 @@ export async function readWorkcaseObject(args) {
 /**
  * 全部 8 个 action 的唯一落盘汇聚点。
  *
- * `baselinePlan`（可选）：既有对象的当前 plan，供 §6.1 关口门禁判定「新增/改动」
- * 与否。create 不传（全部为新）；其余 action 一律传**落盘前读到的** `fm.plan`——
- * 这是 CAS 之外的第二道「不能靠改写既有内容绕过」的保障：baseline 来自实际读到的
- * 对象，而非调用方 payload。
+ * `baseline`（可选）：**落盘前读到的既有对象**，供两项「适用范围」判定：
+ *
+ *   - §6.1 关口门禁：`baseline.plan` 判定 plan 项「新增/改动」与否；
+ *   - §8 书写纪律：`baseline.summary` / `baseline.scope` 判定该字段是否被改动。
+ *
+ * create 不传（全部为新）；其余 action 一律传实际读到的对象——这是 CAS 之外的
+ * 第二道「不能靠改写既有内容绕过」的保障：baseline 来自读到的对象，而非调用方
+ * payload。
  *
  * 载体内聚（§8/§15.1/§16）**不消费 baseline**：其登记范围（summary/scope 逐字 +
  * plan[].step 按序）对存量对象本就 16/16 无条件通过，无需适用范围限制。
  */
-async function writeValidated(factSourceRoot, frontmatter, body, baselinePlan = null) {
-  const fmCheck = validateWorkcaseFrontmatter(frontmatter, baselinePlan);
+async function writeValidated(factSourceRoot, frontmatter, body, baseline = null) {
+  const fmCheck = validateWorkcaseFrontmatter(
+    frontmatter,
+    baseline?.plan ?? null,
+    baseline?.summary,
+    baseline?.scope,
+  );
   if (!fmCheck.ok) {
     return failure("workcase/frontmatter_invalid", "frontmatter failed mechanical checks", { issues: fmCheck.issues });
   }
@@ -1295,7 +1466,7 @@ export async function approveWorkcaseObject(args) {
     const content = sectionContent(body, BODY_H2_EXECUTION) ?? "";
     body = replaceSection(body, BODY_H2_EXECUTION, `${content}\n- attempt ${attemptId} started at ${now} (controller: ${controller})；Gate 1 授权范围见 gate_1.scope_snapshot。`);
   }
-  const written = await writeValidated(factSourceRoot, next, body, fm.plan);
+  const written = await writeValidated(factSourceRoot, next, body, fm);
   // 21 §8「执行」节记账纪律的前置提示：授权是执行期写正文的**最早**时点，此处把当前
   // plan 的权威编号清单直接交给调用方，使「计划步骤 N」的 N 有据可依，不必回查
   // frontmatter。属**前置告知**，不含任何校验或拒绝规则——同类机械校验已被实测证伪
@@ -1453,7 +1624,7 @@ export async function executeWorkcaseObject(args) {
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
   // 跨会话接力时执行者未必持有 approve 的返回值，故 execute 亦带前置提示（纯告知）。
-  const written = await writeValidated(factSourceRoot, next, body, fm.plan);
+  const written = await writeValidated(factSourceRoot, next, body, fm);
   if (!written.ok) return written;
   return success({ ...written.value, plan_step_reference: planStepReference(next.plan) });
 }
@@ -1552,7 +1723,7 @@ export async function recordWorkcaseReview(args) {
   );
 
   const body = assembleBody(next.title, current.value.body.replace(/^#\s+.*\n+/, ""));
-  const written = await writeValidated(factSourceRoot, next, body, fm.plan);
+  const written = await writeValidated(factSourceRoot, next, body, fm);
   if (!written.ok) return written;
   return success({ ...written.value, review_session_id: identity.sessionId });
 }
@@ -1683,7 +1854,7 @@ export async function closeWorkcaseObject(args) {
   appendChangeLog(next, sig, `${changeSummary} [gate_2 closed with outcome=${outcome}; attempt ${closedAttempt ?? "none"} retracted]`);
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
-  return writeValidated(factSourceRoot, next, body, fm.plan);
+  return writeValidated(factSourceRoot, next, body, fm);
 }
 
 // ---------------------------------------------------------------------------
@@ -1749,7 +1920,7 @@ export async function rebatchWorkcaseObject(args) {
   if (relCheck) return relCheck;
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
-  return writeValidated(factSourceRoot, next, body, fm.plan);
+  return writeValidated(factSourceRoot, next, body, fm);
 }
 
 // ---------------------------------------------------------------------------
@@ -1783,7 +1954,7 @@ export async function cancelWorkcaseObject(args) {
   appendChangeLog(next, sig, `${changeSummary} [cancelled before execution; no Gate 1 approval existed]`);
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
-  return writeValidated(factSourceRoot, next, body, fm.plan);
+  return writeValidated(factSourceRoot, next, body, fm);
 }
 
 // ---------------------------------------------------------------------------
@@ -1824,7 +1995,7 @@ export async function reviseWorkcaseObject(args) {
   if (relCheck) return relCheck;
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
-  return writeValidated(factSourceRoot, next, body, fm.plan);
+  return writeValidated(factSourceRoot, next, body, fm);
 }
 
 // ---------------------------------------------------------------------------

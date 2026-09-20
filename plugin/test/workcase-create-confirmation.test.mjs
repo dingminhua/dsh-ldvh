@@ -71,7 +71,7 @@ function createArgs(extra = {}) {
       title: "测试工单",
       status: "draft",
       summary: "把某处行为改成预期形态。",
-      scope: "做什么：改 X。明确不做什么：不动 Y。",
+      scope: "做什么：\n- 改 X\n\n明确不做什么：\n- 不动 Y",
       plan: [{ step: "改 X", done_criteria: "X 的输出为 Z" }],
     },
     body_markdown: [

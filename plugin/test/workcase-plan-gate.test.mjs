@@ -19,7 +19,7 @@ function planCase(plan, status = "draft") {
     object_uid: "00000000-0000-4000-8000-000000000000",
     title: "t",
     summary: "s",
-    scope: "做什么：x。明确不做什么：y。",
+    scope: "做什么：\n- x\n\n明确不做什么：\n- y",
     status,
     created_at: new Date().toISOString(),
     change_log: [{ at: new Date().toISOString(), provider: "p", model: "m", summary: "x" }],

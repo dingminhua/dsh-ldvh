@@ -70,7 +70,7 @@ function validDraft(overrides = {}) {
     gist: "为 X 建立最小承载，使后续工作可复用。",
     serves: "SG-1",
     summary: "为 X 建立最小实现并通过测试，使后续工作可复用。",
-    scope: "做什么：实现 X 的 writer 与测试；明确不做什么：不改 Web 呈现、不动规范条文。",
+    scope: "做什么：\n- 实现 X 的 writer 与测试\n\n明确不做什么：\n- 不改 Web 呈现\n- 不动规范条文",
     plan: [
       { step: "编写 writer 骨架", done_criteria: "writer 文件存在且 node --check 通过" },
       { step: "编写测试", done_criteria: "全部测试用例通过且覆盖创建与关闭路径" },
@@ -330,7 +330,7 @@ test("gist: absent on a CLOSED object is NOT rejected — 终态只读、无入�
       title: "T",
       status: "closed",
       summary: "s",
-      scope: "做什么：a。明确不做什么：b。",
+      scope: "做什么：\n- a\n\n明确不做什么：\n- b",
       plan: [{ step: "x", done_criteria: "y" }],
       outcome: "cancelled",
       result: { achieved_scope: "x" },
@@ -1757,5 +1757,153 @@ test("independence: a source-less legacy entry is NOT laundered into host by a l
       undefined,
       "无来源的既有条目不得被后续写入洗白为 host（否则该条目会被门禁误当作可采信证据）",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 21 §8 书写纪律：summary / scope 的结构化书写（机械校验）
+//
+// 实测缺陷（2026-09-20）：16/16 份对象的 summary/scope 都是单块整段（最长 1123
+// 字符、零换行），而同一份文件的「计划」节 15/16 份用了列表——差别在字段类型：
+// plan 是数组（schema 强制逐项），自由字符串没有任何结构约定。本组用例守住新
+// 规则的两个方向：不合规必须拒绝、合规必须通过。
+// ---------------------------------------------------------------------------
+const LONG_PAD = "并逐条说明其依据与未覆盖范围，使后续执行者无需回读原讨论即可独立接手".repeat(3);
+const LONG_FLAT_SUMMARY = `把复核独立性升级为硬门禁：凡关闭必须至少一条独立结论；${LONG_PAD}；${LONG_PAD}。`;
+const SCOPE_OK = "做什么：\n- 建立身份锚点\n- 补行为测试\n\n明确不做什么：\n- 不改 C2 授权钉扎";
+const SCOPE_INLINE = "做什么：(A) 建立锚点；(B) 补测试。明确不做什么：不改 C2。";
+
+function writingCase(overrides = {}) {
+  const base = {
+    fact_type_key: "workcase",
+    object_uid: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    title: "书写纪律用例",
+    status: "draft",
+    gist: "给 Human 扫读的一句话要点。",
+    summary: "短摘要。",
+    scope: SCOPE_OK,
+    plan: [{ step: "一步", done_criteria: "判据" }],
+    created_at: "2026-01-01T00:00:00+08:00",
+    change_log: [{ at: "2026-01-01T00:00:00+08:00", summary: "create" }],
+  };
+  return { ...base, ...overrides };
+}
+
+test("写作纪律: scope 须两段标签各占一行 —— 行内串联被拒 (21 §8)", () => {
+  const inline = validateWorkcaseFrontmatter(writingCase({ scope: SCOPE_INLINE }));
+  assert.equal(inline.ok, false, "行内串联的 scope 必须被拒（它语义回答了，但读不出版面层次）");
+  assert.ok(
+    inline.issues.some((i) => i.includes('"做什么："')),
+    `应报告缺独占一行的「做什么：」，实际：${JSON.stringify(inline.issues)}`,
+  );
+
+  const twoLine = validateWorkcaseFrontmatter(writingCase({ scope: SCOPE_OK }));
+  assert.equal(twoLine.ok, true, `两段标签须通过，实际：${JSON.stringify(twoLine.issues)}`);
+});
+
+test("写作纪律: scope 标签下不得为空 (21 §8)", () => {
+  const empty = validateWorkcaseFrontmatter(writingCase({ scope: "做什么：\n\n明确不做什么：\n- b" }));
+  assert.equal(empty.ok, false);
+  assert.ok(empty.issues.some((i) => i.includes("has no content")), JSON.stringify(empty.issues));
+});
+
+test("写作纪律: 阈值以内不强制分块 —— 短文本豁免 (21 §8)", () => {
+  // 短 summary：单块也合规。规则要的是可读，不是形式主义。
+  const short = validateWorkcaseFrontmatter(writingCase({ summary: "短摘要，不分块。" }));
+  assert.equal(short.ok, true, `短文本不应被要求分块，实际：${JSON.stringify(short.issues)}`);
+
+  // 同一份文本超过阈值后，单块即不合规。
+  const long = validateWorkcaseFrontmatter(writingCase({ summary: LONG_FLAT_SUMMARY }));
+  assert.equal(long.ok, false, "超过阈值仍为单块必须被拒");
+  assert.ok(long.issues.some((i) => i.includes("single block")), JSON.stringify(long.issues));
+});
+
+test("写作纪律: 长文本分块后，首块之外的每块须有层次标记 (21 §8)", () => {
+  // 分了块但标记缺失 —— 分块本身不产生可读性收益，须拒。
+  const noLabel = `${LONG_FLAT_SUMMARY}\n\n${LONG_PAD}`;
+  const unlabeled = validateWorkcaseFrontmatter(writingCase({ summary: noLabel }));
+  assert.equal(unlabeled.ok, false, "分块但块首无标记必须被拒");
+  assert.ok(unlabeled.issues.some((i) => i.includes("hierarchy marker")), JSON.stringify(unlabeled.issues));
+
+  // 三种标记形式都接受：**标签** / ### 标签 / 标签：
+  for (const [name, text] of [
+    ["加粗", `总述一段。\n\n**现状核实**\n- 甲\n\n**处置方向**\n- 乙${LONG_PAD}`],
+    ["H3", `总述一段。\n\n### 现状核实\n- 甲\n\n### 处置方向\n- 乙${LONG_PAD}`],
+    ["冒号", `总述一段。\n\n现状核实：\n- 甲\n\n处置方向：\n- 乙${LONG_PAD}`],
+  ]) {
+    const r = validateWorkcaseFrontmatter(writingCase({ summary: text }));
+    assert.equal(r.ok, true, `${name}标记形式应被接受，实际：${JSON.stringify(r.issues)}`);
+  }
+});
+
+test("写作纪律: 存量豁免 —— 字段逐字未改放行，改动即受检 (21 §8 适用范围)", () => {
+  const legacyScope = SCOPE_INLINE;
+  const legacySummary = LONG_FLAT_SUMMARY;
+
+  // ① 逐字未改（基线相同）→ 放行。否则存量对象连追加 change_log 都会被拒，
+  //    而 close 是唯一出口、本类型无删除操作（21 §14）→ 工单永久无法关闭。
+  const unchanged = validateWorkcaseFrontmatter(
+    writingCase({ scope: legacyScope, summary: legacySummary }),
+    null, legacySummary, legacyScope,
+  );
+  assert.equal(unchanged.ok, true, `逐字未改须放行（否则存量死锁），实际：${JSON.stringify(unchanged.issues)}`);
+
+  // ② 改动 summary（哪怕一字）→ 重新受检。
+  const summaryChanged = validateWorkcaseFrontmatter(
+    writingCase({ scope: legacyScope, summary: `${legacySummary}（改）` }),
+    null, legacySummary, legacyScope,
+  );
+  assert.equal(summaryChanged.ok, false, "改动后的 summary 必须受检");
+  assert.ok(summaryChanged.issues.some((i) => i.startsWith("summary:")), JSON.stringify(summaryChanged.issues));
+
+  // ③ 改动 scope → 重新受检（既有两个标签的语义未变，但形态须补齐）。
+  const scopeChanged = validateWorkcaseFrontmatter(
+    writingCase({ scope: `${legacyScope}（改）`, summary: legacySummary }),
+    null, legacySummary, legacyScope,
+  );
+  assert.equal(scopeChanged.ok, false, "改动后的 scope 必须受检");
+
+  // ④ 无基线（新建）→ 全量受检。
+  const created = validateWorkcaseFrontmatter(
+    writingCase({ scope: legacyScope, summary: legacySummary }),
+    null, undefined, undefined,
+  );
+  assert.equal(created.ok, false, "新建对象无基线，须全量受检");
+});
+
+const GOAL_STUB = "---\ngoal_key: project-goal\ntitle: T\nstatus: active\ncreated_at: 2026-01-01T00:00:00+08:00\nchange_log:\n  - at: 2026-01-01T00:00:00+08:00\n    summary: x\n---\n\n# T\n\n## 子目标\n- SG-3 t\n";
+
+test("写作纪律: 端到端 —— 合规写法可落盘且正文逐字承载 (21 §8)", async () => {
+  await withTemp("wc-writing-", async (root) => {
+  await mkdir(join(root, "workcases"), { recursive: true });
+  await writeFile(join(root, "goal.md"), GOAL_STUB);
+
+  const summary = "总述一段。\n\n**现状核实**\n- 甲\n\n**处置方向**\n- 乙";
+  const res = await createWorkcaseObject({
+    factSourceRoot: root,
+    frontmatterDraft: { title: "合规写法", gist: "要点。", summary, scope: SCOPE_OK, plan: [{ step: "一步", done_criteria: "判据" }] },
+    bodyMarkdown: `## 摘要\n${summary}\n\n## 授权范围\n${SCOPE_OK}\n\n## 计划\n- 一步：判据——判据\n`,
+    sessionSignature: SIG(),
+  });
+  assert.ok(res.ok, JSON.stringify(res.error));
+  const back = await readWorkcaseObject({ factSourceRoot: root, objectUid: res.value.object_uid });
+  assert.equal(back.value.frontmatter.scope, SCOPE_OK, "结构化 scope 须逐字无损往返");
+  assert.equal(back.value.frontmatter.summary, summary, "结构化 summary 须逐字无损往返");
+  });
+});
+
+test("写作纪律: 端到端 —— 不合规写法在 create 被拒 (21 §8)", async () => {
+  await withTemp("wc-writing-bad-", async (root) => {
+  await mkdir(join(root, "workcases"), { recursive: true });
+  await writeFile(join(root, "goal.md"), GOAL_STUB);
+
+  const res = await createWorkcaseObject({
+    factSourceRoot: root,
+    frontmatterDraft: { title: "不合规写法", gist: "要点。", summary: LONG_FLAT_SUMMARY, scope: SCOPE_INLINE, plan: [{ step: "一步", done_criteria: "判据" }] },
+    bodyMarkdown: `## 摘要\n${LONG_FLAT_SUMMARY}\n\n## 授权范围\n${SCOPE_INLINE}\n\n## 计划\n- 一步：判据——判据\n`,
+    sessionSignature: SIG(),
+  });
+  assert.equal(res.ok, false, "行内 scope + 单块长 summary 不得通过创建");
+  assert.equal(res.error.code, "workcase/frontmatter_invalid");
   });
 });
