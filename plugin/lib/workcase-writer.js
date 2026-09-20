@@ -182,18 +182,45 @@ function fileFingerprint(content) {
   return createHash("sha256").update(content, "utf8").digest("hex");
 }
 
+// `lineWidth: 0` 是跨 writer 的既有约定（ef08d9e，2026-09-06：Human 反馈「YAML
+// 折行不可读」后确立，其余 7 个 writer 均如此）。workcase 建立时（2026-09-15）未
+// 继承，长中文 summary/scope 被折成 ~80 列 + 2 空格续行——数据无损，但 review 与
+// diff 的逐行可读性显著下降。
 function buildFileContent(frontmatter, body) {
   const ordered = orderFrontmatterFields(frontmatter);
-  return `---\n${stringifyYaml(ordered)}---\n\n${body}\n`;
+  return `---\n${stringifyYaml(ordered, { lineWidth: 0 })}---\n\n${body}\n`;
 }
 
-function orderFrontmatterFields(frontmatter) {
-  const order = [
-    "fact_type_key", "object_uid", "title", "status",
-    "serves", "summary", "scope", "plan",
-    "gate_1", "attempt", "result", "outcome",
-    "relations", "created_at", "change_log",
-  ];
+/**
+ * frontmatter 键序：**本数组必须覆盖 VALID_FM_KEYS 的每个成员**——未列入者会被
+ * 下面的兜底循环追加到 `change_log` 之后，其位置即失去定义。
+ *
+ * 这正是实测缺陷：`gist`（2e11707 引入）与 `reviews` 都进入了闭集却没有进入本
+ * 数组，于是落盘位置取决于「何时引入」而非语义归属——实测两份 draft 的 `gist`
+ * 都落在 `change_log` 之后。`schema-writer-agreement.test.mjs` 守的是「工具 schema
+ * ↔ 闭集」这条缝，不覆盖本数组，故该不同步长期无守卫；现由同文件新增的序数组
+ * 完整性用例守住（断言本数组 ⊇ 闭集）。
+ *
+ * **顺序取「与存量一致 + 语义分块」，不是照抄 §8 表的行序**（如实说明）：§8 表把
+ * `status` 排在倒数第 4 位，而存量 16/16 个对象的实际位置都是第 4 位（紧随
+ * `title`）。表序是「字段逐条说明」的书写顺序，不是键序约定。故此处保留 `status`
+ * 的存量位置，只把两个缺位字段插回语义归属处：`gist` 紧随 `status`（与 `title`
+ * 同属 Human 扫读入口），`reviews` 置于 `attempt` 之后、`result` 之前（同属执行期
+ * 累计的分组）。
+ *
+ * 键序本身不是规则：24 号已明示 YAML 映射无序、写入方按任意顺序书写均合规、
+ * 读取端不得因顺序校验或拒绝消费。故此处只求「同类型内稳定且可解释」，不构成
+ * 对调用方的约束，也不新增任何拒绝路径。
+ */
+export const FRONTMATTER_FIELD_ORDER = [
+  "fact_type_key", "object_uid", "title", "status", "gist",
+  "serves", "summary", "scope", "plan",
+  "gate_1", "attempt", "reviews", "result", "outcome",
+  "relations", "created_at", "change_log",
+];
+
+export function orderFrontmatterFields(frontmatter) {
+  const order = FRONTMATTER_FIELD_ORDER;
   const out = {};
   for (const key of order) if (key in frontmatter) out[key] = frontmatter[key];
   for (const key of Object.keys(frontmatter)) if (!order.includes(key)) out[key] = frontmatter[key];
@@ -308,6 +335,26 @@ function detectLifecycleGate(step, doneCriteria) {
   return [...new Set(hits)];
 }
 
+/**
+ * 21 §6.1 关口门禁的适用范围判定（2026-09-18，Human 裁定方案 1）。
+ *
+ * 门禁针对的是「把关口**写成**计划」这一**面向未来**的行为，不是惩罚
+ * **已经写在计划里的历史记录**。故只在 plan 相对基线的**新增或改动**项上生效：
+ *
+ *   - 基线缺失（create / 无既有对象）：全部 plan 项皆为新，全部受检；
+ *   - 有基线：仅 `baselinePlan[i]` 不存在（新增项）或内容不等（改动项）时受检；
+ *     **逐字未改的既有项放行**。
+ *
+ * 理由（实测，2026-09-18）：存量 open 工单中 5 个已执行完毕、正待 Gate 2 关闭，
+ * 其 plan 末尾的关口步是**已兑现判据的历史记录**。若一律拒绝，则 `close` 写入
+ * 也被挡住 —— 而 close 是唯一出口，且 WorkCase 无删除操作（21 §14），会造成真实
+ * 死锁。逐字放行使「保留历史原样」与「门禁生效」不再冲突：历史不可改写，未来
+ * 不可再写。
+ *
+ * 注意这不构成豁免：任何**改动**既有项（哪怕只改一字）都会使它重新受检。
+ * 同位置的内容比对按 step+done_criteria 的精确字符串，不做归一化——归一化会
+ * 制造「一个空格」式的绕过面。
+ */
 /**
  * 21 §6.1 关口门禁的适用范围判定（2026-09-18，Human 裁定方案 1）。
  *

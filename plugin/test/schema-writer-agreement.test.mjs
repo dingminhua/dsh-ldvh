@@ -337,3 +337,79 @@ test("schema/writer agreement: every fact-type writer is covered by this guard",
 		`writer(s) ${uncovered.join(", ")} exist but are not covered by the schema/writer agreement guard — add them to TYPES`,
 	);
 });
+
+// ---------------------------------------------------------------------------
+// 键序数组完整性 + 序列化选项一致性（跨 writer 约定）
+// ---------------------------------------------------------------------------
+// 这两条缝此前没有任何守卫，实测已各自产生缺陷：
+//
+//   ① 键序数组：`gist`（2e11707）与 `reviews` 进入了 writer 闭集却没有进入
+//      `FRONTMATTER_FIELD_ORDER`，于是落盘位置取决于「何时引入」而非语义归属
+//      —— 实测两份 draft 的 `gist` 都落在 `change_log` 之后。上面的
+//      schema/writer 守卫守的是「工具 schema ↔ 闭集」，不覆盖这条缝。
+//      spark 同样缺 `refs`，故本守卫覆盖全部登记的 writer 而不只 workcase。
+//
+//   ② 序列化选项：`lineWidth: 0` 是 ef08d9e（2026-09-06，Human 反馈「YAML 折行
+//      不可读」）确立的跨 writer 约定，7 个 writer 已跟进，workcase（2026-09-15
+//      建立）未继承——长中文 summary/scope 被折成 ~80 列 + 2 空格续行。数据无损，
+//      但 review 与 diff 的可读性下降。选项藏在 `buildFileContent` 里且非导出，
+//      故按源码文本断言（与「按源码解析」同法，见 closure-items.test.mjs 先例）。
+
+/** writer 模块 → 其导出的键序数组名。未导出序数组者不列入（无法机械核对）。 */
+const ORDER_ARRAYS = [
+	{ name: "workcase", module: "workcase-writer.js", arrayExport: "FRONTMATTER_FIELD_ORDER" },
+];
+
+test("schema/writer agreement: the frontmatter order array covers the writer's whole closed set", async () => {
+	for (const entry of ORDER_ARRAYS) {
+		const mod = await import(join(LIB, entry.module));
+		const order = mod[entry.arrayExport];
+		const keys = mod.VALID_FM_KEYS;
+		assert.ok(Array.isArray(order), `${entry.name}: ${entry.arrayExport} must be an exported array`);
+		assert.ok(keys instanceof Set, `${entry.name}: VALID_FM_KEYS must be a Set`);
+
+		// 未列入序数组的字段会被 orderFrontmatterFields 的兜底循环追加到末尾，
+		// 位置即失去定义 —— 这正是 gist/reviews 的实测缺陷形态。
+		const missing = [...keys].filter((k) => !order.includes(k));
+		assert.deepEqual(
+			missing,
+			[],
+			`${entry.name}: field(s) ${missing.join(", ")} are in the closed set but missing from ${entry.arrayExport}`
+				+ ` — they would be appended after change_log, so their position is undefined (this is how gist/reviews were lost)`,
+		);
+
+		// 反向：序数组不得含闭集之外的键（否则该键的书写序说明的是不存在的字段）
+		const extra = order.filter((k) => !keys.has(k));
+		assert.deepEqual(
+			extra,
+			[],
+			`${entry.name}: ${entry.arrayExport} lists field(s) ${extra.join(", ")} that are not in the closed set`,
+		);
+	}
+});
+
+test("schema/writer agreement: every writer disables YAML folding (lineWidth: 0 跨 writer 约定)", async () => {
+	const { readdir } = await import("node:fs/promises");
+	const files = (await readdir(LIB)).filter((name) => name.endsWith("-writer.js"));
+	const offenders = [];
+	for (const file of files) {
+		const src = await readFile(join(LIB, file), "utf8");
+		// 只看**实际调用点**，不看整份源码：注释里提到 `lineWidth: 0` 不算数。
+		// （本守卫初版按整份源码的 includes 判定，变异验证发现把注释删掉实现
+		//  仍能通过——那个假阴性正是本守卫要防的形状。故改为逐调用点检查。）
+		const callSites = src.match(/stringifyYaml\([^;]*\)/g) ?? [];
+		if (callSites.length === 0) continue; // 不序列化 YAML 的文件不适用
+		for (const call of callSites) {
+			// 只有当这次调用序列化的对象可能含长文本时才要求禁用折行；
+			// 这里一律要求，因为所有 writer 的 frontmatter 都含长字段。
+			if (!/lineWidth\s*:\s*0/.test(call)) offenders.push(`${file}: ${call.replace(/\s+/g, " ").slice(0, 80)}`);
+		}
+	}
+	assert.deepEqual(
+		offenders,
+		[],
+		`writer(s) serialize YAML without { lineWidth: 0 } at the actual call site:\n  ${offenders.join("\n  ")}`
+			+ `\nlong CJK text is folded at ~80 columns with 2-space continuations, which is unreadable in review and diff`
+			+ ` (Human feedback 2026-09-06, ef08d9e)`,
+	);
+});
