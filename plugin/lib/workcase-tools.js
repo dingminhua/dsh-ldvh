@@ -38,10 +38,11 @@ import {
   rebatchWorkcaseObject,
   cancelWorkcaseObject,
   reviseWorkcaseObject,
+  recordWorkcaseReview,
   listWorkcaseObjects,
 } from "./workcase-writer.js";
-import { currentRouteValues } from "./session-signature.js";
-import { authoritativeSignature } from "./signature-channel.js";
+import { currentRouteValues, currentSessionIdentity } from "./session-signature.js";
+import { authoritativeSignature, authoritativeSessionIdentity } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { join } from "node:path";
 import { registerWriteShapedTool } from "./host-seams.js";
@@ -60,7 +61,7 @@ const OPERATIONS = {
   "workcase-write-object": {
     toolName: "ldvh_workcase_write",
     writeShaped: true,
-    summary: "Controlled write of WorkCase fact objects across the 工单 lifecycle: create (C1 提案, draft), approve (Gate 1: stamps authorization fingerprint + attempt 1; returns plan_step_reference — the authoritative 「计划步骤 N」清单), execute (open-period; plan/scope frozen by C2), close (Gate 2: result+outcome, attempt 收口), rebatch (C2 局部重批 open→draft), cancel (draft→closed cancelled), revise (draft evolution) (specs/03 §9.4–§9.5, specs/21 §14). 写「执行」节时引用计划步骤请用「计划步骤 N」（21 §8 记账纪律）",
+    summary: "Controlled write of WorkCase fact objects across the 工单 lifecycle: create (C1 提案, draft), approve (Gate 1: stamps authorization fingerprint + attempt 1; returns plan_step_reference — the authoritative 「计划步骤 N」清单), execute (open-period; plan/scope frozen by C2), close (Gate 2: result+outcome, attempt 收口; requires at least one review recorded by a session OTHER than the executor, workcase-2be11478), rebatch (C2 局部重批 open→draft), cancel (draft→closed cancelled), revise (draft evolution), record_review (append ONE review entry carrying the caller's Code-stamped session identity — the narrow channel for an isolated reviewer) (specs/03 §9.4–§9.5, specs/21 §14). 写「执行」节时引用计划步骤请用「计划步骤 N」（21 §8 记账纪律）",
     effect: "may_change_state"
   }
 };
@@ -100,6 +101,26 @@ async function signatureFor(deps, exec) {
   const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
   if (!route.ok) return { ok: false, reason: route.reason };
   return { ok: true, value: authoritativeSignature({ provider: route.value.provider, model: route.value.model }) };
+}
+
+/**
+ * The authoritative SESSION IDENTITY of the calling session
+ * (workcase-2be11478 计划步骤 2).
+ *
+ * 与 signatureFor 并列但语义不同：署名答「跑在哪个 provider/model 上」（路由值，
+ * 同路由的多个会话相同），身份答「这是哪个会话」（会话记录首行的 id，会话间唯一）。
+ * 关闭侧的身份比对用的是后者——前者无法区分复核者与实施者。
+ *
+ * 取不到时返回 null（不是占位值）：调用方据此让关闭门禁 fail-closed，而不是
+ * 用一个猜的身份放行。
+ */
+async function sessionIdentityFor(deps, exec) {
+  const identity = await currentSessionIdentity(deps.sessionPersistence?.(), exec?.agent);
+  if (!identity.ok) return { ok: false, reason: identity.reason };
+  // source: "host" —— 身份取自宿主执行上下文（exec.agent），不由参数/环境变量控制。
+  const carrier = authoritativeSessionIdentity({ ...identity.value, source: "host" });
+  if (carrier === null) return { ok: false, reason: "the session record carries no usable identity" };
+  return { ok: true, value: carrier };
 }
 
 // ---------------------------------------------------------------------------
@@ -226,7 +247,7 @@ async function executeListObject(args, exec, deps) {
 // write handler — seven controlled actions (21 §14)
 // ---------------------------------------------------------------------------
 
-const WRITE_ACTIONS = new Set(["create", "approve", "execute", "close", "rebatch", "cancel", "revise"]);
+const WRITE_ACTIONS = new Set(["create", "approve", "execute", "close", "rebatch", "cancel", "revise", "record_review"]);
 
 /**
  * 21 §10.1 Gate 1 提请必含要素中**没有对象字段承载**的那几项。
@@ -298,6 +319,11 @@ async function executeWriteObject(args, exec, deps) {
       follow_up: ["human must resolve the session signature source, then retry"]
     });
   }
+  // 会话身份（workcase-2be11478 计划步骤 2）：与署名并列、语义不同，见 sessionIdentityFor。
+  // 取不到时 ident.ok 为 false，但**不在此处拒绝**——身份只在需要它的 action
+  // （approve/execute/record_review）与关闭门禁上起作用；read 类 action 不依赖它。
+  // 各 action 分支按需 fail-closed，避免把身份缺失升级成整个写入面不可用。
+  const ident = await sessionIdentityFor(deps, exec);
 
   let result;
   if (action === "create") {
@@ -377,7 +403,7 @@ async function executeWriteObject(args, exec, deps) {
           "approve",
         );
       }
-      result = await approveWorkcaseObject({ factSourceRoot, objectUid, expectedFingerprint, approver, controller, changeSummary, sessionSignature: sig.value });
+      result = await approveWorkcaseObject({ factSourceRoot, objectUid, expectedFingerprint, approver, controller, changeSummary, sessionSignature: sig.value, sessionIdentity: ident.value });
     } else if (action === "execute") {
       const frontmatterAfter = args?.frontmatter_after;
       const bodyMarkdownAfter = args?.body_markdown_after;
@@ -386,7 +412,7 @@ async function executeWriteObject(args, exec, deps) {
       }
       const attemptOperation = args?.attempt_operation ?? "heartbeat";
       const newController = typeof args?.new_controller === "string" && args.new_controller.length > 0 ? args.new_controller : null;
-      result = await executeWorkcaseObject({ factSourceRoot, objectUid, expectedFingerprint, frontmatterAfter, bodyMarkdownAfter, changeSummary, attemptOperation, newController, sessionSignature: sig.value });
+      result = await executeWorkcaseObject({ factSourceRoot, objectUid, expectedFingerprint, frontmatterAfter, bodyMarkdownAfter, changeSummary, attemptOperation, newController, sessionSignature: sig.value, sessionIdentity: ident.value });
     } else if (action === "close") {
       const outcome = args?.outcome;
       const resultPayload = args?.result;
@@ -409,6 +435,111 @@ async function executeWriteObject(args, exec, deps) {
         return invalidRequest("workcase-write-object", "result ({achieved_scope: 取消理由与未发生的范围}) and body_markdown_after (including the 结果 section) are required for action=cancel (21 §9.2)", "cancel");
       }
       result = await cancelWorkcaseObject({ factSourceRoot, objectUid, expectedFingerprint, result: resultPayload, changeSummary, bodyMarkdownAfter, sessionSignature: sig.value });
+    } else if (action === "record_review") {
+      // 复核结论回传通道（workcase-2be11478 计划步骤 4）：只追加一条 reviews 条目，
+      // 不授予任何其它写能力。
+      //
+      // 两条合法入口（对应本单 scope (C) 的「受管辖子代理**或**另一受管辖根会话」）：
+      //  (a) 由**另一个受管辖根会话**直接调用（sessionIdentity = 它自己的 host 身份）；
+      //  (b) 由父会话**代其子代理**回传：指定 `reviewer_child_agent_id`，此时身份与结论
+      //      都取自宿主登记表（Code 亲观测），见下方子分支。
+      // 子代理自身不注册 ldvh_* 工具（lifecycle.js 的 origin==="subagent" 分支），
+      // 故 (b) 是「开启代理做独立审核」在机械上可行的路径。
+      const childAgentId = requireString(args, "reviewer_child_agent_id", action);
+      let summary = requireString(args, "summary", action);
+      let reviewerIdentity = ident.value;
+      let reviewerChildNote = null;
+      if (childAgentId !== null) {
+        // 代子代理回传：身份取自宿主登记表（调用方**不可设置**），结论取子代理
+        // **真实产出的最终文本**（Code 在 turn-end 捕获）——故实施者既不能伪造
+        // 身份，也不能把自查文本冒充成子代理的结论。
+        const lookup = deps?.lookupChild;
+        if (typeof lookup !== "function") {
+          return envelope("workcase-write-object", "unavailable", {
+            result: null,
+            scope: { requested: action, completed: [], not_completed: [action] },
+            sources: [],
+            gaps: ["review_channel_unavailable: the host does not expose the subagent registry, so a delegated "
+              + "review cannot be attributed to the reviewer's own session. Report to HUMAN — do not substitute the "
+              + "implementer's own summary for the reviewer's conclusion."],
+            verification: { checks: ["governance-scope", "session-identity"], passed: false },
+            follow_up: ["human must enable the subagent registry seam, then retry"],
+          });
+        }
+        const child = lookup(childAgentId);
+        if (child === null) {
+          return invalidRequest("workcase-write-object",
+            `reviewer_child_agent_id ${JSON.stringify(childAgentId)} is not a subagent registered under this session — `
+            + "only a session the host actually observed may be cited as the reviewer", "record_review");
+        }
+        if (typeof child.conclusion !== "string" || child.conclusion.trim().length === 0) {
+          return invalidRequest("workcase-write-object",
+            `subagent ${childAgentId} has produced no captured conclusion yet — there is nothing to record as its review. `
+            + "Wait for it to finish its turn, then retry (an empty conclusion is a real state, not a review).", "record_review");
+        }
+        // 结论文本以子代理的真实产出为准。21 §8 要求 reviews[].summary ≤ 600 字符，
+        // 且「复核详情不入对象」（归会话 transcript）；而子代理的 captured conclusion
+        // 是它的**最终正文全文**，通常远超 600 —— 直接采用会被上限拒绝，使通道对真实
+        // 复核不可用（本单实测：一份七要素结论 672 字符即被拒）。
+        //
+        // 故：调用方只能提供**概要**（≤600），而该概要必须是子代理结论的**逐字子串**
+        // ——既保证概要有出处（不被父会话自由改写），又让全文留在 transcript 里，与
+        // §8 分工一致。省略 summary 时取结论首段，若其本身超限则要求调用方指明概要。
+        const conclusion = child.conclusion.trim();
+        if (summary !== null) {
+          if (!conclusion.includes(summary.trim())) {
+            return invalidRequest("workcase-write-object",
+              "the supplied summary is not a verbatim excerpt of the reviewer subagent's captured conclusion — the "
+              + "recorded summary must be traceable to what the reviewer actually produced, not rewritten by the parent "
+              + "session (防「代述」冒充). Pass an exact substring of its conclusion (the full text stays in the "
+              + "transcript, per 21 §8 复核详情不入对象).", "record_review");
+          }
+          summary = summary.trim();
+        } else {
+          // 取首段；仍超限则要求调用方显式提供 ≤600 的逐字概要，而不是静默截断
+          // （截断会产生一个看似完整、实则被腰斩的结论，属伪造边界的形态）。
+          const firstParagraph = conclusion.split(/\n\s*\n/)[0].trim();
+          if (firstParagraph.length <= 600) {
+            summary = firstParagraph;
+          } else {
+            return invalidRequest("workcase-write-object",
+              "the reviewer subagent's conclusion is longer than the 600-char reviews[].summary cap (21 §8). The full "
+              + "text belongs in the transcript (复核详情不入对象); pass `summary` as a verbatim excerpt (≤600 chars) of "
+              + "it. Refusing rather than truncating: a silently truncated conclusion would read as complete.",
+              "record_review");
+          }
+        }
+        reviewerIdentity = authoritativeSessionIdentity({ sessionId: child.sessionId, source: "host", origin: "subagent" });
+        if (reviewerIdentity === null) {
+          return invalidRequest("workcase-write-object", `subagent ${childAgentId} carries no usable session identity`, "record_review");
+        }
+        reviewerChildNote = childAgentId;
+      }
+      if (summary === null) {
+        return invalidRequest(
+          "workcase-write-object",
+          "summary (the review conclusion, ≤600 chars, carrying the 02 §15 seven elements: 对象/基线/方法/覆盖/未覆盖/发现/保证边界) is required for action=record_review",
+          "record_review",
+        );
+      }
+      if (!ident.ok) {
+        return envelope("workcase-write-object", "unavailable", {
+          result: null,
+          scope: { requested: action, completed: [], not_completed: [action] },
+          sources: [],
+          gaps: [`review_identity_unavailable: the caller's authoritative session identity could not be read from the DSH session record (${ident.reason}). `
+            + "This channel exists precisely so that WHO recorded a review is proven by Code, not asserted by a caller — "
+            + "recording without it would make an implementer's self-check indistinguishable from an independent review "
+            + "(workcase-2be11478). REPORT TO HUMAN: run the review from a DSH shell/session whose session log is readable, then retry."],
+          verification: { checks: ["governance-scope", "signature-source", "session-identity"], passed: false },
+          follow_up: ["human must ensure the reviewing session's authoritative record is readable, then retry"]
+        });
+      }
+      result = await recordWorkcaseReview({
+        factSourceRoot, objectUid, expectedFingerprint, summary,
+        changeSummary, sessionSignature: sig.value, sessionIdentity: reviewerIdentity,
+        reviewerNote: reviewerChildNote === null ? null : `记录自子代理会话 ${reviewerChildNote} 的最终产出（Code 捕获）`,
+      });
     } else {
       // revise
       const frontmatterAfter = args?.frontmatter_after;
@@ -580,7 +711,9 @@ function parameterSchemaFor(operationKey) {
   const casArgs = {
     object_uid: { type: "string", description: "target object" },
     expected_fingerprint: { type: "string", description: "CAS baseline fingerprint from your last precise read (03 §9.5)" },
-    change_summary: { type: "string", description: "one short semantic summary for the change_log entry" }
+    change_summary: { type: "string", description: "one short semantic summary for the change_log entry" },
+    summary: { type: "string", description: "record_review: the review conclusion (≤600 chars), carrying the 02 §15 seven elements (对象/基线/方法/覆盖/未覆盖/发现/保证边界). `at`, provider/model and session_id are stamped by Code — the caller supplies only this text. When reviewer_child_agent_id is given, this MUST match the subagent's captured conclusion verbatim (or be omitted to adopt it)." },
+    reviewer_child_agent_id: { type: "string", description: "record_review: relay an ISOLATED SUBAGENT's review — pass its agent id (from the subagent tool). The identity and the conclusion text are then taken from the host's own subagent registry (Code-observed, not settable by the caller), so the implementer can neither forge the reviewer's identity nor substitute its own text. Omit to record YOUR OWN session's review (then your session must differ from the implementer's)." }
   };
   switch (operationKey) {
     case "workcase-read-object":
@@ -605,7 +738,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          action: { type: "string", enum: ["create", "approve", "execute", "close", "rebatch", "cancel", "revise"] },
+          action: { type: "string", enum: ["create", "approve", "execute", "close", "rebatch", "cancel", "revise", "record_review"] },
           frontmatter_draft: workcaseFrontmatter,
           body_markdown: { type: "string", description: "create: the body markdown starting with '## 摘要' (H2 sections 摘要/授权范围/计划; the H1 is generated from title)" },
           routing_request: { type: "string", description: "create: the Human's request in their own words, shown in the 21 §6.3 routing prompt (e.g. 「帮我把 X 改掉」). Optional but strongly recommended — it is what lets the Human recognise which piece of work is being routed." },
@@ -664,6 +797,9 @@ function parameterSchemaFor(operationKey) {
   }
 }
 
+/**
+ * Build the registration descriptor for one operation.
+ */
 export function toolDescriptorFor(operationKey, operation, handler) {
   return {
     name: operation.toolName,

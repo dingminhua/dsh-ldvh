@@ -33,11 +33,74 @@
 //     layer must keep using the host path.
 
 import { decompressZstdStream } from "./zstd-compat.js";
-import { authoritativeSignature } from "./signature-channel.js";
+import { authoritativeSignature, authoritativeSessionIdentity } from "./signature-channel.js";
 import { access, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const ROUTING_EVENT_TYPES = new Set(["model/selection", "request/context"]);
+
+/**
+ * Pure: read the FIRST `session` record of a session log and return its
+ * identity fields. This is the authoritative "which session is this" fact:
+ * DSH writes it as the log's opening record, before any turn runs.
+ *
+ * Returns an unavailable result (never a guess) when the record is missing or
+ * carries no usable id — the caller must then treat the identity as
+ * unobtainable rather than substituting a placeholder value.
+ *
+ * Fields read (all observed on real DSH logs, 2026-09-19):
+ *   id                — the session's own identifier
+ *   origin            — "subagent" on delegated sessions
+ *   parentSession     — the delegating session's id (subagents only)
+ *   delegationDepth   — 0 for roots, 1+ for delegated sessions
+ */
+export function extractSessionIdentityFromLines(lines) {
+  for (const line of lines) {
+    if (line.trim().length === 0) continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (typeof event !== "object" || event === null) continue;
+    if (event.type !== "session") continue;
+    const sessionId = event.id;
+    if (typeof sessionId !== "string" || sessionId.length === 0) {
+      return { ok: false, reason: "the session record carries no usable id" };
+    }
+    return {
+      ok: true,
+      value: {
+        sessionId,
+        origin: typeof event.origin === "string" ? event.origin : null,
+        parentSession: typeof event.parentSession === "string" ? event.parentSession : null,
+        delegationDepth: Number.isInteger(event.delegationDepth) ? event.delegationDepth : null
+      }
+    };
+  }
+  return { ok: false, reason: "session log carries no leading session record" };
+}
+
+/**
+ * Read the authoritative session identity for an agent (host path), same
+ * log-location contract as `currentRouteValues`. `agent` is the tool-execution
+ * /assembly-context Agent object whose `session.header` identifies the log.
+ */
+export async function currentSessionIdentity(sessionPersistence, agent) {
+  if (sessionPersistence === undefined || sessionPersistence === null) return { ok: false, reason: "sessionPersistence service is unavailable" };
+  if (agent === undefined || agent?.session?.header === undefined) return { ok: false, reason: "caller session identity is unavailable" };
+  const location = sessionPersistence.locate?.(agent.session.header);
+  if (location === undefined || location === null) return { ok: false, reason: "persistence backend has no log location for this session" };
+  if (location.kind !== "jsonl") return { ok: false, reason: `persistence backend "${location.kind}" is not the jsonl authority` };
+  let text;
+  try {
+    text = await readSessionLogText(location.path);
+  } catch (error) {
+    return { ok: false, reason: `session log unreadable: ${String(error?.message ?? error)}` };
+  }
+  return extractSessionIdentityFromLines(splitJsonlLines(text));
+}
 
 /**
  * Pure: walk parsed JSONL lines from the END and return the last routing
@@ -196,4 +259,32 @@ export async function currentRouteValuesFromShellEnvironment() {
 export async function shellAuthoritativeSignature() {
   const route = await currentRouteValuesFromShellEnvironment();
   return route.ok ? authoritativeSignature(route.value) : null;
+}
+
+/**
+ * The sanctioned SESSION-IDENTITY source for direct writer calls made by
+ * scripts: resolves THIS shell's authoritative session identity via the
+ * DSH-injected environment and wraps it into the branded carrier the WorkCase
+ * writer accepts. Returns null when the identity is unavailable (plain/CI
+ * shells, missing log, no leading session record) — the caller then passes
+ * null and the WorkCase close gate fails closed rather than guessing.
+ *
+ * 值全程 Code→Code：env → session log → leading session record → brand，
+ * 代理不经手。这是受管辖子代理（不注册 ldvh_* 工具）回传其会话身份的正规
+ * 通道（workcase-2be11478 计划步骤 4）。
+ */
+export async function shellAuthoritativeSessionIdentity() {
+  const located = await shellSessionLogPath();
+  if (!located.ok) return null;
+  let text;
+  try {
+    text = await readSessionLogText(located.value);
+  } catch {
+    return null;
+  }
+  const identity = extractSessionIdentityFromLines(splitJsonlLines(text));
+  // source: "shell" —— 身份来自环境变量 + 日志文件，而两者对调用者**可设置**，
+  // 故该来源**可被伪造**，不构成独立性证据（独立对抗复核实测，2026-09-19）。
+  // 该标记使写入器能机械拒收 shell 来源的复核身份。
+  return identity.ok ? authoritativeSessionIdentity({ ...identity.value, source: "shell" }) : null;
 }

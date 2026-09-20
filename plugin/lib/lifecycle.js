@@ -74,6 +74,13 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // its own guard (ldvh-tools.js: `deps.children !== undefined`) and
           // never registers — found in live verification, not by unit tests.
           children,
+          // 子代理身份的可信来源（workcase-2be11478 计划步骤 4）：子代理本身
+          // 不注册 ldvh_* 工具（`origin === "subagent"` 走 installChild 后即返回），
+          // 故它无法自行记录复核结论。宿主侧的这张登记表持有 Code 亲观测到的
+          // 子代理会话身份（`agent.session.header.id`）与其结论，是**调用方不可
+          // 设置**的可信事实——工具层据此代其落盘复核条目，使「开启代理做独立
+          // 审核」在机械上真正可行。
+          lookupChild,
           // 08 §6: the registration entries route their 07 §5.6 Human Gate
           // consent through ctx.userQuestions.ask via this registry.
           hostSeams

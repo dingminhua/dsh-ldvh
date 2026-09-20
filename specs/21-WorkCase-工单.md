@@ -142,8 +142,8 @@ frontmatter 闭集：
 | `scope` | string | 必填 | 授权范围与边界 | 必须同时回答「做什么」与「明确不做什么」；是越权拒绝的比对基准 |
 | `plan` | array | 必填 | 可执行计划步骤 | 每项 `{step, done_criteria}`；`done_criteria` 必须可被证据判定；格式齐全只待批准（31 §10.1 出口形态） |
 | `gate_1` | object | 条件 | Gate 1 批准记录与授权包 | 批准后必填：`{approved_at, approver, authorization_fingerprint, scope_snapshot}`；`authorization_fingerprint` 绑定当次 `plan` + `scope` 的内容指纹 |
-| `attempt` | object | 条件 | 当前执行 attempt 令牌 | 执行期必填：`{attempt_id, started_at, controller, heartbeat_at}`；`attempt_id` 由 Code 单调分配；至多一个活跃 attempt |
-| `reviews` | array | 条件 | 复核节点概要流水 | 每次独立复核后追加一项：`{at, provider, model, summary}`；`at` 与署名由 Code 托管；`summary` 为**结构化概要且每项 ≤ 600 字符**，至少含 02 §15 判据七要素（对象／基线／方法／覆盖／未覆盖／发现／保证边界）；**复核详情不入对象**（归会话 transcript）；条数上限 20，达上限 fail-closed 拒绝新增并报告；仅记录**实际执行**的复核，未执行不得伪造 |
+| `attempt` | object | 条件 | 当前执行 attempt 令牌 | 执行期必填：`{attempt_id, started_at, controller, heartbeat_at, session_id}`；`attempt_id` 由 Code 单调分配；至多一个活跃 attempt；`session_id` 为该 attempt 所属执行会话的权威身份，由 Code 从 DSH 会话记录取得（AI 不得自填），是关闭侧独立性比对的基准——本锚点之前建立的存量对象可缺席，由执行期心跳按当前会话补齐 |
+| `reviews` | array | 条件 | 复核节点概要流水 | 每次独立复核后追加一项：`{at, provider, model, summary, session_id, session_source, implementer_session_id, implementer_session_source}`；`at`、署名与 `session_id` 均由 Code 托管（`session_id` 为记录该复核的会话身份，取自 DSH 会话记录）；`summary` 为**结构化概要且每项 ≤ 600 字符**，至少含 02 §15 判据七要素（对象／基线／方法／覆盖／未覆盖／发现／保证边界）；**复核详情不入对象**（归会话 transcript）；条数上限 20，达上限 fail-closed 拒绝新增并报告；仅记录**实际执行**的复核，未执行不得伪造 |
 | `result` | object | 条件 | 执行结果核对结论 | 关闭提案时必填：`{criteria_checks[], achieved_scope, residual[]}`；`criteria_checks` 逐条对应 `plan[].done_criteria` |
 | `outcome` | string | 条件 | 终态判定 | `closed` 时必填，闭集 `completed` / `partial` / `not-achieved` / `cancelled` |
 | `status` | string | 必填 | `draft` / `open` / `closed` | 初态 `draft` |
@@ -295,9 +295,11 @@ attempt 令牌回答「当前谁在做、做到哪里」，**不承载任何授�
 
 - **创建（draft）**：C1 提案对象模式（AI 只产出提案对象，含查重结果；Human 确认后经受控创建入口落盘）。创建前必须查重。机械校验：字段闭集合法、`gist` 非空且 ≤ 200 字符、`plan` 每项 `done_criteria` 非空、`scope` 同时含做什么与不做什么、`serves`（若声明）匹配 goal.md 存在的 SG-n、`status = draft` 且无 `gate_1`/`attempt`/`result`。创建后精确回读。
 - **Gate 1 批准（draft → open）**：Human Gate；AI 先做 F3 核对；Code 校验闭集、字段、指纹与回读；`gate_1` 与状态翻转与 change_log 在同一事务完成。
-- **执行期更新**（进度、`result` 草稿、`reviews` 录入、attempt 续接或作废）：03 §9.5 受控更新；CAS 以完整文件为单位，绑定 `content_fingerprint`；每次实际修改恰好一条 change_log（含理由）。attempt 续接必须已按 §10.4 第 3 点核对副作用范围。**`reviews` 录入的机械校验**：每项须为 `{at, provider, model, summary}`，`summary` 非空且 ≤ 600 字符，条数 ≤ 20；达上限时 fail-closed 拒绝新增并报告，**不得压缩或静默丢弃既有条目**；`at` 与署名由 Code 托管，AI 不得自填。**正文不设复核节**：复核详情不入对象，正文无须为其新增 H2。
-- **Gate 2 关闭（open → closed）**：Human Gate；`result` + `outcome` + 状态翻转 + `attempt` 收口 + change_log 同一事务完成；写后精确回读。**关闭前置条件：`reviews` 须非空**——即关闭前须已存在至少一条 `reviews` 记录；缺失（字段不存在）时**一律拒绝关闭并报告**，不得以正文自述或对话声明替代。WorkCase 准入（§6 对象边界）已排除「当次行动可直接处理的低风险改动（不对象化）」，故凡进入 WorkCase 者，独立复核（§8、02 §15）为必经环节，不设低风险豁免。**无法执行独立复核时不得关闭**：按 §18 停止条件处置，保持 `open` 并交还 Human，不得以 `partial`/`cancelled` 等终态掩盖复核缺失。（依 Human 裁定 2026-09-17。）
+- **执行期更新**（进度、`result` 草稿、`reviews` 录入、attempt 续接或作废）：03 §9.5 受控更新；CAS 以完整文件为单位，绑定 `content_fingerprint`；每次实际修改恰好一条 change_log（含理由）。attempt 续接必须已按 §10.4 第 3 点核对副作用范围。**`reviews` 录入的机械校验**：每项须为 `{at, provider, model, summary, session_id}`，`summary` 非空且 ≤ 600 字符，条数 ≤ 20；达上限时 fail-closed 拒绝新增并报告，**不得压缩或静默丢弃既有条目**；`at`、署名与 `session_id` 由 Code 托管，AI 不得自填。**已携带 `session_id` 的条目是历史记录：其它会话不得改写其 `summary`**（要改变某次复核的结论应新增条目）；`session_id` 按条目索引继承，后续写入不得抹掉已有身份。**正文不设复核节**：复核详情不入对象，正文无须为其新增 H2。
+- **Gate 2 关闭（open → closed）**：Human Gate；`result` + `outcome` + 状态翻转 + `attempt` 收口 + change_log 同一事务完成；写后精确回读。**关闭前置条件一：`reviews` 须非空**——即关闭前须已存在至少一条 `reviews` 记录；缺失（字段不存在）时**一律拒绝关闭并报告**，不得以正文自述或对话声明替代。**关闭前置条件二：至少一条 `reviews` 须由独立于实施者的会话记录**——判据**按条目**比对：该条目的 `session_id` 与其自身记录下来的 `implementer_session_id`（**写入该条时**在任的实施者，Code 托管）不同。**必须按条目而非按「当前 attempt」比对**（独立对抗复核实测发现并修正，2026-09-19）：`reviews` 跨 attempt 保留，若只比对当前 attempt，则「实施者先写自查 → `takeover` 换 attempt 身份 → 关闭」即可把自查当成独立证据（实测通过）。**身份来源可信边界**：仅 `session_source === "host"`（取自宿主执行上下文，不由调用方参数或环境变量控制）的身份可作为判据；`session_source === "shell"` **一律不计入**——该通道读 `DSH_SESSION_JSONL` / `DSH_HOME`+`DSH_SESSION_ID`，而两者对调用者可设置（实测：一行环境变量即铸出任意身份），故机械上不可信。两端来源非 `host` 的条目视为**无可比对身份**。`attempt.session_id` 缺失（不可建立比对基准）或全部候选 `session_id` 均等于实施会话时，**一律拒绝关闭并报告**：身份不可得**不得**解释为独立（未知不等于独立），同会话自评是合法的**主控自查**但**不得**充当独立复核（02 §15 三种形态互不替代）。实施者**无法**通过**调用参数**自填身份：`session_id` 只接受 Code 托管的品牌载体，普通对象、字符串或手工构造值一律解析为「无身份」。**但这一保证的边界必须写明**：品牌是**进程内 Symbol 约定**，不是密码学签名——任何能执行代码的调用者（如经 shell 直调 lib）都可以 import 工厂自行铸造标识为 `host` 的载体。故本条的机械保证范围是**受控工具面**（`ldvh_workcase_write` 等经注册的入口），**不是「任意代码执行」**；越过工具面直调实现文件的写路径，本条不提供保护——该层防护属 09 质量链的代码评审与 06 的受控提交（篡改实现需在 diff 中可见）。不得据此条声称「身份不可伪造」而不限定此范围。**机械层保证范围**：本条只证明「记录该复核的会话身份 ≠ 记录该实施尝试的会话身份」，**不证明**视角实质独立、内容正确或结论成立——后者归 AI/Human（02 §15）；同一主控编排出的隔离子会话在机械上满足本条，这不构成本条的缺陷，而是其被明确声明的边界。（依 Human 裁定 2026-09-19，workcase-2be11478：独立复核为必经环节，低风险工单不豁免。）**本条机械覆盖范围（如实声明，勿作过度声明）**：前置条件二由 `closeWorkcaseObject`（open→closed）机械执行；**`draft → closed`（`outcome = cancelled`）路径不受本条约束**——该路径经「先 `rebatch` 回 draft 再 `cancel`」可绕开关闭门禁，属 §15.1 已登记的已知缺口②，由 `workcase-4005b67b`（关闭侧授权与复核门禁）承接修复，**不在本条范围内**。故「凡 WorkCase 关闭必经独立复核」在本轮只对 `open → closed` 成立；在缺口②修复前，不得据此声称 `cancel` 路径已受约束。
+**本条的另两项已知边界（独立对抗复核后如实登记，2026-09-19）**：① 判据只证明「记录该复核的会话 ≠ 写入该条时在任的实施者」，**不证明**该复核针对的正是当前 attempt 的工作——`takeover`/`reallocate` 后，先前记录（针对旧执行者）仍满足本条，其对象一致性归 AI/Human 判断；② 本条的判据依赖 `session_source === "host"`，而宿主来源身份只由受管辖工具面（`ldvh_workcase_write`）提供；经 shell 直调写入器（`shellAuthoritativeSessionIdentity`）取得的身份**不被接受**（该通道读环境变量，可伪造），故复核记录须经受管辖会话的工具面完成——受管辖子代理经其**父会话代为回传**（`reviewer_child_agent_id`），身份与结论取自宿主登记表。WorkCase 准入（§6 对象边界）已排除「当次行动可直接处理的低风险改动（不对象化）」，故凡进入 WorkCase 者，独立复核（§8、02 §15）为必经环节，不设低风险豁免。**无法执行独立复核时不得关闭**：按 §18 停止条件处置，保持 `open` 并交还 Human，不得以 `partial`/`cancelled` 等终态掩盖复核缺失。（依 Human 裁定 2026-09-17。）
 - **局部重批（open → draft）**：由 §10.3 的授权失效触发；受影响范围重新组织后重走 Gate 1；`attempt` 作废；保留已取得的结果证据。
+- **复核记录**（`record_review`）：执行期受控更新的一种，**只追加一条** `reviews` 条目，不改变 `plan`/`scope`/`gate_1`/`attempt`/`result`（§9.1 注：录入 `reviews` 不触发 C2）。记录者身份与 `at`/署名一律由 Code 盖戳，调用方只提供复核结论文本。两条合法入口：① **另一受管辖根会话**直接记录（署名即该会话）；② 父会话**代其隔离子代理**回传——此时身份与结论文本均取自**宿主子代理登记表**（Code 亲观测，调用方不可设置），故父会话既不能代填复核者身份，也不能把自身文本替换为「子代理的结论」。子代理本身不注册受控工具（`origin === "subagent"` 的会话不进入工具注册路径），故 ② 是「开启代理做独立复核」在机械上可行的路径（详见 §15.1 复核独立性条目）。
 - **关系变更**（`contributed-to`）：随该次对象修改走完整更新入口，由 Code 追加恰好一条 change_log（03 §7.2 第 7 条）。WC 与 Pitfall 不要求原子共同成立（Pitfall 可独立存在并被多处引用），不按 03 §9.6 伪原子处理；但不得先写孤立关系再补对象。
 - **删除**：不存在删除操作。closed WorkCase 随 `ldvh-base/workcases/` 保留为历史基线与达成证据。
 
@@ -311,11 +313,12 @@ attempt 令牌回答「当前谁在做、做到哪里」，**不承载任何授�
 - attempt 唯一性：至多一个活跃 attempt；存在孤立 attempt 时，未完成副作用核对不得续跑或作废；
 - 关闭完整性：`closed` 时 `result` 非空、`outcome` 在闭集内、`criteria_checks` 与 `plan` 逐条对应且长度一致；
 - `gist` 完备性（§8）：`status ∈ {draft, open}` 时 `gist` 必填、非空且 ≤ 200 字符；超限或缺失即拒绝写入，不得截断后写入；`status = closed` 时本项不生效（终态只读，缺失合法——§8 已登记该分层必填的理由）。**未验证范围**：机械层只校验存在性与长度，**不校验内容是否达到「Human 扫读自足」的语义要求**（是否以编号引用或归因链开头、是否依赖读者先读其它字段）——该判断属 AI 语义审核与 Human 阅读，本项不声称超出机械边界。
-- 复核记录完备性：`reviews` 每项形状为 `{at, provider, model, summary}`，`summary` 非空且 ≤ 600 字符，条数 ≤ 20；超限或形状非法即拒绝写入，不得截断、压缩或静默丢弃；
+- 复核记录完备性：`reviews` 每项形状为 `{at, provider, model, summary, session_id}`，`summary` 非空且 ≤ 600 字符，条数 ≤ 20；超限或形状非法即拒绝写入，不得截断、压缩或静默丢弃；
+- 复核独立性（关闭侧）：关闭前至少一条 `reviews[].session_id` 与 `attempt.session_id` 不同；`attempt.session_id` 缺失、无任何条目携带 `session_id`、或全部候选均等于实施会话时，fail-closed 拒绝关闭并报告具体原因（21 §14 关闭前置条件二，workcase-2be11478）；
 - outcome 一致性：`outcome = completed` 时不得存在未达成的 `criteria_checks`；`partial`/`not-achieved` 时 `residual` 非空；
 - `serves` 有效性：声明时匹配 goal.md 中存在的 SG-n；
 - 关系闭集：`contributed-to` 目标必须可解析为同项目 Pitfall 对象；未知 relation key fail closed；
-- `plan` 内容边界（§6.1）：新增或改动的 `plan` 项命中生命周期关口形态时拒绝写入；逐字未改的既有项放行。**承载范围**：本项在实现中作用于全部 7 个 action 的唯一落盘汇聚点，且以**落盘前读到的既有对象**的 `plan` 为比对基线（非调用方 payload），故「改动既有项以规避」与「新增关口项」均被拒绝。基线比对为精确字符串，不做归一化。**未验证范围**：关口形态识别基于模式匹配而非语义理解——它能拒绝已知的关口写法，**不保证穷尽**；未列入模式的新写法不会被拦（这与 v4 §4.3「Code 不判断自然语言是否属于生命周期关口」的固有边界相同，本项不声称超出该边界）。
+- `plan` 内容边界（§6.1）：新增或改动的 `plan` 项命中生命周期关口形态时拒绝写入；逐字未改的既有项放行。**承载范围**：本项在实现中作用于全部 8 个 action（create/approve/execute/close/rebatch/cancel/revise/record_review）的唯一落盘汇聚点，且以**落盘前读到的既有对象**的 `plan` 为比对基线（非调用方 payload），故「改动既有项以规避」与「新增关口项」均被拒绝。基线比对为精确字符串，不做归一化。**未验证范围**：关口形态识别基于模式匹配而非语义理解——它能拒绝已知的关口写法，**不保证穷尽**；未列入模式的新写法不会被拦（这与 v4 §4.3「Code 不判断自然语言是否属于生命周期关口」的固有边界相同，本项不声称超出该边界）。
 
 ### 15.2 前提未满足时的声明限制（条件式）
 
@@ -325,6 +328,7 @@ attempt 令牌回答「当前谁在做、做到哪里」，**不承载任何授�
 |---|---|---|
 | attempt 的宿主实现（见 §10.4 第 4 项） | 不得声称 V6 接续与 HV2 受控可续中**依赖 attempt 的部分**已兑现 | **无**——在该实现补齐前，这些价值主张不成立 |
 | 34 号规范的建立（见 `10 §6.2`） | 不得声称 `10 §6.2` 的 provisional 措辞已随之更新 | 本文 §3.3 已声明 Gate 语义随本文定稿不再 provisional，故 34 号未建不影响本文效力 |
+| §14 关闭前置条件二（复核独立性）与 §8 `session_id` 字段的 **01 §9 成员资格程序**（workcase-2be11478） | 不得声称本组条款**已生效**或已成为当前规则源成员；不得声称「凡 WorkCase 关闭必经独立复核」已作为现行规则受机械保障 | **无**——该组条款的文本已落盘且实现一致，但须按 01 §9.2 第 8、9 项完成独立对抗审核、修复与 Human 对准确候选的重新决定（并经 §11.1 受控提交）后方为成员；在此之前受影响范围按 00 §7.2 暂停消费，实现可运行但**不构成规则效力** |
 
 **本节不得因依赖补齐而被改写为「已承接」或「已保障」**；依赖闭合后应删除对应行。
 
@@ -346,6 +350,7 @@ v4 存在 WorkCase 类对象（`docs/spark-workcase-rebuild.md` §5 记为高频
 | attempt 唯一与冷恢复 | 执行期、接管时 | 至多一个活跃 attempt；孤立 attempt 已核对副作用范围 | 对象 `attempt` + 实际文件/Git 状态 + 回读结果 | 机械（字段与状态检查）+ AI 核对 | 当次令牌状态与已核对的副作用范围 | 未核对前不续跑、不作废；如实交还残留 |
 | 关闭完整性 | Gate 2 前 | `result` 与 `outcome` 落盘；`criteria_checks` 与 `plan` 逐条对应 | 对象全文 | 机械（闭集、形状、对应关系） | 当次关闭记录的机械完整性 | 拒绝关闭；补齐记录 |
 | 复核记录完备 | 每次 `reviews` 写入前 | 每项形状合法、`summary` 非空且 ≤ 600 字符、条数 ≤ 20 | 对象 `reviews` 字段 | 机械（形状、长度、上限） | 当次复核记录的机械完备性；不证明复核独立、内容正确或结论成立 | 拒绝写入并报告，不得截断或静默丢弃 |
+| 复核独立性 | 每次关闭前 | 至少一条 `reviews[].session_id` ≠ `attempt.session_id`（两者均由 Code 托管） | 对象 `reviews` 与 `attempt` 字段 | 机械（会话身份比对） | 「记录该复核的会话 ≠ 记录该实施尝试的会话」；**不证明**视角实质独立、内容正确或结论成立（02 §15 语义层归 AI/Human） | 拒绝关闭并报告具体原因，保持 `open` 交还 Human（§18） |
 | outcome 判定证据 | Gate 2 时 | 每条判据有可回读的核对结论；`partial`/`not-achieved` 的 `residual` 非空 | `criteria_checks` + 写后回读 + 机械校验结果 | AI 逐条语义核对 + Human 终判 | 各判据达成判定的证据覆盖 | 保持 open 或改判 outcome；不得补造证据 |
 | 关系目标可解析 | 关系变更或消费展开时 | `contributed-to` 目标可解析为同项目 Pitfall 对象 | 关系条目 + 目标读取结果 | 机械（一跳目标读取） | 当次一跳关系与目标读取范围 | 保留实际边并报告失败范围，不静默删除 |
 

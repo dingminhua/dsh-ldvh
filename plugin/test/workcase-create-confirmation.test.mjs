@@ -240,3 +240,122 @@ test("create: an array-shaped selected answer is read correctly (host returns ar
     assert.doesNotMatch(text, /did not choose a routing option/, `an affirmative answer must not be read as unanswered: ${text.slice(0, 500)}`);
   });
 });
+
+// ---------------------------------------------------------------------------
+// record_review via the subagent relay (workcase-2be11478 计划步骤 4)
+//
+// 子代理本身不注册 ldvh_* 工具（lifecycle.js 对 origin==="subagent" 走 installChild
+// 后即返回），故它无法自行记录复核结论。父会话代其回传时，**身份与结论文本都取自
+// 宿主登记表**（Code 亲观测、调用方不可设置）——否则「开启代理做独立审核」在机械上
+// 走不通，而「代述」又会把父会话的文本冒充成子代理的结论。
+// ---------------------------------------------------------------------------
+
+/** 带子代理登记表的 ctx。 */
+function setupWithChild(base, child) {
+  return { lookupChild: (id) => (id === child.agentId ? child : null) };
+}
+
+async function setupRelay(base, child) {
+  const projectDir = join(base, "proj");
+  await mkdir(projectDir, { recursive: true });
+  await writeCarrier(base, projectDir);
+  const { ctx, tools } = collectorCtx();
+  registerWorkcaseTools(ctx, {
+    dshHomePath: (...segments) => join(base, ...segments),
+    sessionPersistence: sessionPersistenceWithRoutingLog(base),
+    hostSeams: routingSeam(() => ({ granted: true, routedTo: "workcase" })),
+    ...setupWithChild(base, child),
+  });
+  const write = tools.get("ldvh_workcase_write");
+  assert.ok(write, "write tool must be registered");
+  return { write, exec: { agent: { session: { header: { cwd: projectDir } } } } };
+}
+
+test("record_review: an unknown child id is rejected (只有宿主观测过的会话可被引用)", async () => {
+  await withTemp("workcase-relay-a-", async (base) => {
+    const { write, exec } = await setupRelay(base, { agentId: "child-1", sessionId: "s-child-1", conclusion: "结论" });
+    const result = await write.execute({
+      action: "record_review", object_uid: "00000000-0000-4000-8000-000000000000",
+      expected_fingerprint: "0".repeat(64), change_summary: "x",
+      reviewer_child_agent_id: "child-NOT-REGISTERED",
+    }, exec);
+    const text = JSON.stringify(result);
+    assert.match(text, /is not a subagent registered under this session/,
+      `expected an unknown child to be refused before any write, got: ${text.slice(0, 400)}`);
+  });
+});
+
+test("record_review: a child with no captured conclusion is rejected (空结论不是复核)", async () => {
+  await withTemp("workcase-relay-b-", async (base) => {
+    const { write, exec } = await setupRelay(base, { agentId: "child-2", sessionId: "s-child-2", conclusion: null });
+    const result = await write.execute({
+      action: "record_review", object_uid: "00000000-0000-4000-8000-000000000000",
+      expected_fingerprint: "0".repeat(64), change_summary: "x",
+      reviewer_child_agent_id: "child-2",
+    }, exec);
+    const text = JSON.stringify(result);
+    assert.match(text, /has produced no captured conclusion/,
+      `expected an empty conclusion to be refused, got: ${text.slice(0, 400)}`);
+  });
+});
+
+test("record_review: a summary that is NOT a verbatim excerpt of the child's conclusion is rejected (防「代述」冒充)", async () => {
+  await withTemp("workcase-relay-c-", async (base) => {
+    const { write, exec } = await setupRelay(base, {
+      agentId: "child-3", sessionId: "s-child-3", conclusion: "子代理的真实结论原文。",
+    });
+    const result = await write.execute({
+      action: "record_review", object_uid: "00000000-0000-4000-8000-000000000000",
+      expected_fingerprint: "0".repeat(64), change_summary: "x",
+      reviewer_child_agent_id: "child-3",
+      summary: "父会话改写的、看起来更漂亮的结论。",
+    }, exec);
+    const text = JSON.stringify(result);
+    assert.match(text, /not a verbatim excerpt of the reviewer subagent's captured conclusion/,
+      `the parent must not be able to substitute its own text for the reviewer's conclusion, got: ${text.slice(0, 400)}`);
+  });
+});
+
+test("record_review: a LONG conclusion is not silently truncated — a verbatim excerpt is required (21 §8 cap)", async () => {
+  // 本单实测发现的设计缺陷：子代理的 captured conclusion 是其**最终正文全文**，
+  // 常超 600 字符，而 reviews[].summary 有 ≤600 上限（21 §8）。若无脑采用全文，
+  // 通道对真实复核不可用；若无脑截断，则产生一个「看似完整、实则被腰斩」的结论。
+  // 故要求在超限时由调用方提供**逐字子串**作为概要，全文留在 transcript。
+  await withTemp("workcase-relay-e-", async (base) => {
+    const longConclusion = "对象：某单。基线：规范。方法：读码与跑测试。".repeat(40); // >600
+    const { write, exec } = await setupRelay(base, {
+      agentId: "child-5", sessionId: "s-child-5", conclusion: longConclusion,
+    });
+    const result = await write.execute({
+      action: "record_review", object_uid: "00000000-0000-4000-8000-000000000000",
+      expected_fingerprint: "0".repeat(64), change_summary: "x",
+      reviewer_child_agent_id: "child-5",
+    }, exec);
+    const text = JSON.stringify(result);
+    assert.match(text, /longer than the 600-char reviews\[\]\.summary cap/,
+      `a long conclusion must demand an explicit excerpt, not be truncated silently, got: ${text.slice(0, 400)}`);
+  });
+});
+
+test("record_review: without the host subagent registry the channel fails closed (不降级为无身份写入)", async () => {
+  await withTemp("workcase-relay-d-", async (base) => {
+    const projectDir = join(base, "proj");
+    await mkdir(projectDir, { recursive: true });
+    await writeCarrier(base, projectDir);
+    const { ctx, tools } = collectorCtx();
+    registerWorkcaseTools(ctx, {
+      dshHomePath: (...segments) => join(base, ...segments),
+      sessionPersistence: sessionPersistenceWithRoutingLog(base),
+      // 故意不给 lookupChild：模拟宿主未暴露登记表
+    });
+    const write = tools.get("ldvh_workcase_write");
+    const result = await write.execute({
+      action: "record_review", object_uid: "00000000-0000-4000-8000-000000000000",
+      expected_fingerprint: "0".repeat(64), change_summary: "x",
+      reviewer_child_agent_id: "child-4",
+    }, { agent: { session: { header: { cwd: projectDir } } } });
+    const text = JSON.stringify(result);
+    assert.match(text, /review_channel_unavailable|not a subagent registered/,
+      `a missing registry must not silently degrade into an unattributed write, got: ${text.slice(0, 400)}`);
+  });
+});

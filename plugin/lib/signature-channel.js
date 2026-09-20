@@ -25,6 +25,7 @@
  */
 
 const BRAND = Symbol("ldvh/authoritative-signature");
+const IDENTITY_BRAND = Symbol("ldvh/authoritative-session-identity");
 
 /**
  * Tools-layer factory: wrap a route record { provider, model } into the
@@ -84,4 +85,85 @@ export function requireAuthoritativeSignature(carrier, { context = "change_log e
       + "authoritative session record; AI must not self-fill, use a deployment default, or have a caller override it). "
       + "REPORT TO HUMAN: this write cannot be signed, so it must not be recorded as a stable fact."
   };
+}
+
+// ---------------------------------------------------------------------------
+// Authoritative SESSION IDENTITY channel (WorkCase 关闭侧身份比对)
+// ---------------------------------------------------------------------------
+//
+// 需求来源：`workcase-2be11478`（Human 2026-09-19 裁定）——WorkCase 关闭前必须存在
+// 至少一条由**独立于实施者的会话**产出的复核记录，低风险工单不豁免。
+//
+// 为什么不能复用 provider/model 署名：`resolveAuthoritativeSignature` 的值取自会话
+// **路由**记录（session-signature.js 尾读 `model/selection`/`request/context`），它是
+// 「这次跑在哪个 provider/model 上」，不是「这是哪个会话」。同一路由下的两个不同
+// 会话会盖出**完全相同**的署名——实测为证：`workcase-4005b67b`（2026-09-17 另一会话
+// 写入）与 `workcase-2be11478`（2026-09-19 本会话）的署名同为
+// `provider: workbuddy, model: deepseek-v4.1-flash`。故署名**不能**支撑「复核者 ≠
+// 实施者」的比对，必须另立身份通道。
+//
+// 为什么需要品牌（BRAND）而不是普通字段：与署名通道同一纪律——身份只能由 Code 从
+// DSH 会话记录取得。普通对象、字符串、任意手工构造值一律解析为 null，使 AI 无法
+// 自填一个「不同的会话 id」来通过门禁。刻意伪造者需要 import 本工厂本身，在代码
+// 评审（09 质量链）中可见，而非偶然路径。
+//
+// 取值来源（经实测确认，2026-09-19）：DSH 权威会话记录的 `session` 首行，其
+// `id` 即该会话自己的标识；子代理会话另有 `origin: "subagent"`、`parentSession`
+// 与 `delegationDepth` 字段。父会话 id 不在子会话的 shell 环境里，须从该记录读。
+
+/**
+ * 会话身份载体：{ sessionId, source, origin, parentSession, delegationDepth }。
+ *
+ * `source` 是**可信度**标记，不是装饰：
+ *   - `"host"`：身份由宿主执行上下文取得（`currentSessionIdentity(sessionPersistence, agent)`，
+ *     `agent` 来自 DSH 的工具执行/装配上下文，**不由工具参数或环境变量控制**）；
+ *   - `"shell"`：身份由 `shellAuthoritativeSessionIdentity()` 从**环境变量 + 日志文件**取得。
+ *
+ * **为什么必须区分（独立对抗复核实测发现，2026-09-19）**：shell 路径逐字采信
+ * `DSH_SESSION_JSONL`/`DSH_HOME`+`DSH_SESSION_ID`，而这两者对调用者（AI 的一次 bash
+ * 调用）是**可设置的**。实测：`DSH_SESSION_JSONL=/tmp/forged.jsonl`（内容仅一行
+ * `{"type":"session","id":"session-ANYTHING"}`）即铸出**真品牌**身份，无需 import 本
+ * 工厂。故 `"shell"` 来源的身份**可被实施者伪造**，不能作为关闭侧独立性的证据；
+ * WorkCase 写入器对复核身份只接受 `"host"` 来源（见 workcase-writer 的关闭门禁）。
+ *
+ * 本字段不改「品牌」纪律（普通对象/字符串仍解析为 null），只是把 shell 通道的
+ * **可信度上限**如实标出——原注释「刻意伪造者需要 import 本工厂本身」是**过度声明**，
+ * 已据实测更正。
+ */
+function identityRecord({ sessionId, source = null, origin = null, parentSession = null, delegationDepth = null }) {
+  if (typeof sessionId !== "string" || sessionId.length === 0) return null;
+  const record = { sessionId };
+  if (source === "host" || source === "shell") record.source = source;
+  if (typeof origin === "string" && origin.length > 0) record.origin = origin;
+  if (typeof parentSession === "string" && parentSession.length > 0) record.parentSession = parentSession;
+  if (Number.isInteger(delegationDepth) && delegationDepth >= 0) record.delegationDepth = delegationDepth;
+  return { [IDENTITY_BRAND]: Object.freeze(record) };
+}
+
+/**
+ * Tools-layer factory: wrap a session-identity record into the branded carrier
+ * the WorkCase writer accepts for `attempt.session_id` / `reviews[].session_id`.
+ * Returns null for anything that is not a usable identity — the caller then
+ * omits it (and the close gate fails closed rather than guessing).
+ */
+export function authoritativeSessionIdentity(record) {
+  if (typeof record !== "object" || record === null) return null;
+  return identityRecord(record);
+}
+
+/**
+ * Writer-side resolver: branded carrier → identity record;
+ * anything else (plain object, string, forged shape) → null.
+ */
+export function resolveAuthoritativeSessionIdentity(arg) {
+  if (typeof arg !== "object" || arg === null) return null;
+  const value = arg[IDENTITY_BRAND];
+  if (typeof value !== "object" || value === null) return null;
+  if (typeof value.sessionId !== "string" || value.sessionId.length === 0) return null;
+  const record = { sessionId: value.sessionId };
+  if (value.source === "host" || value.source === "shell") record.source = value.source;
+  if (typeof value.origin === "string" && value.origin.length > 0) record.origin = value.origin;
+  if (typeof value.parentSession === "string" && value.parentSession.length > 0) record.parentSession = value.parentSession;
+  if (Number.isInteger(value.delegationDepth) && value.delegationDepth >= 0) record.delegationDepth = value.delegationDepth;
+  return record;
 }

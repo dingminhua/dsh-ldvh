@@ -11,7 +11,7 @@
 // the assertion. lib/ is NOT modified here.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { testSignature, withTemp } from "./helpers.mjs";
@@ -28,14 +28,22 @@ import {
   rebatchWorkcaseObject,
   cancelWorkcaseObject,
   reviseWorkcaseObject,
+  recordWorkcaseReview,
   listWorkcaseObjects,
   computeAuthorizationFingerprint,
   validateWorkcaseBodyStructure,
   validateWorkcaseFrontmatter,
 } from "../lib/workcase-writer.js";
-import { authoritativeSignature } from "../lib/signature-channel.js";
+import { authoritativeSignature, authoritativeSessionIdentity } from "../lib/signature-channel.js";
 
 const SIG = () => authoritativeSignature({ provider: "p", model: "m" });
+// 会话身份（workcase-2be11478 计划步骤 2）：关闭侧独立性比对的锚点。
+// 实施会话与复核会话必须是**不同**的 identity，否则关闭门禁 fail-closed。
+// 身份来源（source）是判据的一部分：写入器只接受 **host**（宿主执行上下文，
+// 不可由调用者设置）。shell 来源可被一行环境变量伪造，故被拒——测试夹具用 host。
+const IDENTITY = (sessionId) => authoritativeSessionIdentity({ sessionId, source: "host" });
+const IMPLEMENTER = () => IDENTITY("session-implementer-test");
+const REVIEWER = () => IDENTITY("session-reviewer-test");
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // ---------------------------------------------------------------------------
@@ -113,6 +121,8 @@ async function approved(root, overrides = {}) {
     controller: "controller-a",
     changeSummary: "Gate 1 批准（测试）",
     sessionSignature: SIG(),
+    // 实施会话身份 → attempt.session_id：关闭侧独立性比对的基线。
+    sessionIdentity: IMPLEMENTER(),
   });
   assert.ok(ok.ok, JSON.stringify(ok.error));
   return { uid: created.value.object_uid, after: await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid }) };
@@ -125,7 +135,22 @@ async function approved(root, overrides = {}) {
  * `reviews` 只能在 status=open 时经 execute 落盘（close 不接受 frontmatterAfter），
  * 故这里走 executeWorkcaseObject。返回可供 close 使用的最新对象。
  */
-async function reviewed(root, approvedResult, summary = "对象：本单；基线：plan 判据；方法：隔离子代理只读复核；覆盖：全部判据；未覆盖：无；发现：无；保证边界：仅静态核对。") {
+/**
+ * 构造一个判据全达成的 `result`（长度与 plan 一致，满足 21 §8 逐条对应）。
+ * 供关闭侧独立性用例使用，使断言聚焦在身份门禁而非结果形状。
+ */
+function completedResult(planLength) {
+  return {
+    criteria_checks: Array.from({ length: planLength }, (_, i) => ({
+      satisfied: true,
+      evidence: `第 ${i + 1} 条判据的核对证据`,
+    })),
+    achieved_scope: "全部计划步骤在授权范围内完成。",
+    residual: [],
+  };
+}
+
+async function reviewed(root, approvedResult, summary = "对象：本单；基线：plan 判据；方法：隔离子代理只读复核；覆盖：全部判据；未覆盖：无；发现：无；保证边界：仅静态核对。", identity = REVIEWER()) {
   const { uid, after } = approvedResult;
   const fm = { ...after.value.frontmatter };
   fm.reviews = [{ summary }];
@@ -137,6 +162,9 @@ async function reviewed(root, approvedResult, summary = "对象：本单；基�
     bodyMarkdownAfter: bodyWithoutH1(after.value.body),
     changeSummary: "录入独立复核概要",
     sessionSignature: SIG(),
+    // 复核会话身份（默认 REVIEWER，≠ IMPLEMENTER）→ reviews[].session_id：
+    // 这正是「独立会话记录复核」的机械证据。传 IMPLEMENTER() 可构造同会话自评。
+    sessionIdentity: identity,
   });
   assert.ok(res.ok, JSON.stringify(res.error));
   return { uid, after: await readWorkcaseObject({ factSourceRoot: root, objectUid: uid }) };
@@ -1175,5 +1203,446 @@ test("reviews: must not appear while status=draft (复核 occurs during executio
     });
     assert.ok(!res.ok);
     assert.ok(JSON.stringify(res.error.details.issues).includes("draft"), JSON.stringify(res.error.issues));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 关闭侧身份比对硬门禁（workcase-2be11478，Human 裁定 2026-09-19）
+//
+// 本组用例锁定：关闭前至少一条 reviews 必须由**独立于实施者的会话**记录。
+// 伪装路径各有用例锁定被拒；合法路径有通过断言。
+// ---------------------------------------------------------------------------
+
+/** 读取当前对象的 reviews 条目（供断言）。 */
+async function reviewsOf(root, uid) {
+  const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+  return read.value.frontmatter.reviews ?? [];
+}
+
+test("independence: attempt.session_id is stamped from the Code-managed identity (workcase-2be11478)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { after } = await approved(root);
+    assert.equal(
+      after.value.frontmatter.attempt.session_id,
+      "session-implementer-test",
+      "Gate 1 must stamp the implementing session identity into attempt.session_id",
+    );
+  });
+});
+
+test("independence: a caller-supplied (forged) identity is discarded — only the branded carrier counts", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { created } = await createDraft(root);
+    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    const ok = await approveWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: created.value.object_uid,
+      expectedFingerprint: before.value.fingerprint,
+      approver: "human-test",
+      controller: "controller-a",
+      changeSummary: "Gate 1 批准（伪造身份用例）",
+      sessionSignature: SIG(),
+      // 普通对象不是品牌载体 —— 必须被解析为「无身份」，而不是被采信。
+      sessionIdentity: { sessionId: "session-forged-by-ai" },
+    });
+    assert.ok(ok.ok, JSON.stringify(ok.error));
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.equal(
+      after.value.frontmatter.attempt.session_id,
+      undefined,
+      "a forged plain-object identity must never be stamped (only the branded carrier is accepted)",
+    );
+  });
+});
+
+test("independence: close is REJECTED when the only review came from the implementing session (同会话自评)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    // 实施者用**自己的**身份记录复核 —— 这就是主控自查冒充独立复核。
+    const rev = await reviewed(root, appr, undefined, IMPLEMENTER());
+    const res = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: rev.uid,
+      expectedFingerprint: rev.after.value.fingerprint,
+      outcome: "completed",
+      result: completedResult(rev.after.value.frontmatter.plan.length),
+      changeSummary: "尝试以同会话自评关闭",
+      bodyMarkdownAfter: bodyWithoutH1(rev.after.value.body),
+      sessionSignature: SIG(),
+    });
+    assert.ok(!res.ok, "自评冒充独立复核必须被拒绝");
+    assert.equal(res.error.code, "workcase/review_independence_missing");
+  });
+});
+
+test("independence: close is ACCEPTED when a DIFFERENT session recorded the review (合法路径)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    const rev = await reviewed(root, appr); // 默认 REVIEWER ≠ IMPLEMENTER
+    const res = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: rev.uid,
+      expectedFingerprint: rev.after.value.fingerprint,
+      outcome: "completed",
+      result: completedResult(rev.after.value.frontmatter.plan.length),
+      changeSummary: "独立会话复核后关闭",
+      // close 要求 body 携带「## 结果」节（21 §8）。
+      bodyMarkdownAfter: `${bodyWithoutH1(rev.after.value.body)}\n\n## 结果\n\n- 逐条核对：全部计划步骤判据达成；独立会话复核记录见 reviews。\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+  });
+});
+
+test("independence: close is REJECTED when no reviews entry carries an identity (身份不可得不得当作独立)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    // 无身份写入：execute 不带 sessionIdentity → reviews 条目无 session_id。
+    const fm = { ...appr.after.value.frontmatter };
+    fm.reviews = [{ summary: "无身份复核记录" }];
+    const exec = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      expectedFingerprint: appr.after.value.fingerprint,
+      frontmatterAfter: fm,
+      bodyMarkdownAfter: bodyWithoutH1(appr.after.value.body),
+      changeSummary: "无身份写入复核",
+      sessionSignature: SIG(),
+      // 故意不传 sessionIdentity
+    });
+    assert.ok(exec.ok, JSON.stringify(exec.error));
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    assert.equal(after.value.frontmatter.reviews[0].session_id, undefined, "无身份时不得虚构 session_id");
+    const res = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      expectedFingerprint: after.value.fingerprint,
+      outcome: "completed",
+      result: completedResult(after.value.frontmatter.plan.length),
+      changeSummary: "身份不可得时尝试关闭",
+      bodyMarkdownAfter: bodyWithoutH1(after.value.body),
+      sessionSignature: SIG(),
+    });
+    assert.ok(!res.ok, "身份不可得时不得放行（未知不等于独立）");
+    assert.equal(res.error.code, "workcase/review_independence_unverifiable");
+  });
+});
+
+test("independence: a recorded review's summary cannot be rewritten by another session (防借壳)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    const rev = await reviewed(root, appr, "独立会话 S2 的真实复核结论。");
+    // 实施者保留索引、换成自己的文本 —— 企图借 S2 的身份通过门禁。
+    const fm = { ...rev.after.value.frontmatter };
+    fm.reviews = [{ summary: "实施者改写后的自查文本" }];
+    const res = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: rev.uid,
+      expectedFingerprint: rev.after.value.fingerprint,
+      frontmatterAfter: fm,
+      bodyMarkdownAfter: bodyWithoutH1(rev.after.value.body),
+      changeSummary: "企图改写既有复核条目",
+      sessionSignature: SIG(),
+      sessionIdentity: IMPLEMENTER(),
+    });
+    assert.ok(!res.ok, "已有身份的复核条目不得被其它会话改写概要");
+    assert.equal(res.error.code, "workcase/review_history_rewritten");
+  });
+});
+
+test("independence: an implementer heartbeat must NOT erase the reviewer's recorded identity", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    const rev = await reviewed(root, appr);
+    const reviewerId = (await reviewsOf(root, rev.uid))[0].session_id;
+    assert.equal(reviewerId, "session-reviewer-test");
+    // 实施者在复核之后继续工作：一次普通心跳。
+    const res = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: rev.uid,
+      expectedFingerprint: rev.after.value.fingerprint,
+      frontmatterAfter: { ...rev.after.value.frontmatter },
+      bodyMarkdownAfter: bodyWithoutH1(rev.after.value.body),
+      changeSummary: "复核之后的心跳",
+      sessionSignature: SIG(),
+      sessionIdentity: IMPLEMENTER(),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const after = await reviewsOf(root, rev.uid);
+    assert.equal(
+      after[0].session_id,
+      "session-reviewer-test",
+      "已记录的复核会话身份必须按索引继承，不得被实施者后续写入抹掉",
+    );
+  });
+});
+
+test("independence: a legacy attempt without session_id is BACKFILLED by heartbeat (否则存量对象永远无法关闭)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    // 模拟「本锚点之前建立」的对象：approve 时不带身份。
+    const { created } = await createDraft(root);
+    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    const ok = await approveWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: created.value.object_uid,
+      expectedFingerprint: before.value.fingerprint,
+      approver: "human-test",
+      controller: "controller-a",
+      changeSummary: "Gate 1 批准（存量对象：无身份）",
+      sessionSignature: SIG(),
+      // 不带 sessionIdentity → attempt.session_id 缺席（存量形态）
+    });
+    assert.ok(ok.ok, JSON.stringify(ok.error));
+    let after = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.equal(after.value.frontmatter.attempt.session_id, undefined);
+    // 执行会话做一次心跳：应把缺失的基线补齐。
+    const hb = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: created.value.object_uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: { ...after.value.frontmatter },
+      bodyMarkdownAfter: bodyWithoutH1(after.value.body),
+      changeSummary: "心跳并补齐身份基线",
+      sessionSignature: SIG(),
+      sessionIdentity: IMPLEMENTER(),
+    });
+    assert.ok(hb.ok, JSON.stringify(hb.error));
+    after = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.equal(after.value.frontmatter.attempt.session_id, "session-implementer-test");
+  });
+});
+
+test("independence: an EXISTING baseline is not overwritten by a later heartbeat (复核者心跳不得改写基线)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root); // 基线 = session-implementer-test
+    const hb = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      expectedFingerprint: appr.after.value.fingerprint,
+      frontmatterAfter: { ...appr.after.value.frontmatter },
+      bodyMarkdownAfter: bodyWithoutH1(appr.after.value.body),
+      changeSummary: "复核者误做的普通心跳",
+      sessionSignature: SIG(),
+      sessionIdentity: REVIEWER(), // 不同会话
+    });
+    assert.ok(hb.ok, JSON.stringify(hb.error));
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    assert.equal(
+      after.value.frontmatter.attempt.session_id,
+      "session-implementer-test",
+      "已存在的实施者基线不得被后续心跳改写（否则门禁会把复核者与自身比较）",
+    );
+  });
+});
+
+test("independence: KNOWN GAP — rebatch→cancel still reaches closed without any review (归 4005b67b)", async () => {
+  // 本用例**锁定一个已知缺口**，不是期望行为。21 §15.1 登记的缺口②：`cancel`
+  // （draft→closed）不校验 `reviews`，故「open → rebatch → draft → cancel → closed」
+  // 可绕开关闭侧全部门禁。本单（workcase-2be11478）只硬化 `close` 路径，该缺口的
+  // 修复归 `workcase-4005b67b`（其 scope 的 (A) 项）。
+  //
+  // 之所以把它写成断言而非留白：这样缺口一旦被修复，本用例会失败并提醒改文档
+  // （21 §14 的「机械覆盖范围」声明与 §15.1 的缺口②条目需同步），避免出现
+  // 「实现已修、规范仍写着有缺口」的静默漂移。
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root); // 无 reviews
+    // rebatch: open → draft（reviews 一并作废）。draft 不得携带「## 执行」节
+    // （21 §8：Gate 1 前无执行），故提交的 draft 正文须剥掉执行节。
+    const draftFm = { ...appr.after.value.frontmatter };
+    delete draftFm.attempt; delete draftFm.result; delete draftFm.outcome; delete draftFm.gate_1; delete draftFm.reviews;
+    const cleanDraftBody = bodyWithoutH1(appr.after.value.body).replace(/## 执行[\s\S]*$/, "").replace(/\s+$/, "") + "\n";
+    const rb = await rebatchWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      expectedFingerprint: appr.after.value.fingerprint,
+      frontmatterAfter: draftFm,
+      bodyMarkdownAfter: cleanDraftBody,
+      changeSummary: "重批（缺口用例）",
+      sessionSignature: SIG(),
+    });
+    assert.ok(rb.ok, JSON.stringify(rb.error));
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    assert.equal(after.value.frontmatter.status, "draft");
+    assert.equal(after.value.frontmatter.reviews, undefined, "重批后 reviews 随授权作废");
+    // cancel: draft → closed，未经任何复核。draft 不得携带「## 执行」节（21 §8），
+    // 故此处剥掉执行节后再补结果节。
+    const draftBody = bodyWithoutH1(after.value.body).replace(/## 执行[\s\S]*$/, "").replace(/\s+$/, "");
+    const cx = await cancelWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      expectedFingerprint: after.value.fingerprint,
+      result: { achieved_scope: "取消（缺口用例）" },
+      changeSummary: "取消",
+      bodyMarkdownAfter: `${draftBody}\n\n## 结果\n\n取消。\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(cx.ok, "缺口②当前允许该路径——若本断言失败，说明缺口已被修复，请同步 21 §14/§15.1");
+    const fin = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    assert.equal(fin.value.frontmatter.status, "closed");
+    assert.equal(fin.value.frontmatter.outcome, "cancelled");
+    assert.equal((fin.value.frontmatter.reviews ?? []).length, 0, "到达 closed 而 reviews 为 0 —— 缺口②的表现");
+  });
+});
+
+test("record_review: appends one entry carrying the caller's Code-stamped identity", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    const res = await recordWorkcaseReview({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      expectedFingerprint: appr.after.value.fingerprint,
+      summary: "对象：本单；基线：plan 判据；方法：隔离会话只读复核；覆盖：全部判据；未覆盖：运行时渲染；发现：无；保证边界：仅静态核对。",
+      sessionSignature: SIG(),
+      sessionIdentity: REVIEWER(),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const entries = await reviewsOf(root, appr.uid);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].session_id, "session-reviewer-test");
+    assert.match(entries[0].summary, /^对象：本单/);
+  });
+});
+
+test("record_review: refuses without an authoritative identity (通道不得被无身份调用)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    const res = await recordWorkcaseReview({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      expectedFingerprint: appr.after.value.fingerprint,
+      summary: "无身份复核",
+      sessionSignature: SIG(),
+      // 故意不传 sessionIdentity
+    });
+    assert.ok(!res.ok);
+    assert.equal(res.error.code, "workcase/review_identity_unavailable");
+  });
+});
+
+test("record_review: does not alter attempt, plan or scope (通道不授予其它写能力)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    const before = appr.after.value.frontmatter;
+    const res = await recordWorkcaseReview({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      expectedFingerprint: appr.after.value.fingerprint,
+      summary: "只读复核结论。",
+      sessionSignature: SIG(),
+      sessionIdentity: REVIEWER(),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    const after = read.value.frontmatter;
+    assert.deepEqual(after.attempt, before.attempt, "record_review must not touch attempt");
+    assert.deepEqual(after.plan, before.plan, "record_review must not touch plan");
+    assert.equal(after.scope, before.scope, "record_review must not touch scope");
+    assert.equal(after.status, "open");
+  });
+});
+
+
+test("independence: a legacy attempt lacking session_source is backfilled only by the identity owner", async () => {
+  // 存量对象：attempt 有 session_id 却无 session_source（本锚点之前写入）。关闭门禁
+  // 要求条目两端来源俱为 "host"，故这类对象若不补齐就永远关不掉。补齐只允许**该身份
+  // 本人**触发（他人不得代补），且补出的是「自证」而非对当初来源的追溯证明。
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { created } = await createDraft(root);
+    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    const ok = await approveWorkcaseObject({
+      factSourceRoot: root, objectUid: created.value.object_uid,
+      expectedFingerprint: before.value.fingerprint,
+      approver: "human-test", controller: "controller-a",
+      changeSummary: "Gate 1 批准（存量：无来源）",
+      sessionSignature: SIG(), sessionIdentity: IMPLEMENTER(),
+    });
+    assert.ok(ok.ok, JSON.stringify(ok.error));
+    // 在**文件层**抹掉来源，模拟存量形态（经写入器抹会被其自身的补齐逻辑补回，
+    // 那正是被测行为，故不能用它来构造前置状态）。
+    const filePath = join(root, "workcases", `workcase-${created.value.object_uid}.md`);
+    const rawText = await readFile(filePath, "utf8");
+    await writeFile(filePath, rawText.replace(/^\s*session_source: host\n/m, ""), "utf8");
+    let after = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.equal(after.value.frontmatter.attempt.session_source, undefined, "前置：来源确实缺失");
+
+    // 由**他人**心跳：不得代补（本人以外不补）
+    const other = await executeWorkcaseObject({
+      factSourceRoot: root, objectUid: created.value.object_uid,
+      expectedFingerprint: after.value.fingerprint, frontmatterAfter: { ...after.value.frontmatter },
+      bodyMarkdownAfter: bodyWithoutH1(after.value.body), changeSummary: "他人心跳",
+      sessionSignature: SIG(), sessionIdentity: IDENTITY("session-someone-else"),
+    });
+    assert.ok(other.ok, JSON.stringify(other.error));
+    after = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.equal(after.value.frontmatter.attempt.session_source, undefined, "他人不得代补来源");
+
+    // 由**本人**心跳：补齐来源
+    const owner = await executeWorkcaseObject({
+      factSourceRoot: root, objectUid: created.value.object_uid,
+      expectedFingerprint: after.value.fingerprint, frontmatterAfter: { ...after.value.frontmatter },
+      bodyMarkdownAfter: bodyWithoutH1(after.value.body), changeSummary: "本人心跳（补齐来源）",
+      sessionSignature: SIG(), sessionIdentity: IMPLEMENTER(),
+    });
+    assert.ok(owner.ok, JSON.stringify(owner.error));
+    after = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.equal(after.value.frontmatter.attempt.session_source, "host", "本人可补齐自身来源");
+  });
+});
+
+test("independence: a source-less legacy entry is NOT laundered into host by a later write", async () => {
+  // 本单自审发现并修正（2026-09-19）：来源若按「继承性补齐」，任何一条**没有来源**的
+  // 条目都会被随后一次宿主写入洗白成 source="host"，从而计入独立性判据——那等于把
+  // 「shell 身份可伪造」的缺口从后门放回来。故既有条目一律保留原值，缺失即缺失。
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    // 在**文件层**注入一条「无来源」的既有条目（模拟经旧路径写入或直接改文件）
+    const filePath = join(root, "workcases", `workcase-${appr.uid}.md`);
+    const rawText = await readFile(filePath, "utf8");
+    const injected = [
+      "reviews:",
+      "  - at: 2026-09-19T00:00:00.000Z",
+      "    provider: p",
+      "    model: m",
+      "    summary: 旧条目（无来源）",
+      "    session_id: session-OLD",
+      "    implementer_session_id: session-implementer-test",
+      "",
+    ].join("\n");
+    await writeFile(filePath, rawText.replace(/^change_log:/m, `${injected}change_log:`), "utf8");
+
+    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    assert.equal(before.value.frontmatter.reviews[0].session_source, undefined, "前置：该条目确实没有来源");
+
+    // 由另一会话（host 来源）做一次写入：不得把上面那条的来源补齐
+    const res = await executeWorkcaseObject({
+      factSourceRoot: root, objectUid: appr.uid,
+      expectedFingerprint: before.value.fingerprint,
+      frontmatterAfter: { ...before.value.frontmatter },
+      bodyMarkdownAfter: bodyWithoutH1(before.value.body),
+      changeSummary: "另一会话写入（不得洗白既有条目来源）",
+      sessionSignature: SIG(), sessionIdentity: IDENTITY("session-other-host"),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    assert.equal(
+      after.value.frontmatter.reviews[0].session_source,
+      undefined,
+      "无来源的既有条目不得被后续写入洗白为 host（否则该条目会被门禁误当作可采信证据）",
+    );
   });
 });
