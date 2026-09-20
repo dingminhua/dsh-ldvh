@@ -79,6 +79,13 @@ export default function WorkCaseReadingLayout({ obj, locale }: WorkCaseReadingLa
  * 当作标记解析，把 Human 想读的字面文本吃掉或变形——而 21 §8 恰恰禁止在 `gist`
  * 中放 Markdown。用纯文本渲染使「字段契约」与「呈现形态」一致：写进去什么样，
  * 读出来什么样。
+ *
+ * **内容壳与 `ProseNode` 同款**（`ldvh-research-node-content`）：本详情页各字段节点
+ * 的内容区统一套一层细边框 + 浅底的轻量面板（摘要/授权范围经 `ResearchTextNodeContent`、
+ * 计划/结果判据/残留经 `WORKCASE_CRITERIA_SURFACE_CLASS`）。此前本节点直接输出裸
+ * `<p>`，使「要点」的文字贴到卡片边缘、与相邻节点的内容区层级不一致——标题形态相同
+ * 而内容表面不同，读起来像两种不同的节点。差异只在是否**经 Markdown 渲染**，
+ * 不在内容表面；故此处补壳，并保持纯文本渲染不变。
  */
 function GistNode({
   title,
@@ -104,7 +111,9 @@ function GistNode({
       {issue ? (
         <FieldProblem issue={issue} />
       ) : (
-        <p className="ldvh-detail-semantic-body min-w-0 break-words">{value}</p>
+        <div className="ldvh-research-node-content min-w-0">
+          <p className="ldvh-detail-semantic-body min-w-0 break-words">{value}</p>
+        </div>
       )}
     </ReadingNodeSection>
   );
@@ -272,13 +281,18 @@ function ReviewsNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string 
 }
 
 /**
- * 对象身份与授权范围的正文段（21 §8：`gist` / `summary` / `serves` / `scope`）。
+ * 对象身份与授权范围的正文段（21 §8：`gist` / `summary` / `scope`）。
  *
- * 四个生命周期主体**共用**它。docs/10 §4.2 与 docs/01 §1.10 的同一条纪律：
+ * 四个生命周期主体**共用**它。10 §4.2 与 01 §1.10 的同一条纪律：
  * 「条件字段可以随事实是否形成而省略，但已存在字段不能因对象处于某个进展分组
- * 而消失」。此前只有 DraftBody 渲染这三个字段，closed 详情因此看不到对象实际
- * 携带的 summary/serves/scope（缺陷 D11）——分组只应改变**强调**，不应改变
+ * 而消失」。此前只有 DraftBody 渲染这些字段，closed 详情因此看不到对象实际
+ * 携带的 summary/scope（缺陷 D11）——分组只应改变**强调**，不应改变
  * **在场字段集**。
+ *
+ * `serves` 不在本段：它是身份类锚点，由详情头的 ServesSgBadge 承载
+ * （标签序 Human 定案 2026-09-13：类型 → 优先级 → SG → 修改次数），四个派生
+ * 主体共用同一详情头，故「不因分组消失」对它同样成立。正文不再重复呈现同一
+ * 信息。详见段内注释。
  *
  * 10 §5.5 的字段分工在此落位：`gist` 与 `summary` **都**出现在详情，但形态不同——
  * `gist` 是 21 §8 定义的**纯文本**要点（≤200 字符、无 Markdown 标记），故按纯文本
@@ -307,12 +321,18 @@ function ResponsibilityNodes({ obj, locale }: { obj: WorkCaseDetailData; locale:
           issue={fieldIssue(obj, 'summary')}
         />
       ) : null}
-      <ProseNode
-        title={t('objectDetail.workcaseServes')}
-        value={typeof obj.serves === 'string' ? obj.serves : ''}
-        locale={locale}
-        issue={fieldIssue(obj, 'serves')}
-      />
+      {/* `serves` 不在正文重复呈现：它在详情头已由 ServesSgBadge 呈现
+          （ObjectDetail.tsx 的标签序：类型 → 优先级 → SG → 修改次数，Human
+          定案 2026-09-13），正文再列一次是同一信息的第二处出现。标题栏承载
+          身份类锚点、正文承载内容类字段，分工不重叠。
+
+          这**不削弱** 10 §4.2「已存在字段不能因分组而消失」：`serves` 是
+          身份锚点，四个派生主体共用同一个详情头，故四个分组下它都在场；
+          本轮改的只是「在场于何处」，不是「是否在场」。
+
+          字段异常的可见性也不受影响：`serves` 形状不符时由详情页的
+          FieldIssuesSection（10 §5.3 的来源回指面）按 path 报告，该面板
+          独立于本节点；此前正文节点的 fieldIssue 是同一问题的第二处出口。 */}
       <ProseNode
         title={t('objectDetail.workcaseScope')}
         value={typeof obj.scope === 'string' ? obj.scope : ''}

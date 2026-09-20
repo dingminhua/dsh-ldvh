@@ -213,12 +213,36 @@ test('all four lifecycle bodies render the shared responsibility nodes (field pr
 
   // docs/10 §4.2：条件字段可随事实是否形成而省略，但**已存在字段不能因对象处于
   // 某个派生分组而消失**；分组只改变强调，不改变在场字段集。四个主体共用
-  // ResponsibilityNodes，故 summary/serves/scope 在 closed 详情同样在场。
+  // ResponsibilityNodes，故 summary/scope 在 closed 详情同样在场。
+  // （`serves` 不在本节点内：它是身份锚点，由四个分组共用的详情头
+  //  ServesSgBadge 承载，同样满足「不因分组消失」。）
   assert.match(layout, /function ResponsibilityNodes\(/);
   assert.equal(
     (layout.match(/<ResponsibilityNodes obj=\{obj\} locale=\{locale\} \/>/g) ?? []).length,
     4,
     '四个派生主体（draft/executing/awaiting_gate2/closed）都必须渲染共有字段节',
+  );
+});
+
+test('serves is presented once — in the detail head, never repeated in the body', () => {
+  const layout = readSource('web/src/pages/object-detail/WorkCaseReadingLayout.tsx');
+  const detail = readSource('web/src/pages/ObjectDetail.tsx');
+
+  // Human 定案 2026-09-13：详情头标签序为 类型 → 优先级 → SG → 修改次数，
+  // 故 `serves` 的身份锚点由头部 ServesSgBadge 承载（四个派生分组共用同一头，
+  // 「不因分组消失」对它成立）。
+  assert.match(
+    detail,
+    /<PriorityIcon[\s\S]*?<ServesSgBadge value=\{source\.serves\}/,
+    '详情头必须承载 serves 徽章——正文不再重复它是以此为前提的',
+  );
+
+  // 正文段不得再渲染第二处 serves：同一信息两处出现会让 Human 无法判断
+  // 哪个是权威呈现面，且新增字段时容易只更新一处。
+  assert.doesNotMatch(
+    layout,
+    /workcaseServes/,
+    'serves 不得在 WorkCase 正文段重复呈现（它在详情头已呈现；若确需改回正文，先撤本守卫并说明理由）',
   );
 });
 

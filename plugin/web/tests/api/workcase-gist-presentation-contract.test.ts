@@ -224,6 +224,18 @@ test('卡面渲染 gist 而非 summary；详情两者并存且形态不同（10 
   // （不在调用点用 typeof 把门——那会连问题提示一起吞掉）。
   assert.match(gistNode, /issue\?: ReturnType<typeof fieldIssue>/);
   assert.match(gistNode, /<FieldProblem issue=\{issue\} \/>/);
+  // 内容壳与同页其它字段节点同款：本详情页各节点（摘要/授权范围经
+  // ResearchTextNodeContent、计划/结果判据/残留经 WORKCASE_CRITERIA_SURFACE_CLASS）
+  // 的内容区统一套一层轻量面板。gist 曾直接输出裸 <p>，文字贴到卡片边缘，
+  // 标题形态相同而内容表面不同——读起来像两种节点。纯文本渲染不变，只补壳。
+  //
+  // 这条断言必须落在**原文**上，不能用 codeOnly：后者把引号内容（含 className
+  // 的取值）整体剥离，类名在该视图里不存在，断言会因视图而非实现而失败。
+  assert.match(
+    gistNode,
+    /ldvh-research-node-content[\s\S]{0,200}<p className="ldvh-detail-semantic-body/,
+    'gist 的内容须与同页其它字段节点同款套内容壳（差异只在是否 Markdown，不在内容表面）',
+  );
 
   // 降级：closed 缺失合法，须如实降级而非以 summary 静默替代。
   // 断言落在**代码**上：本组件的注释大量引述 summary（解释为何不用它），
