@@ -100,6 +100,22 @@ const BODY_H2_CORE = ["摘要", "授权范围", "计划"];
 const BODY_H2_EXECUTION = "执行";
 const BODY_H2_RESULT = "结果";
 
+/**
+ * 正文 H2 的**取值闭集**（21 §8，Human 裁定 2026-09-22）。
+ *
+ * 与上面三项常量正交，勿混同：`BODY_H2_CORE` / `_EXECUTION` / `_RESULT` 表达的是
+ * 各节的**出现条件**（执行 ⇔ 已发生执行；结果 ⇔ 关闭时必填、开期中可作关闭提案）；
+ * 本常量表达的是**允许出现的取值全集**。故本项只拦「清单之外的标题」，已登记标题的
+ * 出现条件仍由各自分支给出更具体的拒绝理由（如「draft 不得携带 ## 执行」），不在此
+ * 重复拒绝——否则同一次违规会得到两条含义不同的理由。
+ *
+ * 该闭集是被**裁定**的，不是从旧实现的沉默中推定出来的：旧实现只做「期望节是否出现」
+ * 与「次序」两项比对，未登记标题既不参与前者也不参与后者，因而**默认放行**（实测：
+ * 正文含额外「## 复核」可落盘成功）。21 §14 原有的「正文不设复核节」是「无须」而非
+ * 「不得」，不足以充当机械门禁；本闭集补上该缺口。
+ */
+const BODY_H2_ALLOWED = [...BODY_H2_CORE, BODY_H2_EXECUTION, BODY_H2_RESULT];
+
 /** Title cap (21 §8: ≤ 30 字). */
 const MAX_TITLE_LENGTH = 30;
 
@@ -928,6 +944,17 @@ export function validateWorkcaseBodyStructure(body, title, opts) {
   }
 
   const h2 = h2Titles(body);
+  // H2 数值闭集（21 §8）：清单之外不得出现任何 H2。
+  //
+  // 只拦「未登记」的标题；已登记标题的出现条件由下方各自分支负责，故不在此重复。
+  // `h2Titles` 按 CommonMark 语义跳过 fenced code block，故正文里作为**字面内容**
+  // 出现的 `## xxx`（示例、模板、被引用的规范片段）不会误伤；`###` 亦不计入 H2，
+  // 故 §8 书写结构的 `### 标签` 分块标记不受影响。
+  for (const title of h2) {
+    if (!BODY_H2_ALLOWED.includes(title)) {
+      issues.push(`body: unexpected H2 section "## ${title}" — the H2 set is closed (21 §8: ${BODY_H2_ALLOWED.join(" / ")}); 未登记的标题不属于任何字段的正文承载`);
+    }
+  }
   // 执行 requires that execution actually happened (status=open, or closed with
   // gate_1) — a pure draft never carries it.
   if (!hasExecution && h2.includes(BODY_H2_EXECUTION)) {

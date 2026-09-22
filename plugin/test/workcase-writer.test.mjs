@@ -1158,6 +1158,72 @@ test("body structure: create rejects a non-closing draft carrying 结果 (端到
 });
 
 // ---------------------------------------------------------------------------
+// 正文 H2 取值闭集（21 §8，Human 裁定 2026-09-22）
+// ---------------------------------------------------------------------------
+// 缺口回归：此前**没有任何守卫**拦「清单之外的 H2」。旧实现只做两项比对——
+// 「期望节是否出现」与「已出现节的相对次序」——未登记标题既不参与前者也不参与
+// 后者，因而默认放行（实测：正文含额外「## 复核」可落盘成功）。21 §14 原有的
+// 「正文不设复核节」是「无须」而非「不得」，不足以充当机械门禁。
+test("body structure: an H2 outside the closed set is rejected (21 §8 H2 闭集)", () => {
+  const title = "T";
+  const core = `# ${title}\n\n## 摘要\n\ns\n\n## 授权范围\n\nsc\n\n## 计划\n\n- p\n`;
+  const full = `${core}\n## 执行\n\ne\n\n## 结果\n\nr\n`;
+  const opts = { hasExecution: true, requireResult: true };
+
+  // 正向控制：闭集内的完整正文必须通过（守卫不得误伤合规对象）
+  assert.equal(validateWorkcaseBodyStructure(full, title, opts).ok, true);
+
+  // 已裁定的那个具体情形：「## 复核」不得出现在正文
+  // （21 §14 明言复核详情不入对象，正文无须为其新增 H2）
+  const withReview = validateWorkcaseBodyStructure(`${core}\n## 执行\n\ne\n\n## 复核\n\nn\n\n## 结果\n\nr\n`, title, opts);
+  assert.equal(withReview.ok, false);
+  assert.ok(withReview.issues.some((i) => i.includes("unexpected H2") && i.includes("复核")), JSON.stringify(withReview.issues));
+
+  // 不限于「复核」：任何未登记标题一视同仁（否则闭集退化为关键词黑名单）
+  for (const bogus of ["备注", "背景", "参考", "Review", "摘要2"]) {
+    const r = validateWorkcaseBodyStructure(`${core}\n## 执行\n\ne\n\n## ${bogus}\n\nx\n\n## 结果\n\nr\n`, title, opts);
+    assert.equal(r.ok, false, `「## ${bogus}」应被拒绝`);
+    assert.ok(r.issues.some((i) => i.includes("unexpected H2")), JSON.stringify(r.issues));
+  }
+});
+
+test("body structure: H2 闭集不误伤围栏内字面标题、H3 分块标记与尾部内容", () => {
+  const title = "T";
+  const base = `# ${title}\n\n## 摘要\n\ns\n\n## 授权范围\n\nsc\n\n## 计划\n\n- p\n\n## 执行\n\ne\n`;
+  const opts = { hasExecution: true, requireResult: true };
+
+  // ① 围栏内的 `## 复核` 是**字面内容**（示例/模板/被引用的规范片段），不是标题。
+  //    h2Titles 按 CommonMark 语义跳过 fenced code block —— 闭集必须继承该语义，
+  //    否则正文里连「引用一段带 ## 的示例」都做不到。
+  const fenced = `${base}\n## 结果\n\nr\n\n\`\`\`md\n## 复核\n这是字面内容，不是标题\n\`\`\`\n`;
+  assert.equal(validateWorkcaseBodyStructure(fenced, title, opts).ok, true, "围栏内的 ## 不应被判为预期外 H2");
+
+  // ② `###` 不是 H2。§8 书写结构允许用 `### 标签` 作分块标记，闭集不得把它一并禁掉。
+  const h3 = `${base}\n### 分块标记\n\nnote\n\n## 结果\n\nr\n`;
+  assert.equal(validateWorkcaseBodyStructure(h3, title, opts).ok, true, "### 分块标记不应被判为预期外 H2");
+
+  // ③ `#标题`（井号后无空格）按 CommonMark 不是标题，不应触发闭集。
+  const noSpace = `${base}\n## 结果\n\nr\n\n#不空格的井号\n`;
+  assert.equal(validateWorkcaseBodyStructure(noSpace, title, opts).ok, true, "#标题 不是 ATX 标题");
+});
+
+test("body structure: create rejects an unexpected H2 end-to-end (端到端，21 §14)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const draft = validDraft();
+    const bad = await createWorkcaseObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: `${draftBody(draft)}\n## 复核\n\n复核详情不应入对象。\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(!bad.ok, "含预期外 H2 的正文必须被拒绝");
+    assert.equal(bad.error.code, "workcase/body_invalid");
+    assert.ok(bad.error.details.issues.some((i) => i.includes("unexpected H2")), JSON.stringify(bad.error.details.issues));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // reviews — 复核节点概要流水（21 §8，Human 裁定 2026-09-16）
 // ---------------------------------------------------------------------------
 test("reviews: execute accepts a well-formed entry and persists it", async () => {
