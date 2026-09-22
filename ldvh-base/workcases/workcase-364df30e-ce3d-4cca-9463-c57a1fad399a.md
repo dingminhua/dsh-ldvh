@@ -3,37 +3,27 @@ fact_type_key: workcase
 object_uid: 364df30e-ce3d-4cca-9463-c57a1fad399a
 title: WorkCase 呈现保真与设计语言收敛
 status: open
+gist: 修 WorkCase 呈现的字段类型守卫缺陷，统一前后端字段契约与派生分组配色，使详情阅读结构与已登记设计语言一致。
 serves: SG-3
-summary: 完善 WorkCase 各类呈现表现：修服务端投影的字段类型守卫缺陷（Date/boolean/array 被字符串守卫拦下，致 closed
-  逐条核对退化为「未记录」、残留责任节点消失、Gate 1 批准时间与 attempt
-  心跳丢失），统一前后端字段契约，补齐派生分组的本地化与语义色，使详情阅读结构与既登记设计语言一致（去重复身份块、正文用详情层级、closed
-  不丢已存在字段），清 v4 残留并把 plugin/web/docs/10 §4.2 更新为 v5 语义，补运行时保真契约测试。
-scope: 做什么：修 api/services/facts.ts 的 WorkCase
-  投影保真（satisfied/residual/gate_1.approved_at/attempt 时间戳按真实类型判定并保留）；统一
-  ObjectItem 与 WorkCaseResult/Gate1/Attempt
-  契约；修列表卡与收件箱的判据可读呈现；补派生分组五档的本地化与语义色；详情去重复身份块与裸 status、正文改详情层级、closed 保留已存在的
-  summary/serves/scope、消除 locale=""；删除零消费者 workcaseDetailProjection.ts 与
-  has_execution_section；model.ts 字段序改 21 号闭集；更新 plugin/web/docs/10 §4.2 为 v5
-  语义；补运行时保真契约测试与设计语言守卫；重建 dist；受控提交。明确不做什么：不改 21 号字段闭集/三态/Gate/派生分组判据；不改
-  plugin/lib writer/tools；不改后端 API 路由契约与事实源文件、不迁移 v4 存量对象；不改其余六类阅读布局与列表卡；不改
-  specs/ 下任何规范文本；不做 WC-A 全类型 YAML 与 WC-C SG 筛选的范围。
+summary: |-
+  ### 完善 WorkCase 各类呈现表现
+  修服务端投影的字段类型守卫缺陷（Date/boolean/array 被字符串守卫拦下，致 closed 逐条核对退化为「未记录」、残留责任节点消失、Gate 1 批准时间与 attempt 心跳丢失），统一前后端字段契约，补齐派生分组的本地化与语义色，
+
+  ### 详情阅读结构与设计语言对齐
+  使详情阅读结构与既登记设计语言一致（去重复身份块、正文用详情层级、closed 不丢已存在字段），清 v4 残留并把 plugin/web/docs/10 §4.2 更新为 v5 语义，补运行时保真契约测试。
+scope: 做什么：修 api/services/facts.ts 的 WorkCase 投影保真（satisfied/residual/gate_1.approved_at/attempt 时间戳按真实类型判定并保留）；统一 ObjectItem 与 WorkCaseResult/Gate1/Attempt 契约；修列表卡与收件箱的判据可读呈现；补派生分组五档的本地化与语义色；详情去重复身份块与裸 status、正文改详情层级、closed 保留已存在的 summary/serves/scope、消除 locale=""；删除零消费者 workcaseDetailProjection.ts 与 has_execution_section；model.ts 字段序改 21 号闭集；更新 plugin/web/docs/10 §4.2 为 v5 语义；补运行时保真契约测试与设计语言守卫；重建 dist；受控提交。明确不做什么：不改 21 号字段闭集/三态/Gate/派生分组判据；不改 plugin/lib writer/tools；不改后端 API 路由契约与事实源文件、不迁移 v4 存量对象；不改其余六类阅读布局与列表卡；不改 specs/ 下任何规范文本；不做 WC-A 全类型 YAML 与 WC-C SG 筛选的范围。
 plan:
-  - done_criteria: 每个缺陷给出复现方式与「期望/实际」对照，其中服务端投影缺陷以真实 ldvh-base/workcases 对象跑「读取层 +
-      投影层」得到无损字段清单，可机械复核
+  - done_criteria: 每个缺陷给出复现方式与「期望/实际」对照，其中服务端投影缺陷以真实 ldvh-base/workcases 对象跑「读取层 + 投影层」得到无损字段清单，可机械复核
     step: 缺陷清单固化为机械可复现证据
-  - done_criteria: 对全部 7 个真实 workcase 复跑，字段冻结数（投影后丢失的实际存在字段）为 0；closed 的 satisfied 为
-      boolean、residual 为 string[]
+  - done_criteria: 对全部 7 个真实 workcase 复跑，字段冻结数（投影后丢失的实际存在字段）为 0；closed 的 satisfied 为 boolean、residual 为 string[]
     step: 修服务端投影保真（satisfied/residual/gate_1.approved_at/attempt 时间戳）
-  - done_criteria: ObjectItem 的 WorkCase 字段复用
-      WorkCaseResult/WorkCaseGate1/WorkCaseAttempt；仓库内无第二套同字段类型；tsc 0 错误
+  - done_criteria: ObjectItem 的 WorkCase 字段复用 WorkCaseResult/WorkCaseGate1/WorkCaseAttempt；仓库内无第二套同字段类型；tsc 0 错误
     step: 统一前后端契约与类型
   - done_criteria: closed 列表卡与收件箱的逐条核对显示与详情同款可读三态文本，源码内无拼装裸布尔的形态
     step: 修列表卡与收件箱的判据可读呈现
-  - done_criteria: 五组在中英双语下经 getObjectStatusLocale 均返回本地化文本（无 raw
-      snake_case）；docs/01 §1.10.2 的「Human 待确认紫系」对二 Gate 组成立
+  - done_criteria: 五组在中英双语下经 getObjectStatusLocale 均返回本地化文本（无 raw snake_case）；docs/01 §1.10.2 的「Human 待确认紫系」对二 Gate 组成立
     step: 补派生分组本地化与语义色
-  - done_criteria: 详情不再出现与 ObjectIdentityHeader 重复的身份块与裸 status:；正文段使用详情正文层级而非
-      ldvh-card-decision-body；closed 详情呈现对象已存在的 summary/serves/scope；无 locale=""
+  - done_criteria: 详情不再出现与 ObjectIdentityHeader 重复的身份块与裸 status:；正文段使用详情正文层级而非 ldvh-card-decision-body；closed 详情呈现对象已存在的 summary/serves/scope；无 locale=""
     step: 详情阅读结构对齐设计语言
   - done_criteria: 死文件与零消费字段已删、model.ts 字段序为 21 号闭集；docs/10 §4.2 与 specs/21 §8 逐项对照无 v4 词汇残留
     step: 清 v4 残留并更新 docs/10 §4.2
@@ -45,20 +35,17 @@ gate_1:
   approved_at: 2026-09-17T07:58:10.850Z
   approver: Human（本会话直接指令：选定「批准执行（推荐）」）
   authorization_fingerprint: 7ff749a6b5db95d6ec943e3a8bba876840ea745251a8fcbd1dd4204d8ea9a229
-  scope_snapshot: 做什么：修 api/services/facts.ts 的 WorkCase
-    投影保真（satisfied/residual/gate_1.approved_at/attempt 时间戳按真实类型判定并保留）；统一
-    ObjectItem 与 WorkCaseResult/Gate1/Attempt
-    契约；修列表卡与收件箱的判据可读呈现；补派生分组五档的本地化与语义色；详情去重复身份块与裸 status、正文改详情层级、closed 保留已存在的
-    summary/serves/scope、消除 locale=""；删除零消费者 workcaseDetailProjection.ts 与
-    has_execution_section；model.ts 字段序改 21 号闭集；更新 plugin/web/docs/10 §4.2 为 v5
-    语义；补运行时保真契约测试与设计语言守卫；重建 dist；受控提交。明确不做什么：不改 21 号字段闭集/三态/Gate/派生分组判据；不改
-    plugin/lib writer/tools；不改后端 API 路由契约与事实源文件、不迁移 v4 存量对象；不改其余六类阅读布局与列表卡；不改
-    specs/ 下任何规范文本；不做 WC-A 全类型 YAML 与 WC-C SG 筛选的范围。
+  scope_snapshot: 做什么：修 api/services/facts.ts 的 WorkCase 投影保真（satisfied/residual/gate_1.approved_at/attempt 时间戳按真实类型判定并保留）；统一 ObjectItem 与 WorkCaseResult/Gate1/Attempt 契约；修列表卡与收件箱的判据可读呈现；补派生分组五档的本地化与语义色；详情去重复身份块与裸 status、正文改详情层级、closed 保留已存在的 summary/serves/scope、消除 locale=""；删除零消费者 workcaseDetailProjection.ts 与 has_execution_section；model.ts 字段序改 21 号闭集；更新 plugin/web/docs/10 §4.2 为 v5 语义；补运行时保真契约测试与设计语言守卫；重建 dist；受控提交。明确不做什么：不改 21 号字段闭集/三态/Gate/派生分组判据；不改 plugin/lib writer/tools；不改后端 API 路由契约与事实源文件、不迁移 v4 存量对象；不改其余六类阅读布局与列表卡；不改 specs/ 下任何规范文本；不做 WC-A 全类型 YAML 与 WC-C SG 筛选的范围。
 attempt:
   attempt_id: 1
   started_at: 2026-09-17T07:58:10.850Z
   controller: deepseek-v4.1-flash@dsh-ldvh-session
-  heartbeat_at: 2026-09-18T11:21:15.354Z
+  heartbeat_at: 2026-09-22T14:50:15.593Z
+reviews:
+  - at: 2026-09-22T14:50:15.593Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 对象：提交 48d1264（WorkCase 呈现保真与设计语言收敛）。基线：HEAD 前版 6ac30ec 与 specs/21 §8/§9.3/§10.3/§10.4、specs/10 §5.5/§12、docs/01 §1.4 第4条/§1.8.1/§1.10.2。方法：隔离子代理通读全量 diff 与规范原文，做 5 次变异验证并跑 tsc/测试/eslint，逐字节 md5 还原核对。覆盖：三投影函数逐行类型判定与闭集（未放宽）、新增测试判别力（5/5 变异被捕获）、与六类样板的外壳/正文层级/身份头部/复制入口一致性、§12 第7第8条、v4 残留全仓含 dist 搜索。未覆盖：浏览器端真实渲染与视觉核验、Gate 1/2 写入路径与 CLI 侧契约、eslint 逐条同源比对。发现：无阻断、无重要，1 项提示——docs/archive/v4-web-migration-survey.md 仍列已删除文件名，但该目录自述不具规范效力且为 v4 源树冻结盘点，不构成悬挂引用。保证边界：证明投影不再静默丢弃合规字段且未放宽闭集、测试具运行时判别力、设计语言与样板一致；不证明浏览器视觉层与 Human 阅读可用性。
 created_at: 2026-09-17T07:36:31.587Z
 change_log:
   - at: 2026-09-17T07:36:31.587Z
@@ -68,14 +55,11 @@ change_log:
   - at: 2026-09-17T07:58:10.850Z
     provider: workbuddy
     model: deepseek-v4.1-flash
-    summary: Gate 1 批准——Human 确认执行 WorkCase 呈现保真与设计语言收敛；授权绑定当次 plan+scope 指纹 [gate_1
-      approved by Human（本会话直接指令：选定「批准执行（推荐）」）; attempt 1 allocated to
-      deepseek-v4.1-flash@dsh-ldvh-session]
+    summary: Gate 1 批准——Human 确认执行 WorkCase 呈现保真与设计语言收敛；授权绑定当次 plan+scope 指纹 [gate_1 approved by Human（本会话直接指令：选定「批准执行（推荐）」）; attempt 1 allocated to deepseek-v4.1-flash@dsh-ldvh-session]
   - at: 2026-09-17T08:35:09.232Z
     provider: workbuddy
     model: deepseek-v4.1-flash
-    summary: 步骤 1–8 完成、提交 48d1264（20 files, +812/−309）；独立复核已发起 [attempt 1 heartbeat
-      refreshed]
+    summary: 步骤 1–8 完成、提交 48d1264（20 files, +812/−309）；独立复核已发起 [attempt 1 heartbeat refreshed]
   - at: 2026-09-17T08:39:27.611Z
     provider: workbuddy
     model: deepseek-v4.1-flash
@@ -88,27 +72,21 @@ change_log:
     provider: workbuddy-global
     model: deepseek-v4.1-flash
     summary: 迁移：补齐 gist 要点字段（21 §8，WorkCase d5273e1c） [attempt 1 heartbeat refreshed]
-reviews:
-  - at: 2026-09-18T11:21:15.354Z
-    provider: workbuddy-global
+  - at: 2026-09-22T14:50:15.593Z
+    provider: workbuddy
     model: deepseek-v4.1-flash
-    summary: 对象：提交 48d1264（WorkCase 呈现保真与设计语言收敛）。基线：HEAD 前版 6ac30ec 与 specs/21
-      §8/§9.3/§10.3/§10.4、specs/10 §5.5/§12、docs/01 §1.4
-      第4条/§1.8.1/§1.10.2。方法：隔离子代理通读全量 diff 与规范原文，做 5 次变异验证并跑 tsc/测试/eslint，逐字节
-      md5 还原核对。覆盖：三投影函数逐行类型判定与闭集（未放宽）、新增测试判别力（5/5
-      变异被捕获）、与六类样板的外壳/正文层级/身份头部/复制入口一致性、§12 第7第8条、v4 残留全仓含 dist
-      搜索。未覆盖：浏览器端真实渲染与视觉核验、Gate 1/2 写入路径与 CLI 侧契约、eslint 逐条同源比对。发现：无阻断、无重要，1
-      项提示——docs/archive/v4-web-migration-survey.md 仍列已删除文件名，但该目录自述不具规范效力且为 v4
-      源树冻结盘点，不构成悬挂引用。保证边界：证明投影不再静默丢弃合规字段且未放宽闭集、测试具运行时判别力、设计语言与样板一致；不证明浏览器视觉层与
-      Human 阅读可用性。
-gist: 修 WorkCase 呈现的字段类型守卫缺陷，统一前后端字段契约与派生分组配色，使详情阅读结构与已登记设计语言一致。
+    summary: "摘要分块（忠实重排）：把作者自撰的行内「：」提为 ### 块首并插入空行，使摘要可读且符合 21 §8 书写结构（H3 骨架）；作者原文逐字未改，仅新增标记与空行 [attempt 1 heartbeat refreshed]"
 ---
 
 # WorkCase 呈现保真与设计语言收敛
 
 ## 摘要
 
-完善 WorkCase 各类呈现表现：修服务端投影的字段类型守卫缺陷（Date/boolean/array 被字符串守卫拦下，致 closed 逐条核对退化为「未记录」、残留责任节点消失、Gate 1 批准时间与 attempt 心跳丢失），统一前后端字段契约，补齐派生分组的本地化与语义色，使详情阅读结构与既登记设计语言一致（去重复身份块、正文用详情层级、closed 不丢已存在字段），清 v4 残留并把 plugin/web/docs/10 §4.2 更新为 v5 语义，补运行时保真契约测试。
+### 完善 WorkCase 各类呈现表现
+修服务端投影的字段类型守卫缺陷（Date/boolean/array 被字符串守卫拦下，致 closed 逐条核对退化为「未记录」、残留责任节点消失、Gate 1 批准时间与 attempt 心跳丢失），统一前后端字段契约，补齐派生分组的本地化与语义色，
+
+### 详情阅读结构与设计语言对齐
+使详情阅读结构与既登记设计语言一致（去重复身份块、正文用详情层级、closed 不丢已存在字段），清 v4 残留并把 plugin/web/docs/10 §4.2 更新为 v5 语义，补运行时保真契约测试。
 
 **关键定位**：WC-D（99957f65）已修 `api.ts` 的前端类型声明，但**未触及服务端投影**——`git show --name-only ba8d71a` 确认未改 `facts.ts`。故服务端投影的字段丢弃是该单的残留缺口，本单承接。
 
