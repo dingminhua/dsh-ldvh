@@ -1647,6 +1647,39 @@ export function ResearchClarificationLogNode({ obj, locale }: { obj: Record<stri
   );
 }
 
+/**
+ * 从 react-markdown 交给组件覆写的 children 中取出**纯文本**。
+ *
+ * `children` 是 ReactNode，**不保证是字符串**——含行内标记时（如 `做什么：**重点**`）
+ * 会是数组，含元素节点时会有对象。直接 `String(children)` 会得到 "[object Object]"
+ * 或带上元素类型，导致「标签行」识别忽真忽假。故按递归取其中所有字符串拼接。
+ */
+function reactNodeText(node: unknown): string {
+  if (typeof node === 'string') return node;
+  if (typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(reactNodeText).join('');
+  if (node && typeof node === 'object' && 'props' in node) {
+    return reactNodeText((node as { props?: { children?: unknown } }).props?.children);
+  }
+  return '';
+}
+
+/**
+ * 「标签行」判定：整段就是一条以 `：` 结尾的短行（如 `做什么：`／`明确不做什么：`）。
+ *
+ * 背景：21 §8 的 `scope` 由「两个标签行 + 各自条目」构成，但 Markdown 里标签行是
+ * 普通段落（`<p>`），与正文段落**同标签**——CSS 无法只选中它。故在渲染层识别并
+ * 附加 `ldvh-label-line` 类，使「标题须与正文可区分」这件事**在呈现层可实现**
+ * （Human 裁定 2026-09-22；此前 `做什么：` 与正文同色同重，读者看不出层级）。
+ *
+ * 判据保守：全文 ≤ 20 字且以 `：`/`:` 结尾。正文句子不会既这么短又以冒号收尾并独占
+ * 一段——这一点与 21 §8 书写结构的「标签行」语义一致（标签行只含标签本身）。
+ */
+function isLabelLine(text: string): boolean {
+  const t = text.trim();
+  return t.length > 0 && t.length <= 20 && /[：:]$/.test(t);
+}
+
 export function ResearchTextNodeContent({
   value,
   compact = false,
@@ -1661,7 +1694,22 @@ export function ResearchTextNodeContent({
   return (
     <div className={`ldvh-research-node-content min-w-0 ${compact ? 'ldvh-research-node-content-compact' : ''} ${className}`}>
       <div className="ldvh-inline-markdown max-w-none min-w-0 overflow-hidden break-words">
-        <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
+        <Markdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            // 标签行附加类名，使其可被样式区分为小标题（21 §8 的 `scope` 两标签行）。
+            p: ({ children, ...rest }) => {
+              const label = isLabelLine(reactNodeText(children));
+              return (
+                <p className={label ? 'ldvh-label-line' : undefined} {...rest}>
+                  {children}
+                </p>
+              );
+            },
+          }}
+        >
+          {text}
+        </Markdown>
       </div>
     </div>
   );

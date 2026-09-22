@@ -512,3 +512,120 @@ test('the closure-window hint never lives in the executing branch (mutually excl
     'executing 分支内的提示不得标为 awaiting_gate2 组——着色入参须等于所在分组',
   );
 });
+
+test('授权范围的标签行与条目须有视觉层级，且列表与相邻段落有间距 (Human 裁定 2026-09-22)', () => {
+  const detail = readSource('web/src/pages/ObjectDetail.tsx');
+  const styles = readSource('web/src/index.css');
+
+  // 背景：21 §8 的 `scope` 由「`做什么：`／`明确不做什么：` 两标签行 + 各自条目」构成，
+  // 但标签行在 Markdown 里是**普通段落**（`<p>`），与正文段落同标签——CSS 选择器无法
+  // 只选中它。故呈现层必须在渲染时识别并加类，否则「标签行须可区分」无法实现
+  // （Human 实测：标签行与正文同色同重，读者看不出授权范围的骨架）。
+  assert.match(
+    detail,
+    /className=\{label \? 'ldvh-label-line' : undefined\}/,
+    'ResearchTextNodeContent 须为标签行附加 ldvh-label-line 类（否则 CSS 无法选中它）',
+  );
+  assert.match(detail, /function isLabelLine\(/, '须有标签行判定函数');
+  assert.match(
+    detail,
+    /function reactNodeText\(/,
+    '须安全提取 children 纯文本——String(children) 对数组/元素会得到 [object Object]，使判定忽真忽假',
+  );
+
+  // CSS：标签行呈现为小标题（加粗 + 更重的取色），与 li 条目形成层级。
+  const labelRule = /\.ldvh-label-line\s*\{([^}]*)\}/.exec(styles);
+  assert.ok(labelRule, 'index.css 须有 .ldvh-label-line 规则');
+  assert.match(labelRule![1], /font-weight:\s*600/, '标签行须加粗（与条目区分）');
+  assert.match(
+    labelRule![1],
+    /color:\s*rgb\(var\(--ldvh-text-primary\)\)/,
+    '标签行取色须用 text-primary——与正文 text-secondary 区分',
+  );
+
+  // 列表与相邻段落的间距：`做什么：` → 列表 → `明确不做什么：` 结构中，若列表
+  // margin-bottom 为 0，后一标签行会紧贴最后一个条目，两段骨架挤在一起。
+  // 这一项**必须在呈现层解决**：实测 Markdown 已把空行渲染为两个兄弟节点
+  // （`<ul>` 与 `<p>`），是 CSS 零间距让它们视觉相贴——数据侧加空行不产生效果。
+  //
+  // 断言取**规则体内的取值**而非整条规则的书写形式：该取值现与 `display:flex` 等既有
+  // 声明同处一条规则（初版另写一条覆盖规则，会在同一处留下两个同选择器规则，已改为直接
+  // 改原规则）。按取值断言，两种写法都能通过；若有人把下间距改回 0 则必然失败。
+  const listRuleBody =
+    /\.ldvh-research-node-content \.ldvh-inline-markdown :where\(ul, ol\)\s*\{([^}]*)\}/.exec(styles);
+  assert.ok(listRuleBody, '阅读节点须有列表规则');
+  const listMarginBottom = /margin-bottom:\s*([^;]+);/.exec(listRuleBody![1]);
+  assert.ok(listMarginBottom, '列表规则须显式给出 margin-bottom');
+  assert.notEqual(
+    listMarginBottom![1].trim(),
+    '0',
+    '阅读节点的列表须有非零下间距，否则后一标签行紧贴条目（数据侧空行不产生效果）',
+  );
+  assert.match(
+    styles,
+    /\.ldvh-research-node-content \.ldvh-inline-markdown :where\(ul, ol\) \+ :where\(p, h2, h3, h4, h5, h6\)\s*\{\s*margin-top:\s*0\.625rem;\s*\}/,
+    '列表之后的段落须有上间距（与上一条共同解决「明确不做什么」紧贴问题）',
+  );
+});
+
+test('阅读节点的列表圆点不得带外发光 (Human 裁定 2026-09-22)', () => {
+  const styles = readSource('web/src/index.css');
+
+  // 圆点标记由 `ul > li::before` 自绘。原值带一圈外发光
+  // （`box-shadow: 0 0 0 3px …／0.08`）——v4 平移时继承（6bf5e4f），
+  // Human 实测认为浅色壳底上圆点因此发虚、边界不清，要求去掉。
+  //
+  // 只去光晕、保留圆点：圆点是行首结构标记，不是装饰；发光才是多余的视觉层。
+  const markRule =
+    /\.ldvh-research-node-content \.ldvh-inline-markdown :where\(ul > li\)::before\s*\{([^}]*)\}/.exec(styles);
+  assert.ok(markRule, '阅读节点须有自绘的列表圆点规则');
+  assert.doesNotMatch(
+    markRule![1].replace(/\/\*[\s\S]*?\*\//g, ''),
+    /box-shadow/,
+    '列表圆点不得带外发光（box-shadow）——注释中记录原值不算违规，实际声明不得存在',
+  );
+  assert.match(markRule![1], /border-radius:\s*999px/, '圆点须保留（只去光晕，不去标记本身）');
+  assert.match(markRule![1], /background:\s*rgb\(var\(--ldvh-text-secondary\)/, '圆点取色不变');
+
+  // 提交信息面（.ldvh-commit-body-markdown）是另一处呈现面，不在本项范围内——
+  // 本项只针对阅读节点（Human 看到的是「授权范围」字段）。
+  assert.doesNotMatch(
+    styles.slice(0, styles.indexOf('.ldvh-commit-body-markdown') + 1),
+    /\.ldvh-research-node-content \.ldvh-inline-markdown :where\(ul > li\)::before[\s\S]*box-shadow/,
+    '阅读节点圆点规则内不得残留 box-shadow',
+  );
+});
+
+test('阅读节点内纯文本与 Markdown 两种正文须同层级 (统一设计语言, 2026-09-22)', () => {
+  const styles = readSource('web/src/index.css');
+  const design = readSource('web/docs/01-全局设计约束.md');
+
+  // 统一设计语言：阅读区正文基准 14px（docs/01 §1.4 第 9 条；第 4 条另禁「详情页与
+  // 阅读面板随卡片扫描窗口缩小」）。全仓 14 处阅读字段都经 ResearchTextNodeContent
+  // （→ .ldvh-inline-markdown，14px/24px），唯一例外是 gist——21 §8 定义它纯文本、
+  // 不得经 Markdown（由 gist 呈现契约钉住），故由裸 <p class="ldvh-detail-semantic-body">
+  // 渲染后会落到 13px/22px，同页出现两种字号与两种取色。
+  assert.match(design, /Markdown 阅读区[\s\S]{0,80}正文基准为 14px/, '设计语言须登记阅读区 14px 基准');
+  assert.match(design, /详情页和阅读面板仍使用各自正文层级，不得随之缩小/, '设计语言须禁止详情页缩小正文');
+
+  // 壳内的纯文本正文须被对齐到同一基准（14px/24px + 同一取色）。
+  const rule = /\.ldvh-research-node-content \.ldvh-detail-semantic-body\s*\{([^}]*)\}/.exec(styles);
+  assert.ok(rule, '须有「壳内纯文本正文」的对齐规则——否则 gist 与相邻节点字号不一致');
+  assert.match(rule![1], /font-size:\s*0\.875rem/, '壳内纯文本正文须取 14px（阅读基准）');
+  assert.match(rule![1], /line-height:\s*1\.5rem/, '壳内纯文本正文行高须取 24px');
+  assert.match(
+    rule![1],
+    /color:\s*rgb\(var\(--ldvh-text-secondary\)\)/,
+    '壳内纯文本正文取色须与 .ldvh-inline-markdown 一致',
+  );
+
+  // 边界：不得改全局 `.ldvh-detail-semantic-body` 的取值——它另用于阅读面板的 mono
+  // 元信息 `dd`（元信息语义，13px 恰当），改全局会波及那一处。
+  const globalRule = /^ {2}\.ldvh-detail-semantic-body\s*\{([^}]*)\}/m.exec(styles);
+  assert.ok(globalRule, '全局 .ldvh-detail-semantic-body 须保留');
+  assert.match(
+    globalRule![1],
+    /font-size:\s*0\.8125rem/,
+    '全局取值须保持 13px——本项只对齐「阅读节点壳内」这一处，不波及阅读面板的 mono 元信息',
+  );
+});

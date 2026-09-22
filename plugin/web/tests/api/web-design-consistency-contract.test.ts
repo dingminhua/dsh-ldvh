@@ -352,6 +352,50 @@ test('阅读节点的正文取色达到 4.5:1 —— 两个主题都复算，不
   }
 });
 
+test('阅读节点的 H3 标题须与正文可区分，且两个主题都达 4.5:1（Human 裁定 2026-09-22）', () => {
+  const styles = read('src/index.css');
+
+  // 21 §8 的 H3 骨架（bf9b37b）让摘要**结构上**分节；若标题与正文同色，则
+  // **视觉上**仍未分层——读者看到的是一行行同色文字，分节收益被抵消。本用例守住
+  // 「已登记的结构在呈现层真的可见」这一环。
+  //
+  // 与正文取色那条同款：**复算对比度**而非只断言 CSS 字符串——断言字符串发现不了
+  // 「换一个同样够淡的颜色」。
+  const headingRule =
+    /\.ldvh-research-node-content \.ldvh-inline-markdown :where\(h2, h3, h4, h5, h6\)\s*\{([^}]*)\}/;
+  const rule = headingRule.exec(styles);
+  assert.ok(rule, '阅读节点须有 H2–H6 标题的取色规则');
+
+  const colorMatch = /color:\s*rgb\(var\(--(ldvh-text-[a-z]+)\)\)/.exec(rule![1]);
+  assert.ok(colorMatch, `标题取色须用令牌（便于复算对比度），实际：${rule![1].trim().slice(0, 120)}`);
+
+  const bodyRule =
+    /\.ldvh-research-node-content \.ldvh-inline-markdown\s*\{\s*color:\s*rgb\(var\(--(ldvh-text-[a-z]+)\)\);/;
+  const bodyToken = bodyRule.exec(styles);
+  assert.ok(bodyToken, '阅读节点须有正文取色规则');
+
+  // ① 可区分：标题令牌不得与正文相同（同色即「视觉上没分层」）。
+  assert.notEqual(
+    colorMatch[1],
+    bodyToken![1],
+    `H3 标题取色不得与正文相同（二者同为 --${colorMatch[1]} 时读者看不出层级）`,
+  );
+
+  // ② 达线：两个主题下标题对壳底的对比度都须 ≥ 4.5:1。
+  //    这条守的是「不许为了好看而牺牲可读性」——accent 在浅色下仅 3.58:1，会被本项拒绝。
+  const blend = (fg: number[], bg: number[], alpha: number) =>
+    fg.map((channel, index) => channel * alpha + bg[index] * (1 - alpha));
+  for (const dark of [false, true]) {
+    const shell = blend(readToken(styles, 'ldvh-bg', dark), readToken(styles, 'ldvh-panel', dark), 0.4);
+    const ratio = contrastRatio(readToken(styles, colorMatch[1], dark), shell);
+    const label = dark ? '暗色' : '浅色';
+    assert.ok(
+      ratio >= 4.5,
+      `${label}阅读节点标题对比度 ${ratio.toFixed(2)}:1 低于正文 4.5:1 线（令牌 ${colorMatch[1]}）`,
+    );
+  }
+});
+
 test('阅读节点不设行宽上限 —— 撤销 40em 的反回退守卫', () => {
   const styles = read('src/index.css');
 
