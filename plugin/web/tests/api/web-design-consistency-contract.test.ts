@@ -299,9 +299,9 @@ test('Federation pages reuse the shared layout grammar and do not invent viewpor
  *    本用例**复算对比度**，而不是只断言 CSS 字符串：断言字符串无法发现「换一个
  *    同样带 alpha 的写法」，而复算能。色值从 index.css 的 token 读出，避免两边漂移。
  *
- * ② 行宽：长文正文一行容纳过多字符会串行。实测壳内文本列宽约 792px，14px 字号下
- *    汉字约 57 字/行，超出中文正文舒适区（约 25–40 字/行）约 1.4 倍。已对行文元素
- *    取 40em；表格与代码块是滚动容器，不得一并收窄。
+ * ② 行宽：原对行文元素取 40em，**已由 Human 裁定 2026-09-22 撤销**（选择器挂在六类
+ *    阅读面共用的壳上、且对短字段只产生留白）。现行纪律是「不设行宽上限」，并留有
+ *    反回退守卫；表格与代码块始终是滚动容器，不涉本项。
  */
 function relativeLuminance([r, g, b]: number[]): number {
   const channel = (value: number) => {
@@ -352,24 +352,28 @@ test('阅读节点的正文取色达到 4.5:1 —— 两个主题都复算，不
   }
 });
 
-test('长文正文取舒适行宽，且不波及表格与代码块', () => {
+test('阅读节点不设行宽上限 —— 撤销 40em 的反回退守卫', () => {
   const styles = read('src/index.css');
 
-  // 行文元素收窄到 40em（随字号缩放）。
-  const prose = /\.ldvh-research-node-content \.ldvh-inline-markdown :where\(([^)]*)\)\s*\{\s*max-width:\s*40em;/;
-  const match = prose.exec(styles);
-  assert.ok(match, '阅读节点的行文元素必须有 40em 行宽上限（实测 792px 约 57 字/行，超出舒适区）');
-  for (const selector of ['p', 'li', 'blockquote', 'h2']) {
-    assert.ok(
-      match![1].split(',').map((part) => part.trim()).includes(selector),
-      `行宽规则须覆盖 ${selector}（行文元素），实际为 ${match![1]}`,
-    );
-  }
+  // Human 裁定 2026-09-22 撤销原 40em 行宽规则。撤销理由（实测）：
+  //   ① 选择器挂在六类阅读面**共用**的壳上（ADR/Pitfall/Spark/Research/Friction/Norm
+  //      与 WorkCase 全部走它），而动机只是 WorkCase 的长摘要——等于给所有类型一并收窄；
+  //   ② 壳内文本列约 792px，40em ≈ 560px，右侧留出约 29% 空白；阅读节点里大多是
+  //      短字段，收窄不产生可读性收益，留白本身反成视觉缺陷。
+  // 「舒适行宽」是连续长文的经验值，不能不加区分地施加到任意字段上。
+  assert.doesNotMatch(
+    styles,
+    /\.ldvh-research-node-content \.ldvh-inline-markdown :where\([^)]*\)\s*\{\s*max-width:\s*\d+(?:\.\d+)?em;/,
+    '阅读节点不得对行文元素设行宽上限（Human 裁定 2026-09-22 已撤销 40em）',
+  );
 
-  // 表格与代码块不得进入行宽规则：二者已是 max-width:100% + overflow-x:auto 的
-  // 滚动容器，收窄会在窄列里挤压它们。
-  const covered = match![1].split(',').map((part) => part.trim());
-  assert.ok(!covered.includes('table'), '表格不得被行宽规则收窄（它是滚动容器）');
-  assert.ok(!covered.includes('pre'), '代码块不得被行宽规则收窄（它是滚动容器）');
+  // 紧随其后的**取色**规则不受本次撤销影响：正文仍须达 4.5:1（见下方对比度用例）。
+  assert.match(
+    styles,
+    /\.ldvh-research-node-content \.ldvh-inline-markdown \{\s*color: rgb\(var\(--ldvh-text-secondary\)\);/,
+    '撤销行宽不应波及取色规则——正文取色须保持无 alpha',
+  );
+
+  // 表格与代码块仍是滚动容器（与本项无关的既有形态，保留断言防被顺手改动）。
   assert.match(styles, /\.ldvh-inline-markdown :where\(table\)\s*\{\s*display: block;\s*max-width: 100%;\s*overflow-x: auto;/);
 });
