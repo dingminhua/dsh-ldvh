@@ -135,8 +135,9 @@ const MAX_TITLE_LENGTH = 30;
  *    要求**语义上同时回答**——实测 16/16 份确实都回答了，形态上却都是行内串联
  *    （`做什么：A；B。明确不做什么：C。`）。本项把「同时回答」落成可读的两段。
  *
- * ② 超过阈值的长文本须用**空行分块**，且首块之外的每块首行须是**层次标记**
- *    （`**标签**` / `### 标签` / `标签：`）。
+ * ② 超过阈值的长文本须用**空行分块**，且首块之外的每块首行须是**固定骨架**：
+ *    `summary` 只有 `### 标签`（Human 裁定 2026-09-22）；`scope` 另有其语义必需的
+ *    `做什么：`／`明确不做什么：` 两个标签行（见下方常量说明）。
  *
  * **阈值以下的短文本豁免**：短文本本就不难读，强制分块是形式主义。阈值取 200
  * 字符——与 `gist` 的 200 字符上限同量级，且实测本仓短对象（42/81/170 字符）
@@ -144,8 +145,15 @@ const MAX_TITLE_LENGTH = 30;
  *
  * **为什么用「标签行」而不是固定小节名**：`summary` 的内容成分实测高度可变
  * （现状核实 8/16、边界 4/16、依据 5/16），固定小节名会逼作者为凑格式而造节。
- * 本规则只要求「有标记、能看出块在讲什么」，不规定块该叫什么——层次由作者定，
+ * 本规则只要求「有骨架、能看出块在讲什么」，不规定块该叫什么——层次由作者定，
  * 可读性由机械保证。
+ *
+ * **骨架取 H3 而非加粗/冒号（Human 裁定 2026-09-22，实测依据）**：原实现接受三种
+ * 标记形式，其理由「三种在本仓并存，强制其一会在无收益处制造改写」**已被推翻**——
+ * 三种在呈现层并不等价：`**标签**` 后的单个换行不产生新段落（仍在同一 `<p>` 内，
+ * 只是标签被加粗），`标签：` 更是无任何标记。允许三种，等于允许两种读者看不出
+ * 层次的写法。收敛为 H3 后，机械判定与视觉层次一一对应。裁决与实测见
+ * `SUMMARY_BLOCK_HEAD` 的说明。
  *
  * **阈值与标签形式的取舍边界（如实声明）**：本项校验**形态可达性**，不校验
  * 标签是否名副其实（写 `**现状核实**` 而内容其实是边界，机械无法判定），也不
@@ -159,20 +167,52 @@ const SCOPE_WHAT_LINE = /^做什么[：:]\s*$/;
 const SCOPE_NOT_LINE = /^明确不做什么[：:]\s*$/;
 
 /**
- * 层次标记行：`**标签**` / `### 标签` / `标签：`。
+ * `summary` 的块首固定骨架：**只有 H3**（21 §8 书写结构，Human 裁定 2026-09-22）。
  *
- * 三种都接受的理由：本仓既有写法三种并存（`**现状核实**` 4/16、行内 `做什么：`、
- * 正文 H3 小节），强制其一会在无收益处制造改写。共同要求是**该行独占一行且只有
- * 标记本身**——那样它才能在视觉上分出一个块。
+ * **为什么从「三种任选」收敛到只有 H3——实测三种在呈现层并不等价**（`react-markdown`
+ * 渲染实测，用例见 plugin/web）：
  *
- * 长度上限 40 字：避免把一句正文误判为标签（正文句子不会以 `：` 结尾且不足 40 字
- * 还独占一行，但留此上限使判定更保守）。
+ *   `### 标签`   → `<h3>标签</h3><p>正文</p>`：H3 是**块级元素**，标题与正文真实分隔；
+ *   `**标签**`   → `<p><strong>标签</strong>\n正文</p>`：单个软换行**不产生新段落**，
+ *                  仍在同一个 `<p>` 内（只是把标签加粗）；
+ *   `标签：`     → `<p>标签：\n正文</p>`：无任何标记，仅靠一个冒号。
+ *
+ * 即：三种在机械层看着都能「分块」，在呈现层只有 H3 真分出了层次。**允许三种，等于
+ * 允许两种达不到分块效果的写法**——这正是「格式看似有规矩、读起来仍是一整段」的根源。
+ * 收敛为 H3 后，机械判定与视觉层次一一对应：机械层说「合规」即读者看到的是分节文本。
+ *
+ * **块首即该 H3 行**：H3 是标题，整行都是标题文本。故 `### 现状核实` 与
+ * `### 现状核实：细节在此` 都构成块首（前者是干净标签，后者把内容吸进了标题）。
+ * 二者的差别属**标题文本质量**，机械层不判——与本项既有的边界一致（机械只证明
+ * 形态可达性，不证明标签名副其实或内容真的有层次；后者属 AI 语义审核与 Human 阅读）。
+ * 需要机械保证的是「块以块级标题开头」，不是「标题写得好」。
  */
-const LABEL_LINE_PATTERNS = [
-  /^\*\*[^*\n]{1,40}\*\*$/,
-  /^#{3,4}\s+\S/,
-  /^[^\n：:]{1,40}[：:]$/,
-];
+const SUMMARY_BLOCK_HEAD = /^###[ \t]+\S/;
+
+/**
+ * `scope` 的块首：H3，或该字段语义所必需的**两个标签行**。
+ *
+ * `scope` 与 `summary` 的差别不是风格，而是语义：`做什么：`／`明确不做什么：` 两段
+ * 骨架由 §8 直接登记（「必须同时回答做什么与明确不做什么」），是**字段定义的一部分**，
+ * 不能改用 H3 表达——故这两个标签行在本字段内是合法的块首。
+ *
+ * **但不接受任意 `XX：` 行**：那正是本次从「三种任选」收敛掉的那种宽松——它让
+ * 「看起来像标题」的空行都能过，结构依旧不固定。本字段的块首因此是**闭集**：
+ * H3，或那两个已登记的标签行，二者之外不构成块首。
+ */
+const SCOPE_BLOCK_HEADS = new Set(["做什么", "明确不做什么"]);
+
+function isSummaryBlockHead(line) {
+  return SUMMARY_BLOCK_HEAD.test(line.trim());
+}
+
+function isScopeBlockHead(line) {
+  const trimmed = line.trim();
+  if (SUMMARY_BLOCK_HEAD.test(trimmed)) return true;
+  // 标签行形态：`做什么：` / `明确不做什么:`（冒号全角半角均可，可带尾随空白）。
+  const m = /^([^\n：:]+)[：:][ \t]*$/.exec(trimmed);
+  return m !== null && SCOPE_BLOCK_HEADS.has(m[1].trim());
+}
 
 /** 空行分块（与 `## 摘要` 等正文节的分块语义一致）。 */
 function structuredTextBlocks(text) {
@@ -181,11 +221,6 @@ function structuredTextBlocks(text) {
     .split(/\n[ \t]*\n+/)
     .map((block) => block.trim())
     .filter(Boolean);
-}
-
-function isLabelLine(line) {
-  const trimmed = line.trim();
-  return LABEL_LINE_PATTERNS.some((pattern) => pattern.test(trimmed));
 }
 
 /**
@@ -222,23 +257,34 @@ function validateScopeLabelSections(scope, issues) {
 }
 
 /**
- * 长文本（> STRUCTURED_TEXT_MIN_CHARS）须空行分块且块首有层次标记。
+ * 长文本（> STRUCTURED_TEXT_MIN_CHARS）须空行分块，且**首块之外的每个块**须以固定
+ * 骨架开头（`summary` 只有 H3；`scope` 另有其语义必需的标签行，见上方常量说明）。
+ *
  * 阈值以下直接放行（短文本豁免）。
+ *
+ * **首块不要求骨架**（Human 裁定 2026-09-22）：首块是该字段的总述，读者从节点标题
+ * 即知它在讲什么，再加一个 H3 只是形式主义；要求骨架的是**后续块**——它们的边界
+ * 必须由标题显式给出，否则与首块糊成一片。实测存量 12 份中 6 份的首句本身即以
+ * 「：」结尾（如「把复核的独立性…升级为关闭侧硬门禁：」），这类可原位提升为 H3，
+ * 无需改写文字。
  */
 function validateStructuredText(text, field, issues) {
   if (text.length <= STRUCTURED_TEXT_MIN_CHARS) return;
+  const isBlockHead = field === "scope" ? isScopeBlockHead : isSummaryBlockHead;
   const blocks = structuredTextBlocks(text);
   if (blocks.length < 2) {
     issues.push(
-      `${field}: ${text.length} chars in a single block — long text must be split by blank lines (21 §8 书写纪律：结构固定清晰、有层次)`,
+      `${field}: ${text.length} chars in a single block — long text must be split by blank lines (21 §8 书写结构：结构固定清晰、有层次)`,
     );
     return;
   }
   for (let i = 1; i < blocks.length; i++) {
     const head = blocks[i].split("\n")[0].trim();
-    if (!isLabelLine(head)) {
+    if (!isBlockHead(head)) {
       issues.push(
-        `${field}: block #${i + 1} starts with "${head.slice(0, 30)}" — every block after the first must open with a hierarchy marker line (**标签** / ### 标签 / 标签：) (21 §8 书写纪律)`,
+        `${field}: block #${i + 1} starts with "${head.slice(0, 30)}" — every block after the first must open with a fixed head (${
+          field === "scope" ? "### 标签 或 做什么：/明确不做什么：" : "### 标签"
+        }) (21 §8 书写结构)`,
       );
     }
   }

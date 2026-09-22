@@ -1884,22 +1884,70 @@ test("写作纪律: 阈值以内不强制分块 —— 短文本豁免 (21 §8)"
   assert.ok(long.issues.some((i) => i.includes("single block")), JSON.stringify(long.issues));
 });
 
-test("写作纪律: 长文本分块后，首块之外的每块须有层次标记 (21 §8)", () => {
-  // 分了块但标记缺失 —— 分块本身不产生可读性收益，须拒。
-  const noLabel = `${LONG_FLAT_SUMMARY}\n\n${LONG_PAD}`;
-  const unlabeled = validateWorkcaseFrontmatter(writingCase({ summary: noLabel }));
-  assert.equal(unlabeled.ok, false, "分块但块首无标记必须被拒");
-  assert.ok(unlabeled.issues.some((i) => i.includes("hierarchy marker")), JSON.stringify(unlabeled.issues));
+test("写作纪律: 长文本分块后，首块之外的每块须以 ### 开头 (21 §8 书写结构，Human 裁定 2026-09-22)", () => {
+  // 分块后的块首用例必须**真的超过 200 阈值**，否则会被短文本豁免放行，
+  // 断言就成了空转（本用例初版即踩此坑：加粗用例总长仅 135，误判为「被接受」）。
+  const LONG = LONG_PAD.repeat(3); // >200
+  const tail = `\n\n### 处置方向\n- 乙${LONG}`;
 
-  // 三种标记形式都接受：**标签** / ### 标签 / 标签：
+  // 分了块但无骨架 —— 分块本身不产生可读性收益，须拒。
+  const unheaded = validateWorkcaseFrontmatter(writingCase({ summary: `总述一段。${LONG}\n\n${LONG}` }));
+  assert.equal(unheaded.ok, false, "分块但块首无骨架必须被拒");
+  assert.ok(unheaded.issues.some((i) => i.includes("fixed head")), JSON.stringify(unheaded.issues));
+
+  // 目标形态：H3 —— 唯一被接受的形式。
+  const h3 = validateWorkcaseFrontmatter(
+    writingCase({ summary: `总述一段。${LONG}\n\n### 现状核实\n- 甲${tail}` }),
+  );
+  assert.equal(h3.ok, true, `H3 骨架应被接受，实际：${JSON.stringify(h3.issues)}`);
+
+  // **反回退守卫**（本用例的主要价值）：曾被接受的两种形式现已不合规。
+  // 三种在**呈现层并不等价**——`**标签**` 后的单个换行不产生新段落（react-markdown
+  // 实测仍在同一 <p> 内，只是标签加粗），`标签：` 更是无任何标记。故允许三种等于
+  // 允许两种读者看不出层次的写法。此断言钉住该裁定；若有人把它们改回「接受」，
+  // 本用例必须变红。
   for (const [name, text] of [
-    ["加粗", `总述一段。\n\n**现状核实**\n- 甲\n\n**处置方向**\n- 乙${LONG_PAD}`],
-    ["H3", `总述一段。\n\n### 现状核实\n- 甲\n\n### 处置方向\n- 乙${LONG_PAD}`],
-    ["冒号", `总述一段。\n\n现状核实：\n- 甲\n\n处置方向：\n- 乙${LONG_PAD}`],
+    ["加粗", `总述一段。${LONG}\n\n**现状核实**\n- 甲${tail}`],
+    ["冒号", `总述一段。${LONG}\n\n现状核实：\n- 甲${tail}`],
   ]) {
+    assert.ok(text.length > 200, `${name}用例须超过 200 阈值，否则断言空转（实际 ${text.length}）`);
     const r = validateWorkcaseFrontmatter(writingCase({ summary: text }));
-    assert.equal(r.ok, true, `${name}标记形式应被接受，实际：${JSON.stringify(r.issues)}`);
+    assert.equal(r.ok, false, `${name}骨架不得被接受——它在呈现层分不出块（21 §8 书写结构）`);
+    assert.ok(r.issues.some((i) => i.includes("fixed head")), JSON.stringify(r.issues));
   }
+
+  // 首块不受骨架约束（它是总述，节点标题已说明它是什么）；短文本仍豁免分块。
+  const short = validateWorkcaseFrontmatter(writingCase({ summary: "短摘要，不分块。" }));
+  assert.equal(short.ok, true, `短文本应豁免，实际：${JSON.stringify(short.issues)}`);
+});
+
+test("写作纪律: scope 的块首是闭集 —— 只认 H3 与两个已登记标签 (21 §8)", () => {
+  const LONG = LONG_PAD.repeat(3);
+  // scope 的语义骨架（做什么／明确不做什么）是字段定义的一部分，仍是合法块首。
+  // 长文放在第二个块内，使全字段 > 200 且只有两个块。
+  const withLabels = validateWorkcaseFrontmatter(writingCase({
+    scope: `做什么：\n- 甲\n\n明确不做什么：\n- 乙\n- ${LONG}`,
+  }));
+  assert.equal(withLabels.ok, true, `两个标签行应作合法块首，实际：${JSON.stringify(withLabels.issues)}`);
+
+  // 但**任意 `XX：` 行不再构成块首** —— 那正是本次收敛掉的宽松形态。
+  const arbitrary = validateWorkcaseFrontmatter(writingCase({
+    scope: `做什么：\n- 甲\n\n明确不做什么：\n- 乙\n\n其他事项：\n- 丙\n- ${LONG}`,
+  }));
+  assert.equal(arbitrary.ok, false, "任意「XX：」不得充当块首（scope 块首是闭集）");
+  assert.ok(arbitrary.issues.some((i) => i.includes("fixed head")), JSON.stringify(arbitrary.issues));
+});
+
+test("写作纪律: H3 是块级元素，故块首由 H3 承担 —— 渲染层等价性回归 (21 §8)", () => {
+  // 本用例把「为什么只有 H3」的依据固定下来：不是风格偏好，而是渲染语义。
+  // react-markdown（CommonMark）中，H3 是块级元素而 **加粗** 不是——后者与其后的
+  // 正文同处一个 <p>，单个换行只是软换行。若哪天渲染层改为「软换行即断段」，
+  // 本测试提醒复核该裁定是否仍然成立。
+  const md = `### 现状核实\nreviews 取自路由记录。`;
+  assert.match(md, /^###[ \t]+\S/m, "块首须为 H3 行");
+  // 骨架行与正文分行：`### 标签` 独占一行。
+  const [head] = md.split("\n");
+  assert.equal(head.trim(), "### 现状核实");
 });
 
 test("写作纪律: 存量豁免 —— 字段逐字未改放行，改动即受检 (21 §8 适用范围)", () => {
