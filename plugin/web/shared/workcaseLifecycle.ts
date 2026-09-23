@@ -89,26 +89,29 @@ export const WORKCASE_EXEC_PHASES = ['executing', 'reviewing', 'revising', 'clos
 export type WorkCaseExecPhase = (typeof WORKCASE_EXEC_PHASES)[number]
 
 /**
- * 「复核发起条目」判定（21 §8「复核发起」记账纪律，10 §5.5）。
+ * 「复核条目」判定（21 §8「复核」记账纪律，10 §5.5）。
  *
- * 判据：摘要**同时含「复核」与「发起」二词**。这一步承认既有写法
- * （「复核已发起」「独立复核已发起」），**不要求特定句式**。
+ * 判据（**前缀优先，机械兜底**）：
+ *   ① 摘要以「**复核：**」**开头**——21 §8 规定的唯一合法写法；
+ *   ② 摘要含 `[review recorded by session`（Code 盖戳）——`record_review` 的机械标记。
  *
- * 为什么是这个形态：21 §8 已把「复核」明文列为非计划步骤的执行事项，
- * 「## 执行」节即其正文承载，故该写入是**真实的内容修改**（03 §9.5 应记之列），
- * 不是过程日志或 no-op。识别依赖措辞——写成「开始独立审核」等不含二词的形式
- * 即不可检出；该纪律本身即非机械门禁（21 §8 已声明）。
+ * 为什么必须用前缀：`change_log` 中「复核这件事」与「处置复核的发现」共用同一批词，
+ * 字面无法区分。实测三例——「独立复核（两视角）的 12 条发现与处置」是复核报告、
+ * 「复核 2 项必须处置全部落地」是修订动作、「复核与处置非计划步骤」是记账更正，
+ * 三者都含「复核」而语义分属三类。**靠关键词识别必然误判**（旧实现即因此把处置动作
+ * 标成了复核），故改以前缀显式标出。
  *
  * 可靠性分布（10 §5.5 已登记）：**完成一侧是机械的**（`record_review` 由 Code
- * 盖戳写入 `reviews` 并在 change_log 留 `[review recorded by session …]`）；
- * **发起一侧依赖本判据**。故「复核中」是组合判据。
+ * 盖戳写入 `reviews`）；**发起一侧依赖本前缀**——写成其它形式即不可检出，该纪律
+ * 本身即非机械门禁（21 §8 已声明）。
  */
-const REVIEW_WORD = '复核'
-const START_WORD = '发起'
+const REVIEW_PREFIX = '复核：'
+const MECHANICAL_REVIEW_MARKER = 'review recorded by session'
 
-function isReviewStartEntry(entry: ChangeLogEntryLike): boolean {
+function isReviewEntry(entry: ChangeLogEntryLike): boolean {
   if (typeof entry?.summary !== 'string') return false
-  return entry.summary.includes(REVIEW_WORD) && entry.summary.includes(START_WORD)
+  const s = entry.summary
+  return s.startsWith(REVIEW_PREFIX) || s.includes(MECHANICAL_REVIEW_MARKER)
 }
 
 /** 格式治理条目的形式标记（21 §8「格式治理」记账纪律）——不参与阶段判定。 */
@@ -143,15 +146,6 @@ function isOwnEntry(entry: ChangeLogEntryLike, selfUid: string | null): boolean 
   return !mentionsOtherObject(summary, selfUid)
 }
 
-/**
- * 「复核类条目」判定：摘要含「复核」二字。
- *
- * 与 `lastReviewAt` 的既有口径一致；此处单列以便测试与变异验证直接命中断言。
- */
-function isReviewEntry(entry: ChangeLogEntryLike): boolean {
-  return typeof entry?.summary === 'string' && entry.summary.includes('复核')
-}
-
 // ============================================================================
 // 变更流水的行动标记（10 §5.5「执行期阶段」的呈现代替品，Human 2026-09-23）
 // ============================================================================
@@ -182,9 +176,7 @@ function markOfEntry(
   lastReviewIndex: number,
   hasReviews: boolean,
 ): WorkCaseFlowMark | null {
-  const s = typeof entry?.summary === 'string' ? entry.summary : ''
-  if (s.includes('review recorded by session')) return 'review'
-  if (s.includes(REVIEW_WORD) && s.includes(START_WORD)) return 'review'
+  if (isReviewEntry(entry)) return 'review'
   if (hasReviews && lastReviewIndex >= 0) {
     if (index === lastReviewIndex) return 'review'
     if (index > lastReviewIndex) return 'revise'
@@ -251,7 +243,7 @@ export function ownChangeLogEntries(
  *
  * 「复核中」的两侧可靠性不同（10 §5.5 已登记）：**完成一侧是机械的**——
  * `record_review` 由 Code 盖戳写入 `reviews`，不依赖作者；**发起一侧依赖措辞**
- * （见 `isReviewStartEntry`）——未按含「复核」+「发起」二词的形式记录时不可判，
+ * （见 `isReviewEntry`）——未按「复核：」前缀记录时不可判，
  * 会停留在「执行中」。该纪律本身即非机械门禁（21 §8 已声明）。
  */
 export function deriveWorkCaseExecPhase(
@@ -266,7 +258,7 @@ export function deriveWorkCaseExecPhase(
     : []
   const hasReviews = Array.isArray(reviews) && reviews.length > 0
   if (!hasReviews) {
-    const started = entries.some((e) => isReviewStartEntry(e))
+    const started = entries.some((e) => isReviewEntry(e))
     return started ? 'reviewing' : 'executing'
   }
   // 复核已录入：数组序上，最后一条「复核类」条目之后是否仍有本对象条目。

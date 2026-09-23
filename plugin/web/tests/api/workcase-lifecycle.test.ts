@@ -125,11 +125,10 @@ test('① 执行中：无 reviews 且无复核发起条目', () => {
   assert.equal(deriveWorkCaseExecPhase('executing', [], [], UID), 'executing')
 })
 
-test('② 复核中：有复核发起条目且 reviews 尚未录入（兼容既有写法）', () => {
-  // 既有写法两种，均在 21 §8 纪律覆盖内（摘要含「复核」+「发起」二词）
+test('② 复核中：有「复核：」前缀条目且 reviews 尚未录入', () => {
   for (const s of [
-    '步骤 1–3 完成（③ 已证伪回退、①② 落地并变异验证）；复核已发起',
-    '步骤 1–8 完成、提交 48d1264；独立复核已发起',
+    '复核：步骤 1–3 完成（③ 已证伪回退、①② 落地并变异验证）；复核已发起',
+    '复核：录入独立复核概要（隔离子代理对抗复核）',
   ]) {
     assert.equal(
       deriveWorkCaseExecPhase('executing', undefined, [entry('计划步骤 1 完成'), entry(s)], UID),
@@ -140,41 +139,41 @@ test('② 复核中：有复核发起条目且 reviews 尚未录入（兼容既�
 })
 
 test('② 复核中 → ④ 结项中：录入 reviews 后不再是复核中（防「只认发起」的浅判）', () => {
-  const cl = [entry('独立复核已发起')]
+  const cl = [entry('复核：独立复核已发起')]
   assert.equal(deriveWorkCaseExecPhase('executing', undefined, cl, UID), 'reviewing')
   assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'closing')
 })
 
-test('② 判别力：只含「复核」或只含「发起」都不算发起条目', () => {
-  // 只含「复核」——如 d5273e1c 的「录入独立复核概要」，那是复核完成而非发起
+test('② 判别力：含「复核」但无前缀，不算复核条目', () => {
+  // 「复核 2 项必须处置全部落地」是修订动作、「更正执行节记账…复核与处置非计划步骤」
+  // 是记账更正——都含「复核」却无前缀。旧实现按关键词把它们误标为复核，前缀判据下不成立。
   assert.equal(
-    deriveWorkCaseExecPhase('executing', undefined, [entry('录入独立复核概要')], UID),
+    deriveWorkCaseExecPhase('executing', undefined, [entry('复核 2 项必须处置全部落地')], UID),
     'executing',
   )
-  // 只含「发起」——如「发起 Gate 2 提请」，与复核无关
   assert.equal(
-    deriveWorkCaseExecPhase('executing', undefined, [entry('发起 Gate 2 提请')], UID),
+    deriveWorkCaseExecPhase('executing', undefined, [entry('更正执行节记账——复核与处置非计划步骤')], UID),
     'executing',
   )
-  // 二词齐全才算（这是判据的最小形态）
+  // 加前缀才是复核条目
   assert.equal(
-    deriveWorkCaseExecPhase('executing', undefined, [entry('复核已发起')], UID),
+    deriveWorkCaseExecPhase('executing', undefined, [entry('复核：独立复核已发起')], UID),
     'reviewing',
   )
 })
 
 test('④ 结项中：reviews 存在且其后无本对象条目', () => {
-  const cl = [entry('计划步骤 1 完成'), entry('录入独立复核概要')]
+  const cl = [entry('计划步骤 1 完成'), entry('复核：录入独立复核概要')]
   assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'closing')
 })
 
 test('③ 修订中：reviews 之后仍有本对象条目', () => {
-  const cl = [entry('录入独立复核概要'), entry('执行期记录（第二轮）：补回传通道')]
+  const cl = [entry('复核：录入独立复核概要'), entry('执行期记录（第二轮）：补回传通道')]
   assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'revising')
 })
 
 test('口径②：复核后条目若提及他对象，不参与本对象判定', () => {
-  const cl = [entry('录入独立复核概要'), entry('迁移：补齐 gist 要点字段（21 §8，WorkCase d5273e1c）')]
+  const cl = [entry('复核：录入独立复核概要'), entry('迁移：补齐 gist 要点字段（21 §8，WorkCase d5273e1c）')]
   // 该条提及他对象 d5273e1c，而本对象是 UID=1c6afa19 → 应判结项中
   assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, '1c6afa19'), 'closing')
   // 反证：若本对象就是 d5273e1c，则该条是自指，仍算本对象条目 → 修订中
@@ -182,23 +181,23 @@ test('口径②：复核后条目若提及他对象，不参与本对象判定',
 })
 
 test('口径③：以「格式治理：」开头的条目不参与判定', () => {
-  const cl = [entry('录入独立复核概要'), entry('格式治理：摘要分块（忠实重排）——作者原文逐字未改')]
+  const cl = [entry('复核：录入独立复核概要'), entry('格式治理：摘要分块（忠实重排）——作者原文逐字未改')]
   assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'closing')
   // 反证：去掉前缀后同一文本会被算作修订（证明前缀确实在起作用）
-  const cl2 = [entry('录入独立复核概要'), entry('摘要分块（忠实重排）——作者原文逐字未改')]
+  const cl2 = [entry('复核：录入独立复核概要'), entry('摘要分块（忠实重排）——作者原文逐字未改')]
   assert.equal(deriveWorkCaseExecPhase('executing', [review], cl2, UID), 'revising')
 })
 
 test('口径①：判定按数组序，不受条目时间字段影响', () => {
   const later = { at: '2020-01-01T00:00:00.000Z', provider: 'p', model: 'm', summary: '执行期记录' }
-  const cl = [entry('录入独立复核概要'), later]
+  const cl = [entry('复核：录入独立复核概要'), later]
   // 即使后一条时间早于前一条，仍按数组序判为修订中
   assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'revising')
 })
 
 test('他对象引用兼容空格与短横两种写法', () => {
   for (const ref of ['WorkCase 1c6afa19', 'workcase-1c6afa19']) {
-    const cl = [entry('录入独立复核概要'), entry(`迁移：${ref} 的字段`)]
+    const cl = [entry('复核：录入独立复核概要'), entry(`迁移：${ref} 的字段`)]
     assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'closing', ref)
   }
 })
@@ -210,15 +209,15 @@ test('口径①（判别力）：after 含多条且顺序与时间相反时，�
   // 故本用例对「按时间序」的实现有判别力（单元素数组的排序是空操作，不可区分）。
   const own = { at: '2020-01-01T00:00:00.000Z', provider: 'p', model: 'm', summary: '执行期记录（第二轮）' }
   const other = { at: '2030-01-01T00:00:00.000Z', provider: 'p', model: 'm', summary: '迁移：补齐字段（WorkCase 1c6afa19）' }
-  const cl = [entry('录入独立复核概要'), own, other]
+  const cl = [entry('复核：录入独立复核概要'), own, other]
   assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'revising')
 
   // 反向：数组序 [他对象(时间晚), 本对象(时间早)] 同样应跟数组序
-  const cl2 = [entry('录入独立复核概要'), other, own]
+  const cl2 = [entry('复核：录入独立复核概要'), other, own]
   assert.equal(deriveWorkCaseExecPhase('executing', [review], cl2, UID), 'revising')
 
   // 边界：after 只有他对象条目 → 结项中（排除生效）
-  const cl3 = [entry('录入独立复核概要'), other]
+  const cl3 = [entry('复核：录入独立复核概要'), other]
   assert.equal(deriveWorkCaseExecPhase('executing', [review], cl3, UID), 'closing')
 })
 
@@ -238,7 +237,7 @@ test('口径③（判别力·前缀位置）：豁免只认【以】「格式治
   // 该用例对 startsWith → includes 的弱化变异有判别力。
   const mid = { at: '2026-09-23T00:00:00.000Z', provider: 'p', model: 'm',
                 summary: '计划步骤 4 补记：格式治理：摘要分块已完成' }
-  const cl = [entry('录入独立复核概要'), mid]
+  const cl = [entry('复核：录入独立复核概要'), mid]
   assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'revising')
 })
 
@@ -262,30 +261,42 @@ test('复核标记：机械标记优先（[review recorded by session]）', () =
   assert.deepEqual(markWorkCaseFlow([review], cl, UID), ['review'])
 })
 
-test('复核标记：措辞兜底（同含「复核」+「发起」）', () => {
-  for (const s of ['复核已发起', '独立复核已发起：隔离子代理']) {
+test('复核标记：「复核：」前缀', () => {
+  for (const s of ['复核：独立复核已发起：隔离子代理', '复核：录入独立复核概要']) {
     assert.deepEqual(markWorkCaseFlow(undefined, [entry(s)], UID), ['review'], s)
   }
 })
 
+test('复核标记判别力：含「复核」但无前缀 → 不标复核', () => {
+  for (const s of ['复核 2 项必须处置全部落地', '更正执行节记账——复核与处置非计划步骤']) {
+    assert.deepEqual(markWorkCaseFlow(undefined, [entry(s)], UID), [null], s)
+  }
+})
+
 test('修订标记：最后一条复核条目之后的本对象条目', () => {
-  const cl = [entry('受控创建'), entry('录入独立复核概要'), entry('执行期记录（第二轮）')]
+  const cl = [entry('受控创建'), entry('复核：录入独立复核概要'), entry('执行期记录（第二轮）')]
   assert.deepEqual(markWorkCaseFlow([review], cl, UID), [null, 'review', 'revise'])
 })
 
 test('修订标记：无 reviews 时不得出现（未复核谈不上复核后修订）', () => {
-  const cl = [entry('受控创建'), entry('录入独立复核概要')]
-  assert.deepEqual(markWorkCaseFlow(undefined, cl, UID), [null, null])
+  // 前缀条目仍标「复核」，但因其后无 reviews，绝不产出「修订」。
+  const cl = [entry('受控创建'), entry('复核：录入独立复核概要')]
+  assert.deepEqual(markWorkCaseFlow(undefined, cl, UID), [null, 'review'])
+
+  // 判别力：前缀复核条目**之后**仍有条目，但无 reviews → 该条目不得标「修订」。
+  // （若去掉 reviews 前提，这里会误判为 revise。）
+  const cl2 = [entry('复核：录入独立复核概要'), entry('执行期记录（第二轮）')]
+  assert.deepEqual(markWorkCaseFlow(undefined, cl2, UID), ['review', null])
 })
 
 test('口径②：他对象条目不标记（也不占用数组序）', () => {
-  const cl = [entry('录入独立复核概要'), entry('迁移：补齐字段（WorkCase 1c6afa19）')]
+  const cl = [entry('复核：录入独立复核概要'), entry('迁移：补齐字段（WorkCase 1c6afa19）')]
   // 他对象条目既不是 review 也不是 revise
   assert.deepEqual(markWorkCaseFlow([review], cl, UID), ['review', null])
 })
 
 test('口径③：格式治理条目不标记', () => {
-  const cl = [entry('录入独立复核概要'), entry('格式治理：摘要分块（忠实重排）')]
+  const cl = [entry('复核：录入独立复核概要'), entry('格式治理：摘要分块（忠实重排）')]
   assert.deepEqual(markWorkCaseFlow([review], cl, UID), ['review', null])
 })
 
@@ -297,11 +308,20 @@ test('ownChangeLogEntries：逐项返回原始下标（供流水渲染对齐）'
 
 test('markWorkCaseFlow 判别力：复核在中间 + 其后两条 → 一条 review、两条 revise', () => {
   // 修订标记需 reviews 非空（未复核谈不上复核后修订），故此处传入 review。
-  const cl = [entry('a'), entry('录入独立复核概要'), entry('b'), entry('c')]
+  const cl = [entry('a'), entry('复核：录入独立复核概要'), entry('b'), entry('c')]
   assert.deepEqual(markWorkCaseFlow([review], cl, UID), [null, 'review', 'revise', 'revise'])
 })
 
 test('判别力：复核条目在【末尾】时其后无 revise', () => {
-  const cl = [entry('a'), entry('b'), entry('录入独立复核概要')]
+  const cl = [entry('a'), entry('b'), entry('复核：录入独立复核概要')]
   assert.deepEqual(markWorkCaseFlow([review], cl, UID), [null, null, 'review'])
+})
+
+test('复核标记判别力：前缀必须在**开头**，中间出现不算', () => {
+  // 21 §8 规定「以『复核：』开头」。中间出现「复核：」的句子不是复核条目
+  // （如「补记：复核：…已被处置」这类叙述），按 includes 会误标。
+  assert.deepEqual(
+    markWorkCaseFlow(undefined, [entry('计划步骤 4 补记：复核：该结论已并入正文')], UID),
+    [null],
+  )
 })
