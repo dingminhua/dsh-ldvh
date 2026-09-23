@@ -385,3 +385,33 @@ test('open 对象的 reviews 必须完整投影（阶段判定的输入，10 §5
     '必须至少核对一个带 reviews 的 open 对象，否则本守卫是空转',
   );
 });
+
+// 「待批准关闭」的核对与建议：`21 §8` 的 result 字段出现 ⇔ status=closed，故该期的
+// 数据只在正文「## 结果」节；投影层必须把它解析并送达卡片（10 §5.5）。缺这一步时
+// 卡片只能显示计划清单——正是本改动要替换掉的东西。
+test('待批准关闭：核对与建议必须投影到位（10 §5.5）', async () => {
+  const ids = existingWorkCaseIds();
+  const checked: string[] = [];
+  for (const objectId of ids) {
+    const detail = await readLocalFact('workcase', objectId, workcaseScope());
+    if (detail.status !== 'ok') continue;
+    const source = detail.item.fact_object as Record<string, unknown>;
+    if (source.status !== 'open') continue;
+    const plan = Array.isArray(source.plan) ? source.plan : [];
+    const projected = projectCurrentWorkCaseCard(source, detail.item.source_content_fingerprint);
+    if (!Array.isArray(projected.result_checks) || projected.result_checks.length === 0) continue;
+    assert.equal(
+      projected.result_checks.length,
+      plan.length,
+      `${objectId}: 核对条数须与 plan 步数一致（逐条对应，21 §8）`,
+    );
+    for (const check of projected.result_checks as Record<string, unknown>[]) {
+      assert.ok(
+        typeof check.planIndex === 'number' && check.planIndex >= 0 && check.planIndex < plan.length,
+        `${objectId}: planIndex 必须落在 plan 范围内`,
+      );
+    }
+    checked.push(objectId);
+  }
+  assert.ok(checked.length > 0, '必须至少核对一个「待批准关闭」对象，否则本守卫是空转');
+});

@@ -18,6 +18,7 @@ import WorkCaseGistLine from '@/components/WorkCaseGistLine';
 import { workCaseCheckStatement } from '@/utils/workcaseCheckState';
 // 变更流水（卡片主体）：标记与归属口径来自 shared 单点，组件不自行判断。
 import WorkCaseExecFlow from '@/components/WorkCaseExecFlow';
+import WorkCaseResultDraft from '@/components/WorkCaseResultDraft';
 import { fetchCognitionGoal, fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type ObjectItem, type ObjectStatusOption, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
 import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeDescription, getTypeLabel } from '@/i18n/locales';
@@ -138,12 +139,18 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
     );
   }
   if (group === 'awaiting_gate2') {
+    // 「待批准关闭」呈现**核对与建议**（Human 2026-09-23），**不再列计划清单**——
+    // 核对条目已带 `plan[].step` 标题，重复列出计划无增益。数据由投影层从正文
+    // 「## 结果」节解析而来（`21 §8`：该期 `result` 字段尚不存在）。
     return (
       <div className="min-w-0">
         <WorkCaseGistLine gist={obj.gist} group="awaiting_gate2" boxed />
-        {Array.isArray(obj.plan) && obj.plan.length > 0 ? (
-          <WorkCaseCriteriaList className="mt-1.5" items={obj.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))} />
-        ) : null}
+        <WorkCaseResultDraft
+          className="mt-1.5"
+          plan={obj.plan}
+          checks={obj.result_checks}
+          advice={obj.advice}
+        />
       </div>
     );
   }

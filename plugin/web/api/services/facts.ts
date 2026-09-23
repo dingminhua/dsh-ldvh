@@ -9,6 +9,7 @@ import {
 import { canonicalUid } from '../../shared/factIdentity.js'
 import { resolveCurrentWebProject, WebGovernanceError } from './governanceScope.js'
 import { deriveWorkCaseV5View, type WorkCaseV5View } from '../../shared/workcaseLifecycle.js'
+import { parseWorkCaseResultDraft } from '../../shared/workcaseResultDraft.js'
 import { hasUnavailableIndependentSubagentReview } from '../../shared/workcaseCapability.js'
 import { toRfc3339Text } from '../../shared/timestamp.js'
 import { FACT_LIST_FIELD_NAMES } from './factFieldContract.js'
@@ -483,6 +484,15 @@ function projectCurrentWorkCaseCardShape(
     // （会被一律判为「执行中」）。故此处补齐 `reviews` 的投影，与详情面同源同形。
     const reviews = Array.isArray(fact.reviews) ? fact.reviews : []
     if (reviews.length > 0) projected.reviews = reviews
+    // 「待批准关闭」期（open ∧ 正文含「## 结果」节）：`21 §8` 的 `result` 字段尚不存在
+    // （该字段出现 ⇔ `status = closed`），核对结论与建议**只在正文里**。故此处按
+    // 已登记的词表与结构解析正文，投影为卡片可呈现的 `result_checks` 与 `advice`。
+    // 解析不出的条目落空而不猜（见 shared/workcaseResultDraft）。
+    if (view.has_result_draft) {
+      const draft = parseWorkCaseResultDraft(fact.report_body, fact.plan)
+      if (draft.checks.length > 0) projected.result_checks = draft.checks
+      if (draft.advice.length > 0) projected.advice = draft.advice
+    }
   } else if (view.status === 'closed') {
     // closed：outcome 四值 + result 逐条核对（gate_1 已在上方统一投影）。
     if (typeof fact.outcome === 'string') projected.outcome = fact.outcome
