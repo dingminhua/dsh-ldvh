@@ -15,10 +15,10 @@ import SummaryText from '@/components/SummaryText';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import { WorkCaseCriteriaList } from '@/components/WorkCaseCriteriaList';
 import WorkCaseGistLine from '@/components/WorkCaseGistLine';
-import { workCaseCheckStatement } from '@/utils/workcaseCheckState';
 // 变更流水（卡片主体）：标记与归属口径来自 shared 单点，组件不自行判断。
 import WorkCaseExecFlow from '@/components/WorkCaseExecFlow';
 import WorkCaseResultDraft from '@/components/WorkCaseResultDraft';
+import WorkCaseClosedSummary from '@/components/WorkCaseClosedSummary';
 import { fetchCognitionGoal, fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type ObjectItem, type ObjectStatusOption, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
 import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeDescription, getTypeLabel } from '@/i18n/locales';
@@ -155,23 +155,14 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
     );
   }
   if (group === 'closed') {
+    // 「已关闭」呈现**结论行 + 逐条核对 + 残留块**（Human 2026-09-24，方案 A）。
+    // 此前是 outcome chip + 「已满足 · <整段证据>」+ 一行无内容的「Gate 1 授权」：
+    // 证据最长 258 字撑破扫读窗口、outcome 与核对各自成串、残留完全不可见。
+    // 证据与 Gate 1 明细归详情面（10 §5.3）。
     return (
       <div className="min-w-0">
         <WorkCaseGistLine gist={obj.gist} group="closed" boxed />
-        {obj.outcome ? (
-          <p className="ldvh-caption mt-1.5">
-            <span className="ldvh-chip">{t(`objectList.workcaseOutcome.${obj.outcome}`)}</span>
-          </p>
-        ) : null}
-        {obj.result?.criteria_checks && obj.result.criteria_checks.length > 0 ? (
-          <WorkCaseCriteriaList
-            className="mt-1.5"
-            items={obj.result.criteria_checks.map((c, index) => ({ key: String(index), statement: workCaseCheckStatement(c, t) }))}
-          />
-        ) : null}
-        {obj.gate_1 ? (
-          <p className="ldvh-caption mt-1.5">{t('objectList.workcaseGate1', { approver: obj.gate_1.approver ?? '—', approvedAt: obj.gate_1.approved_at ?? '—' })}</p>
-        ) : null}
+        <WorkCaseClosedSummary className="mt-1.5" obj={obj} />
       </div>
     );
   }

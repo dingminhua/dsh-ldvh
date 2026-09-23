@@ -494,7 +494,15 @@ function projectCurrentWorkCaseCardShape(
       if (draft.advice.length > 0) projected.advice = draft.advice
     }
   } else if (view.status === 'closed') {
-    // closed：outcome 四值 + result 逐条核对（gate_1 已在上方统一投影）。
+    // closed：outcome 四值 + result 逐条核对 + plan（gate_1 已在上方统一投影）。
+    //
+    // `plan` 此前不在本分支投影。后果是**列表卡拿不到步骤标题**：`21 §8` 的
+    // `result.criteria_checks[]` 只有 `{satisfied, evidence}`，不含判据文本，故
+    // 「哪一条判据达成了」只能由 `plan[i].step` 给出。详情面不受影响——`showObject`
+    // 直接展开 `fact_object`，故详情一直有 `plan`；缺口只在本投影。
+    // 不投影会让 closed 卡只能显示 evidence 长句（实测最长 258 字），撑破扫读窗口。
+    const plan = projectWorkCasePlan(fact.plan)
+    if (plan.length > 0) projected.plan = plan
     if (typeof fact.outcome === 'string') projected.outcome = fact.outcome
     const result = projectWorkCaseResult(fact.result)
     if (result && Object.keys(result).length > 0) projected.result = result

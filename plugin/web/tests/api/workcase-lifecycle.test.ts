@@ -12,6 +12,14 @@ import {
   markWorkCaseFlow,
   ownChangeLogEntries,
 } from '../../shared/workcaseLifecycle.ts'
+import {
+  workCaseCheckState,
+  workCaseCheckLabelFor,
+  workCaseCheckStateFromDraftStatus,
+  workCaseCheckStateFromWord,
+  workCaseDraftCheckRows,
+  workCaseResultCheckRows,
+} from '../../src/utils/workcaseCheckState.ts'
 
 const FP = 'a'.repeat(64)
 
@@ -325,3 +333,101 @@ test('复核标记判别力：前缀必须在**开头**，中间出现不算', (
     [null],
   )
 })
+
+// 三态映射的**输入域**契约：解析器枚举（英文）与正文词表（中文）是两条不同的入口，
+// 混用会让整卡落成「未记录」。
+//
+// 为什么需要这条守卫（2026-09-24 实测踩到）：把 `WorkCaseCheckStatus`（`achieved`
+// / `partial` / `not-achieved`）丢给按**中文词**判定的 `workCaseCheckStateFromWord`，
+// 因枚举不含中文而全部返回 `unknown`——「待批准关闭」卡上每条核对都显示「未记录」，
+// 而 338 项测试全绿（当时没有任何用例区分这两个输入域）。
+test('三态映射：枚举入口与词表入口不可互换', () => {
+  // 枚举入口（解析器输出，英文值）。
+  assert.equal(workCaseCheckStateFromDraftStatus('achieved'), 'satisfied');
+  assert.equal(workCaseCheckStateFromDraftStatus('partial'), 'partial');
+  assert.equal(workCaseCheckStateFromDraftStatus('not-achieved'), 'unsatisfied');
+  assert.equal(workCaseCheckStateFromDraftStatus(null), 'unknown');
+  assert.equal(workCaseCheckStateFromDraftStatus(undefined), 'unknown');
+
+  // 词表入口（正文三词，中文）。
+  assert.equal(workCaseCheckStateFromWord('达成'), 'satisfied');
+  assert.equal(workCaseCheckStateFromWord('部分达成'), 'partial');
+  assert.equal(workCaseCheckStateFromWord('未达成'), 'unsatisfied');
+  assert.equal(workCaseCheckStateFromWord(null), 'unknown');
+
+  // **判别力**：枚举值不是中文词，故词表入口对枚举必然落空——这正是两者不可互换的
+  // 理由，也锁住了「有人把枚举改喂词表入口」这一回归。
+  assert.equal(workCaseCheckStateFromWord('achieved'), 'unknown');
+  assert.equal(workCaseCheckStateFromWord('partial'), 'unknown');
+  assert.equal(workCaseCheckStateFromWord('not-achieved'), 'unknown');
+});
+
+test('三态映射：布尔入口与词表入口对同一语义给同一词', () => {
+  const t = (key: string) => key;
+  // 布尔 true 与词表「达成」必须落到同一词条（21 §8 登记的映射：达成 ⇔ true）。
+  assert.equal(workCaseCheckState(true), workCaseCheckStateFromWord('达成'));
+  assert.equal(workCaseCheckState(false), workCaseCheckStateFromWord('未达成'));
+  assert.equal(workCaseCheckState(undefined), workCaseCheckStateFromWord(null));
+  // 「部分达成」在布尔域无对应值（21 §8：部分达成 ⇔ false）——它只能来自词表域，
+  // 且不得与「未达成」合并（两者去向不同，见 21 §9.3）。
+  assert.notEqual(workCaseCheckStateFromWord('部分达成'), workCaseCheckStateFromWord('未达成'));
+  assert.equal(workCaseCheckStateFromWord('部分达成'), 'partial');
+  // 词条解析经共享单点，不得自造。
+  assert.equal(workCaseCheckLabelFor('satisfied', t as never), 'objectList.workcaseCheck.achieved');
+});
+
+// 核对行的**配对与状态映射**契约（纯函数，可直接断言）。
+//
+// 为什么需要（2026-09-24 实测教训）：枚举→状态名的映射原先内联在组件 JSX 里，
+// 把枚举误喂给按中文词判定的入口时，「待批准关闭」卡上每条核对都显示「未记录」，
+// 而当时的 340 项测试全绿——组件的 JSX 不在 node:test 的可达范围内。抽成纯函数后
+// 该映射有了行为覆盖。
+test('核对行：枚举入口不得落成「未记录」（回归守卫）', () => {
+  const plan = [{ step: '甲' }, { step: '乙' }, { step: '丙' }];
+  const rows = workCaseDraftCheckRows(
+    [
+      { planIndex: 0, status: 'achieved' },
+      { planIndex: 1, status: 'partial' },
+      { planIndex: 2, status: 'not-achieved' },
+    ],
+    plan,
+  );
+  assert.deepEqual(rows.map((r) => r.state), ['satisfied', 'partial', 'unsatisfied']);
+  assert.deepEqual(rows.map((r) => r.title), ['甲', '乙', '丙']);
+  // 判别力：若误用按中文词判定的入口，三行都会是 unknown（这正是被修掉的缺陷）。
+  assert.ok(rows.every((r) => r.state !== 'unknown'), '枚举输入不得落成 unknown');
+});
+
+test('核对行：closed 的布尔入口', () => {
+  const plan = [{ step: '甲' }, { step: '乙' }, { step: '丙' }];
+  // 三态**逐一**覆盖：只有 true/false 两值时，把状态写死成 satisfied 的变异不会被
+  // 捕获（2026-09-24 实测：该变异首轮逃逸，补上 false 与 undefined 后才拦住）。
+  const rows = workCaseResultCheckRows(
+    [{ satisfied: true }, { satisfied: false }, { satisfied: undefined }],
+    plan,
+  );
+  assert.deepEqual(rows.map((r) => r.state), ['satisfied', 'unsatisfied', 'unknown']);
+  assert.deepEqual(rows.map((r) => r.title), ['甲', '乙', '丙']);
+  // 缺失 satisfied ⇒ unknown（「未记录」），不得与 false 合并（21 §9.3）。
+  const unknown = workCaseResultCheckRows([{ satisfied: undefined }], plan);
+  assert.deepEqual(unknown.map((r) => r.state), ['unknown']);
+  assert.notEqual(unknown[0].state, 'unsatisfied');
+});
+
+test('核对行：标题缺失的行不产出（不猜、不错位）', () => {
+  // plan 只有 2 步却有 3 条核对：第 3 条配不上，不产出（调用方按「无对应条目」呈现）。
+  const rows = workCaseResultCheckRows(
+    [{ satisfied: true }, { satisfied: true }, { satisfied: true }],
+    [{ step: '甲' }, { step: '乙' }],
+  );
+  assert.equal(rows.length, 2);
+  // plan 步标题为空串 ⇒ 该行不产出（空标题无从呈现）。
+  const blank = workCaseResultCheckRows([{ satisfied: true }], [{ step: '   ' }]);
+  assert.equal(blank.length, 0);
+  // planIndex 越界（-1 / 超界）⇒ 不产出。
+  assert.equal(workCaseDraftCheckRows([{ planIndex: -1, status: 'achieved' }], [{ step: '甲' }]).length, 0);
+  assert.equal(workCaseDraftCheckRows([{ planIndex: 5, status: 'achieved' }], [{ step: '甲' }]).length, 0);
+  // 无 plan / 无 checks ⇒ 空数组，不抛错。
+  assert.deepEqual(workCaseResultCheckRows(undefined, undefined), []);
+  assert.deepEqual(workCaseDraftCheckRows(undefined, [{ step: '甲' }]), []);
+});

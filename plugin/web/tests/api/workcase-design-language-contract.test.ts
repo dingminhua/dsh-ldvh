@@ -127,9 +127,13 @@ test('result.satisfied is boolean and presented as readable text, not a bare val
   // 21 §9.3：satisfied 是布尔判定（真实对象为 true）。
   assert.match(api, /interface WorkCaseResultCheck \{[\s\S]*?satisfied\?: boolean/);
   // 10 §12.8：状态须有可读文本，不得只用颜色/图标承载。
-  for (const key of ['workcaseCheckSatisfied', 'workcaseCheckUnsatisfied', 'workcaseCheckUnknown']) {
-    assert.match(stateModule, new RegExp(`objectDetail\\.${key}`), `三态映射必须登记 ${key} 词条`);
-    assert.match(locales, new RegExp(`'objectDetail\\.${key}'`), `词条 ${key} 必须已登记`);
+  //
+  // Human 2026-09-24 统一词表：三态映射取 `21 §8` 登记的核对词（达成／部分达成／
+  // 未达成／未记录），不再另造「已满足／未满足」。此前详情说「已满足」、卡片说
+  // 「达成」，同一状态跨面显示为不同词。故断言的是**列表词条**。
+  for (const key of ['workcaseCheck.achieved', 'workcaseCheck.partial', 'workcaseCheck.not-achieved', 'workcaseCheck.unrecorded']) {
+    assert.match(stateModule, new RegExp(`objectList\\.${key}`), `三态映射必须登记 ${key} 词条`);
+    assert.match(locales, new RegExp(`'objectList\\.${key}'`), `词条 ${key} 必须已登记`);
   }
   // 详情消费共享映射（不自行实现第二份三态判断）。
   assert.match(layout, /workCaseCheckStateLabel/);
@@ -275,7 +279,22 @@ test('derived groups are localized and colour-mapped — no raw snake_case reach
 });
 
 test('criteria check state never reaches the UI as a bare boolean', () => {
-  const surfaces = ['web/src/pages/ObjectList.tsx', 'web/src/pages/CognitionCenter.tsx'] as const;
+  // 四个呈现面**全部**经共享三态映射取词条（09 §6 单一实现）。
+  //
+  // Human 2026-09-24 统一词表后，列表卡的 closed 分支改由 `WorkCaseClosedSummary`
+  // 呈现（只给 `[状态] 步骤标题`，证据归详情），故「消费方」不再只有页面文件——
+  // 断言按**组件**取，比按页面文件取更贴近真实消费点（页面文件不再直接拼判据文本）。
+  const surfaces = [
+    'web/src/pages/ObjectList.tsx',
+    'web/src/pages/CognitionCenter.tsx',
+    'web/src/components/WorkCaseClosedSummary.tsx',
+    'web/src/components/WorkCaseResultDraft.tsx',
+  ] as const;
+  // 实际渲染判据状态的三个面：它们必须引用共享模块的导出。
+  // `ObjectList.tsx` 不在其列——closed 分支的判据渲染已下沉到
+  // `WorkCaseClosedSummary`，页面本身不再直接拼判据文本（故对它只断言「不插值布尔」
+  // 与「不自造词条」两条负向不变量，不断言引用）。
+  const renderingSurfaces = surfaces.filter((s) => !s.endsWith('ObjectList.tsx'));
   const stateModule = readSource('web/src/utils/workcaseCheckState.ts');
 
   // 10 §12.8：状态须有可读文本与可区分形态。列表卡与收件箱此前把布尔插值进
@@ -287,11 +306,27 @@ test('criteria check state never reaches the UI as a bare boolean', () => {
       /\$\{c\.satisfied/,
       `${surface} 不得把布尔插值进判据文本——须经共享三态映射取可读词条`,
     );
-    assert.match(source, /workCaseCheckStatement/, `${surface} 必须消费共享三态映射`);
+  }
+  for (const surface of renderingSurfaces) {
+    assert.match(
+      readSource(surface),
+      /workCaseCheckState|workCaseCheckStateFromWord|workCaseCheckLabelFor|workCaseCheckStatement/,
+      `${surface} 必须消费共享三态映射`,
+    );
   }
   // 三态映射与详情共用同一实现（单一实现，防口径漂移）。
   assert.match(stateModule, /export function workCaseCheckStateLabel/);
+  assert.match(stateModule, /export function workCaseCheckLabelFor/);
+  assert.match(stateModule, /export function workCaseCheckStateFromWord/);
   assert.match(stateModule, /export function workCaseCheckStatement/);
+  // 词表只有一处定义：三个呈现面不得各自登记核对状态词条。
+  for (const surface of surfaces) {
+    assert.doesNotMatch(
+      readSource(surface),
+      /'objectList\.workcaseCheck\./,
+      `${surface} 不得自造核对状态词条——词表只在 workcaseCheckState 单点给出`,
+    );
+  }
   assert.match(readSource('web/src/pages/object-detail/WorkCaseReadingLayout.tsx'), /workCaseCheckStateLabel/);
 });
 

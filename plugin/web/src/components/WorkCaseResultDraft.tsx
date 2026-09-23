@@ -3,9 +3,14 @@ import type { LocaleKey } from '@/i18n/locales';
 import type { WorkCasePlanStep } from '@/utils/api';
 import type {
   WorkCaseDraftAdvice,
-  WorkCaseCheckStatus,
   WorkCaseDraftCheck,
 } from '../../shared/workcaseResultDraft';
+import {
+  WORKCASE_CHECK_TAG_BASE,
+  WORKCASE_CHECK_TAG_CLASS,
+  workCaseCheckLabelFor,
+  workCaseDraftCheckRows,
+} from '@/utils/workcaseCheckState';
 
 /**
  * WorkCase「待批准关闭」的核对与建议（卡片主体）。
@@ -21,18 +26,6 @@ import type {
  * - **不呈现计划列表**：核对条目已带 `plan[].step` 标题，重复列出计划无增益。
  * - 解析不出状态的步骤呈现为「未记录」，不猜；建议判不出去向时呈现「未归类」。
  */
-
-const CHECK_TAG_CLASS: Record<WorkCaseCheckStatus, string> = {
-  achieved: 'border-emerald-600/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-  partial: 'border-amber-600/50 bg-amber-500/15 text-amber-700 dark:text-amber-300',
-  'not-achieved': 'border-red-600/45 bg-red-500/10 text-red-700 dark:text-red-300',
-};
-
-const NEUTRAL_TAG_CLASS = 'border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary';
-
-/** 标记的统一形状：与核对、目标是同一套（行内、宽度自适应、居于标题前）。 */
-const TAG_BASE =
-  'mr-1.5 inline-block shrink-0 rounded border px-1.5 text-[10px] font-semibold leading-4';
 
 export interface WorkCaseResultDraftProps {
   plan?: WorkCasePlanStep[];
@@ -58,27 +51,20 @@ export default function WorkCaseResultDraft({
     <div className={`${className} grid min-w-0 gap-1.5`.trim()}>
       {rows.length > 0 && (
         <div className="min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/45 px-2.5 py-2">
-          {rows.map((row) => {
-            const step = steps[row.planIndex];
-            const title = typeof step?.step === 'string' ? step.step.trim() : '';
-            if (!title) return null;
-            return (
-              <div
-                key={row.planIndex}
-                data-workcase-check-status={row.status ?? 'unrecorded'}
-                className="border-t border-ldvh-border/60 py-1.5 first:border-t-0 first:pt-0.5 ldvh-caption text-ldvh-text-primary"
+          {workCaseDraftCheckRows(rows, steps).map((row) => (
+            <div
+              key={row.planIndex}
+              data-workcase-check-status={row.state}
+              className="border-t border-ldvh-border/60 py-1.5 first:border-t-0 first:pt-0.5 ldvh-caption text-ldvh-text-primary"
+            >
+              <span
+                className={`${WORKCASE_CHECK_TAG_BASE} ${WORKCASE_CHECK_TAG_CLASS[row.state]}`}
               >
-                <span
-                  className={`${TAG_BASE} ${row.status ? CHECK_TAG_CLASS[row.status] : NEUTRAL_TAG_CLASS}`}
-                >
-                  {row.status
-                    ? t(`objectList.workcaseCheck.${row.status}` as LocaleKey)
-                    : t('objectList.workcaseCheck.unrecorded')}
-                </span>
-                <span>{title}</span>
-              </div>
-            );
-          })}
+                {workCaseCheckLabelFor(row.state, t)}
+              </span>
+              <span>{row.title}</span>
+            </div>
+          ))}
         </div>
       )}
 
@@ -91,7 +77,7 @@ export default function WorkCaseResultDraft({
               className="border-t border-ldvh-border/60 py-1.5 first:border-t-0 first:pt-0.5 ldvh-caption text-ldvh-text-primary"
             >
               <span
-                className={`${TAG_BASE} border-indigo-600/45 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300`}
+                className={`${WORKCASE_CHECK_TAG_BASE} border-indigo-600/45 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300`}
               >
                 {item.kind
                   ? t(`objectList.workcaseAdvice.${item.kind}` as LocaleKey)

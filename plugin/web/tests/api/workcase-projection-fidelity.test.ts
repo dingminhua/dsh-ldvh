@@ -415,3 +415,93 @@ test('待批准关闭：核对与建议必须投影到位（10 §5.5）', async 
   }
   assert.ok(checked.length > 0, '必须至少核对一个「待批准关闭」对象，否则本守卫是空转');
 });
+
+// 「已关闭」的卡体（10 §5.5，Human 2026-09-24 方案 A）：结论行 + 逐条核对（**只给
+// 步骤标题**）+ 残留块。判据文本只能由 `plan[i].step` 给出——`21 §8` 的
+// `result.criteria_checks[]` 只有 `{satisfied, evidence}`，不含判据文本。故 closed
+// 期投影**必须包含 `plan`**：此前该分支不投影 `plan`，卡上因此无法显示步骤标题，
+// 只能退化成显示「已满足 · <整段证据>」（实测最长 258 字，撑破扫读窗口）。
+test('已关闭：投影必须带上 plan（卡面显示步骤标题的唯一来源，10 §5.5）', async () => {
+  const ids = existingWorkCaseIds();
+  const checked: string[] = [];
+  for (const objectId of ids) {
+    const detail = await readLocalFact('workcase', objectId, workcaseScope());
+    if (detail.status !== 'ok') continue;
+    const source = detail.item.fact_object as Record<string, unknown>;
+    if (source.status !== 'closed') continue;
+    const sourcePlan = Array.isArray(source.plan) ? source.plan : [];
+    const projected = projectCurrentWorkCaseCard(source, detail.item.source_content_fingerprint);
+    const placedPlan = projected.plan;
+    assert.ok(
+      Array.isArray(placedPlan),
+      `${objectId}: closed 投影丢失 plan——卡面将拿不到步骤标题（10 §5.5）`,
+    );
+    assert.equal(placedPlan.length, sourcePlan.length, `${objectId}: plan 步数不得因投影而改变`);
+    const checks = (projected.result as Record<string, unknown> | undefined)?.criteria_checks;
+    if (Array.isArray(checks)) {
+      assert.equal(
+        checks.length,
+        sourcePlan.length,
+        `${objectId}: 核对条数须与 plan 步数一致（逐条对应，21 §8）——否则卡面标题会错位`,
+      );
+    }
+    checked.push(objectId);
+  }
+  assert.ok(checked.length > 0, '必须至少核对一个 closed 对象，否则本守卫是空转');
+});
+
+// 结论行与残留块的三个数据源必须**逐份到位**：结论行要数达成条数与残留条数，
+// 残留块要逐条原文。缺任一项时卡片只能显示部分内容，而「无残留」与「未记录残留」
+// 必须可区分（21 §9.3：completed 时 residual 可为空数组）。
+test('已关闭：结论行与残留块的数据源必须投影到位（10 §5.5）', async () => {
+  const ids = existingWorkCaseIds();
+  const checked: string[] = [];
+  let sawEmptyResidual = false;
+  for (const objectId of ids) {
+    const detail = await readLocalFact('workcase', objectId, workcaseScope());
+    if (detail.status !== 'ok') continue;
+    const source = detail.item.fact_object as Record<string, unknown>;
+    if (source.status !== 'closed') continue;
+    const sourceResult = source.result as Record<string, unknown> | undefined;
+    if (!sourceResult) continue;
+    const projected = projectCurrentWorkCaseCard(source, detail.item.source_content_fingerprint);
+    const placed = projected.result as Record<string, unknown> | undefined;
+    assert.ok(placed, `${objectId}: closed 投影丢失 result——结论行与残留块都没有数据源`);
+
+    // outcome：结论行的第一个元素。
+    assert.equal(placed.outcome ?? projected.outcome, source.outcome, `${objectId}: outcome 必须投影到位`);
+
+    // criteria_checks：结论行的计数来源 + 逐条核对的标题配对。
+    const sourceChecks = Array.isArray(sourceResult.criteria_checks) ? sourceResult.criteria_checks : [];
+    const placedChecks = Array.isArray(placed.criteria_checks) ? placed.criteria_checks : [];
+    assert.equal(placedChecks.length, sourceChecks.length, `${objectId}: criteria_checks 条数不得丢失`);
+    for (let i = 0; i < sourceChecks.length; i += 1) {
+      const src = sourceChecks[i] as Record<string, unknown>;
+      const out = placedChecks[i] as Record<string, unknown>;
+      assert.equal(
+        typeof out.satisfied,
+        'boolean',
+        `${objectId}: criteria_checks[${i}].satisfied 必须是布尔（21 §9.3）——非布尔会被卡面判成「未记录」`,
+      );
+      assert.equal(out.satisfied, src.satisfied, `${objectId}: criteria_checks[${i}].satisfied 值不得改变`);
+    }
+
+    // residual：残留块的原文。**空数组与缺失必须可区分**。
+    const sourceResidual = Array.isArray(sourceResult.residual) ? sourceResult.residual : null;
+    if (sourceResidual !== null) {
+      const placedResidual = placed.residual;
+      assert.ok(
+        Array.isArray(placedResidual),
+        `${objectId}: residual 存在却未投影——残留块无数据（10 §5.5）`,
+      );
+      assert.equal(placedResidual.length, sourceResidual.length, `${objectId}: residual 条数不得丢失`);
+      assert.deepEqual(placedResidual, sourceResidual, `${objectId}: residual 原文必须逐字保留`);
+      if (sourceResidual.length === 0) sawEmptyResidual = true;
+    }
+    checked.push(objectId);
+  }
+  assert.ok(checked.length > 0, '必须至少核对一个 closed 对象，否则本守卫是空转');
+  // 「无残留」与「未记录残留」的区分能力：至少一份对象的 residual 是空数组，
+  // 否则本守卫没有覆盖「无残留」这一支（21 §9.3）。
+  assert.ok(sawEmptyResidual, '必须至少覆盖一份 residual 为空数组的 closed 对象（「无残留」支）');
+});
