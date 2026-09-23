@@ -15,6 +15,9 @@ import type {
  *   由投影层解析后以 `result_checks` / `advice` 传来（见 `shared/workcaseResultDraft`）。
  * - 呈现为**两块、无标题栏**：核对（步骤标题 + 状态标记）与建议（去向标记 + 内容）。
  *   两者的条目同为「标记 + 内容」的行内流结构，只有颜色不同。
+ * - **条目正文不加粗**：与「执行中」卡的变更流水一致——那里只有时刻与标记是
+ *   semibold，条目正文是 `ldvh-caption` 的常规字重。加粗正文会让并排一张卡里的
+ *   两块字重失衡（Human 2026-09-24：「用的标题不要加粗，看起来太重了」）。
  * - **不呈现计划列表**：核对条目已带 `plan[].step` 标题，重复列出计划无增益。
  * - 解析不出状态的步骤呈现为「未记录」，不猜；建议判不出去向时呈现「未归类」。
  */
@@ -72,7 +75,7 @@ export default function WorkCaseResultDraft({
                     ? t(`objectList.workcaseCheck.${row.status}` as LocaleKey)
                     : t('objectList.workcaseCheck.unrecorded')}
                 </span>
-                <b className="font-semibold">{title}</b>
+                <span>{title}</span>
               </div>
             );
           })}
@@ -94,7 +97,7 @@ export default function WorkCaseResultDraft({
                   ? t(`objectList.workcaseAdvice.${item.kind}` as LocaleKey)
                   : t('objectList.workcaseAdvice.unclassified')}
               </span>
-              <b className="font-semibold">{item.text}</b>
+              <span>{item.text}</span>
               {item.from && (
                 <span className="mt-0.5 block text-[11px] text-ldvh-text-secondary">
                   {t('objectList.workcaseAdviceFrom', { source: item.from })}
