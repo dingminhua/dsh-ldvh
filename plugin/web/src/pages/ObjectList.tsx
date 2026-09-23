@@ -16,9 +16,12 @@ import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import { WorkCaseCriteriaList } from '@/components/WorkCaseCriteriaList';
 import WorkCaseGistLine from '@/components/WorkCaseGistLine';
 import { workCaseCheckStatement } from '@/utils/workcaseCheckState';
+// 10 §5.5「执行期阶段」：executing 组内部的四阶段判定由 shared 单点给出（与筛选/
+// 收件箱共用同一派生权威，防口径漂移）。
+import { deriveWorkCaseExecPhase } from '../../shared/workcaseLifecycle';
 import { fetchCognitionGoal, fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type ObjectItem, type ObjectStatusOption, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
-import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeDescription, getTypeLabel } from '@/i18n/locales';
+import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeDescription, getTypeLabel, type LocaleKey } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import { ALL_STATUS_PARAM, getEffectiveListStatus, writeListStatusParam } from '@/utils/listStatus';
 import { usePanel } from '@/utils/panelContext';
@@ -120,9 +123,23 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
     );
   }
   if (group === 'executing') {
+    // 10 §5.5「执行期阶段」：executing 组内部再分四阶段（执行中/复核中/修订中/结项中）。
+    // 判据由 shared/workcaseLifecycle 的 deriveWorkCaseExecPhase 单点给出（数组序 +
+    // 他对象排除 + 格式治理排除）——本组件不自行判定，只呈现。
+    const phase = deriveWorkCaseExecPhase(group, obj.reviews, obj.change_log, obj.id)
     return (
       <div className="min-w-0">
         <WorkCaseGistLine gist={obj.gist} group="executing" boxed />
+        {phase ? (
+          <p className="ldvh-caption mt-1.5">
+            <span
+              className="ldvh-chip"
+              data-workcase-exec-phase={phase}
+            >
+              {t(`objectList.workcaseExecPhase.${phase}` as LocaleKey)}
+            </span>
+          </p>
+        ) : null}
         {obj.attempt ? (
           <p className="ldvh-caption mt-1.5">
             {t('objectList.workcaseAttemptController', { controller: obj.attempt.controller ?? '—' })}

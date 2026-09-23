@@ -469,7 +469,7 @@ function projectCurrentWorkCaseCardShape(
     const plan = projectWorkCasePlan(fact.plan)
     if (plan.length > 0) projected.plan = plan
   } else if (view.status === 'open') {
-    // open：attempt 现场 + plan。不投影「## 执行 节存在性」——该标记零消费方
+    // open：attempt 现场 + plan + reviews。不投影「## 执行 节存在性」——该标记零消费方
     // （曾为 `has_execution_section`），属 v4 遗留的展示耦合；21 §8 未定义该字段，
     // 21 §19 第 4 条亦明确「不为执行过程建完整日志字段」（过程在 transcript 与
     // Git）。执行进展由 `attempt`（谁在做、做到哪里）与 change_log 承载。
@@ -477,6 +477,12 @@ function projectCurrentWorkCaseCardShape(
     if (attempt && Object.keys(attempt).length > 0) projected.attempt = attempt
     const plan = projectWorkCasePlan(fact.plan)
     if (plan.length > 0) projected.plan = plan
+    // 10 §5.5「执行期阶段」：`executing` 组内部按 reviews 与 change_log 的数组序派生
+    // 四阶段（执行中/复核中/修订中/结项中）。派生需要两个输入，`change_log` 已在恒
+    // 复制清单内，`reviews` 此前未投影——缺它则「复核中/修订中/结项中」三者恒不可判
+    // （会被一律判为「执行中」）。故此处补齐 `reviews` 的投影，与详情面同源同形。
+    const reviews = Array.isArray(fact.reviews) ? fact.reviews : []
+    if (reviews.length > 0) projected.reviews = reviews
   } else if (view.status === 'closed') {
     // closed：outcome 四值 + result 逐条核对（gate_1 已在上方统一投影）。
     if (typeof fact.outcome === 'string') projected.outcome = fact.outcome

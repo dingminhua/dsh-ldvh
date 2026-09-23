@@ -356,3 +356,32 @@ test('attempt 身份缺席时不得补默认值——「无身份」不等于「
   assert.equal('session_id' in attempt, false, '来源无 session_id 时投影不得凭空补上');
   assert.equal('session_source' in attempt, false, '来源无 session_source 时投影不得补默认 host');
 });
+
+// 10 §5.5「执行期阶段」新增输入：卡片侧四阶段判定需要 `reviews`，而它此前不在
+// 卡片投影的字段集内（恒复制清单只含 change_log）。缺它则「复核中/修订中/结项中」
+// 三者恒不可判，卡片会一律显示「执行中」——正是本文件所守的「投影静默丢字段」形态。
+test('open 对象的 reviews 必须完整投影（阶段判定的输入，10 §5.5）', async () => {
+  const ids = existingWorkCaseIds();
+  const checked: string[] = [];
+  for (const objectId of ids) {
+    const detail = await readLocalFact('workcase', objectId, workcaseScope());
+    if (detail.status !== 'ok') continue;
+    const source = detail.item.fact_object as Record<string, unknown>;
+    if (source.status !== 'open') continue;
+    const reviews = source.reviews;
+    if (!Array.isArray(reviews) || reviews.length === 0) continue;
+    const assembled: Record<string, unknown> = {};
+    Object.assign(assembled, projectCurrentWorkCaseCard(source, detail.item.source_content_fingerprint));
+    const placed = assembled.reviews;
+    assert.ok(
+      Array.isArray(placed),
+      `${objectId}: reviews 在投影后消失——阶段判定将恒判为「执行中」（10 §5.5）`,
+    );
+    assert.equal(placed.length, reviews.length, `${objectId}: reviews 条数不得因投影而改变`);
+    checked.push(objectId);
+  }
+  assert.ok(
+    checked.length > 0,
+    '必须至少核对一个带 reviews 的 open 对象，否则本守卫是空转',
+  );
+});

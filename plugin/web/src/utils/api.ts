@@ -72,6 +72,10 @@ export interface ObjectItem {
   attempt?: WorkCaseAttempt;
   result?: WorkCaseResult;
   gate_1?: WorkCaseGate1;
+  // 10 §5.5「执行期阶段」：`executing` 组的四阶段（执行中/复核中/修订中/结项中）
+  // 由 reviews 与 change_log 的数组序派生。`change_log` 已在恒复制清单内；`reviews`
+  // 需投影层显式搬运，否则卡片侧恒判为「执行中」。复用详情侧同一类型，不另起形状。
+  reviews?: WorkCaseReviewEntry[];
   /** 21 §8：给 Human 扫读的一句话要点。卡面渲染它而非 summary（10 §5.5）；
    * draft/open 必填、closed 条件（终态缺失合法，卡面须如实降级）。 */
   gist?: string;

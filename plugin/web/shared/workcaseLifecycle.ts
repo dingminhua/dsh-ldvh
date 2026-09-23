@@ -68,6 +68,111 @@ function normalizeFingerprint(fingerprint: unknown): string | null {
   return typeof fingerprint === 'string' && FINGERPRINT_PATTERN.test(fingerprint) ? fingerprint : null
 }
 
+// ============================================================================
+// 执行期阶段（10 §5.5「执行期阶段」登记）
+// ============================================================================
+//
+// `executing` 组内部的四个阶段，**呈现层派生、不写回对象、不进筛选与收件箱**
+// （筛选仍为五档）。判据依 10 §5.5，两条口径必须遵守：
+//
+//   ① 一律按 `change_log` 的**数组序**判定，**不得**使用 `reviews[].at` 或
+//      `change_log[].at` 的相对先后——写入函数在一次写入中把同批条目刷成同一
+//      时刻（workcase-writer.js 的 stampReviewEntries 注释已登记该既有边界），
+//      时间因此不承载相对先后。
+//   ②「本对象的条目」指摘要中**未**提及他对象 `workcase-XXXXXXXX` 的条目；
+//      提及他对象的条目（如替他单执行的迁移）不参与本对象的阶段判定。
+//   ③「格式治理：」前缀的条目（21 §8「格式治理」记账纪律）不参与判定——它们是
+//      跨对象的批量格式操作（如 a988046 的摘要分块），语义逐字未变，不构成该对象
+//      的「修订」。存量 12 条由 Human 授权的直接改写补上前缀（2026-09-23）。
+
+export const WORKCASE_EXEC_PHASES = ['executing', 'reviewing', 'revising', 'closing'] as const
+export type WorkCaseExecPhase = (typeof WORKCASE_EXEC_PHASES)[number]
+
+/** 复核发起记录的形式标记（21 §8「复核发起」记账纪律）。 */
+const REVIEW_START_MARKER = '复核发起：'
+
+/** 格式治理条目的形式标记（21 §8「格式治理」记账纪律）——不参与阶段判定。 */
+const FORMAT_GOVERNANCE_MARKER = '格式治理：'
+
+/** 他对象引用：摘要中出现 `WorkCase <uid8>` / `workcase-<uid8>` 且非本对象时，该条目不参与判定。 */
+const OTHER_OBJECT_REF = /workcase[\s-]+([0-9a-f]{8})/gi
+
+interface ChangeLogEntryLike {
+  summary?: unknown
+}
+
+/** 该条目是否提及**他**对象（口径 ②）。 */
+function mentionsOtherObject(summary: string, selfUid: string | null): boolean {
+  const refs = [...summary.matchAll(OTHER_OBJECT_REF)]
+  if (refs.length === 0) return false
+  // 未提供本对象 uid 时无法区分自指与他指，保守判为不排除（宁可多算，不误排除）。
+  if (selfUid === null) return false
+  const self = selfUid.replace(/^workcase-/i, '').slice(0, 8).toLowerCase()
+  return refs.every((m) => m[1].toLowerCase() !== self)
+}
+
+/** 「格式治理：」前缀的条目（口径 ③）——跨对象批量格式操作，不参与阶段判定。 */
+function isFormatGovernanceEntry(entry: ChangeLogEntryLike): boolean {
+  return typeof entry?.summary === 'string' && entry.summary.startsWith(FORMAT_GOVERNANCE_MARKER)
+}
+
+/** 摘要是否为本对象条目（未提及他对象，且非格式治理）。 */
+function isOwnEntry(entry: ChangeLogEntryLike, selfUid: string | null): boolean {
+  if (isFormatGovernanceEntry(entry)) return false
+  const summary = typeof entry?.summary === 'string' ? entry.summary : ''
+  return !mentionsOtherObject(summary, selfUid)
+}
+
+/**
+ * 「复核类条目」判定：摘要含「复核」二字。
+ *
+ * 与 `lastReviewAt` 的既有口径一致；此处单列以便测试与变异验证直接命中断言。
+ */
+function isReviewEntry(entry: ChangeLogEntryLike): boolean {
+  return typeof entry?.summary === 'string' && entry.summary.includes('复核')
+}
+
+/**
+ * 派生执行期阶段。**只在 group=executing 时有意义**；其余分组返回 null。
+ *
+ * | 阶段 | 判据 |
+ * |---|---|
+ * | 执行中（executing） | `reviews` 不存在，且 `change_log` 中无「复核发起：」条目 |
+ * | 复核中（reviewing） | `change_log` 中存在「复核发起：」条目，且 `reviews` 不存在 |
+ * | 修订中（revising）   | `reviews` 存在，且其后仍有**本对象**的 `change_log` 条目 |
+ * | 结项中（closing）    | `reviews` 存在，且其后无本对象的 `change_log` 条目 |
+ *
+ * 「复核中」为**尽力而为**：未按 21 §8 规定的「复核发起：」形式记录时不可判，
+ * 会停留在「执行中」——该纪律本身即非机械门禁（21 §8 已声明）。
+ */
+export function deriveWorkCaseExecPhase(
+  group: WorkCaseV5Group | null,
+  reviews: unknown,
+  changeLog: unknown,
+  selfUid: string | null,
+): WorkCaseExecPhase | null {
+  if (group !== 'executing') return null
+  const entries: ChangeLogEntryLike[] = Array.isArray(changeLog)
+    ? (changeLog as ChangeLogEntryLike[])
+    : []
+  const hasReviews = Array.isArray(reviews) && reviews.length > 0
+  if (!hasReviews) {
+    const started = entries.some(
+      (e) => typeof e?.summary === 'string' && e.summary.includes(REVIEW_START_MARKER),
+    )
+    return started ? 'reviewing' : 'executing'
+  }
+  // 复核已录入：数组序上，最后一条「复核类」条目之后是否仍有本对象条目。
+  // 「复核类条目」= 摘要含「复核」二字者；这是 §5.5 口径 ① 所要求的数组序判定。
+  let lastReviewAt = -1
+  entries.forEach((e, i) => {
+    if (isReviewEntry(e)) lastReviewAt = i
+  })
+  const after = lastReviewAt >= 0 ? entries.slice(lastReviewAt + 1) : []
+  const ownAfter = after.filter((e) => isOwnEntry(e, selfUid))
+  return ownAfter.length > 0 ? 'revising' : 'closing'
+}
+
 /**
  * 由 status / outcome / report_body / fingerprint 派生 21 号三态直读视图。
  *

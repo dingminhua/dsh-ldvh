@@ -4,8 +4,10 @@ import {
   WORKCASE_V5_STATUSES,
   WORKCASE_V5_OUTCOMES,
   WORKCASE_V5_FILTER_VALUES,
+  WORKCASE_EXEC_PHASES,
   bodyHasResultSection,
   deriveWorkCaseV5View,
+  deriveWorkCaseExecPhase,
 } from '../../shared/workcaseLifecycle.ts'
 
 const FP = 'a'.repeat(64)
@@ -94,4 +96,118 @@ test('status 非三态 → unresolved(unsupported_status)', () => {
   assert.equal(view.reason, 'unsupported_status')
   assert.equal(view.status, null)
   assert.equal(view.group, null)
+})
+
+// ============================================================================
+// 执行期四阶段（10 §5.5「执行期阶段」）
+// ============================================================================
+
+const UID = 'd5273e1c'
+const entry = (summary: string) => ({ at: '2026-09-23T00:00:00.000Z', provider: 'p', model: 'm', summary })
+const review = { at: '2026-09-23T00:00:00.000Z', provider: 'p', model: 'm', summary: '复核结论' }
+
+test('阶段常量闭集四值', () => {
+  assert.deepEqual([...WORKCASE_EXEC_PHASES], ['executing', 'reviewing', 'revising', 'closing'])
+})
+
+test('非 executing 分组不派生阶段', () => {
+  assert.equal(deriveWorkCaseExecPhase('pending_gate1', undefined, [], UID), null)
+  assert.equal(deriveWorkCaseExecPhase('awaiting_gate2', [review], [], UID), null)
+  assert.equal(deriveWorkCaseExecPhase('closed', [review], [], UID), null)
+  assert.equal(deriveWorkCaseExecPhase(null, undefined, [], UID), null)
+})
+
+test('① 执行中：无 reviews 且无「复核发起：」记录', () => {
+  assert.equal(deriveWorkCaseExecPhase('executing', undefined, [entry('计划步骤 1 完成')], UID), 'executing')
+  assert.equal(deriveWorkCaseExecPhase('executing', [], [], UID), 'executing')
+})
+
+test('② 复核中：有「复核发起：」且 reviews 尚未录入', () => {
+  const cl = [entry('计划步骤 1–3 完成'), entry('复核发起：隔离子代理只读对抗复核')]
+  assert.equal(deriveWorkCaseExecPhase('executing', undefined, cl, UID), 'reviewing')
+})
+
+test('② 复核中 → ④ 结项中：录入 reviews 后不再是复核中（防「只认前缀」的浅判）', () => {
+  const cl = [entry('复核发起：只读对抗复核')]
+  assert.equal(deriveWorkCaseExecPhase('executing', undefined, cl, UID), 'reviewing')
+  assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'closing')
+})
+
+test('④ 结项中：reviews 存在且其后无本对象条目', () => {
+  const cl = [entry('计划步骤 1 完成'), entry('录入独立复核概要')]
+  assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'closing')
+})
+
+test('③ 修订中：reviews 之后仍有本对象条目', () => {
+  const cl = [entry('录入独立复核概要'), entry('执行期记录（第二轮）：补回传通道')]
+  assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'revising')
+})
+
+test('口径②：复核后条目若提及他对象，不参与本对象判定', () => {
+  const cl = [entry('录入独立复核概要'), entry('迁移：补齐 gist 要点字段（21 §8，WorkCase d5273e1c）')]
+  // 该条提及他对象 d5273e1c，而本对象是 UID=1c6afa19 → 应判结项中
+  assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, '1c6afa19'), 'closing')
+  // 反证：若本对象就是 d5273e1c，则该条是自指，仍算本对象条目 → 修订中
+  assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'revising')
+})
+
+test('口径③：以「格式治理：」开头的条目不参与判定', () => {
+  const cl = [entry('录入独立复核概要'), entry('格式治理：摘要分块（忠实重排）——作者原文逐字未改')]
+  assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'closing')
+  // 反证：去掉前缀后同一文本会被算作修订（证明前缀确实在起作用）
+  const cl2 = [entry('录入独立复核概要'), entry('摘要分块（忠实重排）——作者原文逐字未改')]
+  assert.equal(deriveWorkCaseExecPhase('executing', [review], cl2, UID), 'revising')
+})
+
+test('口径①：判定按数组序，不受条目时间字段影响', () => {
+  const later = { at: '2020-01-01T00:00:00.000Z', provider: 'p', model: 'm', summary: '执行期记录' }
+  const cl = [entry('录入独立复核概要'), later]
+  // 即使后一条时间早于前一条，仍按数组序判为修订中
+  assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'revising')
+})
+
+test('他对象引用兼容空格与短横两种写法', () => {
+  for (const ref of ['WorkCase 1c6afa19', 'workcase-1c6afa19']) {
+    const cl = [entry('录入独立复核概要'), entry(`迁移：${ref} 的字段`)]
+    assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'closing', ref)
+  }
+})
+
+test('口径①（判别力）：after 含多条且顺序与时间相反时，结论必须跟数组序', () => {
+  // after 两条：数组序 [本对象(时间早), 他对象(时间晚)]
+  // · 正解（按数组序全量过滤）→ 排除他对象后仍有本对象条目 → 修订中
+  // · 错误实现（取时间最新一条）→ 取到他对象条目 → 被排除 → 结项中
+  // 故本用例对「按时间序」的实现有判别力（单元素数组的排序是空操作，不可区分）。
+  const own = { at: '2020-01-01T00:00:00.000Z', provider: 'p', model: 'm', summary: '执行期记录（第二轮）' }
+  const other = { at: '2030-01-01T00:00:00.000Z', provider: 'p', model: 'm', summary: '迁移：补齐字段（WorkCase 1c6afa19）' }
+  const cl = [entry('录入独立复核概要'), own, other]
+  assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'revising')
+
+  // 反向：数组序 [他对象(时间晚), 本对象(时间早)] 同样应跟数组序
+  const cl2 = [entry('录入独立复核概要'), other, own]
+  assert.equal(deriveWorkCaseExecPhase('executing', [review], cl2, UID), 'revising')
+
+  // 边界：after 只有他对象条目 → 结项中（排除生效）
+  const cl3 = [entry('录入独立复核概要'), other]
+  assert.equal(deriveWorkCaseExecPhase('executing', [review], cl3, UID), 'closing')
+})
+
+test('口径①（判别力·多复核条目）：lastReviewAt 必须按数组序取最后一条，而非按时间取最新', () => {
+  // 两条复核类条目，数组序在后的那条 at 更早（时间倒序）。
+  // · 正解（数组序取最后一条复核条目）：最后复核在第 2 位 → 其后仅他对象条目 → 结项中
+  // · 错误实现（取 at 最大的复核条目）：会取第 1 位那条 → 其后含本对象条目 → 修订中
+  const revOld = { at: '2030-01-01T00:00:00.000Z', provider: 'p', model: 'm', summary: '复核 2 项必须处置已落地' }
+  const revNew = { at: '2020-01-01T00:00:00.000Z', provider: 'p', model: 'm', summary: '复核处置完成' }
+  const other = { at: '2020-06-01T00:00:00.000Z', provider: 'p', model: 'm', summary: '迁移：补齐字段（WorkCase 1c6afa19）' }
+  const cl = [revOld, revNew, other]
+  assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'closing')
+})
+
+test('口径③（判别力·前缀位置）：豁免只认【以】「格式治理：」开头，不认中间出现', () => {
+  // 摘要【中间】出现「格式治理：」但并非以它开头 → 仍是本对象条目，应算修订中。
+  // 该用例对 startsWith → includes 的弱化变异有判别力。
+  const mid = { at: '2026-09-23T00:00:00.000Z', provider: 'p', model: 'm',
+                summary: '计划步骤 4 补记：格式治理：摘要分块已完成' }
+  const cl = [entry('录入独立复核概要'), mid]
+  assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'revising')
 })
