@@ -75,7 +75,7 @@ change_log:
   - at: 2026-09-22T14:50:15.593Z
     provider: workbuddy
     model: deepseek-v4.1-flash
-    summary: "摘要分块（忠实重排）：把作者自撰的行内「：」提为 ### 块首并插入空行，使摘要可读且符合 21 §8 书写结构（H3 骨架）；作者原文逐字未改，仅新增标记与空行 [attempt 1 heartbeat refreshed]"
+    summary: "格式治理：摘要分块（忠实重排）——把作者自撰的行内「：」提为 ### 块首并插入空行，使摘要可读且符合 21 §8 书写结构（H3 骨架）；作者原文逐字未改，仅新增标记与空行 [attempt 1 heartbeat refreshed]"
 ---
 
 # WorkCase 呈现保真与设计语言收敛
