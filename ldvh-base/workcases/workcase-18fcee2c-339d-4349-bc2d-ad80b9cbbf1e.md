@@ -3,6 +3,7 @@ fact_type_key: workcase
 object_uid: 18fcee2c-339d-4349-bc2d-ad80b9cbbf1e
 title: spark 非终态卡关联呈现
 status: closed
+gist: 让 spark 卡片的 open 状态也呈现关联信息，与最终态卡一致。
 serves: SG-3
 summary: 让 spark 卡片的非最终状态（open）也呈现关联信息，学习最终态卡的做法。现状核实（2026-09-16）：卡片框架
   ObjectCardFrame 内无条件渲染 FactAssociationsCardContent（消费 obj.factAssociations），而
