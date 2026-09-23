@@ -117,20 +117,47 @@ test('非 executing 分组不派生阶段', () => {
   assert.equal(deriveWorkCaseExecPhase(null, undefined, [], UID), null)
 })
 
-test('① 执行中：无 reviews 且无「复核发起：」记录', () => {
+test('① 执行中：无 reviews 且无复核发起条目', () => {
   assert.equal(deriveWorkCaseExecPhase('executing', undefined, [entry('计划步骤 1 完成')], UID), 'executing')
   assert.equal(deriveWorkCaseExecPhase('executing', [], [], UID), 'executing')
 })
 
-test('② 复核中：有「复核发起：」且 reviews 尚未录入', () => {
-  const cl = [entry('计划步骤 1–3 完成'), entry('复核发起：隔离子代理只读对抗复核')]
-  assert.equal(deriveWorkCaseExecPhase('executing', undefined, cl, UID), 'reviewing')
+test('② 复核中：有复核发起条目且 reviews 尚未录入（兼容既有写法）', () => {
+  // 既有写法两种，均在 21 §8 纪律覆盖内（摘要含「复核」+「发起」二词）
+  for (const s of [
+    '步骤 1–3 完成（③ 已证伪回退、①② 落地并变异验证）；复核已发起',
+    '步骤 1–8 完成、提交 48d1264；独立复核已发起',
+  ]) {
+    assert.equal(
+      deriveWorkCaseExecPhase('executing', undefined, [entry('计划步骤 1 完成'), entry(s)], UID),
+      'reviewing',
+      s,
+    )
+  }
 })
 
-test('② 复核中 → ④ 结项中：录入 reviews 后不再是复核中（防「只认前缀」的浅判）', () => {
-  const cl = [entry('复核发起：只读对抗复核')]
+test('② 复核中 → ④ 结项中：录入 reviews 后不再是复核中（防「只认发起」的浅判）', () => {
+  const cl = [entry('独立复核已发起')]
   assert.equal(deriveWorkCaseExecPhase('executing', undefined, cl, UID), 'reviewing')
   assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'closing')
+})
+
+test('② 判别力：只含「复核」或只含「发起」都不算发起条目', () => {
+  // 只含「复核」——如 d5273e1c 的「录入独立复核概要」，那是复核完成而非发起
+  assert.equal(
+    deriveWorkCaseExecPhase('executing', undefined, [entry('录入独立复核概要')], UID),
+    'executing',
+  )
+  // 只含「发起」——如「发起 Gate 2 提请」，与复核无关
+  assert.equal(
+    deriveWorkCaseExecPhase('executing', undefined, [entry('发起 Gate 2 提请')], UID),
+    'executing',
+  )
+  // 二词齐全才算（这是判据的最小形态）
+  assert.equal(
+    deriveWorkCaseExecPhase('executing', undefined, [entry('复核已发起')], UID),
+    'reviewing',
+  )
 })
 
 test('④ 结项中：reviews 存在且其后无本对象条目', () => {

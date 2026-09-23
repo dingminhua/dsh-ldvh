@@ -88,8 +88,28 @@ function normalizeFingerprint(fingerprint: unknown): string | null {
 export const WORKCASE_EXEC_PHASES = ['executing', 'reviewing', 'revising', 'closing'] as const
 export type WorkCaseExecPhase = (typeof WORKCASE_EXEC_PHASES)[number]
 
-/** 复核发起记录的形式标记（21 §8「复核发起」记账纪律）。 */
-const REVIEW_START_MARKER = '复核发起：'
+/**
+ * 「复核发起条目」判定（21 §8「复核发起」记账纪律，10 §5.5）。
+ *
+ * 判据：摘要**同时含「复核」与「发起」二词**。这一步承认既有写法
+ * （「复核已发起」「独立复核已发起」），**不要求特定句式**。
+ *
+ * 为什么是这个形态：21 §8 已把「复核」明文列为非计划步骤的执行事项，
+ * 「## 执行」节即其正文承载，故该写入是**真实的内容修改**（03 §9.5 应记之列），
+ * 不是过程日志或 no-op。识别依赖措辞——写成「开始独立审核」等不含二词的形式
+ * 即不可检出；该纪律本身即非机械门禁（21 §8 已声明）。
+ *
+ * 可靠性分布（10 §5.5 已登记）：**完成一侧是机械的**（`record_review` 由 Code
+ * 盖戳写入 `reviews` 并在 change_log 留 `[review recorded by session …]`）；
+ * **发起一侧依赖本判据**。故「复核中」是组合判据。
+ */
+const REVIEW_WORD = '复核'
+const START_WORD = '发起'
+
+function isReviewStartEntry(entry: ChangeLogEntryLike): boolean {
+  if (typeof entry?.summary !== 'string') return false
+  return entry.summary.includes(REVIEW_WORD) && entry.summary.includes(START_WORD)
+}
 
 /** 格式治理条目的形式标记（21 §8「格式治理」记账纪律）——不参与阶段判定。 */
 const FORMAT_GOVERNANCE_MARKER = '格式治理：'
@@ -137,13 +157,15 @@ function isReviewEntry(entry: ChangeLogEntryLike): boolean {
  *
  * | 阶段 | 判据 |
  * |---|---|
- * | 执行中（executing） | `reviews` 不存在，且 `change_log` 中无「复核发起：」条目 |
- * | 复核中（reviewing） | `change_log` 中存在「复核发起：」条目，且 `reviews` 不存在 |
+ * | 执行中（executing） | `reviews` 不存在，且 `change_log` 中无复核发起条目 |
+ * | 复核中（reviewing） | `change_log` 中存在复核发起条目，且 `reviews` 不存在 |
  * | 修订中（revising）   | `reviews` 存在，且其后仍有**本对象**的 `change_log` 条目 |
  * | 结项中（closing）    | `reviews` 存在，且其后无本对象的 `change_log` 条目 |
  *
- * 「复核中」为**尽力而为**：未按 21 §8 规定的「复核发起：」形式记录时不可判，
- * 会停留在「执行中」——该纪律本身即非机械门禁（21 §8 已声明）。
+ * 「复核中」的两侧可靠性不同（10 §5.5 已登记）：**完成一侧是机械的**——
+ * `record_review` 由 Code 盖戳写入 `reviews`，不依赖作者；**发起一侧依赖措辞**
+ * （见 `isReviewStartEntry`）——未按含「复核」+「发起」二词的形式记录时不可判，
+ * 会停留在「执行中」。该纪律本身即非机械门禁（21 §8 已声明）。
  */
 export function deriveWorkCaseExecPhase(
   group: WorkCaseV5Group | null,
@@ -157,9 +179,7 @@ export function deriveWorkCaseExecPhase(
     : []
   const hasReviews = Array.isArray(reviews) && reviews.length > 0
   if (!hasReviews) {
-    const started = entries.some(
-      (e) => typeof e?.summary === 'string' && e.summary.includes(REVIEW_START_MARKER),
-    )
+    const started = entries.some((e) => isReviewStartEntry(e))
     return started ? 'reviewing' : 'executing'
   }
   // 复核已录入：数组序上，最后一条「复核类」条目之后是否仍有本对象条目。
