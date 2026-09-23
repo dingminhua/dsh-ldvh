@@ -6,12 +6,16 @@
 //
 //   · 核对状态只认 `21 §8` 登记的三词（达成 / 部分达成 / 未达成）；无法判定时记
 //     `null`（呈现为「未记录」），**不猜**、不把同义词静默归一。
-//   · 建议优先取独立的 `- advice:` 段（结构目标）；该段不存在时，从 `residual`
-//     条目正文里抽出「建议…」子句并保留出处标题——存量尚未补写 advice 段，
-//     如此既不丢建议、也不与 residual 重复计数。
+//   · 建议只认 `21 §8` 登记的 `- advice:` 段与闭集去向词（另立工单 / 补录 /
+//     更正 / 接受现状 / 改进）；去向词不在闭集内记 `null`（呈现为「未归类」）。
 //
 // 解析依赖书写形态。格式不符时条目落空而不是被猜出来——这是有意的：标准形态由
 // `21 §8` 登记，偏离时应暴露而非掩盖。
+//
+// 曾有一条过渡通道（从 `residual` 条目正文里按「建议…」关键词抽子句），随 2026-09-23
+// 把 5 份存量对象的建议回填为 `- advice:` 段而**删除**：该通道实测丢出处 3/8、截断
+// 1/8，并误判 1 例（正文含「另立」二字即判为「另立工单」，实际去向是「补录」）。
+// 规范既已登记唯一承载，认知之外的第二条识别路径只会让「未登记即不可检出」失效。
 
 export const WORKCASE_CHECK_STATUSES = ['achieved', 'partial', 'not-achieved'] as const
 export type WorkCaseCheckStatus = (typeof WORKCASE_CHECK_STATUSES)[number]
@@ -23,9 +27,16 @@ const CHECK_WORDS: readonly (readonly [string, WorkCaseCheckStatus])[] = [
   ['达成', 'achieved'],
 ]
 
-/** 建议去向闭集（`21 §8`）。判不出时记 null，呈现为「未归类」。 */
+/** 建议去向（`21 §8`）。判不出时记 null，呈现为「未归类」。 */
 export const WORKCASE_ADVICE_KINDS = ['另立工单', '补录', '更正', '接受现状', '改进'] as const
 export type WorkCaseAdviceKind = (typeof WORKCASE_ADVICE_KINDS)[number]
+
+/** 建议段标记：`- advice:` 或 `- 建议：`（`21 §8`）。 */
+const ADVICE_BLOCK = /^(advice|建议)\s*[:：]?$/
+/** 建议条目形态：去向词以 `**` 包裹并位于行首，后接 `：`（`21 §8`）。 */
+const ADVICE_TITLED = /^\*\*(.+?)\*\*\s*[:：]?\s*([\s\S]*)$/
+/** 可选尾注：`出自「…」`，紧接建议正文的句末标点之后、不带句号（`21 §8`）。 */
+const ADVICE_FROM = /出自「([^」]+)」\s*$/
 
 export interface WorkCaseDraftCheck {
   /** 对应 `plan` 的 0-based 下标；-1 表示未能与该结果节条目配对。 */
@@ -36,7 +47,7 @@ export interface WorkCaseDraftCheck {
 export interface WorkCaseDraftAdvice {
   kind: WorkCaseAdviceKind | null
   text: string
-  /** 从 residual 条目抽出时记其标题；来自 `- advice:` 段时为 null。 */
+  /** `出自「…」` 尾注里所回应的 residual 条目；未写尾注时为 null。 */
   from: string | null
 }
 
@@ -52,12 +63,10 @@ function statusOf(text: string): WorkCaseCheckStatus | null {
   return null
 }
 
-function adviceKindOf(text: string): WorkCaseAdviceKind | null {
-  if (text.includes('另立')) return '另立工单'
-  if (text.includes('补录') || text.includes('录入')) return '补录'
-  if (text.includes('更正') || text.includes('修正')) return '更正'
-  if (text.includes('接受') || text.includes('不跟踪')) return '接受现状'
-  if (text.includes('扩大') || text.includes('改为') || text.includes('改进')) return '改进'
+function adviceKindOf(word: string): WorkCaseAdviceKind | null {
+  for (const kind of WORKCASE_ADVICE_KINDS) {
+    if (word === kind) return kind
+  }
   return null
 }
 
@@ -113,6 +122,9 @@ interface PlanStepLike {
  *   ② `- 步骤 N–M：<词>——证据：…`          → 按区间 N..M
  *   ③ `- <名称>：<词>——证据：…`            → 按 `plan[i].step` 逐字/前缀匹配
  * 配对不上的步不产出条目（调用方按「无对应条目」呈现）。
+ *
+ * 建议段（`21 §8`）：`- advice:` 之下每条 `- **<去向词>**：<正文>出自「…」`。
+ * 去向词不在闭集内记 `kind: null`；`出自「…」` 未写记 `from: null`。
  */
 export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCaseResultDraft {
   const section = resultSectionOf(body)
@@ -139,7 +151,7 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
     if (/^residual\s*:?$/.test(item) || /^残留责任\s*[:：]?$/.test(item)) {
       mode = 'residual'; modeIndent = indent; continue
     }
-    if (/^advice\s*:?$/.test(item) || /^建议\s*[:：]?$/.test(item)) {
+    if (ADVICE_BLOCK.test(item)) {
       mode = 'advice'; modeIndent = indent; continue
     }
     if (/^(achieved_scope|已证实范围)\s*[:：]/.test(item)) { mode = null; continue }
@@ -148,10 +160,13 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
 
     // ── `- advice:` 段内 ──
     if (mode === 'advice') {
-      const titled = /^\*\*(.+?)\*\*\s*[:：]?\s*(.*)$/.exec(item)
-      const text = titled ? titled[2].trim() : item
-      const kindText = titled ? titled[1].trim() : item
-      result.advice.push({ kind: adviceKindOf(kindText) ?? adviceKindOf(text), text: text || item, from: null })
+      const titled = ADVICE_TITLED.exec(item)
+      const kindText = titled ? titled[1].trim() : ''
+      let body = titled ? titled[2].trim() : item
+      const fromMatch = ADVICE_FROM.exec(body)
+      const from = fromMatch ? fromMatch[1].trim() : null
+      if (fromMatch) body = body.slice(0, fromMatch.index).trim()
+      result.advice.push({ kind: adviceKindOf(kindText), text: body || item, from })
       continue
     }
 
@@ -196,17 +211,8 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
       continue
     }
 
-    // ── residual 段内：抽出「建议…」子句 ──
-    if (mode === 'residual') {
-      const titled = /^\*\*(.+?)\*\*\s*[:：]?\s*(.*)$/s.exec(item)
-      const title = titled ? titled[1].trim() : ''
-      const detail = titled ? titled[2].trim() : item
-      for (const m of detail.matchAll(/建议([^。；]*(?:。|；|$))/g)) {
-        const text = `建议${m[1]}`.trim()
-        result.advice.push({ kind: adviceKindOf(text), text, from: title || null })
-      }
-      continue
-    }
+    // ── residual 段内：`21 §8` 规定此处不得再写「建议…」子句，故不产出条目 ──
+    if (mode === 'residual') continue
   }
 
   result.checks = [...byIndex.entries()]

@@ -103,16 +103,34 @@ test('advice 段：`- advice:` 内每条给去向与内容', () => {
   ]);
 });
 
-test('无 advice 段时：从 residual 正文抽出「建议…」子句并记出处', () => {
+test('advice 段：`出自「…」`尾注拆成 from，正文不含尾注', () => {
+  const body = bodyOf([
+    '- advice:',
+    '  - **另立工单**：以同一手法普查其余六类。出自「同型缺陷未普查其余六类」',
+  ]);
+  const d = parseWorkCaseResultDraft(body, PLAN);
+  assert.deepEqual(d.advice, [
+    { kind: '另立工单', text: '以同一手法普查其余六类。', from: '同型缺陷未普查其余六类' },
+  ]);
+});
+
+test('advice 段：未登记的去向词记 null（不静默归一到近似词）', () => {
+  const body = bodyOf([
+    '- advice:',
+    '  - **修复**：把该分支改为 fail-closed。',
+    '  - **观察**：下一轮再看。',
+  ]);
+  const d = parseWorkCaseResultDraft(body, PLAN);
+  assert.deepEqual(d.advice.map((a) => a.kind), [null, null]);
+});
+
+test('residual 里的「建议…」子句不再产出条目（21 §8：建议只有一处承载）', () => {
   const body = bodyOf([
     '- residual:',
     '  - **缺口 A 未修复**：无法机械判定。建议另立一单，其前置为先实现级联信号。',
   ]);
   const d = parseWorkCaseResultDraft(body, PLAN);
-  assert.equal(d.advice.length, 1);
-  assert.equal(d.advice[0].kind, '另立工单');
-  assert.equal(d.advice[0].from, '缺口 A 未修复');
-  assert.ok(d.advice[0].text.startsWith('建议另立一单'));
+  assert.deepEqual(d.advice, []);
 });
 
 test('未配对/无结果节：返回空草稿而不是抛错', () => {
@@ -124,15 +142,16 @@ test('未配对/无结果节：返回空草稿而不是抛错', () => {
   });
 });
 
-test('advice 段判别力：无加粗标题的条目也要收（按内容判去向）', () => {
+test('advice 段判别力：去向词必须在行首加粗，否则记未归类', () => {
   const body = bodyOf([
     '- advice:',
     '  - 建议另立工单补该路由的投影。',
-    '  - 建议改为 fail-closed。',
+    '  - **改进**：建议改为 fail-closed。',
   ]);
   const d = parseWorkCaseResultDraft(body, PLAN);
   assert.deepEqual(d.advice, [
-    { kind: '另立工单', text: '建议另立工单补该路由的投影。', from: null },
+    // 无加粗行首 → 判不出去向（旧实现按关键词猜成「另立工单」，已按 21 §8 收紧）
+    { kind: null, text: '建议另立工单补该路由的投影。', from: null },
     { kind: '改进', text: '建议改为 fail-closed。', from: null },
   ]);
 });
