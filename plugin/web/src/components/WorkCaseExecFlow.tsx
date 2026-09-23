@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useI18n } from '@/i18n/context';
 import type { LocaleKey } from '@/i18n/locales';
 import {
   markWorkCaseFlow,
   ownChangeLogEntries,
+  relativeDayLabel,
   type WorkCaseFlowMark,
 } from '../../shared/workcaseLifecycle';
 
@@ -11,8 +12,14 @@ import {
  * WorkCase 变更流水（卡片主体）。
  *
  * 10 §5.5「执行期阶段」的呈现代替品（Human 2026-09-23）：**不显示阶段标签**，
- * 而在流水里用「复核」「修订」二字标出关键行动。状态显示（对象头部）不受影响，
+ * 而在流水里用「复核」「修订」二字标出关键行动。对象头部的状态显示不受影响，
  * 恒为 21 号状态机的真实值。
+ *
+ * 形态（Human 2026-09-23 定）：
+ * - 整块有边框（与卡面其余内容块一致）；
+ * - 按**天**分组，组间有分割线，组头给「MM-DD 周X」与相对时间（N天前）；
+ * - 默认最多 5 条，其余经「更早 N 条」**点击展开**（不是死文本）；
+ * - 不显示「变更流水」标题与条数（Human 要求去掉）。
  *
  * 口径（全部来自 shared/workcaseLifecycle，不在此自行判断）：
  * - 只显示**本对象**条目——他对象条目（口径②）与格式治理条目（口径③）已被
@@ -20,8 +27,8 @@ import {
  * - 标记由 `markWorkCaseFlow` 逐条给出（机械标记优先，措辞兜底，数组序判修订）。
  */
 
-/** 最多显示的条目数（超出折叠，与详情面一致：卡面是扫读窗口）。 */
-const MAX_ITEMS = 8;
+/** 默认显示的条目数；其余经「更早 N 条」展开。 */
+const COLLAPSED_ITEMS = 5;
 
 export interface WorkCaseExecFlowProps {
   changeLog?: unknown;
@@ -67,25 +74,23 @@ export default function WorkCaseExecFlow({
   className = '',
 }: WorkCaseExecFlowProps) {
   const { t, locale } = useI18n();
+  const [expanded, setExpanded] = useState(false);
 
-  const { rows, total, hidden } = useMemo(() => {
+  const { rows, hidden } = useMemo(() => {
     const own = ownChangeLogEntries(changeLog, selfUid);
     const marks = markWorkCaseFlow(reviews, changeLog, selfUid);
     // 最新在上
     const reversed = [...own].reverse();
-    const shown = reversed.slice(0, MAX_ITEMS);
     return {
-      total: own.length,
-      hidden: Math.max(0, reversed.length - shown.length),
-      rows: shown.map(({ index, entry }) => {
+      hidden: Math.max(0, reversed.length - COLLAPSED_ITEMS),
+      rows: reversed.map(({ index, entry }) => {
         const summary = typeof entry.summary === 'string' ? entry.summary : '';
         const at = (entry as { at?: unknown }).at;
-        const date = parseInstant(at);
         return {
           index,
           mark: (marks[index] ?? null) as WorkCaseFlowMark | null,
           text: stripTrailingBrackets(summary),
-          date,
+          date: parseInstant(at),
         };
       }),
     };
@@ -93,30 +98,32 @@ export default function WorkCaseExecFlow({
 
   if (rows.length === 0) return null;
 
+  const visible = expanded ? rows : rows.slice(0, COLLAPSED_ITEMS);
   const weekdays = locale === 'en' ? WEEKDAYS_EN : WEEKDAYS_ZH;
+  const now = new Date();
 
   return (
-    <div className={`${className} min-w-0`.trim()}>
-      <div className="mb-1.5 flex items-baseline justify-between gap-2">
-        <span className="ldvh-caption-strong text-ldvh-text-secondary">
-          {t('objectList.workcaseFlow')}
-        </span>
-        <span className="ldvh-caption text-ldvh-text-secondary/80">
-          {t('objectList.workcaseFlowCount', { count: String(total) })}
-        </span>
-      </div>
-
-      <div className="grid min-w-0 gap-1.5">
-        {rows.map((row, i) => {
-          const prev = i > 0 ? rows[i - 1].date : null;
+    <div
+      className={`${className} min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/50 px-2.5 py-2`.trim()}
+    >
+      <div className="grid min-w-0 gap-1">
+        {visible.map((row, i) => {
+          const prev = i > 0 ? visible[i - 1].date : null;
           const newDay =
             row.date !== null && (prev === null || dayKey(prev) !== dayKey(row.date));
           return (
             <div key={row.index} className="min-w-0">
               {newDay && row.date !== null && (
-                <div className="ldvh-caption mb-1 mt-1.5 flex items-baseline gap-2 text-ldvh-text-secondary/85 first:mt-0">
-                  <span className="font-semibold tabular-nums">
+                <div
+                  className={`mb-1 flex items-baseline gap-2 ${
+                    i === 0 ? '' : 'mt-1.5 border-t border-ldvh-border/70 pt-1.5'
+                  }`}
+                >
+                  <span className="ldvh-caption font-semibold tabular-nums text-ldvh-text-secondary">
                     {`${pad2(row.date.getMonth() + 1)}-${pad2(row.date.getDate())} ${weekdays[row.date.getDay()]}`}
+                  </span>
+                  <span className="ldvh-caption text-ldvh-text-secondary/75">
+                    {relativeDayLabel(row.date, now)}
                   </span>
                 </div>
               )}
@@ -146,8 +153,19 @@ export default function WorkCaseExecFlow({
       </div>
 
       {hidden > 0 && (
-        <div className="ldvh-caption mt-1.5 text-right text-ldvh-text-secondary/80">
-          {t('objectList.workcaseFlowMore', { count: String(hidden) })}
+        <div className="mt-1.5 text-right">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setExpanded((v) => !v);
+            }}
+            className="ldvh-caption text-ldvh-text-secondary/85 transition-colors hover:text-ldvh-text-primary"
+          >
+            {expanded
+              ? t('objectList.workcaseFlowCollapse')
+              : t('objectList.workcaseFlowMore', { count: String(hidden) })}
+          </button>
         </div>
       )}
     </div>

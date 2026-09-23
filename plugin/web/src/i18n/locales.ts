@@ -1179,9 +1179,8 @@ export const UI_LOCALES = {
     'objectList.workcaseAttemptController': '执行者',
     // 变更流水（卡片主体）：关键行动用二字标出（Human 2026-09-23）。
     // 不呈现阶段标签——状态显示恒为 21 号状态机的真实值。见 WorkCaseExecFlow。
-    'objectList.workcaseFlow': '变更流水',
-    'objectList.workcaseFlowCount': '{count} 条',
-    'objectList.workcaseFlowMore': '更早 {count} 条…',
+    'objectList.workcaseFlowMore': '更早 {count} 条',
+    'objectList.workcaseFlowCollapse': '收起',
     'objectList.workcaseFlowMark.review': '复核',
     'objectList.workcaseFlowMark.revise': '修订',
     'objectDetail.workcaseServes': '服务子目标',
@@ -1862,9 +1861,8 @@ export const UI_LOCALES = {
     'objectList.workcaseGate1': 'Gate 1 authorization',
     'objectList.workcaseAttemptController': 'Controller',
     // Change flow (card body): key actions marked with a word (Human 2026-09-23).
-    'objectList.workcaseFlow': 'Change flow',
-    'objectList.workcaseFlowCount': '{count} entries',
-    'objectList.workcaseFlowMore': '{count} earlier…',
+    'objectList.workcaseFlowMore': '{count} earlier',
+    'objectList.workcaseFlowCollapse': 'Collapse',
     'objectList.workcaseFlowMark.review': 'Review',
     'objectList.workcaseFlowMark.revise': 'Revise',
     'objectDetail.workcaseServes': 'Serves sub-goal',

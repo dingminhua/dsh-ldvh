@@ -345,3 +345,17 @@ export function deriveWorkCaseV5View(
     has_result_draft: false,
   }
 }
+
+/**
+ * 相对时间（天级标签）：「今天」或「N天前」。
+ *
+ * 与 `api/services/time.ts` 的 `getRelativeTime` 同口径（天级切片），但该函数住在
+ * `api/` 层、前端组件无法直接消费，故在此单列一份供卡片使用。未来时间不作负数
+ * （按「今天」兜底）——写入函数会把同批条目刷成同一时刻，时钟与数据的偏差不应
+ * 显示成「-1天前」。
+ */
+export function relativeDayLabel(date: Date, now: Date = new Date()): string {
+  const days = Math.floor((now.getTime() - date.getTime()) / 86_400_000)
+  if (days <= 0) return '今天'
+  return `${days}天前`
+}
