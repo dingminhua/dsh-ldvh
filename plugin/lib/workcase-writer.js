@@ -1376,9 +1376,16 @@ function appendChangeLog(frontmatter, sig, summary) {
  * 抹掉——门禁随之 fail-closed，机制沦为不可用。被继承的身份来自**落盘对象**
  * （baselineReviews），不是调用方 payload，故不可据此伪造。
  *
- * 注意既有边界：本函数在一次写入中把**所有**条目的 `at` 刷成同一时刻。这是既有
- * 行为，本单不改（不引入无法验证的时序推断）；关闭侧的时序判据因此只依赖
- * attempt 的 started_at/heartbeat_at，不依赖 reviews[].at 的相对先后。
+ * **既有条目的 `at` 与署名同样按索引继承，不得被后续写入改写**（2026-09-23 实测
+ * 发现并修正）：本函数原先把**所有**条目的 `at` 刷成当前时刻、`provider`/`model`
+ * 取当前写入者的路由。实测后果是**署名被篡改**——对 4 份「待批准关闭」对象各做一次
+ * 与复核无关的 `execute` 心跳（内容为结果节补 `- advice:` 段），它们 2026-09-22 由
+ * `workbuddy`/`deepseek-v4.1-flash` 记录的独立复核条目，落盘后变成
+ * `deepseek-official`/`deepseek-flash`：复核者被换成了后来做心跳的那一方。
+ * `session_id` 早前已按索引继承（见上），`at`/署名是同一条记录的另一半，没有理由
+ * 只保一半。原注释接受「`at` 刷成同一时刻」的理由是「不引入无法验证的时序推断」，
+ * 而**逐字继承**既有值不需要任何推断。故三者一并按索引继承，只有**本次新写入的
+ * 条目**才取 Code 时钟与当前权威路由。
  *
  * 传入非数组（含 undefined）时原样返回，不虚构字段（03 §6.1）。
  */
@@ -1392,7 +1399,12 @@ function stampReviewEntries(reviews, sig, identity = null, baselineReviews = nul
   const baseline = Array.isArray(baselineReviews) ? baselineReviews : [];
   return reviews.map((entry, index) => {
     const stored = baseline[index];
-    const storedSessionId = isPlainObject(stored) && typeof stored.session_id === "string" && stored.session_id.length > 0
+    const isExistingEntry = isPlainObject(stored);
+    // 既有条目的记录时刻与署名是历史事实：逐字继承，仅缺失时回落到当前值。
+    const storedAt = isExistingEntry && typeof stored.at === "string" && stored.at.length > 0 ? stored.at : null;
+    const storedProvider = isExistingEntry && typeof stored.provider === "string" && stored.provider.length > 0 ? stored.provider : null;
+    const storedModel = isExistingEntry && typeof stored.model === "string" && stored.model.length > 0 ? stored.model : null;
+    const storedSessionId = isExistingEntry && typeof stored.session_id === "string" && stored.session_id.length > 0
       ? stored.session_id
       : null;
     const effectiveSessionId = storedSessionId ?? sessionId;
@@ -1414,7 +1426,6 @@ function stampReviewEntries(reviews, sig, identity = null, baselineReviews = nul
     //
     // 故来源只对**本次新写入的条目**盖戳；既有条目一律保留它当初被记录的原值，
     // 缺失就是缺失（判据要求两端来源俱为 "host"，缺失即不计入，fail-closed）。
-    const isExistingEntry = isPlainObject(stored);
     const storedSource = isExistingEntry && typeof stored.session_source === "string" ? stored.session_source : null;
     const effectiveSource = isExistingEntry ? storedSource : sessionSource;
     const storedImplSource = isExistingEntry && typeof stored.implementer_session_source === "string"
@@ -1422,8 +1433,9 @@ function stampReviewEntries(reviews, sig, identity = null, baselineReviews = nul
       : null;
     const effectiveImplSource = isExistingEntry ? storedImplSource : implementerSource;
     return {
-      at,
-      ...sig.signature,
+      at: storedAt ?? at,
+      provider: storedProvider ?? sig.signature.provider,
+      model: storedModel ?? sig.signature.model,
       // Code-managed session identity (workcase-2be11478 计划步骤 2): the caller
       // cannot supply or override it. When the identity is unavailable the key is
       // OMITTED rather than fabricated — the close gate then fails closed.

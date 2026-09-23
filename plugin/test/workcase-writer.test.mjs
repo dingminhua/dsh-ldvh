@@ -1288,6 +1288,60 @@ test("reviews: Code stamps at/provider/model — caller-supplied values are disc
   });
 });
 
+test("reviews: an existing entry keeps its at/provider/model across a later heartbeat (2026-09-23)", async () => {
+  // 实测缺陷（2026-09-23）：stampReviewEntries 原先把所有条目的 at 刷成当前时刻、
+  // provider/model 取**当前写入者**的路由。于是对一份「待批准关闭」对象做一次与复核
+  // 无关的 execute 心跳（内容只是给结果节补 `- advice:` 段），就把 2026-09-22 由
+  // workbuddy/deepseek-v4.1-flash 记录的独立复核**署名换成了心跳那一方**——历史复核
+  // 记录被篡改。本用例锁定修正后的不变量：既有条目的 at/署名逐字继承，只有本次新写入
+  // 的条目才取 Code 时钟与当前路由（后者由上一个用例负责）。
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid, after } = await approved(root);
+    // 第一次写入：录入一条复核（新条目 → Code 盖当前路由 SIG()=p/m）。
+    const first = { ...after.value.frontmatter };
+    first.reviews = [{
+      at: "1999-01-01T00:00:00.000Z",
+      provider: "forged-provider",
+      model: "forged-model",
+      summary: "对象：本单；基线：plan 判据；方法：隔离子代理只读复核；覆盖：无；未覆盖：无；发现：无；保证边界：仅文本回读。",
+    }];
+    const r1 = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: first,
+      bodyMarkdownAfter: bodyWithoutH1(after.value.body),
+      changeSummary: "录入复核概要",
+      sessionSignature: SIG(),
+    });
+    assert.ok(r1.ok, JSON.stringify(r1.error));
+    const recorded = (await readWorkcaseObject({ factSourceRoot: root, objectUid: uid })).value.frontmatter.reviews[0];
+    assert.equal(recorded.provider, "p");
+
+    // 第二次写入：与复核无关的心跳，路由换成另一个署名。
+    const mid = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    const second = { ...mid.value.frontmatter };
+    const r2 = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: mid.value.fingerprint,
+      frontmatterAfter: second,
+      bodyMarkdownAfter: bodyWithoutH1(mid.value.body),
+      changeSummary: "补建议段（与复核无关的心跳）",
+      sessionSignature: authoritativeSignature({ provider: "other-provider", model: "other-model" }),
+    });
+    assert.ok(r2.ok, JSON.stringify(r2.error));
+    const after2 = (await readWorkcaseObject({ factSourceRoot: root, objectUid: uid })).value.frontmatter.reviews[0];
+    assert.equal(after2.provider, "p", "an existing review entry must not be re-attributed to the later writer");
+    assert.equal(after2.model, "m");
+    assert.equal(after2.at, recorded.at, "an existing review entry keeps its recorded time verbatim");
+    // 而本次的变更流水仍然署当前写入者——继承只约束 reviews 既有条目。
+    const log = (await readWorkcaseObject({ factSourceRoot: root, objectUid: uid })).value.frontmatter.change_log;
+    assert.equal(log.at(-1).provider, "other-provider");
+  });
+});
+
 test("reviews: summary over 600 chars is rejected (21 §8 cap)", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
