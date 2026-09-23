@@ -152,6 +152,93 @@ function isReviewEntry(entry: ChangeLogEntryLike): boolean {
   return typeof entry?.summary === 'string' && entry.summary.includes('复核')
 }
 
+// ============================================================================
+// 变更流水的行动标记（10 §5.5「执行期阶段」的呈现代替品，Human 2026-09-23）
+// ============================================================================
+//
+// 卡片主体呈现「变更流水」时，关键行动用两个字标出：「复核」「修订」。
+// **不呈现阶段标签**（Human 2026-09-23：「其实就变成了一直是执行中」——状态显示
+// 恒为 21 号状态机的真实值，不被本标记影响）。
+//
+// 标记口径复用上面已登记的三条：② 他对象条目排除；③ 格式治理条目排除；
+// 数组序（不使用任何时间字段）。
+
+export const WORKCASE_FLOW_MARKS = ['review', 'revise'] as const
+export type WorkCaseFlowMark = (typeof WORKCASE_FLOW_MARKS)[number]
+
+/**
+ * 单条日志的行动标记。返回 null 表示「执行」（无标记）。
+ *
+ * - `review`：「复核」——机械标记 `[review recorded by session` 优先（`record_review`
+ *   由 Code 盖戳写入，不依赖作者）；措辞兜底为摘要同含「复核」+「发起」（21 §8）。
+ * - `revise`：「修订」——位于**最后一条复核条目之后**的本对象条目（数组序）。
+ *
+ * `lastReviewIndex` 为该对象 `ownChangeLog` 中最后一条复核条目的下标（-1 表示无）；
+ * 由 `markWorkCaseFlow` 统一算出后传入，避免逐条重算。
+ */
+function markOfEntry(
+  entry: ChangeLogEntryLike,
+  index: number,
+  lastReviewIndex: number,
+  hasReviews: boolean,
+): WorkCaseFlowMark | null {
+  const s = typeof entry?.summary === 'string' ? entry.summary : ''
+  if (s.includes('review recorded by session')) return 'review'
+  if (s.includes(REVIEW_WORD) && s.includes(START_WORD)) return 'review'
+  if (hasReviews && lastReviewIndex >= 0) {
+    if (index === lastReviewIndex) return 'review'
+    if (index > lastReviewIndex) return 'revise'
+  }
+  return null
+}
+
+/**
+ * 为一份 `change_log` 派生流水标记。
+ *
+ * 返回与输入**逐项对应**的数组（长度相同，无标记处为 null），调用方据此渲染，
+ * 不必自行判断归属或数组序。`reviews` 非空表示复核已完成（`21 §8`），
+ * 是「修订」标记成立的前提——未复核就谈不上复核后修订。
+ */
+export function markWorkCaseFlow(
+  reviews: unknown,
+  changeLog: unknown,
+  selfUid: string | null,
+): (WorkCaseFlowMark | null)[] {
+  const all: ChangeLogEntryLike[] = Array.isArray(changeLog) ? (changeLog as ChangeLogEntryLike[]) : []
+  const hasReviews = Array.isArray(reviews) && reviews.length > 0
+  // 只在**本对象**条目上定位复核，与阶段判定同一口径（他对象条目、格式治理条目排除）。
+  const ownIndexes: number[] = []
+  let lastReviewIndex = -1
+  all.forEach((e, i) => {
+    if (!isOwnEntry(e, selfUid)) return
+    ownIndexes.push(i)
+    if (isReviewEntry(e)) lastReviewIndex = ownIndexes.length - 1
+  })
+  const ownPosition = new Map<number, number>()
+  ownIndexes.forEach((realIdx, ownIdx) => ownPosition.set(realIdx, ownIdx))
+
+  return all.map((e, i) => {
+    const ownIdx = ownPosition.get(i)
+    if (ownIdx === undefined) return null // 他对象条目 / 格式治理条目：不参与，也不标记
+    return markOfEntry(e, ownIdx, lastReviewIndex, hasReviews)
+  })
+}
+
+/**
+ * 取「本对象」的日志条目及原始下标（流水渲染用）。
+ *
+ * 与 `markWorkCaseFlow` 同口径：排除他对象条目（口径②）与格式治理条目（口径③）。
+ */
+export function ownChangeLogEntries(
+  changeLog: unknown,
+  selfUid: string | null,
+): { index: number; entry: ChangeLogEntryLike }[] {
+  const all: ChangeLogEntryLike[] = Array.isArray(changeLog) ? (changeLog as ChangeLogEntryLike[]) : []
+  return all
+    .map((entry, index) => ({ index, entry }))
+    .filter(({ entry }) => isOwnEntry(entry, selfUid))
+}
+
 /**
  * 派生执行期阶段。**只在 group=executing 时有意义**；其余分组返回 null。
  *

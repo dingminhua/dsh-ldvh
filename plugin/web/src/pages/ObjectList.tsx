@@ -16,12 +16,11 @@ import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import { WorkCaseCriteriaList } from '@/components/WorkCaseCriteriaList';
 import WorkCaseGistLine from '@/components/WorkCaseGistLine';
 import { workCaseCheckStatement } from '@/utils/workcaseCheckState';
-// 10 §5.5「执行期阶段」：executing 组内部的四阶段判定由 shared 单点给出（与筛选/
-// 收件箱共用同一派生权威，防口径漂移）。
-import { deriveWorkCaseExecPhase } from '../../shared/workcaseLifecycle';
+// 变更流水（卡片主体）：标记与归属口径来自 shared 单点，组件不自行判断。
+import WorkCaseExecFlow from '@/components/WorkCaseExecFlow';
 import { fetchCognitionGoal, fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type ObjectItem, type ObjectStatusOption, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
-import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeDescription, getTypeLabel, type LocaleKey } from '@/i18n/locales';
+import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeDescription, getTypeLabel } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import { ALL_STATUS_PARAM, getEffectiveListStatus, writeListStatusParam } from '@/utils/listStatus';
 import { usePanel } from '@/utils/panelContext';
@@ -123,32 +122,18 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
     );
   }
   if (group === 'executing') {
-    // 10 §5.5「执行期阶段」：executing 组内部再分四阶段（执行中/复核中/修订中/结项中）。
-    // 判据由 shared/workcaseLifecycle 的 deriveWorkCaseExecPhase 单点给出（数组序 +
-    // 他对象排除 + 格式治理排除）——本组件不自行判定，只呈现。
-    const phase = deriveWorkCaseExecPhase(group, obj.reviews, obj.change_log, obj.id)
+    // 卡片主体呈现「变更流水」（Human 2026-09-23）：关键行动用「复核」「修订」二字
+    // 标出，**不显示阶段标签**——对象头部的状态显示恒为 21 号状态机的真实值。
+    // 标记与归属口径全部来自 shared/workcaseLifecycle，本组件不自行判断。
     return (
       <div className="min-w-0">
         <WorkCaseGistLine gist={obj.gist} group="executing" boxed />
-        {phase ? (
-          <p className="ldvh-caption mt-1.5">
-            <span
-              className="ldvh-chip"
-              data-workcase-exec-phase={phase}
-            >
-              {t(`objectList.workcaseExecPhase.${phase}` as LocaleKey)}
-            </span>
-          </p>
-        ) : null}
-        {obj.attempt ? (
-          <p className="ldvh-caption mt-1.5">
-            {t('objectList.workcaseAttemptController', { controller: obj.attempt.controller ?? '—' })}
-            {obj.attempt.heartbeat_at ? ` · ${obj.attempt.heartbeat_at}` : ''}
-          </p>
-        ) : null}
-        {Array.isArray(obj.plan) && obj.plan.length > 0 ? (
-          <WorkCaseCriteriaList className="mt-1.5" items={obj.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))} />
-        ) : null}
+        <WorkCaseExecFlow
+          className="mt-1.5"
+          changeLog={obj.change_log}
+          reviews={obj.reviews}
+          selfUid={obj.id}
+        />
       </div>
     );
   }

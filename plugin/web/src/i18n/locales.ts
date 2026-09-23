@@ -1177,12 +1177,13 @@ export const UI_LOCALES = {
     'objectList.workcaseOutcome.cancelled': '已取消',
     'objectList.workcaseGate1': 'Gate 1 授权',
     'objectList.workcaseAttemptController': '执行者',
-    // 10 §5.5「执行期阶段」：executing 组内部四阶段（呈现层派生，不进筛选）。
-    'objectList.workcaseExecPhase.executing': '执行中',
-    'objectList.workcaseExecPhase.reviewing': '复核中',
-    'objectList.workcaseExecPhase.revising': '修订中',
-    'objectList.workcaseExecPhase.closing': '结项中',
-    'objectList.workcaseExecPhaseLabel': '阶段',
+    // 变更流水（卡片主体）：关键行动用二字标出（Human 2026-09-23）。
+    // 不呈现阶段标签——状态显示恒为 21 号状态机的真实值。见 WorkCaseExecFlow。
+    'objectList.workcaseFlow': '变更流水',
+    'objectList.workcaseFlowCount': '{count} 条',
+    'objectList.workcaseFlowMore': '更早 {count} 条…',
+    'objectList.workcaseFlowMark.review': '复核',
+    'objectList.workcaseFlowMark.revise': '修订',
     'objectDetail.workcaseServes': '服务子目标',
     'objectDetail.workcaseScope': '授权范围',
     'objectDetail.workcasePlan': '计划与判据',
@@ -1860,12 +1861,12 @@ export const UI_LOCALES = {
     'objectList.workcaseOutcome.cancelled': 'Cancelled',
     'objectList.workcaseGate1': 'Gate 1 authorization',
     'objectList.workcaseAttemptController': 'Controller',
-    // 10 §5.5 "execution phases": four phases inside the executing group.
-    'objectList.workcaseExecPhase.executing': 'Executing',
-    'objectList.workcaseExecPhase.reviewing': 'Under review',
-    'objectList.workcaseExecPhase.revising': 'Revising',
-    'objectList.workcaseExecPhase.closing': 'Ready to close',
-    'objectList.workcaseExecPhaseLabel': 'Phase',
+    // Change flow (card body): key actions marked with a word (Human 2026-09-23).
+    'objectList.workcaseFlow': 'Change flow',
+    'objectList.workcaseFlowCount': '{count} entries',
+    'objectList.workcaseFlowMore': '{count} earlier…',
+    'objectList.workcaseFlowMark.review': 'Review',
+    'objectList.workcaseFlowMark.revise': 'Revise',
     'objectDetail.workcaseServes': 'Serves sub-goal',
     'objectDetail.workcaseScope': 'Authorization scope',
     'objectDetail.workcasePlan': 'Plan & criteria',

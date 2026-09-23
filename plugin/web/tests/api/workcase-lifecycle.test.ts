@@ -8,6 +8,9 @@ import {
   bodyHasResultSection,
   deriveWorkCaseV5View,
   deriveWorkCaseExecPhase,
+  WORKCASE_FLOW_MARKS,
+  markWorkCaseFlow,
+  ownChangeLogEntries,
 } from '../../shared/workcaseLifecycle.ts'
 
 const FP = 'a'.repeat(64)
@@ -237,4 +240,68 @@ test('口径③（判别力·前缀位置）：豁免只认【以】「格式治
                 summary: '计划步骤 4 补记：格式治理：摘要分块已完成' }
   const cl = [entry('录入独立复核概要'), mid]
   assert.equal(deriveWorkCaseExecPhase('executing', [review], cl, UID), 'revising')
+})
+
+// ============================================================================
+// 变更流水的行动标记（10 §5.5 的呈现代替品，Human 2026-09-23）
+// ============================================================================
+
+test('流水标记闭集二值', () => {
+  assert.deepEqual([...WORKCASE_FLOW_MARKS], ['review', 'revise'])
+})
+
+test('标记与输入逐项对应（长度一致，无标记为 null）', () => {
+  const cl = [entry('受控创建'), entry('计划步骤 1 完成')]
+  const marks = markWorkCaseFlow(undefined, cl, UID)
+  assert.equal(marks.length, cl.length)
+  assert.deepEqual(marks, [null, null])
+})
+
+test('复核标记：机械标记优先（[review recorded by session]）', () => {
+  const cl = [entry('端到端演练 [review recorded by session abc; reviews entries: 1]')]
+  assert.deepEqual(markWorkCaseFlow([review], cl, UID), ['review'])
+})
+
+test('复核标记：措辞兜底（同含「复核」+「发起」）', () => {
+  for (const s of ['复核已发起', '独立复核已发起：隔离子代理']) {
+    assert.deepEqual(markWorkCaseFlow(undefined, [entry(s)], UID), ['review'], s)
+  }
+})
+
+test('修订标记：最后一条复核条目之后的本对象条目', () => {
+  const cl = [entry('受控创建'), entry('录入独立复核概要'), entry('执行期记录（第二轮）')]
+  assert.deepEqual(markWorkCaseFlow([review], cl, UID), [null, 'review', 'revise'])
+})
+
+test('修订标记：无 reviews 时不得出现（未复核谈不上复核后修订）', () => {
+  const cl = [entry('受控创建'), entry('录入独立复核概要')]
+  assert.deepEqual(markWorkCaseFlow(undefined, cl, UID), [null, null])
+})
+
+test('口径②：他对象条目不标记（也不占用数组序）', () => {
+  const cl = [entry('录入独立复核概要'), entry('迁移：补齐字段（WorkCase 1c6afa19）')]
+  // 他对象条目既不是 review 也不是 revise
+  assert.deepEqual(markWorkCaseFlow([review], cl, UID), ['review', null])
+})
+
+test('口径③：格式治理条目不标记', () => {
+  const cl = [entry('录入独立复核概要'), entry('格式治理：摘要分块（忠实重排）')]
+  assert.deepEqual(markWorkCaseFlow([review], cl, UID), ['review', null])
+})
+
+test('ownChangeLogEntries：逐项返回原始下标（供流水渲染对齐）', () => {
+  const cl = [entry('受控创建'), entry('迁移：他对象（WorkCase 1c6afa19）'), entry('计划步骤 1 完成')]
+  const own = ownChangeLogEntries(cl, UID)
+  assert.deepEqual(own.map((o) => o.index), [0, 2])
+})
+
+test('markWorkCaseFlow 判别力：复核在中间 + 其后两条 → 一条 review、两条 revise', () => {
+  // 修订标记需 reviews 非空（未复核谈不上复核后修订），故此处传入 review。
+  const cl = [entry('a'), entry('录入独立复核概要'), entry('b'), entry('c')]
+  assert.deepEqual(markWorkCaseFlow([review], cl, UID), [null, 'review', 'revise', 'revise'])
+})
+
+test('判别力：复核条目在【末尾】时其后无 revise', () => {
+  const cl = [entry('a'), entry('b'), entry('录入独立复核概要')]
+  assert.deepEqual(markWorkCaseFlow([review], cl, UID), [null, null, 'review'])
 })
