@@ -40,7 +40,7 @@ attempt:
   attempt_id: 1
   started_at: 2026-09-17T07:58:10.850Z
   controller: deepseek-v4.1-flash@dsh-ldvh-session
-  heartbeat_at: 2026-09-22T14:50:15.593Z
+  heartbeat_at: 2026-09-23T19:05:35.678Z
 reviews:
   - at: 2026-09-22T14:50:15.593Z
     provider: workbuddy
@@ -76,6 +76,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: "格式治理：摘要分块（忠实重排）——把作者自撰的行内「：」提为 ### 块首并插入空行，使摘要可读且符合 21 §8 书写结构（H3 骨架）；作者原文逐字未改，仅新增标记与空行 [attempt 1 heartbeat refreshed]"
+  - at: 2026-09-23T19:05:35.678Z
+    provider: deepseek-official
+    model: deepseek-flash
+    summary: 结果节新增 `- advice:` 建议段，并按 21 §8 把原先写在 residual 条目内的「建议…」子句移入该段（建议只有一处正文承载） [attempt 1 heartbeat refreshed]
 ---
 
 # WorkCase 呈现保真与设计语言收敛
@@ -139,9 +143,13 @@ change_log:
 - achieved_scope: WorkCase 呈现链的服务端投影保真已修复（投影按 21 §8 真实类型判定，不再静默丢弃 satisfied/residual/gate_1 时间戳与 C2 钉扎基准、attempt 两时间戳；8 个真实对象字段冻结数 0）；前后端字段契约统一为一份；判据三态呈现统一为可读文本（详情/列表卡/收件箱共用单一映射）；派生分组五档补齐本地化与语义色；详情阅读结构与六类样板对齐（去重复身份块、正文用详情层级、字段在场性与分组无关）；v4 残留清除；`plugin/web/docs/10 §4.2` 更新为 v5 语义；新增 12 项测试守卫（运行时保真 6 项 + 设计语言 6 项）并经变异验证具备判别力。
 - residual:
   - **浏览器端真实渲染未核验**：本次证据止于编译、构建产物与契约测试，未做各派生分组详情页的运行期目视核对（视觉层与 Human 阅读可用性未覆盖）。
-  - **同型缺陷未普查其余六类**：本次只修 WorkCase 呈现链。六类阅读布局（ADR/Pitfall/Spark/Research/Friction/Norm）是否存在同类「按错误类型判定致字段静默丢弃」未在本单普查（本单授权范围明确排除改动它们）。建议另立工单以同一手法普查。
-  - **`docs/archive/v4-web-migration-survey.md` 仍列举已删除的 `workcaseDetailProjection.ts`**：经复核确认为非悬挂引用（该目录自述不具规范效力，且文档系对 v4 源树的冻结盘点，非当前仓库索引）。建议在后续 docs 清理批次顺手更正。
+  - **同型缺陷未普查其余六类**：本次只修 WorkCase 呈现链。六类阅读布局（ADR/Pitfall/Spark/Research/Friction/Norm）是否存在同类「按错误类型判定致字段静默丢弃」未在本单普查（本单授权范围明确排除改动它们）。
+  - **`docs/archive/v4-web-migration-survey.md` 仍列举已删除的 `workcaseDetailProjection.ts`**：经复核确认为非悬挂引用（该目录自述不具规范效力，且文档系对 v4 源树的冻结盘点，非当前仓库索引）。
   - **`statusColors.ts` 的 `executing` 键安全性依赖事实而非类型系统**：复核指出该键改色安全的依据是「当前仓库无对象以字面 `executing` 为 status 值」，而非类型保证；若将来有类型引入该字面状态，颜色语义会被静默共用。已如实登记，本次不扩围处置。
   - **dist 仅本机机械验证**：`dist/` 为 `.gitignore` 产物不入库，仅确认 `index.html` 引用新 hash 且文件存在，未覆盖部署链路。
   - **`model.ts` 的 `FIELD_ORDER_BY_TYPE.workcase` 实为死代码**：复核独立追证确认 WorkCase 详情走专属布局且 `FactReadingContent` 在通用兜底分支前 return，故该顺序永不被消费。本次改动的价值在于清除 v4 词汇（防误导后续维护者），其注释已如实标注这一点。
+
+- advice:
+  - **另立工单**：以同一手法普查其余六类阅读布局是否存在同类「按错误类型判定致字段静默丢弃」缺陷。出自「同型缺陷未普查其余六类」
+  - **更正**：在后续 docs 清理批次顺手更正该归档文档对已删除文件的列举。出自「docs/archive/v4-web-migration-survey.md 仍列举已删除的 workcaseDetailProjection.ts」
 

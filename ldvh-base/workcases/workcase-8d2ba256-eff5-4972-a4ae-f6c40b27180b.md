@@ -32,7 +32,7 @@ attempt:
   attempt_id: 2
   started_at: 2026-09-17T08:00:20.335Z
   controller: deepseek-v4.1-flash@dsh-ldvh-session
-  heartbeat_at: 2026-09-22T14:50:15.622Z
+  heartbeat_at: 2026-09-23T19:05:35.697Z
 reviews:
   - at: 2026-09-22T14:50:15.622Z
     provider: workbuddy
@@ -64,6 +64,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: "格式治理：摘要分块（忠实重排）——把作者自撰的行内「：」提为 ### 块首并插入空行，使摘要可读且符合 21 §8 书写结构（H3 骨架）；作者原文逐字未改，仅新增标记与空行 [attempt 2 heartbeat refreshed]"
+  - at: 2026-09-23T19:05:35.697Z
+    provider: deepseek-official
+    model: deepseek-flash
+    summary: 结果节新增 `- advice:` 建议段，并按 21 §8 把原先写在 residual 条目内的「建议…」子句移入该段（建议只有一处正文承载） [attempt 2 heartbeat refreshed]
 ---
 
 # C2 授权校验与 rebatch×reviews 处置
@@ -109,11 +113,17 @@ change_log:
   - 步骤 4 判据「writer 测试全绿、web 测试全绿、tsc 0 错误、eslint 无新增；受控提交且 Git Gate passed」：**部分达成**。writer 测试 37/37 全绿、eslint 0、受控提交与 Git Gate 均通过；**web 测试与 tsc 未能在本单验证**——因并发的另一会话正在修改 11 个 `plugin/web` 文件（未提交，处于中间态），其错误与本单改动无关（本单未触碰 `plugin/web`，且 web 测试不引用 writer）。
 - achieved_scope: 缺口 B（`rebatch` 与 `reviews` 的规范-实现冲突）与缺口 C（`rebatch` 的 `change_log` 可被注入）**已修复并有修改前后对照证据**，两者的行为测试均经负向控制验证具备判别力。缺口 A（C2 授权校验）**经核实真实存在，但本轮所实现的判据不成立、已回退，未达成**。
 - residual:
-  - **缺口 A 未修复，且已确认其在现有实现下不可机械判定**：21 §10.3 的第三种失效情形（`serves` 指向的 sub-goal 被修订）**不改变 `plan`+`scope` 指纹**，故无法以指纹比对区分「滥用重批」与「合法重批」；该区分依赖 25 §11 的 `goal-changed 待核对` 标记，而**该标记在实现中不存在**。建议另立一单，其前置为「先实现 25 §11 的级联信号」。
-  - **`cancel`（draft→closed）不校验 `reviews`**，与 21:169「`closed` ⇒ `reviews` 必填」冲突；故「先 `rebatch` 回 `draft` 再 `cancel`」仍可绕开 §14 的关闭前置。**该冲突先于本单存在**，建议与缺口 A 合并另立一单——「阻断绕过」的真正落点在**关闭侧**而非重批侧。
+  - **缺口 A 未修复，且已确认其在现有实现下不可机械判定**：21 §10.3 的第三种失效情形（`serves` 指向的 sub-goal 被修订）**不改变 `plan`+`scope` 指纹**，故无法以指纹比对区分「滥用重批」与「合法重批」；该区分依赖 25 §11 的 `goal-changed 待核对` 标记，而**该标记在实现中不存在**。
+  - **`cancel`（draft→closed）不校验 `reviews`**，与 21:169「`closed` ⇒ `reviews` 必填」冲突；故「先 `rebatch` 回 `draft` 再 `cancel`」仍可绕开 §14 的关闭前置。**该冲突先于本单存在**。
   - **本对象自身的 `change_log` 曾被截断（起草者过失，如实登记）**：为合法扩围，起草者在**缺口 C 尚未修复时**运行了 `rebatch`；当时的 `rebatch` 取调用方 payload 的 `change_log`，起草者未传，故「受控创建」与「首次 Gate 1 批准」两条历史条目被整体替换（提交 `4753420` 版本含创建条目，其后版本不含）。按 03 §6.1「不追溯改写」，这两条**不予补回**；此处如实登记该事实与成因，不掩盖。这同时构成缺口 C 的**真实活体演示**——修复前该缺陷可被**无意**触发，不限于恶意注入。
   - 步骤 4 的 web 测试与 tsc 因并发会话的未提交改动无法在本单验证（本单未触碰 `plugin/web`）。
-  - `gate_1` 缺失时 C2 校验 fail-open（带内不可达——`approve` 必盖章、`execute` 锁定 `gate_1`），独立复核建议改为 fail-closed；属另立单范围。
+  - `gate_1` 缺失时 C2 校验 fail-open（带内不可达——`approve` 必盖章、`execute` 锁定 `gate_1`）。
   - 独立复核另指出 `specs/21-WorkCase-工单.md` §14 的局部重批条目未同步 `reviews` 处置（§9.2 与 §15.1 已修订），§14 条目待随另立单一并收口。
-  - 独立复核补充项（2026-09-18）：本结果节的 `criteria_checks` 现为**正文散文形态**，而 21 §8 的 `result` 字段要求 `criteria_checks` 每项为 `{satisfied: boolean, evidence: 非空字符串}` 且长度与 `plan` 一致——Gate 2 提请时须据此转写为对象形态（本项为提请前的转写要求，非对象缺陷）。另：本对象在复核时仍无 `reviews`，该记录由本次写入补足。建议后续清理时把「缺口 A 与 cancel 侧」的另立单对象号（`4005b67b`）与「§14 同步」的另立单对象号（`81c37ef0`）一并登记，便于追溯。
+  - 独立复核补充项（2026-09-18）：本结果节的 `criteria_checks` 现为**正文散文形态**，而 21 §8 的 `result` 字段要求 `criteria_checks` 每项为 `{satisfied: boolean, evidence: 非空字符串}` 且长度与 `plan` 一致——Gate 2 提请时须据此转写为对象形态（本项为提请前的转写要求，非对象缺陷）。另：本对象在复核时仍无 `reviews`，该记录由本次写入补足。
+
+- advice:
+  - **另立工单**：另立一单，其前置为「先实现 25 §11 的级联信号」。出自「缺口 A 未修复，且已确认其在现有实现下不可机械判定」
+  - **另立工单**：与缺口 A 合并另立一单——「阻断绕过」的真正落点在关闭侧而非重批侧。出自「cancel（draft→closed）不校验 reviews」
+  - **改进**：把 gate_1 缺失时的 C2 校验由 fail-open 改为 fail-closed。出自「gate_1 缺失时 C2 校验 fail-open」
+  - **补录**：后续清理时把「缺口 A 与 cancel 侧」的另立单对象号（4005b67b）与「§14 同步」的另立单对象号（81c37ef0）一并登记，便于追溯。出自「独立复核补充项（2026-09-18）」
 
