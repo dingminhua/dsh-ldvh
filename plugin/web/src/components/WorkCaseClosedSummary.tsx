@@ -35,6 +35,10 @@ const COLLAPSED_RESIDUAL = 2;
 
 const NEUTRAL_TAG_CLASS = 'border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary';
 
+/** 取消记录的行标记：与状态标记同族（行内、宽度自适应），取中性色。 */
+const CANCEL_TAG_CLASS =
+  'mr-1.5 inline-block shrink-0 rounded border border-ldvh-border bg-ldvh-bg px-1.5 text-[10px] font-semibold leading-4 text-ldvh-text-secondary';
+
 const OUTCOME_CLASS: Record<string, string> = {
   completed: 'border-emerald-600/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
   partial: 'border-amber-600/50 bg-amber-500/15 text-amber-700 dark:text-amber-300',
@@ -56,8 +60,9 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
     ? obj.result.criteria_checks
     : [];
   const residual = Array.isArray(obj.result?.residual) ? obj.result.residual : [];
+  const cancellation = obj.cancellation ?? null;
 
-  if (checks.length === 0 && residual.length === 0) return null;
+  if (cancellation === null && checks.length === 0 && residual.length === 0) return null;
 
   const achieved = checks.filter((c) => c.satisfied === true).length;
   const hidden = Math.max(0, residual.length - COLLAPSED_RESIDUAL);
@@ -77,19 +82,28 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
             {t(`objectList.workcaseOutcome.${obj.outcome}` as LocaleKey)}
           </span>
         )}
-        {checks.length > 0 && (
+        {/* cancelled 无核对可报（没有执行就没有核对结论，21 §9.2）——改述为
+            「未执行任何计划步骤」，而不是显示「核对 0/0 达成」这种无信息的形式。 */}
+        {cancellation !== null ? (
           <>
             {obj.outcome && <span className="text-ldvh-text-secondary/50" aria-hidden="true">·</span>}
-            <span
-              data-workcase-check-tally={`${achieved}/${checks.length}`}
-              className="text-ldvh-text-primary"
-            >
-              {t('objectList.workcaseCheckTally', {
-                achieved: String(achieved),
-                total: String(checks.length),
-              })}
-            </span>
+            <span className="text-ldvh-text-primary">{t('objectList.workcaseNotExecuted')}</span>
           </>
+        ) : (
+          checks.length > 0 && (
+            <>
+              {obj.outcome && <span className="text-ldvh-text-secondary/50" aria-hidden="true">·</span>}
+              <span
+                data-workcase-check-tally={`${achieved}/${checks.length}`}
+                className="text-ldvh-text-primary"
+              >
+                {t('objectList.workcaseCheckTally', {
+                  achieved: String(achieved),
+                  total: String(checks.length),
+                })}
+              </span>
+            </>
+          )
         )}
         <span className="text-ldvh-text-secondary/50" aria-hidden="true">·</span>
         {residual.length > 0 ? (
@@ -101,8 +115,28 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
         )}
       </div>
 
+      {/* ②' 取消记录（21 §8，仅 cancelled）：理由 + 未发生的范围。
+          取代逐条核对块——取消对象没有核对结论可报。用中性灰，与 outcome 徽标同色系，
+          不与「核对」的绿/琥珀/红抢语义。 */}
+      {cancellation !== null && (
+        <div className="min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/60 px-2.5 py-2">
+          {cancellation.reason && (
+            <div className="py-1 first:pt-0.5 ldvh-caption text-ldvh-text-primary">
+              <span className={CANCEL_TAG_CLASS}>{t('objectList.workcaseCancelReason')}</span>
+              <span>{cancellation.reason}</span>
+            </div>
+          )}
+          {cancellation.unstartedScope && (
+            <div className="border-t border-ldvh-border/60 py-1 ldvh-caption text-ldvh-text-primary">
+              <span className={CANCEL_TAG_CLASS}>{t('objectList.workcaseCancelUnstarted')}</span>
+              <span>{cancellation.unstartedScope}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ② 逐条核对：只给标题（证据归详情） */}
-      {checks.length > 0 && (
+      {cancellation === null && checks.length > 0 && (
         <div className="min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/45 px-2.5 py-2">
           {workCaseResultCheckRows(checks, steps).map((row) => (
             <div

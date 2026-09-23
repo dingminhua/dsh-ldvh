@@ -505,3 +505,35 @@ test('已关闭：结论行与残留块的数据源必须投影到位（10 §5.5
   // 否则本守卫没有覆盖「无残留」这一支（21 §9.3）。
   assert.ok(sawEmptyResidual, '必须至少覆盖一份 residual 为空数组的 closed 对象（「无残留」支）');
 });
+
+// 「已关闭」的取消记录（10 §5.5 / 21 §8）：`outcome = cancelled` 时，取消理由与
+// 「未发生的范围」写在正文「## 结果」节的 `- cancellation:` 段，投影层必须解析并送达
+// 卡片。缺这一步时卡面只能整段不显示——正是本改动要消除的（此前这两件事被塞进
+// `achieved_scope`，呈现层取不到）。
+test('已关闭：cancelled 对象的取消记录必须投影到位（21 §8）', async () => {
+  const ids = existingWorkCaseIds();
+  const checked: string[] = [];
+  for (const objectId of ids) {
+    const detail = await readLocalFact('workcase', objectId, workcaseScope());
+    if (detail.status !== 'ok') continue;
+    const source = detail.item.fact_object as Record<string, unknown>;
+    if (source.status !== 'closed' || source.outcome !== 'cancelled') continue;
+    const projected = projectCurrentWorkCaseCard(source, detail.item.source_content_fingerprint);
+    const cancellation = projected.cancellation as Record<string, unknown> | undefined;
+    assert.ok(
+      cancellation,
+      `${objectId}: cancelled 对象未投影取消记录——卡面将无「取消理由」可显示（21 §8）`,
+    );
+    // 两行均非空（§15.1 取消记录完备性）：这是投影后的可呈现前提。
+    assert.ok(
+      typeof cancellation.reason === 'string' && cancellation.reason.trim().length > 0,
+      `${objectId}: 取消记录的「理由」为空`,
+    );
+    assert.ok(
+      typeof cancellation.unstartedScope === 'string' && cancellation.unstartedScope.trim().length > 0,
+      `${objectId}: 取消记录的「未发生的范围」为空`,
+    );
+    checked.push(objectId);
+  }
+  assert.ok(checked.length > 0, '必须至少核对一个 cancelled 对象，否则本守卫是空转');
+});

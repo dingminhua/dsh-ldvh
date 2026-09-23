@@ -9,7 +9,7 @@ import {
 import { canonicalUid } from '../../shared/factIdentity.js'
 import { resolveCurrentWebProject, WebGovernanceError } from './governanceScope.js'
 import { deriveWorkCaseV5View, type WorkCaseV5View } from '../../shared/workcaseLifecycle.js'
-import { parseWorkCaseResultDraft } from '../../shared/workcaseResultDraft.js'
+import { parseWorkCaseResultDraft, parseWorkCaseCancellation } from '../../shared/workcaseResultDraft.js'
 import { hasUnavailableIndependentSubagentReview } from '../../shared/workcaseCapability.js'
 import { toRfc3339Text } from '../../shared/timestamp.js'
 import { FACT_LIST_FIELD_NAMES } from './factFieldContract.js'
@@ -496,6 +496,11 @@ function projectCurrentWorkCaseCardShape(
   } else if (view.status === 'closed') {
     // closed：outcome 四值 + result 逐条核对 + plan（gate_1 已在上方统一投影）。
     //
+    // 取消记录（`21 §8`，仅 outcome=cancelled）：取消理由与「未发生的范围」写在正文
+    // 「## 结果」节的 `- cancellation:` 段，须解析后投影为卡片可呈现的 `cancellation`。
+    // 此前这两件事被塞进 `achieved_scope`（语义为「已证实范围」），呈现层取不到，
+    // 卡面因此整段不显示。
+    //
     // `plan` 此前不在本分支投影。后果是**列表卡拿不到步骤标题**：`21 §8` 的
     // `result.criteria_checks[]` 只有 `{satisfied, evidence}`，不含判据文本，故
     // 「哪一条判据达成了」只能由 `plan[i].step` 给出。详情面不受影响——`showObject`
@@ -506,6 +511,10 @@ function projectCurrentWorkCaseCardShape(
     if (typeof fact.outcome === 'string') projected.outcome = fact.outcome
     const result = projectWorkCaseResult(fact.result)
     if (result && Object.keys(result).length > 0) projected.result = result
+    if (fact.outcome === 'cancelled') {
+      const cancellation = parseWorkCaseCancellation(fact.report_body)
+      if (cancellation !== null) projected.cancellation = cancellation
+    }
   }
   return projected
 }

@@ -1197,6 +1197,10 @@ export const UI_LOCALES = {
     'objectList.workcaseAdviceFrom': '出自「{source}」',
     // 「已关闭」卡的结论行与残留块（Human 2026-09-24 方案 A）
     'objectList.workcaseCheckTally': '核对 {achieved}/{total} 达成',
+    // 「已关闭」卡的取消记录（21 §8，仅 outcome=cancelled）
+    'objectList.workcaseNotExecuted': '未执行任何计划步骤',
+    'objectList.workcaseCancelReason': '理由',
+    'objectList.workcaseCancelUnstarted': '未发生的范围',
     'objectList.workcaseResidualTally': '残留 {count} 条',
     'objectList.workcaseResidualNone': '无残留',
     'objectDetail.workcaseServes': '服务子目标',
@@ -1892,6 +1896,10 @@ export const UI_LOCALES = {
     'objectList.workcaseAdviceFrom': 'from \u201c{source}\u201d',
     // Closed-card conclusion line and residual block (Human 2026-09-24, option A)
     'objectList.workcaseCheckTally': '{achieved}/{total} achieved',
+    // Closed-card cancellation record (21 §8, outcome=cancelled only)
+    'objectList.workcaseNotExecuted': 'No plan step executed',
+    'objectList.workcaseCancelReason': 'Reason',
+    'objectList.workcaseCancelUnstarted': 'Scope never started',
     'objectList.workcaseResidualTally': '{count} residual',
     'objectList.workcaseResidualNone': 'No residual',
     'objectDetail.workcaseServes': 'Serves sub-goal',

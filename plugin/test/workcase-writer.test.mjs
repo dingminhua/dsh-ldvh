@@ -979,9 +979,11 @@ test("cancel: draft→closed cancelled carries the cancellation reason in result
       factSourceRoot: root,
       objectUid: created.value.object_uid,
       expectedFingerprint: read0.value.fingerprint,
-      result: { achieved_scope: "取消理由：方向调整；实际未发生任何执行。", residual: [] },
+      result: { achieved_scope: "未执行，无已证实范围。", residual: [] },
       changeSummary: "取消",
-      bodyMarkdownAfter: `${draftBody(draft)}\n\n## 结果\n\n- 工单在执行前被取消。\n`,
+      // 21 §8 取消记录：`- cancellation:` 下两行均必填（§9.2/§9.3 的「取消理由与
+      // 未发生的范围」）。取消理由不再塞进 `achieved_scope`（那是「已证实范围」）。
+      bodyMarkdownAfter: `${draftBody(draft)}\n\n## 结果\n\n- cancellation:\n  - **理由**：方向调整，本工单不再需要。\n  - **未发生的范围**：三个计划步骤全部未执行，无任何工程改动。\n`,
       sessionSignature: SIG(),
     });
     assert.ok(res.ok, JSON.stringify(res.error));
@@ -1070,9 +1072,9 @@ test("list: default candidates carry draft+open only; closed appears with includ
       factSourceRoot: root,
       objectUid: closed.created.value.object_uid,
       expectedFingerprint: read0.value.fingerprint,
-      result: { achieved_scope: "取消。", residual: [] },
+      result: { achieved_scope: "未执行，无已证实范围。", residual: [] },
       changeSummary: "取消",
-      bodyMarkdownAfter: `${draftBody(closed.draft)}\n\n## 结果\n\n- 取消。\n`,
+      bodyMarkdownAfter: `${draftBody(closed.draft)}\n\n## 结果\n\n- cancellation:\n  - **理由**：列表用例。\n  - **未发生的范围**：全部计划步骤未执行。\n`,
       sessionSignature: SIG(),
     });
     assert.ok(cancel.ok, JSON.stringify(cancel.error));
@@ -1714,9 +1716,9 @@ test("independence: KNOWN GAP — rebatch→cancel still reaches closed without 
       factSourceRoot: root,
       objectUid: appr.uid,
       expectedFingerprint: after.value.fingerprint,
-      result: { achieved_scope: "取消（缺口用例）" },
+      result: { achieved_scope: "未执行，无已证实范围。" },
       changeSummary: "取消",
-      bodyMarkdownAfter: `${draftBody}\n\n## 结果\n\n取消。\n`,
+      bodyMarkdownAfter: `${draftBody}\n\n## 结果\n\n- cancellation:\n  - **理由**：缺口用例。\n  - **未发生的范围**：全部计划步骤未执行。\n`,
       sessionSignature: SIG(),
     });
     assert.ok(cx.ok, "缺口②当前允许该路径——若本断言失败，说明缺口已被修复，请同步 21 §14/§15.1");
@@ -2073,5 +2075,106 @@ test("写作纪律: 端到端 —— 不合规写法在 create 被拒 (21 §8)",
   });
   assert.equal(res.ok, false, "行内 scope + 单块长 summary 不得通过创建");
   assert.equal(res.error.code, "workcase/frontmatter_invalid");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 取消记录完备性（21 §8 / §15.1，Human 2026-09-24）
+// ---------------------------------------------------------------------------
+// 规范原文（§9.2「`result` 记录取消理由与未发生的范围」/ §9.3 cancelled「记录取消理由
+// 与实际未发生的范围」）早已要求这两件事，但此前**没有任何机械锚点**：`validateResult`
+// 只要求 `achieved_scope` 非空，故「本工单取消」四字同样通过写入。本组用例锁定新接上
+// 的机械判据——判据取 **outcome 值**而非 action（`close` 的 outcome 也可为 cancelled）。
+
+const CANCEL_OK_BODY = (base) =>
+  `${base}\n\n## 结果\n\n- cancellation:\n  - **理由**：方向调整。\n  - **未发生的范围**：三步全未执行。\n`;
+
+test("cancel: outcome=cancelled 缺取消记录段时拒绝写入（21 §8）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { created, draft } = await createDraft(root);
+    const read0 = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    const res = await cancelWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: created.value.object_uid,
+      expectedFingerprint: read0.value.fingerprint,
+      result: { achieved_scope: "未执行，无已证实范围。" },
+      changeSummary: "取消",
+      // 只有一句叙述，没有 `- cancellation:` 段——旧实现会放行
+      bodyMarkdownAfter: `${draftBody(draft)}\n\n## 结果\n\n- 工单被取消。\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(!res.ok, "缺取消记录段必须被拒");
+    assert.equal(res.error.code, "workcase/body_invalid");
+    assert.ok(
+      JSON.stringify(res.error.details.issues).includes("cancellation record"),
+      JSON.stringify(res.error.details.issues),
+    );
+  });
+});
+
+test("cancel: 取消记录缺任一行时拒绝写入（21 §8 两行均必填）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    for (const [label, body] of [
+      ["缺理由", `${draftBody((await createDraft(root)).draft)}\n\n## 结果\n\n- cancellation:\n  - **未发生的范围**：三步全未执行。\n`],
+      ["缺未发生的范围", `${draftBody((await createDraft(root)).draft)}\n\n## 结果\n\n- cancellation:\n  - **理由**：方向调整。\n`],
+      ["理由为空", `${draftBody((await createDraft(root)).draft)}\n\n## 结果\n\n- cancellation:\n  - **理由**：   \n  - **未发生的范围**：三步全未执行。\n`],
+    ]) {
+      const { created } = await createDraft(root);
+      const read0 = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+      const res = await cancelWorkcaseObject({
+        factSourceRoot: root,
+        objectUid: created.value.object_uid,
+        expectedFingerprint: read0.value.fingerprint,
+        result: { achieved_scope: "未执行，无已证实范围。" },
+        changeSummary: "取消",
+        bodyMarkdownAfter: body,
+        sessionSignature: SIG(),
+      });
+      assert.ok(!res.ok, `${label} 必须被拒`);
+      assert.equal(res.error.code, "workcase/body_invalid", label);
+    }
+  });
+});
+
+test("cancel: 两行齐备时放行，且取消记录逐字落盘（21 §8）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { created, draft } = await createDraft(root);
+    const read0 = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    const res = await cancelWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: created.value.object_uid,
+      expectedFingerprint: read0.value.fingerprint,
+      result: { achieved_scope: "未执行，无已证实范围。" },
+      changeSummary: "取消",
+      bodyMarkdownAfter: CANCEL_OK_BODY(draftBody(draft)),
+      sessionSignature: SIG(),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.equal(read.value.mechanical_issues.length, 0, JSON.stringify(read.value.mechanical_issues));
+    assert.match(read.value.body, /- cancellation:/);
+    assert.match(read.value.body, /\*\*理由\*\*：方向调整。/);
+    assert.match(read.value.body, /\*\*未发生的范围\*\*：三步全未执行。/);
+  });
+});
+
+test("cancel: 非取消对象不要求取消记录（判据取 outcome，不误伤其它路径）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid, after } = await approved(root);
+    // open 对象写结果节（Gate 2 提案形态），无取消记录——不得被拒
+    const res = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: after.value.frontmatter,
+      bodyMarkdownAfter: `${bodyWithoutH1(after.value.body)}\n\n## 结果\n\n- criteria_checks:\n  - 步骤 1 判据「x」：达成——证据：y。\n`,
+      changeSummary: "写关闭提案",
+      sessionSignature: SIG(),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
   });
 });

@@ -7,6 +7,7 @@ import type {
   WorkCaseV5Filter,
 } from '@/shared/workcaseLifecycle';
 import type {
+  WorkCaseCancellationRecord,
   WorkCaseDraftAdvice,
   WorkCaseDraftCheck,
 } from '@/shared/workcaseResultDraft';
@@ -82,6 +83,8 @@ export interface ObjectItem {
   reviews?: WorkCaseReviewEntry[];
   // 「待批准关闭」：`21 §8` 的 `result` 字段出现 ⇔ `status = closed`，故该期的核对结论与
   // 建议只在正文「## 结果」节里；投影层解析后以此二字段搬运（见 shared/workcaseResultDraft）。
+  /** 21 §8 取消记录（仅 outcome=cancelled）：正文 `- cancellation:` 段的解析结果。 */
+  cancellation?: WorkCaseCancellationRecord;
   result_checks?: WorkCaseDraftCheck[];
   advice?: WorkCaseDraftAdvice[];
   /** 21 §8：给 Human 扫读的一句话要点。卡面渲染它而非 summary（10 §5.5）；

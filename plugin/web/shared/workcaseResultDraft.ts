@@ -221,3 +221,81 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
 
   return result
 }
+
+// ---------------------------------------------------------------------------
+// 取消记录（`21 §8`，仅 `outcome = cancelled`）
+// ---------------------------------------------------------------------------
+
+/**
+ * 取消记录的两行（`21 §8`）：`- cancellation:` 之下 `**理由**：…` 与
+ * `**未发生的范围**：…`。
+ *
+ * 两行**均必填且非空**——`21 §9.2`/`§9.3` 已明文要求「记录取消理由与未发生的范围」，
+ * 本节只是给该要求一个可机械识别的形态（`§15.1` 取消记录完备性）。
+ *
+ * 为什么单列承载而不再借用 `achieved_scope`（实测理由）：本仓唯一一份 cancelled
+ * 对象（`workcase-af430278`）把两件事合并写进了 `achieved_scope`——一个语义为
+ * 「已证实范围」（做成了什么）的字段里装着「未发生的范围」，而取消恰恰意味着什么都
+ * 没做。它靠作者自觉使用行内标签才可读；机械层对该字段只校验非空，故「本工单取消」
+ * 四字同样通过。呈现层因此取不到取消理由，卡面只能整段不显示。
+ */
+export const WORKCASE_CANCELLATION_LABELS = ['理由', '未发生的范围'] as const
+export type WorkCaseCancellationLabel = (typeof WORKCASE_CANCELLATION_LABELS)[number]
+
+export interface WorkCaseCancellationRecord {
+  reason: string
+  unstartedScope: string
+}
+
+/** 取消记录段的分块标记：`- cancellation:`（`21 §8`）。 */
+const CANCELLATION_BLOCK = /^(cancellation|取消记录)\s*[:：]?$/
+/** 取消记录的行形态：`**<标签>**：<内容>`（`21 §8`）。 */
+const CANCELLATION_LINE = /^\*\*(.+?)\*\*\s*[:：]\s*([\s\S]*)$/
+
+/**
+ * 解析正文「## 结果」节的取消记录。
+ *
+ * 任一行缺失或为空时，对应字段记空串（**不猜、不填占位**）——调用方据此判定
+ * 「记录不完整」，而不是把一个残缺记录当成完整记录呈现。
+ * 非取消对象（无 `- cancellation:` 段）返回 `null`。
+ */
+export function parseWorkCaseCancellation(body: unknown): WorkCaseCancellationRecord | null {
+  const section = resultSectionOf(body)
+  if (!section) return null
+
+  let seen = false
+  const found: Partial<Record<WorkCaseCancellationLabel, string>> = {}
+  let mode = false
+  let modeIndent = 0
+
+  for (const rawLine of section.split('\n')) {
+    const bullet = /^(\s*)-\s+(.*)$/.exec(rawLine)
+    if (!bullet) continue
+    const indent = bullet[1].length
+    const item = bullet[2].trim()
+
+    if (!mode) {
+      if (CANCELLATION_BLOCK.test(item)) {
+        mode = true
+        modeIndent = indent
+        seen = true
+      }
+      continue
+    }
+    // 段内：同级或更浅的其它 bullet 结束本段（如后续的 `- residual:`）
+    if (indent <= modeIndent && !CANCELLATION_LINE.test(item)) {
+      mode = false
+      continue
+    }
+    const line = CANCELLATION_LINE.exec(item)
+    if (!line) continue
+    const label = line[1].trim()
+    if ((WORKCASE_CANCELLATION_LABELS as readonly string[]).includes(label)) {
+      const key = label as WorkCaseCancellationLabel
+      if (found[key] === undefined) found[key] = line[2].trim()
+    }
+  }
+
+  if (!seen) return null
+  return { reason: found['理由'] ?? '', unstartedScope: found['未发生的范围'] ?? '' }
+}

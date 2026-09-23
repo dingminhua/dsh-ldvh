@@ -9,6 +9,7 @@ import {
   WORKCASE_CHECK_STATUSES,
   WORKCASE_ADVICE_KINDS,
   parseWorkCaseResultDraft,
+  parseWorkCaseCancellation,
   resultSectionOf,
 } from '../../shared/workcaseResultDraft.ts';
 
@@ -154,4 +155,50 @@ test('advice 段判别力：去向词必须在行首加粗，否则记未归类'
     { kind: null, text: '建议另立工单补该路由的投影。', from: null },
     { kind: '改进', text: '建议改为 fail-closed。', from: null },
   ]);
+});
+
+// 取消记录（21 §8，仅 outcome=cancelled）：`- cancellation:` 下两行均必填。
+// 该承载的引入理由：本仓唯一一份 cancelled 对象曾把「取消理由」与「未发生的范围」
+// 合并写进 `achieved_scope`（语义为「已证实范围」，即做成了什么）——而取消恰恰意味着
+// 什么都没做；机械层对该字段只校验非空，故「本工单取消」四字同样通过，呈现层取不到。
+test('取消记录：两行齐备时解析出理由与未发生的范围', () => {
+  const body = bodyOf([
+    '- cancellation:',
+    '  - **理由**：方向调整，本工单不再需要。',
+    '  - **未发生的范围**：三步全未执行，无任何工程改动。',
+  ]);
+  assert.deepEqual(parseWorkCaseCancellation(body), {
+    reason: '方向调整，本工单不再需要。',
+    unstartedScope: '三步全未执行，无任何工程改动。',
+  });
+});
+
+test('取消记录：缺任一行时对应字段记空串（不猜、不填占位）', () => {
+  const onlyReason = bodyOf(['- cancellation:', '  - **理由**：方向调整。']);
+  assert.deepEqual(parseWorkCaseCancellation(onlyReason), { reason: '方向调整。', unstartedScope: '' });
+  const onlyScope = bodyOf(['- cancellation:', '  - **未发生的范围**：三步全未执行。']);
+  assert.deepEqual(parseWorkCaseCancellation(onlyScope), { reason: '', unstartedScope: '三步全未执行。' });
+  // 空值行与缺失行同等对待（都记空串），不把空白当内容。
+  const blank = bodyOf(['- cancellation:', '  - **理由**：   ', '  - **未发生的范围**：三步全未执行。']);
+  assert.equal(parseWorkCaseCancellation(blank)?.reason, '');
+});
+
+test('取消记录：无该段时返回 null（非取消对象不产出）', () => {
+  assert.equal(parseWorkCaseCancellation(bodyOf(['- criteria_checks:', '  - 步骤 1：达成。'])), null);
+  assert.equal(parseWorkCaseCancellation('## 执行\n无结果节'), null);
+  assert.equal(parseWorkCaseCancellation(undefined), null);
+});
+
+test('取消记录：段后接其它 bullet 时正确收束（不被 residual 吞并）', () => {
+  const body = bodyOf([
+    '- cancellation:',
+    '  - **理由**：方向调整。',
+    '  - **未发生的范围**：三步全未执行。',
+    '- residual:',
+    '  - 弹窗行为仍未验证。',
+  ]);
+  assert.deepEqual(parseWorkCaseCancellation(body), {
+    reason: '方向调整。',
+    unstartedScope: '三步全未执行。',
+  });
 });

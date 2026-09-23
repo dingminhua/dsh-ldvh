@@ -965,10 +965,12 @@ export function validateWorkcaseFrontmatter(frontmatter, baselinePlan = null, ba
  *   (i.e. execution actually happened). draft never carries 执行.
  * @param {boolean} opts.requireResult — status=closed requires 结果;
  *   open may carry it as a Gate 2 draft (21 §8 条件出现), draft may not.
+ * @param {string|null} opts.outcome — frontmatter outcome; `cancelled` additionally
+ *   requires the 结果 section to carry a cancellation record (21 §8/§15.1).
  */
 export function validateWorkcaseBodyStructure(body, title, opts) {
   const issues = [];
-  const { hasExecution, requireResult } = opts;
+  const { hasExecution, requireResult, outcome: frontmatterOutcome = null } = opts;
   // 执行/结果 are conditional (21 §8):
   //   - 执行 appears iff execution happened (status=open, or closed with gate_1);
   //   - 结果 is REQUIRED when closed, but MAY appear while open as the Gate 2
@@ -1054,7 +1056,67 @@ export function validateWorkcaseBodyStructure(body, title, opts) {
     const content = sectionContent(body, BODY_H2_RESULT);
     if (content === null || content.length === 0) issues.push(`body: section "${BODY_H2_RESULT}" is present but empty`);
   }
+  // 取消记录完备性（21 §8 / §15.1，Human 2026-09-24）：`outcome = cancelled` 时，
+  // 「## 结果」节须含均非空的「理由」与「未发生的范围」两行。
+  //
+  // 该要求的**依据是规范原文而非本实现**：§9.2 状态转换表已写「`result` 记录取消理由
+  // 与未发生的范围」，§9.3 outcome 四值表已写「记录取消理由与实际未发生的范围」——
+  // 但此前**没有任何机械锚点**（`validateResult` 只要求 `achieved_scope` 非空，故
+  // 「本工单取消」四字同样通过写入）。本条只把既有要求接到机械层，不新增义务。
+  //
+  // 注意判据取 **outcome 值**而非 action：`cancel`（draft→closed）会置 cancelled，
+  // 而 `close` 的 outcome 来自调用方，同样可为 cancelled（§9.3 四值之一）。
+  if (frontmatterOutcome === "cancelled") {
+    const content = sectionContent(body, BODY_H2_RESULT) ?? "";
+    const record = parseCancellationRecord(content);
+    if (record === null) {
+      issues.push(`body: "## 结果" must carry a cancellation record (- cancellation: with 理由 / 未发生的范围) when outcome=cancelled (21 §8/§9.2/§9.3)`);
+    } else {
+      if (record.reason.length === 0) {
+        issues.push(`body: cancellation record "**理由**：" must be non-empty when outcome=cancelled (21 §9.2 — 记录取消理由)`);
+      }
+      if (record.unstartedScope.length === 0) {
+        issues.push(`body: cancellation record "**未发生的范围**：" must be non-empty when outcome=cancelled (21 §9.2 — 记录未发生的范围)`);
+      }
+    }
+  }
   return { ok: issues.length === 0, issues };
+}
+
+/**
+ * 解析「## 结果」节里的取消记录（21 §8）。与呈现层
+ * `plugin/web/shared/workcaseResultDraft.ts` 的 `parseWorkCaseCancellation`
+ * **同形态**——两棵树互不 import（`lib` 与 `web` 独立，见 `markdown-structure.js`
+ * 的同类先例），故此处保留一份实现；形态由 §8 单点登记，两处都只实现它。
+ *
+ * 任一行缺失或为空时对应字段记空串（不猜、不填占位），调用方据此判定「不完整」。
+ * 无 `- cancellation:` 段时返回 null（非取消对象）。
+ */
+function parseCancellationRecord(resultSection) {
+  const LABELS = ["理由", "未发生的范围"];
+  const block = /^(cancellation|取消记录)\s*[:：]?$/;
+  const line = /^\*\*(.+?)\*\*\s*[:：]\s*([\s\S]*)$/;
+  const found = {};
+  let seen = false;
+  let mode = false;
+  let modeIndent = 0;
+  for (const rawLine of String(resultSection).split("\n")) {
+    const bullet = /^(\s*)-\s+(.*)$/.exec(rawLine);
+    if (!bullet) continue;
+    const indent = bullet[1].length;
+    const item = bullet[2].trim();
+    if (!mode) {
+      if (block.test(item)) { mode = true; modeIndent = indent; seen = true; }
+      continue;
+    }
+    if (indent <= modeIndent && !line.test(item)) { mode = false; continue; }
+    const m = line.exec(item);
+    if (!m) continue;
+    const label = m[1].trim();
+    if (LABELS.includes(label) && found[label] === undefined) found[label] = m[2].trim();
+  }
+  if (!seen) return null;
+  return { reason: found["理由"] ?? "", unstartedScope: found["未发生的范围"] ?? "" };
 }
 
 /**
@@ -1202,7 +1264,7 @@ async function writeValidated(factSourceRoot, frontmatter, body, baseline = null
   }
   const hasExecution = frontmatter.status === "open" || (frontmatter.status === "closed" && frontmatter.gate_1 !== undefined);
   const requireResult = frontmatter.status === "closed";
-  const bodyCheck = validateWorkcaseBodyStructure(body, frontmatter.title, { hasExecution, requireResult });
+  const bodyCheck = validateWorkcaseBodyStructure(body, frontmatter.title, { hasExecution, requireResult, outcome: frontmatter.outcome ?? null });
   if (!bodyCheck.ok) {
     return failure("workcase/body_invalid", "body failed structure checks", { issues: bodyCheck.issues });
   }
