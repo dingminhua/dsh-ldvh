@@ -537,3 +537,78 @@ test('已关闭：cancelled 对象的取消记录必须投影到位（21 §8）'
   }
   assert.ok(checked.length > 0, '必须至少核对一个 cancelled 对象，否则本守卫是空转');
 });
+
+// 去向（`21 §8` 建议段）：**只有一处承载**——正文「## 结果」节的 `- advice:` 段，
+// 而 `close` 不删正文，故关闭前后读的是**同一处**（`21 §10.2` 明写不得另存一份）。
+//
+// 为什么需要这条守卫：投影层原先只在 `open` 分支解析建议段，`closed` 分支不解析，
+// 后果是**关闭后去向在卡上消失**——而 `§10.2` 把它列为 Gate 2 的提请必含项
+// （Human 判断关闭所依据的输入之一）。
+test('已关闭：去向从同一处承载投影到位（21 §8/§10.2，不另存一份）', async () => {
+  const ids = existingWorkCaseIds();
+  const checked: string[] = [];
+  for (const objectId of ids) {
+    const detail = await readLocalFact('workcase', objectId, workcaseScope());
+    if (detail.status !== 'ok') continue;
+    const source = detail.item.fact_object as Record<string, unknown>;
+    if (source.status !== 'closed') continue;
+    // 正文里实际有几条建议段条目 → 投影后必须**一条不少**地送达
+    const body = typeof source.report_body === 'string' ? source.report_body : '';
+    const expected = [...body.matchAll(/^\s*-\s*\*\*(另立工单|接受现状|转入 Spark|直接行动)\*\*\s*[:：]/gm)];
+    const projected = projectCurrentWorkCaseCard(source, detail.item.source_content_fingerprint);
+    const advice = Array.isArray(projected.advice) ? projected.advice : [];
+    assert.equal(
+      advice.length,
+      expected.length,
+      `${objectId}: 正文有 ${expected.length} 条去向，投影后 ${advice.length} 条——关闭后去向不得丢失（21 §10.2）`,
+    );
+    for (const item of advice as Record<string, unknown>[]) {
+      assert.ok(
+        typeof item.kind === 'string' &&
+          ['另立工单', '接受现状', '转入 Spark', '直接行动'].includes(item.kind),
+        `${objectId}: 去向词必须落在闭集四词内，实际 ${JSON.stringify(item.kind)}`,
+      );
+      assert.ok(typeof item.text === 'string' && item.text.length > 0, `${objectId}: 去向正文不得为空`);
+    }
+    checked.push(objectId);
+  }
+  // 存量 4 份 closed 对象**都没有**建议段（它们关闭早于建议段登记），故本守卫当前
+  // 核到的是「0 条 → 0 条」——如实登记该覆盖边界，不假装覆盖了非空情形。
+  // 非空情形由下方的合成用例覆盖（不依赖存量数据是否有该段）。
+  assert.ok(checked.length > 0, '必须至少核对一个 closed 对象，否则本守卫是空转');
+});
+
+// 合成用例：不依赖存量数据，直接构造一份「已关闭 + 正文带建议段」的对象，
+// 断言投影把去向送达。这是上一条守卫覆盖不到的非空情形。
+test('已关闭：正文带建议段时，去向必须投影（合成用例）', () => {
+  const body = [
+    '## 摘要', 'x',
+    '## 授权范围', '做什么：x', '明确不做什么：y',
+    '## 计划', '- 步骤一',
+    '## 结果',
+    '- criteria_checks:',
+    '  - 步骤 1 判据「x」：达成——证据：y。',
+    '- advice:',
+    '  - **直接行动**：把该分支改为 fail-closed。出自「某条残留」',
+    '- residual:',
+    '  - 某条残留。',
+  ].join('\n');
+  const source: Record<string, unknown> = {
+    status: 'closed',
+    outcome: 'completed',
+    report_body: body,
+    plan: [{ step: '步骤一', done_criteria: 'x' }],
+    result: { criteria_checks: [{ satisfied: true, evidence: 'y' }], achieved_scope: 'z', residual: ['某条残留。'] },
+  };
+  const projected = projectCurrentWorkCaseCard(source, null);
+  const advice = projected.advice as Record<string, unknown>[] | undefined;
+  assert.ok(Array.isArray(advice) && advice.length === 1, `去向未投影：${JSON.stringify(projected.advice)}`);
+  assert.equal(advice![0].kind, '直接行动');
+  assert.equal(advice![0].text, '把该分支改为 fail-closed。');
+  assert.equal(advice![0].from, '某条残留');
+  // 同一处承载：投影不新增任何「关闭时另存的去向」字段
+  assert.ok(
+    !('closure_advice' in projected) && !('final_advice' in projected),
+    '不得为关闭后的去向另存一份（21 §10.2）',
+  );
+});

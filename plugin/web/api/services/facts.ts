@@ -515,6 +515,19 @@ function projectCurrentWorkCaseCardShape(
       const cancellation = parseWorkCaseCancellation(fact.report_body)
       if (cancellation !== null) projected.cancellation = cancellation
     }
+    // 去向（`21 §8` 建议段）：**只有一处承载**——正文「## 结果」节的 `- advice:` 段，
+    // 而 `close` 不删正文，故关闭后它仍然在原处。`result` 字段闭集
+    // （`criteria_checks`／`achieved_scope`／`residual`）从来不含 advice，
+    // 故此处**读的是与「待批准关闭」期同一处**，不另存一份。
+    //
+    // 此前本分支不解析建议段，后果是**关闭后去向在卡上消失**——而 `§10.2` 把它列为
+    // Gate 2 的提请必含项（Human 判断关闭所依据的输入之一）。解析不出的条目落空而不猜。
+    //
+    // 注意语义（`§10.2`，Human 裁定 2026-09-24）：去向是**提请时如实说明的打算**，
+    // **不因关闭而被批准**——批准对象只有「关闭」与 `outcome`。故呈现层用中性表述，
+    // 不得写成暗示「已批准」的词（见组件侧）。
+    const closedDraft = parseWorkCaseResultDraft(fact.report_body, fact.plan)
+    if (closedDraft.advice.length > 0) projected.advice = closedDraft.advice
   }
   return projected
 }

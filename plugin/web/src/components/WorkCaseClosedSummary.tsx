@@ -5,6 +5,7 @@ import type { ObjectItem, WorkCasePlanStep, WorkCaseResultCheck } from '@/utils/
 import {
   WORKCASE_CHECK_TAG_BASE,
   WORKCASE_CHECK_TAG_CLASS,
+  workCaseAdviceTagClass,
   workCaseCheckLabelFor,
   workCaseResultCheckRows,
 } from '@/utils/workcaseCheckState';
@@ -61,8 +62,14 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
     : [];
   const residual = Array.isArray(obj.result?.residual) ? obj.result.residual : [];
   const cancellation = obj.cancellation ?? null;
+  // 去向（21 §8 建议段）：与「待批准关闭」期**同一处承载**（正文，关闭不删正文）。
+  // 语义是「提请时如实说明的打算」，**不因关闭而被批准**（§10.2，Human 2026-09-24）——
+  // 故此处用中性表述呈现，不写「后续去向」一类暗示已批准的措辞。
+  const advice = Array.isArray(obj.advice) ? obj.advice : [];
 
-  if (cancellation === null && checks.length === 0 && residual.length === 0) return null;
+  if (cancellation === null && checks.length === 0 && residual.length === 0 && advice.length === 0) {
+    return null;
+  }
 
   const achieved = checks.filter((c) => c.satisfied === true).length;
   const hidden = Math.max(0, residual.length - COLLAPSED_RESIDUAL);
@@ -148,6 +155,34 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
                 {workCaseCheckLabelFor(row.state, t)}
               </span>
               <span>{row.title}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ②'' 去向（21 §8 建议段）：与「待批准关闭」期同一处承载。
+          名称用中性「去向」——§10.2 明写批准对象只有「关闭」与 outcome，
+          去向不因关闭而成为承诺，故不得写成「后续去向」一类暗示已批准的措辞。
+          块底中性（与建议块一致）：标记已是四色，底再着色会与标记混淆。 */}
+      {advice.length > 0 && (
+        <div className="min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/45 px-2.5 py-2">
+          {advice.map((item, index) => (
+            <div
+              key={`${item.kind ?? 'other'}-${index}`}
+              data-workcase-advice-kind={item.kind ?? 'unclassified'}
+              className="border-t border-ldvh-border/60 py-1.5 first:border-t-0 first:pt-0.5 ldvh-caption text-ldvh-text-primary"
+            >
+              <span className={`${WORKCASE_CHECK_TAG_BASE} ${workCaseAdviceTagClass(item.kind)}`}>
+                {item.kind
+                  ? t(`objectList.workcaseAdvice.${item.kind}` as LocaleKey)
+                  : t('objectList.workcaseAdvice.unclassified')}
+              </span>
+              <span>{item.text}</span>
+              {item.from && (
+                <span className="mt-0.5 block text-[11px] text-ldvh-text-secondary">
+                  {t('objectList.workcaseAdviceFrom', { source: item.from })}
+                </span>
+              )}
             </div>
           ))}
         </div>
