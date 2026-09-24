@@ -1,3 +1,4 @@
+import { stripCardMarkdown } from '@/utils/cardText';
 import { useI18n } from '@/i18n/context';
 import type { LocaleKey } from '@/i18n/locales';
 import type { WorkCasePlanStep } from '@/utils/api';
@@ -84,7 +85,7 @@ export default function WorkCaseResultDraft({
                   ? t(`objectList.workcaseAdvice.${item.kind}` as LocaleKey)
                   : t('objectList.workcaseAdvice.unclassified')}
               </span>
-              <span>{item.text}</span>
+              <span>{stripCardMarkdown(item.text)}</span>
               {item.from && (
                 <span className="mt-0.5 block text-[11px] text-ldvh-text-secondary">
                   {t('objectList.workcaseAdviceFrom', { source: item.from })}

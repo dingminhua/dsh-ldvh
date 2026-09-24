@@ -24,6 +24,7 @@ import { useI18n } from '@/i18n/context';
 import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeDescription, getTypeLabel } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import { ALL_STATUS_PARAM, getEffectiveListStatus, writeListStatusParam } from '@/utils/listStatus';
+import { stripCardMarkdown as formatReasonText } from '@/utils/cardText';
 import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { compareRfc3339Timestamps } from '@/shared/timestamp';
@@ -34,23 +35,6 @@ type ObjectListSort = 'updated_desc' | 'created_desc';
 
 /** Shared vertical rhythm between a semantic card title and its first body block. */
 const WORKCASE_CARD_TITLE_BODY_GAP_CLASS = 'mt-1.5';
-
-function formatReasonText(value: string): string {
-  return value
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .map((line) => line
-      .trim()
-      .replace(/^#{1,6}\s+/, '')
-      .replace(/\[[ xX]\]\s*/g, '')
-      .replace(/`([^`]+)`/g, '$1')
-      .replace(/\*\*([^*]+)\*\*/g, '$1')
-      .replace(/\*([^*]+)\*/g, '$1')
-      .trim())
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
 
 function statusRequiresDisposition(obj: ObjectItem): boolean {
   return obj.status === 'retired'

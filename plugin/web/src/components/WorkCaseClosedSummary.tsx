@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useI18n } from '@/i18n/context';
 import type { LocaleKey } from '@/i18n/locales';
 import type { ObjectItem, WorkCasePlanStep, WorkCaseResultCheck } from '@/utils/api';
+import { stripCardMarkdown } from '@/utils/cardText';
 import {
   WORKCASE_CHECK_TAG_BASE,
   WORKCASE_CHECK_TAG_CLASS,
@@ -177,7 +178,7 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
                   ? t(`objectList.workcaseAdvice.${item.kind}` as LocaleKey)
                   : t('objectList.workcaseAdvice.unclassified')}
               </span>
-              <span>{item.text}</span>
+              <span>{stripCardMarkdown(item.text)}</span>
               {item.from && (
                 <span className="mt-0.5 block text-[11px] text-ldvh-text-secondary">
                   {t('objectList.workcaseAdviceFrom', { source: item.from })}
@@ -196,7 +197,7 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
               key={index}
               className="border-t border-ldvh-border/60 py-1.5 first:border-t-0 first:pt-0.5 ldvh-caption text-ldvh-text-primary"
             >
-              {item}
+              {stripCardMarkdown(typeof item === 'string' ? item : String(item))}
             </div>
           ))}
           {hidden > 0 && (

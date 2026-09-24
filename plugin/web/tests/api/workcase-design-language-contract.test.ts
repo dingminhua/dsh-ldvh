@@ -704,3 +704,54 @@ test('建议去向四词各有一色，且四色互不相同（Human 2026-09-24�
     `组件不得硬编码 tailwind 色类（须经共享色表），实际出现：${JSON.stringify(hits)}`,
   );
 });
+
+// 卡面剥 Markdown 标记（`docs/10` §5.5，2026-09-24 补充）。
+//
+// 为什么需要：「不解析 Markdown」不等于「不显示标记」——卡面是纯文本插值，源文本里的
+// `**加粗**`、` 标识符 ` 会把**标记本身**显示给读者。实测正文残留 27 条中 19 条含标记。
+// 故渲染前须剥标记；且剥离函数须**单一实现**（不得每处各写一份正则）。
+test('卡面渲染残留与去向正文前须剥 Markdown 标记，且实现单一来源', () => {
+  const cardText = readSource('web/src/utils/cardText.ts');
+  const closed = readSource('web/src/components/WorkCaseClosedSummary.tsx');
+  const draft = readSource('web/src/components/WorkCaseResultDraft.tsx');
+  const objectList = readSource('web/src/pages/ObjectList.tsx');
+
+  // ① 剥离函数存在且导出（单一实现处）
+  assert.match(cardText, /export function stripCardMarkdown/, '剥标记函数须在 @/utils/cardText 导出');
+
+  // ② 三处卡面渲染点都经它——**逐个渲染点断言，不是「文件里出现过」**。
+  //
+  // 本条首版写成「文件里出现过 stripCardMarkdown 即通过」，结果残留块改回直接插值时
+  // **逃逸**（同文件里去向块仍在用，文件级断言照样通过）。故改为：把每个渲染原始文本
+  // 的插值点找出来，逐个要求它被剥标记函数包裹。
+  for (const [name, src] of [['WorkCaseClosedSummary', closed], ['WorkCaseResultDraft', draft]] as const) {
+    // 找所有「渲染文本」的插值：{...item.text...} 或 {item} 一类
+    const rawSpans = [
+      ...src.matchAll(/\{(?!stripCardMarkdown)([^{}]*\b(?:item\.text|item)\b[^{}]*)\}/g),
+    ]
+      .map((m) => m[1].trim())
+      // 排除非渲染用途（key、data-*、className 里的表达式、事件处理等）
+      .filter((expr) => !/^(?:key|index|i)$/.test(expr))
+      .filter((expr) => !/typeof|String\(|stripCardMarkdown/.test(expr) === false || true)
+      .filter((expr) => /^(?:item|item\.text)$/.test(expr));
+    assert.deepEqual(
+      rawSpans,
+      [],
+      `${name} 有未经剥标记的原始文本插值：${JSON.stringify(rawSpans)}`,
+    );
+  }
+  // 正向：两处确实各自调用了剥标记函数（覆盖上一条的「一个都没有」的空转风险）
+  assert.ok(
+    (closed.match(/stripCardMarkdown\(/g) ?? []).length >= 2,
+    'WorkCaseClosedSummary 的残留块与去向块**各自**都须经剥标记',
+  );
+  assert.match(draft, /stripCardMarkdown\(item\.text\)/, 'WorkCaseResultDraft 的建议正文须经剥标记');
+
+  // ③ 实现单一来源：ObjectList 的同类处理已收敛到该共享函数，不得再自行定义一份
+  assert.match(objectList, /from '@\/utils\/cardText'/, 'ObjectList 须复用共享剥标记函数');
+  assert.doesNotMatch(
+    objectList,
+    /\.replace\(\/\\\*\\\*\(\[\^\*\]\+\)\\\*\\\*\/g/,
+    'ObjectList 不得再保留自己那份加粗剥离正则（应已收敛到共享实现）',
+  );
+});
