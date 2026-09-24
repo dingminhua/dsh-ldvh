@@ -12,8 +12,24 @@ import { WORKCASE_ITEM_LIST_CLASS, WORKCASE_ITEM_ROW_CLASS } from '@/utils/workc
  * 判据核对状态（satisfied 三态）的映射与呈现词条不在此文件——见
  * `@/utils/workcaseCheckState`（详情/列表卡/收件箱共用的单一实现）。
  */
+/**
+ * 判据面板的容器类（**四处共用**：列表卡计划清单、收件箱计划与判据、详情页
+ * PlanNode 与 ResidualNode）。
+ *
+ * **四边同为 1px 细线**（Human 定案 2026-09-24：「左侧 2 像素的粗边框不要，要 1 像素的」）：
+ * 此前是 `border` + `border-l-2 border-l-blue-400/80`（左边 2px 且色更深），四边不等。
+ * 现去掉这两项，左边与其余三边完全一致（同宽、同色）。
+ *
+ * **这不是新偏好，而是同类定案的补齐**：2026-09-13 Human 已在终态说明框上定过
+ * 「仅去掉左侧加粗竖线——四边同为 1px 细线」（见 `ObjectList` 的 `TerminalFactPanel`
+ * 注释）。当时只改了那一处，本面板未跟着改，故两处形态分岔至今。
+ *
+ * 代价（如实登记）：左线颜色随 `border-l-blue-400/80` 一并移除，左边框因此从
+ * `0.8` 透明度降到与其余三边相同的 `0.2`——**视觉上左边框会变淡**。这是「四边
+ * 同为 1px」的必然结果，也是 Human 明确选择的效果（方案甲）。
+ */
 export const WORKCASE_CRITERIA_SURFACE_CLASS =
-  'min-w-0 rounded-md border border-blue-400/20 border-l-2 border-l-blue-400/80 bg-blue-500/[0.025] px-3 py-2.5 dark:bg-blue-950/20';
+  'min-w-0 rounded-md border border-blue-400/20 bg-blue-500/[0.025] px-3 py-2.5 dark:bg-blue-950/20';
 
 export interface WorkCaseCriterionListItem {
   key: string;

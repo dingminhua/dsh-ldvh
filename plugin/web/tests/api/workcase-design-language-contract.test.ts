@@ -913,3 +913,25 @@ test('卡体条目行样式单一来源，且卡面清单带分割线', () => {
   assert.equal((objectList.match(/density="card"/g) ?? []).length, 1, '列表卡计划清单须用卡面密度');
   assert.equal((inbox.match(/density="card"/g) ?? []).length, 3, '收件箱三处须用卡面密度');
 });
+
+// 判据面板四边同为 1px 细线（Human 定案 2026-09-24：「左侧 2 像素的粗边框不要，
+// 要 1 像素的」）。
+//
+// 同类先例：2026-09-13 Human 已在终态说明框上定过「仅去掉左侧加粗竖线——四边同为
+// 1px 细线」。当时只改了那一处，本面板未跟着改，故两处形态分岔至今。
+test('判据面板四边同为 1px：不得有 border-l-2 或独立左线色', () => {
+  const criteria = readSource('web/src/components/WorkCaseCriteriaList.tsx');
+  const surface = criteria.slice(
+    criteria.indexOf('export const WORKCASE_CRITERIA_SURFACE_CLASS'),
+    criteria.indexOf('export interface WorkCaseCriterionListItem'),
+  );
+  assert.ok(surface.length > 0, '未找到容器类定义');
+  // 判据取**类名串本身**（注释里提到历史写法是允许的——那是记录，不是实现）
+  const classLiteral = /'([^']*min-w-0[^']*)'/.exec(surface);
+  assert.ok(classLiteral, '未取到容器类名串');
+  const cls = classLiteral![1];
+  assert.doesNotMatch(cls, /border-l-2/, `容器类不得含 border-l-2：${cls}`);
+  assert.doesNotMatch(cls, /border-l-[a-z]+-\d+\//, `容器类不得含独立左线色：${cls}`);
+  // 且确实带四边通用边框（否则「四边一致」无从谈起）
+  assert.match(cls, /\bborder\b/, '容器类须含四边通用边框');
+});
