@@ -875,3 +875,41 @@ test('计划/判据清单在列表卡、收件箱、详情三处共用同一个�
     '计划清单不得再以无容器的裸形态渲染（此前形态，表现偏弱）',
   );
 });
+
+// 卡体条目行的统一（Human 2026-09-24：「希望有分割线」）。
+//
+// 背景：核对/去向/残留三块的条目都有分割线，而计划清单另写了一份行样式
+// （`flex … gap-2.5`，无分割线），四块里唯一不一致。根因是同一串行样式被抄了 5 份。
+// 本守卫要求：① 行样式单一来源；② 卡面的判据/计划清单用带分割线的卡面行。
+test('卡体条目行样式单一来源，且卡面清单带分割线', () => {
+  const state = readSource('web/src/utils/workcaseCheckState.ts');
+  const criteria = readSource('web/src/components/WorkCaseCriteriaList.tsx');
+  const closed = readSource('web/src/components/WorkCaseClosedSummary.tsx');
+  const draft = readSource('web/src/components/WorkCaseResultDraft.tsx');
+  const objectList = readSource('web/src/pages/ObjectList.tsx');
+  const inbox = readSource('web/src/pages/CognitionCenter.tsx');
+
+  // ① 行样式单一来源：含分割线的行类只在共享模块定义一次
+  assert.match(state, /export const WORKCASE_ITEM_ROW_CLASS\s*=\s*\n?\s*'border-t /, '行样式须在共享模块登记（含 border-t）');
+  const literal = 'border-t border-ldvh-border/60 py-1.5';
+  for (const [name, src] of [
+    ['WorkCaseClosedSummary', closed],
+    ['WorkCaseResultDraft', draft],
+    ['WorkCaseCriteriaList', criteria],
+  ] as const) {
+    assert.equal(
+      (src.match(new RegExp(literal.replace(/[/.]/g, '\\$&'), 'g')) ?? []).length,
+      0,
+      `${name} 不得再抄一份行样式字面量（须经 WORKCASE_ITEM_ROW_CLASS）`,
+    );
+  }
+  // 两个卡组件确实在用共享常量
+  assert.match(closed, /WORKCASE_ITEM_ROW_CLASS/, '已关闭卡的条目行须用共享常量');
+  assert.match(draft, /WORKCASE_ITEM_ROW_CLASS/, '待批准关闭卡的条目行须用共享常量');
+
+  // ② 计划清单在卡面用带分割线的卡面行（density="card"），详情面保持宽松行
+  assert.match(criteria, /density\??:\s*WorkCaseCriteriaRowDensity/, '组件须支持密度参数');
+  assert.match(criteria, /density === 'card'[\s\S]{0,120}WORKCASE_ITEM_ROW_CLASS/, '卡面密度须用带分割线的行');
+  assert.equal((objectList.match(/density="card"/g) ?? []).length, 1, '列表卡计划清单须用卡面密度');
+  assert.equal((inbox.match(/density="card"/g) ?? []).length, 3, '收件箱三处须用卡面密度');
+});

@@ -108,7 +108,10 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
             蓝点本就是该面板的标记，加蓝底后不再是「悬浮的点」。 */}
         {Array.isArray(obj.plan) && obj.plan.length > 0 ? (
           <div className={`${WORKCASE_CRITERIA_SURFACE_CLASS} mt-1.5`}>
-            <WorkCaseCriteriaList items={obj.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))} />
+            <WorkCaseCriteriaList
+              density="card"
+              items={obj.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))}
+            />
           </div>
         ) : null}
       </div>

@@ -211,6 +211,7 @@ function InboxCardContent({ item, t }: { item: CognitionInboxItem; t: Translate 
         {Array.isArray(item.card.plan) && item.card.plan.length > 0 ? (
           <div className={WORKCASE_CRITERIA_SURFACE_CLASS}>
             <WorkCaseCriteriaList
+            density="card"
               items={item.card.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))}
             />
           </div>
@@ -230,6 +231,7 @@ function InboxCardContent({ item, t }: { item: CognitionInboxItem; t: Translate 
         {item.card.result?.criteria_checks && item.card.result.criteria_checks.length > 0 ? (
           <div className={WORKCASE_CRITERIA_SURFACE_CLASS}>
             <WorkCaseCriteriaList
+            density="card"
               items={item.card.result.criteria_checks.map((c, index) => ({ key: String(index), statement: workCaseCheckStatement(c, t) }))}
             />
           </div>
@@ -293,6 +295,7 @@ function ActiveWorkCaseItemRow({ item }: { item: CognitionActiveWorkCaseItem }) 
           {Array.isArray(item.card.plan) && item.card.plan.length > 0 ? (
             <div className={WORKCASE_CRITERIA_SURFACE_CLASS}>
               <WorkCaseCriteriaList
+            density="card"
                 items={item.card.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))}
               />
             </div>

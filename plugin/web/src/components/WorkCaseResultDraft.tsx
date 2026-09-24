@@ -12,6 +12,7 @@ import {
   WORKCASE_CHECK_TAG_CLASS,
   WORKCASE_RESIDUAL_BLOCK_CLASS,
   WORKCASE_RESIDUAL_ROW_CLASS,
+  WORKCASE_ITEM_ROW_CLASS,
   WORKCASE_RESIDUAL_TAG_CLASS,
   workCaseAdviceTagClass,
   workCaseCheckLabelFor,
@@ -72,7 +73,7 @@ export default function WorkCaseResultDraft({
             <div
               key={row.planIndex}
               data-workcase-check-status={row.state}
-              className="border-t border-ldvh-border/60 py-1.5 first:border-t-0 first:pt-0.5 ldvh-caption text-ldvh-text-primary"
+              className={WORKCASE_ITEM_ROW_CLASS}
             >
               <span
                 className={`${WORKCASE_CHECK_TAG_BASE} ${WORKCASE_CHECK_TAG_CLASS[row.state]}`}
@@ -124,7 +125,7 @@ export default function WorkCaseResultDraft({
             <div
               key={`${item.kind ?? 'other'}-${index}`}
               data-workcase-advice-kind={item.kind ?? 'unclassified'}
-              className="border-t border-ldvh-border/60 py-1.5 first:border-t-0 first:pt-0.5 ldvh-caption text-ldvh-text-primary"
+              className={WORKCASE_ITEM_ROW_CLASS}
             >
               {/* 四色按去向区分（21 §8 闭集四词）——色值取自共享表，不在此硬编码 */}
               <span className={`${WORKCASE_CHECK_TAG_BASE} ${workCaseAdviceTagClass(item.kind)}`}>

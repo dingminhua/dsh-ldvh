@@ -155,6 +155,23 @@ export const WORKCASE_RESIDUAL_BLOCK_CLASS =
   'min-w-0 rounded-md border border-amber-600/25 bg-amber-500/[0.05] px-2.5 py-2';
 
 /**
+ * 卡体内「条目行」的统一行样式——核对、去向、残留、计划清单**四处共用**。
+ *
+ * 为什么收敛：这串类名原先被抄了 **5 份**（核对×2、去向×2、残留×1），而它们表达的
+ * 是同一件事——「卡片正文块里的一行」。分写必然漂移：计划清单就因另写了一份
+ * （`flex … gap-2.5`，无分割线）而与其余三块不一致，Human 2026-09-24 指出
+ * 「希望有分割线」。
+ *
+ * `border-t` + `first:border-t-0`：块内条目之间**有分割线**，首条不加（否则与块顶
+ * 边框叠成双线）。这是四块共同的形态，新增块应直接复用本常量。
+ */
+export const WORKCASE_ITEM_ROW_CLASS =
+  'border-t border-ldvh-border/60 py-1.5 first:border-t-0 first:pt-0.5 ldvh-caption text-ldvh-text-primary';
+
+/** 块内条目列表的容器（与 `WORKCASE_ITEM_ROW_CLASS` 配套：不用 gap，间距由行的 padding 提供）。 */
+export const WORKCASE_ITEM_LIST_CLASS = 'grid min-w-0';
+
+/**
  * 残留条目的「残留」标记（Human 裁定 2026-09-24）。
  *
  * 为什么逐条加：核对块与去向块的行结构都是「`[标记] 正文`」，而残留块此前**只有正文**
@@ -168,9 +185,8 @@ export const WORKCASE_RESIDUAL_BLOCK_CLASS =
 export const WORKCASE_RESIDUAL_TAG_CLASS =
   'border-amber-600/50 bg-amber-500/[0.12] text-amber-700 dark:text-amber-300';
 
-/** 残留条目行（与核对条目、变更流水条目同一行结构）。 */
-export const WORKCASE_RESIDUAL_ROW_CLASS =
-  'border-t border-ldvh-border/60 py-1.5 first:border-t-0 first:pt-0.5 ldvh-caption text-ldvh-text-primary';
+/** 残留条目行——即统一条目行样式（四块共用，见 `WORKCASE_ITEM_ROW_CLASS`）。 */
+export const WORKCASE_RESIDUAL_ROW_CLASS = WORKCASE_ITEM_ROW_CLASS;
 
 /** 去向标记的兜底形态（未归类，或闭集之外的写法）。 */
 export const WORKCASE_ADVICE_TAG_FALLBACK_CLASS =

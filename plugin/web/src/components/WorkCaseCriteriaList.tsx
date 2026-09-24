@@ -1,4 +1,5 @@
 import SummaryText from '@/components/SummaryText';
+import { WORKCASE_ITEM_LIST_CLASS, WORKCASE_ITEM_ROW_CLASS } from '@/utils/workcaseCheckState';
 
 /**
  * WorkCase 判据清单（列表卡与详情共用同一组件）。
@@ -19,20 +20,44 @@ export interface WorkCaseCriterionListItem {
   statement: string;
 }
 
+/**
+ * 条目行样式：**卡面**（列表卡、收件箱）用带分割线的统一行样式；
+ * **详情面**用宽松行（无分割线、条目间距更大，属阅读面而非扫读面）。
+ *
+ * 为什么由消费者选而不是组件内判别：卡面与详情面对同一份数据的信息密度要求不同，
+ * 而 `docs/10 §1.10` 要求两面共享**同一套设计语言**（同色、同标记、同结构），
+ * 差异只在密度。故此处把「密度」显式化为一个参数，而非复制一个组件。
+ */
+export type WorkCaseCriteriaRowDensity = 'card' | 'detail';
+
 export function WorkCaseCriteriaList({
   items,
   className = '',
+  density = 'detail',
 }: {
   items: WorkCaseCriterionListItem[];
   className?: string;
+  density?: WorkCaseCriteriaRowDensity;
 }) {
+  // 卡面：复用统一条目行样式（与核对/去向/残留同一串类名），分割线由该样式提供；
+  // 详情面：宽松行，无分割线。
+  const rowClass =
+    density === 'card'
+      ? WORKCASE_ITEM_ROW_CLASS
+      : 'min-w-0';
+  const listClass =
+    density === 'card'
+      ? `${className} ${WORKCASE_ITEM_LIST_CLASS}`.trim()
+      : `${className} grid min-w-0 gap-1.5`.trim();
   return (
-    <ul className={`${className} grid min-w-0 gap-1.5`.trim()}>
+    <ul className={listClass}>
       {items.map((item) => (
-        <li key={item.key} className="flex min-w-0 items-start gap-2.5">
+        <li key={item.key} className={`${rowClass} flex items-start gap-2.5`.trim()}>
           <span
             aria-hidden="true"
-            className="mt-[0.5rem] h-1 w-1 shrink-0 rounded-full bg-blue-400/65 dark:bg-blue-400/75"
+            className={`h-1 w-1 shrink-0 rounded-full bg-blue-400/65 dark:bg-blue-400/75 ${
+              density === 'card' ? 'mt-[0.55rem]' : 'mt-[0.5rem]'
+            }`}
           />
           <div className="ldvh-caption min-w-0 flex-1 break-words [&_p]:my-0">
             {item.statement.trim() && (
