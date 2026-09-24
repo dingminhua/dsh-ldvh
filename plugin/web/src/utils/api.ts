@@ -87,6 +87,8 @@ export interface ObjectItem {
   cancellation?: WorkCaseCancellationRecord;
   result_checks?: WorkCaseDraftCheck[];
   advice?: WorkCaseDraftAdvice[];
+  /** 「待批准关闭」期的残留条目（`21 §8` 正文承载；已关闭期改读 `result.residual` 字段）。 */
+  result_residual?: string[];
   /** 21 §8：给 Human 扫读的一句话要点。卡面渲染它而非 summary（10 §5.5）；
    * draft/open 必填、closed 条件（终态缺失合法，卡面须如实降级）。 */
   gist?: string;

@@ -6,6 +6,8 @@ import { stripCardMarkdown } from '@/utils/cardText';
 import {
   WORKCASE_CHECK_TAG_BASE,
   WORKCASE_CHECK_TAG_CLASS,
+  WORKCASE_RESIDUAL_BLOCK_CLASS,
+  WORKCASE_RESIDUAL_ROW_CLASS,
   workCaseAdviceTagClass,
   workCaseCheckLabelFor,
   workCaseResultCheckRows,
@@ -191,11 +193,11 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
 
       {/* ③ 残留 */}
       {residual.length > 0 && (
-        <div className="min-w-0 rounded-md border border-amber-600/25 bg-amber-500/[0.05] px-2.5 py-2">
+        <div className={WORKCASE_RESIDUAL_BLOCK_CLASS}>
           {visibleResidual.map((item, index) => (
             <div
               key={index}
-              className="border-t border-ldvh-border/60 py-1.5 first:border-t-0 first:pt-0.5 ldvh-caption text-ldvh-text-primary"
+              className={WORKCASE_RESIDUAL_ROW_CLASS}
             >
               {stripCardMarkdown(typeof item === 'string' ? item : String(item))}
             </div>

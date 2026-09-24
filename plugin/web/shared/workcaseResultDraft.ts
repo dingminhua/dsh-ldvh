@@ -62,6 +62,15 @@ export interface WorkCaseDraftAdvice {
 export interface WorkCaseResultDraft {
   checks: WorkCaseDraftCheck[]
   advice: WorkCaseDraftAdvice[]
+  /**
+   * 残留条目（`21 §8` 的「## 结果」节 `- residual:` 段）。
+   *
+   * 为什么这里也产出：`status = open` 时 `result` 字段尚不存在（`result` 出现 ⇔
+   * `status = closed`），故「待批准关闭」期的残留**只在正文里**——卡面要显示它就只能
+   * 解析正文。已关闭期则相反：`result.residual` 字段权威，卡面直读字段、不用本字段。
+   * **同一份信息仍只有一处承载**（正文），只是两个期的**权威来源**不同。
+   */
+  residual: string[]
 }
 
 function statusOf(text: string): WorkCaseCheckStatus | null {
@@ -136,7 +145,7 @@ interface PlanStepLike {
  */
 export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCaseResultDraft {
   const section = resultSectionOf(body)
-  const result: WorkCaseResultDraft = { checks: [], advice: [] }
+  const result: WorkCaseResultDraft = { checks: [], advice: [], residual: [] }
   if (!section) return result
 
   const steps: PlanStepLike[] = Array.isArray(plan) ? (plan as PlanStepLike[]) : []
@@ -219,8 +228,27 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
       continue
     }
 
-    // ── residual 段内：`21 §8` 规定此处不得再写「建议…」子句，故不产出条目 ──
-    if (mode === 'residual') continue
+    // ── residual 段内 ──
+    //
+    // 本段此前**不产出条目**（只识别、不抽取）。原因：本模块原只服务「待批准关闭」卡，
+    // 而那张卡当时不显示残留，抽出来也没有消费者。`21 §8` 另规定本段不得再写
+    // 「建议…」子句（建议只有一处承载），故不抽建议是对的——但**残留条目本身**一直
+    // 是该期的真实信息，只是没有呈现出口。
+    //
+    // 2026-09-24 补抽取：卡面新增残留块（Human 裁定），而该期残留无字段承载、
+    // 只能来自正文。抽取**逐条忠实**——不去标记、不截断、不合并，Markdown 剥离由
+    // 呈现层负责（此时尚未剥离，与其它段一致）。
+    if (mode === 'residual') {
+      // 同级或更浅的 bullet 结束本段（如后续的 `- advice:`）——与取消记录解析器同一收束规则。
+      // 实测真实数据：段标记 `- residual:` 缩进 0、条目缩进 2，故 `indent <= modeIndent`
+      // 的 bullet 必属下一段，不得吞入。
+      if (indent <= modeIndent) {
+        mode = null
+        continue
+      }
+      result.residual.push(item)
+      continue
+    }
   }
 
   result.checks = [...byIndex.entries()]

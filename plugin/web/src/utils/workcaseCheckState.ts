@@ -141,6 +141,23 @@ export const WORKCASE_ADVICE_TAG_CLASS: Record<string, string> = {
   '转入 Spark': 'border-fuchsia-600/45 bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300',
 };
 
+/**
+ * 残留块的两个类（`21 §8` 的 `residual`）——**两块卡共用**。
+ *
+ * 「待批准关闭」卡（数据来自正文 `- residual:` 段）与「已关闭」卡（数据来自
+ * `result.residual` 字段）是**同一个语义块的两个期**：内容项相同，只有权威来源不同。
+ * 故外观必须同源——分写两份类名时两卡会随各自改动而漂移（本仓已有先例：同一状态曾
+ * 出现「徽标紫、卡内提示琥珀」的分歧，见 `docs/10` 的着色单一来源纪律）。
+ *
+ * 琥珀底表达「未解决/待处置」——与核对（三词各自的语义色）、去向（四色分类）区分开。
+ */
+export const WORKCASE_RESIDUAL_BLOCK_CLASS =
+  'min-w-0 rounded-md border border-amber-600/25 bg-amber-500/[0.05] px-2.5 py-2';
+
+/** 残留条目行（与核对条目、变更流水条目同一行结构）。 */
+export const WORKCASE_RESIDUAL_ROW_CLASS =
+  'border-t border-ldvh-border/60 py-1.5 first:border-t-0 first:pt-0.5 ldvh-caption text-ldvh-text-primary';
+
 /** 去向标记的兜底形态（未归类，或闭集之外的写法）。 */
 export const WORKCASE_ADVICE_TAG_FALLBACK_CLASS =
   'border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary';

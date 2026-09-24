@@ -134,6 +134,7 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
           plan={obj.plan}
           checks={obj.result_checks}
           advice={obj.advice}
+          residual={obj.result_residual}
         />
       </div>
     );

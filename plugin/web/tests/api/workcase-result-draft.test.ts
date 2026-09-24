@@ -134,12 +134,40 @@ test('residual 里的「建议…」子句不再产出条目（21 §8：建议�
   assert.deepEqual(d.advice, []);
 });
 
+// 残留条目本身要产出（2026-09-24 补抽取）：此前该段「只识别、不抽取」，因为当期的卡
+// 不显示残留。卡面新增残留块后，本段是该期残留的**唯一数据源**（无 result 字段可读）。
+test('residual 段产出条目（待批准关闭卡的唯一数据源）', () => {
+  const body = bodyOf([
+    '- residual:',
+    '  - **缺口 A 未修复**：无法机械判定。',
+    '  - 存量对象未迁移，不在本单范围。',
+  ]);
+  const d = parseWorkCaseResultDraft(body, PLAN);
+  assert.deepEqual(d.residual, [
+    '**缺口 A 未修复**：无法机械判定。',
+    '存量对象未迁移，不在本单范围。',
+  ]);
+  // 不剥标记：剥标记是呈现层的事（@/utils/cardText），解析层逐条忠实给出
+  assert.ok(d.residual[0].includes('**'), '解析层不得剥离 Markdown（呈现层负责）');
+});
+
+test('residual 段在遇到同级/更浅的 bullet 时正确收束', () => {
+  const body = bodyOf([
+    '- residual:',
+    '  - 第一条残留。',
+    '  - 第二条残留。',
+  ]) + '\n- 段外条目不应被吞入。\n';
+  const d = parseWorkCaseResultDraft(body, PLAN);
+  assert.deepEqual(d.residual, ['第一条残留。', '第二条残留。']);
+});
+
 test('未配对/无结果节：返回空草稿而不是抛错', () => {
-  assert.deepEqual(parseWorkCaseResultDraft('## 执行\n无结果节', PLAN), { checks: [], advice: [] });
-  assert.deepEqual(parseWorkCaseResultDraft(undefined, PLAN), { checks: [], advice: [] });
+  assert.deepEqual(parseWorkCaseResultDraft('## 执行\n无结果节', PLAN), { checks: [], advice: [], residual: [] });
+  assert.deepEqual(parseWorkCaseResultDraft(undefined, PLAN), { checks: [], advice: [], residual: [] });
   assert.deepEqual(parseWorkCaseResultDraft('## 结果\n- 无有效条目', undefined), {
     checks: [],
     advice: [],
+    residual: [],
   });
 });
 

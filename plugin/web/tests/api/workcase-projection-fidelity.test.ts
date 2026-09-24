@@ -612,3 +612,76 @@ test('已关闭：正文带建议段时，去向必须投影（合成用例）',
     '不得为关闭后的去向另存一份（21 §10.2）',
   );
 });
+
+// 「待批准关闭」卡新增残留块（Human 裁定 2026-09-24）：该期无 `result` 字段
+// （`result` 出现 ⇔ `status = closed`），残留**只在正文** `- residual:` 段里，
+// 故这是该期残留的**唯一数据源**。已关闭期相反——读 `result.residual` 字段（权威）。
+// 两期各自取当期权威，不互相顶替。
+test('待批准关闭：正文残留逐条投影，一条不少（21 §8）', async () => {
+  const ids = existingWorkCaseIds();
+  const checked: string[] = [];
+  for (const objectId of ids) {
+    const detail = await readLocalFact('workcase', objectId, workcaseScope());
+    if (detail.status !== 'ok') continue;
+    const source = detail.item.fact_object as Record<string, unknown>;
+    if (source.status !== 'open') continue;
+    const body = typeof source.report_body === 'string' ? source.report_body : '';
+    // 正文里实际有几条残留（同级 bullet 归下一段，与解析器同规则）
+    const section = body.slice(/^## 结果\s*$/m.exec(body)?.index ?? -1);
+    const marker = /^(\s*)-\s*(?:residual|残留责任)\s*[:：]?\s*$/m.exec(section);
+    let expected = 0;
+    if (marker) {
+      const modeIndent = marker[1].length;
+      for (const line of section.slice(marker.index + marker[0].length).split('\n')) {
+        if (!line.trim()) continue;
+        const bullet = /^(\s*)-\s+(.*)$/.exec(line);
+        if (!bullet) continue;
+        if (bullet[1].length <= modeIndent) break; // 归下一段
+        expected += 1;
+      }
+    }
+    const projected = projectCurrentWorkCaseCard(source, detail.item.source_content_fingerprint);
+    const residual = Array.isArray(projected.result_residual) ? projected.result_residual : [];
+    assert.equal(
+      residual.length,
+      expected,
+      `${objectId}: 正文有 ${expected} 条残留，投影后 ${residual.length} 条——该期残留不得丢失`,
+    );
+    for (const item of residual as unknown[]) {
+      assert.ok(typeof item === 'string' && item.length > 0, `${objectId}: 残留条目须为非空字符串`);
+    }
+    checked.push(objectId);
+  }
+  assert.ok(checked.length > 0, '必须至少核对一个 open 对象，否则本守卫是空转');
+});
+
+// 合成用例：覆盖「正文有残留段」的非空情形（存量是否都有该段不作为前提）。
+test('待批准关闭：正文带残留段时逐条投影（合成用例）', () => {
+  const body = [
+    '## 摘要', 'x',
+    '## 授权范围', '做什么：x', '明确不做什么：y',
+    '## 计划', '- 步骤一',
+    '## 结果',
+    '- criteria_checks:',
+    '  - 步骤 1 判据「x」：达成——证据：y。',
+    '- advice:',
+    '  - **直接行动**：把该分支改为 fail-closed。',
+    '- residual:',
+    '  - 第一条残留。',
+    '  - 第二条残留。',
+    '  - 第三条残留。',
+  ].join('\n');
+  const source: Record<string, unknown> = {
+    status: 'open',
+    report_body: body,
+    plan: [{ step: '步骤一', done_criteria: 'x' }],
+  };
+  const projected = projectCurrentWorkCaseCard(source, null);
+  assert.deepEqual(
+    projected.result_residual,
+    ['第一条残留。', '第二条残留。', '第三条残留。'],
+    '残留须逐条投影且顺序不变',
+  );
+  // 「待批准关闭」期不读 result 字段（该字段此时不存在）——确认未混入
+  assert.equal(projected.result, undefined, 'open 期不得有 result 字段');
+});
