@@ -806,3 +806,72 @@ test('残留块逐条加标记，且排在去向之上（两块卡一致）', ()
     );
   }
 });
+
+// 计划清单的容器（Human 2026-09-24 裁定，方案 ③）。
+//
+// 为什么需要：计划清单此前**无容器**（只有蓝点 + 蓝字），是四组卡体里唯一的无框块，
+// 表现偏弱。现包一层 `WORKCASE_CRITERIA_SURFACE_CLASS`——**与详情页判据面板同源**
+// （两处渲染的是同一份 `plan` 数据）。
+test('计划/判据清单在列表卡、收件箱、详情三处共用同一个容器常量', () => {
+  const list = readSource('web/src/components/WorkCaseCriteriaList.tsx');
+  const objectList = readSource('web/src/pages/ObjectList.tsx');
+  const inbox = readSource('web/src/pages/CognitionCenter.tsx');
+  const layout = readSource('web/src/pages/object-detail/WorkCaseReadingLayout.tsx');
+
+  // ① 容器类登记在判据组件（单一来源），不在各页各写一份
+  assert.match(
+    list,
+    /export const WORKCASE_CRITERIA_SURFACE_CLASS/,
+    '容器类须在 WorkCaseCriteriaList 单点导出',
+  );
+
+  // ② 三处消费点都 import 它（而不是自定义一个框）
+  for (const [name, src] of [
+    ['ObjectList', objectList],
+    ['CognitionCenter', inbox],
+    ['WorkCaseReadingLayout', layout],
+  ] as const) {
+    assert.match(
+      src,
+      /import \{[\s\S]*?WORKCASE_CRITERIA_SURFACE_CLASS[\s\S]*?\} from '@\/components\/WorkCaseCriteriaList'/,
+      `${name} 须从 WorkCaseCriteriaList import 该常量（不得另定一份）`,
+    );
+  }
+
+  // ②' **每一个** `<WorkCaseCriteriaList` 使用点都须被容器包住——逐个断言，
+  //     不是「文件里出现过该常量」。本条首版只做了后者，结果「收件箱改回无容器」
+  //     时**逃逸**（同文件其它使用点仍在用该常量，文件级断言照样通过）。
+  for (const [name, src] of [
+    ['ObjectList', objectList],
+    ['CognitionCenter', inbox],
+    ['WorkCaseReadingLayout', layout],
+  ] as const) {
+    // 判据取「**未被容器包住的裸使用点**」：容器开标签的类名后紧跟 `}`（`className={X}`
+    // 或 `className={`${X} …`}`）。**只切一次**——首版同时切 `X}` 与 `className={X}`，
+    // 而后者包含前者的子串，每个容器被**数了两次**、容器数虚高，变异因此逃逸。
+    // import 语句里的 `WORKCASE_CRITERIA_SURFACE_CLASS }`（带空格）不会被切中。
+    //
+    // 判据是「容器数 ≥ 使用点数」而非相等：`WorkCaseReadingLayout` 的 PlanNode 自建
+    // `<ol>`（不走本组件）、只借容器类，故容器数会多于使用点数——那是合法形态。
+    const uses = src.split('<WorkCaseCriteriaList').length - 1;
+    const wrapped = src.split('WORKCASE_CRITERIA_SURFACE_CLASS}').length - 1;
+    assert.ok(uses > 0, `${name}: 未找到 WorkCaseCriteriaList 使用点`);
+    assert.ok(
+      wrapped >= uses,
+      `${name}: 有未包容器的判据清单（使用点 ${uses} 个，容器 ${wrapped} 个）`,
+    );
+  }
+
+  // ③ 反向：`pending_gate1` 分支的计划清单**必须**被容器包住
+  //    （判据取 JSX 使用点，不取 import 语句位置）
+  const planBlock = objectList.slice(
+    objectList.indexOf("if (group === 'pending_gate1')"),
+    objectList.indexOf("if (group === 'executing')"),
+  );
+  assert.match(planBlock, /WORKCASE_CRITERIA_SURFACE_CLASS/, '待批准执行的计划清单须有容器');
+  assert.doesNotMatch(
+    planBlock,
+    /<WorkCaseCriteriaList className="mt-1\.5"/,
+    '计划清单不得再以无容器的裸形态渲染（此前形态，表现偏弱）',
+  );
+});

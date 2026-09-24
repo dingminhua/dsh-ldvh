@@ -39,7 +39,7 @@ import {
   type CognitionSparkHealthItem,
   type ObjectItem,
 } from '@/utils/api';
-import { WorkCaseCriteriaList } from '@/components/WorkCaseCriteriaList';
+import { WorkCaseCriteriaList, WORKCASE_CRITERIA_SURFACE_CLASS } from '@/components/WorkCaseCriteriaList';
 import WorkCaseGistLine from '@/components/WorkCaseGistLine';
 import { workCaseCheckStatement } from '@/utils/workcaseCheckState';
 import { usePanel } from '@/utils/panelContext';
@@ -209,9 +209,11 @@ function InboxCardContent({ item, t }: { item: CognitionInboxItem; t: Translate 
       <div className="grid min-w-0 gap-2">
         <WorkCaseGistLine gist={item.card.gist} group="pending_gate1" boxed />
         {Array.isArray(item.card.plan) && item.card.plan.length > 0 ? (
-          <WorkCaseCriteriaList
-            items={item.card.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))}
-          />
+          <div className={WORKCASE_CRITERIA_SURFACE_CLASS}>
+            <WorkCaseCriteriaList
+              items={item.card.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))}
+            />
+          </div>
         ) : null}
       </div>
     );
@@ -226,9 +228,11 @@ function InboxCardContent({ item, t }: { item: CognitionInboxItem; t: Translate 
           </p>
         ) : null}
         {item.card.result?.criteria_checks && item.card.result.criteria_checks.length > 0 ? (
-          <WorkCaseCriteriaList
-            items={item.card.result.criteria_checks.map((c, index) => ({ key: String(index), statement: workCaseCheckStatement(c, t) }))}
-          />
+          <div className={WORKCASE_CRITERIA_SURFACE_CLASS}>
+            <WorkCaseCriteriaList
+              items={item.card.result.criteria_checks.map((c, index) => ({ key: String(index), statement: workCaseCheckStatement(c, t) }))}
+            />
+          </div>
         ) : null}
         {item.card.gate_1 ? (
           <p className="ldvh-caption">{t('objectList.workcaseGate1', { approver: item.card.gate_1.approver ?? '—', approvedAt: item.card.gate_1.approved_at ?? '—' })}</p>
@@ -287,9 +291,11 @@ function ActiveWorkCaseItemRow({ item }: { item: CognitionActiveWorkCaseItem }) 
             </p>
           ) : null}
           {Array.isArray(item.card.plan) && item.card.plan.length > 0 ? (
-            <WorkCaseCriteriaList
-              items={item.card.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))}
-            />
+            <div className={WORKCASE_CRITERIA_SURFACE_CLASS}>
+              <WorkCaseCriteriaList
+                items={item.card.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))}
+              />
+            </div>
           ) : null}
         </div>
         <InboxItemReadNotes item={item} locale={locale} />

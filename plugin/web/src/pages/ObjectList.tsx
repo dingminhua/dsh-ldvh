@@ -13,7 +13,7 @@ import PriorityIcon from '@/components/PriorityIcon';
 import ServesSgBadge from '@/components/ServesSgBadge';
 import SummaryText from '@/components/SummaryText';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
-import { WorkCaseCriteriaList } from '@/components/WorkCaseCriteriaList';
+import { WorkCaseCriteriaList, WORKCASE_CRITERIA_SURFACE_CLASS } from '@/components/WorkCaseCriteriaList';
 import WorkCaseGistLine from '@/components/WorkCaseGistLine';
 // 变更流水（卡片主体）：标记与归属口径来自 shared 单点，组件不自行判断。
 import WorkCaseExecFlow from '@/components/WorkCaseExecFlow';
@@ -100,8 +100,16 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
     return (
       <div className="min-w-0">
         <WorkCaseGistLine gist={obj.gist} group="pending_gate1" boxed />
+        {/* 计划清单此前**无容器**（只有蓝点 + 蓝字），是四组卡体里唯一的无框块——
+            与「执行中」的流水、「待批准关闭／已关闭」的核对/去向/残留都不一致，
+            表现偏弱（Human 2026-09-24 指出）。现包一层与**详情页判据面板同源**的
+            `WORKCASE_CRITERIA_SURFACE_CLASS`：两处渲染的是**同一份 `plan` 数据**，
+            形态因此呼应（`docs/10 §1.10` 要求列表卡与详情共用同一套设计语言）。
+            蓝点本就是该面板的标记，加蓝底后不再是「悬浮的点」。 */}
         {Array.isArray(obj.plan) && obj.plan.length > 0 ? (
-          <WorkCaseCriteriaList className="mt-1.5" items={obj.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))} />
+          <div className={`${WORKCASE_CRITERIA_SURFACE_CLASS} mt-1.5`}>
+            <WorkCaseCriteriaList items={obj.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))} />
+          </div>
         ) : null}
       </div>
     );
