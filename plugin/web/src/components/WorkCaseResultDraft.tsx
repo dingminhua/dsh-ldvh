@@ -42,6 +42,8 @@ export interface WorkCaseResultDraftProps {
   plan?: WorkCasePlanStep[];
   checks?: WorkCaseDraftCheck[];
   advice?: WorkCaseDraftAdvice[];
+  /** 建议段前的事后补记声明（21 §8）；无则 null。 */
+  adviceNote?: string | null;
   /** 「待批准关闭」期的残留条目（正文承载）；与「已关闭」卡同套样式。 */
   residual?: string[];
   className?: string;
@@ -54,6 +56,7 @@ export default function WorkCaseResultDraft({
   plan,
   checks,
   advice,
+  adviceNote = null,
   residual = [],
   className = '',
 }: WorkCaseResultDraftProps) {
@@ -121,6 +124,11 @@ export default function WorkCaseResultDraft({
       {/* 块底中性：标记已是四色，底再带靛蓝会让「另立工单」的蓝标记与底色混淆 */}
       {advices.length > 0 && (
         <div className="min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/45 px-2.5 py-2">
+          {adviceNote && (
+            <div className="ldvh-meta-muted border-b border-ldvh-border/60 pb-1.5">
+              {stripCardMarkdown(adviceNote)}
+            </div>
+          )}
           {advices.map((item, index) => (
             <div
               key={`${item.kind ?? 'other'}-${index}`}

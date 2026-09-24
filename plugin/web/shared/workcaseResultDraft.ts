@@ -17,6 +17,18 @@
 // 1/8，并误判 1 例（正文含「另立」二字即判为「另立工单」，实际去向是「直接行动」）。
 // 规范既已登记唯一承载，认知之外的第二条识别路径只会让「未登记即不可检出」失效。
 
+/**
+ * 事后补记声明的识别式（`21 §8`）。
+ *
+ * 为 2026-09-23 建议段登记前已关闭的对象补写去向时（Human 授权 2026-09-24），
+ * 段前须有一行声明「本条为事后补记，非关闭当时的 Gate 2 提请内容」。该声明必须
+ * **带上卡面**——否则卡面读者仍会以为这段去向当初被提请过，声明就失去意义。
+ *
+ * 识别取**固定写法**而非「前面的段落」：实测宽判据会把标题、清单行、正文段落
+ * 一律当声明（`8d2ba256` 抓到 `### Gate 2 提请`、`be30b5f7` 抓到清单行）。
+ */
+const BACKFILL_NOTE = /^\*\*本条为\s*\d{4}-\d{2}-\d{2}\s*事后补记[^*]*\*\*$/
+
 export const WORKCASE_CHECK_STATUSES = ['achieved', 'partial', 'not-achieved'] as const
 export type WorkCaseCheckStatus = (typeof WORKCASE_CHECK_STATUSES)[number]
 
@@ -62,6 +74,16 @@ export interface WorkCaseDraftAdvice {
 export interface WorkCaseResultDraft {
   checks: WorkCaseDraftCheck[]
   advice: WorkCaseDraftAdvice[]
+  /**
+   * 建议段前的一段独立说明（可选）。目前唯一来源是**事后补记声明**——为
+   * 2026-09-23 建议段登记前已关闭的对象补写去向时（Human 授权，2026-09-24），
+   * 段前须声明「本条为事后补记，非关闭当时的 Gate 2 提请内容」。
+   *
+   * 为什么要带上卡面：该声明的用途正是让**读者**知道这段去向不是关闭时的提请输入。
+   * 若只留在详情面，卡面读者仍会以为它当初被提请过——声明就失去意义。
+   * 形态：`- advice:` 块**之前**、与它空行相隔的一个非 bullet 段落（写作约定）。
+   */
+  adviceNote: string | null
   /**
    * 残留条目（`21 §8` 的「## 结果」节 `- residual:` 段）。
    *
@@ -145,7 +167,7 @@ interface PlanStepLike {
  */
 export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCaseResultDraft {
   const section = resultSectionOf(body)
-  const result: WorkCaseResultDraft = { checks: [], advice: [], residual: [] }
+  const result: WorkCaseResultDraft = { checks: [], advice: [], residual: [], adviceNote: null }
   if (!section) return result
 
   const steps: PlanStepLike[] = Array.isArray(plan) ? (plan as PlanStepLike[]) : []
@@ -157,7 +179,17 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
 
   for (const rawLine of section.split('\n')) {
     const bullet = /^(\s*)-\s+(.*)$/.exec(rawLine)
-    if (!bullet) continue
+    if (!bullet) {
+      // 非 bullet 行：只有**明确的事后补记声明**才记录（见 `adviceNote` 注释）。
+      //
+      // 为什么不用「建议段前的段落」这种宽判据：实测它会把任何前文都当声明——
+      // `8d2ba256` 抓到的是 `### Gate 2 提请`（标题）、`be30b5f7` 抓到的是
+      // `1. workcase tab …`（清单行）、`af430278` 抓到的是正文段落。那会把噪音
+      // 送上卡面。声明是本仓登记的固定写法，故按写法精确匹配。
+      const t = rawLine.trim()
+      if (result.adviceNote === null && BACKFILL_NOTE.test(t)) result.adviceNote = t
+      continue
+    }
     const indent = bullet[1].length
     const item = bullet[2].trim()
 

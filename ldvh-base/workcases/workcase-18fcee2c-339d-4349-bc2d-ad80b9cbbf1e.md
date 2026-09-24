@@ -121,8 +121,12 @@ change_log:
     summary: Human 复定登记——卡头标签序定为「类型→优先级→SG→修改次数」四项、不设关联 chip。该复定结清本单
       residual 原第五条（2026-09-13 撤 chip 的理由记录在错误规范引注上）：移除结果在结论上被确认，仅理由由
       「错误规范引注」改记为「呈现取舍」；代码注释据实改写并加强契约断言钉住卡头四项，呈现结果未变。
----
 
+  - at: 2026-09-24T05:21:26.601Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 事后补记建议段（21 §8）：为 2026-09-23 建议段登记前已关闭的对象补写对残留的处置去向，段内首行已声明「本条为 2026-09-24 事后补记，非关闭当时的 Gate 2 提请内容」 [post-hoc backfill; no Gate 2 re-run]
+---
 # spark 非终态卡关联呈现
 
 ## 摘要
@@ -158,3 +162,9 @@ change_log:
 - achieved_scope：列表路径补投影 `factRefs` + 卡片呈现 `refs`（与 relations 同组件路径并列）+ 契约测试同步 + dist 重建 + 受控提交（7e0f377、c1d0e26）。open spark 卡关联呈现缺口已消除，两层阅读器契约一致。
 - residual：① ~~`specs/10` §5.2 正文尚未同步修订~~ **本项已撤销（2026-09-16 更正）**：§5.2 从未包含该禁止条文，无需修订，详见「扩围依据的更正」；② refs 在列表卡复用生命周期状态图标（`getFactAssociationState`）语义上可议，非本单引入，未处置；③ `FactCardAssociation` 类型对 refs 条目的建模松弛（声明 `target?` 而 refs 实为 `objectUid`）系既有问题，未处置；④ 列表卡 ref 行数多时的视觉高度未做目视确认；⑤ ~~2026-09-13 卡头撤 chip 的理由记录在错误规范引注上，可追溯性缺陷~~ **已由 Human 复定结清（2026-09-16）**：卡头即「类型→优先级→SG→修改次数」四项、不设关联 chip，注释已改记为呈现取舍。
 
+**本条为 2026-09-24 事后补记，非关闭当时的 Gate 2 提请内容。**
+
+- advice:
+  - **直接行动**：在后续 docs 清理批次顺手更正该归档文档对已删除文件的列举。出自「docs/archive/v4-web-migration-survey.md 仍列举已删除的 workcaseDetailProjection.ts」
+  - **直接行动**：refs 复用生命周期状态图标一事，待 refs 语义统一时一并处置（当前非本单引入）。出自「refs 在列表卡复用生命周期状态图标」
+  - **另立工单**：FactCardAssociation 对 refs 条目的建模松弛（声明 `target?` 而 refs 实为 objectUid）属既有问题，另立一单收敛类型。出自「FactCardAssociation 类型对 refs 条目的建模松弛」

@@ -492,6 +492,7 @@ function projectCurrentWorkCaseCardShape(
       const draft = parseWorkCaseResultDraft(fact.report_body, fact.plan)
       if (draft.checks.length > 0) projected.result_checks = draft.checks
       if (draft.advice.length > 0) projected.advice = draft.advice
+      if (draft.adviceNote !== null) projected.advice_note = draft.adviceNote
       // 残留：同期的正文承载（`21 §8`，`result` 字段此时尚不存在）。卡面新增残留块
       // （Human 裁定 2026-09-24）后，这是该期残留的**唯一数据源**；已关闭期则读
       // `result.residual` 字段（权威），两期各自取当期权威，不互相顶替。
@@ -532,6 +533,7 @@ function projectCurrentWorkCaseCardShape(
     // 不得写成暗示「已批准」的词（见组件侧）。
     const closedDraft = parseWorkCaseResultDraft(fact.report_body, fact.plan)
     if (closedDraft.advice.length > 0) projected.advice = closedDraft.advice
+    if (closedDraft.adviceNote !== null) projected.advice_note = closedDraft.adviceNote
   }
   return projected
 }

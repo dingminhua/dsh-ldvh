@@ -162,12 +162,13 @@ test('residual 段在遇到同级/更浅的 bullet 时正确收束', () => {
 });
 
 test('未配对/无结果节：返回空草稿而不是抛错', () => {
-  assert.deepEqual(parseWorkCaseResultDraft('## 执行\n无结果节', PLAN), { checks: [], advice: [], residual: [] });
-  assert.deepEqual(parseWorkCaseResultDraft(undefined, PLAN), { checks: [], advice: [], residual: [] });
+  assert.deepEqual(parseWorkCaseResultDraft('## 执行\n无结果节', PLAN), { checks: [], advice: [], residual: [], adviceNote: null });
+  assert.deepEqual(parseWorkCaseResultDraft(undefined, PLAN), { checks: [], advice: [], residual: [], adviceNote: null });
   assert.deepEqual(parseWorkCaseResultDraft('## 结果\n- 无有效条目', undefined), {
     checks: [],
     advice: [],
     residual: [],
+    adviceNote: null,
   });
 });
 
@@ -229,4 +230,42 @@ test('取消记录：段后接其它 bullet 时正确收束（不被 residual �
     reason: '方向调整。',
     unstartedScope: '三步全未执行。',
   });
+});
+
+// 事后补记声明（`21 §8`）：为建议段登记前已关闭的对象补写去向时，段前须声明
+// 「本条为事后补记，非关闭当时的 Gate 2 提请内容」。该声明**必须带上卡面**——
+// 否则卡面读者仍会以为这段去向当初被提请过，声明就失去意义。
+test('建议段前的事后补记声明被识别并带上（21 §8）', () => {
+  const body = bodyOf([
+    '**本条为 2026-09-24 事后补记，非关闭当时的 Gate 2 提请内容。**',
+    '',
+    '- advice:',
+    '  - **直接行动**：更正该文档的列举。出自「某条残留」',
+  ]);
+  const d = parseWorkCaseResultDraft(body, PLAN);
+  assert.equal(d.adviceNote, '**本条为 2026-09-24 事后补记，非关闭当时的 Gate 2 提请内容。**');
+  assert.equal(d.advice.length, 1);
+});
+
+// 负向：**不得**把任意前文当声明。本条首版用「建议段前的段落」这种宽判据，实测
+// 把标题（`### Gate 2 提请`）、清单行（`1. workcase tab …`）、正文段落都抓了进来——
+// 那会把噪音送上卡面。故改为按固定写法精确匹配。
+test('建议段前的一般段落不被误当补记声明', () => {
+  for (const prefix of [
+    '### Gate 2 提请',
+    '1. workcase tab 出现 SG 筛选且选项源跟随 goal 子目标。',
+    '2. 记录结果并按 Human 选择处置本工单。',
+    '一句普通说明。',
+  ]) {
+    const body = bodyOf([prefix, '', '- advice:', '  - **接受现状**：无需跟踪。']);
+    const d = parseWorkCaseResultDraft(body, PLAN);
+    assert.equal(d.adviceNote, null, `「${prefix}」不应被当作补记声明`);
+    assert.equal(d.advice.length, 1);
+  }
+});
+
+// 未补写的对象不应有该行（避免给存量对象凭空加声明）
+test('无补记声明时 adviceNote 为 null', () => {
+  const body = bodyOf(['- advice:', '  - **直接行动**：X。']);
+  assert.equal(parseWorkCaseResultDraft(body, PLAN).adviceNote, null);
 });

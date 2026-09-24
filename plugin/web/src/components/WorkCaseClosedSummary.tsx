@@ -71,6 +71,8 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
   // 语义是「提请时如实说明的打算」，**不因关闭而被批准**（§10.2，Human 2026-09-24）——
   // 故此处用中性表述呈现，不写「后续去向」一类暗示已批准的措辞。
   const advice = Array.isArray(obj.advice) ? obj.advice : [];
+  // 事后补记声明（21 §8）：让卡面读者知道这段去向不是关闭当时的提请内容。
+  const adviceNote = typeof obj.advice_note === 'string' ? obj.advice_note : null;
 
   if (cancellation === null && checks.length === 0 && residual.length === 0 && advice.length === 0) {
     return null;
@@ -201,6 +203,11 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
           块底中性（与建议块一致）：标记已是四色，底再着色会与标记混淆。 */}
       {advice.length > 0 && (
         <div className="min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/45 px-2.5 py-2">
+          {adviceNote && (
+            <div className="ldvh-meta-muted border-b border-ldvh-border/60 pb-1.5">
+              {stripCardMarkdown(adviceNote)}
+            </div>
+          )}
           {advice.map((item, index) => (
             <div
               key={`${item.kind ?? 'other'}-${index}`}

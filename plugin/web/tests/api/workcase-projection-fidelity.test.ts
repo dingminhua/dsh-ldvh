@@ -685,3 +685,52 @@ test('待批准关闭：正文带残留段时逐条投影（合成用例）', ()
   // 「待批准关闭」期不读 result 字段（该字段此时不存在）——确认未混入
   assert.equal(projected.result, undefined, 'open 期不得有 result 字段');
 });
+
+// 事后补记声明的投影（`21 §8`）：声明必须**随建议段一起**送到卡面。
+// 若只留在正文，卡面读者仍会以为这段去向当初被提请过——声明就失去意义。
+test('已关闭：补记声明随建议段投影到位（21 §8）', async () => {
+  const ids = existingWorkCaseIds();
+  const checked: string[] = [];
+  const NOTE = /^\*\*本条为\s*\d{4}-\d{2}-\d{2}\s*事后补记[^*]*\*\*$/;
+  for (const objectId of ids) {
+    const detail = await readLocalFact('workcase', objectId, workcaseScope());
+    if (detail.status !== 'ok') continue;
+    const source = detail.item.fact_object as Record<string, unknown>;
+    if (source.status !== 'closed') continue;
+    const body = typeof source.report_body === 'string' ? source.report_body : '';
+    const expected = body.split('\n').map((l) => l.trim()).find((l) => NOTE.test(l)) ?? null;
+    const projected = projectCurrentWorkCaseCard(source, detail.item.source_content_fingerprint);
+    const got = typeof projected.advice_note === 'string' ? projected.advice_note : null;
+    assert.equal(
+      got,
+      expected,
+      `${objectId}: 正文声明与投影不一致（正文 ${JSON.stringify(expected)} / 投影 ${JSON.stringify(got)}）`,
+    );
+    checked.push(objectId);
+  }
+  assert.ok(checked.length > 0, '必须至少核对一个 closed 对象');
+});
+
+// 合成用例：覆盖「有声明」的非空情形（不依赖存量对象是否补写过）。
+test('已关闭：正文有补记声明时投影必须带上（合成用例）', () => {
+  const body = [
+    '## 摘要', 'x',
+    '## 授权范围', '做什么：x', '明确不做什么：y',
+    '## 计划', '- 步骤一',
+    '## 结果',
+    '- criteria_checks:',
+    '  - 步骤 1 判据「x」：达成——证据：y。',
+    '**本条为 2026-09-24 事后补记，非关闭当时的 Gate 2 提请内容。**',
+    '',
+    '- advice:',
+    '  - **直接行动**：把该分支改为 fail-closed。',
+  ].join('\n');
+  const source: Record<string, unknown> = {
+    status: 'closed', outcome: 'completed', report_body: body,
+    plan: [{ step: '步骤一', done_criteria: 'x' }],
+    result: { criteria_checks: [{ satisfied: true, evidence: 'y' }], achieved_scope: 'z', residual: [] },
+  };
+  const projected = projectCurrentWorkCaseCard(source, null);
+  assert.equal(projected.advice_note, '**本条为 2026-09-24 事后补记，非关闭当时的 Gate 2 提请内容。**');
+  assert.equal((projected.advice as unknown[]).length, 1);
+});
