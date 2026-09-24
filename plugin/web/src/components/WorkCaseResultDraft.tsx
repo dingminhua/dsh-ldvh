@@ -12,6 +12,7 @@ import {
   WORKCASE_CHECK_TAG_CLASS,
   WORKCASE_RESIDUAL_BLOCK_CLASS,
   WORKCASE_RESIDUAL_ROW_CLASS,
+  WORKCASE_RESIDUAL_TAG_CLASS,
   workCaseAdviceTagClass,
   workCaseCheckLabelFor,
   workCaseDraftCheckRows,
@@ -84,6 +85,38 @@ export default function WorkCaseResultDraft({
         </div>
       )}
 
+      {/* ② 残留（正文承载，21 §8）——Human 2026-09-24 裁定排在去向之上：
+          残留是「还剩什么」，去向是「打算怎么办」；先陈述事实、再给去向。 */}
+      {residual.length > 0 && (
+        <div className={WORKCASE_RESIDUAL_BLOCK_CLASS}>
+          {(residualExpanded ? residual : residual.slice(0, COLLAPSED_RESIDUAL)).map((item, index) => (
+            <div
+              key={index}
+              className={WORKCASE_RESIDUAL_ROW_CLASS}
+            >
+              {/* 与核对、去向一致的「[标记] 正文」行结构（Human 裁定逐条加标记） */}
+              <span className={`${WORKCASE_CHECK_TAG_BASE} ${WORKCASE_RESIDUAL_TAG_CLASS}`}>
+                {t('objectList.workcaseResidualTag')}
+              </span>
+              <span>{stripCardMarkdown(item)}</span>
+            </div>
+          ))}
+          {residual.length > COLLAPSED_RESIDUAL && (
+            <button
+              type="button"
+              onClick={() => setResidualExpanded((current) => !current)}
+              className="ldvh-meta-muted mt-1 block cursor-pointer text-left hover:text-ldvh-text-primary"
+            >
+              {residualExpanded
+                ? t('objectList.workcaseFlowCollapse')
+                : t('objectList.workcaseFlowMore', {
+                    count: String(residual.length - COLLAPSED_RESIDUAL),
+                  })}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* 块底中性：标记已是四色，底再带靛蓝会让「另立工单」的蓝标记与底色混淆 */}
       {advices.length > 0 && (
         <div className="min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/45 px-2.5 py-2">
@@ -107,33 +140,6 @@ export default function WorkCaseResultDraft({
               )}
             </div>
           ))}
-        </div>
-      )}
-
-      {/* ③ 残留（正文承载，21 §8）——与「已关闭」卡同套类名与折叠交互 */}
-      {residual.length > 0 && (
-        <div className={WORKCASE_RESIDUAL_BLOCK_CLASS}>
-          {(residualExpanded ? residual : residual.slice(0, COLLAPSED_RESIDUAL)).map((item, index) => (
-            <div
-              key={index}
-              className={WORKCASE_RESIDUAL_ROW_CLASS}
-            >
-              {stripCardMarkdown(item)}
-            </div>
-          ))}
-          {residual.length > COLLAPSED_RESIDUAL && (
-            <button
-              type="button"
-              onClick={() => setResidualExpanded((current) => !current)}
-              className="ldvh-meta-muted mt-1 block cursor-pointer text-left hover:text-ldvh-text-primary"
-            >
-              {residualExpanded
-                ? t('objectList.workcaseFlowCollapse')
-                : t('objectList.workcaseFlowMore', {
-                    count: String(residual.length - COLLAPSED_RESIDUAL),
-                  })}
-            </button>
-          )}
         </div>
       )}
     </div>

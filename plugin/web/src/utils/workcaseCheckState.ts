@@ -154,6 +154,20 @@ export const WORKCASE_ADVICE_TAG_CLASS: Record<string, string> = {
 export const WORKCASE_RESIDUAL_BLOCK_CLASS =
   'min-w-0 rounded-md border border-amber-600/25 bg-amber-500/[0.05] px-2.5 py-2';
 
+/**
+ * 残留条目的「残留」标记（Human 裁定 2026-09-24）。
+ *
+ * 为什么逐条加：核对块与去向块的行结构都是「`[标记] 正文`」，而残留块此前**只有正文**
+ * ——三块行结构不一致，条目边界靠换行区分。Human 要求统一为该结构，并**逐条**标记
+ * （而非块首一个小标题），故此处给每个残留条目配一个固定词标记。
+ *
+ * 与块底色的关系：块底是琥珀色，标记同为琥珀系——颜色一致是**有意的**：标记与块
+ * 表达同一件事（这是残留），不引入第二个语义色。故复用验证过的琥珀档，不新增色相
+ * （卡面可用色相已接近用尽，见上方去向四色的空档计算）。
+ */
+export const WORKCASE_RESIDUAL_TAG_CLASS =
+  'border-amber-600/50 bg-amber-500/[0.12] text-amber-700 dark:text-amber-300';
+
 /** 残留条目行（与核对条目、变更流水条目同一行结构）。 */
 export const WORKCASE_RESIDUAL_ROW_CLASS =
   'border-t border-ldvh-border/60 py-1.5 first:border-t-0 first:pt-0.5 ldvh-caption text-ldvh-text-primary';

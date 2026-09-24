@@ -755,3 +755,54 @@ test('卡面渲染残留与去向正文前须剥 Markdown 标记，且实现单�
     'ObjectList 不得再保留自己那份加粗剥离正则（应已收敛到共享实现）',
   );
 });
+
+// 残留块的「[标记] 正文」行结构与块序（Human 2026-09-24 裁定）。
+//
+// 为什么需要：核对块与去向块的行结构都是「[标记] 正文」，而残留块此前只有正文——
+// 三块行结构不一致，条目边界靠换行区分。Human 要求逐条加「残留」标记，并把残留块
+// **排在去向之上**（残留是「还剩什么」、去向是「打算怎么办」，先陈述事实再给去向）。
+test('残留块逐条加标记，且排在去向之上（两块卡一致）', () => {
+  const stateModule = readSource('web/src/utils/workcaseCheckState.ts');
+  const closed = readSource('web/src/components/WorkCaseClosedSummary.tsx');
+  const draft = readSource('web/src/components/WorkCaseResultDraft.tsx');
+
+  // ① 标记色类在共享模块登记（着色单一来源）
+  assert.match(
+    stateModule,
+    /export const WORKCASE_RESIDUAL_TAG_CLASS/,
+    '残留标记色类须在共享模块登记',
+  );
+
+  // ② 两块卡的残留块**逐条**都带标记——不是块首标一次
+  for (const [name, src] of [['WorkCaseClosedSummary', closed], ['WorkCaseResultDraft', draft]] as const) {
+    assert.match(
+      src,
+      /WORKCASE_RESIDUAL_TAG_CLASS/,
+      `${name} 的残留条目须带标记`,
+    );
+    assert.match(
+      src,
+      /workcaseResidualTag/,
+      `${name} 的残留标记须取 i18n 词条（不得写死文字）`,
+    );
+  }
+
+  // ③ 块序：残留块的位置必须在去向块**之前**（两块卡一致）。
+  //
+  // 判据取 **JSX 使用点**（`className={...}` / `${...}` 插值），不取 `indexOf(常量名)`
+  // ——后者会命中文件顶部的 **import 语句**（其位置恒定），故「顺序颠倒」时会**逃逸**
+  // （本条首版就如此，实测变异未被捕获）。
+  for (const [name, src] of [['WorkCaseClosedSummary', closed], ['WorkCaseResultDraft', draft]] as const) {
+    const residualAt = src.indexOf('className={WORKCASE_RESIDUAL_BLOCK_CLASS}');
+    const adviceAt = src.search(/\$\{workCaseAdviceTagClass\(/);
+    assert.ok(
+      residualAt >= 0,
+      `${name}: 未找到残留块的使用点（判据须匹配 JSX 使用，而非 import）`,
+    );
+    assert.ok(adviceAt >= 0, `${name}: 未找到去向标记的使用点`);
+    assert.ok(
+      residualAt < adviceAt,
+      `${name}: 残留块须排在去向块之上（残留使用点 ${residualAt} / 去向使用点 ${adviceAt}）`,
+    );
+  }
+});

@@ -8,6 +8,7 @@ import {
   WORKCASE_CHECK_TAG_CLASS,
   WORKCASE_RESIDUAL_BLOCK_CLASS,
   WORKCASE_RESIDUAL_ROW_CLASS,
+  WORKCASE_RESIDUAL_TAG_CLASS,
   workCaseAdviceTagClass,
   workCaseCheckLabelFor,
   workCaseResultCheckRows,
@@ -163,6 +164,36 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
         </div>
       )}
 
+      {/* ② 残留——Human 2026-09-24 裁定排在去向之上：残留是「还剩什么」，
+          去向是「打算怎么办」；先陈述事实、再给去向。 */}
+      {residual.length > 0 && (
+        <div className={WORKCASE_RESIDUAL_BLOCK_CLASS}>
+          {visibleResidual.map((item, index) => (
+            <div
+              key={index}
+              className={WORKCASE_RESIDUAL_ROW_CLASS}
+            >
+              {/* 与核对、去向一致的「[标记] 正文」行结构（Human 裁定逐条加标记） */}
+              <span className={`${WORKCASE_CHECK_TAG_BASE} ${WORKCASE_RESIDUAL_TAG_CLASS}`}>
+                {t('objectList.workcaseResidualTag')}
+              </span>
+              <span>{stripCardMarkdown(typeof item === 'string' ? item : String(item))}</span>
+            </div>
+          ))}
+          {hidden > 0 && (
+            <button
+              type="button"
+              onClick={() => setExpanded((current) => !current)}
+              className="ldvh-meta-muted mt-1 block cursor-pointer text-left hover:text-ldvh-text-primary"
+            >
+              {expanded
+                ? t('objectList.workcaseFlowCollapse')
+                : t('objectList.workcaseFlowMore', { count: String(hidden) })}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* ②'' 去向（21 §8 建议段）：与「待批准关闭」期同一处承载。
           名称用中性「去向」——§10.2 明写批准对象只有「关闭」与 outcome，
           去向不因关闭而成为承诺，故不得写成「后续去向」一类暗示已批准的措辞。
@@ -188,31 +219,6 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
               )}
             </div>
           ))}
-        </div>
-      )}
-
-      {/* ③ 残留 */}
-      {residual.length > 0 && (
-        <div className={WORKCASE_RESIDUAL_BLOCK_CLASS}>
-          {visibleResidual.map((item, index) => (
-            <div
-              key={index}
-              className={WORKCASE_RESIDUAL_ROW_CLASS}
-            >
-              {stripCardMarkdown(typeof item === 'string' ? item : String(item))}
-            </div>
-          ))}
-          {hidden > 0 && (
-            <button
-              type="button"
-              onClick={() => setExpanded((current) => !current)}
-              className="ldvh-meta-muted mt-1 block cursor-pointer text-left hover:text-ldvh-text-primary"
-            >
-              {expanded
-                ? t('objectList.workcaseFlowCollapse')
-                : t('objectList.workcaseFlowMore', { count: String(hidden) })}
-            </button>
-          )}
         </div>
       )}
     </div>
