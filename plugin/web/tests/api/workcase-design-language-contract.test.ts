@@ -911,7 +911,46 @@ test('卡体条目行样式单一来源，且卡面清单带分割线', () => {
   assert.match(criteria, /density\??:\s*WorkCaseCriteriaRowDensity/, '组件须支持密度参数');
   assert.match(criteria, /density === 'card'[\s\S]{0,120}WORKCASE_ITEM_ROW_CLASS/, '卡面密度须用带分割线的行');
   assert.equal((objectList.match(/density="card"/g) ?? []).length, 1, '列表卡计划清单须用卡面密度');
-  assert.equal((inbox.match(/density="card"/g) ?? []).length, 3, '收件箱三处须用卡面密度');
+  // 收件箱：Human 2026-09-24 要求「聚焦两处 WC 卡与列表卡一样」后，**判据清单只剩一处**
+  // ——待决定事项（closure_confirmation）与推进中事项已改用**列表卡的同一组件**
+  // （`WorkCaseResultDraft` / `WorkCaseExecFlow`），不再各拼一套 `criteria_checks` 列表。
+  // 故此处由 3 降为 1；剩余那处是「待批准执行」的计划清单（无对应共享卡组件）。
+  assert.equal(
+    (inbox.match(/density="card"/g) ?? []).length,
+    1,
+    '收件箱只剩「待批准执行」的计划清单用卡面密度（另两处已改用共享卡组件）',
+  );
+});
+
+// 聚焦收件箱的两处 WC 卡**必须复用列表卡的同一组件**（Human 2026-09-24：
+// 「待决定事项中的 wc card 和推进中事项的 wc card，保持与 wc card 一样的显示」）。
+//
+// 为什么需要：此前两处**各写一套**——待决定事项自拼 outcome chip + criteria_checks
+// 裸列表 + gate_1 行（残留与去向**完全缺失**），推进中事项用 attempt 行 + 计划清单
+// （而列表卡用变更流水）。差异不在样式而在**块的选择**，同一语义两个实现。
+test('聚焦两处 WC 卡复用列表卡的同一组件（块与样式同源）', () => {
+  const inbox = readSource('web/src/pages/CognitionCenter.tsx');
+
+  // 判据一律基于**剥注释后的代码**：文件里的历史说明会提到被替换掉的旧写法
+  // （如「此前用裸列表 + workCaseCheckStatement」），那是记录、不是实现。
+  // 本条首版没剥注释，于是「删掉共享组件」的变异**逃逸**（注释里仍有该字样）。
+  const code = inbox
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  // ① 待决定事项（closure_confirmation）用 WorkCaseResultDraft，并传齐四组数据
+  assert.match(code, /<WorkCaseResultDraft/, '待决定事项须复用列表卡的核对/残留/去向组件');
+  for (const prop of ['checks={item.card.result_checks}', 'advice={item.card.advice}',
+                      'residual={item.card.result_residual}', 'adviceNote={item.card.advice_note}']) {
+    assert.ok(code.includes(prop), `待决定事项须传 ${prop}（否则该块在聚焦卡上缺失）`);
+  }
+
+  // ② 推进中事项用 WorkCaseExecFlow（不是自拼 attempt + plan）
+  assert.match(code, /<WorkCaseExecFlow/, '推进中事项须复用列表卡的变更流水组件');
+
+  // ③ 反向：不得再自行拼装 —— 这两处不该出现裸判据列表或证据长句
+  assert.doesNotMatch(code, /workCaseCheckStatement/, '聚焦卡不得再用「已满足 · <证据长句>」形态');
+  assert.doesNotMatch(code, /criteria_checks\.map/, '聚焦卡不得自行拼 criteria_checks 列表');
 });
 
 // 判据面板四边同为 1px 细线（Human 定案 2026-09-24：「左侧 2 像素的粗边框不要，

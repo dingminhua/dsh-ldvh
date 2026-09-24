@@ -40,8 +40,9 @@ import {
   type ObjectItem,
 } from '@/utils/api';
 import { WorkCaseCriteriaList, WORKCASE_CRITERIA_SURFACE_CLASS } from '@/components/WorkCaseCriteriaList';
+import WorkCaseExecFlow from '@/components/WorkCaseExecFlow';
 import WorkCaseGistLine from '@/components/WorkCaseGistLine';
-import { workCaseCheckStatement } from '@/utils/workcaseCheckState';
+import WorkCaseResultDraft from '@/components/WorkCaseResultDraft';
 import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { useI18n } from '@/i18n/context';
@@ -202,7 +203,8 @@ function InboxItemReadNotes({ item, locale }: { item: CognitionCardItem; locale:
   );
 }
 
-function InboxCardContent({ item, t }: { item: CognitionInboxItem; t: Translate }) {
+// `t` 已不再是本函数的依赖：改用共享组件后不再在此拼接文案（Human 2026-09-24）。
+function InboxCardContent({ item }: { item: CognitionInboxItem }) {
   if (item.type === 'pitfall') return <PitfallCardContent obj={toObjectCard(item)} />;
   if (item.inboxKind === 'plan_confirmation') {
     return (
@@ -220,25 +222,26 @@ function InboxCardContent({ item, t }: { item: CognitionInboxItem; t: Translate 
     );
   }
   if (item.inboxKind === 'closure_confirmation') {
+    // Human 2026-09-24：「聚焦里，待决定事项中的 wc card…保持与 wc card 一样的显示」。
+    //
+    // 此前本分支**另写一套**：outcome chip + `criteria_checks` 纯列表 + `gate_1` 行。
+    // 与列表卡的差异不只是样式——**块的选择就不同**：列表卡有核对/残留/去向三块
+    // （残留与去向在本分支**完全缺失**），且核对用的是带三态标记与分割线的
+    // `WorkCaseResultDraft`，而本分支用裸列表 + `workCaseCheckStatement`（证据长句，
+    // 实测最长 258 字，正是列表卡早已废弃的形态）。
+    //
+    // 现改用**同一个组件**：块、标记、分割线、折叠阈值全部同源；`gate_1` 行归详情面
+    // （列表卡亦不在卡体显示）。聚焦卡的外层结构（`ObjectCardFrame` 等）不变。
     return (
       <div className="grid min-w-0 gap-2">
         <WorkCaseGistLine gist={item.card.gist} group="awaiting_gate2" boxed />
-        {item.card.outcome ? (
-          <p className="ldvh-card-decision-body">
-            <span className="ldvh-chip">{t(`objectList.workcaseOutcome.${item.card.outcome}`)}</span>
-          </p>
-        ) : null}
-        {item.card.result?.criteria_checks && item.card.result.criteria_checks.length > 0 ? (
-          <div className={WORKCASE_CRITERIA_SURFACE_CLASS}>
-            <WorkCaseCriteriaList
-            density="card"
-              items={item.card.result.criteria_checks.map((c, index) => ({ key: String(index), statement: workCaseCheckStatement(c, t) }))}
-            />
-          </div>
-        ) : null}
-        {item.card.gate_1 ? (
-          <p className="ldvh-caption">{t('objectList.workcaseGate1', { approver: item.card.gate_1.approver ?? '—', approvedAt: item.card.gate_1.approved_at ?? '—' })}</p>
-        ) : null}
+        <WorkCaseResultDraft
+          plan={item.card.plan}
+          checks={item.card.result_checks}
+          advice={item.card.advice}
+          adviceNote={item.card.advice_note}
+          residual={item.card.result_residual}
+        />
       </div>
     );
   }
@@ -267,7 +270,7 @@ function toObjectCard(item: CognitionCardItem): ObjectItem {
 }
 
 function ActiveWorkCaseItemRow({ item }: { item: CognitionActiveWorkCaseItem }) {
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
   const { openPanel } = usePanel();
   const title = getLocalizedObjectTitle(item, locale, item.id);
   const objectCard = toObjectCard(item);
@@ -283,23 +286,19 @@ function ActiveWorkCaseItemRow({ item }: { item: CognitionActiveWorkCaseItem }) 
       >
         <div className="grid min-w-0 gap-2">
           {/* 10 §5.5 登记「聚焦收件箱卡体（待决定事项 / 推进中事项）」两处都渲染 gist。
-              本行是「推进中事项」，此前只渲染 attempt 与 plan——卡体没有 Human 向
-              文本。它与下方 InboxCardContent 是同一呈现契约的两个落点，不得只改一处。 */}
+              本行是「推进中事项」。它与下方 InboxCardContent 是同一呈现契约的两个落点，
+              不得只改一处。 */}
           <WorkCaseGistLine gist={item.card.gist} group="executing" boxed />
-          {item.card.attempt ? (
-            <p className="ldvh-card-decision-body">
-              {t('objectList.workcaseAttemptController', { controller: item.card.attempt.controller ?? '—' })}
-              {item.card.attempt.heartbeat_at ? ` · ${item.card.attempt.heartbeat_at}` : ''}
-            </p>
-          ) : null}
-          {Array.isArray(item.card.plan) && item.card.plan.length > 0 ? (
-            <div className={WORKCASE_CRITERIA_SURFACE_CLASS}>
-              <WorkCaseCriteriaList
-            density="card"
-                items={item.card.plan.map((step, index) => ({ key: String(index), statement: step.step ?? '' }))}
-              />
-            </div>
-          ) : null}
+          {/* Human 2026-09-24：「推进中事项的 wc card，保持与 wc card 一样的显示」。
+              此前本处用 attempt 行 + 计划清单，与列表卡的「变更流水」不同——
+              **块的选择就不同**，不是样式差异。现改用同一个组件 `WorkCaseExecFlow`
+              （复核/修订标记的口径全部来自 shared/workcaseLifecycle，本组件不自行判断）。
+              attempt 的控制者与心跳归详情面（列表卡亦不在卡体显示）。 */}
+          <WorkCaseExecFlow
+            changeLog={item.card.change_log}
+            reviews={item.card.reviews}
+            selfUid={item.id}
+          />
         </div>
         <InboxItemReadNotes item={item} locale={locale} />
       </ObjectCardFrame>
@@ -308,7 +307,7 @@ function ActiveWorkCaseItemRow({ item }: { item: CognitionActiveWorkCaseItem }) 
 }
 
 function InboxItemRow({ item }: { item: CognitionInboxItem }) {
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
   const { openPanel } = usePanel();
   const title = getLocalizedObjectTitle(item, locale, item.id);
   const objectCard = toObjectCard(item);
@@ -321,10 +320,7 @@ function InboxItemRow({ item }: { item: CognitionInboxItem }) {
         onOpen={() => openPanel({ type: 'object', title, objectType: item.type, objectId: item.id })}
         displayStatus={item.type === 'workcase' ? item.group : undefined}
       >
-        <InboxCardContent
-          item={item}
-          t={t}
-        />
+        <InboxCardContent item={item} />
         <InboxItemReadNotes item={item} locale={locale} />
       </ObjectCardFrame>
     </li>

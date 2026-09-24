@@ -400,6 +400,15 @@ export interface CognitionInboxCard extends Record<string, unknown> {
   result?: WorkCaseResult;
   outcome?: WorkCaseV5Outcome;
   gate_1?: WorkCaseGate1;
+  // 以下四项供聚焦卡体与列表卡**共用同一组件**（Human 2026-09-24：聚焦两处 WC 卡
+  // 「保持与 wc card 一样的显示」）。此前聚焦另写一套、只读 `result.criteria_checks`，
+  // 故残留与去向在聚焦卡上完全缺失。字段由服务端投影一并给出（实测已在响应里）。
+  result_checks?: WorkCaseDraftCheck[];
+  result_residual?: string[];
+  advice?: WorkCaseDraftAdvice[];
+  advice_note?: string;
+  change_log?: unknown[];
+  reviews?: WorkCaseReviewEntry[];
 }
 
 interface CognitionInboxItemBase {
