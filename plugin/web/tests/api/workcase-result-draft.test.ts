@@ -28,7 +28,7 @@ test('闭集常量', () => {
   assert.deepEqual([...WORKCASE_CHECK_STATUSES], ['achieved', 'partial', 'not-achieved']);
   assert.deepEqual(
     [...WORKCASE_ADVICE_KINDS],
-    ['另立工单', '补录', '更正', '接受现状', '改进'],
+    ['另立工单', '接受现状', '转入 Spark', '直接行动'],
   );
 });
 
@@ -95,12 +95,12 @@ test('advice 段：`- advice:` 内每条给去向与内容', () => {
   const body = bodyOf([
     '- advice:',
     '  - **另立工单**：另立一单实现级联信号。',
-    '  - **改进**：建议改为 fail-closed。',
+    '  - **直接行动**：把该分支改为 fail-closed。',
   ]);
   const d = parseWorkCaseResultDraft(body, PLAN);
   assert.deepEqual(d.advice, [
     { kind: '另立工单', text: '另立一单实现级联信号。', from: null },
-    { kind: '改进', text: '建议改为 fail-closed。', from: null },
+    { kind: '直接行动', text: '把该分支改为 fail-closed。', from: null },
   ]);
 });
 
@@ -147,13 +147,13 @@ test('advice 段判别力：去向词必须在行首加粗，否则记未归类'
   const body = bodyOf([
     '- advice:',
     '  - 建议另立工单补该路由的投影。',
-    '  - **改进**：建议改为 fail-closed。',
+    '  - **直接行动**：把该分支改为 fail-closed。',
   ]);
   const d = parseWorkCaseResultDraft(body, PLAN);
   assert.deepEqual(d.advice, [
     // 无加粗行首 → 判不出去向（旧实现按关键词猜成「另立工单」，已按 21 §8 收紧）
     { kind: null, text: '建议另立工单补该路由的投影。', from: null },
-    { kind: '改进', text: '建议改为 fail-closed。', from: null },
+    { kind: '直接行动', text: '把该分支改为 fail-closed。', from: null },
   ]);
 });
 
