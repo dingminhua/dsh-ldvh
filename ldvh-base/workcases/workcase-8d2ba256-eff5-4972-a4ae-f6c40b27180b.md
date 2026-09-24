@@ -32,7 +32,7 @@ attempt:
   attempt_id: 2
   started_at: 2026-09-17T08:00:20.335Z
   controller: deepseek-v4.1-flash@dsh-ldvh-session
-  heartbeat_at: 2026-09-23T19:05:35.697Z
+  heartbeat_at: 2026-09-24T02:48:24.820Z
 reviews:
   - at: 2026-09-22T14:50:15.622Z
     provider: workbuddy
@@ -68,6 +68,10 @@ change_log:
     provider: deepseek-official
     model: deepseek-flash
     summary: 结果节新增 `- advice:` 建议段，并按 21 §8 把原先写在 residual 条目内的「建议…」子句移入该段（建议只有一处正文承载） [attempt 2 heartbeat refreshed]
+  - at: 2026-09-24T02:48:24.820Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 格式治理：建议去向词按 21 §8 新闭集四词归一（更正/改进/补录 → 直接行动），措辞与语义未变 [attempt 2 heartbeat refreshed]
 ---
 
 # C2 授权校验与 rebatch×reviews 处置
@@ -124,6 +128,6 @@ change_log:
 - advice:
   - **另立工单**：另立一单，其前置为「先实现 25 §11 的级联信号」。出自「缺口 A 未修复，且已确认其在现有实现下不可机械判定」
   - **另立工单**：与缺口 A 合并另立一单——「阻断绕过」的真正落点在关闭侧而非重批侧。出自「cancel（draft→closed）不校验 reviews」
-  - **改进**：把 gate_1 缺失时的 C2 校验由 fail-open 改为 fail-closed。出自「gate_1 缺失时 C2 校验 fail-open」
-  - **补录**：后续清理时把「缺口 A 与 cancel 侧」的另立单对象号（4005b67b）与「§14 同步」的另立单对象号（81c37ef0）一并登记，便于追溯。出自「独立复核补充项（2026-09-18）」
+  - **直接行动**：把 gate_1 缺失时的 C2 校验由 fail-open 改为 fail-closed。出自「gate_1 缺失时 C2 校验 fail-open」
+  - **直接行动**：后续清理时把「缺口 A 与 cancel 侧」的另立单对象号（4005b67b）与「§14 同步」的另立单对象号（81c37ef0）一并登记，便于追溯。出自「独立复核补充项（2026-09-18）」
 

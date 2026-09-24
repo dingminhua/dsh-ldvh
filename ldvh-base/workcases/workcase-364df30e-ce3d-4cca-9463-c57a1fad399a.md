@@ -40,7 +40,7 @@ attempt:
   attempt_id: 1
   started_at: 2026-09-17T07:58:10.850Z
   controller: deepseek-v4.1-flash@dsh-ldvh-session
-  heartbeat_at: 2026-09-23T19:05:35.678Z
+  heartbeat_at: 2026-09-24T02:48:24.800Z
 reviews:
   - at: 2026-09-22T14:50:15.593Z
     provider: workbuddy
@@ -80,6 +80,10 @@ change_log:
     provider: deepseek-official
     model: deepseek-flash
     summary: 结果节新增 `- advice:` 建议段，并按 21 §8 把原先写在 residual 条目内的「建议…」子句移入该段（建议只有一处正文承载） [attempt 1 heartbeat refreshed]
+  - at: 2026-09-24T02:48:24.800Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 格式治理：建议去向词按 21 §8 新闭集四词归一（更正/改进/补录 → 直接行动），措辞与语义未变 [attempt 1 heartbeat refreshed]
 ---
 
 # WorkCase 呈现保真与设计语言收敛
@@ -151,5 +155,5 @@ change_log:
 
 - advice:
   - **另立工单**：以同一手法普查其余六类阅读布局是否存在同类「按错误类型判定致字段静默丢弃」缺陷。出自「同型缺陷未普查其余六类」
-  - **更正**：在后续 docs 清理批次顺手更正该归档文档对已删除文件的列举。出自「docs/archive/v4-web-migration-survey.md 仍列举已删除的 workcaseDetailProjection.ts」
+  - **直接行动**：在后续 docs 清理批次顺手更正该归档文档对已删除文件的列举。出自「docs/archive/v4-web-migration-survey.md 仍列举已删除的 workcaseDetailProjection.ts」
 
