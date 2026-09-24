@@ -8,6 +8,7 @@ import type {
 import {
   WORKCASE_CHECK_TAG_BASE,
   WORKCASE_CHECK_TAG_CLASS,
+  workCaseAdviceTagClass,
   workCaseCheckLabelFor,
   workCaseDraftCheckRows,
 } from '@/utils/workcaseCheckState';
@@ -68,17 +69,17 @@ export default function WorkCaseResultDraft({
         </div>
       )}
 
+      {/* 块底中性：标记已是四色，底再带靛蓝会让「另立工单」的蓝标记与底色混淆 */}
       {advices.length > 0 && (
-        <div className="min-w-0 rounded-md border border-ldvh-border bg-indigo-500/[0.045] px-2.5 py-2 dark:bg-indigo-500/[0.1]">
+        <div className="min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/45 px-2.5 py-2">
           {advices.map((item, index) => (
             <div
               key={`${item.kind ?? 'other'}-${index}`}
               data-workcase-advice-kind={item.kind ?? 'unclassified'}
               className="border-t border-ldvh-border/60 py-1.5 first:border-t-0 first:pt-0.5 ldvh-caption text-ldvh-text-primary"
             >
-              <span
-                className={`${WORKCASE_CHECK_TAG_BASE} border-indigo-600/45 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300`}
-              >
+              {/* 四色按去向区分（21 §8 闭集四词）——色值取自共享表，不在此硬编码 */}
+              <span className={`${WORKCASE_CHECK_TAG_BASE} ${workCaseAdviceTagClass(item.kind)}`}>
                 {item.kind
                   ? t(`objectList.workcaseAdvice.${item.kind}` as LocaleKey)
                   : t('objectList.workcaseAdvice.unclassified')}

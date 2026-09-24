@@ -664,3 +664,43 @@ test('阅读节点内纯文本与 Markdown 两种正文须同层级 (统一设�
     '全局取值须保持 13px——本项只对齐「阅读节点壳内」这一处，不波及阅读面板的 mono 元信息',
   );
 });
+
+// 建议去向的四色区分（Human 2026-09-24）：四个去向各用一种颜色，扫读可分辨。
+//
+// 为什么需要守卫：设计语言有「着色必须单一来源，不得在业务组件里硬编码颜色类」
+// 的纪律（本文件上方已有同类断言）。四去向色是**分类色**，按同一纪律办——色表只在
+// `workcaseCheckState` 单点，组件只消费。故此处断言三件事：
+//   ① 色表在共享模块，且四词各有一个色类；
+//   ② 四个色类**两两不同**（否则「四色区分」名存实亡）；
+//   ③ 组件不自行硬编码建议标记的颜色（只经共享函数取色）。
+test('建议去向四词各有一色，且四色互不相同（Human 2026-09-24）', () => {
+  const stateModule = readSource('web/src/utils/workcaseCheckState.ts');
+  const draft = readSource('web/src/components/WorkCaseResultDraft.tsx');
+
+  // ① 四词齐全（与 21 §8 闭集四词一致）
+  for (const kind of ['另立工单', '接受现状', '转入 Spark', '直接行动']) {
+    assert.match(
+      stateModule,
+      new RegExp(`'${kind}':\\s*'[^']+'`),
+      `色表必须为去向「${kind}」登记色类`,
+    );
+  }
+  // ② 四色两两不同：把色表里的四段 value 抽出来比对
+  const pairs = [...stateModule.matchAll(/'(另立工单|接受现状|转入 Spark|直接行动)':\s*'([^']+)'/g)]
+    .map((m) => [m[1], m[2]] as const);
+  assert.equal(pairs.length, 4, `色表应恰好覆盖四词，实际 ${pairs.length}`);
+  const values = pairs.map(([, v]) => v);
+  assert.equal(new Set(values).size, 4, `四个去向的色类必须互不相同，实际：${JSON.stringify(values)}`);
+
+  // ③ 组件只经共享函数取色，不自行硬编码建议标记的颜色
+  assert.match(draft, /workCaseAdviceTagClass/, '组件必须经共享函数取去向色');
+  // 判据取「组件源码里不得出现任何 tailwind 色类」——比按具体色名断言强：
+  // 后者只挡住「改回同一个 indigo」，挡不住「换成另一个硬编码色」。
+  const colorClass = /\b(?:border|bg|text)-(?:indigo|blue|lime|stone|fuchsia|emerald|amber|red|rose|violet|slate|gray|sky|teal|cyan|purple|orange|yellow|green|pink)-\d{2,3}(?:\/\d+)?/g;
+  const hits = (draft.match(colorClass) ?? []).filter((cls) => !cls.includes('ldvh-'));
+  assert.deepEqual(
+    hits,
+    [],
+    `组件不得硬编码 tailwind 色类（须经共享色表），实际出现：${JSON.stringify(hits)}`,
+  );
+});

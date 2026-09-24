@@ -112,6 +112,46 @@ export function workCaseCheckChipClass(satisfied: boolean | undefined): string {
 }
 
 /**
+ * 建议去向的四色标记（`21 §8` 闭集四词，Human 2026-09-24 定）。
+ *
+ * **为什么四词要四色**：此前四个去向共用同一靛蓝，读者必须读完文字才知道去向不同——
+ * 而它们语义差别很大（另立对象／就地处置／不跟踪／悬置待裁）。四色使扫读窗口内
+ * 一眼可分辨。
+ *
+ * **为什么色表放在这里**（设计语言纪律，`docs/10`：「着色必须单一来源，不得在业务
+ * 组件里硬编码颜色类」）：该纪律原文针对**状态色**（同一状态不得两处不同色）；
+ * 本表是**分类色**，性质略不同，但按同一纪律办——色值只此一处，组件只消费。
+ *
+ * **配色依据（色环校验，实测）**：卡面上同时可见的语义色已有五个——核对三词
+ * （达成 emerald 160°／部分达成 amber 32°／未达成 red 0°）、目标块 violet 258°、
+ * 残留块 amber。故先算可用空档（距上述各色 ≥40° 的区域仅 75–120°／200–215°／
+ * 300–320° 三段），再从空档取色。四色两两间距：另立工单↔直接行动 136°、
+ * 另立工单↔转入 Spark 72°、直接行动↔转入 Spark 152°；「接受现状」取中性色，
+ * 与所有彩色天然区分。与核对三词最近的一对是「直接行动 85° ↔ 达成 160°」差 75°，
+ * 不会误读为「已完成」。
+ */
+export const WORKCASE_ADVICE_TAG_CLASS: Record<string, string> = {
+  // 蓝：与 workcase 类型色同族——「转为新工单」
+  '另立工单': 'border-blue-600/45 bg-blue-500/10 text-blue-700 dark:text-blue-300',
+  // 黄绿：推进感；与「达成」绿拉开 75°，不误读为已完成
+  '直接行动': 'border-lime-700/45 bg-lime-500/10 text-lime-800 dark:text-lime-300',
+  // 中性石：「明确不跟踪」＝不强调
+  '接受现状': 'border-stone-500/45 bg-stone-500/10 text-stone-600 dark:text-stone-300',
+  // 品红：「悬置待裁」；与紫目标块拉开 35°
+  '转入 Spark': 'border-fuchsia-600/45 bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300',
+};
+
+/** 去向标记的兜底形态（未归类，或闭集之外的写法）。 */
+export const WORKCASE_ADVICE_TAG_FALLBACK_CLASS =
+  'border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary';
+
+/** 去向词 → 标记形态类。未知去向回落到中性兜底（不猜、不套用某个已知色）。 */
+export function workCaseAdviceTagClass(kind: string | null | undefined): string {
+  if (typeof kind !== 'string' || kind.length === 0) return WORKCASE_ADVICE_TAG_FALLBACK_CLASS;
+  return WORKCASE_ADVICE_TAG_CLASS[kind] ?? WORKCASE_ADVICE_TAG_FALLBACK_CLASS;
+}
+
+/**
  * 列表卡与收件箱的紧凑判据行：「可读状态 · 依据」。
  * 详情走 chip + 依据的完整形态；两处共享同一状态映射，不各自拼字符串。
  */
