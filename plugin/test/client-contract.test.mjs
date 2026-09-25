@@ -47,6 +47,19 @@ test("uses the WorkBuddy client registration and degradation pattern", () => {
 	assert.ok(!source.includes('"connection"]'), "settings card must not inject unused connection service");
 });
 
+test("resolves the served settings namespace instead of assuming the bare id", () => {
+	// dsh-connect-workbuddy 2.0.16 同款坑：0.1.7 的 configForms.get() 对宿主
+	// served-namespace 目录做**精确匹配**，而桌面宿主以 `include:<包名>` 挂载
+	// Loader 条目。硬编码 `dsh-ldvh` 会让设置卡绑定到无人服务的命名空间
+	// （status: unavailable，静默失效、不报错）。必须先从 describe() 的 mirror
+	// 探测实际服务的 ns，声明常量只作 mirror 未就绪时的兜底。
+	assert.ok(source.includes('function ldvhEntryIdOf(forms)'), "must probe the served namespace from the configForms mirror");
+	assert.ok(source.includes('forms.describe().getSnapshot().view'), "probe reads the served-namespace directory from the mirror");
+	assert.ok(source.includes('entry.ns === LDVH_ENTRY_ID || /ldvh/i.test(entry.ns || "")'), "probe accepts the declared id or a package-name substring");
+	assert.ok(!source.includes('configForms.get(LDVH_ENTRY_ID)'), "must not call get() with the bare declared id — bind the probed ns instead");
+	assert.ok(source.includes('configForms.get(ldvhEntryIdOf(formsCtx.configForms))'), "both bind sites must go through the resolver");
+});
+
 test("uses the real package icon and a renamed chevron primitive with a fallback", () => {
 	assert.ok(source.includes('data:image/png;base64,'));
 	// 0.1.7 起图标导出族由尺寸后缀改为粗细语义后缀（调研 §4.3 致命点 B）：

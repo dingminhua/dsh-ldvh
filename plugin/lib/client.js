@@ -187,14 +187,35 @@ window.__ModuleLoader__.load({
 
     // ── locale ───────────────────────────────────────────────────────────
     var LDVH_NS = "settings.ldvh";
-    // profile 里本插件的 Loader 条目 id（cordis.patch.yml 的 insert id）。
-    // 0.1.7 起设置表单按条目 id 寻址：ctx.configForms.get(<entry id>)。
+    // 本插件声明的 Loader 条目 id（cordis.patch.yml 的 insert id）。0.1.7 起
+    // 设置表单按【宿主服务的】条目 id 寻址：ctx.configForms.get(<entry id>)，
+    // 宿主对 served-namespace 目录做**精确匹配**。声明值只是兜底——桌面宿主
+    // 实际以 `include:dsh-ldvh` 挂载（dsh-connect-workbuddy 2.0.16 同款坑：
+    // 硬编码短名会让设置卡绑定到无人服务的命名空间，status: unavailable 静默
+    // 失效、不报错）。真实 id 由 ldvhEntryIdOf() 从 mirror 服务目录探测。
     var LDVH_ENTRY_ID = "dsh-ldvh";
     // npm 包名（plugins.bundle.config 的键；与 dsh-connect-workbuddy 同款）。
     var LDVH_PACKAGE_NAME = "dsh-ldvh";
     // Plugins 页 plugins.row.config 的键：`<包名>#<行 id>`，两者在本包里都是
     // dsh-ldvh（cordis.patch.yml 的 bundle 名与 insert id）。
     var LDVH_ROW_CONFIG_KEY = "dsh-ldvh#dsh-ldvh";
+
+    // 探测宿主实际服务的命名空间（dsh-connect-workbuddy 2.0.16 同款范式）：
+    // configForms.get() 与 mirror 的 served-namespace 目录按**精确匹配**对表，
+    // 猜错名字会让设置卡绑定到无人服务的命名空间（静默 unavailable）。先从
+    // forms.describe() 的服务目录里找「等于声明 id、或含包名」的条目取它的
+    // ns；mirror 未就绪（view 未填充 / describe 缺失）时回落到声明常量。
+    function ldvhEntryIdOf(forms) {
+      try {
+        var view = forms.describe().getSnapshot().view;
+        var namespaces = (view && view.namespaces) || [];
+        var served = namespaces.find(function (entry) {
+          return entry.ns === LDVH_ENTRY_ID || /ldvh/i.test(entry.ns || "");
+        });
+        if (served !== undefined && typeof served.ns === "string" && served.ns !== "") return served.ns;
+      } catch (error) { /* mirror 未就绪：声明 id 仍正确 */ }
+      return LDVH_ENTRY_ID;
+    }
     var LDVH_ZH = {
       "row.title": "LD Vibe Harness（dsh-ldvh）",
       "row.desc": "在 DSH 中管理 LDVH 管辖项目、Git Gate 与 Web 呈现。",
@@ -1014,9 +1035,10 @@ window.__ModuleLoader__.load({
         // 旧：ctx.settingsScope.bind({namespace}) → scope.set(key, value)；
         // 新：ctx.configForms.get(<entry id>) → SettingsFormScope，读法不变
         // （getSnapshot / subscribe），写改为一次带 revision fence 的 mutate。
-        // 条目 id 由 cordis.patch.yml 的 insert id 决定（此处 = "dsh-ldvh"）。
+        // 条目 id 取宿主实际服务的那个（ldvhEntryIdOf 探测，桌面宿主为
+        // `include:dsh-ldvh`——硬编码短名会绑定到无人服务的命名空间）。
         ctx.inject(["configForms"], function (formsCtx) {
-          var ldvhScope = formsCtx.configForms.get(LDVH_ENTRY_ID);
+          var ldvhScope = formsCtx.configForms.get(ldvhEntryIdOf(formsCtx.configForms));
           var rowInjected = function () {
             return { t: t, settingsScope: ldvhScope, directoryPicker: ctx.get("remote.directoryPicker") };
           };
@@ -1115,7 +1137,7 @@ window.__ModuleLoader__.load({
         // 订阅设置变更：ready 前静默等待；每次快照变化（含首次 ready）应用投放开关。
         // 挂在 configForms 的子 fiber 上（服务缺失时整块不执行，投放面停在默认全开）。
         ctx.inject(["configForms"], function (formsCtx) {
-          var ldvhScope = formsCtx.configForms.get(LDVH_ENTRY_ID);
+          var ldvhScope = formsCtx.configForms.get(ldvhEntryIdOf(formsCtx.configForms));
           formsCtx.effect(function () {
             return ldvhScope.subscribe(function () {
               var snap = ldvhScope.getSnapshot();
