@@ -1,17 +1,27 @@
 // dsh-ldvh — LD Vibe Harness client-plane plugin.
 //
-// Registers two contributions:
-//   1. settings.plugin.item (keyed "dsh-ldvh")  — the plugin settings card:
-//      governed-project management, default governance directory, route switch.
+// Registers three contributions:
+//   1. plugins.item (list "dsh-ldvh")  — the plugin settings card on the
+//      Plugins page: governed-project management, default governance
+//      directory, route switch. (Was `settings.plugin.item` before DSH 0.1.7
+//      removed that keyed slot — 调研报告 §3.3.)
 //   2. conversation.view (list/session "ldvh")   — the LDVH view tab beside
 //      chat / trajectory in the conversation header; clicking it renders the
 //      LDVH Web in the session body (iframe /ldvh/ with loading / error /
 //      retry states).
+//   3. betterSidebar tab "dsh-ldvh:web" (soft-injected) — the same Web in the
+//      right sidebar, when a better-sidebar service is present.
 //
 // Presentation decision (Human-confirmed): LDVH renders like
 // thinking/context/trajectory — a session-scoped view inside the conversation
 // area — NOT a sidebar entry + fullscreen overlay. The conversation.view
 // registration mirrors dsh-client-ui-trajectory.
+//
+// Settings transport (DSH 0.1.7+): the removed `ctx.settingsScope` is replaced
+// by `ctx.configForms.get(<profile entry id>)`; the write path changed from
+// `scope.set(key, value)` to a revision-fenced `scope.mutate(ops, revision)`.
+// configForms is injected SOFTLY — without it the placements still mount
+// (default-on) and the settings card is simply absent.
 //
 // Plain JS only (no bundler transform): React.createElement, CSS injected as a
 // style tag, locale registered per namespace.
@@ -22,7 +32,15 @@ window.__ModuleLoader__.load({
     var React = require("react");
     var primitives = require("@deepseek-ai/dsh-client-ui-primitives");
     var Toast = primitives.Toast;
-    var IconChevronDownOutline14 = primitives.IconChevronDownOutline14;
+    // ── 图标族适配（DSH 0.1.7 起重命名）──────────────────────────────────
+    // 旧命名以尺寸为后缀（IconChevronDownOutline14），新命名改为粗细语义后缀
+    // （IconChevronDownOutlineRegular / …Medium；包内导出 75 → 186）。按名探测
+    // 取第一个可用的，全缺失时由使用点渲染自绘字形——把 undefined 直接交给
+    // React.createElement 会在渲染期抛错（调研报告 §4.3 致命点 B）。
+    var IconChevronDown = primitives.IconChevronDownOutlineRegular
+      || primitives.IconChevronDownOutlineMedium
+      || primitives.IconChevronDownOutline14
+      || null;
 
     // ── icon: the real 64px LDVH package icon, matching WorkBuddy's pattern ──
     var LDVH_ICON = "data:image/png;base64,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";
@@ -169,6 +187,14 @@ window.__ModuleLoader__.load({
 
     // ── locale ───────────────────────────────────────────────────────────
     var LDVH_NS = "settings.ldvh";
+    // profile 里本插件的 Loader 条目 id（cordis.patch.yml 的 insert id）。
+    // 0.1.7 起设置表单按条目 id 寻址：ctx.configForms.get(<entry id>)。
+    var LDVH_ENTRY_ID = "dsh-ldvh";
+    // npm 包名（plugins.bundle.config 的键；与 dsh-connect-workbuddy 同款）。
+    var LDVH_PACKAGE_NAME = "dsh-ldvh";
+    // Plugins 页 plugins.row.config 的键：`<包名>#<行 id>`，两者在本包里都是
+    // dsh-ldvh（cordis.patch.yml 的 bundle 名与 insert id）。
+    var LDVH_ROW_CONFIG_KEY = "dsh-ldvh#dsh-ldvh";
     var LDVH_ZH = {
       "row.title": "LD Vibe Harness（dsh-ldvh）",
       "row.desc": "在 DSH 中管理 LDVH 管辖项目、Git Gate 与 Web 呈现。",
@@ -576,9 +602,18 @@ window.__ModuleLoader__.load({
         if (!snap || snap.status !== "ready" || snap.writable === false || busyState[0]) return;
         busyState[1](true);
         Promise.resolve()
-          .then(function () { return scope.set("webEnabled", !!enabledState[0]); })
-          .then(function () { return scope.set("showInConversationTab", !!convTabState[0]); })
-          .then(function () { return scope.set("showInSidebarTab", !!sidebarTabState[0]); })
+          // 0.1.7 的 SettingsFormScope 没有 set(key, value)：改写为一次带
+          // revision fence 的原子 mutate（旧实现是三次独立写入，见调研 §3.2/§3.3）。
+          .then(function () {
+            return scope.mutate([
+              { op: "set", path: ["webEnabled"], value: !!enabledState[0] },
+              { op: "set", path: ["showInConversationTab"], value: !!convTabState[0] },
+              { op: "set", path: ["showInSidebarTab"], value: !!sidebarTabState[0] }
+            ], snap.revision);
+          })
+          .then(function (accepted) {
+            if (accepted === false) throw new Error("LDVH 设置写入被宿主拒绝");
+          })
           .then(function () {
             busyState[1](false);
             dirtyState[1](false);
@@ -825,9 +860,21 @@ window.__ModuleLoader__.load({
     }
 
     // ── settings card (collapsible, default collapsed) ───────────────────
+    /**
+     * Plugins 页 row.config 的设置卡。
+     *
+     * 页面按 `view` 请求两种形态（官方 ui-plugin-manager 契约）：
+     *   - `'page'`    → 带自己保存控件的完整表单（本插件的折叠卡片）；
+     *   - `'summary'` → 一行的说明文本，仅在**缺少包描述**时用作该行详情页的
+     *                  兜底说明，因此这里只回一行文案，不渲染表单。
+     * 两种形态都从注册时声明的 `locale` + 自己的 `inject` face 取文案与作用域。
+     */
     function LdvhSettingsCard(props) {
-      var openState = React.useState(false);
       var t = props.t;
+      if (props.view === "summary") return t("row.desc");
+      // 与 dsh-connect-workbuddy 同款：`page` 形态（bundle.config / row.config 的
+      // 详情页）默认展开，用户一进来就看到内容，不必再点开（层级更浅）。
+      var openState = React.useState(true);
       var title = t("row.title");
       return React.createElement("li", { className: "ldv-settings-card" + (openState[0] ? " ldv-settings-card-open" : "") },
         React.createElement("button", {
@@ -843,7 +890,7 @@ window.__ModuleLoader__.load({
             React.createElement("span", { className: "ldv-settings-card-desc" }, t("row.desc"))
           ),
           React.createElement("span", { className: "ldv-settings-card-chevron" + (openState[0] ? " ldv-settings-card-chevron-open" : ""), "aria-hidden": "true" },
-            React.createElement(IconChevronDownOutline14, { size: 14 })
+            IconChevronDown ? React.createElement(IconChevronDown, { size: 14 }) : React.createElement("span", { className: "ldv-settings-card-caret" }, "\u25be")
           )
         ),
         React.createElement("div", { className: "ldv-settings-card-body", hidden: !openState[0] },
@@ -950,7 +997,10 @@ window.__ModuleLoader__.load({
     }
 
     // ── apply: inject the contributions ──────────────────────────────────
-    var inject = ["slots", "locale", "settingsScope"];
+    // settingsScope 已从 DSH 0.1.7 删除（调研 §3.3），因此不再列入硬注入——
+    // 留在 inject 里会让整个客户端插件永不 apply（服务永远等不到）。替代品
+    // configForms 走 ctx.inject 软注入：缺失时设置卡不注册，插件照常工作。
+    var inject = ["slots", "locale"];
 
     function apply(ctx) {
       try {
@@ -959,19 +1009,38 @@ window.__ModuleLoader__.load({
         }, "dsh-ldvh: settings copy");
 
         var t = ctx.locale.bind(LDVH_NS);
-        var ldvhScope = ctx.settingsScope.bind({ namespace: "dsh-ldvh" });
-        var rowInjected = function () {
-          return { t: t, settingsScope: ldvhScope, directoryPicker: ctx.get("remote.directoryPicker") };
-        };
 
-        // 1) settings card: match dsh-connect-workbuddy's keyed contribution.
-        ctx.slots.inject("settings.plugin.item", function () {
-          return ctx.slots.register({
-            name: "settings.plugin.item",
-            key: "dsh-ldvh",
-            priority: 30,
-            inject: rowInjected
-          }, LdvhSettingsCard);
+        // ── 设置面（0.1.7 起）────────────────────────────────────────────
+        // 旧：ctx.settingsScope.bind({namespace}) → scope.set(key, value)；
+        // 新：ctx.configForms.get(<entry id>) → SettingsFormScope，读法不变
+        // （getSnapshot / subscribe），写改为一次带 revision fence 的 mutate。
+        // 条目 id 由 cordis.patch.yml 的 insert id 决定（此处 = "dsh-ldvh"）。
+        ctx.inject(["configForms"], function (formsCtx) {
+          var ldvhScope = formsCtx.configForms.get(LDVH_ENTRY_ID);
+          var rowInjected = function () {
+            return { t: t, settingsScope: ldvhScope, directoryPicker: ctx.get("remote.directoryPicker") };
+          };
+          // 设置卡：与 dsh-connect-workbuddy 同款双注册——plugins.bundle.config
+          //（key = 包名）在 bundle 详情页「描述与行之间」**直接展开**配置卡，
+          // 不再需要点行上的「配置」控件（用户反馈层级太深的直接原因）；同时保留
+          // plugins.row.config（key = `<包名>#<行 id>`）作为行级配置入口。两个槽位
+          // 各自 try/catch：任一注册失败不影响另一个，宿主其余部分照常工作。
+          var registerCard = function (slotName, key) {
+            try {
+              formsCtx.slots.inject(slotName, function () {
+                return formsCtx.slots.register({
+                  name: slotName,
+                  key: key,
+                  locale: LDVH_NS,
+                  inject: rowInjected
+                }, LdvhSettingsCard);
+              });
+            } catch (error) {
+              console.error('[dsh-ldvh] settings card slot "' + slotName + '" failed to register (host provider unaffected):', error);
+            }
+          };
+          registerCard("plugins.bundle.config", LDVH_PACKAGE_NAME);
+          registerCard("plugins.row.config", LDVH_ROW_CONFIG_KEY);
         });
 
         // 投放面设置：订阅驱动（apply 时设置服务可能尚未 ready——一次性快照会
@@ -1038,19 +1107,27 @@ window.__ModuleLoader__.load({
           }
         };
 
-        // 订阅设置变更：ready 前静默等待；每次快照变化（含首次 ready）应用投放开关。
-        ctx.effect(function () {
-          return ldvhScope.subscribe(function () {
-            var snap = ldvhScope.getSnapshot();
-            if (snap && snap.status === "ready") applyMountSettings(snap.value || {});
-          });
-        }, "dsh-ldvh: mount placement subscription");
-        // apply 时若已 ready（服务先于本插件就绪）立即应用一次。
-        try {
-          var initialSnap = ldvhScope.getSnapshot();
-          if (initialSnap && initialSnap.status === "ready") applyMountSettings(initialSnap.value || {});
-        } catch (mountError) { /* 订阅会补上 */ }
+        // 投放面：先按「默认全开」挂上——不依赖任何设置服务在场，因此
+        // configForms 缺失（老宿主 / 未装配 ui-settings 的组合）时侧栏 tab
+        // 与对话 Tab 仍然可用；有 configForms 时下面的订阅会用真实设置值覆盖。
+        applyMountSettings({});
 
+        // 订阅设置变更：ready 前静默等待；每次快照变化（含首次 ready）应用投放开关。
+        // 挂在 configForms 的子 fiber 上（服务缺失时整块不执行，投放面停在默认全开）。
+        ctx.inject(["configForms"], function (formsCtx) {
+          var ldvhScope = formsCtx.configForms.get(LDVH_ENTRY_ID);
+          formsCtx.effect(function () {
+            return ldvhScope.subscribe(function () {
+              var snap = ldvhScope.getSnapshot();
+              if (snap && snap.status === "ready") applyMountSettings(snap.value || {});
+            });
+          }, "dsh-ldvh: mount placement subscription");
+          // apply 时若已 ready（服务先于本插件就绪）立即应用一次。
+          try {
+            var initialSnap = ldvhScope.getSnapshot();
+            if (initialSnap && initialSnap.status === "ready") applyMountSettings(initialSnap.value || {});
+          } catch (mountError) { /* 订阅会补上 */ }
+        });
 
       } catch (error) {
         // Match WorkBuddy's browser failure boundary: Host remains functional,

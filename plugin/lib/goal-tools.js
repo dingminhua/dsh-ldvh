@@ -233,11 +233,47 @@ export function makeExecute(deps) {
   return { handlers, OPERATIONS };
 }
 
+/** The block array shape every LDVH tool returns for the model-visible text. */
+function text(body) {
+  return [{ type: "text", text: body }];
+}
+
+/**
+ * 模型可见的渲染形态 + 输出 schema。
+ *
+ * DSH 0.1.7 要求每个工具声明 `output: { schema, render }`；缺了它
+ * `ctx.tools.register` 直接抛错（真机日志：`tool "ldvh_goal_read" must declare
+ * output { schema, render, presentationMeta? }`）。而注册中途抛错会让
+ * lifecycle 的幂等守卫（`syncTools` 里 `toolsDisposer === null`）永远无法落地，
+ * 于是每次 assemble 都重试并刷「already registered」警告。本文件此前是唯一
+ * 没有 output 声明的工具层（2026-09-25 desktop profile 真机验证发现）。
+ */
+const OUTPUT_SCHEMA = { type: "object", additionalProperties: true };
+
+function renderEnvelope(operationKey, value) {
+  const env = value?.envelope ?? value ?? {};
+  const lines = [`LDVH ${env.operation_key ?? operationKey}: ${env.outcome ?? "unknown"}`];
+  if (env.result) lines.push(JSON.stringify(env.result, null, 2));
+  if (Array.isArray(env.gaps) && env.gaps.length > 0) {
+    // Gaps may be structured records (05 §8 traceability), so stringify them
+    // rather than interpolating them as [object Object].
+    lines.push("gaps:", ...env.gaps.map((gap) => `  - ${typeof gap === "string" ? gap : JSON.stringify(gap)}`));
+  }
+  if (Array.isArray(env.follow_up) && env.follow_up.length > 0) {
+    lines.push("follow-up:", ...env.follow_up.map((item) => `  - ${typeof item === "string" ? item : JSON.stringify(item)}`));
+  }
+  return text(lines.join("\n"));
+}
+
 export function toolDescriptorFor(operationKey, operation, handler) {
   return {
     name: operation.toolName,
     description: operation.summary,
     parameters: parameterSchemaFor(operationKey),
+    output: {
+      schema: OUTPUT_SCHEMA,
+      render: (args, value) => renderEnvelope(operationKey, value)
+    },
     timeoutMs: 30000,
     async execute(args, exec) {
       try {

@@ -116,15 +116,17 @@ export function createChildInstaller(ctx, { agents, children, sessionScopes, ret
         // thing" hook — pre-step observed so the trigger point is mounted;
         // what the task IS remains a named, empty seam.
         stops.push(agent.ctx.on("agent/pre-step", (payload, next) => next()));
-        stops.push(agent.ctx.on("agent/session-start", () => {
-          // Refresh the delegated state if the parent's judgement moved.
-          // (Install-time and propagated changes also land here; this is the
-          // safety net for a parent that judged after the child installed.)
+        // 委派状态刷新（原 `agent/session-start` 安全网）：0.1.7 起该事件已删除，
+        // 语义并入 `agent/created` 的 payload.source（调研报告 §3.4）。子代理安装
+        // 本身就发生在 agent/created 时，所以这里直接执行一次；父级此后的判定变化
+        // 由 lifecycle 的 propagateToChildren 覆盖（见 reprimeAgent）。
+        const refreshDelegatedState = (source) => {
           record.applyParentScope(
             agents.get(parentId ?? parent?.id ?? parent?.session?.header?.id)?.scopeState ?? null,
-            { source: "session-start" }
+            { source }
           );
-        }));
+        };
+        refreshDelegatedState("agent-created");
         // Conclusion seam: capture the child's final assistant text so the
         // root can collect it.
         //

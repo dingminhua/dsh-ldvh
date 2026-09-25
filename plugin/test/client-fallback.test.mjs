@@ -21,7 +21,8 @@ test("client apply swallows a settings slot failure and preserves the Host", () 
 		window: { __ModuleLoader__: { load(definition) { plugin = definition.factory((id) => {
 			if (id === "react") return createReactStub();
 			if (id === "@deepseek-ai/dsh-client-ui-primitives") {
-				return { Toast() {}, IconChevronDownOutline14() {} };
+				// 0.1.7 起图标族改用粗细语义后缀（调研 §4.3 致命点 B）。
+				return { Toast() {}, IconChevronDownOutlineRegular() {} };
 			}
 			throw new Error(`unexpected require: ${id}`);
 		}); } } },
@@ -40,12 +41,22 @@ test("client apply swallows a settings slot failure and preserves the Host", () 
 			register() { return () => {}; },
 			bind() { return (key) => key; },
 		},
-		settingsScope: { bind() { return {}; } },
-		slots: { inject() { throw new Error('keyed slot "settings.plugin.item" requires options.key'); } },
+		// 0.1.7：设置面改走 configForms 软注入（settingsScope 已删除）。这里让服务
+		// 存在但取表单失败，验证 apply 仍然吞掉异常、留下诊断，且宿主侧不受影响。
+		inject(names, callback) {
+			if (names.includes("configForms")) {
+				callback({
+					configForms: { get() { throw new Error('configForms: entry "dsh-ldvh" is not served'); } },
+					effect(register) { register(); },
+				});
+			}
+			return () => {};
+		},
+		slots: { inject() { return () => {}; } },
 	};
 
 	assert.doesNotThrow(() => plugin.apply(fakeCtx));
 	assert.equal(errors.length, 1);
 	assert.match(String(errors[0]), /client UI failed to load/);
-	assert.match(String(errors[0]), /requires options.key/);
+	assert.match(String(errors[0]), /is not served/);
 });

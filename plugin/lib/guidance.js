@@ -119,7 +119,11 @@ const LDVH_PLUGIN_SOURCE = "dsh-ldvh";
 
 function isOwnMessage(message) {
   const source = message?.source;
-  return source?.kind === "plugin" && source?.plugin === LDVH_PLUGIN_SOURCE;
+  // 0.1.7 起本插件写入端用自有 producer kind（"dsh-ldvh"）；旧会话里可能还残留
+  // 已退役的 "plugin" 包装（v4 迁移准入拒绝它），读取端两种都认，保证对历史
+  // 行的判断不因写入端改名而失效。
+  return source?.plugin === LDVH_PLUGIN_SOURCE
+    && (source?.kind === LDVH_PLUGIN_SOURCE || source?.kind === "plugin");
 }
 
 /**
@@ -127,11 +131,21 @@ function isOwnMessage(message) {
  * 能看到啊" — the judgment must be VISIBLE in the conversation flow, exactly
  * like dsh-mnemon's "上下文注入 · dsh-mnemon" row).
  *
- * Mechanism (source-verified): a user/message whose source is
- * { kind: "plugin", plugin, form, summary } renders in the chat flow as a
- * "上下文注入 · <plugin> · <summary>" disclosure row (dsh-client-ui-chat
- * ContextInjectionRow, contextProvenance case "plugin"). mnemon uses the
- * same shape from its pre-step (createPluginMessage, lib/index.js 8046).
+ * Mechanism: a user/message whose source carries a producer `kind` plus a
+ * context `form`/`summary` renders in the chat flow as a "上下文注入 · …"
+ * disclosure row. mnemon uses the same shape from its pre-step.
+ *
+ * **DSH 0.1.7 变更（必须遵守）**：共享的 `kind: "plugin"` 是「已退役的插件包装」——
+ * v3→v4 迁移的原生 source 准入**显式拒绝这个字面量**
+ * （`session-format-v3-to-v4/src/message-sources.ts`：`value['kind'] === 'plugin'`
+ * → `SessionFormatError: format v4 message requires a producer-owned source kind`），
+ * 因为它把归属从生产者名下收进了一个共享 catch-all。新契约要求**每个生产者声明
+ * 自己的 kind**，未知 kind 的归属被原样保留、由消费者兜底。故这里用本插件自己的
+ * producer kind。
+ *
+ * 代价（如实记录）：0.1.7 的 ui-chat 已删除 `case "plugin"`，自定义 kind 会落进
+ * 未知来源的兜底渲染——行的可见性保住，但「上下文注入 · dsh-ldvh · <summary>」这类
+ * 专属标签需要随渲染侧契约再对齐。这与"整个 turn 报错"是关键区别。
  *
  * `text` is what the MODEL sees (the full notice); `summary` is what the
  * HUMAN sees collapsed next to the row label.
@@ -142,13 +156,12 @@ function createPluginMessage(text, summary) {
     role: "user",
     content: [{ type: "text", text }],
     source: {
-      kind: "plugin",
+      // 本插件的 producer kind —— 不是共享的 "plugin"（0.1.7 起被迁移准入拒绝）。
+      kind: LDVH_PLUGIN_SOURCE,
       plugin: LDVH_PLUGIN_SOURCE,
-      // form "notice" (not "instructions"): the ONLY form whose summary
-      // renders inline on the collapsed row (dsh-client-ui-chat contextBody
-      // case "notice" -> noticeSummary -> data-context-summary). This is
-      // what makes the row read "上下文注入 · dsh-ldvh · 本会话受 LDVH 管辖"
-      // without expanding (Human 2026-09-04 external-title requirement).
+      // form "notice" (not "instructions"): the form whose summary renders
+      // inline on a collapsed context row (contextBody case "notice" ->
+      // noticeSummary -> data-context-summary).
       form: "notice",
       summary
     }

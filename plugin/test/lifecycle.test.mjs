@@ -607,7 +607,7 @@ test("pre-step: judgment change injects a visible context-injection row (plugin 
 	assert.equal(first.kind, "enter");
 	const injected = first.messages[first.messages.length - 1];
 	assert.notEqual(injected, baseMessages[baseMessages.length - 1], "a new message was appended");
-	assert.equal(injected.source.kind, "plugin");
+	assert.equal(injected.source.kind, "dsh-ldvh", "producer kind is the plugin's own (0.1.7 rejects the retired shared \"plugin\" wrapper)");
 	assert.equal(injected.source.plugin, "dsh-ldvh");
 	assert.equal(injected.source.summary, "本会话受 LDVH 管辖");
 	assert.equal(injected.source.form, "notice", "notice form renders the summary inline");

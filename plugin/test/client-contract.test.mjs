@@ -12,7 +12,7 @@ test("matches the WorkBuddy plugin-card shell contract", () => {
 		'padding:14px 16px',
 		'.ldv-settings-card-icon{width:32px;height:32px',
 		'.ldv-settings-card-body{border-top:1px solid',
-		'priority: 30',
+		'LDVH_ROW_CONFIG_KEY',
 	]) assert.ok(source.includes(fragment), `missing WorkBuddy card fragment: ${fragment}`);
 });
 
@@ -21,20 +21,39 @@ test("uses the WorkBuddy client registration and degradation pattern", () => {
 	// supersedes both UI marks), so inject shrinks back to the WorkBuddy
 	// baseline: no uiConversation needed without the ldvh-scope-claim
 	// event definition.
-	assert.ok(source.includes('var inject = ["slots", "locale", "settingsScope"]'));
+	// 0.1.7 变更（调研 §3.3）：settingsScope 服务已删除，硬注入它会让整个客户端
+	// 插件永不 apply——因此 inject 里不得再出现它；设置面改走 configForms 软注入。
+	assert.ok(source.includes('var inject = ["slots", "locale"]'));
+	assert.ok(!source.includes('var inject = ["slots", "locale", "settingsScope"]'), "settingsScope must not be hard-injected (service removed in 0.1.7)");
+	assert.ok(source.includes('ctx.inject(["configForms"]'), "settings transport must be a soft configForms injection");
 	assert.ok(source.includes('ctx.effect(function ()'));
 	assert.ok(source.includes('ctx.locale.register(LDVH_NS, { zh: LDVH_ZH, en: LDVH_EN })'));
 	assert.ok(source.includes('ctx.locale.bind(LDVH_NS)'));
-	assert.ok(source.includes('ctx.slots.inject("settings.plugin.item"'));
-	assert.ok(source.includes('key: "dsh-ldvh"'));
+	// 设置卡：与 dsh-connect-workbuddy 同款**双注册**——plugins.bundle.config
+	//（key = 包名）在 bundle 详情页直接展开，plugins.row.config（key = <包名>#<行 id>）
+	// 作为行级补充；各自 try/catch。官方契约把 plugins.item 留给「官方设置页」。
+	assert.ok(source.includes('registerCard("plugins.bundle.config", LDVH_PACKAGE_NAME)'), "must register the bundle-card seat (expanded on the bundle detail page)");
+	assert.ok(source.includes('registerCard("plugins.row.config", LDVH_ROW_CONFIG_KEY)'), "must keep the row-card seat");
+	assert.ok(source.includes('registerCard("plugins.bundle.config", LDVH_PACKAGE_NAME)'), "bundle config key must be the package name");
+	assert.ok(source.includes('registerCard("plugins.row.config", LDVH_ROW_CONFIG_KEY)'), "row config key must be <package>#<row id>");
+	assert.ok(source.includes('var LDVH_PACKAGE_NAME = "dsh-ldvh"'), "package name constant declared");
+	assert.ok(source.includes('var LDVH_ROW_CONFIG_KEY = "dsh-ldvh#dsh-ldvh"'), "row key must be <package>#<row id>");
+	// 页面按 view 请求两种形态：summary 回一行文本，page 回表单。
+	assert.ok(source.includes('if (props.view === "summary")'), "card must branch on the page's view prop");
+	// page 形态默认展开（用户一进详情页就看到内容，不必再点开）。
+	assert.ok(source.includes('var openState = React.useState(true)'), "card must default to expanded on the page view");
+	assert.ok(!source.includes('name: "settings.plugin.item"'), "must not register into the removed settings.plugin.item slot");
 	assert.ok(source.includes('console.error("[dsh-ldvh] client UI failed to load'));
 	assert.ok(!source.includes('"connection"]'), "settings card must not inject unused connection service");
 });
 
-test("uses the real package icon and the official chevron primitive", () => {
+test("uses the real package icon and a renamed chevron primitive with a fallback", () => {
 	assert.ok(source.includes('data:image/png;base64,'));
-	assert.ok(source.includes('primitives.IconChevronDownOutline14'));
-	assert.ok(source.includes('React.createElement(IconChevronDownOutline14, { size: 14 })'));
+	// 0.1.7 起图标导出族由尺寸后缀改为粗细语义后缀（调研 §4.3 致命点 B）：
+	// 必须按名探测取新名，旧名仅作回退，且渲染点要有兜底。
+	assert.ok(source.includes('primitives.IconChevronDownOutlineRegular'), "must probe the new icon name first");
+	assert.ok(source.includes('|| primitives.IconChevronDownOutline14'), "must fall back to the legacy icon name");
+	assert.ok(source.includes('IconChevronDown ? React.createElement(IconChevronDown, { size: 14 })'), "render site must guard against a missing icon component");
 });
 
 test("provides accessible expand and collapse labels", () => {
@@ -266,12 +285,19 @@ test("LDVH_ZH and LDVH_EN both provide row.projectsUnavailable copy", () => {
 test("web mount placements: two checkboxes gated by the master switch + refresh hint", () => {
 	// 设置行读写两投放面字段，总闸关闭时复选框禁用；挂载注册读取一次性快照条件化。
 	assert.ok(source.includes('convTabState') && source.includes('sidebarTabState'), "settings row keeps placement states");
-	assert.ok(source.includes('scope.set("showInConversationTab"') && source.includes('scope.set("showInSidebarTab"'), "save persists both placements");
+	// 0.1.7 起 SettingsFormScope 没有 set(key, value)：写必须是带 revision fence 的
+	// 一次原子 mutate（调研 §3.2/§3.3），且三个字段一次提交。
+	assert.ok(source.includes('scope.mutate(['), "save must use the revision-fenced mutate of SettingsFormScope");
+	assert.ok(source.includes('{ op: "set", path: ["showInConversationTab"]'), "save persists the conversation placement");
+	assert.ok(source.includes('{ op: "set", path: ["showInSidebarTab"]'), "save persists the sidebar placement");
+	assert.ok(!source.includes('scope.set("'), "legacy scope.set(key, value) must be gone");
 	assert.ok(source.includes('checked: enabledState[0] && convTabState[0]') && source.includes('checked: enabledState[0] && sidebarTabState[0]'), "checkboxes visually checked only when master is on");
 	assert.ok(source.includes('disabled: !enabledState[0]'), "checkboxes disabled when master switch is off");
 	// 订阅驱动：apply 时设置可能未 ready（一次性快照会静默走默认全开——Human 实测
 	// 复选框不生效的根因），必须经 ldvhScope.subscribe 在 ready/变更时应用投放开关。
 	assert.ok(source.includes("ldvhScope.subscribe"), "mount placement is subscription-driven, not a one-shot snapshot");
+	// 投放面不得因设置服务缺失而整体消失：先按默认全开挂上，再由订阅覆盖。
+	assert.ok(source.includes("applyMountSettings({})"), "placements must mount by default before settings are known");
 	assert.ok(source.includes('var sidebarOn = webOn && value && value.showInSidebarTab !== false'), "sidebar placement derived from master + checkbox");
 	assert.ok(source.includes('var conversationOn = webOn && value && value.showInConversationTab !== false'), "conversation placement derived from master + checkbox");
 	assert.ok(source.includes('if (sidebarOn && mountDisposers.sidebar === null)'), "sidebar tab mounts only when placement on");

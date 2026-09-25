@@ -4,25 +4,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { Context } from "@deepseek-ai/cordis";
-import { SettingsProvider } from "@deepseek-ai/dsh-settings";
 import { parse as parseYaml } from "yaml";
 import * as ldvhPlugin from "../lib/index.js";
 import { withTemp } from "./helpers.mjs";
-
-class MemorySettings extends SettingsProvider {
-	constructor(ctx, document) {
-		super(ctx, "settings");
-		this.document = document;
-	}
-
-	async load() {
-		return this.document;
-	}
-
-	get writable() {
-		return false;
-	}
-}
 
 /**
  * A minimal in-memory webServer stub: records every register() call so the
@@ -85,7 +69,7 @@ class MemorySystemPrompt {
 	}
 }
 
-async function createHarness(document = {}, { withWebServer = true, deferWebServer = false, dshHomePath } = {}) {
+async function createHarness(config = {}, { withWebServer = true, deferWebServer = false, dshHomePath } = {}) {
 	const root = new Context();
 	// deferWebServer keeps the MemoryWebServer instance in the harness but
 	// withholds the `provide` call: the plugin mounts while webServer is
@@ -101,14 +85,14 @@ async function createHarness(document = {}, { withWebServer = true, deferWebServ
 	const systemPrompt = new MemorySystemPrompt();
 	root.provide("systemPrompt", systemPrompt);
 
-	const settings = new MemorySettings(root, document);
-	await settings.load().then((loaded) => settings.publish(loaded));
+	// 0.1.7 起设置值由插件自己的 Config 承载（不再注册 settings 服务），因此
+	// 这里把 config 直接交给插件，由 Cordis 按插件导出的 Config schema 解析。
 	await root[Symbol.for("cordis.init")]?.();
 
-	const fiber = root.registry.plugin(ldvhPlugin);
+	const fiber = root.registry.plugin(ldvhPlugin, config);
 	await fiber;
 
-	return { root, settings, webServer, tools, systemPrompt, fiber };
+	return { root, webServer, tools, systemPrompt, fiber };
 }
 
 async function disposeHarness(harness) {
@@ -116,12 +100,9 @@ async function disposeHarness(harness) {
 	await harness.root.fiber.dispose();
 }
 
-const enabledDocument = {
-	"dsh-ldvh": { webEnabled: true }
-};
-const disabledDocument = {
-	"dsh-ldvh": { webEnabled: false }
-};
+/** 插件自己的 Config（0.1.7 起「设置即 Config」，不再是 settings.yaml 命名空间文档）。 */
+const enabledDocument = { webEnabled: true };
+const disabledDocument = { webEnabled: false };
 
 /**
  * Route inventory under the current contract:
@@ -155,19 +136,28 @@ test("registers routes when web is explicitly enabled", async () => {
 	}
 });
 
-test("does not register web routes when webEnabled is false, but the state route stays mounted", async () => {
+test("webEnabled false: routes stay registered but answer 404; the state route is unaffected", async () => {
 	const harness = await createHarness(disabledDocument);
 	try {
-		// The web routes are unmounted by the switch...
-		const apiRoutes = harness.webServer.routes("prefix").filter((r) => r.path === "/ldvh/api");
-		const spaRoutes = harness.webServer.routes("prefix").filter((r) => r.path === "/ldvh");
-		assert.equal(apiRoutes.length, 0, "expected no /ldvh/api route while web is disabled");
-		assert.equal(spaRoutes.length, 0, "expected no /ldvh route while web is disabled");
+		// 0.1.7 起开关不再挂/卸路由（volatile 字段没有变更通知），而是注册一次、
+		// 每次请求现判——所以路由账本恒定，行为差异体现在请求结果上。
+		const apiRoute = harness.webServer.routes("prefix").find((r) => r.path === "/ldvh/api");
+		const spaRoute = harness.webServer.routes("prefix").find((r) => r.path === "/ldvh");
+		assert.ok(apiRoute, "expected the /ldvh/api route to stay registered");
+		assert.ok(spaRoute, "expected the /ldvh route to stay registered");
+
+		// 关闭时两条前缀路由都必须拒绝，且理由可机械识别（LDVH_WEB_DISABLED）。
+		for (const path of ["/ldvh/api", "/ldvh"]) {
+			const res = await callRoute(harness.webServer, path, undefined);
+			assert.equal(res.status, 404, `expected 404 from ${path} while web is disabled`);
+			assert.equal(res.body?.error?.code, "LDVH_WEB_DISABLED", `expected a gating reason from ${path}`);
+		}
+
 		// ...but the governance-state route must survive: the indicator is a
 		// governance signal and must not depend on the Web-presentation switch.
 		const stateRoutes = harness.webServer.routes("prefix").filter((r) => r.path === "/ldvh/state");
 		assert.equal(stateRoutes.length, STATE_ROUTE_COUNT, "governance-state route must stay mounted regardless of the web switch");
-		assert.equal(harness.webServer.routes("prefix").length, STATE_ROUTE_COUNT);
+		assert.equal(harness.webServer.routes("prefix").length, TOTAL_ROUTE_COUNT);
 	} finally {
 		await disposeHarness(harness);
 	}
@@ -231,21 +221,20 @@ async function waitForRoutes(webServer, expectedCount, timeoutMs = 2000) {
 	}
 }
 
-test("publishing webEnabled false unregisters routes; true re-registers them", async () => {
+test("webEnabled true: gated routes let requests through to their handlers", async () => {
 	const harness = await createHarness(enabledDocument);
 	try {
 		assert.equal(harness.webServer.routes("prefix").length, TOTAL_ROUTE_COUNT);
 
-		// Turn the web switch off: the web routes must be removed, but the
-		// governance-state route must remain mounted.
-		harness.settings.publish(disabledDocument);
-		await new Promise((resolve) => setImmediate(resolve));
-		assert.equal(harness.webServer.routes("prefix").length, STATE_ROUTE_COUNT, "expected web routes removed, state route kept");
+		// 开启时 gated() 必须放行：请求要落到真正的处理器上（这里用一条必然
+		// 404 的 API 路径验证——关键是**不是** gating 造成的 404）。
+		const res = await callRoute(harness.webServer, "/ldvh/api/__no_such_endpoint__", undefined);
+		assert.notEqual(res.body?.error?.code, "LDVH_WEB_DISABLED", "enabled switch must let the request reach the handler");
 
-		// Turn it back on: the web routes must return.
-		harness.settings.publish(enabledDocument);
-		await new Promise((resolve) => setImmediate(resolve));
-		assert.equal(harness.webServer.routes("prefix").length, TOTAL_ROUTE_COUNT, "expected routes restored after re-enabling");
+		// 关闭 → 放行路径立即翻转（同一进程、同一路由账本，无重挂）。
+		// 说明：config 是 Cordis 解析出的 volatile 引用，测试里改的是插件持有的
+		// 同一份 Config 对象时才会影响 gating；此处仅断言开启态的行为，关闭态由
+		// 上面 "webEnabled false" 用例以独立 config 覆盖。
 	} finally {
 		await disposeHarness(harness);
 	}

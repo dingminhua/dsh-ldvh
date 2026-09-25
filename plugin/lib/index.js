@@ -28,7 +28,6 @@
 //     fiber effects + roots-only gate + adoption of already-live agents).
 
 import z from "@deepseek-ai/schemastery";
-import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureRegistrationCarrier, readGovernedProjects, setCarrierObserver } from "./governed-projects.js";
@@ -71,21 +70,65 @@ function webApiBridgeEnv(dshHomePath) {
 }
 
 export const name = "dsh-ldvh";
-export const inject = ["tools", "settings", "systemPrompt"];
+// 不再声明 "settings"：0.1.7 起设置值由本插件自己的 Cordis Config 承载，
+// 宿主把 Config 的 volatile 字段投影成表单；插件不再注册 settings 命名空间，
+// 也不再消费 ctx.settings 服务（依据：docs/dsh-0.1.5-rc2-to-0.1.7-rc1-research.md §3.2）。
+export const inject = ["tools", "systemPrompt"];
 
-const LDVH_SETTINGS_NAMESPACE = settingsNamespace("dsh-ldvh");
+/**
+ * LDVH 的可配置面（DSH 0.1.7+ 设置模型：插件自己的 Config 即设置）。
+ *
+ * 与旧模型的差别（调研 §3.2「设置模型整体重建」）：
+ *   - 旧：installSettingsSection(ctx, ns, schema, …) 注册独立命名空间，值存
+ *     $DSH_HOME/settings.yaml，经 setSource / onChange 回调通知变更；
+ *   - 新：以下字段就是 Loader 条目（id = `dsh-ldvh`）的 Config；宿主把带
+ *     `.volatile()` 的字段投影成设置表单，写回 profile 的 cordis.patch.yml。
+ *
+ * volatile 字段的读法：解析结果是 cosmokit 的 Volatile 引用 —— 只有 get()，
+ * 没有订阅；宿主热改时把新值写进同一引用。所以每次现读即可（readSwitch），
+ * 既不需要也拿不到变更通知。`.volatile()` 必须链在字段表达式最后。
+ */
+/**
+ * 声明一个可热改字段（schemastery 的 `.volatile()`）。
+ *
+ * `.volatile()` 自 schemastery 3.18.4 起提供：宿主 0.1.7-rc.1 用它把字段投影成
+ * 「改设置实时生效、不重挂插件」的表单字段（解析结果是只有 get() 的引用）。旧版
+ * schemastery（如 3.18.2）没有该方法，直接链式调用会在**模块加载期**抛 TypeError，
+ * 让整个插件起不来——所以先探测再调用：缺失时退化为普通字段（设置照旧可读可写，
+ * 只是不享受热改语义），由消费点如实呈现，而不是让插件整体消失。
+ *
+ * @param {object} schema - schemastery 字段。
+ * @returns {object} 标记为 volatile 的字段（不支持时原样返回）。
+ */
+function volatileField(schema) {
+  return typeof schema?.volatile === "function" ? schema.volatile() : schema;
+}
 
-const LDVH_SETTINGS_SCHEMA = z.object({
-  // Whether LDVH mounts its own /ldvh + /ldvh/api routes onto the host
-  // webServer at startup (and on toggle). The host webServer itself always
-  // runs — this switch only governs LDVH's routes, not the web service.
-  webEnabled: z.boolean().default(true),
-  // Web 呈现入口的两个投放面（仅在 webEnabled 开启时生效）：对话 Tab =
-  // conversation.view 插槽；侧边栏 = betterSidebar LDVH tab。关闭总闸等同
-  // 两项全关。变更后需刷新页面（客户端插槽注册在页面加载时执行）。
-  showInConversationTab: z.boolean().default(true),
-  showInSidebarTab: z.boolean().default(true),
-}).default({});
+export const Config = z.object({
+  /** 是否挂载 /ldvh + /ldvh/api 前缀路由（宿主 webServer 本身始终运行）。 */
+  webEnabled: volatileField(z.boolean().default(true)),
+  /** 对话 Tab 投放面（conversation.view 插槽）；仅在 webEnabled 开启时生效。 */
+  showInConversationTab: volatileField(z.boolean().default(true)),
+  /** 侧边栏投放面（betterSidebar 的 LDVH tab）；仅在 webEnabled 开启时生效。 */
+  showInSidebarTab: volatileField(z.boolean().default(true)),
+});
+
+/**
+ * 读一个可热改开关的当前值，两代宿主通吃。
+ *
+ * 0.1.7+ 的 volatile 字段是 `{ get() }` 引用；更早的宿主（或未经 volatile
+ * 包装的普通值）直接就是布尔。缺省一律按「开」处理，与旧实现的 webEnabled()
+ * 语义一致（section 缺失 = 默认启用）。
+ *
+ * @param {{get?: () => unknown}|unknown} value - Config 字段的解析结果。
+ * @param {boolean} fallback - 值为 undefined / null 时的答案。
+ * @returns {boolean} 开关当前值。
+ */
+function readSwitch(value, fallback = true) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value.get === "function") return value.get() !== false;
+  return value !== false;
+}
 
 const API_PREFIX = "/ldvh/api";
 const SPA_PREFIX = "/ldvh";
@@ -130,10 +173,35 @@ function createApiHandler(dshHomePath, webApiProxy) {
   };
 }
 
-/** Read the live web-enabled switch from the settings source. Absent = default enabled. */
-function webEnabled(state) {
-  const section = state.settingsSource?.();
-  return section === void 0 || section === null ? true : section.webEnabled !== false;
+/**
+ * 读「是否挂载 LDVH Web 路由」的当前值（缺省视为启用）。
+ *
+ * 新模型没有设置变更通知（volatile 只有 get()），所以开关不再触发重挂路由，
+ * 而是由 gated() 在每次请求时现判 —— 关闭后立即生效，不依赖任何回调。
+ */
+function webEnabled(config) {
+  return readSwitch(config?.webEnabled, true);
+}
+
+/**
+ * 把「是否挂载」开关挪进请求路径。
+ *
+ * 旧实现靠设置变更回调真正摘掉路由；新模型拿不到变更通知，于是改为
+ * 「注册一次、请求时现判」：关闭后 /ldvh 与 /ldvh/api 立即不可用，且不会
+ * 因缺通知而停在旧状态。/ldvh/state 不经此包装（always-on 治理状态面）。
+ *
+ * @param {(req: object, res: object, ...rest: unknown[]) => unknown} handler - 真正的前缀处理器。
+ * @param {object} config - 本插件的 Cordis Config。
+ * @returns {(req: object, res: object, ...rest: unknown[]) => unknown} 带开关判断的处理器。
+ */
+function gated(handler, config) {
+  return (req, res, ...rest) => {
+    if (!webEnabled(config)) {
+      json(res, 404, { ok: false, error: { code: "LDVH_WEB_DISABLED" } });
+      return undefined;
+    }
+    return handler(req, res, ...rest);
+  };
 }
 
 /**
@@ -142,18 +210,23 @@ function webEnabled(state) {
  * outliving webEnabled toggles but disposed with the fiber) — route
  * registration and process lifetime are deliberately decoupled: toggling the
  * presentation switch must not kill a possibly in-flight child restart.
+ *
+ * 0.1.7 起开关不再是「挂/卸路由」，而是由 gated() 在请求路径上现判（config
+ * 的 volatile 字段没有变更通知）。因此本函数注册一次即长期有效，关闭开关
+ * 只改变请求结果，不改路由账本。
  */
-function registerWebRoutes(webServer, dshHomePath, webApiProcess, logger) {
+function registerWebRoutes(webServer, dshHomePath, webApiProcess, logger, config) {
   const webApiProxy = createProxyHandler(webApiProcess, logger);
+  const apiHandler = typeof dshHomePath === "function" ? createApiHandler(dshHomePath, webApiProxy) : createApiHandler(() => { throw new Error("DSH user configuration root is unavailable"); }, webApiProxy);
   const apiDisposer = webServer.register({
     kind: "prefix",
     path: API_PREFIX,
-    handler: typeof dshHomePath === "function" ? createApiHandler(dshHomePath, webApiProxy) : createApiHandler(() => { throw new Error("DSH user configuration root is unavailable"); }, webApiProxy)
+    handler: gated(apiHandler, config)
   });
   const spaDisposer = webServer.register({
     kind: "prefix",
     path: SPA_PREFIX,
-    handler: createSpaHandler(WEB_DIST_DIR, logger)
+    handler: gated(createSpaHandler(WEB_DIST_DIR, logger), config)
   });
   return () => {
     try { apiDisposer(); } catch { /* already removed */ }
@@ -225,8 +298,7 @@ function registerStateRoute(webServer, sessionScopes, dshHomePath) {
   });
 }
 
-export function apply(ctx) {
-  const state = { settingsSource: void 0, syncRoutes: void 0 };
+export function apply(ctx, config) {
   const sessionScopes = createSessionScopes();
   const dshHomePath = ctx.get("dshHomePath");
 
@@ -292,29 +364,14 @@ export function apply(ctx) {
     }).catch((error) => {
       webCtx.logger.warn("[dsh-ldvh] web api warm-up failed (will retry on first request): %s", error?.message ?? error);
     });
-    let disposeRoutes = null;
-    const syncRoutes = () => {
-      if (webEnabled(state)) {
-        if (disposeRoutes === null) {
-          disposeRoutes = registerWebRoutes(webServer, dshHomePath, webApiProcess, webCtx.logger);
-          webCtx.logger.info("[dsh-ldvh] web routes registered under %s / %s", SPA_PREFIX, API_PREFIX);
-        }
-      } else if (disposeRoutes !== null) {
-        disposeRoutes();
-        disposeRoutes = null;
-        webCtx.logger.info("[dsh-ldvh] web routes unmounted by setting");
-      }
-    };
-    syncRoutes();
-    state.syncRoutes = syncRoutes;
+    // 路由注册一次即长期有效：开关由 gated() 在请求路径上现判（见 registerWebRoutes）。
+    // Web API 子进程与路由账本解耦——切换开关不杀可能正在重启的子进程。
+    const disposeRoutes = registerWebRoutes(webServer, dshHomePath, webApiProcess, webCtx.logger, config);
+    webCtx.logger.info("[dsh-ldvh] web routes registered under %s / %s (webEnabled=%s)", SPA_PREFIX, API_PREFIX, webEnabled(config));
     webCtx.effect(() => () => {
-      if (disposeRoutes !== null) {
-        try { disposeRoutes(); } catch { /* already removed */ }
-        disposeRoutes = null;
-      }
+      try { disposeRoutes(); } catch { /* already removed */ }
       try { webApiProcess.dispose(); } catch { /* best effort */ }
       try { disposeStateRoute(); } catch { /* already removed */ }
-      if (state.syncRoutes === syncRoutes) state.syncRoutes = void 0;
     }, "dsh-ldvh: web routes and state route");
   });
 
@@ -332,16 +389,10 @@ export function apply(ctx) {
     }, "dsh-ldvh: rpc and commands");
   });
 
-  // The settings seam owns its injected lifecycle and provides a live source
-  // thunk plus change notifications. It declares its own `settings` injection
-  // internally, so the settings row appears once the settings service is up.
-  installSettingsSection(ctx, LDVH_SETTINGS_NAMESPACE, LDVH_SETTINGS_SCHEMA, {}, {
-    setSource: (current) => {
-      state.settingsSource = current;
-      state.syncRoutes?.();
-    },
-    onChange: () => { state.syncRoutes?.(); }
-  });
+  // 设置面：三个开关由本插件 Cordis Config 的 volatile 字段承载（见文件头的
+  // Config 声明），宿主把它们投影成设置表单并写进 profile patch。这里不再注册
+  // 任何 settings 命名空间，也没有 setSource / onChange 回调可挂——新模型没有
+  // 变更通知，开关一律由消费点现读（webEnabled(config) / 客户端 configForms）。
 
   // Startup carrier lifecycle (Human-confirmed design): plugin load ensures
   // an empty registration carrier exists — installing the plugin puts the
@@ -370,6 +421,5 @@ export function apply(ctx) {
   ctx.effect(() => () => {
     try { stopLifecycle(); } catch { /* already removed */ }
     sessionScopes.clear();
-    state.settingsSource = void 0;
   }, "dsh-ldvh: lifecycle registry and session scopes");
 }

@@ -159,6 +159,35 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
     }
   }
 
+  /**
+   * 重新 prime 一个已装 agent 的 pre-step 通道，并刷新它的 session→scope 记录。
+   *
+   * DSH 0.1.7 起 resume / clear / compact 会以对应 source 重新 announce
+   * `agent/created`；install() 对已装 agent 直接去重返回，于是这条路径补上旧实现
+   * 由 `agent/session-start` 承担的语义（该事件已删除，语义并入 payload.source——
+   * 调研报告 §3.4）。顺带把父级最新判定传播给已记录的子代理：父级可能在子代理
+   * 安装之后才完成判定，child 侧的 session-start 安全网同样已随事件消失。
+   *
+   * @param {string} agentId - 已装 agent 的 id。
+   * @param {object} agent - 该 agent（用于读取 cwd 重新判定）。
+   */
+  function reprimeAgent(agentId, agent) {
+    const lifecycle = agents.get(agentId);
+    if (lifecycle === undefined) return;
+    // prime：让下一次 step-1 重新评估（mnemon primePending shape）。
+    lifecycle.preStep.primePending = true;
+    lifecycle.activity.record("session/reprime", { source: "agent-created" });
+    void resolve(agent?.session?.header?.cwd).then((scope) => {
+      if (!agents.has(agentId)) return; // disposed while judging
+      const sessionId = sessionIdOf(agent);
+      if (typeof sessionId === "string") sessionScopes.set(sessionId, scope);
+      lifecycle.setScope(scope);
+      propagateToChildren(scope?.state ?? null, agentId);
+    }).catch((error) => {
+      ctx.logger.warn("[dsh-ldvh] re-prime judgement failed for %s: %s", agentId, String(error?.message ?? error));
+    });
+  }
+
   function install(agent) {
     const agentId = agentIdOf(agent);
     if (typeof agentId !== "string") return;
@@ -232,22 +261,16 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         activity: lifecycle.activity,
         log: ctx.logger
       });
+      // Prime the pre-step channel at install：install 本身发生在 agent/created
+      // （= session 的 startup 语义），这一次 prime 取代旧实现里对
+      // agent/session-start 的首次响应。resume / clear / compact 的再次 announce
+      // 由 start() 的 agent/created 分发路径 re-prime（见 reprimeAgent）。
+      onPreStep.prime();
       const stops = [
         agent.ctx.on("system-prompt/assemble", (assembly, context, next) => onAssemble(assembly, context, next)),
         agent.ctx.on("agent/pre-step", (payload, next) => onPreStep.handler(payload, next), { prepend: true }),
         agent.ctx.on("agent/turn-stopping", (payload) => turnTriggers.onTurnStopping(payload)),
-        agent.ctx.on("session/event", (session, event) => turnTriggers.onSessionEvent(session, event)),
-        agent.ctx.on("agent/session-start", () => {
-          // Prime the pre-step channel (every session-start source: startup /
-          // resume / clear / compact) so the next step-1 is evaluated fresh
-          // (mnemon primePending shape). Then state record + warm-start.
-          onPreStep.prime();
-          void resolve(agent?.session?.header?.cwd).then((scope) => {
-            if (!agents.has(agentId)) return; // disposed while judging
-            const sessionId = sessionIdOf(agent);
-            if (typeof sessionId === "string") sessionScopes.set(sessionId, scope);
-          }).catch(() => { /* judgement failure recorded by assemble path */ });
-        })
+        agent.ctx.on("session/event", (session, event) => turnTriggers.onSessionEvent(session, event))
       ];
 
       return () => {
@@ -267,7 +290,18 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
 
   return {
     start() {
-      const disposeCreated = ctx.on("agent/created", ({ agent }) => install(agent));
+      // agent/created 是 0.1.7 起唯一携带 session-start 语义的入口：
+      // payload = { agent, source, signal? }，source ∈ startup|resume|clear|compact
+      //（旧事件 agent/session-start 已删除——调研报告 §3.4）。分发规则：
+      //   - 未装 → install()（内部含首次 prime）；
+      //   - 已装 → 这是 resume / clear / compact 的再次 announce，install() 的
+      //     agents.has() 去重会直接返回，因此在这里补做 re-prime。
+      const disposeCreated = ctx.on("agent/created", (payload) => {
+        const agent = payload?.agent;
+        const id = agentIdOf(agent);
+        if (typeof id === "string" && agents.has(id)) reprimeAgent(id, agent);
+        else install(agent);
+      });
       // Adopt agents already alive when the plugin (re)loads (audit A/H):
       // without this, hot-reloaded plugins leave existing sessions hookless
       // and /ldvh/state answers unknown forever for them. The agents service
