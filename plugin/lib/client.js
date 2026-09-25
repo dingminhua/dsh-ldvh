@@ -1079,9 +1079,11 @@ window.__ModuleLoader__.load({
     //
     // 采用的绕行：注册**自有节点 kind**。宿主 `isVisibleChatNode()` 是黑名单，
     // 只排除 system-prompt/context/permission，自定义 kind 默认可见；渲染器经
-    // `conversation.chat.node` 槽位按 `entryKey = node.kind` 运行时分派（不校验
-    // 类型集，且未知 kind 有 UnknownNodeView 兜底）。宿主自带 9 个节点模块都以
-    // 同一机制（ChatNodeDataMap 声明合并）贡献 kind，故这是官方扩展点。
+    // `conversation.chat.node` 槽位按 `entryKey = node.kind` 运行时分派。该槽位是
+    // keyed 型：无占用者的 kind 落到 `ChatNodeSeat` 传入的 `fallback`（一个
+    // JsonBlock，标签 "unknown surface" + 节点数据原样 JSON），**不是**静默不渲染。
+    // 宿主自带 15 个 keyed 渲染器注册（ui-chat/register-node-renderers.ts）都以
+    // 同一机制贡献 kind，故这是官方扩展点。
     //
     // 契约（宿主 packages/client/ui-conversation 的 ConversationNodeDefinition）：
     //   - target 与 buildViewNode 必须成对声明；
