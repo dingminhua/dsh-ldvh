@@ -18,13 +18,21 @@ test("matches the WorkBuddy plugin-card shell contract", () => {
 
 test("uses the WorkBuddy client registration and degradation pattern", () => {
 	// Governance marks removed (Human 2026-09-04: the context-injection row
-	// supersedes both UI marks), so inject shrinks back to the WorkBuddy
-	// baseline: no uiConversation needed without the ldvh-scope-claim
-	// event definition.
+	// supersedes both UI marks).
+	//
+	// 2026-09-25 修订（Human 授权撤销 2026-09-04 决定）：当年删的是**客户端自建的
+	// 两套标记组件**（LdvhGovernanceMark / LdvhHeaderMark，与注入行重复呈现，故被
+	// 判定为冗余）；而宿主 0.1.7 起把插件注入一律归为不可见的 `context` 行，
+	// 注入行本身在对话流**已不可见**——「注入行唯一承载」的前提随之失效。故重新
+	// 引入一个客户端呈现组件（ldvh-notice），但**仍不恢复那两套标记**：新组件呈现的
+	// 是注入消息本身的内容，不是另画一个状态标记。本条断言据此改为守护新基线。
+	// 撤销依据与未验证范围见 plugin/lib/client.js 的 ldvhNoticeDefinition 注释。
+	//
 	// 0.1.7 变更（调研 §3.3）：settingsScope 服务已删除，硬注入它会让整个客户端
 	// 插件永不 apply——因此 inject 里不得再出现它；设置面改走 configForms 软注入。
-	assert.ok(source.includes('var inject = ["slots", "locale"]'));
+	assert.ok(source.includes('var inject = ["slots", "locale", "uiConversation"]'));
 	assert.ok(!source.includes('var inject = ["slots", "locale", "settingsScope"]'), "settingsScope must not be hard-injected (service removed in 0.1.7)");
+	assert.ok(!source.includes('var inject = ["slots", "locale", "uiConversation", "settingsScope"]'), "settingsScope must not be hard-injected (service removed in 0.1.7)");
 	assert.ok(source.includes('ctx.inject(["configForms"]'), "settings transport must be a soft configForms injection");
 	assert.ok(source.includes('ctx.effect(function ()'));
 	assert.ok(source.includes('ctx.locale.register(LDVH_NS, { zh: LDVH_ZH, en: LDVH_EN })'));
@@ -290,6 +298,50 @@ test("iframe points at the plugin's own loopback origin, never a relative /ldvh/
 	assert.ok(
 		source.includes('applyWebPort(body.webPort)'),
 		"checkHealth must feed the host-reported webPort into the iframe origin",
+	);
+});
+
+test("chat notice row registers a self-owned node kind to escape the context filter", () => {
+	// 回归守护（2026-09-25）：宿主把 `source.kind !== "user"` 的插件注入一律归为
+	// `kind: "context"`，而 isVisibleChatNode() 的可见性黑名单排除 context——故
+	// 注入只进轨迹、不进对话流。绕行是注册**自有 kind**（黑名单只列
+	// system-prompt/context/permission），并满足 ConversationNodeDefinition 契约：
+	// target 与 buildViewNode 必须成对声明，节点须 key===context.key 且 target 一致。
+	// 本断言锁死这组条件，防止后续重构退回「可见但被过滤」或「契约不成立」的写法。
+	assert.ok(
+		source.includes('var LDVH_NOTICE_KIND = "ldvh-notice"'),
+		"the notice row must use a self-owned kind, not the filtered 'context' kind",
+	);
+	// 只查**代码**里的注册写法，不误伤解释该机制的注释（注释里必然出现该字面量）。
+	// 判据：definition 的 kind 字段必须绑到自有常量，不得直接写 "context"。
+	assert.ok(
+		!/kind:\s*"context"/.test(source.replace(/\/\/[^\n]*/g, '')),
+		"regression: registering the definition under kind 'context' is exactly what the host hides",
+	);
+	// 契约：target 与 buildViewNode 成对声明（assertDefinitionTarget 会抛错）。
+	assert.ok(
+		/target:\s*"chat"/.test(source) && /buildViewNode:\s*function/.test(source),
+		"target and buildViewNode must be declared together",
+	);
+	// 节点身份必须与 context 一致，否则宿主抛 unstable key。
+	assert.ok(
+		source.includes("key: context.key"),
+		"the view node key must equal context.key (host rejects unstable keys)",
+	);
+	// 只认本插件注入，不劫持用户或其它插件的消息。
+	assert.ok(
+		source.includes('event.data.source.kind === LDVH_NOTICE_SOURCE_KIND'),
+		"the definition must match only this plugin's own injected messages",
+	);
+	// 渲染器须注册到宿主的 keyed 槽位，key 与 kind 一致。
+	assert.ok(
+		source.includes('ctx.slots.inject("conversation.chat.node"'),
+		"the renderer must ride the host's keyed conversation.chat.node slot",
+	);
+	// 注入声明：uiConversation 必须在硬注入里，否则整块注册永不执行。
+	assert.ok(
+		source.includes('var inject = ["slots", "locale", "uiConversation"]'),
+		"uiConversation must be a hard inject, otherwise the registration never runs",
 	);
 });
 

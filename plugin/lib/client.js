@@ -166,6 +166,17 @@ window.__ModuleLoader__.load({
       ".ldv-view-frame{position:absolute;inset:0;width:100%;height:100%;border:0}" +
       ".ldv-view-state{position:absolute;inset:0;display:grid;place-items:center;gap:10px;align-content:center;text-align:center;padding:24px}" +
       ".ldv-view-state p{font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary,#b8b8b8);margin:0;max-width:520px}" +
+      // 对话流的管辖判定行（2026-09-25）：与宿主 context 行同族的折叠行形态，
+      // 颜色只用语义 token，不引入新色相（10 §12 呈现红线）。
+      ".ldv-notice-row{display:flex;flex-direction:column;gap:4px;margin:6px 0;font-size:12px}" +
+      ".ldv-notice-toggle{appearance:none;font:inherit;cursor:pointer;background:transparent;border:0;padding:2px 0;display:flex;align-items:center;gap:6px;color:var(--dsw-alias-label-tertiary,#9a9a9a);text-align:left;min-width:0}" +
+      ".ldv-notice-toggle:hover{color:var(--dsw-alias-label-secondary,#b8b8b8)}" +
+      ".ldv-notice-toggle:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#5686fe);outline-offset:1px;border-radius:3px}" +
+      ".ldv-notice-dot{flex:none;width:5px;height:5px;border-radius:50%;background:var(--dsw-alias-label-caption,#777)}" +
+      ".ldv-notice-label{flex:none;font-weight:500}" +
+      ".ldv-notice-summary{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#b8b8b8)}" +
+      ".ldv-notice-summary:before{content:'·';margin-right:6px;color:var(--dsw-alias-label-caption,#777)}" +
+      ".ldv-notice-body{margin:0;padding:8px 10px;border-left:2px solid var(--dsw-alias-border-l2,#36373b);background:var(--dsw-alias-bg-layer-1,#1b1b1d);color:var(--dsw-alias-label-secondary,#b8b8b8);font-size:12px;line-height:18px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:420px;overflow:auto}" +
       ".ldv-btn{appearance:none;font:inherit;cursor:pointer;border:1px solid transparent;border-radius:8px;padding:5px 14px;font-size:13px;line-height:1.5}" +
       ".ldv-btn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#5686fe);outline-offset:1px}" +
       ".ldv-btn-primary{background:var(--dsw-alias-label-primary,#e6e6e6);color:var(--dsw-alias-bg-layer-3,#202126)}" +
@@ -1052,11 +1063,141 @@ window.__ModuleLoader__.load({
       return React.createElement("div", { className: "ldv-view" }, body);
     }
 
+    // ── 对话流可见的管辖判定（2026-09-25）──────────────────────────────
+    //
+    // 问题：pre-step 注入的管辖判定（source.kind = "dsh-ldvh"、form = "notice"）
+    // 在对话流里看不到，只进轨迹。根因在宿主 `dsh-client-ui-chat`：
+    //   ① 分类：`if (event.data.source.kind !== "user")` → 一律 `kind: "context"`
+    //      （与 form 无关；mnemon 的 "instructions" 同样落这条）；
+    //   ② 可见性：`isVisibleChatNode()` 硬排除 `node.kind !== "context"`，其注释
+    //      明写「Exclude system prompts, ordinary Context, and permission commands
+    //      from visible Chat rows」。故注入被有意挡在对话流之外。
+    //
+    // 已排除的绕行：turn-trigger 路径不可行——宿主 agent-loop 是「先认领、后调
+    // pre-step」（`inbox.claim(...)` 之后才 `dispatch.waterfall("agent/pre-step")`），
+    // 插件返回的 decision.messages 从不经过 inbox，故永不进 currentClaimed。
+    //
+    // 采用的绕行：注册**自有节点 kind**。宿主 `isVisibleChatNode()` 是黑名单，
+    // 只排除 system-prompt/context/permission，自定义 kind 默认可见；渲染器经
+    // `conversation.chat.node` 槽位按 `entryKey = node.kind` 运行时分派（不校验
+    // 类型集，且未知 kind 有 UnknownNodeView 兜底）。宿主自带 9 个节点模块都以
+    // 同一机制（ChatNodeDataMap 声明合并）贡献 kind，故这是官方扩展点。
+    //
+    // 契约（宿主 packages/client/ui-conversation 的 ConversationNodeDefinition）：
+    //   - target 与 buildViewNode 必须成对声明；
+    //   - buildViewNode 返回的节点须满足 node.key === context.key 且 node.target === target；
+    //   - 撤回已物化节点会抛错，须改返回同 key 的 hidden 节点。
+    var LDVH_NOTICE_KIND = "ldvh-notice";
+    var LDVH_NOTICE_SOURCE_KIND = "dsh-ldvh";
+
+    /** 复刻宿主 contextLocation：只读公开契约字段，无需宿主内部工具。 */
+    function ldvhNoticeLocation(context) {
+      if (context.start && context.start.location) return context.start.location;
+      if (context.matches && context.matches[0] && context.matches[0].location) return context.matches[0].location;
+      return { kind: "unresolved" };
+    }
+
+    /** 只认本插件注入的管辖判定消息。 */
+    function isLdvhNoticeEvent(event) {
+      return event.type === "user/message"
+        && event.data && event.data.source && event.data.source.kind === LDVH_NOTICE_SOURCE_KIND;
+    }
+
+    var ldvhNoticeDefinition = {
+      kind: LDVH_NOTICE_KIND,
+      target: "chat",
+      match: function (event) {
+        return isLdvhNoticeEvent(event) ? { id: String(event.data.id), role: "start" } : null;
+      },
+      start: function (context, match) {
+        return {
+          seq: match.event.seq,
+          time: match.event.time,
+          content: match.event.data.content,
+          source: match.event.data.source
+        };
+      },
+      update: function (context) { return context.state; },
+      buildViewNode: function (context) {
+        if (context.state === undefined) return null;
+        return {
+          key: context.key,
+          kind: LDVH_NOTICE_KIND,
+          id: context.id,
+          target: "chat",
+          anchorSeq: context.state.seq,
+          location: ldvhNoticeLocation(context),
+          visibility: "visible",
+          data: context.state
+        };
+      }
+    };
+
+    /** 判定行渲染器：一行摘要 + 可展开全文，样式沿用插件既有 ldv-* 类。 */
+    function LdvhNoticeRow(props) {
+      var node = props.node;
+      var data = node && node.data ? node.data : {};
+      var state = React.useState(false);
+      var open = state[0];
+      var setOpen = state[1];
+      var blocks = Array.isArray(data.content) ? data.content : [];
+      var text = blocks.map(function (block) {
+        return block && typeof block.text === "string" ? block.text : "";
+      }).join("\n");
+      var summary = data.source && typeof data.source.summary === "string" ? data.source.summary : "";
+      return React.createElement("div", { className: "ldv-notice-row" },
+        React.createElement("button", {
+          type: "button",
+          className: "ldv-notice-toggle",
+          "aria-expanded": open,
+          onClick: function () { setOpen(!open); }
+        },
+          React.createElement("span", { className: "ldv-notice-dot", "aria-hidden": "true" }),
+          React.createElement("span", { className: "ldv-notice-label" }, "上下文注入 · dsh-ldvh"),
+          summary ? React.createElement("span", { className: "ldv-notice-summary" }, summary) : null
+        ),
+        open ? React.createElement("pre", { className: "ldv-notice-body" }, text) : null
+      );
+    }
+
+    /** 注册 definition 与渲染器；返回卸载函数。服务缺失时静默跳过。 */
+    function registerLdvhNotice(ctx) {
+      var disposers = [];
+      try {
+        disposers.push(ctx.uiConversation.events.register(ldvhNoticeDefinition));
+      } catch (error) {
+        console.error("[dsh-ldvh] notice definition failed to register (chat row absent):", error);
+      }
+      try {
+        var disposeInject = ctx.slots.inject("conversation.chat.node", function () {
+          return ctx.slots.register({
+            name: "conversation.chat.node",
+            key: LDVH_NOTICE_KIND,
+            locale: LDVH_NS
+          }, LdvhNoticeRow);
+        });
+        disposers.push(disposeInject);
+      } catch (error) {
+        console.error("[dsh-ldvh] notice renderer failed to register (chat row absent):", error);
+      }
+      return function () {
+        for (var i = disposers.length - 1; i >= 0; i -= 1) {
+          try { disposers[i](); } catch (alreadyGone) { }
+        }
+      };
+    }
+
     // ── apply: inject the contributions ──────────────────────────────────
     // settingsScope 已从 DSH 0.1.7 删除（调研 §3.3），因此不再列入硬注入——
     // 留在 inject 里会让整个客户端插件永不 apply（服务永远等不到）。替代品
     // configForms 走 ctx.inject 软注入：缺失时设置卡不注册，插件照常工作。
-    var inject = ["slots", "locale"];
+    //
+    // uiConversation（2026-09-25 新增）：管辖判定要在**对话流**可见。宿主的可见性
+    // 黑名单排除了插件注入消息的默认分类 `context`（见 ldvhNoticeDefinition 的
+    // 长注释），绕开方式是注册自有节点 kind，这需要 uiConversation 的事件注册表。
+    // 该服务由 @deepseek-ai/dsh-client-ui-conversation 提供，已在 package.json 的
+    // dsh.client.inject 中声明。
+    var inject = ["slots", "locale", "uiConversation"];
 
     function apply(ctx) {
       try {
@@ -1168,6 +1309,11 @@ window.__ModuleLoader__.load({
         // configForms 缺失（老宿主 / 未装配 ui-settings 的组合）时侧栏 tab
         // 与对话 Tab 仍然可用；有 configForms 时下面的订阅会用真实设置值覆盖。
         applyMountSettings({});
+
+        // 对话流的管辖判定行：与投放开关无关（它是注入消息的呈现，不是视图），
+        // 故独立注册、随插件生命周期卸载。注册失败只记日志，不影响其它投放面。
+        var disposeNotice = registerLdvhNotice(ctx);
+        ctx.effect(function () { return disposeNotice; }, "dsh-ldvh: chat notice row");
 
         // 订阅设置变更：ready 前静默等待；每次快照变化（含首次 ready）应用投放开关。
         // 挂在 configForms 的子 fiber 上（服务缺失时整块不执行，投放面停在默认全开）。
