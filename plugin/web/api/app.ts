@@ -11,6 +11,9 @@ import cors from 'cors'
 import compression from 'compression'
 import dotenv from 'dotenv'
 import { createRequire } from 'node:module'
+import { existsSync } from 'node:fs'
+import { dirname, join, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import authRoutes from './routes/auth.js'
 import objectsRoutes from './routes/objects.js'
 import changelogRoutes from './routes/changelog.js'
@@ -101,6 +104,60 @@ app.use(
     })
   },
 )
+
+/**
+ * SPA 静态托管 + /ldvh/api 别名（宿主 iframe 绕行路径）。
+ *
+ * 背景：宿主把插件 SPA 的 iframe 请求判 403——`dsh-app://app/ldvh/` 走宿主转发链，
+ * 而宿主只在 `request.frame === owner.mainFrame` 时注入身份头，子框架拿不到，遂被拒
+ * （DevTools 实测 `GET dsh-app://app/ldvh/ 403`）。本服务由插件自持、监听固定回环
+ * 端口，不经 dsh-app 转发链，故在其上直接服务 SPA 可绕开该判据。
+ *
+ * 路径形状必须与 SPA 构建基址一致：dist/index.html 引用 `/ldvh/assets/...`，且前端
+ * API_BASE 解析为 `/ldvh/api`。因此这里同时挂两件事：
+ *   - `/ldvh/api/*`  → 复用本服务既有的 `/api/*` 路由（别名，不重复实现）
+ *   - `/ldvh/*`      → dist 静态资产，未命中者回落 index.html（SPA 客户端路由）
+ * 二者都必须在 404 handler 之前注册，否则先被 404 截获。
+ */
+const WEB_DIST_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
+
+// `/ldvh/api/*` 别名：去掉 `/ldvh` 前缀后交回 `/api` 链。用 `app.handle` 复用既有
+// 路由表，避免为同一批路由维护第二份挂载清单（两处会漂移）。
+app.use('/ldvh/api', (req: Request, res: Response, next: NextFunction): void => {
+  const original = req.url
+  req.url = `/api${original}`
+  const restore = (): void => {
+    req.url = original
+  }
+  res.on('finish', restore)
+  res.on('close', restore)
+  app.handle(req, res, (error?: unknown) => {
+    restore()
+    if (error !== undefined && error !== null) next(error as Error)
+    else next()
+  })
+})
+
+app.use('/ldvh', (req: Request, res: Response, next: NextFunction): void => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    next()
+    return
+  }
+  if (!existsSync(WEB_DIST_DIR)) {
+    res.status(503).type('text/plain').send('LDVH web dist is not built (run: cd web && pnpm build:dsh)')
+    return
+  }
+  const url = new URL(req.url ?? '/', 'http://ldvh.local')
+  const relative = decodeURIComponent(url.pathname)
+  // 防目录穿越：解析后必须仍在 dist 内。
+  const candidate = resolve(WEB_DIST_DIR, `.${relative === '/' ? '/index.html' : relative}`)
+  if (candidate.startsWith(WEB_DIST_DIR + sep) && existsSync(candidate)) {
+    res.sendFile(candidate)
+    return
+  }
+  // SPA 客户端路由回落。
+  res.sendFile(join(WEB_DIST_DIR, 'index.html'))
+})
 
 /**
  * error handler middleware

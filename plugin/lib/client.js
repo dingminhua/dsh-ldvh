@@ -359,10 +359,15 @@ window.__ModuleLoader__.load({
     }
 
     // Health probe: the view is "ready" only when /ldvh/api/health answers.
+    // 副作用（2026-09-25）：顺带取回宿主侧实际 Web 端口并重写 iframe 地址——
+    // 该请求走宿主主框架代理（不经子框架判据），是客户端唯一能拿到端口的通道。
     function checkHealth(then) {
       fetch("/ldvh/api/health", { method: "GET", cache: "no-store" })
         .then(function (r) { return r.json(); })
-        .then(function (body) { then(body && body.ok === true); })
+        .then(function (body) {
+          if (body && body.ok === true && body.webPort !== undefined) applyWebPort(body.webPort);
+          then(body && body.ok === true);
+        })
         .catch(function () { then(false); });
     }
 
@@ -931,13 +936,43 @@ window.__ModuleLoader__.load({
     // TabContent memo 失效），iframe 重建即回 /ldvh/ 主页。Web 应用侧路由变化
     // postMessage 通知（沙箱允许 postMessage），模块级变量在组件重挂间保留，
     // 重建的 iframe 以记忆路径为初始 src——用户停留的页面不再丢失。
-    var ldvhFrameLocation = "/ldvh/";
+    //
+    // 地址形状（2026-09-25 修订）：iframe 必须指向插件自带 Web 服务的**绝对
+    // 回环地址**，不能用相对路径 `/ldvh/`。
+    //
+    // 原因（DevTools 运行时取证）：主窗口文档的源是 `dsh-app://app`，相对路径
+    // `/ldvh/` 因此解析为 `dsh-app://app/ldvh/`，走宿主转发链。而宿主只在
+    // `request.frame === owner.mainFrame` 时注入身份头 `x-dsh-desktop-renderer`
+    // （宿主 lib/web-document.js:20 的 appRequestHeaders）——iframe 是**子框架**，
+    // 拿不到该头，宿主 forwardWebRequest 遂判 403。实测报错：
+    //   GET dsh-app://app/ldvh/ 403 (Forbidden)
+    //
+    // 插件自带的 Web 服务（见 lib/index.js 的 WEB_API_PORT）监听固定回环端口，
+    // 不经 dsh-app 转发链，故在其上同时服务 SPA 与 /ldvh/api 别名后，iframe 走
+    // 该绝对地址即可绕开子框架判据。
+    //
+    // 端口不硬编码：宿主侧端口可被 LDVH_WEB_API_PORT 覆盖，硬编码会与宿主漂移。
+    // 以 health 返回的 `webPort` 为准（经宿主主框架代理取，见 checkHealth），
+    // 尚未取到时用编译期默认值兜底，避免首帧空 src。
+    var LDVH_WEB_PORT_DEFAULT = 3299;
+    var ldvhWebPort = LDVH_WEB_PORT_DEFAULT;
+    var ldvhWebOrigin = "http://127.0.0.1:" + ldvhWebPort;
+    var ldvhFrameLocation = ldvhWebOrigin + "/ldvh/";
+    /** 端口就绪后重写 iframe 地址（保留当前记忆路径）。 */
+    function applyWebPort(port) {
+      if (typeof port !== "number" || !Number.isInteger(port) || port <= 0 || port > 65535) return;
+      if (port === ldvhWebPort) return;
+      ldvhWebPort = port;
+      ldvhWebOrigin = "http://127.0.0.1:" + ldvhWebPort;
+      var tail = ldvhFrameLocation.indexOf("/ldvh") >= 0 ? ldvhFrameLocation.slice(ldvhFrameLocation.indexOf("/ldvh")) : "/ldvh/";
+      ldvhFrameLocation = ldvhWebOrigin + tail;
+    }
     // 测试环境（无 window）守卫：模块加载期不炸，宿主正常注册。
     if (typeof window !== "undefined" && typeof window.addEventListener === "function") window.addEventListener("message", function (event) {
       if (event.source === window) return;
       var data = event.data;
       if (data && typeof data === "object" && data.type === "ldvh:navigate" && typeof data.pathname === "string") {
-        if (data.pathname.indexOf("/ldvh") === 0) ldvhFrameLocation = data.pathname;
+        if (data.pathname.indexOf("/ldvh") === 0) ldvhFrameLocation = ldvhWebOrigin + data.pathname;
       }
     });
 

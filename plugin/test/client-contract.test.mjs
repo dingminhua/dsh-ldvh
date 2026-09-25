@@ -258,6 +258,41 @@ test("betterSidebar LDVH tab registers as a soft dependency with iframe fallback
 	assert.ok(source.includes('LdvhSidebarTab'));
 });
 
+test("iframe points at the plugin's own loopback origin, never a relative /ldvh/ path", () => {
+	// 回归守护（2026-09-25）：iframe 若用相对路径 `/ldvh/`，在 `dsh-app://app`
+	// 主文档里会解析为 `dsh-app://app/ldvh/`，走宿主转发链；而宿主只在
+	// `request.frame === owner.mainFrame` 时注入身份头（lib/web-document.js:20），
+	// 子框架拿不到 → 403 → Tab 全白。实测报错 `GET dsh-app://app/ldvh/ 403`。
+	// 故 src 必须由绝对回环 origin 拼出。本断言锁死「不得退回相对路径」。
+	assert.ok(
+		/var ldvhWebOrigin = "http:\/\/127\.0\.0\.1:" \+ ldvhWebPort/.test(source),
+		"iframe origin must be built from an absolute loopback host + port",
+	);
+	assert.ok(
+		source.includes('var ldvhFrameLocation = ldvhWebOrigin + "/ldvh/"'),
+		"iframe src must be absolute (ldvhWebOrigin + path), not a bare /ldvh/ relative path",
+	);
+	assert.ok(
+		!source.includes('var ldvhFrameLocation = "/ldvh/"'),
+		"regression: a relative /ldvh/ src is what the host rejects with 403 for subframes",
+	);
+	// postMessage 位置记忆同样必须带上 origin，否则记回的是相对路径。
+	assert.ok(
+		source.includes('ldvhFrameLocation = ldvhWebOrigin + data.pathname'),
+		"navigation memory must re-prefix the absolute origin",
+	);
+	// 端口不得只硬编码：宿主侧端口可被 LDVH_WEB_API_PORT 覆盖，须能从 health 取回。
+	// 守护「端口发现」这一机制不被后续重构丢掉——只留常量即会与宿主漂移。
+	assert.ok(
+		source.includes('function applyWebPort(port)'),
+		"the client must be able to adopt the host-reported web port",
+	);
+	assert.ok(
+		source.includes('applyWebPort(body.webPort)'),
+		"checkHealth must feed the host-reported webPort into the iframe origin",
+	);
+});
+
 test("Web status row exposes a single serviceIssue hint on transport failure", () => {
 	// 顶部新增 serviceIssue 变量，条件为 checking / 未启用 / 正常 时为 null，仅当开关开启且探测失败时为 t("row.apiUnavailable")。
 	assert.ok(

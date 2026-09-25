@@ -155,7 +155,9 @@ function createApiHandler(dshHomePath, webApiProxy) {
     const rawPath = url.pathname;
     const path = rawPath === API_PREFIX ? "/" : (rawPath.startsWith(`${API_PREFIX}/`) ? rawPath.slice(API_PREFIX.length) : rawPath);
     if ((path === "/health" || path === "/health/") && (req.method === "GET" || req.method === "HEAD")) {
-      json(res, 200, { ok: true, service: "dsh-ldvh", status: "ok", prefix: API_PREFIX });
+      // `webPort` 供客户端 iframe 拼绝对地址（见 lib/client.js 的 ldvhWebOrigin）。
+      // 客户端不能硬编码端口——宿主侧端口可被 LDVH_WEB_API_PORT 覆盖，硬编码会漂移。
+      json(res, 200, { ok: true, service: "dsh-ldvh", status: "ok", prefix: API_PREFIX, webPort: WEB_API_PORT });
       return;
     }
     const handled = await governance(req, res);
