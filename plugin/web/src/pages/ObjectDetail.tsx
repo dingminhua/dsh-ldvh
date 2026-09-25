@@ -1202,7 +1202,13 @@ export function DetailInlineField({ label, value }: { label: string; value: Reac
   return (
     <div className="grid grid-cols-[5.625rem_minmax(0,1fr)] gap-2 py-3 first:pt-0 last:pb-0">
       <div className="ldvh-caption-strong text-ldvh-text-secondary">{label}</div>
-      <div className="min-w-0">{value}</div>
+      {/* 补 `ldvh-body`（2026-09-24 修）。
+       *
+       * 原为裸 `<div className="min-w-0">`——**无任何字号类**，故 value 回退到浏览器
+       * 默认 16px（`body` 未设 font-size）。后果：字段值比**节点标题**（14px）还大，
+       * 层级被反转；Human 观察到「字体大大小小」中最大的一档即来自此处。
+       * `docs/01 §1.4`：正文用 `ldvh-body` = 14px / 24px。 */}
+      <div className="ldvh-body min-w-0">{value}</div>
     </div>
   );
 }

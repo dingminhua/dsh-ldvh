@@ -3,6 +3,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatDateTime } from '@/utils/dateFormat';
 import { useI18n } from '@/i18n/context';
+import type { StructuredTextIssue } from '@/shared/workcaseTextStructure';
 import { getFieldLabel, getFieldValueLabel, getObjectStatusLocale } from '@/i18n/locales';
 import { normalizeSignature } from '../../../shared/signature';
 import { FactAssociationsSection } from '@/pages/object-detail/FactAssociationsSection';
@@ -18,6 +19,45 @@ import {
   getReadingNodeNextState,
   type ReadingNodeState,
 } from '@/pages/ObjectDetail';
+
+/**
+ * `scope` / `summary` 的**书写结构**问题就地显示（`21 §8`）。
+ *
+ * 与 `FieldProblem` 分开的原因：后者的 `reason` 闭集是 `missing` / `type_mismatch` /
+ * `identity_mismatch`（字段级读取问题，来自 `field_issues`），而本组件呈现的是
+ * **书写形态**问题（来自 `structured_text_issues`，规则见 `shared/workcaseTextStructure`）。
+ * 两类问题来源不同、文案不同，合并会掩盖其中一类。
+ *
+ * 为什么必须显示：写入口**早已**算出这些违规，但那结果只留在写入路径上——读者看到的是
+ * 「这个字段读不了」，而不是「它不合规、原因是 X」（Human 2026-09-24：「当前我看到的
+ * 都要规范化，可检查，确保之后都要保持一样」）。
+ */
+export function StructuredTextProblems({
+  issues,
+  field,
+}: {
+  issues?: StructuredTextIssue[];
+  field: 'scope' | 'summary';
+}) {
+  const { t } = useI18n();
+  const mine = Array.isArray(issues) ? issues.filter((i) => i.field === field) : [];
+  if (mine.length === 0) return null;
+  return (
+    <div className="ldvh-meta rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-amber-700 dark:text-amber-300">
+      <div className="font-medium">
+        {t('objectDetail.structuredTextIssue')}
+        <span className="ml-1 font-normal opacity-75">{t('objectDetail.structuredTextIssueHint')}</span>
+      </div>
+      <ul className="mt-1 grid min-w-0 gap-0.5">
+        {mine.map((issue, index) => (
+          <li key={`${issue.kind}-${index}`} className="min-w-0 break-words">
+            · {issue.message}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 export function FieldProblem({ issue }: { issue?: FieldPresentationIssue }) {
   const { t } = useI18n();

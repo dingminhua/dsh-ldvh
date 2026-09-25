@@ -1,6 +1,6 @@
 {
   "name": "dsh-ldvh",
-  "version": "1.0.0-dev.1",
+  "version": "1.0.0-dev.2",
   "description": "LD Vibe Harness — DeepSeek Harness 原生插件：Web 信息呈现、Git 机械守护与 AI 工作引导的宿主接入（webServer 路由 + Sidebar/全屏面板 + 设置面板）。",
   "keywords": [
     "deepseek-harness",
@@ -68,8 +68,8 @@
     "yaml": "^2.8.1"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6 || ^0.1.1-rc.2 || >=0.1.2-alpha.1 <0.2.0",
-    "@deepseek-ai/dsh-host-webserver": ">=0.1.2-alpha.1 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.7-rc.1 <0.2.0",
+    "@deepseek-ai/dsh-host-webserver": ">=0.1.7-rc.1 <0.2.0",
     "@deepseek-ai/schemastery": "^3.18.4"
   },
   "peerDependenciesMeta": {
@@ -79,9 +79,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-llm": "0.1.5-rc.1",
-    "@deepseek-ai/dsh-scope": "0.1.5-rc.1",
-    "@deepseek-ai/dsh-tools": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-tools": "0.1.7-rc.1",
     "@deepseek-ai/schemastery": "^3.18.4",
     "@eslint/js": "^10.0.1",
     "eslint": "^10.10.0",

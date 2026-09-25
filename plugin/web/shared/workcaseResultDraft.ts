@@ -149,6 +149,54 @@ export function resultSectionOf(body: unknown): string {
   return out.join('\n').trim()
 }
 
+/**
+ * 取正文里指定 H2 节的原文（不含标题行）。与 `resultSectionOf` **同一 ATX 语义**：
+ * 忽略代码围栏内的行、容许 ≤3 空格缩进、任何其它 H2 即节的边界。
+ *
+ * 为什么需要通用版（Human 裁定 2026-09-24，详情页统一）：`21 §8` 的正文 H2 闭集是
+ * `摘要 / 授权范围 / 计划 / 执行 / 结果`，其中**「执行」与「结果」两节没有对应的
+ * frontmatter 字段承载**——只能从正文读。详情页按固定序列呈现时，这两节须各占一个
+ * 节点（`docs/01 §1.10` 内容结构第 5 条：「正文完整渲染、不截断」）。
+ *
+ * 另三节（摘要 / 授权范围 / 计划）**不另设正文节点**：它们与 `summary` / `scope` /
+ * `plan` 三个字段节点内容重复（`21 §8` 的「载体内聚」要求字段值在正文逐字出现），
+ * 重复呈现无增益。
+ */
+export function h2SectionOf(body: unknown, heading: string): string {
+  if (typeof body !== 'string' || body.length === 0) return ''
+  if (typeof heading !== 'string' || heading.length === 0) return ''
+  const target = new RegExp(`^ {0,3}##\\s+${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`)
+  const lines = body.split(/\r?\n/)
+  const out: string[] = []
+  let inFence = false
+  let fenceMarker = ''
+  let collecting = false
+  for (const line of lines) {
+    const fence = /^ {0,3}(```|~~~)/.exec(line)
+    if (fence) {
+      const marker = fence[1]
+      if (!inFence) {
+        inFence = true
+        fenceMarker = marker
+      } else if (marker === fenceMarker) {
+        inFence = false
+        fenceMarker = ''
+      }
+      if (collecting) out.push(line)
+      continue
+    }
+    if (!inFence && /^ {0,3}##\s+\S/.test(line)) {
+      if (target.test(line)) {
+        collecting = true
+        continue
+      }
+      if (collecting) break
+    }
+    if (collecting) out.push(line)
+  }
+  return out.join('\n').trim()
+}
+
 interface PlanStepLike {
   step?: unknown
 }

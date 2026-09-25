@@ -220,11 +220,27 @@ test('all four lifecycle bodies render the shared responsibility nodes (field pr
   // ResponsibilityNodes，故 summary/scope 在 closed 详情同样在场。
   // （`serves` 不在本节点内：它是身份锚点，由四个分组共用的详情头
   //  ServesSgBadge 承载，同样满足「不因分组消失」。）
+  //
+  // 2026-09-24（Human：「详情页面需要有统一的设计语言」）：**本判据由「四个主体各接一次」
+  // 升级为「结构上不存在分组分支」**——四套 body 已合并为单一 `WorkCaseBody`，固定序列
+  // 由 `docs/01 §1.10` 内容结构第 2 条直接规定（「不按状态或 Card 分组切换结构」）。
+  // 原先的计数断言（=4）只能证明「四个分支各写了」，**证不出「没有分支」**；现在更强的
+  // 判据是：节点只按字段有无渲染，且文件内不存在按 group 渲染正文的分支。
   assert.match(layout, /function ResponsibilityNodes\(/);
+  // 计数取「元素开标签」而非「完整属性串」——后者会把增加一个 prop 判成失败
+  // （2026-09-24 实测：给本节点加 `structuredIssues` 后，按完整串匹配的判据误报）。
+  // 判据要的是「只挂一次」，与挂了哪些属性无关。
   assert.equal(
-    (layout.match(/<ResponsibilityNodes obj=\{obj\} locale=\{locale\} \/>/g) ?? []).length,
-    4,
-    '四个派生主体（draft/executing/awaiting_gate2/closed）都必须渲染共有字段节',
+    (layout.match(/<ResponsibilityNodes\b/g) ?? []).length,
+    1,
+    '共有字段节只应出现一次（单一序列，不按分组重复）',
+  );
+  // 反向：正文不得再按派生分组分支（本文件只允许在「派生不可判定时披露缺口」处用到 group）。
+  const bodyBranch = /group === '(pending_gate1|executing|awaiting_gate2|closed)'/g;
+  assert.equal(
+    (layout.match(bodyBranch) ?? []).length,
+    0,
+    '正文不得按派生分组分支（docs/01 §1.10：不按状态或 Card 分组切换结构）',
   );
 });
 
@@ -516,12 +532,11 @@ test('derived-group hint line is gone from every surface — group semantics liv
   }
 });
 
-test('the closure-window hint never lives in the executing branch (mutually exclusive with its group)', () => {
+test('the closure-window hint never lives in a per-group branch (no group branches exist)', () => {
   const layout = readSource('web/src/pages/object-detail/WorkCaseReadingLayout.tsx');
   const lifecycle = readSource('web/shared/workcaseLifecycle.ts');
 
   // 派生不变量：has_result_draft 为真 ⇔ 正文含「## 结果」节 ⇔ group=awaiting_gate2。
-  // 同一次派生同时给出 group 与该标记，故 executing 组内该标记恒为假。
   assert.match(
     lifecycle,
     /group: hasResultDraft \? 'awaiting_gate2' : 'executing'/,
@@ -529,22 +544,14 @@ test('the closure-window hint never lives in the executing branch (mutually excl
   );
   assert.match(lifecycle, /has_result_draft: hasResultDraft/);
 
-  // 因此 executing 分支不得渲染关闭准备窗口提示（那是不可达代码，且着色入参
-  // 与所在分组不一致——2026-09-17 已由独立复核发现并移除）。
-  const executingBody = layout.slice(
-    layout.indexOf('function ExecutingBody('),
-    layout.indexOf('function AwaitingGate2Body('),
-  );
-  assert.ok(executingBody.length > 0, '必须能定位 ExecutingBody');
+  // 2026-09-24：四套 body 合并为单一序列后，**「把提示错放到某个分组分支」这一失效
+  // 模式在结构上已不可能**——因为不再存在分组分支。故判据由「executing 分支内不得出现」
+  // 升级为「正文内不得存在分组分支」，比原判据更强。
+  const bodyBranch = /group === '(pending_gate1|executing|awaiting_gate2|closed)'/;
   assert.doesNotMatch(
-    executingBody,
-    /workcaseResultDraftPresent/,
-    'executing 分支不得承载关闭准备窗口提示——该分支不可达',
-  );
-  assert.doesNotMatch(
-    executingBody,
-    /group="awaiting_gate2"/,
-    'executing 分支内的提示不得标为 awaiting_gate2 组——着色入参须等于所在分组',
+    layout,
+    bodyBranch,
+    '正文不得存在分组分支（原失效模式：关闭准备窗口提示被错放到某个分组）',
   );
 });
 
@@ -973,4 +980,49 @@ test('判据面板四边同为 1px：不得有 border-l-2 或独立左线色', (
   assert.doesNotMatch(cls, /border-l-[a-z]+-\d+\//, `容器类不得含独立左线色：${cls}`);
   // 且确实带四边通用边框（否则「四边一致」无从谈起）
   assert.match(cls, /\bborder\b/, '容器类须含四边通用边框');
+});
+
+// 书写结构问题必须能到达呈现面（Human 2026-09-24：「当前我看到的都要规范化，可检查，
+// 确保之后都要保持一样」）。
+//
+// 背景：写入口（`plugin/lib/workcase-writer.js`）**早已**算出 `scope` / `summary` 的
+// 书写结构违规并放进 `mechanical_issues`，但那份结果**只留在写入路径上**——实测
+// `mechanical_issues` 在服务端投影与前端呈现**各 0 处命中**。于是读者看到的是
+// 「这个字段读不了」，而不是「它不合规、原因是 X」——**检查存在，但对读者不可见**。
+test('书写结构问题有完整的呈现出口（投影 → 就地显示）', () => {
+  const webValidator = readSource('web/shared/workcaseTextStructure.ts');
+  const facts = readSource('web/api/services/facts.ts');
+  const layouts = readSource('web/src/pages/object-detail/FactReadingLayouts.tsx');
+  const reading = readSource('web/src/pages/object-detail/WorkCaseReadingLayout.tsx');
+
+  // ① 呈现侧有一套与机械层同规则的校验实现（两侧互不 import，故必然各一份）
+  assert.match(webValidator, /export function validateWorkcaseStructuredText/);
+  for (const kind of ['scope_missing_what_line', 'scope_missing_not_line', 'scope_long_single_block']) {
+    assert.ok(webValidator.includes(kind), `校验器须覆盖机械层的违规类型：${kind}`);
+  }
+
+  // ② 服务端把它投影出去（此前 0 处）
+  assert.match(facts, /validateWorkcaseStructuredText/, '服务端须复算并投影');
+  assert.match(facts, /structured_text_issues/, '投影字段名须为 structured_text_issues');
+
+  // ③ 前端就地显示在**对应字段**位置（不是页底汇总）
+  assert.match(layouts, /export function StructuredTextProblems/);
+  assert.match(reading, /field="scope"/, 'scope 节点须就地显示其结构问题');
+  assert.match(reading, /field="summary"/, 'summary 节点须就地显示其结构问题');
+
+  // ④ 反向：**不得静默**——这是本机制最该防的失效模式（`mechanical_issues` 当初
+  //    就是「算出来了但没人显示」）。判据须直接盯「有没有真正渲染」，而不是盯某个
+  //    语法形态：本条首版断言「取出后不得以 `? [] :` 结尾」，把渲染语句整行删掉时
+  //    **逃逸**（删除后正则不再匹配，`doesNotMatch` 反而通过）。
+  //
+  //    现改为正面判据：`ProseNode` 内部必须**实际挂上**该组件，且两处节点各自传了
+  //    `field`（`scope` / `summary`），三者同时成立才算有出口。
+  const readingCode = reading
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  assert.match(
+    readingCode,
+    /<StructuredTextProblems[^>]*issues=\{structuredIssues\}[^>]*field=\{field\}/,
+    'ProseNode 必须真正挂载 StructuredTextProblems（取出而不渲染＝静默，本机制的首要失效模式）',
+  );
 });

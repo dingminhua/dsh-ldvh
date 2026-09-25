@@ -668,7 +668,14 @@ input::-moz-focus-inner {
   padding: 0.05rem 0.25rem;
   color: rgb(var(--ldvh-accent));
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 0.88em;
+  /* 字号/行高取**绝对值**（2026-09-24 修）。
+   *
+   * 原为 `font-size: 0.88em` 且**未设行高**：字号先按父级 14px 缩为 12.32px，
+   * 行高随后继承父级的**无单位** 1.75 并**再按新字号解析**为 21.56px —— 同一元素被
+   * 缩放两次，产生全页偏离最大的非设计值（实测 34 处）。
+   * 12px / 20px 与 `docs/01 §1.4` 的辅助标签档一致（`ldvh-caption`）。 */
+  font-size: 12px;
+  line-height: 20px;
 }
 
 .ldvh-inline-markdown :where(pre) {
@@ -797,10 +804,17 @@ input::-moz-focus-inner {
   color: rgb(var(--ldvh-accent));
 }
 
+/* 行高取**绝对像素**而非无单位比例（2026-09-24 修）。
+ *
+ * 原为 `line-height: 1.85`（无单位）：无单位比例按**元素自身 font-size** 解析，
+ * 14px 正文因此得 25.9px，而同页 `li` 用 1.75 得 24.5px —— 同为正文却出现两种行高，
+ * 这是 Human 观察到「字体大大小小」的直接来源之一（实测 16 种字体形态，其中 3 种
+ * 是此类纯计算事故）。
+ * 取 24px 与 `docs/01 §1.4` 的正文基准（14px / 24px）及 Human 2026-09-22 裁定一致。 */
 .ldvh-research-node-content .ldvh-inline-markdown :where(p) {
   margin-top: 0;
   margin-bottom: 0.75rem;
-  line-height: 1.85;
+  line-height: 24px;
 }
 
 .ldvh-research-node-content .ldvh-inline-markdown :where(p:last-child) {
@@ -863,7 +877,8 @@ input::-moz-focus-inner {
   margin-bottom: 0;
   min-height: 1.55rem;
   padding-left: 0.1rem;
-  line-height: 1.75;
+  /* 绝对像素而非无单位比例：理由同上方 `p`（2026-09-24）。 */
+  line-height: 24px;
 }
 
 .ldvh-research-node-content.ldvh-spark-reading-prose .ldvh-inline-markdown,

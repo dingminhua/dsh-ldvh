@@ -21,16 +21,27 @@ function readSource(relativePath: string): string {
   return fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
 }
 
-test('ReadingLayout branches on the four derived groups, never on v4 phases', () => {
+test('ReadingLayout uses ONE fixed node sequence, never branching on the four derived groups', () => {
   const layout = readSource('web/src/pages/object-detail/WorkCaseReadingLayout.tsx');
+
+  // 2026-09-24（Human：「详情页面需要有统一的设计语言」）：本判据由「四分流存在」
+  // **反转为「四分流不存在」**。依据 `docs/01 §1.10` 内容结构第 2 条：
+  // 「只按字段是否实际存在省略节点，**不按状态或 Card 分组切换结构**」。
+  //
+  // 此前实现是 DraftBody/ExecutingBody/AwaitingGate2Body/ClosedBody 四套各拼一份，
+  // 与上述规范条直接冲突；后果是同一字段在不同阶段出现在不同位置、甚至缺席
+  // （`gate_1` 只在 closed 组出现，而 21 §8 规定它「批准后必填」，open 期本就有值）。
   for (const body of ['DraftBody', 'ExecutingBody', 'AwaitingGate2Body', 'ClosedBody']) {
-    assert.match(layout, new RegExp(`function ${body}\\(`), `${body} 必须存在`);
+    assert.doesNotMatch(layout, new RegExp(`function ${body}\\(`), `${body} 不应存在（已合并为单一序列）`);
   }
-  // 四分流按派生 group，非 status/phase switch（v4 形态禁止）。
-  assert.match(layout, /group === 'pending_gate1' && <DraftBody/);
-  assert.match(layout, /group === 'executing' && <ExecutingBody/);
-  assert.match(layout, /group === 'awaiting_gate2' && <AwaitingGate2Body/);
-  assert.match(layout, /group === 'closed' && <ClosedBody/);
+  // 单一正文序列存在
+  assert.match(layout, /function WorkCaseBody\(/);
+  // 且不按派生分组分支
+  assert.doesNotMatch(
+    layout,
+    /group === '(pending_gate1|executing|awaiting_gate2|closed)'/,
+    '正文不得按派生分组分支（docs/01 §1.10）',
+  );
   assert.doesNotMatch(layout, /obj\.phase|switch\s*\([^)]*phase/);
 });
 
@@ -147,10 +158,20 @@ test('reviews node renders the review summaries and is wired into every lifecycl
   assert.match(layout, /function ReviewsNode\(/);
   assert.match(layout, /Array\.isArray\(obj\.reviews\)/);
   assert.match(layout, /entry\.summary/);
-  // 四个派生主体各接一次（draft / executing / awaiting_gate2 / closed）——
-  // 2026-09-17：awaiting_gate2 此前漏接 reviews，而 reviews 是复核节点概要流水，
-  // 与派生分组无关（21 §8），不得因对象处于某分组而消失。
-  assert.equal((layout.match(/<ReviewsNode obj=\{obj\} locale=\{locale\} \/>/g) ?? []).length, 4);
+  // 2026-09-24：四套 body 合并为单一序列后，`ReviewsNode` **只接一次**——原先的
+  // 「四个派生主体各接一次」（=4）是为防「某分组漏接 reviews」（2026-09-17
+  // awaiting_gate2 曾漏接）；现在结构上不存在分组分支，漏接已不可能，
+  // 故判据由「四次」改为「一次且不在任何分组分支内」，比原判据更强。
+  assert.equal(
+    (layout.match(/<ReviewsNode obj=\{obj\} locale=\{locale\} \/>/g) ?? []).length,
+    1,
+    'ReviewsNode 应恰接一次（单一序列）',
+  );
+  assert.doesNotMatch(
+    layout,
+    /group === '(pending_gate1|executing|awaiting_gate2|closed)'/,
+    'ReviewsNode 不得再处于分组分支内',
+  );
 
   // 词条：详情标题与列表组同源策略一致，须两地登记。
   assert.match(locales, /'objectDetail\.workcaseReviews'/);

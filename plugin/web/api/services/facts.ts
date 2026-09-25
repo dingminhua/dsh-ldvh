@@ -11,6 +11,7 @@ import { resolveCurrentWebProject, WebGovernanceError } from './governanceScope.
 import { deriveWorkCaseV5View, type WorkCaseV5View } from '../../shared/workcaseLifecycle.js'
 import { parseWorkCaseResultDraft, parseWorkCaseCancellation } from '../../shared/workcaseResultDraft.js'
 import { hasUnavailableIndependentSubagentReview } from '../../shared/workcaseCapability.js'
+import { validateWorkcaseStructuredText } from '../../shared/workcaseTextStructure.js'
 import { toRfc3339Text } from '../../shared/timestamp.js'
 import { FACT_LIST_FIELD_NAMES } from './factFieldContract.js'
 import {
@@ -676,6 +677,13 @@ export async function showObject(id: string, scope?: LocalFactScope): Promise<We
       Object.assign(data, currentCard)
       if (projection.group) data.group = projection.group
       if (projection.outcome) data.outcome = projection.outcome
+      // `scope` / `summary` 的**书写结构**问题（`21 §8`）：写入口已校验，但那结果
+      // 只留在写入路径上——`mechanical_issues` 在投影与呈现两侧此前**各 0 处命中**，
+      // 于是读者看到的是「这个字段读不了」，而不是「它不合规、原因是 X」。
+      // 此处按同一套规则在服务端复算一次并投影，使问题能就地显示（Human 2026-09-24：
+      // 「当前我看到的都要规范化，可检查，确保之后都要保持一样」）。
+      const structuredTextIssues = validateWorkcaseStructuredText(item.fact_object)
+      if (structuredTextIssues.length > 0) data.structured_text_issues = structuredTextIssues
     }
     const response = { ...result('show', id, data), summary: { id, type, ...(typeof data.status === 'string' ? { status: data.status } : {}) } }
     response.issues = [...item.issues, ...item.field_issues]
