@@ -2,7 +2,7 @@
 
 [English](README.en.md) | 简体中文
 
-> 当前状态：`1.0.0-dev.1` 开发预览。插件外壳已建立；管辖项目管理、Git Gate 与完整 LDVH Web 仍在迁移中，尚不建议普通用户安装或提交市场。
+> 当前状态：`1.0.0-dev.2` 开发预览。插件外壳已建立；管辖项目管理、Git Gate 与完整 LDVH Web 仍在迁移中，尚不建议普通用户安装或提交市场。
 
 LD Vibe Harness（LDVH）的 DeepSeek Harness 原生插件。目标是在 DSH 内提供：
 
@@ -34,11 +34,13 @@ LD Vibe Harness（LDVH）的 DeepSeek Harness 原生插件。目标是在 DSH �
 dsh plugin --profile desktop add /absolute/path/to/dsh-ldvh/plugin
 ```
 
-安装或修改 Host/Client/bundle patch 后需要重启 DSH Desktop。当前开发目标环境（本机观察值，2026-09-20）：
+安装或修改 Host/Client/bundle patch 后需要重启 DSH Desktop。当前开发目标环境（本机观察值，2026-09-25）：
 
-- DSH Desktop `2.0.13`
-- `@deepseek-ai/dsh` `0.1.5-rc.2`
+- DSH Desktop `2.0.14-next`（`/Applications/DSH NEXT.app`）
+- `@deepseek-ai/dsh` `0.1.7-rc.1`
 - Node.js `>=22.15.0`（代码下限；DSH 宿主 `dsh-plugin-desktop` 自身要求 `^22.19.0 || >=24.0.0`）
+
+> **宿主兼容（自 `1.0.0-dev.2` 起）**：本插件只支持 `@deepseek-ai/dsh >= 0.1.7-rc.1 < 0.2.0`（peerDependencies 已收窄）。0.1.7 对设置模型（SettingsProvider → 插件 Config + volatile）、客户端设置面（settingsScope / settings.plugin.item 删除 → configForms / plugins.*）、事件（agent/session-start 删除）与工具输出契约的破坏性变更均已适配；0.1.6 及更早宿主不兼容，详见 [CHANGELOG.md](CHANGELOG.md)。
 
 本节登记的是开发目标基线，不等于已验证支持：`specs/08` §8 要求的真实 UI 验收六项中，`/ldvh` 与 `/ldvh/api/health` 已实证，设置卡片、会话视图、停用与重启、卸载清理尚未核对。
 

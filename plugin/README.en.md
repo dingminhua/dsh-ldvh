@@ -2,7 +2,7 @@
 
 English | [简体中文](README.md)
 
-> Status: `1.0.0-dev.1` development preview. The plugin shell exists, while governed-project management, Git Gate, and the full LDVH Web migration remain incomplete. It is not yet recommended for regular users or marketplace submission.
+> Status: `1.0.0-dev.2` development preview. The plugin shell exists, while governed-project management, Git Gate, and the full LDVH Web migration remain incomplete. It is not yet recommended for regular users or marketplace submission.
 
 The native DeepSeek Harness plugin for LD Vibe Harness (LDVH). Its target capabilities include:
 
@@ -34,11 +34,13 @@ The native DeepSeek Harness plugin for LD Vibe Harness (LDVH). Its target capabi
 dsh plugin --profile desktop add /absolute/path/to/dsh-ldvh/plugin
 ```
 
-Restart DSH Desktop after installing or changing Host, Client, or bundle-patch code. Current target environment (observed locally on 2026-09-20):
+Restart DSH Desktop after installing or changing Host, Client, or bundle-patch code. Current target environment (observed locally on 2026-09-25):
 
-- DSH Desktop `2.0.13`
-- `@deepseek-ai/dsh` `0.1.5-rc.2`
+- DSH Desktop `2.0.14-next` (`/Applications/DSH NEXT.app`)
+- `@deepseek-ai/dsh` `0.1.7-rc.1`
 - Node.js `>=22.15.0` (code floor; the DSH host `dsh-plugin-desktop` itself requires `^22.19.0 || >=24.0.0`)
+
+> **Host compatibility (since `1.0.0-dev.2`)**: this plugin only supports `@deepseek-ai/dsh >= 0.1.7-rc.1 < 0.2.0` (peerDependencies narrowed accordingly). The breaking changes introduced by 0.1.7 — the settings model rebuild (`SettingsProvider` → plugin Config + volatile), the client settings surface (`settingsScope` / `settings.plugin.item` removed → `configForms` / `plugins.*`), the removed `agent/session-start` event, and the mandatory tool `output` contract — have all been adapted. Hosts on 0.1.6 and earlier are not supported; see [CHANGELOG.md](CHANGELOG.md).
 
 What is registered here is the development target baseline, not verified support: of the six real-UI acceptance items required by `specs/08` §8, `/ldvh` and `/ldvh/api/health` are evidenced, while the settings card, conversation view, disable/restart, and uninstall cleanup have not been checked.
 

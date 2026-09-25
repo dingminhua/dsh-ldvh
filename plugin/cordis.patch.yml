@@ -1,10 +1,16 @@
 # dsh-ldvh bundle patch.
 #
 # 用途：把 LDVH 作为一行 host-plane Cordis 插件接入 DSH。插件自身在
-#   apply(ctx) 中通过 inject 获取宿主 webServer / settings / shellEnv 等
-#   服务：注册 /ldvh/api（后端 API）与 /ldvh（前端 SPA）prefix 路由，
-#   注册 dsh-ldvh 设置命名空间与 Client 设置面板。资源生命周期由
-#   ctx.effect 承担，插件停用/卸载即清理，不占 webServer fallback 席位。
+#   apply(ctx, config) 中通过 inject 获取宿主 webServer / tools /
+#   systemPrompt / shellEnv 等服务：注册 /ldvh/api（后端 API）与 /ldvh
+#   （前端 SPA）prefix 路由，并在客户端 Plugins 页挂设置卡
+#   （plugins.bundle.config / plugins.row.config）。
+#
+# 设置面（DSH 0.1.7+ 模型）：可配置值全部声明在插件自己的 Cordis Config
+#   （lib/index.js 导出，webEnabled / showInConversationTab / showInSidebarTab
+#   三开关字段带 .volatile()）。宿主按 Loader 条目 id（= 本文件的 insert id
+#   `dsh-ldvh`）把 volatile 字段投影成设置表单，写回 profile 的 cordis.patch.yml。
+#   本插件不再注册独立 settings 命名空间，也不再消费 ctx.settings 服务。
 #
 # 安装方式：`dsh plugin --profile <profile> add <本包>`。与 DSH 官方 webServer
 #   共存；若宿主未装载 webServer（headless 无 web 表层），插件宿主管线在
