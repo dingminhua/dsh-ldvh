@@ -6,6 +6,13 @@ The format follows Keep a Changelog. This development changelog records only imp
 
 ## [Unreleased]
 
+### Changed
+
+- **DSH 宿主基线推进至 `0.1.7-rc.2`**：开发目标环境登记值由 `DSH Desktop 2.0.14-next / @deepseek-ai/dsh 0.1.7-rc.1` 更新为 `2.0.15-next / 0.1.7-rc.2`（README.md 与 README.en.md 同步）。机械依据：本机 `/Applications/DSH NEXT.app` 壳版本 `2.0.15-next`，其 `package.json` 声明 153 个 `@deepseek-ai/dsh*` 依赖，`Resources/app/node_modules/@deepseek-ai` 下实测 275 个 `dsh*` 包版本**全部**为 `0.1.7-rc.2`。依据：`docs/dsh-0.1.7-rc1-to-0.1.7-rc2-research.md`。
+- **`0.1.7-rc.2` 无需契约适配**（该区间为契约只增不改）：服务 88→89（仅新增 `schedule`，删除 0）、事件 77→81（新增 4 项全为 `emit`，删除 0、既有 mode 零变化）、客户端槽位 86→89（新增 3 项，删除 0）、模型可见 Tool 零删除。本插件消费的 12 个宿主服务、8 个事件与 `conversation.chat.node` / `conversation.view` 两槽位在该区间全部保持；`tools.guard` 与 `tools.register` 形态未变。
+- **开发工具链对齐 `0.1.7-rc.2`**：devDependencies 的 `dsh-tools` / `dsh-scope` / `dsh-llm` / `dsh-sandbox` 由 `0.1.7-rc.1` 升至 `0.1.7-rc.2`，`package-lock.json` 同步（含传递依赖 `dsh-brand` / `dsh-timeout` / `dsh-typert-protocol` / `dsh-util-crypto` / `dsh-util-values`）。`peerDependencies` 维持 `>=0.1.7-rc.1 <0.2.0`——该范围本已覆盖 rc.2，无需改动。验证：`npm --prefix plugin ci` 退出码 0；测试 933/933 通过、0 失败、0 跳过。
+- **撤回「为审批面补 `displayReason`」评估项**：rc.2 新增的 `PreToolDecision.ask.displayReason` 由 `tools/pre-execute` 事件返回，而本插件消费的是 `tools.guard`——其契约是返回**纯字符串**拒绝理由（`packages/core/tools/src/index.ts` 的 `guardReason(exec): string | undefined`），拿不到结构化载荷。两者不是同一条缝，该增强在本插件当前形态下不适用。
+
 ### Added
 
 - Initial `dsh-ldvh` Cordis plugin package skeleton.
