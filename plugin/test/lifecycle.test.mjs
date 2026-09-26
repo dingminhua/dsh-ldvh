@@ -22,6 +22,7 @@ import { createAssembleHandler, createPreStepHandler } from "../lib/guidance.js"
 import { createLifecycleRegistry } from "../lib/lifecycle.js";
 import { createSessionScopes } from "../lib/session-scopes.js";
 import { registerProject } from "../lib/governed-projects.js";
+import { registerSubagentResultTool } from "../lib/subagent-result.js";
 import { GUIDANCE_SECTION_NAME } from "../lib/guidance-text.js";
 import { initRepo, withTemp } from "./helpers.mjs";
 
@@ -197,7 +198,9 @@ function makeHostCtx() {
 			for (const listener of listeners[event] ?? []) listener(payload);
 		},
 		agentEffects: [],
-		registeredTools: []
+		registeredTools: [],
+		// 按工具名索引真实 descriptor，供需要驱动工具执行的用例使用
+		registeredDescriptors: new Map()
 	};
 	return ctx;
 }
@@ -225,6 +228,7 @@ function makeInstallableAgent(id, cwd, ctx, { root = true } = {}) {
 			tools: {
 				register: (descriptor) => {
 					ctx.registeredTools.push(descriptor?.name ?? "unknown");
+					if (descriptor?.name !== undefined) ctx.registeredDescriptors.set(descriptor.name, descriptor);
 					return () => {};
 				}
 			}
@@ -652,4 +656,152 @@ test("pre-step: judgment change injects a visible context-injection row (plugin 
 	const withOwn = [...baseMessages, injected];
 	const fourth = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: withOwn }));
 	assert.equal(fourth.messages.length, withOwn.length, "own message suppresses re-injection");
+});
+
+// ---------------------------------------------------------------------------
+// 2026-09-26 回归：结论捕获必须走 DSH 真实 API（session.snapshotEvents()）
+// ---------------------------------------------------------------------------
+//
+// 缺陷事实：`child.js` 原读 `agent.session?.events`，而 DSH 的 Session 上**没有
+// `events` 属性**——它只有 `snapshotEvents()` 方法。故该表达式恒为 undefined，
+// `!Array.isArray(events)` 立即返回，**结论从未被捕获过**。
+//
+// 为什么既有用例抓不到它：上面那条用例自行赋值 `child.session.events = [...]`，
+// 造出了一个真实 Session 上不存在的属性，于是测试通过而产品失效。本用例改用
+// **真实形状**（提供 `snapshotEvents()`，不提供 `events`）——按 09 §5 的变异
+// 检验口径，它正是那个能杀掉「读不存在属性」写法的用例。
+test("child: conclusion capture reads the real DSH API (snapshotEvents), not a non-existent `.events`", async () => {
+	await withTemp("ldvh-lc.", async (base) => {
+		const home = join(base, "home");
+		const repo = await initRepo(base);
+		await registerProject(dshHome(home), { id: "demo", path: repo });
+
+		const ctx = makeHostCtx();
+		const parent = makeInstallableAgent("parent", repo, ctx);
+		const sessionScopes = createSessionScopes();
+		const registry = createLifecycleRegistry(ctx, { dshHomePath: dshHome(home), workspaceRoot: base, sessionScopes });
+
+		ctx.agents = { roots: () => [parent], get: (id) => (id === "parent" ? parent : undefined) };
+		registry.start();
+		ctx.fire("agent/created", { agent: parent });
+
+		const child = makeInstallableAgent("child", repo, ctx, { root: false });
+		child.session.header.origin = "subagent";
+		child.session.header.parentSession = "parent";
+		ctx.fire("agent/created", { agent: child });
+
+		// 真实形状：Session 暴露 snapshotEvents()，**没有** events 属性。
+		let committed = [
+			{ type: "turn/start", data: { turn: 1 } },
+			{ type: "assistant/message", data: { turn: 1, message: { content: [{ type: "text", text: "复核结论：可关闭" }] } } }
+		];
+		child.session.snapshotEvents = () => committed;
+		assert.equal("events" in child.session, false, "真实 Session 没有 events 属性——本用例必须保持这一形状");
+
+		const onSessionEvent = childListener(ctx, "child", "session/event");
+		assert.ok(onSessionEvent, "child registered a session/event seam");
+
+		assert.equal(registry.childConclusionOf("child"), null, "尚未结束任何轮次：conclusion 为 null");
+
+		onSessionEvent(child.session, { type: "turn/end", data: { turn: 1, reason: { kind: "completed" } } });
+		assert.equal(
+			registry.childConclusionOf("child"),
+			"复核结论：可关闭",
+			"结论必须经 snapshotEvents() 被捕获——读 .events 时这里会保持 null（本用例正是该缺陷的守卫）"
+		);
+
+		// 读取器抛错时不得让子代理的 turn-end 崩溃，也不得把「不可读」伪装成
+		// 「无文本轮次」（后者是真实结果 ""）。故抛错 → 本次不更新，保留原值。
+		child.session.snapshotEvents = () => { throw new Error("session log unreadable"); };
+		onSessionEvent(child.session, { type: "turn/end", data: { turn: 2, reason: { kind: "completed" } } });
+		assert.equal(registry.childConclusionOf("child"), "复核结论：可关闭", "读取器抛错不更新、不崩溃、不伪造空结论");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// 2026-09-26 回归：collect 工具必须能查到「已结束」子代理
+// ---------------------------------------------------------------------------
+//
+// 缺陷事实（两处独立缺陷，同一工具）：
+//  ① 只读活体 `children`。子代理结束时记录被移入 `retiredChildren`，故本工具
+//     **只在子代理运行中查得到**——恰好是没人需要的时刻；结束后返回 Found 0。
+//     上面那条 `registry.childSnapshots()` 用例抓不到它：它测的是 registry 的
+//     方法，而缺陷在**工具**的读取路径（工具原先拿的是只含活体的 Map）。
+//  ② `activity: undefined` 破坏宿主 lossless-JSON 校验 → **不指定 agentId 的
+//     枚举调用直接报错**；带 agentId 时不赋 undefined，故不报错。这一条是
+//     「缺陷只在半数调用形态下显形」的典型。
+//
+// 本用例走**工具的注册与执行路径**（registry → registerSubagentResultTool），
+// 并在子代理 fiber 销毁后断言其仍可枚举——按 09 §5，这正是杀掉上述两处写法的
+// 用例；还原任一处写法都会让本用例失败。
+test("collect tool: enumerates a FINISHED child and does not emit `undefined` fields", async () => {
+	await withTemp("ldvh-lc.", async (base) => {
+		const home = join(base, "home");
+		const repo = await initRepo(base);
+		await registerProject(dshHome(home), { id: "demo", path: repo });
+
+		const ctx = makeHostCtx();
+		const parent = makeInstallableAgent("parent", repo, ctx);
+		const sessionScopes = createSessionScopes();
+		const registry = createLifecycleRegistry(ctx, { dshHomePath: dshHome(home), workspaceRoot: base, sessionScopes });
+
+		ctx.agents = { roots: () => [parent], get: (id) => (id === "parent" ? parent : undefined) };
+		registry.start();
+		ctx.fire("agent/created", { agent: parent });
+
+		// 工具注册是**异步**的（install → 判定管辖 → 注册），须轮询等待，
+		// 否则取不到 descriptor —— 这正是既有用例 518 行采用的做法。
+		for (let attempt = 0; attempt < 50 && !ctx.registeredDescriptors.has("ldvh_collect_subagent_results"); attempt += 1) {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+
+		const child = makeInstallableAgent("child", repo, ctx, { root: false });
+		child.session.header.origin = "subagent";
+		child.session.header.parentSession = "parent";
+		ctx.fire("agent/created", { agent: child });
+
+		// 子代理工作结束（真实形状：snapshotEvents，无 events 属性）。
+		const onSessionEvent = childListener(ctx, "child", "session/event");
+		child.session.snapshotEvents = () => [
+			{ type: "assistant/message", data: { turn: 1, message: { content: [{ type: "text", text: "复核完成" }] } } }
+		];
+		onSessionEvent(child.session, { type: "turn/end", data: { turn: 1, reason: { kind: "completed" } } });
+
+		// 关键：fiber 销毁 = 原实现丢失它的那一刻。
+		await child.disposeFiber();
+
+		// 走**真实注册路径**：registry 安装父代理时会把工具批量注册到
+		// parent.ctx.tools —— 直接取真实 descriptor，而不是自造 seam。
+		const descriptor = ctx.registeredDescriptors.get("ldvh_collect_subagent_results");
+		assert.ok(descriptor, `collect tool must be registered through the real path; got ${[...ctx.registeredDescriptors.keys()].join(",")}`);
+
+		// ① 枚举调用（不指定 agentId）——原实现在此**直接抛错**（undefined 字段）。
+		const exec = { agent: { session: { header: { cwd: repo } } } };
+		const all = await descriptor.execute({}, exec);
+		const env = all.envelope ?? all;
+		assert.equal(env.outcome, "completed", `枚举必须成功而非报错：${JSON.stringify(env).slice(0, 220)}`);
+		const ids = env.result.children.map((c) => c.agentId);
+		assert.ok(ids.includes("child"), `已结束的子代理必须仍被枚举到，实得 ${JSON.stringify(ids)}`);
+
+		// ② 枚举结果**不得携带值为 undefined 的属性**。
+		//
+		// 断言必须直接检视属性存在性：`JSON.stringify` 会把 undefined 属性**静默
+		// 丢弃**，故对 JSON 文本做子串匹配是无效断言（首版测试即因此漏检，变异
+		// 未被捕获）。而宿主的 lossless-JSON 校验看的正是「属性是否存在且不可表
+		// 达」——`activity: undefined` 因此在真实调用中报错。
+		for (const item of env.result.children) {
+			assert.equal(
+				Object.prototype.hasOwnProperty.call(item, "activity"),
+				false,
+				`枚举项不得携带 activity 属性（值为 undefined 时须省略而非赋值）：${JSON.stringify(Object.keys(item))}`
+			);
+		}
+
+		const one = await descriptor.execute({ agentId: "child" }, exec);
+		const oneEnv = one.envelope ?? one;
+		assert.equal(oneEnv.outcome, "completed", JSON.stringify(oneEnv).slice(0, 220));
+		const entry = oneEnv.result.children.find((c) => c.agentId === "child");
+		assert.equal(entry.conclusion, "复核完成", "已结束子代理的结论可回读");
+		assert.ok(Array.isArray(entry.activity) && entry.activity.length > 0, "单查带回活动轨迹");
+	});
 });

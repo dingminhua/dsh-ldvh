@@ -876,7 +876,12 @@ export function registerLdvhTools(ctx, deps) {
   if (deps.children !== undefined) {
     disposers.push(registerSubagentResultTool(ctx, {
       dshHomePath: deps.dshHomePath,
-      children: deps.children
+      children: deps.children,
+      // 活体 + 已结束子代理的统一枚举。必须在**此处**透传：漏掉它会让 collect
+      // 工具回落到只含活体的 Map，从而「只在子代理运行中查得到」——而收集结果
+      // 恰恰发生在其结束之后（2026-09-26 修；首版修复即因漏传此处而在真实路径上
+      // 不生效，由 lifecycle 的「已结束子代理仍可枚举」用例捕获）。
+      listChildren: deps.listChildren
     }));
   }
   // Research mechanical layer (specs/30 state machine + specs/24 writer),

@@ -36,6 +36,38 @@ import { DelegatedChildRecord } from "./agent-lifecycle.js";
  */
 const RETIRED_LIMIT = 50;
 
+/**
+ * Read a session's committed events, or `null` when the session offers no
+ * readable log.
+ *
+ * 2026-09-26: `session.events` DOES NOT EXIST on a DSH `Session` — the object
+ * exposes `snapshotEvents()` (and `ownEvents()`), which is what the framework's
+ * own consumers call (`dsh-agent-loop`'s `eventsNewestFirst()` is literally
+ * `session.snapshotEvents().toReversed()`). Reading a non-existent property
+ * yielded `undefined` forever, so the conclusion capture below returned early
+ * on EVERY turn and no delegated child ever produced a conclusion.
+ *
+ * The `events` array form is kept as a fallback so existing fixtures (which
+ * assign `session.events = [...]`) stay meaningful; it is NOT a real DSH shape
+ * and must not be treated as one. Returning `null` (rather than `[]`) keeps
+ * "no readable log" distinguishable from "a turn with no assistant text",
+ * which the caller treats as a real outcome (`""`) — collapsing the two would
+ * make an unreadable session look like a completed textless turn.
+ */
+function readCommittedEvents(session) {
+  if (session === null || session === undefined) return null;
+  if (typeof session.snapshotEvents === "function") {
+    try {
+      const events = session.snapshotEvents();
+      if (Array.isArray(events)) return events;
+    } catch {
+      // Fall through: a throwing reader is "no readable log", not a crash —
+      // this runs inside a child's turn-end path and must never break the turn.
+    }
+  }
+  return Array.isArray(session.events) ? session.events : null;
+}
+
 export function createChildInstaller(ctx, { agents, children, sessionScopes, retiredChildren }) {
   /**
    * Install the child lifecycle for one subagent. Returns true when the
@@ -138,16 +170,35 @@ export function createChildInstaller(ctx, { agents, children, sessionScopes, ret
         // close signal that carries a turn number is the session-scoped
         // `session/event` with type "turn/end" (payload { turn, reason }),
         // which is what triggers.js already uses. So we take the turn number
-        // there and walk back through session.events for that turn's
-        // assistant/message — the same read path dsh-agent-loop itself uses
-        // to restore its projection (session.events.findLast(...)).
+        // there and walk back through the session's committed events for that
+        // turn's assistant/message.
+        //
+        // 2026-09-26 修复：原实现读 `session.events`，而 DSH 的 Session 上
+        // **没有 `events` 属性**——它只有 `snapshotEvents()` 方法。故该表达式
+        // 恒为 undefined，`!Array.isArray` 立即返回，**结论从未被捕获过**
+        // （record_review 因之报「no captured conclusion」）。本仓自 3670929
+        // 引入起即如此，实测由父会话以已结束子代理 id 走 record_review 复现：
+        // 报的是「no captured conclusion」而非「not registered」，两条分支
+        // 的差异把「注册断」与「捕获断」分开，定位到此行。
+        //
+        // 读路径与 dsh-agent-loop 自身的用法一致：dsh-agent-loop/lib/index.js
+        // 的 eventsNewestFirst() 即 `session.snapshotEvents().toReversed()`。
+        // （原注释称「session.events.findLast(...)」，该写法在 DSH 中不存在，
+        // 是引入时的失实依据；此处一并更正为实际存在的 API。）
+        //
+        // 弃用边界（如实声明）：`snapshotEvents()` 与 `ownEvents()` 在
+        // dsh-session 中均标注 @deprecated（「new calls are prohibited」），
+        // 官方消费方（dsh-agent-loop / dsh-api-session-controller）当前仍在
+        // 使用它。本处取读快照而非迁往异步通道，是因为子代理的结论捕获发生在
+        // turn/end 同步回调内、且只读已提交事件；若上游移除该方法，此处须按
+        // 彼时的替代入口迁移。该边界不改变本次修复的事实：原写法**从未生效**。
         stops.push(agent.ctx.on("session/event", (session, event) => {
           if (session !== agent?.session) return;
           if (event?.type !== "turn/end") return;
           try {
             const turn = event?.data?.turn;
             if (turn === undefined || turn === null) return;
-            const events = agent.session?.events;
+            const events = readCommittedEvents(agent.session);
             if (!Array.isArray(events)) return;
             // Walk back from the end to the most recent assistant/message
             // belonging to this exact turn. Earlier turns are irrelevant and

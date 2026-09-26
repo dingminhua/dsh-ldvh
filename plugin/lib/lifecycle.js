@@ -74,6 +74,10 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // its own guard (ldvh-tools.js: `deps.children !== undefined`) and
           // never registers — found in live verification, not by unit tests.
           children,
+          // 活体 + 已结束子代理的统一枚举（childRecords）。collect 工具据此
+          // 才能查到**已经结束**的子代理——原实现只读活体 Map，而子代理结束
+          // 时记录被移入 retiredChildren，导致「只在运行中查得到」（2026-09-26 修）。
+          listChildren: childRecords,
           // 子代理身份的可信来源（workcase-2be11478 计划步骤 4）：子代理本身
           // 不注册 ldvh_* 工具（`origin === "subagent"` 走 installChild 后即返回），
           // 故它无法自行记录复核结论。宿主侧的这张登记表持有 Code 亲观测到的

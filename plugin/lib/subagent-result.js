@@ -73,7 +73,10 @@ function parameterSchemaFor(operationKey) {
 }
 
 export function registerSubagentResultTool(ctx, deps) {
-  const { dshHomePath, children } = deps;
+  // `listChildren` is the host-provided enumeration over BOTH live and retired
+  // children (lifecycle.js childRecords). `children` (live-only) remains as a
+  // fallback so a caller that has not adopted the seam still gets live results.
+  const { dshHomePath, children, listChildren } = deps;
   const operationKey = "collect-subagent-results";
   const operation = OPERATIONS[operationKey];
 
@@ -101,9 +104,24 @@ export function registerSubagentResultTool(ctx, deps) {
         }
 
         const requestedId = typeof args?.agentId === "string" ? args.agentId : null;
-        const childEntries = Array.from(children.entries());
+        // 活体 + **已结束**子代理都要枚举。
+        //
+        // 2026-09-26 修复（两处独立缺陷）：
+        //  ① 原实现只读活体 `children`，而子代理结束时其记录被移入
+        //     `retiredChildren`（child.js 为内存安全这么做，并明文说明
+        //     「you collect a result AFTER it ends」）。于是本工具**只在子代理
+        //     运行中查得到**——恰好是没人需要的时刻；结束后一律 `Found 0`。
+        //     现优先使用宿主提供的 `listChildren`（活体+已结束，lifecycle.js
+        //     的 childRecords），无该 seam 时回落到活体 Map 并如实标注。
+        //  ② `activity: undefined` 会破坏宿主的 lossless-JSON 校验，使**不指定
+        //     agentId 的枚举调用直接报错**（带 agentId 时 includeActivity 为真，
+        //     无 undefined，故不报错——这正是该缺陷长期未被发现的原因）。
+        //     现按需省略该字段，而不是赋 undefined。
+        const listed = typeof listChildren === "function"
+          ? listChildren().map((record) => [record.agentId, record])
+          : Array.from(children.entries()).map(([id, entry]) => [id, entry.record]);
 
-        let results = childEntries.map(([id, { record }]) => {
+        let results = listed.map(([id, record]) => {
           const snap = record.snapshot();
           const includeActivity = requestedId === id;
           return {
@@ -118,8 +136,11 @@ export function registerSubagentResultTool(ctx, deps) {
             propagationCount: snap.propagationCount,
             activityCount: snap.activityCount,
             // Only inline the full trail for a single-agent query, so the
-            // list-all case stays small by default.
-            activity: includeActivity ? record.activitySnapshot() : undefined
+            // list-all case stays small by default. OMITTED (not set to
+            // `undefined`) when not requested: an explicit undefined breaks the
+            // host's lossless-JSON validation and made the list-all call fail
+            // outright (2026-09-26 fix, see the note above).
+            ...includeActivity ? { activity: record.activitySnapshot() } : {}
           };
         });
 
