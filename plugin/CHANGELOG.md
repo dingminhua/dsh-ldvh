@@ -13,6 +13,14 @@ The format follows Keep a Changelog. This development changelog records only imp
 - **开发工具链对齐 `0.1.7-rc.2`**：devDependencies 的 `dsh-tools` / `dsh-scope` / `dsh-llm` / `dsh-sandbox` 由 `0.1.7-rc.1` 升至 `0.1.7-rc.2`，`package-lock.json` 同步（含传递依赖 `dsh-brand` / `dsh-timeout` / `dsh-typert-protocol` / `dsh-util-crypto` / `dsh-util-values`）。`peerDependencies` 维持 `>=0.1.7-rc.1 <0.2.0`——该范围本已覆盖 rc.2，无需改动。验证：`npm --prefix plugin ci` 退出码 0；测试 933/933 通过、0 失败、0 跳过。
 - **撤回「为审批面补 `displayReason`」评估项**：rc.2 新增的 `PreToolDecision.ask.displayReason` 由 `tools/pre-execute` 事件返回，而本插件消费的是 `tools.guard`——其契约是返回**纯字符串**拒绝理由（`packages/core/tools/src/index.ts` 的 `guardReason(exec): string | undefined`），拿不到结构化载荷。两者不是同一条缝，该增强在本插件当前形态下不适用。
 
+### Known
+
+- **平台支持范围已声明（macOS 与 Windows）**：README（中英双版）新增「平台支持 / Platform support」节，把 macOS 与 Windows 登记为**声明的支持平台**，并如实标注 Windows **未在真实 Windows 主机验证（`unverified`）**、Linux 不在支持声明内。本次同时修正该声明的上游代码缺陷：`lib/governance-scope.js` 的包含判定原以硬编码 `/` 拼接根路径，而 `realpath` 返回宿主原生分隔符（win32 为 `\`），win32 下 `C:\repo/` 永不匹配 `C:\repo\sub`——直接包含热路径被架空，每个子目录退化为 Git common-dir 子进程回查。现改为按宿主平台路径语义判定（`path.relative`），并注入 `pathImpl` 使两个平台的真值表可在任一宿主上机械验证；`test/governance-scope.test.mjs` 新增两条跨平台守卫。验证：测试 935/935 通过（原 933）。
+- **win32 无自动化验证背书（如实登记）**：CI 两个 job 均运行于 `ubuntu-latest`，win32 分支不经 CI 执行；全套测试中 4 处断言在 win32 上早退（`plugin/test/` 3 处依赖 POSIX 权限语义：`closure-items.test.mjs` 2 处、`goal-writer.test.mjs` 1 处；`plugin/web/tests/api/truthful-reading-projection.test.ts` 1 处依赖可执行位）。该范围与 README「平台支持」节同源登记，**不得据「已实现」主张 Windows 已验收**。
+- **README「当前已实现／尚未实现」段按实际对齐**：原段仍称管辖项目管理与 v4 Git Gate validator「尚未实现」、v4 Web「仍在迁移」，与本变更日志的 Added 段及实际代码不符（该段早于实现落地，未随实现同步）。现按实际登记；未完成项收敛为「真实 UI 验收四项未核对」「正式市场截图与发布版本」「Windows 真机验收」。
+- **`dsh-atomic-write` 锁接管的部署约束**：`0.1.7-rc.2` 起该包新增「已退出持有者锁接管」——锁文件记录 `<pid>`，持有者进程被证明不存在（`ESRCH`）时接管锁。本插件的 `lib/governed-projects.js` 经 `withFileLock` / `writeFileAtomic` 消费它，但**只写管辖登记载体**（`$DSH_HOME/ldvh/governed-projects.yaml`）；事实源 `ldvh-base/` 不经该包——各 fact writer 自带无锁原子替换（`writeFile` + 回读校验 + `rename`）。该实现的 PID 比较在**竞争者主机上**进行，官方明确「不支持跨宿主或跨 PID namespace 共享同一文件」（`packages/util/atomic-write/src/index.ts`）。故**登记载体所在的 DSH 用户配置根**不得置于网络文件系统或跨 PID namespace 的共享卷；当前单机单 PID namespace 部署不触发该边界，部署形态改变时须重评。
+- **未声明「已验证支持 `0.1.7-rc.2`」**：按 `specs/08` §8 与 `local-dev-workflow` 红线 3，支持声明须以真实 UI 验收六项全项完成为前提；`/ldvh` 与 `/ldvh/api/health` 已实证，设置卡片、会话视图、停用与重启、卸载清理四项尚未核对。
+
 ### Added
 
 - Initial `dsh-ldvh` Cordis plugin package skeleton.
@@ -39,8 +47,8 @@ The format follows Keep a Changelog. This development changelog records only imp
 
 ### Known
 
-- The LDVH Web SPA is still a placeholder page; the v4 web migration is pending.
-- Windows validation of the install/uninstall flow remains `unverified`.
+- The LDVH Web SPA is **no longer a placeholder**: the v4 migration step 1 landed (`plugin/web/`, 15 pages with the federation views and project colours) and `plugin/web/dist` builds a real SPA. The known couplings that remain are listed in `plugin/web/README-MIGRATION.md` (the Express API's v4 Python Helper dependency for legacy paths, and the fact that `study`-type lists are empty on v5 projects because the Research reading engine is not yet wired).
+- Windows validation of the install/uninstall flow remains `unverified`. The platform-wide statement — and the automated-coverage gap on win32 — is recorded in the README "Platform support / 平台支持" section and in the `[Unreleased]` Known entries above; that section is the user-facing source for this claim.
 
 ## [1.0.0-dev.2] — 2026-09-25
 
