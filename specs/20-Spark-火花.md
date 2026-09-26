@@ -11,6 +11,8 @@ ldvh_spec:
   scope: "适用于管辖项目中承载方向主线与悬置问题的 Spark 对象；不定义调研执行流程（交给 30 号调研系统）、不定义 WorkCase 授权、也不定义 Initiative 专项"
   basis:
     - "source-of-truth-traceability"
+    - "dsh-environment-integration"
+    - "code-engineering-practices"
     - "goal-fact-type"
   authorized_attachments: []
   dimensions: ["research"]
@@ -28,9 +30,12 @@ Spark 不承接 HV1、HV2；对象存在、数量或终态也不证明 HV4 或�
 
 ## 2. 规范依据
 
-1. `fact-model-foundation`：03 §6.1 公共身份字段、§6.2 载体与权威位置、§7.2 公共关系形状、§8 召回分层、§9 受控读写、§10 事实变更与生命周期、§11 类型规范共同结构。
-2. `source-of-truth-traceability`：06 §6 受控提交契约、§5 事实源与溯源。
-3. `goal-fact-type`：25 §6 sub-goal（SG-n）锚点语义、§11 修订级联的 Spark 豁免。
+1. `source-of-truth-traceability`：06 §6 受控提交契约、§5 事实源与溯源。
+2. `dsh-environment-integration`：08 §5 交互面（`ctx.userQuestions.ask` 作为 Human Gate 决策提请的宿主承载入口——§16 的创建与终态转换两项确认按该入口取得）。
+3. `code-engineering-practices`：09 §5 守卫测试的证据边界与「被区分对象在形式上是否可分」判据（§16 大改项据此判为弱约束）、§6 弱约束的判断依据由实现提供（§13 更新条与 §16 的判据交还义务）。
+4. `goal-fact-type`：25 §6 sub-goal（SG-n）锚点语义、§11 修订级联的 Spark 豁免。
+
+本文的结构父规范是 `fact-model-foundation`（03），按 01 §10.1 同一目标不得同时作为 `basis` 和结构父规范，故 03 不列入 `basis`；03 §6.1 公共身份字段、§6.2 载体与权威位置、§7.2 公共关系形状、§8 召回分层、§9 受控读写、§10 事实变更与生命周期、§11 类型规范共同结构是本文 §5–§15 的结构依据，与 21–27 各同段类型规范同形态。
 
 本文不依赖外部语法或行业标准定义 Spark 类型语义。既有候选记录、v4 实证（103 个 Spark）与重建锚点文档（`docs/spark-workcase-rebuild.md` §5/§6）只用于识别设计意图，不证明当前规则成立。发生冲突或权威关系无法确认时，按 00 §7.2 暂停受影响范围并完成对齐。
 
