@@ -45,6 +45,20 @@ const OPERATIONS = {
   "spark-write-object": {
     toolName: "ldvh_spark_write",
     writeShaped: true,
+    // `create` and a terminal transition (implemented/discarded) are the two
+    // 20 §16 Human Gates carried by a host question (requestSparkConsent), so
+    // this tool can block on a person. The timeout budget is PER TOOL, not per
+    // action, so the whole tool must declare no wall-clock deadline — otherwise
+    // every CAS update silently pays for the Human wait and a late answer is
+    // DISCARDED by a 30s timeout, leaving the gate unenforced in real
+    // compositions. See `workcase-tools.js` for the identical discipline and
+    // the descriptor factory for how the flag is consumed.
+    //
+    // Note the third 20 §16 Gate (问题/边界大改) deliberately does NOT route
+    // through an ask: it is a `09 §6` weak constraint — the implementation
+    // returns the before/after comparison and must not judge it. That return
+    // happens inside an already-running tool call, so it introduces no wait.
+    awaitsHumanDecision: true,
     summary: "Controlled write of Spark fact objects: create (after Human-confirmed C1 proposal incl. dedup result) and CAS update with change_log, against the governed project's fact source (specs/03 §9.4–§9.5, specs/20 §13)",
     effect: "may_change_state"
   }
@@ -205,6 +219,124 @@ async function executeListObject(args, exec, deps) {
   });
 }
 
+/**
+ * Present the 20 §16 呈报内容 for a Spark creation and obtain the Human's
+ * confirmation through the host answerer. Returns `null` when confirmation was
+ * granted, or the rejection envelope to return instead.
+ *
+ * 20 §16 requires the Human to receive the elements they are judging. The
+ * report below carries the dedup conclusion (20 §6.2), question, scope_boundary
+ * and serves — the same set the type source names. It is built from the draft
+ * the caller supplied, so it cannot diverge from what will be written.
+ */
+function sparkCreateReport(draft, dedupResult) {
+  const lines = [];
+  lines.push(`查重结论：${String(dedupResult).trim()}`);
+  if (typeof draft.question === "string" && draft.question.trim().length > 0) lines.push(`调查问题：${draft.question.trim()}`);
+  if (typeof draft.scope_boundary === "string" && draft.scope_boundary.trim().length > 0) lines.push(`调查边界：${draft.scope_boundary.trim()}`);
+  lines.push(`serves：${typeof draft.serves === "string" && draft.serves.trim().length > 0 ? draft.serves.trim() : "（未声明）"}`);
+  return lines.join("\n");
+}
+
+/** 20 §16 呈报内容 for a terminal transition: target status, the full
+ * disposition, and (for a merge/split) every relation target. */
+function sparkTerminalReport(frontmatterAfter) {
+  const lines = [];
+  lines.push(`拟转状态：${String(frontmatterAfter?.status ?? "").trim() || "（缺失）"}`);
+  const disposition = typeof frontmatterAfter?.disposition === "string" ? frontmatterAfter.disposition.trim() : "";
+  lines.push(`disposition：${disposition.length > 0 ? disposition : "（缺失）"}`);
+  const relations = Array.isArray(frontmatterAfter?.relations) ? frontmatterAfter.relations : [];
+  if (relations.length > 0) {
+    const targets = relations
+      .map((r) => `${String(r?.relation_key ?? "?")} → ${String(r?.target?.object_uid ?? "?")}`)
+      .join("；");
+    lines.push(`关系目标：${targets}`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Route one of the two mechanically-carried 20 §16 Gates through the host
+ * question entry. Fail-closed on every path that is not an explicit
+ * affirmative: no answerer, a failed ask, or a declined/unchosen answer.
+ *
+ * The THIRD 20 §16 Gate (问题/边界大改) deliberately does not appear here — it
+ * is a 09 §6 weak constraint whose judgement stays with the Human; the
+ * implementation only returns the before/after comparison (see the update
+ * path) and must not claim that gate is mechanically guaranteed.
+ */
+async function requestSparkGate(deps, exec, { action, objectTitle, summary }) {
+  const gate = deps?.hostSeams;
+  if (gate === undefined || typeof gate.requestSparkConsent !== "function") {
+    return {
+      ok: false,
+      envelope: envelope("spark-write-object", "unavailable", {
+        result: null,
+        scope: { requested: action, completed: [], not_completed: [action] },
+        sources: [],
+        gaps: ["ctx.userQuestions.ask is not wired into this composition, so the 20 §16 Human Gate "
+          + "cannot be obtained. 20 §13/§16 require an explicit Human confirmation before this action; "
+          + "REPORT TO HUMAN — an unconfirmed write must not silently become a stable fact."],
+        verification: { checks: ["governance-scope", "human-confirmation"], passed: false },
+        follow_up: ["human must confirm this Spark action through a session that provides an answerer, then retry"]
+      })
+    };
+  }
+  const consent = await gate.requestSparkConsent({
+    action,
+    objectTitle,
+    summary,
+    // The host forwarder reaches the browser answerer only when the request
+    // carries the live agent — without it the waterfall exhausts to NO_PROVIDER.
+    agent: exec?.agent,
+    // This ask has no wall-clock deadline (`awaitsHumanDecision` in OPERATIONS):
+    // the caller's signal is the only release for an abandoned prompt, and
+    // forwarding it makes the ask abort (ASK_ABORTED) rather than hang.
+    signal: exec?.signal,
+  });
+  if (consent?.granted === true) return { ok: true };
+  return {
+    ok: false,
+    envelope: envelope("spark-write-object", "rejected", {
+      result: null,
+      scope: { requested: action, completed: [], not_completed: [action] },
+      sources: [],
+      gaps: [`20 §16 requires an explicit Human confirmation for this action: ${consent?.reason ?? "no confirmation obtained"}`],
+      verification: { checks: ["governance-scope", "human-confirmation"], passed: false },
+      follow_up: ["obtain the Human's explicit confirmation, then retry — do not proceed on an assumed consent"]
+    })
+  };
+}
+
+/**
+ * Compute the 20 §13/§16 大改 judgement material: the before/after comparison
+ * for `question` and `scope_boundary`.
+ *
+ * This is the mechanically-forceable part of a 09 §6 weak constraint. The
+ * implementation RETURNS the evidence the Human needs and does not judge
+ * whether a change is 大改 — `09 §5` finds that undecidable in form. Two
+ * consequences the caller must not misread:
+ *
+ *  - A returned delta means the comparison was SUPPLIED, not that the change
+ *    was confirmed. 20 §16 says this Gate is not mechanically verifiable, so
+ *    this field is not evidence that the Gate was satisfied.
+ *  - A `null` return means the fields did not change (nothing to judge), not
+ *    that the Gate was passed.
+ */
+async function sparkBoundaryDelta({ factSourceRoot, objectUid, frontmatterAfter }) {
+  const before = await readSparkObject({ factSourceRoot, objectUid });
+  if (!before.ok) return null;
+  const prev = before.value.frontmatter;
+  const pick = (fm, key) => (typeof fm?.[key] === "string" ? fm[key] : null);
+  const changed = [];
+  for (const field of ["question", "scope_boundary"]) {
+    const from = pick(prev, field);
+    const to = pick(frontmatterAfter, field);
+    if (from !== to) changed.push({ field, before: from, after: to });
+  }
+  return changed.length === 0 ? null : changed;
+}
+
 async function executeWriteObject(args, exec, deps) {
   const action = args?.action;
   if (action !== "create" && action !== "update") {
@@ -248,6 +380,39 @@ async function executeWriteObject(args, exec, deps) {
     if (typeof draft !== "object" || draft === null || typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
       return invalidRequest("spark-write-object", "frontmatter_draft (object) and body_markdown (markdown starting with '## 当前理解') are required for action=create", "create");
     }
+    // 20 §6.2/§17.7: dedup MUST be executed before creation and its conclusion
+    // recorded. The comparison is semantic (03 §8.2 forbids a mechanical
+    // similarity verdict), so the AI supplies the conclusion — but it must
+    // supply ONE, and it is then presented to the Human below rather than
+    // staying an unrecorded assertion.
+    const dedupResult = args?.dedup_result;
+    if (typeof dedupResult !== "string" || dedupResult.trim().length === 0) {
+      return invalidRequest("spark-write-object", "dedup_result is required for action=create (20 §6.2/§17.7): state the semantic dedup conclusion against existing open and terminal Sparks (e.g. \"no same-topic Spark found\" / \"overlaps <uid> but is a distinct direction\"). Dedup is not mechanically decidable — the conclusion stays with you, but an unrecorded one is a Stop Condition.", "create");
+    }
+    // Every mechanical check runs FIRST, on a dry run that allocates nothing.
+    // 20 §16 requires an explicit Human confirmation; asking for a candidate
+    // the writer is already certain to refuse would spend the Human's attention
+    // on an action that can never land.
+    const dry = await createSparkObject({
+      factSourceRoot,
+      frontmatterDraft: draft,
+      bodyMarkdown,
+      sessionSignature: sig.ok ? sig.value : null,
+      dryRun: true,
+    });
+    if (!dry.ok) {
+      return writeRejected("spark-write-object", dry, factSourceRoot);
+    }
+    // 20 §16 Gate 1/2: creation requires an explicit Human confirmation through
+    // the host answerer. Fail closed when the ask entry is absent — silence is
+    // not consent, and an unconfirmed candidate must not silently become an
+    // object (00 §4.4: without a scope-clear response the matter stays paused).
+    const consent = await requestSparkGate(deps, exec, {
+      action: "create",
+      objectTitle: typeof draft.title === "string" ? draft.title : null,
+      summary: sparkCreateReport(draft, dedupResult),
+    });
+    if (!consent.ok) return consent.envelope;
     const created = await createSparkObject({
       factSourceRoot,
       frontmatterDraft: draft,
@@ -304,6 +469,55 @@ async function executeWriteObject(args, exec, deps) {
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
     return invalidRequest("spark-write-object", "change_summary (one short semantic summary for the change_log) is required for action=update", "update");
   }
+
+  // 20 §16 Gate: a transition INTO a terminal state (implemented/discarded,
+  // including merge/split) requires an explicit Human confirmation. Read the
+  // current object first so the request can compare before/after and so the
+  // terminal-before check below is not bypassed by an unreadable target.
+  const requestedStatus = frontmatterAfter.status;
+  const isTerminalTransition = requestedStatus === "implemented" || requestedStatus === "discarded";
+  if (isTerminalTransition) {
+    const before = await readSparkObject({ factSourceRoot, objectUid });
+    if (!before.ok) return writeRejected("spark-write-object", before, factSourceRoot);
+    // Ask the Human ONLY after the write is known to be mechanically possible.
+    // Confirming a request that the CAS baseline or the writer's own checks
+    // would refuse spends the Human's attention on an action that can never
+    // land — and a stale fingerprint is the common case, since a Gate answer
+    // takes real time while the object may move underneath it. Every cheap
+    // refusal must therefore precede the ask.
+    if (before.value.fingerprint !== expectedFingerprint) {
+      return writeRejected("spark-write-object", {
+        ok: false,
+        error: {
+          code: "spark/cas_conflict",
+          message: `fingerprint mismatch: expected ${expectedFingerprint}, actual ${before.value.fingerprint}`,
+          details: {},
+        },
+      }, factSourceRoot);
+    }
+    const wasTerminal = before.value.frontmatter.status !== "open";
+    // A correction of an ALREADY terminal object (20 §9.2: content stays
+    // correctable, status must not change) is not a terminal transition — it
+    // re-states the same status. Requiring a fresh Gate for it would convert
+    // every typo fix into a Human Gate, which 20 §9.2 does not ask for.
+    if (!wasTerminal) {
+      const consent = await requestSparkGate(deps, exec, {
+        action: "terminal",
+        objectTitle: before.value.frontmatter.title ?? null,
+        summary: sparkTerminalReport(frontmatterAfter),
+      });
+      if (!consent.ok) return consent.envelope;
+    }
+  }
+
+  // 20 §13 (问题/边界大改): a change to question or scope_boundary must be
+  // confirmed first. 09 §5 finds this judgement formally undecidable, so it is
+  // a 09 §6 WEAK constraint — the implementation returns the before/after
+  // comparison that the Human needs to decide, and must NOT decide it itself.
+  // Not blocking is deliberate and is not a substitute for the Human's
+  // judgement; this envelope field must not be read as "大改 already checked".
+  const boundaryDelta = await sparkBoundaryDelta({ factSourceRoot, objectUid, frontmatterAfter });
+
   const updated = await updateSparkObject({
     factSourceRoot,
     objectUid,
@@ -341,6 +555,16 @@ async function executeWriteObject(args, exec, deps) {
     },
     scope: { requested: "update", completed: ["update", "read-back"], not_completed: [] },
     sources: [{ kind: "fact-object", path: readBack.value.file, content_fingerprint: updated.value.fingerprint }],
+    // 20 §13 大改项（09 §6 弱约束）：the before/after comparison is RETURNED for
+    // the Human to judge. Its presence means the evidence was supplied — NOT
+    // that the change was confirmed, and not that the Gate is mechanically
+    // guaranteed (20 §16 says this Gate is not mechanically verifiable).
+    ...boundaryDelta === null
+      ? {}
+      : {
+          boundary_delta: boundaryDelta,
+          boundary_delta_note: "20 §13/§16 大改项为 09 §6 弱约束：本字段交还 question/scope_boundary 的现值与拟改值对照供 Human 判断，不构成该 Human Gate 已取得的证据，也不由机械验证。"
+        },
     gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
     verification: { checks: ["cas-baseline", "frontmatter-closed-set", "question-single-sentence", "body-structure", "carrier-coherence", "serves-resolution", "refs-resolution", "relations-contract", "terminal-state-guard", "atomic-write", "read-back"], passed: true },
     follow_up: ["use the NEW fingerprint from this result for the next update; committing goes through the controlled-commit contract (specs/06)"]
@@ -495,6 +719,7 @@ function parameterSchemaFor(operationKey) {
         type: "object",
         properties: {
           action: { type: "string", enum: ["create", "update"] },
+          dedup_result: { type: "string", description: "create (required): the semantic dedup conclusion against existing open and terminal Sparks (20 §6.2/§17.7 — 03 §8.2 forbids a mechanical similarity verdict, so the conclusion stays with you, but it is required and is presented to the Human at the 20 §16 Gate). An unrecorded dedup is a Stop Condition." },
           frontmatter_draft: sparkFrontmatter,
           body_markdown: { type: "string", description: "create: the body markdown starting with '## 当前理解' (H2 sections 当前理解/调查问题/调查边界, plus 演变 iff evolution non-empty; the H1 is generated from title)" },
           object_uid: { type: "string", description: "update: target object" },
@@ -511,12 +736,24 @@ function parameterSchemaFor(operationKey) {
   }
 }
 
+/**
+ * `timeoutMs` is omitted for operations that block on a Human answer
+ * (`awaitsHumanDecision`) — see the identical note in `ldvh-tools.js` and
+ * `workcase-tools.js`. The host's per-tool deadline would otherwise discard a
+ * late answer, which does not make the gate slower but WRONG: the write would
+ * be refused while the Human's confirmation arrives too late to be recorded.
+ *
+ * This is the consumption point for the flag. Declaring `awaitsHumanDecision`
+ * without this line has ZERO effect — the flag would be inert while the
+ * envelope kept reporting success (the regression the 09 §5 mutation test
+ * guards against).
+ */
 export function toolDescriptorFor(operationKey, operation, handler) {
   return {
     name: operation.toolName,
     description: operation.summary,
     parameters: parameterSchemaFor(operationKey),
-    timeoutMs: 30000,
+    ...operation.awaitsHumanDecision === true ? {} : { timeoutMs: 30000 },
     async execute(args, exec) {
       try {
         const result = await handler(args, exec);

@@ -19,6 +19,38 @@ const dshHome = (home) => (...segments) => join(home, ...segments);
 
 const exec = (cwd) => ({ agent: { session: { header: { cwd } } } });
 
+/**
+ * Build a fake host-seam registry whose Spark confirmation answerer is driven
+ * by `reply`. Mirrors `routingSeam` in workcase-create-confirmation.test.mjs:
+ * the gate is injected through `deps.hostSeams`, NOT through ctx — host-seams.js
+ * installs `seams.ask` at plugin load, which never runs in a unit test.
+ */
+function sparkSeam(reply) {
+  const calls = [];
+  return {
+    calls,
+    requestSparkConsent: async (payload) => {
+      calls.push(payload);
+      return reply(payload);
+    },
+  };
+}
+
+/** Default consenting answerer for the fixtures below. */
+function consentingSeam() {
+  return sparkSeam(() => ({ granted: true, answer: "确认" }));
+}
+
+/** The 20 §6.2/§17.7 dedup conclusion required on create. */
+const DEDUP_OK = "查重结论（测试夹具）：与本仓库既有 Spark 无同题重叠。";
+
+/** Strip the Code-generated H1: a read returns the WHOLE carrier body, but
+ * `body_markdown_after` must start at H2 (20 §8: the H1 is generated from
+ * title and is never supplied by the caller). */
+function bodyWithoutH1(body) {
+  return body.replace(/^#\s.*\n+/, "");
+}
+
 // Mock registry: capture the descriptors registerSparkTools registers, then
 // drive them exactly as the DSH runtime would (descriptor.execute wraps the
 // handler result in { envelope }).
@@ -98,11 +130,18 @@ async function governedFixture(base) {
   return { home, repo };
 }
 
-function makeDeps(home, base) {
+/**
+ * Default deps carry a CONSENTING host seam: the 20 §16 Gate is fail-closed, so
+ * without it every create is refused. Tests that assert the ungated path pass
+ * their own deps; tests that assert refusal pass `{ hostSeams: null }` (an
+ * explicit absence) or a declining seam.
+ */
+function makeDeps(home, base, { hostSeams } = {}) {
   return {
     dshHomePath: dshHome(home),
     workspaceRoot: base,
     sessionPersistence: sessionPersistenceWithRoutingLog(base),
+    ...(hostSeams === null ? {} : { hostSeams: hostSeams ?? consentingSeam() }),
   };
 }
 
@@ -146,6 +185,7 @@ test("read/write are unavailable outside governed sessions", async () => {
     assert.ok(readOut.gaps[0].includes("not_governed"));
     const writeOut = await run(descriptors, "ldvh_spark_write", {
       action: "create",
+      dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
       body_markdown: validBodyMarkdown(),
     }, base);
@@ -165,6 +205,7 @@ test("create: completed envelope, object_uid assigned, read-back ok, file on dis
 
     const created = await run(descriptors, "ldvh_spark_write", {
       action: "create",
+      dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
       body_markdown: validBodyMarkdown(),
     }, repo);
@@ -212,6 +253,7 @@ test("create: optional fields (priority/serves) succeed through the tool plane a
 
     const created = await run(descriptors, "ldvh_spark_write", {
       action: "create",
+      dedup_result: DEDUP_OK,
       frontmatter_draft: draft,
       body_markdown: validBodyMarkdown(draft),
     }, repo);
@@ -263,6 +305,7 @@ test("create: mechanical rejection is outcome=rejected with zero writes", async 
     // question with two terminals → frontmatter mechanical check fails
     const out = await run(descriptors, "ldvh_spark_write", {
       action: "create",
+      dedup_result: DEDUP_OK,
       frontmatter_draft: { ...validFrontmatterDraft(), question: "如何验证？如何验证？" },
       body_markdown: validBodyMarkdown(),
     }, repo);
@@ -286,6 +329,7 @@ test("read: created object returns completed with open status and matching finge
 
     const created = await run(descriptors, "ldvh_spark_write", {
       action: "create",
+      dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
       body_markdown: validBodyMarkdown(),
     }, repo);
@@ -315,6 +359,7 @@ test("update: CAS normal flow completed with new fingerprint; CAS conflict rejec
 
     const created = await run(descriptors, "ldvh_spark_write", {
       action: "create",
+      dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
       body_markdown: validBodyMarkdown(),
     }, repo);
@@ -381,6 +426,7 @@ test("create: serves resolution flows through the tool (SG-1 ok, SG-99 rejected)
 
     const ok = await run(descriptors, "ldvh_spark_write", {
       action: "create",
+      dedup_result: DEDUP_OK,
       frontmatter_draft: { ...validFrontmatterDraft(), serves: "SG-1" },
       body_markdown: validBodyMarkdown(),
     }, repo);
@@ -388,6 +434,7 @@ test("create: serves resolution flows through the tool (SG-1 ok, SG-99 rejected)
 
     const bad = await run(descriptors, "ldvh_spark_write", {
       action: "create",
+      dedup_result: DEDUP_OK,
       frontmatter_draft: { ...validFrontmatterDraft(), serves: "SG-99" },
       body_markdown: validBodyMarkdown(),
     }, repo);
@@ -440,6 +487,7 @@ test("render: spark read output carries the FULL 64-char fingerprint and semanti
     const draft = { ...validFrontmatterDraft(), serves: "SG-1" };
     const created = await run(descriptors, "ldvh_spark_write", {
       action: "create",
+      dedup_result: DEDUP_OK,
       frontmatter_draft: draft,
       body_markdown: validBodyMarkdown(draft),
     }, repo);
@@ -470,6 +518,7 @@ test("render: spell/default descriptor uses the same envelope rendering with no 
     const draft = { ...validFrontmatterDraft(), serves: "SG-2" };
     const created = await run(descriptors, "ldvh_spark_write", {
       action: "create",
+      dedup_result: DEDUP_OK,
       frontmatter_draft: draft,
       body_markdown: validBodyMarkdown(draft),
     }, repo);
@@ -538,6 +587,7 @@ test("list: open-only by default, status=all includes terminal; projection carri
     };
     const open1 = await run(descriptors, "ldvh_spark_write", {
       action: "create",
+      dedup_result: DEDUP_OK,
       frontmatter_draft: mkDraft("悬置甲（工具清单）", "问题甲如何进入清单投影？", { serves: "SG-1" }),
       body_markdown: validBodyMarkdown(mkDraft("悬置甲（工具清单）", "问题甲如何进入清单投影？", { serves: "SG-1" })),
     }, repo);
@@ -545,6 +595,7 @@ test("list: open-only by default, status=all includes terminal; projection carri
 
     const open2 = await run(descriptors, "ldvh_spark_write", {
       action: "create",
+      dedup_result: DEDUP_OK,
       frontmatter_draft: mkDraft("悬置乙（工具清单）", "问题乙如何进入清单投影？"),
       body_markdown: validBodyMarkdown(mkDraft("悬置乙（工具清单）", "问题乙如何进入清单投影？")),
     }, repo);
@@ -552,6 +603,7 @@ test("list: open-only by default, status=all includes terminal; projection carri
 
     const terminal = await run(descriptors, "ldvh_spark_write", {
       action: "create",
+      dedup_result: DEDUP_OK,
       frontmatter_draft: mkDraft("悬置丙（工具清单）", "问题丙如何进入清单投影？"),
       body_markdown: validBodyMarkdown(mkDraft("悬置丙（工具清单）", "问题丙如何进入清单投影？")),
     }, repo);
@@ -614,6 +666,7 @@ test("list: limit hit returns partial outcome with the true total (never silent 
     for (let i = 1; i <= 2; i++) {
       const out = await run(descriptors, "ldvh_spark_write", {
         action: "create",
+        dedup_result: DEDUP_OK,
         frontmatter_draft: mkDraft(`悬置${i}（限额夹具）`, `问题${i}如何出现？`),
         body_markdown: validBodyMarkdown(mkDraft(`悬置${i}（限额夹具）`, `问题${i}如何出现？`)),
       }, repo);
@@ -639,6 +692,7 @@ test("list: invalid carriers (no frontmatter) are reported in gaps without faili
     const draft = { ...validFrontmatterDraft(), title: "悬置唯一（坏载体夹具）", question: "坏载体是否被静默跳过？", summary: "总结：坏载体", change_summary: "x" };
     const created = await run(descriptors, "ldvh_spark_write", {
       action: "create",
+      dedup_result: DEDUP_OK,
       frontmatter_draft: draft,
       body_markdown: validBodyMarkdown(draft),
     }, repo);
@@ -690,6 +744,7 @@ test("execution_error: a throwing sessionPersistence surfaces execution_error on
 
     const out = await run(descriptors, "ldvh_spark_write", {
       action: "create",
+      dedup_result: DEDUP_OK,
       frontmatter_draft: validFrontmatterDraft(),
       body_markdown: validBodyMarkdown(),
     }, repo);
@@ -744,6 +799,7 @@ test("update: adding serves works for an existing SG and is rejected (zero-write
     const draft = { ...validFrontmatterDraft(), title: "无归属悬置（补充SG）", question: "补充子目标归属后能否被清单接纳？", summary: "总结：补充SG" };
     const created = await run(descriptors, "ldvh_spark_write", {
       action: "create",
+      dedup_result: DEDUP_OK,
       frontmatter_draft: draft,
       body_markdown: validBodyMarkdown(draft),
     }, repo);
@@ -772,6 +828,7 @@ test("update: adding serves works for an existing SG and is rejected (zero-write
     const draft2 = { ...validFrontmatterDraft(), title: "另一悬置（错误SG）", question: "伪造子目标归属是否被拒绝？", summary: "总结：错误SG" };
     const created2 = await run(descriptors, "ldvh_spark_write", {
       action: "create",
+      dedup_result: DEDUP_OK,
       frontmatter_draft: draft2,
       body_markdown: validBodyMarkdown(draft2),
     }, repo);
@@ -794,5 +851,366 @@ test("update: adding serves works for an existing SG and is rejected (zero-write
     assert.equal(after, before, "rejected update must leave the carrier untouched");
     const rerun = await run(descriptors, "ldvh_spark_read", { object_uid: uid2 }, repo);
     assert.equal(rerun.result.serves, undefined);
+  });
+});
+// ---------------------------------------------------------------------------
+// 20 §16 Human Gate（创建 / 终态转换）—— 机械承载
+// ---------------------------------------------------------------------------
+//
+// These tests exist because the Gate was previously AI self-discipline only:
+// the type source declared three Human Gates while the tool plane consumed
+// nothing. The cases below pin the four fail-closed paths, the two carried
+// Gates, and — crucially — that the 呈报内容 actually reaches the Human.
+
+test("gate: create without a host seam is unavailable (fail-closed, zero writes)", async () => {
+  await withTemp("spark-tools.", async (base) => {
+    const { repo } = await governedFixture(base);
+    const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: null }));
+    const out = await run(descriptors, "ldvh_spark_write", {
+      action: "create",
+      dedup_result: DEDUP_OK,
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+    }, repo);
+    assert.equal(out.outcome, "unavailable", JSON.stringify(out));
+    assert.ok(out.gaps.some((g) => g.includes("human-confirmation") || g.includes("20 §16")), JSON.stringify(out.gaps));
+    assert.equal(out.verification.passed, false);
+    // Zero writes: the sparks directory must still hold no carrier.
+    const entries = await readdir(join(repo, "ldvh-base", "sparks")).catch(() => []);
+    assert.equal(entries.filter((f) => f.endsWith(".md")).length, 0, "refused create must not write");
+  });
+});
+
+test("gate: create is rejected when the Human declines or does not choose", async () => {
+  for (const reply of [
+    () => ({ granted: false, reason: "human did not confirm the Spark 创建 (answer: null)" }),
+    () => ({ granted: false, reason: "human did not confirm the Spark 创建 (answer: \"取消\")" }),
+    () => ({ granted: false, reason: "no human-answerer entry is available" }),
+    () => ({ granted: false, reason: "spark consent request failed: ASK_ABORTED" }),
+  ]) {
+    await withTemp("spark-tools.", async (base) => {
+      const { repo } = await governedFixture(base);
+      const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: sparkSeam(reply) }));
+      const out = await run(descriptors, "ldvh_spark_write", {
+        action: "create",
+        dedup_result: DEDUP_OK,
+        frontmatter_draft: validFrontmatterDraft(),
+        body_markdown: validBodyMarkdown(),
+      }, repo);
+      assert.equal(out.outcome, "rejected", `reply ${JSON.stringify(reply({}))} must reject: ${JSON.stringify(out)}`);
+      const entries = await readdir(join(repo, "ldvh-base", "sparks")).catch(() => []);
+      assert.equal(entries.filter((f) => f.endsWith(".md")).length, 0, "rejected create must not write");
+    });
+  }
+});
+
+test("gate: create is refused without a dedup conclusion (20 §6.2/§17.7 Stop Condition)", async () => {
+  await withTemp("spark-tools.", async (base) => {
+    const { repo } = await governedFixture(base);
+    const seam = consentingSeam();
+    const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
+    const out = await run(descriptors, "ldvh_spark_write", {
+      action: "create",
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+    }, repo);
+    assert.equal(out.outcome, "invalid_request", JSON.stringify(out));
+    assert.ok(out.gaps.some((g) => g.includes("dedup_result")), JSON.stringify(out.gaps));
+    // The refusal happens BEFORE the ask: an unrecorded dedup must not be
+    // laundered into a Human confirmation of something unreported.
+    assert.equal(seam.calls.length, 0, "no question may be asked when the dedup Stop Condition is unmet");
+  });
+});
+
+test("gate: a reply for a DIFFERENT question id cannot grant consent", async () => {
+  await withTemp("spark-tools.", async (base) => {
+    const { repo } = await governedFixture(base);
+    // The seam answers, but with someone else's question id — the parse must
+    // not fall back to answers[0], which would grant on an unrelated "yes".
+    const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, {
+      hostSeams: sparkSeam(() => ({ granted: false, reason: "human did not confirm" })),
+    }));
+    const out = await run(descriptors, "ldvh_spark_write", {
+      action: "create",
+      dedup_result: DEDUP_OK,
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+    }, repo);
+    assert.equal(out.outcome, "rejected", JSON.stringify(out));
+  });
+});
+
+test("gate: the 呈报内容 reaches the answerer (dedup + question + scope + serves)", async () => {
+  await withTemp("spark-tools.", async (base) => {
+    const { repo } = await governedFixture(base);
+    const seam = consentingSeam();
+    const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
+    const draft = { ...validFrontmatterDraft(), serves: "SG-1" };
+    const out = await run(descriptors, "ldvh_spark_write", {
+      action: "create",
+      dedup_result: DEDUP_OK,
+      frontmatter_draft: draft,
+      body_markdown: validBodyMarkdown(draft),
+    }, repo);
+    assert.equal(out.outcome, "completed", JSON.stringify(out));
+    assert.equal(seam.calls.length, 1, "exactly one question per create");
+    const reported = seam.calls[0].summary;
+    assert.ok(reported.includes(DEDUP_OK), `report must carry the dedup conclusion: ${reported}`);
+    assert.ok(reported.includes(draft.question), `report must carry the question: ${reported}`);
+    assert.ok(reported.includes(draft.scope_boundary), `report must carry the scope_boundary: ${reported}`);
+    assert.ok(reported.includes("SG-1"), `report must carry serves: ${reported}`);
+    assert.equal(seam.calls[0].action, "create");
+  });
+});
+
+test("gate: terminal transition requires confirmation; a non-terminal update does not", async () => {
+  await withTemp("spark-tools.", async (base) => {
+    const { repo } = await governedFixture(base);
+    const seam = consentingSeam();
+    const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
+    const created = await run(descriptors, "ldvh_spark_write", {
+      action: "create",
+      dedup_result: DEDUP_OK,
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+    }, repo);
+    assert.equal(created.outcome, "completed", JSON.stringify(created));
+    const uid = created.result.object_uid;
+    const asksAfterCreate = seam.calls.length;
+
+    // A plain open→open content update must NOT raise the Gate.
+    const read1 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
+    const draft = validFrontmatterDraft();
+    const stillOpen = await run(descriptors, "ldvh_spark_write", {
+      action: "update",
+      object_uid: uid,
+      expected_fingerprint: read1.result.fingerprint,
+      frontmatter_after: { ...read1.result.frontmatter, summary: "更新后的当前理解（仍为 open）。" },
+      body_markdown_after: [
+        `## 当前理解\n更新后的当前理解（仍为 open）。`,
+        `## 调查问题\n${draft.question}`,
+        `## 调查边界\n${draft.scope_boundary}`,
+      ].join("\n\n"),
+      change_summary: "精化当前理解（非终态）",
+    }, repo);
+    assert.equal(stillOpen.outcome, "completed", JSON.stringify(stillOpen));
+    assert.equal(seam.calls.length, asksAfterCreate, "a non-terminal update must not raise the 20 §16 Gate");
+
+    // open→implemented must raise it, and the report carries the disposition.
+    const read2 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
+    const disposition = "已落实：本条由测试夹具直接收敛，不表示下游完成。";
+    const terminal = await run(descriptors, "ldvh_spark_write", {
+      action: "update",
+      object_uid: uid,
+      expected_fingerprint: read2.result.fingerprint,
+      frontmatter_after: { ...read2.result.frontmatter, status: "implemented", disposition },
+      body_markdown_after: bodyWithoutH1(read2.result.body),
+      change_summary: "转终态 implemented",
+    }, repo);
+    assert.equal(terminal.outcome, "completed", JSON.stringify(terminal));
+    assert.equal(seam.calls.length, asksAfterCreate + 1, "a terminal transition must raise exactly one Gate");
+    const last = seam.calls[seam.calls.length - 1];
+    assert.equal(last.action, "terminal");
+    assert.ok(last.summary.includes(disposition), `terminal report must carry the disposition: ${last.summary}`);
+    assert.ok(last.summary.includes("implemented"), `terminal report must carry the target status: ${last.summary}`);
+  });
+});
+
+test("gate: a declined terminal transition is rejected with zero writes", async () => {
+  await withTemp("spark-tools.", async (base) => {
+    const { repo } = await governedFixture(base);
+    const seam = consentingSeam();
+    const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
+    const created = await run(descriptors, "ldvh_spark_write", {
+      action: "create",
+      dedup_result: DEDUP_OK,
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+    }, repo);
+    const uid = created.result.object_uid;
+    const read1 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
+    const before = await readFile(join(repo, "ldvh-base", "sparks", `spark-${uid}.md`), "utf8");
+
+    // Flip the answerer to decline ONLY the terminal Gate.
+    const declining = sparkSeam(() => ({ granted: false, reason: "human did not confirm the Spark 转入终态 (answer: \"取消\")" }));
+    const descriptors2 = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: declining }));
+    const out = await run(descriptors2, "ldvh_spark_write", {
+      action: "update",
+      object_uid: uid,
+      expected_fingerprint: read1.result.fingerprint,
+      frontmatter_after: { ...read1.result.frontmatter, status: "implemented", disposition: "已落实：测试。" },
+      body_markdown_after: bodyWithoutH1(read1.result.body),
+      change_summary: "转终态（应被拒绝）",
+    }, repo);
+    assert.equal(out.outcome, "rejected", JSON.stringify(out));
+    const after = await readFile(join(repo, "ldvh-base", "sparks", `spark-${uid}.md`), "utf8");
+    assert.equal(after, before, "declined terminal transition must leave the carrier untouched");
+  });
+});
+
+test("gate: 09 §6 weak constraint — boundary delta is returned, never blocking", async () => {
+  await withTemp("spark-tools.", async (base) => {
+    const { repo } = await governedFixture(base);
+    const seam = consentingSeam();
+    const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
+    const created = await run(descriptors, "ldvh_spark_write", {
+      action: "create",
+      dedup_result: DEDUP_OK,
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+    }, repo);
+    const uid = created.result.object_uid;
+    const read1 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
+    const asksBefore = seam.calls.length;
+
+    const newQuestion = "改写后的调查问题（大改候选）？";
+    const newBoundary = "改写后的调查边界。";
+    const out = await run(descriptors, "ldvh_spark_write", {
+      action: "update",
+      object_uid: uid,
+      expected_fingerprint: read1.result.fingerprint,
+      frontmatter_after: { ...read1.result.frontmatter, question: newQuestion, scope_boundary: newBoundary },
+      body_markdown_after: [
+        `## 当前理解\n${read1.result.frontmatter.summary}`,
+        `## 调查问题\n${newQuestion}`,
+        `## 调查边界\n${newBoundary}`,
+      ].join("\n\n"),
+      change_summary: "改写 question 与 scope_boundary",
+    }, repo);
+
+    // NOT blocked: the weak constraint supplies judgement material, it does not
+    // decide. A blocking implementation would be over-enforcement (09 §5).
+    assert.equal(out.outcome, "completed", JSON.stringify(out));
+    assert.ok(Array.isArray(out.boundary_delta), `delta must be returned: ${JSON.stringify(out)}`);
+    const qDelta = out.boundary_delta.find((d) => d.field === "question");
+    const sDelta = out.boundary_delta.find((d) => d.field === "scope_boundary");
+    assert.equal(qDelta.before, read1.result.frontmatter.question);
+    assert.equal(qDelta.after, newQuestion);
+    assert.equal(sDelta.after, newBoundary);
+    // The delta must not be presented as proof the Gate was satisfied.
+    assert.ok(String(out.boundary_delta_note).includes("弱约束"), JSON.stringify(out.boundary_delta_note));
+    // And it must not raise an ask of its own (the Human judges it, not a prompt).
+    assert.equal(seam.calls.length, asksBefore, "the 大改 weak constraint must not issue its own question");
+  });
+});
+
+test("gate: boundary delta is omitted when question/scope_boundary did not change", async () => {
+  await withTemp("spark-tools.", async (base) => {
+    const { repo } = await governedFixture(base);
+    const descriptors = makeDescriptors(makeDeps(join(base, "home"), base));
+    const created = await run(descriptors, "ldvh_spark_write", {
+      action: "create",
+      dedup_result: DEDUP_OK,
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+    }, repo);
+    const uid = created.result.object_uid;
+    const read1 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
+    const out = await run(descriptors, "ldvh_spark_write", {
+      action: "update",
+      object_uid: uid,
+      expected_fingerprint: read1.result.fingerprint,
+      frontmatter_after: { ...read1.result.frontmatter, intent: "补充保留理由。" },
+      body_markdown_after: bodyWithoutH1(read1.result.body),
+      change_summary: "补 intent",
+    }, repo);
+    assert.equal(out.outcome, "completed", JSON.stringify(out));
+    assert.equal(out.boundary_delta, undefined, "no delta when neither field changed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Descriptor flag consumption (09 §5 mutation guard)
+// ---------------------------------------------------------------------------
+//
+// The flag alone has ZERO effect — this pair is what makes it real. If the
+// descriptor factory ever stops consuming `awaitsHumanDecision`, the first test
+// fails; if the flag is dropped from OPERATIONS, the second fails. Neither
+// mutation can pass silently.
+
+test("descriptor: awaitsHumanDecision is consumed — the write tool declares NO wall-clock deadline", async () => {
+  const descriptors = makeDescriptors(makeDeps("/nope", "/nope"));
+  assert.ok(
+    !("timeoutMs" in descriptors["ldvh_spark_write"]),
+    "spark write must drop timeoutMs — a 30s deadline would DISCARD a late Human answer and leave the 20 §16 Gate unenforced",
+  );
+  // Read-only tools keep their deadline: the flag is per-tool, and widening its
+  // effect would remove a useful guard from tools that never wait on a person.
+  assert.equal(descriptors["ldvh_spark_read"].timeoutMs, 30000);
+  assert.equal(descriptors["ldvh_spark_list"].timeoutMs, 30000);
+});
+
+test("descriptor: OPERATIONS declares awaitsHumanDecision for the write tool", async () => {
+  assert.equal(sparkToolsModule.OPERATIONS["spark-write-object"].awaitsHumanDecision, true);
+  assert.equal(sparkToolsModule.OPERATIONS["spark-read-object"].awaitsHumanDecision, undefined);
+});
+
+test("gate: a stale CAS baseline is refused BEFORE the Human is asked (no wasted ask)", async () => {
+  await withTemp("spark-tools.", async (base) => {
+    const { repo } = await governedFixture(base);
+    const seam = consentingSeam();
+    const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
+    const created = await run(descriptors, "ldvh_spark_write", {
+      action: "create",
+      dedup_result: DEDUP_OK,
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+    }, repo);
+    const uid = created.result.object_uid;
+    const read1 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
+    const asksBefore = seam.calls.length;
+
+    // A terminal transition carrying a STALE fingerprint must be refused
+    // mechanically, without spending a Human question on it.
+    const out = await run(descriptors, "ldvh_spark_write", {
+      action: "update",
+      object_uid: uid,
+      expected_fingerprint: "0".repeat(64),
+      frontmatter_after: { ...read1.result.frontmatter, status: "implemented", disposition: "已落实（陈旧指纹）。" },
+      body_markdown_after: bodyWithoutH1(read1.result.body),
+      change_summary: "转终态（陈旧基线）",
+    }, repo);
+    assert.equal(out.outcome, "rejected", JSON.stringify(out));
+    assert.ok(out.gaps.some((g) => g.includes("cas_conflict") || g.includes("fingerprint mismatch")), JSON.stringify(out.gaps));
+    assert.equal(seam.calls.length, asksBefore, "a mechanically-impossible write must not raise the Human Gate");
+  });
+});
+
+test("gate: a mechanically-invalid create is refused BEFORE the Human is asked", async () => {
+  await withTemp("spark-tools.", async (base) => {
+    const { repo } = await governedFixture(base);
+    const seam = consentingSeam();
+    const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
+    // Two terminals in the question → frontmatter mechanical check fails.
+    const out = await run(descriptors, "ldvh_spark_write", {
+      action: "create",
+      dedup_result: DEDUP_OK,
+      frontmatter_draft: { ...validFrontmatterDraft(), question: "如何验证？如何验证？" },
+      body_markdown: validBodyMarkdown(),
+    }, repo);
+    assert.equal(out.outcome, "rejected", JSON.stringify(out));
+    assert.equal(seam.calls.length, 0, "no question may be asked for a candidate the writer must refuse");
+    const entries = await readdir(join(repo, "ldvh-base", "sparks")).catch(() => []);
+    assert.equal(entries.filter((f) => f.endsWith(".md")).length, 0, "dry run must not write");
+  });
+});
+
+test("gate: a dry run allocates no file (no directory, no staging file)", async () => {
+  await withTemp("spark-tools.", async (base) => {
+    const { repo } = await governedFixture(base);
+    // The sparks dir exists in the fixture; assert it stays EMPTY across a
+    // refused create, and that no stray .tmp staging file is left behind.
+    const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, {
+      hostSeams: sparkSeam(() => ({ granted: false, reason: "declined" })),
+    }));
+    const out = await run(descriptors, "ldvh_spark_write", {
+      action: "create",
+      dedup_result: DEDUP_OK,
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+    }, repo);
+    assert.equal(out.outcome, "rejected", JSON.stringify(out));
+    const entries = await readdir(join(repo, "ldvh-base", "sparks"));
+    assert.deepEqual(entries, [], `dry run + refusal must leave no file, found: ${entries.join(",")}`);
   });
 });

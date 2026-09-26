@@ -60,6 +60,18 @@ const ROUTE_QUESTION_ID = "ldvh-workcase-route";
 const ROUTE_WORKCASE_LABEL = "建工单走流程";
 const ROUTE_DIRECT_LABEL = "直接执行";
 
+/** 20 §16 Spark Human Gate identity — 创建与终态转换两项共用同一询问 id
+ * （一次处置只问一次；两项的呈报内容不同，故 id 相同而 question 文本分列）。
+ * 与登记同意同纪律：id 与肯定标签在「问」与「收」两处共用同一常量，解析
+ * 永远不会在从未提供过的标签上放行。
+ *
+ * 大改项（§16 第三项）**不走本 seam**：`09 §5` 判定其语义在形式上不可分，
+ * 故按 `09 §6` 弱约束处理——实现只交还 question/scope_boundary 的现值与拟
+ * 改值对照，不阻断、不代为判定。本 seam 不承载该项，也不得据其存在声称
+ * 大改项已获机械保障。 */
+const SPARK_CONSENT_QUESTION_ID = "ldvh-spark-consent";
+const SPARK_CONSENT_LABEL = "确认";
+
 /**
  * Latest governance judgement per working directory.
  *
@@ -477,6 +489,75 @@ export function createHostSeams() {  const consumed = Object.create(null);
     }
   }
 
+  /**
+   * Ask the Human to confirm one Spark action (20 §16).
+   *
+   * 20 §16 registers three Human Gates for this type (创建 / 终态转换 /
+   * 问题·边界大改). Two of them are carried HERE: create and the terminal
+   * transition. The third (大改) is deliberately NOT carried by this seam — see
+   * the note on `SPARK_CONSENT_QUESTION_ID`; it is a `09 §6` weak constraint
+   * whose judgement the implementation must NOT make.
+   *
+   * Same discipline as `requestWorkcaseRouting`: the Human's own answer is
+   * recorded by the host, not asserted by the AI. A missing answerer, a failed
+   * ask or an unchosen/declined answer all yield `granted: false` — silence is
+   * not consent, and this path must fail closed.
+   *
+   * `signal` is forwarded so an abandoned prompt is released (ASK_ABORTED →
+   * fail closed) instead of pending forever: the hosting tool declares no
+   * wall-clock deadline (`awaitsHumanDecision`).
+   *
+   * `summary` is the 呈报内容 required by 20 §16 — the caller passes what the
+   * Human must see to judge (create: dedup conclusion + question +
+   * scope_boundary + serves; terminal: target status + disposition + relation
+   * targets). It is rendered verbatim, so a caller cannot satisfy this gate
+   * with an empty or generic report.
+   */
+  async function requestSparkConsent({ action, objectTitle, summary, agent, signal }) {
+    if (typeof seams.ask !== "function") {
+      return { granted: false, reason: "no human-answerer entry is available; 20 §16 requires an explicit Human confirmation, so consent cannot be assumed" };
+    }
+    const verb = action === "terminal" ? "转入终态" : "创建";
+    const report = typeof summary === "string" && summary.trim().length > 0
+      ? summary.trim()
+      : null;
+    // 20 §16 requires the Human to receive the 呈报内容. A caller that sends
+    // none is refused rather than asked a content-free question: asking without
+    // the report would record a "yes" to something the Human never saw.
+    if (report === null) {
+      return { granted: false, reason: "20 §16 requires the 呈报内容 (the elements the Human judges) to be presented before the question; none was supplied, so no question was asked" };
+    }
+    const lines = [];
+    lines.push(`Spark ${verb}确认（20 §16 Human Gate）`);
+    if (typeof objectTitle === "string" && objectTitle.trim().length > 0) lines.push(`对象：${objectTitle.trim()}`);
+    lines.push("");
+    lines.push(report);
+    try {
+      const answer = await seams.ask({
+        questions: [{
+          id: SPARK_CONSENT_QUESTION_ID,
+          header: "Spark 授权",
+          question: lines.join("\n"),
+          options: [
+            { label: SPARK_CONSENT_LABEL, description: `确认${verb}该 Spark 对象` },
+            { label: "取消", description: "不执行本次写入，保持现状" }
+          ]
+        }],
+        ...(signal === undefined ? {} : { signal })
+      }, agent);
+      // Accept ONLY the affirmative for THIS question. Do not fall back to
+      // `answers[0]` — that could grant Spark consent from an affirmative given
+      // to a different question in the same batch.
+      const answers = Array.isArray(answer?.answers) ? answer.answers : [];
+      const entry = answers.find((a) => a?.id === SPARK_CONSENT_QUESTION_ID) ?? null;
+      const selected = selectedLabelOf(entry);
+      if (selected === SPARK_CONSENT_LABEL) return { granted: true, answer: selected };
+      return { granted: false, reason: `human did not confirm the Spark ${verb} (answer: ${JSON.stringify(selected ?? null)})` };
+    } catch (error) {
+      return { granted: false, reason: `spark consent request failed: ${String(error?.message ?? error)}` };
+    }
+  }
+
   const seams = {
     observations: 0,
     consumed,
@@ -489,6 +570,8 @@ export function createHostSeams() {  const consumed = Object.create(null);
     requestRegistrationConsent,
     /** 21 §6.3 routing request routed through ctx.userQuestions.ask. */
     requestWorkcaseRouting,
+    /** 20 §16 Spark create/terminal confirmation routed through ctx.userQuestions.ask. */
+    requestSparkConsent,
     /**
      * Read a target and RECORD the authoritative observation.
      *

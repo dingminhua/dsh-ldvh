@@ -37,7 +37,7 @@ import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/pro
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
-import { requireAuthoritativeSignature, resolveAuthoritativeSignature } from "./signature-channel.js";
+import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
 import { readGoalAnchors as readGoalAnchorsFromGoal } from "./goal-writer.js";
 
@@ -628,8 +628,20 @@ function assembleBody(title, bodyMarkdown) {
 // Create (specs/03 §9.4 + specs/20 §13)
 // ---------------------------------------------------------------------------
 
+/**
+ * `dryRun` runs EVERY mechanical check (closed sets, single-sentence question,
+ * carrier coherence, body structure, serves/refs resolution) and returns the
+ * same failures, but stops before touching the filesystem.
+ *
+ * It exists so a caller can prove a write is mechanically possible BEFORE
+ * asking the Human to authorise it. Asking first would spend the Human's
+ * attention on a candidate the writer is certain to refuse (20 §16 requires an
+ * explicit confirmation, and a confirmation for a doomed write is a wasted
+ * one). The returned `object_uid` is the identity that a real create would
+ * assign; a dry run allocates no file and leaves no trace.
+ */
 export async function createSparkObject(args) {
-  const { factSourceRoot, frontmatterDraft, bodyMarkdown, sessionSignature = null } = args;
+  const { factSourceRoot, frontmatterDraft, bodyMarkdown, sessionSignature = null, dryRun = false } = args;
   // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
   // signed BY CODE and may not be written unsigned. Without a branded carrier the
   // write is REFUSED; the caller reports it for Human handling (09 requires a
@@ -711,6 +723,14 @@ export async function createSparkObject(args) {
   const coherenceCheck = validateCarrierCoherence(frontmatter, body);
   if (!coherenceCheck.ok) {
     return failure("spark/coherence_invalid", "carrier coherence failed", { issues: coherenceCheck.issues });
+  }
+
+  // Dry run stops here: every mechanical check above has passed, so the caller
+  // can now ask the Human knowing the write would land. Nothing has been
+  // created — no directory, no staging file, no rename.
+  if (dryRun === true) {
+    const filePath = objectFilePath(factSourceRoot, uid);
+    return success({ object_uid: uid, file: filePath, dry_run: true });
   }
 
   // Write (single flat file, atomic)
