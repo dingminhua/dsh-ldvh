@@ -15,6 +15,17 @@
 # 安装方式：`dsh plugin --profile <profile> add <本包>`。与 DSH 官方 webServer
 #   共存；若宿主未装载 webServer（headless 无 web 表层），插件宿主管线在
 #   inject 落空时保持 fail-closed，不声明 Web 能力已就绪。
+#
+# 部署约束（DSH 0.1.7-rc.2 起）：本插件的 lib/governed-projects.js 经
+#   @deepseek-ai/dsh-atomic-write 的 withFileLock / writeFileAtomic 写**管辖登记
+#   载体**（$DSH_HOME/ldvh/governed-projects.yaml）；事实源 ldvh-base/ 不经该包
+#   ——各 fact writer 自带无锁原子替换（writeFile + 回读校验 + rename）。
+#   rc.2 起该包新增「已退出持有者锁接管」——锁文件记录 <pid>，持有者进程被
+#   信号探针证明不存在（ESRCH）时接管锁。该探针在**竞争者主机上**比较 PID，
+#   官方明确「不支持跨宿主或跨 PID namespace 共享同一文件」
+#   （packages/util/atomic-write/src/index.ts）。故**登记载体所在的 DSH 用户配置根**
+#   不得置于网络文件系统或跨 PID namespace 的共享卷；单机单 PID namespace 部署不
+#   触发该边界，部署形态改变时须重评。依据：docs/dsh-0.1.7-rc1-to-0.1.7-rc2-research.md。
 - insert:
     - id: dsh-ldvh
       name: 'dsh-ldvh'
