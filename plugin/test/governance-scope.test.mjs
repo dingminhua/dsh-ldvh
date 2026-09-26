@@ -204,3 +204,49 @@ test("resolveGovernanceScope skips a project whose status is error (not a match 
 		assert.equal(result.state, "not_governed");
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Containment is platform-correct (independent review 2026-09-26, C1)
+// ---------------------------------------------------------------------------
+
+test("withinRoot holds under BOTH path semantics — the win32 regression that killed the hot path", async () => {
+	const { withinRoot } = await import("../lib/governance-scope.js");
+	const { posix, win32 } = await import("node:path");
+
+	// The defect this guards: both operands come from realpath and carry NATIVE
+	// separators, while the old check appended a hard-coded "/". On win32 that
+	// produced `C:\repo/` and never matched `C:\repo\sub`, so direct containment
+	// silently failed and every subdirectory paid a git subprocess fallback.
+	const truths = [
+		["C:\\repo", "C:\\repo\\sub", true],
+		["C:\\repo", "C:\\repo\\a\\b", true],
+		["C:\\repo", "C:\\repo", true],
+		["C:\\repo", "C:\\repoX", false],
+		["C:\\repo", "D:\\other", false],
+		["C:\\repo", "C:\\repo\\..\\outside", false],
+		["\\\\srv\\share\\p", "\\\\srv\\share\\p\\x", true],
+		["\\\\srv\\share\\p", "\\\\srv\\share\\other", false],
+	];
+	for (const [root, candidate, expected] of truths) {
+		assert.equal(withinRoot(root, candidate, win32), expected, `win32: ${root} ⊃ ${candidate}`);
+	}
+
+	const posixTruths = [
+		["/a/b", "/a/b/c", true],
+		["/a/b", "/a/b", true],
+		["/a/b", "/a/bc", false],
+		["/a/b", "/a/b/../x", false],
+		["/a/b", "/x", false],
+	];
+	for (const [root, candidate, expected] of posixTruths) {
+		assert.equal(withinRoot(root, candidate, posix), expected, `posix: ${root} ⊃ ${candidate}`);
+	}
+});
+
+test("withinRoot treats a '..'-prefixed child as inside, not as an escape", async () => {
+	const { withinRoot } = await import("../lib/governance-scope.js");
+	// `..foo` is an ordinary child NAME; anchoring the escape check to a
+	// separator is what keeps this from being rejected as a traversal.
+	assert.equal(withinRoot("/a/b", "/a/b/..foo"), true);
+	assert.equal(withinRoot("/a/b", "/a/b/../x"), false);
+});

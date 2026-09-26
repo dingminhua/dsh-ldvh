@@ -21,14 +21,42 @@
 
 import { realpath } from "node:fs/promises";
 import { execFile } from "node:child_process";
+import * as platformPath from "node:path";
 import { promisify } from "node:util";
 import { readGovernedProjectIndex, resolveGitCommonDir } from "./governed-projects.js";
 
 const execFileAsync = promisify(execFile);
 
-function withinRoot(root, candidate) {
+/**
+ * Is `candidate` the root itself or contained in it?
+ *
+ * PLATFORM CORRECTNESS (found by independent review 2026-09-26): the previous
+ * implementation appended a hard-coded "/" to the root and used startsWith.
+ * Both sides come from `realpath`, which returns NATIVE separators — on win32
+ * that is `C:\repo`, so `root + "/"` produced `C:\repo/` and never matched
+ * `C:\repo\sub`. The direct-containment hot path was therefore dead on
+ * Windows: every subdirectory fell through to the Git common-dir subprocess
+ * fallback, defeating the single-string-compare design and paying a git
+ * invocation per judgement.
+ *
+ * `relative` compares per the given path semantics (separators, drive letters,
+ * UNC) instead of assuming POSIX. Containment holds when the relative path is
+ * empty (same directory) or descends without escaping: an absolute result
+ * means a different root (`D:\other`), and a leading `..` means the candidate
+ * is outside. `..foo` is NOT an escape — it is an ordinary child name — which
+ * is why the `..` check is anchored to a separator.
+ *
+ * `pathImpl` is injected so BOTH platforms' semantics are mechanically
+ * testable from either host: the win32 truth table below cannot be exercised
+ * by a darwin CI runner otherwise, and an untested platform branch is exactly
+ * how the original defect survived.
+ */
+export function withinRoot(root, candidate, pathImpl = platformPath) {
   if (candidate === root) return true;
-  return candidate.startsWith(root.endsWith("/") ? root : root + "/");
+  const rel = pathImpl.relative(root, candidate);
+  if (rel === "") return true;
+  if (pathImpl.isAbsolute(rel)) return false;
+  return rel !== ".." && !rel.startsWith(`..${pathImpl.sep}`);
 }
 
 /**
