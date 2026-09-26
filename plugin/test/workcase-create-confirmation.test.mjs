@@ -63,15 +63,31 @@ async function writeCarrier(home, projectPath) {
   return file;
 }
 
-/** A minimally well-formed create payload (shape only — not a semantic claim). */
+/**
+ * A minimally well-formed create payload (shape only — not a semantic claim).
+ *
+ * 2026-09-26: this fixture must be **mechanically viable**, not merely
+ * shape-complete. The create path now runs the pre-submission mechanical check
+ * BEFORE it asks the routing question, so a candidate that cannot pass the
+ * mechanical checks never reaches the Human. The previous fixture was rejected
+ * by those checks (its `scope` used the inline form `做什么：A。明确不做什么：B。`
+ * and its body did not carry `scope` verbatim), which means the routing tests
+ * below were — unknowingly — exercising the routing gate with a candidate the
+ * write path would never have accepted. Routing is what these tests are about;
+ * the candidate is fixed here so they test that and nothing else.
+ *
+ * `gist` is also required for draft (21 §8) and was missing before.
+ */
 function createArgs(extra = {}) {
+  const scope = "做什么：\n- 改 X\n\n明确不做什么：\n- 不动 Y";
   return {
     action: "create",
     frontmatter_draft: {
       title: "测试工单",
       status: "draft",
+      gist: "为 X 建立最小承载，使后续工作可复用。",
       summary: "把某处行为改成预期形态。",
-      scope: "做什么：\n- 改 X\n\n明确不做什么：\n- 不动 Y",
+      scope,
       plan: [{ step: "改 X", done_criteria: "X 的输出为 Z" }],
     },
     body_markdown: [
@@ -79,7 +95,7 @@ function createArgs(extra = {}) {
       "把某处行为改成预期形态。",
       "",
       "## 授权范围",
-      "做什么：改 X。明确不做什么：不动 Y。",
+      scope,
       "",
       "## 计划",
       "1. 改 X —— X 的输出为 Z",

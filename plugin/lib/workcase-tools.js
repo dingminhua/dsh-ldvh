@@ -40,6 +40,7 @@ import {
   reviseWorkcaseObject,
   recordWorkcaseReview,
   listWorkcaseObjects,
+  precheckWorkcaseCreate,
 } from "./workcase-writer.js";
 import { currentRouteValues, currentSessionIdentity } from "./session-signature.js";
 import { authoritativeSignature, authoritativeSessionIdentity } from "./signature-channel.js";
@@ -56,6 +57,11 @@ const OPERATIONS = {
   "workcase-list-objects": {
     toolName: "ldvh_workcase_list",
     summary: "Enumerate WorkCase fact objects (F0/F1 discovery): title/status/serves/outcome projection for the governed project; draft+open by default, closed only with status=all (specs/03 §8, specs/21 §13)",
+    effect: "read"
+  },
+  "workcase-precheck-create": {
+    toolName: "ldvh_workcase_precheck_create",
+    summary: "只读机械预检一份 WorkCase 创建候选：对候选 frontmatter_draft 与 body_markdown 跑**与受控创建完全相同的校验器**，返回 passed/failed/unverifiable、逐条 issues 与候选内容指纹；不落盘、不分配标识（specs/21 §14 create；与 06 §6.2 precheck-git-commit 同形——同一 validator 的两个入口）",
     effect: "read"
   },
   "workcase-write-object": {
@@ -251,6 +257,78 @@ async function executeListObject(args, exec, deps) {
 }
 
 // ---------------------------------------------------------------------------
+// precheck handler — 提请前的只读机械检查（21 §14 create）
+//
+// 次序纪律：本操作必须在**取得 Human 的路由答复之前**完成。理由不是礼节：
+// 提请（及其审查）针对的是**那份**候选内容，若候选在机械上站不住，则 Human 的
+// 答复落在一个从未成立的提案上——提问者与答问者围绕的不是同一件事。此前该
+// 次序在实现中并不存在：create 分支先问、后校验再落盘（见本文件 create 分支）。
+//
+// 本操作**只读**：不落盘、不分配 object_uid、不写 change_log、不产生任何副作用，
+// 故可对同一候选反复调用。它也不构成授权或 Human 确认的替代物。
+// ---------------------------------------------------------------------------
+
+async function executePrecheckCreate(args, exec, deps) {
+  const governed = await governedProject(deps.dshHomePath, exec);
+  if (!governed.ok) {
+    return envelope("workcase-precheck-create", "unavailable", {
+      result: null,
+      scope: { requested: "precheck", completed: [], not_completed: ["precheck"] },
+      sources: [],
+      gaps: [`governance state is ${governed.scope.state}: controlled operations serve governed sessions only`],
+      verification: { checks: ["governance-scope"], passed: false },
+      follow_up: []
+    });
+  }
+  const draft = args?.frontmatter_draft;
+  const bodyMarkdown = args?.body_markdown;
+  if (typeof draft !== "object" || draft === null || typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
+    return invalidRequest(
+      "workcase-precheck-create",
+      "frontmatter_draft (object) and body_markdown (markdown starting with '## 摘要') are required — the precheck evaluates a candidate, so an absent candidate is nothing to check",
+      "precheck",
+    );
+  }
+  const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
+  const prechecked = await precheckWorkcaseCreate({ factSourceRoot, frontmatterDraft: draft, bodyMarkdown });
+  if (!prechecked.ok) {
+    return envelope("workcase-precheck-create", "unavailable", {
+      result: null,
+      scope: { requested: "precheck", completed: [], not_completed: ["precheck"] },
+      sources: [],
+      gaps: [`${prechecked.error.code}: ${prechecked.error.message}`],
+      verification: { checks: ["mechanical-precheck"], passed: false },
+      follow_up: []
+    });
+  }
+  const value = prechecked.value;
+  const outcome = value.mechanical_outcome;
+  return envelope("workcase-precheck-create", outcome === "passed" ? "completed" : outcome === "failed" ? "rejected" : "partial", {
+    result: {
+      mechanical_outcome: outcome,
+      candidate_fingerprint: value.candidate_fingerprint,
+      issues: value.issues,
+      ...(value.error_code === undefined ? {} : { error_code: value.error_code, error_message: value.error_message }),
+      // 预检的**保证边界**随结果一并交还，避免调用方把 passed 读成「可以写入」。
+      guarantee_boundary: [
+        "passed 只说明该候选按已封闭定义的机械规则可写入，不说明它应当被写入",
+        "不证明内容恰当、范围合适或 Human 会同意——内容是否可决属 Gate 1 与 Human 判断",
+        "不构成授权凭据，也不替代 Human 的确认（21 §16）",
+        "候选指纹只覆盖调用方提供的候选内容（frontmatter_draft + body_markdown），不含 Code 生成的 object_uid/created_at/change_log",
+      ],
+    },
+    scope: { requested: "precheck", completed: ["precheck", "mechanical-checks"], not_completed: outcome === "passed" ? [] : ["mechanical-checks (see issues)"] },
+    sources: [{ kind: "fact-source", path: join(factSourceRoot, "workcases"), note: "read-only: no file was written" }],
+    gaps: value.issues,
+    verification: { checks: ["governance-scope", "frontmatter-closed-set", "body-structure", "carrier-coherence", "serves-resolution"], passed: outcome === "passed" },
+    follow_up: [
+      "pass the returned candidate_fingerprint to ldvh_workcase_write(action=create) as expected_candidate_fingerprint — the write refuses when the content changes in between",
+      "after a passed precheck the Human routing question may be asked (21 §6.3); a failed or unverifiable precheck must be reported, not routed",
+    ]
+  });
+}
+
+// ---------------------------------------------------------------------------
 // write handler — seven controlled actions (21 §14)
 // ---------------------------------------------------------------------------
 
@@ -339,6 +417,54 @@ async function executeWriteObject(args, exec, deps) {
     if (typeof draft !== "object" || draft === null || typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
       return invalidRequest("workcase-write-object", "frontmatter_draft (object) and body_markdown (markdown starting with '## 摘要') are required for action=create", "create");
     }
+    // 次序纪律（21 §14 create）：**先做提请前的只读机械检查，通过后再提请**。
+    //
+    // 此前该次序在实现中并不存在——路由询问在前，校验与落盘在后，故机械上站不住
+    // 的候选同样会被呈到 Human 面前，Human 的答复可能落在一个从未成立的提案上。
+    // 这不是「多一层礼貌」：提请与其审查针对的是**那份**候选内容，提问者与答问者
+    // 必须围绕同一件事。
+    //
+    // 与 06 §6.2 precheck-git-commit 同形：同一 validator 的两个入口——预检在此处
+    // 返回结构化结果，受控写入在真实写入时由同一实现再执行一次。
+    const prechecked = await precheckWorkcaseCreate({ factSourceRoot, frontmatterDraft: draft, bodyMarkdown });
+    if (!prechecked.ok) {
+      return envelope("workcase-write-object", "unavailable", {
+        result: null,
+        scope: { requested: "create", completed: [], not_completed: ["create"] },
+        sources: [],
+        gaps: [`${prechecked.error.code}: ${prechecked.error.message}`],
+        verification: { checks: ["governance-scope", "pre-mechanical-check"], passed: false },
+        follow_up: []
+      });
+    }
+    if (prechecked.value.mechanical_outcome !== "passed") {
+      const v = prechecked.value;
+      return envelope("workcase-write-object", "rejected", {
+        result: null,
+        scope: { requested: "create", completed: ["pre-mechanical-check"], not_completed: ["create"] },
+        sources: [],
+        gaps: [
+          `pre-submission mechanical check did not pass (${v.mechanical_outcome}${v.error_code === undefined ? "" : `: ${v.error_code}`}) — the candidate must be fixed or reported before it is put in front of the Human`,
+          ...v.issues,
+          ...(v.error_message === undefined ? [] : [v.error_message]),
+        ],
+        verification: { checks: ["governance-scope", "pre-mechanical-check"], passed: false },
+        follow_up: [
+          "fix the reported items, then re-run — a candidate that fails mechanical checks must not be routed to the Human",
+          "21 §6.3 routing asks whether to carry this work as a WorkCase; it is asked only once the candidate mechanically stands",
+        ]
+      });
+    }
+    // 提请与写入之间候选内容必须保持一致：写入侧比对指纹，不一致即拒绝。
+    // 否则 Human 之所见与所落不是同一物。
+    //
+    // 取调用方**显式提供**的指纹优先：它记录了「另一次预检调用所检查的那份内容」，
+    // 而这里的内部预检只记录了「本次调用所检查的那份」。二者相同时结论一致；不同
+    // 时说明调用方依据的是一次**针对别的候选**的预检——那正是必须被拦下的情形，
+    // 故不能静默以内部值覆盖调用方的声明（覆盖会让跨调用的指纹比对变成空转，
+    // 参数存在却永不被消费）。
+    const providedFingerprint = requireString(args, "expected_candidate_fingerprint", "create");
+    const candidateFingerprint = providedFingerprint ?? prechecked.value.candidate_fingerprint;
     // 21 §14 C1 / §6.3：创建前须经宿主询问入口取得 Human 的**路由选择**。
     // 这不是「AI 声明问过了」，而是 Human 本人的答复由宿主记录；拿不到即拒绝。
     // 无答题器 → fail-closed（静默不等于同意），与 07 §5.6 consent 同纪律。
@@ -346,12 +472,12 @@ async function executeWriteObject(args, exec, deps) {
     if (gate === undefined || typeof gate.requestWorkcaseRouting !== "function") {
       return envelope("workcase-write-object", "unavailable", {
         result: null,
-        scope: { requested: "create", completed: [], not_completed: ["create"] },
+        scope: { requested: "create", completed: ["pre-mechanical-check"], not_completed: ["create"] },
         sources: [],
         gaps: ["ctx.userQuestions.ask is not wired into this composition, so the 21 §6.3 routing decision "
           + "cannot be obtained. 21 §14 C1 requires the Human's explicit confirmation before creation; "
           + "REPORT TO HUMAN — an un-routed candidate must not silently become an object."],
-        verification: { checks: ["governance-scope", "human-routing"], passed: false },
+        verification: { checks: ["governance-scope", "pre-mechanical-check", "human-routing"], passed: false },
         follow_up: ["human must decide whether to carry this work as a WorkCase, then retry"]
       });
     }
@@ -371,10 +497,10 @@ async function executeWriteObject(args, exec, deps) {
     if (routing.granted !== true) {
       return envelope("workcase-write-object", "rejected", {
         result: null,
-        scope: { requested: "create", completed: [], not_completed: ["create"] },
+        scope: { requested: "create", completed: ["pre-mechanical-check"], not_completed: ["create"] },
         sources: [],
         gaps: [`21 §6.3/§14 C1 requires an explicit Human routing decision: ${routing.reason}`],
-        verification: { checks: ["governance-scope", "human-routing"], passed: false },
+        verification: { checks: ["governance-scope", "pre-mechanical-check", "human-routing"], passed: false },
         // 路由到「直接执行」是合法结论，不是错误：此时不应创建对象，
         // 而应在当次行动内处理（21 §6.3 不对象化）。
         follow_up: routing.routedTo === "direct"
@@ -382,7 +508,13 @@ async function executeWriteObject(args, exec, deps) {
           : ["obtain the Human's routing decision, then retry"]
       });
     }
-    result = await createWorkcaseObject({ factSourceRoot, frontmatterDraft: draft, bodyMarkdown, sessionSignature: sig.value });
+    result = await createWorkcaseObject({
+      factSourceRoot,
+      frontmatterDraft: draft,
+      bodyMarkdown,
+      sessionSignature: sig.value,
+      expectedCandidateFingerprint: candidateFingerprint,
+    });
   } else {
     // All remaining actions are CAS-guarded transitions on an existing object.
     const objectUid = requireString(args, "object_uid", action);
@@ -566,6 +698,10 @@ async function executeWriteObject(args, exec, deps) {
   if (!result.ok) {
     return writeRejected("workcase-write-object", result, factSourceRoot);
   }
+  // create 的次序纪律必须**从结果中可读**：成功信封登记预检这一步，读者才能
+  // 看出「先检查、后提请」确实发生过，而不是只能看到路由被问过。仅在被拒绝时
+  // 登记（下方早退分支）会让合格路径的次序成为不可观测的行为。
+  const isCreate = args.action === "create";
   return envelope("workcase-write-object", "completed", {
     result: {
       action: args.action,
@@ -575,10 +711,19 @@ async function executeWriteObject(args, exec, deps) {
       read_back: result.value.read_back === "ok" ? { ok: true } : { ok: false },
       changes: [{ object_uid: result.value.object_uid, change: args.action }],
     },
-    scope: { requested: args.action, completed: [args.action, "read-back"], not_completed: [] },
+    scope: {
+      requested: args.action,
+      completed: isCreate ? ["pre-mechanical-check", "human-routing", args.action, "read-back"] : [args.action, "read-back"],
+      not_completed: [],
+    },
     sources: [{ kind: "fact-object", path: result.value.file, content_fingerprint: result.value.fingerprint }],
     gaps: [],
-    verification: { checks: ["cas-baseline", "closed-set", "field-invariants", "c2-fingerprint", "body-structure", "carrier-coherence", "atomic-write", "read-back"], passed: true },
+    verification: {
+      checks: isCreate
+        ? ["pre-mechanical-check", "human-routing", "cas-baseline", "closed-set", "field-invariants", "c2-fingerprint", "body-structure", "carrier-coherence", "atomic-write", "read-back"]
+        : ["cas-baseline", "closed-set", "field-invariants", "c2-fingerprint", "body-structure", "carrier-coherence", "atomic-write", "read-back"],
+      passed: true,
+    },
     follow_up: [
       "use the NEW fingerprint from this result for the next action; committing goes through the controlled-commit contract (specs/06)",
       args.action === "approve"
@@ -599,6 +744,7 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
     "workcase/initial_state_violation", "workcase/transition_invalid", "workcase/c2_fingerprint_invalidated",
     "workcase/cas_conflict", "workcase/serves_unresolvable", "workcase/relations_unresolvable",
     "workcase/change_summary_required", "workcase/invalid_uid",
+    "workcase/candidate_changed", "workcase/candidate_fingerprint_invalid",
     "invalid_request",
   ]);
   const outcome = mechanicalCodes.has(code) ? "rejected" : "unavailable";
@@ -607,11 +753,13 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
     ? ["re-read the object (workcase-read-object), reconcile the concurrent change, and retry with the fresh fingerprint"]
     : code === "workcase/c2_fingerprint_invalidated"
       ? ["plan/scope changed while open — C2 authorization invalidated; the ONLY legal path is action=rebatch (局部重批), then re-approve via Gate 1 (21 §10.3)"]
-      : code === "workcase/transition_invalid"
-        ? ["check the current status against the transition table (draft→open→closed, rebatch open→draft, cancel draft→closed); closed is read-only (21 §9.2)"]
-        : code === "workcase/serves_unresolvable"
-          ? ["goal.md is missing or the SG-n does not exist — Gate 1 is fail-closed without a resolvable anchor (21 §10.1); omit serves or fix the anchor"]
-          : ["fix the reported mechanical issues and retry; zero write has occurred"];
+      : code === "workcase/candidate_changed"
+        ? ["the precheck verdict belonged to a different candidate: re-run ldvh_workcase_precheck_create on the CURRENT content and pass its fingerprint, then retry — do not reuse a stale verdict"]
+        : code === "workcase/transition_invalid"
+          ? ["check the current status against the transition table (draft→open→closed, rebatch open→draft, cancel draft→closed); closed is read-only (21 §9.2)"]
+          : code === "workcase/serves_unresolvable"
+            ? ["goal.md is missing or the SG-n does not exist — Gate 1 is fail-closed without a resolvable anchor (21 §10.1); omit serves or fix the anchor"]
+            : ["fix the reported mechanical issues and retry; zero write has occurred"];
   return envelope(operationKey, outcome, {
     result: null,
     scope: { requested: "write", completed: [], not_completed: ["write"] },
@@ -640,6 +788,9 @@ function renderEnvelope(operationKey, value) {
   if (result?.status !== undefined) lines.push(`status: ${result.status}`);
   if (result?.attempt_id !== undefined) lines.push(`attempt: ${result.attempt_id} (controller: ${result.controller ?? "unknown"})`);
   if (result?.outcome !== undefined) lines.push(`outcome: ${result.outcome}`);
+  if (result?.mechanical_outcome !== undefined) lines.push(`mechanical_outcome: ${result.mechanical_outcome}`);
+  if (result?.candidate_fingerprint !== undefined && result.candidate_fingerprint !== null) lines.push(`candidate_fingerprint: ${result.candidate_fingerprint}`);
+  if (result?.error_code !== undefined) lines.push(`error_code: ${result.error_code}`);
   if (result?.fingerprint !== undefined) lines.push(`fingerprint: ${result.fingerprint}`);
   if (result?.read_back?.ok !== undefined) lines.push(`read_back: ${result.read_back.ok ? "ok" : "FAILED"}`);
   if (result?.actual_ref !== undefined) lines.push(`file: ${result.actual_ref}`);
@@ -746,6 +897,16 @@ function parameterSchemaFor(operationKey) {
         },
         additionalProperties: false
       };
+    case "workcase-precheck-create":
+      return {
+        type: "object",
+        properties: {
+          frontmatter_draft: workcaseFrontmatter,
+          body_markdown: { type: "string", description: "The same body markdown that create takes (starting with '## 摘要'; the H1 is generated from title). Evaluated by the SAME validator the write path uses — the precheck is not a second rule set." },
+        },
+        required: ["frontmatter_draft", "body_markdown"],
+        additionalProperties: false
+      };
     case "workcase-write-object":
       return {
         type: "object",
@@ -753,6 +914,7 @@ function parameterSchemaFor(operationKey) {
           action: { type: "string", enum: ["create", "approve", "execute", "close", "rebatch", "cancel", "revise", "record_review"] },
           frontmatter_draft: workcaseFrontmatter,
           body_markdown: { type: "string", description: "create: the body markdown starting with '## 摘要' (H2 sections 摘要/授权范围/计划; the H1 is generated from title)" },
+          expected_candidate_fingerprint: { type: "string", description: "create: the candidate_fingerprint returned by ldvh_workcase_precheck_create for THIS candidate content. When supplied, the write refuses if the content changed in between — so a precheck verdict never silently carries over to a different candidate (21 §14 create). Optional: omit when the candidate was not prechecked." },
           routing_request: { type: "string", description: "create: the Human's request in their own words, shown in the 21 §6.3 routing prompt (e.g. 「帮我把 X 改掉」). Optional but strongly recommended — it is what lets the Human recognise which piece of work is being routed." },
           routing_rationale: {
             type: "object",
@@ -855,6 +1017,7 @@ export function registerWorkcaseTools(ctx, deps) {
   const handlers = {
     "workcase-read-object": (args, exec) => executeReadObject(args, exec, deps),
     "workcase-list-objects": (args, exec) => executeListObject(args, exec, deps),
+    "workcase-precheck-create": (args, exec) => executePrecheckCreate(args, exec, deps),
     "workcase-write-object": (args, exec) => executeWriteObject(args, exec, deps),
   };
   const disposers = [];

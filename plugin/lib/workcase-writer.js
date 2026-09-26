@@ -1253,24 +1253,11 @@ export async function readWorkcaseObject(args) {
  * plan[].step 按序）对存量对象本就 16/16 无条件通过，无需适用范围限制。
  */
 async function writeValidated(factSourceRoot, frontmatter, body, baseline = null) {
-  const fmCheck = validateWorkcaseFrontmatter(
-    frontmatter,
-    baseline?.plan ?? null,
-    baseline?.summary,
-    baseline?.scope,
-  );
-  if (!fmCheck.ok) {
-    return failure("workcase/frontmatter_invalid", "frontmatter failed mechanical checks", { issues: fmCheck.issues });
-  }
-  const hasExecution = frontmatter.status === "open" || (frontmatter.status === "closed" && frontmatter.gate_1 !== undefined);
-  const requireResult = frontmatter.status === "closed";
-  const bodyCheck = validateWorkcaseBodyStructure(body, frontmatter.title, { hasExecution, requireResult, outcome: frontmatter.outcome ?? null });
-  if (!bodyCheck.ok) {
-    return failure("workcase/body_invalid", "body failed structure checks", { issues: bodyCheck.issues });
-  }
-  const coherenceCheck = validateCarrierCoherence(frontmatter, body);
-  if (!coherenceCheck.ok) {
-    return failure("workcase/coherence_invalid", "carrier coherence failed", { issues: coherenceCheck.issues });
+  // 机械校验走**单一编排**（runMechanicalChecks）——与 create 的预检同一函数集，
+  // 见该函数说明。此处不再内联复写三件套。
+  const check = runMechanicalChecks(frontmatter, body, baseline);
+  if (!check.ok) {
+    return failure(check.code, check.message, { issues: check.issues });
   }
   const typeDir = join(factSourceRoot, WORKCASE_DIRECTORY);
   await mkdir(typeDir, { recursive: true });
@@ -1329,10 +1316,60 @@ function stripCallerOnlyFields(draft) {
 // create — draft (21 §14 C1 提案对象模式; 初态 draft)
 // ---------------------------------------------------------------------------
 
-export async function createWorkcaseObject(args) {
-  const { factSourceRoot, frontmatterDraft, bodyMarkdown, sessionSignature = null } = args;
-  const sig = requireAuthoritativeSignature(sessionSignature);
-  if (!sig.ok) return failure(sig.code, sig.message);
+// ---------------------------------------------------------------------------
+// create 候选的**单一评估实现**（请假前预检与正式写入共用）
+//
+// 为什么必须共用而不是两处各写一遍（本节的直接理由）：`09 §5` 要求同一判定
+// 不在多处各自实现。此前 create 的机械校验只存在于写入路径内，任何「提请前
+// 先检查一遍」的尝试都只能由调用方**复现装配与校验**（`assembleBody` 当时未
+// 导出，复现是唯一选择）——而复现出来的检查与真正落盘的检查是**两个实现**，
+// 它们可以同时「通过」，却对同一份候选给出不同结论。
+//
+// 故此处把「从调用方 payload 到可校验的规范化载体」整条链抽成一个入口，
+// 两条路径都调它：预检只取 issues 与指纹，写入再取 frontmatter/body 落盘。
+// 「预检通过」因此**在机械上**等价于「同一实现认为该候选可写入」的前半段，
+// 而不是另一套规则的结论。
+// ---------------------------------------------------------------------------
+
+/**
+ * `create` 候选的确定性内容指纹（覆盖**调用方提供的全部候选内容**）。
+ *
+ * 覆盖范围是刻意的：`object_uid` / `created_at` 由 Code 生成，调用方无从在提请时
+ * 提供，若把它们并入指纹，则「提请时的指纹」永远无法与「写入时的指纹」相等，比对
+ * 就成了空话。故指纹取**调用方能控制、且在提请与写入之间必须保持不变**的全部内容。
+ *
+ * **`change_summary` 必须在内**（2026-09-26 实现侧对抗审核 F1 修正，实测反例）：
+ * 此前本函数对 `frontmatter_draft` 先做 `stripCallerOnlyFields`（剥离
+ * `change_summary`），理由是它「不是类型字段，只流入 change_log」。但该值**由调用方
+ * 提供、且会逐字落盘**到 `change_log[0].summary`——它既是候选内容，又在提请后决定
+ * 了对象里的一句话。实测：预检候选甲（`change_summary: "记录 A"`）取得指纹后，把值
+ * 换成「记录 B」并携带同一指纹调用创建，**写入被接受**，落盘为「记录 B」。即
+ * 「提请与写入之间内容变化一律拒绝」当时并不成立，而候选文本已如此承诺。
+ *
+ * 修正取**收敛实现**而非放宽文本：既然该值会落盘，它就属于候选内容，须受同一
+ * 一致性约束。指纹因此直接覆盖调用方传入的原始 draft，不再剥离任何字段。
+ *
+ * 该指纹**不是授权凭据**：它只证明「两次调用提交的是同一份候选内容」，不证明
+ * 内容恰当、不证明 Human 同意、也不构成 Gate 1 的任何部分。
+ */
+export function computeCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown) {
+  const candidate = {
+    frontmatter_draft: frontmatterDraft ?? null,
+    body_markdown: typeof bodyMarkdown === "string" ? bodyMarkdown : null,
+  };
+  return createHash("sha256").update(stableStringify(candidate), "utf8").digest("hex");
+}
+
+/**
+ * 评估一份 create 候选：规范化装配 + 全部机械校验，返回可直接落盘的
+ * `frontmatter`/`body`，或**与写入路径逐条相同**的失败。
+ *
+ * `signature` 为 null 时不写 `change_log`（预检路径）——`change_log` 的署名由
+ * Code 盖戳、AI 不可自填，预检没有也不需要它；而校验器对 `change_log` 的要求
+ * 是「非空数组且每项 {at, summary}」，故预检补一个占位条目后校验，结论与写入
+ * 一致（差异只在该字段的取值，而该字段不在候选指纹内且不由调用方控制）。
+ */
+async function evaluateCreateCandidate({ factSourceRoot, frontmatterDraft, bodyMarkdown, signature = null }) {
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
     return failure("invalid_request", "factSourceRoot is required");
   }
@@ -1340,12 +1377,8 @@ export async function createWorkcaseObject(args) {
     return failure("invalid_request", "bodyMarkdown is required (starting with '## 摘要'; the H1 is generated from title)");
   }
 
-  const uid = randomUUID();
   const now = new Date().toISOString();
   const frontmatter = { ...stripCallerOnlyFields(frontmatterDraft) };
-  frontmatter.object_uid = uid;
-  frontmatter.fact_type_key = WORKCASE_TYPE_KEY;
-  frontmatter.created_at = now;
   // 21 §9: create always initialises as draft — Gate 1 is the only way to open.
   if (frontmatter.status !== undefined && frontmatter.status !== "draft") {
     return failure("workcase/initial_state_violation", `create must initialise as status=draft; got ${JSON.stringify(frontmatter.status)} (21 §9)`);
@@ -1357,9 +1390,20 @@ export async function createWorkcaseObject(args) {
   if (frontmatter.attempt !== undefined) return failure("workcase/frontmatter_invalid", "create must not carry attempt (only approve allocates it, 21 §10.4)");
   if (frontmatter.result !== undefined || frontmatter.outcome !== undefined) return failure("workcase/frontmatter_invalid", "create must not carry result/outcome (only Gate 2 closure stamps them, 21 §14)");
 
+  // `fact_type_key` / `created_at` 是校验器**必需**字段（实测：缺任一项即
+  // frontmatter_invalid），故两条路径都必须写——它们由 Code 生成，不属候选内容，
+  // 也不在候选指纹覆盖范围内。
+  frontmatter.fact_type_key = WORKCASE_TYPE_KEY;
+  frontmatter.created_at = now;
+  // `object_uid` 则**只在写入路径生成**：校验器不要求它（§8 只登记其存在时的
+  // 形状），而预检是只读的——该字段是「Code 生成的唯一身份」（03 §6.1），只在
+  // 落盘时才有对象可指。实测依据（2026-09-26）：此前两条路径共用本函数，预检也
+  // 会调用 randomUUID() 并丢弃结果，不落盘也不返回，但候选文本所称「不生成对象
+  // 标识」在严格读法下与实现不符。本改动消除该不一致，而非放宽文本。
+  if (signature !== null) frontmatter.object_uid = randomUUID();
   frontmatter.change_log = [{
     at: now,
-    ...sig.signature,
+    ...(signature ?? {}),
     summary: frontmatterDraft?.change_summary ?? "受控创建 WorkCase 工单（draft，21 §14 C1 提案对象模式）",
   }];
 
@@ -1369,7 +1413,131 @@ export async function createWorkcaseObject(args) {
   if (relCheck) return relCheck;
 
   const body = assembleBody(frontmatter.title, bodyMarkdown);
-  return writeValidated(factSourceRoot, frontmatter, body);
+  const checks = validateCreateCandidate(frontmatter, body);
+  if (!checks.ok) return failure(checks.code, checks.message, { issues: checks.issues });
+
+  return success({ frontmatter, body });
+}
+
+/**
+ * 机械校验的**单一编排**（预检与写入共用，2026-09-26 F2 修正）。
+ *
+ * 此前预检走 `validateCreateCandidate`（写死 create 的 opts），而写入走
+ * `writeValidated` 内联的同一三件套——两处代码在做同一件事。当下参数恰好等价
+ * （create 恒为 `hasExecution=false`/`requireResult=false`/`outcome=null`/
+ * `baseline=null`），故结论一致；但**两份编排**意味着将来改动其一即出现
+ * 「预检说可以、写入说不行」的分流，而那恰是本改动要消灭的形态。
+ *
+ * `baseline` 非空时（update 类动作）沿用既有适用范围语义：只校验相对基线新增或
+ * 改动的字段，逐字未改的既有字段放行（见 §15.1 书写结构的适用范围说明）。
+ */
+function runMechanicalChecks(frontmatter, body, baseline = null) {
+  const fmCheck = validateWorkcaseFrontmatter(
+    frontmatter,
+    baseline?.plan ?? null,
+    baseline?.summary,
+    baseline?.scope,
+  );
+  if (!fmCheck.ok) {
+    return { ok: false, code: "workcase/frontmatter_invalid", message: "frontmatter failed mechanical checks", issues: fmCheck.issues };
+  }
+  const hasExecution = frontmatter.status === "open" || (frontmatter.status === "closed" && frontmatter.gate_1 !== undefined);
+  const requireResult = frontmatter.status === "closed";
+  const bodyCheck = validateWorkcaseBodyStructure(body, frontmatter.title, { hasExecution, requireResult, outcome: frontmatter.outcome ?? null });
+  if (!bodyCheck.ok) {
+    return { ok: false, code: "workcase/body_invalid", message: "body failed structure checks", issues: bodyCheck.issues };
+  }
+  const coherenceCheck = validateCarrierCoherence(frontmatter, body);
+  if (!coherenceCheck.ok) {
+    return { ok: false, code: "workcase/coherence_invalid", message: "carrier coherence failed", issues: coherenceCheck.issues };
+  }
+  return { ok: true };
+}
+
+/**
+ * The three mechanical check groups shared by the precheck and the write path,
+ * in the SAME order and with the SAME codes the write path has always used.
+ */
+function validateCreateCandidate(frontmatter, body) {
+  return runMechanicalChecks(frontmatter, body, null);
+}
+
+/**
+ * 只读预检入口：对 create 候选执行与写入**同一实现**的机械校验，不落盘。
+ *
+ * 返回 `mechanical_outcome` 三值（与 `06 §6.4` 的 precheck-git-commit 同形）：
+ * `passed` / `failed` / `unverifiable`。同时返回**候选内容指纹**，供写入侧比对
+ * 「提请时的候选」与「写入时的候选」是否为同一份内容。
+ *
+ * **不由本函数证明的事，一律不得据其声称**：
+ *   - 不证明内容恰当、范围合适或 Human 会同意——那是 Gate 1 与 Human 判断；
+ *   - 不构成授权凭据，也不是 Human 确认的替代物；
+ *   - `passed` 只说明「按已封闭定义的机械规则，该候选可写入」，不说明它应当被写入。
+ */
+export async function precheckWorkcaseCreate({ factSourceRoot, frontmatterDraft, bodyMarkdown }) {
+  if (typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
+    return success({
+      mechanical_outcome: "unverifiable",
+      candidate_fingerprint: null,
+      issues: ["body_markdown is required (starting with '## 摘要'; the H1 is generated from title)"],
+      issue_groups: [],
+    });
+  }
+  const evaluated = await evaluateCreateCandidate({ factSourceRoot, frontmatterDraft, bodyMarkdown, signature: null });
+  const candidateFingerprint = computeCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown);
+  if (!evaluated.ok) {
+    const code = evaluated.error.code;
+    const issues = evaluated.error.details?.issues;
+    // `invalid_request` / `initial_state_violation` / `serves_unresolvable` /
+    // `relations_unresolvable` are not "the candidate has a fixable formatting
+    // defect" but "the check could not be completed" or "a precondition outside
+    // the candidate is unmet" — reported as their own code, never folded into a
+    // generic failed, so the caller cannot read a blocked environment as a
+    // formatting hint.
+    return success({
+      mechanical_outcome: code === "invalid_request" ? "unverifiable" : "failed",
+      candidate_fingerprint: candidateFingerprint,
+      error_code: code,
+      error_message: evaluated.error.message,
+      issues: Array.isArray(issues) ? issues : [],
+      issue_groups: Array.isArray(issues) ? [{ code, issues }] : [],
+    });
+  }
+  return success({
+    mechanical_outcome: "passed",
+    candidate_fingerprint: candidateFingerprint,
+    issues: [],
+    issue_groups: [],
+    object_uid: null, // 预检不生成对象标识——该字段是「Code 生成的唯一身份」（03 §6.1），只在落盘时才有对象可指
+  });
+}
+
+export async function createWorkcaseObject(args) {
+  const { factSourceRoot, frontmatterDraft, bodyMarkdown, sessionSignature = null, expectedCandidateFingerprint = null } = args;
+  const sig = requireAuthoritativeSignature(sessionSignature);
+  if (!sig.ok) return failure(sig.code, sig.message);
+
+  // 提请与写入之间候选内容必须保持一致：调用方若在提请时记录了候选指纹，
+  // 则此处比对；不一致即拒绝写入。理由不是形式主义——提请（及其审查）针对的
+  // 是**那份**内容，此处若静默接受另一份，则 Human 之所见与所落不是同一物。
+  if (expectedCandidateFingerprint !== null) {
+    if (typeof expectedCandidateFingerprint !== "string" || !FINGERPRINT_PATTERN.test(expectedCandidateFingerprint)) {
+      return failure("workcase/candidate_fingerprint_invalid", "expectedCandidateFingerprint must be a 64-hex SHA-256 from the precheck result (21 §14 create)");
+    }
+    const actual = computeCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown);
+    if (actual !== expectedCandidateFingerprint) {
+      return failure(
+        "workcase/candidate_changed",
+        `the candidate content changed between precheck and write (precheck ${expectedCandidateFingerprint.slice(0, 8)}…, now ${actual.slice(0, 8)}…); `
+        + "the precheck verdict applies to the content that was checked, not to this one — re-run the precheck on the current content, then retry (21 §14 create)",
+        { expected: expectedCandidateFingerprint, actual },
+      );
+    }
+  }
+
+  const evaluated = await evaluateCreateCandidate({ factSourceRoot, frontmatterDraft, bodyMarkdown, signature: sig.signature });
+  if (!evaluated.ok) return evaluated;
+  return writeValidated(factSourceRoot, evaluated.value.frontmatter, evaluated.value.body);
 }
 
 // ---------------------------------------------------------------------------
