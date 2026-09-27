@@ -114,6 +114,15 @@ type LegacyFactAssociationTarget = {
 
 type FactAssociationTarget = LegacyFactAssociationTarget | { objectUid: string }
 type FactUidTargetIndex = Map<string, LegacyFactAssociationTarget | null>
+type FactRefSourceIndex = Map<string, Array<Record<string, unknown>>>
+type FactProjectionIndexes = {
+  uidTargets: FactUidTargetIndex
+  refSourceIndex: FactRefSourceIndex
+}
+
+function refObjectUid(value: unknown): string | null {
+  return canonicalUid(value) ? value : null
+}
 
 // 03 §6.1：canonical object_uid 是 UUIDv4（版本位 4），规范明文不采用时间有序的
 // UUIDv7——此处曾误用 v7 形态，使每个按规范创建的对象都无法被认作关联目标，
@@ -168,6 +177,72 @@ async function currentProjectUidTargets(scope: LocalFactScope): Promise<FactUidT
     }
   }
   return new Map([...matches].map(([objectUid, targets]) => [objectUid, targets.length === 1 ? targets[0] : null]))
+}
+
+/**
+ * Derive the reverse side of ordinary `refs` associations for WorkCase cards.
+ *
+ * This is deliberately a read-time projection, not a persisted lifecycle index:
+ * each readable fact in the current governed project is scanned and its declared
+ * refs are inverted into `target UID -> source entries`.  The result says only
+ * that a source object currently declares a reference to the target; it does
+ * not infer advice fulfilment, semantic coverage, approval, or closure.
+ *
+ * Unreadable/cross-project sources never enter the index. A readable source
+ * remains available even when it has no usable title; the presentation layer
+ * falls back to its UID for display in that case.
+ */
+async function currentProjectFactRefSources(scope: LocalFactScope): Promise<FactRefSourceIndex> {
+  const reverse = new Map<string, Array<Record<string, unknown>>>()
+  const seen = new Set<string>()
+  for (const type of ACTIVE_OBJECT_TYPES) {
+    const listed = await listLocalFacts(type, scope)
+    for (const item of listed.items) {
+      if (item.read_status !== 'readable' || item.fact_object === null) continue
+      const sourceUid = refObjectUid(item.fact_object.object_uid)
+      if (!sourceUid || !Array.isArray(item.fact_object.refs)) continue
+      const sourceTarget = {
+        governedProjectId: scope.governedProjectId,
+        factTypeKey: type,
+        objectId: item.object_ref.object_id,
+      }
+      const sourceTitle = typeof item.fact_object.title === 'string' && item.fact_object.title.trim()
+        ? item.fact_object.title
+        : undefined
+      const sourceEntry: Record<string, unknown> = {
+        objectUid: sourceUid,
+        // Readability, not optional title metadata, determines availability.
+        available: true,
+        resolvedTarget: sourceTarget,
+        ...(sourceTitle !== undefined ? { title: sourceTitle } : {}),
+        ...copyPresentFields(item.fact_object, ['title_en', 'title_zh', 'status']),
+      }
+      for (const candidate of item.fact_object.refs) {
+        const targetUid = typeof candidate === 'string'
+          ? refObjectUid(candidate)
+          : candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+            ? refObjectUid((candidate as Record<string, unknown>).object_uid)
+            : null
+        if (!targetUid) continue
+        const edgeKey = `${sourceUid.toLowerCase()}\u0000${targetUid.toLowerCase()}`
+        if (seen.has(edgeKey)) continue
+        seen.add(edgeKey)
+        const targetKey = targetUid.toLowerCase()
+        const sources = reverse.get(targetKey) ?? []
+        sources.push({ ...sourceEntry })
+        reverse.set(targetKey, sources)
+      }
+    }
+  }
+  return reverse
+}
+
+async function currentProjectProjectionIndexes(scope: LocalFactScope): Promise<FactProjectionIndexes> {
+  const [uidTargets, refSourceIndex] = await Promise.all([
+    currentProjectUidTargets(scope),
+    currentProjectFactRefSources(scope),
+  ])
+  return { uidTargets, refSourceIndex }
 }
 
 /**
@@ -286,6 +361,7 @@ async function projectListItemWithAssociations(
   item: LocalFactItem,
   scope: LocalFactScope,
   uidTargets: FactUidTargetIndex,
+  refSourceIndex?: FactRefSourceIndex,
 ): Promise<Record<string, unknown>> {
   const associations = await projectFactCardAssociations(item, scope, uidTargets)
   // 03 §7.2 分工纪律：refs 与 relations 并列投影、互不并入。列表卡与详情卡
@@ -293,10 +369,15 @@ async function projectListItemWithAssociations(
   // 卡片网格承载「关联计数」）。此处只新增调用，解析规则仍由 projectFactRefs
   // 单点承载（不新写逻辑）。
   const refs = await projectFactRefs(item, scope, uidTargets)
+  const objectUid = refObjectUid(item.fact_object?.object_uid)
+  const inboundRefSources = type === 'workcase' && objectUid && refSourceIndex
+    ? refSourceIndex.get(objectUid.toLowerCase()) ?? []
+    : []
   return {
     ...projectListItem(type, item, uidTargets),
     ...(associations.length > 0 ? { factAssociations: associations } : {}),
     ...(refs.length > 0 ? { factRefs: refs } : {}),
+    ...(inboundRefSources.length > 0 ? { factRefSources: inboundRefSources } : {}),
   }
 }
 
@@ -559,8 +640,12 @@ export async function listObjects(type: ObjectType, _baseDir?: string, status?: 
     const listed = await listLocalFacts(type, resolvedScope)
     if (listed.status !== 'complete') return notIntegrated(type, listed.issues[0]?.message ?? `类型 ${type} 尚无对象目录`)
     const uidTargets = await currentProjectUidTargets(resolvedScope)
+    // Reverse ordinary refs are derived once per read and only attached to
+    // WorkCase cards. They remain separate from outgoing factRefs and formal
+    // factAssociations; no persisted lifecycle index is introduced.
+    const refSourceIndex = await currentProjectFactRefSources(resolvedScope)
     const projectedItems = await Promise.all(
-      listed.items.map((item) => projectListItemWithAssociations(type, item, resolvedScope, uidTargets)),
+      listed.items.map((item) => projectListItemWithAssociations(type, item, resolvedScope, uidTargets, refSourceIndex)),
     )
     // 跨 worktree 合并：当前 worktree 缺的对象补充进来；带分支元数据
     const mergeMeta = await buildCrossWorktreeMeta(type, resolvedScope)
@@ -572,16 +657,34 @@ export async function listObjects(type: ObjectType, _baseDir?: string, status?: 
       }
       const presentIds = new Set(projectedItems.map((item) => String(item.object_id ?? item.id)))
       const extraProjects: Array<Promise<Record<string, unknown>>> = []
+      // Foreign items must resolve both outgoing refs and inbound WorkCase refs
+      // against their own readable worktree. Cache the all-type scan per scope so
+      // a worktree containing many extras does not trigger one scan per item.
+      const foreignIndexes = new Map<string, Promise<FactProjectionIndexes>>()
       for (const fps of itemsByWorktree) {
+        const foreignScope: LocalFactScope = {
+          worktreeLocator: fps.path,
+          governedProjectId: fps.governedProjectId,
+        }
+        const scopeKey = `${foreignScope.governedProjectId}\u0000${foreignScope.worktreeLocator}`
+        let indexesPromise = foreignIndexes.get(scopeKey)
+        if (!indexesPromise) {
+          indexesPromise = currentProjectProjectionIndexes(foreignScope)
+          foreignIndexes.set(scopeKey, indexesPromise)
+        }
+        const indexes = await indexesPromise
         for (const item of fps.items) {
           const objectId = item.object_ref.object_id
           if (presentIds.has(objectId)) continue
-          // 非当前 worktree 的对象，用其所在 worktree 读取（避免占用当前 worktree uid index）
-          const foreignScope: LocalFactScope = {
-            worktreeLocator: fps.path,
-            governedProjectId: fps.governedProjectId,
-          }
-          const projected = projectListItemWithAssociations(type, item, foreignScope, uidTargets)
+          // 非当前 worktree 的对象，用其所在 worktree 读取；其 refs 与
+          // factRefSources 不能错误地使用当前 worktree 的 UID 索引。
+          const projected = projectListItemWithAssociations(
+            type,
+            item,
+            foreignScope,
+            indexes.uidTargets,
+            indexes.refSourceIndex,
+          )
           const m = meta.get(objectId)
           if (m) Object.assign(await projected, m)
           presentIds.add(objectId)
@@ -666,6 +769,14 @@ export async function showObject(id: string, scope?: LocalFactScope): Promise<We
     const refs = await projectFactRefs(item, resolvedScope, uidTargets)
     if (refs.length > 0) data.factRefs = refs
     if (type === 'workcase') {
+      // Reverse ordinary refs are a read-time projection for closed-WorkCase
+      // recall.  Keep this separate from outgoing factRefs and formal
+      // factAssociations: it records only that another readable fact declares
+      // this WorkCase as a target, never that advice was fulfilled or closed.
+      const refSourceIndex = await currentProjectFactRefSources(resolvedScope)
+      const objectUid = refObjectUid(item.fact_object.object_uid)
+      const sources = objectUid ? refSourceIndex.get(objectUid.toLowerCase()) ?? [] : []
+      if (sources.length > 0) data.factRefSources = sources
       const projection = deriveWorkCaseV5View(
         item.fact_object.status,
         item.fact_object.outcome,

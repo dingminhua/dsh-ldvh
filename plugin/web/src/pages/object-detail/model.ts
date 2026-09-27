@@ -30,6 +30,9 @@ export const META_KEYS = [
   // 「关联对象」阅读节点消费（与 relations 节点并列、语义互不并入）；
   // 列入 META_KEYS 以免作为未映射字段落入通用字段区重复呈现。
   'factRefs',
+  // 03 §7.2 / 21 §13：factRefSources 是实时反查得到的普通引用来源，
+  // 仅用于 WorkCase 关闭后召回可见性，不是对象自身字段或生命周期关系。
+  'factRefSources',
   'refs',
 ];
 

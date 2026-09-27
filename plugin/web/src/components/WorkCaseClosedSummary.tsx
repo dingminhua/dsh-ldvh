@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useI18n } from '@/i18n/context';
 import type { LocaleKey } from '@/i18n/locales';
-import type { ObjectItem, WorkCasePlanStep, WorkCaseResultCheck } from '@/utils/api';
+import { getLocalizedObjectTitle, getObjectStatusLocale, getTypeLabel } from '@/i18n/locales';
+import type { FactRefSource, ObjectItem, WorkCasePlanStep, WorkCaseResultCheck } from '@/utils/api';
 import { stripCardMarkdown } from '@/utils/cardText';
+import { usePanel } from '@/utils/panelContext';
 import {
   WORKCASE_CHECK_TAG_BASE,
   WORKCASE_CHECK_TAG_CLASS,
@@ -52,13 +54,66 @@ const OUTCOME_CLASS: Record<string, string> = {
   cancelled: 'border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary',
 };
 
+/**
+ * One source in the read-time reverse `refs` projection.  This row deliberately
+ * uses neutral association language: a source declaring a reference is not
+ * evidence that the closed WorkCase advice was carried out.
+ */
+function WorkCaseRefSourceRow({ source, locale }: { source: FactRefSource; locale: string }) {
+  const { t } = useI18n();
+  const { openPanel } = usePanel();
+  const target = source.resolvedTarget;
+  const sourceType = target?.factTypeKey;
+  const title = source.available
+    ? getLocalizedObjectTitle(source, locale, source.objectUid)
+    : t('objectList.workcaseRefSourceUnavailable');
+  const canOpen = Boolean(source.available && target);
+  const open = () => {
+    if (!canOpen || !target) return;
+    openPanel({ type: 'object', title, objectType: target.factTypeKey, objectId: target.objectId });
+  };
+  const statusLabel = source.status && sourceType
+    ? getObjectStatusLocale(sourceType, source.status, locale)
+    : null;
+
+  return (
+    <div
+      data-workcase-ref-source={source.objectUid}
+      role={canOpen ? 'button' : undefined}
+      tabIndex={canOpen ? 0 : -1}
+      onClick={open}
+      onKeyDown={(event) => {
+        if (!canOpen || (event.key !== 'Enter' && event.key !== ' ')) return;
+        event.preventDefault();
+        open();
+      }}
+      className={`min-w-0 rounded-md px-1.5 py-1.5 text-left ${canOpen ? 'cursor-pointer hover:bg-ldvh-border/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50' : 'cursor-default'}`}
+    >
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+        <span className={`ldvh-meta-primary min-w-0 break-words ${canOpen ? 'text-ldvh-text-secondary hover:text-ldvh-accent' : 'text-ldvh-text-secondary'}`}>
+          {title}
+        </span>
+        {sourceType && <span className="ldvh-meta-muted">{getTypeLabel(sourceType, locale)}</span>}
+        {statusLabel && (
+          <span className="ldvh-meta-muted">
+            {t('objectList.workcaseRefSourceStatus', { status: statusLabel })}
+          </span>
+        )}
+      </div>
+      <div className="ldvh-meta-muted break-all text-[10px]">
+        {t('objectList.workcaseRefSourceUid', { uid: source.objectUid })}
+      </div>
+    </div>
+  );
+}
+
 export interface WorkCaseClosedSummaryProps {
   obj: ObjectItem;
   className?: string;
 }
 
 export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseClosedSummaryProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [expanded, setExpanded] = useState(false);
 
   const steps: WorkCasePlanStep[] = Array.isArray(obj.plan) ? obj.plan : [];
@@ -73,8 +128,9 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
   const advice = Array.isArray(obj.advice) ? obj.advice : [];
   // 事后补记声明（21 §8）：让卡面读者知道这段去向不是关闭当时的提请内容。
   const adviceNote = typeof obj.advice_note === 'string' ? obj.advice_note : null;
+  const refSources = Array.isArray(obj.factRefSources) ? obj.factRefSources : [];
 
-  if (cancellation === null && checks.length === 0 && residual.length === 0 && advice.length === 0) {
+  if (cancellation === null && checks.length === 0 && residual.length === 0 && advice.length === 0 && refSources.length === 0) {
     return null;
   }
 
@@ -227,6 +283,25 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ③ 反向普通引用：只呈现「哪些可读事实对象声明引用了本 WC」。
+          这是实时反查得到的可见性线索，不是建议履行、语义覆盖或关闭证明。
+          不与上面的 outgoing factRefs / formal relations 合并。 */}
+      {refSources.length > 0 && (
+        <div
+          data-workcase-ref-sources
+          className="min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/45 px-2.5 py-2"
+        >
+          <div className="ldvh-meta-muted border-b border-ldvh-border/60 pb-1.5">
+            {t('objectList.workcaseRefSources')}
+          </div>
+          <div className="mt-0.5 grid min-w-0 gap-0.5">
+            {refSources.map((source) => (
+              <WorkCaseRefSourceRow key={source.objectUid} source={source} locale={locale} />
+            ))}
+          </div>
         </div>
       )}
     </div>

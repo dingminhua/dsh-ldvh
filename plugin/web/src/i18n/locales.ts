@@ -1206,6 +1206,11 @@ export const UI_LOCALES = {
     'objectList.workcaseResidualTally': '残留 {count} 条',
     'objectList.workcaseResidualTag': '残留',
     'objectList.workcaseResidualNone': '无残留',
+    // 21 §13 / 03 §7.2：反向 refs 只显示声明引用来源，不暗示建议已履行或已闭环。
+    'objectList.workcaseRefSources': '声明引用此工单的对象',
+    'objectList.workcaseRefSourceUnavailable': '引用来源不可用',
+    'objectList.workcaseRefSourceStatus': '状态：{status}',
+    'objectList.workcaseRefSourceUid': '对象 UID：{uid}',
     'objectDetail.workcaseServes': '服务子目标',
     'objectDetail.workcaseScope': '授权范围',
     'objectDetail.workcasePlan': '计划与判据',
@@ -1924,6 +1929,11 @@ export const UI_LOCALES = {
     'objectList.workcaseResidualTally': '{count} residual',
     'objectList.workcaseResidualTag': 'Residual',
     'objectList.workcaseResidualNone': 'No residual',
+     // 21 §13 / 03 §7.2: reverse refs show declared sources only; they do not imply fulfilment or closure.
+     'objectList.workcaseRefSources': 'Objects declaring a reference to this WorkCase',
+     'objectList.workcaseRefSourceUnavailable': 'Reference source unavailable',
+     'objectList.workcaseRefSourceStatus': 'Status: {status}',
+     'objectList.workcaseRefSourceUid': 'Object UID: {uid}',
     'objectDetail.workcaseServes': 'Serves sub-goal',
     'objectDetail.workcaseScope': 'Authorization scope',
     'objectDetail.workcasePlan': 'Plan & criteria',

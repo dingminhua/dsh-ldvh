@@ -863,6 +863,17 @@ function parameterSchemaFor(operationKey) {
         },
       },
       outcome: { type: "string", enum: ["completed", "partial", "not-achieved", "cancelled"], description: "[Code-stamped on close] 终态判定（21 §9.3）" },
+      refs: {
+        type: "array",
+        maxItems: 10,
+        description: "普通内容关联（03 §7.2 / 21 §8）：每项必须是精确 {object_uid}，目标须为可解析的同项目事实对象（同项目事实目录内存在载体文件且其 object_uid 行可解析；不校验目标可读性与 frontmatter 合法性，机械口径见 21 §15.1）；仅用于精确引用与派生反查，不是生命周期关系，也不证明履行、覆盖或闭环",
+        items: {
+          type: "object",
+          properties: { object_uid: { type: "string" } },
+          required: ["object_uid"],
+          additionalProperties: false,
+        },
+      },
       relations: {
         type: "array",
         description: "贡献关联：仅 contributed-to → Pitfall object_uid（21 §12 关系闭集）",

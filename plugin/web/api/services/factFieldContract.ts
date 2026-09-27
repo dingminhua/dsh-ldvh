@@ -59,6 +59,9 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     reviews: field('workcase-reviews', 'array', false),
     result: field('workcase-result', 'object', false),
     outcome: field('workcase-outcome', 'string', false),
+    // 03 §7.2 / 21 §8：refs 是状态中立的普通内容关联，目标为
+    // object_uid；不属于 WorkCase 生命周期 relations，也不证明建议履行或闭环。
+    refs: field('workcase-refs', 'array', false),
     // transport-only：报告正文（非 frontmatter 字段）。「待批准关闭」派生
     // 判据需要「open ∧ 正文含 ## 结果 节」——body 经 localFactReader 的
     // extra 通道进入此处，随 fact_object 一起传输（10 号呈现契约登记的

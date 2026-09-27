@@ -125,7 +125,7 @@ WorkCase 是授权执行层的事实类型：**已批准工单及其结果审计
 | 权威位置 | `ldvh-base/workcases/`；目录基数校验，文件名编码 UID |
 | 公共字段 | `object_uid`（UUIDv4）、`fact_type_key`、`title`、`status`、`created_at`、`change_log`（首修后必有） |
 
-公共字段实际采用：`object_uid`、`fact_type_key`、`title`、`status`、`created_at`、`change_log`、`relations`（仅 `contributed-to`）。不采用 `urls`：WorkCase 的证据是当次执行的观察、回读结果与 Git 状态，以正文自然语言与 `result` 字段承载；具有长期消费价值的外部资料由 24 号 Research 与 22 号 ADR 承载，不在此复制。`created_at` 由 Code 在受控创建时填写，AI 不得填写或推导；不设 `updated_at`，变更走 `change_log`（每次实际修改恰好追加一条，`at`/署名 Code 托管，AI 只提供一句话语义摘要）。
+公共字段实际采用：`object_uid`、`fact_type_key`、`title`、`status`、`created_at`、`change_log`、`relations`（仅 `contributed-to`）与条件字段 `refs`（普通内容关联）。不采用 `urls`：WorkCase 的证据是当次执行的观察、回读结果与 Git 状态，以正文自然语言与 `result` 字段承载；具有长期消费价值的外部资料由 24 号 Research 与 22 号 ADR 承载，不在此复制。`created_at` 由 Code 在受控创建时填写，AI 不得填写或推导；不设 `updated_at`，变更走 `change_log`（每次实际修改恰好追加一条，`at`/署名 Code 托管，AI 只提供一句话语义摘要）。
 
 ## 8. 字段契约
 
@@ -147,6 +147,7 @@ frontmatter 闭集：
 | `result` | object | 条件 | 执行结果核对结论 | 关闭提案时必填：`{criteria_checks[], achieved_scope, residual[]}`；`criteria_checks` 逐条对应 `plan[].done_criteria` |
 | `outcome` | string | 条件 | 终态判定 | `closed` 时必填，闭集 `completed` / `partial` / `not-achieved` / `cancelled` |
 | `status` | string | 必填 | `draft` / `open` / `closed` | 初态 `draft` |
+| `refs` | array | 条件 | 普通内容关联 | 按 03 §7.2：非空 `[{object_uid}]`、最多 10 项、无重复；目标须是可解析的同项目事实对象（机械口径见 §15.1，本项未覆盖目标可读性）；只用于精确引用与派生反查，不携带生命周期效果 |
 | `relations` | array | 条件 | 贡献关联（`contributed-to`） | 按 03 §7.2 公共形状；目标必须是可解析的 Pitfall `object_uid` |
 | `created_at` | RFC3339 | 必填 | Code 填写 | AI 不得填写 |
 | `change_log` | array | 条件 | 变更流水 | 首次修改后必有；每次实际 canonical 修改恰好一条 |
@@ -321,9 +322,10 @@ attempt 令牌回答「当前谁在做、做到哪里」，**不承载任何授�
 | 引用 | 形态 | 方向 | 目标 | 基数 | 语义与约束 |
 |---|---|---|---|---|---|
 | `serves` | frontmatter 标量字段 | 本 WC → Goal sub-goal 锚点 | `SG-n` | 0..1 | 服务的子目标；必须是 goal.md 中存在的 SG-n；**不是 `relations` 条目**（锚点无 `object_uid`，03 §7.2 的关系目标只使用 `object_uid`）；反向投影由机械反查 `serves` 得到，Goal 侧不存储（25 §9） |
+| `refs` | frontmatter 普通引用字段 | 本 WC → 任一同项目事实对象 | `object_uid` | 0..10 | 普通内容关联；目标须是可解析的同项目事实对象（机械口径见 §15.1）；只用于精确召回与派生反查，不构成生命周期关系、建议履行、语义覆盖、批准或目标完成证明；反向来源由消费方实时扫描得到，不写回目标对象 |
 | `contributed-to` | `relations` 条目 | 本 WC → Pitfall | Pitfall `object_uid` | 0..n | 本次执行贡献（发现或验证）了该踩坑经验；目标必须可解析为同项目 Pitfall 对象；**Pitfall 侧不复制反向边**（03 §7.2 第 4 条，23 §11 已声明不采用 `relations`） |
 
-关系闭集只含 `contributed-to`：不建 WC 之间的父子或依赖边（派生视图由消费方反查 `serves` 与正文引用得到，不写回对象）；不建指向 ADR/Spark/Research 的结构化关系（由正文自然语言交代并经 F4 展开）。目标缺失、不可读或不可解析时，必须保留实际边并如实报告失败范围，不得静默删除或改写为「无关系」（03 §7.2 第 5 条）。目标 Pitfall 被 `discarded` 不使 `contributed-to` 失效——经验曾发生的事实不变——但消费方必须标注目标已废弃。`serves` 指向的 SG-n 被原位作废时，`serves` 保留原值（不改写历史引用），并按 §10.3 触发局部重批。关系变更必须使用对象当前指纹绑定的完整更新入口，写后精确回读。
+关系闭集只含 `contributed-to`：不建 WC 之间的父子或依赖边，也不把 `refs` 伪装成关系（派生视图由消费方反查 `serves`、`refs` 与正文引用得到，不写回对象）；不建指向 ADR/Spark/Research 的结构化生命周期关系（普通内容关联由 `refs` 承载）。`refs` 的存在只回答「该对象声明引用了谁」，反向 `refs` 只回答「当前可读事实对象声明引用了本 WC」；二者均不回答建议是否履行、语义是否覆盖、是否获批或是否闭环。目标缺失、不可读或不可解析时，必须保留实际边并如实报告失败范围，不得静默删除或改写为「无关系」（03 §7.2 第 5 条）。目标 Pitfall 被 `discarded` 不使 `contributed-to` 失效——经验曾发生的事实不变——但消费方必须标注目标已废弃。`serves` 指向的 SG-n 被原位作废时，`serves` 保留原值（不改写历史引用），并按 §10.3 触发局部重批。引用变更必须使用对象当前指纹绑定的完整更新入口，写后精确回读。
 
 ## 13. 召回与消费
 
@@ -335,6 +337,7 @@ attempt 令牌回答「当前谁在做、做到哪里」，**不承载任何授�
 | sub-goal 达成证据链 | 25 §8 判定 `achieved` 前 | 机械反查 `serves` 收集名下 WC 关闭记录 |
 | goal 修订级联 | 25 §11 goal 修订后 | 机械扫描 `serves` 受影响 SG-n 的 open WC，标记 `goal-changed 待核对` |
 | Pitfall 贡献关联 | 执行期发现或验证踩坑经验时（23 §3.2） | 写 WC 侧 `contributed-to` 关系 |
+| 关闭 WC 的普通引用召回 | 读取 closed WorkCase 列表卡或详情时（03 §7.2） | 消费方实时扫描当前项目内可读事实对象的 `refs`，按 `object_uid` 反查声明引用本 WC 的来源，并显示来源存在性/状态；这只证明声明关联，不证明建议履行、语义覆盖、批准或闭环，不写回目标对象 |
 | 蓝图「进行中/已完成」 | 每次蓝图渲染（10 号） | draft/open/closed 列表与 `outcome` 概览 |
 | systemPrompt 注入 | 每会话（25 §10 已声明注入 active WC 列表一行摘要） | open WC 的 title + status + `serves` |
 
@@ -374,6 +377,7 @@ attempt 令牌回答「当前谁在做、做到哪里」，**不承载任何授�
 - 复核独立性（关闭侧）：关闭前至少一条 `reviews[].session_id` 与 `attempt.session_id` 不同；`attempt.session_id` 缺失、无任何条目携带 `session_id`、或全部候选均等于实施会话时，fail-closed 拒绝关闭并报告具体原因（21 §14 关闭前置条件二，workcase-2be11478）；
 - outcome 一致性：`outcome = completed` 时不得存在未达成的 `criteria_checks`；`partial`/`not-achieved` 时 `residual` 非空；
 - `serves` 有效性：声明时匹配 goal.md 中存在的 SG-n；
+- `refs` 有效性（§8 / 03 §7.2）：声明时须为非空数组、最多 10 项、条目为**精确** `{object_uid}`（含额外字段即非法）、目标为 UUIDv4、无重复目标（大小写不敏感），且每个目标可在同项目事实目录内解析出 `object_uid`（载体文件存在且该行可解析）。形状非法即拒绝写入（`workcase/frontmatter_invalid`）；形状合法但目标不可解析即**零写入**拒绝（`workcase/refs_target_unresolvable`），不得静默丢弃该关联。**未验证范围**：本项只校验形状与一跳目标的可解析性，**不校验**目标的 `read_status` 可读性、frontmatter 合法性、引用语义是否恰当、目标状态，也不证明建议已履行、语义已覆盖、已获批或已闭环（§12 已登记该边界）。
 - 关系闭集：`contributed-to` 目标必须可解析为同项目 Pitfall 对象；未知 relation key fail closed；
 - `plan` 内容边界（§6.1）：新增或改动的 `plan` 项命中生命周期关口形态时拒绝写入；逐字未改的既有项放行。**承载范围**：本项在实现中作用于全部 8 个 action（create/approve/execute/close/rebatch/cancel/revise/record_review）的唯一落盘汇聚点，且以**落盘前读到的既有对象**的 `plan` 为比对基线（非调用方 payload），故「改动既有项以规避」与「新增关口项」均被拒绝。基线比对为精确字符串，不做归一化。**未验证范围**：关口形态识别基于模式匹配而非语义理解——它能拒绝已知的关口写法，**不保证穷尽**；未列入模式的新写法不会被拦（这与 v4 §4.3「Code 不判断自然语言是否属于生命周期关口」的固有边界相同，本项不声称超出该边界）。
 
@@ -405,6 +409,7 @@ v4 存在 WorkCase 类对象（`docs/spark-workcase-rebuild.md` §5 记为高频
 | 载体内聚 | 创建与更新时 | `summary`/`scope` 在正文对应段逐字出现；`plan[].step` 在「计划」段按数组序出现 | frontmatter 与正文对照 | 机械（逐字比对 + 按序定位） | 索引与主体一致性 | 拒绝；补齐后重走 |
 | 书写结构 | 创建与更新时 | `scope` 两个标签各独占一行且内容在其下；`summary`/`scope` > 200 字符时分块且首块之外的块首为 H3 标题行（`scope` 另认其两标签行） | frontmatter 字段文本 | 机械（行匹配 + 空行分块 + H3 行识别） | 当次字段的书写形态；不证明标题名副其实或内容准确 | 拒绝；按 §8 书写结构修复后重走 |
 | serves 有效 | 创建时 | `serves` 匹配 goal.md 存在 SG-n | goal.md 子目标回读 | 机械（编号匹配） | 锚点解析成功 | 拒绝；或省略 `serves` 并说明 |
+| `refs` 形状与目标可解析 | 创建与更新时 | 声明时形状合法（非空、≤ 10 项、精确 `{object_uid}`、UUIDv4、无重复目标）且每个目标可在同项目事实目录内解析出 `object_uid` | `refs` 字段 + 一跳目标载体读取结果 | 机械（形状、上限、去重、一跳目标载体解析） | 当次声明的形状与一跳目标可解析性；**不证明**目标 `read_status` 可读、frontmatter 合法、引用语义恰当、建议已履行、语义已覆盖、已获批或目标已完成（§12） | 形状非法或目标不可解析即零写入拒绝并报告缺失目标；不得静默丢弃该关联 |
 | 授权钉扎一致 | 执行期每次写入前与关闭前 | `authorization_fingerprint` 与当前 `plan`+`scope` 指纹一致 | 对象全文 + 内容指纹计算 | 机械（指纹比对） | 当次授权覆盖范围的机械一致性 | 授权失效 → 局部重批；不得继续执行受影响范围 |
 | attempt 唯一与冷恢复 | 执行期、接管时 | 至多一个活跃 attempt；孤立 attempt 已核对副作用范围 | 对象 `attempt` + 实际文件/Git 状态 + 回读结果 | 机械（字段与状态检查）+ AI 核对 | 当次令牌状态与已核对的副作用范围 | 未核对前不续跑、不作废；如实交还残留 |
 | 关闭完整性 | Gate 2 前 | `result` 与 `outcome` 落盘；`criteria_checks` 与 `plan` 逐条对应 | 对象全文 | 机械（闭集、形状、对应关系） | 当次关闭记录的机械完整性 | 拒绝关闭；补齐记录 |

@@ -119,6 +119,13 @@ export interface ObjectItem {
    *  并列、语义互不并入（relations 承载生命周期关系，refs 承载普通内容
    *  关联，不参与关系闭集校验）。 */
   factRefs?: FactCardAssociation[];
+  /**
+   * Read-time reverse projection of ordinary refs that point at this object.
+   * This is intentionally separate from outgoing `factRefs` and lifecycle
+   * `factAssociations`; it records only a declared source→target association.
+   * The API currently attaches it to WorkCase cards for closed-advice recall.
+   */
+  factRefSources?: FactRefSource[];
   /** Exact field-level source metadata. */
   object_uid?: string;
   object_id?: string;
@@ -163,6 +170,20 @@ export interface ObjectItem {
   avoidance?: string;
   validation_summary?: string;
   applicability?: string;
+}
+
+export interface FactRefSource {
+  objectUid: string;
+  available: boolean;
+  resolvedTarget?: {
+    governedProjectId: string;
+    factTypeKey: string;
+    objectId: string;
+  };
+  title?: string;
+  title_en?: string;
+  title_zh?: string;
+  status?: string;
 }
 
 export interface FactCardAssociation {

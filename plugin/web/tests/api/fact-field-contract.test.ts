@@ -131,6 +131,10 @@ test('workcase carries the 21-spec field closure without v4 leftovers', () => {
   assert.equal(FACT_FIELD_CONTRACT.workcase.attempt.expected, 'object');
   assert.equal(FACT_FIELD_CONTRACT.workcase.result.expected, 'object');
   assert.equal(FACT_FIELD_CONTRACT.workcase.outcome.expected, 'string');
+  // 03 §7.2 / 21 §8：refs 是可选的状态中立普通关联，不能被误并入
+  // relations，也不能因为字段存在就推断建议已履行。
+  assert.equal(FACT_FIELD_CONTRACT.workcase.refs.expected, 'array');
+  assert.equal(FACT_FIELD_CONTRACT.workcase.refs.required, false);
   // transport-only 正文（派生判据通道；不复制进列表投影）。
   assert.equal(FACT_FIELD_CONTRACT.workcase.report_body.expected, 'string');
   // v4 字段全部退出契约。

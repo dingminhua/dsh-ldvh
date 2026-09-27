@@ -460,6 +460,85 @@ test("create: rejects draft body carrying an 执行 section (21 §8 执行条件
   });
 });
 
+test("create: refs require exact bounded readable same-project targets and round-trip (03 §7.2 / 21 §8)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const targetUid = await seedPitfall(root);
+    const refs = [{ object_uid: targetUid }];
+    const created = await createDraft(root, { refs });
+    assert.deepEqual(created.read.value.frontmatter.refs, refs);
+
+    for (const badRefs of [
+      [],
+      Array.from({ length: 11 }, (_, index) => ({ object_uid: `11111111-2222-4333-8444-${String(index).padStart(12, "0")}` })),
+      [{ object_uid: targetUid }, { object_uid: targetUid.toUpperCase() }],
+      [{ object_uid: targetUid, title: "not allowed" }],
+    ]) {
+      const result = await createWorkcaseObject({
+        factSourceRoot: root,
+        frontmatterDraft: validDraft({ refs: badRefs }),
+        bodyMarkdown: draftBody(),
+        sessionSignature: SIG(),
+      });
+      assert.ok(!result.ok, `refs should be rejected: ${JSON.stringify(badRefs)}`);
+      assert.equal(result.error.code, "workcase/frontmatter_invalid");
+    }
+
+    const missingUid = "99999999-8888-4777-a666-555555555555";
+    const missing = await createWorkcaseObject({
+      factSourceRoot: root,
+      frontmatterDraft: validDraft({ refs: [{ object_uid: missingUid }] }),
+      bodyMarkdown: draftBody(),
+      sessionSignature: SIG(),
+    });
+    assert.ok(!missing.ok);
+    assert.equal(missing.error.code, "workcase/refs_target_unresolvable");
+  });
+});
+
+test("refs: survive carried lifecycle writes and are re-validated on rebatch (21 §8 / 03 §7.2)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const targetUid = await seedPitfall(root);
+    const refs = [{ object_uid: targetUid }];
+
+    // 创建 → 批准：refs 不经 Code 托管，须随对象落盘并回读。
+    const { uid, after } = await approved(root, { refs });
+    assert.deepEqual(after.value.frontmatter.refs, refs);
+
+    // execute 携带 refs：同一解析口径下保留。
+    const carried = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: { ...after.value.frontmatter, refs },
+      bodyMarkdownAfter: bodyWithoutH1(after.value.body),
+      changeSummary: "执行写入携带 refs（测试）",
+      sessionSignature: SIG(),
+    });
+    assert.ok(carried.ok, JSON.stringify(carried.error));
+    const afterExec = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.deepEqual(afterExec.value.frontmatter.refs, refs);
+
+    // rebatch 允许调用方改写 refs，但仍按同一口径解析目标：不可解析即零写入拒绝。
+    const unresolvable = await rebatchWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: afterExec.value.fingerprint,
+      frontmatterAfter: validDraft({ refs: [{ object_uid: "99999999-8888-4777-a666-555555555555" }] }),
+      bodyMarkdownAfter: draftBody(),
+      changeSummary: "C2 重批：refs 目标不可解析（测试）",
+      sessionSignature: SIG(),
+    });
+    assert.ok(!unresolvable.ok);
+    assert.equal(unresolvable.error.code, "workcase/refs_target_unresolvable");
+
+    // 拒绝是零写入：对象与 refs 保持被拒前的状态。
+    const untouched = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.deepEqual(untouched.value.frontmatter.refs, refs);
+  });
+});
+
 test("create: relations require a resolvable Pitfall target (21 §12)", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);

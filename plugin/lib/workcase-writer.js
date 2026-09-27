@@ -74,6 +74,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { requireAuthoritativeSignature, resolveAuthoritativeSessionIdentity } from "./signature-channel.js";
 import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
 import { readGoalAnchors as readGoalAnchorsFromGoal } from "./goal-writer.js";
+import { resolveRefsTargets } from "./spark-writer.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/21 §7, §8, §9)
@@ -333,7 +334,7 @@ export const VALID_FM_KEYS = new Set([
   "fact_type_key", "object_uid", "title", "status",
   "gist", "serves", "summary", "scope", "plan",
   "gate_1", "attempt", "reviews", "result", "outcome",
-  "relations", "created_at", "change_log",
+  "refs", "relations", "created_at", "change_log",
 ]);
 
 /**
@@ -350,6 +351,9 @@ export const REVIEW_SUMMARY_MAX_CHARS = 600;
 
 /** 21 §8: `reviews` 的条数上限（起草者按 Human「其他按你推荐」授权定为 20，比照 20 §8 evolution）。 */
 export const REVIEW_ENTRIES_MAX = 20;
+
+/** 03 §7.2 / 21 §8: bounded ordinary content references. */
+export const REFS_ENTRIES_MAX = 10;
 
 // ---------------------------------------------------------------------------
 // Small helpers (shared conventions with the pitfall/spark writers)
@@ -432,7 +436,7 @@ export const FRONTMATTER_FIELD_ORDER = [
   "fact_type_key", "object_uid", "title", "status", "gist",
   "serves", "summary", "scope", "plan",
   "gate_1", "attempt", "reviews", "result", "outcome",
-  "relations", "created_at", "change_log",
+  "refs", "relations", "created_at", "change_log",
 ];
 
 export function orderFrontmatterFields(frontmatter) {
@@ -913,6 +917,41 @@ export function validateWorkcaseFrontmatter(frontmatter, baselinePlan = null, ba
       const unmet = frontmatter.result.criteria_checks.filter((c) => isPlainObject(c) && c.satisfied !== true);
       if (unmet.length > 0) {
         issues.push(`outcome=completed requires every criteria_checks entry satisfied, found ${unmet.length} unmet (21 §9.3/§15.1)`);
+      }
+    }
+  }
+
+  // refs: ordinary content associations, not lifecycle relations (03 §7.2 / 21 §8).
+  // The field is conditional: omit it when there is no association; an empty
+  // array would fabricate a conditional field. Target existence/readability and
+  // same-project membership are checked in each write flow before the file is
+  // written, so malformed or unresolved refs are zero-write rejections.
+  if (frontmatter.refs !== undefined) {
+    if (!Array.isArray(frontmatter.refs) || frontmatter.refs.length === 0) {
+      issues.push(`refs: must be a non-empty array of {object_uid}, or omitted when there is no association (03 §6.1)`);
+    } else {
+      if (frontmatter.refs.length > REFS_ENTRIES_MAX) {
+        issues.push(`refs: exceeds the ${REFS_ENTRIES_MAX}-entry cap (21 §8)`);
+      }
+      const seen = new Set();
+      for (const entry of frontmatter.refs) {
+        if (!isPlainObject(entry)) {
+          issues.push("refs[]: members must be objects of shape {object_uid}");
+          continue;
+        }
+        const extra = Object.keys(entry).filter((key) => key !== "object_uid");
+        if (extra.length > 0) {
+          issues.push(`refs[]: entry carries fields beyond object_uid (${extra.join(", ")}) — 03 §7.2`);
+        }
+        const target = entry.object_uid;
+        if (typeof target !== "string" || !OBJECT_UID_PATTERN.test(target)) {
+          issues.push(`refs[].object_uid: must be a canonical UUIDv4, got ${JSON.stringify(target)}`);
+          continue;
+        }
+        if (seen.has(target.toLowerCase())) {
+          issues.push(`refs[]: duplicate target ${target} (03 §7.2 invariant 3)`);
+        }
+        seen.add(target.toLowerCase());
       }
     }
   }
@@ -1407,14 +1446,21 @@ async function evaluateCreateCandidate({ factSourceRoot, frontmatterDraft, bodyM
     summary: frontmatterDraft?.change_summary ?? "受控创建 WorkCase 工单（draft，21 §14 C1 提案对象模式）",
   }];
 
+  const body = assembleBody(frontmatter.title, bodyMarkdown);
+  // Shape/body/coherence checks must run before target resolution: malformed
+  // refs are a frontmatter rejection, while a well-formed but missing target
+  // is the distinct zero-write refs_target_unresolvable case.
+  const checks = validateCreateCandidate(frontmatter, body);
+  if (!checks.ok) return failure(checks.code, checks.message, { issues: checks.issues });
+
   const servesCheck = await resolveServes(factSourceRoot, frontmatter.serves);
   if (servesCheck) return servesCheck;
   const relCheck = await resolveRelationsTargets(factSourceRoot, frontmatter.relations);
   if (relCheck) return relCheck;
-
-  const body = assembleBody(frontmatter.title, bodyMarkdown);
-  const checks = validateCreateCandidate(frontmatter, body);
-  if (!checks.ok) return failure(checks.code, checks.message, { issues: checks.issues });
+  const refsCheck = await resolveRefsTargets(factSourceRoot, frontmatter.refs);
+  if (!refsCheck.ok) {
+    return failure("workcase/refs_target_unresolvable", refsCheck.reason, { missing: refsCheck.missing });
+  }
 
   return success({ frontmatter, body });
 }
@@ -1973,6 +2019,10 @@ export async function executeWorkcaseObject(args) {
 
   const relCheck = await resolveRelationsTargets(factSourceRoot, next.relations);
   if (relCheck) return relCheck;
+  const refsCheck = await resolveRefsTargets(factSourceRoot, next.refs);
+  if (!refsCheck.ok) {
+    return failure("workcase/refs_target_unresolvable", refsCheck.reason, { missing: refsCheck.missing });
+  }
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
   // 跨会话接力时执行者未必持有 approve 的返回值，故 execute 亦带前置提示（纯告知）。
@@ -2270,6 +2320,10 @@ export async function rebatchWorkcaseObject(args) {
   if (servesCheck) return servesCheck;
   const relCheck = await resolveRelationsTargets(factSourceRoot, next.relations);
   if (relCheck) return relCheck;
+  const refsCheck = await resolveRefsTargets(factSourceRoot, next.refs);
+  if (!refsCheck.ok) {
+    return failure("workcase/refs_target_unresolvable", refsCheck.reason, { missing: refsCheck.missing });
+  }
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
   return writeValidated(factSourceRoot, next, body, fm);
@@ -2345,6 +2399,10 @@ export async function reviseWorkcaseObject(args) {
   if (servesCheck) return servesCheck;
   const relCheck = await resolveRelationsTargets(factSourceRoot, next.relations);
   if (relCheck) return relCheck;
+  const refsCheck = await resolveRefsTargets(factSourceRoot, next.refs);
+  if (!refsCheck.ok) {
+    return failure("workcase/refs_target_unresolvable", refsCheck.reason, { missing: refsCheck.missing });
+  }
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
   return writeValidated(factSourceRoot, next, body, fm);
