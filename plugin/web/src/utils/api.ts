@@ -643,6 +643,9 @@ export interface CognitionGoalData {
     created_at?: string;
     change_log?: unknown;
     canonical_path?: string;
+    // frontmatter 逐字原文：与多例类型的 yaml_source 同形，详情阅读面用它直显
+    // goal.md 原文（缺失时前端才回退 reconstructFactYaml 重建兜底）。
+    yaml_source?: string;
     carrier?: FactCarrier;
     read_status?: FactReadStatus;
     field_issues?: FieldIssue[];

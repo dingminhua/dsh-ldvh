@@ -1222,6 +1222,12 @@ router.get('/goal', async (req: Request, res: Response): Promise<void> => {
         // 读取层元数据：与多例类型的 exact-read 投影同形态，供前端 getFactReadMeta
         // 消费（25 §5 单例路径即身份——canonical_path 固定）。
         canonical_path: 'ldvh-base/goal.md',
+        // frontmatter 逐字原文（与多例类型的 yaml_source 同形）：读取层已在该单例
+        // 读取实现里解析出原文（readGoalRecord 的 frontmatterSource，:1145），此处
+        // 逐字透传即可。此前缺该投影，前端 YamlDataNode 的「原文优先、重建兜底」
+        // 对 goal 恒走重建分支——Human 读到的是重整过的 YAML 而非 goal.md 原文
+        //（workcase 9208ce82 补齐；旧残留见 workcase 63700bd2 的 Gate 2 记录）。
+        yaml_source: record.frontmatterSource,
         carrier: 'markdown',
         read_status: 'readable',
         field_issues: record.fieldIssues,

@@ -328,9 +328,10 @@ export function FactReadingContent({
           一律以 yaml_source 逐字原文直显，原文不可得时才回退重建。
           不再按 objType 白名单挑选：事实源现状为八类全 markdown 载体，读取层
           （localFactReader 的 readable()）对 markdown 载体一律透传 frontmatter
-          原文，白名单已无存在依据。例外：goal 走 /api/cognition/goal 独立路由，
-          该响应不投影 yaml_source，故 goal 落到 reconstructFactYaml 重建兜底
-          （非原文；残留见 workcase 63700bd2 的 Gate 2 记录）。
+          原文，白名单已无存在依据。goal 是单例、不走事实对象读取层，其原文由
+          /api/cognition/goal 响应投影 yaml_source（workcase 9208ce82 补齐）——
+          原先「goal 缺 yaml_source 故落重建兜底」的例外已消除，故此处不再需要
+          按类型分支：八类含 goal 一律原文直显（research 另按 24 §7 规范阅读序重排）。
           frontmatter 机器索引的解释性呈现（启发节点）已按 Human 划线标注移除
           ——机器索引只在此节点以原文形式呈现，不再被 web 解析渲染。 */}
       <YamlDataNode
