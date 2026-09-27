@@ -16,7 +16,14 @@
  *  - update:  CAS — the caller must supply the fingerprint observed at
  *             the last read; the whole file is replaced atomically;
  *             a change_log entry is appended. Terminal states
- *             (implemented/discarded) are read-only (20 §9: 终态不重开).
+ *             (implemented/discarded) do NOT change status (20 §9.2: 终态不可重开),
+ *             but their CONTENT remains correctable — a wrong or over-long
+ *             terminal record is fixed in place, never by faking a transition.
+ *
+ *             （2026-09-27 更正：本行原写「Terminal states are read-only」，
+ *             与 20 §9.2「终态不可重开，但内容可更正」（Human 决定 2026-09-13）
+ *             及本文件的实现都不一致——`updateSparkObject` 只在 status 被改动时
+ *             拒绝，其余字段照常可更正。原文是 §9.2 修订前的旧语义残留。）
  *
  * Status model (20 §9): open → implemented | discarded only; create
  * always initialises open. disposition ⇔ terminal status. Relations

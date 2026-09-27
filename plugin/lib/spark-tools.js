@@ -615,7 +615,7 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
     follow_up: code === "spark/cas_conflict"
       ? ["re-read the object (spark-read-object), reconcile the concurrent change, and retry with the fresh fingerprint"]
       : code === "spark/status_terminal"
-        ? ["terminal sparks are read-only (20 §9.2); create a NEW open Spark for later unresolved info and reference the old uid in its summary/change_log"]
+        ? ["terminal sparks do NOT change status (20 §9.2: 终态不可重开), but their content stays correctable — fix a wrong or over-long terminal record in place with a correction; for later unresolved info create a NEW open Spark and reference the old uid in its summary/change_log"]
         : ["fix the reported mechanical issues and retry; zero write has occurred"]
   });
 }
@@ -701,7 +701,7 @@ function parameterSchemaFor(operationKey) {
     description: "AI-supplied type fields; Code assigns object_uid/fact_type_key/created_at/change_log and generates the H1 from title",
     properties: {
       title: { type: "string", description: "≤ 30 characters; candidate locating and Human scanning" },
-      status: { type: "string", enum: ["open", "implemented", "discarded"], description: "create must be open; update may transition open→implemented/discarded (terminal, read-only afterwards — 20 §9)" },
+      status: { type: "string", enum: ["open", "implemented", "discarded"], description: "create must be open; update may transition open→implemented/discarded. A terminal status does NOT change again (20 §9.2: 终态不可重开, 终态不可重开但内容可更正) — content correction is still allowed" },
       question: { type: "string", description: "single readable sentence (at most one terminal 。？！ ending the string); must appear verbatim in the 调查问题 body section" },
       scope_boundary: { type: "string", description: "when to stop (boundary, not goal achievement); must appear verbatim in the 调查边界 body section" },
       intent: { type: "string", description: "why this is worth keeping + the follow-up direction" },
