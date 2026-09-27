@@ -1637,7 +1637,16 @@ function stampReviewEntries(reviews, sig, identity = null, baselineReviews = nul
     const storedSessionId = isExistingEntry && typeof stored.session_id === "string" && stored.session_id.length > 0
       ? stored.session_id
       : null;
-    const effectiveSessionId = storedSessionId ?? sessionId;
+    // 身份**不作继承性补齐**——与下方 `session_source` 同纪律（2026-09-27 修正）。
+    //
+    // 原实现取 `storedSessionId ?? sessionId`，即把一条**身份缺席**的存量条目盖上
+    // 「本次写入会话记录」的身份。该身份是假的：条目的 `at`/署名仍是历史值（逐字继承），
+    // 记录者另有其人，而新盖的身份还会随每次宿主写入继续漂移。缺失就是缺失——关闭门禁
+    // 要求两端身份俱为 "host"，缺失即不计入（fail-closed），与「未知不等于独立」同纪律。
+    //
+    // 实测（workcase-364df30e，2026-09-27）：一次携带既有 `reviews` 的心跳，把其
+    // 2026-09-22（provider workbuddy）的条目盖成了本次心跳会话的身份。
+    const effectiveSessionId = isExistingEntry ? storedSessionId : sessionId;
     // 记录「写这条时谁是实施者」——这是独立性判据的真正基准（见 close 门禁说明）。
     // 同样按索引继承：已记录条目的当时基准不得被后续 attempt 轮换改写，否则
     // 「先自查、再 takeover、然后关闭」就能把自查当成独立证据（独立复核实测发现，
@@ -1695,6 +1704,24 @@ function stampReviewEntries(reviews, sig, identity = null, baselineReviews = nul
 function assertReviewHistoryNotRewritten(beforeReviews, afterReviews, issuesRef) {
   const before = Array.isArray(beforeReviews) ? beforeReviews : [];
   const after = Array.isArray(afterReviews) ? afterReviews : [];
+  // 条目数减少即拒绝（2026-09-27 补）。原实现只逐条比对**同索引**概要，对「整条消失」
+  // 完全不敏感：调用方漏传 `reviews` 时既有流水被静默丢弃而守卫放行（实测
+  // workcase-364df30e 的 2026-09-22 条目就是这样消失的）。
+  //
+  // 为什么不是「允许减少」：21 §8 的 `reviews` 是复核流水，作废只走 `rebatch`
+  // （§9.2，且不经本守卫）；本守卫的两个调用点（execute / record_review）都不存在
+  // 合法的减少路径，故一律视为历史丢弃。
+  if (after.length < before.length) {
+    const dropped = before.length - after.length;
+    issuesRef.push(
+      `reviews: this write would drop ${dropped} of ${before.length} recorded `
+      + `${dropped === 1 ? "entry" : "entries"} (before ${before.length}, after ${after.length}) — `
+      + "21 §8 treats reviews as a review ledger: existing entries are historical facts and may not be "
+      + "silently discarded. Carry the on-disk `reviews` array verbatim (the writer inherits it when the "
+      + "payload omits it), or use the append-only channel (record_review) to add a conclusion. `rebatch` "
+      + "is the only path that voids reviews, and it does so explicitly (§9.2) — not through this guard.",
+    );
+  }
   after.forEach((entry, index) => {
     const stored = before[index];
     if (!isPlainObject(stored)) return;
@@ -1853,7 +1880,17 @@ export async function executeWorkcaseObject(args) {
   // 来自权威会话记录，不可由调用方填写）。见下方 stampReviewEntries 的说明。
   // baseline 取自**落盘对象**（fm.reviews），不是调用方 payload——故已记录的身份
   // 不可被本次调用的身份覆盖（防实施者在复核后抹掉独立复核的证据）。
-  next.reviews = stampReviewEntries(next.reviews, sig, identity, fm.reviews, implementerSessionOf(fm));
+  // 21 §8：`reviews` 是复核流水，既有条目不得因调用方漏传而消失（2026-09-27 修正）。
+  //
+  // `next` 是调用方 payload 的克隆，除 Code 托管字段外一律以 payload 为准；而 `reviews`
+  // 不在 Code 托管重写之列，故调用方漏传一步即把对象既有的复核流水整段覆盖为空。
+  // 实测（workcase-364df30e）：一次未携带 `reviews` 的心跳之后，其 2026-09-22 的复核
+  // 条目被静默移除，`change_log` 记 `reviews entries: 1`。
+  //
+  // 故 payload 未携带时以**落盘对象**为基线继承；payload 携带时按索引与落盘值比对
+  // （见 assertReviewHistoryNotRewritten）。
+  const reviewsIncoming = Array.isArray(next.reviews) ? next.reviews : fm.reviews;
+  next.reviews = stampReviewEntries(reviewsIncoming, sig, identity, fm.reviews, implementerSessionOf(fm));
 
   // 已盖戳身份的复核条目是历史记录：不得由其它会话改写其概要（防「借壳」——保留
   // 独立会话的身份却换成自己的内容，从而骗过关闭门禁）。

@@ -1883,6 +1883,147 @@ test("independence: a source-less legacy entry is NOT laundered into host by a l
 });
 
 // ---------------------------------------------------------------------------
+// reviews 保全（2026-09-27，实测缺陷）
+//
+// 三处缺陷由一次真实关闭准备暴露（workcase-364df30e 的 2026-09-22 复核条目被一次
+// 心跳静默移除）。三者同在 reviews 的落盘与守卫路径上，故成组锁定。
+// ---------------------------------------------------------------------------
+
+test("reviews 保全: execute 漏传 reviews 时以落盘值为基线，历史复核条目不消失（2026-09-27）", async () => {
+  // `next` 是调用方 payload 的克隆，除 Code 托管字段外一律以 payload 为准；而 `reviews`
+  // 不在 Code 托管重写之列，故调用方漏传一步即把对象既有的复核流水整段覆盖为空。
+  // 这是执行者最容易漏的一步：心跳的 payload 通常只关心 attempt。
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    const rec = await recordWorkcaseReview({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      expectedFingerprint: appr.after.value.fingerprint,
+      summary: "对象：本单；基线：plan 判据；方法：隔离会话只读复核；覆盖：全部判据；未覆盖：无；发现：无；保证边界：仅静态核对。",
+      sessionSignature: SIG(),
+      sessionIdentity: REVIEWER(),
+    });
+    assert.ok(rec.ok, JSON.stringify(rec.error));
+    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    assert.equal(before.value.frontmatter.reviews.length, 1, "前置：已有一条复核流水");
+
+    const fm = { ...before.value.frontmatter };
+    delete fm.reviews; // 刻意漏传
+    const hb = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      expectedFingerprint: before.value.fingerprint,
+      frontmatterAfter: fm,
+      bodyMarkdownAfter: bodyWithoutH1(before.value.body),
+      changeSummary: "心跳（payload 未携带 reviews）",
+      sessionSignature: SIG(),
+      sessionIdentity: IMPLEMENTER(),
+    });
+    assert.ok(hb.ok, JSON.stringify(hb.error));
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    assert.deepEqual(
+      after.value.frontmatter.reviews,
+      before.value.frontmatter.reviews,
+      "payload 未携带 reviews 时，既有复核流水必须逐字保留（不得被覆盖为空）",
+    );
+  });
+});
+
+test("reviews 保全: 条目数减少的写入被拒绝并报告丢弃了几条（2026-09-27）", async () => {
+  // 原 `assertReviewHistoryNotRewritten` 只逐条比对**同索引**条目的概要，对「整条消失」
+  // 完全不敏感。21 §8 的 reviews 是复核流水，作废只走 `rebatch`（§9.2，且不经本守卫）。
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    let uid = appr.uid;
+    let cur = appr.after;
+    const identities = [REVIEWER(), IDENTITY("session-reviewer-2")];
+    for (const [i, summary] of ["第一条复核。", "第二条复核。"].entries()) {
+      const rec = await recordWorkcaseReview({
+        factSourceRoot: root,
+        objectUid: uid,
+        expectedFingerprint: cur.value.fingerprint,
+        summary,
+        sessionSignature: SIG(),
+        sessionIdentity: identities[i],
+      });
+      assert.ok(rec.ok, JSON.stringify(rec.error));
+      cur = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    }
+    assert.equal(cur.value.frontmatter.reviews.length, 2, "前置：两条复核流水");
+
+    const fm = { ...cur.value.frontmatter };
+    fm.reviews = [fm.reviews[0]]; // 丢掉第二条
+    const res = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: cur.value.fingerprint,
+      frontmatterAfter: fm,
+      bodyMarkdownAfter: bodyWithoutH1(cur.value.body),
+      changeSummary: "试图丢弃一条复核流水",
+      sessionSignature: SIG(),
+      sessionIdentity: IMPLEMENTER(),
+    });
+    assert.ok(!res.ok, "条目数减少必须被拒绝");
+    assert.equal(res.error.code, "workcase/review_history_rewritten");
+    assert.ok(
+      JSON.stringify(res.error).includes("drop 1 of 2 recorded entry"),
+      `拒绝原因须说明丢弃了几条：${JSON.stringify(res.error)}`,
+    );
+
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(after.value.frontmatter.reviews.length, 2, "拒绝即未落盘：流水仍为两条");
+  });
+});
+
+test("independence: an identity-less legacy entry is NOT stamped with the writer's identity（2026-09-27）", async () => {
+  // 与 `session_source` 同纪律：缺失就是缺失。原实现取 `storedSessionId ?? sessionId`，
+  // 会把一条身份缺席的存量条目盖上「本次写入会话记录」的身份——该身份是假的（条目的
+  // at/署名仍是历史值，记录者另有其人），且会随每次宿主写入继续漂移。
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    // 在**文件层**注入一条身份缺席的既有条目（模拟本锚点之前写入的存量形态；
+    // 经写入器写入的条目必然带身份，故不能用它来构造前置状态）。
+    const filePath = join(root, "workcases", `workcase-${appr.uid}.md`);
+    const rawText = await readFile(filePath, "utf8");
+    const injected = [
+      "reviews:",
+      "  - at: 2026-09-22T00:00:00.000Z",
+      "    provider: workbuddy",
+      "    model: deepseek-v4.1-flash",
+      "    summary: 身份缺席的存量条目",
+      "",
+    ].join("\n");
+    await writeFile(filePath, rawText.replace(/^change_log:/m, `${injected}change_log:`), "utf8");
+
+    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    assert.equal(before.value.frontmatter.reviews[0].session_id, undefined, "前置：该条目确实没有身份");
+
+    const res = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      expectedFingerprint: before.value.fingerprint,
+      frontmatterAfter: { ...before.value.frontmatter },
+      bodyMarkdownAfter: bodyWithoutH1(before.value.body),
+      changeSummary: "宿主写入（不得给身份缺席的既有条目盖章）",
+      sessionSignature: SIG(),
+      sessionIdentity: IDENTITY("session-someone-else"),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    assert.equal(
+      after.value.frontmatter.reviews[0].session_id,
+      undefined,
+      "身份缺席的既有条目不得被后续写入盖上当前写入者的身份（缺失即缺失，fail-closed）",
+    );
+    assert.equal(after.value.frontmatter.reviews[0].at, "2026-09-22T00:00:00.000Z", "历史时刻逐字保留");
+    assert.equal(after.value.frontmatter.reviews[0].provider, "workbuddy", "历史署名逐字保留");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 21 §8 书写纪律：summary / scope 的结构化书写（机械校验）
 //
 // 实测缺陷（2026-09-20）：16/16 份对象的 summary/scope 都是单块整段（最长 1123
