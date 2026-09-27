@@ -2,7 +2,7 @@
 fact_type_key: workcase
 object_uid: 8f4742f5-4c3b-44d8-8f4e-c2d6a1ca1f8f
 title: Spark 授权门禁与 20 号一致性修复
-status: open
+status: closed
 gist: 为 Spark 的创建与终态转换补宿主询问门禁，使 Human 确认可机械取得；同时修正 20 号规范中失效的交叉引用与未登记的消费点声明。需要你决定规范候选文本与是否连带处置无授权的沉默阈值。
 serves: SG-1
 summary: |-
@@ -59,13 +59,6 @@ gate_1:
     - 不改 20 §9.4 三情形定义本身
     - 不改 specs/00、README、LICENSE 与版本声明点等受保护内容
     - 不实施 v4 存量 103 个 Spark 的迁移
-attempt:
-  attempt_id: 1
-  started_at: 2026-09-26T05:48:37.902Z
-  controller: deepseek-v4.1-flash@dsh-ldvh-session
-  heartbeat_at: 2026-09-27T03:31:40.962Z
-  session_id: session-71ad5a69-4bde-4290-acb3-96e92e787a8b
-  session_source: host
 reviews:
   - at: 2026-09-27T02:10:46.690Z
     provider: workbuddy
@@ -89,6 +82,24 @@ reviews:
       **发现的问题**：P1 终态路径询问先于 writer 余项校验（我以 /tmp 探针实测非法 relation_key／disposition 240 字符／serves=SG-99 三种 doomed 写入**各消耗 1 次提问**，仍零写入；代码注释 `:482-487` 的「Every cheap refusal must precede the ask」不成立）——中；P2 记录称「基线 946 新增 12」不可复现（实测 935→958，+23）——低；P3 账本唯一复核条目（76c219c7）针对 a9b70df 而非本 5 笔提交，以其作关闭依据属对象错配——中低。
 
       **未覆盖**：09 §5 三向变异、D1–D4 原始审核记录、Git Gate 实跑、宿主答题器活体可用性、合并/拆分组合级行为、web 构建与 tsc；另需注意工作树存在其它会话的未提交改动（`workcase-writer.js`、`probe-tmp-review.mts` 等，非我产生），我的 976 全量数取自该工作树，不可归因于被复核提交。
+result:
+  criteria_checks:
+    - evidence: requestSparkConsent 于 plugin/lib/host-seams.js:516 定义、:574 导出；无答题器／询问失败／未作选择／答案 id 不符／多选五条路径一律 fail-closed 且转发 caller signal；直接单测 test/spark-consent-seam.test.mjs 9 例覆盖，三组变异（fail-open、去呈报强制、放宽多选）均被捕获。
+      satisfied: true
+    - evidence: "descriptor 工厂改为 operation.awaitsHumanDecision === true ? {} : { timeoutMs: 30000 }，实测描述符不再含 timeoutMs 而读取类工具仍为 30000；plugin/lib/spark-tools.js 有 5 处 awaitsHumanDecision 消费点，创建与终态转换在写入前取确认、未取得即 rejected；变异（仅加 flag 而恢复硬编码超时）使 descriptor: awaitsHumanDecision is consumed 用例失败。"
+      satisfied: true
+    - evidence: sparkBoundaryDelta 随 envelope 的 boundary_delta 交还 question/scope_boundary 的现值与拟改值对照，不阻断、不发起询问、不代为判定，两字段未变时省略该字段。
+      satisfied: true
+    - evidence: §16 授权取得与承载、§13 三条受控操作、§14.1/§15 机械校验项、§17.4 扩写、§12 消费点收口与失效引用更正（§8 行注改指 03 §15 第 9 条、31 号 §10.2 改指 §9）均已落定；01 §12 独立对抗审核发现的 D1–D4 已逐条处置，后续复核对已提交版本结论为「可关闭」。未执行项：授权内的「收口 §11 关系 open 约束的表述」按 00 §4.4 保持暂停——该项已由 open Spark 71930c4a 缺口二承载，且该 Spark 列出补规则／增加巡检／明确仅为写入前置三个互斥待判候选，改写 §11 等于抢先裁定；执行节已如实登记该范围偏差。故本项判部分达成。
+      satisfied: false
+    - evidence: 执行期实测 plugin 958/958、plugin/web api 367/367、改动文件 eslint 干净（仓库既有 5 处 unused-import 报错不在改动面内，已如实登记）；复核期复测 plugin 986/986 全绿、tsc -b --pretty false exit 0；因 fail-closed 受影响的既有用例修复情况与「原记基线 946／新增 12 不可复现，隔离副本实测 935→958、净增 23」已在执行节更正登记。
+      satisfied: true
+  achieved_scope: Spark 创建与终态转换已有可回读的机械授权门禁（五条失败路径 fail-closed、flag 经变异验证被真实消费、终态注定失败的写入不再消耗提问）；大改弱约束按 09 §6 交还现值与拟改值对照而不阻断；specs/20 的 §16/§13/§15/§17 承载条款落定，§8 行注与 31 号节号引用更正，§12 消费点收口；两笔受控提交 26be321、848c07b 经 precheck 与 Git Gate；01 §12 独立对抗审核与两条关闭前独立复核条目（76c219c7、5c1b05e9，两端身份均 host 且可比对）均已落盘。
+  residual:
+    - §11 关系 open 约束的表述未由本单收口——该事项已由 open Spark 71930c4a 的缺口二及其三个互斥待判候选举承载，按 00 §4.4 保持暂停
+    - 复核条目 76c219c7 的 P3 所记风险未处置：plugin/lib/child.js:37 的 RETIRED_LIMIT 淘汰与插件重载清空叠加，可使委托链登记表索引中的结论变得不可回读（本单 reviews 账本不受该上限影响，风险限于委托链索引）
+    - 执行节原记「基线 946／新增 12」不可复现（隔离副本实测 935→958，净增 23）；提交 26be321 信息中「含新增 47 项」易被读作净新增。两处均属已发出的历史记录，只能更正、不能回改
+outcome: partial
 created_at: 2026-09-26T05:47:10.858Z
 change_log:
   - at: 2026-09-26T05:47:10.858Z
@@ -119,6 +130,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 更正计划步骤 5 的测试计数（据 26be321 独立复核 P2：基线实测 935、26be321 = 958，净增 23；原写「较基线 946 新增 12」不可复现），并将「关闭前置未满足」一节更正为「复核条目已落盘」——子代理通道根因已查明修复、两条独立复核条目在账、P1/P3 已处置 [attempt 1 heartbeat refreshed]
+  - at: 2026-09-27T13:04:43.314Z
+    provider: deepseek-account
+    model: deepseek-flash
+    summary: Gate 2 关闭：outcome=partial —— 五项判据四项达成，第 4 项含一处按 00 §4.4 交还 open Spark 71930c4a 裁定的未执行事项 [gate_2 closed with outcome=partial; attempt 1 retracted]
 ---
 
 # Spark 授权门禁与 20 号一致性修复
@@ -216,4 +231,31 @@ host-seams.js 新增该 seam 与 `SPARK_CONSENT_QUESTION_ID`/`SPARK_CONSENT_LABE
 ### 记录更正（如实登记）
 
 执行期曾以本会话身份调用一次 `record_review` 作**通道探测**，其 summary 自述「不构成复核结论」。该调用在只追加的 `reviews` 账本中留下一条**非复核条目**，会使计数虚高、误导读者。**该非复核条目已于 2026-09-26 的受控更新中撤回**（当时 `reviews` 键省略）；撤回理由与事实记于 change_log，未在对象中静默消失。该更正**不改变 `status`**、**不新增复核凭据**，也不使本单满足关闭前置。
+
+## 结果
+
+### Gate 2 提请
+
+- 逐条核对结论见下 `criteria_checks`；已证实范围见 `achieved_scope`；残留风险与逐条去向见 `residual` 与 `advice`。
+- 未证实范围：未运行浏览器实机渲染；未对 specs/20 修订文本与 01 §12 审核记录做逐字复核以外的旁证；存量 45 个 Spark 按 Human 决定不后补凭据，其授权状态仍无可回读的机械凭据。
+- 建议 outcome：**partial**。授权内五项中四项达成，第四项含一处按 00 §4.4 未执行并已交还 open Spark 裁定的事项，依据见第 4 条。
+
+- criteria_checks:
+  - 步骤 1 判据「host-seams.js 导出该函数；无答题器、询问失败、未作选择三种路径均返回未授予；signal 被转发；测试覆盖三种失败路径」：**达成**。`requestSparkConsent` 于 plugin/lib/host-seams.js:516 定义、:574 导出；无答题器／询问失败／未作选择／答案 id 不符／多选五条路径一律 fail-closed 且转发 caller signal；直接单测 `test/spark-consent-seam.test.mjs` 9 例覆盖，三组变异（fail-open、去呈报强制、放宽多选）均被捕获。
+  - 步骤 2 判据「OPERATIONS 的 spark-write-object 声明该 flag；toolDescriptorFor 对该 flag 不设 timeout；创建与转终态在未取得确认时返回 rejected；变异验证可证 flag 被真实消费（仅加 flag 而超时仍硬编码时应有测试失败）」：**达成**。descriptor 工厂改为 `...operation.awaitsHumanDecision === true ? {} : { timeoutMs: 30000 }`，实测描述符不再含 timeoutMs 而读取类工具仍为 30000；plugin/lib/spark-tools.js 有 5 处 awaitsHumanDecision 消费点，创建与终态转换未取得确认即 rejected；变异（仅加 flag 而恢复硬编码超时）使 `descriptor: awaitsHumanDecision is consumed` 用例失败。
+  - 步骤 3 判据「question/scope_boundary 变化时 envelope 含现值与拟改值对照，且该对照不阻断更新」：**达成**。`sparkBoundaryDelta` 随 envelope 的 `boundary_delta` 交还现值与拟改值对照，不阻断、不发起询问、不代为判定，两字段未变时省略该字段。
+  - 步骤 4 判据「§16/§13/§15/§17 授权承载条款落定；§8 行注改正；§5/§12 节号修正；§11/§12 收口成立；独立对抗审核完成并逐条处置」：**部分达成**。§16 授权取得与承载、§13 三条受控操作、§14.1/§15 机械校验项、§17.4 扩写、§12 消费点收口与失效引用更正（§8 行注改指 03 §15 第 9 条、31 号 §10.2 改指 §9）均已落定；01 §12 独立对抗审核的 D1–D4 已逐条处置，后续复核对已提交版本结论为「可关闭」。未执行项：授权内的「收口 §11 关系 open 约束的表述」按 00 §4.4 保持暂停——该项已由 open Spark 71930c4a 缺口二承载，且该 Spark 列出补规则／增加巡检／明确仅为写入前置三个互斥待判候选，改写 §11 等于抢先裁定；执行节已如实登记该范围偏差。故本项判部分达成。
+  - 步骤 5 判据「plugin 全量测试与 tsc 通过；因 fail-closed 受影响的既有用例被同步修复，实际受影响数与修复结果如实登记」：**达成**。执行期实测 plugin 958/958、plugin/web api 367/367、改动文件 eslint 干净（仓库既有 5 处 unused-import 报错不在改动面内，已如实登记）；复核期复测 plugin 986/986 全绿、`tsc -b --pretty false` exit 0；受影响用例的修复情况与「原记基线 946／新增 12 不可复现，隔离副本实测 935→958、净增 23」已在执行节更正登记。
+
+- achieved_scope: Spark 创建与终态转换已有可回读的机械授权门禁（五条失败路径 fail-closed、flag 经变异验证被真实消费、终态注定失败的写入不再消耗提问）；大改弱约束按 09 §6 交还现值与拟改值对照而不阻断；specs/20 的 §16/§13/§15/§17 承载条款落定，§8 行注与 31 号节号引用更正，§12 消费点收口；两笔受控提交 26be321、848c07b 经 precheck 与 Git Gate；01 §12 独立对抗审核与两条关闭前独立复核条目（76c219c7、5c1b05e9，两端身份均 host 且可比对）均已落盘。
+
+- residual:
+  - §11 关系 open 约束的表述未由本单收口——该事项已由 open Spark 71930c4a 的缺口二及其三个互斥待判候选举承载，按 00 §4.4 保持暂停
+  - 复核条目 76c219c7 的 P3 所记风险未处置：plugin/lib/child.js:37 的 RETIRED_LIMIT 淘汰与插件重载清空叠加，可使委托链登记表索引中的结论变得不可回读（本单 reviews 账本不受该上限影响，风险限于委托链索引）
+  - 执行节原记「基线 946／新增 12」不可复现（隔离副本实测 935→958，净增 23）；提交 26be321 信息中「含新增 47 项」易被读作净新增。两处均属已发出的历史记录，只能更正、不能回改
+
+- advice:
+  - **转入 Spark**：方向未定的事项交由其承载对象裁定，本单不代为取舍出自「§11 关系 open 约束的表述未由本单收口」
+  - **另立工单**：为委托链登记表的淘汰与重载清空叠加上限补一条可证守护，或明确该路径不可达出自「复核 P3 所记风险未处置」
+  - **接受现状**：历史提交信息与当时计数既不可改写也不影响后续判读，保持原样并在本结果节保留更正依据出自「原记计数不可复现、提交措辞歧义」
 
