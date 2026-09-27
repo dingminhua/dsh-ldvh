@@ -519,12 +519,8 @@ export interface CognitionSparkHealth {
   terminalTotal: number;
   terminalByStatus: { implemented: number; discarded: number };
   openByPriority: Record<string, number>;
-  /** Web 展示参数；不写回事实源。 */
-  silentThresholdDays: number;
-  silentCount: number;
   /** 当前全部待处理 Spark，供界面按未更新时间筛选；不含已收敛项。 */
   openItems: CognitionSparkHealthItem[];
-  silentItems: CognitionSparkHealthItem[];
 }
 
 /** 近期热点中心对应的事实修改流水；只表示本窗口内的事实活动。 */

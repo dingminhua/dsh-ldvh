@@ -150,9 +150,12 @@ function buildSparkHealthSummary(data: CognitionData, locale: string, t: Transla
     t('cognition.sparkHealth.title'),
     `${t('cognition.sparkHealth.settled', { count: String(health.terminalTotal) })}${terminal ? ` (${terminal})` : ''}`,
     t('cognition.sparkHealth.pending', { count: String(health.openTotal) }),
-    t('cognition.sparkHealth.silentSummary', { count: String(health.silentCount), days: String(health.silentThresholdDays) }),
   ];
-  for (const item of health.silentItems) {
+  // 2026-09-27：原此处遍历 `health.silentItems`（按无规范来源的 5 天阈值筛出的
+  // 「沉默」子集）逐条列出。该阈值已移除，改为列出**全部待处理 Spark**——摘要的
+  // 定位（面向 AI 对话、用「类型《当前标题》」、不暴露机器身份）不变，只是不再
+  // 由一条无来源的判据预先过滤。
+  for (const item of health.openItems) {
     lines.push(`- ${formatHumanObjectReference('spark', getLocalizedObjectTitle(item, locale, item.id), locale)} · ${t('cognition.sparkHealth.silentDays', { days: String(item.silentDays) })}`);
   }
   return lines.join('\n');

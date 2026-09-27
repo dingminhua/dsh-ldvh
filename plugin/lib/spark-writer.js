@@ -801,15 +801,26 @@ export async function readSparkObject(args) {
 // List / F0–F1 discovery (specs/03 §8, specs/20 §12)
 // ---------------------------------------------------------------------------
 //
-// Merge/split sequencing memo (Human-ratified deferral, gap 2 of the 2026-09
-// review): multi-object atomicity is NOT implemented — merge/split runs as
-// two single-object updates until the 21 WorkCase wave rebuilds it (C2
-// cascade has the same need). Until then the safe order is SOURCE-FIRST:
-// write the source (discarded + relations) before appending the merge-source
-// note on the target's change_log. A failure then leaves at most "target
-// missing one additive bookkeeping note" (recoverable, idempotent re-append),
-// never a premature "merged-from X" claim on a target whose source is still
-// open (a false statement).
+// Merge/split sequencing memo (gap 2 of the 2026-09 review).
+//
+// 2026-09-27 更正（据 Human 决定 D-7 复核本段）：
+//  原先写作「Human-ratified deferral…the safe order is SOURCE-FIRST」，两处失准——
+//   ① 「deferral（延期）」不准确：被延期的**不是规则**。20 §9.4 已由 Human 决定
+//      D-7（2026-09-12，见 docs/audit/human-decisions-2026-09-12-segment.md）
+//      定义**三情形**次序：既存目标 SOURCE-FIRST、新建目标 CREATE-FIRST、混合
+//      目标先建后结。规则齐备，缺的是**实现**。
+//   ② 「the safe order is SOURCE-FIRST」把三情形之一说成了唯一次序。
+//  故本段的准确状态是：**实现只覆盖三情形中的一种（情形一 SOURCE-FIRST）；
+//  情形二（CREATE-FIRST）与情形三（先建后结）尚未实装**——本模块的受控原语
+//  只有 create/update 两个单对象操作，不承载跨对象的次序编排，该编排当前由
+//  调用方按 §9.4 执行。该实现差距已登记为对象（见下）。
+//
+// 已实装的那一种（情形一）仍是安全的：先写源对象（discarded + relations），
+// 再往目标 change_log 追加合并来源备注。失败时至多留下「目标缺一条 additive
+// 流水」（可幂等重补），**不会**出现「目标已声明来源而原对象仍为 open」这一假陈述。
+//
+// 未实装范围的证据与影响：见 open Spark `46bf4c66-cd2a-4e45-ac88-53f9065ed876`
+// （「Spark 合并拆分次序实现缺口」；本注释不复制其内容，缺口状态与裁定以该对象为准）。
 
 /**
  * Enumerate Spark objects (F0/F1: deterministic filter + minimal projection).

@@ -178,13 +178,19 @@ test('cognition endpoint returns inbox, fact activity, Spark health, and fact ho
   assert.ok(Array.isArray(recent.environmentUsage))
   assert.ok(body.sparkHealth && typeof body.sparkHealth === 'object')
   const sparkHealth = body.sparkHealth as Record<string, unknown>
-  for (const key of ['total', 'openTotal', 'terminalTotal', 'silentThresholdDays', 'silentCount']) {
+  for (const key of ['total', 'openTotal', 'terminalTotal']) {
     assert.equal(typeof sparkHealth[key], 'number')
   }
   assert.ok(sparkHealth.terminalByStatus && typeof sparkHealth.terminalByStatus === 'object')
   assert.ok(sparkHealth.openByPriority && typeof sparkHealth.openByPriority === 'object')
   assert.ok(Array.isArray(sparkHealth.openItems))
-  assert.ok(Array.isArray(sparkHealth.silentItems))
+  // 2026-09-27：`silentItems` / `silentThresholdDays` / `silentCount` 已随无规范
+  // 来源的「沉默判定」（硬编码 5 天阈值）一并移除。派生量 `silentDays` 仍在
+  // openItems 上（供呈现与 10 §5.2 授权的按时间筛选）。此处断言其不存在，
+  // 使「判定被重新引入」这种回退会被本用例捕获。
+  assert.equal('silentItems' in sparkHealth, false)
+  assert.equal('silentThresholdDays' in sparkHealth, false)
+  assert.equal('silentCount' in sparkHealth, false)
   assert.ok(body.recentHotspots && typeof body.recentHotspots === 'object')
   const hotspots = body.recentHotspots as Record<string, unknown>
   assert.equal(hotspots.window, '7d')
@@ -421,7 +427,7 @@ test('recent hotspot projection omits facts without a readable title instead of 
   )
 })
 
-test('Spark health splits the current pool into terminal and open items, with silent items as a thresholded subset', async () => {
+test('Spark health splits the current pool into terminal and open items, ordered by days-since-update (no silent threshold)', async () => {
   const body = await cognition('zh')
   const health = body.sparkHealth as Record<string, unknown>
   const terminalByStatus = health.terminalByStatus as Record<string, unknown>
@@ -429,7 +435,6 @@ test('Spark health splits the current pool into terminal and open items, with si
 
   assert.equal(Number(health.total), Number(health.openTotal) + terminalTotal)
   assert.equal(Number(health.terminalTotal), terminalTotal)
-  assert.ok(Number(health.silentThresholdDays) > 0)
   const openItems = health.openItems as Array<Record<string, unknown>>
   assert.ok(openItems.length <= Number(health.openTotal))
   for (let index = 0; index < openItems.length; index += 1) {
@@ -437,22 +442,16 @@ test('Spark health splits the current pool into terminal and open items, with si
     assert.equal(item.type, 'spark')
     assert.equal(typeof item.id, 'string')
     assert.ok(Number(item.activityCount) >= 0)
+    // `silentDays` 是中性派生量（距最近一次 change_log 的天数），供呈现与
+    // 10 §5.2 授权的按时间筛选使用；它不构成「沉默」判定。
     assert.ok(Number(item.silentDays) >= 0)
     assert.equal(typeof item.updatedAt, 'string')
     if (index > 0) assert.ok(Number(openItems[index - 1].silentDays) >= Number(item.silentDays))
   }
-  const silentItems = health.silentItems as Array<Record<string, unknown>>
-  assert.equal(Number(health.silentCount), silentItems.length)
-  for (let index = 0; index < silentItems.length; index += 1) {
-    const item = silentItems[index]
-    assert.equal(item.type, 'spark')
-    assert.equal(typeof item.id, 'string')
-    assert.ok(Number(item.activityCount) >= 0)
-    assert.ok(Number(item.silentDays) >= Number(health.silentThresholdDays))
-    assert.ok(openItems.some((openItem) => openItem.id === item.id))
-    assert.equal(typeof item.updatedAt, 'string')
-    if (index > 0) assert.ok(Number(silentItems[index - 1].silentDays) >= Number(item.silentDays))
-  }
+  // 2026-09-27：阈值化的「沉默子集」及其阈值/计数已移除（无规范来源）。
+  assert.equal('silentItems' in health, false)
+  assert.equal('silentThresholdDays' in health, false)
+  assert.equal('silentCount' in health, false)
 })
 
 test('recent activity accepts only explicit windows and groups fact change-log events by stable object', async () => {

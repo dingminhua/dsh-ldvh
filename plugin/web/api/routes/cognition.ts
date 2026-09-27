@@ -52,7 +52,16 @@ const RECENT_ACTIVITY_WINDOWS: Record<RecentActivityWindow, number> = {
   '7d': 7,
 }
 const RECENT_HOTSPOT_WINDOW: RecentActivityWindow = '7d'
-const SPARK_SILENT_THRESHOLD_DAYS = 5
+// 2026-09-27 移除：`SPARK_SILENT_THRESHOLD_DAYS = 5` 曾把「距最近一次 change_log
+// 流水 ≥5 天」的 open Spark 判定为「沉默」并单列成组。该**阈值判据无规范来源**
+// （specs/ 全库零授权；20 §12 登记该消费点时已注明「其阈值与判据不由本文定义」），
+// 属 00 §4.2 应由 Human 决定的事项与 00 §7.1「声称有机械保障而来源不存在」的形态。
+// Human 决定（2026-09-27）移除该判定。
+//
+// 保留的是**派生量与按时间筛选**：`silentDays()` 由 change_log 末条流水算出「多久
+// 未更新」这一中性事实，`sparkHealthAgeFilter`（3d/7d/all）按它筛选——后者由
+// 10 §5.2「支持按类型、状态、维度、时间等条件筛选与排序」授权。故移除的是
+// 「什么算沉默」这条判据，不是时间呈现本身。
 const SPARK_TERMINAL_STATUSES = new Set(['implemented', 'discarded'])
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000
 
@@ -493,7 +502,6 @@ export function buildSparkHealth(
   const terminalByStatus = { implemented: 0, discarded: 0 }
   const openByPriority: Record<string, number> = {}
   const openItems: SparkHealthBuildItem[] = []
-  const silentItems: SparkHealthBuildItem[] = []
   let total = 0
   let openTotal = 0
 
@@ -533,11 +541,9 @@ export function buildSparkHealth(
       unparsed_structures: Array.isArray(raw.unparsed_structures) ? raw.unparsed_structures as Array<Record<string, unknown>> : [],
     }
     openItems.push(item)
-    if (days >= SPARK_SILENT_THRESHOLD_DAYS) silentItems.push(item)
   }
 
   openItems.sort(compareSilentSpark)
-  silentItems.sort(compareSilentSpark)
   const terminalTotal = terminalByStatus.implemented + terminalByStatus.discarded
   return {
     total,
@@ -545,10 +551,7 @@ export function buildSparkHealth(
     terminalTotal,
     terminalByStatus,
     openByPriority,
-    silentThresholdDays: SPARK_SILENT_THRESHOLD_DAYS,
-    silentCount: silentItems.length,
     openItems,
-    silentItems,
   }
 }
 
@@ -1060,28 +1063,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
           terminalTotal: sparkHealth.terminalTotal,
           terminalByStatus: sparkHealth.terminalByStatus,
           openByPriority: sparkHealth.openByPriority,
-          silentThresholdDays: sparkHealth.silentThresholdDays,
-          silentCount: sparkHealth.silentCount,
           openItems: sparkHealth.openItems.map((item) => ({
-            type: 'spark',
-            id: item.object_id,
-            ...(item.object_uid ? { object_uid: item.object_uid } : {}),
-            title: item.title,
-            ...(item.title_en !== undefined ? { title_en: item.title_en } : {}),
-            ...(item.title_zh !== undefined ? { title_zh: item.title_zh } : {}),
-            ...(item.priority !== undefined ? { priority: item.priority } : {}),
-            ...(item.serves !== undefined ? { serves: item.serves } : {}),
-            ...(item.refs !== undefined ? { refs: item.refs } : {}),
-            updatedAt: item.updated_at,
-            ...(item.signature !== undefined ? { signature: item.signature } : {}),
-            activityCount: item.activity_count,
-            silentDays: item.silent_days,
-            typeColor: getTypeColor('spark'),
-            read_status: item.read_status,
-            ...(item.field_issues.length > 0 ? { field_issues: item.field_issues } : {}),
-            ...(item.unparsed_structures.length > 0 ? { unparsed_structures: item.unparsed_structures } : {}),
-          })),
-          silentItems: sparkHealth.silentItems.map((item) => ({
             type: 'spark',
             id: item.object_id,
             ...(item.object_uid ? { object_uid: item.object_uid } : {}),
