@@ -257,6 +257,19 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
 
     // ── `- advice:` 段内 ──
     if (mode === 'advice') {
+      // 同级或更浅的 bullet 结束本段——与 `residual` 段同一收束规则（见下方
+      // `mode === 'residual'` 分支的同款注释）。
+      //
+      // 为什么必须收束（实测 2026-09-27，workcase-63700bd2）：`21 §10.2` 要求
+      // Gate 2 提请除「剩余责任的去向」（**逐条**，落在建议段）之外，还给出
+      // 「关闭后的后续方向」（**整单一条**，与前者**不同层**，且明写「呈现层
+      // 不单独读取」）。后者是正文里的**另一个顶层 bullet**（缩进 0），而建议
+      // 段条目缩进 2。缺少本收束时它被吞入 advice，产出 `kind: null` 的伪条目
+      // ——卡面因此多出一条空分类的「去向」，且违反 §10.2 的分层。
+      if (indent <= modeIndent) {
+        mode = null
+        continue
+      }
       const titled = ADVICE_TITLED.exec(item)
       const kindText = titled ? titled[1].trim() : ''
       let body = titled ? titled[2].trim() : item

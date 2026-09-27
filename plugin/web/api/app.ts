@@ -121,8 +121,13 @@ app.use(
  */
 const WEB_DIST_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
-// `/ldvh/api/*` 别名：去掉 `/ldvh` 前缀后交回 `/api` 链。用 `app.handle` 复用既有
-// 路由表，避免为同一批路由维护第二份挂载清单（两处会漂移）。
+// `/ldvh/api/*` 别名：去掉 `/ldvh` 前缀后交回 `/api` 链。复用既有路由表，避免为
+// 同一批路由维护第二份挂载清单（两处会漂移）。
+//
+// 调用形态是 `app(req, res, next)` 而非 `app.handle(...)`：express 4 运行时两者
+// 等价（`createApplication` 的 app 函数体就是 `app.handle(req, res, next)`），但
+// `@types/express` 的 `Application` 只声明可调用签名、**从不声明 `handle`**，写成
+// `app.handle` 会让 `tsc -b` 报 TS2339。回归守护见 tests/api/app-contract.test.ts。
 app.use('/ldvh/api', (req: Request, res: Response, next: NextFunction): void => {
   const original = req.url
   req.url = `/api${original}`
@@ -131,7 +136,7 @@ app.use('/ldvh/api', (req: Request, res: Response, next: NextFunction): void => 
   }
   res.on('finish', restore)
   res.on('close', restore)
-  app.handle(req, res, (error?: unknown) => {
+  app(req, res, (error?: unknown) => {
     restore()
     if (error !== undefined && error !== null) next(error as Error)
     else next()

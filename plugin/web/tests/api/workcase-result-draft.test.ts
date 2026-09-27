@@ -125,6 +125,32 @@ test('advice 段：未登记的去向词记 null（不静默归一到近似词�
   assert.deepEqual(d.advice.map((a) => a.kind), [null, null]);
 });
 
+// 段收束（`21 §10.2`）：Gate 2 提请有两个不同层的东西——「剩余责任的去向」
+// （**逐条**，落在建议段，缩进 2）与「关闭后的后续方向」（**整单一条**，是正文里
+// 另一个顶层 bullet，缩进 0）。后者不应被吞入建议段。
+//
+// 实测来源（2026-09-27，workcase-63700bd2）：缺收束时该行走同一 push 分支，产出一条
+// `kind: null` 的伪条目——卡面因此多出一条空分类的「去向」，与 §10.2 的分层相悖。
+// 同款收束早已存在于 `residual` 段（见下方残留测试），本段是遗漏的一处。
+test('advice 段：同级或更浅的 bullet 结束本段，不吞入「关闭后的后续方向」', () => {
+  const body = bodyOf([
+    '- advice:',
+    '  - **另立工单**：补 goal 路由的 yaml_source 投影。',
+    '  - **接受现状**：dist 的生产部署不在本单验证范围。',
+    '- 关闭后的后续方向（整单一条）：本单关闭后这条线不再有待办。',
+  ]);
+  const d = parseWorkCaseResultDraft(body, PLAN);
+  // 只应产出建议段内的 2 条；整单那一条既不入 advice，也不得产生 kind=null 的伪条目。
+  assert.deepEqual(d.advice.map((a) => a.kind), ['另立工单', '接受现状']);
+  assert.equal(
+    d.advice.length,
+    2,
+    '「关闭后的后续方向」是 §10.2 的整单一条、与逐条去向不同层，不得并入 advice',
+  );
+  // 且它不得被误收进其它段。
+  assert.deepEqual(d.residual, []);
+});
+
 test('residual 里的「建议…」子句不再产出条目（21 §8：建议只有一处承载）', () => {
   const body = bodyOf([
     '- residual:',
