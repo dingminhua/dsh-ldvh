@@ -34,7 +34,7 @@
 
 import { decompressZstdStream } from "./zstd-compat.js";
 import { authoritativeSignature, authoritativeSessionIdentity } from "./signature-channel.js";
-import { access, readdir, readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const ROUTING_EVENT_TYPES = new Set(["model/selection", "request/context"]);
@@ -184,8 +184,16 @@ export async function currentRouteValues(sessionPersistence, agent) {
 // writer calls made by scripts spawned from DSH shell tool executions)
 // ---------------------------------------------------------------------------
 
-/** The authoritative log file name inside a session directory on disk. */
-const SHELL_SESSION_LOG_BASENAME = "session.v3.jsonl.zstd";
+/**
+ * The authoritative log file name inside a session directory on disk. DSH names
+ * the log after the session-record schema version it writes
+ * (`session.v<version>.jsonl`, compressed on disk as
+ * `session.v<version>.jsonl.zstd`; observed v3 up to 2026-09-20 and v4 from
+ * 2026-09-25, matching the `version` field of the log's opening record). The
+ * version is part of the host's naming, so ANY pinned basename breaks on the
+ * next host schema bump — match the shape and take the version from the name.
+ */
+const SHELL_SESSION_LOG_PATTERN = /^session\.v(\d+)\.jsonl(\.zstd)?$/;
 
 /**
  * Resolve THIS shell's authoritative session-log path from the DSH-injected
@@ -193,9 +201,13 @@ const SHELL_SESSION_LOG_BASENAME = "session.v3.jsonl.zstd";
  *   1. DSH_SESSION_JSONL — the dsh-shell-env session-persistence contributor
  *      injects it directly in deployments that run it.
  *   2. On-disk layout — $DSH_HOME/sessions/<encoded-cwd>/<DSH_SESSION_ID>/
- *      session.v3.jsonl.zstd, located by scanning the sessions directory for
- *      the (UUID-unique) session id. Exactly one match is required; zero or
- *      several matches resolve to an unavailable result — never a guess.
+ *      session.v<version>.jsonl[.zstd], located by scanning the sessions
+ *      directory for the (UUID-unique) session id. Exactly one session
+ *      directory must match; zero or several resolve to an unavailable result
+ *      — never a guess. Inside one session directory, a session that outlived a
+ *      host schema bump carries one log per version: the HIGHEST version is the
+ *      stream the current host appends to (the older file is frozen), and the
+ *      compressed form wins over the uncompressed persistence configuration.
  * Fails closed (unavailable result) when the environment carries no DSH
  * shell identity, so plain CI/dev shells never fabricate a signature.
  */
@@ -216,13 +228,23 @@ async function shellSessionLogPath() {
   const matches = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const candidate = join(home, "sessions", entry.name, sessionId, SHELL_SESSION_LOG_BASENAME);
+    const dir = join(home, "sessions", entry.name, sessionId);
+    let names;
     try {
-      await access(candidate);
-      matches.push(candidate);
+      names = await readdir(dir);
     } catch {
-      // No log for this session under this cwd encoding — keep scanning.
+      // No session directory for this session under this cwd encoding.
+      continue;
     }
+    const candidates = [];
+    for (const name of names) {
+      const match = SHELL_SESSION_LOG_PATTERN.exec(name);
+      if (match === null) continue;
+      candidates.push({ name, version: Number(match[1]), compressed: name.endsWith(".zstd") });
+    }
+    if (candidates.length === 0) continue;
+    candidates.sort((a, b) => (b.version - a.version) || (Number(b.compressed) - Number(a.compressed)));
+    matches.push(join(dir, candidates[0].name));
   }
   if (matches.length === 1) return { ok: true, value: matches[0] };
   if (matches.length === 0) return { ok: false, reason: `no session log for ${sessionId} under ${home}/sessions` };

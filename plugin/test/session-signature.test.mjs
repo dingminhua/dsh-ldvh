@@ -289,6 +289,65 @@ test("shell environment resolves via the sessions on-disk layout", async () => {
 	});
 });
 
+test("shell environment resolves a schema-v4 log (host naming follows the record version)", async () => {
+	await withTempDir("sig-shell-", async (home) => {
+		const sessionDir = join(home, "sessions", "--encoded-cwd--", "session-v4");
+		await mkdir(sessionDir, { recursive: true });
+		await writeFile(join(sessionDir, "session.v4.jsonl.zstd"), ROUTING_LINES, "utf8");
+		await withShellEnv({ DSH_HOME: home, DSH_SESSION_ID: "session-v4" }, async () => {
+			const result = await currentRouteValuesFromShellEnvironment();
+			assert.equal(result.ok, true, result.reason);
+			assert.equal(result.value.provider, "zzztoken-glm");
+			assert.equal(result.value.model, "glm-5.3");
+		});
+	});
+});
+
+test("shell environment accepts an uncompressed schema-versioned log", async () => {
+	await withTempDir("sig-shell-", async (home) => {
+		const sessionDir = join(home, "sessions", "--encoded-cwd--", "session-plain");
+		await mkdir(sessionDir, { recursive: true });
+		await writeFile(join(sessionDir, "session.v4.jsonl"), ROUTING_LINES, "utf8");
+		await withShellEnv({ DSH_HOME: home, DSH_SESSION_ID: "session-plain" }, async () => {
+			const result = await currentRouteValuesFromShellEnvironment();
+			assert.equal(result.ok, true, result.reason);
+			assert.equal(result.value.model, "glm-5.3");
+		});
+	});
+});
+
+test("shell environment reads the highest schema version when a session carries two logs", async () => {
+	await withTempDir("sig-shell-", async (home) => {
+		const sessionDir = join(home, "sessions", "--encoded-cwd--", "session-bumped");
+		await mkdir(sessionDir, { recursive: true });
+		const frozenV3 = JSON.stringify({
+			type: "model/selection",
+			data: { provider: "old-provider", model: "old-model" },
+		});
+		await writeFile(join(sessionDir, "session.v3.jsonl.zstd"), frozenV3, "utf8");
+		await writeFile(join(sessionDir, "session.v4.jsonl.zstd"), ROUTING_LINES, "utf8");
+		await withShellEnv({ DSH_HOME: home, DSH_SESSION_ID: "session-bumped" }, async () => {
+			const result = await currentRouteValuesFromShellEnvironment();
+			assert.equal(result.ok, true, result.reason);
+			assert.equal(result.value.provider, "zzztoken-glm", "the frozen v3 log must not be tail-read once v4 exists");
+			assert.equal(result.value.model, "glm-5.3");
+		});
+	});
+});
+
+test("shell environment ignores log names that carry no schema version", async () => {
+	await withTempDir("sig-shell-", async (home) => {
+		const sessionDir = join(home, "sessions", "--encoded-cwd--", "session-noversion");
+		await mkdir(sessionDir, { recursive: true });
+		await writeFile(join(sessionDir, "session.jsonl.zstd"), ROUTING_LINES, "utf8");
+		await withShellEnv({ DSH_HOME: home, DSH_SESSION_ID: "session-noversion" }, async () => {
+			const result = await currentRouteValuesFromShellEnvironment();
+			assert.equal(result.ok, false);
+			assert.match(result.reason, /no session log/);
+		});
+	});
+});
+
 test("shell environment fails closed when the session log has no routing events", async () => {
 	await withTempDir("sig-shell-", async (home) => {
 		const sessionDir = join(home, "sessions", "--encoded-cwd--", "session-abc123");
