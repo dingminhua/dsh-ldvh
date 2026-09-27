@@ -469,12 +469,12 @@ test("child: turn-end captures the conclusion; list-all omits the trail, single 
 		assert.equal(registry.childConclusionOf("child"), null);
 		assert.equal(registry.childSnapshots()[0].hasConclusion, false);
 
-		// Build a realistic session.events tail: turn 1 assistant text, then
-		// the turn/end signal for turn 1.
-		child.session.events = [
-			{ type: "turn/start", data: { turn: 1 } },
-			{ type: "assistant/message", data: { turn: 1, message: { content: [{ type: "text", text: "done: 3 files" }] } } }
-		];
+		// 2026-09-26 语义迁移：捕获改为**在事件流上累积**（不再回读会话日志）。
+		// 故须按真实发布顺序投递两个事件：同轮的 assistant/message，然后 turn/end。
+		onSessionEvent(child.session, {
+			type: "assistant/message",
+			data: { turn: 1, message: { content: [{ type: "text", text: "done: 3 files" }] } }
+		});
 		onSessionEvent(child.session, { type: "turn/end", data: { turn: 1, reason: { kind: "completed" } } });
 
 		assert.equal(registry.childConclusionOf("child"), "done: 3 files");
@@ -488,14 +488,16 @@ test("child: turn-end captures the conclusion; list-all omits the trail, single 
 		assert.equal(registry.childConclusionOf("child"), "done: 3 files", "unmatched turn does not clobber");
 
 		// Non-text blocks only -> empty string is the recorded outcome.
-		child.session.events = [
-			{ type: "assistant/message", data: { turn: 3, message: { content: [{ type: "tool_use", name: "x" }] } } }
-		];
+		onSessionEvent(child.session, {
+			type: "assistant/message",
+			data: { turn: 3, message: { content: [{ type: "tool_use", name: "x" }] } }
+		});
 		onSessionEvent(child.session, { type: "turn/end", data: { turn: 3, reason: { kind: "completed" } } });
 		assert.equal(registry.childConclusionOf("child"), "", "textless turn is an empty conclusion, not null");
 
 		// Events from a different session are ignored.
 		onSessionEvent({ events: [] }, { type: "turn/end", data: { turn: 4, reason: { kind: "completed" } } });
+		onSessionEvent({ events: [] }, { type: "assistant/message", data: { turn: 4, message: { content: [{ type: "text", text: "外来" }] } } });
 		assert.equal(registry.childConclusionOf("child"), "", "foreign session ignored");
 
 		// Activity trail is retrievable per child.
@@ -575,11 +577,12 @@ test("child: a finished child stays collectable after its fiber disposes", async
 		child.session.header.parentSession = "parent";
 		ctx.fire("agent/created", { agent: child });
 
-		// The child does its work and its turn ends.
+		// The child does its work and its turn ends（事件流上累积，见 child.js 注释）。
 		const onSessionEvent = childListener(ctx, "child", "session/event");
-		child.session.events = [
-			{ type: "assistant/message", data: { turn: 1, message: { content: [{ type: "text", text: "all done" }] } } }
-		];
+		onSessionEvent(child.session, {
+			type: "assistant/message",
+			data: { turn: 1, message: { content: [{ type: "text", text: "all done" }] } }
+		});
 		onSessionEvent(child.session, { type: "turn/end", data: { turn: 1, reason: { kind: "completed" } } });
 		assert.equal(registry.childConclusionOf("child"), "all done", "conclusion captured while live");
 
@@ -670,7 +673,7 @@ test("pre-step: judgment change injects a visible context-injection row (plugin 
 // 造出了一个真实 Session 上不存在的属性，于是测试通过而产品失效。本用例改用
 // **真实形状**（提供 `snapshotEvents()`，不提供 `events`）——按 09 §5 的变异
 // 检验口径，它正是那个能杀掉「读不存在属性」写法的用例。
-test("child: conclusion capture reads the real DSH API (snapshotEvents), not a non-existent `.events`", async () => {
+test("child: conclusion capture accumulates from the event stream and uses NO deprecated session reads", async () => {
 	await withTemp("ldvh-lc.", async (base) => {
 		const home = join(base, "home");
 		const repo = await initRepo(base);
@@ -690,50 +693,42 @@ test("child: conclusion capture reads the real DSH API (snapshotEvents), not a n
 		child.session.header.parentSession = "parent";
 		ctx.fire("agent/created", { agent: child });
 
-		// 真实形状：Session 暴露 snapshotEvents()，**没有** events 属性。
-		let committed = [
-			{ type: "turn/start", data: { turn: 1 } },
-			{ type: "assistant/message", data: { turn: 1, message: { content: [{ type: "text", text: "复核结论：可关闭" }] } } }
-		];
-		child.session.snapshotEvents = () => committed;
-		assert.equal("events" in child.session, false, "真实 Session 没有 events 属性——本用例必须保持这一形状");
+		// 真实形状：Session 只有弃用的读取方法、**没有 events 属性**。本用例
+		// 进一步断言：捕获**不依赖任何读取入口**——把弃用方法替换为会抛错的桩，
+		// 只要事件照常发布，捕获就必须成功。这杀掉「回读会话日志」的全部变体
+		// （无论是 `.events` 还是 `snapshotEvents()`，后者属新增生产调用、被
+		// DSH README 明文禁止）。
+		child.session.snapshotEvents = () => { throw new Error("deprecated read must not be called"); };
+		child.session.ownEvents = () => { throw new Error("deprecated read must not be called"); };
+		child.session.eventAt = () => { throw new Error("deprecated read must not be called"); };
+		assert.equal("events" in child.session, false, "真实 Session 没有 events 属性");
 
 		const onSessionEvent = childListener(ctx, "child", "session/event");
 		assert.ok(onSessionEvent, "child registered a session/event seam");
-
 		assert.equal(registry.childConclusionOf("child"), null, "尚未结束任何轮次：conclusion 为 null");
 
+		// 同轮 assistant/message → turn/end，结论取自事件流。
+		onSessionEvent(child.session, {
+			type: "assistant/message",
+			data: { turn: 1, message: { content: [{ type: "text", text: "复核结论：可关闭" }] } }
+		});
 		onSessionEvent(child.session, { type: "turn/end", data: { turn: 1, reason: { kind: "completed" } } });
-		assert.equal(
-			registry.childConclusionOf("child"),
-			"复核结论：可关闭",
-			"结论必须经 snapshotEvents() 被捕获——读 .events 时这里会保持 null（本用例正是该缺陷的守卫）"
-		);
+		assert.equal(registry.childConclusionOf("child"), "复核结论：可关闭", "结论必须经事件累积被捕获");
 
-		// 读取器抛错时不得让子代理的 turn-end 崩溃，也不得把「不可读」伪装成
-		// 「无文本轮次」（后者是真实结果 ""）。故抛错 → 本次不更新，保留原值。
-		child.session.snapshotEvents = () => { throw new Error("session log unreadable"); };
+		// 无对应 assistant/message 的轮次结束 → 不清空既有结论。
+		onSessionEvent(child.session, { type: "turn/end", data: { turn: 9, reason: { kind: "completed" } } });
+		assert.equal(registry.childConclusionOf("child"), "复核结论：可关闭", "无匹配轮次不得清空既有结论");
+
+		// 更早轮次的文本不得覆盖更新轮次已定的结论。
+		onSessionEvent(child.session, {
+			type: "assistant/message",
+			data: { turn: 2, message: { content: [{ type: "text", text: "第二轮" }] } }
+		});
 		onSessionEvent(child.session, { type: "turn/end", data: { turn: 2, reason: { kind: "completed" } } });
-		assert.equal(registry.childConclusionOf("child"), "复核结论：可关闭", "读取器抛错不更新、不崩溃、不伪造空结论");
+		assert.equal(registry.childConclusionOf("child"), "第二轮", "新轮次覆盖旧结论");
 	});
 });
 
-// ---------------------------------------------------------------------------
-// 2026-09-26 回归：collect 工具必须能查到「已结束」子代理
-// ---------------------------------------------------------------------------
-//
-// 缺陷事实（两处独立缺陷，同一工具）：
-//  ① 只读活体 `children`。子代理结束时记录被移入 `retiredChildren`，故本工具
-//     **只在子代理运行中查得到**——恰好是没人需要的时刻；结束后返回 Found 0。
-//     上面那条 `registry.childSnapshots()` 用例抓不到它：它测的是 registry 的
-//     方法，而缺陷在**工具**的读取路径（工具原先拿的是只含活体的 Map）。
-//  ② `activity: undefined` 破坏宿主 lossless-JSON 校验 → **不指定 agentId 的
-//     枚举调用直接报错**；带 agentId 时不赋 undefined，故不报错。这一条是
-//     「缺陷只在半数调用形态下显形」的典型。
-//
-// 本用例走**工具的注册与执行路径**（registry → registerSubagentResultTool），
-// 并在子代理 fiber 销毁后断言其仍可枚举——按 09 §5，这正是杀掉上述两处写法的
-// 用例；还原任一处写法都会让本用例失败。
 test("collect tool: enumerates a FINISHED child and does not emit `undefined` fields", async () => {
 	await withTemp("ldvh-lc.", async (base) => {
 		const home = join(base, "home");
@@ -760,11 +755,12 @@ test("collect tool: enumerates a FINISHED child and does not emit `undefined` fi
 		child.session.header.parentSession = "parent";
 		ctx.fire("agent/created", { agent: child });
 
-		// 子代理工作结束（真实形状：snapshotEvents，无 events 属性）。
+		// 子代理工作结束（事件流上累积；不依赖任何弃用的会话读取入口）。
 		const onSessionEvent = childListener(ctx, "child", "session/event");
-		child.session.snapshotEvents = () => [
-			{ type: "assistant/message", data: { turn: 1, message: { content: [{ type: "text", text: "复核完成" }] } } }
-		];
+		onSessionEvent(child.session, {
+			type: "assistant/message",
+			data: { turn: 1, message: { content: [{ type: "text", text: "复核完成" }] } }
+		});
 		onSessionEvent(child.session, { type: "turn/end", data: { turn: 1, reason: { kind: "completed" } } });
 
 		// 关键：fiber 销毁 = 原实现丢失它的那一刻。

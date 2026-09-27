@@ -36,38 +36,6 @@ import { DelegatedChildRecord } from "./agent-lifecycle.js";
  */
 const RETIRED_LIMIT = 50;
 
-/**
- * Read a session's committed events, or `null` when the session offers no
- * readable log.
- *
- * 2026-09-26: `session.events` DOES NOT EXIST on a DSH `Session` — the object
- * exposes `snapshotEvents()` (and `ownEvents()`), which is what the framework's
- * own consumers call (`dsh-agent-loop`'s `eventsNewestFirst()` is literally
- * `session.snapshotEvents().toReversed()`). Reading a non-existent property
- * yielded `undefined` forever, so the conclusion capture below returned early
- * on EVERY turn and no delegated child ever produced a conclusion.
- *
- * The `events` array form is kept as a fallback so existing fixtures (which
- * assign `session.events = [...]`) stay meaningful; it is NOT a real DSH shape
- * and must not be treated as one. Returning `null` (rather than `[]`) keeps
- * "no readable log" distinguishable from "a turn with no assistant text",
- * which the caller treats as a real outcome (`""`) — collapsing the two would
- * make an unreadable session look like a completed textless turn.
- */
-function readCommittedEvents(session) {
-  if (session === null || session === undefined) return null;
-  if (typeof session.snapshotEvents === "function") {
-    try {
-      const events = session.snapshotEvents();
-      if (Array.isArray(events)) return events;
-    } catch {
-      // Fall through: a throwing reader is "no readable log", not a crash —
-      // this runs inside a child's turn-end path and must never break the turn.
-    }
-  }
-  return Array.isArray(session.events) ? session.events : null;
-}
-
 export function createChildInstaller(ctx, { agents, children, sessionScopes, retiredChildren }) {
   /**
    * Install the child lifecycle for one subagent. Returns true when the
@@ -169,53 +137,54 @@ export function createChildInstaller(ctx, { agents, children, sessionScopes, ret
         // with payload { turn, signal } only (no message content). The turn
         // close signal that carries a turn number is the session-scoped
         // `session/event` with type "turn/end" (payload { turn, reason }),
-        // which is what triggers.js already uses. So we take the turn number
-        // there and walk back through the session's committed events for that
-        // turn's assistant/message.
+        // which is what triggers.js already uses.
         //
-        // 2026-09-26 修复：原实现读 `session.events`，而 DSH 的 Session 上
-        // **没有 `events` 属性**——它只有 `snapshotEvents()` 方法。故该表达式
-        // 恒为 undefined，`!Array.isArray` 立即返回，**结论从未被捕获过**
-        // （record_review 因之报「no captured conclusion」）。本仓自 3670929
-        // 引入起即如此，实测由父会话以已结束子代理 id 走 record_review 复现：
-        // 报的是「no captured conclusion」而非「not registered」，两条分支
-        // 的差异把「注册断」与「捕获断」分开，定位到此行。
+        // 实现方式（2026-09-26 第二次修订）：**在事件回调内累积**，不读会话日志。
+        //  - 遇 `assistant/message` → 记下 { turn, text }
+        //  - 遇 `turn/end`          → 若记下的 turn 与之相符，以其文本作结论
         //
-        // 读路径与 dsh-agent-loop 自身的用法一致：dsh-agent-loop/lib/index.js
-        // 的 eventsNewestFirst() 即 `session.snapshotEvents().toReversed()`。
-        // （原注释称「session.events.findLast(...)」，该写法在 DSH 中不存在，
-        // 是引入时的失实依据；此处一并更正为实际存在的 API。）
+        // 为什么不回读会话日志：DSH 的 Session **没有 `events` 属性**（原实现读它，
+        // 故恒为 undefined、结论从未被捕获）；而它提供的读取方法
+        // `snapshotEvents()`/`ownEvents()`/`eventAt()` **均已弃用**，其
+        // README.zh.md「读取日志」节明文写「现有逻辑可以暂不迁移，但**禁止新增
+        // 生产调用**」。首版修复曾改用 `snapshotEvents()`（使缺陷停止），但那是
+        // 一个**新增生产调用**，违反该禁令——由独立复核实测指出。本版改为监听
+        // 已发布的事件流，不触碰任何弃用读取入口。
         //
-        // 弃用边界（如实声明）：`snapshotEvents()` 与 `ownEvents()` 在
-        // dsh-session 中均标注 @deprecated（「new calls are prohibited」），
-        // 官方消费方（dsh-agent-loop / dsh-api-session-controller）当前仍在
-        // 使用它。本处取读快照而非迁往异步通道，是因为子代理的结论捕获发生在
-        // turn/end 同步回调内、且只读已提交事件；若上游移除该方法，此处须按
-        // 彼时的替代入口迁移。该边界不改变本次修复的事实：原写法**从未生效**。
+        // 依赖与时序（如实声明）：
+        //  - 依赖「同轮的 `assistant/message` 先于 `turn/end` 发布」。已用真实子
+        //    代理会话日志核实（每轮 turn/end 之前均已有同轮 assistant/message）。
+        //  - 本监听器在 installChild（`agent/created`）时注册，即子代理生命周期
+        //    起点；注册前的事件不会到达。与「回读历史快照」相比这是**范围收窄**：
+        //    只捕获本监听器注册之后发布的轮次。对本用途（子代理创建即安装）覆盖
+        //    其全部轮次；若未来在已运行会话上事后安装，则更早的轮次不可见。
+        //  - 只保留**最近一轮**的文本：更早轮次不得覆盖更新的结论。
+        let pendingTurn = null;
+        let pendingText = null;
         stops.push(agent.ctx.on("session/event", (session, event) => {
           if (session !== agent?.session) return;
-          if (event?.type !== "turn/end") return;
           try {
-            const turn = event?.data?.turn;
-            if (turn === undefined || turn === null) return;
-            const events = readCommittedEvents(agent.session);
-            if (!Array.isArray(events)) return;
-            // Walk back from the end to the most recent assistant/message
-            // belonging to this exact turn. Earlier turns are irrelevant and
-            // must not overwrite a later conclusion with a stale one.
-            for (let index = events.length - 1; index >= 0; index -= 1) {
-              const entry = events[index];
-              if (entry?.type !== "assistant/message") continue;
-              if (entry?.data?.turn !== turn) continue;
-              const blocks = entry?.data?.message?.content;
+            if (event?.type === "assistant/message") {
+              const turn = event?.data?.turn;
+              if (turn === undefined || turn === null) return;
+              const blocks = event?.data?.message?.content;
               if (!Array.isArray(blocks)) return;
-              const text = blocks
+              pendingTurn = turn;
+              pendingText = blocks
                 .filter((block) => block !== null && typeof block === "object" && block.type === "text")
                 .map((block) => (typeof block.text === "string" ? block.text : ""))
                 .join("");
-              record.setConclusion(text);
               return;
             }
+            if (event?.type !== "turn/end") return;
+            const turn = event?.data?.turn;
+            if (turn === undefined || turn === null) return;
+            // 没有对应轮的 assistant/message（例如仅工具调用的轮次）→ 不更新，
+            // 保留上一次的真实结论；不得用空值清掉既有数据。
+            if (pendingTurn !== turn) return;
+            record.setConclusion(pendingText ?? "");
+            pendingTurn = null;
+            pendingText = null;
           } catch (error) {
             // A conclusion capture failure must never break the child turn.
             ctx.logger.warn("[dsh-ldvh] child conclusion capture failed for %s: %s", agentId, String(error?.message ?? error));

@@ -66,6 +66,18 @@ attempt:
   heartbeat_at: 2026-09-26T06:59:03.124Z
   session_id: session-71ad5a69-4bde-4290-acb3-96e92e787a8b
   session_source: host
+reviews:
+  - at: 2026-09-27T02:10:46.690Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    session_id: 76c219c7-93cd-46c4-8924-5f4a225d7e34
+    session_source: host
+    implementer_session_id: session-71ad5a69-4bde-4290-acb3-96e92e787a8b
+    implementer_session_source: host
+    summary: |-
+      复核完成，结果已回传父会话。
+
+      **核心结论**：a9b70df 声称的三处缺陷全部真实、修复有效，973/973 与变异声明全部属实（基线 971 经导出副本实测确认）。发现的问题：P1 `snapshotEvents()` 新增生产调用违反 DSH 弃用政策（中）、P2 `events` 回落分支仅为假形状 fixture 服务（中低）、P3 `RETIRED_LIMIT=50` + 插件重载清空使 record_review 可静默失效（中，先前已存在）。工作区完整性已验证：`plugin/` 与提交逐字节一致，五组变异全部还原。
 created_at: 2026-09-26T05:47:10.858Z
 change_log:
   - at: 2026-09-26T05:47:10.858Z
@@ -84,6 +96,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 记录执行结果（计划步骤 1–5 全部完成，含 §11 范围偏差如实登记）并撤回一条误写的非复核条目（该条目系通道探测、自述不构成复核结论） [attempt 1 heartbeat refreshed]
+  - at: 2026-09-27T02:10:46.690Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: "记录独立复核（隔离子代理 76c219c7）：a9b70df 三处缺陷均真实且修复有效；973/973 与变异声明属实；发现 P1 弃用 API 无 lint 守卫、P2 events 回落仅供旧假形状 fixture、P3 RETIRED_LIMIT 淘汰可致归属静默失效 [review recorded by session 76c219c7-93cd-46c4-8924-5f4a225d7e34; reviews entries: 1; 记录自子代理会话 76c219c7-93cd-46c4-8924-5f4a225d7e34 的最终产出（Code 捕获）]"
 ---
 
 # Spark 授权门禁与 20 号一致性修复
