@@ -495,6 +495,28 @@ async function executeWriteObject(args, exec, deps) {
         },
       }, factSourceRoot);
     }
+    // …and the writer's REMAINING checks too, not just the CAS baseline.
+    //
+    // P1 of the independent review of 26be321 (2026-09-26): this comment claimed
+    // "every cheap refusal must precede the ask", but only the CAS comparison
+    // did. A doomed terminal update (illegal relation key / over-long disposition
+    // / unresolvable serves) still consumed one Human question before the writer
+    // rejected it — measured: three such cases each burned exactly one question,
+    // and a question cannot be un-asked. The create path already ran a dry run
+    // before asking; this makes the update path symmetric.
+    const updateDry = await updateSparkObject({
+      factSourceRoot,
+      objectUid,
+      expectedFingerprint,
+      frontmatterAfter,
+      bodyMarkdownAfter,
+      changeSummary,
+      sessionSignature: sig.ok ? sig.value : null,
+      dryRun: true,
+    });
+    if (!updateDry.ok) {
+      return writeRejected("spark-write-object", updateDry, factSourceRoot);
+    }
     const wasTerminal = before.value.frontmatter.status !== "open";
     // A correction of an ALREADY terminal object (20 §9.2: content stays
     // correctable, status must not change) is not a terminal transition — it

@@ -899,10 +899,21 @@ export async function listSparkObjects(args) {
 // Update via CAS (specs/03 §9.5 + specs/20 §13)
 // ---------------------------------------------------------------------------
 
+/**
+ * `dryRun`（2026-09-26，来自 26be321 独立复核的 P1）跑完全部机械校验并返回同样的
+ * 失败，但在触盘之前返回——与 `createSparkObject` 的 dry run 对称。
+ *
+ * 为什么需要它：20 §16 的终态转换 Gate 由工具层提问，而**提问一旦发出就无法收回**。
+ * 没有本选项时，一个注定失败的终态更新（非法 relation_key、disposition 超长、
+ * serves 无法解析）仍会先消耗一次 Human 提问，然后才被 writer 拒绝——实测三种
+ * 情形各烧掉恰好一次提问。创建路径本已把「便宜的拒绝」排在提问之前，本项使更新
+ * 路径与之一致。
+ */
 export async function updateSparkObject(args) {
   const {
     factSourceRoot, objectUid, expectedFingerprint,
     frontmatterAfter, bodyMarkdownAfter, changeSummary, sessionSignature = null,
+    dryRun = false,
   } = args;
   // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
   // signed BY CODE and may not be written unsigned. Without a branded carrier the
@@ -1013,6 +1024,12 @@ export async function updateSparkObject(args) {
   const coherenceCheck = validateCarrierCoherence(fm, body);
   if (!coherenceCheck.ok) {
     return failure("spark/coherence_invalid", "carrier coherence failed on update", { issues: coherenceCheck.issues });
+  }
+
+  // Dry run stops here: every mechanical check above has passed, so the caller
+  // can ask the Human knowing the write would land. Nothing was written.
+  if (dryRun === true) {
+    return success({ object_uid: objectUid, dry_run: true });
   }
 
   // Atomic single-file write

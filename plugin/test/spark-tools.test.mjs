@@ -1214,3 +1214,42 @@ test("gate: a dry run allocates no file (no directory, no staging file)", async 
     assert.deepEqual(entries, [], `dry run + refusal must leave no file, found: ${entries.join(",")}`);
   });
 });
+
+test("gate: a terminal update that the WRITER must refuse consumes no question (P1 of 26be321 review)", async () => {
+  await withTemp("spark-tools.", async (base) => {
+    const { repo } = await governedFixture(base);
+    const seam = consentingSeam();
+    const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
+    const created = await run(descriptors, "ldvh_spark_write", {
+      action: "create",
+      dedup_result: DEDUP_OK,
+      frontmatter_draft: validFrontmatterDraft(),
+      body_markdown: validBodyMarkdown(),
+    }, repo);
+    assert.equal(created.outcome, "completed", JSON.stringify(created).slice(0, 200));
+    const uid = created.result.object_uid;
+
+    // 三种「注定被 writer 拒绝」的终态更新。每一种都必须在提问之前被拦下：
+    // 提问一旦发出就无法收回，因此让 Human 确认一个必然失败的写入是纯粹的浪费。
+    // 本条对应 26be321 独立复核的 P1（当时三种各消耗 1 次提问）。
+    const cases = [
+      ["illegal relation_key", (fm) => ({ ...fm, status: "discarded", disposition: "不再跟踪。", relations: [{ relation_key: "related-to", target: { object_uid: uid } }] })],
+      ["disposition over 200 chars", (fm) => ({ ...fm, status: "implemented", disposition: "长".repeat(240) })],
+      ["unresolvable serves", (fm) => ({ ...fm, status: "implemented", disposition: "已落实。", serves: "SG-99" })],
+    ];
+    for (const [name, mutate] of cases) {
+      const read = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
+      const asksBefore = seam.calls.length;
+      const out = await run(descriptors, "ldvh_spark_write", {
+        action: "update",
+        object_uid: uid,
+        expected_fingerprint: read.result.fingerprint,
+        frontmatter_after: mutate(read.result.frontmatter),
+        body_markdown_after: bodyWithoutH1(read.result.body),
+        change_summary: `探针：${name}`,
+      }, repo);
+      assert.equal(out.outcome, "rejected", `${name}: ${JSON.stringify(out).slice(0, 200)}`);
+      assert.equal(seam.calls.length, asksBefore, `${name}: 注定失败的写入不得消耗提问（提问不可收回）`);
+    }
+  });
+});
