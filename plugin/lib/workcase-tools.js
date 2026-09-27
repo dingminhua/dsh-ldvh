@@ -710,6 +710,16 @@ async function executeWriteObject(args, exec, deps) {
       fingerprint: result.value.fingerprint,
       read_back: result.value.read_back === "ok" ? { ok: true } : { ok: false },
       changes: [{ object_uid: result.value.object_uid, change: args.action }],
+      // 21 §8「执行」节记账纪律的前置提示（workcase-1c6afa19 计划步骤 2 的返
+      // 回体部分）：writer 已在 approve/execute 的返回值里算出 plan 清单，但本
+      // 信封此前是**六键白名单**，清单在工具边界被丢掉——工具描述声称会返回，
+      // 调用方却拿不到（独立复核 workcase-1c6afa19 reviews[1] 实测）。
+      // 此处只做**透传**：规则文本与清单仍由 writer 的 planStepReference(plan)
+      // 单一计算，工具层不复制、不改写它。其余 action 的 writer 返回值没有该键，
+      // 条件展开使其不出现在信封里（JSON.stringify 亦会丢弃 undefined 值键）。
+      ...(result.value.plan_step_reference === undefined
+        ? {}
+        : { plan_step_reference: result.value.plan_step_reference }),
     },
     scope: {
       requested: args.action,
