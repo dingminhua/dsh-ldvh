@@ -20,7 +20,10 @@
 //       rebatch — C2 局部重批 (open→draft): attempt voided, gate_1
 //                 dropped, evidence snapshot into change_log;
 //       cancel  — draft→closed cancelled (计划未经执行即被取消);
-//       revise  — draft→draft pre-Gate-1 evolution.
+//       revise  — draft→draft pre-Gate-1 evolution;
+//       correct — closed→closed 终态**事实更正**（21 §9.2:259 / 03 §9.5 / §10):
+//                 只重写正文 + 追加一条 change_log，终态判定与授权快照逐字不变；
+//                 必须携带 Human 授权记录，缺之 fail-closed。
 //
 // Authorities: specs/05 §6 (operation declaration + common envelope),
 // §9.3 (may_change_state), specs/03 §9 (controlled read/create/update,
@@ -38,6 +41,7 @@ import {
   rebatchWorkcaseObject,
   cancelWorkcaseObject,
   reviseWorkcaseObject,
+  correctWorkcaseObject,
   recordWorkcaseReview,
   listWorkcaseObjects,
   precheckWorkcaseCreate,
@@ -74,7 +78,7 @@ const OPERATIONS = {
     // silently pays for create's human wait. See the descriptor factory for
     // why a deadline here would guarantee a wrong result rather than a slow one.
     awaitsHumanDecision: true,
-    summary: "Controlled write of WorkCase fact objects across the 工单 lifecycle: create (C1 提案, draft), approve (Gate 1: stamps authorization fingerprint + attempt 1; returns plan_step_reference — the authoritative 「计划步骤 N」清单), execute (open-period; plan/scope frozen by C2), close (Gate 2: result+outcome, attempt 收口; requires at least one review recorded by a session OTHER than the executor, workcase-2be11478), rebatch (C2 局部重批 open→draft), cancel (draft→closed cancelled), revise (draft evolution), record_review (append ONE review entry carrying the caller's Code-stamped session identity — the narrow channel for an isolated reviewer) (specs/03 §9.4–§9.5, specs/21 §14). 写「执行」节时引用计划步骤请用「计划步骤 N」（21 §8 记账纪律）",
+    summary: "Controlled write of WorkCase fact objects across the 工单 lifecycle: create (C1 提案, draft), approve (Gate 1: stamps authorization fingerprint + attempt 1; returns plan_step_reference — the authoritative 「计划步骤 N」清单), execute (open-period; plan/scope frozen by C2), close (Gate 2: result+outcome, attempt 收口; requires at least one review recorded by a session OTHER than the executor, workcase-2be11478), rebatch (C2 局部重批 open→draft), cancel (draft→closed cancelled), revise (draft evolution), correct (终态事实更正：仅 closed 对象，只重写正文并追加一条 change_log，终态判定与 result/reviews 逐字不变，须携带 Human 授权记录；21 §9.2:259 / 03 §10), record_review (append ONE review entry carrying the caller's Code-stamped session identity — the narrow channel for an isolated reviewer) (specs/03 §9.4–§9.5, specs/21 §14). 写「执行」节时引用计划步骤请用「计划步骤 N」（21 §8 记账纪律）",
     effect: "may_change_state"
   }
 };
@@ -332,7 +336,7 @@ async function executePrecheckCreate(args, exec, deps) {
 // write handler — seven controlled actions (21 §14)
 // ---------------------------------------------------------------------------
 
-const WRITE_ACTIONS = new Set(["create", "approve", "execute", "close", "rebatch", "cancel", "revise", "record_review"]);
+const WRITE_ACTIONS = new Set(["create", "approve", "execute", "close", "rebatch", "cancel", "revise", "correct", "record_review"]);
 
 /**
  * 21 §10.1 Gate 1 提请必含要素中**没有对象字段承载**的那几项。
@@ -684,6 +688,20 @@ async function executeWriteObject(args, exec, deps) {
         changeSummary, sessionSignature: sig.value, sessionIdentity: reviewerIdentity,
         reviewerNote: reviewerChildNote === null ? null : `记录自子代理会话 ${reviewerChildNote} 的最终产出（Code 捕获）`,
       });
+    } else if (action === "correct") {
+      // 终态事实更正（21 §9.2:259 / 03 §9.5 / §10）：**只对 closed 对象**，
+      // 且**只改正文**——`frontmatter_after` 不是可选而是根本不存在于本动作：
+      // 终态判定与授权快照由 writer 从落盘对象逐字继承（结构保证）。
+      // Human 授权是必填项，而不是注释里的礼貌：更正与其它受控更新同权限。
+      const bodyMarkdownAfter = args?.body_markdown_after;
+      const humanAuthorization = args?.human_authorization;
+      if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
+        return invalidRequest("workcase-write-object", "body_markdown_after (the full corrected body starting with '## 摘要', no H1) is required for action=correct", "correct");
+      }
+      if (typeof humanAuthorization !== "string" || humanAuthorization.trim().length === 0) {
+        return invalidRequest("workcase-write-object", "human_authorization is required for action=correct — 事实更正与其它受控更新同权限（Human 确认），须在条目中留下授权记录，否则 fail-closed（21 §9.2 / 03 §9.5）", "correct");
+      }
+      result = await correctWorkcaseObject({ factSourceRoot, objectUid, expectedFingerprint, bodyMarkdownAfter, changeSummary, humanAuthorization, sessionSignature: sig.value });
     } else {
       // revise
       const frontmatterAfter = args?.frontmatter_after;
@@ -932,7 +950,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          action: { type: "string", enum: ["create", "approve", "execute", "close", "rebatch", "cancel", "revise", "record_review"] },
+          action: { type: "string", enum: ["create", "approve", "execute", "close", "rebatch", "cancel", "revise", "correct", "record_review"] },
           frontmatter_draft: workcaseFrontmatter,
           body_markdown: { type: "string", description: "create: the body markdown starting with '## 摘要' (H2 sections 摘要/授权范围/计划; the H1 is generated from title)" },
           expected_candidate_fingerprint: { type: "string", description: "create: the candidate_fingerprint returned by ldvh_workcase_precheck_create for THIS candidate content. When supplied, the write refuses if the content changed in between — so a precheck verdict never silently carries over to a different candidate (21 §14 create). Optional: omit when the candidate was not prechecked." },
@@ -980,7 +998,8 @@ function parameterSchemaFor(operationKey) {
             required: ["achieved_scope"],
             additionalProperties: false
           },
-          body_markdown_after: { type: "string", description: "execute/close/rebatch/cancel/revise: the complete next body starting with '## 摘要' (no H1 — generated from title). 「执行」节记账纪律（21 §8）：引用计划步骤时写「计划步骤 N」，N 以当前 plan 为界（approve 返回的 plan_step_reference 给出权威清单）；复核、补充验证、收尾等非计划步骤事项独立描述，不要续编进计划序号——plan 的位置序号是该类型唯一的计划步骤编号体系" },
+          body_markdown_after: { type: "string", description: "execute/close/rebatch/cancel/revise: the complete next body starting with '## 摘要' (no H1 — generated from title). correct: the complete CORRECTED body of a closed record (same rule: start at H2). 「执行」节记账纪律（21 §8）：引用计划步骤时写「计划步骤 N」，N 以当前 plan 为界（approve 返回的 plan_step_reference 给出权威清单）；复核、补充验证、收尾等非计划步骤事项独立描述，不要续编进计划序号——plan 的位置序号是该类型唯一的计划步骤编号体系" },
+          human_authorization: { type: "string", description: "correct only: the Human's authorization record for this terminal fact correction (whose decision, when, and what it covers). Required and non-empty — 更正与其它受控更新同权限（Human 确认），缺之 fail-closed（21 §9.2:259 / 03 §9.5）。It is written verbatim into the change_log entry; it is NOT a substitute for Human consent itself." },
           ...casArgs,
           frontmatter_after: (() => { const { required: _r, ...rest } = workcaseFrontmatter; return { ...rest, description: "execute/rebatch/revise: the complete target frontmatter fields (Code-managed fields are overwritten by the writer)" }; })(),
         },

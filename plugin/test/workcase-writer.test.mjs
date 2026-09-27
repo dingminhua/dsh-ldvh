@@ -28,6 +28,7 @@ import {
   rebatchWorkcaseObject,
   cancelWorkcaseObject,
   reviseWorkcaseObject,
+  correctWorkcaseObject,
   recordWorkcaseReview,
   listWorkcaseObjects,
   computeAuthorizationFingerprint,
@@ -1128,6 +1129,126 @@ test("terminal: closed objects refuse execute/close/rebatch (21 §9.2 终态不�
       assert.ok(!bad.ok, "closed objects must be read-only");
       assert.equal(bad.error.code, "workcase/transition_invalid");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// correct — closed 记录的受控事实更正 (21 §9.2:259 / 03 §9.5 / §10)
+// ---------------------------------------------------------------------------
+
+/**
+ * 关闭一个工单（Gate 1 → 独立复核 → Gate 2），返回落盘对象。
+ * 更正用例需要**真的 closed** 对象：冻结字段的证据力取决于它们确实由 close 路径盖戳。
+ */
+async function closedFixture(root) {
+  const draft = validDraft();
+  const { uid, after } = await reviewed(root, await approved(root));
+  const closed = await closeWorkcaseObject({
+    factSourceRoot: root,
+    objectUid: uid,
+    expectedFingerprint: after.value.fingerprint,
+    outcome: "completed",
+    result: completedResult(draft.plan.length),
+    changeSummary: "关闭（测试）",
+    bodyMarkdownAfter: `${draftBody(draft)}\n\n## 执行\n\n- 完成。\n\n## 结果\n\n- 判据均达成。\n`,
+    sessionSignature: SIG(),
+  });
+  assert.ok(closed.ok, JSON.stringify(closed.error));
+  return { uid, read: await readWorkcaseObject({ factSourceRoot: root, objectUid: uid }) };
+}
+
+test("correct: closed 记录的正文可被受控更正，终态判定与授权快照逐字不变 (21 §9.2:259)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid, read } = await closedFixture(root);
+    const before = read.value.frontmatter;
+    const beforeLog = before.change_log.length;
+
+    // 调用方按 21 §8 只传 H2 起的正文（H1 由 writer 从 title 生成）。
+    const correctedBody = `${bodyWithoutH1(read.value.body).replace("- 判据均达成。", "- 判据均达成（更正：补记逐条证据）。")}\n\n### 建议\n\n- 更正后的正文形态。\n`;
+    const res = await correctWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: read.value.fingerprint,
+      bodyMarkdownAfter: correctedBody,
+      changeSummary: "更正建议段写法（H3 → 登记形态）",
+      humanAuthorization: "Human 2026-09-27 裁定：正文形态偏差按事实更正处理",
+      sessionSignature: SIG(),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    const fm = after.value.frontmatter;
+    // 终态判定与授权快照逐字不变——本入口结构上不接收 frontmatter。
+    assert.equal(fm.status, "closed");
+    assert.equal(fm.outcome, before.outcome);
+    assert.deepEqual(fm.result, before.result);
+    assert.deepEqual(fm.gate_1, before.gate_1);
+    assert.deepEqual(fm.plan, before.plan);
+    assert.deepEqual(fm.scope, before.scope);
+    assert.deepEqual(fm.reviews, before.reviews);
+    assert.equal(fm.attempt, undefined);
+    assert.equal(fm.object_uid, before.object_uid);
+    assert.equal(fm.created_at, before.created_at);
+    // 恰好一条 change_log，且被登记为「非状态转换」的更正，Human 授权逐字留档。
+    assert.equal(fm.change_log.length, beforeLog + 1);
+    const entry = fm.change_log[fm.change_log.length - 1];
+    assert.match(entry.summary, /^事实更正（非状态转换）——/);
+    assert.ok(entry.summary.includes("Human 2026-09-27 裁定"), "Human 授权记录必须落盘");
+    assert.equal(entry.provider, "p");
+    assert.equal(entry.model, "m");
+    // 正文确实被重写，且 H1 仍只有 writer 生成的那一条。
+    assert.ok(after.value.body.includes("更正后的正文形态"));
+    assert.ok(!after.value.body.includes("判据均达成。\n"));
+    assert.equal((after.value.body.match(/^# /gm) ?? []).length, 1);
+    assert.equal(after.value.mechanical_issues.length, 0, JSON.stringify(after.value.mechanical_issues));
+  });
+});
+
+test("correct: 非终态对象、缺授权、缺摘要、空写入与陈旧指纹都被机械拒绝且零写入", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    // open 对象：更正入口只对 closed 开放——否则就是把内容更新伪装成状态转换。
+    const { uid: openUid, after: openAfter } = await approved(root);
+    const openAttempt = await correctWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: openUid,
+      expectedFingerprint: openAfter.value.fingerprint,
+      bodyMarkdownAfter: `${bodyWithoutH1(openAfter.value.body)}\n\n### 额外\n`,
+      changeSummary: "x",
+      humanAuthorization: "Human 裁定",
+      sessionSignature: SIG(),
+    });
+    assert.ok(!openAttempt.ok);
+    assert.equal(openAttempt.error.code, "workcase/correction_requires_closed");
+
+    const { uid, read } = await closedFixture(root);
+    const base = {
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: read.value.fingerprint,
+      bodyMarkdownAfter: `${bodyWithoutH1(read.value.body)}\n\n### 更正后\n`,
+      changeSummary: "更正",
+      humanAuthorization: "Human 裁定",
+      sessionSignature: SIG(),
+    };
+    const noAuth = await correctWorkcaseObject({ ...base, humanAuthorization: "  " });
+    assert.equal(noAuth.error.code, "invalid_request");
+    const noSummary = await correctWorkcaseObject({ ...base, changeSummary: "" });
+    assert.equal(noSummary.error.code, "workcase/change_summary_required");
+    const noop = await correctWorkcaseObject({ ...base, bodyMarkdownAfter: bodyWithoutH1(read.value.body) });
+    assert.ok(!noop.ok, "no-op write must be refused — supplying the stored body verbatim must not append a change_log entry");
+    assert.equal(noop.error.code, "invalid_request");
+    // 只多出尾随空行的「伪改动」同样不构成一次真实写入（落盘层本就会归一尾换行）。
+    const noopTail = await correctWorkcaseObject({ ...base, bodyMarkdownAfter: `${bodyWithoutH1(read.value.body)}\n\n\n` });
+    assert.ok(!noopTail.ok, "trailing-blank-line-only write must be refused as a no-op");
+    assert.equal(noopTail.error.code, "invalid_request");
+    const stale = await correctWorkcaseObject({ ...base, expectedFingerprint: "0".repeat(64) });
+    assert.equal(stale.error.code, "workcase/cas_conflict");
+    // 全部拒绝路径零写入：对象指纹与 change_log 长度均未变。
+    const reread = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(reread.value.fingerprint, read.value.fingerprint);
+    assert.equal(reread.value.frontmatter.change_log.length, read.value.frontmatter.change_log.length);
   });
 });
 

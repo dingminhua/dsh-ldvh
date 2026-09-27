@@ -2409,6 +2409,85 @@ export async function reviseWorkcaseObject(args) {
 }
 
 // ---------------------------------------------------------------------------
+// 终态事实更正 (21 §9.2 / 03 §9.5 / 03 §10) — closed 记录的受控内容更正
+// ---------------------------------------------------------------------------
+
+/**
+ * 终态事实更正入口：让 **closed** 记录的正文缺陷可被受控修正。
+ *
+ * 存在理由 —— 21 §9.2 的原文承诺此前没有实现承接：原文
+ *   「终态不直接重开：closed 后不得回到 draft 或 open…**若原终态记录本身错误，
+ *     按事实更正规则修正，不把更正伪装成领域状态转换**（与 20 §9.2 同纪律）」
+ * 而六个转换入口各有前置状态校验（approve 需 draft、execute 需 open、close 需 open、
+ * rebatch 需 open、cancel 需 draft、revise 需 draft），closed 对象**没有任何合法写
+ * 路径**：记录缺陷只能停在原地，或被迫走「重开 / 伪造状态转换」这类 21 §9.2 末尾
+ * 明确列为禁止项的路子。首例受害者 workcase-d5273e1c：建议段写成 `### 建议` H3
+ * 形态，呈现层只认登记引导词（`- advice:`），于是 3 条去向不投影，使语料守卫
+ * workcase-projection-fidelity 永久红——对象已 closed，无法自愈。
+ *
+ * 与 03 §10 对齐（「普通内容更新、事实更正、关系变更、状态转换…是不同动作」）：
+ * 更正**不复用**任何转换入口，也**不接受** `frontmatter_after`。终态判定与授权快照
+ * （status / outcome / result / gate_1 / attempt / plan / scope / serves / relations /
+ * refs / reviews）一律逐字继承**落盘对象**——这一点由「结构上根本不读调用方
+ * frontmatter」机械保证，而不是靠写入后比对断言（断言可被将来改动绕过，结构不会）。
+ * 可变动的只有正文，以及 Code 追加的**恰好一条** change_log 条目。
+ *
+ * 权限与纪律（沿用既有口径，不新造特权）：更正与其它受控更新**同权限**——必须携带
+ * Human 明确授权的记录（`humanAuthorization`，非空），缺授权即 fail-closed；并与
+ * 「同纪律」一致（03 §9.5：完整 after 内容、指纹 CAS、恰好一条 change_log）。
+ *
+ * 范围边界（如实声明）：**仅正文**。记录级字段（plan / scope / reviews 等）的更正
+ * 不在本入口范围——它们与授权指纹、关闭门禁证据同源，放开即等于把「终态判定能否被
+ * 改写」重新打开；若将来出现该类缺陷，须另立入口并单独设计字段级冻结判据。
+ */
+export async function correctWorkcaseObject(args) {
+  const {
+    factSourceRoot, objectUid, expectedFingerprint,
+    bodyMarkdownAfter, changeSummary, humanAuthorization,
+    sessionSignature = null,
+  } = args;
+  const sig = requireAuthoritativeSignature(sessionSignature);
+  if (!sig.ok) return failure(sig.code, sig.message);
+  if (typeof changeSummary !== "string" || changeSummary.length === 0) {
+    return failure("workcase/change_summary_required", "changeSummary is required — 03 §9.5 requires exactly one change_log entry per write");
+  }
+  if (typeof humanAuthorization !== "string" || humanAuthorization.trim().length === 0) {
+    return failure("invalid_request", "humanAuthorization is required for a terminal fact correction — 更正与其它受控更新同权限（Human 确认；20 §9.2 / 23 §9.3 / 26 §9）；无授权记录的更正请求 fail-closed");
+  }
+  if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
+    return failure("invalid_request", "bodyMarkdownAfter is required (the full next body starting with '## 摘要')");
+  }
+  const current = await loadAndCheckFingerprint(factSourceRoot, objectUid, expectedFingerprint);
+  if (!current.ok) return current;
+  const fm = current.value.frontmatter;
+  if (fm.status !== "closed") {
+    return failure(
+      "workcase/correction_requires_closed",
+      `terminal fact correction applies to a CLOSED record only (21 §9.2: 终态记录本身错误时按事实更正规则修正); got status=${JSON.stringify(fm.status)} — a draft/open object changes through approve/execute/rebatch/cancel/revise, and routing a content update through this entry would be exactly the 「把更正伪装成状态转换」 inversion the spec forbids`,
+    );
+  }
+  // 终态记录的逐字继承：`next` 是落盘 frontmatter 的克隆，调用方无法触及任何字段。
+  const next = structuredClone(fm);
+  // 无写入判定按**装载后的正文**比对：读路径返回的正文含 H1（调用方按 21 §8
+  // 只传 H2 起的部分），且 buildFileContent 落盘时正文末尾恒有一个换行，
+  // 故读回的正文比 assembleBody 的产物多一个尾换行——直接比对字符串会把每次
+  // 调用都当成「有改动」，于是这里比对的是**去掉尾随空白**的正文。
+  const trimEnd = (text) => text.replace(/\s+$/, "");
+  const body = assembleBody(next.title, bodyMarkdownAfter);
+  if (trimEnd(body) === trimEnd(current.value.body)) {
+    return failure("invalid_request", "the supplied body assembles to the stored body (trailing blank lines aside) — a no-op write would append a change_log entry claiming a correction that did not happen (03 §9.5 的「恰好一条 change_log」指一次真实写入)");
+  }
+  // 变更摘要沿用仓内已登记的措辞（workcase-18fcee2c 的三条事实更正条目），
+  // 便于读者与呈现层把它识别为「非状态转换」的更正，而非一次阶段推进。
+  appendChangeLog(
+    next,
+    sig,
+    `事实更正（非状态转换）——${changeSummary}。终态判定未变：status/outcome/result/gate_1/attempt/plan/scope/reviews 逐字继承落盘对象（本入口不接收 frontmatter，故改动在结构上不可能），仅正文重写。依 21 §9.2「若原终态记录本身错误，按事实更正规则修正，不把更正伪装成领域状态转换」与 03 §9.5，经 Human 授权：${humanAuthorization.trim()}`,
+  );
+  return writeValidated(factSourceRoot, next, body, fm);
+}
+
+// ---------------------------------------------------------------------------
 // list — F0/F1 discovery (21 §13)
 // ---------------------------------------------------------------------------
 
