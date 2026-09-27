@@ -108,7 +108,15 @@ test('路由与前端类型契约：yaml_source 取自单例读取实现的 fron
   // 原文在单例读取实现里已解析（勿退化为自行重排/重建）。
   assert.match(cognition, /const frontmatterSource = lines\.slice\(1, endIdx\)\.join\('\\n'\)/)
   assert.match(cognition, /yaml_source: record\.frontmatterSource,/)
-  // 前端类型面同步声明，否则 goal 详情消费该字段会被 tsc 拒绝。
+  // 前端类型面同步声明。断言范围必须限定在 CognitionGoalData 块内：api.ts 另有一处
+  // 多例 FactObject 的同名字段，全文级正则会被它满足而空转（2026-09-27 复核实测）。
+  // 该声明是契约记录，不是 tsc 的硬约束——GoalDetail.tsx 消费面经
+  // `as unknown as Record<string, unknown>` 放宽，删掉本字段 tsc 仍退 0，
+  // 故这里只能断言「声明在场」，不能声称「否则 tsc 会拒绝」。
   const api = fs.readFileSync(path.resolve('src/utils/api.ts'), 'utf8')
-  assert.match(api, /yaml_source\?: string;/)
+  const goalBlockStart = api.indexOf('export interface CognitionGoalData {')
+  assert.ok(goalBlockStart >= 0, 'api.ts 必须声明 CognitionGoalData')
+  const goalBlockEnd = api.indexOf('\n}', goalBlockStart)
+  assert.ok(goalBlockEnd > goalBlockStart, 'CognitionGoalData 类型块必须有闭合')
+  assert.match(api.slice(goalBlockStart, goalBlockEnd), /yaml_source\?: string;/)
 })
