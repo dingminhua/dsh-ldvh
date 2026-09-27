@@ -63,7 +63,7 @@ attempt:
   attempt_id: 1
   started_at: 2026-09-26T05:48:37.902Z
   controller: deepseek-v4.1-flash@dsh-ldvh-session
-  heartbeat_at: 2026-09-26T06:59:03.124Z
+  heartbeat_at: 2026-09-27T03:31:40.962Z
   session_id: session-71ad5a69-4bde-4290-acb3-96e92e787a8b
   session_source: host
 reviews:
@@ -78,6 +78,17 @@ reviews:
       复核完成，结果已回传父会话。
 
       **核心结论**：a9b70df 声称的三处缺陷全部真实、修复有效，973/973 与变异声明全部属实（基线 971 经导出副本实测确认）。发现的问题：P1 `snapshotEvents()` 新增生产调用违反 DSH 弃用政策（中）、P2 `events` 回落分支仅为假形状 fixture 服务（中低）、P3 `RETIRED_LIMIT=50` + 插件重载清空使 record_review 可静默失效（中，先前已存在）。工作区完整性已验证：`plugin/` 与提交逐字节一致，五组变异全部还原。
+  - at: 2026-09-27T03:29:26.162Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    session_id: 5c1b05e9-9f9b-477a-a661-1816d75b3717
+    session_source: host
+    implementer_session_id: session-71ad5a69-4bde-4290-acb3-96e92e787a8b
+    implementer_session_source: host
+    summary: |-
+      **发现的问题**：P1 终态路径询问先于 writer 余项校验（我以 /tmp 探针实测非法 relation_key／disposition 240 字符／serves=SG-99 三种 doomed 写入**各消耗 1 次提问**，仍零写入；代码注释 `:482-487` 的「Every cheap refusal must precede the ask」不成立）——中；P2 记录称「基线 946 新增 12」不可复现（实测 935→958，+23）——低；P3 账本唯一复核条目（76c219c7）针对 a9b70df 而非本 5 笔提交，以其作关闭依据属对象错配——中低。
+
+      **未覆盖**：09 §5 三向变异、D1–D4 原始审核记录、Git Gate 实跑、宿主答题器活体可用性、合并/拆分组合级行为、web 构建与 tsc；另需注意工作树存在其它会话的未提交改动（`workcase-writer.js`、`probe-tmp-review.mts` 等，非我产生），我的 976 全量数取自该工作树，不可归因于被复核提交。
 created_at: 2026-09-26T05:47:10.858Z
 change_log:
   - at: 2026-09-26T05:47:10.858Z
@@ -100,6 +111,14 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: "记录独立复核（隔离子代理 76c219c7）：a9b70df 三处缺陷均真实且修复有效；973/973 与变异声明属实；发现 P1 弃用 API 无 lint 守卫、P2 events 回落仅供旧假形状 fixture、P3 RETIRED_LIMIT 淘汰可致归属静默失效 [review recorded by session 76c219c7-93cd-46c4-8924-5f4a225d7e34; reviews entries: 1; 记录自子代理会话 76c219c7-93cd-46c4-8924-5f4a225d7e34 的最终产出（Code 捕获）]"
+  - at: 2026-09-27T03:29:26.162Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: "记录独立复核（隔离子代理 5c1b05e9，覆盖本单授权的 5 笔提交）：三项 Gate 机械承载与创建路径先校验后询问成立、§11 未越权修改、两项披露声明属实；发现 P1 终态路径次序缺口、P2 记录数字不可复现、P3 账本原有条目对象错配 [review recorded by session 5c1b05e9-9f9b-477a-a661-1816d75b3717; reviews entries: 2; 记录自子代理会话 5c1b05e9-9f9b-477a-a661-1816d75b3717 的最终产出（Code 捕获）]"
+  - at: 2026-09-27T03:31:40.962Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 更正计划步骤 5 的测试计数（据 26be321 独立复核 P2：基线实测 935、26be321 = 958，净增 23；原写「较基线 946 新增 12」不可复现），并将「关闭前置未满足」一节更正为「复核条目已落盘」——子代理通道根因已查明修复、两条独立复核条目在账、P1/P3 已处置 [attempt 1 heartbeat refreshed]
 ---
 
 # Spark 授权门禁与 20 号一致性修复
@@ -170,7 +189,9 @@ host-seams.js 新增该 seam 与 `SPARK_CONSENT_QUESTION_ID`/`SPARK_CONSENT_LABE
 
 ### 计划步骤 5（测试与全量验证）— 已完成
 
-`plugin` 全量 958/958 通过（较基线 946 新增 12 例）；`plugin/web` api 子集 367/367 通过；改动文件 eslint 干净（仓库既有 5 处 unused-import 报错不在改动面内，未处置，已如实登记）。
+`plugin` 全量 958/958 通过；`plugin/web` api 子集 367/367 通过；改动文件 eslint 干净（仓库既有 5 处 unused-import 报错不在改动面内，未处置，已如实登记）。
+
+**更正（2026-09-27，据 26be321 独立复核的 P2）**：本行原写「较基线 946 新增 12 例」，该数字**不可复现**。以隔离副本（worktree + node_modules 软链）实测：`26be321^`（b6550ef）为 **935/935**，`26be321` 为 **958/958**，即净增 **23** 例；原写的 946／12 无出处，系记录失实。另：26be321 提交信息中「含新增 47 项」指的是该次改动两文件的用例总数（spark-tools 38 + spark-consent-seam 9），**不是净新增数**——措辞易致误读，一并更正。
 
 ### 提交与复核
 
@@ -178,13 +199,21 @@ host-seams.js 新增该 seam 与 `SPARK_CONSENT_QUESTION_ID`/`SPARK_CONSENT_LABE
 
 `01 §12` 独立对抗审核已执行（隔离会话），发现 D1（合并/拆分组合确认无组合级机械承载）、D2（§16 大改段自相矛盾）等已逐条处置：D1 在 §16 新增条件式承载限制如实披露；D2 改写为「不阻断且不得表述为阻断」；D3（dedup 未落盘）、D4（seam 解析无单测）已补 `spark-consent-seam.test.mjs` 9 例直接覆盖。后续独立复核对已提交版本复核，结论「可关闭」，其 2 项 LOW 措辞张力已由 `848c07b` 消除。
 
-### 关闭前置未满足：复核条目未能机械落盘（本单保持 open）
+### 关闭前置：复核条目已落盘（2026-09-27）
 
-`21 §10.2` 要求至少一条由**执行者之外会话**记录的复核条目。`record_review` 的子代理通道依赖 `deps.lookupChild` 返回宿主登记表条目，实测该登记表对本组合下的子代理**捕获为 0**（`ldvh_collect_subagent_results` 返回「Found 0 child record(s)」；另以专用探针子代理复现同一结果）。故本单**不执行关闭**，按 `21 §18` 交还 Human。
+`21 §10.2` 要求至少一条由**执行者之外会话**记录的复核条目。执行期本单曾因此保持 open——当时 `record_review` 的子代理通道取不到结论（`ldvh_collect_subagent_results` 返回「Found 0 child record(s)」）。
 
-该缺口本身（子代理登记未捕获 DSH 子代理 → `32 §12` 默认的独立子代理复核形态当前不可用）属结构性未完善，与 open Spark `71930c4a` 同族，建议并入其归属判定。
+**该现象已查明并修复，其根因并非「登记表未捕获子代理」**（该判断经复测推翻）：登记表**确实捕获**了运行中的子代理（`Found 1`），真正断在**结论捕获永不生效**——`plugin/lib/child.js` 原读 `agent.session?.events`，而 DSH 的 Session **无 `events` 属性**（只有 `snapshotEvents()` 方法）。修复见 `a9b70df` / `a7a5cfb`（后者另按 DSH README 的弃用政策改为事件累积，不新增弃用 API 的生产调用）。
+
+修复后本单已落盘**两条**独立复核条目（均为隔离子代理、`session_id ≠ implementer_session_id` 且两端 `session_source=host`）：
+- `76c219c7`：审 `a9b70df`（委托链修复）；
+- `5c1b05e9`：审**本单授权的 5 笔提交**（26be321/848c07b/9c7ccd9/aa9b008/bd55519），即此前 P3 所指的对象错配已由该条补正。
+
+其发现的三项已逐条处置：**P1**（终态路径询问先于 writer 余项校验）已修——`updateSparkObject` 新增 `dryRun`，终态转换在提问前先跑；实测三种注定失败的终态写入由「各消耗 1 次提问」变为 **0**，回归用例已加（提交 `102b9ff`）。**P2**（本记录「基线 946 新增 12」不可复现）已在本节更正为实测值。**P3**（对象错配）已由上述第二条补正。
+
+故本单现**具备关闭前置**；是否关闭属 Gate 2，由 Human 决定。
 
 ### 记录更正（如实登记）
 
-执行期曾以本会话身份调用一次 `record_review` 作**通道探测**，其 summary 自述「不构成复核结论」。该调用在只追加的 `reviews` 账本中留下一条**非复核条目**，会使计数虚高、误导读者。**本次更新撤回该条目**（撤回后 `reviews` 键省略）；撤回理由与事实记于本条流水，不在对象中静默消失。该更正**不改变 `status`**、**不新增复核凭据**，也不使本单满足关闭前置。
+执行期曾以本会话身份调用一次 `record_review` 作**通道探测**，其 summary 自述「不构成复核结论」。该调用在只追加的 `reviews` 账本中留下一条**非复核条目**，会使计数虚高、误导读者。**该非复核条目已于 2026-09-26 的受控更新中撤回**（当时 `reviews` 键省略）；撤回理由与事实记于 change_log，未在对象中静默消失。该更正**不改变 `status`**、**不新增复核凭据**，也不使本单满足关闭前置。
 
