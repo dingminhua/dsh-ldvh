@@ -291,6 +291,23 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
       mode = 'residual'; modeIndent = indent; continue
     }
     if (ADVICE_BLOCK.test(item)) {
+      // **建议段不累积**：`mode` 为 'advice' 时遇第二个开启符即闭合（不并入前段）。
+      // 注意这不是「只读首段」：`mode` 闭合后**第三个开启符会再次开段**，
+      // 故 3 个开启符时读到的是第 1 段与第 3 段的条目（实测 3→2 条）。
+      // 写入器用同一状态机（`mode` 闭合后再遇开启符即重开），故两处逐案同数；
+      // 而 `blocks > 1` 时写入器整体拒绝（`21 §8/§15.1` 硬门禁⑤），该形态不可达。
+      //
+      // 为什么要与写入器逐字一致（2026-09-28 更正）：此前本解析器**无条件切换段**且
+      // 不清空 `result.advice`，多个建议段会被**累积**读取；而受控写入器对同一正文
+      // 只读一段。同一正文在两处给出不同条数，使「条数 = `result.residual` 长度」
+      // 这一硬门禁在呈现层失去意义。现两处同口径；多开启符形态另由写入器硬门禁⑤
+      // 在受控写入层整体拒绝（`21 §8/§15.1`），**且⑤状态无关**（不只在 closed 生效），
+      // 故该形态在任何状态都不能经受控入口落盘（2026-09-28 更正：此前⑤随 closed 缺省，
+      // open 期可落盘多段正文，第 2 段条目会「正文里有、卡面不可见」）。
+      if (mode === 'advice') {
+        mode = null
+        continue
+      }
       mode = 'advice'; modeIndent = indent; continue
     }
     if (/^(achieved_scope|已证实范围)\s*[:：]/.test(item)) { mode = null; continue }

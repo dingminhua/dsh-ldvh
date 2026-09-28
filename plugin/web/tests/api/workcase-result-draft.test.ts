@@ -172,6 +172,53 @@ test('advice 段：同级或更浅的 bullet 结束本段，不吞入「关闭�
   assert.deepEqual(d.residual, []);
 });
 
+// 多建议段（2026-09-28 更正）：此前本解析器对每个 `- advice:` 开启符都**无条件切换**
+// 且不清空 `result.advice`，于是多段形态下**累积**读取全部段；而受控写入器只读一段。
+// 同一正文在两处给出不同条数，使「建议段条数 = result.residual 长度」这条硬门禁在
+// 呈现层失去意义。现两处同口径（第二个开启符即闭合并跳过，不累积）；多开启符形态
+// 另由写入器硬门禁⑤整体拒绝（21 §8/§15.1），且⑤**状态无关**，故它在任何状态都不可达。
+// 本处只需保证：万一读到，两处也不得给出不同条数。
+test('advice 段：多处开启符不累积，与写入器同口径（21 §8/§15.1 硬门禁⑤）', () => {
+  const body = bodyOf([
+    '- advice:',
+    '  - **接受现状**：第一段的原因甲。',
+    '  - **接受现状**：第一段的原因乙。',
+    '- advice:',
+    '  - **接受现状**：第二段的原因丙。',
+  ]);
+  const d = parseWorkCaseResultDraft(body, PLAN);
+  assert.deepEqual(d.advice, [
+    { kind: '接受现状', text: '第一段的原因甲。' },
+    { kind: '接受现状', text: '第一段的原因乙。' },
+  ]);
+  assert.equal(
+    d.advice.length,
+    2,
+    '建议段不累积——累积会把第二段的 1 条并入，与写入器的条数判定分歧（旧实现读 3 条）',
+  );
+
+  // 对照（避免上一条因「整段解析全失效」而空转）：单段三照样读满。
+  const single = bodyOf([
+    '- advice:',
+    '  - **接受现状**：原因甲。',
+    '  - **接受现状**：原因乙。',
+  ]);
+  assert.deepEqual(parseWorkCaseResultDraft(single, PLAN).advice.length, 2);
+
+  // 首段为空、次段有条目 → 0 条：第二个开启符已闭合首段，其后的条目不再计入
+  // （而不是「跳过空首段取次段」）。
+  const emptyFirst = bodyOf([
+    '- advice:',
+    '- advice:',
+    '  - **接受现状**：只在第二段里。',
+  ]);
+  assert.deepEqual(
+    parseWorkCaseResultDraft(emptyFirst, PLAN).advice,
+    [],
+    '首段为空时不得顺延到次段——写入器同样不累积（第二个开启符即闭合首段，两处须逐案同数）',
+  );
+});
+
 test('residual 里的「建议…」子句不再产出条目（21 §8：建议只有一处承载）', () => {
   const body = bodyOf([
     '- residual:',

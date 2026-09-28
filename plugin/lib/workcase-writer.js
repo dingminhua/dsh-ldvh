@@ -1212,10 +1212,17 @@ const ADVICE_LEGACY_FROM = /出自「([^」]+)」\s*$/;
  *     该口径已于 2026-09-28 在 §8 与 §15.1 逐字登记（此前只在代码块的排版里隐含）。
  *   - 存量尾注 `出自「…」` 被剥离且**不产出**出处字段：新形态已无「出处」一项，
  *     条目与 `residual` 的对应关系改为**按序配对**（§8）。
+ *   - **建议段不累积**：一个开启符进入建议段，下一个开启符（任意缩进）即闭合并计数，
+ *     其后条目不再计入**该段**（但开启符本身另计一次，故 3 个开启符时计入的是第 1 段
+ *     与第 3 段的条目）；`blocks` 报告整节开启符总数，故 `blocks > 1` 时由硬门禁⑤
+ *     整体拒绝（规范上没有任何一段是权威，条数不具定义——不是「取哪一段」的分歧）。
+ *     该口径必须与呈现层解析器逐字一致——两处若各读一段，会使「条数 = `result.residual`
+ *     长度」这一硬门禁在呈现层失去意义（2026-09-28 更正：此前两处口径相反）。
  */
 function parseAdviceSection(resultSection) {
   const entries = [];
   let seen = false;
+  let blocks = 0;
   let mode = false;
   let modeIndent = 0;
   for (const rawLine of String(resultSection).split("\n")) {
@@ -1223,11 +1230,16 @@ function parseAdviceSection(resultSection) {
     if (!bullet) continue;
     const indent = bullet[1].length;
     const item = bullet[2].trim();
+    const opener = ADVICE_BLOCK.test(item);
     if (!mode) {
-      if (ADVICE_BLOCK.test(item)) { mode = true; modeIndent = indent; seen = true; }
+      if (opener) { mode = true; modeIndent = indent; seen = true; blocks += 1; }
       continue;
     }
-    if (indent <= modeIndent) { mode = false; continue; }
+    if (opener || indent <= modeIndent) {
+      if (opener) blocks += 1;
+      mode = false;
+      continue;
+    }
     const titled = ADVICE_TITLED.exec(item);
     const kindText = titled ? titled[1].trim() : "";
     let text = titled ? titled[2].trim() : item;
@@ -1235,7 +1247,7 @@ function parseAdviceSection(resultSection) {
     if (fromMatch) text = text.slice(0, fromMatch.index).trim();
     entries.push({ kind: ADVICE_DIRECTIONS.has(kindText) ? kindText : null, kindText, text });
   }
-  return { present: seen, entries };
+  return { present: seen, blocks, entries };
 }
 
 /**
@@ -1245,7 +1257,12 @@ function parseAdviceSection(resultSection) {
  *   ① 建议段条数 = `result.residual` 长度；`residual` 为空时不得有建议段；
  *   ② 每条「转入 Spark」有恰一条对应的 `routed-to`（**条数一致**）；
  *   ③ 每条「接受现状」的建议正文非空；
- *   ④ 每条建议的去向词落在闭集二词内（不达形态者按 `kind: null` 拒绝，不静默丢弃）。
+ *   ④ 每条建议的去向词落在闭集二词内（不达形态者按 `kind: null` 拒绝，不静默丢弃）；
+ *   ⑤ 建议段**恰好一处**：整节出现两处及以上开启符者一律拒绝——**本项不依赖状态**，
+ *      只要正文里出现建议段就适用（其余四项只在 `status = closed` 且非 cancelled 时判定）。
+ *      理由：建议段正是**开放期**写入的（§8「待批准关闭期处置建议只在正文」），
+ *      若本项随状态一起缺省，多段正文可在 open 期落盘、而两处解析器都只读一段，
+ *      第二段条目就会「正文里有、卡面不可见」，直到关闭才被拦（2026-09-28 更正）。
  *
  * 写法约定（本项**不**判定，如实登记、非机械门禁）：**顺序对应**——建议段条目只写
  * 去向词与正文，**不携带**所对应 `residual` 条目或目标 Spark 的标识，故「第 k 条
@@ -1280,8 +1297,8 @@ function parseAdviceSection(resultSection) {
  */
 export function validateDirectionCompleteness(frontmatter, body, baseline = null, baselineBody = null) {
   const issues = [];
-  if (frontmatter.status !== "closed") return { ok: true, issues };
-  if (frontmatter.outcome === "cancelled") return { ok: true, issues };
+  const isClosed = frontmatter.status === "closed";
+  const isCancelled = frontmatter.outcome === "cancelled";
 
   const residual = Array.isArray(frontmatter.result?.residual) ? frontmatter.result.residual : [];
   const advice = parseAdviceSection(sectionContent(body, BODY_H2_RESULT) ?? "");
@@ -1302,6 +1319,16 @@ export function validateDirectionCompleteness(frontmatter, body, baseline = null
       return { ok: true, issues };
     }
   }
+
+  // ⑤ 建议段恰好一处——**状态无关**：建议段本身正是开放期写入的承载（§8），
+  // 若本项随「仅 closed 判定」一起缺省，多段正文可在 open 期经受控入口落盘，
+  // 而两处解析器都只读一段 → 第 2 段条目「正文里有、卡面不可见」，直到关闭才被拦。
+  // 故本项在闭合前先判；其余四项仍只在 closed 且非 cancelled 时判定。
+  if (advice.blocks > 1) {
+    issues.push(`direction completeness: "## 结果" 建议段 must appear exactly once — found ${advice.blocks} advice section openers (21 §8/§15.1 硬门禁⑤); no section is authoritative when several are present, so the entry count is not well-defined — fail closed`);
+  }
+
+  if (!isClosed || isCancelled) return { ok: issues.length === 0, issues };
 
   if (residual.length === 0) {
     if (advice.present) {

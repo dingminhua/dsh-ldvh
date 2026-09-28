@@ -2551,15 +2551,37 @@ const closedFmWith = (residual, relations = undefined) => ({
 
 const ROUTED = (uid) => ({ relation_key: "routed-to", target: { object_uid: uid } });
 
-test("direction: 非 closed 或 cancelled 不参与去向完整性判定（判据取状态与 outcome）", () => {
-  const body = resultOnlyBody("- advice:", "  - **接受现状**：不跟踪。");
+test("direction: 非 closed 或 cancelled 不参与「条数/去向词」判定，但⑤（建议段恰好一处）始终适用", () => {
+  // 五项硬门禁的适用面分两层（21 §15.1，2026-09-28 更正）：
+  //   ① 条数 ② routed-to ③ 非空理由 ④ 去向词闭集 —— 只在 closed 且非 cancelled 判定；
+  //   ⑤ 建议段恰好一处 —— **状态无关**，凡正文出现建议段即适用。
+  // 理由：建议段正是开放期写入的（§8「待批准关闭期处置建议只在正文」）。若⑤也随状态缺省，
+  // 多段正文可在 open 期经受控入口落盘，而两处解析器都只读一段 → 第 2 段条目
+  // 「正文里有、卡面不可见」，直到关闭才被拦（R4 独立复核实测复现，本用例固定该修正）。
+  const single = resultOnlyBody("- advice:", "  - **接受现状**：不跟踪。");
   for (const status of ["draft", "open"]) {
-    const res = validateDirectionCompleteness({ status, result: { residual: [] } }, body);
-    assert.deepEqual(res, { ok: true, issues: [] }, `${status} 不参与判定`);
+    const res = validateDirectionCompleteness({ status, result: { residual: [] } }, single);
+    assert.deepEqual(res, { ok: true, issues: [] }, `${status} 下单一建议段不受 ①–④ 约束`);
   }
-  // cancelled 走 §9.3 的取消记录，去向完整性不适用（21 §9.1/§15.1）。
-  const res = validateDirectionCompleteness({ status: "closed", outcome: "cancelled", result: { residual: [] } }, body);
-  assert.deepEqual(res, { ok: true, issues: [] });
+  // cancelled 走 §9.3 的取消记录，①–④ 不适用（21 §9.1/§15.1）。
+  const cancelled = validateDirectionCompleteness({ status: "closed", outcome: "cancelled", result: { residual: [] } }, single);
+  assert.deepEqual(cancelled, { ok: true, issues: [] });
+
+  // ⑤ 的对照：同一「非 closed」状态 + 两处开启符 → 必须被拒（不能因状态而放行）。
+  const twoBlocks = resultOnlyBody(
+    "- advice:",
+    "  - **接受现状**：甲。",
+    "- advice:",
+    "  - **接受现状**：乙。",
+  );
+  for (const status of ["draft", "open"]) {
+    const res = validateDirectionCompleteness({ status, result: { residual: [] } }, twoBlocks);
+    assert.ok(!res.ok, `${status} 下两处建议段开启符必须被拒（⑤ 状态无关）`);
+    assert.equal(res.issues.length, 1, JSON.stringify(res.issues));
+    assert.match(res.issues[0], /must appear exactly once — found 2 advice section openers/);
+  }
+  const cancelledTwo = validateDirectionCompleteness({ status: "closed", outcome: "cancelled", result: { residual: [] } }, twoBlocks);
+  assert.ok(!cancelledTwo.ok, "cancelled 也不豁免 ⑤ —— 否则取消记录期同样可落多段正文");
 });
 
 test("direction: residual 为空且无建议段时通过（completed 的正常形态）", () => {
@@ -2754,6 +2776,85 @@ test("direction: 建议段之后的同级 bullet 收束段（不吞后续节内�
   const swallowed = validateDirectionCompleteness(closedFmWith(["残留 A", "残留 B"]), body);
   assert.ok(!swallowed.ok);
   assert.match(swallowed.issues[0], /must carry exactly 2 entries.*got 1/s, "收束后的 bullet 不得计为建议条目");
+});
+
+test("direction: 建议段恰好一处——两处及以上开启符一律拒绝（21 §8/§15.1 硬门禁⑤）", () => {
+  // 2026-09-28 更正：本节此前把多建议段登记为「后段覆盖前段、条数按后段计」，
+  // 该登记不成立——多段形态下没有任何一段是权威，条数不具定义，且同一正文在
+  // 写入器与呈现层曾各读一段、给出不同条数，使「条数 = result.residual 长度」
+  // 这条硬门禁在呈现层失去意义。现两处同口径（不累积），并由本门禁使多开启符
+  // 形态在受控写入下整体不可达——**⑤ 状态无关**（见上方「非 closed 也不豁免」用例），
+  // 故 open 期也拦得住，不会出现「open 落盘、关闭才报」的空窗。
+  const twoBlocksFirstTwo = resultOnlyBody(
+    "- advice:",
+    "  - **接受现状**：原因甲。",
+    "  - **接受现状**：原因乙。",
+    "- advice:",
+    "  - **接受现状**：原因丙。",
+  );
+
+  // 对照：单段 2 条与 residual 2 条相符 → 通过（避免下面的拒绝断言空转）。
+  const single = resultOnlyBody("- advice:", "  - **接受现状**：原因甲。", "  - **接受现状**：原因乙。");
+  assert.ok(validateDirectionCompleteness(closedFmWith(["残留 A", "残留 B"]), single).ok);
+
+  // 首段条数与 residual 相符，但整节有两处开启符 → 仍须被拒（条数不是本门禁的判据）。
+  const counted = validateDirectionCompleteness(closedFmWith(["残留 A", "残留 B"]), twoBlocksFirstTwo);
+  assert.ok(!counted.ok, "两处建议段开启符必须被拒，哪怕首段条数恰好相符");
+  assert.equal(counted.issues.length, 1, JSON.stringify(counted.issues));
+  assert.match(counted.issues[0], /建议段 must appear exactly once — found 2 advice section openers \(21 §8\/§15\.1 硬门禁⑤\)/);
+  assert.match(counted.issues[0], /no section is authoritative when several are present, so the entry count is not well-defined — fail closed/);
+
+  // 首段 1 条 + 次段 1 条、residual 2 条：两条门禁各自独立报出——
+  // ⑤ 报段数、① 报条数（只数首段），读者不得按后者推断「次段被计入」。
+  const mixed = resultOnlyBody(
+    "- advice:",
+    "  - **接受现状**：原因甲。",
+    "- advice:",
+    "  - **接受现状**：原因乙。",
+  );
+  const two = validateDirectionCompleteness(closedFmWith(["残留 A", "残留 B"]), mixed);
+  assert.ok(!two.ok);
+  assert.equal(two.issues.length, 2, JSON.stringify(two.issues));
+  assert.ok(two.issues.some((i) => i.includes("must appear exactly once")), JSON.stringify(two.issues));
+  assert.ok(
+    two.issues.some((i) => /must carry exactly 2 entries.*got 1/s.test(i)),
+    `条数只按首段计：次段的 1 条不得被计入，实际：${JSON.stringify(two.issues)}`,
+  );
+
+  // 门禁⑤不依赖条数分支：residual 为空时「建议段不得存在」报的是另一条，而多段照旧单独报出。
+  const emptyResidual = validateDirectionCompleteness(closedFmWith([]), twoBlocksFirstTwo);
+  assert.ok(!emptyResidual.ok);
+  assert.ok(emptyResidual.issues.some((i) => i.includes("must appear exactly once")), JSON.stringify(emptyResidual.issues));
+  assert.ok(emptyResidual.issues.some((i) => i.includes("must not exist when result.residual is empty")));
+});
+
+test("direction: 多建议段与存量豁免的边界——结果节逐字未改时豁免先行，门禁⑤不追溯存量（21 §15.3）", () => {
+  // 如实固定实际作用范围：豁免检查在门禁⑤之前，故「基线已 closed 且结果节逐字未改」
+  // 时直接 return，⑤ 不参与判定。存量对象里多段形态实测为 0 份，此边界不构成放行通道；
+  // 但读者须知道⑤的适用范围是**受控写入**、不是回扫既有载体。
+  const twoBlocks = resultOnlyBody(
+    "- advice:",
+    "  - **接受现状**：原因甲。",
+    "  - **接受现状**：原因乙。",
+    "- advice:",
+    "  - **接受现状**：原因丙。",
+  );
+  const fm = closedFmWith(["残留 A", "残留 B"]);
+  const baselineBody = bodyWithoutH1(twoBlocks);
+
+  const exempt = validateDirectionCompleteness(fm, twoBlocks, fm, baselineBody);
+  assert.ok(exempt.ok, `结果节逐字未改 → 豁免先行，⑤ 不追溯存量：${JSON.stringify(exempt.issues)}`);
+
+  // 一旦该节被改动（此处只加一行散文），豁免失效，⑤ 立即生效——不是永久豁免。
+  const edited = `${twoBlocks}\n以上去向经 Human 复核确认。\n`;
+  const enforced = validateDirectionCompleteness(fm, edited, fm, baselineBody);
+  assert.ok(!enforced.ok, "结果节被改动后⑤必须生效");
+  assert.ok(enforced.issues.some((i) => i.includes("must appear exactly once")), JSON.stringify(enforced.issues));
+
+  // 无基线（全量受检）同样生效。
+  const noBaseline = validateDirectionCompleteness(fm, twoBlocks);
+  assert.ok(!noBaseline.ok);
+  assert.ok(noBaseline.issues.some((i) => i.includes("must appear exactly once")));
 });
 
 // ---------------------------------------------------------------------------
@@ -3153,5 +3254,65 @@ test("direction e2e: 两条残留转入同一 Spark —— 两条同 uid 的 rou
     const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: wcUid });
     assert.equal(read.value.frontmatter.status, "closed");
     assert.equal(read.value.mechanical_issues.length, 0, JSON.stringify(read.value.mechanical_issues));
+  });
+});
+
+test("direction e2e: 多建议段在关闭入口被机械拒绝且零写入（21 §8/§15.1 硬门禁⑤）", async () => {
+  // 为什么必须有 e2e 覆盖（21 §1 的证据条件式要求）：门禁⑤ 此前只有单元层用例
+  // （直调 validateDirectionCompleteness），而 §1 的机械侧要求是「五组门禁…
+  // 与端到端零写入拒绝各自具备可重跑的用例覆盖之前，不得声称本项已获机械保障」。
+  // 本用例补上「走真实 close 入口 + 零写入」这一层：拒绝必须发生在**任何落盘之前**，
+  // 而不只是校验函数返回 false。
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid, after } = await reviewed(root, await approved(root));
+    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+
+    // 首段条数与 residual 相符（1 条），仅多出一个建议段开启符 → ⑤ 单独触发。
+    const twoSections = `${closingBody(after.value.body, ["**接受现状**：该分支已被后续工作覆盖，继续跟踪无增量。"])}\n- advice:\n  - **接受现状**：第二个建议段。\n`;
+
+    const bad = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      outcome: "partial",
+      result: partialResult(),
+      changeSummary: "关闭（测试）",
+      bodyMarkdownAfter: twoSections,
+      sessionSignature: SIG(),
+    });
+    assert.ok(!bad.ok, "多建议段必须被拒");
+    assert.equal(bad.error.code, "workcase/direction_incomplete");
+    assert.ok(
+      bad.error.details.issues.some((i) => i.includes("must appear exactly once — found 2 advice section openers")),
+      JSON.stringify(bad.error.details.issues),
+    );
+    // ⑤ 是唯一触发的门禁：条数相符，故不应同时报「条数不符」（防空转，也固定拒绝归因）。
+    assert.ok(
+      !bad.error.details.issues.some((i) => i.includes("must carry exactly")),
+      `首段条数与 residual 相符时不该报条数门禁，实际：${JSON.stringify(bad.error.details.issues)}`,
+    );
+
+    // 零写入三证据：指纹、状态、outcome 均未变。
+    const after0 = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(after0.value.fingerprint, before.value.fingerprint, "零写入：指纹不变");
+    assert.equal(after0.value.frontmatter.status, "open");
+    assert.equal(after0.value.frontmatter.outcome, undefined);
+
+    // 对照：同一正文去掉第二个开启符即放行（证明拒绝来自 ⑤，不是别的门禁在拦）。
+    const single = closingBody(after.value.body, ["**接受现状**：该分支已被后续工作覆盖，继续跟踪无增量。"]);
+    const ok = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      outcome: "partial",
+      result: partialResult(),
+      changeSummary: "关闭（测试）",
+      bodyMarkdownAfter: single,
+      sessionSignature: SIG(),
+    });
+    assert.ok(ok.ok, JSON.stringify(ok.error));
+    const after1 = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(after1.value.frontmatter.status, "closed");
   });
 });
