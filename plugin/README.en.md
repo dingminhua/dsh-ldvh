@@ -34,13 +34,13 @@ The native DeepSeek Harness plugin for LD Vibe Harness (LDVH). Its target capabi
 dsh plugin --profile desktop add /absolute/path/to/dsh-ldvh/plugin
 ```
 
-Restart DSH Desktop after installing or changing Host, Client, or bundle-patch code. Current target environment (observed locally on 2026-09-26):
+Restart DSH Desktop after installing or changing Host, Client, or bundle-patch code. Current target environment (observed locally on 2026-09-29):
 
-- DSH Desktop `2.0.15-next` (`/Applications/DSH NEXT.app`)
-- `@deepseek-ai/dsh` `0.1.7-rc.2`
+- DSH Desktop `0.2.0-rc.1` (`/Applications/DeepSeek Harness.app`)
+- `@deepseek-ai/dsh` `0.2.0-rc.1`
 - Node.js `>=22.15.0` (code floor; the DSH host `dsh-plugin-desktop` itself requires `^22.19.0 || >=24.0.0`)
 
-> **Host compatibility (since `1.0.0-dev.2`)**: this plugin only supports `@deepseek-ai/dsh >= 0.1.7-rc.1 < 0.2.0` (peerDependencies narrowed accordingly). The breaking changes introduced by the 0.1.7 line (rc.1 and rc.2) — the settings model rebuild (`SettingsProvider` → plugin Config + volatile), the client settings surface (`settingsScope` / `settings.plugin.item` removed → `configForms` / `plugins.*`), the removed `agent/session-start` event, and the mandatory tool `output` contract — have all been adapted. 0.1.7-rc.2 adds to rc.1 without removing or changing contract (zero service/event/slot deletions), so it needs no further adaptation. Hosts on 0.1.6 and earlier are not supported; see [CHANGELOG.md](CHANGELOG.md).
+> **Host compatibility (since `1.0.0-dev.2`)**: this plugin only supports `@deepseek-ai/dsh >= 0.1.7-rc.1 < 0.3.0` (peerDependencies narrowed accordingly). The breaking changes introduced by the 0.1.7 line (rc.1 and rc.2) — the settings model rebuild (`SettingsProvider` → plugin Config + volatile), the client settings surface (`settingsScope` / `settings.plugin.item` removed → `configForms` / `plugins.*`), the removed `agent/session-start` event, and the mandatory tool `output` contract — have all been adapted. 0.1.7-rc.2 adds to rc.1 without removing or changing contract (zero service/event/slot deletions), so it needs no further adaptation; 0.2.0-rc.1 likewise breaks no contract versus rc.2 (services 89→91 with zero deletions, events 81→81 unchanged, client slot entries 89→89 with zero additions or removals, model-visible tools unchanged, and the 11 host-side services and eight events this plugin consumes are verbatim unchanged in mode and signature), so the upper bound moves to `< 0.3.0` to cover the 0.2.x line. Hosts on 0.1.6 and earlier are not supported; see [CHANGELOG.md](CHANGELOG.md).
 
 What is registered here is the development target baseline, not verified support: of the six real-UI acceptance items required by `specs/08` §8, `/ldvh` and `/ldvh/api/health` are evidenced, while the settings card, conversation view, disable/restart, and uninstall cleanup have not been checked.
 

@@ -34,13 +34,13 @@ LD Vibe Harness（LDVH）的 DeepSeek Harness 原生插件。目标是在 DSH �
 dsh plugin --profile desktop add /absolute/path/to/dsh-ldvh/plugin
 ```
 
-安装或修改 Host/Client/bundle patch 后需要重启 DSH Desktop。当前开发目标环境（本机观察值，2026-09-26）：
+安装或修改 Host/Client/bundle patch 后需要重启 DSH Desktop。当前开发目标环境（本机观察值，2026-09-29）：
 
-- DSH Desktop `2.0.15-next`（`/Applications/DSH NEXT.app`）
-- `@deepseek-ai/dsh` `0.1.7-rc.2`
+- DSH Desktop `0.2.0-rc.1`（`/Applications/DeepSeek Harness.app`）
+- `@deepseek-ai/dsh` `0.2.0-rc.1`
 - Node.js `>=22.15.0`（代码下限；DSH 宿主 `dsh-plugin-desktop` 自身要求 `^22.19.0 || >=24.0.0`）
 
-> **宿主兼容（自 `1.0.0-dev.2` 起）**：本插件只支持 `@deepseek-ai/dsh >= 0.1.7-rc.1 < 0.2.0`（peerDependencies 已收窄）。0.1.7 线（rc.1 与 rc.2）对设置模型（SettingsProvider → 插件 Config + volatile）、客户端设置面（settingsScope / settings.plugin.item 删除 → configForms / plugins.*）、事件（agent/session-start 删除）与工具输出契约的破坏性变更均已适配；0.1.7-rc.2 相对 rc.1 为契约只增不改（服务/事件/槽位零删除），无需额外适配；0.1.6 及更早宿主不兼容，详见 [CHANGELOG.md](CHANGELOG.md)。
+> **宿主兼容（自 `1.0.0-dev.2` 起）**：本插件只支持 `@deepseek-ai/dsh >= 0.1.7-rc.1 < 0.3.0`（peerDependencies 已收窄）。0.1.7 线（rc.1 与 rc.2）对设置模型（SettingsProvider → 插件 Config + volatile）、客户端设置面（settingsScope / settings.plugin.item 删除 → configForms / plugins.*）、事件（agent/session-start 删除）与工具输出契约的破坏性变更均已适配；0.1.7-rc.2 相对 rc.1 为契约只增不改（服务/事件/槽位零删除），无需额外适配；0.2.0-rc.1 相对 rc.2 亦无契约破坏（服务 89→91 零删除、事件 81→81 零变化、客户端槽位条目 89→89 零增删、模型可见工具零变化，本插件消费的主机侧 11 个宿主服务与八个事件 mode/签名逐字未变），故上界推进到 `< 0.3.0` 以覆盖 0.2.x 线；0.1.6 及更早宿主不兼容，详见 [CHANGELOG.md](CHANGELOG.md)。
 
 本节登记的是开发目标基线，不等于已验证支持：`specs/08` §8 要求的真实 UI 验收六项中，`/ldvh` 与 `/ldvh/api/health` 已实证，设置卡片、会话视图、停用与重启、卸载清理尚未核对。
 
