@@ -672,30 +672,41 @@ test('阅读节点内纯文本与 Markdown 两种正文须同层级 (统一设�
   );
 });
 
-// 建议去向的四色区分（Human 2026-09-24）：四个去向各用一种颜色，扫读可分辨。
+// 建议去向的分类色（闭集二词，Human 裁决 2026-09-28）。
 //
 // 为什么需要守卫：设计语言有「着色必须单一来源，不得在业务组件里硬编码颜色类」
-// 的纪律（本文件上方已有同类断言）。四去向色是**分类色**，按同一纪律办——色表只在
-// `workcaseCheckState` 单点，组件只消费。故此处断言三件事：
-//   ① 色表在共享模块，且四词各有一个色类；
-//   ② 四个色类**两两不同**（否则「四色区分」名存实亡）；
-//   ③ 组件不自行硬编码建议标记的颜色（只经共享函数取色）。
-test('建议去向四词各有一色，且四色互不相同（Human 2026-09-24）', () => {
+// 的纪律（本文件上方已有同类断言）。去向色是**分类色**，按同一纪律办——色表只在
+// `workcaseCheckState` 单点，组件只消费。故此处断言四件事：
+//   ① 闭集二词各有一个色类（与 21 §8 现行词表一致）；
+//   ② 色表仍为**存量两词**保留色类（§15.3 存量不溯及；那两词已不可写入，
+//      但存量载体里还写着它们，掉进兜底色会让卡面显示成「未归类」）；
+//   ③ 四个色类**两两不同**（否则「分色区分」名存实亡）；
+//   ④ 组件不自行硬编码建议标记的颜色（只经共享函数取色）。
+test('建议去向：闭集二词各有色，存量两词仍保留色，四色互不相同（2026-09-28）', () => {
   const stateModule = readSource('web/src/utils/workcaseCheckState.ts');
   const draft = readSource('web/src/components/WorkCaseResultDraft.tsx');
 
-  // ① 四词齐全（与 21 §8 闭集四词一致）
-  for (const kind of ['另立工单', '接受现状', '转入 Spark', '直接行动']) {
+  // ① 闭集二词齐全（与 21 §8 现行闭集一致）
+  for (const kind of ['接受现状', '转入 Spark']) {
     assert.match(
       stateModule,
       new RegExp(`'${kind}':\\s*'[^']+'`),
-      `色表必须为去向「${kind}」登记色类`,
+      `色表必须为闭集去向「${kind}」登记色类`,
     );
   }
-  // ② 四色两两不同：把色表里的四段 value 抽出来比对
+  // ② 存量两词也要有色：这两词 2026-09-28 已撤出闭集，但既有载体里还在
+  // （§15.3 存量不溯及），无键即掉兜底色、卡面显示成「未归类」——信息损失。
+  for (const kind of ['另立工单', '直接行动']) {
+    assert.match(
+      stateModule,
+      new RegExp(`'${kind}':\\s*'[^']+'`),
+      `色表须为存量去向「${kind}」保留色类（存量对象仍会读出这两词）`,
+    );
+  }
+  // ③ 四色两两不同：把色表里的四段 value 抽出来比对
   const pairs = [...stateModule.matchAll(/'(另立工单|接受现状|转入 Spark|直接行动)':\s*'([^']+)'/g)]
     .map((m) => [m[1], m[2]] as const);
-  assert.equal(pairs.length, 4, `色表应恰好覆盖四词，实际 ${pairs.length}`);
+  assert.equal(pairs.length, 4, `色表应恰好覆盖二词＋存量两词，实际 ${pairs.length}`);
   const values = pairs.map(([, v]) => v);
   assert.equal(new Set(values).size, 4, `四个去向的色类必须互不相同，实际：${JSON.stringify(values)}`);
 

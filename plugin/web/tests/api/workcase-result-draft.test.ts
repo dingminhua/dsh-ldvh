@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import {
   WORKCASE_CHECK_STATUSES,
   WORKCASE_ADVICE_KINDS,
+  WORKCASE_ADVICE_LEGACY_KINDS,
   parseWorkCaseResultDraft,
   parseWorkCaseCancellation,
   resultSectionOf,
@@ -26,10 +27,12 @@ function bodyOf(resultLines: string[]): string {
 
 test('闭集常量', () => {
   assert.deepEqual([...WORKCASE_CHECK_STATUSES], ['achieved', 'partial', 'not-achieved']);
-  assert.deepEqual(
-    [...WORKCASE_ADVICE_KINDS],
-    ['另立工单', '接受现状', '转入 Spark', '直接行动'],
-  );
+  // 去向闭集（21 §8）：2026-09-28 由四词收为二词——四词里「另立工单」「直接行动」
+  // 都不产生可回指的稳定标识，去向有无归宿只能靠读散文判断。
+  assert.deepEqual([...WORKCASE_ADVICE_KINDS], ['接受现状', '转入 Spark']);
+  // 存量词（2026-09-28 前登记的闭集）：不再是闭集取值，只为呈现保留——
+  // 既有载体里还写着它们，记 null 会让卡面显示成「未归类」，是信息损失。
+  assert.deepEqual([...WORKCASE_ADVICE_LEGACY_KINDS], ['另立工单', '直接行动']);
 });
 
 test('resultSectionOf：取「## 结果」节，遇下一个 H2 停止', () => {
@@ -94,25 +97,43 @@ test('只认登记三词：其它写法落为 null（不猜、不静默归一）
 test('advice 段：`- advice:` 内每条给去向与内容', () => {
   const body = bodyOf([
     '- advice:',
+    '  - **接受现状**：弹窗行为不再跟踪，理由是该期无宿主可验。',
+    '  - **转入 Spark**：把级联信号拆成独立议题。',
+  ]);
+  const d = parseWorkCaseResultDraft(body, PLAN);
+  assert.deepEqual(d.advice, [
+    { kind: '接受现状', text: '弹窗行为不再跟踪，理由是该期无宿主可验。' },
+    { kind: '转入 Spark', text: '把级联信号拆成独立议题。' },
+  ]);
+});
+
+test('advice 段：存量词仍认得（只作呈现），但已不是闭集取值', () => {
+  const body = bodyOf([
+    '- advice:',
     '  - **另立工单**：另立一单实现级联信号。',
     '  - **直接行动**：把该分支改为 fail-closed。',
   ]);
   const d = parseWorkCaseResultDraft(body, PLAN);
-  assert.deepEqual(d.advice, [
-    { kind: '另立工单', text: '另立一单实现级联信号。', from: null },
-    { kind: '直接行动', text: '把该分支改为 fail-closed。', from: null },
-  ]);
+  // 存量载体里还写着这两词（§15.3 存量不溯及）。记 null 会让卡面显示成「未归类」，
+  // 而它们在当时的词表里有明确含义——呈现层保留其原本去向是信息更全的做法。
+  // 写入侧另有独立门禁（validateDirectionCompleteness 只认二词），不受此处影响。
+  assert.deepEqual(d.advice.map((a) => a.kind), ['另立工单', '直接行动']);
 });
 
-test('advice 段：`出自「…」`尾注拆成 from，正文不含尾注', () => {
+// 存量尾注（`21 §8` 2026-09-28 前登记的形态）：新形态靠**按序配对**与
+// `result.residual` 对应，尾注不再是任何字段的来源。但存量载体里它还在，
+// 若原样留在正文里就会混进卡面，把「某条残留」这类元信息当成去向正文显示。
+test('advice 段：存量的 `出自「…」` 尾注被剥离，且不产出任何字段', () => {
   const body = bodyOf([
     '- advice:',
-    '  - **另立工单**：以同一手法普查其余六类。出自「同型缺陷未普查其余六类」',
+    '  - **接受现状**：以同一手法普查其余六类。出自「同型缺陷未普查其余六类」',
   ]);
   const d = parseWorkCaseResultDraft(body, PLAN);
-  assert.deepEqual(d.advice, [
-    { kind: '另立工单', text: '以同一手法普查其余六类。', from: '同型缺陷未普查其余六类' },
-  ]);
+  assert.deepEqual(d.advice, [{ kind: '接受现状', text: '以同一手法普查其余六类。' }]);
+  assert.ok(
+    !('from' in d.advice[0]),
+    '尾注已不是字段来源（21 §8 已删该项），不得再产出 from',
+  );
 });
 
 test('advice 段：未登记的去向词记 null（不静默归一到近似词）', () => {
@@ -202,13 +223,13 @@ test('advice 段判别力：去向词必须在行首加粗，否则记未归类'
   const body = bodyOf([
     '- advice:',
     '  - 建议另立工单补该路由的投影。',
-    '  - **直接行动**：把该分支改为 fail-closed。',
+    '  - **接受现状**：弹窗行为不再跟踪。',
   ]);
   const d = parseWorkCaseResultDraft(body, PLAN);
   assert.deepEqual(d.advice, [
     // 无加粗行首 → 判不出去向（旧实现按关键词猜成「另立工单」，已按 21 §8 收紧）
-    { kind: null, text: '建议另立工单补该路由的投影。', from: null },
-    { kind: '直接行动', text: '把该分支改为 fail-closed。', from: null },
+    { kind: null, text: '建议另立工单补该路由的投影。' },
+    { kind: '接受现状', text: '弹窗行为不再跟踪。' },
   ]);
 });
 

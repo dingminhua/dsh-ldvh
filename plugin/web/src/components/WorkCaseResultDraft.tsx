@@ -121,7 +121,7 @@ export default function WorkCaseResultDraft({
         </div>
       )}
 
-      {/* 块底中性：标记已是四色，底再带靛蓝会让「另立工单」的蓝标记与底色混淆 */}
+      {/* 块底中性：标记自带去向色，底再带靛蓝会让标记与底色混淆 */}
       {advices.length > 0 && (
         <div className="min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/45 px-2.5 py-2">
           {adviceNote && (
@@ -135,18 +135,13 @@ export default function WorkCaseResultDraft({
               data-workcase-advice-kind={item.kind ?? 'unclassified'}
               className={WORKCASE_ITEM_ROW_CLASS}
             >
-              {/* 四色按去向区分（21 §8 闭集四词）——色值取自共享表，不在此硬编码 */}
+              {/* 按去向着色（21 §8 闭集二词）——色值取自共享表，不在此硬编码 */}
               <span className={`${WORKCASE_CHECK_TAG_BASE} ${workCaseAdviceTagClass(item.kind)}`}>
                 {item.kind
                   ? t(`objectList.workcaseAdvice.${item.kind}` as LocaleKey)
                   : t('objectList.workcaseAdvice.unclassified')}
               </span>
               <span>{stripCardMarkdown(item.text)}</span>
-              {item.from && (
-                <span className="mt-0.5 block text-[11px] text-ldvh-text-secondary">
-                  {t('objectList.workcaseAdviceFrom', { source: item.from })}
-                </span>
-              )}
             </div>
           ))}
         </div>

@@ -602,10 +602,12 @@ function projectCurrentWorkCaseCardShape(
       const cancellation = parseWorkCaseCancellation(fact.report_body)
       if (cancellation !== null) projected.cancellation = cancellation
     }
-    // 去向（`21 §8` 建议段）：**只有一处承载**——正文「## 结果」节的 `- advice:` 段，
-    // 而 `close` 不删正文，故关闭后它仍然在原处。`result` 字段闭集
-    // （`criteria_checks`／`achieved_scope`／`residual`）从来不含 advice，
-    // 故此处**读的是与「待批准关闭」期同一处**，不另存一份。
+    // 去向（`21 §8` 建议段）：**同一去向不重复承载**（`§10.2` 2026-09-28 表述）——
+    // 去向词与建议正文只在正文「## 结果」节的 `- advice:` 段出现一处，而 `close`
+    // 不删正文，故关闭后它仍然在原处（`result` 字段闭集
+    // `criteria_checks`／`achieved_scope`／`residual` 从来不含 advice）；
+    // 「转入 Spark」的**指向**（哪个 Spark）另在 `relations.routed-to` 承载一处，
+    // 是对象标识而非散文回指。故此处**读的是与「待批准关闭」期同一处**，不另存一份。
     //
     // 此前本分支不解析建议段，后果是**关闭后去向在卡上消失**——而 `§10.2` 把它列为
     // Gate 2 的提请必含项（Human 判断关闭所依据的输入之一）。解析不出的条目落空而不猜。

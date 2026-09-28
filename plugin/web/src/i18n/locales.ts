@@ -1191,12 +1191,13 @@ export const UI_LOCALES = {
     'objectList.workcaseCheck.partial': '部分达成',
     'objectList.workcaseCheck.not-achieved': '未达成',
     'objectList.workcaseCheck.unrecorded': '未记录',
+    // 去向词（21 §8 建议段）。前两条为闭集二词；后两条是 2026-09-28 撤销的存量词，
+    // 仅为既有载体继续可读而保留（§15.3 存量不溯及）——受控写入已拒绝这两词。
     'objectList.workcaseAdvice.另立工单': '另立工单',
     'objectList.workcaseAdvice.接受现状': '接受现状',
     'objectList.workcaseAdvice.转入 Spark': '转入 Spark',
     'objectList.workcaseAdvice.直接行动': '直接行动',
     'objectList.workcaseAdvice.unclassified': '未归类',
-    'objectList.workcaseAdviceFrom': '出自「{source}」',
     // 「已关闭」卡的结论行与残留块（Human 2026-09-24 方案 A）
     'objectList.workcaseCheckTally': '核对 {achieved}/{total} 达成',
     // 「已关闭」卡的取消记录（21 §8，仅 outcome=cancelled）
@@ -1914,12 +1915,15 @@ export const UI_LOCALES = {
     'objectList.workcaseCheck.partial': 'Partial',
     'objectList.workcaseCheck.not-achieved': 'Not achieved',
     'objectList.workcaseCheck.unrecorded': 'Unrecorded',
+    // Advice directions (21 §8 advice section). The first two are the current
+    // closed set; the next two were retired on 2026-09-28 and are kept only so
+    // existing carriers stay readable (§15.3 存量不溯及) — the write path
+    // rejects them.
     'objectList.workcaseAdvice.另立工单': 'New WorkCase',
     'objectList.workcaseAdvice.接受现状': 'Accept',
     'objectList.workcaseAdvice.转入 Spark': 'Spark suspension',
     'objectList.workcaseAdvice.直接行动': 'Direct action',
     'objectList.workcaseAdvice.unclassified': 'Unclassified',
-    'objectList.workcaseAdviceFrom': 'from \u201c{source}\u201d',
     // Closed-card conclusion line and residual block (Human 2026-09-24, option A)
     'objectList.workcaseCheckTally': '{achieved}/{total} achieved',
     // Closed-card cancellation record (21 §8, outcome=cancelled only)

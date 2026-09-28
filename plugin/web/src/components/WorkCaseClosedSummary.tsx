@@ -256,7 +256,7 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
       {/* ②'' 去向（21 §8 建议段）：与「待批准关闭」期同一处承载。
           名称用中性「去向」——§10.2 明写批准对象只有「关闭」与 outcome，
           去向不因关闭而成为承诺，故不得写成「后续去向」一类暗示已批准的措辞。
-          块底中性（与建议块一致）：标记已是四色，底再着色会与标记混淆。 */}
+          块底中性（与建议块一致）：标记自带去向色，底再着色会与标记混淆。 */}
       {advice.length > 0 && (
         <div className="min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/45 px-2.5 py-2">
           {adviceNote && (
@@ -276,11 +276,6 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
                   : t('objectList.workcaseAdvice.unclassified')}
               </span>
               <span>{stripCardMarkdown(item.text)}</span>
-              {item.from && (
-                <span className="mt-0.5 block text-[11px] text-ldvh-text-secondary">
-                  {t('objectList.workcaseAdviceFrom', { source: item.from })}
-                </span>
-              )}
             </div>
           ))}
         </div>

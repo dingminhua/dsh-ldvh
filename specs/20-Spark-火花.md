@@ -253,7 +253,7 @@ frontmatter 闭集：
 | `merged-into` | 当前 Spark → 目标 Spark | Spark | 1 | 本议题被合并进目标 | 仅 `discarded` 状态可出现；目标必须可解析且为 `open`（合并目标是继续承载议题的活对象，不是历史归档） |
 | `split-into` | 当前 Spark → 目标 Spark | Spark | 1..n | 本议题被拆分为目标子议题 | 仅 `discarded` 状态可出现；全部目标必须可解析且为 `open`（子议题各自独立悬置，不是历史归档） |
 
-不采用 `related-to` 作为本类型普通关联键（v4 曾用 related-to 表达普通关联，但 v4 20:86 明确「不得把泛化 related-to 伪装成拆分谱系」；v5 用结构化关系键承载合并/拆分）。**普通关联已由 03 §7.2 提升为公共契约**——以关联引用型字段 `refs` 承载（§8），不进入 `relations` 闭集、不定义 relation key；本类型不再自立同义字段。不建立责任承接关系（`routed-to` 不进入本类型——交给 WorkCase 只在 `implemented` 的 `disposition` 中记录，不改变 WorkCase 自身生命周期）。
+不采用 `related-to` 作为本类型普通关联键（v4 曾用 related-to 表达普通关联，但 v4 20:86 明确「不得把泛化 related-to 伪装成拆分谱系」；v5 用结构化关系键承载合并/拆分）。**普通关联已由 03 §7.2 提升为公共契约**——以关联引用型字段 `refs` 承载（§8），不进入 `relations` 闭集、不定义 relation key；本类型不再自立同义字段。不建立责任承接关系（`routed-to` 不进入本类型——交给 WorkCase 由该类型的 `relations.routed-to` 承载，不改变 WorkCase 自身生命周期，也不改变本类型生命周期）。**更正（2026-09-28）**：本句此前写作「交给 WorkCase 只在 `implemented` 的 `disposition` 中记录」，而 WorkCase **没有 `disposition` 字段**（21 §8 字段清单无此项），该承载点不存在；真实承载点自 2026-09-28 起是 `21 §12` 的 `relations.routed-to`——它由 WorkCase 侧写入，目标是本类型的一个 `open` Spark，Spark 侧不复制反向边（03 §7.2 第 4 条）。
 
 强制约束：`discarded` 若声明了 `merged-into`/`split-into` 关系，目标必须可解析且为 `open`（存在、可读、同项目），否则视为未完整关闭，进入 Stop Condition。无合并/拆分关系的 `discarded` 按普通废弃处理。关系变更必须使用对象当前指纹绑定的完整更新入口，写后精确回读。
 
@@ -263,7 +263,7 @@ frontmatter 闭集：
 |---|---|---|
 | 调研（30 号调研系统） | 悬置问题转入调研时 | question + object_uid |
 | 讨论（31 号讨论系统残项悬置） | 未收敛点分流时 | 未决问题 + 判断标准与监测条件 |
-| WorkCase 关闭去向（21 §8 闭集四词之「转入 Spark」） | Gate 2 处置剩余责任时 | 新建或更新 Spark 悬置议题 |
+| WorkCase 关闭去向（21 §8 闭集**二词**之「转入 Spark」，2026-09-28 由四词收为二词） | Gate 2 处置剩余责任时 | 新建或更新 Spark 悬置议题；WorkCase 侧以 `relations.routed-to` 承载指向（21 §12），本类型不复制反向边 |
 | Web 列表筛选与排序 | Human 浏览 Spark 列表时 | `priority` + `serves` + `status` 三条件筛选；按 `priority` 或时间排序 |
 | 认知中心 Spark 健康度 | 认知中心渲染时 | `status`/`priority`/`serves`/`change_log` 聚合；按最近一次流水时间派生的「距上次更新天数」（供呈现与按时间筛选） |
 
@@ -397,5 +397,5 @@ Human 决定只证明决定及其作用范围，不替代问题语义审核、�
 4. 不为 Spark 建副本/索引——消费点直读；
 5. 不为「Gap 太大」建二级 Spark 嵌套；
 6. 不为合并/拆分建独立状态——用 discarded + 关系承载，不新增状态值；
-7. 不建责任承接关系（routed-to 不进入本类型）——交给 WorkCase 在 disposition 中记录；
+7. 不建责任承接关系（routed-to 不进入本类型）——交给 WorkCase 由该类型的 `relations.routed-to` 承载（21 §12，2026-09-28 更正：此前写作「在 disposition 中记录」，而 WorkCase 无 `disposition` 字段）；
 8. 不把普通关联复制为泛化 relation key——普通关联已由 03 §7.2 提升为公共契约（关联引用型字段 `refs`），本类型按该形态采用，不在本类型自立同义字段或新增关联性 relation key；

@@ -320,9 +320,13 @@ function validateStructuredWriting(frontmatter, issues, baselineSummary, baselin
   }
 }
 
-/** Relations contract (21 §12): contributed-to → Pitfall only. */
-const ALLOWED_RELATION_KEYS = new Set(["contributed-to"]);
+/**
+ * Relations contract (21 §12, 2026-09-28): contributed-to → Pitfall,
+ * routed-to → Spark (残留去向；target must be open at write time).
+ */
+const ALLOWED_RELATION_KEYS = new Set(["contributed-to", "routed-to"]);
 const PITFALL_DIRECTORY = "pitfalls";
+const SPARK_DIRECTORY = "sparks";
 
 const OBJECT_UID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SG_ANCHOR_PATTERN = /^SG-\d+$/;
@@ -765,7 +769,12 @@ function validateResult(frontmatter, issues) {
     } else {
       // 逐条对应 plan[].done_criteria — length must match (21 §8 invariant).
       // cancelled may omit the array entirely (nothing was executed).
-      if (!isCancelled && r.criteria_checks.length !== frontmatter.plan.length) {
+      //
+      // `plan` 缺失/非数组时**不比长度**：此时没有可比的基准，且类型错误的 plan 由
+      // `validatePlanShape` 单独报错（fail closed 仍成立）。原先直接读
+      // `frontmatter.plan.length` 会在 plan 缺失时抛 TypeError——机械校验应当
+      // **报告**不符合项，而不是崩溃（01 §12.3 第 4 维）。
+      if (!isCancelled && Array.isArray(frontmatter.plan) && r.criteria_checks.length !== frontmatter.plan.length) {
         issues.push(`result.criteria_checks: length ${r.criteria_checks.length} must match plan length ${frontmatter.plan.length} (逐条对应, 21 §8)`);
       }
       r.criteria_checks.forEach((c, i) => {
@@ -956,24 +965,37 @@ export function validateWorkcaseFrontmatter(frontmatter, baselinePlan = null, ba
     }
   }
 
-  // relations: contributed-to → Pitfall only (21 §12)
+  // relations: contributed-to → Pitfall, routed-to → Spark (21 §12, 2026-09-28)
   if (frontmatter.relations !== undefined) {
     if (!Array.isArray(frontmatter.relations) || frontmatter.relations.length === 0) {
-      issues.push("relations: must be a non-empty array of {relation_key: contributed-to, target: {object_uid}} — omit when there is none (03 §6.1)");
+      issues.push("relations: must be a non-empty array of {relation_key: contributed-to|routed-to, target: {object_uid}} — omit when there is none (03 §6.1)");
     } else {
+      // 去重口径（21 §15.1「关系闭集」条，2026-09-28 登记）：判定键是
+      // `relation_key::target`（大小写不敏感），**不是** target 单独一项。两处含义：
+      //
+      //   ① 跨 relation key 的同目标**不是**重复——`routed-to → X` 与
+      //      `contributed-to → X` 是两条指向不同事实类型的关系，各自独立成立
+      //      （03 §7.2 不变量 3：同义重复的判定权在定义该关系的类型来源）；
+      //   ② `routed-to` 的同键同目标**允许重复**——每条「转入 Spark」建议须有
+      //      **恰一条**对应关系（§8/§15.1 去向完整性），故两条残留都转入同一
+      //      Spark 时必然要求两条同 uid 的边。这是「按条对应」的承载，不是同义重复。
+      //      `contributed-to` 无此逐条对应义务，同键同目标仍是同义重复，一律拒绝。
       const seen = new Set();
       for (const entry of frontmatter.relations) {
         if (!isPlainObject(entry)) { issues.push("relations[]: members must be objects"); continue; }
         if (!ALLOWED_RELATION_KEYS.has(entry.relation_key)) {
-          issues.push(`relations[].relation_key: must be "contributed-to" (21 §12 关系闭集), got ${JSON.stringify(entry.relation_key)} — fail closed`);
+          issues.push(`relations[].relation_key: must be "contributed-to" or "routed-to" (21 §12 关系闭集), got ${JSON.stringify(entry.relation_key)} — fail closed`);
         }
         const target = entry.target?.object_uid;
         if (typeof target !== "string" || !OBJECT_UID_PATTERN.test(target)) {
-          issues.push(`relations[].target.object_uid: must be a canonical UUIDv4 (Pitfall target, 21 §12), got ${JSON.stringify(target)}`);
-        } else if (seen.has(target)) {
-          issues.push(`relations[]: duplicate target ${target} (03 §7.2 invariant 3)`);
+          issues.push(`relations[].target.object_uid: must be a canonical UUIDv4 (target of ${entry.relation_key === "routed-to" ? "routed-to → Spark" : "contributed-to → Pitfall"}, 21 §12), got ${JSON.stringify(target)}`);
+        } else {
+          const dedupe = `${entry.relation_key}::${target.toLowerCase()}`;
+          if (entry.relation_key !== "routed-to" && seen.has(dedupe)) {
+            issues.push(`relations[]: duplicate relation ${entry.relation_key} → ${target} (21 §15.1; 03 §7.2 invariant 3)`);
+          }
+          seen.add(dedupe);
         }
-        seen.add(target);
       }
     }
   }
@@ -1158,6 +1180,153 @@ function parseCancellationRecord(resultSection) {
   return { reason: found["理由"] ?? "", unstartedScope: found["未发生的范围"] ?? "" };
 }
 
+// ---------------------------------------------------------------------------
+// 去向完整性（21 §8 / §15.1 / §16，2026-09-28）
+// ---------------------------------------------------------------------------
+
+/**
+ * 建议段的去向词闭集（21 §8，Human 裁决 2026-09-28：由四词收为二词）。
+ * 二词按**责任去哪**分：接受现状＝明确不跟踪、就此了结（须给非空理由）；
+ * 转入 Spark＝转为 Spark 悬置议题待裁（须有对应 `routed-to`）。
+ */
+const ADVICE_DIRECTIONS = new Set(["接受现状", "转入 Spark"]);
+const ADVICE_BLOCK = /^(advice|建议)\s*[:：]?$/;
+const ADVICE_TITLED = /^\*\*(.+?)\*\*\s*[:：]?\s*([\s\S]*)$/;
+/** 存量形态（2026-09-28 前）：条目尾部的可选出处尾注（§15.3 存量不溯及）。 */
+const ADVICE_LEGACY_FROM = /出自「([^」]+)」\s*$/;
+
+/**
+ * 解析「## 结果」节里的建议段（21 §8）。与呈现层
+ * `plugin/web/shared/workcaseResultDraft.ts` 的 `parseWorkCaseResultDraft`
+ * **同形态**——两棵树互不 import（`lib` 与 `web` 独立，见 `markdown-structure.js`
+ * 的同类先例），故此处保留一份实现；形态由 §8 单点登记，两处都只实现它。
+ *
+ * 语义（与 §15.1「去向完整性」的判据边界逐字对应）：
+ *   - 建议段由 `- advice:`（或 `- 建议:`）**顶格**开启，同级或更浅的下一个 bullet 收束
+ *     （同 `residual` 段与取消记录的收束规则）；
+ *   - 段内**每一行 bullet** 计为一条建议条目（含不达 `- **<去向词>**：<正文>`
+ *     形态者——它们以 `kind: null` 呈现，由调用方 fail closed 拒绝）；
+ *   - **条目须缩进**（§8 登记形态为嵌套列表 `- advice:` 顶格、条目缩进 2 空格）：
+ *     与块开启符**同级或更浅**的 bullet 属于收束后的其它内容，**不计入条目数**。
+ *     故顶格书写的条目按零条计，在 `residual` 非空时以「条数不符」被拒（不静默丢弃）。
+ *     该口径已于 2026-09-28 在 §8 与 §15.1 逐字登记（此前只在代码块的排版里隐含）。
+ *   - 存量尾注 `出自「…」` 被剥离且**不产出**出处字段：新形态已无「出处」一项，
+ *     条目与 `residual` 的对应关系改为**按序配对**（§8）。
+ */
+function parseAdviceSection(resultSection) {
+  const entries = [];
+  let seen = false;
+  let mode = false;
+  let modeIndent = 0;
+  for (const rawLine of String(resultSection).split("\n")) {
+    const bullet = /^(\s*)-\s+(.*)$/.exec(rawLine);
+    if (!bullet) continue;
+    const indent = bullet[1].length;
+    const item = bullet[2].trim();
+    if (!mode) {
+      if (ADVICE_BLOCK.test(item)) { mode = true; modeIndent = indent; seen = true; }
+      continue;
+    }
+    if (indent <= modeIndent) { mode = false; continue; }
+    const titled = ADVICE_TITLED.exec(item);
+    const kindText = titled ? titled[1].trim() : "";
+    let text = titled ? titled[2].trim() : item;
+    const fromMatch = ADVICE_LEGACY_FROM.exec(text);
+    if (fromMatch) text = text.slice(0, fromMatch.index).trim();
+    entries.push({ kind: ADVICE_DIRECTIONS.has(kindText) ? kindText : null, kindText, text });
+  }
+  return { present: seen, entries };
+}
+
+/**
+ * 去向完整性（21 §8 字段间不变量 / §15.1 / §16）。**分档**：结构硬门禁 + 写法约定 + 语义软约束。
+ *
+ * 硬门禁（机械执行，写入一律拒绝）：
+ *   ① 建议段条数 = `result.residual` 长度；`residual` 为空时不得有建议段；
+ *   ② 每条「转入 Spark」有恰一条对应的 `routed-to`（**条数一致**）；
+ *   ③ 每条「接受现状」的建议正文非空；
+ *   ④ 每条建议的去向词落在闭集二词内（不达形态者按 `kind: null` 拒绝，不静默丢弃）。
+ *
+ * 写法约定（本项**不**判定，如实登记、非机械门禁）：**顺序对应**——建议段条目只写
+ * 去向词与正文，**不携带**所对应 `residual` 条目或目标 Spark 的标识，故「第 k 条
+ * 建议 ↔ `residual` 第 k 项」「第 k 条「转入 Spark」↔ 第 k 条 `routed-to`」两条按序
+ * 配对在机械上不可核验（实测：把 `relations` 数组顺序对调仍全部通过）。顺序由写作者
+ * 自行保证；规范侧已同口径登记（§8、§15.1、§16），呈现层的按序配对只是陈列约定。
+ * 曾把该项写成「机械门禁」属**能力高估**，2026-09-28 更正。
+ *
+ * 软约束（本节不判定，归 AI 语义审核与 Human 阅读）：去向**选择**是否恰当、理由是否
+ * 成立、是否构成实质挂起、目标 Spark 语义上是否真的容纳该残留。
+ *
+ * **适用范围（存量不溯及的口径，§15.1/§15.3）**：基线**已是 closed** 的写入（`correct`）
+ * 只有在**改动了「## 结果」节**时才受本项约束——存量 closed 对象按当时四词书写、
+ * 且**从无** `routed-to`（实测 17 份 closed 中有 6 份建议段条数与 `residual` 长度不符，
+ * 另 1 份含「转入 Spark」却无 `routed-to`），若对 `correct` 无条件套用，这些对象的
+ * **任何**更正（含与去向无关的事实更正）都会被拒，与 §15.3 的存量不溯及直接冲突。
+ * 豁免基准是**「## 结果」节逐字未改**（非「解析出的条目列表深等」——条目级比较只覆盖
+ * `- ` 条目，会放过改写尾注、加缩进续行、加整段散文、改缩进四类正文编辑，2026-09-28 更正）；
+ * `baselineBody` 缺失时**按已改动处理**（fail closed：未知不等于未改动）。
+ *
+ * **存量普查的实测口径（2026-09-28，走真实校验器而非正则）**：closed 17 份，
+ * `result.residual` 共 78 条，建议段共 56 条；条数不符 **6** 份
+ * （`workcase-18fcee2c` 6:3、`workcase-1c6afa19` 4:2、`workcase-364df30e` 8:3、
+ * `workcase-4af2b871` 10:8、`workcase-8d2ba256` 8:5、`workcase-99957f65` 8:1）；
+ * 含「转入 Spark」而无 `routed-to` 恰 1 份（`workcase-8f4742f5`）。
+ * 早期以「实测」名义写入的「8 份」是**用正则解析 Markdown 列表得出的错值**，已更正。
+ *
+ * **本项在存量改写通道上的已知限制（如实登记）**：`correct` 不接收 frontmatter，
+ * 且 closed 对象无 `execute` 通道，故存量建议段里的「转入 Spark」条目**无法**在
+ * 改写时补齐 `routed-to`——存量改写只有三种可行写法：写成「接受现状」（含非空理由）
+ * 并如实说明原意向、保持建议段逐字不动、或由 Human 另行决定处置。本项不代替该决定。
+ */
+export function validateDirectionCompleteness(frontmatter, body, baseline = null, baselineBody = null) {
+  const issues = [];
+  if (frontmatter.status !== "closed") return { ok: true, issues };
+  if (frontmatter.outcome === "cancelled") return { ok: true, issues };
+
+  const residual = Array.isArray(frontmatter.result?.residual) ? frontmatter.result.residual : [];
+  const advice = parseAdviceSection(sectionContent(body, BODY_H2_RESULT) ?? "");
+  const relations = Array.isArray(frontmatter.relations) ? frontmatter.relations : [];
+  const routedTo = relations.filter((entry) => entry?.relation_key === "routed-to");
+
+  // 存量豁免（§15.3 存量不溯及）的**实际基准是「## 结果」节整体逐字未改**，
+  // 不是「解析出的条目列表深等」。2026-09-28 更正：早前的条目级比较只覆盖
+  // `- ` 条目，正文内在条目之外的任何编辑（改写尾注、加缩进续行、加整段散文、
+  // 改缩进）都能在新门禁下自由通过，实测四类逃逸全部被放行——那是登记为
+  // 「窄豁免」、实际却是「结果节正文自由编辑通道」的防自欺缺口（01 §12.3 第 6 维）。
+  // 逐字比较整节后，任何改动该节的写入都受检（fail closed），未触碰该节的更正照常放行。
+  // `baselineBody` 缺失时**按已改动处理**（未知不等于未改动）。
+  if (baseline && baseline.status === "closed" && typeof baselineBody === "string") {
+    const baselineResult = sectionContent(baselineBody, BODY_H2_RESULT);
+    const currentResult = sectionContent(body, BODY_H2_RESULT);
+    if (baselineResult !== null && currentResult !== null && baselineResult === currentResult) {
+      return { ok: true, issues };
+    }
+  }
+
+  if (residual.length === 0) {
+    if (advice.present) {
+      issues.push(`direction completeness: "## 结果" 建议段 must not exist when result.residual is empty (21 §8 字段间不变量) — got ${advice.entries.length} advice entr${advice.entries.length === 1 ? "y" : "ies"}`);
+    }
+  } else if (advice.entries.length !== residual.length) {
+    issues.push(`direction completeness: "## 结果" 建议段 must carry exactly ${residual.length} entr${residual.length === 1 ? "y" : "ies"} — one per result.residual item, in order (21 §8/§15.1); got ${advice.entries.length}`);
+  }
+
+  const transfers = advice.entries.filter((entry) => entry.kind === "转入 Spark");
+  if (transfers.length !== routedTo.length) {
+    issues.push(`direction completeness: advice carries ${transfers.length} 「转入 Spark」 entr${transfers.length === 1 ? "y" : "ies"} but relations carries ${routedTo.length} routed-to — 条数须一致且按序配对 (21 §8/§12/§15.1)`);
+  }
+
+  advice.entries.forEach((entry, i) => {
+    if (entry.kind === null) {
+      issues.push(`direction completeness: advice[${i}] 去向词 ${JSON.stringify(entry.kindText.length > 0 ? entry.kindText : entry.text.slice(0, 40))} is not one of the closed set 接受现状/转入 Spark, and the entry does not match the registered form "- **<去向词>**：<正文>" (21 §8) — fail closed`);
+    } else if (entry.kind === "接受现状" && entry.text.length === 0) {
+      issues.push(`direction completeness: advice[${i}] 「接受现状」 must carry a non-empty reason — 明确不跟踪须说明为什么不继续跟踪 (21 §8/§15.1)`);
+    }
+  });
+
+  return { ok: issues.length === 0, issues };
+}
+
 /**
  * Carrier coherence (21 §8 不变量 / §15.1 / §16 载体内聚): frontmatter is the
  * single authoritative text, and the body only expands it. Mechanical scope is
@@ -1291,10 +1460,10 @@ export async function readWorkcaseObject(args) {
  * 载体内聚（§8/§15.1/§16）**不消费 baseline**：其登记范围（summary/scope 逐字 +
  * plan[].step 按序）对存量对象本就 16/16 无条件通过，无需适用范围限制。
  */
-async function writeValidated(factSourceRoot, frontmatter, body, baseline = null) {
+async function writeValidated(factSourceRoot, frontmatter, body, baseline = null, baselineBody = null) {
   // 机械校验走**单一编排**（runMechanicalChecks）——与 create 的预检同一函数集，
   // 见该函数说明。此处不再内联复写三件套。
-  const check = runMechanicalChecks(frontmatter, body, baseline);
+  const check = runMechanicalChecks(frontmatter, body, baseline, baselineBody);
   if (!check.ok) {
     return failure(check.code, check.message, { issues: check.issues });
   }
@@ -1328,22 +1497,62 @@ async function resolveServes(factSourceRoot, serves) {
   return null;
 }
 
+/**
+ * 关系目标解析（21 §12，2026-09-28 起按 relation key 分派）：
+ *
+ *   - `contributed-to` → 同项目 **Pitfall** 对象（载体文件存在即可，不校验状态）；
+ *   - `routed-to` → 同项目 **Spark** 对象，且其 `status` 在**写入时**必须为 `open`
+ *     （`implemented`/`discarded` 的 Spark 已不再承载议题，不能作为残留去向）。
+ *
+ * 失败一律零写入（调用方在落盘前返回 failure），不静默丢弃该关系。
+ */
 async function resolveRelationsTargets(factSourceRoot, relations) {
   if (!Array.isArray(relations) || relations.length === 0) return null;
   const missing = [];
+  const notOpen = [];
   for (const entry of relations) {
     const target = entry?.target?.object_uid;
     if (typeof target !== "string") continue;
-    try {
-      await readFile(join(factSourceRoot, PITFALL_DIRECTORY, `pitfall-${target}.md`), "utf8");
-    } catch {
-      missing.push(target);
+    if (entry?.relation_key === "routed-to") {
+      let content;
+      try {
+        content = await readFile(join(factSourceRoot, SPARK_DIRECTORY, `spark-${target}.md`), "utf8");
+      } catch {
+        missing.push(target);
+        continue;
+      }
+      const status = readFrontmatterField(content, "status");
+      if (status !== "open") notOpen.push(`${target} (status=${status ?? "unreadable"})`);
+    } else {
+      try {
+        await readFile(join(factSourceRoot, PITFALL_DIRECTORY, `pitfall-${target}.md`), "utf8");
+      } catch {
+        missing.push(target);
+      }
     }
   }
   if (missing.length > 0) {
-    return failure("workcase/relations_unresolvable", `contributed-to target(s) not found as Pitfall objects: ${missing.join(", ")} (21 §12: target must resolve to a same-project Pitfall)`, { missing });
+    return failure("workcase/relations_unresolvable", `relations target(s) not found as same-project objects: ${missing.join(", ")} (21 §12: contributed-to → Pitfall, routed-to → Spark)`, { missing });
+  }
+  if (notOpen.length > 0) {
+    return failure("workcase/relations_unresolvable", `routed-to target(s) are not open Spark objects: ${notOpen.join(", ")} (21 §12: the target Spark must be open at write time — 残留去向只能指向仍在承载议题的 Spark)`, { notOpen });
   }
   return null;
+}
+
+/**
+ * 从载体全文取单一 frontmatter 标量（仅用于关系目标的状态判定）。
+ * 解析失败时返回 `undefined`，由调用方按 fail-closed 处理（不得解释为 open）。
+ */
+function readFrontmatterField(content, key) {
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n/);
+  if (!fmMatch) return undefined;
+  try {
+    const fm = parseYaml(fmMatch[1]);
+    return fm?.[key];
+  } catch {
+    return undefined;
+  }
 }
 
 function stripCallerOnlyFields(draft) {
@@ -1476,8 +1685,13 @@ async function evaluateCreateCandidate({ factSourceRoot, frontmatterDraft, bodyM
  *
  * `baseline` 非空时（update 类动作）沿用既有适用范围语义：只校验相对基线新增或
  * 改动的字段，逐字未改的既有字段放行（见 §15.1 书写结构的适用范围说明）。
+ *
+ * `baselineBody` 只服务第四组（去向完整性）的**存量不溯及**判定：该组需要比对
+ * 「建议段是否被改动」，而建议段在正文里，故仅有 baseline frontmatter 不够。
+ * 缺失时按「已改动」处理（fail closed）——未知不等于未改动。见
+ * `validateDirectionCompleteness` 的说明。
  */
-function runMechanicalChecks(frontmatter, body, baseline = null) {
+function runMechanicalChecks(frontmatter, body, baseline = null, baselineBody = null) {
   const fmCheck = validateWorkcaseFrontmatter(
     frontmatter,
     baseline?.plan ?? null,
@@ -1496,6 +1710,10 @@ function runMechanicalChecks(frontmatter, body, baseline = null) {
   const coherenceCheck = validateCarrierCoherence(frontmatter, body);
   if (!coherenceCheck.ok) {
     return { ok: false, code: "workcase/coherence_invalid", message: "carrier coherence failed", issues: coherenceCheck.issues };
+  }
+  const directionCheck = validateDirectionCompleteness(frontmatter, body, baseline, baselineBody);
+  if (!directionCheck.ok) {
+    return { ok: false, code: "workcase/direction_incomplete", message: "残留去向 failed completeness checks", issues: directionCheck.issues };
   }
   return { ok: true };
 }
@@ -1854,7 +2072,7 @@ export async function approveWorkcaseObject(args) {
     const content = sectionContent(body, BODY_H2_EXECUTION) ?? "";
     body = replaceSection(body, BODY_H2_EXECUTION, `${content}\n- attempt ${attemptId} started at ${now} (controller: ${controller})；Gate 1 授权范围见 gate_1.scope_snapshot。`);
   }
-  const written = await writeValidated(factSourceRoot, next, body, fm);
+  const written = await writeValidated(factSourceRoot, next, body, fm, current.value.body);
   // 21 §8「执行」节记账纪律的前置提示：授权是执行期写正文的**最早**时点，此处把当前
   // plan 的权威编号清单直接交给调用方，使「计划步骤 N」的 N 有据可依，不必回查
   // frontmatter。属**前置告知**，不含任何校验或拒绝规则——同类机械校验已被实测证伪
@@ -2026,7 +2244,7 @@ export async function executeWorkcaseObject(args) {
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
   // 跨会话接力时执行者未必持有 approve 的返回值，故 execute 亦带前置提示（纯告知）。
-  const written = await writeValidated(factSourceRoot, next, body, fm);
+  const written = await writeValidated(factSourceRoot, next, body, fm, current.value.body);
   if (!written.ok) return written;
   return success({ ...written.value, plan_step_reference: planStepReference(next.plan) });
 }
@@ -2125,7 +2343,7 @@ export async function recordWorkcaseReview(args) {
   );
 
   const body = assembleBody(next.title, current.value.body.replace(/^#\s+.*\n+/, ""));
-  const written = await writeValidated(factSourceRoot, next, body, fm);
+  const written = await writeValidated(factSourceRoot, next, body, fm, current.value.body);
   if (!written.ok) return written;
   return success({ ...written.value, review_session_id: identity.sessionId });
 }
@@ -2256,7 +2474,7 @@ export async function closeWorkcaseObject(args) {
   appendChangeLog(next, sig, `${changeSummary} [gate_2 closed with outcome=${outcome}; attempt ${closedAttempt ?? "none"} retracted]`);
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
-  return writeValidated(factSourceRoot, next, body, fm);
+  return writeValidated(factSourceRoot, next, body, fm, current.value.body);
 }
 
 // ---------------------------------------------------------------------------
@@ -2326,7 +2544,7 @@ export async function rebatchWorkcaseObject(args) {
   }
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
-  return writeValidated(factSourceRoot, next, body, fm);
+  return writeValidated(factSourceRoot, next, body, fm, current.value.body);
 }
 
 // ---------------------------------------------------------------------------
@@ -2360,7 +2578,7 @@ export async function cancelWorkcaseObject(args) {
   appendChangeLog(next, sig, `${changeSummary} [cancelled before execution; no Gate 1 approval existed]`);
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
-  return writeValidated(factSourceRoot, next, body, fm);
+  return writeValidated(factSourceRoot, next, body, fm, current.value.body);
 }
 
 // ---------------------------------------------------------------------------
@@ -2405,7 +2623,7 @@ export async function reviseWorkcaseObject(args) {
   }
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
-  return writeValidated(factSourceRoot, next, body, fm);
+  return writeValidated(factSourceRoot, next, body, fm, current.value.body);
 }
 
 // ---------------------------------------------------------------------------
@@ -2484,7 +2702,7 @@ export async function correctWorkcaseObject(args) {
     sig,
     `事实更正（非状态转换）——${changeSummary}。终态判定未变：status/outcome/result/gate_1/attempt/plan/scope/reviews 逐字继承落盘对象（本入口不接收 frontmatter，故改动在结构上不可能），仅正文重写。依 21 §9.2「若原终态记录本身错误，按事实更正规则修正，不把更正伪装成领域状态转换」与 03 §9.5，经 Human 授权：${humanAuthorization.trim()}`,
   );
-  return writeValidated(factSourceRoot, next, body, fm);
+  return writeValidated(factSourceRoot, next, body, fm, current.value.body);
 }
 
 // ---------------------------------------------------------------------------

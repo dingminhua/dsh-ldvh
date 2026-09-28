@@ -6,8 +6,8 @@
 //
 //   · 核对状态只认 `21 §8` 登记的三词（达成 / 部分达成 / 未达成）；无法判定时记
 //     `null`（呈现为「未记录」），**不猜**、不把同义词静默归一。
-//   · 建议只认 `21 §8` 登记的 `- advice:` 段与闭集去向词（另立工单 / 接受现状 /
-//     转入 Spark / 直接行动）；去向词不在闭集内记 `null`（呈现为「未归类」）。
+//   · 建议只认 `21 §8` 登记的 `- advice:` 段与闭集去向词（接受现状 / 转入 Spark）；
+//     去向词不在闭集内记 `null`（呈现为「未归类」）。
 //
 // 解析依赖书写形态。格式不符时条目落空而不是被猜出来——这是有意的：标准形态由
 // `21 §8` 登记，偏离时应暴露而非掩盖。
@@ -40,23 +40,60 @@ const CHECK_WORDS: readonly (readonly [string, WorkCaseCheckStatus])[] = [
 ]
 
 /**
- * 建议去向（`21 §8` 闭集四词，按**责任去哪**取值，不按动作内容分）。
+ * 建议去向（`21 §8` 闭集**二词**，按**责任去哪**取值，不按动作内容分）。
  *
- * 2026-09-24 由五词收敛为四词：原五词（另立工单／补录／更正／接受现状／改进）
- * 混了两种分类维度——前两者按责任去向分、后三者按动作内容分，而后三者其实是同一
- * 去向（不另立对象、由本单或后续批次直接处置）。四词同时补全了 `§10.2` 的缺位
- * （其举例三值缺「直接行动」、五词缺「转入 Spark」）。实测存量 8 条建议按语义
- * 重映射为四词，8/8 全部有归宿。判不出时记 null，呈现为「未归类」。
+ * 2026-09-24 由五词收敛为四词（另立工单／接受现状／转入 Spark／直接行动——
+ * 原五词混了两种分类维度，「补录／更正／改进」三者实为同一去向）；
+ * **2026-09-28 再由四词收为二词**：四词中「另立工单」与「直接行动」都**不产生
+ * 可回指的稳定标识**（前者指向尚不存在的对象、后者根本不应另立对象），
+ * 「去向有无归宿」只能靠读散文判断，属零校验地带。收为二词后每个去向都对应
+ * 一个可机械核验的不变量（「接受现状」要求非空理由、「转入 Spark」要求在
+ * `relations` 中有一条可解析、写入时为 `open` 的 `routed-to`）。
+ *
+ * **存量对象仍可能写着已撤销的两词**（`§15.3` 存量不溯及）：此处只为它们保留
+ * **呈现**能力——记 `null` 会显示成「未归类」，对读者是更差的信息。判不出时
+ * 记 `null`，呈现为「未归类」。
  */
-export const WORKCASE_ADVICE_KINDS = ['另立工单', '接受现状', '转入 Spark', '直接行动'] as const
+export const WORKCASE_ADVICE_KINDS = ['接受现状', '转入 Spark'] as const
 export type WorkCaseAdviceKind = (typeof WORKCASE_ADVICE_KINDS)[number]
+
+/**
+ * 存量去向词（2026-09-28 前登记的闭集）。
+ *
+ * 用途仅限**呈现**：既有载体（`§15.3` 存量不溯及）里写着「另立工单」「直接行动」
+ * 的建议段仍要显示成其原本的去向，而不是灰掉成「未归类」。它们**不再是闭集取值**
+ * ——受控写入侧的 `validateDirectionCompleteness`（`lib/workcase-writer.js`）
+ * 只认上面的二词，写新对象时出现这两词一律拒绝。
+ */
+export const WORKCASE_ADVICE_LEGACY_KINDS = ['另立工单', '直接行动'] as const
+export type WorkCaseAdviceLegacyKind = (typeof WORKCASE_ADVICE_LEGACY_KINDS)[number]
+
+/**
+ * 呈现层可出现的去向词：当前闭集二词 ∪ 存量两词。
+ *
+ * 为什么类型要放宽到存量词：`kind` 的用途是决定卡面标记的**颜色与文案**
+ * （`workcaseCheckState.ts` 的 `WORKCASE_ADVICE_TAG_CLASS`、`locales.ts` 的
+ * `objectList.workcaseAdvice.*`）。存量对象读出来仍是旧词，类型若只容二词，
+ * 这里就只能记 `null`，卡面把它们显示成「未归类」——而那两词在当时的词表里
+ * 是有明确含义的，降级显示反而是信息损失。
+ *
+ * **写入门禁不受此类型影响**：受控写入侧 `validateDirectionCompleteness`
+ * （`lib/workcase-writer.js`）独立判定，只认 `WORKCASE_ADVICE_KINDS`。
+ */
+export type WorkCaseAdviceDisplayKind = WorkCaseAdviceKind | WorkCaseAdviceLegacyKind
 
 /** 建议段标记：`- advice:` 或 `- 建议：`（`21 §8`）。 */
 const ADVICE_BLOCK = /^(advice|建议)\s*[:：]?$/
 /** 建议条目形态：去向词以 `**` 包裹并位于行首，后接 `：`（`21 §8`）。 */
 const ADVICE_TITLED = /^\*\*(.+?)\*\*\s*[:：]?\s*([\s\S]*)$/
-/** 可选尾注：`出自「…」`，紧接建议正文的句末标点之后、不带句号（`21 §8`）。 */
-const ADVICE_FROM = /出自「([^」]+)」\s*$/
+/**
+ * 存量尾注：`出自「…」`（2026-09-28 前的形态，`21 §8` 现已删除该项）。
+ *
+ * 为什么仍要剥掉：新形态靠**按序配对**与 `result.residual` 对应，尾注不再是任何
+ * 字段的来源；但存量载体里它还在，若原样留下就会混进正文一起上卡面，把
+ * 「某条残留」这类**元信息**当成去向正文的一部分显示给读者。
+ */
+const ADVICE_LEGACY_FROM = /出自「([^」]+)」\s*$/
 
 export interface WorkCaseDraftCheck {
   /** 对应 `plan` 的 0-based 下标；-1 表示未能与该结果节条目配对。 */
@@ -65,10 +102,9 @@ export interface WorkCaseDraftCheck {
 }
 
 export interface WorkCaseDraftAdvice {
-  kind: WorkCaseAdviceKind | null
+  /** 去向词；落在闭集或存量词表之外时为 null（呈现为「未归类」）。 */
+  kind: WorkCaseAdviceDisplayKind | null
   text: string
-  /** `出自「…」` 尾注里所回应的 residual 条目；未写尾注时为 null。 */
-  from: string | null
 }
 
 export interface WorkCaseResultDraft {
@@ -102,8 +138,12 @@ function statusOf(text: string): WorkCaseCheckStatus | null {
   return null
 }
 
-function adviceKindOf(word: string): WorkCaseAdviceKind | null {
+function adviceKindOf(word: string): WorkCaseAdviceDisplayKind | null {
   for (const kind of WORKCASE_ADVICE_KINDS) {
+    if (word === kind) return kind
+  }
+  // 存量词（2026-09-28 前登记的闭集）：只为呈现，不作为写入侧认可的去向。
+  for (const kind of WORKCASE_ADVICE_LEGACY_KINDS) {
     if (word === kind) return kind
   }
   return null
@@ -210,8 +250,10 @@ interface PlanStepLike {
  *   ③ `- <名称>：<词>——证据：…`            → 按 `plan[i].step` 逐字/前缀匹配
  * 配对不上的步不产出条目（调用方按「无对应条目」呈现）。
  *
- * 建议段（`21 §8`）：`- advice:` 之下每条 `- **<去向词>**：<正文>出自「…」`。
- * 去向词不在闭集内记 `kind: null`；`出自「…」` 未写记 `from: null`。
+ * 建议段（`21 §8`）：`- advice:` 之下每条 `- **<去向词>**：<正文>`，**按序**
+ * 对应 `result.residual`（第 k 条 ↔ 第 k 项）。去向词落在闭集二词或存量两词之外
+ * 时记 `kind: null`（呈现为「未归类」）；存量写法里的 `出自「…」` 尾注会被剥离，
+ * 不再作为任何字段产出（`21 §8` 已删该项，`§15.3` 存量不溯及）。
  */
 export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCaseResultDraft {
   const section = resultSectionOf(body)
@@ -273,10 +315,10 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
       const titled = ADVICE_TITLED.exec(item)
       const kindText = titled ? titled[1].trim() : ''
       let body = titled ? titled[2].trim() : item
-      const fromMatch = ADVICE_FROM.exec(body)
-      const from = fromMatch ? fromMatch[1].trim() : null
-      if (fromMatch) body = body.slice(0, fromMatch.index).trim()
-      result.advice.push({ kind: adviceKindOf(kindText), text: body || item, from })
+      // 存量尾注剥离：只从正文里去掉，不产出任何字段（见 `ADVICE_LEGACY_FROM`）。
+      const legacyFrom = ADVICE_LEGACY_FROM.exec(body)
+      if (legacyFrom) body = body.slice(0, legacyFrom.index).trim()
+      result.advice.push({ kind: adviceKindOf(kindText), text: body || item })
       continue
     }
 

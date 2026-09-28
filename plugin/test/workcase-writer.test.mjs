@@ -4,7 +4,7 @@
 //   §8 字段契约与正文结构（摘要/授权范围/计划 + 条件执行/结果）,
 //   §9 状态生命周期（draft→open→closed；outcome 四值；局部重批回退）,
 //   §10 Gate 1/Gate 2 授权语义（gate_1 四字段、C2 指纹钉扎、attempt 令牌）,
-//   §12 关系闭集（contributed-to → Pitfall）,
+//   §12 关系闭集（contributed-to → Pitfall；routed-to → Spark，写入时须 open）,
 //   §13 召回（默认 draft+open）, §14 受控操作, §15.1 类型特有验证.
 // Tests assert spec behaviour; where the implementation diverges from the
 // spec the failure is reported in the task report, never "fixed" by bending
@@ -34,6 +34,7 @@ import {
   computeAuthorizationFingerprint,
   validateWorkcaseBodyStructure,
   validateWorkcaseFrontmatter,
+  validateDirectionCompleteness,
 } from "../lib/workcase-writer.js";
 import { authoritativeSignature, authoritativeSessionIdentity } from "../lib/signature-channel.js";
 
@@ -2517,5 +2518,640 @@ test("cancel: 非取消对象不要求取消记录（判据取 outcome，不误�
       sessionSignature: SIG(),
     });
     assert.ok(res.ok, JSON.stringify(res.error));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 去向完整性 — validateDirectionCompleteness (21 §8/§12/§15.1)
+//
+// Human 裁决 2026-09-28：去向词由四词收为二词（接受现状 / 转入 Spark）；
+// 「转入 Spark」的指向由 frontmatter `relations.routed-to` 承载（对象标识，
+// 不是散文回指）。硬门禁四项：
+//   ① 建议段条数 = result.residual 长度（residual 空则不得有建议段）；
+//   ② 每条「转入 Spark」恰有一条 routed-to（**条数一致**）；
+//   ③ 去向词须落在闭集内且条目须符合登记形态 `- **<去向词>**：<正文>`；
+//   ④ 每条「接受现状」须带非空理由。
+// **顺序对应不在机械范围内**（2026-09-28 更正）：建议段条目只写去向词与正文，
+// 不携带所对应 residual 条目或目标 Spark 的标识，任何按位置定义的顺序在机械上
+// 等价——故「第 k 条 ↔ 第 k 项」是写法约定、非门禁（§15.1 已同口径登记）。
+// 软约束（去向是否恰当、理由是否成立、是否构成实质挂起、目标 Spark 是否
+// 语义上真的容纳该残留）归 AI 与 Human，本函数不判——故下列用例只断言
+// 结构性事实，不把语义判断写成机械门禁。
+// ---------------------------------------------------------------------------
+
+/** 单元级载荷：本函数只读 `## 结果` 节与 frontmatter，正文其余部分不参与判定。 */
+const resultOnlyBody = (...lines) => `# T\n\n## 结果\n\n${lines.join("\n")}\n`;
+
+const closedFmWith = (residual, relations = undefined) => ({
+  status: "closed",
+  outcome: "partial",
+  result: { criteria_checks: [], achieved_scope: "部分达成。", residual },
+  ...(relations === undefined ? {} : { relations }),
+});
+
+const ROUTED = (uid) => ({ relation_key: "routed-to", target: { object_uid: uid } });
+
+test("direction: 非 closed 或 cancelled 不参与去向完整性判定（判据取状态与 outcome）", () => {
+  const body = resultOnlyBody("- advice:", "  - **接受现状**：不跟踪。");
+  for (const status of ["draft", "open"]) {
+    const res = validateDirectionCompleteness({ status, result: { residual: [] } }, body);
+    assert.deepEqual(res, { ok: true, issues: [] }, `${status} 不参与判定`);
+  }
+  // cancelled 走 §9.3 的取消记录，去向完整性不适用（21 §9.1/§15.1）。
+  const res = validateDirectionCompleteness({ status: "closed", outcome: "cancelled", result: { residual: [] } }, body);
+  assert.deepEqual(res, { ok: true, issues: [] });
+});
+
+test("direction: residual 为空且无建议段时通过（completed 的正常形态）", () => {
+  const res = validateDirectionCompleteness(closedFmWith([]), resultOnlyBody("- 判据均达成。"));
+  assert.ok(res.ok, JSON.stringify(res.issues));
+});
+
+test("direction: residual 为空却写了建议段 → 拒绝（21 §8 字段间不变量）", () => {
+  const res = validateDirectionCompleteness(closedFmWith([]), resultOnlyBody("- advice:", "  - **接受现状**：不跟踪。"));
+  assert.ok(!res.ok);
+  assert.equal(res.issues.length, 1, JSON.stringify(res.issues));
+  assert.match(res.issues[0], /建议段 must not exist when result\.residual is empty/);
+  assert.match(res.issues[0], /got 1 advice entry/);
+});
+
+test("direction: 建议段条数必须等于 residual 长度——多写少写都被拒（21 §8/§15.1）", () => {
+  const one = resultOnlyBody("- advice:", "  - **接受现状**：原因甲。");
+  const two = resultOnlyBody("- advice:", "  - **接受现状**：原因甲。", "  - **接受现状**：原因乙。");
+
+  const tooFew = validateDirectionCompleteness(closedFmWith(["残留 A", "残留 B"]), one);
+  assert.ok(!tooFew.ok);
+  assert.match(tooFew.issues[0], /must carry exactly 2 entries/);
+  assert.match(tooFew.issues[0], /got 1/);
+
+  const tooMany = validateDirectionCompleteness(closedFmWith(["残留 A"]), two);
+  assert.ok(!tooMany.ok);
+  assert.match(tooMany.issues[0], /must carry exactly 1 entry/);
+  assert.match(tooMany.issues[0], /got 2/);
+
+  const exact = validateDirectionCompleteness(closedFmWith(["残留 A", "残留 B"]), two);
+  assert.ok(exact.ok, JSON.stringify(exact.issues));
+});
+
+test("direction: 去向词不在闭集内 → 拒绝；存量两词（另立工单/直接行动）已不是闭集取值", () => {
+  const body = resultOnlyBody("- advice:", "  - **另立工单**：把该分支另立一单。", "  - **直接行动**：后续清理时顺手处置。");
+  const res = validateDirectionCompleteness(closedFmWith(["残留 A", "残留 B"]), body);
+  assert.ok(!res.ok);
+  const closedSetIssues = res.issues.filter((i) => i.includes("is not one of the closed set"));
+  assert.equal(closedSetIssues.length, 2, JSON.stringify(res.issues));
+  assert.match(closedSetIssues[0], /advice\[0\] 去向词 "另立工单"/);
+  assert.match(closedSetIssues[1], /advice\[1\] 去向词 "直接行动"/);
+});
+
+test("direction: 不达登记形态的条目按 fail closed 处理（无加粗行首）", () => {
+  const body = resultOnlyBody("- advice:", "  - 建议另立工单补该路由的投影。");
+  const res = validateDirectionCompleteness(closedFmWith(["残留 A"]), body);
+  assert.ok(!res.ok);
+  assert.equal(res.issues.length, 1, JSON.stringify(res.issues));
+  assert.match(res.issues[0], /does not match the registered form/);
+  // 用原文前 40 字符作诊断，读者能认出是哪一条。
+  assert.match(res.issues[0], /建议另立工单补该路由的投影。/);
+});
+
+test("direction: 「接受现状」必须带非空理由（21 §8/§15.1）", () => {
+  const empty = validateDirectionCompleteness(closedFmWith(["残留 A"]), resultOnlyBody("- advice:", "  - **接受现状**："));
+  assert.ok(!empty.ok);
+  assert.match(empty.issues[0], /「接受现状」 must carry a non-empty reason/);
+
+  const blank = validateDirectionCompleteness(closedFmWith(["残留 A"]), resultOnlyBody("- advice:", "  - **接受现状**：   "));
+  assert.ok(!blank.ok, "全空白不算理由");
+
+  const ok = validateDirectionCompleteness(closedFmWith(["残留 A"]), resultOnlyBody("- advice:", "  - **接受现状**：该分支已被后续工作覆盖，继续跟踪无增量。"));
+  assert.ok(ok.ok, JSON.stringify(ok.issues));
+});
+
+test("direction: 「转入 Spark」须有恰好一条 routed-to——缺、多、都对不上（21 §8/§12/§15.1）", () => {
+  const uidA = "22222222-3333-4444-8555-666666666666";
+  const uidB = "33333333-4444-4555-8666-777777777777";
+  const oneTransfer = resultOnlyBody("- advice:", "  - **转入 Spark**：把该残留转入议题待裁。");
+
+  const missing = validateDirectionCompleteness(closedFmWith(["残留 A"]), oneTransfer);
+  assert.ok(!missing.ok);
+  assert.match(missing.issues[0], /advice carries 1 「转入 Spark」 entry but relations carries 0 routed-to/);
+
+  const surplus = validateDirectionCompleteness(closedFmWith(["残留 A"], [ROUTED(uidA), ROUTED(uidB)]), oneTransfer);
+  assert.ok(!surplus.ok);
+  assert.match(surplus.issues[0], /advice carries 1 「转入 Spark」 entry but relations carries 2 routed-to/);
+
+  const matched = validateDirectionCompleteness(closedFmWith(["残留 A"], [ROUTED(uidA)]), oneTransfer);
+  assert.ok(matched.ok, JSON.stringify(matched.issues));
+});
+
+test("direction: routed-to 之外的 relations（contributed-to）不计入去向配对", () => {
+  const uid = "22222222-3333-4444-8555-666666666666";
+  const body = resultOnlyBody("- advice:", "  - **转入 Spark**：把该残留转入议题待裁。");
+  const res = validateDirectionCompleteness(
+    closedFmWith(["残留 A"], [{ relation_key: "contributed-to", target: { object_uid: uid } }]),
+    body,
+  );
+  assert.ok(!res.ok, "contributed-to 不能被当成去向承载");
+  assert.match(res.issues[0], /relations carries 0 routed-to/);
+});
+
+test("direction: 存量豁免——基线已是 closed 且建议段逐字未改则放行（21 §15.3 存量不溯及）", () => {
+  // 存量载体写着已撤销的四词、且条数与 residual 不符；只要不动「## 结果」节，
+  // correct 这类写入不得被新门禁挡住，否则存量对象死锁
+  // （21 §14 无删除操作、closed 无 execute 通道 → 无从补齐 routed-to）。
+  // 注：record_review 要求 status=open，结构上不可达本函数的约束态（closed），
+  // 故它不是本豁免的适用路径（21 §15.1 已登记，2026-09-28）。
+  const legacyBody = resultOnlyBody("- advice:", "  - **另立工单**：把该分支另立一单。");
+  const fm = closedFmWith(["残留 A", "残留 B"]); // 2 条 residual vs 1 条建议 → 本会被拒
+  const baselineBody = bodyWithoutH1(legacyBody);
+
+  const withBaseline = validateDirectionCompleteness(fm, legacyBody, fm, baselineBody);
+  assert.ok(withBaseline.ok, JSON.stringify(withBaseline.issues));
+
+  const crossChecked = validateDirectionCompleteness(fm, legacyBody);
+  assert.ok(!crossChecked.ok, "无基线时全量受检（fail closed）");
+  assert.ok(crossChecked.issues.length > 0);
+
+  // 基线是 closed 但建议段被改动 → 受检。
+  const changedBody = resultOnlyBody("- advice:", "  - **另立工单**：把该分支另立一单。", "  - **接受现状**：另外这条不跟踪。");
+  const changed = validateDirectionCompleteness(fm, changedBody, fm, baselineBody);
+  assert.ok(!changed.ok, "改动建议段即受检");
+
+  // 基线不是 closed（open/draft）→ 豁免不适用，全量受检。
+  const openBaseline = { ...fm, status: "open" };
+  const notExempt = validateDirectionCompleteness(fm, legacyBody, openBaseline, baselineBody);
+  assert.ok(!notExempt.ok, "豁免只对基线已 closed 的写入生效");
+
+  // baselineBody 缺失 → 按「已改动」处理（未知不等于未改动）。
+  const noBaselineBody = validateDirectionCompleteness(fm, legacyBody, fm, null);
+  assert.ok(!noBaselineBody.ok);
+});
+
+test("direction: 豁免基准是「## 结果」节逐字未改——四类正文编辑全部受检（21 §15.3/§15.1）", () => {
+  // 2026-09-28 审核 F3：旧基准是「解析后条目列表深等」，它只覆盖 `- ` 条目，
+  // 于是改写尾注、加缩进续行、追加散文、改缩进四类编辑全部放行——登记为「窄豁免」，
+  // 实际是「## 结果」节的正文自由编辑通道（01 §12.3 第 6 维）。
+  // 现基准逐字比较整个「## 结果」节：任何改动该节的受控写入都受检，不再逃逸。
+  const fm = closedFmWith(["残留 A", "残留 B"]); // 2 条 residual vs 1 条建议 → 本不合门禁
+  const base = resultOnlyBody("- advice:", "  - **另立工单**：把该分支另立一单。出自「残留 A」");
+  const baselineBody = bodyWithoutH1(base);
+
+  // 正向对照：节逐字未改时豁免成立（存量对象不会死锁）。
+  const control = validateDirectionCompleteness(fm, base, fm, baselineBody);
+  assert.ok(control.ok, JSON.stringify(control.issues));
+
+  // 四类逃逸：旧基准下全部 ok=true（条目列表未变），现全部受检。
+  const escapes = {
+    尾注重写: resultOnlyBody("- advice:", "  - **另立工单**：把该分支另立一单。出自「残留 B」"),
+    缩进续行: resultOnlyBody(
+      "- advice:",
+      "  - **另立工单**：把该分支另立一单。出自「残留 A」",
+      "    补充：该残留实际已由 spark-ce1db936 承接，不再另立。",
+    ),
+    追加散文: resultOnlyBody(
+      "- advice:",
+      "  - **另立工单**：把该分支另立一单。出自「残留 A」",
+      "",
+      "以上去向经 Human 复核确认。",
+    ),
+    改缩进: resultOnlyBody("- advice:", "      - **另立工单**：把该分支另立一单。出自「残留 A」"),
+  };
+  for (const [name, body] of Object.entries(escapes)) {
+    assert.notEqual(body, base, `${name} 用例必须真的改动了「## 结果」节`);
+    const res = validateDirectionCompleteness(fm, body, fm, baselineBody);
+    assert.ok(!res.ok, `${name}：结果节被改动 → 豁免不适用（旧基准会放行）`);
+  }
+
+  // baselineBody 缺失两态（null / undefined）都必须按「已改动」处理（未知不等于未改动）。
+  for (const missing of [null, undefined]) {
+    const res = validateDirectionCompleteness(fm, base, fm, missing);
+    assert.ok(!res.ok, `baselineBody=${String(missing)} 时不得按「未改动」放行`);
+  }
+
+  // 边界（如实固定实际宽度）：豁免基准的作用范围就是「## 结果」节本身，
+  // 节外改动不撤销豁免——本门禁只约束该节，不对其它节行使否决权。
+  const execEdited = base.replace(/^# T\n/, "# T\n\n## 执行\n\n- 该节改动与本门禁无关。\n");
+  const outside = validateDirectionCompleteness(fm, execEdited, fm, baselineBody);
+  assert.ok(outside.ok, "节外改动不改变「## 结果」节 → 豁免仍在（作用范围仅该节）");
+});
+
+test("direction: 多条混合去向按序对应时通过（含 routed-to 配对）", () => {
+  const uid = "22222222-3333-4444-8555-666666666666";
+  const body = resultOnlyBody(
+    "- advice:",
+    "  - **接受现状**：该分支已被后续工作覆盖，继续跟踪无增量。",
+    "  - **转入 Spark**：边界情形需跨行动推进，转入议题待裁。",
+    "  - **接受现状**：文档层的表述偏差，就地更正即可，不另立对象。",
+  );
+  const res = validateDirectionCompleteness(closedFmWith(["残留 A", "残留 B", "残留 C"], [ROUTED(uid)]), body);
+  assert.ok(res.ok, JSON.stringify(res.issues));
+});
+
+test("direction: 建议段之后的同级 bullet 收束段（不吞后续节内容）", () => {
+  // 判据边界（§15.1）：建议段以 `- advice:` 开启、`indent <= modeIndent` 收束。
+  const body = `# T\n\n## 结果\n\n- advice:\n  - **接受现状**：原因甲。\n- 关闭后的后续方向：保持现状。\n`;
+  const res = validateDirectionCompleteness(closedFmWith(["残留 A"]), body);
+  assert.ok(res.ok, JSON.stringify(res.issues));
+
+  const swallowed = validateDirectionCompleteness(closedFmWith(["残留 A", "残留 B"]), body);
+  assert.ok(!swallowed.ok);
+  assert.match(swallowed.issues[0], /must carry exactly 2 entries.*got 1/s, "收束后的 bullet 不得计为建议条目");
+});
+
+// ---------------------------------------------------------------------------
+// 去向完整性：端到端（写入路径上的机械拒绝与放行）
+// ---------------------------------------------------------------------------
+
+const SPARK_UID = "22222222-3333-4444-8555-666666666666";
+
+/** 种子 Spark 载体（`routed-to` 的目标；status 可参数化以验证「写入时须 open」）。 */
+async function seedSpark(root, uid = SPARK_UID, status = "open") {
+  await mkdir(join(root, "sparks"), { recursive: true });
+  const fm = [
+    "title: 测试议题",
+    `status: ${status}`,
+    "question: 测试问题应由什么承载？",
+    "scope_boundary: 取得判定时停止。",
+    "intent: 保留理由——测试夹具；后续方向——取得判定。",
+    `object_uid: ${uid}`,
+    "fact_type_key: spark",
+    "created_at: 2026-09-15T00:00:00.000Z",
+    "change_log:",
+    "  - at: 2026-09-15T00:00:00.000Z",
+    "    summary: seed",
+  ].join("\n");
+  await writeFile(join(root, "sparks", `spark-${uid}.md`), `---\n${fm}\n---\n\n# 测试议题\n`, "utf8");
+  return uid;
+}
+
+/**
+ * 关闭正文：在既有正文（含摘要/授权范围/计划三段，BODY_H2_CORE 非空是硬要求）
+ * 之后追加「执行」与「结果」两节，结果节里给出判据、残留与可选的建议段
+ * （建议段条数须与 residual 一致——那正是被测的门禁）。
+ */
+function closingBody(baseBody, adviceItems, residualLines = ["残留 A：第二条判据的关闭路径用例尚未覆盖。"]) {
+  // Gate 1 批准时 writer 已盖了一个「## 执行」节（attempt 起始记录），故以该节为界
+  // 只保留其之前的内容，再统一重建「执行」与「结果」。直接追加会得到两个「## 执行」，
+  // 被 H2 顺序校验（21 §8 书写结构）先行拒绝，测不到去向门禁。
+  const body = bodyWithoutH1(baseBody).replace(/\s+$/, "");
+  const execAt = body.search(/^## 执行[ \t]*$/m);
+  const head = execAt === -1 ? body : body.slice(0, execAt).replace(/\s+$/, "");
+  const lines = [
+    head,
+    "",
+    "## 执行",
+    "",
+    "- 完成。",
+    "",
+    "## 结果",
+    "",
+    "- criteria_checks:",
+    "  - 步骤 1 判据「writer 文件存在且 node --check 通过」：达成——证据：node --check 通过。",
+    "  - 步骤 2 判据「全部测试用例通过且覆盖创建与关闭路径」：未达成——证据：只覆盖创建路径。",
+    "- residual:",
+    ...residualLines.map((t) => `  - ${t}`),
+  ];
+  if (adviceItems.length > 0) lines.push("- advice:", ...adviceItems.map((t) => `  - ${t}`));
+  return `${lines.join("\n")}\n`;
+}
+
+function partialResult(evidenceSuffix = "") {
+  return {
+    criteria_checks: [
+      { satisfied: true, evidence: `第 1 条判据的核对证据${evidenceSuffix}` },
+      { satisfied: false, evidence: `第 2 条判据未达成${evidenceSuffix}` },
+    ],
+    achieved_scope: "第一条判据在授权范围内完成。",
+    residual: ["残留 A：第二条判据的关闭路径用例尚未覆盖。"],
+  };
+}
+
+test("direction e2e: 关闭时「转入 Spark」缺 routed-to 被机械拒绝且零写入（21 §15.1）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid, after } = await reviewed(root, await approved(root));
+    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+
+    const bad = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      outcome: "partial",
+      result: partialResult(),
+      changeSummary: "关闭（测试）",
+      bodyMarkdownAfter: closingBody(after.value.body, ["**转入 Spark**：把残留 A 转入议题待裁。"]),
+      sessionSignature: SIG(),
+    });
+    assert.ok(!bad.ok, "关闭必须被拒——去向缺对象标识");
+    assert.equal(bad.error.code, "workcase/direction_incomplete");
+    assert.ok(
+      bad.error.details.issues.some((i) => i.includes("advice carries 1 「转入 Spark」 entry but relations carries 0 routed-to")),
+      JSON.stringify(bad.error.details.issues),
+    );
+
+    const after0 = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(after0.value.fingerprint, before.value.fingerprint, "零写入：指纹不变");
+    assert.equal(after0.value.frontmatter.status, "open");
+  });
+});
+
+test("direction e2e: 关闭建议段条数与 residual 不符被拒；补齐后放行（21 §8 字段间不变量）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const uid = await seedSpark(root);
+    const { uid: wcUid, after } = await reviewed(root, await approved(root));
+
+    // 先经 execute 落 routed-to（close 不接受 frontmatterAfter，故这是唯一写入通道）。
+    const withRelation = { ...after.value.frontmatter, relations: [ROUTED(uid)] };
+    const exec1 = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: wcUid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: withRelation,
+      bodyMarkdownAfter: bodyWithoutH1(after.value.body),
+      changeSummary: "登记残留去向",
+      sessionSignature: SIG(),
+    });
+    assert.ok(exec1.ok, JSON.stringify(exec1.error));
+    // writeValidated 只回 {object_uid,file,fingerprint,read_back}，正文须另读。
+    const exec1Read = await readWorkcaseObject({ factSourceRoot: root, objectUid: wcUid });
+
+    // residual 1 条却写 0 条建议 → 条数不符，拒绝。
+    const tooFew = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: wcUid,
+      expectedFingerprint: exec1.value.fingerprint,
+      outcome: "partial",
+      result: partialResult(),
+      changeSummary: "关闭（测试）",
+      bodyMarkdownAfter: closingBody(exec1Read.value.body, []),
+      sessionSignature: SIG(),
+    });
+    assert.ok(!tooFew.ok);
+    assert.equal(tooFew.error.code, "workcase/direction_incomplete");
+    assert.ok(tooFew.error.details.issues.some((i) => i.includes("must carry exactly 1 entry")));
+
+    // residual 1 条写 2 条建议 → 同样拒绝。
+    const tooMany = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: wcUid,
+      expectedFingerprint: exec1.value.fingerprint,
+      outcome: "partial",
+      result: partialResult(),
+      changeSummary: "关闭（测试）",
+      bodyMarkdownAfter: closingBody(exec1Read.value.body, ["**接受现状**：原因甲。", "**接受现状**：原因乙。"]),
+      sessionSignature: SIG(),
+    });
+    assert.ok(!tooMany.ok);
+    assert.ok(tooMany.error.details.issues.some((i) => i.includes("must carry exactly 1 entry")));
+
+    // 条数一致 + routed-to 配对 → 放行。
+    const good = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: wcUid,
+      expectedFingerprint: exec1.value.fingerprint,
+      outcome: "partial",
+      result: partialResult(),
+      changeSummary: "关闭（测试）",
+      bodyMarkdownAfter: closingBody(exec1Read.value.body, ["**转入 Spark**：把残留 A 转入议题待裁。"]),
+      sessionSignature: SIG(),
+    });
+    assert.ok(good.ok, JSON.stringify(good.error));
+    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: wcUid });
+    assert.equal(read.value.frontmatter.status, "closed");
+    assert.equal(read.value.frontmatter.relations[0].relation_key, "routed-to");
+    assert.equal(read.value.frontmatter.relations[0].target.object_uid, uid);
+    assert.equal(read.value.mechanical_issues.length, 0, JSON.stringify(read.value.mechanical_issues));
+  });
+});
+
+test("direction e2e: routed-to 目标不存在或在写入时非 open → 零写入拒绝（21 §12）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid, after } = await reviewed(root, await approved(root));
+
+    const absent = "99999999-8888-4777-a666-555555555555";
+    const missing = await createWorkcaseObject({
+      factSourceRoot: root,
+      frontmatterDraft: validDraft({ relations: [ROUTED(absent)] }),
+      bodyMarkdown: draftBody(),
+      sessionSignature: SIG(),
+    });
+    assert.ok(!missing.ok);
+    assert.equal(missing.error.code, "workcase/relations_unresolvable");
+    assert.match(missing.error.message, /not found as same-project objects/);
+
+    // 目标存在但已 implemented —— 不再承载议题，不能作为去向。
+    const doneUid = await seedSpark(root, SPARK_UID, "implemented");
+    const notOpen = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: { ...after.value.frontmatter, relations: [ROUTED(doneUid)] },
+      bodyMarkdownAfter: bodyWithoutH1(after.value.body),
+      changeSummary: "登记残留去向",
+      sessionSignature: SIG(),
+    });
+    assert.ok(!notOpen.ok, "非 open 目标必须被拒");
+    assert.equal(notOpen.error.code, "workcase/relations_unresolvable");
+    assert.match(notOpen.error.message, /not open Spark objects/);
+    assert.match(notOpen.error.message, /status=implemented/);
+
+    const after0 = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(after0.value.fingerprint, after.value.fingerprint, "零写入：指纹不变");
+  });
+});
+
+test("direction e2e: 存量 closed 对象的 correct——建议段逐字未改放行，改动建议段即受检（21 §15.3）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid, read } = await closedFixture(root);
+    // 该 fixture 的 result.residual 为空、正文无建议段 → 正是合法形态。
+    assert.deepEqual(read.value.frontmatter.result.residual, []);
+
+    const body = bodyWithoutH1(read.value.body);
+    const addAdvice = await correctWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: read.value.fingerprint,
+      bodyMarkdownAfter: `${body.replace("- 判据均达成。", "- 判据均达成（补记逐条证据）。")}\n\n- advice:\n  - **接受现状**：无残留需要跟踪。\n`,
+      changeSummary: "补写建议段",
+      humanAuthorization: "Human 授权（测试）",
+      sessionSignature: SIG(),
+    });
+    assert.ok(!addAdvice.ok, "residual 为空时不得新增建议段");
+    assert.equal(addAdvice.error.code, "workcase/direction_incomplete");
+    assert.ok(addAdvice.error.details.issues.some((i) => i.includes("must not exist when result.residual is empty")));
+
+    // 未触碰建议段的更正照常放行（否则存量对象连补记正文都会被拒）。
+    const untouched = await correctWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: read.value.fingerprint,
+      bodyMarkdownAfter: body.replace("- 判据均达成。", "- 判据均达成（更正：补记逐条证据）。"),
+      changeSummary: "补记证据",
+      humanAuthorization: "Human 授权（测试）",
+      sessionSignature: SIG(),
+    });
+    assert.ok(untouched.ok, JSON.stringify(untouched.error));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 关系去重口径（21 §15.1「关系闭集」条，2026-09-28 登记）与 result 健壮性
+//
+// 判定键是 `relation_key::target`（目标大小写不敏感），**不是** target 单独一项：
+//   ① 跨 key 的同目标不是重复；② `routed-to` 的同键同目标允许重复（按条对应）；
+//   ③ `contributed-to` 的同键同目标仍是同义重复。
+// 本轮修复前，去重键是裸 target，①②都被零写入拒绝——与 §8/§15.1 的「条数对应」
+// 互斥（两条残留转入同一 Spark 时必然要求两条同 uid 的边）。
+// ---------------------------------------------------------------------------
+
+const PITFALL_UID = "11111111-2222-4333-8444-555555555555";
+const CONTRIBUTED = (uid) => ({ relation_key: "contributed-to", target: { object_uid: uid } });
+
+test("relations 去重: 同键同目标的双 routed-to 放行（两条残留转入同一 Spark，按条对应）", () => {
+  const same = validateWorkcaseFrontmatter(writingCase({ relations: [ROUTED(SPARK_UID), ROUTED(SPARK_UID)] }));
+  assert.equal(same.ok, true, `同一目标的两条 routed-to 必须放行（按条对应的承载），实际：${JSON.stringify(same.issues)}`);
+
+  // 但条数仍须与「转入 Spark」建议条数一致——那是去向门禁的事，不是去重的事。
+  const body = resultOnlyBody(
+    "- advice:",
+    "  - **转入 Spark**：残留 A 转入议题待裁。",
+    "  - **转入 Spark**：残留 B 同样转入该议题。",
+  );
+  const paired = validateDirectionCompleteness(closedFmWith(["残留 A", "残留 B"], [ROUTED(SPARK_UID), ROUTED(SPARK_UID)]), body);
+  assert.ok(paired.ok, JSON.stringify(paired.issues));
+  const short = validateDirectionCompleteness(closedFmWith(["残留 A", "残留 B"], [ROUTED(SPARK_UID)]), body);
+  assert.ok(!short.ok, "两条「转入 Spark」只给一条边必须被拒");
+  assert.ok(short.issues.some((i) => i.includes("advice carries 2 「转入 Spark」 entries but relations carries 1 routed-to")), JSON.stringify(short.issues));
+});
+
+test("relations 去重: 跨 key 的同目标是两条独立关系（各自成立，互不重复）", () => {
+  const cross = validateWorkcaseFrontmatter(writingCase({ relations: [ROUTED(SPARK_UID), CONTRIBUTED(SPARK_UID)] }));
+  assert.equal(cross.ok, true, `跨 key 同目标必须放行，实际：${JSON.stringify(cross.issues)}`);
+});
+
+test("relations 去重: contributed-to 的同键同目标仍是同义重复 —— 零写入拒绝", () => {
+  const dup = validateWorkcaseFrontmatter(writingCase({ relations: [CONTRIBUTED(PITFALL_UID), CONTRIBUTED(PITFALL_UID)] }));
+  assert.equal(dup.ok, false, "contributed-to 无逐条对应义务，同键同目标仍是同义重复");
+  assert.ok(
+    dup.issues.some((i) => i.includes(`duplicate relation contributed-to → ${PITFALL_UID}`)),
+    JSON.stringify(dup.issues),
+  );
+
+  // 目标比较大小写不敏感（与 refs 同名口径一致）。
+  const caseDup = validateWorkcaseFrontmatter(
+    writingCase({ relations: [CONTRIBUTED(PITFALL_UID), CONTRIBUTED(PITFALL_UID.toUpperCase())] }),
+  );
+  assert.equal(caseDup.ok, false, "同一 uid 的大小写变体仍应判为重复");
+  assert.ok(caseDup.issues.some((i) => i.includes("duplicate relation contributed-to")), JSON.stringify(caseDup.issues));
+});
+
+test("direction: relations 数组顺序不在机械判定范围内（顺序对应为写法约定，2026-09-28 更正）", () => {
+  const sparkA = "22222222-3333-4444-8555-666666666666";
+  const sparkB = "33333333-4444-4555-8666-777777777777";
+  const body = resultOnlyBody(
+    "- advice:",
+    "  - **转入 Spark**：残留 A 转入议题甲。",
+    "  - **转入 Spark**：残留 B 转入议题乙。",
+  );
+  const inOrder = validateDirectionCompleteness(closedFmWith(["残留 A", "残留 B"], [ROUTED(sparkA), ROUTED(sparkB)]), body);
+  const swapped = validateDirectionCompleteness(closedFmWith(["残留 A", "残留 B"], [ROUTED(sparkB), ROUTED(sparkA)]), body);
+  assert.ok(inOrder.ok, JSON.stringify(inOrder.issues));
+  assert.ok(
+    swapped.ok,
+    `把 relations 数组顺序对调后仍须通过——顺序不可机械核验（§15.1 判据边界），实际：${JSON.stringify(swapped.issues)}`,
+  );
+});
+
+test("direction: 与块开启符同级的建议条目按零条计（不静默丢弃：以条数不符被拒）", () => {
+  // §8 登记形态是嵌套列表：`- advice:` 顶格、条目更深。顶格书写的条目被收束掉。
+  const flush = "# T\n\n## 结果\n\n- advice:\n- **接受现状**：顶格书写，不属于建议段。\n";
+  const counted = validateDirectionCompleteness(closedFmWith(["残留 A"]), flush);
+  assert.ok(!counted.ok, "顶格条目按零条计，须以条数不符被拒");
+  assert.ok(counted.issues.some((i) => /must carry exactly 1 entry.*got 0/s.test(i)), JSON.stringify(counted.issues));
+
+  // `present` 与 `entries` 分开跟踪：块存在但零条，residual 为空时仍被拒（不静默放行）。
+  const emptyResidual = validateDirectionCompleteness(closedFmWith([]), flush);
+  assert.ok(!emptyResidual.ok, "建议段存在即不得在 residual 为空时出现，哪怕零条");
+  assert.ok(
+    emptyResidual.issues.some((i) => /must not exist when result\.residual is empty.*got 0 advice entries/s.test(i)),
+    JSON.stringify(emptyResidual.issues),
+  );
+
+  // 缩进 2 空格的登记形态照常计入（对照，避免上两条因解析全面失效而空转）。
+  const indented = "# T\n\n## 结果\n\n- advice:\n  - **接受现状**：缩进书写，计入建议段。\n";
+  const ok = validateDirectionCompleteness(closedFmWith(["残留 A"]), indented);
+  assert.ok(ok.ok, JSON.stringify(ok.issues));
+});
+
+test("result: plan 缺失时机械校验报告而非崩溃（回归：曾读 frontmatter.plan.length 抛 TypeError）", () => {
+  const fm = writingCase({
+    plan: undefined,
+    status: "closed",
+    outcome: "partial",
+    result: { criteria_checks: [], achieved_scope: "部分达成。", residual: ["残留 A"] },
+  });
+  let res;
+  assert.doesNotThrow(() => { res = validateWorkcaseFrontmatter(fm); }, "plan 缺失不得抛 TypeError");
+  assert.equal(res.ok, false);
+  assert.ok(
+    res.issues.some((i) => i.includes("plan: must be a non-empty array")),
+    `plan 缺失须由形状校验单独报告，实际：${JSON.stringify(res.issues)}`,
+  );
+
+  // 同一 frontmatter 在 plan 齐备时不应报 plan 错（证明上一条不是解析全面失效的空转）。
+  const withPlan = validateWorkcaseFrontmatter({ ...fm, plan: [{ step: "一步", done_criteria: "判据" }] });
+  assert.ok(!withPlan.issues.some((i) => i.includes("plan: must be a non-empty array")), JSON.stringify(withPlan.issues));
+});
+
+function partialResultTwoResiduals() {
+  return {
+    criteria_checks: [
+      { satisfied: true, evidence: "第 1 条判据的核对证据" },
+      { satisfied: false, evidence: "第 2 条判据未达成" },
+    ],
+    achieved_scope: "第一条判据在授权范围内完成。",
+    residual: ["残留 A：第二条判据的关闭路径用例尚未覆盖。", "残留 B：跨会话的残留去向尚未验证。"],
+  };
+}
+
+test("direction e2e: 两条残留转入同一 Spark —— 两条同 uid 的 routed-to 可落盘，关闭放行（21 §15.1）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const sparkUid = await seedSpark(root);
+    const { uid: wcUid, after } = await reviewed(root, await approved(root));
+
+    const exec = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: wcUid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: { ...after.value.frontmatter, relations: [ROUTED(sparkUid), ROUTED(sparkUid)] },
+      bodyMarkdownAfter: bodyWithoutH1(after.value.body),
+      changeSummary: "两条残留登记到同一议题",
+      sessionSignature: SIG(),
+    });
+    assert.ok(exec.ok, `同目标的两条 routed-to 必须可写入，实际：${JSON.stringify(exec.error)}`);
+    const execRead = await readWorkcaseObject({ factSourceRoot: root, objectUid: wcUid });
+    assert.equal(execRead.value.frontmatter.relations.length, 2, "同 uid 的两条边须都保留（按条对应，不是去重）");
+    assert.equal(execRead.value.mechanical_issues.length, 0, JSON.stringify(execRead.value.mechanical_issues));
+
+    const closed = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: wcUid,
+      expectedFingerprint: exec.value.fingerprint,
+      outcome: "partial",
+      result: partialResultTwoResiduals(),
+      changeSummary: "关闭（测试）",
+      bodyMarkdownAfter: closingBody(
+        execRead.value.body,
+        ["**转入 Spark**：残留 A 转入议题待裁。", "**转入 Spark**：残留 B 同样转入该议题。"],
+        ["残留 A：第二条判据的关闭路径用例尚未覆盖。", "残留 B：跨会话的残留去向尚未验证。"],
+      ),
+      sessionSignature: SIG(),
+    });
+    assert.ok(closed.ok, JSON.stringify(closed.error));
+    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: wcUid });
+    assert.equal(read.value.frontmatter.status, "closed");
+    assert.equal(read.value.mechanical_issues.length, 0, JSON.stringify(read.value.mechanical_issues));
   });
 });

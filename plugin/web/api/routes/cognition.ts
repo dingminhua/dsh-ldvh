@@ -600,10 +600,21 @@ function isDisplayableFormalRelation(
         && target.type === 'workcase'
         && (target.status === 'open' || target.status === 'draft')
     }
+    // 显示层收窄，**不是**写入期有效性判定——`routed-to` 写入期与语义的唯一权威是 21 §12：
+    // 目标必须是同项目 Spark，且**写入时**须为 `open`。
+    //
+    // ① 目标**只接受 spark**：21 §12 的目标类型是 Spark，WorkCase 目标在本关系下从不合法，
+    //    显示层不得放宽出规范不承认的形态（本仓事实源当前 0 条 `routed-to`，无历史数据受影响）。
+    // ② 仍接受 implemented／discarded 目标：21 §13 规定目标其后转终态**不使该边失效**，且
+    //    消费方**必须**标注目标已终结——故终态目标要显示（由节点自己的状态徽标承载），
+    //    而不是过滤掉。过滤会让「已终结的目标」静默消失，违反 §13。
+    // ③ 已知收窄（如实登记）：只画 `closed` 源对象上的边。对象在 `open` 期经 `execute` 落盘
+    //    `routed-to`、尚未关闭的窗口内该边不显示（21 §14 的 CREATE-FIRST 次序会把边先写下来）。
+    //    这是显示选择，不主张该边无效，也不构成第二权威。
     if (relationKey === 'routed-to') {
       return source.status === 'closed'
-        && ((target.type === 'workcase' && ['draft', 'open', 'closed'].includes(target.status ?? ''))
-      || (target.type === 'spark' && ['open', 'implemented', 'discarded'].includes(target.status ?? '')))
+        && target.type === 'spark'
+        && ['open', 'implemented', 'discarded'].includes(target.status ?? '')
     }
     if (relationKey === 'contributed-to') {
       return target.type === 'pitfall' && ['draft', 'active', 'discarded'].includes(target.status ?? '')

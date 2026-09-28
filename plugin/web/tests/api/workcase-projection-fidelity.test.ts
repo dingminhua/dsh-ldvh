@@ -538,8 +538,10 @@ test('已关闭：cancelled 对象的取消记录必须投影到位（21 §8）'
   assert.ok(checked.length > 0, '必须至少核对一个 cancelled 对象，否则本守卫是空转');
 });
 
-// 去向（`21 §8` 建议段）：**只有一处承载**——正文「## 结果」节的 `- advice:` 段，
-// 而 `close` 不删正文，故关闭前后读的是**同一处**（`21 §10.2` 明写不得另存一份）。
+// 去向（`21 §8` 建议段）：**同一去向不重复承载**——去向词与建议正文只在正文
+// 「## 结果」节的 `- advice:` 段出现一处（`21 §10.2` 2026-09-28 表述）；
+// 「转入 Spark」的**指向**（哪个 Spark）另在 `relations.routed-to` 承载一处，
+// 对象标识不靠散文回指。`close` 不删正文，故关闭前后读的是**同一处**。
 //
 // 为什么需要这条守卫：投影层原先只在 `open` 分支解析建议段，`closed` 分支不解析，
 // 后果是**关闭后去向在卡上消失**——而 `§10.2` 把它列为 Gate 2 的提请必含项
@@ -554,6 +556,8 @@ test('已关闭：去向从同一处承载投影到位（21 §8/§10.2，不另�
     if (source.status !== 'closed') continue;
     // 正文里实际有几条建议段条目 → 投影后必须**一条不少**地送达
     const body = typeof source.report_body === 'string' ? source.report_body : '';
+    // 存量载体写的是 2026-09-28 前的四词（§15.3 存量不溯及），故扫描面取
+    // 「现行闭集二词 ∪ 存量两词」——呈现层对两者都要认得。
     const expected = [...body.matchAll(/^\s*-\s*\*\*(另立工单|接受现状|转入 Spark|直接行动)\*\*\s*[:：]/gm)];
     const projected = projectCurrentWorkCaseCard(source, detail.item.source_content_fingerprint);
     const advice = Array.isArray(projected.advice) ? projected.advice : [];
@@ -566,7 +570,7 @@ test('已关闭：去向从同一处承载投影到位（21 §8/§10.2，不另�
       assert.ok(
         typeof item.kind === 'string' &&
           ['另立工单', '接受现状', '转入 Spark', '直接行动'].includes(item.kind),
-        `${objectId}: 去向词必须落在闭集四词内，实际 ${JSON.stringify(item.kind)}`,
+        `${objectId}: 去向词须落在现行闭集二词或存量两词内，实际 ${JSON.stringify(item.kind)}`,
       );
       assert.ok(typeof item.text === 'string' && item.text.length > 0, `${objectId}: 去向正文不得为空`);
     }
@@ -580,7 +584,11 @@ test('已关闭：去向从同一处承载投影到位（21 §8/§10.2，不另�
 
 // 合成用例：不依赖存量数据，直接构造一份「已关闭 + 正文带建议段」的对象，
 // 断言投影把去向送达。这是上一条守卫覆盖不到的非空情形。
-test('已关闭：正文带建议段时，去向必须投影（合成用例）', () => {
+//
+// 用的正是存量写法（四词之一「直接行动」＋ `出自「…」` 尾注）：投影层对存量载体
+// 仍要原样送达去向，且**不得把尾注当字段**——`21 §8` 2026-09-28 已删该项，
+// 尾注只从正文里剥掉（否则「某条残留」这类元信息会混进卡面正文）。
+test('已关闭：正文带建议段时，去向必须投影（合成用例，含存量写法）', () => {
   const body = [
     '## 摘要', 'x',
     '## 授权范围', '做什么：x', '明确不做什么：y',
@@ -605,8 +613,11 @@ test('已关闭：正文带建议段时，去向必须投影（合成用例）',
   assert.ok(Array.isArray(advice) && advice.length === 1, `去向未投影：${JSON.stringify(projected.advice)}`);
   assert.equal(advice![0].kind, '直接行动');
   assert.equal(advice![0].text, '把该分支改为 fail-closed。');
-  assert.equal(advice![0].from, '某条残留');
-  // 同一处承载：投影不新增任何「关闭时另存的去向」字段
+  assert.ok(
+    !('from' in advice![0]),
+    '`出自「…」` 已不是字段来源（21 §8 2026-09-28 删该项），投影不得产出 from',
+  );
+  // 同一去向不重复承载：投影不新增任何「关闭时另存的去向」字段
   assert.ok(
     !('closure_advice' in projected) && !('final_advice' in projected),
     '不得为关闭后的去向另存一份（21 §10.2）',
