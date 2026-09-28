@@ -69,9 +69,9 @@
     "yaml": "^2.8.1"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.7-rc.1 <0.2.0",
-    "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.7-rc.1 <0.2.0",
-    "@deepseek-ai/dsh-host-webserver": ">=0.1.7-rc.1 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.7-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.7-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-host-webserver": ">=0.1.7-rc.1 <0.3.0",
     "@deepseek-ai/schemastery": "^3.18.4"
   },
   "peerDependenciesMeta": {
@@ -84,10 +84,10 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
-    "@deepseek-ai/dsh-llm": "0.1.7-rc.2",
-    "@deepseek-ai/dsh-sandbox": "0.1.7-rc.2",
-    "@deepseek-ai/dsh-scope": "0.1.7-rc.2",
-    "@deepseek-ai/dsh-tools": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.0-rc.1",
+    "@deepseek-ai/dsh-sandbox": "0.2.0-rc.1",
+    "@deepseek-ai/dsh-scope": "0.2.0-rc.1",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.1",
     "@deepseek-ai/schemastery": "^3.18.4",
     "@eslint/js": "^10.0.1",
     "eslint": "^10.10.0",
