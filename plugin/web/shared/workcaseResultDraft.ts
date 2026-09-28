@@ -355,7 +355,14 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
     // 存量尾注剥离：只从正文里去掉，不产出任何字段（见 `ADVICE_LEGACY_FROM`）。
     const legacyFrom = ADVICE_LEGACY_FROM.exec(text)
     if (legacyFrom) text = text.slice(0, legacyFrom.index).trim()
-    return { kind: adviceKindOf(kindText), text: text || item }
+    // **不得在剥离后回落到未剥离的整条原文**（F-5，2026-09-28 独立对抗复核发现）：
+    // 原先写 `text: text || item`，当正文剥完尾注后为空（如 `- **接受现状**：出自「残留甲」`）
+    // 就回落到 `item`，把整行原文（含去向词标记与已退休的尾注）当作正文交给读者。
+    // 写入器侧（`workcase-writer.js` 的 `parseResidualSection`）**没有这个回落**，只给 `""`；
+    // 两处口径因此分岔——虽然条数与去向词仍一致（门禁② 不受影响），但契约测试声称比对
+    // 「正文」而实际未覆盖，属自我声明超出实际覆盖，已在测试侧一并更正。
+    // 现与写入器对齐：剥完就是剥完，为空即空。
+    return { kind: adviceKindOf(kindText), text }
   }
 
   for (const rawLine of section.split('\n')) {

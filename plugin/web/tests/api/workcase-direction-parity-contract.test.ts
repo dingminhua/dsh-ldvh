@@ -13,10 +13,18 @@
 // 而**形态本身**随后又改了一次（合并式）——故本文件把「两处逐案同数」做成可重跑的守卫，
 // 而不是只留注释。
 //
-// ⚠️ **保证边界（如实声明）**：本文件比较的是**解析结果**（条数／去向词／正文），
-// 不是「两处实现逐字相同」。它证明「本文件所列的每个输入在两处得到相同结论」，
-// 不证明「任意输入都同结论」——故下方逐案枚举了 §15.1 已登记的三种判据边界与
-// 五条「实际接受集」差异。新增形态时须同步补案，否则守卫的覆盖会落后于实现。
+// ⚠️ **保证边界（如实声明）**：本文件比较的是**解析结果**，不是「两处实现逐字相同」。
+// 它证明「本文件所列的每个输入在两处得到相同结论」，不证明「任意输入都同结论」——
+// 故下方逐案枚举了 §15.1 已登记的三种判据边界与五条「实际接受集」差异。新增形态时
+// 须同步补案，否则守卫的覆盖会落后于实现。
+//
+// **覆盖更正（2026-09-28 独立对抗复核发现 F-5）**：本文件原先自称比较「条数／去向词／
+// 正文」三者，但**实际只断言了条数与去向词**，全文无一处断言正文（`text`）——即自我声明
+// 超出实际覆盖。而当时两处的正文**确实不同**：web 侧 `toDirection` 写 `text: text || item`，
+// 剥完尾注后为空就**回落到未剥离的整条原文**（如 `**接受现状**：出自「残留甲」`），
+// 写入器侧则只给 `""`。该分岔不危及门禁②（条数一致），但会把去向词标记与已退休的尾注
+// 当正文交给读者。**现已两处对齐（去掉 web 侧回落）并补上 `text` 断言**，使本文件的
+// 自我声明与实际覆盖一致。
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -58,8 +66,13 @@ function writerVerdict(body: string, _residualLength: number): {
   residualCount: number;
   /** 去向子项总数（写入器口径，实测）。 */
   directionCount: number;
+  /** 各去向子项的**正文**（写入器口径；F-5 补测用）。 */
+  directionTexts: string[];
 } {
   const section = writer.parseResidualSection(body);
+  const directions = section.entries.flatMap(
+    (entry: { directions: Array<{ text?: string }> }) => entry.directions,
+  );
   return {
     multiSection: section.blocks > 1,
     legacyAdviceSection: section.adviceBlocks > 0,
@@ -68,6 +81,7 @@ function writerVerdict(body: string, _residualLength: number): {
       (sum: number, entry: { directions: unknown[] }) => sum + entry.directions.length,
       0,
     ),
+    directionTexts: directions.map((d: { text?: string }) => String(d?.text ?? '')),
   };
 }
 
@@ -78,6 +92,8 @@ function presentationVerdict(body: string) {
     residualCount: draft.residualEntries.length,
     directionCount: draft.residualEntries.reduce((sum, entry) => sum + entry.directions.length, 0),
     kinds: draft.residualEntries.flatMap((entry) => entry.directions.map((d) => d.kind)),
+    // F-5：正文与条数、去向词同层比较——原先只比前两者，故两处的正文分岔长期不可见。
+    directionTexts: draft.residualEntries.flatMap((entry) => entry.directions.map((d) => d.text)),
   };
 }
 
@@ -317,3 +333,34 @@ test('写入器侧的段解析确实是同一份实现（防「同口径」被�
     assert.match(src, /不累积/, `${name}须登记「不累积」口径（两处一致的历史依据）`);
   }
 });
+
+test('同口径：去向**正文**——两处逐字一致（F-5 补测；原文件只比条数与去向词）', () => {
+  // 本用例补的是 F-5 的实质缺口：原契约测试不断言 `text`，故两处的正文分岔（web 侧
+  // 回落到未剥离原文）长期不可见。下列三案覆盖该分岔的触发条件：
+  //   ① 尾注剥完即空（诱发回落）；
+  //   ② 旧词 + 空正文；
+  //   ③ 正常正文（正向对照：证明本用例不是恒真）。
+  const cases: Array<[string, string]> = [
+    ['尾注剥完即空', '    - **接受现状**：出自「残留甲」'],
+    ['旧词 + 空正文', '    - **另立工单**：'],
+    ['正常正文（正向对照）', '    - **接受现状**：原因甲，就此了结。'],
+  ];
+  for (const [label, line] of cases) {
+    const body = ['- residual:', '  - 残留甲。', line].join('\n');
+    const { w, p } = compare(body, 1);
+    assert.equal(w.directionCount, 1, `${label}：写入器须读出 1 个去向子项`);
+    assert.equal(p.directionCount, 1, `${label}：呈现层须读出 1 个去向子项`);
+    // 正文逐字一致——这是本用例的**唯一新增判据**。
+    assert.deepEqual(
+      p.directionTexts,
+      w.directionTexts,
+      `${label}：两处去向正文必须逐字一致（不得一处剥离、一处回落到原文）`,
+    );
+  }
+  // 正向对照：正常正文那一案必须给出**非空**正文——若两处都退化为空，
+  // 上面的 deepEqual 会「一致地错」而本断言失败，故它防的是用例恒真。
+  const body = ['- residual:', '  - 残留甲。', '    - **接受现状**：原因甲，就此了结。'].join('\n');
+  const { p } = compare(body, 1);
+  assert.equal(p.directionTexts[0], '原因甲，就此了结。', '正向对照：正常正文须被完整读出');
+});
+
