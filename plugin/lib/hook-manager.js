@@ -8,7 +8,45 @@ const execFileAsync = promisify(execFile);
 const MARKER_PREFIX = "# ldvh-native-commit-msg-hook: v1 sha256:";
 const VERSION_PREFIX = "# ldvh-hook-bundle-version: ";
 const GIT_TIMEOUT_MS = 10000;
-export const HOOK_BUNDLE_VERSION = "1.0.0-dev.1";
+// The Hook bundle version is the ONLY propagation channel for a change to the
+// Hook body: `inspectHook` compares it against this constant, so an installed
+// Hook whose body changes without this value changing stays `managed` forever
+// and is never refreshed (the client only offers repair for absent/outdated).
+// Bump it whenever `renderHook` changes what it emits — this is this constant's
+// job, not a mirror of `package.json.version`.
+export const HOOK_BUNDLE_VERSION = "1.0.0-dev.2";
+
+/**
+ * Emitted by the Hook itself when it cannot find a node interpreter.
+ *
+ * Why a shared constant: before this, the Hook called bare `exec node`, so a
+ * PATH without node made the shell fail with `exec: node: not found` (exit 127
+ * from the shell, normalized to 1 by git). Exit codes therefore carried two
+ * unrelated meanings — "the validator rejected this message" and "the validator
+ * could not be started" — and `preflight` asserted only `code !== 0`, so it
+ * accepted the interpreter failure as proof that blocking works (friction
+ * 6cb53179). The marker lets the caller separate the two, since the exit code
+ * cannot. Exported so tests assert the same string.
+ */
+export const INTERPRETER_UNAVAILABLE_MARKER = "LDVH Git Gate (commit-msg) cannot run: no node interpreter found";
+
+/**
+ * Interpreter candidates tried in order, as shell words.
+ *
+ * The absolute path is baked first so a PATH without node still works. It is
+ * NOT sufficient on its own: a node upgrade or a relocated install invalidates
+ * it, so the PATH names must remain as a fallback — otherwise this fix would
+ * trade a partial failure for a harder one.
+ */
+function defaultInterpreterCandidates() {
+  const baked = typeof process.execPath === "string" && process.execPath.length > 0 ? [process.execPath] : [];
+  return [...baked, "node", "nodejs"];
+}
+
+/** Single-quote a shell word, escaping embedded single quotes. */
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", "'\\''")}'`;
+}
 
 function cleanGitEnvironment(extra = {}) {
   // Strip AMBIENT Git override variables from the inherited environment
@@ -79,9 +117,17 @@ function parseManagedHook(content) {
   return { owned: true, valid, version, body };
 }
 
-export function renderHook({ runnerPath, workspaceRoot, bundleVersion = HOOK_BUNDLE_VERSION }) {
-  const runner = `'${String(runnerPath).replaceAll("'", "'\\''")}'`;
-  const workspace = `'${String(workspaceRoot).replaceAll("'", "'\\''")}'`;
+export function renderHook({ runnerPath, workspaceRoot, bundleVersion = HOOK_BUNDLE_VERSION, interpreterCandidates = defaultInterpreterCandidates() }) {
+  const runner = shellQuote(runnerPath);
+  const workspace = shellQuote(workspaceRoot);
+  // Each candidate is probed, then used as an argv[0] word — never spliced into
+  // an unquoted position (a candidate may contain spaces, e.g. an app bundle
+  // path inside /Applications). Every item but the last needs a backslash so the
+  // `for ... in` list is one continued logical line; without them the list ends
+  // at the first newline and the shell reports a syntax error.
+  const probes = interpreterCandidates
+    .map((candidate, index) => `${index === interpreterCandidates.length - 1 ? "  " : "    "}${shellQuote(candidate)}${index === interpreterCandidates.length - 1 ? "" : " \\"}`)
+    .join("\n");
   const body = [
     `${VERSION_PREFIX}${bundleVersion}`,
     "set -eu",
@@ -101,7 +147,25 @@ export function renderHook({ runnerPath, workspaceRoot, bundleVersion = HOOK_BUN
     'if [ -n "${LDVH_PREFLIGHT_INDEX:-}" ]; then',
     '  set -- "$@" --index-file "$LDVH_PREFLIGHT_INDEX"',
     "fi",
-    `exec node ${runner} "$@"`,
+    "node_bin=",
+    "for candidate in \\",
+    probes,
+    "do",
+    '  if command -v "$candidate" >/dev/null 2>&1; then node_bin=$candidate; break; fi',
+    "done",
+    'if [ -z "$node_bin" ]; then',
+    // Fail CLOSED and say why: the exit code cannot carry this meaning (git
+    // normalizes 126/127/1 all to 1), so the distinction has to ride on stderr.
+    `  printf "%s\\n" ${shellQuote(INTERPRETER_UNAVAILABLE_MARKER)} >&2`,
+    "  exit 127",
+    "fi",
+    // ELECTRON_RUN_AS_NODE: when the host is Electron (DSH Desktop), the baked
+    // absolute path is the Electron binary. Without this flag it would start as
+    // an application instead of an interpreter and exit 0 on the single-instance
+    // lock — i.e. the gate would PASS without validating anything (a fail-open).
+    // The same hazard is handled this way by web-mount.js. Harmless for plain
+    // node, which ignores the variable.
+    'ELECTRON_RUN_AS_NODE=1 exec "$node_bin" ' + `${runner} "$@"`,
     ""
   ].join("\n");
   return `#!/bin/sh\n${MARKER_PREFIX}${digest(body)}\n${body}`;
@@ -220,6 +284,15 @@ async function preflight(rendered, identity) {
     await runGit(identity.projectRoot, ["update-index", "--add", "--cacheinfo", `100644,${blob},ldvh-preflight`], { env: { GIT_INDEX_FILE: preflightIndex } });
     const blocked = await invokeHook(hook, invalid, identity.projectRoot, { LDVH_PREFLIGHT_INDEX: preflightIndex });
     if (blocked.code === 0) throw new Error("Git Hook preflight did not block an invalid message");
+    // A nonzero exit is NOT sufficient proof that the gate blocked: the Hook
+    // also exits nonzero when it cannot start the validator at all. Before this
+    // check, a missing interpreter made the shell exit 127 — comfortably
+    // nonzero — so `blocked.code === 0` passed while nothing had been validated
+    // (see friction 6cb53179). The marker is the only reliable signal, since
+    // git collapses 126/127/1 to 1 in real commits.
+    if (blocked.stderr.includes(INTERPRETER_UNAVAILABLE_MARKER)) {
+      throw new Error(`Git Hook preflight could not start the validator: ${blocked.stderr.trim()}`);
+    }
     const allowed = await invokeHook(hook, valid, identity.projectRoot, { LDVH_PREFLIGHT_INDEX: preflightIndex });
     if (allowed.code !== 0) throw new Error(`Git Hook preflight rejected a valid message: ${allowed.stderr || allowed.stdout}`);
   } finally {

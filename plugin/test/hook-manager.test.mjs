@@ -12,8 +12,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { lstat, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
 	HOOK_BUNDLE_VERSION,
+	INTERPRETER_UNAVAILABLE_MARKER,
 	cleanGitEnvironment,
 	inspectHook,
 	installHook,
@@ -23,6 +26,28 @@ import {
 	uninstallHook,
 } from "../lib/hook-manager.js";
 import { git, gitOk, initRepo, runnerPath, VALID_COMMIT_MESSAGE, withTemp } from "./helpers.mjs";
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Run a rendered Hook exactly as Git would (same entry point, one argument),
+ * under an explicit environment.
+ *
+ * Why not the module's own `invokeHook`: it is private to hook-manager and this
+ * file must exercise the Hook as a real shell process. Inheriting the ambient
+ * environment here would hide the very defect these tests exist for, so callers
+ * pass the PATH they want to prove.
+ */
+async function runHookWithEnv(hookPath, messageFile, cwd, env) {
+	const command = process.platform === "win32" ? "sh" : hookPath;
+	const args = process.platform === "win32" ? [hookPath, messageFile] : [messageFile];
+	try {
+		const result = await execFileAsync(command, args, { cwd, env: { ...cleanGitEnvironment(), ...env }, encoding: "utf8", timeout: 20000 });
+		return { code: 0, stdout: result.stdout, stderr: result.stderr };
+	} catch (error) {
+		return { code: typeof error?.code === "number" ? error.code : 1, stdout: error?.stdout ?? "", stderr: error?.stderr ?? String(error?.message || error) };
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Git root strict check
@@ -203,7 +228,17 @@ test("hook lifecycle: absent -> install -> managed -> uninstall -> absent", asyn
 		// hook is executable and carries the rendered marker
 		const content = await readFile(join(root, ".git", "hooks", "commit-msg"), "utf8");
 		assert.match(content, /^#!\/bin\/sh\n# ldvh-native-commit-msg-hook: v1 sha256:/);
-		assert.match(content, /exec node/);
+		// The Hook must resolve an interpreter itself instead of calling bare
+		// `exec node`: a PATH without node used to reduce every commit to
+		// `exec: node: not found`, indistinguishable from a validation failure
+		// (friction 6cb53179).
+		assert.doesNotMatch(content, /exec node /);
+		assert.match(content, /for candidate in/);
+		assert.match(content, /node_bin=\$candidate/);
+		// Electron hosts (DSH Desktop) make the baked absolute path the Electron
+		// binary; without this flag it starts as an app and exits 0, i.e. passes
+		// the gate without validating (fail-open).
+		assert.match(content, /ELECTRON_RUN_AS_NODE=1 exec "\$node_bin"/);
 
 		const managed = await inspectHook(root);
 		assert.equal(managed.state, "managed");
@@ -356,5 +391,109 @@ test("uninstallHook removes only commit-msg and keeps the hooks directory", asyn
 		assert.ok((await lstat(join(root, ".git", "hooks"))).isDirectory(), "hooks directory must remain");
 		// unrelated hook files untouched
 		assert.equal(await readFile(join(root, ".git", "hooks", "post-commit.sample"), "utf8"), "#!/bin/sh\n");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Interpreter resolution (friction 6cb53179)
+//
+// Every other test in this file inherits the ambient PATH from the test runner,
+// which is exactly how the original defect stayed hidden: no test ever ran the
+// Hook in a shell where node is unreachable. These tests construct that
+// environment explicitly instead of relying on the developer's machine.
+// ---------------------------------------------------------------------------
+
+/** PATH with no node: keeps git and sh reachable, drops every node install. */
+const PATH_WITHOUT_NODE = "/usr/bin:/bin";
+
+test("Hook runs under a PATH without node (friction 6cb53179 regression)", async () => {
+	await withTemp("ldvh-hm.", async (base) => {
+		const root = await initRepo(base);
+		// Bake only PATH-resolved names, so the baked absolute path cannot mask
+		// the very condition under test.
+		const rendered = renderHook({ runnerPath, workspaceRoot: base, interpreterCandidates: ["node", "nodejs"] });
+		const hook = join(base, "commit-msg");
+		await writeFile(hook, rendered, { mode: 0o755 });
+
+		const invalid = join(base, "invalid-message");
+		await writeFile(invalid, "bad\n", "utf8");
+		const result = await runHookWithEnv(hook, invalid, root, { PATH: PATH_WITHOUT_NODE });
+
+		// No interpreter is reachable at all, so the Hook must fail CLOSED and
+		// say why — rather than dying on a bare `exec node`.
+		assert.equal(result.code, 127, `expected 127, got ${result.code}: ${result.stderr}`);
+		assert.ok(
+			result.stderr.includes(INTERPRETER_UNAVAILABLE_MARKER),
+			`stderr must carry the marker so it is distinguishable from a validation failure; got: ${result.stderr}`,
+		);
+		// The old failure mode must be gone.
+		assert.doesNotMatch(result.stderr, /exec: node: not found/);
+	});
+});
+
+test("Hook still validates when node is baked as an absolute path and PATH lacks node", async () => {
+	await withTemp("ldvh-hm.", async (base) => {
+		const root = await initRepo(base);
+		// With the real node baked in as an absolute candidate, a PATH without
+		// node must NOT matter: the gate must actually validate.
+		const rendered = renderHook({ runnerPath, workspaceRoot: base, interpreterCandidates: [process.execPath, "node"] });
+		const hook = join(base, "commit-msg");
+		await writeFile(hook, rendered, { mode: 0o755 });
+
+		const invalid = join(base, "invalid-message");
+		await writeFile(invalid, "bad\n", "utf8");
+		const blocked = await runHookWithEnv(hook, invalid, root, { PATH: PATH_WITHOUT_NODE });
+		assert.notEqual(blocked.code, 0, "invalid message must still be blocked");
+		assert.doesNotMatch(blocked.stderr, /exec: node: not found/);
+		assert.doesNotMatch(blocked.stderr, new RegExp(INTERPRETER_UNAVAILABLE_MARKER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+		// Proof the validator really ran: it reports its own findings.
+		assert.match(blocked.stderr, /LDVH Git Gate \(commit-msg\) failed/);
+
+		const valid = join(base, "valid-message");
+		await writeFile(valid, VALID_COMMIT_MESSAGE, "utf8");
+		// installHook's preflight proves the same path with a synthetic index.
+		const install = await installHook({ projectRoot: root, runnerPath, workspaceRoot: base });
+		assert.equal(install.ok, true, install.error?.message);
+	});
+});
+
+test("preflight refuses a Hook that cannot start the validator (no silent pass)", async () => {
+	await withTemp("ldvh-hm.", async (base) => {
+		const root = await initRepo(base);
+		// A Hook whose candidates cannot resolve anywhere: the shell exits 127,
+		// which is nonzero and therefore used to satisfy `blocked.code === 0`'s
+		// negation while nothing was validated.
+		const broken = renderHook({ runnerPath, workspaceRoot: base, interpreterCandidates: ["ldvh-definitely-not-an-interpreter"] });
+		const hook = join(base, "commit-msg");
+		await writeFile(hook, broken, { mode: 0o755 });
+		const invalid = join(base, "invalid-message");
+		await writeFile(invalid, "bad\n", "utf8");
+		const result = await runHookWithEnv(hook, invalid, root, { PATH: PATH_WITHOUT_NODE });
+		assert.equal(result.code, 127);
+		assert.ok(result.stderr.includes(INTERPRETER_UNAVAILABLE_MARKER));
+	});
+});
+
+test("installed Hook reports outdated once HOOK_BUNDLE_VERSION moves (propagation)", async () => {
+	await withTemp("ldvh-hm.", async (base) => {
+		const root = await initRepo(base);
+		// Simulate an install made by an older bundle: same template, older
+		// version marker. This is the only channel through which a Hook-body fix
+		// reaches an existing installation, so it must flip managed -> outdated.
+		const stale = renderHook({ runnerPath, workspaceRoot: base, bundleVersion: "0.0.0-older" });
+		await writeFile(join(root, ".git", "hooks", "commit-msg"), stale, { mode: 0o755 });
+
+		const staleInspect = await inspectHook(root);
+		assert.equal(staleInspect.state, "outdated");
+		assert.equal(staleInspect.hookBundleVersion, "0.0.0-older");
+		assert.equal(staleInspect.expectedHookBundleVersion, HOOK_BUNDLE_VERSION);
+
+		// Reinstall refreshes it to the current bundle.
+		const install = await installHook({ projectRoot: root, runnerPath, workspaceRoot: base });
+		assert.equal(install.ok, true, install.error?.message);
+		assert.equal(install.value.state, "managed");
+		assert.equal(install.value.hookBundleVersion, HOOK_BUNDLE_VERSION);
+		const refreshed = await readFile(join(root, ".git", "hooks", "commit-msg"), "utf8");
+		assert.doesNotMatch(refreshed, /exec node /);
 	});
 });
