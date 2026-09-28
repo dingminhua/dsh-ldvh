@@ -2,44 +2,79 @@ import { useState } from 'react';
 import { useI18n } from '@/i18n/context';
 import type { LocaleKey } from '@/i18n/locales';
 import { getLocalizedObjectTitle, getObjectStatusLocale, getTypeLabel } from '@/i18n/locales';
-import type { FactRefSource, ObjectItem, WorkCasePlanStep, WorkCaseResultCheck } from '@/utils/api';
+import type { FactCardAssociation, FactRefSource, ObjectItem, WorkCasePlanStep, WorkCaseResultCheck } from '@/utils/api';
 import { stripCardMarkdown } from '@/utils/cardText';
 import { usePanel } from '@/utils/panelContext';
+import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import {
   WORKCASE_CHECK_TAG_BASE,
   WORKCASE_CHECK_TAG_CLASS,
+  WORKCASE_COLLAPSED_RESIDUAL,
   WORKCASE_RESIDUAL_BLOCK_CLASS,
   WORKCASE_RESIDUAL_ROW_CLASS,
   WORKCASE_ITEM_ROW_CLASS,
   WORKCASE_RESIDUAL_TAG_CLASS,
   workCaseAdviceTagClass,
   workCaseCheckLabelFor,
+  workCaseDirectionRows,
   workCaseResultCheckRows,
 } from '@/utils/workcaseCheckState';
 
 /**
- * WorkCase「已关闭」卡主体（Human 2026-09-24 定，方案 A）。
+ * WorkCase「已关闭」卡主体（Human 2026-09-24 定，方案 A；2026-09-28 二次修订）。
  *
- * 三块，**均无标题栏**（与「待批准关闭」同一形态纪律）：
- * 1. **结论行**——`outcome` + 核对达成计数 + 残留条数，压成一行。此前 `outcome`
- *    是一个孤立 chip、核对是另一串「已满足」行，读者要自己数才能把两者对上。
- * 2. **逐条核对**——`[达成] plan[N].step`。与「待批准关闭」卡同一形态：**只给标题，
- *    证据不上卡**。此前显示的是「已满足 · <整段证据>」，实测最长 258 字，一张卡被
- *    撑到十几行，扫读窗口失效（10 §5.2）。证据归详情面（10 §5.3）。
- * 3. **残留块**——`result.residual`。这是「关闭后还剩什么」，此前卡上完全看不到。
- *    超过 `COLLAPSED_RESIDUAL` 条经「更早 N 条」展开，与变更流水同一交互。
+ * 呈现**三块**，均**无标题栏**（与「待批准关闭」同一形态纪律）：
+ * 1. **结论行**——`outcome` 徽标 + 核对达成计数（`核对 N/M 达成`），压成一行。
+ *    此前 `outcome` 是一个孤立 chip、核对是另一串「已满足」行，读者要自己数才能把
+ *    两者对上。
+ * 2. **逐条核对**——`[达成／未达成／未记录] plan[N].step`。与「待批准关闭」卡同一
+ *    形态：**只给标题，证据不上卡**。此前显示的是「已满足 · <整段证据>」，实测最长
+ *    258 字，一张卡被撑到十几行，扫读窗口失效（10 §5.2）。证据归详情面（10 §5.3）。
+ * 3. **去向**——逐条去向（去向标记 + 正文）；「转入 Spark」项**就地渲染为目标关联行**
+ *    （图标 + 标题 + 目标状态，可点开面板），指向由 `relations.routed-to`。
+ *
+ * **按决定 A 不再呈现残留**（`10 §5.5`，Human 裁定 2026-09-28）：去向不再是独立的一段，
+ * 而是**长在每条残留里面**（`21 §8` 合并式）——「还剩什么」与「打算怎么办」是同一个
+ * **不可分离的单元**。故只画读者需要执行的那一半，残留不再重复出现。**这不是删除信息**：
+ * 残留与其去向在**载体**中仍是同一个单元，收窄只发生在**呈现**层。此前两期各画一遍
+ * （残留一块 + 去向一块）使同一条信息在扫读窗口里被同一件事占两行；合并式消除了重复的
+ * **根源**，A 再进一步只留去向。**结论行也随之去掉「残留 K 条」**——同一收窄的一部分。
+ *
+ * ⚠️ **不得声称本收窄的前提已全部满足**（`21 §15.2` 已登记该缺口，2026-09-28 独立对抗
+ * 复核后更正）：A 的适用以两个前提为限，**两者强度不同**——①「该对象每条残留都带有去向
+ * 子项」是**结构判据**，机械可判（本组件消费的 `closure_narrows_residual` 就是它）；
+ * ②「去向正文**自足**」（离开残留也能读懂）是**语义判据**，`21 §8` 与 `§15.1` 软约束均
+ * 明确归 **AI 语义审核与 Human 阅读**，**机械层不判定**，本组件也不判定。**前提② 目前
+ * 零样本**：实测 17 份 closed 的 56 条去向条目**全部**带 `出自「…」` 尾注（即靠复述残留
+ * 原文建立回指），新形态下的自足去向正文**从无一份实例**。故：**实现前提①不等于实现
+ * A 的适用条件**；在取得自足去向正文的实例之前，**不得声称关闭后「只呈现去向」在任何
+ * 现存对象上已可如实执行**（`21 §15.2` 的禁令原文）。本组件只实现结构面。
+ *
+ * **条件豁免（必须与上条合读，不作为「都不呈现残留」的许可）**：A 的适用以两个前提为限
+ * ——① 该对象采用**合并式**形态（**每条**残留都带有去向子项）；② 去向正文满足 `21 §8` 的
+ * **自足**要求。**不满足者不得套用 A**：存量分离式对象不受新形态约束（`21 §15.3`），其中
+ * 实测 6 份建议段条数**少于** `result.residual` 长度（合计 22 条残留当年就没有去向），若
+ * 一律按 A 隐藏残留，这些残留会从卡面**静默消失**。故判据是「该对象每条残留都带有去向
+ * 子项」——满足则只画去向，不满足则**如实保留残留块**（并保持与去向块各自呈现）。
+ *
+ * **本判据与 `21 §15.1` 门禁③ 同源但不等价**（`10 §5.5` 明文，不得混同）：门禁③ 要求
+ * 「**恰有**一个」，多于一个即拒；本判据问的是「**都带有**」，只处理有无、不处理重复。
+ * 且**存量对象的可收窄性不适用 `21 §15.1` 门禁整体**——`§15.3` 存量豁免使该门禁对存量
+ * 不生效，故本判据对存量只是**呈现选择**，不是门禁③的结果。
+ *
+ * 判据是**机械可判**的（`10 §5.5`：与 `21 §15.1` 门禁③同口径，不是语义判断），且由
+ * 投影层经 `workCaseClosureNarrowsResidual` **单点算出**后以 `closure_narrows_residual`
+ * 传来——**本组件不自行解析正文**：详情面读的是**同一个值**，两处判据因此必然同源
+ *（`10 §5.5` 明文「判据与卡面同源…不得两处各写一套」）。
  *
  * 数据来源与边界：
  * - `plan` 由投影层补入（closed 期此前不投影 `plan`，卡上因此拿不到步骤标题——
  *   `21 §8` 的 `criteria_checks[]` 只有 `{satisfied, evidence}`，不含判据文本）；
  * - 核对状态只认 `21 §8` 登记的三词映射（达成 ⇔ `true`；未达成 ⇔ `false`；缺失 ⇒
  *   未记录），复用 `@/utils/workcaseCheckState` 的单一实现，不另造一套；
- * - **卡面按纯文本渲染**：`residual` 与 `achieved_scope` 里的 Markdown 标记不解析、
- *   直接显示。写作侧纪律见 `21 §8`（建议段同纪律）。
+ * - **卡面按纯文本渲染**：`residual`、`achieved_scope` 与去向正文里的 Markdown 标记
+ *   不解析、直接显示。写作侧纪律见 `21 §8`（去向子项同纪律）。
  */
-
-/** 残留默认显示条数；其余经「更早 N 条」展开。 */
-const COLLAPSED_RESIDUAL = 2;
 
 const NEUTRAL_TAG_CLASS = 'border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary';
 
@@ -107,6 +142,67 @@ function WorkCaseRefSourceRow({ source, locale }: { source: FactRefSource; local
   );
 }
 
+/**
+ * 「转入 Spark」去向的**目标关联行**（`10 §5.5`「已关闭」卡表）。
+ *
+ * 表里写明：「转入 Spark」项**就地渲染为目标关联行**（图标 + 标题 + 目标状态，可点开
+ * 面板）。指向的唯一承载是 `relations.routed-to`（`21 §12`：指向哪个 Spark 是**对象标识**
+ * 问题，由 frontmatter 关系承载，不靠散文文字回指）。
+ *
+ * **显示期判据与写入期判据不同**（`10 §5.5` 已登记，不是两处权威）：写入期要求目标
+ * 此刻为 `open`（`§12`——只有仍在承载议题的 Spark 才配作残留去向）；显示期接受
+ * `open`／`implemented`／`discarded` 三者，因为 `§13` 规定目标其后转终态**不使该边
+ * 失效**、且消费方**必须**标注目标已终结——过滤掉会让「已终结的目标」静默消失，反而
+ * 违反 `§13`。故此处由节点自身的状态徽标承载其终结态，不做过滤。
+ *
+ * 关联语言保持中性：声明了一条 `routed-to` 不等于该去向已被执行（`§10.2`：去向是
+ * 提请时如实说明的打算，不因关闭而被批准）。
+ */
+function WorkCaseRoutedToRow({
+  association,
+  locale,
+}: {
+  association: FactCardAssociation;
+  locale: string;
+}) {
+  const { t } = useI18n();
+  const { openPanel } = usePanel();
+  const target = association.resolvedTarget;
+  const title = association.available
+    ? getLocalizedObjectTitle(association, locale)
+    : t('objectList.workcaseRoutedToUnavailable');
+  const canOpen = Boolean(association.available && target);
+  const open = () => {
+    if (!canOpen || !target) return;
+    openPanel({ type: 'object', title, objectType: target.factTypeKey, objectId: target.objectId });
+  };
+  const statusLabel = association.status && target
+    ? getObjectStatusLocale(target.factTypeKey, association.status, locale)
+    : null;
+
+  return (
+    <div
+      data-workcase-routed-to={target?.objectId ?? 'unavailable'}
+      role={canOpen ? 'button' : undefined}
+      tabIndex={canOpen ? 0 : -1}
+      onClick={open}
+      onKeyDown={(event) => {
+        if (!canOpen || (event.key !== 'Enter' && event.key !== ' ')) return;
+        event.preventDefault();
+        open();
+      }}
+      className={`flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${canOpen ? 'cursor-pointer hover:bg-ldvh-border/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50' : 'cursor-default'}`}
+    >
+      {/* 图标 + 标题 + 目标状态（表里的三项）。颜色只在图标上，与列表卡关联行同纪律。 */}
+      <ObjectTypeIcon type={target?.factTypeKey} size={12} className="shrink-0" />
+      <span className={`ldvh-meta-primary min-w-0 break-words ${canOpen ? 'text-ldvh-text-secondary hover:text-ldvh-accent' : 'text-ldvh-text-secondary'}`}>
+        {title}
+      </span>
+      {statusLabel && <span className="ldvh-meta-muted shrink-0">{statusLabel}</span>}
+    </div>
+  );
+}
+
 export interface WorkCaseClosedSummaryProps {
   obj: ObjectItem;
   className?: string;
@@ -122,21 +218,44 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
     : [];
   const residual = Array.isArray(obj.result?.residual) ? obj.result.residual : [];
   const cancellation = obj.cancellation ?? null;
-  // 去向（21 §8 建议段）：与「待批准关闭」期**同一处承载**（正文，关闭不删正文）。
-  // 语义是「提请时如实说明的打算」，**不因关闭而被批准**（§10.2，Human 2026-09-24）——
-  // 故此处用中性表述呈现，不写「后续去向」一类暗示已批准的措辞。
-  const advice = Array.isArray(obj.advice) ? obj.advice : [];
-  // 事后补记声明（21 §8）：让卡面读者知道这段去向不是关闭当时的提请内容。
+  // 去向（`21 §8` 残留段的**去向子项**）：与「待批准关闭」期**同一处承载**（正文，关闭
+  // 不删正文）。语义是「提请时如实说明的打算」，**不因关闭而被批准**（§10.2，Human
+  // 2026-09-24）——故此处用中性表述呈现，不写「后续去向」一类暗示已批准的措辞。
+  const advice = workCaseDirectionRows(obj.advice);
+  // 事后补记声明（`21 §8`）：让卡面读者知道这段去向不是关闭当时的提请内容。
   const adviceNote = typeof obj.advice_note === 'string' ? obj.advice_note : null;
   const refSources = Array.isArray(obj.factRefSources) ? obj.factRefSources : [];
+  // `routed-to` 的目标关联行（`10 §5.5`「已关闭」卡表：去向项中「转入 Spark」项**就地
+  // 渲染为目标关联行**——图标 + 标题 + 目标状态，可点开面板）。指向的唯一承载是
+  // `relations.routed-to`（`21 §12`：对象标识问题，不靠散文回指）。
+  //
+  // 顺序依据是**写法约定、非机械可核验事实**（`§15.1` 明文）：去向子项不携带目标标识，
+  // 机械层只能数出「各有几条」。故此处按序**陈列**候选配对，不得把它表述为
+  // 「已验证的对应关系」（`§13` 对呈现层的同款禁令）。
+  const routedTo = Array.isArray(obj.factAssociations)
+    ? obj.factAssociations.filter((association) => association.relationKey === 'routed-to')
+    : [];
 
-  if (cancellation === null && checks.length === 0 && residual.length === 0 && advice.length === 0 && refSources.length === 0) {
+  // 决定 A 的**条件豁免**（`10 §5.5` / `21 §15.3`）：判据由投影层单点算出，与详情面
+  // 同源。**只在为 `true` 时**收窄——`false` 时如实保留残留块，否则存量那 22 条当年
+  // 就没有去向的残留会从卡面静默消失（`§15.3` 明文禁止该后果）。
+  //
+  // 判据缺失（`undefined`）时**按不收窄处理**（fail closed）：未知不等于满足前提。
+  const narrowsResidual = obj.closure_narrows_residual === true;
+
+  if (
+    cancellation === null &&
+    checks.length === 0 &&
+    residual.length === 0 &&
+    advice.length === 0 &&
+    refSources.length === 0
+  ) {
     return null;
   }
 
   const achieved = checks.filter((c) => c.satisfied === true).length;
-  const hidden = Math.max(0, residual.length - COLLAPSED_RESIDUAL);
-  const visibleResidual = expanded ? residual : residual.slice(0, COLLAPSED_RESIDUAL);
+  const hidden = Math.max(0, residual.length - WORKCASE_COLLAPSED_RESIDUAL);
+  const visibleResidual = expanded ? residual : residual.slice(0, WORKCASE_COLLAPSED_RESIDUAL);
 
   return (
     <div className={`${className} grid min-w-0 gap-1.5`.trim()}>
@@ -174,14 +293,6 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
               </span>
             </>
           )
-        )}
-        <span className="text-ldvh-text-secondary/50" aria-hidden="true">·</span>
-        {residual.length > 0 ? (
-          <span className="text-ldvh-text-primary">
-            {t('objectList.workcaseResidualTally', { count: String(residual.length) })}
-          </span>
-        ) : (
-          <span className="text-ldvh-text-secondary">{t('objectList.workcaseResidualNone')}</span>
         )}
       </div>
 
@@ -223,9 +334,14 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
         </div>
       )}
 
-      {/* ② 残留——Human 2026-09-24 裁定排在去向之上：残留是「还剩什么」，
-          去向是「打算怎么办」；先陈述事实、再给去向。 */}
-      {residual.length > 0 && (
+      {/* ② 残留——**条件豁免成立时保留**（`10 §5.5`「条件豁免」/`21 §15.3`）。
+          决定 A 规定关闭后只呈现去向，但 A 以「该对象每条残留都带有去向子项」为前提；
+          存量分离式对象不满足该前提（实测 6 份的建议段条数少于 residual 长度、合计
+          22 条残留当年就没有去向，且补写即属编造），若一律隐藏，那些残留会从卡面
+          **静默消失**。故此处只在 `narrowsResidual === false` 时渲染本块。
+          Human 2026-09-24 裁定排在去向之上：残留是「还剩什么」、去向是「打算怎么办」；
+          先陈述事实、再给去向。 */}
+      {!narrowsResidual && residual.length > 0 && (
         <div className={WORKCASE_RESIDUAL_BLOCK_CLASS}>
           {visibleResidual.map((item, index) => (
             <div
@@ -253,10 +369,14 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
         </div>
       )}
 
-      {/* ②'' 去向（21 §8 建议段）：与「待批准关闭」期同一处承载。
+      {/* ②'' 去向（`21 §8` 残留段的去向子项）：与「待批准关闭」期同一处承载。
           名称用中性「去向」——§10.2 明写批准对象只有「关闭」与 outcome，
           去向不因关闭而成为承诺，故不得写成「后续去向」一类暗示已批准的措辞。
-          块底中性（与建议块一致）：标记自带去向色，底再着色会与标记混淆。 */}
+          块底中性：标记自带去向色，底再着色会与标记混淆。
+
+          `10 §5.5`：已关闭期因残留一侧不再呈现，去向条**提升为平级行**
+          （`21 §8` 要求其正文自足，正是为该期可独立阅读）——故此处用平级行样式，
+          不用开放期的缩进从属行样式。 */}
       {advice.length > 0 && (
         <div className="min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/45 px-2.5 py-2">
           {adviceNote && (
@@ -264,20 +384,44 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
               {stripCardMarkdown(adviceNote)}
             </div>
           )}
-          {advice.map((item, index) => (
-            <div
-              key={`${item.kind ?? 'other'}-${index}`}
-              data-workcase-advice-kind={item.kind ?? 'unclassified'}
-              className={WORKCASE_ITEM_ROW_CLASS}
-            >
-              <span className={`${WORKCASE_CHECK_TAG_BASE} ${workCaseAdviceTagClass(item.kind)}`}>
-                {item.kind
-                  ? t(`objectList.workcaseAdvice.${item.kind}` as LocaleKey)
-                  : t('objectList.workcaseAdvice.unclassified')}
-              </span>
-              <span>{stripCardMarkdown(item.text)}</span>
-            </div>
-          ))}
+          {advice.map((item, index) => {
+            // 「转入 Spark」项**就地渲染为目标关联行**（`10 §5.5` 已关闭卡表）。
+            //
+            // **按序配对**：第 k 条「转入 Spark」陈列第 k 条 `routed-to`。该顺序是
+            // **写法约定、非机械可核验事实**（`§15.1` 明文：去向子项不携带目标标识，
+            // 机械层只能数出「各有几条」），故这里只作**候选配对**呈现——不得表述为
+            // 「已验证的对应关系」（`§13` 对呈现层的同款禁令）。
+            //
+            // 为什么是「第 k 条」而不是「每条都列出全部目标」：后者会让同一个目标在
+            // 卡片上重复出现 N 次（N = 转入条数），与 `§13`「每条建议 ↔ 一条关系」
+            // 的陈列口径不符，也会把「有几条去向」这一信息淹没。
+            //
+            // 计数不一致时（`§15.1` 门禁④已拒绝该形态，故正常不可达）**不多画**：
+            // 只画能配上的那几条，缺失即缺失——不猜、也不复制最后一条。
+            const transferIndex = item.kind === '转入 Spark'
+              ? advice.slice(0, index).filter((other) => other.kind === '转入 Spark').length
+              : -1;
+            const target = transferIndex >= 0 ? routedTo[transferIndex] : undefined;
+            return (
+              <div
+                key={`${item.kind ?? 'other'}-${index}`}
+                data-workcase-advice-kind={item.kind ?? 'unclassified'}
+                className={WORKCASE_ITEM_ROW_CLASS}
+              >
+                <span className={`${WORKCASE_CHECK_TAG_BASE} ${workCaseAdviceTagClass(item.kind)}`}>
+                  {item.kind
+                    ? t(`objectList.workcaseAdvice.${item.kind}` as LocaleKey)
+                    : t('objectList.workcaseAdvice.unclassified')}
+                </span>
+                <span>{stripCardMarkdown(item.text)}</span>
+                {target && (
+                  <div className="mt-0.5 grid min-w-0 gap-0.5">
+                    <WorkCaseRoutedToRow association={target} locale={locale} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

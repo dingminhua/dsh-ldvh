@@ -9,7 +9,7 @@ import {
 import { canonicalUid } from '../../shared/factIdentity.js'
 import { resolveCurrentWebProject, WebGovernanceError } from './governanceScope.js'
 import { deriveWorkCaseV5View, type WorkCaseV5View } from '../../shared/workcaseLifecycle.js'
-import { parseWorkCaseResultDraft, parseWorkCaseCancellation } from '../../shared/workcaseResultDraft.js'
+import { parseWorkCaseResultDraft, parseWorkCaseCancellation, workCaseClosureNarrowsResidual } from '../../shared/workcaseResultDraft.js'
 import { hasUnavailableIndependentSubagentReview } from '../../shared/workcaseCapability.js'
 import { validateWorkcaseStructuredText } from '../../shared/workcaseTextStructure.js'
 import { toRfc3339Text } from '../../shared/timestamp.js'
@@ -567,7 +567,7 @@ function projectCurrentWorkCaseCardShape(
     const reviews = Array.isArray(fact.reviews) ? fact.reviews : []
     if (reviews.length > 0) projected.reviews = reviews
     // 「待批准关闭」期（open ∧ 正文含「## 结果」节）：`21 §8` 的 `result` 字段尚不存在
-    // （该字段出现 ⇔ `status = closed`），核对结论与建议**只在正文里**。故此处按
+    // （该字段出现 ⇔ `status = closed`），核对结论与去向**只在正文里**。故此处按
     // 已登记的词表与结构解析正文，投影为卡片可呈现的 `result_checks` 与 `advice`。
     // 解析不出的条目落空而不猜（见 shared/workcaseResultDraft）。
     if (view.has_result_draft) {
@@ -578,6 +578,11 @@ function projectCurrentWorkCaseCardShape(
       // 残留：同期的正文承载（`21 §8`，`result` 字段此时尚不存在）。卡面新增残留块
       // （Human 裁定 2026-09-24）后，这是该期残留的**唯一数据源**；已关闭期则读
       // `result.residual` 字段（权威），两期各自取当期权威，不互相顶替。
+      //
+      // 2026-09-28 二次修订：去向**长在残留里面**（合并式），故本期的残留块要呈现
+      // 「残留（含去向）」——主从结构（去向子项缩进在所属残留之下）只能由
+      // `result_residual_entries` 承载，`result_residual` 的平铺文本给不出该关系。
+      if (draft.residualEntries.length > 0) projected.result_residual_entries = draft.residualEntries
       if (draft.residual.length > 0) projected.result_residual = draft.residual
     }
   } else if (view.status === 'closed') {
@@ -602,15 +607,19 @@ function projectCurrentWorkCaseCardShape(
       const cancellation = parseWorkCaseCancellation(fact.report_body)
       if (cancellation !== null) projected.cancellation = cancellation
     }
-    // 去向（`21 §8` 建议段）：**同一去向不重复承载**（`§10.2` 2026-09-28 表述）——
-    // 去向词与建议正文只在正文「## 结果」节的 `- advice:` 段出现一处，而 `close`
-    // 不删正文，故关闭后它仍然在原处（`result` 字段闭集
-    // `criteria_checks`／`achieved_scope`／`residual` 从来不含 advice）；
+    // 去向（`21 §8` 残留段的**去向子项**）：**同一去向不重复承载**（`§10.2` 2026-09-28
+    // 表述）——去向词与去向正文只在正文「## 结果」节出现一处，而 `close` 不删正文，
+    // 故关闭后它仍然在原处（`result` 字段闭集
+    // `criteria_checks`／`achieved_scope`／`residual` 从来不含去向）；
     // 「转入 Spark」的**指向**（哪个 Spark）另在 `relations.routed-to` 承载一处，
     // 是对象标识而非散文回指。故此处**读的是与「待批准关闭」期同一处**，不另存一份。
     //
-    // 此前本分支不解析建议段，后果是**关闭后去向在卡上消失**——而 `§10.2` 把它列为
+    // 此前本分支不解析该段，后果是**关闭后去向在卡上消失**——而 `§10.2` 把它列为
     // Gate 2 的提请必含项（Human 判断关闭所依据的输入之一）。解析不出的条目落空而不猜。
+    //
+    // **两种形态都要读**（`§15.3`「呈现层必须读两种形态」）：新写入是**合并式**
+    // （去向长在残留里），存量是**分离式**（`- advice:` 段）。同一对象只有一种形态，
+    // 解析器按实际出现的形态读取——这是「不溯及」在消费侧的必要条件，不是双权威。
     //
     // 注意语义（`§10.2`，Human 裁定 2026-09-24）：去向是**提请时如实说明的打算**，
     // **不因关闭而被批准**——批准对象只有「关闭」与 `outcome`。故呈现层用中性表述，
@@ -618,6 +627,18 @@ function projectCurrentWorkCaseCardShape(
     const closedDraft = parseWorkCaseResultDraft(fact.report_body, fact.plan)
     if (closedDraft.advice.length > 0) projected.advice = closedDraft.advice
     if (closedDraft.adviceNote !== null) projected.advice_note = closedDraft.adviceNote
+    // 决定 A 的**条件豁免判据**（`10 §5.5`「条件豁免」段 / `21 §15.3`）——判据由
+    // `shared/workcaseResultDraft` 的 `workCaseClosureNarrowsResidual` **单点给出**，
+    // 卡面与详情两处消费同一个值，不得各写一套（`10 §5.5` 明文「判据与卡面同源」）。
+    //
+    // 为什么要送到投影里而不是让两个组件各自解析正文：两个呈现面（列表卡/收件箱卡
+    // 与语义详情）在客户端是两条独立路径，各解析一次正文即两处判据——而规范要的正是
+    // 单一来源。服务端算一次、投影一个布尔值，两处读同一个值。
+    //
+    // `false` 时两个呈现面**如实保留残留块**：存量分离式对象里实测 6 份的建议段条数
+    // 少于 `residual` 长度（合计 22 条残留当年就没有去向），一律按 A 隐藏会让那些残留
+    // 从卡面**静默消失**（`§15.3` 明文禁止该后果）。
+    projected.closure_narrows_residual = workCaseClosureNarrowsResidual(closedDraft.residualEntries)
   }
   return projected
 }

@@ -228,7 +228,7 @@ function InboxCardContent({ item }: { item: CognitionInboxItem }) {
     // Human 2026-09-24：「聚焦里，待决定事项中的 wc card…保持与 wc card 一样的显示」。
     //
     // 此前本分支**另写一套**：outcome chip + `criteria_checks` 纯列表 + `gate_1` 行。
-    // 与列表卡的差异不只是样式——**块的选择就不同**：列表卡有核对/残留/去向三块
+    // 与列表卡的差异不只是样式——**块的选择就不同**：列表卡有核对 + 残留（含去向）两块
     // （残留与去向在本分支**完全缺失**），且核对用的是带三态标记与分割线的
     // `WorkCaseResultDraft`，而本分支用裸列表 + `workCaseCheckStatement`（证据长句，
     // 实测最长 258 字，正是列表卡早已废弃的形态）。
@@ -244,6 +244,7 @@ function InboxCardContent({ item }: { item: CognitionInboxItem }) {
           advice={item.card.advice}
           adviceNote={item.card.advice_note}
           residual={item.card.result_residual}
+          residualEntries={item.card.result_residual_entries}
         />
       </div>
     );

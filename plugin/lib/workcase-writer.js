@@ -1185,54 +1185,96 @@ function parseCancellationRecord(resultSection) {
 // ---------------------------------------------------------------------------
 
 /**
- * 建议段的去向词闭集（21 §8，Human 裁决 2026-09-28：由四词收为二词）。
+ * 去向词闭集（`21 §8`，Human 裁决 2026-09-28：由四词收为二词）。
  * 二词按**责任去哪**分：接受现状＝明确不跟踪、就此了结（须给非空理由）；
  * 转入 Spark＝转为 Spark 悬置议题待裁（须有对应 `routed-to`）。
  */
-const ADVICE_DIRECTIONS = new Set(["接受现状", "转入 Spark"]);
+const DIRECTION_KINDS = new Set(["接受现状", "转入 Spark"]);
+/** 残留段开启符（`21 §8`）：`- residual:` / `- 残留责任:`，冒号可省。 */
+const RESIDUAL_BLOCK = /^(residual|残留责任)\s*[:：]?$/;
+/**
+ * 旧形态的**独立建议段**开启符（`- advice:` / `- 建议:`）。
+ *
+ * `21 §8`（2026-09-28 二次修订）已把去向改为**长在每条残留里面**的去向子项，
+ * 并明文「**不再另设独立的建议段**」。故本式在新形态下**不是**一个可识别的段
+ * ——它的出现即形态错误，由 `validateDirectionCompleteness` 拒绝并给出可操作文案。
+ */
 const ADVICE_BLOCK = /^(advice|建议)\s*[:：]?$/;
+/** 去向子项形态（`21 §8`）：去向词以 `**` 包裹并位于行首，后接 `：`（冒号可省）。 */
 const ADVICE_TITLED = /^\*\*(.+?)\*\*\s*[:：]?\s*([\s\S]*)$/;
-/** 存量形态（2026-09-28 前）：条目尾部的可选出处尾注（§15.3 存量不溯及）。 */
+/**
+ * 存量尾注 `出自「…」`（2026-09-28 前的分离式形态，`§15.3` 存量不溯及）。
+ *
+ * **该尾注已退休**（`§8`「为什么合并为一段」）：它存在的前提是两段分离、需人工
+ * 回指，合并为「残留 + 去向子项」后该前提消失。此处保留剥离**只**为存量载体
+ * ——存量正文里还写着它，若不剥离就会把「某条残留」这类元信息当成去向正文。
+ * 它不是新特性，也不产出任何字段。
+ */
 const ADVICE_LEGACY_FROM = /出自「([^」]+)」\s*$/;
 
 /**
- * 解析「## 结果」节里的建议段（21 §8）。与呈现层
- * `plugin/web/shared/workcaseResultDraft.ts` 的 `parseWorkCaseResultDraft`
- * **同形态**——两棵树互不 import（`lib` 与 `web` 独立，见 `markdown-structure.js`
- * 的同类先例），故此处保留一份实现；形态由 §8 单点登记，两处都只实现它。
+ * 解析「## 结果」节的**残留段及其去向子项**（`21 §8`，2026-09-28 二次修订后的
+ * 登记形态）。与呈现层 `plugin/web/shared/workcaseResultDraft.ts` 的
+ * `parseWorkCaseResultDraft` **同形态**——两棵树互不 import（`lib` 与 `web` 独立，
+ * 见 `markdown-structure.js` 的同类先例），故此处保留一份实现；形态由 `§8` 单点
+ * 登记，两处都只实现它。**两处必须逐案同数**（`§15.1` 的条数门禁若在两处给出不同
+ * 结论即失去意义），故「多开启符不累积」等口径两处一致。
  *
- * 语义（与 §15.1「去向完整性」的判据边界逐字对应）：
- *   - 建议段由 `- advice:`（或 `- 建议:`）**顶格**开启，同级或更浅的下一个 bullet 收束
- *     （同 `residual` 段与取消记录的收束规则）；
- *   - 段内**每一行 bullet** 计为一条建议条目（含不达 `- **<去向词>**：<正文>`
- *     形态者——它们以 `kind: null` 呈现，由调用方 fail closed 拒绝）；
- *   - **条目须缩进**（§8 登记形态为嵌套列表 `- advice:` 顶格、条目缩进 2 空格）：
- *     与块开启符**同级或更浅**的 bullet 属于收束后的其它内容，**不计入条目数**。
- *     故顶格书写的条目按零条计，在 `residual` 非空时以「条数不符」被拒（不静默丢弃）。
- *     该口径已于 2026-09-28 在 §8 与 §15.1 逐字登记（此前只在代码块的排版里隐含）。
- *   - 存量尾注 `出自「…」` 被剥离且**不产出**出处字段：新形态已无「出处」一项，
- *     条目与 `residual` 的对应关系改为**按序配对**（§8）。
- *   - **建议段不累积**：一个开启符进入建议段，下一个开启符（任意缩进）即闭合并计数，
- *     其后条目不再计入**该段**（但开启符本身另计一次，故 3 个开启符时计入的是第 1 段
- *     与第 3 段的条目）；`blocks` 报告整节开启符总数，故 `blocks > 1` 时由硬门禁⑤
- *     整体拒绝（规范上没有任何一段是权威，条数不具定义——不是「取哪一段」的分歧）。
- *     该口径必须与呈现层解析器逐字一致——两处若各读一段，会使「条数 = `result.residual`
- *     长度」这一硬门禁在呈现层失去意义（2026-09-28 更正：此前两处口径相反）。
+ * 登记形态（`§8`）：
+ *
+ * ```
+ * - residual:
+ *   - <残留正文：还剩什么>
+ *     - **<去向词>**：<打算怎么办>
+ * ```
+ *
+ * 语义（与 `§15.1`「去向完整性」的三条判据边界逐字对应）：
+ *   - 残留段由 `- residual:`（或 `- 残留责任:`）开启，**与开启符同级或更浅**的
+ *     下一个 bullet 收束（同取消记录的收束规则）。故与开启符同级或更浅的条目
+ *     **不属于残留段**（按零条计，`§15.1` 判据边界第一条）；
+ *   - 残留条目须比开启符**更深**；**比残留条目更深**的 bullet 一律计为该残留的
+ *     **去向子项**——即使它不达 `- **<去向词>**：<正文>` 形态（此时 `kind` 记
+ *     `null`，由门禁⑥拒绝，**不静默丢弃**、也不当作新残留条目）。这是 `§15.1`
+ *     判据边界第三条明文要求的读法；
+ *   - 去向子项**不累积到别的残留**：它只挂在其上方的**最近一条**残留条目上；
+ *   - 与残留条目**同级或更浅**的去向条目不构成该残留的子项（按零条计），此时它
+ *     自己成为一条新残留条目——条数因此变化，由门禁②或③判出（`§15.1` 判据边界
+ *     第一、二条）；
+ *   - **段不累积**：一个开启符进入残留段，下一个开启符（任意缩进）即闭合并计数，
+ *     其后条目不再计入**该段**；`blocks` 报告整节开启符总数，故 `blocks > 1` 时由
+ *     硬门禁①整体拒绝（规范上没有任何一段是权威，条数不具定义——不是「取哪一段」
+ *     的分歧，`§15.1` 已登记「不得择一推断条数」）。
+ *     该口径必须与呈现层解析器逐字一致。
+ *   - `adviceBlocks` 另计**旧形态独立建议段**的开启符总数（与残留段解析无关）：
+ *     `§8` 已明文「不再另设独立的建议段」，故它 > 0 时由调用方拒绝。
+ *
+ * **为什么导出**：它是「两处同口径」里**写入侧的那一份**——呈现层在
+ * `plugin/web/shared/workcaseResultDraft.ts` 里有一份对应实现（两棵树互不 import）。
+ * `§15.1` 门禁②（条数 = `result.residual` 长度）只在两处给出**相同条数**时才有意义，
+ * 故跨树的一致性守卫（`plugin/web/tests/api/workcase-direction-parity-contract.test.ts`）
+ * 需要**直接量到**本函数的输出，而不是从 `validateDirectionCompleteness` 的失败文案里
+ * 反推条数——反推会在「解析静默少读一条、而门禁恰好未触发」时与呈现层给出同一错值，
+ * 使守卫失去判别力。导出只为此，它不是新的受控入口，也不改变任何写入行为。
  */
-function parseAdviceSection(resultSection) {
+export function parseResidualSection(resultSection) {
   const entries = [];
   let seen = false;
   let blocks = 0;
+  let adviceBlocks = 0;
   let mode = false;
   let modeIndent = 0;
+  let entryIndent = null;
   for (const rawLine of String(resultSection).split("\n")) {
     const bullet = /^(\s*)-\s+(.*)$/.exec(rawLine);
     if (!bullet) continue;
     const indent = bullet[1].length;
     const item = bullet[2].trim();
-    const opener = ADVICE_BLOCK.test(item);
+    const opener = RESIDUAL_BLOCK.test(item);
+    // 旧形态的独立建议段开启符：**与残留段归属无关**地计数——「不再另设独立的
+    // 建议段」是形态前提（§8），不是「段内还是段外」的归属问题。
+    if (ADVICE_BLOCK.test(item)) adviceBlocks += 1;
     if (!mode) {
-      if (opener) { mode = true; modeIndent = indent; seen = true; blocks += 1; }
+      if (opener) { mode = true; modeIndent = indent; entryIndent = null; seen = true; blocks += 1; }
       continue;
     }
     if (opener || indent <= modeIndent) {
@@ -1240,60 +1282,89 @@ function parseAdviceSection(resultSection) {
       mode = false;
       continue;
     }
+    if (entryIndent === null || indent <= entryIndent) {
+      entryIndent = indent;
+      entries.push({ text: item, directions: [] });
+      continue;
+    }
+    // 比残留条目更深 → 该残留的去向子项（不达形态者也计，由门禁⑥拒绝）。
+    const last = entries[entries.length - 1];
     const titled = ADVICE_TITLED.exec(item);
     const kindText = titled ? titled[1].trim() : "";
     let text = titled ? titled[2].trim() : item;
     const fromMatch = ADVICE_LEGACY_FROM.exec(text);
     if (fromMatch) text = text.slice(0, fromMatch.index).trim();
-    entries.push({ kind: ADVICE_DIRECTIONS.has(kindText) ? kindText : null, kindText, text });
+    last.directions.push({ kind: DIRECTION_KINDS.has(kindText) ? kindText : null, kindText, text });
   }
-  return { present: seen, blocks, entries };
+  return { present: seen, blocks, adviceBlocks, entries };
 }
 
 /**
- * 去向完整性（21 §8 字段间不变量 / §15.1 / §16）。**分档**：结构硬门禁 + 写法约定 + 语义软约束。
+ * 去向完整性（`21 §8` 字段间不变量 / `§15.1` / `§16`）。**分档**：结构硬门禁 +
+ * 写法约定 + 语义软约束。
  *
- * 硬门禁（机械执行，写入一律拒绝）：
- *   ① 建议段条数 = `result.residual` 长度；`residual` 为空时不得有建议段；
- *   ② 每条「转入 Spark」有恰一条对应的 `routed-to`（**条数一致**）；
- *   ③ 每条「接受现状」的建议正文非空；
- *   ④ 每条建议的去向词落在闭集二词内（不达形态者按 `kind: null` 拒绝，不静默丢弃）；
- *   ⑤ 建议段**恰好一处**：整节出现两处及以上开启符者一律拒绝——**本项不依赖状态**，
- *      只要正文里出现建议段就适用（其余四项只在 `status = closed` 且非 cancelled 时判定）。
- *      理由：建议段正是**开放期**写入的（§8「待批准关闭期处置建议只在正文」），
- *      若本项随状态一起缺省，多段正文可在 open 期落盘、而两处解析器都只读一段，
- *      第二段条目就会「正文里有、卡面不可见」，直到关闭才被拦（2026-09-28 更正）。
+ * **形态前提（2026-09-28 二次修订）**：去向不再是独立的一段，而是**长在每条残留
+ * 里面**——正文「## 结果」节的 `- residual:` 段下，每条残留条目自带一个去向子项
+ * （`§8`）。故本项的数对象由「建议段 vs `result.residual`」两个集合改为「残留段
+ * 条目 ↔ 去向子项」的**主从结构**。以下六组编号与 `§8`「综上，本条中的机械门禁共
+ * 六条」及 `§15.1`「硬门禁（机械执行，写入一律拒绝）」**逐字一致**：
  *
- * 写法约定（本项**不**判定，如实登记、非机械门禁）：**顺序对应**——建议段条目只写
- * 去向词与正文，**不携带**所对应 `residual` 条目或目标 Spark 的标识，故「第 k 条
- * 建议 ↔ `residual` 第 k 项」「第 k 条「转入 Spark」↔ 第 k 条 `routed-to`」两条按序
- * 配对在机械上不可核验（实测：把 `relations` 数组顺序对调仍全部通过）。顺序由写作者
- * 自行保证；规范侧已同口径登记（§8、§15.1、§16），呈现层的按序配对只是陈列约定。
- * 曾把该项写成「机械门禁」属**能力高估**，2026-09-28 更正。
+ *   ① 残留段**恰好一处**——整节出现两处及以上 `- residual:`／`- 残留责任:` 开启符
+ *      者一律拒绝（多段形态下没有任何一段是权威、条数不具定义，且会使门禁②随读取
+ *      方不同而给出不同结论）。**本项状态无关**；
+ *   ② 残留段条目数 = `result.residual` 长度；`residual` 为空时不得有残留段；
+ *   ③ **每条残留恰有一个去向子项**——子项须比该残留条目**更深**（登记形态为再缩进
+ *      2 个空格）且形如 `- **<去向词>**：<正文>`；缺子项、或多于一个子项者一律拒绝；
+ *   ④ `residual` 每出现一条「转入 Spark」，`relations` 中须恰有一条对应的
+ *      `routed-to`（**条数一致**）；
+ *   ⑤ 每条「接受现状」的去向正文非空（去空白后长度 > 0）；
+ *   ⑥ 每条去向词落在闭集二词内（不达形态者按零条计，不静默丢弃）。
  *
- * 软约束（本节不判定，归 AI 语义审核与 Human 阅读）：去向**选择**是否恰当、理由是否
- * 成立、是否构成实质挂起、目标 Spark 语义上是否真的容纳该残留。
+ * **① 与 ②–⑥ 的适用面不同（必须合读，`§15.1` 首段）**：②–⑥ 只在 `status = closed`
+ * 且 `outcome ≠ cancelled` 时判定，而 **① 状态无关**——凡「## 结果」节出现残留段即
+ * 适用。理由：残留段正是**开放期**写入的承载（`§8`），若 ① 随状态一起缺省，多段正文
+ * 可在 `open` 期经受控入口落盘，而两处解析器都只读一段 ⇒ 第二段条目「正文里有、
+ * 卡面不可见」，直到关闭才被拦。
  *
- * **适用范围（存量不溯及的口径，§15.1/§15.3）**：基线**已是 closed** 的写入（`correct`）
- * 只有在**改动了「## 结果」节**时才受本项约束——存量 closed 对象按当时四词书写、
- * 且**从无** `routed-to`（实测 17 份 closed 中有 6 份建议段条数与 `residual` 长度不符，
+ * **旧形态的独立建议段（`§8` 形态前提，不在六组门禁之列）**：`§8` 明文「不再另设
+ * 独立的建议段」。故正文出现 `- advice:`／`- 建议:` 开启符时拒绝并给出可操作文案
+ * （把每条去向移到其所属残留之下、作为更深一层的子项）。该项与 ① 同为**状态无关**
+ * ——形态前提不因对象尚未关闭而失效。
+ *
+ * 写法约定（本项**不**判定，如实登记、非机械门禁）：**顺序对应**——去向子项只写去向
+ * 词与正文，**不携带**目标 Spark 的标识，故「第 k 条「转入 Spark」↔ `relations` 中第
+ * k 条 `routed-to`」在机械上不可核验（实测：把 `relations` 数组顺序对调仍全部通过）。
+ * 「第 k 条去向 ↔ 第 k 条残留」**已不属本项**：合并为「残留 + 去向子项」后该对应由
+ * 结构承载，不再是写法约定（`§8`/`§15.1`）。
+ *
+ * 软约束（本节不判定，归 AI 语义审核与 Human 阅读）：去向**选择**是否恰当、理由是
+ * 否成立、是否构成实质挂起、**去向正文是否自足**、目标 Spark 语义上是否真的容纳该
+ * 残留。
+ *
+ * **适用范围（存量不溯及的口径，`§15.1`/`§15.3`）**：基线**已是 closed** 的写入
+ * （`correct`）只有在**改动了「## 结果」节**时才受本项约束——存量 closed 对象是
+ * **分离式**（`- residual:` 陈述残留、`- advice:` 陈述去向），按当时四词书写、且
+ * **从无** `routed-to`（实测 17 份 closed 中有 6 份建议段条数与 `residual` 长度不符，
  * 另 1 份含「转入 Spark」却无 `routed-to`），若对 `correct` 无条件套用，这些对象的
- * **任何**更正（含与去向无关的事实更正）都会被拒，与 §15.3 的存量不溯及直接冲突。
+ * **任何**更正（含与去向无关的事实更正）都会被拒，与 `§15.3` 的存量不溯及直接冲突。
  * 豁免基准是**「## 结果」节逐字未改**（非「解析出的条目列表深等」——条目级比较只覆盖
- * `- ` 条目，会放过改写尾注、加缩进续行、加整段散文、改缩进四类正文编辑，2026-09-28 更正）；
- * `baselineBody` 缺失时**按已改动处理**（fail closed：未知不等于未改动）。
+ * `- ` 条目，会放过改写尾注、加缩进续行、加整段散文、改缩进四类正文编辑，2026-09-28
+ * 更正）；`baselineBody` 缺失时**按已改动处理**（fail closed：未知不等于未改动）。
+ * **该判定发生在其后所有门禁之前**（`§16` 验证表：「存量豁免见 §15.3——基线为
+ * `closed` 且「## 结果」节逐字未改时整体放行」）。
  *
  * **存量普查的实测口径（2026-09-28，走真实校验器而非正则）**：closed 17 份，
  * `result.residual` 共 78 条，建议段共 56 条；条数不符 **6** 份
  * （`workcase-18fcee2c` 6:3、`workcase-1c6afa19` 4:2、`workcase-364df30e` 8:3、
  * `workcase-4af2b871` 10:8、`workcase-8d2ba256` 8:5、`workcase-99957f65` 8:1）；
- * 含「转入 Spark」而无 `routed-to` 恰 1 份（`workcase-8f4742f5`）。
- * 早期以「实测」名义写入的「8 份」是**用正则解析 Markdown 列表得出的错值**，已更正。
+ * 含「转入 Spark」而无 `routed-to` 恰 1 份（`workcase-8f4742f5`）。那 6 份的 22 条
+ * 残留**当年就没有去向**，且补写即属编造（`§15.3`），故呈现层另有**条件豁免**
+ * （10 §5.5：不满足「每条残留都带有去向子项」者如实保留残留块）。
  *
  * **本项在存量改写通道上的已知限制（如实登记）**：`correct` 不接收 frontmatter，
- * 且 closed 对象无 `execute` 通道，故存量建议段里的「转入 Spark」条目**无法**在
- * 改写时补齐 `routed-to`——存量改写只有三种可行写法：写成「接受现状」（含非空理由）
- * 并如实说明原意向、保持建议段逐字不动、或由 Human 另行决定处置。本项不代替该决定。
+ * 且 closed 对象无 `execute` 通道，故存量去向里的「转入 Spark」条目**无法**在改写时
+ * 补齐 `routed-to`——存量改写只有三种可行写法：写成「接受现状」（含非空理由）并如实
+ * 说明原意向、保持「## 结果」节逐字不动、或由 Human 另行决定处置。本项不代替该决定。
  */
 export function validateDirectionCompleteness(frontmatter, body, baseline = null, baselineBody = null) {
   const issues = [];
@@ -1301,9 +1372,11 @@ export function validateDirectionCompleteness(frontmatter, body, baseline = null
   const isCancelled = frontmatter.outcome === "cancelled";
 
   const residual = Array.isArray(frontmatter.result?.residual) ? frontmatter.result.residual : [];
-  const advice = parseAdviceSection(sectionContent(body, BODY_H2_RESULT) ?? "");
+  const section = parseResidualSection(sectionContent(body, BODY_H2_RESULT) ?? "");
   const relations = Array.isArray(frontmatter.relations) ? frontmatter.relations : [];
   const routedTo = relations.filter((entry) => entry?.relation_key === "routed-to");
+  const directions = section.entries.flatMap((entry, entryIndex) =>
+    entry.directions.map((direction) => ({ ...direction, entryIndex })));
 
   // 存量豁免（§15.3 存量不溯及）的**实际基准是「## 结果」节整体逐字未改**，
   // 不是「解析出的条目列表深等」。2026-09-28 更正：早前的条目级比较只覆盖
@@ -1312,6 +1385,10 @@ export function validateDirectionCompleteness(frontmatter, body, baseline = null
   // 「窄豁免」、实际却是「结果节正文自由编辑通道」的防自欺缺口（01 §12.3 第 6 维）。
   // 逐字比较整节后，任何改动该节的写入都受检（fail closed），未触碰该节的更正照常放行。
   // `baselineBody` 缺失时**按已改动处理**（未知不等于未改动）。
+  //
+  // **本判定必须先于其后所有门禁**（§16 验证表）：存量分离式对象不满足新形态，
+  // 若先跑 ① 或「不再另设独立建议段」再判豁免，存量对象**不触碰「## 结果」节**的
+  // `correct` 会被误拒——那正是 §15.3 要避免的（存量不溯及）。
   if (baseline && baseline.status === "closed" && typeof baselineBody === "string") {
     const baselineResult = sectionContent(baselineBody, BODY_H2_RESULT);
     const currentResult = sectionContent(body, BODY_H2_RESULT);
@@ -1320,34 +1397,54 @@ export function validateDirectionCompleteness(frontmatter, body, baseline = null
     }
   }
 
-  // ⑤ 建议段恰好一处——**状态无关**：建议段本身正是开放期写入的承载（§8），
+  // ① 残留段恰好一处——**状态无关**：残留段本身正是开放期写入的承载（§8），
   // 若本项随「仅 closed 判定」一起缺省，多段正文可在 open 期经受控入口落盘，
   // 而两处解析器都只读一段 → 第 2 段条目「正文里有、卡面不可见」，直到关闭才被拦。
-  // 故本项在闭合前先判；其余四项仍只在 closed 且非 cancelled 时判定。
-  if (advice.blocks > 1) {
-    issues.push(`direction completeness: "## 结果" 建议段 must appear exactly once — found ${advice.blocks} advice section openers (21 §8/§15.1 硬门禁⑤); no section is authoritative when several are present, so the entry count is not well-defined — fail closed`);
+  // 故本项在闭合前先判；②–⑥ 仍只在 closed 且非 cancelled 时判定。
+  if (section.blocks > 1) {
+    issues.push(`direction completeness: 门禁① "## 结果" 残留段 must appear exactly once — found ${section.blocks} residual section openers (- residual: / - 残留责任:) (21 §8/§15.1 硬门禁①，状态无关); no section is authoritative when several are present, so the entry count is not well-defined and 门禁② would differ by reader — 不得择一推断条数，须按不符报告 — fail closed`);
+  }
+
+  // 旧形态的独立建议段（§8 形态前提：「不再另设独立的建议段」）——同为**状态无关**。
+  // 该项**不在 §15.1 六组硬门禁之列**，如实按形态前提报告，不冒充门禁编号。
+  if (section.adviceBlocks > 0) {
+    issues.push(`direction completeness: "## 结果" 不得另设独立的建议段 — found ${section.adviceBlocks} advice section opener(s) (- advice: / - 建议:); 21 §8 (2026-09-28 二次修订) 已把去向改为长在每条残留里面的**去向子项**，独立建议段不再是登记形态。可操作处置：删去该段，把每条去向移到其所属残留条目之下、作为**更深一层**的子项，形如 "- residual:" / "  - <残留正文>" / "    - **<去向词>**：<正文>"; 该项与门禁①同为状态无关，不因对象尚未关闭而放行 — fail closed`);
   }
 
   if (!isClosed || isCancelled) return { ok: issues.length === 0, issues };
 
+  // ② 残留段条目数 = result.residual 长度（residual 为空时不得有残留段）。
+  // 「开启符或归属失败 → 按零条计 → 条数不符」（§15.1 判据边界第一条）即由此判出。
   if (residual.length === 0) {
-    if (advice.present) {
-      issues.push(`direction completeness: "## 结果" 建议段 must not exist when result.residual is empty (21 §8 字段间不变量) — got ${advice.entries.length} advice entr${advice.entries.length === 1 ? "y" : "ies"}`);
+    if (section.present) {
+      issues.push(`direction completeness: 门禁② "## 结果" 残留段 must not exist when result.residual is empty (21 §8 字段间不变量/§15.1 硬门禁②) — got ${section.entries.length} residual entr${section.entries.length === 1 ? "y" : "ies"}`);
     }
-  } else if (advice.entries.length !== residual.length) {
-    issues.push(`direction completeness: "## 结果" 建议段 must carry exactly ${residual.length} entr${residual.length === 1 ? "y" : "ies"} — one per result.residual item, in order (21 §8/§15.1); got ${advice.entries.length}`);
+  } else if (section.entries.length !== residual.length) {
+    issues.push(`direction completeness: 门禁② "## 结果" 残留段 must carry exactly ${residual.length} entr${residual.length === 1 ? "y" : "ies"} — one per result.residual item (21 §8/§15.1 硬门禁②); got ${section.entries.length}. 残留条目须比开启符更深（登记形态为缩进 2 个空格）；与开启符同级或更浅的 bullet 不属残留段、按零条计`);
   }
 
-  const transfers = advice.entries.filter((entry) => entry.kind === "转入 Spark");
+  // ③ 每条残留恰有一个去向子项（子项须比该残留条目更深）。失败文案指向
+  // 「残留 N 条但去向子项 M 条」（§15.1 判据边界第二条）。
+  section.entries.forEach((entry, i) => {
+    if (entry.directions.length !== 1) {
+      issues.push(`direction completeness: 门禁③ each residual entry must carry exactly one direction sub-item — 残留 ${section.entries.length} 条但去向子项 ${directions.length} 条；第 ${i + 1} 条残留有 ${entry.directions.length} 个去向子项（须恰为 1，且子项须比该残留条目更深，形如 "- **<去向词>**：<正文>"） (21 §8/§15.1 硬门禁③). 本条与门禁②的失败码不同：条数相符而某条残留缺子项时，拒绝发生在③`);
+    }
+  });
+
+  // ④ residual 每出现一条「转入 Spark」，relations 中须恰有一条对应的 routed-to。
+  const transfers = directions.filter((direction) => direction.kind === "转入 Spark");
   if (transfers.length !== routedTo.length) {
-    issues.push(`direction completeness: advice carries ${transfers.length} 「转入 Spark」 entr${transfers.length === 1 ? "y" : "ies"} but relations carries ${routedTo.length} routed-to — 条数须一致且按序配对 (21 §8/§12/§15.1)`);
+    issues.push(`direction completeness: 门禁④ 去向子项 carries ${transfers.length} 「转入 Spark」 entr${transfers.length === 1 ? "y" : "ies"} but relations carries ${routedTo.length} routed-to — 条数须一致 (21 §8/§12/§15.1 硬门禁④)；routed-to 只能在 status = open 期经 execute 写入（§14 CREATE-FIRST 次序）`);
   }
 
-  advice.entries.forEach((entry, i) => {
-    if (entry.kind === null) {
-      issues.push(`direction completeness: advice[${i}] 去向词 ${JSON.stringify(entry.kindText.length > 0 ? entry.kindText : entry.text.slice(0, 40))} is not one of the closed set 接受现状/转入 Spark, and the entry does not match the registered form "- **<去向词>**：<正文>" (21 §8) — fail closed`);
-    } else if (entry.kind === "接受现状" && entry.text.length === 0) {
-      issues.push(`direction completeness: advice[${i}] 「接受现状」 must carry a non-empty reason — 明确不跟踪须说明为什么不继续跟踪 (21 §8/§15.1)`);
+  directions.forEach((direction, i) => {
+    if (direction.kind === null) {
+      // ⑥ 去向词落闭集二词内；不达登记形态者**按零条计但不静默丢弃**，在此拒绝
+      //（§15.1 判据边界第三条：读者不得据此推断出「条数不符」的失败码归因）。
+      issues.push(`direction completeness: 门禁⑥ 残留[${direction.entryIndex + 1}] 去向子项[${i}] 去向词 ${JSON.stringify(direction.kindText.length > 0 ? direction.kindText : direction.text.slice(0, 40))} is not one of the closed set 接受现状/转入 Spark, and the entry does not match the registered form "- **<去向词>**：<正文>" (21 §8/§15.1 硬门禁⑥) — fail closed`);
+    } else if (direction.kind === "接受现状" && direction.text.length === 0) {
+      // ⑤ 每条「接受现状」的去向正文非空（去空白后长度 > 0）。
+      issues.push(`direction completeness: 门禁⑤ 残留[${direction.entryIndex + 1}] 去向子项[${i}] 「接受现状」 must carry a non-empty reason — 明确不跟踪须说明为什么不继续跟踪 (21 §8/§15.1 硬门禁⑤)`);
     }
   });
 

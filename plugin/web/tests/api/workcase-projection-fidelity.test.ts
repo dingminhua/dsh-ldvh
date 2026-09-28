@@ -554,10 +554,15 @@ test('已关闭：去向从同一处承载投影到位（21 §8/§10.2，不另�
     if (detail.status !== 'ok') continue;
     const source = detail.item.fact_object as Record<string, unknown>;
     if (source.status !== 'closed') continue;
-    // 正文里实际有几条建议段条目 → 投影后必须**一条不少**地送达
-    const body = typeof source.report_body === 'string' ? source.report_body : '';
-    // 存量载体写的是 2026-09-28 前的四词（§15.3 存量不溯及），故扫描面取
+    // 正文里实际有几条去向 → 投影后必须**一条不少**地送达。
+    //
+    // 扫描面**不区分形态**（合并式的去向子项与存量分离式的建议条目都匹配该式）——
+    // 这正是要点：投影层对两种形态读的是同一处正文（`§15.3`「呈现层必须读两种形态」），
+    // 故期望值也应按「去向条目长什么样」取，而不是按「它在哪个段里」取。
+    //
+    // 存量载体写的是 2026-09-28 前的四词（`§15.3` 存量不溯及），故词面取
     // 「现行闭集二词 ∪ 存量两词」——呈现层对两者都要认得。
+    const body = typeof source.report_body === 'string' ? source.report_body : '';
     const expected = [...body.matchAll(/^\s*-\s*\*\*(另立工单|接受现状|转入 Spark|直接行动)\*\*\s*[:：]/gm)];
     const projected = projectCurrentWorkCaseCard(source, detail.item.source_content_fingerprint);
     const advice = Array.isArray(projected.advice) ? projected.advice : [];
@@ -580,6 +585,170 @@ test('已关闭：去向从同一处承载投影到位（21 §8/§10.2，不另�
   // 核到的是「0 条 → 0 条」——如实登记该覆盖边界，不假装覆盖了非空情形。
   // 非空情形由下方的合成用例覆盖（不依赖存量数据是否有该段）。
   assert.ok(checked.length > 0, '必须至少核对一个 closed 对象，否则本守卫是空转');
+});
+
+// 决定 A 的**条件豁免判据**必须送到投影里（`10 §5.5`「条件豁免」段 / `21 §15.3`）。
+//
+// 为什么是投影层的事：卡面（列表卡/收件箱）与详情面在客户端是**两条独立路径**，
+// 各解析一次正文即两处判据——而 `10 §5.5` 要求判据**同源**、不得两处各写一套。
+// 故服务端算一次、投影一个布尔值，两处读同一个值。本用例固定「该值确实被投影」。
+test('已关闭：决定 A 的条件豁免判据必须投影（10 §5.5 / 21 §15.3）', async () => {
+  const ids = existingWorkCaseIds();
+  let checked = 0;
+  for (const objectId of ids) {
+    const detail = await readLocalFact('workcase', objectId, workcaseScope());
+    if (detail.status !== 'ok') continue;
+    const source = detail.item.fact_object as Record<string, unknown>;
+    if (source.status !== 'closed') continue;
+    const projected = projectCurrentWorkCaseCard(source, detail.item.source_content_fingerprint);
+    assert.equal(
+      typeof projected.closure_narrows_residual,
+      'boolean',
+      `${objectId}: closed 对象须投影 closure_narrows_residual（缺失会让两个呈现面无从判豁免）`,
+    );
+    checked += 1;
+  }
+  assert.ok(checked > 0, '必须至少核对一个 closed 对象，否则本守卫是空转');
+});
+
+// 合成用例：**合并式**（每条残留自带去向子项）→ 判据为 true（按 A 收窄）。
+test('已关闭：合并式对象 → 条件豁免成立（只呈现去向）（10 §5.5 / 21 §8）', () => {
+  const body = [
+    '## 摘要', 'x',
+    '## 授权范围', '做什么：x', '明确不做什么：y',
+    '## 计划', '- 步骤一',
+    '## 结果',
+    '- criteria_checks:',
+    '  - 步骤 1 判据「x」：达成——证据：y。',
+    '- residual:',
+    '  - 残留 A：第二条判据的关闭路径用例尚未覆盖。',
+    '    - **接受现状**：该分支已被后续工作覆盖，继续跟踪无增量。',
+  ].join('\n');
+  const source: Record<string, unknown> = {
+    status: 'closed',
+    outcome: 'partial',
+    report_body: body,
+    plan: [{ step: '步骤一', done_criteria: 'x' }],
+    result: {
+      criteria_checks: [{ satisfied: false, evidence: 'y' }],
+      achieved_scope: 'z',
+      residual: ['残留 A：第二条判据的关闭路径用例尚未覆盖。'],
+    },
+  };
+  const projected = projectCurrentWorkCaseCard(source, null);
+  assert.equal(projected.closure_narrows_residual, true, '合并式（每条残留都带去向下）→ 按 A 收窄');
+  // 去向仍从同一处正文承载送达（收窄只影响「残留是否上屏」，不影响去向）。
+  const advice = projected.advice as Record<string, unknown>[] | undefined;
+  assert.ok(Array.isArray(advice) && advice.length === 1, `去向未投影：${JSON.stringify(projected.advice)}`);
+  assert.equal(advice![0].kind, '接受现状');
+});
+
+// 合成用例：**分离式存量**（残留段与建议段各自独立，且建议段条数少于 residual 长度）
+// → 判据为 false（**如实保留残留块**）。
+//
+// 这是 21 §15.3 明文禁止的后果所对应的守卫：存量实测 6 份的建议段条数少于 residual
+// 长度（合计 22 条残留当年就没有去向），若一律按 A 隐藏，这些残留会从卡面静默消失。
+test('已关闭：不满足前提的存量对象 → 条件豁免不成立（如实保留残留块）（21 §15.3）', () => {
+  const body = [
+    '## 摘要', 'x',
+    '## 授权范围', '做什么：x', '明确不做什么：y',
+    '## 计划', '- 步骤一',
+    '## 结果',
+    '- criteria_checks:',
+    '  - 步骤 1 判据「x」：达成——证据：y。',
+    '- residual:',
+    '  - 残留 A：第二条判据的关闭路径用例尚未覆盖。',
+    '  - 残留 B：跨会话的残留去向尚未验证。',
+    '- advice:',
+    '  - **另立工单**：把该分支另立一单。出自「残留 A」',
+  ].join('\n');
+  const source: Record<string, unknown> = {
+    status: 'closed',
+    outcome: 'partial',
+    report_body: body,
+    plan: [{ step: '步骤一', done_criteria: 'x' }],
+    result: {
+      criteria_checks: [{ satisfied: false, evidence: 'y' }],
+      achieved_scope: 'z',
+      residual: ['残留 A：第二条判据的关闭路径用例尚未覆盖。', '残留 B：跨会话的残留去向尚未验证。'],
+    },
+  };
+  const projected = projectCurrentWorkCaseCard(source, null);
+  assert.equal(
+    projected.closure_narrows_residual,
+    false,
+    '分离式（去向不挂在残留上）→ 不得套用决定 A，否则那 2 条残留会从卡面静默消失',
+  );
+  // 残留字段仍在场（`result.residual` 是权威，卡面据此保留残留块）。
+  assert.deepEqual(
+    (projected.result as Record<string, unknown>).residual,
+    ['残留 A：第二条判据的关闭路径用例尚未覆盖。', '残留 B：跨会话的残留去向尚未验证。'],
+  );
+  // 存量去向照样送达（不因未收窄而丢失）。
+  assert.equal((projected.advice as unknown[]).length, 1);
+});
+
+// 合成用例：**没有任何去向子项**的合并式残留段（`result.residual` 非空、正文无去向）
+// → 同样不满足前提 → 不收窄。
+test('已关闭：残留段无去向子项 → 条件豁免不成立（10 §5.5 前提①）', () => {
+  const body = [
+    '## 摘要', 'x',
+    '## 授权范围', '做什么：x', '明确不做什么：y',
+    '## 计划', '- 步骤一',
+    '## 结果',
+    '- criteria_checks:',
+    '  - 步骤 1 判据「x」：达成——证据：y。',
+    '- residual:',
+    '  - 残留 A：没有写去向。',
+  ].join('\n');
+  const source: Record<string, unknown> = {
+    status: 'closed',
+    outcome: 'partial',
+    report_body: body,
+    plan: [{ step: '步骤一', done_criteria: 'x' }],
+    result: {
+      criteria_checks: [{ satisfied: false, evidence: 'y' }],
+      achieved_scope: 'z',
+      residual: ['残留 A：没有写去向。'],
+    },
+  };
+  const projected = projectCurrentWorkCaseCard(source, null);
+  assert.equal(projected.closure_narrows_residual, false, '缺去向子项 → 不得收窄');
+});
+
+// 「待批准关闭」期的**主从结构**必须投影（合并式的去向子项要挂在各自残留上）。
+test('待批准关闭：残留（含去向）的主从结构必须投影（10 §5.5 / 21 §8）', () => {
+  const body = [
+    '## 摘要', 'x',
+    '## 授权范围', '做什么：x', '明确不做什么：y',
+    '## 计划', '- 步骤一',
+    '## 结果',
+    '- criteria_checks:',
+    '  - 步骤 1 判据「x」：达成——证据：y。',
+    '- residual:',
+    '  - 残留 A：第一条。',
+    '    - **接受现状**：原因甲。',
+    '  - 残留 B：第二条。',
+    '    - **转入 Spark**：转入议题待裁。',
+  ].join('\n');
+  const source: Record<string, unknown> = {
+    status: 'open',
+    report_body: body,
+    plan: [{ step: '步骤一', done_criteria: 'x' }],
+  };
+  const projected = projectCurrentWorkCaseCard(source, null);
+  const entries = projected.result_residual_entries as
+    | Array<{ text: string; directions: Array<{ kind: string; text: string }> }>
+    | undefined;
+  assert.ok(Array.isArray(entries), `主从结构未投影：${JSON.stringify(projected.result_residual_entries)}`);
+  assert.equal(entries!.length, 2);
+  assert.deepEqual(entries!.map((entry) => entry.directions.length), [1, 1], '每条残留须挂上自己的去向子项');
+  assert.deepEqual(
+    entries!.map((entry) => entry.directions[0].kind),
+    ['接受现状', '转入 Spark'],
+  );
+  // 平铺文本仍在（同源投影，两个呈现面各取所需）。
+  assert.deepEqual(projected.result_residual, ['残留 A：第一条。', '残留 B：第二条。']);
 });
 
 // 合成用例：不依赖存量数据，直接构造一份「已关闭 + 正文带建议段」的对象，

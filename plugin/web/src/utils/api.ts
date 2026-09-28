@@ -10,6 +10,7 @@ import type {
   WorkCaseCancellationRecord,
   WorkCaseDraftAdvice,
   WorkCaseDraftCheck,
+  WorkCaseDraftResidualEntry,
 } from '@/shared/workcaseResultDraft';
 
 // 基址跟随 vite base：dev（BASE_URL='/'）保持 '/api' 走 vite 代理；
@@ -82,15 +83,31 @@ export interface ObjectItem {
   // 需投影层显式搬运，否则卡片侧恒判为「执行中」。复用详情侧同一类型，不另起形状。
   reviews?: WorkCaseReviewEntry[];
   // 「待批准关闭」：`21 §8` 的 `result` 字段出现 ⇔ `status = closed`，故该期的核对结论与
-  // 建议只在正文「## 结果」节里；投影层解析后以此二字段搬运（见 shared/workcaseResultDraft）。
+  // 去向只在正文「## 结果」节里；投影层解析后以此二字段搬运（见 shared/workcaseResultDraft）。
   /** 21 §8 取消记录（仅 outcome=cancelled）：正文 `- cancellation:` 段的解析结果。 */
   cancellation?: WorkCaseCancellationRecord;
   result_checks?: WorkCaseDraftCheck[];
+  /** 去向条目（**平铺**，两期共用）：合并式取各残留的去向子项，存量分离式取 `- advice:` 段。 */
   advice?: WorkCaseDraftAdvice[];
-  /** 建议段前的事后补记声明（仅补写过的对象有；21 §8）。 */
+  /** 残留段（或存量建议段）前的事后补记声明（仅补写过的对象有；21 §8）。 */
   advice_note?: string;
   /** 「待批准关闭」期的残留条目（`21 §8` 正文承载；已关闭期改读 `result.residual` 字段）。 */
   result_residual?: string[];
+  /** 「待批准关闭」期的残留条目**及其去向子项**（合并式主从结构，`21 §8`）。
+   *  卡面「残留（含去向）」一块的数据源——去向子项缩进显示在所属残留之下。 */
+  result_residual_entries?: WorkCaseDraftResidualEntry[];
+  /**
+   * 决定 A 的**条件豁免判据**结果（`10 §5.5`「条件豁免」段 / `21 §15.3`），
+   * 仅 `closed` 期投影。
+   *
+   * `true` = 该对象**每条残留都带有去向子项** → 按 A 只呈现去向、不呈现残留；
+   * `false` = 不满足前提（存量分离式对象为主）→ **如实保留残留块**，否则那些残留
+   * 会从卡面静默消失（`§15.3` 明文禁止的后果）。
+   *
+   * 判据由服务端经 `workCaseClosureNarrowsResidual` **单点算出**（`10 §5.5` 要求
+   * 卡面与详情同源，不得两处各写一套）；组件只读这个值，不自行解析正文。
+   */
+  closure_narrows_residual?: boolean;
   /** 21 §8：给 Human 扫读的一句话要点。卡面渲染它而非 summary（10 §5.5）；
    * draft/open 必填、closed 条件（终态缺失合法，卡面须如实降级）。 */
   gist?: string;
@@ -354,6 +371,20 @@ export interface WorkCaseDetailData extends Record<string, unknown> {
   change_log?: unknown[];
   current_snapshot_projection?: WorkCaseV5View;
   relations?: Array<Record<string, unknown>>;
+  /** 去向条目（平铺）：合并式取各残留的去向子项，存量分离式取 `- advice:` 段（`21 §8`）。 */
+  advice?: WorkCaseDraftAdvice[];
+  /** 残留段（或存量建议段）前的事后补记声明（`21 §8`）。 */
+  advice_note?: string;
+  /**
+   * 决定 A 的条件豁免判据结果（`10 §5.5`「条件豁免」段 / `21 §15.3`）。
+   *
+   * `true` → 关闭后详情面按 A **只呈现去向、不再呈现残留一侧**；
+   * `false` → 不满足前提（存量分离式对象为主）→ **如实保留残留一侧**，
+   * 否则那 22 条当年就没有去向的残留会从详情面静默消失（`§15.3` 明文禁止）。
+   *
+   * 判据由服务端单点算出（与卡面**同一个值**，`10 §5.5` 要求判据同源、不得两处各写一套）。
+   */
+  closure_narrows_residual?: boolean;
 }
 
 export interface ObjectDetail<TData extends Record<string, unknown> = Record<string, unknown>> {
@@ -426,8 +457,10 @@ export interface CognitionInboxCard extends Record<string, unknown> {
   // 故残留与去向在聚焦卡上完全缺失。字段由服务端投影一并给出（实测已在响应里）。
   result_checks?: WorkCaseDraftCheck[];
   result_residual?: string[];
+  result_residual_entries?: WorkCaseDraftResidualEntry[];
   advice?: WorkCaseDraftAdvice[];
   advice_note?: string;
+  closure_narrows_residual?: boolean;
   change_log?: unknown[];
   reviews?: WorkCaseReviewEntry[];
 }

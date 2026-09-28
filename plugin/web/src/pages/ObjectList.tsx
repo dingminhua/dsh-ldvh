@@ -134,9 +134,11 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
     );
   }
   if (group === 'awaiting_gate2') {
-    // 「待批准关闭」呈现**核对与建议**（Human 2026-09-23），**不再列计划清单**——
-    // 核对条目已带 `plan[].step` 标题，重复列出计划无增益。数据由投影层从正文
-    // 「## 结果」节解析而来（`21 §8`：该期 `result` 字段尚不存在）。
+    // 「待批准关闭」呈现**两块：逐条核对 + 残留（含去向）**（10 §5.5，2026-09-28 二次
+    // 修订），**不再列计划清单**——核对条目已带 `plan[].step` 标题，重复列出计划无增益。
+    // 数据由投影层从正文「## 结果」节解析而来（`21 §8`：该期 `result` 字段尚不存在）。
+    // 去向**长在每条残留里面**（合并式主从结构），故传 `residualEntries` 而非只传平铺
+    // 文本——后者给不出「哪条去向属于哪条残留」。存量分离式对象仍由 `advice` 承载。
     return (
       <div className="min-w-0">
         <WorkCaseGistLine gist={obj.gist} group="awaiting_gate2" boxed />
@@ -147,15 +149,18 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
           advice={obj.advice}
           adviceNote={obj.advice_note}
           residual={obj.result_residual}
+          residualEntries={obj.result_residual_entries}
         />
       </div>
     );
   }
   if (group === 'closed') {
-    // 「已关闭」呈现**结论行 + 逐条核对 + 残留块**（Human 2026-09-24，方案 A）。
-    // 此前是 outcome chip + 「已满足 · <整段证据>」+ 一行无内容的「Gate 1 授权」：
-    // 证据最长 258 字撑破扫读窗口、outcome 与核对各自成串、残留完全不可见。
-    // 证据与 Gate 1 明细归详情面（10 §5.3）。
+    // 「已关闭」呈现**三块：结论行 + 逐条核对 + 去向**（Human 2026-09-24 方案 A；
+    // 2026-09-28 二次修订）。此前是 outcome chip + 「已满足 · <整段证据>」+ 一行无内容
+    // 的「Gate 1 授权」：证据最长 258 字撑破扫读窗口、outcome 与核对各自成串、残留完全
+    // 不可见。证据与 Gate 1 明细归详情面（10 §5.3）。
+    // 按决定 A 不再呈现残留一侧；**条件豁免**由 `WorkCaseClosedSummary` 内部按
+    // `obj.closure_narrows_residual` 处置（不满足前提的存量对象如实保留残留块）。
     return (
       <div className="min-w-0">
         <WorkCaseGistLine gist={obj.gist} group="closed" boxed />

@@ -1204,9 +1204,15 @@ export const UI_LOCALES = {
     'objectList.workcaseNotExecuted': '未执行任何计划步骤',
     'objectList.workcaseCancelReason': '理由',
     'objectList.workcaseCancelUnstarted': '未发生的范围',
+    // 残留计数（`workcaseResidualTally`/`workcaseResidualNone`）已随 2026-09-28 二次修订
+    // 从「已关闭」卡结论行移除（决定 A：关闭后只呈现去向）。**词条保留**：它们是
+    // 「待批准关闭」期的可复用词条，且历史对象/其它呈现面仍可能引用——删词条会让
+    // 引用点变成缺词，属静默破坏而非收敛。
     'objectList.workcaseResidualTally': '残留 {count} 条',
     'objectList.workcaseResidualTag': '残留',
     'objectList.workcaseResidualNone': '无残留',
+    // 「转入 Spark」去向的目标关联行（10 §5.5「已关闭」卡表：就地渲染为关联行）。
+    'objectList.workcaseRoutedToUnavailable': '目标不可读',
     // 21 §13 / 03 §7.2：反向 refs 只显示声明引用来源，不暗示建议已履行或已闭环。
     'objectList.workcaseRefSources': '声明引用此工单的对象',
     'objectList.workcaseRefSourceUnavailable': '引用来源不可用',
@@ -1245,6 +1251,9 @@ export const UI_LOCALES = {
     'objectDetail.workcaseResultChecks': '判据逐条核对',
     'objectDetail.workcaseAchievedScope': '已证实范围',
     'objectDetail.workcaseResidual': '残留责任',
+    // 去向（21 §8 残留段的去向子项）：决定 A 收窄后详情面唯一保留的一侧（10 §5.5）。
+    // 中性表述——§10.2 明写批准对象只有「关闭」与 outcome，去向不因关闭而成为承诺。
+    'objectDetail.workcaseDirections': '去向',
     'objectDetail.workcaseGate1': 'Gate 1 授权',
     'objectDetail.workcaseGate1Approver': '批准人',
     'objectDetail.workcaseGate1ApprovedAt': '批准时间',
@@ -1930,9 +1939,17 @@ export const UI_LOCALES = {
     'objectList.workcaseNotExecuted': 'No plan step executed',
     'objectList.workcaseCancelReason': 'Reason',
     'objectList.workcaseCancelUnstarted': 'Scope never started',
+    // The residual tally keys are kept after the 2026-09-28 revision removed the
+    // residual count from the closed-card conclusion line (decision A: a closed
+    // card shows directions only). Deleting them would turn any remaining
+    // reference into a missing key, which is silent breakage rather than
+    // convergence.
     'objectList.workcaseResidualTally': '{count} residual',
     'objectList.workcaseResidualTag': 'Residual',
     'objectList.workcaseResidualNone': 'No residual',
+    // Routed-to direction target row (10 §5.5 closed card: rendered in place as an
+    // association row).
+    'objectList.workcaseRoutedToUnavailable': 'Target unreadable',
      // 21 §13 / 03 §7.2: reverse refs show declared sources only; they do not imply fulfilment or closure.
      'objectList.workcaseRefSources': 'Objects declaring a reference to this WorkCase',
      'objectList.workcaseRefSourceUnavailable': 'Reference source unavailable',
@@ -1966,6 +1983,10 @@ export const UI_LOCALES = {
     'objectDetail.workcaseResultChecks': 'Criteria checks',
     'objectDetail.workcaseAchievedScope': 'Achieved scope',
     'objectDetail.workcaseResidual': 'Residual',
+    // Directions (21 §8 residual-section direction sub-items): the only side the
+    // detail face keeps after decision A's narrowing (10 §5.5). Neutral wording —
+    // §10.2 states only closure and outcome are approved.
+    'objectDetail.workcaseDirections': 'Directions',
     'objectDetail.workcaseGate1': 'Gate 1 authorization',
     'objectDetail.workcaseGate1Approver': 'Approver',
     'objectDetail.workcaseGate1ApprovedAt': 'Approved at',

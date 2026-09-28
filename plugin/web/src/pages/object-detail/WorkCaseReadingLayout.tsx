@@ -12,8 +12,10 @@ import {
 } from '@/components/WorkCaseCriteriaList';
 import {
   WORKCASE_ITEM_ROW_CLASS,
+  workCaseAdviceTagClass,
   workCaseCheckChipClass,
   workCaseCheckStateLabel,
+  workCaseDirectionRows,
 } from '@/utils/workcaseCheckState';
 import {
   ChangeLogReadingNode,
@@ -271,11 +273,40 @@ function ResultChecksNode({ obj, locale }: { obj: WorkCaseDetailData; locale: st
   );
 }
 
-/** result.residual 是数组（21 §8 §9.3），按列表呈现而非段落。 */
+/** result.residual 是数组（21 §8 §9.3），按列表呈现而非段落。
+ *
+ * **本节点按决定 A 收窄——但只在条件豁免允许时**（`10 §5.5`「详情面的同一收窄」，
+ * 2026-09-28 Human 授权；同日经独立对抗复核 `b57780cb` 更正一轮）。
+ *
+ * 背景：Human 裁定 A 的原意是关闭后**卡面与详情**都不再呈现残留（原话：「在关闭页面
+ * 就不应该有残留信息了，要删除掉」，追问「1，要删」确认详情页亦同，并指示「规范里也要
+ * 明确一下」）。该收窄在详情面与本规范 `§5.3`（「完整呈现单条事实对象的所有字段与关联
+ * 引用」）存在**实质冲突**——`result.residual` 正是该对象的字段，按 A 收窄即等于隐藏字段。
+ *
+ * 本轮**不以辨析绕过**，改走如实路径：`§5.3` 首条之下已新增**已登记的窄例外**
+ * （授权原文即 Human 的上述指示），明文限定其只作用于 WorkCase 终态对象的
+ * `result.residual` 一个字段、**不得扩张**。故本节点消费判据是**合规**的，不是无授权的收窄。
+ *
+ * **条件豁免（必须保留）**：只在 `closure_narrows_residual === true` 时收窄——即该对象
+ * **每条残留都带有去向子项**（结构判据，机械可判）。不满足者（存量分离式对象，实测 6 份
+ * 建议段条数少于 `residual`、合计 22 条残留当年就没有去向）**如实保留**残留一侧；
+ * 否则那些残留会从详情面**静默消失**（`21 §15.3` 存量不溯及，`10 §5.5` 条件豁免）。
+ *
+ * **与卡面同源**：`WorkCaseClosedSummary` 读的是**同一个** `closure_narrows_residual` 值
+ * （服务端 `facts.ts` 算一次），本文件不自行解析正文——两处不构成「各写一套」。
+ *
+ * **边界（不得过度声明）**：判据是**结构面**的（「都带有」），**不等于** `21 §15.1` 门禁③
+ * （后者要求「**恰有**一个」，多于一个即拒）；且它**不证明**去向正文满足 `21 §8` 的自足
+ * 要求——自足性是**语义判据**，归 AI/Human，机械层不判定（`21 §15.2` 已登记该前提为零样本）。
+ */
 function ResidualNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string }) {
   const { t } = useI18n();
   const [state, setState] = useState<ReadingNodeState>('expanded');
   const residual = Array.isArray(obj.result?.residual) ? obj.result.residual : [];
+  // 决定 A 的条件豁免：仅当服务端判据为真（该对象每条残留都带有去向子项）才收窄；
+  // 缺失按 false 处理（fail closed：未知不等于可收窄，存量残留不静默消失）。
+  const narrowsResidual = obj.closure_narrows_residual === true;
+  if (narrowsResidual) return null;
   if (residual.length === 0) return null;
 
   return (
@@ -296,6 +327,57 @@ function ResidualNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string
           tone="residual"
           items={residual.map((item, index) => ({ key: String(index), statement: String(item ?? '') }))}
         />
+      </div>
+    </ReadingNodeSection>
+  );
+}
+
+/**
+ * 去向（`21 §8` 残留段的**去向子项**）——决定 A 收窄后详情面**唯一**保留的一侧。
+ *
+ * `21 §10.2`：去向是**提请时如实说明的打算**，**不因关闭而被批准**——批准对象只有
+ * 「关闭」与 `outcome`。故本节点用**中性表述**「去向」，不得写成「后续去向」一类暗示
+ * 已批准的措辞（`§8` 同款禁令）。
+ *
+ * 两种形态都由投影层解析后给出（`§15.3`「呈现层必须读两种形态」）：新写入是合并式
+ * （去向长在残留里）、存量是分离式（`- advice:` 段）；解析器按实际出现的形态读取，
+ * 本节点只消费结果，不重复实现段解析。
+ *
+ * **去向正文须自足**（`§8`，Human 裁定 2026-09-28）：关闭后残留不再呈现，去向正文是读者
+ * 在关闭对象上唯一读到的内容，故须离开残留也能读懂。该判据归 AI 语义审核与 Human 阅读，
+ * 机械层只校非空——本节点如实呈现，不替作者补上下文。
+ */
+function DirectionsNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string }) {
+  const { t } = useI18n();
+  const [state, setState] = useState<ReadingNodeState>('expanded');
+  const directions = workCaseDirectionRows(obj.advice);
+  if (directions.length === 0) return null;
+
+  return (
+    <ReadingNodeSection
+      title={t('objectDetail.workcaseDirections')}
+      state={state}
+      locale={locale}
+      onToggle={() => setState((current) => getReadingNodeNextState(current))}
+    >
+      {/* 中性承载面（`10 §5.5`「单一来源纪律」：块底不另着语义色，标记自带去向色）。
+          `10 §5.5` 的「卡面纯文本」只约束**卡面**（扫读窗口）；详情是**阅读面**，
+          按 §5.3 完整呈现——故此处走 Markdown 渲染，与卡面的剥标记形态有意不同。 */}
+      <div className="ldvh-research-node-content min-w-0">
+        {directions.map((direction, index) => (
+          <div
+            key={`${direction.kind ?? 'other'}-${index}`}
+            data-workcase-advice-kind={direction.kind ?? 'unclassified'}
+            className={WORKCASE_ITEM_ROW_CLASS}
+          >
+            <span className={`ldvh-chip-sm w-fit shrink-0 ${workCaseAdviceTagClass(direction.kind)}`}>
+              {direction.kind
+                ? t(`objectList.workcaseAdvice.${direction.kind}` as LocaleKey)
+                : t('objectList.workcaseAdvice.unclassified')}
+            </span>
+            <span className="ldvh-detail-semantic-body min-w-0 break-words">{direction.text}</span>
+          </div>
+        ))}
       </div>
     </ReadingNodeSection>
   );
@@ -555,7 +637,10 @@ function WorkCaseBody({ obj, locale }: { obj: WorkCaseDetailData; locale: string
           事实的两种承载，`21 §8` 要求它们同时存在（载体内聚）。 */}
       <BodySectionNode obj={obj} locale={locale} heading="结果" />
 
-      {/* 8 结果与验证 / 9 残留 —— 同一字段组的两部分，按字段有无渲染。 */}
+      {/* 8 结果与验证 / 9 残留 / 9' 去向 —— 同一字段组的部分，按字段有无渲染。
+          `ResidualNode` 在详情面**不收窄**（`10 §5.5` 已按 `00 §7.2` 暂停消费该收窄的
+          详情面部分；理由见其注释），`DirectionsNode` 两期都呈现（去向不由 `result`
+          字段承载）。 */}
       {hasResult ? (
         <>
           <ResultChecksNode obj={obj} locale={locale} />
@@ -565,6 +650,11 @@ function WorkCaseBody({ obj, locale }: { obj: WorkCaseDetailData; locale: string
           <ResidualNode obj={obj} locale={locale} />
         </>
       ) : null}
+      {/* 去向节点不受 `hasResult` 门控：`result` 字段闭集（criteria_checks／
+          achieved_scope／residual）**不含去向**（`21 §10.2`），故「有没有 result」
+          与「有没有去向」是两件事。门控在 `hasResult` 上会让去向在字段为空的对象上
+          整节点消失——而那正是关闭后唯一该读的一侧。 */}
+      <DirectionsNode obj={obj} locale={locale} />
 
       {/* 10 终态判定 */}
       <OutcomeNode obj={obj} locale={locale} />

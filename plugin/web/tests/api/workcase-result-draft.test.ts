@@ -1,6 +1,11 @@
 // 「## 结果」节解析的契约测试（`shared/workcaseResultDraft`）。
 //
-// 判据是 21 §8 登记的三词（达成 / 部分达成 / 未达成）与 `- advice:` 段结构；
+// 判据是 21 §8 登记的三词（达成 / 部分达成 / 未达成）与**去向的两种形态**：
+//   · **合并式**（2026-09-28 二次修订后的新写入）：去向**长在每条残留里面**
+//     ——`- residual:` 段下每条残留条目自带一个更深一层的去向子项；
+//   · **分离式**（存量，`§15.3` 存量不溯及）：`- residual:` 段与 `- advice:` 段各自独立。
+// `§15.3` 明文「呈现层必须读两种形态」——这是「不溯及」在消费侧的必要条件。
+//
 // 解析器只认形态、不猜语义——所以这里既断言「认得了」，也断言「认不出时落空」。
 
 import assert from 'node:assert/strict';
@@ -12,6 +17,7 @@ import {
   parseWorkCaseResultDraft,
   parseWorkCaseCancellation,
   resultSectionOf,
+  workCaseClosureNarrowsResidual,
 } from '../../shared/workcaseResultDraft.ts';
 
 const PLAN = [
@@ -94,7 +100,9 @@ test('只认登记三词：其它写法落为 null（不猜、不静默归一）
   assert.deepEqual(d.checks, [{ planIndex: 0, status: null }]);
 });
 
-test('advice 段：`- advice:` 内每条给去向与内容', () => {
+// **分离式（存量）**：`- advice:` 段独立存在（`§15.3` 存量不溯及）。新写入不再产生
+// 该形态（21 §8：不再另设独立的建议段），但既有 16 份 closed 载体都是它，必须可读。
+test('存量分离式：`- advice:` 段内每条给去向与内容', () => {
   const body = bodyOf([
     '- advice:',
     '  - **接受现状**：弹窗行为不再跟踪，理由是该期无宿主可验。',
@@ -107,7 +115,7 @@ test('advice 段：`- advice:` 内每条给去向与内容', () => {
   ]);
 });
 
-test('advice 段：存量词仍认得（只作呈现），但已不是闭集取值', () => {
+test('存量分离式：存量词仍认得（只作呈现），但已不是闭集取值', () => {
   const body = bodyOf([
     '- advice:',
     '  - **另立工单**：另立一单实现级联信号。',
@@ -123,7 +131,7 @@ test('advice 段：存量词仍认得（只作呈现），但已不是闭集取�
 // 存量尾注（`21 §8` 2026-09-28 前登记的形态）：新形态靠**按序配对**与
 // `result.residual` 对应，尾注不再是任何字段的来源。但存量载体里它还在，
 // 若原样留在正文里就会混进卡面，把「某条残留」这类元信息当成去向正文显示。
-test('advice 段：存量的 `出自「…」` 尾注被剥离，且不产出任何字段', () => {
+test('存量分离式：存量的 `出自「…」` 尾注被剥离，且不产出任何字段', () => {
   const body = bodyOf([
     '- advice:',
     '  - **接受现状**：以同一手法普查其余六类。出自「同型缺陷未普查其余六类」',
@@ -136,7 +144,7 @@ test('advice 段：存量的 `出自「…」` 尾注被剥离，且不产出任
   );
 });
 
-test('advice 段：未登记的去向词记 null（不静默归一到近似词）', () => {
+test('存量分离式：未登记的去向词记 null（不静默归一到近似词）', () => {
   const body = bodyOf([
     '- advice:',
     '  - **修复**：把该分支改为 fail-closed。',
@@ -153,7 +161,7 @@ test('advice 段：未登记的去向词记 null（不静默归一到近似词�
 // 实测来源（2026-09-27，workcase-63700bd2）：缺收束时该行走同一 push 分支，产出一条
 // `kind: null` 的伪条目——卡面因此多出一条空分类的「去向」，与 §10.2 的分层相悖。
 // 同款收束早已存在于 `residual` 段（见下方残留测试），本段是遗漏的一处。
-test('advice 段：同级或更浅的 bullet 结束本段，不吞入「关闭后的后续方向」', () => {
+test('存量分离式：同级或更浅的 bullet 结束本段，不吞入「关闭后的后续方向」', () => {
   const body = bodyOf([
     '- advice:',
     '  - **另立工单**：补 goal 路由的 yaml_source 投影。',
@@ -178,7 +186,7 @@ test('advice 段：同级或更浅的 bullet 结束本段，不吞入「关闭�
 // 呈现层失去意义。现两处同口径（第二个开启符即闭合并跳过，不累积）；多开启符形态
 // 另由写入器硬门禁⑤整体拒绝（21 §8/§15.1），且⑤**状态无关**，故它在任何状态都不可达。
 // 本处只需保证：万一读到，两处也不得给出不同条数。
-test('advice 段：多处开启符不累积，与写入器同口径（21 §8/§15.1 硬门禁⑤）', () => {
+test('存量分离式：多处开启符不累积，与写入器同口径（21 §8/§15.1）', () => {
   const body = bodyOf([
     '- advice:',
     '  - **接受现状**：第一段的原因甲。',
@@ -219,7 +227,7 @@ test('advice 段：多处开启符不累积，与写入器同口径（21 §8/§1
   );
 });
 
-test('residual 里的「建议…」子句不再产出条目（21 §8：建议只有一处承载）', () => {
+test('residual 里的「建议…」子句不再产出条目（21 §8：去向只有一处承载）', () => {
   const body = bodyOf([
     '- residual:',
     '  - **缺口 A 未修复**：无法机械判定。建议另立一单，其前置为先实现级联信号。',
@@ -243,6 +251,164 @@ test('residual 段产出条目（待批准关闭卡的唯一数据源）', () =>
   ]);
   // 不剥标记：剥标记是呈现层的事（@/utils/cardText），解析层逐条忠实给出
   assert.ok(d.residual[0].includes('**'), '解析层不得剥离 Markdown（呈现层负责）');
+  // `residual` 是 `residualEntries[].text` 的**投影**（同一次解析的同一份数据）——
+  // 两者不可能漂移，故此处直接断言该恒等关系。
+  assert.deepEqual(d.residualEntries.map((entry) => entry.text), d.residual);
+  // 无去向子项时 `directions` 为空数组（不是缺失、也不是 null）。
+  assert.deepEqual(d.residualEntries.map((entry) => entry.directions), [[], []]);
+});
+
+// ── 合并式（2026-09-28 二次修订后的新写入形态，21 §8）──────────────────────────
+//
+// 去向不再是独立的一段，而是**长在每条残留里面**：残留条目比开启符更深（登记形态为
+// 缩进 2），去向子项又比残留条目更深（再缩进 2）。「第 k 条去向 ↔ 第 k 条残留」的对应
+// **由结构本身承载**（不再是需要核验的写法约定）。
+test('合并式：残留条目 → 其去向子项（子项挂在该条残留上）', () => {
+  const body = bodyOf([
+    '- residual:',
+    '  - 残留 A：第二条判据的关闭路径用例尚未覆盖。',
+    '    - **接受现状**：该分支已被后续工作覆盖，继续跟踪无增量。',
+    '  - 残留 B：跨会话的残留去向尚未验证。',
+    '    - **转入 Spark**：边界情形需跨行动推进，转入议题待裁。',
+  ]);
+  const d = parseWorkCaseResultDraft(body, PLAN);
+  assert.deepEqual(d.residualEntries, [
+    {
+      text: '残留 A：第二条判据的关闭路径用例尚未覆盖。',
+      directions: [{ kind: '接受现状', text: '该分支已被后续工作覆盖，继续跟踪无增量。' }],
+    },
+    {
+      text: '残留 B：跨会话的残留去向尚未验证。',
+      directions: [{ kind: '转入 Spark', text: '边界情形需跨行动推进，转入议题待裁。' }],
+    },
+  ]);
+  // 平铺视图（关闭期去向条提升为平级行，10 §5.5）与主从视图**同源同序**。
+  assert.deepEqual(
+    d.advice,
+    d.residualEntries.flatMap((entry) => entry.directions),
+    '平铺去向须与主从结构同源——两处若各自解析会漂移',
+  );
+});
+
+test('合并式：判别靠缩进，不靠加粗形态——不达形态者照样计入该残留的子项（kind: null）', () => {
+  // §15.1 判据边界第三条明文：去向条目深度正确、但不达 `- **<去向词>**：<正文>` 形态
+  // （如缺 `**` 包裹）时，**该条目不被丢弃、照常计入子项数**；拒绝发生在**去向词闭集
+  // 分支**（写入侧门禁⑥），**不是**条数不符。呈现层同样不得丢弃它——否则同一正文在
+  // 写入器与呈现层给出不同条数，条数门禁在呈现层失去意义。
+  const body = bodyOf([
+    '- residual:',
+    '  - 残留 A',
+    '    - 接受现状：就此了结，原因是策略已变。',
+  ]);
+  const d = parseWorkCaseResultDraft(body, PLAN);
+  assert.equal(d.residualEntries.length, 1, '不达形态的子项不得被当成新残留条目');
+  assert.deepEqual(d.residualEntries[0].directions, [
+    { kind: null, text: '接受现状：就此了结，原因是策略已变。' },
+  ]);
+});
+
+test('合并式：与残留条目同级或更浅的去向条目不构成子项，自己成为新残留条目', () => {
+  // §8「登记形态包含缩进」：去向子项须比残留条目**更深**；与残留条目同级或更浅者
+  // 不构成该残留的子项（按零条计），此时它自己成为一条新残留条目。
+  const body = bodyOf([
+    '- residual:',
+    '  - 残留 A',
+    '  - **接受现状**：与残留条目同级，故不是子项而是新残留条目。',
+  ]);
+  const d = parseWorkCaseResultDraft(body, PLAN);
+  assert.equal(d.residualEntries.length, 2, '同级条目计为新残留条目');
+  assert.deepEqual(d.residualEntries.map((entry) => entry.directions), [[], []]);
+  assert.deepEqual(d.advice, [], '同级条目不是去向，不得进入平铺去向');
+});
+
+test('合并式：去向子项不累积到别的残留——只挂其上方的最近一条', () => {
+  const body = bodyOf([
+    '- residual:',
+    '  - 残留 A',
+    '    - **接受现状**：原因甲。',
+    '  - 残留 B',
+    '    - **接受现状**：原因乙。',
+  ]);
+  const d = parseWorkCaseResultDraft(body, PLAN);
+  assert.deepEqual(
+    d.residualEntries.map((entry) => entry.directions.length),
+    [1, 1],
+    '每条去向只挂其上方的最近一条残留',
+  );
+});
+
+test('合并式：多开启符不累积，与写入器同口径（21 §8/§15.1 硬门禁①）', () => {
+  // 写入器用「第二个开启符即闭合并跳过」的同一状态机；多开启符形态另由门禁①在受控
+  // 写入层**整体拒绝**（且①状态无关）。本处只需保证：万一读到，两处也不得给出不同条数。
+  const body = bodyOf([
+    '- residual:',
+    '  - 残留 A',
+    '    - **接受现状**：第一段的原因甲。',
+    '- residual:',
+    '  - 残留 B',
+    '    - **接受现状**：第二段的原因乙。',
+  ]);
+  const d = parseWorkCaseResultDraft(body, PLAN);
+  assert.deepEqual(d.residual, ['残留 A'], '残留段不累积——第二个开启符即闭合首段');
+  assert.deepEqual(d.residualEntries.map((entry) => entry.directions.length), [1]);
+
+  // 对照（避免上一条因「整段解析全失效」而空转）：单段两条照样读满。
+  const single = bodyOf([
+    '- residual:',
+    '  - 残留 A',
+    '    - **接受现状**：原因甲。',
+    '  - 残留 B',
+    '    - **接受现状**：原因乙。',
+  ]);
+  assert.equal(parseWorkCaseResultDraft(single, PLAN).residualEntries.length, 2);
+});
+
+// ── 条件豁免判据（决定 A，10 §5.5 / 21 §15.3）────────────────────────────────
+//
+// 判据「该对象每条残留都带有去向子项」是**机械可判**的（10 §5.5 明文：与 21 §15.1
+// 门禁③同口径），且由本模块**单点给出**——卡面与详情两处消费同一个值，不得各写一套。
+test('条件豁免判据：每条残留都带去向子项 → 收窄；否则如实保留残留', () => {
+  const combined = bodyOf([
+    '- residual:',
+    '  - 残留 A',
+    '    - **接受现状**：原因甲。',
+    '  - 残留 B',
+    '    - **转入 Spark**：转入议题待裁。',
+  ]);
+  const d1 = parseWorkCaseResultDraft(combined, PLAN);
+  assert.equal(workCaseClosureNarrowsResidual(d1.residualEntries), true, '合并式（每条都带去向下）应收窄');
+
+  // 缺一条去向 → 不收窄（这正是存量 6 份的形态：22 条残留当年就没有去向）。
+  const partial = bodyOf([
+    '- residual:',
+    '  - 残留 A',
+    '    - **接受现状**：原因甲。',
+    '  - 残留 B',
+  ]);
+  const d2 = parseWorkCaseResultDraft(partial, PLAN);
+  assert.equal(workCaseClosureNarrowsResidual(d2.residualEntries), false, '有残留缺去向 → 不得收窄');
+
+  // 分离式（去向在另一段，不挂在残留上）→ 不收窄。这是存量 16/17 份的实际形态。
+  const separated = bodyOf([
+    '- residual:',
+    '  - 残留 A',
+    '  - 残留 B',
+    '- advice:',
+    '  - **接受现状**：原因甲。',
+  ]);
+  const d3 = parseWorkCaseResultDraft(separated, PLAN);
+  assert.equal(d3.residual.length, 2, '分离式的残留照样读出');
+  assert.equal(d3.advice.length, 1, '分离式的去向照样读出');
+  assert.equal(workCaseClosureNarrowsResidual(d3.residualEntries), false, '分离式 → 不得收窄');
+
+  // 边界：空数组、无残留、非数组输入一律**不收窄**（fail closed：未知不等于满足前提）。
+  for (const input of [[], undefined, null, 'x'] as unknown[]) {
+    assert.equal(
+      workCaseClosureNarrowsResidual(input as never),
+      false,
+      `${JSON.stringify(input)} 不得被判为「满足前提」`,
+    );
+  }
 });
 
 test('residual 段在遇到同级/更浅的 bullet 时正确收束', () => {
@@ -256,17 +422,13 @@ test('residual 段在遇到同级/更浅的 bullet 时正确收束', () => {
 });
 
 test('未配对/无结果节：返回空草稿而不是抛错', () => {
-  assert.deepEqual(parseWorkCaseResultDraft('## 执行\n无结果节', PLAN), { checks: [], advice: [], residual: [], adviceNote: null });
-  assert.deepEqual(parseWorkCaseResultDraft(undefined, PLAN), { checks: [], advice: [], residual: [], adviceNote: null });
-  assert.deepEqual(parseWorkCaseResultDraft('## 结果\n- 无有效条目', undefined), {
-    checks: [],
-    advice: [],
-    residual: [],
-    adviceNote: null,
-  });
+  const EMPTY = { checks: [], advice: [], residual: [], residualEntries: [], adviceNote: null };
+  assert.deepEqual(parseWorkCaseResultDraft('## 执行\n无结果节', PLAN), EMPTY);
+  assert.deepEqual(parseWorkCaseResultDraft(undefined, PLAN), EMPTY);
+  assert.deepEqual(parseWorkCaseResultDraft('## 结果\n- 无有效条目', undefined), EMPTY);
 });
 
-test('advice 段判别力：去向词必须在行首加粗，否则记未归类', () => {
+test('存量分离式判别力：去向词必须在行首加粗，否则记未归类', () => {
   const body = bodyOf([
     '- advice:',
     '  - 建议另立工单补该路由的投影。',

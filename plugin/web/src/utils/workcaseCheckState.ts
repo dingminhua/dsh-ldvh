@@ -146,6 +146,19 @@ export const WORKCASE_ADVICE_TAG_CLASS: Record<string, string> = {
 };
 
 /**
+ * 去向条目与残留条目的**折叠阈值**——两处卡（待批准关闭 / 已关闭）共用一处来源。
+ *
+ * `10 §5.5`「单一来源纪律」（2026-09-28 二次修订）：两期卡虽不再同构（开放期读完整
+ * 单元、关闭期只读去向一侧），但**去向条目与残留条目的类名、标记与折叠阈值仍须只有
+ * 一处来源**，消费方从该处取得、不得各自重写——分写必然漂移。两期在**标记与语义色**
+ * 上一致，只在**块构成**（是否呈现残留一侧）与**密度**上分岔。
+ *
+ * 此前两处各自写了一个同值的 `COLLAPSED_RESIDUAL = 2`（同值不等于同源：改动其一时
+ * 另一处静默分岔），故收敛到此。
+ */
+export const WORKCASE_COLLAPSED_RESIDUAL = 2;
+
+/**
  * 残留块的两个类（`21 §8` 的 `residual`）——**两块卡共用**。
  *
  * 「待批准关闭」卡（数据来自正文 `- residual:` 段）与「已关闭」卡（数据来自
@@ -153,10 +166,105 @@ export const WORKCASE_ADVICE_TAG_CLASS: Record<string, string> = {
  * 故外观必须同源——分写两份类名时两卡会随各自改动而漂移（本仓已有先例：同一状态曾
  * 出现「徽标紫、卡内提示琥珀」的分歧，见 `docs/10` 的着色单一来源纪律）。
  *
- * 琥珀底表达「未解决/待处置」——与核对（三词各自的语义色）、去向（四色分类）区分开。
+ * 琥珀底表达「未解决/待处置」——与核对（三词各自的语义色）、去向（二词各自的语义色）
+ * 区分开。
+ *
+ * **2026-09-28 二次修订后的使用面**：该块在「待批准关闭」期**总是**呈现（承载完整
+ * 单元：残留 + 去向子项）；在「已关闭」期**只在条件豁免成立时**呈现（不满足
+ * 「每条残留都带有去向子项」者如实保留，见 `workCaseClosureNarrowsResidual`）。
  */
 export const WORKCASE_RESIDUAL_BLOCK_CLASS =
   'min-w-0 rounded-md border border-amber-600/25 bg-amber-500/[0.05] px-2.5 py-2';
+
+/**
+ * 去向子项在其所属残留之下的**缩进行**样式（`10 §5.5`「块序与逐条标记」）。
+ *
+ * 「**去向子项的呈现**：在**待批准关闭**期缩进一行显示于所属残留之下（主从关系
+ * 可见）；在**已关闭**期因残留一侧不再呈现，去向条**提升为平级行**」。故本常量
+ * 只用于开放期的从属行，不用于关闭期的平级行。
+ *
+ * 缩进用 padding 而非 margin：条目行自带分割线（`WORKCASE_ITEM_ROW_CLASS` 的
+ * `border-t`），用 margin 会把分割线也推离块宽，行与行的分割线不再对齐。
+ */
+export const WORKCASE_DIRECTION_ROW_CLASS =
+  'border-t border-ldvh-border/40 py-1 pl-4 first:border-t-0 ldvh-caption text-ldvh-text-primary';
+
+/**
+ * 一条去向（去向标记 + 正文）的渲染数据——**两块卡共用**同一形状（单一来源）。
+ *
+ * 为什么把这一步抽成纯函数（2026-09-24 实测教训）：组件的 JSX 不在 `node:test` 的
+ * 可达范围内，映射逻辑留在组件里就等于零行为覆盖；抽成纯函数后「标记 + 正文」的
+ * 配对与空值降级都能被直接断言。
+ */
+export interface WorkCaseDirectionRow {
+  /** 去向词（闭集二词或存量两词）；判不出时为 null（呈现为「未归类」）。 */
+  kind: string | null
+  /** 去向正文（未剥 Markdown——剥离是呈现层 `stripCardMarkdown` 的职责）。 */
+  text: string
+}
+
+/**
+ * 去向数组 → 渲染行。逐条忠实，**不合并、不截断、不补空**——判不出词的条目照样
+ * 产出（`kind: null`），由呈现层显示为「未归类」，而不是静默丢弃。
+ *
+ * 这条纪律与 `21 §15.1` 判据边界第三条同源：「不达形态者**按零条计，不静默丢弃**」。
+ * 呈现层的义务是如实显示，不是替作者修正形态。
+ */
+export function workCaseDirectionRows(advice: unknown): WorkCaseDirectionRow[] {
+  if (!Array.isArray(advice)) return []
+  const rows: WorkCaseDirectionRow[] = []
+  for (const item of advice) {
+    if (!item || typeof item !== 'object') continue
+    const entry = item as { kind?: unknown; text?: unknown }
+    const text = typeof entry.text === 'string' ? entry.text : ''
+    if (text.length === 0) continue
+    rows.push({ kind: typeof entry.kind === 'string' ? entry.kind : null, text })
+  }
+  return rows
+}
+
+/** 残留条目行（`[残留] <正文>`）的渲染数据——两块卡共用同一形状。 */
+export interface WorkCaseResidualRow {
+  /** 残留正文（未剥 Markdown）。 */
+  text: string
+  /** 该条残留的去向子项（合并式主从结构；分离式与旧存量为空数组）。 */
+  directions: WorkCaseDirectionRow[]
+}
+
+/**
+ * 残留条目（含其去向子项）→ 渲染行。
+ *
+ * **两种输入形态**（`21 §15.3`「呈现层必须读两种形态」）：
+ *   · `entries` 非空（合并式）——按主从结构产出，`directions` 挂在各自残留上；
+ *   · `entries` 为空时回落到 `texts`（分离式/字段权威）——残留仍如实产出，
+ *     `directions` 为空数组。**不把两者拼接、也不互补**：同一对象只有一种形态
+ *     （`§15.3` 明文），拼接会制造同一条残留的两处出现。
+ *
+ * 「已关闭」期传 `result.residual` 字段（权威）+ 由正文解析出的 `entries`：
+ * 字段是**残留正文**的权威，`entries` 只用来给每条挂上其去向子项（去向的权威承载
+ * 始终是正文——`result` 字段闭集从不含去向，`21 §10.2`）。
+ */
+export function workCaseResidualRows(
+  entries: unknown,
+  texts?: unknown,
+): WorkCaseResidualRow[] {
+  if (Array.isArray(entries) && entries.length > 0) {
+    const rows: WorkCaseResidualRow[] = []
+    for (const item of entries) {
+      if (!item || typeof item !== 'object') continue
+      const entry = item as { text?: unknown; directions?: unknown }
+      const text = typeof entry.text === 'string' ? entry.text : ''
+      if (text.length === 0) continue
+      rows.push({ text, directions: workCaseDirectionRows(entry.directions) })
+    }
+    if (rows.length > 0) return rows
+  }
+  if (!Array.isArray(texts)) return []
+  return texts
+    .filter((item): item is string => typeof item === 'string' && item.length > 0)
+    .map((text) => ({ text, directions: [] }))
+}
+
 
 /**
  * 卡体内「条目行」的统一行样式——核对、去向、残留、计划清单**四处共用**。
@@ -184,7 +292,7 @@ export const WORKCASE_ITEM_LIST_CLASS = 'grid min-w-0';
  *
  * 与块底色的关系：块底是琥珀色，标记同为琥珀系——颜色一致是**有意的**：标记与块
  * 表达同一件事（这是残留），不引入第二个语义色。故复用验证过的琥珀档，不新增色相
- * （卡面可用色相已接近用尽，见上方去向四色的空档计算）。
+ * （卡面可用色相已接近用尽，见上方去向二色的空档计算）。
  */
 export const WORKCASE_RESIDUAL_TAG_CLASS =
   'border-amber-600/50 bg-amber-500/[0.12] text-amber-700 dark:text-amber-300';
