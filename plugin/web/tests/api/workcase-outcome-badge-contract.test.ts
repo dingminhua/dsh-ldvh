@@ -12,20 +12,16 @@ import { test } from 'node:test';
 const root = path.resolve(import.meta.dirname, '../..');
 const read = (rel: string) => fs.readFileSync(path.join(root, rel), 'utf8');
 
-test('卡头：outcome 徽标挂在状态徽标之后，且只对 workcase 传', () => {
+test('卡头：outcome 徽标位于徽标序列·修改次数之后，且只对 workcase 传', () => {
+  // 10 §5.5（Human 裁定 2026-09-30）：徽标序列 = 类型 → 优先级 → SG → 修改次数 → outcome；
+  // 不与状态徽标并排。
   const objectList = read('src/pages/ObjectList.tsx');
-  const actions = read('src/components/ObjectIdentityActions.tsx');
   assert.match(objectList, /WorkCaseOutcomeBadge/);
-  assert.match(
-    objectList,
-    /statusTrailingBadges=\{obj\.type === 'workcase' \? <WorkCaseOutcomeBadge source=\{obj\} \/> : undefined\}/,
-    'outcome 徽标须经 statusTrailingBadges 传、且限定 workcase（其余类型无 outcome 语义）',
-  );
-  // 「之后」由组件保证：trailing 渲染在 StatusBadge 之后。
-  assert.match(actions, /statusTrailingBadges\?: ReactNode/);
-  const badgeIdx = actions.indexOf('<StatusBadge');
-  const trailingIdx = actions.indexOf('{statusTrailingBadges}');
-  assert.ok(badgeIdx >= 0 && trailingIdx > badgeIdx, 'trailing 必须在 StatusBadge 之后渲染');
+  const activityIdx = objectList.indexOf("title={t('cognition.recent.activityCount'");
+  const badgeIdx = objectList.indexOf("{obj.type === 'workcase' && <WorkCaseOutcomeBadge source={obj} />}");
+  assert.ok(activityIdx >= 0 && badgeIdx > activityIdx, 'outcome 徽标须在修改次数徽标之后');
+  const statusIdx = objectList.indexOf('<ObjectIdentityActions');
+  assert.ok(statusIdx > badgeIdx, 'outcome 徽标须在状态徽标（ObjectIdentityActions）之前——与状态徽标不并排');
 });
 
 test('卡头的 outcome 徽标不承载展开（10 §5.5：不做展开）', () => {

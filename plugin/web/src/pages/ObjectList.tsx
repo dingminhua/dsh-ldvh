@@ -243,6 +243,10 @@ export function ObjectCardFrame({
             <History size={12} aria-hidden="true" />
             <span>{activityCount}</span>
           </span>
+          {/* 10 §5.5（Human 裁定 2026-09-30）：`outcome` 徽标挂在**徽标序列里**——
+              修改次数之后、状态徽标**不在其中**（outcome 是终态结论词，不是状态词汇，
+              故与状态徽标不并排）。 */}
+          {obj.type === 'workcase' && <WorkCaseOutcomeBadge source={obj} />}
           {obj.sourceBranch && (
             <span className="ldvh-chip-sm gap-1 border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
               {t('objectList.sourceBranch', { branch: obj.sourceBranch })}
@@ -265,7 +269,6 @@ export function ObjectCardFrame({
           copyLabel={t('common.copyObjectId')}
           copiedLabel={t('common.copiedObjectId')}
           compact
-          statusTrailingBadges={obj.type === 'workcase' ? <WorkCaseOutcomeBadge source={obj} /> : undefined}
         />
       </div>
       {/* Keep a neutral title tray for card hierarchy; semantic colour belongs to the icon, never the tray border. */}
