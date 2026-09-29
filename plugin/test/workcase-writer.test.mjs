@@ -3841,11 +3841,16 @@ test("调整·批准：追加 plan + 重算并写回 authorization_fingerprint�
       "批准须把重算后的指纹写回 gate_1（否则 §9.1 的 open 不变量立刻不自洽）",
     );
     assert.equal(JSON.stringify(after.value.frontmatter.attempt), attemptBefore, "批准不得重置 attempt（这正是与局部重批的差别）");
+    assert.equal(
+      JSON.stringify(after.value.frontmatter.reviews ?? null),
+      JSON.stringify(before.value.frontmatter.reviews ?? null),
+      "批准也不得动 reviews（规范声称 attempt 与 reviews **两者**均不动，故两者都要钉）",
+    );
     assert.equal(after.value.frontmatter.status, "open", "增量审批不改变状态");
   });
 });
 
-test("调整·批准：正文未同步新步骤时被拒（载体内聚，21 §16）", async () => {
+test("调整·批准：正文未同步新步骤时被拒——且拒绝理由是载体内聚（不是别的结构错）", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const { uid } = await approved(root);
@@ -3861,6 +3866,57 @@ test("调整·批准：正文未同步新步骤时被拒（载体内聚，21 §1
       sessionSignature: SIG(),
     });
     assert.equal(decided.ok, false, "字段与正文不同步时必须拒绝，而不是落一个字段有、正文没有的对象");
+    // 空转防线（2026-09-30 独立对抗复核 F-9）：必须钉住**拒绝理由**，否则一个因"缺 H1"等
+    // 无关结构错而失败的用例会被误当成"载体内聚生效"的证据。
+    assert.equal(decided.error.code, "workcase/coherence_invalid", "拒绝须来自载体内聚校验");
+  });
+});
+
+test("调整·批准：正文缺 H1 与缺步骤是两种不同的拒绝（契约不对称的守卫，21 §8）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid } = await approved(root);
+    await requestedAdjustment(root, uid, ADJUST_ITEM, "不做它，第一条判据达不成");
+    // 缺 H1（本入口与 execute/close 同形，正文由 assembleBody 补 H1）→ body 结构错
+    const noH1NoStep = await decideWorkcaseAdjustment({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: await fingerprintOf(root, uid),
+      decision: "approved",
+      by: "human-test",
+      bodyMarkdownAfter: "# 不该有的 H1\n\n## 摘要\n",
+      sessionSignature: SIG(),
+    });
+    assert.equal(noH1NoStep.ok, false);
+    assert.equal(noH1NoStep.error.code, "workcase/body_invalid", "结构错须报 body_invalid，与载体内聚区分开");
+  });
+});
+
+test("调整·批准：旁注里出现步骤文本不能顶替步骤行（载体内聚的**已知边界**，如实钉住）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid } = await approved(root);
+    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    await requestedAdjustment(root, uid, ADJUST_ITEM, "不做它，第一条判据达不成");
+    // 载体内聚的定位是 `indexOf(item.step)`（子串匹配，非行匹配）——把步骤文本写进一条旁注即可满足定位。
+    // 这是**既有实现的边界**（非本通道引入），本用例把它**如实钉住**：若将来改为行匹配，此例会变红，
+    // 那正是它该有的行为（提醒修订规范里"逐字比对 + 按序定位"的措辞）。
+    const bodyAfter = `${before.value.body}\n- 备注：本条与「${ADJUST_ITEM[0].step}」无关，只是引用了这句话。\n\n## 执行\n\n- 说明。\n`;
+    const decided = await decideWorkcaseAdjustment({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: await fingerprintOf(root, uid),
+      decision: "approved",
+      by: "human-test",
+      bodyMarkdownAfter: bodyAfter,
+      sessionSignature: SIG(),
+    });
+    if (decided.ok) {
+      const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+      const planSection = String(after.value.body).split("## 计划")[1]?.split("## ")[0] ?? "";
+      const hasStepLine = planSection.split("\n").some((l) => l.trim() === `- ${ADJUST_ITEM[0].step}：判据——${ADJUST_ITEM[0].done_criteria}`);
+      assert.equal(hasStepLine, false, "本用例记录的是「旁注可绕过」这一既有边界：正文无独立步骤行却仍落盘");
+    }
   });
 });
 
@@ -3946,5 +4002,7 @@ test("调整·校验：amendments 的形状与决定取值受机械校验（21 �
     const list = Array.isArray(result) ? result : (result.issues ?? []);
     const text = list.join("\n");
         assert.match(text, /decision\.kind: must be "approved" \| "rejected"/, "非法决定取值须被报出");
+    assert.match(text, /decision\.by: required non-empty/, "空的决定者姓名须被报出");
+    assert.match(text, /decision\.at: required RFC3339/, "非法的决定时间须被报出");
   });
 });
