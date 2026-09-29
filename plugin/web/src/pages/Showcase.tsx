@@ -67,6 +67,12 @@ export default function Showcase() {
         subtitle={t('showcase.subtitle')}
       />
 
+      {/* 构建标识：让"改了到底生效没有"可自证，不必在缓存上猜。
+          `__BUILD_STAMP__` 由 vite define 注入（git 短 hash + 构建时刻）。 */}
+      <p className="ldvh-meta-muted mb-4" data-showcase-build={__BUILD_STAMP__}>
+        {t('showcase.build')}{__BUILD_STAMP__}
+      </p>
+
       {error !== null && (
         <p className="ldvh-card-decision-body mb-4 rounded-md border border-red-500/30 bg-red-500/[0.07] px-3 py-2 text-red-400">
           {error}
