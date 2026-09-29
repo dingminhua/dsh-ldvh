@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useI18n } from '@/i18n/context';
+import { stripCardMarkdown } from '@/utils/cardText';
 import type { LocaleKey } from '@/i18n/locales';
 import {
   markWorkCaseFlow,
   ownChangeLogEntries,
+  pendingAmendment,
   relativeDayLabel,
   type WorkCaseFlowMark,
 } from '../../shared/workcaseLifecycle';
@@ -33,6 +35,8 @@ const COLLAPSED_ITEMS = 5;
 export interface WorkCaseExecFlowProps {
   changeLog?: unknown;
   reviews?: unknown;
+  /** 21 §14 增量授权流水：**末项无 `decision` 即待批**（10 §5.5）。 */
+  amendments?: unknown;
   /** 本对象 object_id（用于排除提及他对象的条目）。 */
   selfUid: string | null;
   className?: string;
@@ -64,12 +68,13 @@ function formatHhmm(date: Date): string {
 
 /** 摘要末尾的 Code 托管标记不进入正文（如 `[attempt 1 heartbeat refreshed]`）。 */
 function stripTrailingBrackets(text: string): string {
-  return text.replace(/\s*\[(?:attempt|review recorded|C2|gate_\d)[^\]]*\]\s*$/i, '').trim();
+  return text.replace(/\s*\[(?:attempt|review recorded|adjustment (?:approved|rejected) by|C2|gate_\d)[^\]]*\]\s*$/i, '').trim();
 }
 
 export default function WorkCaseExecFlow({
   changeLog,
   reviews,
+  amendments,
   selfUid,
   className = '',
 }: WorkCaseExecFlowProps) {
@@ -102,10 +107,40 @@ export default function WorkCaseExecFlow({
   const weekdays = locale === 'en' ? WEEKDAYS_EN : WEEKDAYS_ZH;
   const now = new Date();
 
+  // 增量审批·待批（10 §5.5）：**只从 `gate_1.amendments` 的末项无 `decision` 判**——
+  // 不新增派生组，也不靠运行期标记。已决定的那几条会在下方流水里以「已批准／已拒绝」
+  // 标出（标记由 writer 的方括号机械发出，见 shared/workcaseLifecycle）。
+  const pending = pendingAmendment(amendments) as
+    | { items?: unknown; rationale?: unknown }
+    | null;
+  const pendingSteps = Array.isArray(pending?.items)
+    ? pending!.items
+        .filter((it): it is { step?: unknown } => Boolean(it) && typeof it === 'object' && !Array.isArray(it))
+        .map((it) => (typeof it.step === 'string' ? it.step : ''))
+        .filter((step) => step.length > 0)
+    : [];
+
   return (
     <div
       className={`${className} min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/50 px-2.5 py-2`.trim()}
     >
+      {pending !== null && (
+        <div
+          data-workcase-adjustment-pending="true"
+          className="mb-1.5 min-w-0 rounded-md border border-amber-600/35 bg-amber-500/[0.06] px-2 py-1.5"
+        >
+          <div className="flex min-w-0 items-start gap-1.5">
+            <span className="mr-0.5 mt-0.5 inline-block shrink-0 rounded border border-amber-600/50 bg-amber-500/15 px-1.5 text-[10px] font-semibold leading-4 text-amber-700 dark:text-amber-300">
+              {t('objectList.workcaseAdjustment.pending')}
+            </span>
+            <span className="ldvh-caption min-w-0 break-words text-ldvh-text-primary">
+              {t('objectList.workcaseAdjustment.pendingLine', { count: String(pendingSteps.length) })}
+              {pendingSteps.length > 0 && <span className="text-ldvh-text-secondary">：{stripCardMarkdown(pendingSteps[0])}</span>}
+              <span className="ml-1 text-ldvh-text-secondary/80">{t('objectList.workcaseAdjustment.awaitingHuman')}</span>
+            </span>
+          </div>
+        </div>
+      )}
       <div className="grid min-w-0 gap-1">
         {visible.map((row, i) => {
           const prev = i > 0 ? visible[i - 1].date : null;
@@ -138,7 +173,11 @@ export default function WorkCaseExecFlow({
                       className={
                         row.mark === 'review'
                           ? 'mr-1.5 inline-block rounded border border-violet-500/45 bg-violet-500/10 px-1 text-[10px] font-semibold leading-4 text-violet-700 dark:text-violet-300'
-                          : 'mr-1.5 inline-block rounded border border-amber-600/50 bg-amber-500/15 px-1 text-[10px] font-semibold leading-4 text-amber-700 dark:text-amber-300'
+                          : row.mark === 'adjustment-approved'
+                            ? 'mr-1.5 inline-block rounded border border-emerald-600/50 bg-emerald-500/10 px-1 text-[10px] font-semibold leading-4 text-emerald-700 dark:text-emerald-300'
+                            : row.mark === 'adjustment-rejected'
+                              ? 'mr-1.5 inline-block rounded border border-red-600/45 bg-red-500/10 px-1 text-[10px] font-semibold leading-4 text-red-700 dark:text-red-300'
+                              : 'mr-1.5 inline-block rounded border border-amber-600/50 bg-amber-500/15 px-1 text-[10px] font-semibold leading-4 text-amber-700 dark:text-amber-300'
                       }
                     >
                       {t(`objectList.workcaseFlowMark.${row.mark}` as LocaleKey)}

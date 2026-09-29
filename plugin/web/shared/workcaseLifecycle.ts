@@ -108,6 +108,57 @@ export type WorkCaseExecPhase = (typeof WORKCASE_EXEC_PHASES)[number]
 const REVIEW_PREFIX = '复核：'
 const MECHANICAL_REVIEW_MARKER = 'review recorded by session'
 
+/**
+ * 增量审批（21 §14）在**流水**里的决定标记 —— 由 `change_log` 摘要末尾的方括号判定。
+ *
+ * 标记由 writer 机械发出（`decideWorkcaseAdjustment` 的两支各自追加：
+ * `[adjustment approved by …]`／`[adjustment rejected by …]`），不是措辞约定——
+ * 与本文件既有的 `review` 标记（`[review recorded by session`）同一形态。
+ *
+ * **为什么不能让它们落进「修订」**：修订的含义是"复核之后又在改"；而"某次增量被
+ * 批准／拒绝"是**授权事件**，读者据此才知道 `plan` 为什么会多一步（10 §5.5）。
+ */
+export function amendmentMarkOf(summary: unknown): 'adjustment-approved' | 'adjustment-rejected' | null {
+  if (typeof summary !== 'string') return null
+  if (/\[adjustment approved by\b/i.test(summary)) return 'adjustment-approved'
+  if (/\[adjustment rejected by\b/i.test(summary)) return 'adjustment-rejected'
+  return null
+}
+
+/** 增量审批流水里**待批**的那一条 —— 判据是「**末项**无 `decision`」（10 §5.5）。 */
+export interface WorkCaseAmendmentLike {
+  items?: unknown
+  rationale?: unknown
+  decision?: unknown
+}
+
+export function pendingAmendment(amendments: unknown): WorkCaseAmendmentLike | null {
+  if (!Array.isArray(amendments) || amendments.length === 0) return null
+  const last = amendments[amendments.length - 1]
+  if (!last || typeof last !== 'object' || Array.isArray(last)) return null
+  const entry = last as WorkCaseAmendmentLike
+  return entry.decision === undefined || entry.decision === null ? entry : null
+}
+
+/** 已批准条目里的 `step` 文本（用于在详情面的计划里标注"这一步来自增量批准"）。 */
+export function approvedAmendmentSteps(amendments: unknown): string[] {
+  if (!Array.isArray(amendments)) return []
+  const steps: string[] = []
+  for (const entry of amendments) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const e = entry as { items?: unknown; decision?: unknown }
+    const d = e.decision
+    const kind = d && typeof d === 'object' && !Array.isArray(d) ? (d as { kind?: unknown }).kind : undefined
+    if (kind !== 'approved' || !Array.isArray(e.items)) continue
+    for (const it of e.items) {
+      if (it && typeof it === 'object' && !Array.isArray(it) && typeof (it as { step?: unknown }).step === 'string') {
+        steps.push((it as { step: string }).step)
+      }
+    }
+  }
+  return steps
+}
+
 function isReviewEntry(entry: ChangeLogEntryLike): boolean {
   if (typeof entry?.summary !== 'string') return false
   const s = entry.summary
@@ -157,7 +208,7 @@ function isOwnEntry(entry: ChangeLogEntryLike, selfUid: string | null): boolean 
 // 标记口径复用上面已登记的三条：② 他对象条目排除；③ 格式治理条目排除；
 // 数组序（不使用任何时间字段）。
 
-export const WORKCASE_FLOW_MARKS = ['review', 'revise'] as const
+export const WORKCASE_FLOW_MARKS = ['review', 'revise', 'adjustment-approved', 'adjustment-rejected'] as const
 export type WorkCaseFlowMark = (typeof WORKCASE_FLOW_MARKS)[number]
 
 /**
@@ -177,6 +228,9 @@ function markOfEntry(
   hasReviews: boolean,
 ): WorkCaseFlowMark | null {
   if (isReviewEntry(entry)) return 'review'
+  // 增量审批的决定是**授权事件**，比"复核之后又改了什么"更具体——故优先于 `revise`。
+  const adjustment = amendmentMarkOf((entry as { summary?: unknown }).summary)
+  if (adjustment !== null) return adjustment
   if (hasReviews && lastReviewIndex >= 0) {
     if (index === lastReviewIndex) return 'review'
     if (index > lastReviewIndex) return 'revise'

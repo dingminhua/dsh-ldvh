@@ -35,6 +35,7 @@ import type { LocaleKey } from '@/i18n/locales';
 import { parseReviewSummary } from '@/shared/workcaseReviewSummary';
 import type { StructuredTextIssue } from '@/shared/workcaseTextStructure';
 import { h2SectionOf } from '@/shared/workcaseResultDraft';
+import { approvedAmendmentSteps } from '@/shared/workcaseLifecycle';
 import type { WorkCaseV5Group, WorkCaseV5Outcome } from '@/shared/workcaseLifecycle';
 
 type LayoutT = ReturnType<typeof useI18n>['t'];
@@ -181,6 +182,10 @@ function PlanNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string }) 
   const [state, setState] = useState<ReadingNodeState>('expanded');
   const plan = Array.isArray(obj.plan) ? obj.plan : [];
   if (plan.length === 0) return null;
+  // 21 §14 增量审批：**已批准**条目里的 step 即"计划之外后来追加的步骤"。
+  // 标出来读者才分得清「Gate 1 批的计划」与「执行中被批准的增量」（10 §5.5）。
+  // 匹配用逐字相等（writer 追加时即写入同一条 `step`），不做模糊匹配。
+  const amendmentSteps = new Set(approvedAmendmentSteps(obj.gate_1?.amendments));
 
   return (
     <ReadingNodeSection
@@ -199,6 +204,14 @@ function PlanNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string }) 
                   表现再修改一下」）。步骤是这一条的主对象，应高于其判据。 */}
               <div className="ldvh-body min-w-0 break-words font-medium text-ldvh-text-primary">
                 {`${index + 1}. ${step.step ?? ''}`}
+                {typeof step.step === 'string' && amendmentSteps.has(step.step) && (
+                  <span
+                    data-workcase-amendment-step="true"
+                    className="ml-1.5 inline-block rounded border border-emerald-600/50 bg-emerald-500/10 px-1 text-[10px] font-semibold leading-4 text-emerald-700 dark:text-emerald-300"
+                  >
+                    {t('objectDetail.workcaseAmendmentStep')}
+                  </span>
+                )}
               </div>
               {step.done_criteria ? (
                 /* 判据标签**内联**到正文行首，不再独占一行（原经 `DetailInlineField`

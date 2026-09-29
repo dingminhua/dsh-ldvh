@@ -128,6 +128,7 @@ function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
           className="mt-1.5"
           changeLog={obj.change_log}
           reviews={obj.reviews}
+          amendments={obj.gate_1?.amendments}
           selfUid={obj.id}
         />
       </div>
