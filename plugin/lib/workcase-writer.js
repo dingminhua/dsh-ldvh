@@ -2655,13 +2655,17 @@ export async function requestWorkcaseAdjustment(args) {
  * **不重置对象**：`attempt` 与 `reviews` 一概不动（这正是本通道与「局部重批」的根本差别）。
  * **拒绝**只落 `decision`，不动 `plan`／`scope`；该事项的归宿按 §8 丁档处理（关闭时落去向）。
  *
+ * **`humanAuthorization` 必填**（与 `correct` 同规格）：本通道在执行期实时扩大授权，
+ * 故须把 Human 的授权记录摆出来并写进 `change_log`。它**不证明** Human 真的批过——
+ * 机械层能做的是"让没有转述的批准不可发生"，这一点已如实登记（21 §14）。
+ *
  * `decision.at` 由 Code 盖戳；`by` 由调用方提供（**自报**，同 `gate_1.approver` 的形态）——
  * "谁批的"可核痕迹是 Code 从宿主上下文取得的 `decision.session_id`／`session_source`
  * （2026-09-30 独立对抗复核 F-1：本通道作用于执行中的 open 对象并实时扩大授权，
  * 故必须留下可核身份；机械层不证明 `by` 为真，规范已如实声明该边界）。
  */
 export async function decideWorkcaseAdjustment(args) {
-  const { factSourceRoot, objectUid, expectedFingerprint, decision, by, bodyMarkdownAfter = null, changeSummary = null, sessionSignature = null, sessionIdentity = null } = args;
+  const { factSourceRoot, objectUid, expectedFingerprint, decision, by, bodyMarkdownAfter = null, changeSummary = null, sessionSignature = null, sessionIdentity = null, humanAuthorization = null } = args;
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
   if (decision !== "approved" && decision !== "rejected") {
@@ -2669,6 +2673,17 @@ export async function decideWorkcaseAdjustment(args) {
   }
   if (typeof by !== "string" || by.trim().length === 0) {
     return failure("invalid_request", "by is required: the deciding Human identity (同 gate_1.approver 的形态，21 §14)");
+  }
+  // **Human 授权记录必填**（与 `correctWorkcaseObject` 的 `humanAuthorization` 同规格，fail-closed）：
+  // 本通道是**执行期实时扩大授权**，而 `by` 是自报字符串——故要求调用方把 Human 的授权
+  // （谁／何时／覆盖什么）摆出来，并写进 `change_log`。它**不证明** Human 真的批过，
+  // 但让「没有转述的批准」在机械上不可发生：AI 若要自批，就得**编造一段 Human 的话**，
+  // 而那是可在会话记录里审计的（2026-09-30 Human 裁定，见 21 §14）。
+  if (typeof humanAuthorization !== "string" || humanAuthorization.trim().length === 0) {
+    return failure(
+      "invalid_request",
+      "humanAuthorization is required for 增量审批的决定 — 本通道在执行期实时扩大授权，故须给出 Human 的授权记录（谁／何时／覆盖什么），缺之 fail-closed（与 correct 同规格；21 §14）",
+    );
   }
   // 决定者**会话身份**（Code 托管；与 `approve` 同形——不传不拒，但缺失即"谁批的"无可核）。
   // 2026-09-30 独立对抗复核 F-1：`by` 是调用方字符串，属**自报**；本通道又直接作用于执行中的
@@ -2713,6 +2728,7 @@ export async function decideWorkcaseAdjustment(args) {
     appendChangeLog(
       next, sig,
       (typeof changeSummary === "string" && changeSummary.length > 0 ? changeSummary : "增量审批：Human 拒绝该申请")
+        + `；经 Human 授权：${humanAuthorization.trim()}`
         + ` [adjustment rejected by ${by}; plan/scope unchanged]`,
     );
     const body = assembleBody(next.title, current.value.body.replace(/^#\s+.*\n+/, ""));
@@ -2744,6 +2760,7 @@ export async function decideWorkcaseAdjustment(args) {
   appendChangeLog(
     next, sig,
     (typeof changeSummary === "string" && changeSummary.length > 0 ? changeSummary : "增量审批：Human 批准，追加计划步骤并重算授权指纹")
+      + `；经 Human 授权：${humanAuthorization.trim()}`
       + ` [adjustment approved by ${by}; plan +${pending.items.length}; authorization_fingerprint recomputed; attempt/reviews preserved]`,
   );
   const body = assembleBody(next.title, bodyMarkdownAfter.replace(/^#\s+.*\n+/, ""));

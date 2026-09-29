@@ -598,10 +598,14 @@ async function executeWriteObject(args, exec, deps) {
       // attempt 与 reviews 一概不动（这正是与「局部重批」的根本差别）。
       const decision = args?.adjustment_decision;
       const by = args?.by;
+      const humanAuthorization = args?.human_authorization;
       if ((decision !== "approved" && decision !== "rejected") || typeof by !== "string" || by.trim().length === 0) {
         return invalidRequest("workcase-write-object", "adjustment_decision (\"approved\" | \"rejected\") and by (决定者身份) are required for action=decide_adjustment (21 §14)", "decide_adjustment");
       }
-      result = await decideWorkcaseAdjustment({ factSourceRoot, objectUid, expectedFingerprint, decision, by, bodyMarkdownAfter: args?.body_markdown_after ?? null, changeSummary, sessionSignature: sig.value, sessionIdentity: ident.value });
+      if (typeof humanAuthorization !== "string" || humanAuthorization.trim().length === 0) {
+        return invalidRequest("workcase-write-object", "human_authorization is required for action=decide_adjustment — 本通道在执行期实时扩大授权，须给出 Human 的授权记录（谁／何时／覆盖什么），缺之 fail-closed（与 correct 同规格；21 §14）", "decide_adjustment");
+      }
+      result = await decideWorkcaseAdjustment({ factSourceRoot, objectUid, expectedFingerprint, decision, by, humanAuthorization, bodyMarkdownAfter: args?.body_markdown_after ?? null, changeSummary, sessionSignature: sig.value, sessionIdentity: ident.value });
     } else if (action === "record_review") {
       // 复核结论回传通道（workcase-2be11478 计划步骤 4）：只追加一条 reviews 条目，
       // 不授予任何其它写能力。
@@ -940,7 +944,8 @@ function parameterSchemaFor(operationKey) {
     },
     rationale: { type: "string", description: "request_adjustment: 为什么必需——须回答「不做它，已批的 done_criteria 就达不成」（21 §14 乙档的定义要件）" },
     adjustment_decision: { type: "string", enum: ["approved", "rejected"], description: "decide_adjustment: Human 对该申请的判定（21 §14）。批准须同时给出 body_markdown_after（**不含 H1**，与 execute/close 同形）；新步骤须出现在正文「## 计划」节（载体内聚）" },
-    by: { type: "string", description: "decide_adjustment: 作出决定的人（同 gate_1.approver 的形态，21 §14）。**注意：`by` 是自报文本**——「谁批的」的可核痕迹来自 Code 托管的决定者会话身份（**在能取得 host 来源身份时**盖戳进 decision.session_id；取不到时该痕迹缺失，返回值的 decider_identity 会显式报 unavailable），规范已如实声明该边界" },
+    by: { type: "string", description: "decide_adjustment: 作出决定的人（同 gate_1.approver 的形态，21 §14）。**先决：须同时给出 human_authorization（Human 的授权记录，缺之 fail-closed，与 correct 同规格）**；**注意：`by` 是自报文本**——「谁批的」的可核痕迹来自 Code 托管的决定者会话身份（**在能取得 host 来源身份时**盖戳进 decision.session_id；取不到时该痕迹缺失，返回值的 decider_identity 会显式报 unavailable），规范已如实声明该边界" },
+    human_authorization: { type: "string", description: "decide_adjustment: **必填**——Human 的授权记录（谁／何时／覆盖什么），与 correct 的 human_authorization 同规格，缺之 fail-closed。它会被写进 change_log；**它不证明 Human 真的批过**，只让「没有转述的批准」机械上不可发生（21 §14）" },
     summary: { type: "string", description: "record_review: the review conclusion (≤600 chars), carrying the 02 §15 seven elements (对象/基线/方法/覆盖/未覆盖/发现/保证边界). `at`, provider/model and session_id are stamped by Code — the caller supplies only this text. When reviewer_child_agent_id is given, this MUST match the subagent's captured conclusion verbatim (or be omitted to adopt it)." },
     reviewer_child_agent_id: { type: "string", description: "record_review: relay an ISOLATED SUBAGENT's review — pass its agent id (from the subagent tool). The identity and the conclusion text are then taken from the host's own subagent registry (Code-observed, not settable by the caller), so the implementer can neither forge the reviewer's identity nor substitute its own text. Omit to record YOUR OWN session's review (then your session must differ from the implementer's)." }
   };

@@ -3820,6 +3820,7 @@ test("调整·批准：追加 plan + 重算并写回 authorization_fingerprint�
       expectedFingerprint: await fingerprintOf(root, uid),
       decision: "approved",
       by: "human-test",
+      humanAuthorization: "Human 于 2026-09-30 在会话中确认：同意追加该项（测试固定文案）",
       bodyMarkdownAfter: bodyAfter,
       sessionSignature: SIG(),
     });
@@ -3862,6 +3863,7 @@ test("调整·批准：正文未同步新步骤时被拒——且拒绝理由是
       expectedFingerprint: await fingerprintOf(root, uid),
       decision: "approved",
       by: "human-test",
+      humanAuthorization: "Human 于 2026-09-30 在会话中确认：同意追加该项（测试固定文案）",
       bodyMarkdownAfter: bodyWithoutH1(before.value.body), // 未把新步骤写进「## 计划」
       sessionSignature: SIG(),
     });
@@ -3885,6 +3887,7 @@ test("调整·批准：结构错（缺节）与载体内聚错是两种不同的
       expectedFingerprint: await fingerprintOf(root, uid),
       decision: "approved",
       by: "human-test",
+      humanAuthorization: "Human 于 2026-09-30 在会话中确认：同意追加该项（测试固定文案）",
       bodyMarkdownAfter: "# 不该有的 H1\n\n## 摘要\n",
       sessionSignature: SIG(),
     });
@@ -3913,6 +3916,7 @@ test("调整·批准：旁注占用步骤文本时仍可落盘——载体内聚
       expectedFingerprint: await fingerprintOf(root, uid),
       decision: "approved",
       by: "human-test",
+      humanAuthorization: "Human 于 2026-09-30 在会话中确认：同意追加该项（测试固定文案）",
       bodyMarkdownAfter: bodyAfter,
       sessionSignature: SIG(),
     });
@@ -3963,6 +3967,7 @@ test("调整·身份：决定者会话身份被盖戳；身份不可得时**显�
       expectedFingerprint: cur.value.fingerprint,
       decision: "approved",
       by: "human-test",
+      humanAuthorization: "Human 于 2026-09-30 在会话中确认：同意追加该项（测试固定文案）",
       bodyMarkdownAfter: bodyWithExtraStep(cur.value.body, `- ${ADJUST_ITEM[0].step}：判据——${ADJUST_ITEM[0].done_criteria}`, "执行。"),
       sessionSignature: SIG(),
       sessionIdentity: IDENTITY("session-decider-test"),
@@ -3983,6 +3988,7 @@ test("调整·身份：决定者会话身份被盖戳；身份不可得时**显�
       expectedFingerprint: cur2.value.fingerprint,
       decision: "rejected",
       by: "human-test",
+      humanAuthorization: "Human 于 2026-09-30 在会话中确认：拒绝该项（测试固定文案）",
       sessionSignature: SIG(),
     });
     assert.ok(noIdentity.ok, JSON.stringify(noIdentity.error));
@@ -4030,6 +4036,7 @@ test("调整·纪律：无待批时不得作出决定；申请要求 status=open
       expectedFingerprint: await fingerprintOf(root, uid),
       decision: "approved",
       by: "human-test",
+      humanAuthorization: "Human 于 2026-09-30 在会话中确认：同意追加该项（测试固定文案）",
       bodyMarkdownAfter: bodyWithoutH1((await readWorkcaseObject({ factSourceRoot: root, objectUid: uid })).value.body),
       sessionSignature: SIG(),
     });
@@ -4066,5 +4073,48 @@ test("调整·校验：amendments 的形状与决定取值受机械校验（21 �
         assert.match(text, /decision\.kind: must be "approved" \| "rejected"/, "非法决定取值须被报出");
     assert.match(text, /decision\.by: required non-empty/, "空的决定者姓名须被报出");
     assert.match(text, /decision\.at: required RFC3339/, "非法的决定时间须被报出");
+  });
+});
+
+test("调整·授权记录：缺 human_authorization 即拒（fail-closed），且授权记录被写进 change_log（与 correct 同规格）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid } = await approved(root);
+    await requestedAdjustment(root, uid, ADJUST_ITEM, "不做它，第一条判据达不成");
+    const cur = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    const bodyAfter = bodyWithExtraStep(cur.value.body, `- ${ADJUST_ITEM[0].step}：判据——${ADJUST_ITEM[0].done_criteria}`, "执行。");
+
+    // 缺授权记录 → 拒（在改动任何字段之前就拒）
+    const missing = await decideWorkcaseAdjustment({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: cur.value.fingerprint,
+      decision: "approved",
+      by: "human-test",
+      bodyMarkdownAfter: bodyAfter,
+      sessionSignature: SIG(),
+    });
+    assert.equal(missing.ok, false);
+    assert.equal(missing.error.code, "invalid_request");
+    const stillPending = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(stillPending.value.frontmatter.plan.length, cur.value.frontmatter.plan.length, "被拒时 plan 不得变");
+
+    // 给出授权记录 → 放行，且记录进 change_log
+    const authText = "Human 于 2026-09-30 11:40 在会话中确认：同意追加「补 writer 层夹具」（覆盖本项，不含其它）";
+    const ok = await decideWorkcaseAdjustment({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: cur.value.fingerprint,
+      decision: "approved",
+      by: "human-test",
+      humanAuthorization: authText,
+      bodyMarkdownAfter: bodyAfter,
+      sessionSignature: SIG(),
+    });
+    assert.ok(ok.ok, JSON.stringify(ok.error));
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    const lastLog = after.value.frontmatter.change_log.at(-1).summary;
+    assert.ok(lastLog.includes(authText), `change_log 须带上 Human 的授权记录；实际：${lastLog}`);
+    assert.equal(after.value.frontmatter.gate_1.amendments.at(-1).decision.kind, "approved");
   });
 });
