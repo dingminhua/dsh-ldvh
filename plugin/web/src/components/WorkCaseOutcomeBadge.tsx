@@ -12,11 +12,16 @@ import type { LocaleKey } from '@/i18n/locales';
 import { useI18n } from '@/i18n/context';
 import type { WorkCaseDetailData } from '@/utils/api';
 
-/** 四档配色（与卡体时代沿用同一组 token，避免两处各写一套）。 */
+/**
+ * 四档配色——**与卡头其它徽标同一尺度**（`10 §5.5` 的「样式与既有徽标一致」）：
+ * 边框 `/30`、底色 `/10`、字色 `-600`（暗色档 `-400`），与 SG 徽标、修改次数徽标同形。
+ * 尺寸与圆角**不在此处自定**——由共享 class `ldvh-chip-sm` 统一给出（`h-[18px]`／
+ * `text-[10px]`／`rounded-md`／`px-1.5`），避免与邻居并排时高低不一。
+ */
 export const WORKCASE_OUTCOME_BADGE_CLASS: Record<string, string> = {
-  completed: 'border-emerald-600/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-  partial: 'border-amber-600/50 bg-amber-500/15 text-amber-700 dark:text-amber-300',
-  'not-achieved': 'border-red-600/45 bg-red-500/10 text-red-700 dark:text-red-300',
+  completed: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  partial: 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  'not-achieved': 'border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400',
   cancelled: 'border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary',
 };
 
@@ -30,9 +35,7 @@ export default function WorkCaseOutcomeBadge({ source }: { source: Pick<WorkCase
     <span
       data-workcase-outcome={outcome}
       title={t(`objectList.workcaseOutcome.${outcome}` as LocaleKey)}
-      className={`inline-flex shrink-0 items-center rounded border px-1.5 text-[11px] font-semibold leading-[18px] ${
-        WORKCASE_OUTCOME_BADGE_CLASS[outcome] ?? NEUTRAL
-      }`}
+      className={`ldvh-chip-sm ${WORKCASE_OUTCOME_BADGE_CLASS[outcome] ?? NEUTRAL}`}
     >
       {t(`objectList.workcaseOutcome.${outcome}` as LocaleKey)}
     </span>

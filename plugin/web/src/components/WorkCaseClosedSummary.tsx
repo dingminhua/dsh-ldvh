@@ -76,18 +76,10 @@ import {
  *   不解析、直接显示。写作侧纪律见 `21 §8`（去向子项同纪律）。
  */
 
-const NEUTRAL_TAG_CLASS = 'border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary';
 
 /** 取消记录的行标记：与状态标记同族（行内、宽度自适应），取中性色。 */
 const CANCEL_TAG_CLASS =
   'mr-1.5 inline-block shrink-0 rounded border border-ldvh-border bg-ldvh-bg px-1.5 text-[10px] font-semibold leading-4 text-ldvh-text-secondary';
-
-const OUTCOME_CLASS: Record<string, string> = {
-  completed: 'border-emerald-600/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-  partial: 'border-amber-600/50 bg-amber-500/15 text-amber-700 dark:text-amber-300',
-  'not-achieved': 'border-red-600/45 bg-red-500/10 text-red-700 dark:text-red-300',
-  cancelled: 'border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary',
-};
 
 /**
  * One source in the read-time reverse `refs` projection.  This row deliberately
