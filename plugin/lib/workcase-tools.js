@@ -43,6 +43,8 @@ import {
   reviseWorkcaseObject,
   correctWorkcaseObject,
   recordWorkcaseReview,
+  requestWorkcaseAdjustment,
+  decideWorkcaseAdjustment,
   listWorkcaseObjects,
   precheckWorkcaseCreate,
 } from "./workcase-writer.js";
@@ -583,6 +585,23 @@ async function executeWriteObject(args, exec, deps) {
         return invalidRequest("workcase-write-object", "result ({achieved_scope: 取消理由与未发生的范围}) and body_markdown_after (including the 结果 section) are required for action=cancel (21 §9.2)", "cancel");
       }
       result = await cancelWorkcaseObject({ factSourceRoot, objectUid, expectedFingerprint, result: resultPayload, changeSummary, bodyMarkdownAfter, sessionSignature: sig.value });
+    } else if (action === "request_adjustment") {
+      // 增量审批·申请（21 §14 乙档）：只登记待批条目，不触碰 plan/scope，也不产生授权。
+      const items = args?.items;
+      const rationale = args?.rationale;
+      if (!Array.isArray(items) || items.length === 0 || typeof rationale !== "string" || rationale.trim().length === 0) {
+        return invalidRequest("workcase-write-object", "items ([{step, done_criteria}]) and rationale are required for action=request_adjustment — 申请须写明要追加什么、以及为什么不做它就达不成已批判据（21 §14）", "request_adjustment");
+      }
+      result = await requestWorkcaseAdjustment({ factSourceRoot, objectUid, expectedFingerprint, items, rationale, scopeAdditions: args?.scope_additions ?? null, changeSummary, sessionSignature: sig.value });
+    } else if (action === "decide_adjustment") {
+      // 增量审批·决定（Human Gate；21 §14）：批准则追加 plan/scope 并重算授权指纹，
+      // attempt 与 reviews 一概不动（这正是与「局部重批」的根本差别）。
+      const decision = args?.adjustment_decision;
+      const by = args?.by;
+      if ((decision !== "approved" && decision !== "rejected") || typeof by !== "string" || by.trim().length === 0) {
+        return invalidRequest("workcase-write-object", "adjustment_decision (\"approved\" | \"rejected\") and by (决定者身份) are required for action=decide_adjustment (21 §14)", "decide_adjustment");
+      }
+      result = await decideWorkcaseAdjustment({ factSourceRoot, objectUid, expectedFingerprint, decision, by, bodyMarkdownAfter: args?.body_markdown_after ?? null, changeSummary, sessionSignature: sig.value });
     } else if (action === "record_review") {
       // 复核结论回传通道（workcase-2be11478 计划步骤 4）：只追加一条 reviews 条目，
       // 不授予任何其它写能力。
@@ -914,6 +933,15 @@ function parameterSchemaFor(operationKey) {
     object_uid: { type: "string", description: "target object" },
     expected_fingerprint: { type: "string", description: "CAS baseline fingerprint from your last precise read (03 §9.5)" },
     change_summary: { type: "string", description: "one short semantic summary for the change_log entry" },
+    items: {
+      type: "array",
+      description: "request_adjustment: 拟追加的事项——每项 {step, done_criteria}，两者均非空（21 §14 乙档：超目录但必需）。申请**不产生任何可执行权限**，真正的门在 decide_adjustment",
+      items: { type: "object", properties: { step: { type: "string" }, done_criteria: { type: "string" } }, required: ["step", "done_criteria"] },
+    },
+    rationale: { type: "string", description: "request_adjustment: 为什么必需——须回答「不做它，已批的 done_criteria 就达不成」（21 §14 乙档的定义要件）" },
+    scope_additions: { type: "array", items: { type: "string" }, description: "request_adjustment: 可选的范围追加行（将追加进 scope；通常不必——乙档是「只增不改」）" },
+    adjustment_decision: { type: "string", enum: ["approved", "rejected"], description: "decide_adjustment: Human 对该申请的判定（21 §14）。批准须同时给出 body_markdown_after（新步骤须出现在正文「## 计划」节，载体内聚）" },
+    by: { type: "string", description: "decide_adjustment: 作出决定的人（同 gate_1.approver 的形态，21 §14）" },
     summary: { type: "string", description: "record_review: the review conclusion (≤600 chars), carrying the 02 §15 seven elements (对象/基线/方法/覆盖/未覆盖/发现/保证边界). `at`, provider/model and session_id are stamped by Code — the caller supplies only this text. When reviewer_child_agent_id is given, this MUST match the subagent's captured conclusion verbatim (or be omitted to adopt it)." },
     reviewer_child_agent_id: { type: "string", description: "record_review: relay an ISOLATED SUBAGENT's review — pass its agent id (from the subagent tool). The identity and the conclusion text are then taken from the host's own subagent registry (Code-observed, not settable by the caller), so the implementer can neither forge the reviewer's identity nor substitute its own text. Omit to record YOUR OWN session's review (then your session must differ from the implementer's)." }
   };
@@ -950,7 +978,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          action: { type: "string", enum: ["create", "approve", "execute", "close", "rebatch", "cancel", "revise", "correct", "record_review"] },
+          action: { type: "string", enum: ["create", "approve", "execute", "close", "rebatch", "cancel", "revise", "correct", "record_review", "request_adjustment", "decide_adjustment"] },
           frontmatter_draft: workcaseFrontmatter,
           body_markdown: { type: "string", description: "create: the body markdown starting with '## 摘要' (H2 sections 摘要/授权范围/计划; the H1 is generated from title)" },
           expected_candidate_fingerprint: { type: "string", description: "create: the candidate_fingerprint returned by ldvh_workcase_precheck_create for THIS candidate content. When supplied, the write refuses if the content changed in between — so a precheck verdict never silently carries over to a different candidate (21 §14 create). Optional: omit when the candidate was not prechecked." },

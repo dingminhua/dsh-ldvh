@@ -658,14 +658,69 @@ function validatePlanShape(frontmatter, issues, baselinePlan = null) {
   });
 }
 
+/** `gate_1.amendments`（增量授权流水）的条数上限（21 §8）。 */
+const GATE1_AMENDMENTS_MAX = 20;
+
 function validateGate1(frontmatter, issues) {
   const g = frontmatter.gate_1;
   if (!isPlainObject(g)) {
     issues.push("gate_1: must be an object {approved_at, approver, authorization_fingerprint, scope_snapshot} (21 §8)");
     return;
   }
-  const extra = Object.keys(g).filter((k) => !["approved_at", "approver", "authorization_fingerprint", "scope_snapshot"].includes(k));
+  const extra = Object.keys(g).filter((k) => !["approved_at", "approver", "authorization_fingerprint", "scope_snapshot", "amendments"].includes(k));
   if (extra.length > 0) issues.push(`gate_1: unexpected field(s) ${extra.join(", ")}`);
+  // 21 §8／§14：`amendments` —— **增量授权**流水（乙档「增量审批」的承载）。
+  // 每条 = 一次申请（items + rationale）＋ 可选的 Human 决定（decision）。
+  // **待批 = 末项无 `decision`**（呈现层的机械判据即此，见 10 §5.5）。
+  if (g.amendments !== undefined) {
+    if (!Array.isArray(g.amendments)) {
+      issues.push("gate_1.amendments: must be an array (21 §8)");
+    } else if (g.amendments.length > GATE1_AMENDMENTS_MAX) {
+      issues.push(`gate_1.amendments: ${g.amendments.length} entries exceeds the cap ${GATE1_AMENDMENTS_MAX} (21 §8) — this object needs a decision, not an unbounded amendment log`);
+    } else {
+      g.amendments.forEach((a, i) => {
+        if (!isPlainObject(a)) { issues.push(`gate_1.amendments[${i}]: must be an object`); return; }
+        const extraA = Object.keys(a).filter((k) => !["requested_at", "items", "rationale", "scope_additions", "decision"].includes(k));
+        if (extraA.length > 0) issues.push(`gate_1.amendments[${i}]: unexpected field(s) ${extraA.join(", ")}`);
+        if (typeof a.requested_at !== "string" || !RFC3339_PATTERN.test(a.requested_at)) {
+          issues.push(`gate_1.amendments[${i}].requested_at: required RFC3339`);
+        }
+        if (!Array.isArray(a.items) || a.items.length === 0) {
+          issues.push(`gate_1.amendments[${i}].items: must be a non-empty array of {step, done_criteria} (21 §14 — 申请必须写明要追加什么)`);
+        } else {
+          a.items.forEach((it, k) => {
+            if (!isPlainObject(it) || typeof it.step !== "string" || it.step.trim().length === 0
+              || typeof it.done_criteria !== "string" || it.done_criteria.trim().length === 0) {
+              issues.push(`gate_1.amendments[${i}].items[${k}]: must be {step, done_criteria}, both non-empty (21 §8)`);
+            }
+          });
+        }
+        if (typeof a.rationale !== "string" || a.rationale.trim().length === 0) {
+          issues.push(`gate_1.amendments[${i}].rationale: required non-empty (21 §14 — 申请须说明"不做它，已批判据就达不成")`);
+        }
+        if (a.scope_additions !== undefined && (!Array.isArray(a.scope_additions) || a.scope_additions.some((x) => typeof x !== "string" || x.trim().length === 0))) {
+          issues.push(`gate_1.amendments[${i}].scope_additions: when present, must be an array of non-empty strings (21 §8)`);
+        }
+        if (a.decision !== undefined) {
+          if (!isPlainObject(a.decision)) { issues.push(`gate_1.amendments[${i}].decision: must be an object`); return; }
+          const extraD = Object.keys(a.decision).filter((k) => !["kind", "by", "at", "resulting_fingerprint"].includes(k));
+          if (extraD.length > 0) issues.push(`gate_1.amendments[${i}].decision: unexpected field(s) ${extraD.join(", ")}`);
+          if (a.decision.kind !== "approved" && a.decision.kind !== "rejected") {
+            issues.push(`gate_1.amendments[${i}].decision.kind: must be "approved" | "rejected" (21 §14)`);
+          }
+          if (typeof a.decision.by !== "string" || a.decision.by.trim().length === 0) {
+            issues.push(`gate_1.amendments[${i}].decision.by: required non-empty (the deciding Human identity, 21 §14)`);
+          }
+          if (typeof a.decision.at !== "string" || !RFC3339_PATTERN.test(a.decision.at)) {
+            issues.push(`gate_1.amendments[${i}].decision.at: required RFC3339 (Code-stamped)`);
+          }
+          if (a.decision.kind === "approved" && (typeof a.decision.resulting_fingerprint !== "string" || a.decision.resulting_fingerprint.length === 0)) {
+            issues.push(`gate_1.amendments[${i}].decision.resulting_fingerprint: required when approved (21 §14 — 批准后重算并留痕授权指纹)`);
+          }
+        }
+      });
+    }
+  }
   if (typeof g.approved_at !== "string" || !RFC3339_PATTERN.test(g.approved_at)) {
     issues.push("gate_1.approved_at: required RFC3339");
   }
@@ -2485,6 +2540,162 @@ export async function recordWorkcaseReview(args) {
   const written = await writeValidated(factSourceRoot, next, body, fm, current.value.body);
   if (!written.ok) return written;
   return success({ ...written.value, review_session_id: identity.sessionId });
+}
+
+// ---------------------------------------------------------------------------
+// 增量审批 — 执行期新增范围的受控通道（21 §14「增量审批」；乙档）
+// ---------------------------------------------------------------------------
+
+/**
+ * 「增量审批」的**申请**通道：把一份拟追加的事项登记为 `gate_1.amendments` 的**待批**条目。
+ *
+ * 依据 21 §8 的「执行期新发现的四档处置」乙档与 §14「增量审批」：执行中发现
+ * 「未碰禁区、不在「允许的顺带修缮」目录内、但不做它已批 `done_criteria` 就达不成」
+ * 的事项时，AI 只能**申请**，不能自行扩权。
+ *
+ * **本函数只写申请，不产生任何可执行权限**：它不触碰 `plan`／`scope`，也不改
+ * `authorization_fingerprint`。真正的门在 `decideWorkcaseAdjustment`（Human 决定）。
+ * 这样"AI 滥发申请"的最坏后果只是多一条待办——而不是一次越权。
+ *
+ * 调用方只提供 `items`（拟追加的步骤与判据）、`rationale`（为什么必需）、可选的
+ * `scopeAdditions`。`requested_at` 由 Code 盖戳（AI 不得自填），其余字段一律取自
+ * 落盘对象。
+ */
+export async function requestWorkcaseAdjustment(args) {
+  const { factSourceRoot, objectUid, expectedFingerprint, items, rationale, scopeAdditions = null, changeSummary = null, sessionSignature = null } = args;
+  const sig = requireAuthoritativeSignature(sessionSignature);
+  if (!sig.ok) return failure(sig.code, sig.message);
+  if (!Array.isArray(items) || items.length === 0) {
+    return failure("invalid_request", "items is required: a non-empty array of {step, done_criteria} (21 §14 — 申请必须写明要追加什么)");
+  }
+  for (const [i, it] of items.entries()) {
+    if (!isPlainObject(it) || typeof it.step !== "string" || it.step.trim().length === 0
+      || typeof it.done_criteria !== "string" || it.done_criteria.trim().length === 0) {
+      return failure("invalid_request", `items[${i}]: must be {step, done_criteria}, both non-empty (21 §8)`);
+    }
+  }
+  if (typeof rationale !== "string" || rationale.trim().length === 0) {
+    return failure("invalid_request", "rationale is required: 说明「不做它，已批的 done_criteria 就达不成」（21 §14 乙档的定义要件）");
+  }
+  const current = await loadAndCheckFingerprint(factSourceRoot, objectUid, expectedFingerprint);
+  if (!current.ok) return current;
+  const fm = current.value.frontmatter;
+  if (fm.status !== "open") {
+    return failure("workcase/transition_invalid", `增量审批的申请要求 status=open（执行期通道），got ${JSON.stringify(fm.status)} (21 §14)`);
+  }
+  const gate1 = isPlainObject(fm.gate_1) ? fm.gate_1 : null;
+  if (gate1 === null) {
+    return failure("workcase/gate1_missing", "增量审批要求 gate_1 存在（它承载 amendments 流水），落盘对象无 gate_1 (21 §8)");
+  }
+  const existing = Array.isArray(gate1.amendments) ? gate1.amendments : [];
+  if (existing.some((a) => isPlainObject(a) && a.decision === undefined)) {
+    return failure(
+      "workcase/adjustment_already_pending",
+      "已存在一条**待批**的增量申请：同一时刻至多一条待批（否则 Human 面对的是一串互不知情的待办，"
+      + "而「待批」这一判据也不再唯一）。先由 Human 对既有那条作出决定（21 §14）。",
+    );
+  }
+  if (existing.length >= GATE1_AMENDMENTS_MAX) {
+    return failure("workcase/adjustment_entries_exhausted", `gate_1.amendments 已达上限 ${GATE1_AMENDMENTS_MAX} 条（21 §8）：本对象需要一次决定（重批或关闭），而不是无限续申请`);
+  }
+
+  const next = structuredClone(fm);
+  const entry = { requested_at: new Date().toISOString(), items, rationale };
+  if (Array.isArray(scopeAdditions) && scopeAdditions.length > 0) entry.scope_additions = scopeAdditions;
+  next.gate_1 = { ...gate1, amendments: [...existing, entry] };
+  appendChangeLog(
+    next, sig,
+    (typeof changeSummary === "string" && changeSummary.length > 0 ? changeSummary : "登记一条增量审批申请（待批）")
+      + ` [adjustment requested; amendments: ${existing.length + 1}; pending]`,
+  );
+  const body = assembleBody(next.title, current.value.body.replace(/^#\s+.*\n+/, ""));
+  const written = await writeValidated(factSourceRoot, next, body, fm, current.value.body);
+  if (!written.ok) return written;
+  return success({ ...written.value, adjustment_pending: true });
+}
+
+/**
+ * 「增量审批」的**决定**通道：Human 对待批申请作出批准或拒绝。
+ *
+ * **批准**的落盘效果（21 §14）：把申请项**追加进 `plan`**（调用方须同时给出
+ * `bodyMarkdownAfter`，使新步骤同步出现在正文「## 计划」节——载体内聚，§16 机械校验）、
+ * 应用 `scope_additions`（若有）、**重算 `authorization_fingerprint`** 并写回 `gate_1`，
+ * 同时在该 amendment 的 `decision` 上留下决定与**新的指纹**。
+ *
+ * **不重置对象**：`attempt` 与 `reviews` 一概不动（这正是本通道与「局部重批」的根本差别）。
+ * **拒绝**只落 `decision`，不动 `plan`／`scope`；该事项的归宿按 §8 丁档处理（关闭时落去向）。
+ *
+ * `decision.at` 由 Code 盖戳；`by` 由调用方提供（决定者身份，同 `gate_1.approver` 的形态）。
+ */
+export async function decideWorkcaseAdjustment(args) {
+  const { factSourceRoot, objectUid, expectedFingerprint, decision, by, bodyMarkdownAfter = null, changeSummary = null, sessionSignature = null } = args;
+  const sig = requireAuthoritativeSignature(sessionSignature);
+  if (!sig.ok) return failure(sig.code, sig.message);
+  if (decision !== "approved" && decision !== "rejected") {
+    return failure("invalid_request", 'decision must be "approved" | "rejected" (21 §14)');
+  }
+  if (typeof by !== "string" || by.trim().length === 0) {
+    return failure("invalid_request", "by is required: the deciding Human identity (同 gate_1.approver 的形态，21 §14)");
+  }
+  const current = await loadAndCheckFingerprint(factSourceRoot, objectUid, expectedFingerprint);
+  if (!current.ok) return current;
+  const fm = current.value.frontmatter;
+  if (fm.status !== "open") {
+    return failure("workcase/transition_invalid", `增量审批的决定要求 status=open，got ${JSON.stringify(fm.status)} (21 §14)`);
+  }
+  const gate1 = isPlainObject(fm.gate_1) ? fm.gate_1 : null;
+  const amendments = gate1 && Array.isArray(gate1.amendments) ? gate1.amendments : [];
+  const pendingIndex = amendments.findIndex((a) => isPlainObject(a) && a.decision === undefined);
+  if (gate1 === null || pendingIndex < 0) {
+    return failure("workcase/no_pending_adjustment", "没有待批的增量申请可供决定（21 §14）");
+  }
+  const pending = amendments[pendingIndex];
+  const now = new Date().toISOString();
+
+  if (decision === "rejected") {
+    const next = structuredClone(fm);
+    const nextAmendments = structuredClone(amendments);
+    nextAmendments[pendingIndex] = { ...nextAmendments[pendingIndex], decision: { kind: "rejected", by, at: now } };
+    next.gate_1 = { ...gate1, amendments: nextAmendments };
+    appendChangeLog(
+      next, sig,
+      (typeof changeSummary === "string" && changeSummary.length > 0 ? changeSummary : "增量审批：Human 拒绝该申请")
+        + ` [adjustment rejected by ${by}; plan/scope unchanged]`,
+    );
+    const body = assembleBody(next.title, current.value.body.replace(/^#\s+.*\n+/, ""));
+    const written = await writeValidated(factSourceRoot, next, body, fm, current.value.body);
+    if (!written.ok) return written;
+    return success({ ...written.value, adjustment_decision: "rejected" });
+  }
+
+  // ---- 批准 ----
+  if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.trim().length === 0) {
+    return failure(
+      "invalid_request",
+      "批准必须同时给出 bodyMarkdownAfter：新增的 plan 步骤须同步出现在正文「## 计划」节（载体内聚，21 §16 机械校验）——只改字段会让字段与正文不一致，写入会被拒",
+    );
+  }
+  const next = structuredClone(fm);
+  next.plan = [...(Array.isArray(fm.plan) ? fm.plan : []), ...pending.items.map((it) => ({ step: it.step, done_criteria: it.done_criteria }))];
+  if (Array.isArray(pending.scope_additions) && pending.scope_additions.length > 0) {
+    const sep = typeof fm.scope === "string" && fm.scope.trim().length > 0 ? "\n" : "";
+    next.scope = `${fm.scope ?? ""}${sep}${pending.scope_additions.join("\n")}`;
+  }
+  const resultFingerprint = computeAuthorizationFingerprint(next.plan, next.scope);
+  const nextAmendments = structuredClone(amendments);
+  nextAmendments[pendingIndex] = {
+    ...nextAmendments[pendingIndex],
+    decision: { kind: "approved", by, at: now, resulting_fingerprint: resultFingerprint },
+  };
+  next.gate_1 = { ...gate1, amendments: nextAmendments, authorization_fingerprint: resultFingerprint };
+  appendChangeLog(
+    next, sig,
+    (typeof changeSummary === "string" && changeSummary.length > 0 ? changeSummary : "增量审批：Human 批准，追加计划步骤并重算授权指纹")
+      + ` [adjustment approved by ${by}; plan +${pending.items.length}; authorization_fingerprint recomputed; attempt/reviews preserved]`,
+  );
+  const written = await writeValidated(factSourceRoot, next, bodyMarkdownAfter, fm, current.value.body);
+  if (!written.ok) return written;
+  return success({ ...written.value, adjustment_decision: "approved", authorization_fingerprint: resultFingerprint });
 }
 
 // ---------------------------------------------------------------------------
