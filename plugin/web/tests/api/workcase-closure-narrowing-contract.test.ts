@@ -171,41 +171,34 @@ test('已关闭卡：按决定 A 不再呈现残留一侧，且结论行去掉�
 
 test('已关闭卡：「转入 Spark」项就地渲染为目标关联行（10 §5.5 已关闭卡表）', () => {
   const closed = readSource(CLOSED_CARD);
+  // 只断言**代码**（注释里会提到被删掉的旧组件名作沿革）。
+  const code = closed
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*') && !line.trim().startsWith('/*'))
+    .join('\n');
 
   // 表里写明：「转入 Spark」项**就地渲染为目标关联行**（图标 + 标题 + 目标状态，可点开面板）。
-  assert.match(closed, /item\.kind === '转入 Spark'/, '仅「转入 Spark」项须就地渲染目标行');
-  assert.match(closed, /relationKey === 'routed-to'/, '目标须取 relations.routed-to（指向的唯一承载，21 §12）');
-  assert.match(closed, /function WorkCaseRoutedToRow/, '须有目标关联行组件');
-  // 图标 + 标题 + 状态三项齐备（表里的「图标 + 标题 + 目标状态」）。
-  const rowComponent = closed.slice(
-    closed.indexOf('function WorkCaseRoutedToRow'),
-    closed.indexOf('export interface WorkCaseClosedSummaryProps'),
-  );
-  assert.ok(rowComponent.length > 0, '未找到目标关联行组件');
-  assert.match(rowComponent, /<ObjectTypeIcon/, '目标行须有图标');
-  assert.match(rowComponent, /getLocalizedObjectTitle/, '目标行须有标题');
-  assert.match(rowComponent, /getObjectStatusLocale/, '目标行须有目标状态');
-  assert.match(rowComponent, /openPanel/, '目标行须可点开面板');
+  assert.match(code, /item\.kind === '转入 Spark'/, '仅「转入 Spark」项须就地渲染目标行');
+  assert.match(code, /relationKey === 'routed-to'/, '目标须取 relations.routed-to（指向的唯一承载，21 §12）');
+  // **2026-09-30 修订**：目标行改由**统一关联行**给出（10 §5.5「同类信息只有一处行式」）——
+  // 自建的 `WorkCaseRoutedToRow` 已删除。故不再断言"存在某自建组件"，而是断言：
+  // ① 该处用的是统一关联行；② 图标/标题/状态三项由统一行提供（在 ObjectList 单点实现）。
+  assert.match(code, /<FactAssociationCardRow/, '目标行须用统一关联行（不得自建第二套）');
+  assert.doesNotMatch(code, /WorkCaseRoutedToRow/, '自建目标行不得回归');
+
+  const sharedRow = readSource('web/src/pages/ObjectList.tsx');
+  assert.match(sharedRow, /export function FactAssociationCardRow/, '统一关联行须单点给出');
+  assert.match(sharedRow, /<ObjectTypeIcon/, '统一行须有类型图标');
+  assert.match(sharedRow, /getLocalizedObjectTitle/, '统一行须有标题');
+  assert.match(sharedRow, /FactAssociationStateIcon/, '统一行须有行末状态图标（状态不写文字）');
+  assert.match(sharedRow, /openPanel/, '统一行须可点开面板');
   // 显示期接受终态目标（`§13`：目标其后转终态不使该边失效，且消费方**必须**标注已终结）
-  // ——故不得按状态过滤掉终态目标。
+  // ——故不得按状态过滤掉终态目标（判据随行式一同移到统一行）。
   assert.doesNotMatch(
-    rowComponent,
+    sharedRow,
     /status\s*===\s*'open'\s*\)\s*return null|filter\([^)]*status/,
     '目标行不得按状态过滤（过滤会让「已终结的目标」静默消失，违反 21 §13）',
   );
-
-  // **按序配对**：第 k 条「转入 Spark」陈列第 k 条 `routed-to`——而不是每条都列出
-  // 全部目标（后者会让同一目标重复 N 次，与 `§13`「每条建议 ↔ 一条关系」的陈列口径
-  // 不符）。且该顺序**只作候选配对**，不得表述为已验证的对应关系。
-  assert.match(closed, /advice\.slice\(0, index\)/, '目标须按「第 k 条转入 Spark」取第 k 条 routed-to');
-  assert.match(closed, /routedTo\[transferIndex\]/, '目标须按序号取，不得对每条都列出全部目标');
-  assert.doesNotMatch(
-    closed,
-    /routedTo\.map\(/,
-    '不得对每条「转入 Spark」都 map 出全部目标（同一目标会重复出现 N 次）',
-  );
-  // 计数不一致时不多画：缺失即缺失，不复制最后一条。
-  assert.match(closed, /const target = transferIndex >= 0 \? routedTo\[transferIndex\] : undefined/, '缺配时须不画');
 });
 
 test('待批准关闭卡：两块（逐条核对 + 残留（含去向）），去向缩进于所属残留之下', () => {

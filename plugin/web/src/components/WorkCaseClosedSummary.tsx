@@ -1,12 +1,9 @@
 import { useState } from 'react';
 import { useI18n } from '@/i18n/context';
 import type { LocaleKey } from '@/i18n/locales';
-import { getLocalizedObjectTitle, getObjectStatusLocale } from '@/i18n/locales';
-import type { FactCardAssociation, ObjectItem } from '@/utils/api';
+import type { ObjectItem } from '@/utils/api';
 import { stripCardMarkdown } from '@/utils/cardText';
 import { FactAssociationCardRow, refSourceToAssociation } from '@/pages/ObjectList';
-import { usePanel } from '@/utils/panelContext';
-import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import {
   WORKCASE_CHECK_TAG_BASE,
   WORKCASE_COLLAPSED_RESIDUAL,
@@ -89,51 +86,6 @@ const CANCEL_TAG_CLASS =
  * uses neutral association language: a source declaring a reference is not
  * evidence that the closed WorkCase advice was carried out.
  */
-function WorkCaseRoutedToRow({
-  association,
-  locale,
-}: {
-  association: FactCardAssociation;
-  locale: string;
-}) {
-  const { t } = useI18n();
-  const { openPanel } = usePanel();
-  const target = association.resolvedTarget;
-  const title = association.available
-    ? getLocalizedObjectTitle(association, locale)
-    : t('objectList.workcaseRoutedToUnavailable');
-  const canOpen = Boolean(association.available && target);
-  const open = () => {
-    if (!canOpen || !target) return;
-    openPanel({ type: 'object', title, objectType: target.factTypeKey, objectId: target.objectId });
-  };
-  const statusLabel = association.status && target
-    ? getObjectStatusLocale(target.factTypeKey, association.status, locale)
-    : null;
-
-  return (
-    <div
-      data-workcase-routed-to={target?.objectId ?? 'unavailable'}
-      role={canOpen ? 'button' : undefined}
-      tabIndex={canOpen ? 0 : -1}
-      onClick={open}
-      onKeyDown={(event) => {
-        if (!canOpen || (event.key !== 'Enter' && event.key !== ' ')) return;
-        event.preventDefault();
-        open();
-      }}
-      className={`flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${canOpen ? 'cursor-pointer hover:bg-ldvh-border/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50' : 'cursor-default'}`}
-    >
-      {/* 图标 + 标题 + 目标状态（表里的三项）。颜色只在图标上，与列表卡关联行同纪律。 */}
-      <ObjectTypeIcon type={target?.factTypeKey} size={12} className="shrink-0" />
-      <span className={`ldvh-meta-primary min-w-0 break-words ${canOpen ? 'text-ldvh-text-secondary hover:text-ldvh-accent' : 'text-ldvh-text-secondary'}`}>
-        {title}
-      </span>
-      {statusLabel && <span className="ldvh-meta-muted shrink-0">{statusLabel}</span>}
-    </div>
-  );
-}
-
 export interface WorkCaseClosedSummaryProps {
   obj: ObjectItem;
   className?: string;
@@ -297,7 +249,14 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
                 <span>{stripCardMarkdown(item.text)}</span>
                 {target && (
                   <div className="mt-0.5 grid min-w-0 gap-0.5">
-                    <WorkCaseRoutedToRow association={target} locale={locale} />
+                    // 行式由**统一关联行**给出（10 §5.5：同类信息只有一处行式）——
+                    // 此前本组件自建 WorkCaseRoutedToRow（图标 12px、无类型色、状态写成
+                    // 文字），与统一行（图标 13px、类型色、行末状态图标）不一致。
+                    <FactAssociationCardRow
+                      association={target}
+                      locale={locale}
+                      unavailableLabel={t('objectList.workcaseRoutedToUnavailable')}
+                    />
                   </div>
                 )}
               </div>
