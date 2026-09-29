@@ -306,11 +306,17 @@ test('criteria check state never reaches the UI as a bare boolean', () => {
     'web/src/components/WorkCaseClosedSummary.tsx',
     'web/src/components/WorkCaseResultDraft.tsx',
   ] as const;
-  // 实际渲染判据状态的三个面：它们必须引用共享模块的导出。
-  // `ObjectList.tsx` 不在其列——closed 分支的判据渲染已下沉到
-  // `WorkCaseClosedSummary`，页面本身不再直接拼判据文本（故对它只断言「不插值布尔」
-  // 与「不自造词条」两条负向不变量，不断言引用）。
-  const renderingSurfaces = surfaces.filter((s) => !s.endsWith('ObjectList.tsx'));
+  // 实际渲染判据状态的面：它们必须引用共享模块的导出。
+  //
+  // **2026-09-30 修订**：「已关闭」卡的「逐条核对」块已按 Human 裁定整块去掉
+  // （10 §5.5 的块表由两块改一块），故 `WorkCaseClosedSummary` **不再是判据状态的
+  // 渲染面**——它仍留在 `surfaces` 里受两条**负向**不变量约束（不插值布尔、不自造
+  // 词条），但不再要求它消费三态映射（无渲染即无消费）。
+  // 去掉的只是卡面呈现；核对结果与证据仍完整在语义详情，故三态映射本身仍被
+  // `WorkCaseResultDraft`（待批准关闭期）与收件箱消费。
+  const renderingSurfaces = surfaces.filter(
+    (s) => !s.endsWith('ObjectList.tsx') && !s.endsWith('WorkCaseClosedSummary.tsx'),
+  );
   const stateModule = readSource('web/src/utils/workcaseCheckState.ts');
 
   // 10 §12.8：状态须有可读文本与可区分形态。列表卡与收件箱此前把布尔插值进

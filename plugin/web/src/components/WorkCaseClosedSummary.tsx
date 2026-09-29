@@ -2,36 +2,38 @@ import { useState } from 'react';
 import { useI18n } from '@/i18n/context';
 import type { LocaleKey } from '@/i18n/locales';
 import { getLocalizedObjectTitle, getObjectStatusLocale, getTypeLabel } from '@/i18n/locales';
-import type { FactCardAssociation, FactRefSource, ObjectItem, WorkCasePlanStep, WorkCaseResultCheck } from '@/utils/api';
+import type { FactCardAssociation, FactRefSource, ObjectItem } from '@/utils/api';
 import { stripCardMarkdown } from '@/utils/cardText';
 import { usePanel } from '@/utils/panelContext';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import {
   WORKCASE_CHECK_TAG_BASE,
-  WORKCASE_CHECK_TAG_CLASS,
   WORKCASE_COLLAPSED_RESIDUAL,
   WORKCASE_RESIDUAL_BLOCK_CLASS,
   WORKCASE_RESIDUAL_ROW_CLASS,
   WORKCASE_ITEM_ROW_CLASS,
   WORKCASE_RESIDUAL_TAG_CLASS,
   workCaseAdviceTagClass,
-  workCaseCheckLabelFor,
   workCaseDirectionRows,
-  workCaseResultCheckRows,
 } from '@/utils/workcaseCheckState';
 
 /**
  * WorkCase「已关闭」卡主体（Human 2026-09-24 定，方案 A；2026-09-28 二次修订）。
  *
- * 呈现**三块**，均**无标题栏**（与「待批准关闭」同一形态纪律）：
- * 1. **结论行**——`outcome` 徽标 + 核对达成计数（`核对 N/M 达成`），压成一行。
- *    此前 `outcome` 是一个孤立 chip、核对是另一串「已满足」行，读者要自己数才能把
- *    两者对上。
- * 2. **逐条核对**——`[达成／未达成／未记录] plan[N].step`。与「待批准关闭」卡同一
- *    形态：**只给标题，证据不上卡**。此前显示的是「已满足 · <整段证据>」，实测最长
- *    258 字，一张卡被撑到十几行，扫读窗口失效（10 §5.2）。证据归详情面（10 §5.3）。
- * 3. **去向**——逐条去向（去向标记 + 正文）；「转入 Spark」项**就地渲染为目标关联行**
+ * 呈现**一块**（另有一块按条件出现），均**无标题栏**（与「待批准关闭」同一形态纪律）：
+ * 1. **去向**——逐条去向（去向标记 + 正文）；「转入 Spark」项**就地渲染为目标关联行**
  *    （图标 + 标题 + 目标状态，可点开面板），指向由 `relations.routed-to`。
+ * 2. **取消记录**（仅 `outcome = cancelled`）——理由 + 未发生的范围（取消对象没有
+ *    核对结论可报，故以本块取代）。
+ *
+ * **已被 Human 裁定去掉的两块**（沿革如实保留，避免后人以为"漏了"）：
+ * - **结论行**（2026-09-29 去掉）：`outcome` 徽标 + `核对 N/M 达成`。其 `outcome` 现由
+ *   **卡头**承载（10 §5.5「卡头的 `outcome` 徽标」，2026-09-30：放卡头、不做展开）；
+ *   核对计数不再单列。
+ * - **逐条核对**（2026-09-30 去掉）：原为 `[达成／未达成／未记录] plan[N].step` 四行。
+ *   去掉的理由：**计划步骤名与「计划」重复、状态已由卡头 `outcome` 徽标与去向块表达**，
+ *   读者无须在关闭卡上再数一遍。核对结果与证据仍完整呈现在**语义详情**（10 §5.3）——
+ *   去掉的是同一批信息的**第二次呈现**，**不等于核对未发生**。
  *
  * **按决定 A 不再呈现残留**（`10 §5.5`，Human 裁定 2026-09-28）：去向不再是独立的一段，
  * 而是**长在每条残留里面**（`21 §8` 合并式）——「还剩什么」与「打算怎么办」是同一个
@@ -204,10 +206,6 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
   const { t, locale } = useI18n();
   const [expanded, setExpanded] = useState(false);
 
-  const steps: WorkCasePlanStep[] = Array.isArray(obj.plan) ? obj.plan : [];
-  const checks: WorkCaseResultCheck[] = Array.isArray(obj.result?.criteria_checks)
-    ? obj.result.criteria_checks
-    : [];
   const residual = Array.isArray(obj.result?.residual) ? obj.result.residual : [];
   const cancellation = obj.cancellation ?? null;
   // 去向（`21 §8` 残留段的**去向子项**）：与「待批准关闭」期**同一处承载**（正文，关闭
@@ -237,7 +235,6 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
 
   if (
     cancellation === null &&
-    checks.length === 0 &&
     residual.length === 0 &&
     advice.length === 0 &&
     refSources.length === 0
@@ -245,7 +242,6 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
     return null;
   }
 
-  const achieved = checks.filter((c) => c.satisfied === true).length;
   const hidden = Math.max(0, residual.length - WORKCASE_COLLAPSED_RESIDUAL);
   const visibleResidual = expanded ? residual : residual.slice(0, WORKCASE_COLLAPSED_RESIDUAL);
 
@@ -276,23 +272,11 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
         </div>
       )}
 
-      {/* ② 逐条核对：只给标题（证据归详情） */}
-      {cancellation === null && checks.length > 0 && (
-        <div className="min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/45 px-2.5 py-2">
-          {workCaseResultCheckRows(checks, steps).map((row) => (
-            <div
-              key={row.planIndex}
-              data-workcase-check-status={row.state}
-              className={WORKCASE_ITEM_ROW_CLASS}
-            >
-              <span className={`${WORKCASE_CHECK_TAG_BASE} ${WORKCASE_CHECK_TAG_CLASS[row.state]}`}>
-                {workCaseCheckLabelFor(row.state, t)}
-              </span>
-              <span>{row.title}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* ②（原「逐条核对」块已于 2026-09-30 删除）
+          该块原为 `[达成／未达成／未记录] plan[N].step` 四行；Human 裁定去掉整块：
+          计划步骤名与「计划」重复、状态由**卡头 outcome 徽标**与**去向块**表达，读者
+          无须在关闭卡上再数一遍。核对结果与证据仍完整呈现在**语义详情**（10 §5.3）；
+          去掉的是同一批信息的**第二次呈现**，不等于核对未发生。 */}
 
       {/* ② 残留——**条件豁免成立时保留**（`10 §5.5`「条件豁免」/`21 §15.3`）。
           决定 A 规定关闭后只呈现去向，但 A 以「该对象每条残留都带有去向子项」为前提；

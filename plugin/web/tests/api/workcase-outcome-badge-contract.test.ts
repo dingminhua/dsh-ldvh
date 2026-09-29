@@ -63,3 +63,17 @@ test('卡体不得再出现 outcome 元素（结论行不得回归）', () => {
   const closedCard = read('src/components/WorkCaseClosedSummary.tsx');
   assert.doesNotMatch(closedCard, /data-workcase-outcome|data-workcase-check-tally/);
 });
+
+test('已关闭卡不再呈现「逐条核对」块（10 §5.5，Human 裁定 2026-09-30）', () => {
+  // 该块原为 `[达成／未达成／未记录] plan[N].step` 四行；去掉的理由是**计划步骤名与
+  // 「计划」重复、状态已由卡头 outcome 徽标与去向块表达**。核对结果与证据仍在语义详情。
+  // 本条钉住「不得回归」——若有人把该块加回，此例即变红。
+  const closedCard = read('src/components/WorkCaseClosedSummary.tsx');
+  const code = closedCard
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*') && !line.trim().startsWith('/*'))
+    .join('\n');
+  assert.doesNotMatch(code, /data-workcase-check-status/, '逐条核对块不得回归（其渲染锚点须不存在）');
+  assert.doesNotMatch(code, /workCaseResultCheckRows/, '不得再消费核对行渲染器');
+  assert.doesNotMatch(code, /criteria_checks/, '不得再读取 criteria_checks 用于卡面渲染');
+});
