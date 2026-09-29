@@ -473,7 +473,59 @@ function projectWorkCaseGate1(value: unknown): Record<string, unknown> | null {
       ? { authorization_fingerprint: gate.authorization_fingerprint }
       : {}),
     ...(typeof gate.scope_snapshot === 'string' ? { scope_snapshot: gate.scope_snapshot } : {}),
+    // 21 §8/§14 增量授权的流水（`gate_1.amendments`）。
+    //
+    // **为什么必须投影**（2026-09-30）：呈现层要按「末项无 `decision`」判"待批"
+    // （10 §5.5）。此前白名单只列 gate_1 的四个字段——`amendments` 被**静默丢弃**，
+    // 于是 writer 侧已能机械判出的「待批」，呈现层根本收不到（画了也没有数据）。
+    // 这与本文件上方几处已登记的缺陷同形：**白名单与字段登记是两处权威**，
+    // 新增字段时后者更新而前者漏掉，后果是静默丢弃而不是报错。
+    //
+    // 两个时间字段（申请的 `requested_at`、决定的 `decision.at`）经 js-yaml 解析后
+    // 可能是 `Date`，与 `approved_at` 同处理：统一归一到 RFC 3339 文本，避免同一
+    // 字段在 open / closed 两条路径上出现两种运行期形态。
+    ...(Array.isArray(gate.amendments) ? { amendments: projectWorkCaseAmendments(gate.amendments) } : {}),
   }
+}
+
+/** `gate_1.amendments` 逐条投影（时间字段归一到 RFC 3339 文本；缺字段即省略）。 */
+function projectWorkCaseAmendments(value: unknown[]): Record<string, unknown>[] {
+  return value
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
+    .map((entry) => {
+      const requestedAt = toRfc3339Text(entry.requested_at)
+      const items = Array.isArray(entry.items)
+        ? entry.items
+            .filter((it): it is Record<string, unknown> => Boolean(it) && typeof it === 'object' && !Array.isArray(it))
+            .map((it) => ({
+              ...(typeof it.step === 'string' ? { step: it.step } : {}),
+              ...(typeof it.done_criteria === 'string' ? { done_criteria: it.done_criteria } : {}),
+            }))
+        : []
+      const decision = entry.decision && typeof entry.decision === 'object' && !Array.isArray(entry.decision)
+        ? (entry.decision as Record<string, unknown>)
+        : null
+      const decidedAt = decision ? toRfc3339Text(decision.at) : undefined
+      return {
+        ...(requestedAt !== undefined ? { requested_at: requestedAt } : {}),
+        items,
+        ...(typeof entry.rationale === 'string' ? { rationale: entry.rationale } : {}),
+        ...(decision === null
+          ? {}
+          : {
+              decision: {
+                ...(typeof decision.kind === 'string' ? { kind: decision.kind } : {}),
+                ...(typeof decision.by === 'string' ? { by: decision.by } : {}),
+                ...(decidedAt !== undefined ? { at: decidedAt } : {}),
+                ...(typeof decision.resulting_fingerprint === 'string'
+                  ? { resulting_fingerprint: decision.resulting_fingerprint }
+                  : {}),
+                ...(typeof decision.session_id === 'string' ? { session_id: decision.session_id } : {}),
+                ...(typeof decision.session_source === 'string' ? { session_source: decision.session_source } : {}),
+              },
+            }),
+      }
+    })
 }
 
 /**

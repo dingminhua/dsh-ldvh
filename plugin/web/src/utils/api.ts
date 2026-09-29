@@ -338,6 +338,22 @@ export interface WorkCaseAttempt {
   session_source?: string;
 }
 
+/** 「增量审批」流水的一条（21 §8/§14）：申请（items + rationale）＋可选的决定。 */
+export interface WorkCaseAmendment {
+  requested_at?: string;
+  items: { step?: string; done_criteria?: string }[];
+  rationale?: string;
+  decision?: {
+    kind?: 'approved' | 'rejected';
+    by?: string;
+    at?: string;
+    resulting_fingerprint?: string;
+    /** Code 盖戳的决定者会话身份（`by` 是自报，可核痕迹在这里；身份不可得时缺席）。 */
+    session_id?: string;
+    session_source?: string;
+  };
+}
+
 export interface WorkCaseGate1 {
   approved_at?: string;
   approver?: string;
@@ -345,6 +361,11 @@ export interface WorkCaseGate1 {
   authorization_fingerprint?: string;
   /** 21 §8/§10.3 授权时的范围快照——越权拒绝的比对基准。 */
   scope_snapshot?: string;
+  /**
+   * 21 §8/§14 增量授权流水。
+   * **待批的判据＝末项无 `decision`**（10 §5.5）——呈现层据此判「有增量待批」。
+   */
+  amendments?: WorkCaseAmendment[];
 }
 
 /** Exact-detail fields from the single current WorkCase contract (21 §8 三态直读). */
