@@ -2823,6 +2823,32 @@ export async function closeWorkcaseObject(args) {
     );
   }
 
+  // Gate 2 前置条件之三（21 §14 增量审批，Human 裁定 2026-09-30）：
+  // **存在待批的增量申请时不得关闭**。
+  //
+  // 为什么要这道闸：丙档（阻断型）允许"先做、后追认"，其风险不在"先做"，而在
+  // **"先做的那件事还没被追认，工单就关掉了"**——未获追认的工作会静默变成"已完成"。
+  // 有了这道闸，增量处置**不可能绕过 Human 决定而离开对象**：要么追认，要么被拒后
+  // 落去向（§8 丁档）。
+  //
+  // 判据与呈现层同源：`gate_1.amendments` 的**末项无 `decision`** 即待批（10 §5.5）。
+  // 不得以正文自述或"口头已同意"替代。
+  const closeGateAmendments = isPlainObject(fm.gate_1) && Array.isArray(fm.gate_1.amendments)
+    ? fm.gate_1.amendments
+    : [];
+  const pendingAmendmentIndex = closeGateAmendments.findIndex((a) => isPlainObject(a) && a.decision === undefined);
+  if (pendingAmendmentIndex >= 0) {
+    const pending = closeGateAmendments[pendingAmendmentIndex];
+    const itemCount = Array.isArray(pending.items) ? pending.items.length : 0;
+    return failure(
+      "workcase/adjustment_pending",
+      `Gate 2 closure refused: 存在**待批**的增量申请（第 ${pendingAmendmentIndex + 1} 项，${itemCount} 条事项）——`
+      + "不得带着未获决定的增量关闭（21 §14 增量审批，Human 裁定 2026-09-30）。"
+      + "先由 Human 对该申请作出决定（ldvh_workcase_write action=decide_adjustment，须给 human_authorization），"
+      + "或将其事项按 §8 丁档落成残留去向；不得以正文自述替代。",
+    );
+  }
+
   // Gate 2 前置条件之二（21 §14，Human 裁定 2026-09-19 / workcase-2be11478）：
   // 至少一条 reviews 必须由**独立于实施者的会话**记录，低风险工单不豁免。
   //

@@ -46,7 +46,7 @@ test('markWorkCaseFlow：决定标记优先于「修订」，且不影响复核�
     { at: '2026-09-30T03:00:00.000Z', summary: '增量审批：Human 拒绝 [adjustment rejected by H; plan/scope unchanged]' },
     { at: '2026-09-30T04:00:00.000Z', summary: '执行记录' },
   ];
-  const marks = markWorkCaseFlow([{ at: '2026-09-30T01:00:00.000Z', summary: '记录一条复核结论' }], entries, undefined);
+  const marks = markWorkCaseFlow([{ at: '2026-09-30T01:00:00.000Z', summary: '记录一条复核结论' }], entries, null);
   assert.equal(marks[0], 'review');
   assert.equal(marks[1], 'adjustment-approved', '决定标记不得被"复核之后即修订"吞掉');
   assert.equal(marks[2], 'adjustment-rejected');

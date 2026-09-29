@@ -259,42 +259,10 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
 
   return (
     <div className={`${className} grid min-w-0 gap-1.5`.trim()}>
-      {/* ① 结论行 */}
-      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 ldvh-caption">
-        {obj.outcome && (
-          <span
-            data-workcase-outcome={obj.outcome}
-            className={`inline-block shrink-0 rounded border px-2 text-[11px] font-semibold leading-5 ${
-              OUTCOME_CLASS[obj.outcome] ?? NEUTRAL_TAG_CLASS
-            }`}
-          >
-            {t(`objectList.workcaseOutcome.${obj.outcome}` as LocaleKey)}
-          </span>
-        )}
-        {/* cancelled 无核对可报（没有执行就没有核对结论，21 §9.2）——改述为
-            「未执行任何计划步骤」，而不是显示「核对 0/0 达成」这种无信息的形式。 */}
-        {cancellation !== null ? (
-          <>
-            {obj.outcome && <span className="text-ldvh-text-secondary/50" aria-hidden="true">·</span>}
-            <span className="text-ldvh-text-primary">{t('objectList.workcaseNotExecuted')}</span>
-          </>
-        ) : (
-          checks.length > 0 && (
-            <>
-              {obj.outcome && <span className="text-ldvh-text-secondary/50" aria-hidden="true">·</span>}
-              <span
-                data-workcase-check-tally={`${achieved}/${checks.length}`}
-                className="text-ldvh-text-primary"
-              >
-                {t('objectList.workcaseCheckTally', {
-                  achieved: String(achieved),
-                  total: String(checks.length),
-                })}
-              </span>
-            </>
-          )
-        )}
-      </div>
+      {/* ①（原「结论行」块已于 2026-09-30 删除）
+          `outcome` 现由**卡头**承载（10 §5.5「卡头的 `outcome` 徽标」，Human 裁定
+          2026-09-30：放卡头、不做展开）；核对计数不单列（逐条核对块已逐步给出状态）。
+          本组件因此只余两块：逐条核对 → 去向（+ cancelled 的取消记录块）。 */}
 
       {/* ②' 取消记录（21 §8，仅 cancelled）：理由 + 未发生的范围。
           取代逐条核对块——取消对象没有核对结论可报。用中性灰，与 outcome 徽标同色系，

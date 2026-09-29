@@ -4118,3 +4118,54 @@ test("调整·授权记录：缺 human_authorization 即拒（fail-closed），�
     assert.equal(after.value.frontmatter.gate_1.amendments.at(-1).decision.kind, "approved");
   });
 });
+
+test("调整·关前闸：存在待批的增量申请时 close 一律被拒；追认之后方可关闭 (21 §14 前置条件三)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    // 前置条件一/二先满足（有独立复核），这样被拒的原因才唯一地是"待批增量申请"。
+    const { uid, after } = await reviewed(root, await approved(root));
+    await requestWorkcaseAdjustment({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      items: [{ step: "先做后追认的一步", done_criteria: "有证据" }],
+      rationale: "阻断型，先做后追认（测试）",
+      sessionSignature: SIG(),
+    });
+
+    // ① 待批 → close 必拒，拒绝码须是"待批增量申请"
+    const cur = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    const closed = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: cur.value.fingerprint,
+      outcome: "completed",
+      result: completedResult(cur.value.frontmatter.plan.length),
+      bodyMarkdownAfter: `${bodyWithoutH1(cur.value.body).replace(/\s+$/, "")}\n\n## 结果\n\n测试结果。\n`,
+      changeSummary: "尝试关闭（测试）",
+      sessionSignature: SIG(),
+    });
+    assert.equal(closed.ok, false, "待批增量存在时不得关闭");
+    assert.equal(closed.error.code, "workcase/adjustment_pending");
+
+    // ② 由 Human 追认后 → 放行
+    const decided = await decideWorkcaseAdjustment({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: (await readWorkcaseObject({ factSourceRoot: root, objectUid: uid })).value.fingerprint,
+      decision: "approved",
+      by: "human-test",
+      humanAuthorization: "Human 于 2026-09-30 追认：同意把该步并入计划（测试固定文案）",
+      bodyMarkdownAfter: bodyWithExtraStep(
+        (await readWorkcaseObject({ factSourceRoot: root, objectUid: uid })).value.body,
+        "- 先做后追认的一步：判据——有证据",
+        "追认后补记。",
+      ),
+      sessionSignature: SIG(),
+    });
+    assert.ok(decided.ok, JSON.stringify(decided.error));
+    const afterDecide = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    const lastAmendment = afterDecide.value.frontmatter.gate_1.amendments.at(-1);
+    assert.equal(lastAmendment.decision?.kind, "approved", "追认后末项必须已有决定（否则仍是待批）");
+  });
+});

@@ -154,11 +154,14 @@ test('已关闭卡：按决定 A 不再呈现残留一侧，且结论行去掉�
     '判据须读投影层的单一值，不得自行解析正文（10 §5.5：判据与卡面同源）',
   );
 
-  // ② 结论行不再出现残留计数（`10 §5.5` 已关闭卡表：结论行只有 outcome + 核对达成计数）。
+  // ② **结论行整块已删**（10 §5.5，Human 裁定 2026-09-29 去结论行 / 2026-09-30 定 outcome 归卡头）。
+  //    此前这条只断言"结论行里不再出现残留计数"——那在结论行整块删除后是**空转**
+  //    （没有该块，自然没有它的计数）。现改为断言**该块的两个锚点都不存在**：
+  //    它若被加回（无论带不带残留计数）本条即变红。
   assert.doesNotMatch(
     closed,
-    /workcaseResidualTally|workcaseResidualNone/,
-    '结论行不得再呈现「残留 K 条」/「无残留」（决定 A 的一部分）',
+    /data-workcase-outcome|data-workcase-check-tally|workcaseResidualTally|workcaseResidualNone/,
+    '结论行整块不得回归：卡面 outcome 只由卡头徽标承载（10 §5.5），核对计数不单列',
   );
 
   // ③ 去向块仍在场，且去向是平级行（用统一条目行样式）。

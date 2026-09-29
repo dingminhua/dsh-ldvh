@@ -19,6 +19,7 @@ import WorkCaseGistLine from '@/components/WorkCaseGistLine';
 import WorkCaseExecFlow from '@/components/WorkCaseExecFlow';
 import WorkCaseResultDraft from '@/components/WorkCaseResultDraft';
 import WorkCaseClosedSummary from '@/components/WorkCaseClosedSummary';
+import WorkCaseOutcomeBadge from '@/components/WorkCaseOutcomeBadge';
 import { fetchCognitionGoal, fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type ObjectItem, type ObjectStatusOption, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
 import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeDescription, getTypeLabel } from '@/i18n/locales';
@@ -264,6 +265,7 @@ export function ObjectCardFrame({
           copyLabel={t('common.copyObjectId')}
           copiedLabel={t('common.copiedObjectId')}
           compact
+          statusTrailingBadges={obj.type === 'workcase' ? <WorkCaseOutcomeBadge source={obj} /> : undefined}
         />
       </div>
       {/* Keep a neutral title tray for card hierarchy; semantic colour belongs to the icon, never the tray border. */}

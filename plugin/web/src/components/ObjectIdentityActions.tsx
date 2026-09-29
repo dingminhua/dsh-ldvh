@@ -15,6 +15,8 @@ export default function ObjectIdentityActions({
   projectId,
   target,
   statusLeadingBadges,
+  statusTrailingBadges,
+
   actionBadges,
   copyLabel,
   copiedLabel,
@@ -27,13 +29,15 @@ export default function ObjectIdentityActions({
   projectId?: string;
   target?: string;
   statusLeadingBadges?: ReactNode;
+  /** 状态徽标**之后**的徽标（10 §5.5：`outcome` 挂在状态徽标之后）。 */
+  statusTrailingBadges?: ReactNode;
   actionBadges?: ReactNode;
   copyLabel?: string;
   copiedLabel?: string;
   showCopyAction?: boolean;
   compact?: boolean;
 }) {
-  if (!statusLeadingBadges && !status && !actionBadges && !showCopyAction) return null;
+  if (!statusLeadingBadges && !statusTrailingBadges && !status && !actionBadges && !showCopyAction) return null;
 
   return (
     <div className={`flex ${compact ? 'h-[18px]' : 'h-7'} shrink-0 items-center gap-1`}>
@@ -47,6 +51,7 @@ export default function ObjectIdentityActions({
           variant={compact ? 'compact' : undefined}
         />
       )}
+      {statusTrailingBadges}
       {actionBadges}
       {(showCopyAction && (objectType === 'workcase' || objectType === 'adr' || objectType === 'pitfall' || objectType === 'spark' || objectType === 'research' || objectType === 'friction' || objectType === 'norm' || objectType === 'goal')) && (
         <ObjectReferenceCopyButton projectId={projectId} objectId={target} label={copyLabel} copiedLabel={copiedLabel} />
