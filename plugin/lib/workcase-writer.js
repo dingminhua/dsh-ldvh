@@ -661,6 +661,9 @@ function validatePlanShape(frontmatter, issues, baselinePlan = null) {
 /** `gate_1.amendments`（增量授权流水）的条数上限（21 §8）。 */
 const GATE1_AMENDMENTS_MAX = 20;
 
+/** 申请项 step/done_criteria 的单字段长度上限（21 §14；复核 F-7）。 */
+const ADJUSTMENT_ITEM_MAX_CHARS = 2000;
+
 function validateGate1(frontmatter, issues) {
   const g = frontmatter.gate_1;
   if (!isPlainObject(g)) {
@@ -2579,6 +2582,18 @@ export async function requestWorkcaseAdjustment(args) {
   if (typeof rationale !== "string" || rationale.trim().length === 0) {
     return failure("invalid_request", "rationale is required: 说明「不做它，已批的 done_criteria 就达不成」（21 §14 乙档的定义要件）");
   }
+  // 申请项的**内容下限**（2026-09-30 独立对抗复核 F-7）：此前只校验"非空字符串"，
+  // 于是与已批步骤**逐字重复**的申请也能被批准、落盘出两条全同项（`criteria_checks`
+  // 按索引对照的语义随之退化），且超长文本无上限。此处只设**可机械判定**的两条：
+  // 长度上限、与既有 plan 步骤逐字重复即拒。至于"是否恰是所需"仍属 AI/Human 判断。
+  for (const [i, it] of items.entries()) {
+    if (it.step.length > ADJUSTMENT_ITEM_MAX_CHARS || it.done_criteria.length > ADJUSTMENT_ITEM_MAX_CHARS) {
+      return failure(
+        "invalid_request",
+        `items[${i}]: step/done_criteria 超过 ${ADJUSTMENT_ITEM_MAX_CHARS} 字符——申请是"一条待批事项"，不是承载长文的字段（21 §14）`,
+      );
+    }
+  }
   const current = await loadAndCheckFingerprint(factSourceRoot, objectUid, expectedFingerprint);
   if (!current.ok) return current;
   const fm = current.value.frontmatter;
@@ -2588,6 +2603,16 @@ export async function requestWorkcaseAdjustment(args) {
   const gate1 = isPlainObject(fm.gate_1) ? fm.gate_1 : null;
   if (gate1 === null) {
     return failure("workcase/gate1_missing", "增量审批要求 gate_1 存在（它承载 amendments 流水），落盘对象无 gate_1 (21 §8)");
+  }
+  // 与**既有 plan 步骤**逐字重复的申请：批准只会落盘两条全同项，无增益（F-7）。
+  const existingSteps = new Set((Array.isArray(fm.plan) ? fm.plan : []).map((p) => `${p.step}\u0000${p.done_criteria}`));
+  for (const [i, it] of items.entries()) {
+    if (existingSteps.has(`${it.step}\u0000${it.done_criteria}`)) {
+      return failure(
+        "invalid_request",
+        "items[" + i + "]: 与既有 plan 步骤逐字重复——批准后会落盘两条全同项，criteria_checks 按索引对照的语义随之退化（21 §14）",
+      );
+    }
   }
   const existing = Array.isArray(gate1.amendments) ? gate1.amendments : [];
   if (existing.some((a) => isPlainObject(a) && a.decision === undefined)) {
@@ -2661,6 +2686,16 @@ export async function decideWorkcaseAdjustment(args) {
   if (gate1 === null || pendingIndex < 0) {
     return failure("workcase/no_pending_adjustment", "没有待批的增量申请可供决定（21 §14）");
   }
+  // 前态与后态同口径（2026-09-30 独立对抗复核 F-6）：「待批」的判据是**末项无 `decision`**（10 §5.5）。
+  // 若待批条目不在末位（仅 out-of-band 可达），**不得**静默按"首个无 decision"处理——那会让
+  // 机械层（末位）与决定路径（findIndex）对同一对象给出相反解释。一律拒绝并报告。
+  if (pendingIndex !== amendments.length - 1) {
+    return failure(
+      "workcase/adjustment_not_last",
+      `待批条目不在末位（索引 ${pendingIndex} / 共 ${amendments.length} 条）：本类型以「末项无 decision」为待批判据（10 §5.5），`
+      + "非末位待批属形态异常，拒绝决定并报告——不得静默按「首个无 decision」处理。",
+    );
+  }
   const pending = amendments[pendingIndex];
   const now = new Date().toISOString();
 
@@ -2683,7 +2718,7 @@ export async function decideWorkcaseAdjustment(args) {
     const body = assembleBody(next.title, current.value.body.replace(/^#\s+.*\n+/, ""));
     const written = await writeValidated(factSourceRoot, next, body, fm, current.value.body);
     if (!written.ok) return written;
-    return success({ ...written.value, adjustment_decision: "rejected" });
+    return success({ ...written.value, adjustment_decision: "rejected", decider_identity: deciderIdentity === null ? "unavailable" : deciderIdentity.sessionId });
   }
 
   // ---- 批准 ----
@@ -2714,7 +2749,14 @@ export async function decideWorkcaseAdjustment(args) {
   const body = assembleBody(next.title, bodyMarkdownAfter.replace(/^#\s+.*\n+/, ""));
   const written = await writeValidated(factSourceRoot, next, body, fm, current.value.body);
   if (!written.ok) return written;
-  return success({ ...written.value, adjustment_decision: "approved", authorization_fingerprint: resultFingerprint });
+  return success({
+    ...written.value,
+    adjustment_decision: "approved",
+    authorization_fingerprint: resultFingerprint,
+    // F-4：身份不可得时**显式**报出（而不是静默省略）——调用方与后续读者据此知道
+    // "这一条决定没有可核的决定者会话痕迹"。
+    decider_identity: deciderIdentity === null ? "unavailable" : deciderIdentity.sessionId,
+  });
 }
 
 // ---------------------------------------------------------------------------

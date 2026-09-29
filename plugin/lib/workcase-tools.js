@@ -940,7 +940,7 @@ function parameterSchemaFor(operationKey) {
     },
     rationale: { type: "string", description: "request_adjustment: 为什么必需——须回答「不做它，已批的 done_criteria 就达不成」（21 §14 乙档的定义要件）" },
     adjustment_decision: { type: "string", enum: ["approved", "rejected"], description: "decide_adjustment: Human 对该申请的判定（21 §14）。批准须同时给出 body_markdown_after（**不含 H1**，与 execute/close 同形）；新步骤须出现在正文「## 计划」节（载体内聚）" },
-    by: { type: "string", description: "decide_adjustment: 作出决定的人（同 gate_1.approver 的形态，21 §14）。**注意：`by` 是自报文本**——「谁批的」的可核痕迹来自 Code 托管的决定者会话身份（自动盖戳进 decision.session_id），规范已如实声明该边界" },
+    by: { type: "string", description: "decide_adjustment: 作出决定的人（同 gate_1.approver 的形态，21 §14）。**注意：`by` 是自报文本**——「谁批的」的可核痕迹来自 Code 托管的决定者会话身份（**在能取得 host 来源身份时**盖戳进 decision.session_id；取不到时该痕迹缺失，返回值的 decider_identity 会显式报 unavailable），规范已如实声明该边界" },
     summary: { type: "string", description: "record_review: the review conclusion (≤600 chars), carrying the 02 §15 seven elements (对象/基线/方法/覆盖/未覆盖/发现/保证边界). `at`, provider/model and session_id are stamped by Code — the caller supplies only this text. When reviewer_child_agent_id is given, this MUST match the subagent's captured conclusion verbatim (or be omitted to adopt it)." },
     reviewer_child_agent_id: { type: "string", description: "record_review: relay an ISOLATED SUBAGENT's review — pass its agent id (from the subagent tool). The identity and the conclusion text are then taken from the host's own subagent registry (Code-observed, not settable by the caller), so the implementer can neither forge the reviewer's identity nor substitute its own text. Omit to record YOUR OWN session's review (then your session must differ from the implementer's)." }
   };

@@ -3872,12 +3872,13 @@ test("调整·批准：正文未同步新步骤时被拒——且拒绝理由是
   });
 });
 
-test("调整·批准：正文缺 H1 与缺步骤是两种不同的拒绝（契约不对称的守卫，21 §8）", async () => {
+test("调整·批准：结构错（缺节）与载体内聚错是两种不同的拒绝", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const { uid } = await approved(root);
     await requestedAdjustment(root, uid, ADJUST_ITEM, "不做它，第一条判据达不成");
-    // 缺 H1（本入口与 execute/close 同形，正文由 assembleBody 补 H1）→ body 结构错
+    // 该正文的 H1 会先被剥掉（本入口与 execute/close 同形），实际因**缺 H2 节**而报结构错——
+    // 本用例钉的是"结构错与内聚错被区分开"，不是"H1 被处理"（2026-09-30 独立对抗复核 F-8）。
     const noH1NoStep = await decideWorkcaseAdjustment({
       factSourceRoot: root,
       objectUid: uid,
@@ -3892,16 +3893,20 @@ test("调整·批准：正文缺 H1 与缺步骤是两种不同的拒绝（契�
   });
 });
 
-test("调整·批准：旁注里出现步骤文本不能顶替步骤行（载体内聚的**已知边界**，如实钉住）", async () => {
+test("调整·批准：旁注占用步骤文本时仍可落盘——载体内聚的**已知边界**，如实钉住（21 §16 的定位是子串匹配）", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const { uid } = await approved(root);
     const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
     await requestedAdjustment(root, uid, ADJUST_ITEM, "不做它，第一条判据达不成");
-    // 载体内聚的定位是 `indexOf(item.step)`（子串匹配，非行匹配）——把步骤文本写进一条旁注即可满足定位。
-    // 这是**既有实现的边界**（非本通道引入），本用例把它**如实钉住**：若将来改为行匹配，此例会变红，
-    // 那正是它该有的行为（提醒修订规范里"逐字比对 + 按序定位"的措辞）。
-    const bodyAfter = `${before.value.body}\n- 备注：本条与「${ADJUST_ITEM[0].step}」无关，只是引用了这句话。\n\n## 执行\n\n- 说明。\n`;
+    // 把步骤文本放进**「## 计划」节内的一条旁注**（不新增独立步骤行）。
+    // 载体内聚的定位是 `indexOf(item.step)`（子串匹配）→ 定位得到满足 → 写入被接受。
+    // **这是既有实现的边界**（非本通道引入）：本用例把它钉住，使"字段有、正文没有独立步骤行"
+    // 这一事实可被回归发现——若将来改为行匹配，本例会变红，那正是它该有的行为。
+    const parts = String(before.value.body).split("## 计划");
+    const planSection = parts[1].split(/\n## /)[0];
+    const withNote = `## 计划${planSection}- 备注：本条与「${ADJUST_ITEM[0].step}」无关，只是引用了这句话。\n${parts[1].slice(planSection.length)}`;
+    const bodyAfter = (parts[0] + withNote).replace(/\n$/, "\n");
     const decided = await decideWorkcaseAdjustment({
       factSourceRoot: root,
       objectUid: uid,
@@ -3911,50 +3916,107 @@ test("调整·批准：旁注里出现步骤文本不能顶替步骤行（载体
       bodyMarkdownAfter: bodyAfter,
       sessionSignature: SIG(),
     });
-    if (decided.ok) {
-      const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
-      const planSection = String(after.value.body).split("## 计划")[1]?.split("## ")[0] ?? "";
-      const hasStepLine = planSection.split("\n").some((l) => l.trim() === `- ${ADJUST_ITEM[0].step}：判据——${ADJUST_ITEM[0].done_criteria}`);
-      assert.equal(hasStepLine, false, "本用例记录的是「旁注可绕过」这一既有边界：正文无独立步骤行却仍落盘");
-    }
+    // 断言**必然执行**（此前的写法把断言放在 if(ok) 里，写入被拒时空转——复核 F-3）。
+    assert.equal(decided.ok, true, `该旁注形态按现行子串匹配应被接受；实际：${JSON.stringify(decided.error ?? {})}`);
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    const planSectionAfter = String(after.value.body).split("## 计划")[1].split(/\n## /)[0];
+    const hasStepLine = planSectionAfter
+      .split("\n")
+      .some((l) => l.trim() === `- ${ADJUST_ITEM[0].step}：判据——${ADJUST_ITEM[0].done_criteria}`);
+    assert.equal(hasStepLine, false, "本用例记录的就是这条已知边界：正文没有独立步骤行，字段却已追加");
+    assert.equal(after.value.frontmatter.plan.at(-1).step, ADJUST_ITEM[0].step, "字段侧确实已追加（否则本用例无从谈“绕”）");
   });
 });
 
-test("调整·拒绝：只落 decision，plan/scope 与授权指纹不变 (21 §14)", async () => {
+test("调整·纪律：非末位的待批条目一律拒绝——校验器与决定路径同口径（10 §5.5 的「末项无 decision」）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid } = await approved(root);
+    const cur = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    // 手工构造 [待批, 已决定]（正常写入路径产不出该形态；此处直接落盘以钉住校验器与 decide 的口径）。
+    const fm = structuredClone(cur.value.frontmatter);
+    const entry = (decided) => ({
+      requested_at: "2026-09-30T00:00:00.000Z",
+      items: [{ step: `步骤-${decided ? "d" : "p"}`, done_criteria: "证据" }],
+      rationale: "测",
+      ...(decided ? { decision: { kind: "approved", by: "human-test", at: "2026-09-30T00:00:00.000Z", resulting_fingerprint: "x".repeat(64) } } : {}),
+    });
+    fm.gate_1.amendments = [entry(false), entry(true)];
+    const res = validateWorkcaseFrontmatter(fm);
+    const list = Array.isArray(res) ? res : (res.issues ?? []);
+    assert.ok(
+      list.some((i) => /undecided entry must be the LAST one/.test(i)),
+      `非末位待批须被校验器拒绝；实际 issues：${JSON.stringify(list)}`,
+    );
+  });
+});
+
+test("调整·身份：决定者会话身份被盖戳；身份不可得时**显式**报出（不静默）", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const { uid } = await approved(root);
     await requestedAdjustment(root, uid, ADJUST_ITEM, "不做它，第一条判据达不成");
-    const rejected = await decideWorkcaseAdjustment({
+    const cur = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    const decided = await decideWorkcaseAdjustment({
       factSourceRoot: root,
       objectUid: uid,
-      expectedFingerprint: await fingerprintOf(root, uid),
+      expectedFingerprint: cur.value.fingerprint,
+      decision: "approved",
+      by: "human-test",
+      bodyMarkdownAfter: bodyWithExtraStep(cur.value.body, `- ${ADJUST_ITEM[0].step}：判据——${ADJUST_ITEM[0].done_criteria}`, "执行。"),
+      sessionSignature: SIG(),
+      sessionIdentity: IDENTITY("session-decider-test"),
+    });
+    assert.ok(decided.ok, JSON.stringify(decided.error));
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    const d = after.value.frontmatter.gate_1.amendments.at(-1).decision;
+    assert.equal(d.session_id, "session-decider-test", "决定者会话身份须落盘（`by` 是自报，痕迹来自这里）");
+    assert.equal(d.session_source, "host");
+    assert.equal(decided.value.decider_identity, "session-decider-test");
+
+    // 身份不可得：写入仍成功，但必须**显式**报出（不得静默）
+    await requestedAdjustment(root, uid, [{ step: "第三件事", done_criteria: "证据 3" }], "第二份申请");
+    const cur2 = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    const noIdentity = await decideWorkcaseAdjustment({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: cur2.value.fingerprint,
       decision: "rejected",
       by: "human-test",
       sessionSignature: SIG(),
     });
-    assert.ok(rejected.ok, JSON.stringify(rejected.error));
-    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
-    assert.equal(after.value.frontmatter.plan.length, 2, "拒绝不得追加 plan");
-    assert.equal(after.value.frontmatter.gate_1.amendments.at(-1).decision.kind, "rejected");
+    assert.ok(noIdentity.ok, JSON.stringify(noIdentity.error));
+    assert.equal(noIdentity.value.decider_identity, "unavailable", "身份不可得须显式报出，不得静默");
+    const after2 = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(after2.value.frontmatter.gate_1.amendments.at(-1).decision.session_id, undefined);
   });
 });
 
-test("调整·纪律：同一时刻至多一条待批申请 (21 §14)", async () => {
+test("调整·内容下限：与既有 plan 步骤逐字重复的申请被拒；超长项被拒（21 §14）", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const { uid } = await approved(root);
-    await requestedAdjustment(root, uid, ADJUST_ITEM, "第一次申请");
-    const second = await requestWorkcaseAdjustment({
+    const cur = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    const dup = await requestWorkcaseAdjustment({
       factSourceRoot: root,
       objectUid: uid,
-      expectedFingerprint: await fingerprintOf(root, uid),
-      items: [{ step: "第二次申请的事项", done_criteria: "证据" }],
-      rationale: "待批中再申请",
+      expectedFingerprint: cur.value.fingerprint,
+      items: [{ step: cur.value.frontmatter.plan[0].step, done_criteria: cur.value.frontmatter.plan[0].done_criteria }],
+      rationale: "重复申请",
       sessionSignature: SIG(),
     });
-    assert.equal(second.ok, false);
-    assert.equal(second.error.code, "workcase/adjustment_already_pending");
+    assert.equal(dup.ok, false);
+    assert.equal(dup.error.code, "invalid_request");
+    const tooLong = await requestWorkcaseAdjustment({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: cur.value.fingerprint,
+      items: [{ step: "长".repeat(2001), done_criteria: "证据" }],
+      rationale: "超长申请",
+      sessionSignature: SIG(),
+    });
+    assert.equal(tooLong.ok, false);
+    assert.equal(tooLong.error.code, "invalid_request");
   });
 });
 
