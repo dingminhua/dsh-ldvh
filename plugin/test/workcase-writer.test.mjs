@@ -30,6 +30,8 @@ import {
   reviseWorkcaseObject,
   correctWorkcaseObject,
   recordWorkcaseReview,
+  requestWorkcaseAdjustment,
+  decideWorkcaseAdjustment,
   listWorkcaseObjects,
   computeAuthorizationFingerprint,
   validateWorkcaseBodyStructure,
@@ -3727,4 +3729,222 @@ test("result: plan 缺失时机械校验报告而非崩溃（回归：曾读 fro
   // 同一 frontmatter 在 plan 齐备时不应报 plan 错（证明上一条不是解析全面失效的空转）。
   const withPlan = validateWorkcaseFrontmatter({ ...fm, plan: [{ step: "一步", done_criteria: "判据" }] });
   assert.ok(!withPlan.issues.some((i) => i.includes("plan: must be a non-empty array")), JSON.stringify(withPlan.issues));
+});
+
+// ---------------------------------------------------------------------------
+// 增量审批（21 §14「增量审批」/ §8 四档的乙档；承载 = gate_1.amendments）
+//
+// 这一组钉的是**通道本身的语义**，而不是它有没有被实现：
+//   · 申请只登记待批条目 —— 不触碰 plan/scope，也不产生任何可执行权限；
+//   · 批准 —— 追加 plan、重算并写回 authorization_fingerprint，**attempt 与 reviews 不动**；
+//   · 拒绝 —— 只落 decision，plan/scope 一字不动；
+//   · 一条待批的纪律、以及"批准必须让正文同步"（载体内聚）。
+// ---------------------------------------------------------------------------
+
+/** 在已批准对象上取当前指纹，供下一次受控写作用（AVOID stale CAS）。 */
+async function fingerprintOf(root, uid) {
+  const cur = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+  return cur.value.fingerprint;
+}
+
+/**
+ * 把一条新步骤**追加到正文「## 计划」节的末尾**，并确保「## 执行」节存在。
+ *
+ * 必须是末尾：21 §16 的载体内聚按 `plan` 数组序在正文里**顺序定位**（in order），
+ * 插到中间会让后续既有步骤"落后于"新步骤而定位失败（本例即一次实测踩坑）。
+ */
+function bodyWithExtraStep(body, line, execLine) {
+  const lines = String(body).split("\n");
+  let lastPlanLine = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^- .*：判据——/.test(lines[i])) lastPlanLine = i;
+  }
+  const withStep = lastPlanLine >= 0
+    ? [...lines.slice(0, lastPlanLine + 1), line, ...lines.slice(lastPlanLine + 1)].join("\n")
+    : `${String(body)}\n${line}\n`;
+  return /^## 执行/m.test(withStep)
+    ? withStep
+    : `${withStep}\n## 执行\n\n- ${execLine}\n`;
+}
+
+async function requestedAdjustment(root, uid, items, rationale) {
+  const res = await requestWorkcaseAdjustment({
+    factSourceRoot: root,
+    objectUid: uid,
+    expectedFingerprint: await fingerprintOf(root, uid),
+    items,
+    rationale,
+    sessionSignature: SIG(),
+  });
+  assert.ok(res.ok, JSON.stringify(res.error));
+  return res;
+}
+
+const ADJUST_ITEM = [{ step: "执行中发现必需的第二步", done_criteria: "第二步有可判定证据" }];
+
+test("调整·申请：只登记待批条目——plan/scope/授权指纹一字不动，且不产生任何可执行权限 (21 §14 乙档)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid } = await approved(root);
+    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    await requestedAdjustment(root, uid, ADJUST_ITEM, "不做它，第一条判据达不成");
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+
+    assert.deepEqual(after.value.frontmatter.plan, before.value.frontmatter.plan, "申请不得动 plan");
+    assert.equal(after.value.frontmatter.scope, before.value.frontmatter.scope, "申请不得动 scope");
+    assert.equal(
+      after.value.frontmatter.gate_1.authorization_fingerprint,
+      before.value.frontmatter.gate_1.authorization_fingerprint,
+      "申请不得改授权指纹（申请不是授权）",
+    );
+    const amendments = after.value.frontmatter.gate_1.amendments;
+    assert.equal(amendments.length, 1);
+    assert.equal(amendments[0].decision, undefined, "待批 = 末项无 decision");
+    assert.equal(amendments[0].rationale, "不做它，第一条判据达不成");
+    assert.match(amendments[0].requested_at, /^\d{4}-\d{2}-\d{2}T/);
+  });
+});
+
+test("调整·批准：追加 plan + 重算并写回 authorization_fingerprint，且 attempt 与 reviews 一概不动 (21 §14)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid } = await approved(root);
+    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    const attemptBefore = JSON.stringify(before.value.frontmatter.attempt);
+    await requestedAdjustment(root, uid, ADJUST_ITEM, "不做它，第一条判据达不成");
+
+    const bodyAfter = bodyWithExtraStep(before.value.body, `- ${ADJUST_ITEM[0].step}：判据——${ADJUST_ITEM[0].done_criteria}`, "增量审批批准后执行第二步。");
+    const decided = await decideWorkcaseAdjustment({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: await fingerprintOf(root, uid),
+      decision: "approved",
+      by: "human-test",
+      bodyMarkdownAfter: bodyAfter,
+      sessionSignature: SIG(),
+    });
+    assert.ok(decided.ok, JSON.stringify(decided.error));
+
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(after.value.frontmatter.plan.length, before.value.frontmatter.plan.length + 1, "批准后 plan 应追加一条");
+    const last = after.value.frontmatter.gate_1.amendments.at(-1);
+    assert.equal(last.decision.kind, "approved");
+    assert.equal(last.decision.by, "human-test");
+    assert.equal(
+      last.decision.resulting_fingerprint,
+      computeAuthorizationFingerprint(after.value.frontmatter.plan, after.value.frontmatter.scope),
+      "decision 留痕的新指纹须与当前 plan+scope 一致",
+    );
+    assert.equal(
+      after.value.frontmatter.gate_1.authorization_fingerprint,
+      last.decision.resulting_fingerprint,
+      "批准须把重算后的指纹写回 gate_1（否则 §9.1 的 open 不变量立刻不自洽）",
+    );
+    assert.equal(JSON.stringify(after.value.frontmatter.attempt), attemptBefore, "批准不得重置 attempt（这正是与局部重批的差别）");
+    assert.equal(after.value.frontmatter.status, "open", "增量审批不改变状态");
+  });
+});
+
+test("调整·批准：正文未同步新步骤时被拒（载体内聚，21 §16）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid } = await approved(root);
+    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    await requestedAdjustment(root, uid, ADJUST_ITEM, "不做它，第一条判据达不成");
+    const decided = await decideWorkcaseAdjustment({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: await fingerprintOf(root, uid),
+      decision: "approved",
+      by: "human-test",
+      bodyMarkdownAfter: bodyWithoutH1(before.value.body), // 未把新步骤写进「## 计划」
+      sessionSignature: SIG(),
+    });
+    assert.equal(decided.ok, false, "字段与正文不同步时必须拒绝，而不是落一个字段有、正文没有的对象");
+  });
+});
+
+test("调整·拒绝：只落 decision，plan/scope 与授权指纹不变 (21 §14)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid } = await approved(root);
+    await requestedAdjustment(root, uid, ADJUST_ITEM, "不做它，第一条判据达不成");
+    const rejected = await decideWorkcaseAdjustment({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: await fingerprintOf(root, uid),
+      decision: "rejected",
+      by: "human-test",
+      sessionSignature: SIG(),
+    });
+    assert.ok(rejected.ok, JSON.stringify(rejected.error));
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(after.value.frontmatter.plan.length, 2, "拒绝不得追加 plan");
+    assert.equal(after.value.frontmatter.gate_1.amendments.at(-1).decision.kind, "rejected");
+  });
+});
+
+test("调整·纪律：同一时刻至多一条待批申请 (21 §14)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid } = await approved(root);
+    await requestedAdjustment(root, uid, ADJUST_ITEM, "第一次申请");
+    const second = await requestWorkcaseAdjustment({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: await fingerprintOf(root, uid),
+      items: [{ step: "第二次申请的事项", done_criteria: "证据" }],
+      rationale: "待批中再申请",
+      sessionSignature: SIG(),
+    });
+    assert.equal(second.ok, false);
+    assert.equal(second.error.code, "workcase/adjustment_already_pending");
+  });
+});
+
+test("调整·纪律：无待批时不得作出决定；申请要求 status=open (21 §14)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid } = await approved(root);
+    const nonePending = await decideWorkcaseAdjustment({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: await fingerprintOf(root, uid),
+      decision: "approved",
+      by: "human-test",
+      bodyMarkdownAfter: bodyWithoutH1((await readWorkcaseObject({ factSourceRoot: root, objectUid: uid })).value.body),
+      sessionSignature: SIG(),
+    });
+    assert.equal(nonePending.ok, false);
+    assert.equal(nonePending.error.code, "workcase/no_pending_adjustment");
+
+    // draft 期不得申请（增量审批是执行期通道）
+    const { created } = await createDraft(root);
+    const onDraft = await requestWorkcaseAdjustment({
+      factSourceRoot: root,
+      objectUid: created.value.object_uid,
+      expectedFingerprint: created.value.fingerprint,
+      items: ADJUST_ITEM,
+      rationale: "draft 期申请",
+      sessionSignature: SIG(),
+    });
+    assert.equal(onDraft.ok, false);
+    assert.equal(onDraft.error.code, "workcase/transition_invalid");
+  });
+});
+
+test("调整·校验：amendments 的形状与决定取值受机械校验（21 §8）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid } = await approved(root);
+    const cur = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    const fm = structuredClone(cur.value.frontmatter);
+    fm.gate_1.amendments = [
+      { requested_at: "not-a-date", items: [], rationale: "", decision: { kind: "maybe", by: "", at: "x" } },
+    ];
+    const result = validateWorkcaseFrontmatter(fm);
+    const list = Array.isArray(result) ? result : (result.issues ?? []);
+    const text = list.join("\n");
+        assert.match(text, /decision\.kind: must be "approved" \| "rejected"/, "非法决定取值须被报出");
+  });
 });
