@@ -77,3 +77,18 @@ test('已关闭卡不再呈现「逐条核对」块（10 §5.5，Human 裁定 20
   assert.doesNotMatch(code, /workCaseResultCheckRows/, '不得再消费核对行渲染器');
   assert.doesNotMatch(code, /criteria_checks/, '不得再读取 criteria_checks 用于卡面渲染');
 });
+
+test('反向引用块复用统一关联行，不得自建第二套行式（10 §5.5，Human 裁定 2026-09-30）', () => {
+  // 「声明引用此工单的对象」此前由 `WorkCaseRefSourceRow` 自建一套行式（无类型图标、
+  // 状态写成文字），与 Spark/关联块用的 `FactAssociationCardRow` 不一致。现统一为后者；
+  // 本条钉住「第二套行式不得回归」。
+  const closedCard = read('src/components/WorkCaseClosedSummary.tsx');
+  assert.match(closedCard, /FactAssociationCardRow/, '反向引用块须用统一关联行');
+  assert.match(closedCard, /refSourceToAssociation/, '须经适配器把反向引用规整为统一行入参');
+  assert.doesNotMatch(closedCard, /WorkCaseRefSourceRow/, '自建的反向引用行不得回归');
+  assert.doesNotMatch(closedCard, /data-workcase-ref-source=/, '自建行的渲染锚点不得回归');
+  // 适配器只在 ObjectList 单点给出，且必须搬运形状所需的字段。
+  const objectList = read('src/pages/ObjectList.tsx');
+  assert.match(objectList, /export function refSourceToAssociation/);
+  assert.match(objectList, /export function FactAssociationCardRow/);
+});

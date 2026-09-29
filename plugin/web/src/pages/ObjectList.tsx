@@ -20,7 +20,7 @@ import WorkCaseExecFlow from '@/components/WorkCaseExecFlow';
 import WorkCaseResultDraft from '@/components/WorkCaseResultDraft';
 import WorkCaseClosedSummary from '@/components/WorkCaseClosedSummary';
 import WorkCaseOutcomeBadge from '@/components/WorkCaseOutcomeBadge';
-import { fetchCognitionGoal, fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type ObjectItem, type ObjectStatusOption, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
+import { fetchCognitionGoal, fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type FactRefSource, type ObjectItem, type ObjectStatusOption, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
 import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeDescription, getTypeLabel } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
@@ -438,7 +438,7 @@ function dedupeFactCardAssociations<T extends { association: FactCardAssociation
   });
 }
 
-function FactAssociationCardRow({ association, locale, unavailableLabel }: { association: FactCardAssociation; locale: string; unavailableLabel: string }) {
+export function FactAssociationCardRow({ association, locale, unavailableLabel }: { association: FactCardAssociation; locale: string; unavailableLabel: string }) {
   const { t } = useI18n();
   const title = association.available
     ? getLocalizedObjectTitle(association, locale)
@@ -546,6 +546,29 @@ function FactAssociationStateIcon({ state, tooltip }: { state: FactAssociationSt
       <Icon size={15} aria-hidden="true" />
     </span>
   );
+}
+
+/** 反向引用（`factRefSources`：**谁声明引用了本单**）→ 统一关联行的入参形状。
+ *
+ * 为什么要适配而不是另写一套行式（Human 2026-09-30：「这里的引用样式学习一下 spark 的
+ * 引用方案」）：Spark 的引用行由 `FactAssociationCardRow` 单点给出（类型图标 13px +
+ * 标题撑满 + 行末状态图标）；已关闭卡此前自建 `WorkCaseRefSourceRow`（无类型图标、
+ * 状态写成文字），于是**同一类信息出现两套行式**——正是本仓反复出现的"两处各写一套"
+ * 病。反向引用与关联的形状本就同构（`resolvedTarget`/`title`/`available`/`status`），
+ * 故此处只做**字段搬运**，行式仍由统一行给出。
+ *
+ * 注意二者**不是同一批数据**、也不互相替代（`api/services/facts.ts` 的登记）：
+ * `factRefs` 是**外向**（本单引用了谁），`factRefSources` 是**反向**（谁引用了本单）。 */
+// eslint-disable-next-line react-refresh/only-export-components
+export function refSourceToAssociation(source: FactRefSource): FactCardAssociation {
+  return {
+    available: source.available,
+    resolvedTarget: source.resolvedTarget,
+    title: source.title,
+    title_en: source.title_en,
+    title_zh: source.title_zh,
+    status: source.status,
+  };
 }
 
 export function SparkCardContent({ obj }: { obj: ObjectItem }) {

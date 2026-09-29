@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useI18n } from '@/i18n/context';
 import type { LocaleKey } from '@/i18n/locales';
-import { getLocalizedObjectTitle, getObjectStatusLocale, getTypeLabel } from '@/i18n/locales';
-import type { FactCardAssociation, FactRefSource, ObjectItem } from '@/utils/api';
+import { getLocalizedObjectTitle, getObjectStatusLocale } from '@/i18n/locales';
+import type { FactCardAssociation, ObjectItem } from '@/utils/api';
 import { stripCardMarkdown } from '@/utils/cardText';
+import { FactAssociationCardRow, refSourceToAssociation } from '@/pages/ObjectList';
 import { usePanel } from '@/utils/panelContext';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import {
@@ -87,70 +88,6 @@ const CANCEL_TAG_CLASS =
  * One source in the read-time reverse `refs` projection.  This row deliberately
  * uses neutral association language: a source declaring a reference is not
  * evidence that the closed WorkCase advice was carried out.
- */
-function WorkCaseRefSourceRow({ source, locale }: { source: FactRefSource; locale: string }) {
-  const { t } = useI18n();
-  const { openPanel } = usePanel();
-  const target = source.resolvedTarget;
-  const sourceType = target?.factTypeKey;
-  const title = source.available
-    ? getLocalizedObjectTitle(source, locale, source.objectUid)
-    : t('objectList.workcaseRefSourceUnavailable');
-  const canOpen = Boolean(source.available && target);
-  const open = () => {
-    if (!canOpen || !target) return;
-    openPanel({ type: 'object', title, objectType: target.factTypeKey, objectId: target.objectId });
-  };
-  const statusLabel = source.status && sourceType
-    ? getObjectStatusLocale(sourceType, source.status, locale)
-    : null;
-
-  return (
-    <div
-      data-workcase-ref-source={source.objectUid}
-      role={canOpen ? 'button' : undefined}
-      tabIndex={canOpen ? 0 : -1}
-      onClick={open}
-      onKeyDown={(event) => {
-        if (!canOpen || (event.key !== 'Enter' && event.key !== ' ')) return;
-        event.preventDefault();
-        open();
-      }}
-      className={`min-w-0 rounded-md px-1.5 py-1.5 text-left ${canOpen ? 'cursor-pointer hover:bg-ldvh-border/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50' : 'cursor-default'}`}
-    >
-      <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
-        <span className={`ldvh-meta-primary min-w-0 break-words ${canOpen ? 'text-ldvh-text-secondary hover:text-ldvh-accent' : 'text-ldvh-text-secondary'}`}>
-          {title}
-        </span>
-        {sourceType && <span className="ldvh-meta-muted">{getTypeLabel(sourceType, locale)}</span>}
-        {statusLabel && (
-          <span className="ldvh-meta-muted">
-            {t('objectList.workcaseRefSourceStatus', { status: statusLabel })}
-          </span>
-        )}
-      </div>
-      <div className="ldvh-meta-muted break-all text-[10px]">
-        {t('objectList.workcaseRefSourceUid', { uid: source.objectUid })}
-      </div>
-    </div>
-  );
-}
-
-/**
- * 「转入 Spark」去向的**目标关联行**（`10 §5.5`「已关闭」卡表）。
- *
- * 表里写明：「转入 Spark」项**就地渲染为目标关联行**（图标 + 标题 + 目标状态，可点开
- * 面板）。指向的唯一承载是 `relations.routed-to`（`21 §12`：指向哪个 Spark 是**对象标识**
- * 问题，由 frontmatter 关系承载，不靠散文文字回指）。
- *
- * **显示期判据与写入期判据不同**（`10 §5.5` 已登记，不是两处权威）：写入期要求目标
- * 此刻为 `open`（`§12`——只有仍在承载议题的 Spark 才配作残留去向）；显示期接受
- * `open`／`implemented`／`discarded` 三者，因为 `§13` 规定目标其后转终态**不使该边
- * 失效**、且消费方**必须**标注目标已终结——过滤掉会让「已终结的目标」静默消失，反而
- * 违反 `§13`。故此处由节点自身的状态徽标承载其终结态，不做过滤。
- *
- * 关联语言保持中性：声明了一条 `routed-to` 不等于该去向已被执行（`§10.2`：去向是
- * 提请时如实说明的打算，不因关闭而被批准）。
  */
 function WorkCaseRoutedToRow({
   association,
@@ -382,7 +319,14 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
           </div>
           <div className="mt-0.5 grid min-w-0 gap-0.5">
             {refSources.map((source) => (
-              <WorkCaseRefSourceRow key={source.objectUid} source={source} locale={locale} />
+              // 行式由**统一关联行**给出（Human 2026-09-30：「学习 spark 的引用方案」）——
+              // 此前本组件自建一套行式，与 Spark/关联块不一致。此处只做形状适配。
+              <FactAssociationCardRow
+                key={source.objectUid}
+                association={refSourceToAssociation(source)}
+                locale={locale}
+                unavailableLabel={t('objectList.workcaseRefSourceUnavailable')}
+              />
             ))}
           </div>
         </div>
