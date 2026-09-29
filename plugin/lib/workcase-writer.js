@@ -166,6 +166,14 @@ const STRUCTURED_TEXT_MIN_CHARS = 200;
 /** 「做什么：」/「明确不做什么：」独占一行（允许尾随空白）。 */
 const SCOPE_WHAT_LINE = /^做什么[：:]\s*$/;
 const SCOPE_NOT_LINE = /^明确不做什么[：:]\s*$/;
+/**
+ * 「允许的顺带修缮：」独占一行 —— `scope` 的**第三个可选**标签（21 §8，Human 裁定 2026-09-29）。
+ *
+ * 语义：该标签之下逐条列出 Human 在 Gate 1 批准的**类别**，执行期落在这些类别内的
+ * 顺带修缮可直接做（甲档）；**该标签缺席即不授权任何顺带修缮**（fail-closed）。
+ * 它与另两个标签同属字段骨架，故同为 `scope` 的合法块首（见 `SCOPE_BLOCK_HEADS`）。
+ */
+const SCOPE_CATALOG_LINE = /^允许的顺带修缮[：:]\s*$/;
 
 /**
  * `summary` 的块首固定骨架：**只有 H3**（21 §8 书写结构，Human 裁定 2026-09-22）。
@@ -199,9 +207,9 @@ const SUMMARY_BLOCK_HEAD = /^###[ \t]+\S/;
  *
  * **但不接受任意 `XX：` 行**：那正是本次从「三种任选」收敛掉的那种宽松——它让
  * 「看起来像标题」的空行都能过，结构依旧不固定。本字段的块首因此是**闭集**：
- * H3，或那两个已登记的标签行，二者之外不构成块首。
+ * H3，或那**三个**已登记的标签行（两必备 + 一可选「允许的顺带修缮：」）。
  */
-const SCOPE_BLOCK_HEADS = new Set(["做什么", "明确不做什么"]);
+const SCOPE_BLOCK_HEADS = new Set(["做什么", "明确不做什么", "允许的顺带修缮"]);
 
 function isSummaryBlockHead(line) {
   return SUMMARY_BLOCK_HEAD.test(line.trim());
@@ -235,12 +243,17 @@ function structuredTextBlocks(text) {
 function validateScopeLabelSections(scope, issues) {
   const lines = scope.split("\n").map((line) => line.trim());
   const sections = [
-    { name: "做什么", pattern: SCOPE_WHAT_LINE, index: -1 },
-    { name: "明确不做什么", pattern: SCOPE_NOT_LINE, index: -1 },
+    { name: "做什么", pattern: SCOPE_WHAT_LINE, index: -1, required: true },
+    { name: "明确不做什么", pattern: SCOPE_NOT_LINE, index: -1, required: true },
+    // 第三个标签**可选**（21 §8，Human 裁定 2026-09-29）：缺席＝不授权任何顺带修缮
+    // （fail-closed），故**缺席不报错**；一旦出现，其下须有非空内容。
+    { name: "允许的顺带修缮", pattern: SCOPE_CATALOG_LINE, index: -1, required: false },
   ];
+  const isAnyLabel = (line) =>
+    SCOPE_WHAT_LINE.test(line) || SCOPE_NOT_LINE.test(line) || SCOPE_CATALOG_LINE.test(line);
   for (const section of sections) {
     section.index = lines.findIndex((line) => section.pattern.test(line));
-    if (section.index < 0) {
+    if (section.index < 0 && section.required) {
       issues.push(
         `scope: missing a line holding exactly "${section.name}：" (21 §8 — 必须同时回答「做什么」与「明确不做什么」；须各占一行成段，不得行内串联)`,
       );
@@ -249,10 +262,12 @@ function validateScopeLabelSections(scope, issues) {
   for (const section of sections) {
     if (section.index < 0) continue;
     const rest = lines.slice(section.index + 1);
-    const nextLabel = rest.findIndex((line) => SCOPE_WHAT_LINE.test(line) || SCOPE_NOT_LINE.test(line));
+    const nextLabel = rest.findIndex(isAnyLabel);
     const body = (nextLabel < 0 ? rest : rest.slice(0, nextLabel)).join("\n").trim();
     if (body === "") {
-      issues.push(`scope: section "${section.name}：" has no content (21 §8 — 标签下须列出该方向的具体范围)`);
+      issues.push(
+        `scope: section "${section.name}：" has no content (21 §8 — 标签下须列出该方向的具体范围)`,
+      );
     }
   }
 }
@@ -284,7 +299,7 @@ function validateStructuredText(text, field, issues) {
     if (!isBlockHead(head)) {
       issues.push(
         `${field}: block #${i + 1} starts with "${head.slice(0, 30)}" — every block after the first must open with a fixed head (${
-          field === "scope" ? "### 标签 或 做什么：/明确不做什么：" : "### 标签"
+          field === "scope" ? "### 标签 或 做什么：/明确不做什么：/允许的顺带修缮：" : "### 标签"
         }) (21 §8 书写结构)`,
       );
     }
