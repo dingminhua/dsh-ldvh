@@ -84,7 +84,11 @@ test('引用／关联行一律复用统一关联行，不得自建第二套行�
   // 本条钉住「第二套行式不得回归」。
   const raw = read('src/components/WorkCaseClosedSummary.tsx');
   // 只断言**代码**：注释里必然要提到被删掉的旧组件名（沿革），不能因此判红。
+  // 先剥 `{/* ... */}` JSX 块注释，再做逐行 `//`/`*` 过滤——只做后者时，块注释的
+  // **续行**（不以 `*` 开头）会把沿革里的旧组件名漏进「代码」造成误红（2026-09-30
+  // 去向分区改写后实测踩到：`WorkCaseRoutedToRow` 的沿革说明写在 `{/* */}` 里）。
   const closedCard = raw
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
     .split('\n')
     .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*') && !line.trim().startsWith('/*'))
     .join('\n');
@@ -99,4 +103,38 @@ test('引用／关联行一律复用统一关联行，不得自建第二套行�
   const objectList = read('src/pages/ObjectList.tsx');
   assert.match(objectList, /export function refSourceToAssociation/);
   assert.match(objectList, /export function FactAssociationCardRow/);
+
+  // **2026-09-30 追加（Human：「那就不要标题，学习 spark 的做法」）**：反向引用区
+  // **无标题、无块边框、无底色**，区域形态与 Spark 卡的引用区同一处来源。
+  //
+  // 为什么要钉住「无标题」：行本身自描述（类型图标 + 行末状态图标）；旧标题「声明引用
+  // 此工单的对象」是一句规范腔长句，且**任何概括词都有冒领风险**——写成「转入 Spark」
+  // 会宣称本单残留已转入该 Spark，而那条边由**本单的** `relations.routed-to` 承载，
+  // 反向引用是**别人**的 `refs`，方向相反。无标题即无冒领面。标题若回归（无论是旧文案
+  // 还是换成去向词），本条即变红。
+  assert.doesNotMatch(
+    closedCard,
+    /workcaseRefSources/,
+    '反向引用区不得带标题（含旧标题 i18n 键；任何概括词都会冒领方向语义）',
+  );
+  assert.match(
+    closedCard,
+    /FACT_ASSOCIATION_ROWS_ZONE_CLASS/,
+    '反向引用区须用与 Spark 卡共享的区域常量（单一来源）',
+  );
+  assert.match(
+    closedCard,
+    /FACT_ASSOCIATION_ROWS_LIST_CLASS/,
+    '反向引用区的行间分割须用共享常量',
+  );
+  assert.match(objectList, /export const FACT_ASSOCIATION_ROWS_ZONE_CLASS/, '区域常量须在 ObjectList 单点导出');
+  assert.match(objectList, /export const FACT_ASSOCIATION_ROWS_LIST_CLASS/, '行间分割常量须在 ObjectList 单点导出');
+  // 反向：两处都不得再自抄区域类名（同值不等于同源）。
+  for (const [name, src] of [['FactAssociationsCardContent', objectList], ['WorkCaseClosedSummary', closedCard]] as const) {
+    assert.doesNotMatch(
+      src,
+      /"min-w-0 border-t border-ldvh-border\/60 pt-1\.5"/,
+      `${name} 不得自抄区域类名字面量（须经 FACT_ASSOCIATION_ROWS_ZONE_CLASS）`,
+    );
+  }
 });

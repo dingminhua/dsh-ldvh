@@ -1225,7 +1225,6 @@ export const UI_LOCALES = {
     // 「转入 Spark」去向的目标关联行（10 §5.5「已关闭」卡表：就地渲染为关联行）。
     'objectList.workcaseRoutedToUnavailable': '目标不可读',
     // 21 §13 / 03 §7.2：反向 refs 只显示声明引用来源，不暗示建议已履行或已闭环。
-    'objectList.workcaseRefSources': '声明引用此工单的对象',
     'objectList.workcaseRefSourceUnavailable': '引用来源不可用',
     'objectList.workcaseRefSourceStatus': '状态：{status}',
     'objectList.workcaseRefSourceUid': '对象 UID：{uid}',
@@ -1974,7 +1973,6 @@ export const UI_LOCALES = {
     // association row).
     'objectList.workcaseRoutedToUnavailable': 'Target unreadable',
      // 21 §13 / 03 §7.2: reverse refs show declared sources only; they do not imply fulfilment or closure.
-     'objectList.workcaseRefSources': 'Objects declaring a reference to this WorkCase',
      'objectList.workcaseRefSourceUnavailable': 'Reference source unavailable',
      'objectList.workcaseRefSourceStatus': 'Status: {status}',
      'objectList.workcaseRefSourceUid': 'Object UID: {uid}',

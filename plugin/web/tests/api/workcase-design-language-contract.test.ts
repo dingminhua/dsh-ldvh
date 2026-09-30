@@ -709,10 +709,21 @@ test('建议去向：闭集二词各有色，存量两词仍保留色，四色�
       `色表须为存量去向「${kind}」保留色类（存量对象仍会读出这两词）`,
     );
   }
-  // ③ 四色两两不同：把色表里的四段 value 抽出来比对
-  const pairs = [...stateModule.matchAll(/'(另立工单|接受现状|转入 Spark|直接行动)':\s*'([^']+)'/g)]
+  // ③ 四色两两不同：把**标记色表**里的四段 value 抽出来比对。
+  //
+  // **2026-09-30 修订**：共享模块新增了去向分区块的底色表（`WORKCASE_DIRECTION_BLOCK_BG_CLASS`，
+  // Human 裁定「按去向分区」），其中也写有 `'接受现状':`/`'转入 Spark':` 键。若仍对
+  // **整份模块**跑本正则，会把底色表的两段也算进来（实际 6 ≠ 4 误红）。判据的本意
+  // 始终是「**标记色表**恰好四词、四色互不相同」，故先截取 `WORKCASE_ADVICE_TAG_CLASS`
+  // 声明块（到该对象的收口 `};` 为止）再抽取——截块后仍恰好断言四段，不因底色表的
+  // 存在而放宽（删掉任何一个标记键即变红）。
+  const tagDeclAt = stateModule.indexOf('export const WORKCASE_ADVICE_TAG_CLASS');
+  assert.ok(tagDeclAt >= 0, '未找到标记色表声明');
+  const tagTableDecl = stateModule.slice(tagDeclAt, stateModule.indexOf('};', tagDeclAt));
+  assert.ok(tagTableDecl.length > 0, '未找到标记色表声明块');
+  const pairs = [...tagTableDecl.matchAll(/'(另立工单|接受现状|转入 Spark|直接行动)':\s*'([^']+)'/g)]
     .map((m) => [m[1], m[2]] as const);
-  assert.equal(pairs.length, 4, `色表应恰好覆盖二词＋存量两词，实际 ${pairs.length}`);
+  assert.equal(pairs.length, 4, `标记色表应恰好覆盖二词＋存量两词，实际 ${pairs.length}`);
   const values = pairs.map(([, v]) => v);
   assert.equal(new Set(values).size, 4, `四个去向的色类必须互不相同，实际：${JSON.stringify(values)}`);
 
@@ -927,8 +938,18 @@ test('卡体条目行样式单一来源，且卡面清单带分割线', () => {
       `${name} 不得再抄一份行样式字面量（须经 WORKCASE_ITEM_ROW_CLASS）`,
     );
   }
-  // 两个卡组件确实在用共享常量
-  assert.match(closed, /WORKCASE_ITEM_ROW_CLASS/, '已关闭卡的条目行须用共享常量');
+  // 两个卡组件确实在用共享常量。
+  //
+  // **2026-09-30 修订**：已关闭卡的「去向条」改用分区行（`WORKCASE_DIRECTION_GROUP_ROW_CLASS`，
+  // 分区标题形态，Human 裁定）；它的「残留条」（条件豁免保留时）仍用
+  // `WORKCASE_RESIDUAL_ROW_CLASS`（即 `WORKCASE_ITEM_ROW_CLASS` 的共享别名）。
+  // 故本断言放宽为**共享模块登记的任一行常量**——三个名字都指向共享模块，
+  // 「不得自抄字面量」由上面的字面量禁令继续守住。
+  assert.match(
+    closed,
+    /WORKCASE_ITEM_ROW_CLASS|WORKCASE_RESIDUAL_ROW_CLASS|WORKCASE_DIRECTION_GROUP_ROW_CLASS/,
+    '已关闭卡的条目行须用共享常量（残留行/分区行皆在共享模块登记）',
+  );
   assert.match(draft, /WORKCASE_ITEM_ROW_CLASS/, '待批准关闭卡的条目行须用共享常量');
 
   // ② 计划清单在卡面用带分割线的卡面行（density="card"），详情面保持宽松行

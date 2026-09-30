@@ -25,6 +25,7 @@ import { test } from 'node:test';
 import {
   WORKCASE_COLLAPSED_RESIDUAL,
   WORKCASE_DIRECTION_ROW_CLASS,
+  groupDirectionRows,
   workCaseDirectionRows,
   workCaseResidualRows,
 } from '../../src/utils/workcaseCheckState.ts';
@@ -93,6 +94,119 @@ test('workCaseResidualRows / workCaseDirectionRows：非数组、空值、空文
   // 判不出词的条目**照样产出**（kind: null → 呈现为「未归类」）——这是
   // `21 §15.1` 判据边界第三条「不静默丢弃」在呈现层的落点。
   assert.deepEqual(workCaseDirectionRows([{ kind: null, text: '正文' }]), [{ kind: null, text: '正文' }]);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ①' 纯函数：去向分区（2026-09-30，Human：「接受现状提出来变成一个 title，下面不再
+//     重复」+「接受现状和转入 Spark 要 2 个区域」——已关闭卡的去向按去向词分区）
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('groupDirectionRows：按词稳定分区，组按首次出现顺序、组内保持原顺序', () => {
+  const rows = workCaseDirectionRows([
+    { kind: '接受现状', text: '一' },
+    { kind: '转入 Spark', text: '二' },
+    { kind: '接受现状', text: '三' },
+    { kind: '接受现状', text: '四' },
+    { kind: null, text: '五' },
+    { kind: '转入 Spark', text: '六' },
+  ]);
+  const groups = groupDirectionRows(rows);
+  // 组按首次出现顺序（不是闭集顺序）：第一组是「接受现状」（首条出现的词），
+  // 「未归类」自成一组且不并入任何已知词——`21 §15.1` 呈现层不替作者修正形态。
+  assert.deepEqual(
+    groups.map((g) => [g.kind, g.rows.map((r) => r.text)]),
+    [
+      ['接受现状', ['一', '三', '四']],
+      ['转入 Spark', ['二', '六']],
+      [null, ['五']],
+    ],
+  );
+  // 条目数守恒：分区只是去重「词的重复」，不丢条目（信息未增未减的机械面）。
+  assert.equal(groups.reduce((sum, g) => sum + g.rows.length, 0), 6);
+});
+
+test('groupDirectionRows：空输入与空行产出零组；判不出词者保持独立组', () => {
+  assert.deepEqual(groupDirectionRows([]), []);
+  // 全部条目判不出词 → 一个 `null` 组（呈现为「未归类」分区，不静默丢弃）。
+  assert.deepEqual(groupDirectionRows([{ kind: null, text: 'A' }, { kind: null, text: 'B' }]), [
+    { kind: null, rows: [{ kind: null, text: 'A' }, { kind: null, text: 'B' }] },
+  ]);
+});
+
+test('单一来源：去向分区的形态常量都在共享模块登记（分区行/分区标题/分区块）', () => {
+  // 分区形态的四个常量（行/标题/块底/块底色表）只允许在共享模块出现一次；
+  // 卡组件不得自抄字面量——否则与折叠阈值、从属行样式同理，必然分岔。
+  const stateModule = readSource(STATE_MODULE);
+  for (const constant of [
+    'WORKCASE_DIRECTION_GROUP_ROW_CLASS',
+    'WORKCASE_DIRECTION_TITLE_ROW_CLASS',
+    'WORKCASE_DIRECTION_TITLE_CLASS',
+    'WORKCASE_DIRECTION_BLOCK_BASE_CLASS',
+    'WORKCASE_DIRECTION_BLOCK_BG_CLASS',
+  ]) {
+    assert.match(stateModule, new RegExp(`export const ${constant}`), `${constant} 须在共享模块登记`);
+  }
+});
+
+test('已关闭卡：去向按去向词分区渲染（块级锚点 + 组内条目不带重复词）', () => {
+  const closed = readSource(CLOSED_CARD);
+  const code = closed
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*') && !line.trim().startsWith('/*'))
+    .join('\n');
+
+  // ① 接线：分区由共享纯函数给出，块级锚点随分区渲染（每个去向词一个块）。
+  assert.match(code, /groupDirectionRows\(advice\)/, '分区须由共享纯函数给出（JSX 外可断言）');
+  assert.match(code, /data-workcase-advice-group=/, '分区块须带 data-workcase-advice-group 锚点');
+  // ② 组内条目**不带去向词标记**（词已提到块首，组内不再重复）。
+  //    判据：逐条渲染处不再调 workCaseAdviceTagClass（只剩块首标题调它一次）。
+  const tagCalls = (code.match(/workCaseAdviceTagClass\(/g) ?? []).length;
+  assert.equal(tagCalls, 1, `去向标记只在分区标题取色一次，实际 ${tagCalls} 次（组内不得重复带词）`);
+  // ③ **不写字数/条数**（Human 2026-09-30「总数不用写」）：分区标题行不带计数插值。
+  assert.doesNotMatch(code, /group\.rows\.length/, '分区标题不得报条数（Human：总数不用写）');
+  // ④ 组内条目行首有项目符号（Human 2026-09-30「每一条缺少一个点号」→「位置调整一下」）。
+  //    **2026-09-30 修订**：符号的形态类与摆放类都收敛到共享常量（间距/垂直位置各由一处
+  //    决定，避免「gap 与 margin 叠加」「符号偏高」两个实测偏差复发），故此处断言
+  //    **组件消费共享常量**，而不是断言组件内联类名（后者会逼实现把样式抄回组件）。
+  assert.match(code, /WORKCASE_DIRECTION_ROW_BULLET_CLASS/, '组内条目行首须用共享的项目符号类');
+  assert.match(code, /WORKCASE_DIRECTION_ROW_INSET_CLASS/, '项目符号的容器留白须用共享常量');
+  assert.match(code, /aria-hidden="true"/, '项目符号是纯装饰，须 aria-hidden');
+  const stateModuleForBullet = readSource(STATE_MODULE);
+  assert.match(
+    stateModuleForBullet,
+    /export const WORKCASE_DIRECTION_ROW_BULLET_CLASS/,
+    '项目符号类须在共享模块登记',
+  );
+  const bulletClass = stateModuleForBullet.slice(
+    stateModuleForBullet.indexOf('export const WORKCASE_DIRECTION_ROW_BULLET_CLASS'),
+    stateModuleForBullet.indexOf('export const WORKCASE_DIRECTION_ROW_INSET_CLASS'),
+  );
+  assert.match(bulletClass, /rounded-full/, '符号须为圆点（Human 裁定「点号」）');
+  assert.match(bulletClass, /absolute/, '符号须绝对定位（间距与垂直位置各由一处决定）');
+  assert.match(
+    stateModuleForBullet,
+    /export const WORKCASE_DIRECTION_ROW_INSET_CLASS\s*=\s*'relative pl-3'/,
+    '容器须为绝对定位的符号留出左侧空间（relative pl-3，单点登记）',
+  );
+
+  // ⑤ 去向正文用**次级色**（Human 2026-09-30：「字的颜色也调整的淡一点」）。
+  //    判据取自 `ldvh-caption`（其自身即 `text-ldvh-text-secondary`）——本行**不得**
+  //    再叠 `text-ldvh-text-primary` 把正文压回最深档。
+  //
+  //    为什么必须钉住：本条是纯视觉偏好，2026-09-30 实测「把 primary 叠回去」这一
+  //    变异**全套 428 用例无一变红**（守卫缺口实测发现）。去向正文是说明性文字、
+  //    与块首标题同级重会削弱分组层次，故按 Human 裁定登记为形态要求。
+  const groupRowClass = stateModuleForBullet.slice(
+    stateModuleForBullet.indexOf('export const WORKCASE_DIRECTION_GROUP_ROW_CLASS'),
+    stateModuleForBullet.indexOf('export const WORKCASE_DIRECTION_ROW_BULLET_CLASS'),
+  );
+  assert.match(groupRowClass, /ldvh-caption/, '正文行须沿用 caption 的次级字色基准');
+  assert.doesNotMatch(
+    groupRowClass,
+    /text-ldvh-text-primary/,
+    '去向正文不得叠最深档字色（Human 裁定「淡一点」；叠回即变红）',
+  );
 });
 
 test('单一来源：折叠阈值只有一处登记（两期卡共用，不得各自重写）', () => {
@@ -164,21 +278,51 @@ test('已关闭卡：按决定 A 不再呈现残留一侧，且结论行去掉�
     '结论行整块不得回归：卡面 outcome 只由卡头徽标承载（10 §5.5），核对计数不单列',
   );
 
-  // ③ 去向块仍在场，且去向是平级行（用统一条目行样式）。
-  assert.match(closed, /WORKCASE_ITEM_ROW_CLASS/, '去向条须用统一条目行样式（平级行）');
+  // ③ 去向块仍在场，且去向是平级行（用共享模块登记的分区行样式）。
+  //
+  // **2026-09-30 修订**（Human：「接受现状提出来变成一个 title，下面不再重复」+「接受现状
+  // 和转入 Spark 要 2 个区域」）：去向条由「统一条目行」（`WORKCASE_ITEM_ROW_CLASS`）
+  // 改为**分区行**（`WORKCASE_DIRECTION_GROUP_ROW_CLASS`）——分区行仍带分割线、仍不缩进
+  // （平级），只是行首多了项目符号、并与分区标题同块。原断言「必须用 WORKCASE_ITEM_ROW_CLASS」
+  // 若保留，会**逼实现把不用的常量留在 import 里**来骗过守卫——那是空转，不是守卫。
+  // 故改为断言新形态的共享常量，并同时钉住「不得用开放期的缩进从属行」。
+  assert.match(
+    closed,
+    /WORKCASE_DIRECTION_GROUP_ROW_CLASS/,
+    '去向条须用共享模块登记的分区平级行样式（带分割线、不缩进）',
+  );
+  const groupRowSource = readSource(STATE_MODULE);
+  assert.match(
+    groupRowSource,
+    /export const WORKCASE_DIRECTION_GROUP_ROW_CLASS/,
+    '分区行样式须在共享模块登记（单一来源）',
+  );
+  assert.doesNotMatch(
+    closed,
+    /WORKCASE_DIRECTION_ROW_CLASS/,
+    '已关闭卡的去向条不得用开放期的缩进从属行样式（10 §5.5）',
+  );
   assert.match(closed, /workCaseAdviceTagClass/, '去向标记须经共享色表取色');
 });
 
 test('已关闭卡：「转入 Spark」项就地渲染为目标关联行（10 §5.5 已关闭卡表）', () => {
   const closed = readSource(CLOSED_CARD);
   // 只断言**代码**（注释里会提到被删掉的旧组件名作沿革）。
+  // 先剥 `{/* ... */}` JSX 块注释，再做逐行 `//`/`*` 过滤——只做后者时，块注释的
+  // **续行**（不以 `*` 开头）会把沿革里的旧组件名漏进「代码」造成误红。
   const code = closed
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
     .split('\n')
     .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*') && !line.trim().startsWith('/*'))
     .join('\n');
 
   // 表里写明：「转入 Spark」项**就地渲染为目标关联行**（图标 + 标题 + 目标状态，可点开面板）。
-  assert.match(code, /item\.kind === '转入 Spark'/, '仅「转入 Spark」项须就地渲染目标行');
+  //
+  // **2026-09-30 修订**（去向分区后）：判定从「逐条的 `item.kind`」改为**分区级**的
+  // `group.kind === '转入 Spark'`——同一词的条目已合入一个分区，目标行挂在分区内
+  // 各条正文之下（`routedTo[index]` 按序配对），配对纪律不变（写法约定、非机械事实）。
+  assert.match(code, /group\.kind === '转入 Spark'/, '仅「转入 Spark」分区须就地渲染目标行');
+  assert.match(code, /routedTo\[index\]/, '目标须按分区内条目序与 routed-to 候选配对');
   assert.match(code, /relationKey === 'routed-to'/, '目标须取 relations.routed-to（指向的唯一承载，21 §12）');
   // **2026-09-30 修订**：目标行改由**统一关联行**给出（10 §5.5「同类信息只有一处行式」）——
   // 自建的 `WorkCaseRoutedToRow` 已删除。故不再断言"存在某自建组件"，而是断言：

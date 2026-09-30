@@ -190,6 +190,102 @@ export const WORKCASE_DIRECTION_ROW_CLASS =
   'border-t border-ldvh-border/40 py-1 pl-4 first:border-t-0 ldvh-caption text-ldvh-text-primary';
 
 /**
+ * 去向分区块的**底色族**——按去向词取同族色（`10 §5.5`「去向分区」）。
+ *
+ * 为什么着色：两个去向词各自成块后，「哪块是哪类去向」若只靠块内标题一行表达，读者
+ * 扫视整卡时仍要逐块读字。块底取**该词标记的同族色**，使分区在余光里即可区分。
+ *
+ * 为什么与标记同族而非另配一套色：去向词的语义色已有**单一来源**
+ * （`WORKCASE_ADVICE_TAG_CLASS`，四词各自的 border/bg/text 三元组）。块底另配色
+ * 等于给同一语义开第二个色源——本仓已有先例教训（同一状态曾出现「徽标紫、卡内
+ * 提示琥珀」的分歧）。故只用带 0.04 透明度的淡同族底色，border 与 text 一律
+ * 沿用通用边框/正文色，不复刻标记的整套配色。
+ *
+ * **存量两词与「未归类」不着色**：它们没有 `10 §5.5` 的去向语义色（停用词的色是
+ * 历史残留），给它们配新色等于为已停用语义新增色源。故回落中性无色，只留边框。
+ *
+ * 类名**按词穷举**而非拼接（底色类名逐词手写进下表）——拼接出的类名进不了 Tailwind
+ * 的静态扫描，生产构建里会被摇掉。
+ */
+export const WORKCASE_DIRECTION_BLOCK_BASE_CLASS =
+  'min-w-0 rounded-md border border-ldvh-border px-2.5 py-2';
+
+export const WORKCASE_DIRECTION_BLOCK_BG_CLASS: Record<string, string> = {
+  '接受现状': 'bg-stone-500/[0.04]',
+  '转入 Spark': 'bg-fuchsia-500/[0.04]',
+};
+
+/**
+ * 分区标题（原逐条重复的去向标记，提到块首）——沿用**原来的标记样式**，
+ * 不新造标题样式（Human 2026-09-30：「title 的部分用原来的样式」）。
+ *
+ * 提为标题后标记**不再内联于正文行**，故去掉 `WORKCASE_CHECK_TAG_BASE` 里为行内
+ * 混排准备的 `mr-1.5`（块首标记后无行内后继），其余（圆角/边框/内距/字号/字重）
+ * 逐项一致——「原来的样式」指的就是这些。
+ */
+export const WORKCASE_DIRECTION_TITLE_CLASS =
+  'inline-block shrink-0 rounded border px-1.5 text-[10px] font-semibold leading-4';
+
+/**
+ * 分区内一条去向的正文行——**不带标记**（标记已提到块首，组内不再重复）。
+ *
+ * 该行现在是 **flex 行**（`flex items-start gap-1.5`）：行首是装饰性项目符号，
+ * 其后是正文；「转入 Spark」项还会在正文下方（`mt-0.5` 的整宽子块）挂统一关联行。
+ * 用 `items-start` 而非 `items-center`——正文可能折行或多出关联行，居中会让符号
+ * 垂直漂到段落中部。
+ *
+ * 分割线用 `border-t` + `first:border-t-0`：首行紧贴标题，画线会与标题下的留白
+ * 打架。缩进与「待批准关闭」期的从属行（`WORKCASE_DIRECTION_ROW_CLASS` 的 `pl-4`）
+ * 不同——关闭期去向是**平级行**，不缩进。
+ *
+ * **正文字色（Human 2026-09-30：「字的颜色也调整的淡一点」）**：不再覆盖
+ * `ldvh-caption` 自带的 `text-ldvh-text-secondary`——此前本行额外叠了
+ * `text-ldvh-text-primary`（最深档），把去向正文压得与标题同级重。去掉该覆盖后，
+ * 正文回到次级色，与「去向正文是说明性文字、不是标题」的定位一致。
+ */
+export const WORKCASE_DIRECTION_GROUP_ROW_CLASS =
+  'flex items-start gap-1.5 border-t border-ldvh-border/40 py-1 first:border-t-0 ldvh-caption';
+
+/**
+ * 分区行的**项目符号**（Human 2026-09-30：「每一条缺少一个点号」→「位置调整一下」）。
+ *
+ * 为什么用绝对定位而不是 flex 流内元素：符号是**纯装饰**、不占内容宽度。流内摆放时
+ * 符号的 `margin-right` 会与行容器的 `gap` 叠加（实测 6px + 6px = 12px，看起来离字
+ * 太远），且符号随 `items-start` 停在**行盒顶端**、而正文首行有行高与 padding，两者
+ * 基线不齐（实测偏高约 2px）。绝对定位后符号由 `left`/`top` 单独控制，与正文的
+ * 间距、垂直位置都可独立微调，不干扰正文排版。
+ *
+ * `top-[12px]` 的取法：行 `py-1`（4px）+ 正文 `text-xs leading-5`（首行行高 20px）的
+ * 光学中心在「4 + 10 = 14px」处，符号高 4px，故其上沿取 14 − 2 = 12px。
+ *
+ * （Human 2026-09-30 二次微调「灰色圆点需要下移 1 个像素」：初版取 11px——该值又减掉了
+ * 行自身的 1px 上边框。实测那次减除是**多余**的：`top` 相对的是行的 padding box，
+ * 上边框在其外侧，不占 1px。故取 12px，即纯光学中心的算式值。）
+ * 改行距或字号时此处须同步——这是**光学对齐**，不是可推导的机械量，故以注释登记依据。
+ */
+export const WORKCASE_DIRECTION_ROW_BULLET_CLASS =
+  'pointer-events-none absolute left-0 top-[12px] h-1 w-1 rounded-full bg-current opacity-45';
+
+/**
+ * 分区行的容器侧留白：为绝对定位的项目符号预留左侧空间。
+ *
+ * 用 `pl-3`（12px）而非流内 margin：符号贴 `left-0`，正文从 12px 开始，二者间距
+ * 由这一处决定（不再有 gap 与 margin 叠加的问题）。注意本常量**只给内边距**——
+ * 它与行类是两件事，故分行登记。
+ */
+export const WORKCASE_DIRECTION_ROW_INSET_CLASS = 'relative pl-3';
+
+/**
+ * 分区标题行的容器：只放块首的去向标记（原逐条重复的那个标记）。
+ *
+ * **不写字数/条数**（Human 2026-09-30：「总数不用写」）：块内条目数读者一眼可数，
+ * 每块再报一遍是把「有几条」在闭集二词上重复第二次；且条数是**机械事实**
+ * （`21 §15.1`：机械层能数出「各有几条」），不报也不丢信息——少的是冗余。
+ */
+export const WORKCASE_DIRECTION_TITLE_ROW_CLASS =
+  'flex min-w-0 items-center gap-1.5 pb-1';
+
+/**
  * 一条去向（去向标记 + 正文）的渲染数据——**两块卡共用**同一形状（单一来源）。
  *
  * 为什么把这一步抽成纯函数（2026-09-24 实测教训）：组件的 JSX 不在 `node:test` 的
@@ -201,6 +297,48 @@ export interface WorkCaseDirectionRow {
   kind: string | null
   /** 去向正文（未剥 Markdown——剥离是呈现层 `stripCardMarkdown` 的职责）。 */
   text: string
+}
+
+/**
+ * 一个**去向分区**——同一去向词的全部条目，连同该词本身。
+ *
+ * 为什么按词分区（Human 2026-09-30：「接受现状提出来变成一个 title，下面不再重复」
+ * +「接受现状和转入 Spark 要 2 个区域」）：去向词原本逐条重复在每一行，同一对象有
+ * 5 条「接受现状」就写 5 遍。提为**分区标题**后，词在屏上出现一次，组内只留正文；
+ * 两类去向各成一个**独立块**，读者不读文字也能凭位置与色相分清。
+ *
+ * **信息未增未减**：条目数、条目顺序、条目正文与逐条呈现时逐字相同——去掉的只是
+ * 重复的词。这是纯粹的**去重与分区**，不是对去向内容的任何加工。
+ */
+export interface WorkCaseDirectionGroup {
+  /** 去向词（闭集二词或存量两词）；判不出词的分到 `null` 组（呈现为「未归类」）。 */
+  kind: string | null
+  /** 该词下的全部条目，**保持原相对顺序**（稳定分区，不排序）。 */
+  rows: WorkCaseDirectionRow[]
+}
+
+/**
+ * 去向行 → **按去向词分区**。稳定分区：组按**首次出现顺序**排列，组内保持原顺序，
+ * 不排序、不合并、不去重——同一条目仍是一条。
+ *
+ * 为什么按首次出现而非闭集顺序：条目顺序是作者写下的顺序，是载体里的既有信息
+ * （`21 §15.1`「呈现层不替作者修正形态」）；按闭集重排会让「第一条去向是哪个词」
+ * 这一事实消失。判不出词者自成一组（`kind: null`），不并入任何已知词。
+ */
+export function groupDirectionRows(rows: readonly WorkCaseDirectionRow[]): WorkCaseDirectionGroup[] {
+  const groups: WorkCaseDirectionGroup[] = []
+  const byKind = new Map<string | null, WorkCaseDirectionGroup>()
+  for (const row of rows) {
+    const key = row.kind
+    let group = byKind.get(key)
+    if (group === undefined) {
+      group = { kind: key, rows: [] }
+      byKind.set(key, group)
+      groups.push(group)
+    }
+    group.rows.push(row)
+  }
+  return groups
 }
 
 /**

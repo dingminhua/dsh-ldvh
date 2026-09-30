@@ -386,6 +386,29 @@ function SparkTerminalCardContent({ obj }: { obj: ObjectItem }) {
   );
 }
 
+/**
+ * 引用行的**无标题区域**形态（Spark 卡的引用区画法，Human 2026-09-30「学习 spark 的
+ * 引用方案」→ 2026-09-30 再裁定「不要标题」）：区域 = 顶部一条细分割线（`border-t`），
+ * 行与行之间 `divide-y`——**没有标题、没有块边框、没有底色**。
+ *
+ * 为什么无标题（反向引用块沿用同款区域）：行本身**自描述**——类型图标（13px、类型色）
+ * 说出这是什么类型的对象，行末状态图标说出它的状态；标题（旧「声明引用此工单的对象」）
+ * 是一句规范腔长句，不增加行所没有的信息，反而制造命名难题（任何概括词都要么太长、
+ * 要么冒领方向语义——如误写成「转入 Spark」会宣称承接关系）。无标题即无冒领面。
+ *
+ * 为什么导出为常量（单一来源纪律，`10 §5.5`）：Spark 卡（本文件的
+ * `FactAssociationsCardContent`）与 WorkCase 已关闭卡（`WorkCaseClosedSummary` 的
+ * 反向引用行）呈现的是**同一类信息**（指向别的对象的行）。两处各写一份类名时，改
+ * 一处另一处必然漂移——与行式收敛到 `FactAssociationCardRow` 是同一条纪律，故区域
+ * 类名同样单点给出。
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export const FACT_ASSOCIATION_ROWS_ZONE_CLASS = 'min-w-0 border-t border-ldvh-border/60 pt-1.5';
+
+/** 引用行的行间分割（与区域常量配套：不用 gap，间距由行的 padding 提供）。 */
+// eslint-disable-next-line react-refresh/only-export-components
+export const FACT_ASSOCIATION_ROWS_LIST_CLASS = 'divide-y divide-ldvh-border/45';
+
 function FactAssociationsCardContent({ associations, refs }: { associations?: FactCardAssociation[]; refs?: FactCardAssociation[] }) {
   const { t, locale } = useI18n();
   // 03 §7.2 分工纪律：relations（factAssociations）承载生命周期关系、refs
@@ -406,8 +429,8 @@ function FactAssociationsCardContent({ associations, refs }: { associations?: Fa
   if (visibleRows.length === 0) return null;
 
   return (
-    <section onClick={(event) => event.stopPropagation()} className="min-w-0 border-t border-ldvh-border/60 pt-1.5">
-      <div className="divide-y divide-ldvh-border/45">
+    <section onClick={(event) => event.stopPropagation()} className={FACT_ASSOCIATION_ROWS_ZONE_CLASS}>
+      <div className={FACT_ASSOCIATION_ROWS_LIST_CLASS}>
         {visibleRows.map(({ association, source }, index) => <FactAssociationCardRow key={`${source}:${association.target && 'objectUid' in association.target ? association.target.objectUid : `${association.target?.governedProjectId ?? 'unavailable'}:${association.target?.factTypeKey ?? 'unknown'}:${association.target?.objectId ?? index}`}:${index}`} association={association} locale={locale} unavailableLabel={t('objectList.associationUnavailable')} />)}
       </div>
     </section>
@@ -559,6 +582,7 @@ function FactAssociationStateIcon({ state, tooltip }: { state: FactAssociationSt
  *
  * 注意二者**不是同一批数据**、也不互相替代（`api/services/facts.ts` 的登记）：
  * `factRefs` 是**外向**（本单引用了谁），`factRefSources` 是**反向**（谁引用了本单）。 */
+// eslint-disable-next-line react-refresh/only-export-components
 // eslint-disable-next-line react-refresh/only-export-components
 export function refSourceToAssociation(source: FactRefSource): FactCardAssociation {
   return {

@@ -3,16 +3,28 @@ import { useI18n } from '@/i18n/context';
 import type { LocaleKey } from '@/i18n/locales';
 import type { ObjectItem } from '@/utils/api';
 import { stripCardMarkdown } from '@/utils/cardText';
-import { FactAssociationCardRow, refSourceToAssociation } from '@/pages/ObjectList';
+import {
+  FACT_ASSOCIATION_ROWS_LIST_CLASS,
+  FACT_ASSOCIATION_ROWS_ZONE_CLASS,
+  FactAssociationCardRow,
+  refSourceToAssociation,
+} from '@/pages/ObjectList';
 import {
   WORKCASE_CHECK_TAG_BASE,
   WORKCASE_COLLAPSED_RESIDUAL,
   WORKCASE_RESIDUAL_BLOCK_CLASS,
   WORKCASE_RESIDUAL_ROW_CLASS,
-  WORKCASE_ITEM_ROW_CLASS,
   WORKCASE_RESIDUAL_TAG_CLASS,
+  WORKCASE_DIRECTION_BLOCK_BASE_CLASS,
+  WORKCASE_DIRECTION_BLOCK_BG_CLASS,
+  WORKCASE_DIRECTION_TITLE_CLASS,
+  WORKCASE_DIRECTION_TITLE_ROW_CLASS,
+  WORKCASE_DIRECTION_GROUP_ROW_CLASS,
+  WORKCASE_DIRECTION_ROW_BULLET_CLASS,
+  WORKCASE_DIRECTION_ROW_INSET_CLASS,
   workCaseAdviceTagClass,
   workCaseDirectionRows,
+  groupDirectionRows,
 } from '@/utils/workcaseCheckState';
 
 /**
@@ -205,20 +217,26 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
       {/* ②'' 去向（`21 §8` 残留段的去向子项）：与「待批准关闭」期同一处承载。
           名称用中性「去向」——§10.2 明写批准对象只有「关闭」与 outcome，
           去向不因关闭而成为承诺，故不得写成「后续去向」一类暗示已批准的措辞。
-          块底中性：标记自带去向色，底再着色会与标记混淆。
 
           `10 §5.5`：已关闭期因残留一侧不再呈现，去向条**提升为平级行**
           （`21 §8` 要求其正文自足，正是为该期可独立阅读）——故此处用平级行样式，
-          不用开放期的缩进从属行样式。 */}
+          不用开放期的缩进从属行样式。
+
+          **2026-09-30 起按去向词分区**（Human：「接受现状提出来变成一个 title，
+          下面不再重复」+「接受现状和转入 Spark 要 2 个区域」）：去向词从**逐条重复
+          的行内标记**提为**分区标题**，每个去向词一个**独立块**，组内条目只留正文。
+          同一对象有 5 条「接受现状」时，词从屏上出现 5 次降为 1 次。
+
+          **信息未增未减**：条目数、条目顺序、条目正文与逐条呈现时逐字相同——
+          去掉的只是重复的词，这是纯粹的**去重与分区**（`21 §15.1` 呈现层不替作者
+          修正形态：不合并、不排序、不丢弃判不出词的条目）。 */}
       {advice.length > 0 && (
-        <div className="min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/45 px-2.5 py-2">
+        <div className="grid min-w-0 gap-1.5">
           {adviceNote && (
-            <div className="ldvh-meta-muted border-b border-ldvh-border/60 pb-1.5">
-              {stripCardMarkdown(adviceNote)}
-            </div>
+            <div className="ldvh-meta-muted px-0.5">{stripCardMarkdown(adviceNote)}</div>
           )}
-          {advice.map((item, index) => {
-            // 「转入 Spark」项**就地渲染为目标关联行**（`10 §5.5` 已关闭卡表）。
+          {groupDirectionRows(advice).map((group) => {
+            // 「转入 Spark」的分区标题下**就地渲染为目标关联行**（`10 §5.5` 已关闭卡表）。
             //
             // **按序配对**：第 k 条「转入 Spark」陈列第 k 条 `routed-to`。该顺序是
             // **写法约定、非机械可核验事实**（`§15.1` 明文：去向子项不携带目标标识，
@@ -231,34 +249,55 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
             //
             // 计数不一致时（`§15.1` 门禁④已拒绝该形态，故正常不可达）**不多画**：
             // 只画能配上的那几条，缺失即缺失——不猜、也不复制最后一条。
-            const transferIndex = item.kind === '转入 Spark'
-              ? advice.slice(0, index).filter((other) => other.kind === '转入 Spark').length
-              : -1;
-            const target = transferIndex >= 0 ? routedTo[transferIndex] : undefined;
+            const isSpark = group.kind === '转入 Spark';
             return (
               <div
-                key={`${item.kind ?? 'other'}-${index}`}
-                data-workcase-advice-kind={item.kind ?? 'unclassified'}
-                className={WORKCASE_ITEM_ROW_CLASS}
+                key={group.kind ?? 'unclassified'}
+                data-workcase-advice-group={group.kind ?? 'unclassified'}
+                className={`${WORKCASE_DIRECTION_BLOCK_BASE_CLASS} ${
+                  WORKCASE_DIRECTION_BLOCK_BG_CLASS[group.kind ?? ''] ?? ''
+                }`.trim()}
               >
-                <span className={`${WORKCASE_CHECK_TAG_BASE} ${workCaseAdviceTagClass(item.kind)}`}>
-                  {item.kind
-                    ? t(`objectList.workcaseAdvice.${item.kind}` as LocaleKey)
-                    : t('objectList.workcaseAdvice.unclassified')}
-                </span>
-                <span>{stripCardMarkdown(item.text)}</span>
-                {target && (
-                  <div className="mt-0.5 grid min-w-0 gap-0.5">
-                    // 行式由**统一关联行**给出（10 §5.5：同类信息只有一处行式）——
-                    // 此前本组件自建 WorkCaseRoutedToRow（图标 12px、无类型色、状态写成
-                    // 文字），与统一行（图标 13px、类型色、行末状态图标）不一致。
-                    <FactAssociationCardRow
-                      association={target}
-                      locale={locale}
-                      unavailableLabel={t('objectList.workcaseRoutedToUnavailable')}
-                    />
-                  </div>
-                )}
+                <div className={WORKCASE_DIRECTION_TITLE_ROW_CLASS}>
+                  <span
+                    className={`${WORKCASE_DIRECTION_TITLE_CLASS} ${workCaseAdviceTagClass(group.kind)}`}
+                  >
+                    {group.kind
+                      ? t(`objectList.workcaseAdvice.${group.kind}` as LocaleKey)
+                      : t('objectList.workcaseAdvice.unclassified')}
+                  </span>
+                </div>
+                {group.rows.map((item, index) => {
+                  const target = isSpark ? routedTo[index] : undefined;
+                  return (
+                    <div
+                      key={`${item.kind ?? 'other'}-${index}`}
+                      data-workcase-advice-kind={item.kind ?? 'unclassified'}
+                      className={`${WORKCASE_DIRECTION_ROW_INSET_CLASS} ${WORKCASE_DIRECTION_GROUP_ROW_CLASS}`}
+                    >
+                      {/* 项目符号：去向词提到块首后，组内各条只剩正文，行首若无符号会
+                          彼此糊成一段（原来行首的标记顺带起了分隔作用）。用与标记同族的
+                          小圆点，纯装饰、不承载语义，故 aria-hidden。
+                          绝对定位摆放（不是 flex 流内元素）：间距与垂直位置各由一处决定，
+                          不出现「gap 与 margin 叠加」「符号偏高」两个已实测的偏差——取值
+                          依据见 `WORKCASE_DIRECTION_ROW_BULLET_CLASS` 的登记。 */}
+                      <span aria-hidden="true" className={WORKCASE_DIRECTION_ROW_BULLET_CLASS} />
+                      <span>{stripCardMarkdown(item.text)}</span>
+                      {target && (
+                        <div className="mt-0.5 grid min-w-0 gap-0.5">
+                          {/* 行式由**统一关联行**给出（10 §5.5：同类信息只有一处行式）——
+                              此前本组件自建 WorkCaseRoutedToRow（图标 12px、无类型色、状态写成
+                              文字），与统一行（图标 13px、类型色、行末状态图标）不一致。 */}
+                          <FactAssociationCardRow
+                            association={target}
+                            locale={locale}
+                            unavailableLabel={t('objectList.workcaseRoutedToUnavailable')}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
@@ -267,16 +306,22 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
 
       {/* ③ 反向普通引用：只呈现「哪些可读事实对象声明引用了本 WC」。
           这是实时反查得到的可见性线索，不是建议履行、语义覆盖或关闭证明。
-          不与上面的 outgoing factRefs / formal relations 合并。 */}
+          不与上面的 outgoing factRefs / formal relations 合并。
+
+          **无标题、无块边框（Human 2026-09-30：「那就不要标题，学习 spark 的做法」）**：
+          区域形态与 Spark 卡的引用区**同一处来源**（`FACT_ASSOCIATION_ROWS_ZONE_CLASS`／
+          `FACT_ASSOCIATION_ROWS_LIST_CLASS`，在 `ObjectList.tsx` 单点给出）——顶部分割线
+          + 行间分割线，没有标题、没有块边框、没有底色。
+
+          为什么去掉标题：行本身**自描述**（类型图标说出对象类型、行末状态图标说出状态），
+          旧标题「声明引用此工单的对象」是一句规范腔长句，不增加行所没有的信息，却制造
+          命名难题——任何概括词要么太长、要么冒领方向语义（如误写成「转入 Spark」会宣称
+          本单残留已转入该 Spark，而它的承载是**本单的** `relations.routed-to`；反向引用
+          是**别人**的 `refs`，方向相反，见 `10 §5.5` 与 `api/services/facts.ts` 的登记）。
+          无标题即无冒领面。 */}
       {refSources.length > 0 && (
-        <div
-          data-workcase-ref-sources
-          className="min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/45 px-2.5 py-2"
-        >
-          <div className="ldvh-meta-muted border-b border-ldvh-border/60 pb-1.5">
-            {t('objectList.workcaseRefSources')}
-          </div>
-          <div className="mt-0.5 grid min-w-0 gap-0.5">
+        <section data-workcase-ref-sources className={FACT_ASSOCIATION_ROWS_ZONE_CLASS}>
+          <div className={FACT_ASSOCIATION_ROWS_LIST_CLASS}>
             {refSources.map((source) => (
               // 行式由**统一关联行**给出（Human 2026-09-30：「学习 spark 的引用方案」）——
               // 此前本组件自建一套行式，与 Spark/关联块不一致。此处只做形状适配。
@@ -288,7 +333,7 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
               />
             ))}
           </div>
-        </div>
+        </section>
       )}
     </div>
   );
