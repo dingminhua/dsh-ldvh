@@ -91,6 +91,14 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: Gate 2 关闭：Human 裁定 9208ce82 判 completed——三条判据逐条核对为达成（原文可得性核实、yaml_source 投影与前端类型同步、回归与 dist 重建），残留 5 项与去向建议 5 条随结果节落盘 [gate_2 closed with outcome=completed; attempt 1 retracted]
+  - at: 2026-09-30T00:09:54.727Z
+    provider: trae
+    model: deepseek-v4.1-flash
+    summary: 事实更正（非状态转换）——存量迁移：去向由分离式并入合并式（21 §8），退役去向词按 Human 裁决改写为「接受现状」并写明原意向与现状。终态判定未变：status/outcome/result/gate_1/attempt/plan/scope/reviews 逐字继承落盘对象（本入口不接收 frontmatter，故改动在结构上不可能），仅正文重写。依 21 §9.2「若原终态记录本身错误，按事实更正规则修正，不把更正伪装成领域状态转换」与 03 §9.5，经 Human 授权：Human 于 2026-09-30 经三问选择裁定存量迁移口径：① 范围＝只迁甲类 7 份（2be11478、52314cf8、8f4742f5、9208ce82、954a9867、ccc2b91c、d5273e1c），乙类 5 份与丙类 2 份保持原样；② 措辞＝写明原意向 + 现状 + 本单不再跟踪；③ 一并更正 specs/21 §15.3 与实测不符的登记。
+  - at: 2026-09-30T00:58:20.318Z
+    provider: trae
+    model: deepseek-v4.1-flash
+    summary: 事实更正（非状态转换）——补回改写时丢失的原文风险句（轻量 smoke 断言 + 「无 open 对象则整套必红」），并写明该风险现已实现。终态判定未变：status/outcome/result/gate_1/attempt/plan/scope/reviews 逐字继承落盘对象（本入口不接收 frontmatter，故改动在结构上不可能），仅正文重写。依 21 §9.2「若原终态记录本身错误，按事实更正规则修正，不把更正伪装成领域状态转换」与 03 §9.5，经 Human 授权：Human 于 2026-09-30 授权存量迁移（口径：写明原意向 + 现状 + 本单不再跟踪），并于同日复核后授权把改写时丢失的原文风险句补回（原文「另留一条轻量 smoke 断言做真实数据核对；否则本仓一旦没有 open 对象，整套用例必红，长期红会训练读者忽略它」）。
 ---
 
 # goal 路由补 yaml_source 投影
@@ -142,19 +150,16 @@ change_log:
 - achieved_scope: goal 详情页的 YAML 源节点改由服务端投影的 frontmatter 原文呈现——GET /api/cognition/goal 新增 `yaml_source`（逐字透传读取层已解析的原文）、前端 CognitionGoalData 类型同步、新增契约测试两条断言、Web 产物 dist 重建。八类事实对象（含 goal 单例）的 YAML 节点由此不再有重建兜底例外。
 - residual:
   - **关闭动作会抽空四条投影守卫的唯一输入**：plugin/web/tests/api/workcase-projection-fidelity.test.ts 的四条空转守卫以「仓内存在 open 对象」为判别力前提——:307（D5「attempt.session_id 在投影后存活」，要求至少一个真实对象的 attempt 带 session_id）、:383（「open 对象的 reviews 必须完整投影」）、:416（「待批准关闭：核对与建议必须投影到位」）、:655（「待批准关闭：正文残留逐条投影」）。全仓 21 个 WorkCase 中只有本单处于 open（16 closed / 4 draft），而 attempt 只在 open 期存在，故 close 收口 attempt、翻转 status 后四条守卫同时失去输入。本会话在隔离副本上按关闭路径的写入效果（status→closed、attempt 收口、outcome 与 result 落字段）模拟后实测 370/374，四红项即上述四条；同一副本仅补本结果节（仍 open）时为 374/374。故本单现状 1 红（:416，因正文缺结果节而 checked 为空）→ 补结果节后 0 红 → 关闭后 4 红。该结果与四条守卫自身的判别力设计有关，不因本单实现改动而生。
+    - **接受现状**：原拟另立工单处置（把这四条守卫改为以夹具自证，合成输入覆盖 open 期的 attempt、reviews、结果节投影，不再以「仓内是否存在 open 对象」为判别力前提，**另留一条轻量 smoke 断言做真实数据核对**）；**原文所记风险现已实现**——本单关闭后仓内 open 对象归零（18 closed／5 draft／0 open），四条守卫即因「必须至少核对一个带 reviews 的 open 对象，否则本守卫是空转」而全红（plugin/web/tests/api/workcase-projection-fidelity.test.ts），正是原文「否则本仓一旦没有 open 对象，整套用例必红，长期红会训练读者忽略它」所指的情形；至今未处置，本单不再跟踪。
   - **dist 仅本机机械验证且未纳入版本控制**：hash 变化与二次重建一致性可查，但 plugin/web/dist 被 .gitignore 排除，构建来源无法由第三方溯源自本次提交。
+    - **接受现状**：继续以「本机重建 + hash 对照」验证 dist，不把产物纳入版本控制。
   - **d2e9321 消息第 2 项过度声明**：称「去掉类型例外分支」，实为注释改写；a29d3de 已以更正记录留痕（按 03 §6.1 不追溯改写历史提交）。
+    - **接受现状**：不追溯改写 d2e9321，以 a29d3de 的更正记录为事实披露。
   - **前端类型声明非承载**：plugin/web/src/utils/api.ts:648 的字段存在，但 GoalDetail 经 `as unknown as Record<string, unknown>` 消费，删该字段 tsc 仍退 0；判别力来自 a29d3de 把它收敛为 CognitionGoalData 块内断言。
+    - **接受现状**：类型声明保持弱同步，判别力由契约测试承担，不追加类型层门禁。
   - **独立复核未覆盖范围未由本次补足**：CRLF 归一、frontmatter 内含 `---` 行、goal.md 缺失与不可读分支、浏览器端实际渲染、多项目载器均未验证。
-
-- 建议 outcome：completed——理由：三条判据的核对结论均为「达成」，按 21 §9.3 `completed` 要求每条 `criteria_checks` 判为达成，本单无支撑 `partial` 的未达成项；上述残留均为去向事项（另立工单或接受现状），不构成本单判据的未达成。
-
-- advice:
-  - **另立工单**：把这四条守卫改为以夹具自证（合成输入覆盖 open 期的 attempt、reviews、结果节投影），不再以「仓内是否存在 open 对象」为判别力前提，另留一条轻量 smoke 断言做真实数据核对；否则本仓一旦没有 open 对象，整套用例必红，长期红会训练读者忽略它。出自「关闭动作会抽空四条投影守卫的唯一输入」
-  - **接受现状**：继续以「本机重建 + hash 对照」验证 dist，不把产物纳入版本控制。出自「dist 仅本机机械验证且未纳入版本控制」
-  - **接受现状**：不追溯改写 d2e9321，以 a29d3de 的更正记录为事实披露。出自「d2e9321 消息第 2 项过度声明」
-  - **接受现状**：类型声明保持弱同步，判别力由契约测试承担，不追加类型层门禁。出自「前端类型声明非承载」
-  - **接受现状**：上述未覆盖范围留待后续实际使用中发现问题。出自「独立复核未覆盖范围未由本次补足」
+    - **接受现状**：上述未覆盖范围留待后续实际使用中发现问题。
+- 建议 outcome：completed——理由：三条判据的核对结论均为「达成」，按 21 §9.3 `completed` 要求每条 `criteria_checks` 判为达成，本单无支撑 `partial` 的未达成项；上述残留均为去向事项（均落「接受现状」），不构成本单判据的未达成。
 
 - 关闭后的后续方向（整单一条）：本单关闭后「事实对象详情页 YAML 节点呈现」这条线不再有待办——含 goal 在内的八类源节点均走原文优先；后续若要把 YAML 节点纳入字段级治理、或其呈现规则需要变更，须另立对象承接，不因本单关闭而获得批准。
 

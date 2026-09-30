@@ -137,6 +137,10 @@ change_log:
     provider: deepseek-account
     model: deepseek-flash
     summary: 关闭：四项判据均达成并逐条附证据；1 条独立复核已由 Code 盖戳录入 reviews；4 条残留各自标定去向 [gate_2 closed with outcome=completed; attempt 1 retracted]
+  - at: 2026-09-30T00:09:55.233Z
+    provider: trae
+    model: deepseek-v4.1-flash
+    summary: 事实更正（非状态转换）——存量迁移：去向由分离式并入合并式（21 §8），退役去向词按 Human 裁决改写为「接受现状」并写明原意向与现状。终态判定未变：status/outcome/result/gate_1/attempt/plan/scope/reviews 逐字继承落盘对象（本入口不接收 frontmatter，故改动在结构上不可能），仅正文重写。依 21 §9.2「若原终态记录本身错误，按事实更正规则修正，不把更正伪装成领域状态转换」与 03 §9.5，经 Human 授权：Human 于 2026-09-30 经三问选择裁定存量迁移口径：① 范围＝只迁甲类 7 份（2be11478、52314cf8、8f4742f5、9208ce82、954a9867、ccc2b91c、d5273e1c），乙类 5 份与丙类 2 份保持原样；② 措辞＝写明原意向 + 现状 + 本单不再跟踪；③ 一并更正 specs/21 §15.3 与实测不符的登记。
 ---
 
 # WorkCase 承接回指的机械承载
@@ -204,14 +208,12 @@ change_log:
 - achieved_scope：`specs/21` 六处登记 WorkCase `refs` 采用声明与校验口径；`workcase-writer.js` 接入 `refs` 形状校验、目标解析与两种零写入拒绝错误码，并把形状校验前置到 `serves`/`relations`/`refs` 解析之前；`workcase-tools.js` 与 `factFieldContract.ts` 同步；Web 侧新增反向来源索引 `factRefSources`（只在 WorkCase 卡呈现，只表达「谁声明引用了本单」，不表达建议履行、语义覆盖、获批或闭环）；新增契约测试覆盖正向解析、反向可枚举、标题缺失不伪造、列表与详情一致、五种非法形状拒绝，以及生命周期写入中的保全与重批再校验。
 - residual:
   - `refs` 在调用方 `frontmatter_after` 未携带时被静默写为 `undefined`（`plugin/lib/workcase-writer.js:1915` 的 payload 权威），实测一次心跳即清除该关联；同形态对 `relations`/`serves`/`summary` 等既有内容字段同样成立，属既有内容字段契约，本单未处置。
+    - **接受现状**：原拟另立工单处置（把 refs 在 payload 省略时被静默清除的问题，与 relations／serves／summary 的同类形态一并收敛，统一为省略即保留落盘值、或统一为必须显式传递）；至今未处置，本单不再跟踪。
   - 反向枚举只覆盖当前工作树（`currentProjectFactRefSources` 走 `listLocalFacts`），跨工作树的外来对象即便声明 `refs` 也不进反向索引。
+    - **接受现状**：原拟另立工单处置（为 facts.ts 的跨工作树外来项投影分支补夹具级测试，并一并决定反向枚举是否应覆盖跨工作树外来声明）；至今未处置，本单不再跟踪。
   - `plugin/web/api/services/facts.ts` 的跨工作树外来项投影分支（每作用域 `foreignIndexes` 缓存）无夹具级测试覆盖。
+    - **接受现状**：跨工作树投影分支与反向范围边界按现有 21／03 登记口径留待出现真实跨工作树承接需求时再定。
   - 执行期实测一次外部回退：`specs/21` 六处登记被整体还原为 HEAD 内容（2026-09-27T20:23:17 原子替换、新 inode），原因未查明；同工作树存在并发写入会话，HEAD 于执行期被其他执行者推进到 `389c575`。Human 已停止其他并发工作、六处亦已在 `389c575` 基线上重新登记，但机制缺口未变化——本单改动仍未提交，无机械护栏阻止未提交的已授权产物再被回退。
+    - **接受现状**：原拟直接行动处置（由 Human 决定是否把本单未提交的改动经受控提交固化，以降低再次被并发回退的风险）；该决定权归 Human，至今未处置，本单不再跟踪。
 - 后续方向：本单只完成机械前提——承接对象可用 `refs` 指向来源工单、消费方按需反查来源；若要让「承接即登记回指」成为关闭后的常规动作，还需在 21 号另立操作性约定（何时应写、写在何处、漏写如何被发现），该约定不在本单授权范围内。
-
-- advice:
-  - **另立工单**：把 refs 在 payload 省略时被静默清除的问题，与 relations／serves／summary 的同类形态一并收敛（统一为省略即保留落盘值，或统一为必须显式传递）。出自「refs 在调用方 frontmatter_after 未携带时被静默写为 undefined」
-  - **另立工单**：为 facts.ts 的跨工作树外来项投影分支补夹具级测试，并一并决定反向枚举是否应覆盖跨工作树外来声明。出自「反向枚举只覆盖当前工作树」
-  - **接受现状**：跨工作树投影分支与反向范围边界按现有 21／03 登记口径留待出现真实跨工作树承接需求时再定。出自「facts.ts 的跨工作树外来项投影分支无夹具级测试覆盖」
-  - **直接行动**：由 Human 决定是否把本单未提交的改动经受控提交固化（06 §6.2 预检 + Git Gate），以降低再次被并发回退的风险；是否另设「提交前差异守卫」不在本单授权范围，可由 Human 另行分流。出自「执行期实测一次外部回退」
 

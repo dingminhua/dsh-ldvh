@@ -134,6 +134,10 @@ change_log:
     provider: deepseek-account
     model: deepseek-flash
     summary: Gate 2 关闭：outcome=partial —— 五项判据四项达成，第 4 项含一处按 00 §4.4 交还 open Spark 71930c4a 裁定的未执行事项 [gate_2 closed with outcome=partial; attempt 1 retracted]
+  - at: 2026-09-30T00:17:39.639Z
+    provider: trae
+    model: deepseek-v4.1-flash
+    summary: 事实更正（非状态转换）——存量迁移：去向由分离式并入合并式（21 §8），退役去向词按 Human 裁决改写为「接受现状」并写明原意向与现状。终态判定未变：status/outcome/result/gate_1/attempt/plan/scope/reviews 逐字继承落盘对象（本入口不接收 frontmatter，故改动在结构上不可能），仅正文重写。依 21 §9.2「若原终态记录本身错误，按事实更正规则修正，不把更正伪装成领域状态转换」与 03 §9.5，经 Human 授权：Human 于 2026-09-30 经三问选择裁定存量迁移口径：① 范围＝只迁甲类 7 份（2be11478、52314cf8、8f4742f5、9208ce82、954a9867、ccc2b91c、d5273e1c），乙类 5 份与丙类 2 份保持原样；② 措辞＝写明原意向 + 现状 + 本单不再跟踪；③ 一并更正 specs/21 §15.3 与实测不符的登记。
 ---
 
 # Spark 授权门禁与 20 号一致性修复
@@ -236,7 +240,7 @@ host-seams.js 新增该 seam 与 `SPARK_CONSENT_QUESTION_ID`/`SPARK_CONSENT_LABE
 
 ### Gate 2 提请
 
-- 逐条核对结论见下 `criteria_checks`；已证实范围见 `achieved_scope`；残留风险与逐条去向见 `residual` 与 `advice`。
+- 逐条核对结论见下 `criteria_checks`；已证实范围见 `achieved_scope`；残留风险与逐条去向见 `residual` 段（去向为各条残留之下的子项）。
 - 未证实范围：未运行浏览器实机渲染；未对 specs/20 修订文本与 01 §12 审核记录做逐字复核以外的旁证；存量 45 个 Spark 按 Human 决定不后补凭据，其授权状态仍无可回读的机械凭据。
 - 建议 outcome：**partial**。授权内五项中四项达成，第四项含一处按 00 §4.4 未执行并已交还 open Spark 裁定的事项，依据见第 4 条。
 
@@ -251,11 +255,9 @@ host-seams.js 新增该 seam 与 `SPARK_CONSENT_QUESTION_ID`/`SPARK_CONSENT_LABE
 
 - residual:
   - §11 关系 open 约束的表述未由本单收口——该事项已由 open Spark 71930c4a 的缺口二及其三个互斥待判候选举承载，按 00 §4.4 保持暂停
+    - **接受现状**：原拟转入 Spark 承载（方向未定的事项交由其承载对象裁定，本单不代为取舍）；该事项现由 open Spark 71930c4a 的缺口二及其三个互斥待判候选举承载，但本单改写时 correct 通道不接收 frontmatter、无法补写 routed-to（21 §15.3 已登记此限制），故如实登记原意向与承载对象，本单不再跟踪。
   - 复核条目 76c219c7 的 P3 所记风险未处置：plugin/lib/child.js:37 的 RETIRED_LIMIT 淘汰与插件重载清空叠加，可使委托链登记表索引中的结论变得不可回读（本单 reviews 账本不受该上限影响，风险限于委托链索引）
+    - **接受现状**：原拟另立工单处置（为委托链登记表的淘汰与重载清空叠加上限补一条可证守护，或明确该路径不可达）；至今未处置，本单不再跟踪。
   - 执行节原记「基线 946／新增 12」不可复现（隔离副本实测 935→958，净增 23）；提交 26be321 信息中「含新增 47 项」易被读作净新增。两处均属已发出的历史记录，只能更正、不能回改
-
-- advice:
-  - **转入 Spark**：方向未定的事项交由其承载对象裁定，本单不代为取舍出自「§11 关系 open 约束的表述未由本单收口」
-  - **另立工单**：为委托链登记表的淘汰与重载清空叠加上限补一条可证守护，或明确该路径不可达出自「复核 P3 所记风险未处置」
-  - **接受现状**：历史提交信息与当时计数既不可改写也不影响后续判读，保持原样并在本结果节保留更正依据出自「原记计数不可复现、提交措辞歧义」
+    - **接受现状**：历史提交信息与当时计数既不可改写也不影响后续判读，保持原样并在本结果节保留更正依据
 
