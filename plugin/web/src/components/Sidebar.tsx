@@ -36,7 +36,6 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
   { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog },
   // 帮助=带钉地图（导览/漫游指南；Human 定案 2026-09-12 终选——历经
   // CircleHelp→MapPinned→单独问号→回到 MapPinned）。
-  { to: '/showcase', labelKey: 'nav.showcase', icon: MapPinned },
   { to: '/help', labelKey: 'nav.help', icon: MapPinned },
 ];
 

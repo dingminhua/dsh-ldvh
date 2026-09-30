@@ -92,9 +92,13 @@ function StatusReasonNote({ reason }: { reason: StatusReason }) {
 
 /** 21 号三态直读列表 Card 主体（v5）。按 obj.group 分流 draft/open/closed 呈现。
  *
- * **导出给展示台复用**（`/showcase`）：展示台必须渲染**同一条装配路径**，否则它的样式
- * 与正式列表必然漂移——手写 HTML 的演示页正是栽在这里（Human 2026-09-30：「演示页面的
- * 样式和正式的有差距，导致我不敢用」）。故装配只此一份，展示台只做「取数 + 排布」。 */
+ * **单一装配路径**：卡体只此一处装配，调用方不得自行拼 `ObjectCardFrame` + 卡体——
+ * 两处装配时任何一处漏改都会让卡片形态漂移（仓内实测过一次：手写 HTML 的演示页因
+ * 样式仿造而与正式列表有差距，Human 2026-09-30 据此拒绝使用该演示页）。
+ *
+ * **导出面（2026-09-30 收窄）**：本函数曾为「展示台」路由（`/showcase`）导出——
+ * 该路由已于 2026-09-30 按 Human 裁定**整体删除**，导出改为仅供本文件内的
+ * `WorkCaseListCard` 与测试消费。 */
 export function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate }) {
   const group = obj.group ?? null;
   // 10 §5.5「卡面与详情的字段分工」：卡体**首行恒为 `gist`**，四个派生组一致。
@@ -181,10 +185,13 @@ export function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate
   );
 }
 
-/** workcase 卡片的**唯一装配点**（正式列表与展示台共用）。
+/** workcase 卡片的**唯一装配点**（列表网格与收件箱共用）。
  *
- * 展示台若自行拼 `ObjectCardFrame` + 卡体，就会成为第二条装配路径——两处任何一处漏改
- * 都会让展示台与正式列表不一致（这正是「演示页不可信」的根因）。故抽到此处单一出口。 */
+ * 任何调用方若自行拼 `ObjectCardFrame` + 卡体，就会成为第二条装配路径——两处任何一处
+ * 漏改都会让两处的卡片不一致（这正是仓内「演示页不可信」的根因）。故抽到此处单一出口。
+ *
+ * **沿革**：本函数此前另有一个消费方——「展示台」路由（`/showcase`），已于 2026-09-30
+ * 按 Human 裁定整体删除；单一装配出口的纪律不因该路由消失而放松。 */
 // eslint-disable-next-line react-refresh/only-export-components
 export function WorkCaseListCard({
   obj,
@@ -1033,7 +1040,7 @@ export default function ObjectList() {
   const renderObjectCard = (obj: ObjectItem) => {
 
     if (currentType === 'workcase') {
-      // 与展示台共用同一装配点（见 WorkCaseListCard）——两处若各拼一遍，样式必然漂移。
+      // 唯一装配点（见 WorkCaseListCard）——就地再拼一遍会让两处样式漂移。
       return <WorkCaseListCard key={obj.id} obj={obj} locale={locale} onOpen={openObject} />;
     }
 
