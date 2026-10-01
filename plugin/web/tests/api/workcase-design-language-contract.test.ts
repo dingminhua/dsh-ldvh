@@ -800,6 +800,10 @@ test('残留块逐条加标记，且排在去向之上（两块卡一致）', ()
   const stateModule = readSource('web/src/utils/workcaseCheckState.ts');
   const closed = readSource('web/src/components/WorkCaseClosedSummary.tsx');
   const draft = readSource('web/src/components/WorkCaseResultDraft.tsx');
+  // **2026-09-30 修订（Human 甲裁定）**：本条的适用面由「两块卡」收窄为**一块**——
+  // 已关闭卡（`WorkCaseClosedSummary`）的残留块已**整块删除**，故它不再有残留条目可标。
+  // 原断言「两块卡一致」在删块后变成**空转要求**（逼实现留一个不用的 import 骗过守卫）。
+  // 残留块的呈现现归「待批准关闭」卡独有（`10 §5.5` 两期分岔），已关闭卡则反向钉住其缺席。
 
   // ① 标记色类在共享模块登记（着色单一来源）
   assert.match(
@@ -808,38 +812,36 @@ test('残留块逐条加标记，且排在去向之上（两块卡一致）', ()
     '残留标记色类须在共享模块登记',
   );
 
-  // ② 两块卡的残留块**逐条**都带标记——不是块首标一次
-  for (const [name, src] of [['WorkCaseClosedSummary', closed], ['WorkCaseResultDraft', draft]] as const) {
-    assert.match(
-      src,
-      /WORKCASE_RESIDUAL_TAG_CLASS/,
-      `${name} 的残留条目须带标记`,
-    );
-    assert.match(
-      src,
-      /workcaseResidualTag/,
-      `${name} 的残留标记须取 i18n 词条（不得写死文字）`,
-    );
-  }
+  // ② 待批准关闭卡的残留块**逐条**都带标记——不是块首标一次
+  assert.match(draft, /WORKCASE_RESIDUAL_TAG_CLASS/, 'WorkCaseResultDraft 的残留条目须带标记');
+  assert.match(
+    draft,
+    /workcaseResidualTag/,
+    'WorkCaseResultDraft 的残留标记须取 i18n 词条（不得写死文字）',
+  );
+  // 反向：已关闭卡不得再有残留标记（甲裁定删块；回归即变红）。
+  assert.doesNotMatch(
+    closed,
+    /WORKCASE_RESIDUAL_TAG_CLASS|workcaseResidualTag/,
+    'WorkCaseClosedSummary 不得再现残留标记（残留块已整块删除，Human 甲裁定）',
+  );
 
-  // ③ 块序：残留块的位置必须在去向块**之前**（两块卡一致）。
+  // ③ 块序：待批准关闭卡的残留块位置必须在去向块**之前**（该卡仍两块并存）。
   //
   // 判据取 **JSX 使用点**（`className={...}` / `${...}` 插值），不取 `indexOf(常量名)`
   // ——后者会命中文件顶部的 **import 语句**（其位置恒定），故「顺序颠倒」时会**逃逸**
   // （本条首版就如此，实测变异未被捕获）。
-  for (const [name, src] of [['WorkCaseClosedSummary', closed], ['WorkCaseResultDraft', draft]] as const) {
-    const residualAt = src.indexOf('className={WORKCASE_RESIDUAL_BLOCK_CLASS}');
-    const adviceAt = src.search(/\$\{workCaseAdviceTagClass\(/);
-    assert.ok(
-      residualAt >= 0,
-      `${name}: 未找到残留块的使用点（判据须匹配 JSX 使用，而非 import）`,
-    );
-    assert.ok(adviceAt >= 0, `${name}: 未找到去向标记的使用点`);
-    assert.ok(
-      residualAt < adviceAt,
-      `${name}: 残留块须排在去向块之上（残留使用点 ${residualAt} / 去向使用点 ${adviceAt}）`,
-    );
-  }
+  const residualAt = draft.indexOf('className={WORKCASE_RESIDUAL_BLOCK_CLASS}');
+  const adviceAt = draft.search(/\$\{workCaseAdviceTagClass\(/);
+  assert.ok(
+    residualAt >= 0,
+    'WorkCaseResultDraft: 未找到残留块的使用点（判据须匹配 JSX 使用，而非 import）',
+  );
+  assert.ok(adviceAt >= 0, 'WorkCaseResultDraft: 未找到去向标记的使用点');
+  assert.ok(
+    residualAt < adviceAt,
+    `WorkCaseResultDraft: 残留块须排在去向块之上（残留使用点 ${residualAt} / 去向使用点 ${adviceAt}）`,
+  );
 });
 
 // 计划清单的容器（Human 2026-09-24 裁定，方案 ③）。

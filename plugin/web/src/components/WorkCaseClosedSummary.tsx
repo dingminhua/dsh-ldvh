@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useI18n } from '@/i18n/context';
 import type { LocaleKey } from '@/i18n/locales';
 import type { ObjectItem } from '@/utils/api';
@@ -10,11 +9,6 @@ import {
   refSourceToAssociation,
 } from '@/pages/ObjectList';
 import {
-  WORKCASE_CHECK_TAG_BASE,
-  WORKCASE_COLLAPSED_RESIDUAL,
-  WORKCASE_RESIDUAL_BLOCK_CLASS,
-  WORKCASE_RESIDUAL_ROW_CLASS,
-  WORKCASE_RESIDUAL_TAG_CLASS,
   WORKCASE_DIRECTION_BLOCK_BASE_CLASS,
   WORKCASE_DIRECTION_BLOCK_BG_CLASS,
   WORKCASE_DIRECTION_TITLE_CLASS,
@@ -105,9 +99,7 @@ export interface WorkCaseClosedSummaryProps {
 
 export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseClosedSummaryProps) {
   const { t, locale } = useI18n();
-  const [expanded, setExpanded] = useState(false);
 
-  const residual = Array.isArray(obj.result?.residual) ? obj.result.residual : [];
   const cancellation = obj.cancellation ?? null;
   // 去向（`21 §8` 残留段的**去向子项**）：与「待批准关闭」期**同一处承载**（正文，关闭
   // 不删正文）。语义是「提请时如实说明的打算」，**不因关闭而被批准**（§10.2，Human
@@ -127,24 +119,24 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
     ? obj.factAssociations.filter((association) => association.relationKey === 'routed-to')
     : [];
 
-  // 决定 A 的**条件豁免**（`10 §5.5` / `21 §15.3`）：判据由投影层单点算出，与详情面
-  // 同源。**只在为 `true` 时**收窄——`false` 时如实保留残留块，否则存量那 22 条当年
-  // 就没有去向的残留会从卡面静默消失（`§15.3` 明文禁止该后果）。
+  // **残留块已整块删除（Human 裁定 2026-09-30，方案甲）**：已关闭卡**一律不呈现**
+  // 独立的残留块——「到了已关闭，就不应该有单独残留的信息了，应该都是被消化的信息，
+  // 要么有 Spark 接盘，要么接受现状」（Human 原话）。此前本组件由
+  // `!narrowsResidual && residual.length > 0` 门控着一块条件豁免残留块（`10 §5.5` 的
+  // 条件豁免段已于 2026-09-29 删除，实现当日未跟上，本条即该对齐）。
   //
-  // 判据缺失（`undefined`）时**按不收窄处理**（fail closed）：未知不等于满足前提。
-  const narrowsResidual = obj.closure_narrows_residual === true;
+  // **不渲染 ≠ 删除信息**：`result.residual` 仍在载体与投影中（事实不丢）；其文本在
+  // 详情面（`10 §5.3`）与正文「## 结果」节仍完整可读，丢失的只是**卡面可见性**——
+  // 与条件豁免段删除时登记的后果同口径（specs/10 该条：由 Human 一并接受）。
+  // `closure_narrows_residual` 投影字段仍由详情面消费（判据同源，不受本删除影响）。
 
   if (
     cancellation === null &&
-    residual.length === 0 &&
     advice.length === 0 &&
     refSources.length === 0
   ) {
     return null;
   }
-
-  const hidden = Math.max(0, residual.length - WORKCASE_COLLAPSED_RESIDUAL);
-  const visibleResidual = expanded ? residual : residual.slice(0, WORKCASE_COLLAPSED_RESIDUAL);
 
   return (
     <div className={`${className} grid min-w-0 gap-1.5`.trim()}>
@@ -178,41 +170,6 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
           计划步骤名与「计划」重复、状态由**卡头 outcome 徽标**与**去向块**表达，读者
           无须在关闭卡上再数一遍。核对结果与证据仍完整呈现在**语义详情**（10 §5.3）；
           去掉的是同一批信息的**第二次呈现**，不等于核对未发生。 */}
-
-      {/* ② 残留——**条件豁免成立时保留**（`10 §5.5`「条件豁免」/`21 §15.3`）。
-          决定 A 规定关闭后只呈现去向，但 A 以「该对象每条残留都带有去向子项」为前提；
-          存量分离式对象不满足该前提（实测 6 份的建议段条数少于 residual 长度、合计
-          22 条残留当年就没有去向，且补写即属编造），若一律隐藏，那些残留会从卡面
-          **静默消失**。故此处只在 `narrowsResidual === false` 时渲染本块。
-          Human 2026-09-24 裁定排在去向之上：残留是「还剩什么」、去向是「打算怎么办」；
-          先陈述事实、再给去向。 */}
-      {!narrowsResidual && residual.length > 0 && (
-        <div className={WORKCASE_RESIDUAL_BLOCK_CLASS}>
-          {visibleResidual.map((item, index) => (
-            <div
-              key={index}
-              className={WORKCASE_RESIDUAL_ROW_CLASS}
-            >
-              {/* 与核对、去向一致的「[标记] 正文」行结构（Human 裁定逐条加标记） */}
-              <span className={`${WORKCASE_CHECK_TAG_BASE} ${WORKCASE_RESIDUAL_TAG_CLASS}`}>
-                {t('objectList.workcaseResidualTag')}
-              </span>
-              <span>{stripCardMarkdown(typeof item === 'string' ? item : String(item))}</span>
-            </div>
-          ))}
-          {hidden > 0 && (
-            <button
-              type="button"
-              onClick={() => setExpanded((current) => !current)}
-              className="ldvh-meta-muted mt-1 block cursor-pointer text-left hover:text-ldvh-text-primary"
-            >
-              {expanded
-                ? t('objectList.workcaseFlowCollapse')
-                : t('objectList.workcaseFlowMore', { count: String(hidden) })}
-            </button>
-          )}
-        </div>
-      )}
 
       {/* ②'' 去向（`21 §8` 残留段的去向子项）：与「待批准关闭」期同一处承载。
           名称用中性「去向」——§10.2 明写批准对象只有「关闭」与 outcome，

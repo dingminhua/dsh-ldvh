@@ -19,7 +19,7 @@ import WorkCaseGistLine from '@/components/WorkCaseGistLine';
 import WorkCaseExecFlow from '@/components/WorkCaseExecFlow';
 import WorkCaseResultDraft from '@/components/WorkCaseResultDraft';
 import WorkCaseClosedSummary from '@/components/WorkCaseClosedSummary';
-import WorkCaseOutcomeBadge from '@/components/WorkCaseOutcomeBadge';
+import WorkCaseClosedStatusBadge from '@/components/WorkCaseClosedStatusBadge';
 import { fetchCognitionGoal, fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type FactRefSource, type ObjectItem, type ObjectStatusOption, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
 import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeDescription, getTypeLabel } from '@/i18n/locales';
@@ -253,6 +253,13 @@ export function ObjectCardFrame({
   // 20 §9：Spark 状态闭集直接呈现（open/implemented/discarded）——v4 从关联
   // 推导 settled/unclosed 展示态的逻辑已随规范移除。
   const presentedStatus = displayStatus ?? obj.status;
+  // 「已关闭」的 WorkCase 用**合并徽标**（状态词 + 中心圆点 + 结论词，Human 裁定 2026-09-30）。
+  //
+  // 三个条件同时成立才算：① 类型是 workcase（只改 wc 的已关闭卡）；② 状态是 closed
+  // （draft/open 无 `outcome` 可合并）；③ `outcome` 确实存在（缺它时合并徽标无从取值，
+  // 按 fail-safe 回落默认状态徽标——宁可不合并，也不画一枚只有状态词的半成品）。
+  const isWorkCaseClosed =
+    obj.type === 'workcase' && presentedStatus === 'closed' && typeof obj.outcome === 'string';
   const typeColor = CATEGORY_COLORS[obj.type] || CATEGORY_COLORS.other;
   const activityCount = Array.isArray(obj.change_log) ? obj.change_log.length : 0;
   const nonActiveReason = getNonActiveReason(obj, t);
@@ -287,10 +294,9 @@ export function ObjectCardFrame({
             <History size={12} aria-hidden="true" />
             <span>{activityCount}</span>
           </span>
-          {/* 10 §5.5（Human 裁定 2026-09-30）：`outcome` 徽标挂在**徽标序列里**——
-              修改次数之后、状态徽标**不在其中**（outcome 是终态结论词，不是状态词汇，
-              故与状态徽标不并排）。 */}
-          {obj.type === 'workcase' && <WorkCaseOutcomeBadge source={obj} />}
+          {/* 10 §5.5（Human 裁定 2026-09-30，二次修订）：`outcome` **不再**在此处单列一枚
+              徽标——它与状态词**合并**成一枚放在右侧（见 `ObjectIdentityActions` 的
+              `statusBadge`）。此前本处挂过 `WorkCaseOutcomeBadge`（已删除）。 */}
           {obj.sourceBranch && (
             <span className="ldvh-chip-sm gap-1 border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
               {t('objectList.sourceBranch', { branch: obj.sourceBranch })}
@@ -304,8 +310,19 @@ export function ObjectCardFrame({
         </div>
         {/* List cards expose a stable object identity, not an exact-read source path. */}
         <ObjectIdentityActions
-          status={presentedStatus}
+          // 「已关闭」的 WorkCase 走**合并徽标**（状态词 + 中心圆点 + 结论词，配色由结论定）：
+          // 此时 `status` 传空、改为传 `statusBadge`——两者互斥，不并排（Human 裁定 2026-09-30，
+          // 只作用于 wc 的已关闭卡；其余类型与其余状态一律走默认 `StatusBadge`）。
+          status={isWorkCaseClosed ? undefined : presentedStatus}
           statusLabel={getObjectStatusLocale(obj.type, presentedStatus, locale)}
+          statusBadge={
+            isWorkCaseClosed ? (
+              <WorkCaseClosedStatusBadge
+                statusLabel={getObjectStatusLocale(obj.type, presentedStatus, locale)}
+                source={obj}
+              />
+            ) : undefined
+          }
           objectType={obj.type}
           projectId={selectedProjectId}
           target={obj.id}

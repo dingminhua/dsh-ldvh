@@ -23,10 +23,15 @@ test('non-active Spark, ADR, Pitfall, and Study cards share the terminal card gr
   assert.match(source, /function PitfallTerminalCardContent/);
   assert.match(source, /function ResearchTerminalCardContent/);
   assert.doesNotMatch(source, /<TerminalFactPanel[^>]*title=/);
-  assert.match(source, /<ObjectIdentityActions[\s\S]{0,160}status={presentedStatus}/);
+  // 2026-09-30 修订：WorkCase 已关闭卡改用合并徽标后，status 表达式变成三元
+  // （命中合并徽标时传空），故断言改为「status 的取值仍**来自 presentedStatus**」——
+  // 意图不变（呈现状态须由卡框供给，不得硬编码别的来源），且不绑死其表达式形状。
+  assert.match(source, /<ObjectIdentityActions[\s\S]{0,400}status=\{[^}]*presentedStatus[^}]*\}/);
   assert.doesNotMatch(source, /showStatusBadge/);
   assert.doesNotMatch(source, /<CopyPathButton path={obj\.path}/);
-  assert.match(source, /<ObjectIdentityActions[\s\S]{0,260}target={obj\.id}/);
+  // 2026-09-30 修订：窗口 260 → 700——卡框新增 `statusBadge` 一段后，`target` 落在原窗口外。
+  // 意图不变：身份簇须收到**完整对象 id**（复制动作的入参）。
+  assert.match(source, /<ObjectIdentityActions[\s\S]{0,700}target={obj\.id}/);
   assert.match(source, /copyLabel={t\('common\.copyObjectId'\)}/);
   assert.match(source, /currentType === 'research'[\s\S]*showNonActiveReason={false}[\s\S]*ResearchCardContent/);
 });

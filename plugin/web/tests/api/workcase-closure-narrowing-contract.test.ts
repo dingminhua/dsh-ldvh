@@ -218,14 +218,25 @@ test('单一来源：折叠阈值只有一处登记（两期卡共用，不得�
 
   const stateModule = readSource(STATE_MODULE);
   assert.match(stateModule, /export const WORKCASE_COLLAPSED_RESIDUAL/, '阈值须在共享模块登记');
-  // 反向：两个卡组件**不得**再各写一份同值字面量。
-  for (const [name, src] of [['WorkCaseClosedSummary', readSource(CLOSED_CARD)], ['WorkCaseResultDraft', readSource(DRAFT_CARD)]] as const) {
+  // **2026-09-30 修订（Human 甲裁定：已关闭卡整块删除残留块）**：折叠阈值的**消费方
+  // 只剩「待批准关闭」卡**——已关闭卡不再渲染残留块，故它既不须消费该阈值，也不得
+  // 再写一份同值字面量（后者由下方对两卡的 doesNotMatch 继续钉住）。
+  // 原断言「两卡皆须消费」在已关闭卡删块后变成**空转要求**：它只会逼实现留一个不用的
+  // import 来骗过守卫——那不是单一来源纪律，是反纪律。
+  const draft = readSource(DRAFT_CARD);
+  assert.match(draft, /WORKCASE_COLLAPSED_RESIDUAL/, '待批准关闭卡须消费共享阈值（该期仍渲染残留块）');
+  assert.doesNotMatch(
+    readSource(CLOSED_CARD),
+    /WORKCASE_COLLAPSED_RESIDUAL/,
+    '已关闭卡不得再消费折叠阈值（该期已整块删除残留块，Human 甲裁定）',
+  );
+  // 反向：两个卡组件**都不得**各写一份同值字面量。
+  for (const [name, src] of [['WorkCaseClosedSummary', readSource(CLOSED_CARD)], ['WorkCaseResultDraft', draft]] as const) {
     assert.doesNotMatch(
       src,
       /const COLLAPSED_RESIDUAL\s*=/,
       `${name} 不得再自定义折叠阈值（须经 WORKCASE_COLLAPSED_RESIDUAL 单点取得）`,
     );
-    assert.match(src, /WORKCASE_COLLAPSED_RESIDUAL/, `${name} 须消费共享阈值`);
   }
 });
 
@@ -254,18 +265,49 @@ test('单一来源：去向从属行的缩进样式只有一处登记（开放�
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('已关闭卡：按决定 A 不再呈现残留一侧，且结论行去掉「残留 K 条」', () => {
-  const closed = readSource(CLOSED_CARD);
+  const raw = readSource(CLOSED_CARD);
+  // 判据一律基于**剥注释后的代码**：本文件与被审组件都保留了沿革说明（哪里曾有一块、
+  // 何时被删），那是记录、不是实现。不剥注释时，「删除残留块」这一改动会被**沿革注释
+  // 自身**判红——守卫于是逼人删掉历史记录才能通过，那是反纪律。
+  const closed = raw
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*') && !line.trim().startsWith('/*'))
+    .join('\n');
 
-  // ① 残留块由**条件豁免**门控：不满足前提时如实保留（`21 §15.3` 明文禁止静默消失）。
-  assert.match(
+  // ① **残留块已整块删除（Human 裁定 2026-09-30，方案甲）**：已关闭卡一律不呈现独立
+  //    残留块——「到了已关闭，就不应该有单独残留的信息了，应该都是被消化的信息，要么
+  //    有 Spark 接盘，要么接受现状」（Human 原话）。此前 `!narrowsResidual && …` 的条件
+  //    豁免门控护着存量分离式对象（`10 §5.5` 条件豁免段已于 2026-09-29 删除、实现当日
+  //    未跟上——本条即该对齐）。判据 `closure_narrows_residual` 仍由**详情面**消费
+  //    （`10 §5.5`：判据与卡面同源、单点算出），已关闭卡不再读它。
+  assert.doesNotMatch(
     closed,
-    /!narrowsResidual && residual\.length > 0 &&/,
-    '残留块须由条件豁免门控（不满足前提时保留）',
+    /narrowsResidual|closure_narrows_residual/,
+    '已关闭卡不得再消费收窄判据或渲染条件豁免残留块（Human 甲裁定；详情面同源消费不受影响）',
   );
-  assert.match(
+  assert.doesNotMatch(
     closed,
-    /closure_narrows_residual === true/,
-    '判据须读投影层的单一值，不得自行解析正文（10 §5.5：判据与卡面同源）',
+    /WORKCASE_RESIDUAL_BLOCK_CLASS|WORKCASE_RESIDUAL_ROW_CLASS|WORKCASE_RESIDUAL_TAG_CLASS/,
+    '已关闭卡不得渲染残留块的任何形态类（残留块的呈现归「待批准关闭」卡，10 §5.5 两期分岔）',
+  );
+  assert.doesNotMatch(
+    closed,
+    /workcaseResidualTag/,
+    '「残留」标记不得在已关闭卡出现（残留文本的读取归详情面 10 §5.3，不丢信息）',
+  );
+  // 沿革必须留下——删除的是呈现，不是历史。这条防的是「为过守卫而抹掉沿革」。
+  assert.match(
+    raw,
+    /残留块已整块删除|不呈现.*残留/,
+    '已关闭卡须保留「残留块为何被删」的沿革说明（不得为过守卫而抹掉历史）',
+  );
+  // 详情面仍消费同一判据（同源纪律不被本删除破坏）——见本文件「详情面」组的断言。
+  const layout = readSource(DETAIL_LAYOUT);
+  assert.match(
+    layout,
+    /closure_narrows_residual/,
+    '详情面仍须消费投影层的单一判据（10 §5.5：判据同源，两处不得各写一套）',
   );
 
   // ② **结论行整块已删**（10 §5.5，Human 裁定 2026-09-29 去结论行 / 2026-09-30 定 outcome 归卡头）。
@@ -466,18 +508,27 @@ test('规范侧：详情面收窄态与实现一致（防实现与规范原文�
   assert.match(spec10, /该辨析不成立，已撤回/, '§5.5 须保留「辨析已撤回」的登记');
   assert.match(spec10, /已登记的窄例外/, '§5.5 须指向 §5.3 的窄例外');
 
-  // ③ 卡面与详情**同源**：两处都按条件豁免执行。
-  assert.match(spec10, /条件豁免/, '§5.5 须登记条件豁免');
+  // ③ 条件豁免的删除与其后果须在 §5.5 留痕（**2026-09-30 修订**：原断言「§5.5 须登记
+  //    条件豁免」在豁免段被 Human 删除（2026-09-29）后已**语义相反**——它要求的正是被
+  //    撤销的规则。改为断言**删除本身被登记**，且其后果被如实声明）。
+  assert.match(spec10, /条件豁免已删除/, '§5.5 须登记条件豁免段的删除');
+  assert.match(spec10, /不再出现于卡面/, '§5.5 须如实登记删除的后果（残留不再出现于卡面）');
 
-  // ④ 实现侧与之一致：详情面收窄、卡面收窄，两处读同一个判据值。
+  // ④ 实现侧与之一致：详情面收窄；**已关闭卡不再渲染残留块**（Human 2026-09-30 甲裁定，
+  //    与条件豁免段的删除对齐）。卡面不再消费该判据，故此处**反向**断言其缺席。
   const layoutCode = readSource(DETAIL_LAYOUT)
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '');
   assert.match(layoutCode, /closure_narrows_residual/, '详情面须与规范一致：消费该判据收窄');
-  assert.match(
-    readSource(CLOSED_CARD),
-    /closure_narrows_residual === true/,
-    '卡面须与规范一致：按条件豁免收窄',
+  const closedCardCode = readSource(CLOSED_CARD)
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*') && !line.trim().startsWith('/*'))
+    .join('\n');
+  assert.doesNotMatch(
+    closedCardCode,
+    /closure_narrows_residual/,
+    '已关闭卡不得再消费该判据（残留块已整块删除，与条件豁免段的删除对齐）',
   );
 
   // ⑤ 正向对照（防空转）：若规范撤回收窄，本守卫须失败——故上面 ①② 的判据
@@ -621,8 +672,17 @@ test('卡面纯文本：去向与残留正文渲染前都剥 Markdown 标记（1
   //
   // 两期的循环变量名不同（合并式的从属行用 `direction`，关闭期的平级行用 `item`），
   // 故逐文件给出期望形态，而不是套同一个正则。
+  //
+  // **2026-09-30 修订（Human 甲裁定：已关闭卡整块删除残留块）**：已关闭卡只剩**一个**
+  // 渲染原始正文的点（去向分区内的条目），其残留一侧已被删除——原断言「残留正文须剥标记」
+  // 随之**空转**（没有该渲染点，自然没有它的剥标记）。故改为断言去向正文剥标记，并
+  // **反向**钉住残留渲染点不得回归（回归即未剥标记的插值重新出现）。
   assert.match(closed, /stripCardMarkdown\(item\.text\)/, 'WorkCaseClosedSummary 的去向正文须剥标记');
-  assert.match(closed, /stripCardMarkdown\(typeof item === 'string'/, 'WorkCaseClosedSummary 的残留正文须剥标记');
+  assert.doesNotMatch(
+    closed,
+    /stripCardMarkdown\(typeof item === 'string'/,
+    '已关闭卡的残留渲染点不得回归（Human 甲裁定删除该块；回归即引入未受本守卫覆盖的插值）',
+  );
   assert.match(draft, /stripCardMarkdown\(direction\.text\)/, 'WorkCaseResultDraft 的去向子项正文须剥标记');
   assert.match(draft, /stripCardMarkdown\(item\.text\)/, 'WorkCaseResultDraft 的残留正文须剥标记');
   // 反向：两个文件都不得出现未经剥标记的原始正文插值。

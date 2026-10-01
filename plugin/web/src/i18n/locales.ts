@@ -1178,6 +1178,14 @@ export const UI_LOCALES = {
     'objectList.workcaseOutcome.partial': '部分达成',
     'objectList.workcaseOutcome.not-achieved': '未达成',
     'objectList.workcaseOutcome.cancelled': '已取消',
+    // 已关闭卡的**合并徽标**用词（状态词 + 中心圆点 + 结论词，Human 裁定 2026-09-30）。
+    // 与上面的 `workcaseOutcome.*` 分开：那套是**结论词单独出现**时的词（已完成／部分达成
+    // ／未达成／已取消，用于详情面与独立徽标），本套是**与状态词并排出现**时的短词——
+    // 「已关闭 · 已完成」这类双重「已」字重复，故此处用短式。
+    'objectList.workcaseClosedOutcome.completed': '完成',
+    'objectList.workcaseClosedOutcome.partial': '部分完成',
+    'objectList.workcaseClosedOutcome.not-achieved': '未完成',
+    'objectList.workcaseClosedOutcome.cancelled': '取消',
     'objectList.workcaseGate1': 'Gate 1 授权 · {approver} · {approvedAt}',
     'objectList.workcaseAttemptController': '执行者',
     // 变更流水（卡片主体）：关键行动用二字标出（Human 2026-09-23）。
@@ -1917,6 +1925,10 @@ export const UI_LOCALES = {
     'objectList.workcaseOutcome.partial': 'Partial',
     'objectList.workcaseOutcome.not-achieved': 'Not achieved',
     'objectList.workcaseOutcome.cancelled': 'Cancelled',
+    'objectList.workcaseClosedOutcome.completed': 'Completed',
+    'objectList.workcaseClosedOutcome.partial': 'Partially completed',
+    'objectList.workcaseClosedOutcome.not-achieved': 'Not completed',
+    'objectList.workcaseClosedOutcome.cancelled': 'Cancelled',
     'objectList.workcaseGate1': 'Gate 1 authorization \u00b7 {approver} \u00b7 {approvedAt}',
     'objectList.workcaseAttemptController': 'Controller',
     // Change flow (card body): key actions marked with a word (Human 2026-09-23).

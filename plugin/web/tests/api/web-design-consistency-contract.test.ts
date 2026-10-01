@@ -41,7 +41,9 @@ test('mobile reading panel identifies the current object and terminal cards reta
   const objectList = read('src/pages/ObjectList.tsx');
 
   assert.match(readingPanel, /ldvh-card-title w-full truncate text-center">{panelTitle}/);
-  assert.match(objectList, /<ObjectIdentityActions[\s\S]{0,160}status={presentedStatus}/);
+  // 2026-09-30 修订：改用「status 的取值来自 presentedStatus」——见同批 nonactive 契约
+  // 的同款修订（WorkCase 已关闭卡的 status 现为三元表达式）。
+  assert.match(objectList, /<ObjectIdentityActions[\s\S]{0,400}status=\{[^}]*presentedStatus[^}]*\}/);
   assert.doesNotMatch(objectList, /showStatusBadge/);
 });
 
@@ -59,7 +61,9 @@ test('object list cards use the compact metadata shared by reading surfaces', ()
   assert.match(cardFrame, /ldvh-chip-sm/);
   assert.match(cardFrame, /const activityCount = Array\.isArray\(obj\.change_log\) \? obj\.change_log\.length : 0/);
   assert.match(cardFrame, /<History size=\{12\} aria-hidden="true" \/>[\s\S]{0,80}<span>\{activityCount\}<\/span>/);
-  assert.match(cardFrame, /<ObjectIdentityActions[\s\S]{0,460}compact/);
+  // 2026-09-30 修订：窗口由 460 放宽到 1200——卡框新增了 `statusBadge`（WorkCase 已关闭卡
+  // 的合并徽标）一段，原窗口量不到 `compact`。意图不变：**列表卡须用 compact 变体**。
+  assert.match(cardFrame, /<ObjectIdentityActions[\s\S]{0,1200}compact/);
   assert.match(cardFrame, /items-center gap-1\.5[\s\S]{0,220}<ObjectTypeIcon type=\{obj\.type\} size=\{14\} className="shrink-0"/);
   assert.match(cardFrame, /ldvh-object-title-tray ldvh-object-title-tray-compact/);
   assert.match(cardFrame, /<h2 className="ldvh-card-title min-w-0 flex-1 whitespace-normal break-words">/);
@@ -118,7 +122,9 @@ test('detail identity header keeps status immediately before its copy control', 
   // 修改次数（extraBadges 随后；状态与复制控件保持行尾）。
   assert.match(identityRow, /<PriorityIcon[\s\S]*<ServesSgBadge[\s\S]*\{extraBadges\}[\s\S]*className="ml-auto shrink-0"[\s\S]*<ObjectIdentityActions/);
   const identityActions = read('src/components/ObjectIdentityActions.tsx');
-  assert.match(identityActions, /\{statusLeadingBadges\}[\s\S]{0,120}\{status && \([\s\S]{0,320}\{actionBadges\}/);
+  // 2026-09-30 修订：新增「只替换、不叠加」的 `statusBadge` 口后，状态徽标的分支变为
+  // `{statusBadge ?? (status && (…))}`；断言随之更新，仍钉住**块序**：前导徽标 → 状态 → actionBadges。
+  assert.match(identityActions, /\{statusLeadingBadges\}[\s\S]{0,120}\{statusBadge \?\? \(status && \([\s\S]{0,320}\{actionBadges\}/);
   assert.doesNotMatch(identityHeader, /&& compact[\s\S]{0,180}<ObjectIdentityActions/);
 });
 
