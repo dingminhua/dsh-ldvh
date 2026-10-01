@@ -16,6 +16,8 @@ import {
   WORKCASE_DIRECTION_GROUP_ROW_CLASS,
   WORKCASE_DIRECTION_ROW_BULLET_CLASS,
   WORKCASE_DIRECTION_ROW_INSET_CLASS,
+  WORKCASE_CANCEL_BLOCK_BG_CLASS,
+  WORKCASE_CANCEL_TAG_CLASS,
   workCaseAdviceTagClass,
   workCaseDirectionRows,
   groupDirectionRows,
@@ -83,10 +85,6 @@ import {
  */
 
 
-/** 取消记录的行标记：与状态标记同族（行内、宽度自适应），取中性色。 */
-const CANCEL_TAG_CLASS =
-  'mr-1.5 inline-block shrink-0 rounded border border-ldvh-border bg-ldvh-bg px-1.5 text-[10px] font-semibold leading-4 text-ldvh-text-secondary';
-
 /**
  * One source in the read-time reverse `refs` projection.  This row deliberately
  * uses neutral association language: a source declaring a reference is not
@@ -145,23 +143,29 @@ export default function WorkCaseClosedSummary({ obj, className = '' }: WorkCaseC
           2026-09-30：放卡头、不做展开）；核对计数不单列（逐条核对块已逐步给出状态）。
           本组件因此只余两块：逐条核对 → 去向（+ cancelled 的取消记录块）。 */}
 
-      {/* ②' 取消记录（21 §8，仅 cancelled）：理由 + 未发生的范围。
-          取代逐条核对块——取消对象没有核对结论可报。用中性灰，与 outcome 徽标同色系，
-          不与「核对」的绿/琥珀/红抢语义。 */}
-      {cancellation !== null && (
-        <div className="min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/60 px-2.5 py-2">
-          {cancellation.reason && (
-            <div className="py-1 first:pt-0.5 ldvh-caption text-ldvh-text-primary">
-              <span className={CANCEL_TAG_CLASS}>{t('objectList.workcaseCancelReason')}</span>
-              <span>{cancellation.reason}</span>
-            </div>
-          )}
-          {cancellation.unstartedScope && (
-            <div className="border-t border-ldvh-border/60 py-1 ldvh-caption text-ldvh-text-primary">
-              <span className={CANCEL_TAG_CLASS}>{t('objectList.workcaseCancelUnstarted')}</span>
-              <span>{cancellation.unstartedScope}</span>
-            </div>
-          )}
+      {/* ②' 取消理由（`21 §8`，仅 cancelled）——**形态同去向分区、换玫瑰色、只留一行**
+          （Human 裁定 2026-10-01：「样式和接受现状相同，但是换个颜色」「未发生的范围不用显示」）。
+
+          取代逐条核对块——取消对象没有核对结论可报。三点与旧形态的差别：
+            ① **只呈现一行**：标记词由「理由」改为「取消理由」；「未发生的范围」**不再上卡**。
+               该字段并未消失——`cancellation.unstartedScope` 仍是 `21 §8` 的必填项（两行均须
+               非空、`§15.1` 有存在性门禁），其文本在正文「## 结果」节与语义详情（`10 §5.3`）
+               仍完整可读；本处收窄的只是**卡面可见性**。
+            ② **形态复用去向分区**：块底／标题行／标题／条目行／项目符号／容器留白一律取自
+               `WORKCASE_DIRECTION_*` 那组分区常量（两处各写一份形态类即「两处各写一套」病）。
+            ③ **换色**：玫瑰色（`WORKCASE_CANCEL_*`），与去向闭集二词的石色／品红都不撞——
+               使读者在余光里就能把「取消」与「去向」分开。 */}
+      {cancellation !== null && cancellation.reason && (
+        <div className={`${WORKCASE_DIRECTION_BLOCK_BASE_CLASS} ${WORKCASE_CANCEL_BLOCK_BG_CLASS}`}>
+          <div className={WORKCASE_DIRECTION_TITLE_ROW_CLASS}>
+            <span className={`${WORKCASE_DIRECTION_TITLE_CLASS} ${WORKCASE_CANCEL_TAG_CLASS}`}>
+              {t('objectList.workcaseCancelReason')}
+            </span>
+          </div>
+          <div className={`${WORKCASE_DIRECTION_ROW_INSET_CLASS} ${WORKCASE_DIRECTION_GROUP_ROW_CLASS}`}>
+            <span aria-hidden="true" className={WORKCASE_DIRECTION_ROW_BULLET_CLASS} />
+            <span>{stripCardMarkdown(cancellation.reason)}</span>
+          </div>
         </div>
       )}
 

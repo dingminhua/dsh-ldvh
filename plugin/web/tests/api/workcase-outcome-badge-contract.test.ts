@@ -110,6 +110,64 @@ test('状态词不在合并徽标内另取一份（单一来源，改一处必�
   assert.match(badge, /statusLabel/, '组件须接收状态词');
 });
 
+test('取消理由块：形态复用去向分区、只留一行、换玫瑰色（10 §5.5，Human 裁定 2026-10-01）', () => {
+  // Human 原话：「这个的样式只保留 取消理由」「样式和接受现状相同，但是换个颜色」「未发生的范围不用显示」。
+  // 四条各自钉住：① 只留一行（未发生的范围不上卡）；② 形态复用分区常量（不另写一份）；
+  // ③ 换玫瑰色；④ 标记词为「取消理由」。
+  const raw = read('src/components/WorkCaseClosedSummary.tsx');
+  const closed = codeOnly(raw);
+
+  // ① 「未发生的范围」不再上卡：组件不得再引用该词条，也不得再读 unstartedScope。
+  assert.doesNotMatch(closed, /workcaseCancelUnstarted/, '「未发生的范围」词条不得再被卡面引用');
+  assert.doesNotMatch(closed, /unstartedScope/, '卡面不得再读 cancellation.unstartedScope');
+  // 但字段本身必须仍在**解析层**（删除的只是呈现，不是字段）——用共享解析器的类型与取值钉住，
+  // 防有人「顺手把字段一起删掉」（那就把呈现收窄变成了事实删除）。
+  const draft = read('shared/workcaseResultDraft.ts');
+  assert.match(draft, /unstartedScope: string/, '字段本身须仍留在解析层类型中（收窄的是呈现，不是字段）');
+  assert.match(draft, /unstartedScope: found\['未发生的范围'\]/, '字段仍须由正文解析得出（不得停止解析）');
+
+  // ② 形态复用分区常量：六类形态常量齐备，不得自写形态类名。
+  //
+  // **判据必须落在 JSX 使用点，不能只看「文件里有没有这个常量名」**——后者会被文件顶部的
+  // `import` 语句满足（本仓已登记的逃逸模式：变异「把使用点换成字面量、只留 import」实测
+  // 全绿通过）。故先剥掉 import 块再断言。
+  const closedNoImports = closed.replace(/import[\s\S]*?from '@\/utils\/workcaseCheckState';/, '');
+  // **还须把断言锚定到「取消理由块」这一段**：分区形态常量在「去向块」里同样被使用，
+  // 只在全文件里搜索，会出现「取消块改用字面量、去向块仍用常量」而断言照旧通过（实测
+  // 变异逃逸）。故从原始源码里切出该块区间（含注释标记作边界），再在区间内断言。
+  const rawAt = raw.indexOf('cancellation !== null');
+  const rawEnd = raw.indexOf('{/* ②（原「逐条核对」块', rawAt);
+  assert.ok(rawAt >= 0 && rawEnd > rawAt, '未定位到取消理由块区间（判据须锚定该块，不得全文件搜索）');
+  const cancelBlock = codeOnly(raw.slice(rawAt, rawEnd));
+  for (const reused of [
+    'WORKCASE_DIRECTION_BLOCK_BASE_CLASS',
+    'WORKCASE_DIRECTION_TITLE_ROW_CLASS',
+    'WORKCASE_DIRECTION_TITLE_CLASS',
+    'WORKCASE_DIRECTION_ROW_INSET_CLASS',
+    'WORKCASE_DIRECTION_GROUP_ROW_CLASS',
+    'WORKCASE_DIRECTION_ROW_BULLET_CLASS',
+  ]) {
+    assert.match(cancelBlock, new RegExp(reused), `取消理由块须在该块 JSX 中复用 ${reused}（形态与去向分区同源；仅 import 或他处使用不算）`);
+  }
+
+  // ③ 换玫瑰色：色常量在共享模块单点登记，且确为玫瑰（非stone/fuchsia 等去向色）。
+  const state = read('src/utils/workcaseCheckState.ts');
+  assert.match(state, /export const WORKCASE_CANCEL_BLOCK_BG_CLASS = 'bg-rose-500\/\[0\.04\]'/, '块底须为玫瑰色、尺度同去向分区');
+  const tagDecl = state.slice(state.indexOf('export const WORKCASE_CANCEL_TAG_CLASS'), state.indexOf('export const WORKCASE_CANCEL_TAG_CLASS') + 200);
+  assert.match(tagDecl, /rose-500\/45/, '标记须用 /45 边框（与去向分区同尺度）');
+  assert.match(tagDecl, /rose-500\/10/, '标记须用 /10 底色（与去向分区同尺度）');
+  assert.match(tagDecl, /text-rose-600/, '标记须用 -600 字色（与去向分区同尺度）');
+  assert.doesNotMatch(tagDecl, /stone|fuchsia/, '取消标记不得复用去向词的色（否则与去向分区无法区分）');
+  assert.match(cancelBlock, /WORKCASE_CANCEL_BLOCK_BG_CLASS/, '取消理由块须消费块底色常量');
+  assert.match(cancelBlock, /WORKCASE_CANCEL_TAG_CLASS/, '取消理由块须消费标记色常量');
+
+  // ④ 标记词为「取消理由」（值层面钉住，不只看键在不在）。
+  const locales = read('src/i18n/locales.ts');
+  assert.match(locales, /'objectList\.workcaseCancelReason': '取消理由'/, '标记词须为「取消理由」');
+  // 反向：旧「理由」单词不得残留为该词条的值（防改回半词）。
+  assert.doesNotMatch(locales, /'objectList\.workcaseCancelReason': '理由'/, '标记词不得退回「理由」');
+});
+
 test('卡体不得再出现 outcome 元素（结论行不得回归）', () => {
   const closedCard = read('src/components/WorkCaseClosedSummary.tsx');
   assert.doesNotMatch(closedCard, /data-workcase-outcome|data-workcase-check-tally/);

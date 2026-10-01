@@ -1215,8 +1215,9 @@ export const UI_LOCALES = {
     'objectList.workcaseCheckTally': '核对 {achieved}/{total} 达成',
     // 「已关闭」卡的取消记录（21 §8，仅 outcome=cancelled）
     'objectList.workcaseNotExecuted': '未执行任何计划步骤',
-    'objectList.workcaseCancelReason': '理由',
-    'objectList.workcaseCancelUnstarted': '未发生的范围',
+    // Human 裁定 2026-10-01：标记词由「理由」改为「取消理由」——它是**块首标题**（形态同去向分区），
+    // 因此须自足地说明「这是取消的理由」，不能只写半个词。
+    'objectList.workcaseCancelReason': '取消理由',
     // 残留计数（`workcaseResidualTally`/`workcaseResidualNone`）已随 2026-09-28 二次修订
     // 从「已关闭」卡结论行移除（决定 A：关闭后只呈现去向）。**词条保留**：它们是
     // 「待批准关闭」期的可复用词条，且历史对象/其它呈现面仍可能引用——删词条会让
@@ -1959,8 +1960,7 @@ export const UI_LOCALES = {
     'objectList.workcaseCheckTally': '{achieved}/{total} achieved',
     // Closed-card cancellation record (21 §8, outcome=cancelled only)
     'objectList.workcaseNotExecuted': 'No plan step executed',
-    'objectList.workcaseCancelReason': 'Reason',
-    'objectList.workcaseCancelUnstarted': 'Scope never started',
+    'objectList.workcaseCancelReason': 'Cancellation reason',
     // The residual tally keys are kept after the 2026-09-28 revision removed the
     // residual count from the closed-card conclusion line (decision A: a closed
     // card shows directions only). Deleting them would turn any remaining
