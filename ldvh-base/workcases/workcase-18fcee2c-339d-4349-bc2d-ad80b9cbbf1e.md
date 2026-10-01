@@ -5,17 +5,10 @@ title: spark 非终态卡关联呈现
 status: closed
 gist: 让 spark 卡片的 open 状态也呈现关联信息，与最终态卡一致。
 serves: SG-3
-summary: 让 spark 卡片的非最终状态（open）也呈现关联信息，学习最终态卡的做法。现状核实（2026-09-16）：卡片框架
-  ObjectCardFrame 内无条件渲染 FactAssociationsCardContent（消费 obj.factAssociations），而
-  SparkCardContent 对 open 状态返回 null；实际缺口定位（relations 关联、refs
-  引用或非终态被状态分支屏蔽）是本单第一步。
-scope: 做什么：核实并定位非终态 spark 卡关联呈现的实际缺口（数据层 factAssociations/factRefs
-  是否为空、渲染层是否被状态分支屏蔽），按最终态卡的做法对齐非终态呈现；同步契约测试；重建 Web 产物
-  dist；受控提交。明确不做什么：不改后端关联投影语义（03 §7.2 relations/refs
-  分工纪律不动）；不改其它类型卡片的关联呈现；不改详情页关联阅读节点；不为 spark 单独发明新的关联呈现形态（复用现有组件路径）。
+summary: 让 spark 卡片的非最终状态（open）也呈现关联信息，学习最终态卡的做法。现状核实（2026-09-16）：卡片框架 ObjectCardFrame 内无条件渲染 FactAssociationsCardContent（消费 obj.factAssociations），而 SparkCardContent 对 open 状态返回 null；实际缺口定位（relations 关联、refs 引用或非终态被状态分支屏蔽）是本单第一步。
+scope: 做什么：核实并定位非终态 spark 卡关联呈现的实际缺口（数据层 factAssociations/factRefs 是否为空、渲染层是否被状态分支屏蔽），按最终态卡的做法对齐非终态呈现；同步契约测试；重建 Web 产物 dist；受控提交。明确不做什么：不改后端关联投影语义（03 §7.2 relations/refs 分工纪律不动）；不改其它类型卡片的关联呈现；不改详情页关联阅读节点；不为 spark 单独发明新的关联呈现形态（复用现有组件路径）。
 plan:
-  - done_criteria: 明确 open spark 卡当前实际渲染树与数据（factAssociations/factRefs
-      是否为空、被何条件屏蔽），并记录用户所见状的具体项
+  - done_criteria: 明确 open spark 卡当前实际渲染树与数据（factAssociations/factRefs 是否为空、被何条件屏蔽），并记录用户所见状的具体项
     step: 现象核实与缺口定位
   - done_criteria: open spark 卡呈现关联信息，与终态卡走同一组件路径（不新增平行实现）
     step: 按最终态做法对齐非终态呈现
@@ -27,106 +20,67 @@ gate_1:
   approved_at: 2026-09-16T23:29:51.839Z
   approver: Human（本会话直接指令：dsh-ldvh@workcase-18fcee2c… 批准执行；并就扩围问题选择「按定位结果扩围」）
   authorization_fingerprint: 0f0cfd780aa20a6211907e05d45f07c409c5d6475eeaec923e726884ac0b729e
-  scope_snapshot: 做什么：核实并定位非终态 spark 卡关联呈现的实际缺口（数据层 factAssociations/factRefs
-    是否为空、渲染层是否被状态分支屏蔽），按最终态卡的做法对齐非终态呈现；同步契约测试；重建 Web 产物
-    dist；受控提交。明确不做什么：不改后端关联投影语义（03 §7.2 relations/refs
-    分工纪律不动）；不改其它类型卡片的关联呈现；不改详情页关联阅读节点；不为 spark 单独发明新的关联呈现形态（复用现有组件路径）。
-result:
-  achieved_scope: 列表路径补投影 factRefs + 卡片呈现 refs（与 relations 同组件路径并列）+ 契约测试同步 + dist
-    重建 + 受控提交（7e0f377、c1d0e26）。open spark 卡关联呈现缺口已消除，列表与详情两层阅读器契约一致（同一对象 refs
-    投影深度相等）。
-  criteria_checks:
-    - evidence: 实测 listObjects('spark') 全 44 项 factRefs 恒为 ABSENT（factAssociations
-        仅部分终态出现）；代码核对 projectFactRefs 仅由 showObject 调用（facts.ts:563），列表调用点
-        facts.ts:281-298 只投影 relations；用户所见状 spark-42086862 列表 0 条 vs 详情 3
-        条。原假设（SparkCardContent 状态分支）被推翻：ObjectCardFrame 无条件渲染关联段。
-      satisfied: true
-    - evidence: FactAssociationsCardContent({ associations, refs }) 单一组件承载两组，经
-        ObjectCardFrame 对全部状态开放；实测渲染 open spark 卡产出关联段含 3 条 ref 行（含 title
-        与不可读占位）；列表投影与详情投影对该对象均返回 3 条 refs 且 JSON 深度相等。
-      satisfied: true
-    - evidence: spark-refs-projection.test.ts 新增列表/详情两层 factRefs
-        一致性回归测试；spark-reading-contract.test.ts 以新断言取代已失效的「卡片不承载 refs」禁止断言。web 测试
-        250/250 通过。
-      satisfied: true
-    - evidence: tsc exit 0；web 测试 250/250；eslint 无新增（facts.ts 残留 1 项为既有未用参数，仅行号位移，已与
-        HEAD 版本比对）；dist 重建且 index.html 引用新 hash（index-BBWdRIOT.js →
-        index-CbXCDlKi.js）；两次提交 Git Gate passed（snapshot_identity fccc69bd… /
-        7ec131fa…）。
-      satisfied: true
-  residual:
-    - 规范正文无需修订（原判断有误，2026-09-16 更正）：specs/10 §5.2 从未包含「卡片网格不承载关联对象」——该说法是
-      3e0cbcc 提交 message 的错误引注，§5.2 在该提交前后逐字相同，其首条要点明列「关联计数」，本就允许卡片承载关联。§5.1「不渲染关联关系」只约束第一层（字段级直读），与第二层卡片网格互不替代。错误引注已在本单
-      7e0f377 的代码注释中清除；本节原第一条遗留据此撤销。
-    - 2026-09-13 卡头撤 chip 的裁定理由记录在错误规范引注上，登记为可追溯性缺陷。 本项已由 Human 复定结清（2026-09-16）：Human 明示「我要的就是 类型→优先级→SG→修改次数」——卡头四项、不设关联 chip。该复定使 2026-09-13 的移除结果在结论上被确认，仅其原先援引的规范理由（错误引注）被替换为「呈现取舍」。代码注释已据实改写，不再引用不存在的条文；呈现结果未变（关联对象只在卡体关联段）。
-    - refs 在列表卡复用生命周期状态图标（getFactAssociationState），语义上 refs
-      为普通内容关联而非生命周期关系，可议但非本单引入。
-    - FactCardAssociation 类型对 refs 条目的建模松弛（声明 target? 而 refs 实为
-      objectUid）系既有问题，未处置。
-    - 列表卡 ref 行数多时的视觉高度与浏览器终态未做目视确认，仅由渲染实测与构建产物保证。
-    - gate_1.scope_snapshot 未随 Human 扩围回写（snapshot 由 Code 机械加盖）；扩围事实以 change_log
-      与 approve 摘要承载，构成授权记录的内部张力。
-outcome: completed
-created_at: 2026-09-16T01:57:59.428Z
+  scope_snapshot: 做什么：核实并定位非终态 spark 卡关联呈现的实际缺口（数据层 factAssociations/factRefs 是否为空、渲染层是否被状态分支屏蔽），按最终态卡的做法对齐非终态呈现；同步契约测试；重建 Web 产物 dist；受控提交。明确不做什么：不改后端关联投影语义（03 §7.2 relations/refs 分工纪律不动）；不改其它类型卡片的关联呈现；不改详情页关联阅读节点；不为 spark 单独发明新的关联呈现形态（复用现有组件路径）。
 reviews:
   - at: 2026-09-16T23:41:12.000Z
     provider: workbuddy
     model: deepseek-v4.1-flash
-    summary: 对象=WorkCase 18fcee2c 执行结果（提交 7e0f377，基线 ef7c3e7）。方法=冷读独立复核：diff
-      精读、facts.ts 投影链与 ObjectList.tsx 呈现链走查、契约测试复跑、四项工程声明独立复算、/tmp
-      构造同目标双组用例实证。覆盖=越权判定、03 §7.2 分工纪律保持性、声明与事实一致性（tsc/250
-      测试/eslint/dist/42086862 三层一致）。未覆盖=浏览器目视终态与交互、eslint 全仓基线逐条比对、dist
-      相对基线（未入库）、Human 扩围批准真实性的代码侧核验。发现=结论「有条件通过」，无越权、无功能缺陷、声明全部成立；发现 1（重要）去重键不区分来源，「不合并去重」的安全来自 refs
-      恰好无 target 字段的偶然事实，一旦补上将静默丢弃 refs——已在本单内处置（c1d0e26）；发现 2/5
-      既有类型建模松弛与 refs 复用生命周期图标，非本单引入，登记为观察。保证边界=证明 diff 落在授权范围内、分工纪律与
-      available:false 保真未被破坏、泛型化未引入条目丢失、四项声明成立；不证明浏览器终态符合 Human
-      预期、未覆盖项所述范围及该实现对未来形状变化的安全性。
+    summary: 对象=WorkCase 18fcee2c 执行结果（提交 7e0f377，基线 ef7c3e7）。方法=冷读独立复核：diff 精读、facts.ts 投影链与 ObjectList.tsx 呈现链走查、契约测试复跑、四项工程声明独立复算、/tmp 构造同目标双组用例实证。覆盖=越权判定、03 §7.2 分工纪律保持性、声明与事实一致性（tsc/250 测试/eslint/dist/42086862 三层一致）。未覆盖=浏览器目视终态与交互、eslint 全仓基线逐条比对、dist 相对基线（未入库）、Human 扩围批准真实性的代码侧核验。发现=结论「有条件通过」，无越权、无功能缺陷、声明全部成立；发现 1（重要）去重键不区分来源，「不合并去重」的安全来自 refs 恰好无 target 字段的偶然事实，一旦补上将静默丢弃 refs——已在本单内处置（c1d0e26）；发现 2/5 既有类型建模松弛与 refs 复用生命周期图标，非本单引入，登记为观察。保证边界=证明 diff 落在授权范围内、分工纪律与 available:false 保真未被破坏、泛型化未引入条目丢失、四项声明成立；不证明浏览器终态符合 Human 预期、未覆盖项所述范围及该实现对未来形状变化的安全性。
+result:
+  achieved_scope: 列表路径补投影 factRefs + 卡片呈现 refs（与 relations 同组件路径并列）+ 契约测试同步 + dist 重建 + 受控提交（7e0f377、c1d0e26）。open spark 卡关联呈现缺口已消除，列表与详情两层阅读器契约一致（同一对象 refs 投影深度相等）。
+  criteria_checks:
+    - evidence: 实测 listObjects('spark') 全 44 项 factRefs 恒为 ABSENT（factAssociations 仅部分终态出现）；代码核对 projectFactRefs 仅由 showObject 调用（facts.ts:563），列表调用点 facts.ts:281-298 只投影 relations；用户所见状 spark-42086862 列表 0 条 vs 详情 3 条。原假设（SparkCardContent 状态分支）被推翻：ObjectCardFrame 无条件渲染关联段。
+      satisfied: true
+    - evidence: FactAssociationsCardContent({ associations, refs }) 单一组件承载两组，经 ObjectCardFrame 对全部状态开放；实测渲染 open spark 卡产出关联段含 3 条 ref 行（含 title 与不可读占位）；列表投影与详情投影对该对象均返回 3 条 refs 且 JSON 深度相等。
+      satisfied: true
+    - evidence: spark-refs-projection.test.ts 新增列表/详情两层 factRefs 一致性回归测试；spark-reading-contract.test.ts 以新断言取代已失效的「卡片不承载 refs」禁止断言。web 测试 250/250 通过。
+      satisfied: true
+    - evidence: tsc exit 0；web 测试 250/250；eslint 无新增（facts.ts 残留 1 项为既有未用参数，仅行号位移，已与 HEAD 版本比对）；dist 重建且 index.html 引用新 hash（index-BBWdRIOT.js → index-CbXCDlKi.js）；两次提交 Git Gate passed（snapshot_identity fccc69bd… / 7ec131fa…）。
+      satisfied: true
+  residual:
+    - 规范正文无需修订（原判断有误，2026-09-16 更正）：specs/10 §5.2 从未包含「卡片网格不承载关联对象」——该说法是 3e0cbcc 提交 message 的错误引注，§5.2 在该提交前后逐字相同，其首条要点明列「关联计数」，本就允许卡片承载关联。§5.1「不渲染关联关系」只约束第一层（字段级直读），与第二层卡片网格互不替代。错误引注已在本单 7e0f377 的代码注释中清除；本节原第一条遗留据此撤销。
+    - 2026-09-13 卡头撤 chip 的裁定理由记录在错误规范引注上，登记为可追溯性缺陷。 本项已由 Human 复定结清（2026-09-16）：Human 明示「我要的就是 类型→优先级→SG→修改次数」——卡头四项、不设关联 chip。该复定使 2026-09-13 的移除结果在结论上被确认，仅其原先援引的规范理由（错误引注）被替换为「呈现取舍」。代码注释已据实改写，不再引用不存在的条文；呈现结果未变（关联对象只在卡体关联段）。
+    - refs 在列表卡复用生命周期状态图标（getFactAssociationState），语义上 refs 为普通内容关联而非生命周期关系，可议但非本单引入。
+    - FactCardAssociation 类型对 refs 条目的建模松弛（声明 target? 而 refs 实为 objectUid）系既有问题，未处置。
+    - 列表卡 ref 行数多时的视觉高度与浏览器终态未做目视确认，仅由渲染实测与构建产物保证。
+    - gate_1.scope_snapshot 未随 Human 扩围回写（snapshot 由 Code 机械加盖）；扩围事实以 change_log 与 approve 摘要承载，构成授权记录的内部张力。
+outcome: completed
+created_at: 2026-09-16T01:57:59.428Z
 change_log:
   - at: 2026-09-16T01:57:59.428Z
     provider: workbuddy-global
     model: deepseek-v4.1-flash
-    summary: 受控创建——spark 非终态卡关联呈现（学习终态做法）。查重：workcases 全量 2 对象，范围不重叠；与
-      WC-0002（workcase 三态呈现）同属 Web 呈现面但对象不同
+    summary: 受控创建——spark 非终态卡关联呈现（学习终态做法）。查重：workcases 全量 2 对象，范围不重叠；与 WC-0002（workcase 三态呈现）同属 Web 呈现面但对象不同
   - at: 2026-09-16T23:29:51.839Z
     provider: workbuddy
     model: deepseek-v4.1-flash
-    summary: Gate 1 批准：核实推翻原假设（缺口在列表投影层而非 SparkCardContent 状态分支），依 Human
-      扩围选择批准「列表投影补 factRefs + 卡片呈现 refs」 [gate_1 approved by
-      Human（本会话直接指令：dsh-ldvh@workcase-18fcee2c… 批准执行；并就扩围问题选择「按定位结果扩围」）; attempt
-      1 allocated to dsh-ldvh 主控 AI（deepseek-v4.1-flash）]
+    summary: Gate 1 批准：核实推翻原假设（缺口在列表投影层而非 SparkCardContent 状态分支），依 Human 扩围选择批准「列表投影补 factRefs + 卡片呈现 refs」 [gate_1 approved by Human（本会话直接指令：dsh-ldvh@workcase-18fcee2c… 批准执行；并就扩围问题选择「按定位结果扩围」）; attempt 1 allocated to dsh-ldvh 主控 AI（deepseek-v4.1-flash）]
   - at: 2026-09-16T23:48:58.848Z
     provider: workbuddy
     model: deepseek-v4.1-flash
-    summary: Gate 2 关闭：open spark 卡关联呈现缺口已消除（根因在列表投影层，非状态分支）；两次受控提交经 Git Gate
-      放行；独立复核有条件通过，其发现 1 已在本单内处置 [gate_2 closed with outcome=completed; attempt
-      1 retracted]
+    summary: Gate 2 关闭：open spark 卡关联呈现缺口已消除（根因在列表投影层，非状态分支）；两次受控提交经 Git Gate 放行；独立复核有条件通过，其发现 1 已在本单内处置 [gate_2 closed with outcome=completed; attempt 1 retracted]
   - at: 2026-09-16T23:55:31.000Z
     provider: workbuddy
     model: deepseek-v4.1-flash
-    summary: 事实更正（非状态转换）——补录 reviews 复核流水。原关闭早于流水录入：21 §14 规定 reviews
-      属执行期受控更新、要求对象为 open，本次在 Gate 2 关闭后才尝试写入故被机械拒绝，构成记录缺陷；复核本身已于
-      2026-09-16 实际执行（结论「有条件通过」，其发现 1 已在本单内处置并提交 c1d0e26），非伪造。依 21 §9.2「若原终态记录本身错误，按事实更正规则修正，不把更正伪装成领域状态转换」与 03 §9.5，经
-      Human 裁定在本对象补录 reviews，不重开、不新建对象。
+    summary: 事实更正（非状态转换）——补录 reviews 复核流水。原关闭早于流水录入：21 §14 规定 reviews 属执行期受控更新、要求对象为 open，本次在 Gate 2 关闭后才尝试写入故被机械拒绝，构成记录缺陷；复核本身已于 2026-09-16 实际执行（结论「有条件通过」，其发现 1 已在本单内处置并提交 c1d0e26），非伪造。依 21 §9.2「若原终态记录本身错误，按事实更正规则修正，不把更正伪装成领域状态转换」与 03 §9.5，经 Human 裁定在本对象补录 reviews，不重开、不新建对象。
   - at: 2026-09-17T00:12:00.000Z
     provider: workbuddy
     model: deepseek-v4.1-flash
-    summary: 事实更正（非状态转换）——撤销「specs/10 §5.2 待修订」遗留并更正扩围依据。复核规范源原文与
-      Git 历史确认：§5.2 从未包含「卡片网格不承载关联对象」，其在 3e0cbcc 前后逐字相同且首条要点明列「关联计数」；该说法系
-      3e0cbcc 提交 message 的错误引注，被本单沿用并向 Human 转述。故本次扩围不构成规范面变更、无需规范修订（Human
-      裁定授权实现面改动仍然有效，仅其引用的规范理由不成立）；错误引注已在本单 7e0f377 的代码注释中清除。依
-      21 §9.2 按事实更正规则修正，不伪装为状态转换，specs/10 保持原样。
+    summary: 事实更正（非状态转换）——撤销「specs/10 §5.2 待修订」遗留并更正扩围依据。复核规范源原文与 Git 历史确认：§5.2 从未包含「卡片网格不承载关联对象」，其在 3e0cbcc 前后逐字相同且首条要点明列「关联计数」；该说法系 3e0cbcc 提交 message 的错误引注，被本单沿用并向 Human 转述。故本次扩围不构成规范面变更、无需规范修订（Human 裁定授权实现面改动仍然有效，仅其引用的规范理由不成立）；错误引注已在本单 7e0f377 的代码注释中清除。依 21 §9.2 按事实更正规则修正，不伪装为状态转换，specs/10 保持原样。
   - at: 2026-09-17T00:31:00.000Z
     provider: workbuddy
     model: deepseek-v4.1-flash
-    summary: Human 复定登记——卡头标签序定为「类型→优先级→SG→修改次数」四项、不设关联 chip。该复定结清本单
-      residual 原第五条（2026-09-13 撤 chip 的理由记录在错误规范引注上）：移除结果在结论上被确认，仅理由由
-      「错误规范引注」改记为「呈现取舍」；代码注释据实改写并加强契约断言钉住卡头四项，呈现结果未变。
-
+    summary: Human 复定登记——卡头标签序定为「类型→优先级→SG→修改次数」四项、不设关联 chip。该复定结清本单 residual 原第五条（2026-09-13 撤 chip 的理由记录在错误规范引注上）：移除结果在结论上被确认，仅理由由 「错误规范引注」改记为「呈现取舍」；代码注释据实改写并加强契约断言钉住卡头四项，呈现结果未变。
   - at: 2026-09-24T05:21:26.601Z
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 事后补记建议段（21 §8）：为 2026-09-23 建议段登记前已关闭的对象补写对残留的处置去向，段内首行已声明「本条为 2026-09-24 事后补记，非关闭当时的 Gate 2 提请内容」 [post-hoc backfill; no Gate 2 re-run]
+  - at: 2026-10-01T19:02:54.749Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 事实更正（非状态转换）——丙方案推进：存量迁移（分离式→合并式）——正文「## 结果」节把单行汇总的 `- residual：①…⑤` 与独立 `- advice:` 段改建为**按 frontmatter 6 条残留逐条列出**、各自挂去向子项（全「接受现状」并写自足理由）；原正文缺的 frontmatter 第 6 条（scope_snapshot 未回写）据此补入正文，恢复载体内聚；其中「FactCardAssociation 建模松弛」的实质承接改由引用形态承载（Spark d56b0b76 refs 反引本单）；保留事后补记声明。终态判定未变：status/outcome/result/gate_1/attempt/plan/scope/reviews 逐字继承落盘对象（本入口不接收 frontmatter，故改动在结构上不可能），仅正文重写。依 21 §9.2「若原终态记录本身错误，按事实更正规则修正，不把更正伪装成领域状态转换」与 03 §9.5，经 Human 授权：Human 2026-10-01 授权（原话「丙 方案你改一个我看看效果」→「可以，就这么推进」）：按丙方案迁移本单去向——有价值事项已立 Spark（d56b0b76）并由其 refs 反引本单；6 条残留按 frontmatter 权威文本逐条列出并各落「接受现状」；经 correct 通道只改正文，status/outcome/result/reviews 逐字不变。
 ---
+
 # spark 非终态卡关联呈现
 
 ## 摘要
@@ -160,11 +114,20 @@ change_log:
 - 判据 3（契约测试断言）：**满足**。证据=`spark-refs-projection.test.ts` 新增「list cards project factRefs with the same contract as the detail read」（列表/详情两层一致 + 分工纪律）；`spark-reading-contract.test.ts` 以新断言取代已失效的「卡片不承载 refs」禁止断言（原 2026-09-13 裁定的禁止项被 Human 扩围显式解除）。
 - 判据 4（三件套、dist、受控提交）：**满足**。证据=tsc exit 0；web 测试 250/250 通过；eslint 无新增（`facts.ts` 残留 1 项为既有未用参数，仅行号位移 442→448，已对 HEAD 版本比对确认）；dist 重建且 index.html 引用新 hash（7e0f377 后 `index-BBWdRIOT.js`，c1d0e26 后 `index-CbXCDlKi.js`）；两次提交 Git Gate 均 passed（snapshot_identity `fccc69bd…` / `7ec131fa…`）。
 - achieved_scope：列表路径补投影 `factRefs` + 卡片呈现 `refs`（与 relations 同组件路径并列）+ 契约测试同步 + dist 重建 + 受控提交（7e0f377、c1d0e26）。open spark 卡关联呈现缺口已消除，两层阅读器契约一致。
-- residual：① ~~`specs/10` §5.2 正文尚未同步修订~~ **本项已撤销（2026-09-16 更正）**：§5.2 从未包含该禁止条文，无需修订，详见「扩围依据的更正」；② refs 在列表卡复用生命周期状态图标（`getFactAssociationState`）语义上可议，非本单引入，未处置；③ `FactCardAssociation` 类型对 refs 条目的建模松弛（声明 `target?` 而 refs 实为 `objectUid`）系既有问题，未处置；④ 列表卡 ref 行数多时的视觉高度未做目视确认；⑤ ~~2026-09-13 卡头撤 chip 的理由记录在错误规范引注上，可追溯性缺陷~~ **已由 Human 复定结清（2026-09-16）**：卡头即「类型→优先级→SG→修改次数」四项、不设关联 chip，注释已改记为呈现取舍。
+
+- residual:
+  - 规范正文无需修订（原判断有误，2026-09-16 更正）：specs/10 §5.2 从未包含「卡片网格不承载关联对象」——该说法是 3e0cbcc 提交 message 的错误引注，§5.2 在该提交前后逐字相同，其首条要点明列「关联计数」，本就允许卡片承载关联。§5.1「不渲染关联关系」只约束第一层（字段级直读），与第二层卡片网格互不替代。错误引注已在本单 7e0f377 的代码注释中清除；本节原第一条遗留据此撤销。
+    - **接受现状**：该判断已由 2026-09-16 更正结清（规范正文确无需修订、错误引注已清除），无待处置事项，就此了结。
+  - 2026-09-13 卡头撤 chip 的裁定理由记录在错误规范引注上，登记为可追溯性缺陷。 本项已由 Human 复定结清（2026-09-16）：Human 明示「我要的就是 类型→优先级→SG→修改次数」——卡头四项、不设关联 chip。该复定使 2026-09-13 的移除结果在结论上被确认，仅其原先援引的规范理由（错误引注）被替换为「呈现取舍」。代码注释已据实改写，不再引用不存在的条文；呈现结果未变（关联对象只在卡体关联段）。
+    - **接受现状**：该项已由 Human 复定结清（可追溯性缺陷已闭环、代码注释已据实改写），无待处置事项，就此了结。
+  - refs 在列表卡复用生命周期状态图标（getFactAssociationState），语义上 refs 为普通内容关联而非生命周期关系，可议但非本单引入。
+    - **接受现状**：该项非本单引入、语义可议但影响面限于图标选择；待 refs 语义统一时一并处置更合适，本单就此了结。
+  - FactCardAssociation 类型对 refs 条目的建模松弛（声明 target? 而 refs 实为 objectUid）系既有问题，未处置。
+    - **接受现状**：原拟另立工单收敛类型；该建模松弛已另行立为 Spark（议题「FactCardAssociation 建模松弛」，其 `refs` 已声明承自本单，见本卡引用区的关联行），本单不再跟踪。
+  - 列表卡 ref 行数多时的视觉高度与浏览器终态未做目视确认，仅由渲染实测与构建产物保证。
+    - **接受现状**：本单证据止于渲染实测与构建产物，多行时的视觉高度与浏览器终态不在本单验证范围；该边界已如实登记，就此了结。
+  - gate_1.scope_snapshot 未随 Human 扩围回写（snapshot 由 Code 机械加盖）；扩围事实以 change_log 与 approve 摘要承载，构成授权记录的内部张力。
+    - **接受现状**：snapshot 由 Code 机械加盖、不随后续扩围回写（载体自述该张力），扩围事实已由 `change_log` 与 approve 摘要如实承载，本单不再跟踪。
 
 **本条为 2026-09-24 事后补记，非关闭当时的 Gate 2 提请内容。**
 
-- advice:
-  - **直接行动**：在后续 docs 清理批次顺手更正该归档文档对已删除文件的列举。出自「docs/archive/v4-web-migration-survey.md 仍列举已删除的 workcaseDetailProjection.ts」
-  - **直接行动**：refs 复用生命周期状态图标一事，待 refs 语义统一时一并处置（当前非本单引入）。出自「refs 在列表卡复用生命周期状态图标」
-  - **另立工单**：FactCardAssociation 对 refs 条目的建模松弛（声明 `target?` 而 refs 实为 objectUid）属既有问题，另立一单收敛类型。出自「FactCardAssociation 类型对 refs 条目的建模松弛」

@@ -131,6 +131,10 @@ change_log:
     provider: trae
     model: Doubao-Seed-2.1-Pro
     summary: Gate 2 关闭（outcome=completed）：9 条判据全达成；2026-09-27 双基线独立复核确认 8 条属实、步骤 8 呈现映射判别力缺口转 residual；attempt 1 收口 [gate_2 closed with outcome=completed; attempt 1 retracted]
+  - at: 2026-10-01T18:59:37.395Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 事实更正（非状态转换）——丙方案推进：存量迁移（分离式→合并式）——正文「## 结果」节把独立 `- advice:` 段并入各残留之下的去向子项，8 条残留全落「接受现状」并各写自足理由；3 条退役词去向全部转换：2 条「另立工单」的未普查面／解析器缺口已另行立为 Spark（8d5437b7／4a21bfda，二者 refs 均已声明承自本单，本卡引用区呈现），1 条「直接行动」（docs 归档更正）经复核属非悬挂引用、保持原样；含退役词的内联声明一并改写为接受现状并写明原意向。终态判定未变：status/outcome/result/gate_1/attempt/plan/scope/reviews 逐字继承落盘对象（本入口不接收 frontmatter，故改动在结构上不可能），仅正文重写。依 21 §9.2「若原终态记录本身错误，按事实更正规则修正，不把更正伪装成领域状态转换」与 03 §9.5，经 Human 授权：Human 2026-10-01 授权（原话「丙 方案你改一个我看看效果」→「可以，就这么推进」→「dsh-ldvh@workcase-364df30e 这个还有 另立工单，直接行动，都要转换」→「确认」）：按丙方案迁移本单去向——有价值事项已立 Spark 并由其 refs 反引本单；退役词去向全部转换（另立工单→接受现状＋引用行，直接行动→接受现状）；经 correct 通道只改正文，status/outcome/result/reviews 逐字不变。
 ---
 
 # WorkCase 呈现保真与设计语言收敛
@@ -182,8 +186,6 @@ change_log:
 
 ## 结果
 
-### Gate 2 提请
-
 - criteria_checks:
   - 步骤 1 判据「每个缺陷给出复现方式与「期望/实际」对照，其中服务端投影缺陷以真实对象跑「读取层 + 投影层」得到无损字段清单，可机械复核」：**达成**。依据见「## 执行」第 3 条；机械可复核方式为对 `ldvh-base/workcases/` 全量对象跑 `readLocalFact → projectCurrentWorkCaseCard` 并比对字段存在性，修前冻结清单非空、修后为空。
   - 步骤 2 判据「对全部真实 workcase 复跑，字段冻结数为 0；closed 的 satisfied 为 boolean、residual 为 string[]」：**达成**。实测 8 个真实对象（含本单自身）字段冻结数 0；`satisfied` 为布尔且逐字保留（`[true,true,true,true,true]` 不再退化为 `[null×5]`）；`residual` 为数组且空数组形态保留（`[]` 与「缺失」可区分）；`gate_1` 四字段完备 7/7。2026-09-27 双基线复核在 48d1264 提交态独立复跑确认。
@@ -194,19 +196,24 @@ change_log:
   - 步骤 7 判据「死文件与零消费字段已删、model.ts 字段序为 21 号闭集；docs/10 §4.2 与 specs/21 §8 对照无 v4 词汇残留」：**达成**。`shared/workcaseDetailProjection.ts`（105 行，零消费者）已删除；`has_execution_section` 与其专用 helper 已删；`docs/10 §4.2` 改写为 v5 语义。复核确认无悬挂引用（`docs/archive/` 中的陈旧列举属非规范效力归档，已转残留跟踪）。
   - 步骤 8 判据「新增测试对真实对象断言投影无损（可捕捉上述投影缺陷回退），并经变异验证可失败」：**达成（判据字面成立；呈现映射判别力缺口如实补充）**。新增 `workcase-projection-fidelity.test.ts` 6 项，跑真实管道而非源码文本；本单自测 4 次变异 + 2026-09-17 独立复核者 5 次变异（均为投影类：satisfied 改回 string、删 started_at、整删 residual、gate_1 退回 closed-only、删 authorization_fingerprint/scope_snapshot）全部被捕获；2026-09-27 双基线复核另做 satisfied 守卫回退变异，fidelity 5 项失败被捕获。**补充（2026-09-27 复核）**：把 `workcaseCheckState.ts` 三态映射改恒 unknown 的**呈现映射类**变异未被本单新增的两个测试捕获（design-language 相关守卫为结构性断言），仅被后续工单建立的 `workcase-lifecycle.test.ts` 捕获——判据文本只要求投影无损测试可失败（成立），该呈现映射缺口转 residual。
   - 步骤 9 判据「tsc 0 错误、web 测试全绿、eslint 无新增、dist 重建且 index.html 引用新 hash、Git Gate passed」：**达成（提交时点）**。48d1264 提交态经 2026-09-27 双基线复核独立复跑：tsc 退出 0、web 测试 262/262；eslint 39 problems（16 errors / 23 warnings）与当时 HEAD 基线逐项一致、零新增；dist 重建为 `index-CksUN7yQ.js` 且 `index.html` 已引用；提交 48d1264 输出 `LDVH Git Gate (commit-msg) passed` 与 snapshot_identity。提交时点之后的 HEAD 变化（tsc 2 错、工作树 1 项失败）非本单产物，见 residual。
+
 - achieved_scope: WorkCase 呈现链的服务端投影保真已修复（投影按 21 §8 真实类型判定，不再静默丢弃 satisfied/residual/gate_1 时间戳与 C2 钉扎基准、attempt 两时间戳；8 个真实对象字段冻结数 0）；前后端字段契约统一为一份；判据三态呈现统一为可读文本（详情/列表卡/收件箱共用单一映射）；派生分组五档补齐本地化与语义色；详情阅读结构与六类样板对齐（去重复身份块、正文用详情层级、字段在场性与分组无关）；v4 残留清除；`plugin/web/docs/10 §4.2` 更新为 v5 语义；新增 12 项测试守卫（运行时保真 6 项 + 设计语言 6 项），其中投影类守卫经变异验证具备判别力（呈现映射类守卫的行为判别力由后续工单 `workcase-lifecycle.test.ts` 补齐）。
+
 - residual:
   - **浏览器端真实渲染未核验**：本次证据止于编译、构建产物与契约测试，未做各派生分组详情页的运行期目视核对（视觉层与 Human 阅读可用性未覆盖）。
+    - **接受现状**：本单证据止于编译与契约测试，运行期目视核对不在本单授权范围；该边界已如实登记，就此了结。
   - **同型缺陷未普查其余六类**：本次只修 WorkCase 呈现链。六类阅读布局（ADR/Pitfall/Spark/Research/Friction/Norm）是否存在同类「按错误类型判定致字段静默丢弃」未在本单普查（本单授权范围明确排除改动它们）。
+    - **接受现状**：原拟另立工单；该未普查面已另行立为 Spark（议题「六类阅读布局同型守卫未扩面」，其 `refs` 已声明承自本单，见本卡引用区的关联行），本单不再跟踪。
   - **`docs/archive/v4-web-migration-survey.md` 仍列举已删除的 `workcaseDetailProjection.ts`**：经复核确认为非悬挂引用（该目录自述不具规范效力，且文档系对 v4 源树的冻结盘点，非当前仓库索引）。
+    - **接受现状**：原拟在后续 docs 清理批次顺手更正；经复核该目录自述不具规范效力、文档系 v4 源树的冻结盘点，更正它会破坏其「冻结盘点」的性质，故保持原样、就此了结。
   - **`statusColors.ts` 的 `executing` 键安全性依赖事实而非类型系统**：复核指出该键改色安全的依据是「当前仓库无对象以字面 `executing` 为 status 值」，而非类型保证；若将来有类型引入该字面状态，颜色语义会被静默共用。已如实登记，本次不扩围处置。
+    - **接受现状**：该键的成立依据已如实登记为「事实而非类型保证」，本次不扩围；若将来真有类型引入该字面状态，届时按新证据另议，本单就此了结。
   - **dist 仅本机机械验证**：`dist/` 为 `.gitignore` 产物不入库，仅确认 `index.html` 引用新 hash 且文件存在，未覆盖部署链路。
+    - **接受现状**：dist 的部署链路不在本单验证范围，本机机械验证已足；证据边界已如实登记，就此了结。
   - **`model.ts` 的 `FIELD_ORDER_BY_TYPE.workcase` 实为死代码**：复核独立追证确认 WorkCase 详情走专属布局且 `FactReadingContent` 在通用兜底分支前 return，故该顺序永不被消费。本次改动的价值在于清除 v4 词汇（防误导后续维护者），其注释已如实标注这一点。
+    - **接受现状**：该顺序确为死代码、本次改动的价值（清 v4 词汇）已达成并如实标注；死代码本身是否删除不属本单范围，就此了结。
   - **步骤 8 呈现映射类变异在交付时点未被新增测试捕获（2026-09-27 双基线独立复核发现）**：把 `workcaseCheckState.ts` 三态映射改恒 `unknown` 的变异未被本单新增的两个测试捕获（`workcase-design-language-contract.test.ts` 的相关守卫为结构性断言，只断言「组件引用共享导出」「不自造词条」；fidelity 不经组件映射），仅被后续工单建立的 `workcase-lifecycle.test.ts` 的行为断言捕获。判据文本只要求投影无损测试可失败（成立）；呈现映射判别力缺口如实登记，当前已由后续测试补齐。
+    - **接受现状**：该判别力缺口已由后续工单建立的行为断言补齐（`workcase-lifecycle.test.ts` 捕获该变异），本单无须再处置，就此了结。
   - **当前 HEAD tsc 2 错与当前工作树 1 项 web 测试失败均非本单产物（2026-09-27 双基线复核确认）**：`api/app.ts(134,7) TS2339 'handle' does not exist on type 'Application'` 由 d7a19a1（2026-09-25）引入；48d1264 提交态 tsc 退出 0、web 262/262、HEAD 提交态 367/367 全绿。当前工作树 fidelity L547「去向投影计数」失败由另一会话未提交的 workcase-63700bd2 正文改动暴露 `parseWorkCaseResultDraft` 段退出条件缺口（advice 段后的顶层 bullet 被吞为第 6 条建议，kind:null）——解析器缺口建议另立修复，不属本单范围。
-
-- advice:
-  - **另立工单**：以同一手法普查其余六类阅读布局是否存在同类「按错误类型判定致字段静默丢弃」缺陷。出自「同型缺陷未普查其余六类」
-  - **另立工单**：修 `parseWorkCaseResultDraft` 的 advice 段退出条件——advice 模式下遇到后续顶层 bullet 应退出，不得吞为建议条目（2026-09-27 双基线复核发现，当前由 workcase-63700bd2 的未提交正文改动暴露为 fidelity L547 失败）。出自「当前工作树 1 项 web 测试失败均非本单产物」
-  - **直接行动**：在后续 docs 清理批次顺手更正该归档文档对已删除文件的列举。出自「docs/archive/v4-web-migration-survey.md 仍列举已删除的 workcaseDetailProjection.ts」
+    - **接受现状**：tsc 与测试的现状均非本单产物（原记录已如实归属）；其中解析器缺口已另行立为 Spark（议题「advice 段解析吞条目缺陷」，其 `refs` 已声明承自本单，见本卡引用区的关联行），本单不再跟踪。
 
