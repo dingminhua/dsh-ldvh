@@ -1020,15 +1020,27 @@ export async function updateSparkObject(args) {
     }
   }
 
-  // Relation targets must resolve to existing OPEN sparks (20 §11/§14.1:
-  // 目标必须可解析且为 open — 合并/拆分去向校验)
+  // Relation targets must resolve to existing sparks, and must be OPEN *at
+  // write time* (20 §11 / §14.1 — 合并/拆分去向校验).
+  //
+  // Human 裁定 2026-10-05（解法 C）：`open` 是**写入前置条件**，不是持久不变量。
+  // 目标 Spark 日后依法走到终态（§9.2）不溯及既往地使既有关系失效——那是正常
+  // 生命周期内必然发生的事（§11 已相应移除对应的 Stop Condition）。故本校验只
+  // 作用于**本次写入新引入**的关系目标；既有的、目标已事后转终态的关系不
+  // 在此重新裁决。
+  //
+  // 若不加此区分（每次写入都复查全部关系），任何子议题已终态的父对象都会被永久
+  // 锁死：§13 禁止删除该关系、§9.2 禁止把子对象改回 open，于是此后每一次更新
+  // ——连同与之无关的内容更正——都将被无限期拒绝。本次裁定正是消除该死锁。
+  const prevRelUids = new Set(relationTargetUids(current.value.frontmatter, objectUid));
   for (const targetUid of relationTargetUids(fm, objectUid)) {
+    if (prevRelUids.has(targetUid)) continue; // 未被本次写入触及的既有关系
     const targetRead = await readSparkObject({ factSourceRoot, objectUid: targetUid });
     if (!targetRead.ok) {
       return failure("spark/relation_target_unresolvable", `${targetUid} does not resolve to an existing Spark object: ${targetRead.error.message}`);
     }
     if (targetRead.value.frontmatter.status !== "open") {
-      return failure("spark/relation_target_unresolvable", `${targetUid} is status=${targetRead.value.frontmatter.status}, not open — merge/split targets must be open (20 §11)`);
+      return failure("spark/relation_target_unresolvable", `${targetUid} is status=${targetRead.value.frontmatter.status}, not open — merge/split targets must be open at write time (20 §11 write-precondition)`);
     }
   }
 

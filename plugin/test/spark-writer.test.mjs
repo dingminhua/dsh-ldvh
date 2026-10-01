@@ -1357,3 +1357,176 @@ test("refs: omitted stays omitted (03 §6.1 — no empty placeholder written)", 
     assert.ok(!raw.includes("refs:"), "refs must not be materialised as an empty placeholder");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Human 裁定 2026-10-05（解法 C）：merged-into/split-into 目标的 `open` 约束
+// 是**写入前置条件**，不是持久不变量（20 §11）。
+//
+//   场景源自真实存量实证：6 条 discarded 关系的子议题在关系写入之后依法走到
+//   终态（§9.2），使父关系指向非 open 目标。此前实现每次写入都复查全部关系，
+//   令这些父对象连无关的内容更正都被永久拒绝（§13 无删除 + §9.2 不可重开 ⇒
+//   无任何修复路径）。C 同时消除该死锁。
+// ---------------------------------------------------------------------------
+
+/** 建立一个 disposed-ward、`relations` 指向 targetUid 的 discarded 父对象。 */
+async function seedDiscardedParentWithRelation(root, targetUid) {
+  const draft = validFrontmatterDraft();
+  const created = await createSparkObject({
+    factSourceRoot: root, frontmatterDraft: draft, bodyMarkdown: validBodyMarkdown(draft),
+    sessionSignature: TEST_SIGNATURE,
+  });
+  assert.ok(created.ok, JSON.stringify(created.error));
+  const uid = created.value.object_uid;
+  const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+  const r = await updateSparkObject({
+    factSourceRoot: root, objectUid: uid, expectedFingerprint: read1.value.fingerprint,
+    frontmatterAfter: {
+      ...read1.value.frontmatter,
+      status: "discarded",
+      disposition: "已拆往子议题，本对象不再以原形态存在。",
+      relations: [{ relation_key: "split-into", target: { object_uid: targetUid } }],
+    },
+    bodyMarkdownAfter: validBodyMarkdown(draft),
+    changeSummary: "终态转换 open→discarded（拆分）",
+    sessionSignature: TEST_SIGNATURE,
+  });
+  assert.ok(r.ok, JSON.stringify(r.error));
+  return { uid, draft, fingerprint: r.value.fingerprint };
+}
+
+/** 把某个对象推入终态（模拟子议题事后走到终态）。 */
+async function terminateObject(root, uid, status, disposition, draft) {
+  const read = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+  const r = await updateSparkObject({
+    factSourceRoot: root, objectUid: uid, expectedFingerprint: read.value.fingerprint,
+    frontmatterAfter: { ...read.value.frontmatter, status, disposition },
+    bodyMarkdownAfter: validBodyMarkdown(draft),
+    changeSummary: `终态转换 open→${status}`,
+    sessionSignature: TEST_SIGNATURE,
+  });
+  assert.ok(r.ok, JSON.stringify(r.error));
+}
+
+test("关系目标写入时须 open（写入前置条件）：指向已终态目标的新关系被零写入拒绝 (20 §11)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    // 子议题先进入终态
+    const childDraft = validFrontmatterDraft({ title: "子议题（先终态）" });
+    const child = await createSparkObject({
+      factSourceRoot: root, frontmatterDraft: childDraft, bodyMarkdown: validBodyMarkdown(childDraft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(child.ok);
+    const childUid = child.value.object_uid;
+    await terminateObject(root, childUid, "implemented", "直接落实完毕。", childDraft);
+
+    // 父对象试图拆往一个已 implemented 的目标 —— 写入时刻即不满足 open
+    const parentDraft = validFrontmatterDraft({ title: "父议题" });
+    const parent = await createSparkObject({
+      factSourceRoot: root, frontmatterDraft: parentDraft, bodyMarkdown: validBodyMarkdown(parentDraft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(parent.ok);
+    const uid = parent.value.object_uid;
+    const read1 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    const bad = await updateSparkObject({
+      factSourceRoot: root, objectUid: uid, expectedFingerprint: read1.value.fingerprint,
+      frontmatterAfter: {
+        ...read1.value.frontmatter, status: "discarded", disposition: "拆往子议题。",
+        relations: [{ relation_key: "split-into", target: { object_uid: childUid } }],
+      },
+      bodyMarkdownAfter: validBodyMarkdown(parentDraft),
+      changeSummary: "试图拆往已终态目标",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!bad.ok, "写入时刻非 open 的目标必须被拒绝");
+    assert.equal(bad.error.code, "spark/relation_target_unresolvable");
+
+    // 零写入：父对象未被改动
+    const after = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(after.value.frontmatter.status, "open");
+    assert.equal(after.value.frontmatter.relations, undefined);
+  });
+});
+
+test("子议题事后转终态：父对象的无关内容更正仍被放行（C 解锁死锁） (20 §11/§13/§9.2)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    // 一个 open 的子议题
+    const childDraft = validFrontmatterDraft({ title: "子议题" });
+    const child = await createSparkObject({
+      factSourceRoot: root, frontmatterDraft: childDraft, bodyMarkdown: validBodyMarkdown(childDraft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(child.ok);
+    const childUid = child.value.object_uid;
+
+    // 父对象在子议题 open 时拆往它（写入合规）
+    const { uid, draft, fingerprint } = await seedDiscardedParentWithRelation(root, childUid);
+
+    // 此后子议题依法走到终态 —— 父关系目标不再是 open
+    await terminateObject(root, childUid, "discarded", "子议题自身决定不再跟踪。", childDraft);
+    const childRead = await readSparkObject({ factSourceRoot: root, objectUid: childUid });
+    assert.equal(childRead.value.frontmatter.status, "discarded");
+
+    // 对父对象做一次与该关系无关的内容更正 —— 必须放行（这是 C 要解除的锁）
+    const read2 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    const correction = await updateSparkObject({
+      factSourceRoot: root, objectUid: uid, expectedFingerprint: read2.value.fingerprint,
+      frontmatterAfter: { ...read2.value.frontmatter, disposition: "更正后的终态理由。" },
+      bodyMarkdownAfter: validBodyMarkdown(draft),
+      changeSummary: "更正终态理由（与既有关系无关）",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(correction.ok, `无关内容更正应被放行，实际被拒：${JSON.stringify(correction.error)}`);
+
+    // 关系原样保留（§13 无删除操作），不被静默移除或降级
+    const read3 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(read3.value.frontmatter.disposition, "更正后的终态理由。");
+    assert.deepEqual(read3.value.frontmatter.relations, [
+      { relation_key: "split-into", target: { object_uid: childUid } },
+    ]);
+    assert.equal(read3.value.frontmatter.status, "discarded");
+  });
+});
+
+test("既有关系中目标已终态，但写入时若同时新增非 open 目标仍被拒（混合情形取差集） (20 §11)", async () => {
+  await withTemp("spark-writer.", async (root) => {
+    const childDraft = validFrontmatterDraft({ title: "子议题" });
+    const child = await createSparkObject({
+      factSourceRoot: root, frontmatterDraft: childDraft, bodyMarkdown: validBodyMarkdown(childDraft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(child.ok);
+    const childUid = child.value.object_uid;
+
+    // 另一个先已终态的对象
+    const deadDraft = validFrontmatterDraft({ title: "先行终态对象" });
+    const dead = await createSparkObject({
+      factSourceRoot: root, frontmatterDraft: deadDraft, bodyMarkdown: validBodyMarkdown(deadDraft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(dead.ok);
+    await terminateObject(root, dead.value.object_uid, "implemented", "已落实。", deadDraft);
+
+    const { uid, draft } = await seedDiscardedParentWithRelation(root, childUid);
+    // 让既有的那条目标也转终态
+    await terminateObject(root, childUid, "discarded", "放弃。", childDraft);
+
+    // 此时再**新增**一条指向已 implemented 目标的关系：只校验新增项，须被拒
+    const read2 = await readSparkObject({ factSourceRoot: root, objectUid: uid });
+    const mixed = await updateSparkObject({
+      factSourceRoot: root, objectUid: uid, expectedFingerprint: read2.value.fingerprint,
+      frontmatterAfter: {
+        ...read2.value.frontmatter,
+        relations: [
+          { relation_key: "split-into", target: { object_uid: childUid } },
+          { relation_key: "split-into", target: { object_uid: dead.value.object_uid } },
+        ],
+      },
+      bodyMarkdownAfter: validBodyMarkdown(draft),
+      changeSummary: "在既有关系之外新增一条指向非 open 目标的关系",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!mixed.ok, "新增的目标仍须满足写入时的 open 前置条件");
+    assert.equal(mixed.error.code, "spark/relation_target_unresolvable");
+  });
+});
