@@ -1,6 +1,6 @@
 {
   "name": "dsh-ldvh",
-  "version": "1.0.0-dev.2",
+  "version": "1.0.0-dev.1",
   "description": "LD Vibe Harness — DeepSeek Harness 原生插件：Web 信息呈现、Git 机械守护与 AI 工作引导的宿主接入（webServer 路由 + Sidebar/全屏面板 + 设置面板）。",
   "keywords": [
     "deepseek-harness",
