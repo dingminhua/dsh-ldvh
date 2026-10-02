@@ -15,9 +15,10 @@
 
 ## 版本
 
-- 开发版：`1.0.0-dev.N`
+- 开发版：`1.0.0-dev.N`。`N` 仅在已存在可区别的上一轮开发版本时递增；**首次正式发布前恒为 `1`**（`specs/08 §7.1`）。
 - 首个正式版：`1.0.0`
-- 版本变更同步更新 `plugin/package.json` 与 `plugin/CHANGELOG.md`。
+- 版本变更须同步更新**全部四处版本声明点**（`specs/08 §7.5`，四处必须一致，漂移按 `§10.1` 第 4 项停止条件处理）：`plugin/package.json`、`plugin/CHANGELOG.md`、`README.md` 的版本行、`plugin/README.md` 的版本行；`plugin/package-lock.json` 随 `package.json` 同步。
+  - **注意**：仅更新前两处会造成漂移（2026-09 曾实际发生）。`plugin/lib/hook-manager.js` 的 `HOOK_BUNDLE_VERSION` **不是** `package.json.version` 的镜像，不属版本声明点，勿一并改动。
 
 ## 发布
 
