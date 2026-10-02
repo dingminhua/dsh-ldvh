@@ -306,7 +306,7 @@ export async function shellAuthoritativeSessionIdentity() {
   }
   const identity = extractSessionIdentityFromLines(splitJsonlLines(text));
   // source: "shell" —— 身份来自环境变量 + 日志文件，而两者对调用者**可设置**，
-  // 故该来源**可被伪造**，不构成独立性证据（独立对抗复核实测，2026-09-19）。
+  // 故该来源**可被伪造**，不构成独立性证据（独立审核实测，2026-09-19）。
   // 该标记使写入器能机械拒收 shell 来源的复核身份。
   return identity.ok ? authoritativeSessionIdentity({ ...identity.value, source: "shell" }) : null;
 }

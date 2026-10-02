@@ -3868,7 +3868,7 @@ test("调整·批准：正文未同步新步骤时被拒——且拒绝理由是
       sessionSignature: SIG(),
     });
     assert.equal(decided.ok, false, "字段与正文不同步时必须拒绝，而不是落一个字段有、正文没有的对象");
-    // 空转防线（2026-09-30 独立对抗复核 F-9）：必须钉住**拒绝理由**，否则一个因"缺 H1"等
+    // 空转防线（2026-09-30 独立审核 F-9）：必须钉住**拒绝理由**，否则一个因"缺 H1"等
     // 无关结构错而失败的用例会被误当成"载体内聚生效"的证据。
     assert.equal(decided.error.code, "workcase/coherence_invalid", "拒绝须来自载体内聚校验");
   });
@@ -3880,7 +3880,7 @@ test("调整·批准：结构错（缺节）与载体内聚错是两种不同的
     const { uid } = await approved(root);
     await requestedAdjustment(root, uid, ADJUST_ITEM, "不做它，第一条判据达不成");
     // 该正文的 H1 会先被剥掉（本入口与 execute/close 同形），实际因**缺 H2 节**而报结构错——
-    // 本用例钉的是"结构错与内聚错被区分开"，不是"H1 被处理"（2026-09-30 独立对抗复核 F-8）。
+    // 本用例钉的是"结构错与内聚错被区分开"，不是"H1 被处理"（2026-09-30 独立审核 F-8）。
     const noH1NoStep = await decideWorkcaseAdjustment({
       factSourceRoot: root,
       objectUid: uid,

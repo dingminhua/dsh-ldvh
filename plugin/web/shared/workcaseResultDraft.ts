@@ -355,7 +355,7 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
     // 存量尾注剥离：只从正文里去掉，不产出任何字段（见 `ADVICE_LEGACY_FROM`）。
     const legacyFrom = ADVICE_LEGACY_FROM.exec(text)
     if (legacyFrom) text = text.slice(0, legacyFrom.index).trim()
-    // **不得在剥离后回落到未剥离的整条原文**（F-5，2026-09-28 独立对抗复核发现）：
+    // **不得在剥离后回落到未剥离的整条原文**（F-5，2026-09-28 独立审核发现）：
     // 原先写 `text: text || item`，当正文剥完尾注后为空（如 `- **接受现状**：出自「残留甲」`）
     // 就回落到 `item`，把整行原文（含去向词标记与已退休的尾注）当作正文交给读者。
     // 写入器侧（`workcase-writer.js` 的 `parseResidualSection`）**没有这个回落**，只给 `""`；
@@ -543,7 +543,7 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
  * **静默消失**，而「不完整比不呈现更危险，因为它不像缺失」。
  *
  * **本函数只实现前提 ①（结构面），不实现前提 ②（语义面）**——`10 §5.5` 经 2026-09-28
- * 独立对抗复核后更正：两个前提的**判据强度不同，不得混同**。前提 ① 是**结构判据**，
+ * 独立审核后更正：两个前提的**判据强度不同，不得混同**。前提 ① 是**结构判据**，
  * 机械可判（「该对象**每条残留都带有去向子项**」——`entries` 非空且每条的 `directions`
  * 都非空）；前提 ②「去向正文**自足**」是**语义判据**，`21 §8` 与 `§15.1` 软约束均明确
  * 归 AI 语义审核与 Human 阅读，**机械层不判定**。

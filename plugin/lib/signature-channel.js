@@ -119,7 +119,7 @@ export function requireAuthoritativeSignature(carrier, { context = "change_log e
  *     `agent` 来自 DSH 的工具执行/装配上下文，**不由工具参数或环境变量控制**）；
  *   - `"shell"`：身份由 `shellAuthoritativeSessionIdentity()` 从**环境变量 + 日志文件**取得。
  *
- * **为什么必须区分（独立对抗复核实测发现，2026-09-19）**：shell 路径逐字采信
+ * **为什么必须区分（独立审核实测发现，2026-09-19）**：shell 路径逐字采信
  * `DSH_SESSION_JSONL`/`DSH_HOME`+`DSH_SESSION_ID`，而这两者对调用者（AI 的一次 bash
  * 调用）是**可设置的**。实测：`DSH_SESSION_JSONL=/tmp/forged.jsonl`（内容仅一行
  * `{"type":"session","id":"session-ANYTHING"}`）即铸出**真品牌**身份，无需 import 本

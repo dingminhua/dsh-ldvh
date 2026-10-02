@@ -2022,7 +2022,7 @@ async function loadAndCheckFingerprint(factSourceRoot, objectUid, expectedFinger
 /**
  * 只接受**宿主执行上下文**来源的会话身份（source="host"）。
  *
- * 独立对抗复核实测（2026-09-19）：shell 通道逐字采信 `DSH_SESSION_JSONL` /
+ * 独立审核实测（2026-09-19）：shell 通道逐字采信 `DSH_SESSION_JSONL` /
  * `DSH_HOME`+`DSH_SESSION_ID`，而两者对调用者（AI 的一次 bash 调用）可设置——
  * 一行环境变量即可铸出任意身份的**真品牌**载体。故 shell 来源身份**可被实施者伪造**，
  * 不能作为独立性判据；本函数把「不可信来源」解析为 null，使各写入路径按缺身份
@@ -2487,7 +2487,7 @@ export async function recordWorkcaseReview(args) {
   const identity = hostSessionIdentity(sessionIdentity);
   if (identity !== null && identity.source === "shell") {
     // shell 来源身份取自环境变量 + 日志文件，而两者对调用者可设置 → 可伪造。
-    // 接受它等于把门禁的判据交给被判方（独立对抗复核实测：一行 DSH_SESSION_JSONL
+    // 接受它等于把门禁的判据交给被判方（独立审核实测：一行 DSH_SESSION_JSONL
     // 即可铸出任意身份）。故复核身份只接受宿主执行上下文（source="host"）。
     return failure(
       "workcase/review_identity_untrusted",
@@ -2565,7 +2565,7 @@ export async function recordWorkcaseReview(args) {
  * 调用方只提供 `items`（拟追加的步骤与判据）与 `rationale`（为什么必需）。
  * `requested_at` 由 Code 盖戳（AI 不得自填），其余字段一律取自落盘对象。
  * **不提供范围改写**：`scope` 的任何改动都构成 §10.3 的失效事由、走 C2 局部重批
- * （2026-09-30 独立对抗复核 F-2 后删除了 `scope_additions`）。
+ * （2026-09-30 独立审核 F-2 后删除了 `scope_additions`）。
  */
 export async function requestWorkcaseAdjustment(args) {
   const { factSourceRoot, objectUid, expectedFingerprint, items, rationale, changeSummary = null, sessionSignature = null } = args;
@@ -2583,7 +2583,7 @@ export async function requestWorkcaseAdjustment(args) {
   if (typeof rationale !== "string" || rationale.trim().length === 0) {
     return failure("invalid_request", "rationale is required: 说明「不做它，已批的 done_criteria 就达不成」（21 §14 乙档的定义要件）");
   }
-  // 申请项的**内容下限**（2026-09-30 独立对抗复核 F-7）：此前只校验"非空字符串"，
+  // 申请项的**内容下限**（2026-09-30 独立审核 F-7）：此前只校验"非空字符串"，
   // 于是与已批步骤**逐字重复**的申请也能被批准、落盘出两条全同项（`criteria_checks`
   // 按索引对照的语义随之退化），且超长文本无上限。此处只设**可机械判定**的两条：
   // 长度上限、与既有 plan 步骤逐字重复即拒。至于"是否恰是所需"仍属 AI/Human 判断。
@@ -2629,7 +2629,7 @@ export async function requestWorkcaseAdjustment(args) {
 
   const next = structuredClone(fm);
   // 乙档**只追加 `plan`**：`scope` 的任何改写都构成 §10.3 的失效事由、走 C2 局部重批，
-  // 不在这条通道里。2026-09-30 独立对抗复核 F-2 后删除 `scope_additions`——它曾是纯文本追加，
+  // 不在这条通道里。2026-09-30 独立审核 F-2 后删除 `scope_additions`——它曾是纯文本追加，
   // 实测可把「明确不做什么」的禁令逐字追加成授权项，或再加一个「允许的顺带修缮：」标签改写目录。
   const entry = { requested_at: new Date().toISOString(), items, rationale };
   next.gate_1 = { ...gate1, amendments: [...existing, entry] };
@@ -2662,7 +2662,7 @@ export async function requestWorkcaseAdjustment(args) {
  *
  * `decision.at` 由 Code 盖戳；`by` 由调用方提供（**自报**，同 `gate_1.approver` 的形态）——
  * "谁批的"可核痕迹是 Code 从宿主上下文取得的 `decision.session_id`／`session_source`
- * （2026-09-30 独立对抗复核 F-1：本通道作用于执行中的 open 对象并实时扩大授权，
+ * （2026-09-30 独立审核 F-1：本通道作用于执行中的 open 对象并实时扩大授权，
  * 故必须留下可核身份；机械层不证明 `by` 为真，规范已如实声明该边界）。
  */
 export async function decideWorkcaseAdjustment(args) {
@@ -2687,7 +2687,7 @@ export async function decideWorkcaseAdjustment(args) {
     );
   }
   // 决定者**会话身份**（Code 托管；与 `approve` 同形——不传不拒，但缺失即"谁批的"无可核）。
-  // 2026-09-30 独立对抗复核 F-1：`by` 是调用方字符串，属**自报**；本通道又直接作用于执行中的
+  // 2026-09-30 独立审核 F-1：`by` 是调用方字符串，属**自报**；本通道又直接作用于执行中的
   // `open` 对象并**实时扩大授权**，故必须给"谁批的"留下一个可核的身份痕迹，而不是只有自报姓名。
   const deciderIdentity = hostSessionIdentity(sessionIdentity);
   const current = await loadAndCheckFingerprint(factSourceRoot, objectUid, expectedFingerprint);
@@ -2702,7 +2702,7 @@ export async function decideWorkcaseAdjustment(args) {
   if (gate1 === null || pendingIndex < 0) {
     return failure("workcase/no_pending_adjustment", "没有待批的增量申请可供决定（21 §14）");
   }
-  // 前态与后态同口径（2026-09-30 独立对抗复核 F-6）：「待批」的判据是**末项无 `decision`**（10 §5.5）。
+  // 前态与后态同口径（2026-09-30 独立审核 F-6）：「待批」的判据是**末项无 `decision`**（10 §5.5）。
   // 若待批条目不在末位（仅 out-of-band 可达），**不得**静默按"首个无 decision"处理——那会让
   // 机械层（末位）与决定路径（findIndex）对同一对象给出相反解释。一律拒绝并报告。
   if (pendingIndex !== amendments.length - 1) {
@@ -2872,7 +2872,7 @@ export async function closeWorkcaseObject(args) {
   //
   // 为什么必须按条目判：门禁原先只比对当前 attempt，而 reviews 跨 attempt 保留
   // （身份按索引继承，见 stampReviewEntries）。于是「实施者写一条自查 → takeover 把
-  // attempt 换成另一会话 → 关闭」就能让自查被当成独立证据——独立对抗复核实测复现
+  // attempt 换成另一会话 → 关闭」就能让自查被当成独立证据——独立审核实测复现
   // （`probe-attempt-rot`：close ok=true）。故每条记录在写入时被盖上一个
   // `implementer_session_id`（当时的实施者，Code 托管），关闭时逐条比对两者是否不同。
   //
@@ -2881,7 +2881,7 @@ export async function closeWorkcaseObject(args) {
   //   (b) 所有可比对条目都是「记录者 == 当时的实施者」→ 全部是同会话自评；
   //   (c) 身份不可读（attempt 或条目缺身份）不视为独立。
   // 只有两端身份**都来自宿主执行上下文**（source === "host"）才构成判据：
-  // shell 来源可被一行环境变量伪造（独立对抗复核实测），故不计入。
+  // shell 来源可被一行环境变量伪造（独立审核实测），故不计入。
   const comparable = (fm.reviews ?? []).filter((entry) => (
     isPlainObject(entry)
     && typeof entry.session_id === "string" && entry.session_id.length > 0

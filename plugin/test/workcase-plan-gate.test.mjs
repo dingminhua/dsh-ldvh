@@ -37,7 +37,7 @@ function gateHit(plan) {
 const REAL_GATE_STEPS = [
   ["验证三件套与受控提交", "writer 测试全绿、web 测试全绿、tsc 0 错误、eslint 无新增；受控提交且 Git Gate passed"],
   ["验证三件套、dist 重建与受控提交", "tsc 0 错误、web 测试全绿、eslint 无新增、dist 重建且 index.html 引用新 hash、Git Gate passed"],
-  ["独立对抗审核、三件套与受控提交", "审核记录入 reviews；规范修订与实现分别独立受控提交且 Git Gate passed"],
+  ["独立审核、三件套与受控提交", "审核记录入 reviews；规范修订与实现分别独立受控提交且 Git Gate passed"],
   ["受控提交", "Git Gate passed，提交含代码、测试与说明"],
   ["受控提交与全量回归", "规范修订单独成提交且 Git Gate passed；既有测试全绿零回归"],
   ["完成独立结果复核", "复核报告留档"],
