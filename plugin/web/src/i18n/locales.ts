@@ -1237,7 +1237,7 @@ export const UI_LOCALES = {
     'objectDetail.workcaseAmendmentStep': '增量批准',
     'objectDetail.workcaseAttempt': '执行现场',
     'objectDetail.workcaseReviews': '复核记录',
-    // 复核记录 `summary` 的七要素（21 §8 引 02 §15）。原文按此七项书写，
+    // 复核记录 `summary` 的七要素（21 §8 引 02 §16）。原文按此七项书写，
     // 详情面据此分块呈现（此前整段输出，546 字一段无法阅读）。
     'objectDetail.reviewElementEmpty': '（未记录）',
     'objectDetail.reviewElement.对象': '对象',

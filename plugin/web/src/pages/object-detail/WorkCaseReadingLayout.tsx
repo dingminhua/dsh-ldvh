@@ -431,7 +431,7 @@ function ReviewsNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string 
             {entry.summary ? (
               /* 按七要素分块（Human 2026-09-24：「复核记录需要格式化，当前无法阅读」）。
                *
-               * 依据 `21 §8`：`reviews[].summary` 是「**结构化概要**，至少含 `02 §15`
+               * 依据 `21 §8`：`reviews[].summary` 是「**结构化概要**，至少含 `02 §16`
                * 判据**七要素**（对象／基线／方法／覆盖／未覆盖／发现／保证边界）」。
                * 数据本身按该七项书写，但此前**整段输出** —— 实测 12 条中 11 条超过
                * 400 字（中位 519、最长 596），七项被埋在一段话里，读者无法定位任何一项。
@@ -477,7 +477,7 @@ function AchievedScopeNode({ value, locale }: { value: string; locale: string })
 }
 
 /**
- * 一条复核记录的 `summary`（`21 §8` 引 `02 §15` 七要素）。
+ * 一条复核记录的 `summary`（`21 §8` 引 `02 §16` 七要素）。
  *
  * 按七要素拆成分块：**要素名（弱信息，`ldvh-meta-muted`）+ 内容**，各项之间用与
  * 仓内条目行一致的细分割线分隔（`WORKCASE_ITEM_ROW_CLASS`，四块共用同一串类名）。

@@ -316,7 +316,7 @@ export interface WorkCaseReviewEntry {
   at?: string;
   provider?: string;
   model?: string;
-  /** 结构化概要，≤ 600 字符，含 02 §15 判据七要素。 */
+  /** 结构化概要，≤ 600 字符，含 02 §16 判据七要素。 */
   summary?: string;
 }
 

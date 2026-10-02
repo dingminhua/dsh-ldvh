@@ -511,7 +511,7 @@ export function computeAuthorizationFingerprint(plan, scope) {
 /**
  * 21 §6.1（2026-09-18）：`plan` 只承载本工作包特有的实施工作，不承载 WorkCase
  * 自身的生命周期关口。受控提交、独立复核、主控自查、Gate 批准及其收尾动作由
- * 06 / 02 §15 与本文 §9、§14 承接，不得被写成 plan 的步骤或 done_criteria。
+ * 06 / 02 §16 与本文 §9、§14 承接，不得被写成 plan 的步骤或 done_criteria。
  *
  * 设计理由（见 §6.1）：关口与计划互为前置会形成循环——独立复核须待计划步骤
  * 全部终止后执行，而关闭又须待复核完成；把关口写进 plan 会使该步骤既是「待复核
@@ -647,7 +647,7 @@ function validatePlanShape(frontmatter, issues, baselinePlan = null) {
       issues.push(
         `plan[${i}]: step/done_criteria reads as a WorkCase lifecycle gate (${gates.join(" / ")}) — `
         + "plan carries only this work package's own implementation work; 受控提交/独立复核/主控自查/Gate 批准 "
-        + "are carried by 06, 02 §15 and the status transitions (21 §6.1/§9/§14), NOT by a plan step. "
+        + "are carried by 06, 02 §16 and the status transitions (21 §6.1/§9/§14), NOT by a plan step. "
         + "Remove it from plan: the gate still happens, it just is not a plan step. "
         + "Note 21 §6.1 keeps test/lint/scan RESULTS admissible inside done_criteria and "
         + "result.criteria_checks[].evidence — only the gate-as-a-step is rejected. "
@@ -2162,7 +2162,7 @@ function stampReviewEntries(reviews, sig, identity = null, baselineReviews = nul
  * 同一门禁拒绝。
  *
  * 判据故意取「概要逐字相同」这一机械可比项：内容语义是否正确仍归 AI/Human
- * （02 §15），本函数只保证「谁记的、记了什么」不被他人改写。
+ * （02 §16），本函数只保证「谁记的、记了什么」不被他人改写。
  */
 function assertReviewHistoryNotRewritten(beforeReviews, afterReviews, issuesRef) {
   const before = Array.isArray(beforeReviews) ? beforeReviews : [];
@@ -2461,7 +2461,7 @@ export async function executeWorkcaseObject(args) {
  * 摘要、范围、计划的能力，远超其职责。本函数只做追加，其余字段一律取自落盘对象，
  * 从而满足本单 scope (C) 的「该通道不因此赋予其其它受控写能力」。
  *
- * 调用方只能提供 `summary`（复核结论概要，≤600 字符，含 02 §15 七要素）。`at`、
+ * 调用方只能提供 `summary`（复核结论概要，≤600 字符，含 02 §16 七要素）。`at`、
  * `provider`/`model`、`session_id` 全部由 Code 盖戳——其中 `session_id` 取自**调用
  * 会话自己的**权威身份，故记录者无法声称自己是别的会话；实施者若自行调用本函数，
  * 得到的条目携带实施者身份，关闭门禁照样拒绝（这正是本机制抗伪造的落点）。
@@ -2477,7 +2477,7 @@ export async function recordWorkcaseReview(args) {
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
   if (typeof summary !== "string" || summary.trim().length === 0) {
-    return failure("invalid_request", "summary is required (the review conclusion, ≤600 chars, carrying the 02 §15 seven elements)");
+    return failure("invalid_request", "summary is required (the review conclusion, ≤600 chars, carrying the 02 §16 seven elements)");
   }
   if (summary.length > REVIEW_SUMMARY_MAX_CHARS) {
     return failure("invalid_request", `summary: ${summary.length} chars exceeds the ${REVIEW_SUMMARY_MAX_CHARS}-char cap (21 §8)`);
@@ -2865,7 +2865,7 @@ export async function closeWorkcaseObject(args) {
   //   (c) 全部候选的 session_id 与实施会话相同 → 同一会话自评，冒充独立复核。
   //
   // 诚实边界：这只能证明「记录该结论的会话 ≠ 记录该实施尝试的会话」，**不证明**
-  // 视角实质独立、内容正确或结论成立（02 §15 语义判断仍归 AI/Human）；同一主控
+  // 视角实质独立、内容正确或结论成立（02 §16 语义判断仍归 AI/Human）；同一主控
   // 编排出的隔离子会话在机械上满足本判据，这不是缺陷而是本判据被明确声明的范围。
   // 判据（独立复核发现后收紧，2026-09-19）：每一条 reviews 都要与**它自己写入时的**
   // 实施者身份比对，而不是与「当前」attempt 比对。
@@ -2909,7 +2909,7 @@ export async function closeWorkcaseObject(args) {
       "Gate 2 closure requires at least one reviews entry recorded by a session OTHER than the one "
       + `executing the work at the time it was recorded: every comparable entry was written by its own `
       + `implementer (session_id "${selfSession}" == implementer_session_id). A self-check is a legitimate `
-      + `主控自查 but it is NOT an independent review and must not be recorded as one (02 §15: the three `
+      + `主控自查 but it is NOT an independent review and must not be recorded as one (02 §16: the three `
       + `review forms are not interchangeable). Note that rotating the attempt (takeover/reallocate) does `
       + `NOT turn an earlier self-check into an independent review — each entry is judged against the `
       + `implementer in force when it was written. Have a session other than the implementer's record the `
