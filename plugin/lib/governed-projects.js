@@ -226,8 +226,10 @@ export async function readGovernedProjects(dshHomePath) {
 
 /**
  * LIGHTWEIGHT registration index for the high-frequency governance-scope
- * entry point (specs/07 judgement runs on every prompt assembly and every
- * tool call; specs/08 §6.2 rate discipline). Unlike readGovernedProjects it
+ * entry point: the 07 judgement runs on every prompt assembly and every
+ * tool call, and 07 §5.3 item 1 requires each judgement to read only the
+ * settled registration file without cache backfill — so this path must stay
+ * a single YAML read. Unlike readGovernedProjects it
  * performs NO per-project inspection — no git subprocess, no hook check, no
  * fact-source stat — only the single YAML registration read, parse and
  * fingerprint. Result projects carry plain registration fields (id, path,
@@ -329,9 +331,9 @@ export async function registerProject(dshHomePath, input) {
 }
 
 /**
- * The installation transaction (08 §5.2): register + fact source + Git hook.
+ * The installation transaction (08 §6): register + fact source + Git hook.
  *
- * HUMAN INTENT CARRIER: 08 §5.2 defines this transaction as initiated by the
+ * HUMAN INTENT CARRIER: 08 §6 defines this transaction as initiated by the
  * Human clicking "安装" in the settings page ("点击『安装』后，登记项目、创建
  * 或校验…均为必需步骤"), so the click IS the 07 §5.6 explicit intent. This
  * function therefore does not ask again — it is the carrier of an intent that

@@ -760,7 +760,7 @@ function makeExecute(deps) {
 /**
  * Register the LDVH tool batch onto ctx.tools. Only called for governed
  * sessions (the caller owns the three-state gate — not_governed and
- * unavailable sessions register nothing, 08 §5.2). Returns the disposers.
+ * unavailable sessions register nothing, 08 §6). Returns the disposers.
  */
 /**
  * Build the registration descriptor for one operation. Exported so the output

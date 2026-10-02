@@ -58,7 +58,7 @@ async function main(argv) {
       }
       // 07 §5.4/§5.6: the installation transaction REGISTERS the project, so it
       // is a registration write and needs the same explicit-intent carrier as
-      // `register`. (08 §5.2's settings-page click is the Web carrier; a CLI
+      // `register`. (08 §6's settings-page click is the Web carrier; a CLI
       // invocation has no click, hence the flag.) Enforcing this on `register`
       // but not here left the whole gate bypassable by one command.
       if (!argv.includes("--human-confirmed")) {
