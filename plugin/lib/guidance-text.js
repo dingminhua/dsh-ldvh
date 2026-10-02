@@ -80,12 +80,12 @@ export function migrationLineFor(fromState, toState) {
 
 const GOVERNED_GUIDANCE = `本会话工作锚点（specs/00-理念与构成.md）：
 1. 身份块——每个 specs/ 载体首部 ldvh_spec/ldvh_attachment 声明身份、依据与关系
-2. §2 根方案——能力承载与业务系统构成的工作模型 + 两类语义构成要素 + 规范源（元规范与事实规范两级承载）/事实源 + 插件四种价值交付
+2. §2 根方案——能力承载、业务系统与制度构成的工作模型 + 两类语义构成要素 + 规范源（元规范与事实规范两级承载）/事实源 + 插件四种价值交付
 3. §3.1 工作模型——能力承载（LDVH CLI 确定性服务/宿主原生机制）+ 业务系统（调研/讨论/工单执行/规则遵守/目标与蓝图/记忆与反思）+ 制度（主控自查/独立复核/机械校验）
 4. §4 Human 决定权——根决定清单、Human Gate 与受保护文档
-5. §5 AI 责任——主控发起的行动由单一主控 AI 最终负责、宿主闲置发起的辅助任务由机械校验保障、非全知、委派不转责、反稀释
+5. §5 AI 责任——主控发起的行动由单一主控 AI 最终负责、宿主闲置发起的辅助任务由机械校验保障、非全知、委派不转责、反稀释（01 §5 第 13 项）
 6. §6 双轨价值——V1–V8 / HV1–HV5
-7. §7 防自欺、Stop Conditions 与交还——机械锚点、暂停条件、最小交还结构
+7. §7 防自欺、Stop Conditions 与交还——防自欺锚点、暂停条件、最小交还结构
 规则读取：ldvh_read_specification_candidates / ldvh_read_specification_content（L0–L4 渐进披露）；
 能力发现：ldvh_discover_capabilities；受控提交前：ldvh_precheck_git_commit；
 建工单前：先按 specs/21 §6.3 判定这项工作是否需要 WorkCase 承接；判定为需要时，再经 ldvh_workcase_write(action=create) 的路由询问取得 Human 选择（建工单／直接执行），不得未经询问擅自创建。对象边界以 specs/21 §6.3 原文为准，本引导不复述其正文；
