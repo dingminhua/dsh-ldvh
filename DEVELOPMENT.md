@@ -23,6 +23,8 @@ npm --prefix plugin test
 npm --prefix plugin pack --dry-run
 ```
 
+`npm test` 带 `--test-force-exit`（Node ≥22.14，仓库下限 22.15 已覆盖）：web-routes 一族用例挂载插件后，偶有连到本机 `127.0.0.1` 的 TCP 句柄残留到进程收尾，令测试进程在结果全部打印后仍空等约 84 秒。该 flag 只在测试完成后立即退出进程，不改变任何用例结果。基准方法（real+cpu 双指标、抗本机负载噪声）见 `plugin/scripts/bench-tests.sh`。
+
 当前还必须进行真实 UI 验收：设置卡片、LDVH 会话视图、`/ldvh`、`/ldvh/api/health`、停用/重启及卸载清理。
 
 ## 红线

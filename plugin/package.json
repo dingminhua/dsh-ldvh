@@ -47,7 +47,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test --test-force-exit test/*.test.mjs",
     "build:web": "cd web && pnpm build:dsh",
     "lint": "eslint ."
   },
