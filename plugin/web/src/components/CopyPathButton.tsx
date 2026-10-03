@@ -29,7 +29,7 @@ export default function CopyPathButton({ path, className = '', toneClassName, to
 
   const label = copied ? (copiedLabel || t('common.copiedPath')) : (labelOverride || t('common.copyPath'));
   const buttonClassName = copied
-    ? 'bg-emerald-500/10 text-emerald-400'
+    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
     : toneClassName ?? 'bg-transparent text-ldvh-text-secondary/70 hover:bg-ldvh-border/30 hover:text-ldvh-accent';
   const sizeClass = size === 'md' ? 'h-8 w-8' : 'h-7 w-7';
 

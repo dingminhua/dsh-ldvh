@@ -1806,7 +1806,7 @@ function FieldValue({ fieldKey, value, depth, locale }: { fieldKey: string; valu
   // 布尔值
   if (typeof value === 'boolean') {
     return (
-      <span className={`ldvh-chip rounded px-1.5 py-0.5 ${value ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+      <span className={`ldvh-chip rounded px-1.5 py-0.5 ${value ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}>
         {value ? t('common.true') : t('common.false')}
       </span>
     );

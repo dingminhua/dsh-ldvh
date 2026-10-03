@@ -19,6 +19,17 @@ import test from 'node:test';
  * - 域内单源表（workcaseCheckState / objectSignals / WorkCaseClosedStatusBadge
  *   / WorkCaseGistLine / WorkCaseCriteriaList）——WorkCase 域 600 系强 chip 档；
  * - 文件内一次性映射（状态图标 map、Friction 决策面板、布尔对偶等）。
+ *
+ * 范围外登记（2026-10-04 逐处实测后确认，非漏网——勿机械「清干净」）：
+ * - 色相不在四族内：ServesSgBadge（violet chip）、CommitPushStatusBadge
+ *   （violet/rose 状态图标）。四族横切色只覆盖错误/警告/信息/达成；violet、
+ *   rose 属别的语义，硬并入会造出语义错误的单源。
+ * - 装饰性图标取色：GoalDetail 的 `text-amber-500`、FactAssociationsSection 的
+ *   `text-amber-400`（lucide icon 色，非面/非文字语义色）。
+ * - 弱注记档：FieldReadNotes 的 `UNPARSED_NOTE_TEXT_CLASS`（600 档，刻意弱于
+ *   WARN_TITLE 的 700 档；该文件注释已声明「是否并入待 Human 裁决」）。
+ * - 域内自定档：WorkCaseCapabilityStatusBadge 的 `border-amber-400/35
+ *   bg-amber-500/[0.07] text-amber-800 dark:text-amber-100`。
  */
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
@@ -88,6 +99,11 @@ test('批次 B 收敛掉的漂移变体不得回潮（src 内禁止再写）', a
     'text-amber-700 dark:text-amber-300/90',
     // 布尔达成曾用 green 家族（canonical emerald）
     'bg-green-500/10 text-green-400',
+    // 达成 / 未达成 chip 曾漏写 dark: 档并降一级文字色
+    // （canonical 为 LDVH_SUCCESS_CHIP_HUE_CLASS 的 text-emerald-600 dark:text-emerald-400）
+    'bg-emerald-500/10 text-emerald-400',
+    // 布尔未达成曾与之同构地漏写 dark: 档（canonical text-red-600 dark:text-red-400）
+    'bg-red-500/10 text-red-400',
   ];
   for (const f of files) {
     if (f.includes('semanticColors')) continue; // 头注里的漂移史记载不算回潮

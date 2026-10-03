@@ -68,8 +68,7 @@ export default function Federation() {
       ) : error ? (
         <div className={`mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border ${LDVH_ERROR_SURFACE_CLASS} p-4 ${LDVH_ERROR_TITLE_CLASS}`}>
           <span>{error}</span>
-          <button type="button" onClick={load} className="ldvh-card-title rounded-md border border-red-500/30 px-3 py-2 text-red-700 hover:bg-red-500/10 dark:text-red-200">{t('federation.retry')}</button>
-        </div>
+          <button type="button" onClick={load} className={`ldvh-card-title rounded-md border ${LDVH_ERROR_SURFACE_CLASS} px-3 py-2 hover:bg-red-500/10 ${LDVH_ERROR_TITLE_CLASS}`}>{t('federation.retry')}</button>        </div>
       ) : data && (
         <>
           {data.projects.length === 0 ? (
