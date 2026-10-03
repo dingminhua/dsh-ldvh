@@ -399,6 +399,7 @@ async function executeWriteObject(args, exec, deps) {
       bodyMarkdown,
       sessionSignature: sig.ok ? sig.value : null,
       dryRun: true,
+      fsPort: deps.fsPort,
     });
     if (!dry.ok) {
       return writeRejected("spark-write-object", dry, factSourceRoot);
@@ -418,6 +419,7 @@ async function executeWriteObject(args, exec, deps) {
       frontmatterDraft: draft,
       bodyMarkdown,
       sessionSignature: sig.ok ? sig.value : null,
+      fsPort: deps.fsPort,
     });
     if (!created.ok) {
       return writeRejected("spark-write-object", created, factSourceRoot);
@@ -513,6 +515,7 @@ async function executeWriteObject(args, exec, deps) {
       changeSummary,
       sessionSignature: sig.ok ? sig.value : null,
       dryRun: true,
+      fsPort: deps.fsPort,
     });
     if (!updateDry.ok) {
       return writeRejected("spark-write-object", updateDry, factSourceRoot);
@@ -552,6 +555,7 @@ async function executeWriteObject(args, exec, deps) {
     // passing sig.value here silently wrote an unsigned change_log entry while
     // the envelope still reported sig.ok === true (no gap). Found 2026-09-12.
     sessionSignature: sig.ok ? sig.value : null,
+    fsPort: deps.fsPort,
   });
   if (!updated.ok) {
     return writeRejected("spark-write-object", updated, factSourceRoot);
@@ -804,10 +808,31 @@ export function toolDescriptorFor(operationKey, operation, handler) {
 }
 
 export function registerSparkTools(ctx, deps) {
+  // 宿主 fs 端口（2026-10-03）：把**写盘通道**接到宿主的 fs 链路，使 LDVH 的写入
+  // 参与宿主的观察状态机（emit fs/observed）并受其写前门禁（fs/write-intent）约束。
+  // 缺入口时整个端口为 null，写入回退为自建原子写——**不因此失去写入能力**。
+  //
+  // 只换通道，不动 CAS 基准：content_fingerprint 仍由 spark-writer 自算（specs/03:143
+  // 要求绑定完整内容；宿主的 FsVersion 是 opaque 过期令牌，不能冒充内容指纹）。
+  //
+  // 依据与实测：docs/experiment-a1-fs-feasibility-2026-10-03.md。
+  const fsService = typeof ctx?.get === "function" ? ctx.get("fs") : undefined;
+  const fsPort = fsService === undefined || fsService === null ? null : {
+    resolve: (path) => fsService.resolve(path),
+    // 单槽判定：门禁给出 createIfAbsent / replaceIfVersion；无策略时 undefined（无条件写）。
+    writeIntent: (target) => ctx.waterfall("fs/write-intent", target, undefined, () => undefined),
+    writeText: async (target, content, intent) => {
+      const outcome = await fsService.writeText(target, content, intent);
+      // 与宿主工具同序：写入方负责把结果版本记入观察面（写序第 4 步）。
+      try { ctx.emit("fs/observed", target, { kind: "present", version: outcome.version }, undefined); }
+      catch { /* 观察面不可用不得使写入失败 */ }
+      return outcome;
+    },
+  };
   const handlers = {
     "spark-read-object": (args, exec) => executeReadObject(args, exec, deps),
     "spark-list-objects": (args, exec) => executeListObject(args, exec, deps),
-    "spark-write-object": (args, exec) => executeWriteObject(args, exec, deps),
+    "spark-write-object": (args, exec) => executeWriteObject(args, exec, { ...deps, fsPort }),
   };
   const disposers = [];
   for (const [operationKey, operation] of Object.entries(OPERATIONS)) {

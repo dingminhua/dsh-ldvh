@@ -621,6 +621,38 @@ async function atomicWriteFile(filePath, content) {
   await rename(tmp, filePath);
 }
 
+/**
+ * 写入事实对象的载体文件 —— **优先经宿主的 fs 链路，缺入口时回退自建原子写**。
+ *
+ * 为什么必须走宿主（2026-10-03 实测，见 docs/experiment-a1-fs-feasibility-2026-10-03.md）：
+ * 宿主的文件写入是一条**有状态的链路**——`ctx.fs.resolve` → `fs/write-intent` 门禁
+ * （未观察过 ⇒ `createIfAbsent`；已观察过 ⇒ `replaceIfVersion(version)`）→
+ * `ctx.fs.writeText`（每目标锁 + 原子发布）→ **由写入方 `emit('fs/observed')`
+ * 更新宿主的观察记录**。
+ *
+ * 若绕过该链路（自建 `node:fs` 直写），宿主的观察记录**不会随 LDVH 的写入更新**：
+ * 此后 agent 再用宿主 fs 工具写同一文件，会拿一个陈旧版本做 `replaceIfVersion`，
+ * 表现为 `FS_STALE_VERSION` 拒绝——即「莫名写不进去」，根因是 LDVH 与宿主状态机**不合拍**。
+ *
+ * 与 CAS 基准的关系（重要，勿混淆）：本函数只换**写盘通道**。
+ * `content_fingerprint`（SHA-256，绑定完整内容，`specs/03:143` 要求）**仍由 LDVH
+ * 在内容生成后自行计算**，与用哪个 API 写盘无关——宿主 `FsVersion` 是 opaque 的
+ * 过期检测令牌，**不能**冒充内容指纹。
+ *
+ * @param filePath - 目标载体绝对路径。
+ * @param content - 完整文件内容。
+ * @param fsPort - **可选**宿主 fs 端口 `{resolve, writeIntent, writeText}`；缺席时回退自建路径。
+ */
+async function writeFactFile(filePath, content, fsPort) {
+  if (fsPort !== undefined && fsPort !== null) {
+    const target = await fsPort.resolve(filePath);
+    const intent = await fsPort.writeIntent(target);
+    await fsPort.writeText(target, content, intent);
+    return;
+  }
+  await atomicWriteFile(filePath, content);
+}
+
 /** Validate objectUid format (path-injection guard). */
 function assertValidUid(objectUid) {
   return typeof objectUid === "string" && UUID_PATTERN.test(objectUid);
@@ -648,7 +680,7 @@ function assembleBody(title, bodyMarkdown) {
  * assign; a dry run allocates no file and leaves no trace.
  */
 export async function createSparkObject(args) {
-  const { factSourceRoot, frontmatterDraft, bodyMarkdown, sessionSignature = null, dryRun = false } = args;
+  const { factSourceRoot, frontmatterDraft, bodyMarkdown, sessionSignature = null, dryRun = false, fsPort = null } = args;
   // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
   // signed BY CODE and may not be written unsigned. Without a branded carrier the
   // write is REFUSED; the caller reports it for Human handling (09 requires a
@@ -745,7 +777,7 @@ export async function createSparkObject(args) {
   await mkdir(typeDir, { recursive: true });
   const filePath = objectFilePath(factSourceRoot, uid);
   const content = buildFileContent(frontmatter, body);
-  await atomicWriteFile(filePath, content);
+  await writeFactFile(filePath, content, fsPort);
 
   const fingerprint = fileFingerprint(content);
   return success({ object_uid: uid, file: filePath, fingerprint });
@@ -931,7 +963,7 @@ export async function updateSparkObject(args) {
   const {
     factSourceRoot, objectUid, expectedFingerprint,
     frontmatterAfter, bodyMarkdownAfter, changeSummary, sessionSignature = null,
-    dryRun = false,
+    dryRun = false, fsPort = null,
   } = args;
   // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
   // signed BY CODE and may not be written unsigned. Without a branded carrier the
@@ -1065,7 +1097,7 @@ export async function updateSparkObject(args) {
   // Atomic single-file write
   const filePath = objectFilePath(factSourceRoot, objectUid);
   const content = buildFileContent(fm, body);
-  await atomicWriteFile(filePath, content);
+  await writeFactFile(filePath, content, fsPort);
 
   return success({ fingerprint: fileFingerprint(content) });
 }
