@@ -28,8 +28,27 @@ import { WORKCASE_ITEM_LIST_CLASS, WORKCASE_ITEM_ROW_CLASS } from '@/utils/workc
  * `0.8` 透明度降到与其余三边相同的 `0.2`——**视觉上左边框会变淡**。这是「四边
  * 同为 1px」的必然结果，也是 Human 明确选择的效果（方案甲）。
  */
+/**
+ * 五个语义承载面**共用的几何串（单一来源）**。
+ *
+ * 为什么收敛（`10 §5.5` 单一来源纪律）：五个 `WORKCASE_*_SURFACE_CLASS` 此前各抄一份
+ * `min-w-0 rounded-md border … px-3 py-2.5`——同一几何写 5 遍，改一处必漂移（本仓反复
+ * 出现的「两处各写一套」病的同型）。收敛后几何只在本常量登记一次，各面只声明**色相**。
+ *
+ * 几何取值（`docs/01 §1.4` 全站内容壳基线 = 8px 档）：
+ * - `rounded-lg`（8px）与全站内容壳同档（中性壳 `ldvh-research-node-content` radius 8px、
+ *   `DetailDocGroup` 的 `rounded-lg`）——原 `rounded-md`（6px）属跨档。
+ * - `px-3 py-2`（8/12）与中性壳 `padding 8/12` 对齐——原 `py-2.5`（10px）比中性壳厚 2px。
+ *
+ * **Human 定案边界（不越界）**：`10 §5.5` 行 298 的定案只锁**边框**——「四边同为 1px」，
+ * 故 `border`（1px）保留不动、不得改 `border-l-2` 或独立左线色；padding 与圆角**无**人类
+ * 定案记载（独立复核 2026-10-03 确认），属实现自选值，对齐全站 8px 档不触该定案。
+ * 若 Human 认原 6px/10px 应保留，只需改本常量一处（这正是单一来源的收益）。
+ */
+export const WORKCASE_SURFACE_GEOMETRY_CLASS = 'min-w-0 rounded-lg border px-3 py-2';
+
 export const WORKCASE_CRITERIA_SURFACE_CLASS =
-  'min-w-0 rounded-md border border-blue-400/20 bg-blue-500/[0.025] px-3 py-2.5 dark:bg-blue-950/20';
+  `${WORKCASE_SURFACE_GEOMETRY_CLASS} border-blue-400/20 bg-blue-500/[0.025] dark:bg-blue-950/20`;
 
 /**
  * **琥珀**承载面（`docs/04:82`：「"关闭提案"使用**琥珀色提案色调**」）。
@@ -44,7 +63,7 @@ export const WORKCASE_CRITERIA_SURFACE_CLASS =
  * 正文、琥珀面配琥珀正文，否则会出现「琥珀底 + 蓝字」的跨色系组合。
  */
 export const WORKCASE_RESIDUAL_SURFACE_CLASS =
-  'min-w-0 rounded-md border border-amber-600/25 bg-amber-500/[0.05] px-3 py-2.5 dark:bg-amber-500/[0.08]';
+  `${WORKCASE_SURFACE_GEOMETRY_CLASS} border-amber-600/25 bg-amber-500/[0.05] dark:bg-amber-500/[0.08]`;
 
 /**
  * 语义块承载面：**紫（批准）** 与 **青（工作/主控）**。
@@ -58,14 +77,14 @@ export const WORKCASE_RESIDUAL_SURFACE_CLASS =
  * 无背景、无边框、无分组，Human 2026-09-24 指出「太素」。而同页其余节点（计划判据、
  * 残留、复核、正文）都有承载面，形态因此不统一。
  *
- * 取值与既有两个面**同规格**（四边 1px、`rounded-md`、`px-3 py-2.5`），只换色相；
+ * 取值与既有两个面**同规格**（几何共用 `WORKCASE_SURFACE_GEOMETRY_CLASS`，只换色相）；
  * 四边等宽同色（Human 定案 2026-09-24：「左侧 2 像素的粗边框不要，要 1 像素的」）。
  */
 export const WORKCASE_GATE1_SURFACE_CLASS =
-  'min-w-0 rounded-md border border-violet-400/25 bg-violet-500/[0.035] px-3 py-2.5 dark:bg-violet-500/[0.08]';
+  `${WORKCASE_SURFACE_GEOMETRY_CLASS} border-violet-400/25 bg-violet-500/[0.035] dark:bg-violet-500/[0.08]`;
 
 export const WORKCASE_ATTEMPT_SURFACE_CLASS =
-  'min-w-0 rounded-md border border-cyan-500/25 bg-cyan-500/[0.035] px-3 py-2.5 dark:bg-cyan-500/[0.08]';
+  `${WORKCASE_SURFACE_GEOMETRY_CLASS} border-cyan-500/25 bg-cyan-500/[0.035] dark:bg-cyan-500/[0.08]`;
 
 /**
  * **绿色结果**承载面（`docs/04:80`：「绿色结果」）。
@@ -78,7 +97,7 @@ export const WORKCASE_ATTEMPT_SURFACE_CLASS =
  * 与同族的琥珀残留视觉上互不相关，Human 2026-09-24 指出需一并处理。
  */
 export const WORKCASE_RESULT_SURFACE_CLASS =
-  'min-w-0 rounded-md border border-emerald-600/25 bg-emerald-500/[0.035] px-3 py-2.5 dark:bg-emerald-500/[0.08]';
+  `${WORKCASE_SURFACE_GEOMETRY_CLASS} border-emerald-600/25 bg-emerald-500/[0.035] dark:bg-emerald-500/[0.08]`;
 
 export interface WorkCaseCriterionListItem {
   key: string;

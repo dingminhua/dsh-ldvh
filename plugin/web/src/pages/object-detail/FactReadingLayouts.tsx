@@ -19,6 +19,8 @@ import {
   getReadingNodeNextState,
   type ReadingNodeState,
 } from '@/pages/ObjectDetail';
+import { LDVH_SUCCESS_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
+import { DECISION_DETAIL_NEUTRAL_SHELL_CLASS, DECISION_TITLE_HUE_CLASS, DECISION_VIOLET_CODE_CHIP_HUE_CLASS } from '@/utils/decisionBlocks';
 
 /**
  * `scope` / `summary` 的**书写结构**问题就地显示（`21 §8`）。
@@ -43,7 +45,7 @@ export function StructuredTextProblems({
   const mine = Array.isArray(issues) ? issues.filter((i) => i.field === field) : [];
   if (mine.length === 0) return null;
   return (
-    <div className="ldvh-meta rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-amber-700 dark:text-amber-300">
+    <div className={`ldvh-meta rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-3 py-2 ${LDVH_WARN_TITLE_CLASS}`}>
       <div className="font-medium">
         {t('objectDetail.structuredTextIssue')}
         <span className="ml-1 font-normal opacity-75">{t('objectDetail.structuredTextIssueHint')}</span>
@@ -67,7 +69,7 @@ export function FieldProblem({ issue }: { issue?: FieldPresentationIssue }) {
     : issue.reason === 'type_mismatch'
       ? t('objectDetail.fieldTypeMismatch')
       : t('objectDetail.fieldIdentityMismatch');
-  return <p className="ldvh-meta rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-amber-700 dark:text-amber-300">{text}</p>;
+  return <p className={`ldvh-meta rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-3 py-2 ${LDVH_WARN_TITLE_CLASS}`}>{text}</p>;
 }
 
 type ChangeLogEntry = {
@@ -803,18 +805,18 @@ export function NormReadingLayout({
       {/* 方向键是 norm 的机器身份（唯一性校验/索引/跨规范检索），与标题的
           人类可读定位互补——以专节置顶呈现，缺失时如实标注。 */}
       {directionKey ? (
-        <section className="min-w-0 rounded-md border border-ldvh-border/80 border-l-2 border-l-violet-400/70 bg-ldvh-bg/65 px-3.5 py-3">
+        <section className={DECISION_DETAIL_NEUTRAL_SHELL_CLASS}>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h3 className="ldvh-card-decision-title min-w-0 text-violet-700/85 dark:text-violet-200/85">
+            <h3 className={`ldvh-card-decision-title min-w-0 ${DECISION_TITLE_HUE_CLASS.violet}`}>
               {getFieldLabel('direction_key', locale)}
             </h3>
-            <code className="ldvh-chip-sm min-w-0 shrink-0 break-all border-violet-400/35 bg-violet-500/10 font-mono text-violet-700 dark:text-violet-300">
+            <code className={`ldvh-chip-sm min-w-0 shrink-0 break-all ${DECISION_VIOLET_CODE_CHIP_HUE_CLASS}`}>
               {directionKey}
             </code>
           </div>
         </section>
       ) : (
-        <p className="ldvh-meta rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-amber-700 dark:text-amber-300">
+        <p className={`ldvh-meta rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-3 py-2 ${LDVH_WARN_TITLE_CLASS}`}>
           {t('objectList.normDirectionKeyMissing')}
         </p>
       )}
@@ -905,10 +907,10 @@ export function GoalReadingLayout({
           <ul className="divide-y divide-ldvh-border/70">
             {subGoals.map((subGoal) => (
               <li key={subGoal.id} className="flex min-w-0 items-start gap-2 py-2 first:pt-0 last:pb-0">
-                <span className="ldvh-chip ldvh-chip-sm shrink-0 border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                <span className={`ldvh-chip ldvh-chip-sm shrink-0 ${LDVH_SUCCESS_CHIP_HUE_CLASS}`}>
                   {subGoal.id}
                 </span>
-                <span className="min-w-0 flex-1 text-xs leading-relaxed text-ldvh-text-secondary">{subGoal.text}</span>
+                <span className="ldvh-caption min-w-0 flex-1">{subGoal.text}</span>
               </li>
             ))}
           </ul>

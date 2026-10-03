@@ -9,6 +9,7 @@ import { fetchChangelog, type ChangelogEntry } from '@/utils/api';
 import { getCommitScopeLabel, getCommitTypeLabel } from '@/utils/commitLabels';
 import { useI18n } from '@/i18n/context';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
+import { LDVH_ERROR_TEXT_CLASS } from '@/utils/semanticColors';
 
 const CHANGELOG_COUNT_OPTIONS = [50, 100, 200] as const;
 type ChangelogCount = typeof CHANGELOG_COUNT_OPTIONS[number];
@@ -150,9 +151,9 @@ export default function Changelog() {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
-          <AlertCircle size={32} className="mx-auto mb-2 text-red-400" />
+          <AlertCircle size={32} className={`mx-auto mb-2 ${LDVH_ERROR_TEXT_CLASS}`} />
           <p className="ldvh-body-muted">{t('changelog.loadFailed')}</p>
-          <p className="ldvh-meta text-red-400">{error}</p>
+          <p className={`ldvh-meta ${LDVH_ERROR_TEXT_CLASS}`}>{error}</p>
         </div>
       </div>
     );
@@ -161,7 +162,7 @@ export default function Changelog() {
   if (entries.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-ldvh-accent border-t-transparent" />
+        <div className="ldvh-spinner" />
       </div>
     );
   }

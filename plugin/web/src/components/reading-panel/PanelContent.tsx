@@ -30,6 +30,7 @@ import {
   stripCommitSignatureTrailers,
   type ParsedCommitStat,
 } from '@/components/reading-panel/commitModel';
+import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TITLE_CLASS } from '@/utils/semanticColors';
 
 export function EmptyPanelPreview() {
   const { t } = useI18n();
@@ -145,9 +146,9 @@ function ObjectPreview({ content }: { content: PanelContent }) {
 
   if (error) {
     return (
-      <div className="rounded-md border border-red-500/20 bg-red-500/10 p-3">
-        <p className="ldvh-body text-red-700 dark:text-red-300">{t('readingPanel.loadFailed')}</p>
-        <p className="ldvh-meta mt-1 text-red-700/80 dark:text-red-300/80">{error}</p>
+      <div className={`rounded-md border ${LDVH_ERROR_SURFACE_CLASS} p-3`}>
+        <p className={`ldvh-body ${LDVH_ERROR_TITLE_CLASS}`}>{t('readingPanel.loadFailed')}</p>
+        <p className={`ldvh-meta mt-1 ${LDVH_ERROR_BODY_CLASS}`}>{error}</p>
       </div>
     );
   }
@@ -198,7 +199,7 @@ function FactReadFailureNotice({
   meta: FactReadMeta;
 }) {
   return (
-    <div className="space-y-3 rounded-md border border-red-500/20 bg-red-500/10 p-3">
+    <div className={`space-y-3 rounded-md border ${LDVH_ERROR_SURFACE_CLASS} p-3`}>
       <FactReadFailureContent type={objectType} id={objectId} meta={meta} />
     </div>
   );
@@ -249,9 +250,9 @@ function DocPreview({ content }: { content: PanelContent }) {
   if (error) {
     return (
       <div className="space-y-3">
-        <div className="rounded-md border border-red-500/20 bg-red-500/10 p-3">
-          <p className="ldvh-body text-red-700 dark:text-red-300">{t('readingPanel.docLoadFailed')}</p>
-          <p className="ldvh-meta mt-1 text-red-700/80 dark:text-red-300/80">{error}</p>
+        <div className={`rounded-md border ${LDVH_ERROR_SURFACE_CLASS} p-3`}>
+          <p className={`ldvh-body ${LDVH_ERROR_TITLE_CLASS}`}>{t('readingPanel.docLoadFailed')}</p>
+          <p className={`ldvh-meta mt-1 ${LDVH_ERROR_BODY_CLASS}`}>{error}</p>
         </div>
       </div>
     );

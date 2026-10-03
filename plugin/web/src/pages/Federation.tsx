@@ -8,13 +8,15 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, Inbox, Layers, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { ArrowRight, Inbox, Layers, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
+import ProjectIssuesNotice from '@/components/ProjectIssuesNotice';
 import { fetchFederationOverview, type FederationOverviewData, type FederationProjectCard } from '@/utils/api';
 import { formatDateTime } from '@/utils/dateFormat';
 import { useProjectScope } from '@/utils/projectContext';
 import { useI18n } from '@/i18n/context';
 import { projectColorVar, resolvedProjectColorKey } from '@/shared/projectColors';
+import { LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TITLE_CLASS } from '@/utils/semanticColors';
 
 function countText(value: number | undefined): string {
   return value === undefined ? '—' : String(value);
@@ -64,7 +66,7 @@ export default function Federation() {
       {loading && !data ? (
         <div className="ldvh-body-muted flex justify-center py-20"><Loader2 className="animate-spin" /></div>
       ) : error ? (
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-red-700 dark:text-red-300">
+        <div className={`mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border ${LDVH_ERROR_SURFACE_CLASS} p-4 ${LDVH_ERROR_TITLE_CLASS}`}>
           <span>{error}</span>
           <button type="button" onClick={load} className="ldvh-card-title rounded-md border border-red-500/30 px-3 py-2 text-red-700 hover:bg-red-500/10 dark:text-red-200">{t('federation.retry')}</button>
         </div>
@@ -109,14 +111,7 @@ export default function Federation() {
                         </div>
                       </div>
                       <p className="ldvh-meta">{t('federation.lastActivity')}: {project.lastActivityAt ? formatDateTime(project.lastActivityAt) : '—'}</p>
-                      {project.issues.length > 0 && (
-                        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2">
-                          <p className="ldvh-caption-strong flex items-center gap-1.5 text-amber-700 dark:text-amber-300"><AlertTriangle size={12} />{t('federation.projectIssues')}</p>
-                          <ul className="mt-1 list-disc space-y-0.5 pl-4">
-                            {project.issues.map((issue) => <li key={issue} className="ldvh-caption text-amber-700 dark:text-amber-300/90">{issue}</li>)}
-                          </ul>
-                        </div>
-                      )}
+                      <ProjectIssuesNotice issues={project.issues} variant="embedded" />
                     </div>
                     <div className="border-t border-ldvh-border px-3.5 py-2.5">
                       <button
@@ -142,7 +137,7 @@ export default function Federation() {
                   const color = projectColorVar(colorKey);
                   return (
                     <div key={`${spark.projectId}/${spark.objectId}`} className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-ldvh-border/60 bg-ldvh-bg/40 px-3 py-2">
-                      <span className="min-w-0 flex-1 truncate text-sm text-ldvh-text-primary">{spark.title}</span>
+                      <span className="ldvh-body min-w-0 flex-1 truncate">{spark.title}</span>
                       <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ldvh-border px-1.5 py-0.5" title={spark.projectId}>
                         <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
                         <span className="ldvh-meta">{spark.projectId}</span>

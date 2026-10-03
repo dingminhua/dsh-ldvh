@@ -21,6 +21,7 @@ import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import { fetchObjectDetail, type ObjectDetail } from '@/utils/api';
 import { getFactReadMeta, isReadableFact } from '@/utils/factReadMeta';
 import { usePanel } from '@/utils/panelContext';
+import { LDVH_WARN_SURFACE_CLASS } from '@/utils/semanticColors';
 
 /** Reads the deliberately minimal relation contract, not source or evidence projections. */
 export function FactAssociationsSection({
@@ -326,7 +327,7 @@ function UnresolvedGroup({ items, locale }: { items: UnresolvedAssociation[]; lo
     <AssociationGroup title={getFieldLabel('unresolved_materials', locale)}>
       <div className="flex flex-col gap-2">
         {items.map((item) => (
-          <div key={item.originPath} className="rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2">
+          <div key={item.originPath} className={`rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-3 py-2`}>
             <div className="flex items-center gap-2"><AlertTriangle size={13} className="shrink-0 text-amber-400" /><span className="ldvh-caption-strong">{item.originPath}</span></div>
             <pre className="ldvh-meta-muted mt-1 overflow-x-auto whitespace-pre-wrap break-all">{safeStringify(item.value)}</pre>
           </div>

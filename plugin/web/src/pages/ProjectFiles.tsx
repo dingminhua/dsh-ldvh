@@ -21,6 +21,7 @@ import {
   type ProjectFileEntryKind as EntryKind,
 } from '@/pages/project-files/model';
 import { useProjectFilesController } from '@/pages/project-files/useProjectFilesController';
+import { LDVH_ERROR_TEXT_CLASS, LDVH_WARN_SURFACE_STRONG_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
 
 function getKindLabel(kind: EntryKind, locale: string): string {
   return getProjectFileKindLabel(kind, locale);
@@ -130,7 +131,7 @@ export default function ProjectFiles() {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
-          <AlertCircle size={32} className="mx-auto mb-2 text-red-400" />
+          <AlertCircle size={32} className={`mx-auto mb-2 ${LDVH_ERROR_TEXT_CLASS}`} />
           <p className="ldvh-body-muted">{projectsError}</p>
         </div>
       </div>
@@ -166,7 +167,7 @@ export default function ProjectFiles() {
       </div>
 
       <div className="grid min-w-0 gap-6 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(18rem,28rem)_minmax(0,1fr)]">
-        <section className="min-w-0 rounded-lg border border-ldvh-border bg-ldvh-panel xl:flex xl:min-h-0 xl:flex-col">
+        <section className="ldvh-pane">
           <div className="flex min-w-0 items-center justify-between gap-3 border-b border-ldvh-border px-4 py-3">
             <div className="flex min-w-0 items-center gap-2">
               <FolderOpen size={16} className="shrink-0 text-ldvh-accent" />
@@ -227,7 +228,7 @@ export default function ProjectFiles() {
           </div>
         </section>
 
-        <section className="min-w-0 rounded-lg border border-ldvh-border bg-ldvh-panel xl:flex xl:min-h-0 xl:flex-col">
+        <section className="ldvh-pane">
           <div className="flex min-w-0 items-center justify-between gap-3 border-b border-ldvh-border px-4 py-3">
             <div className="flex min-w-0 items-center gap-2">
               <FileText size={16} className="shrink-0 text-ldvh-accent" />
@@ -255,7 +256,7 @@ export default function ProjectFiles() {
                   </span>
                   <span className="ldvh-meta">{formatBytes(filePanel.data.size)}</span>
                   {filePanel.data.truncated && (
-                    <span className="ldvh-chip rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-700 dark:text-amber-300">
+                    <span className={`ldvh-chip rounded-md border ${LDVH_WARN_SURFACE_STRONG_CLASS} px-2 py-1 ${LDVH_WARN_TITLE_CLASS}`}>
                       {copy.truncated}
                     </span>
                   )}

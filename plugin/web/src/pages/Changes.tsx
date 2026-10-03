@@ -23,6 +23,7 @@ import {
   fetchProjectWorktreeGitStatus,
   type ProjectGitStatusEntry,
 } from '@/utils/api';
+import { LDVH_ERROR_TEXT_CLASS } from '@/utils/semanticColors';
 
 const WIDE_DIFF_LAYOUT_QUERY = '(min-width: 1280px)';
 
@@ -153,7 +154,7 @@ export default function Changes() {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
-          <AlertCircle size={32} className="mx-auto mb-2 text-red-400" />
+          <AlertCircle size={32} className={`mx-auto mb-2 ${LDVH_ERROR_TEXT_CLASS}`} />
           <p className="ldvh-body-muted">{projectsError}</p>
         </div>
       </div>
@@ -189,7 +190,7 @@ export default function Changes() {
       </div>
 
       <div className="grid min-w-0 gap-6 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(18rem,28rem)_minmax(0,1fr)]">
-        <section className="min-w-0 rounded-lg border border-ldvh-border bg-ldvh-panel xl:flex xl:min-h-0 xl:flex-col">
+        <section className="ldvh-pane">
           <div className="flex min-w-0 items-center justify-between gap-3 border-b border-ldvh-border px-4 py-3">
             <div className="flex min-w-0 items-center gap-2">
               <GitPullRequestArrow size={16} className="shrink-0 text-ldvh-accent" />
@@ -265,7 +266,7 @@ export default function Changes() {
                           className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-ldvh-border/30"
                         >
                           {wt.error ? (
-                            <AlertCircle size={14} className="shrink-0 text-red-400" />
+                            <AlertCircle size={14} className={`shrink-0 ${LDVH_ERROR_TEXT_CLASS}`} />
                           ) : changeCount > 0 ? (
                             isExpanded ? <ChevronDown size={14} className="shrink-0 text-ldvh-accent" />
                               : <ChevronRight size={14} className="shrink-0 text-ldvh-accent" />
@@ -274,7 +275,7 @@ export default function Changes() {
                           )}
                           <span className="ldvh-card-title min-w-0 flex-1 truncate">{wt.branch}</span>
                           {wt.error ? (
-                            <span className="ldvh-meta shrink-0 text-red-400">{wt.error}</span>
+                            <span className={`ldvh-meta shrink-0 ${LDVH_ERROR_TEXT_CLASS}`}>{wt.error}</span>
                           ) : changeCount > 0 ? (
                             <span className="ldvh-meta-primary shrink-0">{changeCount} {t('changes.otherBranchesChanges')}</span>
                           ) : (
@@ -288,11 +289,11 @@ export default function Changes() {
                                 key={`${entry.status}:${entry.path}`}
                                 className="flex min-w-0 items-center gap-2 rounded px-2 py-1"
                               >
-                                <span className="ldvh-meta w-7 shrink-0 rounded bg-ldvh-bg px-1 py-0.5 text-center text-xs">
+                                <span className="ldvh-meta w-7 shrink-0 rounded bg-ldvh-bg px-1 py-0.5 text-center">
                                   {entry.status}
                                 </span>
                                 <span className="group/tooltip relative min-w-0 flex-1">
-                                  <span className="ldvh-meta block min-w-0 truncate text-xs">
+                                  <span className="ldvh-meta block min-w-0 truncate">
                                     {entry.path}
                                   </span>
                                   <span className="ldvh-caption pointer-events-none absolute bottom-full left-0 z-50 mb-1 hidden max-w-[calc(100vw-8rem)] break-all rounded-md border border-ldvh-border bg-ldvh-panel px-2 py-1 text-ldvh-text-primary shadow-lg shadow-black/10 group-hover/tooltip:block">
@@ -312,7 +313,7 @@ export default function Changes() {
           </div>
         </section>
 
-        <section className="min-w-0 rounded-lg border border-ldvh-border bg-ldvh-panel xl:flex xl:min-h-0 xl:flex-col">
+        <section className="ldvh-pane">
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-ldvh-border px-4 py-3">
             <div className="flex min-w-0 items-center gap-2">
               <Diff size={16} className="shrink-0 text-ldvh-accent" />

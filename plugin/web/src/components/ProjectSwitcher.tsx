@@ -4,6 +4,7 @@ import { Check, ChevronDown, FolderGit2, GitBranch, Globe2, Loader2, RefreshCw }
 import { useI18n } from '@/i18n/context';
 import { projectColorVar, resolvedProjectColorKey } from '@/shared/projectColors';
 import { useProjectScope } from '@/utils/projectContext';
+import { LDVH_ERROR_TEXT_CLASS } from '@/utils/semanticColors';
 
 export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
   const { t } = useI18n();
@@ -125,7 +126,7 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
               </div>
             ) : error ? (
               <div className="px-3 py-4">
-                <p className="ldvh-body-muted text-red-400">{t('projectSwitcher.loadFailed')}</p>
+                <p className={`ldvh-body-muted ${LDVH_ERROR_TEXT_CLASS}`}>{t('projectSwitcher.loadFailed')}</p>
                 <p className="ldvh-meta mt-1 break-words">{error}</p>
               </div>
             ) : projects.length === 0 ? (

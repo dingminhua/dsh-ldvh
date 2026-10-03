@@ -18,6 +18,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+
 import { test } from 'node:test';
 
 const repositoryRoot = path.resolve(import.meta.dirname, '../../..');
@@ -1007,19 +1008,29 @@ test('聚焦两处 WC 卡复用列表卡的同一组件（块与样式同源）'
 // 1px 细线」。当时只改了那一处，本面板未跟着改，故两处形态分岔至今。
 test('判据面板四边同为 1px：不得有 border-l-2 或独立左线色', () => {
   const criteria = readSource('web/src/components/WorkCaseCriteriaList.tsx');
-  const surface = criteria.slice(
-    criteria.indexOf('export const WORKCASE_CRITERIA_SURFACE_CLASS'),
-    criteria.indexOf('export interface WorkCaseCriterionListItem'),
-  );
-  assert.ok(surface.length > 0, '未找到容器类定义');
-  // 判据取**类名串本身**（注释里提到历史写法是允许的——那是记录，不是实现）
-  const classLiteral = /'([^']*min-w-0[^']*)'/.exec(surface);
-  assert.ok(classLiteral, '未取到容器类名串');
-  const cls = classLiteral![1];
-  assert.doesNotMatch(cls, /border-l-2/, `容器类不得含 border-l-2：${cls}`);
-  assert.doesNotMatch(cls, /border-l-[a-z]+-\d+\//, `容器类不得含独立左线色：${cls}`);
+  // **保证边界**：本守卫钉住的是 Human 定案「四边同为 1px 细线」（`10 §5.5` 行 298：不得
+  // `border-l-2` 或独立左线色，四边须带通用 `border`）。它**不**锁 padding/圆角——那两项
+  // 无人类定案记载，属实现自选值（独立复核 2026-10-03 确认）。
+  //
+  // **读法随几何单源化而调整（2026-10-03）**：五面几何已收敛到单一来源常量
+  // `WORKCASE_SURFACE_GEOMETRY_CLASS`（`10 §5.5` 单一来源纪律），各面改为模板合成
+  // `${GEOM} …`。原实现切片读 `WORKCASE_CRITERIA_SURFACE_CLASS` 的**内联字面量**，几何
+  // 抽出后该处成模板引用（GEOM 在切片之外），正则取不到类名串。故判据改读**几何单源常量
+  // 本身**——它才是承载面几何的唯一定义处，读它比读某个面更贴近「四边一致」的真源。
+  const geomMatch = /export const WORKCASE_SURFACE_GEOMETRY_CLASS\s*=\s*\n?\s*'([^']+)'/.exec(criteria);
+  assert.ok(geomMatch, '未取到几何单源常量 WORKCASE_SURFACE_GEOMETRY_CLASS');
+  const cls = geomMatch![1];
+  assert.doesNotMatch(cls, /border-l-2/, `几何串不得含 border-l-2：${cls}`);
+  assert.doesNotMatch(cls, /border-l-[a-z]+-\d+\//, `几何串不得含独立左线色：${cls}`);
   // 且确实带四边通用边框（否则「四边一致」无从谈起）
-  assert.match(cls, /\bborder\b/, '容器类须含四边通用边框');
+  assert.match(cls, /\bborder\b/, '几何串须含四边通用边框');
+  // 各承载面合成时不得**自行**加独立左线色（否则即便几何单源正确，某个面仍会破坏四边一致）。
+  // 这是原切片读法覆盖不到的面——单源化后补上，覆盖全部 5 面。
+  assert.doesNotMatch(
+    criteria,
+    /SURFACE_CLASS\s*=[\s\S]{0,200}border-l-/,
+    '任一承载面合成时不得自行添加 border-l-*（左线须由统一 border 承载）',
+  );
 });
 
 // 书写结构问题必须能到达呈现面（Human 2026-09-24：「当前我看到的都要规范化，可检查，

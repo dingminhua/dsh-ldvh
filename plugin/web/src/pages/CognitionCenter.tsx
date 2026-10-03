@@ -46,9 +46,11 @@ import WorkCaseResultDraft from '@/components/WorkCaseResultDraft';
 import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { useI18n } from '@/i18n/context';
-import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeLabel, type LocaleKey } from '@/i18n/locales';
+import { getLocalizedObjectTitle, getObjectStatusLocale, getTypeLabel, type LocaleKey } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import { getDefaultSparkHealthAgeFilter, type SparkHealthAgeFilter } from '@/utils/cognitionSparkHealth';
+import { LDVH_ERROR_TEXT_CLASS } from '@/utils/semanticColors';
+import FieldReadNotes from '@/components/FieldReadNotes';
 
 /** 首屏截断阈值：Web 展示参数，不是事实；截断时底部如实提示总数与未显示数量。 */
 const INBOX_FIRST_SCREEN_LIMIT = 8;
@@ -181,29 +183,7 @@ function buildRecentHotspotSummary(data: CognitionData, locale: string, t: Trans
 type CognitionCardItem = CognitionInboxItem | CognitionActiveWorkCaseItem;
 
 function InboxItemReadNotes({ item, locale }: { item: CognitionCardItem; locale: string }) {
-  const fieldIssues = item.field_issues ?? [];
-  const unparsed = item.unparsed_structures ?? [];
-  const showReadStatus = item.read_status !== 'readable';
-  if (!showReadStatus && fieldIssues.length === 0 && unparsed.length === 0) return null;
-  return (
-    <div className="mt-2 grid min-w-0 gap-1">
-      {showReadStatus && (
-        <p className="ldvh-caption text-red-400">
-          {getFieldLabel('read_status', locale)}: {getFieldValueLabel('read_status', item.read_status, locale)}
-        </p>
-      )}
-      {fieldIssues.map((issue, index) => (
-        <p key={`field-${index}`} className="ldvh-caption break-words text-red-400">
-          {issue.path}: {getFieldValueLabel('field_issue_reason', issue.reason, locale)}
-        </p>
-      ))}
-      {unparsed.map((structure, index) => (
-        <p key={`unparsed-${index}`} className="ldvh-caption break-words text-amber-600 dark:text-amber-300">
-          {structure.path}: {structure.reason}
-        </p>
-      ))}
-    </div>
-  );
+  return <FieldReadNotes source={item} locale={locale} className="mt-2" />;
 }
 
 // `t` 已不再是本函数的依赖：改用共享组件后不再在此拼接文案（Human 2026-09-24）。
@@ -338,7 +318,7 @@ function ModuleIssuesNotice({ issues, t, unavailableKey = 'cognition.inbox.unava
       <p className="ldvh-caption text-red-500 dark:text-red-300">{t(unavailableKey)}</p>
       <ul className="mt-1 grid min-w-0 gap-0.5">
         {issues.map((issue, index) => (
-          <li key={`${issue.code}-${index}`} className="ldvh-caption break-words text-red-400">
+          <li key={`${issue.code}-${index}`} className={`ldvh-caption break-words ${LDVH_ERROR_TEXT_CLASS}`}>
             [{issue.code}] {issue.message}
           </li>
         ))}
@@ -348,34 +328,13 @@ function ModuleIssuesNotice({ issues, t, unavailableKey = 'cognition.inbox.unava
 }
 
 function RecentActivityReadNotes({ item, locale }: { item: CognitionRecentActivityItem; locale: string }) {
-  const fieldIssues = item.field_issues ?? [];
-  const unparsed = item.unparsed_structures ?? [];
-  if (item.read_status === 'readable' && fieldIssues.length === 0 && unparsed.length === 0) return null;
-  return (
-    <div className="mt-1.5 grid min-w-0 gap-1">
-      {item.read_status !== 'readable' && (
-        <p className="ldvh-caption text-red-400">
-          {getFieldLabel('read_status', locale)}: {getFieldValueLabel('read_status', item.read_status, locale)}
-        </p>
-      )}
-      {fieldIssues.map((issue, index) => (
-        <p key={`field-${index}`} className="ldvh-caption break-words text-red-400">
-          {issue.path}: {getFieldValueLabel('field_issue_reason', issue.reason, locale)}
-        </p>
-      ))}
-      {unparsed.map((structure, index) => (
-        <p key={`unparsed-${index}`} className="ldvh-caption break-words text-amber-600 dark:text-amber-300">
-          {structure.path}: {structure.reason}
-        </p>
-      ))}
-    </div>
-  );
+  return <FieldReadNotes source={item} locale={locale} />;
 }
 
 function ActivityCountBadge({ count, label }: { count: number; label: string }) {
   return (
     <span
-      className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center gap-1 rounded-md border border-ldvh-accent/25 bg-ldvh-accent/5 px-[5px] text-[10px] font-medium leading-3 text-ldvh-accent"
+      className="ldvh-chip-sm gap-1 shrink-0 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent"
       title={label}
     >
       <History size={12} aria-hidden="true" />
@@ -397,7 +356,7 @@ function RecentActivityRow({ item }: { item: CognitionRecentActivityItem }) {
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
         <span className="ldvh-caption shrink-0 text-ldvh-text-secondary">{item.relativeTime}</span>
         <span
-          className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center rounded-md border px-1.5 text-[10px] font-medium leading-3"
+          className="ldvh-chip-sm shrink-0"
           style={{ backgroundColor: `${typeColor}18`, borderColor: `${typeColor}55`, color: typeColor }}
         >
           {getTypeLabel(item.type, locale)}
@@ -483,7 +442,7 @@ function SparkHealthRow({ item }: { item: CognitionSparkHealthItem }) {
           {t('cognition.sparkHealth.silentDays', { days: String(item.silentDays) })}
         </span>
         <span
-          className="ldvh-chip inline-flex h-[18px] shrink-0 items-center justify-center rounded-md border px-1.5 text-[10px] font-medium leading-3"
+          className="ldvh-chip-sm shrink-0"
           style={{ backgroundColor: `${item.typeColor}18`, borderColor: `${item.typeColor}55`, color: item.typeColor }}
         >
           {getTypeLabel(item.type, locale)}
@@ -506,23 +465,7 @@ function SparkHealthRow({ item }: { item: CognitionSparkHealthItem }) {
         <ObjectTypeIcon type="spark" size={15} className="shrink-0" style={{ color: item.typeColor }} />
         <h4 className="ldvh-card-title min-w-0 flex-1 whitespace-normal break-words group-hover:text-ldvh-accent">{title}</h4>
       </div>
-      {showReadNotes && <div className="mt-1.5 grid min-w-0 gap-1">
-        {item.read_status !== 'readable' && (
-          <p className="ldvh-caption text-red-400">
-            {getFieldLabel('read_status', locale)}: {getFieldValueLabel('read_status', item.read_status, locale)}
-          </p>
-        )}
-        {fieldIssues.map((issue, index) => (
-          <p key={`field-${index}`} className="ldvh-caption break-words text-red-400">
-            {issue.path}: {getFieldValueLabel('field_issue_reason', issue.reason, locale)}
-          </p>
-        ))}
-        {unparsed.map((structure, index) => (
-          <p key={`unparsed-${index}`} className="ldvh-caption break-words text-amber-600 dark:text-amber-300">
-            {structure.path}: {structure.reason}
-          </p>
-        ))}
-      </div>}
+      {showReadNotes && <FieldReadNotes source={item} locale={locale} />}
       <div className="mt-2 flex min-w-0 items-center justify-end text-right opacity-70">
         <ObjectUpdatedMeta source={{}} updatedAt={item.updatedAt} signature={item.signature} />
       </div>
@@ -594,9 +537,9 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
-          <AlertCircle size={32} className="mx-auto mb-2 text-red-400" />
+          <AlertCircle size={32} className={`mx-auto mb-2 ${LDVH_ERROR_TEXT_CLASS}`} />
           <p className="text-ldvh-text-secondary">{t('common.loadFailed')}</p>
-          <p className="ldvh-meta text-red-400">{error}</p>
+          <p className={`ldvh-meta ${LDVH_ERROR_TEXT_CLASS}`}>{error}</p>
         </div>
       </div>
     );
@@ -605,7 +548,7 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
   if (!data) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-ldvh-accent border-t-transparent" />
+        <div className="ldvh-spinner" />
       </div>
     );
   }
@@ -699,7 +642,7 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
                 event.stopPropagation();
                 setInboxExpanded((expanded) => !expanded);
               }}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ldvh-text-secondary transition-colors hover:bg-ldvh-bg hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ldvh-accent/50"
+              className="ldvh-icon-button"
               title={t(inboxExpanded ? 'cognition.inbox.collapseSection' : 'cognition.inbox.expandSection')}
             >
               {inboxExpanded ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
@@ -772,7 +715,7 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
                 event.stopPropagation();
                 setActiveExpanded((expanded) => !expanded);
               }}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ldvh-text-secondary transition-colors hover:bg-ldvh-bg hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ldvh-accent/50"
+              className="ldvh-icon-button"
               title={t(activeExpanded ? 'cognition.active.collapseSection' : 'cognition.active.expandSection')}
             >
               {activeExpanded ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
@@ -857,7 +800,7 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
               aria-expanded={recentExpanded}
               aria-controls="cognition-recent-activity-content"
               onClick={() => setRecentExpanded((expanded) => !expanded)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ldvh-text-secondary transition-colors hover:bg-ldvh-bg hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ldvh-accent/50"
+              className="ldvh-icon-button"
               title={t(recentExpanded ? 'cognition.recent.collapseSection' : 'cognition.recent.expandSection')}
             >
               {recentExpanded ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
@@ -869,7 +812,7 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
         {recentExpanded && (
           <div id="cognition-recent-activity-content">
             {recentLoading && <p role="status" className="mb-3 ldvh-caption text-ldvh-text-secondary/70">{t('cognition.recent.loading')}</p>}
-            {recentError && <p role="status" className="mb-3 ldvh-caption text-red-400">{recentError}</p>}
+            {recentError && <p role="status" className={`mb-3 ldvh-caption ${LDVH_ERROR_TEXT_CLASS}`}>{recentError}</p>}
             <ModuleIssuesNotice issues={recentIssues} t={t} />
             {recentItems.length === 0 ? (
               recentIssues.length === 0 && <p className="ldvh-body-muted">{t('cognition.recent.empty')}</p>
@@ -970,7 +913,7 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
                 event.stopPropagation();
                 setSparkHealthExpanded((expanded) => !expanded);
               }}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ldvh-text-secondary transition-colors hover:bg-ldvh-bg hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ldvh-accent/50"
+              className="ldvh-icon-button"
               title={t(sparkHealthExpanded ? 'cognition.sparkHealth.collapseSection' : 'cognition.sparkHealth.expandSection')}
             >
               {sparkHealthExpanded ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
@@ -1087,7 +1030,7 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
                 event.stopPropagation();
                 setRecentHotspotsExpanded((expanded) => !expanded);
               }}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ldvh-text-secondary transition-colors hover:bg-ldvh-bg hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ldvh-accent/50"
+              className="ldvh-icon-button"
               title={t(recentHotspotsExpanded ? 'cognition.commitHotspots.collapseSection' : 'cognition.commitHotspots.expandSection')}
             >
               {recentHotspotsExpanded ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}

@@ -60,6 +60,7 @@ import {
   splitRelatedContentEntries,
   type RelatedContentEntry,
 } from '@/pages/object-detail/model';
+import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
 
 export {
   getObjectDetailContentEntries,
@@ -137,7 +138,7 @@ export default function ObjectDetail() {
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
           <p className="text-ldvh-text-secondary">{t('common.loadFailed')}</p>
-          <p className="ldvh-meta text-red-400">{error}</p>
+          <p className={`ldvh-meta ${LDVH_ERROR_TEXT_CLASS}`}>{error}</p>
         </div>
       </div>
     );
@@ -148,7 +149,7 @@ export default function ObjectDetail() {
   if (!displayDetail) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-ldvh-accent border-t-transparent" />
+        <div className="ldvh-spinner" />
       </div>
     );
   }
@@ -228,12 +229,12 @@ export default function ObjectDetail() {
               {(obj.mainWorktreeDiffers === true || (typeof obj.sourceBranch === 'string' && obj.sourceBranch.length > 0)) && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {obj.mainWorktreeDiffers === true && (
-                    <span className="ldvh-chip-sm gap-1 border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                    <span className={`ldvh-chip-sm gap-1 ${LDVH_INFO_CHIP_HUE_CLASS}`}>
                       {t('objectList.mainWorktreeDiffers')}
                     </span>
                   )}
                   {typeof obj.sourceBranch === 'string' && obj.sourceBranch.length > 0 && (
-                    <span className="ldvh-chip-sm gap-1 border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                    <span className={`ldvh-chip-sm gap-1 ${LDVH_WARN_CHIP_HUE_CLASS}`}>
                       {t('objectList.sourceBranch', { branch: obj.sourceBranch })}
                     </span>
                   )}
@@ -396,7 +397,7 @@ function FieldIssuesSection({ value }: { value: unknown }) {
     return t('objectDetail.fieldIdentityMismatch');
   };
   return (
-    <section className="mb-6 overflow-hidden rounded-xl border border-amber-500/25 bg-amber-500/5">
+    <section className={`mb-6 overflow-hidden rounded-xl border ${LDVH_WARN_SURFACE_CLASS}`}>
       <button
         type="button"
         aria-expanded={open}
@@ -412,7 +413,7 @@ function FieldIssuesSection({ value }: { value: unknown }) {
           {entries.map((entry) => (
             <div key={`${entry.path}-${entry.reason}`} className="ldvh-meta rounded-md border border-amber-500/15 bg-ldvh-bg/50 px-3 py-2">
               <span className="font-mono text-ldvh-text-primary">{entry.path}</span>
-              <span className="mx-2 text-amber-700 dark:text-amber-300">{reasonLabel(entry)}</span>
+              <span className={`mx-2 ${LDVH_WARN_TITLE_CLASS}`}>{reasonLabel(entry)}</span>
               <span>{t('objectDetail.fieldExpected', { expected: entry.expected })}</span>
             </div>
           ))}
@@ -434,7 +435,7 @@ function UnparsedStructuresSection({ value }: { value: unknown }) {
     : [];
   if (entries.length === 0) return null;
   return (
-    <section className="mb-6 overflow-hidden rounded-xl border border-amber-500/25 bg-amber-500/5">
+    <section className={`mb-6 overflow-hidden rounded-xl border ${LDVH_WARN_SURFACE_CLASS}`}>
       <button
         type="button"
         aria-expanded={open}
@@ -499,7 +500,7 @@ function FactReadFailurePage({
             <ArrowLeft size={14} />
             {t('objectDetail.back')}
           </button>
-          <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4">
+          <div className={`rounded-lg border ${LDVH_ERROR_SURFACE_CLASS} p-4`}>
             <FactReadFailureContent type={type} id={id} meta={meta} />
           </div>
         </div>
@@ -522,7 +523,7 @@ export function FactReadFailureContent({
   const status = meta.readStatus ?? 'unavailable';
   return (
     <>
-      <p className="ldvh-body text-red-700 dark:text-red-300">{t('objectDetail.readUnavailable')}</p>
+      <p className={`ldvh-body ${LDVH_ERROR_TITLE_CLASS}`}>{t('objectDetail.readUnavailable')}</p>
       <dl className="mt-3 grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2">
         <dt className="ldvh-meta-muted">{t('objectDetail.readType')}</dt>
         <dd className="ldvh-meta-primary">{type ? getTypeLabel(type, locale) : '—'} · {id || '—'}</dd>
@@ -538,7 +539,7 @@ export function FactReadFailureContent({
       {meta.issues.length > 0 && (
         <div className="mt-3 space-y-1">
           {meta.issues.map((issue, index) => (
-            <p key={`${issue.category}-${issue.fieldPath ?? 'root'}-${index}`} className="ldvh-meta text-red-700/80 dark:text-red-300/80">
+            <p key={`${issue.category}-${issue.fieldPath ?? 'root'}-${index}`} className={`ldvh-meta ${LDVH_ERROR_BODY_CLASS}`}>
               {issue.fieldPath ? `${issue.fieldPath}：${issue.summary}` : issue.summary}
             </p>
           ))}
@@ -1582,7 +1583,7 @@ export function ResearchUncertainGapsNode({
         {uncertain.length > 0 && (
           <div className="flex flex-col gap-2">
             {uncertain.map((entry, index) => (
-              <div key={`uncertain-${index}`} className="min-w-0 rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2">
+              <div key={`uncertain-${index}`} className={`min-w-0 rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-3 py-2`}>
                 <div className="ldvh-caption-strong text-ldvh-text-primary">
                   {typeof entry.issue === 'string' ? entry.issue : getFieldLabel('issue', locale)}
                 </div>
@@ -1805,7 +1806,7 @@ function FieldValue({ fieldKey, value, depth, locale }: { fieldKey: string; valu
   // 布尔值
   if (typeof value === 'boolean') {
     return (
-      <span className={`ldvh-chip rounded px-1.5 py-0.5 ${value ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+      <span className={`ldvh-chip rounded px-1.5 py-0.5 ${value ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
         {value ? t('common.true') : t('common.false')}
       </span>
     );

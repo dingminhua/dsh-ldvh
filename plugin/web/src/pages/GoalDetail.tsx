@@ -18,6 +18,7 @@ import { getLocalizedObjectTitle, getTypeLabel } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import { getFactReadMeta } from '@/utils/factReadMeta';
 import { getObjectUpdatedAt } from '@/utils/factChangeLog';
+import { LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_WARN_SURFACE_STRONG_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
 
 type GoalRecord = NonNullable<CognitionGoalData['goal']>;
 
@@ -54,9 +55,9 @@ export default function GoalDetail() {
     // 创建走 AI 受控写入路径，Web 不提供写入口。
     return (
       <div className="ldvh-page-frame">
-        <div className="mx-auto max-w-2xl rounded-lg border border-amber-500/30 bg-amber-500/10 px-5 py-8 text-center">
+        <div className={`mx-auto max-w-2xl rounded-lg border ${LDVH_WARN_SURFACE_STRONG_CLASS} px-5 py-8 text-center`}>
           <ObjectTypeIcon type="goal" size={24} className="mx-auto mb-3 text-amber-500" />
-          <p className="ldvh-card-title text-amber-700 dark:text-amber-300">{t('goalDetail.missingTitle')}</p>
+          <p className={`ldvh-card-title ${LDVH_WARN_TITLE_CLASS}`}>{t('goalDetail.missingTitle')}</p>
           <p className="ldvh-body-muted mt-2">{t('goalDetail.missingBody')}</p>
         </div>
       </div>
@@ -66,9 +67,9 @@ export default function GoalDetail() {
   if (error) {
     return (
       <div className="ldvh-page-frame">
-        <div className="mx-auto max-w-2xl rounded-lg border border-red-500/30 bg-red-500/10 px-5 py-8 text-center">
+        <div className={`mx-auto max-w-2xl rounded-lg border ${LDVH_ERROR_SURFACE_CLASS} px-5 py-8 text-center`}>
           <p className="ldvh-body">{t('common.loadFailed')}</p>
-          <p className="ldvh-meta mt-2 break-words text-red-400">{error}</p>
+          <p className={`ldvh-meta mt-2 break-words ${LDVH_ERROR_TEXT_CLASS}`}>{error}</p>
         </div>
       </div>
     );
@@ -77,7 +78,7 @@ export default function GoalDetail() {
   if (!goal) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-ldvh-accent border-t-transparent" />
+        <div className="ldvh-spinner" />
       </div>
     );
   }

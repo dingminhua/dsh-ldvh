@@ -297,6 +297,35 @@ export const WORKCASE_DIRECTION_ROW_BULLET_CLASS =
 export const WORKCASE_DIRECTION_ROW_INSET_CLASS = 'relative pl-3';
 
 /**
+ * 详情面去向**分区行**（密度变体）——落实 `10 §5.5` 行 300「卡面与详情只在密度上分岔」的
+ * 「搬结构不搬密度」：结构（分区块、块首标记、项目符号、不报条数、首现序）**取卡面**，
+ * 密度**取详情**。
+ *
+ * 为什么不直接复用卡面 `WORKCASE_DIRECTION_GROUP_ROW_CLASS`：它含 `ldvh-caption`（12px
+ * 扫读档）。`docs/01 §1.4` 约束 4「详情页不得随之缩小」、约束 5「ldvh-caption 只承载辅助信息、
+ * 不承载主要内容」——详情面去向正文是**事实正文**，整套照搬会把它掉到 12px。故本变体：
+ * 去 `ldvh-caption`（正文 14px 由子 span 的 `ldvh-detail-semantic-body` 给，行类不声明字号）、
+ * 去 `border-t`（`10 §5.5` 行 300：详情面用宽松行，分割线是卡面扫读的分隔手段）、
+ * 行距放宽 `py-1.5`（卡面 `py-1`）。
+ *
+ * `relative pl-3` 内联（而非拆 `ROW_INSET`）：详情行自足给项目符号留位，与卡面的
+ * 「inset + 行」两件套同义但为单类——密度变体各自成一处来源，避免卡/详两套行再互相抄。
+ */
+export const WORKCASE_DIRECTION_ROW_DETAIL_CLASS =
+  'relative pl-3 flex items-start gap-1.5 py-1.5';
+
+/**
+ * 详情面分区行的项目符号——**光学位置按 14px/24px 正文与 `py-1.5` 重算**：
+ * 行 padding 6px + 行高光学中心 12px = 18px，符号高 4px ⇒ `top-[16px]`。
+ *
+ * 为什么是独立常量而不复用卡面 `WORKCASE_DIRECTION_ROW_BULLET_CLASS`（`top-[12px]`）：
+ * 那个 `12px` 按卡面 `text-xs/20px + py-1` 算得，详情面行高 24px、padding 6px，同值会
+ * 让符号偏上。光学对齐不是可推导的机械量（见该常量登记），两密度各给一处取值。
+ */
+export const WORKCASE_DIRECTION_ROW_DETAIL_BULLET_CLASS =
+  'pointer-events-none absolute left-0 top-[16px] h-1 w-1 rounded-full bg-current opacity-45';
+
+/**
  * 分区标题行的容器：只放块首的去向标记（原逐条重复的那个标记）。
  *
  * **不写字数/条数**（Human 2026-09-30：「总数不用写」）：块内条目数读者一眼可数，
@@ -438,6 +467,21 @@ export function workCaseResidualRows(
  */
 export const WORKCASE_ITEM_ROW_CLASS =
   'border-t border-ldvh-border/60 py-1.5 first:border-t-0 first:pt-0.5 ldvh-caption text-ldvh-text-primary';
+
+/**
+ * 通用条目行的**详情密度变体**——落实 `10 §5.5` 行 300「卡面紧凑行（扫读窗口）／详情宽松行
+ * （阅读面），两面只在密度上分岔」。
+ *
+ * 与卡面 `WORKCASE_ITEM_ROW_CLASS` 的三处差别：
+ * - 去 `border-t`：分割线是卡面扫读时切分条目的手段；详情是阅读面，用宽松行（同
+ *   `WorkCaseCriteriaList` 的 `density='detail'` 分支，那里已无分割线）。
+ * - 去 `ldvh-caption`（12px）：`docs/01 §1.4` 约束 4「详情页不得随之缩小」、约束 5「caption
+ *   只承载辅助信息」。详情条目行的字号由其**子元素自声明**——字段标签 `ldvh-caption-strong`
+ *   （12px）、事实正文 `ldvh-detail-semantic-body`（壳内 14px/24px），行类不越俎代庖声明
+ *   字号（否则就是卡面密度被详情借用、靠子元素逐个覆盖的脆弱形态）。
+ * - 保留 `py-1.5`：去掉分割线后，行距改由 padding 单独提供节奏。
+ */
+export const WORKCASE_ITEM_ROW_DETAIL_CLASS = 'min-w-0 py-1.5';
 
 /** 块内条目列表的容器（与 `WORKCASE_ITEM_ROW_CLASS` 配套：不用 gap，间距由行的 padding 提供）。 */
 export const WORKCASE_ITEM_LIST_CLASS = 'grid min-w-0';

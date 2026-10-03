@@ -130,7 +130,7 @@ export default function WorkCaseExecFlow({
           className="mb-1.5 min-w-0 rounded-md border border-amber-600/35 bg-amber-500/[0.06] px-2 py-1.5"
         >
           <div className="flex min-w-0 items-start gap-1.5">
-            <span className="mr-0.5 mt-0.5 inline-block shrink-0 rounded border border-amber-600/50 bg-amber-500/15 px-1.5 text-[10px] font-semibold leading-4 text-amber-700 dark:text-amber-300">
+            <span className="mr-0.5 mt-0.5 ldvh-chip-sm border-amber-600/50 bg-amber-500/15 text-amber-700 dark:text-amber-300">
               {t('objectList.workcaseAdjustment.pending')}
             </span>
             <span className="ldvh-caption min-w-0 break-words text-ldvh-text-primary">
@@ -172,12 +172,12 @@ export default function WorkCaseExecFlow({
                       data-workcase-flow-mark={row.mark}
                       className={
                         row.mark === 'review'
-                          ? 'mr-1.5 inline-block rounded border border-violet-500/45 bg-violet-500/10 px-1 text-[10px] font-semibold leading-4 text-violet-700 dark:text-violet-300'
+                          ? 'mr-1.5 ldvh-chip-sm border-violet-500/45 bg-violet-500/10 text-violet-700 dark:text-violet-300'
                           : row.mark === 'adjustment-approved'
-                            ? 'mr-1.5 inline-block rounded border border-emerald-600/50 bg-emerald-500/10 px-1 text-[10px] font-semibold leading-4 text-emerald-700 dark:text-emerald-300'
+                            ? 'mr-1.5 ldvh-chip-sm border-emerald-600/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
                             : row.mark === 'adjustment-rejected'
-                              ? 'mr-1.5 inline-block rounded border border-red-600/45 bg-red-500/10 px-1 text-[10px] font-semibold leading-4 text-red-700 dark:text-red-300'
-                              : 'mr-1.5 inline-block rounded border border-amber-600/50 bg-amber-500/15 px-1 text-[10px] font-semibold leading-4 text-amber-700 dark:text-amber-300'
+                              ? 'mr-1.5 ldvh-chip-sm border-red-600/45 bg-red-500/10 text-red-700 dark:text-red-300'
+                              : 'mr-1.5 ldvh-chip-sm border-amber-600/50 bg-amber-500/15 text-amber-700 dark:text-amber-300'
                       }
                     >
                       {t(`objectList.workcaseFlowMark.${row.mark}` as LocaleKey)}

@@ -15,6 +15,7 @@ import { Maximize2 } from 'lucide-react';
 import { fetchCognitionGoal, ApiRequestError } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
 import { copyText } from '@/utils/clipboard';
+import { LDVH_ERROR_TEXT_CLASS } from '@/utils/semanticColors';
 
 /** 区头键盘可达的展开/收起（与原聚焦页 CognitionCenter 区头一致的交互）。 */
 function toggleOnKeyboard(event: KeyboardEvent<HTMLDivElement>, toggle: () => void) {
@@ -80,7 +81,7 @@ export default function GoalSection() {
                 event.stopPropagation();
                 navigate('/goal');
               }}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ldvh-text-secondary transition-colors hover:bg-ldvh-bg hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ldvh-accent/50"
+              className="ldvh-icon-button"
               title={t('goalDetail.openDetail')}
               aria-label={t('goalDetail.openDetail')}
             >
@@ -95,7 +96,7 @@ export default function GoalSection() {
               event.stopPropagation();
               setGoalExpanded((expanded) => !expanded);
             }}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ldvh-text-secondary transition-colors hover:bg-ldvh-bg hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ldvh-accent/50"
+            className="ldvh-icon-button"
             title={t(goalExpanded ? 'focusV2.collapseSection' : 'focusV2.expandSection')}
           >
             {goalExpanded ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
@@ -115,15 +116,15 @@ export default function GoalSection() {
                 title={t('focusV2.promptSetGoal')}
               >
                 <span className="ldvh-caption block text-ldvh-text-secondary/80">{t('focusV2.hintCreateGoal')}</span>
-                <span className="mt-0.5 block text-[11px] text-ldvh-text-secondary/50">
+                <span className="ldvh-caption mt-0.5 block text-ldvh-text-secondary/50">
                   {copied === 'create' ? t('focusV2.btnCopied') : t('focusV2.hintCreateExample')}
                 </span>
               </button>
             )}
-            {goalError && <p className="mt-1 text-xs text-red-400">{goalError}</p>}
+            {goalError && <p className={`ldvh-caption mt-1 ${LDVH_ERROR_TEXT_CLASS}`}>{goalError}</p>}
             {goal?.statement && (
               <div className="rounded-md border border-ldvh-border/20 bg-ldvh-bg/20 px-2.5 py-2">
-                <p className="text-sm leading-relaxed text-ldvh-text-primary">{goal.statement}</p>
+                <p className="ldvh-body text-ldvh-text-primary">{goal.statement}</p>
               </div>
             )}
 
@@ -135,7 +136,7 @@ export default function GoalSection() {
                     <span className="ldvh-chip ldvh-chip-sm shrink-0 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent">
                       {sg.id}
                     </span>
-                    <span className="min-w-0 flex-1 text-xs leading-relaxed text-ldvh-text-secondary">{sg.text}</span>
+                    <span className="ldvh-caption min-w-0 flex-1">{sg.text}</span>
                   </li>
                 ))}
               </ul>

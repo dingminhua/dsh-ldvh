@@ -8,8 +8,9 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
+import ProjectIssuesNotice from '@/components/ProjectIssuesNotice';
 import WorkCaseGistLine from '@/components/WorkCaseGistLine';
 import {
   ObjectCardFrame,
@@ -25,6 +26,7 @@ import { useProjectScope } from '@/utils/projectContext';
 import { useI18n } from '@/i18n/context';
 import { getTypeLabel } from '@/i18n/locales';
 import { projectColorVar, resolvedProjectColorKey } from '@/shared/projectColors';
+import { LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TITLE_CLASS } from '@/utils/semanticColors';
 
 const OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm'] as const;
 
@@ -42,7 +44,7 @@ function ProjectFilterChips({
 }) {
   const { t } = useI18n();
   const buttonClass = (isActive: boolean) =>
-    `ldvh-card-title inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
+    `ldvh-caption-strong inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 transition-colors ${
       isActive
         ? 'border-ldvh-accent/45 bg-ldvh-accent/10 text-ldvh-accent'
         : 'border-ldvh-border text-ldvh-text-secondary hover:border-ldvh-accent/35 hover:text-ldvh-text-primary'
@@ -171,19 +173,12 @@ export default function FederationObjects() {
         </div>
       )}
 
-      {issues.length > 0 && (
-        <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-          <p className="ldvh-caption-strong flex items-center gap-1.5 text-amber-700 dark:text-amber-300"><AlertTriangle size={12} />{t('federation.projectIssues')}</p>
-          <ul className="mt-1 list-disc space-y-0.5 pl-4">
-            {issues.map((issue) => <li key={issue} className="ldvh-caption text-amber-700 dark:text-amber-300/90">{issue}</li>)}
-          </ul>
-        </div>
-      )}
+      <ProjectIssuesNotice issues={issues} variant="page" className="mb-4" />
 
       {loading && items.length === 0 ? (
         <div className="ldvh-body-muted flex justify-center py-20"><Loader2 className="animate-spin" /></div>
       ) : error ? (
-        <div className="mt-2 rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-red-700 dark:text-red-300">{error}</div>
+        <div className={`mt-2 rounded-lg border ${LDVH_ERROR_SURFACE_CLASS} p-4 ${LDVH_ERROR_TITLE_CLASS}`}>{error}</div>
       ) : visibleItems.length === 0 ? (
         <div className="ldvh-body-muted py-20 text-center">
           {t('federation.noObjects')}

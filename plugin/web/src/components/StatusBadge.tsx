@@ -26,8 +26,10 @@ export default function StatusBadge({ status, statusLabel, objectType = '', size
     // 2026-09-13），不再是中性灰——落实是正结果不是收敛。
     : getStatusColor(status);
   const compact = variant === 'compact' || size === 'xs';
+  // compact 分支只走 `ldvh-chip-sm`——高度与行高由该语义类给出（18px / leading-3），
+  // 不再手写 `h-[18px] leading-3` 重复同一几何（10 §5.5 单一来源纪律）。
   const sizeClasses = compact
-    ? 'h-[18px] leading-3'
+    ? ''
     : size === 'sm' ? 'px-2 py-0.5' : 'px-2.5 py-1';
   const display = statusLabel || getStatusLocale(status, locale);
   const tooltip = getObjectStatusHint(objectType, status, locale);

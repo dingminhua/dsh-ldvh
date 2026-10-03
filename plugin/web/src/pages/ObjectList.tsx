@@ -24,11 +24,18 @@ import { fetchCognitionGoal, fetchObjects, type FactCardAssociation, type FactCo
 import { useI18n } from '@/i18n/context';
 import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeDescription, getTypeLabel } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
+import {
+  DECISION_AMBER_BODY_HUE_CLASS,
+  DECISION_CARD_SHELL_CLASS,
+  DECISION_TITLE_HUE_CLASS,
+  DECISION_VIOLET_CODE_CHIP_HUE_CLASS,
+} from '@/utils/decisionBlocks';
 import { ALL_STATUS_PARAM, getEffectiveListStatus, writeListStatusParam } from '@/utils/listStatus';
 import { stripCardMarkdown as formatReasonText } from '@/utils/cardText';
 import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { compareRfc3339Timestamps } from '@/shared/timestamp';
+import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS } from '@/utils/semanticColors';
 
 type Translate = ReturnType<typeof useI18n>['t'];
 type StatusReason = { label: string; text: string; missing?: boolean };
@@ -73,14 +80,14 @@ function StatusReasonNote({ reason }: { reason: StatusReason }) {
       }`}
     >
       <div className={`ldvh-meta mb-1 flex min-w-0 items-center gap-1.5 ${
-        isMissing ? 'text-red-400' : 'text-ldvh-text-secondary/75'
+        isMissing ? LDVH_ERROR_TEXT_CLASS : 'text-ldvh-text-secondary/75'
       }`}
       >
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isMissing ? 'bg-red-400' : 'bg-ldvh-text-secondary/75'}`} aria-hidden="true" />
         <span className="min-w-0 truncate">{reason.label}</span>
       </div>
       <p className={`ldvh-card-decision-body whitespace-pre-wrap break-words ${
-        isMissing ? 'text-red-400' : 'text-ldvh-text-secondary/75'
+        isMissing ? LDVH_ERROR_TEXT_CLASS : 'text-ldvh-text-secondary/75'
       }`}
       >
         {reason.text}
@@ -179,7 +186,7 @@ export function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate
     );
   }
   return (
-    <p className="ldvh-card-decision-body rounded-md border border-red-500/30 bg-red-500/[0.07] px-3 py-2 text-red-400">
+    <p className={`ldvh-card-decision-body rounded-md border ${LDVH_ERROR_SURFACE_CLASS} px-3 py-2 ${LDVH_ERROR_TEXT_CLASS}`}>
       {t('objectList.workcaseProgressGroupUnavailable')}
     </p>
   );
@@ -298,12 +305,12 @@ export function ObjectCardFrame({
               徽标——它与状态词**合并**成一枚放在右侧（见 `ObjectIdentityActions` 的
               `statusBadge`）。此前本处挂过 `WorkCaseOutcomeBadge`（已删除）。 */}
           {obj.sourceBranch && (
-            <span className="ldvh-chip-sm gap-1 border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+            <span className={`ldvh-chip-sm gap-1 ${LDVH_WARN_CHIP_HUE_CLASS}`}>
               {t('objectList.sourceBranch', { branch: obj.sourceBranch })}
             </span>
           )}
           {obj.mainWorktreeDiffers && (
-            <span className="ldvh-chip-sm gap-1 border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400">
+            <span className={`ldvh-chip-sm gap-1 ${LDVH_INFO_CHIP_HUE_CLASS}`}>
               {t('objectList.mainWorktreeDiffers')}
             </span>
           )}
@@ -666,15 +673,15 @@ export function PitfallCardContent({ obj }: { obj: ObjectItem }) {
   return (
     <div className="grid min-w-0 gap-2">
       {fields.map(({ field, value }) => (
-        <section key={field} className="min-w-0 rounded-md border border-amber-400/20 border-l-2 border-l-amber-400/70 bg-amber-500/[0.025] px-3.5 py-3">
-          <h3 className="ldvh-card-decision-title text-amber-700/85 dark:text-amber-200/85">
+        <section key={field} className={DECISION_CARD_SHELL_CLASS.amber}>
+          <h3 className={`ldvh-card-decision-title ${DECISION_TITLE_HUE_CLASS.amber}`}>
             {getFieldLabel(field, locale)}
           </h3>
           <div className={`${WORKCASE_CARD_TITLE_BODY_GAP_CLASS} min-w-0 break-words`}>
             <SummaryText
               value={value}
               collapseThreshold={420}
-              className="ldvh-card-decision-body [&_p]:my-0 text-amber-950/70 dark:text-amber-100/75"
+              className={`ldvh-card-decision-body [&_p]:my-0 ${DECISION_AMBER_BODY_HUE_CLASS}`}
             />
           </div>
         </section>
@@ -749,9 +756,9 @@ export function FrictionCardContent({ obj }: { obj: ObjectItem }) {
   const impactChipClass = impact ? FRICTION_IMPACT_CHIP_CLASS[impact] : undefined;
 
   return (
-    <section className="min-w-0 rounded-md border border-amber-400/20 border-l-2 border-l-amber-400/70 bg-amber-500/[0.025] px-3.5 py-3">
+    <section className={DECISION_CARD_SHELL_CLASS.amber}>
       <div className="flex min-w-0 items-center gap-2">
-        <h3 className="ldvh-card-decision-title min-w-0 text-amber-700/85 dark:text-amber-200/85">
+        <h3 className={`ldvh-card-decision-title min-w-0 ${DECISION_TITLE_HUE_CLASS.amber}`}>
           {getFieldLabel('phenomenon', locale)}
         </h3>
         {impactChipClass && (
@@ -765,11 +772,11 @@ export function FrictionCardContent({ obj }: { obj: ObjectItem }) {
           <SummaryText
             value={phenomenon}
             collapseThreshold={420}
-            className="ldvh-card-decision-body [&_p]:my-0 text-amber-950/70 dark:text-amber-100/75"
+            className={`ldvh-card-decision-body [&_p]:my-0 ${DECISION_AMBER_BODY_HUE_CLASS}`}
           />
         </div>
       ) : (
-        <p className={`ldvh-card-decision-body ${WORKCASE_CARD_TITLE_BODY_GAP_CLASS} text-red-400`}>
+        <p className={`ldvh-card-decision-body ${WORKCASE_CARD_TITLE_BODY_GAP_CLASS} ${LDVH_ERROR_TEXT_CLASS}`}>
           {t('objectList.frictionPhenomenonMissing')}
         </p>
       )}
@@ -810,12 +817,12 @@ export function NormCardContent({ obj }: { obj: ObjectItem }) {
   if (!directionKey) return null;
 
   return (
-    <section className="min-w-0 rounded-md border border-violet-400/20 border-l-2 border-l-violet-400/70 bg-violet-500/[0.025] px-3.5 py-3">
+    <section className={DECISION_CARD_SHELL_CLASS.violet}>
       <div className="flex min-w-0 items-center gap-2">
-        <h3 className="ldvh-card-decision-title min-w-0 text-violet-700/85 dark:text-violet-200/85">
+        <h3 className={`ldvh-card-decision-title min-w-0 ${DECISION_TITLE_HUE_CLASS.violet}`}>
           {getFieldLabel('direction_key', locale)}
         </h3>
-        <code className="ldvh-chip-sm min-w-0 shrink-0 truncate border-violet-400/35 bg-violet-500/10 font-mono text-violet-700 dark:text-violet-300">
+        <code className={`ldvh-chip-sm min-w-0 shrink-0 truncate ${DECISION_VIOLET_CODE_CHIP_HUE_CLASS}`}>
           {directionKey}
         </code>
       </div>
@@ -1037,7 +1044,7 @@ export default function ObjectList() {
             }}
             aria-label={t('objectList.searchLabel')}
             placeholder={t('objectList.searchPlaceholder')}
-            className="h-[26px] w-full rounded-md border border-ldvh-border bg-ldvh-panel py-1 pl-8 pr-2 text-xs leading-4 text-ldvh-text-primary outline-none placeholder:text-ldvh-text-secondary/70 focus:border-ldvh-accent/60 focus:ring-1 focus:ring-ldvh-accent/30"
+            className="h-[26px] w-full rounded-md border border-ldvh-border bg-ldvh-panel py-1 pl-8 pr-2 ldvh-caption leading-4 text-ldvh-text-primary outline-none placeholder:text-ldvh-text-secondary/70 focus:border-ldvh-accent/60 focus:ring-1 focus:ring-ldvh-accent/30"
           />
         </label>
       ) : (
@@ -1250,19 +1257,19 @@ export default function ObjectList() {
       {/* Content */}
       {loading ? (
         <div className="flex items-center justify-center py-20">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-ldvh-accent border-t-transparent" />
+          <div className="ldvh-spinner" />
         </div>
       ) : error ? (
         currentType === 'workcase' ? (
-          <div className="mx-auto max-w-2xl rounded-lg border border-red-500/30 bg-red-500/10 px-5 py-8 text-center">
-            <CircleAlert className="mx-auto mb-3 text-red-400" size={24} />
-            <p className="ldvh-card-title text-red-700 dark:text-red-300">{t('objectList.workcaseCoverageUnavailable')}</p>
-            <p className="ldvh-meta mt-2 break-words text-red-700/80 dark:text-red-300/80">{error}</p>
+          <div className={`mx-auto max-w-2xl rounded-lg border ${LDVH_ERROR_SURFACE_CLASS} px-5 py-8 text-center`}>
+            <CircleAlert className={`mx-auto mb-3 ${LDVH_ERROR_TEXT_CLASS}`} size={24} />
+            <p className={`ldvh-card-title ${LDVH_ERROR_TITLE_CLASS}`}>{t('objectList.workcaseCoverageUnavailable')}</p>
+            <p className={`ldvh-meta mt-2 break-words ${LDVH_ERROR_BODY_CLASS}`}>{error}</p>
           </div>
         ) : (
           <div className="py-20 text-center">
             <p className="ldvh-body-muted">{t('common.loadFailed')}</p>
-            <p className="ldvh-meta text-red-400">{error}</p>
+            <p className={`ldvh-meta ${LDVH_ERROR_TEXT_CLASS}`}>{error}</p>
           </div>
         )
       ) : coverageStatus === 'type_not_integrated' ? (

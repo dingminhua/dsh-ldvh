@@ -11,7 +11,13 @@ import {
   WORKCASE_RESIDUAL_SURFACE_CLASS,
 } from '@/components/WorkCaseCriteriaList';
 import {
-  WORKCASE_ITEM_ROW_CLASS,
+  WORKCASE_DIRECTION_BLOCK_BASE_CLASS,
+  WORKCASE_DIRECTION_ROW_DETAIL_BULLET_CLASS,
+  WORKCASE_DIRECTION_ROW_DETAIL_CLASS,
+  WORKCASE_DIRECTION_TITLE_CLASS,
+  WORKCASE_DIRECTION_TITLE_ROW_CLASS,
+  WORKCASE_ITEM_ROW_DETAIL_CLASS,
+  groupDirectionRows,
   workCaseAdviceTagClass,
   workCaseCheckChipClass,
   workCaseCheckStateLabel,
@@ -22,6 +28,8 @@ import {
   FieldProblem,
 } from '@/pages/object-detail/FactReadingLayouts';
 import { FactAssociationsSection } from '@/pages/object-detail/FactAssociationsSection';
+// outcome 四档结论色表（与卡头合并徽标同一张，单一来源）——详情面「终态判定」复用。
+import { WORKCASE_CLOSED_STATUS_BADGE_CLASS } from '@/components/WorkCaseClosedStatusBadge';
 import { StructuredTextProblems } from '@/pages/object-detail/FactReadingLayouts';
 import {
   DetailInlineField,
@@ -37,6 +45,7 @@ import type { StructuredTextIssue } from '@/shared/workcaseTextStructure';
 import { h2SectionOf } from '@/shared/workcaseResultDraft';
 import { approvedAmendmentSteps } from '@/shared/workcaseLifecycle';
 import type { WorkCaseV5Group, WorkCaseV5Outcome } from '@/shared/workcaseLifecycle';
+import { LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS } from '@/utils/semanticColors';
 
 type LayoutT = ReturnType<typeof useI18n>['t'];
 
@@ -70,7 +79,7 @@ export default function WorkCaseReadingLayout({ obj, locale }: WorkCaseReadingLa
           ObjectDetail 的 getObjectHeaderStatus 已把 group 传给它）。此处只在
           派生不可判定时披露缺口——不回退、不伪造分组。 */}
       {!group && (
-        <p className="ldvh-body-muted rounded-md border border-red-500/30 bg-red-500/[0.07] px-3 py-2 text-red-400">
+        <p className={`ldvh-body-muted rounded-md border ${LDVH_ERROR_SURFACE_CLASS} px-3 py-2 ${LDVH_ERROR_TEXT_CLASS}`}>
           {t('objectList.workcaseProgressGroupUnavailable')}
         </p>
       )}
@@ -207,7 +216,7 @@ function PlanNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string }) 
                 {typeof step.step === 'string' && amendmentSteps.has(step.step) && (
                   <span
                     data-workcase-amendment-step="true"
-                    className="ml-1.5 inline-block rounded border border-emerald-600/50 bg-emerald-500/10 px-1 text-[10px] font-semibold leading-4 text-emerald-700 dark:text-emerald-300"
+                    className="ml-1.5 ldvh-chip-sm border-emerald-600/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
                   >
                     {t('objectDetail.workcaseAmendmentStep')}
                   </span>
@@ -375,20 +384,43 @@ function DirectionsNode({ obj, locale }: { obj: WorkCaseDetailData; locale: stri
     >
       {/* 中性承载面（`10 §5.5`「单一来源纪律」：块底不另着语义色，标记自带去向色）。
           `10 §5.5` 的「卡面纯文本」只约束**卡面**（扫读窗口）；详情是**阅读面**，
-          按 §5.3 完整呈现——故此处走 Markdown 渲染，与卡面的剥标记形态有意不同。 */}
+          按 §5.3 完整呈现——故此处走 Markdown 渲染，与卡面的剥标记形态有意不同。
+
+          **分区（搬结构不搬密度）**：采纳 `10 §5.5` 行 300 的去向分区裁定——去向词提为块首
+          标题一次、组内只留正文缀项目符号、不报条数、按首现序（与卡面 `WorkCaseClosedSummary`
+          同一分区纯函数 `groupDirectionRows`，单一来源）。但**密度取详情**：
+          组内行用 `WORKCASE_DIRECTION_ROW_DETAIL_CLASS`（无 `ldvh-caption` 12px 扫读档、
+          无 `border-t` 分割线、行距放宽），正文 14px 由 `ldvh-detail-semantic-body` 给——
+          卡面那套 `WORKCASE_DIRECTION_GROUP_ROW_CLASS` 带 12px + 分割线，整套照搬会把事实
+          正文掉到 12px，违 `docs/01 §1.4` 约束 4/5。**不取块底色**（`BLOCK_BG` 是卡面余光手段）。 */}
       <div className="ldvh-research-node-content min-w-0">
-        {directions.map((direction, index) => (
+        {groupDirectionRows(directions).map((group) => (
           <div
-            key={`${direction.kind ?? 'other'}-${index}`}
-            data-workcase-advice-kind={direction.kind ?? 'unclassified'}
-            className={WORKCASE_ITEM_ROW_CLASS}
+            key={group.kind ?? 'unclassified'}
+            data-workcase-advice-group={group.kind ?? 'unclassified'}
+            className={WORKCASE_DIRECTION_BLOCK_BASE_CLASS}
           >
-            <span className={`ldvh-chip-sm w-fit shrink-0 ${workCaseAdviceTagClass(direction.kind)}`}>
-              {direction.kind
-                ? t(`objectList.workcaseAdvice.${direction.kind}` as LocaleKey)
-                : t('objectList.workcaseAdvice.unclassified')}
-            </span>
-            <span className="ldvh-detail-semantic-body min-w-0 break-words">{direction.text}</span>
+            <div className={WORKCASE_DIRECTION_TITLE_ROW_CLASS}>
+              <span
+                className={`${WORKCASE_DIRECTION_TITLE_CLASS} ${workCaseAdviceTagClass(group.kind)}`}
+              >
+                {group.kind
+                  ? t(`objectList.workcaseAdvice.${group.kind}` as LocaleKey)
+                  : t('objectList.workcaseAdvice.unclassified')}
+              </span>
+            </div>
+            {group.rows.map((item, index) => (
+              <div
+                key={`${item.kind ?? 'other'}-${index}`}
+                data-workcase-advice-kind={item.kind ?? 'unclassified'}
+                className={WORKCASE_DIRECTION_ROW_DETAIL_CLASS}
+              >
+                {/* 项目符号：去向词提到块首后，组内各条只剩正文，行首须有分隔符号；
+                    纯装饰、不承载语义，故 aria-hidden。取值按详情 14px/24px 行高重算。 */}
+                <span aria-hidden="true" className={WORKCASE_DIRECTION_ROW_DETAIL_BULLET_CLASS} />
+                <span className="ldvh-detail-semantic-body min-w-0 break-words">{item.text}</span>
+              </div>
+            ))}
           </div>
         ))}
       </div>
@@ -479,8 +511,14 @@ function AchievedScopeNode({ value, locale }: { value: string; locale: string })
 /**
  * 一条复核记录的 `summary`（`21 §8` 引 `02 §16` 七要素）。
  *
- * 按七要素拆成分块：**要素名（弱信息，`ldvh-meta-muted`）+ 内容**，各项之间用与
- * 仓内条目行一致的细分割线分隔（`WORKCASE_ITEM_ROW_CLASS`，四块共用同一串类名）。
+ * 按七要素拆成分块：**要素名（字段标签，`ldvh-caption-strong`）+ 内容**，各项之间用
+ * 详情密度的宽松行分隔（`WORKCASE_ITEM_ROW_DETAIL_CLASS`——无分割线，行距由 padding 提供，
+ * 与 `10 §5.5` 行 300「详情面用宽松行」一致）。
+ *
+ * 要素名字族（2026-10-03 走查 P2-3）：七要素名是**中文字段标签**（对象/基线/方法/覆盖/
+ * 未覆盖/发现/保证边界），`docs/01 §1.4` 表定「字段名 → `ldvh-caption-strong`」（12px/500
+ * sans）；原用 `ldvh-meta-muted`（11px mono）是**字族误用**——mono 档只供 ID/路径/时间戳/
+ * 数字，中文落 mono 读起来与同页 `DetailInlineField` 标签（`ldvh-caption-strong`）不同档。
  *
  * 降级规则（如实，不假装）：要素少于 2 项时**整段呈现**——那说明该记录的写法不在
  * 七要素约定内，强行分块会切出无意义的碎片；此时读者仍能读到全文。
@@ -496,8 +534,8 @@ function ReviewSummaryBody({ summary }: { summary: string }) {
   return (
     <div className="mt-1 min-w-0">
       {parsed.items.map((item, index) => (
-        <div key={`${item.key}-${index}`} className={WORKCASE_ITEM_ROW_CLASS}>
-          <span className="ldvh-meta-muted mr-1.5 shrink-0">
+        <div key={`${item.key}-${index}`} className={WORKCASE_ITEM_ROW_DETAIL_CLASS}>
+          <span className="ldvh-caption-strong mr-1.5 shrink-0">
             {t(`objectDetail.reviewElement.${item.key}` as LocaleKey)}
           </span>
           <span className="ldvh-detail-semantic-body min-w-0 break-words">
@@ -728,6 +766,13 @@ function BodySectionNode({
       title={t(titleKey)}
       state={state}
       locale={locale}
+      // 长度提示（纯增量）：给 1513px 级长文一个「有多长」的预读信号，先例 ReviewsNode 的
+      // headerMeta 计数。**只显数字、不带「字」**——`ldvh-meta-muted` 是 mono 档（docs/01 §1.4
+      // 行 100：弱元信息供 ID/路径/数字），中文单位落 mono 即字族误用。
+      // **保持默认展开**（docs/01 §1.10 内容结构第 6 条：Human 判断所需语义节点默认展开）；
+      // 本节是关闭提案正文承载（`10 §5.5` 行 133），不折叠、不收窄——结构性减负归 `10 §5.5`
+      // 行 243 已登记的 Human 裁决，裁决前不动默认态。
+      headerMeta={<span className="ldvh-meta-muted">{value.length}</span>}
       onToggle={() => setState((current) => getReadingNodeNextState(current))}
     >
       <ResearchTextNodeContent value={value} />
@@ -794,7 +839,14 @@ function OutcomeNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string 
       locale={locale}
       onToggle={() => setState((current) => getReadingNodeNextState(current))}
     >
-      <span className="ldvh-chip inline-flex items-center rounded-md border border-ldvh-border bg-ldvh-bg px-2 py-0.5 text-ldvh-text-primary">
+      {/* 结论配色（P1-2，`10 §5.5` 卡头条要点 3）：详情面独立出现的结论词用**原词表**（本处
+          `OUTCOME_LABEL_KEY`），配色复用卡面同一张四档色表 `WORKCASE_CLOSED_STATUS_BADGE_CLASS`
+          （绿/琥珀/红/中性）——同一语义同一色，单一来源；不与状态词合并（卡头合并是卡面形态，
+          详情身份头部已承载状态）。红色仅用于 `not-achieved`（失败），`cancelled` 保持中性
+          （`21 §9.3`：cancelled 不是失败，`docs/01 §1.10` 色彩第 3 条）。 */}
+      <span
+        className={`ldvh-chip inline-flex items-center rounded-md border px-2 py-0.5 ${WORKCASE_CLOSED_STATUS_BADGE_CLASS[outcome] ?? 'border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary'}`}
+      >
         {t(OUTCOME_LABEL_KEY[outcome])}
       </span>
     </ReadingNodeSection>

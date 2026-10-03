@@ -47,7 +47,7 @@ export default function Help() {
       </div>
 
       {/* 主题横幅：Vibe 开发步骤的循环流程概览 */}
-      <div className="relative mb-5 overflow-hidden rounded-xl border border-ldvh-accent/20 bg-gradient-to-br from-ldvh-accent/12 via-ldvh-accent/5 to-transparent px-4 py-5 sm:px-5">
+      <div className="relative mb-5 overflow-hidden rounded-xl border border-ldvh-accent/20 bg-gradient-to-br from-ldvh-accent/12 via-ldvh-accent/5 to-transparent px-4 py-5">
         {/* 装饰光晕 */}
         <div aria-hidden="true" className="pointer-events-none absolute -right-12 -top-12 h-44 w-44 rounded-full bg-ldvh-accent/10 blur-2xl" />
         <div aria-hidden="true" className="pointer-events-none absolute -bottom-16 -left-8 h-36 w-36 rounded-full bg-ldvh-accent/5 blur-2xl" />
@@ -75,12 +75,12 @@ export default function Help() {
       </div>
 
       {/* 步骤列表：图标轨 + 编号徽标 + 虚线连接 */}
-      <section className="rounded-xl border border-ldvh-border bg-ldvh-panel p-4 sm:p-5">
+      <section className="rounded-xl border border-ldvh-border bg-ldvh-panel p-4">
         <ol className="flex flex-col">
           {STEP_ICONS.map((Icon, index) => {
             const isLast = index === STEP_ICONS.length - 1;
             return (
-              <li key={index} className="flex min-w-0 gap-3 sm:gap-4">
+              <li key={index} className="flex min-w-0 gap-3">
                 <div className="flex flex-col items-center">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-ldvh-accent/25 bg-ldvh-accent/10 text-ldvh-accent">
                     <Icon size={18} aria-hidden="true" />
