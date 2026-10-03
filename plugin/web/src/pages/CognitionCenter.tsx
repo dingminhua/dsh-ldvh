@@ -314,7 +314,7 @@ function InboxItemRow({ item }: { item: CognitionInboxItem }) {
 function ModuleIssuesNotice({ issues, t, unavailableKey = 'cognition.inbox.unavailable' }: { issues: CognitionIssue[]; t: Translate; unavailableKey?: LocaleKey }) {
   if (issues.length === 0) return null;
   return (
-    <div role="status" className="mb-3 min-w-0 rounded-md border border-red-400/25 border-l-2 border-l-red-400 bg-red-500/5 px-2.5 py-2">
+    <div role="status" className="mb-3 min-w-0 rounded-md border border-red-400/25 bg-red-500/5 px-2.5 py-2">
       <p className="ldvh-caption text-red-500 dark:text-red-300">{t(unavailableKey)}</p>
       <ul className="mt-1 grid min-w-0 gap-0.5">
         {issues.map((issue, index) => (

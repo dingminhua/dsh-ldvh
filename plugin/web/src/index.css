@@ -23,8 +23,21 @@
     @apply text-sm font-semibold leading-5 text-ldvh-text-primary;
   }
 
+  /* 卡片标题（16px / 24px / 500）。
+   *
+   * 字号沿革（Human 2026-09-08 当天三次改口，务必读完再动）：
+   *   08:41 8cfba19 全部标题缩 2 级 → 14px
+   *   08:45 c4bf4e4 Human 二次定案「卡片标题回到 16px」→ 16px
+   *   08:51 cacd71a Human 定 → 14px  ← 曾是最后一次
+   *   2026-10-05 Human 复核后回到 16px：卡片上 chip 盒高 18px 与标题行高
+   *   20px 之比达 0.90，一排彩色胶囊与标题行几乎齐平，标题压不住标签；
+   *   回到 24px 行高后该比值降至 0.75，接近详情页（18px 标题 / 28px 行高，
+   *   比值 0.64）的层级感。这次不是审美偏好，是针对**可度量的比例失调**。
+   *
+   * 与之配套的 `ldvh-object-title-tray-compact`（min-h-9 = 36px）正是为
+   * 16px/24px + py-1.5(12px) = 36px 而设，回 14px 时 min-h 反而是空撑。 */
   .ldvh-card-title {
-    @apply text-sm font-medium leading-5 text-ldvh-text-primary;
+    @apply text-base font-medium leading-6 text-ldvh-text-primary;
   }
 
   /* Shared neutral surface for an object title on cards and reading headers. */
@@ -32,13 +45,13 @@
     @apply min-h-11 rounded-md border border-ldvh-border/45 bg-ldvh-bg/40;
   }
 
-  /* The list-card title remains a 14px line, so its tray uses the matching compact rhythm. */
+  /* 列表卡标题带：16px/24px 正文 + py-1.5(12px) = 36px，恰等于 min-h-9。 */
   .ldvh-object-title-tray-compact {
     @apply min-h-9 py-1.5;
   }
 
   .ldvh-card-title-prominent {
-    @apply text-sm font-semibold leading-5 text-ldvh-text-primary;
+    @apply text-base font-semibold leading-6 text-ldvh-text-primary;
   }
 
   .ldvh-card-decision-title {

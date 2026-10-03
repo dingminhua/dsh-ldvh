@@ -104,7 +104,7 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
               }}
               className={`group flex w-full min-w-0 items-center gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors ${
                 federationActive
-                  ? 'border border-ldvh-accent/45 border-l-4 border-l-ldvh-accent bg-ldvh-accent/10 pl-2 text-ldvh-text-primary'
+                  ? 'border-ldvh-accent/45 bg-ldvh-accent/10 text-ldvh-text-primary'
                   : 'border-transparent text-ldvh-text-primary hover:border-ldvh-border hover:bg-ldvh-panel'
               }`}
             >
@@ -179,7 +179,7 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
                           }}
                           className={`group flex w-full min-w-0 items-center gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors ${
                             selected
-                              ? 'border border-ldvh-accent/45 border-l-4 border-l-ldvh-accent bg-ldvh-accent/10 pl-2 text-ldvh-text-primary'
+                              ? 'border-ldvh-accent/45 bg-ldvh-accent/10 text-ldvh-text-primary'
                               : 'border-transparent text-ldvh-text-primary hover:border-ldvh-border hover:bg-ldvh-panel'
                           }`}
                         >

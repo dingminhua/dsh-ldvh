@@ -15,7 +15,11 @@ import test from 'node:test';
  * 3. 收敛掉的整串字面量不得回潮（回潮=绕开单源重新手抄）。
  *
  * 边界（与 decisionBlocks.ts 头注一致）：
- * - 左色条「状态通知」远亲（CognitionCenter 红 / ObjectDetail zinc）刻意不并入；
+ * - ~~左色条「状态通知」远亲（CognitionCenter 红 / ObjectDetail zinc）刻意不并入；~~
+ *   **2026-10-05 已归正**：两处状态通知的左色条此前以「作用域不同」留在决策块单源之外，
+ *   正是本仓「先以作用域为由各自留存、再逐处漂移」的典型路径。现按 `docs/01` §1.10
+ *   第 7 条的新裁决移除左色条、改为四边同宽（决策块左色条与项目识别色条经 Human
+ *   裁决保留）。本文件末尾新增守卫防其复发。
  * - Spark 紫块（WorkCaseCriteriaList awaiting_gate2 面，violet-400/25 档）
  *   与 WorkCaseExecFlow gate2 chip（violet-500/45 档）值域不同，不在禁令内；
  * - FieldReadNotes 的未解析注记 amber-600 档弱于 WARN_TITLE 700 档，保留既有值。
@@ -173,4 +177,60 @@ test('联邦 issues 列表单源：ProjectIssuesNotice 存在且双消费方接�
       `${rel} 不应再内联 issues 标题键——文案归组件`,
     );
   }
+});
+
+/**
+ * `border-l-*` 的允许域（`docs/01` §1.10 第 7 条，Human 裁决 2026-10-05）。
+ *
+ * 单侧加粗边框**不是通用表义手段**。全站只允许两族保留左色条：
+ *   1. **领域归属决策块**（`utils/decisionBlocks.ts`）——左色条承载「这是哪个领域的
+ *      决定」（琥珀＝踩坑经验、紫＝决策），是语义而非装饰；
+ *   2. **项目识别色条**（`ProjectSwitcher` 项目行、`Federation` 项目卡）——左 3px
+ *      色条承载「这是哪个项目」，是 `docs/11` §1 项目色彩第三正交维度的既定组成。
+ *
+ * 其余一律四边同宽：警示条、导航选中态、任何普通提示块都不得用 `border-l-*` 表达强调。
+ *
+ * 为什么需要这条守卫：裁决前实测已扩散为 **4 族 3 种粗度（2px / 3px / 4px）、6 个文件**，
+ * 且与 `specs/10` §5.5「判据面板四边 1px」定案同页并存。它不是「有人写错了一处」，
+ * 而是「每族都以为自己那处是例外」的累积结果——无守卫则必然复发。
+ *
+ * **保证边界（如实登记，勿宣称强于实际）**：
+ * - 形态级防护：只识别 Tailwind 类名。以 inline style（`borderLeftWidth`）表达的
+ *   左粗线**不在覆盖内**，改名或换表达手段即可逃逸；
+ * - 注释已剥离（`stripComments`），故各处裁决沿革的**如实记载**不会触发误报；
+ * - `border-l-0` 是显式清零（语义为「不要左边框」），豁免。
+ */
+test('border-l-* 只允许语义左条两族：领域归属决策块与项目识别色条', async () => {
+  const stripComments = (source: string): string =>
+    source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  // 任意**非零**左单边边框类；`border-l-0` 经负向前瞻豁免。
+  const LEFT_BORDER = /border-l-(?!0\b)[a-z0-9[/\]%.-]+/g;
+
+  // 白名单按「允许出现的类名处数」而非「文件是否存在」断言：同文件内再插入一条
+  // 非语义左色条（例如让导航选中态的 `border-l-4` 复活）同样会红。
+  //
+  // decisionBlocks 的 6 处 = 3 个壳 × 2 段（`border-l-2` 定粗度 + `border-l-{色相}` 定色）。
+  // 此处刻意用「处数」而非「含 border-l-2 即可」——后者漏掉左色相段，
+  // 而左色相段本身也是左侧边框的表达，须一并纳管。
+  const allowed = new Map<string, number>([
+    ['utils/decisionBlocks.ts', 6], // amber / violet / neutral 三个壳各两段
+    ['components/ProjectSwitcher.tsx', 1], // 项目行色条（色值走 inline style，无左色相类）
+    ['pages/Federation.tsx', 1], // 项目卡色条（同上）
+  ]);
+
+  const violations: string[] = [];
+  for (const file of await collectSourceFiles(srcRoot)) {
+    const rel = path.relative(srcRoot, file).split(path.sep).join('/');
+    const hits = stripComments(await readFile(file, 'utf8')).match(LEFT_BORDER) ?? [];
+    const cap = allowed.get(rel) ?? 0;
+    if (hits.length > cap) {
+      violations.push(`${rel}：${hits.length} 处（允许 ${cap}）—— ${[...new Set(hits)].join('、')}`);
+    }
+  }
+  assert.equal(
+    violations.length,
+    0,
+    `非语义左色条回潮。docs/01 §1.10 第 7 条只允许「领域归属决策块」与「项目识别色条」` +
+      `两族；其余一律四边同宽（强调由背景档与块首标记承担）：\n${violations.join('\n')}`,
+  );
 });
