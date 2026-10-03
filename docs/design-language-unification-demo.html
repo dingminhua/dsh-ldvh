@@ -282,23 +282,28 @@
 
   <!-- ============ 3. pill token ============ -->
   <section class="demo-sec" id="s3">
-    <div class="demo-sec-title"><span class="dot" style="background:rgb(124 58 237)"></span>三、pill token 空白：13 处圆角药丸无令牌承载</div>
+    <div class="demo-sec-title"><span class="dot" style="background:rgb(124 58 237)"></span>三、pill token 空白：4 处同类药丸标签无令牌承载</div>
     <div class="demo-sec-sub">
-      全站有 13 处 <code>rounded-full</code> 边框药丸（项目切换器、联邦管辖选择等），但它们<b>没有任何设计令牌</b>——
-      <code>index.css</code> 里没有 pill 类，<code>docs/</code> 里也没有规定。它们各自手写几何，是下一次漂移的温床。
+      全站 <code>rounded-full</code> 共 13 处，但其中<b>只有 4 处是药丸标签</b>（其余是进度条 2、装饰光斑 2、圆点指示 3、手柄 2）。
+      这 4 处<b>几何完全同构</b>——均为 <code>border + px-1.5 py-0.5 + leading-none + rounded-full + text-xs</code>，只差底色、字色与字重。
+      <b>它们是同一形态的四种着色，不是四种形态</b>——而 <code>index.css</code> 里没有 pill 类，<code>docs/</code> 里也没有规定。
     </div>
 
     <div class="demo-grid">
       <div>
-        <div class="demo-col-head bad">● 现状：各处手写，仅此处可见 3 种</div>
+        <div class="demo-col-head bad">● 现状：4 处同构药丸，逐处手写（取值来自实测）</div>
         <div class="demo-card">
           <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
-            <span style="display:inline-flex;align-items:center;gap:6px;border-radius:9999px;border:1px solid rgb(var(--ldvh-border));background:rgb(var(--ldvh-panel));padding:4px 10px;font-size:12px;line-height:20px;color:rgb(var(--ldvh-text-primary))">项目切换器</span>
-            <span style="display:inline-flex;align-items:center;gap:6px;border-radius:9999px;border:1px solid rgb(var(--ldvh-accent) / .4);background:rgb(var(--ldvh-accent) / .1);padding:4px 10px;font-size:12px;line-height:20px;color:rgb(var(--ldvh-accent))">当前管辖</span>
-            <span style="display:inline-flex;align-items:center;gap:6px;border-radius:9999px;border:1px solid rgb(var(--ldvh-border));background:transparent;padding:3px 8px;font-size:11px;line-height:16px;color:rgb(var(--ldvh-text-secondary))">联邦项</span>
+            <span class="rounded-full border border-ldvh-text-secondary/20 bg-ldvh-bg px-1.5 py-0.5 text-xs font-semibold leading-none text-ldvh-text-secondary">项目切换器</span>
+            <span class="rounded-full border border-ldvh-text-secondary/20 bg-ldvh-panel/70 px-1.5 py-0.5 text-xs font-semibold leading-none text-ldvh-text-secondary">worktree</span>
+            <span class="rounded-full border border-ldvh-accent/25 bg-ldvh-panel px-1.5 py-0.5 text-xs font-medium leading-none text-ldvh-accent">当前管辖</span>
+            <span class="rounded-full border border-ldvh-accent/30 bg-ldvh-accent/5 px-1.5 py-0.5 text-xs font-semibold leading-none text-ldvh-accent">联邦默认</span>
           </div>
           <div class="demo-note" style="margin-top:12px">
-            <b>三处细节各不相同</b>：padding 4/10、3/8；字号 12、11；底色 panel、accent/10、透明。<br>
+            <b>四处几何一致</b>：<code>px-1.5 py-0.5</code> + <code>text-xs</code> + <code>leading-none</code> + <code>rounded-full</code>。<br>
+            差异仅在：底色（<code>ldvh-bg</code>／<code>ldvh-panel/70</code>／<code>ldvh-panel</code>／<code>ldvh-accent/5</code>）、
+            字色（<code>text-secondary</code>／<code>accent</code>）、字重（<code>font-semibold</code>×3、<code>font-medium</code>×1）。<br>
+            证伪登记：初稿曾写「13 处、几何各异」，系<b>普查口径错误</b>（把进度条/装饰/圆点一并计入），已更正。<br>
             卡片类药丸已有 <code>ldvh-chip</code> / <code>ldvh-chip-sm</code> 令牌，<b>圆角药丸这一族恰好没有</b>。
           </div>
         </div>
@@ -307,23 +312,14 @@
         <div class="demo-col-head good">● 三个可选方向（需你选）</div>
         <div class="demo-card">
           <table class="demo-tbl" style="margin-top:0">
-            <thead><tr><th style="width:64px">方向</th><th>做法</th><th style="width:120px">代价</th></tr></thead>
+            <thead><tr><th style="width:64px">方向</th><th>做法</th><th style="width:130px">代价</th></tr></thead>
             <tbody>
-              <tr><td><b>甲</b></td><td>新增 <code>.ldvh-pill</code> 令牌，13 处全部改引</td><td>需先定档位（是否分 sm 档）；触及他人在建改动面</td></tr>
-              <tr><td><b>乙</b></td><td>收敛为 <code>ldvh-chip-sm</code> + <code>rounded-full</code>，不新增令牌</td><td>徽标与药丸语义混同，形态仍手写圆角</td></tr>
-              <tr><td><b>丙</b></td><td><b>不动</b>，登记为已知空白，待有第 14 处时再议</td><td>漂移风险留存，但有记录不致失控</td></tr>
+              <tr><td><b>甲</b></td><td>新增 <code>.ldvh-pill</code> 令牌，<b>4 处</b>改引（几何同构，单令牌+底色/字色变体即可承载）</td><td>触碰面仅 2 文件（ProjectSwitcher、Federation）</td></tr>
+              <tr><td><b>乙</b></td><td>收敛为 <code>ldvh-chip-sm</code> + <code>rounded-full</code>，不新增令牌</td><td>徽标与药丸语义混同；已有活例：ProjectSwitcher:116 即此形态</td></tr>
+              <tr><td><b>丙</b></td><td><b>不动</b>，登记为已知空白，待有第 5 处时再议</td><td>漂移风险留存，但有记录不致失控</td></tr>
             </tbody>
           </table>
-          <div class="demo-note" style="margin-top:10px">
-            <b>我的建议</b>：甲，但需你定档位口径。理由是"有令牌"才能进守卫——乙留着形态手写，等于没解决；
-            丙在本轮目标（机械可守卫）下是欠账。不过它不阻塞，你可以先放着。
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ 4. border-l-2 ============ -->
+<!-- ============ 4. border-l-2 ============ -->
   <section class="demo-sec" id="s4">
     <div class="demo-sec-title"><span class="dot" style="background:rgb(var(--ldvh-accent))"></span>四、待澄清：<code style="font-family:ui-monospace,Menlo,monospace;font-size:13px">border-l-2</code> 与「四边 1px」定案的关系</div>
     <div class="demo-sec-sub">
@@ -368,7 +364,15 @@
       ③ <b>丙</b>——只在文档里注明两族边界，代码不动。<br>
       我倾向甲：<code>border-l-2</code> 在决策块上确实在承载"这是哪个领域的决定"这一语义，取消它要么丢失信息，要么得另造一套标记。
     </div>
-  </section>
+          <div class="demo-note" style="margin-top:12px;border-color:rgb(239 68 68 / .35);background:rgb(239 68 68 / .05)">
+            <b>⚠ 论理分叉（须你裁决，不可仅以「作用域不同」排除）</b>：<code>specs/10:298</code> 的操作句只点名判据面板，
+            但同段自述<b>「本条是同类定案的<b>补齐</b>，不是新偏好」</b>，并引 2026-09-13 终态说明框先例；
+            其通用论理是「<b>块的身份由背景色与标记表达，不由边框粗细表达</b>」——<b>这条不限判据面板</b>。<br>
+            时间线：决策块左色条（<code>83026f6</code> 2026-09-12）<b>早于</b>两次 Human 定案（09-13、09-24），属<b>遗留未审</b>，非有意另立。<br>
+            因此甲（保留）能立的前提是：先答「决策块左条是否落在该论理内」——
+            若算（左条确以 2px 粗度+色相表达归属），则即便作用域外也应移除；若不算，甲成立。此问材料初稿<b>未写</b>，现补入。
+          </div>
+</section>
 
   <!-- ============ 5. 待批清单 ============ -->
   <section class="demo-sec" id="s5">
@@ -379,7 +383,7 @@
         <tr><td>①</td><td><code>docs/</code> 三份修正草案（docs/04 §4 标注 v4 字号残留、docs/10 §4.2.3 措辞、docs/01 §1.4 补约束 13）</td><td>文档</td><td>批，纯同步不改语义</td></tr>
         <tr><td>②</td><td>契约测试守卫改写（判据面几何常量改读 + 跨面左线禁令）</td><td>测试</td><td>批，已随 <code>d58baeb</code> 提交</td></tr>
         <tr><td>③</td><td><b>发现 G</b>：详情正文 12px → 14px</td><td>详情视觉</td><td>见第二节，待定</td></tr>
-        <tr><td>④</td><td><b>pill token 空白</b>：13 处圆角药丸</td><td>横切形态</td><td>见第三节，建议甲</td></tr>
+        <tr><td>④</td><td><b>pill token 空白</b>：4 处同类药丸标签</td><td>横切形态</td><td>见第三节，建议甲</td></tr>
         <tr><td>⑤</td><td><code>border-l-2</code> 与「四边 1px」作用域口径</td><td>规则澄清</td><td>见第四节，建议甲</td></tr>
       </tbody>
     </table>
