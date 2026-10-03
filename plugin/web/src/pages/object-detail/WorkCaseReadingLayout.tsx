@@ -11,6 +11,7 @@ import {
   WORKCASE_RESIDUAL_SURFACE_CLASS,
 } from '@/components/WorkCaseCriteriaList';
 import {
+  WORKCASE_CHECK_TAG_CLASS,
   WORKCASE_DIRECTION_BLOCK_BASE_CLASS,
   WORKCASE_DIRECTION_ROW_DETAIL_BULLET_CLASS,
   WORKCASE_DIRECTION_ROW_DETAIL_CLASS,
@@ -216,7 +217,7 @@ function PlanNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string }) 
                 {typeof step.step === 'string' && amendmentSteps.has(step.step) && (
                   <span
                     data-workcase-amendment-step="true"
-                    className="ml-1.5 ldvh-chip-sm border-emerald-600/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                    className={`ml-1.5 ldvh-chip-sm ${WORKCASE_CHECK_TAG_CLASS.satisfied}`}
                   >
                     {t('objectDetail.workcaseAmendmentStep')}
                   </span>

@@ -100,3 +100,54 @@ test('批次 B 收敛掉的漂移变体不得回潮（src 内禁止再写）', a
     }
   }
 });
+
+/**
+ * 域内单源表**自身的消费方守卫**。
+ *
+ * 本契约头注把若干「域内单源表」（workcaseCheckState / objectSignals /
+ * WorkCaseClosedStatusBadge / …）列为豁免——它们不归横切原子管，这没问题。
+ * 但**豁免不等于无人守卫**：表被豁免了，表的值却仍会被消费方手抄。
+ * 实测缺口（2026-10-03）：`WORKCASE_CHECK_TAG_CLASS` 的 satisfied / partial /
+ * unsatisfied 三个值在 `WorkCaseExecFlow.tsx` 与 `WorkCaseReadingLayout.tsx`
+ * 共被手抄 4 处（其中一处是 4 分支 mark switch），**既不在豁免明示清单的
+ * 「值级」禁令内、也不被任何守卫读取**——表在、没人用，正是「假单源」。
+ *
+ * 故此处对每个域内单源表做同一件事：取其 canonical 值，断言除载体自身外
+ * **src 内无第二处逐字复现**。这是把「表被豁免」与「表的消费方无人管」
+ * 区分开的最小守卫。
+ */
+const DOMAIN_SINGLE_SOURCE_TABLES: Array<[string, string[]]> = [
+  [
+    'utils/workcaseCheckState.ts',
+    [
+      'border-emerald-600/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+      'border-amber-600/50 bg-amber-500/15 text-amber-700 dark:text-amber-300',
+      'border-red-600/45 bg-red-500/10 text-red-700 dark:text-red-300',
+    ],
+  ],
+];
+
+test('域内单源表的值不得被消费方手抄（表在、且真的只有一个源）', async () => {
+  const files = await collectSourceFiles(srcRoot);
+  for (const [tableRel, values] of DOMAIN_SINGLE_SOURCE_TABLES) {
+    const carrier = path.join(srcRoot, tableRel);
+    assert.ok(files.includes(carrier), `域内单源表 ${tableRel} 应存在`);
+    const carrierBody = await readFile(carrier, 'utf8');
+    for (const value of values) {
+      assert.ok(
+        carrierBody.includes(value),
+        `${tableRel} 应含 canonical 值「${value}」——若该值已改档，请同步本清单`,
+      );
+    }
+    for (const f of files) {
+      if (f === carrier) continue;
+      const body = await readFile(f, 'utf8');
+      for (const value of values) {
+        assert.ok(
+          !body.includes(value),
+          `${path.relative(webRoot, f)} 手抄了域内单源表 ${tableRel} 的值「${value}」——请 import 该表的原子（如 WORKCASE_CHECK_TAG_CLASS.partial），不要复制字面量`,
+        );
+      }
+    }
+  }
+});

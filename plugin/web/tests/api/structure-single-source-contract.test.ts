@@ -41,18 +41,66 @@ async function collectSourceFiles(dir: string): Promise<string[]> {
   return out;
 }
 
+/** 决策块**壳**的分段断言。**刻意不锁 `border-l-2`**。
+ *
+ *  左色条与 `specs/10-Web呈现与交互规范.md §5.5`（行 298）「语义块四边同为
+ *  1px 细线」定案的关系是**未决争议**：该定案的操作句只点名判据面板
+ *  （`WORKCASE_CRITERIA_SURFACE_CLASS`），但同段自述「本条是同类定案的
+ *  **补齐**，不是新偏好」，其通用论理「块的身份由**背景色**与**标记**表达，
+ *  不由边框粗细表达」不限于判据面板；决策块左色条（2026-09-12 引入）早于
+ *  两次 Human 定案（09-13 终态说明框、09-24 判据面板），属**遗留未审**。
+ *
+ *  机械守卫只应守**已定**的规则，不得替 Human 判定未决争议。故此处按
+ *  **无序分段**断言壳的已确证部分（四边 border 的色相 + 背景档 + 几何），
+ *  左色条段不在其中。左色条的取舍由 Human 裁决——无论裁决为「移除」还是
+ *  「保留」，本测试都**不需要改动**。
+ *
+ *  （两则修订动机，都来自本测试 v1 的实际翻车：
+ *   ① v1 把 `border-l-2` 写进期望值，等于用测试单方面判定了该争议，并使
+ *      「按定案移除左色条」反而被测试挡住；
+ *   ② 期望值若写成跨过左色条的一整串（`border-amber-400/20 bg-amber-...`），
+ *      则移除左色条的**唯一正确改法**（只删 `border-l-2 border-l-amber-400/70`
+ *      两段）会令断言失配而报错——即断言本身在禁止正确的修法。
+ *   故此处必须分段、且不假定段间顺序。）
+ *
+ *  声明形态：`DECISION_CARD_SHELL_CLASS` 是 `Record<'amber'|'violet', string>`
+ *  （两个 hue 各一行），`DECISION_DETAIL_NEUTRAL_SHELL_CLASS` 是单串。 */
+const DECISION_SHELL_SEGMENTS: Array<[string, string[]]> = [
+  ['DECISION_CARD_SHELL_CLASS.amber', ['border-amber-400/20', 'bg-amber-500/[0.025]', 'px-3.5 py-3']],
+  ['DECISION_CARD_SHELL_CLASS.violet', ['border-violet-400/20', 'bg-violet-500/[0.025]', 'px-3.5 py-3']],
+  ['DECISION_DETAIL_NEUTRAL_SHELL_CLASS', ['border-ldvh-border/80', 'bg-ldvh-bg/65', 'px-3.5 py-3']],
+];
+
+/** 壳的四边 border：须有裸 `border` 类（不被 `border-l-`/`border-r-` 等单边类冒充）。 */
+const BARE_BORDER = /(?:^|[\s:'"])border(?:[\s'"]|$)/;
+
 const DECISION_ATOMS: Array<[string, string]> = [
-  ['DECISION_CARD_SHELL_CLASS.amber', 'border-amber-400/20 border-l-2 border-l-amber-400/70 bg-amber-500/[0.025] px-3.5 py-3'],
-  ['DECISION_CARD_SHELL_CLASS.violet', 'border-violet-400/20 border-l-2 border-l-violet-400/70 bg-violet-500/[0.025] px-3.5 py-3'],
-  ['DECISION_DETAIL_NEUTRAL_SHELL_CLASS', 'border-ldvh-border/80 border-l-2 border-l-violet-400/70 bg-ldvh-bg/65 px-3.5 py-3'],
   ['DECISION_TITLE_HUE_CLASS.amber', 'text-amber-700/85 dark:text-amber-200/85'],
   ['DECISION_TITLE_HUE_CLASS.violet', 'text-violet-700/85 dark:text-violet-200/85'],
   ['DECISION_AMBER_BODY_HUE_CLASS', 'text-amber-950/70 dark:text-amber-100/75'],
   ['DECISION_VIOLET_CODE_CHIP_HUE_CLASS', 'border-violet-400/35 bg-violet-500/10 font-mono text-violet-700 dark:text-violet-300'],
 ];
 
-  test('decisionBlocks 导出全部左色条决策块原子，且值为 canonical 定案', async () => {
+test('decisionBlocks 导出决策块壳与色相原子，且值为 canonical 定案', async () => {
   const source = await readFile(path.join(srcRoot, 'utils', 'decisionBlocks.ts'), 'utf8');
+  const lines = source.split('\n');
+
+  for (const [name, segments] of DECISION_SHELL_SEGMENTS) {
+    // 定位到含该壳首个分段的声明行（Record 的 hue 行或单串行）。
+    const line = lines.find((l) => l.includes(segments[0]) && l.includes('amber') === name.includes('amber'));
+    assert.ok(line, `${name} 应有一条含「${segments[0]}」的声明行`);
+    for (const segment of segments) {
+      assert.ok(
+        line.includes(segment),
+        `${name} 的声明行应含分段「${segment}」（当前行「${line.trim()}」）`,
+      );
+    }
+    assert.ok(
+      BARE_BORDER.test(line),
+      `${name} 的四边应有裸 border 类（当前行「${line.trim()}」）`,
+    );
+  }
+
   for (const [name, value] of DECISION_ATOMS) {
     assert.ok(
       source.includes(value),
@@ -74,9 +122,11 @@ test('决策块常量被原消费方使用（防假单源）', async () => {
 
 test('批次 C 收敛掉的决策块整串字面量不得回潮（src 内禁写，decisionBlocks.ts 自身豁免）', async () => {
   const files = await collectSourceFiles(srcRoot);
+  // 禁的是**壳的识别特征**（背景档 + 几何、标题色相整串）——它们已定案且
+  // 无争议。**刻意不含 `border-l-amber-400/70` / `border-l-violet-400/70`**：
+  // 左色条去留是未决争议（见 DECISION_SHELL_ATOMS 上方注），禁其回潮即等于
+  // 替 Human 裁决「保留」。裁决为「移除」后，此处至多被追加为禁令，而非现在。
   const banned = [
-    'border-l-amber-400/70',
-    'border-l-violet-400/70',
     'bg-amber-500/[0.025]',
     'bg-violet-500/[0.025]',
     'text-amber-950/70',
