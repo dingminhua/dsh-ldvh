@@ -30,7 +30,17 @@ import { LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TITLE_CLASS } from '@/utils/semant
 
 const OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm'] as const;
 
-/** 项目筛选 chips：全部 + 每项目一枚（色点 + 名称），单选，tab 视觉。 */
+/** 项目筛选 chips：全部 + 每项目一枚（色点 + 名称 + 计数），单选。
+ *
+ * **统一走 `ldvh-tab-list` 家族**（`docs/01 §1.4` 约束 7：筛选、视图切换和同层 tab
+ * 控件统一使用该家族；`docs/11 §4` 曾把本处登记为「仍使用手造 tab 变体」的欠账）。
+ *
+ * 此前本处手写 `buttonClass` 自定圆角、边框、内距与 hover，虽有注释自称「tab 视觉」，
+ * 但与同层筛选控件（对象页状态筛选）外观并不一致——同一动作两套皮肤。
+ *
+ * 项目色点**保留**：它承载项目身份识别（`docs/01 §1.10` 色彩 5「对象类型色优先用于
+ * 识别这个对象是什么」），不是装饰；色点落在 tab 按钮内部，不改变按钮几何。
+ */
 function ProjectFilterChips({
   projects,
   active,
@@ -44,25 +54,22 @@ function ProjectFilterChips({
 }) {
   const { t } = useI18n();
   const buttonClass = (isActive: boolean) =>
-    `ldvh-caption-strong inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 transition-colors ${
-      isActive
-        ? 'border-ldvh-accent/45 bg-ldvh-accent/10 text-ldvh-accent'
-        : 'border-ldvh-border text-ldvh-text-secondary hover:border-ldvh-accent/35 hover:text-ldvh-text-primary'
-    }`;
+    `ldvh-tab-button ${isActive ? 'ldvh-tab-button-active' : 'ldvh-tab-button-idle'}`;
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1.5" role="group" aria-label={t('federation.projectFilter')}>
+    <div className="ldvh-tab-list min-w-0" role="group" aria-label={t('federation.projectFilter')}>
       <span className="ldvh-meta shrink-0">{t('federation.projectFilter')}</span>
       <button type="button" onClick={() => onChange(null)} className={buttonClass(active === null)}>
-        {t('federation.allProjects')}{` (${counts.get('*') ?? 0})`}
+        {t('federation.allProjects')}
+        <span className="ldvh-tab-count">{counts.get('*') ?? 0}</span>
       </button>
       {projects.map((project) => {
         const color = projectColorVar(resolvedProjectColorKey(project.color, project.id));
         const isActive = active === project.id;
         return (
           <button key={project.id} type="button" onClick={() => onChange(project.id)} className={buttonClass(isActive)} title={project.id}>
-            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
-            {project.name}
-            {` (${counts.get(project.id) ?? 0})`}
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
+            <span className="min-w-0 truncate">{project.name}</span>
+            <span className="ldvh-tab-count">{counts.get(project.id) ?? 0}</span>
           </button>
         );
       })}

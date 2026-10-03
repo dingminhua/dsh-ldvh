@@ -203,6 +203,10 @@ YAML 数据、未解析结构与字段问题汇总（共享，默认折叠）
 
 详情正文段一律使用**详情阅读层级**（`ReadingNodeSection` + `ResearchTextNodeContent`，14px 阅读基准），与其余六类阅读布局同款。`docs/01` §1.4 第 4 条明确：卡片判断项正文只用于 Card 的有限行数扫描窗口，详情页和阅读面板仍使用各自正文层级，**不得随之缩小**——详情不得复用 `ldvh-card-decision-body`（12px 卡片扫描层级）承载事实正文。
 
+**该禁令的实现覆盖（2026-10-05 收敛）**：`WorkCaseCriteriaList` 的 `density` 参数此前只切换行距与分割线，正文两档同为 `ldvh-card-decision-body`（12px）——`ProseNode` 已按本条修过（缺陷 D10），但本组件漏改，详情页的「计划与完成判据」「残留责任」两处正文因此仍停在卡面扫描档。现 `density` 成为**正文层级**的唯一分岔点：`card` → `ldvh-card-decision-body`（12px），`detail` → `ldvh-body`（14px）。实测详情页 `ldvh-card-decision-body` 归零、判据正文回到 14px/24px，与其余六类阅读布局一致。
+
+**回归验证口径**：`WorkCaseCriteriaList` 的 `detail` 档正文必须落在 14px 阅读基准；在其两处详情调用点（`WorkCaseReadingLayout` 的 PlanNode / ResidualNode）渲染后，页面内不应存在任何 `ldvh-card-decision-body` 实例。卡面两处调用（`ObjectList`、`CognitionCenter`）的 12px 扫描档不受影响。
+
 `result.criteria_checks` 的每条核对在详情呈现为：三态 chip（可读文本 + 可区分形态）+ 依据正文。10 §12.8 禁止只用颜色或图标单独承载状态，故颜色仅作辅助，文字必须独立可判读。`result.residual` 是字符串数组，按列表呈现；空数组（合法：`outcome = completed` 时可为空）表示「无残留责任」，与「未记录残留」必须可区分。
 
 `reviews`（复核节点概要流水，`specs/21` §8）按 `specs/10` §5.3「变更历史（摘要形态）」呈现——列出每次复核的时间、署名与概要。**复核详情不入对象**，故详情面不承载其原文。

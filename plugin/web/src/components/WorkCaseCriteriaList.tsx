@@ -111,6 +111,10 @@ export interface WorkCaseCriterionListItem {
  * 为什么由消费者选而不是组件内判别：卡面与详情面对同一份数据的信息密度要求不同，
  * 而 `docs/10 §1.10` 要求两面共享**同一套设计语言**（同色、同标记、同结构），
  * 差异只在密度。故此处把「密度」显式化为一个参数，而非复制一个组件。
+ *
+ * **密度差异的闭集（不得扩张）**：`density` 只控制**行距、分割线与正文层级**三项，
+ * 色相（`tone`）、项目符号、条目顺序与正文内容两档完全一致。正文层级见下方
+ * `bodyClass` 的登记——卡面 12px 扫读档、详情面 14px 阅读档（`docs/01 §1.4` 约束 4）。
  */
 export type WorkCaseCriteriaRowDensity = 'card' | 'detail';
 
@@ -141,6 +145,19 @@ export function WorkCaseCriteriaList({
     density === 'card'
       ? `${className} ${WORKCASE_ITEM_LIST_CLASS}`.trim()
       : `${className} grid min-w-0 gap-1.5`.trim();
+  // 正文层级随密度切换（本组件唯一按 density 分岔的字号）：
+  // - `card` 是有限行数的**扫读窗口**，用 12px 卡片判断项正文（`ldvh-card-decision-body`）；
+  // - `detail` 是**阅读面**，必须回到 14px 阅读基准（`ldvh-body`）。
+  //
+  // 此前两档同用 `ldvh-card-decision-body`（12px），违反 `docs/01 §1.4` 约束 4：
+  // 「卡片判断项正文只用于 Card 的有限行数扫描窗口；详情页和阅读面板仍使用各自正文
+  // 层级，不得随之缩小」。实测详情页正文基准为 14px/24px（其余六类阅读布局同款），
+  // 唯有本组件的重置责任段落到 12px——同一页面上出现两种正文档。
+  const bodyClass =
+    density === 'card'
+      ? 'ldvh-card-decision-body'
+      : 'ldvh-body';
+  const bulletOffsetClass = density === 'card' ? 'mt-[0.55rem]' : 'mt-1.5';
   return (
     <ul className={listClass}>
       {items.map((item) => (
@@ -149,14 +166,14 @@ export function WorkCaseCriteriaList({
             aria-hidden="true"
             className={`h-1 w-1 shrink-0 rounded-full ${
               tone === 'residual' ? 'bg-amber-500/75 dark:bg-amber-400/80' : 'bg-blue-400/65 dark:bg-blue-400/75'
-            } ${density === 'card' ? 'mt-[0.55rem]' : 'mt-[0.5rem]'}`}
+            } ${bulletOffsetClass}`}
           />
           <div className="ldvh-caption min-w-0 flex-1 break-words [&_p]:my-0">
             {item.statement.trim() && (
               <SummaryText
                 value={item.statement}
                 collapseThreshold={Number.MAX_SAFE_INTEGER}
-                className={`ldvh-card-decision-body ${
+                className={`${bodyClass} ${
                   tone === 'residual'
                     ? 'text-amber-900/85 dark:text-amber-100/80'
                     : 'text-blue-900/70 dark:text-blue-100/75'

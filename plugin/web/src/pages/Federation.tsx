@@ -88,7 +88,7 @@ export default function Federation() {
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-2">
                           <span className="ldvh-card-title-prominent truncate max-w-full leading-5 text-ldvh-text-primary">{project.name}</span>
-                          {project.isDefault && <span className="shrink-0 rounded-full border border-ldvh-accent/30 bg-ldvh-accent/5 px-1.5 py-0.5 text-xs font-semibold leading-none text-ldvh-accent">{t('federation.defaultProject')}</span>}
+                          {project.isDefault && <span className="ldvh-pill border-ldvh-accent/30 bg-ldvh-accent/5 text-ldvh-accent">{t('federation.defaultProject')}</span>}
                         </span>
                         <span className="ldvh-meta mt-0.5 block truncate">{project.id}</span>
                       </span>

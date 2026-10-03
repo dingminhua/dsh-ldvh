@@ -837,7 +837,7 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
               </div>
             )}
             <div className="mt-4 border-t border-ldvh-border/70 pt-4">
-              <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))] gap-4">
+              <div className="ldvh-subgrid">
                 <RecentActivityUsageBars
                   title={t('cognition.recent.modelUsage')}
                   items={data.recentActivity.modelUsage}

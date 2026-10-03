@@ -74,7 +74,7 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
               <div className="flex items-center gap-2">
                 <p className="ldvh-caption-strong">{t('projectSwitcher.label')}</p>
                 {!loading && !error && projects.length > 0 && (
-                  <span className="rounded-full border border-ldvh-text-secondary/20 bg-ldvh-bg px-1.5 py-0.5 text-xs font-semibold leading-none text-ldvh-text-secondary">
+                  <span className="ldvh-pill border-ldvh-text-secondary/20 bg-ldvh-bg text-ldvh-text-secondary">
                     {t('projectSwitcher.projectCount', { count: String(projects.length) })}
                   </span>
                 )}
@@ -113,7 +113,7 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
               </span>
               <span className="ldvh-card-title min-w-0 flex-1 truncate">{t('projectSwitcher.allProjects')}</span>
               {projects.length > 0 && (
-                <span className="ldvh-chip-sm shrink-0 rounded-full border-ldvh-text-secondary/20 bg-ldvh-panel/70 px-1.5 py-0.5 font-semibold leading-none text-ldvh-text-secondary">
+                <span className="ldvh-pill border-ldvh-text-secondary/20 bg-ldvh-panel/70 text-ldvh-text-secondary">
                   {t('projectSwitcher.projectCount', { count: String(projects.length) })}
                 </span>
               )}
@@ -155,7 +155,7 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
                         </span>
                         <span className="ldvh-meta mt-0.5 block truncate">{project.id}</span>
                       </span>
-                      <span className="shrink-0 rounded-full border border-ldvh-text-secondary/20 bg-ldvh-panel/70 px-1.5 py-0.5 text-xs font-semibold leading-none text-ldvh-text-secondary">
+                      <span className="ldvh-pill border-ldvh-text-secondary/20 bg-ldvh-panel/70 text-ldvh-text-secondary">
                         {t('projectSwitcher.worktreeCount', { count: String(worktrees.length) })}
                       </span>
                     </div>
@@ -188,7 +188,7 @@ export default function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
                           </span>
                           <span className="ldvh-card-title flex min-w-0 flex-1 items-center gap-2">
                             <span className="truncate">{branch}</span>
-                            {worktree.isMain && <span className="shrink-0 rounded-full border border-ldvh-accent/25 bg-ldvh-panel px-1.5 py-0.5 text-xs font-medium leading-none text-ldvh-accent">{t('projectSwitcher.mainWorktree')}</span>}
+                            {worktree.isMain && <span className="ldvh-pill border-ldvh-accent/25 bg-ldvh-panel font-medium text-ldvh-accent">{t('projectSwitcher.mainWorktree')}</span>}
                           </span>
                           {selected && <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-ldvh-accent text-white"><Check size={10} strokeWidth={3} /></span>}
                         </button>
