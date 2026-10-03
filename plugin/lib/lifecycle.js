@@ -306,6 +306,40 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         if (typeof id === "string" && agents.has(id)) reprimeAgent(id, agent);
         else install(agent);
       });
+      // 换接（2026-10-03）：子代理结论改由宿主的 `subagent/end` 事件承载。
+      //
+      // 为什么注册在**根 ctx** 而非子代理 ctx：该事件经
+      // `carrier(parent)`（= `scopeTarget(this, parent)`）分发，作用域键是
+      // **父代理**（宿主源码 packages/subagent/subagent/src/lifecycle.ts:106-112）。
+      // 注册在子代理自身的 ctx 上收不到它。
+      //
+      // 与既有 `session/event` 捕获的关系：两者**并存**，不是替换。理由——
+      //   - `subagent/end` 是宿主对「一个 residency epoch 终止」的权威通知，
+      //     其 `lastAssistantMessage` 由宿主按本 epoch 的日志后缀切出
+      //     （lifecycle.ts 的 createActivationObserver），比手工配对更精确；
+      //   - 但它是 emit（fire-and-forget），且在**一次性运行**路径与
+      //     **可续 epoch** 路径上的发布时机不同；既有配对路径覆盖的是
+      //     assistant/message → turn/end，粒度是「轮」。
+      //   两者互为补充：任一路径先到即写入结论槽（后到者覆盖，语义均为「最新」）。
+      //   既有路径保留为回退，不因宿主事件缺失而失去结论。
+      const disposeSubagentEnd = ctx.on("subagent/end", (info) => {
+        try {
+          const childId = info?.id;
+          if (typeof childId !== "string" || childId === "") return;
+          const record = children.get(childId)?.record ?? retiredChildren.get(childId)?.record;
+          if (record === undefined) return; // 非本会话的子代理：忽略，不串写
+          const message = info?.lastAssistantMessage;
+          if (!Array.isArray(message)) return; // 无输出（中止/基础设施拒绝）：不动既有结论
+          const text = message
+            .filter((block) => block !== null && typeof block === "object" && block.type === "text")
+            .map((block) => (typeof block.text === "string" ? block.text : ""))
+            .join("");
+          record.setConclusion(text);
+        } catch (error) {
+          // 捕获失败绝不得打断子代理生命周期（与既有路径同纪律）。
+          ctx.logger.warn("[dsh-ldvh] subagent/end conclusion capture failed: %s", String(error?.message ?? error));
+        }
+      });
       // Adopt agents already alive when the plugin (re)loads (audit A/H):
       // without this, hot-reloaded plugins leave existing sessions hookless
       // and /ldvh/state answers unknown forever for them. The agents service
@@ -316,6 +350,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       }
       return () => {
         try { disposeCreated(); } catch { /* already removed */ }
+        try { disposeSubagentEnd(); } catch { /* already removed */ }
         for (const { dispose } of children.values()) {
           try { dispose(); } catch { /* already removed */ }
         }

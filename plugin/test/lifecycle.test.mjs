@@ -801,3 +801,91 @@ test("collect tool: enumerates a FINISHED child and does not emit `undefined` fi
 		assert.ok(Array.isArray(entry.activity) && entry.activity.length > 0, "单查带回活动轨迹");
 	});
 });
+
+// ---------------------------------------------------------------------------
+// 换接（2026-10-03）：结论改由宿主的 subagent/end 事件承载
+// ---------------------------------------------------------------------------
+//
+// 为什么加这条守卫：LDVH 原先把子代理结论靠**自己扫 `session/event`** 配对
+// （assistant/message + turn/end）来捕获（child.js），而宿主在 0.2.0-rc.2 已
+// 直接提供 `subagent/end` 事件，其载荷携带 `lastAssistantMessage` —— 与本机制
+// 手工实现的是**同一事实**，且由宿主保证「只取本 epoch 自身的输出」。
+//
+// 关键作用域事实（源码核验，`packages/subagent/subagent/src/lifecycle.ts:106-112`）：
+// `subagent/start`/`subagent/end` 经 `carrier(parent)`（= `scopeTarget(this, parent)`）
+// 分发，即**作用域键是父代理**。故监听器必须注册在**根会话的 ctx** 上，注册在
+// 子代理自身的 ctx 上收不到。本用例即锁定该注册位置与 id 匹配行为。
+test("child: conclusion is also captured from the host's subagent/end event (replacement seam)", async () => {
+	await withTemp("ldvh-lc.", async (base) => {
+		const home = join(base, "home");
+		const repo = await initRepo(base);
+		await registerProject(dshHome(home), { id: "demo", path: repo });
+
+		const ctx = makeHostCtx();
+		const parent = makeInstallableAgent("parent", repo, ctx);
+		const sessionScopes = createSessionScopes();
+		const registry = createLifecycleRegistry(ctx, { dshHomePath: dshHome(home), workspaceRoot: base, sessionScopes });
+
+		ctx.agents = { roots: () => [parent], get: (id) => (id === "parent" ? parent : undefined) };
+		registry.start();
+		ctx.fire("agent/created", { agent: parent });
+
+		const child = makeInstallableAgent("child", repo, ctx, { root: false });
+		child.session.header.origin = "subagent";
+		child.session.header.parentSession = "parent";
+		ctx.fire("agent/created", { agent: child });
+
+		assert.equal(registry.childConclusionOf("child"), null, "起始无结论");
+
+		// 宿主在子代理一个 epoch 终止时发布 subagent/end，载荷带 lastAssistantMessage。
+		// 注意这是**根 ctx** 上的事件（见上文作用域说明），不是子代理 ctx 上的。
+		ctx.fire("subagent/end", {
+			runId: "run-1",
+			provider: "spawn",
+			id: "child",
+			local: true,
+			stopReason: "completed",
+			lastAssistantMessage: [{ type: "text", text: "宿主事件带来的结论" }]
+		});
+
+		assert.equal(
+			registry.childConclusionOf("child"),
+			"宿主事件带来的结论",
+			"subagent/end 携带的 lastAssistantMessage 必须被采纳为结论"
+		);
+	});
+});
+
+test("child: subagent/end for an unknown id is ignored (no cross-child contamination)", async () => {
+	await withTemp("ldvh-lc.", async (base) => {
+		const home = join(base, "home");
+		const repo = await initRepo(base);
+		await registerProject(dshHome(home), { id: "demo", path: repo });
+
+		const ctx = makeHostCtx();
+		const parent = makeInstallableAgent("parent", repo, ctx);
+		const sessionScopes = createSessionScopes();
+		const registry = createLifecycleRegistry(ctx, { dshHomePath: dshHome(home), workspaceRoot: base, sessionScopes });
+
+		ctx.agents = { roots: () => [parent], get: (id) => (id === "parent" ? parent : undefined) };
+		registry.start();
+		ctx.fire("agent/created", { agent: parent });
+
+		const child = makeInstallableAgent("child", repo, ctx, { root: false });
+		child.session.header.origin = "subagent";
+		child.session.header.parentSession = "parent";
+		ctx.fire("agent/created", { agent: child });
+
+		// 另一个子代理的 end 事件不得写入本子代理的结论槽。
+		ctx.fire("subagent/end", {
+			runId: "run-x",
+			provider: "spawn",
+			id: "someone-else",
+			local: true,
+			stopReason: "completed",
+			lastAssistantMessage: [{ type: "text", text: "别人的结论" }]
+		});
+
+		assert.equal(registry.childConclusionOf("child"), null, "非本子代理的 end 事件必须被忽略");
+	});
+});
