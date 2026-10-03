@@ -6,7 +6,9 @@
 > **依据（均为本会话已完成的实测）**：
 > - `docs/experiment-outputschema-2026-10-03.md`——机制探针：违规对象**交不出来**（`structured_output` 工具的参数校验拦截），非事后过滤。
 > - `docs/experiment-outputschema-spec30-2026-10-03.md`——真实调研验证：按 30 §9/§10 写 schema，主控逐条核查证据真伪（六条断言全部属实），并确立**机械保证到哪一层**的边界。
-> **状态**：**尚未经独立审核、未取得 Human 决定**。按 `specs/01` §12.1 与 §9.2 第 8、9 项，在两者完成前**不得并入**。
+> **状态**：**尚未完成独立审核、未取得 Human 决定**。按 `specs/01` §12.1 与 §9.2 第 8、9 项，在两者完成前**不得并入**。
+> **本轮修订记录（2026-10-03，据自查，非审核结论）**：① 原 §4 第 2 条把该能力笼统写成「进程内 spawn provider 的声明能力、外部 CLI provider 不具备」——**不精确**，已改为**逐 provider 能力矩阵**（实测发现支持者有**两个**：`spawn` **与** `fork`；`dsh-sdk` 属部分支持，仅 `agentOptions`）。② 原 §5 的 U1（数组形态下逐项 `required` 是否同等强制）**已实测解决**：保持同等强制力（刻意省略字段时**交不出来**），故 §3 第 4 条据此收窄——「一次只承载一条」是**形状限制**而非机制局限，改用数组即可。
+> **审核覆盖缺口（如实登记）**：为本文指派的独立审核线**因上下文耗尽而未完成、无结论**（2026-10-03）。**故本文仍未经任何独立审核**——上面那两条修订出自**自查**，不替代 `specs/01` §12 的独立审核。**不自动重跑**（依 LDVH 纪律：部分失败须说明覆盖缺口，不自动重试）。审核须在并入前另行安排。
 
 ---
 
@@ -39,14 +41,25 @@
 | 「结构化校验保证证据真实」 | 实测：schema 只校验**结构与域**，编造一个格式合规的引用**照样放行**。主控核对不可省 |
 | 「子代理提交即可信」 | 同上；且 `specs/02` §8 边界与 30 号「结果整合」均要求主控核对整合 |
 | 「该机制可表达任意条件式必填」 | 实测：受支持的 schema 子集**表达不出**「confirmed 才需要证据、gap 不需要」这类判别式——`oneOf` 不得与其他关键字并用，也无 `if/then`。只能取「一律必填」或「一律不必填」两个近似 |
-| 「一次提交可承载多条证据」 | 实测：本候选所用形状一次只承载一条；多条需改数组形态，而数组内逐项 `required` 的强制力**未实测** |
+| 「一次提交可承载多条证据」（若按**单条形状**理解） | 实测：单条形状一次只承载一条；多条须改**数组**形态。**数组形态已实测**（2026-10-03）：逐项 `required` 保持同等强制力（刻意省略字段时**交不出来**），故「单条」是**形状限制**而非机制局限——不得据此称机制不能承载多条 |
 
 ---
 
 ## 4. 已实测的两条补充事实（供起草时取舍）
 
 1. **该能力只经工作流扇出入口暴露**：模型直调的委派工具**不接受**结构约束参数；`subagent/end` 事件**不透出**结构化结果。故要用它，**委派须经工作流扇出**（或服务层直调）。此约束须在使用处声明，否则会被误认为随处可用。
-2. **外部 provider 的能力差异**：该能力是**进程内 spawn provider** 的声明能力；外部 CLI provider（如 codex / claude-code 类）**不具备**，服务层会**显式拒绝**而非静默忽略（"fail loud, no silent degradation"）。故跨 provider 使用前须确认。
+2. **provider 能力差异**（逐 provider 核验，2026-10-03）：该能力**不是所有 provider 都具备**。据宿主 `capabilities` 声明逐项核对：
+
+   | provider | `outputSchema` | 依据 |
+   |---|---|---|
+   | `spawn`（进程内） | **true** | `subagent-spawn-in-process/src/index.ts:44` |
+   | `fork`（进程内） | **true** | `subagent-fork-in-process/src/index.ts:64-66` |
+   | `dsh-sdk` | **false**（仅 `agentOptions: true`，其余不支持） | `subagent-dsh-sdk/src/index.ts:110-113`（以 `...NO_START_CAPABILITIES` 为基底，仅覆写 `agentOptions`） |
+   | `claude-code` | **false** | 取 `NO_START_CAPABILITIES`（该常量逐字含 `outputSchema: false`，`subagent/src/out-of-process.ts:57-63`） |
+   | `codex` | **false** | 同上 |
+   | `acp` | **false** | 内联声明，`subagent-acp/src/index.ts:147-153` |
+
+   服务层对能力不足**显式拒绝**而非静默忽略：`assertCapabilities` 逐字抛 `does not support the "outputSchema" capability`（`subagent/src/index.ts:645-655`）——即"fail loud, no silent degradation"。故**跨 provider 使用前须确认该 provider 的能力声明**。
 
 ---
 
@@ -54,7 +67,7 @@
 
 | # | 项 |
 |---|---|
-| U1 | 未实测**多证据数组**形态下逐项 `required` 是否保持同等强制力（本候选所用单条形状已实测） |
+| U1 | **已实测（2026-10-03，见下）**：多证据数组形态下逐项 `required` **保持同等强制力**——要求子代理刻意省略第 2 项的 `quote` 字段时，它**交不出缺失该键的对象**，只能交 `quote: ""`（与单条形状同机制）。见附「数组形态实测」 |
 | U2 | 未实测**可续子代理**路径下结构约束的行为（实测走的是工作流扇出的一次性路径） |
 | U3 | 未实测校验失败时的终止语义（实测中子代理倾向"改交合规对象"而非失败收尾） |
 | U4 | 未实测 `source` 填 **URL** 时的可达性校验——实测那次子代理填的是本地路径，故「不保证 URL 可达」属**推断**而非实测 |
@@ -79,3 +92,28 @@
 - 实测依据：`docs/experiment-outputschema-2026-10-03.md`、`docs/experiment-outputschema-spec30-2026-10-03.md`。
 - **注意 30 号的编号冲突**：该号 H2 标题号与其 H3 子节号**差一位**（如 `## 9. 三态证据结构` 之下是 `### 10.x`）。故本候选引用一律用**标题内容**而非纯章号，以免寻址歧义。
 - **本文件为只读调研与候选起草的产出**：未修改 `specs/`、未创建任何事实对象。
+
+---
+
+## 附：数组形态实测（2026-10-03，补 U1）
+
+**问题**：本候选 §3 第 4 条称「一次提交只承载一条证据」，那是**所用 schema 形状**的限制，不是机制的限制。多条证据需改**数组**形态——而数组内**逐项** `required` 是否与单条形状同等强制，此前未实测。
+
+**实测**：委派一个子代理，要求返回含**三项**的数组，并**刻意**让第 2 项**省略** `quote` 键（其余项正常）。
+
+```json
+{"type":"object",
+ "properties":{"items":{"type":"array","items":{
+   "type":"object",
+   "properties":{"state":{"type":"string","enum":["confirmed","uncertain","gap"]},
+                 "statement":{"type":"string"},"quote":{"type":"string"}},
+   "required":["state","statement","quote"],
+   "additionalProperties":false}}},
+ "required":["items"],"additionalProperties":false}
+```
+
+**结果**：子代理**交不出**缺失 `quote` 的对象——它只能交 `quote: ""`（`entry2HasQuote: true`）。
+
+**判定**：**数组形态下逐项 `required` 保持同等强制力**。故「多证据」可由数组承载，本候选 §3 第 4 条据此**收窄为形状说明**（单条形状的限制即可改用数组解决），不再是机制的固有局限。
+
+**仍未实测**：数组**长度**或**条目数**是否有上限、以及数组元素的 `enum` 是否同样逐项生效（本次元素 `enum` 未被刻意违反）。
