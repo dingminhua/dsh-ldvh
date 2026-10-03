@@ -17,7 +17,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	extractRouteValuesFromLines,
+	extractRouteValuesFromEvents,
 	splitJsonlLines,
+	currentRouteValues,
 	currentRouteValuesFromShellEnvironment,
 	shellAuthoritativeSignature,
 } from "../lib/session-signature.js";
@@ -423,4 +425,109 @@ test("shellAuthoritativeSignature returns null when the authoritative record is 
 		const carrier = await shellAuthoritativeSignature();
 		assert.equal(carrier, null);
 	});
+});
+
+// ---------------------------------------------------------------------------
+// 宿主正规入口：SessionPersistence.open(id,'read') → SessionHandle.read()
+// ---------------------------------------------------------------------------
+//
+// 为什么加这条守卫：现有 host 路径以 `sessionPersistence.locate()` 取**物理文件
+// 路径**，再自行读文件、自行解 zstd 多帧、自行切行解析（session-signature.js 的
+// readSessionLogText 链路 + 自造 zstd-compat.js）。而宿主已提供**正规的日志读取
+// 入口**：`open(id, 'read')` 取句柄（`read` 语义为「never takes ownership and
+// works while another handle or process holds write ownership」），
+// `handle.read(offset, length)` 返回**已解压、已解析**的 SessionEvent 数组，
+// 并自带两条契约：「a torn physical tail is never returned」「repeated reads on
+// this handle never observe an older state than a prior read」。
+//
+// 关键事实：`locate` 是 jsonl 后端的 **private 方法**
+// （packages/session/session-persistence-jsonl/src/index.ts:299），无公开契约；
+// 而 `model/selection` 与 `request/context` 都是标准 SessionEvent 类型
+// （packages/core/session/src/known-event-types.ts:47,50），read() 直接返回。
+//
+// 本用例提供**只有 open() 而没有 locate()** 的 persistence 桩：若实现仍走
+// locate 链路，它会因 locate 缺失而失败——即本用例锁定的正是「是否已换用宿主
+// 正规入口」这一行为。
+test("host path: currentRouteValues consumes the official open().read() entry, not a private locate()", async () => {
+	const ROUTING = [
+		{ type: "model/selection", data: { provider: "vendor-a", model: "model-x" } },
+		{ type: "assistant/message", data: { turn: 1, message: { content: [{ type: "text", text: "noise" }] } } },
+		{ type: "request/context", data: { provider: "vendor-b", model: "model-y-vision" } },
+	];
+	let opened = 0;
+	let readCalls = 0;
+	let locateCalls = 0;
+	// 桩：只实现 open()，**故意不提供 locate()**。
+	const persistence = {
+		open(id, access) {
+			opened += 1;
+			assert.equal(access, "read", "日志读取必须使用只读访问，不得取得写所有权");
+			assert.equal(id, "session-1");
+			return Promise.resolve({
+				id,
+				header: { id },
+				read() {
+					readCalls += 1;
+					return Promise.resolve({ eventState: "owned", events: ROUTING });
+				},
+				async [Symbol.asyncDispose]() {},
+			});
+		},
+		get locate() {
+			locateCalls += 1;
+			return undefined;
+		},
+	};
+	const agent = { session: { header: { id: "session-1", cwd: "/tmp/x" } } };
+	const result = await currentRouteValues(persistence, agent);
+	assert.equal(result.ok, true, `应经宿主入口取到签名：${JSON.stringify(result)}`);
+	// 零清洗纪律：逐字取值，不得剥掉 -vision 后缀。
+	assert.equal(result.value.provider, "vendor-b");
+	assert.equal(result.value.model, "model-y-vision");
+	assert.equal(opened, 1, "必须经 open() 取句柄");
+	assert.ok(readCalls >= 1, "必须经 handle.read() 读取事件");
+	assert.equal(locateCalls, 0, "不得再调用 private 的 locate()");
+});
+
+// 换接的关键回归护栏：**同一份日志，两条入口必须给出同一个值**。
+// 12 个 *-tools.js 的受控写入都经 currentRouteValues 取署名，若两入口取值不同，
+// 换接会静默改变所有写入的署名（值错而不报错）。本用例对同一事件集分别走
+// 「已解析事件（host handle）」与「JSONL 文本（文件链路）」两条路，断言逐字相同。
+test("both entries yield the identical signature for the same log (swap must not change values)", async () => {
+	const ROUTING = [
+		{ type: "model/selection", data: { provider: "vendor-a", model: "model-x" } },
+		{ type: "assistant/message", data: { turn: 1, message: { content: [{ type: "text", text: "noise" }] } } },
+		{ type: "request/context", data: { provider: "vendor-b", model: "model-y-vision" } },
+		{ type: "turn/end", data: { turn: 1 } },
+	];
+	const viaEvents = extractRouteValuesFromEvents([...ROUTING].reverse());
+	const viaLines = extractRouteValuesFromLines(ROUTING.map((event) => JSON.stringify(event)));
+	assert.equal(viaEvents.ok, true);
+	assert.equal(viaLines.ok, true);
+	assert.deepEqual(
+		{ provider: viaEvents.value.provider, model: viaEvents.value.model, eventType: viaEvents.value.eventType },
+		{ provider: viaLines.value.provider, model: viaLines.value.model, eventType: viaLines.value.eventType },
+		"两条入口取到的署名必须逐字一致（含 -vision 后缀不得被清洗）"
+	);
+	assert.equal(viaEvents.value.model, "model-y-vision", "零清洗：后缀保留");
+});
+
+// 方向回归：host 的 read() 返回正序事件，若实现忘记反转，会静默取到**最旧**的
+// routing 事件。本用例用「新旧取值不同」的日志把该错误变成红。
+test("host handle path takes the NEWEST routing event, not the oldest (ordering guard)", async () => {
+	const OLDEST = { type: "model/selection", data: { provider: "old-vendor", model: "old-model" } };
+	const NEWEST = { type: "request/context", data: { provider: "new-vendor", model: "new-model" } };
+	const persistence = {
+		open() {
+			return Promise.resolve({
+				read: () => Promise.resolve({ eventState: "owned", events: [OLDEST, NEWEST] }),
+				async [Symbol.asyncDispose]() {},
+			});
+		},
+	};
+	const agent = { session: { header: { id: "session-1", cwd: "/tmp/x" } } };
+	const result = await currentRouteValues(persistence, agent);
+	assert.equal(result.ok, true, JSON.stringify(result));
+	assert.equal(result.value.provider, "new-vendor", "必须取最新一条 routing 事件（正序返回时须反转）");
+	assert.equal(result.value.model, "new-model");
 });

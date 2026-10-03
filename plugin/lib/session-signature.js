@@ -109,15 +109,32 @@ export async function currentSessionIdentity(sessionPersistence, agent) {
  * unavailable result when no routing event exists — never a guess.
  */
 export function extractRouteValuesFromLines(lines) {
+  const events = [];
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const line = lines[index];
     if (line.trim().length === 0) continue;
-    let event;
     try {
-      event = JSON.parse(line);
+      events.push(JSON.parse(line));
     } catch {
-      continue;
+      continue; // 残缺尾行：跳过，不得据以构造签名
     }
+  }
+  return extractRouteValuesFromEvents(events);
+}
+
+/**
+ * Pure: walk **already-parsed** events from the newest backwards and return the
+ * last routing event's provider/model pair verbatim.
+ *
+ * 与 `extractRouteValuesFromLines` **共用同一条取值纪律**（同一函数体），差别只在
+ * 输入形态——本函数服务于宿主的正规读取入口（`handle.read()` 返回已解析事件）；
+ * 后者服务于文件链路（自行解压后切行解析）。**两条入口必须给出同一取值**，故取值
+ * 逻辑只此一处（零清洗：不剥离 `-vision` 之类的路由后缀、不过滤、不替换）。
+ *
+ * @param events - 已解析事件，**由新到旧**（调用方负责倒序）。
+ */
+export function extractRouteValuesFromEvents(events) {
+  for (const event of events) {
     if (typeof event !== "object" || event === null) continue;
     const type = event.type;
     if (typeof type !== "string" || !ROUTING_EVENT_TYPES.has(type)) continue;
@@ -161,12 +178,27 @@ async function readSessionLogText(path) {
  * Read the authoritative session log for an agent and extract the mechanical
  * signature pair. `sessionPersistence` is the DSH service (obtained via
  * ctx.get); `agent` is the tool-execution/assembly-context Agent object.
- * The path resolution is pure computation in the backend (no fs touch), so a
- * missing log surfaces as an unavailable result with the exact reason.
+ *
+ * 入口选择（2026-10-03 换接）：优先用宿主的**正规读取入口**
+ * `open(id, 'read')` → `handle.read()`，它返回**已解压、已解析**的
+ * SessionEvent 数组，并自带两条契约——「a torn physical tail is never
+ * returned」「repeated reads never observe an older state」。回退路径才是
+ * 旧的 `locate()` 物理文件链路（自行读文件 + 自造多帧 zstd 解压 + 切行）。
+ *
+ * 为何换：`locate` 是 jsonl 后端的 **private** 方法（无公开契约，宿主改实现即
+ * 静默失效）；而 `model/selection` 与 `request/context` 都是标准 SessionEvent
+ * 类型，`read()` 直接返回，无需任何解压或切行。
+ *
+ * 回退保留的理由：**shell 路径**（无 ctx 的普通脚本）仍必须走文件链路，
+ * 且换接初期须保留一条可用的旧路径，避免入口异常导致签名整体不可得。
  */
 export async function currentRouteValues(sessionPersistence, agent) {
   if (sessionPersistence === undefined || sessionPersistence === null) return { ok: false, reason: "sessionPersistence service is unavailable" };
   if (agent === undefined || agent?.session?.header === undefined) return { ok: false, reason: "caller session identity is unavailable" };
+  // ① 正规入口：open(id,'read').read() 取已解析事件。
+  const viaHandle = await readRouteEventsViaHandle(sessionPersistence, agent.session.header);
+  if (viaHandle !== undefined) return viaHandle;
+  // ② 回退：旧的物理文件链路（locate + 自读 + 自解压 + 切行）。
   const location = sessionPersistence.locate?.(agent.session.header);
   if (location === undefined || location === null) return { ok: false, reason: "persistence backend has no log location for this session" };
   if (location.kind !== "jsonl") return { ok: false, reason: `persistence backend "${location.kind}" is not the jsonl authority` };
@@ -178,6 +210,42 @@ export async function currentRouteValues(sessionPersistence, agent) {
   }
   return extractRouteValuesFromLines(splitJsonlLines(text));
 }
+
+/**
+ * 宿主正规入口：返回签名结果，或在「该入口不可用」时返回 undefined
+ * （由调用方回退到文件链路）。**不在此处吞掉真实错误**——入口可用但读取
+ * 失败时，如实返回失败结果，不回退（避免用一个更弱的来源掩盖失败）。
+ */
+async function readRouteEventsViaHandle(sessionPersistence, header) {
+  const sessionId = header?.id;
+  if (typeof sessionId !== "string" || sessionId.length === 0) return undefined;
+  if (typeof sessionPersistence.open !== "function") return undefined;
+  let handle;
+  try {
+    handle = await sessionPersistence.open(sessionId, "read");
+  } catch {
+    // open 不可用（如后端无该会话或未实现）→ 交给回退链路给出精确原因。
+    return undefined;
+  }
+  try {
+    const result = await handle.read();
+    const events = result?.events;
+    if (!Array.isArray(events)) return undefined;
+    // 复用同一取值纪律：走**从末尾回看**的最后一条 routing 事件，零清洗。
+    // 注意方向：host 的 read() 返回**正序**事件，而取值器要求由新到旧——
+    // 漏掉这一步会静默取到**最旧**的 routing 事件（值错而不报错）。
+    return extractRouteValuesFromEvents([...events].reverse());
+  } catch (error) {
+    return { ok: false, reason: `session log unreadable via host handle: ${String(error?.message ?? error)}` };
+  } finally {
+    try {
+      await handle.close?.();
+    } catch {
+      /* 句柄关闭失败不影响已取得的值 */
+    }
+  }
+}
+
 
 // ---------------------------------------------------------------------------
 // Shell-environment source (specs/09 机械签名: the Code channel for direct
