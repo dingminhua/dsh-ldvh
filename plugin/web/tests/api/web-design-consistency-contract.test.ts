@@ -151,6 +151,41 @@ test('prominent card title follows the documented 16px by 24px hierarchy', () =>
   assert.match(styles, /\.ldvh-inline-markdown\.ldvh-card-decision-body[\s\S]*text-xs leading-5/);
 });
 
+/**
+ * 对象标题必须落在标题带（`ldvh-object-title-tray`）内——`docs/01` §1.10「统一要求」
+ * 第 4 条与 §1.8.1 的组件契约：卡片标题带使用弱背景、内圈边框与完整标题。
+ *
+ * 为什么设这条守卫：标题带**不是由标题类自带的**，而是调用方在外层容器上另加的一个类。
+ * 于是「同一个 `ldvh-card-title`，A 处包了带、B 处漏了」在源码与类型上都合法，只能靠
+ * 逐处人工比对发现——2026-10-05 实测聚焦页两处（近期动态行、Spark 健康度行）即漏。
+ * 漏掉的那两行在整页里表现为「只有这两张卡的标题没有背景框」。
+ *
+ * **保证边界（如实登记，实测修正）**：
+ * - 本守卫只覆盖 `CognitionCenter`（该文件内标题与标题带应一一对应）。跨文件的
+ *   「哪些 `ldvh-card-title` 属于对象卡片」无法从字形判定（同一个类也用于导航项、
+ *   下拉选择项、按钮、错误提示与工具页文件名），故不设全域断言——不设能力以外的保证。
+ * - 形态级：只识别类名，**不判定「这处标题是否真的视觉成带」**。两种偏差各有表现：
+ *   · 改以 inline style 表达标题带 → 该类名计数减少 → **被判为「缺失」并报红**
+ *     （2026-10-05 变异 3 实测）。注意这是**假阳性式的拦截**：拦住的理由是「类名
+ *     不见了」，不是「带没画出来」，故不得据此宣称语义级防护；
+ *   · 反之，同一文件内把标题与标题带**同时**换名（比例仍 1:1）→ **逃逸**。
+ *   故本守卫给的是「同类标题漏配」的回归网，不是标题带存在性的语义证明。
+ * - 计数前剥离注释，使沿革记载不触发误报（变异 2 实测）。
+ */
+test('聚焦页对象标题必须落在标题带内：ldvh-card-title 与 title tray 成对', () => {
+  const strip = (source: string): string =>
+    source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const cognitionCenter = strip(read('src/pages/CognitionCenter.tsx'));
+  const titles = (cognitionCenter.match(/ldvh-card-title(?!-prominent)/g) ?? []).length;
+  const trays = (cognitionCenter.match(/ldvh-object-title-tray-compact/g) ?? []).length;
+  assert.equal(
+    trays,
+    titles,
+    `CognitionCenter 内 ldvh-card-title（${titles} 处）与 ldvh-object-title-tray-compact` +
+      `（${trays} 处）必须一一对应——对象标题缺少标题带时，该卡在整页里会显得与其它卡不一致。`,
+  );
+});
+
 test('recent hotspots keep a compact relationship overview and a focused one-hop mind map', () => {
   const graph = read('src/pages/cognition/CommitHotspotGraph.tsx');
   assert.match(graph, /export function nodeKey\(node: CognitionRecentHotspotNode\)/);

@@ -378,7 +378,7 @@ function RecentActivityRow({ item }: { item: CognitionRecentActivityItem }) {
         tabIndex={0}
         onClick={open}
         onKeyDown={(event) => openOnKeyboard(event, open)}
-        className="group mt-1.5 flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md text-left transition-colors hover:bg-ldvh-border/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
+        className="group ldvh-object-title-tray ldvh-object-title-tray-compact mt-1.5 -mx-1 flex min-w-0 cursor-pointer items-center gap-1.5 px-2.5 text-left transition-colors hover:bg-ldvh-border/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
       >
         <ObjectTypeIcon type={item.type} size={15} className="shrink-0" style={{ color: item.typeColor }} />
         <h4 className="ldvh-card-title min-w-0 flex-1 whitespace-normal break-words group-hover:text-ldvh-accent">{title}</h4>
@@ -460,7 +460,7 @@ function SparkHealthRow({ item }: { item: CognitionSparkHealthItem }) {
         tabIndex={0}
         onClick={open}
         onKeyDown={(event) => openOnKeyboard(event, open)}
-        className="group mt-1.5 flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md text-left transition-colors hover:bg-ldvh-border/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
+        className="group ldvh-object-title-tray ldvh-object-title-tray-compact mt-1.5 -mx-1 flex min-w-0 cursor-pointer items-center gap-1.5 px-2.5 text-left transition-colors hover:bg-ldvh-border/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
       >
         <ObjectTypeIcon type="spark" size={15} className="shrink-0" style={{ color: item.typeColor }} />
         <h4 className="ldvh-card-title min-w-0 flex-1 whitespace-normal break-words group-hover:text-ldvh-accent">{title}</h4>
