@@ -38,6 +38,23 @@ node --import tsx --test tests/api/settings.test.ts
 
 ## 挂载模式与数据源（2026-09-08 接线定稿）
 
+> ⚠️ **改 `web/src` 后必须构建，否则 DSH 里看不到任何变化**（2026-10-05 实测踩坑）。
+>
+> DSH 插件以符号链接直连本目录（`~/.dsh/profiles/desktop/node_modules/dsh-ldvh` → `plugin/`），
+> 其 web 路由 `lib/index.js` 的 `WEB_DIST_DIR` 指向 **`plugin/web/dist`**（构建产物，非源码）。
+> 只改 `src` 而不构建时，`dist` 仍是旧产物：插件的 SPA handler 每次请求实时读盘，因此
+> **服务端返回的是过期界面**，页面看起来「毫无变化」。dev server（5173）实时编译，在它上面
+> 验证通过**不能证明**插件页面生效——两者读的不是同一份东西。
+>
+> ```bash
+> cd plugin/web && pnpm build:dsh   # tsc -b && vite build --base=/ldvh/ && gzip
+> ```
+> 构建后浏览器**硬刷新**（Cmd+Shift+R）即可；无需重启 DSH——SPA handler 无内存缓存，
+> `lstat` + `sendFile` 每次实时读盘，`index.html` 引用的 hash 文件名随构建变化。
+>
+> **验收纪律**：任何声称「界面已生效」的结论，都必须以 `curl http://127.0.0.1:19387/ldvh`
+> 返回的 `index.html` 引用的 hash 与 `dist/` 一致为准，或直接在插件页面上复验。
+
 - **DSH 挂载（/ldvh）= v5 登记模式**：Web API 子进程经 `LDVH_GOVERNED_PROJECTS_CONFIG` 直读 v5 登记载体（`~/.dsh/ldvh/governed-projects.yaml`，插件安装事务拥有）；治理验证为 Express 侧 Node git 解析（与插件 resolveGitRoot 同语义），**不依赖 v4 Python Helper**。已知边界：v5 调研对象在 `ldvh-base/researches/`（research 读取引擎属后续接线），study 类型列表在 v5 项目上为空是如实呈现；Settings 页对登记载体的写入沿用 v4 轻写入语义（CAS + 原子改名），与插件安装事务并存——07 语义的最终归位属后续。
 - **独立开发（restart.sh）= v4 归档模式**：环境变量指向 v4 归档，用于查看 v4 历史数据（152 WC / 103 Spark），行为与迁移前一致。
 
