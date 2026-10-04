@@ -37,7 +37,7 @@ export default function StatusBadge({ status, statusLabel, objectType = '', size
   return (
     <span
       key={resolved}
-      className={`${compact ? 'ldvh-chip-sm' : 'ldvh-chip'} inline-flex items-center whitespace-nowrap ${variant === 'compact' ? 'rounded-md' : 'rounded-full'} font-sans font-medium ${sizeClasses}`}
+      className={`${compact ? 'ldvh-chip-sm' : 'ldvh-chip'} inline-flex items-center whitespace-nowrap ${variant === 'compact' ? 'rounded-md' : 'rounded-full'} font-medium ${sizeClasses}`}
       style={{
         color,
         backgroundColor: `${color}18`,

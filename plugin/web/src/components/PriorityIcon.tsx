@@ -32,7 +32,7 @@ export default function PriorityIcon({
     <span
       aria-label={label}
       title={label}
-      className={`${compact ? 'ldvh-chip-sm' : 'ldvh-chip'} inline-flex shrink-0 items-center justify-center rounded-md border font-sans font-medium ${sizeClassName} ${getPriorityIconClassName(priority)} ${className}`}
+      className={`${compact ? 'ldvh-chip-sm' : 'ldvh-chip'} inline-flex shrink-0 items-center justify-center rounded-md border font-medium ${sizeClassName} ${getPriorityIconClassName(priority)} ${className}`}
     >
       {priority}
     </span>

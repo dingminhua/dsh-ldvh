@@ -845,8 +845,16 @@ function OutcomeNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string 
           （绿/琥珀/红/中性）——同一语义同一色，单一来源；不与状态词合并（卡头合并是卡面形态，
           详情身份头部已承载状态）。红色仅用于 `not-achieved`（失败），`cancelled` 保持中性
           （`21 §9.3`：cancelled 不是失败，`docs/01 §1.10` 色彩第 3 条）。 */}
+      {/* 尺寸与圆角**不在此处自定**——`WORKCASE_CLOSED_STATUS_BADGE_CLASS` 的注释已锁：
+          由共享 class `ldvh-chip-sm` 给出（`h-[18px]` / `text-[10px]` / `rounded-md` / `px-1.5`），
+          「避免与邻居并排时高低不一」。
+
+          此前本处写 `ldvh-chip` 并手抄几何（`inline-flex items-center rounded-md border px-2 py-0.5`）：
+          字号 12px、盒高 22px，而同页「达成 / 未达成」等判据三态徽标与卡头同款徽标均为
+          `ldvh-chip-sm`（10px / 18px）——同一页同一语义角色出现两种尺寸档，正是那条注释预警的
+          「并排高低不一」（2026-10-05 实测）。配色仍复用同一张四档色表，单一来源不变。 */}
       <span
-        className={`ldvh-chip inline-flex items-center rounded-md border px-2 py-0.5 ${WORKCASE_CLOSED_STATUS_BADGE_CLASS[outcome] ?? 'border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary'}`}
+        className={`ldvh-chip-sm ${WORKCASE_CLOSED_STATUS_BADGE_CLASS[outcome] ?? 'border-ldvh-border bg-ldvh-bg text-ldvh-text-secondary'}`}
       >
         {t(OUTCOME_LABEL_KEY[outcome])}
       </span>

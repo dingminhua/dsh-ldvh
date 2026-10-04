@@ -1086,7 +1086,7 @@ function MetaValueChip({ fieldKey, value, children }: { fieldKey?: string; value
     ? getSignalClassName(fieldKey, value)
     : 'border-ldvh-border bg-ldvh-bg text-ldvh-text-primary';
   return (
-    <span className={`ldvh-chip rounded-md border px-2 py-0.5 font-sans ${signalClass}`}>
+    <span className={`ldvh-chip rounded-md border px-2 py-0.5 ${signalClass}`}>
       {children}
     </span>
   );

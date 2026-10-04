@@ -77,18 +77,24 @@ test('object list cards use the compact metadata shared by reading surfaces', ()
   assert.match(objectList, /type="search"[\s\S]*objectList\.searchPlaceholder/);
   assert.match(objectList, /<div className="relative h-7 w-8 shrink-0">[\s\S]*<label className="absolute right-0 top-0 z-30 flex w-60/);
   assert.match(objectList, /onClick=\{\(\) => setIsObjectSearchOpen\(true\)\}[\s\S]{0,240}aria-expanded=\{false\}/);
-  assert.match(priorityIcon, /font-sans font-medium/);
-  assert.doesNotMatch(priorityIcon, /font-mono/);
-  assert.match(statusBadge, /font-sans font-medium/);
-  assert.doesNotMatch(statusBadge, /font-mono/);
+  // 短标识 chip（优先级、状态）不得显式设**任何**字体族：全站 chip 一律继承 `:root`
+  // 的无衬线栈。原断言写 `font-sans font-medium`——意图是「不许用等宽」，但把 Tailwind
+  // 的 `font-sans`（`ui-sans-serif`）一并钉进了期望值，于是这些 chip 与其余 chip 继承的
+  // `:root`（`-apple-system`）分岔，同一行出现两种字体族（2026-10-05 在插件页面实测：
+  // 「工单 / SG-3 / 1」为 -apple-system，「待批准执行」为 ui-sans-serif）。
+  // 这与 `structure-single-source-contract` 里「把 border-l-2 写进期望值即单方面判定争议」
+  // 是同一类错误：断言把**实现细节**当成了**契约**。现只锁意图。
+  assert.match(priorityIcon, /font-medium/);
+  assert.doesNotMatch(priorityIcon, /font-mono|font-sans/);
+  assert.match(statusBadge, /font-medium/);
+  assert.doesNotMatch(statusBadge, /font-mono|font-sans/);
   assert.match(capabilityBadge, /ldvh-chip-sm/);
   assert.match(objectList, /filteredItems\.map\(\(obj\) => renderObjectCard\(obj\)\)/);
   assert.match(identityActions, /compact\?: boolean/);
   assert.match(identityActions, /variant=\{compact \? 'compact' : undefined\}/);
 });
 
-test('object detail headers use compact metadata and title-scaled type icons', () => {
-  const objectDetail = read('src/pages/ObjectDetail.tsx');
+test('object detail headers use compact metadata and title-scaled type icons', () => {  const objectDetail = read('src/pages/ObjectDetail.tsx');
   const identityHeader = objectDetail.slice(
     objectDetail.indexOf('export function ObjectIdentityHeader'),
     objectDetail.indexOf('function HeaderDateMeta'),
@@ -461,4 +467,55 @@ test('阅读节点不设行宽上限 —— 撤销 40em 的反回退守卫', () 
 
   // 表格与代码块仍是滚动容器（与本项无关的既有形态，保留断言防被顺手改动）。
   assert.match(styles, /\.ldvh-inline-markdown :where\(table\)\s*\{\s*display: block;\s*max-width: 100%;\s*overflow-x: auto;/);
+});
+
+/**
+ * chip 不得与显式字体族同行出现——全站 chip 一律继承 `:root` 的无衬线栈。
+ *
+ * 为什么设这条守卫：字体族的**显式覆盖**会把一处 chip 从全局栈里摘出去。实测
+ * （2026-10-05，插件页面）：`StatusBadge` 与 `PriorityIcon` 带着 `font-sans`
+ * （Tailwind 默认 `ui-sans-serif`），而其余 chip 继承 `:root` 的 `-apple-system`——
+ * 同一张卡头里「工单 / SG-3 / 1」与「待批准执行」是两种字体，字号与盒高却完全一致，
+ * 因此肉眼只能看出「说不出的不一样」。这类分歧在**度量上不可见**（fontSize / height /
+ * padding / radius 全同），只能靠查 `font-family` 发现。
+ *
+ * **保证边界（如实登记，含变异实测）**：
+ * - 只查「同一行内同时出现 chip 类与字体族类」这一**形态**，不做 CSS 层叠推算——
+ *   经由父容器或样式表间接覆盖字体族的情形不在覆盖内；
+ * - **换表达手段会逃逸**：改用 inline style（`style={{ fontFamily }}`）时本守卫全绿
+ *   （变异 3 实测）——本守卫只具备**形态级**保证，不是「chip 字体必统一」的语义证明；
+ * - 计数前剥离注释：注释里的类名是沿革记载而非渲染，不剥离会把「此处曾写 …」一句
+ *   判为违规（变异 2 实测，属拒掉诚实输入的反向激励）；
+ * - `.tsx`/`.ts` 源码级，不覆盖第三方组件内部的字体设置。
+ */
+test('chip 不得与显式字体族同行出现：一律继承 :root 的无衬线栈', () => {
+  const walk = (dir: string): string[] => {
+    const out: string[] = [];
+    for (const entry of fs.readdirSync(path.resolve(dir), { withFileTypes: true })) {
+      const child = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) out.push(...walk(child));
+      else if (/\.tsx?$/.test(entry.name)) out.push(child);
+    }
+    return out;
+  };
+  // 剥离注释后再判：注释里的类名是**沿革记载**（本仓惯例要求如实保留改动的来龙去脉），
+  // 不是渲染。变异 2 实测：不剥离时一句「此处曾写 ldvh-chip-sm 搭配 font-sans」即被误判——
+  // 拒掉诚实记录属反向激励（docs/12 §2 第 2 项）。
+  const stripComments = (source: string): string =>
+    source
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+      .replace(/(^|[^:])\/\/[^\n]*/g, (m, p1) => p1 + m.slice(p1.length).replace(/[^\n]/g, ' '));
+  const violations: string[] = [];
+  for (const rel of walk('src')) {
+    stripComments(fs.readFileSync(path.resolve(rel), 'utf8')).split('\n').forEach((line, index) => {
+      if (/ldvh-chip/.test(line) && /font-(sans|mono)\b/.test(line)) {
+        violations.push(`${rel}:${index + 1}  ${line.trim().slice(0, 90)}`);
+      }
+    });
+  }
+  assert.equal(
+    violations.length,
+    0,
+    `chip 类与显式字体族不得同行出现——该 chip 会脱离全局字体栈，与同行其它 chip 分岔：\n${violations.join('\n')}`,
+  );
 });
