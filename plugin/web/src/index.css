@@ -111,9 +111,16 @@
 
   /* Compact chip for tight 18px status/priority badges. Kept as a semantic
      token so callers never hand-roll a bare `text-[10px]`, matching the
-     type-scale rule in docs/01 §1.4. */
+     type-scale rule in docs/01 §1.4.
+
+     字号 11px（Human 2026-10-05 定）：原 10px 时汉字墨迹仅 8.8px、占 18px 盒高
+     的 49%，Human 反馈「汉字看起来偏小」。汉字墨迹与字号几乎 1:1（8.8/10），而
+     拉丁大写字母只占约 0.74em（7.39/10），故同一个 10px 档里汉字显得单薄。
+     提到 11px 后汉字墨迹 9.68px（占盒高 54%），汉字/拉丁的比例关系保持不变
+     （两档均为 119%）——**只放汉字会把这比例拉到 131%，那是另一种不齐**，故整体提档。
+     行高同步 12px→13px；18px 固定盒高仍有余量，居中不变。 */
   .ldvh-chip-sm {
-    @apply inline-flex h-[18px] shrink-0 items-center justify-center gap-0.5 rounded-md border px-1.5 text-[10px] font-medium leading-3;
+    @apply inline-flex h-[18px] shrink-0 items-center justify-center gap-0.5 rounded-md border px-1.5 text-[11px] font-medium leading-[13px];
   }
 
   /* Fully-rounded inline pill for short identifying marks (project entry tags,

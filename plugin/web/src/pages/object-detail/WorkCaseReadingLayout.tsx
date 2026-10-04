@@ -846,7 +846,7 @@ function OutcomeNode({ obj, locale }: { obj: WorkCaseDetailData; locale: string 
           详情身份头部已承载状态）。红色仅用于 `not-achieved`（失败），`cancelled` 保持中性
           （`21 §9.3`：cancelled 不是失败，`docs/01 §1.10` 色彩第 3 条）。 */}
       {/* 尺寸与圆角**不在此处自定**——`WORKCASE_CLOSED_STATUS_BADGE_CLASS` 的注释已锁：
-          由共享 class `ldvh-chip-sm` 给出（`h-[18px]` / `text-[10px]` / `rounded-md` / `px-1.5`），
+          由共享 class `ldvh-chip-sm` 给出（`h-[18px]` / `text-[11px]` / `rounded-md` / `px-1.5`），
           「避免与邻居并排时高低不一」。
 
           此前本处写 `ldvh-chip` 并手抄几何（`inline-flex items-center rounded-md border px-2 py-0.5`）：

@@ -104,7 +104,7 @@ export const WORKCASE_CHECK_TAG_CLASS: Record<WorkCaseCheckState, string> = {
 
 /** 标记的统一形状（与「待批准关闭」「变更流水」的标记同族）。 */
 export const WORKCASE_CHECK_TAG_BASE =
-  'mr-1.5 inline-block shrink-0 rounded border px-1.5 text-[10px] font-semibold leading-4';
+  'mr-1.5 inline-block shrink-0 rounded border px-1.5 text-[11px] font-semibold leading-4';
 
 /** 布尔（或缺失）→ 三态标记的形态类。 */
 export function workCaseCheckChipClass(satisfied: boolean | undefined): string {
@@ -245,7 +245,7 @@ export const WORKCASE_CANCEL_TAG_CLASS =
  * 逐项一致——「原来的样式」指的就是这些。
  */
 export const WORKCASE_DIRECTION_TITLE_CLASS =
-  'inline-block shrink-0 rounded border px-1.5 text-[10px] font-semibold leading-4';
+  'inline-block shrink-0 rounded border px-1.5 text-[11px] font-semibold leading-4';
 
 /**
  * 分区内一条去向的正文行——**不带标记**（标记已提到块首，组内不再重复）。
