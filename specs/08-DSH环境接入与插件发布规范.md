@@ -97,28 +97,30 @@ manifest（`package.json` 或 DSH 市场规定的文件）为插件身份入口�
 
 ### 5.2 工具注册缝
 
-05 定义的 LDVH CLI 操作经 DSH 正式工具注册入口 `ctx.tools.register(defineTool({name, description, parameters, output, execute}))` 接入，返回 disposer；参数经 JSON Schema 编译校验（违规抛 ToolArgsError）；守卫通道 `ctx.tools.guard(guard)` 注册单调守卫（任何 guard 可拒不可放行，guard 在 tools/pre-execute 之后求值），执行链全序为 pre-policy → guards → around-dispatch → post-policy → 内容终结 → 通知；上述形态在 DSH 0.1.2-rc.1 与 0.1.5-alpha.1 一致（源码双版对照核验，2026-09-10），实际注册以装载后注册状态检查为准。领域操作的输入语义约束由 05 及各领域来源定义（承接 05 §5.1 分派），权限配置遵循 §5.1 manifest 权限声明，09 实现并测试；注册成功不证明操作可调用、授权成立或实际可用。
+05 定义的 LDVH CLI 操作经 DSH 正式工具注册入口 `ctx.tools.register(defineTool({name, description, parameters, output, execute}))` 接入，返回 disposer；参数经 JSON Schema 编译校验（违规抛 ToolArgsError）；守卫通道 `ctx.tools.guard(guard)` 注册单调守卫（任何 guard 可拒不可放行，guard 在 tools/pre-execute 之后求值），执行链全序为 pre-policy → guards → around-dispatch → post-policy → 内容终结 → 通知；实际注册以装载后注册状态检查为准。领域操作的输入语义约束由 05 及各领域来源定义（承接 05 §5.1 分派），权限配置遵循 §5.1 manifest 权限声明，09 实现并测试；注册成功不证明操作可调用、授权成立或实际可用。
 
 ### 5.3 引导面
 
 最小规则引导（内容锚点由 01 §10.4 定义）经两种机制注入：
 
-- 会话冷启动引导入口：经 `system-prompt/assemble` waterfall（(assembly, context, next) 三参、返回组装权威）注入 01 §10.4 定义的最小规则引导 00 锚点；注入以 agent 身份为前提，无 agent 上下文不注入。DSH 宿主不提供注入预算计量 API；预算控制由 LDVH 侧承担——引导文本单一权威源，体量以固定常量承载，变更走受控提交；
-- 行动前引导入口：经 `agent/pre-step` waterfall 事件（载荷 {agent, messages, turn, step, signal}）在来源定义的触发时机提供事实候选与既有行动结构路由；事件形态两版一致。
+- 会话冷启动引导入口：经 `system-prompt/assemble` waterfall（(assembly, context, next) 三参、返回组装权威）注入 01 §10.4 定义的最小规则引导 00 锚点；注入以 agent 身份为前提，无 agent 上下文不注入。**在宿主提供注入预算计量 API 之前**，预算控制由 LDVH 侧承担——引导文本单一权威源，体量以固定常量承载，变更走受控提交；
+- 行动前引导入口：经 `agent/pre-step` waterfall 事件（载荷 {agent, messages, turn, step, signal}）在来源定义的触发时机提供事实候选与既有行动结构路由。
 
 注入内容由 01 定义、注入形式与预算由 08 定义；内容须单一权威来源、逐字节一致、不复制规则正文、不成为第二规则源。
 
 ### 5.4 事件面
 
-行动与结束事件接入下列已核验事件（形态在 DSH 0.1.2-rc.1 与 0.1.5-alpha.1 一致，源码双版对照核验 2026-09-10）：`agent/created`（emit {agent}）、`agent/session-start`（emit {agent, source}）、`agent/pre-step`（waterfall）、`agent/turn-stopping`（serial {agent, turn, signal}）、`system-prompt/assemble`（waterfall）、`session/event`（emit (session, event)，turn/end 为会话事件类型、经其载荷分发），用于承载既有行动结构路由、执行状态更新、交还处理和资源清理。工具生命周期观察可经官方 `tools/change`（emit）挂载（LDVH 当前未消费）。中断恢复共同语义由 02 定义，08 只承接宿主接入时机；终止时机无已验证原生事件，维持不接入。
+行动与结束事件接入下列事件，用于承载既有行动结构路由、执行状态更新、交还处理和资源清理：`agent/created`（serial，载荷 `{agent, source, signal?}`；`source` 承载会话创建入口语义）、`agent/pre-step`（waterfall）、`agent/turn-stopping`（serial，载荷 `{agent, turn, signal}`）、`system-prompt/assemble`（waterfall）、`session/event`（emit，`(session, event)`；`turn/end` 为会话事件类型、经其载荷分发）。工具生命周期观察可经官方 `tools/change`（emit）挂载；该接入点是否已被消费，按 `01 §7.2` 由读取时的观察取得，**本节不陈述其当前状态**。中断恢复共同语义由 02 定义，08 只承接宿主接入时机。
+
+**条件式要求**：终止时机在本规范所需的宿主事件**具备并经验证之前**，不得据本节主张终止时机已接入；未具备时应按 `00 §7.2` 如实披露未兑现范围。上述事件的当前形态（名称、模式、载荷）按其宿主来源取得，**本节不陈述其当前状态**。
 
 ### 5.5 交互面
 
-DSH 结构化问询入口为 `ctx.userQuestions.ask(request)`（validation + scoped answerer waterfall；调用者限制 CALLER_NOT_LIVE/DELEGATED_CALLER——子代理直接问人被拒），承载 Human Gate 决策提请、计划审查与验收交还。行动授权不设独立宿主 API：由 DSH 审批通道（user-approval，ApprovalPolicy 'ask'|'never'，与沙箱三档固化联动）与 00 §4 Human 决定权组合承载。语义区分：宿主存在 `ctx.authorization` 服务，但它是凭证获取流程注册表（credential-obtaining flows），不是行动授权通道，本规范不将其作为授权入口消费。授权包结构仍待 WorkCase/授权承接规范定义。问询授权面三包源码（user-questions、user-approval、tool-ask-user）两版零变更（2026-09-10 核验）。
+DSH 结构化问询入口为 `ctx.userQuestions.ask(request)`（validation + scoped answerer waterfall；调用者限制 CALLER_NOT_LIVE/DELEGATED_CALLER——子代理直接问人被拒），承载 Human Gate 决策提请、计划审查与验收交还。行动授权不设独立宿主 API：由 DSH 审批通道（user-approval，ApprovalPolicy 'ask'|'never'，与沙箱三档固化联动）与 00 §4 Human 决定权组合承载。语义区分：宿主存在 `ctx.authorization` 服务，但它是凭证获取流程注册表（credential-obtaining flows），不是行动授权通道，本规范不将其作为授权入口消费。**在 WorkCase/授权承接规范定义授权包结构之前，不得主张授权包结构已定稿。**
 
 ### 5.6 管辖登记接入
 
-07 是登记位置、Schema、路径、权限目标、三态判定、写入与迁移规则的唯一权威；LDVH CLI、Git Gate、Skill 与 Web 统一消费其结果。08 只承接宿主接入：接入点为 `ctx.get('dshHomePath')` 服务（boot 时 provide，两版源码零 diff；宿主以 DSH_HOME 环境变量与 ~/.dsh 默认根提供，无 Electron userData 级 API），配置根为 dshHomePath 下 `ldvh/governed-projects.yaml`，跨工作区读写经该路径；宿主 ACL/沙箱结果映射为 07 的 `available` 或 `unavailable`。08 不复制 07 的 Schema 或写入规程。
+07 是登记位置、Schema、路径、权限目标、三态判定、写入与迁移规则的唯一权威；LDVH CLI、Git Gate、Skill 与 Web 统一消费其结果。08 只承接宿主接入：接入点为 `ctx.get('dshHomePath')` 服务（宿主以 DSH_HOME 环境变量与 ~/.dsh 默认根提供），配置根为 dshHomePath 下 `ldvh/governed-projects.yaml`，跨工作区读写经该路径；宿主 ACL/沙箱结果映射为 07 的 `available` 或 `unavailable`。08 不复制 07 的 Schema 或写入规程；**本规范不以 Electron userData 级 API 作为接入点**。
 
 ### 5.7 编排接入点
 
@@ -138,11 +140,11 @@ DSH 结构化问询入口为 `ctx.userQuestions.ask(request)`（validation + sco
 
 ## 6. 机械守护部署
 
-- **运行时不变量**：经 DSH 正式不变量注册器 `ctx.invariants.register(packageName, installer)` 在装载完成、受控写入前和会话交还前执行来源已定义的断言（InvariantInstaller = (ctx, fail) => void|Promise，fail 抛 InvariantError code='INVARIANT' 带 packageName 归因；官方包 permission-presets 以 inject: ['invariants'] 同法消费；该入口 src 在 DSH 0.1.2-rc.1 与 0.1.5-alpha.1 字节级一致，2026-09-10 核验）；不替代 00 §3.4 三层防线。
-- **文件观察策略**：经 DSH 守卫式写保护承载（如实：宿主无文件 watch 服务）：读观察经 `fs/observed` 事件；写守卫经 `writeText(target, content, {kind:'replaceIfVersion', version})` 与 `editText(..., {version})` 版本守卫，配合 `fs/write-intent` 与 `fs/edit-intent` waterfall 挂载 LDVH 策略；`fs-observation-policy` 提供 FS_NOT_OBSERVED / FS_STALE_VERSION 拒绝语义，版本或指纹不一致时拒绝写入（签名两版零变化，2026-09-10 核验）。对 07 登记载体，08 只核验宿主满足 07 已定义的跨平台原子写入、冲突拒绝与回读要求并向实现暴露结果，不复制其写入算法。
+- **运行时不变量**：经 DSH 正式不变量注册器 `ctx.invariants.register(packageName, installer)` 在装载完成、受控写入前和会话交还前执行来源已定义的断言（InvariantInstaller = (ctx, fail) => void|Promise，fail 抛 InvariantError code='INVARIANT' 带 packageName 归因；官方包 permission-presets 以 inject: ['invariants'] 同法消费）；不替代 00 §3.4 三层防线。
+- **文件观察策略**：经 DSH 守卫式写保护承载：读观察经 `fs/observed` 事件；写守卫经 `writeText(target, content, {kind:'replaceIfVersion', version})` 与 `editText(..., {version})` 版本守卫，配合 `fs/write-intent` 与 `fs/edit-intent` waterfall 挂载 LDVH 策略；`fs-observation-policy` 提供 FS_NOT_OBSERVED / FS_STALE_VERSION 拒绝语义，版本或指纹不一致时拒绝写入。对 07 登记载体，08 只核验宿主满足 07 已定义的跨平台原子写入、冲突拒绝与回读要求并向实现暴露结果，不复制其写入算法。
 - **Git Gate 部署**：commit-msg 钩子安装到由项目 Git 根解析所得的 Git common-dir `hooks/commit-msg`，不得简单假设 `<worktree>/.git/hooks/`；主 worktree 与 linked worktree 共享同一 common-dir，独立 clone 分别部署。安装前检查既有钩子，非 LDVH 资产一律 `conflict` 且零写入，不覆盖 Human 自建钩子；部署后须确认 `managed` 状态（归属、路径、内容与版本一致），未确认不得声称已就绪；事件检查用 06 定义的同一 validator。
 - **管辖项目安装事务**：Human 在设置页选择的目录必须是实际 Git 根。点击“安装”后，登记项目、创建或校验项目内 `ldvh-base/`、安装或更新当前版本 Git Hook 均为必需步骤而非选项；任一步失败都不得报告管辖已就绪。设置页不提供单独的“卸载”操作；“取消管辖”自动卸载 LDVH 托管 Hook并移除登记，但永久保留 `ldvh-base/` 与其中事实对象。每次 DSH 启动对全部登记项目执行一次只读状态检查；检查或巡检发现 Hook 过时或事实源缺失时，安装事务须能修复可修复状态（Hook `absent/outdated` 或事实源 `absent/incomplete`）；`conflict` 或 `unavailable` 属不可修复状态，事务不得对其执行写入。**上述状态的呈现形态与交互区分由 10 §6.5 定义，本文不复述**；08 只定义事务的步骤、状态闭集与失败处置。版本不一致只报告并等待 Human 点击安装/更新，不静默修改。
-- **设置页写入与权限降级**：设置页按钮在空闲状态没有 Agent、call id 与开放 turn，不能复用 `ctx.approval.request()` 或模型工具的 `sandbox_permissions` 一次性升权；普通插件 Host 自动安装只受当前 OS 文件权限约束。安装先完成只读预检，确认所有目标、Hook 所有权和回滚边界后再写入；OS 拒绝写入时 fail-closed、回滚本次可安全回滚的变化，不使用 `sudo` 或管理员 PowerShell。此时可提供同一 LDVH CLI 语义的精确平台命令和 DSH Desktop 正式“打开终端”入口作为降级，macOS/Windows 仅在路径引用和终端载体上不同；用户执行后必须回到设置页重新“检查”，终端退出码不单独证明就绪。
+- **设置页写入与权限降级**：**设置页写入不得以 `ctx.approval.request()` 或模型工具的 `sandbox_permissions` 作为一次性升权来源**；普通插件 Host 自动安装**不得假设存在**插件安装专用的授权通道，其权限边界以宿主实际提供的 OS 文件权限为准。安装先完成只读预检，确认所有目标、Hook 所有权和回滚边界后再写入；OS 拒绝写入时 fail-closed、回滚本次可安全回滚的变化，不使用 `sudo` 或管理员 PowerShell。此时可提供同一 LDVH CLI 语义的精确平台命令和 DSH Desktop 正式“打开终端”入口作为降级，macOS/Windows 仅在路径引用和终端载体上不同；用户执行后必须回到设置页重新“检查”，终端退出码不单独证明就绪。
 - **权限预设与沙箱分层**：`workspace-write`（默认，工作区路径内读写与执行，无需 Human 授权）/ `danger-full-access`（跨工作区与系统级，需 Human 授权）只约束 Agent 工具调用；分层语义归 00 §3.4 的 fail-closed 授权边界与 00 §4.1 的 Human 授权决定，08 只定义宿主接入方式，AI 不得把聊天工具授权转移给设置页按钮，也不得自行扩权。
 
 **宿主缝的消费义务（条件式）**：上列宿主缝是**可用手段**，其存在**不证明 LDVH 已受其保护**。对每一道宿主缝：**在 LDVH 实际消费该缝之前**，不得据本文主张相应防护已部署、已生效或已 fail-closed；不得把「宿主提供该缝」「提交通过」「工具调用成功」引为守卫、不变量或版本屏障已执行的证据；也不得以「宿主已有该机制」代替 LDVH 自身的消费与验证。
@@ -175,7 +177,7 @@ DSH 插件市场（主要渠道，接受开源公共契约）/ 本地 asar 加�
 
 ### 7.3 README
 
-**两类 README 及其分工（Human 决定 2026-10-02，消歧）**：本插件的 README 分布在两个位置，各有唯一职责，**不得互相替代，也不得把一方的职责整体移入另一方**——此前两处版本行不一致的漂移，根源正是二者职责未在本规范内区分：
+**两类 README 及其分工（Human 决定 2026-10-02，消歧）**：本插件的 README 分布在两个位置，各有唯一职责，**不得互相替代，也不得把一方的职责整体移入另一方**：
 
 - **仓库 README（`README.md`）**：仓库首页，面向源码访客，说明仓库定位、版本号双轨规则与当前里程碑；
 - **插件 README（`plugin/README.md`）**：**DSH 插件市场的用户第一眼界面**，遵循行业通用格式：项目名称与一句话定位、安装说明（市场/本地/源码）、使用指引、配置项、开源协议（MIT，与 DSH 本体同协议）、版本号。内容必须与当前版本实际能力一致，不得超前宣传未实现的功能。
@@ -192,7 +194,7 @@ DSH 插件市场（主要渠道，接受开源公共契约）/ 本地 asar 加�
 
 CHANGELOG 版本条目、插件 manifest 版本字段、README 版本行共同构成 00 §4.3 的“版本声明点”受保护文档。**各版本声明点的版本号必须一致**，漂移按停止条件处理（§10.1 第 4 项）。
 
-**版本声明点的精确路径清单（本规范登记，Human 决定 2026-10-02 补全）**。表为**四个声明点**：README 版本行为**两条路径**（两类 README 均为受保护文档，§7.3），故「三类」在路径上展开为四项：
+**版本声明点的精确路径清单（本规范登记，Human 决定 2026-10-02）**。表为**四个声明点**：README 版本行为**两条路径**（两类 README 均为受保护文档，§7.3），故「三类」在路径上展开为四项：
 
 | 声明点类别 | 精确路径 |
 |---|---|
@@ -201,13 +203,13 @@ CHANGELOG 版本条目、插件 manifest 版本字段、README 版本行共同�
 | README 版本行（仓库首页） | `README.md` 的版本行 |
 | README 版本行（插件市场页） | `plugin/README.md` 的版本行 |
 
-**四处必须一致**：此处此前仅写「README 版本行」而未区分两类 README，是 2026-09 一处真实漂移（仓库首页停留在旧值、市场页已更新）的直接成因；本次补全路径清单以消除该歧义。`plugin/README.en.md` 为衍生物（§7.3），**不计入版本声明点**，但应随市场页同步。
+**四处必须一致**。`plugin/README.en.md` 为衍生物（§7.3），**不计入版本声明点**，但应随市场页同步。
 
 登记变更须经 Human Gate。
 
 ### 7.6 受保护文档承接
 
-00 §4.3 五类在 DSH 域的映射与**精确路径清单**（Human 决定 2026-10-02 补全；路径清单的变更须经 Human Gate）。**00 §4.3 的类别是五类，本表为六行**——差别仅在于其中「README」一类在本域展开为**两条路径**（仓库首页与插件市场页），类别本身未增减：
+00 §4.3 五类在 DSH 域的映射与**精确路径清单**（Human 决定 2026-10-02；路径清单的变更须经 Human Gate）。**00 §4.3 的类别是五类，本表为六行**——差别仅在于其中「README」一类在本域展开为**两条路径**（仓库首页与插件市场页），类别本身未增减：
 
 | 00 §4.3 的类别 | DSH 域精确路径 |
 |---|---|
@@ -224,7 +226,7 @@ CHANGELOG 版本条目、插件 manifest 版本字段、README 版本行共同�
 
 ### 7.7 Output Envelope 宿主承载
 
-09 负责 Output Envelope 的单一生成与一致性实现；本规范只承接其在 DSH 中的存储位置、写入时机、消费方和宿主验收流映射，不定义或复制生成逻辑。核验结论（2026-09-10，源码双版对照）：宿主两版均无交还产物专用存储入口，且 0.1.5 存在两处升级陷阱（session-persistence 服务直调接口整体移除换 handle 所有权式；存储事件对白名单外类型默认拒绝，ignorable:true 为唯一逃生口）。定案（Human 2026-09-10）：Output Envelope 由 LDVH 自持久化于本地存储区（DSH home 下 `~/.dsh/ldvh/` 域，与管辖登记同级的先例承载），定位为本地记忆、与记忆系统绑定处理——载体形态、生命周期与保留策略随记忆系统设计定案；不进项目事实源目录（判据：事实对象=项目转移时跟目录走、他人接手可共享的内容，handovers 不具备），不写宿主会话事件流、不依赖 session-persistence API。宿主侧（Web）只读投影呈现（经 dshHomePath 通道）。机器承载建成前，交还维持 Human 可读正文并如实披露承载未建（按 02 §20 处理），不得声明已存在宿主承载。
+09 负责 Output Envelope 的单一生成与一致性实现；本规范只承接其在 DSH 中的存储位置、写入时机、消费方和宿主验收流映射，不定义或复制生成逻辑。定案（Human 2026-09-10）：Output Envelope 由 LDVH 自持久化于本地存储区（DSH home 下 `~/.dsh/ldvh/` 域，与管辖登记同级的先例承载），定位为本地记忆、与记忆系统绑定处理——载体形态、生命周期与保留策略随记忆系统设计定案；不进项目事实源目录（判据：事实对象=项目转移时跟目录走、他人接手可共享的内容，handovers 不具备），不写宿主会话事件流、不依赖 session-persistence API。宿主侧（Web）只读投影呈现（经 dshHomePath 通道）。机器承载建成前，交还维持 Human 可读正文并如实披露承载未建（按 02 §20 处理），不得声明已存在宿主承载。
 
 ## 8. 验证与证据边界
 
