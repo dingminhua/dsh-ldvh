@@ -15,7 +15,7 @@ summary: |-
 
   **存量后果与未验证范围（21 §15.3 已登记，不溯及）**：56 条重映射后 27 条（接受现状 26 + 转入 Spark 1）原样保留，其余 29 条（另立工单 19 + 直接行动 10）落「接受现状」但须逐条补写非空理由；6 份对象的建议段条数与 `residual` 不符；`workcase-8f4742f5` 是唯一含「转入 Spark」而无 `routed-to` 的对象，因 `correct` 不接收任何 frontmatter 字段，**这条边永远补不上**。机械层不回扫既有 closed 对象。
 
-  **两处基础裂缝（已随本议题核对并更正）**：① `spark-2916e3d5` 实为 `discarded` 而非 open（原 summary 的「open Spark」限定词是错的），其 `split-into` 指向的两个对象均已终结（implemented／discarded），确违反 20 §11，已由 draft 工单 `bb033829` 承接；② 20 §16 的组合级确认入口尚无机械载体，故 CREATE-FIRST 须走多次单对象 Gate，实现会多问几次，按 00 §7.2 如实披露。
+  **两处基础裂缝（已随本议题核对并更正）**：① `spark-2916e3d5` 实为 `discarded` 而非 open（原 summary 的「open Spark」限定词是错的），其 `split-into` 指向的两个对象均已终结（implemented／discarded），确违反 20 §11，已由 draft 工单 `bb033829` 承接；② 20 §16 的组合级确认入口尚无机械载体，故 CREATE-FIRST 须走多次单对象 Gate，实现会多问几次，按 00 §5.7 如实披露。
 evolution:
   - at: 2026-09-28
     summary: Human 裁决「A 收缩为二词」后，本对象由「提案待裁」转为「已落地」：去向改为二词闭集、指向由 refs 改为 relations.routed-to、新增四档机械门禁与 CREATE-FIRST 次序，落为 21 §7/§8/§9.1/§10.2/§12/§13/§14/§15.1/§15.3/§15.4/§16 修订及实现与呈现层同步（commit 3a32e63）。同时更正本对象两处事实瑕疵：v2 第 9 条「用 refs 绕过 open 约束」的设计已被否弃；裂缝①的「open Spark 2916e3d5」限定词更正为其真实状态 discarded。
@@ -33,6 +33,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 回收：机制已随 commit 3a32e63 落地，更正两处事实瑕疵并转终态
+  - at: 2026-10-08T20:03:57.116Z
+    provider: glm
+    model: glm-5.3
+    summary: 批次 F 旧号位引文更正：00 §7.2（Stop Conditions，创建时点号位）→00 §5.7（必停情形与恢复）1 处，摘要与正文同步；20/21 号位未重构，其引用保持原样；终态 implemented 与 disposition 不变，仅内容更正（20 §9.2）
 refs:
   - object_uid: 35afd456-10cc-4d3b-b7fc-8a088946b183
   - object_uid: 71930c4a-f43f-439e-88bd-3aff7d07d37c
@@ -57,7 +61,7 @@ refs:
 
 **存量后果与未验证范围（21 §15.3 已登记，不溯及）**：56 条重映射后 27 条（接受现状 26 + 转入 Spark 1）原样保留，其余 29 条（另立工单 19 + 直接行动 10）落「接受现状」但须逐条补写非空理由；6 份对象的建议段条数与 `residual` 不符；`workcase-8f4742f5` 是唯一含「转入 Spark」而无 `routed-to` 的对象，因 `correct` 不接收任何 frontmatter 字段，**这条边永远补不上**。机械层不回扫既有 closed 对象。
 
-**两处基础裂缝（已随本议题核对并更正）**：① `spark-2916e3d5` 实为 `discarded` 而非 open（原 summary 的「open Spark」限定词是错的），其 `split-into` 指向的两个对象均已终结（implemented／discarded），确违反 20 §11，已由 draft 工单 `bb033829` 承接；② 20 §16 的组合级确认入口尚无机械载体，故 CREATE-FIRST 须走多次单对象 Gate，实现会多问几次，按 00 §7.2 如实披露。
+**两处基础裂缝（已随本议题核对并更正）**：① `spark-2916e3d5` 实为 `discarded` 而非 open（原 summary 的「open Spark」限定词是错的），其 `split-into` 指向的两个对象均已终结（implemented／discarded），确违反 20 §11，已由 draft 工单 `bb033829` 承接；② 20 §16 的组合级确认入口尚无机械载体，故 CREATE-FIRST 须走多次单对象 Gate，实现会多问几次，按 00 §5.7 如实披露。
 
 ## 调查问题
 
