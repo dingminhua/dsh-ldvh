@@ -480,7 +480,7 @@ v4 存在 WorkCase 类对象（`docs/spark-workcase-rebuild.md` §5 记为高频
 
 ### 15.4 类型退出
 
-若 Human 决定取消 WorkCase 类型，须按 03 §10 处理：处理仍适用事实、入向/出向关系（`serves`、`contributed-to`、`routed-to`）与稳定引用，登记变化（01 §8.2）与受影响引用同步，走受控提交。退出属 00 §4.2 根决定。**`routed-to` 的退向处置须单独说明**：该边的目标是承载残留议题的 Spark，取消 WorkCase 类型不使该议题消失——须在登记时如实交还「哪些 Spark 是由 WorkCase 残留转入的、其议题是否仍待裁」，不得随类型退出一并丢弃该线索。
+若 Human 决定取消 WorkCase 类型，须按 03 §10 处理：处理仍适用事实、入向/出向关系（`serves`、`contributed-to`、`routed-to`）与稳定引用，登记变化（01 §8.1）与受影响引用同步，走受控提交。退出属 00 §4.2 根决定。**`routed-to` 的退向处置须单独说明**：该边的目标是承载残留议题的 Spark，取消 WorkCase 类型不使该议题消失——须在登记时如实交还「哪些 Spark 是由 WorkCase 残留转入的、其议题是否仍待裁」，不得随类型退出一并丢弃该线索。
 
 ## 16. 验证与证据边界
 
