@@ -11,7 +11,7 @@ ldvh_spec:
   scope: "适用于承载「应该修但还没修」系统性阻碍的 Friction 对象；不定义空闲评审与摩擦检测的宿主机制、记忆系统本地层，也不定义 Pitfall/Spark/ADR/WorkCase 类型语义"
   basis:
     - "source-of-truth-traceability"
-    - "work-model-foundation"
+    - "business-system-foundation"
   authorized_attachments: []
   dimensions: ["comply"]
 ---
@@ -31,7 +31,7 @@ Friction 对象存在、处于 open 或形成账本积累，均不能单独证�
 本文直接依据（结构父规范 `fact-model-foundation` 的 03 全文自动适用——类型准入、公共身份字段、载体与权威位置、公共关系形状、召回分层、受控读写、生命周期与类型规范共同结构，不重复列出）：
 
 1. `source-of-truth-traceability`：06 §5 事实源与溯源、§6 受控提交契约。
-2. `work-model-foundation`：02 §15 「摩擦」入口用词（本类型命名依据）与工作模型中摩擦记录的职责位置。
+2. `business-system-foundation`：业务系统基础规范 §9.3 记忆存取系统中摩擦记录的职责位置（本类型命名依据）。
 
 本文不依赖外部语法或行业标准定义 Friction 语义；行业 friction log 实践与 v4 problem-ledger（`docs/v4-problem-ledger.md`）只作设计输入，不取得规范效力。设计定稿依据记忆系统设计文档 §5.13（Human 批准 2026-09-10）。发生冲突或权威关系无法确认时，按 00 §7.2 暂停受影响范围并完成对齐。
 

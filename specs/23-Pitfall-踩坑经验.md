@@ -11,7 +11,7 @@ ldvh_spec:
   scope: "适用于管辖项目中承载已验证失败机制与规避经验的 Pitfall 对象；不定义遵守预检的完整判定、调研执行，也不定义 ADR/Research/WorkCase 类型语义"
   basis:
     - "source-of-truth-traceability"
-    - "work-model-foundation"
+    - "business-system-foundation"
   authorized_attachments: []
   dimensions: ["comply"]
 ---
@@ -31,7 +31,7 @@ Pitfall 对象存在、处于 active 或形成经验积累，均不能单独证�
 本文直接依据（结构父规范 `fact-model-foundation` 的 03 全文自动适用——类型准入、公共身份字段、载体与权威位置、召回分层、受控读写、生命周期与类型规范共同结构，不重复列出）：
 
 1. `source-of-truth-traceability`：06 §5 事实源与溯源、§6 受控提交契约。
-2. `work-model-foundation`：02 §13 规则遵守业务系统（执行前预检是 Pitfall 的结构性消费点）。
+2. `business-system-foundation`：业务系统基础规范 §9.6 规则遵守业务系统（执行前预检是 Pitfall 的结构性消费点）。
 
 本文不依赖外部语法或行业标准定义 Pitfall 语义。v4 specs/23 的实证设计（六字段分工、九区段阅读投影）只作设计输入，不取得规范效力。发生冲突或权威关系无法确认时，按 00 §7.2 暂停受影响范围并完成对齐。
 

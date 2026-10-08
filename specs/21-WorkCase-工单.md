@@ -11,9 +11,8 @@ ldvh_spec:
   scope: "适用于管辖项目中承载已批准工单、授权范围、执行接续与结果审计的 WorkCase 对象；不定义方案构建与收敛流程、需求裁夺、子代理编排的宿主机制、受控提交契约或 Web 呈现细节"
   basis:
     - "ldvh-root"
-    - "work-model-foundation"
+    - "business-system-foundation"
     - "goal-fact-type"
-    - "discussion-system-foundation"
   authorized_attachments: []
   dimensions: ["write", "orchestrate", "comply"]
   related_specs:
@@ -39,9 +38,8 @@ WorkCase 对象存在、处于 open 状态、Gate 记录齐全或 attempt 令牌
 ## 2. 规范依据
 
 1. `ldvh-root`：00 §2 根方案（提供「执行工单」功能）、§3.1 工作模型（工单执行业务系统以 WorkCase 承载其结论）、§3.3 规范源与事实源及受控写入三层防线、§4 Human 决定权与根决定清单、§5 AI 责任（单一主控最终负责、委派不转责）、§6 双轨价值标准、§5.6 据实声明、§5.7 必停情形与恢复、§5.8 交还与撤回。
-2. `work-model-foundation`：02 §12 工单执行业务系统的职责、判据与边界（工作包生命周期、attempt 令牌与冷恢复由本类型规范承接）；§15 复核与校验制度；§18 暂停、接管与恢复。
+2. `business-system-foundation`：业务系统基础规范 §9.5 工单执行业务系统的职责、判据与边界（工作包生命周期、attempt 令牌与冷恢复由本类型规范承接）；检查机制与辅助机制规范 §6 复核与校验制度、§10.2 暂停、接管与恢复。
 3. `goal-fact-type`：25 §6 sub-goal 锚点（SG-n）语义、§8 达成判定证据链、§10 消费点中 active WC 注入、§11 修订级联与「按 21 号 C2 语义局部重批」的引用。
-4. `discussion-system-foundation`：31 §17 系统扩展（讨论独有补充结构）/17.1 讨论定位与技术方案工作（系统扩展）（该节载明 WorkCase 的需求审核职责已前置到讨论）、§9 结论承载与回写/以何种事实对象承载结论（四路分流中 WorkCase 出口的成文格式权威）、§9 结论承载与回写/是否必须写入（残项处置）。
 
 本文的结构父规范是 `fact-model-foundation`（03），按 01 §10.1 同一目标不得同时作为 `basis` 和结构父规范，故 03 不列入 `basis`；03 §11 定义的事实类型规范共同结构是本文 §5–§15 的结构依据，与 20/22–27 各同段类型规范同形态。
 

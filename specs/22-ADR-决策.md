@@ -11,7 +11,6 @@ ldvh_spec:
   scope: "适用于管辖项目中承载已定决策的 ADR 对象；不定义讨论收敛流程、调研执行、遵守预检的完整判定，也不定义 Pitfall/Research/WorkCase 类型语义"
   basis:
     - "source-of-truth-traceability"
-    - "discussion-system-foundation"
   authorized_attachments: []
   dimensions: ["comply"]
 ---
@@ -31,7 +30,6 @@ ADR 对象存在、处于 active 或形成决策谱系，均不能单独证明�
 本文直接依据（结构父规范 `fact-model-foundation` 的 03 全文自动适用——类型准入、公共身份字段、载体与权威位置、公共关系形状、召回分层、受控读写、生命周期与类型规范共同结构，不重复列出）：
 
 1. `source-of-truth-traceability`：06 §5 事实源与溯源、§6 受控提交契约。
-2. `discussion-system-foundation`：31 §8 过程机制与分支/关键机制（依据装配；ADR 是决策一致性依据）与 §9 结论承载与回写/以何种事实对象承载结论（四路分流；已定决策流向 ADR）。
 
 本文不依赖外部语法或行业标准定义 ADR 语义；业界 ADR 实践（Nygard/Michael Keeling 模板）只作设计输入，不取得规范效力。既有候选记录与重建锚点文档（`docs/spark-workcase-rebuild.md` §5.2 名册行、裁定 6）只用于识别设计意图，不证明当前规则成立。发生冲突或权威关系无法确认时，按 00 §7.2 暂停受影响范围并完成对齐。
 
