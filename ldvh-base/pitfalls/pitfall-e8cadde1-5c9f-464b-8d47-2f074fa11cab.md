@@ -11,6 +11,14 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 创建：记录「身份判定谓词多层分裂且版本位漂移致关联全量判死」的失败机制与收敛方式
+  - at: 2026-10-08T21:36:48.193Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 批次 G 旧号位更正：根因/解决/规避三处「03 §6.1」→「02 §7.1」（经现行 02 §7.1 原文核对为同一 canonical UUIDv4 判定）并加号位注记；scope 字段与其镜像照录不改（scope 逐字不变）
+  - at: 2026-10-08T21:37:09.021Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 勘误上一条写入的誊录错误：恢复「症状」「触发条件」两节的原记录文本（识别信号段与四条触发条件，前次写入误以概述替换），仅保留三处号位更正与号位注记；其余内容逐字不变
 ---
 
 # 身份判定分裂致关联判死
@@ -40,7 +48,7 @@ readerUidPattern.test(uid)   // false —— 关联层按 v7 校验，拒绝
 
 ## 根因
 
-`specs/03 §6.1` 明文定义 `object_uid` 为 canonical **UUIDv4**（RFC 9562 版本位 `4`），并显式声明**不采用**时间有序的 UUIDv7——理由是其索引与排序收益只在数据库主键场景成立，而事实源是 `ldvh-base/` 下的文件载体，该收益落空。
+`specs/02 §7.1` 明文定义 `object_uid` 为 canonical **UUIDv4**（RFC 9562 版本位 `4`），并显式声明**不采用**时间有序的 UUIDv7——理由是其索引与排序收益只在数据库主键场景成立，而事实源是 `ldvh-base/` 下的文件载体，该收益落空。
 
 但 Web 读取层把这一判定复制成了四份独立正则：`api/services/facts.ts`、`api/services/localFactReader.ts`、`api/routes/cognition.ts`、`src/pages/object-detail/factReadingProjection.ts`。其中三处取了 UUIDv7 形态（版本位 `7`），仅 `localFactReader` 的字段校验取了正确的 v4。
 
@@ -54,7 +62,7 @@ readerUidPattern.test(uid)   // false —— 关联层按 v7 校验，拒绝
 
 把身份判定收敛为**单一权威实现**，放在读写两侧都能到达的 `shared/` 平面，各层一律引用：
 
-- 新增 `plugin/web/shared/factIdentity.ts`，导出 `canonicalUid(value)`（唯一权威判定，含 03 §6.1 引用与漂移历史）；
+- 新增 `plugin/web/shared/factIdentity.ts`，导出 `canonicalUid(value)`（唯一权威判定，含 02 §7.1 引用与漂移历史）；
 - `api/services/facts.ts`、`api/services/localFactReader.ts`、`api/routes/cognition.ts`、`src/pages/object-detail/factReadingProjection.ts` 四处调用点改为引用该函数，删除全部内联正则；
 - 既有的 v4 字段校验（`localFactReader`）也一并改走同一函数，消除「两份正则各自演进」的结构性隐患。
 
@@ -64,10 +72,12 @@ readerUidPattern.test(uid)   // false —— 关联层按 v7 校验，拒绝
 
 ## 规避
 
-1. **核对条件**：任何身份/标识字段的形态判定，先确认规范原文的权威形态（本文为 03 §6.1 的 UUIDv4），再核对各层实现是否一致。
+1. **核对条件**：任何身份/标识字段的形态判定，先确认规范原文的权威形态（本文为 02 §7.1 的 UUIDv4），再核对各层实现是否一致。
 2. **动作**：同一判定不得在多层各自实现——跨 plane 消费时提取到 `shared/`，各层引用同一权威。
 3. **机械拦截**：`plugin/web/tests/api/fact-identity-uid.test.ts` 锁定该谓词，断言 v4 接受、v7 拒绝、以及真实 uid 的关联投影不再降级。已验证其有效性——将谓词还原为 v7 时，5 项中 4 项失败（非静默通过）。
 4. **例外**：若某层确实需要不同形态的判定（如兼容读取历史 ID），必须与该层的字段语义一并声明，且不得覆盖 canonical 判定本身。
+
+**号位注记（2026-10-14，批次 G 事实更正）**：本文创建时点（2026-09-13）所引的 `specs/03 §6.1`，经 02–10 重构后为现行 `specs/02 §7.1`「公共身份字段」——该节仍逐字载有同一 canonical UUIDv4 判定与不采用 UUIDv7 的理由（其索引与排序收益只在数据库主键场景成立，事实源为文件载体时该收益落空），本节「根因」「解决」「规避」三处已按现行号位更正。另：frontmatter `scope` 字段与其正文镜像「影响与适用范围」节内的同一处时点号位「specs/03 §6.1」为**冻结字段镜像**（Pitfall 勘误要求 `scope` 逐字不变），照录不改，读时以本条注记的现行号位为准。
 
 ## 验证
 
