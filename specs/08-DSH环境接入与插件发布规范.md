@@ -35,7 +35,7 @@ manifest 存在、工具注册成功、钩子安装、页面加载或发布完�
 
 本文直接依据：
 
-1. `ldvh-root`：00 §3.4 的技术与机械保障、§3.5 的四种价值交付方式、§4.3 的受保护内容、§4.4 的回应效力、§7 的防自欺、Stop Conditions 与交还；
+1. `ldvh-root`：00 §3.4 的技术与机械保障、§3.5 的四种价值交付方式、§4.3 的受保护内容、§4.4 的回应效力、§5.6 的据实声明、§5.7 的必停情形与 §5.8 的交还与撤回；
 2. `specification-model-foundation`：01 §7 的共同章节结构、§9 的当前规则源条件、§10.4 的最小规则引导、§12 的独立审核；
 3. `work-model-foundation`：02 §8 编排（能力承载）与 §15 记忆与反思（业务系统）对宿主接入与事件时机的机制指向，以及 §20 交还（含 Output Envelope）对宿主承载的边界；
 4. `source-of-truth-traceability`：06 §6.3 的 Git Gate 事件检查（本文 §6 的 Hook 部署使用其定义的同一 validator）与 §6.1 的 message 契约（本文 §6 的 Git Gate 检查与其对齐）。
@@ -263,7 +263,7 @@ CHANGELOG 版本条目、插件 manifest 版本字段、README 版本行共同�
 
 Human 决定只证明决定及其作用范围，不替代 manifest 检查、注册核对、部署确认或版本一致性检查。
 
-## 10. Stop Conditions
+## 10. 必停情形
 
 本规范不新增根停止类型。
 

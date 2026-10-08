@@ -85,7 +85,7 @@ const GOVERNED_GUIDANCE = `本会话工作锚点（specs/00-理念与构成.md�
 4. §4 Human 决定权——根决定清单、Human Gate 与受保护文档
 5. §5 AI 责任——主控发起的行动由单一主控 AI 最终负责、宿主闲置发起的辅助任务由机械校验保障、非全知、委派不转责、反稀释（00 §3.6、01 §5 第 13 项）
 6. §6 双轨价值——V1–V8 / HV1–HV5
-7. §7 防自欺、Stop Conditions 与交还——防自欺锚点、暂停条件、最小交还结构
+7. §5.6 据实声明、§5.7 必停情形与恢复、§5.8 交还与撤回——据实声明锚点、必停情形根触发、最小交还结构
 规则读取：ldvh_read_specification_candidates / ldvh_read_specification_content（L0–L4 渐进披露）；
 能力发现：ldvh_discover_capabilities；受控提交前：ldvh_precheck_git_commit；
 建工单前：先按 specs/21 §6.3 判定这项工作是否需要 WorkCase 承接；判定为需要时，再经 ldvh_workcase_write(action=create) 的路由询问取得 Human 选择（建工单／直接执行），不得未经询问擅自创建。对象边界以 specs/21 §6.3 原文为准，本引导不复述其正文；

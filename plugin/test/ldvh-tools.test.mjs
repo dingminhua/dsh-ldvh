@@ -1059,8 +1059,9 @@ test("guidanceTextFor returns the governed text with the seven 00 anchors", () =
 	assert.ok(text.length > 0);
 	// 00 anchors: identity block, §2 root scheme, §3.1 work model,
 	// §4 Human decision rights, §5 AI responsibilities, §6 dual-track
-	// values, §7 anti-self-deception / Stop / handover.
-	for (const anchor of ["身份块", "§2", "§3.1", "§4", "§5", "§6", "§7"]) {
+	// values, and the former §7 anchors now carried by §5.6 据实声明 /
+	// §5.7 必停情形与恢复 / §5.8 交还与撤回 (00 第七章并入第五章).
+	for (const anchor of ["身份块", "§2", "§3.1", "§4", "§5", "§6", "§5.6", "§5.7", "§5.8"]) {
 		assert.ok(text.includes(anchor), `governed guidance missing anchor: ${anchor}`);
 	}
 });

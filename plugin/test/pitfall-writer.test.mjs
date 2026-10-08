@@ -3,7 +3,7 @@
 // Every case is derived from specs/23 (the single authority):
 //   §6 对象边界与查重, §8 字段契约与正文七段+条件证据段,
 //   §9 状态生命周期（含 §9.3 勘误与补充级更新边界）, §12 召回（默认 active）,
-//   §13 受控操作, §14.1 类型特有验证, §17 Stop Conditions.
+//   §13 受控操作, §14.1 类型特有验证, §17 必停情形.
 // Tests assert spec behaviour; where the implementation diverges from the
 // spec the failure is reported in the task report, never "fixed" by bending
 // the assertion. lib/ is NOT modified here.

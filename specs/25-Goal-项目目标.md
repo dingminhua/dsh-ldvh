@@ -174,7 +174,7 @@ Goal 对象存在、状态为 active 或 change_log 条目存在，均不能单�
 2. `achieved` 状态翻转（终局判定）；
 3. Goal 类型本身的取消或合并。
 
-## 14. Stop Conditions
+## 14. 必停情形
 
 出现以下任一情况时，必须暂停受影响的 Goal 操作：
 

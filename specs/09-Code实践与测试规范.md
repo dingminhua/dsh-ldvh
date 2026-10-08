@@ -37,7 +37,7 @@ ldvh_spec:
 
 本文直接依据：
 
-1. `ldvh-root`：00 §3.4 的技术与机械保障、§7.1 的防自欺锚点、§7.2 的 Stop Conditions、§7.4 的 Output Envelope 与交还；
+1. `ldvh-root`：00 §3.4 的技术与机械保障、§5.6 的据实声明、§5.7 的必停情形与恢复、§5.8 的 Output Envelope 与交还；
 2. `specification-model-foundation`：01 §6 的身份块契约（含 `01.Att.02` 授权的 Code 消费入口字段解析）、§7 的共同章节结构、§10 的 L0–L4 读取层级、§12 的独立审核；
 3. `work-model-foundation`：02 §8 编排（能力承载）与 §16 复核与校验（制度）对实现、测试与完成声明的机制指向；
 4. `fact-model-foundation`：03 §6.1 的公共字段署名要求（事实 `change_log` 的 provider/model 由 Code 从权威记录取得，本文 §6 的机械签名实现受其约束）；
@@ -179,7 +179,7 @@ JavaScript 运行时、包管理器、测试运行器与构建工具只提供工
 
 Human 决定只证明决定及其作用范围，不替代静态分析、测试运行、副本扫描或规范一致性对照。
 
-## 9. Stop Conditions
+## 9. 必停情形
 
 本规范不新增根停止类型。
 

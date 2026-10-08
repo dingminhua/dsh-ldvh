@@ -2,7 +2,7 @@
 //
 // Every case is derived from specs/20 (the single authority):
 //   §7 身份与载体, §8 字段契约与不变量, §9 状态与生命周期（含合并/拆分）,
-//   §11 关系契约, §13 受控操作, §14.1 类型特有验证, §17 Stop Conditions.
+//   §11 关系契约, §13 受控操作, §14.1 类型特有验证, §17 必停情形.
 // Tests assert spec behaviour; where the implementation diverges from the
 // spec the failure is reported in the task report, never "fixed" by bending
 // the assertion. lib/ is NOT modified here.
