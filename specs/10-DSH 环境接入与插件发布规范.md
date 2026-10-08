@@ -12,7 +12,7 @@ ldvh_spec:
   basis:
     - "ldvh-root"
     - "specification-model-foundation"
-    - "work-model-foundation"
+    - "check-auxiliary-mechanism-foundation"
     - "source-of-truth-traceability"
   authorized_attachments: []
   dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
@@ -37,7 +37,7 @@ manifest 存在、工具注册成功、钩子安装、页面加载或发布完�
 
 1. `ldvh-root`：00 §3.4 的技术与机械保障、§3.5 的四种价值交付方式、§4.3 的受保护内容、§4.4 的回应效力、§5.6 的据实声明、§5.7 的必停情形与 §5.8 的交还与撤回；
 2. `specification-model-foundation`：01 §7 的共同章节结构、§9 的当前规则源条件、§10.4 的最小规则引导、§12 的独立审核；
-3. `work-model-foundation`：检查机制与辅助机制规范 §8 编排（能力承载）与 §15 记忆与反思（业务系统）对宿主接入与事件时机的机制指向，以及 §20 交还（含 Output Envelope）对宿主承载的边界；
+3. `business-system-foundation`：业务系统基础规范 §10.3 编排（能力承载）与 §9.3 记忆存取（业务系统）对宿主接入与事件时机的机制指向；`check-auxiliary-mechanism-foundation`：检查机制与辅助机制规范 §10.3 交还（含 Output Envelope）对宿主承载的边界；
 4. `source-of-truth-traceability`：受控提交与机械守护规范 §5.5 的 Git Gate 事件检查（本文 §6 的 Hook 部署使用其定义的同一 validator）与 §5.1 的 message 契约（本文 §6 的 Git Gate 检查与其对齐）。
 
 DSH 插件与市场规范只提供宿主接口和发布格式，不取得 LDVH 领域语义权威。
