@@ -2,7 +2,7 @@
 title: 提交钩子依赖 PATH 中的 node
 status: open
 phenomenon: "Git Gate 提交钩子以裸 `exec node` 调用校验器，当会话 shell 的 PATH 不含 node 时提交被以 `exec: node: not found`（exit 1）拒绝，阻断者为 shell 而非校验器。"
-attribution: .git/hooks/commit-msg:18 的裸 `exec node` 与 06 §6.5 Git Gate「机械守护终闸、提交前不可绕过」的语义之间存在缺口：钩子未使用绝对路径或候选路径探测，故校验器不可执行时提交被拒的原因无法与校验不通过区分。
+attribution: .git/hooks/commit-msg:18 的裸 `exec node` 与 09 §5.5 Git Gate「机械守护终闸、提交前不可绕过」的语义之间存在缺口：钩子未使用绝对路径或候选路径探测，故校验器不可执行时提交被拒的原因无法与校验不通过区分。
 impact: medium
 serves: SG-3
 object_uid: 6cb53179-96d7-49c6-bc1d-7edbb9088acc
@@ -17,6 +17,14 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充修复进展：提交 2827baf 直接修掉本阻碍（候选路径探测＋解释器不可用标记＋preflight 拒装＋ELECTRON_RUN_AS_NODE 防 fail-open，实测未注入 PATH 时全量 1019/1019）；因路由判定为直接执行、无 WorkCase 解药对象，按 26 §9.2 机械上无法销账，状态保持 open。如实登记三处边界：该组合在 26 号内无承载位（临时登记于入账依据段内）、本条仍在 open 计数中度量失真、销账与否留待该对象被处理时决定
+  - at: 2026-10-08T20:34:24.967Z
+    provider: glm
+    model: glm-5.3
+    summary: 批次 F+ 旧号位引文更正：06 §6.5→09 §5.5（Git Gate commit-msg 事件检查，attribution/入账依据/语义基础共 3 处）、「该约定在 06 或 08/09 中均无承载」→「在 09 或 10/06 中均无承载」（随 02–10 重构号位）；「机械守护终闸、提交前不可绕过」「非 passed 即阻断」引文经核对在现行 09 §5.5 中成立；其余内容逐字不变
+  - at: 2026-10-08T20:34:42.111Z
+    provider: glm
+    model: glm-5.3
+    summary: 更正上一条写入的誊录错误：现象段实测证据第 1 条钩子路径应为 `plugin/lib/git-gate-runner.js`（原文件逐字），前次误写为 `plugin/lib/commit-msg-hook/../git-gate-runner.js`；其余内容与上次写入逐字一致
 ---
 
 # 提交钩子依赖 PATH 中的 node
@@ -39,9 +47,9 @@ Git Gate 提交钩子以裸 `exec node` 调用校验器，当会话 shell 的 PA
 
 **为何算重复出现**：触发条件是「shell 的 PATH 不含 node」这一环境状态与「提交触及受管载体」的组合，两者都不是一次性事件——同一会话的每次受控提交都在该环境下执行，换一个未配置 node 的 shell 亦复现。它不依赖本次内容，故属跨行动累积的阻碍证据。
 
-**归因到哪**：归因指向 Git Gate 提交钩子对解释器路径的硬依赖，即 `.git/hooks/commit-msg:18` 的裸 `exec node` 与 06 §6.5「Git Gate 是机械守护终闸、提交前不可绕过」的语义要求之间存在缺口。钩子由 ldvh-hook-bundle 生成（文件头登记 `ldvh-native-commit-msg-hook: v1` 与 `ldvh-hook-bundle-version: 1.0.0-dev.1`），属 LDVH 自身的机械守护件，其可执行性由 LDVH 负责；会话 shell 的 PATH 不由 LDVH 控制，故不判为环境方责任。此处不采用「环境该修」的归因——那会把守卫件的可执行性依赖成一条未书写的环境约定，而该约定在 06 或 08/09 中均无承载。
+**归因到哪**：归因指向 Git Gate 提交钩子对解释器路径的硬依赖，即 `.git/hooks/commit-msg:18` 的裸 `exec node` 与 09 §5.5「Git Gate 是机械守护终闸、提交前不可绕过」的语义要求之间存在缺口。钩子由 ldvh-hook-bundle 生成（文件头登记 `ldvh-native-commit-msg-hook: v1` 与 `ldvh-hook-bundle-version: 1.0.0-dev.1`），属 LDVH 自身的机械守护件，其可执行性由 LDVH 负责；会话 shell 的 PATH 不由 LDVH 控制，故不判为环境方责任。此处不采用「环境该修」的归因——那会把守卫件的可执行性依赖成一条未书写的环境约定，而该约定在 09 或 10/06 中均无承载。
 
-**修了会改善什么**：若钩子以绝对路径或候选路径探测取得 node，则「提交被拒」的观测原因将恒为校验结论本身。这一点是本次入账的核心理由——现状下 exit 1 存在两种成因（校验不通过 / 找不到解释器），二者在观测上不可区分，而 06 §6.5 的「非 passed 即阻断」整条语义建立在「阻断即校验结论」之上。使用者无法仅凭退出码判断应当修正内容还是修复环境。
+**修了会改善什么**：若钩子以绝对路径或候选路径探测取得 node，则「提交被拒」的观测原因将恒为校验结论本身。这一点是本次入账的核心理由——现状下 exit 1 存在两种成因（校验不通过 / 找不到解释器），二者在观测上不可区分，而 09 §5.5 的「非 passed 即阻断」整条语义建立在「阻断即校验结论」之上。使用者无法仅凭退出码判断应当修正内容还是修复环境。
 
 **边界说明（与 `--no-verify` 无关）**：本次并未绕过校验，也未使用 `--no-verify`；校验实际执行并通过，被拒的是「找到校验器」这一步。因此本账目不指向任何绕过行为，只指向守卫件自身的可执行性缺口。
 

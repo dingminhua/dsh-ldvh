@@ -135,6 +135,14 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 事实更正（非状态转换）——丙方案推进：存量迁移（分离式→合并式）——正文「## 结果」节把独立 `- advice:` 段并入各残留之下的去向子项，8 条残留全落「接受现状」并各写自足理由；3 条退役词去向全部转换：2 条「另立工单」的未普查面／解析器缺口已另行立为 Spark（8d5437b7／4a21bfda，二者 refs 均已声明承自本单，本卡引用区呈现），1 条「直接行动」（docs 归档更正）经复核属非悬挂引用、保持原样；含退役词的内联声明一并改写为接受现状并写明原意向。终态判定未变：status/outcome/result/gate_1/attempt/plan/scope/reviews 逐字继承落盘对象（本入口不接收 frontmatter，故改动在结构上不可能），仅正文重写。依 21 §9.2「若原终态记录本身错误，按事实更正规则修正，不把更正伪装成领域状态转换」与 03 §9.5，经 Human 授权：Human 2026-10-01 授权（原话「丙 方案你改一个我看看效果」→「可以，就这么推进」→「dsh-ldvh@workcase-364df30e 这个还有 另立工单，直接行动，都要转换」→「确认」）：按丙方案迁移本单去向——有价值事项已立 Spark 并由其 refs 反引本单；退役词去向全部转换（另立工单→接受现状＋引用行，直接行动→接受现状）；经 correct 通道只改正文，status/outcome/result/reviews 逐字不变。
+  - at: 2026-10-08T20:45:46.123Z
+    provider: glm
+    model: glm-5.3
+    summary: 事实更正（非状态转换）——批次 F+ 旧号位更正（终态事实更正）：执行节步骤 2「09 §6 单一实现」更正为「06 §6 单一实现」（契约实现纪律经 02–10 重构由 09 号迁至 06 号），并在执行节首加号位注记；摘要/授权范围/计划/结果为冻结镜像区照录不改（「plugin/web/docs/10 §4.2」指 plugin/web/docs/ 设计文档而非 specs 号位）；终态判定与 result/reviews 逐字不变。终态判定未变：status/outcome/result/gate_1/attempt/plan/scope/reviews 逐字继承落盘对象（本入口不接收 frontmatter，故改动在结构上不可能），仅正文重写。依 21 §9.2「若原终态记录本身错误，按事实更正规则修正，不把更正伪装成领域状态转换」与 03 §9.5，经 Human 授权：Human 于本会话（2026-10-14）批准批次 F+——在 ask_user_question「批次 F 收口去向」中选择「追加批次 F+（推荐）」：逐份分类残留对象并对确需处置者做受控更正；本条为终态事实更正（21 §9.2），不触碰终态判定与 result/reviews
+  - at: 2026-10-08T20:58:18.721Z
+    provider: glm
+    model: glm-5.3
+    summary: 事实更正（非状态转换）——勘误上一条写入的一处誊录错误：结果节残留「步骤 8 呈现映射类变异」条目的「改恒 `unknown`」恢复为原记录的反引号形态（前次写入误丢反引号）；其余内容与上次写入逐字一致，号位注记不变。终态判定未变：status/outcome/result/gate_1/attempt/plan/scope/reviews 逐字继承落盘对象（本入口不接收 frontmatter，故改动在结构上不可能），仅正文重写。依 21 §9.2「若原终态记录本身错误，按事实更正规则修正，不把更正伪装成领域状态转换」与 03 §9.5，经 Human 授权：Human 于本会话（2026-10-14）批准批次 F+——在 ask_user_question「批次 F 收口去向」中选择「追加批次 F+（推荐）」：逐份分类残留对象并对确需处置者做受控更正；本条为对前条事实更正的誊录勘误（21 §9.2），不触碰终态判定与 result/reviews
 ---
 
 # WorkCase 呈现保真与设计语言收敛
@@ -167,10 +175,12 @@ change_log:
 
 ## 执行
 
+**号位注记（2026-10-14，批次 F+ 事实更正）**：步骤 2 中「09 §6 单一实现」已更正为「06 §6 单一实现」——该契约实现纪律条款经 02–10 重构由 09 号迁至 06 号（原 09 号文件名「Code实践与测试规范」现即 specs/06）。摘要/授权范围/计划/结果各节为冻结镜像，其中「plugin/web/docs/10 §4.2」指 plugin/web/docs/ 下的设计文档（非 specs 规范号位），沿用不改。
+
 - attempt 1 started at 2026-09-17T07:58:10.850Z (controller: deepseek-v4.1-flash@dsh-ldvh-session)；Gate 1 授权范围见 gate_1.scope_snapshot。
 - 步骤 1–8 完成，受控提交 48d1264（20 files changed, +812/−309）。
 - 步骤 1 现状核实：以真实 ldvh-base/workcases 对象跑「读取层 readLocalFact → 投影层 projectCurrentWorkCaseCard → showObject 装配顺序」复现全部缺陷。根因是投影守卫按错误类型判定——js-yaml 把未加引号的 ISO 时间戳解析为 `Date`、把 `satisfied` 解析为布尔、`residual` 为数组，而守卫写的是 `typeof === 'string'`，故恒不命中并静默丢弃。修前实测：closed 对象 `satisfied` 由 `[true×5]` 退化为 `[null×5]`、`residual` 由 `[]` 变 `undefined`、`gate_1.approved_at` 与 attempt 两时间戳丢失。
-- 步骤 2 完成：`projectWorkCaseResult`/`projectWorkCaseGate1`/`projectWorkCaseAttempt` 改按字段真实类型判定；新增 `shared/timestamp.ts` 的 `toRfc3339Text` 作为时间归一唯一实现（`factChangeLog.toChangeLogAtText` 改为复用它，09 §6 单一实现）。复跑全部真实对象，字段冻结数 0。
+- 步骤 2 完成：`projectWorkCaseResult`/`projectWorkCaseGate1`/`projectWorkCaseAttempt` 改按字段真实类型判定；新增 `shared/timestamp.ts` 的 `toRfc3339Text` 作为时间归一唯一实现（`factChangeLog.toChangeLogAtText` 改为复用它，06 §6 单一实现）。复跑全部真实对象，字段冻结数 0。
 - 步骤 2 附加发现（测试暴露、已一并修复）：`gate_1` 原先只在 closed 分支重建、且只含 approved_at/approver，重建会覆盖来源，致 closed 详情的 `authorization_fingerprint` 与 `scope_snapshot`（C2 授权钉扎的两个比对基准，21 §10.3）被丢弃；同时 open 走原值透传、closed 走重建，同一字段出现两种运行期形态。已提为与状态无关的统一投影。
 - 步骤 3 完成：`ObjectItem` 的 WorkCase 字段复用 `WorkCaseResult`/`WorkCaseGate1`/`WorkCaseAttempt`，删除列表侧内联的第二套形状（`satisfied?: string` vs `boolean`）。
 - 步骤 4 完成：新增 `src/utils/workcaseCheckState.ts` 承载判据三态（已满足/未满足/未记录）映射，详情、列表卡与收件箱共用；两处裸布尔插值改为经共享映射取可读词条。
