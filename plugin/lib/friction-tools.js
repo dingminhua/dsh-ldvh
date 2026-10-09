@@ -25,6 +25,7 @@ import {
   createFrictionObject,
   readFrictionObject,
   updateFrictionObject,
+  correctFrictionObject,
   listFrictionObjects,
 } from "./friction-writer.js";
 import { currentRouteValues } from "./session-signature.js";
@@ -211,8 +212,8 @@ async function executeListObject(args, exec, deps) {
 
 async function executeWriteObject(args, exec, deps) {
   const action = args?.action;
-  if (action !== "create" && action !== "update") {
-    return invalidRequest("friction-write-object", `action must be create|update; got ${JSON.stringify(action)}`, action ?? null);
+  if (action !== "create" && action !== "update" && action !== "correct") {
+    return invalidRequest("friction-write-object", `action must be create|update|correct; got ${JSON.stringify(action)}`, action ?? null);
   }
   const governed = await governedProject(deps.dshHomePath, exec);
   if (!governed.ok) {
@@ -287,6 +288,75 @@ async function executeWriteObject(args, exec, deps) {
       gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
       verification: { checks: ["frontmatter-closed-set", "body-structure", "carrier-coherence", "atomic-write", "read-back"], passed: true },
       follow_up: ["the object is created and read back; committing it to Git goes through the controlled-commit contract (specs/06)"]
+    });
+  }
+
+  // action === "correct"（26 §13 终态事实更正；Human Gate）
+  if (action === "correct") {
+    if (typeof args?.object_uid !== "string" || args.object_uid.length === 0) {
+      return invalidRequest("friction-write-object", "object_uid is required for action=correct", "correct");
+    }
+    if (typeof args?.expected_fingerprint !== "string" || args.expected_fingerprint.length === 0) {
+      return invalidRequest("friction-write-object", "expected_fingerprint is required for action=correct (CAS baseline — from your last precise read)", "correct");
+    }
+    if (typeof args?.body_markdown_after !== "string" || args.body_markdown_after.length === 0) {
+      return invalidRequest("friction-write-object", "body_markdown_after (markdown) is required for action=correct (the complete target body starting with '## 现象')", "correct");
+    }
+    if (typeof args?.change_summary !== "string" || args.change_summary.length === 0) {
+      return invalidRequest("friction-write-object", "change_summary (one short semantic summary for the change_log) is required for action=correct", "correct");
+    }
+    // Human 授权记录必填（26 §13）：更正与其它受控更新同权限，缺之 fail-closed。
+    const auth = args?.human_authorization;
+    if (typeof auth !== "string" || auth.trim().length === 0) {
+      return invalidRequest("friction-write-object", "human_authorization is required for action=correct (26 §13 终态事实更正：Human 确认；无授权记录的更正请求 fail-closed)", "correct");
+    }
+    const corrected = await correctFrictionObject({
+      factSourceRoot,
+      objectUid: args.object_uid,
+      expectedFingerprint: args.expected_fingerprint,
+      // 省略即不动 relations（只改正文）；显式给数组则整体替换并重跑全套关系校验。
+      relationsAfter: Array.isArray(args?.relations_after) ? args.relations_after : null,
+      bodyMarkdownAfter: args.body_markdown_after,
+      changeSummary: args.change_summary,
+      humanAuthorization: auth,
+      sessionSignature: sig.ok ? sig.value : null,
+      gitCommitResolver: async (hash) => {
+        if (typeof hash !== "string" || !/^[0-9a-f]{40}$/i.test(hash)) return false;
+        return new Promise((resolve) => {
+          execFile("git", ["cat-file", "-e", `${hash}^{commit}`], { cwd: factSourceRoot }, (err) => {
+            resolve(!err);
+          });
+        });
+      },
+    });
+    if (!corrected.ok) {
+      return writeRejected("friction-write-object", corrected, factSourceRoot);
+    }
+    // 写后回读（26 §13「回读同其它动作」）
+    const back = await readFrictionObject({ factSourceRoot, objectUid: args.object_uid });
+    if (!back.ok || back.value.fingerprint !== corrected.value.fingerprint) {
+      return envelope("friction-write-object", "partial", {
+        result: { object_uid: args.object_uid, fingerprint: corrected.value.fingerprint, read_back: "failed" },
+        scope: { requested: "correct", completed: ["correct"], not_completed: ["read-back"], residual_risks: ["write landed but is unverified — file state unknown until re-read"] },
+        sources: [{ kind: "fact-object", path: join(factSourceRoot, "frictions") }],
+        gaps: [`corrected but read-back failed: ${back.ok ? "fingerprint mismatch" : back.error.message}`],
+        verification: { checks: ["correct"], passed: false },
+        follow_up: ["STOP further writes and success claims (03 §9.7); re-read the object before anything else"]
+      });
+    }
+    return envelope("friction-write-object", "completed", {
+      result: {
+        action: "correct",
+        object_uid: args.object_uid,
+        fingerprint: corrected.value.fingerprint,
+        read_back: { ok: true, fingerprint: back.value.fingerprint, body_valid: back.value.body_valid },
+        changes: [{ object_uid: args.object_uid, change: "corrected", summary: args.change_summary }]
+      },
+      scope: { requested: "correct", completed: ["correct", "read-back"], not_completed: [] },
+      sources: [{ kind: "fact-object", path: back.value.file, content_fingerprint: corrected.value.fingerprint }],
+      gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
+      verification: { checks: ["cas-baseline", "resolved-required", "relations-contract", "body-structure", "carrier-coherence", "no-op-rejection", "atomic-write", "read-back"], passed: true },
+      follow_up: ["the object stays status=resolved — a correction never reopens a terminal record (26 §13)"]
     });
   }
 
@@ -472,14 +542,16 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          action: { type: "string", enum: ["create", "update"] },
+          action: { type: "string", enum: ["create", "update", "correct"] },
           frontmatter_draft: frictionFrontmatter,
           body_markdown: { type: "string", description: "create: the body markdown starting with '## 现象' (H2 sections 现象/入账依据, plus 处置 iff status resolved/deferred; the H1 is generated from title)" },
-          object_uid: { type: "string", description: "update: target object" },
-          expected_fingerprint: { type: "string", description: "update: CAS baseline fingerprint from your last precise read" },
+          object_uid: { type: "string", description: "update/correct: target object" },
+          expected_fingerprint: { type: "string", description: "update/correct: CAS baseline fingerprint from your last precise read" },
           frontmatter_after: (() => { const { required: _r, ...rest } = frictionFrontmatter; return { ...rest, description: "update: the complete target frontmatter (all fields; schema required relaxed here — handler validates completeness via CAS+writer)" }; })(),
-          body_markdown_after: { type: "string", description: "update: the complete target body markdown (same shape as body_markdown)" },
-          change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry" }
+          body_markdown_after: { type: "string", description: "update/correct: the complete target body markdown (same shape as body_markdown)" },
+          change_summary: { type: "string", description: "update/correct: one short semantic summary for the change_log entry" },
+          relations_after: { type: "array", description: "correct ONLY: replaces the whole relations array — the one frontmatter field a correction may touch (26 §13; every other field is inherited byte-identically). Omit to correct the body alone. Each entry {relation_key, target:{object_uid}, evidence_locator?:{commit}}; the whole array is re-validated and its targets re-resolved.", items: { type: "object" } },
+          human_authorization: { type: "string", description: "correct ONLY, REQUIRED: the Human's authorization record (who/when/what it covers) for amending a terminal record. It is written verbatim into the change_log summary; a correction request without it fails closed (26 §13)." }
         },
         required: ["action"],
         additionalProperties: false

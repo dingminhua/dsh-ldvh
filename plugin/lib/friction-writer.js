@@ -799,10 +799,22 @@ export async function correctFrictionObject(args) {
     return failure("friction/coherence_invalid", "carrier coherence failed on correction", { issues: coherenceCheck.issues });
   }
 
+  // no-op 拒绝（审核发现⑤）：正文与 relations 均未变时不得追加一条声称更正过的
+  // change_log——那会让账目历史出现「改过但其实没改」的假记录（02 §10.5 不记录 no-op）。
+  // 正文比对去尾随空白：落盘时末尾恒有一个换行，直接比对会把每次调用都当成「有改动」。
+  const trimEnd = (text) => text.replace(/\s+$/, "");
+  const bodyUnchanged = trimEnd(assembleBody(fm.title, bodyMarkdownAfter)) === trimEnd(current.value.body);
+  const relationsUnchanged = JSON.stringify(next.relations ?? null) === JSON.stringify(fm.relations ?? null);
+  if (bodyUnchanged && relationsUnchanged) {
+    return failure("friction/no_op", "correction would change neither the body nor the relations — 02 §10.5 不记录 no-op；refusing to append a change_log entry that claims a correction happened");
+  }
+
+  // 变更摘要内嵌授权文本（审核发现②：授权须逐字留痕，不能只「必填」后丢弃）。
+  // 措辞对齐 21 号 correct，便于读者识别这是「终态事实更正」而非一次状态推进。
   next.change_log = [...(fm.change_log ?? []), {
     at: new Date().toISOString(),
     ...sig.signature,
-    summary: changeSummary,
+    summary: `事实更正（非状态转换）——${changeSummary}。终态判定未变：status/title/phenomenon/impact/serves/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter，改动在结构上不可能；可改范围仅正文与 relations（26 §13）。经 Human 授权：${humanAuthorization.trim()}`,
   }];
   const filePath = objectFilePath(factSourceRoot, objectUid);
   const content = buildFileContent(next, body);

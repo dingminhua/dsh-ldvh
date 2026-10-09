@@ -738,12 +738,121 @@ test("correct: open 账与缺授权的更正请求都被机械拒绝（26 §13 f
     const noAuth = await correctFrictionObject({
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
-      expectedFingerprint: resolved.fingerprint,
+      expectedFingerprint: resolved.value.fingerprint,
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "无授权记录的更正请求",
       sessionSignature: TEST_SIGNATURE,
     });
     assert.equal(noAuth.ok, false, "a correction without human_authorization must fail closed");
+  });
+});
+
+test("correct: relationsAfter 非法输入被机械拒绝，no-op 被拒（26 §13）", async () => {
+  // 审核发现⑥：原有 2 例对「不可触及字段」的断言结构上恒真（无 frontmatter 入口），
+  // 未覆盖 relationsAfter 的非法输入与 no-op。本例补真判别力。
+  await withTemp("friction-writer.", async (root) => {
+    const { read: r1 } = await createAndRead(root);
+    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createAdrFixture(root, adrUid);
+    const resolved = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        status: "resolved",
+        relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+      },
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "销账",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(resolved.ok);
+
+    // ① resolved 后 relations 被清空 → 违反「resolved 必有 informs」
+    const noInforms = await correctFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: resolved.value.fingerprint,
+      relationsAfter: [],
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "把 informs 清空",
+      humanAuthorization: "Human 授权",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(noInforms.ok, false, "a resolved friction must keep at least one informs");
+    assert.equal(noInforms.error.code, "friction/relations_invalid");
+
+    // ② 非法 relation_key（非 informs）→ 闭集拒绝
+    const badKey = await correctFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: resolved.value.fingerprint,
+      relationsAfter: [{ relation_key: "supersedes", target: { object_uid: adrUid } }],
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "写入闭集外的 relation_key",
+      humanAuthorization: "Human 授权",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(badKey.ok, false, "relation_key closed set is {informs}");
+    assert.equal(badKey.error.code, "friction/relations_invalid");
+
+    // ③ 目标不可解析 → 拒
+    const unresolvable = await correctFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: resolved.value.fingerprint,
+      relationsAfter: [{ relation_key: "informs", target: { object_uid: "bbbbbbbb-bbbb-4bbb-8bbb-eeeeeeeeeeee" } }],
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "指向不存在的目标",
+      humanAuthorization: "Human 授权",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(unresolvable.ok, false);
+    assert.equal(unresolvable.error.code, "friction/relation_target_unresolvable");
+
+    // ④ 缺 change_summary → 拒
+    const noSummary = await correctFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: resolved.value.fingerprint,
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "",
+      humanAuthorization: "Human 授权",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(noSummary.ok, false);
+
+    // ⑤ CAS 失配 → 拒
+    const badCas = await correctFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: "0".repeat(64),
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "陈旧指纹",
+      humanAuthorization: "Human 授权",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(badCas.ok, false);
+    assert.equal(badCas.error.code, "friction/cas_conflict");
+
+    // ⑥ no-op：正文与 relations 均未变 → 拒（02 §10.5 不记录 no-op）
+    const unchanged = (await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid })).value;
+    const noOp = await correctFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: unchanged.fingerprint,
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "什么都没改",
+      humanAuthorization: "Human 授权",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(noOp.ok, false, "a no-op correction must be refused rather than logged as a change");
+    assert.equal(noOp.error.code, "friction/no_op");
+
+    // 断言 no-op 被拒后 change_log 未被追加（假记录不得留下）
+    const afterNoOp = (await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid })).value;
+    assert.equal(afterNoOp.frontmatter.change_log.length, unchanged.frontmatter.change_log.length);
   });
 });
 
