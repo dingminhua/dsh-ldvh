@@ -804,7 +804,24 @@ export async function correctFrictionObject(args) {
   // 正文比对去尾随空白：落盘时末尾恒有一个换行，直接比对会把每次调用都当成「有改动」。
   const trimEnd = (text) => text.replace(/\s+$/, "");
   const bodyUnchanged = trimEnd(assembleBody(fm.title, bodyMarkdownAfter)) === trimEnd(current.value.body);
-  const relationsUnchanged = JSON.stringify(next.relations ?? null) === JSON.stringify(fm.relations ?? null);
+  // relations 比对必须**键序无关**（审核复审发现 A）：JSON.stringify 对键序敏感，
+  // 而 relations 经 YAML 落盘后键序由序列化器决定。调用方以等价键序重传会被误判为
+  // 「有变更」，从而追加一条声称更正过的 change_log——恰是本条要防的假记录形态。
+  // 故按 schema 规范化（每条关系固定取 relation_key / target.object_uid /
+  // evidence_locator.commit）后逐字段比较。
+  const normalizeRelations = (rels) => {
+    const list = Array.isArray(rels) ? rels : [];
+    return list.map((rel) => {
+      const source = rel !== null && typeof rel === "object" ? rel : {};
+      return {
+        relation_key: source.relation_key ?? null,
+        object_uid: source.target?.object_uid ?? null,
+        commit: source.evidence_locator?.commit ?? null,
+      };
+    });
+  };
+  const relationsUnchanged = JSON.stringify(normalizeRelations(next.relations))
+    === JSON.stringify(normalizeRelations(fm.relations));
   if (bodyUnchanged && relationsUnchanged) {
     return failure("friction/no_op", "correction would change neither the body nor the relations — 02 §10.5 不记录 no-op；refusing to append a change_log entry that claims a correction happened");
   }

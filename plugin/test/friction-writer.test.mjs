@@ -856,6 +856,112 @@ test("correct: relationsAfter 非法输入被机械拒绝，no-op 被拒（26 §
   });
 });
 
+test("correct: 等价键序的 relations 重传被判 no-op（复审缺陷 A 的回归钉）", async () => {
+  // 缺陷形态：no-op 曾用 JSON.stringify 全等比较 relations，对键序敏感。落盘经 YAML
+  // 序列化后键序由序列化器决定，调用方以等价键序重传会被误判「有变更」→ 追加一条
+  // 声称更正过的 change_log，即本动作要防的假记录。
+  await withTemp("friction-writer.", async (root) => {
+    const { read: r1 } = await createAndRead(root);
+    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createAdrFixture(root, adrUid);
+    const resolved = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        status: "resolved",
+        relations: [{
+          relation_key: "informs",
+          target: { object_uid: adrUid },
+          evidence_locator: { commit: "a".repeat(40) },
+        }],
+      },
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "销账",
+      sessionSignature: TEST_SIGNATURE,
+      gitCommitResolver: async () => true,
+    });
+    assert.ok(resolved.ok, JSON.stringify(resolved.error));
+
+    const stored = (await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid })).value;
+    // 反序键序（语义完全等价）：evidence_locator / target / relation_key 换位
+    const reordered = [{
+      evidence_locator: { commit: "a".repeat(40) },
+      target: { object_uid: adrUid },
+      relation_key: "informs",
+    }];
+    const noOp = await correctFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: stored.fingerprint,
+      relationsAfter: reordered,
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "以等价键序重传 relations",
+      humanAuthorization: "Human 授权",
+      sessionSignature: TEST_SIGNATURE,
+      gitCommitResolver: async () => true,
+    });
+    assert.equal(noOp.ok, false, "等价键序的 relations 不是变更，必须判 no-op");
+    assert.equal(noOp.error.code, "friction/no_op");
+
+    const afterNoOp = (await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid })).value;
+    assert.equal(
+      afterNoOp.frontmatter.change_log.length,
+      stored.frontmatter.change_log.length,
+      "a no-op must not append a change_log entry claiming a correction",
+    );
+  });
+});
+
+test("correct: 合法 relations 变更确实写入并落盘（正向路径的运行期证据）", async () => {
+  // 复审指出「正确路径的 relations 写入」缺运行期证据。本例钉住：把不带 locator 的 informs
+  // 更正为带 locator 的形态（真实变更），应放行、回读可见、change_log 带授权原文。
+  await withTemp("friction-writer.", async (root) => {
+    const { read: r1 } = await createAndRead(root);
+    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createAdrFixture(root, adrUid);
+    const resolved = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        status: "resolved",
+        relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+      },
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "销账",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(resolved.ok);
+
+    const fixed = await correctFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: resolved.value.fingerprint,
+      relationsAfter: [{
+        relation_key: "informs",
+        target: { object_uid: adrUid },
+        evidence_locator: { commit: "e4e178fd7e3293f47003ed0150ab1128cc6ae0ef" },
+      }],
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "补记 commit 证据定位",
+      humanAuthorization: "Human（dsh-ldvh 会话主，2026-10-09 明示「授权你可以临时修改一下」）",
+      sessionSignature: TEST_SIGNATURE,
+      gitCommitResolver: async () => true,
+    });
+    assert.ok(fixed.ok, JSON.stringify(fixed.error));
+
+    const after = (await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid })).value;
+    assert.equal(after.frontmatter.relations[0].evidence_locator.commit, "e4e178fd7e3293f47003ed0150ab1128cc6ae0ef");
+    assert.ok(
+      after.frontmatter.change_log.at(-1).summary.includes("经 Human 授权："),
+      "the change_log entry must carry the authorization text verbatim",
+    );
+  });
+});
+
 test("state machine: resolved object update returns status_terminal (26 §9.2 终态不重开)", async () => {
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);

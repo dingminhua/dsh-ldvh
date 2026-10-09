@@ -551,7 +551,7 @@ function parameterSchemaFor(operationKey) {
           body_markdown_after: { type: "string", description: "update/correct: the complete target body markdown (same shape as body_markdown)" },
           change_summary: { type: "string", description: "update/correct: one short semantic summary for the change_log entry" },
           relations_after: { type: "array", description: "correct ONLY: replaces the whole relations array — the one frontmatter field a correction may touch (26 §13; every other field is inherited byte-identically). Omit to correct the body alone. Each entry {relation_key, target:{object_uid}, evidence_locator?:{commit}}; the whole array is re-validated and its targets re-resolved.", items: { type: "object" } },
-          human_authorization: { type: "string", description: "correct ONLY, REQUIRED: the Human's authorization record (who/when/what it covers) for amending a terminal record. It is written verbatim into the change_log summary; a correction request without it fails closed (26 §13)." }
+          human_authorization: { type: "string", description: "correct ONLY, REQUIRED: the Human's authorization record (who/when/what it covers) for amending a terminal record. It is written verbatim into the change_log summary; a correction request without it fails closed (26 §13). NOTE: this field is a self-report — its presence and content are NOT proof that Human actually consented (the same boundary as 21 §14 correct); the mechanical gate only guarantees the record was supplied." }
         },
         required: ["action"],
         additionalProperties: false
