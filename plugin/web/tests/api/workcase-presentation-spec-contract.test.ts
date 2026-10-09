@@ -106,14 +106,18 @@ test('Fact projections provide no application-level refresh controls', () => {
   assert.doesNotMatch(refreshableSources, /useManualFactRefresh|refreshFacts|RefreshCw|setInterval|visibilitychange|FACT_REFRESH_INTERVAL_MS/);
 });
 
-test('specs/10 §5.5 declares the same derivation the presentation layer implements', () => {
-  // 10 §5.5 是 WorkCase 呈现接线的登记处；21 号仍是类型权威（10 §3.3）。
-  // 本测试把 §5.5 声明与实现钉在一起，防两者漂移。
-  const spec = fs.readFileSync(path.resolve(WEB_DIR, '../../specs/10-Web呈现与交互规范.md'), 'utf8');
+test('WorkCase 呈现契约声明与呈现层实现同源（内容在 web 设计文档 §5）', () => {
+  // 2026-10-09 Human 决定 A 之后，WorkCase 呈现契约的具体规则由
+  // plugin/web/docs/10 承载（07 §5.5 已声明该归属）；21 号仍是类型权威（07 §3.3）。
+  // 本测试把承载面的声明与实现钉在一起，防两者漂移。
+  const spec = fs.readFileSync(
+    path.resolve(WEB_DIR, 'docs/10-Web开发现状与设计语言基线.md'),
+    'utf8',
+  );
   const lifecycle = readWebSource('shared/workcaseLifecycle.ts');
 
-  // §5.5 存在，且声明了四组与五档。
-  assert.match(spec, /### 5\.5 WorkCase 呈现契约/);
+  // 承载面存在，且声明了四组与五档。
+  assert.match(spec, /## 5\. WorkCase 呈现契约/);
   for (const group of ['pending_gate1', 'executing', 'awaiting_gate2', 'closed']) {
     assert.ok(spec.includes(group), `§5.5 must name the derived group ${group}`);
   }
