@@ -4,7 +4,7 @@ ldvh_spec:
   spec_id: "21"
   spec_kind: "spec"
   title: "WorkCase 工单"
-  canonical_path: "specs/21-WorkCase-工单.md"
+  canonical_path: "specs/21-WorkCase 工单.md"
   parent_spec: "fact-model-foundation"
   relation: "refines"
   positioning: "定义 WorkCase 事实类型的目的、对象边界、身份与载体、字段契约、状态与生命周期、Gate 1 与 Gate 2 授权语义、attempt 令牌与冷恢复、关系契约、召回消费与受控操作，是工单执行业务系统中已批准工单及其结果审计的唯一类型权威"

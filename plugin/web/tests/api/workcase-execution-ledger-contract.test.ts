@@ -33,7 +33,7 @@ function readSource(relativePath: string): string {
   return fs.readFileSync(path.join(REPOSITORY_ROOT, relativePath), 'utf8');
 }
 
-const SPEC_PATH = 'specs/21-WorkCase-工单.md';
+const SPEC_PATH = 'specs/21-WorkCase 工单.md';
 const WRITER_PATH = 'plugin/lib/workcase-writer.js';
 const TOOLS_PATH = 'plugin/lib/workcase-tools.js';
 

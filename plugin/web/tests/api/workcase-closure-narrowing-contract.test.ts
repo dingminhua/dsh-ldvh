@@ -615,7 +615,7 @@ test('不得过度声明：只实现前提①（结构），不得声称 A 的�
 
   // ④ 规范侧该行须仍在（防被静默删除）。
   const spec21 = fs.readFileSync(
-    path.join(REPOSITORY_ROOT, '..', 'specs/21-WorkCase-工单.md'),
+    path.join(REPOSITORY_ROOT, '..', 'specs/21-WorkCase 工单.md'),
     'utf8',
   );
   assert.match(spec21, /决定 A 的前提「去向正文自足」/, '21 §15.2 须仍登记该缺口行');
