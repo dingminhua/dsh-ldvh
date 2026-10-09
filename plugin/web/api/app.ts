@@ -92,12 +92,34 @@ app.use('/api/federation', federationRoutes)
 
 /**
  * health
+ *
+ * `Access-Control-Allow-Origin` 不是装饰（工单 c6d88dac）：宿主的 Web 呈现探活要
+ * 判定「iframe 那个地址是否真的健康」，而它从主文档直连本服务是**跨源**的。
+ * 本服务上方的 cors() 白名单只放行本机 dev server（localhost:5173/5174/3000），
+ * 对运行中的子进程实测确认：`Origin: null`、`dsh-app://app`、
+ * `http://127.0.0.1:19387` 都拿不到 ACAO。于是客户端在生产配置下**读不到**
+ * 状态码与响应体，只能退到 `mode:"no-cors"` 的不透明响应——而那判不出 500/503，
+ * 只能判「连得上」，端口被别的进程占用也会被误报成健康。
+ *
+ * 放行范围只加在**这一个只读端点**上，且刻意用 `*` 而非白名单：
+ *   - 只回 `{success, message}`，无凭据、无用户数据，无可泄露面；
+ *   - 来源取值不可预知：betterSidebar 对同源页面强制不透明源沙箱（见
+ *     lib/client.js 的 LdvhSidebarTab 注释），此时来源退成 `Origin: null`；
+ *     主文档则是自定义 scheme `dsh-app://app`。白名单必须逐个猜，而猜错的表现
+ *     恰恰是「探活退回弱结论」——比放行本身更难察觉。
+ *   - `*` 与既有 cors() 的 `credentials: true` 不冲突：health 是无凭据的简单
+ *     GET，浏览器按无凭据路径处理通配符。
+ * 范围**不外扩**：/api/objects 等其它路由仍受上方 cors() 白名单约束。
  */
 app.use(
   '/api/health',
   (req: Request, res: Response, next: NextFunction): void => {
     void req
     void next
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    // 供 no-cors 之外的读法与排障取证：不透明响应读不到它，但 cors 放行后
+    // 客户端能读到，据此区分「在服务」与「健康」。
+    res.setHeader('X-LDVH-Health', 'ok')
     res.status(200).json({
       success: true,
       message: 'ok',

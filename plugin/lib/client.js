@@ -424,12 +424,15 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 健康自报：优先走 cors 正常的读法拿状态码与响应体（子进程未放行本机源时
-     * 这一步会被 cors 拒绝）；被拒则退回「连得上即视为可达」的弱结论。
+     * 健康自报：走 cors 正常的读法取状态码与响应体，据此区分「在服务」与「健康」。
      *
-     * **本函数的弱结论边界（如实声明）**：cors 拒收时只能得到「有东西在应答」，
-     * 判不出 500/503。故调用方把「强结论」与「弱结论」区分传下去，UI 文案也
-     * 据此区分「不可用」与「可达但状态未知」——不把弱结论表述成「健康」。
+     * 子进程在 /api/health 上回 `Access-Control-Allow-Origin: *` 与
+     * `X-LDVH-Health: ok`（见 plugin/web/api/app.ts 与工单 c6d88dac 的说明），
+     * 所以这一步在真实部署下**读得到**——不透明响应那条弱结论是兜底，不是常态。
+     *
+     * 弱结论边界仍如实保留：若子进程被换成不带这些头的实现，cors 会拒收，
+     * 此时只剩「有东西在应答」，判不出 500/503。调用方据 state 区分展示，
+     * 不把弱结论表述成「健康」。
      */
     function probeHealthStatus(then) {
       fetch(ldvhWebOrigin + "/ldvh/api/health", { method: "GET", cache: "no-store" })
@@ -439,7 +442,10 @@ window.__ModuleLoader__.load({
             // 子进程 /api/health 回 { success: true, message: "ok" }
             // （见 plugin/web/api/app.ts）。
             then(!!(body && body.success === true), body && body.success === true ? "healthy" : "unhealthy");
-          }, function () { then(true, "reachable"); });
+          }, function () {
+            // 读不到体（实现变了或被代理改写）：退到「连得上」的弱结论。
+            then(true, "reachable");
+          });
         })
         .catch(function () {
           // cors 拒收或网络不可达：退到不透明连通性判定。

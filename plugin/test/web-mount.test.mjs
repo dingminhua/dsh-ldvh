@@ -317,6 +317,65 @@ test("a real content change is not swallowed by the recycle throttle", async () 
   }
 });
 
+test("a change landing during an in-flight recycle is not lost", async () => {
+  // 第二次独立复核发现的残留竞态：v2 触发回收后、回收**进行中**再落 v3。初版
+  // 修法只是「回收没发生就不推进基线」，但 v3 此后不会再有 fs 事件来驱动它——
+  // 实测（复核者在 /tmp 用慢启动子进程复现）进程会一直跑 v2 而磁盘是 v3。
+  // 本用例用慢启动子进程放大这个窗口，并直接断言**最终跑的是 v3**。
+  const root = await mkdtemp(join(tmpdir(), "ldvh-recheck-"));
+  const bootFile = join(root, "booted");
+  const pidFile = join(root, "child.pid");
+  await mkdir(join(root, "api"), { recursive: true });
+  const target = join(root, "api", "server.ts");
+  await writeFile(target, "// v1\n");
+  // 子进程启动时把自己读到的源码内容写进 bootFile：于是「进程跑的是哪一版」
+  // 可被外部直接读出，不必靠 pid 推断。
+  const manager = createWebApiProcess({
+    webRoot: root,
+    port: 33000 + Math.floor(Math.random() * 15000),
+    env: {},
+    command: {
+      exec: process.execPath,
+      // 子进程在 **spawn 时刻**就把读到的源码内容写进 bootFile（真实子进程加载
+      // 模块也是在启动时读盘），然后**延迟 3s** 才 listen。
+      // 两个设计各有用处：bootFile 令「进程跑的是哪一版」可被外部直读；
+      // 3s 延迟把「回收进行中」的窗口拉长到超过去抖窗口 1.5s，竞态才真会出现。
+      argv: ["-e", `const fs=require('fs');fs.writeFileSync(${JSON.stringify(pidFile)},String(process.pid));let boot='';try{boot=fs.readFileSync(${JSON.stringify(target)},'utf8')}catch{}fs.writeFileSync(${JSON.stringify(bootFile)},boot);setTimeout(()=>{require('http').createServer((q,s)=>{s.setHeader('content-type','application/json');s.end('{"ok":true}')}).listen(Number(process.env.PORT),'127.0.0.1')},3000)`],
+    },
+    readinessPath: "/api/health",
+    // 慢启动 3s：让「回收进行中」的时间窗**长于去抖窗口 1.5s**。这是复现该竞态
+    // 的必要条件——若回收在下一个去抖窗口到期前就结束，v3 写入自己产生的新
+    // fs 事件会把它正常消费掉，竞态根本不出现（初版用例就栽在这里：它恒过，
+    // 因为它压根没进过竞态窗口）。
+    readinessTimeoutMs: 20_000,
+    watchSource: true,
+  });
+  const readBoot = async () => (await readFile(bootFile, "utf8")).trim();
+  try {
+    await manager.ensureReady();
+    assert.equal(await readBoot(), "// v1");
+
+    // v2 → 触发回收（去抖 1.5s 后开始 kill + 重启，重启本身要 3s）
+    await writeFile(target, "// v2\n");
+    // v3 落在「回收进行中」：此刻 recycling 为 true，v3 自己的去抖窗口会在
+    // t≈3.5s 触发，而那轮回收要到 t≈4.5s 才结束——回收早退，v3 被吞。
+    await new Promise((done) => setTimeout(done, 2500));
+    await writeFile(target, "// v3\n");
+
+    // 不发任何请求，等它自己收敛到 v3。
+    let booted = "";
+    for (let i = 0; i < 80; i += 1) {
+      await new Promise((done) => setTimeout(done, 500));
+      try { booted = await readBoot(); } catch { continue; }
+      if (booted === "// v3") break;
+    }
+    assert.equal(await readFile(target, "utf8"), "// v3\n", "disk must hold v3");
+    assert.equal(booted, "// v3", "the running child must end up on v3 — a change landing mid-recycle must not be lost");
+  } finally {
+    manager.dispose();
+  }
+});
+
 test("dispose still refuses to resurrect the child after an unexpected exit", async () => {
   // dispose 的语义不得被 re-warm 分支破坏：关闭后不复活（既有 dispose 用例钉住
   // 「dispose 后 ensureReady 返回 null」，这里钉住崩溃路径上也不复活）。

@@ -194,6 +194,11 @@ export function createWebApiProcess(options) {
   let watchTimer = null;
   let watcher = null;
   let sourceFingerprint = null;
+  // 挂起的差异：回收被节流/正在回收时，本次真实改码既没被消费也不该丢。记下它，
+  // 等当前这轮回收结束后重新按**当前**内容判一次（第二次独立复核发现的残留竞态：
+  // 只「不推进基线」是不够的——此后可能再没有 fs 事件来驱动那次改码）。
+  let pendingFingerprint = null;
+  let recheckTimer = null;
   // 回收节流：一次真实改码在 fs.watch 上是「truncate → 写 → 连续多事件」的一串，
   // 去抖之后仍可能剩一两个尾巴事件。没有这道闸会连杀连起，页面反复闪。
   let lastRecycle = null;
@@ -239,6 +244,39 @@ export function createWebApiProcess(options) {
     }
     // 重拉失败也算回收已发生：基线推进是必要的，否则每次事件都会重复触发回收。
     return true;
+  }
+  /**
+   * 挂起差异的重试：等当前这轮回收结束后，按**当前**内容重新判一次。
+   * 无需再等 fs 事件——第二次独立复核实测过「此后没有新事件」的形态：v2 回收
+   * 期间落 v3，若不主动重判，进程会一直跑 v2 而磁盘是 v3。
+   * 指数退避到 5s 封顶：回收本身要等旧进程退出（最多 5s）+ 启动，总时长有界。
+   */
+  let recheckDelayMs = 250;
+  async function runRecheck() {
+    recheckTimer = null;
+    if (disposed || pendingFingerprint === null) return;
+    if (recycling || spawned === null || exited) {
+      // 还在回收：排下一次，别在这个时刻抢跑。
+      recheckTimer = setTimeout(() => { void runRecheck(); }, recheckDelayMs);
+      recheckTimer.unref?.();
+      return;
+    }
+    const seen = pendingFingerprint;
+    pendingFingerprint = null;
+    if (seen === sourceFingerprint) return; // 磁盘已回到基线内容：无事可做
+    const recycled = await recycleChild("api source content changed (requeued)");
+    if (recycled) { sourceFingerprint = seen; recheckDelayMs = 250; return; }
+    // 仍没能回收（又进了节流/回收窗口）：差异重新挂起，退避后重试。
+    if (disposed) return;
+    pendingFingerprint = seen;
+    recheckDelayMs = Math.min(recheckDelayMs * 2, 5000);
+    recheckTimer = setTimeout(() => { void runRecheck(); }, recheckDelayMs);
+    recheckTimer.unref?.();
+  }
+  function scheduleRecheck() {
+    if (disposed || recheckTimer !== null) return;
+    recheckTimer = setTimeout(() => { void runRecheck(); }, recheckDelayMs);
+    recheckTimer.unref?.();
   }
   if (watchSource) {
     import("node:fs").then(async (fs) => {
@@ -311,7 +349,14 @@ export function createWebApiProcess(options) {
             // 基线已是新内容，下次事件会判成未变，进程却还跑着旧码。故回收未发生
             // 时保持旧基线，让后续事件（或本次的重试）仍能看到差异。
             const recycled = await recycleChild("api source content changed");
-            if (recycled) sourceFingerprint = next;
+            if (recycled) { sourceFingerprint = next; return; }
+            // 回收被节流或正在回收而早退：**基线不动，本次差异也不能丢**。
+            // 第二次独立复核实测：v2 回收进行中再来 v3，若只是「不推进基线」就
+            // 返回，v3 不会再有 fs 事件来驱动它——进程会一直跑 v2 而磁盘是 v3。
+            // 故把差异挂起，等本轮回收结束后按**当前**内容重新判一次。
+            if (disposed) return;
+            pendingFingerprint = next;
+            void scheduleRecheck();
           })();
         }, 1500);
       });
@@ -430,6 +475,11 @@ export function createWebApiProcess(options) {
         clearTimeout(watchTimer);
         watchTimer = null;
       }
+      if (recheckTimer !== null) {
+        clearTimeout(recheckTimer);
+        recheckTimer = null;
+      }
+      pendingFingerprint = null;
       if (spawned !== null && !exited) {
         const proc = spawned;
         try { proc.kill("SIGTERM"); } catch { /* best effort */ }
