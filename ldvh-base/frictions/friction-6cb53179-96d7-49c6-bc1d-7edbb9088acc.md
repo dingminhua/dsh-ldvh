@@ -2,7 +2,7 @@
 title: 提交钩子依赖 PATH 中的 node
 status: open
 phenomenon: "Git Gate 提交钩子以裸 `exec node` 调用校验器，当会话 shell 的 PATH 不含 node 时提交被以 `exec: node: not found`（exit 1）拒绝，阻断者为 shell 而非校验器。"
-attribution: .git/hooks/commit-msg:18 的裸 `exec node` 与 09 §5.5 Git Gate「机械守护终闸、提交前不可绕过」的语义之间存在缺口：钩子未使用绝对路径或候选路径探测，故校验器不可执行时提交被拒的原因无法与校验不通过区分。
+attribution: .git/hooks/commit-msg:18 的裸 `exec node` 与 09 §5.5 Git Gate「机械守护终闸、提交前不可绕过」的语义之间存在缺口：钩子未使用绝对路径或候选路径探测，故校验器不可执行时提交被拒的原因无法与校验不通过区分。2026-10-09 补记：修复后该环境依赖转移到独立复核会话的验证命令面（prompt 内人工 export PATH），无机械保障承载。
 impact: medium
 serves: SG-3
 object_uid: 6cb53179-96d7-49c6-bc1d-7edbb9088acc
@@ -25,6 +25,10 @@ change_log:
     provider: glm
     model: glm-5.3
     summary: 更正上一条写入的誊录错误：现象段实测证据第 1 条钩子路径应为 `plugin/lib/git-gate-runner.js`（原文件逐字），前次误写为 `plugin/lib/commit-msg-hook/../git-gate-runner.js`；其余内容与上次写入逐字一致
+  - at: 2026-10-09T14:47:28.241Z
+    provider: workbuddy
+    model: space-bunny
+    summary: 补记 2026-10-09 残留形态：钩子侧已修后，环境依赖转移到独立复核会话的验证命令面——12 小时内多个复核子会话首条命令自行 export PATH，补偿只存在于自然语言 prompt 无机械保障；状态不变（open），因仍无可指向的解药对象
 ---
 
 # 提交钩子依赖 PATH 中的 node
@@ -38,10 +42,12 @@ Git Gate 提交钩子以裸 `exec node` 调用校验器，当会话 shell 的 PA
 - `.git/hooks/commit-msg` 第 18 行逐字为 `exec node '/Users/dmh2002/DshProject/dsh-ldvh/plugin/lib/git-gate-runner.js' "$@"`，未使用绝对路径，也未探测候选路径。
 - 执行 `git commit` 时钩子报 `.git/hooks/commit-msg: line 18: exec: node: not found`，退出码 1，提交未创建。
 - 同机 `/opt/homebrew/bin/node` 存在且为 v25.9.0（`/opt/homebrew/bin/node -> ../Cellar/node/25.9.0_3/bin/node`）；`which -a node` 在会话 shell 中无输出。
-- `bash -lc 'which node'` 同样返回 `command not found`，即该 PATH 缺失不限于非登录 shell，登录 shell 亦未取得 node。
+- `bash -lc 'which node'` 同样返回 `command not found`，即该 PATH 缺失不限于非登录 shell，登录 shell亦未取得 node。
 - 在命令中显式 `export PATH="/opt/homebrew/bin:$PATH"` 后，同一候选消息提交成功，Git Gate 输出 `LDVH Git Gate (commit-msg) passed` 与 `snapshot_identity`。
 
 频次与性质：任何 PATH 不含 node 的 shell 执行触及 `ldvh-base/` 的提交都会命中，属可重复触发的系统性阻碍，非一次性偶发。本次在单个会话内即命中一次并即时绕过。
+
+补充证据（2026-10-09，12 小时内会话扫描）：该阻碍的**残留形态已从「提交被拒」转为「执行环境需要人工补偿」**——WorkCase 独立复核所需的测试命令在默认会话 shell 下无法直接运行。实测在 12 小时内的会话日志中，多个独立复核子会话的**首条** bash 调用即自行前置 `export PATH="/opt/homebrew/bin:$PATH"`（如 session 日志中出现两次「background job bash-40 (bash: export PATH="/opt/homebrew/bin:$PATH"; cd .../plugin && node --test test/*.test.mjs ...)」的记述，以及复核子会话 prompt 中显式写入的「注意 PATH 可能没有 node，先 export PATH=...」）。即：本钩子问题修复后（见「修复进展与不销账说明」），受阻点从受控提交转移到复核会话的验证命令上——**代价从「提交失败需重试」变为「每条复核指令都要人工携带环境补偿，且该补偿只写在自然语言里、无任何机械保障**。本条如实登记这一残留形态：钩子侧已修，**环境依赖本身未消失，只是换了承载位置**，且新位置不在 09/06/10 的任何承载位内。
 
 ## 入账依据
 
@@ -62,3 +68,7 @@ Git Gate 提交钩子以裸 `exec node` 调用校验器，当会话 shell 的 PA
 **登记位置的临时性（规范缺口，如实登记）**：§9.2 为 commit 级修复指定的承载是「处置段以自然语言＋commit hash 承载」，而 §8 规定处置段仅在 `resolved`/`deferred` 时出现、§9.1 又要求 `resolved` 必带 `informs` 目标。三者合读后，「commit 级解药 ＋ 无解药对象 ＋ 保持 open」这一组合**在 26 号内没有任何承载位**；本条登记于入账依据段内，是**因该缺口而选的临时承载**，不主张其为规范认可的形态。本对象不自行修订 26 号。
 
 **度量失真（如实登记）**：本账目仍计入 `open` 计数与「解决率」分母（§12 的 dogfood 度量），而其阻碍已消除——即在度量上表现为一条长期挂账的未解摩擦。该失真在销账或改判前持续存在，消费方不得据 open 计数推断本条仍待修。
+
+### 2026-10-09 残留形态补记（状态不变，仅补证据）
+
+Human 于 2026-10-09 指示「按建议推进」，本条按 `26 §9.3` 补充级更新（status 不变、现象陈述语义不变、仅扩展现象段证据）：12 小时会话扫描确认该阻碍已从**受控提交面**转移到**复核会话的验证命令面**——多个独立复核子会话须在 prompt 或首条命令中人工写入 `export PATH="/opt/homebrew/bin:$PATH"` 才能运行 `node --test`。本条不主张该残留已解决，也不据此改判状态；仅如实登记「钩子侧已修、环境依赖转移到无机械保障的新位置」这一事实，并作为后续归因（若另立账目）的触发证据。
