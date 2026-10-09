@@ -35,7 +35,7 @@ import { access, mkdir, readFile, readdir, rename, unlink, writeFile } from "nod
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
-import { requireAuthoritativeSignature, resolveAuthoritativeSignature } from "./signature-channel.js";
+import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { h2Titles, sectionContent } from "./markdown-structure.js";
 import { readGoalAnchors as readGoalAnchorsFromGoal } from "./goal-writer.js";
 
@@ -164,7 +164,7 @@ export function validateFrictionFrontmatter(frontmatter) {
 }
 
 /**
- * Validate the relations contract (26 §11 + 03 §7.2).
+ * Validate the relations contract (26 §11 + 02 §8.2).
  *
  * Mechanical scope: key closed set (informs only), status gating (only
  * resolved), cardinality 1..n, minimal entry/target shape, no duplicates,
@@ -176,7 +176,7 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
   const relations = frontmatter.relations;
   if (relations === undefined) return { ok: true, issues };
   if (!Array.isArray(relations)) {
-    issues.push("relations: must be an array (03 §7.2)");
+    issues.push("relations: must be an array (02 §8.2)");
     return { ok: false, issues };
   }
   if (relations.length === 0) {
@@ -195,7 +195,7 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
       issues.push("relations[]: members must be objects");
       continue;
     }
-    // 03 §7.2 minimal shape: relation_key + target only
+    // 02 §8.2 公共形状: relation_key + target only
     const relExtra = Object.keys(rel).filter((k) => k !== "relation_key" && k !== "target" && k !== "evidence_locator");
     if (relExtra.length > 0) {
       issues.push(`relations[]: entry carries fields beyond relation_key/target/evidence_locator (${relExtra.join(", ")}) — 02 §8.2 公共形状`);
@@ -209,7 +209,7 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
 
     const target = rel.target;
     if (typeof target !== "object" || target === null) {
-      issues.push(`relations[]: target must be an object (03 §7.2)`);
+      issues.push(`relations[]: target must be an object (02 §8.2)`);
       continue;
     }
     // `target` 恒为 object_uid（02 §8.2）。commit **不得**出现在 target 内——它是证据
@@ -219,7 +219,7 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
       issues.push(`relations[]: target carries fields beyond object_uid (${targetExtra.join(", ")}) — 02 §8.2: target 只使用 object_uid，commit 证据走 evidence_locator`);
     }
     if (typeof target.object_uid !== "string" || !UUID_PATTERN.test(target.object_uid)) {
-      issues.push(`relations[]: target.object_uid must be a canonical UUID (03 §7.2); got ${JSON.stringify(target?.object_uid)}`);
+      issues.push(`relations[]: target.object_uid must be a canonical UUID (02 §8.2); got ${JSON.stringify(target?.object_uid)}`);
       continue;
     }
 

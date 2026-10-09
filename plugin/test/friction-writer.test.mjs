@@ -567,6 +567,14 @@ test("commit locator: evidence_locator.commit is accepted when it resolves (02 �
       gitCommitResolver: async (h) => h === realHash,
     });
     assert.ok(ok.ok, JSON.stringify(ok.error));
+
+    // 回读钉住 evidence_locator 真被写入落盘对象——只断言 ok.ok 会漏掉「写入成功
+    // 但字段被静默丢弃」这一形态（与 execute payload 克隆语义同类教训）。
+    const readBack = await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid });
+    assert.ok(readBack.ok);
+    assert.equal(readBack.value.frontmatter.relations.length, 1);
+    assert.equal(readBack.value.frontmatter.relations[0].evidence_locator.commit, realHash);
+    assert.equal(readBack.value.frontmatter.relations[0].target.object_uid, adrUid);
   });
 });
 
