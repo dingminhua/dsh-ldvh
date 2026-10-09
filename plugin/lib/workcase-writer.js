@@ -818,8 +818,8 @@ function validateReviews(frontmatter, issues) {
       issues.push(`reviews[${i}]: must be an object {at, provider, model, summary, session_id}`);
       return;
     }
-    const extra = Object.keys(entry).filter((k) => !["at", "provider", "model", "summary", "session_id", "session_source", "implementer_session_id", "implementer_session_source"].includes(k));
-    if (extra.length > 0) issues.push(`reviews[${i}]: unexpected field(s) ${extra.join(", ")} (only at/provider/model/summary/session_id/session_source/implementer_session_id/implementer_session_source)`);
+    const extra = Object.keys(entry).filter((k) => !["at", "provider", "model", "summary", "session_id", "session_source", "implementer_session_id", "implementer_session_source", "reviewer_origin"].includes(k));
+    if (extra.length > 0) issues.push(`reviews[${i}]: unexpected field(s) ${extra.join(", ")} (only at/provider/model/summary/session_id/session_source/implementer_session_id/implementer_session_source/reviewer_origin)`);
     if (typeof entry.at !== "string" || !RFC3339_PATTERN.test(entry.at)) {
       issues.push(`reviews[${i}].at: required RFC3339 (Code-managed)`);
     }
@@ -2171,6 +2171,7 @@ function stampReviewEntries(reviews, sig, identity = null, baselineReviews = nul
   const implementerSessionId = implementer === null ? null : implementer.sessionId;
   const implementerSource = implementer === null ? null : implementer.source;
   const sessionSource = identity === null ? null : identity.source;
+  const reviewerOrigin = identity === null ? null : (identity.origin ?? null);
   if (!Array.isArray(reviews)) return reviews;
   const at = new Date().toISOString();
   const sessionId = identity === null ? null : identity.sessionId;
@@ -2219,6 +2220,14 @@ function stampReviewEntries(reviews, sig, identity = null, baselineReviews = nul
       ? stored.implementer_session_source
       : null;
     const effectiveImplSource = isExistingEntry ? storedImplSource : implementerSource;
+    // 复核者来源形态（Human 决定 2026-10-09；04 §7.3 承载形式唯一化为受管辖隔离子代理）。
+    // Code 托管：只对本次新写入的条目盖戳，既有条目按索引继承其原值（缺失即缺失）。
+    // 这是关闭侧「该条来自子代理」的机械凭据——`session_id` 本身无法区分子代理与另一
+    // 受管辖根会话，两者都是 host 来源的会话标识。
+    const storedReviewerOrigin = isExistingEntry && typeof stored.reviewer_origin === "string"
+      ? stored.reviewer_origin
+      : null;
+    const effectiveReviewerOrigin = isExistingEntry ? storedReviewerOrigin : reviewerOrigin;
     return {
       at: storedAt ?? at,
       provider: storedProvider ?? sig.signature.provider,
@@ -2232,6 +2241,8 @@ function stampReviewEntries(reviews, sig, identity = null, baselineReviews = nul
       ...(effectiveSource === null || effectiveSource === undefined ? {} : { session_source: effectiveSource }),
       ...(effectiveImplementer === null ? {} : { implementer_session_id: effectiveImplementer }),
       ...(effectiveImplSource === null || effectiveImplSource === undefined ? {} : { implementer_session_source: effectiveImplSource }),
+      // 复核者是否为受管辖隔离子代理（04 §7.3 唯一承载形式）；非子代理或未知时不写出该键。
+      ...(effectiveReviewerOrigin === null || effectiveReviewerOrigin === undefined ? {} : { reviewer_origin: effectiveReviewerOrigin }),
       summary: isPlainObject(entry) && typeof entry.summary === "string" ? entry.summary : "",
     };
   });
@@ -2997,10 +3008,37 @@ export async function closeWorkcaseObject(args) {
       + `主控自查 but it is NOT an independent review and must not be recorded as one (02 §16: the three `
       + `review forms are not interchangeable). Note that rotating the attempt (takeover/reallocate) does `
       + `NOT turn an earlier self-check into an independent review — each entry is judged against the `
-      + `implementer in force when it was written. Have a session other than the implementer's record the `
-      + `review (a delegated subagent session or another governed root session both satisfy this; 32 §12: `
-      + `独立子代理为默认优先形态), then close. If no independent session can review, do NOT close — `
-      + `hold open and hand back to Human (21 §18).`,
+      + `implementer in force when it was written. Have an ISOLATED SUBAGENT session record the review and relay it `
+      + `back with reviewer_child_agent_id — that is now the ONLY accepted carrying form (04 §7.3, Human 决定 `
+      + `2026-10-09); recording your own session's review is 主控自查, not 独立复核. The subagent must be spawned `
+      + `asynchronously so its agent_id can be relayed. Then close. If no such subagent can be spawned, do NOT close `
+      + `— hold open and hand back to Human (00 §5.7, 21 §18).`,
+    );
+  }
+
+  // Gate 2 承载形式前置（Human 决定 2026-10-09；04 §7.3 独立复核唯一形式）：
+  // 上面的身份判据只证明「记录该复核的会话 ≠ 实施会话」，**无法**区分受管辖隔离子代理
+  // 与另一受管辖根会话——两者都是 host 来源的会话标识。故另立一道判据：计入独立性
+  // 判据的条目还须带 `reviewer_origin === "subagent"`（Code 依会话记录托管）。
+  //
+  // 分档如实登记（勿读作全量强制）：
+  //   · 本检查只对**带该键**的条目生效；存量 closed 对象无此键、不再重开，不受影响。
+  //   · 带 `reviewer_origin` 但值非 subagent 的条目不计入独立判据（形如 root-session）。
+  //   · 经 shell 直调 writer 写入的条目可能不带该键——该层防护属 09 质量链的代码评审
+  //     与受控提交（篡改实现需在 diff 中可见），同 §8 身份边界的既有声明。
+  const subagentEntries = (fm.reviews ?? []).filter((entry) => (
+    isPlainObject(entry) && entry.reviewer_origin === "subagent"
+  ));
+  if (subagentEntries.length === 0) {
+    return failure(
+      "workcase/review_form_not_subagent",
+      "Gate 2 closure requires the independent review to be carried by an ISOLATED SUBAGENT (04 §7.3, Human 决定 "
+      + "2026-10-09): no reviews entry carries `reviewer_origin: subagent`. Entries recorded by another governed "
+      + "root session share the same `session_id !== implementer_session_id` shape but do NOT satisfy the context-"
+      + "isolation requirement, so they are not independent review. Spawn an isolated subagent asynchronously (so its "
+      + "agent_id is retained), then record it via `record_review` with `reviewer_child_agent_id`. If no subagent "
+      + "can be spawned, or its agent_id cannot be relayed, do NOT close — hold open and hand back to Human "
+      + "(00 §5.7, 21 §18).",
     );
   }
 

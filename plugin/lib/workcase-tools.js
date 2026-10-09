@@ -335,10 +335,20 @@ async function executePrecheckCreate(args, exec, deps) {
 }
 
 // ---------------------------------------------------------------------------
-// write handler — seven controlled actions (21 §14)
+// write handler — the controlled actions of 21 §14
 // ---------------------------------------------------------------------------
 
-const WRITE_ACTIONS = new Set(["create", "approve", "execute", "close", "rebatch", "cancel", "revise", "correct", "record_review"]);
+// This gate must list EXACTLY the actions the descriptor advertises (the
+// `action` enum further down) — otherwise an action the spec defines and the
+// schema publishes is refused by its own front-door check, and the channel is
+// unreachable in every composition. That is what happened to
+// request_adjustment / decide_adjustment (21 §14 增量审批): both handler
+// branches existed and the enum listed them, but this Set omitted them, so
+// `request_adjustment` failed closed for every caller — silently, since the
+// rejection read like an unknown action rather than a broken gate.
+// `tool-descriptor-contract.test.mjs` now pins the two lists together so the
+// next omission cannot land unnoticed.
+const WRITE_ACTIONS = new Set(["create", "approve", "execute", "close", "rebatch", "cancel", "revise", "correct", "record_review", "request_adjustment", "decide_adjustment"]);
 
 /**
  * 21 §10.1 Gate 1 提请必含要素中**没有对象字段承载**的那几项。
@@ -610,12 +620,13 @@ async function executeWriteObject(args, exec, deps) {
       // 复核结论回传通道（workcase-2be11478 计划步骤 4）：只追加一条 reviews 条目，
       // 不授予任何其它写能力。
       //
-      // 两条合法入口（对应本单 scope (C) 的「受管辖子代理**或**另一受管辖根会话」）：
-      //  (a) 由**另一个受管辖根会话**直接调用（sessionIdentity = 它自己的 host 身份）；
-      //  (b) 由父会话**代其子代理**回传：指定 `reviewer_child_agent_id`，此时身份与结论
-      //      都取自宿主登记表（Code 亲观测），见下方子分支。
+      // 唯一合法入口（Human 决定 2026-10-09；04 §7.3 承载形式唯一化）：由父会话
+      // **代其受管辖隔离子代理**回传：指定 `reviewer_child_agent_id`，此时身份与结论
+      // 都取自宿主登记表（Code 亲观测），见下方子分支。此前另一受管辖根会话亦可作
+      // 入口，本调用方即该根会话；该入口已移除——同编排下的另一会话不满足 04 §7.3
+      // 的上下文隔离要求。
       // 子代理自身不注册 ldvh_* 工具（lifecycle.js 的 origin==="subagent" 分支），
-      // 故 (b) 是「开启代理做独立审核」在机械上可行的路径。
+      // 故本入口是「开启代理做独立审核」在机械上可行的路径。
       const childAgentId = requireString(args, "reviewer_child_agent_id", action);
       let summary = requireString(args, "summary", action);
       let reviewerIdentity = ident.value;
@@ -685,6 +696,21 @@ async function executeWriteObject(args, exec, deps) {
           return invalidRequest("workcase-write-object", `subagent ${childAgentId} carries no usable session identity`, "record_review");
         }
         reviewerChildNote = childAgentId;
+      } else {
+        // 承载形式唯一化（Human 决定 2026-10-09；04 §7.3 独立复核唯一形式）：
+        // 独立复核只承认受管辖隔离子代理（独立上下文）一种承载，由父会话以
+        // `reviewer_child_agent_id` 回传。此前另一受管辖根会话亦可作入口(本调用方
+        // 即该根会话)，但同编排下的另一会话不满足 04 §7.3 的上下文隔离要求。
+        //
+        // 此处 fail-closed 而非降级放行：按 00 §5.7 停止并报告，保持 open 交还 Human，
+        // 不得以主控自查或本调用方自身文本冒充独立复核（02 §16 三形态互不替代）。
+        return invalidRequest("workcase-write-object",
+          "record_review now requires `reviewer_child_agent_id`: 独立复核的唯一承载形式是受管辖隔离子代理（独立上下文，04 §7.3）。"
+          + "未提供子代理 id 时本调用方将以自身会话身份盖戳，产出的是主控自查而非独立复核——按 00 §5.7 停止并报告，"
+          + "不得以自查冒充。请派一个隔离子代理做独立复核（须后台派生以取得其 agent_id），完成后以 `reviewer_child_agent_id` 回传；"
+          + "若无法创建子代理或 id 不可回传，保持 open 交还 Human，不要关闭。",
+          "record_review",
+        );
       }
       if (summary === null) {
         return invalidRequest(
@@ -947,7 +973,7 @@ function parameterSchemaFor(operationKey) {
     by: { type: "string", description: "decide_adjustment: 作出决定的人（同 gate_1.approver 的形态，21 §14）。**先决：须同时给出 human_authorization（Human 的授权记录，缺之 fail-closed，与 correct 同规格）**；**注意：`by` 是自报文本**——「谁批的」的可核痕迹来自 Code 托管的决定者会话身份（**在能取得 host 来源身份时**盖戳进 decision.session_id；取不到时该痕迹缺失，返回值的 decider_identity 会显式报 unavailable），规范已如实声明该边界" },
     human_authorization: { type: "string", description: "decide_adjustment: **必填**——Human 的授权记录（谁／何时／覆盖什么），与 correct 的 human_authorization 同规格，缺之 fail-closed。它会被写进 change_log；**它不证明 Human 真的批过**，只让「没有转述的批准」机械上不可发生（21 §14）" },
     summary: { type: "string", description: "record_review: the review conclusion (≤600 chars), carrying the 02 §16 seven elements (对象/基线/方法/覆盖/未覆盖/发现/保证边界). `at`, provider/model and session_id are stamped by Code — the caller supplies only this text. When reviewer_child_agent_id is given, this MUST match the subagent's captured conclusion verbatim (or be omitted to adopt it)." },
-    reviewer_child_agent_id: { type: "string", description: "record_review: relay an ISOLATED SUBAGENT's review — pass its agent id (from the subagent tool). The identity and the conclusion text are then taken from the host's own subagent registry (Code-observed, not settable by the caller), so the implementer can neither forge the reviewer's identity nor substitute its own text. Omit to record YOUR OWN session's review (then your session must differ from the implementer's)." }
+    reviewer_child_agent_id: { type: "string", description: "record_review: relay an ISOLATED SUBAGENT's review — REQUIRED (04 §7.3: 受管辖隔离子代理是独立复核的唯一承载形式). Pass its agent id (from a BACKGROUND subagent spawn — a synchronous spawn's id is reclaimed on return and cannot be relayed). The identity and the conclusion text are then taken from the host's own subagent registry (Code-observed, not settable by the caller), so the implementer can neither forge the reviewer's identity nor substitute its own text. Omitting it is refused: recording your own session's review is 主控自查, not 独立复核 — stop and report to Human (00 §5.7) instead." }
   };
   switch (operationKey) {
     case "workcase-read-object":
@@ -989,7 +1015,7 @@ function parameterSchemaFor(operationKey) {
           routing_request: { type: "string", description: "create: the Human's request in their own words, shown in the 21 §6.3 routing prompt (e.g. 「帮我把 X 改掉」). Optional but strongly recommended — it is what lets the Human recognise which piece of work is being routed." },
           routing_rationale: {
             type: "object",
-            description: "create: the AI's 21 §6.3 reasoning, shown in the routing prompt so the Human can judge. Advisory text only — it is not part of what is accepted.",
+            description: "create: the AI's 21 §6.3 reasoning. Advisory only, NOT part of what is accepted — and since 2026-10 NOT shown in the routing prompt either (Human ruled the AI's lean reasons must not appear there), so supplying it changes nothing user-visible. Kept for call compatibility; omit it.",
             properties: {
               forWorkcase: { type: "array", items: { type: "string" }, description: "倾向建工单的理由（如：涉及多处改动 / 需独立复核 / 可能跨会话）" },
               forDirect: { type: "array", items: { type: "string" }, description: "倾向直接执行的理由（如：改动范围小、单文件）" },

@@ -45,9 +45,13 @@ const SIG = () => authoritativeSignature({ provider: "p", model: "m" });
 // 实施会话与复核会话必须是**不同**的 identity，否则关闭门禁 fail-closed。
 // 身份来源（source）是判据的一部分：写入器只接受 **host**（宿主执行上下文，
 // 不可由调用者设置）。shell 来源可被一行环境变量伪造，故被拒——测试夹具用 host。
-const IDENTITY = (sessionId) => authoritativeSessionIdentity({ sessionId, source: "host" });
+const IDENTITY = (sessionId, origin = null) => authoritativeSessionIdentity({ sessionId, source: "host", origin });
 const IMPLEMENTER = () => IDENTITY("session-implementer-test");
-const REVIEWER = () => IDENTITY("session-reviewer-test");
+// 复核者是**受管辖隔离子代理**（04 §7.3 独立复核唯一承载形式）：origin="subagent"
+// 使其 reviews 条目带 `reviewer_origin: subagent`，从而计入关闭门禁的承载形式判据。
+// 若改成根会话身份（origin 为 null），关闭会被 `review_form_not_subagent` 拒绝——
+// 那正是「另一受管辖根会话不再是合法入口」的机械落点。
+const REVIEWER = () => IDENTITY("session-reviewer-test", "subagent");
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // ---------------------------------------------------------------------------
@@ -1730,6 +1734,59 @@ test("independence: close is ACCEPTED when a DIFFERENT session recorded the revi
       changeSummary: "独立会话复核后关闭",
       // close 要求 body 携带「## 结果」节（21 §8）。
       bodyMarkdownAfter: `${bodyWithoutH1(rev.after.value.body)}\n\n## 结果\n\n- 逐条核对：全部计划步骤判据达成；独立会话复核记录见 reviews。\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+  });
+});
+
+test("review form: close is REFUSED when the review came from another governed ROOT session (04 §7.3 唯一承载形式)", async () => {
+  // Human 决定 2026-10-09：独立复核只承认受管辖隔离子代理（独立上下文）。另一受管辖
+  // 根会话的 review 在 session_id 判据上完全合规（≠ implementer、source=host），但**不**
+  // 满足 04 §7.3 的上下文隔离要求——机械凭据是 reviews[].reviewer_origin !== "subagent"。
+  // 本例证明承载形式判据有判别力：同一对象，去掉 origin 即被拒。
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    // 用**根会话身份**（origin=null）录复核——即「另一受管辖根会话直接记录」。
+    // 注意传值而非传函数：reviewed 的第 4 参是身份对象本身。
+    const rev = await reviewed(root, appr, undefined, IDENTITY("session-other-root"));
+    const res = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: rev.uid,
+      expectedFingerprint: rev.after.value.fingerprint,
+      outcome: "completed",
+      result: completedResult(rev.after.value.frontmatter.plan.length),
+      changeSummary: "以根会话复核记录尝试关闭",
+      bodyMarkdownAfter: `${bodyWithoutH1(rev.after.value.body)}\n\n## 结果\n\n- 逐条核对：全部计划步骤判据达成。\n`,
+      sessionSignature: SIG(),
+    });
+    assert.equal(res.ok, false, "a root-session review must not satisfy the subagent-only carrying form");
+    assert.equal(res.error.code, "workcase/review_form_not_subagent");
+    // 该 review 身份本身合规（≠ implementer），故拒绝理由是承载形式而非身份独立。
+    const stored = rev.after.value.frontmatter.reviews[0];
+    assert.equal(stored.session_id, "session-other-root");
+    assert.equal(stored.reviewer_origin, undefined, "a root session carries no subagent origin");
+  });
+});
+
+test("review form: the carrying-form gate is live — same object with subagent origin closes (正负对照)", async () => {
+  // 负向对照（上一例）+ 本例正向，共同证明承载形式判据真在 close 路径上生效，
+  // 而非一个从不触发的空转断言（防止「守卫空转」——05 §6.1 同形纪律）。
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    const rev = await reviewed(root, appr); // 默认 REVIEWER = origin "subagent"
+    const stored = rev.after.value.frontmatter.reviews[0];
+    assert.equal(stored.reviewer_origin, "subagent", "a relayed subagent review must carry reviewer_origin");
+    const res = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: rev.uid,
+      expectedFingerprint: rev.after.value.fingerprint,
+      outcome: "completed",
+      result: completedResult(rev.after.value.frontmatter.plan.length),
+      changeSummary: "以子代理复核记录关闭",
+      bodyMarkdownAfter: `${bodyWithoutH1(rev.after.value.body)}\n\n## 结果\n\n- 逐条核对：全部计划步骤判据达成；子代理复核记录见 reviews。\n`,
       sessionSignature: SIG(),
     });
     assert.ok(res.ok, JSON.stringify(res.error));
