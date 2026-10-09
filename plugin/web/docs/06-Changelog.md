@@ -3,6 +3,8 @@
 > 路由：`/changelog`、`/changelog/:hash`
 > 源码：`web/src/pages/Changelog.tsx`、`web/src/pages/ChangelogDetail.tsx`
 > API：`GET /api/changelog?count=50|100|200`、`GET /api/changelog/:hash`
+> 全局设计语言：[`01-全局设计约束.md`](./01-全局设计约束.md)
+> 上位依据：`specs/07` §5.1–§5.4（四层阅读器）与 §12（反过度设计红线）；提交数据以 `specs/09` 的受控提交契约为准
 
 ## 1. 页面目标
 

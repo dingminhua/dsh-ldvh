@@ -5,6 +5,8 @@
 > 目标源码：`web/src/pages/CognitionCenter.tsx`（取代 `web/src/pages/Dashboard.tsx`，原文件已移除）
 > 目标 API：`GET /api/cognition`（新建，取代 `GET /api/dashboard`）
 > 文件名说明：本文取代原 Dashboard 设计文档；文件名、`web/docs` 引用与相关测试契约的更名已在第一期实现中完成。
+> 全局设计语言：[`01-全局设计约束.md`](./01-全局设计约束.md)
+> 上位依据：`specs/07` §5.1–§5.4（四层阅读器）与 §12（反过度设计红线）；本页是派生视图，派生量不写回对象
 
 > **v5 增量基线**：v5 迁移后的类型更名（Study→Research）、联邦视图、项目色彩与字号定案见 [`11-v5Web开发增量.md`](./11-v5Web开发增量.md)；与本文冲突时以 11 号为准。
 
