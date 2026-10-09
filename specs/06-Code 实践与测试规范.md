@@ -37,7 +37,7 @@ ldvh_spec:
 
 本文直接依据：
 
-1. `ldvh-root`：00 §3.4 的技术与机械保障、§5.6 的据实声明、§5.7 的必停情形与恢复、§5.8 的 Output Envelope 与交还；
+1. `ldvh-root`：00 §3.5 的技术与机械保障、§5.6 的据实声明、§5.7 的必停情形与恢复、§5.8 的 Output Envelope 与交还；
 2. `specification-model-foundation`：01 §6 的身份块契约（含 `01.Att.02` 授权的 Code 消费入口字段解析）、§7 的共同章节结构、§10 的 L0–L4 读取层级、§12 的独立审核；
 3. `business-system-foundation`：业务系统基础规范 §10.3 编排（能力承载）对实现、测试与完成声明的机制指向；`check-auxiliary-mechanism-foundation`：检查机制与辅助机制规范 §6 的检查机制三形态；
 4. `fact-model-foundation`：事实源与事实模型基础规范 §6.1 的公共字段署名要求（事实 `change_log` 的 provider/model 由 Code 从权威记录取得，本文 §6 的机械签名实现受其约束）；

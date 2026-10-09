@@ -35,7 +35,7 @@ manifest 存在、工具注册成功、钩子安装、页面加载或发布完�
 
 本文直接依据：
 
-1. `ldvh-root`：00 §3.4 的技术与机械保障、§3.5 的四种价值交付方式、§4.3 的受保护内容、§4.4 的回应效力、§5.6 的据实声明、§5.7 的必停情形与 §5.8 的交还与撤回；
+1. `ldvh-root`：00 §3.5 的技术与机械保障、§3.6 的四种价值交付方式、§4.3 的受保护内容、§4.4 的回应效力、§5.6 的据实声明、§5.7 的必停情形与 §5.8 的交还与撤回；
 2. `specification-model-foundation`：01 §7 的共同章节结构、§9 的当前规则源条件、§10.4 的最小规则引导、§12 的独立审核；
 3. `business-system-foundation`：业务系统基础规范 §10.3 编排（能力承载）与 §9.3 记忆存取（业务系统）对宿主接入与事件时机的机制指向；`check-auxiliary-mechanism-foundation`：检查机制与辅助机制规范 §10.3 交还（含 Output Envelope）对宿主承载的边界；
 4. `source-of-truth-traceability`：受控提交与机械守护规范 §5.5 的 Git Gate 事件检查（本文 §6 的 Hook 部署使用其定义的同一 validator）与 §5.1 的 message 契约（本文 §6 的 Git Gate 检查与其对齐）。
@@ -140,12 +140,12 @@ DSH 结构化问询入口为 `ctx.userQuestions.ask(request)`（validation + sco
 
 ## 6. 机械守护部署
 
-- **运行时不变量**：经 DSH 正式不变量注册器 `ctx.invariants.register(packageName, installer)` 在装载完成、受控写入前和会话交还前执行来源已定义的断言（InvariantInstaller = (ctx, fail) => void|Promise，fail 抛 InvariantError code='INVARIANT' 带 packageName 归因；官方包 permission-presets 以 inject: ['invariants'] 同法消费）；不替代 00 §3.4 三层防线。
+- **运行时不变量**：经 DSH 正式不变量注册器 `ctx.invariants.register(packageName, installer)` 在装载完成、受控写入前和会话交还前执行来源已定义的断言（InvariantInstaller = (ctx, fail) => void|Promise，fail 抛 InvariantError code='INVARIANT' 带 packageName 归因；官方包 permission-presets 以 inject: ['invariants'] 同法消费）；不替代 00 §3.5 三层防线。
 - **文件观察策略**：经 DSH 守卫式写保护承载：读观察经 `fs/observed` 事件；写守卫经 `writeText(target, content, {kind:'replaceIfVersion', version})` 与 `editText(..., {version})` 版本守卫，配合 `fs/write-intent` 与 `fs/edit-intent` waterfall 挂载 LDVH 策略；`fs-observation-policy` 提供 FS_NOT_OBSERVED / FS_STALE_VERSION 拒绝语义，版本或指纹不一致时拒绝写入。对管辖范围规范的登记载体，10 只核验宿主满足管辖范围规范已定义的跨平台原子写入、冲突拒绝与回读要求并向实现暴露结果，不复制其写入算法。
 - **Git Gate 部署**：commit-msg 钩子安装到由项目 Git 根解析所得的 Git common-dir `hooks/commit-msg`，不得简单假设 `<worktree>/.git/hooks/`；主 worktree 与 linked worktree 共享同一 common-dir，独立 clone 分别部署。安装前检查既有钩子，非 LDVH 资产一律 `conflict` 且零写入，不覆盖 Human 自建钩子；部署后须确认 `managed` 状态（归属、路径、内容与版本一致），未确认不得声称已就绪；事件检查用受控提交与机械守护规范定义的同一 validator。
 - **管辖项目安装事务**：Human 在设置页选择的目录必须是实际 Git 根。点击“安装”后，登记项目、创建或校验项目内 `ldvh-base/`、安装或更新当前版本 Git Hook 均为必需步骤而非选项；任一步失败都不得报告管辖已就绪。设置页不提供单独的“卸载”操作；“取消管辖”自动卸载 LDVH 托管 Hook并移除登记，但永久保留 `ldvh-base/` 与其中事实对象。每次 DSH 启动对全部登记项目执行一次只读状态检查；检查或巡检发现 Hook 过时或事实源缺失时，安装事务须能修复可修复状态（Hook `absent/outdated` 或事实源 `absent/incomplete`）；`conflict` 或 `unavailable` 属不可修复状态，事务不得对其执行写入。**上述状态的呈现形态与交互区分由 Web 呈现与交互规范 §6.5 定义，本文不复述**；10 只定义事务的步骤、状态闭集与失败处置。版本不一致只报告并等待 Human 点击安装/更新，不静默修改。
 - **设置页写入与权限降级**：**设置页写入不得以 `ctx.approval.request()` 或模型工具的 `sandbox_permissions` 作为一次性升权来源**；普通插件 Host 自动安装**不得假设存在**插件安装专用的授权通道，其权限边界以宿主实际提供的 OS 文件权限为准。安装先完成只读预检，确认所有目标、Hook 所有权和回滚边界后再写入；OS 拒绝写入时 fail-closed、回滚本次可安全回滚的变化，不使用 `sudo` 或管理员 PowerShell。此时可提供同一 LDVH CLI 语义的精确平台命令和 DSH Desktop 正式“打开终端”入口作为降级，macOS/Windows 仅在路径引用和终端载体上不同；用户执行后必须回到设置页重新“检查”，终端退出码不单独证明就绪。
-- **权限预设与沙箱分层**：`workspace-write`（默认，工作区路径内读写与执行，无需 Human 授权）/ `danger-full-access`（跨工作区与系统级，需 Human 授权）只约束 Agent 工具调用；分层语义归 00 §3.4 的 fail-closed 授权边界与 00 §4.1 的 Human 授权决定，10 只定义宿主接入方式，AI 不得把聊天工具授权转移给设置页按钮，也不得自行扩权。
+- **权限预设与沙箱分层**：`workspace-write`（默认，工作区路径内读写与执行，无需 Human 授权）/ `danger-full-access`（跨工作区与系统级，需 Human 授权）只约束 Agent 工具调用；分层语义归 00 §3.5 的 fail-closed 授权边界与 00 §4.1 的 Human 授权决定，10 只定义宿主接入方式，AI 不得把聊天工具授权转移给设置页按钮，也不得自行扩权。
 
 **宿主缝的消费义务（条件式）**：上列宿主缝是**可用手段**，其存在**不证明 LDVH 已受其保护**。对每一道宿主缝：**在 LDVH 实际消费该缝之前**，不得据本文主张相应防护已部署、已生效或已 fail-closed；不得把「宿主提供该缝」「提交通过」「工具调用成功」引为守卫、不变量或版本屏障已执行的证据；也不得以「宿主已有该机制」代替 LDVH 自身的消费与验证。
 
