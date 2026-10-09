@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import http from "node:http";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
@@ -161,6 +161,89 @@ test("proxy handler answers 502 when the upstream target is dead", async () => {
     assert.equal(response.status, 502);
     assert.match(await response.text(), /proxy failed/);
   });
+});
+
+/**
+ * 建一个可被源码热刷新观察的临时 webRoot（api/ 目录 + 一个可改的文件）。
+ * 子进程命令用「把 pid 写到 pidFile」的小 http 服务替身：这样测试能断言
+ * 「pid 变了 / 没变」，而不只是「端口通不通」。
+ */
+async function makeWatchFixture() {
+  const root = await mkdtemp(join(tmpdir(), "ldvh-recycle-"));
+  const pidFile = join(root, "child.pid");
+  await mkdir(join(root, "api"), { recursive: true });
+  await writeFile(join(root, "api", "server.ts"), "// v1\n");
+  const port = 33000 + Math.floor(Math.random() * 15000);
+  const manager = createWebApiProcess({
+    webRoot: root,
+    port,
+    env: {},
+    command: {
+      exec: process.execPath,
+      argv: ["-e", `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));require('http').createServer((req,res)=>{res.setHeader('content-type','application/json');res.end('{"ok":true}')}).listen(Number(process.env.PORT),'127.0.0.1')`],
+    },
+    readinessPath: "/api/health",
+    readinessTimeoutMs: 10_000,
+    watchSource: true,
+  });
+  const readPid = async () => Number((await readFile(pidFile, "utf8")).trim());
+  return { root, manager, readPid, port };
+}
+
+test("source recycle self-heals the child without any incoming request", async () => {
+  // 回归（工单 c6d88dac）：原实现 kill 之后不重拉，而重拉只由 /ldvh/api/* 代理
+  // 请求触发——那个请求恰来自已打不开的页面，进程一死就永不自愈。这里断言：改内容
+  // → 回收 → **全程不发任何请求** → 子进程自己回到运行态，且换成新 pid。
+  const { root, manager, readPid, port } = await makeWatchFixture();
+  try {
+    await manager.ensureReady();
+    const firstPid = await readPid();
+    assert.equal(manager.isRunning(), true);
+    // 真实改码（内容变）→ 应触发回收并自愈
+    await writeFile(join(root, "api", "server.ts"), "// v1 edited\n");
+    let secondPid = firstPid;
+    for (let i = 0; i < 40; i += 1) {
+      await new Promise((done) => setTimeout(done, 500));
+      if (!manager.isRunning()) continue;
+      secondPid = await readPid();
+      if (secondPid !== firstPid) break;
+    }
+    assert.notEqual(secondPid, firstPid, "a content change must recycle the child");
+    assert.equal(manager.isRunning(), true, "replacement must be running again — no request was ever sent");
+    // 自愈的落点是「iframe 那个地址恢复 200」，不是仅进程活着。
+    const response = await fetch(`http://127.0.0.1:${port}/api/health`);
+    assert.equal(response.status, 200, "the loopback address the iframe uses must serve again");
+  } finally {
+    manager.dispose();
+  }
+});
+
+test("mtime-only touch keeps the child pid unchanged, real content change replaces it", async () => {
+  // 计划步骤 2 的两条判据：仅触碰 mtime → pid 不变；内容真变 → pid 变化。
+  const { root, manager, readPid } = await makeWatchFixture();
+  try {
+    await manager.ensureReady();
+    const firstPid = await readPid();
+    const target = join(root, "api", "server.ts");
+    // ① 只改 mtime，内容一字不动
+    const future = new Date(Date.now() + 5000);
+    await utimes(target, future, future);
+    await new Promise((done) => setTimeout(done, 3000));
+    assert.equal(manager.isRunning(), true, "child must survive an mtime-only touch");
+    assert.equal(await readPid(), firstPid, "an mtime-only touch must NOT recycle the child");
+    // ② 内容真变
+    await writeFile(target, "// v2 changed\n");
+    let secondPid = firstPid;
+    for (let i = 0; i < 30; i += 1) {
+      await new Promise((done) => setTimeout(done, 500));
+      if (!manager.isRunning()) continue;
+      secondPid = await readPid();
+      if (secondPid !== firstPid) break;
+    }
+    assert.notEqual(secondPid, firstPid, "a real content change MUST recycle the child");
+  } finally {
+    manager.dispose();
+  }
 });
 
 test("web api process manager spawns a custom command, becomes ready, and disposes", async () => {

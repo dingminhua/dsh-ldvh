@@ -369,32 +369,82 @@ window.__ModuleLoader__.load({
       return null;
     }
 
-    // Health probe: the view is "ready" only when /ldvh/api/health answers.
-    // 副作用（2026-09-25）：顺带取回宿主侧实际 Web 端口并重写 iframe 地址——
-    // 该请求走宿主主框架代理（不经子框架判据），是客户端唯一能拿到端口的通道。
-    function checkHealth(then) {
-      fetch("/ldvh/api/health", { method: "GET", cache: "no-store" })
+    // 端口不硬编码：宿主侧端口可被 LDVH_WEB_API_PORT 覆盖，硬编码会与宿主漂移。
+    // 以宿主 health 返回的 `webPort` 为准（见 discoverWebPort），尚未取到时用
+    // 编译期默认值兜底，避免首帧空 src。
+    var LDVH_WEB_PORT_DEFAULT = 3299;
+    var ldvhWebPort = LDVH_WEB_PORT_DEFAULT;
+    var ldvhWebOrigin = "http://127.0.0.1:" + ldvhWebPort;
+    var ldvhFrameLocation = ldvhWebOrigin + "/ldvh/";
+    /** 端口就绪后重写 iframe 地址（保留当前记忆路径）。 */
+    function applyWebPort(port) {
+      if (typeof port !== "number" || !Number.isInteger(port) || port <= 0 || port > 65535) return;
+      if (port === ldvhWebPort) return;
+      ldvhWebPort = port;
+      ldvhWebOrigin = "http://127.0.0.1:" + ldvhWebPort;
+      var tail = ldvhFrameLocation.indexOf("/ldvh") >= 0 ? ldvhFrameLocation.slice(ldvhFrameLocation.indexOf("/ldvh")) : "/ldvh/";
+      ldvhFrameLocation = ldvhWebOrigin + tail;
+    }
+
+    // ── 探活口径（2026-10-09，工单 c6d88dac）────────────────────────────────
+    //
+    // 原实现探活用相对路径 /ldvh/api/health，命中的是**宿主**路由：宿主自己能答
+    // 200，于是子进程已死、iframe 实为空白时，探活仍报「可用」——「可用」不代
+    // 表 iframe 的真实可用性，设置卡与降级提示因此失真。
+    //
+    // 现在改为两段：
+    //   ① 端口发现仍走宿主 /ldvh/api/health——**唯一**能取到 webPort 的通道
+    //      （主框架请求才过宿主转发链，子框架拿不到身份头，见下方地址形状说明）；
+    //   ② 就绪判定走 **iframe 真正要连的那个绝对回环地址**，同源同端口。
+    //
+    // 跨源：主文档源是 dsh-app://app，直连 127.0.0.1 属跨源，且子进程 cors()
+    // 白名单只放行本机 dev server。故用 mode:"no-cors" 的不透明响应——它读不到
+    // 状态码与响应体，但**能否 resolve 本身就是连通性结论**，而连通性正是此处
+    // 要问的问题。cors 拒绝会落在 resolve 成功上（不透明响应照样送达），故本
+    // 口径不受白名单影响。
+    function probeLoopback(path, then) {
+      try {
+        fetch(ldvhWebOrigin + path, { method: "GET", mode: "no-cors", cache: "no-store" })
+          .then(function () { then(true); })
+          .catch(function () { then(false); });
+      } catch (error) {
+        void error;
+        then(false);
+      }
+    }
+
+    /** 宿主侧 health：只用来发现 webPort，不再作为就绪结论。 */
+    function discoverWebPort() {
+      return fetch("/ldvh/api/health", { method: "GET", cache: "no-store" })
         .then(function (r) { return r.json(); })
         .then(function (body) {
           if (body && body.ok === true && body.webPort !== undefined) applyWebPort(body.webPort);
-          then(body && body.ok === true);
+          return !!(body && body.ok === true);
         })
-        .catch(function () { then(false); });
+        .catch(function () { return false; });
     }
 
-    // Web-presentation probe: independently checks the backend API health and
-    // whether the /ldvh SPA page is reachable. Both are real HTTP probes (no
-    // Host-side state mirror), so the card always reports the true runtime.
+    // Health probe: the view is "ready" only when the iframe's own origin
+    // answers — 探活 URL 与 iframe 地址同源同端口，「可用」才代表页面真能打开。
+    function checkHealth(then) {
+      discoverWebPort()
+        .catch(function () { return false; })
+        .then(function () { probeLoopback("/ldvh/", then); });
+    }
+
+    // Web-presentation probe: independently checks that the backend API and the
+    // /ldvh SPA page are both reachable **on the iframe's own origin**（原实现探
+    // 宿主路由，子进程死时仍报可用）。Both are real HTTP probes (no Host-side
+    // state mirror), so the card always reports the true runtime.
     function probeWeb(then) {
       var out = { api: false, page: false };
-      fetch("/ldvh/api/health", { method: "GET", cache: "no-store" })
-        .then(function (r) { return r.json(); })
-        .then(function (body) { out.api = !!(body && body.ok === true); })
-        .catch(function () { out.api = false; })
+      discoverWebPort()
+        .catch(function () { return false; })
         .then(function () {
-          return fetch("/ldvh/", { method: "GET", cache: "no-store" })
-            .then(function (r) { out.page = r.status >= 200 && r.status < 400; })
-            .catch(function () { out.page = false; });
+          return Promise.all([
+            new Promise(function (done) { probeLoopback("/ldvh/api/health", function (ok) { out.api = ok; done(); }); }),
+            new Promise(function (done) { probeLoopback("/ldvh/", function (ok) { out.page = ok; done(); }); }),
+          ]);
         })
         .then(function () { then(out); })
         .catch(function () { then(out); });
@@ -961,23 +1011,6 @@ window.__ModuleLoader__.load({
     // 插件自带的 Web 服务（见 lib/index.js 的 WEB_API_PORT）监听固定回环端口，
     // 不经 dsh-app 转发链，故在其上同时服务 SPA 与 /ldvh/api 别名后，iframe 走
     // 该绝对地址即可绕开子框架判据。
-    //
-    // 端口不硬编码：宿主侧端口可被 LDVH_WEB_API_PORT 覆盖，硬编码会与宿主漂移。
-    // 以 health 返回的 `webPort` 为准（经宿主主框架代理取，见 checkHealth），
-    // 尚未取到时用编译期默认值兜底，避免首帧空 src。
-    var LDVH_WEB_PORT_DEFAULT = 3299;
-    var ldvhWebPort = LDVH_WEB_PORT_DEFAULT;
-    var ldvhWebOrigin = "http://127.0.0.1:" + ldvhWebPort;
-    var ldvhFrameLocation = ldvhWebOrigin + "/ldvh/";
-    /** 端口就绪后重写 iframe 地址（保留当前记忆路径）。 */
-    function applyWebPort(port) {
-      if (typeof port !== "number" || !Number.isInteger(port) || port <= 0 || port > 65535) return;
-      if (port === ldvhWebPort) return;
-      ldvhWebPort = port;
-      ldvhWebOrigin = "http://127.0.0.1:" + ldvhWebPort;
-      var tail = ldvhFrameLocation.indexOf("/ldvh") >= 0 ? ldvhFrameLocation.slice(ldvhFrameLocation.indexOf("/ldvh")) : "/ldvh/";
-      ldvhFrameLocation = ldvhWebOrigin + tail;
-    }
     // 测试环境（无 window）守卫：模块加载期不炸，宿主正常注册。
     if (typeof window !== "undefined" && typeof window.addEventListener === "function") window.addEventListener("message", function (event) {
       if (event.source === window) return;

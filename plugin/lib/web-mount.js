@@ -185,10 +185,97 @@ export function createWebApiProcess(options) {
   let disposed = false;
   // 源码热刷新：监听 api/ 目录（子进程跑的是 link: 仓库的实时文件——源码更新后
   // 长驻子进程仍是旧码，须杀掉让下次请求重拉）。1s 去抖避免构建期连杀。
+  //
+  // 回收判据（2026-10-09，工单 c6d88dac）：只有**内容真的变了**才回收。原实现
+  // 对任何 mtime 事件都 kill，一次 `touch` 就能把页面打死——而重拉只能靠已经
+  // 打不开的页面发来的 /ldvh/api/* 请求，形成死锁。故此处对整个 api/ 树取内容
+  // 指纹（相对路径 + size + mtimeMs + 内容 hash），指纹不变即跳过回收。
   let watchTimer = null;
   let watcher = null;
+  let sourceFingerprint = null;
+  // 回收节流：一次真实改码在 fs.watch 上是「truncate → 写 → 连续多事件」的一串，
+  // 去抖之后仍可能剩一两个尾巴事件。没有这道闸会连杀连起，页面反复闪。
+  let lastRecycle = null;
+  // 回收进行中：recycleChild 亲自重拉，故 exit 处理器不得再插一次 re-warm
+  // （两次 ensureReady 由单飞合并，但意图上只有一条自愈路径，日志也要能读）。
+  let recycling = false;
+  // 回收后自愈：kill 之后由本管理器自己重新预热，不等任何请求。
+  async function recycleChild(reason) {
+    const proc = spawned;
+    if (proc === null || exited || disposed || recycling) return;
+    if (lastRecycle !== null && Date.now() - lastRecycle < 500) return;
+    lastRecycle = Date.now();
+    recycling = true;
+    if (logger) logger.info("[dsh-ldvh web-api] %s, recycling child and warming a replacement up", reason);
+    try { proc.kill("SIGTERM"); } catch { /* best effort */ }
+    const hard = setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* best effort */ } }, 3000);
+    hard.unref?.();
+    // 等这一轮**真正退出**再拉新的：固定 sleep 不能证明端口已释放，提前 spawn
+    // 会与尚未退出的旧进程抢同一个回环端口，落在 EADDRINUSE 上。
+    await new Promise((done) => {
+      if (exited || proc.exitCode !== null || proc.signalCode !== null) { done(); return; }
+      proc.once("exit", () => done());
+      setTimeout(done, 5000).unref?.();
+    });
+    // spawned 仍指向已死的那一轮时先摘掉，让 ensureReady 走 spawn 分支而不是
+    // 误判「还活着」直接返回。
+    if (spawned === proc) spawned = null;
+    if (disposed) { recycling = false; return; }
+    // 自愈的关键一步：这里就重新预热。原先只有 ensureReady() 会 spawn，而它由
+    // 代理请求触发——请求来自已经打不开的页面，于是进程一死就永不自愈。
+    try {
+      await ensureReady();
+      if (logger) logger.info("[dsh-ldvh web-api] replacement child ready on port %s", port);
+    } catch (error) {
+      if (logger) logger.warn("[dsh-ldvh web-api] replacement warm-up failed: %s", error?.message ?? error);
+    } finally {
+      recycling = false;
+    }
+  }
   if (watchSource) {
-    import("node:fs").then((fs) => {
+    import("node:fs").then(async (fs) => {
+      const nodeCrypto = await import("node:crypto");
+      /**
+       * api/ 树的内容指纹：目录内所有文件（跳过 node_modules 与 .git）按绝对路径
+       * 排序后，把「路径\0size\0内容 sha1」逐条喂进一个 sha1。
+       *
+       * **只取内容，不取 mtime**——判据是「内容未变就不回收」，把 mtime 喂进指纹
+       * 等于把过宽敏原样保留（一次 touch 就换指纹）。size 是内容的一部分，保留
+       * 不会引入这一类假阳性。指纹只回答「这一轮看下来的内容有没有变」——不回答
+       * 变的是什么、该不该重启。
+       */
+      const fingerprintApiTree = async () => {
+        const root = join(webRoot, "api");
+        /** @type {string[]} */
+        const files = [];
+        const walk = async (dir) => {
+          let entries;
+          try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return; }
+          for (const entry of entries) {
+            if (entry.name === "node_modules" || entry.name === ".git") continue;
+            const full = join(dir, entry.name);
+            if (entry.isDirectory()) { await walk(full); continue; }
+            if (entry.isFile()) files.push(full);
+          }
+        };
+        await walk(root);
+        files.sort();
+        const hash = nodeCrypto.createHash("sha1");
+        for (const file of files) {
+          let content;
+          try { content = await fs.promises.readFile(file); } catch { continue; }
+          hash.update(`${file}\0${content.length}\0`);
+          hash.update(nodeCrypto.createHash("sha1").update(content).digest());
+        }
+        return hash.digest("hex");
+      };
+      /** 取不到指纹时返回 null——调用方按「无法判定」处理，不当作「内容未变」。 */
+      const probeFingerprint = async () => fingerprintApiTree().catch(() => null);
+
+      // 基线在 watcher 建立**之前**取：否则建立与取基线之间发生的写入会落在基线
+      // 之后、又没有 watch 事件，真实改码被当成「内容未变」而漏回收。
+      sourceFingerprint = await probeFingerprint();
+
       // 竞态防护：import() 是异步的，watcher 要等这个 then 回调才存在；若
       // dispose() 在这之前同步跑完，它会看到 watcher 仍为 null 而跳过 close，
       // 随后这里再创建的 watcher 就再也没人关闭——进程被永久挂住。
@@ -200,14 +287,21 @@ export function createWebApiProcess(options) {
       watcher = fs.watch(join(webRoot, "api"), { recursive: true }, () => {
         if (disposed) return;
         if (watchTimer !== null) clearTimeout(watchTimer);
+        // 去抖窗口比原 1s 长：真实改码是「truncate → 写 → 连续多事件」的一串，
+        // 窗口太短会在写入中途取指纹，判成变了却拿的是半截内容。
         watchTimer = setTimeout(() => {
           watchTimer = null;
-          if (!disposed && spawned !== null && !exited) {
-            if (logger) logger.info("[dsh-ldvh web-api] source change detected, recycling child for next request");
-            try { spawned.kill("SIGTERM"); } catch { /* best effort */ }
-            setTimeout(() => { try { spawned.kill("SIGKILL"); } catch { /* best effort */ } }, 3000).unref?.();
-          }
-        }, 1000);
+          if (disposed || spawned === null || exited) return;
+          void (async () => {
+            if (disposed || spawned === null || exited) return;
+            const next = await probeFingerprint();
+            if (next === null) return; // 取不到指纹：不做「内容未变」的乐观判断
+            const previous = sourceFingerprint;
+            sourceFingerprint = next;
+            if (previous === null || next === previous) return; // 内容未变（或无基线）：不动子进程
+            await recycleChild("api source content changed");
+          })();
+        }, 1500);
       });
       watcher.on("error", () => { /* watch 不可用时静默退化为手动重启 */ });
       // 二次检查：watcher 创建与赋值之间不会让出事件循环，但仍保留此关口，
@@ -251,12 +345,28 @@ export function createWebApiProcess(options) {
       spawned = proc;
       exited = false;
       proc.on("exit", (code) => {
+        // 只承认**当前这一轮**的退出：上一轮被回收的旧进程的 exit 事件若晚到，
+        // 直接翻 exited 会把已经起来的新进程误判成已死，下一个请求再 spawn
+        // 一个就撞 EADDRINUSE。
+        if (spawned !== proc) return;
         exited = true;
-        if (!disposed && logger) logger.warn("[dsh-ldvh web-api] child exited with code %s", code ?? "unknown");
+        if (disposed) return;
+        if (logger) logger.warn("[dsh-ldvh web-api] child exited with code %s", code ?? "unknown");
+        // 意外退出的自愈：预热过的子进程挂了同样不能等请求来救——已打开的页面
+        // 不会再发 /ldvh/api/*，而没打开的页面更等不到。回收路径不走这里
+        // （recycleChild 自己负责重拉，见上）。
+        if (recycling) return;
+        setTimeout(() => {
+          if (disposed || spawned !== null) return;
+          ensureReady().catch((error) => {
+            if (logger) logger.warn("[dsh-ldvh web-api] re-warm after unexpected exit failed: %s", error?.message ?? error);
+          });
+        }, 200).unref?.();
       });
       proc.stdout.on("data", (chunk) => { const text = String(chunk).trim(); if (text && logger) logger.info("[dsh-ldvh web-api] %s", text); });
       proc.stderr.on("data", (chunk) => { const text = String(chunk).trim(); if (text && logger) logger.warn("[dsh-ldvh web-api] %s", text); });
       proc.on("error", (error) => {
+        if (spawned !== proc) return;
         exited = true;
         if (logger) logger.error("[dsh-ldvh web-api] spawn failed: %s", error?.message ?? error);
       });
@@ -273,13 +383,19 @@ export function createWebApiProcess(options) {
     return starting;
   }
 
+  /**
+   * 就绪保证（单飞）：已就绪直接返回，启动中返回同一个 promise，否则 spawn。
+   * 单飞的第二个收益是它同时是**重拉**的汇合点——回收后、意外退出后都调它。
+   */
+  async function ensureReady() {
+    if (disposed) return null;
+    if (starting !== null) return starting;
+    if (spawned !== null && !exited) return { port };
+    return spawnOnce();
+  }
+
   return {
-    async ensureReady() {
-      if (disposed) return null;
-      if (starting !== null) return starting;
-      if (spawned !== null && !exited) return { port };
-      return spawnOnce();
-    },
+    ensureReady,
     isRunning() {
       return !disposed && spawned !== null && !exited;
     },
