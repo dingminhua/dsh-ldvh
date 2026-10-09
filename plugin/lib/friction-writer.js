@@ -196,9 +196,9 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
       continue;
     }
     // 03 §7.2 minimal shape: relation_key + target only
-    const relExtra = Object.keys(rel).filter((k) => k !== "relation_key" && k !== "target");
+    const relExtra = Object.keys(rel).filter((k) => k !== "relation_key" && k !== "target" && k !== "evidence_locator");
     if (relExtra.length > 0) {
-      issues.push(`relations[]: entry carries fields beyond relation_key/target (${relExtra.join(", ")}) — 03 §7.2 minimal shape`);
+      issues.push(`relations[]: entry carries fields beyond relation_key/target/evidence_locator (${relExtra.join(", ")}) — 02 §8.2 公共形状`);
     }
 
     const key = rel.relation_key;
@@ -212,39 +212,38 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
       issues.push(`relations[]: target must be an object (03 §7.2)`);
       continue;
     }
-    // commit 例外（Human 裁定 2026-10-09；26 §9.2/§11）：解药为 commit 级修复且**无
-    // 对应事实对象**时，informs 可以 `commit` 为目标键承载 40 位 hash。只在**没有**
-    // object_uid 时启用——不得用它替代本可指向的对象。
-    const hasUid = typeof target.object_uid === "string";
-    const hasCommit = typeof target.commit === "string";
-    if (hasUid && hasCommit) {
-      issues.push(`relations[]: target carries both object_uid and commit — the commit exception applies ONLY when no fact object exists (26 §9.2)`);
-      continue;
-    }
-    if (!hasUid && !hasCommit) {
-      issues.push(`relations[]: target must carry object_uid (03 §7.2) or commit (26 §9.2 commit exception); got ${JSON.stringify(target)}`);
-      continue;
-    }
-    if (hasCommit && !COMMIT_PATTERN.test(target.commit)) {
-      issues.push(`relations[]: target.commit must be a 40-hex commit hash; got ${JSON.stringify(target.commit)}`);
-      continue;
-    }
-    if (hasUid && !UUID_PATTERN.test(target.object_uid)) {
-      issues.push(`relations[]: target.object_uid must be a canonical UUID (03 §7.2); got ${JSON.stringify(target.object_uid)}`);
-      continue;
-    }
-
-    const targetExtra = Object.keys(target).filter((k) => k !== "object_uid" && k !== "commit");
+    // `target` 恒为 object_uid（02 §8.2）。commit **不得**出现在 target 内——它是证据
+    // 定位，走 evidence_locator（02 §8.1 commit 形态 / 26 §9.2 commit 例外）。
+    const targetExtra = Object.keys(target).filter((k) => k !== "object_uid");
     if (targetExtra.length > 0) {
-      issues.push(`relations[]: target carries fields beyond object_uid/commit (${targetExtra.join(", ")}) — 03 §7.2 minimal shape`);
+      issues.push(`relations[]: target carries fields beyond object_uid (${targetExtra.join(", ")}) — 02 §8.2: target 只使用 object_uid，commit 证据走 evidence_locator`);
+    }
+    if (typeof target.object_uid !== "string" || !UUID_PATTERN.test(target.object_uid)) {
+      issues.push(`relations[]: target.object_uid must be a canonical UUID (03 §7.2); got ${JSON.stringify(target?.object_uid)}`);
+      continue;
     }
 
-    if (selfUid !== null && hasUid && target.object_uid === selfUid) {
+    // evidence_locator：公共闭集当前只有 commit 一形（02 §8.1）。
+    const locator = rel.evidence_locator;
+    if (locator !== undefined && locator !== null) {
+      if (typeof locator !== "object" || locator === null) {
+        issues.push(`relations[]: evidence_locator must be an object when present (02 §8.1)`);
+      } else {
+        const locExtra = Object.keys(locator).filter((k) => k !== "commit");
+        if (locExtra.length > 0) {
+          issues.push(`relations[]: evidence_locator carries unsupported key(s) ${locExtra.join(", ")} (02 §8.1 公共闭集当前只有 commit)`);
+        } else if (typeof locator.commit !== "string" || !COMMIT_PATTERN.test(locator.commit)) {
+          issues.push(`relations[]: evidence_locator.commit must be a 40-hex commit hash (02 §8.1); got ${JSON.stringify(locator.commit)}`);
+        }
+      }
+    }
+
+    if (selfUid !== null && target.object_uid === selfUid) {
       issues.push("relations[]: informs target must not be the object itself (26 §11)");
     }
 
-    const dedupe = `${key}::${hasUid ? target.object_uid : `commit:${target.commit}`}`;
-    if (seen.has(dedupe)) issues.push(`relations[]: duplicate relation ${dedupe}`);
+    const dedupe = `${key}::${target.object_uid}`;
+    if (seen.has(dedupe)) issues.push(`relations[]: duplicate relation ${key} → ${target.object_uid}`);
     seen.add(dedupe);
   }
 
@@ -645,16 +644,18 @@ export async function updateFrictionObject(args) {
   for (const rel of fm.relations ?? []) {
     const target = rel?.target;
     if (target === null || typeof target !== "object") continue;
-    if (typeof target.commit === "string") {
+    // evidence_locator.commit（02 §8.1 commit 形态）须在受控仓库真实可解析；
+    // 无 resolver 时 fail-closed——无法核验即不通过（与身份不可得不计独立同纪律）。
+    const locatorCommit = rel?.evidence_locator?.commit;
+    if (typeof locatorCommit === "string") {
       if (typeof gitCommitResolver === "function") {
-        const exists = await gitCommitResolver(target.commit);
+        const exists = await gitCommitResolver(locatorCommit);
         if (!exists) {
-          return failure("friction/relation_target_unresolvable", `informs commit target ${target.commit} does not resolve to an existing commit in this repository (26 §9.2 commit exception)`);
+          return failure("friction/relation_target_unresolvable", `evidence_locator.commit ${locatorCommit} does not resolve to an existing commit in this repository (02 §8.1 commit 形态)`);
         }
-        continue;
+      } else {
+        return failure("friction/relation_target_unresolvable", `evidence_locator.commit ${locatorCommit} cannot be verified: this writer has no git commit resolver (fail-closed, 02 §8.1)`);
       }
-      // 无 resolver 时不得静默放行：无法核验即不通过（fail-closed，与身份不可得不计独立同纪律）。
-      return failure("friction/relation_target_unresolvable", `informs commit target ${target.commit} cannot be verified: this writer has no git commit resolver (fail-closed, 26 §9.2)`);
     }
     const targetUid = target?.object_uid;
     if (typeof targetUid !== "string" || targetUid === objectUid) continue;

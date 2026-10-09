@@ -150,7 +150,7 @@ frontmatter 闭集（账本类型必须轻——入账摩擦高于摩擦本身�
 
 ### 9.2 状态转换
 
-- `open → resolved`（Human Gate：销账）：必须带 `informs` 关系指向解药对象（ADR/WorkCase 的 object_uid——**关系目标限事实对象**；commit 级修复记录在处置段以自然语言+commit hash 承载，不进结构化关系，因 02 §8.2 关系目标为 object_uid）。**commit 例外（Human 裁定 2026-10-09）**：解药为 commit 级修复且**无对应事实对象**时，`informs` 以 `commit` 为目标键承载 40 位 hash（§11 关系表同条），使这类账**可销**——否则「销账必带 informs」与「commit 级解药不进关系」两句互斥，使直提路径修复的摩擦永久无法销账。该例外**不放松**「有事实对象时必须指向对象」：只在无对象可指时启用，且不得用于回避本可指向的对象；
+- `open → resolved`（Human Gate：销账）：必须带 `informs` 关系指向解药对象（ADR/WorkCase 的 object_uid——**关系目标限事实对象**，02 §8.2）。**commit 例外（Human 裁定 2026-10-09）**：解药为 commit 级修复且**无对应事实对象**时，`informs` 条目以 `evidence_locator: {commit}` 承载该修复载体（形状依 02 §8.1，**不进 `target`**），使这类账**可销**——否则「销账必带 informs」与「`target` 只使用 object_uid」两句互斥，使直提路径修复的摩擦永久无法销账。该例外**不放松**「有事实对象时必须指向对象」：只在无对象可指时启用，不得用于回避本可指向的对象（该判断属审核义务，机械层只核 hash 真实可解析）；
 - `open → deferred`（Human Gate：缓议）：推迟理由与重启条件记处置段；
 - `deferred → open`（可逆：重新激活——同一笔账，无须新对象；激活时**不带关系**）；
 - `deferred → resolved`（事后解决——**informs 关系在该次销账流转中写入**，与从 open 直达 resolved 相同）；
@@ -174,9 +174,9 @@ frontmatter 闭集（账本类型必须轻——入账摩擦高于摩擦本身�
 
 | `relation_key` | 方向 | 目标类型 | 基数 | 语义 | 约束 |
 |---|---|---|---|---|---|
-| `informs` | 本 Friction → 解药对象 | ADR / WorkCase ／ **commit hash（例外，见右）** | 1..n | 本摩擦由目标的修复/决策解决 | 仅 `resolved` 时出现；目标必须存在且可解析（ADR 任状态；WorkCase 建议已关闭——机械只查可解析，关闭状态是审核义务）。**commit 例外（Human 裁定 2026-10-09）**：当解药是 commit 级修复且**无对应 ADR/WorkCase 事实对象**时（修复当时走的直提路径、未对象化），`relation_key` 取 `informs`、目标以 `commit` 为键承载 40 位 hash——**仅在无事实对象可指向时**用，不得在有对象时以 commit 替代 |
+| `informs` | 本 Friction → 解药对象 | ADR / WorkCase（走 `target`）**＋ `evidence_locator` 的 `commit` 形态（例外，见右）** | 1..n | 本摩擦由目标的修复/决策解决 | 仅 `resolved` 时出现；目标必须存在且可解析（ADR 任状态；WorkCase 建议已关闭——机械只查可解析，关闭状态是审核义务）。**commit 例外（Human 裁定 2026-10-09）**：解药是 commit 级修复且**无对应 ADR/WorkCase 事实对象**时（修复当时走的直提路径、未对象化），`informs` 条目以 `evidence_locator: {commit: "<40 位 hex>"}` 承载该修复载体——**形状依 02 §8.1「locator 的 commit 形态」**（公共形状由 02 承接，本表只声明本类型采用它），本类型不自设 target 形态。**仅在无事实对象可指向时**用，不得在有对象时以 commit 替代（该判断属审核义务；机械层只核 hash 真实可解析） |
 
-不建反向边（解药侧不复制账目引用）；不建 Friction 间的关联（同一摩擦的重复走补充级更新并入同一账，不建 F-F 关系）；commit 级解药**一般**不进关系（见 §9.2）——**唯一例外**是「无对应事实对象」时的销账（§11 关系表 commit 例外行、§9.2 同名例外）。关系变更必须使用对象当前指纹绑定的完整更新入口，写后精确回读。
+不建反向边（解药侧不复制账目引用）；不建 Friction 间的关联（同一摩擦的重复走补充级更新并入同一账，不建 F-F 关系）；commit 级解药**一般**不进 `target`——**唯一例外**是「无对应事实对象」时的销账，届时走 `evidence_locator` 的 commit 形态（02 §8.1；见 §9.2 与本表 informs 行）。关系变更必须使用对象当前指纹绑定的完整更新入口，写后精确回读。
 
 ## 12. 召回与消费
 

@@ -539,6 +539,106 @@ test("state machine: open→resolved with 1 informs relation to existing ADR suc
   });
 });
 
+test("commit locator: evidence_locator.commit is accepted when it resolves (02 §8.1 commit 形态)", async () => {
+  // commit 是**证据定位**（修复在哪），不是关系目标；target 恒为 object_uid（02 §8.2）。
+  // 本例钉住：locator 形态可落盘、hash 真实存在时通过。
+  await withTemp("friction-writer.", async (root) => {
+    const { read: r1 } = await createAndRead(root);
+    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createAdrFixture(root, adrUid);
+    const realHash = "a".repeat(40);
+
+    const ok = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        status: "resolved",
+        relations: [{
+          relation_key: "informs",
+          target: { object_uid: adrUid },
+          evidence_locator: { commit: realHash },
+        }],
+      },
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "销账并登记 commit 证据定位",
+      sessionSignature: TEST_SIGNATURE,
+      gitCommitResolver: async (h) => h === realHash,
+    });
+    assert.ok(ok.ok, JSON.stringify(ok.error));
+  });
+});
+
+test("commit locator: unresolvable hash and target-side commit are BOTH rejected (02 §8.1/§8.2)", async () => {
+  // 三条负向：① hash 不可解析即拒（不得只记一串 hex）② 无 resolver 即拒（fail-closed）
+  // ③ commit 出现在 target 内即拒（target 只使用 object_uid，commit 走 locator）
+  await withTemp("friction-writer.", async (root) => {
+    const { read: r1 } = await createAndRead(root);
+    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createAdrFixture(root, adrUid);
+    const bad = "b".repeat(40);
+
+    const unresolvable = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        status: "resolved",
+        relations: [{
+          relation_key: "informs",
+          target: { object_uid: adrUid },
+          evidence_locator: { commit: bad },
+        }],
+      },
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "尝试登记不可解析的 commit",
+      sessionSignature: TEST_SIGNATURE,
+      gitCommitResolver: async () => false,
+    });
+    assert.equal(unresolvable.ok, false);
+    assert.equal(unresolvable.error.code, "friction/relation_target_unresolvable");
+
+    const noResolver = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        status: "resolved",
+        relations: [{
+          relation_key: "informs",
+          target: { object_uid: adrUid },
+          evidence_locator: { commit: "c".repeat(40) },
+        }],
+      },
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "无 resolver 时尝试登记 commit",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(noResolver.ok, false, "no resolver must fail closed, never silently accept");
+    assert.equal(noResolver.error.code, "friction/relation_target_unresolvable");
+
+    const commitInTarget = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        status: "resolved",
+        relations: [{ relation_key: "informs", target: { object_uid: adrUid, commit: "d".repeat(40) } }],
+      },
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "把 commit 塞进 target",
+      sessionSignature: TEST_SIGNATURE,
+      gitCommitResolver: async () => true,
+    });
+    assert.equal(commitInTarget.ok, false, "target 只使用 object_uid；commit 走 evidence_locator（02 §8.2）");
+    assert.equal(commitInTarget.error.code, "friction/relations_invalid");
+  });
+});
+
 test("state machine: resolved object update returns status_terminal (26 §9.2 终态不重开)", async () => {
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
