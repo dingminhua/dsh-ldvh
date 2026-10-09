@@ -194,6 +194,7 @@ frontmatter 闭集（账本类型必须轻——入账摩擦高于摩擦本身�
 - **创建**：AI 产出提案对象（含查重结论+三条件核对+完整字段），Human 确认后经受控创建入口落盘——入口两路：空闲评审提议（buffer 攒熟或重大即显）与即时检测/直接提出。机械校验：字段闭集合法、title ≤ 30 字、phenomenon 单句、impact 闭集、载体结构（H2 固定序 + resolved/deferred 时「处置」段必在——创建即终态不允许，初态强制 open）、载体内聚（phenomenon 逐字）。创建后精确回读。
 - **补充级更新**：02 §10.5 受控更新；CAS 以完整文件为单位；每次恰好一条 change_log；status 不变（机械比对，变了拒绝——走流转）。
 - **状态流转**：Human Gate；AI 先精确读取 F3 核对流转依据；resolved 校验 informs 目标可解析；Code 检查闭集、字段、关系、CAS 与回读。
+- **终态事实更正**（`correct`；Human 决定 2026-10-09 建立）：**仅适用于 `resolved`**——`open`／`deferred` 的内容修正走补充级更新或状态流转，本入口不得承载（否则等于把更正伪装成状态转换，02 §10.5）。**存在理由**：§9.2 要求「销错的账按 05 事实更正修正」，而本类型此前只有补充级更新（机械拒绝改 status）与状态流转（终态不重开）两个通道——**销错的终态账无路可改**，该要求形同虚设。可改范围：**正文（含处置段）与 `relations`**——恰是销账时写错的两处（02:386 事实更正与关系变更是不同动作，本入口覆盖两者，校验中分别核对）。**逐字不变**：`status`、`title`、`phenomenon`、`impact`、`serves`、`attribution`、`created_at`（`change_log` 由 Code 追加一条新条目）。**必填**：`human_authorization`（Human 的授权记录：谁／何时／覆盖什么）——与 21 号 WorkCase 的 `correct` 同规格，缺之 fail-closed。**机械校验**：`resolved` 状态前置；`informs` 条数 ≥ 1 且每条目标可解析（ADR/WorkCase），或 commit locator 在仓中真实可解析（02 §8.1）；CAS 与回读同其它动作。**边界**：更正的**正当性**属 Human 判断与独立审核（**是否**该改）；机械层只保证「只改了正文与 relations、终态判定逐字未变、目标真实可解析」。本动作**不使 `resolved` 可重开**——改完仍是 resolved，且须以本条 `change_log` 留痕。
 - **删除**：不存在删除操作。三类状态的账目都随 `frictions/` 保留。
 
 ## 14. 类型特有验证与类型退出

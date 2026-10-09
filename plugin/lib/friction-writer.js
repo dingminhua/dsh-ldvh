@@ -694,6 +694,122 @@ export async function updateFrictionObject(args) {
   return success({ fingerprint: fileFingerprint(content) });
 }
 
+/**
+ * 终态事实更正（`correct`；26 §13，Human 决定 2026-10-09）。
+ *
+ * 存在理由：§9.2 要求「销错的账按 05 事实更正修正」，而本类型此前只有补充级更新
+ * （机械拒绝改 status）与状态流转（终态不重开）——销错的 resolved 账无路可改。
+ *
+ * 可改范围：**正文（含处置段）与 relations**——恰是销账时写错的两处（02:386 事实
+ * 更正与关系变更是不同动作，本入口覆盖两者）。逐字不变：status/title/phenomenon/
+ * impact/serves/attribution/created_at/change_log（Code 追加一条）。
+ *
+ * 与 WorkCase 的 correct 的关键差异：那里 `next` 是落盘对象的克隆、调用方**完全
+ * 无法触及任何 frontmatter 字段**（只改正文）；这里 relations 是销账动作写入的产物，
+ * 写错时必须能改，故显式接收 `relationsAfter` 并对其重新跑全套关系校验与解析。
+ */
+export async function correctFrictionObject(args) {
+  const {
+    factSourceRoot, objectUid, expectedFingerprint,
+    relationsAfter = null, bodyMarkdownAfter, changeSummary, humanAuthorization,
+    sessionSignature = null, gitCommitResolver = null,
+  } = args;
+  const sig = requireAuthoritativeSignature(sessionSignature);
+  if (!sig.ok) return failure(sig.code, sig.message);
+  if (typeof changeSummary !== "string" || changeSummary.length === 0) {
+    return failure("invalid_request", "changeSummary is required (03 §10.5: 每次实际修改恰好一条 change_log)");
+  }
+  // 更正与其它受控更新同权限（26 §13 / 02 §10.5）；无授权记录的更正请求 fail-closed。
+  if (typeof humanAuthorization !== "string" || humanAuthorization.trim().length === 0) {
+    return failure("invalid_request", "humanAuthorization is required for a terminal fact correction (26 §13 终态事实更正；Human 确认；无授权记录的更正请求 fail-closed)");
+  }
+  if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
+    return failure("invalid_request", "bodyMarkdownAfter is required (the full next body starting with '## 现象')");
+  }
+
+  const current = await readFrictionObject({ factSourceRoot, objectUid });
+  if (!current.ok) return current;
+  if (current.value.fingerprint !== expectedFingerprint) {
+    return failure("friction/cas_conflict", `fingerprint mismatch: expected ${expectedFingerprint}, actual ${current.value.fingerprint}`);
+  }
+  const fm = current.value.frontmatter;
+  if (fm.status !== "resolved") {
+    return failure(
+      "friction/correction_requires_resolved",
+      `terminal fact correction applies to a RESOLVED record only (26 §13: 仅适用于 resolved); got status=${JSON.stringify(fm.status)} — open/deferred 内容修正走补充级更新或状态流转，本入口不得承载（否则等于把更正伪装成状态转换，02 §10.5）`,
+    );
+  }
+
+  // 终态判定的逐字继承：除 relations 外，一切取自落盘对象，调用方无法触及。
+  const next = structuredClone(fm);
+  if (relationsAfter !== null) {
+    if (!Array.isArray(relationsAfter)) {
+      return failure("friction/relations_invalid", "relationsAfter must be an array when provided (26 §13)");
+    }
+    // resolved 必有 informs（26 §11）；更正后仍须满足。
+    const informsCount = relationsAfter.filter((r) => r !== null && typeof r === "object" && r.relation_key === "informs").length;
+    if (informsCount === 0) {
+      return failure("friction/relations_invalid", `a resolved friction must carry at least one informs relation (26 §11); got ${informsCount}`);
+    }
+    next.relations = structuredClone(relationsAfter);
+  }
+
+  const relCheck = validateFrictionRelations(next, objectUid);
+  if (!relCheck.ok) {
+    return failure("friction/relations_invalid", "corrected relations failed mechanical checks", { issues: relCheck.issues });
+  }
+
+  // 关系目标解析（含 commit locator），与 update 路径同口径。
+  for (const rel of next.relations ?? []) {
+    const locatorCommit = rel?.evidence_locator?.commit;
+    if (typeof locatorCommit === "string") {
+      if (typeof gitCommitResolver !== "function") {
+        return failure("friction/relation_target_unresolvable", `evidence_locator.commit ${locatorCommit} cannot be verified: this writer has no git commit resolver (fail-closed, 02 §8.1)`);
+      }
+      if (!(await gitCommitResolver(locatorCommit))) {
+        return failure("friction/relation_target_unresolvable", `evidence_locator.commit ${locatorCommit} does not resolve to an existing commit in this repository (02 §8.1 commit 形态)`);
+      }
+    }
+    const targetUid = rel?.target?.object_uid;
+    if (typeof targetUid !== "string" || targetUid === objectUid) continue;
+    let resolvedTarget = false;
+    for (const dir of INFORMS_TARGET_DIRS) {
+      for (const ext of [".md", ".yaml"]) {
+        try {
+          await access(join(factSourceRoot, dir, `${dir === "adrs" ? "adr" : "workcase"}-${targetUid}${ext}`));
+          resolvedTarget = true;
+          break;
+        } catch { /* try next */ }
+      }
+      if (resolvedTarget) break;
+    }
+    if (!resolvedTarget) {
+      return failure("friction/relation_target_unresolvable", `informs target ${targetUid} does not resolve to an existing ADR/WorkCase object in ${INFORMS_TARGET_DIRS.join("/")}`);
+    }
+  }
+
+  // 正文结构 + 载体内聚（26 §13；resolved 的处置段必在）。
+  const body = assembleBody(next.title, bodyMarkdownAfter);
+  const bodyCheck = validateFrictionBodyStructure(body, next.title, next.status);
+  if (!bodyCheck.ok) {
+    return failure("friction/body_invalid", "corrected body failed structural checks", { issues: bodyCheck.issues });
+  }
+  const coherenceCheck = validateCarrierCoherence(next, body);
+  if (!coherenceCheck.ok) {
+    return failure("friction/coherence_invalid", "carrier coherence failed on correction", { issues: coherenceCheck.issues });
+  }
+
+  next.change_log = [...(fm.change_log ?? []), {
+    at: new Date().toISOString(),
+    ...sig.signature,
+    summary: changeSummary,
+  }];
+  const filePath = objectFilePath(factSourceRoot, objectUid);
+  const content = buildFileContent(next, body);
+  await atomicWriteFile(filePath, content);
+  return success({ fingerprint: fileFingerprint(content) });
+}
+
 // ---------------------------------------------------------------------------
 // List / F0–F1 discovery (specs/03 §8, specs/26 §12)
 // ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ import {
   createFrictionObject,
   readFrictionObject,
   updateFrictionObject,
+  correctFrictionObject,
   listFrictionObjects,
   isSingleSentence,
   readGoalAnchors,
@@ -644,6 +645,105 @@ test("commit locator: unresolvable hash and target-side commit are BOTH rejected
     });
     assert.equal(commitInTarget.ok, false, "target 只使用 object_uid；commit 走 evidence_locator（02 §8.2）");
     assert.equal(commitInTarget.error.code, "friction/relations_invalid");
+  });
+});
+
+test("correct: resolved 账可改正文与 relations，终态判定逐字不变（26 §13）", async () => {
+  await withTemp("friction-writer.", async (root) => {
+    const { read: r1 } = await createAndRead(root);
+    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createAdrFixture(root, adrUid);
+    const resolved = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        status: "resolved",
+        relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+      },
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "销账",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(resolved.ok, JSON.stringify(resolved.error));
+
+    const before = (await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid })).value;
+    const fixed = await correctFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: before.fingerprint,
+      // 销账时把 target 与 locator 同时写了——更正为只留 locator（02 §8.1：target 恒为
+      // object_uid，commit 走 evidence_locator；二者并存不符规范表述）。
+      relationsAfter: [{
+        relation_key: "informs",
+        target: { object_uid: adrUid },
+        evidence_locator: { commit: "a".repeat(40) },
+      }],
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "更正销账时同时写入 target 与 locator 的形态偏差",
+      humanAuthorization: "Human（dsh-ldvh 会话主，2026-10-09 明示「授权你可以临时修改一下」）",
+      sessionSignature: TEST_SIGNATURE,
+      gitCommitResolver: async () => true,
+    });
+    assert.ok(fixed.ok, JSON.stringify(fixed.error));
+
+    const after = (await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid })).value;
+    assert.equal(after.frontmatter.status, "resolved", "correct 不使终态重开");
+    assert.equal(after.frontmatter.relations[0].evidence_locator.commit, "a".repeat(40));
+    // 终态判定与内容字段逐字不变
+    for (const key of ["title", "phenomenon", "impact", "serves", "attribution", "created_at"]) {
+      assert.deepEqual(after.frontmatter[key], before.frontmatter[key], `${key} must be byte-identical across a correction`);
+    }
+    // change_log 恰好追加一条
+    assert.equal(after.frontmatter.change_log.length, before.frontmatter.change_log.length + 1);
+  });
+});
+
+test("correct: open 账与缺授权的更正请求都被机械拒绝（26 §13 fail-closed）", async () => {
+  await withTemp("friction-writer.", async (root) => {
+    const { read: r1 } = await createAndRead(root);
+
+    // ① open 状态不得走 correct（否则等于把更正伪装成状态转换，02 §10.5）
+    const onOpen = await correctFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      bodyMarkdownAfter: validBodyMarkdown(),
+      changeSummary: "对 open 账做终态更正",
+      humanAuthorization: "Human 授权",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(onOpen.ok, false);
+    assert.equal(onOpen.error.code, "friction/correction_requires_resolved");
+
+    // ② 缺 human_authorization 即拒——更正与其它受控更新同权限
+    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createAdrFixture(root, adrUid);
+    const resolved = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        status: "resolved",
+        relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+      },
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "销账",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(resolved.ok);
+
+    const noAuth = await correctFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: resolved.fingerprint,
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "无授权记录的更正请求",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(noAuth.ok, false, "a correction without human_authorization must fail closed");
   });
 });
 
