@@ -42,10 +42,35 @@ const SPEC_07 = join(repoRoot, "specs", "07-Web 呈现与交互规范.md");
 const SPEC_06 = join(repoRoot, "specs", "06-Code 实践与测试规范.md");
 
 /**
- * 状态陈述模式（specs/01 §7.2 禁止的第 1、3 项）：
+ * 状态陈述模式（`specs/01` §7.2 禁止的第 1、3 项）：
  * 「某项机制已实现／尚未实现／已由某提交落地」与「当前处理到哪一步、待办、已完成的轮次」。
  * 这些句子**随实现现状变化即需改写**，故不得留在规范正文。
+ *
+ * **刻意的豁免**（实测 2026-10-09 引入，避免误报）——均以「排除短语」实现，
+ * 而非从模式表删除；保留模式本身可防其它形态漏检：
+ *
+ *   ① **自限条款（§3.4）自身**：该款必须**命名**它禁止的类别（「实现状态」「实现接线」
+ *      「已实现」）并指明去向（「下位设计文档」「plugin/web/docs/」）。否则条款无法书写。
+ *      **边界**：豁免只在 §3.4 内生效——§3.4 之外出现这些词仍判失败。
+ *   ② 「不登记实现接线」——对允许/禁止的表达，不是状态陈述。
+ *   ③ 「已废弃」——对象状态的**领域词汇**（Spark 的 `discarded` 显示词），
+ *      随类型语义变化而非随代码现状变化。
  */
+const SELF_LIMITING_SECTION = "### 3.4 本文只承载要求，不承载实现状态";
+const STATE_EXCLUSIONS = ["不登记实现接线", "「已废弃」", "不承载实现状态", "状态如何表达"];
+
+/**
+ * 取「允许出现元陈述」的区段：自限条款本款。
+ * 本款之后的下一个 `### ` 或 `## ` 即本款末尾。
+ */
+function selfLimitingSection(text) {
+	const start = text.indexOf(SELF_LIMITING_SECTION);
+	if (start === -1) return "";
+	const rest = text.slice(start);
+	const endRel = rest.slice(SELF_LIMITING_SECTION.length).search(/\n#{2,3} /);
+	return endRel === -1 ? rest : rest.slice(0, SELF_LIMITING_SECTION.length + endRel);
+}
+
 const STATE_PATTERNS = [
 	"已落地",
 	"未落地",
@@ -77,23 +102,45 @@ const ARTIFACT_PATTERNS = [
 	/\btests?\/api\/[a-z-]+\.test\.ts\b/g,
 ];
 
-/** Count occurrences of any pattern in `text`; returns {total, hits}. */
-function countMatches(text, patterns) {
+/**
+ * Count occurrences of any pattern in `text`; returns {total, hits}.
+ *
+ * `toleratedSpan` 为该次扫描中「允许出现元陈述」的区段（自限条款本款，见其说明）；
+ * 落在该区段内的命中不计——因为该款必须能命名它禁止的类别并指明去向。
+ */
+function countMatches(text, patterns, { toleratedSpan = null } = {}) {
 	const hits = [];
 	let total = 0;
+	const inTolerated = (idx, len) => {
+		if (!toleratedSpan) return false;
+		const start = text.indexOf(toleratedSpan);
+		return start !== -1 && idx >= start && idx + len <= start + toleratedSpan.length;
+	};
 	for (const p of patterns) {
 		if (typeof p === "string") {
 			let idx = text.indexOf(p);
 			while (idx !== -1) {
-				total += 1;
-				hits.push(p);
+				// 命中前先剔除刻意的豁免形（见 STATE_EXCLUSIONS 的说明）。
+				const window = text.slice(Math.max(0, idx - 12), idx + p.length + 12);
+				const excused =
+					STATE_EXCLUSIONS.some((ex) => window.includes(ex)) || inTolerated(idx, p.length);
+				if (!excused) {
+					total += 1;
+					hits.push(p);
+				}
 				idx = text.indexOf(p, idx + p.length);
 			}
 		} else {
 			const m = text.match(p);
 			if (m) {
-				total += m.length;
-				hits.push(...m);
+				// 正则命中同样按所在位置判定是否落在被容忍区段内。
+				for (const hit of m) {
+					const idx = text.indexOf(hit);
+					if (!inTolerated(idx, hit.length)) {
+						total += 1;
+						hits.push(hit);
+					}
+				}
 			}
 		}
 	}
@@ -116,7 +163,8 @@ const ARTIFACT_BUDGET_06 = 9;
 
 test("S1: specs/07 正文的状态陈述数不得超过阈值（对齐 06 的实测值 0）", async () => {
 	const text = await readFile(SPEC_07, "utf8");
-	const { total, hits } = countMatches(text, STATE_PATTERNS);
+	const toleratedSpan = selfLimitingSection(text);
+	const { total, hits } = countMatches(text, STATE_PATTERNS, { toleratedSpan });
 	const uniq = [...new Set(hits)];
 	assert.equal(
 		total,
@@ -124,19 +172,22 @@ test("S1: specs/07 正文的状态陈述数不得超过阈值（对齐 06 的实
 		`specs/07 含 ${total} 处状态陈述（阈值 ${STATE_BUDGET_07}），命中：${JSON.stringify(uniq)}\n` +
 			`依据 specs/01 §7.2：规范正文只承载要求，不得承载「当前如何」的事实陈述。\n` +
 			`处置：把「随实现变化即需改写」的内容移入 plugin/web/docs/（下位设计文档），` +
-			`规范正文只保留现状变化后仍成立的要求或条件式要求。`,
+			`规范正文只保留现状变化后仍成立的要求或条件式要求。\n` +
+			`（§3.4 自限条款内命名被禁类别与去向的表述已豁免，其余位置不豁免。）`,
 	);
 });
 
 test("S2: specs/07 正文的实现物引用数不得超过阈值", async () => {
 	const text = await readFile(SPEC_07, "utf8");
-	const { total, hits } = countMatches(text, ARTIFACT_PATTERNS);
+	const toleratedSpan = selfLimitingSection(text);
+	const { total, hits } = countMatches(text, ARTIFACT_PATTERNS, { toleratedSpan });
 	const uniq = [...new Set(hits)];
 	assert.ok(
 		total <= ARTIFACT_BUDGET_07,
 		`specs/07 含 ${total} 处实现物引用（阈值 ${ARTIFACT_BUDGET_07}），命中：${JSON.stringify(uniq)}\n` +
 			`依据 specs/01 §7.2 第 1 项：正文不得承载实现所在的文件、函数或批次说明。\n` +
-			`处置：组件名/常量名/测试路径归 plugin/web/docs/；规范只保留可验收的呈现语义。`,
+			`处置：组件名/常量名/测试路径归 plugin/web/docs/；规范只保留可验收的呈现语义。\n` +
+			`（§3.4 自限条款内指明去向的表述已豁免，其余位置不豁免。）`,
 	);
 });
 
