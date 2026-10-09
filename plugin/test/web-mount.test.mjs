@@ -246,6 +246,90 @@ test("mtime-only touch keeps the child pid unchanged, real content change replac
   }
 });
 
+test("unexpected child exit re-warms without any incoming request", async () => {
+  // 独立复核发现（工单 c6d88dac）：初版的「意外退出自愈」是**死代码**——
+  // exit 回调里 re-warm 的守卫是 `if (disposed || spawned !== null) return;`，
+  // 而 spawned 只在 recycleChild 内清空，意外退出时仍指向已死进程，定时器必然
+  // 早退。热刷新路径的自愈成立，崩溃路径从未生效。本用例钉住崩溃路径。
+  const { root, manager, readPid, port } = await makeWatchFixture();
+  try {
+    await manager.ensureReady();
+    const firstPid = await readPid();
+    assert.equal(manager.isRunning(), true);
+
+    // 模拟崩溃：从外部 SIGKILL，不经 dispose、不经回收路径。
+    process.kill(firstPid, "SIGKILL");
+    // exit 事件是异步送达的：先等它被观察到，再谈重拉。
+    for (let i = 0; i < 40 && manager.isRunning(); i += 1) {
+      await new Promise((done) => setTimeout(done, 100));
+    }
+    assert.equal(manager.isRunning(), false, "the child must be observed as gone after the kill");
+
+    // 不发任何请求，等它自己回来。
+    let secondPid = firstPid;
+    for (let i = 0; i < 40; i += 1) {
+      await new Promise((done) => setTimeout(done, 250));
+      if (!manager.isRunning()) continue;
+      secondPid = await readPid();
+      if (secondPid !== firstPid) break;
+    }
+    assert.notEqual(secondPid, firstPid, "an unexpectedly killed child must be re-warmed with a new pid");
+    const response = await fetch(`http://127.0.0.1:${port}/api/health`);
+    assert.equal(response.status, 200, "the loopback address must serve again after a crash");
+    void root;
+  } finally {
+    manager.dispose();
+  }
+});
+
+test("a real content change is not swallowed by the recycle throttle", async () => {
+  // 独立复核发现：回收回调原先**先**推进内容指纹基线、再调 recycleChild，而
+  // recycleChild 会因节流（500ms）或正在回收而早退——本次真实改码就被「吃掉」：
+  // 基线已是新内容，下次事件判成未变，进程却还跑着旧码。
+  // 这里连改两次内容、间隔短于节流窗口，两次都必须生效。
+  const { root, manager, readPid } = await makeWatchFixture();
+  try {
+    await manager.ensureReady();
+    const firstPid = await readPid();
+    const target = join(root, "api", "server.ts");
+
+    await writeFile(target, "// v2\n");
+    await new Promise((done) => setTimeout(done, 300));
+    // 第二次改码发生在第一次回收的节流窗口内（去抖 1.5s 后才判指纹，节流 500ms）。
+    await writeFile(target, "// v3\n");
+
+    let lastPid = firstPid;
+    for (let i = 0; i < 60; i += 1) {
+      await new Promise((done) => setTimeout(done, 500));
+      if (!manager.isRunning()) continue;
+      lastPid = await readPid();
+      if (lastPid !== firstPid) {
+        // 换过一次之后再等一轮，确认第二次改码也被消费（基线未被提前吃掉）。
+        await new Promise((done) => setTimeout(done, 3500));
+        if (manager.isRunning()) lastPid = await readPid();
+        break;
+      }
+    }
+    assert.notEqual(lastPid, firstPid, "content changes must recycle the child, not be silently dropped");
+    assert.equal(manager.isRunning(), true, "the child must end up running, not wedged mid-recycle");
+  } finally {
+    manager.dispose();
+  }
+});
+
+test("dispose still refuses to resurrect the child after an unexpected exit", async () => {
+  // dispose 的语义不得被 re-warm 分支破坏：关闭后不复活（既有 dispose 用例钉住
+  // 「dispose 后 ensureReady 返回 null」，这里钉住崩溃路径上也不复活）。
+  const { manager, readPid } = await makeWatchFixture();
+  await manager.ensureReady();
+  const firstPid = await readPid();
+  manager.dispose();
+  process.kill(firstPid, "SIGKILL");
+  await new Promise((done) => setTimeout(done, 1500));
+  assert.equal(manager.isRunning(), false);
+  assert.equal(await manager.ensureReady(), null, "a disposed manager must never resurrect its child");
+});
+
 test("web api process manager spawns a custom command, becomes ready, and disposes", async () => {
   const port = 30000 + Math.floor(Math.random() * 20000);
   const manager = createWebApiProcess({

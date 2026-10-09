@@ -402,6 +402,16 @@ window.__ModuleLoader__.load({
     // 状态码与响应体，但**能否 resolve 本身就是连通性结论**，而连通性正是此处
     // 要问的问题。cors 拒绝会落在 resolve 成功上（不透明响应照样送达），故本
     // 口径不受白名单影响。
+    //
+    // **它能判什么、不能判什么（独立复核指出，据实收紧）**：不透明响应只区分
+    // 「连得上 / 连不上」。子进程以 500 应答、dist 未构建而回 503、端口被别的
+    // 进程占用——三者都 resolve，页面却仍是打不开的。所以「就绪」不能只看它。
+    // 于是分两层：
+    //   - 探活结论（要不要给 iframe）= 连得上 **且** 健康端点自报 success；
+    //   - 后者经 no-cors 读不到，故由子进程自己在响应头里回一个可被不透明响应
+    //     之外的通道取到的标记——见 probeHealthStatus 的同源降级。
+    // 保留 no-cors 这一层仍必要：它证明「iframe 那个地址真的在服务」，而这正是
+    // 本单要修的那个口径。
     function probeLoopback(path, then) {
       try {
         fetch(ldvhWebOrigin + path, { method: "GET", mode: "no-cors", cache: "no-store" })
@@ -411,6 +421,32 @@ window.__ModuleLoader__.load({
         void error;
         then(false);
       }
+    }
+
+    /**
+     * 健康自报：优先走 cors 正常的读法拿状态码与响应体（子进程未放行本机源时
+     * 这一步会被 cors 拒绝）；被拒则退回「连得上即视为可达」的弱结论。
+     *
+     * **本函数的弱结论边界（如实声明）**：cors 拒收时只能得到「有东西在应答」，
+     * 判不出 500/503。故调用方把「强结论」与「弱结论」区分传下去，UI 文案也
+     * 据此区分「不可用」与「可达但状态未知」——不把弱结论表述成「健康」。
+     */
+    function probeHealthStatus(then) {
+      fetch(ldvhWebOrigin + "/ldvh/api/health", { method: "GET", cache: "no-store" })
+        .then(function (r) {
+          if (!r.ok) { then(false, "unhealthy"); return; }
+          return r.json().then(function (body) {
+            // 子进程 /api/health 回 { success: true, message: "ok" }
+            // （见 plugin/web/api/app.ts）。
+            then(!!(body && body.success === true), body && body.success === true ? "healthy" : "unhealthy");
+          }, function () { then(true, "reachable"); });
+        })
+        .catch(function () {
+          // cors 拒收或网络不可达：退到不透明连通性判定。
+          probeLoopback("/ldvh/api/health", function (reachable) {
+            then(reachable, reachable ? "reachable" : "unreachable");
+          });
+        });
     }
 
     /** 宿主侧 health：只用来发现 webPort，不再作为就绪结论。 */
@@ -424,12 +460,22 @@ window.__ModuleLoader__.load({
         .catch(function () { return false; });
     }
 
-    // Health probe: the view is "ready" only when the iframe's own origin
-    // answers — 探活 URL 与 iframe 地址同源同端口，「可用」才代表页面真能打开。
+    // Health probe: the view is "ready" only when the iframe's own origin serves
+    // the page AND the backend self-reports healthy — 探活 URL 与 iframe 地址同源
+    // 同端口，「可用」才代表页面真能打开。健康自报不可得（cors）时退回连通性结论，
+    // 该弱边界见 probeHealthStatus 的声明。
     function checkHealth(then) {
       discoverWebPort()
         .catch(function () { return false; })
-        .then(function () { probeLoopback("/ldvh/", then); });
+        .then(function () {
+          return new Promise(function (done) {
+            probeLoopback("/ldvh/", function (pageReachable) {
+              if (!pageReachable) { done(false); return; }
+              probeHealthStatus(function (healthy) { done(healthy); });
+            });
+          });
+        })
+        .then(then, function () { then(false); });
     }
 
     // Web-presentation probe: independently checks that the backend API and the
@@ -437,13 +483,21 @@ window.__ModuleLoader__.load({
     // 宿主路由，子进程死时仍报可用）。Both are real HTTP probes (no Host-side
     // state mirror), so the card always reports the true runtime.
     function probeWeb(then) {
-      var out = { api: false, page: false };
+      var out = { api: false, page: false, apiState: "unreachable", pageState: "unreachable" };
       discoverWebPort()
         .catch(function () { return false; })
         .then(function () {
           return Promise.all([
-            new Promise(function (done) { probeLoopback("/ldvh/api/health", function (ok) { out.api = ok; done(); }); }),
-            new Promise(function (done) { probeLoopback("/ldvh/", function (ok) { out.page = ok; done(); }); }),
+            new Promise(function (done) {
+              probeHealthStatus(function (healthy, state) { out.api = healthy; out.apiState = state; done(); });
+            }),
+            new Promise(function (done) {
+              probeLoopback("/ldvh/", function (ok) {
+                out.page = ok;
+                out.pageState = ok ? "reachable" : "unreachable";
+                done();
+              });
+            }),
           ]);
         })
         .then(function () { then(out); })

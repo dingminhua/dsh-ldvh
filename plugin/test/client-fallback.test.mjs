@@ -183,9 +183,19 @@ test("client probe URL is the iframe's own origin, not the host route", () => {
 		/function probeLoopback\(path, then\)[\s\S]{0,400}fetch\(ldvhWebOrigin \+ path/.test(source),
 		"probe must fetch the loopback origin the iframe uses",
 	);
+	// 就绪门 = 页面可达 **且** 健康端点自报 success（独立复核指出：只判 resolve
+	// 会把 500/503/端口被占一律误报可用）。
 	assert.ok(
-		/probeLoopback\("\/ldvh\/", then\)/.test(source),
-		"the readiness gate must probe the iframe's SPA path on that origin",
+		/function probeHealthStatus\(then\)/.test(source),
+		"the probe must distinguish 'reachable' from 'healthy'",
+	);
+	assert.ok(
+		/body && body\.success === true/.test(source),
+		"the health probe must read the child's own success flag, not just connectivity",
+	);
+	assert.ok(
+		/probeLoopback\("\/ldvh\/", function \(pageReachable\)/.test(source),
+		"the readiness gate must first probe the iframe's SPA path on that origin",
 	);
 	// 端口发现仍走宿主（唯一能拿到 webPort 的通道），但它不再充当就绪结论。
 	assert.ok(

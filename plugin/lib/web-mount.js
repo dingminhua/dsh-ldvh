@@ -184,12 +184,13 @@ export function createWebApiProcess(options) {
   let starting = null;
   let disposed = false;
   // 源码热刷新：监听 api/ 目录（子进程跑的是 link: 仓库的实时文件——源码更新后
-  // 长驻子进程仍是旧码，须杀掉让下次请求重拉）。1s 去抖避免构建期连杀。
+  // 长驻子进程仍是旧码，须杀掉重拉）。去抖避免构建期连杀。
   //
   // 回收判据（2026-10-09，工单 c6d88dac）：只有**内容真的变了**才回收。原实现
   // 对任何 mtime 事件都 kill，一次 `touch` 就能把页面打死——而重拉只能靠已经
   // 打不开的页面发来的 /ldvh/api/* 请求，形成死锁。故此处对整个 api/ 树取内容
-  // 指纹（相对路径 + size + mtimeMs + 内容 hash），指纹不变即跳过回收。
+  // 指纹（路径 + 长度 + 内容 hash，**不含 mtime**——混进 mtime 等于没修），
+  // 指纹不变即跳过回收。
   let watchTimer = null;
   let watcher = null;
   let sourceFingerprint = null;
@@ -200,10 +201,15 @@ export function createWebApiProcess(options) {
   // （两次 ensureReady 由单飞合并，但意图上只有一条自愈路径，日志也要能读）。
   let recycling = false;
   // 回收后自愈：kill 之后由本管理器自己重新预热，不等任何请求。
+  /**
+   * 回收并自愈。返回**是否真的回收了**——调用方据此决定要不要推进内容指纹
+   * 基线：回收被节流或正在回收时返回 false，基线保持不动，本次真实改码不会被
+   * 「吃掉」（否则下次事件判成未变，进程却还跑着旧码）。
+   */
   async function recycleChild(reason) {
     const proc = spawned;
-    if (proc === null || exited || disposed || recycling) return;
-    if (lastRecycle !== null && Date.now() - lastRecycle < 500) return;
+    if (proc === null || exited || disposed || recycling) return false;
+    if (lastRecycle !== null && Date.now() - lastRecycle < 500) return false;
     lastRecycle = Date.now();
     recycling = true;
     if (logger) logger.info("[dsh-ldvh web-api] %s, recycling child and warming a replacement up", reason);
@@ -220,7 +226,7 @@ export function createWebApiProcess(options) {
     // spawned 仍指向已死的那一轮时先摘掉，让 ensureReady 走 spawn 分支而不是
     // 误判「还活着」直接返回。
     if (spawned === proc) spawned = null;
-    if (disposed) { recycling = false; return; }
+    if (disposed) { recycling = false; return false; }
     // 自愈的关键一步：这里就重新预热。原先只有 ensureReady() 会 spawn，而它由
     // 代理请求触发——请求来自已经打不开的页面，于是进程一死就永不自愈。
     try {
@@ -231,6 +237,8 @@ export function createWebApiProcess(options) {
     } finally {
       recycling = false;
     }
+    // 重拉失败也算回收已发生：基线推进是必要的，否则每次事件都会重复触发回收。
+    return true;
   }
   if (watchSource) {
     import("node:fs").then(async (fs) => {
@@ -297,9 +305,13 @@ export function createWebApiProcess(options) {
             const next = await probeFingerprint();
             if (next === null) return; // 取不到指纹：不做「内容未变」的乐观判断
             const previous = sourceFingerprint;
-            sourceFingerprint = next;
-            if (previous === null || next === previous) return; // 内容未变（或无基线）：不动子进程
-            await recycleChild("api source content changed");
+            if (previous === null || next === previous) { sourceFingerprint = next; return; } // 内容未变（或无基线）
+            // 指纹只在**真的回收了**之后才推进。若先推进再调 recycleChild，而
+            // recycleChild 因节流或正在回收而早退，本次真实改码就被「吃掉」了：
+            // 基线已是新内容，下次事件会判成未变，进程却还跑着旧码。故回收未发生
+            // 时保持旧基线，让后续事件（或本次的重试）仍能看到差异。
+            const recycled = await recycleChild("api source content changed");
+            if (recycled) sourceFingerprint = next;
           })();
         }, 1500);
       });
@@ -350,6 +362,11 @@ export function createWebApiProcess(options) {
         // 一个就撞 EADDRINUSE。
         if (spawned !== proc) return;
         exited = true;
+        // 意外退出后 spawned 仍指向这一轮**已死**的进程。必须在这里摘掉，否则
+        // ensureReady() 的「spawned !== null && !exited」判定走不到 spawn 分支
+        // （exited 为 true 会走到，但下面 re-warm 的守卫若按 spawned !== null 判
+        // 就会永远早退——那正是初版把这条路径写成死代码的原因）。
+        if (spawned === proc) spawned = null;
         if (disposed) return;
         if (logger) logger.warn("[dsh-ldvh web-api] child exited with code %s", code ?? "unknown");
         // 意外退出的自愈：预热过的子进程挂了同样不能等请求来救——已打开的页面
@@ -357,6 +374,9 @@ export function createWebApiProcess(options) {
         // （recycleChild 自己负责重拉，见上）。
         if (recycling) return;
         setTimeout(() => {
+          // 守卫只认「已处置」与「已被别人拉起」两件事：disposed 是关闭态，
+          // spawned !== null 说明这 200ms 内已有别的路径（请求或回收）拉起了
+          // 新进程，不必再插一次。
           if (disposed || spawned !== null) return;
           ensureReady().catch((error) => {
             if (logger) logger.warn("[dsh-ldvh web-api] re-warm after unexpected exit failed: %s", error?.message ?? error);
