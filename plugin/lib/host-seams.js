@@ -46,6 +46,58 @@ function selectedLabelOf(entry) {
   return raw;
 }
 
+/**
+ * `question` 文本的字符上界（ADR 7ceaf7fc 的实现侧落地）。
+ *
+ * 宿主把 `question` 渲染为标题区（`flex-shrink:0`，无截断、无行数上限、无
+ * 滚动），而 `detail` 与选项同处可滚动 body。超长 `question` 顶高卡片后把
+ * 选项挤出可视范围，Human 无从作答——实测三次 Spark 创建提请因此 fail-closed。
+ * 宿主侧对长度零校验零截断，故本上界只能由本消费侧自查。
+ */
+export const ASK_QUESTION_MAX_CHARS = 200;
+
+/**
+ * 按字符预算裁剪外壳文本，不拆散代理对。
+ *
+ * 预算以 **UTF-16 码元**（`String.prototype.length`）计量，与仓内既有 200 字符
+ * 上界（`workcase-writer.js` 的 `GIST_MAX_CHARS`）同一口径——否则含代理对的文本
+ * （emoji 等）会以「码点数 ≤ 200 而 .length 达 366」的形式越过上界。裁剪时按
+ * 码元回退，不把一个代理对劈成两半（半个码元会渲染成替换字符）。
+ *
+ * 仅用于**短外壳**的兜底：呈报正文永不经过这里（它整体走 detail）。
+ */
+function clampHead(text, budget) {
+  if (text.length <= budget) return text;
+  let cut = Math.max(0, budget - 1); // 末位留给省略号
+  // 不劈开代理对：若切点落在高代理项之后（切点前一位是高代理项），前移一格。
+  const prev = text.charCodeAt(cut - 1);
+  if (cut > 0 && prev >= 0xd800 && prev <= 0xdbff) cut -= 1;
+  return `${text.slice(0, cut)}…`;
+}
+
+/**
+ * 有界组装（ADR 7ceaf7fc）：短外壳进 `question`，完整呈报进 `question.detail`。
+ *
+ * - `head` — 短外壳行（Gate 名与对象标题）。逐字进入 `question`，超出
+ *   `ASK_QUESTION_MAX_CHARS` 时按预算裁剪（只裁外壳，不裁呈报）。
+ * - `detail` — 本次请求未经任何裁剪的完整呈报文本，原样承载。宿主不校验
+ *   `detail` 长度，且它渲染于可滚动 body 内，是宿主已提供的长文本位置。
+ *
+ * 不变量（由 plugin/test 断言）：返回的 `question` 长度 ≤ 上界；`detail`
+ * 逐字包含全部呈报内容。任何呈报内容的**丢失**都不可能发生——超限时的处置是
+ * 移入 detail，不是截断。
+ */
+function assembleBoundedAsk({ head, detail }) {
+  const lines = (Array.isArray(head) ? head : [])
+    .filter((line) => typeof line === "string" && line.trim().length > 0)
+    .map((line) => line.trim());
+  const report = typeof detail === "string" && detail.trim().length > 0 ? detail.trim() : null;
+  return {
+    question: clampHead(lines.join("\n"), ASK_QUESTION_MAX_CHARS),
+    ...(report === null ? {} : { detail: report })
+  };
+}
+
 /** 21 §6.3 路由询问 identity — the Human decides between carrying the work as a
  * WorkCase or handling it directly. Same discipline as the registration consent:
  * the id and BOTH labels are shared between what is asked and what is accepted,
@@ -432,9 +484,15 @@ export function createHostSeams() {  const consumed = Object.create(null);
    * excludes "当次行动可直接处理的低风险改动" from objectification — so an
    * un-routed candidate must NOT silently become an object either.
    *
-   * `rationale` carries the AI's §6.3 reasoning (why it leans toward a
-   * WorkCase and what argues for direct handling). It is advisory text the
-   * Human uses to decide; it is NOT part of what is accepted.
+   * `rationale` is accepted for call compatibility but is NOT presented:
+   * Human decided (2026-10) that the AI's own lean reasons must not appear in
+   * the prompt — they are unverifiable self-report and turn a triage question
+   * into an argument transcript. Nothing in 21 §6.3 requires presenting them.
+   *
+   * `request` is carried verbatim — in `question` while it fits ADR 7ceaf7fc's
+   * 200-char bound, and in the scrollable `detail` when it does not, so the
+   * Human's own words are never truncated. The prompt therefore carries no
+   * `detail` at all in the ordinary case.
    *
    * `signal` is the calling tool's cancellation signal. It MUST be forwarded:
    * this ask carries no wall-clock deadline (it waits for a human), so an
@@ -444,28 +502,30 @@ export function createHostSeams() {  const consumed = Object.create(null);
     if (typeof seams.ask !== "function") {
       return { granted: false, routedTo: null, reason: "no human-answerer entry is available; 21 §6.3 routing requires an explicit Human decision, so it cannot be assumed" };
     }
-    const leans = Array.isArray(rationale?.forWorkcase) ? rationale.forWorkcase.filter((x) => typeof x === "string" && x.trim().length > 0) : [];
-    const against = Array.isArray(rationale?.forDirect) ? rationale.forDirect.filter((x) => typeof x === "string" && x.trim().length > 0) : [];
-    const lines = [];
-    if (typeof request === "string" && request.trim().length > 0) lines.push(`你的要求：${request.trim()}`);
-    lines.push("");
-    lines.push("我判断这件事触及 21 §6.3 的取舍边界：");
-    if (leans.length > 0) {
-      lines.push("");
-      lines.push("倾向建工单的理由：");
-      for (const item of leans) lines.push(` · ${item}`);
+    const head = [];
+    let detail = null;
+    if (typeof request === "string" && request.trim().length > 0) {
+      head.push(`你的要求：${request.trim()}`);
+      // 极长的原话装不进有界标题区时（ADR 7ceaf7fc），改由可滚动的 detail 逐字
+      // 承载——裁剪只发生在外壳，绝不发生在这句原话上。
+      if (head[0].length + "需要你的判断（21 §6.3）".length > ASK_QUESTION_MAX_CHARS) {
+        detail = request.trim();
+      }
     }
-    if (against.length > 0) {
-      lines.push("");
-      lines.push("倾向直接执行的理由：");
-      for (const item of against) lines.push(` · ${item}`);
-    }
+    head.push("需要你的判断（21 §6.3）");
+    // 只问「建工单还是直接执行」，不呈报 AI 的倾向理由（Human 2026-10-xx 裁定：
+    // 理由是 AI 自陈、Human 无从核对的一串文字，实测把弹窗撑成一大段，反而使
+    // 本提请看起来像论证材料而非一次分诊）。`rationale` 仍被接受（入参契约不变）
+    // 但不再进入任何呈报载体；语义上它本就只是 advisory，21 §6.3 未要求呈报。
+    // 「你的要求」仍在 head（标题区）逐字呈现，Human 仍能认出在路由哪件事。
+    const assembled = assembleBoundedAsk({ head, detail });
     try {
       const answer = await seams.ask({
         questions: [{
           id: ROUTE_QUESTION_ID,
           header: "需要你的判断",
-          question: lines.join("\n"),
+          question: assembled.question,
+          ...(assembled.detail === undefined ? {} : { detail: assembled.detail }),
           options: [
             { label: ROUTE_WORKCASE_LABEL, description: "创建 WorkCase（draft），随后在 Gate 1 待办中审视内容" },
             { label: ROUTE_DIRECT_LABEL, description: "不创建对象，直接在当前行动中处理" }
@@ -510,8 +570,10 @@ export function createHostSeams() {  const consumed = Object.create(null);
    * `summary` is the 呈报内容 required by 20 §16 — the caller passes what the
    * Human must see to judge (create: dedup conclusion + question +
    * scope_boundary + serves; terminal: target status + disposition + relation
-   * targets). It is rendered verbatim, so a caller cannot satisfy this gate
-   * with an empty or generic report.
+   * targets). It is carried verbatim — but in `question.detail`, not in
+   * `question` (ADR 7ceaf7fc: the title area is not scrollable, so an
+   * unbounded report there pushes the options out of reach). Either way a
+   * caller cannot satisfy this gate with an empty or generic report.
    */
   async function requestSparkConsent({ action, objectTitle, summary, agent, signal }) {
     if (typeof seams.ask !== "function") {
@@ -527,17 +589,19 @@ export function createHostSeams() {  const consumed = Object.create(null);
     if (report === null) {
       return { granted: false, reason: "20 §16 requires the 呈报内容 (the elements the Human judges) to be presented before the question; none was supplied, so no question was asked" };
     }
-    const lines = [];
-    lines.push(`Spark ${verb}确认（20 §16 Human Gate）`);
-    if (typeof objectTitle === "string" && objectTitle.trim().length > 0) lines.push(`对象：${objectTitle.trim()}`);
-    lines.push("");
-    lines.push(report);
+    // 有界组装（ADR 7ceaf7fc）：question 只放短外壳（Gate 名与对象标题），
+    // 20 §16 的完整呈报逐字进 detail。外壳 53 字符 + disposition 上界 200
+    // 字符使原组装至少 227 字符，故必须移入 detail 而不是压缩。
+    const head = [`Spark ${verb}确认（20 §16 Human Gate）`];
+    if (typeof objectTitle === "string" && objectTitle.trim().length > 0) head.push(`对象：${objectTitle.trim()}`);
+    const assembled = assembleBoundedAsk({ head, detail: report });
     try {
       const answer = await seams.ask({
         questions: [{
           id: SPARK_CONSENT_QUESTION_ID,
           header: "Spark 授权",
-          question: lines.join("\n"),
+          question: assembled.question,
+          ...(assembled.detail === undefined ? {} : { detail: assembled.detail }),
           options: [
             { label: SPARK_CONSENT_LABEL, description: `确认${verb}该 Spark 对象` },
             { label: "取消", description: "不执行本次写入，保持现状" }

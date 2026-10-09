@@ -567,15 +567,15 @@ test("item1: item 11 requires the controlled-commit signature, not merely a comm
 test("item4: operation declarations are PARSED from the source, not hardcoded (05 §6.1)", async () => {
 	const { readFile } = await import("node:fs/promises");
 	const { resolveHeadingPath, parseOperationDeclarations } = await import("../lib/spec-registry.js");
-	const specPath = new URL("../../specs/07-管辖范围规范.md", import.meta.url);
+	const specPath = new URL("../../specs/08-管辖范围规范.md", import.meta.url);
 	const md = await readFile(specPath, "utf8");
 	const rows = parseOperationDeclarations(md, (headingPath) => resolveHeadingPath(md, headingPath).ok);
-	// Both 07 §5.4/§5.7 entries must be found, with their contract anchors
+	// Both 08 §5.4/§5.7 entries must be found, with their contract anchors
 	// resolving — 05 §6.1 treats an unresolvable anchor as undeclared.
 	assert.equal(rows.size, 2);
 	for (const key of ["register-governed-project", "unregister-governed-project"]) {
 		const row = rows.get(key);
-		assert.ok(row, `${key} must be parsed from specs/07`);
+		assert.ok(row, `${key} must be parsed from specs/08`);
 		assert.equal(row.effect, "may_change_state");
 		assert.deepEqual(row.anchor_errors, [], `${key} anchors must resolve`);
 	}
