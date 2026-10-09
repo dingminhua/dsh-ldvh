@@ -41,9 +41,31 @@
  *
  * Authorization pinning (C2, 21 §10.3): the fingerprint binds
  * gate_1.authorization_fingerprint to the content of plan+scope.
- * While status=open, every writer flow verifies the fingerprint still
- * matches; a mismatch is a C2 invalidation and the only legal path is
- * rebatch, never a silent in-place edit.
+ *
+ * IMPLEMENTATION STATUS (2026-10-09, corrected here — the previous
+ * wording claimed "every writer flow verifies the fingerprint still
+ * matches" and was false): there is **no** content comparison against
+ * the STORED gate_1.authorization_fingerprint anywhere in this file.
+ * The fingerprint is computed (on `approve` and on an approved
+ * adjustment), shape-checked (64-hex), and echoed back on read
+ * (`workcase-tools.js` projects it as `gate_1_fingerprint` so a caller
+ * can self-check) — never compared. While
+ * status=open, the only C2 guard is `assertAuthorizedPairFrozen`,
+ * which compares the plan+scope fingerprint *before and after the
+ * incoming payload* within a single `execute` call — that blocks an
+ * in-place edit, but it never re-validates the authorization against
+ * the pinned value.
+ *
+ * Consequence, stated rather than papered over: a mismatch between the
+ * stored fingerprint and the current plan+scope is NOT detected. The
+ * closing path and every other flow are unguarded on this point. 21
+ * §15.1 declares this gap in as many words; the code now matches that
+ * declaration. Closing it needs a stored-vs-current comparison, which
+ * requires the 25 §11 `goal-changed 待核对` cascade marker to tell
+ * "a legitimate §10.3 case-③ rebatch" from "an abuse of rebatch" —
+ * that marker has no implementation. Tracked as
+ * `ldvh-base/workcases/workcase-4005b67b-*`; do not "fix" it silently
+ * here.
  *
  * attempt tokens (21 §10.4): monotonic, at most one active, allocated
  * by Code only. attempt_id derives from the change_log history the
@@ -1602,6 +1624,55 @@ export function nextAttemptId(frontmatter) {
   return max + 1;
 }
 
+/**
+ * The Code-stamped suffix `approveWorkcaseObject` appends, as a *whole bracketed
+ * tail*. Matching the whole tail — not a bare substring — is what keeps a
+ * caller's free-form `changeSummary` from tripping the gate: `changeSummary` is
+ * caller-filled prose, so a draft revised with the wording "gate_1 approved by"
+ * anywhere in its text must still be cancellable (independent review,
+ * workcase-4005b67b, found this over-strict edge and it is now covered by a
+ * regression test). `approve` stamps the bracket as the final segment, always
+ * and unconditionally.
+ */
+const GATE1_APPROVAL_STAMP = /\[gate_1 approved by .*; attempt \d+ allocated to .*\]$/;
+
+/**
+ * Evidence that this object was ever granted Gate 1 authorization, derived from
+ * the Code-stamped `change_log` (21 §10.4). Returns a short human-readable
+ * locator, or null when no approval is on record.
+ *
+ * Why this shape (workcase-4005b67b, plan step 2): `close` is guarded by the E4
+ * review gate but `cancel` (draft→closed) was not, and `rebatch` explicitly
+ * `delete`s both `gate_1` and `reviews` — so an authorized, already-executed
+ * workcase could be driven open→rebatch→cancel straight into a `closed` record
+ * that never passed an independent review, violating 21:169 (`closed` ⇒
+ * `reviews` required). `gate_1` itself cannot serve as the predicate: after
+ * rebatch the field is gone while the authorization history is not.
+ *
+ * Every mutating path resets `next.change_log` back to the on-disk array before
+ * appending (`execute`/`revise`/`rebatch` explicitly; the rest clone the on-disk
+ * frontmatter), so a caller cannot inject or launder the entry through
+ * `frontmatter_after`.
+ *
+ * **Declared limits of this text predicate** (independent review, verified by
+ * attack): it proves only "this writer recorded an approval". Editing the
+ * carrier file directly to blank the history defeats it — that layer is 09 code
+ * review and 06 controlled commit, the same boundary 21 §14 declares for the
+ * session-identity brand. A caller who *crafts* a `revise` `changeSummary`
+ * ending in the exact stamp shape can still spoof it; narrowing that further
+ * would need a non-text carrier, which this workcase's scope forbids adding.
+ */
+export function gate1ApprovalEvidence(frontmatter) {
+  for (const entry of frontmatter?.change_log ?? []) {
+    if (typeof entry?.summary !== "string") continue;
+    if (GATE1_APPROVAL_STAMP.test(entry.summary)) {
+      const at = typeof entry.at === "string" ? entry.at : "unknown-time";
+      return `change_log entry at ${at}`;
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Read (specs/03 §9.2)
 // ---------------------------------------------------------------------------
@@ -1676,6 +1747,20 @@ async function writeValidated(factSourceRoot, frontmatter, body, baseline = null
   if (!readBack.ok) {
     return failure("workcase/read_back_failed", readBack.error.message);
   }
+  // `mechanical_issues` 在此处**不被消费**（2026-10-09 明确记录，见
+  // `ldvh-base/workcases/workcase-81c37ef0-*` 的 (C) 判定）——理由与未覆盖范围：
+  //
+  //   · **不是遗漏**。回读 issues 非空的前提是「落盘序列化后的内容与内存中已通过
+  //     校验的对象不一致」，即 `buildFileContent` 的 YAML round-trip 有损；而
+  //     `runMechanicalChecks` 已在上方对同一组内容跑完一套**涵盖**该回读所复算全部校验的检查（它含载体内聚与各门禁，是 `validateWorkcaseFrontmatter` 的超集），web 侧
+  //     （`plugin/web/api/services/facts.ts`）也独立复算并投影 `structured_text_issues`。
+  //   · **fail-closed 在此处是错的形态**。此刻文件**已经落盘**，返回 failure 不能回退
+  //     已写入的字节——只会得到「对象已变、工具报失败」的不可解释状态。有意义的
+  //     fail-closed 必须是**落盘前**对序列化结果做内存 round-trip 再校验一次。
+  //   · **未覆盖范围**。该机制当前**不存在**，故本路径不声称「写入结果必符合机械
+  //     校验」；一旦将来 `buildFileContent` 出现有损序列化，测试（多处断言回读
+  //     `mechanical_issues.length === 0`）会先于本注释失效而变红。补齐它是新增机制，
+  //     不在本单范围。
   return success({
     object_uid: frontmatter.object_uid,
     file: filePath,
@@ -3024,6 +3109,13 @@ export async function cancelWorkcaseObject(args) {
   const fm = current.value.frontmatter;
   if (fm.status !== "draft") {
     return failure("workcase/transition_invalid", `cancel (draft→closed) requires status=draft; an approved workcase must go through Gate 2 instead, got ${JSON.stringify(fm.status)} (21 §9.2)`);
+  }
+  const priorApproval = gate1ApprovalEvidence(fm);
+  if (priorApproval !== null) {
+    return failure(
+      "workcase/transition_invalid",
+      `cancel (draft→closed) is refused: this object holds evidence of a prior Gate 1 approval (${priorApproval}), so closing it through the cancel path would bypass Gate 2 (21 §9.2/§10). Close it through Gate 2 (close) instead`,
+    );
   }
 
   const next = structuredClone(fm);

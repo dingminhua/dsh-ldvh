@@ -1882,15 +1882,12 @@ test("independence: an EXISTING baseline is not overwritten by a later heartbeat
   });
 });
 
-test("independence: KNOWN GAP — rebatch→cancel still reaches closed without any review (归 4005b67b)", async () => {
-  // 本用例**锁定一个已知缺口**，不是期望行为。21 §15.1 登记的缺口②：`cancel`
-  // （draft→closed）不校验 `reviews`，故「open → rebatch → draft → cancel → closed」
-  // 可绕开关闭侧全部门禁。本单（workcase-2be11478）只硬化 `close` 路径，该缺口的
-  // 修复归 `workcase-4005b67b`（其 scope 的 (A) 项）。
-  //
-  // 之所以把它写成断言而非留白：这样缺口一旦被修复，本用例会失败并提醒改文档
-  // （21 §14 的「机械覆盖范围」声明与 §15.1 的缺口②条目需同步），避免出现
-  // 「实现已修、规范仍写着有缺口」的静默漂移。
+test("independence: rebatch→cancel 不得到达 closed —— 缺口②已修复（workcase-4005b67b (A)）", async () => {
+  // 本用例原为「锁定已知缺口②」，修复后已反转为阻断断言，并据其注释同步了
+  // 21 §14 的机械覆盖范围声明与 §15.1 的缺口②条目（workcase-4005b67b 计划步骤 3）。
+  // 缺口形态：21 §15.1 登记的缺口② —— `cancel`（draft→closed）不校验 `reviews`，
+  // 故「open → rebatch → draft → cancel → closed」曾可绕开关闭侧全部门禁，
+  // 产生一个「已关闭但从未经独立复核」的记录（违反 21:169）。
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const appr = await approved(root); // 无 reviews
@@ -1905,30 +1902,28 @@ test("independence: KNOWN GAP — rebatch→cancel still reaches closed without 
       expectedFingerprint: appr.after.value.fingerprint,
       frontmatterAfter: draftFm,
       bodyMarkdownAfter: cleanDraftBody,
-      changeSummary: "重批（缺口用例）",
+      changeSummary: "重批（缺口②修复用例）",
       sessionSignature: SIG(),
     });
     assert.ok(rb.ok, JSON.stringify(rb.error));
     const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
     assert.equal(after.value.frontmatter.status, "draft");
     assert.equal(after.value.frontmatter.reviews, undefined, "重批后 reviews 随授权作废");
-    // cancel: draft → closed，未经任何复核。draft 不得携带「## 执行」节（21 §8），
-    // 故此处剥掉执行节后再补结果节。
-    const draftBody = bodyWithoutH1(after.value.body).replace(/## 执行[\s\S]*$/, "").replace(/\s+$/, "");
+    // cancel: draft → closed，未经任何复核 —— 必须被拒。
+    const draftBodyNow = bodyWithoutH1(after.value.body).replace(/## 执行[\s\S]*$/, "").replace(/\s+$/, "");
     const cx = await cancelWorkcaseObject({
       factSourceRoot: root,
       objectUid: appr.uid,
       expectedFingerprint: after.value.fingerprint,
       result: { achieved_scope: "未执行，无已证实范围。" },
-      changeSummary: "取消",
-      bodyMarkdownAfter: `${draftBody}\n\n## 结果\n\n- cancellation:\n  - **理由**：缺口用例。\n  - **未发生的范围**：全部计划步骤未执行。\n`,
+      changeSummary: "绕过尝试",
+      bodyMarkdownAfter: `${draftBodyNow}\n\n## 结果\n\n- cancellation:\n  - **理由**：缺口用例。\n  - **未发生的范围**：全部计划步骤未执行。\n`,
       sessionSignature: SIG(),
     });
-    assert.ok(cx.ok, "缺口②当前允许该路径——若本断言失败，说明缺口已被修复，请同步 21 §14/§15.1");
+    assert.ok(!cx.ok, "曾获 Gate 1 的对象不得经 rebatch→cancel 到达 closed");
+    assert.equal(cx.error.code, "workcase/transition_invalid");
     const fin = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
-    assert.equal(fin.value.frontmatter.status, "closed");
-    assert.equal(fin.value.frontmatter.outcome, "cancelled");
-    assert.equal((fin.value.frontmatter.reviews ?? []).length, 0, "到达 closed 而 reviews 为 0 —— 缺口②的表现");
+    assert.equal(fin.value.frontmatter.status, "draft", "被拒的 cancel 不得留下写入");
   });
 });
 
@@ -4167,5 +4162,175 @@ test("调整·关前闸：存在待批的增量申请时 close 一律被拒；�
     const afterDecide = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
     const lastAmendment = afterDecide.value.frontmatter.gate_1.amendments.at(-1);
     assert.equal(lastAmendment.decision?.kind, "approved", "追认后末项必须已有决定（否则仍是待批）");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 关闭侧门禁：cancel 不得成为绕过 Gate 2 的通道（workcase-4005b67b 计划步骤 2）
+// ---------------------------------------------------------------------------
+// 缺口成因（起草者核实）：恰好 `close` 与 `cancel` 可达 `closed`，而只有 `close` 受
+// E4 复核门禁；`rebatch` 又主动 `delete next.gate_1` 与 `delete next.reviews`。
+// 三者叠加，已授权执行过的 open 工单可经 rebatch→cancel 得到一个「已关闭但从未经
+// 独立复核」的记录——与 21:169「`closed` ⇒ `reviews` 必填」冲突。
+//
+// 门禁判据取 Code 托管的 change_log 标记（`gate1ApprovalEvidence`），不是
+// `frontmatter.gate_1`：重批后该字段已不存在，而授权历史仍在。
+
+test("cancel: 曾获 Gate 1 的对象走 cancel 被拒——rebatch→cancel 的绕过通道被阻断", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { draft } = await createDraft(root);
+    const { uid, after } = await approved(root);
+
+    // open → rebatch（gate_1/reviews 被清空，attempt 作废）→ draft
+    const nextDraft = { ...draft, plan: [...draft.plan, { step: "重批新增步骤", done_criteria: "新步骤可判定" }] };
+    const rb = await rebatchWorkcaseObject({
+      factSourceRoot: root, objectUid: uid, expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: nextDraft, bodyMarkdownAfter: draftBody(nextDraft),
+      changeSummary: "C2 局部重批：范围实质变化；当时核对结论一并记录。",
+      sessionSignature: SIG(),
+    });
+    assert.ok(rb.ok, JSON.stringify(rb.error));
+    const afterRebatch = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(afterRebatch.value.frontmatter.status, "draft");
+    assert.equal(afterRebatch.value.frontmatter.gate_1, undefined, "重批已清空 gate_1——正是判据不能取该字段的原因");
+
+    // draft → cancel → closed：必须被拒
+    const cx = await cancelWorkcaseObject({
+      factSourceRoot: root, objectUid: uid, expectedFingerprint: afterRebatch.value.fingerprint,
+      result: { achieved_scope: "未执行。" },
+      changeSummary: "绕过尝试",
+      bodyMarkdownAfter: `${draftBody(nextDraft)}\n\n## 结果\n\n- cancellation:\n  - **理由**：改主意了。\n  - **未发生的范围**：全部步骤未执行。\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(!cx.ok, "曾获 Gate 1 的对象不得经 cancel 关闭");
+    assert.equal(cx.error.code, "workcase/transition_invalid");
+    assert.match(cx.error.message, /bypass Gate 2/);
+
+    // 阻断后对象仍是 draft，未被写入
+    const back = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(back.value.frontmatter.status, "draft", "被拒的 cancel 不得留下任何写入");
+    assert.equal(back.value.fingerprint, afterRebatch.value.fingerprint);
+  });
+});
+
+test("cancel: 未获 Gate 1 的纯 draft→cancel 仍放行（负向控制，门禁不得过严）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { created, draft } = await createDraft(root);
+    const read0 = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    const res = await cancelWorkcaseObject({
+      factSourceRoot: root, objectUid: created.value.object_uid,
+      expectedFingerprint: read0.value.fingerprint,
+      result: { achieved_scope: "未执行，无已证实范围。" },
+      changeSummary: "方向调整，未获授权即取消",
+      bodyMarkdownAfter: CANCEL_OK_BODY(draftBody(draft)),
+      sessionSignature: SIG(),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.equal(read.value.frontmatter.status, "closed");
+    assert.equal(read.value.frontmatter.outcome, "cancelled");
+  });
+});
+
+test("cancel: 「一个空格」式的微小改动亦不能绕过门禁（判据不依赖 plan/scope 指纹）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { draft } = await createDraft(root);
+    const { uid, after } = await approved(root);
+    const nextDraft = { ...draft, plan: [...draft.plan, { step: "重批新增步骤", done_criteria: "新步骤可判定" }] };
+    const rb = await rebatchWorkcaseObject({
+      factSourceRoot: root, objectUid: uid, expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: nextDraft, bodyMarkdownAfter: draftBody(nextDraft),
+      changeSummary: "C2 局部重批", sessionSignature: SIG(),
+    });
+    assert.ok(rb.ok, JSON.stringify(rb.error));
+    const afterRebatch = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    // 只在正文加一个空格——plan/scope 逐字不变，指纹比对完全无从区分。
+    const nudged = { ...nextDraft, summary: `${nextDraft.summary} ` };
+    const cx = await cancelWorkcaseObject({
+      factSourceRoot: root, objectUid: uid, expectedFingerprint: afterRebatch.value.fingerprint,
+      result: { achieved_scope: "未执行。" }, changeSummary: "微小改动后绕过尝试",
+      bodyMarkdownAfter: `${draftBody(nudged)}\n\n## 结果\n\n- cancellation:\n  - **理由**：改主意了。\n  - **未发生的范围**：全部步骤未执行。\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(!cx.ok, "微小改动不得成为绕过口");
+    assert.equal(cx.error.code, "workcase/transition_invalid");
+  });
+});
+
+test("cancel: 调用方不得通过 frontmatter_after 伪造/洗掉授权证据（Code 托管 change_log）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { draft } = await createDraft(root);
+    const { uid, after } = await approved(root);
+    const nextDraft = { ...draft, plan: [...draft.plan, { step: "重批新增步骤", done_criteria: "新步骤可判定" }] };
+    const forged = [{ at: "1999-01-01T00:00:00.000Z", provider: "FAKE", model: "FAKE", summary: "伪造历史" }];
+    const rb = await rebatchWorkcaseObject({
+      factSourceRoot: root, objectUid: uid, expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: { ...nextDraft, change_log: forged },
+      bodyMarkdownAfter: draftBody(nextDraft),
+      changeSummary: "C2 局部重批", sessionSignature: SIG(),
+    });
+    assert.ok(rb.ok, JSON.stringify(rb.error));
+    const afterRebatch = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.ok(
+      afterRebatch.value.frontmatter.change_log.some((e) => e.summary.includes("gate_1 approved by")),
+      "授权条目必须仍在——伪造的 change_log 被丢弃而非替换",
+    );
+    const cx = await cancelWorkcaseObject({
+      factSourceRoot: root, objectUid: uid, expectedFingerprint: afterRebatch.value.fingerprint,
+      result: { achieved_scope: "未执行。" }, changeSummary: "绕过尝试",
+      bodyMarkdownAfter: `${draftBody(nextDraft)}\n\n## 结果\n\n- cancellation:\n  - **理由**：改主意了。\n  - **未发生的范围**：全部步骤未执行。\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(!cx.ok, "洗历史不构成绕过通道");
+  });
+});
+
+// 独立复核发现并已修复的过严边缘（workcase-4005b67b 收口前）：原判据匹配 change_log
+// 摘要中的**任意** `gate_1 approved by` 子串，而 `changeSummary` 完全由调用方自由
+// 填写。故一个从未获授权的纯 draft，只要曾用该措辞 revise 一次，之后就会被误拒。
+// 本用例锁定修复后形态：措辞不得触发门禁，只有 approve 盖的整段戳才触发。
+test("cancel: changeSummary 自由措辞不得触发门禁——只有 approve 盖的整段授权戳才触发", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { created, draft } = await createDraft(root);
+    let read = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+
+    // 措辞刻意贴近戳的形状，但都不是 approve 盖的（末尾无 attempt N allocated 段）。
+    for (const wording of [
+      "未授权，讨论中提到 gate_1 approved by 这一措辞",
+      "gate_1 approved by human",
+      "重述历史：曾 gate_1 approved by 某人；attempt 1 allocated to 某人",
+    ]) {
+      const rv = await reviseWorkcaseObject({
+        factSourceRoot: root, objectUid: created.value.object_uid,
+        expectedFingerprint: read.value.fingerprint,
+        frontmatterAfter: { ...draft, summary: `${draft.summary}（${wording}）` },
+        bodyMarkdownAfter: draftBody({ ...draft, summary: `${draft.summary}（${wording}）` }),
+        changeSummary: wording,
+        sessionSignature: SIG(),
+      });
+      assert.ok(rv.ok, JSON.stringify(rv.error));
+      read = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    }
+    assert.ok(
+      read.value.frontmatter.change_log.some((e) => e.summary.includes("gate_1 approved by")),
+      "措辞确已进入 change_log——正是原判据会误伤的构造",
+    );
+
+    // 该 draft 从未获 Gate 1 授权，cancel 必须放行。
+    const latest = read.value.frontmatter;
+    const cx = await cancelWorkcaseObject({
+      factSourceRoot: root, objectUid: created.value.object_uid,
+      expectedFingerprint: read.value.fingerprint,
+      result: { achieved_scope: "未执行，无已证实范围。" },
+      changeSummary: "方向调整",
+      bodyMarkdownAfter: `${bodyWithoutH1(read.value.body).replace(/## 结果[\s\S]*$/, "").replace(/\s+$/, "")}\n\n## 结果\n\n- cancellation:\n  - **理由**：方向调整。\n  - **未发生的范围**：三步全未执行。\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(cx.ok, "调用方自由措辞不得造成误拒：" + JSON.stringify(cx.error) + " " + latest.summary);
   });
 });
