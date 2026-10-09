@@ -66,6 +66,8 @@ const MAX_TITLE_LENGTH = 30;
 
 /** UUID format check (03 §6.1 canonical UUIDv4, version nibble 4). */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** 40 位 commit hash（26 §9.2 commit 例外的目标形态；短 hash 与 ref 名不接受）。 */
+const COMMIT_PATTERN = /^[0-9a-f]{40}$/i;
 
 /** Closed set of frontmatter keys (26 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
@@ -206,21 +208,43 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
     }
 
     const target = rel.target;
-    if (typeof target !== "object" || target === null || typeof target.object_uid !== "string" || !UUID_PATTERN.test(target.object_uid)) {
-      issues.push(`relations[]: target.object_uid must be a canonical UUID (03 §7.2); got ${JSON.stringify(target?.object_uid)}`);
+    if (typeof target !== "object" || target === null) {
+      issues.push(`relations[]: target must be an object (03 §7.2)`);
       continue;
     }
-    const targetExtra = Object.keys(target).filter((k) => k !== "object_uid");
-    if (targetExtra.length > 0) {
-      issues.push(`relations[]: target carries fields beyond object_uid (${targetExtra.join(", ")}) — 03 §7.2 minimal shape`);
+    // commit 例外（Human 裁定 2026-10-09；26 §9.2/§11）：解药为 commit 级修复且**无
+    // 对应事实对象**时，informs 可以 `commit` 为目标键承载 40 位 hash。只在**没有**
+    // object_uid 时启用——不得用它替代本可指向的对象。
+    const hasUid = typeof target.object_uid === "string";
+    const hasCommit = typeof target.commit === "string";
+    if (hasUid && hasCommit) {
+      issues.push(`relations[]: target carries both object_uid and commit — the commit exception applies ONLY when no fact object exists (26 §9.2)`);
+      continue;
+    }
+    if (!hasUid && !hasCommit) {
+      issues.push(`relations[]: target must carry object_uid (03 §7.2) or commit (26 §9.2 commit exception); got ${JSON.stringify(target)}`);
+      continue;
+    }
+    if (hasCommit && !COMMIT_PATTERN.test(target.commit)) {
+      issues.push(`relations[]: target.commit must be a 40-hex commit hash; got ${JSON.stringify(target.commit)}`);
+      continue;
+    }
+    if (hasUid && !UUID_PATTERN.test(target.object_uid)) {
+      issues.push(`relations[]: target.object_uid must be a canonical UUID (03 §7.2); got ${JSON.stringify(target.object_uid)}`);
+      continue;
     }
 
-    if (selfUid !== null && target.object_uid === selfUid) {
+    const targetExtra = Object.keys(target).filter((k) => k !== "object_uid" && k !== "commit");
+    if (targetExtra.length > 0) {
+      issues.push(`relations[]: target carries fields beyond object_uid/commit (${targetExtra.join(", ")}) — 03 §7.2 minimal shape`);
+    }
+
+    if (selfUid !== null && hasUid && target.object_uid === selfUid) {
       issues.push("relations[]: informs target must not be the object itself (26 §11)");
     }
 
-    const dedupe = `${key}::${target.object_uid}`;
-    if (seen.has(dedupe)) issues.push(`relations[]: duplicate relation ${key} → ${target.object_uid}`);
+    const dedupe = `${key}::${hasUid ? target.object_uid : `commit:${target.commit}`}`;
+    if (seen.has(dedupe)) issues.push(`relations[]: duplicate relation ${dedupe}`);
     seen.add(dedupe);
   }
 
@@ -515,6 +539,9 @@ export async function updateFrictionObject(args) {
   const {
     factSourceRoot, objectUid, expectedFingerprint,
     frontmatterAfter, bodyMarkdownAfter, changeSummary, sessionSignature = null,
+    // commit 例外（26 §9.2）需要核验目标 commit 在本仓真实存在。resolver 由调用方
+    // 注入（writer 不自行执行 git）；未注入时该核验 fail-closed，不静默放行。
+    gitCommitResolver = null,
   } = args;
   // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
   // signed BY CODE and may not be written unsigned. Without a branded carrier the
@@ -612,9 +639,24 @@ export async function updateFrictionObject(args) {
   }
 
   // informs targets must resolve to existing ADR/WorkCase objects (26 §11;
-  // ADR 任状态可解析；WorkCase 关闭状态是审核义务，机械只查存在可解析)
+  // ADR 任状态可解析；WorkCase 关闭状态是审核义务，机械只查存在可解析)。
+  // commit 例外（Human 裁定 2026-10-09；26 §9.2/§11）：目标为 commit 时解析走
+  // `git cat-file -e <hash>^{commit}`——**要求该 commit 在本仓真实存在**，否则一样 fail-closed。
   for (const rel of fm.relations ?? []) {
-    const targetUid = rel?.target?.object_uid;
+    const target = rel?.target;
+    if (target === null || typeof target !== "object") continue;
+    if (typeof target.commit === "string") {
+      if (typeof gitCommitResolver === "function") {
+        const exists = await gitCommitResolver(target.commit);
+        if (!exists) {
+          return failure("friction/relation_target_unresolvable", `informs commit target ${target.commit} does not resolve to an existing commit in this repository (26 §9.2 commit exception)`);
+        }
+        continue;
+      }
+      // 无 resolver 时不得静默放行：无法核验即不通过（fail-closed，与身份不可得不计独立同纪律）。
+      return failure("friction/relation_target_unresolvable", `informs commit target ${target.commit} cannot be verified: this writer has no git commit resolver (fail-closed, 26 §9.2)`);
+    }
+    const targetUid = target?.object_uid;
     if (typeof targetUid !== "string" || targetUid === objectUid) continue;
     let resolvedTarget = false;
     for (const dir of INFORMS_TARGET_DIRS) {

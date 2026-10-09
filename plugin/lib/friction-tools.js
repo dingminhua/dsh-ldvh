@@ -31,6 +31,7 @@ import { currentRouteValues } from "./session-signature.js";
 import { authoritativeSignature } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { join } from "node:path";
+import { execFile } from "node:child_process";
 import { registerWriteShapedTool } from "./host-seams.js";
 
 const OPERATIONS = {
@@ -319,6 +320,16 @@ async function executeWriteObject(args, exec, deps) {
     // passing sig.value here silently wrote an unsigned change_log entry while
     // the envelope still reported sig.ok === true (no gap). Found 2026-09-12.
     sessionSignature: sig.ok ? sig.value : null,
+    // commit 例外（26 §9.2）：核验 informs 的 commit 目标在本仓真实存在。writer 不自行
+    // 执行 git，故由本层注入——用 execFile 而非 shell，避免命令注入面。
+    gitCommitResolver: async (hash) => {
+      if (typeof hash !== "string" || !/^[0-9a-f]{40}$/i.test(hash)) return false;
+      return new Promise((resolve) => {
+        execFile("git", ["cat-file", "-e", `${hash}^{commit}`], { cwd: factSourceRoot }, (err) => {
+          resolve(!err);
+        });
+      });
+    },
   });
   if (!updated.ok) {
     return writeRejected("friction-write-object", updated, factSourceRoot);
