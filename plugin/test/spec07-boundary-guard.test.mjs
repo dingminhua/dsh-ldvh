@@ -51,12 +51,17 @@ const SPEC_06 = join(repoRoot, "specs", "06-Code 实践与测试规范.md");
  *
  *   ① **自限条款（§3.4）自身**：该款必须**命名**它禁止的类别（「实现状态」「实现接线」
  *      「已实现」）并指明去向（「下位设计文档」「plugin/web/docs/」）。否则条款无法书写。
- *      **边界**：豁免只在 §3.4 内生效——§3.4 之外出现这些词仍判失败。
- *   ② 「不登记实现接线」——对允许/禁止的表达，不是状态陈述。
- *   ③ 「已废弃」——对象状态的**领域词汇**（Spark 的 `discarded` 显示词），
+ *   ② **归属条款（§5.5）自身**：该款**说明呈现契约归哪个载体**，必须能写出该载体的路径。
+ *      指向目标不等于承载实现细节——这是「指路」，不是「把细节写进规范」。
+ *      **边界**：豁免只在 §3.4 与 §5.5 内生效；其它章节出现实现物仍判失败。
+ *   ③ 「不登记实现接线」——对允许/禁止的表达，不是状态陈述。
+ *   ④ 「已废弃」——对象状态的**领域词汇**（Spark 的 `discarded` 显示词），
  *      随类型语义变化而非随代码现状变化。
  */
-const SELF_LIMITING_SECTION = "### 3.4 本文只承载要求，不承载实现状态";
+const TOLERATED_SECTIONS = [
+	"### 3.4 本文只承载要求，不承载实现状态",
+	"### 5.5 呈现契约的归属",
+];
 const STATE_EXCLUSIONS = ["不登记实现接线", "「已废弃」", "不承载实现状态", "状态如何表达"];
 
 /**
@@ -64,11 +69,18 @@ const STATE_EXCLUSIONS = ["不登记实现接线", "「已废弃」", "不承载
  * 本款之后的下一个 `### ` 或 `## ` 即本款末尾。
  */
 function selfLimitingSection(text) {
-	const start = text.indexOf(SELF_LIMITING_SECTION);
-	if (start === -1) return "";
-	const rest = text.slice(start);
-	const endRel = rest.slice(SELF_LIMITING_SECTION.length).search(/\n#{2,3} /);
-	return endRel === -1 ? rest : rest.slice(0, SELF_LIMITING_SECTION.length + endRel);
+	// 返回全部被容忍区段的**字符区间**（[start, end) 对），而非拼接文本——
+	// 拼接后的字符串不是原文子串，无法据以定位命中位置。
+	const spans = [];
+	for (const heading of TOLERATED_SECTIONS) {
+		const start = text.indexOf(heading);
+		if (start === -1) continue;
+		const rest = text.slice(start);
+		const endRel = rest.slice(heading.length).search(/\n#{2,3} /);
+		const end = endRel === -1 ? text.length : start + heading.length + endRel;
+		spans.push([start, end]);
+	}
+	return spans;
 }
 
 const STATE_PATTERNS = [
@@ -92,30 +104,36 @@ const STATE_PATTERNS = [
 
 /**
  * 实现物模式：源码文件名、代码常量、包路径、测试文件路径。
- * 这些是「实现所在的文件、函数或批次说明」（specs/01 §7.2 第 1 项）。
+ * 这些是「实现所在的文件、函数或批次说明」（`specs/01` §7.2 第 1 项）。
+ *
+ * **下位文档路径不计为实现物**（实测 2026-10-09 收窄）：
+ * 规范**必须能指路**——说明「具体规则归哪个载体」时，须写出该载体的路径，
+ * 否则读者无从查找。这与「把实现细节写进规范」是两回事：
+ *   · 写「`WorkCaseClosedSummary.tsx` 按 `groupDirectionRows` 分区渲染」＝ 记录实现 → 禁
+ *   · 写「具体呈现规则归 `plugin/web/docs/10` §5」＝ 指路 → 允许
+ * 故第 1 个模式（`plugin/` 路径）排除**文档路径**（`.md` 结尾），只保留源码目录引用。
+ * 同理，源码文件名的模式只匹配代码扩展名（tsx/ts/js），不匹配 `.md`。
  */
 const ARTIFACT_PATTERNS = [
-	/\bplugin\/(?:web|lib)\b[^\s，。）`]*/g,
+	// `plugin/web` / `plugin/lib` 下的**源码**路径（排除 .md 文档路径——那是指路，不是实现记录）
+	/\bplugin\/(?:web|lib)\/[^\s，。）`]*\.(?:tsx|ts|js)\b/g,
 	/\b[A-Za-z][A-Za-z0-9]*\.(?:tsx|ts|js)\b/g,
 	/\b[A-Z][A-Z0-9_]{4,}_CLASS\b/g,
-	/@\/utils\/[A-Za-z]+/g,
+	/@\/[a-z]+\/[A-Za-z]+/g,
 	/\btests?\/api\/[a-z-]+\.test\.ts\b/g,
 ];
 
 /**
  * Count occurrences of any pattern in `text`; returns {total, hits}.
  *
- * `toleratedSpan` 为该次扫描中「允许出现元陈述」的区段（自限条款本款，见其说明）；
+ * `toleratedSpans` 为该次扫描中「允许出现元陈述」的字符区间（§3.4 与 §5.5，见其说明）；
  * 落在该区段内的命中不计——因为该款必须能命名它禁止的类别并指明去向。
  */
-function countMatches(text, patterns, { toleratedSpan = null } = {}) {
+function countMatches(text, patterns, { toleratedSpans = [] } = {}) {
 	const hits = [];
 	let total = 0;
-	const inTolerated = (idx, len) => {
-		if (!toleratedSpan) return false;
-		const start = text.indexOf(toleratedSpan);
-		return start !== -1 && idx >= start && idx + len <= start + toleratedSpan.length;
-	};
+	const inTolerated = (idx, len) =>
+		toleratedSpans.some(([s, e]) => idx >= s && idx + len <= e);
 	for (const p of patterns) {
 		if (typeof p === "string") {
 			let idx = text.indexOf(p);
@@ -163,8 +181,8 @@ const ARTIFACT_BUDGET_06 = 9;
 
 test("S1: specs/07 正文的状态陈述数不得超过阈值（对齐 06 的实测值 0）", async () => {
 	const text = await readFile(SPEC_07, "utf8");
-	const toleratedSpan = selfLimitingSection(text);
-	const { total, hits } = countMatches(text, STATE_PATTERNS, { toleratedSpan });
+	const toleratedSpans = selfLimitingSection(text);
+	const { total, hits } = countMatches(text, STATE_PATTERNS, { toleratedSpans });
 	const uniq = [...new Set(hits)];
 	assert.equal(
 		total,
@@ -179,8 +197,8 @@ test("S1: specs/07 正文的状态陈述数不得超过阈值（对齐 06 的实
 
 test("S2: specs/07 正文的实现物引用数不得超过阈值", async () => {
 	const text = await readFile(SPEC_07, "utf8");
-	const toleratedSpan = selfLimitingSection(text);
-	const { total, hits } = countMatches(text, ARTIFACT_PATTERNS, { toleratedSpan });
+	const toleratedSpans = selfLimitingSection(text);
+	const { total, hits } = countMatches(text, ARTIFACT_PATTERNS, { toleratedSpans });
 	const uniq = [...new Set(hits)];
 	assert.ok(
 		total <= ARTIFACT_BUDGET_07,
