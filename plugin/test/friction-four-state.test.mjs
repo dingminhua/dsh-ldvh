@@ -13,15 +13,17 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
   createFrictionObject,
   listFrictionObjects,
   updateFrictionObject,
+  correctFrictionObject,
   readFrictionObject,
   STATUSES_EXPORT_FOR_TEST,
+  CORRECT_ADDABLE_FIELDS_FOR_TEST,
 } from "../lib/friction-writer.js";
 import { withTemp, testSignature } from "./helpers.mjs";
 
@@ -142,5 +144,87 @@ test("26 §8：occurrence 必填——缺失即拒绝创建", async () => {
       sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!created.ok, "26 §8 把 occurrence 列为必填，缺失须拒绝");
+  });
+});
+
+test("26 §13：补填通道只接受新进入闭集的字段（当前唯一实例是 occurrence）", () => {
+  assert.deepEqual(
+    [...CORRECT_ADDABLE_FIELDS_FOR_TEST],
+    ["occurrence"],
+    "闭集扩张时在 CORRECT_ADDABLE_FIELDS 登记；其它字段的补填属受控更新，不得走终态更正",
+  );
+});
+
+test("26 §13：correct 可用于终态对象补填 occurrence（对称于 frontmatter_removals）", async () => {
+  await withTemp("friction-four-state.", async (root) => {
+    // 模拟存量对象：它创建于 occurrence 进入 §8 之前，故落盘对象上没有该字段。
+    // writer 现在强制创建时必带，所以先创建再抹掉，得到「缺该字段」的目标形态。
+    const d = draft({ title: "将被废弃并补填的摩擦" });
+    const created = await createFrictionObject({
+      factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: body(d), sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+    const file = join(root, "frictions", `friction-${created.value.object_uid}.md`);
+
+    const dropOccurrence = async () => {
+      const lines = (await readFile(file, "utf8")).split("\n");
+      const out = [];
+      for (let i = 0; i < lines.length; i += 1) {
+        if (lines[i] === "occurrence:") {
+          // 跳过该字段及其缩进成员行
+          while (i + 1 < lines.length && /^\s{2,}\S/.test(lines[i + 1])) i += 1;
+          continue;
+        }
+        out.push(lines[i]);
+      }
+      await writeFile(file, out.join("\n"), "utf8");
+    };
+
+    await dropOccurrence();
+    const beforeVoid = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.equal(beforeVoid.value.frontmatter.occurrence, undefined, "夹具：该对象应缺 occurrence");
+
+    const voided = await updateFrictionObject({
+      factSourceRoot: root, objectUid: created.value.object_uid,
+      expectedFingerprint: beforeVoid.value.fingerprint,
+      frontmatterAfter: { ...beforeVoid.value.frontmatter, status: "voided" },
+      bodyMarkdownAfter: body(d, { disposition: "废弃理由：根本不是系统性阻碍（测试）。" }),
+      changeSummary: "改判 voided（测试）", sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(voided.ok, JSON.stringify(voided.error));
+
+    // 终态只读：受控更新再也触及不到它——这正是补填通道存在的理由。
+    const viaUpdate = await updateFrictionObject({
+      factSourceRoot: root, objectUid: created.value.object_uid,
+      expectedFingerprint: voided.value.fingerprint,
+      frontmatterAfter: {
+        ...beforeVoid.value.frontmatter, status: "voided",
+        occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" },
+      },
+      bodyMarkdownAfter: body(d, { disposition: "废弃理由：根本不是系统性阻碍（测试）。" }),
+      changeSummary: "试补填（应被拒）", sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!viaUpdate.ok, "终态只读：受控更新不得触及");
+    assert.equal(viaUpdate.error?.code, "friction/status_terminal", "拒绝理由须是终态只读");
+
+    // 经 correct 的补填通道：成功
+    const voidedRead = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    const filled = await correctFrictionObject({
+      factSourceRoot: root, objectUid: created.value.object_uid,
+      expectedFingerprint: voidedRead.value.fingerprint,
+      bodyMarkdownAfter: voidedRead.value.body,
+      frontmatterAdditions: {
+        occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z", human_return_at: null },
+      },
+      changeSummary: "补填 occurrence（测试）",
+      humanAuthorization: "测试授权记录",
+      sessionSignature: TEST_SIGNATURE,
+      gitCommitResolver: async () => true,
+    });
+    assert.ok(filled.ok, JSON.stringify(filled.error));
+
+    const back = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.equal(back.value.frontmatter.occurrence?.count, 1, "occurrence 已补填");
+    assert.equal(back.value.frontmatter.status, "voided", "终态判定逐字未变（补填不使终态重开）");
   });
 });

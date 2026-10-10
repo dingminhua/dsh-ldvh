@@ -16,7 +16,18 @@ change_log:
     provider: workbuddy
     model: space-bunny
     summary: 移除 serves 字段（26 号 2026-10 修订：serves 无消费方，§18 第 1 条禁止无消费方装饰字段；归属信息由 attribution 承载）
+  - at: 2026-10-10T09:11:01.823Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 回填 occurrence（26 §8 新增必填字段）：count=1、first_at=last_at 取既有时间锚——存量对象在本次字段引入前创建，无可考的重复计数，故保守记为首见一次
+occurrence:
+  count: 1
+  first_at: 2026-09-27T05:22:01.110Z
+  last_at: 2026-09-27T05:22:01.110Z
+  human_return_at: null
 ---
+
+# 子进程回收后呈现不自愈
 
 # 子进程回收后呈现不自愈
 

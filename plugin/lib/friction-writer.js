@@ -55,6 +55,11 @@ const BODY_H2_DISPOSITION = "处置";
 const STATUSES = new Set(["observing", "open", "resolved", "voided"]);
 const IMPACT_VALUES = new Set(["light", "medium", "heavy"]);
 
+// 26 §13：`correct` 的补填通道只接受**新进入闭集**的字段。闭集扩张时在此登记
+// （首个用例：occurrence——§8 于 2026-11 新增必填）。不在此集合内的字段一律拒绝：
+// 补填本就在闭集里的字段属受控更新，不得走终态更正入口。
+const CORRECT_ADDABLE_FIELDS = new Set(["occurrence"]);
+
 /** Relation keys allowed for Friction (26 §11 — closed set of exactly one). */
 const FRICTION_RELATION_KEYS = new Set(["informs"]);
 
@@ -570,10 +575,11 @@ export async function updateFrictionObject(args) {
     return failure("friction/cas_conflict", `fingerprint mismatch: expected ${expectedFingerprint}, actual ${current.value.fingerprint}`);
   }
 
-  // 26 §9.2: resolved is terminal (终态不重开；销错的账按 05 事实更正修正)
+  // 26 §9.2: resolved 与 voided 均为终态（终态不重开；销错/记错的账按 05 事实更正修正）。
+  // voided 于 2026-11 进入闭集——此前本守卫只判 resolved，新终态漏网（本单修正）。
   const prevStatus = current.value.frontmatter.status;
-  if (prevStatus === "resolved") {
-    return failure("friction/status_terminal", "status=resolved is terminal and the object is read-only (26 §9.2); a recurring obstacle goes through a NEW ledger entry referencing this uid");
+  if (prevStatus === "resolved" || prevStatus === "voided") {
+    return failure("friction/status_terminal", `status=${prevStatus} is terminal and the object is read-only (26 §9.2); a recurring obstacle goes through a NEW ledger entry referencing this uid`);
   }
 
   // Build updated frontmatter; strip the call-only param
@@ -730,6 +736,11 @@ export async function correctFrictionObject(args) {
     // 隐式克隆：调用方不声明则该字段逐字继承，声明则只允许「删除」这一个动作。
     // 不得用于新增或改值——那会把终态更正变成受控更新。
     frontmatterRemovals = [],
+    // 2026-11（Human 裁定）：与 frontmatterRemovals 对称的**补填**通道。闭集扩张
+    // 时（新必填字段进入 §8，首个用例：occurrence），既有终态对象无法经受控更新
+    // 触及，本是唯一受控补填途径。约束同 removals：只允许补填**新进入闭集的
+    // 字段**、不得改已有字段的值、不得编造不可据实推得的值。
+    frontmatterAdditions = null,
     sessionSignature = null, gitCommitResolver = null,
   } = args;
   const sig = requireAuthoritativeSignature(sessionSignature);
@@ -788,6 +799,45 @@ export async function correctFrictionObject(args) {
       "friction/correction_removal_not_permitted",
       `correct may only remove fields retired from the type's closed set; got ${JSON.stringify(field)} (26 §13: 终态事实更正不得新增或改值 frontmatter)`,
     );
+  }
+  // 26 §13 对称的补填动作：闭集扩张时补填新进入闭集的字段。
+  const addedFields = [];
+  if (frontmatterAdditions !== null) {
+    if (typeof frontmatterAdditions !== "object" || Array.isArray(frontmatterAdditions)) {
+      return failure("invalid_request", "frontmatterAdditions must be an object when provided (26 §13)");
+    }
+    for (const [field, value] of Object.entries(frontmatterAdditions)) {
+      // ① 只允许补填「新进入闭集」的字段——当前唯一实例是 occurrence（§8 于 2026-11
+      // 新增必填）。补填本就在闭集里的字段属受控更新，不得走本入口。
+      if (!CORRECT_ADDABLE_FIELDS.has(field)) {
+        return failure(
+          "friction/correction_addition_not_permitted",
+          `correct may only add fields newly admitted to the type's closed set; got ${JSON.stringify(field)} `
+          + "(26 §13: 本动作不构成「correct 可改 frontmatter 值」的先例——可补的是「字段之无」，不是「字段的值」)",
+        );
+      }
+      // ② 已存在即拒绝：补填不用于改值（改值属受控更新或状态流转）。
+      if (Object.prototype.hasOwnProperty.call(next, field)) {
+        return failure(
+          "friction/correction_addition_exists",
+          `field ${JSON.stringify(field)} already exists on the record — frontmatterAdditions only fills a MISSING `
+          + "field; changing an existing value is not this channel's business (26 §13)",
+        );
+      }
+      // ③ 值的形状须满足 §8 的契约（object 且含 count/first_at/last_at）。
+      if (field === "occurrence") {
+        if (typeof value !== "object" || value === null || Array.isArray(value)
+          || !Number.isInteger(value.count) || value.count < 1
+          || typeof value.first_at !== "string" || typeof value.last_at !== "string") {
+          return failure(
+            "friction/occurrence_invalid",
+            "occurrence must be { count: integer >= 1, first_at: RFC3339, last_at: RFC3339 } (26 §8)",
+          );
+        }
+      }
+      next[field] = structuredClone(value);
+      addedFields.push(field);
+    }
   }
   if (relationsAfter !== null) {
     if (!Array.isArray(relationsAfter)) {
@@ -887,8 +937,8 @@ export async function correctFrictionObject(args) {
   };
   const relationsUnchanged = JSON.stringify(normalizeRelations(next.relations))
     === JSON.stringify(normalizeRelations(fm.relations));
-  if (bodyUnchanged && relationsUnchanged && removedFields.length === 0) {
-    return failure("friction/no_op", "correction would change neither the body nor the relations — 02 §10.5 不记录 no-op；refusing to append a change_log entry that claims a correction happened");
+  if (bodyUnchanged && relationsUnchanged && removedFields.length === 0 && addedFields.length === 0) {
+    return failure("friction/no_op", "correction would change neither the body, the relations, the removed fields nor the added fields — 02 §10.5 不记录 no-op；refusing to append a change_log entry that claims a correction happened");
   }
 
   // 变更摘要内嵌授权文本（审核发现②：授权须逐字留痕，不能只「必填」后丢弃）。
@@ -896,7 +946,7 @@ export async function correctFrictionObject(args) {
   next.change_log = [...(fm.change_log ?? []), {
     at: new Date().toISOString(),
     ...sig.signature,
-    summary: `事实更正（非状态转换）——${changeSummary}。终态判定未变：status/title/phenomenon/impact/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter（唯一例外：2026-10 起可显式删除已退出类型闭集的字段，本次删除：${removedFields.length > 0 ? removedFields.join("、") : "无"}），不得新增或改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：${humanAuthorization.trim()}`,
+    summary: `事实更正（非状态转换）——${changeSummary}。终态判定未变：status/title/phenomenon/impact/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：${removedFields.length > 0 ? removedFields.join("、") : "无"}；② 2026-11 起可补填新进入类型闭集的字段，本次补填：${addedFields.length > 0 ? addedFields.join("、") : "无"}），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：${humanAuthorization.trim()}`,
   }];
   const filePath = objectFilePath(factSourceRoot, objectUid);
   const content = buildFileContent(next, body);
@@ -994,3 +1044,6 @@ export { VALID_FM_KEYS };
 // 导出状态闭集供类型契约测试断言（test/friction-four-state.test.mjs）：闭集是
 // 26 §9 的机械口径，测试必须对着它而非复制一份字面量，否则规范与代码同时漂移。
 export { STATUSES as STATUSES_EXPORT_FOR_TEST };
+// 导出补填通道的白名单供契约测试断言（test/friction-four-state.test.mjs 的姊妹
+// 断言）：26 §13 只允许补填「新进入闭集」的字段，当前唯一实例是 occurrence。
+export { CORRECT_ADDABLE_FIELDS as CORRECT_ADDABLE_FIELDS_FOR_TEST };
