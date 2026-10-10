@@ -942,3 +942,33 @@ test('Cognition resets Spark health age filter from each successful snapshot', a
   assert.match(cognition, /setSparkHealthAgeFilter\(getDefaultSparkHealthAgeFilter\(next\.sparkHealth\?\.openItems \?\? \[\]\)\)/)
   assert.match(cognition, /if \(!cancelled\) \{[\s\S]*setData\(next\);[\s\S]*setSparkHealthAgeFilter\(/)
 })
+
+test('近期动态覆盖全部活跃事实类型（26/27 号加入 OBJECT_TYPES 后不得遗漏）', async () => {
+  const cognition = readFileSync(path.resolve(repositoryRoot, 'api/routes/cognition.ts'), 'utf8')
+  const facts = readFileSync(path.resolve(repositoryRoot, 'api/services/facts.ts'), 'utf8')
+
+  // 取数范围必须等于 OBJECT_TYPES 全集——后者是活跃事实类型的唯一来源。
+  // 本守卫的由来（Human 2026-11-10 实测：「聚焦里的近期动态怎么没有摩擦的改动」）：
+  // recentSources 曾停在早期的五类上，friction/norm 加入 OBJECT_TYPES 时未随行，
+  // 于是这两类的任何改动都不出现在认知中心，且**没有测试会发现**——静态硬编码
+  // 列表与动态类型集合之间缺少比对。
+  const activeMatch = facts.match(/export const ACTIVE_OBJECT_TYPES = \[([^\]]+)\]/)
+  assert.ok(activeMatch, 'ACTIVE_OBJECT_TYPES 必须可解析')
+  const activeTypes = activeMatch[1]
+    .split(',')
+    .map((part) => part.trim().replace(/^['"]|['"]$/g, ''))
+    .filter(Boolean)
+  assert.ok(activeTypes.length >= 7, `活跃类型数应覆盖 26/27 号：实际 ${activeTypes.length}`)
+
+  const sourcesMatch = cognition.match(/const recentSources[\s\S]*?\]\n/)
+  assert.ok(sourcesMatch, '近期动态的类型源表必须可解析')
+  const sourcesBlock = sourcesMatch[0]
+  const missing = activeTypes.filter((type) => !sourcesBlock.includes(`['${type}'`))
+  assert.deepEqual(missing, [], `以下活跃类型未进近期动态：${missing.join('、')}`)
+
+  // 每类都要有对应的 listObjects 读取调用，否则源表里会是一个未定义的变量。
+  for (const type of activeTypes) {
+    if (type === 'goal') continue
+    assert.ok(cognition.includes(`listObjects('${type}'`), `${type} 须有读取调用`)
+  }
+})

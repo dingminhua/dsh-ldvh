@@ -771,12 +771,17 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const project = await requestProject(req)
     const factScope = { worktreeLocator: project.path, governedProjectId: project.id }
 
-    const [workCaseResult, pitfallResult, adrResult, sparkResult, studyResult] = await Promise.all([
+    const [workCaseResult, pitfallResult, adrResult, sparkResult, studyResult, frictionResult, normResult] = await Promise.all([
       listObjects('workcase', undefined, undefined, factScope),
       listObjects('pitfall', undefined, undefined, factScope),
       listObjects('adr', undefined, undefined, factScope),
       listObjects('spark', undefined, undefined, factScope),
       listObjects('research', undefined, undefined, factScope),
+      // 26 号 Friction 与 27 号 Norm 是后加入 OBJECT_TYPES 的活跃类型，同样有
+      // change_log 流水——此前遗漏在近期动态之外（Human 2026-11：「聚焦里的近期
+      // 动态怎么没有摩擦的改动」）。二者与上面五类在动态里是同一等比对象。
+      listObjects('friction', undefined, undefined, factScope),
+      listObjects('norm', undefined, undefined, factScope),
     ])
     const issues: CognitionIssue[] = []
     let sparkHealth: ReturnType<typeof buildSparkHealth> | undefined
@@ -874,12 +879,18 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const recentStart = new Date(generatedAt).getTime() - RECENT_ACTIVITY_WINDOWS[recentWindow] * 24 * 60 * 60 * 1000
     const hotspotStart = new Date(generatedAt).getTime() - RECENT_ACTIVITY_WINDOWS[RECENT_HOTSPOT_WINDOW] * 24 * 60 * 60 * 1000
     const recentBuilds: RecentActivityBuildItem[] = []
+    // 近期动态的取数范围 = OBJECT_TYPES 全集（活跃事实类型皆有 change_log 流水）。
+    // 此前本表停在早期的五类上，friction/norm 加入 OBJECT_TYPES 时未随行——遗漏
+    // 会让 Human 在认知中心看不到这两类的任何改动（26 §12 的 F1 召回与本节无关：
+    // 这里只读 change_log 流水，不做状态筛选）。
     const recentSources: Array<[ObjectType, typeof workCaseResult]> = [
       ['workcase', workCaseResult],
       ['pitfall', pitfallResult],
       ['adr', adrResult],
       ['spark', sparkResult],
       ['research', studyResult],
+      ['friction', frictionResult],
+      ['norm', normResult],
     ]
     for (const [type, source] of recentSources) {
       if (!source.ok || !('data' in source)) {
