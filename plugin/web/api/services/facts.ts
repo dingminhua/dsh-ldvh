@@ -169,17 +169,24 @@ function projectFactAssociationTarget(value: unknown): FactAssociationTarget | n
 }
 
 /**
- * 读取受控提交标题（commit subject），供呈现层显示「这次提交做了什么」。
+ * 读取受控提交的**描述部分**，供呈现层显示「这次提交做了什么」——不含
+ * conventional commit 前缀（type(scope):），那是记账格式而非内容。
  * 读失败（提交不可达、git 不可用、worktree 不在 Git 仓内）一律返回 null，
  * 由调用方退回短 hash——标题是增强，不是可用性的前提。
  */
-async function readCommitSubject(hash: string, scope: { worktreeLocator?: string }): Promise<string | null> {
+async function readCommitDescription(hash: string, scope: { worktreeLocator?: string }): Promise<string | null> {
   const cwd = scope.worktreeLocator;
   if (typeof cwd !== 'string' || !cwd) return null;
   try {
     const entry = await getGitCommit(hash, 'zh', cwd);
-    const title = typeof entry?.message === 'string' ? entry.message.trim() : '';
-    return title || null;
+    // 只取**描述部分**：conventional commit 前缀（type(scope): / type!:）是提交
+    // 纪律的记账格式，不是内容。读者要看的是「这次提交做了什么」，不需要在前缀上
+    // 再读一遍它的类型与范围（与 08 §5「定位符不当内容呈现」同一纪律）。
+    const description = typeof entry?.description === 'string' ? entry.description.trim() : '';
+    if (description) return description;
+    // 非常规格式（或解析失败）时退回整条 subject——宁可多显示前缀，也不显示空。
+    const message = typeof entry?.message === 'string' ? entry.message.trim() : '';
+    return message || null;
   } catch {
     return null;
   }
@@ -312,8 +319,8 @@ async function projectFactCardAssociations(
       // 当内容呈现）。故读出提交标题；读不到时退回短 hash，绝不因标题缺失
       // 把整条关联判为不可用——提交本身是存在的。
       const shortHash = target.commit.slice(0, 7)
-      const commitSubject = await readCommitSubject(target.commit, scope)
-      return { ...projection, available: true, shortHash, ...(commitSubject ? { title: commitSubject } : {}) }
+      const commitDescription = await readCommitDescription(target.commit, scope)
+      return { ...projection, available: true, shortHash, ...(commitDescription ? { title: commitDescription } : {}) }
     }
     const locator = 'objectUid' in target ? uidTargets.get(target.objectUid) : target
     if (!locator || locator.governedProjectId !== scope.governedProjectId || !isObjectType(locator.factTypeKey)) return projection
