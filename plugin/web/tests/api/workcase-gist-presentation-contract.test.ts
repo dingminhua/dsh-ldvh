@@ -20,6 +20,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { projectCurrentWorkCaseCard } from '../../api/services/facts.ts';
 import { readLocalFact, type LocalFactScope } from '../../api/services/localFactReader.ts';
+import { readFixture, writeFixtureCarriers } from './workcase-projection-fixture.ts';
 
 /** 仓库根（tests/api → web → plugin → repo）。 */
 const REPOSITORY_ROOT = path.resolve(import.meta.dirname, '../../../..');
@@ -369,5 +370,68 @@ test('真实非终态载体都携带 gist，且不超过 21 §8 的 200 字符�
 
   assert.deepEqual(missing, [], `以下非终态 WorkCase 缺 gist（21 §8 要求 draft/open 必填）：\n${missing.join('\n')}`);
   assert.deepEqual(tooLong, [], `以下 gist 超过 200 字符上限（21 §8）：\n${tooLong.join('\n')}`);
-  assert.ok(checkedNonTerminal > 0, '至少须核对一个非终态对象，否则本断言无判别力');
+  // 真实仓库的工单状态分布是生命周期副产品：全部收口后本就无从核对，这是事实而非
+  // 缺陷。判别力由下方合成载体用例保证，故此处据实登记跳过数量而非误报失败。
+  if (checkedNonTerminal === 0) {
+    console.warn(
+      `[跳过] 真实载体中无非终态 WorkCase（现有 ${ids.length} 份，均为终态）；`
+      + '本守卫的判别力由同文件的合成载体用例承担。',
+    );
+  }
+});
+
+test('非终态载体都携带 gist 且不超上限（合成载体，不依赖仓库状态）', async () => {
+  const LONG_GIST = '长'.repeat(201);
+  const fixture = writeFixtureCarriers([
+    {
+      id: 'workcase-00000000-0000-4000-8000-000000000003',
+      frontmatter: {
+        object_uid: 'workcase-00000000-0000-4000-8000-000000000003',
+        fact_type_key: 'workcase',
+        title: '合成 draft 工单',
+        status: 'draft',
+        serves: 'SG-3',
+        gist: '合成载体：验证 draft 期 gist 的必填与上限。',
+        created_at: '2026-11-01T00:00:00.000Z',
+        change_log: [],
+      },
+      body: ['## 摘要', 'x', '## 授权范围', '做什么：x', '明确不做什么：y', '## 计划', '- 步骤一'].join('\n\n'),
+    },
+    {
+      id: 'workcase-00000000-0000-4000-8000-000000000004',
+      frontmatter: {
+        object_uid: 'workcase-00000000-0000-4000-8000-000000000004',
+        fact_type_key: 'workcase',
+        title: '合成 open 工单',
+        status: 'open',
+        serves: 'SG-3',
+        gist: LONG_GIST,
+        created_at: '2026-11-01T00:00:00.000Z',
+        change_log: [],
+      },
+      body: ['## 摘要', 'x', '## 授权范围', '做什么：x', '明确不做什么：y', '## 计划', '- 步骤一'].join('\n\n'),
+    },
+  ]);
+
+  try {
+    const [draft, open] = await Promise.all(fixture.ids.map((id) => readFixture(id, fixture.scope)));
+    assert.equal(draft.status, 'ok', '合成 draft 载体须能读出');
+    assert.equal(open.status, 'ok', '合成 open 载体须能读出');
+    if (draft.status !== 'ok' || open.status !== 'ok') return;
+
+    // draft 期 gist 存在且在上限内（21 §8：draft/open 必填）
+    const draftGist = (draft.item.fact_object as Record<string, unknown>).gist;
+    assert.equal(typeof draftGist, 'string', 'draft 期 gist 必填（21 §8）');
+    assert.ok((draftGist as string).length <= 200, 'draft 期 gist 不得超过 200 字符');
+
+    // 上限是对值的约束，投影不得截断或改写超限 gist（越界值仍应被如实读出）
+    const openGist = (open.item.fact_object as Record<string, unknown>).gist;
+    assert.equal(openGist, LONG_GIST, '超限 gist 必须逐字保留——机械层只校验不裁剪');
+
+    // 投影层不得吞掉 gist（列表投影直读源对象值）
+    const projected = projectCurrentWorkCaseCard(draft.item.fact_object as Record<string, unknown>, null);
+    assert.equal(projected.gist, draftGist, 'gist 必须出现在投影返回值中');
+  } finally {
+    fixture.cleanup();
+  }
 });

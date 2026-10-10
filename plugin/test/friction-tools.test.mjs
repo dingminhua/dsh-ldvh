@@ -13,7 +13,7 @@ import test from "node:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as frictionToolsModule from "../lib/friction-tools.js";
-import { createFrictionObject, readFrictionObject, updateFrictionObject, listFrictionObjects, readGoalAnchors } from "../lib/friction-writer.js";
+import { createFrictionObject, readFrictionObject, updateFrictionObject, listFrictionObjects } from "../lib/friction-writer.js";
 import { registerProject } from "../lib/governed-projects.js";
 import { initRepo, sessionPersistenceWithRoutingLog, testSignature, withTemp } from "./helpers.mjs";
 
@@ -57,6 +57,8 @@ function validFrontmatterDraft(overrides = {}) {
     title: "CI 构建缓慢",
     phenomenon: "CI 每次构建平均需要 8 分钟，其中 5 分钟花在重复依赖安装上。",
     impact: "heavy",
+    // 26 §8 必填（d925ad6 起）：创建时 count=1、first_at=last_at。
+    occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" },
     change_summary: "受控创建（工具测试）",
     ...overrides,
   };
@@ -122,7 +124,7 @@ async function seedFriction(root, overrides = {}) {
 }
 
 async function seedResolvedFriction(root, adrUid) {
-  const { draft, created } = await seedFriction(root, { title: "待销账摩擦", serves: "SG-3" });
+  const { draft, created } = await seedFriction(root, { title: "待销账摩擦" });
   const read = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
   const updated = await updateFrictionObject({
     factSourceRoot: root,
@@ -141,16 +143,18 @@ async function seedResolvedFriction(root, adrUid) {
   return { draft, created, read, updated };
 }
 
-async function seedDeferredFriction(root, overrides = {}) {
+// 26 §9：原 deferred 状态已退出闭集，退场后由 observing（留观）/ open（排期）
+// 承担「已入账但未销账」的两种活态。此处 seed 出 open 以覆盖 open 分支。
+async function seedOpenFriction(root, overrides = {}) {
   const { draft, created } = await seedFriction(root, overrides);
   const read = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
   const updated = await updateFrictionObject({
     factSourceRoot: root,
     objectUid: created.value.object_uid,
     expectedFingerprint: read.value.fingerprint,
-    frontmatterAfter: { ...read.value.frontmatter, status: "deferred" },
-    bodyMarkdownAfter: validBodyMarkdown(draft) + "\n\n## 处置\n暂时搁置。",
-    changeSummary: "转为缓议",
+    frontmatterAfter: { ...read.value.frontmatter, status: "open" },
+    bodyMarkdownAfter: validBodyMarkdown(draft),
+    changeSummary: "排期",
     sessionSignature: testSignature(),
   });
   assert.ok(updated.ok, JSON.stringify(updated.error));
@@ -254,7 +258,7 @@ test("friction-read-object: read-back full envelope for an existing friction", a
     assert.equal(env.outcome, "completed");
     assert.equal(env.result.object_uid, created.value.object_uid);
     assert.equal(env.result.fingerprint, created.value.fingerprint);
-    assert.equal(env.result.status, "open");
+    assert.equal(env.result.status, "observing", "26 §9：创建初态为 observing");
     assert.equal(env.result.phenomenon, validFrontmatterDraft().phenomenon);
     assert.equal(env.result.body_valid, true);
     assert.ok(env.result.body.length > 0, "body must be returned");
@@ -305,29 +309,30 @@ test("friction-read-object: object_uid omitted → invalid_request envelope", as
 // friction-list-objects
 // ---------------------------------------------------------------------------
 
-test("friction-list-objects: default (open+deferred) filter and full projection", async () => {
+test("friction-list-objects: default (observing+open) filter and full projection", async () => {
   await withTemp("friction-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const deps = makeDeps(home, base);
     const desc = makeDescriptors(deps);
 
-    const open = await seedFriction(join(repo, "ldvh-base"), { title: "公开摩擦" });
-    const deferred = await seedDeferredFriction(join(repo, "ldvh-base"), { title: "缓议摩擦" });
+    const watching = await seedFriction(join(repo, "ldvh-base"), { title: "留观摩擦" });
+    const open = await seedOpenFriction(join(repo, "ldvh-base"), { title: "排期摩擦" });
     const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
     await createAdrFixture(join(repo, "ldvh-base"), adrUid);
     const resolved = await seedResolvedFriction(join(repo, "ldvh-base"), adrUid);
 
     const env = await run(desc, "ldvh_friction_list", {}, repo);
     assert.equal(env.outcome, "completed");
-    assert.equal(env.result.filter, "open+deferred");
+    assert.equal(env.result.filter, "open+observing");
     assert.equal(env.result.count, 2);
     assert.equal(env.result.total, 2);
     assert.equal(env.result.items.length, 2);
     for (const item of env.result.items) assert.notEqual(item.status, "resolved");
 
     const itemUids = env.result.items.map((i) => i.object_uid).sort();
-    const expected = [open.created.value.object_uid, deferred.created.value.object_uid].sort();
+    const expected = [watching.created.value.object_uid, open.created.value.object_uid].sort();
     assert.deepEqual(itemUids, expected);
+    assert.deepEqual(env.result.items.map((i) => i.status).sort(), ["observing", "open"]);
 
     assert.ok(env.follow_up.some((s) => s.includes("dedup")));
     assert.ok(env.follow_up.some((s) => s.includes("friction-read-object")));
@@ -353,7 +358,7 @@ test("friction-list-objects: includeResolved=all returns all, including resolved
     assert.equal(env.result.count, 2);
     assert.equal(env.result.total, 2);
     const statuses = env.result.items.map((i) => i.status);
-    assert.ok(statuses.includes("open") || statuses.includes("deferred"));
+    assert.ok(statuses.includes("observing") || statuses.includes("open"));
     assert.ok(statuses.includes("resolved"));
   });
 });
@@ -394,7 +399,7 @@ test("friction-write-object create: completed envelope with read-back", async ()
       "ldvh_friction_write",
       {
         action: "create",
-        frontmatter_draft: { ...validFrontmatterDraft(), serves: "SG-3" },
+        frontmatter_draft: validFrontmatterDraft(),
         body_markdown: validBodyMarkdown(),
       },
       repo
@@ -472,7 +477,7 @@ test("friction-write-object update: normal transition and read-back", async () =
 
     const { draft, created } = await seedFriction(join(repo, "ldvh-base"), { title: "摩擦甲" });
     const read1 = await readFrictionObject({ factSourceRoot: join(repo, "ldvh-base"), objectUid: created.value.object_uid });
-    assert.equal(read1.value.frontmatter.status, "open");
+    assert.equal(read1.value.frontmatter.status, "observing");
 
     const env = await run(
       desc,
@@ -481,9 +486,9 @@ test("friction-write-object update: normal transition and read-back", async () =
         action: "update",
         object_uid: created.value.object_uid,
         expected_fingerprint: read1.value.fingerprint,
-        frontmatter_after: { ...read1.value.frontmatter, title: "摩擦甲（修订）", status: "deferred" },
-        body_markdown_after: validBodyMarkdown(draft) + "\n\n## 处置\n暂时搁置。",
-        change_summary: "转为缓议",
+        frontmatter_after: { ...read1.value.frontmatter, title: "摩擦甲（修订）", status: "open" },
+        body_markdown_after: validBodyMarkdown(draft),
+        change_summary: "排期",
       },
       repo
     );
@@ -497,7 +502,7 @@ test("friction-write-object update: normal transition and read-back", async () =
     assert.equal(env.verification.passed, true);
     assert.equal(env.result.changes.length, 1);
     assert.equal(env.result.changes[0].change, "updated");
-    assert.equal(env.result.changes[0].summary, "转为缓议");
+    assert.equal(env.result.changes[0].summary, "排期");
   });
 });
 
@@ -600,10 +605,10 @@ test("friction-write-object update: resolve without informs → rejected (26 §9
 });
 
 // ---------------------------------------------------------------------------
-// friction-write-object update: deferred→open without relations allowed (26 §9.2)
+// friction-write-object update: open→observing 放回留观（26 §9.2）
 // ---------------------------------------------------------------------------
 
-test("friction-write-object update: deferred→open reactivation allowed (26 §9.2)", async () => {
+test("friction-write-object update: open→observing 放回留观须盖 human_return_at (26 §9.2)", async () => {
   await withTemp("friction-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const deps = makeDeps(home, base);
@@ -612,7 +617,7 @@ test("friction-write-object update: deferred→open reactivation allowed (26 §9
     const { created } = await seedFriction(join(repo, "ldvh-base"));
     const read1 = await readFrictionObject({ factSourceRoot: join(repo, "ldvh-base"), objectUid: created.value.object_uid });
 
-    // First: open→deferred
+    // First: observing→open
     const env1 = await run(
       desc,
       "ldvh_friction_write",
@@ -620,15 +625,35 @@ test("friction-write-object update: deferred→open reactivation allowed (26 §9
         action: "update",
         object_uid: created.value.object_uid,
         expected_fingerprint: read1.value.fingerprint,
-        frontmatter_after: { ...read1.value.frontmatter, status: "deferred" },
-        body_markdown_after: validBodyMarkdown() + "\n\n## 处置\n暂时搁置。",
-        change_summary: "转为缓议",
+        frontmatter_after: { ...read1.value.frontmatter, status: "open" },
+        body_markdown_after: validBodyMarkdown(),
+        change_summary: "排期",
       },
       repo
     );
-    assert.equal(env1.outcome, "completed");
+    assert.equal(env1.outcome, "completed", JSON.stringify(env1.result));
 
-    // Reactivate: deferred→open
+    // 放回留观：未盖 human_return_at 即被机械拒绝
+    const noStamp = await run(
+      desc,
+      "ldvh_friction_write",
+      {
+        action: "update",
+        object_uid: created.value.object_uid,
+        expected_fingerprint: env1.result.fingerprint,
+        frontmatter_after: { ...read1.value.frontmatter, status: "observing" },
+        body_markdown_after: validBodyMarkdown(),
+        change_summary: "放回留观但未盖戳",
+      },
+      repo
+    );
+    assert.equal(noStamp.outcome, "rejected");
+    assert.ok(
+      noStamp.gaps.some((g) => g.includes("human_return_at")),
+      `拒绝理由须点名 human_return_at；实际 gaps=${JSON.stringify(noStamp.gaps)}`,
+    );
+
+    // 盖戳后放行
     const env2 = await run(
       desc,
       "ldvh_friction_write",
@@ -636,17 +661,22 @@ test("friction-write-object update: deferred→open reactivation allowed (26 §9
         action: "update",
         object_uid: created.value.object_uid,
         expected_fingerprint: env1.result.fingerprint,
-        frontmatter_after: { ...read1.value.frontmatter, status: "open" },
+        frontmatter_after: {
+          ...read1.value.frontmatter,
+          status: "observing",
+          occurrence: { ...read1.value.frontmatter.occurrence, human_return_at: "2026-11-02T00:00:00.000Z" },
+        },
         body_markdown_after: validBodyMarkdown(),
-        change_summary: "重新激活",
+        change_summary: "放回留观",
       },
       repo
     );
-    assert.equal(env2.outcome, "completed");
+    assert.equal(env2.outcome, "completed", JSON.stringify(env2.result));
     assert.equal(env2.result.read_back.ok, true);
     const read2 = await readFrictionObject({ factSourceRoot: join(repo, "ldvh-base"), objectUid: created.value.object_uid });
-    assert.equal(read2.value.frontmatter.status, "open");
-    assert.equal(read2.value.frontmatter.relations, undefined, "reactivation must not carry relations");
+    assert.equal(read2.value.frontmatter.status, "observing");
+    assert.equal(read2.value.frontmatter.occurrence.human_return_at, "2026-11-02T00:00:00.000Z");
+    assert.equal(read2.value.frontmatter.relations, undefined, "放回留观 must not carry relations");
   });
 });
 

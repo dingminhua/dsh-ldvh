@@ -26,6 +26,7 @@ import { test } from 'node:test';
 import { readLocalFact, type LocalFactScope } from '../../api/services/localFactReader.ts';
 import { projectCurrentWorkCaseCard } from '../../api/services/facts.ts';
 import { toRfc3339Text } from '../../shared/timestamp.ts';
+import { readFixture, writeFixtureCarriers } from './workcase-projection-fixture.ts';
 
 /** 仓库根（tests/api → web → plugin → repo）。 */
 const REPOSITORY_ROOT = path.resolve(import.meta.dirname, '../../../..');
@@ -304,7 +305,69 @@ test('attempt.session_id 在投影后存活——关闭侧独立性比对的基�
     asserted += 1;
   }
 
-  assert.ok(asserted > 0, '至少应有一个真实对象的 attempt 带 session_id，本断言才有判别力');
+  // 真实载体扫描**只覆盖当下真实存在的形态**。仓库状态是生命周期副产品：全部工单
+  // 收口后此处本就无从断言，那是事实而非缺陷。判别力由同文件的合成载体用例保证
+  // （见下），故此处据实登记跳过数量，而不是让守卫在无判别力时静默通过或误报失败。
+  if (asserted === 0) {
+    console.warn(
+      `[跳过] 真实载体中无带 attempt.session_id 的对象（现有 ${ids.length} 份）；`
+      + '本守卫的判别力由同文件的合成载体用例承担。',
+    );
+  }
+});
+
+// 判别力下限：真实载体全终态时上面的自检会空转。合成 open 载体走同一管道补上，
+// 使「attempt.session_id 在投影后存活」始终被真正断言一次。
+test('attempt.session_id 投影存活（合成载体，不依赖仓库状态）', async () => {
+  const SESSION_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const fixture = writeFixtureCarriers([
+    {
+      id: 'workcase-00000000-0000-4000-8000-000000000001',
+      frontmatter: {
+        object_uid: 'workcase-00000000-0000-4000-8000-000000000001',
+        fact_type_key: 'workcase',
+        title: '合成 open 工单',
+        status: 'open',
+        serves: 'SG-3',
+        gist: '合成载体：验证 attempt.session_id 投影保真。',
+        created_at: '2026-11-01T00:00:00.000Z',
+        attempt: {
+          attempt_id: 1,
+          started_at: '2026-11-01T00:00:00.000Z',
+          controller: 'test-controller',
+          heartbeat_at: '2026-11-01T00:10:00.000Z',
+          session_id: SESSION_ID,
+          session_source: 'host',
+        },
+        reviews: [],
+        change_log: [],
+      },
+      body: ['## 摘要', '合成载体正文。', '## 授权范围', '做什么：x', '明确不做什么：y', '## 计划', '- 步骤一'].join('\n\n'),
+    },
+  ]);
+
+  try {
+    const detail = await readFixture(fixture.ids[0], fixture.scope);
+    assert.equal(detail.status, 'ok', '合成载体须能被读取层正常读出');
+    if (detail.status !== 'ok') return;
+    const source = detail.item.fact_object as Record<string, unknown>;
+    const sourceAttempt = source.attempt as Record<string, unknown>;
+    assert.ok('session_id' in sourceAttempt, '前置：合成载体确实带 attempt.session_id');
+
+    const placedAttempt = projectCurrentWorkCaseCard(
+      source,
+      detail.item.source_content_fingerprint,
+    ).attempt as Record<string, unknown> | undefined;
+    assert.ok(
+      placedAttempt && 'session_id' in placedAttempt,
+      'attempt.session_id 在投影后丢失——21 §14 关闭前置条件二以它为独立性比对基准',
+    );
+    assert.equal(placedAttempt.session_id, SESSION_ID, 'attempt.session_id 必须逐字保留');
+    assert.equal(placedAttempt.session_source, 'host', 'session_source 有值时必须一并搬运');
+    assert.equal(placedAttempt.controller, 'test-controller');
+  } finally {
+    fixture.cleanup();
+  }
 });
 
 test('attempt 投影覆盖 21 §8 登记的全部字段——白名单与字段登记不得分叉', () => {
@@ -380,10 +443,12 @@ test('open 对象的 reviews 必须完整投影（阶段判定的输入，10 §5
     assert.equal(placed.length, reviews.length, `${objectId}: reviews 条数不得因投影而改变`);
     checked.push(objectId);
   }
-  assert.ok(
-    checked.length > 0,
-    '必须至少核对一个带 reviews 的 open 对象，否则本守卫是空转',
-  );
+  if (checked.length === 0) {
+    console.warn(
+      `[跳过] 真实载体中无带 reviews 的 open 对象（现有 ${ids.length} 份）；`
+      + '本守卫的判别力由同文件的合成载体用例承担。',
+    );
+  }
 });
 
 // 「待批准关闭」的核对与建议：`21 §8` 的 result 字段出现 ⇔ status=closed，故该期的
@@ -413,7 +478,12 @@ test('待批准关闭：核对与建议必须投影到位（10 §5.5）', async 
     }
     checked.push(objectId);
   }
-  assert.ok(checked.length > 0, '必须至少核对一个「待批准关闭」对象，否则本守卫是空转');
+  if (checked.length === 0) {
+    console.warn(
+      `[跳过] 真实载体中无「待批准关闭」对象（现有 ${ids.length} 份）；`
+      + '本守卫的判别力由同文件的合成载体用例承担。',
+    );
+  }
 });
 
 // 「已关闭」的卡体（10 §5.5，Human 2026-09-24 方案 A）：结论行 + 逐条核对（**只给
@@ -793,6 +863,75 @@ test('已关闭：正文带建议段时，去向必须投影（合成用例，�
   );
 });
 
+// 三个「待批准关闭 / open」期守卫的判别力下限（合成载体）。
+// 真实载体全部收口后它们无从断言；此处用同一读取层管道补足，使
+// 「reviews 完整投影」「核对与建议到位」「正文残留逐条投影」始终被真正断言。
+test('待批准关闭期：reviews / 核对建议 / 正文残留三项投影保真（合成载体）', async () => {
+  const body = [
+    '## 摘要', '合成载体正文。',
+    '## 授权范围', '做什么：x', '明确不做什么：y',
+    '## 计划', '- 步骤一', '- 步骤二',
+    '## 结果',
+    '- criteria_checks:',
+    '  - 步骤 1 判据「x」：达成——证据：y。',
+    '  - 步骤 2 判据「z」：未达成——证据：w。',
+    '- residual:',
+    '  - 第一条残留。',
+    '  - 第二条残留。',
+  ].join('\n');
+  const fixture = writeFixtureCarriers([
+    {
+      id: 'workcase-00000000-0000-4000-8000-000000000002',
+      frontmatter: {
+        object_uid: 'workcase-00000000-0000-4000-8000-000000000002',
+        fact_type_key: 'workcase',
+        title: '合成待批准关闭工单',
+        status: 'open',
+        serves: 'SG-3',
+        gist: '合成载体：验证 reviews 与核对建议的投影保真。',
+        created_at: '2026-11-01T00:00:00.000Z',
+        plan: [{ step: '步骤一', done_criteria: 'x' }, { step: '步骤二', done_criteria: 'z' }],
+        reviews: [{ at: '2026-11-01T01:00:00.000Z', summary: '复核结论：第一步已达成。' }],
+        change_log: [],
+      },
+      body,
+    },
+  ]);
+
+  try {
+    const detail = await readFixture(fixture.ids[0], fixture.scope);
+    assert.equal(detail.status, 'ok', '合成载体须能被读取层正常读出');
+    if (detail.status !== 'ok') return;
+    const source = detail.item.fact_object as Record<string, unknown>;
+    const projected = projectCurrentWorkCaseCard(source, detail.item.source_content_fingerprint);
+
+    // ① reviews 完整投影（阶段判定的输入，10 §5.5）
+    assert.ok(Array.isArray(projected.reviews), 'reviews 在投影后消失——阶段判定将恒判为「执行中」');
+    assert.equal((projected.reviews as unknown[]).length, 1, 'reviews 条数不得因投影而改变');
+
+    // ② 核对与建议投影到位（10 §5.5）
+    const checks = projected.result_checks;
+    assert.ok(Array.isArray(checks) && checks.length > 0, 'result_checks 必须投影到位');
+    assert.equal((checks as unknown[]).length, 2, '核对条数须与 plan 步数一致（逐条对应，21 §8）');
+    for (const check of checks as Record<string, unknown>[]) {
+      assert.ok(
+        typeof check.planIndex === 'number' && check.planIndex >= 0 && check.planIndex < 2,
+        'planIndex 必须落在 plan 范围内',
+      );
+    }
+
+    // ③ 正文残留逐条投影（21 §8）
+    assert.deepEqual(
+      projected.result_residual,
+      ['第一条残留。', '第二条残留。'],
+      '正文有 2 条残留，投影后须逐条且顺序不变',
+    );
+    assert.equal(projected.result, undefined, 'open 期不得有 result 字段');
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 // 「待批准关闭」卡新增残留块（Human 裁定 2026-09-24）：该期无 `result` 字段
 // （`result` 出现 ⇔ `status = closed`），残留**只在正文** `- residual:` 段里，
 // 故这是该期残留的**唯一数据源**。已关闭期相反——读 `result.residual` 字段（权威）。
@@ -832,7 +971,12 @@ test('待批准关闭：正文残留逐条投影，一条不少（21 §8）', as
     }
     checked.push(objectId);
   }
-  assert.ok(checked.length > 0, '必须至少核对一个 open 对象，否则本守卫是空转');
+  if (checked.length === 0) {
+    console.warn(
+      `[跳过] 真实载体中无 open 对象（现有 ${ids.length} 份）；`
+      + '本守卫的判别力由同文件的合成载体用例承担。',
+    );
+  }
 });
 
 // 合成用例：覆盖「正文有残留段」的非空情形（存量是否都有该段不作为前提）。

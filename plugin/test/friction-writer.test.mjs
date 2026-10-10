@@ -26,7 +26,6 @@ import {
   correctFrictionObject,
   listFrictionObjects,
   isSingleSentence,
-  readGoalAnchors,
   frictionFileName,
   FRICTION_DIRECTORY,
   validateFrictionFrontmatter,
@@ -95,6 +94,10 @@ function validFrontmatterDraft(overrides = {}) {
     title: "CI 构建缓慢",
     phenomenon: "CI 每次构建平均需要 8 分钟，其中 5 分钟花在重复依赖安装上。",
     impact: "heavy",
+    // 26 §8 必填：创建时初值 count=1、first_at=last_at、human_return_at=null。
+    // d925ad6 起 create 拒绝缺 occurrence 的草稿；本夹具此前漏改，导致本文件
+    // 全部 create 路径在 ESM 之外的机械层被拒（2026-10 修复）。
+    occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" },
     change_summary: "受控创建（测试）",
     ...overrides,
   };
@@ -180,7 +183,7 @@ test("create: valid draft lands at frictions/friction-<uid>.md with Code identit
     const fm = parseFrontmatter(raw);
     assert.equal(fm.object_uid, uid);
     assert.equal(fm.fact_type_key, "friction");
-    assert.equal(fm.status, "open");
+    assert.equal(fm.status, "observing", "26 §9：创建初态为 observing（非 open）");
     assert.ok(typeof fm.created_at === "string" && fm.created_at.length > 0);
     assert.equal(fm.change_log.length, 1);
     assert.equal(fm.change_log[0].summary, "受控创建（测试）");
@@ -207,11 +210,21 @@ test("create: with attribution backfilled succeeds (26 §8 conditional field)", 
   });
 });
 
-test("create: with serves SG-3 resolves against goal.md succeeds (26 §8/§13)", async () => {
+test("create: serves 已退出闭集，带该字段一律被机械拒绝（26 §8，cb2a37a）", async () => {
   await withTemp("friction-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
-    const { draft, created, read } = await createAndRead(root, { serves: "SG-3" });
-    assert.equal(read.value.frontmatter.serves, "SG-3");
+    const result = await createFrictionObject({
+      factSourceRoot: root,
+      frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-3" },
+      bodyMarkdown: validBodyMarkdown(validFrontmatterDraft()),
+      sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "friction/frontmatter_invalid");
+    assert.ok(
+      result.error.message.includes("serves") || JSON.stringify(result.error.details).includes("serves"),
+      "拒绝理由须点名 serves 是表外字段，而非某种不可解析",
+    );
   });
 });
 
@@ -347,31 +360,12 @@ test("create: impact outside closed set rejected (26 §8 impact 闭集)", async 
   });
 });
 
-test("create: serves=SG-99 not in goal.md rejected (26 §13)", async () => {
-  await withTemp("friction-writer.", async (root) => {
-    await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
-    const result = await createFrictionObject({
-      factSourceRoot: root,
-      frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-99" },
-      bodyMarkdown: validBodyMarkdown(),
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(!result.ok);
-    assert.equal(result.error.code, "friction/serves_unresolvable");
-  });
-});
-
-test("create: serves declared but goal.md missing rejected (26 §13)", async () => {
+test("create: goal.md 缺席不再阻断——serves 退出闭集后无锚点依赖（26 §8，cb2a37a）", async () => {
   await withTemp("friction-writer.", async (root) => {
     // no goal.md in root
-    const result = await createFrictionObject({
-      factSourceRoot: root,
-      frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-3" },
-      bodyMarkdown: validBodyMarkdown(),
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(!result.ok);
-    assert.equal(result.error.code, "friction/serves_unresolvable");
+    const { created, read } = await createAndRead(root);
+    assert.equal(read.value.frontmatter.status, "observing");
+    assert.equal(read.value.frontmatter.serves, undefined, "闭集内不得再出现 serves");
   });
 });
 
@@ -453,7 +447,7 @@ test("create: empty H2 section rejected (26 §8 body must carry content)", async
 // State machine transitions (26 §9.2 重点)
 // ---------------------------------------------------------------------------
 
-test("state machine: open→deferred succeeds and lands 处置段 (26 §9.2)", async () => {
+test("state machine: observing→open succeeds (26 §9.2 Human 提前排期)", async () => {
   await withTemp("friction-writer.", async (root) => {
     const { read } = await createAndRead(root);
     const fp = read.value.fingerprint;
@@ -461,52 +455,86 @@ test("state machine: open→deferred succeeds and lands 处置段 (26 §9.2)", a
       factSourceRoot: root,
       objectUid: read.value.object_uid,
       expectedFingerprint: fp,
-      frontmatterAfter: { ...read.value.frontmatter, status: "deferred" },
-      bodyMarkdownAfter: deferredBodyMarkdown(),
-      changeSummary: "转为缓议",
+      frontmatterAfter: { ...read.value.frontmatter, status: "open" },
+      bodyMarkdownAfter: validBodyMarkdown(),
+      changeSummary: "排期",
       sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated.ok, JSON.stringify(updated.error));
 
     const read2 = await readFrictionObject({ factSourceRoot: root, objectUid: read.value.object_uid });
     assert.ok(read2.ok);
-    assert.equal(read2.value.frontmatter.status, "deferred");
+    assert.equal(read2.value.frontmatter.status, "open");
     assert.equal(read2.value.body_valid, true);
     assert.equal(read2.value.frontmatter.change_log.length, 2);
   });
 });
 
-test("state machine: deferred→open reactivation succeeds (26 §9.2 可逆)", async () => {
+test("state machine: open→observing 放回留观须盖 human_return_at（26 §9.2）", async () => {
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
-    const updated1 = await updateFrictionObject({
+    const toOpen = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
       expectedFingerprint: r1.value.fingerprint,
-      frontmatterAfter: { ...r1.value.frontmatter, status: "deferred" },
-      bodyMarkdownAfter: deferredBodyMarkdown(),
-      changeSummary: "转为缓议",
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(updated1.ok, JSON.stringify(updated1.error));
-
-    // Reactivate: no relations, 处置段 gone
-    const updated2 = await updateFrictionObject({
-      factSourceRoot: root,
-      objectUid: r1.value.object_uid,
-      expectedFingerprint: updated1.value.fingerprint,
       frontmatterAfter: { ...r1.value.frontmatter, status: "open" },
       bodyMarkdownAfter: validBodyMarkdown(),
-      changeSummary: "重新激活",
+      changeSummary: "排期",
       sessionSignature: TEST_SIGNATURE,
     });
-    assert.ok(updated2.ok, JSON.stringify(updated2.error));
+    assert.ok(toOpen.ok, JSON.stringify(toOpen.error));
+
+    // 无 human_return_at → 机械拒绝（放回留观的判别标记）
+    const missing = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: toOpen.value.fingerprint,
+      frontmatterAfter: { ...r1.value.frontmatter, status: "observing" },
+      bodyMarkdownAfter: validBodyMarkdown(),
+      changeSummary: "放回留观但未盖戳",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!missing.ok);
+    assert.equal(missing.error.code, "friction/frontmatter_invalid");
+    assert.ok(missing.error.message.includes("human_return_at"), missing.error.message);
+
+    // 盖戳后放行，且反向 observing→open 必须清 human_return_at
+    const returned = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: toOpen.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        status: "observing",
+        occurrence: { ...r1.value.frontmatter.occurrence, human_return_at: "2026-11-02T00:00:00.000Z" },
+      },
+      bodyMarkdownAfter: validBodyMarkdown(),
+      changeSummary: "放回留观",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(returned.ok, JSON.stringify(returned.error));
 
     const read2 = await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid });
     assert.ok(read2.ok);
-    assert.equal(read2.value.frontmatter.status, "open");
+    assert.equal(read2.value.frontmatter.status, "observing");
+    assert.equal(read2.value.frontmatter.occurrence.human_return_at, "2026-11-02T00:00:00.000Z");
     assert.equal(read2.value.body_valid, true);
-    assert.equal(read2.value.frontmatter.change_log.length, 3);
+
+    const staleReopen = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: read2.value.fingerprint,
+      frontmatterAfter: {
+        ...read2.value.frontmatter,
+        status: "open",
+        occurrence: { ...read2.value.frontmatter.occurrence, human_return_at: "2026-11-02T00:00:00.000Z" },
+      },
+      bodyMarkdownAfter: validBodyMarkdown(),
+      changeSummary: "带着 human_return_at 排期",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!staleReopen.ok);
+    assert.ok(staleReopen.error.message.includes("clear occurrence.human_return_at"), staleReopen.error.message);
   });
 });
 
@@ -821,7 +849,7 @@ test("correct: open 账与缺授权的更正请求都被机械拒绝（26 §13 f
       sessionSignature: TEST_SIGNATURE,
     });
     assert.equal(onOpen.ok, false);
-    assert.equal(onOpen.error.code, "friction/correction_requires_resolved");
+    assert.equal(onOpen.error.code, "friction/correction_requires_terminal");
 
     // ② 缺 human_authorization 即拒——更正与其它受控更新同权限
     const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -1103,25 +1131,25 @@ test("state machine: resolved object update returns status_terminal (26 §9.2 �
   });
 });
 
-test("state machine: deferred→resolved succeeds with informs written at that transition (26 §9.2)", async () => {
+test("state machine: open→resolved succeeds with informs written at that transition (26 §9.2)", async () => {
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
     const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
     await createAdrFixture(root, adrUid);
 
-    // First: open→deferred
+    // First: observing→open
     const updated1 = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
       expectedFingerprint: r1.value.fingerprint,
-      frontmatterAfter: { ...r1.value.frontmatter, status: "deferred" },
-      bodyMarkdownAfter: deferredBodyMarkdown(),
-      changeSummary: "转为缓议",
+      frontmatterAfter: { ...r1.value.frontmatter, status: "open" },
+      bodyMarkdownAfter: validBodyMarkdown(),
+      changeSummary: "排期",
       sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated1.ok, JSON.stringify(updated1.error));
 
-    // Then: deferred→resolved with informs
+    // Then: open→resolved with informs
     const updated2 = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
@@ -1223,7 +1251,7 @@ test("state machine: informs target pointing to spark file (wrong type) → rela
   });
 });
 
-test("state machine: open→deferred with relations → relations_invalid (26 §11 — open 不得带关系)", async () => {
+test("state machine: observing→open with relations → relations_invalid (26 §11 — open 不得带关系)", async () => {
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
     const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -1234,11 +1262,11 @@ test("state machine: open→deferred with relations → relations_invalid (26 §
       expectedFingerprint: r1.value.fingerprint,
       frontmatterAfter: {
         ...r1.value.frontmatter,
-        status: "deferred",
+        status: "open",
         relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
       },
-      bodyMarkdownAfter: deferredBodyMarkdown(),
-      changeSummary: "试图在 deferred 时带关系",
+      bodyMarkdownAfter: validBodyMarkdown(),
+      changeSummary: "试图在 open 时带关系",
       sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
@@ -1246,36 +1274,37 @@ test("state machine: open→deferred with relations → relations_invalid (26 §
   });
 });
 
-test("state machine: deferred→open with relations → relations_invalid (26 §9.2 重新激活不带关系)", async () => {
+test("state machine: open→observing with relations → relations_invalid (26 §9.2 放回留观不带关系)", async () => {
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
     const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
     await createAdrFixture(root, adrUid);
 
-    // First: open→deferred
+    // First: observing→open
     const updated1 = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
       expectedFingerprint: r1.value.fingerprint,
-      frontmatterAfter: { ...r1.value.frontmatter, status: "deferred" },
-      bodyMarkdownAfter: deferredBodyMarkdown(),
-      changeSummary: "转为缓议",
+      frontmatterAfter: { ...r1.value.frontmatter, status: "open" },
+      bodyMarkdownAfter: validBodyMarkdown(),
+      changeSummary: "排期",
       sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated1.ok, JSON.stringify(updated1.error));
 
-    // Try deferred→open with relations
+    // Try open→observing with relations
     const result = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
       expectedFingerprint: updated1.value.fingerprint,
       frontmatterAfter: {
         ...r1.value.frontmatter,
-        status: "open",
+        status: "observing",
+        occurrence: { ...r1.value.frontmatter.occurrence, human_return_at: "2026-11-02T00:00:00.000Z" },
         relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
       },
       bodyMarkdownAfter: validBodyMarkdown(),
-      changeSummary: "重新激活带关系",
+      changeSummary: "放回留观带关系",
       sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
@@ -1309,7 +1338,7 @@ test("update: supplement-level — status unchanged, phenomenon unchanged, attri
     assert.equal(read2.value.frontmatter.change_log.length, beforeLogLength + 1, "exactly one entry appended");
     assert.equal(read2.value.frontmatter.change_log[1].summary, "归因后补");
     assert.equal(read2.value.frontmatter.created_at, created_at, "created_at must not change");
-    assert.equal(read2.value.frontmatter.status, "open", "status must stay unchanged on supplement");
+    assert.equal(read2.value.frontmatter.status, "observing", "status must stay unchanged on supplement");
     assert.equal(read2.value.frontmatter.attribution, "CI 配置问题");
     assert.equal(read2.value.frontmatter.phenomenon, draft.phenomenon, "phenomenon must stay unchanged on supplement");
     assert.equal(read2.value.body_valid, true);
@@ -1325,9 +1354,9 @@ test("update: status change in supposed-supplement is rejected (26 §9.3 补充�
       factSourceRoot: root,
       objectUid: read.value.object_uid,
       expectedFingerprint: read.value.fingerprint,
-      frontmatterAfter: { ...read.value.frontmatter, status: "deferred" },
-      bodyMarkdownAfter: deferredBodyMarkdown(),
-      changeSummary: "试图在补充中改状态",
+      frontmatterAfter: { ...read.value.frontmatter, status: "voided", disposition: "外部团队已放弃该问题" },
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "试图在补充中改状态并废弃",
       sessionSignature: TEST_SIGNATURE,
     });
     // Status change IS allowed via the update path (it IS a transition, not a supplement boundary violation in the writer)
@@ -1388,12 +1417,25 @@ test("list: empty frictions directory is a valid empty state (26 §12)", async (
   });
 });
 
-test("list: 1 open + 1 deferred + 1 resolved — default lists 2, includeResolved lists 3; projection carries uid/title/status/impact/attribution/serves", async () => {
+test("list: 2 live (observing/open) + 1 resolved — default lists 2, includeResolved lists 3; projection carries uid/title/status/impact/attribution/occurrence", async () => {
   await withTemp("friction-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
-    const draftA = { ...validFrontmatterDraft(), title: "甲摩擦", serves: "SG-3" };
+    const draftA = { ...validFrontmatterDraft(), title: "甲摩擦" };
     const a = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draftA, bodyMarkdown: validBodyMarkdown(draftA) , sessionSignature: TEST_SIGNATURE});
     assert.ok(a.ok, JSON.stringify(a.error));
+
+    // 甲升到 open，使默认召回同时覆盖 observing 与 open 两值
+    const readA = await readFrictionObject({ factSourceRoot: root, objectUid: a.value.object_uid });
+    const openA = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: a.value.object_uid,
+      expectedFingerprint: readA.value.fingerprint,
+      frontmatterAfter: { ...readA.value.frontmatter, status: "open" },
+      bodyMarkdownAfter: validBodyMarkdown(draftA),
+      changeSummary: "排期",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(openA.ok, JSON.stringify(openA.error));
 
     const draftB = { ...validFrontmatterDraft(), title: "乙摩擦", attribution: "外部工具" };
     const b = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draftB, bodyMarkdown: validBodyMarkdown(draftB) , sessionSignature: TEST_SIGNATURE});
@@ -1421,10 +1463,10 @@ test("list: 1 open + 1 deferred + 1 resolved — default lists 2, includeResolve
     });
     assert.ok(resolvedC.ok, JSON.stringify(resolvedC.error));
 
-    // default: open + deferred = 2 (resolved excluded)
+    // default: observing + open = 2 (resolved excluded)
     const listed = await listFrictionObjects({ factSourceRoot: root });
     assert.ok(listed.ok, JSON.stringify(listed.error));
-    assert.equal(listed.value.total, 2); // total = filtered projection count (open+deferred), resolved excluded
+    assert.equal(listed.value.total, 2); // total = filtered projection count (observing+open), resolved excluded
     assert.equal(listed.value.items.length, 2);
     assert.equal(listed.value.complete, true);
     for (const item of listed.value.items) {
@@ -1439,8 +1481,11 @@ test("list: 1 open + 1 deferred + 1 resolved — default lists 2, includeResolve
       assert.equal(typeof item.status, "string");
       assert.ok(typeof item.impact === "string" && item.impact.length > 0, "item must project impact");
     }
-    const withSg = listed.value.items.find((i) => i.object_uid === a.value.object_uid);
-    assert.equal(withSg.serves, "SG-3");
+    const statuses = listed.value.items.map((i) => i.status).sort();
+    assert.deepEqual(statuses, ["observing", "open"], "默认召回覆盖 observing 与 open 两值（26 §12）");
+    const withOcc = listed.value.items.find((i) => i.object_uid === a.value.object_uid);
+    assert.equal(withOcc.occurrence?.count, 1, "26 §8：occurrence 进F1 投影");
+    assert.equal(withOcc.serves, undefined, "serves 已退出闭集，投影中不得出现");
     const withAttr = listed.value.items.find((i) => i.object_uid === b.value.object_uid);
     assert.equal(withAttr.attribution, "外部工具");
 
