@@ -28,6 +28,10 @@ import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
 import { createTurnTriggers } from "./triggers.js";
 import { runIdleCheckpoint, selectAuxTask } from "./idle-checkpoint.js";
 import { createDiscoveryProvider } from "./friction-discovery-provider.js";
+import { landDiscoveryVerdict } from "./friction-landing.js";
+import { appendPendingEntry } from "./pending-queue.js";
+import { currentRouteValues } from "./session-signature.js";
+import { authoritativeSignature } from "./signature-channel.js";
 import { createChildInstaller } from "./child.js";
 import { AgentLifecycle } from "./agent-lifecycle.js";
 import { recordJudgementForGuard } from "./host-seams.js";
@@ -318,7 +322,13 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             }
           }
 
-          await runIdleCheckpoint({
+          // §8.4 闭集第 2–4 项的落地：把子代理的判断写成账目。
+          //
+          // **这一段曾缺失**（缺陷 D2，由独立复核 030117d3 发现）：此前这里是裸
+          // `await runIdleCheckpoint({...})`，返回值被直接丢弃——于是子代理算出的
+          // 结论被算完即丢，账本永远不会有新账目，而水位照常推进，看起来像"跑通了"。
+          // 现在把返回值接住，并按三态执行闭集动作。
+          const checkpoint = await runIdleCheckpoint({
             dshHomePath,
             factSourceRoot: join(scope.project.path, "ldvh-base"),
             // 水位按「项目根 + 会话」分键（跨项目、跨会话各自独立）。
@@ -328,6 +338,59 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             task: taskForThisCheckpoint,
             discover,
           });
+
+          // 只有真正取回了判断才落地（skipped / not-implemented / 失败都没有判断）。
+          // **注意层级**：runIdleCheckpoint 把执行体的返回值原样放在 `decision` 下，
+          // 而执行体返回 `{ outcome, verdict, watermarkTurn }`——故判断在
+          // `checkpoint.value.decision.verdict`。写错这一层会让落地**永不触发**，
+          // 而那正是缺陷 D2 的形态（静默不落地），故有回归护栏守着它。
+          const verdict = checkpoint?.ok === true ? checkpoint.value?.decision?.verdict : undefined;
+          if (checkpoint?.ok === true && verdict !== undefined) {
+            const ledgerRoot = join(scope.project.path, "ldvh-base");
+            // 受控写入需要**权威路由签名**（02 §10.5）。取不到签名时**不落地**
+            // ——宁可停在这里，也不写一条签名缺失的账目（那会污染 change_log 的
+            // 归属）。取不到即按 §8.3 入队。
+            const route = await currentRouteValues(sessionPersistence?.(), agent);
+            if (!route.ok) {
+              await appendPendingEntry(dshHomePath, {
+                task: taskForThisCheckpoint,
+                reason: `闭集落地缺少权威路由签名：${route.reason ?? "unknown"}`,
+                residual: ["账目未写入（缺签名）"],
+                at: new Date().toISOString(),
+              });
+              lifecycle.activity?.record("session/checkpoint/landed", { action: "no-signature" });
+            } else {
+              const landed = await landDiscoveryVerdict({
+                factSourceRoot: ledgerRoot,
+                verdict,
+                observationAt: checkpoint.value.at,
+                sessionSignature: authoritativeSignature({
+                  provider: route.value.provider,
+                  model: route.value.model,
+                }),
+              });
+              if (!landed.ok) {
+                // §8.3 fail-closed：落地失败按停止处置并登记（不自行重试、不掩盖）。
+                await appendPendingEntry(dshHomePath, {
+                  task: taskForThisCheckpoint,
+                  reason: `闭集落地失败（${landed.error?.stage ?? "unknown"}）：${landed.error?.message ?? "unknown"}`,
+                  residual: landed.error?.cause ? [String(landed.error.cause.message ?? landed.error.cause)] : [],
+                  at: new Date().toISOString(),
+                });
+              }
+              lifecycle.activity?.record("session/checkpoint/landed", {
+                action: landed.ok ? landed.value.action : "failed",
+                object_uid: landed.ok ? landed.value.object_uid : null,
+                promoted: landed.ok ? landed.value.promoted : null,
+              });
+            }
+          } else if (checkpoint?.ok === false) {
+            // 调度层已自行入队（recordAndFail），此处只记活动，不重复登记。
+            lifecycle.activity?.record("session/checkpoint/stopped", {
+              task: taskForThisCheckpoint,
+              code: checkpoint.error?.code ?? "unknown",
+            });
+          }
           lifecycle.activity?.record("session/checkpoint", { source, task: selectAuxTask(rotation) });
         }
       });
