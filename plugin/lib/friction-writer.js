@@ -17,10 +17,11 @@
  *               * status-preserving = 补充级: status must be field-identical
  *                 to the CAS baseline (攒账计数/现象补充/归因后补；变了就
  *                 拒绝——状态变化走流转).
- *               * state transitions (Human-gated upstream): open→resolved
- *                 requires 1..n informs relations with resolvable targets;
- *                 open→deferred / deferred→open / deferred→resolved follow
- *                 §9.2 (deferred reversible, resolved terminal & read-only).
+ *               * state transitions (Human-gated upstream): observing→open
+ *                 (threshold) / open→observing (放回留观) / observing→resolved
+ *                 / →voided follow §9.2; resolved requires 1..n informs
+ *                 relations with resolvable targets; resolved & voided are
+ *                 terminal & read-only.
  *
  * Carrier coherence (26 §8): frontmatter phenomenon is the single
  * authoritative text — the 现象 body section must contain it verbatim.
@@ -47,11 +48,11 @@ const FRICTION_TYPE_KEY = "friction";
 /** Directory under the fact-source root that carries Friction objects. */
 export const FRICTION_DIRECTORY = "frictions";
 
-/** Fixed body H2 sections (26 §8); 处置 is conditional on resolved/deferred. */
+/** Fixed body H2 sections (26 §8); 处置 is conditional on resolved/voided. */
 const BODY_H2_REQUIRED = ["现象", "入账依据"];
 const BODY_H2_DISPOSITION = "处置";
 
-const STATUSES = new Set(["open", "resolved", "deferred"]);
+const STATUSES = new Set(["observing", "open", "resolved", "voided"]);
 const IMPACT_VALUES = new Set(["light", "medium", "heavy"]);
 
 /** Relation keys allowed for Friction (26 §11 — closed set of exactly one). */
@@ -71,7 +72,8 @@ const COMMIT_PATTERN = /^[0-9a-f]{40}$/i;
 /** Closed set of frontmatter keys (26 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
-  "phenomenon", "attribution", "impact", "relations", "change_log",
+  "phenomenon", "attribution", "attribution_ref", "impact", "relations",
+  "occurrence", "change_log",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -280,12 +282,12 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
 /**
  * Validate the assembled body structure. The body passed here is the full
  * file body starting with the generated `# ${title}` H1 (26 §8).
- * 处置 section presence ⇔ status resolved/deferred (26 §8 conditional).
+ * 处置 section presence ⇔ status resolved/voided (26 §8 conditional).
  * Returns { ok, issues }.
  */
 export function validateFrictionBodyStructure(body, title, status) {
   const issues = [];
-  const expectDisposition = status === "resolved" || status === "deferred";
+  const expectDisposition = status === "resolved" || status === "voided";
   const expectedH2 = [...BODY_H2_REQUIRED];
   if (expectDisposition) expectedH2.push(BODY_H2_DISPOSITION);
 
@@ -314,10 +316,10 @@ export function validateFrictionBodyStructure(body, title, status) {
     if (content.length === 0) issues.push(`body: section "${secTitle}" is empty`);
   }
 
-  // 处置 H2 presence ⇔ resolved/deferred (26 §8 conditional)
+  // 处置 H2 presence ⇔ resolved/voided (26 §8 conditional)
   const hasDispositionH2 = h2.includes(BODY_H2_DISPOSITION);
   if (hasDispositionH2 !== expectDisposition) {
-    issues.push(`body: "## 处置" section presence (${hasDispositionH2}) must match status resolved/deferred (${expectDisposition}) — 26 §8 条件出现`);
+    issues.push(`body: "## 处置" section presence (${hasDispositionH2}) must match status resolved/voided (${expectDisposition}) — 26 §8 条件出现`);
   }
 
   return { ok: issues.length === 0, issues };
@@ -435,11 +437,16 @@ export async function createFrictionObject(args) {
   frontmatter.object_uid = uid;
   frontmatter.fact_type_key = FRICTION_TYPE_KEY;
   frontmatter.created_at = now;
-  // 26 §9: 初态 open — create must never enter resolved/deferred
-  if (frontmatter.status !== undefined && frontmatter.status !== "open") {
-    return failure("friction/initial_state_violation", `create must initialise as status=open; got ${JSON.stringify(frontmatter.status)} (26 §9 — 销账/缓议是流转，不是初态)`);
+  // 26 §9: 初态 observing — create must never enter resolved/voided
+  if (frontmatter.status !== undefined && frontmatter.status !== "observing") {
+    return failure("friction/initial_state_violation", `create must initialise as status=observing; got ${JSON.stringify(frontmatter.status)} (26 §9 — 销账/作废是流转，不是初态)`);
   }
-  frontmatter.status = "open";
+  frontmatter.status = "observing";
+  // 26 §8: occurrence 必填——创建时初值 count=1、first_at=last_at=now、
+  // human_return_at=null。除 §14.2 的闭集收缩改判外，occurrence 不可缺。
+  if (frontmatter.occurrence === undefined) {
+    return failure("friction/frontmatter_invalid", "create must carry occurrence { count, first_at, last_at, human_return_at } (26 §8 必填)");
+  }
   // 26 §11: informs relations cannot exist at creation (open)
   if (frontmatter.relations !== undefined) {
     return failure("friction/frontmatter_invalid", "create must not carry relations (26 §11: informs only attaches to a resolved transition)");
@@ -578,13 +585,14 @@ export async function updateFrictionObject(args) {
 
   const nextStatus = fm.status;
   if (nextStatus === undefined || !STATUSES.has(nextStatus)) {
-    return failure("friction/status_transition_invalid", `target status ${JSON.stringify(nextStatus)} is not in the closed set (open/resolved/deferred, 26 §9)`);
+    return failure("friction/status_transition_invalid", `target status ${JSON.stringify(nextStatus)} is not in the closed set (observing/open/resolved/voided, 26 §9)`);
   }
 
   // 26 §9.3 补充边界：status 保持不变的更新是补充级（攒账计数/现象补充/
   // 归因后补）——status 与 CAS 基线逐字段一致（变了走流转，本入口即流转）。
   const isTransition = nextStatus !== prevStatus;
-  if (!isTransition && prevStatus === "open") {
+  // 26 §13：闭集校验只施加于目标状态，历史源状态不因闭集收缩而被拒绝。
+  if (!isTransition && (prevStatus === "observing" || prevStatus === "open")) {
     if (fm.relations !== undefined) {
       return failure("friction/relations_invalid", "supplement-level update must not carry relations (26 §11: informs only attaches to a resolved transition)");
     }
@@ -592,16 +600,34 @@ export async function updateFrictionObject(args) {
 
   // 26 §9.2 transition guards:
   if (isTransition) {
-    if (prevStatus === "deferred" && nextStatus === "open") {
-      // 重新激活：不带关系（26 §9.2）
+    // observing→open / open→observing：两条激活路径都不带关系（26 §9.2）
+    if ((prevStatus === "observing" && nextStatus === "open") ||
+        (prevStatus === "open" && nextStatus === "observing")) {
       if (fm.relations !== undefined) {
-        return failure("friction/relations_invalid", "deferred→open (reactivation) must not carry relations (26 §9.2)");
+        return failure("friction/relations_invalid", `${prevStatus}→${nextStatus} must not carry relations (26 §9.2)`);
       }
     }
+    // open→observing（放回留观）：须写入 human_return_at，使机械通道的
+    // 阈值触发跳过该账目（26 §9.2 / 04 §8.4 第 4 项）
+    if (prevStatus === "open" && nextStatus === "observing") {
+      if (!fm.occurrence || typeof fm.occurrence !== "object" || !fm.occurrence.human_return_at) {
+        return failure("friction/frontmatter_invalid", "open→observing (放回留观) must stamp occurrence.human_return_at (26 §9.2 — 机械通道须据此跳过该账目)");
+      }
+    }
+    // observing→open（Human 主动提前排期）：须清除 human_return_at
+    if (prevStatus === "observing" && nextStatus === "open" && fm.occurrence?.human_return_at) {
+      return failure("friction/frontmatter_invalid", "observing→open must clear occurrence.human_return_at (26 §9.2)");
+    }
     if (nextStatus === "resolved") {
-      // open→resolved / deferred→resolved：informs 1..n 在销账流转写入
+      // observing/open→resolved：informs 1..n 在销账流转写入
       if (!Array.isArray(fm.relations) || fm.relations.length === 0) {
         return failure("friction/relations_invalid", "resolving requires 1..n informs relations pointing at the remedy objects (26 §9.2/§11)");
+      }
+    }
+    if (nextStatus === "voided") {
+      // →voided：不得带关系（26 §9.1/§13）
+      if (fm.relations !== undefined && Array.isArray(fm.relations) && fm.relations.length > 0) {
+        return failure("friction/relations_invalid", "voided must not carry relations (26 §9.1)");
       }
     }
   }
@@ -725,11 +751,19 @@ export async function correctFrictionObject(args) {
     return failure("friction/cas_conflict", `fingerprint mismatch: expected ${expectedFingerprint}, actual ${current.value.fingerprint}`);
   }
   const fm = current.value.frontmatter;
-  if (fm.status !== "resolved") {
+  // 26 §13：correct 适用于 resolved 与 voided 两个终态，分两支校验。
+  if (fm.status !== "resolved" && fm.status !== "voided") {
     return failure(
-      "friction/correction_requires_resolved",
-      `terminal fact correction applies to a RESOLVED record only (26 §13: 仅适用于 resolved); got status=${JSON.stringify(fm.status)} — open/deferred 内容修正走补充级更新或状态流转，本入口不得承载（否则等于把更正伪装成状态转换，02 §10.5）`,
+      "friction/correction_requires_terminal",
+      `terminal fact correction applies to a RESOLVED or VOIDED record only (26 §13: 适用于 resolved 与 voided 两个终态); got status=${JSON.stringify(fm.status)} — observing/open 内容修正走补充级更新或状态流转，本入口不得承载（否则等于把更正伪装成状态转换，02 §10.5）`,
     );
+  }
+  if (fm.status === "voided") {
+    // voided 支：relations 必须为空（informs 校验不适用，26 §13）
+    const rel = fm.relations;
+    if (rel !== undefined && (!Array.isArray(rel) || rel.length > 0)) {
+      return failure("friction/relations_invalid", "voided correct branch: relations must be absent or empty (26 §13)");
+    }
   }
 
   if (!Array.isArray(frontmatterRemovals)) {
@@ -759,10 +793,17 @@ export async function correctFrictionObject(args) {
     if (!Array.isArray(relationsAfter)) {
       return failure("friction/relations_invalid", "relationsAfter must be an array when provided (26 §13)");
     }
-    // resolved 必有 informs（26 §11）；更正后仍须满足。
-    const informsCount = relationsAfter.filter((r) => r !== null && typeof r === "object" && r.relation_key === "informs").length;
-    if (informsCount === 0) {
-      return failure("friction/relations_invalid", `a resolved friction must carry at least one informs relation (26 §11); got ${informsCount}`);
+    if (fm.status === "voided") {
+      // 26 §13 voided 支：relations 必须为空（informs 校验不适用）
+      if (relationsAfter.length > 0) {
+        return failure("friction/relations_invalid", `voided correct branch: relations must be empty (26 §13); got ${relationsAfter.length}`);
+      }
+    } else {
+      // resolved 必有 informs（26 §11）；更正后仍须满足。
+      const informsCount = relationsAfter.filter((r) => r !== null && typeof r === "object" && r.relation_key === "informs").length;
+      if (informsCount === 0) {
+        return failure("friction/relations_invalid", `a resolved friction must carry at least one informs relation (26 §11); got ${informsCount}`);
+      }
     }
     next.relations = structuredClone(relationsAfter);
   }
@@ -869,10 +910,10 @@ export async function correctFrictionObject(args) {
 
 /**
  * Enumerate Friction objects (F0/F1: deterministic filter + minimal
- * projection). Default status filter: open + deferred (26 §12: deferred 是
- * 活账——重新激活的候选源；resolved 仅精确引用/历史追溯)；includeResolved
- * includes all. Files that fail to parse are reported in `invalid` — never
- * skipped silently.
+ * projection). Default status filter: open + observing (26 §12: observing 是
+ * 活账——攒够待修的候选源；resolved 仅精确引用/历史追溯；voided 不进默认
+ * 候选)；includeResolved includes all. Files that fail to parse are reported
+ * in `invalid` — never skipped silently.
  */
 export async function listFrictionObjects(args) {
   const { factSourceRoot, includeResolved = false, limit = 200 } = args;

@@ -8,12 +8,12 @@
 //     object_uid: frontmatter, body, mechanical issues and fingerprint.
 //   - friction-list-objects (effect: read)             — F0/F1 discovery:
 //     ledger-relevant projection (title/phenomenon/status/impact/attribution),
-//     open+deferred by default (26 §12: resolved stays out of ordinary
+//     open+observing by default (26 §12: resolved stays out of ordinary
 //     candidates until historical tracing).
 //   - friction-write-object (effect: may_change_state) — controlled create
 //     (after Human-confirmed proposal incl. dedup result) and CAS update
 //     with change_log: status-preserving updates are supplement-level
-//     (26 §9.3); transitions follow 26 §9.2 (deferred reversible, resolved terminal).
+//     (26 §9.3); transitions follow 26 §9.2 (observing reversible, resolved/voided terminal).
 //
 // Authorities: specs/05 §6 (operation declaration + common envelope),
 // §9.3 (may_change_state), specs/03 §9 (controlled read/create/update,
@@ -43,7 +43,7 @@ const OPERATIONS = {
   },
   "friction-list-objects": {
     toolName: "ldvh_friction_list",
-    summary: "Enumerate Friction fact objects (F0/F1 discovery): ledger projection (title/phenomenon/status/impact/attribution) for the governed project; open+deferred by default (specs/03 §8, specs/26 §12)",
+    summary: "Enumerate Friction fact objects (F0/F1 discovery): ledger projection (title/phenomenon/status/impact/attribution/attribution_ref/occurrence) for the governed project; open+deferred by default (specs/03 §8, specs/26 §12)",
     effect: "read"
   },
   "friction-write-object": {
@@ -142,8 +142,9 @@ async function executeReadObject(args, exec, deps) {
       status: fm.status,
       phenomenon: typeof fm.phenomenon === "string" ? fm.phenomenon : undefined,
       attribution: typeof fm.attribution === "string" ? fm.attribution : undefined,
+      attribution_ref: typeof fm.attribution_ref === "string" ? fm.attribution_ref : undefined,
       impact: typeof fm.impact === "string" ? fm.impact : undefined,
-      serves: typeof fm.serves === "string" ? fm.serves : undefined,
+      occurrence: fm.occurrence && typeof fm.occurrence === "object" ? fm.occurrence : undefined,
       body_valid: value.body_valid,
       body_issues: value.body_issues,
       frontmatter: fm,
@@ -192,7 +193,7 @@ async function executeListObject(args, exec, deps) {
     result: {
       count: value.items.length,
       total: value.complete ? value.items.length : value.total,
-      filter: includeResolved ? "all" : "open+deferred",
+      filter: includeResolved ? "all" : "open+observing",
       items: value.items,
     },
     scope: {
@@ -359,7 +360,7 @@ async function executeWriteObject(args, exec, deps) {
       sources: [{ kind: "fact-object", path: back.value.file, content_fingerprint: corrected.value.fingerprint }],
       gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
       verification: { checks: ["cas-baseline", "resolved-required", "relations-contract", "body-structure", "carrier-coherence", "no-op-rejection", "atomic-write", "read-back"], passed: true },
-      follow_up: ["the object stays status=resolved — a correction never reopens a terminal record (26 §13)"]
+      follow_up: ["the object stays in its terminal status (resolved or voided) — a correction never reopens a terminal record (26 §13)"]
     });
   }
 
@@ -429,7 +430,7 @@ async function executeWriteObject(args, exec, deps) {
     scope: { requested: "update", completed: ["update", "read-back"], not_completed: [] },
     sources: [{ kind: "fact-object", path: readBack.value.file, content_fingerprint: updated.value.fingerprint }],
     gaps: sig.ok ? [] : [`change_log entry carries no provider/model: ${sig.reason}`],
-    verification: { checks: ["cas-baseline", "frontmatter-closed-set", "phenomenon-single-sentence", "body-structure", "carrier-coherence", "serves-resolution", "relations-contract", "transition-guards", "atomic-write", "read-back"], passed: true },
+    verification: { checks: ["cas-baseline", "frontmatter-closed-set", "phenomenon-single-sentence", "body-structure", "carrier-coherence", "occurrence-contract", "relations-contract", "transition-guards", "atomic-write", "read-back"], passed: true },
     follow_up: ["use the NEW fingerprint from this result for the next update; committing goes through the controlled-commit contract (specs/06)"]
   });
 }
@@ -441,7 +442,7 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
   const mechanicalCodes = new Set([
     "friction/frontmatter_invalid", "friction/body_invalid", "friction/coherence_invalid",
     "friction/initial_state_violation", "friction/status_transition_invalid", "friction/status_terminal",
-    "friction/relations_invalid", "friction/relation_target_unresolvable", "friction/serves_unresolvable",
+    "friction/relations_invalid", "friction/relation_target_unresolvable", "friction/occurrence_invalid",
     "friction/cas_conflict", "friction/change_summary_required", "friction/invalid_uid",
     "invalid_request",
   ]);
@@ -511,15 +512,17 @@ function parameterSchemaFor(operationKey) {
     description: "AI-supplied type fields; Code assigns object_uid/fact_type_key/created_at/change_log and generates the H1 from title",
     properties: {
       title: { type: "string", description: "≤ 30 characters; obstacle short title for locating and Human scanning" },
-      status: { type: "string", enum: ["open", "resolved", "deferred"], description: "create must be open; transitions: open→resolved (informs 1..n), open→deferred, deferred→open (reactivation, no relations), deferred→resolved; resolved terminal & read-only (26 §9)" },
+      status: { type: "string", enum: ["observing", "open", "resolved", "voided"], description: "create must be observing; transitions: observing→open (threshold / Human 提前排期), open→observing (放回留观, stamps occurrence.human_return_at), →resolved (informs 1..n), →voided (no relations); resolved & voided terminal & read-only (26 §9)" },
       phenomenon: { type: "string", description: "single-sentence phenomenon statement (non-conclusion, e.g. 「CI 平均 8 分钟」 not 「CI 太慢」); must appear verbatim in the 现象 body section" },
-      attribution: { type: "string", description: "which subsystem/spec/process the obstacle roots in; omit when not yet attributable (backfill via supplement update)" },
+      attribution: { type: "string", description: "which subsystem/spec/process the obstacle roots in; free text — the root is often a spec/tool/process with no object identity; omit when not yet attributable (backfill via supplement update)" },
+      attribution_ref: { type: "string", description: "precise reference to an existing same-project fact object_uid for the root; optional — when present Code verifies it resolves (26 §8); enables mechanical aggregation by attribution" },
+      occurrence: { type: "object", properties: { count: { type: "integer" }, first_at: { type: "string" }, last_at: { type: "string" }, human_return_at: { type: "string" } }, required: ["count", "first_at", "last_at"], additionalProperties: false, description: "REQUIRED on create with count=1, first_at=last_at=now, human_return_at=null; count increments by 1 per supplement update (same update as the 现象 extension); frozen once resolved/voided; human_return_at is stamped by open→observing (放回留观) and makes the threshold transition skip this record (26 §8/§9.2, 04 §8.4 item 4)" },
       impact: { type: "string", enum: ["light", "medium", "heavy"], description: "impact rating; consumers anchored in 26 §12 (F1 projection, metric aggregation) and the heavy-bypasses-buffer birth path" },
-      serves: { type: "string", description: "e.g. SG-3 (framework frictions); must match an SG-n in goal.md 子目标; omit when not applicable" },
+
       relations: { type: "array", items: { type: "object", properties: { relation_key: { type: "string", enum: ["informs"] }, target: { type: "object", properties: { object_uid: { type: "string" } }, required: ["object_uid"], additionalProperties: false } }, required: ["relation_key", "target"], additionalProperties: false }, description: "informs 1..n pointing at remedy objects (ADR/WorkCase uids); only on resolved (26 §11)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
-    required: ["title", "phenomenon", "impact"],
+    required: ["title", "phenomenon", "impact", "occurrence"],
     additionalProperties: false
   };
   switch (operationKey) {
@@ -536,7 +539,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          status: { type: "string", enum: ["open", "all"], description: "open = default (open+deferred live ledger, 26 §12); all = include resolved for historical tracing" },
+          status: { type: "string", enum: ["open", "all"], description: "open = default (open+observing live ledger, 26 §12); all = include resolved for historical tracing" },
           limit: { type: "number", description: "max items returned (default 200; exceeding the cap returns a partial page with the true total — never a silent truncation, 03 §8.1)" }
         },
         additionalProperties: false
@@ -547,7 +550,7 @@ function parameterSchemaFor(operationKey) {
         properties: {
           action: { type: "string", enum: ["create", "update", "correct"] },
           frontmatter_draft: frictionFrontmatter,
-          body_markdown: { type: "string", description: "create: the body markdown starting with '## 现象' (H2 sections 现象/入账依据, plus 处置 iff status resolved/deferred; the H1 is generated from title)" },
+          body_markdown: { type: "string", description: "create: the body markdown starting with '## 现象' (H2 sections 现象/入账依据, plus 处置 iff status resolved/voided; the H1 is generated from title)" },
           object_uid: { type: "string", description: "update/correct: target object" },
           expected_fingerprint: { type: "string", description: "update/correct: CAS baseline fingerprint from your last precise read" },
           frontmatter_after: (() => { const { required: _r, ...rest } = frictionFrontmatter; return { ...rest, description: "update: the complete target frontmatter (all fields; schema required relaxed here — handler validates completeness via CAS+writer)" }; })(),
