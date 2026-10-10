@@ -88,7 +88,7 @@ export function selectContextInheritingProvider(subagents) {
  * `({ threshold, candidates, sessionSignature, window })`，返回
  * `{ outcome, verdict, watermarkTurn? }` 或抛错（由调用方按 §8.3 入队）。
  */
-export function createDiscoveryProvider({ subagents, parent, signal, onRun } = {}) {
+export function createDiscoveryProvider({ subagents, parent, signal, onRun, provideWindow } = {}) {
   if (subagents === undefined || subagents === null) {
     throw new Error("createDiscoveryProvider requires the host `subagents` service");
   }
@@ -100,6 +100,25 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun } = {
   }
 
   return async function discover({ threshold, candidates, sessionSignature, window: windowRange }) {
+    // D1：区间材料由**调度侧**提供（provideWindow 读累积器），而不是让子代理
+    // 按坐标自行划定。调用方（idle-checkpoint）传的 window 只含端点，故这里以
+    // provideWindow 的结果为准。
+    const effectiveWindow = typeof provideWindow === "function"
+      ? (provideWindow(windowRange?.from) ?? { items: [], truncated: false })
+      : windowRange;
+
+    // 把窗口**内容**拼成可核对的文本，交给落地校验做逐字引证核对。
+    const windowText = Array.isArray(effectiveWindow?.items)
+      ? windowRange.items
+          .map((entry) => {
+            const parts = [`[turn ${entry.turn}]`];
+            if (entry.user) parts.push(`user: ${entry.user}`);
+            if (entry.assistant) parts.push(`assistant: ${entry.assistant}`);
+            return parts.join("\n");
+          })
+          .join("\n\n")
+      : "";
+
     const picked = selectContextInheritingProvider(subagents);
     if (!picked.ok) {
       const error = new Error(picked.error.message);
@@ -107,10 +126,15 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun } = {
       throw error;
     }
 
-    const prompt = buildDiscoveryPrompt({ threshold, candidates, window: windowRange });
+    const prompt = buildDiscoveryPrompt({ threshold, candidates, window: effectiveWindow });
     const outputSchema = discoveryOutputSchema();
 
-    onRun?.({ phase: "start", provider: picked.value.name, window: windowRange, candidates: candidates?.length ?? 0 });
+    onRun?.({
+      phase: "start",
+      provider: picked.value.name,
+      window: { from: windowRange?.from ?? null, to: windowRange?.to ?? null, turns: Array.isArray(effectiveWindow?.items) ? effectiveWindow.items.length : 0, truncated: effectiveWindow?.truncated === true },
+      candidates: candidates?.length ?? 0,
+    });
 
     // `start` 的失败（能力不符、provider 缺失、语义检查不过）会直接 reject，且
     // 不留 run 供释放——故这里不 try/finally dispose，按返回的 run 处理。
@@ -147,7 +171,11 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun } = {
 
     // 结构化校验（宿主已按 schema 在提交层拦过一次；这里校验**跨态**必填字段，
     // 那是宿主支持的 schema 子集表达不了的，见 friction-subagent-contract.js）。
-    const checked = validateDiscoveryVerdict(result?.structured, { candidates: candidates ?? [] });
+    const checked = validateDiscoveryVerdict(result?.structured, {
+      candidates: candidates ?? [],
+      // 提供窗口文本即启用「逐字引证须真在窗口内」的机械核对（D1）。
+      windowText,
+    });
     if (!checked.ok) {
       const error = new Error(`the subagent's structured verdict failed the landing-side checks: ${checked.error.message}`);
       error.code = checked.error.code;
@@ -155,7 +183,12 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun } = {
     }
 
     const verdict = checked.value;
-    onRun?.({ phase: "verdict", provider: picked.value.name, verdict: verdict.verdict, window: windowRange });
+    onRun?.({
+      phase: "verdict",
+      provider: picked.value.name,
+      verdict: verdict.verdict,
+      turns_in_window: Array.isArray(effectiveWindow?.items) ? effectiveWindow.items.length : 0,
+    });
 
     return {
       outcome: verdict.verdict,

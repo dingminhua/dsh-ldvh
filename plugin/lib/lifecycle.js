@@ -310,6 +310,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   subagents,
                   parent: agent,
                   signal: controller.signal,
+                  // D1：把**区间材料**交给执行体——由调度侧（turnTriggers 的
+                  // 累积器）给出，不由子代理按坐标自行划定。见 friction-window.js。
+                  provideWindow: (watermarkTurn) => turnTriggers.windowFrom(watermarkTurn),
                   onRun: (event) => lifecycle.activity?.record("session/checkpoint/executor", event),
                 });
               }

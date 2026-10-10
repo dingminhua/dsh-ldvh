@@ -31,6 +31,7 @@
 // 03 §9 controlled-write pipelines.
 
 import { resolveGovernanceScope } from "./governance-scope.js";
+import { createWindowAccumulator } from "./friction-window.js";
 
 /** turn number from a session/event payload, mnemon eventTurn shape. */
 function eventTurn(event) {
@@ -65,6 +66,10 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     lastIdleSeen: 0,
     lastCheckpointDispatch: undefined
   };
+
+  // D1（缺陷修复）：区间材料在**调度侧**机械累积。它是本模块的状态而非事实，
+  // 随 agent 生命周期存活；区间内容由它给出，不由子代理自行划定。
+  const accumulator = createWindowAccumulator();
 
   function governed() {
     return getScopeState() === "governed";
@@ -127,6 +132,14 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
 
     /** session/event — turn/end bookkeeping seam. Skeleton: marker only. */
     onSessionEvent(session, event) {
+      // D1：把区间材料在**调度侧**机械累积（不读会话日志、不用弃用 API——
+      // 与 child.js 同模式：只消费已发布事件）。累积先于一切 return，使所有
+      // 类型的事件都能被看到。
+      try {
+        accumulator.observe(session, event, agent?.session);
+      } catch (error) {
+        log?.warn?.("[dsh-ldvh] window accumulation failed: %s", String(error?.message ?? error));
+      }
       if (session !== agent?.session || event?.type !== "turn/end") return;
       state.turnEndSeen += 1;
       state.lastTurn = eventTurn(event) ?? state.lastTurn;
@@ -135,6 +148,14 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       // pinned per-turn state, reconcile enumeration digests, schedule
       // deferred reflection (mnemon idleReview timing shape, LDVH
       // proposal-only semantics).
+    },
+
+    /**
+     * D1：取「水位之后」的区间材料（交给子代理的实际内容）。
+     * 由编排层在调度前调用——**区间内容由调度侧给出，不由子代理自行划定**。
+     */
+    windowFrom(watermarkTurn) {
+      return accumulator.windowFrom(watermarkTurn);
     },
 
     /** Test/diagnostic seam. */

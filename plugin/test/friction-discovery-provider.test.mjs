@@ -16,6 +16,7 @@ const VERDICT_SCHEMA_OK = {
   phenomenon: "",
   basis: "",
   impact: "light",
+  quote: "",
   reason: "本次区间内没有反复出现的阻碍。",
 };
 
@@ -97,7 +98,7 @@ test("工厂：缺 subagents / parent / signal 均拒绝（显式依赖，不自
 test("discover：以 outputSchema 与继承上下文的 provider 调用 start（§8.4 + 第三次重批结论）", async () => {
   const svc = fakeSubagents({ providers: [providerNamed("spawn", { inherits: false }), providerNamed("fork", { inherits: true })] });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
-  const out = await discover({ threshold: 3, candidates: CANDIDATES, window: { from: 1, to: 5 } });
+  const out = await discover({ threshold: 3, candidates: CANDIDATES, window: { from: 1, to: 5, items: [{ turn: 5, assistant: "这是一段足够长的材料内容原文。" }] } });
 
   assert.equal(svc.starts.length, 1);
   const call = svc.starts[0];
@@ -120,7 +121,7 @@ test("discover：run 被释放（holder-owned）", async () => {
     startImpl: async () => ({ id: "run-x", result: Promise.resolve({ stopReason: "completed", structured: VERDICT_SCHEMA_OK }), dispose: async () => { disposed += 1; } }),
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
-  await discover({ threshold: 3, candidates: [], window: { to: 2 } });
+  await discover({ threshold: 3, candidates: [], window: { to: 2, items: [{ turn: 2, assistant: "这是一段足够长的材料内容原文。" }] } });
   assert.equal(disposed, 1);
 });
 
@@ -130,7 +131,7 @@ test("discover：dispose 抛错不影响已取回的结果", async () => {
     startImpl: async () => ({ id: "run-y", result: Promise.resolve({ stopReason: "completed", structured: VERDICT_SCHEMA_OK }), dispose: async () => { throw new Error("dispose failed"); } }),
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
-  const out = await discover({ threshold: 3, candidates: [], window: { to: 2 } });
+  const out = await discover({ threshold: 3, candidates: [], window: { to: 2, items: [{ turn: 2, assistant: "这是一段足够长的材料内容原文。" }] } });
   assert.equal(out.outcome, "no-discovery");
 });
 
@@ -141,7 +142,7 @@ test("discover：dispose 抛错不影响已取回的结果", async () => {
 test("discover：无继承上下文 provider 时抛错（调用方将按 §8.3 入队）", async () => {
   const svc = fakeSubagents({ providers: [providerNamed("spawn", { inherits: false })] });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
-  await assert.rejects(() => discover({ threshold: 3, candidates: [], window: { to: 1 } }), /inherits the parent context/);
+  await assert.rejects(() => discover({ threshold: 3, candidates: [], window: { to: 1, items: [{ turn: 1, assistant: "这是一段足够长的材料内容原文。" }] } }), /inherits the parent context/);
 });
 
 test("discover：start 自身 reject 时上抛（不留 run 供释放）", async () => {
@@ -150,7 +151,7 @@ test("discover：start 自身 reject 时上抛（不留 run 供释放）", async
     startImpl: async () => { throw new Error("capability mismatch"); },
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
-  await assert.rejects(() => discover({ threshold: 3, candidates: [], window: { to: 1 } }), /capability mismatch/);
+  await assert.rejects(() => discover({ threshold: 3, candidates: [], window: { to: 1, items: [{ turn: 1, assistant: "这是一段足够长的材料内容原文。" }] } }), /capability mismatch/);
 });
 
 test("discover：stopReason 非 completed 时上抛并带 diagnostic（不伪造结论）", async () => {
@@ -159,7 +160,7 @@ test("discover：stopReason 非 completed 时上抛并带 diagnostic（不伪造
     startImpl: async () => ({ id: "run-z", result: Promise.resolve({ stopReason: "error", diagnostic: "provider 502" }), dispose: async () => {} }),
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
-  await assert.rejects(() => discover({ threshold: 3, candidates: [], window: { to: 1 } }), /stopReason=error.*provider 502/s);
+  await assert.rejects(() => discover({ threshold: 3, candidates: [], window: { to: 1, items: [{ turn: 1, assistant: "这是一段足够长的材料内容原文。" }] } }), /stopReason=error.*provider 502/s);
 });
 
 test("discover：结构化结论未通过落地前校验时抛错（含指向未知 uid 的情形）", async () => {
@@ -167,12 +168,12 @@ test("discover：结构化结论未通过落地前校验时抛错（含指向未
     providers: [providerNamed("fork")],
     startImpl: async () => ({
       id: "run-w",
-      result: Promise.resolve({ stopReason: "completed", structured: { ...VERDICT_SCHEMA_OK, verdict: "same-obstacle", target_uid: "99999999-0000-4000-8000-000000000000" } }),
+      result: Promise.resolve({ stopReason: "completed", structured: { ...VERDICT_SCHEMA_OK, verdict: "same-obstacle", target_uid: "99999999-0000-4000-8000-000000000000", quote: "这是一段足够长的材料内容原文。" } }),
       dispose: async () => {},
     }),
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
-  await assert.rejects(() => discover({ threshold: 3, candidates: CANDIDATES, window: { to: 1 } }), /target_uid|not among the candidates/);
+  await assert.rejects(() => discover({ threshold: 3, candidates: CANDIDATES, window: { to: 1, items: [{ turn: 1, assistant: "这是一段足够长的材料内容原文。" }] } }), /target_uid|not among the candidates/);
 });
 
 test("discover：structured 缺席时抛错（不把空结论当作 no-discovery）", async () => {
@@ -181,13 +182,13 @@ test("discover：structured 缺席时抛错（不把空结论当作 no-discovery
     startImpl: async () => ({ id: "run-v", result: Promise.resolve({ stopReason: "completed" }), dispose: async () => {} }),
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
-  await assert.rejects(() => discover({ threshold: 3, candidates: [], window: { to: 1 } }), /failed the landing-side checks/);
+  await assert.rejects(() => discover({ threshold: 3, candidates: [], window: { to: 1, items: [{ turn: 1, assistant: "这是一段足够长的材料内容原文。" }] } }), /failed the landing-side checks/);
 });
 
 test("discover：区间未给 to 时不给出推进凭据（水位不推进）", async () => {
   const svc = fakeSubagents({ providers: [providerNamed("fork")] });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
-  const out = await discover({ threshold: 3, candidates: [], window: { from: 2, to: null } });
+  const out = await discover({ threshold: 3, candidates: [], window: { from: 2, to: null, items: [{ turn: 3, assistant: "这是一段足够长的材料内容原文。" }] } });
   assert.equal(out.watermarkTurn, undefined);
 });
 
@@ -195,6 +196,6 @@ test("discover：onRun 观察钩子上报各阶段（供活动记账与实跑取
   const phases = [];
   const svc = fakeSubagents({ providers: [providerNamed("fork")] });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL, onRun: (e) => phases.push(e.phase) });
-  await discover({ threshold: 3, candidates: [], window: { to: 3 } });
+  await discover({ threshold: 3, candidates: [], window: { to: 3, items: [{ turn: 3, assistant: "这是一段足够长的材料内容原文。" }] } });
   assert.deepEqual(phases, ["start", "started", "result", "verdict"]);
 });

@@ -28,6 +28,8 @@
 /** 三态判断的闭集（schema 的 `enum` 与下方校验共用同一来源，防二者漂移）。 */
 export const VERDICTS = Object.freeze(["same-obstacle", "new-obstacle", "no-discovery"]);
 
+import { verifyQuotation } from "./friction-window.js";
+
 /**
  * 给子代理的结构化输出 schema。
  *
@@ -72,13 +74,18 @@ export function discoveryOutputSchema() {
         description:
           "verdict=new-obstacle 时必填：影响评级。其余两态填 \"light\"（占位，落地侧按 verdict 忽略）。",
       },
+      quote: {
+        type: "string",
+        description:
+          "必填：**逐字引证**——从本次给你的材料里原样复制一段（≥8 个字），它是你得出该 verdict 的直接依据。不得改写、不得概括、不得引用材料里没有的话；落地侧会机械核对该引证是否真出现在本次材料中，不在即判定该判断不成立。",
+      },
       reason: {
         type: "string",
         description:
-          "必填：判定理由——你依据本次区间的哪些内容得出该 verdict。必须指回本次区间，不得泛泛而谈。",
+          "必填：判定理由——说明你如何从该引证得出该 verdict。",
       },
     },
-    required: ["verdict", "target_uid", "title", "phenomenon", "basis", "impact", "reason"],
+    required: ["verdict", "target_uid", "title", "phenomenon", "basis", "impact", "quote", "reason"],
     additionalProperties: false,
   };
 }
@@ -105,40 +112,56 @@ export function buildDiscoveryPrompt({ threshold, candidates = [], window: windo
           .map((c) => `- uid=${c.object_uid} [${c.status}] ${c.title}｜现象：${c.phenomenon ?? "（未投影）"}`)
           .join("\n");
 
-  const windowText = windowRange === undefined || windowRange === null
-      ? "（本次运行区间由调度方给出；若未给出，按你可见的最近一轮为界，并在 reason 中声明你采用的边界）"
-      : typeof windowRange === "string"
-          ? windowRange
-          : `自 ${windowRange.from ?? "上次成功运行"} 至 ${windowRange.to ?? "本次检查点"}`;
+  // 窗口以**内容本身**交付（04 §8.4 水位段：切分依据不得由 AI 判断）。调用方
+  // 传 `{ items: [{turn,user,assistant}], truncated }`；兼容旧的字符串/坐标形态
+  // 仅用于诊断，不构成合格输入（缺失内容即为空窗口）。
+  const items = Array.isArray(windowRange?.items) ? windowRange.items : [];
+  const windowText = items.length === 0
+      ? "（本次窗口为空——没有任何新增内容可供判断。此时**只能**报 no-discovery，且 quote 必须为空字符串；不得凭你可见的其他上下文编造发现。）"
+      : items
+          .map((entry) => {
+            const parts = [`[turn ${entry.turn}]`];
+            if (entry.user) parts.push(`user: ${entry.user}`);
+            if (entry.assistant) parts.push(`assistant: ${entry.assistant}`);
+            return parts.join("\n");
+          })
+          .join("\n\n");
+  const truncatedNote = windowRange?.truncated === true
+      ? "\n**注意**：本次材料因长度上限被**截断**过——你只能就所见部分判断，且须在 reason 中如实说明存在截断。"
+      : "";
 
   return [
     "你是 LDVH 的**摩擦发现执行体**（specs/04 §8.4 派生的受管辖隔离子代理）。",
-    "你继承发起会话的主控上下文，据此判断：本次区间内出现的内容中，是否存在**系统性阻碍**（即会反复出现、值得记进摩擦账本的工作流障碍）。",
+    "你继承发起会话的主控上下文（这是为了让你能判断某现象是否构成**系统性**阻碍）。",
     "",
     "## 你只能做判断，不能做决定",
     "本机制**没有主控**，你的产出**不取得授权或完成效力**（04 §8.2 第 4 条），也不得产生需要 Human 决定的结论（§8.2 第 2 条）。",
     "具体地：你**不得**判断某笔摩擦「值不值得修」「要不要销账」「要不要废弃」，也不得改影响评级——那些是必须外送 Human 的判断项（§8.4）。",
-    "你只回答一个问题：**本次区间内的内容，与下面这张既有账本比对，属于三态中的哪一态。**",
+    "你只回答一个问题：**下面给你的材料中，是否存在与既有账本比对后属于三态之一的系统性阻碍。**",
     "",
-    "## 你必须遵守的区间边界",
-    `本次运行的观察区间是：${windowText}`,
-    "**你只对该区间内的新增内容作判断。**区间之外的内容即使包含明显阻碍，也不得据此入账——它要么已由上一次运行处理过，要么属于更早的历史（04 §8.4「观察范围的切分（水位）」段）。",
-    "若你无法确定区间边界，**在 reason 中如实声明**你采用的边界，不要默默扩大范围。",
+    "## 你只能依据本次材料判断（重要）",
+    "**下面「本次观察材料」是本次运行的唯一依据。**你虽然继承了大量上下文，但**不得**依据材料之外的任何内容作出发现——那些内容要么已由上一次运行处理过，要么属于更早的历史（04 §8.4「观察范围的切分（水位）」段）。",
+    "你的判断必须**逐字引证**材料中的原文（`quote` 字段），落地侧会机械核对该引证是否真出现在材料里；**引证不在材料中即判定该判断不成立**。",
+    "材料为空时只能报 `no-discovery`，且 `quote` 填空字符串。",
+    truncatedNote,
+    "",
+    "## 本次观察材料",
+    windowText,
     "",
     "## 既有账本（查重比对对象）",
     list,
     "",
-    `## 阈值与三态`,
+    "## 阈值与三态",
     `本账本的阈值固定为 N=${threshold}：某条账目 occurrence.count 达到该值时才会由机械通道从 observing 转为 open。**你不需要也不得自己数 count**——计数与流转由机械层完成。`,
     "判定的三态：",
-    "- `same-obstacle`：本次区间的内容与**既有某条账目**是同一阻碍 → 必填 `target_uid`（该账目的 uid）。",
-    "- `new-obstacle`：本次区间的内容构成一个**账本尚未记录**的阻碍 → 必填 `title`/`phenomenon`/`basis`/`impact`。",
-    "- `no-discovery`：本次区间内**没有**构成系统性阻碍的现象 → 其余字段填空字符串（`impact` 填 \"light\" 占位）。",
+    "- `same-obstacle`：本次材料的内容与**既有某条账目**是同一阻碍 → 必填 `target_uid`（该账目的 uid）。",
+    "- `new-obstacle`：本次材料的内容构成一个**账本尚未记录**的阻碍 → 必填 `title`/`phenomenon`/`basis`/`impact`。",
+    "- `no-discovery`：本次材料中**没有**构成系统性阻碍的现象 → 其余字段填空字符串（`impact` 填 \"light\" 占位）。",
     "",
     "## 产出方式",
     "用结构化输出工具提交你的结论。**不要用纯文本作答**——只有工具提交算数。",
     "字段必须符合给定 schema：三态各自的必填字段见字段说明；不合规的对象**交不出来**（宿主在提交层拦截）。",
-    "`reason` 必须指回本次区间：说明你依据区间内的哪些内容得出该 verdict。",
+    "`quote` 必须是材料中的**逐字原文**（≥8 个字）；`reason` 说明你如何由该引证得出结论。",
   ].join("\n");
 }
 
@@ -152,18 +175,37 @@ export function buildDiscoveryPrompt({ threshold, candidates = [], window: windo
  *
  * 返回 `{ ok: true, value }` 或 `{ ok: false, error }`。
  */
-export function validateDiscoveryVerdict(structured, { candidates = [] } = {}) {
+export function validateDiscoveryVerdict(structured, { candidates = [], windowText = null } = {}) {
   const failure = (code, message) => ({ ok: false, error: { code, message } });
   if (typeof structured !== "object" || structured === null) {
     return failure("discovery/verdict_malformed", `structured output is not an object (got ${JSON.stringify(structured)})`);
   }
-  const { verdict, target_uid: targetUid, title, phenomenon, basis, impact, reason } = structured;
+  const { verdict, target_uid: targetUid, title, phenomenon, basis, impact, quote, reason } = structured;
 
   if (!VERDICTS.includes(verdict)) {
     return failure("discovery/verdict_out_of_set", `verdict ${JSON.stringify(verdict)} is not in the closed set ${JSON.stringify([...VERDICTS])}`);
   }
   if (typeof reason !== "string" || reason.trim().length === 0) {
     return failure("discovery/reason_missing", "reason is required and must be non-empty (it must point back to this run's window)");
+  }
+
+  // D1 的核心：逐字引证 + 机械核对（04 §8.4 水位段——切分依据不得由 AI 判断）。
+  // 提供了 windowText 才做核对；未提供时**只**校验 quote 存在，且调用方不应
+  // 在这种情况下落地（会在 lifecycle 里被拦，见 friction-landing 的调用点）。
+  if (verdict === "no-discovery") {
+    // 空窗口允许 quote 为空；非空窗口仍要求引证（否则无从核对它确实看过材料）。
+    if (typeof quote !== "string") {
+      return failure("discovery/quote_missing", "quote must be a string (empty only when the window itself is empty)");
+    }
+  } else if (typeof quote !== "string" || quote.trim().length === 0) {
+    return failure(
+      "discovery/quote_missing",
+      "a non-empty verbatim quote is required for same-obstacle/new-obstacle — without it the landing side cannot tell whether the verdict derives from this run's window (04 §8.4 水位段)",
+    );
+  }
+  if (typeof quote === "string" && quote.trim().length > 0 && windowText !== null) {
+    const checked = verifyQuotation(quote, windowText);
+    if (!checked.ok) return failure(checked.error.code, checked.error.message);
   }
 
   if (verdict === "same-obstacle") {
@@ -195,5 +237,5 @@ export function validateDiscoveryVerdict(structured, { candidates = [] } = {}) {
     }
   }
 
-  return { ok: true, value: { verdict, target_uid: targetUid?.trim?.() ?? "", title: title?.trim?.() ?? "", phenomenon: phenomenon?.trim?.() ?? "", basis: basis?.trim?.() ?? "", impact, reason: reason.trim() } };
+  return { ok: true, value: { verdict, target_uid: targetUid?.trim?.() ?? "", title: title?.trim?.() ?? "", phenomenon: phenomenon?.trim?.() ?? "", basis: basis?.trim?.() ?? "", impact, quote: typeof quote === "string" ? quote : "", reason: reason.trim() } };
 }
