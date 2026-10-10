@@ -1347,22 +1347,32 @@ test("update: supplement-level — status unchanged, phenomenon unchanged, attri
   });
 });
 
-test("update: status change in supposed-supplement is rejected (26 §9.3 补充边界)", async () => {
+// 26 §9.3 补充边界的真实判据。原用例名声称 "is rejected"、断言却是
+// `assert.ok(result.ok)`——名实不符的常绿死断言，改前改后皆然（复核 14bb353 发现）。
+// 真实边界不是「改状态被拒」：改状态本身就是**流转**，走流转守卫；而是**补充级**
+// 更新（status 逐字未变）不得携带 relations（26 §11 informs 只在销账流转写入）。
+// 此处按该判据重写，使用例名与断言一致且真正具备判别力。
+test("update: 补充级更新不得携带 relations（26 §9.3 补充边界 / §11）", async () => {
   await withTemp("friction-writer.", async (root) => {
     const { read } = await createAndRead(root);
+    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createAdrFixture(root, adrUid);
+
+    // status 逐字未变 → 补充级；带 relations 必须被拒
     const result = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: read.value.object_uid,
       expectedFingerprint: read.value.fingerprint,
-      frontmatterAfter: { ...read.value.frontmatter, status: "voided", disposition: "外部团队已放弃该问题" },
-      bodyMarkdownAfter: resolvedBodyMarkdown(),
-      changeSummary: "试图在补充中改状态并废弃",
+      frontmatterAfter: {
+        ...read.value.frontmatter,
+        relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
+      },
+      bodyMarkdownAfter: validBodyMarkdown(),
+      changeSummary: "在补充级更新里塞关系",
       sessionSignature: TEST_SIGNATURE,
     });
-    // Status change IS allowed via the update path (it IS a transition, not a supplement boundary violation in the writer)
-    // The transition guards will validate it; this is the standard transition path
-    assert.ok(result.ok, "transition via update is the expected path for state changes");
-    assert.equal(result.error?.code, undefined);
+    assert.ok(!result.ok, "补充级更新携带 relations 必须被机械拒绝——否则 26 §11 的「informs 只在销账流转写入」形同虚设");
+    assert.equal(result.error.code, "friction/relations_invalid");
   });
 });
 

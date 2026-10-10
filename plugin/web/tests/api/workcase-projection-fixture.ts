@@ -19,22 +19,17 @@ import { readLocalFact, type LocalFactScope } from '../../api/services/localFact
 
 const PROJECT_ID = 'ldvh-projection-fixture'
 
-/** 为一个合成 id 生成符合 FACT_OBJECT_ID_PATTERN 的 WorkCase id。 */
-export function fixtureId(index: number): string {
-  const hex = index.toString(16).padStart(8, '0')
-  return `workcase-00000000-0000-4000-8000-${hex.padEnd(12, '0').slice(0, 12)}`
-}
-
 function frontmatterOf(fields: Record<string, unknown>): string {
   const lines = Object.entries(fields).map(([key, value]) => {
     if (value === null || value === undefined) return `${key}: null`
     if (Array.isArray(value)) return `${key}: ${JSON.stringify(value)}`
     if (typeof value === 'object') return `${key}: ${JSON.stringify(value)}`
     const text = String(value)
-    // YAML 裸标量：值内含特殊字符时加引号，避免被解析成别的类型
-    return /^[\w一-鿿][\w一-鿿 ./:()\-—、，。；：]*$/.test(text) && !text.includes(': ')
-      ? `${key}: ${text}`
-      : `${key}: ${JSON.stringify(text)}`
+    // YAML 裸标量会让读取层按 YAML 规则重新推断类型，字符串因此被悄悄改型——
+    // 首轮实现只用裸标量时，ISO 时间戳被解析成 Date、'007' 变成 7、'42' 变成
+    // 数字（复核 14bb353 发现）。合成载体本就该把**值**原样送进管道，故一律
+    // 引号化：调用方给字符串，读到的就是同一个字符串。
+    return `${key}: ${JSON.stringify(text)}`
   })
   return lines.join('\n')
 }
@@ -61,9 +56,4 @@ export function writeFixtureCarriers(
 /** 读一份合成载体（走与真实载体相同的读取层管道）。 */
 export async function readFixture(id: string, scope: LocalFactScope) {
   return readLocalFact('workcase', id, scope)
-}
-
-/** 判断载体文件名（而非 bare id）——读取层按 `<id>.md` 定位。 */
-export function fixtureCarrierName(id: string): string {
-  return `${id}.md`
 }

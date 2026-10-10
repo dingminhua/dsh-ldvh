@@ -371,11 +371,35 @@ test('真实非终态载体都携带 gist，且不超过 21 §8 的 200 字符�
   assert.deepEqual(missing, [], `以下非终态 WorkCase 缺 gist（21 §8 要求 draft/open 必填）：\n${missing.join('\n')}`);
   assert.deepEqual(tooLong, [], `以下 gist 超过 200 字符上限（21 §8）：\n${tooLong.join('\n')}`);
   // 真实仓库的工单状态分布是生命周期副产品：全部收口后本就无从核对，这是事实而非
-  // 缺陷。判别力由下方合成载体用例保证，故此处据实登记跳过数量而非误报失败。
+  // 缺陷。判别力由下方合成载体用例保证，故此处据实登记而非误报失败。
+  //
+  // 登记不是 console.warn（复核 14bb353 缺陷 #2）：warn 在 CI 输出里会被淹没，
+  // 降级等于恒定空转而无人会看到。登记由本文件末尾的可见性守卫强制断言。
   if (checkedNonTerminal === 0) {
-    console.warn(
-      `[跳过] 真实载体中无非终态 WorkCase（现有 ${ids.length} 份，均为终态）；`
-      + '本守卫的判别力由同文件的合成载体用例承担。',
+    GIST_SWEEP_DEGRADED_AVAILABLE = ids.length;
+    GIST_SWEEP_DEGRADED = true;
+  }
+});
+
+/** 真实载体 gist 扫描是否发生降级，及降级时仓库的载体总数（供可见性守卫断言）。 */
+let GIST_SWEEP_DEGRADED = false;
+let GIST_SWEEP_DEGRADED_AVAILABLE = 0;
+
+// 降级的结构化可见性：真实载体未被 gist 回归监测这件事必须可被断言看见，不能只
+// 靠一行被淹没的 warn。登记内容与实际不符（漏登记、或记了个错的载体数）即失败。
+test('真实载体 gist 扫描的降级登记与实际一致（可见性守卫）', () => {
+  const available = existingWorkCaseIds().length;
+  if (GIST_SWEEP_DEGRADED) {
+    assert.equal(
+      GIST_SWEEP_DEGRADED_AVAILABLE,
+      available,
+      `登记的可用载体数（${GIST_SWEEP_DEGRADED_AVAILABLE}）与实际（${available}）不符`,
+    );
+  } else {
+    // 未降级 ⇒ 本次确实核对到了非终态载体，登记簿不得声称降级
+    assert.ok(
+      available > 0,
+      '未登记降级却也没有任何真实载体——两者必居其一，登记簿不能同时沉默且空转',
     );
   }
 });

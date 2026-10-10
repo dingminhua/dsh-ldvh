@@ -36,6 +36,19 @@ function workcaseScope(): LocalFactScope {
   return { worktreeLocator: REPOSITORY_ROOT, governedProjectId: 'dsh-ldvh' };
 }
 
+/**
+ * 真实载体扫描的降级登记簿（复核 14bb353 缺陷 #2）。
+ *
+ * 「本守卫无判别力」不是可以静默的事实：它意味着**真实仓库载体在本期未被回归
+ * 监测**，而合成载体只保证「自造载体不丢字段」，替代不了前者。故此处把降级汇总
+ * 成一条**可断言的登记**，而非散落的 console.warn——warn 在 CI 输出里会被淹没。
+ */
+const REAL_SWEEP_DEGRADED: Array<{ guard: string; available: number }> = [];
+
+function recordDegradation(guard: string, availableIds: number): void {
+  REAL_SWEEP_DEGRADED.push({ guard, available: availableIds });
+}
+
 /** 真实存在的 WorkCase 载体 id（目录为空时返回空数组，由断言显式报告）。 */
 function existingWorkCaseIds(): string[] {
   if (!fs.existsSync(WORKCASE_DIR)) return [];
@@ -308,12 +321,7 @@ test('attempt.session_id 在投影后存活——关闭侧独立性比对的基�
   // 真实载体扫描**只覆盖当下真实存在的形态**。仓库状态是生命周期副产品：全部工单
   // 收口后此处本就无从断言，那是事实而非缺陷。判别力由同文件的合成载体用例保证
   // （见下），故此处据实登记跳过数量，而不是让守卫在无判别力时静默通过或误报失败。
-  if (asserted === 0) {
-    console.warn(
-      `[跳过] 真实载体中无带 attempt.session_id 的对象（现有 ${ids.length} 份）；`
-      + '本守卫的判别力由同文件的合成载体用例承担。',
-    );
-  }
+  if (asserted === 0) recordDegradation('attempt.session_id 投影存活', ids.length);
 });
 
 // 判别力下限：真实载体全终态时上面的自检会空转。合成 open 载体走同一管道补上，
@@ -443,12 +451,7 @@ test('open 对象的 reviews 必须完整投影（阶段判定的输入，10 §5
     assert.equal(placed.length, reviews.length, `${objectId}: reviews 条数不得因投影而改变`);
     checked.push(objectId);
   }
-  if (checked.length === 0) {
-    console.warn(
-      `[跳过] 真实载体中无带 reviews 的 open 对象（现有 ${ids.length} 份）；`
-      + '本守卫的判别力由同文件的合成载体用例承担。',
-    );
-  }
+  if (checked.length === 0) recordDegradation('open 对象 reviews 投影', ids.length);
 });
 
 // 「待批准关闭」的核对与建议：`21 §8` 的 result 字段出现 ⇔ status=closed，故该期的
@@ -478,12 +481,7 @@ test('待批准关闭：核对与建议必须投影到位（10 §5.5）', async 
     }
     checked.push(objectId);
   }
-  if (checked.length === 0) {
-    console.warn(
-      `[跳过] 真实载体中无「待批准关闭」对象（现有 ${ids.length} 份）；`
-      + '本守卫的判别力由同文件的合成载体用例承担。',
-    );
-  }
+  if (checked.length === 0) recordDegradation('待批准关闭：核对与建议', ids.length);
 });
 
 // 「已关闭」的卡体（10 §5.5，Human 2026-09-24 方案 A）：结论行 + 逐条核对（**只给
@@ -971,12 +969,7 @@ test('待批准关闭：正文残留逐条投影，一条不少（21 §8）', as
     }
     checked.push(objectId);
   }
-  if (checked.length === 0) {
-    console.warn(
-      `[跳过] 真实载体中无 open 对象（现有 ${ids.length} 份）；`
-      + '本守卫的判别力由同文件的合成载体用例承担。',
-    );
-  }
+  if (checked.length === 0) recordDegradation('待批准关闭：正文残留逐条投影', ids.length);
 });
 
 // 合成用例：覆盖「正文有残留段」的非空情形（存量是否都有该段不作为前提）。
@@ -1057,4 +1050,26 @@ test('已关闭：正文有补记声明时投影必须带上（合成用例）',
   const projected = projectCurrentWorkCaseCard(source, null);
   assert.equal(projected.advice_note, '**本条为 2026-09-24 事后补记，非关闭当时的 Gate 2 提请内容。**');
   assert.equal((projected.advice as unknown[]).length, 1);
+});
+
+// 降级登记簿的**结构化可见性**（复核 14bb353 缺陷 #2）。
+//
+// 首轮实现用 console.warn 登记降级，warn 混在测试输出里、CI 失败时不会留下任何
+// 强制痕迹，且真实载体扫描降级后等于恒定空转而无人会看到警告。此处把降级强制
+// 汇总为一条可断言的登记：任何新增的降级、任何被漏改的降级，都会让本用例失败。
+//
+// 本用例**不要求登记簿为空**——仓库全终态时降级是事实，不是缺陷（对应场景由
+// 同文件的合成载体用例承担判别力）。它要求的是：登记内容与实际发生的一致。
+test('真实载体扫描的降级登记簿与实际降级一致（可见性守卫）', () => {
+  const available = existingWorkCaseIds().length;
+  for (const entry of REAL_SWEEP_DEGRADED) {
+    assert.ok(
+      entry.available === available,
+      `登记簿记的可用载体数（${entry.guard}: ${entry.available}）与实际不符（${available}）——`
+        + '登记簿必须反映本次运行的真实事实',
+    );
+  }
+  // 守卫名不得重复：同一守卫登记两次说明复制粘贴时漏改了其中一处。
+  const names = REAL_SWEEP_DEGRADED.map((e) => e.guard);
+  assert.equal(new Set(names).size, names.length, `登记簿有重复守卫名：${names.join(' / ')}`);
 });
