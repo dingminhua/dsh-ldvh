@@ -540,9 +540,9 @@ test("state machine: open→resolved with 1 informs relation to existing ADR suc
   });
 });
 
-test("commit locator: evidence_locator.commit is accepted when it resolves (02 §8.1 commit 形态)", async () => {
-  // commit 是**证据定位**（修复在哪），不是关系目标；target 恒为 object_uid（02 §8.2）。
-  // 本例钉住：locator 形态可落盘、hash 真实存在时通过。
+test("commit target: target.commit is accepted when it resolves (02 §8.1 commit 形态)", async () => {
+  // commit 可直接作 target（解药本身是一次未对象化的受控提交）——这是 target 唯一
+  // 允许不带 object_uid 的情形。本例钉住该形态可落盘、hash 真实存在时通过。
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
     const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -558,8 +558,7 @@ test("commit locator: evidence_locator.commit is accepted when it resolves (02 �
         status: "resolved",
         relations: [{
           relation_key: "informs",
-          target: { object_uid: adrUid },
-          evidence_locator: { commit: realHash },
+          target: { commit: realHash },
         }],
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
@@ -574,14 +573,13 @@ test("commit locator: evidence_locator.commit is accepted when it resolves (02 �
     const readBack = await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid });
     assert.ok(readBack.ok);
     assert.equal(readBack.value.frontmatter.relations.length, 1);
-    assert.equal(readBack.value.frontmatter.relations[0].evidence_locator.commit, realHash);
-    assert.equal(readBack.value.frontmatter.relations[0].target.object_uid, adrUid);
+    assert.equal(readBack.value.frontmatter.relations[0].target.commit, realHash);
   });
 });
 
-test("commit locator: unresolvable hash and target-side commit are BOTH rejected (02 §8.1/§8.2)", async () => {
+test("commit target: unresolvable hash, missing resolver and both-forms-carrying are ALL rejected (02 §8.1/§8.2)", async () => {
   // 三条负向：① hash 不可解析即拒（不得只记一串 hex）② 无 resolver 即拒（fail-closed）
-  // ③ commit 出现在 target 内即拒（target 只使用 object_uid，commit 走 locator）
+  // ③ target 同时带 object_uid 与 commit 即拒（两种形态互斥）
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
     const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -597,8 +595,7 @@ test("commit locator: unresolvable hash and target-side commit are BOTH rejected
         status: "resolved",
         relations: [{
           relation_key: "informs",
-          target: { object_uid: adrUid },
-          evidence_locator: { commit: bad },
+          target: { commit: bad },
         }],
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
@@ -618,8 +615,7 @@ test("commit locator: unresolvable hash and target-side commit are BOTH rejected
         status: "resolved",
         relations: [{
           relation_key: "informs",
-          target: { object_uid: adrUid },
-          evidence_locator: { commit: "c".repeat(40) },
+          target: { commit: "c".repeat(40) },
         }],
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
@@ -629,7 +625,7 @@ test("commit locator: unresolvable hash and target-side commit are BOTH rejected
     assert.equal(noResolver.ok, false, "no resolver must fail closed, never silently accept");
     assert.equal(noResolver.error.code, "friction/relation_target_unresolvable");
 
-    const commitInTarget = await updateFrictionObject({
+    const bothForms = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
       expectedFingerprint: r1.value.fingerprint,
@@ -643,8 +639,8 @@ test("commit locator: unresolvable hash and target-side commit are BOTH rejected
       sessionSignature: TEST_SIGNATURE,
       gitCommitResolver: async () => true,
     });
-    assert.equal(commitInTarget.ok, false, "target 只使用 object_uid；commit 走 evidence_locator（02 §8.2）");
-    assert.equal(commitInTarget.error.code, "friction/relations_invalid");
+    assert.equal(bothForms.ok, false, "target 的 object_uid 与 commit 两形态互斥（02 §8.1）");
+    assert.equal(bothForms.error.code, "friction/relations_invalid");
   });
 });
 
@@ -873,8 +869,7 @@ test("correct: 等价键序的 relations 重传被判 no-op（复审缺陷 A 的
         status: "resolved",
         relations: [{
           relation_key: "informs",
-          target: { object_uid: adrUid },
-          evidence_locator: { commit: "a".repeat(40) },
+          target: { commit: "a".repeat(40) },
         }],
       },
       bodyMarkdownAfter: resolvedBodyMarkdown(),
@@ -887,8 +882,7 @@ test("correct: 等价键序的 relations 重传被判 no-op（复审缺陷 A 的
     const stored = (await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid })).value;
     // 反序键序（语义完全等价）：evidence_locator / target / relation_key 换位
     const reordered = [{
-      evidence_locator: { commit: "a".repeat(40) },
-      target: { object_uid: adrUid },
+      target: { commit: "a".repeat(40) },
       relation_key: "informs",
     }];
     const noOp = await correctFrictionObject({
@@ -942,8 +936,7 @@ test("correct: 合法 relations 变更确实写入并落盘（正向路径的运
       expectedFingerprint: resolved.value.fingerprint,
       relationsAfter: [{
         relation_key: "informs",
-        target: { object_uid: adrUid },
-        evidence_locator: { commit: "e4e178fd7e3293f47003ed0150ab1128cc6ae0ef" },
+        target: { commit: "e4e178fd7e3293f47003ed0150ab1128cc6ae0ef" },
       }],
       bodyMarkdownAfter: resolvedBodyMarkdown(),
       changeSummary: "补记 commit 证据定位",
@@ -954,7 +947,7 @@ test("correct: 合法 relations 变更确实写入并落盘（正向路径的运
     assert.ok(fixed.ok, JSON.stringify(fixed.error));
 
     const after = (await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid })).value;
-    assert.equal(after.frontmatter.relations[0].evidence_locator.commit, "e4e178fd7e3293f47003ed0150ab1128cc6ae0ef");
+    assert.equal(after.frontmatter.relations[0].target.commit, "e4e178fd7e3293f47003ed0150ab1128cc6ae0ef");
     assert.ok(
       after.frontmatter.change_log.at(-1).summary.includes("经 Human 授权："),
       "the change_log entry must carry the authorization text verbatim",

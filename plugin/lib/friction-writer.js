@@ -212,18 +212,47 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
       issues.push(`relations[]: target must be an object (02 §8.2)`);
       continue;
     }
-    // `target` 恒为 object_uid（02 §8.2）。commit **不得**出现在 target 内——它是证据
-    // 定位，走 evidence_locator（02 §8.1 commit 形态 / 26 §9.2 commit 例外）。
-    const targetExtra = Object.keys(target).filter((k) => k !== "object_uid");
-    if (targetExtra.length > 0) {
-      issues.push(`relations[]: target carries fields beyond object_uid (${targetExtra.join(", ")}) — 02 §8.2: target 只使用 object_uid，commit 证据走 evidence_locator`);
+    // target 的两种合法形态（02 §8.2）：`{object_uid}` 或 `{commit}`——**互斥**。
+    // commit 形态是唯一允许 target 不带 object_uid 的情形：解药本身是一次受控提交、
+    // 没有任何对象身份（02 §8.1 commit 形态 / 26 §9.2 commit 例外）。
+    const targetKeys = Object.keys(target);
+    const hasUid = typeof target.object_uid === "string";
+    const hasCommit = typeof target.commit === "string";
+    if (hasUid && hasCommit) {
+      issues.push("relations[]: target carries both object_uid and commit — the two forms are mutually exclusive (02 §8.1 commit 形态)");
+      continue;
     }
-    if (typeof target.object_uid !== "string" || !UUID_PATTERN.test(target.object_uid)) {
-      issues.push(`relations[]: target.object_uid must be a canonical UUID (02 §8.2); got ${JSON.stringify(target?.object_uid)}`);
+    if (!hasUid && !hasCommit) {
+      issues.push(`relations[]: target must carry object_uid or commit (02 §8.2); got ${JSON.stringify(target)}`);
+      continue;
+    }
+    if (hasCommit) {
+      if (!COMMIT_PATTERN.test(target.commit)) {
+        issues.push(`relations[]: target.commit must be a 40-hex commit hash (02 §8.1); got ${JSON.stringify(target.commit)}`);
+      }
+      const extraWithCommit = targetKeys.filter((k) => k !== "commit");
+      if (extraWithCommit.length > 0) {
+        issues.push(`relations[]: a commit-form target carries fields beyond commit (${extraWithCommit.join(", ")}) — 02 §8.2`);
+      }
+      // commit 形态下 evidence_locator 不得并存（后者附加在 object_uid 上）
+      if (rel.evidence_locator !== undefined && rel.evidence_locator !== null) {
+        issues.push("relations[]: a commit-form target must not carry evidence_locator — the two mechanisms are not mixed (02 §8.1)");
+      }
+      const commitDedupe = `${key}::commit:${target.commit}`;
+      if (seen.has(commitDedupe)) issues.push(`relations[]: duplicate relation ${commitDedupe}`);
+      seen.add(commitDedupe);
+      continue;
+    }
+    const targetExtra = targetKeys.filter((k) => k !== "object_uid");
+    if (targetExtra.length > 0) {
+      issues.push(`relations[]: target carries fields beyond object_uid (${targetExtra.join(", ")}) — 02 §8.2`);
+    }
+    if (!UUID_PATTERN.test(target.object_uid)) {
+      issues.push(`relations[]: target.object_uid must be a canonical UUID (02 §8.2); got ${JSON.stringify(target.object_uid)}`);
       continue;
     }
 
-    // evidence_locator：公共闭集当前只有 commit 一形（02 §8.1）。
+    // evidence_locator：公共闭集当前只有 commit 一形（02 §8.1），附加在 object_uid 上。
     const locator = rel.evidence_locator;
     if (locator !== undefined && locator !== null) {
       if (typeof locator !== "object" || locator === null) {
@@ -644,17 +673,17 @@ export async function updateFrictionObject(args) {
   for (const rel of fm.relations ?? []) {
     const target = rel?.target;
     if (target === null || typeof target !== "object") continue;
-    // evidence_locator.commit（02 §8.1 commit 形态）须在受控仓库真实可解析；
-    // 无 resolver 时 fail-closed——无法核验即不通过（与身份不可得不计独立同纪律）。
-    const locatorCommit = rel?.evidence_locator?.commit;
-    if (typeof locatorCommit === "string") {
+    // commit 须在受控仓库真实可解析——两处来源都要查：`target.commit`（02 §8.1
+    // commit 形态，解药本身是一次提交）与 `evidence_locator.commit`（附加在 object_uid
+    // 上的证据定位）。无 resolver 时 fail-closed——无法核验即不通过。
+    for (const commitHash of [target?.commit, rel?.evidence_locator?.commit]) {
+      if (typeof commitHash !== "string") continue;
       if (typeof gitCommitResolver === "function") {
-        const exists = await gitCommitResolver(locatorCommit);
-        if (!exists) {
-          return failure("friction/relation_target_unresolvable", `evidence_locator.commit ${locatorCommit} does not resolve to an existing commit in this repository (02 §8.1 commit 形态)`);
+        if (!(await gitCommitResolver(commitHash))) {
+          return failure("friction/relation_target_unresolvable", `commit ${commitHash} does not resolve to an existing commit in this repository (02 §8.1 commit 形态)`);
         }
       } else {
-        return failure("friction/relation_target_unresolvable", `evidence_locator.commit ${locatorCommit} cannot be verified: this writer has no git commit resolver (fail-closed, 02 §8.1)`);
+        return failure("friction/relation_target_unresolvable", `commit ${commitHash} cannot be verified: this writer has no git commit resolver (fail-closed, 02 §8.1)`);
       }
     }
     const targetUid = target?.object_uid;
@@ -761,13 +790,14 @@ export async function correctFrictionObject(args) {
 
   // 关系目标解析（含 commit locator），与 update 路径同口径。
   for (const rel of next.relations ?? []) {
-    const locatorCommit = rel?.evidence_locator?.commit;
-    if (typeof locatorCommit === "string") {
+    // commit 两处来源都查：target.commit（解药形态）与 evidence_locator.commit（附加定位）
+    for (const commitHash of [rel?.target?.commit, rel?.evidence_locator?.commit]) {
+      if (typeof commitHash !== "string") continue;
       if (typeof gitCommitResolver !== "function") {
-        return failure("friction/relation_target_unresolvable", `evidence_locator.commit ${locatorCommit} cannot be verified: this writer has no git commit resolver (fail-closed, 02 §8.1)`);
+        return failure("friction/relation_target_unresolvable", `commit ${commitHash} cannot be verified: this writer has no git commit resolver (fail-closed, 02 §8.1)`);
       }
-      if (!(await gitCommitResolver(locatorCommit))) {
-        return failure("friction/relation_target_unresolvable", `evidence_locator.commit ${locatorCommit} does not resolve to an existing commit in this repository (02 §8.1 commit 形态)`);
+      if (!(await gitCommitResolver(commitHash))) {
+        return failure("friction/relation_target_unresolvable", `commit ${commitHash} does not resolve to an existing commit in this repository (02 §8.1 commit 形态)`);
       }
     }
     const targetUid = rel?.target?.object_uid;
@@ -822,7 +852,11 @@ export async function correctFrictionObject(args) {
       return {
         relation_key: source.relation_key ?? null,
         object_uid: source.target?.object_uid ?? null,
-        commit: source.evidence_locator?.commit ?? null,
+        // 两处 commit 来源都要投影：target.commit（02 §8.1 解药形态）与
+        // evidence_locator.commit（附加定位）。只投影其一会让「仅改另一处 commit」
+        // 的真实变更被判成无变更。
+        target_commit: source.target?.commit ?? null,
+        locator_commit: source.evidence_locator?.commit ?? null,
       };
     });
   };

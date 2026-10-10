@@ -150,7 +150,7 @@ frontmatter 闭集（账本类型必须轻——入账摩擦高于摩擦本身�
 
 ### 9.2 状态转换
 
-- `open → resolved`（Human Gate：销账）：必须带 `informs` 关系指向解药对象（ADR/WorkCase 的 object_uid——**关系目标限事实对象**，02 §8.2）。**commit 例外（Human 裁定 2026-10-09）**：解药为 commit 级修复且**无对应事实对象**时，`informs` 条目以 `evidence_locator: {commit}` 承载该修复载体（形状依 02 §8.1，**不进 `target`**），使这类账**可销**——否则「销账必带 informs」与「`target` 只使用 object_uid」两句互斥，使直提路径修复的摩擦永久无法销账。该例外**不放松**「有事实对象时必须指向对象」：只在无对象可指时启用，不得用于回避本可指向的对象（该判断属审核义务，机械层只核 hash 真实可解析）；
+- `open → resolved`（Human Gate：销账）：必须带 `informs` 关系指向解药对象（ADR/WorkCase 的 object_uid——**关系目标限事实对象**，02 §8.2）。**commit 例外（Human 裁定 2026-10-09；同日二次修订）**：解药为 commit 级修复且**该修复没有任何对象身份**时，`informs` 的 `target` 直接取 `{commit: "<40 位 hex>"}`（形状依 02 §8.1），使这类账**可销**——否则「销账必带 informs」与「`target` 只使用 object_uid」两句互斥，使直提路径修复的摩擦永久无法销账。该例外**不放松**「有事实对象时必须指向对象」：只在无对象可指时启用，不得用于回避本可指向的对象（该判断属审核义务，机械层只核 hash 真实可解析）；
 - `open → deferred`（Human Gate：缓议）：推迟理由与重启条件记处置段；
 - `deferred → open`（可逆：重新激活——同一笔账，无须新对象；激活时**不带关系**）；
 - `deferred → resolved`（事后解决——**informs 关系在该次销账流转中写入**，与从 open 直达 resolved 相同）；
@@ -174,9 +174,9 @@ frontmatter 闭集（账本类型必须轻——入账摩擦高于摩擦本身�
 
 | `relation_key` | 方向 | 目标类型 | 基数 | 语义 | 约束 |
 |---|---|---|---|---|---|
-| `informs` | 本 Friction → 解药对象 | ADR / WorkCase（走 `target`）**＋ `evidence_locator` 的 `commit` 形态（例外，见右）** | 1..n | 本摩擦由目标的修复/决策解决 | 仅 `resolved` 时出现；目标必须存在且可解析（ADR 任状态；WorkCase 建议已关闭——机械只查可解析，关闭状态是审核义务）。**commit 例外（Human 裁定 2026-10-09）**：解药是 commit 级修复且**无对应 ADR/WorkCase 事实对象**时（修复当时走的直提路径、未对象化），`informs` 条目以 `evidence_locator: {commit: "<40 位 hex>"}` 承载该修复载体——**形状依 02 §8.1「locator 的 commit 形态」**（公共形状由 02 承接，本表只声明本类型采用它），本类型不自设 target 形态。**仅在无事实对象可指向时**用，不得在有对象时以 commit 替代（该判断属审核义务；机械层只核 hash 真实可解析） |
+| `informs` | 本 Friction → 解药对象 | ADR / WorkCase（走 `target.object_uid`）**＋ `target.commit` 形态（例外，见右）** | 1..n | 本摩擦由目标的修复/决策解决 | 仅 `resolved` 时出现；目标必须存在且可解析（ADR 任状态；WorkCase 建议已关闭——机械只查可解析，关闭状态是审核义务）。**commit 例外（Human 裁定 2026-10-09）**：解药是 commit 级修复且**无对应 ADR/WorkCase 事实对象**时（修复当时走的直提路径、未对象化），`informs` 的 `target` 直接取 `{commit: "<40 位 hex>"}` 承载该修复载体——**形状依 02 §8.1「`commit` 形态」**（公共形状由 02 承接，本表只声明本类型采用它），本类型不自设 target 形态。**仅在解药本身没有对象身份时**用（解药是 ADR/WorkCase 时必须指向那个对象），不得用 commit 替代可指的对象（该判断属审核义务；机械层只核 hash 真实可解析）。**语义**：一笔摩擦若只是**消费**了某次修复（如某工单在缺陷修好后正常走完流程），那是**证据**而非**解药**——记在处置段，不得指向那个消费者对象当解药 |
 
-不建反向边（解药侧不复制账目引用）；不建 Friction 间的关联（同一摩擦的重复走补充级更新并入同一账，不建 F-F 关系）；commit 级解药**一般**不进 `target`——**唯一例外**是「无对应事实对象」时的销账，届时走 `evidence_locator` 的 commit 形态（02 §8.1；见 §9.2 与本表 informs 行）。关系变更必须使用对象当前指纹绑定的完整更新入口，写后精确回读。
+不建反向边（解药侧不复制账目引用）；不建 Friction 间的关联（同一摩擦的重复走补充级更新并入同一账，不建 F-F 关系）；commit 级解药**一般**不进 `target`——**唯一例外**是「解药本身没有对象身份」时的销账，届时 `target` 直接取 `{commit: hash}`（02 §8.1 commit 形态；见 §9.2 与本表 informs 行），**不与 `evidence_locator` 混用**（后者附加在 object_uid target 上）。关系变更必须使用对象当前指纹绑定的完整更新入口，写后精确回读。
 
 ## 12. 召回与消费
 
