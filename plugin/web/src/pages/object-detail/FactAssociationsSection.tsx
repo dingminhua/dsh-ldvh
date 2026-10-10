@@ -1,7 +1,9 @@
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, ChevronLeft, ChevronRight, GitCommit } from 'lucide-react';
-import { ObjectTypeIcon } from '@/components/SemanticIcon';
+import { AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ObjectTypeIcon, OBJECT_TYPE_ICONS } from '@/components/SemanticIcon';
+
+const FoxIcon = OBJECT_TYPE_ICONS.commit;
 import StatusBadge from '@/components/StatusBadge';
 import { getFieldLabel, getLocalizedObjectTitle, getObjectStatusLocale } from '@/i18n/locales';
 import {
@@ -329,13 +331,10 @@ function CommitRelationTarget({ relation, locale, showRelationKey }: {
       onKeyDown={onKeyDown}
       className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-2 transition-colors hover:bg-ldvh-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ldvh-accent/45"
     >
-      <GitCommit size={13} className="shrink-0 text-ldvh-text-secondary" />
+      {/* 狐狸＝提交（与工单的铲子图标区分）；标题行只显示标题，hash 由 title 属性承担 */}
+      <FoxIcon size={13} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
       {showRelationKey && <RelationKeyChip relationKey={relation.relationKey} locale={locale} />}
-      {/* 提交标题优先（08 §5：定位符不当内容呈现），hash 退居副位 */}
-      <span className="min-w-0 flex-1 truncate">
-        <span className="ldvh-meta-primary">{subject}</span>
-        {subject !== short && <span className="ldvh-meta-muted ml-1.5 font-mono">{short}</span>}
-      </span>
+      <span className="ldvh-meta-primary min-w-0 flex-1 truncate">{subject}</span>
     </div>
   );
 }

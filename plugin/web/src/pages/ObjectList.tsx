@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { Activity, CalendarClock, CircleAlert, CircleCheck, CircleMinus, CirclePlay, Clock3, GitCommit, History, Search } from 'lucide-react';
+import { Activity, CalendarClock, CircleAlert, CircleCheck, CircleMinus, CirclePlay, Clock3, History, Search } from 'lucide-react';
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import SegmentedControl from '@/components/SegmentedControl';
 import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
@@ -12,7 +12,9 @@ import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
 import ServesSgBadge from '@/components/ServesSgBadge';
 import SummaryText from '@/components/SummaryText';
-import { ObjectTypeIcon } from '@/components/SemanticIcon';
+import { ObjectTypeIcon, OBJECT_TYPE_ICONS } from '@/components/SemanticIcon';
+
+const FoxIcon = OBJECT_TYPE_ICONS.commit;
 import { WorkCaseCriteriaList, WORKCASE_CRITERIA_SURFACE_CLASS } from '@/components/WorkCaseCriteriaList';
 import WorkCaseGistLine from '@/components/WorkCaseGistLine';
 // 变更流水（卡片主体）：标记与归属口径来自 shared 单点，组件不自行判断。
@@ -487,12 +489,6 @@ function factCardAssociationKey(association: FactCardAssociation, index: number)
   return `${target.governedProjectId}:${target.factTypeKey}:${target.objectId}`;
 }
 
-/** 02 §8.1「commit 形态」：目标是一次受控提交，点击进入提交详情页。 */
-function associationCommit(association: FactCardAssociation): string | null {
-  const target = association.target;
-  return target && 'commit' in target ? target.commit : null;
-}
-
 function dedupeFactCardAssociations<T extends { association: FactCardAssociation; source: string }>(rows: T[]): T[] {
   const seenTargets = new Set<string>();
   return rows.filter((row) => {
@@ -562,23 +558,13 @@ export function FactAssociationCardRow({ association, locale, unavailableLabel }
       className={`group flex min-w-0 items-center gap-2 rounded-md px-1.5 py-2 text-left transition-colors ${isDiscarded ? 'text-slate-400/70 dark:text-slate-500/70' : ''} ${canOpen ? (isDiscarded ? 'cursor-pointer hover:bg-slate-500/5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-400/30' : 'cursor-pointer hover:bg-ldvh-border/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50') : 'cursor-default'}`}
     >
       {commitHash
-        ? <GitCommit size={13} className={`shrink-0 ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : 'text-ldvh-text-secondary'}`} aria-hidden="true" />
+        ? <FoxIcon size={13} className={`shrink-0 ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : 'text-emerald-600 dark:text-emerald-400'}`} />
         : <ObjectTypeIcon type={legacyTarget?.factTypeKey} size={13} className={`shrink-0 ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : ''}`} style={isDiscarded ? undefined : { color: typeColor }} />}
-      <span className="min-w-0 flex-1 whitespace-normal break-words">
-        {commitTitle && (
-          <span
-            title={commitHash ?? undefined}
-            className={`ldvh-meta-primary ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : 'text-ldvh-text-secondary/95 group-hover:text-ldvh-accent'}`}
-          >{commitTitle}</span>
-        )}
-        {/* hash 退居副位：标题可读时仍给出定位符，但不喧宾夺主 */}
-        {commitTitle && commitTitle !== commitHash?.slice(0, 7) && (
-          <span className="ldvh-meta-muted ml-1.5 font-mono">{commitHash?.slice(0, 7)}</span>
-        )}
-        {!commitTitle && (
-          <span className="ldvh-meta-primary ${isDiscarded ? '' : 'text-ldvh-text-secondary/95 group-hover:text-ldvh-accent'}">{title}</span>
-        )}
-      </span>
+      {/* 标题行只显示标题（hash 由 title 属性承担，不占正文位） */}
+      <span
+        title={commitHash ?? undefined}
+        className={`ldvh-meta-primary min-w-0 flex-1 whitespace-normal break-words ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : 'text-ldvh-text-secondary/95 group-hover:text-ldvh-accent'}`}
+      >{title}</span>
       {associationState !== null && associationStateTooltip !== null && <FactAssociationStateIcon state={associationState} tooltip={associationStateTooltip} />}
     </div>
   );

@@ -22,6 +22,32 @@ function GitHubSilhouetteIcon({ size = 16, className, ...props }: LucideProps) {
   return <Github size={size} strokeWidth={0} fill="currentColor" className={className} {...props} />;
 }
 
+/**
+ * commit 关联目标图标（Human 指定 2026-10-10：沿用侧栏导航那只狐狸）。
+ *
+ * 侧栏由宿主提供，其狐狸图标不在本插件内，故此处按同一形态自绘：**实心填充**
+ * （与 GitHub 剪影同一路，区别于本表其余 lucide 线框图标），单色 currentColor，
+ * 由调用处的文字色决定明暗。
+ */
+function FoxSilhouetteIcon({ size = 16, className, ...props }: LucideProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      stroke="none"
+      className={className}
+      aria-hidden="true"
+      {...props}
+    >
+      {/* 耳 */}
+      <path d="M4.2 3.1a.6.6 0 0 1 .92-.5l4.1 3.2a7.9 7.9 0 0 1 5.56 0l4.1-3.2a.6.6 0 0 1 .92.5l-.86 5.6a7.4 7.4 0 0 1 .5 2.55c0 4.7-3.72 8.3-7.75 8.3S3.05 15.95 3.05 11.25c0-.87.18-1.72.5-2.55L4.2 3.1Z" />
+    </svg>
+  );
+}
+
 function FileSearchCornerIcon({ size = 16, className, strokeWidth = 2, ...props }: LucideProps) {
   return (
     <svg
@@ -65,6 +91,9 @@ export const OBJECT_TYPE_ICONS: Record<string, SemanticIconComponent> = {
   // /goal 直读路由承载。
   goal: Target,
   change: GitCommit,
+  // commit 形态关系的目标图标（02 §8.1）：解药是一次受控提交。狐狸＝侧栏那只，
+  // 实心填充，与 change 的线框 GitCommit 区分开——读者一眼知道这是提交而非工单。
+  commit: FoxSilhouetteIcon,
   changelog: GitHubSilhouetteIcon,
 };
 
