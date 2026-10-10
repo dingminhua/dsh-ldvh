@@ -577,9 +577,88 @@ test("commit target: target.commit is accepted when it resolves (02 §8.1 commit
   });
 });
 
+test("evidence_locator.commit 拒绝路径仍有覆盖：不可解析与无 resolver（02 §8.1）", async () => {
+  // 上一轮迁移把 evidence_locator.commit 全换成 target.commit 后，该机制的**拒绝
+  // 路径**一度零覆盖。本例补回：它仍是合法的附加定位形态（附加在 object_uid 上），
+  // 同样必须在 hash 不可解析／无 resolver 时 fail-closed。
+  await withTemp("friction-writer.", async (root) => {
+    const { read: r1 } = await createAndRead(root);
+    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createAdrFixture(root, adrUid);
+    const bad = "9".repeat(40);
+
+    const unresolvable = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        status: "resolved",
+        relations: [{
+          relation_key: "informs",
+          target: { object_uid: adrUid },
+          evidence_locator: { commit: bad },
+        }],
+      },
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "evidence_locator 指向不存在的 commit",
+      sessionSignature: TEST_SIGNATURE,
+      gitCommitResolver: async () => false,
+    });
+    assert.equal(unresolvable.ok, false, "an unresolvable evidence_locator.commit must be refused");
+    assert.equal(unresolvable.error.code, "friction/relation_target_unresolvable");
+
+    const noResolver = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        status: "resolved",
+        relations: [{
+          relation_key: "informs",
+          target: { object_uid: adrUid },
+          evidence_locator: { commit: "8".repeat(40) },
+        }],
+      },
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "无 resolver 时登记 evidence_locator",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(noResolver.ok, false, "no resolver must fail closed, never silently accept");
+    assert.equal(noResolver.error.code, "friction/relation_target_unresolvable");
+
+    // 正向：evidence_locator.commit 真实可解析时随 object_uid target 一并放行
+    const ok = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        status: "resolved",
+        relations: [{
+          relation_key: "informs",
+          target: { object_uid: adrUid },
+          evidence_locator: { commit: "7".repeat(40) },
+        }],
+      },
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "evidence_locator 指向真实 commit",
+      sessionSignature: TEST_SIGNATURE,
+      gitCommitResolver: async () => true,
+    });
+    assert.ok(ok.ok, JSON.stringify(ok.error));
+  });
+});
+
 test("commit target: unresolvable hash, missing resolver and both-forms-carrying are ALL rejected (02 §8.1/§8.2)", async () => {
-  // 三条负向：① hash 不可解析即拒（不得只记一串 hex）② 无 resolver 即拒（fail-closed）
-  // ③ target 同时带 object_uid 与 commit 即拒（两种形态互斥）
+  // 四条负向：① hash 不可解析即拒（不得只记一串 hex）② 无 resolver 即拒（fail-closed）
+  // ③ target 同时带 object_uid 与 commit 即拒（两种形态互斥）④ commit 形态禁带
+  //    evidence_locator（两机制不混用）
+  //
+  // **断言错误文案而不只是 ok=false**（上一轮审核发现 A：仅断 ok 时，③被后面的
+  // 「carries fields beyond commit」兜住、④根本无覆盖——把互斥分支改成 false &&
+  // 测试仍全绿）。故每条都断言 issues 里出现该条规则的专属文案。
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
     const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -641,6 +720,38 @@ test("commit target: unresolvable hash, missing resolver and both-forms-carrying
     });
     assert.equal(bothForms.ok, false, "target 的 object_uid 与 commit 两形态互斥（02 §8.1）");
     assert.equal(bothForms.error.code, "friction/relations_invalid");
+    // 断专属文案：若互斥分支被去掉，这里会落空——后面的「carries fields beyond commit」
+    // 虽仍会报错，但文案不同，故本断言可判别。
+    assert.ok(
+      (bothForms.error.details?.issues ?? []).some((i) => i.includes("mutually exclusive")),
+      `the mutual-exclusion rule must be the one that fires; got ${JSON.stringify(bothForms.error.details?.issues)}`,
+    );
+
+    // ④ commit 形态下带 evidence_locator → 拒（02 §8.1：两机制不混用）
+    const mixed = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        status: "resolved",
+        relations: [{
+          relation_key: "informs",
+          target: { commit: "f".repeat(40) },
+          evidence_locator: { commit: "f".repeat(40) },
+        }],
+      },
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "commit 形态混入 evidence_locator",
+      sessionSignature: TEST_SIGNATURE,
+      gitCommitResolver: async () => true,
+    });
+    assert.equal(mixed.ok, false, "a commit-form target must not carry evidence_locator（02 §8.1）");
+    assert.equal(mixed.error.code, "friction/relations_invalid");
+    assert.ok(
+      (mixed.error.details?.issues ?? []).some((i) => i.includes("must not carry evidence_locator")),
+      `the no-mixing rule must be the one that fires; got ${JSON.stringify(mixed.error.details?.issues)}`,
+    );
   });
 });
 
@@ -669,15 +780,14 @@ test("correct: resolved 账可改正文与 relations，终态判定逐字不变�
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
       expectedFingerprint: before.fingerprint,
-      // 销账时把 target 与 locator 同时写了——更正为只留 locator（02 §8.1：target 恒为
-      // object_uid，commit 走 evidence_locator；二者并存不符规范表述）。
+      // 销账时曾把 target(object_uid) 与 commit 证据定位混着写——更正为「解药就是那次受控
+      // 提交」的正确形态（02 §8.1 commit 形态：target 直接取 commit，不带 object_uid）。
       relationsAfter: [{
         relation_key: "informs",
-        target: { object_uid: adrUid },
-        evidence_locator: { commit: "a".repeat(40) },
+        target: { commit: "a".repeat(40) },
       }],
       bodyMarkdownAfter: resolvedBodyMarkdown(),
-      changeSummary: "更正销账时同时写入 target 与 locator 的形态偏差",
+      changeSummary: "更正销账时把消费者工单当作解药对象的形态偏差",
       humanAuthorization: "Human（dsh-ldvh 会话主，2026-10-09 明示「授权你可以临时修改一下」）",
       sessionSignature: TEST_SIGNATURE,
       gitCommitResolver: async () => true,
@@ -686,7 +796,7 @@ test("correct: resolved 账可改正文与 relations，终态判定逐字不变�
 
     const after = (await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid })).value;
     assert.equal(after.frontmatter.status, "resolved", "correct 不使终态重开");
-    assert.equal(after.frontmatter.relations[0].evidence_locator.commit, "a".repeat(40));
+    assert.equal(after.frontmatter.relations[0].target.commit, "a".repeat(40));
     // 终态判定与内容字段逐字不变
     for (const key of ["title", "phenomenon", "impact", "serves", "attribution", "created_at"]) {
       assert.deepEqual(after.frontmatter[key], before.frontmatter[key], `${key} must be byte-identical across a correction`);
