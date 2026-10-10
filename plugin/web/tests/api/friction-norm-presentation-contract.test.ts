@@ -83,19 +83,34 @@ test('list defaults filter friction to open and norm to active', () => {
   assert.match(listStatus, /new Set\(\['adr', 'pitfall', 'research', 'norm'\]\)/);
 });
 
-test('friction list cards carry F1 projection facts without a fabricated disposition', () => {
+test('friction list cards defer reading content to the detail page (Human 裁定 2026-11)', () => {
   const objectList = read('src/pages/ObjectList.tsx');
 
-  // F1 投影要素：phenomenon（现象单句）+ impact（闭集评级）+ attribution（条件）。
+  // Human 裁定 2026-11：「card 只显示标题，在标签区域把轻中重写入」。
+  // 非终态卡体不再复述现象全文与归因——它们是**阅读**内容，住详情页；
+  // 这与 Spark 活跃卡的克制同例（SparkCardContent 在 open 时返回 null）。
   assert.match(objectList, /export function FrictionCardContent/);
-  assert.match(objectList, /obj\.phenomenon/);
-  assert.match(objectList, /obj\.impact/);
-  assert.match(objectList, /obj\.attribution/);
-  // 26 §8：impact 闭集 light/medium/heavy 经显式映射本地化。
+  const cardBody = objectList.slice(
+    objectList.indexOf('export function FrictionCardContent'),
+    objectList.indexOf('/** 27 号 §10 F1 投影要素的列表承载'),
+  );
+  assert.match(cardBody, /if \(obj\.status === 'voided'\) return <FrictionTerminalCardContent/, '终态走说明框');
+  assert.match(cardBody, /return null;/, '非终态卡体留空——只由卡头与标题托承载');
+  assert.doesNotMatch(cardBody, /obj\.phenomenon/, '现象全文不再上卡面');
+  assert.doesNotMatch(cardBody, /obj\.attribution/, '归因不再上卡面');
+
+  // 26 §8 impact（轻/中/重）：移入卡头标签区（人类裁定：影响评级是扫读要素）。
   assert.match(objectList, /FRICTION_IMPACT_CHIP_CLASS: Record<string, string> = \{\s*light:/);
-  assert.match(objectList, /getFieldValueLabel\('impact', impact, locale\)/);
-  // 处置段住正文（26 §8）：列表卡不伪造处置摘要——解药由 informs 关联行呈现。
-  assert.doesNotMatch(objectList, /FrictionTerminalCardContent[\s\S]{0,120}disposition_summary/);
+  assert.match(objectList, /obj\.type === 'friction' && obj\.impact/, '影响标签在卡头按类型分派');
+
+  // voided 的废弃理由读 disposition（26 §8 条件必填）——不再从正文解析。
+  const terminal = objectList.slice(
+    objectList.indexOf('function FrictionTerminalCardContent'),
+    objectList.indexOf('export function FrictionCardContent'),
+  );
+  assert.match(terminal, /obj\.disposition/, '废弃理由读 disposition 字段');
+  assert.match(terminal, /TerminalFactPanel/, '终态框与 Spark/Pitfall/Norm 同款形态');
+
   // 列表分支接入（showNonActiveReason=false：三态都不走 disposition_summary 通用位）。
   assert.match(objectList, /currentType === 'friction'[\s\S]*?showNonActiveReason=\{false\}[\s\S]*?FrictionCardContent/);
 });

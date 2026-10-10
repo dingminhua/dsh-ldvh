@@ -24,6 +24,7 @@ import {
   readFrictionObject,
   STATUSES_EXPORT_FOR_TEST,
   CORRECT_ADDABLE_FIELDS_FOR_TEST,
+  CORRECT_REMOVABLE_FIELDS_FOR_TEST,
 } from "../lib/friction-writer.js";
 import { withTemp, testSignature } from "./helpers.mjs";
 
@@ -109,7 +110,7 @@ test("26 §12：默认召回含 open 与 observing，不含 resolved 与 voided"
       factSourceRoot: root,
       objectUid: v.value.object_uid,
       expectedFingerprint: v.value.fingerprint,
-      frontmatterAfter: { ...toVoid, status: "voided" },
+      frontmatterAfter: { ...toVoid, status: "voided", disposition: "废弃理由：根本不是系统性阻碍（测试）。" },
       bodyMarkdownAfter: body(toVoid, { disposition: "作废理由：根本不是系统性阻碍（测试）。" }),
       changeSummary: "改判 voided（测试）",
       sessionSignature: TEST_SIGNATURE,
@@ -147,11 +148,16 @@ test("26 §8：occurrence 必填——缺失即拒绝创建", async () => {
   });
 });
 
-test("26 §13：补填通道只接受新进入闭集的字段（当前唯一实例是 occurrence）", () => {
+test("26 §13：补填与删除通道都只接受登记过的字段", () => {
   assert.deepEqual(
-    [...CORRECT_ADDABLE_FIELDS_FOR_TEST],
-    ["occurrence"],
+    [...CORRECT_ADDABLE_FIELDS_FOR_TEST].sort(),
+    ["disposition", "occurrence"],
     "闭集扩张时在 CORRECT_ADDABLE_FIELDS 登记；其它字段的补填属受控更新，不得走终态更正",
+  );
+  assert.deepEqual(
+    [...CORRECT_REMOVABLE_FIELDS_FOR_TEST].sort(),
+    ["occurrence", "serves"],
+    "可删两类：已退出闭集者（serves）、存在即违反 §8 条件约束者（occurrence——§14.2 豁免的 voided 对象携带它即违规）",
   );
 });
 
@@ -187,7 +193,7 @@ test("26 §13：correct 可用于终态对象补填 occurrence（对称于 front
     const voided = await updateFrictionObject({
       factSourceRoot: root, objectUid: created.value.object_uid,
       expectedFingerprint: beforeVoid.value.fingerprint,
-      frontmatterAfter: { ...beforeVoid.value.frontmatter, status: "voided" },
+      frontmatterAfter: { ...beforeVoid.value.frontmatter, status: "voided", disposition: "废弃理由：根本不是系统性阻碍（测试）。" },
       bodyMarkdownAfter: body(d, { disposition: "废弃理由：根本不是系统性阻碍（测试）。" }),
       changeSummary: "改判 voided（测试）", sessionSignature: TEST_SIGNATURE,
     });
@@ -198,7 +204,7 @@ test("26 §13：correct 可用于终态对象补填 occurrence（对称于 front
       factSourceRoot: root, objectUid: created.value.object_uid,
       expectedFingerprint: voided.value.fingerprint,
       frontmatterAfter: {
-        ...beforeVoid.value.frontmatter, status: "voided",
+        ...beforeVoid.value.frontmatter, status: "voided", disposition: "废弃理由：根本不是系统性阻碍（测试）。",
         occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" },
       },
       bodyMarkdownAfter: body(d, { disposition: "废弃理由：根本不是系统性阻碍（测试）。" }),

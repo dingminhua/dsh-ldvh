@@ -296,6 +296,16 @@ export function ObjectCardFrame({
               扫描序，关联对象由卡体 FactAssociationsCardContent 承载。 */}
           <PriorityIcon source={obj} type={obj.type} locale={locale} size="xs" />
           <ServesSgBadge value={obj.serves} locale={locale} />
+          {/* 26 §8 impact（轻/中/重）：Human 裁定 2026-11——影响评级是**扫读要素**，
+              故进卡头标签区与类型/优先级同行，不再占用卡体标题旁的位置。 */}
+          {obj.type === 'friction' && obj.impact && (
+            <span
+              className={`ldvh-chip-sm shrink-0 ${FRICTION_IMPACT_CHIP_CLASS[obj.impact] ?? ''}`}
+              title={`${getFieldLabel('impact', locale)}: ${getFieldValueLabel('impact', obj.impact, locale)}`}
+            >
+              {getFieldValueLabel('impact', obj.impact, locale)}
+            </span>
+          )}
           <span
             className="ldvh-chip-sm gap-1 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent"
             title={t('cognition.recent.activityCount', { count: String(activityCount) })}
@@ -782,49 +792,33 @@ const FRICTION_IMPACT_CHIP_CLASS: Record<string, string> = {
   heavy: 'border-rose-400/40 bg-rose-500/10 text-rose-700 dark:text-rose-300',
 };
 
-export function FrictionCardContent({ obj }: { obj: ObjectItem }) {
-  const { t, locale } = useI18n();
-  // 26 §9：四态都无 frontmatter 处置字段——resolved/voided 的处置段住正文
-  //（详情页阅读）；resolved 的解药由 informs 关系行（FactAssociationsCardContent）
-  // 呈现。列表卡片只承载 F1 投影要素，不伪造处置摘要。
-  const phenomenon = typeof obj.phenomenon === 'string' && obj.phenomenon.trim() ? obj.phenomenon.trim() : '';
-  const attribution = typeof obj.attribution === 'string' && obj.attribution.trim() ? obj.attribution.trim() : '';
-  const impact = typeof obj.impact === 'string' && obj.impact.trim() ? obj.impact.trim() : '';
-  const impactLabel = impact ? getFieldValueLabel('impact', impact, locale) : '';
-  const impactChipClass = impact ? FRICTION_IMPACT_CHIP_CLASS[impact] : undefined;
+/** 26 §8/§9.1：voided 的终态卡——照 Spark 的终态形态（TerminalFactPanel），
+ * 读 `disposition`（废弃去向说明）呈现。该字段于 2026-11 进入 §8 闭集，正是
+ * 为了让列表卡能直接读到废弃理由，而不必进详情页读正文「处置」段。 */
+function FrictionTerminalCardContent({ obj }: { obj: ObjectItem }) {
+  const { t } = useI18n();
+  const reason = typeof obj.disposition === 'string' && obj.disposition.trim()
+    ? obj.disposition.trim()
+    : t('objectList.dispositionMissing');
 
-  return (
-    <section className={DECISION_CARD_SHELL_CLASS.amber}>
-      <div className="flex min-w-0 items-center gap-2">
-        <h3 className={`ldvh-card-decision-title min-w-0 ${DECISION_TITLE_HUE_CLASS.amber}`}>
-          {getFieldLabel('phenomenon', locale)}
-        </h3>
-        {impactChipClass && (
-          <span className={`ldvh-chip-sm shrink-0 ${impactChipClass}`} title={`${getFieldLabel('impact', locale)}: ${impactLabel}`}>
-            {impactLabel}
-          </span>
-        )}
-      </div>
-      {phenomenon ? (
-        <div className={`${WORKCASE_CARD_TITLE_BODY_GAP_CLASS} min-w-0 break-words`}>
-          <SummaryText
-            value={phenomenon}
-            collapseThreshold={420}
-            className={`ldvh-card-decision-body [&_p]:my-0 ${DECISION_AMBER_BODY_HUE_CLASS}`}
-          />
-        </div>
-      ) : (
-        <p className={`ldvh-card-decision-body ${WORKCASE_CARD_TITLE_BODY_GAP_CLASS} ${LDVH_ERROR_TEXT_CLASS}`}>
-          {t('objectList.frictionPhenomenonMissing')}
-        </p>
-      )}
-      {attribution && (
-        <div className="ldvh-meta mt-1.5 min-w-0 break-words text-ldvh-text-secondary/80">
-          {getFieldLabel('attribution', locale)}：{attribution}
-        </div>
-      )}
-    </section>
-  );
+  return <TerminalFactPanel tone="retired" content={formatReasonText(reason)} />;
+}
+
+export function FrictionCardContent({ obj }: { obj: ObjectItem }) {
+  // 26 §9 四态的卡体分工（Human 裁定 2026-11「card 只显示标题」）：
+  //
+  // - `voided`：终态理由由 `disposition`（§8 条件必填）承载，走终态说明框——
+  //   与 Spark 的 discarded（`SparkTerminalCardContent`）、Pitfall 的 discarded、
+  //   Norm 的 retired **同一形态**（`TerminalFactPanel`），Human 在列表页即可读到
+  //   废弃理由，不必进详情页。
+  // - `observing` / `open` / `resolved`：**卡体留空**，只由卡头（类型标签 +
+  //   轻/中重影响标签 + 修改次数）与标题托（`ldvh-card-title`）承载身份与状态。
+  //   这与 Spark 活跃卡的「克制」同例（`SparkCardContent`：open 时返回 null）
+  //   ——标题已是现象单句的浓缩，再复述一遍现象全文与归因是重复而非信息。
+  //   现象全文、入账依据、处置段住详情页阅读布局；resolved 的解药由
+  //   `FactAssociationsCardContent` 的关系行呈现。
+  if (obj.status === 'voided') return <FrictionTerminalCardContent obj={obj} />;
+  return null;
 }
 
 /** 27 号 §10 F1 投影要素的列表承载：direction_key（方向键——同一 direction_key

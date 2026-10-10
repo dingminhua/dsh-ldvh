@@ -121,8 +121,9 @@ frontmatter 闭集（账本类型必须轻——入账摩擦高于摩擦本身�
 | `phenomenon` | string | 必填 | 现象单句陈述 | 非结论（「CI 平均 8 分钟」不是「CI 太慢」）；正文「现象」段逐字包含 |
 | `attribution` | string | 条件 | 归因陈述 | 指向哪个子系统/规范/流程；归因未定可省略，后补走补充级更新；出现时非空。**摩擦的根源常是「规范/工具/流程」本身而无对象身份**（如「CI 每次 8 分钟」的根源是构建流程），故本字段保留自由文本形态，不强制指向事实对象 |
 | `attribution_ref` | string | 条件 | 归因对象的精确引用 | 值必须是同项目某已存在事实对象的 `object_uid`（形态依 §11）；出现时由 Code 机械核验可解析，不可解析即拒绝入账；**出现不强制**——未出现时归因的真实性属 AI 审核义务。消费方：§12 迭代决策输入的按归因机械聚合 |
-| `occurrence` | object | 必填 | 重复出现的证据载体 | `{ count: integer ≥1, first_at: RFC3339, last_at: RFC3339, human_return_at?: RFC3339 \| null }`；创建时必带（初值 `count=1`、`human_return_at=null`）。**`human_return_at` 的消费方**：记录最近一次 Human 主动「放回留观」（§9.2 `open → observing`）的时间；其存在理由与 `occurrence.count` 的累积语义直接冲突——该账目的 count 已 ≥ N，若无此记录，机械通道的阈值触发会在下一次运行立即把 Human 的决定撤销。**这是 `count ≥ N` 的回退护栏，不是装饰字段**（§18 第 1 条） |**机械权威源**——正文现象段的频次叙述是人类可读投影，二者不一致时以本字段为准。**本字段不依赖 N**：`count` 的累积与冻结（终态）均可独立核对；仅「是否已达阈值」需要 N，而 N 当前无规范定义（04 §8.4），故与 N 相关的判定当前不可执行。**必填的例外**：`voided` 状态且来源为闭集收缩改判者可缺（见 §14.2） |
+| `occurrence` | object | 必填 | 重复出现的证据载体 | `{ count: integer ≥1, first_at: RFC3339, last_at: RFC3339, human_return_at?: RFC3339 \| null }`；创建时必带（初值 `count=1`、`human_return_at=null`）。**`human_return_at` 的消费方**：记录最近一次 Human 主动「放回留观」（§9.2 `open → observing`）的时间；其存在理由与 `occurrence.count` 的累积语义直接冲突——该账目的 count 已 ≥ N，若无此记录，机械通道的阈值触发会在下一次运行立即把 Human 的决定撤销。**这是 `count ≥ N` 的回退护栏，不是装饰字段**（§18 第 1 条）。**机械权威源**——正文现象段的频次叙述是人类可读投影，二者不一致时以本字段为准。**本字段不依赖 N**：`count` 的累积与冻结（终态）均可独立核对；仅「是否已达阈值」需要 N，而 N 当前无规范定义（04 §8.4），故与 N 相关的判定当前不可执行。**必填的例外**：`voided` 状态且来源为闭集收缩改判者可缺（见 §14.2） |
 | `impact` | string | 必填 | 影响评级 | 闭集 `light` / `medium` / `heavy`——机械消费方在本文 §12 定义（F1 投影含 impact、度量按状态×影响聚合）与设计定稿的出生路径「重大即显」通道（heavy 跳过攒熟直接提议）；非装饰字段 |
+| `disposition` | string | 条件 | **终态去向说明**（该账为何废弃） | **条件必填：`voided` 时必有**（`observing`/`open`/`resolved` 时不得出现——`resolved` 的去向已由 `informs` 机械承载，另设字段会造出第二个来源）。与 SPARK 的 `disposition`（20 §8：终态去向）同名同义——跨类型扫读一致。**消费方**：列表卡的终态呈现（`TerminalFactPanel` 形态，与 Spark/Pitfall/Norm 的终态卡同款），使 Human 在列表页即可读到去向而不必进详情页。**与「处置」段的分工**：本字段是**薄索引**（一句话去向），处置段是**正文承载**（解药指引或废弃理由的完整展开）——二者不重复：前者供机械枚举与卡面直读，后者供阅读与追溯。**非装饰字段**（§18 第 1 条） |
 | `relations` | array | 条件 | `informs` 指向解药（见 §9） | 仅 resolved 时出现 |
 | `created_at` | RFC3339 | 必填 | Code 填写 | AI 不得填写 |
 | `change_log` | array | 条件 | 变更流水 | 首修后必有；每次恰好一条 |
@@ -135,7 +136,7 @@ frontmatter 闭集（账本类型必须轻——入账摩擦高于摩擦本身�
 ## 处置            ← 解药记录或废弃理由（条件出现——resolved/voided 时；必答：怎么解的+解药指引，或为何废弃）。observing 与 open 时本段必不在
 ```
 
-字段间不变量：`phenomenon` 载体内聚（正文现象段逐字包含）；`relations` 出现 ⇔ `status=resolved`；`attribution` 出现时非空；`occurrence` 载体内聚（正文现象段须含首次观察来源）；**阈值一致性**：`observing ∧ count ≥ N` **不是**不一致态——它可能是 Human 主动放回留观的结果。该情形**由 `occurrence.human_return_at` 判定**（非空即表示最近一次流转由 Human 放回，机械通道不得据 `count ≥ N` 将其翻回 `open`）；`observing ∧ count ≥ N ∧ human_return_at=null` 方为可疑态，须由机械通道在其动作处处理（04 §8.4）。**不设基于 `change_log` 的静态判据**——`change_log` 只有 Code 托管的时间与自由文本摘要，无决定来源的结构化标记（02 §7.1）。`resolved`/`voided` 时 `occurrence` 逐字冻结、停止计数；未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
+字段间不变量：`phenomenon` 载体内聚（正文现象段逐字包含）；`relations` 出现 ⇔ `status=resolved`；`disposition` 出现 ⇔ `status=voided`（废弃的去向说明，与 `relations` 互斥：一个说「为何废弃」、一个说「如何修复」）；`attribution` 出现时非空；`occurrence` 载体内聚（正文现象段须含首次观察来源）；**阈值一致性**：`observing ∧ count ≥ N` **不是**不一致态——它可能是 Human 主动放回留观的结果。该情形**由 `occurrence.human_return_at` 判定**（非空即表示最近一次流转由 Human 放回，机械通道不得据 `count ≥ N` 将其翻回 `open`）；`observing ∧ count ≥ N ∧ human_return_at=null` 方为可疑态，须由机械通道在其动作处处理（04 §8.4）。**不设基于 `change_log` 的静态判据**——`change_log` 只有 Code 托管的时间与自由文本摘要，无决定来源的结构化标记（02 §7.1）。`resolved`/`voided` 时 `occurrence` 逐字冻结、停止计数；未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
 
 （2026-10 修订：删除 `serves` 字段。理由：§12 四个消费点无一使用它，§18 第 1 条禁止无消费方装饰字段；归属信息已由 `attribution` 承载，且归属判断主观、无后果产出。与 WorkCase 的 `serves` 不同——后者承载授权钉扎、goal 修订级联与达成证据链，不可类比。）
 
@@ -150,7 +151,7 @@ frontmatter 闭集（账本类型必须轻——入账摩擦高于摩擦本身�
 | `observing` | 留观；保留账面，可转入待修。**不作「值不值得修」的判断** | 正文「现象」段必含首次观察来源；`relations` 不得出现；正文「处置」段必**不**在 |
 | `open` | 阻碍待修，参与攒账与度量 | `relations` 不得出现；正文「处置」段必**不**在 |
 | `resolved` | 已修复销账；informs 指向解药对象 | `relations` 必含至少一条 `informs`（1..n）；正文「处置」段必在 |
-| `voided` | **已废弃**；载体保留可追溯，但自此不参与查重范围、不参与度量、不参与迭代决策输入 | 正文「处置」段必在，须写废弃理由（归因错误／现象描述失真／根本不是系统性阻碍三者之一）；`relations` 不得出现 |
+| `voided` | **已废弃**；载体保留可追溯，但自此不参与查重范围、不参与度量、不参与迭代决策输入 | `disposition` 必填（一句话废弃去向，非空）；正文「处置」段必在，须写废弃理由（归因错误／现象描述失真／根本不是系统性阻碍三者之一——该分类属 Human 判断，非机械闭集）；`relations` 不得出现 |
 
 ### 9.2 状态转换
 
@@ -197,10 +198,10 @@ frontmatter 闭集（账本类型必须轻——入账摩擦高于摩擦本身�
 
 ## 13. 受控操作
 
-- **创建**：AI 产出提案对象（含查重结论+三条件核对+完整字段），经受控创建入口落盘——**两个创建入口**（与 §7 的「三条通道」是两个口径：通道描述授权来源，入口描述写入路径）：**机械通道入口**（04 §8.4 摩擦发现机制自动创建，记录确认转为「机械依据留痕」）与 **Human 入口**（空闲评审提议或重大即显、即时检测、Human 直接提出，经 Human 确认后落盘）。机械校验：字段闭集合法、title ≤ 30 字、phenomenon 单句、impact 闭集、`occurrence` 必带、载体结构（H2 固定序 + resolved/voided 时「处置」段必在——**创建不得进入 resolved 或 voided，初态强制 `observing`**）、载体内聚（phenomenon 逐字）。创建后精确回读。
+- **创建**：AI 产出提案对象（含查重结论+三条件核对+完整字段），经受控创建入口落盘——**两个创建入口**（与 §7 的「三条通道」是两个口径：通道描述授权来源，入口描述写入路径）：**机械通道入口**（04 §8.4 摩擦发现机制自动创建，记录确认转为「机械依据留痕」）与 **Human 入口**（空闲评审提议或重大即显、即时检测、Human 直接提出，经 Human 确认后落盘）。机械校验：字段闭集合法、title ≤ 30 字、phenomenon 单句、impact 闭集、`occurrence` 必带、不得带 `disposition`（创建必为 observing）、载体结构（H2 固定序 + resolved/voided 时「处置」段必在——**创建不得进入 resolved 或 voided，初态强制 `observing`**）、载体内聚（phenomenon 逐字）。创建后精确回读。
 - **补充级更新**：02 §10.5 受控更新；CAS 以完整文件为单位；每次恰好一条 change_log；status 不变（机械比对，变了拒绝——走流转）。
 - **状态流转**：Human Gate；AI 先精确读取 F3 核对流转依据；resolved 校验 informs 目标可解析；Code 检查**目标状态**属当前闭集、字段、关系、CAS 与回读。**源状态可属已收缩的历史取值**——闭集收缩后的存量处置（如 §14.2 的 `deferred` → `voided`）由本节承载：闭集校验只施加于目标状态，历史源状态不因不在现闭集内而被拒绝；该放宽**仅适用于闭集收缩的存量处置**，不适用于新产生的流转。
-- **终态事实更正**（`correct`；Human 决定 2026-10-09 建立）：**适用于 `resolved` 与 `voided` 两个终态**——`observing`／`open` 的内容修正走补充级更新或状态流转，本入口不得承载（否则等于把更正伪装成状态转换，02 §10.5）。**存在理由**：§9.2 要求「销错的账按 05 事实更正修正」，而本类型此前只有补充级更新（机械拒绝改 status）与状态流转（终态不重开）两个通道——**销错的终态账无路可改**，该要求形同虚设。可改范围：**正文（含处置段）与 `relations`**，外加**已退出类型闭集的 frontmatter 字段的显式删除**——恰是销账时写错的两处（02:386 事实更正与关系变更是不同动作，本入口覆盖两者，校验中分别核对）。**唯一的前端字段动作（2026-10，Human 裁定；因删除 `serves` 而建立）**：`frontmatter_removals` 只允许**删除**已从 §8 闭集移除的字段，不得新增或改值——新增/改值等于把终态更正变成受控更新。删除是**显式声明**而非隐式克隆：不声明则该字段逐字继承，声明「删除一个本就不存在的字段」计入 no-op。首个用例是 `serves`（§8 于 2026-10 删除）；9 份存量中 8 份为 `open`/`observing`，经受控更新删除即可，**1 份 `resolved` 终态无法经受控更新触及**，本入口是其唯一受控清除途径——若无此通道，闭集收缩会在终态对象上留下不可清除的残留字段（本次实测：bf73fad4 的 `serves: SG-3` 即是）。**边界**：本动作不构成「correct 可改 frontmatter」的先例——可改的是「已不在闭集里的字段之无」，不是「字段的值」。**逐字不变**：`status`、`title`、`phenomenon`、`impact`、`attribution`、`attribution_ref`、`occurrence`、`created_at`（`change_log` 由 Code 追加一条新条目）。**必填**：`human_authorization`（Human 的授权记录：谁／何时／覆盖什么）——与 21 号 WorkCase 的 `correct` 同规格，缺之 fail-closed。**机械校验分两支**：**`resolved` 支**——`resolved` 状态前置；`informs` 条数 **≥ 1（无例外**——`informs` 是 resolved 的必备关系，commit locator 只是该条目**附加**的证据定位，不替代 `informs` 本身）且每条 `target.object_uid` 可解析（ADR/WorkCase）；**`voided` 支**——`voided` 状态前置；`relations` 必须为空（`informs` 校验不适用，因已废弃的账目无解药）；若某条带 `evidence_locator.commit`，该 hash 另须在仓中真实可解析（02 §8.1）；CAS 与回读同其它动作；**no-op 拒绝**（正文、relations 与 `frontmatter_removals` 均无实际变更即拒绝，不追加声称更正过的 change_log，02 §10.5）。**边界**：更正的**正当性**属 Human 判断与独立审核（**是否**该改）；机械层只保证「只改了正文与 relations、终态判定逐字未变、目标真实可解析」。本动作**不使 `resolved` 可重开**——改完仍是 resolved，且须以本条 `change_log` 留痕。**与 21 号 WorkCase `correct` 的形态差异（勿读作同规格）**：21 的 correct **不接收任何 frontmatter 字段**（`next` 是落盘对象的克隆、调用方无法触及），只改正文——因为 WorkCase 的 `result`／`reviews` 等字段由关闭动作写入、更正不得触碰；本动作**接收 `relations_after`**，因为 Friction 的 `relations`（`informs`）恰是销账动作写入的产物，销账写错时若不能改，则 §9.2「销错的账可改」对本类型仍是空话；本动作亦**接收 `frontmatter_removals`**（仅限已退出闭集的字段），而 21 号不接收——WorkCase 无闭集收缩发生，且其字段由 Gate 1/关闭动作写入。
+- **终态事实更正**（`correct`；Human 决定 2026-10-09 建立）：**适用于 `resolved` 与 `voided` 两个终态**——`observing`／`open` 的内容修正走补充级更新或状态流转，本入口不得承载（否则等于把更正伪装成状态转换，02 §10.5）。**存在理由**：§9.2 要求「销错的账按 05 事实更正修正」，而本类型此前只有补充级更新（机械拒绝改 status）与状态流转（终态不重开）两个通道——**销错的终态账无路可改**，该要求形同虚设。可改范围：**正文（含处置段）与 `relations`**，外加**已退出类型闭集的 frontmatter 字段的显式删除**——恰是销账时写错的两处（02:386 事实更正与关系变更是不同动作，本入口覆盖两者，校验中分别核对）。**删除动作（2026-10，Human 裁定；因删除 `serves` 而建立；2026-11 扩围）**：`frontmatter_removals` 只允许**删除**两类字段——① 已从 §8 闭集移除的字段（首个用例 `serves`）；② **其存在违反 §8 条件约束的字段**（2026-11 扩围，首个用例：§14.2 豁免 `occurrence` 的 `voided` 对象被误加该字段——豁免的意思是「本不该有」，故其存在即违规，须有受控清除途径）。**不得删除其它字段**，不得新增或改值——新增/改值等于把终态更正变成受控更新。删除是**显式声明**而非隐式克隆：不声明则该字段逐字继承，声明「删除一个本就不存在的字段」计入 no-op。首个用例是 `serves`（§8 于 2026-10 删除）；9 份存量中 8 份为 `open`/`observing`，经受控更新删除即可，**1 份 `resolved` 终态无法经受控更新触及**，本入口是其唯一受控清除途径——若无此通道，闭集收缩会在终态对象上留下不可清除的残留字段（本次实测：bf73fad4 的 `serves: SG-3` 即是）。**边界**：本动作不构成「correct 可改 frontmatter」的先例——可改的是「已不在闭集里的字段之无」，不是「字段的值」。**逐字不变**：`status`、`title`、`phenomenon`、`impact`、`attribution`、`attribution_ref`、`occurrence`、`created_at`（`change_log` 由 Code 追加一条新条目）。**必填**：`human_authorization`（Human 的授权记录：谁／何时／覆盖什么）——与 21 号 WorkCase 的 `correct` 同规格，缺之 fail-closed。**机械校验分两支**：**`resolved` 支**——`resolved` 状态前置；`informs` 条数 **≥ 1（无例外**——`informs` 是 resolved 的必备关系，commit locator 只是该条目**附加**的证据定位，不替代 `informs` 本身）且每条 `target.object_uid` 可解析（ADR/WorkCase）；**`voided` 支**——`voided` 状态前置；`relations` 必须为空（`informs` 校验不适用，因已废弃的账目无解药）；若某条带 `evidence_locator.commit`，该 hash 另须在仓中真实可解析（02 §8.1）；CAS 与回读同其它动作；**no-op 拒绝**（正文、relations 与 `frontmatter_removals` 均无实际变更即拒绝，不追加声称更正过的 change_log，02 §10.5）。**边界**：更正的**正当性**属 Human 判断与独立审核（**是否**该改）；机械层只保证「只改了正文与 relations、终态判定逐字未变、目标真实可解析」。本动作**不使 `resolved` 可重开**——改完仍是 resolved，且须以本条 `change_log` 留痕。**与 21 号 WorkCase `correct` 的形态差异（勿读作同规格）**：21 的 correct **不接收任何 frontmatter 字段**（`next` 是落盘对象的克隆、调用方无法触及），只改正文——因为 WorkCase 的 `result`／`reviews` 等字段由关闭动作写入、更正不得触碰；本动作**接收 `relations_after`**，因为 Friction 的 `relations`（`informs`）恰是销账动作写入的产物，销账写错时若不能改，则 §9.2「销错的账可改」对本类型仍是空话；本动作亦**接收 `frontmatter_removals`**（仅限已退出闭集的字段），而 21 号不接收——WorkCase 无闭集收缩发生，且其字段由 Gate 1/关闭动作写入。
 **对称的补填动作（`frontmatter_additions`；2026-11 建立）**：闭集**扩张**时（新必填字段进入 §8，如 `occurrence`），既有终态对象无法经受控更新触及（§9.2 终态只读），`correct` 是其唯一受控补填途径——与 `frontmatter_removals` 恰成对称：删除处理「字段已不在闭集」，补填处理「字段新进入闭集」。**约束**：① 只允许补填**新进入闭集的字段**，不得用于改已有字段的值或补填本就在闭集里的字段（后者属受控更新）；② 补填的值**必须可由既有载体据实推得**，不得编造——不可据实推得时不得补填，该对象缺字段的事实如实保留；③ 每次补填须带 Human 授权记录并逐字入 `change_log` 摘要；④ 该动作**不构成「correct 可改 frontmatter 值」的先例**——可补的是「字段之无」，不是「字段的值」，与 `frontmatter_removals` 同一纪律。**首个用例**：`occurrence`（§8 于 2026-11 新增必填）；9 份存量中 8 份为 `observing`/`open`/`voided` 以外状态可经受控更新补填，1 份 `resolved` 终态（`bf73fad4`）无法触及，本通道是其唯一受控补填途径（该对象 2026-10 亦曾因 `serves` 删除成为 `frontmatter_removals` 的首个用例——同一对象两次撞上同一缺口，是该通道存在的实证）。**共同点**：均须 Human 授权记录（且逐字写入 `change_log` 摘要）、均不使终态可重开、均逐字继承终态判定、均做写后回读、均拒绝 no-op。**授权记录的自报边界（同 21 §14 的免责，不得省写）**：`human_authorization` 是**自报文本**——它被机械写入 `change_log` 摘要，但**其存在与内容不证明 Human 真的作过该授权**；机械层只保证「授权记录被提供并逐字留痕」。与 21 号一致，不因本类型而放宽。
 - **删除**：不存在删除操作。四类状态的账目都随 `frictions/` 保留（`voided` 亦保留载体以可追溯）。
 
@@ -212,6 +213,7 @@ frontmatter 闭集（账本类型必须轻——入账摩擦高于摩擦本身�
 - 载体内聚：phenomenon 在正文现象段逐字出现；
 - 状态-关系不变量：observing/open/voided 不得带关系；resolved 必有 1..n 条 informs 且目标可解析；
 - 处置段条件：resolved/voided 必有非空处置段，observing/open 必不在（必答问题见 §8）；
+- 终态去向条件：`disposition` 出现 ⇔ status 为 `voided`（`resolved` 与 observing/open 出现即拒——见 §8 不变量）；
 - 补充边界：更新的 status 与 CAS 基线一致（防状态变化伪装补充）。
 
 ### 14.2 存量对象迁移
@@ -246,11 +248,11 @@ v4 problem-ledger 的历史存量零迁移（`open` P1/P2 项 10 条若仍适用
 
 | 验证对象 | 验证时机 | 成立条件 | 可接受依据 | 验证入口 | 可证明范围 | 未满足时的处理 |
 |---|---|---|---|---|---|---|
-| 载体结构 | 创建、更新或精确读取时 | H1 恰好一个且与 title 一致、正文自 H2 起、H2 固定序完整、各段非空；resolved/voided 时处置段必在，observing/open 时必不在 | 当前载体与本文 §8 | 机械（结构解析） | 当次载体结构合法性 | 拒绝创建/更新；修复后重走 |
+| 载体结构 | 创建、更新或精确读取时 | H1 恰好一个且与 title 一致、正文自 H2 起、H2 固定序完整、各段非空；resolved/voided 时处置段必在，observing/open 时必不在；`disposition` 出现 ⇔ voided | 当前载体与本文 §8 | 机械（结构解析） | 当次载体结构合法性 | 拒绝创建/更新；修复后重走 |
 | 载体内聚 | 创建与更新时 | phenomenon 在现象段逐字出现 | frontmatter 与正文对照 | 机械（逐字比对） | 索引与主体一致性 | 拒绝；补齐后重走 |
 | 补充边界 | 更新时 | status 与 CAS 基线逐字段一致 | 更新前后 frontmatter 对照 | 机械（字段比对） | 当次更新的补充性质 | 拒绝；状态变化走流转 |
 | 查重已执行 | 创建时 | 创建提案含查重结论 | 提案记录 | AI 语义审核 | 当次查重范围 | 补查重后重走创建 |
-| 终态完整性 | 流转时 | resolved 必有 informs 且目标可解析；voided 必有处置段（废弃理由）且 relations 为空 | 对象全文与目标读取结果 | 机械（关系+结构校验） | 当次流转机械范围 | 拒绝流转；补齐后重走 |
+| 终态完整性 | 流转时 | resolved 必有 informs 且目标可解析；voided 必有 `disposition` 且为废弃理由；voided 必有处置段（废弃理由）且 relations 为空 | 对象全文与目标读取结果 | 机械（关系+结构校验） | 当次流转机械范围 | 拒绝流转；补齐后重走 |
 | 账目质量 | 创建与流转时 | 三条件核对据实、各必填段逐段回答 §8 必答问题——一句话段落必须答全，现象段仅逐字转写 phenomenon 不构成展开 | Human 确认记录，或机械通道的**机械依据留痕**（occurrence 计数、查重结论、归因解析结果） | AI 语义审核 + Human 终审 | 当次账目记录质量 | 拒绝或退回修订 |
 
 机械结果与语义判断互不替代。本章不能单独证明阻碍值得修或修复有效——这些由迭代决策与度量的真实消费核对；未实现与不可用范围保留为 gaps。

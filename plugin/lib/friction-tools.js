@@ -145,6 +145,7 @@ async function executeReadObject(args, exec, deps) {
       attribution_ref: typeof fm.attribution_ref === "string" ? fm.attribution_ref : undefined,
       impact: typeof fm.impact === "string" ? fm.impact : undefined,
       occurrence: fm.occurrence && typeof fm.occurrence === "object" ? fm.occurrence : undefined,
+      disposition: typeof fm.disposition === "string" ? fm.disposition : undefined,
       body_valid: value.body_valid,
       body_issues: value.body_issues,
       frontmatter: fm,
@@ -519,6 +520,7 @@ function parameterSchemaFor(operationKey) {
       occurrence: { type: "object", properties: { count: { type: "integer" }, first_at: { type: "string" }, last_at: { type: "string" }, human_return_at: { type: "string" } }, required: ["count", "first_at", "last_at"], additionalProperties: false, description: "REQUIRED on create with count=1, first_at=last_at=now, human_return_at=null; count increments by 1 per supplement update (same update as the 现象 extension); frozen once resolved/voided; human_return_at is stamped by open→observing (放回留观) and makes the threshold transition skip this record (26 §8/§9.2, 04 §8.4 item 4)" },
       impact: { type: "string", enum: ["light", "medium", "heavy"], description: "impact rating; consumers anchored in 26 §12 (F1 projection, metric aggregation) and the heavy-bypasses-buffer birth path" },
 
+      disposition: { type: "string", description: "why this entry was voided; REQUIRED iff status=voided, forbidden otherwise (26 §8) — the list card renders it so Human can read the reason without opening the detail page. resolved carries no such field: its outcome is already carried by the informs relation" },
       relations: { type: "array", items: { type: "object", properties: { relation_key: { type: "string", enum: ["informs"] }, target: { type: "object", properties: { object_uid: { type: "string" } }, required: ["object_uid"], additionalProperties: false } }, required: ["relation_key", "target"], additionalProperties: false }, description: "informs 1..n pointing at remedy objects (ADR/WorkCase uids); only on resolved (26 §11)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },

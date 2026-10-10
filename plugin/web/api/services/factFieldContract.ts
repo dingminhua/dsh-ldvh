@@ -115,7 +115,16 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     attribution: field('friction-attribution', 'string', false),
     attribution_ref: field('friction-attribution-ref', 'string', false),
     impact: field('friction-impact', 'string', true),
-    occurrence: field('friction-occurrence', 'object', true),
+    // occurrence（§8 必填）与 disposition（§8 条件必填）在契约里都登记为**可选**：
+    // 契约只有 required 二值，无法表达「按状态条件必填」，而二者恰都是条件字段
+    // ——disposition 仅 voided 时必有；occurrence 对「闭集收缩改判而来的 voided」
+    // 存在 §14.2 的豁免（§8 字段表写明「可缺」）。登记为必填会把这些**合法形态**
+    // 误报为 missing（实测：9 份存量中 1 份即属该例外）。条件必填的机械保证由
+    // writer 承担（创建必带 occurrence、流转入 voided 必带 disposition），契约
+    // 只负责结构可解析性。这与 spark 的 disposition 登记为可选同例（20 §8 终态必填，
+    // 契约仍登记 false）。
+    occurrence: field('friction-occurrence', 'object', false),
+    disposition: field('friction-disposition', 'string', false),
     report_body: field('friction-report-body', 'string', false),
   },
   // v5 Spark（20 号规范）：悬置问题的字段闭集——question/scope_boundary/

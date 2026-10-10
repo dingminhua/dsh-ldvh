@@ -58,7 +58,11 @@ const IMPACT_VALUES = new Set(["light", "medium", "heavy"]);
 // 26 §13：`correct` 的补填通道只接受**新进入闭集**的字段。闭集扩张时在此登记
 // （首个用例：occurrence——§8 于 2026-11 新增必填）。不在此集合内的字段一律拒绝：
 // 补填本就在闭集里的字段属受控更新，不得走终态更正入口。
-const CORRECT_ADDABLE_FIELDS = new Set(["occurrence"]);
+const CORRECT_ADDABLE_FIELDS = new Set(["occurrence", "disposition"]);
+
+// 26 §13：`correct` 的删除通道只接受两类字段——已退出闭集者，或存在即违反 §8
+// 条件约束者。闭集收缩或条件约束建立时在此登记。
+const CORRECT_REMOVABLE_FIELDS = new Set(["serves", "occurrence"]);
 
 /** Relation keys allowed for Friction (26 §11 — closed set of exactly one). */
 const FRICTION_RELATION_KEYS = new Set(["informs"]);
@@ -78,7 +82,7 @@ const COMMIT_PATTERN = /^[0-9a-f]{40}$/i;
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
   "phenomenon", "attribution", "attribution_ref", "impact", "relations",
-  "occurrence", "change_log",
+  "occurrence", "disposition", "change_log",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -447,6 +451,10 @@ export async function createFrictionObject(args) {
     return failure("friction/initial_state_violation", `create must initialise as status=observing; got ${JSON.stringify(frontmatter.status)} (26 §9 — 销账/废弃是流转，不是初态)`);
   }
   frontmatter.status = "observing";
+  // 26 §8：disposition 是终态伴随字段——创建必为 observing，故一律不得带。
+  if (frontmatter.disposition !== undefined) {
+    return failure("friction/frontmatter_invalid", "create must not carry disposition (26 §8: 出现 ⇔ status ∈ {resolved, voided}；初态为 observing)");
+  }
   // 26 §8: occurrence 必填——创建时初值 count=1、first_at=last_at=now、
   // human_return_at=null。除 §14.2 的闭集收缩改判外，occurrence 不可缺。
   if (frontmatter.occurrence === undefined) {
@@ -630,6 +638,15 @@ export async function updateFrictionObject(args) {
         return failure("friction/relations_invalid", "resolving requires 1..n informs relations pointing at the remedy objects (26 §9.2/§11)");
       }
     }
+    // 26 §8：disposition 出现 ⇔ status=voided——废弃须带，其余状态须清。
+    // resolved 不设该字段：其去向已由 informs 机械承载，另设会造出第二个来源。
+    if (nextStatus === "voided") {
+      if (typeof fm.disposition !== "string" || fm.disposition.trim().length === 0) {
+        return failure("friction/frontmatter_invalid", "transition into voided must carry a non-empty disposition (26 §8: 废弃去向说明) — 列表卡据此呈现废弃理由");
+      }
+    } else if (fm.disposition !== undefined) {
+      return failure("friction/frontmatter_invalid", `disposition must appear only on a voided record (26 §8: 出现 ⇔ status=voided); transition into ${nextStatus} must clear it`);
+    }
     if (nextStatus === "voided") {
       // →voided：不得带关系（26 §9.1/§13）
       if (fm.relations !== undefined && Array.isArray(fm.relations) && fm.relations.length > 0) {
@@ -785,10 +802,12 @@ export async function correctFrictionObject(args) {
   const next = structuredClone(fm);
   const removedFields = [];
   for (const field of frontmatterRemovals) {
-    if (field === "serves") {
-      // 26 §8 已把 serves 移出闭集；对象上仍残留只可能来自修订前，本入口是唯一
-      // 受控清除途径。缺失即 no-op 的一部分（下方 body/relations/removals 三者
-      // 全未变才判 no-op），故此处不单独拒绝「字段本就不存在」。
+    // 26 §13：可删两类字段。① 已退出闭集者（serves——§8 于 2026-10 删除）；
+    // ② 存在即违反 §8 条件约束者（occurrence——§14.2 豁免 `voided` 对象携带该
+    // 字段，即「本不该有」；2026-11 扩围，首个实例是 3048937d 被误回填）。
+    // 缺失即 no-op 的一部分（下方 body/relations/removals/additions 全未变才判
+    // no-op），故此处不单独拒绝「字段本就不存在」。
+    if (CORRECT_REMOVABLE_FIELDS.has(field)) {
       if (Object.prototype.hasOwnProperty.call(next, field)) {
         delete next[field];
         removedFields.push(field);
@@ -825,6 +844,15 @@ export async function correctFrictionObject(args) {
         );
       }
       // ③ 值的形状须满足 §8 的契约（object 且含 count/first_at/last_at）。
+      if (field === "disposition") {
+        // §8：该字段只属于 voided。补填到非 voided 对象一律拒绝。
+        if (next.status !== "voided") {
+          return failure("friction/frontmatter_invalid", `disposition may only be filled on a voided record (26 §8: 出现 ⇔ status=voided); got status=${JSON.stringify(next.status)}`);
+        }
+        if (typeof value !== "string" || value.trim().length === 0) {
+          return failure("friction/frontmatter_invalid", "disposition must be a non-empty string (26 §8: 一句话废弃去向)");
+        }
+      }
       if (field === "occurrence") {
         if (typeof value !== "object" || value === null || Array.isArray(value)
           || !Number.isInteger(value.count) || value.count < 1
@@ -1026,6 +1054,12 @@ export async function listFrictionObjects(args) {
       status,
       impact: typeof frontmatter.impact === "string" ? frontmatter.impact : "",
       attribution: typeof frontmatter.attribution === "string" ? frontmatter.attribution : undefined,
+      attribution_ref: typeof frontmatter.attribution_ref === "string" ? frontmatter.attribution_ref : undefined,
+      // 26 §8 两条 UI 消费字段：occurrence 是「攒到什么程度」的直接依据（留观/待修
+      // 的判断输入），disposition 是 voided 的废弃理由（列表卡终态框直读，不必进
+      // 详情页）。二者都在 F1 投影内——不投影则卡面无从呈现。
+      occurrence: frontmatter.occurrence && typeof frontmatter.occurrence === "object" ? frontmatter.occurrence : undefined,
+      disposition: typeof frontmatter.disposition === "string" ? frontmatter.disposition : undefined,
       created_at: typeof frontmatter.created_at === "string" ? frontmatter.created_at : "",
     });
   }
@@ -1047,3 +1081,4 @@ export { STATUSES as STATUSES_EXPORT_FOR_TEST };
 // 导出补填通道的白名单供契约测试断言（test/friction-four-state.test.mjs 的姊妹
 // 断言）：26 §13 只允许补填「新进入闭集」的字段，当前唯一实例是 occurrence。
 export { CORRECT_ADDABLE_FIELDS as CORRECT_ADDABLE_FIELDS_FOR_TEST };
+export { CORRECT_REMOVABLE_FIELDS as CORRECT_REMOVABLE_FIELDS_FOR_TEST };
