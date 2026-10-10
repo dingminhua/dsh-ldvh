@@ -809,6 +809,12 @@ export async function correctFrictionObject(args) {
   // 「有变更」，从而追加一条声称更正过的 change_log——恰是本条要防的假记录形态。
   // 故按 schema 规范化（每条关系固定取 relation_key / target.object_uid /
   // evidence_locator.commit）后逐字段比较。
+  //
+  // **与 `validateFrictionRelations` 的闭集是两处独立字面量**（第三轮复审遗留建议）：
+  // 扩 relations schema（02 §8.2 公共形状）时**两处必须同步更新**。当前假 no-op 风险
+  // 被 validate 的前置校验封闭（extra 字段在到达这里之前已被拒），故不可达；但若先放宽
+  // validate 而忘了这里，新字段会被本函数**静默丢弃**——两个仅在该字段上不同的 relations
+  // 会被判「无变更」，从而漏掉一次真实更正。
   const normalizeRelations = (rels) => {
     const list = Array.isArray(rels) ? rels : [];
     return list.map((rel) => {
