@@ -162,18 +162,23 @@ test('identity copy and association rows treat both types as first-class facts',
   assert.match(objectList, /targetType === 'friction'[\s\S]*?association\.status === 'observing' \|\| association\.status === 'open'\) return 'pending';[\s\S]*?association\.status === 'resolved' \|\| association\.status === 'voided'\) return 'closed';/);
 });
 
-test('terminal badges converge to neutral color and observing/voided keep their own status colors', () => {
+test('resolved 走达成绿而 voided 走收敛灰（Human 定案 2026-11）', () => {
   const statusBadge = read('src/components/StatusBadge.tsx');
   const statusColors = read('src/utils/statusColors.ts');
   const statusFilter = read('src/components/ObjectStatusFilter.tsx');
 
-  // 26 §9 / 27 号 §9 终态收敛色（已销账/已退役）。
-  assert.match(statusBadge, /objectType === 'friction' && status === 'resolved'/);
+  // Human 定案 2026-11：「已消账的icon应该是绿色的」——销账是**达成**而非收敛，
+  // 故 resolved 走正向达成绿（与 spark 的 implemented 同值、同例），
+  // **不**出现在 StatusBadge 的终态收敛分支里。
+  assert.doesNotMatch(statusBadge, /objectType === 'friction' && status === 'resolved'/,
+    '已销账不得走进中性收敛色分支');
+  assert.match(statusColors, /resolved: \{ light: '#059669', dark: '#00d4aa' \}/, '已销账＝达成绿');
+  // 收敛类终态仍是中性灰：已废弃（记错了的账）与已退役。
   assert.match(statusBadge, /objectType === 'friction' && status === 'voided'/);
   assert.match(statusBadge, /objectType === 'norm' && status === 'retired'/);
-  // observing（留观）与 voided（作废）各有独立状态色与过滤项。
-  assert.match(statusColors, /observing: \{ light: '#d4a017', dark: '#f0c040' \}/);
   assert.match(statusColors, /voided: \{ light: '#9ca3af', dark: '#6b7280' \}/);
+  // observing（留观）有独立状态色；四态过滤项齐全。
+  assert.match(statusColors, /observing: \{ light: '#d4a017', dark: '#f0c040' \}/);
   assert.match(statusFilter, /friction: \['observing', 'open', 'resolved', 'voided'\],/);
   assert.match(statusFilter, /norm: \['active', 'retired'\],/);
 });

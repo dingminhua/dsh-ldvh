@@ -32,7 +32,10 @@ export const STATUS_COLORS: Record<string, { light: string; dark: string }> = {
   closure_confirmation: { light: '#8b5cf6', dark: '#a78bfa' },
   accepted: { light: '#059669', dark: '#00d4aa' },
   closed: { light: '#64748b', dark: '#94a3b8' },
-  resolved: { light: '#6b7280', dark: '#6b7280' },
+  // 26 §9：Friction resolved（已销账）用正向达成绿，与 implemented 同值——销账
+  // 是**达成**而非收敛（Human 定案 2026-11：「已消账的icon应该是绿色的」）。
+  // 此前与已废弃同走中性灰，把「修好了」与「记错了」染成同一种颜色。
+  resolved: { light: '#059669', dark: '#00d4aa' },
   // 20 §9：Spark 终态 implemented（落实/交接）用正向达成绿（Human 定案
   // 2026-09-13），与 open（悬置，琥珀）、discarded（废弃，红）区分。
   implemented: { light: '#059669', dark: '#00d4aa' },

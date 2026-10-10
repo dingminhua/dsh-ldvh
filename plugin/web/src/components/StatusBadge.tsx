@@ -18,8 +18,9 @@ export default function StatusBadge({ status, statusLabel, objectType = '', size
     || (objectType === 'adr' && status === 'retired')
     || (objectType === 'pitfall' && status === 'discarded')
     || (objectType === 'workcase' && status === 'discarded')
-    // 26 §9 / 27 号 §9：终态用中性收敛色——已销账/已废弃/已退役是收敛而非警示。
-    || (objectType === 'friction' && status === 'resolved')
+    // 26 §9 / 27 号 §9：**收敛类**终态用中性灰——已废弃（记错了的账）与已退役
+    // 是收敛而非警示。已销账**不在其列**：它是达成，走配色表的正向绿（Human
+    // 定案 2026-11「已消账的icon应该是绿色的」；与下方 spark implemented 同例）。
     || (objectType === 'friction' && status === 'voided')
     || (objectType === 'norm' && status === 'retired')
     ? '#6b7280'
