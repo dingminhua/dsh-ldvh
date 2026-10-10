@@ -911,9 +911,9 @@ export async function correctFrictionObject(args) {
 /**
  * Enumerate Friction objects (F0/F1: deterministic filter + minimal
  * projection). Default status filter: open + observing (26 §12: observing 是
- * 活账——攒够待修的候选源；resolved 仅精确引用/历史追溯；voided 不进默认
- * 候选)；includeResolved includes all. Files that fail to parse are reported
- * in `invalid` — never skipped silently.
+ * 活账——攒够待修的候选源；resolved 与 voided 均为终态，仅精确引用/历史追溯
+ * 时展开)；includeResolved（历史命名，语义为「含全部终态」）includes all.
+ * Files that fail to parse are reported in `invalid` — never skipped silently.
  */
 export async function listFrictionObjects(args) {
   const { factSourceRoot, includeResolved = false, limit = 200 } = args;
@@ -966,7 +966,10 @@ export async function listFrictionObjects(args) {
       invalid.push({ file: entry.name, reason: `status ${JSON.stringify(status)} outside the closed set` });
       continue;
     }
-    if (!includeResolved && status === "resolved") continue;
+    // 26 §12：默认候选含 open 与 observing；resolved 与 voided 为终态，仅在
+    // 「精确引用/历史追溯」时展开。参数名 includeResolved 沿用历史命名，其实际
+    // 语义是「包含全部终态」（resolved + voided）——两个终态一并由此开关控制。
+    if (!includeResolved && (status === "resolved" || status === "voided")) continue;
     items.push({
       object_uid: uid,
       title: typeof frontmatter.title === "string" ? frontmatter.title : "",
@@ -988,3 +991,6 @@ export async function listFrictionObjects(args) {
 // the tool-plane JSON Schema must admit every field this closed set accepts, and a
 // field added here without a matching schema entry is unreachable via the tools.
 export { VALID_FM_KEYS };
+// 导出状态闭集供类型契约测试断言（test/friction-four-state.test.mjs）：闭集是
+// 26 §9 的机械口径，测试必须对着它而非复制一份字面量，否则规范与代码同时漂移。
+export { STATUSES as STATUSES_EXPORT_FOR_TEST };
