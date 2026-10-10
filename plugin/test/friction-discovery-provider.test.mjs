@@ -16,7 +16,7 @@ const VERDICT_SCHEMA_OK = {
   phenomenon: "",
   basis: "",
   impact: "light",
-  quote: "",
+  quote: "这是一段足够长的材料内容原文。",
   reason: "本次区间内没有反复出现的阻碍。",
 };
 
@@ -211,15 +211,24 @@ test("discover：onRun 观察钩子上报各阶段（供活动记账与实跑取
 // ---------------------------------------------------------------------------
 
 test("D5：provideWindow 返回 undefined / 空窗口 / 有材料，三种形状都不得抛错", async () => {
+  // 每个形状须给出与其窗口相称的引证：非空材料须引其原文，空/未提供引证为空
+  const material = "这是一段足够长的材料内容原文。";
   const shapes = [
-    ["undefined", undefined],
-    ["null", null],
-    ["空窗口", { items: [], truncated: false }],
-    ["有材料", { items: [{ turn: 3, assistant: "这是一段足够长的材料内容原文。" }], truncated: false }],
-    ["缺 items 字段", { truncated: false }],
+    ["undefined", undefined, ""],
+    ["null", null, ""],
+    ["空窗口", { items: [], truncated: false }, ""],
+    ["有材料", { items: [{ turn: 3, assistant: material }], truncated: false }, material],
+    ["缺 items 字段", { truncated: false }, ""],
   ];
-  for (const [label, shape] of shapes) {
-    const svc = fakeSubagents({ providers: [providerNamed("fork")] });
+  for (const [label, shape, quote] of shapes) {
+    const svc = fakeSubagents({
+      providers: [providerNamed("fork")],
+      startImpl: async () => ({
+        id: "run-shape",
+        result: Promise.resolve({ stopReason: "completed", structured: { ...VERDICT_SCHEMA_OK, quote } }),
+        dispose: async () => {},
+      }),
+    });
     const discover = createDiscoveryProvider({
       subagents: svc,
       parent: PARENT,
@@ -242,4 +251,32 @@ test("D5：无 provideWindow 时退回调用方给的 window（向后兼容旧�
   assert.equal(out.outcome, "no-discovery");
   // 提示词须含该材料（证明退回路径也把内容交了出去）
   assert.match(svc.starts[0].request.prompt[0].text, /这是一段足够长的材料内容原文。/);
+});
+
+test("D6：窗口有未观察缺口时，缺口被带出交由调用方登记（不静默、也不死锁）", async () => {
+  const svc = fakeSubagents({ providers: [providerNamed("fork")] });
+  const gap = { from: 11, to: 20 };
+  const discover = createDiscoveryProvider({
+    subagents: svc,
+    parent: PARENT,
+    signal: SIGNAL,
+    // 模拟重启后：水位说从 10 起，但本进程只见过 turn 21
+    provideWindow: () => ({ items: [{ turn: 21, assistant: "这是一段足够长的材料内容原文。" }], truncated: false, unobserved: gap }),
+  });
+  const out = await discover({ threshold: 3, candidates: [], window: { from: 10, to: 21 } });
+  assert.deepEqual(out.unobserved, gap, "缺口须如实带出，供调用方登记——不得静默丢弃");
+  // 但仍照常派生：缺口不可恢复（宿主不回放），拒不推进会永久停摆
+  assert.equal(svc.starts.length, 1, "缺口不阻止运行——否则机制永久停摆且每次检查点都塞队列");
+});
+
+test("D6：无缺口时 unobserved 为 null（不得误报）", async () => {
+  const svc = fakeSubagents({ providers: [providerNamed("fork")] });
+  const discover = createDiscoveryProvider({
+    subagents: svc,
+    parent: PARENT,
+    signal: SIGNAL,
+    provideWindow: () => ({ items: [{ turn: 11, assistant: "这是一段足够长的材料内容原文。" }], truncated: false, unobserved: null }),
+  });
+  const out = await discover({ threshold: 3, candidates: [], window: { from: 10, to: 11 } });
+  assert.equal(out.unobserved, null);
 });

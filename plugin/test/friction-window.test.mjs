@@ -117,7 +117,7 @@ test("累积：reset 清空（会话切换）", () => {
   acc.observe(null, assistantEvent(1, [{ type: "text", text: "x" }]));
   acc.reset();
   assert.equal(acc.windowFrom(null).items.length, 0);
-  assert.deepEqual(acc.snapshot(), { turns: 0, pendingUser: false });
+  assert.deepEqual(acc.snapshot(), { turns: 0, pendingUser: false, firstObservedTurn: null });
 });
 
 // ---------------------------------------------------------------------------
@@ -177,4 +177,75 @@ test("核对：空窗口下任何引证都被拒（没给材料就不能有依�
   const r = verifyQuotation("我依据某段内容判断", "");
   assert.ok(!r.ok);
   assert.equal(r.error.code, "discovery/quote_not_in_window");
+});
+
+// ---------------------------------------------------------------------------
+// 缺陷 D6：水位跨进程持久化，而累积器随进程存活 → 重启后区间可能有缺口
+//
+// 形态：宿主重启后累积器从空开始，水位仍是从前那次的值。若放行，该次运行的
+// 「no-discovery」会让水位推进越过**本进程从未观察**的那段，使其永久不被观察
+// （宿主只发布事件、不回放；本模块按 §8.4 纪律不读会话日志）。
+// ---------------------------------------------------------------------------
+
+test("D6：重启后在水位与首见轮次之间检出未观察缺口", () => {
+  const acc = createWindowAccumulator();
+  // 模拟：进程重启后只看到 turn 21 起的内容，而水位说应从 turn 11 起覆盖
+  acc.observe(null, assistantEvent(21, [{ type: "text", text: "装载后的第一段。" }]));
+  const w = acc.windowFrom(10);
+  assert.deepEqual(w.unobserved, { from: 11, to: 20 }, "缺口须被如实标出，而不是当作区间已覆盖");
+  assert.equal(acc.firstObservedTurn(), 21);
+});
+
+test("D6：无缺口时 unobserved 为 null（正常连续场景不得误报）", () => {
+  const acc = createWindowAccumulator();
+  for (let t = 11; t <= 14; t += 1) acc.observe(null, assistantEvent(t, [{ type: "text", text: `${t}` }]));
+  const w = acc.windowFrom(10);
+  assert.equal(w.unobserved, null, "连续覆盖时不得报缺口");
+});
+
+test("D6：首次运行（floor=null）无缺口可言——那正是「覆盖全部既有内容」的语义", () => {
+  const acc = createWindowAccumulator();
+  acc.observe(null, assistantEvent(50, [{ type: "text", text: "第一次运行看到的内容。" }]));
+  const w = acc.windowFrom(null);
+  assert.equal(w.unobserved, null, "首次运行不设缺口");
+});
+
+test("D6：缺口起点恰为首见轮次时不算缺口（紧邻）", () => {
+  const acc = createWindowAccumulator();
+  acc.observe(null, assistantEvent(11, [{ type: "text", text: "紧邻水位之后。" }]));
+  assert.equal(acc.windowFrom(10).unobserved, null);
+});
+
+test("D6：reset 后首见轮次一并清零（会话切换不得沿用旧缺口基准）", () => {
+  const acc = createWindowAccumulator();
+  acc.observe(null, assistantEvent(9, [{ type: "text", text: "旧会话。" }]));
+  acc.reset();
+  assert.equal(acc.firstObservedTurn(), null);
+  acc.observe(null, assistantEvent(30, [{ type: "text", text: "新会话。" }]));
+  assert.equal(acc.firstObservedTurn(), 30);
+});
+
+test("D6：容量淘汰不改变「最小已见轮次」这一事实", () => {
+  const acc = createWindowAccumulator({ maxTurns: 2 });
+  for (let t = 1; t <= 5; t += 1) acc.observe(null, assistantEvent(t, [{ type: "text", text: `${t}` }]));
+  assert.equal(acc.firstObservedTurn(), 1, "见过 turn 1 是历史事实，不因缓冲淘汰而改变");
+  assert.deepEqual(acc.windowFrom(null).items.map((i) => i.turn), [4, 5]);
+});
+
+test("发现②护栏：累积器从未收到任何事件时，缺口必须被报出（上界未知）", () => {
+  const acc = createWindowAccumulator();
+  // 本进程什么都没看到，而水位要求从 32 起覆盖 —— 这正是「刚重启/事件流未达」
+  const w = acc.windowFrom(31);
+  assert.deepEqual(
+    w.unobserved,
+    { from: 32, to: null },
+    "空累积器 + 非空水位 = 整段未观察。不得报 null（那会让空窗口的 no-discovery 推进水位，使内容永不复查）",
+  );
+  assert.equal(w.items.length, 0);
+});
+
+test("发现②护栏：上述情形下不得被当作『区间已完整覆盖且无发现』", () => {
+  const acc = createWindowAccumulator();
+  const w = acc.windowFrom(31);
+  assert.ok(w.unobserved !== null, "有水位却无任何材料，必然存在缺口——判据是『水位 > 0 且未见过任何轮次』");
 });

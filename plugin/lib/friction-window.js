@@ -65,12 +65,25 @@ export function createWindowAccumulator({ maxCharsPerTurn = MAX_CHARS_PER_TURN, 
   /** turn 号 → { turn, user, assistant, truncated }（插入序即发生序）。 */
   const turns = new Map();
   let pendingUser = null;
+  /**
+   * 本累积器**实际看到过**的最小轮次（缺陷 D6 的修复）。
+   *
+   * 为什么必须记：累积器随进程存活，而水位**跨进程持久化**。宿主重启后，累积器
+   * 从空开始，而水位仍是从前那次运行的值——于是水位要求覆盖的区间里，有一段
+   * （`水位+1 .. 首见轮次-1`）**本进程从未观察过**。若不标记它，`windowFrom`
+   * 会返回一段看似完整的窗口，该次运行若报 `no-discovery`，水位便推进越过那段，
+   * **那段内容即永久不会被观察**（宿主只发布事件、不回放；本模块按 §8.4 纪律
+   * 不读会话日志）。
+   */
+  let firstObservedTurn = null;
 
   function record(turn, patch) {
     const existing = turns.get(turn) ?? { turn, user: "", assistant: "", truncated: false };
     const merged = { ...existing, ...patch };
     turns.set(turn, merged);
-    // 简单容量控制：超过上限即丢最旧的。
+    if (firstObservedTurn === null || turn < firstObservedTurn) firstObservedTurn = turn;
+    // 简单容量控制：超过上限即丢最旧的。注意 `firstObservedTurn` **不随之回退**
+    // ——它记的是「本进程见过的最小轮次」这一事实，丢了缓冲也不改变该事实。
     while (turns.size > maxTurns) {
       const oldest = turns.keys().next().value;
       turns.delete(oldest);
@@ -147,7 +160,49 @@ export function createWindowAccumulator({ maxCharsPerTurn = MAX_CHARS_PER_TURN, 
       const items = [...turns.values()]
         .filter((entry) => entry.turn > floor)
         .sort((a, b) => a.turn - b.turn);
-      return { items, truncated: items.some((entry) => entry.truncated === true) };
+
+      // 缺陷 D6：窗口起点与「本进程实际见过的最小轮次」之间的缺口。
+      // 首次运行（floor = -1）时无缺口可言——那正是「覆盖全部既有内容」的语义。
+      // 有缺口即如实标记，**不得**让调用方以为区间已完整覆盖。
+      //
+      // **复核发现②的修复**：`firstObservedTurn === null`（本进程从未见过任何
+      // 事件——刚装载、或事件流未达）**本身就是最严重的缺口**。早先的写法要求
+      // `firstObservedTurn !== null` 才判缺口，于是这种情形下 `unobserved` 为
+      // null，空窗口被当成「区间已完整覆盖且无发现」，`no-discovery` 照常推进
+      // 水位——整段内容永不再被观察。此时缺口区间为 **开到区间终点**（未知上界）。
+      //
+      // **复核发现③的修复**：环形缓冲淘汰最旧轮次后，`items` 的起点会晚于
+      // `floor`，窗口静默不完整。故缺口判定以「本次返回的最小轮次」为准，而不是
+      // 只看 `firstObservedTurn`。
+      const gapStart = floor >= 0 ? floor + 1 : null;
+      let unobserved = null;
+      if (gapStart !== null) {
+        if (firstObservedTurn === null) {
+          // 本进程什么都没看到：从区间起点到未知上界全属未观察。
+          unobserved = { from: gapStart, to: null };
+        } else if (gapStart < firstObservedTurn) {
+          unobserved = { from: gapStart, to: firstObservedTurn - 1 };
+        }
+      }
+      // ③ 缓冲淘汰造成的缺口：本次 items 的最小轮次若晚于区间起点（而首见轮次
+      //    本应更早），则 items 与 floor 之间也有一段未含在窗口里。
+      //    （`firstObservedTurn` 已被淘汰覆盖时，items 起点即最小可得轮次。）
+      if (gapStart !== null && items.length > 0 && unobserved === null) {
+        const lowestInItems = items[0].turn;
+        if (gapStart < lowestInItems) unobserved = { from: gapStart, to: lowestInItems - 1 };
+      }
+
+      return {
+        items,
+        truncated: items.some((entry) => entry.truncated === true),
+        // 本进程未观察到的轮次区间（null = 无缺口）。
+        unobserved,
+      };
+    },
+
+    /** 本进程实际观察到的最小轮次（诊断；缺口判定用）。 */
+    firstObservedTurn() {
+      return firstObservedTurn;
     },
 
     /** 缓冲里已知的最大轮次（用于诊断；不参与切分判定）。 */
@@ -161,11 +216,12 @@ export function createWindowAccumulator({ maxCharsPerTurn = MAX_CHARS_PER_TURN, 
     reset() {
       turns.clear();
       pendingUser = null;
+      firstObservedTurn = null;
     },
 
     /** 诊断快照。 */
     snapshot() {
-      return { turns: turns.size, pendingUser: pendingUser !== null };
+      return { turns: turns.size, pendingUser: pendingUser !== null, firstObservedTurn };
     },
   };
 }

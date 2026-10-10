@@ -142,7 +142,7 @@ export function buildDiscoveryPrompt({ threshold, candidates = [], window: windo
     "## 你只能依据本次材料判断（重要）",
     "**下面「本次观察材料」是本次运行的唯一依据。**你虽然继承了大量上下文，但**不得**依据材料之外的任何内容作出发现——那些内容要么已由上一次运行处理过，要么属于更早的历史（04 §8.4「观察范围的切分（水位）」段）。",
     "你的判断必须**逐字引证**材料中的原文（`quote` 字段），落地侧会机械核对该引证是否真出现在材料里；**引证不在材料中即判定该判断不成立**。",
-    "材料为空时只能报 `no-discovery`，且 `quote` 填空字符串。",
+    "材料为空时只能报 `no-discovery`，且 `quote` 填空字符串；**材料非空时，即使结论是 `no-discovery` 也必须引证一段材料原文**（否则「恒报无发现」与正确运行无从区分）。",
     truncatedNote,
     "",
     "## 本次观察材料",
@@ -156,7 +156,7 @@ export function buildDiscoveryPrompt({ threshold, candidates = [], window: windo
     "判定的三态：",
     "- `same-obstacle`：本次材料的内容与**既有某条账目**是同一阻碍 → 必填 `target_uid`（该账目的 uid）。",
     "- `new-obstacle`：本次材料的内容构成一个**账本尚未记录**的阻碍 → 必填 `title`/`phenomenon`/`basis`/`impact`。",
-    "- `no-discovery`：本次材料中**没有**构成系统性阻碍的现象 → 其余字段填空字符串（`impact` 填 \"light\" 占位）。",
+    "- `no-discovery`：本次材料中**没有**构成系统性阻碍的现象 → 其余字段填空字符串（`impact` 填 \"light\" 占位）；材料非空时 `quote` 仍须填一段材料原文。",
     "",
     "## 产出方式",
     "用结构化输出工具提交你的结论。**不要用纯文本作答**——只有工具提交算数。",
@@ -192,10 +192,26 @@ export function validateDiscoveryVerdict(structured, { candidates = [], windowTe
   // D1 的核心：逐字引证 + 机械核对（04 §8.4 水位段——切分依据不得由 AI 判断）。
   // 提供了 windowText 才做核对；未提供时**只**校验 quote 存在，且调用方不应
   // 在这种情况下落地（会在 lifecycle 里被拦，见 friction-landing 的调用点）。
+  // 复核发现④的修复：**非空窗口**下的 `no-discovery` 也必须引证。
+  // 早先的写法对 no-discovery 免引证，于是「恒报无发现」这一失效**完全不可见**
+  // ——它每次都推进水位、永不入账，而从记录上看不出任何异常。要求它至少引证一段
+  // 材料原文，使「它确实看过材料」成为可核对的机械事实（引证还必须真在窗口内，
+  // 见下方 verifyQuotation）。
+  // 空窗口（本次没有材料）是唯一的例外：那时无从引证，且此时 quote 必须为空。
+  // 判据：**本次确实提供了窗口材料**（`windowText` 为字符串）时，无论三态都须引证。
+  // 未提供窗口（`windowText === null`）时只做形状校验——那是「调用方未启用核对」
+  // 的旧调用面，不是「材料为空」。
+  const windowProvided = typeof windowText === "string";
+  const windowIsEmpty = windowProvided && windowText.trim().length === 0;
   if (verdict === "no-discovery") {
-    // 空窗口允许 quote 为空；非空窗口仍要求引证（否则无从核对它确实看过材料）。
     if (typeof quote !== "string") {
       return failure("discovery/quote_missing", "quote must be a string (empty only when the window itself is empty)");
+    }
+    if (windowProvided && !windowIsEmpty && quote.trim().length === 0) {
+      return failure(
+        "discovery/quote_missing",
+        "no-discovery over a non-empty window still requires a verbatim quote — without it, a verdict that always answers 'no discovery' (never recording anything) is indistinguishable from correct operation",
+      );
     }
   } else if (typeof quote !== "string" || quote.trim().length === 0) {
     return failure(

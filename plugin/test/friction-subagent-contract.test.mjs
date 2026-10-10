@@ -250,13 +250,37 @@ test("validate: 引证确实在窗口内则通过（正例，证明上一条不�
   assert.equal(r.value.quote, "这次构建在链接阶段失败了。");
 });
 
-test("validate: no-discovery 在非空窗口下仍须引证（否则无从确认它真看过材料）", () => {
+test("发现④：no-discovery 在**非空窗口**下也须引证（否则「恒报无发现」无从发现）", () => {
+  const windowText = "[turn 1]\nassistant: 这里有大量内容，其中包含一段可引证原文。";
+  const missing = validateDiscoveryVerdict(
+    verdict({ verdict: "no-discovery", quote: "" }),
+    { candidates: CANDIDATES, windowText },
+  );
+  assert.ok(!missing.ok, "非空窗口下 no-discovery 免引证 → 恒报无发现的失效不可见");
+  assert.equal(missing.error.code, "discovery/quote_missing");
+
+  const withQuote = validateDiscoveryVerdict(
+    verdict({ verdict: "no-discovery", quote: "这里有大量内容，其中包含一段可引证原文。" }),
+    { candidates: CANDIDATES, windowText },
+  );
+  assert.ok(withQuote.ok, JSON.stringify(withQuote.error));
+});
+
+test("发现④：**空窗口**下 no-discovery 的引证必须为空（那时无从引证）", () => {
   const r = validateDiscoveryVerdict(
     verdict({ verdict: "no-discovery", quote: "" }),
-    { candidates: CANDIDATES, windowText: "[turn 1]\nassistant: 有材料。" },
+    { candidates: CANDIDATES, windowText: "" },
   );
-  // no-discovery 允许空引证（它主张的是「没有发现」，无需指向具体原文）
-  assert.ok(r.ok, "no-discovery 的空引证是合法的");
+  assert.ok(r.ok, JSON.stringify(r.error));
+});
+
+test("发现④：no-discovery 引证窗口外文本同样被拒（引证核对不因三态而放松）", () => {
+  const r = validateDiscoveryVerdict(
+    verdict({ verdict: "no-discovery", quote: "这是我凭上下文回忆出来的一段内容。" }),
+    { candidates: CANDIDATES, windowText: "[turn 1]\nassistant: 材料里的原文。" },
+  );
+  assert.ok(!r.ok);
+  assert.equal(r.error.code, "discovery/quote_not_in_window");
 });
 
 test("prompt: 窗口材料以**内容本身**交付，且明示唯一依据 + 引证要求", () => {

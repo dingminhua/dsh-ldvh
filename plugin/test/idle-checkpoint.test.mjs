@@ -219,7 +219,7 @@ test("§8.4 水位：把本次区间（自上水位起）交给执行体", async
   });
 });
 
-test("§8.4 水位：执行体成功且给出 watermarkTurn 时推进水位", async () => {
+test("§8.4 水位：执行体成功时不自行推进，而是把可推进轮次交给调用方（顺序纪律）", async () => {
   await withHome(async ({ home, factSourceRoot }) => {
     const { readWatermark } = await import("../lib/friction-watermark.js");
     const r = await runIdleCheckpoint({
@@ -231,9 +231,12 @@ test("§8.4 水位：执行体成功且给出 watermarkTurn 时推进水位", as
       discover: async () => ({ outcome: "no-new-obstacle", watermarkTurn: 4 }),
     });
     assert.ok(r.ok, JSON.stringify(r.error));
-    assert.equal(r.value.watermark_advanced, true);
+    // 复核发现①：本层**不再自行推进**——推进须在调用方**落地成功之后**发生，
+    // 否则落地失败时水位已前进而账目未写入，那段内容永不复查。
+    assert.equal(r.value.pending_watermark_turn, 4, "可推进轮次须交给调用方");
+    assert.equal(r.value.watermark_advanced, false, "本层不推进");
     const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION });
-    assert.equal(w.value.lastTurn, 4);
+    assert.equal(w.value.lastTurn, null, "调用方尚未推进，水位应保持不变");
   });
 });
 
@@ -301,8 +304,11 @@ test("§8.4 水位：缺 sessionId / currentTurn 时 fail-closed（不得退化�
 test("§8.4 水位：第二次运行从上次水位起算（区间不再从零开始）", async () => {
   await withHome(async ({ home, factSourceRoot }) => {
     const seen = [];
-    const run = () =>
-      runIdleCheckpoint({
+    // 调用方负责在「落地成功之后」推进水位（顺序纪律）——此测试模拟一个
+    // 正确实现的调用方。
+    const { advanceWatermark } = await import("../lib/friction-watermark.js");
+    const run = async () => {
+      const r = await runIdleCheckpoint({
         dshHomePath: home,
         factSourceRoot,
         task: "idle-review",
@@ -313,6 +319,11 @@ test("§8.4 水位：第二次运行从上次水位起算（区间不再从零�
           return { outcome: "no-new-obstacle", watermarkTurn: w.to };
         },
       });
+      if (r.ok && Number.isInteger(r.value.pending_watermark_turn)) {
+        await advanceWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, turn: r.value.pending_watermark_turn });
+      }
+      return r;
+    };
     await run();
     await run();
     assert.deepEqual(seen[0], { from: null, to: 3 }, "首次覆盖全部既有内容");

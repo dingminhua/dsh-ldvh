@@ -130,6 +130,22 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
       throw error;
     }
 
+    // 缺陷 D6 + 复核发现②③：区间缺口（水位要求覆盖的起点与「本进程实际见过
+    // 的最小轮次」之间的空洞，或因缓冲淘汰产生的空洞）。
+    //
+    // **处置取舍（重要）**：缺口是**不可恢复**的——宿主只发布事件、不回放，而本
+    // 模块按 §8.4 纪律不读会话日志，故那段内容确实永远拿不回来了。此时：
+    //
+    //   ✗ 一律 fail-closed 不动水位 → 缺口永远在 → 机制**永久停摆**，且每次检查点
+    //     都往待处置队列塞一条，比原问题更糟。
+    //   ✗ 静默跳过 → 内容丢失而不留痕（正是要防的）。
+    //   ✓ 如实登记缺口，并把水位推过缺口后在可观察部分正常继续。
+    //
+    // 故这里**不抛错**，而是把缺口交给调用方登记，并让本次照常运行（子代理只看
+    // 得到它真正拿到的材料）。水位推进由调用方在落地成功之后执行，且推进终值为
+    // 本次区间终点——越过缺口是**已知并已登记**的损失，而非静默遗漏。
+    const unobserved = effectiveWindow?.unobserved ?? null;
+
     const prompt = buildDiscoveryPrompt({ threshold, candidates, window: effectiveWindow });
     const outputSchema = discoveryOutputSchema();
 
@@ -197,6 +213,9 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     return {
       outcome: verdict.verdict,
       verdict,
+      // 本次区间中**本进程未观察到**的轮次（null = 无缺口）。调用方须如实登记，
+      // 不得静默丢弃（复核发现②③）。
+      unobserved,
       // 水位推进的**唯一**凭据：本次运行成功完成且（闭集第 5 项）回读通过时，
       // 让水位前进到本次区间终点。未给出即不推进（§8.4 水位段）。
       watermarkTurn: Number.isInteger(windowRange?.to) ? windowRange.to : undefined,

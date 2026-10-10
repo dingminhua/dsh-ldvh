@@ -195,25 +195,17 @@ export async function runIdleCheckpoint({
     });
   }
 
-  // §8.4 水位段「推进与不推进」：仅当本次运行成功完成（含闭集第 5 项精确回读）
-  // 时才推进。`decision.watermarkTurn` 由落地侧在回读通过后给出；缺席即不推进。
-  let watermarkAdvanced = false;
-  if (Number.isInteger(decision?.watermarkTurn)) {
-    const advanced = await advanceWatermark(dshHomePath, {
-      projectRoot: projectRoot ?? factSourceRoot,
-      sessionId,
-      turn: decision.watermarkTurn,
-    });
-    if (!advanced.ok) {
-      return recordAndFail(dshHomePath, {
-        task: taskId,
-        reason: `水位推进失败（本次已落盘的结果不受影响，但区间界定失真）：${advanced.error.message}`,
-        residual: [`水位键 ${advanced.error.code}`],
-        at,
-      });
-    }
-    watermarkAdvanced = true;
-  }
+  // §8.4 水位段「推进与不推进」：仅当本次运行**成功完成**时才推进。
+  //
+  // **顺序纪律（复核发现①的修复）**：水位推进必须以「落地已成功」为前提——
+  // 早先的实现把推进放在本层、而落地由调用方在**更晚**执行，于是落地失败时
+  // 水位已前进、账目却从未写入：那段窗口被标记为已处理，内容**永远不会再被
+  // 观察**（宿主只发布事件、不回放；本模块按 §8.4 纪律不读会话日志）。这与
+  // 缺陷 D2 同形态（看起来在跑、实质无产出），且更隐蔽。
+  //
+  // 故本层**不再自行推进**，而是把「可推进的轮次」交给调用方，由调用方在
+  // **落地成功之后**推进。判定权仍在本层（何时可推进），只是执行时机后移。
+  const pendingWatermarkTurn = Number.isInteger(decision?.watermarkTurn) ? decision.watermarkTurn : null;
 
   // 子代理的判断结果由调用方（发现子代理）机械落地——本层不解释其语义，
   // 只要求它是结构化结果并如实上抛。
@@ -221,10 +213,12 @@ export async function runIdleCheckpoint({
     task: taskId,
     outcome: decision?.outcome ?? "reported",
     decision,
+    // 调用方在**落地成功后**据此推进水位（本层已判定其可推进）。
+    pending_watermark_turn: pendingWatermarkTurn,
+    watermark_advanced: false,
     threshold: FRICTION_THRESHOLD_N,
     candidates: candidates.value.candidates.length,
     window: windowRange,
-    watermark_advanced: watermarkAdvanced,
     at,
   });
 }

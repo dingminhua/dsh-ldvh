@@ -29,6 +29,7 @@ import { createTurnTriggers } from "./triggers.js";
 import { runIdleCheckpoint, selectAuxTask } from "./idle-checkpoint.js";
 import { createDiscoveryProvider } from "./friction-discovery-provider.js";
 import { landDiscoveryVerdict } from "./friction-landing.js";
+import { advanceWatermark } from "./friction-watermark.js";
 import { appendPendingEntry } from "./pending-queue.js";
 import { currentRouteValues } from "./session-signature.js";
 import { authoritativeSignature } from "./signature-channel.js";
@@ -380,12 +381,53 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   residual: landed.error?.cause ? [String(landed.error.cause.message ?? landed.error.cause)] : [],
                   at: new Date().toISOString(),
                 });
+                // **不推进水位**（复核发现①的修复）：落地失败即本次未产出，窗口
+                // 必须留待下次重覆盖——否则那段内容会被标记为已处理却从未入账，
+                // 且永不复查（宿主只发布事件、不回放）。
+                lifecycle.activity?.record("session/checkpoint/landed", { action: "failed", watermark_advanced: false });
+              } else {
+                lifecycle.activity?.record("session/checkpoint/landed", {
+                  action: landed.value.action,
+                  object_uid: landed.value.object_uid,
+                  promoted: landed.value.promoted,
+                });
+                // 复核发现②③：本次区间里本进程未观察到的轮次须**如实登记**，
+                // 不得静默丢弃。缺口不可恢复（宿主不回放、本模块不读会话日志），
+                // 故处置是「登记 + 越过」，而不是拒不推进（那会永久停摆）。
+                const gap = checkpoint.value?.decision?.unobserved;
+                if (gap && typeof gap === "object") {
+                  await appendPendingEntry(dshHomePath, {
+                    task: taskForThisCheckpoint,
+                    reason: `观察区间存在未覆盖缺口：turn ${gap.from}${gap.to === null || gap.to === undefined ? " 起（上界未知）" : `–${gap.to}`} 未被本进程观察到（宿主不回放事件，缺口不可恢复）`,
+                    residual: [`缺口 ${gap.from}..${gap.to ?? "unknown"} 的内容未被观察`, "水位将越过该缺口——此为该区间的已知损失"],
+                    at: new Date().toISOString(),
+                  });
+                  lifecycle.activity?.record("session/checkpoint/window-gap", { from: gap.from, to: gap.to ?? null });
+                }
+                // **落地成功之后**才推进水位（顺序纪律）：推进意味着「本区间已处理
+                // 完毕」；只有账目确实写成（或确认为无发现）时才成立。
+                const pendingTurn = checkpoint.value?.pending_watermark_turn;
+                if (Number.isInteger(pendingTurn)) {
+                  const advanced = await advanceWatermark(dshHomePath, {
+                    projectRoot: scope.project.path,
+                    sessionId,
+                    turn: pendingTurn,
+                  });
+                  if (!advanced.ok) {
+                    // 落地已成功、水位未推进：下次会重覆盖同一区间。**重覆盖不会
+                    // 重复计数**吗——会。故此处必须入队如实登记，不得静默。
+                    await appendPendingEntry(dshHomePath, {
+                      task: taskForThisCheckpoint,
+                      reason: `水位推进失败（账目已写入，下次将重覆盖同一区间，可能重复计数）：${advanced.error.message}`,
+                      residual: [`水位键 ${advanced.error.code}`, `重覆盖区间终点 turn=${pendingTurn}`],
+                      at: new Date().toISOString(),
+                    });
+                    lifecycle.activity?.record("session/checkpoint/watermark", { advanced: false, code: advanced.error.code, turn: pendingTurn });
+                  } else {
+                    lifecycle.activity?.record("session/checkpoint/watermark", { advanced: true, turn: pendingTurn });
+                  }
+                }
               }
-              lifecycle.activity?.record("session/checkpoint/landed", {
-                action: landed.ok ? landed.value.action : "failed",
-                object_uid: landed.ok ? landed.value.object_uid : null,
-                promoted: landed.ok ? landed.value.promoted : null,
-              });
             }
           } else if (checkpoint?.ok === false) {
             // 调度层已自行入队（recordAndFail），此处只记活动，不重复登记。

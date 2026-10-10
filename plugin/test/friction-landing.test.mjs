@@ -371,3 +371,68 @@ test("D2 回归护栏：落地取的是 decision.verdict（层级写错等于永
     "lifecycle.js 未从 decision.verdict 取判断结果",
   );
 });
+
+// ---------------------------------------------------------------------------
+// 复核发现① 回归护栏：水位推进必须以「落地成功」为前提（顺序纪律）
+//
+// 形态：水位在 idle-checkpoint 内推进（早），落地在 lifecycle 内执行（晚）。
+// 落地失败时水位已前进、账目却未写入 → 那段窗口被标记为已处理，内容**永不
+// 再被观察**（宿主只发布事件、不回放）。与 D2 同形态（静默无产出）且更隐蔽。
+// ---------------------------------------------------------------------------
+
+test("发现①护栏：idle-checkpoint 不得自行推进水位（须交给调用方在落地后执行）", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { fileURLToPath } = await import("node:url");
+  const { dirname: dirOf, join: joinOf } = await import("node:path");
+
+  const path = joinOf(dirOf(fileURLToPath(import.meta.url)), "..", "lib", "idle-checkpoint.js");
+  const raw = await readFile(path, "utf8");
+  const text = raw
+    .split("\n")
+    .map((line) => (line.trimStart().startsWith("//") ? "" : line))
+    .join("\n");
+
+  assert.ok(
+    !/advanceWatermark\s*\(/.test(text),
+    "idle-checkpoint.js 自行调用了 advanceWatermark——水位会在落地之前推进（复核发现①）。" +
+      "须改为把可推进轮次交给调用方，由其在**落地成功后**推进。",
+  );
+  assert.match(text, /pending_watermark_turn/, "idle-checkpoint 须把可推进轮次交给调用方");
+});
+
+test("发现①护栏：lifecycle 须在落地成功之后才推进水位（顺序不可倒置）", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { fileURLToPath } = await import("node:url");
+  const { dirname: dirOf, join: joinOf } = await import("node:path");
+
+  const path = joinOf(dirOf(fileURLToPath(import.meta.url)), "..", "lib", "lifecycle.js");
+  const raw = await readFile(path, "utf8");
+  const lines = raw.split("\n");
+
+  const landAt = lines.findIndex((l) => /await landDiscoveryVerdict\s*\(/.test(l));
+  const advanceAt = lines.findIndex((l) => /await advanceWatermark\s*\(/.test(l));
+  assert.ok(landAt >= 0, "lifecycle 未调用 landDiscoveryVerdict（D2 形态）");
+  assert.ok(advanceAt >= 0, "lifecycle 未调用 advanceWatermark——则水位永不推进");
+  assert.ok(
+    landAt < advanceAt,
+    `landDiscoveryVerdict (行 ${landAt + 1}) 必须在 advanceWatermark (行 ${advanceAt + 1}) 之前——` +
+      "否则落地失败时水位已前进，那段内容永不再被观察（复核发现①）",
+  );
+
+  // 推进须落在「落地成功」分支内：以结构判据（失败分支的位置）判定，
+  // 而不是正则猜测缩进形态。
+  const advanceIdx = raw.indexOf("await advanceWatermark");
+  const failBranchIdx = raw.indexOf("if (!landed.ok)");
+  assert.ok(failBranchIdx >= 0, "lifecycle 未检查落地结果（landed.ok）——失败会被静默吞掉");
+  assert.ok(
+    advanceIdx > failBranchIdx,
+    "水位推进出现在落地失败分支之前——须确保「落地不成功则不推进」（复核发现①）",
+  );
+  const failBranchEnd = raw.indexOf("const pendingTurn", failBranchIdx);
+  assert.ok(failBranchEnd > failBranchIdx, "无法定位落地失败分支的结束位置");
+  const failBranchBody = raw.slice(failBranchIdx, failBranchEnd);
+  assert.ok(
+    !/advanceWatermark/.test(failBranchBody),
+    "落地失败分支内出现了 advanceWatermark——失败时不得推进水位",
+  );
+});
