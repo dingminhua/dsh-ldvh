@@ -1,5 +1,6 @@
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { AlertTriangle, ChevronLeft, ChevronRight, GitCommit } from 'lucide-react';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import StatusBadge from '@/components/StatusBadge';
 import { getFieldLabel, getLocalizedObjectTitle, getObjectStatusLocale } from '@/i18n/locales';
@@ -219,6 +220,12 @@ function RelationTarget({ relation, currentProjectId, locale, showRelationKey }:
   showRelationKey: boolean;
 }) {
   const target = relation.target;
+  // 02 §8.1「commit 形态」：解药是一次受控提交，不是事实对象——跳提交详情页。
+  // 必须在两个对象分支之前判定：commit 目标既无 resolvedTarget 也无
+  // governedProjectId，落到最后的 ExternalRelationTarget 会被当外链渲染。
+  if ('commit' in target) {
+    return <CommitRelationTarget relation={relation} locale={locale} showRelationKey={showRelationKey} />;
+  }
   if ('objectUid' in target && relation.resolvedTarget
     && currentProjectId && relation.resolvedTarget.governedProjectId === currentProjectId) {
     return <ReadableRelationTarget relation={relation} locale={locale} showRelationKey={showRelationKey} />;
@@ -290,12 +297,51 @@ function relationTargetTitle(detail: ObjectDetail | null, readMeta: ReturnType<t
 }
 
 /** A target outside the currently readable project remains a reference, not a fabricated local object. */
+/**
+ * 02 §8.1「commit 形态」的目标行：解药是一次受控提交，点击进入提交详情页
+ * （/changelog/:hash，与 Changelog 列表同一入口）。提交不是事实对象，故没有
+ * 标题/状态可展示——显示短 hash 并在悬停时给出全 hash（08 §5 的引用纪律：
+ * 不复制目标标题进关系，本行只呈现定位所需的最小信息）。
+ */
+function CommitRelationTarget({ relation, locale, showRelationKey }: {
+  relation: ReadingRelation;
+  locale: string;
+  showRelationKey: boolean;
+}) {
+  const navigate = useNavigate();
+  const target = relation.target;
+  if (!('commit' in target)) return null;
+  const short = target.commit.slice(0, 7);
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    navigate(`/changelog/${target.commit}`);
+  };
+  return (
+    <div
+      role="link"
+      tabIndex={0}
+      title={target.commit}
+      onClick={() => navigate(`/changelog/${target.commit}`)}
+      onKeyDown={onKeyDown}
+      className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-2 transition-colors hover:bg-ldvh-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ldvh-accent/45"
+    >
+      <GitCommit size={13} className="shrink-0 text-ldvh-text-secondary" />
+      {showRelationKey && <RelationKeyChip relationKey={relation.relationKey} locale={locale} />}
+      <span className="ldvh-meta-primary min-w-0 flex-1 truncate font-mono">{short}</span>
+    </div>
+  );
+}
+
 function ExternalRelationTarget({ relation, locale, showRelationKey }: {
   relation: ReadingRelation;
   locale: string;
   showRelationKey: boolean;
 }) {
   const target = relation.target;
+  // commit 目标由 CommitRelationTarget 承接，不落到这里——此函数只处理两种对象
+  // locator 形态。收窄以满足类型：commit 分支在此不可达。
+  if ('commit' in target) return null;
   const isUid = 'objectUid' in target;
   const factTypeKey = isUid ? 'uid' : target.factTypeKey;
   const typeColor = CATEGORY_COLORS[factTypeKey] || CATEGORY_COLORS.other;

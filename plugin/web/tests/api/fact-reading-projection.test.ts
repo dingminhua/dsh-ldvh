@@ -70,6 +70,41 @@ test('legacy reference fields are not projected', () => {
   assert.deepEqual(projected.unresolved, []);
 });
 
+test('commit-form targets project as relations, not unresolved (02 §8.1 commit 形态)', () => {
+  // 回归：commit 形态的 target 此前落进 unresolved 桶，导致 commit 级解药
+  // （如 bf73fad4 的 informs）在阅读界面上完全不可见。
+  const commit = 'e4e178fd7e3293f47003ed0150ab1128cc6ae0ef';
+  const projected = projectFactReadingAssociations({
+    relations: [{ relation_key: 'informs', target: { commit } }],
+  });
+  assert.deepEqual(projected.unresolved, []);
+  assert.equal(projected.relations.length, 1);
+  assert.deepEqual(projected.relations[0].target, { commit });
+  // 分组：commit 目标单列一组，不并进 'uid' 或任何对象类型
+  assert.deepEqual(
+    groupRelationsByTargetType(projected.relations).map((g) => g.factTypeKey),
+    ['commit'],
+  );
+});
+
+test('commit-form targets reject mixed shapes and non-hex values (02 §8.1/§8.2)', () => {
+  // 互斥与形状纪律在阅读层同样成立：混带 object_uid、短 hash、非 hex 一律不可解析，
+  // 须留在 unresolved 而不是被静默渲染成一个「像 commit」的目标。
+  const projected = projectFactReadingAssociations({
+    relations: [
+      { relation_key: 'informs', target: { commit: 'a'.repeat(40), object_uid: '0198f1c7-8a2b-4c3d-9e4f-123456789abc' } },
+      { relation_key: 'informs', target: { commit: 'abc1234' } },
+      { relation_key: 'informs', target: { commit: 'z'.repeat(40) } },
+      { relation_key: 'informs', target: { commit: 'refs/heads/main' } },
+    ],
+  });
+  assert.deepEqual(
+    projected.unresolved.map((item) => item.originPath),
+    ['relations[0]', 'relations[1]', 'relations[2]', 'relations[3]'],
+  );
+  assert.deepEqual(projected.relations, []);
+});
+
 test('malformed relations stay visible as unresolved', () => {
   const objectUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc';
   const projected = projectFactReadingAssociations({
@@ -96,7 +131,7 @@ test('groups ordinary relations by target type rather than their relation key', 
       { relation_key: 'related-to', target: { governed_project_id: 'sample', fact_type_key: 'spark', object_id: 'spark-0003' } },
     ],
   }).relations;
-  assert.deepEqual(groupRelationsByTargetType(relations).map((group) => [group.factTypeKey, group.relations.map((relation) => 'objectId' in relation.target ? relation.target.objectId : relation.target.objectUid)]), [
+  assert.deepEqual(groupRelationsByTargetType(relations).map((group) => [group.factTypeKey, group.relations.map((relation) => ('commit' in relation.target ? relation.target.commit : ('objectId' in relation.target ? relation.target.objectId : relation.target.objectUid)))]), [
     ['spark', ['spark-0002', 'spark-0003']],
     ['research', ['research-0001']],
   ]);

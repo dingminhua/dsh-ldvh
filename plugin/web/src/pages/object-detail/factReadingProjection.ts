@@ -9,6 +9,11 @@ export type ReadingRelation = {
     governedProjectId: string;
     factTypeKey: string;
     objectId: string;
+  } | {
+    // 02 §8.1「commit 形态」：解药本身是一次受控提交、没有任何对象身份时，
+    // target 直接取 commit。它不是事实对象，故无 objectId 可解析——渲染层改为
+    // 跳提交详情页（/changelog/:hash）而非对象详情。
+    commit: string;
   };
   resolvedTarget?: {
     governedProjectId: string;
@@ -114,9 +119,12 @@ export function projectFactReadingAssociations(obj: Record<string, unknown>): Fa
 function dedupeRelationsByTarget(relations: ReadingRelation[]): ReadingRelation[] {
   const seenTargets = new Set<string>();
   return relations.filter((relation) => {
-    const targetKey = 'objectUid' in relation.target
-      ? `uid\u0000${relation.target.objectUid}`
-      : `${relation.target.governedProjectId}\u0000${relation.target.factTypeKey}\u0000${relation.target.objectId}`;
+    // commit 目标不是对象：给它独立命名空间，避免与任何对象 locator 撞键。
+    const targetKey = 'commit' in relation.target
+      ? `commit\u0000${relation.target.commit}`
+      : 'objectUid' in relation.target
+        ? `uid\u0000${relation.target.objectUid}`
+        : `${relation.target.governedProjectId}\u0000${relation.target.factTypeKey}\u0000${relation.target.objectId}`;
     if (seenTargets.has(targetKey)) return false;
     seenTargets.add(targetKey);
     return true;
@@ -130,8 +138,11 @@ function dedupeRelationsByTarget(relations: ReadingRelation[]): ReadingRelation[
 export function groupRelationsByTargetType(relations: ReadingRelation[]): RelationTargetTypeGroup[] {
   const grouped = new Map<string, ReadingRelation[]>();
   for (const relation of relations) {
-    const factTypeKey = relation.resolvedTarget?.factTypeKey
-      ?? ('objectUid' in relation.target ? 'uid' : relation.target.factTypeKey);
+    // commit 目标无对象类型——单列一组，避免被并进 'uid' 或任何对象类型分组。
+    const factTypeKey = 'commit' in relation.target
+      ? 'commit'
+      : relation.resolvedTarget?.factTypeKey
+        ?? ('objectUid' in relation.target ? 'uid' : relation.target.factTypeKey);
     grouped.set(factTypeKey, [...(grouped.get(factTypeKey) ?? []), relation]);
   }
   return [...grouped.entries()].map(([factTypeKey, items]) => ({ factTypeKey, relations: items }));
@@ -156,6 +167,17 @@ function projectRelations(value: unknown, unresolved: UnresolvedAssociation[]): 
         originPath,
         relationKey: item.relation_key,
         target: { objectUid: target.object_uid },
+      }];
+    }
+    // 02 §8.1「commit 形态」：target 直接取一次受控提交。它与 object_uid 形态互斥
+    // （写侧已校验），故单键 {commit} 即合法目标，不必进入 unresolved 桶——否则
+    // commit 级解药在阅读界面上完全不可见。
+    if (targetKeys.length === 1 && typeof target.commit === 'string'
+      && /^[0-9a-f]{40}$/i.test(target.commit.trim())) {
+      return [{
+        originPath,
+        relationKey: item.relation_key,
+        target: { commit: target.commit.trim() },
       }];
     }
     if (targetKeys.length !== 3
