@@ -439,7 +439,7 @@ export async function createFrictionObject(args) {
   frontmatter.created_at = now;
   // 26 §9: 初态 observing — create must never enter resolved/voided
   if (frontmatter.status !== undefined && frontmatter.status !== "observing") {
-    return failure("friction/initial_state_violation", `create must initialise as status=observing; got ${JSON.stringify(frontmatter.status)} (26 §9 — 销账/作废是流转，不是初态)`);
+    return failure("friction/initial_state_violation", `create must initialise as status=observing; got ${JSON.stringify(frontmatter.status)} (26 §9 — 销账/废弃是流转，不是初态)`);
   }
   frontmatter.status = "observing";
   // 26 §8: occurrence 必填——创建时初值 count=1、first_at=last_at=now、

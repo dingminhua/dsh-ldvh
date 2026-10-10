@@ -600,7 +600,7 @@ function getFactAssociationState(association: FactCardAssociation): FactAssociat
     if (association.group === 'executing') return 'progressing';
   }
   // 26 §9：friction 关联目标——observing/open 是活账（留观/待修均待处理），
-  // resolved 已销、voided 作废，两者均属终态族。
+  // resolved 已销、voided 已废弃，两者均属终态族。
   if (targetType === 'friction') {
     if (association.status === 'observing' || association.status === 'open') return 'pending';
     if (association.status === 'resolved' || association.status === 'voided') return 'closed';

@@ -71,7 +71,7 @@ test('both types carry icons, colors, type labels, and status closures', () => {
   // 类型词表（中英）与状态闭集词表（26 §9 / 27 §9）。
   assert.match(locales, /friction: \{ zh: '摩擦', en: 'Friction' \}/);
   assert.match(locales, /norm: \{ zh: '规范', en: 'Norm' \}/);
-  assert.match(locales, /friction: \{\s*\n\s*\/\/ 26 §9 状态闭集四值[\s\S]*?observing: \{ zh: '留观', en: 'Observing' \},[\s\S]*?open: \{ zh: '待修', en: 'Open' \},[\s\S]*?resolved: \{ zh: '已销账', en: 'Resolved' \},[\s\S]*?voided: \{ zh: '作废', en: 'Voided' \},/);
+  assert.match(locales, /friction: \{\s*\n\s*\/\/ 26 §9 状态闭集四值[\s\S]*?observing: \{ zh: '留观', en: 'Observing' \},[\s\S]*?open: \{ zh: '待修', en: 'Open' \},[\s\S]*?resolved: \{ zh: '已销账', en: 'Resolved' \},[\s\S]*?voided: \{ zh: '已废弃', en: 'Voided' \},/);
   assert.match(locales, /norm: \{\s*\n\s*\/\/ 27 号 §9 状态闭集[\s\S]*?active: \{ zh: '生效中', en: 'Active' \},[\s\S]*?retired: \{ zh: '已退役', en: 'Retired' \},/);
 });
 

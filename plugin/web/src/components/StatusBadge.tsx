@@ -18,7 +18,7 @@ export default function StatusBadge({ status, statusLabel, objectType = '', size
     || (objectType === 'adr' && status === 'retired')
     || (objectType === 'pitfall' && status === 'discarded')
     || (objectType === 'workcase' && status === 'discarded')
-    // 26 §9 / 27 号 §9：终态用中性收敛色——已销账/已作废/已退役是收敛而非警示。
+    // 26 §9 / 27 号 §9：终态用中性收敛色——已销账/已废弃/已退役是收敛而非警示。
     || (objectType === 'friction' && status === 'resolved')
     || (objectType === 'friction' && status === 'voided')
     || (objectType === 'norm' && status === 'retired')

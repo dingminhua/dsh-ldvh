@@ -18,7 +18,7 @@ const STATUS_FILTER_ORDER = [
   // 26 §9：Friction 留观（已入账未攒够）——排在 open 前，属「入口态 → 待办族」。
   'observing',
   'resolved',
-  // 26 §9：Friction 作废（记错了的账目）——排在 resolved 后，属终态族。
+  // 26 §9：Friction 已废弃（记错了的账目）——排在 resolved 后，属终态族。
   'voided',
   'discarded',
   'archived',
@@ -36,7 +36,7 @@ const FALLBACK_STATUSES_BY_TYPE: Record<string, string[]> = {
   // 20 §9 状态闭集：open（待处理）→ implemented（落实/交接）/ discarded（废弃/合并/拆分）。
   spark: ['open', 'implemented', 'discarded'],
   research: ['active', 'retired'],
-  // 26 §9 状态闭集四值：observing（留观）→ open（待修）→ resolved（已销账）/ voided（作废）。
+  // 26 §9 状态闭集四值：observing（留观）→ open（待修）→ resolved（已销账）/ voided（已废弃）。
   friction: ['observing', 'open', 'resolved', 'voided'],
   // 27 号 §9 状态闭集：active（生效中）→ retired（已退役，终态）。
   norm: ['active', 'retired'],

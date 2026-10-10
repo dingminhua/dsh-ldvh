@@ -104,11 +104,13 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
   },
   friction: {
     // 26 §9 状态闭集四值：observing（留观）/ open（待修）/ resolved（已销账，
-    // informs 指向解药）/ voided（作废）。
+    // informs 指向解药）/ voided（已废弃）。
     observing: { zh: '留观', en: 'Observing' },
     open: { zh: '待修', en: 'Open' },
     resolved: { zh: '已销账', en: 'Resolved' },
-    voided: { zh: '作废', en: 'Voided' },
+    // 与其余事实对象（Pitfall/Spark 的 discarded、ADR/Research 的 retired）统一
+    // 用「已废弃」，Human 扫读不必记忆类型专属词（2026-11 Human 裁定）。
+    voided: { zh: '已废弃', en: 'Voided' },
   },
   norm: {
     // 27 号 §9 状态闭集：active（生效中）/ retired（已退役，终态不重开）。
@@ -812,7 +814,7 @@ export function getObjectStatusHint(type: string, status: string, locale: string
     if (status === 'voided') {
       return locale === 'en'
         ? 'Misfiled entry: kept for traceability, but out of dedup, metrics and decision inputs'
-        : '作废：载体保留可追溯，但不参与查重、度量与迭代决策输入';
+        : '已废弃：载体保留可追溯，但不参与查重、度量与迭代决策输入';
     }
   }
   // 27 号 §9：active 是当前生效规则（同 ADR active 语义限定）；retired 终态不重开。
