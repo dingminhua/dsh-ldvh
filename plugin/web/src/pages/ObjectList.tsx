@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { Activity, CalendarClock, CircleAlert, CircleCheck, CircleMinus, CirclePlay, Clock3, History, Search } from 'lucide-react';
+import { Activity, CalendarClock, CircleAlert, CircleCheck, CircleMinus, CirclePlay, Clock3, GitCommit, History, Search } from 'lucide-react';
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import SegmentedControl from '@/components/SegmentedControl';
 import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
@@ -462,7 +462,7 @@ function FactAssociationsCardContent({ associations, refs }: { associations?: Fa
   return (
     <section onClick={(event) => event.stopPropagation()} className={FACT_ASSOCIATION_ROWS_ZONE_CLASS}>
       <div className={FACT_ASSOCIATION_ROWS_LIST_CLASS}>
-        {visibleRows.map(({ association, source }, index) => <FactAssociationCardRow key={`${source}:${association.target && 'objectUid' in association.target ? association.target.objectUid : `${association.target?.governedProjectId ?? 'unavailable'}:${association.target?.factTypeKey ?? 'unknown'}:${association.target?.objectId ?? index}`}:${index}`} association={association} locale={locale} unavailableLabel={t('objectList.associationUnavailable')} />)}
+        {visibleRows.map(({ association, source }, index) => <FactAssociationCardRow key={`${source}:${factCardAssociationKey(association, index)}:${index}`} association={association} locale={locale} unavailableLabel={t('objectList.associationUnavailable')} />)}
       </div>
     </section>
   );
@@ -470,7 +470,27 @@ function FactAssociationsCardContent({ associations, refs }: { associations?: Fa
 
 function associationLocator(association: FactCardAssociation) {
   if (association.resolvedTarget) return association.resolvedTarget;
+  // commit 目标（02 §8.1）不是对象 locator——没有 factTypeKey/objectId 可开面板。
+  if (association.target && 'commit' in association.target) return null;
   return association.target && !('objectUid' in association.target) ? association.target : null;
+}
+
+/**
+ * 卡片关联行的 React key。commit 目标（02 §8.1）与对象目标分属不同命名空间，
+ * 不能用同一套字段拼 key——否则 commit 行会退化成 'unavailable:unknown:0'。
+ */
+function factCardAssociationKey(association: FactCardAssociation, index: number): string {
+  const target = association.target;
+  if (!target) return `unavailable:${index}`;
+  if ('commit' in target) return `commit:${target.commit}`;
+  if ('objectUid' in target) return `uid:${target.objectUid}`;
+  return `${target.governedProjectId}:${target.factTypeKey}:${target.objectId}`;
+}
+
+/** 02 §8.1「commit 形态」：目标是一次受控提交，点击进入提交详情页。 */
+function associationCommit(association: FactCardAssociation): string | null {
+  const target = association.target;
+  return target && 'commit' in target ? target.commit : null;
 }
 
 function dedupeFactCardAssociations<T extends { association: FactCardAssociation; source: string }>(rows: T[]): T[] {
@@ -478,9 +498,11 @@ function dedupeFactCardAssociations<T extends { association: FactCardAssociation
   return rows.filter((row) => {
     const target = row.association.target;
     if (!target) return true;
-    const targetKey = 'objectUid' in target
-      ? `uid\u0000${target.objectUid}`
-      : `${target.governedProjectId}\u0000${target.factTypeKey}\u0000${target.objectId}`;
+    const targetKey = 'commit' in target
+      ? `commit\u0000${target.commit}`
+      : 'objectUid' in target
+        ? `uid\u0000${target.objectUid}`
+        : `${target.governedProjectId}\u0000${target.factTypeKey}\u0000${target.objectId}`;
     // 去重按来源分组隔离（03 §7.2）：同一目标同时被 relations 与 refs 指向时
     // 是两条不同语义的记录，必须各留一条。此隔离由 source 显式承载——不得
     // 依赖 refs 投影当前恰好没有 target 字段这一偶然事实（独立复核 2026-09-16
@@ -494,13 +516,23 @@ function dedupeFactCardAssociations<T extends { association: FactCardAssociation
 
 export function FactAssociationCardRow({ association, locale, unavailableLabel }: { association: FactCardAssociation; locale: string; unavailableLabel: string }) {
   const { t } = useI18n();
-  const title = association.available
-    ? getLocalizedObjectTitle(association, locale)
-    : unavailableLabel;
+  const commitHash = association.available && association.target && 'commit' in association.target
+    ? association.target.commit
+    : null;
+  // commit 目标没有标题可显示（提交不是对象，无 title/status）——显示短 hash 作为
+  // 定位标识，悬停给全 hash。这不是「不可用」，故不得落到 unavailableLabel。
+  const title = commitHash
+    ? commitHash.slice(0, 7)
+    : association.available
+      ? getLocalizedObjectTitle(association, locale)
+      : unavailableLabel;
   const legacyTarget = associationLocator(association);
   const typeColor = legacyTarget ? (CATEGORY_COLORS[legacyTarget.factTypeKey] || CATEGORY_COLORS.other) : CATEGORY_COLORS.other;
   const { openPanel } = usePanel();
-  const canOpen = Boolean(association.available && legacyTarget);
+  const navigate = useNavigate();
+  // commit 目标可点（跳提交详情页）；对象目标仍走面板打开。二者互斥——commit 无
+  // 对象 locator，不能落进面板路径（canOpen 为 false 就静默不可点）。
+  const canOpen = Boolean(association.available && (legacyTarget || commitHash));
   const associationState = getFactAssociationState(association);
   const isDiscarded = associationState === 'discarded';
   const associationStateTooltip = associationState === null ? null : {
@@ -511,7 +543,9 @@ export function FactAssociationCardRow({ association, locale, unavailableLabel }
     active: t('objectList.associationState.active'),
   }[associationState];
   const open = () => {
-    if (!canOpen || !legacyTarget) return;
+    if (!canOpen) return;
+    if (commitHash) { navigate(`/changelog/${commitHash}`); return; }
+    if (!legacyTarget) return;
     openPanel({ type: 'object', title, objectType: legacyTarget.factTypeKey, objectId: legacyTarget.objectId });
   };
   return (
@@ -526,8 +560,13 @@ export function FactAssociationCardRow({ association, locale, unavailableLabel }
       }}
       className={`group flex min-w-0 items-center gap-2 rounded-md px-1.5 py-2 text-left transition-colors ${isDiscarded ? 'text-slate-400/70 dark:text-slate-500/70' : ''} ${canOpen ? (isDiscarded ? 'cursor-pointer hover:bg-slate-500/5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-400/30' : 'cursor-pointer hover:bg-ldvh-border/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50') : 'cursor-default'}`}
     >
-      <ObjectTypeIcon type={legacyTarget?.factTypeKey} size={13} className={`shrink-0 ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : ''}`} style={isDiscarded ? undefined : { color: typeColor }} />
-      <span className={`ldvh-meta-primary min-w-0 flex-1 whitespace-normal break-words ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : 'text-ldvh-text-secondary/95 group-hover:text-ldvh-accent'}`}>{title}</span>
+      {commitHash
+        ? <GitCommit size={13} className={`shrink-0 ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : 'text-ldvh-text-secondary'}`} aria-hidden="true" />
+        : <ObjectTypeIcon type={legacyTarget?.factTypeKey} size={13} className={`shrink-0 ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : ''}`} style={isDiscarded ? undefined : { color: typeColor }} />}
+      <span
+        title={commitHash ?? undefined}
+        className={`ldvh-meta-primary min-w-0 flex-1 whitespace-normal break-words ${commitHash ? 'font-mono' : ''} ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : 'text-ldvh-text-secondary/95 group-hover:text-ldvh-accent'}`}
+      >{title}</span>
       {associationState !== null && associationStateTooltip !== null && <FactAssociationStateIcon state={associationState} tooltip={associationStateTooltip} />}
     </div>
   );

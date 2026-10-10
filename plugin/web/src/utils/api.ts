@@ -211,6 +211,9 @@ export interface FactCardAssociation {
     governedProjectId: string;
     factTypeKey: string;
     objectId: string;
+  } | {
+    /** 02 §8.1「commit 形态」：解药是一次受控提交，呈现层跳提交详情页。 */
+    commit: string;
   };
   /** Current-project locator resolved uniquely from an authoritative UID; never part of the relation identity. */
   resolvedTarget?: {

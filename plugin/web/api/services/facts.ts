@@ -112,7 +112,12 @@ type LegacyFactAssociationTarget = {
   objectId: string
 }
 
-type FactAssociationTarget = LegacyFactAssociationTarget | { objectUid: string }
+type FactAssociationTarget = LegacyFactAssociationTarget
+  // 02 §8.1「commit 形态」：解药是一次受控提交、没有任何对象身份。提交不是事实
+  // 对象，故没有 title/status 可解析——但它**是**一条可用的关联（呈现层跳提交详情
+  // 页 /changelog/:hash），故不得与「解析失败」混为一谈。
+  | { objectUid: string }
+  | { commit: string }
 type FactUidTargetIndex = Map<string, LegacyFactAssociationTarget | null>
 type FactRefSourceIndex = Map<string, Array<Record<string, unknown>>>
 type FactProjectionIndexes = {
@@ -130,6 +135,7 @@ function refObjectUid(value: unknown): string | null {
 // shared/factIdentity.canonicalUid()，全读取层复用它而不是各自维护正则。
 
 function factAssociationTargetKey(target: FactAssociationTarget): string {
+  if ('commit' in target) return `commit\u0000${target.commit}`
   if ('objectUid' in target) return `uid\u0000${target.objectUid}`
   return `${target.governedProjectId}\u0000${target.factTypeKey}\u0000${target.objectId}`
 }
@@ -143,6 +149,11 @@ function projectFactAssociationTarget(value: unknown): FactAssociationTarget | n
   const keys = Object.keys(target)
   if (keys.length === 1 && canonicalUid(target.object_uid)) {
     return { objectUid: target.object_uid }
+  }
+  // commit 形态（02 §8.1）：单键 {commit} 且为 40 位十六进制。与 object_uid 形态
+  // 互斥——混带形态在写侧已被拒，这里仍拒以免历史/手改数据绕过形状纪律。
+  if (keys.length === 1 && typeof target.commit === 'string' && /^[0-9a-f]{40}$/i.test(target.commit.trim())) {
+    return { commit: target.commit.trim() }
   }
   if (keys.length !== 3
     || !keys.every((key) => ['governed_project_id', 'fact_type_key', 'object_id'].includes(key))) return null
@@ -274,6 +285,11 @@ async function projectFactCardAssociations(
     const target = projectFactAssociationTarget(relation.target)
     if (typeof relation.relation_key !== 'string' || target === null) return { available: false }
     const projection: Record<string, unknown> = { relationKey: relation.relation_key, target, available: false }
+    // commit 形态（02 §8.1）：无需解析对象——hash 的真实性已在写侧由 git
+    // cat-file -e 核过（fail-closed），此处只负责把它标成「可用关联」并交给呈现层
+    // 跳提交详情页。不标 available 会被读成「关联信息不可用」，与「提交不可用」
+    // 这两件不同的事混为一谈。
+    if ('commit' in target) return { ...projection, available: true, shortHash: target.commit.slice(0, 7) }
     const locator = 'objectUid' in target ? uidTargets.get(target.objectUid) : target
     if (!locator || locator.governedProjectId !== scope.governedProjectId || !isObjectType(locator.factTypeKey)) return projection
     const exact = await readLocalFact(locator.factTypeKey, locator.objectId, scope)
