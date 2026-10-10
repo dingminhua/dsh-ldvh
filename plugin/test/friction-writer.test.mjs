@@ -2,9 +2,9 @@
 //
 // Every case is derived from specs/26 (the single authority):
 //   §6 查重与攒账, §8 字段契约与正文三段（处置段条件出现）,
-//   §9 状态机（deferred 可逆！resolved 终态！informs 只在销账流转写入）,
+//   §9 状态机（observing 可逆！resolved/voided 终态！informs 只在销账流转写入）,
 //   §11 informs 关系（目标限 ADR/WorkCase 目录可解析）,
-//   §12 召回（默认 open+deferred，resolved 只在 includeResolved）,
+//   §12 召回（默认 observing+open，resolved 只在 includeResolved）,
 //   §13 受控操作, §14.1 特有验证.
 // Tests assert spec behaviour; where the implementation diverges from the
 // spec the failure is reported in the task report, never "fixed" by bending
@@ -103,7 +103,7 @@ function validFrontmatterDraft(overrides = {}) {
   };
 }
 
-// 26 §8 正文固定结构：phenomenon / 入账依据（必填两段）+ 处置（条件：resolved/deferred）
+// 26 §8 正文固定结构：phenomenon / 入账依据（必填两段）+ 处置（条件：resolved/voided）
 function validBodyMarkdown(draft = validFrontmatterDraft(), options = {}) {
   const { disposition: extraDisposition } = options;
   const sections = [
@@ -114,12 +114,6 @@ function validBodyMarkdown(draft = validFrontmatterDraft(), options = {}) {
     sections.push(`## 处置\n${extraDisposition}`);
   }
   return sections.join("\n\n");
-}
-
-function deferredBodyMarkdown(draft = validFrontmatterDraft()) {
-  return validBodyMarkdown(draft, {
-    disposition: "暂时不处理：当前 CI 流程由外部团队维护，需协商后重启。",
-  });
 }
 
 function resolvedBodyMarkdown(draft = validFrontmatterDraft()) {
@@ -253,9 +247,9 @@ test("create: a forged plain sessionSignature is REFUSED — no unsigned change_
 // create 反向 (26 §8/§9/§11/§13/§14.1)
 // ---------------------------------------------------------------------------
 
-test("create: non-open initial status is rejected (26 §9 — 初态必须 open)", async () => {
+test("create: non-observing initial status is rejected (26 §9 — 初态必须 observing)", async () => {
   await withTemp("friction-writer.", async (root) => {
-    for (const status of ["resolved", "deferred"]) {
+    for (const status of ["open", "resolved", "voided", "deferred"]) {
       const result = await createFrictionObject({
         factSourceRoot: root,
         frontmatterDraft: { ...validFrontmatterDraft(), status },
@@ -406,7 +400,7 @@ test("create: body missing required H2 sections rejected (26 §8 必填两段)",
   });
 });
 
-test("create: open status with 处置 section rejected (26 §8 条件出现 — 处置 ⇔ resolved/deferred)", async () => {
+test("create: open status with 处置 section rejected (26 §8 条件出现 — 处置 ⇔ resolved/voided)", async () => {
   await withTemp("friction-writer.", async (root) => {
     const draft = validFrontmatterDraft();
     const bodyWithDisposition = validBodyMarkdown(draft) + "\n\n## 处置\n不应出现在 open。";
@@ -1413,7 +1407,7 @@ test("read: non-existent uid rejected with object_not_found (26 §13)", async ()
 });
 
 // ---------------------------------------------------------------------------
-// list (26 §12 召回 —— 默认 open+deferred, resolved 仅 includeResolved)
+// list (26 §12 召回 —— 默认 observing+open, resolved 仅 includeResolved)
 // ---------------------------------------------------------------------------
 
 test("list: empty frictions directory is a valid empty state (26 §12)", async () => {

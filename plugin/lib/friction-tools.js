@@ -43,13 +43,13 @@ const OPERATIONS = {
   },
   "friction-list-objects": {
     toolName: "ldvh_friction_list",
-    summary: "Enumerate Friction fact objects (F0/F1 discovery): ledger projection (title/phenomenon/status/impact/attribution/attribution_ref/occurrence) for the governed project; open+deferred by default (specs/03 §8, specs/26 §12)",
+    summary: "Enumerate Friction fact objects (F0/F1 discovery): ledger projection (title/phenomenon/status/impact/attribution/attribution_ref/occurrence) for the governed project; observing+open by default, resolved/voided only with status=all (specs/03 §8, specs/26 §12)",
     effect: "read"
   },
   "friction-write-object": {
     toolName: "ldvh_friction_write",
     writeShaped: true,
-    summary: "Controlled write of Friction fact objects: create (after Human-confirmed proposal incl. dedup result) and CAS update with change_log; status-preserving updates are supplement-level, transitions per 26 §9.2 (open→resolved needs informs 1..n; deferred reversible; resolved terminal) (specs/03 §9.4–§9.5, specs/26 §13)",
+    summary: "Controlled write of Friction fact objects: create (after Human-confirmed proposal incl. dedup result) and CAS update with change_log; status-preserving updates are supplement-level, transitions per 26 §9.2 (observing→open threshold / Human 提前排期; open→observing 放回留观 reversible; →resolved needs informs 1..n; →voided no relations; resolved & voided terminal) (specs/03 §9.4–§9.5, specs/26 §13)",
     effect: "may_change_state"
   }
 };
