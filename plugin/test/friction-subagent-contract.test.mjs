@@ -9,6 +9,15 @@ import {
   buildDiscoveryPrompt,
   validateDiscoveryVerdict,
 } from "../lib/friction-subagent-contract.js";
+// 材料边界与引证核对走**同一来源**（friction-window.js）——测试直接 import 它，
+// 才能断言「两级渲染同源」这一不变量。
+import {
+  verifyQuotation,
+  renderWindowText,
+  windowBody,
+  WINDOW_OPEN,
+  WINDOW_CLOSE,
+} from "../lib/friction-window.js";
 
 const CANDIDATES = [
   { object_uid: "11111111-2222-4333-8444-555555555555", status: "observing", title: "CI 慢", phenomenon: "CI 平均 8 分钟。" },
@@ -309,4 +318,103 @@ test("prompt: 空窗口明示「只能报 no-discovery 且 quote 为空」", () 
   const prompt = buildDiscoveryPrompt({ threshold: 3, candidates: [], window: { items: [] } });
   assert.match(prompt, /只能.*报 no-discovery|只能报 `no-discovery`/);
   assert.match(prompt, /quote 必须为空字符串/);
+});
+
+// ---------------------------------------------------------------------------
+// 材料边界（2026-10-11 修复）：引文失败率 3/10 的根因
+// ---------------------------------------------------------------------------
+//
+// 实测背景：10 次运行中 3 次被机械引证核对拒绝，其中 2 次引的是**工具输出**。
+// 根因不是执行体「不听话」——是**材料交付有缺陷**：
+//   ① 材料只交付内容、没有边界标记，执行体（fork 起、继承完整上下文）无从
+//      判断某一句到底在不在材料里；
+//   ② prompt 只说「不得依据材料之外的内容」，却从未说明**工具输出一律不在
+//      材料中**——而工具输出从不进窗口（窗口只收 user/message 与
+//      assistant/message），正是执行体最容易误取的一类（本会话里工具输出
+//      224 万字符，是助手文本的 10 倍）。
+// 这三次都是**机器判定正确、材料交付有缺陷**：拒绝对，但本可避免。
+
+test("材料自带机械可判的边界标记（执行体据此判断引文在不在材料里）", () => {
+  const prompt = buildDiscoveryPrompt({
+    threshold: 3,
+    candidates: [],
+    window: { items: [{ turn: 7, user: "用户提问", assistant: "助手回答" }] },
+  });
+
+  // 标记会出现**两次**：一次在说明文字里（教执行体去找它），一次是材料本身的
+  // 边界。**必须用 lastIndexOf 取材料那一次**——用 indexOf 会命中说明文字，
+  // 那正是本人的第一版断言踩的坑（`材料正文须夹在边界标记之间` 失败）。
+  const begin = prompt.lastIndexOf(WINDOW_OPEN);
+  const close = prompt.lastIndexOf(WINDOW_CLOSE);
+  assert.ok(begin >= 0, `材料须有开始标记 ${WINDOW_OPEN}`);
+  assert.ok(close >= 0, `材料须有结束标记 ${WINDOW_CLOSE}`);
+  assert.ok(begin < close, "开始标记须在结束标记之前（否则边界无意义）");
+  // 材料正文夹在两者之间——且这是**材料那一段**，不是说明文字。
+  const body = prompt.slice(begin, close);
+  assert.match(body, /\[turn 7\]/, "材料正文须夹在边界标记之间");
+  // 说明文字里也有标记（执行体据此照找），两处都须在。
+  assert.ok(prompt.indexOf(WINDOW_OPEN) < begin, "说明文字须先教它找标记，材料再给标记");
+});
+
+test("prompt 明确告知**工具输出不在材料里**（此前从未提及，是 2/3 被拒引文的出处）", () => {
+  const prompt = buildDiscoveryPrompt({
+    threshold: 3,
+    candidates: [],
+    window: { items: [{ turn: 7, user: "u", assistant: "a" }] },
+  });
+
+  // 判据要**贴着那一条**：点出「工具输出」且同一行里说它不在材料里。
+  // 早先写成两个独立 match（/工具输出/ 与 /不在材料里/）——撤掉该条后二者
+  // 仍各自命中别处，护栏**测不出来**（实测：撤掉后失败数仍为 0）。
+  assert.match(
+    prompt,
+    /工具输出[^\n]*不在材料里/,
+    "须在同一句里点名「工具输出不在材料里」——两个词分开匹配测不出该条的缺失",
+  );
+  // 还须说明「只有 user:/assistant: 行可引」，给出正向判据。
+  assert.match(prompt, /user:.*assistant:/s, "须给出可引内容的正文形态");
+});
+
+test("边界标记**不给**核对方：引标记本身须被拒（否则是一个无意义的通过面）", () => {
+  const items = [{ turn: 7, user: "用户提问", assistant: "助手回答某阻碍。" }];
+  const body = windowBody(items);
+
+  // 核对用的正文不含标记。
+  assert.doesNotMatch(body, /WINDOW-BEGIN|WINDOW-END/, "被核对正文不得含边界标记");
+  // 故引标记本身会被判不在材料中。
+  const r = verifyQuotation(WINDOW_OPEN, body, { minChars: 8 });
+  assert.equal(r.ok, false, "引边界标记本身须被拒（它不在正文里）");
+  assert.equal(r.error.code, "discovery/quote_not_in_window");
+});
+
+test("两级渲染同源：提示词那份去掉标记后与核对那份**逐字相同**（防两处漂移）", () => {
+  // 这是 D5 那类「两处各写一套」的防线：核对是 includes 字符串比对，任何漂移
+  // 都会使**所有**引证无故被拒，且失败形态与「引错地方」无从区分。
+  const items = [
+    { turn: 1, user: "甲", assistant: "乙" },
+    { turn: 2, assistant: "丙\n丁" },
+  ];
+  const rendered = renderWindowText(items);
+  const body = windowBody(items);
+
+  // 去掉标记行即得正文（同源性的机械判据）。
+  const stripped = rendered
+    .split("\n")
+    .filter((line) => line !== WINDOW_OPEN && line !== WINDOW_CLOSE)
+    .join("\n");
+  assert.equal(stripped, body, "windowBody 必须是 renderWindowText 去掉标记行的结果");
+
+  // 正文里的内容必须真能通过核对（说明两处口径一致）。
+  assert.equal(verifyQuotation("丙", body, { minChars: 1 }).ok, true);
+});
+
+test("空窗口：材料段**不含**边界标记（空材料不该有边界；此时只能报 no-discovery）", () => {
+  const prompt = buildDiscoveryPrompt({ threshold: 3, candidates: [], window: { items: [] } });
+  // 说明文字里仍会提到标记（告诉执行体边界长什么样）——故**不能**断言全文不含
+  // 标记。判据是：标记只出现在说明文字里，材料段本身没有。
+  assert.match(prompt, /本次窗口为空/, "空窗口须说明只能报 no-discovery");
+  assert.equal(windowBody([]), "", "空窗口的被核对正文为空串");
+  assert.equal(windowBody(undefined), "", "未提供窗口时同样为空串");
+  assert.equal(renderWindowText([]), "", "空窗口不渲染材料（也就没有边界标记）");
+  assert.equal(renderWindowText(undefined), "", "未提供窗口时同样不渲染");
 });

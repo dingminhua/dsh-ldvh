@@ -263,4 +263,56 @@ export function verifyQuotation(quote, windowText, { minChars = 8 } = {}) {
   return { ok: true, value: { quote: q } };
 }
 
+/** 观察材料的边界标记（**单一来源**）。 */
+export const WINDOW_OPEN = "<<<WINDOW-BEGIN>>>";
+export const WINDOW_CLOSE = "<<<WINDOW-END>>>";
+
+/**
+ * 把窗口条目渲染成**交付给执行体的材料文本**——**单一来源**。
+ *
+ * ## 为什么必须抽成一个函数（2026-10-11 修复）
+ *
+ * 本文件的 `windowFrom()` 给出条目，而**材料文本**此前在**两处各自拼装**：
+ *   - `friction-subagent-contract.js` 的 `buildDiscoveryPrompt`（拼进提示词）
+ *   - `friction-discovery-provider.js` 的 `createDiscoveryProvider`（拼给核对用）
+ *
+ * 两处必须逐字一致——因为核对是 `windowText.includes(quote)` 的**字符串比对**，
+ * 而引证来自提示词里那一份。任何一处漂移（多一个空行、少一个前缀）都会使
+ * **所有引证无故被拒**，且失败形态与「执行体引错地方」**无从区分**——正是 D5
+ * 那类「两处各写一套」的缺陷。故此处收敛为单一实现，两处都调它。
+ *
+ * 边界标记也由此统一：标记必须出现在**提示词那一份**（执行体照着找边界），
+ * 也必须出现在**核对那一份**吗——**不必须，且刻意不加**：核对只需判断引文是否
+ * 在**材料正文**里，而正文在标记之间；若把标记也纳入被核对的文本，执行体引
+ * 标记本身（无意义）反而会通过核对。故本函数渲染**含标记的完整交付文本**，
+ * 并另导出 `windowBody()` 供核对方使用。
+ */
+export function renderWindowText(items) {
+  if (!Array.isArray(items) || items.length === 0) return "";
+  const body = items
+    .map((entry) => {
+      const parts = [`[turn ${entry.turn}]`];
+      if (entry.user) parts.push(`user: ${entry.user}`);
+      if (entry.assistant) parts.push(`assistant: ${entry.assistant}`);
+      return parts.join("\n");
+    })
+    .join("\n\n");
+  return [WINDOW_OPEN, body, WINDOW_CLOSE].join("\n");
+}
+
+/**
+ * **被核对的正文**（不含边界标记）——供 `verifyQuotation` 使用。
+ *
+ * 与 `renderWindowText` 同源：直接取渲染结果去掉首尾标记行，故不存在第二套
+ * 拼装逻辑。空窗口返回空串（核对侧据此判定「材料为空」这一特例）。
+ */
+export function windowBody(items) {
+  const full = renderWindowText(items);
+  if (full === "") return "";
+  return full
+    .split("\n")
+    .filter((line) => line !== WINDOW_OPEN && line !== WINDOW_CLOSE)
+    .join("\n");
+}
+
 export { MAX_CHARS_PER_TURN, MAX_TURNS_RETAINED };

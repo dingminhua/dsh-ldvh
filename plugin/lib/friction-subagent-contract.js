@@ -28,7 +28,7 @@
 /** 三态判断的闭集（schema 的 `enum` 与下方校验共用同一来源，防二者漂移）。 */
 export const VERDICTS = Object.freeze(["same-obstacle", "new-obstacle", "no-discovery"]);
 
-import { verifyQuotation } from "./friction-window.js";
+import { verifyQuotation, renderWindowText, windowBody, WINDOW_OPEN, WINDOW_CLOSE } from "./friction-window.js";
 
 /**
  * 给子代理的结构化输出 schema。
@@ -116,16 +116,22 @@ export function buildDiscoveryPrompt({ threshold, candidates = [], window: windo
   // 传 `{ items: [{turn,user,assistant}], truncated }`；兼容旧的字符串/坐标形态
   // 仅用于诊断，不构成合格输入（缺失内容即为空窗口）。
   const items = Array.isArray(windowRange?.items) ? windowRange.items : [];
+  // 边界标记（2026-10-11 修复）——**材料本身**须自带可机械指认的首尾，
+  // 使执行体能判断「我引的这句在不在材料里」。
+  //
+  // 为何需要：清单只交付**内容**（§8.4 水位段要求切分落在机械侧、不由 AI 判断），
+  // 但执行体是 `fork` 启动、继承主控上下文——它同时看得见**整段对话**。此前
+  // prompt 只说「不得依据材料之外的内容」，却没有给出任何可操作的判据：执行体
+  // 无从知道某一句到底在不在材料里。实测（2026-10-11）：10 次运行中 3 次因此
+  // 被机械引证核对拒绝，其中 2 次引的是**工具输出**——而工具输出**从不进窗口**
+  // （窗口只收 user/message 与 assistant/message），是执行体最容易误取的一类。
+  // 这三次都是**机器判定正确、材料交付有缺陷**：拒绝对，但本可避免。
+  // 渲染走**单一来源**（friction-window.js 的 renderWindowText）——核对侧用的是
+  // 同一函数去掉标记的正文，两处不得各自拼装（否则任何漂移都会使所有引证无故
+  // 被拒，且与「引错地方」无从区分）。
   const windowText = items.length === 0
       ? "（本次窗口为空——没有任何新增内容可供判断。此时**只能**报 no-discovery，且 quote 必须为空字符串；不得凭你可见的其他上下文编造发现。）"
-      : items
-          .map((entry) => {
-            const parts = [`[turn ${entry.turn}]`];
-            if (entry.user) parts.push(`user: ${entry.user}`);
-            if (entry.assistant) parts.push(`assistant: ${entry.assistant}`);
-            return parts.join("\n");
-          })
-          .join("\n\n");
+      : renderWindowText(items);
   const truncatedNote = windowRange?.truncated === true
       ? "\n**注意**：本次材料因长度上限被**截断**过——你只能就所见部分判断，且须在 reason 中如实说明存在截断。"
       : "";
@@ -142,6 +148,16 @@ export function buildDiscoveryPrompt({ threshold, candidates = [], window: windo
     "## 你只能依据本次材料判断（重要）",
     "**下面「本次观察材料」是本次运行的唯一依据。**你虽然继承了大量上下文，但**不得**依据材料之外的任何内容作出发现——那些内容要么已由上一次运行处理过，要么属于更早的历史（04 §8.4「观察范围的切分（水位）」段）。",
     "你的判断必须**逐字引证**材料中的原文（`quote` 字段），落地侧会机械核对该引证是否真出现在材料里；**引证不在材料中即判定该判断不成立**。",
+    "",
+    "### 材料的确切边界（照着找，别猜）",
+    `本次材料被两行标记**完整包住**：起于 \`${WINDOW_OPEN}\`、止于 \`${WINDOW_CLOSE}\`。**只有夹在这两行之间的内容算材料**——这两行本身不算，也不要引它们。`,
+    "**你继承的上下文比这份材料大得多，且大出来的部分是明确不可引的。**具体地说：",
+    "- ❌ **工具输出**（命令回显、文件内容、grep/search 结果、报错堆栈）**一律不在材料里**。材料只含**你与用户的自然语言往来**（`user:` 与 `assistant:` 两种行）。若你引一句命令输出或文件片段，机械核对必然判定它不在材料中——**这是最容易犯的错**（实测中 2/3 的被拒引文属于此类）。",
+    "- ❌ **更早轮次的对话**不在材料里（已被上一次运行处理过；材料只含水位之后的新增内容）。",
+    "- ❌ **你自己的知识、规范条文、记忆**不在材料里。",
+    "- ✅ 只有标记之间、以 `[turn N]` 起头、标着 `user:` 或 `assistant:` 的正文才是可引内容。",
+    "",
+    "**若你确信某个阻碍很重要、但它只出现在材料之外的区域（如某段工具输出）**：这说明本次运行的观察范围未覆盖它。此时你**不得**为了让它入账而把它写成材料内的引证——那会被机械否掉。正确做法是**照实报**：要么在材料内找一个能支持同判断的引证，要么报 `no-discovery`。**不要为了让结论成立而挑一句「差不多」的话充数。**",
     "材料为空时只能报 `no-discovery`，且 `quote` 填空字符串；**材料非空时，即使结论是 `no-discovery` 也必须引证一段材料原文**（否则「恒报无发现」与正确运行无从区分）。",
     truncatedNote,
     "",

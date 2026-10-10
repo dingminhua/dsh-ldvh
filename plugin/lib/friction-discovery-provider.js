@@ -30,6 +30,7 @@
  */
 
 import { buildDiscoveryPrompt, discoveryOutputSchema, validateDiscoveryVerdict } from "./friction-subagent-contract.js";
+import { windowBody } from "./friction-window.js";
 
 /** 服务不可用时的失败（由调用方按 §8.3 入队，不静默降级）。 */
 function unavailable(reason) {
@@ -112,16 +113,13 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     // 「判 `effectiveWindow` 而 map `windowRange`」——当 provideWindow 返回
     // undefined 时 `windowRange.items` 不存在即抛 TypeError，而该异常会让整次
     // 运行按 §8.3 入队（机制静默不产出）。由第二次独立复核的探针发现。
-    const windowText = Array.isArray(effectiveWindow?.items)
-      ? effectiveWindow.items
-          .map((entry) => {
-            const parts = [`[turn ${entry.turn}]`];
-            if (entry.user) parts.push(`user: ${entry.user}`);
-            if (entry.assistant) parts.push(`assistant: ${entry.assistant}`);
-            return parts.join("\n");
-          })
-          .join("\n\n")
-      : "";
+    // 用**被核对的正文**（windowBody：与提示词那份同源，仅去掉边界标记）。
+    // 单一来源的理由见 friction-window.js 的 renderWindowText 注释：核对是
+    // `includes` 字符串比对，两处漂移会使所有引证无故被拒。
+    //
+    // 刻意**不含**边界标记：核对只判「引文是否在材料正文里」；若把标记也纳入
+    // 被核对文本，执行体引标记本身（无意义）反而会通过。
+    const windowText = windowBody(effectiveWindow?.items);
 
     const picked = selectContextInheritingProvider(subagents);
     if (!picked.ok) {
