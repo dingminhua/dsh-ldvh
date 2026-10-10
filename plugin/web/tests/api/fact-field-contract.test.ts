@@ -43,7 +43,7 @@ const TYPE_REQUIRED_FIELDS: Record<string, readonly string[]> = {
   // disposition/relations 条件出现）。
   spark: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'question', 'scope_boundary', 'intent', 'summary'],
   research: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'research_question', 'research_purpose'],
-  // 26 §8：phenomenon/impact 必填（attribution/serves/relations 条件）。
+  // 26 §8：phenomenon/impact 必填（attribution/relations 条件）。
   friction: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'phenomenon', 'impact'],
   // 27 号 §8：direction_key 必填（retirement_reason/retired_at 条件，retired 时必填）。
   norm: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'direction_key'],

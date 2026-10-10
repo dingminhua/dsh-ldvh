@@ -103,7 +103,8 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
   },
   // v5 Friction（26 号规范）：改进账本的字段闭集——phenomenon/impact 必填
   //（现象单句 + 影响闭集 light/medium/heavy）；attribution 条件后补、
-  // serves 条件（框架摩擦挂 SG-3）、relations 仅 resolved 时的 informs。
+  // relations 仅 resolved 时的 informs。本类型不设 serves（2026-10 删除：
+  // 26 §12 无消费方，归属信息已由 attribution 承载）。
   // 本类型不设 urls（26 §10：摩擦是内部体验）与 trigger_signal（重审信号由
   // 处置段的重启条件承载）——故不展开 common 的 urls。正文三节（现象/入账
   // 依据/条件处置）由 report_body 承载。

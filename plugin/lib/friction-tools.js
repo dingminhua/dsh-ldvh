@@ -316,6 +316,9 @@ async function executeWriteObject(args, exec, deps) {
       expectedFingerprint: args.expected_fingerprint,
       // 省略即不动 relations（只改正文）；显式给数组则整体替换并重跑全套关系校验。
       relationsAfter: Array.isArray(args?.relations_after) ? args.relations_after : null,
+      // 2026-10：correct 入口新增的唯一 frontmatter 动作——显式删除已退出类型
+      // 闭集的字段（首个用例 serves，26 §8）。省略即逐字继承落盘对象。
+      frontmatterRemovals: Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : [],
       bodyMarkdownAfter: args.body_markdown_after,
       changeSummary: args.change_summary,
       humanAuthorization: auth,
@@ -550,7 +553,8 @@ function parameterSchemaFor(operationKey) {
           frontmatter_after: (() => { const { required: _r, ...rest } = frictionFrontmatter; return { ...rest, description: "update: the complete target frontmatter (all fields; schema required relaxed here — handler validates completeness via CAS+writer)" }; })(),
           body_markdown_after: { type: "string", description: "update/correct: the complete target body markdown (same shape as body_markdown)" },
           change_summary: { type: "string", description: "update/correct: one short semantic summary for the change_log entry" },
-          relations_after: { type: "array", description: "correct ONLY: replaces the whole relations array — the one frontmatter field a correction may touch (26 §13; every other field is inherited byte-identically). Omit to correct the body alone. Each entry {relation_key, target:{object_uid}, evidence_locator?:{commit}}; the whole array is re-validated and its targets re-resolved.", items: { type: "object" } },
+          relations_after: { type: "array", description: "correct ONLY: replaces the whole relations array (26 §13; every other field is inherited byte-identically unless explicitly removed). Omit to correct the body alone. Each entry {relation_key, target:{object_uid}, evidence_locator?:{commit}}; the whole array is re-validated and its targets re-resolved.", items: { type: "object" } },
+          frontmatter_removals: { type: "array", description: "correct ONLY (2026-10): explicitly REMOVE frontmatter fields already retired from the type's closed set — currently only [\"serves\"], dropped from 26 §8 in 2026-10. Removal is the only permitted frontmatter action: you cannot add or change a value, and omitting a field inherits it byte-identically. Needed because 受控更新 is read-only on resolved records (§9.2), so a terminal object cannot otherwise shed a field the spec no longer defines. Naming a field that is absent counts as no-op (02 §10.5).", items: { type: "string", enum: ["serves"] } },
           human_authorization: { type: "string", description: "correct ONLY, REQUIRED: the Human's authorization record (who/when/what it covers) for amending a terminal record. It is written verbatim into the change_log summary; a correction request without it fails closed (26 §13). NOTE: this field is a self-report — its presence and content are NOT proof that Human actually consented (the same boundary as 21 §14 correct); the mechanical gate only guarantees the record was supplied." }
         },
         required: ["action"],

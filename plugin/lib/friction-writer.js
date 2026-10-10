@@ -37,7 +37,6 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { h2Titles, sectionContent } from "./markdown-structure.js";
-import { readGoalAnchors as readGoalAnchorsFromGoal } from "./goal-writer.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/26 §7, §8, §9, §11)
@@ -72,7 +71,7 @@ const COMMIT_PATTERN = /^[0-9a-f]{40}$/i;
 /** Closed set of frontmatter keys (26 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
-  "phenomenon", "attribution", "impact", "serves", "relations", "change_log",
+  "phenomenon", "attribution", "impact", "relations", "change_log",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -150,13 +149,6 @@ export function validateFrictionFrontmatter(frontmatter) {
   if (frontmatter.attribution !== undefined) {
     if (typeof frontmatter.attribution !== "string" || frontmatter.attribution.length === 0) {
       issues.push("attribution: when present must be a non-empty string (03 §6.1 — omit when not yet attributable)");
-    }
-  }
-
-  // serves shape; goal.md resolution happens in the create/update flows.
-  if (frontmatter.serves !== undefined) {
-    if (typeof frontmatter.serves !== "string" || !/^SG-[1-9]\d*$/.test(frontmatter.serves)) {
-      issues.push(`serves: must match SG-n (e.g. SG-3), got ${JSON.stringify(frontmatter.serves)}`);
     }
   }
 
@@ -280,19 +272,6 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
 }
 
 // ---------------------------------------------------------------------------
-// goal.md anchor reading (serves resolution — same contract as spark 20 §13)
-// ---------------------------------------------------------------------------
-
-export async function readGoalAnchors(factSourceRoot) {
-  // Single authority for goal.md parsing (25 §6/§12): delegate to the Goal
-  // writer rather than re-implementing the 子目标 scan here. Two copies used to
-  // exist (spark + friction) and could drift from the type's own contract.
-  const goal = await readGoalAnchorsFromGoal({ factSourceRoot });
-  if (!goal.ok) return { ok: false, reason: goal.error?.message ?? "cannot read goal.md" };
-  return { ok: true, anchors: new Set(goal.value.anchors) };
-}
-
-// ---------------------------------------------------------------------------
 // Body structure + carrier coherence
 // ---------------------------------------------------------------------------
 
@@ -385,7 +364,7 @@ function buildFileContent(frontmatter, body) {
  */
 const FRONTMATTER_FIELD_ORDER = [
   "title", "status",
-  "phenomenon", "attribution", "impact", "serves",
+  "phenomenon", "attribution", "impact",
   "relations",
   "object_uid", "fact_type_key", "created_at",
   "change_log",
@@ -479,17 +458,6 @@ export async function createFrictionObject(args) {
   const relCheck = validateFrictionRelations(frontmatter, uid);
   if (!relCheck.ok) {
     return failure("friction/relations_invalid", "relations failed mechanical checks", { issues: relCheck.issues });
-  }
-
-  // serves resolution (26 §13): declared → must match a goal.md SG-n
-  if (frontmatter.serves !== undefined) {
-    const goal = await readGoalAnchors(factSourceRoot);
-    if (!goal.ok) {
-      return failure("friction/serves_unresolvable", `serves declared (${frontmatter.serves}) but goal.md is not readable: ${goal.reason}`);
-    }
-    if (!goal.anchors.has(frontmatter.serves)) {
-      return failure("friction/serves_unresolvable", `serves ${frontmatter.serves} does not match any SG-n in goal.md 子目标 (available: ${[...goal.anchors].join(", ") || "none"})`);
-    }
   }
 
   // Body structure + carrier coherence (26 §8, §14.1)
@@ -655,17 +623,6 @@ export async function updateFrictionObject(args) {
     return failure("friction/relations_invalid", "updated relations failed mechanical checks", { issues: relCheck.issues });
   }
 
-  // serves resolution on the updated object (26 §13)
-  if (fm.serves !== undefined) {
-    const goal = await readGoalAnchors(factSourceRoot);
-    if (!goal.ok) {
-      return failure("friction/serves_unresolvable", `serves declared (${fm.serves}) but goal.md is not readable: ${goal.reason}`);
-    }
-    if (!goal.anchors.has(fm.serves)) {
-      return failure("friction/serves_unresolvable", `serves ${fm.serves} does not match any SG-n in goal.md 子目标 (available: ${[...goal.anchors].join(", ") || "none"})`);
-    }
-  }
-
   // informs targets must resolve to existing ADR/WorkCase objects (26 §11;
   // ADR 任状态可解析；WorkCase 关闭状态是审核义务，机械只查存在可解析)。
   // commit 例外（Human 裁定 2026-10-09；26 §9.2/§11）：目标为 commit 时解析走
@@ -731,7 +688,7 @@ export async function updateFrictionObject(args) {
  *
  * 可改范围：**正文（含处置段）与 relations**——恰是销账时写错的两处（02:386 事实
  * 更正与关系变更是不同动作，本入口覆盖两者）。逐字不变：status/title/phenomenon/
- * impact/serves/attribution/created_at/change_log（Code 追加一条）。
+ * impact/attribution/created_at/change_log（Code 追加一条）。
  *
  * 与 WorkCase 的 correct 的关键差异：那里 `next` 是落盘对象的克隆、调用方**完全
  * 无法触及任何 frontmatter 字段**（只改正文）；这里 relations 是销账动作写入的产物，
@@ -741,6 +698,12 @@ export async function correctFrictionObject(args) {
   const {
     factSourceRoot, objectUid, expectedFingerprint,
     relationsAfter = null, bodyMarkdownAfter, changeSummary, humanAuthorization,
+    // 2026-10（Human 裁定）：correct 入口可**显式删除**一个已从类型闭集移除的
+    // frontmatter 字段（首个用例：serves——26 §8 于 2026-10 删除该字段，9 份
+    // 存量中 1 份为 resolved 终态，无法经受控更新删除）。删除是显式声明而非
+    // 隐式克隆：调用方不声明则该字段逐字继承，声明则只允许「删除」这一个动作。
+    // 不得用于新增或改值——那会把终态更正变成受控更新。
+    frontmatterRemovals = [],
     sessionSignature = null, gitCommitResolver = null,
   } = args;
   const sig = requireAuthoritativeSignature(sessionSignature);
@@ -769,8 +732,29 @@ export async function correctFrictionObject(args) {
     );
   }
 
-  // 终态判定的逐字继承：除 relations 外，一切取自落盘对象，调用方无法触及。
+  if (!Array.isArray(frontmatterRemovals)) {
+    return failure("invalid_request", "frontmatterRemovals must be an array when provided (26 §13)");
+  }
+  // 终态判定的逐字继承：除 relations 与显式声明的字段删除外，一切取自落盘对象，
+  // 调用方无法触及。
   const next = structuredClone(fm);
+  const removedFields = [];
+  for (const field of frontmatterRemovals) {
+    if (field === "serves") {
+      // 26 §8 已把 serves 移出闭集；对象上仍残留只可能来自修订前，本入口是唯一
+      // 受控清除途径。缺失即 no-op 的一部分（下方 body/relations/removals 三者
+      // 全未变才判 no-op），故此处不单独拒绝「字段本就不存在」。
+      if (Object.prototype.hasOwnProperty.call(next, field)) {
+        delete next[field];
+        removedFields.push(field);
+      }
+      continue;
+    }
+    return failure(
+      "friction/correction_removal_not_permitted",
+      `correct may only remove fields retired from the type's closed set; got ${JSON.stringify(field)} (26 §13: 终态事实更正不得新增或改值 frontmatter)`,
+    );
+  }
   if (relationsAfter !== null) {
     if (!Array.isArray(relationsAfter)) {
       return failure("friction/relations_invalid", "relationsAfter must be an array when provided (26 §13)");
@@ -862,7 +846,7 @@ export async function correctFrictionObject(args) {
   };
   const relationsUnchanged = JSON.stringify(normalizeRelations(next.relations))
     === JSON.stringify(normalizeRelations(fm.relations));
-  if (bodyUnchanged && relationsUnchanged) {
+  if (bodyUnchanged && relationsUnchanged && removedFields.length === 0) {
     return failure("friction/no_op", "correction would change neither the body nor the relations — 02 §10.5 不记录 no-op；refusing to append a change_log entry that claims a correction happened");
   }
 
@@ -871,7 +855,7 @@ export async function correctFrictionObject(args) {
   next.change_log = [...(fm.change_log ?? []), {
     at: new Date().toISOString(),
     ...sig.signature,
-    summary: `事实更正（非状态转换）——${changeSummary}。终态判定未变：status/title/phenomenon/impact/serves/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter，改动在结构上不可能；可改范围仅正文与 relations（26 §13）。经 Human 授权：${humanAuthorization.trim()}`,
+    summary: `事实更正（非状态转换）——${changeSummary}。终态判定未变：status/title/phenomenon/impact/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter（唯一例外：2026-10 起可显式删除已退出类型闭集的字段，本次删除：${removedFields.length > 0 ? removedFields.join("、") : "无"}），不得新增或改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：${humanAuthorization.trim()}`,
   }];
   const filePath = objectFilePath(factSourceRoot, objectUid);
   const content = buildFileContent(next, body);
@@ -948,7 +932,6 @@ export async function listFrictionObjects(args) {
       status,
       impact: typeof frontmatter.impact === "string" ? frontmatter.impact : "",
       attribution: typeof frontmatter.attribution === "string" ? frontmatter.attribution : undefined,
-      serves: typeof frontmatter.serves === "string" ? frontmatter.serves : undefined,
       created_at: typeof frontmatter.created_at === "string" ? frontmatter.created_at : "",
     });
   }

@@ -4,7 +4,6 @@ status: open
 phenomenon: serves 归属只在写入时校验，无写入后的反查复核。
 attribution: 20 §8 与 25 §11 共同确立的设计边界：serves 为「轻量归属引用」并显式豁免 goal 修订级联，只覆盖「goal 变动向下传导」，未覆盖「对象自身缩范围/修订导致归属漂移」的反向情形；实现侧（spark-writer.js / friction-writer.js）相应只在创建与更新时校验形状与锚点存在性，无写入后反查复核通路。
 impact: light
-serves: SG-1
 object_uid: bdbab9ab-7ee0-44aa-ba29-078bbdf5b4a7
 fact_type_key: friction
 created_at: 2026-09-14T22:24:14.065Z
@@ -17,6 +16,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 初次创建：serves 归属只写不核，40 个声明对象处于同一复核真空；触发实例为 Spark cdc8bf7d 缩范围后依据失真约 3 天不可见
+  - at: 2026-10-10T02:36:05.648Z
+    provider: workbuddy
+    model: space-bunny
+    summary: 移除 serves 字段（26 号 2026-10 修订：serves 无消费方，§18 第 1 条禁止无消费方装饰字段；归属信息由 attribution 承载）；同时补记：Friction 侧移除该字段不消解本账所记的复核真空——Spark 侧 serves 仍在，机制缺口原样存在
 ---
 
 # serves 归属缺少反查复核
@@ -46,3 +49,5 @@ serves 归属只在写入时校验，无写入后的反查复核。
 **未决事项与转化条件**（登记于此，非处置承诺）——修复形态与归属层级（20 类型层加反查提示 / 25 goal 层加按 SG 聚合投影 / 05 服务层加检索操作）须经 Human 定案，本账目不自行选定。与既有账目 `3048937d`（已转 deferred，理由是「LDVH 体系结构缺口而非实际工作流摩擦」）的区别必须说清：`3048937d` 记载的校验规则本身完备正确、仅暴露顺序错位，故不构成摩擦；**本账目记载的是一条复核通路根本不存在**，其后果已在真实对象上产生可观测的依据失真，且该失真对 39 条同组对象同等成立。若 Human 判定该缺失同样属「系统未完善」而非「实际工作流摩擦」（沿用 `3048937d` 的裁定口径），则应转 deferred 并由相应 Spark 承接——**该裁定权在 Human，不在 AI**。
 
 **与本账目并列的一处实现事实**：`ldvh_spark_list` 工具的列表行当前输出 `title + status + serves`，与本条现象相关但**不是同一件事**——那是投影已实现但字段取舍与 20 §12 的 F1 规定（`title + status + priority + serves + refs`）不一致，属实现侧投影遗漏，已另行核实，不在本账目归因范围内。
+
+**2026-10 补记（本条对象自身被波及）**：26 号已删除 Friction 的 `serves` 字段（该字段在 §12 四个消费点均无消费方，违反 §18 第 1 条的红线），本对象作为 9 份存量之一已同步移除该字段。但本账目**记载的机制缺口不因此消解**——Spark 侧 `serves`（20 §8）仍然保留，其反查复核真空原样存在，且实例二的字段静默丢失路径同样适用于 Spark。故本条保持 open，处置范围按「Spark 侧为主」重新界定。

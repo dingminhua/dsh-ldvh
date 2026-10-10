@@ -4,7 +4,6 @@ status: resolved
 phenomenon: "status=open 的 WorkCase 无法写入 ## 结果 正文节，导致 awaiting_gate2 状态不可达"
 attribution: 21 §8 正文字段契约与 plugin/lib/workcase-writer.js 的 validateWorkcaseBodyStructure 期望集合/过滤逻辑不一致（长度比对把「结果」计入实际却不计入期望）；呈现侧消费点为 plugin/web/shared/workcaseLifecycle.ts 的 deriveWorkCaseV5View
 impact: heavy
-serves: SG-3
 relations:
   - relation_key: informs
     target:
@@ -25,6 +24,18 @@ change_log:
     provider: workbuddy
     model: space-bunny
     summary: 事实更正（非状态转换）——更正解药身份：target 由指向消费者工单 1a34f9e4 改为直接指向修复本体 commit e4e178f（02 §8.1 commit 形态）；该工单是缺陷修好之后的消费者与端到端证据，非解药，其证据改记入处置段。终态判定未变：status/title/phenomenon/impact/serves/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter，改动在结构上不可能；可改范围仅正文与 relations（26 §13）。经 Human 授权：Human（dsh-ldvh 会话主，2026-10-09）：先是明示「先消账吧」批准本账销账；后在审阅销账形态时判定「评判的关键是，那张工单到底是不是解药，因为 wc 对应的不是摩擦记录的问题吧」，据此裁定那张工单不是解药，并于同轮明示「扩展 target：commit 可直接作 target」与「行动吧」，授权据此修订关系与正文。本机械记录由 AI 自报，其存在不证明 Human 真的作过上述授权（26 §13 自报边界）。
+  - at: 2026-10-10T02:36:31.841Z
+    provider: workbuddy
+    model: space-bunny
+    summary: 事实更正（非状态转换）——2026-10 补记：26 号已删除 Friction 的 serves 字段（本对象随之移除），本账所记的复核真空在 Spark 侧仍原样存在，故本账保持 resolved 不变。终态判定未变：status/title/phenomenon/impact/serves/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter，改动在结构上不可能；可改范围仅正文与 relations（26 §13）。经 Human 授权：Human 于本会话明示「1、修改规范 2、修改存量」，并确认存量处置方式为「逐份删除」；该授权覆盖对 9 份存量 Friction 逐份删除 serves 字段，其中本份为 resolved 终态、须经 correct 入口实施。
+  - at: 2026-10-10T02:41:43.543Z
+    provider: workbuddy
+    model: space-bunny
+    summary: 事实更正（非状态转换）——清除已退出闭集的 serves 字段（26 号 2026-10 删除该字段；本对象为唯一 resolved 终态存量，Human 据此裁定扩展 correct 入口新增 frontmatter_removals——仅允许删除已退役字段，不得新增或改值）。终态判定未变：status/title/phenomenon/impact/serves/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter，改动在结构上不可能；可改范围仅正文与 relations（26 §13）。经 Human 授权：Human 于本会话明示「1、修改规范 2、修改存量」，并确认存量处置为「逐份删除」；bf73fad4 为唯一 resolved 终态存量、无法经受控更新删除后，Human 明确选择「扩 correct 入口（改规范+代码）」以清除其 serves 字段。该授权覆盖本条 correct 动作及其对 26 号 §13 的相应扩展。
+  - at: 2026-10-10T02:44:49.635Z
+    provider: workbuddy
+    model: space-bunny
+    summary: 事实更正（非状态转换）——清除已退出闭集的 serves 字段（26 号 2026-10 删除该字段；本对象为唯一 resolved 终态存量，Human 据此裁定扩展 correct 入口新增 frontmatter_removals——仅允许删除已退役字段，不得新增或改值）。本次为宿主重载后的实际执行，前一次尝试因插件代码未生效而空转，其流水中的「已移除」表述当时不实。终态判定未变：status/title/phenomenon/impact/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter（唯一例外：2026-10 起可显式删除已退出类型闭集的字段，本次删除：serves），不得新增或改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human 于本会话明示「1、修改规范 2、修改存量」，并确认存量处置为「逐份删除」；bf73fad4 为唯一 resolved 终态存量、无法经受控更新删除后，Human 明确选择「扩 correct 入口（改规范+代码）」以清除其 serves 字段。该授权覆盖本条 correct 动作及其对 26 号 §13 的相应扩展。
 ---
 
 # open 工单无法写入结果节
@@ -66,3 +77,7 @@ status=open 的 WorkCase 无法写入 ## 结果 正文节，导致 awaiting_gate
 **消除证据二：端到端（2026-10-09 真实工作流）**：`awaiting_gate2` 已实际达成并走完 Gate 2——两张工单 `workcase-1a34f9e4`（提请弹窗 200 字符上限）与 `workcase-81c37ef0`（清理 writer 注释）各自经 `execute` 写入「## 结果」节后成功派生为 awaiting_gate2，经 Human 逐张批准后落为 `closed`／`completed`（提交 `a2eb4e8`）。呈现层派生条件与写侧不再互斥——这正是本条现象所称「awaiting_gate2 不可达」的反证。该证据说明修复在真实工作流中生效，但它**不是**解药，故只记于此处而不指向为 `target`。
 
 **与同族摩擦的区分（避免重复销账）**：本账根因是「写不进去」（正文结构校验的期望集合/过滤逻辑缺陷），已消除；`friction-720b58c9`「关闭提请无专属动作承载」根因是「没有人写」（关闭信号无专属动作，只能作为 execute 的附带产物出现），**该机制性缺口仍在、未消除**，其 status 保持 open——两账同题不同根因，不可因本账销账而一并视为解决。
+
+**2026-10 补记（`serves` 字段清除，终态判定不变）**：26 号规范于 2026-10 删除了 Friction 的 `serves` 字段（该字段在 §12 四个消费点均无消费方，违反 §18 第 1 条红线）。本对象是 9 份存量中**唯一为 `resolved` 终态**的一份——受控更新入口对终态只读（§9.2），故其 `serves: SG-3` 无法经受控更新删除。Human 据此裁定扩展 `correct` 入口：新增 `frontmatter_removals`，允许**显式删除已退出类型闭集的字段**（唯一动作，不得新增或改值）。经该通道本对象的 `serves` 已清除。本次动作不触及本账的解药身份、消除证据与销账判定——终态仍为 `resolved`，`informs` 关系逐字不变。
+
+**本次动作的中间失败如实登记（2026-10）**：清除 `serves` 的第一次尝试发生在插件宿主重载新代码之前，工具侧未收到 `frontmatter_removals`（schema 尚未声明该参数），该次 correct 只改正了正文、未删除字段，却返回成功并在 change_log 中写入了「本对象随之移除」这一与落盘事实不符的表述。宿主重启后重试，才真正删除该字段。此处登记以免后人误读流水：同一 summary 在相邻两条 change_log 中一真一假，真伪以**落盘文件**为准。

@@ -121,7 +121,6 @@ frontmatter 闭集（账本类型必须轻——入账摩擦高于摩擦本身�
 | `phenomenon` | string | 必填 | 现象单句陈述 | 非结论（「CI 平均 8 分钟」不是「CI 太慢」）；正文「现象」段逐字包含 |
 | `attribution` | string | 条件 | 归因陈述 | 指向哪个子系统/规范/流程；入账时归因未定可省略，后补走补充级更新；出现时非空 |
 | `impact` | string | 必填 | 影响评级 | 闭集 `light` / `medium` / `heavy`——机械消费方在本文 §12 定义（F1 投影含 impact、度量按状态×影响聚合）与设计定稿的出生路径「重大即显」通道（heavy 跳过攒熟直接提议）；非装饰字段 |
-| `serves` | string | 条件 | 服务的 SG-n | 框架摩擦挂 SG-3；项目摩擦按所属项目目标；goal.md 无该锚点时省略 |
 | `relations` | array | 条件 | `informs` 指向解药（见 §9） | 仅 resolved 时出现 |
 | `created_at` | RFC3339 | 必填 | Code 填写 | AI 不得填写 |
 | `change_log` | array | 条件 | 变更流水 | 首修后必有；每次恰好一条 |
@@ -134,7 +133,9 @@ frontmatter 闭集（账本类型必须轻——入账摩擦高于摩擦本身�
 ## 处置            ← 解药记录或推迟理由（条件出现——resolved/deferred 时；必答：怎么解的+解药指引，或为何暂缓+重启条件）
 ```
 
-字段间不变量：`phenomenon` 载体内聚（正文现象段逐字包含）；`relations` 出现 ⇔ `status=resolved`；`attribution`/`serves` 出现时非空；未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
+字段间不变量：`phenomenon` 载体内聚（正文现象段逐字包含）；`relations` 出现 ⇔ `status=resolved`；`attribution` 出现时非空；未知字段不进入 canonical 对象，不得以空字段或占位代替判断。
+
+（2026-10 修订：删除 `serves` 字段。理由：§12 四个消费点无一使用它，§18 第 1 条禁止无消费方装饰字段；归属信息已由 `attribution` 承载，且归属判断主观、无后果产出。与 WorkCase 的 `serves` 不同——后者承载授权钉扎、goal 修订级联与达成证据链，不可类比。）
 
 ## 9. 状态与生命周期
 
@@ -194,7 +195,7 @@ frontmatter 闭集（账本类型必须轻——入账摩擦高于摩擦本身�
 - **创建**：AI 产出提案对象（含查重结论+三条件核对+完整字段），Human 确认后经受控创建入口落盘——入口两路：空闲评审提议（buffer 攒熟或重大即显）与即时检测/直接提出。机械校验：字段闭集合法、title ≤ 30 字、phenomenon 单句、impact 闭集、载体结构（H2 固定序 + resolved/deferred 时「处置」段必在——创建即终态不允许，初态强制 open）、载体内聚（phenomenon 逐字）。创建后精确回读。
 - **补充级更新**：02 §10.5 受控更新；CAS 以完整文件为单位；每次恰好一条 change_log；status 不变（机械比对，变了拒绝——走流转）。
 - **状态流转**：Human Gate；AI 先精确读取 F3 核对流转依据；resolved 校验 informs 目标可解析；Code 检查闭集、字段、关系、CAS 与回读。
-- **终态事实更正**（`correct`；Human 决定 2026-10-09 建立）：**仅适用于 `resolved`**——`open`／`deferred` 的内容修正走补充级更新或状态流转，本入口不得承载（否则等于把更正伪装成状态转换，02 §10.5）。**存在理由**：§9.2 要求「销错的账按 05 事实更正修正」，而本类型此前只有补充级更新（机械拒绝改 status）与状态流转（终态不重开）两个通道——**销错的终态账无路可改**，该要求形同虚设。可改范围：**正文（含处置段）与 `relations`**——恰是销账时写错的两处（02:386 事实更正与关系变更是不同动作，本入口覆盖两者，校验中分别核对）。**逐字不变**：`status`、`title`、`phenomenon`、`impact`、`serves`、`attribution`、`created_at`（`change_log` 由 Code 追加一条新条目）。**必填**：`human_authorization`（Human 的授权记录：谁／何时／覆盖什么）——与 21 号 WorkCase 的 `correct` 同规格，缺之 fail-closed。**机械校验**：`resolved` 状态前置；`informs` 条数 **≥ 1（无例外**——`informs` 是 resolved 的必备关系，commit locator 只是该条目**附加**的证据定位，不替代 `informs` 本身）且每条 `target.object_uid` 可解析（ADR/WorkCase）；若某条带 `evidence_locator.commit`，该 hash 另须在仓中真实可解析（02 §8.1）；CAS 与回读同其它动作；**no-op 拒绝**（正文与 relations 均未变即拒绝，不追加声称更正过的 change_log，02 §10.5）。**边界**：更正的**正当性**属 Human 判断与独立审核（**是否**该改）；机械层只保证「只改了正文与 relations、终态判定逐字未变、目标真实可解析」。本动作**不使 `resolved` 可重开**——改完仍是 resolved，且须以本条 `change_log` 留痕。**与 21 号 WorkCase `correct` 的形态差异（勿读作同规格）**：21 的 correct **不接收任何 frontmatter 字段**（`next` 是落盘对象的克隆、调用方无法触及），只改正文——因为 WorkCase 的 `result`／`reviews` 等字段由关闭动作写入、更正不得触碰；本动作**接收 `relations_after`**，因为 Friction 的 `relations`（`informs`）恰是销账动作写入的产物，销账写错时若不能改，则 §9.2「销错的账可改」对本类型仍是空话。**共同点**：均须 Human 授权记录（且逐字写入 `change_log` 摘要）、均不使终态可重开、均逐字继承终态判定、均做写后回读、均拒绝 no-op。**授权记录的自报边界（同 21 §14 的免责，不得省写）**：`human_authorization` 是**自报文本**——它被机械写入 `change_log` 摘要，但**其存在与内容不证明 Human 真的作过该授权**；机械层只保证「授权记录被提供并逐字留痕」。与 21 号一致，不因本类型而放宽。
+- **终态事实更正**（`correct`；Human 决定 2026-10-09 建立）：**仅适用于 `resolved`**——`open`／`deferred` 的内容修正走补充级更新或状态流转，本入口不得承载（否则等于把更正伪装成状态转换，02 §10.5）。**存在理由**：§9.2 要求「销错的账按 05 事实更正修正」，而本类型此前只有补充级更新（机械拒绝改 status）与状态流转（终态不重开）两个通道——**销错的终态账无路可改**，该要求形同虚设。可改范围：**正文（含处置段）与 `relations`**，外加**已退出类型闭集的 frontmatter 字段的显式删除**——恰是销账时写错的两处（02:386 事实更正与关系变更是不同动作，本入口覆盖两者，校验中分别核对）。**唯一的前端字段动作（2026-10，Human 裁定；因删除 `serves` 而建立）**：`frontmatter_removals` 只允许**删除**已从 §8 闭集移除的字段，不得新增或改值——新增/改值等于把终态更正变成受控更新。删除是**显式声明**而非隐式克隆：不声明则该字段逐字继承，声明「删除一个本就不存在的字段」计入 no-op。首个用例是 `serves`（§8 于 2026-10 删除）；9 份存量中 8 份为 `open`/`deferred`，经受控更新删除即可，**1 份 `resolved` 终态无法经受控更新触及**，本入口是其唯一受控清除途径——若无此通道，闭集收缩会在终态对象上留下不可清除的残留字段（本次实测：bf73fad4 的 `serves: SG-3` 即是）。**边界**：本动作不构成「correct 可改 frontmatter」的先例——可改的是「已不在闭集里的字段之无」，不是「字段的值」。**逐字不变**：`status`、`title`、`phenomenon`、`impact`、`attribution`、`created_at`（`change_log` 由 Code 追加一条新条目）。**必填**：`human_authorization`（Human 的授权记录：谁／何时／覆盖什么）——与 21 号 WorkCase 的 `correct` 同规格，缺之 fail-closed。**机械校验**：`resolved` 状态前置；`informs` 条数 **≥ 1（无例外**——`informs` 是 resolved 的必备关系，commit locator 只是该条目**附加**的证据定位，不替代 `informs` 本身）且每条 `target.object_uid` 可解析（ADR/WorkCase）；若某条带 `evidence_locator.commit`，该 hash 另须在仓中真实可解析（02 §8.1）；CAS 与回读同其它动作；**no-op 拒绝**（正文、relations 与 `frontmatter_removals` 均无实际变更即拒绝，不追加声称更正过的 change_log，02 §10.5）。**边界**：更正的**正当性**属 Human 判断与独立审核（**是否**该改）；机械层只保证「只改了正文与 relations、终态判定逐字未变、目标真实可解析」。本动作**不使 `resolved` 可重开**——改完仍是 resolved，且须以本条 `change_log` 留痕。**与 21 号 WorkCase `correct` 的形态差异（勿读作同规格）**：21 的 correct **不接收任何 frontmatter 字段**（`next` 是落盘对象的克隆、调用方无法触及），只改正文——因为 WorkCase 的 `result`／`reviews` 等字段由关闭动作写入、更正不得触碰；本动作**接收 `relations_after`**，因为 Friction 的 `relations`（`informs`）恰是销账动作写入的产物，销账写错时若不能改，则 §9.2「销错的账可改」对本类型仍是空话；本动作亦**接收 `frontmatter_removals`**（仅限已退出闭集的字段），而 21 号不接收——WorkCase 无闭集收缩发生，且其字段由 Gate 1/关闭动作写入。**共同点**：均须 Human 授权记录（且逐字写入 `change_log` 摘要）、均不使终态可重开、均逐字继承终态判定、均做写后回读、均拒绝 no-op。**授权记录的自报边界（同 21 §14 的免责，不得省写）**：`human_authorization` 是**自报文本**——它被机械写入 `change_log` 摘要，但**其存在与内容不证明 Human 真的作过该授权**；机械层只保证「授权记录被提供并逐字留痕」。与 21 号一致，不因本类型而放宽。
 - **删除**：不存在删除操作。三类状态的账目都随 `frictions/` 保留。
 
 ## 14. 类型特有验证与类型退出

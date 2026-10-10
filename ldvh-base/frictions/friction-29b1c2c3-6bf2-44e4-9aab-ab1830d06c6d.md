@@ -4,7 +4,6 @@ status: open
 phenomenon: plugin/web/api 目录被写入触发源码热刷新回收子进程后，宿主 /ldvh/api/health 仍返回 ok:true 与 webPort，客户端据此判定就绪并指向已死端口，LDVH 面板白屏且不自愈。
 attribution: plugin/lib/index.js:157-162 的 health 短路应答与 plugin/lib/client.js:375-382/388-400 的就绪判据共同构成判据错位：宿主 health 回答「宿主侧 Web 路由与配置是否在」（与子进程解耦的静态应答），客户端把它当作「端到端可服务」；唯一的子进程活性检测（web-mount.js:332 代理路径内的 ensureReady）不被就绪探测覆盖；而回收子进程的 web-mount.js:200-208 源码热刷新是常规开发行为。
 impact: medium
-serves: SG-3
 object_uid: 29b1c2c3-6bf2-44e4-9aab-ab1830d06c6d
 fact_type_key: friction
 created_at: 2026-09-27T05:22:01.110Z
@@ -13,6 +12,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 受控创建 Friction 对象
+  - at: 2026-10-10T02:33:48.855Z
+    provider: workbuddy
+    model: space-bunny
+    summary: 移除 serves 字段（26 号 2026-10 修订：serves 无消费方，§18 第 1 条禁止无消费方装饰字段；归属信息由 attribution 承载）
 ---
 
 # 子进程回收后呈现不自愈

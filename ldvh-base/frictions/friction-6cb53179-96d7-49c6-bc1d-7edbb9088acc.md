@@ -4,7 +4,6 @@ status: open
 phenomenon: "Git Gate 提交钩子以裸 `exec node` 调用校验器，当会话 shell 的 PATH 不含 node 时提交被以 `exec: node: not found`（exit 1）拒绝，阻断者为 shell 而非校验器。"
 attribution: .git/hooks/commit-msg:18 的裸 `exec node` 与 09 §5.5 Git Gate「机械守护终闸、提交前不可绕过」的语义之间存在缺口：钩子未使用绝对路径或候选路径探测，故校验器不可执行时提交被拒的原因无法与校验不通过区分。2026-10-09 补记：修复后该环境依赖转移到独立复核会话的验证命令面（prompt 内人工 export PATH），无机械保障承载。
 impact: medium
-serves: SG-3
 object_uid: 6cb53179-96d7-49c6-bc1d-7edbb9088acc
 fact_type_key: friction
 created_at: 2026-09-28T02:59:31.277Z
@@ -29,6 +28,10 @@ change_log:
     provider: workbuddy
     model: space-bunny
     summary: 补记 2026-10-09 残留形态：钩子侧已修后，环境依赖转移到独立复核会话的验证命令面——12 小时内多个复核子会话首条命令自行 export PATH，补偿只存在于自然语言 prompt 无机械保障；状态不变（open），因仍无可指向的解药对象
+  - at: 2026-10-10T02:35:40.243Z
+    provider: workbuddy
+    model: space-bunny
+    summary: 移除 serves 字段（26 号 2026-10 修订：serves 无消费方，§18 第 1 条禁止无消费方装饰字段；归属信息由 attribution 承载）
 ---
 
 # 提交钩子依赖 PATH 中的 node

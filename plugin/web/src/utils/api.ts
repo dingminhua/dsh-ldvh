@@ -116,7 +116,7 @@ export interface ObjectItem {
   trigger_signal?: string;
   retirement_reason?: string;
   retired_at?: string;
-  /** Friction-specific（26 §8：phenomenon/impact 必填；attribution/serves 条件） */
+  /** Friction-specific（26 §8：phenomenon/impact 必填；attribution 条件） */
   phenomenon?: string;
   attribution?: string;
   impact?: string;

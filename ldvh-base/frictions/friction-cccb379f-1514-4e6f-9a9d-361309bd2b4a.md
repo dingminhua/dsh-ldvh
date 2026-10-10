@@ -4,7 +4,6 @@ status: open
 phenomenon: 事实规范创建被 ERR_DIRECTION_ALREADY_EXISTS 拒绝后，错误不携带「哪个 direction_key 已被谁占用」，AI 在同一会话内反复重建同一 direction_key 并再次被拒。
 attribution: 规范写工具的错误通道设计：27 §6.2 把去重定为 AI 对 direction_key/title 的语义比较、机制只检查 direction_key 是否已存在，该分工合理但代价未被承接——ERR_DIRECTION_ALREADY_EXISTS 只报告冲突事实，不回传占用方身份（object_uid/title/status），也不给出应改用什么；AI 因此在拒绝中得不到任何新信息，只能原样重试
 impact: medium
-serves: SG-3
 object_uid: cccb379f-1514-4e6f-9a9d-361309bd2b4a
 fact_type_key: friction
 created_at: 2026-10-09T14:48:42.804Z
@@ -13,6 +12,10 @@ change_log:
     provider: workbuddy
     model: space-bunny
     summary: 初次创建：Norm 创建被 ERR_DIRECTION_ALREADY_EXISTS 拒绝后错误不携带占用方信息，AI 在同一会话反复以同一 key 重试。本轮 12 小时内实测 46 次命中、跨 8 个会话，其中单会话 session-17f13255 占 26 次。三条件核对成立
+  - at: 2026-10-10T02:35:06.455Z
+    provider: workbuddy
+    model: space-bunny
+    summary: 移除 serves 字段（26 号 2026-10 修订：serves 无消费方，§18 第 1 条禁止无消费方装饰字段；归属信息由 attribution 承载）
 ---
 
 # direction 冲突拒绝零信息量

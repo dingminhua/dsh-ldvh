@@ -4,7 +4,6 @@ status: open
 phenomenon: 实施会话自录复核时 Code 盖戳其身份致关闭门禁判非独立，隔离子代理同步跑完后登记表回收致回传通道取回失败。
 attribution: 21 号规范与 workcase 写工具的 payload 语义与身份承载之间：record_review 从调用方会话记录托管 session_id（实施者自录即盖戳为实施会话），且隔离子代理登记表在同步完成后即回收、agent_id 不可事后回传；此前工具描述与规范均未声明「调用方即实施者时必然产生非独立条目」与「须后台派生」两个后果
 impact: heavy
-serves: SG-3
 object_uid: 82260dec-3c6c-42b2-b127-db6c4e2e2c65
 fact_type_key: friction
 created_at: 2026-10-09T14:48:06.434Z
@@ -17,6 +16,10 @@ change_log:
     provider: workbuddy
     model: space-bunny
     summary: 补记处置方向（Human 已决定，变更待审核与提交）：两触发面各采一条解法——工具侧 record_review 强制 reviewer_child_agent_id（省略即 fail-closed 停止并报告）、流程侧 04 §7.3/21 §14 明示子代理为唯一承载形式且须后台派生。实现与规范文本已落工作树待审核，未取得规则效力，故本账保持 open
+  - at: 2026-10-10T02:35:23.907Z
+    provider: workbuddy
+    model: space-bunny
+    summary: 移除 serves 字段（26 号 2026-10 修订：serves 无消费方，§18 第 1 条禁止无消费方装饰字段；归属信息由 attribution 承载）
 ---
 
 # 独立复核身份被盖戳为实施会话
