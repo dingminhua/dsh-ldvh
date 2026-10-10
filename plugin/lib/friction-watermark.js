@@ -38,6 +38,37 @@ import { randomUUID } from "node:crypto";
 /** DSH home 下的相对位置（与 governed-projects / pending-queue 同层）。 */
 const WATERMARK_RELATIVE_PATH = ["ldvh", "friction-discovery-watermarks.json"];
 
+/**
+ * 按 key 串行化（缺陷 D3 的修复；形制借鉴参考实现 `dsh-agent-teams` 的
+ * `withTeamLock`（`src/state.ts:63`）与 `serializeMember`（`scheduler.ts:273`））。
+ *
+ * **为什么必须有**：读-改-写不是原子的。两个检查点重叠时（会话重启、快速连续
+ * 回合、或同会话多个 driver），两个 `advanceWatermark` 会各自读到同一份旧文档、
+ * 各自写回——后写的覆盖先写的。已实测复现：并发推进 turn 5 与 turn 9 时，较小的
+ * 那次触发 `watermark/read_back_mismatch`（读回值与期望不符），即**两个检查点
+ * 重叠时水位推进不可靠**，且该失败会按 §8.3 入队产生误报。
+ *
+ * 以「载体路径」为键：同一载体的读-改-写整体排队，不同载体互不阻塞。
+ */
+const watermarkQueues = new Map();
+
+function serialize(key, operation) {
+  const previous = watermarkQueues.get(key) ?? Promise.resolve();
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.then(() => gate);
+  watermarkQueues.set(key, tail);
+  return previous
+    .then(operation)
+    .finally(() => {
+      release();
+      // 后继若已占位则保留其槽位（同参考实现的清理纪律）。
+      if (watermarkQueues.get(key) === tail) watermarkQueues.delete(key);
+    });
+}
+
 function watermarkPath(dshHomePath) {
   return dshHomePath(...WATERMARK_RELATIVE_PATH);
 }
@@ -129,30 +160,36 @@ export async function advanceWatermark(dshHomePath, { projectRoot, sessionId, tu
     return failure("watermark/invalid_turn", `turn must be a non-negative integer (got ${JSON.stringify(turn)})`);
   }
 
-  const doc = await readAll(dshHomePath);
-  if (!doc.ok) return doc;
-  const key = watermarkKey(projectRoot, sessionId);
-  const existing = doc.value[key]?.lastTurn;
-  if (Number.isInteger(existing) && turn < existing) {
-    return failure(
-      "watermark/non_monotonic",
-      `refusing to move the watermark backwards: existing lastTurn=${existing}, requested ${turn} (§8.4 水位段：倒退会使已处理区间被重复计入)`,
-    );
-  }
+  // D3：读-改-写整体串行化——并发的两个检查点各自读到同一份旧文档时，后写者
+  // 会覆盖先写者，且较小的那次会因读回不符而误报失败（已实测复现）。
+  return serialize(watermarkPath(dshHomePath), async () => {
+    const doc = await readAll(dshHomePath);
+    if (!doc.ok) return doc;
+    const key = watermarkKey(projectRoot, sessionId);
+    const existing = doc.value[key]?.lastTurn;
+    if (Number.isInteger(existing) && turn < existing) {
+      return failure(
+        "watermark/non_monotonic",
+        `refusing to move the watermark backwards: existing lastTurn=${existing}, requested ${turn} (§8.4 水位段：倒退会使已处理区间被重复计入)`,
+      );
+    }
 
-  const next = { ...doc.value, [key]: { lastTurn: turn, advancedAt: new Date().toISOString() } };
-  const written = await writeAll(dshHomePath, next);
-  if (!written.ok) return written;
+    const next = { ...doc.value, [key]: { lastTurn: turn, advancedAt: new Date().toISOString() } };
+    const written = await writeAll(dshHomePath, next);
+    if (!written.ok) return written;
 
-  // 精确回读（§8.4 第 5 项同源纪律：写入后须回读核对）。
-  const readBack = await readWatermark(dshHomePath, { projectRoot, sessionId });
-  if (!readBack.ok) {
-    return failure("watermark/read_back_failed", `advance reported success but the read-back failed: ${readBack.error.message}`);
-  }
-  if (readBack.value.lastTurn !== turn) {
-    return failure("watermark/read_back_mismatch", `expected lastTurn=${turn} after advance, got ${readBack.value.lastTurn}`);
-  }
-  return success({ key, lastTurn: turn });
+    // 精确回读（§8.4 第 5 项同源纪律：写入后须回读核对）。仍在同一临界区内，
+    // 故读回的必是本临界区写入的值。
+    const readBack = await readAll(dshHomePath);
+    if (!readBack.ok) {
+      return failure("watermark/read_back_failed", `advance reported success but the read-back failed: ${readBack.error.message}`);
+    }
+    const observed = readBack.value[key]?.lastTurn;
+    if (observed !== turn) {
+      return failure("watermark/read_back_mismatch", `expected lastTurn=${turn} after advance, got ${observed}`);
+    }
+    return success({ key, lastTurn: turn });
+  });
 }
 
 /**

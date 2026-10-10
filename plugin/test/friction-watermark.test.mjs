@@ -152,3 +152,70 @@ test("水位不进入事实源：载体路径在 DSH home 的 ldvh 域下，与�
   assert.deepEqual([...WATERMARK_RELATIVE_PATH], ["ldvh", "friction-discovery-watermarks.json"]);
   assert.ok(!WATERMARK_RELATIVE_PATH.includes("frictions"), "水位不得落在 Friction 账目目录");
 });
+
+// ---------------------------------------------------------------------------
+// 缺陷 D3：并发读-改-写须串行化（对照参考实现 dsh-agent-teams 的 withTeamLock）
+//
+// 形态：两个检查点重叠时，各自读到同一份旧文档、各自写回——后写者覆盖先写者，
+// 且较小的那次因读回不符而**误报失败**（该失败会按 §8.3 入队产生噪音）。
+// 参考实现（dsh-agent-teams/src/state.ts:63、scheduler.ts:273）以按 key 排队的
+// promise 链解决；此处以同样形制解决并加护栏。
+// ---------------------------------------------------------------------------
+
+test("D3：并发推进不互相覆盖，且都成功（无 read_back_mismatch 误报）", async () => {
+  await withTemp("ldvh-watermark-", async (dir) => {
+    const home = homeOf(dir);
+    const results = await Promise.all([
+      advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: 5 }),
+      advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: 9 }),
+    ]);
+    assert.equal(results[0].ok, true, `较小值的那次不应误报失败：${JSON.stringify(results[0].error)}`);
+    assert.equal(results[1].ok, true, JSON.stringify(results[1].error));
+
+    const back = await readWatermark(home, { projectRoot: PROJECT, sessionId: SESSION });
+    assert.equal(back.value.lastTurn, 9, "最终水位应为较大值");
+  });
+});
+
+test("D3：乱序并发时单调性仍然生效（较小的那个若后到也不得倒退）", async () => {
+  await withTemp("ldvh-watermark-", async (dir) => {
+    const home = homeOf(dir);
+    await advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: 20 });
+    // 20 之后再来一个更小的 7：须被非单调拒绝，而不是静默覆盖
+    const back = await advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: 7 });
+    assert.ok(!back.ok);
+    assert.equal(back.error.code, "watermark/non_monotonic");
+    const after = await readWatermark(home, { projectRoot: PROJECT, sessionId: SESSION });
+    assert.equal(after.value.lastTurn, 20);
+  });
+});
+
+test("D3：并发写不同会话互不阻塞（按载体串行、非全局串行）", async () => {
+  await withTemp("ldvh-watermark-", async (dir) => {
+    const home = homeOf(dir);
+    const results = await Promise.all([
+      advanceWatermark(home, { projectRoot: PROJECT, sessionId: "s-a", turn: 3 }),
+      advanceWatermark(home, { projectRoot: PROJECT, sessionId: "s-b", turn: 4 }),
+      advanceWatermark(home, { projectRoot: PROJECT, sessionId: "s-c", turn: 5 }),
+    ]);
+    assert.ok(results.every((r) => r.ok), JSON.stringify(results.map((r) => r.error)));
+    const a = await readWatermark(home, { projectRoot: PROJECT, sessionId: "s-a" });
+    const c = await readWatermark(home, { projectRoot: PROJECT, sessionId: "s-c" });
+    assert.equal(a.value.lastTurn, 3);
+    assert.equal(c.value.lastTurn, 5);
+  });
+});
+
+test("D3：突发多次并发推进同一会话，全部成功且最终为最大值", async () => {
+  await withTemp("ldvh-watermark-", async (dir) => {
+    const home = homeOf(dir);
+    const turns = [2, 3, 4, 5, 6, 7, 8];
+    const results = await Promise.all(
+      turns.map((t) => advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: t })),
+    );
+    const failed = results.map((r, i) => (r.ok ? null : `${turns[i]}:${r.error.code}`)).filter(Boolean);
+    assert.deepEqual(failed, [], `并发的串行化应保证全部成功，失败项：${failed.join(",")}`);
+    const back = await readWatermark(home, { projectRoot: PROJECT, sessionId: SESSION });
+    assert.equal(back.value.lastTurn, 8);
+  });
+});
