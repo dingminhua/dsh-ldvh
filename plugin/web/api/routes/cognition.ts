@@ -144,6 +144,8 @@ interface RecentActivityBuildItem {
   priority?: string
   /** Spark 的 goal.md 子目标锚点（20 §6 serves），条件出现。 */
   serves?: string
+  /** 26 §8 impact（轻/中/重），条件出现——摩擦的近期动态行据此显示影响标签。 */
+  impact?: string
   /** 关联的事实对象引用（03 §7.2 / 20 §8 refs），条件出现。 */
   refs?: Array<{ object_uid: string; title?: string; type?: string }>
   read_status: string
@@ -367,6 +369,8 @@ function buildRecentActivityItem(
     ...(type === 'workcase' ? { group } : { status }),
     ...(priorityRank(raw.priority) < 4 && typeof raw.priority === 'string' ? { priority: raw.priority } : {}),
     ...(type === 'spark' && typeof raw.serves === 'string' && raw.serves.trim() ? { serves: raw.serves } : {}),
+    // 26 §8 impact：摩擦的近期动态行与列表卡卡头、详情头同形显示轻/中/重。
+    ...(type === 'friction' && typeof raw.impact === 'string' && raw.impact.trim() ? { impact: raw.impact } : {}),
     read_status: String(raw.read_status ?? 'unknown'),
     field_issues: Array.isArray(raw.field_issues) ? raw.field_issues as Array<Record<string, unknown>> : [],
     unparsed_structures: Array.isArray(raw.unparsed_structures) ? raw.unparsed_structures as Array<Record<string, unknown>> : [],
@@ -1046,6 +1050,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       typeColor: getTypeColor(build.type),
       ...(build.priority !== undefined ? { priority: build.priority } : {}),
       ...(build.serves !== undefined ? { serves: build.serves } : {}),
+      ...(build.impact !== undefined ? { impact: build.impact } : {}),
       ...(build.refs !== undefined ? { refs: build.refs } : {}),
       ...(build.type === 'workcase' && build.group !== undefined
         ? { group: build.group }

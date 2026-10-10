@@ -972,3 +972,30 @@ test('近期动态覆盖全部活跃事实类型（26/27 号加入 OBJECT_TYPES 
     assert.ok(cognition.includes(`listObjects('${type}'`), `${type} 须有读取调用`)
   }
 })
+
+test('近期动态行对摩擦显示影响标签（轻/中/重），与卡头同序同形', () => {
+  const cognition = readFileSync(path.resolve(repositoryRoot, 'src/pages/CognitionCenter.tsx'), 'utf8')
+  const row = cognition.slice(
+    cognition.indexOf('function RecentActivityRow'),
+    cognition.indexOf('function RecentActivityUsageBars'),
+  )
+
+  // 与列表卡卡头、详情身份头**同序**：类型 → 优先级 → SG → 影响 → 修改次数。
+  assert.match(row, /<PriorityIcon source=\{item\} type=\{item\.type\}[\s\S]{0,200}?<ServesSgBadge value=\{item\.serves\}[\s\S]{0,400}?<FrictionImpactBadge value=\{item\.impact\}/,
+    '影响紧跟 SG，在修改次数之前')
+  assert.match(row, /item\.type === 'friction' && <FrictionImpactBadge/, '按类型分派');
+  // 经共享组件渲染——不自行拼 chip（否则会与卡头形态漂移）。
+  assert.doesNotMatch(row, /FRICTION_IMPACT_CHIP_CLASS/, '不手写 chip');
+})
+
+test('近期动态投影携带 friction 的 impact（API 链路不丢字段）', () => {
+  const cognition = readFileSync(path.resolve(repositoryRoot, 'api/routes/cognition.ts'), 'utf8')
+  const api = readFileSync(path.resolve(repositoryRoot, 'src/utils/api.ts'), 'utf8')
+
+  // 三处缺一不可：BuildItem 结构 → 从原始对象取 → 投影给前端。
+  // 此前三处都没有 impact，故前端即便想渲染也无值可渲染（Human 2026-11 实测）。
+  assert.match(cognition, /serves\?: string[\s\S]{0,200}?impact\?: string/, '① BuildItem 结构声明 impact')
+  assert.match(cognition, /type === 'friction' && typeof raw\.impact === 'string' && raw\.impact\.trim\(\)/, '② 从原始对象取 impact')
+  assert.match(cognition, /build\.impact !== undefined \? \{ impact: build\.impact \}/, '③ 投影给前端')
+  assert.match(api, /impact\?: string/, '④ 前端类型声明 impact')
+})

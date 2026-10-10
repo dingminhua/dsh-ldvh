@@ -553,6 +553,9 @@ export interface CognitionRecentActivityItem {
   priority?: string;
   /** Spark 的 goal.md 子目标锚点（20 §6 serves），条件出现。 */
   serves?: string;
+  /** 26 §8 impact（轻/中/重），条件出现——摩擦的近期动态行据此显示影响标签，
+   * 与列表卡卡头、详情头同形（Human 2026-11：「聚焦里依然没有重中轻的标签」）。 */
+  impact?: string;
   /** WorkCase 只携带派生 group；其它对象携带自身当前状态。 */
   group?: WorkCaseV5Group;
   status?: string;
