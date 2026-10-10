@@ -27,6 +27,7 @@ import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
 import { createTurnTriggers } from "./triggers.js";
 import { runIdleCheckpoint, selectAuxTask } from "./idle-checkpoint.js";
+import { createDiscoveryProvider } from "./friction-discovery-provider.js";
 import { createChildInstaller } from "./child.js";
 import { AgentLifecycle } from "./agent-lifecycle.js";
 import { recordJudgementForGuard } from "./host-seams.js";
@@ -284,6 +285,39 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 预算轮换：一次检查点只跑一个任务（32 §10.2），计数器随 lifecycle 存活。
           const rotation = lifecycle.turns.auxRotation ?? 0;
           lifecycle.turns.auxRotation = rotation + 1;
+          const taskForThisCheckpoint = selectAuxTask(rotation);
+
+          // §8.4 第 1 项的执行体：派一个**继承主控上下文**的受管辖隔离子代理去做
+          // 语义查重，并取回它的结构化判断。仅对 `idle-review` 需要（其余任务尚未
+          // 实现，runIdleCheckpoint 会如实报 not-implemented）。
+          //
+          // 依赖缺失时**不传 discover**，使 runIdleCheckpoint 如实报 skipped——
+          // 那比"派一个零上下文的子代理冒充判断"诚实得多（§8.4 要求继承上下文）。
+          let discover;
+          if (taskForThisCheckpoint === "idle-review") {
+            try {
+              const subagents = agent?.ctx?.get?.("subagents");
+              if (subagents !== undefined && subagents !== null) {
+                // 取消信号与发起会话同生共死：会话结束即释放派生。
+                const controller = new AbortController();
+                lifecycle.turns.discoveryAbort?.abort?.();
+                lifecycle.turns.discoveryAbort = controller;
+                discover = createDiscoveryProvider({
+                  subagents,
+                  parent: agent,
+                  signal: controller.signal,
+                  onRun: (event) => lifecycle.activity?.record("session/checkpoint/executor", event),
+                });
+              }
+            } catch (error) {
+              // 构造提供者失败不退化为"没有执行体"以外的任何东西：如实记录，
+              // 让 runIdleCheckpoint 走 skipped（不创建账目、不推进水位）。
+              lifecycle.activity?.record("session/checkpoint/executor-unavailable", {
+                reason: String(error?.message ?? error),
+              });
+            }
+          }
+
           await runIdleCheckpoint({
             dshHomePath,
             factSourceRoot: join(scope.project.path, "ldvh-base"),
@@ -291,10 +325,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             projectRoot: scope.project.path,
             sessionId,
             currentTurn: turn,
-            task: selectAuxTask(rotation),
-            // 语义判断提供者留空：04 §8.4 第 1 项的查重是登记为 gap 的语义判断，
-            // 必须由派生的受管辖隔离子代理完成。在派生子代理的链路接通之前，
-            // 编排层如实报告 skipped，**不代替子代理判断、不创建账目**。
+            task: taskForThisCheckpoint,
+            discover,
           });
           lifecycle.activity?.record("session/checkpoint", { source, task: selectAuxTask(rotation) });
         }

@@ -57,7 +57,10 @@ export class AgentLifecycle {
       checkpointPending: false,
       lastIdleSeen: 0,
       lastCheckpointDispatch: undefined,
-      auxRotation: 0
+      auxRotation: 0,
+      // 04 §8.4 执行体的取消信号（每次检查点派生时替换，旧的先 abort——避免
+      // 多轮检查点的派生堆积）。会话销毁时由 dispose 路径收口。
+      discoveryAbort: undefined
     };
     // Activity projection (every hook action).
     this.activity = new ActivityLog();
