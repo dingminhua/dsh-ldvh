@@ -267,13 +267,19 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         turns: lifecycle.turns,
         activity: lifecycle.activity,
         log: ctx.logger,
-        onSessionCheckpoint: async ({ source }) => {
+        onSessionCheckpoint: async ({ source, turn }) => {
           // 空闲辅助任务的调度（04 §8.3/§8.4 + 32 §10.2）。**不 await 关闭事件**
           // ——调用方（triggers）已把 promise 的拒绝收口为日志，此处保持同纪律。
           const cwd = agent?.session?.header?.cwd;
           if (typeof cwd !== "string" || cwd.length === 0) return;
+          // §8.4「观察范围的切分（水位）」需要两个**位置标识**：会话 id 与轮次号。
+          // 轮次号取自宿主 `turn/end` 事件的载荷（triggers 已用它记账），会话 id
+          // 取自 agent 的会话头——两者都是宿主既有字段，不是本插件自造判据。
+          // 取不到就**不跑**（水位无法界定 → runIdleCheckpoint 会 fail-closed）：
+          // 不得退化为「当作全部内容」，那会使同一段内容被反复计入。
+          const sessionId = agent?.session?.header?.id;
           const scope = await resolve(cwd);
-          // 受管辖是运行前提（32 §137：git 层操作要求当前项目受管辖）。
+          // 受管辖是运行前提（32 §137：git 层操作要求当前管辖）。
           if (scope.state !== "governed" || scope.project === undefined || scope.project === null) return;
           // 预算轮换：一次检查点只跑一个任务（32 §10.2），计数器随 lifecycle 存活。
           const rotation = lifecycle.turns.auxRotation ?? 0;
@@ -281,6 +287,10 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           await runIdleCheckpoint({
             dshHomePath,
             factSourceRoot: join(scope.project.path, "ldvh-base"),
+            // 水位按「项目根 + 会话」分键（跨项目、跨会话各自独立）。
+            projectRoot: scope.project.path,
+            sessionId,
+            currentTurn: turn,
             task: selectAuxTask(rotation),
             // 语义判断提供者留空：04 §8.4 第 1 项的查重是登记为 gap 的语义判断，
             // 必须由派生的受管辖隔离子代理完成。在派生子代理的链路接通之前，

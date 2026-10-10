@@ -24,6 +24,7 @@
  */
 
 import { appendPendingEntry } from "./pending-queue.js";
+import { readWatermark, advanceWatermark, describeWindow } from "./friction-watermark.js";
 import {
   verifyThresholdAvailable,
   loadDedupCandidates,
@@ -81,6 +82,13 @@ export async function runIdleCheckpoint({
   discover,
   sessionSignature,
   now,
+  // §8.4 水位段所需：本次检查点所在的会话与轮次（位置标识，取自宿主事件载荷）。
+  // `sessionId` 与 `currentTurn` 缺席时水位无法界定 —— 见下方校验。
+  sessionId,
+  currentTurn,
+  // 水位按「项目根 + 会话」分键。项目根缺省时退回 factSourceRoot（同属该项目的
+  // 稳定标识），但调用方应显式给出 projectRoot 以免两处语义漂移。
+  projectRoot,
 } = {}) {
   const at = typeof now === "string" ? now : new Date().toISOString();
   const taskId = typeof task === "string" && task.length > 0 ? task : "idle-review";
@@ -92,6 +100,16 @@ export async function runIdleCheckpoint({
   }
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
     return failure("idle_checkpoint/no_fact_source", "factSourceRoot is required to read the friction ledger");
+  }
+  // §8.4 水位段：区间端点取自宿主会话记录的位置标识。两者缺席时**无法界定区间**，
+  // 于是也就无法保证「只对新增内容作观察」——按 §8.4 第 6 项整任务停（fail-closed）。
+  // **不得**退化为「没有位置就当作全部内容」：那会把同一段内容反复计入，正是水位
+  // 段要消除的失效面。
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    return failure("idle_checkpoint/no_session_id", "sessionId is required to key the observation watermark (04 §8.4 水位段) — 不得以「无位置」退化为覆盖全部内容");
+  }
+  if (!Number.isInteger(currentTurn)) {
+    return failure("idle_checkpoint/no_current_turn", "currentTurn (the turn published by the host event payload) is required to bound this run's window (04 §8.4 水位段)");
   }
 
   // §8.4 第 6 项：任一校验不可用即整任务停——阈值是第一道。
@@ -126,6 +144,19 @@ export async function runIdleCheckpoint({
     });
   }
 
+  // §8.4「观察范围的切分（水位）」：本次运行只看**自上次成功运行以来**新增的内容。
+  // 区间端点取自宿主会话记录的轮次号（`currentTurn`），不是「AI 认为哪些是新的」。
+  const watermark = await readWatermark(dshHomePath, { projectRoot: projectRoot ?? factSourceRoot, sessionId });
+  if (!watermark.ok) {
+    return recordAndFail(dshHomePath, {
+      task: taskId,
+      reason: `水位不可读，无法界定本次观察区间：${watermark.error.message}`,
+      residual: [],
+      at,
+    });
+  }
+  const windowRange = describeWindow(watermark.value, currentTurn);
+
   // 语义查重属子代理职责（§8.4 第 1 项是登记为 gap 的语义判断）。无提供者时
   // 不创建、不递增——如实报告 skipped。
   if (typeof discover !== "function") {
@@ -135,7 +166,11 @@ export async function runIdleCheckpoint({
       reason: "no semantic-judgement provider: 04 §8.4 第 1 项的语义查重是登记为 gap 的语义判断，机械层不得代为判断，故本次不入账",
       threshold: FRICTION_THRESHOLD_N,
       candidates: candidates.value.candidates.length,
+      window: windowRange,
       at,
+      // 注意：skipped **不推进水位**——本次并未处理该区间，推进会使区间内的内容
+      // 永远失去被观察的机会（§8.4 水位段：失败不推进，避免遗漏）。
+      watermark_advanced: false,
     });
   }
 
@@ -145,6 +180,9 @@ export async function runIdleCheckpoint({
       threshold: FRICTION_THRESHOLD_N,
       candidates: candidates.value.candidates,
       sessionSignature,
+      // 区间与提示词一并交给执行体（提示词由 friction-subagent-contract.js 依
+      // 这些机械前提组装；执行体不得自行界定区间）。
+      window: windowRange,
     });
   } catch (error) {
     return recordAndFail(dshHomePath, {
@@ -152,12 +190,43 @@ export async function runIdleCheckpoint({
       reason: `执行体（受管辖隔离子代理）失败：${String(error?.message ?? error)}`,
       residual: [],
       at,
+      // 派生/判断失败：水位**不推进**（§8.4 水位段），下次重覆盖同一区间。
+      watermarkAdvanced: false,
     });
+  }
+
+  // §8.4 水位段「推进与不推进」：仅当本次运行成功完成（含闭集第 5 项精确回读）
+  // 时才推进。`decision.watermarkTurn` 由落地侧在回读通过后给出；缺席即不推进。
+  let watermarkAdvanced = false;
+  if (Number.isInteger(decision?.watermarkTurn)) {
+    const advanced = await advanceWatermark(dshHomePath, {
+      projectRoot: projectRoot ?? factSourceRoot,
+      sessionId,
+      turn: decision.watermarkTurn,
+    });
+    if (!advanced.ok) {
+      return recordAndFail(dshHomePath, {
+        task: taskId,
+        reason: `水位推进失败（本次已落盘的结果不受影响，但区间界定失真）：${advanced.error.message}`,
+        residual: [`水位键 ${advanced.error.code}`],
+        at,
+      });
+    }
+    watermarkAdvanced = true;
   }
 
   // 子代理的判断结果由调用方（发现子代理）机械落地——本层不解释其语义，
   // 只要求它是结构化结果并如实上抛。
-  return success({ task: taskId, outcome: decision?.outcome ?? "reported", decision, threshold: FRICTION_THRESHOLD_N, candidates: candidates.value.candidates.length, at });
+  return success({
+    task: taskId,
+    outcome: decision?.outcome ?? "reported",
+    decision,
+    threshold: FRICTION_THRESHOLD_N,
+    candidates: candidates.value.candidates.length,
+    window: windowRange,
+    watermark_advanced: watermarkAdvanced,
+    at,
+  });
 }
 
 /**
