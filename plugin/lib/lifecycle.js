@@ -19,11 +19,14 @@
 //   - no caching anywhere: every judgement call hits the registration file
 //     (07 §5.3, Human gate 2026-09-03).
 
+import { join } from "node:path";
+
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { registerLdvhTools } from "./ldvh-tools.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
 import { createTurnTriggers } from "./triggers.js";
+import { runIdleCheckpoint, selectAuxTask } from "./idle-checkpoint.js";
 import { createChildInstaller } from "./child.js";
 import { AgentLifecycle } from "./agent-lifecycle.js";
 import { recordJudgementForGuard } from "./host-seams.js";
@@ -256,14 +259,35 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         // Inline row title (Human 2026-09-04): "上下文注入 · dsh-ldvh · 本会话受 LDVH 管辖"
         noticeSummary: () => noticeSummaryFor(lifecycle.scopeState)
       });
-      // Turn-level triggers (turn-stopping reflection seam + turn/end
-      // bookkeeping seam): mounted now, content empty (Human strategy
-      // 2026-09-03: 先占位后填内容).
+      // Turn-level triggers (04 §8.4 触发锚：会话检查点 + 二次空闲确认).
+      // 检查点到达由 agent/turn-stopping 标记，真正的调度由 agent/status 的
+      // idle 迁移确认之后发生——两步都在 triggers.js 内，此处只注入编排回调。
       const turnTriggers = createTurnTriggers(agent, {
         getScopeState: () => lifecycle.scopeState,
         turns: lifecycle.turns,
         activity: lifecycle.activity,
-        log: ctx.logger
+        log: ctx.logger,
+        onSessionCheckpoint: async ({ source }) => {
+          // 空闲辅助任务的调度（04 §8.3/§8.4 + 32 §10.2）。**不 await 关闭事件**
+          // ——调用方（triggers）已把 promise 的拒绝收口为日志，此处保持同纪律。
+          const cwd = agent?.session?.header?.cwd;
+          if (typeof cwd !== "string" || cwd.length === 0) return;
+          const scope = await resolve(cwd);
+          // 受管辖是运行前提（32 §137：git 层操作要求当前项目受管辖）。
+          if (scope.state !== "governed" || scope.project === undefined || scope.project === null) return;
+          // 预算轮换：一次检查点只跑一个任务（32 §10.2），计数器随 lifecycle 存活。
+          const rotation = lifecycle.turns.auxRotation ?? 0;
+          lifecycle.turns.auxRotation = rotation + 1;
+          await runIdleCheckpoint({
+            dshHomePath,
+            factSourceRoot: join(scope.project.path, "ldvh-base"),
+            task: selectAuxTask(rotation),
+            // 语义判断提供者留空：04 §8.4 第 1 项的查重是登记为 gap 的语义判断，
+            // 必须由派生的受管辖隔离子代理完成。在派生子代理的链路接通之前，
+            // 编排层如实报告 skipped，**不代替子代理判断、不创建账目**。
+          });
+          lifecycle.activity?.record("session/checkpoint", { source, task: selectAuxTask(rotation) });
+        }
       });
       // Prime the pre-step channel at install：install 本身发生在 agent/created
       // （= session 的 startup 语义），这一次 prime 取代旧实现里对
@@ -274,6 +298,10 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         agent.ctx.on("system-prompt/assemble", (assembly, context, next) => onAssemble(assembly, context, next)),
         agent.ctx.on("agent/pre-step", (payload, next) => onPreStep.handler(payload, next), { prepend: true }),
         agent.ctx.on("agent/turn-stopping", (payload) => turnTriggers.onTurnStopping(payload)),
+        // 04 §8.4「触发后须二次确认会话确已空闲方可继续」的第二步：宿主
+        // agent/status 的 `idle`（「no driver remains scheduled or active」）
+        // 是权威空闲信号，本插件不自造判断。
+        agent.ctx.on("agent/status", (payload) => turnTriggers.onAgentStatus(payload)),
         agent.ctx.on("session/event", (session, event) => turnTriggers.onSessionEvent(session, event))
       ];
 

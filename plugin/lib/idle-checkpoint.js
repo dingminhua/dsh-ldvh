@@ -1,0 +1,186 @@
+/**
+ * dsh-ldvh — 空闲辅助任务的调度与 fail-closed 编排.
+ *
+ * 权威：specs/04 §8.4（摩擦发现的触发、执行体、闭集与上限）与 §8.3（fail-closed
+ * 与待处置队列）；specs/32 §10.2（三任务共用触发点、按预算轮换）。
+ *
+ * 本模块是**编排层**，只做三件 Code 能确定性完成的事：
+ *
+ *   1. **预算轮换**（32 §10.2）：一次检查点只跑一个辅助任务，按「评审优先、容量
+ *      次之、体检周期性」轮换，任一轮尽则顺延，**不堆积**。
+ *   2. **调度摩擦发现**：调用闭集执行体（friction-discovery.js）。本模块**不**
+ *      代替子代理做语义查重——那一步是 §8.4 明文登记的 gap，只能由派生出的
+ *      LLM 子代理完成。因此本模块在无子代理结果时**不创建账目**（见下）。
+ *   3. **fail-closed 与待处置登记**（§8.3）：任何一步失败即停止该次任务，把停止
+ *      原因与残留范围**追加**进待处置队列，**不重试、不部分完成、不静默**。
+ *
+ * **为什么本模块不自己「发现摩擦」**：§8.4 的执行体是「宿主派生一个受管辖隔离
+ * 子代理……继承发起会话的主控上下文——用于判断某现象是否构成系统性阻碍」。该判断
+ * 是语义判断（§8.2 第 1 条后半句明文不由机械校验保障）。Code 无法替代它，也不
+ * 得伪造一个「机械查重」冒充它。故本模块的角色是：**为子代理准备好机械前提
+ * （阈值可用、账本可读、队列可写），并把子代理的判断结果机械落地**。
+ *
+ * 本模块**不主张机制已运行**（§8.5）：它是否具备属实现现状，由读取时的观察取得。
+ */
+
+import { appendPendingEntry } from "./pending-queue.js";
+import {
+  verifyThresholdAvailable,
+  loadDedupCandidates,
+  FRICTION_THRESHOLD_N,
+} from "./friction-discovery.js";
+
+/** 辅助任务标识（§8.3 第 2 条 `task` 字段的取值）。 */
+export const AUX_TASKS = Object.freeze(["idle-review", "capacity-maintenance", "memory-health"]);
+
+/**
+ * 按 32 §10.2「评审优先、容量次之、体检周期性」选出**本次**要跑的任务。
+ *
+ * 体检是「周期性（如每 N 次触发一次）」——规范给了「如」字，故周期是可实现的
+ * 选择；此处取 3，并把它与摩擦发现的阈值区分开（二者无关系）。
+ *
+ * `rotation` 是调用方持有的计数器（每 agent 一份，随 lifecycle 存活），故本函数
+ * **纯**：同输入同输出，不自己保存状态。
+ */
+export const HEALTH_CHECK_PERIOD = 3;
+
+export function selectAuxTask(rotation = 0) {
+  if (!Number.isInteger(rotation) || rotation < 0) rotation = 0;
+  // 评审优先：非体检周期一律先跑评审。
+  if (rotation % HEALTH_CHECK_PERIOD !== HEALTH_CHECK_PERIOD - 1) return "idle-review";
+  return "memory-health";
+}
+
+function failure(code, message, extra = {}) {
+  return { ok: false, error: { code, message, ...extra } };
+}
+
+function success(value) {
+  return { ok: true, value };
+}
+
+/**
+ * 跑一次空闲检查点（§8.3 fail-closed 的唯一收口处）。
+ *
+ * 参数：
+ *   - `dshHomePath`：待处置队列的宿主位置（§8.3 第 1 条）。
+ *   - `factSourceRoot`：受管辖项目的事实源根（`<project>/ldvh-base`）。
+ *   - `task`：本次轮到的辅助任务（selectAuxTask 的结果）。
+ *   - `discover`：可选的**子代理结果提供者**——一个 async 函数，接收机械前提
+ *     （阈值、候选账本），返回子代理关于「哪条候选同题 / 是否为新阻碍」的判断。
+ *     **缺席时本模块不创建任何账目**：没有语义判断就没有入账依据（§8.4 第 1 项
+ *     是不可跳过的前置），此时如实报告 skipped 而非假装跑过。
+ *
+ * 返回 `{ ok, value }` 或 `{ ok: false, error }`。**失败已入队**——调用方据此向
+ * 主控/Human 声明，不得自行重试（§8.3 第 3 项）。
+ */
+export async function runIdleCheckpoint({
+  dshHomePath,
+  factSourceRoot,
+  task,
+  discover,
+  sessionSignature,
+  now,
+} = {}) {
+  const at = typeof now === "string" ? now : new Date().toISOString();
+  const taskId = typeof task === "string" && task.length > 0 ? task : "idle-review";
+
+  // 本模块只编排摩擦发现；其余两个任务（容量/体检）尚未实现——**如实报告**
+  // 而不是假装跑过（§8.5 条件式要求：不得主张空闲维护已运行）。
+  if (taskId !== "idle-review") {
+    return success({ task: taskId, outcome: "not-implemented", at });
+  }
+  if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
+    return failure("idle_checkpoint/no_fact_source", "factSourceRoot is required to read the friction ledger");
+  }
+
+  // §8.4 第 6 项：任一校验不可用即整任务停——阈值是第一道。
+  const threshold = verifyThresholdAvailable();
+  if (!threshold.ok) {
+    return recordAndFail(dshHomePath, {
+      task: taskId,
+      reason: `阈值求值校验不可用：${threshold.error.message}`,
+      residual: [],
+      at,
+    });
+  }
+
+  // §8.4 第 1 项（读取部分）。
+  const candidates = await loadDedupCandidates(factSourceRoot);
+  if (!candidates.ok) {
+    return recordAndFail(dshHomePath, {
+      task: taskId,
+      reason: `账本不可读，查重输入不完整：${candidates.error.message}`,
+      residual: [],
+      at,
+    });
+  }
+  // 读不出的账目会使查重输入不完整（§8.4 第 2 项的反向护栏：误判递增会虚增
+  // count），故按 §8.3 停止而不是在残缺账本上判断。
+  if (Array.isArray(candidates.value.invalid) && candidates.value.invalid.length > 0) {
+    return recordAndFail(dshHomePath, {
+      task: taskId,
+      reason: `账本存在不可读载体，查重输入不完整（${candidates.value.invalid.length} 条）`,
+      residual: candidates.value.invalid.map((item) => `${item.file ?? item.line}: ${item.reason}`),
+      at,
+    });
+  }
+
+  // 语义查重属子代理职责（§8.4 第 1 项是登记为 gap 的语义判断）。无提供者时
+  // 不创建、不递增——如实报告 skipped。
+  if (typeof discover !== "function") {
+    return success({
+      task: taskId,
+      outcome: "skipped",
+      reason: "no semantic-judgement provider: 04 §8.4 第 1 项的语义查重是登记为 gap 的语义判断，机械层不得代为判断，故本次不入账",
+      threshold: FRICTION_THRESHOLD_N,
+      candidates: candidates.value.candidates.length,
+      at,
+    });
+  }
+
+  let decision;
+  try {
+    decision = await discover({
+      threshold: FRICTION_THRESHOLD_N,
+      candidates: candidates.value.candidates,
+      sessionSignature,
+    });
+  } catch (error) {
+    return recordAndFail(dshHomePath, {
+      task: taskId,
+      reason: `执行体（受管辖隔离子代理）失败：${String(error?.message ?? error)}`,
+      residual: [],
+      at,
+    });
+  }
+
+  // 子代理的判断结果由调用方（发现子代理）机械落地——本层不解释其语义，
+  // 只要求它是结构化结果并如实上抛。
+  return success({ task: taskId, outcome: decision?.outcome ?? "reported", decision, threshold: FRICTION_THRESHOLD_N, candidates: candidates.value.candidates.length, at });
+}
+
+/**
+ * §8.3 fail-closed 收口：入队 + 停止。
+ *
+ * **队列本身不可用时**：§8.3 第 6 条要求不得降级登记、也不得继续。此时返回的失败
+ * 里带上 `queue_unavailable`，使调用方**无法**把这次失败当作已登记（这正是
+ * 「不得据『已尝试登记』主张登记已完成」的机械形态）。
+ */
+async function recordAndFail(dshHomePath, { task, reason, residual, at }) {
+  const queued = await appendPendingEntry(dshHomePath, { task, reason, residual, at });
+  if (!queued.ok) {
+    return failure("idle_checkpoint/queue_unavailable", `${reason}（且待处置队列不可写：${queued.error.message}——04 §8.3 第 6 条禁止降级登记，故本次未登记）`, {
+      stop_reason: reason,
+      residual,
+      queue_unavailable: true,
+    });
+  }
+  return failure("idle_checkpoint/stopped", reason, {
+    stop_reason: reason,
+    residual,
+    pending_entry_id: queued.value.entry_id,
+  });
+}
+
+export { failure as __failure, success as __success };

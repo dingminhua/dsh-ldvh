@@ -45,8 +45,20 @@ export class AgentLifecycle {
     this.toolsDisposer = null;
     // Pre-step channel state (prime/digest — content seams for batch 3).
     this.preStep = { primePending: false, lastDigest: null };
-    // Turn-trigger markers (reflection/bookkeeping seams).
-    this.turns = { turnStoppingSeen: 0, turnEndSeen: 0, lastTurn: undefined, lastReflectionGate: undefined };
+    // Turn-trigger markers (session-checkpoint / idle-confirmation seams).
+    // `checkpointPending` 是 04 §8.4 两步触发的第一步标记（检查点已到达），
+    // 由 agent/status 的 idle 迁移消费；`auxRotation` 是 32 §10.2 三任务预算
+    // 轮换的计数器（每 agent 一份，随 lifecycle 存活）。
+    this.turns = {
+      turnStoppingSeen: 0,
+      turnEndSeen: 0,
+      lastTurn: undefined,
+      lastReflectionGate: undefined,
+      checkpointPending: false,
+      lastIdleSeen: 0,
+      lastCheckpointDispatch: undefined,
+      auxRotation: 0
+    };
     // Activity projection (every hook action).
     this.activity = new ActivityLog();
     // Last-good rendered enumeration (item 5: render degrade seam).
