@@ -103,11 +103,12 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     retired: { zh: '已废弃', en: 'Retired' },
   },
   friction: {
-    // 26 §9 状态闭集：open（待修的账）/ resolved（已销账，informs 指向解药）/
-    // deferred（缓议的账，可重新激活）。
+    // 26 §9 状态闭集四值：observing（留观）/ open（待修）/ resolved（已销账，
+    // informs 指向解药）/ voided（作废）。
+    observing: { zh: '留观', en: 'Observing' },
     open: { zh: '待修', en: 'Open' },
     resolved: { zh: '已销账', en: 'Resolved' },
-    deferred: { zh: '缓议', en: 'Deferred' },
+    voided: { zh: '作废', en: 'Voided' },
   },
   norm: {
     // 27 号 §9 状态闭集：active（生效中）/ retired（已退役，终态不重开）。
@@ -789,9 +790,15 @@ export function getObjectStatusHint(type: string, status: string, locale: string
         : '不再跟踪，或已被合并/拆分到其他火花'
     }
   }
-  // 26 §9：账目语义限定——open 参与攒账与度量，resolved 由 informs 指向解药，
-  // deferred 是活账（重新激活的候选源）。
+  // 26 §9：账目语义限定——observing 是入口态（已入账未攒够），open 参与攒账
+  // 与度量，resolved 由 informs 指向解药，voided 是记错了的账目（不参与查重、
+  // 度量与迭代决策输入）。
   if (type === 'friction') {
+    if (status === 'observing') {
+      return locale === 'en'
+        ? 'On the books but not yet accumulated enough; no judgement on whether it is worth fixing'
+        : '留观：已入账但尚未攒够，不作「值不值得修」的判断';
+    }
     if (status === 'open') {
       return locale === 'en'
         ? 'An unpaid ledger entry: pending fix, counted toward accumulation and metrics'
@@ -802,10 +809,10 @@ export function getObjectStatusHint(type: string, status: string, locale: string
         ? 'Fixed and settled; the remedy is traceable via its informs relation'
         : '已修复销账：解药经 informs 关系可追溯';
     }
-    if (status === 'deferred') {
+    if (status === 'voided') {
       return locale === 'en'
-        ? 'Explicitly postponed but still on the books; can be reactivated'
-        : '明确暂缓但保留账面：可重新激活';
+        ? 'Misfiled entry: kept for traceability, but out of dedup, metrics and decision inputs'
+        : '作废：载体保留可追溯，但不参与查重、度量与迭代决策输入';
     }
   }
   // 27 号 §9：active 是当前生效规则（同 ADR active 语义限定）；retired 终态不重开。

@@ -655,7 +655,7 @@ function SparkTerminalReadingNode({ obj, locale }: { obj: Record<string, unknown
   );
 }
 
-/** 26 号规范 §8 的正文固定 H2（「处置」条件出现——resolved/deferred 时）。 */
+/** 26 号规范 §8 的正文固定 H2（「处置」条件出现——resolved/voided 时）。 */
 const FRICTION_BODY_SECTION_ORDER = ['现象', '入账依据', '处置'] as const;
 
 type FrictionBodySection = { title: string; body: string };

@@ -45,9 +45,12 @@ export const STATUS_COLORS: Record<string, { light: string; dark: string }> = {
   capability_gap: { light: '#ca8a04', dark: '#eab308' },
   evidence_gap: { light: '#ca8a04', dark: '#eab308' },
   fact_conflict: { light: '#ea580c', dark: '#fb923c' },
-  // 26 §9：Friction deferred（缓议的账）——明确暂缓的琥珀色，与 open（同琥珀族
-  // 待办语义）区分于 resolved（灰，已销账）。复用 deferred 独立键以便后续分色。
-  deferred: { light: '#ca8a04', dark: '#eab308' },
+  // 26 §9：Friction observing（留观）——比 open 的琥珀更淡，表示「已看见未攒够」，
+  // 与 open（待办语义）在视觉上拉开层级。
+  observing: { light: '#d4a017', dark: '#f0c040' },
+  // 26 §9：Friction voided（作废）——中性灰，与 resolved（已销账）同族但更淡；
+  // 不用红：红已由 discarded/rejected/suspended 承载「被否决」语义。
+  voided: { light: '#9ca3af', dark: '#6b7280' },
   // 25 §7：Goal achieved（全部 sub-goal 达成的收官判定）——正向达成绿色。
   achieved: { light: '#059669', dark: '#00d4aa' },
 rejected: { light: '#dc2626', dark: '#ef4444' },

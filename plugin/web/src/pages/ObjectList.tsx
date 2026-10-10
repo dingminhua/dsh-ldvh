@@ -599,10 +599,11 @@ function getFactAssociationState(association: FactCardAssociation): FactAssociat
     if (association.group === 'pending_gate1' || association.group === 'awaiting_gate2') return 'pending';
     if (association.group === 'executing') return 'progressing';
   }
-  // 26 §9：friction 关联目标——open/deferred 是活账（待修/缓议均待处理），resolved 已销。
+  // 26 §9：friction 关联目标——observing/open 是活账（留观/待修均待处理），
+  // resolved 已销、voided 作废，两者均属终态族。
   if (targetType === 'friction') {
-    if (association.status === 'open' || association.status === 'deferred') return 'pending';
-    if (association.status === 'resolved') return 'closed';
+    if (association.status === 'observing' || association.status === 'open') return 'pending';
+    if (association.status === 'resolved' || association.status === 'voided') return 'closed';
   }
   // 27 号 §9：norm 关联目标——retired 已退役（历史档案），active 生效中（下方默认）。
   if (association.status === 'retired') return 'discarded';
@@ -783,7 +784,7 @@ const FRICTION_IMPACT_CHIP_CLASS: Record<string, string> = {
 
 export function FrictionCardContent({ obj }: { obj: ObjectItem }) {
   const { t, locale } = useI18n();
-  // 26 §9：三态都无 frontmatter 处置字段——resolved/deferred 的处置段住正文
+  // 26 §9：四态都无 frontmatter 处置字段——resolved/voided 的处置段住正文
   //（详情页阅读）；resolved 的解药由 informs 关系行（FactAssociationsCardContent）
   // 呈现。列表卡片只承载 F1 投影要素，不伪造处置摘要。
   const phenomenon = typeof obj.phenomenon === 'string' && obj.phenomenon.trim() ? obj.phenomenon.trim() : '';

@@ -101,18 +101,21 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     // 判为 unconsumed_field，且必须从列表投影排除。
     report_body: field('pitfall-report-body', 'string', false),
   },
-  // v5 Friction（26 号规范）：改进账本的字段闭集——phenomenon/impact 必填
-  //（现象单句 + 影响闭集 light/medium/heavy）；attribution 条件后补、
+  // v5 Friction（26 号规范）：改进账本的字段闭集——phenomenon/impact/occurrence
+  // 必填（现象单句 + 影响闭集 light/medium/heavy + 重复出现的证据载体）；
+  // attribution 条件后补、attribution_ref 条件（指向归因对象的 object_uid）、
   // relations 仅 resolved 时的 informs。本类型不设 serves（2026-10 删除：
   // 26 §12 无消费方，归属信息已由 attribution 承载）。
   // 本类型不设 urls（26 §10：摩擦是内部体验）与 trigger_signal（重审信号由
-  // 处置段的重启条件承载）——故不展开 common 的 urls。正文三节（现象/入账
+  // 作废理由与处置段承载）——故不展开 common 的 urls。正文三节（现象/入账
   // 依据/条件处置）由 report_body 承载。
   friction: {
     ...common,
     phenomenon: field('friction-phenomenon', 'string', true),
     attribution: field('friction-attribution', 'string', false),
+    attribution_ref: field('friction-attribution-ref', 'string', false),
     impact: field('friction-impact', 'string', true),
+    occurrence: field('friction-occurrence', 'object', true),
     report_body: field('friction-report-body', 'string', false),
   },
   // v5 Spark（20 号规范）：悬置问题的字段闭集——question/scope_boundary/
@@ -217,8 +220,8 @@ export const FACT_TERMINAL_STATUSES: Record<FactType, readonly string[]> = {
   pitfall: ['discarded'],
   spark: ['implemented', 'discarded'],
   research: ['retired'],
-  // 26 §9：resolved 终态；deferred 可逆（重新激活），不是终态。
-  friction: ['resolved'],
+  // 26 §9：resolved 与 voided 为终态；observing/open 非终态。
+  friction: ['resolved', 'voided'],
   // 27 号 §9：active/retired 两态，retired 为终态（不重开）。
   norm: ['retired'],
 }

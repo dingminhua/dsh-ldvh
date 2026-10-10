@@ -71,13 +71,13 @@ test('both types carry icons, colors, type labels, and status closures', () => {
   // 类型词表（中英）与状态闭集词表（26 §9 / 27 §9）。
   assert.match(locales, /friction: \{ zh: '摩擦', en: 'Friction' \}/);
   assert.match(locales, /norm: \{ zh: '规范', en: 'Norm' \}/);
-  assert.match(locales, /friction: \{\s*\n\s*\/\/ 26 §9 状态闭集[\s\S]*?open: \{ zh: '待修', en: 'Open' \},[\s\S]*?resolved: \{ zh: '已销账', en: 'Resolved' \},[\s\S]*?deferred: \{ zh: '缓议', en: 'Deferred' \},/);
+  assert.match(locales, /friction: \{\s*\n\s*\/\/ 26 §9 状态闭集四值[\s\S]*?observing: \{ zh: '留观', en: 'Observing' \},[\s\S]*?open: \{ zh: '待修', en: 'Open' \},[\s\S]*?resolved: \{ zh: '已销账', en: 'Resolved' \},[\s\S]*?voided: \{ zh: '作废', en: 'Voided' \},/);
   assert.match(locales, /norm: \{\s*\n\s*\/\/ 27 号 §9 状态闭集[\s\S]*?active: \{ zh: '生效中', en: 'Active' \},[\s\S]*?retired: \{ zh: '已退役', en: 'Retired' \},/);
 });
 
 test('list defaults filter friction to open and norm to active', () => {
   const listStatus = read('src/utils/listStatus.ts');
-  // 26 §12：friction 默认候选含 open 与 deferred——单选 tab 默认 open。
+  // 26 §12：friction 默认候选含 open 与 observing——单选 tab 默认 open。
   assert.match(listStatus, /if \(type === 'friction'\) return 'open';/);
   // 27 §10：norm 默认候选只含 active。
   assert.match(listStatus, /new Set\(\['adr', 'pitfall', 'research', 'norm'\]\)/);
@@ -134,20 +134,22 @@ test('identity copy and association rows treat both types as first-class facts',
 
   // 复制走对象引用（@对象 引用），不是路径复制。
   assert.match(identityActions, /objectType === 'friction' \|\| objectType === 'norm'/);
-  // 关联行状态映射：friction open/deferred 是活账（pending），resolved 已销（closed）。
-  assert.match(objectList, /targetType === 'friction'[\s\S]*?association\.status === 'open' \|\| association\.status === 'deferred'\) return 'pending';[\s\S]*?association\.status === 'resolved'\) return 'closed';/);
+  // 关联行状态映射：friction observing/open 是活账（pending），resolved/voided 属终态（closed）。
+  assert.match(objectList, /targetType === 'friction'[\s\S]*?association\.status === 'observing' \|\| association\.status === 'open'\) return 'pending';[\s\S]*?association\.status === 'resolved' \|\| association\.status === 'voided'\) return 'closed';/);
 });
 
-test('terminal badges converge to neutral color and deferred keeps its own status color', () => {
+test('terminal badges converge to neutral color and observing/voided keep their own status colors', () => {
   const statusBadge = read('src/components/StatusBadge.tsx');
   const statusColors = read('src/utils/statusColors.ts');
   const statusFilter = read('src/components/ObjectStatusFilter.tsx');
 
   // 26 §9 / 27 号 §9 终态收敛色（已销账/已退役）。
   assert.match(statusBadge, /objectType === 'friction' && status === 'resolved'/);
+  assert.match(statusBadge, /objectType === 'friction' && status === 'voided'/);
   assert.match(statusBadge, /objectType === 'norm' && status === 'retired'/);
-  // deferred（缓议）有独立状态色与过滤项。
-  assert.match(statusColors, /deferred: \{ light: '#ca8a04', dark: '#eab308' \}/);
-  assert.match(statusFilter, /friction: \['open', 'resolved', 'deferred'\],/);
+  // observing（留观）与 voided（作废）各有独立状态色与过滤项。
+  assert.match(statusColors, /observing: \{ light: '#d4a017', dark: '#f0c040' \}/);
+  assert.match(statusColors, /voided: \{ light: '#9ca3af', dark: '#6b7280' \}/);
+  assert.match(statusFilter, /friction: \['observing', 'open', 'resolved', 'voided'\],/);
   assert.match(statusFilter, /norm: \['active', 'retired'\],/);
 });
