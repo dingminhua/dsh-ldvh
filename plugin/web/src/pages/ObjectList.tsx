@@ -37,7 +37,7 @@ import { stripCardMarkdown as formatReasonText } from '@/utils/cardText';
 import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { compareRfc3339Timestamps } from '@/shared/timestamp';
-import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS } from '@/utils/semanticColors';
+import { FRICTION_IMPACT_CHIP_CLASS, LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS } from '@/utils/semanticColors';
 
 type Translate = ReturnType<typeof useI18n>['t'];
 type StatusReason = { label: string; text: string; missing?: boolean };
@@ -786,12 +786,6 @@ export function ResearchCardContent({ obj }: { obj: ObjectItem }) {
 /** 26 §12 F1 投影要素的列表承载：phenomenon（现象单句）+ impact（影响评级
  * 闭集，非装饰字段）+ attribution（归因，条件出现）。卡片正文段复用 pitfall
  * 活跃决策块的 amber 表面语法，但语义归账本（待修的账）。 */
-const FRICTION_IMPACT_CHIP_CLASS: Record<string, string> = {
-  light: 'border-emerald-400/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-  medium: 'border-amber-400/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
-  heavy: 'border-rose-400/40 bg-rose-500/10 text-rose-700 dark:text-rose-300',
-};
-
 /** 26 §8/§9.1：voided 的终态卡——照 Spark 的终态形态（TerminalFactPanel），
  * 读 `disposition`（废弃去向说明）呈现。该字段于 2026-11 进入 §8 闭集，正是
  * 为了让列表卡能直接读到废弃理由，而不必进详情页读正文「处置」段。 */

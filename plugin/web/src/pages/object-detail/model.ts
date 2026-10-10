@@ -41,8 +41,11 @@ export const AUXILIARY_META_KEYS_BY_TYPE: Record<string, string[]> = {
   // 20 §8：serves（SG-n 轻量锚点）在元信息行呈现；priority 已随 v5 移除。
   spark: ['serves'],
   pitfall: [],
-  // 26 §8：friction 的 serves（框架摩擦挂 SG-3）同 spark 在元信息行呈现。
-  friction: ['serves'],
+  // 26 §8（2026-11）：impact（轻/中/重）在元信息行呈现——影响评级是**扫读要素**，
+  // 与列表卡卡头的标签区同口径（Human 裁定：聚焦与详情也要有轻中重）。
+  // serves 已于 2026-10 从 26 §8 删除（§12 四个消费点无一使用，§18 第 1 条禁装饰
+  // 字段），故不再列出——此前本行残留引用属闭集收缩后的漂移。
+  friction: ['impact'],
 };
 
 const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
@@ -76,7 +79,7 @@ const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
   // 布局按 H2 三段（现象/入账依据+条件处置）分节呈现——此处只做 ContentField
   // 兜底排序。
   friction: [
-    'phenomenon', 'attribution', 'impact', 'serves', 'report_body',
+    'phenomenon', 'attribution', 'impact', 'occurrence', 'disposition', 'report_body',
     'change_log', 'relations',
   ],
   // v5 Norm（27 号规范）：阅读布局按字段契约序消费（direction_key → 终态

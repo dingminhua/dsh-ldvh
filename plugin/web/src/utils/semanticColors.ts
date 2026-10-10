@@ -55,3 +55,13 @@ export const LDVH_WARN_CHIP_HUE_CLASS = `${LDVH_WARN_SURFACE_STRONG_CLASS} text-
 
 /** 达成 chip 色相——祖母绿族（docs/01 行 306 正向达成语义）。 */
 export const LDVH_SUCCESS_CHIP_HUE_CLASS = 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+
+/** 26 §8 impact（影响评级闭集 light/medium/heavy）的 chip 色相——**跨页单一来源**：
+ * 列表卡卡头（`ObjectList` 的 `ObjectCardFrame`）与详情页元信息行（`ObjectDetail`
+ * 的 `getAuxiliaryMetaEntries`）共用本表，避免同一字段在两处呈现时配色漂移。
+ * 色相语义：轻=绿（可承受）、中=琥珀（需留意）、重=玫红（显著拖慢）。 */
+export const FRICTION_IMPACT_CHIP_CLASS: Record<string, string> = {
+  light: 'border-emerald-400/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  medium: 'border-amber-400/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+  heavy: 'border-rose-400/40 bg-rose-500/10 text-rose-700 dark:text-rose-300',
+};

@@ -480,11 +480,34 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   reason: { zh: '原因', en: 'Reason' },
 };
 
-export function getFieldLabel(fieldKey: string, locale: string): string {
+/**
+ * 字段标签。`type` 为可选参数：**同名 frontmatter 字段在不同类型下语义不同**时，
+ * 按类型取专属词条（与 getObjectStatusLocale 同形的分派）。
+ *
+ * 先例是 `disposition`：spark 的（20 §8 终态去向）与 friction 的（26 §8 废弃
+ * 去向说明）**同名字段、不同语义**——不按类型分派会让摩擦界面显示 spark 的
+ * 「去向」。未命中类型专属词条时回落到通用表，故既有调用方无需改动。
+ */
+export function getFieldLabel(fieldKey: string, locale: string, type?: string): string {
+  if (type) {
+    const typed = TYPE_FIELD_LABEL_LOCALES[type]?.[fieldKey];
+    if (typed) return locale === 'en' ? typed.en : typed.zh;
+  }
   const entry = FIELD_LABEL_LOCALES[fieldKey];
   if (!entry) return fieldKey.replace(/_/g, ' ');
   return locale === 'en' ? entry.en : entry.zh;
 }
+
+/** 类型专属的字段标签覆盖表（先命中者优先于通用表）。仅在**同名字段语义不同**
+ * 时登记——否则徒增第二处来源（10 §5.5 单一来源）。 */
+export const TYPE_FIELD_LABEL_LOCALES: Record<string, Record<string, { zh: string; en: string }>> = {
+  // 26 §8：摩擦的 disposition 专述**为何废弃**（仅 voided），与 spark 的终态
+  // 去向（20 §8）同名字段不同语义——Human 裁定中文为「去向说明」。
+  friction: {
+    disposition: { zh: '去向说明', en: 'Disposition' },
+    occurrence: { zh: '重复观察', en: 'Occurrence' },
+  },
+};
 
 /** 字段枚举值中英映射 */
 export const FIELD_VALUE_LOCALES: Record<string, Record<string, { zh: string; en: string }>> = {

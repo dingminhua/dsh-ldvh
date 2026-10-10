@@ -99,9 +99,32 @@ test('friction list cards defer reading content to the detail page (Human 裁定
   assert.doesNotMatch(cardBody, /obj\.phenomenon/, '现象全文不再上卡面');
   assert.doesNotMatch(cardBody, /obj\.attribution/, '归因不再上卡面');
 
-  // 26 §8 impact（轻/中/重）：移入卡头标签区（人类裁定：影响评级是扫读要素）。
-  assert.match(objectList, /FRICTION_IMPACT_CHIP_CLASS: Record<string, string> = \{\s*light:/);
-  assert.match(objectList, /obj\.type === 'friction' && obj\.impact/, '影响标签在卡头按类型分派');
+  // 26 §8 impact（轻/中/重）：Human 裁定 2026-11——影响评级是扫读要素，
+  // 三处呈现共用**同一个**配色表（10 §5.5 单一来源），跨页不漂移：
+  //   ① 列表卡卡头标签区（ObjectList 的 ObjectCardFrame）
+  //   ② 聚焦页（CognitionCenter 复用同一个 ObjectCardFrame，故自动获得）
+  //   ③ 详情页元信息行（ObjectDetail 的 MetaValueChip）
+  const semanticColors = read('src/utils/semanticColors.ts');
+  assert.match(semanticColors, /FRICTION_IMPACT_CHIP_CLASS: Record<string, string> = \{\s*light:/, '配色表住在共享位置');
+  assert.match(semanticColors, /heavy: 'border-rose-400\/40/, '重＝玫红');
+  assert.match(objectList, /obj\.type === 'friction' && obj\.impact/, '① 列表卡卡头按类型分派');
+  assert.match(objectList, /FRICTION_IMPACT_CHIP_CLASS\[obj\.impact\]/, '① 引用共享配色而非本地复制');
+
+  const objectDetail = read('src/pages/ObjectDetail.tsx');
+  assert.match(objectDetail, /FRICTION_IMPACT_CHIP_CLASS\[value\]/, '③ 详情页元信息行引用同一配色');
+  assert.match(objectDetail, /fieldKey === 'impact'/, '③ 详情页按字段分派');
+
+  const detailModel = read('src/pages/object-detail/model.ts');
+  assert.match(detailModel, /friction: \['impact'\]/, '③ impact 经元信息行呈现');
+  assert.doesNotMatch(detailModel, /friction: \['serves'\]/, 'serves 已从 26 §8 删除，不得残留引用');
+
+  // impact 不在正文布局重复呈现（同页两次属重复而非信息）。
+  const readingLayouts = read('src/pages/object-detail/FactReadingLayouts.tsx');
+  const frictionLayout = readingLayouts.slice(
+    readingLayouts.indexOf('export function FrictionReadingLayout'),
+    readingLayouts.indexOf('export function NormReadingLayout'),
+  );
+  assert.doesNotMatch(frictionLayout, /getFieldLabel\('impact'/, '正文布局不再列 impact');
 
   // voided 的废弃理由读 disposition（26 §8 条件必填）——不再从正文解析。
   const terminal = objectList.slice(
@@ -167,4 +190,39 @@ test('terminal badges converge to neutral color and observing/voided keep their 
   assert.match(statusColors, /voided: \{ light: '#9ca3af', dark: '#6b7280' \}/);
   assert.match(statusFilter, /friction: \['observing', 'open', 'resolved', 'voided'\],/);
   assert.match(statusFilter, /norm: \['active', 'retired'\],/);
+});
+
+test('friction impact 在聚焦与详情同样呈现（Human 裁定 2026-11）', () => {
+  const locales = read('src/i18n/locales.ts');
+  const detailModel = read('src/pages/object-detail/model.ts');
+  const objectDetail = read('src/pages/ObjectDetail.tsx');
+  const cognition = read('src/pages/CognitionCenter.tsx');
+
+  // 详情页：impact 进元信息行，且 chip 取共享配色（与列表卡卡头同源）。
+  assert.match(detailModel, /friction: \['impact'\]/, 'impact 经详情页元信息行呈现');
+  assert.match(objectDetail, /fieldKey === 'impact'/, 'impact 走专属 chip 配色分支');
+  assert.match(objectDetail, /FRICTION_IMPACT_CHIP_CLASS\[value\]/, '取共享配色表');
+
+  // 聚焦页：复用同一个 ObjectCardFrame，故卡头标签同样生效——此处只断言它确实
+  // 走 ObjectCardFrame（若将来改成自绘卡头，本断言会失败，提醒同步加标签）。
+  assert.match(cognition, /<ObjectCardFrame/, '聚焦页复用卡片框架');
+
+  // 26 §8 闭集值的本地化：轻/中/重（不是 light/medium/heavy 直出）。
+  assert.match(locales, /light: \{ zh: '轻', en: 'Light' \}/);
+  assert.match(locales, /medium: \{ zh: '中', en: 'Medium' \}/);
+  assert.match(locales, /heavy: \{ zh: '重', en: 'Heavy' \}/);
+});
+
+test('同名字段按类型分派词条：disposition 在 spark 与 friction 语义不同', () => {
+  const locales = read('src/i18n/locales.ts');
+
+  // 26 §8 的 disposition（废弃去向说明）与 20 §8 的 disposition（终态去向）同名
+  // 不同义——不按类型分派会让摩擦界面显示 spark 的「去向」。
+  assert.match(locales, /TYPE_FIELD_LABEL_LOCALES/, '存在类型专属字段词条表');
+  assert.match(locales, /friction: \{\s*disposition: \{ zh: '去向说明'/, 'friction 的 disposition 取专属词条');
+  assert.match(locales, /occurrence: \{ zh: '重复观察'/, 'occurrence 亦有词条');
+  // getFieldLabel 接受可选类型参数（既有调用方不受影响）。
+  assert.match(locales, /export function getFieldLabel\(fieldKey: string, locale: string, type\?: string\)/);
+  // 详情页元信息行确实把类型传下去。
+  assert.match(read('src/pages/ObjectDetail.tsx'), /getFieldLabel\(key, locale, objectType\)/);
 });

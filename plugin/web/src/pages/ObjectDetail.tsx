@@ -60,7 +60,7 @@ import {
   splitRelatedContentEntries,
   type RelatedContentEntry,
 } from '@/pages/object-detail/model';
-import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
+import { FRICTION_IMPACT_CHIP_CLASS, LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
 
 export {
   getObjectDetailContentEntries,
@@ -715,7 +715,7 @@ export function ObjectIdentityHeader({
           {remainingAuxiliaryMetaEntries.map(([key, value]) => (
             <HeaderDateMeta
               key={key}
-              label={getFieldLabel(key, locale)}
+              label={getFieldLabel(key, locale, objectType)}
               value={formatAuxiliaryMetaValue(key, value, locale)}
             />
           ))}
@@ -1068,8 +1068,11 @@ export function getAuxiliaryMetaEntries(obj: Record<string, unknown>, objType: s
     .filter(([, value]) => value !== null && value !== undefined && value !== '' && (!Array.isArray(value) || value.length > 0));
 }
 
-export function getFieldLabel(fieldKey: string, locale: string) {
-  return getLocalizedFieldLabel(fieldKey, locale);
+/** 字段标签（本页包装 i18n 的 getFieldLabel）。`type` 透传：同名 frontmatter 字段
+ * 在不同类型下语义不同时（如 disposition：spark 的终态去向 vs friction 的废弃
+ * 去向说明），按类型取专属词条。省略时走通用表，与既有调用方兼容。 */
+export function getFieldLabel(fieldKey: string, locale: string, type?: string) {
+  return getLocalizedFieldLabel(fieldKey, locale, type);
 }
 
 function localizeMetaValue(fieldKey: string, rawValue: string, locale: string) {
@@ -1082,9 +1085,16 @@ function localizeMetaValue(fieldKey: string, rawValue: string, locale: string) {
 }
 
 function MetaValueChip({ fieldKey, value, children }: { fieldKey?: string; value?: unknown; children: ReactNode }) {
-  const signalClass = fieldKey && isSignalField(fieldKey)
-    ? getSignalClassName(fieldKey, value)
-    : 'border-ldvh-border bg-ldvh-bg text-ldvh-text-primary';
+  // 26 §8 impact（轻/中/重）：与列表卡卡头同色相（共享 FRICTION_IMPACT_CHIP_CLASS，
+  // 10 §5.5 单一来源）——详情页与列表页对同一字段呈现同一颜色，Human 跨页扫读一致。
+  // Human 裁定 2026-11：聚焦与详情的摩擦也要有轻中重。
+  const impactClass = fieldKey === 'impact' && typeof value === 'string'
+    ? FRICTION_IMPACT_CHIP_CLASS[value]
+    : undefined;
+  const signalClass = impactClass
+    ?? (fieldKey && isSignalField(fieldKey)
+      ? getSignalClassName(fieldKey, value)
+      : 'border-ldvh-border bg-ldvh-bg text-ldvh-text-primary');
   return (
     <span className={`ldvh-chip rounded-md border px-2 py-0.5 ${signalClass}`}>
       {children}

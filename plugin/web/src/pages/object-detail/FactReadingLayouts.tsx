@@ -688,8 +688,13 @@ function parseFrictionBodySections(body: string): FrictionBodySection[] {
 }
 
 /** v5 Friction 阅读布局（26 §8）：正文三段（现象/入账依据+条件处置）分节
- * 优先、frontmatter 字段兜底；节序跟随字段契约（现象 → 归因 → impact →
- * 入账依据 → 处置 → resolved 的 informs 解药）。 */
+ * 优先、frontmatter 字段兜底；节序跟随字段契约（现象 → 归因 → 入账依据 →
+ * 处置 → resolved 的 informs 解药）。
+ *
+ * **impact 不在本布局**（Human 裁定 2026-11）：影响评级是扫读要素，由详情页
+ * 元信息行以 chip 呈现（见 ObjectDetail 的 getAuxiliaryMetaEntries 与
+ * MetaValueChip），与列表卡卡头同色相。此处若再列一遍，同一字段会在同页出现
+ * 两次（一次带色 chip、一次纯文本），属重复而非信息。 */
 export function FrictionReadingLayout({
   obj,
   relatedEntries,
@@ -713,7 +718,6 @@ export function FrictionReadingLayout({
   const basis = sectionOf('入账依据')?.body ?? '';
   const disposition = sectionOf('处置')?.body ?? '';
   const attribution = typeof obj.attribution === 'string' && obj.attribution.trim() ? obj.attribution.trim() : '';
-  const impact = typeof obj.impact === 'string' && obj.impact.trim() ? obj.impact.trim() : '';
   const informsEdges = Array.isArray(obj.relations)
     ? obj.relations.filter((rel) => (rel as { relation_key?: string }).relation_key === 'informs')
     : [];
@@ -725,7 +729,6 @@ export function FrictionReadingLayout({
     <div className="mb-6 flex flex-col gap-5">
       <AdrProseNode title={getFieldLabel('phenomenon', locale)} value={phenomenon} locale={locale} issue={fieldIssue(obj, 'phenomenon')} />
       <AdrProseNode title={getFieldLabel('attribution', locale)} value={attribution} locale={locale} issue={fieldIssue(obj, 'attribution')} />
-      <AdrProseNode title={getFieldLabel('impact', locale)} value={impact} locale={locale} issue={fieldIssue(obj, 'impact')} />
       <AdrProseNode title={getFieldLabel('friction_basis', locale)} value={basis} locale={locale} />
       <AdrProseNode title={getFieldLabel('friction_disposition', locale)} value={disposition} locale={locale} />
       {informsText ? (
