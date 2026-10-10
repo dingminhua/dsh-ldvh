@@ -312,6 +312,9 @@ function CommitRelationTarget({ relation, locale, showRelationKey }: {
   const target = relation.target;
   if (!('commit' in target)) return null;
   const short = target.commit.slice(0, 7);
+  // 标题由服务端随关联投影带出（见 api/services/facts.ts 与 factReadingProjection）；
+  // 缺失时退回短 hash——定位符可读，但不冒充内容。
+  const subject = relation.resolvedCommitTitle ?? short;
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
@@ -328,7 +331,11 @@ function CommitRelationTarget({ relation, locale, showRelationKey }: {
     >
       <GitCommit size={13} className="shrink-0 text-ldvh-text-secondary" />
       {showRelationKey && <RelationKeyChip relationKey={relation.relationKey} locale={locale} />}
-      <span className="ldvh-meta-primary min-w-0 flex-1 truncate font-mono">{short}</span>
+      {/* 提交标题优先（08 §5：定位符不当内容呈现），hash 退居副位 */}
+      <span className="min-w-0 flex-1 truncate">
+        <span className="ldvh-meta-primary">{subject}</span>
+        {subject !== short && <span className="ldvh-meta-muted ml-1.5 font-mono">{short}</span>}
+      </span>
     </div>
   );
 }

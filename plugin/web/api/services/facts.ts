@@ -14,6 +14,7 @@ import { hasUnavailableIndependentSubagentReview } from '../../shared/workcaseCa
 import { validateWorkcaseStructuredText } from '../../shared/workcaseTextStructure.js'
 import { toRfc3339Text } from '../../shared/timestamp.js'
 import { FACT_LIST_FIELD_NAMES } from './factFieldContract.js'
+import { getGitCommit } from './git.js'
 import {
   getWorktreeInfos,
   collectFingerprints,
@@ -167,6 +168,23 @@ function projectFactAssociationTarget(value: unknown): FactAssociationTarget | n
   }
 }
 
+/**
+ * 读取受控提交标题（commit subject），供呈现层显示「这次提交做了什么」。
+ * 读失败（提交不可达、git 不可用、worktree 不在 Git 仓内）一律返回 null，
+ * 由调用方退回短 hash——标题是增强，不是可用性的前提。
+ */
+async function readCommitSubject(hash: string, scope: { worktreeLocator?: string }): Promise<string | null> {
+  const cwd = scope.worktreeLocator;
+  if (typeof cwd !== 'string' || !cwd) return null;
+  try {
+    const entry = await getGitCommit(hash, 'zh', cwd);
+    const title = typeof entry?.message === 'string' ? entry.message.trim() : '';
+    return title || null;
+  } catch {
+    return null;
+  }
+}
+
 function isObjectType(value: string): value is ObjectType {
   return ACTIVE_OBJECT_TYPES.includes(value as ObjectType)
 }
@@ -289,7 +307,14 @@ async function projectFactCardAssociations(
     // cat-file -e 核过（fail-closed），此处只负责把它标成「可用关联」并交给呈现层
     // 跳提交详情页。不标 available 会被读成「关联信息不可用」，与「提交不可用」
     // 这两件不同的事混为一谈。
-    if ('commit' in target) return { ...projection, available: true, shortHash: target.commit.slice(0, 7) }
+    if ('commit' in target) {
+      // 呈现要的是「这次提交做了什么」，hash 只是定位符（08 §5：不把定位符
+      // 当内容呈现）。故读出提交标题；读不到时退回短 hash，绝不因标题缺失
+      // 把整条关联判为不可用——提交本身是存在的。
+      const shortHash = target.commit.slice(0, 7)
+      const commitSubject = await readCommitSubject(target.commit, scope)
+      return { ...projection, available: true, shortHash, ...(commitSubject ? { title: commitSubject } : {}) }
+    }
     const locator = 'objectUid' in target ? uidTargets.get(target.objectUid) : target
     if (!locator || locator.governedProjectId !== scope.governedProjectId || !isObjectType(locator.factTypeKey)) return projection
     const exact = await readLocalFact(locator.factTypeKey, locator.objectId, scope)

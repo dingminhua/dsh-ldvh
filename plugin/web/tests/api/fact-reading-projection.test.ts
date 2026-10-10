@@ -87,6 +87,32 @@ test('commit-form targets project as relations, not unresolved (02 §8.1 commit 
   );
 });
 
+test('commit-form targets pick up the projected commit subject (08 §5: 定位符不当内容)', () => {
+  const commit = 'e4e178fd7e3293f47003ed0150ab1128cc6ae0ef';
+  const subject = 'fix(workcase): 修正正文结构校验——open 工单可携带结果节（Friction bf73fad4）';
+  const projected = projectFactReadingAssociations({
+    relations: [{ relation_key: 'informs', target: { commit } }],
+    factAssociations: [{
+      relationKey: 'informs',
+      target: { commit },
+      available: true,
+      shortHash: commit.slice(0, 7),
+      title: subject,
+    }],
+  });
+  assert.deepEqual(projected.unresolved, []);
+  assert.equal(projected.relations[0].resolvedCommitTitle, subject);
+});
+
+test('commit-form targets fall back to no title when the subject is unavailable', () => {
+  const commit = 'e4e178fd7e3293f47003ed0150ab1128cc6ae0ef';
+  const projected = projectFactReadingAssociations({
+    relations: [{ relation_key: 'informs', target: { commit } }],
+    factAssociations: [{ relationKey: 'informs', target: { commit }, available: true, shortHash: commit.slice(0, 7) }],
+  });
+  assert.equal(projected.relations[0].resolvedCommitTitle, undefined);
+});
+
 test('commit-form targets reject mixed shapes and non-hex values (02 §8.1/§8.2)', () => {
   // 互斥与形状纪律在阅读层同样成立：混带 object_uid、短 hash、非 hex 一律不可解析，
   // 须留在 unresolved 而不是被静默渲染成一个「像 commit」的目标。

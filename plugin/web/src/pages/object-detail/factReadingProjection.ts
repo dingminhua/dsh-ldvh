@@ -20,6 +20,12 @@ export type ReadingRelation = {
     factTypeKey: string;
     objectId: string;
   };
+  /**
+   * commit 形态的提交标题（02 §8.1）。服务端随 factAssociations 投影带出；
+   * 缺失时呈现层退回短 hash。**不进关系本身**——关系只承载定位（08 §5），
+   * 标题是读取时解析出来的展示信息，与 resolvedTarget 同性质。
+   */
+  resolvedCommitTitle?: string;
 };
 
 export type UnresolvedAssociation = {
@@ -48,6 +54,12 @@ export type ReadingRef = {
     factTypeKey: string;
     objectId: string;
   };
+  /**
+   * commit 形态的提交标题（02 §8.1）。服务端随 factAssociations 投影带出；
+   * 缺失时呈现层退回短 hash。**不进关系本身**——关系只承载定位（08 §5），
+   * 标题是读取时解析出来的展示信息，与 resolvedTarget 同性质。
+   */
+  resolvedCommitTitle?: string;
 };
 
 /**
@@ -107,7 +119,23 @@ export function projectFactReadingAssociations(obj: Record<string, unknown>): Fa
       });
     }
   }
+  // commit 形态：关联投影里带出了提交标题，按 hash 索引过来（同一个 hash 在
+  // 一份 frontmatter 里只出现一次，但不去重以免顺序依赖）。
+  const commitTitles = new Map<string, string>();
+  if (Array.isArray(obj.factAssociations)) {
+    for (const association of obj.factAssociations) {
+      if (!isRecord(association) || !isRecord(association.target)) continue;
+      const hash = association.target.commit;
+      if (typeof hash !== 'string' || !hash.trim()) continue;
+      if (typeof association.title !== 'string' || !association.title.trim()) continue;
+      commitTitles.set(hash.trim(), association.title.trim());
+    }
+  }
   const relations = projectRelations(obj.relations, unresolved).map((relation) => {
+    if ('commit' in relation.target) {
+      const commitTitle = commitTitles.get(relation.target.commit);
+      return commitTitle ? { ...relation, resolvedCommitTitle: commitTitle } : relation;
+    }
     if (!('objectUid' in relation.target)) return relation;
     const resolvedTarget = resolvedTargets.get(relation.target.objectUid);
     return resolvedTarget ? { ...relation, resolvedTarget } : relation;

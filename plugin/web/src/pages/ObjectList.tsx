@@ -519,13 +519,14 @@ export function FactAssociationCardRow({ association, locale, unavailableLabel }
   const commitHash = association.available && association.target && 'commit' in association.target
     ? association.target.commit
     : null;
-  // commit 目标没有标题可显示（提交不是对象，无 title/status）——显示短 hash 作为
-  // 定位标识，悬停给全 hash。这不是「不可用」，故不得落到 unavailableLabel。
-  const title = commitHash
-    ? commitHash.slice(0, 7)
-    : association.available
-      ? getLocalizedObjectTitle(association, locale)
-      : unavailableLabel;
+  // commit 目标呈现「这次提交做了什么」——服务端已读出提交标题（08 §5：定位符
+  // 不当内容呈现）。标题缺失（提交不可达等）时退回短 hash，仍不落到
+  // unavailableLabel——提交存在就是可用关联。
+  const commitTitle = commitHash
+    ? ((typeof association.title === 'string' && association.title.trim()) || commitHash.slice(0, 7))
+    : null;
+  const title = commitTitle
+    ?? (association.available ? getLocalizedObjectTitle(association, locale) : unavailableLabel);
   const legacyTarget = associationLocator(association);
   const typeColor = legacyTarget ? (CATEGORY_COLORS[legacyTarget.factTypeKey] || CATEGORY_COLORS.other) : CATEGORY_COLORS.other;
   const { openPanel } = usePanel();
@@ -563,10 +564,21 @@ export function FactAssociationCardRow({ association, locale, unavailableLabel }
       {commitHash
         ? <GitCommit size={13} className={`shrink-0 ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : 'text-ldvh-text-secondary'}`} aria-hidden="true" />
         : <ObjectTypeIcon type={legacyTarget?.factTypeKey} size={13} className={`shrink-0 ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : ''}`} style={isDiscarded ? undefined : { color: typeColor }} />}
-      <span
-        title={commitHash ?? undefined}
-        className={`ldvh-meta-primary min-w-0 flex-1 whitespace-normal break-words ${commitHash ? 'font-mono' : ''} ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : 'text-ldvh-text-secondary/95 group-hover:text-ldvh-accent'}`}
-      >{title}</span>
+      <span className="min-w-0 flex-1 whitespace-normal break-words">
+        {commitTitle && (
+          <span
+            title={commitHash ?? undefined}
+            className={`ldvh-meta-primary ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : 'text-ldvh-text-secondary/95 group-hover:text-ldvh-accent'}`}
+          >{commitTitle}</span>
+        )}
+        {/* hash 退居副位：标题可读时仍给出定位符，但不喧宾夺主 */}
+        {commitTitle && commitTitle !== commitHash?.slice(0, 7) && (
+          <span className="ldvh-meta-muted ml-1.5 font-mono">{commitHash?.slice(0, 7)}</span>
+        )}
+        {!commitTitle && (
+          <span className="ldvh-meta-primary ${isDiscarded ? '' : 'text-ldvh-text-secondary/95 group-hover:text-ldvh-accent'}">{title}</span>
+        )}
+      </span>
       {associationState !== null && associationStateTooltip !== null && <FactAssociationStateIcon state={associationState} tooltip={associationStateTooltip} />}
     </div>
   );

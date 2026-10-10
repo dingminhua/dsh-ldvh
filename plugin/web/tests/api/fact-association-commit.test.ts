@@ -69,6 +69,9 @@ test('commit-form target projects as an AVAILABLE association (02 §8.1)', async
   assert.equal(associations[0].relationKey, 'informs');
   assert.deepEqual(associations[0].target, { commit: COMMIT });
   assert.equal(associations[0].shortHash, COMMIT.slice(0, 7));
+  // 标题不在裸仓夹具里（临时目录不是 Git 仓），故此处只钉住「不因标题缺失而
+  // 降级」——提交可用性与标题可得性是两件事。真实标题由 git show 读出，
+  // 见 facts.ts 的 readCommitSubject（读失败退回短 hash）。
 });
 
 test('malformed commit targets stay unavailable rather than rendering as commits', async () => {
