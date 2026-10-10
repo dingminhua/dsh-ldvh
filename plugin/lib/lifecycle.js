@@ -454,22 +454,30 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 运行痕迹（固定容量环形）：把本次检查点的**结局**持久化。
           // 理由见 idle-runlog.js 的模块注释——「跑了但没发现」与「根本没跑」从
           // 外部无从分辩，是修复期间反复撞上的盲区。
-          await recordRun(dshHomePath, {
-            at: new Date().toISOString(),
-            task: taskForThisCheckpoint,
-            stage:
-              checkpoint?.ok !== true
-                ? "stopped"
-                : verdict !== undefined
-                  ? (landedAction === "failed" ? "land-failed" : "landed")
-                  : (checkpoint.value?.outcome === "not-implemented" ? "not-implemented" : "skipped"),
-            code: checkpoint?.ok === false ? (checkpoint.error?.code ?? "unknown") : undefined,
-            action: landedAction,
-            object_uid: landedUid,
-            promoted: landedPromoted,
-            watermark: advancedTurn,
-            gap: gapRegistered,
-          });
+          // **诊断旁路不得打断机制**：recordRun 自身已保证不抛，此处再加一层，
+          // 使任何意外都只影响痕迹的完整度，不影响检查点本身的结果。
+          try {
+            await recordRun(dshHomePath, {
+              at: new Date().toISOString(),
+              task: taskForThisCheckpoint,
+              stage:
+                checkpoint?.ok !== true
+                  ? "stopped"
+                  : verdict !== undefined
+                    ? (landedAction === "failed" ? "land-failed" : "landed")
+                    : (checkpoint.value?.outcome === "not-implemented" ? "not-implemented" : "skipped"),
+              code: checkpoint?.ok === false ? (checkpoint.error?.code ?? "unknown") : undefined,
+              action: landedAction,
+              object_uid: landedUid,
+              promoted: landedPromoted,
+              watermark: advancedTurn,
+              gap: gapRegistered,
+            });
+          } catch (error) {
+            lifecycle.activity?.record("session/checkpoint/runlog-failed", {
+              reason: String(error?.message ?? error),
+            });
+          }
 
           lifecycle.activity?.record("session/checkpoint", { source, task: selectAuxTask(rotation) });
         }

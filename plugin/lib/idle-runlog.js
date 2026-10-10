@@ -43,8 +43,20 @@ const RUNLOG_RELATIVE_PATH = ["ldvh", "idle-checkpoint-runs.json"];
  */
 const MAX_ENTRIES = 50;
 
+/**
+ * 解析载体路径。`dshHomePath` 是宿主注入的 `(...names) => join(home, ...names)`
+ * 形态（`plugin/lib/index.js:305` 取自 `ctx.get("dshHomePath")`，同文件 222 行亦
+ * 以 `typeof === "function"` 校验）。形态不符时返回 null——由调用方转成 failure，
+ * **不抛**（见 `recordRun` 的「不得抛错」纪律）。
+ */
 function runLogPath(dshHomePath) {
-  return dshHomePath(...RUNLOG_RELATIVE_PATH);
+  if (typeof dshHomePath !== "function") return null;
+  try {
+    const resolved = dshHomePath(...RUNLOG_RELATIVE_PATH);
+    return typeof resolved === "string" && resolved.length > 0 ? resolved : null;
+  } catch {
+    return null;
+  }
 }
 
 function success(value) {
@@ -76,6 +88,9 @@ function serialize(key, operation) {
 
 async function readAll(dshHomePath) {
   const path = runLogPath(dshHomePath);
+  if (path === null) {
+    return failure("runlog/unavailable", "dshHomePath is not a callable home resolver (cannot locate the run-log carrier)");
+  }
   try {
     const raw = await readFile(path, "utf8");
     const parsed = JSON.parse(raw);
@@ -109,6 +124,17 @@ async function readAll(dshHomePath) {
  * **只追加、不修改**；超出容量即丢最旧（环形语义）。
  */
 export async function recordRun(dshHomePath, entry = {}) {
+  try {
+    return await recordRunInner(dshHomePath, entry);
+  } catch (error) {
+    // **不得抛错**：本模块是**诊断旁路**，不是 §8.4 闭集里的机械校验。它若抛错，
+    // 会打断检查点路径——那等于为了「可观测性」反而让机制本身变脆，与目的相反。
+    // 形态问题一律转成 failure 由调用方如实记录（调用方亦不得因它中断）。
+    return failure("runlog/unavailable", `run-log recording threw: ${String(error?.message ?? error)}`);
+  }
+}
+
+async function recordRunInner(dshHomePath, entry = {}) {
   const at = typeof entry.at === "string" && entry.at.length > 0 ? entry.at : new Date().toISOString();
   const record = { at, ...entry, at };
   // 单条只留有用字段，且截断自由文本，避免单条把文件撑大。
@@ -116,11 +142,15 @@ export async function recordRun(dshHomePath, entry = {}) {
     record.note = `${record.note.slice(0, 300)}…`;
   }
 
-  return serialize(runLogPath(dshHomePath), async () => {
+  const path = runLogPath(dshHomePath);
+  if (path === null) {
+    return failure("runlog/unavailable", "dshHomePath is not a callable home resolver (cannot locate the run-log carrier)");
+  }
+
+  return serialize(path, async () => {
     const doc = await readAll(dshHomePath);
     if (!doc.ok) return doc;
     const runs = [...doc.value.runs, record].slice(-MAX_ENTRIES);
-    const path = runLogPath(dshHomePath);
     const temp = `${path}.tmp-${randomUUID()}`;
     try {
       await mkdir(dirname(path), { recursive: true });
@@ -139,6 +169,14 @@ export async function recordRun(dshHomePath, entry = {}) {
  * `limit` 取最近 N 条；`latest` 为 true 时只回最后一条（便于「刚才那次跑到哪了」）。
  */
 export async function readRuns(dshHomePath, { limit, latest = false } = {}) {
+  try {
+    return await readRunsInner(dshHomePath, { limit, latest });
+  } catch (error) {
+    return failure("runlog/unavailable", `run-log read threw: ${String(error?.message ?? error)}`);
+  }
+}
+
+async function readRunsInner(dshHomePath, { limit, latest = false } = {}) {
   const doc = await readAll(dshHomePath);
   if (!doc.ok) return doc;
   const runs = doc.value.runs;

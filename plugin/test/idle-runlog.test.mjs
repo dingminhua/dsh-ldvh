@@ -188,3 +188,44 @@ test("stage 字段承载「落到哪一步」——这是本模块存在的理�
     assert.deepEqual(r.value.runs.map((x) => x.stage), ["skipped", "not-implemented", "stopped", "landed", "land-failed"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 「诊断不得反过来弄坏机制」——本模块是诊断旁路，不是 §8.4 闭集里的机械校验。
+// 它若抛错会打断检查点路径：为了可观测性反而让机制变脆，与目的相反。
+// ---------------------------------------------------------------------------
+
+test("形态异常一律不抛错（dshHomePath 非函数）", async () => {
+  for (const bad of ["not-a-function", undefined, null, 42]) {
+    const w = await recordRun(bad, { stage: "landed" });
+    assert.ok(!w.ok, "须如实返回 failure 而非抛错");
+    assert.equal(w.error.code, "runlog/unavailable");
+    const r = await readRuns(bad);
+    assert.ok(!r.ok);
+  }
+});
+
+test("dshHomePath 自身抛错时也不得抛（不得让诊断打断机制）", async () => {
+  const throwing = () => {
+    throw new Error("home resolver exploded");
+  };
+  const w = await recordRun(throwing, { stage: "landed" });
+  assert.ok(!w.ok);
+  assert.equal(w.error.code, "runlog/unavailable");
+});
+
+test("dshHomePath 返回非字符串时不抛", async () => {
+  const w = await recordRun(() => undefined, { stage: "landed" });
+  assert.ok(!w.ok);
+});
+
+test("载体不可写时不抛（只读目录等环境问题）", async () => {
+  await withTemp("ldvh-runlog-", async (dir) => {
+    // 用一个必然失败的 home：把它指向一个文件而非目录
+    const { writeFile } = await import("node:fs/promises");
+    const filePath = join(dir, "not-a-dir");
+    await writeFile(filePath, "x", "utf8");
+    const home = (...names) => join(filePath, ...names);
+    const w = await recordRun(home, { stage: "landed" });
+    assert.ok(!w.ok, "写不进去须回 failure，不得抛");
+  });
+});
