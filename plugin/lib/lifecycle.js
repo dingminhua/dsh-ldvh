@@ -30,6 +30,7 @@ import { runIdleCheckpoint, selectAuxTask } from "./idle-checkpoint.js";
 import { createDiscoveryProvider } from "./friction-discovery-provider.js";
 import { landDiscoveryVerdict } from "./friction-landing.js";
 import { advanceWatermark } from "./friction-watermark.js";
+import { recordRun } from "./idle-runlog.js";
 import { appendPendingEntry } from "./pending-queue.js";
 import { currentRouteValues } from "./session-signature.js";
 import { authoritativeSignature } from "./signature-channel.js";
@@ -343,6 +344,13 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             discover,
           });
 
+          // 运行痕迹用的结局变量（各分支赋值，末尾统一写入环形）。
+          let landedAction;
+          let landedUid;
+          let landedPromoted;
+          let advancedTurn;
+          let gapRegistered;
+
           // 只有真正取回了判断才落地（skipped / not-implemented / 失败都没有判断）。
           // **注意层级**：runIdleCheckpoint 把执行体的返回值原样放在 `decision` 下，
           // 而执行体返回 `{ outcome, verdict, watermarkTurn }`——故判断在
@@ -363,6 +371,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 at: new Date().toISOString(),
               });
               lifecycle.activity?.record("session/checkpoint/landed", { action: "no-signature" });
+              landedAction = "no-signature";
             } else {
               const landed = await landDiscoveryVerdict({
                 factSourceRoot: ledgerRoot,
@@ -385,12 +394,16 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 // 必须留待下次重覆盖——否则那段内容会被标记为已处理却从未入账，
                 // 且永不复查（宿主只发布事件、不回放）。
                 lifecycle.activity?.record("session/checkpoint/landed", { action: "failed", watermark_advanced: false });
+                landedAction = "failed";
               } else {
                 lifecycle.activity?.record("session/checkpoint/landed", {
                   action: landed.value.action,
                   object_uid: landed.value.object_uid,
                   promoted: landed.value.promoted,
                 });
+                landedAction = landed.value.action;
+                landedUid = landed.value.object_uid;
+                landedPromoted = landed.value.promoted;
                 // 复核发现②③：本次区间里本进程未观察到的轮次须**如实登记**，
                 // 不得静默丢弃。缺口不可恢复（宿主不回放、本模块不读会话日志），
                 // 故处置是「登记 + 越过」，而不是拒不推进（那会永久停摆）。
@@ -403,6 +416,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                     at: new Date().toISOString(),
                   });
                   lifecycle.activity?.record("session/checkpoint/window-gap", { from: gap.from, to: gap.to ?? null });
+                  gapRegistered = `${gap.from}..${gap.to ?? "?"}`;
                 }
                 // **落地成功之后**才推进水位（顺序纪律）：推进意味着「本区间已处理
                 // 完毕」；只有账目确实写成（或确认为无发现）时才成立。
@@ -425,6 +439,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                     lifecycle.activity?.record("session/checkpoint/watermark", { advanced: false, code: advanced.error.code, turn: pendingTurn });
                   } else {
                     lifecycle.activity?.record("session/checkpoint/watermark", { advanced: true, turn: pendingTurn });
+                    advancedTurn = pendingTurn;
                   }
                 }
               }
@@ -436,6 +451,26 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               code: checkpoint.error?.code ?? "unknown",
             });
           }
+          // 运行痕迹（固定容量环形）：把本次检查点的**结局**持久化。
+          // 理由见 idle-runlog.js 的模块注释——「跑了但没发现」与「根本没跑」从
+          // 外部无从分辩，是修复期间反复撞上的盲区。
+          await recordRun(dshHomePath, {
+            at: new Date().toISOString(),
+            task: taskForThisCheckpoint,
+            stage:
+              checkpoint?.ok !== true
+                ? "stopped"
+                : verdict !== undefined
+                  ? (landedAction === "failed" ? "land-failed" : "landed")
+                  : (checkpoint.value?.outcome === "not-implemented" ? "not-implemented" : "skipped"),
+            code: checkpoint?.ok === false ? (checkpoint.error?.code ?? "unknown") : undefined,
+            action: landedAction,
+            object_uid: landedUid,
+            promoted: landedPromoted,
+            watermark: advancedTurn,
+            gap: gapRegistered,
+          });
+
           lifecycle.activity?.record("session/checkpoint", { source, task: selectAuxTask(rotation) });
         }
       });
