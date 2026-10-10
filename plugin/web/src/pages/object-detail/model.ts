@@ -41,11 +41,12 @@ export const AUXILIARY_META_KEYS_BY_TYPE: Record<string, string[]> = {
   // 20 §8：serves（SG-n 轻量锚点）在元信息行呈现；priority 已随 v5 移除。
   spark: ['serves'],
   pitfall: [],
-  // 26 §8（2026-11）：impact（轻/中/重）在元信息行呈现——影响评级是**扫读要素**，
-  // 与列表卡卡头的标签区同口径（Human 裁定：聚焦与详情也要有轻中重）。
+  // 26 §8（2026-11）：impact 由**身份头部标签区**呈现（见 ObjectDetail 的
+  // ObjectCardFrame 内 FrictionImpactBadge），与列表卡卡头同形——不是元信息行
+  // 的「字段名: 值」形态（Human 指出两者不一致后纠正）。
   // serves 已于 2026-10 从 26 §8 删除（§12 四个消费点无一使用，§18 第 1 条禁装饰
   // 字段），故不再列出——此前本行残留引用属闭集收缩后的漂移。
-  friction: ['impact'],
+  friction: [],
 };
 
 const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {

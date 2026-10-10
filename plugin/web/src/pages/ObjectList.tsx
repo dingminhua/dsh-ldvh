@@ -11,6 +11,7 @@ import ObjectPriorityFilter from '@/components/ObjectPriorityFilter';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
 import ServesSgBadge from '@/components/ServesSgBadge';
+import FrictionImpactBadge from '@/components/FrictionImpactBadge';
 import SummaryText from '@/components/SummaryText';
 import { ObjectTypeIcon, OBJECT_TYPE_ICONS } from '@/components/SemanticIcon';
 
@@ -37,7 +38,7 @@ import { stripCardMarkdown as formatReasonText } from '@/utils/cardText';
 import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { compareRfc3339Timestamps } from '@/shared/timestamp';
-import { FRICTION_IMPACT_CHIP_CLASS, LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS } from '@/utils/semanticColors';
+import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS } from '@/utils/semanticColors';
 
 type Translate = ReturnType<typeof useI18n>['t'];
 type StatusReason = { label: string; text: string; missing?: boolean };
@@ -296,16 +297,10 @@ export function ObjectCardFrame({
               扫描序，关联对象由卡体 FactAssociationsCardContent 承载。 */}
           <PriorityIcon source={obj} type={obj.type} locale={locale} size="xs" />
           <ServesSgBadge value={obj.serves} locale={locale} />
-          {/* 26 §8 impact（轻/中/重）：Human 裁定 2026-11——影响评级是**扫读要素**，
-              故进卡头标签区与类型/优先级同行，不再占用卡体标题旁的位置。 */}
-          {obj.type === 'friction' && obj.impact && (
-            <span
-              className={`ldvh-chip-sm shrink-0 ${FRICTION_IMPACT_CHIP_CLASS[obj.impact] ?? ''}`}
-              title={`${getFieldLabel('impact', locale)}: ${getFieldValueLabel('impact', obj.impact, locale)}`}
-            >
-              {getFieldValueLabel('impact', obj.impact, locale)}
-            </span>
-          )}
+          {/* 26 §8 impact（轻/中/重）：Human 裁定 2026-11——影响评级是扫读要素，
+              进卡头标签区（类型 → 优先级 → SG → **影响** → 修改次数）。经共享组件
+              渲染：详情页身份头部用同一个组件，两处不得各自手写 chip。 */}
+          {obj.type === 'friction' && <FrictionImpactBadge value={obj.impact} locale={locale} />}
           <span
             className="ldvh-chip-sm gap-1 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent"
             title={t('cognition.recent.activityCount', { count: String(activityCount) })}

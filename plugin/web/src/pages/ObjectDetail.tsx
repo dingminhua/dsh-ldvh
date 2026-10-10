@@ -15,6 +15,7 @@ import ObjectReferenceCopyButton from '@/components/ObjectReferenceCopyButton';
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
 import ServesSgBadge from '@/components/ServesSgBadge';
+import FrictionImpactBadge from '@/components/FrictionImpactBadge';
 import { hasUnavailableIndependentSubagentReview } from '@/shared/workcaseCapability';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
@@ -60,7 +61,7 @@ import {
   splitRelatedContentEntries,
   type RelatedContentEntry,
 } from '@/pages/object-detail/model';
-import { FRICTION_IMPACT_CHIP_CLASS, LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
+import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
 
 export {
   getObjectDetailContentEntries,
@@ -659,6 +660,10 @@ export function ObjectIdentityHeader({
                 SG → 修改次数（详情/面板/卡片/近期动态/健康度统一）。 */}
             <PriorityIcon source={source} type={objectType} locale={locale} size="xs" />
             <ServesSgBadge value={source.serves} locale={locale} />
+            {/* 26 §8 impact（轻/中/重）：与列表卡卡头**同位置同序**（类型 → 优先级
+                → SG → 影响 → 修改次数）——Human 2026-11：「详情里表现的方式要和
+                card 一致」。经共享组件渲染，三处不得各自手写 chip。 */}
+            {objectType === 'friction' && <FrictionImpactBadge value={source.impact} locale={locale} />}
             {extraBadges}
             {showActivityCount && (
               <span
@@ -1085,16 +1090,9 @@ function localizeMetaValue(fieldKey: string, rawValue: string, locale: string) {
 }
 
 function MetaValueChip({ fieldKey, value, children }: { fieldKey?: string; value?: unknown; children: ReactNode }) {
-  // 26 §8 impact（轻/中/重）：与列表卡卡头同色相（共享 FRICTION_IMPACT_CHIP_CLASS，
-  // 10 §5.5 单一来源）——详情页与列表页对同一字段呈现同一颜色，Human 跨页扫读一致。
-  // Human 裁定 2026-11：聚焦与详情的摩擦也要有轻中重。
-  const impactClass = fieldKey === 'impact' && typeof value === 'string'
-    ? FRICTION_IMPACT_CHIP_CLASS[value]
-    : undefined;
-  const signalClass = impactClass
-    ?? (fieldKey && isSignalField(fieldKey)
-      ? getSignalClassName(fieldKey, value)
-      : 'border-ldvh-border bg-ldvh-bg text-ldvh-text-primary');
+  const signalClass = fieldKey && isSignalField(fieldKey)
+    ? getSignalClassName(fieldKey, value)
+    : 'border-ldvh-border bg-ldvh-bg text-ldvh-text-primary';
   return (
     <span className={`ldvh-chip rounded-md border px-2 py-0.5 ${signalClass}`}>
       {children}

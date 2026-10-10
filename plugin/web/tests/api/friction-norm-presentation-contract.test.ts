@@ -99,23 +99,9 @@ test('friction list cards defer reading content to the detail page (Human 裁定
   assert.doesNotMatch(cardBody, /obj\.phenomenon/, '现象全文不再上卡面');
   assert.doesNotMatch(cardBody, /obj\.attribution/, '归因不再上卡面');
 
-  // 26 §8 impact（轻/中/重）：Human 裁定 2026-11——影响评级是扫读要素，
-  // 三处呈现共用**同一个**配色表（10 §5.5 单一来源），跨页不漂移：
-  //   ① 列表卡卡头标签区（ObjectList 的 ObjectCardFrame）
-  //   ② 聚焦页（CognitionCenter 复用同一个 ObjectCardFrame，故自动获得）
-  //   ③ 详情页元信息行（ObjectDetail 的 MetaValueChip）
-  const semanticColors = read('src/utils/semanticColors.ts');
-  assert.match(semanticColors, /FRICTION_IMPACT_CHIP_CLASS: Record<string, string> = \{\s*light:/, '配色表住在共享位置');
-  assert.match(semanticColors, /heavy: 'border-rose-400\/40/, '重＝玫红');
-  assert.match(objectList, /obj\.type === 'friction' && obj\.impact/, '① 列表卡卡头按类型分派');
-  assert.match(objectList, /FRICTION_IMPACT_CHIP_CLASS\[obj\.impact\]/, '① 引用共享配色而非本地复制');
-
-  const objectDetail = read('src/pages/ObjectDetail.tsx');
-  assert.match(objectDetail, /FRICTION_IMPACT_CHIP_CLASS\[value\]/, '③ 详情页元信息行引用同一配色');
-  assert.match(objectDetail, /fieldKey === 'impact'/, '③ 详情页按字段分派');
-
+  // 26 §8 impact（轻/中/重）的三处同形呈现由下方独立测试覆盖；此处只断言
+  // serves 不再被 26 §8 引用（该字段 2026-10 已删除，残留引用属闭集收缩后漂移）。
   const detailModel = read('src/pages/object-detail/model.ts');
-  assert.match(detailModel, /friction: \['impact'\]/, '③ impact 经元信息行呈现');
   assert.doesNotMatch(detailModel, /friction: \['serves'\]/, 'serves 已从 26 §8 删除，不得残留引用');
 
   // impact 不在正文布局重复呈现（同页两次属重复而非信息）。
@@ -192,22 +178,40 @@ test('terminal badges converge to neutral color and observing/voided keep their 
   assert.match(statusFilter, /norm: \['active', 'retired'\],/);
 });
 
-test('friction impact 在聚焦与详情同样呈现（Human 裁定 2026-11）', () => {
-  const locales = read('src/i18n/locales.ts');
-  const detailModel = read('src/pages/object-detail/model.ts');
+test('friction impact 在三处同形呈现（Human 裁定 2026-11）', () => {
+  const objectList = read('src/pages/ObjectList.tsx');
   const objectDetail = read('src/pages/ObjectDetail.tsx');
   const cognition = read('src/pages/CognitionCenter.tsx');
+  const detailModel = read('src/pages/object-detail/model.ts');
+  const badge = read('src/components/FrictionImpactBadge.tsx');
+  const semanticColors = read('src/utils/semanticColors.ts');
 
-  // 详情页：impact 进元信息行，且 chip 取共享配色（与列表卡卡头同源）。
-  assert.match(detailModel, /friction: \['impact'\]/, 'impact 经详情页元信息行呈现');
-  assert.match(objectDetail, /fieldKey === 'impact'/, 'impact 走专属 chip 配色分支');
-  assert.match(objectDetail, /FRICTION_IMPACT_CHIP_CLASS\[value\]/, '取共享配色表');
+  // 共享组件是 impact 呈现的**单一来源**——三处都引用它，不得各自手写 chip。
+  // Human 2026-11 指出「详情里表现的方式要和 card 一致」：此前详情页错放在
+  // footer 元信息行（「字段名: 值」形态），与 card 的裸 chip 不同形。
+  assert.match(badge, /export default function FrictionImpactBadge/);
+  assert.match(badge, /ldvh-chip-sm/, '与邻居 chip 同尺寸类');
+  assert.match(badge, /FRICTION_IMPACT_CHIP_CLASS/, '取共享配色表');
+  assert.doesNotMatch(badge, /Target|History/, '无图标——与 SG/活动数两枚 chip 的形态一致');
+  assert.match(semanticColors, /FRICTION_IMPACT_CHIP_CLASS: Record<string, string> = \{\s*light:/);
 
-  // 聚焦页：复用同一个 ObjectCardFrame，故卡头标签同样生效——此处只断言它确实
-  // 走 ObjectCardFrame（若将来改成自绘卡头，本断言会失败，提醒同步加标签）。
-  assert.match(cognition, /<ObjectCardFrame/, '聚焦页复用卡片框架');
+  // ① 列表卡卡头：类型 → 优先级 → SG → 影响 → 修改次数
+  assert.match(objectList, /ServesSgBadge value=\{obj\.serves\}[\s\S]{0,400}?FrictionImpactBadge value=\{obj\.impact\}/,
+    '① 影响紧跟 SG，在活动数之前');
+  // ② 详情页身份头部：同位置同序
+  assert.match(objectDetail, /ServesSgBadge value=\{source\.serves\}[\s\S]{0,400}?FrictionImpactBadge value=\{source\.impact\}/,
+    '② 详情头与卡头同序');
+  // 三处都不自行拼 chip：ObjectList 与 ObjectDetail 不再直接引用配色常量。
+  assert.doesNotMatch(objectList, /FRICTION_IMPACT_CHIP_CLASS/, '① 不手写 chip');
+  assert.doesNotMatch(objectDetail, /FRICTION_IMPACT_CHIP_CLASS/, '② 不手写 chip');
+  // 聚焦页复用 ObjectCardFrame，故自动获得同一枚 chip。
+  assert.match(cognition, /<ObjectCardFrame/, '③ 聚焦页复用卡片框架');
 
-  // 26 §8 闭集值的本地化：轻/中/重（不是 light/medium/heavy 直出）。
+  // 元信息行不再承载 impact（那是 footer 的「字段名: 值」形态，与 card 不同形）。
+  assert.match(detailModel, /friction: \[\]/, 'impact 不在元信息行');
+
+  // 26 §8 闭集值本地化：轻/中/重（不是 light/medium/heavy 直出）。
+  const locales = read('src/i18n/locales.ts');
   assert.match(locales, /light: \{ zh: '轻', en: 'Light' \}/);
   assert.match(locales, /medium: \{ zh: '中', en: 'Medium' \}/);
   assert.match(locales, /heavy: \{ zh: '重', en: 'Heavy' \}/);
