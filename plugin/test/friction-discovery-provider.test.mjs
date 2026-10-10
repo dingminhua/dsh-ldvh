@@ -199,3 +199,47 @@ test("discover：onRun 观察钩子上报各阶段（供活动记账与实跑取
   await discover({ threshold: 3, candidates: [], window: { to: 3, items: [{ turn: 3, assistant: "这是一段足够长的材料内容原文。" }] } });
   assert.deepEqual(phases, ["start", "started", "result", "verdict"]);
 });
+
+// ---------------------------------------------------------------------------
+// D5 回归护栏：窗口判空与取用必须是同一个对象
+//
+// 形态：曾误写为「判 `effectiveWindow?.items` 而 map `windowRange.items`」——
+// 当 provideWindow 返回 undefined 时，前者为假而后者不存在 → TypeError。
+// 该异常会让整次运行按 §8.3 入队（机制静默不产出）。由第二次独立复核的探针
+// （THREW: Cannot read properties of undefined (reading 'map')）发现。
+// 这类缺陷在「happy path 测试」下完全不可见——故须覆盖各种窗口形状。
+// ---------------------------------------------------------------------------
+
+test("D5：provideWindow 返回 undefined / 空窗口 / 有材料，三种形状都不得抛错", async () => {
+  const shapes = [
+    ["undefined", undefined],
+    ["null", null],
+    ["空窗口", { items: [], truncated: false }],
+    ["有材料", { items: [{ turn: 3, assistant: "这是一段足够长的材料内容原文。" }], truncated: false }],
+    ["缺 items 字段", { truncated: false }],
+  ];
+  for (const [label, shape] of shapes) {
+    const svc = fakeSubagents({ providers: [providerNamed("fork")] });
+    const discover = createDiscoveryProvider({
+      subagents: svc,
+      parent: PARENT,
+      signal: SIGNAL,
+      provideWindow: () => shape,
+    });
+    const out = await discover({ threshold: 3, candidates: [], window: { from: null, to: 5 } });
+    assert.equal(out.outcome, "no-discovery", `${label} 形状应当正常产出而非抛错`);
+  }
+});
+
+test("D5：无 provideWindow 时退回调用方给的 window（向后兼容旧调用面）", async () => {
+  const svc = fakeSubagents({ providers: [providerNamed("fork")] });
+  const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
+  const out = await discover({
+    threshold: 3,
+    candidates: [],
+    window: { from: 1, to: 5, items: [{ turn: 5, assistant: "这是一段足够长的材料内容原文。" }] },
+  });
+  assert.equal(out.outcome, "no-discovery");
+  // 提示词须含该材料（证明退回路径也把内容交了出去）
+  assert.match(svc.starts[0].request.prompt[0].text, /这是一段足够长的材料内容原文。/);
+});

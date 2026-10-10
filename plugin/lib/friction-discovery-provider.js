@@ -108,8 +108,12 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
       : windowRange;
 
     // 把窗口**内容**拼成可核对的文本，交给落地校验做逐字引证核对。
+    // 注意：判空与取用必须是**同一个对象**（`effectiveWindow`）。曾误写为
+    // 「判 `effectiveWindow` 而 map `windowRange`」——当 provideWindow 返回
+    // undefined 时 `windowRange.items` 不存在即抛 TypeError，而该异常会让整次
+    // 运行按 §8.3 入队（机制静默不产出）。由第二次独立复核的探针发现。
     const windowText = Array.isArray(effectiveWindow?.items)
-      ? windowRange.items
+      ? effectiveWindow.items
           .map((entry) => {
             const parts = [`[turn ${entry.turn}]`];
             if (entry.user) parts.push(`user: ${entry.user}`);
