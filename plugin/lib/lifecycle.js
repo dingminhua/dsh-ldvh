@@ -362,7 +362,16 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             // 受控写入需要**权威路由签名**（02 §10.5）。取不到签名时**不落地**
             // ——宁可停在这里，也不写一条签名缺失的账目（那会污染 change_log 的
             // 归属）。取不到即按 §8.3 入队。
-            const route = await currentRouteValues(sessionPersistence?.(), agent);
+            // **裸标识符陷阱（D8）**：此处原写作 `sessionPersistence?.()`，而
+            // `sessionPersistence` 在本文件里**只是 `registerLdvhTools` 的实参
+            // 属性名**（第 81 行 `sessionPersistence: () => ctx.get(...)`），
+            // 从未声明为变量。于是这一行**每次都抛 ReferenceError**，而该异常
+            // 沿 onSessionCheckpoint 冒泡后被执行体收口成一条日志（triggers.js
+            // 的 dispatchCheckpoint），运行载体上**不留任何痕迹**：账本无、队列
+            // 无、水位不动——与「机制没跑」外观完全相同。
+            // 正确形态与其它模块一致（adr-tools/friction-tools/ldvh-tools 等）：
+            // 经 `ctx.get("sessionPersistence")` 取服务后再可选调用。
+            const route = await currentRouteValues(ctx.get("sessionPersistence"), agent);
             if (!route.ok) {
               await appendPendingEntry(dshHomePath, {
                 task: taskForThisCheckpoint,
