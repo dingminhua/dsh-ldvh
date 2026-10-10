@@ -18,6 +18,7 @@ import ObjectReferenceCopyButton from '@/components/ObjectReferenceCopyButton';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import ServesSgBadge from '@/components/ServesSgBadge';
 import FrictionImpactBadge from '@/components/FrictionImpactBadge';
+import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
 import {
   ObjectCardFrame,
   PitfallCardContent,
@@ -371,6 +372,8 @@ function RecentActivityRow({ item }: { item: CognitionRecentActivityItem }) {
             Human 2026-11：「聚焦里依然没有重中轻的标签」——此前本行只挂了
             PriorityIcon 与 ServesSgBadge，且 API 侧未投影 impact。 */}
         {item.type === 'friction' && <FrictionImpactBadge value={item.impact} locale={locale} />}
+        {/* 26 §8 occurrence：同上（三处同序同形，共享组件）。 */}
+        {item.type === 'friction' && <FrictionOccurrenceBadge value={item.occurrence} />}
         <ActivityCountBadge count={item.activityCount} label={t('cognition.recent.activityCount', { count: String(item.activityCount) })} />
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           {/* Human 定案 2026-09-12：goal 不显示状态徽章；复制与其他对象一致

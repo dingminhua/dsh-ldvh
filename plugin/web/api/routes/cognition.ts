@@ -146,6 +146,16 @@ interface RecentActivityBuildItem {
   serves?: string
   /** 26 §8 impact（轻/中/重），条件出现——摩擦的近期动态行据此显示影响标签。 */
   impact?: string
+  /** 26 §8 `occurrence`（重复观察次数 = **频次的机械权威源**），条件出现。
+   *
+   * 与 `impact` 同规格：摩擦的近期动态行**同序同形**显示它（类型 → 优先级 →
+   * SG → 影响 → 重复观察 → 修改次数）。此前本路由只投影 `impact` 而未投影
+   * `occurrence`，致该字段虽在事实源与列表投影里都有、却不进聚焦页——与
+   * 「词条在、数据在、唯独没有消费方」是同一类缺口（Human 2026-11 发现）。
+   *
+   * 条件出现而非必填：§8 对「闭集收缩改判而来的 `voided`」有必填豁免（§14.2），
+   * 届时合法缺席——呈现层据此不渲染，不补零。 */
+  occurrence?: { count?: number; first_at?: string; last_at?: string; human_return_at?: string | null }
   /** 关联的事实对象引用（03 §7.2 / 20 §8 refs），条件出现。 */
   refs?: Array<{ object_uid: string; title?: string; type?: string }>
   read_status: string
@@ -371,6 +381,11 @@ function buildRecentActivityItem(
     ...(type === 'spark' && typeof raw.serves === 'string' && raw.serves.trim() ? { serves: raw.serves } : {}),
     // 26 §8 impact：摩擦的近期动态行与列表卡卡头、详情头同形显示轻/中/重。
     ...(type === 'friction' && typeof raw.impact === 'string' && raw.impact.trim() ? { impact: raw.impact } : {}),
+    // 26 §8 occurrence：同上同序（重复观察次数紧随影响标签）。只透传事实源里
+    // 已有的形状，**不构造、不补零**——`voided` 的 §14.2 豁免形态据此原样缺席。
+    ...(type === 'friction' && typeof raw.occurrence === 'object' && raw.occurrence !== null
+      ? { occurrence: raw.occurrence as { count?: number; first_at?: string; last_at?: string; human_return_at?: string | null } }
+      : {}),
     read_status: String(raw.read_status ?? 'unknown'),
     field_issues: Array.isArray(raw.field_issues) ? raw.field_issues as Array<Record<string, unknown>> : [],
     unparsed_structures: Array.isArray(raw.unparsed_structures) ? raw.unparsed_structures as Array<Record<string, unknown>> : [],

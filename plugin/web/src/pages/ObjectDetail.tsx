@@ -16,6 +16,7 @@ import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
 import ServesSgBadge from '@/components/ServesSgBadge';
 import FrictionImpactBadge from '@/components/FrictionImpactBadge';
+import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
 import { hasUnavailableIndependentSubagentReview } from '@/shared/workcaseCapability';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
@@ -664,6 +665,9 @@ export function ObjectIdentityHeader({
                 → SG → 影响 → 修改次数）——Human 2026-11：「详情里表现的方式要和
                 card 一致」。经共享组件渲染，三处不得各自手写 chip。 */}
             {objectType === 'friction' && <FrictionImpactBadge value={source.impact} locale={locale} />}
+            {/* 26 §8 occurrence：与列表卡卡头、聚焦页**同位置同序**（类型 → 优先级 → SG →
+                影响 → 重复观察 → 修改次数）——经同一个共享组件渲染，三处不得各自手写。 */}
+            {objectType === 'friction' && <FrictionOccurrenceBadge value={source.occurrence} />}
             {extraBadges}
             {showActivityCount && (
               <span

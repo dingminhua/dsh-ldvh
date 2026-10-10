@@ -12,6 +12,7 @@ import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
 import ServesSgBadge from '@/components/ServesSgBadge';
 import FrictionImpactBadge from '@/components/FrictionImpactBadge';
+import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
 import SummaryText from '@/components/SummaryText';
 import { ObjectTypeIcon, OBJECT_TYPE_ICONS } from '@/components/SemanticIcon';
 
@@ -301,6 +302,14 @@ export function ObjectCardFrame({
               进卡头标签区（类型 → 优先级 → SG → **影响** → 修改次数）。经共享组件
               渲染：详情页身份头部用同一个组件，两处不得各自手写 chip。 */}
           {obj.type === 'friction' && <FrictionImpactBadge value={obj.impact} locale={locale} />}
+          {/* 26 §8 occurrence（重复观察次数）：**频次的机械权威源**——§8 明写正文现象段
+              只是人类可读投影，「二者不一致时以本字段为准」。故它必须可见，否则 Human
+              读不到阈值判据（04 §8.4 的 `count ≥ 3` 自动流转就读它）。
+
+              与紧随的「修改次数」chip（`History` + `change_log.length`）**是两回事**：
+              那是写入次数，这是被观察次数。刻意用**不同图标**（Eye vs History）区分，
+              不复用同一枚，免得读者把二者当同一个量。 */}
+          {obj.type === 'friction' && <FrictionOccurrenceBadge value={obj.occurrence} />}
           <span
             className="ldvh-chip-sm gap-1 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent"
             title={t('cognition.recent.activityCount', { count: String(activityCount) })}

@@ -120,6 +120,21 @@ export interface ObjectItem {
   phenomenon?: string;
   attribution?: string;
   impact?: string;
+  /** 26 §8 `occurrence`：重复观察的证据载体，**频次的机械权威源**（`count ≥ 3`
+   * 且 `human_return_at` 为空是机械通道唯一的自主流转判据）。
+   *
+   * **此处登记为可选**：§8 对「闭集收缩改判而来的 `voided`」有必填豁免（§14.2），
+   * 届时该字段合法缺席——呈现层据此不渲染该 chip，不补零、不占位。
+   *
+   * 本字段此前**从未在前端类型里声明过**，尽管 API 一直在送（`factFieldContract`
+   * 登记为 object、`FACT_LIST_FIELD_NAMES.friction` 含它、`copyPresentFields`
+   * 实际携带）——词条在、数据在、唯独没有消费方与类型。 */
+  occurrence?: {
+    count?: number;
+    first_at?: string;
+    last_at?: string;
+    human_return_at?: string | null;
+  };
   /** Norm-specific（27 §8：direction_key 必填；retirement_reason/retired_at 终态条件） */
   direction_key?: string;
   /** Spark-specific（20 §8：v5 字段闭集） */
@@ -556,6 +571,17 @@ export interface CognitionRecentActivityItem {
   /** 26 §8 impact（轻/中/重），条件出现——摩擦的近期动态行据此显示影响标签，
    * 与列表卡卡头、详情头同形（Human 2026-11：「聚焦里依然没有重中轻的标签」）。 */
   impact?: string;
+  /** 26 §8 `occurrence`（重复观察次数 = **频次的机械权威源**），条件出现——
+   * 与 `impact` 同规格：摩擦的近期动态行同序同形显示它（Human 2026-11 的
+   * 「聚焦里依然没有重中轻的标签」在同一处暴露了 occurrence 的同类缺口）。
+   *
+   * 条件出现而非必填：§8 对「闭集收缩改判而来的 `voided`」有必填豁免（§14.2）。 */
+  occurrence?: {
+    count?: number;
+    first_at?: string;
+    last_at?: string;
+    human_return_at?: string | null;
+  };
   /** WorkCase 只携带派生 group；其它对象携带自身当前状态。 */
   group?: WorkCaseV5Group;
   status?: string;

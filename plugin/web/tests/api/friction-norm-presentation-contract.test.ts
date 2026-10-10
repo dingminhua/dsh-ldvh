@@ -235,3 +235,98 @@ test('同名字段按类型分派词条：disposition 在 spark 与 friction 语
   // 详情页元信息行确实把类型传下去。
   assert.match(read('src/pages/ObjectDetail.tsx'), /getFieldLabel\(key, locale, objectType\)/);
 });
+
+/**
+ * 26 §8 `occurrence`（重复观察次数 = **频次的机械权威源**）的呈现契约。
+ *
+ * ## 本测试的存在理由（补上一个真实漏掉的缺口）
+ *
+ * 此前本文件对 `occurrence` 只有一条断言——「词条存在」（见上方的
+ * `occurrence: { zh: '重复观察' }`）。**词条存在 ≠ 被渲染**：该字段当时
+ * 数据在（`FACT_LIST_FIELD_NAMES.friction` 含它、`copyPresentFields` 实际携带）、
+ * 契约在（`factFieldContract` 登记为 object）、词条在，**唯独没有任何一处消费它**，
+ * 而测试全绿。Human 在界面上读不到那个权威值才发现了这一点。
+ *
+ * 教训与 WorkCase D8 同形：**断言了「存在」，没断言「被走过」**。故本组断言
+ * 一律落在**渲染调用点**上，不停留在词条与类型声明。
+ *
+ * ## 为什么要断言「与修改次数分开」
+ *
+ * 卡头另有一枚 `History` chip 承载 `change_log.length`（写入次数）。二者是不同的量：
+ * 一条账目可以只被观察 1 次却改过 7 次。二者混同会让 Human 把「改过几次」误读成
+ * 「出现过几次」——而后者才是 04 §8.4 的阈值判据。故断言二者**不同图标**。
+ */
+test('26 §8 occurrence 在**三处**卡头都被渲染（词条存在不等于被消费）', () => {
+  const list = read('src/pages/ObjectList.tsx');
+  const detail = read('src/pages/ObjectDetail.tsx');
+  const cognition = read('src/pages/CognitionCenter.tsx');
+
+  // 三处调用点（列表卡 / 详情身份头 / 聚焦页），与 FrictionImpactBadge 同规格。
+  assert.match(list, /obj\.type === 'friction' && <FrictionOccurrenceBadge value=\{obj\.occurrence\} \/>/);
+  assert.match(detail, /objectType === 'friction' && <FrictionOccurrenceBadge value=\{source\.occurrence\} \/>/);
+  assert.match(cognition, /item\.type === 'friction' && <FrictionOccurrenceBadge value=\{item\.occurrence\} \/>/);
+
+  // 单一来源：三处都经共享组件，不得各自手写 chip。
+  for (const [name, src] of [['ObjectList', list], ['ObjectDetail', detail], ['CognitionCenter', cognition]] as const) {
+    assert.match(src, /import FrictionOccurrenceBadge from '@\/components\/FrictionOccurrenceBadge'/, `${name} 须引用共享组件`);
+  }
+});
+
+/**
+ * 去掉注释后的源码——**判「代码里有没有 X」必须只看代码**。
+ *
+ * 直接扫原文会把注释里解释「为什么**不**用 X」误判成「用了 X」：本文件的
+ * occurrence chip 注释恰好两次说明为何不复用 `History`、为何不印阈值 `1/3`，
+ * 首次运行时两条断言都因此误报。与 D2 护栏曾把自述注释当缺陷是同一类坑。
+ */
+function codeOnly(src: string) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .map((line) => (line.trimStart().startsWith('//') ? '' : line))
+    .join('\n');
+}
+
+test('26 §8 occurrence 与「修改次数」用**不同图标**（两个不同的量不得混同）', () => {
+  const badgeCode = codeOnly(read('src/components/FrictionOccurrenceBadge.tsx'));
+
+  // occurrence 用 Eye（被观察次数）。
+  assert.match(badgeCode, /import \{ Eye \} from 'lucide-react'/);
+  assert.match(badgeCode, /<Eye size=\{12\}/, 'occurrence chip 须用 Eye 图标');
+  // 修改次数用 History——二者必须不同图标，否则读者无法分辨。
+  assert.doesNotMatch(badgeCode, /History/, 'occurrence chip 不得复用 History（那是写入次数）');
+  const list = read('src/pages/ObjectList.tsx');
+  assert.match(list, /<History size=\{12\}/, '修改次数 chip 仍用 History');
+});
+
+test('26 §8 occurrence chip 只呈现事实值，不呈现阈值进度（N 的权威源是规范不是界面）', () => {
+  const badge = read('src/components/FrictionOccurrenceBadge.tsx');
+
+  // 不显示 `1/3` 这类进度——阈值 N=3 由 04 §8.4 固定，印在卡面会让它看起来
+  // 像可变的呈现选择。
+  // 只看**代码**（见 codeOnly 的说明）：注释里解释「为何不呈现阈值」是正当的。
+  const badgeCode = codeOnly(badge);
+  // 判据要精确：不得写 `{count}/3` 这类进度，也不得引入阈值常量。
+  // **不能**用宽泛的 `/\s*3`——那会命中色相类名里的 `border-sky-400/35`
+  // （首次运行时即此误报）。
+  assert.doesNotMatch(badgeCode, /\}\s*\/\s*N?\s*3/, '不得在卡面呈现 `{count}/3` 这类阈值进度');
+  assert.doesNotMatch(badgeCode, /FRICTION_THRESHOLD|THRESHOLD_N|threshold/i, '不得在卡面引入阈值常量（N 的权威源是规范）');
+  // 闭集外的取值不渲染（同 impact badge 对闭集外取值的处置）。
+  assert.match(badge, /!Number\.isInteger\(count\) \|\| count < 1\) return null/);
+});
+
+test('26 §8 occurrence 在前端类型面有声明（此前缺失致消费方无从落地）', () => {
+  const api = read('src/utils/api.ts');
+  assert.match(api, /occurrence\?: \{/, 'ObjectItem 须声明 occurrence —— 此前 API 送而类型无');
+  // 与 §8 字段形状一致：count/first_at/last_at/human_return_at。
+  assert.match(api, /count\?: number;/);
+  assert.match(api, /human_return_at\?: string \| null;/);
+});
+
+test('26 §8 occurrence 的悬浮说明与「修改次数」措辞明确区分', () => {
+  const locales = read('src/i18n/locales.ts');
+  assert.match(locales, /'cognition\.recent\.occurrenceCount': '重复观察 \{count\} 次/, 'zh 须说明是重复观察次数');
+  assert.match(locales, /'cognition\.recent\.occurrenceCount': 'Observed \{count\} time\(s\)/, 'en 亦须有');
+  // 既有 activityCount 词条不受影响（那是写入次数）。
+  assert.match(locales, /'cognition\.recent\.activityCount': '\{count\} 条动态'/);
+});

@@ -1025,6 +1025,10 @@ export const UI_LOCALES = {
     'cognition.recent.showRemainingUsage': '显示其余 {count} 项署名统计',
     'cognition.recent.collapse': '收起',
     'cognition.recent.activityCount': '{count} 条动态',
+    // 26 §8 occurrence（重复观察次数 = 频次的机械权威源）：卡头眼睛图标 chip 的悬浮说明。
+    // 措辞与「修改次数」明确区分——前者是「被观察到几次」，后者是「改过几次」；
+    // 二者是不同的量，混同会误导阈值判断。
+    'cognition.recent.occurrenceCount': '重复观察 {count} 次（26 §8 频次的机械权威源）',
     'cognition.recent.modelUsage': '模型',
     'cognition.recent.environmentUsage': '供应商',
     'cognition.recent.expandSection': '展开近期动态',
@@ -1775,6 +1779,7 @@ export const UI_LOCALES = {
     'cognition.recent.showRemainingUsage': 'Show {count} more attribution entries',
     'cognition.recent.collapse': 'Collapse',
     'cognition.recent.activityCount': '{count} activity entries',
+    'cognition.recent.occurrenceCount': 'Observed {count} time(s) — the mechanical authority for frequency (26 §8)',
     'cognition.recent.modelUsage': 'Model',
     'cognition.recent.environmentUsage': 'Provider',
     'cognition.recent.expandSection': 'Expand recent activity',
