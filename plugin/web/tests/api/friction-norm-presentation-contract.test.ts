@@ -330,3 +330,35 @@ test('26 §8 occurrence 的悬浮说明与「修改次数」措辞明确区分',
   // 既有 activityCount 词条不受影响（那是写入次数）。
   assert.match(locales, /'cognition\.recent\.activityCount': '\{count\} 条动态'/);
 });
+
+/**
+ * 26 §8 `occurrence` 在**聚焦页路由**的两段投影都必须携带它。
+ *
+ * ## 本测试的存在理由（第二次踩同一个坑）
+ *
+ * `/api/cognition` 里有两段投影，**两段都要带该字段才到得了客户端**：
+ *   ① `buildRecentActivityItem`：raw（列表投影） → `RecentActivityBuildItem`
+ *   ② `recentItems` 映射：`RecentActivityBuildItem` → 响应 JSON
+ *
+ * 我第一次只补了 ①，接口仍返回不了该字段——因为 ② 是**逐字段重建**（不是展开
+ * `...build`），漏一个字段就静默丢掉一个。实测确认：补 ① 后 `/api/cognition`
+ * 的 friction 条目里仍无 `occurrence` 键，补 ② 后才出现。
+ *
+ * 这与「词条在、数据在、唯独没有消费方」是同一类「两层之间掉了」的缺口，
+ * 故断言**两段都查**，只查一段等于没查。
+ */
+test('26 §8 occurrence 在 /api/cognition 的两段投影里都携带（漏一段即静默丢失）', () => {
+  const src = read('api/routes/cognition.ts');
+
+  // ① raw → RecentActivityBuildItem
+  assert.match(src, /raw\.occurrence/, '第一段投影（buildRecentActivityItem）须透传 occurrence');
+  // ② RecentActivityBuildItem → 响应 JSON（逐字段重建，非展开）
+  assert.match(src, /build\.occurrence !== undefined \? \{ occurrence: build\.occurrence \}/, '第二段投影（recentItems 映射）须携带 occurrence');
+
+  // 两段都带上 build/raw 的类型声明，否则 TS 会拦下（证明类型面也在）。
+  assert.match(src, /occurrence\?: \{ count\?: number; first_at\?: string; last_at\?: string; human_return_at\?: string \| null \}/);
+
+  // 对照：impact 是既有正确形态，两段都在——occurrence 须与之同规格。
+  assert.match(src, /raw\.impact/, 'impact 第一段仍在');
+  assert.match(src, /build\.impact !== undefined \? \{ impact: build\.impact \}/, 'impact 第二段仍在');
+});

@@ -1066,6 +1066,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       ...(build.priority !== undefined ? { priority: build.priority } : {}),
       ...(build.serves !== undefined ? { serves: build.serves } : {}),
       ...(build.impact !== undefined ? { impact: build.impact } : {}),
+      // 26 §8 occurrence：第二层映射（build → recentItems）此前遗漏它——
+      // 上层 buildRecentActivityItem 已投影，此处逐字段重建时丢掉，故客户端
+      // 收不到。与 impact 同序（重复观察紧随影响标签）。
+      ...(build.occurrence !== undefined ? { occurrence: build.occurrence } : {}),
       ...(build.refs !== undefined ? { refs: build.refs } : {}),
       ...(build.type === 'workcase' && build.group !== undefined
         ? { group: build.group }
