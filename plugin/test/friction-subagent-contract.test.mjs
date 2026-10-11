@@ -316,8 +316,12 @@ test("prompt: 材料被截断时如实告知（截断有损，不得静默）", 
 
 test("prompt: 空窗口明示「只能报 no-discovery 且 quote 为空」", () => {
   const prompt = buildDiscoveryPrompt({ threshold: 3, candidates: [], window: { items: [] } });
-  assert.match(prompt, /只能.*报 no-discovery|只能报 `no-discovery`/);
-  assert.match(prompt, /quote 必须为空字符串/);
+  // 措辞于 2026-10-11 改为**多任务通用**：「每一件都只能报对应的『无发现』态」。
+  // 本条断言的是**语义**（空材料下只能报无发现且 quote 为空），故按语义匹配，
+  // 不锁死某一种措辞——锁死措辞会使任何非实质改写都触发失败，那不是它的目的。
+  assert.match(prompt, /只能.{0,6}报[^。]{0,12}(no-discovery|无发现)/);
+  // 字段名在新措辞里带反引号（Markdown 行内代码），故匹配时容忍两侧反引号。
+  assert.match(prompt, /`?quote`? 必须为空字符串/);
 });
 
 // ---------------------------------------------------------------------------

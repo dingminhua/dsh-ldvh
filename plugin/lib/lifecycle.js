@@ -26,11 +26,11 @@ import { registerLdvhTools } from "./ldvh-tools.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
 import { createTurnTriggers } from "./triggers.js";
-import { runIdleCheckpoint, selectAuxTask } from "./idle-checkpoint.js";
+import { runIdleCheckpoint } from "./idle-checkpoint.js";
 import { createDiscoveryProvider } from "./friction-discovery-provider.js";
 import { landDiscoveryVerdict, residualFromLandingError } from "./friction-landing.js";
 import { advanceWatermark, readWatermark, readDispatchState, recordDispatch } from "./friction-watermark.js";
-import { admitIdleDispatch, pickEnabledAuxTask } from "./idle-settings.js";
+import { admitIdleDispatch, pickEnabledAuxTasks } from "./idle-settings.js";
 import { recordRun } from "./idle-runlog.js";
 import { appendPendingEntry } from "./pending-queue.js";
 import { currentRouteValues } from "./session-signature.js";
@@ -311,43 +311,37 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           const scope = await resolve(cwd);
           // 受管辖是运行前提（32 §137：git 层操作要求当前管辖）。
           if (scope.state !== "governed" || scope.project === undefined || scope.project === null) return;
-          // 预算轮换：一次检查点只跑一个任务（32 §10.2），计数器随 lifecycle 存活。
+          // ── 一次派发做多件事（Human 决定 2026-10-11）──────────────────────
           //
-          // ## 轮换位何时推进（2026-10-11 修死锁）
+          // 原实现按 `rotation % 3` 挑**一个**任务（32 §10.2 候选设计的「按预算
+          // 轮换」）。Human 改定：闲时任务的取舍由设置面开关决定，**勾选几个就做
+          // 几件事**，一次派发把它们拼进**同一个**子代理的提示词。轮换概念连同
+          // 轮换位计数器一并删除（`auxRotation` / `HEALTH_CHECK_PERIOD` /
+          // `selectAuxTask` / `pickEnabledAuxTask`）。
           //
-          // 原实现只在**准入通过后**推进，理由是「空检查点不稀释 HEALTH_CHECK_PERIOD
-          // 的相位」。但那样把两类挡下混为一谈，产生了**静默死锁**：
+          // 该改动同时消除了两个既有缺陷，故此处不再需要它们的处置：
+          //   · **轮换位死锁**（2026-10-11 实测）：轮换位只在准入通过后推进，而
+          //     `memory-health` 默认停用 → 每次被 `task-disabled` 挡下 → 轮换位
+          //     永为 2 → `idle-review` 再也不被跑到。**没有相位就没有死锁**。
+          //   · **任务不在任何相位上**：`capacity-maintenance` 从未被选中过
+          //     （实测 60 个相位里 0 次）。现在「被选中」= 「被勾选」。
           //
-          //   本会话实测 rotation=2 → `memory-health`（默认关）→ 每次都被
-          //   `task-disabled` 挡下 → 轮换位永不推进 → rotation 永为 2 →
-          //   **`idle-review` 再也不会被跑到**，而 throttled 又不算失败，故无痕迹。
-          //
-          // 两类挡下的正确处置**相反**：
-          //   · **任务被停用**：该任务本轮不可能跑。须**跳过它并继续挑**，否则
-          //     轮换位永久停在它上面（上例）。停用是 Human 的明示配置，不该让
-          //     整个辅助机制停摆。
-          //   · **机械节流**（冷却/内容量/配额）：任务想跑但条件不满足。此时
-          //     **不推进**相位是对的——本该轮到体检的那次被节流吃掉后，体检要
-          //     再等 3 次才算「轮到」。
-          //
-          // 故先按「跳过被停用者」定出本轮任务，再走准入闸；准入闸里的挡下一律
-          // 视为机械节流（任务已确认启用）。
-          const rotation = lifecycle.turns.auxRotation ?? 0;
+          // 顺序取 `AUX_TASK_ORDER`（规范叙述次序），**不取**设置对象的枚举次序
+          // ——后者是 UI 细节，若成判据，同一组勾选在不同展示顺序下会得到不同
+          // 提示词（隐藏耦合）。
           const idleSettingsForPick = typeof getIdleSettings === "function" ? getIdleSettings() : undefined;
-          const pick = pickEnabledAuxTask(rotation, idleSettingsForPick);
-          const taskForThisCheckpoint = pick.task;
-          // 被跳过的个数：使轮换位越过被停用的任务（`pick.skipped` 即跳过的槽位数）。
-          const rotationAfterPick = rotation + pick.skipped;
+          const pickedTasks = pickEnabledAuxTasks(idleSettingsForPick);
+          // 本次要跑的全部任务；痕迹与提示词都取它。
+          const tasksForThisCheckpoint = pickedTasks.tasks;
 
           // 无可跑任务（总开关关闭、或三个子项全被停用）：**不派发任何任务**。
           //
           // 这是配置的全部含义，**不是失败**——没有校验不可用，只是没有要跑的活，
           // 故不入队、不记 throttled（那会让「Human 关掉了它」看起来像「它出错了」）。
           // 轮换位也**不动**：重开时应从原相位继续。
-          if (taskForThisCheckpoint === null) {
+          if (tasksForThisCheckpoint.length === 0) {
             lifecycle.activity?.record("session/checkpoint/no-enabled-task", {
-              rotation,
-              reason: idleSettingsForPick?.enabled === false ? "idle-assist-disabled" : "all-tasks-disabled",
+              reason: pickedTasks.reason ?? "all-tasks-disabled",
             });
             return;
           }
@@ -371,9 +365,18 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             const isFirstRun = priorWatermark.ok ? priorWatermark.value.lastTurn === null : false;
             // 材料规模取自累积器给出的区间（判据层不读时钟、不读窗口内容）。
             const ahead = turnTriggers.windowFrom(priorWatermark.ok ? priorWatermark.value.lastTurn : null);
+            // 准入判据收在**任务清单**上：先按总开关/任务清单过一遍，再走三类
+            // 机械节流。`task` 传清单里的**第一个**任务仅用于「该任务是否被勾选」
+            // 这一沿用判据——清单非空即意味着至少一个任务已勾选，故该判定恒真，
+            // 真正起作用的只有冷却/内容量/配额三项。
+            //
+            // 为何不逐个任务分别过闸：三类约束（冷却/内容量/配额）度量的是**这次
+            // 派发**的整体代价——一个子代理一次跑完 N 件事，其开销不随 N 线性增长
+            // （上下文只解压一次），故按「一次派发」计量才是它真正的粒度。若按任务
+            // 分别计量，勾 3 件会让冷却与配额被消耗三次，而实际只派发了一次。
             const admission = admitIdleDispatch({
               settings: idleSettings,
-              task: taskForThisCheckpoint,
+              task: tasksForThisCheckpoint[0],
               now: Date.now(),
               lastDispatchAt: prior.lastDispatchAt,
               dispatched: prior.dispatchCount,
@@ -388,13 +391,14 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               isFirstRun,
             });
             if (!admission.admit) {
-              // **禁用不推进、节流才不推进**——这里 admission 的挡下必然是机械
-              // 节流（`pickEnabledAuxTask` 已排除被停用者），故一律不推进相位。
-              //
               // 如实记账：被节流挡下与「坏了」必须可区分，否则 Human 从痕迹里
               // 看不出机制是在歇着还是停了（参照 dsh-mnemon 的 stage 可区分纪律）。
+              //
+              // `tasks` 记下本次**本想**做的全部事项——被挡下时 Human 需要知道
+              // 「是哪几件事被推后了」，只记一个任务名会掩盖范围。
               await recordRun(dshHomePath, {
-                task: taskForThisCheckpoint,
+                task: tasksForThisCheckpoint[0],
+                tasks: [...tasksForThisCheckpoint],
                 stage: "throttled",
                 reason: admission.reason,
                 // 三类约束**各自**的判定——使「存在但未触发」可与「不存在」区分
@@ -402,19 +406,16 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 evaluated: admission.evaluations,
                 at: new Date().toISOString(),
               });
-              lifecycle.activity?.record("session/checkpoint/throttled", { task: taskForThisCheckpoint, reason: admission.reason });
+              lifecycle.activity?.record("session/checkpoint/throttled", { task: tasksForThisCheckpoint[0], tasks: [...tasksForThisCheckpoint], reason: admission.reason });
               return;
             }
-            // 推进到「本轮实际跑的那个任务」之后（已越过被停用者；见上「轮换位
-            // 何时推进」）。机械节流时**不推进**——那正是为了让被节流吃掉的相位
-            // 留给下次。
-            lifecycle.turns.auxRotation = rotationAfterPick + 1;
             // 冷却锚点在**派发之前**写入，故失败也计入——否则一次失败不占冷却窗口，
             // 下一次检查点立刻重跑，外观上正是 §8.3 禁止的「自行重试」。
             // 放行也留一次评估痕迹：某约束若在默认取值下恒不触发，只记「被挡下」
             // 会使它与「根本没实现」完全不可区分（复审 D2/D7）。
             await recordRun(dshHomePath, {
-              task: taskForThisCheckpoint,
+              task: tasksForThisCheckpoint[0],
+              tasks: [...tasksForThisCheckpoint],
               stage: "admitted",
               reason: admission.reason,
               evaluated: admission.evaluations,
@@ -424,16 +425,14 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             if (!recorded.ok) {
               // 写不进锚点即无法保证节流——按 fail-closed 停止本次（不派发）。
               await recordRun(dshHomePath, {
-                task: taskForThisCheckpoint,
+                task: tasksForThisCheckpoint[0],
+                tasks: [...tasksForThisCheckpoint],
                 stage: "stopped",
                 reason: `派发状态不可写：${recorded.error?.message ?? "unknown"}`,
                 at: new Date().toISOString(),
               });
               return;
             }
-          } else {
-            // 无设置来源（老宿主 / 未注入）时保持原行为：照常推进轮换位。
-            lifecycle.turns.auxRotation = rotationAfterPick + 1;
           }
 
           // §8.4 第 1 项的执行体：派一个**继承主控上下文**的受管辖隔离子代理去做
@@ -443,7 +442,10 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 依赖缺失时**不传 discover**，使 runIdleCheckpoint 如实报 skipped——
           // 那比"派一个零上下文的子代理冒充判断"诚实得多（§8.4 要求继承上下文）。
           let discover;
-          if (taskForThisCheckpoint === "idle-review") {
+          // 清单里含 `idle-review` 就构造执行体——多任务派发**一次**，故这里不再
+          // 判「本次轮到的任务是不是它」，而是判「本次是否要求做它」。
+          // 其余两个任务尚未实现，`runIdleCheckpoint` 会按各自的分支如实回报。
+          if (tasksForThisCheckpoint.includes("idle-review")) {
             try {
               const subagents = agent?.ctx?.get?.("subagents");
               if (subagents !== undefined && subagents !== null) {
@@ -483,7 +485,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             projectRoot: scope.project.path,
             sessionId,
             currentTurn: turn,
-            task: taskForThisCheckpoint,
+            tasks: [...tasksForThisCheckpoint],
             discover,
           });
 
@@ -500,7 +502,37 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // `checkpoint.value.decision.verdict`。写错这一层会让落地**永不触发**，
           // 而那正是缺陷 D2 的形态（静默不落地），故有回归护栏守着它。
           const verdict = checkpoint?.ok === true ? checkpoint.value?.decision?.verdict : undefined;
-          if (checkpoint?.ok === true && verdict !== undefined) {
+          // ── 多任务：任务级失败按 §8.3 入队，不落地、不推进水位 ────────────
+          //
+          // provider 现在**不再**对任务级校验失败抛错（那会使一次可用的运行被整条
+          // 丢弃，正是 §10.2 新条款禁止的）；它改为把逐任务成败如实返回。故调用方
+          // 必须自己识别该情形：`failedTasks` 非空即本次有任务未得结论，须逐条入队
+          // 登记（§8.3 第 1 条），且**不得**拿 null 去落地。
+          //
+          // 注意 `verdict != null` 这个真值判定：失败时它是 `null`（不是 `undefined`），
+          // 而 `null !== undefined` 为真——写成 `!== undefined` 会把失败当成功放行。
+          const failedTasks = checkpoint?.ok === true
+            ? (checkpoint.value?.decision?.failedTasks ?? [])
+            : [];
+          if (failedTasks.length > 0) {
+            for (const key of failedTasks) {
+              const why = checkpoint.value?.decision?.taskResults?.[key]?.error;
+              await appendPendingEntry(dshHomePath, {
+                task: key,
+                reason: `任务「${key}」未取得结论：${why?.message ?? "unknown"}`,
+                residual: why?.code ? [String(why.code)] : [],
+                at: new Date().toISOString(),
+              });
+            }
+            lifecycle.activity?.record("session/checkpoint/task-failed", {
+              tasks: [...failedTasks],
+              // 同时报告已成功者：使 Human 能看出「这次几件成了、几件没成」。
+              succeeded: tasksForThisCheckpoint.filter((k) => !failedTasks.includes(k)),
+            });
+            // 失败即不落地、不推进水位（provider 已据此不给出 watermarkTurn）。
+            // 落到下面的运行痕迹写入，使「有任务失败」在痕迹里可见。
+          }
+          if (checkpoint?.ok === true && verdict != null && failedTasks.length === 0) {
             const ledgerRoot = join(scope.project.path, "ldvh-base");
             // 受控写入需要**权威路由签名**（02 §10.5）。取不到签名时**不落地**
             // ——宁可停在这里，也不写一条签名缺失的账目（那会污染 change_log 的
@@ -517,7 +549,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             const route = await currentRouteValues(ctx.get("sessionPersistence"), agent);
             if (!route.ok) {
               await appendPendingEntry(dshHomePath, {
-                task: taskForThisCheckpoint,
+                task: tasksForThisCheckpoint,
                 reason: `闭集落地缺少权威路由签名：${route.reason ?? "unknown"}`,
                 residual: ["账目未写入（缺签名）"],
                 at: new Date().toISOString(),
@@ -537,7 +569,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               if (!landed.ok) {
                 // §8.3 fail-closed：落地失败按停止处置并登记（不自行重试、不掩盖）。
                 await appendPendingEntry(dshHomePath, {
-                  task: taskForThisCheckpoint,
+                  task: tasksForThisCheckpoint[0],
                   reason: `闭集落地失败（${landed.error?.stage ?? "unknown"}）：${landed.error?.message ?? "unknown"}`,
                   // 提炼**完整**诊断（含逐条校验明细），不把 issues 丢掉——
                   // 详见 friction-landing.js 的 residualFromLandingError。
@@ -564,7 +596,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 const gap = checkpoint.value?.decision?.unobserved;
                 if (gap && typeof gap === "object") {
                   await appendPendingEntry(dshHomePath, {
-                    task: taskForThisCheckpoint,
+                    task: tasksForThisCheckpoint[0],
                     reason: `观察区间存在未覆盖缺口：turn ${gap.from}${gap.to === null || gap.to === undefined ? " 起（上界未知）" : `–${gap.to}`} 未被本进程观察到（宿主不回放事件，缺口不可恢复）`,
                     residual: [`缺口 ${gap.from}..${gap.to ?? "unknown"} 的内容未被观察`, "水位将越过该缺口——此为该区间的已知损失"],
                     at: new Date().toISOString(),
@@ -585,7 +617,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                     // 落地已成功、水位未推进：下次会重覆盖同一区间。**重覆盖不会
                     // 重复计数**吗——会。故此处必须入队如实登记，不得静默。
                     await appendPendingEntry(dshHomePath, {
-                      task: taskForThisCheckpoint,
+                      task: tasksForThisCheckpoint[0],
                       reason: `水位推进失败（账目已写入，下次将重覆盖同一区间，可能重复计数）：${advanced.error.message}`,
                       residual: [`水位键 ${advanced.error.code}`, `重覆盖区间终点 turn=${pendingTurn}`],
                       at: new Date().toISOString(),
@@ -601,7 +633,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           } else if (checkpoint?.ok === false) {
             // 调度层已自行入队（recordAndFail），此处只记活动，不重复登记。
             lifecycle.activity?.record("session/checkpoint/stopped", {
-              task: taskForThisCheckpoint,
+              task: tasksForThisCheckpoint[0],
               code: checkpoint.error?.code ?? "unknown",
             });
           }
@@ -613,12 +645,25 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           try {
             await recordRun(dshHomePath, {
               at: new Date().toISOString(),
-              task: taskForThisCheckpoint,
+              // `task`（单值）保留：它是既有 reader（Web 与诊断）的字段，改它会使
+              // 旧读法失效。`tasks`/`unimplemented` 是**新增**的两个面，使「本次要求
+              // 做哪几件、其中哪几件没做」在**持久化**痕迹里可见。
+              //
+              // 为什么必须持久化（M3）：内存态 activity 随进程退出即消失，而 §10.2
+              // 要求「已启用但未实现」须在运行痕迹中如实登记为未执行。只记在
+              // activity 里，Human 事后翻 runlog 看不到——等于没登记。
+              task: tasksForThisCheckpoint[0],
+              tasks: [...tasksForThisCheckpoint],
+              unimplemented: checkpoint?.ok === true
+                ? [...(checkpoint.value?.unimplemented ?? [])]
+                : [],
               stage:
                 checkpoint?.ok !== true
                   ? "stopped"
-                  : verdict !== undefined
-                    ? (landedAction === "failed" ? "land-failed" : "landed")
+                  : failedTasks.length > 0
+                    ? "land-failed"
+                    : verdict != null
+                      ? (landedAction === "failed" ? "land-failed" : "landed")
                     : (checkpoint.value?.outcome === "not-implemented" ? "not-implemented" : "skipped"),
               code: checkpoint?.ok === false ? (checkpoint.error?.code ?? "unknown") : undefined,
               action: landedAction,
@@ -633,7 +678,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             });
           }
 
-          lifecycle.activity?.record("session/checkpoint", { source, task: selectAuxTask(rotation) });
+          lifecycle.activity?.record("session/checkpoint", { source, tasks: [...tasksForThisCheckpoint] });
         }
       });
       // Prime the pre-step channel at install：install 本身发生在 agent/created

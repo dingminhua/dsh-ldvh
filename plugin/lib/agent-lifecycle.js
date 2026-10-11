@@ -47,8 +47,11 @@ export class AgentLifecycle {
     this.preStep = { primePending: false, lastDigest: null };
     // Turn-trigger markers (session-checkpoint / idle-confirmation seams).
     // `checkpointPending` 是 04 §8.4 两步触发的第一步标记（检查点已到达），
-    // 由 agent/status 的 idle 迁移消费；`auxRotation` 是 32 §10.2 三任务预算
-    // 轮换的计数器（每 agent 一份，随 lifecycle 存活）。
+    // 由 agent/status 的 idle 迁移消费。
+    //
+    // 曾有一个 `auxRotation` 计数器（32 §10.2 三任务预算轮换）。Human 于
+    // 2026-10-11 删除轮换概念（一次派发做全部已启用的事），该计数器随之删除——
+    // **没有相位，就没有相位死锁**。
     this.turns = {
       turnStoppingSeen: 0,
       turnEndSeen: 0,
@@ -57,7 +60,6 @@ export class AgentLifecycle {
       checkpointPending: false,
       lastIdleSeen: 0,
       lastCheckpointDispatch: undefined,
-      auxRotation: 0,
       // 04 §8.4 执行体的取消信号（每次检查点派生时替换，旧的先 abort——避免
       // 多轮检查点的派生堆积）。会话销毁时由 dispose 路径收口。
       discoveryAbort: undefined

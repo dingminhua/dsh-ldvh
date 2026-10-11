@@ -24,33 +24,31 @@
  */
 
 import { appendPendingEntry } from "./pending-queue.js";
-import { readWatermark, advanceWatermark, describeWindow } from "./friction-watermark.js";
+// advanceWatermark 于本次改动前就已是未使用的导入（它在 `git show HEAD` 里也只
+// 出现在这一行）——水位推进由调用方（lifecycle）在落地成功后执行，本模块已不自行
+// 推进（见下方「水位推进必须以落地成功为前提」的说明）。故一并删除。
+import { readWatermark, describeWindow } from "./friction-watermark.js";
 import {
   verifyThresholdAvailable,
   loadDedupCandidates,
   FRICTION_THRESHOLD_N,
 } from "./friction-discovery.js";
 
-/** 辅助任务标识（§8.3 第 2 条 `task` 字段的取值）。 */
-export const AUX_TASKS = Object.freeze(["idle-review", "capacity-maintenance", "memory-health"]);
-
 /**
- * 按 32 §10.2「评审优先、容量次之、体检周期性」选出**本次**要跑的任务。
+ * 辅助任务标识（§8.3 第 2 条 `task` 字段的取值）。
  *
- * 体检是「周期性（如每 N 次触发一次）」——规范给了「如」字，故周期是可实现的
- * 选择；此处取 3，并把它与摩擦发现的阈值区分开（二者无关系）。
- *
- * `rotation` 是调用方持有的计数器（每 agent 一份，随 lifecycle 存活），故本函数
- * **纯**：同输入同输出，不自己保存状态。
+ * **单一来源**是 `aux-task-registry.js` 的 `AUX_TASK_ORDER`——此处只做改名导出，
+ * 不另定义一份清单。两份清单会漂移，而「哪些任务在册」是登记表的事实。
  */
-export const HEALTH_CHECK_PERIOD = 3;
+export { AUX_TASK_ORDER as AUX_TASKS } from "./aux-task-registry.js";
 
-export function selectAuxTask(rotation = 0) {
-  if (!Number.isInteger(rotation) || rotation < 0) rotation = 0;
-  // 评审优先：非体检周期一律先跑评审。
-  if (rotation % HEALTH_CHECK_PERIOD !== HEALTH_CHECK_PERIOD - 1) return "idle-review";
-  return "memory-health";
-}
+// 本模块**不再**承担任务轮换：Human 于 2026-10-11 删除轮换概念（一次派发做
+// 全部已启用的事，见 `idle-settings.js` 的 `pickEnabledAuxTasks`）。
+//
+// 原 `selectAuxTask(rotation)` 与 `HEALTH_CHECK_PERIOD = 3` 已删——它们的依据是
+// `specs/32 §10.2`（候选设计）的「按预算轮换」，该条文的调度效力已随本次改案
+// 移除。删除同时消除了两个既有缺陷：轮换位死锁（停用任务占住相位不放）与
+// 「某任务不在任何相位上」（`capacity-maintenance` 实测 60 个相位里被选中 0 次）。
 
 function failure(code, message, extra = {}) {
   return { ok: false, error: { code, message, ...extra } };
@@ -66,7 +64,9 @@ function success(value) {
  * 参数：
  *   - `dshHomePath`：待处置队列的宿主位置（§8.3 第 1 条）。
  *   - `factSourceRoot`：受管辖项目的事实源根（`<project>/ldvh-base`）。
- *   - `task`：本次轮到的辅助任务（selectAuxTask 的结果）。
+ *   - `tasks`：本次要做的**全部**任务（有序；取自 `pickEnabledAuxTasks`）。
+ *     Human 2026-10-11 改定「一次派发做多件事」，故这里是清单而非单个任务。
+ *     兼容：仍接受 `task`（单个字符串）以保持既有调用方与测试不需改造。
  *   - `discover`：可选的**子代理结果提供者**——一个 async 函数，接收机械前提
  *     （阈值、候选账本），返回子代理关于「哪条候选同题 / 是否为新阻碍」的判断。
  *     **缺席时本模块不创建任何账目**：没有语义判断就没有入账依据（§8.4 第 1 项
@@ -79,6 +79,7 @@ export async function runIdleCheckpoint({
   dshHomePath,
   factSourceRoot,
   task,
+  tasks,
   discover,
   sessionSignature,
   now,
@@ -91,12 +92,23 @@ export async function runIdleCheckpoint({
   projectRoot,
 } = {}) {
   const at = typeof now === "string" ? now : new Date().toISOString();
-  const taskId = typeof task === "string" && task.length > 0 ? task : "idle-review";
+  // 任务清单（兼容单个字符串 `task`——既有调用方与测试走这条）。
+  const requested = Array.isArray(tasks) && tasks.length > 0
+    ? tasks
+    : (typeof task === "string" && task.length > 0 ? [task] : ["idle-review"]);
+  const taskId = requested[0];
 
-  // 本模块只编排摩擦发现；其余两个任务（容量/体检）尚未实现——**如实报告**
-  // 而不是假装跑过（§8.5 条件式要求：不得主张空闲维护已运行）。
-  if (taskId !== "idle-review") {
-    return success({ task: taskId, outcome: "not-implemented", at });
+  // 本模块只编排摩擦发现（`idle-review`）；其余两个任务（容量/体检）能力本体
+  // 尚未实现——**如实报告**而不是假装跑过（§8.5 条件式要求：不得主张空闲维护
+  // 已运行）。
+  //
+  // 逐任务分派而非只看第一个：清单里可以既有已实现的又有未实现的，此时已实现的
+  // 那件必须照常跑（否则「勾了三件」会因一件没实现而整批不跑，而 Human 从痕迹
+  // 里看不出为什么）。
+  const runnable = requested.filter((key) => key === "idle-review");
+  const unimplemented = requested.filter((key) => key !== "idle-review");
+  if (runnable.length === 0) {
+    return success({ task: taskId, tasks: [...requested], outcome: "not-implemented", unimplemented, at });
   }
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
     return failure("idle_checkpoint/no_fact_source", "factSourceRoot is required to read the friction ledger");
@@ -162,6 +174,11 @@ export async function runIdleCheckpoint({
   if (typeof discover !== "function") {
     return success({
       task: taskId,
+      // 任务清单与未实现者**在每条返回路径上都要带**——否则调用方在 skipped 路径
+      // 上拿不到「本次要求做几件、其中几件没实现」，痕迹就只记了半截（§8.5 要求
+      // 「勾了但没做」必须可见，而 skipped 恰恰是最需要说清范围的路径）。
+      tasks: [...requested],
+      unimplemented: [...unimplemented],
       outcome: "skipped",
       reason: "no semantic-judgement provider: 04 §8.4 第 1 项的语义查重是登记为 gap 的语义判断，机械层不得代为判断，故本次不入账",
       threshold: FRICTION_THRESHOLD_N,
@@ -183,6 +200,8 @@ export async function runIdleCheckpoint({
       // 区间与提示词一并交给执行体（提示词由 friction-subagent-contract.js 依
       // 这些机械前提组装；执行体不得自行界定区间）。
       window: windowRange,
+      // 本次要做的全部事项——执行体据此拼接提示词与复合 schema（一次派发多件）。
+      tasks: [...requested],
     });
   } catch (error) {
     return recordAndFail(dshHomePath, {
@@ -211,6 +230,10 @@ export async function runIdleCheckpoint({
   // 只要求它是结构化结果并如实上抛。
   return success({
     task: taskId,
+    // 本次要求做的全部事项，与其中能力本体未实现者——使调用方能把「勾了三件、
+    // 实做一件」如实记进痕迹（04 §8.5：不得主张空闲维护已运行）。
+    tasks: [...requested],
+    unimplemented: [...new Set([...unimplemented, ...(decision?.unimplementedTasks ?? [])])],
     outcome: decision?.outcome ?? "reported",
     decision,
     // 调用方在**落地成功后**据此推进水位（本层已判定其可推进）。

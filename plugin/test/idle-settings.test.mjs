@@ -13,7 +13,8 @@ import {
   admitIdleDispatch,
   contentAdmitted,
   countWithinWindow,
-  pickEnabledAuxTask,
+  pickEnabledAuxTasks,
+  AUX_TASK_ORDER,
   cooldownDue,
   quotaLeft,
   readBool,
@@ -456,172 +457,71 @@ test("D7：默认上限须在默认窗口内**可达**（否则该约束不可�
 });
 
 // ---------------------------------------------------------------------------
-// 轮换位不得因「任务被停用」而死锁（2026-10-11 实测缺陷）
+// 一次派发做多件事（Human 决定 2026-10-11：删除轮换概念）
 // ---------------------------------------------------------------------------
 //
-// 实测经过：机制重启后连出三条 `throttled / reason=task-disabled`，任务全是
-// `memory-health`。原因是轮换位**只在准入通过后**推进，而 `memory-health` 默认
-// 停用 → 每次都被挡下 → 轮换位永为 2 → **`idle-review` 再也不会被跑到**。
-// 且 `throttled` 不属于失败，故这件事没有任何痕迹。
+// ## 改动经过
 //
-// 两类挡下的处置方向相反：被停用须**跳过**（配置的意图是「别跑这个」，不是
-// 「让整个辅助机制停摆」）；被节流须**留在原位**（本该轮到它的下次仍轮到它）。
-
-const ALL_TASKS = { "idle-review": true, "capacity-maintenance": false, "memory-health": false };
-const OPEN_ALL = { enabled: true, tasks: { "idle-review": true, "capacity-maintenance": true, "memory-health": true } };
-
-test("pickEnabledAuxTask：某个任务被停用时**跳过它**，不得停在原地（死锁的直接守卫）", () => {
-  const settings = { enabled: true, tasks: ALL_TASKS };
-  // 遍历所有轮换位：任何一位都必须挑出 idle-review（它是唯一启用的）。
-  for (let rotation = 0; rotation < 12; rotation += 1) {
-    const pick = pickEnabledAuxTask(rotation, settings);
-    assert.equal(pick.task, "idle-review", `rotation=${rotation} 须跳过被停用者挑出唯一启用的任务`);
-  }
-  // 尤其守卫实测踩到的那一位：rotation=2 本会挑到 memory-health（默认停用）。
-  assert.equal(pickEnabledAuxTask(2, settings).task, "idle-review", "rotation=2 曾在此死锁");
-  assert.ok(pickEnabledAuxTask(2, settings).skipped >= 1, "该位须报告跳过了至少一个槽位");
-});
-
-test("pickEnabledAuxTask：**连续推进**轮换位不会反复走同一槽位（skipped 须被消费）", () => {
-  // 调用方用 `rotation + skipped + 1` 作为下一个轮换位。若忽略 skipped，被跳过的
-  // 槽位会在下一轮被重复走一遍——不致命，但相位与痕迹会对不上。
-  const settings = { enabled: true, tasks: ALL_TASKS };
-  let rotation = 0;
-  const seen = [];
-  for (let i = 0; i < 6; i += 1) {
-    const pick = pickEnabledAuxTask(rotation, settings);
-    seen.push(pick.task);
-    rotation = rotation + pick.skipped + 1;   // 与 lifecycle 同式
-  }
-  assert.deepEqual(seen, Array.from({ length: 6 }, () => "idle-review"), "每轮都须跑得起来");
-  assert.ok(rotation > 6, `轮换位须真实前进（实际到 ${rotation}）`);
-});
-
-test("pickEnabledAuxTask：**全部启用**时相位与 idle-checkpoint 的 selectAuxTask 一致（不得漂移）", async () => {
-  // 本模块要保持纯（不依赖宿主），故相位函数是独立实现。两处若漂移，「跳过」的
-  // 相位与「派发」的相位就会对不上——故直接比对。
-  const { selectAuxTask } = await import("../lib/idle-checkpoint.js");
-  for (let rotation = 0; rotation < 12; rotation += 1) {
-    assert.equal(
-      pickEnabledAuxTask(rotation, OPEN_ALL).task,
-      selectAuxTask(rotation),
-      `rotation=${rotation} 两处相位须一致`,
-    );
-    assert.equal(pickEnabledAuxTask(rotation, OPEN_ALL).skipped, 0, "全启用则无跳过");
-  }
-});
-
-test("pickEnabledAuxTask：总开关关闭 与 全部子项停用 都返回 task=null，且**轮换位不动**", () => {
-  // 这是配置的全部含义，不是失败——调用方据此不派发、不记 throttled、不推进轮换位。
-  const off = { enabled: false, tasks: { "idle-review": true } };
-  const none = { enabled: true, tasks: { "idle-review": false, "capacity-maintenance": false, "memory-health": false } };
-  for (const rotation of [0, 2, 7]) {
-    assert.equal(pickEnabledAuxTask(rotation, off).task, null, "总开关关闭 → 不派发");
-    assert.equal(pickEnabledAuxTask(rotation, off).skipped, 0, "总开关关闭 → 轮换位不动（重开从原相位继续）");
-    assert.equal(pickEnabledAuxTask(rotation, none).task, null, "全停用 → 不派发");
-    assert.equal(pickEnabledAuxTask(rotation, none).skipped, 0, "全停用 → 轮换位不动");
-  }
-});
-
-test("pickEnabledAuxTask：无设置来源（老宿主）保持旧行为，不做任何跳过", async () => {
-  const { selectAuxTask } = await import("../lib/idle-checkpoint.js");
-  for (let rotation = 0; rotation < 6; rotation += 1) {
-    const pick = pickEnabledAuxTask(rotation, undefined);
-    assert.equal(pick.task, selectAuxTask(rotation), "老宿主：相位照旧");
-    assert.equal(pick.skipped, 0, "老宿主：不跳过");
-  }
-});
-
-test("pickEnabledAuxTask：轮换位非法输入按 0 处理（不得抛错）", () => {
-  for (const bad of [undefined, null, -1, NaN, "x"]) {
-    const pick = pickEnabledAuxTask(bad, { enabled: true, tasks: ALL_TASKS });
-    assert.equal(pick.task, "idle-review", `非法轮换位 ${String(bad)} 须按 0 处理`);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 冷却判据须接受 **ISO 字符串**（2026-10-11 实测缺陷：冷却从未生效）
-// ---------------------------------------------------------------------------
+// 原实现 `pickEnabledAuxTask(rotation, settings)` 按 `rotation % 3` 挑出**一个**
+// 任务，依据是 `specs/32 §10.2`（候选设计）的「按预算轮换：评审优先、容量次之、
+// 体检周期性」。Human 于 2026-10-11 改定：闲时任务的取舍由设置面开关决定，
+// **勾选几个就做几件事**，一次派发把它们拼进同一个子代理的提示词。
 //
-// ## 缺陷经过
-//
-// `friction-watermark.js` 的 `recordDispatch` 把时刻写成 ISO 字符串
-// （`new Date().toISOString()`），而 `cooldownDue` 原先只认毫秒数：
-// `Number.isFinite("2026-…")` 为 false → 走进「不可解析 → 视为从未派发 → 放行」。
-// 实测后果：配置 600 秒，而派发间隔为 172/67/1/63 秒——**冷却一次都没拦住过**。
-//
-// ## 为什么原来的 29 条测试全绿却没发现
-//
-// 下面原有各条一律用**毫秒数**构造（`now - interval + 1` 之类），而真实载体是
-// **ISO 字符串**——测试与真实数据的形状不一致。本组测试全部用字符串构造，
-// 补上这个形状缺口。
+// 该改动同时消除了原实现的两个缺陷，故旧的轮换测试（含死锁守卫）已随之删除——
+// **没有相位就没有相位死锁**，保留它们既无对象也无意义：
+//   · 轮换位死锁：`memory-health` 默认停用 → 每次被挡下 → 轮换位永为 2 →
+//     `idle-review` 再也不被跑到；
+//   · 任务不在任何相位上：`capacity-maintenance` 实测 60 个相位里被选中 **0** 次。
 
-test("cooldownDue：**ISO 字符串**形式的锚点须被正确解析（真实载体的形状）", () => {
-  const now = Date.parse("2026-10-11T05:50:14.595Z");
-  const interval = 600_000;
-  // 间隔 67 秒（实测被错误放行的真实值）→ 必须拦下。
-  assert.equal(
-    cooldownDue(now, "2026-10-11T05:49:07.536Z", interval),
-    false,
-    "ISO 字符串下间隔 67 秒须拦下——这正是冷却失效的直接复现",
-  );
-  // 间隔正好满 600 秒 → 放行。
-  assert.equal(cooldownDue(now, "2026-10-11T05:40:14.595Z", interval), true, "正好满须放行");
-  // 差 1 毫秒 → 拦下。
-  assert.equal(cooldownDue(now, "2026-10-11T05:40:14.596Z", interval), false, "差 1 毫秒须拦");
-  // 远超 → 放行。
-  assert.equal(cooldownDue(now, "2026-10-11T04:00:00.000Z", interval), true, "超过更须放行");
+test("pickEnabledAuxTasks：**勾选几个就跑几件**——不是挑一个（本条守卫本次改案本身）", () => {
+  const openAll = { enabled: true, tasks: { "idle-review": true, "capacity-maintenance": true, "memory-health": true } };
+  const all = pickEnabledAuxTasks(openAll);
+  assert.deepEqual(all.tasks, ["idle-review", "capacity-maintenance", "memory-health"], "三个全勾须**全部**返回");
+  assert.equal(all.reason, null, "有任务可跑时不得给原因码");
+
+  const one = pickEnabledAuxTasks({ enabled: true, tasks: { "idle-review": true } });
+  assert.deepEqual(one.tasks, ["idle-review"], "只勾一个就只做一件");
+
+  const two = pickEnabledAuxTasks({ enabled: true, tasks: { "idle-review": true, "memory-health": true } });
+  assert.deepEqual(two.tasks, ["idle-review", "memory-health"], "勾两个就做两件");
 });
 
-test("cooldownDue：字符串与数字两种形态给出**同一答案**（口径不得分叉）", () => {
-  // 缺陷根源就是两处判据用了不同的类型口径。此条守住它们不分叉。
-  const iso = "2026-10-11T05:49:07.536Z";
-  const ms = Date.parse(iso);
-  const now = Date.parse("2026-10-11T05:50:14.595Z");
-  for (const interval of [0, 1_000, 60_000, 600_000, 10_000_000]) {
-    assert.equal(
-      cooldownDue(now, iso, interval),
-      cooldownDue(now, ms, interval),
-      `间隔 ${interval} 时两种形态须同答案`,
-    );
-  }
+test("pickEnabledAuxTasks：顺序取**规范叙述次序**，不取设置对象的枚举次序", () => {
+  // 若顺序由设置对象的键序决定，同一组勾选在不同展示顺序下会得到不同提示词
+  // ——那是隐藏耦合（判据不该依赖 UI 的枚举细节）。
+  const a = pickEnabledAuxTasks({ enabled: true, tasks: { "memory-health": true, "idle-review": true, "capacity-maintenance": true } });
+  const b = pickEnabledAuxTasks({ enabled: true, tasks: { "idle-review": true, "capacity-maintenance": true, "memory-health": true } });
+  assert.deepEqual(a.tasks, b.tasks, "两种声明顺序须给出**同一**任务序列");
+  assert.deepEqual(a.tasks, ["idle-review", "capacity-maintenance", "memory-health"], "顺序即 AUX_TASK_ORDER");
 });
 
-test("cooldownDue：脏数据（不可解析）才视为从未派发——不得与合法字符串混同", () => {
-  const now = Date.parse("2026-10-11T05:50:14.595Z");
-  // 真正的脏数据 → 放行（宁可放行也不永久停：与 P2「不得使派发永久终止」同取向）。
-  assert.equal(cooldownDue(now, "not-a-date", 600_000), true, "不可解析 → 视为从未派发");
-  assert.equal(cooldownDue(now, {}, 600_000), true, "对象 → 不可解析");
-  // 但**合法**的 ISO 字符串绝不能被当成脏数据——那正是本次缺陷。
-  assert.equal(cooldownDue(now, "2026-10-11T05:49:07.536Z", 600_000), false, "合法 ISO 不得被当作脏数据");
+test("pickEnabledAuxTasks：总开关关闭 / 全停用 都返回空清单，且**给出可区分的原因码**", () => {
+  // 两者都不派发，但原因不同——痕迹里的 reason 须能区分「Human 关了总开关」与
+  // 「三个子项都被关」，否则 Human 排查时看不出是哪一个。
+  assert.deepEqual(pickEnabledAuxTasks({ enabled: false, tasks: { "idle-review": true } }), { tasks: [], reason: "idle-assist-disabled" });
+  assert.deepEqual(pickEnabledAuxTasks({ enabled: true, tasks: {} }), { tasks: [], reason: "all-tasks-disabled" });
+  assert.deepEqual(pickEnabledAuxTasks({ enabled: true, tasks: { "idle-review": false, "capacity-maintenance": false, "memory-health": false } }), { tasks: [], reason: "all-tasks-disabled" });
 });
 
-test("admitIdleDispatch：ISO 字符串锚点下冷却须拦下（端到端复现真实缺陷）", () => {
-  // 直接重放实测中被错误放行的一次：05:50:14 派发，上次锚点 05:49:07（间隔 67 秒）。
-  const settings = {
-    enabled: true,
-    tasks: { "idle-review": true },
-    limits: { minIntervalMs: 600_000, minContentChars: 800, minContentTurns: 3, maxPerSession: 4, quotaWindowMs: 3_600_000 },
-  };
-  const last = "2026-10-11T05:49:07.536Z";
-  const r = admitIdleDispatch({
-    settings,
-    task: "idle-review",
-    now: Date.parse("2026-10-11T05:50:14.595Z"),
-    lastDispatchAt: last,
-    dispatched: 0,
-    dispatchTimes: [last],
-    material: { chars: 4732, turns: 2 },
-  });
-  assert.equal(r.reason, "cooldown", "ISO 锚点下 67 秒须判 cooldown——实测曾判 admitted");
-  assert.equal(r.admit, false);
-  assert.equal(r.evaluations.cooldown.ok, false, "评估须如实反映被拦");
-  // 对照：同一锚点但间隔已满 → 放行（证明拦下是因为冷却，不是别的原因）。
-  const ok = admitIdleDispatch({
-    settings, task: "idle-review",
-    now: Date.parse("2026-10-11T06:00:00.000Z"),
-    lastDispatchAt: last, dispatched: 0, dispatchTimes: [last],
-    material: { chars: 4732, turns: 2 },
-  });
-  assert.equal(ok.reason, "admitted", "间隔满 10 分钟后须放行");
+test("pickEnabledAuxTasks：开关只认**布尔真**——真值字符串/数字不得被当作已勾选", () => {
+  // 设置来自 JSON 配置，`"true"` / 1 之类若被真值判定吞下，会出现「Human 明明没勾
+  // 却被跑」的错位；反之 `undefined`（键缺失）必须等于「未勾选」。
+  const s = pickEnabledAuxTasks({ enabled: true, tasks: { "idle-review": "true", "capacity-maintenance": 1, "memory-health": undefined } });
+  assert.deepEqual(s.tasks, [], "非布尔真值一律不算已勾选");
+});
+
+test("pickEnabledAuxTasks：无设置来源（老宿主）→ 全部任务（如实，不假装只有一个）", () => {
+  // 与旧行为**不等价**是刻意的：旧实现在无设置时按轮换挑一个，但轮换已被删除，
+  // 那个相位不再有依据。此时没有任何开关可读，故只能全跑——各任务的未实现会在
+  // 各自的实现分支上如实回报。
+  assert.deepEqual(pickEnabledAuxTasks(undefined).tasks, ["idle-review", "capacity-maintenance", "memory-health"]);
+  assert.deepEqual(pickEnabledAuxTasks(null).tasks, ["idle-review", "capacity-maintenance", "memory-health"]);
+});
+
+test("pickEnabledAuxTasks：与 AUX_TASK_ORDER 永不漂移（登记表是唯一来源）", () => {
+  // 三处曾各自定义任务清单（idle-checkpoint 的 AUX_TASKS、idle-settings 的
+  // AUX_TASK_ORDER、client.js 的开关表）。清单漂移会使「设置面能勾、调度不认」
+  // 或反之。本条守住「调度侧与登记表同源」。
+  const openAll = { enabled: true, tasks: { "idle-review": true, "capacity-maintenance": true, "memory-health": true } };
+  assert.deepEqual(pickEnabledAuxTasks(openAll).tasks, [...AUX_TASK_ORDER]);
 });

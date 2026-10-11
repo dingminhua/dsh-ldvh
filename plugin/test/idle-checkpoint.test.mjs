@@ -9,9 +9,7 @@ import { join } from "node:path";
 
 import {
   runIdleCheckpoint,
-  selectAuxTask,
   AUX_TASKS,
-  HEALTH_CHECK_PERIOD,
 } from "../lib/idle-checkpoint.js";
 import { readPendingQueue } from "../lib/pending-queue.js";
 import { testSignature } from "./helpers.mjs";
@@ -30,22 +28,61 @@ async function withHome(fn) {
 }
 
 // ---------------------------------------------------------------------------
-// 32 §10.2：预算轮换
+// 任务清单（Human 决定 2026-10-11：删除轮换，一次派发做全部已启用的事）
 // ---------------------------------------------------------------------------
+//
+// 原「32 §10.2 预算轮换」的两条测试已删——轮换概念（`selectAuxTask` /
+// `HEALTH_CHECK_PERIOD`）随该决定从代码中移除，旧测试既无对象也无意义。替代它的
+// 是 `pickEnabledAuxTasks` 的多任务测试（见 idle-settings.test.mjs），以及下方
+// 「任务清单的分派」两条。
 
-test("32 §10.2：评审优先，体检周期性出现（如每 N 次触发一次）", () => {
-  const seen = [];
-  for (let i = 0; i < 9; i += 1) seen.push(selectAuxTask(i));
-  // 前两次评审，第三次体检——评审优先、体检周期 3。
-  assert.deepEqual(seen.slice(0, 3), ["idle-review", "idle-review", "memory-health"]);
-  assert.equal(seen.filter((t) => t === "memory-health").length, 3, "one health check per period across 9 rotations");
-  for (const task of seen) assert.ok(AUX_TASKS.includes(task), `${task} must be a known aux task`);
+test("多任务：清单里既有已实现又有未实现时，已实现的照常跑（不因一件没实现而整批不跑）", async () => {
+  // 「勾了三件，其中两件没实现」是**常态**（默认配置就是如此）。若按「有一件没
+  // 实现就整批不跑」，Human 从痕迹里看不出为什么——而实际能做的那些本来可以做。
+  await withHome(async ({ home, factSourceRoot }) => {
+    const result = await runIdleCheckpoint({
+      dshHomePath: home,
+      factSourceRoot,
+      tasks: ["idle-review", "capacity-maintenance", "memory-health"],
+      sessionId: RUN_SESSION,
+      currentTurn: 5,
+    });
+    assert.equal(result.ok, true, "清单含已实现任务时不得失败");
+    assert.deepEqual(result.value.tasks, ["idle-review", "capacity-maintenance", "memory-health"]);
+    assert.deepEqual(
+      result.value.unimplemented,
+      ["capacity-maintenance", "memory-health"],
+      "未实现者须如实带出，使调用方能记进痕迹（§8.5：不得主张空闲维护已运行）",
+    );
+  });
 });
 
-test("32 §10.2：轮换是纯函数——同输入同输出，状态由调用方持有", () => {
-  assert.equal(selectAuxTask(2), selectAuxTask(2));
-  assert.equal(selectAuxTask(999), "idle-review");
-  assert.equal(HEALTH_CHECK_PERIOD, 3);
+test("多任务：清单里**全**是未实现者时，如实报 not-implemented（不假装跑过）", async () => {
+  await withHome(async ({ home, factSourceRoot }) => {
+    const result = await runIdleCheckpoint({
+      dshHomePath: home,
+      factSourceRoot,
+      tasks: ["capacity-maintenance", "memory-health"],
+      sessionId: RUN_SESSION,
+      currentTurn: 5,
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.value.outcome, "not-implemented");
+    assert.deepEqual(result.value.unimplemented, ["capacity-maintenance", "memory-health"]);
+  });
+});
+
+test("多任务：清单顺序原样带出（痕迹与提示词的次序不得被本层重排）", async () => {
+  await withHome(async ({ home, factSourceRoot }) => {
+    const result = await runIdleCheckpoint({
+      dshHomePath: home,
+      factSourceRoot,
+      tasks: ["memory-health", "idle-review"],
+      sessionId: RUN_SESSION,
+      currentTurn: 5,
+    });
+    assert.deepEqual(result.value.tasks, ["memory-health", "idle-review"], "调用方给的次序须原样保留");
+  });
 });
 
 // ---------------------------------------------------------------------------

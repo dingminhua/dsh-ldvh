@@ -153,6 +153,21 @@ test("调用方覆盖：驱动检查点后**必须留下运行痕迹**（而非�
     ["skipped", "not-implemented", "stopped", "landed", "land-failed"].includes(latest.stage),
     `运行痕迹的 stage 须落在已知取值内，实测 ${JSON.stringify(latest.stage)}`,
   );
+
+  // 判据三（M3，2026-10-11 独立复核发现）：持久化痕迹须载明**本次要求做哪几件**
+  // 与**哪几件未实现**。
+  //
+  // 为什么必须在**持久化**层而不只是内存态 activity：activity 随进程退出即消失，
+  // 而 32 §10.2 要求「已启用但未实现」在**该次运行的记录**里可见，使 Human 事后
+  // 翻查时能看出它没被执行。此前只写 `task: tasks[0]`，于是混合勾选
+  // （idle-review 开 + capacity 勾但未实现）时，「capacity 已启用却未执行」在
+  // runlog 里**根本不出现**——等于没登记。
+  assert.ok(Array.isArray(latest.tasks), `运行痕迹须带 tasks 清单（本次要求做哪几件），实测 ${JSON.stringify(latest.tasks)}`);
+  assert.ok(latest.tasks.length >= 1, "tasks 不得为空——本次至少有一件要跑才会走到这里");
+  assert.ok(
+    Array.isArray(latest.unimplemented),
+    `运行痕迹须带 unimplemented 清单（哪几件已启用但未实现），实测 ${JSON.stringify(latest.unimplemented)}`,
+  );
 });
 
 test("调用方覆盖：装配阶段不得引用未声明的标识符（静态判据）", async () => {

@@ -16,10 +16,12 @@
  * 本文件实现的判据横跨两类性质不同的东西，**它们的规范地位不同**：
  *
  * - **总开关与子项开关**（`idleAssistEnabled` 与三个 `*Enabled`）：让已由
- *   32 §10.2 定义的三任务可被**选择性停用**，不新增任务、不改职责、不改轮换律
- *   （「评审优先、容量次之、体检周期性」仍由 `selectAuxTask` 单独承载）。按读法
- *   这是**实现已有职责的可配置面**，不构成 00 §4.2「改变辅助机制的数量、名称或
- *   职责」。
+ *   32 §10.2/§10.3–§10.5 定义的三任务可被**选择性停用或启用**，不新增任务、
+ *   不改职责。按读法这是**实现已有职责的可配置面**，不构成 00 §4.2「改变辅助
+ *   机制的数量、名称或职责」。注意其语义已于 2026-10-11 变更：开关不再只是
+ *   「停用某任务」，而是**直接决定本次派发做哪几件事**（勾选几个就做几件）——
+ *   原「按预算轮换」的调度语义已删除，故开关的地位从「过滤轮换结果」升为
+ *   「即调度本身」。
  * - **最小间隔、内容量门槛、会话配额**：三者都**收窄发起条件**——按 04 §12.1
  *   第 3 项「改变辅助机制的发起条件」属**领域增量事项**，须经 Human Gate 修订
  *   规范正文后方为生效条件。
@@ -279,71 +281,53 @@ export function quotaLeft(dispatched, maxPerSession) {
 }
 
 /**
- * 按轮换位挑出**本轮实际要跑的任务**，跳过被 Human 停用者（纯函数）。
+ * 取**本次要跑的全部任务**——按 Human 在设置面的勾选逐项过滤（纯函数）。
  *
- * ## 为什么「被停用」必须跳过、而「被节流」不能（2026-10-11 修死锁）
+ * ## 为什么不是「轮换」（Human 决定 2026-10-11）
  *
- * 轮换位原先是「准入通过后才推进」。那样把两类挡下混为一谈，产生了**静默死锁**：
- * 本会话实测 rotation=2 → `memory-health`（实现缺省关）→ 每次都被 `task-disabled`
- * 挡下 → 轮换位永不推进 → rotation 永为 2 → **`idle-review` 再也不会被跑到**；
- * 而 throttled 不属于失败，故这件事**没有任何痕迹**。
+ * 原实现 `pickEnabledAuxTask(rotation, settings)` 按 `rotation % 3` 挑出**一个**
+ * 任务。该语义的来源是 `specs/32 §10.2`（候选设计）的「按预算轮换：评审优先、
+ * 容量次之、体检周期性」。Human 于 2026-10-11 改定：闲时任务的取舍由设置面的
+ * 开关决定，**勾选几个就做几件事**，一次派发把它们的指令拼接进**同一个**子代理
+ * 的提示词——轮换概念连同轮换位计数器一并删除。
  *
- * 两类挡下的正确处置方向相反：
+ * 理由（Human 原述）：该机制的语义是「空闲时集中做检修」，与任务数量无关；
+ * 且轮换使被停用/未实现的任务占据相位——实测轮换 60 个相位里
+ * `capacity-maintenance` **被选中 0 次**（它不在任何相位上），
+ * `memory-health` 占 20 次而当时它只会回 `not-implemented`。
  *
- * - **被停用**（`tasks[task] === false`）：该任务本轮**不可能**跑。必须**跳过并
- *   继续挑**——否则轮换位永久停在它上面。停用是 Human 的明示配置，其意图是
- *   「别跑这个」，**不是**「让整个辅助机制停摆」。
- * - **被节流**（冷却/内容量/配额）：任务想跑但条件不满足。此时**不推进**相位，
- *   使本该轮到它的下次仍轮到它。
+ * ## 返回值
  *
- * ## 返回值的两半都必须被消费
+ * `tasks` 是**有序**数组，顺序即 `AUX_TASK_ORDER`——提示词的拼接顺序、以及
+ * 运行痕迹里的记录顺序都取它，使「同一次运行的产出」在多次运行间可比。
+ * 顺序**不由设置对象决定**：设置里三个开关的枚举次序是 UI 细节，不该成为
+ * 判据（同输入不同展示顺序会得到不同提示词，那是隐藏的耦合）。
  *
- * `rotation + skipped` 才是**下一个**轮换位的起算点——调用方若只推进 1 而忽略
- * `skipped`，被跳过的槽位会在下一轮被重复走一遍（不致命，但相位与痕迹会对不上）。
+ * `tasks` 为空（总开关关闭、或三个子项全被停用）时调用方**不派发**——这是配置
+ * 的全部含义，**不是失败**（没有校验不可用，只是没有要跑的活），故不记 throttled、
+ * 不入待处置队列（那会让「Human 关掉了它」看起来像「它出错了」）。
  *
- * ## 全部被停用时
- *
- * `task` 为 `null`，调用方据此**不派发任何任务**——这是配置的全部含义，不是错误，
- * 故不记为失败（04 §8.3 的那几类失败都不适用：没有校验不可用，只是没有要跑的活）。
- *
- * @param {number} rotation - 当前轮换位（非负整数）。
  * @param {{enabled?: boolean, tasks?: Record<string, boolean>}|undefined} settings - 闲时辅助设置。
- * @returns {{task: string|null, skipped: number}} 本轮任务与跳过的槽位数。
+ * @returns {{tasks: string[], reason: string|null}} 本轮要跑的任务；`reason` 仅在为空时给出原因码。
  */
-export function pickEnabledAuxTask(rotation, settings) {
-  const start = Number.isInteger(rotation) && rotation >= 0 ? rotation : 0;
-  // 无设置来源（老宿主 / 未注入）：保持旧行为——按原轮换挑，不做任何跳过。
+export function pickEnabledAuxTasks(settings) {
+  // 无设置来源（老宿主 / 未注入）：**全部任务**都跑。
+  //
+  // 这是与旧行为**不等价**的降级：旧实现在无设置时按轮换挑一个。但既然轮换已被
+  // Human 删除，旧相位不再有依据；而此时也没有任何开关可读，故只能全跑。调用方
+  // 据此照常运行（各任务的未实现会在各自的实现分支上如实回报）。
   if (settings === undefined || settings === null) {
-    return { task: selectAuxTaskFrom(start), skipped: 0 };
+    return { tasks: [...AUX_TASK_ORDER], reason: null };
   }
-  // 总开关关闭：**不派发任何任务**。这不是「跳过若干槽位」——机制整体停用，
-  // 轮换位不该因总开关关闭而移动（重开时应从原相位继续）。
-  if (settings.enabled === false) return { task: null, skipped: 0 };
-
-  // 至多绕一圈：三个任务的相位周期是固定的，绕满即说明全被停用。
-  const cycle = AUX_TASK_ORDER.length;
-  for (let skipped = 0; skipped < cycle; skipped += 1) {
-    const task = selectAuxTaskFrom(start + skipped);
-    if (settings.tasks?.[task] === true) return { task, skipped };
+  // 总开关关闭：不跑任何任务。不是「跳过若干槽位」——机制整体停用。
+  if (settings.enabled === false) {
+    return { tasks: [], reason: "idle-assist-disabled" };
   }
-  return { task: null, skipped: 0 };
+  const tasks = AUX_TASK_ORDER.filter((task) => settings.tasks?.[task] === true);
+  return { tasks, reason: tasks.length === 0 ? "all-tasks-disabled" : null };
 }
 
-/**
- * 轮换位的相位函数——**与 `idle-checkpoint.js` 的 `selectAuxTask` 同源**。
- *
- * 此处独立实现是因为 `idle-checkpoint.js` 依赖宿主侧模块，而本模块要保持**纯**
- * （无副作用、可在任意上下文求值）。两处若漂移会使「跳过」的相位与「派发」的
- * 相位对不上——故有一条测试直接比对两者在同一位移下给出同一任务。
- */
-function selectAuxTaskFrom(rotation) {
-  const r = Number.isInteger(rotation) && rotation >= 0 ? rotation : 0;
-  const period = AUX_TASK_ORDER.length;
-  // 评审优先、体检周期性：与 idle-checkpoint.js 的 HEALTH_CHECK_PERIOD=3 一致。
-  return r % period === period - 1 ? "memory-health" : "idle-review";
-}
-
-/** 轮换相位所覆盖的任务顺序（与 idle-checkpoint.js 的 AUX_TASKS 同源）。 */
+/** 闲时辅助的全部任务，顺序即拼接顺序与痕迹记录顺序。 */
 export const AUX_TASK_ORDER = Object.freeze(["idle-review", "capacity-maintenance", "memory-health"]);
 
 /**

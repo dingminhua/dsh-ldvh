@@ -9,7 +9,10 @@ import {
   createDiscoveryProvider,
 } from "../lib/friction-discovery-provider.js";
 
-const VERDICT_SCHEMA_OK = {
+// 子代理的「一份结论」——注意它现在由**复合对象**承载：每个任务占一个顶层字段
+// （Human 2026-10-11 的决定：一次派发做多件事，输出按任务命名空间分区）。
+// 这样两个任务用同名通用字段（如 `reason`）时不会互相覆盖，而覆盖是**静默**的。
+const VERDICT_SLICE = {
   verdict: "no-discovery",
   target_uid: "",
   title: "",
@@ -19,6 +22,13 @@ const VERDICT_SCHEMA_OK = {
   quote: "这是一段足够长的材料内容原文。",
   reason: "本次区间内没有反复出现的阻碍。",
 };
+
+/** 把一份任务结论包成宿主提交的复合对象（单任务：名空间为 idle-review）。 */
+function composed(slice = VERDICT_SLICE) {
+  return { "idle-review": slice };
+}
+
+const VERDICT_SCHEMA_OK = composed();
 
 const CANDIDATES = [{ object_uid: "11111111-2222-4333-8444-555555555555", status: "observing", title: "CI 慢", phenomenon: "CI 平均 8 分钟。" }];
 
@@ -163,26 +173,40 @@ test("discover：stopReason 非 completed 时上抛并带 diagnostic（不伪造
   await assert.rejects(() => discover({ threshold: 3, candidates: [], window: { to: 1, items: [{ turn: 1, assistant: "这是一段足够长的材料内容原文。" }] } }), /stopReason=error.*provider 502/s);
 });
 
-test("discover：结构化结论未通过落地前校验时抛错（含指向未知 uid 的情形）", async () => {
+test("discover：落地前校验不通过时**如实载明**该任务失败（含指向未知 uid 的情形）", async () => {
+  // 改案（2026-10-11 多任务）：任务级失败**不再抛错**——规范 §10.2 要求「任一任务
+  // 的结论缺失/校验未通过不使其余任务的结论失效」，而抛错使调用方只能整条丢弃。
+  // 现在失败逐任务载明，调用方据此入队（§8.3 停止的对象是失败的任务，不是整次运行）。
   const svc = fakeSubagents({
     providers: [providerNamed("fork")],
     startImpl: async () => ({
       id: "run-w",
-      result: Promise.resolve({ stopReason: "completed", structured: { ...VERDICT_SCHEMA_OK, verdict: "same-obstacle", target_uid: "99999999-0000-4000-8000-000000000000", quote: "这是一段足够长的材料内容原文。" } }),
+      result: Promise.resolve({ stopReason: "completed", structured: composed({ ...VERDICT_SLICE, verdict: "same-obstacle", target_uid: "99999999-0000-4000-8000-000000000000", quote: "这是一段足够长的材料内容原文。" }) }),
       dispose: async () => {},
     }),
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
-  await assert.rejects(() => discover({ threshold: 3, candidates: CANDIDATES, window: { to: 1, items: [{ turn: 1, assistant: "这是一段足够长的材料内容原文。" }] } }), /target_uid|not among the candidates/);
+  const out = await discover({ threshold: 3, candidates: CANDIDATES, window: { to: 1, items: [{ turn: 1, assistant: "这是一段足够长的材料内容原文。" }] } });
+  assert.deepEqual(out.failedTasks, ["idle-review"], "失败须如实载明");
+  assert.equal(out.taskResults["idle-review"].ok, false);
+  assert.match(out.taskResults["idle-review"].error.message, /target_uid|not among the candidates/);
+  // 失败的任务**不得**产出可落地的结论——否则落地侧会把一份无效判断写成账目。
+  assert.equal(out.verdict, null, "失败时不得给出 verdict（否则调用方会拿它去落地）");
+  assert.equal(out.outcome, null);
+  assert.equal(out.watermarkTurn, undefined, "有任务失败即不推进水位（留待下次重覆盖）");
 });
 
-test("discover：structured 缺席时抛错（不把空结论当作 no-discovery）", async () => {
+test("discover：structured 缺席时**如实载明**失败（不把空结论当作 no-discovery）", async () => {
   const svc = fakeSubagents({
     providers: [providerNamed("fork")],
     startImpl: async () => ({ id: "run-v", result: Promise.resolve({ stopReason: "completed" }), dispose: async () => {} }),
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
-  await assert.rejects(() => discover({ threshold: 3, candidates: [], window: { to: 1, items: [{ turn: 1, assistant: "这是一段足够长的材料内容原文。" }] } }), /failed the landing-side checks/);
+  const out = await discover({ threshold: 3, candidates: [], window: { to: 1, items: [{ turn: 1, assistant: "这是一段足够长的材料内容原文。" }] } });
+  assert.deepEqual(out.failedTasks, ["idle-review"], "空结论须判为失败");
+  // 关键：**不得**退化为 no-discovery——那会把「执行体什么都没交」写成一次正常观察。
+  assert.equal(out.verdict, null);
+  assert.notEqual(out.outcome, "no-discovery");
 });
 
 test("discover：区间未给 to 时不给出推进凭据（水位不推进）", async () => {
@@ -225,7 +249,7 @@ test("D5：provideWindow 返回 undefined / 空窗口 / 有材料，三种形状
       providers: [providerNamed("fork")],
       startImpl: async () => ({
         id: "run-shape",
-        result: Promise.resolve({ stopReason: "completed", structured: { ...VERDICT_SCHEMA_OK, quote } }),
+        result: Promise.resolve({ stopReason: "completed", structured: composed({ ...VERDICT_SLICE, quote }) }),
         dispose: async () => {},
       }),
     });
@@ -333,15 +357,14 @@ test("空窗口但**有缺口**：**绝不短路**——缺口正是必须登记
   const h = shortCircuitHarness();
   h.setWindow(() => ({ items: [], truncated: false, unobserved: { from: 10, to: 20 } }));
 
-  let threw = null;
-  let r = null;
-  try {
-    r = await h.discover({ threshold: 3, candidates: [], sessionSignature: "s", window: { from: 10, to: 20 } });
-  } catch (e) { threw = e; }
+  const r = await h.discover({ threshold: 3, candidates: [], sessionSignature: "s", window: { from: 10, to: 20 } });
 
-  assert.equal(r, null, "不得走短路返回");
-  assert.ok(threw, "须走原路径（此处的 harness 里 provider 能选中，故应正常执行）");
+  // 本条的断言点是「**不得短路**」——不是「是否抛错」。走原路径意味着它真的派生了
+  // 执行体并取回了结果，故返回值里**没有** `skipped: "empty-window"` 标记。
+  // （改案后任务级失败不再抛错，故不能再用「有没有 throw」表示「走了原路径」。）
+  assert.equal(r?.skipped, undefined, "不得走短路返回");
   assert.ok(!h.events.some((e) => e.phase === "skipped" && e.reason === "empty-window"), "不得记空窗口短路痕迹");
+  assert.deepEqual(r?.unobserved, { from: 10, to: 20 }, "缺口须如实带出，交由调用方登记");
 });
 
 test("缺口为「开到区间终点」（本进程什么都没看到）同样不得短路", async () => {
