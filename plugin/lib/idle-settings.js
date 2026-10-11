@@ -176,9 +176,19 @@ export function resolveIdleSettings(config) {
 export function cooldownDue(now, lastDispatchAt, minIntervalMs) {
   if (!Number.isFinite(now)) return false;
   if (lastDispatchAt === null || lastDispatchAt === undefined) return true;
-  if (!Number.isFinite(lastDispatchAt)) return true;
+  // 归一化为毫秒数。**必须接受 ISO 字符串**：载体的 `recordDispatch` 存的就是
+  // `new Date().toISOString()`（见 friction-watermark.js），而此前这里只认数字，
+  // 于是 `Number.isFinite("2026-…")` 为 false，直接走进下面的「不可解析 → 放行」
+  // 分支——冷却因此**从未生效**（实测配置 600 秒、间隔 67 秒仍放行）。
+  //
+  // 这与 `countWithinWindow` 的处理**必须一致**：同一份载体里的时刻，两处判据
+  // 用不同的类型口径，正是本缺陷的成因。
+  const at = typeof lastDispatchAt === "number" ? lastDispatchAt : Date.parse(String(lastDispatchAt));
+  // 不可解析（真正的脏数据）才视为「从未派发」。注意这条分支**只该在数据损坏时
+  // 走到**——正常路径下上面那一步已把 ISO 字符串转成数字。
+  if (!Number.isFinite(at)) return true;
   if (!Number.isFinite(minIntervalMs) || minIntervalMs <= 0) return true;
-  return now - lastDispatchAt >= minIntervalMs;
+  return now - at >= minIntervalMs;
 }
 
 /**

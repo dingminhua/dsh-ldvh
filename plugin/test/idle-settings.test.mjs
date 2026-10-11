@@ -337,26 +337,32 @@ test("countWithinWindow：非法输入一律安全（不得抛错，也不得误
 test("admitIdleDispatch：**窗口滑过后配额不再永久拦下**（F2 的端到端断言）", () => {
   const now = 10_000_000;
   const HOUR = 3_600_000;
+  const CAP = 4;
   const settings = {
     enabled: true,
     tasks: { "idle-review": true },
-    limits: { minIntervalMs: 600_000, minContentChars: 800, minContentTurns: 3, maxPerSession: 8, quotaWindowMs: HOUR },
+    limits: { minIntervalMs: 600_000, minContentChars: 800, minContentTurns: 3, maxPerSession: CAP, quotaWindowMs: HOUR },
   };
   const base = { settings, task: "idle-review", now, material: { chars: 99999, turns: 99 } };
 
+  // 让 anchor 落在**冷却窗口之外**（20 分钟前 > 600 秒），使本测试验的确实是
+  // **配额**而非冷却。判据顺序是「冷却 → 内容量 → 配额」——若 anchor 太近，
+  // 先撞冷却，本测试就会以错误的理由通过（或失败）。
+  const anchor = new Date(now - 20 * 60_000).toISOString();
+
   // 窗内已满 → 拦下（这是配额该起的作用）。
-  const recent = Array.from({ length: 8 }, (_, i) => new Date(now - i * 60_000).toISOString());
+  const recent = Array.from({ length: CAP }, (_, i) => new Date(now - i * 60_000).toISOString());
   assert.equal(
-    admitIdleDispatch({ ...base, lastDispatchAt: recent[0], dispatchTimes: recent }).reason,
+    admitIdleDispatch({ ...base, lastDispatchAt: anchor, dispatchTimes: recent }).reason,
     "quota-exhausted",
-    "窗内满 8 次须拦下",
+    `窗内满 ${CAP} 次须拦下（且理由须是配额，不是冷却）`,
   );
 
-  // 同样 8 次、但都在窗外 → **必须放行**。旧口径（会话累计）在这里会永久拦下，
+  // 同样满额、但都在窗外 → **必须放行**。旧口径（会话累计）在这里会永久拦下，
   // 使该会话剩余内容永不入账且无痕迹——这正是 F2。
-  const stale = Array.from({ length: 8 }, (_, i) => new Date(now - 2 * HOUR - i * 60_000).toISOString());
+  const stale = Array.from({ length: CAP }, (_, i) => new Date(now - 2 * HOUR - i * 60_000).toISOString());
   assert.equal(
-    admitIdleDispatch({ ...base, lastDispatchAt: stale[0], dispatchTimes: stale }).admit,
+    admitIdleDispatch({ ...base, lastDispatchAt: anchor, dispatchTimes: stale }).admit,
     true,
     "窗口滑过后须恢复容量——否则构成永久抑制",
   );
@@ -531,4 +537,91 @@ test("pickEnabledAuxTask：轮换位非法输入按 0 处理（不得抛错）",
     const pick = pickEnabledAuxTask(bad, { enabled: true, tasks: ALL_TASKS });
     assert.equal(pick.task, "idle-review", `非法轮换位 ${String(bad)} 须按 0 处理`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// 冷却判据须接受 **ISO 字符串**（2026-10-11 实测缺陷：冷却从未生效）
+// ---------------------------------------------------------------------------
+//
+// ## 缺陷经过
+//
+// `friction-watermark.js` 的 `recordDispatch` 把时刻写成 ISO 字符串
+// （`new Date().toISOString()`），而 `cooldownDue` 原先只认毫秒数：
+// `Number.isFinite("2026-…")` 为 false → 走进「不可解析 → 视为从未派发 → 放行」。
+// 实测后果：配置 600 秒，而派发间隔为 172/67/1/63 秒——**冷却一次都没拦住过**。
+//
+// ## 为什么原来的 29 条测试全绿却没发现
+//
+// 下面原有各条一律用**毫秒数**构造（`now - interval + 1` 之类），而真实载体是
+// **ISO 字符串**——测试与真实数据的形状不一致。本组测试全部用字符串构造，
+// 补上这个形状缺口。
+
+test("cooldownDue：**ISO 字符串**形式的锚点须被正确解析（真实载体的形状）", () => {
+  const now = Date.parse("2026-10-11T05:50:14.595Z");
+  const interval = 600_000;
+  // 间隔 67 秒（实测被错误放行的真实值）→ 必须拦下。
+  assert.equal(
+    cooldownDue(now, "2026-10-11T05:49:07.536Z", interval),
+    false,
+    "ISO 字符串下间隔 67 秒须拦下——这正是冷却失效的直接复现",
+  );
+  // 间隔正好满 600 秒 → 放行。
+  assert.equal(cooldownDue(now, "2026-10-11T05:40:14.595Z", interval), true, "正好满须放行");
+  // 差 1 毫秒 → 拦下。
+  assert.equal(cooldownDue(now, "2026-10-11T05:40:14.596Z", interval), false, "差 1 毫秒须拦");
+  // 远超 → 放行。
+  assert.equal(cooldownDue(now, "2026-10-11T04:00:00.000Z", interval), true, "超过更须放行");
+});
+
+test("cooldownDue：字符串与数字两种形态给出**同一答案**（口径不得分叉）", () => {
+  // 缺陷根源就是两处判据用了不同的类型口径。此条守住它们不分叉。
+  const iso = "2026-10-11T05:49:07.536Z";
+  const ms = Date.parse(iso);
+  const now = Date.parse("2026-10-11T05:50:14.595Z");
+  for (const interval of [0, 1_000, 60_000, 600_000, 10_000_000]) {
+    assert.equal(
+      cooldownDue(now, iso, interval),
+      cooldownDue(now, ms, interval),
+      `间隔 ${interval} 时两种形态须同答案`,
+    );
+  }
+});
+
+test("cooldownDue：脏数据（不可解析）才视为从未派发——不得与合法字符串混同", () => {
+  const now = Date.parse("2026-10-11T05:50:14.595Z");
+  // 真正的脏数据 → 放行（宁可放行也不永久停：与 P2「不得使派发永久终止」同取向）。
+  assert.equal(cooldownDue(now, "not-a-date", 600_000), true, "不可解析 → 视为从未派发");
+  assert.equal(cooldownDue(now, {}, 600_000), true, "对象 → 不可解析");
+  // 但**合法**的 ISO 字符串绝不能被当成脏数据——那正是本次缺陷。
+  assert.equal(cooldownDue(now, "2026-10-11T05:49:07.536Z", 600_000), false, "合法 ISO 不得被当作脏数据");
+});
+
+test("admitIdleDispatch：ISO 字符串锚点下冷却须拦下（端到端复现真实缺陷）", () => {
+  // 直接重放实测中被错误放行的一次：05:50:14 派发，上次锚点 05:49:07（间隔 67 秒）。
+  const settings = {
+    enabled: true,
+    tasks: { "idle-review": true },
+    limits: { minIntervalMs: 600_000, minContentChars: 800, minContentTurns: 3, maxPerSession: 4, quotaWindowMs: 3_600_000 },
+  };
+  const last = "2026-10-11T05:49:07.536Z";
+  const r = admitIdleDispatch({
+    settings,
+    task: "idle-review",
+    now: Date.parse("2026-10-11T05:50:14.595Z"),
+    lastDispatchAt: last,
+    dispatched: 0,
+    dispatchTimes: [last],
+    material: { chars: 4732, turns: 2 },
+  });
+  assert.equal(r.reason, "cooldown", "ISO 锚点下 67 秒须判 cooldown——实测曾判 admitted");
+  assert.equal(r.admit, false);
+  assert.equal(r.evaluations.cooldown.ok, false, "评估须如实反映被拦");
+  // 对照：同一锚点但间隔已满 → 放行（证明拦下是因为冷却，不是别的原因）。
+  const ok = admitIdleDispatch({
+    settings, task: "idle-review",
+    now: Date.parse("2026-10-11T06:00:00.000Z"),
+    lastDispatchAt: last, dispatched: 0, dispatchTimes: [last],
+    material: { chars: 4732, turns: 2 },
+  });
+  assert.equal(ok.reason, "admitted", "间隔满 10 分钟后须放行");
 });
