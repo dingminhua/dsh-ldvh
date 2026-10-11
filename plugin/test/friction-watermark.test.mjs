@@ -12,6 +12,7 @@ import {
   describeWindow,
   readDispatchState,
   recordDispatch,
+  numberOfWindowSlots,
   WATERMARK_RELATIVE_PATH,
 } from "../lib/friction-watermark.js";
 import { withTemp } from "./helpers.mjs";
@@ -313,5 +314,62 @@ test("派发状态：缺参与非法入参一律拒绝（不得静默写坏载�
     assert.equal((await readDispatchState(dshHomePath, { sessionId: "s" })).ok, false);
     assert.equal((await recordDispatch(dshHomePath, { projectRoot: "/p" })).ok, false);
     assert.equal((await recordDispatch(dshHomePath, {})).ok, false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 复审 D8（2026-10-11）：时刻列表容量须按配置**推导**，不得写死
+// ---------------------------------------------------------------------------
+//
+// 原先写死 64，理由是「按 10 分钟间隔，1 小时窗口内最多 6 次」。那个理由**依赖
+// 最小间隔的取值**——若间隔被设为 1 秒，1 小时窗口内可发生 3600 次，列表截断会
+// 使窗口内计数被**低估**，配额因而偏松。
+
+test("numberOfWindowSlots：按「窗口 ÷ 间隔」推导，并吸收窗口两端的边界", async () => {
+  const { numberOfWindowSlots } = await import("../lib/friction-watermark.js");
+  // 默认：1h / 10min = 6，+2 边界 = 8。
+  assert.equal(numberOfWindowSlots({ quotaWindowMs: 3_600_000, minIntervalMs: 600_000 }), 8);
+  // 间隔 1 分钟 → 60 + 2。
+  assert.equal(numberOfWindowSlots({ quotaWindowMs: 3_600_000, minIntervalMs: 60_000 }), 62);
+  // 间隔 1 秒 → 3600 + 2（**旧实现写死 64 会在这里截断**）。
+  assert.equal(numberOfWindowSlots({ quotaWindowMs: 3_600_000, minIntervalMs: 1_000 }), 3602);
+});
+
+test("numberOfWindowSlots：间隔为 0（不冷却）或配置缺失时返回 0，由调用方回落", async () => {
+  const { numberOfWindowSlots, FALLBACK_MAX_DISPATCH_TIMES } = await import("../lib/friction-watermark.js");
+  // 间隔 0 表示「不冷却」，此时窗口内次数**无上界**，容量不可推导——须回落。
+  assert.equal(numberOfWindowSlots({ quotaWindowMs: 3_600_000, minIntervalMs: 0 }), 0);
+  assert.equal(numberOfWindowSlots({}), 0);
+  assert.equal(numberOfWindowSlots(undefined), 0);
+  assert.equal(numberOfWindowSlots({ quotaWindowMs: 0, minIntervalMs: 1000 }), 0, "窗口非法同样不可推导");
+  assert.ok(FALLBACK_MAX_DISPATCH_TIMES > 0, "须有保守下限");
+});
+
+test("recordDispatch：容量按传入的 limits 推导——间隔很小时不得截断到 64", async () => {
+  await withTemp("ldvh-dispatch-", async (dir) => {
+    const dshHomePath = (...p) => join(dir, ...p);
+    const o = { projectRoot: "/proj", sessionId: "s1" };
+    // 间隔 1 秒、窗口 1 小时 → 容量约 3602。派发 100 次（> 旧的写死上限 64），
+    // 若仍按 64 截断，`dispatchTimes` 只会留 64 条。
+    const limits = { quotaWindowMs: 3_600_000, minIntervalMs: 1_000 };
+    for (let i = 0; i < 100; i += 1) {
+      await recordDispatch(dshHomePath, { ...o, at: new Date(1_700_000_000_000 + i * 1000).toISOString(), limits });
+    }
+    const st = await readDispatchState(dshHomePath, o);
+    assert.equal(st.value.dispatchTimes.length, 100, "100 次须全部保留（容量由配置推导，不是 64）");
+    assert.equal(st.value.dispatchCount, 100, "累计计数同步");
+  });
+});
+
+test("recordDispatch：未传 limits 时回落保守下限（不让列表无界增长）", async () => {
+  await withTemp("ldvh-dispatch-", async (dir) => {
+    const dshHomePath = (...p) => join(dir, ...p);
+    const o = { projectRoot: "/proj", sessionId: "s1" };
+    for (let i = 0; i < 80; i += 1) {
+      await recordDispatch(dshHomePath, { ...o, at: new Date(1_700_000_000_000 + i * 1000).toISOString() });
+    }
+    const st = await readDispatchState(dshHomePath, o);
+    assert.equal(st.value.dispatchTimes.length, 64, "无配置时按保守下限截断（有界）");
+    assert.equal(st.value.dispatchCount, 80, "**累计计数不受列表容量影响**");
   });
 });

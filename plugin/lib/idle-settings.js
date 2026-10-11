@@ -49,6 +49,30 @@ export function readNumber(value, fallback) {
   return n;
 }
 
+/**
+ * 读取一个**必须为正**的数值（窗口长度这类「取 0 即等于取消该约束」的字段）。
+ *
+ * ## 为什么不能复用 `readNumber`（2026-10-11 复审 D1）
+ *
+ * `readNumber` 把 0 当合法值——那对 `maxPerSession` 是对的（0 表示「不限」是
+ * **安全**语义：不设上限就不会耗尽）。但**窗口长度**的 0 语义相反：窗口为 0 表示
+ * 「不设窗口」，配额因而退化为**会话生命周期累计**——那正是 04 §8.4「派发准入」
+ * 段明文禁止的取值（耗尽后同一会话恒不可派发，水位冻结、内容永不入账）。
+ *
+ * 故本字段用**独立读取器**：0、负数、非有限值一律回落默认（默认是有限正值），
+ * 而不是「按用户所填的 0 去关闭窗口」。取向外向：宁可忽略一个可疑配置，也不让
+ * 机制进入永久停摆。
+ *
+ * @param {{get?: () => unknown}|unknown} value - Config 字段的解析结果。
+ * @param {number} fallback - 必须为正的默认值。
+ * @returns {number} 有效的正数。
+ */
+export function readPositiveNumber(value, fallback) {
+  const n = readNumber(value, fallback);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return n;
+}
+
 /** 布尔字段的读取。缺省一律按 `fallback` 处理（与 index.js 的 readSwitch 同语义）。 */
 export function readBool(value, fallback) {
   const raw = value !== null && typeof value === "object" && typeof value.get === "function" ? value.get() : value;
@@ -71,13 +95,28 @@ export function readBool(value, fallback) {
  * - `minContentTurns = 3`：与 `minContentChars` **取或**（任一满足即准入）。
  *   它是逃生阀：防「好的」「继续」这类短对话因字数不足而永远攒不到准入。
  * - `maxPerSession = 8`：参考 mnemon 的 20 与会话级日上限 8，取低者（LDVH 单次
- *   成本更高）。配额随水位键（含 sessionId）天然按会话失效。
+ *   成本更高）。配额随水位键（含 sessionId）天然作用域独立。
+ * - `maxPerSession = 4`：**窗口内可达**是选值的硬约束（2026-10-11 复审 D7）。
+ *   参考 mnemon 的 20 与会话级日上限 8。但按默认间隔 10 分钟，1 小时窗口内最多
+ *   只能派发 6 次——上限若取 8 则**永远轮不到它绑定**，于是「配额存在」与「配额
+ *   根本没实现」在运行痕迹里**完全不可区分**，04 §8.4「派发准入」段所要求的
+ *   「各自可被独立观察」随之落空。取 4 使它在密集会话中确实触发。
  */
 export const IDLE_DEFAULTS = Object.freeze({
   minIntervalMs: 600_000,
   minContentChars: 800,
   minContentTurns: 3,
-  maxPerSession: 8,
+  maxPerSession: 4,
+  /**
+   * 配额窗口长度（毫秒）：配额按**滑动窗口**计（见 `countWithinWindow`），
+   * 而非会话生命周期累计。默认 1 小时——与「跑太勤」的实际关切（一段密集工作
+   * 里的派发密度）同尺度，且使窗口滑过后容量自然恢复。
+   *
+   * **不得取 0 或无界**：那会退化为会话生命周期累计，即 04 §8.4「派发准入」段
+   * 明文禁止的取值（耗尽后同一会话恒不可派发、水位冻结、内容永不入账）。
+   * 非法值由 `readPositiveNumber` 回落本默认值，**不按用户所填的 0 关闭窗口**。
+   */
+  quotaWindowMs: 3_600_000,
 });
 
 /**
@@ -109,6 +148,10 @@ export function resolveIdleSettings(config) {
       minContentChars: readNumber(config?.idleMinContentChars, IDLE_DEFAULTS.minContentChars),
       minContentTurns: readNumber(config?.idleMinContentTurns, IDLE_DEFAULTS.minContentTurns),
       maxPerSession: readNumber(config?.idleMaxPerSession, IDLE_DEFAULTS.maxPerSession),
+      // 【D1】窗口长度用 readPositiveNumber：0/负数/非有限一律回落默认。
+      // 这与 `maxPerSession` 的处理**刻意不同**——后者的 0 是安全的「不限」，
+      // 前者的 0 是危险的「取消窗口」。两者 0 的语义相反，读取器也必须不同。
+      quotaWindowMs: readPositiveNumber(config?.idleQuotaWindowMs, IDLE_DEFAULTS.quotaWindowMs),
     },
   };
 }
@@ -169,6 +212,45 @@ export function contentAdmitted(material, limits, { isFirstRun = false } = {}) {
 }
 
 /**
+ * 把派发时刻列表折算为**窗口内的次数**（纯函数；`now` 由调用方传入）。
+ *
+ * ## 为什么配额必须按滑动窗口计，而不能按会话累计（2026-10-11 独立审核 F2）
+ *
+ * 本判据原先把 `dispatchCount` 当作**会话生命周期内的累计**。审核给出反例并被
+ * 实测证实：上限耗尽后，同一会话内**再无任何检查点可派发**——间隔再久、内容再多
+ * 都不放行。此时水位不再推进、区间无限增长，**该会话剩余的全部内容永不入账**；
+ * 而落地侧又不把它登记为失败，故该损失**无任何痕迹**。
+ *
+ * 那正是「抑制」而非「延后」：节流的正当性是「把内容并入下次观察区间」，而耗尽
+ * 之后根本没有「下次」。故本函数按**滑动窗口**计数——窗口滑过即容量恢复，配额
+ * 退回它本来的作用：**间隔被误设或关闭时的兜底**，而不是给会话封顶。
+ *
+ * ## 与「不得使派发永久终止」（04 §8.4 派发准入段）的对应
+ *
+ * 该条要求累计须以**可恢复**的口径计数，并明确不许以会话生命周期为口径。
+ * 本函数即该要求的机械形态：只要窗口有限，容量终会恢复。
+ *
+ * @param {Array<string|number>} times - 历史派发时刻（ISO 字符串或毫秒数）。
+ * @param {number} now - 当前时刻（毫秒时间戳）。
+ * @param {number} windowMs - 窗口长度（毫秒）；`<= 0` 或非法表示**不限窗口**。
+ * @returns {number} 窗口内的派发次数。
+ */
+export function countWithinWindow(times, now, windowMs) {
+  if (!Array.isArray(times) || times.length === 0) return 0;
+  const stamps = times
+    .map((v) => (typeof v === "number" ? v : Date.parse(String(v))))
+    .filter((n) => Number.isFinite(n));
+  // 窗口不设或非法 → 退化为「全部计入」（与旧行为一致，但那要求**显式**这样配置，
+  // 而不是像原先那样默认就是全生命周期累计）。
+  if (!Number.isFinite(windowMs) || windowMs <= 0) return stamps.length;
+  if (!Number.isFinite(now)) return 0;
+  const floor = now - windowMs;
+  // 半开区间 [floor, now]：恰好落在窗口下界的那一刻计**在内**（与 cooldownDue 的
+  // 「正好满即放行」同一取向——边界按对机制有利的一侧取，避免差 1 毫秒的抖动）。
+  return stamps.filter((n) => n >= floor && n <= now).length;
+}
+
+/**
  * 配额判据：本会话是否还有派发余量。
  *
  * `maxPerSession <= 0` 表示**不限**（参照 dsh-mnemon 的 `maxPerSession` 允许 0 与
@@ -200,12 +282,47 @@ export function quotaLeft(dispatched, maxPerSession) {
  * @param {object} input - 判据入参（见下各字段）。
  * @returns {{admit: boolean, reason: string}} 结论与理由（`reason` 为 `admitted` 或拒因码）。
  */
-export function admitIdleDispatch({ settings, task, now, lastDispatchAt, dispatched, material, isFirstRun }) {
+export function admitIdleDispatch({ settings, task, now, lastDispatchAt, dispatched, dispatchTimes, material, isFirstRun }) {
   if (!settings?.enabled) return { admit: false, reason: "idle-assist-disabled" };
   if (settings.tasks?.[task] !== true) return { admit: false, reason: "task-disabled" };
   const limits = settings.limits ?? {};
-  if (!cooldownDue(now, lastDispatchAt, limits.minIntervalMs)) return { admit: false, reason: "cooldown" };
-  if (!contentAdmitted(material, limits, { isFirstRun })) return { admit: false, reason: "insufficient-content" };
-  if (quotaLeft(dispatched, limits.maxPerSession) <= 0) return { admit: false, reason: "quota-exhausted" };
-  return { admit: true, reason: "admitted" };
+
+  // 三类约束**各自**的评估结果随返回值一并给出（2026-10-11 复审 D2/D7）。
+  //
+  // 为什么必须给出：04 §8.4「派发准入」段要求三类约束「各自可被独立观察」，且
+  // **可观察性须能区分「存在但未触发」与「不存在」**。只记「被挡下」时写一条
+  // throttled 是不够的——某约束若在默认取值下恒不触发（例如上限远高于窗口内
+  // 可达次数），它在运行痕迹里与「根本没实现」完全不可区分。故把三类各自的
+  // 判定与规模一并留给调用方记录，使「生效但放行」也有痕。
+  const cooldownOk = cooldownDue(now, lastDispatchAt, limits.minIntervalMs);
+  const contentOk = contentAdmitted(material, limits, { isFirstRun });
+  // 配额按**滑动窗口**计（F2）。有 `dispatchTimes` 就用它；否则退回 `dispatched`
+  // 这一累计口径——但那只是向后兼容的降级路径，按 04 §8.4「派发准入」段属
+  // 「会使派发永久终止」的口径，调用方应尽量提供时刻列表。
+  const used = Array.isArray(dispatchTimes)
+    ? countWithinWindow(dispatchTimes, now, limits.quotaWindowMs)
+    : (Number.isFinite(dispatched) && dispatched > 0 ? dispatched : 0);
+  const quotaOk = quotaLeft(used, limits.maxPerSession) > 0;
+
+  // 供调用方如实记录（`evaluated` 即三类约束各自的判定，`scale` 是当时的规模）。
+  const evaluations = {
+    cooldown: { ok: cooldownOk, minIntervalMs: limits.minIntervalMs },
+    content: {
+      ok: contentOk,
+      chars: Number.isFinite(Number(material?.chars)) ? Number(material.chars) : null,
+      turns: Number.isFinite(Number(material?.turns)) ? Number(material.turns) : null,
+      isFirstRun: isFirstRun === true,
+    },
+    quota: { ok: quotaOk, used, max: limits.maxPerSession, windowMs: limits.quotaWindowMs },
+  };
+
+  const admit = cooldownOk && contentOk && quotaOk;
+  const reason = admit
+    ? "admitted"
+    : !cooldownOk
+      ? "cooldown"
+      : !contentOk
+        ? "insufficient-content"
+        : "quota-exhausted";
+  return { admit, reason, evaluations };
 }

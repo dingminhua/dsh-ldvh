@@ -138,8 +138,15 @@ export const Config = z.object({
   idleMinContentChars: volatileField(z.number().default(800)),
   /** 本区间新增内容的轮数门槛（与字符数门槛**取或**）。 */
   idleMinContentTurns: volatileField(z.number().default(3)),
-  /** 本会话派发次数上限；**0 表示不限**（0 是合法值，归一化时不得吃掉）。 */
+  /** 配额窗口内的派发次数上限；**0 表示不限**（0 是合法值，归一化时不得吃掉）。 */
   idleMaxPerSession: volatileField(z.number().default(8)),
+  /**
+   * 配额窗口长度（毫秒）：配额按**滑动窗口**计，窗口滑过即容量恢复。
+   *
+   * **不以会话生命周期为口径**——那会使配额耗尽后同一会话内恒不可派发，
+   * 水位随即冻结、区间内容永不入账（04 §8.4「派发准入」段禁止此种取值）。
+   */
+  idleQuotaWindowMs: volatileField(z.number().default(3_600_000)),
 });
 
 /**

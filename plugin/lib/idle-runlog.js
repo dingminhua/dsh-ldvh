@@ -119,6 +119,10 @@ async function readAll(dshHomePath) {
  *
  *     `throttled` 与 `stopped` **必须可区分**：前者是机制按配置歇着（下次仍会看），
  *     后者是坏了。混同会使 Human 从痕迹里读不出机制到底在干什么。
+ *   - `evaluated`（可选）：三类准入约束**各自**的判定与当时的规模。放行
+ *     （`admitted`）与挡下（`throttled`）**都记**——某约束若在默认取值下恒不触发，
+ *     只记「被挡下」会使它与「根本没实现」不可区分，而 04 §8.4「派发准入」段
+ *     要求三类约束「各自可被独立观察」。
  *   - `action`（可选）：落地动作（`create`/`supplement`/`none`）；
  *   - `object_uid`（可选）：涉及账目；
  *   - `promoted`（可选）：是否发生阈值流转；

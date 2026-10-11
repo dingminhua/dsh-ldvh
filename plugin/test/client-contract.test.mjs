@@ -497,13 +497,13 @@ test("数值参数的默认值与服务端**同源**：不得在两处各写一�
   // 2026-10 起默认值集中在一张表（此前散落在 state 初值里，改一处漏三处）。
   const defaults = source.match(/var IDLE_DEFAULT_STORED = \{([\s\S]*?)\};/) || [];
   assert.ok(defaults[1], "须有 IDLE_DEFAULT_STORED 表");
-  for (const [key, value] of [["idleMinIntervalMs", 600000], ["idleMinContentChars", 800], ["idleMinContentTurns", 3], ["idleMaxPerSession", 8]]) {
+  for (const [key, value] of [["idleMinIntervalMs", 600000], ["idleMinContentChars", 800], ["idleMinContentTurns", 3], ["idleMaxPerSession", 4], ["idleQuotaWindowMs", 3600000]]) {
     assert.match(defaults[1], new RegExp(`${key}: ${value}`), `客户端默认 ${key} 须为 ${value}`);
   }
 
   // 与服务端文件逐字比对（真同源，不只是「我抄对了」）。
   const server = await readFile(new URL("../lib/idle-settings.js", import.meta.url), "utf8");
-  for (const [key, expected] of [["minIntervalMs", "600_000"], ["minContentChars", "800"], ["minContentTurns", "3"], ["maxPerSession", "8"]]) {
+  for (const [key, expected] of [["minIntervalMs", "600_000"], ["minContentChars", "800"], ["minContentTurns", "3"], ["maxPerSession", "4"], ["quotaWindowMs", "3_600_000"]]) {
     assert.ok(server.includes(`${key}: ${expected},`), `服务端 IDLE_DEFAULTS.${key} 须为 ${expected}`);
   }
 });

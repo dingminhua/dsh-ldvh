@@ -298,7 +298,8 @@ window.__ModuleLoader__.load({
       "row.idleMinIntervalMs": "最小间隔（分钟）",
       "row.idleMinContentChars": "内容字符数门槛",
       "row.idleMinContentTurns": "内容轮数门槛",
-      "row.idleMaxPerSession": "每会话上限（0 = 不限）",
+      "row.idleMaxPerSession": "配额窗口内上限（0 = 不限）",
+      "row.idleQuotaWindowMs": "配额窗口长度（分钟，须大于 0）",
       "row.idleLimitInvalid": "请填入大于等于 0 的整数。",
       "row.idleLimitsPending": "参数尚未取得规范依据（待 Human Gate）：当前值为实现默认，不得据此主张已按规范生效。",
       "row.webHint": "关闭时移除 LDVH 页面和 API；开启后自动挂载并检查是否可用。",
@@ -378,7 +379,8 @@ window.__ModuleLoader__.load({
       "row.idleMinIntervalMs": "Minimum interval (minutes)",
       "row.idleMinContentChars": "Content char threshold",
       "row.idleMinContentTurns": "Content turn threshold",
-      "row.idleMaxPerSession": "Per-session cap (0 = unlimited)",
+      "row.idleMaxPerSession": "Cap within the quota window (0 = unlimited)",
+      "row.idleQuotaWindowMs": "Quota window length (minutes, must exceed 0)",
       "row.idleLimitInvalid": "Enter an integer greater than or equal to 0.",
       "row.idleLimitsPending": "These limits have no spec basis yet (pending Human Gate): the current values are implementation defaults, and must not be read as spec-effective.",
       "row.webHint": "Turning it off removes the LDVH page and API; turning it on mounts them and checks availability automatically.",
@@ -602,7 +604,10 @@ window.__ModuleLoader__.load({
       { key: "idleMinIntervalMs", scale: 60000 },
       { key: "idleMinContentChars", scale: 1 },
       { key: "idleMinContentTurns", scale: 1 },
-      { key: "idleMaxPerSession", scale: 1 }
+      { key: "idleMaxPerSession", scale: 1 },
+      // 配额窗口：也以分钟读写。它是「配额按滑动窗口计」的另一半——
+      // 窗口滑过后容量恢复，故不会使派发永久终止（审核 F2）。
+      { key: "idleQuotaWindowMs", scale: 60000 }
     ];
     /**
      * 四个参数的**存储单位**默认值——**必须与服务端
@@ -613,7 +618,8 @@ window.__ModuleLoader__.load({
       idleMinIntervalMs: 600000,
       idleMinContentChars: 800,
       idleMinContentTurns: 3,
-      idleMaxPerSession: 8
+      idleMaxPerSession: 4,
+      idleQuotaWindowMs: 3600000
     };
     /** 存储值 → 界面文本（除以 scale）。非法存储值落回空串（由校验拦下）。 */
     function idleLimitToText(value, scale) {

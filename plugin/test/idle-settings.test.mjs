@@ -12,6 +12,7 @@ import {
   IDLE_DEFAULTS,
   admitIdleDispatch,
   contentAdmitted,
+  countWithinWindow,
   cooldownDue,
   quotaLeft,
   readBool,
@@ -83,6 +84,8 @@ test("resolveIdleSettings：显式配置覆盖默认，且三个子项各自独�
     minContentChars: 100,
     minContentTurns: 1,
     maxPerSession: 3,
+    // 窗口长度未显式配置 → 回落默认（配额按滑动窗口计，见 F2）。
+    quotaWindowMs: IDLE_DEFAULTS.quotaWindowMs,
   });
 });
 
@@ -192,7 +195,14 @@ test("admitIdleDispatch：全部满足即准入", () => {
     dispatched: 0,
     material: { chars: 1000, turns: 5 },
   });
-  assert.deepEqual(r, { admit: true, reason: "admitted" });
+  assert.equal(r.admit, true);
+  assert.equal(r.reason, "admitted");
+  // 三类约束各自的评估须随返回值给出（04 §8.4「派发准入」段的「各自可被独立
+  // 观察」要求；复审 D2/D7）——放行时也须有，否则「生效但未触发」不可观察。
+  assert.equal(r.evaluations.cooldown.ok, true);
+  assert.equal(r.evaluations.content.ok, true);
+  assert.equal(r.evaluations.quota.ok, true);
+  assert.equal(r.evaluations.quota.max, 8);
 });
 
 test("admitIdleDispatch：**判据顺序**——Human 的明示配置先于机械节流", () => {
@@ -261,4 +271,179 @@ test("admitIdleDispatch：isFirstRun 解除内容量门槛（历史摩擦不得�
     material: { chars: 0, turns: 0 }, isFirstRun: true,
   });
   assert.equal(r.admit, true, "首运即使材料为空也准入（那正是「覆盖全部既有内容」）");
+});
+
+// ---------------------------------------------------------------------------
+// 配额须按**滑动窗口**计（2026-10-11 独立审核 F2 的修复）
+// ---------------------------------------------------------------------------
+//
+// 审核反例（已用真代码复现）：配额原按**会话生命周期累计**，上限耗尽后同一会话
+// 内**再无任何检查点可派发**——间隔再久、内容再多都不放行。此时水位不再推进、
+// 区间无限增长，**该会话剩余内容永不入账**；而落地侧又不把它登记为失败，故损失
+// **无任何痕迹**。那是「抑制」而非「延后」：节流的正当性是「并入下次观察区间」，
+// 而耗尽之后根本没有「下次」。
+//
+// 故 04 §8.4「派发准入」段规定：累计须以**可恢复**的口径计数，不得以会话生命
+// 周期为口径。
+
+test("countWithinWindow：只计窗口内的次数（窗口外的不算）", () => {
+  const now = 10_000_000;
+  const HOUR = 3_600_000;
+  const times = [
+    now - 10_000,            // 窗内
+    now - 1_000_000,         // 窗内
+    now - 2 * HOUR,          // 窗外
+    now - 5 * HOUR,          // 窗外
+  ].map((n) => new Date(n).toISOString());
+  assert.equal(countWithinWindow(times, now, HOUR), 2, "只计窗内的两次");
+});
+
+test("countWithinWindow：**窗口滑过后容量恢复**（这是 F2 修复的核心性质）", () => {
+  const now = 10_000_000;
+  const HOUR = 3_600_000;
+  // 全部落在窗外 → 计 0（容量已恢复）。
+  const stale = Array.from({ length: 8 }, (_, i) => new Date(now - 2 * HOUR - i * 60_000).toISOString());
+  assert.equal(countWithinWindow(stale, now, HOUR), 0, "窗外的 8 次都不计入 → 容量恢复");
+});
+
+test("countWithinWindow：边界按「对外机制有利」取——恰好落在窗口下界计在内", () => {
+  const now = 10_000_000;
+  const HOUR = 3_600_000;
+  // 与 cooldownDue 的「正好满即放行」同一取向：避免差 1 毫秒的抖动使容量
+  // 时而恢复时而不恢复。
+  assert.equal(countWithinWindow([new Date(now - HOUR).toISOString()], now, HOUR), 1, "恰好在下界 → 计内");
+  assert.equal(countWithinWindow([new Date(now - HOUR - 1).toISOString()], now, HOUR), 0, "差 1 毫秒 → 计外");
+});
+
+test("countWithinWindow：窗口为 0 或非法 → 退化为「全部计入」（须显式选择）", () => {
+  // 该口径按 04 §8.4「派发准入」段属「会使派发永久终止」的取值，故默认不采用；
+  // 但它必须仍可表达（用户显式配置 0 时要尊重其选择，不得被静默替换）。
+  const now = 10_000_000;
+  const all = [new Date(now).toISOString(), new Date(now - 9e9).toISOString()];
+  assert.equal(countWithinWindow(all, now, 0), 2, "0 = 不限窗口");
+  assert.equal(countWithinWindow(all, now, -1), 2, "负数同样视为不限");
+  assert.equal(countWithinWindow(all, now, NaN), 2, "非法同样视为不限");
+});
+
+test("countWithinWindow：非法输入一律安全（不得抛错，也不得误放行）", () => {
+  const now = 10_000_000;
+  assert.equal(countWithinWindow(undefined, now, 1000), 0, "非数组 → 0");
+  assert.equal(countWithinWindow([], now, 1000), 0, "空数组 → 0");
+  assert.equal(countWithinWindow(["not-a-date"], now, 1000), 0, "无法解析的时刻被丢弃");
+  assert.equal(countWithinWindow([now], NaN, 1000), 0, "now 非法 → 0（宁可拦下也不误放行）");
+});
+
+test("admitIdleDispatch：**窗口滑过后配额不再永久拦下**（F2 的端到端断言）", () => {
+  const now = 10_000_000;
+  const HOUR = 3_600_000;
+  const settings = {
+    enabled: true,
+    tasks: { "idle-review": true },
+    limits: { minIntervalMs: 600_000, minContentChars: 800, minContentTurns: 3, maxPerSession: 8, quotaWindowMs: HOUR },
+  };
+  const base = { settings, task: "idle-review", now, material: { chars: 99999, turns: 99 } };
+
+  // 窗内已满 → 拦下（这是配额该起的作用）。
+  const recent = Array.from({ length: 8 }, (_, i) => new Date(now - i * 60_000).toISOString());
+  assert.equal(
+    admitIdleDispatch({ ...base, lastDispatchAt: recent[0], dispatchTimes: recent }).reason,
+    "quota-exhausted",
+    "窗内满 8 次须拦下",
+  );
+
+  // 同样 8 次、但都在窗外 → **必须放行**。旧口径（会话累计）在这里会永久拦下，
+  // 使该会话剩余内容永不入账且无痕迹——这正是 F2。
+  const stale = Array.from({ length: 8 }, (_, i) => new Date(now - 2 * HOUR - i * 60_000).toISOString());
+  assert.equal(
+    admitIdleDispatch({ ...base, lastDispatchAt: stale[0], dispatchTimes: stale }).admit,
+    true,
+    "窗口滑过后须恢复容量——否则构成永久抑制",
+  );
+});
+
+test("admitIdleDispatch：无时刻列表时退回累计口径（兼容路径，且仍**不得**被当成默认）", () => {
+  // 兼容旧载体/旧调用方。该口径按 04 §8.4 属「会使派发永久终止」的取值，故
+  // 这里是**降级**而非默认；调用方应尽量给时刻列表。
+  const settings = {
+    enabled: true,
+    tasks: { "idle-review": true },
+    limits: { minIntervalMs: 0, minContentChars: 0, minContentTurns: 0, maxPerSession: 3, quotaWindowMs: 3_600_000 },
+  };
+  const base = { settings, task: "idle-review", now: 10_000_000, lastDispatchAt: null, material: { chars: 1, turns: 1 } };
+  assert.equal(admitIdleDispatch({ ...base, dispatched: 2 }).admit, true, "未达上限");
+  assert.equal(admitIdleDispatch({ ...base, dispatched: 3 }).reason, "quota-exhausted", "达上限即拦");
+  assert.equal(admitIdleDispatch({ ...base, dispatched: 99 }).reason, "quota-exhausted", "且不会自行恢复（降级口径的固有性质）");
+});
+
+// ---------------------------------------------------------------------------
+// 复审 D1/D2/D7（2026-10-11 第二版独立审核的放行条件）
+// ---------------------------------------------------------------------------
+
+test("D1：窗口长度为 0/负数/非有限时**回落默认**，不得按 0 关闭窗口", () => {
+  // 0 的语义在两类字段上**相反**，故读取器也必须不同：
+  //   · `maxPerSession = 0` → 「不限」（安全：不设上限就不会耗尽）
+  //   · `quotaWindowMs = 0` → 「不设窗口」＝会话生命周期累计（**危险**：耗尽即
+  //     永久停，正是 04 §8.4「派发准入」段明文禁止的取值）
+  // 若窗口按 0 生效，F2 的洞就被重新打开了。
+  for (const bad of [0, -1, -3_600_000, NaN, Infinity]) {
+    const s = resolveIdleSettings({ idleQuotaWindowMs: bad });
+    assert.equal(
+      s.limits.quotaWindowMs,
+      IDLE_DEFAULTS.quotaWindowMs,
+      `窗口长度 ${String(bad)} 须回落默认（不得按 0 关闭窗口）`,
+    );
+    assert.ok(s.limits.quotaWindowMs > 0, "回落后的窗口须为有限正值");
+  }
+  // 合法值须被尊重（不得一律回落）。
+  assert.equal(resolveIdleSettings({ idleQuotaWindowMs: 7_200_000 }).limits.quotaWindowMs, 7_200_000);
+});
+
+test("D1 对照：maxPerSession 的 0 **仍须**表示「不限」（两类字段的 0 语义相反）", () => {
+  // 这条是上一条的对照——若有人「统一」了两个字段的读取器，两条测试必有一条失败。
+  const s = resolveIdleSettings({ idleMaxPerSession: 0 });
+  assert.equal(s.limits.maxPerSession, 0, "上限的 0 是合法的「不限」");
+  assert.equal(quotaLeft(999, s.limits.maxPerSession), Infinity, "且确实不放行受限");
+});
+
+test("D2/D7：三类约束各自的评估须随返回值给出（放行时也有）", () => {
+  // 只记「被挡下」时某约束若恒不触发，它与「根本没实现」不可区分——而 04 §8.4
+  // 「派发准入」段要求「各自可被独立观察」。故 evaluations 必须三类齐备。
+  const settings = {
+    enabled: true,
+    tasks: { "idle-review": true },
+    limits: { minIntervalMs: 600_000, minContentChars: 800, minContentTurns: 3, maxPerSession: 4, quotaWindowMs: 3_600_000 },
+  };
+  const r = admitIdleDispatch({
+    settings, task: "idle-review", now: 10_000_000, lastDispatchAt: null,
+    dispatchTimes: [], material: { chars: 5000, turns: 20 },
+  });
+  assert.ok(r.evaluations, "须给出 evaluations");
+  for (const key of ["cooldown", "content", "quota"]) {
+    assert.ok(r.evaluations[key], `须含 ${key} 的评估`);
+    assert.equal(typeof r.evaluations[key].ok, "boolean", `${key}.ok 须是布尔`);
+  }
+  // 规模也须在，否则复核者无法据以复算该约束为何未触发。
+  assert.equal(r.evaluations.quota.used, 0);
+  assert.equal(r.evaluations.quota.max, 4);
+  assert.equal(r.evaluations.quota.windowMs, 3_600_000);
+  assert.equal(r.evaluations.content.chars, 5000);
+
+  // 被挡下时同样给出（且明确指出是哪一类）。
+  const blocked = admitIdleDispatch({
+    settings, task: "idle-review", now: 10_000_000, lastDispatchAt: 9_999_000,
+    dispatchTimes: [], material: { chars: 5000, turns: 20 },
+  });
+  assert.equal(blocked.reason, "cooldown");
+  assert.equal(blocked.evaluations.cooldown.ok, false, "挡下时该类的 ok 须为 false");
+  assert.equal(blocked.evaluations.content.ok, true, "其余类的真实判定不得被掩盖");
+});
+
+test("D7：默认上限须在默认窗口内**可达**（否则该约束不可被独立观察）", () => {
+  // 默认间隔 10 分钟 ⇒ 1 小时窗口内最多约 6 次。上限若 ≥6，则配额**永远轮不到
+  // 它绑定**，「存在」与「不存在」在运行痕迹里完全一致。
+  const maxPerWindow = Math.floor(IDLE_DEFAULTS.quotaWindowMs / IDLE_DEFAULTS.minIntervalMs);
+  assert.ok(
+    IDLE_DEFAULTS.maxPerSession < maxPerWindow,
+    `默认上限 ${IDLE_DEFAULTS.maxPerSession} 须小于窗口内可达次数 ${maxPerWindow}，否则该约束恒不触发`,
+  );
 });

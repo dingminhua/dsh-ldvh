@@ -309,7 +309,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           const idleSettings = typeof getIdleSettings === "function" ? getIdleSettings() : undefined;
           if (idleSettings !== undefined) {
             const dispatchState = await readDispatchState(dshHomePath, { projectRoot: scope.project.path, sessionId });
-            const prior = dispatchState.ok ? dispatchState.value : { lastDispatchAt: null, dispatchCount: 0 };
+            const prior = dispatchState.ok ? dispatchState.value : { lastDispatchAt: null, dispatchCount: 0, dispatchTimes: [] };
             // 水位为 null = 首次运行，覆盖全部既有内容；此时内容量门槛无条件解除
             // （否则历史摩擦会因某个区间恰好很短而永不被发现）。冷却仍适用。
             const priorWatermark = await readWatermark(dshHomePath, { projectRoot: scope.project.path, sessionId });
@@ -322,6 +322,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               now: Date.now(),
               lastDispatchAt: prior.lastDispatchAt,
               dispatched: prior.dispatchCount,
+              // 配额按**滑动窗口**计（F2）：传入时刻列表，使窗口滑过后容量恢复。
+              dispatchTimes: prior.dispatchTimes,
               material: {
                 chars: Array.isArray(ahead?.items)
                   ? ahead.items.reduce((sum, it) => sum + String(it.user ?? "").length + String(it.assistant ?? "").length, 0)
@@ -337,6 +339,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 task: taskForThisCheckpoint,
                 stage: "throttled",
                 reason: admission.reason,
+                // 三类约束**各自**的判定——使「存在但未触发」可与「不存在」区分
+                // （04 §8.4「派发准入」段的「各自可被独立观察」要求；复审 D2/D7）。
+                evaluated: admission.evaluations,
                 at: new Date().toISOString(),
               });
               lifecycle.activity?.record("session/checkpoint/throttled", { task: taskForThisCheckpoint, reason: admission.reason });
@@ -346,7 +351,16 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             lifecycle.turns.auxRotation = rotation + 1;
             // 冷却锚点在**派发之前**写入，故失败也计入——否则一次失败不占冷却窗口，
             // 下一次检查点立刻重跑，外观上正是 §8.3 禁止的「自行重试」。
-            const recorded = await recordDispatch(dshHomePath, { projectRoot: scope.project.path, sessionId, at: new Date().toISOString() });
+            // 放行也留一次评估痕迹：某约束若在默认取值下恒不触发，只记「被挡下」
+            // 会使它与「根本没实现」完全不可区分（复审 D2/D7）。
+            await recordRun(dshHomePath, {
+              task: taskForThisCheckpoint,
+              stage: "admitted",
+              reason: admission.reason,
+              evaluated: admission.evaluations,
+              at: new Date().toISOString(),
+            });
+            const recorded = await recordDispatch(dshHomePath, { projectRoot: scope.project.path, sessionId, at: new Date().toISOString(), limits: idleSettings.limits });
             if (!recorded.ok) {
               // 写不进锚点即无法保证节流——按 fail-closed 停止本次（不派发）。
               await recordRun(dshHomePath, {
