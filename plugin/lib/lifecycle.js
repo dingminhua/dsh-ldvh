@@ -29,7 +29,8 @@ import { createTurnTriggers } from "./triggers.js";
 import { runIdleCheckpoint, selectAuxTask } from "./idle-checkpoint.js";
 import { createDiscoveryProvider } from "./friction-discovery-provider.js";
 import { landDiscoveryVerdict } from "./friction-landing.js";
-import { advanceWatermark } from "./friction-watermark.js";
+import { advanceWatermark, readWatermark, readDispatchState, recordDispatch } from "./friction-watermark.js";
+import { admitIdleDispatch } from "./idle-settings.js";
 import { recordRun } from "./idle-runlog.js";
 import { appendPendingEntry } from "./pending-queue.js";
 import { currentRouteValues } from "./session-signature.js";
@@ -38,7 +39,7 @@ import { createChildInstaller } from "./child.js";
 import { AgentLifecycle } from "./agent-lifecycle.js";
 import { recordJudgementForGuard } from "./host-seams.js";
 
-export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes, hostSeams }) {
+export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes, hostSeams, getIdleSettings }) {
   // Per-agent lifecycle objects (agent-lifecycle.js): single home for all
   // per-agent state + snapshot() diagnostics. The Map is bookkeeping only;
   // hook cleanup rides the agent fiber.
@@ -289,9 +290,77 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 受管辖是运行前提（32 §137：git 层操作要求当前管辖）。
           if (scope.state !== "governed" || scope.project === undefined || scope.project === null) return;
           // 预算轮换：一次检查点只跑一个任务（32 §10.2），计数器随 lifecycle 存活。
+          //
+          // **只在真正派发时才推进**（原实现每检查点都递增）。理由：被节流挡下的
+          // 检查点没有跑任何任务，若照样推进轮换位，HEALTH_CHECK_PERIOD=3 的相位
+          // 会被空检查点稀释——本该轮到体检的那次被节流吃掉后，体检要再等 3 次。
           const rotation = lifecycle.turns.auxRotation ?? 0;
-          lifecycle.turns.auxRotation = rotation + 1;
           const taskForThisCheckpoint = selectAuxTask(rotation);
+
+          // ── 闲时辅助的准入闸（设置 + 节流）──────────────────────────────
+          //
+          // 判据全部落在 `idle-settings.js` 的**纯函数**里（admitIdleDispatch）：
+          // 顺序为 总开关 → 子项开关 → 冷却 → 内容量 → 配额。此处只负责取状态
+          // 与执行后果。
+          //
+          // **被挡下时不推进水位**：那段内容并入下一次观察区间——这正是节流
+          // 「只延后、不抑制」的机械形态（`idle-checkpoint.js` 对 skipped 已确立
+          // 同一纪律）。故被挡下**不是失败**，不进待处置队列。
+          const idleSettings = typeof getIdleSettings === "function" ? getIdleSettings() : undefined;
+          if (idleSettings !== undefined) {
+            const dispatchState = await readDispatchState(dshHomePath, { projectRoot: scope.project.path, sessionId });
+            const prior = dispatchState.ok ? dispatchState.value : { lastDispatchAt: null, dispatchCount: 0 };
+            // 水位为 null = 首次运行，覆盖全部既有内容；此时内容量门槛无条件解除
+            // （否则历史摩擦会因某个区间恰好很短而永不被发现）。冷却仍适用。
+            const priorWatermark = await readWatermark(dshHomePath, { projectRoot: scope.project.path, sessionId });
+            const isFirstRun = priorWatermark.ok ? priorWatermark.value.lastTurn === null : false;
+            // 材料规模取自累积器给出的区间（判据层不读时钟、不读窗口内容）。
+            const ahead = turnTriggers.windowFrom(priorWatermark.ok ? priorWatermark.value.lastTurn : null);
+            const admission = admitIdleDispatch({
+              settings: idleSettings,
+              task: taskForThisCheckpoint,
+              now: Date.now(),
+              lastDispatchAt: prior.lastDispatchAt,
+              dispatched: prior.dispatchCount,
+              material: {
+                chars: Array.isArray(ahead?.items)
+                  ? ahead.items.reduce((sum, it) => sum + String(it.user ?? "").length + String(it.assistant ?? "").length, 0)
+                  : 0,
+                turns: Array.isArray(ahead?.items) ? ahead.items.length : 0,
+              },
+              isFirstRun,
+            });
+            if (!admission.admit) {
+              // 如实记账：被节流挡下与「坏了」必须可区分，否则 Human 从痕迹里
+              // 看不出机制是在歇着还是停了（参照 dsh-mnemon 的 stage 可区分纪律）。
+              await recordRun(dshHomePath, {
+                task: taskForThisCheckpoint,
+                stage: "throttled",
+                reason: admission.reason,
+                at: new Date().toISOString(),
+              });
+              lifecycle.activity?.record("session/checkpoint/throttled", { task: taskForThisCheckpoint, reason: admission.reason });
+              return;
+            }
+            // 轮换位在**准入通过后**推进（见上）。
+            lifecycle.turns.auxRotation = rotation + 1;
+            // 冷却锚点在**派发之前**写入，故失败也计入——否则一次失败不占冷却窗口，
+            // 下一次检查点立刻重跑，外观上正是 §8.3 禁止的「自行重试」。
+            const recorded = await recordDispatch(dshHomePath, { projectRoot: scope.project.path, sessionId, at: new Date().toISOString() });
+            if (!recorded.ok) {
+              // 写不进锚点即无法保证节流——按 fail-closed 停止本次（不派发）。
+              await recordRun(dshHomePath, {
+                task: taskForThisCheckpoint,
+                stage: "stopped",
+                reason: `派发状态不可写：${recorded.error?.message ?? "unknown"}`,
+                at: new Date().toISOString(),
+              });
+              return;
+            }
+          } else {
+            // 无设置来源（老宿主 / 未注入）时保持原行为：照常推进轮换位。
+            lifecycle.turns.auxRotation = rotation + 1;
+          }
 
           // §8.4 第 1 项的执行体：派一个**继承主控上下文**的受管辖隔离子代理去做
           // 语义查重，并取回它的结构化判断。仅对 `idle-review` 需要（其余任务尚未

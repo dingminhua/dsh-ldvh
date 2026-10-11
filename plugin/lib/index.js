@@ -34,6 +34,7 @@ import { ensureRegistrationCarrier, readGovernedProjects, setCarrierObserver } f
 import { createGovernanceHandler } from "./host-api.js";
 import { createProxyHandler, createSpaHandler, createWebApiProcess } from "./web-mount.js";
 import { createLifecycleRegistry } from "./lifecycle.js";
+import { resolveIdleSettings } from "./idle-settings.js";
 import { createSessionScopes } from "./session-scopes.js";
 import { createHostSeams } from "./host-seams.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
@@ -111,6 +112,34 @@ export const Config = z.object({
   showInConversationTab: volatileField(z.boolean().default(true)),
   /** 侧边栏投放面（betterSidebar 的 LDVH tab）；仅在 webEnabled 开启时生效。 */
   showInSidebarTab: volatileField(z.boolean().default(true)),
+
+  // ── 闲时辅助（04 §8.1 空闲维护与反思；32 §10 空闲维护与记忆健康）──────
+  //
+  // 形态参照 dsh-mnemon 的 idleReview 设置面：一个总开关 + 启用后才展开的子项
+  // + 数值参数（在客户端收进折叠区，与 dsh-mnemon 的 `<details>` 同规格）。
+  //
+  // **规范地位分层**（不得混同，见 lib/idle-settings.js 的模块注释）：
+  //   · 三个 `*Enabled` 是「让 32 §10.2 已定义的三任务可被选择性停用」——
+  //     不新增任务、不改职责、不改轮换律；
+  //   · `idleMin*` / `idleMaxPerSession` 三者**收窄发起条件**，按 04 §12.1 第 3 项
+  //     属领域增量事项，**其规范依据尚待 Human Gate**。当前实现为可用状态，
+  //     但不得据此主张「节流已按规范生效」。
+  /** 闲时辅助总开关：关闭后不再派发任何辅助任务（含摩擦发现）。 */
+  idleAssistEnabled: volatileField(z.boolean().default(true)),
+  /** 闲时评审（反思摩擦，04 §8.4）：已实现，缺省开。 */
+  idleReviewEnabled: volatileField(z.boolean().default(true)),
+  /** 容量维护（32 §10.4）：**尚未实现**，缺省关（打开也只会如实报 not-implemented）。 */
+  capacityMaintenanceEnabled: volatileField(z.boolean().default(false)),
+  /** 记忆健康体检（32 §10.5）：**尚未实现**，缺省关（同上）。 */
+  memoryHealthEnabled: volatileField(z.boolean().default(false)),
+  /** 两次派发之间的最小间隔（毫秒）。锚点在派发**前**写入，故失败也计入。 */
+  idleMinIntervalMs: volatileField(z.number().default(600_000)),
+  /** 本区间新增内容的字符数门槛（与轮数门槛**取或**）。 */
+  idleMinContentChars: volatileField(z.number().default(800)),
+  /** 本区间新增内容的轮数门槛（与字符数门槛**取或**）。 */
+  idleMinContentTurns: volatileField(z.number().default(3)),
+  /** 本会话派发次数上限；**0 表示不限**（0 是合法值，归一化时不得吃掉）。 */
+  idleMaxPerSession: volatileField(z.number().default(8)),
 });
 
 /**
@@ -335,7 +364,11 @@ export function apply(ctx, config) {
     dshHomePath,
     workspaceRoot: PACKAGE_ROOT,
     sessionScopes,
-    hostSeams
+    hostSeams,
+    // 闲时辅助的设置**每次现读**（volatile 字段无变更通知，只在同一引用里换值
+    // ——见上文 readSwitch 的说明）。故传一个取值函数而非快照：Human 在设置页
+    // 改动后，下一次检查点即看到新值，无需重载插件。
+    getIdleSettings: () => resolveIdleSettings(config),
   });
   const stopLifecycle = lifecycle.start();
 

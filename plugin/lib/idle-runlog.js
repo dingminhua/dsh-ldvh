@@ -114,7 +114,11 @@ async function readAll(dshHomePath) {
  *   - `at`（RFC3339）：本次检查点时刻；
  *   - `task`：本次轮换到的任务；
  *   - `stage`：**落到哪一步**——`skipped`（无执行体） / `not-implemented`（任务未实现）
+ *     / `throttled`（被闲时辅助的准入闸挡下——**不是失败**，内容不丢、水位不推进）
  *     / `stopped`（fail-closed 停止） / `landed`（落地已调用） / `land-failed`；
+ *
+ *     `throttled` 与 `stopped` **必须可区分**：前者是机制按配置歇着（下次仍会看），
+ *     后者是坏了。混同会使 Human 从痕迹里读不出机制到底在干什么。
  *   - `action`（可选）：落地动作（`create`/`supplement`/`none`）；
  *   - `object_uid`（可选）：涉及账目；
  *   - `promoted`（可选）：是否发生阈值流转；

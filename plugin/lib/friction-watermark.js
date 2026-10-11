@@ -32,7 +32,7 @@
  */
 
 import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 
 /** DSH home 下的相对位置（与 governed-projects / pending-queue 同层）。 */
@@ -174,7 +174,14 @@ export async function advanceWatermark(dshHomePath, { projectRoot, sessionId, tu
       );
     }
 
-    const next = { ...doc.value, [key]: { lastTurn: turn, advancedAt: new Date().toISOString() } };
+    // **合并**而非重建该项：同一 key 下还住着**派发状态**（lastDispatchAt /
+    // dispatchCount，见 readDispatchState）。重建会把它们悄悄清掉——实测踩过：
+    // 先 recordDispatch 两次、再 advanceWatermark 一次，派发计数即被抹回 0/0，
+    // 冷却与配额随即失效。水位与派发状态是**两轴**，同处一个载体就不得互相覆盖。
+    const next = {
+      ...doc.value,
+      [key]: { ...doc.value[key], lastTurn: turn, advancedAt: new Date().toISOString() },
+    };
     const written = await writeAll(dshHomePath, next);
     if (!written.ok) return written;
 
@@ -189,6 +196,91 @@ export async function advanceWatermark(dshHomePath, { projectRoot, sessionId, tu
       return failure("watermark/read_back_mismatch", `expected lastTurn=${turn} after advance, got ${observed}`);
     }
     return success({ key, lastTurn: turn });
+  });
+}
+
+/**
+ * 读**派发状态**（闲时辅助的节流锚点与配额计数），与水位**共用同一个载体**。
+ *
+ * ## 为什么不新建一个文件（specs/04 §14 第 5 条）
+ *
+ * 该条禁止「为证明检查已执行而保存完整消息、思考链、运行日志或**第二状态账本**」。
+ * 节流需要的两个量（上次派发时刻、本会话已派发次数）与水位同属「辅助机制的运行
+ * 状态」，且**同一个键**（受管辖项目根 + 会话 id）刚好就是它们各自要的作用域
+ * ——水位按会话独立，配额也按会话独立。故并入既有载体，而不是新起一个文件。
+ *
+ * ## 与水位的关系：**两轴，不混谈**
+ *
+ * - **水位**（`lastTurn`）：管「内容看到哪儿了」。它**只在该次运行成功后**推进。
+ * - **派发状态**（`lastDispatchAt` / `dispatchCount`）：管「跑了多少次、隔了多久」。
+ *   它在**派发之前**写入，故**失败也计入**——若等结果再写，一次失败就不占冷却
+ *   窗口，下一次检查点立刻重跑，外观上正是 §8.3 禁止的「自行重试」。
+ *
+ * 两者因此可以在同一对象里各走各的，不构成一致性问题：`lastTurn` 落后于
+ * `dispatchCount` 是**正常态**（派发了但落地失败，下次重覆盖同一区间）。
+ *
+ * 从未派发过时 `lastDispatchAt` 为 `null`、`dispatchCount` 为 `0`——那使首次运行
+ * 不冷却、配额从零起算。
+ */
+export async function readDispatchState(dshHomePath, { projectRoot, sessionId } = {}) {
+  if (typeof projectRoot !== "string" || projectRoot.length === 0) {
+    return failure("watermark/invalid_project_root", "projectRoot is required");
+  }
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    return failure("watermark/invalid_session_id", "sessionId is required");
+  }
+  const doc = await readAll(dshHomePath);
+  if (!doc.ok) return doc;
+  const entry = doc.value[watermarkKey(projectRoot, sessionId)];
+  const at = entry?.lastDispatchAt;
+  const count = entry?.dispatchCount;
+  return success({
+    lastDispatchAt: typeof at === "string" && at.length > 0 ? at : null,
+    dispatchCount: Number.isInteger(count) && count >= 0 ? count : 0,
+  });
+}
+
+/**
+ * 记一次派发（**在派发之前**调用；失败也计入，见 readDispatchState 的说明）。
+ *
+ * 与 `advanceWatermark` **共用同一临界区**（同一个载体路径作键的 `serialize`），
+ * 故并发调用不会互相覆盖：两者都是「读整份文档 → 改自己那一项 → 写回」。
+ *
+ * 返回 `{ ok: true, value: { lastDispatchAt, dispatchCount } }`（写入后的值）。
+ */
+export async function recordDispatch(dshHomePath, { projectRoot, sessionId, at } = {}) {
+  if (typeof projectRoot !== "string" || projectRoot.length === 0) {
+    return failure("watermark/invalid_project_root", "projectRoot is required");
+  }
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    return failure("watermark/invalid_session_id", "sessionId is required");
+  }
+  const stamp = typeof at === "string" && at.length > 0 ? at : new Date().toISOString();
+
+  return serialize(watermarkPath(dshHomePath), async () => {
+    const doc = await readAll(dshHomePath);
+    if (!doc.ok) return doc;
+    const key = watermarkKey(projectRoot, sessionId);
+    const entry = doc.value[key] ?? {};
+    const prevCount = Number.isInteger(entry.dispatchCount) && entry.dispatchCount >= 0 ? entry.dispatchCount : 0;
+    const nextCount = prevCount + 1;
+    const next = { ...doc.value, [key]: { ...entry, lastDispatchAt: stamp, dispatchCount: nextCount } };
+    const written = await writeAll(dshHomePath, next);
+    if (!written.ok) return written;
+
+    // 写后回读（与 advanceWatermark 同一纪律）：读回不符即失败，不静默。
+    const readBack = await readAll(dshHomePath);
+    if (!readBack.ok) {
+      return failure("watermark/read_back_failed", `recordDispatch reported success but the read-back failed: ${readBack.error.message}`);
+    }
+    const observed = readBack.value[key];
+    if (observed?.lastDispatchAt !== stamp || observed?.dispatchCount !== nextCount) {
+      return failure(
+        "watermark/read_back_mismatch",
+        `expected lastDispatchAt=${stamp} dispatchCount=${nextCount} after recordDispatch, got lastDispatchAt=${observed?.lastDispatchAt} dispatchCount=${observed?.dispatchCount}`,
+      );
+    }
+    return success({ lastDispatchAt: stamp, dispatchCount: nextCount });
   });
 }
 

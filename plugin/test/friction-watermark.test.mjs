@@ -10,6 +10,8 @@ import {
   readWatermark,
   advanceWatermark,
   describeWindow,
+  readDispatchState,
+  recordDispatch,
   WATERMARK_RELATIVE_PATH,
 } from "../lib/friction-watermark.js";
 import { withTemp } from "./helpers.mjs";
@@ -217,5 +219,99 @@ test("D3：突发多次并发推进同一会话，全部成功且最终为最大
     assert.deepEqual(failed, [], `并发的串行化应保证全部成功，失败项：${failed.join(",")}`);
     const back = await readWatermark(home, { projectRoot: PROJECT, sessionId: SESSION });
     assert.equal(back.value.lastTurn, 8);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 派发状态与水位**共存于同一载体**（闲时辅助节流用；specs/04 §14 第 5 条禁止
+// 新建「第二状态账本」，故并入水位载体而非另起文件）。
+// ---------------------------------------------------------------------------
+//
+// 两轴的分工：
+//   · 水位 lastTurn        —— 内容看到哪儿了；**只在该次运行成功后**推进；
+//   · 派发状态 lastDispatchAt/dispatchCount —— 跑了多少次、隔了多久；
+//                             **在派发之前**写入，故失败也计入冷却。
+// 因此二者可以不一致（派发了但落地失败 → lastTurn 落后），那是正常态。
+
+test("派发状态：从未派发时为 null/0（首运不冷却、配额从零起算）", async () => {
+  await withTemp("ldvh-dispatch-", async (dir) => {
+    const dshHomePath = (...p) => join(dir, ...p);
+    const r = await readDispatchState(dshHomePath, { projectRoot: "/proj", sessionId: "s1" });
+    assert.equal(r.ok, true);
+    assert.equal(r.value.lastDispatchAt, null, "从未派发 → null（首运不冷却的前提）");
+    assert.equal(r.value.dispatchCount, 0, "计数从零起算");
+  });
+});
+
+test("派发状态：记录递增且可读回", async () => {
+  await withTemp("ldvh-dispatch-", async (dir) => {
+    const dshHomePath = (...p) => join(dir, ...p);
+    const o = { projectRoot: "/proj", sessionId: "s1" };
+    await recordDispatch(dshHomePath, { ...o, at: "2026-10-11T01:00:00.000Z" });
+    await recordDispatch(dshHomePath, { ...o, at: "2026-10-11T01:10:00.000Z" });
+    const r = await readDispatchState(dshHomePath, o);
+    assert.equal(r.value.dispatchCount, 2);
+    assert.equal(r.value.lastDispatchAt, "2026-10-11T01:10:00.000Z", "取最近一次");
+  });
+});
+
+test("**水位推进不得抹掉派发状态**（同一载体两轴，重建该项即互相覆盖）", async () => {
+  // 这是实现中实测踩到的缺陷：`advanceWatermark` 曾用
+  //   { ...doc.value, [key]: { lastTurn, advancedAt } }
+  // **重建**该项，于是同 key 下的 lastDispatchAt/dispatchCount 被静默清回
+  // null/0——冷却与配额随即失效，而**外观上一切正常**（水位照常前进）。
+  // 该缺陷只能由「先记派发、再推水位、再读派发」这个顺序暴露。
+  await withTemp("ldvh-dispatch-", async (dir) => {
+    const dshHomePath = (...p) => join(dir, ...p);
+    const o = { projectRoot: "/proj", sessionId: "s1" };
+    // 先记两次派发。
+    await recordDispatch(dshHomePath, { ...o, at: "2026-10-11T01:00:00.000Z" });
+    await recordDispatch(dshHomePath, { ...o, at: "2026-10-11T01:10:00.000Z" });
+    // 再推一次水位。
+    const advanced = await advanceWatermark(dshHomePath, { ...o, turn: 7 });
+    assert.equal(advanced.ok, true, "水位推进本身应成功");
+    // 派发状态必须原样还在。
+    const after = await readDispatchState(dshHomePath, o);
+    assert.equal(after.value.dispatchCount, 2, "水位推进后派发计数不得被抹掉");
+    assert.equal(after.value.lastDispatchAt, "2026-10-11T01:10:00.000Z", "派发时刻不得被抹掉");
+    // 反向：先推水位、再记派发，水位也不得被抹掉。
+    await recordDispatch(dshHomePath, { ...o, at: "2026-10-11T01:20:00.000Z" });
+    const wm = await readWatermark(dshHomePath, o);
+    assert.equal(wm.value.lastTurn, 7, "记派发后水位不得被抹掉");
+    assert.equal((await readDispatchState(dshHomePath, o)).value.dispatchCount, 3);
+  });
+});
+
+test("派发状态：并发记录不丢更新（与水位共用同一临界区）", async () => {
+  await withTemp("ldvh-dispatch-", async (dir) => {
+    const dshHomePath = (...p) => join(dir, ...p);
+    const o = { projectRoot: "/proj", sessionId: "s1" };
+    // 两个并发 recordDispatch 各自读整份文档、改自己那一项、写回——
+    // 无串行化时后写者覆盖先写者，计数会少一次。
+    await Promise.all([
+      recordDispatch(dshHomePath, { ...o, at: "2026-10-11T02:00:00.000Z" }),
+      recordDispatch(dshHomePath, { ...o, at: "2026-10-11T02:00:01.000Z" }),
+    ]);
+    assert.equal((await readDispatchState(dshHomePath, o)).value.dispatchCount, 2, "两次并发必须都记上");
+  });
+});
+
+test("派发状态：按「项目根 + 会话」分键（跨项目、跨会话各自独立）", async () => {
+  await withTemp("ldvh-dispatch-", async (dir) => {
+    const dshHomePath = (...p) => join(dir, ...p);
+    await recordDispatch(dshHomePath, { projectRoot: "/a", sessionId: "s1", at: "2026-10-11T01:00:00.000Z" });
+    await recordDispatch(dshHomePath, { projectRoot: "/b", sessionId: "s1", at: "2026-10-11T01:00:00.000Z" });
+    assert.equal((await readDispatchState(dshHomePath, { projectRoot: "/a", sessionId: "s1" })).value.dispatchCount, 1);
+    assert.equal((await readDispatchState(dshHomePath, { projectRoot: "/b", sessionId: "s1" })).value.dispatchCount, 1, "另一项目独立");
+    assert.equal((await readDispatchState(dshHomePath, { projectRoot: "/a", sessionId: "s2" })).value.dispatchCount, 0, "另一会话独立");
+  });
+});
+
+test("派发状态：缺参与非法入参一律拒绝（不得静默写坏载体）", async () => {
+  await withTemp("ldvh-dispatch-", async (dir) => {
+    const dshHomePath = (...p) => join(dir, ...p);
+    assert.equal((await readDispatchState(dshHomePath, { sessionId: "s" })).ok, false);
+    assert.equal((await recordDispatch(dshHomePath, { projectRoot: "/p" })).ok, false);
+    assert.equal((await recordDispatch(dshHomePath, {})).ok, false);
   });
 });

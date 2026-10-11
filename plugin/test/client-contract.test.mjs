@@ -450,3 +450,76 @@ test("settings footer carries the 鼓励一下 cheer link (family-wide pattern)"
 	assert.ok(source.includes("ldv-settings-footer-left"), "cheer link sits in the footer-left container");
 	assert.ok(source.includes("ldv-settings-cheer-star"), "cheer link carries the star glyph");
 });
+
+// ---------------------------------------------------------------------------
+// 闲时辅助设置面（04 §8.1 / 32 §10；形态参照 dsh-mnemon 的 idleReview）
+// ---------------------------------------------------------------------------
+
+test("闲时辅助设置面：总开关 + 三个子项 + 四个参数，且总开关关闭时不渲染子项", () => {
+  // 五个开关须各自成 state（而非一个数组）——它们绑定到不同的 Config 字段，
+  // 且 dsh-mnemon 的形态是「总开关关掉就整块不展开」。
+  for (const field of [
+    "idleAssistEnabled",
+    "idleReviewEnabled",
+    "capacityMaintenanceEnabled",
+    "memoryHealthEnabled",
+  ]) {
+    assert.ok(source.includes(field), `设置面须含开关字段 ${field}`);
+  }
+  // 子项在总开关关闭时**不渲染**（与 dsh-mnemon 同形：未启用时不给无意义的选项）。
+  assert.match(
+    source,
+    /idleAssistState\[0\] \? React\.createElement\("div", \{ className: "ldv-web-panel-body" \}/,
+    "总开关关闭时须整块不展开子项",
+  );
+  // 四个数值参数。
+  for (const limit of ["idleMinIntervalMs", "idleMinContentChars", "idleMinContentTurns", "idleMaxPerSession"]) {
+    assert.ok(source.includes(limit), `设置面须含参数 ${limit}`);
+  }
+});
+
+test("未实现的子项须在设置面**当场标出**（不得让开关看起来能跑）", () => {
+  // capacity-maintenance 与 memory-health 的服务端实现状态是 not-implemented。
+  // 开关打开后它们仍会如实回报，但设置面上不标出就是**在界面上说假话**。
+  assert.match(source, /implemented: false/, "两个未实现子项须标记 implemented: false");
+  assert.match(source, /implemented: true/, "已实现的子项须标记 implemented: true");
+  assert.match(source, /t\("row\.notImplemented"\)/, "未实现子项须渲染「尚未实现」徽标");
+  // 徽标文案须说明「仍会如实报 not-implemented」，而不只是贴一个标签。
+  assert.match(source, /not-implemented/, "未实现说明须点名 not-implemented 这一实际回报");
+});
+
+test("数值参数的默认值与服务端**同源**：不得在两处各写一套", async () => {
+  // 客户端默认 600000/800/3/8 必须与服务端 idle-settings.js 的 IDLE_DEFAULTS 一致。
+  // 两处漂移会让「设置页显示 A、实际生效 B」——用户永远看不到真实值。
+  const read = (source.match(/idleMinIntervalMs: String\(value\.idleMinIntervalMs !== undefined \? value\.idleMinIntervalMs : (\d+)\)/) || [])[1];
+  assert.equal(read, "600000", "客户端默认最小间隔须为 600000（与服务端一致）");
+  const chars = (source.match(/idleMinContentChars: String\(value\.idleMinContentChars !== undefined \? value\.idleMinContentChars : (\d+)\)/) || [])[1];
+  assert.equal(chars, "800", "客户端默认字符门槛须为 800");
+  const turns = (source.match(/idleMinContentTurns: String\(value\.idleMinContentTurns !== undefined \? value\.idleMinContentTurns : (\d+)\)/) || [])[1];
+  assert.equal(turns, "3", "客户端默认轮数门槛须为 3");
+  const max = (source.match(/idleMaxPerSession: String\(value\.idleMaxPerSession !== undefined \? value\.idleMaxPerSession : (\d+)\)/) || [])[1];
+  assert.equal(max, "8", "客户端默认会话上限须为 8");
+
+  // 与服务端文件逐字比对（真同源，不只是「我抄对了」）。
+  const server = await readFile(new URL("../lib/idle-settings.js", import.meta.url), "utf8");
+  for (const [key, expected] of [["minIntervalMs", "600_000"], ["minContentChars", "800"], ["minContentTurns", "3"], ["maxPerSession", "8"]]) {
+    assert.ok(server.includes(`${key}: ${expected},`), `服务端 IDLE_DEFAULTS.${key} 须为 ${expected}`);
+  }
+});
+
+test("参数非法时**不写入**（不得把 NaN 送进宿主再被静默回落）", () => {
+  // 服务端 readNumber 会把 NaN 回落默认值——那会让用户看到的数与生效值不一致。
+  // 故客户端必须在写入前拦住，并如实报失败。
+  assert.match(source, /function idleLimitOk\(text\)/, "须有合法性判定");
+  assert.match(source, /Number\.isInteger\(n\) && n >= 0/, "判据须是非负整数（与服务端同口径）");
+  assert.match(source, /if \(!idleLimitsAllOk\(idleLimitsState\[0\]\)\) \{\s*saveErrorState\[1\]\(true\);\s*return;\s*\}/, "非法时须拦下写入并报失败");
+});
+
+test("参数区如实声明**规范依据待 Human Gate**（不得把未批参数当已生效规则呈现）", () => {
+  // 这四个数值收窄发起条件，按 04 §12.1 第 3 项属领域增量事项，须经 Human Gate。
+  // 不在界面上说明，就是把未批准的参数当成已生效的规范内容呈现给 Human。
+  assert.match(source, /row\.idleLimitsPending/, "须有「待 Gate」声明文案");
+  const zh = (source.match(/"row\.idleLimitsPending": "([^"]+)"/) || [])[1];
+  assert.ok(zh && zh.includes("Human Gate"), "中文文案须点明待 Human Gate");
+  assert.ok(zh && zh.includes("不得"), "中文文案须含「不得据此主张已生效」的告诫");
+});

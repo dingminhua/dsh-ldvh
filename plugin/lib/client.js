@@ -119,6 +119,18 @@ window.__ModuleLoader__.load({
       ".ldv-check-disabled input{cursor:not-allowed}" +
       ".ldv-check-label{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#c2c2c2);user-select:none}" +
       ".ldv-mount-hint{display:block;margin-top:8px}" +
+      // 闲时辅助区（与 ldv-mount-toggles 同族，但子项带说明文字，故需纵向排列）
+      ".ldv-idle-tasks{display:flex;flex-direction:column;gap:10px}" +
+      ".ldv-check-copy{display:flex;flex-direction:column;gap:2px;min-width:0}" +
+      ".ldv-idle-badge{margin-left:6px;padding:0 5px;border-radius:4px;font-size:10px;line-height:15px;border:1px solid var(--dsw-alias-border-l2,#46474c);color:var(--dsw-alias-label-tertiary,#9a9a9a);vertical-align:middle}" +
+      ".ldv-idle-limits{margin-top:12px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2,#46474c)}" +
+      ".ldv-idle-limits>summary{cursor:pointer;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#c2c2c2);user-select:none}" +
+      ".ldv-idle-limit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:10px 0 8px}" +
+      ".ldv-idle-limit{display:flex;flex-direction:column;gap:4px}" +
+      ".ldv-idle-limit-label{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#c2c2c2)}" +
+      ".ldv-idle-limit-invalid{font-size:11px;line-height:16px;color:var(--dsw-alias-state-error-primary,#f56c6c)}" +
+      ".ldv-idle-pending{display:block;margin-top:6px;color:var(--dsw-alias-state-warning-primary,#e6a23c)}" +
+      ".ldv-settings-input[aria-invalid=\"true\"]{border-color:var(--dsw-alias-state-error-primary,#f56c6c)}" +
       ".ldv-palette{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2,#36373b)}" +
       ".ldv-palette-label{font-size:12px;color:var(--dsw-alias-label-tertiary,#999);flex:none}" +
       ".ldv-palette-dot{width:18px;height:18px;border-radius:50%;border:none;padding:0;cursor:pointer;flex:none;transition:transform .12s}" +
@@ -271,6 +283,24 @@ window.__ModuleLoader__.load({
       "row.mountConversationTab": "加入到对话 Tab",
       "row.mountSidebarTab": "加入到侧边栏",
       "row.mountHint": "保存后刷新页面生效；关闭 Web 呈现总开关时，两项投放均不生效。",
+      "row.idleAssist": "闲时辅助",
+      "row.idleAssistHint": "会话空闲时由宜主派发辅助任务（反思摩擦、容量维护、记忆健康）。关闭后不再派发任何辅助任务。",
+      "row.idleReview": "反思摩擦",
+      "row.idleReviewHint": "把实际工作流中反复出现的阻碍记入摩擦账本（已实现）。",
+      "row.capacityMaintenance": "容量维护",
+      "row.capacityMaintenanceHint": "记忆满时只整理不新增（压缩、归档、淘汰、合并）。",
+      "row.memoryHealth": "记忆健康体检",
+      "row.memoryHealthHint": "周期性检查记忆失效模式与冷热分布。",
+      "row.notImplemented": "尚未实现",
+      "row.notImplementedHint": "后端能力尚未实现：开启后宜主仍会如实回报 not-implemented，不会假装已跑。",
+      "row.idleLimits": "调度参数",
+      "row.idleLimitsHint": "编辑后需点「保存」生效。",
+      "row.idleMinIntervalMs": "最小间隔（毫秒）",
+      "row.idleMinContentChars": "内容字符数门槛",
+      "row.idleMinContentTurns": "内容轮数门槛",
+      "row.idleMaxPerSession": "每会话上限（0 = 不限）",
+      "row.idleLimitInvalid": "请填入大于等于 0 的整数。",
+      "row.idleLimitsPending": "参数尚未取得规范依据（待 Human Gate）：当前值为实现默认，不得据此主张已按规范生效。",
       "row.webHint": "关闭时移除 LDVH 页面和 API；开启后自动挂载并检查是否可用。",
       "row.status": "Web 呈现状态",
       "row.statusChecking": "检测中…",
@@ -333,6 +363,24 @@ window.__ModuleLoader__.load({
       "row.mountConversationTab": "Add to conversation tab",
       "row.mountSidebarTab": "Add to sidebar",
       "row.mountHint": "Takes effect after saving and reloading the page; when the Web presentation switch is off, neither placement is active.",
+      "row.idleAssist": "Idle assistance",
+      "row.idleAssistHint": "Dispatches auxiliary tasks while the session is idle (friction review, capacity maintenance, memory health). Turning this off stops every auxiliary task.",
+      "row.idleReview": "Friction review",
+      "row.idleReviewHint": "Records recurring obstacles from the real workflow into the friction ledger (implemented).",
+      "row.capacityMaintenance": "Capacity maintenance",
+      "row.capacityMaintenanceHint": "When memory is full, only rearranges: compression, archiving, eviction, merging.",
+      "row.memoryHealth": "Memory health check",
+      "row.memoryHealthHint": "Periodically checks memory failure modes and hot/cold distribution.",
+      "row.notImplemented": "Not implemented",
+      "row.notImplementedHint": "The backend capability does not exist yet: enabling it still reports not-implemented rather than pretending to run.",
+      "row.idleLimits": "Dispatch limits",
+      "row.idleLimitsHint": "Takes effect after clicking Save.",
+      "row.idleMinIntervalMs": "Minimum interval (ms)",
+      "row.idleMinContentChars": "Content char threshold",
+      "row.idleMinContentTurns": "Content turn threshold",
+      "row.idleMaxPerSession": "Per-session cap (0 = unlimited)",
+      "row.idleLimitInvalid": "Enter an integer greater than or equal to 0.",
+      "row.idleLimitsPending": "These limits have no spec basis yet (pending Human Gate): the current values are implementation defaults, and must not be read as spec-effective.",
       "row.webHint": "Turning it off removes the LDVH page and API; turning it on mounts them and checks availability automatically.",
       "row.status": "Web presentation status",
       "row.statusChecking": "Checking…",
@@ -547,6 +595,29 @@ window.__ModuleLoader__.load({
       var enabledState = React.useState(value.webEnabled !== false);
       var convTabState = React.useState(value.showInConversationTab !== false);
       var sidebarTabState = React.useState(value.showInSidebarTab !== false);
+      // 闲时辅助（形态参照 dsh-mnemon 的 idleReview 设置面：总开关 + 启用后才展开子项）。
+      // 数值参数在客户端用**字符串**存放，使空串与非法输入可被辨认（数字类型无法表达「用户把它删空了」）。
+      var idleAssistState = React.useState(value.idleAssistEnabled !== false);
+      var idleReviewState = React.useState(value.idleReviewEnabled !== false);
+      var idleCapacityState = React.useState(value.capacityMaintenanceEnabled === true);
+      var idleMemoryState = React.useState(value.memoryHealthEnabled === true);
+      var idleLimitsState = React.useState({
+        idleMinIntervalMs: String(value.idleMinIntervalMs !== undefined ? value.idleMinIntervalMs : 600000),
+        idleMinContentChars: String(value.idleMinContentChars !== undefined ? value.idleMinContentChars : 800),
+        idleMinContentTurns: String(value.idleMinContentTurns !== undefined ? value.idleMinContentTurns : 3),
+        idleMaxPerSession: String(value.idleMaxPerSession !== undefined ? value.idleMaxPerSession : 8)
+      });
+      // 四个参数的合法判定（与服务端 `idle-settings.js` 的 `readNumber` 同口径：
+      // 非负整数）。空串与非数字都是非法——那正是存成字符串而非数字的理由（数字类型
+      // 无法表达「用户把它删空了」）。
+      function idleLimitOk(text) {
+        if (typeof text !== "string" || text.trim() === "") return false;
+        var n = Number(text);
+        return Number.isInteger(n) && n >= 0;
+      }
+      function idleLimitsAllOk(limits) {
+        return Object.keys(limits).every(function (key) { return idleLimitOk(limits[key]); });
+      }
       var dirtyState = React.useState(false);
       var busyState = React.useState(false);
       var savedState = React.useState(false);
@@ -588,6 +659,16 @@ window.__ModuleLoader__.load({
         enabledState[1](next.webEnabled !== false);
         convTabState[1](next.showInConversationTab !== false);
         sidebarTabState[1](next.showInSidebarTab !== false);
+        idleAssistState[1](next.idleAssistEnabled !== false);
+        idleReviewState[1](next.idleReviewEnabled !== false);
+        idleCapacityState[1](next.capacityMaintenanceEnabled === true);
+        idleMemoryState[1](next.memoryHealthEnabled === true);
+        idleLimitsState[1]({
+          idleMinIntervalMs: String(next.idleMinIntervalMs !== undefined ? next.idleMinIntervalMs : 600000),
+          idleMinContentChars: String(next.idleMinContentChars !== undefined ? next.idleMinContentChars : 800),
+          idleMinContentTurns: String(next.idleMinContentTurns !== undefined ? next.idleMinContentTurns : 3),
+          idleMaxPerSession: String(next.idleMaxPerSession !== undefined ? next.idleMaxPerSession : 8)
+        });
         savedState[1](false);
         saveErrorState[1](false);
       }, [snap ? snap.revision : -1, dirtyState[0], busyState[0]]);
@@ -747,6 +828,12 @@ window.__ModuleLoader__.load({
       }
       function save() {
         if (!snap || snap.status !== "ready" || snap.writable === false || busyState[0]) return;
+        // 四个数值参数不合法就**不写**（而不是写一个 NaN 进去）——服务端会把 NaN 回落
+        // 默认值，那会让用户看到的值与实际生效的值不一致。故在写入前拦住并如实报失败。
+        if (!idleLimitsAllOk(idleLimitsState[0])) {
+          saveErrorState[1](true);
+          return;
+        }
         busyState[1](true);
         Promise.resolve()
           // 0.1.7 的 SettingsFormScope 没有 set(key, value)：改写为一次带
@@ -755,7 +842,15 @@ window.__ModuleLoader__.load({
             return scope.mutate([
               { op: "set", path: ["webEnabled"], value: !!enabledState[0] },
               { op: "set", path: ["showInConversationTab"], value: !!convTabState[0] },
-              { op: "set", path: ["showInSidebarTab"], value: !!sidebarTabState[0] }
+              { op: "set", path: ["showInSidebarTab"], value: !!sidebarTabState[0] },
+              { op: "set", path: ["idleAssistEnabled"], value: !!idleAssistState[0] },
+              { op: "set", path: ["idleReviewEnabled"], value: !!idleReviewState[0] },
+              { op: "set", path: ["capacityMaintenanceEnabled"], value: !!idleCapacityState[0] },
+              { op: "set", path: ["memoryHealthEnabled"], value: !!idleMemoryState[0] },
+              { op: "set", path: ["idleMinIntervalMs"], value: Number(idleLimitsState[0].idleMinIntervalMs) },
+              { op: "set", path: ["idleMinContentChars"], value: Number(idleLimitsState[0].idleMinContentChars) },
+              { op: "set", path: ["idleMinContentTurns"], value: Number(idleLimitsState[0].idleMinContentTurns) },
+              { op: "set", path: ["idleMaxPerSession"], value: Number(idleLimitsState[0].idleMaxPerSession) }
             ], snap.revision);
           })
           .then(function (accepted) {
@@ -925,6 +1020,96 @@ window.__ModuleLoader__.load({
             ),
             React.createElement("span", { className: "ldv-settings-hint ldv-mount-hint" }, t("row.mountHint"))
           )
+        ),
+        // ── 闲时辅助（04 §8.1 空闲维护与反思；32 §10）────────────────────────
+        //
+        // 形态参照 dsh-mnemon 的 idleReview 设置面：总开关在外、子项在**启用后才展开**、
+        // 数值参数收进折叠区。与 Web 呈现那一块同种样式（ldv-web-panel + ldv-switch）。
+        React.createElement("section", { className: "ldv-web-panel" },
+          React.createElement("div", { className: "ldv-web-panel-head" },
+            React.createElement("span", { className: "ldv-web-panel-copy" },
+              React.createElement("span", { className: "ldv-web-panel-title" }, t("row.idleAssist")),
+              React.createElement("span", { className: "ldv-web-panel-desc" }, t("row.idleAssistHint"))
+            ),
+            React.createElement("label", { className: "ldv-switch" },
+              React.createElement("input", {
+                type: "checkbox",
+                checked: idleAssistState[0],
+                "aria-label": t("row.idleAssist"),
+                onChange: function (e) { idleAssistState[1](e.target.checked); markDirty(); }
+              }),
+              React.createElement("span", { className: "ldv-switch-track", "aria-hidden": "true" })
+            )
+          ),
+          // 总开关关闭时**不渲染**子项（同 dsh-mnemon：未启用时不给出无意义的
+          // 选项）。
+          idleAssistState[0] ? React.createElement("div", { className: "ldv-web-panel-body" },
+            React.createElement("div", { className: "ldv-idle-tasks" },
+              [
+                { key: "idleReviewEnabled", state: idleReviewState, label: "row.idleReview", hint: "row.idleReviewHint", implemented: true },
+                { key: "capacityMaintenanceEnabled", state: idleCapacityState, label: "row.capacityMaintenance", hint: "row.capacityMaintenanceHint", implemented: false },
+                { key: "memoryHealthEnabled", state: idleMemoryState, label: "row.memoryHealth", hint: "row.memoryHealthHint", implemented: false }
+              ].map(function (task) {
+                return React.createElement("label", { key: task.key, className: "ldv-check" },
+                  React.createElement("input", {
+                    type: "checkbox",
+                    checked: task.state[0],
+                    "aria-label": t(task.label),
+                    onChange: function (e) { task.state[1](e.target.checked); markDirty(); }
+                  }),
+                  React.createElement("span", { className: "ldv-check-copy" },
+                    React.createElement("span", { className: "ldv-check-label" },
+                      t(task.label),
+                      // 未实现的子项**必须当场标出**：开关打开后服务端仍会如实报
+                      // not-implemented，不假装可跑。不标出就是在设置面上说假话。
+                      task.implemented ? null : React.createElement("span", { className: "ldv-idle-badge" }, t("row.notImplemented"))
+                    ),
+                    React.createElement("span", { className: "ldv-settings-hint" }, t(task.hint))
+                  )
+                );
+              })
+            ),
+            // 数值参数：折叠区（同 dsh-mnemon 的 <details>）——它们是调优参数，
+            // 不是每次都要看的东西，但必须可见且可改。
+            React.createElement("details", { className: "ldv-idle-limits" },
+              React.createElement("summary", null, t("row.idleLimits")),
+              React.createElement("div", { className: "ldv-idle-limit-grid" },
+                [
+                  { key: "idleMinIntervalMs", label: "row.idleMinIntervalMs" },
+                  { key: "idleMinContentChars", label: "row.idleMinContentChars" },
+                  { key: "idleMinContentTurns", label: "row.idleMinContentTurns" },
+                  { key: "idleMaxPerSession", label: "row.idleMaxPerSession" }
+                ].map(function (limit) {
+                  var invalid = !idleLimitOk(idleLimitsState[0][limit.key]);
+                  return React.createElement("label", { key: limit.key, className: "ldv-idle-limit" },
+                    React.createElement("span", { className: "ldv-idle-limit-label" }, t(limit.label)),
+                    React.createElement("input", {
+                      type: "number",
+                      step: "1",
+                      min: "0",
+                      inputMode: "numeric",
+                      className: "ldv-settings-input",
+                      value: idleLimitsState[0][limit.key],
+                      "aria-invalid": invalid,
+                      "aria-label": t(limit.label),
+                      onChange: function (e) {
+                        var next = {};
+                        Object.keys(idleLimitsState[0]).forEach(function (k) { next[k] = idleLimitsState[0][k]; });
+                        next[limit.key] = e.target.value;
+                        idleLimitsState[1](next);
+                        markDirty();
+                      }
+                    }),
+                    invalid ? React.createElement("span", { className: "ldv-idle-limit-invalid" }, t("row.idleLimitInvalid")) : null
+                  );
+                })
+              ),
+              React.createElement("span", { className: "ldv-settings-hint" }, t("row.idleLimitsHint")),
+              // 如实声明：这四个数值收窄发起条件，按 04 §12.1 第 3 项属领域增量事项，
+              // **规范依据尚待 Human Gate**。不写这句就是把未批的参数当成已生效规则呈现。
+              React.createElement("span", { className: "ldv-settings-hint ldv-idle-pending" }, t("row.idleLimitsPending"))
+            )
+          ) : null
         ),
         React.createElement("section", { className: "ldv-governance-note" },
           React.createElement("span", { className: "ldv-governance-note-title" }, t("row.governanceLocation")),

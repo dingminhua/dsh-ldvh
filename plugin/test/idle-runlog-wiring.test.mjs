@@ -16,17 +16,42 @@ test("lifecycle 须在检查点路径上写运行痕迹（否则可观测性缺�
   assert.match(raw, /await recordRun\(dshHomePath, \{/, "检查点路径须写入运行痕迹");
 });
 
-test("lifecycle 写入的字段须能区分五种结局（stage 的完整性）", async () => {
+test("lifecycle 写入的字段须能区分各结局（stage 的完整性）", async () => {
   const raw = await readFile(join(LIB, "lifecycle.js"), "utf8");
-  const start = raw.indexOf("await recordRun(dshHomePath, {");
-  assert.ok(start >= 0, "未找到运行痕迹写入点");
-  const call = raw.slice(start, raw.indexOf("});", start));
-  for (const stage of ["stopped", "landed", "land-faild", "land-failed", "not-implemented", "skipped"]) {
-    if (stage === "land-faild") continue; // 拼写陷阱，防手滑
-    assert.ok(call.includes(stage), `stage 须能表达「${stage}」——否则该结局不可分辨`);
+  // **扫描全部 recordRun 调用点**，不只第一处。
+  //
+  // 本测试原先把 `indexOf("await recordRun(dshHomePath, {")` 当唯一写入点，于是
+  // 只管到第一处调用。2026-10 新增「派发准入闸」在更早的位置写了
+  // `stage: "throttled"` 与另一处 `stopped`——该测试随即**失败**（它以为
+  // stage 集合不全），而实际是它只看了一处。判据须覆盖所有写入点，否则
+  // 「新增一个结局」会被误报成「漏了一个结局」。
+  const calls = [];
+  let from = 0;
+  for (;;) {
+    const start = raw.indexOf("await recordRun(dshHomePath, {", from);
+    if (start < 0) break;
+    calls.push(raw.slice(start, raw.indexOf("});", start)));
+    from = start + 1;
   }
-  // 关键：landed 与 skipped 必须**可区分**（那正是本模块存在的理由）
-  assert.ok(call.includes("landed") && call.includes("skipped"), "landed 与 skipped 须可区分");
+  assert.ok(calls.length >= 2, `至少应有两处运行痕迹写入点（找到 ${calls.length}）`);
+  const all = calls.join("\n");
+
+  // 每个结局都必须能表达，且**landed 与 skipped 必须可区分**（那正是本模块存在的理由）。
+  for (const stage of ["stopped", "landed", "land-failed", "not-implemented", "skipped", "throttled"]) {
+    assert.ok(all.includes(stage), `stage 须能表达「${stage}」——否则该结局不可分辨`);
+  }
+  assert.ok(all.includes("landed") && all.includes("skipped"), "landed 与 skipped 须可区分");
+
+  // `throttled` 与 `stopped` 的区分是本闸的直接理由：前者是机制按配置歇着（下次
+  // 仍会看），后者是坏了。故断言两者**出现在不同的调用点**，而非同一处二选一。
+  const throttled = calls.filter((c) => c.includes("throttled"));
+  const stopped = calls.filter((c) => c.includes('stage: "stopped"'));
+  assert.ok(throttled.length >= 1, "须有一处专门的节流痕迹");
+  assert.ok(stopped.length >= 1, "须有一处专门的停止痕迹");
+  assert.ok(
+    throttled.every((c) => !c.includes('stage: "stopped"')),
+    "节流与停止不得同一处二选一——那会让两者在痕迹里无从区分",
+  );
 });
 
 test("运行痕迹的字段不得引用未定义的标识符（曾把 `at` 写成裸标识符）", async () => {
