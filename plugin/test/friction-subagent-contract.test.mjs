@@ -368,11 +368,28 @@ test("prompt 明确告知**工具输出不在材料里**（此前从未提及，
   // 仍各自命中别处，护栏**测不出来**（实测：撤掉后失败数仍为 0）。
   assert.match(
     prompt,
-    /工具输出[^\n]*不在材料里/,
+    /工具调用与工具输出的一切内容都不在材料里/,
     "须在同一句里点名「工具输出不在材料里」——两个词分开匹配测不出该条的缺失",
   );
+  // **工具输入**也须点名（2026-10-11 实测缺口）：一次被拒引文来自提交信息的
+  // heredoc——那是**命令参数**，不是工具输出，故既有的「工具输出」措辞盖不住它。
+  assert.match(prompt, /工具输入/, "须点名工具输入（旧措辞只说工具输出，漏掉 heredoc 这类）");
+  assert.match(prompt, /heredoc/, "须具体举例 heredoc——那是实测踩到的形态，不举例则执行体想不到");
   // 还须说明「只有 user:/assistant: 行可引」，给出正向判据。
   assert.match(prompt, /user:.*assistant:/s, "须给出可引内容的正文形态");
+});
+
+test("**累积语义**：一轮多条 assistant 消息都须进材料（旧实现只留最后一条）", () => {
+  // 提示词侧要说清「材料里的 assistant: 行是一轮正文的累积」这一事实不算必要，
+  // 但它**不得**宣称「每轮只有一条」。此测试守的是 prompt 与该语义不冲突：
+  // 材料由 renderWindowText 渲染，本测试直接验渲染结果含全部消息。
+  const prompt = buildDiscoveryPrompt({
+    threshold: 3,
+    candidates: [],
+    window: { items: [{ turn: 7, user: "提问", assistant: "第一条正文\n\n第二条正文" }] },
+  });
+  assert.ok(prompt.includes("第一条正文"), "材料须含第一条（累积语义的直接体现）");
+  assert.ok(prompt.includes("第二条正文"), "材料须含第二条");
 });
 
 test("边界标记**不给**核对方：引标记本身须被拒（否则是一个无意义的通过面）", () => {

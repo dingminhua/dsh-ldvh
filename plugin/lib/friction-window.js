@@ -115,15 +115,55 @@ export function createWindowAccumulator({ maxCharsPerTurn = MAX_CHARS_PER_TURN, 
 
       if (type === "assistant/message") {
         if (turn === undefined || turn === null) return;
+
+        // ── 一轮之内有多条 assistant/message（2026-10-11 修复）────────────
+        //
+        // 宿主把**每一次** assistant 输出都发成一条 `assistant/message`：一轮里
+        // 有多少个 assistant 步骤就有多少条（步与步之间还夹着工具调用）。实测本
+        // 会话：**1411 条**分布于 55 轮，单轮最多 147 条。
+        //
+        // 此处原先直接 `record(turn, { assistant: clipped })`——每条都**覆盖**
+        // 前一条，于是整轮只留下**最后一条**。两个后果都实测到过：
+        //
+        //   ① **丢掉主体内容**：turn 55 有 25 条消息、合计 1531 字可用，最后只
+        //      留下 31 字（2%）；全量 1411 条中仅 55 条进过材料（4%）。
+        //   ② **被空消息抹掉**：22% 的 assistant/message 是纯工具调用（无 text
+        //      块）。轮到这类消息时 `clipped` 为空串，写入即把该轮已累积的
+        //      assistant 文本**清空**——turn 55 实际就是这样变空的。
+        //
+        // 修法是**追加**而非覆盖，并在追加后统一过 `clamp`。语义上这才对应
+        // 「本轮的 assistant 正文」：`turn` 是聚合键，不是「唯一一条消息」。
+        //
+        // **保留哪 2000 字**：`clamp` 截取**开头**，即按发生顺序的**前缀**。这
+        // 是有意选择的**确定性**规则——「保留语义上最要紧的 2000 字」需要判断，
+        // 而 04 §8.4 禁止让切分依据落在 AI 判断上。前缀规则另外还与 `clamp` 的
+        // 既有语义（`slice(0, max)`）、与材料「照抄原文」的用途一致。
+        //
+        // 空文本**不得**参与覆盖：它不进 patch，本轮已有内容原样保留。
         const text = textOfBlocks(event?.data?.message?.content);
-        const { text: clipped, truncated } = clamp(text);
+        const previous = turns.get(turn)?.assistant ?? "";
+        const merged = text.length === 0
+          ? previous
+          : previous.length === 0
+            ? text
+            // 消息之间以空行相隔（`verifyQuotation` 的 normalize 会把空白折叠成
+            // 单个空格，故跨消息引证仍可核对；见 friction-discovery.js）。
+            : `${previous}\n\n${text}`;
+        const { text: clipped, truncated } = clamp(merged);
+
         // 用户消息可能已由 turn/start 分支挂上；pendingUser 为 null 时**不得**
         // 用空串覆盖既有内容（实测踩过：那会把已挂上的用户文本抹掉）。
+        //
+        // 无需「只升不降」的保护：合并后的文本**只增不减**（`previous` 永不被
+        // 丢弃），而 `clamp` 是 `slice(0, max)`——长度不降 ⇒ `truncated` 不可能
+        // 由 true 翻回 false。曾写过 `|| previous.truncated` 的写法，实测**无法
+        // 用任何测试区分**（因为该分支不可达），故删除而不是留一段无测试覆盖的
+        // 代码：那种代码只会让人误以为这里有需要防的边界。
         const patch = { assistant: clipped, truncated };
         if (pendingUser !== null) {
           const userPart = clamp(pendingUser);
           patch.user = userPart.text;
-          patch.truncated = truncated || userPart.truncated;
+          patch.truncated = patch.truncated || userPart.truncated;
           pendingUser = null;
         }
         record(turn, patch);

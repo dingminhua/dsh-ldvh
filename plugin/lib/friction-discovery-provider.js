@@ -121,13 +121,6 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     // 被核对文本，执行体引标记本身（无意义）反而会通过。
     const windowText = windowBody(effectiveWindow?.items);
 
-    const picked = selectContextInheritingProvider(subagents);
-    if (!picked.ok) {
-      const error = new Error(picked.error.message);
-      error.code = picked.error.code;
-      throw error;
-    }
-
     // 缺陷 D6 + 复核发现②③：区间缺口（水位要求覆盖的起点与「本进程实际见过
     // 的最小轮次」之间的空洞，或因缓冲淘汰产生的空洞）。
     //
@@ -142,7 +135,64 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     // 故这里**不抛错**，而是把缺口交给调用方登记，并让本次照常运行（子代理只看
     // 得到它真正拿到的材料）。水位推进由调用方在落地成功之后执行，且推进终值为
     // 本次区间终点——越过缺口是**已知并已登记**的损失，而非静默遗漏。
+    //
+    // 本声明**上移到短路判定之前**：短路的准入条件之一就是「无缺口」，故判定
+    // 短路时必须已经知道缺口为何。
     const unobserved = effectiveWindow?.unobserved ?? null;
+
+    // ── 空区间的短路（2026-10-11）────────────────────────────────────────
+    //
+    // 区间内**没有任何新增内容**、且**没有缺口**时，本就没有观察对象：04 §8.4
+    // 把观察对象定义为「自上次运行以来新增的会话内容」，没有新增即无从观察。
+    //
+    // 此前会照常 fork 一个**继承主控完整上下文**的子代理（实测主控会话解压
+    // 21.7 MB），只为让它回答「材料为空 → no-discovery」——提示词已写死该情形下
+    // 只能这样答，故这次派发**不可能**产出别的结论。代价与收益完全不相称。
+    //
+    // **不是「跳过检查」**，而是一次**记账层面的 no-op**：返回一个与
+    // 「子代理报 no-discovery」**完全同形**的结果，使调用方的落地路径一字不改
+    // ——它仍走同一处阈值判定、同一处水位推进。差别仅在**不派生、不烧上下文**。
+    //
+    // ⚠️ **有缺口时绝不短路**（`unobserved !== null` 即走原路径）。缺口意味着
+    // 内容**真实丢失过**，那正是必须被登记的对象；短路会把「本进程没看到任何
+    // 事件」这种最严重的情形（`unobserved = { from, to: null }`）一并吞掉，
+    // 使缺口既不入队也不上报——那是把「如实登记」换成「看起来没事」。
+    const emptyWindow = Array.isArray(effectiveWindow?.items)
+      && effectiveWindow.items.length === 0
+      && windowText === "";
+    if (emptyWindow && unobserved === null) {
+      onRun?.({
+        phase: "skipped",
+        reason: "empty-window",
+        // 说清短路的确切条件，使痕迹本身可核对（而非只报一个字符串）。
+        note: "本次区间无任何新增内容且无缺口——依 04 §8.4「观察对象=新增内容」无观察对象，未派生执行体",
+        window: { from: windowRange?.from ?? null, to: windowRange?.to ?? null, turns: 0, truncated: false },
+      });
+      // 返回值须与「真跑了子代理且它报 no-discovery」**完全同形**——调用方
+      // （idle-checkpoint）按 `outcome` / `verdict` / `unobserved` / `watermarkTurn`
+      // 四处消费，缺一处就会走出不同的分支（曾误写成 `{ok:true,value:{...}}`，
+      // 那是本模块**入参**的 envelope 形状，不是返回形状）。
+      //
+      // `verdict.verdict` 这个双层名字是落地侧的既有契约（`friction-landing.js`
+      // 读 `verdict.verdict`），不是笔误，照它写。
+      return {
+        outcome: "no-discovery",
+        verdict: { verdict: "no-discovery", quote: "", reason: "本次区间无任何新增内容（04 §8.4：观察对象=自上次运行以来新增的会话内容），故未派生执行体", impact: "light" },
+        unobserved: null,
+        // 与正常路径一致：水位推进到本次区间终点。**这不是「凭空推进」**——
+        // 区间内确实没有内容可丢，推进语义与「子代理看了空材料报 no-discovery」
+        // 相同；真正会丢内容的缺口情形已被上面的 `unobserved === null` 排除。
+        watermarkTurn: Number.isInteger(windowRange?.to) ? windowRange.to : undefined,
+        skipped: "empty-window",
+      };
+    }
+
+    const picked = selectContextInheritingProvider(subagents);
+    if (!picked.ok) {
+      const error = new Error(picked.error.message);
+      error.code = picked.error.code;
+      throw error;
+    }
 
     const prompt = buildDiscoveryPrompt({ threshold, candidates, window: effectiveWindow });
     const outputSchema = discoveryOutputSchema();

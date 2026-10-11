@@ -280,3 +280,111 @@ test("D6：无缺口时 unobserved 为 null（不得误报）", async () => {
   const out = await discover({ threshold: 3, candidates: [], window: { from: 10, to: 11 } });
   assert.equal(out.unobserved, null);
 });
+
+// ---------------------------------------------------------------------------
+// 空区间短路（2026-10-11）——
+// 04 §8.4 把观察对象定义为「自上次运行以来新增的会话内容」：无新增即无从观察。
+// 此前会照常 fork 一个**继承主控完整上下文**的子代理，只为让它回答「材料为空
+// → no-discovery」——而提示词已写死该情形下只能这样答，故这次派发不可能产出
+// 别的结论。代价（实测主控会话解压 21.7 MB）与收益完全不相称。
+// ---------------------------------------------------------------------------
+
+/** 空窗口短路测试专用的 provider：若被 start 即记为「不该发生」。 */
+function shortCircuitHarness() {
+  const events = [];
+  const subagents = fakeSubagents({ providers: [providerNamed("fork", { inherits: true })] });
+  const discover = createDiscoveryProvider({
+    subagents,
+    parent: PARENT,
+    signal: SIGNAL,
+    onRun: (e) => events.push(e),
+    provideWindow: () => windowFor(),
+  });
+  let windowFor = () => ({ items: [], truncated: false, unobserved: null });
+  return { events, subagents, discover, setWindow: (fn) => { windowFor = fn; } };
+}
+
+test("空窗口且**无缺口**：不派生执行体，但结果与「子代理报 no-discovery」同形", async () => {
+  const h = shortCircuitHarness();
+  const r = await h.discover({ threshold: 3, candidates: [], sessionSignature: "s", window: { from: 10, to: 20 } });
+
+  // ① 核心：**没有派生**。这是本次改动的全部目的（省掉继承全上下文的 fork）。
+  assert.equal(h.subagents.starts.length, 0, "空窗口不得派生执行体");
+
+  // ② 结果须与正常路径**完全同形**——调用方按 outcome/verdict/unobserved/
+  //    watermarkTurn 四处消费，缺一处就会走出不同分支。
+  assert.equal(r.outcome, "no-discovery", "与子代理报无发现同形");
+  assert.equal(r.verdict.verdict, "no-discovery", "内层字段名是落地侧既有契约（verdict.verdict）");
+  assert.equal(r.unobserved, null, "无缺口");
+  assert.equal(r.watermarkTurn, 20, "水位推进终值仍是区间终点（区间内确实无内容可丢）");
+  assert.equal(r.skipped, "empty-window", "须留下可分辨的短路标记");
+
+  // ③ 痕迹须可分辨：phase=skipped 且带确切条件，而非一个无从核对的字符串。
+  const skipped = h.events.filter((e) => e.phase === "skipped");
+  assert.equal(skipped.length, 1, "须记一条 skipped 痕迹");
+  assert.equal(skipped[0].reason, "empty-window");
+  assert.match(skipped[0].note, /§8\.4|新增内容/, "note 须说清依据（04 §8.4 观察对象=新增内容）");
+});
+
+test("空窗口但**有缺口**：**绝不短路**——缺口正是必须登记的对象", async () => {
+  // 缺口意味着内容**真实丢失过**。若短路，则「本进程没看到任何事件」这种最
+  // 严重的情形（unobserved = { from, to: null }）会被一并吞掉，使缺口既不入队
+  // 也不上报——那是把「如实登记」换成「看起来没事」。
+  const h = shortCircuitHarness();
+  h.setWindow(() => ({ items: [], truncated: false, unobserved: { from: 10, to: 20 } }));
+
+  let threw = null;
+  let r = null;
+  try {
+    r = await h.discover({ threshold: 3, candidates: [], sessionSignature: "s", window: { from: 10, to: 20 } });
+  } catch (e) { threw = e; }
+
+  assert.equal(r, null, "不得走短路返回");
+  assert.ok(threw, "须走原路径（此处的 harness 里 provider 能选中，故应正常执行）");
+  assert.ok(!h.events.some((e) => e.phase === "skipped" && e.reason === "empty-window"), "不得记空窗口短路痕迹");
+});
+
+test("缺口为「开到区间终点」（本进程什么都没看到）同样不得短路", async () => {
+  // 最严重的情形：firstObservedTurn === null → unobserved = { from, to: null }。
+  const h = shortCircuitHarness();
+  h.setWindow(() => ({ items: [], truncated: false, unobserved: { from: 10, to: null } }));
+  let skipped = false;
+  try {
+    await h.discover({ threshold: 3, candidates: [], sessionSignature: "s", window: { from: 10, to: 20 } });
+  } catch { /* 走原路径即可能因 provider 行为抛错，与短路判定无关 */ }
+  skipped = h.events.some((e) => e.phase === "skipped" && e.reason === "empty-window");
+  assert.equal(skipped, false, "「什么都没看到」不得被当成空窗口短路");
+});
+
+test("非空窗口：不短路（短路只针对真正没有材料的情形）", async () => {
+  const h = shortCircuitHarness();
+  // 材料须**含** fixture 的引文（VERDICT_SCHEMA_OK.quote = 「这是一段足够长的材料
+  // 内容原文。」）——否则落地侧的逐字引证核对会正确地拒掉它，测试便测不到短路
+  // 与否（本测试初版即栽在这里：引文不在窗口，抛错被误读成「没短路」）。
+  h.setWindow(() => ({
+    items: [{ turn: 11, user: "提问", assistant: "这是一段足够长的材料内容原文。" }],
+    truncated: false,
+    unobserved: null,
+  }));
+  const r = await h.discover({ threshold: 3, candidates: [], sessionSignature: "s", window: { from: 10, to: 20 } });
+  assert.equal(h.subagents.starts.length, 1, "有材料即须派生执行体");
+  assert.equal(r.skipped, undefined, "非空窗口不得带短路标记");
+  assert.ok(!h.events.some((e) => e.phase === "skipped"), "不得记短路痕迹");
+});
+
+test("短路判定**先于 provider 选择**：无可用 provider 时空窗口仍可短路", async () => {
+  // 若短路排在 provider 选择之后，则「没有继承上下文的 provider」会让空窗口
+  // 情形照旧抛错——而那种情形本就不该需要 provider（不派生任何东西）。
+  // 这也使短路对降级组合（无 fork 能力）同样成立。
+  const events = [];
+  const discover = createDiscoveryProvider({
+    subagents: fakeSubagents({ providers: [providerNamed("spawn", { inherits: false })] }),
+    parent: PARENT,
+    signal: SIGNAL,
+    onRun: (e) => events.push(e),
+    provideWindow: () => ({ items: [], truncated: false, unobserved: null }),
+  });
+  const r = await discover({ threshold: 3, candidates: [], sessionSignature: "s", window: { from: 10, to: 20 } });
+  assert.equal(r.skipped, "empty-window", "无 provider 也应短路成功（不派生即不需要 provider）");
+  assert.equal(events.filter((e) => e.phase === "skipped").length, 1);
+});
