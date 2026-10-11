@@ -97,6 +97,30 @@ git status --porcelain | grep '^D'      # 空（零删除）
 
 ---
 
+## 〇之四、2026-10-12 第五批归档（33 份 · 已落地提案/已承载调研/实验普查收尾）
+
+**背景**：Human 指示「docs 下有哪些可归档的，处理一下」。主控对 9 月中旬后新增的提案、决定请求、调研与实验普查逐一核查**落地证据**（git log 落盘提交 + specs 现状 + 事实源承接），33 份确认使命完成，全部 `git mv` 归档。
+
+| 类别 | 文件 | 归档依据 |
+|---|---|---|
+| 21 号提案 6 份 | `proposal-21-workcase-reviews-2026-09-16`、`proposal-21-workcase-review-gate-2026-09-17`、`proposal-21-workcase-item-level-2026-09-17`（已撤回）、`proposal-workcase-precheck-2026-09-26`、`proposal-21-pre-gate1-independent-review-2026-10-11`、`spec-revision-draft-21-pre-gate1-review-2026-10-11` | 21 §8 `reviews`、§14 提请前机械预检、Gate 1 前置建前独立审核均已落盘（`85197c0` feat: 工单 Gate 1 前置·建前独立审核，Human 决定 2026-10-11）；item-level 自述已撤回 |
+| 08→10 号系列 7 份 | `proposal-08-5-4-events-after`、`proposal-08-5-7-orchestration-seam-after`、`proposal-08-destate-after`、`proposal-08-7-7-rationale-preserved`、`proposal-08-orchestration-chapter`、`decision-request-08-orchestration-placement`、`decision-request-08-5-7-number-slot`（均 2026-10-03/04） | 08 号经 02–10 重编号为 **10 号**，§5.4 事件面、§5.7 编排接入点已并入（git log `5040536`/`cbecf43`/`847990d`）；号位裁决已作出（`7f108df` 同步 08 §5.7 号位裁决） |
+| 07 号系列 4 份 | `decision-request-07-presentation-boundary`、`plan-07-narrowing-via-06-template`、`plan-07-self-limiting-clause`、`split-07-5.5-paragraphs`（均 2026-10-09） | 07 已按 06 模板收窄落地（git log `2652563` docs: 07 按 06 模板收窄——实现与状态移入 web 设计文档）；presentation-boundary 被 plan-07 明确取代（自述「对 Human 指示的误读」） |
+| 已裁决请求 1 份 | `decision-request-design-language-authority-2026-10-04` | 紧凑标记族字号 11px 已定（Human 2026-10-05，`plugin/web/docs/01-全局设计约束.md`:85） |
+| 已落地工作稿 2 份 | `landing-04-friction-discovery`、`00-V4-V8-boundary-note-2026-10-03` | 04 §8.4 摩擦发现已落地（specs/04:222）；V4/V8 边界说明已由 00 §6.1 承载，V4 保留（00:266） |
+| Spark 提案 2 份 | `proposal-spark-priority-2026-09-13`、`spark-priority-backfill-proposal` | 20 §8 `priority` 字段已引入并回填（见〇之三依据） |
+| 已承载调研 5 份 | `dsh-0.1.2-upgrade-survey`、`dsh-0.1.5-rc2-to-0.1.6-research`、`dsh-0.1.5-rc2-to-0.1.7-rc1-research`、`dsh-0.1.7-rc1-to-0.1.7-rc2-research`、`dsh-orchestration-ecosystem-research-2026-09-26` | 结论已由受控 Research 事实对象承载（`11fbbd42`/`db146b21`/`c8746b85`/`25a34e54` 等）；调研底稿原文细节归档保留 |
+| 实验/普查 6 份 | `audit-wheel-census`、`audit-wheel-census-full`、`experiment-a1-fs-feasibility`、`experiment-a1-fs-guard`、`experiment-outputschema`、`experiment-outputschema-spec30`（均 2026-10-03） | 轮子普查结论已落地：会话日志宿主路径换接、A1「换通道留基准」已实施（git log `7a92cfd` refactor(plugin): spark 写入接入宿主 fs 链路）；实验为一次性探针，结论已被普查修订引用 |
+| 已闭合产物 2 份 | `pitfall-proposal-spa-base-white-screen`、`workcase-f80c65d9-idle-friction-spec-revision` | SPA 白屏 C1 提案已建成 Pitfall `af594d4d`；闲时摩擦工单 `f80c65d9` 已 closed（outcome=completed），v7 工作稿使命完成 |
+
+**保留不归档（仍有开放项）**：`decision-request-07-result-section-narrowing`（裁决闭环未见）、`proposal-08-structured-delegation`（Human 决定未取得）、`spec-candidate-33-compliance-system`（35 号位未起草，仍是起草输入）、`spec-system-audit`/`spec-system-issue-ledger`（台账仍待处置）、`web-workcase-v4-residue-census`（认知中心待办链未定）、全部 `review-*`/`p0-*`/`incident-*`/`dev-memo` 等效力证据与唯一记录。
+
+**纪律**：全部 `git mv`，零删除。
+
+**累计效果**：本批后实测——docs 根目录 .md **114 → 81**、`archive/` .md **53 → 86**（含 README 自身）。
+
+---
+
 ## 一、为什么归档而不是删除
 
 | 理由 | 说明 |
