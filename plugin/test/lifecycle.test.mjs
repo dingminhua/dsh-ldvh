@@ -205,11 +205,17 @@ function makeHostCtx() {
 	return ctx;
 }
 
-function makeInstallableAgent(id, cwd, ctx, { root = true } = {}) {
+function makeInstallableAgent(id, cwd, ctx, { root = true, origin, parentSession } = {}) {
 	const disposers = [];
+	// `origin` / `parentSession` 按宿主真实会话头的形状注入（可缺省＝字段不存在）。
+	// 二者是本插件识别子代理的两条判据，故测试必须能分别构造——早期 helper 只造
+	// `{id, cwd}`，使「子代理识别」在测试里**无法表达**，这正是缺陷长期未被发现的原因。
+	const header = { id, cwd };
+	if (origin !== undefined) header.origin = origin;
+	if (parentSession !== undefined) header.parentSession = parentSession;
 	const agent = {
 		id,
-		session: { header: { id, cwd } },
+		session: { header },
 		ctx: {
 			effect: (fn) => {
 				// cordis effect runs the setup immediately and keeps the cleanup.
@@ -266,6 +272,66 @@ test("lifecycle: start() adopts live roots; agent/created installs; non-roots sk
 		ctx.agents = { roots: () => [live, fresh] };
 		ctx.fire("agent/created", { agent: fresh });
 		assert.deepEqual(registry.installedAgentIds().sort(), ["s-live", "s-new"].sort());
+	});
+});
+
+test("lifecycle: 子代理按 parentSession 识别——origin 缺失的宿主上仍须走 child 路径", async () => {
+	// ## 缺陷经过（2026-10-11 实测）
+	//
+	// `install()` 原先只用 `origin === "subagent"` 识别子代理。本宿主上该字段
+	// **不存在**（实测 48 个会话——44 根 + 4 子代理——`origin` 全为 `null`），判据
+	// 恒为假；而下一道 `roots()` 关也没拦住（宿主把子代理也算作 root）。后果：
+	// 子代理被完整 install、挂上 idle 检查点触发器，于是**执行时又派生自己的子代理**，
+	// 并用自己的 session id 读写水位与冷却状态，使节流按会话分家——实测冷却配置
+	// 600 秒而实际间隔 1 秒。
+	//
+	// 修法是补 `parentSession` 判据（取自 dsh-auto-memory lib/index.js:4971，其注释
+	// 写明目的是「避免子代理轮次误沉淀」——同一失效面）。
+	await withTemp("ldvh-lc.", async (base) => {
+		const home = join(base, "home");
+		const repo = await initRepo(base);
+		await registerProject(dshHome(home), { id: "demo", path: repo });
+
+		const ctx = makeHostCtx();
+		const live = makeInstallableAgent("s-live", repo, ctx);
+		ctx.agents = { roots: () => [live] };
+		const sessionScopes = createSessionScopes();
+		const registry = createLifecycleRegistry(ctx, { dshHomePath: dshHome(home), workspaceRoot: base, sessionScopes });
+		registry.start();
+		assert.deepEqual(registry.installedAgentIds(), ["s-live"], "根会话照常 install 在前");
+
+		// ★ 核心：origin 缺失、但有 parentSession —— 必须走 child 路径，不得 install。
+		// 关键在**同时**把它放进 roots()：那正是实测中绕过第二道关的条件。
+		const sub = makeInstallableAgent("s-sub-ps", repo, ctx, { parentSession: "s-live" });
+		ctx.agents = { roots: () => [live, sub], get: () => live };
+		ctx.fire("agent/created", { agent: sub });
+		assert.deepEqual(
+			registry.installedAgentIds(),
+			["s-live"],
+			"有 parentSession 者即使被算作 root，也不得被 install（否则它会挂上 idle 检查点并再派生）",
+		);
+		// childSnapshots 是登记面暴露的读取口（不是另加 accessor）。
+		assert.deepEqual(
+			registry.childSnapshots().map((c) => c.agentId),
+			["s-sub-ps"],
+			"而应走 child 路径",
+		);
+
+		// 对照：origin 形态（提供该字段的宿主）仍然生效，两条判据不互相替代。
+		const subByOrigin = makeInstallableAgent("s-sub-origin", repo, ctx, { origin: "subagent" });
+		ctx.agents = { roots: () => [live, subByOrigin], get: () => live };
+		ctx.fire("agent/created", { agent: subByOrigin });
+		assert.deepEqual(registry.installedAgentIds(), ["s-live"], "origin 判据仍单独生效");
+
+		// 边界：空串 / 纯空白**不算**子代理（不得因字段存在就一律当子代理，
+		// 那会把根会话误拦——根会话的该字段实测为 null，但空串也应同样处理）。
+		const blank = makeInstallableAgent("s-blank", repo, ctx, { parentSession: "   " });
+		ctx.agents = { roots: () => [live, blank] };
+		ctx.fire("agent/created", { agent: blank });
+		assert.ok(
+			registry.installedAgentIds().includes("s-blank"),
+			"纯空白的 parentSession 不得被当作子代理（否则根会话会被误拦）",
+		);
 	});
 });
 

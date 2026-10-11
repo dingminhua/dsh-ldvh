@@ -213,6 +213,28 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       installChild(agent);
       return;
     }
+    // ── 子代理识别的第二判据：parentSession（2026-10-11 补）──────────────
+    //
+    // **为什么必须有这一条**：上面那条用 `origin`，而本宿主上该字段**不存在**
+    // （2026-10-11 实测 48 个会话——44 根 + 4 子代理——`origin` 全部为 `null`）。
+    // 于是判据恒为假，子代理**不走 child 路径**，而下一道 `roots()` 关也没能拦住
+    // 它（宿主把子代理也算作 root）。后果：子代理被完整 install，挂上 idle 检查点
+    // 触发器，于是它**执行时又派生自己的子代理**；同时它用自己的 session id 读写
+    // 水位与冷却状态，使节流按会话分家——实测冷却配置 600 秒、实际间隔 1 秒。
+    //
+    // **判据取自参考实现**：`dsh-auto-memory`（`lib/index.js:4971`）用
+    // `header.parentSession` 非空判定子代理，其注释写明目的是「只处理顶层会话…
+    // **避免子代理轮次误沉淀**」——同一个失效面。`dsh-mnemon` 用 `origin`，
+    // 但它的宿主上该字段可用，故此处不能照抄。
+    //
+    // **与 `origin` 的关系**：两者**任一为真即走 child 路径**，不互相替代——
+    // `origin` 在提供该字段的宿主上是更明确的信号，`parentSession` 是可移植的
+    // 兜底。不删 `origin` 那条：删了会在提供 origin 的宿主上退化为只靠兜底。
+    const parentSession = agent?.session?.header?.parentSession;
+    if (typeof parentSession === "string" && parentSession.trim().length > 0) {
+      installChild(agent);
+      return;
+    }
     // Roots-only gate: the agents service is read via ctx.get: host
     // compositions always provide it, but a minimal test/fabricated ctx may
     // not — absence means there is no roster to check against, which we
