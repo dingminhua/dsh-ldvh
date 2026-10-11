@@ -435,12 +435,14 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             }
           }
 
-          // §8.4 第 1 项的执行体：派一个**继承主控上下文**的受管辖隔离子代理去做
-          // 语义查重，并取回它的结构化判断。仅对 `idle-review` 需要（其余任务尚未
-          // 实现，runIdleCheckpoint 会如实报 not-implemented）。
+          // §8.4 第 1 项的执行体：以**零上下文**派生（spawn）一个受管辖隔离子代理，
+          // 判断输入由调度侧机械交付（窗口原文材料 + 候选账本投影），取回它的结构化
+          // 判断（04 §8.4「执行体与上下文供给」段，Human 决定 2026-10-12）。仅对
+          // `idle-review` 需要（其余任务尚未实现，runIdleCheckpoint 会如实报
+          // not-implemented）。
           //
           // 依赖缺失时**不传 discover**，使 runIdleCheckpoint 如实报 skipped——
-          // 那比"派一个零上下文的子代理冒充判断"诚实得多（§8.4 要求继承上下文）。
+          // 那比"在输入不全时硬派一个子代理冒充判断"诚实得多。
           let discover;
           // 清单里含 `idle-review` 就构造执行体——多任务派发**一次**，故这里不再
           // 判「本次轮到的任务是不是它」，而是判「本次是否要求做它」。
