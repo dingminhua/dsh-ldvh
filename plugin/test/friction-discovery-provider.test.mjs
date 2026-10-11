@@ -125,6 +125,16 @@ test("discover：以 outputSchema 与零上下文 provider 调用 start（§8.4 
   assert.equal(out.watermarkTurn, 5, "成功完成才给出推进凭据");
 });
 
+test("prompt：公共段声明零上下文派生 + 机械交付，旧「继承主控上下文」措辞不得残留", async () => {
+  const svc = fakeSubagents({ providers: [providerNamed("spawn")] });
+  const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
+  await discover({ threshold: 3, candidates: CANDIDATES, window: { to: 5, items: [{ turn: 5, assistant: "这是一段足够长的材料内容原文。" }] } });
+  const text = svc.starts[0].request.prompt[0].text;
+  assert.match(text, /零上下文/);
+  assert.match(text, /机械交付/);
+  assert.doesNotMatch(text, /你继承发起会话的主控上下文/, "旧继承措辞不得残留（04 §8.4 上下文供给段，2026-10-12）");
+});
+
 test("discover：run 被释放（holder-owned）", async () => {
   let disposed = 0;
   const svc = fakeSubagents({
@@ -317,7 +327,7 @@ test("D6：无缺口时 unobserved 为 null（不得误报）", async () => {
 /** 空窗口短路测试专用的 provider：若被 start 即记为「不该发生」。 */
 function shortCircuitHarness() {
   const events = [];
-  const subagents = fakeSubagents({ providers: [providerNamed("fork", { inherits: true })] });
+  const subagents = fakeSubagents({ providers: [providerNamed("spawn")] });
   const discover = createDiscoveryProvider({
     subagents,
     parent: PARENT,
@@ -397,12 +407,12 @@ test("非空窗口：不短路（短路只针对真正没有材料的情形）",
 });
 
 test("短路判定**先于 provider 选择**：无可用 provider 时空窗口仍可短路", async () => {
-  // 若短路排在 provider 选择之后，则「没有继承上下文的 provider」会让空窗口
+  // 若短路排在 provider 选择之后，则「没有零上下文的 provider」会让空窗口
   // 情形照旧抛错——而那种情形本就不该需要 provider（不派生任何东西）。
-  // 这也使短路对降级组合（无 fork 能力）同样成立。
+  // 这也使短路对降级组合（无 spawn 能力）同样成立。
   const events = [];
   const discover = createDiscoveryProvider({
-    subagents: fakeSubagents({ providers: [providerNamed("spawn", { inherits: false })] }),
+    subagents: fakeSubagents({ providers: [providerNamed("fork", { inherits: true })] }),
     parent: PARENT,
     signal: SIGNAL,
     onRun: (e) => events.push(e),

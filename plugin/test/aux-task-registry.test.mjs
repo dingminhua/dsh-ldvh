@@ -304,8 +304,8 @@ async function runWithTwoTasks(structured) {
   const registry = { ...AUX_TASK_REGISTRY, "capacity-maintenance": fakeSecondTask() };
   let captured = null;
   const subagents = {
-    list: () => ["fork"],
-    getProvider: () => ({ inheritsParentContext: true, capabilities: { outputSchema: true } }),
+    list: () => ["spawn"],
+    getProvider: () => ({ inheritsParentContext: false, capabilities: { outputSchema: true } }),
     start: async (name, req) => {
       captured = req;
       return { id: "run", result: Promise.resolve({ stopReason: "completed", structured }), dispose: async () => {} };
@@ -386,8 +386,8 @@ test("N=2 逐任务校验：某任务的校验器**抛错**不掀掉另一件（
     "capacity-maintenance": fakeSecondTask({ validate: () => { throw new Error("校验器爆炸"); } }),
   };
   const subagents = {
-    list: () => ["fork"],
-    getProvider: () => ({ inheritsParentContext: true, capabilities: { outputSchema: true } }),
+    list: () => ["spawn"],
+    getProvider: () => ({ inheritsParentContext: false, capabilities: { outputSchema: true } }),
     start: async () => ({
       id: "r",
       result: Promise.resolve({ stopReason: "completed", structured: { "idle-review": GOOD_VERDICT, "capacity-maintenance": { entries: "x" } } }),
