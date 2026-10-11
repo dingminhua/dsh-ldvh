@@ -9,7 +9,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { landDiscoveryVerdict } from "../lib/friction-landing.js";
+import {
+	MAX_RESIDUAL_ISSUES,
+	landDiscoveryVerdict,
+	residualFromLandingError
+} from "../lib/friction-landing.js";
 import { readFrictionObject, listFrictionObjects } from "../lib/friction-writer.js";
 import { withTemp, testSignature } from "./helpers.mjs";
 
@@ -435,4 +439,69 @@ test("发现①护栏：lifecycle 须在落地成功之后才推进水位（顺�
     !/advanceWatermark/.test(failBranchBody),
     "落地失败分支内出现了 advanceWatermark——失败时不得推进水位",
   );
+});
+
+// ---------------------------------------------------------------------------
+// 落地失败的诊断明细不得在接缝处丢失（2026-10-11 实测缺陷）
+// ---------------------------------------------------------------------------
+//
+// ## 缺陷经过
+//
+// 各 writer 的失败形状是 `{ code, message, details:{ issues } }`，而 `lifecycle.js`
+// 记待处置队列时只取 `cause.message`——即那句恒定的「frontmatter failed mechanical
+// checks」。实测样本：条目 `f333ef12`（2026-10-11T05:56:34Z）的 `residual` 只有
+// `["frontmatter failed mechanical checks"]`，**逐条校验明细被完整丢弃**。
+//
+// Human 拿到这样的条目无法判断该改什么；而本模块的四处 `cause`（第 2/3/4 项及
+// 新账目的流转）全都走这条路。性质与机制自建的账目「以产物缺席作否定判据致连续
+// 错判」同类：**信息在接缝处丢失，使下游基于不完整材料判断**。
+
+test("residualFromLandingError：**逐条校验明细**必须带出（此前只留恒定套话）", () => {
+  // 用**真实形状**构造：writer 的 failure() → landing 的 failure({cause})
+  const writerError = {
+    code: "friction/frontmatter_invalid",
+    message: "frontmatter failed mechanical checks",
+    details: { issues: ["title: must be ≤ 30 characters (26 §8), got 31", "phenomenon: must be a single readable sentence"] },
+  };
+  const landedError = {
+    message: "04 §8.4 第 3 项（创建 observing 账目）失败：frontmatter failed mechanical checks",
+    cause: writerError,
+  };
+  const residual = residualFromLandingError(landedError);
+  assert.deepEqual(residual, writerError.details.issues, "明细须逐条原样带出");
+  assert.ok(
+    !residual.includes("frontmatter failed mechanical checks"),
+    "不得只留恒定套话——那正是本次缺陷",
+  );
+});
+
+test("residualFromLandingError：明细为**空数组**时才退回 message（须给出类别）", () => {
+  // writer 的所有 failure 都带 details（默认 {}），故事实上 issues 常为 undefined。
+  assert.deepEqual(residualFromLandingError({ cause: { message: "某类别错误", details: {} } }), ["某类别错误"]);
+  assert.deepEqual(residualFromLandingError({ cause: { message: "某类别错误", details: { issues: [] } } }), ["某类别错误"]);
+  // 连 cause 都没有 → 退到本次 failure 自己的 message，residual 不得为空数组。
+  assert.deepEqual(residualFromLandingError({ message: "顶层 message" }), ["顶层 message"]);
+});
+
+test("residualFromLandingError：非法与缺失输入不得抛错，也不得伪造内容", () => {
+  for (const bad of [undefined, null, {}, { cause: null }, { cause: {} }]) {
+    const r = residualFromLandingError(bad);
+    assert.ok(Array.isArray(r), "任何输入都须返回数组");
+  }
+  assert.deepEqual(residualFromLandingError(undefined), [], "无输入 → 空（不编造）");
+  assert.deepEqual(residualFromLandingError({}), [], "全空 → 空");
+});
+
+test("residualFromLandingError：明细过多须**显式标注截断**，不得静默丢弃", () => {
+  // 截断本身可接受（队列条目要有界），但静默截断会让读者以为「就这么多」。
+  const many = Array.from({ length: MAX_RESIDUAL_ISSUES + 3 }, (_, i) => `issue-${i}`);
+  const r = residualFromLandingError({ cause: { details: { issues: many } } });
+  assert.equal(r.length, MAX_RESIDUAL_ISSUES + 1, "恰好留上限条 + 1 条截断说明");
+  assert.ok(r[r.length - 1].includes("另有 3 条"), "须写明还有多少条未列出");
+  assert.equal(r[0], "issue-0", "保留的是前 N 条（确定性，与 clamp 前缀规则一致）");
+});
+
+test("residualFromLandingError：明细里的空串/空白项须剔除，不得占位", () => {
+  const r = residualFromLandingError({ cause: { details: { issues: ["真的明细", "", "   ", null] } } });
+  assert.deepEqual(r, ["真的明细"], "空项不进入 residual");
 });

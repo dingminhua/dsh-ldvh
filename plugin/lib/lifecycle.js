@@ -28,7 +28,7 @@ import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
 import { createTurnTriggers } from "./triggers.js";
 import { runIdleCheckpoint, selectAuxTask } from "./idle-checkpoint.js";
 import { createDiscoveryProvider } from "./friction-discovery-provider.js";
-import { landDiscoveryVerdict } from "./friction-landing.js";
+import { landDiscoveryVerdict, residualFromLandingError } from "./friction-landing.js";
 import { advanceWatermark, readWatermark, readDispatchState, recordDispatch } from "./friction-watermark.js";
 import { admitIdleDispatch, pickEnabledAuxTask } from "./idle-settings.js";
 import { recordRun } from "./idle-runlog.js";
@@ -539,7 +539,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 await appendPendingEntry(dshHomePath, {
                   task: taskForThisCheckpoint,
                   reason: `闭集落地失败（${landed.error?.stage ?? "unknown"}）：${landed.error?.message ?? "unknown"}`,
-                  residual: landed.error?.cause ? [String(landed.error.cause.message ?? landed.error.cause)] : [],
+                  // 提炼**完整**诊断（含逐条校验明细），不把 issues 丢掉——
+                  // 详见 friction-landing.js 的 residualFromLandingError。
+                  residual: residualFromLandingError(landed.error),
                   at: new Date().toISOString(),
                 });
                 // **不推进水位**（复核发现①的修复）：落地失败即本次未产出，窗口

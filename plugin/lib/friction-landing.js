@@ -51,6 +51,63 @@ function failure(code, message, extra = {}) {
 }
 
 /**
+ * 把一次落地失败的**完整**诊断信息摊成待处置队列的 `residual` 行。
+ *
+ * ## 为什么需要它（2026-10-11 实测缺陷）
+ *
+ * 各 writer 的失败对象形状是 `{ code, message, details }`，其中 `details.issues`
+ * 承载**逐条校验明细**（例如「title 须 ≤ 30 字」「occurrence.count 初值须为 1」）。
+ * 而队列此前只取 `cause.message`——即那句恒定的「frontmatter failed mechanical
+ * checks」。后果：一条真实的落账失败在队列里**只留下无信息的套话**，Human 拿到
+ * 它无法判断该改什么；本模块的四处 `cause`（第 2/3/4 项及新账目流转）全都如此。
+ *
+ * 实测样本：条目 `f333ef12`（2026-10-11T05:56:34Z）的 `residual` 只有
+ * `["frontmatter failed mechanical checks"]`——**校验明细在传递链上被丢弃**。
+ * 这与机制自建的账目「以产物缺席作否定判据致连续错判」同属一类：**信息在接缝
+ * 处丢失，使下游基于不完整材料判断**。
+ *
+ * ## 纪律
+ *
+ * - **只做提取，不做解释**：明细原样带出，不翻译、不归纳（§14 第 6 条：不复制
+ *   宿主/下位实现语义）。
+ * - **尽可能无损**：明细缺失时才退回 `message`；两者都没有才给兜底串。
+ * - **有界**：明细条数可能很多，截到 `MAX_RESIDUAL_ISSUES` 并显式标注截断——
+ *   静默丢弃与静默膨胀都不行。
+ */
+export const MAX_RESIDUAL_ISSUES = 12;
+
+export function residualFromLandingError(error) {
+  if (error === undefined || error === null) return [];
+  const cause = error.cause;
+  const lines = [];
+  // ① 逐条校验明细（`details.issues`）——最要紧的部分，此前被完整丢弃。
+  const issues = cause?.details?.issues;
+  if (Array.isArray(issues)) {
+    for (const issue of issues) {
+      if (lines.length >= MAX_RESIDUAL_ISSUES) break;
+      const text = String(issue ?? "").trim();
+      if (text.length > 0) lines.push(text);
+    }
+    if (issues.length > MAX_RESIDUAL_ISSUES) {
+      lines.push(`（另有 ${issues.length - MAX_RESIDUAL_ISSUES} 条明细未列出）`);
+    }
+  }
+  // ② 明细为空时才退回 message——它至少给出错误类别。
+  if (lines.length === 0) {
+    const message = cause?.message ?? cause;
+    if (message !== undefined && message !== null && String(message).trim().length > 0) {
+      lines.push(String(message));
+    }
+  }
+  // ③ 连 cause 都没有：退到本次 failure 自己的 message（调用方已带在 reason 里，
+  //    但 residual 为空会让队列读者看不出「有没有残留」）。
+  if (lines.length === 0 && typeof error.message === "string" && error.message.trim().length > 0) {
+    lines.push(error.message);
+  }
+  return lines;
+}
+
+/**
  * 把一个已通过落地校验的 verdict 写成账目（§8.4 第 2–4 项）。
  *
  * 参数：
