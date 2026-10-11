@@ -387,7 +387,10 @@ test("web mount placements: two checkboxes gated by the master switch + refresh 
 	assert.ok(source.includes('convTabState') && source.includes('sidebarTabState'), "settings row keeps placement states");
 	// 0.1.7 起 SettingsFormScope 没有 set(key, value)：写必须是带 revision fence 的
 	// 一次原子 mutate（调研 §3.2/§3.3），且三个字段一次提交。
-	assert.ok(source.includes('scope.mutate(['), "save must use the revision-fenced mutate of SettingsFormScope");
+	// 2026-10 起写路径改为先构造 operations 数组再一次提交（参数表 driving，见
+	// IDLE_LIMITS），故断言从字面量 `scope.mutate([` 改为「一次调用 + revision fence」
+	// ——后者才是契约本身，前者只是当时的写法。
+	assert.match(source, /scope\.mutate\(operations, snap\.revision\)/, "save must use the revision-fenced mutate of SettingsFormScope");
 	assert.ok(source.includes('{ op: "set", path: ["showInConversationTab"]'), "save persists the conversation placement");
 	assert.ok(source.includes('{ op: "set", path: ["showInSidebarTab"]'), "save persists the sidebar placement");
 	assert.ok(!source.includes('scope.set("'), "legacy scope.set(key, value) must be gone");
@@ -491,14 +494,12 @@ test("未实现的子项须在设置面**当场标出**（不得让开关看起�
 test("数值参数的默认值与服务端**同源**：不得在两处各写一套", async () => {
   // 客户端默认 600000/800/3/8 必须与服务端 idle-settings.js 的 IDLE_DEFAULTS 一致。
   // 两处漂移会让「设置页显示 A、实际生效 B」——用户永远看不到真实值。
-  const read = (source.match(/idleMinIntervalMs: String\(value\.idleMinIntervalMs !== undefined \? value\.idleMinIntervalMs : (\d+)\)/) || [])[1];
-  assert.equal(read, "600000", "客户端默认最小间隔须为 600000（与服务端一致）");
-  const chars = (source.match(/idleMinContentChars: String\(value\.idleMinContentChars !== undefined \? value\.idleMinContentChars : (\d+)\)/) || [])[1];
-  assert.equal(chars, "800", "客户端默认字符门槛须为 800");
-  const turns = (source.match(/idleMinContentTurns: String\(value\.idleMinContentTurns !== undefined \? value\.idleMinContentTurns : (\d+)\)/) || [])[1];
-  assert.equal(turns, "3", "客户端默认轮数门槛须为 3");
-  const max = (source.match(/idleMaxPerSession: String\(value\.idleMaxPerSession !== undefined \? value\.idleMaxPerSession : (\d+)\)/) || [])[1];
-  assert.equal(max, "8", "客户端默认会话上限须为 8");
+  // 2026-10 起默认值集中在一张表（此前散落在 state 初值里，改一处漏三处）。
+  const defaults = source.match(/var IDLE_DEFAULT_STORED = \{([\s\S]*?)\};/) || [];
+  assert.ok(defaults[1], "须有 IDLE_DEFAULT_STORED 表");
+  for (const [key, value] of [["idleMinIntervalMs", 600000], ["idleMinContentChars", 800], ["idleMinContentTurns", 3], ["idleMaxPerSession", 8]]) {
+    assert.match(defaults[1], new RegExp(`${key}: ${value}`), `客户端默认 ${key} 须为 ${value}`);
+  }
 
   // 与服务端文件逐字比对（真同源，不只是「我抄对了」）。
   const server = await readFile(new URL("../lib/idle-settings.js", import.meta.url), "utf8");
@@ -507,12 +508,44 @@ test("数值参数的默认值与服务端**同源**：不得在两处各写一�
   }
 });
 
-test("参数非法时**不写入**（不得把 NaN 送进宿主再被静默回落）", () => {
-  // 服务端 readNumber 会把 NaN 回落默认值——那会让用户看到的数与生效值不一致。
-  // 故客户端必须在写入前拦住，并如实报失败。
-  assert.match(source, /function idleLimitOk\(text\)/, "须有合法性判定");
-  assert.match(source, /Number\.isInteger\(n\) && n >= 0/, "判据须是非负整数（与服务端同口径）");
+test("参数非法时**不写入**（不得把非法值送进宿主再被静默回落）", () => {
+  // 服务端 readNumber 把「NaN / 负 / 非有限」回落默认值——那会让用户看到的数
+  // 与生效值不一致。故客户端必须在写入前拦住，并如实报失败。
+  //
+  // 注意判据**不是「非负整数」**：服务端接受任何非负有限数（含小数），故客户端
+  // 也不能凭空收紧。真正的判据是「按 scale 换算后能原样还原」——见下一条。
+  assert.match(source, /function idleLimitOk\(text, scale\)/, "须有合法性判定（带 scale）");
   assert.match(source, /if \(!idleLimitsAllOk\(idleLimitsState\[0\]\)\) \{\s*saveErrorState\[1\]\(true\);\s*return;\s*\}/, "非法时须拦下写入并报失败");
+});
+
+test("时间参数以**分钟**读写，存储仍是毫秒（scale 单一来源，不得两处各写一套）", () => {
+  // 界面按分钟、存储按毫秒。两者由 IDLE_LIMITS 的 scale 单向决定，
+  // 不得在 UI 那一处再写一套换算（否则改单位时会漏改一处）。
+  assert.match(source, /var IDLE_LIMITS = \[/, "须有参数表");
+  assert.match(source, /\{ key: "idleMinIntervalMs", scale: 60000 \}/, "时间参数 scale 须为 60000（分钟↔毫秒）");
+  // 其余三个以 1 为 scale（字面量，无单位换算）。
+  for (const key of ["idleMinContentChars", "idleMinContentTurns", "idleMaxPerSession"]) {
+    assert.match(source, new RegExp(`\\{ key: "${key}", scale: 1 \\}`), `${key} 的 scale 须为 1`);
+  }
+  // 标签须写明单位是分钟（不得仍写「毫秒」）。
+  assert.match(source, /"row\.idleMinIntervalMs": "最小间隔（分钟）"/, "中文标签单位须为分钟");
+  assert.match(source, /"row\.idleMinIntervalMs": "Minimum interval \(minutes\)"/, "英文标签单位须为分钟");
+  assert.doesNotMatch(source, /"row\.idleMinIntervalMs": "最小间隔（毫秒）"/, "不得残留毫秒标签");
+  // UI 循环须走参数表，不得再内联一份 key/label 清单。
+  assert.match(source, /IDLE_LIMITS\.map\(function \(limit\) \{/, "UI 须遍历参数表");
+  assert.doesNotMatch(source, /\{ key: "idleMinIntervalMs", label: "row\.idleMinIntervalMs" \}/, "UI 不得再内联参数清单");
+});
+
+test("换算判据是**往返回损**，而非「必须是整数」（不得凭空收紧服务端口径）", () => {
+  // 服务的 readNumber 接受任何非负有限数，含小数。客户端若只允许整数，就是
+  // 凭空收紧——用户输入一个服务端本来接受的值却被界面拒绝，且无从知道原因。
+  assert.match(source, /function idleLimitToStored\(text, scale\)/, "须有换算函数");
+  assert.match(source, /if \(Number\(idleLimitToText\(stored, scale\)\) !== n\) return undefined;/, "须做往返回损检查");
+  // 该判据不得写成「n 必须是整数」——那是收紧。
+  assert.doesNotMatch(source, /Number\.isInteger\(n\) && n >= 0\) return undefined;\s*\n\s*var stored/, "不得把「输入是整数」当判据");
+  // 非时间参数（scale=1）下，小数仍会被拦——但理由是无损性（800.5 字不成立），
+  // 不是「禁止小数」。两条断言并存即说明该判据是通用的。
+  assert.match(source, /if \(!Number\.isInteger\(stored\) \|\| stored < 0\) return undefined;/, "仍须拒绝换算出非整数的值");
 });
 
 test("参数区如实声明**规范依据待 Human Gate**（不得把未批参数当已生效规则呈现）", () => {

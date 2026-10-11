@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
       "row.notImplementedHint": "后端能力尚未实现：开启后宜主仍会如实回报 not-implemented，不会假装已跑。",
       "row.idleLimits": "调度参数",
       "row.idleLimitsHint": "编辑后需点「保存」生效。",
-      "row.idleMinIntervalMs": "最小间隔（毫秒）",
+      "row.idleMinIntervalMs": "最小间隔（分钟）",
       "row.idleMinContentChars": "内容字符数门槛",
       "row.idleMinContentTurns": "内容轮数门槛",
       "row.idleMaxPerSession": "每会话上限（0 = 不限）",
@@ -375,7 +375,7 @@ window.__ModuleLoader__.load({
       "row.notImplementedHint": "The backend capability does not exist yet: enabling it still reports not-implemented rather than pretending to run.",
       "row.idleLimits": "Dispatch limits",
       "row.idleLimitsHint": "Takes effect after clicking Save.",
-      "row.idleMinIntervalMs": "Minimum interval (ms)",
+      "row.idleMinIntervalMs": "Minimum interval (minutes)",
       "row.idleMinContentChars": "Content char threshold",
       "row.idleMinContentTurns": "Content turn threshold",
       "row.idleMaxPerSession": "Per-session cap (0 = unlimited)",
@@ -587,6 +587,66 @@ window.__ModuleLoader__.load({
     }
 
     // ── LdvhSettingsRow: governed projects + web switch ──────────────────
+    /**
+     * 闲时辅助的四个数值参数（**单一来源**；同 dsh-mnemon 的 `LIMITS`）。
+     *
+     * `scale` 是「**显示单位**与**存储单位**的比値」：界面上用分钟读写，而存进
+     * Config 的是**毫秒**（服务端 `idle-settings.js` 按毫秗判定）。与 mnemon 的
+     * `minIntervalMs` 用 `scale: 1000` 同法——用户不应该被要求往输入框里敲
+     * 六位数字。
+     *
+     * **单位只在这里定一次**：标签文案取自 `row.<key>单位` 词条，读取与写入
+     * 都过 `scale`，不得在 UI 那一段另写一套换算。
+     */
+    var IDLE_LIMITS = [
+      { key: "idleMinIntervalMs", scale: 60000 },
+      { key: "idleMinContentChars", scale: 1 },
+      { key: "idleMinContentTurns", scale: 1 },
+      { key: "idleMaxPerSession", scale: 1 }
+    ];
+    /**
+     * 四个参数的**存储单位**默认值——**必须与服务端
+     * `idle-settings.js` 的 `IDLE_DEFAULTS` 逐字一致**（有契约测试比对两处）。
+     * 两处漂移会让「设置页显示 A、实际生效 B」——用户永远看不到真实值。
+     */
+    var IDLE_DEFAULT_STORED = {
+      idleMinIntervalMs: 600000,
+      idleMinContentChars: 800,
+      idleMinContentTurns: 3,
+      idleMaxPerSession: 8
+    };
+    /** 存储值 → 界面文本（除以 scale）。非法存储值落回空串（由校验拦下）。 */
+    function idleLimitToText(value, scale) {
+      if (value === undefined || value === null || value === "") return "";
+      var n = Number(value);
+      if (!Number.isFinite(n) || n < 0) return "";
+      return String(n / scale);
+    }
+    /**
+     * 界面文本 → 存储值（乘以 scale）。非法文本返回 `undefined`。
+     *
+     * **判据含一道「往返无损」检查**：存起来的值除回去必须与用户输入的数一致。
+     *
+     * 为什么单靠 `Number.isInteger(stored)` 不够：浮点乘法会让某些分钟值乘出**看似
+     * 整数但实为舍入**的结果，而那个结果除回去已不是原数——用户下次
+     * 打开设置页看到的数与他输入的对不上，且毫无提示。
+     *
+     * **但不得把它误用为「不允许小数」**：实测 `0.333 分钟 = 19980 毫秒`
+     * 往返**确实无损**（`19980 / 60000` 精确等于 `0.333`），故它是合法输入。
+     * 本判据只拦「换算后不能原样还原」的值，不拦小数。
+     */
+    function idleLimitToStored(text, scale) {
+      if (typeof text !== "string" || text.trim() === "") return undefined;
+      var n = Number(text);
+      if (!Number.isFinite(n) || n < 0) return undefined;
+      var stored = n * scale;
+      if (!Number.isInteger(stored) || stored < 0) return undefined;
+      // 往返无损：存起来的值除回去必须与用户输入的数字一致。
+      // 用数值比较而非字符串比较（`"10"` 与 `"10.0"` 是同一个数）。
+      if (Number(idleLimitToText(stored, scale)) !== n) return undefined;
+      return stored;
+    }
+
     function LdvhSettingsRow(props) {
       var t = props.t;
       var scope = props.settingsScope;
@@ -601,22 +661,29 @@ window.__ModuleLoader__.load({
       var idleReviewState = React.useState(value.idleReviewEnabled !== false);
       var idleCapacityState = React.useState(value.capacityMaintenanceEnabled === true);
       var idleMemoryState = React.useState(value.memoryHealthEnabled === true);
-      var idleLimitsState = React.useState({
-        idleMinIntervalMs: String(value.idleMinIntervalMs !== undefined ? value.idleMinIntervalMs : 600000),
-        idleMinContentChars: String(value.idleMinContentChars !== undefined ? value.idleMinContentChars : 800),
-        idleMinContentTurns: String(value.idleMinContentTurns !== undefined ? value.idleMinContentTurns : 3),
-        idleMaxPerSession: String(value.idleMaxPerSession !== undefined ? value.idleMaxPerSession : 8)
-      });
-      // 四个参数的合法判定（与服务端 `idle-settings.js` 的 `readNumber` 同口径：
-      // 非负整数）。空串与非数字都是非法——那正是存成字符串而非数字的理由（数字类型
-      // 无法表达「用户把它删空了」）。
-      function idleLimitOk(text) {
-        if (typeof text !== "string" || text.trim() === "") return false;
-        var n = Number(text);
-        return Number.isInteger(n) && n >= 0;
+      // 界面上的四个值按它们**各自的显示单位**存放（见 IDLE_LIMITS 的 scale）。
+      // 缺省值用**存储单位**给出，再过同一条换算——而不在这里另写一份「分钟数」，
+      // 否则改默认值时会漏改一处。
+      var idleLimitsState = React.useState((function () {
+        var out = {};
+        IDLE_LIMITS.forEach(function (limit) {
+          var stored = value[limit.key] !== undefined ? value[limit.key] : IDLE_DEFAULT_STORED[limit.key];
+          out[limit.key] = idleLimitToText(stored, limit.scale);
+        });
+        return out;
+      })());
+      // 四个参数的合法判定——判的是**存储值**（毫秒），不是界面文本。
+      //
+      // 为什么必须判存储值：界面以分钟读写，而分钟×60000 可能得到非整数
+      // （如用户输入 `0.333`）——那个值送进 Config 后，服务端的整数判定会把
+      // 它当非法而静默回落默认，用户看到的与生效的就不一致。故在这里就拦下。
+      function idleLimitOk(text, scale) {
+        return idleLimitToStored(text, scale) !== undefined;
       }
       function idleLimitsAllOk(limits) {
-        return Object.keys(limits).every(function (key) { return idleLimitOk(limits[key]); });
+        return IDLE_LIMITS.every(function (limit) {
+          return idleLimitOk(limits[limit.key], limit.scale);
+        });
       }
       var dirtyState = React.useState(false);
       var busyState = React.useState(false);
@@ -663,12 +730,14 @@ window.__ModuleLoader__.load({
         idleReviewState[1](next.idleReviewEnabled !== false);
         idleCapacityState[1](next.capacityMaintenanceEnabled === true);
         idleMemoryState[1](next.memoryHealthEnabled === true);
-        idleLimitsState[1]({
-          idleMinIntervalMs: String(next.idleMinIntervalMs !== undefined ? next.idleMinIntervalMs : 600000),
-          idleMinContentChars: String(next.idleMinContentChars !== undefined ? next.idleMinContentChars : 800),
-          idleMinContentTurns: String(next.idleMinContentTurns !== undefined ? next.idleMinContentTurns : 3),
-          idleMaxPerSession: String(next.idleMaxPerSession !== undefined ? next.idleMaxPerSession : 8)
-        });
+        idleLimitsState[1]((function () {
+          var out = {};
+          IDLE_LIMITS.forEach(function (limit) {
+            var stored = next[limit.key] !== undefined ? next[limit.key] : IDLE_DEFAULT_STORED[limit.key];
+            out[limit.key] = idleLimitToText(stored, limit.scale);
+          });
+          return out;
+        })());
         savedState[1](false);
         saveErrorState[1](false);
       }, [snap ? snap.revision : -1, dirtyState[0], busyState[0]]);
@@ -839,19 +908,21 @@ window.__ModuleLoader__.load({
           // 0.1.7 的 SettingsFormScope 没有 set(key, value)：改写为一次带
           // revision fence 的原子 mutate（旧实现是三次独立写入，见调研 §3.2/§3.3）。
           .then(function () {
-            return scope.mutate([
+            var operations = [
               { op: "set", path: ["webEnabled"], value: !!enabledState[0] },
               { op: "set", path: ["showInConversationTab"], value: !!convTabState[0] },
               { op: "set", path: ["showInSidebarTab"], value: !!sidebarTabState[0] },
               { op: "set", path: ["idleAssistEnabled"], value: !!idleAssistState[0] },
               { op: "set", path: ["idleReviewEnabled"], value: !!idleReviewState[0] },
               { op: "set", path: ["capacityMaintenanceEnabled"], value: !!idleCapacityState[0] },
-              { op: "set", path: ["memoryHealthEnabled"], value: !!idleMemoryState[0] },
-              { op: "set", path: ["idleMinIntervalMs"], value: Number(idleLimitsState[0].idleMinIntervalMs) },
-              { op: "set", path: ["idleMinContentChars"], value: Number(idleLimitsState[0].idleMinContentChars) },
-              { op: "set", path: ["idleMinContentTurns"], value: Number(idleLimitsState[0].idleMinContentTurns) },
-              { op: "set", path: ["idleMaxPerSession"], value: Number(idleLimitsState[0].idleMaxPerSession) }
-            ], snap.revision);
+              { op: "set", path: ["memoryHealthEnabled"], value: !!idleMemoryState[0] }
+            ];
+            // 四个参数各自按 scale 换算回**存储单位**（分钟 × 60000 = 毫秒）。
+            // save() 已在前面拦过非法值，故此处不再回落。
+            IDLE_LIMITS.forEach(function (limit) {
+              operations.push({ op: "set", path: [limit.key], value: idleLimitToStored(idleLimitsState[0][limit.key], limit.scale) });
+            });
+            return scope.mutate(operations, snap.revision);
           })
           .then(function (accepted) {
             if (accepted === false) throw new Error("LDVH 设置写入被宿主拒绝");
@@ -1074,15 +1145,10 @@ window.__ModuleLoader__.load({
             React.createElement("details", { className: "ldv-idle-limits" },
               React.createElement("summary", null, t("row.idleLimits")),
               React.createElement("div", { className: "ldv-idle-limit-grid" },
-                [
-                  { key: "idleMinIntervalMs", label: "row.idleMinIntervalMs" },
-                  { key: "idleMinContentChars", label: "row.idleMinContentChars" },
-                  { key: "idleMinContentTurns", label: "row.idleMinContentTurns" },
-                  { key: "idleMaxPerSession", label: "row.idleMaxPerSession" }
-                ].map(function (limit) {
-                  var invalid = !idleLimitOk(idleLimitsState[0][limit.key]);
+                IDLE_LIMITS.map(function (limit) {
+                  var invalid = !idleLimitOk(idleLimitsState[0][limit.key], limit.scale);
                   return React.createElement("label", { key: limit.key, className: "ldv-idle-limit" },
-                    React.createElement("span", { className: "ldv-idle-limit-label" }, t(limit.label)),
+                    React.createElement("span", { className: "ldv-idle-limit-label" }, t("row." + limit.key)),
                     React.createElement("input", {
                       type: "number",
                       step: "1",
@@ -1091,7 +1157,7 @@ window.__ModuleLoader__.load({
                       className: "ldv-settings-input",
                       value: idleLimitsState[0][limit.key],
                       "aria-invalid": invalid,
-                      "aria-label": t(limit.label),
+                      "aria-label": t("row." + limit.key),
                       onChange: function (e) {
                         var next = {};
                         Object.keys(idleLimitsState[0]).forEach(function (k) { next[k] = idleLimitsState[0][k]; });
