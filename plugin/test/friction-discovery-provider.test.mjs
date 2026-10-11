@@ -1,11 +1,11 @@
 // Tests for plugin/lib/friction-discovery-provider.js —
-// 04 §8.4 执行体派生：provider 选择（必须继承上下文）、start 调用面、
-// 结构化结果的落地前校验、以及各失败路径必须上抛（由调用方按 §8.3 入队）。
+// 04 §8.4 执行体派生：provider 选择（零上下文派生，Human 决定 2026-10-12）、
+// start 调用面、结构化结果的落地前校验、以及各失败路径必须上抛（由调用方按 §8.3 入队）。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  selectContextInheritingProvider,
+  selectZeroContextProvider,
   createDiscoveryProvider,
 } from "../lib/friction-discovery-provider.js";
 
@@ -47,7 +47,8 @@ function fakeSubagents({ providers = [], startImpl } = {}) {
   };
 }
 
-function providerNamed(name, { inherits = true, outputSchema = true } = {}) {
+function providerNamed(name, { inherits = false, outputSchema = true } = {}) {
+  // 默认 inherits=false：与真实 spawn 一致（零上下文）。需继承形态时显式传 true。
   return { name, inheritsParentContext: inherits, capabilities: { outputSchema, agentOptions: true, depthLimit: true, toolFilter: true, persona: true } };
 }
 
@@ -55,38 +56,38 @@ const PARENT = { id: "session-parent" };
 const SIGNAL = new AbortController().signal;
 
 // ---------------------------------------------------------------------------
-// provider 选择（§8.4：执行体须继承主控上下文）
+// provider 选择（§8.4「执行体与上下文供给」段：零上下文派生，禁止全量交付）
 // ---------------------------------------------------------------------------
 
-test("选择：优先 inheritsParentContext=true 的 provider 且偏好名为 fork 者", () => {
-  const r = selectContextInheritingProvider(fakeSubagents({ providers: [providerNamed("spawn", { inherits: false }), providerNamed("fork", { inherits: true })] }));
+test("选择：优先 inheritsParentContext=false 的 provider 且偏好名为 spawn 者", () => {
+  const r = selectZeroContextProvider(fakeSubagents({ providers: [providerNamed("spawn"), providerNamed("fork", { inherits: true })] }));
   assert.ok(r.ok, JSON.stringify(r.error));
-  assert.equal(r.value.name, "fork");
+  assert.equal(r.value.name, "spawn");
 });
 
-test("选择：名不叫 fork 但继承上下文者同样被接受（按能力挑，不硬编码名字）", () => {
-  const r = selectContextInheritingProvider(fakeSubagents({ providers: [providerNamed("spawn", { inherits: false }), providerNamed("custom-inheriting", { inherits: true })] }));
+test("选择：名不叫 spawn 但零上下文者同样被接受（按能力挑，不硬编码名字）", () => {
+  const r = selectZeroContextProvider(fakeSubagents({ providers: [providerNamed("fork", { inherits: true }), providerNamed("custom-zero-context")] }));
   assert.ok(r.ok, JSON.stringify(r.error));
-  assert.equal(r.value.name, "custom-inheriting");
+  assert.equal(r.value.name, "custom-zero-context");
 });
 
-test("选择：**没有任何继承上下文的 provider 即不可用**，不退回 spawn", () => {
-  const r = selectContextInheritingProvider(fakeSubagents({ providers: [providerNamed("spawn", { inherits: false })] }));
+test("选择：**没有任何零上下文 provider 即不可用**，不退回继承形态的 fork（禁止全量交付）", () => {
+  const r = selectZeroContextProvider(fakeSubagents({ providers: [providerNamed("fork", { inherits: true })] }));
   assert.ok(!r.ok);
   assert.equal(r.error.code, "discovery_provider/unavailable");
-  assert.match(r.error.message, /inherits the parent context/);
-  assert.match(r.error.message, /refusing to fall back to a zero-context provider/);
+  assert.match(r.error.message, /zero-context/);
+  assert.match(r.error.message, /refusing to fall back to a context-inheriting provider/);
 });
 
 test("选择：无 provider 注册即不可用", () => {
-  const r = selectContextInheritingProvider(fakeSubagents({ providers: [] }));
+  const r = selectZeroContextProvider(fakeSubagents({ providers: [] }));
   assert.ok(!r.ok);
   assert.equal(r.error.code, "discovery_provider/unavailable");
 });
 
 test("选择：list() 抛错时不可用（不静默当作空）", () => {
   const broken = { list: () => { throw new Error("boom"); }, getProvider: () => undefined, start: async () => {} };
-  const r = selectContextInheritingProvider(broken);
+  const r = selectZeroContextProvider(broken);
   assert.ok(!r.ok);
   assert.match(r.error.message, /cannot list subagent providers/);
 });
@@ -105,14 +106,14 @@ test("工厂：缺 subagents / parent / signal 均拒绝（显式依赖，不自
 // start 调用面
 // ---------------------------------------------------------------------------
 
-test("discover：以 outputSchema 与继承上下文的 provider 调用 start（§8.4 + 第三次重批结论）", async () => {
-  const svc = fakeSubagents({ providers: [providerNamed("spawn", { inherits: false }), providerNamed("fork", { inherits: true })] });
+test("discover：以 outputSchema 与零上下文 provider 调用 start（§8.4 上下文供给段 + 第三次重批结论）", async () => {
+  const svc = fakeSubagents({ providers: [providerNamed("spawn"), providerNamed("fork", { inherits: true })] });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
   const out = await discover({ threshold: 3, candidates: CANDIDATES, window: { from: 1, to: 5, items: [{ turn: 5, assistant: "这是一段足够长的材料内容原文。" }] } });
 
   assert.equal(svc.starts.length, 1);
   const call = svc.starts[0];
-  assert.equal(call.name, "fork");
+  assert.equal(call.name, "spawn");
   assert.equal(call.request.parent, PARENT);
   assert.equal(call.request.signal, SIGNAL);
   assert.ok(call.request.outputSchema, "outputSchema 必须随请求传递——它是结构化判断的唯一通道");
@@ -127,7 +128,7 @@ test("discover：以 outputSchema 与继承上下文的 provider 调用 start（
 test("discover：run 被释放（holder-owned）", async () => {
   let disposed = 0;
   const svc = fakeSubagents({
-    providers: [providerNamed("fork")],
+    providers: [providerNamed("spawn")],
     startImpl: async () => ({ id: "run-x", result: Promise.resolve({ stopReason: "completed", structured: VERDICT_SCHEMA_OK }), dispose: async () => { disposed += 1; } }),
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
@@ -137,7 +138,7 @@ test("discover：run 被释放（holder-owned）", async () => {
 
 test("discover：dispose 抛错不影响已取回的结果", async () => {
   const svc = fakeSubagents({
-    providers: [providerNamed("fork")],
+    providers: [providerNamed("spawn")],
     startImpl: async () => ({ id: "run-y", result: Promise.resolve({ stopReason: "completed", structured: VERDICT_SCHEMA_OK }), dispose: async () => { throw new Error("dispose failed"); } }),
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
@@ -149,15 +150,15 @@ test("discover：dispose 抛错不影响已取回的结果", async () => {
 // 失败路径：必须上抛（由 runIdleCheckpoint 按 §8.3 入队，不静默降级）
 // ---------------------------------------------------------------------------
 
-test("discover：无继承上下文 provider 时抛错（调用方将按 §8.3 入队）", async () => {
-  const svc = fakeSubagents({ providers: [providerNamed("spawn", { inherits: false })] });
+test("discover：无零上下文 provider 时抛错（调用方将按 §8.3 入队）", async () => {
+  const svc = fakeSubagents({ providers: [providerNamed("fork", { inherits: true })] });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
-  await assert.rejects(() => discover({ threshold: 3, candidates: [], window: { to: 1, items: [{ turn: 1, assistant: "这是一段足够长的材料内容原文。" }] } }), /inherits the parent context/);
+  await assert.rejects(() => discover({ threshold: 3, candidates: [], window: { to: 1, items: [{ turn: 1, assistant: "这是一段足够长的材料内容原文。" }] } }), /zero-context/);
 });
 
 test("discover：start 自身 reject 时上抛（不留 run 供释放）", async () => {
   const svc = fakeSubagents({
-    providers: [providerNamed("fork")],
+    providers: [providerNamed("spawn")],
     startImpl: async () => { throw new Error("capability mismatch"); },
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
@@ -166,7 +167,7 @@ test("discover：start 自身 reject 时上抛（不留 run 供释放）", async
 
 test("discover：stopReason 非 completed 时上抛并带 diagnostic（不伪造结论）", async () => {
   const svc = fakeSubagents({
-    providers: [providerNamed("fork")],
+    providers: [providerNamed("spawn")],
     startImpl: async () => ({ id: "run-z", result: Promise.resolve({ stopReason: "error", diagnostic: "provider 502" }), dispose: async () => {} }),
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
@@ -178,7 +179,7 @@ test("discover：落地前校验不通过时**如实载明**该任务失败（�
   // 的结论缺失/校验未通过不使其余任务的结论失效」，而抛错使调用方只能整条丢弃。
   // 现在失败逐任务载明，调用方据此入队（§8.3 停止的对象是失败的任务，不是整次运行）。
   const svc = fakeSubagents({
-    providers: [providerNamed("fork")],
+    providers: [providerNamed("spawn")],
     startImpl: async () => ({
       id: "run-w",
       result: Promise.resolve({ stopReason: "completed", structured: composed({ ...VERDICT_SLICE, verdict: "same-obstacle", target_uid: "99999999-0000-4000-8000-000000000000", quote: "这是一段足够长的材料内容原文。" }) }),
@@ -198,7 +199,7 @@ test("discover：落地前校验不通过时**如实载明**该任务失败（�
 
 test("discover：structured 缺席时**如实载明**失败（不把空结论当作 no-discovery）", async () => {
   const svc = fakeSubagents({
-    providers: [providerNamed("fork")],
+    providers: [providerNamed("spawn")],
     startImpl: async () => ({ id: "run-v", result: Promise.resolve({ stopReason: "completed" }), dispose: async () => {} }),
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
@@ -210,7 +211,7 @@ test("discover：structured 缺席时**如实载明**失败（不把空结论当
 });
 
 test("discover：区间未给 to 时不给出推进凭据（水位不推进）", async () => {
-  const svc = fakeSubagents({ providers: [providerNamed("fork")] });
+  const svc = fakeSubagents({ providers: [providerNamed("spawn")] });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
   const out = await discover({ threshold: 3, candidates: [], window: { from: 2, to: null, items: [{ turn: 3, assistant: "这是一段足够长的材料内容原文。" }] } });
   assert.equal(out.watermarkTurn, undefined);
@@ -218,7 +219,7 @@ test("discover：区间未给 to 时不给出推进凭据（水位不推进）",
 
 test("discover：onRun 观察钩子上报各阶段（供活动记账与实跑取证）", async () => {
   const phases = [];
-  const svc = fakeSubagents({ providers: [providerNamed("fork")] });
+  const svc = fakeSubagents({ providers: [providerNamed("spawn")] });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL, onRun: (e) => phases.push(e.phase) });
   await discover({ threshold: 3, candidates: [], window: { to: 3, items: [{ turn: 3, assistant: "这是一段足够长的材料内容原文。" }] } });
   assert.deepEqual(phases, ["start", "started", "result", "verdict"]);
@@ -246,7 +247,7 @@ test("D5：provideWindow 返回 undefined / 空窗口 / 有材料，三种形状
   ];
   for (const [label, shape, quote] of shapes) {
     const svc = fakeSubagents({
-      providers: [providerNamed("fork")],
+      providers: [providerNamed("spawn")],
       startImpl: async () => ({
         id: "run-shape",
         result: Promise.resolve({ stopReason: "completed", structured: composed({ ...VERDICT_SLICE, quote }) }),
@@ -265,7 +266,7 @@ test("D5：provideWindow 返回 undefined / 空窗口 / 有材料，三种形状
 });
 
 test("D5：无 provideWindow 时退回调用方给的 window（向后兼容旧调用面）", async () => {
-  const svc = fakeSubagents({ providers: [providerNamed("fork")] });
+  const svc = fakeSubagents({ providers: [providerNamed("spawn")] });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
   const out = await discover({
     threshold: 3,
@@ -278,7 +279,7 @@ test("D5：无 provideWindow 时退回调用方给的 window（向后兼容旧�
 });
 
 test("D6：窗口有未观察缺口时，缺口被带出交由调用方登记（不静默、也不死锁）", async () => {
-  const svc = fakeSubagents({ providers: [providerNamed("fork")] });
+  const svc = fakeSubagents({ providers: [providerNamed("spawn")] });
   const gap = { from: 11, to: 20 };
   const discover = createDiscoveryProvider({
     subagents: svc,
@@ -294,7 +295,7 @@ test("D6：窗口有未观察缺口时，缺口被带出交由调用方登记（
 });
 
 test("D6：无缺口时 unobserved 为 null（不得误报）", async () => {
-  const svc = fakeSubagents({ providers: [providerNamed("fork")] });
+  const svc = fakeSubagents({ providers: [providerNamed("spawn")] });
   const discover = createDiscoveryProvider({
     subagents: svc,
     parent: PARENT,
