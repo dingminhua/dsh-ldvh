@@ -1,6 +1,6 @@
 ---
 title: 独立复核身份被盖戳为实施会话
-status: open
+status: observing
 phenomenon: 实施会话自录复核时 Code 盖戳其身份致关闭门禁判非独立，隔离子代理同步跑完后登记表回收致回传通道取回失败。
 attribution: 21 号规范与 workcase 写工具的 payload 语义与身份承载之间：record_review 从调用方会话记录托管 session_id（实施者自录即盖戳为实施会话），且隔离子代理登记表在同步完成后即回收、agent_id 不可事后回传；此前工具描述与规范均未声明「调用方即实施者时必然产生非独立条目」与「须后台派生」两个后果
 impact: heavy
@@ -24,14 +24,16 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 回填 occurrence（26 §8 新增必填字段）：count=1、first_at=last_at 取既有时间锚——存量对象在本次字段引入前创建，无可考的重复计数，故保守记为首见一次
+  - at: 2026-10-11T22:33:22.249Z
+    provider: ds-yue
+    model: deepseek-v4-flash
+    summary: 放回留观（Human 2026-10-11：观察次数<3 的摩擦移入留观；本条 count=1 未达阈值，写入 human_return_at 防机械通道回翻，26 §9.2），并修复重复 H1
 occurrence:
   count: 1
   first_at: 2026-10-09T14:48:06.434Z
+  human_return_at: 2026-10-11T22:31:56.000Z
   last_at: 2026-10-09T14:48:06.434Z
-  human_return_at: null
 ---
-
-# 独立复核身份被盖戳为实施会话
 
 # 独立复核身份被盖戳为实施会话
 
@@ -48,6 +50,8 @@ occurrence:
 **触发面二：隔离子代理同步跑完后被清理，agent_id 取不到**（工单 1a34f9e4 的丙档追认复核）。规范为隔离子代理提供了 `reviewer_child_agent_id` 回传通道，使身份取自宿主登记表而非调用方自填。但当子代理以 `run_in_background: false` 同步跑完并返回后，调用方再查 `list_agents`（scope=descendants / children）时登记表已被清空，返回空列表——回传通道所需的 agent_id 已在回收中丢失。调用方只剩两条路：用自己（实施会话）的身份录一条会被门禁拒绝的 review，或伪造子代理身份（规范禁止且工具会校验）。实测发生于 turn 3 step 6–7，子代理跑完后登记表为空。
 
 **并发只读的连带效应**（属另一笔账，此处仅记关联）：复核子代理在并发工作区中被强制全程只读，为验证判别力需在 /tmp 自建副本做变异实验，这使触发面二的失败代价进一步升高（已跑完的变异实验因无法回传身份而全部作废）。
+
+**放回留观说明（Human 2026-10-11 指示：观察次数小于 3 的摩擦移入留观）**：本条 occurrence.count=1（<3，未达 04 §8.4 阈值 N），由 Human 放回 observing 留观；本流转已写入 occurrence.human_return_at，机械通道不得据 count 回翻（26 §9.2）。注：本条处置方向已由 Human 决定（见下），放回留观不影响该处置方向的后续执行。
 
 ## 入账依据
 

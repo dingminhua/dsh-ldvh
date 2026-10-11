@@ -1,6 +1,6 @@
 ---
 title: serves 归属缺少反查复核
-status: open
+status: observing
 phenomenon: serves 归属只在写入时校验，无写入后的反查复核。
 attribution: 20 §8 与 25 §11 共同确立的设计边界：serves 为「轻量归属引用」并显式豁免 goal 修订级联，只覆盖「goal 变动向下传导」，未覆盖「对象自身缩范围/修订导致归属漂移」的反向情形；实现侧（spark-writer.js / friction-writer.js）相应只在创建与更新时校验形状与锚点存在性，无写入后反查复核通路。
 impact: light
@@ -24,14 +24,16 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 回填 occurrence（26 §8 新增必填字段）：count=1、first_at=last_at 取既有时间锚——存量对象在本次字段引入前创建，无可考的重复计数，故保守记为首见一次
+  - at: 2026-10-11T22:33:53.391Z
+    provider: ds-yue
+    model: deepseek-v4-flash
+    summary: 放回留观（Human 2026-10-11：观察次数<3 的摩擦移入留观；本条 count=1 未达阈值，写入 human_return_at 防机械通道回翻，26 §9.2），并修复重复 H1
 occurrence:
   count: 1
   first_at: 2026-09-15T00:30:00.000Z
+  human_return_at: 2026-10-11T22:31:56.000Z
   last_at: 2026-09-15T00:30:00.000Z
-  human_return_at: null
 ---
-
-# serves 归属缺少反查复核
 
 # serves 归属缺少反查复核
 
@@ -46,6 +48,8 @@ serves 归属只在写入时校验，无写入后的反查复核。
 **实例一（依据失真）**：Spark `cdc8bf7d` 的正文「仍未决的两项与证据缺口」所用依据已部分失效（只检索 05 而未检索类型层，见下「入账依据」），该失真直至 2026-09-15 由 Human 主动点名该对象、AI 逐项复核才被发现。
 
 **实例二（字段静默丢失，机械可证）**：同一对象在 2026-09-14 缩范围提交 `9e4f9d5` 中，`serves: SG-1` **被连同 `priority: P2` 一并删除**——该提交的信息只声明移除 `priority`（「同时更正触发时点并移除 priority（该字段在 open 态缺失合法）」），对 `serves` 的删除**只字未提**。实测：`af4e774`（导入时）与 `dd3be15` 均有 `serves: SG-1`，至 `HEAD` 时该行已不存在；`git show 9e4f9d5` 对该文件的 diff 同时含 `-serves: SG-1` 与 `-priority: P2` 两行。**该丢失自 2026-09-14 存续至 2026-09-15，全程无任何机械或人工机制报告**——写入时校验不会重跑（对象未被再次写入），反查复核不存在，Web/工具投影只是如实反映「没这个字段」，于是该对象在整个 Spark 集合中成为唯一一条无 `serves` 的记录，直到 Human 用肉眼在列表中发现它缺 `(SG-1)` 后缀。同类暴露面：当前 39 条 Spark 中 30 条声明 `serves: SG-1`、7 条 SG-3、2 条 SG-4，全部处于同一复核真空中；Friction 侧已有 1 条同样声明 `serves`。
+
+**放回留观说明（Human 2026-10-11 指示：观察次数小于 3 的摩擦移入留观）**：本条 occurrence.count=1（<3，未达 04 §8.4 阈值 N），由 Human 放回 observing 留观；本流转已写入 occurrence.human_return_at，机械通道不得据 count 回翻（26 §9.2）。
 
 ## 入账依据
 

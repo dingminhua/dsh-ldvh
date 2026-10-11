@@ -1,6 +1,6 @@
 ---
 title: direction 冲突拒绝零信息量
-status: open
+status: observing
 phenomenon: 事实规范创建被 ERR_DIRECTION_ALREADY_EXISTS 拒绝后，错误不携带「哪个 direction_key 已被谁占用」，AI 在同一会话内反复重建同一 direction_key 并再次被拒。
 attribution: 规范写工具的错误通道设计：27 §6.2 把去重定为 AI 对 direction_key/title 的语义比较、机制只检查 direction_key 是否已存在，该分工合理但代价未被承接——ERR_DIRECTION_ALREADY_EXISTS 只报告冲突事实，不回传占用方身份（object_uid/title/status），也不给出应改用什么；AI 因此在拒绝中得不到任何新信息，只能原样重试
 impact: medium
@@ -20,14 +20,16 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 回填 occurrence（26 §8 新增必填字段）：count=1、first_at=last_at 取既有时间锚——存量对象在本次字段引入前创建，无可考的重复计数，故保守记为首见一次
+  - at: 2026-10-11T22:32:34.186Z
+    provider: ds-yue
+    model: deepseek-v4-flash
+    summary: 放回留观（Human 2026-10-11：观察次数<3 的摩擦移入留观；本条 count=1 未达阈值，写入 human_return_at 防机械通道回翻，26 §9.2），并修复重复 H1
 occurrence:
   count: 1
   first_at: 2026-10-09T14:48:42.804Z
+  human_return_at: 2026-10-11T22:31:56.000Z
   last_at: 2026-10-09T14:48:42.804Z
-  human_return_at: null
 ---
-
-# direction 冲突拒绝零信息量
 
 # direction 冲突拒绝零信息量
 
@@ -44,6 +46,8 @@ occurrence:
 - session-b29e50eb、session-5cabd38a、session-12afb80c：各 3–4 次
 
 该 46 次全部属于证据等价的重复——同一错误码、同一失败路径、同一无信息增量的拒绝。
+
+**放回留观说明（Human 2026-10-11 指示：观察次数小于 3 的摩擦移入留观）**：本条 occurrence.count=1（<3，未达 04 §8.4 阈值 N），由 Human 放回 observing 留观；本流转已写入 occurrence.human_return_at，机械通道不得据 count 回翻（26 §9.2）。
 
 ## 入账依据
 

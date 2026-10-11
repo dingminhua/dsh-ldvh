@@ -1,6 +1,6 @@
 ---
 title: 子进程回收后呈现不自愈
-status: open
+status: observing
 phenomenon: plugin/web/api 目录被写入触发源码热刷新回收子进程后，宿主 /ldvh/api/health 仍返回 ok:true 与 webPort，客户端据此判定就绪并指向已死端口，LDVH 面板白屏且不自愈。
 attribution: plugin/lib/index.js:157-162 的 health 短路应答与 plugin/lib/client.js:375-382/388-400 的就绪判据共同构成判据错位：宿主 health 回答「宿主侧 Web 路由与配置是否在」（与子进程解耦的静态应答），客户端把它当作「端到端可服务」；唯一的子进程活性检测（web-mount.js:332 代理路径内的 ensureReady）不被就绪探测覆盖；而回收子进程的 web-mount.js:200-208 源码热刷新是常规开发行为。
 impact: medium
@@ -20,14 +20,16 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 回填 occurrence（26 §8 新增必填字段）：count=1、first_at=last_at 取既有时间锚——存量对象在本次字段引入前创建，无可考的重复计数，故保守记为首见一次
+  - at: 2026-10-11T22:33:53.336Z
+    provider: ds-yue
+    model: deepseek-v4-flash
+    summary: 放回留观（Human 2026-10-11：观察次数<3 的摩擦移入留观；本条 count=1 未达阈值，写入 human_return_at 防机械通道回翻，26 §9.2），并修复重复 H1
 occurrence:
   count: 1
   first_at: 2026-09-27T05:22:01.110Z
+  human_return_at: 2026-10-11T22:31:56.000Z
   last_at: 2026-09-27T05:22:01.110Z
-  human_return_at: null
 ---
-
-# 子进程回收后呈现不自愈
 
 # 子进程回收后呈现不自愈
 
@@ -46,6 +48,8 @@ plugin/web/api 目录被写入触发源码热刷新回收子进程后，宿主 /
 **客户端判据同样只看 health**：`plugin/lib/client.js:375-382` 的 `checkHealth` 明写其语义为「the view is "ready" only when /ldvh/api/health answers」，并以 `body.ok === true` 作为就绪判据、从中取 `webPort` 拼 iframe 地址；`client.js:388-400` 的 `probeWeb`（设置卡的状态探测）同样以 `/ldvh/api/health` 的 `ok` 作 `api` 项。两个探测**都无子进程活性判据**——health 是假阳性，探测不出真实故障。
 
 **本现象的可复现性**：只要有人改 `plugin/web/api/` 下的文件（改源码、跑会写入该目录的工具链、重建产物等），子进程即被回收；此后客户端在**下一次真实 API 调用发生之前**一直显示「就绪」并指向死端口。这不是偶发——它与「改该目录的代码」这一常规开发动作一一对应。
+
+**放回留观说明（Human 2026-10-11 指示：观察次数小于 3 的摩擦移入留观）**：本条 occurrence.count=1（<3，未达 04 §8.4 阈值 N），由 Human 放回 observing 留观；本流转已写入 occurrence.human_return_at，机械通道不得据 count 回翻（26 §9.2）。
 
 ## 入账依据
 

@@ -1,6 +1,6 @@
 ---
 title: 提交钩子依赖 PATH 中的 node
-status: open
+status: observing
 phenomenon: "Git Gate 提交钩子以裸 `exec node` 调用校验器，当会话 shell 的 PATH 不含 node 时提交被以 `exec: node: not found`（exit 1）拒绝，阻断者为 shell 而非校验器。"
 attribution: .git/hooks/commit-msg:18 的裸 `exec node` 与 09 §5.5 Git Gate「机械守护终闸、提交前不可绕过」的语义之间存在缺口：钩子未使用绝对路径或候选路径探测，故校验器不可执行时提交被拒的原因无法与校验不通过区分。2026-10-09 补记：修复后该环境依赖转移到独立复核会话的验证命令面（prompt 内人工 export PATH），无机械保障承载。
 impact: medium
@@ -36,14 +36,16 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 回填 occurrence（26 §8 新增必填字段）：count=1、first_at=last_at 取既有时间锚——存量对象在本次字段引入前创建，无可考的重复计数，故保守记为首见一次
+  - at: 2026-10-11T22:33:22.289Z
+    provider: ds-yue
+    model: deepseek-v4-flash
+    summary: 放回留观（Human 2026-10-11：观察次数<3 的摩擦移入留观；本条 count=1 未达阈值，写入 human_return_at 防机械通道回翻，26 §9.2），并修复重复 H1
 occurrence:
   count: 1
   first_at: 2026-09-28T02:59:31.277Z
+  human_return_at: 2026-10-11T22:31:56.000Z
   last_at: 2026-09-28T02:59:31.277Z
-  human_return_at: null
 ---
-
-# 提交钩子依赖 PATH 中的 node
 
 # 提交钩子依赖 PATH 中的 node
 
@@ -62,6 +64,8 @@ Git Gate 提交钩子以裸 `exec node` 调用校验器，当会话 shell 的 PA
 频次与性质：任何 PATH 不含 node 的 shell 执行触及 `ldvh-base/` 的提交都会命中，属可重复触发的系统性阻碍，非一次性偶发。本次在单个会话内即命中一次并即时绕过。
 
 补充证据（2026-10-09，12 小时内会话扫描）：该阻碍的**残留形态已从「提交被拒」转为「执行环境需要人工补偿」**——WorkCase 独立复核所需的测试命令在默认会话 shell 下无法直接运行。实测在 12 小时内的会话日志中，多个独立复核子会话的**首条** bash 调用即自行前置 `export PATH="/opt/homebrew/bin:$PATH"`（如 session 日志中出现两次「background job bash-40 (bash: export PATH="/opt/homebrew/bin:$PATH"; cd .../plugin && node --test test/*.test.mjs ...)」的记述，以及复核子会话 prompt 中显式写入的「注意 PATH 可能没有 node，先 export PATH=...」）。即：本钩子问题修复后（见「修复进展与不销账说明」），受阻点从受控提交转移到复核会话的验证命令上——**代价从「提交失败需重试」变为「每条复核指令都要人工携带环境补偿，且该补偿只写在自然语言里、无任何机械保障**。本条如实登记这一残留形态：钩子侧已修，**环境依赖本身未消失，只是换了承载位置**，且新位置不在 09/06/10 的任何承载位内。
+
+**放回留观说明（Human 2026-10-11 指示：观察次数小于 3 的摩擦移入留观）**：本条 occurrence.count=1（<3，未达 04 §8.4 阈值 N），由 Human 放回 observing 留观；本流转已写入 occurrence.human_return_at，机械通道不得据 count 回翻（26 §9.2）。
 
 ## 入账依据
 
