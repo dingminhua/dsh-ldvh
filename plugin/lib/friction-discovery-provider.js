@@ -14,13 +14,17 @@
  * `SubagentResult.structured`。本机制**不需要可续能力**（每次检查点独立派生、
  * 跑完即结束），但**需要**结构化判断——故取 `start`（2026-10-11 第三次 C2 重批）。
  *
- * ## provider 的选择：必须 `inheritsParentContext === true`（实测依据）
+ * ## provider 的选择：必须 `inheritsParentContext === false`（2026-10-12 规范修订）
  *
- * §8.4 要求执行体「继承发起会话的主控上下文——用于判断某现象是否构成系统性阻碍」。
+ * 04 §8.4「执行体与上下文供给」段（Human 决定 2026-10-12）规定：执行体以**零
+ * 上下文**派生（spawn），判断所需输入全部由调度侧**机械交付**（窗口原文材料 +
+ * 候选账本投影）；**禁止全量交付**——含以「继承主控上下文」为通道的交付：全量
+ * 可见使水位切分只剩提示词约束，且执行体输入随会话增长单调扩大（实测 fork 全量
+ * seed 在约 1.1 万事件会话达 37–46 万字符，执行体以 error/max-tokens 失败）。
  * 实测：`spawn` 的 `inheritsParentContext = false`（源码注释「zero parent
  * context」），`fork` 为 `true`（以父会话日志最后一个 `turn/end` 之前的全部事件为
- * seed）。故本模块**按能力挑选 provider**，而不是硬编码名字——名字可能随宿主
- * 配置变化（`Config.providerName` 可覆盖），而能力是语义要求。
+ * seed）。故本模块**按能力挑选 provider**（挑零上下文者），而不是硬编码名字——
+ * 名字可能随宿主配置变化（`Config.providerName` 可覆盖），而能力是语义要求。
  *
  * ## 边界（§8.2 第 2/4 条）
  *
@@ -45,13 +49,14 @@ function unavailable(reason) {
 }
 
 /**
- * 在已注册的 provider 中挑选**继承父上下文**的那一个。
+ * 在已注册的 provider 中挑选**零上下文**的那一个（2026-10-12 规范修订）。
  *
- * 顺序：优先 `fork`（本宿主实测名），否则取第一个 `inheritsParentContext === true`
- * 的。**没有任何继承上下文的 provider 即不可用**——那会使 §8.4 的输入侧要求落空，
- * 此时**不得**退回 `spawn`（它会得到零上下文的子代理，无从判断「系统性阻碍」）。
+ * 顺序：优先 `spawn`（本宿主实测名），否则取第一个 `inheritsParentContext === false`
+ * 的。**没有零上下文 provider 即不可用**——04 §8.4「禁止全量交付」：不得以「继承
+ * 主控上下文」为通道向执行体交付未经水位切分的全量会话历史，故此时**不得**退回
+ * `fork`（它会把父会话最后一个 turn/end 之前的全部事件作为 seed 交付执行体）。
  */
-export function selectContextInheritingProvider(subagents) {
+export function selectZeroContextProvider(subagents) {
   let names;
   try {
     names = subagents.list();
@@ -62,7 +67,7 @@ export function selectContextInheritingProvider(subagents) {
     return unavailable("no subagent provider is registered");
   }
 
-  const inherited = [];
+  const zeroContext = [];
   for (const name of names) {
     let provider;
     try {
@@ -70,16 +75,16 @@ export function selectContextInheritingProvider(subagents) {
     } catch {
       continue;
     }
-    if (provider?.inheritsParentContext === true) inherited.push({ name, provider });
+    if (provider?.inheritsParentContext === false) zeroContext.push({ name, provider });
   }
-  if (inherited.length === 0) {
+  if (zeroContext.length === 0) {
     return unavailable(
-      `no registered subagent provider inherits the parent context (candidates: ${names.join(", ")}) — 04 §8.4 requires the executor to inherit the initiating context; refusing to fall back to a zero-context provider`,
+      `no registered subagent provider is zero-context (candidates: ${names.join(", ")}) — 04 §8.4 (Human 2026-10-12) requires zero-context spawn with scheduler-delivered bounded material; refusing to fall back to a context-inheriting provider (全量交付禁止)`,
     );
   }
   // 能力面：需要 outputSchema 才能把判断结果升为机械校验。
-  const withSchema = inherited.filter((entry) => entry.provider?.capabilities?.outputSchema !== false);
-  const chosen = withSchema.find((entry) => entry.name === "fork") ?? withSchema[0] ?? inherited[0];
+  const withSchema = zeroContext.filter((entry) => entry.provider?.capabilities?.outputSchema !== false);
+  const chosen = withSchema.find((entry) => entry.name === "spawn") ?? withSchema[0] ?? zeroContext[0];
   return { ok: true, value: { name: chosen.name, provider: chosen.provider } };
 }
 
@@ -101,7 +106,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     throw new Error("createDiscoveryProvider requires the host `subagents` service");
   }
   if (parent === undefined || parent === null) {
-    throw new Error("createDiscoveryProvider requires the initiating `parent` Agent (04 §8.4: the executor inherits it)");
+    throw new Error("createDiscoveryProvider requires the initiating `parent` Agent (subagents.start requires request.parent — the governed-isolation linkage, not context inheritance)");
   }
   if (signal === undefined || signal === null) {
     throw new Error("createDiscoveryProvider requires an AbortSignal (subagents.start requires request.signal)");
@@ -232,7 +237,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
       };
     }
 
-    const picked = selectContextInheritingProvider(subagents);
+    const picked = selectZeroContextProvider(subagents);
     if (!picked.ok) {
       const error = new Error(picked.error.message);
       error.code = picked.error.code;
