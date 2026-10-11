@@ -30,7 +30,7 @@ import { runIdleCheckpoint, selectAuxTask } from "./idle-checkpoint.js";
 import { createDiscoveryProvider } from "./friction-discovery-provider.js";
 import { landDiscoveryVerdict } from "./friction-landing.js";
 import { advanceWatermark, readWatermark, readDispatchState, recordDispatch } from "./friction-watermark.js";
-import { admitIdleDispatch } from "./idle-settings.js";
+import { admitIdleDispatch, pickEnabledAuxTask } from "./idle-settings.js";
 import { recordRun } from "./idle-runlog.js";
 import { appendPendingEntry } from "./pending-queue.js";
 import { currentRouteValues } from "./session-signature.js";
@@ -291,11 +291,44 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           if (scope.state !== "governed" || scope.project === undefined || scope.project === null) return;
           // 预算轮换：一次检查点只跑一个任务（32 §10.2），计数器随 lifecycle 存活。
           //
-          // **只在真正派发时才推进**（原实现每检查点都递增）。理由：被节流挡下的
-          // 检查点没有跑任何任务，若照样推进轮换位，HEALTH_CHECK_PERIOD=3 的相位
-          // 会被空检查点稀释——本该轮到体检的那次被节流吃掉后，体检要再等 3 次。
+          // ## 轮换位何时推进（2026-10-11 修死锁）
+          //
+          // 原实现只在**准入通过后**推进，理由是「空检查点不稀释 HEALTH_CHECK_PERIOD
+          // 的相位」。但那样把两类挡下混为一谈，产生了**静默死锁**：
+          //
+          //   本会话实测 rotation=2 → `memory-health`（默认关）→ 每次都被
+          //   `task-disabled` 挡下 → 轮换位永不推进 → rotation 永为 2 →
+          //   **`idle-review` 再也不会被跑到**，而 throttled 又不算失败，故无痕迹。
+          //
+          // 两类挡下的正确处置**相反**：
+          //   · **任务被停用**：该任务本轮不可能跑。须**跳过它并继续挑**，否则
+          //     轮换位永久停在它上面（上例）。停用是 Human 的明示配置，不该让
+          //     整个辅助机制停摆。
+          //   · **机械节流**（冷却/内容量/配额）：任务想跑但条件不满足。此时
+          //     **不推进**相位是对的——本该轮到体检的那次被节流吃掉后，体检要
+          //     再等 3 次才算「轮到」。
+          //
+          // 故先按「跳过被停用者」定出本轮任务，再走准入闸；准入闸里的挡下一律
+          // 视为机械节流（任务已确认启用）。
           const rotation = lifecycle.turns.auxRotation ?? 0;
-          const taskForThisCheckpoint = selectAuxTask(rotation);
+          const idleSettingsForPick = typeof getIdleSettings === "function" ? getIdleSettings() : undefined;
+          const pick = pickEnabledAuxTask(rotation, idleSettingsForPick);
+          const taskForThisCheckpoint = pick.task;
+          // 被跳过的个数：使轮换位越过被停用的任务（`pick.skipped` 即跳过的槽位数）。
+          const rotationAfterPick = rotation + pick.skipped;
+
+          // 无可跑任务（总开关关闭、或三个子项全被停用）：**不派发任何任务**。
+          //
+          // 这是配置的全部含义，**不是失败**——没有校验不可用，只是没有要跑的活，
+          // 故不入队、不记 throttled（那会让「Human 关掉了它」看起来像「它出错了」）。
+          // 轮换位也**不动**：重开时应从原相位继续。
+          if (taskForThisCheckpoint === null) {
+            lifecycle.activity?.record("session/checkpoint/no-enabled-task", {
+              rotation,
+              reason: idleSettingsForPick?.enabled === false ? "idle-assist-disabled" : "all-tasks-disabled",
+            });
+            return;
+          }
 
           // ── 闲时辅助的准入闸（设置 + 节流）──────────────────────────────
           //
@@ -306,7 +339,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // **被挡下时不推进水位**：那段内容并入下一次观察区间——这正是节流
           // 「只延后、不抑制」的机械形态（`idle-checkpoint.js` 对 skipped 已确立
           // 同一纪律）。故被挡下**不是失败**，不进待处置队列。
-          const idleSettings = typeof getIdleSettings === "function" ? getIdleSettings() : undefined;
+          const idleSettings = idleSettingsForPick;
           if (idleSettings !== undefined) {
             const dispatchState = await readDispatchState(dshHomePath, { projectRoot: scope.project.path, sessionId });
             const prior = dispatchState.ok ? dispatchState.value : { lastDispatchAt: null, dispatchCount: 0, dispatchTimes: [] };
@@ -333,6 +366,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               isFirstRun,
             });
             if (!admission.admit) {
+              // **禁用不推进、节流才不推进**——这里 admission 的挡下必然是机械
+              // 节流（`pickEnabledAuxTask` 已排除被停用者），故一律不推进相位。
+              //
               // 如实记账：被节流挡下与「坏了」必须可区分，否则 Human 从痕迹里
               // 看不出机制是在歇着还是停了（参照 dsh-mnemon 的 stage 可区分纪律）。
               await recordRun(dshHomePath, {
@@ -347,8 +383,10 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               lifecycle.activity?.record("session/checkpoint/throttled", { task: taskForThisCheckpoint, reason: admission.reason });
               return;
             }
-            // 轮换位在**准入通过后**推进（见上）。
-            lifecycle.turns.auxRotation = rotation + 1;
+            // 推进到「本轮实际跑的那个任务」之后（已越过被停用者；见上「轮换位
+            // 何时推进」）。机械节流时**不推进**——那正是为了让被节流吃掉的相位
+            // 留给下次。
+            lifecycle.turns.auxRotation = rotationAfterPick + 1;
             // 冷却锚点在**派发之前**写入，故失败也计入——否则一次失败不占冷却窗口，
             // 下一次检查点立刻重跑，外观上正是 §8.3 禁止的「自行重试」。
             // 放行也留一次评估痕迹：某约束若在默认取值下恒不触发，只记「被挡下」
@@ -373,7 +411,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             }
           } else {
             // 无设置来源（老宿主 / 未注入）时保持原行为：照常推进轮换位。
-            lifecycle.turns.auxRotation = rotation + 1;
+            lifecycle.turns.auxRotation = rotationAfterPick + 1;
           }
 
           // §8.4 第 1 项的执行体：派一个**继承主控上下文**的受管辖隔离子代理去做

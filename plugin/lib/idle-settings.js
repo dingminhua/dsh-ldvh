@@ -269,6 +269,74 @@ export function quotaLeft(dispatched, maxPerSession) {
 }
 
 /**
+ * 按轮换位挑出**本轮实际要跑的任务**，跳过被 Human 停用者（纯函数）。
+ *
+ * ## 为什么「被停用」必须跳过、而「被节流」不能（2026-10-11 修死锁）
+ *
+ * 轮换位原先是「准入通过后才推进」。那样把两类挡下混为一谈，产生了**静默死锁**：
+ * 本会话实测 rotation=2 → `memory-health`（实现缺省关）→ 每次都被 `task-disabled`
+ * 挡下 → 轮换位永不推进 → rotation 永为 2 → **`idle-review` 再也不会被跑到**；
+ * 而 throttled 不属于失败，故这件事**没有任何痕迹**。
+ *
+ * 两类挡下的正确处置方向相反：
+ *
+ * - **被停用**（`tasks[task] === false`）：该任务本轮**不可能**跑。必须**跳过并
+ *   继续挑**——否则轮换位永久停在它上面。停用是 Human 的明示配置，其意图是
+ *   「别跑这个」，**不是**「让整个辅助机制停摆」。
+ * - **被节流**（冷却/内容量/配额）：任务想跑但条件不满足。此时**不推进**相位，
+ *   使本该轮到它的下次仍轮到它。
+ *
+ * ## 返回值的两半都必须被消费
+ *
+ * `rotation + skipped` 才是**下一个**轮换位的起算点——调用方若只推进 1 而忽略
+ * `skipped`，被跳过的槽位会在下一轮被重复走一遍（不致命，但相位与痕迹会对不上）。
+ *
+ * ## 全部被停用时
+ *
+ * `task` 为 `null`，调用方据此**不派发任何任务**——这是配置的全部含义，不是错误，
+ * 故不记为失败（04 §8.3 的那几类失败都不适用：没有校验不可用，只是没有要跑的活）。
+ *
+ * @param {number} rotation - 当前轮换位（非负整数）。
+ * @param {{enabled?: boolean, tasks?: Record<string, boolean>}|undefined} settings - 闲时辅助设置。
+ * @returns {{task: string|null, skipped: number}} 本轮任务与跳过的槽位数。
+ */
+export function pickEnabledAuxTask(rotation, settings) {
+  const start = Number.isInteger(rotation) && rotation >= 0 ? rotation : 0;
+  // 无设置来源（老宿主 / 未注入）：保持旧行为——按原轮换挑，不做任何跳过。
+  if (settings === undefined || settings === null) {
+    return { task: selectAuxTaskFrom(start), skipped: 0 };
+  }
+  // 总开关关闭：**不派发任何任务**。这不是「跳过若干槽位」——机制整体停用，
+  // 轮换位不该因总开关关闭而移动（重开时应从原相位继续）。
+  if (settings.enabled === false) return { task: null, skipped: 0 };
+
+  // 至多绕一圈：三个任务的相位周期是固定的，绕满即说明全被停用。
+  const cycle = AUX_TASK_ORDER.length;
+  for (let skipped = 0; skipped < cycle; skipped += 1) {
+    const task = selectAuxTaskFrom(start + skipped);
+    if (settings.tasks?.[task] === true) return { task, skipped };
+  }
+  return { task: null, skipped: 0 };
+}
+
+/**
+ * 轮换位的相位函数——**与 `idle-checkpoint.js` 的 `selectAuxTask` 同源**。
+ *
+ * 此处独立实现是因为 `idle-checkpoint.js` 依赖宿主侧模块，而本模块要保持**纯**
+ * （无副作用、可在任意上下文求值）。两处若漂移会使「跳过」的相位与「派发」的
+ * 相位对不上——故有一条测试直接比对两者在同一位移下给出同一任务。
+ */
+function selectAuxTaskFrom(rotation) {
+  const r = Number.isInteger(rotation) && rotation >= 0 ? rotation : 0;
+  const period = AUX_TASK_ORDER.length;
+  // 评审优先、体检周期性：与 idle-checkpoint.js 的 HEALTH_CHECK_PERIOD=3 一致。
+  return r % period === period - 1 ? "memory-health" : "idle-review";
+}
+
+/** 轮换相位所覆盖的任务顺序（与 idle-checkpoint.js 的 AUX_TASKS 同源）。 */
+export const AUX_TASK_ORDER = Object.freeze(["idle-review", "capacity-maintenance", "memory-health"]);
+
+/**
  * 派发准入的**单一判据**——把四个条件合成一个答案（纯函数）。
  *
  * 顺序即理由：**总开关 → 子项开关 → 冷却 → 内容量 → 配额**。前两项是 Human 的

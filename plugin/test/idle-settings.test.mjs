@@ -13,6 +13,7 @@ import {
   admitIdleDispatch,
   contentAdmitted,
   countWithinWindow,
+  pickEnabledAuxTask,
   cooldownDue,
   quotaLeft,
   readBool,
@@ -446,4 +447,88 @@ test("D7：默认上限须在默认窗口内**可达**（否则该约束不可�
     IDLE_DEFAULTS.maxPerSession < maxPerWindow,
     `默认上限 ${IDLE_DEFAULTS.maxPerSession} 须小于窗口内可达次数 ${maxPerWindow}，否则该约束恒不触发`,
   );
+});
+
+// ---------------------------------------------------------------------------
+// 轮换位不得因「任务被停用」而死锁（2026-10-11 实测缺陷）
+// ---------------------------------------------------------------------------
+//
+// 实测经过：机制重启后连出三条 `throttled / reason=task-disabled`，任务全是
+// `memory-health`。原因是轮换位**只在准入通过后**推进，而 `memory-health` 默认
+// 停用 → 每次都被挡下 → 轮换位永为 2 → **`idle-review` 再也不会被跑到**。
+// 且 `throttled` 不属于失败，故这件事没有任何痕迹。
+//
+// 两类挡下的处置方向相反：被停用须**跳过**（配置的意图是「别跑这个」，不是
+// 「让整个辅助机制停摆」）；被节流须**留在原位**（本该轮到它的下次仍轮到它）。
+
+const ALL_TASKS = { "idle-review": true, "capacity-maintenance": false, "memory-health": false };
+const OPEN_ALL = { enabled: true, tasks: { "idle-review": true, "capacity-maintenance": true, "memory-health": true } };
+
+test("pickEnabledAuxTask：某个任务被停用时**跳过它**，不得停在原地（死锁的直接守卫）", () => {
+  const settings = { enabled: true, tasks: ALL_TASKS };
+  // 遍历所有轮换位：任何一位都必须挑出 idle-review（它是唯一启用的）。
+  for (let rotation = 0; rotation < 12; rotation += 1) {
+    const pick = pickEnabledAuxTask(rotation, settings);
+    assert.equal(pick.task, "idle-review", `rotation=${rotation} 须跳过被停用者挑出唯一启用的任务`);
+  }
+  // 尤其守卫实测踩到的那一位：rotation=2 本会挑到 memory-health（默认停用）。
+  assert.equal(pickEnabledAuxTask(2, settings).task, "idle-review", "rotation=2 曾在此死锁");
+  assert.ok(pickEnabledAuxTask(2, settings).skipped >= 1, "该位须报告跳过了至少一个槽位");
+});
+
+test("pickEnabledAuxTask：**连续推进**轮换位不会反复走同一槽位（skipped 须被消费）", () => {
+  // 调用方用 `rotation + skipped + 1` 作为下一个轮换位。若忽略 skipped，被跳过的
+  // 槽位会在下一轮被重复走一遍——不致命，但相位与痕迹会对不上。
+  const settings = { enabled: true, tasks: ALL_TASKS };
+  let rotation = 0;
+  const seen = [];
+  for (let i = 0; i < 6; i += 1) {
+    const pick = pickEnabledAuxTask(rotation, settings);
+    seen.push(pick.task);
+    rotation = rotation + pick.skipped + 1;   // 与 lifecycle 同式
+  }
+  assert.deepEqual(seen, Array.from({ length: 6 }, () => "idle-review"), "每轮都须跑得起来");
+  assert.ok(rotation > 6, `轮换位须真实前进（实际到 ${rotation}）`);
+});
+
+test("pickEnabledAuxTask：**全部启用**时相位与 idle-checkpoint 的 selectAuxTask 一致（不得漂移）", async () => {
+  // 本模块要保持纯（不依赖宿主），故相位函数是独立实现。两处若漂移，「跳过」的
+  // 相位与「派发」的相位就会对不上——故直接比对。
+  const { selectAuxTask } = await import("../lib/idle-checkpoint.js");
+  for (let rotation = 0; rotation < 12; rotation += 1) {
+    assert.equal(
+      pickEnabledAuxTask(rotation, OPEN_ALL).task,
+      selectAuxTask(rotation),
+      `rotation=${rotation} 两处相位须一致`,
+    );
+    assert.equal(pickEnabledAuxTask(rotation, OPEN_ALL).skipped, 0, "全启用则无跳过");
+  }
+});
+
+test("pickEnabledAuxTask：总开关关闭 与 全部子项停用 都返回 task=null，且**轮换位不动**", () => {
+  // 这是配置的全部含义，不是失败——调用方据此不派发、不记 throttled、不推进轮换位。
+  const off = { enabled: false, tasks: { "idle-review": true } };
+  const none = { enabled: true, tasks: { "idle-review": false, "capacity-maintenance": false, "memory-health": false } };
+  for (const rotation of [0, 2, 7]) {
+    assert.equal(pickEnabledAuxTask(rotation, off).task, null, "总开关关闭 → 不派发");
+    assert.equal(pickEnabledAuxTask(rotation, off).skipped, 0, "总开关关闭 → 轮换位不动（重开从原相位继续）");
+    assert.equal(pickEnabledAuxTask(rotation, none).task, null, "全停用 → 不派发");
+    assert.equal(pickEnabledAuxTask(rotation, none).skipped, 0, "全停用 → 轮换位不动");
+  }
+});
+
+test("pickEnabledAuxTask：无设置来源（老宿主）保持旧行为，不做任何跳过", async () => {
+  const { selectAuxTask } = await import("../lib/idle-checkpoint.js");
+  for (let rotation = 0; rotation < 6; rotation += 1) {
+    const pick = pickEnabledAuxTask(rotation, undefined);
+    assert.equal(pick.task, selectAuxTask(rotation), "老宿主：相位照旧");
+    assert.equal(pick.skipped, 0, "老宿主：不跳过");
+  }
+});
+
+test("pickEnabledAuxTask：轮换位非法输入按 0 处理（不得抛错）", () => {
+  for (const bad of [undefined, null, -1, NaN, "x"]) {
+    const pick = pickEnabledAuxTask(bad, { enabled: true, tasks: ALL_TASKS });
+    assert.equal(pick.task, "idle-review", `非法轮换位 ${String(bad)} 须按 0 处理`);
+  }
 });
