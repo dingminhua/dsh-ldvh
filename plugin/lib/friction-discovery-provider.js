@@ -33,8 +33,10 @@
 // buildCompositePrompt 的调用）。单任务入口 buildDiscoveryPrompt、单任务 schema、
 // 逐任务校验器都改由登记表分派——本模块不再直接调用，故不再导入（否则是「导入了
 // 却从不使用」的死引用：lint 会拦，读者也会误以为这里有直连）。
-import { buildDiscoveryPromptSection, buildSharedPromptSection } from "./friction-subagent-contract.js";
-import { buildCompositePrompt, compositeOutputSchema, splitRunnableTasks, validateCompositeOutput } from "./aux-task-registry.js";
+// 任务段（buildDiscoveryPromptSection）由**登记表**分派（见下方 sections 的构造），
+// 本模块不再直接调用它；只保留公共段的构造。
+import { buildSharedPromptSection } from "./friction-subagent-contract.js";
+import { AUX_TASK_REGISTRY, buildCompositePrompt, compositeOutputSchema, splitRunnableTasks, validateCompositeOutput } from "./aux-task-registry.js";
 import { windowBody } from "./friction-window.js";
 
 /** 服务不可用时的失败（由调用方按 §8.3 入队，不静默降级）。 */
@@ -94,7 +96,7 @@ export function selectContextInheritingProvider(subagents) {
  * `({ threshold, candidates, sessionSignature, window })`，返回
  * `{ outcome, verdict, watermarkTurn? }` 或抛错（由调用方按 §8.3 入队）。
  */
-export function createDiscoveryProvider({ subagents, parent, signal, onRun, provideWindow } = {}) {
+export function createDiscoveryProvider({ subagents, parent, signal, onRun, provideWindow, registry = AUX_TASK_REGISTRY } = {}) {
   if (subagents === undefined || subagents === null) {
     throw new Error("createDiscoveryProvider requires the host `subagents` service");
   }
@@ -115,7 +117,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     // 痕迹（`unimplementedTasks` 随返回值上抛，04 §8.5 条件式要求：不得主张空闲
     // 维护已运行，但也不得静默剔除使 Human 看不出它没做）。
     const wanted = Array.isArray(requestedTasks) && requestedTasks.length > 0 ? requestedTasks : ["idle-review"];
-    const { runnable, unimplemented } = splitRunnableTasks(wanted);
+    const { runnable, unimplemented } = splitRunnableTasks(wanted, registry);
     // D1：区间材料由**调度侧**提供（provideWindow 读累积器），而不是让子代理
     // 按坐标自行划定。调用方（idle-checkpoint）传的 window 只含端点，故这里以
     // provideWindow 的结果为准。
@@ -244,23 +246,26 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     // 有两种措辞——引证核对按材料正文做字符串比对，措辞漂移直接使引证被拒。
     const sections = {};
     for (const key of runnable) {
-      if (key === "idle-review") {
-        sections[key] = buildDiscoveryPromptSection({ threshold, candidates });
-      } else {
-        // 走到这里说明登记表说它「已实现」却没有任务段构造器——登记不完整。
-        // 抛错而不静默跳过：静默跳过会使该任务「被启用、却从未被要求作答」，
-        // 而输出里它仍占一个字段（恒为空），与「它答了没有发现」无从区分。
+      // 任务段的构造**一律走登记表**（不再对 idle-review 特判）：特判会使「登记表
+      // 说它已实现」与「派发时真的能给它拼出一段」两件事脱钩，而后者才是判据。
+      const build = registry[key]?.promptSection;
+      if (typeof build !== "function") {
+        // 登记不完整：抛错而不静默跳过——静默跳过会使该任务「被启用、却从未被
+        // 要求作答」，而输出里它仍占一个字段（恒为空），与「它答了没发现」无从区分。
         const error = new Error(`aux task "${key}" is marked implemented but has no prompt section builder`);
         error.code = "discovery_provider/incomplete_registry";
         throw error;
       }
+      // `idle-review` 的段构造器需要机械前提（阈值与候选账本）；其余任务按登记
+      // 表自述的签名接收同一组前提，可自取所需、忽略其余。
+      sections[key] = build({ threshold, candidates });
     }
     const prompt = buildCompositePrompt({
       tasks: runnable,
       sections,
       shared: buildSharedPromptSection({ window: effectiveWindow, taskCount: runnable.length }),
     });
-    const outputSchema = compositeOutputSchema(runnable);
+    const outputSchema = compositeOutputSchema(runnable, registry);
 
     onRun?.({
       phase: "start",
@@ -317,6 +322,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     // 运行被整条丢弃，而那正是「一次做多件」最该避免的损失。
     const checkedByTask = validateCompositeOutput(result?.structured, {
       tasks: runnable,
+      registry,
       contexts: Object.fromEntries(
         runnable.map((key) => [key, { candidates: candidates ?? [], windowText }]),
       ),

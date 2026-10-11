@@ -262,3 +262,144 @@ test("提示词段自足：任务段含三态与字段要求，公共段不含�
   const shared = buildSharedPromptSection({ window: { items: [] } });
   assert.doesNotMatch(shared, /same-obstacle/, "三态属任务段，公共段不得重述");
 });
+
+// ---------------------------------------------------------------------------
+// N≥2 的拼接路径（注入假任务使该路径可达）
+// ---------------------------------------------------------------------------
+//
+// ## 为什么要靠注入
+//
+// `runnable` 现状恒为单元素（只有 `idle-review` 已实现），故拼接路径（N≥2）
+// **在真实运行中不可达**——那意味着本次改案的核心路径无法被验证，只能靠阅读。
+// 故 `createDiscoveryProvider` 增加了 `registry` 注入点：测试放入一个「假装的第二
+// 任务」，驱动**真实的**拼接器、复合 schema 与逐任务校验代码。
+//
+// 默认值仍是生产登记表，生产路径行为不变。
+
+/** 一个假装的第二任务：只为让 N≥2 可达，不进入生产登记表。 */
+function fakeSecondTask({ validate } = {}) {
+  return {
+    key: "capacity-maintenance",
+    implemented: true,
+    promptSection: () => "**要判断的事情**：本次材料中是否有需要整理的记忆条目。要输出的字段：`entries`。",
+    outputSchema: () => ({
+      type: "object",
+      properties: { entries: { type: "string" } },
+      required: ["entries"],
+      additionalProperties: false,
+    }),
+    validate: validate ?? ((slice) => (typeof slice?.entries === "string"
+      ? { ok: true, value: slice }
+      : { ok: false, error: { code: "cap/bad", message: "entries 缺失" } })),
+  };
+}
+
+const GOOD_VERDICT = {
+  verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "",
+  impact: "light", quote: "这是一段足够长的材料内容原文。", reason: "本次无系统性阻碍。",
+};
+
+async function runWithTwoTasks(structured) {
+  const { createDiscoveryProvider } = await import("../lib/friction-discovery-provider.js");
+  const registry = { ...AUX_TASK_REGISTRY, "capacity-maintenance": fakeSecondTask() };
+  let captured = null;
+  const subagents = {
+    list: () => ["fork"],
+    getProvider: () => ({ inheritsParentContext: true, capabilities: { outputSchema: true } }),
+    start: async (name, req) => {
+      captured = req;
+      return { id: "run", result: Promise.resolve({ stopReason: "completed", structured }), dispose: async () => {} };
+    },
+  };
+  const provider = createDiscoveryProvider({
+    subagents,
+    parent: { id: "p", session: { header: { id: "s" } } },
+    signal: new AbortController().signal,
+    registry,
+    provideWindow: () => ({ items: [{ turn: 1, user: "用户的话", assistant: "这是一段足够长的材料内容原文。" }], truncated: false }),
+  });
+  const out = await provider({
+    threshold: 3, candidates: [], sessionSignature: "sig",
+    window: { from: 0, to: 1 },
+    tasks: ["idle-review", "capacity-maintenance"],
+  });
+  return { out, captured };
+}
+
+test("N=2 拼接：**一份**提示词含**两个**任务段，公共段只出现一次", async () => {
+  const { captured } = await runWithTwoTasks({
+    "idle-review": GOOD_VERDICT,
+    "capacity-maintenance": { entries: "无待整理条目" },
+  });
+  const text = captured.prompt[0].text;
+  assert.match(text, /本次要做的 2 件事/, "须显式声明要做两件");
+  assert.deepEqual(
+    text.match(/### 事项 \d+／\d+：\S+/g),
+    ["### 事项 1／2：idle-review", "### 事项 2／2：capacity-maintenance"],
+    "两个任务段须各占一段，顺序与输入一致",
+  );
+  assert.equal((text.match(/## 本次观察材料/g) || []).length, 1, "公共材料段**只出现一次**（不随任务数重复）");
+  assert.equal((text.match(/# 你只能依据本次材料判断/g) || []).length, 1, "边界规则也只出现一次");
+});
+
+test("N=2 复合 schema：两个任务各占一个顶层字段，required 列全", async () => {
+  const { captured } = await runWithTwoTasks({
+    "idle-review": GOOD_VERDICT,
+    "capacity-maintenance": { entries: "无" },
+  });
+  assert.deepEqual(captured.outputSchema.required, ["idle-review", "capacity-maintenance"]);
+  assert.equal(captured.outputSchema.additionalProperties, false);
+  // 两任务的字段名不同、互不覆盖——平铺设计会在这里静默覆盖。
+  assert.ok(!("entries" in captured.outputSchema.properties), "任务内部字段不得泄漏到顶层");
+});
+
+test("N=2 逐任务校验：**某件失败不掀掉另一件**（32 §10.2 的核心承诺，三种组合）", async () => {
+  // 情形 A：两件都成功
+  const a = await runWithTwoTasks({ "idle-review": GOOD_VERDICT, "capacity-maintenance": { entries: "无" } });
+  assert.deepEqual(a.out.failedTasks, []);
+  assert.equal(a.out.taskResults["idle-review"].ok, true);
+  assert.equal(a.out.taskResults["capacity-maintenance"].ok, true);
+  assert.notEqual(a.out.watermarkTurn, undefined, "全成功才推进水位");
+
+  // 情形 B：idle-review 失败（引证不在材料），capacity 成功
+  const b = await runWithTwoTasks({
+    "idle-review": { ...GOOD_VERDICT, quote: "这句材料里根本没有出现过完全无关的一句话" },
+    "capacity-maintenance": { entries: "无" },
+  });
+  assert.deepEqual(b.out.failedTasks, ["idle-review"]);
+  assert.equal(b.out.taskResults["capacity-maintenance"].ok, true, "★ 另一件的结论**不得**因它失效");
+  assert.equal(b.out.verdict, null, "失败者不得产出可落地的结论");
+  assert.equal(b.out.watermarkTurn, undefined, "有失败即不推进水位（留待下次重覆盖）");
+
+  // 情形 C：idle-review 成功，capacity 失败
+  const c = await runWithTwoTasks({ "idle-review": GOOD_VERDICT, "capacity-maintenance": {} });
+  assert.deepEqual(c.out.failedTasks, ["capacity-maintenance"]);
+  assert.equal(c.out.taskResults["idle-review"].ok, true, "★ 成功者须仍可取用");
+  assert.notEqual(c.out.verdict, null, "idle-review 成功时须给出可落地的结论");
+  assert.equal(c.out.watermarkTurn, undefined, "有失败即不推进水位");
+});
+
+test("N=2 逐任务校验：某任务的校验器**抛错**不掀掉另一件（异常按该任务失败收口）", async () => {
+  const { createDiscoveryProvider } = await import("../lib/friction-discovery-provider.js");
+  const registry = {
+    ...AUX_TASK_REGISTRY,
+    "capacity-maintenance": fakeSecondTask({ validate: () => { throw new Error("校验器爆炸"); } }),
+  };
+  const subagents = {
+    list: () => ["fork"],
+    getProvider: () => ({ inheritsParentContext: true, capabilities: { outputSchema: true } }),
+    start: async () => ({
+      id: "r",
+      result: Promise.resolve({ stopReason: "completed", structured: { "idle-review": GOOD_VERDICT, "capacity-maintenance": { entries: "x" } } }),
+      dispose: async () => {},
+    }),
+  };
+  const provider = createDiscoveryProvider({
+    subagents, parent: { id: "p", session: { header: { id: "s" } } },
+    signal: new AbortController().signal, registry,
+    provideWindow: () => ({ items: [{ turn: 1, user: "u", assistant: "这是一段足够长的材料内容原文。" }], truncated: false }),
+  });
+  const out = await provider({ threshold: 3, candidates: [], window: { from: 0, to: 1 }, tasks: ["idle-review", "capacity-maintenance"] });
+  assert.deepEqual(out.failedTasks, ["capacity-maintenance"]);
+  assert.equal(out.taskResults["idle-review"].ok, true, "抛错的任务不得掀掉另一件");
+});

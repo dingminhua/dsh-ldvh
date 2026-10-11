@@ -138,8 +138,20 @@ export const Config = z.object({
   idleMinContentChars: volatileField(z.number().default(800)),
   /** 本区间新增内容的轮数门槛（与字符数门槛**取或**）。 */
   idleMinContentTurns: volatileField(z.number().default(3)),
-  /** 配额窗口内的派发次数上限；**0 表示不限**（0 是合法值，归一化时不得吃掉）。 */
-  idleMaxPerSession: volatileField(z.number().default(8)),
+  /**
+   * 配额窗口内的派发次数上限；**0 表示不限**（0 是合法值，归一化时不得吃掉）。
+   *
+   * **默认值须与 `idle-settings.js` 的 `IDLE_DEFAULTS.maxPerSession` 一致（=4）**。
+   * 两者曾不一致（此处 8、判据侧 4），后果是**判据侧的默认值被架空**——宿主按 zod
+   * 的 default 把 8 填进 config，于是 `resolveIdleSettings` 读到的永远是 8，而 4
+   * 那条从未生效。实测痕迹里 `quota.max` 恒为 8 即此。
+   *
+   * 为何取 4（复审 D7）：按默认间隔 10 分钟，1 小时窗口内**最多只能派发 6 次**，
+   * 上限若取 8 则**永远轮不到它绑定**——于是「配额存在」与「配额根本没实现」在
+   * 运行痕迹里完全不可区分，04 §8.4「派发准入」段要求的「各自可被独立观察」随之
+   * 落空。取 4 使它在密集会话中确实触发。
+   */
+  idleMaxPerSession: volatileField(z.number().default(4)),
   /**
    * 配额窗口长度（毫秒）：配额按**滑动窗口**计，窗口滑过即容量恢复。
    *

@@ -556,3 +556,75 @@ test("参数区如实声明**规范依据待 Human Gate**（不得把未批参�
   assert.ok(zh && zh.includes("Human Gate"), "中文文案须点明待 Human Gate");
   assert.ok(zh && zh.includes("不得"), "中文文案须含「不得据此主张已生效」的告诫");
 });
+
+// ---------------------------------------------------------------------------
+// 三处默认值不得漂移（2026-10-11 实测缺陷：判据侧默认被架空）
+// ---------------------------------------------------------------------------
+//
+// ## 缺陷经过
+//
+// 默认配额上限同时声明在**三处**：`index.js` 的 zod schema、`idle-settings.js` 的
+// `IDLE_DEFAULTS`、`client.js` 的 `IDLE_DEFAULT_STORED`。复审 D7 把「窗口内可达」
+// 定为选值硬约束（1 小时窗口 ÷ 10 分钟间隔 ⇒ 最多 6 次可达，上限取 8 则**永不
+// 绑定**），于是判据侧改成了 4。
+//
+// **但 zod schema 仍是 8。** 而生产路径读的是**它**——宿主按 zod 的 default 把 8
+// 填进 `config`，`resolveIdleSettings` 便永远读到 8，判据侧那个 4 **从未生效**。
+// 实测痕迹里 `quota.max` 恒为 8 即此。
+//
+// 既有守卫只比对 `client.js` 与硬编码值，**没有跨文件比对 zod 与判据侧**，故漏掉。
+// 本条补上该缺口——三处必须同值。
+
+test("默认值三处一致：index.js 的 zod default ≡ idle-settings 的 IDLE_DEFAULTS ≡ client.js", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const read = (rel) => readFile(new URL(rel, import.meta.url), "utf8");
+
+  const indexSrc = await read("../lib/index.js");
+  const settingsMod = await import("../lib/idle-settings.js");
+  const clientSrc = await read("../lib/client.js");
+
+  // ① 判据侧的真值（运行时导出，最权威）
+  const d = settingsMod.IDLE_DEFAULTS;
+
+  // ② index.js 的 zod default —— 生产路径实际用它填 config
+  const zod = {};
+  for (const key of ["idleMinIntervalMs", "idleMinContentChars", "idleMinContentTurns", "idleMaxPerSession", "idleQuotaWindowMs"]) {
+    // 数字**带下划线分隔**（如 `600_000`）——正则须容忍，否则守卫自身失效。
+    const m = indexSrc.match(new RegExp(`${key}:\\s*volatileField\\(z\\.number\\(\\)\\.default\\(([\\d_]+)\\)\\)`));
+    assert.ok(m, `index.js 须以 zod default 声明 ${key}`);
+    zod[key] = Number(m[1].replace(/_/g, ""));
+  }
+
+  // ③ client.js 的界面缺省（存储单位）
+  const storedBlock = clientSrc.match(/var IDLE_DEFAULT_STORED = \{([\s\S]*?)\};/);
+  assert.ok(storedBlock, "client.js 须有 IDLE_DEFAULT_STORED 表");
+  const stored = {};
+  for (const m of storedBlock[1].matchAll(/(\w+):\s*(\d+)/g)) stored[m[1]] = Number(m[2]);
+
+  // 配置键（zod / 界面）与判据键（IDLE_DEFAULTS）**名字不同**：前者带 `idle` 前缀
+  // 且描述的是「设置项」，后者是判据层的内部名。映射写在这里而不是靠命名巧合——
+  // 缺失映射会使断言比较 undefined 与数值，报出一个与真因无关的错。
+  const JUDGE_KEY = {
+    idleMinIntervalMs: "minIntervalMs",
+    idleMinContentChars: "minContentChars",
+    idleMinContentTurns: "minContentTurns",
+    idleMaxPerSession: "maxPerSession",
+    idleQuotaWindowMs: "quotaWindowMs",
+  };
+
+  // 三者逐一比对——任一不同即判据与生产不一致，而非「风格问题」。
+  for (const [key, judgeKey] of Object.entries(JUDGE_KEY)) {
+    assert.ok(judgeKey in d, `IDLE_DEFAULTS 须含判据键 ${judgeKey}`);
+    assert.equal(
+      zod[key],
+      d[judgeKey],
+      `index.js 的 zod default（${zod[key]}）与判据侧 IDLE_DEFAULTS.${judgeKey}（${d[judgeKey]}）不一致——` +
+      `生产路径读 zod，判据侧的默认值会被架空（2026-10-11 实测缺陷）`,
+    );
+    assert.equal(
+      stored[key],
+      d[judgeKey],
+      `client.js 的界面缺省（${stored[key]}）与判据侧 IDLE_DEFAULTS（${d[judgeKey]}）不一致`,
+    );
+  }
+});
