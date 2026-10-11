@@ -92,6 +92,7 @@ test("approve: gate1_request present but with an empty element is rejected", asy
       gate1_request: {
         independent_review: "one isolated subagent",
         unauthorized_action_guard: "writer refuses out-of-scope writes",
+        pre_creation_review: "pre-Gate-1 review conclusion (three dimensions checked)",
         unverified_scope_and_risks: "host signature behavior unverified",
         approved_scope_and_next: "  ",
       },
@@ -99,5 +100,36 @@ test("approve: gate1_request present but with an empty element is rejected", asy
 
     const text = JSON.stringify(result);
     assert.match(text, /approved_scope_and_next/, `expected the guard to name the empty element, got: ${text.slice(0, 400)}`);
+  });
+});
+
+test("approve: gate1_request missing pre_creation_review is rejected (21 §14 Gate 1 前置·建前独立审核, fifth element)", async () => {
+  await withTemp("workcase-gate1c-", async (base) => {
+    const projectDir = join(base, "proj");
+    await mkdir(projectDir, { recursive: true });
+    await writeCarrier(base, projectDir);
+    const { ctx, tools } = collectorCtx();
+    registerWorkcaseTools(ctx, { dshHomePath: (...segments) => join(base, ...segments), sessionPersistence: sessionPersistenceWithRoutingLog(base) });
+    const write = tools.get("ldvh_workcase_write");
+    const exec = { agent: { session: { header: { cwd: projectDir } } } };
+
+    // All elements present EXCEPT the new pre-creation-review element.
+    const result = await write.execute({
+      action: "approve",
+      object_uid: "00000000-0000-4000-8000-000000000000",
+      expected_fingerprint: "0".repeat(64),
+      approver: "Human",
+      controller: "ctrl",
+      change_summary: "Gate 1",
+      gate1_request: {
+        independent_review: "one isolated subagent",
+        unauthorized_action_guard: "writer refuses out-of-scope writes",
+        unverified_scope_and_risks: "host signature behavior unverified",
+        approved_scope_and_next: "execute plan steps 1-3",
+      },
+    }, exec);
+
+    const text = JSON.stringify(result);
+    assert.match(text, /pre_creation_review/, `expected the guard to name the missing pre_creation_review, got: ${text.slice(0, 400)}`);
   });
 });

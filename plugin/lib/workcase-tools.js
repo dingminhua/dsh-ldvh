@@ -361,8 +361,9 @@ const WRITE_ACTIONS = new Set(["create", "approve", "execute", "close", "rebatch
  * 校验只覆盖「存在且非空」；内容是否恰当属 Human 判断（00 §4.2/§5）。
  */
 const GATE1_REQUEST_KEYS = [
-  "independent_review",
   "unauthorized_action_guard",
+  "pre_creation_review",
+  "independent_review",
   "unverified_scope_and_risks",
   "approved_scope_and_next",
 ];
@@ -1025,14 +1026,15 @@ function parameterSchemaFor(operationKey) {
           controller: { type: "string", description: "approve: the executing controller identity — stamped into attempt.controller (21 §10.4)" },
           gate1_request: {
             type: "object",
-            description: "approve: the Gate 1 request elements that have NO object-field carrier (21 §10.1 必含). Plan/serves/scope are already carried by fields and are not repeated here. Required keys: independent_review (独立复核的安排 — who runs it, how many perspectives), unauthorized_action_guard (越权动作被机械拒绝的机制), unverified_scope_and_risks (未验证范围与风险), approved_scope_and_next (批准的作用范围与后续方向). Each must be a non-empty string; omissions are rejected rather than passing silently.",
+            description: "approve: the Gate 1 request elements that have NO object-field carrier (21 §10.1 必含). Plan/serves/scope are already carried by fields and are not repeated here. Required keys: unauthorized_action_guard (越权动作被机械拒绝的机制), pre_creation_review (建立前独立审核的结论 — 21 §14 Gate 1 前置·建前独立审核), independent_review (独立复核的安排 — who runs it, how many perspectives), unverified_scope_and_risks (未验证范围与风险), approved_scope_and_next (批准的作用范围与后续方向). Each must be a non-empty string; omissions are rejected rather than passing silently.",
             properties: {
-              independent_review: { type: "string", description: "独立复核的安排：由谁复核、几个视角、何时（21 §10.1 + 32 §12 按风险选最小充分视角）" },
               unauthorized_action_guard: { type: "string", description: "越权动作被机械拒绝的机制" },
+              pre_creation_review: { type: "string", description: "建立前独立审核的结论（21 §14「Gate 1 前置·建前独立审核」）：凡建单 Gate 1 前必经受管辖隔离子代理审核，此处给出其结论；覆盖对象恰当性/方案可行性/scope 清晰度三维，各给「符合/不符+证据」" },
+              independent_review: { type: "string", description: "独立复核的安排：由谁复核、几个视角、何时（21 §10.1 + 32 §12 按风险选最小充分视角）" },
               unverified_scope_and_risks: { type: "string", description: "未验证范围与风险" },
               approved_scope_and_next: { type: "string", description: "批准的作用范围与后续方向" },
             },
-            required: ["independent_review", "unauthorized_action_guard", "unverified_scope_and_risks", "approved_scope_and_next"],
+            required: ["unauthorized_action_guard", "pre_creation_review", "independent_review", "unverified_scope_and_risks", "approved_scope_and_next"],
           },
           attempt_operation: { type: "string", enum: ["heartbeat", "takeover", "reallocate"], description: "execute: heartbeat (default — refresh heartbeat_at) | takeover (new controller, new monotonic attempt id) | reallocate (void + new id — 冷恢复 after side-effect reconciliation, 21 §10.4)" },
           new_controller: { type: "string", description: "execute: the new controller identity for takeover/reallocate" },

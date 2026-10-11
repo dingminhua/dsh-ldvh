@@ -139,6 +139,7 @@ async function surface(base, draftOverrides = {}) {
 const GATE1_REQUEST = {
   independent_review: "one isolated subagent",
   unauthorized_action_guard: "writer refuses out-of-scope writes",
+  pre_creation_review: "pre-Gate-1 isolated-subagent review conclusion: 对象恰当/方案可行/scope 清晰（21 §14 Gate 1 前置·建前独立审核）",
   unverified_scope_and_risks: "host signature behavior unverified",
   approved_scope_and_next: "execute plan steps 1-3",
 };
