@@ -256,7 +256,7 @@ F4 来源展开发生在需要核对具体观察、版本或观察时点时：�
 
 状态转换 `active → retired` 经受控更新完成：after 含新状态、`retirement_reason`（闭集）与 Code 托管填写的 `retired_at`，当 `retirement_reason=superseded` 时同时携带一条 `updates` 关系指向可解析的替代 Research；`change_summary` 必须据实说明退出依据；正文`建议`段最后一条必须显式回答"本对象在何种条件下仍可被回查"以保证"研究→执行"承接不断裂（与 §9 退出完整性不变量对齐）；不允许普通编辑 direct writing canonical 载体。多对象边界：新调研创建与旧对象 `retired` 是两个单对象操作，不声明原子性；`relations` 随对象创建写入（02 §10.6）。
 
-迁移边界：v4 `report_kind=external_research`（28 份）对象与 docs/ 既有调研备忘是迁移输入，须逐份重满足本文 §6 准入并补全三态证据与引用闭环后，经受控创建按实际子阶段进入 `researches/` 类型目录（单文件：探索型含 `调查阶段` H2，明确方向型不含）；v4 frontmatter 中本文不承载的字段（如 `abstract`、`recommendation_summary`）在迁移创建时删除，不进入 canonical frontmatter，如需保留迁移历史可在 `change_log` 摘要中说明；v4 `technical_assessment` 与 `internal_audit` 不迁入本类型（前者不设产物类型，按主控方案收敛本职分流处置，04 §6.1；后者由检查机制与辅助机制规范的独立复核结论封存通道承载，对应承载落定前该类对象暂缓迁移）；v4 Study 类型名废弃、不设单独类型规范；legacy `object_id` 只作迁移输入，不进入 canonical 对象、关系目标或 CAS 身份（02 §7.1、§7.2）。删除边界按 02 §11 承接。
+迁移边界：v4 `report_kind=external_research`（28 份）对象与 docs/ 既有调研备忘是迁移输入，须逐份重满足本文 §6 准入并补全三态证据与引用闭环后，经受控创建按实际子阶段进入 `researches/` 类型目录（单文件：探索型含 `调查阶段` H2，明确方向型不含）；v4 frontmatter 中本文不承载的字段（如 `abstract`、`recommendation_summary`）在迁移创建时删除，不进入 canonical frontmatter，如需保留迁移历史可在 `change_log` 摘要中说明；v4 `technical_assessment` 与 `internal_audit` 不迁入本类型（前者不设产物类型，按主控方案收敛本职分流处置，04 §6.1；后者由检查机制规范的独立复核结论封存通道承载，对应承载落定前该类对象暂缓迁移）；v4 Study 类型名废弃、不设单独类型规范；legacy `object_id` 只作迁移输入，不进入 canonical 对象、关系目标或 CAS 身份（02 §7.1、§7.2）。删除边界按 02 §11 承接。
 
 ## 14. 类型特有验证与类型退出
 
