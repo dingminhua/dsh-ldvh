@@ -22,7 +22,7 @@ import { resolveGovernanceScope } from "./governance-scope.js";
 import { evaluateRegistrationEntry, registerProjectFromEntry, unregisterProject } from "./governed-projects.js";
 import { bindMembershipEvidence } from "./membership-evidence.js";
 import { currentRouteValues } from "./session-signature.js";
-import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath } from "./commit-validation.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
 import { registerResearchTools } from "./research-tools.js";
 import { registerSparkTools } from "./spark-tools.js";
@@ -561,6 +561,12 @@ function makeExecute(deps) {
     if (diff.length === 0) issues.push(newFinding("git/index_empty", "candidate Index is empty"));
     const correspondence = checkKeyChangesAgainstDiff(message, diff);
     if (!correspondence.ok) issues.push(...correspondence.issues);
+    // 09 §5.3 item 5 (Human 2026-10-12): docs/ is temporary-only, so a carrier
+    // this candidate adds or modifies must not introduce a NEW reference to a
+    // docs/ path that would not exist. Mirrors the Git Gate exactly (09 §5.5:
+    // one validator, no second rule set) — both entries share these helpers.
+    const docsRefs = await checkDocsReferencesForIndex(governed.project.path, correspondence.changedPaths ?? []);
+    if (!docsRefs.ok) issues.push(...docsRefs.issues);
     // Signature values must trace back to the authoritative session record.
     const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
     const signatureCheck = checkSignatureAgainstRoute(message, route);
@@ -597,9 +603,73 @@ function makeExecute(deps) {
         ...(route.ok ? [{ kind: "session-routing-record", event_type: route.value.eventType, provider: route.value.provider, model: route.value.model }] : [])
       ],
       gaps: route.ok ? [] : [`provider/model could not be traced to the authoritative session record: ${route.reason ?? "session identity unavailable"}`],
-      verification: { checks: ["header", "key_changes", "diff_correspondence", "trailers", "signature_traceability"], passed: issues.length === 0 },
+      verification: { checks: ["header", "key_changes", "diff_correspondence", "trailers", "signature_traceability", "docs_references"], passed: issues.length === 0 },
       follow_up: mechanicalOutcome === "passed" ? ["commit; then verify the Git Gate stderr snapshot_identity equals this result's snapshot_identity"] : ["fix the reported issues and re-run precheck"]
     });
+  }
+
+  /**
+   * 09 §5.3 item 5 for the precheck entrypoint: gather the added/modified
+   * carriers from the staged Index and flag newly introduced docs/ references
+   * whose targets are absent. Shares checkDocsReferences with the Git Gate so
+   * both entries apply one rule set (09 §5.5). Fail-closed: an unreadable
+   * candidate tree yields no "exists" oracle, so any reference is reported
+   * rather than silently passed.
+   */
+  async function checkDocsReferencesForIndex(projectPath, changedPaths) {
+    const runGit = async (args) => {
+      const result = await execFileAsync("git", ["-C", projectPath, ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024, env: cleanGitEnvironment() });
+      return result.stdout;
+    };
+    const statuses = new Map();
+    try {
+      const fields = (await runGit(["diff", "--cached", "--name-status", "--no-ext-diff", "-z"])).split("\0").filter(Boolean);
+      for (let index = 0; index < fields.length; index += 1) {
+        const status = fields[index];
+        if (!/^[A-Z]/.test(status)) continue;
+        const letter = status[0];
+        if (letter === "R" || letter === "C") {
+          const newPath = fields[index + 2];
+          if (typeof newPath === "string") statuses.set(newPath, letter);
+          index += 2;
+          continue;
+        }
+        const path = fields[index + 1];
+        if (typeof path === "string") statuses.set(path, letter);
+        index += 1;
+      }
+    } catch {
+      return { ok: false, issues: [newFinding("validation/docs_reference_dangling", "staged statuses unreadable: cannot prove no new docs/ reference was introduced (09 §5.3 item 5 fails closed)")] };
+    }
+    const candidates = new Set();
+    try {
+      for (const path of (await runGit(["ls-files", "--cached", "-z"])).split("\0")) if (path) candidates.add(path);
+      for (const path of (await runGit(["ls-files", "--others", "--exclude-standard", "-z"])).split("\0")) if (path) candidates.add(path);
+    } catch {
+      // Leave the set as-is; unresolved references below still fail closed.
+    }
+    const carriers = [];
+    for (const path of changedPaths) {
+      // Governed class only (09 §5.3 item 5): spec and fact carriers. The
+      // checker re-applies the same filter, so the two entries cannot diverge.
+      if (!isSpecOrFactCarrierPath(path)) continue;
+      const status = statuses.get(path);
+      if (status !== undefined && !["A", "M", "R", "C", "T"].includes(status)) continue;
+      let content;
+      try {
+        content = await runGit(["show", `:${path}`]);
+      } catch {
+        continue;
+      }
+      let baseline;
+      try {
+        baseline = await runGit(["show", `HEAD:${path}`]);
+      } catch {
+        baseline = void 0;
+      }
+      carriers.push({ path, content, baseline });
+    }
+    return checkDocsReferences(carriers, { exists: (p) => candidates.has(p) });
   }
 
   function checkSignatureAgainstRoute(message, route) {

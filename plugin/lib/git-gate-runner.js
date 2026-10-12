@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath } from "./commit-validation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -14,7 +14,14 @@ function valueAfter(args, flag) {
 
 async function git(worktree, args, indexFile) {
   const env = cleanGitEnvironment(indexFile === void 0 ? {} : { GIT_INDEX_FILE: indexFile });
-  const result = await execFileAsync("git", ["-C", worktree, ...args], { env, encoding: "utf8", timeout: 10000, maxBuffer: 4 * 1024 * 1024 });
+  // maxBuffer must hold the WHOLE staged diff: a bulk commit (e.g. deleting a
+  // large directory) legitimately produces a multi-megabyte diff, and hitting
+  // the ceiling surfaces as "unavailable" — the gate refuses a commit over a
+  // carrier-size limit, not a contract violation. 4MB was measured too small
+  // (a 214-file deletion produced 4.59MiB) and it also disagreed with the
+  // precheck entrypoint, whose limit is 8MB; 09 §5.1 requires both entries of
+  // the same check to agree. Kept identical to ldvh-tools.js's precheck bound.
+  const result = await execFileAsync("git", ["-C", worktree, ...args], { env, encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024 });
   return result.stdout;
 }
 
@@ -75,6 +82,110 @@ async function collectNormCarriers(worktree, changedPaths, indexFile) {
   return [...carry.entries()].map(([path, content]) => ({ path, content }));
 }
 
+/**
+ * Gather the carriers this commit ADDS or MODIFIES, as { path, content },
+ * for the docs/-reference check (09 §5.3 item 5).
+ *
+ * Only added/modified paths are collected — the spec blocks NEW references
+ * and explicitly does not chase pre-existing ones, so a file the commit
+ * merely deletes (or leaves untouched) is out of scope. Paths outside the
+ * governed class (specs/**, ldvh-base/**, root README.md) are skipped here
+ * and by the checker alike.
+ *
+ * Content comes from the Index (`git show :path`), which is what the commit
+ * would actually land — not the possibly-newer working-tree copy. The baseline
+ * comes from HEAD (`git show HEAD:path`), so the checker can tell a reference
+ * this commit newly introduces from one that was already there (09 §5.3 item 5
+ * blocks only the former). An added file has no HEAD text: baseline stays
+ * undefined, which correctly treats every reference in it as new.
+ */
+async function collectChangedCarriers(worktree, message, diff, indexFile) {
+  const paths = (checkKeyChangesAgainstDiff(message, diff).changedPaths ?? []);
+  const changed = await changedPathStatuses(worktree, indexFile);
+  const carriers = [];
+  for (const path of paths) {
+    // Only spec/fact carriers are governed by 09 §5.3 item 5; the checker
+    // applies the same filter, so skip early to avoid pointless Git reads.
+    if (!isSpecOrFactCarrierPath(path)) continue;
+    const status = changed.get(path);
+    // A (added), M (modified), and their staged rename/copy forms only.
+    if (status !== undefined && !["A", "M", "R", "C", "T"].includes(status)) continue;
+    let content;
+    try {
+      content = await git(worktree, ["show", `:${path}`], indexFile);
+    } catch {
+      // Not in the Index: a working-tree-only path cannot land in this commit,
+      // so it carries no reference obligation. Skip rather than fail.
+      continue;
+    }
+    let baseline;
+    try {
+      baseline = await git(worktree, ["show", `HEAD:${path}`], indexFile);
+    } catch {
+      baseline = void 0; // newly added: every reference in it is new
+    }
+    carriers.push({ path, content, baseline });
+  }
+  return carriers;
+}
+
+/**
+ * Every path the candidate tree would contain: the staged Index plus
+ * working-tree files this commit does not remove. Used as the existence
+ * oracle for docs/ references (09 §5.3 item 5) — a reference is dangling
+ * only when its target is absent from what the commit would land.
+ */
+async function candidateTreePaths(worktree, indexFile) {
+  const paths = new Set();
+  const add = (raw) => {
+    for (const path of raw.split("\0")) if (path) paths.add(path);
+  };
+  try {
+    add(await git(worktree, ["ls-files", "--cached", "-z"], indexFile));
+  } catch {
+    // Unreadable Index: stay empty; the caller's findings fail closed anyway.
+  }
+  try {
+    add(await git(worktree, ["ls-files", "--others", "--exclude-standard", "-z"], indexFile));
+  } catch {
+    // Untracked listing is best-effort: Index entries remain authoritative.
+  }
+  try {
+    add(await git(worktree, ["ls-files", "--deleted", "-z"], indexFile));
+  } catch {
+    // Deleted-in-worktree entries are already covered by the Index listing.
+  }
+  return paths;
+}
+
+/** Map of repo-relative path → staged status letter (from `--name-status`). */
+async function changedPathStatuses(worktree, indexFile) {
+  const statuses = new Map();
+  let raw = "";
+  try {
+    raw = await git(worktree, ["diff", "--cached", "--name-status", "--no-ext-diff", "-z"], indexFile);
+  } catch {
+    return statuses;
+  }
+  const fields = raw.split("\0").filter(Boolean);
+  for (let index = 0; index < fields.length; index += 1) {
+    const status = fields[index];
+    if (!/^[A-Z]/.test(status)) continue;
+    const letter = status[0];
+    if (letter === "R" || letter === "C") {
+      // rename/copy: status, old path, new path
+      const newPath = fields[index + 2];
+      if (typeof newPath === "string") statuses.set(newPath, letter);
+      index += 2;
+      continue;
+    }
+    const path = fields[index + 1];
+    if (typeof path === "string") statuses.set(path, letter);
+    index += 1;
+  }
+  return statuses;
+}
+
 async function main(argv) {
   if (argv[0] !== "git-commit-msg") throw new Error("unsupported runner command");
   const workspaceRoot = valueAfter(argv, "--workspace-root");
@@ -104,6 +215,17 @@ async function main(argv) {
   if (normCarriers.length > 0) {
     const uniqueness = checkNormDirectionUniqueness(normCarriers);
     if (!uniqueness.ok) issues.push(...uniqueness.issues);
+  }
+
+  // 09 §5.3 item 5 (Human 2026-10-12): docs/ is temporary-only, so a carrier
+  // this commit adds or modifies must not reference a docs/ path that does not
+  // exist. Only NEW dangling references block — pre-existing ones are cleaned
+  // up gradually per the Human's instruction and must not stop commits.
+  const changedCarriers = await collectChangedCarriers(root, message, diff, indexFile);
+  if (changedCarriers.length > 0) {
+    const candidatePaths = await candidateTreePaths(root, indexFile);
+    const docsRefs = checkDocsReferences(changedCarriers, { exists: (p) => candidatePaths.has(p) });
+    if (!docsRefs.ok) issues.push(...docsRefs.issues);
   }
 
   if (issues.length > 0) {

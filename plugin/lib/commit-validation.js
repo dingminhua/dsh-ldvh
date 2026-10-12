@@ -55,7 +55,8 @@ export const GATE_RULES = Object.freeze({
   "validation/signature_model_mismatch": Object.freeze({ severity: "blocking", description: "trailer LDVH-Model does not match the authoritative session record" }),
   "git/index_empty": Object.freeze({ severity: "blocking", description: "candidate Index is empty" }),
   "facts/norm_direction_collision": Object.freeze({ severity: "blocking", description: "two or more ACTIVE Norm objects in ldvh-base/norms/ share one direction_key (27 §11 uniqueness second layer: the Git Gate traverses the index and refuses the commit)" }),
-  "facts/norm_carrier_unparseable": Object.freeze({ severity: "blocking", description: "a staged ldvh-base/norms/norm-*.md carrier cannot be parsed for the direction_key uniqueness assertion — an unreadable carrier cannot be proven conflict-free, so the gate fails closed rather than passing it" })
+  "facts/norm_carrier_unparseable": Object.freeze({ severity: "blocking", description: "a staged ldvh-base/norms/norm-*.md carrier cannot be parsed for the direction_key uniqueness assertion — an unreadable carrier cannot be proven conflict-free, so the gate fails closed rather than passing it" }),
+  "validation/docs_reference_dangling": Object.freeze({ severity: "blocking", description: "a newly added or modified non-docs carrier references a docs/ path that does not exist in the candidate tree (09 §5.3 item 5, Human 2026-10-12: docs/ holds temporary documents only and must not be relied on as an authority)" })
 });
 
 /** Mechanical-artifact exemption for the bidirectional coverage check
@@ -171,6 +172,99 @@ function itemMatchesPath(item, path) {
   // Diffstat-style summaries name the touched area; accept directory words.
   const segments = path.split("/").filter((segment) => segment.length > 2 && !/\d/.test(segment));
   return segments.some((segment) => item.includes(segment));
+}
+
+// ---------------------------------------------------------------------------
+// docs/ reference check (09 §5.3 item 5, Human 2026-10-12)
+// ---------------------------------------------------------------------------
+//
+// docs/ holds temporary documents only: it is neither a specification source
+// nor a fact source, so no carrier may cite it as an authority. This check
+// blocks NEW dangling references; it deliberately does not chase existing ones
+// (the spec says pre-existing references are cleaned up gradually and must not
+// block commits in the meantime).
+//
+// Decidable slice, deliberately narrow:
+//   - Only carriers that this commit ADDS or MODIFIES are scanned.
+//   - The scan is limited to SPEC and FACT carriers (specs/**, ldvh-base/**,
+//     and the repository-root README.md) — the class the rule is about.
+//     Implementation carriers (code, tests, build scripts) are excluded: their
+//     mentions of docs/ are code comments and test fixtures, not authority
+//     claims; including them would also make the rule self-defeating, since
+//     the rule's own tests must name docs/ paths and the change could then
+//     never land.
+//   - Carriers inside docs/ itself are skipped: intra-docs cross-links are
+//     fine, that directory is temporary by definition.
+//   - A reference blocks only when it is NEWLY INTRODUCED by this commit AND
+//     its target is ABSENT from the candidate tree. Both halves are required:
+//     the Human's instruction is to clean up EXISTING references gradually,
+//     so editing a carrier that merely still carries an old reference must
+//     not block — otherwise "gradually" would be impossible to honour, every
+//     later edit to that carrier would be frozen until the cleanup lands.
+//     The caller supplies the baseline text to make the "newly introduced"
+//     half decidable; with no baseline every current reference counts as new
+//     (an added file has no prior text, which is exactly right).
+//   - `plugin/web/docs/` is a DIFFERENT directory (Web design docs, owned by
+//     07) and is never matched: the pattern is anchored so that `docs/` must
+//     begin a path segment.
+//
+// `carriers` is supplied as { path, content, baseline? } so this stays pure
+// and testable; the runner gathers content from the Index (staged content is
+// authoritative for what the commit would land) and the baseline from HEAD.
+export const DOCS_REFERENCE_PATTERN = /(?:^|[^A-Za-z0-9._/-])(docs\/[A-Za-z0-9._/-]*[A-Za-z0-9_-])/g;
+
+/** True when a repo-relative path is under the top-level temporary docs/ tree. */
+export function isTemporaryDocsPath(path) {
+  return path === "docs" || path.startsWith("docs/");
+}
+
+/**
+ * True when a path is a spec or fact carrier — the class of file the docs/
+ * reference rule governs (09 §5.3 item 5, whose wording is "规范或事实载体").
+ * Implementation carriers (code, tests, scripts) are out of scope by that
+ * same wording: they do not cite docs/ as an authority.
+ */
+export function isSpecOrFactCarrierPath(path) {
+  if (path === "README.md") return true;
+  return path.startsWith("specs/") || path.startsWith("ldvh-base/");
+}
+
+/**
+ * Extract the distinct docs/ references a carrier text makes.
+ * Trailing punctuation is trimmed so `docs/x.md`（…）and `docs/x.md`,
+ * both yield the bare path.
+ */
+export function extractDocsReferences(text) {
+  const found = new Set();
+  for (const match of text.matchAll(DOCS_REFERENCE_PATTERN)) {
+    const ref = match[1].replace(/[.,;:]+$/, "");
+    if (ref.length > "docs/".length) found.add(ref);
+  }
+  return [...found];
+}
+
+export function checkDocsReferences(carriers, { exists } = {}) {
+  const issues = [];
+  const resolveExists = typeof exists === "function" ? exists : () => false;
+  for (const carrier of carriers) {
+    // Only spec/fact carriers are governed; docs/ carriers may cross-link
+    // freely among themselves, and implementation carriers are out of scope.
+    if (!isSpecOrFactCarrierPath(carrier.path)) continue;
+    if (typeof carrier.content !== "string" || carrier.content.length === 0) continue;
+    const preexisting = new Set(
+      typeof carrier.baseline === "string" ? extractDocsReferences(carrier.baseline) : []
+    );
+    for (const ref of extractDocsReferences(carrier.content)) {
+      if (preexisting.has(ref)) continue; // old reference: cleaned up gradually
+      if (resolveExists(ref)) continue;   // live target: not a violation
+      issues.push(newFinding(
+        "validation/docs_reference_dangling",
+        `${carrier.path} references "${ref}", which does not exist in the candidate tree (09 §5.3 item 5: docs/ is temporary-only and must not be relied on; remove the reference or re-home the content as a fact object)`,
+        null
+      ));
+    }
+  }
+  return { ok: issues.length === 0, issues };
 }
 
 // ---------------------------------------------------------------------------

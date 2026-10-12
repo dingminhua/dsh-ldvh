@@ -19,6 +19,10 @@ import {
 	EXEMPT_BASENAMES,
 	checkNormDirectionUniqueness,
 	isNormCarrierPath,
+	checkDocsReferences,
+	extractDocsReferences,
+	isTemporaryDocsPath,
+	isSpecOrFactCarrierPath,
 } from "../lib/commit-validation.js";
 
 /** A canonical, fully-legal commit message. */
@@ -374,6 +378,7 @@ test("GATE_RULES registers every rule the validator emits, each with severity an
 		"git/index_empty",
 		"facts/norm_direction_collision",
 		"facts/norm_carrier_unparseable",
+		"validation/docs_reference_dangling",
 	];
 	assert.deepEqual(Object.keys(GATE_RULES).sort(), expected.sort());
 	for (const entry of Object.values(GATE_RULES)) {
@@ -498,4 +503,117 @@ test("isExemptPath matches the registered basenames only", () => {
 	assert.equal(isExemptPath("plugin/package.json"), false);
 	assert.equal(isExemptPath("plugin/web/pnpm-lock.yaml"), true);
 	assert.deepEqual([...EXEMPT_BASENAMES], ["package-lock.json", "pnpm-lock.yaml"]);
+});
+
+// ---------------------------------------------------------------------------
+// docs/ reference check — 09 §5.3 item 5 (Human 2026-10-12)
+//
+// docs/ holds temporary documents only; no carrier may newly cite a docs/ path
+// that does not exist. Pre-existing references are cleaned up gradually and
+// must NOT block a commit, so the check compares against the baseline text.
+// ---------------------------------------------------------------------------
+
+test("extractDocsReferences finds bare docs/ paths and trims trailing punctuation", () => {
+	assert.deepEqual(extractDocsReferences("见 `docs/a.md`（注）"), ["docs/a.md"]);
+	assert.deepEqual(extractDocsReferences("见 docs/archive/b.md，与 docs/c.md。"), ["docs/archive/b.md", "docs/c.md"]);
+	assert.deepEqual(extractDocsReferences("（`docs/x/y/z.md`）"), ["docs/x/y/z.md"]);
+});
+
+test("extractDocsReferences does NOT match plugin/web/docs (a different directory)", () => {
+	assert.deepEqual(extractDocsReferences("见 `plugin/web/docs/10-baseline.md` §5"), []);
+	assert.deepEqual(extractDocsReferences("见 plugin/web/docs/10 §5"), []);
+	// The top-level docs/ still matches when it is a real path segment.
+	assert.deepEqual(extractDocsReferences("见 docs/real.md"), ["docs/real.md"]);
+});
+
+test("extractDocsReferences ignores the bare directory token without a path", () => {
+	assert.deepEqual(extractDocsReferences("文档一律位于 docs/ 目录"), []);
+});
+
+test("isTemporaryDocsPath distinguishes top-level docs/ from plugin/web/docs/", () => {
+	assert.equal(isTemporaryDocsPath("docs/a.md"), true);
+	assert.equal(isTemporaryDocsPath("docs/archive/b.md"), true);
+	assert.equal(isTemporaryDocsPath("docs"), true);
+	assert.equal(isTemporaryDocsPath("plugin/web/docs/10.md"), false);
+	assert.equal(isTemporaryDocsPath("specs/00.md"), false);
+	assert.equal(isTemporaryDocsPath("docsy/x.md"), false);
+});
+
+test("checkDocsReferences flags a NEWLY INTRODUCED dangling docs/ reference", () => {
+	const result = checkDocsReferences(
+		[{ path: "specs/27-x.md", content: "只作设计输入（`docs/archive/gone.md`）。", baseline: "只作设计输入。" }],
+		{ exists: () => false }
+	);
+	assert.equal(result.ok, false);
+	assert.equal(result.issues[0].rule, "validation/docs_reference_dangling");
+	assert.ok(result.issues[0].message.includes("docs/archive/gone.md"));
+});
+
+test("checkDocsReferences does NOT flag a PRE-EXISTING dangling reference (gradual cleanup)", () => {
+	const text = "只作设计输入（`docs/archive/gone.md`），并新增一句无关说明。";
+	const result = checkDocsReferences(
+		[{ path: "specs/27-x.md", content: text, baseline: "只作设计输入（`docs/archive/gone.md`）。" }],
+		{ exists: () => false }
+	);
+	assert.deepEqual(result.issues, []);
+	assert.equal(result.ok, true);
+});
+
+test("checkDocsReferences does NOT flag a NEW reference whose target exists", () => {
+	const result = checkDocsReferences(
+		[{ path: "specs/27-x.md", content: "见 `docs/live.md`。", baseline: "" }],
+		{ exists: (p) => p === "docs/live.md" }
+	);
+	assert.equal(result.ok, true);
+});
+
+test("checkDocsReferences treats an added carrier (no baseline) as all-new", () => {
+	const result = checkDocsReferences(
+		[{ path: "specs/99-new.md", content: "见 `docs/nope.md`。" }],
+		{ exists: () => false }
+	);
+	assert.equal(result.ok, false);
+	assert.equal(result.issues[0].rule, "validation/docs_reference_dangling");
+});
+
+test("checkDocsReferences exempts carriers inside docs/ itself", () => {
+	const result = checkDocsReferences(
+		[{ path: "docs/a.md", content: "见 `docs/b.md`。", baseline: "" }],
+		{ exists: () => false }
+	);
+	assert.equal(result.ok, true);
+});
+
+test("checkDocsReferences does not flag plugin/web/docs references", () => {
+	const result = checkDocsReferences(
+		[{ path: "specs/07-x.md", content: "呈现契约由 `plugin/web/docs/10-Web开发现状与设计语言基线.md` §5 承载。", baseline: "" }],
+		{ exists: () => false }
+	);
+	assert.equal(result.ok, true);
+});
+
+test("isSpecOrFactCarrierPath limits the rule to spec/fact carriers", () => {
+	assert.equal(isSpecOrFactCarrierPath("specs/00-x.md"), true);
+	assert.equal(isSpecOrFactCarrierPath("specs/attachments/a.md"), true);
+	assert.equal(isSpecOrFactCarrierPath("ldvh-base/frictions/f.md"), true);
+	assert.equal(isSpecOrFactCarrierPath("README.md"), true);
+	// Implementation carriers are out of scope: their mentions are comments and
+	// fixtures, and including them would make the rule self-defeating (its own
+	// tests must name docs/ paths).
+	assert.equal(isSpecOrFactCarrierPath("plugin/lib/commit-validation.js"), false);
+	assert.equal(isSpecOrFactCarrierPath("plugin/test/commit-validation.test.mjs"), false);
+	assert.equal(isSpecOrFactCarrierPath("plugin/web/docs/10.md"), false);
+	assert.equal(isSpecOrFactCarrierPath("scripts/x.sh"), false);
+});
+
+test("checkDocsReferences ignores docs/ references in implementation carriers", () => {
+	const result = checkDocsReferences(
+		[{ path: "plugin/test/x.test.mjs", content: 'extract("见 docs/nope.md")', baseline: "" }],
+		{ exists: () => false }
+	);
+	assert.equal(result.ok, true);
+});
+
+test("docs_reference_dangling is registered in the K1 rule registry", () => {
+	assert.equal(GATE_RULES["validation/docs_reference_dangling"].severity, "blocking");
 });
