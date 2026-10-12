@@ -40,14 +40,16 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 事实更正（非状态转换）——补填 occurrence（26 §8 于 2026-11 新增必填字段）——本对象为 resolved 终态，无法经受控更新触及，经 §13 的 frontmatter_additions 通道补填；count=1、first_at=last_at 取既有时间锚（存量对象无可考的重复计数，保守记为首见一次）。终态判定未变：status/title/phenomenon/impact/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：无；② 2026-11 起可补填新进入类型闭集的字段，本次补填：occurrence），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human 于本会话裁定「1」——批准给 correct 增设对称补填通道（选项①），并批准按「count=1、first_at 取 change_log 首条」的口径回填存量 occurrence；本条为该口径的最后一个对象
+  - at: 2026-10-12T03:48:13.925Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 事实更正（非状态转换）——结构修正：收敛重复的生成式 H1（2 → 1）——读写契约不对称导致补充级更新每次叠加一个 H1（2026-10-12 修）. 不改 count、不改状态、不改语义内容。终态判定未变：status/title/phenomenon/impact/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：无；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human 2026-10-12 指示「修复吧」（本会话）：授权修正 3 条被重复 H1 损坏的账目结构
 occurrence:
   count: 1
   first_at: 2026-09-16T03:57:06.500Z
   last_at: 2026-09-16T03:57:06.500Z
   human_return_at: null
 ---
-
-# open 工单无法写入结果节
 
 # open 工单无法写入结果节
 

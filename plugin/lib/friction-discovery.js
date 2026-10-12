@@ -68,6 +68,26 @@ function fingerprintText(text) {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
+/**
+ * 剥掉正文开头的生成式 H1，返回可直接交给写入侧的 markdown。
+ *
+ * 存在的理由是一对**不对称契约**：`readFrictionObject().body` 含写入侧生成的
+ * `# <title>`，而 `updateFrictionObject({bodyMarkdownAfter})` 要的是不含 H1 的正文
+ * （写入侧 `assembleBody` 会再前置一次）。把前者直接喂给后者即每次写入叠加一个 H1。
+ *
+ * 与 `workcase-writer.js` 的同名处置取同一形态（`body.replace(/^#\s+.*\n+/, "")`），
+ * 但放宽两点以适应既有载体的实际形态：① H1 前允许任意空白行与前导空白；
+ * ② 只剥**第一个** H1，其后正文逐字保留（`/m` 不加 `g`，故不误伤正文里作为
+ * 字面内容出现的 `# ` 行）。
+ *
+ * 边界：若正文根本没有 H1（写入侧尚未组装过），原样返回——本函数只做减法，
+ * 不替调用方编造 H1，也不因缺失而失败。
+ */
+export function stripLeadingH1(body) {
+  if (typeof body !== "string") return "";
+  return body.replace(/^\s*#\s+.*(\n+|$)/, "").replace(/^\s+/, "");
+}
+
 // ---------------------------------------------------------------------------
 // 第 1 项（读取部分）：账本候选
 // ---------------------------------------------------------------------------
@@ -138,7 +158,18 @@ export async function supplementOccurrence({
   const now = isNonEmptyString(observationAt) ? observationAt : new Date().toISOString();
   // 现象段扩展：追加本次观察来源。26 §8 要求 occurrence 载体内聚——正文现象段
   // 须含首次观察来源；此处扩展的是重复观察的记录，保留既有内容不动。
-  const nextBody = `${current.value.body}\n\n补充观察（${now}）：${observation.trim()}`;
+  //
+  // **读-写契约的不对称**（实测缺陷，2026-10-12 修）：
+  //   `readFrictionObject().body` 是**整份文件正文，含生成的 `# <title>` H1**；
+  //   而 `updateFrictionObject({bodyMarkdownAfter})` 要的是**不含 H1 的 markdown**
+  //   （写入侧 `assembleBody` 会再前置一次 H1）。二者直接相接，每跑一次补充级更新
+  //   就多一个 H1——实测在临时源上连跑 3 次得到 H1 数 1/2/3，且**每次写入都返回成功**：
+  //   `validateFrictionBodyStructure` 只比对首个非空行是否为 `# <title>`、H2 序列与
+  //   各段非空，**不数 H1 的个数**，故结构校验对重复 H1 完全无感；§8.4 第 5 项的精确
+  //   回读也只比对 `count`/`last_at`。真实账本已有 3 条中招（3048937d H1=3、
+  //   545cca82 H1=2、bf73fad4 H1=2，其余 21 条为 1——只有被本路径写过的才中招）。
+  // 修法取 `workcase-writer.js` 的既有范式（同一读-写不对称，该类型早已按此处置）。
+  const nextBody = `${stripLeadingH1(current.value.body)}\n\n补充观察（${now}）：${observation.trim()}`;
 
   const frontmatterAfter = {
     ...fm,
@@ -174,6 +205,26 @@ export async function supplementOccurrence({
     return failure(
       "friction/read_back_mismatch",
       `supplement-level update must not change status: expected ${status}, got ${readBack.value.frontmatter.status}`,
+    );
+  }
+
+  // §8.4 第 5 项「精确回读」的**结构**一半。
+  //
+  // 只比对 count/last_at 是不够的：实测缺陷中写入路径每次叠加一个 H1，而
+  // `validateFrictionBodyStructure` 不数 H1 个数、回读又不看结构，于是**每一次写入都
+  // 返回成功**、账目静默损坏（3048937d 累积到 3 个 H1，且已提交进历史）。
+  // 这与本账目 545cca82 自身的主题同形：机械信号（写入成功、count 相符）不构成
+  // 「载体结构正确」的证据。
+  //
+  // 比对的判据取「H1 恰好一个且等于 `# <title>`」——与 26 §8「H1 恰好一个且与 title
+  // 一致」逐字同源，比直接复用 `body_valid` 更严格（后者对该缺陷恒为 true）。
+  const readBackBody = readBack.value.body ?? "";
+  const h1Count = (readBackBody.match(/^ {0,3}#(?!#)[ \t]+\S.*$/gm) ?? []).length;
+  if (h1Count !== 1) {
+    return failure(
+      "friction/read_back_structure_invalid",
+      `read-back found ${h1Count} H1 heading(s) in the body; 26 §8 requires exactly one (generated from title). `
+      + "This write path must not duplicate the generated H1 — see stripLeadingH1 in this module.",
     );
   }
 
@@ -309,7 +360,9 @@ export async function promoteIfThresholdMet({
     objectUid,
     expectedFingerprint: current.value.fingerprint,
     frontmatterAfter: { ...fm, status: "open" },
-    bodyMarkdownAfter: current.value.body,
+    // 读-写契约不对称，同补充级更新——见 stripLeadingH1 的说明。此处若直接回传
+    // `current.value.body`（含生成的 H1），写入侧会再前置一次，阈值流转即损坏载体。
+    bodyMarkdownAfter: stripLeadingH1(current.value.body),
     changeSummary: `阈值流转 observing → open（count ${fm.occurrence.count} ≥ 3，04 §8.4 第 4 项）`,
     sessionSignature,
   });

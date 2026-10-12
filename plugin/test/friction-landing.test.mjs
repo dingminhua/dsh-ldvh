@@ -15,6 +15,7 @@ import {
 	residualFromLandingError
 } from "../lib/friction-landing.js";
 import { readFrictionObject, listFrictionObjects } from "../lib/friction-writer.js";
+import { stripLeadingH1 } from "../lib/friction-discovery.js";
 import { withTemp, testSignature } from "./helpers.mjs";
 
 const SIG = testSignature();
@@ -230,7 +231,7 @@ test("终态账目（resolved/voided）不得被补充计数（26 §9.3 计数�
       objectUid: uid,
       expectedFingerprint: cur.value.fingerprint,
       frontmatterAfter: { ...cur.value.frontmatter, status: "voided", disposition: "测试置为终态" },
-      bodyMarkdownAfter: `${cur.value.body}\n\n## 处置\n测试置为终态。`,
+      bodyMarkdownAfter: `${stripLeadingH1(cur.value.body)}\n\n## 处置\n测试置为终态。`,
       changeSummary: "测试：置为 voided",
       sessionSignature: SIG,
     });

@@ -16,6 +16,7 @@ import {
   meetsThreshold,
   promoteIfThresholdMet,
   verifyThresholdAvailable,
+  stripLeadingH1,
   FRICTION_THRESHOLD_N,
   MAX_CREATES_PER_RUN,
 } from "../lib/friction-discovery.js";
@@ -53,7 +54,7 @@ async function seed(base, { count = 1, humanReturnAt = null, title = "重复出�
         ...read.value.frontmatter,
         occurrence: { ...read.value.frontmatter.occurrence, count, human_return_at: humanReturnAt },
       },
-      bodyMarkdownAfter: read.value.body,
+      bodyMarkdownAfter: stripLeadingH1(read.value.body),
       changeSummary: "测试：直接设定 count",
       sessionSignature: TEST_SIGNATURE,
     });
@@ -161,7 +162,7 @@ test("§8.4 第 2 项：终态账目拒绝补充（26 §9.3 计数冻结）", as
       objectUid: uid,
       expectedFingerprint: read.value.fingerprint,
       frontmatterAfter: { ...read.value.frontmatter, status: "voided", disposition: "根本不是系统性阻碍" },
-      bodyMarkdownAfter: `${read.value.body}\n\n## 处置\n归因错误，废弃。`,
+      bodyMarkdownAfter: `${stripLeadingH1(read.value.body)}\n\n## 处置\n归因错误，废弃。`,
       changeSummary: "测试：转 voided",
       sessionSignature: TEST_SIGNATURE,
     });
@@ -316,4 +317,132 @@ test("§8.4：机械通道不创建 open，也不写终态——创建只产出 
     assert.equal(listed.value.items[0].status, "observing");
     assert.equal(listed.value.items[0].disposition, undefined, "no terminal field is written by the discovery path");
   });
+});
+
+// ---------------------------------------------------------------------------
+// 读-写契约不对称的回归守卫（2026-10-12 实测缺陷）
+//
+// 缺陷形态：`readFrictionObject().body` **含**写入侧生成的 `# <title>`，而
+// `updateFrictionObject({bodyMarkdownAfter})` 要的是**不含** H1 的正文（写入侧
+// `assembleBody` 会再前置一次）。读-改-写路径若把前者直接回传，每写一次多一个 H1。
+//
+// 真实影响：账本实测 3 条中招（3048937d H1=3、545cca82 H1=2、bf73fad4 H1=2），
+// 且**每次写入都返回成功**——`validateFrictionBodyStructure` 不数 H1 个数、
+// §8.4 第 5 项回读只比对 count/last_at，两条通道都给绿灯。
+//
+// 以下守卫按本仓纪律写成「故意引入即失败」的形态：任一处回退，对应断言即红。
+// ---------------------------------------------------------------------------
+
+/** 数正文里的 H1 个数（26 §8：恰好一个，由 title 生成）。 */
+function h1CountOf(body) {
+  return (body.match(/^ {0,3}#(?!#)[ \t]+\S.*$/gm) ?? []).length;
+}
+
+test("回归：补充级更新不得叠加 H1——连跑三次 H1 恒为 1", async () => {
+  await withRoot(async (base) => {
+    const created = await createObserving({
+      factSourceRoot: base,
+      title: "H1 叠加回归",
+      phenomenon: "补充级更新会重复前置 H1。",
+      impact: "medium",
+      basis: "重复出现；归因：写入路径；修了会改善：载体结构恢复。",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+    const uid = created.value.object_uid;
+
+    const before = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
+    assert.equal(h1CountOf(before.value.body), 1, "创建后的初始 H1 必须恰好一个");
+
+    for (let i = 1; i <= 3; i++) {
+      const r = await supplementOccurrence({
+        factSourceRoot: base,
+        objectUid: uid,
+        observation: `第 ${i} 次补充观察。`,
+        observationAt: `2026-10-12T0${i}:00:00.000Z`,
+        sessionSignature: TEST_SIGNATURE,
+      });
+      assert.ok(r.ok, `第 ${i} 次补充须成功：${JSON.stringify(r.error)}`);
+      const now = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
+      assert.equal(h1CountOf(now.value.body), 1, `第 ${i} 次补充后 H1 仍须恰好一个（叠加即损坏载体，26 §8）`);
+      assert.equal(now.value.frontmatter.occurrence.count, i + 1, "计数须照常递增——修复不得以牺牲计数为代价");
+    }
+
+    // 载体内聚与结构同时仍成立：内容扩展真的写进去了，而不是「拒绝写入」冒充成功。
+    const final = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
+    assert.ok(final.value.body.includes("第 3 次补充观察"), "现象段须真被扩展");
+    assert.ok(final.value.body_valid, `结构须合法：${JSON.stringify(final.value.issues ?? [])}`);
+  });
+});
+
+test("回归：写入侧拒绝自带 H1 的 bodyMarkdownAfter（契约须被强制，而非只写在文案里）", async () => {
+  await withRoot(async (base) => {
+    const created = await createObserving({
+      factSourceRoot: base,
+      title: "契约强制回归",
+      phenomenon: "写入侧声称正文不含 H1，但从不校验。",
+      impact: "medium",
+      basis: "重复出现；归因：写入侧校验缺位；修了会改善：误解当场暴露。",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+    const uid = created.value.object_uid;
+    const read = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
+
+    const { updateFrictionObject } = await import("../lib/friction-writer.js");
+    const rejected = await updateFrictionObject({
+      factSourceRoot: base,
+      objectUid: uid,
+      expectedFingerprint: read.value.fingerprint,
+      frontmatterAfter: read.value.frontmatter,
+      // 故意把含 H1 的 body 回传——这正是真实缺陷的形态
+      bodyMarkdownAfter: read.value.body,
+      changeSummary: "回归：回传含 H1 的正文",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!rejected.ok, "写入侧必须拒绝自带 H1 的正文，不得静默拼接");
+    assert.equal(rejected.error?.code, "invalid_request");
+    assert.match(rejected.error.message, /must NOT carry the generated H1/, "拒绝理由须指明是 H1 重复，而非泛泛的格式错误");
+
+    // 反向：剥掉 H1 后同一内容必须放行——拒绝的是形态，不是内容。
+    const accepted = await updateFrictionObject({
+      factSourceRoot: base,
+      objectUid: uid,
+      expectedFingerprint: read.value.fingerprint,
+      frontmatterAfter: read.value.frontmatter,
+      bodyMarkdownAfter: stripLeadingH1(read.value.body),
+      changeSummary: "回归：剥掉 H1 后放行",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(accepted.ok, `剥掉 H1 后须放行：${JSON.stringify(accepted.error)}`);
+    const after = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
+    assert.equal(h1CountOf(after.value.body), 1, "放行后 H1 仍恰好一个");
+  });
+});
+
+test("回归：阈值流转（observing → open）不得叠加 H1", async () => {
+  await withRoot(async (base) => {
+    const uid = await seed(base, { count: FRICTION_THRESHOLD_N });
+    const promoted = await promoteIfThresholdMet({
+      factSourceRoot: base,
+      objectUid: uid,
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(promoted.ok, JSON.stringify(promoted.error));
+    assert.equal(promoted.value.promoted, true, "达到阈值须流转");
+    const after = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
+    assert.equal(after.value.frontmatter.status, "open");
+    assert.equal(h1CountOf(after.value.body), 1, "阈值流转同属读-改-写路径，H1 不得叠加");
+  });
+});
+
+test("stripLeadingH1：只剥第一个 H1，正文里作为字面内容的 # 行不受影响", () => {
+  assert.equal(stripLeadingH1("# 标题\n\n## 现象\n正文\n"), "## 现象\n正文\n");
+  assert.equal(stripLeadingH1("\n\n# 标题\n\n## 现象\n"), "## 现象\n");
+  // 无 H1：原样返回（只做减法，不替调用方编造 H1）
+  assert.equal(stripLeadingH1("## 现象\n正文\n"), "## 现象\n正文\n");
+  // 正文里字面出现的 "# " 行（如引用的规范片段）不得被剥
+  assert.equal(stripLeadingH1("# 标题\n\n## 现象\n引用：\n# 这是正文里的字面行\n"), "## 现象\n引用：\n# 这是正文里的字面行\n");
+  assert.equal(stripLeadingH1(""), "");
+  assert.equal(stripLeadingH1(null), "");
 });

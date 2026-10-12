@@ -286,6 +286,41 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
 // Body structure + carrier coherence
 // ---------------------------------------------------------------------------
 
+/**
+ * 入参 `bodyMarkdown` / `bodyMarkdownAfter` 的**形态前置**：不得自带 H1。
+ *
+ * 本函数的写入侧契约是「正文自 H2 起、H1 由 `assembleBody` 从 title 生成」——
+ * 该契约此前**只写在错误文案里，代码从不校验**（实测 `typeof … !== "string"` 一条
+ * 即为全部检查）。后果是一次真实的累积性数据损坏（2026-10-12 定位）：
+ * `readFrictionObject().body` 是**含**生成式 H1 的整份正文，而调用方把它直接回传给
+ * 更新入口，于是每写一次就多一个 H1。真实账本实测 3 条中招（`3048937d` H1=3、
+ * `545cca82` H1=2、`bf73fad4` H1=2；其余 21 条为 1——只有被这些路径写过的才中招）。
+ *
+ * **为什么此前无人发现**：`validateFrictionBodyStructure` 只比对「首个非空行是否为
+ * `# <title>`」、H2 序列与各段非空，**不数 H1 的个数**，故重复 H1 恰好绕过全部结构校验；
+ * 而 §8.4 第 5 项的精确回读只比对 `count`/`last_at`。两条通道都给绿灯，损坏因此静默。
+ *
+ * 修法取「拒绝 + 指明去处」而非「静默剥离」：`bodyMarkdown*` 是调用方显式提供的
+ * **完整目标正文**，静默改写它会掩盖调用方的误解（本次缺陷正是一个被掩盖的误解）；
+ * 且 §8.4 要求 fail-closed。真正的剥离责任在调用方——本模块导出 `stripLeadingH1`
+ * 供其使用，读-改-写路径必须先剥再传。
+ *
+ * @returns {{ok: true} | {ok: false, message: string}}
+ */
+function requireBodyWithoutH1(bodyMarkdown, fieldName) {
+  // 只查**开头**的 H1：正文里作为字面内容出现的 `# ` 行（例如引用的规范片段）不受限。
+  if (/^\s*#\s+\S/.test(bodyMarkdown)) {
+    return {
+      ok: false,
+      message: `${fieldName} must NOT carry the generated H1 — the body starts at "## 现象" and the H1 is generated from title (26 §8). `
+        + "The value looks like it came straight from readFrictionObject().body, which DOES include the H1; "
+        + "strip it first (import { stripLeadingH1 } from \"./friction-discovery.js\") before passing it back — "
+        + "otherwise every write appends one more H1 to the carrier.",
+    };
+  }
+  return { ok: true };
+}
+
 
 
 /**
@@ -436,6 +471,8 @@ export async function createFrictionObject(args) {
   if (typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
     return failure("invalid_request", "bodyMarkdown is required (the markdown body starting with '## 现象'; the H1 is generated from title)");
   }
+  const createH1 = requireBodyWithoutH1(bodyMarkdown, "bodyMarkdown");
+  if (!createH1.ok) return failure("invalid_request", createH1.message);
 
   // Code-assigned identity (03 §6.2)
   const uid = randomUUID();
@@ -575,6 +612,8 @@ export async function updateFrictionObject(args) {
   if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
     return failure("invalid_request", "bodyMarkdownAfter is required (the complete target body starting with '## 现象')");
   }
+  const updateH1 = requireBodyWithoutH1(bodyMarkdownAfter, "bodyMarkdownAfter");
+  if (!updateH1.ok) return failure("invalid_request", updateH1.message);
 
   const current = await readFrictionObject({ factSourceRoot, objectUid });
   if (!current.ok) return current;
@@ -772,6 +811,8 @@ export async function correctFrictionObject(args) {
   if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
     return failure("invalid_request", "bodyMarkdownAfter is required (the full next body starting with '## 现象')");
   }
+  const correctH1 = requireBodyWithoutH1(bodyMarkdownAfter, "bodyMarkdownAfter");
+  if (!correctH1.ok) return failure("invalid_request", correctH1.message);
 
   const current = await readFrictionObject({ factSourceRoot, objectUid });
   if (!current.ok) return current;

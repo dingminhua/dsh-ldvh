@@ -16,6 +16,8 @@ import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { stripLeadingH1 } from "../lib/friction-discovery.js";
+
 import {
   createFrictionObject,
   listFrictionObjects,
@@ -218,7 +220,7 @@ test("26 §13：correct 可用于终态对象补填 occurrence（对称于 front
     const filled = await correctFrictionObject({
       factSourceRoot: root, objectUid: created.value.object_uid,
       expectedFingerprint: voidedRead.value.fingerprint,
-      bodyMarkdownAfter: voidedRead.value.body,
+      bodyMarkdownAfter: stripLeadingH1(voidedRead.value.body),
       frontmatterAdditions: {
         occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z", human_return_at: null },
       },
