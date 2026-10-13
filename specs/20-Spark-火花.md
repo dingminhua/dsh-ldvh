@@ -15,7 +15,6 @@ ldvh_spec:
     - "code-engineering-practices"
     - "goal-fact-type"
   authorized_attachments: []
-  dimensions: ["research"]
 ---
 
 # Spark-火花

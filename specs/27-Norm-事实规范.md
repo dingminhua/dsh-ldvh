@@ -15,7 +15,6 @@ ldvh_spec:
     - "specification-model-foundation"
   authorized_attachments:
     - "norm-direction-catalog"
-  dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
 ---
 
 # Norm-事实规范

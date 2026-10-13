@@ -17,7 +17,6 @@ ldvh_spec:
     - "source-of-truth-traceability"
     - "work-object-governance-scope"
   authorized_attachments: []
-  dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
 ---
 
 # Code 实践与测试规范

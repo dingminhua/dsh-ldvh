@@ -12,7 +12,6 @@ ldvh_spec:
   basis:
     - "source-of-truth-traceability"
   authorized_attachments: []
-  dimensions: ["comply"]
 ---
 
 # ADR-决策

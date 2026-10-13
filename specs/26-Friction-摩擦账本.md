@@ -13,7 +13,6 @@ ldvh_spec:
     - "source-of-truth-traceability"
     - "business-system-foundation"
   authorized_attachments: []
-  dimensions: ["comply"]
 ---
 
 # Friction-摩擦账本

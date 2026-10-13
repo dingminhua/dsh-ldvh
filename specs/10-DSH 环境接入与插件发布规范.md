@@ -15,7 +15,6 @@ ldvh_spec:
     - "check-auxiliary-mechanism-foundation"
     - "source-of-truth-traceability"
   authorized_attachments: []
-  dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
 ---
 
 # DSH 环境接入与插件发布规范

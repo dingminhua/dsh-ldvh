@@ -12,7 +12,6 @@ ldvh_spec:
   basis:
     - "business-system-foundation"
   authorized_attachments: []
-  dimensions: ["research"]
 ---
 
 # Research-调研报告

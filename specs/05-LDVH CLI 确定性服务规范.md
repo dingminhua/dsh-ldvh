@@ -15,7 +15,6 @@ ldvh_spec:
     - "check-auxiliary-mechanism-foundation"
     - "fact-model-foundation"
   authorized_attachments: []
-  dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
 ---
 
 # LDVH CLI 确定性服务规范
