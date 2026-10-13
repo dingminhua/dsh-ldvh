@@ -547,11 +547,19 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             // 失败即不落地、不推进水位（provider 已据此不给出 watermarkTurn）。
             // 落到下面的运行痕迹写入，使「有任务失败」在痕迹里可见。
           }
-          // **准入条件是「有任务取得了结论」，不是「摩擦取得了结论」。**
-          // 原条件只认 `verdict`（摩擦的兼容字段），于是清单里只有经验积累时
-          // 整块落地被跳过——它的结论**算完即丢**，而外观上与「跑通了但没发现」
-          // 完全相同（缺陷 D2 的同形）。故此处并列两个任务的结论。
-          if (checkpoint?.ok === true && (verdict != null || captureVerdict != null) && failedTasks.length === 0) {
+          // **准入条件是「有任务取得了结论」，且**按任务分别**判断。
+          //
+          // 该条件曾有两处错误，都在同一方向上（全有或全无）：
+          //   ① 只认 `verdict`（摩擦的兼容字段）→ 清单里只有经验积累时整块落地被
+          //      跳过，其结论算完即丢（缺陷 D2 同形）；
+          //   ② **仍带 `failedTasks.length === 0`** → 任一任务失败即整块跳过，
+          //      **成功任务的结论也一起被丢**，且两个水位都不推进、下轮重覆盖同一
+          //      区间使成功者被再落地（`occurrence.count` 虚增）。
+          // ②即独立代码审核的 F-1（高危）：按任务分别的**存储**已就位，但**策略**
+          // 仍是全有或全无，于是它在唯一需要它的场景（一件成功、一件失败）里不生效。
+          // 现改为：只要**本任务自己**取得了结论就落地它，与其它任务的成败无关——
+          // 这正是 36 §10.2「任一任务失败不使其余任务失效」的机械形态。
+          if (checkpoint?.ok === true && (verdict != null || captureVerdict != null)) {
             const ledgerRoot = join(scope.project.path, "ldvh-base");
             // 受控写入需要**权威路由签名**（02 §10.5）。取不到签名时**不落地**
             // ——宁可停在这里，也不写一条签名缺失的账目（那会污染 change_log 的

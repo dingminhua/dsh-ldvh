@@ -204,7 +204,16 @@ test("discover：落地前校验不通过时**如实载明**该任务失败（�
   // 失败的任务**不得**产出可落地的结论——否则落地侧会把一份无效判断写成账目。
   assert.equal(out.verdict, null, "失败时不得给出 verdict（否则调用方会拿它去落地）");
   assert.equal(out.outcome, null);
-  assert.equal(out.watermarkTurn, undefined, "有任务失败即不推进水位（留待下次重覆盖）");
+  assert.ok(out.taskVerdicts["friction-discovery"] === undefined, "失败的任务不得出现在逐任务成功结论表里");
+  // **水位上界仍须给出**（独立代码审核 F-1 的修复）：本字段是「本次区间上界」，
+  // 其是否被采用由调用方**按任务分别**决定——成功者推进、失败者不推进。
+  // 原断言要求 `undefined`（即「任一任务失败即整体不推进」），那使成功者的水位也
+  // 停滞、下轮重覆盖同一区间而致其 `occurrence.count` 虚增；即该「修复」在唯一
+  // 需要它的场景里不生效。此处改为断言上界**存在**，且由调用方逐任务决定采用。
+  assert.equal(
+    out.watermarkTurn, 1,
+    "水位**上界**不得因有任务失败而缺席（缺席会使成功者也被重覆盖）",
+  );
 });
 
 test("discover：structured 缺席时**如实载明**失败（不把空结论当作 no-discovery）", async () => {
@@ -421,4 +430,92 @@ test("短路判定**先于 provider 选择**：无可用 provider 时空窗口�
   const r = await discover({ threshold: 3, candidates: [], sessionSignature: "s", window: { from: 10, to: 20 } });
   assert.equal(r.skipped, "empty-window", "无 provider 也应短路成功（不派生即不需要 provider）");
   assert.equal(events.filter((e) => e.phase === "skipped").length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// F-1（独立代码审核，高危）：多任务**部分失败**时，成功任务的结论与水位的独立性
+//
+// 原实现中「按任务分别的水位」只在**存储层**成立，**策略层是全有或全无**：
+//   - `watermarkTurn` 以 `failedTasks.length === 0` 为条件；
+//   - 调用方的落地闸门同样以它为条件。
+// 于是「一件成功、一件失败」时：成功者的结论**算完即丢**（D2 同形），两个水位都
+// 不推进，下轮重覆盖使成功者被再落地（`occurrence.count` 虚增）。
+// **该修复在唯一需要它的场景里不生效**——而当时没有任何测试覆盖该场景。
+// ---------------------------------------------------------------------------
+
+const CAPTURE_SLICE_OK = {
+  verdict: "no-capture",
+  title: "", scope: "", body: "",
+  failure_observed: "", root_cause_known: "", resolution_adopted: "",
+  verification_observed: "", duplicate_of: "",
+  quote: "这是一段足够长的材料内容原文。",
+  reason: "本次没有命中四前提的失败机制。",
+};
+
+test("F-1：一件失败一件成功时，`watermarkTurn` 仍须给出（否则成功者也被重覆盖）", async () => {
+  const subagents = fakeSubagents({
+    providers: [providerNamed("exec")],
+    startImpl: () => ({
+      id: "run-1",
+      dispose: async () => {},
+      result: Promise.resolve({
+        stopReason: "completed",
+        structured: {
+          // 摩擦成功
+          "friction-discovery": VERDICT_SLICE,
+          // 经验失败：引证不在窗口内（真实高频失败：引证核对按材料正文做字符串比对）
+          "experience-capture": { ...CAPTURE_SLICE_OK, quote: "这段引证根本不在材料里面呀" },
+        },
+      }),
+    }),
+  });
+  const discover = createDiscoveryProvider({
+    subagents,
+    parent: PARENT,
+    signal: SIGNAL,
+    provideWindow: () => ({ items: [{ turn: 1, user: "这是一段足够长的材料内容原文。" }], truncated: false }),
+  });
+
+  const out = await discover({
+    threshold: 3,
+    candidates: [],
+    existingPitfalls: [],
+    sessionSignature: null,
+    window: { from: 0, to: 5 },
+    tasks: ["friction-discovery", "experience-capture"],
+  });
+
+  assert.deepEqual(out.failedTasks, ["experience-capture"], "经验积累应失败、摩擦应成功");
+  assert.ok(out.taskVerdicts["friction-discovery"] !== undefined, "成功者的结论须可取用");
+  assert.equal(
+    out.watermarkTurn, 5,
+    "**watermarkTurn 不得因有任务失败而缺席**——它是「本次区间上界」，由调用方按任务分别"
+    + "决定是否采用；缺席会使成功者的水位也不推进，下轮重覆盖致其 count 虚增（F-1）",
+  );
+});
+
+test("F-1：全成功时同样给出 watermarkTurn（回归：新条件不得反向破坏）", async () => {
+  const subagents = fakeSubagents({
+    providers: [providerNamed("exec")],
+    startImpl: () => ({
+      id: "run-1",
+      dispose: async () => {},
+      result: Promise.resolve({
+        stopReason: "completed",
+        structured: { "friction-discovery": VERDICT_SLICE, "experience-capture": CAPTURE_SLICE_OK },
+      }),
+    }),
+  });
+  const discover = createDiscoveryProvider({
+    subagents,
+    parent: PARENT,
+    signal: SIGNAL,
+    provideWindow: () => ({ items: [{ turn: 1, user: "这是一段足够长的材料内容原文。" }], truncated: false }),
+  });
+  const out = await discover({
+    threshold: 3, candidates: [], existingPitfalls: [], sessionSignature: null,
+    window: { from: 0, to: 9 }, tasks: ["friction-discovery", "experience-capture"],
+  });
+  assert.deepEqual(out.failedTasks, []);
+  assert.equal(out.watermarkTurn, 9);
 });

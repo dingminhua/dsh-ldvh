@@ -224,6 +224,18 @@ export async function runIdleCheckpoint({
         at,
       });
     }
+    // **截断须回指**（独立代码审核 F-4）：`limit` 命中上限时 `complete === false`，
+    // 意味着查重只比对了**前 N 条**。若不回指而静默使用，则「查重前提完整」这一
+    // 声明为假——一个本可命中的既有机制会因落在截断之外而被当成新机制**重复建档**。
+    // 处置与「载体不可读」同源：停止该任务并如实登记，不用不完整的前提冒充完整。
+    if (listed.value.complete === false) {
+      return recordAndFail(dshHomePath, {
+        task: "experience-capture",
+        reason: `既有经验超出读取上限（共 ${listed.value.total} 条，本次只读到 ${listed.value.items.length} 条），查重前提不完整`,
+        residual: ["查重只比对了一部分既有对象——越过上限者若本应命中，会重复建档", "上限见 idle-checkpoint 的 limit 实参"],
+        at,
+      });
+    }
     existingPitfalls = listed.value.items;
     if (Array.isArray(listed.value.invalid) && listed.value.invalid.length > 0) {
       return recordAndFail(dshHomePath, {

@@ -360,7 +360,7 @@ test("N=2 逐任务校验：**某件失败不掀掉另一件**（32 §10.2 的�
   assert.deepEqual(a.out.failedTasks, []);
   assert.equal(a.out.taskResults["friction-discovery"].ok, true);
   assert.equal(a.out.taskResults["capacity-maintenance"].ok, true);
-  assert.notEqual(a.out.watermarkTurn, undefined, "全成功才推进水位");
+  assert.notEqual(a.out.watermarkTurn, undefined, "全成功时水位的区间上界须给出");
 
   // 情形 B：idle-review 失败（引证不在材料），capacity 成功
   const b = await runWithTwoTasks({
@@ -370,14 +370,24 @@ test("N=2 逐任务校验：**某件失败不掀掉另一件**（32 §10.2 的�
   assert.deepEqual(b.out.failedTasks, ["friction-discovery"]);
   assert.equal(b.out.taskResults["capacity-maintenance"].ok, true, "★ 另一件的结论**不得**因它失效");
   assert.equal(b.out.verdict, null, "失败者不得产出可落地的结论");
-  assert.equal(b.out.watermarkTurn, undefined, "有失败即不推进水位（留待下次重覆盖）");
+  // **水位的区间上界仍须给出**（独立代码审核 F-1 的修复）：它是「本次区间上界」，
+  // 是否采用由调用方**按任务分别**决定——成功者推进、失败者不推进。原断言要求
+  // `undefined`（即「任一失败即整体不推进」），那使成功者的水位也停滞、下轮重覆盖
+  // 同一区间而致其 `occurrence.count` 虚增——**恰是本条测试名所承诺之事被架空**。
+  assert.notEqual(
+    b.out.watermarkTurn, undefined,
+    "水位**上界**不得因有任务失败而缺席——缺席即成功者也被重覆盖（F-1）",
+  );
 
   // 情形 C：idle-review 成功，capacity 失败
   const c = await runWithTwoTasks({ "friction-discovery": GOOD_VERDICT, "capacity-maintenance": {} });
   assert.deepEqual(c.out.failedTasks, ["capacity-maintenance"]);
   assert.equal(c.out.taskResults["friction-discovery"].ok, true, "★ 成功者须仍可取用");
-  assert.notEqual(c.out.verdict, null, "idle-review 成功时须给出可落地的结论");
-  assert.equal(c.out.watermarkTurn, undefined, "有失败即不推进水位");
+  assert.notEqual(c.out.verdict, null, "friction-discovery 成功时须给出可落地的结论");
+  assert.notEqual(
+    c.out.watermarkTurn, undefined,
+    "水位**上界**不得因有任务失败而缺席（同上，F-1）",
+  );
 });
 
 test("N=2 逐任务校验：某任务的校验器**抛错**不掀掉另一件（异常按该任务失败收口）", async () => {

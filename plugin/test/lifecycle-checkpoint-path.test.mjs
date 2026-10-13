@@ -179,3 +179,160 @@ test("调用方覆盖：装配阶段不得引用未声明的标识符（静态�
     "落地路径又用了裸 sessionPersistence —— D8 形态",
   );
 });
+
+// ---------------------------------------------------------------------------
+// F-1（独立代码审核，高危）：**一件成功、一件失败**时，成功者必须照常落地并
+// **推进自己的水位**。
+//
+// 该路径此前**零覆盖**：`friction-discovery-provider.test.mjs` 只测单任务失败，
+// 而调用方的落地闸门曾是 `failedTasks.length === 0`（全有或全无），于是：
+//   ① 成功者的结论算完即丢（D2 同形）；
+//   ② 两个水位都不推进 → 下轮重覆盖同一区间 → 成功者被再落地
+//      （`occurrence.count` 虚增，而它是阈值流转的唯一输入源）。
+// 「测试全绿」与「该路径被走过」是两件事——本文件正是为后者而存在的。
+// ---------------------------------------------------------------------------
+
+test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自己的水位**", async () => {
+  const { ctx, dshHomePath, roots, project } = await setup();
+
+  // 让两个任务分别走「成功」与「失败」：经验积累的引证**不在窗口内**——这是
+  // 真实高频失败（引证核对按材料正文做字符串比对），不是人为构造的异常。
+  const materialText = "本次会话材料：解析反复失败，清理缓存后恢复。";
+  ctx.set("subagents", {
+    list: () => ["spawn"],
+    getProvider: () => ({ name: "spawn", inheritsParentContext: false, capabilities: { outputSchema: true, agentOptions: true, depthLimit: true } }),
+    start: async (name, request) => {
+      const promptText = request?.prompt?.[0]?.text ?? "";
+      // 探针：把「桩是否被调用」与「窗口里到底有没有材料」写进可断言的地方——
+      // 否则「没失败」既可能是逻辑正确，也可能是桩压根没跑（空过）。
+      globalThis.__f1Probe = {
+        called: true,
+        promptChars: promptText.length,
+        sawMaterial: promptText.includes(materialText.slice(0, 10)),
+        topKeys: Object.keys(request?.outputSchema?.properties ?? {}),
+      };
+      return {
+      id: "run-f1",
+      dispose: async () => {},
+      result: Promise.resolve({
+        stopReason: "completed",
+        structured: {
+          "friction-discovery": {
+            verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "",
+            impact: "light", quote: materialText.slice(0, 20), reason: "本次没有系统性阻碍",
+          },
+          "experience-capture": {
+            verdict: "no-capture", title: "", scope: "", body: "",
+            failure_observed: "", root_cause_known: "", resolution_adopted: "",
+            verification_observed: "", duplicate_of: "",
+            quote: "这段引证根本不在材料里面呀", reason: "无命中",
+          },
+        },
+      }),
+      };
+    },
+  });
+
+  // 受控写入需要**权威路由签名**（02 §10.5）：本桩让 `open(id,"read").read()`
+  // 返回一条**真实的 routing 事件**，使签名链路走通——否则落地会在「缺签名」
+  // 处停住（记 `land-failed/no-signature`），本测试就验证不到「成功者是否落地」。
+  ctx.set("sessionPersistence", {
+    locate: () => undefined,
+    open: () => ({
+      read: async () => ({ events: [{ type: "model/selection", data: { provider: "stub-provider", model: "stub-model" } }] }),
+      close: async () => {},
+    }),
+  });
+
+  const sessionId = `session-f1-${Date.now()}`;
+  const session = { header: { id: sessionId, cwd: project }, id: sessionId };
+  const agent = { id: "agent-f1", session, ctx };
+  roots.push(agent);
+  await ctx.emit("agent/created", { agent, source: "startup" });
+  await new Promise((r) => setTimeout(r, 500));
+
+  // **必须先喂材料**：区间无内容时 provider 会走「空窗口短路」分支（不派生执行体），
+  // 我的桩根本不会被调用，于是本条测试会**空过**——这正是「测试全绿≠路径被走过」。
+  // 材料由调度侧的累积器在 `session/event` 上机械累积（不读会话日志）。
+  // **两个参数**（`(session, event)`）——lifecycle 的注册形态是
+  // `ctx.on("session/event", (session, event) => turnTriggers.onSessionEvent(session, event))`。
+  // 曾误发成单个对象 `{session, event}`，于是 `event.type` 为 undefined、累积器
+  // 收到空内容，区间保持为空 → 空窗口短路 → 桩不被调用（本条测试**空过**）。
+  await ctx.emit("session/event", session, { type: "user/message", data: { content: [{ type: "text", text: materialText }] } });
+  await ctx.emit("session/event", session, { type: "assistant/message", data: { turn: 12, content: [{ type: "text", text: "已查明根因并采用解法。" }] } });
+
+  await ctx.emit("agent/turn-stopping", { agent, turn: 12 });
+  await ctx.emit("agent/status", { agent, status: "idle" });
+  await new Promise((r) => setTimeout(r, 1500));
+
+  const { readRuns } = await import("../lib/idle-runlog.js");
+  const read = await readRuns(dshHomePath);
+  assert.ok(read.ok, "运行痕迹须可读");
+  const runs = read.value.runs;
+  const failed = runs.filter((r) => r.stage === "land-failed");
+  const landed = runs.filter((r) => r.stage === "landed");
+
+  // ── 判据一：场景**确实可达**（防「测试空过」）────────────────────────────
+  //
+  // 本判据是防自欺的关键：若本次运行**根本没走到部分失败**（例如被前置闸门挡掉、
+  // 或桩的结论形态不对），那么下面的水位断言就**什么都没验证**——而测试仍然全绿。
+  // 「测试全绿」与「该路径被走过」是两件事，本文件正是为后者而存在，故此处
+  // **必须先证明场景发生**，再断言其行为。
+  assert.ok(
+    runs.length > 0,
+    "驱动检查点后必须留下运行痕迹——否则回调被前置 return 挡掉或抛错被吞（D8 形态）",
+  );
+  assert.ok(
+    globalThis.__f1Probe?.called === true,
+    "**桩执行体必须被真的调用过**——否则本条测试什么都没验证（空窗口短路会绕过它）",
+  );
+  assert.ok(
+    failed.length > 0,
+    `本次须真的出现「任务失败」（否则本条什么都没验证）：痕迹见 ${JSON.stringify(runs.map((r) => r.stage))}`,
+  );
+  // 判据以**水位**为准而非 runlog：runlog 在整轮末尾写一条（`landed` 或
+  // `land-failed`），它反映的是「整轮结局」，不足以判断**单个任务**是否落地。
+  // 水位是每任务独立的，故它才是本条的机械判据——但需先确定「本次确实部分失败」。
+  assert.ok(
+    failed.length > 0 || landed.length > 0,
+    "检查点须走到落地阶段"
+    + `若本断言失败即 F-1 复发（闸门仍为全有或全无）；痕迹见 ${JSON.stringify(runs.map((r) => [r.stage, r.action ?? null]))}`
+    + `\n待处置队列：${
+      await (async () => {
+        try {
+          const raw = await readFile(join(await dshHomePath(), "ldvh", "pending-queue.jsonl"), "utf8");
+          return raw.trim().split("\n").slice(-4).map((l) => { try { const o = JSON.parse(l); return `${o.task}: ${String(o.reason).slice(0, 90)}`; } catch { return l.slice(0, 90); } }).join("\n  ");
+        } catch (e) { return `(读不到: ${e.message})`; }
+      })()
+    }`,
+  );
+
+  // ── 判据二：水位按任务分别——**成功者推进、失败者不动** ────────────────────
+  const { readWatermark } = await import("../lib/friction-watermark.js");
+  const base = { projectRoot: project, sessionId };
+  const wFriction = await readWatermark(dshHomePath, { ...base, task: "friction-discovery" });
+  const wCapture = await readWatermark(dshHomePath, { ...base, task: "experience-capture" });
+  assert.ok(wFriction.ok && wCapture.ok, "两任务的水位都须可读（按任务分别的键）");
+
+  // 两次读取须**各自认出自己的任务**（载体键是会话级的、任务维在其下，故比较
+  // `task` 而非 `key`——`key` 两任务本就相同，它是「同一会话的同一份载体」）。
+  assert.equal(wFriction.value.task, "friction-discovery");
+  assert.equal(wCapture.value.task, "experience-capture");
+  // 两任务的水位是**同一个载体下的两个子项**，故其中一项推进不得影响另一项：
+  // 这正是「按任务分别」的机械含义。
+  assert.notEqual(
+    wFriction.value.lastTurn, wCapture.value.lastTurn,
+    "两任务水位不得相同——本次一件成功一件失败，成功者应推进、失败者应仍为 null",
+  );
+  // 成功者的水位**必须**前进（本次区间上界 = turn 12）。
+  assert.equal(
+    wFriction.value.lastTurn, 12,
+    "**成功者（friction-discovery）的水位须推进到本次区间上界**——不推进即下轮重覆盖"
+    + "同一区间，使成功者被再落地、`occurrence.count` 虚增（F-1 的后果）",
+  );
+  // 失败者的水位**必须**不动（留待下次重覆盖）。
+  assert.equal(
+    wCapture.value.lastTurn, null,
+    "**失败者（experience-capture）的水位不得推进**——推进会使那段内容被标记为已处理而永不复查",
+  );
+});
