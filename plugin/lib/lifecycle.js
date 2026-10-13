@@ -361,7 +361,14 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             const prior = dispatchState.ok ? dispatchState.value : { lastDispatchAt: null, dispatchCount: 0, dispatchTimes: [] };
             // 水位为 null = 首次运行，覆盖全部既有内容；此时内容量门槛无条件解除
             // （否则历史摩擦会因某个区间恰好很短而永不被发现）。冷却仍适用。
-            const priorWatermark = await readWatermark(dshHomePath, { projectRoot: scope.project.path, sessionId });
+            // **按任务读水位**（friction-watermark 的逐任务改造）。本次清单的
+            // 首个任务即当前编排的任务键；多任务落地时，各任务须各自读自己的键
+            // ——共用一条会使「一件成功、一件失败」互相牵连（成功者被重复落地）。
+            const priorWatermark = await readWatermark(dshHomePath, {
+              projectRoot: scope.project.path,
+              sessionId,
+              task: tasksForThisCheckpoint[0],
+            });
             const isFirstRun = priorWatermark.ok ? priorWatermark.value.lastTurn === null : false;
             // 材料规模取自累积器给出的区间（判据层不读时钟、不读窗口内容）。
             const ahead = turnTriggers.windowFrom(priorWatermark.ok ? priorWatermark.value.lastTurn : null);
@@ -613,6 +620,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   const advanced = await advanceWatermark(dshHomePath, {
                     projectRoot: scope.project.path,
                     sessionId,
+                    // 推进**本任务**的水位——这正是逐任务改造的目的：任务 A 成功
+                    // 推进自己的水位，不因任务 B 失败而后退或被重覆盖。
+                    task: tasksForThisCheckpoint[0],
                     turn: pendingTurn,
                   });
                   if (!advanced.ok) {

@@ -28,12 +28,36 @@
  * §8.4 明文：水位**不进入 Friction 账目**（26 §19 第 1 项：不设无消费方装饰字段），
  * 不构成事实对象，也不适用 02 号的事实类型契约与受控写入流程。故本模块把水位存在
  * **DSH home 下的宿主侧运行载体**（与 §8.3 待处置队列同一性质），键为「受管辖项目
- * 根 + 会话 id」，值为上一次成功处理到的轮次号。
+ * 根 + 会话 id」，其下**按任务分别**记录各自「上一次成功处理到的轮次号」。
+ *
+ * ## 为什么水位必须按任务分别（2026-10-14）
+ *
+ * 本模块原先只有**一条**水位，被全部闲时任务共用。该形态在只有单任务时工作正常，
+ * 但它使「一件成功、一件失败」必然导致**重复落地**：§11 要求任一任务失败即不推进，
+ * 于是下一轮重覆盖同一区间——而**成功那件的写入已经发生**，重覆盖会把它再落地
+ * 一次（`occurrence.count` 被虚增，而它是阈值流转的唯一输入源，会把不该转 `open`
+ * 的账目推过阈值 N）。该缺陷由 `friction-discovery-provider.js` 登记为「首个多任务
+ * 落地时必须一并解决」的残留风险；本模块的改造即其解决。
+ *
+ * 分工（与派发状态的关系不变）：
+ *   - **水位**：按任务分别——各任务各自记录「本任务成功处理到哪」，互不牵连；
+ *   - **派发状态**（`lastDispatchAt`/`dispatchCount`/`dispatchTimes`）：**仍按会话共用**
+ *     ——节流度量的是「这次派发」的整体代价（一个子代理一次跑完 N 件事，上下文只
+ *     解压一次），故它本就是派发级的量，不随任务数分家。二者同处一个载体、两轴各走。
  */
 
 import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
+
+/**
+ * 存量单条水位的归属任务。
+ *
+ * 该常量**不是**「默认任务」——它只用于把**改造之前**写下的旧形态水位解释为
+ * 某个任务的水位。改造前只有 `friction-discovery`（时名 `idle-review`）已实现
+ * 并写过水位，故存量的 `lastTurn` 只可能是它写的；这是唯一自洽的读法。
+ */
+const LEGACY_WATERMARK_OWNER = "idle-review";
 
 /** DSH home 下的相对位置（与 governed-projects / pending-queue 同层）。 */
 const WATERMARK_RELATIVE_PATH = ["ldvh", "friction-discovery-watermarks.json"];
@@ -120,6 +144,52 @@ function watermarkKey(projectRoot, sessionId) {
   return `${projectRoot}::${sessionId}`;
 }
 
+/**
+ * 校验任务键。**必须显式给出**——没有「默认任务」这一说。
+ *
+ * 为什么不留默认值：水位的**全部意义**是「这个任务成功处理到哪」。若允许省略，
+ * 调用方漏传时会静默退回某个默认任务的水位，于是**两个任务读写同一条水位**——
+ * 正是本次改造要消除的失效面，且它会以「看上去工作正常」的形态存在。故缺参即
+ * 失败（fail-closed），迫使调用方明确自己代表哪个任务。
+ */
+function resolveTaskKey(task) {
+  if (typeof task !== "string" || task.length === 0) {
+    return failure(
+      "watermark/invalid_task",
+      "task is required: each auxiliary task keeps its own watermark (a missing task would silently share another task's watermark)",
+    );
+  }
+  return success(task);
+}
+
+/**
+ * 从一条会话记录项里取**某任务**的水位；兼容旧形态。
+ *
+ * 载体形态演进（向后兼容是硬要求——既有安装的水位不能让它在升级后失效，
+ * 那会使「已处理区间」被重新覆盖而重复计数）：
+ *   - **旧**：`{ lastTurn, lastDispatchAt, dispatchCount, dispatchTimes }`——单条水位，
+ *     全部任务共用。存量记录一律归属**首个任务**（`friction-discovery`），因为
+ *     在本次改造之前**只有它已实现**、只有它写过水位（`capacity-maintenance` 与
+ *     `memory-health` 均未实现，从不写水位）。该归属是**唯一自洽的读法**。
+ *   - **新**：`{ tasks: { [task]: { lastTurn, advancedAt } }, lastDispatchAt, ... }`
+ *     ——水位按任务分开，派发状态仍按会话共用（后者本就是派发级的量）。
+ *
+ * 新旧共存时**以新形态为准**（`tasks` 存在即按它读）；旧字段保留不删，使回落
+ * 到旧版本代码时仍有可读值。读函数**不写回**（读路径不改载体，避免读操作产生
+ * 副作用）。
+ */
+function taskWatermark(entry, task) {
+  if (entry === undefined || entry === null) return null;
+  const perTask = entry.tasks;
+  if (perTask !== undefined && perTask !== null && typeof perTask === "object" && !Array.isArray(perTask)) {
+    const own = perTask[task];
+    return Number.isInteger(own?.lastTurn) ? own.lastTurn : null;
+  }
+  // 旧形态：单条水位归首个任务（改造前只有它写过）。
+  if (task === LEGACY_WATERMARK_OWNER && Number.isInteger(entry.lastTurn)) return entry.lastTurn;
+  return null;
+}
+
 async function readAll(dshHomePath) {
   const path = watermarkPath(dshHomePath);
   try {
@@ -155,20 +225,27 @@ async function writeAll(dshHomePath, doc) {
  * `null`——**这不是失败**，而是「本次区间是全部已有内容」（首次运行本就该覆盖
  * 既有内容，否则机制永远不会发现历史上的反复阻碍）。
  */
-export async function readWatermark(dshHomePath, { projectRoot, sessionId } = {}) {
+export async function readWatermark(dshHomePath, { projectRoot, sessionId, task } = {}) {
   if (typeof projectRoot !== "string" || projectRoot.length === 0) {
     return failure("watermark/invalid_project_root", "projectRoot is required");
   }
   if (typeof sessionId !== "string" || sessionId.length === 0) {
     return failure("watermark/invalid_session_id", "sessionId is required");
   }
+  const resolved = resolveTaskKey(task);
+  if (!resolved.ok) return resolved;
   const doc = await readAll(dshHomePath);
   if (!doc.ok) return doc;
-  const entry = doc.value[watermarkKey(projectRoot, sessionId)];
-  const lastTurn = entry?.lastTurn;
+  const key = watermarkKey(projectRoot, sessionId);
+  const entry = doc.value[key];
+  const lastTurn = taskWatermark(entry, resolved.value);
   return success({
     lastTurn: Number.isInteger(lastTurn) ? lastTurn : null,
-    key: watermarkKey(projectRoot, sessionId),
+    // 缺失（含从未运行过、以及新任务首次运行）一律为 null——那是「首次运行，
+    // 本次区间覆盖全部既有内容」的合法初始态，不是失败（§11 水位为空时不受
+    // 内容量约束）。
+    key,
+    task: resolved.value,
     carrier: entry === undefined ? "absent" : "present",
   });
 }
@@ -183,13 +260,15 @@ export async function readWatermark(dshHomePath, { projectRoot, sessionId } = {}
  * 传参错误），拒绝而非静默倒退——倒退会让已处理区间被再次计入，正是 §8.4 要
  * 消除的失效面。
  */
-export async function advanceWatermark(dshHomePath, { projectRoot, sessionId, turn } = {}) {
+export async function advanceWatermark(dshHomePath, { projectRoot, sessionId, task, turn } = {}) {
   if (typeof projectRoot !== "string" || projectRoot.length === 0) {
     return failure("watermark/invalid_project_root", "projectRoot is required");
   }
   if (typeof sessionId !== "string" || sessionId.length === 0) {
     return failure("watermark/invalid_session_id", "sessionId is required");
   }
+  const resolved = resolveTaskKey(task);
+  if (!resolved.ok) return resolved;
   if (!Number.isInteger(turn) || turn < 0) {
     return failure("watermark/invalid_turn", `turn must be a non-negative integer (got ${JSON.stringify(turn)})`);
   }
@@ -200,11 +279,11 @@ export async function advanceWatermark(dshHomePath, { projectRoot, sessionId, tu
     const doc = await readAll(dshHomePath);
     if (!doc.ok) return doc;
     const key = watermarkKey(projectRoot, sessionId);
-    const existing = doc.value[key]?.lastTurn;
+    const existing = taskWatermark(doc.value[key], resolved.value);
     if (Number.isInteger(existing) && turn < existing) {
       return failure(
         "watermark/non_monotonic",
-        `refusing to move the watermark backwards: existing lastTurn=${existing}, requested ${turn} (§8.4 水位段：倒退会使已处理区间被重复计入)`,
+        `refusing to move the watermark backwards: task=${resolved.value} existing lastTurn=${existing}, requested ${turn} (§8.4 水位段：倒退会使已处理区间被重复计入)`,
       );
     }
 
@@ -212,9 +291,15 @@ export async function advanceWatermark(dshHomePath, { projectRoot, sessionId, tu
     // dispatchCount，见 readDispatchState）。重建会把它们悄悄清掉——实测踩过：
     // 先 recordDispatch 两次、再 advanceWatermark 一次，派发计数即被抹回 0/0，
     // 冷却与配额随即失效。水位与派发状态是**两轴**，同处一个载体就不得互相覆盖。
+    const prior = doc.value[key] ?? {};
     const next = {
       ...doc.value,
-      [key]: { ...doc.value[key], lastTurn: turn, advancedAt: new Date().toISOString() },
+      [key]: {
+        ...prior,
+        // **按任务写入，不动其它任务的水位**：这正是本改造的目的——任务 A 成功
+        // 推进自己的水位，不因任务 B 失败而后退或被重覆盖。
+        tasks: { ...(prior.tasks ?? {}), [resolved.value]: { lastTurn: turn, advancedAt: new Date().toISOString() } },
+      },
     };
     const written = await writeAll(dshHomePath, next);
     if (!written.ok) return written;
@@ -225,11 +310,11 @@ export async function advanceWatermark(dshHomePath, { projectRoot, sessionId, tu
     if (!readBack.ok) {
       return failure("watermark/read_back_failed", `advance reported success but the read-back failed: ${readBack.error.message}`);
     }
-    const observed = readBack.value[key]?.lastTurn;
+    const observed = taskWatermark(readBack.value[key], resolved.value);
     if (observed !== turn) {
-      return failure("watermark/read_back_mismatch", `expected lastTurn=${turn} after advance, got ${observed}`);
+      return failure("watermark/read_back_mismatch", `expected lastTurn=${turn} for task=${resolved.value} after advance, got ${observed}`);
     }
-    return success({ key, lastTurn: turn });
+    return success({ key, task: resolved.value, lastTurn: turn });
   });
 }
 

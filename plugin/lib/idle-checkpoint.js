@@ -159,7 +159,14 @@ export async function runIdleCheckpoint({
 
   // §8.4「观察范围的切分（水位）」：本次运行只看**自上次成功运行以来**新增的内容。
   // 区间端点取自宿主会话记录的轮次号（`currentTurn`），不是「AI 认为哪些是新的」。
-  const watermark = await readWatermark(dshHomePath, { projectRoot: projectRoot ?? factSourceRoot, sessionId });
+  // **按任务分别读水位**（friction-watermark 的逐任务改造）：本模块当前只编排
+  // 摩擦发现（见下方 runnable 过滤），故传入 taskId。多任务落地时，各任务须各自
+  // 传自己的键——共用一条会使「一件成功、一件失败」互相牵连（重复落地）。
+  const watermark = await readWatermark(dshHomePath, {
+    projectRoot: projectRoot ?? factSourceRoot,
+    sessionId,
+    task: taskId,
+  });
   if (!watermark.ok) {
     return recordAndFail(dshHomePath, {
       task: taskId,

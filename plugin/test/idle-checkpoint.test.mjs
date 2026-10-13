@@ -272,7 +272,7 @@ test("§8.4 水位：执行体成功时不自行推进，而是把可推进轮�
     // 否则落地失败时水位已前进而账目未写入，那段内容永不复查。
     assert.equal(r.value.pending_watermark_turn, 4, "可推进轮次须交给调用方");
     assert.equal(r.value.watermark_advanced, false, "本层不推进");
-    const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION });
+    const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, task: "idle-review" });
     assert.equal(w.value.lastTurn, null, "调用方尚未推进，水位应保持不变");
   });
 });
@@ -290,7 +290,7 @@ test("§8.4 水位：执行体未给 watermarkTurn 时不推进（回读未通�
     });
     assert.ok(r.ok);
     assert.equal(r.value.watermark_advanced, false, "没有回读通过就不推进");
-    const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION });
+    const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, task: "idle-review" });
     assert.equal(w.value.lastTurn, null, "水位必须保持未推进");
   });
 });
@@ -301,7 +301,7 @@ test("§8.4 水位：skipped 不推进（本次没处理该区间，推进会使
     const r = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "idle-review", sessionId: RUN_SESSION, currentTurn: 4 });
     assert.equal(r.value.outcome, "skipped");
     assert.equal(r.value.watermark_advanced, false);
-    const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION });
+    const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, task: "idle-review" });
     assert.equal(w.value.lastTurn, null);
   });
 });
@@ -321,7 +321,7 @@ test("§8.4 水位：执行体抛错时不推进（fail-closed 侧，下次重�
     });
     assert.ok(!r.ok);
     assert.equal(r.error.code, "idle_checkpoint/stopped");
-    const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION });
+    const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, task: "idle-review" });
     assert.equal(w.value.lastTurn, null, "执行体失败不得推进水位");
   });
 });
@@ -357,7 +357,7 @@ test("§8.4 水位：第二次运行从上次水位起算（区间不再从零�
         },
       });
       if (r.ok && Number.isInteger(r.value.pending_watermark_turn)) {
-        await advanceWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, turn: r.value.pending_watermark_turn });
+        await advanceWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, turn: r.value.pending_watermark_turn, task: "idle-review" });
       }
       return r;
     };
