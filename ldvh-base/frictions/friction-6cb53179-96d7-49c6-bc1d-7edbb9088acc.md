@@ -1,9 +1,13 @@
 ---
 title: 提交钩子依赖 PATH 中的 node
-status: observing
+status: resolved
 phenomenon: "Git Gate 提交钩子以裸 `exec node` 调用校验器，当会话 shell 的 PATH 不含 node 时提交被以 `exec: node: not found`（exit 1）拒绝，阻断者为 shell 而非校验器。"
 attribution: .git/hooks/commit-msg:18 的裸 `exec node` 与 09 §5.5 Git Gate「机械守护终闸、提交前不可绕过」的语义之间存在缺口：钩子未使用绝对路径或候选路径探测，故校验器不可执行时提交被拒的原因无法与校验不通过区分。2026-10-09 补记：修复后该环境依赖转移到独立复核会话的验证命令面（prompt 内人工 export PATH），无机械保障承载。
 impact: medium
+relations:
+  - relation_key: informs
+    target:
+      commit: 2827bafab3be1cd2c489961dafe925bfda3575b4
 object_uid: 6cb53179-96d7-49c6-bc1d-7edbb9088acc
 fact_type_key: friction
 created_at: 2026-09-28T02:59:31.277Z
@@ -40,11 +44,15 @@ change_log:
     provider: ds-yue
     model: deepseek-v4-flash
     summary: 放回留观（Human 2026-10-11：观察次数<3 的摩擦移入留观；本条 count=1 未达阈值，写入 human_return_at 防机械通道回翻，26 §9.2），并修复重复 H1
+  - at: 2026-10-13T21:26:20.883Z
+    provider: ds41
+    model: deepseek-v4.1-flash
+    summary: 销账（Human 2026-10-14 授权）：钩子自行解析解释器＋解释器不可用标记＋preflight 拒装已使「阻断即校验结论」成立，现象不可复现；解药为直提路径修复 2827baf，依 26 §9.2 commit 例外／02 §8.1 commit 形态承载 informs（原「无解药对象故无法销账」的结论早于该形态，历史段落逐字保留）
 occurrence:
   count: 1
   first_at: 2026-09-28T02:59:31.277Z
-  human_return_at: 2026-10-11T22:31:56.000Z
   last_at: 2026-09-28T02:59:31.277Z
+  human_return_at: 2026-10-11T22:31:56.000Z
 ---
 
 # 提交钩子依赖 PATH 中的 node
@@ -90,3 +98,16 @@ Git Gate 提交钩子以裸 `exec node` 调用校验器，当会话 shell 的 PA
 ### 2026-10-09 残留形态补记（状态不变，仅补证据）
 
 Human 于 2026-10-09 指示「按建议推进」，本条按 `26 §9.3` 补充级更新（status 不变、现象陈述语义不变、仅扩展现象段证据）：12 小时会话扫描确认该阻碍已从**受控提交面**转移到**复核会话的验证命令面**——多个独立复核子会话须在 prompt 或首条命令中人工写入 `export PATH="/opt/homebrew/bin:$PATH"` 才能运行 `node --test`。本条不主张该残留已解决，也不据此改判状态；仅如实登记「钩子侧已修、环境依赖转移到无机械保障的新位置」这一事实，并作为后续归因（若另立账目）的触发证据。
+
+## 处置
+
+解药为提交 `2827bafab3be1cd2c489961dafe925bfda3575b4`，依 02 §8.1 commit 形态进入 `informs`（该形态的机械承载：`plugin/lib/friction-writer.js:78` 的 40 位 hash 形态校验与 `:716-721` 的 `git cat-file -e <hash>^{commit}` 存在性解析）。
+
+「修复进展与不销账说明」中「当前不存在可指向的解药对象、机械上无法销账」的结论，是在 commit 形态进入 `informs` 之前写下的；现行 26 §9.2/§11 与本仓写入器已支持 commit 级解药直接承载指向，故本账具备销账条件。该历史段落逐字保持，不据本次销账重写。
+
+核验（2026-10-14，第 0 批-核验销账）：
+
+- 观测不可区分性已消除：`.git/hooks/commit-msg` 现行内容为候选路径探测（安装时烘焙绝对路径优先，`node`／`nodejs` 兜底）、探测失败输出固定标记并以 127 退出、以 `ELECTRON_RUN_AS_NODE=1` 调用解释器；`plugin/lib/hook-manager.js:31` 定义 `INTERPRETER_UNAVAILABLE_MARKER`，`:288-292` 的 preflight 见到该标记即抛错拒装（注释逐字点名本账号）。即本账的核心理由——「exit 1 有两种成因、观测上不可区分」——已不成立。
+- 现象面：本账现象为「提交被 shell 以 `exec: node: not found` 拒绝」。钩子不再裸 `exec node`，且「校验器无法启动」不再伪装成校验结论，故该现象在现行载体上不可复现。
+
+**不在本账射程内的残留（如实声明；销账不主张其已解决）**：2026-10-09 补记的「复核会话验证命令面的人工 `export PATH` 补偿」是**另一形态的阻碍**（它阻断的是复核会话的测试命令执行，不是提交钩子的可用性），且无机械承载位。若再现或加重，须按新阻碍另立账目（26 §9.2：终态不重开）。同时，本条此前登记的「度量失真」（已消除的阻碍仍计入 open 分母）随本次销账消失。
