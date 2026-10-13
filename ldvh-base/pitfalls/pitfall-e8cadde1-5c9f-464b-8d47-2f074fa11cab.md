@@ -19,6 +19,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 勘误上一条写入的誊录错误：恢复「症状」「触发条件」两节的原记录文本（识别信号段与四条触发条件，前次写入误以概述替换），仅保留三处号位更正与号位注记；其余内容逐字不变
+  - at: 2026-10-13T21:01:54.535Z
+    provider: ds41
+    model: deepseek-v4.1-flash
+    summary: 勘误级更新（23 §9.3，scope 逐字不变）：①「解决」段成功信号的口径由「全仓」收窄为「web 平面」，并加注记如实登记 plugin/lib 侧 8 份同形 v4 副本为有意设计（无漂移，机制条件仍成立）；②「解决」段补「已知的有意例外」一项；③「验证」段补 2026-10-14 复核结论——触发信号未命中、判定未被复制到新读取层（federation.ts 等新增路由无自维护正则）
 ---
 
 # 身份判定分裂致关联判死
@@ -66,16 +70,18 @@ readerUidPattern.test(uid)   // false —— 关联层按 v7 校验，拒绝
 - `api/services/facts.ts`、`api/services/localFactReader.ts`、`api/routes/cognition.ts`、`src/pages/object-detail/factReadingProjection.ts` 四处调用点改为引用该函数，删除全部内联正则；
 - 既有的 v4 字段校验（`localFactReader`）也一并改走同一函数，消除「两份正则各自演进」的结构性隐患。
 
-**成功信号**：全仓不再存在任何自维护的 `object_uid` 形态正则；对全部真实对象与关联边，判定与写入端一致接受。
+**成功信号（2026-10-14 口径收窄后）**：**web 平面**不再存在任何自维护的 `object_uid` 形态正则（读写两侧一律经 `shared/factIdentity.ts` 的 `canonicalUid`）；对全部真实对象与关联边，判定与写入端一致接受。收窄理由见下方注记。
 
 **必要边界**：收敛谓词只修复「认不认得出身份」，不改动关联解析的其它环节（目标存在性、类型闭集、状态条件）。若关联仍不可用，需另行检查这些环节，不得据本次修复推断关联层已全面正确。
+
+**口径收窄（2026-10-14 勘误）**：本段原写「**全仓**不再存在任何自维护的 `object_uid` 形态正则」，该口径在今日现状下不成立——`plugin/lib` 侧 8 个文件至今各自维护同一 canonical v4 正则（`adr-writer.js:65`、`friction-writer.js:77`、`norm-writer.js:80`、`pitfall-writer.js:66`、`research-writer.js:68`、`spark-writer.js:82/104`、`workcase-writer.js:368`），且各 writer 另持一份同形的文件名匹配副本；这是 `lib` 与 `web` 两棵树互不 import 的**有意设计**（`workcase-writer.js:1246` 有明文说明）。**它们全部为 v4、无版本位漂移，故本经验的机制条件（判定与规范一致、不存在跨层形态冲突）仍成立**；收窄的只是「单一权威实现」这一措辞的适用范围，不改变根因判断。本例「验证」第 3 项当时即已如实区分「残留 v7 形态」与「各 writer 的 v4 正则」两类，本注记把该区分提到「解决」段，避免读者据原口径误判全仓已收敛为一份实现。
 
 ## 规避
 
 1. **核对条件**：任何身份/标识字段的形态判定，先确认规范原文的权威形态（本文为 02 §7.1 的 UUIDv4），再核对各层实现是否一致。
 2. **动作**：同一判定不得在多层各自实现——跨 plane 消费时提取到 `shared/`，各层引用同一权威。
 3. **机械拦截**：`plugin/web/tests/api/fact-identity-uid.test.ts` 锁定该谓词，断言 v4 接受、v7 拒绝、以及真实 uid 的关联投影不再降级。已验证其有效性——将谓词还原为 v7 时，5 项中 4 项失败（非静默通过）。
-4. **例外**：若某层确实需要不同形态的判定（如兼容读取历史 ID），必须与该层的字段语义一并声明，且不得覆盖 canonical 判定本身。
+4. **例外**：若某层确实需要不同形态的判定（如兼容读取历史 ID），必须与该层的字段语义一并声明，且不得覆盖 canonical 判定本身。**已知的有意例外**：`plugin/lib` 各 writer 的副本（见上注记）——它们不构成漂移风险的前提是「各副本同形且同版本位」，故任何 writer 新增或改动该正则时须与 02 §7.1 对齐。
 
 **号位注记（2026-10-14，批次 G 事实更正）**：本文创建时点（2026-09-13）所引的 `specs/03 §6.1`，经 02–10 重构后为现行 `specs/02 §7.1`「公共身份字段」——该节仍逐字载有同一 canonical UUIDv4 判定与不采用 UUIDv7 的理由（其索引与排序收益只在数据库主键场景成立，事实源为文件载体时该收益落空），本节「根因」「解决」「规避」三处已按现行号位更正。另：frontmatter `scope` 字段与其正文镜像「影响与适用范围」节内的同一处时点号位「specs/03 §6.1」为**冻结字段镜像**（Pitfall 勘误要求 `scope` 逐字不变），照录不改，读时以本条注记的现行号位为准。
 
@@ -88,6 +94,8 @@ readerUidPattern.test(uid)   // false —— 关联层按 v7 校验，拒绝
 3. 全仓扫描确认不再残留 v7 形态正则，且所有 `object_uid` 相关正则（含各 writer 与文件名匹配）一致为 v4；
 4. 既有测试套件中 22 处 fixture 曾使用 v7 形态（即把缺陷固化为期望），全部改为 canonical v4 后，web 套件 274/274、plugin 套件 726/726 通过；
 5. `tsc -b` 类型检查与 `pnpm build:dsh` 生产构建均通过；改动文件 `eslint` 无新增问题（仓库级 49 项问题在改动前后数量一致，均为既有问题）。
+
+**后续复核（2026-10-14，本仓）**：触发信号未命中——identity 字段的版本形态约定未变（仍为 02 §7.1 的 canonical UUIDv4），且身份判定**未被**复制到新的读取层：`plugin/web/api/routes/federation.ts` 等新增路由不含自维护 uid 正则，全 web 平面仍只有 `shared/factIdentity.ts` 一份判定，四个调用点（`facts.ts:9/130/151/205`、`localFactReader.ts:13/313/340`、`cognition.ts:19/252`、`factReadingProjection.ts:1/193`）全部经 `canonicalUid`。**唯一需要收窄的是「全仓」口径**（见「解决」段注记）：`plugin/lib` 侧的 8 份同形 v4 副本为有意设计且无漂移，使该处以「web 平面」表述才与现状相符。
 
 **未覆盖**：
 

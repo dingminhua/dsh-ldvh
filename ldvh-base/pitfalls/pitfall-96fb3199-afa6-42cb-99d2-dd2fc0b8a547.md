@@ -11,6 +11,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 受控创建 Pitfall 对象
+  - at: 2026-10-13T21:01:54.566Z
+    provider: ds41
+    model: deepseek-v4.1-flash
+    summary: 补充级更新（23 §9.3）：①「解决」段补落点迁移——countAtxHeadings 与同族解析已收敛至 plugin/lib/markdown-structure.js 单一权威（7 个 writer 引用）；②「验证」段补 2026-10-14 复核——触发信号三项均未命中，但本机制在 friction-writer 再次实证（2026-10-12 摩擦账本 24 条中 3 条因重复 H1 中招），并如实区分「读写往返不幂等」为另一直接原因、本条机制为「静默不被发现」之因；据此收窄「何时可信」；机制、根因、规避与 scope 不变
 ---
 
 # 首行比较式校验漏掉多余H1
@@ -56,6 +60,8 @@ change_log:
 2. 校验条件改为 `countAtxHeadings(body, 1) === 1`，不再只比较首行；
 3. 首行比较保留，但先归一化再比：`trimEnd()` + 去前导 ≤3 空格 + 把井号后的连续空白折叠为单个空格，从而容忍合法写法。
 
+**落点迁移（2026-10-14 复核）**：上述 `countAtxHeadings` 与同族解析函数（`h2Titles` / `sectionContent`）已从各 writer 收敛到 `plugin/lib/markdown-structure.js` 的**单一权威实现**，spark／pitfall／workcase／adr／friction／norm／research 七个 writer 一律引用。该模块头部明写它承接的正是本条与 `e8cadde1`（身份判定分裂）的**同一缺陷族**：同一判定在多层各自实现即会分叉（同文件内两个函数对代码围栏的处理曾不一致，围栏内的 `## 假标题` 被其中一个当成真 H2）。故本段条目所述的落点是初版位置，读时以 `markdown-structure.js` 为准。
+
 成功信号：9 种情形全部判定正确——正常单 H1 与三种合法变体（尾随空格/缩进/CRLF）通过；三种多余 H1 形式（连续/中间/末尾）与两种变体多余 H1（缩进、tab 分隔）以及标题不符被拒。
 
 必要边界：该实现只覆盖 ATX 标题与 fenced code block；setext 标题（下划线式）与行内代码中的 `#` 未处理。若正文格式扩展到这些形态，需同步扩展而非假定已覆盖。
@@ -79,6 +85,8 @@ change_log:
 - 修复前实测：`# T` 连续重复、夹在中间、置于末尾三种形式，`validateSparkBodyStructure` 与 `validatePitfallBodyStructure` 均返回 `ok: true`（漏检）；尾随空格、CRLF、围栏内的 `#` 均返回 `ok: false`（误报）；缩进与 tab 形式的多余 H1 返回 `ok: true`（漏检）。
 - 修复后实测：9 种情形（4 通过 / 5 拒绝）全部符合预期，两个 writer 行为一致。
 - 回归：`plugin/test/*.test.mjs` 726 项全部通过；新增 H1 唯一性与 CommonMark 边界测试 4 项。
+
+**后续复核（2026-10-14，本仓库）**：触发信号的三项均未命中——插入器仍自动生成 H1、解析仍为各 writer 的自实现而非 CommonMark 完整解析器、载体未引入 setext 标题（`markdown-structure.js` 头部如实声明 setext／行内代码／HTML 注释仍未覆盖）。但本机制在同一仓库**再次实证**：`plugin/lib/friction-writer.js` 的 `validateFrictionBodyStructure` 至今仍以「首个非空行是否等于 `# <title>`」实现、**不数 H1 的个数**，而 26 §8.4 第 5 项的精确回读只比对 `count`/`last_at`——两条通道都给绿灯。2026-10-12 定位到真实累积损坏：摩擦账本 24 条中 3 条中招（`3048937d` H1=3、`545cca82` H1=2、`bf73fad4` H1=2）。需如实区分两层原因：**直接原因**是读写往返不幂等（`readFrictionObject().body` 含生成式 H1，调用方直接回传，于是每写一次多一个 H1），属**另一机制**；**它能长期静默不被发现，正是本条机制**——单点比较看不见「后面还有没有第二个标题」。修复取「拒绝 + 指明去处」（`requireBodyWithoutH1` 拒绝自带 H1 的入参、并导出 `stripLeadingH1` 供读-改-写路径先剥再传），而非静默剥离。⇒ 据此收窄本条的「何时可信」：只有当**每个**写入路径的结构校验都以计数而非首行比较实现时才可信，收敛落点必须覆盖全部 writer——这也是 `markdown-structure.js` 存在的理由。
 
 未覆盖：setext 标题形态、行内代码中的 `#`、HTML 注释中的 `#`（代理审核时指出注释内 `#` 亦为误报，本次未处理——因当前载体不含该形态）；CRLF 采取「容忍」而非「改写」策略时的长期一致性未经实测。
 
