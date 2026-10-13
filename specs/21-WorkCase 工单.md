@@ -14,7 +14,6 @@ ldvh_spec:
     - "business-system-foundation"
     - "goal-fact-type"
   authorized_attachments: []
-  dimensions: ["write", "orchestrate", "comply"]
   related_specs:
     - "pitfall-fact-type"
     - "spark-fact-type"

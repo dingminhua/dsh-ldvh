@@ -14,7 +14,6 @@ ldvh_spec:
     - "specification-model-foundation"
     - "check-auxiliary-mechanism-foundation"
   authorized_attachments: []
-  dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
 ---
 
 # Web 呈现与交互规范
