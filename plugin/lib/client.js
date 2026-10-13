@@ -287,6 +287,8 @@ window.__ModuleLoader__.load({
       "row.idleAssistHint": "会话空闲时由宜主派发辅助任务（反思摩擦、容量维护、记忆健康）。关闭后不再派发任何辅助任务。",
       "row.idleReview": "反思摩擦",
       "row.idleReviewHint": "把实际工作流中反复出现的阻碍记入摩擦账本（已实现）。",
+      "row.experienceCapture": "积累经验",
+      "row.experienceCaptureHint": "把已经解决并验证的失败机制做成经验候选，入档前需人工确认（已实现）。",
       "row.capacityMaintenance": "容量维护",
       "row.capacityMaintenanceHint": "记忆满时只整理不新增（压缩、归档、淘汰、合并）。",
       "row.memoryHealth": "记忆健康体检",
@@ -368,6 +370,8 @@ window.__ModuleLoader__.load({
       "row.idleAssistHint": "Dispatches auxiliary tasks while the session is idle (friction review, capacity maintenance, memory health). Turning this off stops every auxiliary task.",
       "row.idleReview": "Friction review",
       "row.idleReviewHint": "Records recurring obstacles from the real workflow into the friction ledger (implemented).",
+      "row.experienceCapture": "Experience capture",
+      "row.experienceCaptureHint": "Turns already-resolved and verified failure mechanisms into experience candidates; filing requires human confirmation (implemented).",
       "row.capacityMaintenance": "Capacity maintenance",
       "row.capacityMaintenanceHint": "When memory is full, only rearranges: compression, archiving, eviction, merging.",
       "row.memoryHealth": "Memory health check",
@@ -665,6 +669,7 @@ window.__ModuleLoader__.load({
       // 数值参数在客户端用**字符串**存放，使空串与非法输入可被辨认（数字类型无法表达「用户把它删空了」）。
       var idleAssistState = React.useState(value.idleAssistEnabled !== false);
       var idleReviewState = React.useState(value.idleReviewEnabled !== false);
+      var idleCaptureState = React.useState(value.experienceCaptureEnabled === true);
       var idleCapacityState = React.useState(value.capacityMaintenanceEnabled === true);
       var idleMemoryState = React.useState(value.memoryHealthEnabled === true);
       // 界面上的四个值按它们**各自的显示单位**存放（见 IDLE_LIMITS 的 scale）。
@@ -734,6 +739,7 @@ window.__ModuleLoader__.load({
         sidebarTabState[1](next.showInSidebarTab !== false);
         idleAssistState[1](next.idleAssistEnabled !== false);
         idleReviewState[1](next.idleReviewEnabled !== false);
+        idleCaptureState[1](next.experienceCaptureEnabled === true);
         idleCapacityState[1](next.capacityMaintenanceEnabled === true);
         idleMemoryState[1](next.memoryHealthEnabled === true);
         idleLimitsState[1]((function () {
@@ -920,6 +926,7 @@ window.__ModuleLoader__.load({
               { op: "set", path: ["showInSidebarTab"], value: !!sidebarTabState[0] },
               { op: "set", path: ["idleAssistEnabled"], value: !!idleAssistState[0] },
               { op: "set", path: ["idleReviewEnabled"], value: !!idleReviewState[0] },
+              { op: "set", path: ["experienceCaptureEnabled"], value: !!idleCaptureState[0] },
               { op: "set", path: ["capacityMaintenanceEnabled"], value: !!idleCapacityState[0] },
               { op: "set", path: ["memoryHealthEnabled"], value: !!idleMemoryState[0] }
             ];
@@ -1124,6 +1131,7 @@ window.__ModuleLoader__.load({
             React.createElement("div", { className: "ldv-idle-tasks" },
               [
                 { key: "idleReviewEnabled", state: idleReviewState, label: "row.idleReview", hint: "row.idleReviewHint", implemented: true },
+                { key: "experienceCaptureEnabled", state: idleCaptureState, label: "row.experienceCapture", hint: "row.experienceCaptureHint", implemented: true },
                 { key: "capacityMaintenanceEnabled", state: idleCapacityState, label: "row.capacityMaintenance", hint: "row.capacityMaintenanceHint", implemented: false },
                 { key: "memoryHealthEnabled", state: idleMemoryState, label: "row.memoryHealth", hint: "row.memoryHealthHint", implemented: false }
               ].map(function (task) {

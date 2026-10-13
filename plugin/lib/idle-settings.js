@@ -32,6 +32,10 @@
  * `§8.5`（条件式要求）在此适用：实现存在不等于规范授权存在。
  */
 
+// 任务清单的**单一来源**是登记表（本模块原先自持第二份，实测导致新增任务在设置面
+// 勾上却永远不被启用——详见下方 AUX_TASK_ORDER 的说明）。
+import { AUX_TASK_ORDER } from "./aux-task-registry.js";
+
 /**
  * 数值字段的读取（与 index.js 的 readSwitch 同规格，但接受数值）。
  *
@@ -139,6 +143,9 @@ export function resolveIdleSettings(config) {
   const tasks = {
     // 反思摩擦（idle-review）：已实现，缺省开（与现状一致）。
     "idle-review": readBool(config?.idleReviewEnabled, true),
+    // 积累经验（experience-capture，36 §10）：已实现，缺省**关**（理由见 index.js
+    // 的 schema 注释：新增能力不应在 Human 尚未知情时就开始写候选）。
+    "experience-capture": readBool(config?.experienceCaptureEnabled, false),
     // 容量维护：**未实现**，缺省关（打开也只会如实报 not-implemented）。
     "capacity-maintenance": readBool(config?.capacityMaintenanceEnabled, false),
     // 记忆健康：**未实现**，缺省关（同上）。
@@ -329,8 +336,18 @@ export function pickEnabledAuxTasks(settings) {
   return { tasks, reason: tasks.length === 0 ? "all-tasks-disabled" : null };
 }
 
-/** 闲时辅助的全部任务，顺序即拼接顺序与痕迹记录顺序。 */
-export const AUX_TASK_ORDER = Object.freeze(["idle-review", "capacity-maintenance", "memory-health"]);
+/**
+ * 闲时辅助的全部任务，顺序即拼接顺序与痕迹记录顺序。
+ *
+ * **单一来源**：本常量**重导出**登记表的那一份，本模块不再自持第二份定义。
+ *
+ * 为什么必须如此（实测教训，2026-10-14）：本模块原先自持一份同样的数组，而
+ * `aux-task-registry.js` 另有一份。给登记表新增任务（积累经验）时只改了那一份，
+ * 本模块这份就漏了——于是 `pickEnabledAuxTasks` 按**旧清单**过滤，新任务即使在
+ * 设置面勾上也**永远不会被启用**；而它的开关、词条、schema 全都正常，从设置面
+ * 到痕迹都看不出问题（表现为「勾了没反应」）。两份定义必然漂移，故改为单一来源。
+ */
+export { AUX_TASK_ORDER };
 
 /**
  * 派发准入的**单一判据**——把四个条件合成一个答案（纯函数）。

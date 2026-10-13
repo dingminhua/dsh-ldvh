@@ -7,6 +7,7 @@
 // 有**两侧**断言：该放行的放行、该拦的拦住。
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   IDLE_DEFAULTS,
@@ -474,9 +475,11 @@ test("D7：默认上限须在默认窗口内**可达**（否则该约束不可�
 //   · 任务不在任何相位上：`capacity-maintenance` 实测 60 个相位里被选中 **0** 次。
 
 test("pickEnabledAuxTasks：**勾选几个就跑几件**——不是挑一个（本条守卫本次改案本身）", () => {
-  const openAll = { enabled: true, tasks: { "idle-review": true, "capacity-maintenance": true, "memory-health": true } };
+  // 按登记表构造「全开」，不硬编码清单——清单会随新增任务变化（已由三项增至
+  // 四项：积累经验），硬编码会使本测试在每次新增任务时必然过期。
+  const openAll = { enabled: true, tasks: Object.fromEntries(AUX_TASK_ORDER.map((k) => [k, true])) };
   const all = pickEnabledAuxTasks(openAll);
-  assert.deepEqual(all.tasks, ["idle-review", "capacity-maintenance", "memory-health"], "三个全勾须**全部**返回");
+  assert.deepEqual(all.tasks, [...AUX_TASK_ORDER], "全部勾选须**全部**返回（按登记表，不硬编码清单）");
   assert.equal(all.reason, null, "有任务可跑时不得给原因码");
 
   const one = pickEnabledAuxTasks({ enabled: true, tasks: { "idle-review": true } });
@@ -489,10 +492,11 @@ test("pickEnabledAuxTasks：**勾选几个就跑几件**——不是挑一个（
 test("pickEnabledAuxTasks：顺序取**规范叙述次序**，不取设置对象的枚举次序", () => {
   // 若顺序由设置对象的键序决定，同一组勾选在不同展示顺序下会得到不同提示词
   // ——那是隐藏耦合（判据不该依赖 UI 的枚举细节）。
-  const a = pickEnabledAuxTasks({ enabled: true, tasks: { "memory-health": true, "idle-review": true, "capacity-maintenance": true } });
-  const b = pickEnabledAuxTasks({ enabled: true, tasks: { "idle-review": true, "capacity-maintenance": true, "memory-health": true } });
+  // 两种声明顺序相反，且都按登记表构造（不硬编码清单）
+  const a = pickEnabledAuxTasks({ enabled: true, tasks: Object.fromEntries([...AUX_TASK_ORDER].reverse().map((k) => [k, true])) });
+  const b = pickEnabledAuxTasks({ enabled: true, tasks: Object.fromEntries(AUX_TASK_ORDER.map((k) => [k, true])) });
   assert.deepEqual(a.tasks, b.tasks, "两种声明顺序须给出**同一**任务序列");
-  assert.deepEqual(a.tasks, ["idle-review", "capacity-maintenance", "memory-health"], "顺序即 AUX_TASK_ORDER");
+  assert.deepEqual(a.tasks, [...AUX_TASK_ORDER], "顺序即 AUX_TASK_ORDER");
 });
 
 test("pickEnabledAuxTasks：总开关关闭 / 全停用 都返回空清单，且**给出可区分的原因码**", () => {
@@ -514,14 +518,40 @@ test("pickEnabledAuxTasks：无设置来源（老宿主）→ 全部任务（如
   // 与旧行为**不等价**是刻意的：旧实现在无设置时按轮换挑一个，但轮换已被删除，
   // 那个相位不再有依据。此时没有任何开关可读，故只能全跑——各任务的未实现会在
   // 各自的实现分支上如实回报。
-  assert.deepEqual(pickEnabledAuxTasks(undefined).tasks, ["idle-review", "capacity-maintenance", "memory-health"]);
-  assert.deepEqual(pickEnabledAuxTasks(null).tasks, ["idle-review", "capacity-maintenance", "memory-health"]);
+  // 断言取 `[...AUX_TASK_ORDER]` 而非硬编码清单：硬编码会在新增任务时**必然**
+  // 过期，而本条测的是「无设置来源时全跑」这一行为，不是「清单恰好是哪几项」。
+  assert.deepEqual(pickEnabledAuxTasks(undefined).tasks, [...AUX_TASK_ORDER]);
+  assert.deepEqual(pickEnabledAuxTasks(null).tasks, [...AUX_TASK_ORDER]);
 });
 
 test("pickEnabledAuxTasks：与 AUX_TASK_ORDER 永不漂移（登记表是唯一来源）", () => {
   // 三处曾各自定义任务清单（idle-checkpoint 的 AUX_TASKS、idle-settings 的
   // AUX_TASK_ORDER、client.js 的开关表）。清单漂移会使「设置面能勾、调度不认」
   // 或反之。本条守住「调度侧与登记表同源」。
-  const openAll = { enabled: true, tasks: { "idle-review": true, "capacity-maintenance": true, "memory-health": true } };
+  // 按登记表构造「全开」，不硬编码清单——清单会随新增任务变化（已由三项增至
+  // 四项：积累经验），硬编码会使本测试在每次新增任务时必然过期。
+  const openAll = { enabled: true, tasks: Object.fromEntries(AUX_TASK_ORDER.map((k) => [k, true])) };
   assert.deepEqual(pickEnabledAuxTasks(openAll).tasks, [...AUX_TASK_ORDER]);
+});
+
+test("任务清单只有**一处**定义——模块间不得各持一份（实测漂移教训）", () => {
+  // 2026-10-14 实测：`idle-settings.js` 与 `aux-task-registry.js` 各持一份同样的
+  // 数组。给登记表新增「积累经验」时只改了那一份，本模块这份就漏了——于是
+  // `pickEnabledAuxTasks` 按**旧清单**过滤，新任务即使在设置面勾上也**永远不会
+  // 被启用**；而它的开关、词条、schema 全都正常，从设置面到痕迹都看不出问题
+  // （表现为「勾了没反应」）。
+  //
+  // 本条把「单一来源」变成可机械核对的约束：扫描两模块的源码，若出现第二处
+  // 字面量数组定义即失败。这样下一次新增任务时，漏改会被测试直接指出。
+  const files = ["../lib/idle-settings.js", "../lib/aux-task-registry.js"];
+  const literal = /AUX_TASK_ORDER\s*=\s*Object\.freeze\(\[/;
+  const offenders = files.filter((f) => {
+    const text = readFileSync(new URL(f, import.meta.url), "utf8");
+    return literal.test(text);
+  });
+  assert.deepEqual(
+    offenders,
+    ["../lib/aux-task-registry.js"],
+    "AUX_TASK_ORDER 只允许在登记表里定义为字面量；其它模块须重导出（否则必然漂移）",
+  );
 });

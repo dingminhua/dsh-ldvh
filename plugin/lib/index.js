@@ -128,6 +128,10 @@ export const Config = z.object({
   idleAssistEnabled: volatileField(z.boolean().default(true)),
   /** 闲时评审（反思摩擦，04 §8.4）：已实现，缺省开。 */
   idleReviewEnabled: volatileField(z.boolean().default(true)),
+  // 积累经验（36 §10）：**已实现**，但缺省**关**。与摩擦（缺省开）不同：摩擦是
+  // 既有行为，改成缺省关会使升级即静默停用（行为突变）；本任务是**新增**能力，
+  // 默认打开会在 Human 尚未知情时就开始写 Pitfall 候选。缺省关更诚实。
+  experienceCaptureEnabled: volatileField(z.boolean().default(false)),
   /** 容量维护（32 §10.4）：**尚未实现**，缺省关（打开也只会如实报 not-implemented）。 */
   capacityMaintenanceEnabled: volatileField(z.boolean().default(false)),
   /** 记忆健康体检（32 §10.5）：**尚未实现**，缺省关（同上）。 */
