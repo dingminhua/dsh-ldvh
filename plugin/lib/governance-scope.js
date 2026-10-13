@@ -20,12 +20,8 @@
 // looking for a project.
 
 import { realpath } from "node:fs/promises";
-import { execFile } from "node:child_process";
 import * as platformPath from "node:path";
-import { promisify } from "node:util";
 import { readGovernedProjectIndex, resolveGitCommonDir } from "./governed-projects.js";
-
-const execFileAsync = promisify(execFile);
 
 /**
  * Is `candidate` the root itself or contained in it?

@@ -24,7 +24,7 @@
  */
 
 import { readFile, mkdir, appendFile, writeFile, rename } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 
 /** DSH home 下的相对位置（与 governed-projects 的 ["ldvh", ...] 同层）。 */

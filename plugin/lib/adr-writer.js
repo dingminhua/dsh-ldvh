@@ -36,7 +36,7 @@ import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/pro
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
-import { requireAuthoritativeSignature, resolveAuthoritativeSignature } from "./signature-channel.js";
+import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { h2Titles, sectionContent } from "./markdown-structure.js";
 
 // ---------------------------------------------------------------------------

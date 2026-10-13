@@ -27,7 +27,7 @@ import { access, mkdir, readFile, rename, unlink, writeFile } from "node:fs/prom
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
-import { requireAuthoritativeSignature, resolveAuthoritativeSignature } from "./signature-channel.js";
+import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { h2Titles, h3TitlesInSection } from "./markdown-structure.js";
 
 // ---------------------------------------------------------------------------

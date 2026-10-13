@@ -31,7 +31,7 @@
  */
 
 import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 
 /** DSH home 下的相对位置（与水位、待处置队列同层）。 */
@@ -112,7 +112,12 @@ async function readAll(dshHomePath) {
  *
  * `entry` 形状（字段都对诊断有用，故都留）：
  *   - `at`（RFC3339）：本次检查点时刻；
- *   - `task`：本次轮换到的任务；
+ *   - `task`（兼容旧读取方）：本次派发的**首个**任务；范围以 `tasks` 为准；
+ *   - `tasks`：本次**本想**做的全部事项清单（一次派发做全部已启用任务，32 §10.2
+ *     不设轮换）——被挡下时 Human 需要知道「是哪几件事被推后了」，只记一个任务名
+ *     会掩盖范围；
+ *   - `unimplemented`（可选）：已勾选但**无实现者**——须与「被挡下」区分（04 §8.5
+ *     要求「勾了但没做」必须可见）；
  *   - `stage`：**落到哪一步**——`skipped`（无执行体） / `not-implemented`（任务未实现）
  *     / `throttled`（被闲时辅助的准入闸挡下——**不是失败**，内容不丢、水位不推进）
  *     / `stopped`（fail-closed 停止） / `landed`（落地已调用） / `land-failed`；
@@ -144,7 +149,9 @@ export async function recordRun(dshHomePath, entry = {}) {
 
 async function recordRunInner(dshHomePath, entry = {}) {
   const at = typeof entry.at === "string" && entry.at.length > 0 ? entry.at : new Date().toISOString();
-  const record = { at, ...entry, at };
+  // `at` 落在展开**之后**：调用方传来的 `at` 不得覆盖上面归一化过的值（这是原
+  // `{ at, ...entry, at }` 的语义；重复键只是写法冗余，eslint no-dupe-keys 报错）。
+  const record = { ...entry, at };
   // 单条只留有用字段，且截断自由文本，避免单条把文件撑大。
   if (typeof record.note === "string" && record.note.length > 300) {
     record.note = `${record.note.slice(0, 300)}…`;
