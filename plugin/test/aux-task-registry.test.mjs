@@ -36,8 +36,9 @@ import {
 // 登记表
 // ---------------------------------------------------------------------------
 
-test("登记表：三个任务在册，顺序即 AUX_TASK_ORDER（规范叙述次序）", () => {
-  assert.deepEqual([...AUX_TASK_ORDER], ["idle-review", "capacity-maintenance", "memory-health"]);
+test("登记表：四个任务在册，顺序即 AUX_TASK_ORDER（规范叙述次序）", () => {
+  // 顺序取自 36 §8 的叙述次序「反思摩擦、积累经验、记忆维护」，容量维护随其后。
+  assert.deepEqual([...AUX_TASK_ORDER], ["idle-review", "experience-capture", "capacity-maintenance", "memory-health"]);
   for (const key of AUX_TASK_ORDER) {
     assert.ok(AUX_TASK_REGISTRY[key] !== undefined, `${key} 须在登记表内`);
     assert.equal(AUX_TASK_REGISTRY[key].key, key, "登记项的 key 须与键一致（防错位）");
@@ -58,15 +59,15 @@ test("登记表：`implemented` 与「四个部位是否齐备」互不矛盾", 
   }
 });
 
-test("登记表：现状如实——只有 idle-review 已实现（§8.5 不得主张空闲维护已运行）", () => {
+test("登记表：现状如实——idle-review 与 experience-capture 已实现（§8.5 不得主张空闲维护已运行）", () => {
   const implemented = AUX_TASK_ORDER.filter((k) => AUX_TASK_REGISTRY[k].implemented === true);
-  assert.deepEqual(implemented, ["idle-review"], "容量维护与记忆健康的能力本体确实没有代码");
+  assert.deepEqual(implemented, ["idle-review", "experience-capture"], "容量维护与记忆健康的能力本体确实没有代码");
 });
 
 test("splitRunnableTasks：两半都返回，且合起来等于输入（不得静默丢弃未实现者）", () => {
   const all = [...AUX_TASK_ORDER];
   const { runnable, unimplemented } = splitRunnableTasks(all);
-  assert.deepEqual(runnable, ["idle-review"]);
+  assert.deepEqual(runnable, ["idle-review", "experience-capture"]);
   assert.deepEqual(unimplemented, ["capacity-maintenance", "memory-health"]);
   assert.deepEqual(
     [...runnable, ...unimplemented].sort(),

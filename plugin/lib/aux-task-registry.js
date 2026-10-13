@@ -37,10 +37,11 @@
  */
 
 import { buildDiscoveryPromptSection, discoveryOutputSchema, validateDiscoveryVerdict } from "./friction-subagent-contract.js";
+import { buildCapturePromptSection, captureOutputSchema, validateCaptureVerdict } from "./experience-capture-contract.js";
 
 
 /** 闲时辅助的全部任务，顺序即拼接顺序与痕迹记录顺序（规范叙述次序）。 */
-export const AUX_TASK_ORDER = Object.freeze(["idle-review", "capacity-maintenance", "memory-health"]);
+export const AUX_TASK_ORDER = Object.freeze(["idle-review", "experience-capture", "capacity-maintenance", "memory-health"]);
 
 /**
  * `idle-review`（空闲评审：摩擦发现）的登记项。
@@ -50,6 +51,9 @@ export const AUX_TASK_ORDER = Object.freeze(["idle-review", "capacity-maintenanc
  * 同理实现内部也不复制彼此的文本，否则一改两处必漂移）。
  */
 const IDLE_REVIEW_KEY = "idle-review";
+
+/** 经验积累（36 §10）的任务键。 */
+const EXPERIENCE_CAPTURE_KEY = "experience-capture";
 
 /**
  * 复合输出的**顶层字段名**约定。
@@ -247,6 +251,17 @@ export const AUX_TASK_REGISTRY = Object.freeze({
     outputSchema: discoveryOutputSchema,
     validate: (slice, ctx) => validateDiscoveryVerdict(slice, {
       candidates: ctx?.candidates ?? [],
+      windowText: ctx?.windowText ?? null,
+    }),
+  }),
+  [EXPERIENCE_CAPTURE_KEY]: Object.freeze({
+    key: EXPERIENCE_CAPTURE_KEY,
+    implemented: true,
+    // 与摩擦侧同构：三部位正文由契约模块提供，本表只**引用**、不复制。
+    promptSection: buildCapturePromptSection,
+    outputSchema: captureOutputSchema,
+    validate: (slice, ctx) => validateCaptureVerdict(slice, {
+      existing: ctx?.existingPitfalls ?? [],
       windowText: ctx?.windowText ?? null,
     }),
   }),

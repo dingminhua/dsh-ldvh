@@ -29,6 +29,7 @@ import { createTurnTriggers } from "./triggers.js";
 import { runIdleCheckpoint } from "./idle-checkpoint.js";
 import { createDiscoveryProvider } from "./friction-discovery-provider.js";
 import { landDiscoveryVerdict, residualFromLandingError } from "./friction-landing.js";
+import { landCaptureVerdict, residualFromCaptureError } from "./experience-landing.js";
 import { advanceWatermark, readWatermark, readDispatchState, recordDispatch } from "./friction-watermark.js";
 import { admitIdleDispatch, pickEnabledAuxTasks } from "./idle-settings.js";
 import { recordRun } from "./idle-runlog.js";
@@ -511,6 +512,11 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // `checkpoint.value.decision.verdict`。写错这一层会让落地**永不触发**，
           // 而那正是缺陷 D2 的形态（静默不落地），故有回归护栏守着它。
           const verdict = checkpoint?.ok === true ? checkpoint.value?.decision?.verdict : undefined;
+          // 经验积累（36 §10）的结论——与摩擦的 verdict **并列**，由各自的落地函数
+          // 处理。它取自逐任务结论表而非兼容字段 `verdict`（后者只承载摩擦）。
+          const captureVerdict = checkpoint?.ok === true
+            ? (checkpoint.value?.decision?.taskVerdicts?.["experience-capture"] ?? null)
+            : null;
           // ── 多任务：任务级失败按 §8.3 入队，不落地、不推进水位 ────────────
           //
           // provider 现在**不再**对任务级校验失败抛错（那会使一次可用的运行被整条
@@ -541,7 +547,11 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             // 失败即不落地、不推进水位（provider 已据此不给出 watermarkTurn）。
             // 落到下面的运行痕迹写入，使「有任务失败」在痕迹里可见。
           }
-          if (checkpoint?.ok === true && verdict != null && failedTasks.length === 0) {
+          // **准入条件是「有任务取得了结论」，不是「摩擦取得了结论」。**
+          // 原条件只认 `verdict`（摩擦的兼容字段），于是清单里只有经验积累时
+          // 整块落地被跳过——它的结论**算完即丢**，而外观上与「跑通了但没发现」
+          // 完全相同（缺陷 D2 的同形）。故此处并列两个任务的结论。
+          if (checkpoint?.ok === true && (verdict != null || captureVerdict != null) && failedTasks.length === 0) {
             const ledgerRoot = join(scope.project.path, "ldvh-base");
             // 受控写入需要**权威路由签名**（02 §10.5）。取不到签名时**不落地**
             // ——宁可停在这里，也不写一条签名缺失的账目（那会污染 change_log 的
@@ -566,78 +576,152 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               lifecycle.activity?.record("session/checkpoint/landed", { action: "no-signature" });
               landedAction = "no-signature";
             } else {
-              const landed = await landDiscoveryVerdict({
-                factSourceRoot: ledgerRoot,
-                verdict,
-                observationAt: checkpoint.value.at,
-                sessionSignature: authoritativeSignature({
-                  provider: route.value.provider,
-                  model: route.value.model,
-                }),
-              });
-              if (!landed.ok) {
-                // §8.3 fail-closed：落地失败按停止处置并登记（不自行重试、不掩盖）。
-                await appendPendingEntry(dshHomePath, {
-                  task: tasksForThisCheckpoint[0],
-                  reason: `闭集落地失败（${landed.error?.stage ?? "unknown"}）：${landed.error?.message ?? "unknown"}`,
-                  // 提炼**完整**诊断（含逐条校验明细），不把 issues 丢掉——
-                  // 详见 friction-landing.js 的 residualFromLandingError。
-                  residual: residualFromLandingError(landed.error),
-                  at: new Date().toISOString(),
+              // 签名已取得：**逐任务落地**。每个任务的结论由它自己的落地函数处理
+              // ——不得只落地摩擦而把其它任务的结论留在 `decision` 里（那正是
+              // 缺陷 D2 的形态：结论算完即丢，且不留痕迹）。
+              if (verdict != null) {
+                const landed = await landDiscoveryVerdict({
+                  factSourceRoot: ledgerRoot,
+                  verdict,
+                  observationAt: checkpoint.value.at,
+                  sessionSignature: authoritativeSignature({
+                    provider: route.value.provider,
+                    model: route.value.model,
+                  }),
                 });
-                // **不推进水位**（复核发现①的修复）：落地失败即本次未产出，窗口
-                // 必须留待下次重覆盖——否则那段内容会被标记为已处理却从未入账，
-                // 且永不复查（宿主只发布事件、不回放）。
-                lifecycle.activity?.record("session/checkpoint/landed", { action: "failed", watermark_advanced: false });
-                landedAction = "failed";
-              } else {
-                lifecycle.activity?.record("session/checkpoint/landed", {
-                  action: landed.value.action,
-                  object_uid: landed.value.object_uid,
-                  promoted: landed.value.promoted,
-                });
-                landedAction = landed.value.action;
-                landedUid = landed.value.object_uid;
-                landedPromoted = landed.value.promoted;
-                // 复核发现②③：本次区间里本进程未观察到的轮次须**如实登记**，
-                // 不得静默丢弃。缺口不可恢复（宿主不回放、本模块不读会话日志），
-                // 故处置是「登记 + 越过」，而不是拒不推进（那会永久停摆）。
-                const gap = checkpoint.value?.decision?.unobserved;
-                if (gap && typeof gap === "object") {
+                if (!landed.ok) {
+                  // §8.3 fail-closed：落地失败按停止处置并登记（不自行重试、不掩盖）。
                   await appendPendingEntry(dshHomePath, {
-                    task: tasksForThisCheckpoint[0],
-                    reason: `观察区间存在未覆盖缺口：turn ${gap.from}${gap.to === null || gap.to === undefined ? " 起（上界未知）" : `–${gap.to}`} 未被本进程观察到（宿主不回放事件，缺口不可恢复）`,
-                    residual: [`缺口 ${gap.from}..${gap.to ?? "unknown"} 的内容未被观察`, "水位将越过该缺口——此为该区间的已知损失"],
+                    task: "idle-review",
+                    reason: `闭集落地失败（${landed.error?.stage ?? "unknown"}）：${landed.error?.message ?? "unknown"}`,
+                    // 提炼**完整**诊断（含逐条校验明细），不把 issues 丢掉——
+                    // 详见 friction-landing.js 的 residualFromLandingError。
+                    residual: residualFromLandingError(landed.error),
                     at: new Date().toISOString(),
                   });
-                  lifecycle.activity?.record("session/checkpoint/window-gap", { from: gap.from, to: gap.to ?? null });
-                  gapRegistered = `${gap.from}..${gap.to ?? "?"}`;
-                }
-                // **落地成功之后**才推进水位（顺序纪律）：推进意味着「本区间已处理
-                // 完毕」；只有账目确实写成（或确认为无发现）时才成立。
-                const pendingTurn = checkpoint.value?.pending_watermark_turn;
-                if (Number.isInteger(pendingTurn)) {
-                  const advanced = await advanceWatermark(dshHomePath, {
-                    projectRoot: scope.project.path,
-                    sessionId,
-                    // 推进**本任务**的水位——这正是逐任务改造的目的：任务 A 成功
-                    // 推进自己的水位，不因任务 B 失败而后退或被重覆盖。
-                    task: tasksForThisCheckpoint[0],
-                    turn: pendingTurn,
+                  // **不推进水位**（复核发现①的修复）：落地失败即本次未产出，窗口
+                  // 必须留待下次重覆盖——否则那段内容会被标记为已处理却从未入账，
+                  // 且永不复查（宿主只发布事件、不回放）。
+                  lifecycle.activity?.record("session/checkpoint/landed", { action: "failed", watermark_advanced: false });
+                  landedAction = "failed";
+                } else {
+                  lifecycle.activity?.record("session/checkpoint/landed", {
+                    action: landed.value.action,
+                    object_uid: landed.value.object_uid,
+                    promoted: landed.value.promoted,
                   });
-                  if (!advanced.ok) {
-                    // 落地已成功、水位未推进：下次会重覆盖同一区间。**重覆盖不会
-                    // 重复计数**吗——会。故此处必须入队如实登记，不得静默。
+                  landedAction = landed.value.action;
+                  landedUid = landed.value.object_uid;
+                  landedPromoted = landed.value.promoted;
+                  // 复核发现②③：本次区间里本进程未观察到的轮次须**如实登记**，
+                  // 不得静默丢弃。缺口不可恢复（宿主不回放、本模块不读会话日志），
+                  // 故处置是「登记 + 越过」，而不是拒不推进（那会永久停摆）。
+                  const gap = checkpoint.value?.decision?.unobserved;
+                  if (gap && typeof gap === "object") {
                     await appendPendingEntry(dshHomePath, {
                       task: tasksForThisCheckpoint[0],
-                      reason: `水位推进失败（账目已写入，下次将重覆盖同一区间，可能重复计数）：${advanced.error.message}`,
-                      residual: [`水位键 ${advanced.error.code}`, `重覆盖区间终点 turn=${pendingTurn}`],
+                      reason: `观察区间存在未覆盖缺口：turn ${gap.from}${gap.to === null || gap.to === undefined ? " 起（上界未知）" : `–${gap.to}`} 未被本进程观察到（宿主不回放事件，缺口不可恢复）`,
+                      residual: [`缺口 ${gap.from}..${gap.to ?? "unknown"} 的内容未被观察`, "水位将越过该缺口——此为该区间的已知损失"],
                       at: new Date().toISOString(),
                     });
-                    lifecycle.activity?.record("session/checkpoint/watermark", { advanced: false, code: advanced.error.code, turn: pendingTurn });
-                  } else {
-                    lifecycle.activity?.record("session/checkpoint/watermark", { advanced: true, turn: pendingTurn });
-                    advancedTurn = pendingTurn;
+                    lifecycle.activity?.record("session/checkpoint/window-gap", { from: gap.from, to: gap.to ?? null });
+                    gapRegistered = `${gap.from}..${gap.to ?? "?"}`;
+                  }
+                  // **落地成功之后**才推进水位（顺序纪律）：推进意味着「本区间已处理
+                  // 完毕」；只有账目确实写成（或确认为无发现）时才成立。
+                  const pendingTurn = checkpoint.value?.pending_watermark_turn;
+                  if (Number.isInteger(pendingTurn)) {
+                    const advanced = await advanceWatermark(dshHomePath, {
+                      projectRoot: scope.project.path,
+                      sessionId,
+                      // 推进**本任务**的水位——这正是逐任务改造的目的：任务 A 成功
+                      // 推进自己的水位，不因任务 B 失败而后退或被重覆盖。
+                      //
+                      // **显式写 "idle-review" 而非 tasksForThisCheckpoint[0]**：本块
+                      // 是摩擦发现的落地分支，故它推进的只能是摩擦发现的水位；用清单
+                      // 首项会在「清单只含其它任务」时推出一个不属于本块的键。
+                      task: "idle-review",
+                      turn: pendingTurn,
+                    });
+                    if (!advanced.ok) {
+                      // 落地已成功、水位未推进：下次会重覆盖同一区间。**重覆盖不会
+                      // 重复计数**吗——会。故此处必须入队如实登记，不得静默。
+                      await appendPendingEntry(dshHomePath, {
+                        task: tasksForThisCheckpoint[0],
+                        reason: `水位推进失败（账目已写入，下次将重覆盖同一区间，可能重复计数）：${advanced.error.message}`,
+                        residual: [`水位键 ${advanced.error.code}`, `重覆盖区间终点 turn=${pendingTurn}`],
+                        at: new Date().toISOString(),
+                      });
+                      lifecycle.activity?.record("session/checkpoint/watermark", { advanced: false, code: advanced.error.code, turn: pendingTurn });
+                    } else {
+                      lifecycle.activity?.record("session/checkpoint/watermark", { advanced: true, turn: pendingTurn });
+                      advancedTurn = pendingTurn;
+                    }
+                  }
+                }
+              }
+
+              // ── 经验积累（36 §10）的落地：机械通道只建 draft 候选 ────────────
+              if (captureVerdict != null) {
+                const captured = await landCaptureVerdict({
+                  factSourceRoot: ledgerRoot,
+                  verdict: captureVerdict,
+                  observationAt: checkpoint.value.at,
+                  sessionSignature: authoritativeSignature({
+                    provider: route.value.provider,
+                    model: route.value.model,
+                  }),
+                });
+                if (!captured.ok) {
+                  // §8.3 fail-closed：落地失败按停止处置并登记（不自行重试、不掩盖）。
+                  await appendPendingEntry(dshHomePath, {
+                    task: "experience-capture",
+                    reason: `经验积累落地失败（${captured.error?.stage ?? "unknown"}）：${captured.error?.message ?? "unknown"}`,
+                    // 完整诊断（含逐条 issues），不把明细丢掉。
+                    residual: residualFromCaptureError(captured.error),
+                    at: new Date().toISOString(),
+                  });
+                  lifecycle.activity?.record("session/checkpoint/landed", {
+                    task: "experience-capture",
+                    action: "failed",
+                    watermark_advanced: false,
+                  });
+                  landedAction = "failed";
+                } else {
+                  lifecycle.activity?.record("session/checkpoint/landed", {
+                    task: "experience-capture",
+                    action: captured.value.action,
+                    object_uid: captured.value.object_uid,
+                  });
+                  // 运行痕迹取摩擦的动作（若两件都跑，摩擦是主项）；只在摩擦未
+                  // 产出动作时用经验积累的动作填充，使「本次做了什么」仍可见。
+                  landedAction ??= captured.value.action;
+                  landedUid ??= captured.value.object_uid;
+                  // **推进经验积累自己的水位**（逐任务水位的意义所在）：它与摩擦
+                  // 互不牵连——摩擦失败不会使经验积累被重覆盖，反之亦然。
+                  const pendingTurn = checkpoint.value?.pending_watermark_turn;
+                  if (Number.isInteger(pendingTurn)) {
+                    const advanced = await advanceWatermark(dshHomePath, {
+                      projectRoot: scope.project.path,
+                      sessionId,
+                      task: "experience-capture",
+                      turn: pendingTurn,
+                    });
+                    if (!advanced.ok) {
+                      await appendPendingEntry(dshHomePath, {
+                        task: "experience-capture",
+                        reason: `水位推进失败（候选已写入，下次将重覆盖同一区间，可能重复建候选）：${advanced.error.message}`,
+                        residual: [`水位键 ${advanced.error.code}`, `重覆盖区间终点 turn=${pendingTurn}`],
+                        at: new Date().toISOString(),
+                      });
+                      lifecycle.activity?.record("session/checkpoint/watermark", {
+                        task: "experience-capture", advanced: false, code: advanced.error.code, turn: pendingTurn,
+                      });
+                    } else {
+                      lifecycle.activity?.record("session/checkpoint/watermark", {
+                        task: "experience-capture", advanced: true, turn: pendingTurn,
+                      });
+                    }
                   }
                 }
               }

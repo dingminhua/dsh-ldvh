@@ -112,7 +112,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     throw new Error("createDiscoveryProvider requires an AbortSignal (subagents.start requires request.signal)");
   }
 
-  return async function discover({ threshold, candidates, sessionSignature, window: windowRange, tasks: requestedTasks }) {
+  return async function discover({ threshold, candidates, existingPitfalls, sessionSignature, window: windowRange, tasks: requestedTasks }) {
     // 本次要跑的**全部**任务（有序）。未给出时退回单任务 `idle-review`——保持既有
     // 调用方（测试与诊断路径）无需改造，且它与「只勾选 idle-review」等价。
     //
@@ -261,9 +261,15 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
         error.code = "discovery_provider/incomplete_registry";
         throw error;
       }
-      // `idle-review` 的段构造器需要机械前提（阈值与候选账本）；其余任务按登记
-      // 表自述的签名接收同一组前提，可自取所需、忽略其余。
-      sections[key] = build({ threshold, candidates });
+      // **各任务的机械前提一并传入，由各段构造器自取所需、忽略其余。**
+      //
+      // 为什么把全部前提都传（而不是按任务分派前提）：段构造器由登记表引用，
+      // 本层不知道各任务需要什么。若只传摩擦侧那一组（`threshold`/`candidates`），
+      // 需要其它前提的任务会**静默**拿到默认空值——经验积累的查重比对对象会恒为
+      // 空，提示词于是告诉执行体「知识库为空」，它必然重复建同机制候选。该失效
+      // 不影响任何字段的形状，故从输出上看不出异常（与「确实没有既有经验」无从
+      // 区分）。传全量前提使新任务无需改动本层。
+      sections[key] = build({ threshold, candidates, existing: existingPitfalls ?? [] });
     }
     const prompt = buildCompositePrompt({
       tasks: runnable,
@@ -277,6 +283,9 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
       provider: picked.value.name,
       window: { from: windowRange?.from ?? null, to: windowRange?.to ?? null, turns: Array.isArray(effectiveWindow?.items) ? effectiveWindow.items.length : 0, truncated: effectiveWindow?.truncated === true },
       candidates: candidates?.length ?? 0,
+      // 各任务的机械前提规模——使「前提是否为空」可在痕迹里核对（经验积累的
+      // 查重前提为空与「确实没有既有经验」在输出上无从区分，故须记规模）。
+      existing_pitfalls: existingPitfalls?.length ?? 0,
       // 本次要求作答的任务清单——使「派了几件」与「收了几件」可在痕迹里核对。
       tasks: [...runnable],
       unimplemented_tasks: [...unimplemented],
@@ -329,7 +338,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
       tasks: runnable,
       registry,
       contexts: Object.fromEntries(
-        runnable.map((key) => [key, { candidates: candidates ?? [], windowText }]),
+        runnable.map((key) => [key, { candidates: candidates ?? [], existingPitfalls: existingPitfalls ?? [], windowText }]),
       ),
     });
 
@@ -377,6 +386,15 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
       // 兼容形态：`verdict` 同上。`verdict.verdict` 的双层名是落地侧的既有契约
       // （friction-landing.js 读 `verdict.verdict`），不是笔误。
       verdict: primary?.ok === true ? primary.value : null,
+      // **逐任务的成功结论**（键为该任务在登记表里的键）。调用方据此逐任务落地：
+      // 摩擦走 friction-landing，经验积累走 experience-landing。**不得**从
+      // `verdict` 取非 idle-review 的结论——那是兼容形态，只承载摩擦。
+      // 失败的任务不在本表内（其失败因在 `taskResults` 里，调用方按 §8.3 入队）。
+      taskVerdicts: Object.fromEntries(
+        Object.entries(taskResults)
+          .filter(([, r]) => r?.ok === true)
+          .map(([k, r]) => [k, r.value]),
+      ),
       // 本次区间中**本进程未观察到**的轮次（null = 无缺口）。调用方须如实登记，
       // 不得静默丢弃（复核发现②③）。
       unobserved,
@@ -388,12 +406,18 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
       // 也不把未入账的内容标记为已处理（后者使那段内容**永不复查**，而宿主只
       // 发布事件、不回放）。
       //
-      // ⚠️ **已知残留风险（如实登记）**：多任务下若「一件成功、一件失败」，不推进
-      // 会使下次重覆盖同一区间，于是**已成功那件会被再落地一次**（`occurrence.count`
-      // 被虚增，而它是阈值流转的唯一输入源）。该情形**当前不可达**——只有
-      // `idle-review` 已实现，`runnable` 恒为单元素。落地第二个任务时必须一并
-      // 解决（可行方向：按任务分别记录已处理区间，使重覆盖只针对失败者）。
-      // 不在此处静默取「推进」：那会用一个错误换另一个错误，且更难察觉。
+      // ⚠️ **原登记的风险已解决（2026-10-14，如实更新）**：本条原先登记「多任务下
+      // 若『一件成功、一件失败』，不推进会重覆盖同一区间，于是已成功那件会被再落地
+      // 一次（`occurrence.count` 被虚增）」，并注明「当前不可达，落地第二个任务时
+      // 必须一并解决」。**水位现已按任务分别记录**（`friction-watermark.js`），故
+      // 各任务的成功由**各自的水位**承载：任务 A 成功即推进 A 的水位，任务 B 失败
+      // 不影响 A，重覆盖只发生在 B 的区间上。调用方（lifecycle）须对每个任务分别
+      // 推进——只推进一个会使另一任务被重覆盖。
+      //
+      // `watermarkTurn` 本身仍是「**本次区间终点**」，不再区分任务：它是各任务
+      // **共同**的区间上界，由调用方按任务分别写入各自的水位。不在此处静默取
+      // 「不推进」或「推进」：前者使成功的任务也被重覆盖，后者使失败的任务被
+      // 标记为已处理（那段内容永不复查）。
       watermarkTurn: failedTasks.length === 0 && Number.isInteger(windowRange?.to)
         ? windowRange.to
         : undefined,

@@ -29,6 +29,8 @@ import { appendPendingEntry } from "./pending-queue.js";
 // 出现在这一行）——水位推进由调用方（lifecycle）在落地成功后执行，本模块已不自行
 // 推进（见下方「水位推进必须以落地成功为前提」的说明）。故一并删除。
 import { readWatermark, describeWindow } from "./friction-watermark.js";
+import { splitRunnableTasks } from "./aux-task-registry.js";
+import { listPitfallObjects } from "./pitfall-writer.js";
 import {
   verifyThresholdAvailable,
   loadDedupCandidates,
@@ -99,17 +101,24 @@ export async function runIdleCheckpoint({
     : (typeof task === "string" && task.length > 0 ? [task] : ["idle-review"]);
   const taskId = requested[0];
 
-  // 本模块只编排摩擦发现（`idle-review`）；其余两个任务（容量/体检）能力本体
-  // 尚未实现——**如实报告**而不是假装跑过（§8.5 条件式要求：不得主张空闲维护
-  // 已运行）。
+  // 逐任务分派**走登记表**，不再硬编码单个任务名。理由：硬编码使登记表里新增的
+  // 任务在本层被静默剔除——登记为已实现却在派发时不被调用，而痕迹里看不出为什么
+  // （§8.5：不得主张空闲维护已运行）。
   //
   // 逐任务分派而非只看第一个：清单里可以既有已实现的又有未实现的，此时已实现的
   // 那件必须照常跑（否则「勾了三件」会因一件没实现而整批不跑，而 Human 从痕迹
   // 里看不出为什么）。
-  const runnable = requested.filter((key) => key === "idle-review");
-  const unimplemented = requested.filter((key) => key !== "idle-review");
+  const { runnable: registeredRunnable, unimplemented } = splitRunnableTasks(requested);
+  // 本模块实际**编排**（构造执行体并落地）的任务：见上方说明——登记为已实现、
+  // 但本层尚未编排其执行体与落地路径的任务，不得算作本次已跑。
+  const ORCHESTRATED = ["idle-review"];
+  const runnable = registeredRunnable.filter((key) => ORCHESTRATED.includes(key));
+  const notOrchestrated = registeredRunnable.filter((key) => !ORCHESTRATED.includes(key));
   if (runnable.length === 0) {
-    return success({ task: taskId, tasks: [...requested], outcome: "not-implemented", unimplemented, at });
+    // 两类合并如实回报：**未实现**（能力本体没有代码）与**未编排**（在册且标为
+    // 已实现，但本层尚无其执行体/落地路径）。对 Human 而言二者同义——本次没跑；
+    // 分开列出是为了让人能分辨原因。
+    return success({ task: taskId, tasks: [...requested], outcome: "not-implemented", unimplemented: [...unimplemented, ...notOrchestrated], at });
   }
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
     return failure("idle_checkpoint/no_fact_source", "factSourceRoot is required to read the friction ledger");
@@ -199,11 +208,39 @@ export async function runIdleCheckpoint({
     });
   }
 
+  // 经验积累（36 §10）的机械前提：既有 Pitfall 列表（查重比对对象）。
+  // **只在本次清单含该任务时才读**——否则「Pitfall 载体不可读」会变成一次
+  // 与它无关的运行失败（那违反「一个任务的产出缺失不得影响其它任务」）。
+  let existingPitfalls = [];
+  if (requested.includes("experience-capture")) {
+    const listed = await listPitfallObjects({ factSourceRoot, statusFilter: ["active", "draft"], limit: 200 });
+    if (!listed.ok) {
+      // 查重前提不可得 → 该任务的判断**不可能正确**（会把既有机制当新机制重记）。
+      // 按 §8.3 fail-closed 停止该任务并登记，**不**以空列表冒充「确实没有既有经验」。
+      return recordAndFail(dshHomePath, {
+        task: "experience-capture",
+        reason: `既有经验不可读，查重前提不完整：${listed.error.message}`,
+        residual: [`错误码 ${listed.error.code ?? "unknown"}`],
+        at,
+      });
+    }
+    existingPitfalls = listed.value.items;
+    if (Array.isArray(listed.value.invalid) && listed.value.invalid.length > 0) {
+      return recordAndFail(dshHomePath, {
+        task: "experience-capture",
+        reason: `既有经验存在不可读载体，查重前提不完整（${listed.value.invalid.length} 条）`,
+        residual: listed.value.invalid.map((item) => `${item.file ?? item.line}: ${item.reason}`),
+        at,
+      });
+    }
+  }
+
   let decision;
   try {
     decision = await discover({
       threshold: FRICTION_THRESHOLD_N,
       candidates: candidates.value.candidates,
+      existingPitfalls,
       sessionSignature,
       // 区间与提示词一并交给执行体（提示词由 friction-subagent-contract.js 依
       // 这些机械前提组装；执行体不得自行界定区间）。
