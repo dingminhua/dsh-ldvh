@@ -233,7 +233,7 @@ frontmatter 闭集（分析性长文本一律住正文，frontmatter 只留薄�
 本文不新增 00 之外的 Human Gate。领域增量事项（00 §4.2 在 Pitfall 领域的具体化）：
 
 1. Pitfall 的**入档成立**（`draft → active`）——含执行发现与直接提出两入口的记录确认；**机械通道创建 `draft` 候选除外**：该创建由 36 §10 定义、记录机械依据，另按 36 §19.1 第 4 项经其领域增量 Gate，**无须事前 Human 确认**并保留事后否决权。**机械通道只到 `draft` 为止**——升格仍属本项；
-2. Pitfall 的终态决定（discarded——经验废止）；
+2. Pitfall 的**终态决定**（`discarded`）——含两路：**`active → discarded`（经验废止）**与**`draft → discarded`（候选未入档即被否决）**；
 3. Pitfall 类型本身的取消或合并。
 
 ### 16.1 决定边界
