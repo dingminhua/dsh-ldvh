@@ -84,7 +84,6 @@ ldvh_spec:
   scope: "s1"
   basis: ["sample-spec-2"]
   authorized_attachments: []
-  dimensions: ["read", "write"]
 ---
 
 # 规范示例一
@@ -121,7 +120,6 @@ ldvh_spec:
   scope: "s2"
   basis: []
   authorized_attachments: []
-  dimensions: ["read", "write"]
 ---
 
 # 规范示例二
@@ -282,7 +280,6 @@ ldvh_spec:
   scope: "s"
   basis: []
   authorized_attachments: []
-  dimensions: ["read"]
 ---
 
 # ${title}

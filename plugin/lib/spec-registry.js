@@ -15,13 +15,12 @@
 import { createHash } from "node:crypto";
 import { parse as parseYaml } from "yaml";
 
-const SPEC_FIELDS = ["spec_key", "spec_id", "spec_kind", "title", "canonical_path", "parent_spec", "relation", "positioning", "scope", "basis", "authorized_attachments", "dimensions", "supersedes", "related_specs"];
+const SPEC_FIELDS = ["spec_key", "spec_id", "spec_kind", "title", "canonical_path", "parent_spec", "relation", "positioning", "scope", "basis", "authorized_attachments", "supersedes", "related_specs"];
 const ROOT_ONLY_FIELDS = ["authority", "code_consumption"];
 // 01.Att.02 §5: attachments declare exactly key/id/title/path/positioning
 // plus optional supersedes — no attachment_kind, scope, basis, parent_spec,
-// relation, dimensions, authorized_attachments or related_specs.
+// relation, authorized_attachments or related_specs.
 const ATTACHMENT_FIELDS = ["attachment_key", "attachment_id", "title", "canonical_path", "positioning", "supersedes"];
-const DIMENSION_VALUES = ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"];
 const RELATION_VALUES = ["refines"];
 /**
  * Responsibility-identifier pattern (01.Att.02 §2 共同值格式). Exported as the
@@ -103,16 +102,6 @@ function validateStringList(value, field, { allowEmpty }) {
   return { ok: true, value };
 }
 
-function validateDimensions(value, { required }) {
-  if (value === undefined) return required ? reject("identity/field_missing", "dimensions is required") : { ok: true, value: undefined };
-  if (!Array.isArray(value) || value.length === 0) return reject("identity/field_invalid", "dimensions must be a non-empty sequence when present");
-  for (const item of value) {
-    if (!DIMENSION_VALUES.includes(item)) return reject("identity/field_invalid", `dimensions member "${item}" is outside the closed set`);
-  }
-  if (new Set(value).size !== value.length) return reject("identity/field_invalid", "dimensions members must be unique");
-  return { ok: true, value };
-}
-
 /**
  * Parse one identity block (`ldvh_spec` or `ldvh_attachment` mapping) into a
  * projected identity, or reject with a stable code. Field requirements follow
@@ -150,7 +139,6 @@ export function parseIdentityBlock(yamlText) {
     scope: block.scope,
     basis: block.basis,
     authorizedAttachments: block.authorized_attachments,
-    dimensions: block.dimensions,
     supersedes: block.supersedes,
     relatedSpecs: block.related_specs,
     codeConsumption: block.code_consumption,
@@ -173,9 +161,6 @@ export function parseIdentityBlock(yamlText) {
       if (identity.authority !== "active") return reject("identity/field_invalid", "the root profile must declare authority: \"active\"");
       if (identity.codeConsumption === undefined) return reject("identity/field_missing", "the root profile must declare code_consumption");
       if (identity.title !== "理念与构成" || identity.specId !== "00" || identity.canonicalPath !== "specs/00-理念与构成.md" || identity.parentSpec !== "" || identity.relation !== "") return reject("identity/field_invalid", "root profile fixed values do not match 01.Att.02 §3");
-      const dimensions = validateDimensions(identity.dimensions, { required: true });
-      if (!dimensions.ok) return dimensions;
-      if (JSON.stringify(dimensions.value) !== JSON.stringify(DIMENSION_VALUES)) return reject("identity/field_invalid", "the root profile must declare the full seven dimensions in canonical order");
       const basis = validateStringList(identity.basis, "basis", { allowEmpty: true });
       if (!basis.ok) return basis;
       identity.basis = basis.value;
@@ -190,8 +175,8 @@ export function parseIdentityBlock(yamlText) {
     if (!ATTACHMENT_ID_PATTERN.test(identity.specId ?? "")) return reject("identity/field_invalid", "attachment_id must match the attachment-number pattern");
     if (!ATTACHMENT_PATH_PATTERN.test(identity.canonicalPath)) return reject("identity/field_invalid", "canonical_path must match the attachment path format");
     // 01.Att.02 §5: attachments declare neither scope, basis, parent_spec,
-    // relation, dimensions, authorized_attachments nor related_specs.
-    for (const [field, value] of [["scope", identity.scope], ["basis", identity.basis], ["parent_spec", identity.parentSpec], ["relation", identity.relation], ["dimensions", identity.dimensions], ["authorized_attachments", identity.authorizedAttachments], ["related_specs", identity.relatedSpecs]]) {
+    // relation, authorized_attachments nor related_specs.
+    for (const [field, value] of [["scope", identity.scope], ["basis", identity.basis], ["parent_spec", identity.parentSpec], ["relation", identity.relation], ["authorized_attachments", identity.authorizedAttachments], ["related_specs", identity.relatedSpecs]]) {
       if (value !== undefined) return reject("identity/unknown_field", `attachments do not declare ${field}`);
     }
   }
@@ -215,9 +200,6 @@ export function parseIdentityBlock(yamlText) {
     const authorizedCheck = identity.authorizedAttachments === undefined ? { ok: true, value: [] } : validateStringList(identity.authorizedAttachments, "authorized_attachments", { allowEmpty: true });
     if (!authorizedCheck.ok) return authorizedCheck;
     identity.authorizedAttachments = authorizedCheck.value;
-    const dimensionCheck = validateDimensions(identity.dimensions, { required: false });
-    if (!dimensionCheck.ok) return dimensionCheck;
-    identity.dimensions = dimensionCheck.value;
   }
   const supersedesCheck = identity.supersedes === undefined ? { ok: true } : validateStringList(identity.supersedes, "supersedes", { allowEmpty: false });
   if (!supersedesCheck.ok) return supersedesCheck;
@@ -396,7 +378,6 @@ export function projectLayer(identity, layer, sectionOutline) {
     ...(identity.kind === "ldvh_spec" ? { basis: identity.basis ?? [], parent_spec: identity.parentSpec ?? "", relation: identity.relation ?? "", authorized_attachments: identity.authorizedAttachments ?? [] } : {}),
     ...(identity.supersedes === undefined ? {} : { supersedes: identity.supersedes }),
     ...(identity.relatedSpecs === undefined ? {} : { related_specs: identity.relatedSpecs }),
-    ...(identity.dimensions === undefined ? {} : { dimensions: identity.dimensions }),
     ...(identity.codeConsumption === undefined ? {} : { code_consumption: identity.codeConsumption }),
     ...(identity.authority === undefined ? {} : { authority: identity.authority }),
     ...(sectionOutline === undefined ? {} : { section_outline: sectionOutline })

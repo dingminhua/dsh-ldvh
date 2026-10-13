@@ -499,7 +499,11 @@ test("parseIdentityBlock rejects related_specs that names the document itself", 
 	assert.equal(result.error.code, "identity/field_invalid");
 });
 
-test("parseIdentityBlock rejects dimensions with an out-of-set value", () => {
+test("parseIdentityBlock rejects `dimensions` as an unknown field", () => {
+	// The `dimensions` identity field was retired by Human decision: it carried
+	// no judgement and duplicated the rosters of 00 §3.1/§3.3/§3.4/§3.6, which
+	// drifted each time a business system changed. Re-declaring it must fail as
+	// an unknown field rather than be silently tolerated (01.Att.02 §1).
 	const yaml = `ldvh_spec:
   spec_key: "demo"
   spec_id: "99"
@@ -510,32 +514,11 @@ test("parseIdentityBlock rejects dimensions with an out-of-set value", () => {
   relation: ""
   positioning: "p"
   scope: "s"
-  dimensions: ["read", "magic"]
+  dimensions: ["read", "write"]
 `;
 	const result = parseIdentityBlock(yaml);
 	assert.equal(result.ok, false);
-	assert.equal(result.error.code, "identity/field_invalid");
-});
-
-test("parseIdentityBlock rejects ordinary specs declaring retired old-dimension values (regression: work-model restructure)", () => {
-	// 2026-09-07 restructure retired deliberate/review/execute/reflect/consolidate
-	// from the closed set. A spec still declaring any of them must be rejected.
-	const yaml = `ldvh_spec:
-  spec_key: "demo"
-  spec_id: "99"
-  spec_kind: "spec"
-  title: "示例"
-  canonical_path: "specs/99-示例.md"
-  parent_spec: ""
-  relation: ""
-  positioning: "p"
-  scope: "s"
-  dimensions: ["read", "deliberate"]
-`;
-	const result = parseIdentityBlock(yaml);
-	assert.equal(result.ok, false);
-	assert.equal(result.error.code, "identity/field_invalid");
-	assert.match(result.error.message, /outside the closed set/);
+	assert.equal(result.error.code, "identity/unknown_field");
 });
 
 // ---------------------------------------------------------------------------
@@ -610,7 +593,6 @@ const rootYaml = `ldvh_spec:
   scope: "根范围"
   basis: []
   related_specs: ["specification-model-foundation"]
-  dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
   code_consumption: ["ldvh-root", "specification-model-foundation", "work-model-foundation", "fact-model-foundation", "action-template-foundation", "helper-service-boundary", "fact-source-traceability", "work-object-and-governance", "dsh-environment-binding", "code-practice-and-test", "web-presentation-and-interaction"]
 `;
 
@@ -619,7 +601,6 @@ test("parseIdentityBlock accepts a fully legal root profile", () => {
 	assert.equal(result.ok, true, result.error?.message);
 	assert.equal(result.value.responsibilityKey, "ldvh-root");
 	assert.equal(result.value.authority, "active");
-	assert.equal(result.value.dimensions.length, 7);
 });
 
 test("parseIdentityBlock accepts a root profile with an empty related_specs list (per 01.Att.02 §3 table)", () => {
@@ -642,21 +623,10 @@ test("parseIdentityBlock accepts a root profile with an empty related_specs list
   scope: "根范围"
   basis: []
   related_specs: []
-  dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]
   code_consumption: ["specification-model-foundation"]
 `;
 	const result = parseIdentityBlock(yaml);
 	assert.equal(result.ok, true, `contract says related_specs: [] is legal on the root profile; got ${result.error?.code} ${result.error?.message}`);
-});
-
-test("parseIdentityBlock rejects a root profile whose dimensions order is not canonical", () => {
-	const tampered = rootYaml.replace(
-		'dimensions: ["read", "write", "orchestrate", "memory", "research", "discussion", "comply"]',
-		'dimensions: ["write", "read", "orchestrate", "memory", "research", "discussion", "comply"]',
-	);
-	const result = parseIdentityBlock(tampered);
-	assert.equal(result.ok, false);
-	assert.equal(result.error.code, "identity/field_invalid");
 });
 
 test("parseIdentityBlock rejects a root profile whose code_consumption uses snake_case (responsibility-identifier contract)", () => {
@@ -941,7 +911,6 @@ const plainSpecYaml = `ldvh_spec:
   basis: ["ldvh-root"]
   authorized_attachments: []
   related_specs: ["work-model-foundation"]
-  dimensions: ["read", "write"]
 `;
 
 /** Parse plainSpecYaml once for all projectLayer tests. */
@@ -979,7 +948,7 @@ test("projectLayer L2 adds relation fields but not authority/code_consumption", 
 	assert.equal(out.relation, "");
 	assert.deepEqual(out.authorized_attachments, []);
 	assert.deepEqual(out.related_specs, ["work-model-foundation"]);
-	assert.deepEqual(out.dimensions, ["read", "write"]);
+	assert.equal(out.dimensions, undefined);
 	assert.equal(out.authority, undefined);
 	assert.equal(out.code_consumption, undefined);
 });
