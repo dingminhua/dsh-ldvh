@@ -36,7 +36,7 @@ import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/pro
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
-import { requireAuthoritativeSignature, resolveAuthoritativeSignature } from "./signature-channel.js";
+import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
 
 // ---------------------------------------------------------------------------
@@ -52,7 +52,9 @@ export const PITFALL_DIRECTORY = "pitfalls";
 const BODY_H2_REQUIRED = ["症状", "触发条件", "根因", "解决", "规避", "验证", "影响与适用范围"];
 const BODY_H2_EVIDENCE = "证据";
 
-const STATUSES = new Set(["active", "discarded"]);
+// 23 §9：状态闭集三值——draft（待确认的候选，由闲时辅助经验积累的机械通道创建）
+// / active / discarded。draft 与 active 的正文要求相同（七段齐备）。
+const STATUSES = new Set(["draft", "active", "discarded"]);
 
 /** Title cap (23 §8: ≤ 30 字). */
 const MAX_TITLE_LENGTH = 30;
@@ -146,12 +148,11 @@ export function validatePitfallFrontmatter(frontmatter) {
     }
   }
 
-  // disposition ⇔ terminal status (23 §8: 出现 ⇔ discarded)
-  if (frontmatter.status === "active") {
-    if (frontmatter.disposition !== undefined) {
-      issues.push("disposition: must not be present when status=active (23 §8)");
-    }
-  } else {
+  // disposition ⇔ discarded (23 §8: 出现 ⇔ discarded)。
+  // **三分支而非二分支**：draft 与 active 同为「非终态」，均禁现 disposition。
+  // （原实现用 if(active)/else 两分支，加入 draft 后 draft 会落入 else 分支
+  //   被错误要求填 disposition——该形态由本次实现核对捕获并修正。）
+  if (frontmatter.status === "discarded") {
     if (typeof frontmatter.disposition !== "string" || frontmatter.disposition.length === 0) {
       issues.push("disposition: required non-empty when status=discarded (23 §8)");
     } else if (frontmatter.disposition.length > MAX_DISPOSITION_LENGTH) {
@@ -159,6 +160,8 @@ export function validatePitfallFrontmatter(frontmatter) {
       // disposal record. Reject rather than truncate.
       issues.push(`disposition: must be ≤ ${MAX_DISPOSITION_LENGTH} characters (23 §9.1), got ${frontmatter.disposition.length}`);
     }
+  } else if (frontmatter.disposition !== undefined) {
+    issues.push(`disposition: must not be present when status=${frontmatter.status} (23 §8: disposition ⇔ discarded)`);
   }
 
   return { ok: issues.length === 0, issues };
@@ -349,11 +352,16 @@ export async function createPitfallObject(args) {
   frontmatter.object_uid = uid;
   frontmatter.fact_type_key = PITFALL_TYPE_KEY;
   frontmatter.created_at = now;
-  // 23 §9: 初态 active — create must never enter a terminal state
-  if (frontmatter.status !== undefined && frontmatter.status !== "active") {
-    return failure("pitfall/initial_state_violation", `create must initialise as status=active; got ${JSON.stringify(frontmatter.status)} (23 §9)`);
+  // 23 §13：创建分两条通道，初态依通道而异——
+  //   机械通道（36 §10 经验积累）只产出 draft，不含入档判断；
+  //   Human 入口（执行中发现 / Human 直接提出）在确认入档时创建，落盘即 active
+  //     （此时创建与入档是同一决定的两面）。
+  // 无论哪条通道，都不得以 create 进入终态 discarded。
+  const requestedStatus = frontmatter.status;
+  if (requestedStatus !== undefined && requestedStatus !== "active" && requestedStatus !== "draft") {
+    return failure("pitfall/initial_state_violation", `create must initialise as status=active or status=draft; got ${JSON.stringify(requestedStatus)} (23 §9/§13)`);
   }
-  frontmatter.status = "active";
+  frontmatter.status = requestedStatus ?? "active";
   // 23 §8: disposition cannot exist at creation
   if (frontmatter.disposition !== undefined) {
     return failure("pitfall/frontmatter_invalid", "create must not carry disposition (23 §8: disposition ⇔ discarded)");
@@ -491,12 +499,35 @@ export async function updatePitfallObject(args) {
 
   const nextStatus = fm.status;
   if (nextStatus === undefined || !STATUSES.has(nextStatus)) {
-    return failure("pitfall/status_transition_invalid", `target status ${JSON.stringify(nextStatus)} is not in the closed set (active/discarded, 23 §9)`);
+    return failure("pitfall/status_transition_invalid", `target status ${JSON.stringify(nextStatus)} is not in the closed set (draft/active/discarded, 23 §9)`);
   }
 
-  // 23 §9.3 补充边界：active→active 更新是勘误与补充级——scope 必须与
-  // CAS 基线逐字段一致（变了走新对象路径）。
-  if (nextStatus === "active") {
+  // 23 §9.2：正常转换有三——draft→active（入档）／active→discarded（废止）／
+  // draft→discarded（候选未入档即被否决）。此处校验目标状态是否可达，
+  // 并给出不合法转换的精确原因（闭合路径，不留含糊）。
+  if (prevStatus !== nextStatus) {
+    const legal = (prevStatus === "draft" && (nextStatus === "active" || nextStatus === "discarded"))
+      || (prevStatus === "active" && nextStatus === "discarded");
+    if (!legal) {
+      return failure("pitfall/status_transition_invalid", `illegal status transition ${prevStatus} → ${nextStatus} (23 §9.2: the legal transitions are draft→active, active→discarded, draft→discarded)`);
+    }
+  }
+
+  // 23 §9.1：draft 与 active 均不得带 disposition（disposition ⇔ discarded）。
+  // draft→active 的入档校验（另一主体复现验证，23 §16.1）**不在此处**——
+  // 该前置由提请入档的调用方（主控/Human 路径）在构造请求前完成，
+  // Code 侧不代理语义判断（23 §16.1 第 1 项：复现指实际重走或核对证据链，
+  // 属语义工作）。此处只做机械可达性与字段闭集校验。
+  if (nextStatus === "draft" || nextStatus === "active") {
+    if (fm.disposition !== undefined) {
+      return failure("pitfall/frontmatter_invalid", `disposition must not be present while status=${nextStatus} (23 §8: disposition ⇔ discarded)`);
+    }
+  }
+
+  // 23 §9.3 补充边界：同态更新（active→active、draft→draft）是勘误与补充级——
+  // scope 必须与 CAS 基线逐字段一致（变了走新对象路径）。
+  // draft→active 是入档转换而非补充更新，不受此边界约束（其七段要求已在创建时满足）。
+  if (nextStatus === prevStatus && nextStatus === "active") {
     if ((fm.scope ?? "") !== (current.value.frontmatter.scope ?? "")) {
       return failure("pitfall/supplement_boundary", "scope changed on an active→active update — that is a real impact-range change, not an errata/supplement: create a NEW Pitfall object (23 §9.3)");
     }
@@ -548,9 +579,17 @@ export async function updatePitfallObject(args) {
  * fail to parse are reported in `invalid` — never skipped silently.
  */
 export async function listPitfallObjects(args) {
-  const { factSourceRoot, includeTerminal = false, limit = 200 } = args;
+  const { factSourceRoot, includeTerminal = false, statusFilter, limit = 200 } = args;
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
     return failure("invalid_request", "factSourceRoot is required");
+  }
+  // 23 §12：默认候选只含 active；「待确认队列」是 draft 唯一的对外呈现点，
+  // 须能被专门查询枚举。statusFilter 是那条专门查询的机械入口。
+  if (statusFilter !== undefined) {
+    const wanted = Array.isArray(statusFilter) ? statusFilter : [statusFilter];
+    if (wanted.length === 0 || !wanted.every((s) => STATUSES.has(s))) {
+      return failure("invalid_request", `statusFilter must be a non-empty subset of the closed set (draft/active/discarded, 23 §9); got ${JSON.stringify(statusFilter)}`);
+    }
   }
   if (!Number.isInteger(limit) || limit < 1) {
     return failure("invalid_request", "limit must be a positive integer");
@@ -598,7 +637,13 @@ export async function listPitfallObjects(args) {
       invalid.push({ file: entry.name, reason: `status ${JSON.stringify(status)} outside the closed set` });
       continue;
     }
-    if (!includeTerminal && status !== "active") continue;
+    // statusFilter（专门查询）优先于默认候选规则。
+    if (statusFilter !== undefined) {
+      const wanted = Array.isArray(statusFilter) ? statusFilter : [statusFilter];
+      if (!wanted.includes(status)) continue;
+    } else if (!includeTerminal && status !== "active") {
+      continue;
+    }
     items.push({
       object_uid: uid,
       title: typeof frontmatter.title === "string" ? frontmatter.title : "",
