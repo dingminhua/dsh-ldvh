@@ -54,10 +54,35 @@ import { randomUUID } from "node:crypto";
  * 存量单条水位的归属任务。
  *
  * 该常量**不是**「默认任务」——它只用于把**改造之前**写下的旧形态水位解释为
- * 某个任务的水位。改造前只有 `friction-discovery`（时名 `idle-review`）已实现
- * 并写过水位，故存量的 `lastTurn` 只可能是它写的；这是唯一自洽的读法。
+ * 某个任务的水位。改造前只有摩擦发现这一个任务已实现并写过水位，故存量的
+ * `lastTurn` 只可能是它写的；这是唯一自洽的读法。
  */
-const LEGACY_WATERMARK_OWNER = "idle-review";
+const LEGACY_WATERMARK_OWNER = "friction-discovery";
+
+/**
+ * 任务**改名**映射：现行键 → 它曾用过的键（读时回落用）。
+ *
+ * 摩擦发现原名 `idle-review`，后改为 `friction-discovery`（名实相符：它做的是
+ * 摩擦发现，不是泛指的「空闲评审」——后者在本仓规范里**从未有过定义**）。
+ * 改名必须同时迁移**已落盘的数据**，否则后果是静默的数据损坏而非报错：
+ *
+ * `tasks: { "idle-review": { lastTurn: N } }` 在改名后按新键读**读不到** → 返回
+ * `null` → 被判为「首次运行」→ **整个区间被重新覆盖** → 重复计数（而 `count`
+ * 是阈值流转的唯一输入源）。真实载体里**已经存在**这样一条记录（改名前的 P1
+ * 改造所写），故该回落不是预防性的，而是必需的。
+ *
+ * **写时只用现行键**，不写旧键——旧键仅作读时回落，使回落面随时间自然消失。
+ */
+const TASK_RENAMES = Object.freeze({ "friction-discovery": "idle-review" });
+
+/**
+ * 取某任务的**现行键**与它可能用过的**旧键**。
+ *
+ * @returns {{current: string, former: string|null}}
+ */
+function taskAliases(task) {
+  return { current: task, former: TASK_RENAMES[task] ?? null };
+}
 
 /** DSH home 下的相对位置（与 governed-projects / pending-queue 同层）。 */
 const WATERMARK_RELATIVE_PATH = ["ldvh", "friction-discovery-watermarks.json"];
@@ -180,12 +205,18 @@ function resolveTaskKey(task) {
  */
 function taskWatermark(entry, task) {
   if (entry === undefined || entry === null) return null;
+  const { current, former } = taskAliases(task);
   const perTask = entry.tasks;
   if (perTask !== undefined && perTask !== null && typeof perTask === "object" && !Array.isArray(perTask)) {
-    const own = perTask[task];
-    return Number.isInteger(own?.lastTurn) ? own.lastTurn : null;
+    // 先按现行键读；读不到时回落**改名前的键**（见 TASK_RENAMES 的说明：不回落
+    // 会使既有水位被判为「首次运行」，整个区间被重覆盖而重复计数）。
+    for (const key of former === null ? [current] : [current, former]) {
+      const own = perTask[key];
+      if (Number.isInteger(own?.lastTurn)) return own.lastTurn;
+    }
+    return null;
   }
-  // 旧形态：单条水位归首个任务（改造前只有它写过）。
+  // 最早形态：单条水位归摩擦发现（那时只有它写过）。
   if (task === LEGACY_WATERMARK_OWNER && Number.isInteger(entry.lastTurn)) return entry.lastTurn;
   return null;
 }

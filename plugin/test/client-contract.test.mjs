@@ -463,7 +463,7 @@ test("闲时辅助设置面：总开关 + 三个子项 + 四个参数，且总�
   // 且 dsh-mnemon 的形态是「总开关关掉就整块不展开」。
   for (const field of [
     "idleAssistEnabled",
-    "idleReviewEnabled",
+    "frictionDiscoveryEnabled",
     "capacityMaintenanceEnabled",
     "memoryHealthEnabled",
   ]) {

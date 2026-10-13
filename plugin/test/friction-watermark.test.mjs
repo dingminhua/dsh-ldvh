@@ -31,7 +31,7 @@ async function carrierPathIn(root) {
 
 test("首次运行：水位缺席不是失败，而是「覆盖全部既有内容」", async () => {
   await withTemp("ldvh-watermark-", async (dir) => {
-    const r = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, task: "idle-review" });
+    const r = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, task: "friction-discovery" });
     assert.ok(r.ok, JSON.stringify(r.error));
     assert.equal(r.value.lastTurn, null);
     assert.equal(r.value.carrier, "absent");
@@ -40,11 +40,11 @@ test("首次运行：水位缺席不是失败，而是「覆盖全部既有内�
 
 test("推进后回读得到新的轮次，且载体落在 DSH home 的 ldvh 域", async () => {
   await withTemp("ldvh-watermark-", async (dir) => {
-    const a = await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, turn: 7, task: "idle-review" });
+    const a = await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, turn: 7, task: "friction-discovery" });
     assert.ok(a.ok, JSON.stringify(a.error));
     assert.equal(a.value.lastTurn, 7);
 
-    const r = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, task: "idle-review" });
+    const r = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, task: "friction-discovery" });
     assert.equal(r.value.lastTurn, 7);
     assert.equal(r.value.carrier, "present");
 
@@ -57,12 +57,12 @@ test("推进后回读得到新的轮次，且载体落在 DSH home 的 ldvh 域"
 
 test("水位按「项目根 + 会话」分键：不同会话互不影响", async () => {
   await withTemp("ldvh-watermark-", async (dir) => {
-    await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: "s-1", turn: 3, task: "idle-review" });
-    await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: "s-2", turn: 9, task: "idle-review" });
+    await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: "s-1", turn: 3, task: "friction-discovery" });
+    await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: "s-2", turn: 9, task: "friction-discovery" });
 
-    const r1 = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: "s-1", task: "idle-review" });
-    const r2 = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: "s-2", task: "idle-review" });
-    const r3 = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: "s-3", task: "idle-review" });
+    const r1 = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: "s-1", task: "friction-discovery" });
+    const r2 = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: "s-2", task: "friction-discovery" });
+    const r3 = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: "s-3", task: "friction-discovery" });
     assert.equal(r1.value.lastTurn, 3);
     assert.equal(r2.value.lastTurn, 9);
     assert.equal(r3.value.lastTurn, null, "未见过的会话应从零开始");
@@ -71,37 +71,37 @@ test("水位按「项目根 + 会话」分键：不同会话互不影响", async
 
 test("水位按项目根分键：不同项目互不影响", async () => {
   await withTemp("ldvh-watermark-", async (dir) => {
-    await advanceWatermark(homeOf(dir), { projectRoot: "/proj/A", sessionId: SESSION, turn: 5, task: "idle-review" });
-    const b = await readWatermark(homeOf(dir), { projectRoot: "/proj/B", sessionId: SESSION, task: "idle-review" });
+    await advanceWatermark(homeOf(dir), { projectRoot: "/proj/A", sessionId: SESSION, turn: 5, task: "friction-discovery" });
+    const b = await readWatermark(homeOf(dir), { projectRoot: "/proj/B", sessionId: SESSION, task: "friction-discovery" });
     assert.equal(b.value.lastTurn, null);
   });
 });
 
 test("单调性：拒绝倒退（倒退会使已处理区间被重复计入）", async () => {
   await withTemp("ldvh-watermark-", async (dir) => {
-    await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, turn: 10, task: "idle-review" });
-    const back = await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, turn: 4, task: "idle-review" });
+    await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, turn: 10, task: "friction-discovery" });
+    const back = await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, turn: 4, task: "friction-discovery" });
     assert.ok(!back.ok);
     assert.equal(back.error.code, "watermark/non_monotonic");
 
-    const r = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, task: "idle-review" });
+    const r = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, task: "friction-discovery" });
     assert.equal(r.value.lastTurn, 10, "被拒的推进不得改变既有水位");
   });
 });
 
 test("单调性：允许同值（同一轮重复推进是幂等的）", async () => {
   await withTemp("ldvh-watermark-", async (dir) => {
-    await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, turn: 6, task: "idle-review" });
-    const again = await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, turn: 6, task: "idle-review" });
+    await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, turn: 6, task: "friction-discovery" });
+    const again = await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, turn: 6, task: "friction-discovery" });
     assert.ok(again.ok, JSON.stringify(again.error));
   });
 });
 
 test("推进后精确回读：返回值与回读一致（§8.4 第 5 项同源纪律）", async () => {
   await withTemp("ldvh-watermark-", async (dir) => {
-    const a = await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, turn: 12, task: "idle-review" });
+    const a = await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, turn: 12, task: "friction-discovery" });
     assert.ok(a.ok);
-    const r = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, task: "idle-review" });
+    const r = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, task: "friction-discovery" });
     assert.equal(r.value.lastTurn, a.value.lastTurn);
   });
 });
@@ -113,11 +113,11 @@ test("载体内容无法解析时 fail-closed，不静默当作空", async () =>
     await mkdir(join(dir, "ldvh"), { recursive: true });
     await writeFile(path, "{ not json", "utf8");
 
-    const r = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, task: "idle-review" });
+    const r = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, task: "friction-discovery" });
     assert.ok(!r.ok);
     assert.equal(r.error.code, "watermark/unreadable");
 
-    const a = await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, turn: 1, task: "idle-review" });
+    const a = await advanceWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, turn: 1, task: "friction-discovery" });
     assert.ok(!a.ok, "载体损坏时不得据「反正要写」而覆盖——那会静默丢失既有区间");
   });
 });
@@ -127,7 +127,7 @@ test("载体是数组/标量（形状不符）时 fail-closed", async () => {
     const { mkdir, writeFile } = await import("node:fs/promises");
     await mkdir(join(dir, "ldvh"), { recursive: true });
     await writeFile(await carrierPathIn(dir), "[1,2,3]", "utf8");
-    const r = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, task: "idle-review" });
+    const r = await readWatermark(homeOf(dir), { projectRoot: PROJECT, sessionId: SESSION, task: "friction-discovery" });
     assert.ok(!r.ok);
     assert.equal(r.error.code, "watermark/carrier_malformed");
   });
@@ -136,11 +136,11 @@ test("载体是数组/标量（形状不符）时 fail-closed", async () => {
 test("入参校验：缺 projectRoot / sessionId / 非法 turn 均被拒", async () => {
   await withTemp("ldvh-watermark-", async (dir) => {
     const home = homeOf(dir);
-    assert.equal((await readWatermark(home, { sessionId: SESSION, task: "idle-review" })).error.code, "watermark/invalid_project_root");
-    assert.equal((await readWatermark(home, { projectRoot: PROJECT, task: "idle-review" })).error.code, "watermark/invalid_session_id");
-    assert.equal((await advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: -1, task: "idle-review" })).error.code, "watermark/invalid_turn");
-    assert.equal((await advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: 1.5, task: "idle-review" })).error.code, "watermark/invalid_turn");
-    assert.equal((await advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, task: "idle-review" })).error.code, "watermark/invalid_turn");
+    assert.equal((await readWatermark(home, { sessionId: SESSION, task: "friction-discovery" })).error.code, "watermark/invalid_project_root");
+    assert.equal((await readWatermark(home, { projectRoot: PROJECT, task: "friction-discovery" })).error.code, "watermark/invalid_session_id");
+    assert.equal((await advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: -1, task: "friction-discovery" })).error.code, "watermark/invalid_turn");
+    assert.equal((await advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: 1.5, task: "friction-discovery" })).error.code, "watermark/invalid_turn");
+    assert.equal((await advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, task: "friction-discovery" })).error.code, "watermark/invalid_turn");
   });
 });
 
@@ -169,13 +169,13 @@ test("D3：并发推进不互相覆盖，且都成功（无 read_back_mismatch �
   await withTemp("ldvh-watermark-", async (dir) => {
     const home = homeOf(dir);
     const results = await Promise.all([
-      advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: 5, task: "idle-review" }),
-      advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: 9, task: "idle-review" }),
+      advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: 5, task: "friction-discovery" }),
+      advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: 9, task: "friction-discovery" }),
     ]);
     assert.equal(results[0].ok, true, `较小值的那次不应误报失败：${JSON.stringify(results[0].error)}`);
     assert.equal(results[1].ok, true, JSON.stringify(results[1].error));
 
-    const back = await readWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, task: "idle-review" });
+    const back = await readWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, task: "friction-discovery" });
     assert.equal(back.value.lastTurn, 9, "最终水位应为较大值");
   });
 });
@@ -183,12 +183,12 @@ test("D3：并发推进不互相覆盖，且都成功（无 read_back_mismatch �
 test("D3：乱序并发时单调性仍然生效（较小的那个若后到也不得倒退）", async () => {
   await withTemp("ldvh-watermark-", async (dir) => {
     const home = homeOf(dir);
-    await advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: 20, task: "idle-review" });
+    await advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: 20, task: "friction-discovery" });
     // 20 之后再来一个更小的 7：须被非单调拒绝，而不是静默覆盖
-    const back = await advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: 7, task: "idle-review" });
+    const back = await advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: 7, task: "friction-discovery" });
     assert.ok(!back.ok);
     assert.equal(back.error.code, "watermark/non_monotonic");
-    const after = await readWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, task: "idle-review" });
+    const after = await readWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, task: "friction-discovery" });
     assert.equal(after.value.lastTurn, 20);
   });
 });
@@ -197,13 +197,13 @@ test("D3：并发写不同会话互不阻塞（按载体串行、非全局串行
   await withTemp("ldvh-watermark-", async (dir) => {
     const home = homeOf(dir);
     const results = await Promise.all([
-      advanceWatermark(home, { projectRoot: PROJECT, sessionId: "s-a", turn: 3, task: "idle-review" }),
-      advanceWatermark(home, { projectRoot: PROJECT, sessionId: "s-b", turn: 4, task: "idle-review" }),
-      advanceWatermark(home, { projectRoot: PROJECT, sessionId: "s-c", turn: 5, task: "idle-review" }),
+      advanceWatermark(home, { projectRoot: PROJECT, sessionId: "s-a", turn: 3, task: "friction-discovery" }),
+      advanceWatermark(home, { projectRoot: PROJECT, sessionId: "s-b", turn: 4, task: "friction-discovery" }),
+      advanceWatermark(home, { projectRoot: PROJECT, sessionId: "s-c", turn: 5, task: "friction-discovery" }),
     ]);
     assert.ok(results.every((r) => r.ok), JSON.stringify(results.map((r) => r.error)));
-    const a = await readWatermark(home, { projectRoot: PROJECT, sessionId: "s-a", task: "idle-review" });
-    const c = await readWatermark(home, { projectRoot: PROJECT, sessionId: "s-c", task: "idle-review" });
+    const a = await readWatermark(home, { projectRoot: PROJECT, sessionId: "s-a", task: "friction-discovery" });
+    const c = await readWatermark(home, { projectRoot: PROJECT, sessionId: "s-c", task: "friction-discovery" });
     assert.equal(a.value.lastTurn, 3);
     assert.equal(c.value.lastTurn, 5);
   });
@@ -214,11 +214,11 @@ test("D3：突发多次并发推进同一会话，全部成功且最终为最大
     const home = homeOf(dir);
     const turns = [2, 3, 4, 5, 6, 7, 8];
     const results = await Promise.all(
-      turns.map((t) => advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: t, task: "idle-review" })),
+      turns.map((t) => advanceWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, turn: t, task: "friction-discovery" })),
     );
     const failed = results.map((r, i) => (r.ok ? null : `${turns[i]}:${r.error.code}`)).filter(Boolean);
     assert.deepEqual(failed, [], `并发的串行化应保证全部成功，失败项：${failed.join(",")}`);
-    const back = await readWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, task: "idle-review" });
+    const back = await readWatermark(home, { projectRoot: PROJECT, sessionId: SESSION, task: "friction-discovery" });
     assert.equal(back.value.lastTurn, 8);
   });
 });
@@ -269,7 +269,7 @@ test("**水位推进不得抹掉派发状态**（同一载体两轴，重建该�
     await recordDispatch(dshHomePath, { ...o, at: "2026-10-11T01:00:00.000Z" });
     await recordDispatch(dshHomePath, { ...o, at: "2026-10-11T01:10:00.000Z" });
     // 再推一次水位。
-    const advanced = await advanceWatermark(dshHomePath, { ...o, turn: 7, task: "idle-review" });
+    const advanced = await advanceWatermark(dshHomePath, { ...o, turn: 7, task: "friction-discovery" });
     assert.equal(advanced.ok, true, "水位推进本身应成功");
     // 派发状态必须原样还在。
     const after = await readDispatchState(dshHomePath, o);
@@ -277,7 +277,7 @@ test("**水位推进不得抹掉派发状态**（同一载体两轴，重建该�
     assert.equal(after.value.lastDispatchAt, "2026-10-11T01:10:00.000Z", "派发时刻不得被抹掉");
     // 反向：先推水位、再记派发，水位也不得被抹掉。
     await recordDispatch(dshHomePath, { ...o, at: "2026-10-11T01:20:00.000Z" });
-    const wm = await readWatermark(dshHomePath, { ...o, task: "idle-review" });
+    const wm = await readWatermark(dshHomePath, { ...o, task: "friction-discovery" });
     assert.equal(wm.value.lastTurn, 7, "记派发后水位不得被抹掉");
     assert.equal((await readDispatchState(dshHomePath, o)).value.dispatchCount, 3);
   });
@@ -286,7 +286,7 @@ test("**水位推进不得抹掉派发状态**（同一载体两轴，重建该�
 test("派发状态：并发记录不丢更新（与水位共用同一临界区）", async () => {
   await withTemp("ldvh-dispatch-", async (dir) => {
     const dshHomePath = (...p) => join(dir, ...p);
-    const o = { projectRoot: "/proj", sessionId: "s1", task: "idle-review" };
+    const o = { projectRoot: "/proj", sessionId: "s1", task: "friction-discovery" };
     // 两个并发 recordDispatch 各自读整份文档、改自己那一项、写回——
     // 无串行化时后写者覆盖先写者，计数会少一次。
     await Promise.all([
@@ -384,14 +384,14 @@ test("逐任务水位：一个任务推进不影响另一个（消除重复落�
     const h = homeOf(dir);
     const base = { projectRoot: PROJECT, sessionId: SESSION };
     // 任务 A 推进到 10
-    const a = await advanceWatermark(h, { ...base, task: "idle-review", turn: 10 });
+    const a = await advanceWatermark(h, { ...base, task: "friction-discovery", turn: 10 });
     assert.ok(a.ok, JSON.stringify(a.error));
     // 任务 B 仍为 null——**互不牵连**是本改造的全部意义
     const rb = await readWatermark(h, { ...base, task: "experience-capture" });
     assert.equal(rb.value.lastTurn, null, "B 未被推进过，其水位必须仍为 null");
     // B 推进到 7，A 不受影响
     await advanceWatermark(h, { ...base, task: "experience-capture", turn: 7 });
-    const ra = await readWatermark(h, { ...base, task: "idle-review" });
+    const ra = await readWatermark(h, { ...base, task: "friction-discovery" });
     assert.equal(ra.value.lastTurn, 10, "A 的水位不得因 B 推进而改变");
   });
 });
@@ -400,9 +400,9 @@ test("逐任务水位：单调性是按任务分别判定的", async () => {
   await withTemp("watermark-tasks.", async (dir) => {
     const h = homeOf(dir);
     const base = { projectRoot: PROJECT, sessionId: SESSION };
-    await advanceWatermark(h, { ...base, task: "idle-review", turn: 10 });
+    await advanceWatermark(h, { ...base, task: "friction-discovery", turn: 10 });
     // A 倒退被拒
-    const back = await advanceWatermark(h, { ...base, task: "idle-review", turn: 5 });
+    const back = await advanceWatermark(h, { ...base, task: "friction-discovery", turn: 5 });
     assert.equal(back.ok, false);
     assert.equal(back.error.code, "watermark/non_monotonic");
     // 但 B 可以推进到**超过** A 的值——两个任务各自单调，不互相约束
@@ -423,7 +423,7 @@ test("逐任务水位：缺 task 即 fail-closed（不得静默共用另一任�
   });
 });
 
-test("逐任务水位：旧形态（单条 lastTurn）归属 idle-review——改造前只有它写过", async () => {
+test("逐任务水位：旧形态（单条 lastTurn）归属 friction-discovery——改造前只有它写过", async () => {
   await withTemp("watermark-tasks.", async (dir) => {
     const h = homeOf(dir);
     const { writeFile, mkdir } = await import("node:fs/promises");
@@ -434,8 +434,8 @@ test("逐任务水位：旧形态（单条 lastTurn）归属 idle-review——�
       join(dir, "ldvh", "friction-discovery-watermarks.json"),
       JSON.stringify({ [`${PROJECT}::${SESSION}`]: { lastTurn: 42, lastDispatchAt: "2026-01-01T00:00:00.000Z", dispatchCount: 3 } }),
     );
-    const legacy = await readWatermark(h, { projectRoot: PROJECT, sessionId: SESSION, task: "idle-review" });
-    assert.equal(legacy.value.lastTurn, 42, "旧形态的单条水位必须被解释为 idle-review 的水位（否则升级后已处理区间被重覆盖）");
+    const legacy = await readWatermark(h, { projectRoot: PROJECT, sessionId: SESSION, task: "friction-discovery" });
+    assert.equal(legacy.value.lastTurn, 42, "旧形态的单条水位必须被解释为 friction-discovery 的水位（否则升级后已处理区间被重覆盖）");
     const fresh = await readWatermark(h, { projectRoot: PROJECT, sessionId: SESSION, task: "experience-capture" });
     assert.equal(fresh.value.lastTurn, null, "旧形态下未写过水位的任务仍为 null");
   });
@@ -446,13 +446,67 @@ test("逐任务水位：推进不抹掉派发状态（同一载体两轴）", as
     const h = homeOf(dir);
     const base = { projectRoot: PROJECT, sessionId: SESSION };
     await recordDispatch(h, { ...base, at: "2026-10-14T01:00:00.000Z" });
-    await advanceWatermark(h, { ...base, task: "idle-review", turn: 9 });
+    await advanceWatermark(h, { ...base, task: "friction-discovery", turn: 9 });
     const st = await readDispatchState(h, base);
     assert.equal(st.value.dispatchCount, 1, "推进水位不得抹掉派发计数");
     assert.equal(st.value.lastDispatchAt, "2026-10-14T01:00:00.000Z");
     // 反向：记派发不得抹掉任一任务的水位
     await recordDispatch(h, { ...base, at: "2026-10-14T02:00:00.000Z" });
-    const wm = await readWatermark(h, { ...base, task: "idle-review" });
+    const wm = await readWatermark(h, { ...base, task: "friction-discovery" });
     assert.equal(wm.value.lastTurn, 9, "记派发不得抹掉水位");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 任务**改名**的存量迁移（2026-10-14）：idle-review → friction-discovery
+//   不迁移的后果是**静默的数据损坏**（既有水位读不到 → 判为首次运行 → 整区间
+//   被重覆盖 → 重复计数，而 count 是阈值流转的唯一输入源）。
+// ---------------------------------------------------------------------------
+
+test("改名回落：载体里**改名前的键**必须被现行键读到（否则重复计数）", async () => {
+  await withTemp("watermark-rename.", async (dir) => {
+    const h = homeOf(dir);
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    await mkdir(join(dir, "ldvh"), { recursive: true });
+    // 模拟改名前的载体：tasks 下用的是旧键 idle-review
+    await writeFile(
+      join(dir, "ldvh", "friction-discovery-watermarks.json"),
+      JSON.stringify({ [`${PROJECT}::${SESSION}`]: { tasks: { "idle-review": { lastTurn: 7, advancedAt: "2026-10-13T00:00:00.000Z" } } } }),
+    );
+    const r = await readWatermark(h, { projectRoot: PROJECT, sessionId: SESSION, task: "friction-discovery" });
+    assert.equal(
+      r.value.lastTurn, 7,
+      "改名前的 idle-review 水位必须被现行键 friction-discovery 读到——读不到会被判为首次运行，"
+      + "使已处理区间被重新覆盖而重复计数（count 是阈值流转的唯一输入源）",
+    );
+  });
+});
+
+test("改名回落：写时只用**现行键**，不写旧键（回落面随时间自然消失）", async () => {
+  await withTemp("watermark-rename.", async (dir) => {
+    const h = homeOf(dir);
+    await advanceWatermark(h, { projectRoot: PROJECT, sessionId: SESSION, task: "friction-discovery", turn: 9 });
+    const { readFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const doc = JSON.parse(await readFile(join(dir, "ldvh", "friction-discovery-watermarks.json"), "utf8"));
+    const tasks = doc[`${PROJECT}::${SESSION}`].tasks;
+    assert.ok(tasks["friction-discovery"] !== undefined, "应写入现行键");
+    assert.equal(tasks["idle-review"], undefined, "不得写入旧键（否则两键并存，回落面永不消失）");
+  });
+});
+
+test("改名回落：现行键存在时优先于旧键（不因回落覆盖新值）", async () => {
+  await withTemp("watermark-rename.", async (dir) => {
+    const h = homeOf(dir);
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    await mkdir(join(dir, "ldvh"), { recursive: true });
+    await writeFile(
+      join(dir, "ldvh", "friction-discovery-watermarks.json"),
+      JSON.stringify({ [`${PROJECT}::${SESSION}`]: { tasks: { "friction-discovery": { lastTurn: 20 }, "idle-review": { lastTurn: 7 } } } }),
+    );
+    const r = await readWatermark(h, { projectRoot: PROJECT, sessionId: SESSION, task: "friction-discovery" });
+    assert.equal(r.value.lastTurn, 20, "现行键须优先——若回落旧键会**倒退**水位，使已处理区间被重复计入");
   });
 });

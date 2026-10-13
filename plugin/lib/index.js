@@ -127,7 +127,24 @@ export const Config = z.object({
   /** 闲时辅助总开关：关闭后不再派发任何辅助任务（含摩擦发现）。 */
   idleAssistEnabled: volatileField(z.boolean().default(true)),
   /** 闲时评审（反思摩擦，04 §8.4）：已实现，缺省开。 */
-  idleReviewEnabled: volatileField(z.boolean().default(true)),
+  // 摩擦发现（36 §9）。**曾用名 `idleReviewEnabled`**——旧键仍须能被读到，见下。
+  frictionDiscoveryEnabled: volatileField(z.boolean().default(true)),
+  /**
+   * @deprecated 摩擦发现开关的**旧键**，仅为存量配置回落而保留。
+   *
+   * **为什么不得只保留新键**：`frictionDiscoveryEnabled` 带 `default(true)`，宿主
+   * 解析配置时会**把 true 填进 config**——于是 `resolveIdleSettings` 里的
+   * `新键 ?? 旧键` 回落**永远不会走到旧键**，Human 曾明确关闭摩擦的设定会静默
+   * 退回 true（行为突变，且从设置面上看不出为什么它又开着了）。
+   *
+   * 故回落必须在**能区分「用户设过」与「默认填的」**的层面做：`idle-settings.js`
+   * 读的是本插件 Cordis Config 的**原始字段**（见该处的 `?? config?.idleReviewEnabled`
+   * 与读取顺序说明）——本键保留在 schema 里，使旧配置项不被判为未知字段。
+   *
+   * 本键**不出现在设置面**（`client.js` 只渲染新键）；它会在 Human 下次保存设置
+   * 时被新键取代，此后即可移除。
+   */
+  idleReviewEnabled: volatileField(z.boolean()),
   // 积累经验（36 §10）：**已实现**，但缺省**关**。与摩擦（缺省开）不同：摩擦是
   // 既有行为，改成缺省关会使升级即静默停用（行为突变）；本任务是**新增**能力，
   // 默认打开会在 Human 尚未知情时就开始写 Pitfall 候选。缺省关更诚实。

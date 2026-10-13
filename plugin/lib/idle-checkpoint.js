@@ -98,7 +98,7 @@ export async function runIdleCheckpoint({
   // 任务清单（兼容单个字符串 `task`——既有调用方与测试走这条）。
   const requested = Array.isArray(tasks) && tasks.length > 0
     ? tasks
-    : (typeof task === "string" && task.length > 0 ? [task] : ["idle-review"]);
+    : (typeof task === "string" && task.length > 0 ? [task] : ["friction-discovery"]);
   const taskId = requested[0];
 
   // 逐任务分派**走登记表**，不再硬编码单个任务名。理由：硬编码使登记表里新增的
@@ -111,7 +111,7 @@ export async function runIdleCheckpoint({
   const { runnable: registeredRunnable, unimplemented } = splitRunnableTasks(requested);
   // 本模块实际**编排**（构造执行体并落地）的任务：见上方说明——登记为已实现、
   // 但本层尚未编排其执行体与落地路径的任务，不得算作本次已跑。
-  const ORCHESTRATED = ["idle-review"];
+  const ORCHESTRATED = ["friction-discovery"];
   const runnable = registeredRunnable.filter((key) => ORCHESTRATED.includes(key));
   const notOrchestrated = registeredRunnable.filter((key) => !ORCHESTRATED.includes(key));
   if (runnable.length === 0) {

@@ -43,12 +43,12 @@ test("多任务：清单里既有已实现又有未实现时，已实现的照�
     const result = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
-      tasks: ["idle-review", "capacity-maintenance", "memory-health"],
+      tasks: ["friction-discovery", "capacity-maintenance", "memory-health"],
       sessionId: RUN_SESSION,
       currentTurn: 5,
     });
     assert.equal(result.ok, true, "清单含已实现任务时不得失败");
-    assert.deepEqual(result.value.tasks, ["idle-review", "capacity-maintenance", "memory-health"]);
+    assert.deepEqual(result.value.tasks, ["friction-discovery", "capacity-maintenance", "memory-health"]);
     assert.deepEqual(
       result.value.unimplemented,
       ["capacity-maintenance", "memory-health"],
@@ -77,11 +77,11 @@ test("多任务：清单顺序原样带出（痕迹与提示词的次序不得�
     const result = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
-      tasks: ["memory-health", "idle-review"],
+      tasks: ["memory-health", "friction-discovery"],
       sessionId: RUN_SESSION,
       currentTurn: 5,
     });
-    assert.deepEqual(result.value.tasks, ["memory-health", "idle-review"], "调用方给的次序须原样保留");
+    assert.deepEqual(result.value.tasks, ["memory-health", "friction-discovery"], "调用方给的次序须原样保留");
   });
 });
 
@@ -108,7 +108,7 @@ test("§8.5：容量/体检尚未实现时如实报告 not-implemented，不假�
 
 test("§8.4 第 1 项：无语义判断提供者时 skipped——机械层不得代为查重", async () => {
   await withHome(async ({ home, factSourceRoot }) => {
-    const result = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "idle-review", sessionId: RUN_SESSION, currentTurn: 5 });
+    const result = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
     assert.ok(result.ok, JSON.stringify(result.error));
     assert.equal(result.value.outcome, "skipped");
     assert.equal(result.value.threshold, 3);
@@ -128,7 +128,7 @@ test("§8.4：有子代理时把机械前提交给它，并上抛其结论", asy
     const result = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
-      task: "idle-review",
+      task: "friction-discovery",
       sessionId: RUN_SESSION,
       currentTurn: 5,
       discover: async ({ threshold, candidates }) => {
@@ -156,14 +156,14 @@ test("§8.3：账本有不可读载体时停止，并把原因与残留追加进
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "friction-11111111-2222-4333-8444-555555555555.md"), "no frontmatter here", "utf8");
 
-    const result = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "idle-review", sessionId: RUN_SESSION, currentTurn: 5 });
+    const result = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
     assert.ok(!result.ok, "an incomplete dedup input must stop the run");
     assert.equal(result.error.code, "idle_checkpoint/stopped");
     assert.ok(typeof result.error.pending_entry_id === "string", "the stop is registered in the pending queue");
 
     const queue = await readPendingQueue(home);
     assert.equal(queue.value.items.length, 1);
-    assert.equal(queue.value.items[0].task, "idle-review");
+    assert.equal(queue.value.items[0].task, "friction-discovery");
     assert.match(queue.value.items[0].reason, /查重输入不完整/);
     assert.ok(queue.value.items[0].residual.length > 0, "the residual scope names the unreadable carrier");
   });
@@ -181,7 +181,7 @@ test("§8.3 第 6 条：队列不可写时不得降级登记，且如实上报 q
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "friction-11111111-2222-4333-8444-555555555555.md"), "bad", "utf8");
 
-    const result = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "idle-review", sessionId: RUN_SESSION, currentTurn: 5 });
+    const result = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "idle_checkpoint/queue_unavailable");
     assert.equal(result.error.queue_unavailable, true, "the caller must be able to tell the stop was NOT registered");
@@ -196,8 +196,8 @@ test("§8.3 第 3 项：停止后不自行重试——同一失败再跑一次�
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "friction-11111111-2222-4333-8444-555555555555.md"), "bad", "utf8");
 
-    await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "idle-review", sessionId: RUN_SESSION, currentTurn: 5 });
-    await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "idle-review", sessionId: RUN_SESSION, currentTurn: 5 });
+    await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
+    await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
 
     const queue = await readPendingQueue(home);
     assert.equal(queue.value.items.length, 2, "each stop is its own append (仅追加, no silent overwrite)");
@@ -209,7 +209,7 @@ test("§8.3：执行体抛错时入队，且错误不逃逸到宿主事件分发
     const result = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
-      task: "idle-review",
+      task: "friction-discovery",
       sessionId: RUN_SESSION,
       currentTurn: 5,
       discover: async () => {
@@ -227,7 +227,7 @@ test("§8.3：执行体抛错时入队，且错误不逃逸到宿主事件分发
 
 test("§8.3：缺 factSourceRoot 时拒绝并说明（不自造路径）", async () => {
   await withHome(async ({ home }) => {
-    const result = await runIdleCheckpoint({ dshHomePath: home, task: "idle-review" });
+    const result = await runIdleCheckpoint({ dshHomePath: home, task: "friction-discovery" });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "idle_checkpoint/no_fact_source");
   });
@@ -243,7 +243,7 @@ test("§8.4 水位：把本次区间（自上水位起）交给执行体", async
     await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
-      task: "idle-review",
+      task: "friction-discovery",
       sessionId: RUN_SESSION,
       currentTurn: 9,
       discover: async ({ window: w }) => {
@@ -262,7 +262,7 @@ test("§8.4 水位：执行体成功时不自行推进，而是把可推进轮�
     const r = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
-      task: "idle-review",
+      task: "friction-discovery",
       sessionId: RUN_SESSION,
       currentTurn: 4,
       discover: async () => ({ outcome: "no-new-obstacle", watermarkTurn: 4 }),
@@ -272,7 +272,7 @@ test("§8.4 水位：执行体成功时不自行推进，而是把可推进轮�
     // 否则落地失败时水位已前进而账目未写入，那段内容永不复查。
     assert.equal(r.value.pending_watermark_turn, 4, "可推进轮次须交给调用方");
     assert.equal(r.value.watermark_advanced, false, "本层不推进");
-    const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, task: "idle-review" });
+    const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, task: "friction-discovery" });
     assert.equal(w.value.lastTurn, null, "调用方尚未推进，水位应保持不变");
   });
 });
@@ -283,14 +283,14 @@ test("§8.4 水位：执行体未给 watermarkTurn 时不推进（回读未通�
     const r = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
-      task: "idle-review",
+      task: "friction-discovery",
       sessionId: RUN_SESSION,
       currentTurn: 4,
       discover: async () => ({ outcome: "no-new-obstacle" }),
     });
     assert.ok(r.ok);
     assert.equal(r.value.watermark_advanced, false, "没有回读通过就不推进");
-    const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, task: "idle-review" });
+    const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, task: "friction-discovery" });
     assert.equal(w.value.lastTurn, null, "水位必须保持未推进");
   });
 });
@@ -298,10 +298,10 @@ test("§8.4 水位：执行体未给 watermarkTurn 时不推进（回读未通�
 test("§8.4 水位：skipped 不推进（本次没处理该区间，推进会使内容永失观察机会）", async () => {
   await withHome(async ({ home, factSourceRoot }) => {
     const { readWatermark } = await import("../lib/friction-watermark.js");
-    const r = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "idle-review", sessionId: RUN_SESSION, currentTurn: 4 });
+    const r = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 4 });
     assert.equal(r.value.outcome, "skipped");
     assert.equal(r.value.watermark_advanced, false);
-    const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, task: "idle-review" });
+    const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, task: "friction-discovery" });
     assert.equal(w.value.lastTurn, null);
   });
 });
@@ -312,7 +312,7 @@ test("§8.4 水位：执行体抛错时不推进（fail-closed 侧，下次重�
     const r = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
-      task: "idle-review",
+      task: "friction-discovery",
       sessionId: RUN_SESSION,
       currentTurn: 4,
       discover: async () => {
@@ -321,18 +321,18 @@ test("§8.4 水位：执行体抛错时不推进（fail-closed 侧，下次重�
     });
     assert.ok(!r.ok);
     assert.equal(r.error.code, "idle_checkpoint/stopped");
-    const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, task: "idle-review" });
+    const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, task: "friction-discovery" });
     assert.equal(w.value.lastTurn, null, "执行体失败不得推进水位");
   });
 });
 
 test("§8.4 水位：缺 sessionId / currentTurn 时 fail-closed（不得退化为覆盖全部内容）", async () => {
   await withHome(async ({ home, factSourceRoot }) => {
-    const noSession = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "idle-review", currentTurn: 4 });
+    const noSession = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "friction-discovery", currentTurn: 4 });
     assert.ok(!noSession.ok);
     assert.equal(noSession.error.code, "idle_checkpoint/no_session_id");
 
-    const noTurn = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "idle-review", sessionId: RUN_SESSION });
+    const noTurn = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "friction-discovery", sessionId: RUN_SESSION });
     assert.ok(!noTurn.ok);
     assert.equal(noTurn.error.code, "idle_checkpoint/no_current_turn");
   });
@@ -348,7 +348,7 @@ test("§8.4 水位：第二次运行从上次水位起算（区间不再从零�
       const r = await runIdleCheckpoint({
         dshHomePath: home,
         factSourceRoot,
-        task: "idle-review",
+        task: "friction-discovery",
         sessionId: RUN_SESSION,
         currentTurn: seen.length === 0 ? 3 : 8,
         discover: async ({ window: w }) => {
@@ -357,7 +357,7 @@ test("§8.4 水位：第二次运行从上次水位起算（区间不再从零�
         },
       });
       if (r.ok && Number.isInteger(r.value.pending_watermark_turn)) {
-        await advanceWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, turn: r.value.pending_watermark_turn, task: "idle-review" });
+        await advanceWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, turn: r.value.pending_watermark_turn, task: "friction-discovery" });
       }
       return r;
     };

@@ -80,6 +80,18 @@ export function readPositiveNumber(value, fallback) {
 }
 
 /** 布尔字段的读取。缺省一律按 `fallback` 处理（与 index.js 的 readSwitch 同语义）。 */
+/**
+ * 取字段的**原始值**（`undefined` 表示「用户没设过」）。
+ *
+ * `volatileField` 字段是只有 `get()` 的引用（宿主 0.1.7 的热改语义），故判「是否
+ * 被设置过」必须先取值再比 `undefined`——直接拿引用做 `??` 判断**恒为真**，
+ * 那正是「默认值架空回落」的形态。
+ */
+function readValue(value) {
+  if (value !== null && typeof value === "object" && typeof value.get === "function") return value.get();
+  return value;
+}
+
 export function readBool(value, fallback) {
   const raw = value !== null && typeof value === "object" && typeof value.get === "function" ? value.get() : value;
   if (raw === undefined || raw === null) return fallback;
@@ -141,8 +153,25 @@ export const IDLE_DEFAULTS = Object.freeze({
  */
 export function resolveIdleSettings(config) {
   const tasks = {
-    // 反思摩擦（idle-review）：已实现，缺省开（与现状一致）。
-    "idle-review": readBool(config?.idleReviewEnabled, true),
+    // 反思摩擦（friction-discovery）：已实现，缺省开（与现状一致）。
+    //
+    // **配置项改名的存量迁移**：本项原名 `idleReviewEnabled`，随任务键一并改为
+    // `frictionDiscoveryEnabled`（原名沿用了已被否定的「空闲评审」一词）。
+    // 这里**先读新键、读不到再读旧键**——只读新键会使既有配置静默失效：`volatileField`
+    // 对未知键不报错，于是 Human 曾**明确关闭**摩擦的设定会悄悄退回缺省值 true
+    // （行为突变，且从设置面上看不出为什么它又开着了）。
+    // **回落顺序不能写成 `新 ?? 旧`**（实测陷阱）：新键在 Config schema 里带
+    // `default(true)`，宿主解析配置时会**把 true 填进 config**，故新键永远不是
+    // `undefined`——`??` 的右支成了死代码，Human 曾**明确关闭**摩擦的设定会静默
+    // 退回 true（行为突变，且从设置面上看不出为什么它又开着了）。
+    // 正确判据是「**旧键是否被显式设置过**」：设置过就以它为准（迁移期尊重用户
+    // 原意），否则用新键（含其默认值）。
+    "friction-discovery": readBool(
+      readValue(config?.idleReviewEnabled) === undefined
+        ? config?.frictionDiscoveryEnabled
+        : config?.idleReviewEnabled,
+      true,
+    ),
     // 积累经验（experience-capture，36 §10）：已实现，缺省**关**（理由见 index.js
     // 的 schema 注释：新增能力不应在 Human 尚未知情时就开始写候选）。
     "experience-capture": readBool(config?.experienceCaptureEnabled, false),

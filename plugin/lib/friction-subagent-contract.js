@@ -107,7 +107,7 @@ export function discoveryOutputSchema() {
  *   ③ 产出经结构化工具提交（宿主 outputSchema 强制，非文本约定）。
  */
 /**
- * `idle-review` 任务的**提示词段**——只含该任务自己的判断要求。
+ * `friction-discovery`（摩擦发现）任务的**提示词段**——只含该任务自己的判断要求。
  *
  * ## 与公共段的分工（2026-10-11 多任务拼接）
  *
@@ -239,7 +239,7 @@ export function buildSharedPromptSection({ window: windowRange, taskCount = 1 } 
 }
 
 /**
- * 兼容入口：单任务（`idle-review`）的完整提示词。
+ * 兼容入口：单任务（`friction-discovery`）的完整提示词。
  *
  * 多任务派发已改走 `aux-task-registry.js` 的 `buildCompositePrompt`（公共段一次 +
  * 各任务段依次）。本函数**保留**是因为它是单任务情形的**等价形态**，且既有测试
@@ -254,7 +254,7 @@ export function buildDiscoveryPrompt({ threshold, candidates = [], window: windo
   // 一个任务段」，两行即可，故在此内联——正文仍来自上面两个函数，不另起一份。
   const shared = buildSharedPromptSection({ window: windowRange, taskCount: 1 });
   const section = buildDiscoveryPromptSection({ threshold, candidates });
-  return [shared, "", "## 本次要做的一件事", "", "### 事项 1／1：idle-review", section].join("\n");
+  return [shared, "", "## 本次要做的一件事", "", "### 事项 1／1：friction-discovery", section].join("\n");
 }
 
 /**

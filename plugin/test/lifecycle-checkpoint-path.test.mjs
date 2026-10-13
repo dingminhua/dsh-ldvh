@@ -160,7 +160,7 @@ test("调用方覆盖：驱动检查点后**必须留下运行痕迹**（而非�
   // 为什么必须在**持久化**层而不只是内存态 activity：activity 随进程退出即消失，
   // 而 32 §10.2 要求「已启用但未实现」在**该次运行的记录**里可见，使 Human 事后
   // 翻查时能看出它没被执行。此前只写 `task: tasks[0]`，于是混合勾选
-  // （idle-review 开 + capacity 勾但未实现）时，「capacity 已启用却未执行」在
+  // （friction-discovery 开 + capacity 勾但未实现）时，「capacity 已启用却未执行」在
   // runlog 里**根本不出现**——等于没登记。
   assert.ok(Array.isArray(latest.tasks), `运行痕迹须带 tasks 清单（本次要求做哪几件），实测 ${JSON.stringify(latest.tasks)}`);
   assert.ok(latest.tasks.length >= 1, "tasks 不得为空——本次至少有一件要跑才会走到这里");

@@ -98,7 +98,7 @@ export function selectZeroContextProvider(subagents) {
  *   - `onRun`（可选）：观察钩子，用于活动记账与实跑取证。
  *
  * 返回的函数签名与 `runIdleCheckpoint` 的 `discover` 契约一致：
- * `({ threshold, candidates, sessionSignature, window })`，返回
+ * `({ threshold, candidates, existingPitfalls, sessionSignature, window, tasks })`，返回
  * `{ outcome, verdict, watermarkTurn? }` 或抛错（由调用方按 §8.3 入队）。
  */
 export function createDiscoveryProvider({ subagents, parent, signal, onRun, provideWindow, registry = AUX_TASK_REGISTRY } = {}) {
@@ -121,7 +121,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     // `implemented` 分派——只把已实现的拼进提示词，未实现的交给调用方如实记一条
     // 痕迹（`unimplementedTasks` 随返回值上抛，04 §8.5 条件式要求：不得主张空闲
     // 维护已运行，但也不得静默剔除使 Human 看不出它没做）。
-    const wanted = Array.isArray(requestedTasks) && requestedTasks.length > 0 ? requestedTasks : ["idle-review"];
+    const wanted = Array.isArray(requestedTasks) && requestedTasks.length > 0 ? requestedTasks : ["friction-discovery"];
     const { runnable, unimplemented } = splitRunnableTasks(wanted, registry);
     // D1：区间材料由**调度侧**提供（provideWindow 读累积器），而不是让子代理
     // 按坐标自行划定。调用方（idle-checkpoint）传的 window 只含端点，故这里以
@@ -363,7 +363,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     // 「整次派发没跑成」；**判断本身不成立**（引证不在材料里、跨字段约束不满足）
     // 属任务级结果，逐任务如实返回，由调用方按任务分别处置。
     const failedTasks = runnable.filter((key) => taskResults[key]?.ok !== true);
-    const primary = taskResults["idle-review"];
+    const primary = taskResults["friction-discovery"];
 
     onRun?.({
       phase: "verdict",

@@ -41,16 +41,19 @@ import { buildCapturePromptSection, captureOutputSchema, validateCaptureVerdict 
 
 
 /** 闲时辅助的全部任务，顺序即拼接顺序与痕迹记录顺序（规范叙述次序）。 */
-export const AUX_TASK_ORDER = Object.freeze(["idle-review", "experience-capture", "capacity-maintenance", "memory-health"]);
+export const AUX_TASK_ORDER = Object.freeze(["friction-discovery", "experience-capture", "capacity-maintenance", "memory-health"]);
 
 /**
- * `idle-review`（空闲评审：摩擦发现）的登记项。
+ * `friction-discovery`（摩擦发现）的登记项。
  *
  * 提示词段与输出 schema 的实际内容由 `friction-subagent-contract.js` 提供——本项
  * 只做**查找与分派**，不复制其正文（04 §14 第 6 条：不在规范里复制宿主/下位实现；
  * 同理实现内部也不复制彼此的文本，否则一改两处必漂移）。
  */
-const IDLE_REVIEW_KEY = "idle-review";
+
+
+/** 摩擦发现（36 §9）的任务键。**曾用名 `idle-review`**（见 friction-watermark 的改名回落）。 */
+const FRICTION_DISCOVERY_KEY = "friction-discovery";
 
 /** 经验积累（36 §10）的任务键。 */
 const EXPERIENCE_CAPTURE_KEY = "experience-capture";
@@ -242,8 +245,8 @@ export function validateCompositeOutput(structured, { tasks = [], registry = AUX
  * 这是 §8.5 条件式要求的机械形态——不得主张空闲维护已运行。
  */
 export const AUX_TASK_REGISTRY = Object.freeze({
-  [IDLE_REVIEW_KEY]: Object.freeze({
-    key: IDLE_REVIEW_KEY,
+  [FRICTION_DISCOVERY_KEY]: Object.freeze({
+    key: FRICTION_DISCOVERY_KEY,
     implemented: true,
     // 三个部位的正文由契约/落地模块提供——本表只**引用**，不复制。
     // 复制会使同一段规则有两份文本，一改两处必漂移（04 §14 第 6 条同理）。

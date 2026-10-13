@@ -61,7 +61,7 @@ test("readBool：缺省按 fallback，显式 false 才是否", () => {
 test("resolveIdleSettings：无配置时给出默认值（总开关与已实现子项为开）", () => {
   const s = resolveIdleSettings(undefined);
   assert.equal(s.enabled, true, "总开关缺省开——机制现状是常开，缺省关会是行为突变");
-  assert.equal(s.tasks["idle-review"], true, "已实现的子项缺省开（与现状一致）");
+  assert.equal(s.tasks["friction-discovery"], true, "已实现的子项缺省开（与现状一致）");
   assert.equal(s.tasks["capacity-maintenance"], false, "未实现子项缺省关");
   assert.equal(s.tasks["memory-health"], false, "未实现子项缺省关");
   assert.deepEqual(s.limits, IDLE_DEFAULTS, "参数回落默认值");
@@ -70,7 +70,7 @@ test("resolveIdleSettings：无配置时给出默认值（总开关与已实现�
 test("resolveIdleSettings：显式配置覆盖默认，且三个子项各自独立", () => {
   const s = resolveIdleSettings({
     idleAssistEnabled: false,
-    idleReviewEnabled: false,
+    frictionDiscoveryEnabled: false,
     capacityMaintenanceEnabled: true,
     memoryHealthEnabled: false,
     idleMinIntervalMs: 60_000,
@@ -79,7 +79,7 @@ test("resolveIdleSettings：显式配置覆盖默认，且三个子项各自独�
     idleMaxPerSession: 3,
   });
   assert.equal(s.enabled, false);
-  assert.equal(s.tasks["idle-review"], false);
+  assert.equal(s.tasks["friction-discovery"], false);
   assert.equal(s.tasks["capacity-maintenance"], true);
   assert.equal(s.tasks["memory-health"], false);
   assert.deepEqual(s.limits, {
@@ -185,14 +185,14 @@ test("quotaLeft：正常配额递减，用尽为 0（不为负）", () => {
 
 const OPEN_SETTINGS = {
   enabled: true,
-  tasks: { "idle-review": true, "capacity-maintenance": false, "memory-health": false },
+  tasks: { "friction-discovery": true, "capacity-maintenance": false, "memory-health": false },
   limits: { minIntervalMs: 600_000, minContentChars: 800, minContentTurns: 3, maxPerSession: 8 },
 };
 
 test("admitIdleDispatch：全部满足即准入", () => {
   const r = admitIdleDispatch({
     settings: OPEN_SETTINGS,
-    task: "idle-review",
+    task: "friction-discovery",
     now: 10_000_000,
     lastDispatchAt: null,
     dispatched: 0,
@@ -213,14 +213,14 @@ test("admitIdleDispatch：**判据顺序**——Human 的明示配置先于机�
   // 而记任何账。故此处让所有机械条件都满足，唯独关掉开关，理由须是开关而非节流。
   const closedAssist = { ...OPEN_SETTINGS, enabled: false };
   const r1 = admitIdleDispatch({
-    settings: closedAssist, task: "idle-review", now: 1, lastDispatchAt: null, dispatched: 0,
+    settings: closedAssist, task: "friction-discovery", now: 1, lastDispatchAt: null, dispatched: 0,
     material: { chars: 99999, turns: 99 },
   });
   assert.equal(r1.reason, "idle-assist-disabled", "总开关优先");
 
-  const taskOff = { ...OPEN_SETTINGS, tasks: { ...OPEN_SETTINGS.tasks, "idle-review": false } };
+  const taskOff = { ...OPEN_SETTINGS, tasks: { ...OPEN_SETTINGS.tasks, "friction-discovery": false } };
   const r2 = admitIdleDispatch({
-    settings: taskOff, task: "idle-review", now: 1, lastDispatchAt: null, dispatched: 0,
+    settings: taskOff, task: "friction-discovery", now: 1, lastDispatchAt: null, dispatched: 0,
     material: { chars: 99999, turns: 99 },
   });
   assert.equal(r2.reason, "task-disabled", "子项开关次之");
@@ -247,7 +247,7 @@ test("admitIdleDispatch：未实现的子项即使被打开，也走各自任务
 
 test("admitIdleDispatch：三道机械闸各自的拒因可区分（痕迹里看得出是被节流还是坏了）", () => {
   const now = 10_000_000;
-  const base = { settings: OPEN_SETTINGS, task: "idle-review", now, material: { chars: 99999, turns: 99 }, dispatched: 0 };
+  const base = { settings: OPEN_SETTINGS, task: "friction-discovery", now, material: { chars: 99999, turns: 99 }, dispatched: 0 };
   assert.equal(admitIdleDispatch({ ...base, lastDispatchAt: now - 1000 }).reason, "cooldown");
   assert.equal(
     admitIdleDispatch({ ...base, lastDispatchAt: null, material: { chars: 10, turns: 1 } }).reason,
@@ -260,7 +260,7 @@ test("admitIdleDispatch：首运在「刚派发过」之外仍受冷却约束（
   // isFirstRun 只解除**内容量**门槛（历史内容必须能被观察），不解除冷却——
   // 冷却管的是「刚才是不是刚跑过」，与「材料是不是首次」无关。
   const r = admitIdleDispatch({
-    settings: OPEN_SETTINGS, task: "idle-review", now: 10_000_000,
+    settings: OPEN_SETTINGS, task: "friction-discovery", now: 10_000_000,
     lastDispatchAt: 9_999_000, dispatched: 0,
     material: { chars: 0, turns: 0 }, isFirstRun: true,
   });
@@ -269,7 +269,7 @@ test("admitIdleDispatch：首运在「刚派发过」之外仍受冷却约束（
 
 test("admitIdleDispatch：isFirstRun 解除内容量门槛（历史摩擦不得因区间短而被漏掉）", () => {
   const r = admitIdleDispatch({
-    settings: OPEN_SETTINGS, task: "idle-review", now: 10_000_000,
+    settings: OPEN_SETTINGS, task: "friction-discovery", now: 10_000_000,
     lastDispatchAt: null, dispatched: 0,
     material: { chars: 0, turns: 0 }, isFirstRun: true,
   });
@@ -342,10 +342,10 @@ test("admitIdleDispatch：**窗口滑过后配额不再永久拦下**（F2 的�
   const CAP = 4;
   const settings = {
     enabled: true,
-    tasks: { "idle-review": true },
+    tasks: { "friction-discovery": true },
     limits: { minIntervalMs: 600_000, minContentChars: 800, minContentTurns: 3, maxPerSession: CAP, quotaWindowMs: HOUR },
   };
-  const base = { settings, task: "idle-review", now, material: { chars: 99999, turns: 99 } };
+  const base = { settings, task: "friction-discovery", now, material: { chars: 99999, turns: 99 } };
 
   // 让 anchor 落在**冷却窗口之外**（20 分钟前 > 600 秒），使本测试验的确实是
   // **配额**而非冷却。判据顺序是「冷却 → 内容量 → 配额」——若 anchor 太近，
@@ -375,10 +375,10 @@ test("admitIdleDispatch：无时刻列表时退回累计口径（兼容路径，
   // 这里是**降级**而非默认；调用方应尽量给时刻列表。
   const settings = {
     enabled: true,
-    tasks: { "idle-review": true },
+    tasks: { "friction-discovery": true },
     limits: { minIntervalMs: 0, minContentChars: 0, minContentTurns: 0, maxPerSession: 3, quotaWindowMs: 3_600_000 },
   };
-  const base = { settings, task: "idle-review", now: 10_000_000, lastDispatchAt: null, material: { chars: 1, turns: 1 } };
+  const base = { settings, task: "friction-discovery", now: 10_000_000, lastDispatchAt: null, material: { chars: 1, turns: 1 } };
   assert.equal(admitIdleDispatch({ ...base, dispatched: 2 }).admit, true, "未达上限");
   assert.equal(admitIdleDispatch({ ...base, dispatched: 3 }).reason, "quota-exhausted", "达上限即拦");
   assert.equal(admitIdleDispatch({ ...base, dispatched: 99 }).reason, "quota-exhausted", "且不会自行恢复（降级口径的固有性质）");
@@ -419,11 +419,11 @@ test("D2/D7：三类约束各自的评估须随返回值给出（放行时也有
   // 「派发准入」段要求「各自可被独立观察」。故 evaluations 必须三类齐备。
   const settings = {
     enabled: true,
-    tasks: { "idle-review": true },
+    tasks: { "friction-discovery": true },
     limits: { minIntervalMs: 600_000, minContentChars: 800, minContentTurns: 3, maxPerSession: 4, quotaWindowMs: 3_600_000 },
   };
   const r = admitIdleDispatch({
-    settings, task: "idle-review", now: 10_000_000, lastDispatchAt: null,
+    settings, task: "friction-discovery", now: 10_000_000, lastDispatchAt: null,
     dispatchTimes: [], material: { chars: 5000, turns: 20 },
   });
   assert.ok(r.evaluations, "须给出 evaluations");
@@ -439,7 +439,7 @@ test("D2/D7：三类约束各自的评估须随返回值给出（放行时也有
 
   // 被挡下时同样给出（且明确指出是哪一类）。
   const blocked = admitIdleDispatch({
-    settings, task: "idle-review", now: 10_000_000, lastDispatchAt: 9_999_000,
+    settings, task: "friction-discovery", now: 10_000_000, lastDispatchAt: 9_999_000,
     dispatchTimes: [], material: { chars: 5000, turns: 20 },
   });
   assert.equal(blocked.reason, "cooldown");
@@ -471,7 +471,7 @@ test("D7：默认上限须在默认窗口内**可达**（否则该约束不可�
 // 该改动同时消除了原实现的两个缺陷，故旧的轮换测试（含死锁守卫）已随之删除——
 // **没有相位就没有相位死锁**，保留它们既无对象也无意义：
 //   · 轮换位死锁：`memory-health` 默认停用 → 每次被挡下 → 轮换位永为 2 →
-//     `idle-review` 再也不被跑到；
+//     `friction-discovery` 再也不被跑到；
 //   · 任务不在任何相位上：`capacity-maintenance` 实测 60 个相位里被选中 **0** 次。
 
 test("pickEnabledAuxTasks：**勾选几个就跑几件**——不是挑一个（本条守卫本次改案本身）", () => {
@@ -482,11 +482,11 @@ test("pickEnabledAuxTasks：**勾选几个就跑几件**——不是挑一个（
   assert.deepEqual(all.tasks, [...AUX_TASK_ORDER], "全部勾选须**全部**返回（按登记表，不硬编码清单）");
   assert.equal(all.reason, null, "有任务可跑时不得给原因码");
 
-  const one = pickEnabledAuxTasks({ enabled: true, tasks: { "idle-review": true } });
-  assert.deepEqual(one.tasks, ["idle-review"], "只勾一个就只做一件");
+  const one = pickEnabledAuxTasks({ enabled: true, tasks: { "friction-discovery": true } });
+  assert.deepEqual(one.tasks, ["friction-discovery"], "只勾一个就只做一件");
 
-  const two = pickEnabledAuxTasks({ enabled: true, tasks: { "idle-review": true, "memory-health": true } });
-  assert.deepEqual(two.tasks, ["idle-review", "memory-health"], "勾两个就做两件");
+  const two = pickEnabledAuxTasks({ enabled: true, tasks: { "friction-discovery": true, "memory-health": true } });
+  assert.deepEqual(two.tasks, ["friction-discovery", "memory-health"], "勾两个就做两件");
 });
 
 test("pickEnabledAuxTasks：顺序取**规范叙述次序**，不取设置对象的枚举次序", () => {
@@ -502,15 +502,15 @@ test("pickEnabledAuxTasks：顺序取**规范叙述次序**，不取设置对象
 test("pickEnabledAuxTasks：总开关关闭 / 全停用 都返回空清单，且**给出可区分的原因码**", () => {
   // 两者都不派发，但原因不同——痕迹里的 reason 须能区分「Human 关了总开关」与
   // 「三个子项都被关」，否则 Human 排查时看不出是哪一个。
-  assert.deepEqual(pickEnabledAuxTasks({ enabled: false, tasks: { "idle-review": true } }), { tasks: [], reason: "idle-assist-disabled" });
+  assert.deepEqual(pickEnabledAuxTasks({ enabled: false, tasks: { "friction-discovery": true } }), { tasks: [], reason: "idle-assist-disabled" });
   assert.deepEqual(pickEnabledAuxTasks({ enabled: true, tasks: {} }), { tasks: [], reason: "all-tasks-disabled" });
-  assert.deepEqual(pickEnabledAuxTasks({ enabled: true, tasks: { "idle-review": false, "capacity-maintenance": false, "memory-health": false } }), { tasks: [], reason: "all-tasks-disabled" });
+  assert.deepEqual(pickEnabledAuxTasks({ enabled: true, tasks: { "friction-discovery": false, "capacity-maintenance": false, "memory-health": false } }), { tasks: [], reason: "all-tasks-disabled" });
 });
 
 test("pickEnabledAuxTasks：开关只认**布尔真**——真值字符串/数字不得被当作已勾选", () => {
   // 设置来自 JSON 配置，`"true"` / 1 之类若被真值判定吞下，会出现「Human 明明没勾
   // 却被跑」的错位；反之 `undefined`（键缺失）必须等于「未勾选」。
-  const s = pickEnabledAuxTasks({ enabled: true, tasks: { "idle-review": "true", "capacity-maintenance": 1, "memory-health": undefined } });
+  const s = pickEnabledAuxTasks({ enabled: true, tasks: { "friction-discovery": "true", "capacity-maintenance": 1, "memory-health": undefined } });
   assert.deepEqual(s.tasks, [], "非布尔真值一律不算已勾选");
 });
 
@@ -553,5 +553,35 @@ test("任务清单只有**一处**定义——模块间不得各持一份（实�
     offenders,
     ["../lib/aux-task-registry.js"],
     "AUX_TASK_ORDER 只允许在登记表里定义为字面量；其它模块须重导出（否则必然漂移）",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 配置项**改名**的存量迁移（2026-10-14）：idleReviewEnabled → frictionDiscoveryEnabled
+//
+// 本条守的是一个**实测踩到**的陷阱：新键在 Config schema 里带 default(true)，
+// 宿主解析配置时会**把 true 填进 config**，故回落若写成 `新键 ?? 旧键`，右支
+// **永不生效**——Human 曾明确关闭摩擦的设定会静默退回 true（行为突变，且从
+// 设置面上看不出为什么它又开着了）。
+// ---------------------------------------------------------------------------
+
+test("配置改名：旧键被显式设过时以旧键为准（默认值不得架空回落）", () => {
+  // 用**原始对象**直接调 resolveIdleSettings——它就是判据侧的入口，且这里要验的
+  // 正是「默认值已被填进 config」这一形态（用已解析的 Config 反而掩盖该陷阱）。
+  const off = resolveIdleSettings({ frictionDiscoveryEnabled: true, idleReviewEnabled: false });
+  assert.equal(
+    off.tasks["friction-discovery"], false,
+    "旧键 false（Human 曾明确关闭）必须生效——若回落写成 `新 ?? 旧`，新键的 default(true) 会架空它",
+  );
+  const on = resolveIdleSettings({ idleReviewEnabled: true });
+  assert.equal(on.tasks["friction-discovery"], true, "旧键 true 亦须生效");
+});
+
+test("配置改名：未设旧键时用新键（含其缺省）", () => {
+  assert.equal(resolveIdleSettings(undefined).tasks["friction-discovery"], true, "两者都未设 → 缺省开");
+  assert.equal(resolveIdleSettings({}).tasks["friction-discovery"], true, "配置对象为空 → 缺省开");
+  assert.equal(
+    resolveIdleSettings({ frictionDiscoveryEnabled: false }).tasks["friction-discovery"], false,
+    "只设了新键 → 以新键为准",
   );
 });

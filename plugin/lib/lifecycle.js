@@ -323,7 +323,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 该改动同时消除了两个既有缺陷，故此处不再需要它们的处置：
           //   · **轮换位死锁**（2026-10-11 实测）：轮换位只在准入通过后推进，而
           //     `memory-health` 默认停用 → 每次被 `task-disabled` 挡下 → 轮换位
-          //     永为 2 → `idle-review` 再也不被跑到。**没有相位就没有死锁**。
+          //     永为 2 → `friction-discovery` 再也不被跑到。**没有相位就没有死锁**。
           //   · **任务不在任何相位上**：`capacity-maintenance` 从未被选中过
           //     （实测 60 个相位里 0 次）。现在「被选中」= 「被勾选」。
           //
@@ -446,16 +446,16 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // §8.4 第 1 项的执行体：以**零上下文**派生（spawn）一个受管辖隔离子代理，
           // 判断输入由调度侧机械交付（窗口原文材料 + 候选账本投影），取回它的结构化
           // 判断（04 §8.4「执行体与上下文供给」段，Human 决定 2026-10-12）。仅对
-          // `idle-review` 需要（其余任务尚未实现，runIdleCheckpoint 会如实报
+          // `friction-discovery` 需要（其余任务尚未实现，runIdleCheckpoint 会如实报
           // not-implemented）。
           //
           // 依赖缺失时**不传 discover**，使 runIdleCheckpoint 如实报 skipped——
           // 那比"在输入不全时硬派一个子代理冒充判断"诚实得多。
           let discover;
-          // 清单里含 `idle-review` 就构造执行体——多任务派发**一次**，故这里不再
+          // 清单里含 `friction-discovery` 就构造执行体——多任务派发**一次**，故这里不再
           // 判「本次轮到的任务是不是它」，而是判「本次是否要求做它」。
           // 其余两个任务尚未实现，`runIdleCheckpoint` 会按各自的分支如实回报。
-          if (tasksForThisCheckpoint.includes("idle-review")) {
+          if (tasksForThisCheckpoint.includes("friction-discovery")) {
             try {
               const subagents = agent?.ctx?.get?.("subagents");
               if (subagents !== undefined && subagents !== null) {
@@ -592,7 +592,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 if (!landed.ok) {
                   // §8.3 fail-closed：落地失败按停止处置并登记（不自行重试、不掩盖）。
                   await appendPendingEntry(dshHomePath, {
-                    task: "idle-review",
+                    task: "friction-discovery",
                     reason: `闭集落地失败（${landed.error?.stage ?? "unknown"}）：${landed.error?.message ?? "unknown"}`,
                     // 提炼**完整**诊断（含逐条校验明细），不把 issues 丢掉——
                     // 详见 friction-landing.js 的 residualFromLandingError。
@@ -637,10 +637,10 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                       // 推进**本任务**的水位——这正是逐任务改造的目的：任务 A 成功
                       // 推进自己的水位，不因任务 B 失败而后退或被重覆盖。
                       //
-                      // **显式写 "idle-review" 而非 tasksForThisCheckpoint[0]**：本块
+                      // **显式写 "friction-discovery" 而非 tasksForThisCheckpoint[0]**：本块
                       // 是摩擦发现的落地分支，故它推进的只能是摩擦发现的水位；用清单
                       // 首项会在「清单只含其它任务」时推出一个不属于本块的键。
-                      task: "idle-review",
+                      task: "friction-discovery",
                       turn: pendingTurn,
                     });
                     if (!advanced.ok) {

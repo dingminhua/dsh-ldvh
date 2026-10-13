@@ -25,7 +25,7 @@ const VERDICT_SLICE = {
 
 /** 把一份任务结论包成宿主提交的复合对象（单任务：名空间为 idle-review）。 */
 function composed(slice = VERDICT_SLICE) {
-  return { "idle-review": slice };
+  return { "friction-discovery": slice };
 }
 
 const VERDICT_SCHEMA_OK = composed();
@@ -198,9 +198,9 @@ test("discover：落地前校验不通过时**如实载明**该任务失败（�
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
   const out = await discover({ threshold: 3, candidates: CANDIDATES, window: { to: 1, items: [{ turn: 1, assistant: "这是一段足够长的材料内容原文。" }] } });
-  assert.deepEqual(out.failedTasks, ["idle-review"], "失败须如实载明");
-  assert.equal(out.taskResults["idle-review"].ok, false);
-  assert.match(out.taskResults["idle-review"].error.message, /target_uid|not among the candidates/);
+  assert.deepEqual(out.failedTasks, ["friction-discovery"], "失败须如实载明");
+  assert.equal(out.taskResults["friction-discovery"].ok, false);
+  assert.match(out.taskResults["friction-discovery"].error.message, /target_uid|not among the candidates/);
   // 失败的任务**不得**产出可落地的结论——否则落地侧会把一份无效判断写成账目。
   assert.equal(out.verdict, null, "失败时不得给出 verdict（否则调用方会拿它去落地）");
   assert.equal(out.outcome, null);
@@ -214,7 +214,7 @@ test("discover：structured 缺席时**如实载明**失败（不把空结论当
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
   const out = await discover({ threshold: 3, candidates: [], window: { to: 1, items: [{ turn: 1, assistant: "这是一段足够长的材料内容原文。" }] } });
-  assert.deepEqual(out.failedTasks, ["idle-review"], "空结论须判为失败");
+  assert.deepEqual(out.failedTasks, ["friction-discovery"], "空结论须判为失败");
   // 关键：**不得**退化为 no-discovery——那会把「执行体什么都没交」写成一次正常观察。
   assert.equal(out.verdict, null);
   assert.notEqual(out.outcome, "no-discovery");

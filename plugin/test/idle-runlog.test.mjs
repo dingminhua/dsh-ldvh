@@ -28,7 +28,7 @@ test("记录一条：可回读且字段完整", async () => {
     const home = homeOf(dir);
     const w = await recordRun(home, {
       at: "2026-10-11T04:40:00.000Z",
-      task: "idle-review",
+      task: "friction-discovery",
       stage: "landed",
       action: "none",
       watermark: 33,
@@ -41,7 +41,7 @@ test("记录一条：可回读且字段完整", async () => {
     assert.equal(r.value.run.stage, "landed");
     assert.equal(r.value.run.action, "none");
     assert.equal(r.value.run.watermark, 33);
-    assert.equal(r.value.run.task, "idle-review");
+    assert.equal(r.value.run.task, "friction-discovery");
   });
 });
 
@@ -49,7 +49,7 @@ test("容量上界：超过 MAX_ENTRIES 即丢最旧（这是用户关切的直�
   await withTemp("ldvh-runlog-", async (dir) => {
     const home = homeOf(dir);
     for (let i = 0; i < MAX_ENTRIES + 20; i += 1) {
-      await recordRun(home, { task: "idle-review", stage: "landed", note: `run-${i}` });
+      await recordRun(home, { task: "friction-discovery", stage: "landed", note: `run-${i}` });
     }
     const r = await readRuns(home);
     assert.equal(r.value.total, MAX_ENTRIES, "文件条目数须有硬上界，不得随运行次数无限增长");
@@ -63,7 +63,7 @@ test("容量上界：文件字节数同样有界（不得只限条数而单条�
   await withTemp("ldvh-runlog-", async (dir) => {
     const home = homeOf(dir);
     for (let i = 0; i < MAX_ENTRIES + 10; i += 1) {
-      await recordRun(home, { task: "idle-review", stage: "landed", note: "x".repeat(5000) });
+      await recordRun(home, { task: "friction-discovery", stage: "landed", note: "x".repeat(5000) });
     }
     const raw = await readFile(carrierIn(dir), "utf8");
     // 单条 note 被截断到 300 字 + 省略号，故总量约 MAX_ENTRIES × 数百字节
@@ -74,8 +74,8 @@ test("容量上界：文件字节数同样有界（不得只限条数而单条�
 test("只追加不修改：既有条目在后续写入中原样保留", async () => {
   await withTemp("ldvh-runlog-", async (dir) => {
     const home = homeOf(dir);
-    await recordRun(home, { at: "2026-10-11T01:00:00.000Z", task: "idle-review", stage: "landed", action: "create" });
-    await recordRun(home, { at: "2026-10-11T02:00:00.000Z", task: "idle-review", stage: "not-implemented" });
+    await recordRun(home, { at: "2026-10-11T01:00:00.000Z", task: "friction-discovery", stage: "landed", action: "create" });
+    await recordRun(home, { at: "2026-10-11T02:00:00.000Z", task: "friction-discovery", stage: "not-implemented" });
     const r = await readRuns(home);
     assert.equal(r.value.runs[0].at, "2026-10-11T01:00:00.000Z");
     assert.equal(r.value.runs[0].action, "create", "既有条目不得被后续写入改写");
@@ -86,7 +86,7 @@ test("只追加不修改：既有条目在后续写入中原样保留", async ()
 test("at 缺省时自动补当前时刻（调用方不必自己造时间戳）", async () => {
   await withTemp("ldvh-runlog-", async (dir) => {
     const before = new Date().toISOString();
-    await recordRun(homeOf(dir), { task: "idle-review", stage: "landed" });
+    await recordRun(homeOf(dir), { task: "friction-discovery", stage: "landed" });
     const r = await readRuns(homeOf(dir), { latest: true });
     assert.ok(typeof r.value.run.at === "string" && r.value.run.at.length > 0);
     assert.ok(r.value.run.at >= before, "自动时间戳须为当前时刻或之后");
@@ -96,7 +96,7 @@ test("at 缺省时自动补当前时刻（调用方不必自己造时间戳）",
 test("limit 取最近 N 条；latest 只回最后一条", async () => {
   await withTemp("ldvh-runlog-", async (dir) => {
     const home = homeOf(dir);
-    for (let i = 0; i < 5; i += 1) await recordRun(home, { task: "idle-review", stage: "landed", note: `n${i}` });
+    for (let i = 0; i < 5; i += 1) await recordRun(home, { task: "friction-discovery", stage: "landed", note: `n${i}` });
     const three = await readRuns(home, { limit: 3 });
     assert.equal(three.value.runs.length, 3);
     assert.equal(three.value.total, 5, "total 须报真实总数，不因 limit 而截断");
@@ -142,7 +142,7 @@ test("损坏时写入也被拒（不得覆盖掉可能可救的载体）", async
     const path = carrierIn(dir);
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, "not json at all", "utf8");
-    const w = await recordRun(homeOf(dir), { task: "idle-review", stage: "landed" });
+    const w = await recordRun(homeOf(dir), { task: "friction-discovery", stage: "landed" });
     assert.ok(!w.ok);
   });
 });
@@ -151,7 +151,7 @@ test("并发写入不丢记录、不互相覆盖（与水位 D3 同类风险）"
   await withTemp("ldvh-runlog-", async (dir) => {
     const home = homeOf(dir);
     await Promise.all(
-      Array.from({ length: 12 }, (_, i) => recordRun(home, { task: "idle-review", stage: "landed", note: `c${i}` })),
+      Array.from({ length: 12 }, (_, i) => recordRun(home, { task: "friction-discovery", stage: "landed", note: `c${i}` })),
     );
     const r = await readRuns(home);
     assert.equal(r.value.total, 12, "并发写入的 12 条须全部留存——读-改-写未串行化时会被互相覆盖");
@@ -162,7 +162,7 @@ test("并发写入不丢记录、不互相覆盖（与水位 D3 同类风险）"
 
 test("长 note 被截断（单条不得无界膨胀）", async () => {
   await withTemp("ldvh-runlog-", async (dir) => {
-    await recordRun(homeOf(dir), { task: "idle-review", stage: "stopped", note: "y".repeat(1000) });
+    await recordRun(homeOf(dir), { task: "friction-discovery", stage: "stopped", note: "y".repeat(1000) });
     const r = await readRuns(homeOf(dir), { latest: true });
     assert.ok(r.value.run.note.length <= 301, `note 须被截断，实测 ${r.value.run.note.length}`);
   });
@@ -170,7 +170,7 @@ test("长 note 被截断（单条不得无界膨胀）", async () => {
 
 test("不写项目仓库：载体只在 DSH home 之下", async () => {
   await withTemp("ldvh-runlog-", async (dir) => {
-    await recordRun(homeOf(dir), { task: "idle-review", stage: "landed" });
+    await recordRun(homeOf(dir), { task: "friction-discovery", stage: "landed" });
     assert.deepEqual(RUNLOG_RELATIVE_PATH, ["ldvh", "idle-checkpoint-runs.json"]);
     const raw = await readFile(carrierIn(dir), "utf8");
     assert.ok(raw.includes("runs"), "载体须为环形文档");
@@ -182,7 +182,7 @@ test("stage 字段承载「落到哪一步」——这是本模块存在的理�
     const home = homeOf(dir);
     // 五种结局都能被区分——「跑了但没发现」与「根本没跑」不再无从分辩
     for (const stage of ["skipped", "not-implemented", "stopped", "landed", "land-failed"]) {
-      await recordRun(home, { task: "idle-review", stage });
+      await recordRun(home, { task: "friction-discovery", stage });
     }
     const r = await readRuns(home);
     assert.deepEqual(r.value.runs.map((x) => x.stage), ["skipped", "not-implemented", "stopped", "landed", "land-failed"]);

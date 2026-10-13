@@ -285,8 +285,8 @@ window.__ModuleLoader__.load({
       "row.mountHint": "保存后刷新页面生效；关闭 Web 呈现总开关时，两项投放均不生效。",
       "row.idleAssist": "闲时辅助",
       "row.idleAssistHint": "会话空闲时由宜主派发辅助任务（反思摩擦、容量维护、记忆健康）。关闭后不再派发任何辅助任务。",
-      "row.idleReview": "反思摩擦",
-      "row.idleReviewHint": "把实际工作流中反复出现的阻碍记入摩擦账本（已实现）。",
+      "row.frictionDiscovery": "反思摩擦",
+      "row.frictionDiscoveryHint": "把实际工作流中反复出现的阻碍记入摩擦账本（已实现）。",
       "row.experienceCapture": "积累经验",
       "row.experienceCaptureHint": "把已经解决并验证的失败机制做成经验候选，入档前需人工确认（已实现）。",
       "row.capacityMaintenance": "容量维护",
@@ -368,8 +368,8 @@ window.__ModuleLoader__.load({
       "row.mountHint": "Takes effect after saving and reloading the page; when the Web presentation switch is off, neither placement is active.",
       "row.idleAssist": "Idle assistance",
       "row.idleAssistHint": "Dispatches auxiliary tasks while the session is idle (friction review, capacity maintenance, memory health). Turning this off stops every auxiliary task.",
-      "row.idleReview": "Friction review",
-      "row.idleReviewHint": "Records recurring obstacles from the real workflow into the friction ledger (implemented).",
+      "row.frictionDiscovery": "Friction discovery",
+      "row.frictionDiscoveryHint": "Records recurring obstacles from the real workflow into the friction ledger (implemented).",
       "row.experienceCapture": "Experience capture",
       "row.experienceCaptureHint": "Turns already-resolved and verified failure mechanisms into experience candidates; filing requires human confirmation (implemented).",
       "row.capacityMaintenance": "Capacity maintenance",
@@ -668,7 +668,7 @@ window.__ModuleLoader__.load({
       // 闲时辅助（形态参照 dsh-mnemon 的 idleReview 设置面：总开关 + 启用后才展开子项）。
       // 数值参数在客户端用**字符串**存放，使空串与非法输入可被辨认（数字类型无法表达「用户把它删空了」）。
       var idleAssistState = React.useState(value.idleAssistEnabled !== false);
-      var idleReviewState = React.useState(value.idleReviewEnabled !== false);
+      var frictionDiscoveryState = React.useState(value.frictionDiscoveryEnabled !== false || value.idleReviewEnabled === true);
       var idleCaptureState = React.useState(value.experienceCaptureEnabled === true);
       var idleCapacityState = React.useState(value.capacityMaintenanceEnabled === true);
       var idleMemoryState = React.useState(value.memoryHealthEnabled === true);
@@ -738,7 +738,7 @@ window.__ModuleLoader__.load({
         convTabState[1](next.showInConversationTab !== false);
         sidebarTabState[1](next.showInSidebarTab !== false);
         idleAssistState[1](next.idleAssistEnabled !== false);
-        idleReviewState[1](next.idleReviewEnabled !== false);
+        frictionDiscoveryState[1](next.frictionDiscoveryEnabled !== false || next.idleReviewEnabled === true);
         idleCaptureState[1](next.experienceCaptureEnabled === true);
         idleCapacityState[1](next.capacityMaintenanceEnabled === true);
         idleMemoryState[1](next.memoryHealthEnabled === true);
@@ -925,7 +925,7 @@ window.__ModuleLoader__.load({
               { op: "set", path: ["showInConversationTab"], value: !!convTabState[0] },
               { op: "set", path: ["showInSidebarTab"], value: !!sidebarTabState[0] },
               { op: "set", path: ["idleAssistEnabled"], value: !!idleAssistState[0] },
-              { op: "set", path: ["idleReviewEnabled"], value: !!idleReviewState[0] },
+              { op: "set", path: ["frictionDiscoveryEnabled"], value: !!frictionDiscoveryState[0] },
               { op: "set", path: ["experienceCaptureEnabled"], value: !!idleCaptureState[0] },
               { op: "set", path: ["capacityMaintenanceEnabled"], value: !!idleCapacityState[0] },
               { op: "set", path: ["memoryHealthEnabled"], value: !!idleMemoryState[0] }
@@ -1130,7 +1130,7 @@ window.__ModuleLoader__.load({
           idleAssistState[0] ? React.createElement("div", { className: "ldv-web-panel-body" },
             React.createElement("div", { className: "ldv-idle-tasks" },
               [
-                { key: "idleReviewEnabled", state: idleReviewState, label: "row.idleReview", hint: "row.idleReviewHint", implemented: true },
+                { key: "frictionDiscoveryEnabled", state: frictionDiscoveryState, label: "row.frictionDiscovery", hint: "row.frictionDiscoveryHint", implemented: true },
                 { key: "experienceCaptureEnabled", state: idleCaptureState, label: "row.experienceCapture", hint: "row.experienceCaptureHint", implemented: true },
                 { key: "capacityMaintenanceEnabled", state: idleCapacityState, label: "row.capacityMaintenance", hint: "row.capacityMaintenanceHint", implemented: false },
                 { key: "memoryHealthEnabled", state: idleMemoryState, label: "row.memoryHealth", hint: "row.memoryHealthHint", implemented: false }
