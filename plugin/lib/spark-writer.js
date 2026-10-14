@@ -806,7 +806,7 @@ export async function readSparkObject(args) {
 // 2026-09-27 更正（据 Human 决定 D-7 复核本段）：
 //  原先写作「Human-ratified deferral…the safe order is SOURCE-FIRST」，两处失准——
 //   ① 「deferral（延期）」不准确：被延期的**不是规则**。20 §9.4 已由 Human 决定
-//      D-7（2026-09-12，见 docs/audit/human-decisions-2026-09-12-segment.md）
+//      D-7（2026-09-12，Human 决定分段落，原存于临时文档目录，已随该目录移除，ec19ba6）
 //      定义**三情形**次序：既存目标 SOURCE-FIRST、新建目标 CREATE-FIRST、混合
 //      目标先建后结。规则齐备，缺的是**实现**。
 //   ② 「the safe order is SOURCE-FIRST」把三情形之一说成了唯一次序。

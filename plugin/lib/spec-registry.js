@@ -9,8 +9,9 @@
 // ambiguous heading paths are rejected — never silently repaired.
 // Algorithmic lineage: the heading-path uniqueness rule and the L0–L2
 // projection shapes are adapted from v4
-// code/ldvh/specs/{identity,markdown,projection}.py; see
-// docs/p0-implementation-plan.md §2 for the minimal absorption record.
+// code/ldvh/specs/{identity,markdown,projection}.py; see the P0 implementation
+// plan §2 for the minimal absorption record (that plan was removed with the
+// temporary documentation tree in ec19ba6).
 
 import { createHash } from "node:crypto";
 import { parse as parseYaml } from "yaml";

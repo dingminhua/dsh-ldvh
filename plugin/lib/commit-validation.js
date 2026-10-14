@@ -7,7 +7,8 @@
 // precheck-git-commit tool both consume it; no second implementation is
 // permitted.
 //
-// v4 absorption record (docs/p0-implementation-plan.md §2): the body-structure
+// v4 absorption record (P0 implementation plan §2; that plan was removed with
+// the temporary documentation tree in ec19ba6): the body-structure
 // and trailer checks are extracted-and-adapted from v4
 // code/ldvh/commits/validation.py `_body_structure_issues` /
 // `_footer_trailers` (~120 lines of its 1049); v4's platform-affected,

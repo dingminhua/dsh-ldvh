@@ -16,7 +16,8 @@
 //     ldvh_* tools layer inside the DSH host process. The sessionPersistence
 //     service resolves the log via ctx.get("sessionPersistence")
 //     .locate(agent.session.header) — verified against DSH source, see
-//     docs/p0-implementation-plan.md §0.
+//     the P0 implementation plan §0 (that plan was removed with the temporary
+//     documentation tree in ec19ba6).
 //
 //   - Shell path `currentRouteValuesFromShellEnvironment()` /
 //     `shellAuthoritativeSignature()`: used by scripts spawned from DSH

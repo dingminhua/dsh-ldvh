@@ -45,7 +45,7 @@ const GATE_RUNNER_PATH = fileURLToPath(new URL("./git-gate-runner.js", import.me
 const WEB_DIST_DIR = join(PACKAGE_ROOT, "web", "dist");
 const WEB_API_PORT = Number(process.env.LDVH_WEB_API_PORT ?? 3299);
 /**
- * ⚠️ 临时桥接（docs/README-MIGRATION.md 同款声明）：Web 的 Express API 事实
+ * ⚠️ 临时桥接（原迁移声明同款，该声明已随临时文档目录移除，ec19ba6）：Web 的 Express API 事实
  * 读取依赖 v4 归档的 Python Helper 与 v4 工作区配置。DSH Helper 集成落地后
  * 这里改指 v5 登记载体。与 plugin/web/restart.sh 保持同一数据源。
  */
@@ -73,7 +73,7 @@ function webApiBridgeEnv(dshHomePath) {
 export const name = "dsh-ldvh";
 // 不再声明 "settings"：0.1.7 起设置值由本插件自己的 Cordis Config 承载，
 // 宿主把 Config 的 volatile 字段投影成表单；插件不再注册 settings 命名空间，
-// 也不再消费 ctx.settings 服务（依据：docs/dsh-0.1.5-rc2-to-0.1.7-rc1-research.md §3.2）。
+// 也不再消费 ctx.settings 服务（依据：0.1.5-rc2→0.1.7-rc1 升级调研 §3.2；原存于临时文档目录，已移除，ec19ba6）。
 export const inject = ["tools", "systemPrompt"];
 
 /**
