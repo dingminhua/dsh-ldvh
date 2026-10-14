@@ -347,11 +347,30 @@ async function executeWriteObject(args, exec, deps) {
 }
 
 /**
+ * 27 §11 item 1 的拒绝携带**结构化**载荷（`{direction_key, conflicts}`）。05 §8 的
+ * envelope 里 `gaps` 是字符串列表，故占用者必须被**渲染**出来，而不能随对象一起
+ * 落空——旧写法 `...(Array.isArray(details) ? details : [])` 对对象型 details 恒为
+ * 假，调用方只拿到一个错误码，不知道方向键被谁占着（friction cccb379f）。
+ *
+ * 导出是为了让测试把**写入器的真实错误载荷**喂进来：这样「载荷带 title/status」
+ * 与「工具层把它渲染给调用方」两半被同一条测试锁住，不会各自漂移。
+ */
+export function renderDirectionConflictGaps(details) {
+  const conflicts = Array.isArray(details?.conflicts) ? details.conflicts : [];
+  if (conflicts.length === 0) return [];
+  const key = typeof details.direction_key === "string" ? details.direction_key : "(未提供)";
+  return [
+    `direction_key "${key}" 已被 ${conflicts.length} 条现行 Norm 占用（27 §11：同方向键至多一条 active）——走该对象的受控更新路径，或先废止再新建`,
+    ...conflicts.map((entry) => `占用者：${entry?.title ?? "(无标题)"}｜object_uid=${entry?.object_uid ?? "(未知)"}｜status=${entry?.status ?? "active"}｜文件=${entry?.file ?? "(未知)"}`)
+  ];
+}
+
+/**
  * Map a writer failure onto the 05 §8 envelope. The uniqueness refusal has its
  * own spec-mandated code (27 §11 item 1) and is a REJECTION of the request, not
  * an unavailable capability — the tool works, the direction is already taken.
  */
-function writeRejected(operationKey, result, factSourceRoot, action) {
+export function writeRejected(operationKey, result, factSourceRoot, action) {
   const code = result.error.code;
   const isRejection = code === ERR_DIRECTION_ALREADY_EXISTS
     || code.startsWith("norm/frontmatter")
@@ -374,7 +393,11 @@ function writeRejected(operationKey, result, factSourceRoot, action) {
     result: null,
     scope: { requested: action, completed: [], not_completed: [action] },
     sources: [{ kind: "fact-object", path: join(factSourceRoot, "norms") }],
-    gaps: [`${code}: ${result.error.message}`, ...(Array.isArray(details) ? details : [])],
+    gaps: [
+      `${code}: ${result.error.message}`,
+      ...(Array.isArray(details) ? details : []),
+      ...renderDirectionConflictGaps(result.error.details)
+    ],
     verification: { checks: ["mechanical-checks"], passed: false },
     follow_up: code === ERR_DIRECTION_ALREADY_EXISTS
       ? ["the direction is already carried by another active Norm — take the controlled-update path on that object, or retire it and create a new one (27 §11)"]

@@ -4,6 +4,9 @@
 // the schema↔writer field agreement that a prior defect (aa12604) showed can
 // drift silently:
 //   - layer 1 (pre-write refusal, ERR_DIRECTION_ALREADY_EXISTS)
+//   - the refusal must let the caller IDENTIFY the occupant, and the tool layer
+//     must render it into `gaps` (friction cccb379f: object-shaped details used
+//     to fall through `Array.isArray` and vanish, leaving a bare code)
 //   - layer 3 (consumption fail-closed on direction_collision)
 //   - active→active errata lane with direction_key held fixed
 //   - active→retired terminal transition + read-only afterwards
@@ -25,7 +28,7 @@ import {
 	ERR_DIRECTION_ALREADY_EXISTS,
 	NORM_DIRECTORY,
 } from "../lib/norm-writer.js";
-import { OPERATIONS, toolDescriptorFor } from "../lib/norm-tools.js";
+import { OPERATIONS, toolDescriptorFor, writeRejected } from "../lib/norm-tools.js";
 import { ID_PATTERN } from "../lib/spec-registry.js";
 import { withTemp, testSignature } from "./helpers.mjs";
 
@@ -185,6 +188,33 @@ test("create: layer 1 refuses a second ACTIVE Norm on the same direction_key", a
 		const second = await createNormObject(createArgs(root, { draft: { title: "重复方向" } }));
 		assert.equal(second.ok, false);
 		assert.equal(second.error.code, ERR_DIRECTION_ALREADY_EXISTS);
+	});
+});
+
+test("create: the refusal names the occupant and the tool layer renders it (friction cccb379f)", async () => {
+	await withTemp("ldvh-norm.", async (base) => {
+		const root = await factRoot(base);
+		const first = await createNormObject(createArgs(root));
+		assert.equal(first.ok, true);
+		const second = await createNormObject(createArgs(root, { draft: { title: "重复方向" } }));
+		assert.equal(second.ok, false);
+		assert.equal(second.error.code, ERR_DIRECTION_ALREADY_EXISTS);
+
+		// 写入器一侧：载荷须让占用者可被识别（title/status），而不只是一个 uid。
+		const conflicts = second.error.details?.conflicts;
+		assert.ok(Array.isArray(conflicts) && conflicts.length === 1, "载荷必须携带占用者");
+		assert.equal(conflicts[0].title, "代码风格");
+		assert.equal(conflicts[0].status, "active");
+		assert.equal(conflicts[0].object_uid, first.value.object_uid);
+
+		// 工具层一侧：把**上面这个真实载荷**喂进映射器，两半由同一条测试锁住。
+		const rejected = writeRejected("norm-write-object", second, root, "create");
+		assert.equal(rejected.outcome, "rejected");
+		assert.ok(rejected.gaps.some((gap) => gap.includes("代码风格")), "占用者标题必须抵达调用方");
+		assert.ok(rejected.gaps.some((gap) => gap.includes(first.value.object_uid)), "占用者 object_uid 必须抵达调用方");
+		assert.ok(rejected.gaps.some((gap) => gap.includes("code-style")), "方向键必须出现在拒绝信息里");
+		// 回归：对象型 details 不再被 Array.isArray 判否而整体落空。
+		assert.ok(rejected.gaps.length >= 3, "除错误码外至少还要有占用者行");
 	});
 });
 

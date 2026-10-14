@@ -300,7 +300,12 @@ export async function listActiveDirectionKeys(factSourceRoot) {
       active.push({
         file: entry.name,
         object_uid: parsed.frontmatter.object_uid ?? null,
-        direction_key: parsed.frontmatter.direction_key
+        direction_key: parsed.frontmatter.direction_key,
+        // title/status are what make the occupant IDENTIFIABLE to the caller of a
+        // refusal (friction cccb379f): a bare {file, object_uid, direction_key}
+        // left the AI/Human unable to tell which Norm already owns the direction.
+        title: typeof parsed.frontmatter.title === "string" ? parsed.frontmatter.title : null,
+        status: parsed.frontmatter.status
       });
     }
   }
