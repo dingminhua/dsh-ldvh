@@ -1,9 +1,13 @@
 ---
 title: direction 冲突拒绝零信息量
-status: observing
+status: resolved
 phenomenon: 事实规范创建被 ERR_DIRECTION_ALREADY_EXISTS 拒绝后，错误不携带「哪个 direction_key 已被谁占用」，AI 在同一会话内反复重建同一 direction_key 并再次被拒。
 attribution: 规范写工具的错误通道设计：27 §6.2 把去重定为 AI 对 direction_key/title 的语义比较、机制只检查 direction_key 是否已存在，该分工合理但代价未被承接——ERR_DIRECTION_ALREADY_EXISTS 只报告冲突事实，不回传占用方身份（object_uid/title/status），也不给出应改用什么；AI 因此在拒绝中得不到任何新信息，只能原样重试
 impact: medium
+relations:
+  - relation_key: informs
+    target:
+      commit: 14223fcc61c38eca2f8e5b2170816b97ce3d5d57
 object_uid: cccb379f-1514-4e6f-9a9d-361309bd2b4a
 fact_type_key: friction
 created_at: 2026-10-09T14:48:42.804Z
@@ -24,6 +28,10 @@ change_log:
     provider: ds-yue
     model: deepseek-v4-flash
     summary: 放回留观（Human 2026-10-11：观察次数<3 的摩擦移入留观；本条 count=1 未达阈值，写入 human_return_at 防机械通道回翻，26 §9.2），并修复重复 H1
+  - at: 2026-10-14T03:25:55.147Z
+    provider: ds41
+    model: deepseek-v4.1-flash
+    summary: 销账（Human 2026-10-14 授权）：拒绝通道补占用者身份（title/status）并由工具层渲染进 gaps（14223fc），旧写法的整体落空已由「以真实载荷断言两半」的测试锁死；判据扩扫确认非 issues 载荷全仓仅此一处
 occurrence:
   count: 1
   first_at: 2026-10-09T14:48:42.804Z
@@ -60,3 +68,15 @@ occurrence:
 **未指定解药（如实登记）**：解药属工具侧改动（错误通道增加占用方上下文），也可能需要在 27 号规范中补一句「AI 在被 ERR_DIRECTION_ALREADY_EXISTS 拒绝后应先读占用对象而非重试」的流程约定。两者孰先属 Human 决定项，本条不自行选定，故 status 保持 open、relations 不出现。
 
 **与既有账目的关系**：无同题摩擦。与本轮同期发现的「execute payload 静默丢字段」同属「机械通道未把决策所需信息传给调用方」一族，但机理不同（一个是拒绝时信息不足，一个是接受时信息丢失），故分列两账，不合并。
+
+## 处置
+解药为提交 `14223fcc61c38eca2f8e5b2170816b97ce3d5d57`（写入器载荷补占用者 title/status；工具层新增 `renderDirectionConflictGaps` 并把对象型 details 渲染进 `gaps`），依 02 §8.1 commit 形态进入 `informs`。
+
+核验（2026-10-14，第 1 批）：
+
+- **旧行为实测**：以一次注定被拒的 create 调用（body 缺必需 H2 节）探测错误通道，旧写法 `...(Array.isArray(details) ? details : [])` 对对象型 details 恒为假——拒绝里只有错误码与泛化描述，占用方身份整体落空。这正是本账所指的「零信息量」。
+- **新行为**：`plugin/test/norm-writer.test.mjs` 新增测试把**写入器的真实冲突载荷**喂进工具层的映射器，同时断言两半——写入器侧 `details.conflicts[0]` 带 title／status／object_uid，工具层侧 `gaps` 出现占用者标题与 uid。两半由同一条测试锁住，避免规则漂移成两份（该教训在 09 §5 的测试基线里）。
+- **判据扩扫（非点名清单）**：以「写入器随错误携带非 `issues` 的结构化载荷」为判据，扫全部 `plugin/lib/*-writer.js` 的 `failure(code, message, {...})` 第三参数，命中仅 norm 的方向键冲突一处——本形态只有这一个产地，无同类未修点。
+- 全量测试 1448/1448 通过；判据面 eslint 0 错。
+
+**据实声明**：解药只覆盖了本账「入账依据」末段列出的两个可能方向中的**工具侧**那一个；另一个方向（在 27 号规范中补「被拒后应先读占用对象而非重试」的流程约定）**未被吸收**。本条按现象（拒绝不携带占用方身份）已消除而销账，不主张该流程约定已落地。
