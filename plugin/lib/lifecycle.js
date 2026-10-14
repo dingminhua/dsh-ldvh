@@ -529,6 +529,17 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           const failedTasks = checkpoint?.ok === true
             ? (checkpoint.value?.decision?.failedTasks ?? [])
             : [];
+
+          // **逐任务结局表**（36 §11 留痕前提「其二」——F-2 子项 3）：整轮粒度的
+          // `action`/`watermark` 单字段无法回答「本次**哪个任务**推进到哪」，而
+          // 「连续停滞轮次由读取侧推断」正以此为前提（d0b5bee 登记的缺口在此闭合）。
+          // 初值把**校验失败**的任务直接标 `rejected`：它们在逐任务落地闸门放开
+          // （F-1）后不会走到任何分支，若不预置就会在 per_task 里**缺席**——缺席与
+          // 「没跑」无从区分，恰是本表要消灭的形态。
+          const taskOutcomes = {};
+          for (const key of tasksForThisCheckpoint) {
+            if (failedTasks.includes(key)) taskOutcomes[key] = { outcome: "rejected" };
+          }
           if (failedTasks.length > 0) {
             for (const key of failedTasks) {
               const why = checkpoint.value?.decision?.taskResults?.[key]?.error;
@@ -544,8 +555,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               // 同时报告已成功者：使 Human 能看出「这次几件成了、几件没成」。
               succeeded: tasksForThisCheckpoint.filter((k) => !failedTasks.includes(k)),
             });
-            // 失败即不落地、不推进水位（provider 已据此不给出 watermarkTurn）。
-            // 落到下面的运行痕迹写入，使「有任务失败」在痕迹里可见。
+            // **失败者**不落地、不推进（成功者由下方逐任务分支照常处理——F-1 的
+            // 按任务分别）。失败已在上方逐条入队，痕迹的 per_task 由 ① 的预置标
+            // rejected。落到下面的运行痕迹写入，使「几件成、几件败」都可见。
           }
           // **准入条件是「有任务取得了结论」，且**按任务分别**判断。
           //
@@ -583,6 +595,10 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               });
               lifecycle.activity?.record("session/checkpoint/landed", { action: "no-signature" });
               landedAction = "no-signature";
+              // 缺签名对**全部待落地任务**同样生效（它发生在逐任务分支之前），故逐一体标。
+              for (const key of tasksForThisCheckpoint) {
+                if (taskOutcomes[key] === undefined) taskOutcomes[key] = { outcome: "no-signature" };
+              }
             } else {
               // 签名已取得：**逐任务落地**。每个任务的结论由它自己的落地函数处理
               // ——不得只落地摩擦而把其它任务的结论留在 `decision` 里（那正是
@@ -612,6 +628,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   // 且永不复查（宿主只发布事件、不回放）。
                   lifecycle.activity?.record("session/checkpoint/landed", { action: "failed", watermark_advanced: false });
                   landedAction = "failed";
+                  taskOutcomes["friction-discovery"] = { outcome: "land-failed" };
                 } else {
                   lifecycle.activity?.record("session/checkpoint/landed", {
                     action: landed.value.action,
@@ -621,6 +638,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   landedAction = landed.value.action;
                   landedUid = landed.value.object_uid;
                   landedPromoted = landed.value.promoted;
+                  taskOutcomes["friction-discovery"] = {
+                    outcome: "landed", action: landed.value.action, object_uid: landed.value.object_uid,
+                  };
                   // 复核发现②③：本次区间里本进程未观察到的轮次须**如实登记**，
                   // 不得静默丢弃。缺口不可恢复（宿主不回放、本模块不读会话日志），
                   // 故处置是「登记 + 越过」，而不是拒不推进（那会永久停摆）。
@@ -661,9 +681,14 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                         at: new Date().toISOString(),
                       });
                       lifecycle.activity?.record("session/checkpoint/watermark", { advanced: false, code: advanced.error.code, turn: pendingTurn });
+                      if (taskOutcomes["friction-discovery"]) taskOutcomes["friction-discovery"].watermark_advanced = false;
                     } else {
                       lifecycle.activity?.record("session/checkpoint/watermark", { advanced: true, turn: pendingTurn });
                       advancedTurn = pendingTurn;
+                      if (taskOutcomes["friction-discovery"]) {
+                        taskOutcomes["friction-discovery"].watermark_advanced = true;
+                        taskOutcomes["friction-discovery"].watermark_turn = pendingTurn;
+                      }
                     }
                   }
                 }
@@ -694,17 +719,28 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                     action: "failed",
                     watermark_advanced: false,
                   });
-                  landedAction = "failed";
+                  landedAction ??= "failed";
+                  taskOutcomes["experience-capture"] = { outcome: "land-failed" };
                 } else {
                   lifecycle.activity?.record("session/checkpoint/landed", {
                     task: "experience-capture",
                     action: captured.value.action,
                     object_uid: captured.value.object_uid,
                   });
-                  // 运行痕迹取摩擦的动作（若两件都跑，摩擦是主项）；只在摩擦未
+                  // 整轮字段取摩擦的动作（若两件都跑，摩擦是主项）；只在摩擦未
                   // 产出动作时用经验积累的动作填充，使「本次做了什么」仍可见。
+                  //
+                  // **F-5 修复（`??=` 遮蔽）**：原写法在「摩擦也跑出动作」时把
+                  // 经验的 `duplicate-registered` **整个抹掉**——`create` 与
+                  // `duplicate-registered` 是不同的处置，被抹掉后持久痕迹只剩
+                  // 摩擦的 `create`，查重命中这件事在落盘面上**不可区分**。
+                  // 整轮字段仍只有一份（兼容既有 reader），但**真相进 per_task**：
+                  // 逐任务结局表把经验的动作一体一记，不再靠遮蔽竞争。
                   landedAction ??= captured.value.action;
                   landedUid ??= captured.value.object_uid;
+                  taskOutcomes["experience-capture"] = {
+                    outcome: "landed", action: captured.value.action, object_uid: captured.value.object_uid,
+                  };
                   // **推进经验积累自己的水位**（逐任务水位的意义所在）：它与摩擦
                   // 互不牵连——摩擦失败不会使经验积累被重覆盖，反之亦然。
                   const pendingTurn = checkpoint.value?.pending_watermark_turn;
@@ -725,10 +761,15 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                       lifecycle.activity?.record("session/checkpoint/watermark", {
                         task: "experience-capture", advanced: false, code: advanced.error.code, turn: pendingTurn,
                       });
+                      if (taskOutcomes["experience-capture"]) taskOutcomes["experience-capture"].watermark_advanced = false;
                     } else {
                       lifecycle.activity?.record("session/checkpoint/watermark", {
                         task: "experience-capture", advanced: true, turn: pendingTurn,
                       });
+                      if (taskOutcomes["experience-capture"]) {
+                        taskOutcomes["experience-capture"].watermark_advanced = true;
+                        taskOutcomes["experience-capture"].watermark_turn = pendingTurn;
+                      }
                     }
                   }
                 }
@@ -761,20 +802,32 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               unimplemented: checkpoint?.ok === true
                 ? [...(checkpoint.value?.unimplemented ?? [])]
                 : [],
-              stage:
-                checkpoint?.ok !== true
-                  ? "stopped"
-                  : failedTasks.length > 0
-                    ? "land-failed"
-                    : verdict != null
-                      ? (landedAction === "failed" ? "land-failed" : "landed")
-                    : (checkpoint.value?.outcome === "not-implemented" ? "not-implemented" : "skipped"),
+              // **stage 由逐任务结局派生**（子项 3 的统一口径）：
+              //   全部落地成功 → `landed`；无一落地（全被拒/落地失败/缺签名）→
+              //   `land-failed`（保持既有 reader 的语义）；有成有败 → `partial`
+              //   （**新值**——F-1 后「一件成功一件失败」不能再记成 `land-failed`，
+              //   那会把「成功者已落地」与「整块没落地」混同；两者在 per_task 里
+              //   本有逐体真相，stage 取「有未成功项」与旧语义之间的诚实中间态）。
+              stage: (() => {
+                if (checkpoint?.ok !== true) return "stopped";
+                const outcomes = Object.values(taskOutcomes);
+                if (outcomes.length === 0) {
+                  return checkpoint.value?.outcome === "not-implemented" ? "not-implemented" : "skipped";
+                }
+                const landedN = outcomes.filter((o) => o.outcome === "landed").length;
+                if (landedN === outcomes.length) return "landed";
+                if (landedN === 0) return "land-failed";
+                return "partial";
+              })(),
               code: checkpoint?.ok === false ? (checkpoint.error?.code ?? "unknown") : undefined,
               action: landedAction,
               object_uid: landedUid,
               promoted: landedPromoted,
               watermark: advancedTurn,
               gap: gapRegistered,
+              // **逐任务结局**（§11 留痕前提其二）：每任务各自的动作/对象/水位推进；
+              // 校验失败者预置 `rejected`。读取侧据此推断连续停滞轮次，无需新计数器。
+              per_task: taskOutcomes,
             });
           } catch (error) {
             lifecycle.activity?.record("session/checkpoint/runlog-failed", {

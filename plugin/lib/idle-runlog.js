@@ -128,7 +128,14 @@ async function readAll(dshHomePath) {
  *     （`admitted`）与挡下（`throttled`）**都记**——某约束若在默认取值下恒不触发，
  *     只记「被挡下」会使它与「根本没实现」不可区分，而 04 §8.4「派发准入」段
  *     要求三类约束「各自可被独立观察」。
- *   - `action`（可选）：落地动作（`create`/`supplement`/`none`）；
+ *   - `action`（可选）：整轮**代表**动作（`create`/`supplement`/`none`）；部分失败
+ *     而成功者已落地时整轮 `stage` 为 `partial`，单一 `action` 只是主项动作——
+ *     **真相在 `per_task`**；
+ *   - `per_task`（可选，F-2 子项 3）：逐任务结局映射
+ *     `{任务键: {outcome: landed|rejected|land-failed|no-signature, action?,
+ *     object_uid?, watermark_advanced?, watermark_turn?}}`——36 §11 留痕前提
+ *     「其二」的载体：连续停滞轮次由读取侧比对历次**逐任务**停点得出，不新建
+ *     计数器（§11「读出来而非记出来」）；
  *   - `object_uid`（可选）：涉及账目；
  *   - `promoted`（可选）：是否发生阈值流转；
  *   - `watermark`（可选）：推进到的轮次（未推进则 absent）；

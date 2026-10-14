@@ -269,8 +269,10 @@ test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自
   const read = await readRuns(dshHomePath);
   assert.ok(read.ok, "运行痕迹须可读");
   const runs = read.value.runs;
-  const failed = runs.filter((r) => r.stage === "land-failed");
-  const landed = runs.filter((r) => r.stage === "landed");
+  // 子项 3 后部分失败的整轮 stage 是 `partial`（有成有败），`land-failed` 专指
+  // **无一落地**——两者不得混同，故本测试认 `partial`。
+  const failed = runs.filter((r) => r.stage === "partial" || r.stage === "land-failed");
+  const landed = runs.filter((r) => r.stage === "landed" || r.stage === "partial");
 
   // ── 判据一：场景**确实可达**（防「测试空过」）────────────────────────────
   //
@@ -288,7 +290,7 @@ test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自
   );
   assert.ok(
     failed.length > 0,
-    `本次须真的出现「任务失败」（否则本条什么都没验证）：痕迹见 ${JSON.stringify(runs.map((r) => r.stage))}`,
+    `本次须真的出现「任务失败」（否则本条什么都没验证）：痕迹见 ${JSON.stringify(runs.map((r) => [r.stage, r.per_task]))}`,
   );
   // 判据以**水位**为准而非 runlog：runlog 在整轮末尾写一条（`landed` 或
   // `land-failed`），它反映的是「整轮结局」，不足以判断**单个任务**是否落地。
@@ -306,6 +308,19 @@ test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自
       })()
     }`,
   );
+
+  // ── 判据一·二：**逐任务留痕**（子项 3；§11 留痕前提「其二」的闭合判据）────
+  const lastRun = runs[runs.length - 1];
+  assert.ok(
+    lastRun.per_task && typeof lastRun.per_task === "object",
+    "痕迹须含 `per_task` 逐任务结局（整轮单一 action/watermark 不足以推断连续停滞轮次）",
+  );
+  const fd = lastRun.per_task["friction-discovery"];
+  const ec = lastRun.per_task["experience-capture"];
+  assert.ok(fd && fd.outcome === "landed", `成功者须在 per_task 里记为 landed，实为 ${JSON.stringify(fd)}`);
+  assert.equal(fd.watermark_advanced, true, "成功者的水位推进须逐体可见");
+  assert.ok(ec && ec.outcome === "rejected", `校验失败者须在 per_task 里记为 rejected（缺席与「没跑」不可区分），实为 ${JSON.stringify(ec)}`);
+  assert.equal(ec.watermark_advanced, undefined, "失败者不得有水位推进记录");
 
   // ── 判据二：水位按任务分别——**成功者推进、失败者不动** ────────────────────
   const { readWatermark } = await import("../lib/friction-watermark.js");
