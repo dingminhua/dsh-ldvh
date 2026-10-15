@@ -100,6 +100,18 @@ function formatHumanObjectReference(type: string, title: string, locale: string)
   return `${getTypeLabel(type, locale)}《${title}》`;
 }
 
+// 五个「面向 AI 对话的模块摘要」构造器：**当前无渲染调用方**，但按契约测试保留。
+//
+// 来历：9cec955（2026-09-09「去掉非事实对象的复制按钮」）移除了它们的全部调用方
+// （模块区头的复制入口），定义随之成为孤儿；tests/api/cognition-inbox-contract.test.ts
+// 的「all five AI module summaries use human-readable type and title without machine
+// locators」逐名断言这五个函数**必须存在且各自可独立检视**，并钉住其语义
+// （用 `类型《当前 Title》`、不得暴露 projectId 等机器定位符）。
+//
+// 故此处不删除：删除会使该契约测试失败，且那是一次产品语义的取舍（要不要恢复
+// 摘要出口），超出「清 lint」的范围。豁免只覆盖这一段，不掩盖该区域将来新增的
+// 未使用变量——它由下一行的 eslint-enable 收口。
+/* eslint-disable @typescript-eslint/no-unused-vars -- 见上方说明：契约测试逐名钉住的 AI 对话摘要构造器 */
 /** 面向 AI 对话的模块摘要：模块名、关键计数与类型《当前标题》（不含机器身份与未精确读取的路径）。 */
 function buildModuleSummary(data: CognitionData, locale: string, t: Translate): string {
   const lines: string[] = [];
@@ -180,6 +192,7 @@ function buildRecentHotspotSummary(data: CognitionData, locale: string, t: Trans
   }
   return lines.join('\n');
 }
+/* eslint-enable @typescript-eslint/no-unused-vars -- 五个 AI 对话摘要构造器到此为止 */
 
 /** 读取问题与未解析结构在消费位置就地显示（02 §5.4）。 */
 type CognitionCardItem = CognitionInboxItem | CognitionActiveWorkCaseItem;

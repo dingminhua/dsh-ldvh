@@ -746,7 +746,7 @@ function projectCurrentWorkCaseCardShape(
 export function projectCurrentWorkCaseCard(
   fact: Record<string, unknown>,
   sourceContentFingerprint: string | null,
-  uidTargets?: FactUidTargetIndex,
+  _uidTargets?: FactUidTargetIndex,
 ): Record<string, unknown> {
   const view = deriveWorkCaseV5View(
     fact.status,

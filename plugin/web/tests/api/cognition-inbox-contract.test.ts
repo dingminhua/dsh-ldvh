@@ -558,14 +558,23 @@ test('recent activity environment usage merges Codex Desktop and Codex into one 
     type: 'spark' as const, title: 'Codex platform', activity: 'updated' as const,
     status: 'open', read_status: 'readable', field_issues: [], unparsed_structures: [],
   }
+  // `agentRuntimeName` 是已退役字段（shared/signature.ts：agent_runtime_name retired
+  // per workcase-01M08D6XAKF3FSTMETTGKEK7T7）。此处**故意**保留它，正是要证明读取层
+  // 对它视而不见——归一只认 provider/productName，故下面两条合起来仍只算 Codex 一次。
+  // 声明为 `Record<string, unknown>` 而非内联字面量：要喂的是「存量载体可能带的旧键」，
+  // 不是「本类型的合法字段」。内联字面量会触发 excess-property 检查；若只留退役键又会
+  // 因弱类型「无公共属性」被拒——`Record` 声明如实表达「这是来源不可控的存量键值」。
+  const legacyCodexDesktopSignature: Record<string, unknown> = { productName: 'codex-desktop', agentRuntimeName: 'codex' };
+  const legacyCodexSignature: Record<string, unknown> = { agentRuntimeName: 'codex' };
   const view = buildRecentActivityView([
     {
       ...common, object_id: 'spark-codex-desktop', occurred_at: '2026-08-01T00:00:00Z',
-      signature: { productName: 'codex-desktop', agentRuntimeName: 'codex' } as any,
+      signature: legacyCodexDesktopSignature,
     },
     {
       ...common, object_id: 'spark-codex', occurred_at: '2026-08-01T01:00:00Z',
-      signature: { agentRuntimeName: 'codex' } as any,
+      // 只有退役字段时归一为空，该条不贡献任何环境统计。
+      signature: legacyCodexSignature,
     },
   ])
   assert.deepEqual(view.environmentUsage, [{ value: 'Codex', count: 1 }])

@@ -414,8 +414,6 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
     }
     if (/^(achieved_scope|已证实范围)\s*[:：]/.test(item)) { mode = null; continue }
 
-    const isTopLevel = indent <= modeIndent
-
     // ── `- advice:` 段内（存量分离式）──
     if (mode === 'advice') {
       // 同级或更浅的 bullet 结束本段——与 `residual` 段同一收束规则（见下方

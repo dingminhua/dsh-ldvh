@@ -6,14 +6,13 @@ import CommitPushStatusBadge from '@/components/CommitPushStatusBadge';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import { fetchChangelog, type ChangelogEntry } from '@/utils/api';
-import { getCommitScopeLabel, getCommitTypeLabel } from '@/utils/commitLabels';
+import { getCommitTypeLabel } from '@/utils/commitLabels';
 import { useI18n } from '@/i18n/context';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import { LDVH_ERROR_TEXT_CLASS } from '@/utils/semanticColors';
 
 const CHANGELOG_COUNT_OPTIONS = [50, 100, 200] as const;
 type ChangelogCount = typeof CHANGELOG_COUNT_OPTIONS[number];
-const COMMIT_COPY_BODY_PREVIEW_LIMIT = 180;
 
 function getCommitFilterOptions(entries: ChangelogEntry[], field: 'category' | 'scope'): string[] {
   return [...new Set(entries.map((entry) => entry[field]).filter((value): value is string => Boolean(value)))]
@@ -82,23 +81,6 @@ function CommitCountGroup({
       ))}
     </div>
   );
-}
-
-function getCommitCopyContext(entry: ChangelogEntry): string {
-  const body = entry.body?.trim() ?? '';
-  const bodyPreview = body.length > COMMIT_COPY_BODY_PREVIEW_LIMIT
-    ? `${body.slice(0, COMMIT_COPY_BODY_PREVIEW_LIMIT).trimEnd()}\n[truncated; fetch full body/stat by hash]`
-    : body;
-
-  return [
-    'LDVH Commit',
-    `hash: ${entry.hash}`,
-    `type: ${entry.category || '-'}`,
-    `scope: ${entry.scope || '-'}`,
-    `description: ${entry.description || entry.message || '-'}`,
-    `detail: /changelog/${entry.hash}`,
-    ...(bodyPreview ? [`body:\n${bodyPreview}`] : []),
-  ].join('\n');
 }
 
 export default function Changelog() {

@@ -8,7 +8,6 @@
  * 布局（GoalReadingLayout：目标陈述 → 子目标 → 修订史）。
  */
 import { useEffect, useState } from 'react';
-import { Navigate } from 'react-router-dom';
 import { ObjectIdentityHeader, FactReadingContent, getAuxiliaryMetaEntries } from '@/pages/ObjectDetail';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';

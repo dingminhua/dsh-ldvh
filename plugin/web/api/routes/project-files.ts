@@ -17,7 +17,6 @@ import {
   MAX_FILE_BYTES,
   TEXT_SAMPLE_BYTES,
   detectKind,
-  getProject,
   isHiddenPath,
   loadProjects,
   parseCommitFileLine,

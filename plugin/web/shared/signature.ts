@@ -20,7 +20,7 @@ function normalizeModelName(value: unknown): string {
   const trimmed = value.trim()
   if (!trimmed) return ''
   const model = trimmed.slice(trimmed.lastIndexOf('/') + 1).trim()
-  return model.replace(/(?:\s*\[[^\[\]]*\]\s*)+$/, '').trim()
+  return model.replace(/(?:\s*\[[^[\]]*\]\s*)+$/, '').trim()
 }
 
 /** Product name retains its spelling after an uppercase initial. */

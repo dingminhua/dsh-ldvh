@@ -51,7 +51,7 @@ function LoadingState({ text }: { text: string }) {
 }
 
 export default function Changes() {
-  const { locale, t } = useI18n();
+  const { t } = useI18n();
   const {
     projects,
     selectedProject,

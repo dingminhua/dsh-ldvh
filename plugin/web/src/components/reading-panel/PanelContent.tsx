@@ -19,7 +19,7 @@ import { getCommitDetailLabels, getLocalizedObjectTitle, getObjectStatusLocale, 
 import { normalizeSignature } from '../../../shared/signature';
 import { fetchCognitionGoal, fetchDocContent, fetchObjectDetail, type CommitDetailPanelData, type CommitSignature, type DocContent, type ObjectDetail as ApiObjectDetail } from '@/utils/api';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
-import { getCommitScopeLabel, getCommitTypeLabel } from '@/utils/commitLabels';
+import { getCommitTypeLabel } from '@/utils/commitLabels';
 import { formatDateTime } from '@/utils/dateFormat';
 import { getFactReadMeta, isReadableFact, type FactReadMeta } from '@/utils/factReadMeta';
 import { getObjectUpdatedAt } from '@/utils/factChangeLog';
@@ -385,6 +385,26 @@ function CommitReadingNodeSection({
   );
 }
 
+// 完整署名分区：**当前为停用件**——唯一的渲染点是本文件里那句被注释掉的调用
+// （搜索 `entry?.signature && <CommitSignatureSection`），现役署名呈现走同文件的
+// `<CommitSignatureMeta>`（见 CommitIdentitySection），紧凑形态与之并存即为重复，
+// 故整段被主动停用而非遗漏。（此处不写行号：行号会随本注释的增删漂移，写死必错。）
+//
+// 为什么不直接删：tests/api/changelog-presentation-contract.test.ts 确实钉住本函数。
+// 实测（2026-10-16，两次变异）——
+//   · 删掉整个函数定义 → 该用例失败，断在 `assert.match(panel, /<dd className="ldvh-detail-
+//     semantic-body … font-mono">/)`：那句 `<dd>` 只在本函数体内出现，故函数是**被断言要求
+//     存在**的，不是死代码。
+//   · 只删那句被注释的调用、保留函数 → 同一用例失败，断在
+//     `assert.match(panel, /<CommitSignatureSection signature={entry.signature} labels={labels} \/>/)`。
+// 由此得到一条**确实存在但形态较弱的判据**：最后那条断言匹配的是**原始源码文本**（`readFile`
+// 后直接 `assert.match`，不剥注释），故那句**注释**即可满足它——它能守住「这段调用文本还在」，
+// 却无法区分「正在渲染」与「已被注释」。恢复渲染或保持注释，它都通过；这正是该处待裁定的一部分。
+//
+// 两个待 Human 裁定的取舍：① 停用件是恢复渲染还是彻底移除（移除须同时改上面那条 `<dd>`
+// 断言，属产品语义取舍）；② 那句调用文本若要保留，该断言是否改为行为断言（渲染后断言存在
+// 与否），以恢复其判别力。二者都超出「清 lint」的授权范围，故按现状保留并显式豁免。
+/* eslint-disable-next-line @typescript-eslint/no-unused-vars -- 见上方说明：停用件待裁定，其存在被契约测试的 <dd> 断言要求 */
 function CommitSignatureSection({
   signature,
   labels,
