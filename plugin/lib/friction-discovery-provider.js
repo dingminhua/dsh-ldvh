@@ -291,10 +291,31 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
       unimplemented_tasks: [...unimplemented],
     });
 
+    // `label` 的形态（Human 决定 2026-10-14）：**只标身份与派发时刻，不列举本次
+    // 做哪几件事**。
+    //
+    //   ① **不列举任务**：label 是给人一眼认出「这是闲时辅助派出来的」的标签，
+    //      不是工作记录。本次要求作答的任务清单本来就在运行痕迹里逐条可查
+    //      （`onRun({phase:"start"})` 的 `tasks`／`unimplemented_tasks`，以及
+    //      逐任务的 `per_task`）。在 label 里再抄一遍是**重复承载**，而任务数
+    //      本就是开放集（勾几件做几件），列举会随任务数线性变长——「同时做 N 件
+    //      就要写 N 个名字」显然不成立，故取中性名 `ldvh-idle`。
+    //      意义：原字面量 `ldvh-friction-discovery` 是 2026-10-11 单任务时期留下的，
+    //      多任务改造后**名实不符**（写一个任务名、实际做多件）。
+    //   ② **带派发时刻**：同一次会话有多个检查点，同名派生在列表里分不出先后，
+    //      带时刻即可排序。
+    //   ③ **时刻由代码取，不写死、不由 AI 提供**：取进程时钟 `new Date()`——
+    //      与 `lifecycle.js` 既有各处的 `new Date().toISOString()` 同一口径
+    //      （不另取宿主事件时间戳：那会使同一次检查点的痕迹里出现两种时间源）。
+    //      截到**秒**（去掉毫秒）：本 label 供人扫读排序，秒级足够，毫秒是噪声。
+    //      边界：本时刻是**派发时刻**，与运行痕迹里那条 `at` 不逐字相等（二者
+    //      分别在 `start` 之前与之后打点），同源同口径，不构成判读歧义。
+    const dispatchedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+
     // `start` 的失败（能力不符、provider 缺失、语义检查不过）会直接 reject，且
     // 不留 run 供释放——故这里不 try/finally dispose，按返回的 run 处理。
     const run = await subagents.start(picked.value.name, {
-      label: "ldvh-friction-discovery",
+      label: `ldvh-idle ${dispatchedAt}`,
       prompt: [{ type: "text", text: prompt }],
       parent,
       signal,

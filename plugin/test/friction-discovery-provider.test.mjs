@@ -125,6 +125,47 @@ test("discover：以 outputSchema 与零上下文 provider 调用 start（§8.4 
   assert.equal(out.watermarkTurn, 5, "成功完成才给出推进凭据");
 });
 
+test("discover：label 为 `ldvh-idle <秒级时刻>`，不列举任务（Human 决定 2026-10-14）", async () => {
+  // 三条断言各对应一项决定，缺任一条都会使该决定可在不被察觉的情况下回退：
+  //   ① 形态：中性名 + 派发时刻（截到秒，不含毫秒）；
+  //   ② 时刻由代码取：两次派发的 label 可不同 → 证明确实取的是当下时钟，
+  //      而不是某个写死的字符串（写死者两次必然相同）；
+  //   ③ **不含任务名**：label 不得退回「列举本次做哪几件事」——明细的承载在
+  //      运行痕迹（tasks / unimplemented_tasks / per_task），label 只标身份。
+  const svc = fakeSubagents({ providers: [providerNamed("spawn")] });
+  const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
+  const window = { to: 5, items: [{ turn: 5, assistant: "这是一段足够长的材料内容原文。" }] };
+
+  await discover({ threshold: 3, candidates: CANDIDATES, window });
+  const label = svc.starts[0].request.label;
+
+  // ① 形态：`ldvh-idle ` + 秒级 RFC3339 UTC（无毫秒）
+  assert.match(label, /^ldvh-idle \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  assert.doesNotMatch(label, /\.\d{3}Z$/, "毫秒须被截掉——本 label 供人扫读排序，秒级足够");
+
+  // ② 时刻真的取自当下时钟：与「现在」相差不超过一分钟
+  const stamped = Date.parse(label.slice("ldvh-idle ".length));
+  assert.ok(Number.isFinite(stamped), "label 里的时刻须可被解析");
+  assert.ok(Math.abs(Date.now() - stamped) < 60_000, "label 时刻须是本次派发的当下时刻");
+
+  // ③ 不列举任务：原字面量 `ldvh-friction-discovery` 与任何任务键都不得出现
+  assert.doesNotMatch(label, /friction-discovery/, "label 不得退回列举任务（2026-10-11 单任务时期的遗留字面量）");
+  assert.doesNotMatch(label, /experience-capture/);
+});
+
+test("discover：label 不因本次做几件事而改变形态（任务数不进入 label）", async () => {
+  // 「同时做 N 件就要写 N 个名字」不成立：label 只标身份，任务清单留在痕迹里。
+  // 这里用「只跑摩擦发现」与「另带一件」两种输入对照，形态必须一致。
+  const labelFor = async (tasks) => {
+    const svc = fakeSubagents({ providers: [providerNamed("spawn")] });
+    const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
+    await discover({ threshold: 3, candidates: CANDIDATES, tasks, window: { to: 5, items: [{ turn: 5, assistant: "这是一段足够长的材料内容原文。" }] } });
+    return svc.starts[0].request.label;
+  };
+  assert.match(await labelFor(["friction-discovery"]), /^ldvh-idle \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  assert.match(await labelFor(["friction-discovery", "experience-capture"]), /^ldvh-idle \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+});
+
 test("prompt：公共段声明零上下文派生 + 机械交付，旧「继承主控上下文」措辞不得残留", async () => {
   const svc = fakeSubagents({ providers: [providerNamed("spawn")] });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
