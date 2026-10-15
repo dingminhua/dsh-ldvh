@@ -1200,3 +1200,61 @@ test("renderEnvelope: 预检的失败原因必须对调用方可读（09 §5.3 �
 	assert.match(text, /\nissue: issue — 裸字符串形态的问题项/, "字符串形态的问题项也不得丢");
 	assert.match(text, /\ngap: provider\/model could not be traced/, "gaps 的既有呈现不受影响");
 });
+
+// 09 §5.3 第 7 项（precheck 入口）：以「§7.2 违规」为由删除时，逐字引用须在 §7.2 中存在。
+test("precheck-git-commit 拒绝编造的 §7.2 依据引用，放行逐字引用", async () => {
+	await withTemp("ldvh-tools-basis.", async (base) => {
+		const home = join(base, "home");
+		const root = await initRepo(base);
+		await mkdir(join(root, "specs"), { recursive: true });
+		const specPath = join(root, "specs", "01-规范.md");
+		const section = [
+			"# 01 规范",
+			"",
+			"### 7.2 领域正文",
+			"",
+			"禁止三类：实现状态；下位文档的存在状态；过程与进度。",
+			"",
+			"### 7.3 下一节",
+			"",
+			"此句不属 §7.2。",
+		].join("\n");
+		await writeFile(specPath, section);
+		await git(root, ["add", "-A"]);
+		await git(root, ["commit", "-qm", "base"]);
+		await registerProject(dshHome(home), { id: "demo72", path: root });
+		await writeFile(specPath, section.replace("禁止三类：实现状态；下位文档的存在状态；过程与进度。", "禁止三类已删。"));
+		await git(root, ["add", "specs/01-规范.md"]);
+
+		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: root });
+		const exec = { agent: { session: { header: { cwd: root } } } };
+		const build = (basis) => [
+			"docs(specs): 删除该行",
+			"",
+			basis,
+			"",
+			"关键变更:",
+			"- specs/01-规范.md: 删除禁止三类",
+			"",
+			"LDVH-Provider: deepseek-harness",
+			"LDVH-Model: test",
+		].join("\n");
+
+		const bad = await handlers["precheck-git-commit"]({ message: build("§7.2 依据：**布局自指计数**") }, exec);
+		assert.equal(bad.result.mechanical_outcome, "failed");
+		assert.ok(bad.result.issues.some((issue) => issue.rule === "validation/removal_basis_unquotable"), JSON.stringify(bad.result.issues));
+
+		const outOfScope = await handlers["precheck-git-commit"]({ message: build("§7.2 依据：此句不属 §7.2。") }, exec);
+		assert.equal(outOfScope.result.mechanical_outcome, "failed");
+		assert.ok(outOfScope.result.issues.some((issue) => issue.rule === "validation/removal_basis_unquotable"));
+
+		const good = await handlers["precheck-git-commit"]({ message: build("§7.2 依据：禁止三类：实现状态；下位文档的存在状态；过程与进度。") }, exec);
+		// 夹具无会话日志，故机械结论止于 unverifiable（路由取不到）——与本项检查无关；
+		// 本项只须证明逐字引用不再产生 removal_basis 类问题。
+		assert.ok(
+			!(good.result.issues ?? []).some((issue) => issue.rule.startsWith("validation/removal_basis")),
+			JSON.stringify(good.result.issues)
+		);
+		assert.notEqual(good.result.mechanical_outcome, "failed", JSON.stringify(good.result.issues));
+	});
+});

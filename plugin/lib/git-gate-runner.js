@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText } from "./commit-validation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -99,6 +99,18 @@ async function collectNormCarriers(worktree, changedPaths, indexFile) {
  * blocks only the former). An added file has no HEAD text: baseline stays
  * undefined, which correctly treats every reference in it as new.
  */
+
+/** 当次候选树里 `specs/01-*.md` 的路径（§7.2 的载体）。取不到返回 null。 */
+async function findSpecCarrierOne(worktree, indexFile) {
+  try {
+    const listed = await git(worktree, ["ls-files", "--cached", "--", "specs/01-*.md"], indexFile);
+    const first = String(listed ?? "").split("\n").map((line) => line.trim()).find((line) => line.length > 0);
+    return first ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function collectChangedCarriers(worktree, message, diff, indexFile) {
   const paths = (checkKeyChangesAgainstDiff(message, diff).changedPaths ?? []);
   const changed = await changedPathStatuses(worktree, indexFile);
@@ -346,6 +358,26 @@ async function main(argv) {
     }
     const outcome = checkLoadBearingDeclarations(declarations.carriers, { message, resolvable, unreadable: declarations.unreadable });
     if (!outcome.ok) issues.push(...outcome.issues);
+  }
+
+  // 09 §5.3 item 7 (Human 决定 2026-10-15): 以「§7.2 违规」为由删除规范内容时，消息
+  // 须携带逐字引用 §7.2 原文的声明，且该引用须在当次 §7.2 文本中逐字存在。来历见
+  // commit-validation.js 的说明；强度边界为「只在自愿申报时生效」。
+  if (collectRemovalBasisDeclarations(message).length > 0) {
+    // HEAD 与候选两版并集：本次提交可能正是要删掉被引的那句（那样它不在候选里），
+    // 而本项抓的是**编造判据**——两版都没有即引用不成立。
+    const sections = [];
+    try {
+      const specOne = await findSpecCarrierOne(root, indexFile);
+      if (specOne !== null) {
+        sections.push(extractSectionText(await git(root, ["show", `:${specOne}`], indexFile)));
+        sections.push(extractSectionText(await git(root, ["show", `HEAD:${specOne}`], indexFile)));
+      }
+    } catch {
+      sections.push(null); // fail-closed: a declared basis that cannot be verified blocks
+    }
+    const basis = checkRemovalBasisDeclarations({ message, sectionTexts: sections });
+    if (!basis.ok) issues.push(...basis.issues);
   }
 
   if (issues.length > 0) {

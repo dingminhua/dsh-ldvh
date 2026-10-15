@@ -305,3 +305,104 @@ test("a fact reference resolves by the carrier's object_uid, not only by its fil
 		assert.equal(result.code, 0, result.stderr);
 	});
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 09 §5.3 第 7 项（Human 决定 2026-10-15）：以「§7.2 违规」为由删除规范内容时，
+// 消息须携带逐字引用 §7.2 原文的声明，且该引用须在当次 §7.2 文本中逐字存在。
+// 来历：主控曾自拟判据并另造一个 §7.2 中并不存在的违规类「布局自指计数」，
+// 据此批量删除（账目 ba4afa96）。本条即该轮复审给出的「无原文即不得删」。
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SECTION72_BODY = [
+	"### 7.2 领域正文与规则单元",
+	"",
+	"本节的状态禁令覆盖 `specs/` 内一切载体。禁止的状态有三类：",
+	"",
+	"1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；",
+	"2. **下位文档的存在状态**：某文件已建立／尚未建立；",
+	"3. **过程与进度**：某工作已完成百分之多少。",
+	"",
+	"### 7.3 下一节",
+	"",
+	"此处不得进入 §7.2 的引用核对范围。",
+	"",
+].join("\n");
+
+async function committedSpecOneRepo(base, body) {
+	const root = await initRepo(base);
+	await mkdir(join(root, "specs"), { recursive: true });
+	await writeFile(join(root, "specs", "01-test.md"), `# 01 规范\n\n${body}`);
+	await gitOk(root, ["add", "-A"]);
+	await gitOk(root, ["commit", "-qm", "base"]);
+	return root;
+}
+
+test("blocks a §7.2 removal basis whose quoted sentence is absent from §7.2", async () => {
+	await withTemp("ldvh-ggr-basis.", async (base) => {
+		const root = await committedSpecOneRepo(base, SECTION72_BODY);
+		await writeFile(join(root, "specs", "01-test.md"), `# 01 规范\n\n${SECTION72_BODY.replace("1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；", "1. 已删除该项。")}`);
+		await gitOk(root, ["add", "-A"]);
+		const messageFile = join(root, "msg.txt");
+		// 历史事故的形态：引用的判据在 §7.2 里根本不存在。
+		await writeFile(messageFile, ["docs(specs): 删除该行", "", "§7.2 依据：**布局自指计数**", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: test-provider", "LDVH-Model: test-model", ""].join("\n"));
+
+		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(result.code, 1, result.stderr);
+		assert.match(result.stderr, /validation\/removal_basis_unquotable/);
+	});
+});
+
+test("allows a §7.2 removal basis that quotes §7.2 verbatim", async () => {
+	await withTemp("ldvh-ggr-basis-ok.", async (base) => {
+		const root = await committedSpecOneRepo(base, SECTION72_BODY);
+		await writeFile(join(root, "specs", "01-test.md"), `# 01 规范\n\n${SECTION72_BODY.replace("1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；", "1. 已删除该项。")}`);
+		await gitOk(root, ["add", "-A"]);
+		const messageFile = join(root, "msg.txt");
+		await writeFile(messageFile, ["docs(specs): 删除该行", "", "§7.2 依据：禁止的状态有三类：", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: test-provider", "LDVH-Model: test-model", ""].join("\n"));
+
+		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(result.code, 0, result.stderr);
+	});
+});
+
+test("a quote the commit itself deletes still counts (HEAD ∪ candidate)", async () => {
+	await withTemp("ldvh-ggr-basis-head.", async (base) => {
+		const root = await committedSpecOneRepo(base, SECTION72_BODY);
+		await writeFile(join(root, "specs", "01-test.md"), `# 01 规范\n\n${SECTION72_BODY.replace("1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；", "1. 已删除该项。")}`);
+		await gitOk(root, ["add", "-A"]);
+		const messageFile = join(root, "msg.txt");
+		// 引的正是本次要删的那句：它只在 HEAD 版 §7.2 里，仍算引用成立。
+		await writeFile(messageFile, ["docs(specs): 删除该行", "", "§7.2 依据：1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: test-provider", "LDVH-Model: test-model", ""].join("\n"));
+
+		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(result.code, 0, result.stderr);
+	});
+});
+
+test("a quote from outside §7.2 does not satisfy the basis (scope is the section)", async () => {
+	await withTemp("ldvh-ggr-basis-scope.", async (base) => {
+		const root = await committedSpecOneRepo(base, SECTION72_BODY);
+		await writeFile(join(root, "specs", "01-test.md"), `# 01 规范\n\n${SECTION72_BODY.replace("1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；", "1. 已删除该项。")}`);
+		await gitOk(root, ["add", "-A"]);
+		const messageFile = join(root, "msg.txt");
+		// 引的是 §7.3 的句子：在载体里逐字存在，但不属 §7.2。
+		await writeFile(messageFile, ["docs(specs): 删除该行", "", "§7.2 依据：此处不得进入 §7.2 的引用核对范围。", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: test-provider", "LDVH-Model: test-model", ""].join("\n"));
+
+		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(result.code, 1, result.stderr);
+		assert.match(result.stderr, /validation\/removal_basis_unquotable/);
+	});
+});
+
+test("no declaration means no check (narrow by design)", async () => {
+	await withTemp("ldvh-ggr-basis-absent.", async (base) => {
+		const root = await committedSpecOneRepo(base, SECTION72_BODY);
+		await writeFile(join(root, "specs", "01-test.md"), `# 01 规范\n\n${SECTION72_BODY.replace("1. **实现状态**：某项机制「已实现／尚未实现」，以及实现所在的文件、函数或批次说明；", "1. 已删除该项。")}`);
+		await gitOk(root, ["add", "-A"]);
+		const messageFile = join(root, "msg.txt");
+		await writeFile(messageFile, ["docs(specs): 删除该行", "", "关键变更:", "- specs/01-test.md: 删除实现状态行", "", "LDVH-Provider: test-provider", "LDVH-Model: test-model", ""].join("\n"));
+
+		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(result.code, 0, result.stderr);
+	});
+});

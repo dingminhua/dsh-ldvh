@@ -29,8 +29,7 @@ import {
 	isSpecCarrierPath,
 	LOAD_BEARING_MARKER,
 	LOAD_BEARING_RESOLUTION_LABEL,
-	LOAD_BEARING_RULES,
-} from "../lib/commit-validation.js";
+	LOAD_BEARING_RULES, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText} from "../lib/commit-validation.js";
 
 /** A canonical, fully-legal commit message. */
 const validMessage = [
@@ -389,6 +388,9 @@ test("GATE_RULES registers every rule the validator emits, each with severity an
 		"validation/load_bearing_declaration_removed",
 		"validation/load_bearing_resolution_missing",
 		"validation/load_bearing_baseline_unreadable",
+		"validation/removal_basis_empty",
+		"validation/removal_basis_section_unreadable",
+		"validation/removal_basis_unquotable",
 	];
 	assert.deepEqual(Object.keys(GATE_RULES).sort(), expected.sort());
 	for (const entry of Object.values(GATE_RULES)) {
@@ -771,4 +773,61 @@ test("the resolution label must be CARRIED, not merely quoted in a code span", (
 	});
 	assert.equal(result.ok, false);
 	assert.deepEqual(result.issues.map((issue) => issue.rule), [LOAD_BEARING_RULES.resolutionMissing]);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 09 §5.3 第 7 项：以「§7.2 违规」为由删除时，消息中的逐字引用须在 §7.2 文本中存在。
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("collectRemovalBasisDeclarations: 只认声明标签之后的引用文本", () => {
+	assert.deepEqual(collectRemovalBasisDeclarations("无声明"), []);
+	assert.deepEqual(collectRemovalBasisDeclarations("- 关键变更项\n§7.2 依据：某个句子"), ["某个句子"]);
+	assert.deepEqual(collectRemovalBasisDeclarations("§7.2 依据："), [""]);
+	assert.deepEqual(
+		collectRemovalBasisDeclarations("§7.2 依据：甲\n§7.2 依据：乙"),
+		["甲", "乙"],
+		"两处声明各自核对"
+	);
+});
+
+test("extractSectionText: 取到 §7.2 一节，止于下一个同级或更高级标题", () => {
+	const text = "### 7.2 甲\n甲的内容\n### 7.3 乙\n乙的内容";
+	const sec = extractSectionText(text);
+	assert.match(sec, /甲的内容/);
+	assert.doesNotMatch(sec, /乙的内容/, "不得越界到下一节");
+	assert.equal(extractSectionText("没有这一节"), null);
+});
+
+test("checkRemovalBasisDeclarations: 编造引用被拒、真实引用放行、两版并集、fail-closed", () => {
+	const section = "禁止的状态有三类：1. 实现状态；2. 下位文档的存在状态；3. 过程与进度。";
+	const rules = (message, sectionTexts) => checkRemovalBasisDeclarations({ message, sectionTexts }).issues.map((issue) => issue.rule);
+
+	// 无声明即不检查（窄版设计：只在自愿申报时生效）
+	assert.deepEqual(rules("无声明", [section]), []);
+	// 空声明
+	assert.deepEqual(rules("§7.2 依据：", [section]), ["validation/removal_basis_empty"]);
+	// 引真句
+	assert.deepEqual(rules("§7.2 依据：禁止的状态有三类：", [section]), []);
+	// 编造判据（历史事故的形态：「布局自指计数」在 §7.2 中并不存在）
+	assert.deepEqual(rules("§7.2 依据：布局自指计数", [section]), ["validation/removal_basis_unquotable"]);
+	// 两版并集：仅 HEAD 版含该句也算成立（本次提交可能正要删掉它）
+	assert.deepEqual(rules("§7.2 依据：禁止的状态有三类：", [null, section]), []);
+	// 两版都取不到 → fail-closed
+	assert.deepEqual(rules("§7.2 依据：实现状态", [null, null]), ["validation/removal_basis_section_unreadable"]);
+	// 空白差异不影响逐字判定
+	assert.deepEqual(rules("§7.2 依据：禁止的状态有三类：", [section.replace("：", "：  ")]), []);
+});
+
+test("标签落在代码跨度内属提及、不构成依据申报（本轮实测踩到的误报）", () => {
+	// 首次落盘本项时，提交消息的 关键变更 里写了 `§7.2 依据：<引用>` 来**描述**该机制，
+	// 新门禁据此要求逐字引用并拒绝了该提交——即「提及」被当成「使用」。与承重标记一侧
+	// 同口径：代码跨度内的标签不构成申报。
+	assert.deepEqual(
+		collectRemovalBasisDeclarations("关键变更:\n- 声明 `§7.2 依据：<引用>` 的机制"),
+		[]
+	);
+	assert.deepEqual(collectRemovalBasisDeclarations("§7.2 依据：某句原文"), ["某句原文"]);
+	// 同一行里既有提及又有裸写：仍须申报（裸写那处要核对）
+	const both = collectRemovalBasisDeclarations("§7.2 依据：甲 与 `§7.2 依据：乙`");
+	assert.deepEqual(both, ["甲 与 `§7.2 依据：乙`"], "以第一个**裸写**标签为锚，其余留在引用文本内");
 });

@@ -22,7 +22,7 @@ import { resolveGovernanceScope } from "./governance-scope.js";
 import { evaluateRegistrationEntry, registerProjectFromEntry, unregisterProject } from "./governed-projects.js";
 import { bindMembershipEvidence } from "./membership-evidence.js";
 import { currentRouteValues } from "./session-signature.js";
-import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText } from "./commit-validation.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
 import { registerResearchTools } from "./research-tools.js";
 import { registerSparkTools } from "./spark-tools.js";
@@ -572,6 +572,14 @@ function makeExecute(deps) {
     // without the commit carrying a resolvable independent-review reference.
     // Mirrors the Git Gate through the SAME validator (09 §5.5).
     const declarations = await checkLoadBearingDeclarationsForIndex(governed.project.path, correspondence.changedPaths ?? [], message);
+    // 09 §5.3 第 7 项（Human 决定 2026-10-15）：以「§7.2 违规」为由删除规范内容时，消息
+    // 须携带逐字引用 §7.2 原文的声明，且该引用须在当次 §7.2 文本中逐字存在。只在自愿
+    // 申报时生效（不申报即不检查）——强度边界见 commit-validation.js 的说明。
+    if (collectRemovalBasisDeclarations(message).length > 0) {
+      const sections = await readSection72BothFromIndex(governed.project.path);
+      const basis = checkRemovalBasisDeclarations({ message, sectionTexts: sections });
+      if (!basis.ok) issues.push(...basis.issues);
+    }
     if (!declarations.ok) issues.push(...declarations.issues);
     // Signature values must trace back to the authoritative session record.
     const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
@@ -684,6 +692,25 @@ function makeExecute(deps) {
    * collector, routed through the SAME validator — 09 §5.5 forbids the two
    * entries from holding different rule sets, so only the Git reads differ.
    */
+  /** 候选 Index 与 HEAD 两版的 §7.2 节文本（并集比对）；两版都取不到即 fail-closed。 */
+  async function readSection72BothFromIndex(projectPath) {
+    try {
+      const listed = await execFileAsync("git", ["-C", projectPath, "ls-files", "--cached", "--", "specs/01-*.md"], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024 });
+      const path = String(listed.stdout ?? "").split("\n").map((line) => line.trim()).find((line) => line.length > 0);
+      if (path === undefined) return [null, null];
+      const candidate = await execFileAsync("git", ["-C", projectPath, "show", `:${path}`], { encoding: "utf8", timeout: 10000, maxBuffer: 32 * 1024 * 1024 });
+      let baseline = null;
+      try {
+        baseline = (await execFileAsync("git", ["-C", projectPath, "show", `HEAD:${path}`], { encoding: "utf8", timeout: 10000, maxBuffer: 32 * 1024 * 1024 })).stdout;
+      } catch {
+        baseline = null;
+      }
+      return [extractSectionText(candidate.stdout), extractSectionText(baseline)];
+    } catch {
+      return [null, null];
+    }
+  }
+
   async function checkLoadBearingDeclarationsForIndex(projectPath, changedPaths, message) {
     const runGit = async (args) => {
       const result = await execFileAsync("git", ["-C", projectPath, ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024, env: cleanGitEnvironment() });

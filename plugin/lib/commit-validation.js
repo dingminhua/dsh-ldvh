@@ -60,7 +60,10 @@ export const GATE_RULES = Object.freeze({
   "validation/docs_reference_dangling": Object.freeze({ severity: "blocking", description: "a newly added or modified non-docs carrier references a docs/ path that does not exist in the candidate tree (09 §5.3 item 5, Human 2026-10-12: docs/ holds temporary documents only and must not be relied on as an authority)" }),
   "validation/load_bearing_declaration_removed": Object.freeze({ severity: "blocking", description: "a load-bearing declaration present at HEAD is absent from the candidate and no 关键变更 item carries a resolvable independent-review reference (01 §7 末段; 09 §5.3 item 6, Human 2026-10-15)" }),
   "validation/load_bearing_resolution_missing": Object.freeze({ severity: "blocking", description: "a load-bearing declaration kept its marker but lost its 恢复条件 sub-element, and no 关键变更 item carries a resolvable independent-review reference (01 §7 末段; 09 §5.3 item 6)" }),
-  "validation/load_bearing_baseline_unreadable": Object.freeze({ severity: "blocking", description: "a carrier's HEAD baseline could not be read, so the load-bearing declaration comparison cannot decide — fails closed rather than passing (09 §5.3 item 6)" })
+  "validation/load_bearing_baseline_unreadable": Object.freeze({ severity: "blocking", description: "a carrier's HEAD baseline could not be read, so the load-bearing declaration comparison cannot decide — fails closed rather than passing (09 §5.3 item 6)" }),
+  "validation/removal_basis_unquotable": Object.freeze({ severity: "blocking", description: "a 关键变更 item declares a §7.2 removal basis whose quoted sentence does not appear verbatim in the current §7.2 text" }),
+  "validation/removal_basis_empty": Object.freeze({ severity: "blocking", description: "a §7.2 依据： declaration carries no quoted sentence" }),
+  "validation/removal_basis_section_unreadable": Object.freeze({ severity: "blocking", description: "the candidate tree's §7.2 text could not be read, so a declared removal basis cannot be verified (fails closed)" }),
 });
 
 /** Mechanical-artifact exemption for the bidirectional coverage check
@@ -521,6 +524,82 @@ export function checkLoadBearingDeclarations(carriers, { message, resolvable, un
     }
   }
   return { ok: issues.length === 0, issues, exemption: null };
+}
+
+/**
+ * 09 §5.3 第 7 项（Human 决定 2026-10-15）：以「§7.2 违规」为由删除规范内容时，
+ * 提交消息须携带**逐字引用 §7.2 原文**的声明，且该引用须在当次 §7.2 文本中逐字存在。
+ *
+ * 来历：主控曾为判定「哪类表述该删」自拟一条规范外的判据（并另造了一个 §7.2 中并不
+ * 存在的违规类「布局自指计数」），据此批量删除；同一判据在同一批内对结构同类项给出
+ * 互斥结果（账目 ba4afa96）。该轮复审给出的可修方向即本项：**无原文即不得删**。
+ *
+ * 强度边界（如实声明，不主张闭环）：本项**只在消息自愿申报依据时**生效——不申报而删
+ * 的情形看不见（那仍属独立复核与 Human 阅读范围）；它挡的是**凭印象引规范**，即
+ * 引一句 §7.2 里并不存在的话。故本项是加固，不是闭环。
+ */
+export const REMOVAL_BASIS_LABEL = "§7.2 依据：";
+export const REMOVAL_BASIS_RULES = Object.freeze({
+  unquotable: "validation/removal_basis_unquotable",
+  empty: "validation/removal_basis_empty",
+  sectionUnreadable: "validation/removal_basis_section_unreadable",
+});
+
+/** 取出消息中每一处 `§7.2 依据：` 后随的引用文本（不含行首列表符）。 */
+export function collectRemovalBasisDeclarations(message) {
+  const out = [];
+  for (const raw of String(message ?? "").replace(/\r\n/g, "\n").split("\n")) {
+    const line = raw.trim();
+    // **提及 vs 使用**：标签若落在代码跨度内，则这一行是在**描述**该机制（如规范正文或
+    // 提交消息举例），不是申报依据——与承重标记一侧同口径（literalUsesOutsideCodeSpans）。
+    const uses = literalUsesOutsideCodeSpans(line, REMOVAL_BASIS_LABEL);
+    if (uses.length === 0) continue;
+    const at = uses[0] + REMOVAL_BASIS_LABEL.length;
+    out.push(line.slice(at).trim());
+  }
+  return out;
+}
+
+/** 从规范载体全文取出 §7.2 一节（`### 7.2` 起，至下一个 `###`／`## ` 前）。 */
+export function extractSectionText(specText, sectionHeading = "### 7.2") {
+  const text = String(specText ?? "").replace(/\r\n/g, "\n");
+  const start = text.indexOf(sectionHeading);
+  if (start === -1) return null;
+  const rest = text.slice(start + sectionHeading.length);
+  const next = rest.search(/\n#{2,3} /);
+  return next === -1 ? rest : rest.slice(0, next);
+}
+
+/**
+ * `sectionText === null` 表示当次 §7.2 文本取不到（fail-closed）；`undefined`
+ * 表示调用方未提供该信息，此时只做「声明非空」这一半。
+ */
+export function checkRemovalBasisDeclarations({ message, sectionText, sectionTexts } = {}) {
+  const declared = collectRemovalBasisDeclarations(message);
+  if (declared.length === 0) return { ok: true, issues: [], declarations: 0 };
+  const issues = [];
+  // 比对范围是 **HEAD 与候选两版的 §7.2 并集**：本次提交可能正是要删掉被引的那句
+  // （那样它当然不在候选里），而本项要抓的是**编造判据**——历史上那条「布局自指计数」
+  // 在两版里都不存在。任一版含该句即算引用成立。
+  const raw = Array.isArray(sectionTexts) ? sectionTexts : [sectionText];
+  const known = raw.filter((text) => typeof text === "string").map((text) => text.replace(/\s+/g, " ").trim());
+  const unreadable = raw.length > 0 && known.length === 0;
+  const normalized = known.length === 0 ? null : known;
+  for (const quote of declared) {
+    if (quote.length === 0) {
+      issues.push(newFinding(REMOVAL_BASIS_RULES.empty, `${REMOVAL_BASIS_LABEL} must carry the quoted §7.2 sentence (09 §5.3 item 7)`, null));
+      continue;
+    }
+    if (unreadable) {
+      issues.push(newFinding(REMOVAL_BASIS_RULES.sectionUnreadable, `§7.2 text is unreadable in both HEAD and the candidate tree, so the declared basis cannot be verified: ${quote.slice(0, 60)} (09 §5.3 item 7, fails closed)`, null));
+      continue;
+    }
+    const needle = quote.replace(/\s+/g, " ").trim();
+    if (normalized !== null && !normalized.some((text) => text.includes(needle))) {
+      issues.push(newFinding(REMOVAL_BASIS_RULES.unquotable, `${REMOVAL_BASIS_LABEL} quotes a sentence absent from the current §7.2 text: ${quote.slice(0, 60)} (09 §5.3 item 7 — 无原文即不得删)`, null));
+    }
+  }
+  return { ok: issues.length === 0, issues, declarations: declared.length };
 }
 
 export function isNormCarrierPath(path) {
