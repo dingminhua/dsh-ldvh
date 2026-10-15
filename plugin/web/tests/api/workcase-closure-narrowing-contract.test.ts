@@ -28,6 +28,7 @@ import {
   groupDirectionRows,
   workCaseDirectionRows,
   workCaseResidualRows,
+  workCaseDirectionTextVisible,
 } from '../../src/utils/workcaseCheckState.ts';
 
 /**
@@ -510,7 +511,7 @@ test('规范侧：详情面收窄态与实现一致（防实现与规范原文�
   assert.match(spec07, /已登记的窄例外（Human 授权 2026-09-28）/, '07 §5.3 须登记窄例外');
   assert.match(spec07, /规范里也要明确一下/, '07 §5.3 须留 Human 授权原文');
   assert.match(spec07, /该例外不扩张/, '07 §5.3 须登记该例外不扩张');
-  assert.match(spec07, /WorkCase 终态对象的 \`result\.residual\` 这\*\*一个字段\*\*/, '07 §5.3 须限定作用对象为单一字段');
+  assert.match(spec07, /WorkCase 终态对象的 `result\.residual` 这\*\*一个字段\*\*/, '07 §5.3 须限定作用对象为单一字段');
 
   // ② §5.5 须保留「辨析已撤回」的登记（它是被判定为文字游戏的旧说法，不得复活）。
   assert.match(webDoc10, /决定 A 适用于全部关闭对象/, '下位设计文档须现取「决定 A 适用全部关闭对象」的表述');
@@ -638,14 +639,19 @@ test('不得过度声明：只实现前提①（结构），不得声称 A 的�
     .split('\n')
     .find((line) => line.includes('决定 A 的前提「去向正文自足」'));
   assert.ok(evidenceRow, '21 §15.2 须仍登记该缺口行（表格行）');
+  // **2026-10-15 改钉**：该行的载荷句在 2026-09-30 之后的规范改写中换了措辞（原
+  // 「——实测 …」「但「无尾注」不等于「自足」」已不在行内），本组断言因此长期为红
+  // ——不是被某次改动弄红，而是它钉的字面随规范一起漂走了（发现者：workcase-562f75c1
+  // 的卡面修复过程）。现将三条断言改钉**当前行内**承载同一载荷的句子，守卫用途不变
+  // （证据列仍判「无」、仍声明「无尾注 ≠ 自足」、仍声明自足性无机械判据）。
   assert.match(
     evidenceRow,
-    /\| \*\*无\*\*——实测/,
+    /\| \*\*无\*\*——/,
     '该行证据列须仍为「无」，不得因存量迁移而改写为「已取得证据」',
   );
   assert.match(
     evidenceRow,
-    /但「无尾注」不等于「自足」/,
+    /不得据「无尾注」推定自足/,
     '该行须显式声明「无尾注 ≠ 自足」，防止把尾注清零误读为证据成立',
   );
   assert.match(evidenceRow, /无机械判据/, '该行须仍声明自足性无机械判据');
@@ -701,4 +707,56 @@ test('卡面纯文本：去向与残留正文渲染前都剥 Markdown 标记（1
       `${name} 有未经剥标记的原始正文插值`,
     );
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 去向正文的呈现分期（`21 §8`，Human 裁定 2026-09-29）
+//
+// 该条收窄的是**「待批准关闭」期的卡面呈现**——去向正文只在「已关闭」期呈现。
+// 此前该裁定没有任何守卫：卡组件的修订时点是 2026-09-28（合并式修订），次日的
+// 分期裁定未落到组件上，故「待批准关闭」卡一直把去向正文与残留正文并排显示，
+// 与规范要求的呈现相矛盾。本组把该分期的**决定**（纯函数）与**接线**（源码形态）
+// 各钉一次。
+//
+// 边界（同本文件其余源码形态断言）：只拦形态、不拦语义——一个功能等价但改名改
+// 文案的越界实现仍可能在全套绿的情况下被引入。
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('纯函数：去向正文只在「已关闭」期可见，「待批准关闭」期不可见', () => {
+  assert.equal(
+    workCaseDirectionTextVisible('awaiting_gate2'),
+    false,
+    '「待批准关闭」期按 21 §8（2026-09-29）只给去向标记，不呈现去向正文',
+  );
+  assert.equal(workCaseDirectionTextVisible('closed'), true, '「已关闭」期去向正文是唯一内容，须呈现');
+});
+
+test('接线：待批准关闭卡的去向正文受分期门控（两处渲染点都不得无条件渲染）', () => {
+  const draft = readSource(DRAFT_CARD);
+  assert.match(
+    draft,
+    /workCaseDirectionTextVisible\('awaiting_gate2'\)/,
+    '待批准关闭卡须经分期纯函数取得本期的呈现决定，不得在组件内自判',
+  );
+  const gated = draft.match(/showDirectionText &&/g) ?? [];
+  const rendered = draft.match(/stripCardMarkdown\(direction\.text\)/g) ?? [];
+  assert.equal(rendered.length, 2, '本卡有两处去向渲染点（合并式与存量分离式）');
+  assert.equal(
+    gated.length,
+    rendered.length,
+    '每一处去向正文渲染都必须带分期门控——否则 21 §8（2026-09-29）的收窄被漏掉一半',
+  );
+});
+
+test('接线：已关闭卡仍呈现去向正文（该期是唯一承载面，不得被本收窄波及）', () => {
+  const closed = readSource(CLOSED_CARD);
+  // 该卡的形态是**按去向词分区**（2026-09-30），条目正文的变量名因此是 `item.text`
+  // 而非开放期的 `direction.text`——断言须按该卡的实际形态写，否则测的是我记忆里的
+  // 另一个组件。
+  assert.match(closed, /stripCardMarkdown\(item\.text\)/, '「已关闭」期去向正文须照常呈现');
+  assert.doesNotMatch(
+    closed,
+    /workCaseDirectionTextVisible/,
+    '「已关闭」期不存在分期判断——引入判断即暗示该期也可被收窄',
+  );
 });

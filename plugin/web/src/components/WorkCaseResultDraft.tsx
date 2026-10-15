@@ -21,6 +21,7 @@ import {
   workCaseDraftCheckRows,
   workCaseDirectionRows,
   workCaseResidualRows,
+  workCaseDirectionTextVisible,
 } from '@/utils/workcaseCheckState';
 
 /**
@@ -29,7 +30,9 @@ import {
  * 呈现**两块、无标题栏**（与其余三组卡体同一形态纪律）：
  * 1. **逐条核对**——`[达成／部分达成／未达成／未记录] plan[N].step`；
  * 2. **残留（含去向）**——逐条 `[残留] <正文>`；其下**缩进一行**
- *    `[<去向词>] <去向正文>`。
+ *    `[<去向词>]`（**只给标记**）：`21 §8` Human 裁定 2026-09-29 收窄了本期的
+ *    呈现——去向正文只在「已关闭」期呈现，本期残留在上一行、再写一遍即重复陈述。
+ *    去向正文仍在载体中，关闭后照常呈现；写入侧门禁不受影响。
  *
  * **块序是核对 → 残留（含去向）**（`10 §5.5`「块序与逐条标记」）：残留是「还剩什么」
  * （事实），其去向子项是「打算怎么办」（拟议）；先陈述事实再给去向，读者才不必回头。
@@ -84,6 +87,8 @@ export default function WorkCaseResultDraft({
 }: WorkCaseResultDraftProps) {
   const { t } = useI18n();
   const [residualExpanded, setResidualExpanded] = useState(false);
+  // 本卡只用于「待批准关闭」期；该期按 `21 §8`（2026-09-29 裁定）只给去向标记。
+  const showDirectionText = workCaseDirectionTextVisible('awaiting_gate2');
   const steps = Array.isArray(plan) ? plan : [];
   const rows = Array.isArray(checks) ? checks : [];
 
@@ -152,7 +157,7 @@ export default function WorkCaseResultDraft({
                       ? t(`objectList.workcaseAdvice.${direction.kind}` as LocaleKey)
                       : t('objectList.workcaseAdvice.unclassified')}
                   </span>
-                  <span>{stripCardMarkdown(direction.text)}</span>
+                  {showDirectionText && <span>{stripCardMarkdown(direction.text)}</span>}
                 </div>
               ))}
             </div>
@@ -193,7 +198,7 @@ export default function WorkCaseResultDraft({
                   ? t(`objectList.workcaseAdvice.${direction.kind}` as LocaleKey)
                   : t('objectList.workcaseAdvice.unclassified')}
               </span>
-              <span>{stripCardMarkdown(direction.text)}</span>
+              {showDirectionText && <span>{stripCardMarkdown(direction.text)}</span>}
             </div>
           ))}
         </div>
