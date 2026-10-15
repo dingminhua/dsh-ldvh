@@ -731,20 +731,47 @@ test('纯函数：去向正文只在「已关闭」期可见，「待批准关�
   assert.equal(workCaseDirectionTextVisible('closed'), true, '「已关闭」期去向正文是唯一内容，须呈现');
 });
 
-test('接线：待批准关闭卡的去向正文受分期门控（两处渲染点都不得无条件渲染）', () => {
+test('接线：分期门控只作用于合并式渲染点，存量分离式特例不得被一并收窄', () => {
+  // 呈现契约 `web/docs/10` §5「本表对既有承载的覆盖」明文登记**存量特例**：存量分离式
+  // （`- residual:` 段 + 独立的 `- advice:` 段）的去向**以独立块呈现且含去向正文**，
+  // **不受**「待批准关闭期只给标记」约束。本卡有两个去向渲染点——合并式（缩进行，挂
+  // 在残留之下）与存量分离式（独立块）。2026-10-15 首版修复把两处**都**收了窄，正是
+  // 漏读该特例所致；故本守卫同时钉两个方向。
   const draft = readSource(DRAFT_CARD);
   assert.match(
     draft,
     /workCaseDirectionTextVisible\('awaiting_gate2'\)/,
     '待批准关闭卡须经分期纯函数取得本期的呈现决定，不得在组件内自判',
   );
-  const gated = draft.match(/showDirectionText &&/g) ?? [];
-  const rendered = draft.match(/stripCardMarkdown\(direction\.text\)/g) ?? [];
-  assert.equal(rendered.length, 2, '本卡有两处去向渲染点（合并式与存量分离式）');
   assert.equal(
-    gated.length,
-    rendered.length,
-    '每一处去向正文渲染都必须带分期门控——否则 21 §8（2026-09-29）的收窄被漏掉一半',
+    (draft.match(/stripCardMarkdown\(direction\.text\)/g) ?? []).length,
+    2,
+    '本卡应有两个去向渲染点（合并式与存量分离式）；少一个意味着某一路径被整体删掉',
+  );
+  assert.equal(
+    (draft.match(/showDirectionText &&/g) ?? []).length,
+    1,
+    '分期门控只应作用于**合并式**一个渲染点——存量分离式的去向正文按已登记的存量特例照常呈现',
+  );
+  // 反向：存量分离式那一处须留有「不受收窄」的登记，防止后人「顺手统一」而重新过度收窄。
+  assert.match(
+    draft,
+    /存量特例|不受「只给标记」约束/,
+    '存量分离式渲染点须就地登记它不受本收窄约束（否则下一次统一改动会再次过度收窄）',
+  );
+});
+
+test('共享判据：分期纯函数须登记「只作用于合并式」这一例外边界', () => {
+  const stateModule = readSource(STATE_MODULE);
+  assert.match(
+    stateModule,
+    /存量特例|不受本收窄约束/,
+    '分期纯函数须在其文档里登记存量特例的边界——实现与注释同时漂移时至少注释侧留下痕迹',
+  );
+  assert.match(
+    stateModule,
+    /只对合并式那条路径|只作用于合并式/,
+    '分期纯函数须写明调用方只对合并式路径取该返回值',
   );
 });
 

@@ -87,7 +87,9 @@ export default function WorkCaseResultDraft({
 }: WorkCaseResultDraftProps) {
   const { t } = useI18n();
   const [residualExpanded, setResidualExpanded] = useState(false);
-  // 本卡只用于「待批准关闭」期；该期按 `21 §8`（2026-09-29 裁定）只给去向标记。
+  // 本卡只用于「待批准关闭」期；该期按 `21 §8`（2026-09-29）**对合并式**只给去向标记。
+  // 存量分离式是呈现契约登记的例外（`web/docs/10` §5「本表对既有承载的覆盖」），
+  // 其去向块含去向正文、不受本收窄约束——故门控只作用于下面的合并式渲染点。
   const showDirectionText = workCaseDirectionTextVisible('awaiting_gate2');
   const steps = Array.isArray(plan) ? plan : [];
   const rows = Array.isArray(checks) ? checks : [];
@@ -198,7 +200,9 @@ export default function WorkCaseResultDraft({
                   ? t(`objectList.workcaseAdvice.${direction.kind}` as LocaleKey)
                   : t('objectList.workcaseAdvice.unclassified')}
               </span>
-              {showDirectionText && <span>{stripCardMarkdown(direction.text)}</span>}
+              {/* 存量分离式属呈现契约登记的**存量特例**（`web/docs/10` §5）：
+                  其去向以独立块呈现**且含去向正文**，不受「待批准关闭期只给标记」约束。 */}
+              <span>{stripCardMarkdown(direction.text)}</span>
             </div>
           ))}
         </div>
