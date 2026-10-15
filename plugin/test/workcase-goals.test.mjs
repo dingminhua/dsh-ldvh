@@ -1,0 +1,265 @@
+// Host goal synchronization for WorkCase controlled writes (specs/21 §14).
+//
+// The host service is faked here: these tests pin the DECISION the plugin makes
+// for each write point and each current-goal state. What they cannot show is
+// that the real host behaves like the fake — the contract was read from the
+// host's own Inspect channel (`ctx.get("goals")`, create/get/edit/resume/pause/
+// complete/clear, GoalView{phase, activation, revision}), not inferred.
+
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+
+import {
+	GOALS_CONFLICT,
+	GOALS_UNAVAILABLE,
+	GOAL_WRITE_POINTS,
+	goalCarriesObject,
+	goalObjectiveFor,
+	resolveGoalsService,
+	syncWorkcaseGoal,
+} from '../lib/workcase-goals.js';
+
+const UID = '11112222-3333-4444-5555-666677778888';
+const OTHER = '99998888-7777-6666-5555-444433332222';
+const AGENT = { id: 'session-test' };
+
+/** A fake goals service that records every call and serves a scripted current goal. */
+function fakeGoals(current = undefined) {
+	const calls = [];
+	let state = current;
+	return {
+		calls,
+		get: (agent) => {
+			calls.push(['get', agent]);
+			return state;
+		},
+		create: (agent, request) => {
+			calls.push(['create', agent, request]);
+			state = { id: 'g-new', revision: 7, objective: request.objective, phase: 'active', activation: 'armed' };
+			return state;
+		},
+		edit: (agent, ref, request) => {
+			calls.push(['edit', agent, ref, request]);
+			state = { ...state, ...request, revision: ref.revision + 1 };
+			return state;
+		},
+		resume: (agent, ref) => {
+			calls.push(['resume', agent, ref]);
+			state = { ...state, phase: 'active', activation: 'armed', revision: ref.revision + 1 };
+			return state;
+		},
+		pause: (agent, ref) => {
+			calls.push(['pause', agent, ref]);
+			state = { ...state, phase: 'paused', activation: 'disarmed', revision: ref.revision + 1 };
+			return state;
+		},
+		complete: (agent, ref) => {
+			calls.push(['complete', agent, ref]);
+			state = { ...state, phase: 'complete', activation: 'disarmed', revision: ref.revision + 1 };
+			return state;
+		},
+		clear: (agent, ref) => {
+			calls.push(['clear', agent, ref]);
+			state = undefined;
+			return { id: ref.id, revision: ref.revision + 1 };
+		},
+	};
+}
+
+function ctxWith(goals) {
+	return { get: (key) => (key === 'goals' ? goals : undefined) };
+}
+
+function goalView(overrides = {}) {
+	return {
+		id: 'g-1',
+		revision: 3,
+		objective: goalObjectiveFor(UID, '某工单'),
+		phase: 'active',
+		activation: 'armed',
+		...overrides,
+	};
+}
+
+test('目标文本以规定形式承载对象标识', () => {
+	assert.equal(goalObjectiveFor(UID, '承重声明的撤除条件与机械守门'), `推进 workcase-${UID} 到 Gate 2（承重声明的撤除条件与机械守门）`);
+	assert.equal(goalCarriesObject(goalObjectiveFor(UID, 'x'), UID), true);
+	assert.equal(goalCarriesObject(goalObjectiveFor(OTHER, 'x'), UID), false);
+	assert.equal(goalCarriesObject(undefined, UID), false);
+});
+
+test('服务不可用：设置点 fail-closed 拒绝，收口点降级为 none 并如实报告（D1/D3，Human 2026-10-15 裁定）', async () => {
+	const cases = [
+		[undefined, 'no service context'],
+		[{}, 'no service context'],
+		[{ get: () => undefined }, 'ctx.get("goals") is undefined'],
+		[{ get: () => ({}) }, 'ctx.get("goals") is undefined'],
+		[{ get: () => { throw new Error('boom'); } }, 'boom'],
+	];
+	for (const [ctx, word] of cases) {
+		const resolved = resolveGoalsService(ctx);
+		assert.equal(resolved.ok, false, `service must be unavailable for ${JSON.stringify(ctx)}`);
+		assert.equal(resolved.code, GOALS_UNAVAILABLE);
+		assert.match(resolved.message, new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+		for (const point of ['approve', 'execute']) {
+			const synced = await syncWorkcaseGoal({ ctx, agent: AGENT, point, objectUid: UID, title: 't' });
+			assert.equal(synced.ok, false, `${point} 须拒绝`);
+			assert.equal(synced.code, GOALS_UNAVAILABLE);
+		}
+		// 收口点：不拒绝，但也不假装做过——降级必须可从结果读出。
+		for (const point of ['close', 'cancel', 'rebatch']) {
+			const synced = await syncWorkcaseGoal({ ctx, agent: AGENT, point, objectUid: UID, title: 't' });
+			assert.equal(synced.ok, true, `${point} 不得因目标服务不可用而拒绝收口`);
+			assert.equal(synced.action, 'none');
+			assert.equal(synced.detail.degraded, true, `${point} 须如实登记降级`);
+		}
+	}
+});
+
+test('取不到调用会话的 agent：设置点拒绝，收口点降级', async () => {
+	const goals = fakeGoals(undefined);
+	const setting = await syncWorkcaseGoal({ ctx: ctxWith(goals), agent: null, point: 'approve', objectUid: UID, title: 't' });
+	assert.equal(setting.ok, false);
+	assert.equal(setting.code, GOALS_UNAVAILABLE);
+	const closing = await syncWorkcaseGoal({ ctx: ctxWith(goals), agent: null, point: 'close', objectUid: UID, title: 't' });
+	assert.equal(closing.ok, true);
+	assert.equal(closing.action, 'none');
+	assert.equal(closing.detail.degraded, true);
+	assert.equal(goals.calls.length, 0, '不得在 agent 缺失时对服务做任何调用');
+});
+
+test('批准／接手：无当前目标即创建，目标文本含本对象标识', async () => {
+	for (const point of ['approve', 'execute']) {
+		const goals = fakeGoals(undefined);
+		const synced = await syncWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, point, objectUid: UID, title: '标题甲' });
+		assert.equal(synced.ok, true, `${point} 应成功`);
+		assert.equal(synced.action, 'created');
+		assert.deepEqual(goals.calls[1], ['create', AGENT, { objective: goalObjectiveFor(UID, '标题甲') }]);
+	}
+});
+
+test('批准／接手：当前目标已指向同一对象即复用（武装中且文本一致 = kept）', async () => {
+	for (const point of ['approve', 'execute']) {
+		const goals = fakeGoals(goalView());
+		const synced = await syncWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, point, objectUid: UID, title: '某工单' });
+		assert.equal(synced.ok, true);
+		assert.equal(synced.action, 'kept');
+		assert.equal(goals.calls.length, 1, '复用时只读不写');
+	}
+});
+
+test('批准／接手：同对象但解除武装或暂停／受阻时重新武装（resume）', async () => {
+	const cases = [
+		{ activation: 'disarmed' },
+		{ phase: 'paused', activation: 'disarmed' },
+		{ phase: 'blocked', activation: 'disarmed' },
+	];
+	for (const overrides of cases) {
+		const goals = fakeGoals(goalView(overrides));
+		const synced = await syncWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, point: 'execute', objectUid: UID, title: '某工单' });
+		assert.equal(synced.ok, true, JSON.stringify(overrides));
+		assert.equal(synced.action, 'resumed');
+		assert.deepEqual(goals.calls[1], ['resume', AGENT, { id: 'g-1', revision: 3 }]);
+	}
+});
+
+test('批准／接手：同对象但已完成时按契约重建（create 是唯一可替换已完成目标的动作）', async () => {
+	const goals = fakeGoals(goalView({ phase: 'complete', activation: 'disarmed' }));
+	const synced = await syncWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, point: 'approve', objectUid: UID, title: '新标题' });
+	assert.equal(synced.ok, true);
+	assert.equal(synced.action, 'recreated');
+	assert.deepEqual(goals.calls[1], ['create', AGENT, { objective: goalObjectiveFor(UID, '新标题') }]);
+});
+
+test('批准／接手：同对象、武装中但文本已变即改写（edit）', async () => {
+	const goals = fakeGoals(goalView());
+	const synced = await syncWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, point: 'approve', objectUid: UID, title: '改名之后' });
+	assert.equal(synced.ok, true);
+	assert.equal(synced.action, 'edited');
+	assert.deepEqual(goals.calls[1], ['edit', AGENT, { id: 'g-1', revision: 3 }, { objective: goalObjectiveFor(UID, '改名之后') }]);
+});
+
+test('冲突：设置点拒绝写入；收口点不做任何事——但两者都不得清除或覆盖他人目标（D1，Human 2026-10-15 裁定）', async () => {
+	for (const point of GOAL_WRITE_POINTS) {
+		const goals = fakeGoals(goalView({ objective: goalObjectiveFor(OTHER, '别的工单') }));
+		const synced = await syncWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, point, objectUid: UID, title: 't' });
+		if (point === 'approve' || point === 'execute') {
+			assert.equal(synced.ok, false, `${point} 遇他对象目标应拒绝`);
+			assert.equal(synced.code, GOALS_CONFLICT);
+		} else {
+			assert.equal(synced.ok, true, `${point} 不得因与他对象目标冲突而拒绝收口`);
+			assert.equal(synced.action, 'none');
+			assert.match(synced.detail.reason, /another object/);
+		}
+		assert.deepEqual(goals.calls, [['get', AGENT]], `${point} 只允许读取，不得清除或覆盖他人目标`);
+	}
+});
+
+test('收口·关闭：属于本对象的当前目标即完成（complete）', async () => {
+	const goals = fakeGoals(goalView());
+	const synced = await syncWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, point: 'close', objectUid: UID, title: '某工单' });
+	assert.equal(synced.ok, true);
+	assert.equal(synced.action, 'completed');
+	assert.deepEqual(goals.calls[1], ['complete', AGENT, { id: 'g-1', revision: 3 }]);
+});
+
+test('收口·取消：属于本对象的当前目标即清除（clear）', async () => {
+	const goals = fakeGoals(goalView());
+	const synced = await syncWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, point: 'cancel', objectUid: UID, title: '某工单' });
+	assert.equal(synced.ok, true);
+	assert.equal(synced.action, 'cleared');
+	assert.deepEqual(goals.calls[1], ['clear', AGENT, { id: 'g-1', revision: 3 }]);
+});
+
+test('收口·局部重批：属于本对象的当前目标即暂停（pause）', async () => {
+	const goals = fakeGoals(goalView());
+	const synced = await syncWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, point: 'rebatch', objectUid: UID, title: '某工单' });
+	assert.equal(synced.ok, true);
+	assert.equal(synced.action, 'paused');
+	assert.deepEqual(goals.calls[1], ['pause', AGENT, { id: 'g-1', revision: 3 }]);
+});
+
+test('收口三点：本无当前目标时是 none（不是失败——目标可能已由 Human 清除）', async () => {
+	for (const point of ['close', 'cancel', 'rebatch']) {
+		const goals = fakeGoals(undefined);
+		const synced = await syncWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, point, objectUid: UID, title: 't' });
+		assert.equal(synced.ok, true, `${point} 无目标应是 none`);
+		assert.equal(synced.action, 'none');
+		assert.equal(goals.calls.length, 1, '无目标时不得凭空创建');
+	}
+});
+
+test('收口三点：已处于目标态时保持幂等（不重复调用）', async () => {
+	const closeCase = fakeGoals(goalView({ phase: 'complete' }));
+	const closed = await syncWorkcaseGoal({ ctx: ctxWith(closeCase), agent: AGENT, point: 'close', objectUid: UID, title: 't' });
+	assert.equal(closed.action, 'none');
+
+	const rebatchCase = fakeGoals(goalView({ phase: 'paused', activation: 'disarmed' }));
+	const rebatched = await syncWorkcaseGoal({ ctx: ctxWith(rebatchCase), agent: AGENT, point: 'rebatch', objectUid: UID, title: 't' });
+	assert.equal(rebatched.action, 'none');
+});
+
+test('服务抛错即如实失败（不当作无目标）', async () => {
+	const goals = {
+		get: () => { throw new Error('registry says no'); },
+	};
+	const synced = await syncWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, point: 'approve', objectUid: UID, title: 't' });
+	assert.equal(synced.ok, false);
+	assert.equal(synced.code, 'workcase/goals_failed');
+	assert.match(synced.message, /registry says no/);
+
+	const throwingCreate = fakeGoals(undefined);
+	throwingCreate.create = () => { throw new Error('create refused'); };
+	const created = await syncWorkcaseGoal({ ctx: ctxWith(throwingCreate), agent: AGENT, point: 'approve', objectUid: UID, title: 't' });
+	assert.equal(created.ok, false);
+	assert.equal(created.code, 'workcase/goals_failed');
+});
+
+test('未知写入点与缺失对象标识被拒绝（不静默通过）', async () => {
+	const goals = fakeGoals(undefined);
+	const unknown = await syncWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, point: 'approve-ish', objectUid: UID, title: 't' });
+	assert.equal(unknown.ok, false);
+	const noUid = await syncWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, point: 'approve', objectUid: '', title: 't' });
+	assert.equal(noUid.ok, false);
+	assert.equal(goals.calls.length, 0);
+});

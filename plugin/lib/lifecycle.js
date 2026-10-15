@@ -81,6 +81,11 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           dshHomePath,
           workspaceRoot,
           sessionPersistence: () => ctx.get("sessionPersistence"),
+          // Host goal service (specs/10 §5.8, specs/21 §14 「宿主推进目标」): the
+          // getter is passed rather than a resolved value, so a composition
+          // without the service yields `undefined` at call time and the
+          // WorkCase write points fail closed instead of skipping the goal.
+          goals: () => ctx.get("goals"),
           // Delegation chain: the children Map is the data source for
           // ldvh_collect_subagent_results. Without it that tool is skipped by
           // its own guard (ldvh-tools.js: `deps.children !== undefined`) and

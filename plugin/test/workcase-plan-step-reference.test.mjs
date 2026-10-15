@@ -121,9 +121,13 @@ async function surface(base, draftOverrides = {}) {
   assert.ok(created.ok, `fixture draft must be created: ${JSON.stringify(created.error)}`);
 
   const { ctx, tools } = collectorCtx();
+  const goals = fakeGoalsService();
   registerWorkcaseTools(ctx, {
     dshHomePath: (...segments) => join(base, ...segments),
     sessionPersistence: sessionPersistenceWithRoutingLog(base),
+    // 宿主推进目标（21 §14）：写入点现在要求该服务存在，缺失即 fail-closed
+    // （见文件末尾那条守卫）。本工件用内存实现替代宿主服务。
+    goals: () => goals,
   });
   const write = tools.get("ldvh_workcase_write");
   assert.ok(write, "write tool must be registered");
@@ -133,6 +137,45 @@ async function surface(base, draftOverrides = {}) {
     factSourceRoot,
     objectUid: created.value.object_uid,
     exec: { agent: { session: { header: { cwd: projectDir } } } },
+    goals,
+    ctx,
+    tools,
+  };
+}
+
+/**
+ * 内存版宿主目标服务（契约取自宿主 Inspect 通道，`ctx.get("goals")`）。
+ * 只实现本文件用得到的四处：get / create / resume / complete。
+ */
+function fakeGoalsService() {
+  let current;
+  return {
+    current: () => current,
+    get: () => current,
+    create: (agent, request) => {
+      current = { id: "g-1", revision: 1, objective: request.objective, phase: "active", activation: "armed" };
+      return current;
+    },
+    edit: (agent, ref, request) => {
+      current = { ...current, ...request, revision: ref.revision + 1 };
+      return current;
+    },
+    resume: (agent, ref) => {
+      current = { ...current, phase: "active", activation: "armed", revision: ref.revision + 1 };
+      return current;
+    },
+    pause: (agent, ref) => {
+      current = { ...current, phase: "paused", activation: "disarmed", revision: ref.revision + 1 };
+      return current;
+    },
+    complete: (agent, ref) => {
+      current = { ...current, phase: "complete", activation: "disarmed", revision: ref.revision + 1 };
+      return current;
+    },
+    clear: (agent, ref) => {
+      current = undefined;
+      return { id: ref.id, revision: ref.revision + 1 };
+    },
   };
 }
 

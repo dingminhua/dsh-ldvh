@@ -51,6 +51,7 @@ import {
 import { currentRouteValues, currentSessionIdentity } from "./session-signature.js";
 import { authoritativeSignature, authoritativeSessionIdentity } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
+import { syncWorkcaseGoal, GOAL_WRITE_POINTS } from "./workcase-goals.js";
 import { join } from "node:path";
 import { registerWriteShapedTool } from "./host-seams.js";
 
@@ -140,6 +141,29 @@ async function sessionIdentityFor(deps, exec) {
   const carrier = authoritativeSessionIdentity({ ...identity.value, source: "host" });
   if (carrier === null) return { ok: false, reason: "the session record carries no usable identity" };
   return { ok: true, value: carrier };
+}
+
+/**
+ * 把一次受控写入与**本会话的宿主推进目标**对齐（specs/21 §14「宿主推进目标」）。
+ *
+ * 只在五个写入点生效（approve/execute 设置或恢复；close/cancel/rebatch 收口），
+ * 由工具层在**调用 writer 之前**执行：失败即拒绝本次写入（fail-closed），不留
+ * 下「对象前进了、目标没跟上」的半态。
+ *
+ * 目标文本须承载对象标识，故先做一次精确读取取标题——writer 内部也会读一次，
+ * 这次多读的代价换的是「拒绝发生在写之前」。
+ */
+async function syncGoalForWrite({ deps, exec, action, factSourceRoot, objectUid }) {
+  if (!GOAL_WRITE_POINTS.includes(action)) return { ok: true, action: "not-applicable", detail: {} };
+  const read = await readWorkcaseObject({ factSourceRoot, objectUid });
+  if (!read.ok) return { ok: true, action: "not-applicable", detail: { reason: "object unreadable; the writer reports it" } };
+  return syncWorkcaseGoal({
+    ctx: deps.goals === undefined ? undefined : { get: (key) => (key === "goals" ? deps.goals() : undefined) },
+    agent: exec?.agent,
+    point: action,
+    objectUid,
+    title: read.value.frontmatter.title,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -426,6 +450,31 @@ async function executeWriteObject(args, exec, deps) {
   // （approve/execute/record_review）与关闭门禁上起作用；read 类 action 不依赖它。
   // 各 action 分支按需 fail-closed，避免把身份缺失升级成整个写入面不可用。
   const ident = await sessionIdentityFor(deps, exec);
+
+  // 宿主推进目标（specs/21 §14「宿主推进目标」，接入形态见 specs/10 §5.8）：
+  // 五个写入点须与本会话的宿主目标保持一致，且**在写入之前**判定——
+  // 服务不可用、取不到本会话 agent、或当前目标指向**另一对象**时一律拒绝本次写入
+  // （fail-closed）。拒绝发生在 writer 之前，故不会留下「对象前进了、目标没跟上」
+  // 的半态；收口点遇「本无目标」是 none 而非失败（目标可能已由 Human 清除）。
+  let goalSync = { ok: true, action: "not-applicable", detail: {} };
+  if (GOAL_WRITE_POINTS.includes(action)) {
+    const goalUid = requireString(args, "object_uid", action);
+    if (goalUid !== null) {
+      goalSync = await syncGoalForWrite({ deps, exec, action, factSourceRoot, objectUid: goalUid });
+      if (!goalSync.ok) {
+        return envelope("workcase-write-object", "rejected", {
+          result: { goal: { ok: false, code: goalSync.code, message: goalSync.message } },
+          scope: { requested: action, completed: [], not_completed: [goalUid] },
+          sources: [{ kind: "host-service", path: "goals" }],
+          gaps: [`${goalSync.code}: ${goalSync.message}`],
+          verification: { checks: ["governance-scope", "signature-source", "host-goal-consistency"], passed: false },
+          follow_up: [
+            "resolve the host goal conflict or make the goals service available, then retry — the object was NOT written"
+          ]
+        });
+      }
+    }
+  }
 
   let result;
   if (action === "create") {
@@ -788,10 +837,15 @@ async function executeWriteObject(args, exec, deps) {
       ...(result.value.plan_step_reference === undefined
         ? {}
         : { plan_step_reference: result.value.plan_step_reference }),
+      // 宿主推进目标这一步必须**从结果中可读**（与上文 create 的次序纪律同理）：
+      // 只把结果留在日志里，读者无法从信封看出「目标是否真的与对象对齐」。
+      goal: goalSync,
     },
     scope: {
       requested: args.action,
-      completed: isCreate ? ["pre-mechanical-check", "human-routing", args.action, "read-back"] : [args.action, "read-back"],
+      completed: isCreate
+        ? ["pre-mechanical-check", "human-routing", args.action, "read-back"]
+        : [args.action, "read-back", ...(GOAL_WRITE_POINTS.includes(args.action) ? ["host-goal"] : [])],
       not_completed: [],
     },
     sources: [{ kind: "fact-object", path: result.value.file, content_fingerprint: result.value.fingerprint }],
