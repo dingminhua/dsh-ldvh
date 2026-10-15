@@ -1097,3 +1097,83 @@ test("GUIDANCE_SECTION_NAME and ORDER are exported constants", () => {
 	assert.equal(typeof GUIDANCE_SECTION_ORDER, "number");
 	assert.ok(GUIDANCE_SECTION_ORDER > 0);
 });
+
+// ----- load-bearing declaration protection (01 §7 末段; 09 §5.3 item 6) -----
+//
+// The precheck entry must reach the SAME verdict as the Git Gate for the same
+// candidate (09 §5.5: one validator, no second rule set); the gate's own
+// spawn-level cases live in git-gate-runner.test.mjs, and these cover the
+// precheck adapter that reads HEAD and the Index itself.
+
+const DECLARATION_MARKER = "【承重声明】";
+const DECLARATION_RESOLUTION = "**恢复条件**：";
+
+function declarationSpec(resolution) {
+	return [
+		"# 13-承重声明示例",
+		"",
+		"## 7. 过渡",
+		"",
+		"| 依赖项 | 未满足时不得声称 | 替代保障 |",
+		"|---|---|---|",
+		`| ${DECLARATION_MARKER} 本文正文对 §7.2 的对齐 | 不得声称已完成对齐 | ${resolution} |`,
+		"",
+	].join("\n");
+}
+
+async function stagedDeclarationRepo(base) {
+	const home = join(base, "home");
+	const root = await initRepo(base);
+	await writeSpecsTree(root);
+	await writeFile(join(root, "specs", "13-承重声明示例.md"), declarationSpec(`${DECLARATION_RESOLUTION}完成后删除本行`));
+	await git(root, ["add", "-A"]);
+	await git(root, ["commit", "-qm", "base"]);
+	const head = await git(root, ["rev-parse", "HEAD"]);
+	await registerProject(dshHome(home), { id: "demo", path: root });
+	await writeFile(join(root, "specs", "13-承重声明示例.md"), declarationSpec("**无**——须按判据逐处核对"));
+	await git(root, ["add", "specs/13-承重声明示例.md"]);
+	const logPath = await writeSessionLog(base, "session-declaration.jsonl", [
+		{ type: "model/selection", data: { provider: "deepseek-harness", model: "test" } },
+	]);
+	const deps = { dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => stubSessionPersistence(logPath) };
+	return { root, head, deps };
+}
+
+test("precheck-git-commit fails when a staged edit strips a declaration's 恢复条件 element", async () => {
+	await withTemp("ldvh-tools.", async (base) => {
+		const { root, deps } = await stagedDeclarationRepo(base);
+		const message = [
+			"docs(specs): 调整承重声明示例",
+			"",
+			"关键变更:",
+			"- specs/13-承重声明示例.md: 调整对齐列的表述",
+			"",
+			"LDVH-Provider: deepseek-harness",
+			"LDVH-Model: test",
+		].join("\n");
+		const { handlers } = makeExec(deps);
+		const envelope = await handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: root } } } });
+		assertEnvelopeShape(envelope, "precheck-git-commit", "completed");
+		assert.equal(envelope.result.mechanical_outcome, "failed");
+		assert.ok(envelope.result.issues.some((issue) => issue.rule === "validation/load_bearing_resolution_missing"));
+	});
+});
+
+test("precheck-git-commit passes the same edit when a 关键变更 item carries a resolvable reference", async () => {
+	await withTemp("ldvh-tools.", async (base) => {
+		const { root, head, deps } = await stagedDeclarationRepo(base);
+		const message = [
+			"docs(specs): 调整承重声明示例",
+			"",
+			"关键变更:",
+			`- specs/13-承重声明示例.md: 调整对齐列表述（独立复核 ${head} 已确认范围关闭）`,
+			"",
+			"LDVH-Provider: deepseek-harness",
+			"LDVH-Model: test",
+		].join("\n");
+		const { handlers } = makeExec(deps);
+		const envelope = await handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: root } } } });
+		assertEnvelopeShape(envelope, "precheck-git-commit", "completed");
+		assert.equal(envelope.result.mechanical_outcome, "passed");
+	});
+});

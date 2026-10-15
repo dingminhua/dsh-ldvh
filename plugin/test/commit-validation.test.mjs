@@ -23,6 +23,13 @@ import {
 	extractDocsReferences,
 	isTemporaryDocsPath,
 	isSpecOrFactCarrierPath,
+	checkLoadBearingDeclarations,
+	collectDeclarationReferenceTokens,
+	extractLoadBearingUnits,
+	isSpecCarrierPath,
+	LOAD_BEARING_MARKER,
+	LOAD_BEARING_RESOLUTION_LABEL,
+	LOAD_BEARING_RULES,
 } from "../lib/commit-validation.js";
 
 /** A canonical, fully-legal commit message. */
@@ -379,6 +386,9 @@ test("GATE_RULES registers every rule the validator emits, each with severity an
 		"facts/norm_direction_collision",
 		"facts/norm_carrier_unparseable",
 		"validation/docs_reference_dangling",
+		"validation/load_bearing_declaration_removed",
+		"validation/load_bearing_resolution_missing",
+		"validation/load_bearing_baseline_unreadable",
 	];
 	assert.deepEqual(Object.keys(GATE_RULES).sort(), expected.sort());
 	for (const entry of Object.values(GATE_RULES)) {
@@ -616,4 +626,108 @@ test("checkDocsReferences ignores docs/ references in implementation carriers", 
 
 test("docs_reference_dangling is registered in the K1 rule registry", () => {
 	assert.equal(GATE_RULES["validation/docs_reference_dangling"].severity, "blocking");
+});
+
+// ---------------------------------------------------------------------------
+// Load-bearing declaration protection (01 §7 末段; 09 §5.3 item 6)
+//
+// The five classes the workcase's scope names, one test each, plus the
+// boundary assertions the rule states about itself. Class 2 replays the
+// incident this implements: the declaration kept its marker and its
+// prohibition but lost its 恢复条件 sub-element, and the removal went
+// undetected.
+// ---------------------------------------------------------------------------
+
+const declarationUnit = (subject, resolution) =>
+	`| ${LOAD_BEARING_MARKER} ${subject} | 不得声称本文已完成对齐 | ${resolution ?? "**无**——须按判据逐处核对"} |`;
+
+const specCarrier = (content, baseline) => [{ path: "specs/21-WorkCase 工单.md", content, baseline }];
+
+const messageWith = (items) =>
+	["docs(x): y", "", "关键变更:", ...items.map((item) => `- ${item}`), "", "LDVH-Provider: p", "LDVH-Model: m"].join("\n");
+
+const SUBJECT = "本文正文对 §7.2 状态禁令的对齐";
+const WITH_RESOLUTION = declarationUnit(SUBJECT, `${LOAD_BEARING_RESOLUTION_LABEL}完成后删除本行`);
+
+test("class 1: a declaration present at HEAD but absent from the candidate is refused", () => {
+	const result = checkLoadBearingDeclarations(specCarrier("| 本文正文对 §7.2 的对齐 | 已完成 |\n", WITH_RESOLUTION), {
+		message: messageWith(["specs/21-WorkCase 工单.md: 调整表格行"]),
+	});
+	assert.equal(result.ok, false);
+	assert.deepEqual(result.issues.map((issue) => issue.rule), [LOAD_BEARING_RULES.removed]);
+});
+
+test("class 2: dropping the 恢复条件 sub-element is refused (the incident's own shape)", () => {
+	const result = checkLoadBearingDeclarations(specCarrier(declarationUnit(SUBJECT, undefined), WITH_RESOLUTION), {
+		message: messageWith(["specs/21-WorkCase 工单.md: 调整列表述"]),
+	});
+	assert.equal(result.ok, false);
+	assert.deepEqual(result.issues.map((issue) => issue.rule), [LOAD_BEARING_RULES.resolutionMissing]);
+});
+
+test("class 3: a resolvable independent-review reference lets the change through", () => {
+	const reference = "0ac049b5-68e2-4873-a545-f5e647c249b9";
+	const result = checkLoadBearingDeclarations(specCarrier(declarationUnit(SUBJECT, undefined), WITH_RESOLUTION), {
+		message: messageWith([`specs/21-WorkCase 工单.md: 调整列表述，独立复核 ${reference}`]),
+		resolvable: new Set([reference]),
+	});
+	assert.equal(result.ok, true);
+	assert.equal(result.exemption, reference);
+});
+
+test("class 4: an unresolvable reference exempts nothing", () => {
+	const result = checkLoadBearingDeclarations(specCarrier(declarationUnit(SUBJECT, undefined), WITH_RESOLUTION), {
+		message: messageWith(["specs/21-WorkCase 工单.md: 调整列表述，独立复核 deadbeefdeadbeef"]),
+		resolvable: new Set(),
+	});
+	assert.equal(result.ok, false);
+	assert.deepEqual(result.issues.map((issue) => issue.rule), [LOAD_BEARING_RULES.resolutionMissing]);
+});
+
+test("class 5: an undecidable baseline fails closed rather than passing", () => {
+	const result = checkLoadBearingDeclarations([], {
+		message: messageWith(["specs/21-WorkCase 工单.md: 调整表格行"]),
+		unreadable: ["specs/21-WorkCase 工单.md"],
+	});
+	assert.equal(result.ok, false);
+	assert.deepEqual(result.issues.map((issue) => issue.rule), [LOAD_BEARING_RULES.baselineUnreadable]);
+});
+
+test("scope: only specs/ carriers are governed; implementation carriers are out of scope", () => {
+	const carrier = [{ path: "plugin/lib/x.js", content: "// 【承重声明】 x\n", baseline: WITH_RESOLUTION }];
+	const result = checkLoadBearingDeclarations(carrier, { message: messageWith(["plugin/lib/x.js: 新增脚本"]) });
+	assert.equal(result.ok, true);
+	assert.equal(isSpecCarrierPath("plugin/lib/x.js"), false);
+	assert.equal(isSpecCarrierPath("specs/01-x.md"), true);
+});
+
+test("units: the anchor survives edits inside a declaration and marker-only lines carry no unit", () => {
+	const units = extractLoadBearingUnits(`${WITH_RESOLUTION}\n| ${LOAD_BEARING_MARKER} |\n`);
+	assert.equal(units.length, 1);
+	assert.equal(units[0].anchor, SUBJECT);
+	assert.equal(units[0].hasResolution, true);
+});
+
+test("references: only tokens inside 关键变更 items count, and both forms are collected", () => {
+	const tokens = collectDeclarationReferenceTokens(
+		["docs(x): y", "", "关键变更:", "- specs/01.md: 改，复核 0ac049b5-68e2-4873-a545-f5e647c249b9", "- specs/02.md: 见 abc1234", "", "正文外的 0badc0de 不算", "LDVH-Provider: p"].join("\n")
+	);
+	assert.deepEqual(tokens.sort(), ["0ac049b5-68e2-4873-a545-f5e647c249b9", "abc1234"].sort());
+});
+
+test("BOUNDARY: weakening a declaration while keeping marker and resolution is NOT caught here", () => {
+	// The rule's own stated limit, asserted so a green suite cannot be read as
+	// "load-bearing declarations are semantically protected": the mechanical
+	// check proves only that a resolvable reference was carried.
+	const weakened = `| ${LOAD_BEARING_MARKER} ${SUBJECT} | 尽量不对齐 | ${LOAD_BEARING_RESOLUTION_LABEL}也许某天 |`;
+	const result = checkLoadBearingDeclarations(specCarrier(weakened, WITH_RESOLUTION), {
+		message: messageWith(["specs/21-WorkCase 工单.md: 弱化表述"]),
+	});
+	assert.equal(result.ok, true);
+});
+
+test("registered: every load-bearing rule is in the K1 registry as blocking", () => {
+	for (const rule of Object.values(LOAD_BEARING_RULES)) {
+		assert.equal(GATE_RULES[rule].severity, "blocking");
+	}
 });

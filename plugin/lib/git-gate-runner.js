@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER } from "./commit-validation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -130,6 +130,82 @@ async function collectChangedCarriers(worktree, message, diff, indexFile) {
 }
 
 /**
+ * Carriers for the load-bearing declaration check (01 §7 末段, 09 §5.3 item 6).
+ *
+ * Scope is the CHANGED spec paths: a declaration can only disappear from a
+ * carrier this commit touches, so scanning every spec file would be cost
+ * without a finding. Deletions are included on purpose — deleting a spec file
+ * removes every declaration in it, which is exactly what the rule governs.
+ *
+ * A read that fails for a path its own tree listing DOES name is reported as
+ * unreadable rather than silently read as "no declarations": the check has to
+ * fail closed there (09 §5.3 item 6), and "I could not read the baseline" is
+ * not the same fact as "the baseline had no declarations".
+ */
+async function collectLoadBearingDeclarations(worktree, changedPaths, indexFile) {
+  const carriers = [];
+  const unreadable = [];
+  const headPaths = await treePaths(worktree, ["ls-tree", "-r", "--name-only", "HEAD", "--", "specs"], indexFile, "\n");
+  const indexPaths = await treePaths(worktree, ["ls-files", "--cached", "-z", "--", "specs"], indexFile, "\0");
+  const knownPaths = new Set([...headPaths, ...indexPaths, ...(await allFactPaths(worktree, indexFile))]);
+  for (const path of changedPaths) {
+    if (!isSpecCarrierPath(path)) continue;
+    let baseline = "";
+    try {
+      baseline = await git(worktree, ["show", `HEAD:${path}`], indexFile);
+    } catch {
+      if (headPaths.has(path)) unreadable.push(path);
+    }
+    let content = "";
+    try {
+      content = await git(worktree, ["show", `:${path}`], indexFile);
+    } catch {
+      if (indexPaths.has(path)) unreadable.push(path);
+    }
+    // Nothing to compare and nothing at risk: skip without reading further.
+    if (!baseline.includes(LOAD_BEARING_MARKER)) continue;
+    carriers.push({ path, content, baseline });
+  }
+  return { carriers, unreadable, knownPaths };
+}
+
+/** Path listing for one Git query; an unreadable tree yields an empty set. */
+async function treePaths(worktree, args, indexFile, separator) {
+  try {
+    return new Set((await git(worktree, args, indexFile)).split(separator).filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+/** Fact carriers the repository already holds at HEAD or in the Index. */
+async function allFactPaths(worktree, indexFile) {
+  const head = await treePaths(worktree, ["ls-tree", "-r", "--name-only", "HEAD", "--", "ldvh-base"], indexFile, "\n");
+  const staged = await treePaths(worktree, ["ls-files", "--cached", "-z", "--", "ldvh-base"], indexFile, "\0");
+  return [...head, ...staged];
+}
+
+/**
+ * Can a 关键变更 reference token be resolved? Two forms are accepted (09 §5.3
+ * item 6): a commit hash reachable in this repository, or a fact object_uid
+ * that names a fact carrier the repository holds. Resolution is deliberately
+ * about EXISTENCE, not about content: whether the referenced conclusion really
+ * says what the committer implies stays a review/human question (the rule's
+ * stated boundary), and the check must not pretend otherwise.
+ */
+async function referenceResolvable(worktree, indexFile, token, knownPaths) {
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(token)) {
+    return [...knownPaths].some((path) => path.startsWith("ldvh-base/") && path.includes(token));
+  }
+  try {
+    await git(worktree, ["rev-parse", "--verify", "--quiet", `${token}^{commit}`], indexFile);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Every path the candidate tree would contain: the staged Index plus
  * working-tree files this commit does not remove. Used as the existence
  * oracle for docs/ references (09 §5.3 item 5) — a reference is dangling
@@ -226,6 +302,21 @@ async function main(argv) {
     const candidatePaths = await candidateTreePaths(root, indexFile);
     const docsRefs = checkDocsReferences(changedCarriers, { exists: (p) => candidatePaths.has(p) });
     if (!docsRefs.ok) issues.push(...docsRefs.issues);
+  }
+
+  // 01 §7 末段 + 09 §5.3 item 6 (Human 2026-10-15): a load-bearing declaration
+  // must not be removed — nor stripped of its 恢复条件 element — without the
+  // commit carrying a resolvable independent-review reference. The rule exists
+  // because a declaration was once withdrawn on the strength of "the examples I
+  // named are done" while six further residues were still present.
+  const declarations = await collectLoadBearingDeclarations(root, correspondence.changedPaths ?? [], indexFile);
+  if (declarations.carriers.length > 0 || declarations.unreadable.length > 0) {
+    const resolvable = new Set();
+    for (const token of collectDeclarationReferenceTokens(message)) {
+      if (await referenceResolvable(root, indexFile, token, declarations.knownPaths)) resolvable.add(token);
+    }
+    const outcome = checkLoadBearingDeclarations(declarations.carriers, { message, resolvable, unreadable: declarations.unreadable });
+    if (!outcome.ok) issues.push(...outcome.issues);
   }
 
   if (issues.length > 0) {

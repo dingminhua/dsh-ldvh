@@ -22,7 +22,7 @@ import { resolveGovernanceScope } from "./governance-scope.js";
 import { evaluateRegistrationEntry, registerProjectFromEntry, unregisterProject } from "./governed-projects.js";
 import { bindMembershipEvidence } from "./membership-evidence.js";
 import { currentRouteValues } from "./session-signature.js";
-import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER } from "./commit-validation.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
 import { registerResearchTools } from "./research-tools.js";
 import { registerSparkTools } from "./spark-tools.js";
@@ -567,6 +567,12 @@ function makeExecute(deps) {
     // one validator, no second rule set) — both entries share these helpers.
     const docsRefs = await checkDocsReferencesForIndex(governed.project.path, correspondence.changedPaths ?? []);
     if (!docsRefs.ok) issues.push(...docsRefs.issues);
+    // 01 §7 末段 + 09 §5.3 item 6 (Human 2026-10-15): a load-bearing
+    // declaration must not be removed — nor stripped of its 恢复条件 element —
+    // without the commit carrying a resolvable independent-review reference.
+    // Mirrors the Git Gate through the SAME validator (09 §5.5).
+    const declarations = await checkLoadBearingDeclarationsForIndex(governed.project.path, correspondence.changedPaths ?? [], message);
+    if (!declarations.ok) issues.push(...declarations.issues);
     // Signature values must trace back to the authoritative session record.
     const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
     const signatureCheck = checkSignatureAgainstRoute(message, route);
@@ -670,6 +676,70 @@ function makeExecute(deps) {
       carriers.push({ path, content, baseline });
     }
     return checkDocsReferences(carriers, { exists: (p) => candidates.has(p) });
+  }
+
+  /**
+   * Load-bearing declaration check over the staged Index (01 §7 末段,
+   * 09 §5.3 item 6). Same scope and same fail-closed line as the Git Gate's
+   * collector, routed through the SAME validator — 09 §5.5 forbids the two
+   * entries from holding different rule sets, so only the Git reads differ.
+   */
+  async function checkLoadBearingDeclarationsForIndex(projectPath, changedPaths, message) {
+    const runGit = async (args) => {
+      const result = await execFileAsync("git", ["-C", projectPath, ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024, env: cleanGitEnvironment() });
+      return result.stdout;
+    };
+    const listPaths = async (args, separator) => {
+      try {
+        return new Set((await runGit(args)).split(separator).filter(Boolean));
+      } catch {
+        return new Set();
+      }
+    };
+    const headPaths = await listPaths(["ls-tree", "-r", "--name-only", "HEAD", "--", "specs"], "\n");
+    const indexPaths = await listPaths(["ls-files", "--cached", "-z", "--", "specs"], "\0");
+    const factPaths = [
+      ...(await listPaths(["ls-tree", "-r", "--name-only", "HEAD", "--", "ldvh-base"], "\n")),
+      ...(await listPaths(["ls-files", "--cached", "-z", "--", "ldvh-base"], "\0"))
+    ];
+    const carriers = [];
+    const unreadable = [];
+    for (const path of changedPaths) {
+      if (!isSpecCarrierPath(path)) continue;
+      let baseline = "";
+      try {
+        baseline = await runGit(["show", `HEAD:${path}`]);
+      } catch {
+        // A path its own HEAD listing names but that cannot be read is an
+        // undecidable baseline — reported, never read as "no declarations".
+        if (headPaths.has(path)) unreadable.push(path);
+      }
+      let content = "";
+      try {
+        content = await runGit(["show", `:${path}`]);
+      } catch {
+        if (indexPaths.has(path)) unreadable.push(path);
+      }
+      if (!baseline.includes(LOAD_BEARING_MARKER)) continue;
+      carriers.push({ path, content, baseline });
+    }
+    if (carriers.length === 0 && unreadable.length === 0) return { ok: true, issues: [] };
+    const resolvable = new Set();
+    for (const token of collectDeclarationReferenceTokens(message)) {
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(token)) {
+        // A fact reference resolves only against carriers the repository
+        // holds — an untracked file is not part of what this commit lands.
+        if (factPaths.some((path) => path.startsWith("ldvh-base/") && path.includes(token))) resolvable.add(token);
+        continue;
+      }
+      try {
+        await runGit(["rev-parse", "--verify", "--quiet", `${token}^{commit}`]);
+        resolvable.add(token);
+      } catch {
+        // Unresolvable hash: it exempts nothing unless another token resolves.
+      }
+    }
+    return checkLoadBearingDeclarations(carriers, { message, resolvable, unreadable });
   }
 
   function checkSignatureAgainstRoute(message, route) {

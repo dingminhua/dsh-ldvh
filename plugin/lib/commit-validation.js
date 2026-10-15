@@ -57,7 +57,10 @@ export const GATE_RULES = Object.freeze({
   "git/index_empty": Object.freeze({ severity: "blocking", description: "candidate Index is empty" }),
   "facts/norm_direction_collision": Object.freeze({ severity: "blocking", description: "two or more ACTIVE Norm objects in ldvh-base/norms/ share one direction_key (27 §11 uniqueness second layer: the Git Gate traverses the index and refuses the commit)" }),
   "facts/norm_carrier_unparseable": Object.freeze({ severity: "blocking", description: "a staged ldvh-base/norms/norm-*.md carrier cannot be parsed for the direction_key uniqueness assertion — an unreadable carrier cannot be proven conflict-free, so the gate fails closed rather than passing it" }),
-  "validation/docs_reference_dangling": Object.freeze({ severity: "blocking", description: "a newly added or modified non-docs carrier references a docs/ path that does not exist in the candidate tree (09 §5.3 item 5, Human 2026-10-12: docs/ holds temporary documents only and must not be relied on as an authority)" })
+  "validation/docs_reference_dangling": Object.freeze({ severity: "blocking", description: "a newly added or modified non-docs carrier references a docs/ path that does not exist in the candidate tree (09 §5.3 item 5, Human 2026-10-12: docs/ holds temporary documents only and must not be relied on as an authority)" }),
+  "validation/load_bearing_declaration_removed": Object.freeze({ severity: "blocking", description: "a load-bearing declaration present at HEAD is absent from the candidate and no 关键变更 item carries a resolvable independent-review reference (01 §7 末段; 09 §5.3 item 6, Human 2026-10-15)" }),
+  "validation/load_bearing_resolution_missing": Object.freeze({ severity: "blocking", description: "a load-bearing declaration kept its marker but lost its 恢复条件 sub-element, and no 关键变更 item carries a resolvable independent-review reference (01 §7 末段; 09 §5.3 item 6)" }),
+  "validation/load_bearing_baseline_unreadable": Object.freeze({ severity: "blocking", description: "a carrier's HEAD baseline could not be read, so the load-bearing declaration comparison cannot decide — fails closed rather than passing (09 §5.3 item 6)" })
 });
 
 /** Mechanical-artifact exemption for the bidirectional coverage check
@@ -356,6 +359,146 @@ function parseNormCarrierFrontmatter(content) {
 }
 
 /** True when a repo-relative path is a Norm carrier this gate must inspect. */
+// ---------------------------------------------------------------------------
+// Load-bearing declaration protection
+// (specs/01 §7 末段「承重声明的撤除条件」 + specs/09 §5.3 item 6)
+//
+// The rule this implements: a declaration that states some scope is not yet
+// fulfilled — carrying a 「不得声称」-shaped prohibition as its requirement and
+// a resolution condition as its release — must not be removed or stripped of
+// its resolution element without the commit carrying a resolvable reference to
+// an independent review conclusion.
+//
+// HONEST BOUNDARY (stated here because the check's green result must not be
+// read as more than it is): this proves that the commit carried a resolvable
+// reference. It does NOT prove the reference is honest, and it does NOT prove
+// the declaration's scope is actually closed. A statement weakened while
+// keeping both the marker and the anchor is not caught here at all.
+// ---------------------------------------------------------------------------
+
+/** Fixed marker a load-bearing declaration carries at the head of its unit. */
+export const LOAD_BEARING_MARKER = "【承重声明】";
+
+/** Fixed label of the release sub-element a load-bearing declaration carries. */
+export const LOAD_BEARING_RESOLUTION_LABEL = "**恢复条件**：";
+
+export const LOAD_BEARING_RULES = Object.freeze({
+  removed: "validation/load_bearing_declaration_removed",
+  resolutionMissing: "validation/load_bearing_resolution_missing",
+  baselineUnreadable: "validation/load_bearing_baseline_unreadable"
+});
+
+/** The check's scope is spec carriers (09 §5.3 item 6: `specs/**`). */
+export function isSpecCarrierPath(path) {
+  return typeof path === "string" && path.startsWith("specs/");
+}
+
+/**
+ * Extract load-bearing units from one carrier text.
+ *
+ * The unit is one physical line: a table row is one line, and a paragraph
+ * declaration puts the marker at the head of its opening line. The unit key is
+ * what follows the marker up to the first structural delimiter — the
+ * declaration's own anchor (dependency name / clause subject), which is
+ * expected to survive editorial changes inside the declaration text.
+ */
+export function extractLoadBearingUnits(text) {
+  if (typeof text !== "string" || text.length === 0) return [];
+  const units = [];
+  for (const line of text.split("\n")) {
+    const at = line.indexOf(LOAD_BEARING_MARKER);
+    if (at < 0) continue;
+    const rest = line.slice(at + LOAD_BEARING_MARKER.length).trim();
+    const cut = rest.search(/[|｜：:]/);
+    const anchor = (cut >= 0 ? rest.slice(0, cut) : rest).replace(/\*\*|\s+/g, " ").trim().slice(0, 40);
+    if (anchor.length === 0) continue;
+    units.push({ anchor, hasResolution: line.includes(LOAD_BEARING_RESOLUTION_LABEL) });
+  }
+  return units;
+}
+
+const REFERENCE_UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+const REFERENCE_COMMIT_PATTERN = /(?<![0-9a-f])[0-9a-f]{7,40}(?![0-9a-f])/g;
+
+/**
+ * Collect the reference tokens a message's 关键变更 items offer as the
+ * independent-review reference. Extraction is pure; resolution is the
+ * caller's (it needs git and the fact store) — same split as the docs/ check's
+ * injected `exists`.
+ */
+export function collectDeclarationReferenceTokens(message) {
+  const lines = String(message ?? "").replace(/\r\n/g, "\n").split("\n");
+  const keyIndex = lines.findIndex((line) => line === "关键变更:");
+  if (keyIndex === -1) return [];
+  const tokens = new Set();
+  for (const line of lines.slice(keyIndex + 1)) {
+    if (line === "关键变更:") break; // a second section is validateMessage's business
+    if (!line.startsWith("- ")) continue;
+    const text = line.slice(2);
+    // UUID spans first, then bare hashes OUTSIDE those spans: a UUID contains
+    // hyphen-separated hex runs, and a hash pattern alone would read its
+    // fragments ("0ac049b5", "f5e647c249b9") as separate references.
+    const spans = [];
+    for (const match of text.matchAll(REFERENCE_UUID_PATTERN)) {
+      tokens.add(match[0]);
+      spans.push([match.index, match.index + match[0].length]);
+    }
+    for (const match of text.matchAll(REFERENCE_COMMIT_PATTERN)) {
+      const start = match.index;
+      const end = start + match[0].length;
+      if (spans.some(([from, to]) => start < to && end > from)) continue;
+      tokens.add(match[0]);
+    }
+  }
+  return [...tokens];
+}
+
+/**
+ * specs/09 §5.3 item 6. `carriers` are `{path, content, baseline}` where
+ * `baseline` is the declaration source at HEAD and `content` the candidate
+ * bytes; `unreadable` lists paths whose baseline could not be read (they fail
+ * closed); `resolvable` is a Set of reference tokens the caller confirmed
+ * resolvable (or a sync predicate).
+ */
+export function checkLoadBearingDeclarations(carriers, { message, resolvable, unreadable } = {}) {
+  const issues = [];
+  for (const path of Array.isArray(unreadable) ? unreadable : []) {
+    issues.push(newFinding(
+      LOAD_BEARING_RULES.baselineUnreadable,
+      `baseline unreadable for ${path}: the load-bearing declaration check cannot decide, and fails closed (09 §5.3 item 6)`,
+      null
+    ));
+  }
+  const isResolvable = typeof resolvable === "function"
+    ? resolvable
+    : (token) => resolvable instanceof Set && resolvable.has(token);
+  const exemption = collectDeclarationReferenceTokens(message).find((token) => isResolvable(token)) ?? null;
+  if (exemption !== null) return { ok: issues.length === 0, issues, exemption };
+  for (const carrier of Array.isArray(carriers) ? carriers : []) {
+    if (!isSpecCarrierPath(carrier?.path)) continue;
+    const base = extractLoadBearingUnits(carrier.baseline);
+    if (base.length === 0) continue;
+    const byAnchor = new Map(extractLoadBearingUnits(carrier.content).map((unit) => [unit.anchor, unit]));
+    for (const unit of base) {
+      const found = byAnchor.get(unit.anchor);
+      if (found === undefined) {
+        issues.push(newFinding(
+          LOAD_BEARING_RULES.removed,
+          `${carrier.path}: 承重声明「${unit.anchor}」 is present at HEAD but absent from the candidate — removing or rewriting a load-bearing declaration requires a resolvable independent-review reference in a 关键变更 item (01 §7 末段; 09 §5.3 item 6)`,
+          null
+        ));
+      } else if (!found.hasResolution) {
+        issues.push(newFinding(
+          LOAD_BEARING_RULES.resolutionMissing,
+          `${carrier.path}: 承重声明「${unit.anchor}」 lost its ${LOAD_BEARING_RESOLUTION_LABEL} sub-element — same requirement as removal (01 §7 末段; 09 §5.3 item 6)`,
+          null
+        ));
+      }
+    }
+  }
+  return { ok: issues.length === 0, issues, exemption: null };
+}
+
 export function isNormCarrierPath(path) {
   return path.startsWith(`${NORM_FACT_DIRECTORY}/`) && /\/norm-[^/]+\.md$/.test(path);
 }
