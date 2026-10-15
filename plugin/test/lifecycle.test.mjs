@@ -955,3 +955,39 @@ test("child: subagent/end for an unknown id is ignored (no cross-child contamina
 		assert.equal(registry.childConclusionOf("child"), null, "非本子代理的 end 事件必须被忽略");
 	});
 });
+
+test("pre-step onTurnStart：每回合第一次 step 跑一次、受管辖时；非受管辖不跑", async () => {
+	// 接线守卫：21 §14「以及该会话续接本对象」要求「会话继续干活」时把在办工单的目标
+	// 恢复武装。该义务只能挂在这个缝上——此前它只写在规范里、代码不做（2026-10-15 发现）。
+	const agent = makeAgent("s1", "/cwd");
+	const enter = { kind: "enter", messages: [{ role: "user", content: [] }] };
+	let calls = 0;
+	const channel = createPreStepHandler(agent, { isGoverned: () => true, onTurnStart: async () => { calls += 1; } });
+
+	await channel.handler({ agent, step: 2, signal: {} }, async () => enter);
+	assert.equal(calls, 0, "非第一步不跑");
+	await channel.handler({ agent, step: 1, signal: {} }, async () => enter);
+	assert.equal(calls, 1, "第一步跑一次");
+	await channel.handler({ agent, step: 1, signal: {} }, async () => enter);
+	assert.equal(calls, 2, "下一回合的第一步再跑一次（每回合一次）");
+
+	let governedCalls = 0;
+	const ungoverned = createPreStepHandler(makeAgent("s2", "/cwd"), { isGoverned: () => false, onTurnStart: async () => { governedCalls += 1; } });
+	await ungoverned.handler({ agent, step: 1, signal: {} }, async () => enter);
+	assert.equal(governedCalls, 0, "非受管辖不跑（环境检查只服务受管辖会话）");
+});
+
+test("pre-step onTurnStart：抛错不得拦住回合，也不得静默吞掉", async () => {
+	const agent = makeAgent("s1", "/cwd");
+	const enter = { kind: "enter", messages: [{ role: "user", content: [] }] };
+	const warned = [];
+	agent.ctx = { logger: { warn: (line) => warned.push(line) } };
+	const channel = createPreStepHandler(agent, {
+		isGoverned: () => true,
+		onTurnStart: async () => { throw new Error("goals service exploded"); },
+	});
+	const decision = await channel.handler({ agent, step: 1, signal: {} }, async () => enter);
+	assert.equal(decision.kind, "enter", "回合照常进行");
+	assert.equal(warned.length, 1, "失败须留下日志，不是无声吞掉");
+	assert.match(warned[0], /goals service exploded/);
+});

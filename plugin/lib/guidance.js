@@ -168,7 +168,7 @@ function createPluginMessage(text, summary) {
   };
 }
 
-export function createPreStepHandler(agent, { isGoverned, channel, noticeText, noticeSummary } = {}) {
+export function createPreStepHandler(agent, { isGoverned, channel, noticeText, noticeSummary, onTurnStart } = {}) {
   const agentId = agent?.id ?? agent?.session?.header?.id;
   // Channel state lives on the AgentLifecycle object (single per-agent
   // home); fall back to a local state for direct/test usage without one.
@@ -177,6 +177,10 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
   // assemble handler's recordScope). Injected as a visible row when it
   // differs from the last injected digest.
   const getNoticeText = typeof noticeText === "function" ? noticeText : () => null;
+  // onTurnStart(): **环境性**检查，每回合第一次 step 跑一次、受管辖时（21 §14
+  // 「以及该会话续接本对象」）。它不产出任何上下文行，也不得影响本回合的进行：
+  // 抛错只记日志——「会话继续干活」不该被环境检查拦住。
+  const runOnTurnStart = typeof onTurnStart === "function" ? onTurnStart : null;
   return {
     /** session-start hook: prime the channel (mnemon primePending shape). */
     prime() { state.primePending = true; },
@@ -200,6 +204,15 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
       const decision = await next();
       if (decision.kind === "reject" || payload.signal?.aborted === true) return decision;
       if (payload.step !== 1) return decision;
+      // 环境性检查（每回合一次，先于通知行——它与可见行无关，也不依赖判定文本）。
+      if (runOnTurnStart !== null && isGoverned?.() === true) {
+        try {
+          await runOnTurnStart();
+        } catch (error) {
+          // 不让它拦住回合；如实记日志而不是静默吞掉。
+          agent?.ctx?.logger?.warn?.(`ldvh: turn-start check failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
       const currentNotice = getNoticeText();
       state.primePending = false;
       if (currentNotice === null || currentNotice === "") return decision;

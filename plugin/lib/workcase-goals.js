@@ -172,3 +172,66 @@ export async function syncWorkcaseGoal({ ctx, agent, point, objectUid, title }) 
     return settingPoint ? failed(error) : degrade(`the host goals service call failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
+
+/**
+ * 该会话的**当前目标是否承载某个工单**？返回其 object_uid，或 null。
+ *
+ * 目标文本是唯一承载对象标识之处（形如 `推进 workcase-<uid> 到 Gate 2（<title>）`），
+ * 故这条解析是「本会话在办哪一单」的读取口径——不靠另立登记表（01 §7.2：不建第二账本）。
+ */
+export function workcaseUidFromObjective(objective) {
+  if (typeof objective !== "string") return null;
+  const match = objective.match(/workcase-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/);
+  return match === null ? null : match[1];
+}
+
+/**
+ * 接手侧的环境检查（`21 §14`「以及该会话续接本对象」）——**在会话继续干活时**把
+ * 已在办工单的宿主目标恢复到武装状态。
+ *
+ * 与 `syncWorkcaseGoal` 的分工：后者是**受控写入当次**的机械副作用（写之前判定、
+ * 失败即拒绝写入）；本函数是**环境性**的——它不由任何一次写入触发，也**不拒绝
+ * 任何动作**（会话继续干活不该因为宿主目标服务不可用而被拦住）。故：
+ *
+ * - 服务不可用、会话身份取不到、目标读不到 → **什么都不做**并如实回报原因
+ *   （不是失败：本函数没有可拒绝的对象）；
+ * - 当前目标不承载工单、或所承载的工单**不在执行期**（`draft`／`closed`）→ 什么都不做。
+ *   后者是必须的：局部重批把执行期对象退回 `draft` 并**暂停**其目标，此时「续接」
+ *   若一律重新武装，就等于无声撤销了那次暂停；
+ * - 仅在目标属于**执行期（`open`）**工单、且其处于解除武装或暂停／受阻时，才 resume。
+ */
+export async function rearmInFlightWorkcaseGoal({ ctx, agent, readWorkcaseStatus }) {
+  const service = resolveGoalsService(ctx);
+  if (!service.ok) return { ok: true, action: "none", detail: { reason: service.message } };
+  if (agent === null || agent === undefined) {
+    return { ok: true, action: "none", detail: { reason: "the calling session's agent could not be resolved" } };
+  }
+  let current;
+  try {
+    current = service.value.get(agent);
+  } catch (error) {
+    return { ok: true, action: "none", detail: { reason: `the host goals service call failed: ${error instanceof Error ? error.message : String(error)}` } };
+  }
+  if (current === null || current === undefined) return { ok: true, action: "none", detail: { reason: "no current goal" } };
+  const objectUid = workcaseUidFromObjective(current.objective);
+  if (objectUid === null) return { ok: true, action: "none", detail: { reason: "the current goal does not carry a WorkCase" } };
+
+  let status;
+  try {
+    status = await readWorkcaseStatus(objectUid);
+  } catch {
+    status = null;
+  }
+  if (status !== "open") {
+    return { ok: true, action: "none", detail: { reason: `workcase-${objectUid} is not in its execution period (${JSON.stringify(status)})`, object_uid: objectUid } };
+  }
+  if (current.phase === "active" && current.activation === "armed") {
+    return { ok: true, action: "kept", detail: { object_uid: objectUid } };
+  }
+  try {
+    const view = service.value.resume(agent, { id: current.id, revision: current.revision });
+    return { ok: true, action: "rearmed", detail: { object_uid: objectUid, phase: view?.phase ?? null, activation: view?.activation ?? null } };
+  } catch (error) {
+    return { ok: true, action: "none", detail: { object_uid: objectUid, reason: `resume failed: ${error instanceof Error ? error.message : String(error)}` } };
+  }
+}

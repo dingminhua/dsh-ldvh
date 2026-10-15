@@ -26,6 +26,8 @@ import { registerLdvhTools } from "./ldvh-tools.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
 import { createTurnTriggers } from "./triggers.js";
+import { rearmInFlightWorkcaseGoal } from "./workcase-goals.js";
+import { readWorkcaseObject } from "./workcase-writer.js";
 import { runIdleCheckpoint } from "./idle-checkpoint.js";
 import { createDiscoveryProvider } from "./friction-discovery-provider.js";
 import { landDiscoveryVerdict, residualFromLandingError } from "./friction-landing.js";
@@ -283,6 +285,25 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       const onPreStep = createPreStepHandler(agent, {
         isGoverned: () => lifecycle.scopeState === "governed",
         channel: lifecycle.preStep,
+        // 接手侧的环境检查（21 §14「以及该会话续接本对象」）：会话继续干活时，把
+        // **已在办且处于执行期**的工单的宿主目标恢复到武装状态。与受控写入点的分工
+        // 见 workcase-goals.js：这里不拒绝任何动作（会话继续干活不该被环境检查拦住），
+        // 失败只记日志；工单不在执行期（draft／closed）时什么都不做——否则会把局部
+        // 重批对目标的暂停无声撤销。
+        onTurnStart: async () => {
+          const judged = lifecycle.lastScope;
+          const projectPath = judged?.project?.path;
+          if (typeof projectPath !== "string" || projectPath.length === 0) return;
+          const factSourceRoot = join(projectPath, "ldvh-base");
+          await rearmInFlightWorkcaseGoal({
+            ctx: { get: (key) => (key === "goals" ? ctx.get("goals") : undefined) },
+            agent,
+            readWorkcaseStatus: async (objectUid) => {
+              const read = await readWorkcaseObject({ factSourceRoot, objectUid });
+              return read.ok ? read.value.frontmatter.status : null;
+            }
+          });
+        },
         // Visible judgment row (Human 2026-09-04 "这里要能看到啊"): the
         // assemble handler updates noticeText on every judgement; the
         // pre-step injects it as a DSH-native context-injection row whenever

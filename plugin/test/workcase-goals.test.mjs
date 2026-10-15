@@ -11,6 +11,8 @@ import { test } from 'node:test';
 
 import {
 	GOALS_CONFLICT,
+	rearmInFlightWorkcaseGoal,
+	workcaseUidFromObjective,
 	GOALS_UNAVAILABLE,
 	GOAL_WRITE_POINTS,
 	goalCarriesObject,
@@ -262,4 +264,58 @@ test('未知写入点与缺失对象标识被拒绝（不静默通过）', async
 	const noUid = await syncWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, point: 'approve', objectUid: '', title: 't' });
 	assert.equal(noUid.ok, false);
 	assert.equal(goals.calls.length, 0);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 接手侧的环境检查（21 §14「以及该会话续接本对象」）
+//
+// 与受控写入点的分工：那条是「写之前判定、失败即拒绝写入」；本条是**环境性**的，
+// 不拒绝任何动作（会话继续干活不该被环境检查拦住），失败只回报原因。
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('目标文本是「本会话在办哪一单」的唯一读取口径', () => {
+	assert.equal(workcaseUidFromObjective(goalObjectiveFor(UID, 'x')), UID);
+	assert.equal(workcaseUidFromObjective('别的目标'), null);
+	assert.equal(workcaseUidFromObjective(undefined), null);
+});
+
+test('环境检查：执行期工单的目标解除武装时重新武装', async () => {
+	const goals = fakeGoals(goalView({ activation: 'disarmed' }));
+	const out = await rearmInFlightWorkcaseGoal({
+		ctx: ctxWith(goals), agent: AGENT,
+		readWorkcaseStatus: async () => 'open',
+	});
+	assert.equal(out.action, 'rearmed');
+	assert.deepEqual(goals.calls[1], ['resume', AGENT, { id: 'g-1', revision: 3 }]);
+});
+
+test('环境检查：武装中的执行期工单不动（kept）', async () => {
+	const goals = fakeGoals(goalView());
+	const out = await rearmInFlightWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, readWorkcaseStatus: async () => 'open' });
+	assert.equal(out.action, 'kept');
+	assert.equal(goals.calls.length, 1, '不得对已武装的目标做写操作');
+});
+
+test('环境检查：工单不在执行期时什么都不做——否则会无声撤销局部重批的暂停', async () => {
+	for (const status of ['draft', 'closed', null]) {
+		const goals = fakeGoals(goalView({ phase: 'paused', activation: 'disarmed' }));
+		const out = await rearmInFlightWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, readWorkcaseStatus: async () => status });
+		assert.equal(out.action, 'none', `status=${status} 须不做任何事`);
+		assert.equal(goals.calls.length, 1, '只读不写');
+	}
+});
+
+test('环境检查：目标不承载工单、无目标、服务不可用、身份缺失都只是 none（不拒绝、不抛）', async () => {
+	const cases = [
+		{ ctx: ctxWith(fakeGoals(goalView({ objective: '推进别的目标' }))), agent: AGENT, word: 'does not carry' },
+		{ ctx: ctxWith(fakeGoals(undefined)), agent: AGENT, word: 'no current goal' },
+		{ ctx: undefined, agent: AGENT, word: 'unavailable' },
+		{ ctx: ctxWith(fakeGoals(goalView())), agent: null, word: 'agent' },
+	];
+	for (const { ctx, agent, word } of cases) {
+		const out = await rearmInFlightWorkcaseGoal({ ctx, agent, readWorkcaseStatus: async () => 'open' });
+		assert.equal(out.ok, true, '环境检查不产生失败——它没有可拒绝的对象');
+		assert.equal(out.action, 'none');
+		assert.match(out.detail.reason, new RegExp(word, 'i'));
+	}
 });
