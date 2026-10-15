@@ -12,7 +12,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { testSignature, withTemp } from "./helpers.mjs";
 
@@ -37,6 +39,7 @@ import {
   validateWorkcaseBodyStructure,
   validateWorkcaseFrontmatter,
   validateDirectionCompleteness,
+  validateChecklistForm,
 } from "../lib/workcase-writer.js";
 import { authoritativeSignature, authoritativeSessionIdentity } from "../lib/signature-channel.js";
 
@@ -2768,7 +2771,7 @@ test("cancel: 非取消对象不要求取消记录（判据取 outcome，不误�
       objectUid: uid,
       expectedFingerprint: after.value.fingerprint,
       frontmatterAfter: after.value.frontmatter,
-      bodyMarkdownAfter: `${bodyWithoutH1(after.value.body)}\n\n## 结果\n\n- criteria_checks:\n  - 步骤 1 判据「x」：达成——证据：y。\n`,
+      bodyMarkdownAfter: `${bodyWithoutH1(after.value.body)}\n\n## 结果\n\n- criteria_checks:\n  - 计划步骤 1 判据「x」：达成——证据：y。\n`,
       changeSummary: "写关闭提案",
       sessionSignature: SIG(),
     });
@@ -3415,8 +3418,8 @@ function closingBody(baseBody, residualPairs, residualLines = null) {
     "## 结果",
     "",
     "- criteria_checks:",
-    "  - 步骤 1 判据「writer 文件存在且 node --check 通过」：达成——证据：node --check 通过。",
-    "  - 步骤 2 判据「全部测试用例通过且覆盖创建与关闭路径」：未达成——证据：只覆盖创建路径。",
+    "  - 计划步骤 1 判据「writer 文件存在且 node --check 通过」：达成——证据：node --check 通过。",
+    "  - 计划步骤 2 判据「全部测试用例通过且覆盖创建与关闭路径」：未达成——证据：只覆盖创建路径。",
     "- residual:",
     ...residualPairs.map(([residual, direction]) =>
       direction === null || direction === undefined
@@ -4606,5 +4609,161 @@ test("cancel: changeSummary 自由措辞不得触发门禁——只有 approve �
       sessionSignature: SIG(),
     });
     assert.ok(cx.ok, "调用方自由措辞不得造成误拒：" + JSON.stringify(cx.error) + " " + latest.summary);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 核对段形态 — validateChecklistForm（21 §190，Human 决定 2026-10-15）
+//
+// Human 决定：「主形态取哪个前缀，只可以用 1 个」+「形态不合即拒绝落盘」。
+// 登记形态：`- 计划步骤 N：<词>——证据：…`（N 以当前 plan 为界；括号简述与判据引文
+// 可跟在 N 之后，但前缀必须是「计划步骤 N」——**「步骤 N」不再是合法前缀**）。
+//
+// 本门禁的存在理由：该形态是呈现层读取「待批准关闭」期核对的**唯一入口**，形态不合则
+// 卡面渲染出**空块且无任何报错**——实测 `workcase-562f75c1` 因前缀写作「计划步骤 1（…）」
+// 而使 6 条核对解析为 0 条。此类失败必须由写入侧拦下，不得依赖 Human 阅读发现。
+//
+// 机械判定的四项：① 前缀为「计划步骤 N」；② N 落在 plan 界内；③ 结论词在闭集内；
+// ④ `——证据：` 后非空。**不判定**证据是否成立、判据是否真被覆盖（归 AI/Human，§16）。
+// ---------------------------------------------------------------------------
+
+/** 核对段门禁的最小载荷：只读 frontmatter.plan 与「## 结果」节。 */
+const checklist = (body, plan = [{ step: "甲" }]) =>
+  validateChecklistForm({ plan, status: "open" }, body);
+
+test("核对段形态：登记形态「计划步骤 N：<词>——证据：…」通过（21 §190）", () => {
+  for (const line of [
+    "- 计划步骤 1：达成——证据：穷举确认。",
+    "- 计划步骤 1：**达成**——证据：穷举确认。",
+    "- 计划步骤 1（简述）：达成——证据：穷举确认。",
+    "- 计划步骤 1 判据「甲」：达成——证据：穷举确认。",
+  ]) {
+    const res = checklist(`## 结果\n\n### 逐条判据核对\n\n${line}\n`);
+    assert.equal(res.ok, true, `登记形态应通过：${line}`);
+  }
+});
+
+test("核对段形态：段头**不是**判据——有无 `### 逐条判据核对` 都通过（21 §190）", () => {
+  // 呈现层在「## 结果」节内逐条扫描登记形态的条目，不要求段头存在（既存载体两种都有）。
+  // 若写入侧强制要求段头，就会出现「卡面能渲染、写入却拒绝」的新错配——正是本项要消除的
+  // 缺陷形态。故本条把「不校验段头」钉死。
+  const withHeader = "## 结果\n\n### 逐条判据核对\n\n- 计划步骤 1：达成——证据：x\n";
+  const withoutHeader = "## 结果\n\n- 计划步骤 1：达成——证据：x\n";
+  assert.equal(checklist(withHeader).ok, true, "带段头应通过");
+  assert.equal(checklist(withoutHeader).ok, true, "无段头也应通过（段头非判据）");
+});
+
+test("核对段形态：「步骤 N」不再是合法前缀，即拒（单一形态）", () => {
+  // Human 2026-10-15：「只可以用 1 个」——保留两种前缀会使「哪个才是权威」没有判据。
+  const res = checklist("## 结果\n\n### 逐条判据核对\n\n- 步骤 1：达成——证据：x\n");
+  assert.equal(res.ok, false, "「步骤 N」不在登记形态内，须拒绝落盘");
+  assert.ok(res.issues.some((i) => i.includes("checklist form")), "须给出 checklist form 拒绝文案");
+});
+
+test("核对段形态：N 越出当前 plan 界即拒（21 §178）", () => {
+  const res = checklist("## 结果\n\n### 逐条判据核对\n\n- 计划步骤 9：达成——证据：x\n");
+  assert.equal(res.ok, false, "N 越界须拒绝");
+  assert.ok(res.issues.some((i) => i.includes("越出当前 plan 界")));
+});
+
+test("核对段形态：`——证据：` 后为空即拒（21 §190）", () => {
+  const res = checklist("## 结果\n\n### 逐条判据核对\n\n- 计划步骤 1：达成——证据：\n");
+  assert.equal(res.ok, false, "证据为空须拒绝");
+  assert.ok(res.issues.some((i) => i.includes("缺少证据")));
+});
+
+test("核对段形态：结论词不在闭集三词内不触发本项（归 §190 词表，不重复判定）", () => {
+  // 词表归一由呈现层做（落为 null），本门禁只管**形态**四项，不把语义判断写进机械。
+  const res = checklist("## 结果\n\n### 逐条判据核对\n\n- 计划步骤 1：已满足——证据：旧写法。\n");
+  assert.equal(res.ok, true, "前缀形态合规即通过；结论词是否在闭集内归 §190 词表");
+});
+
+test("核对段形态：无「## 结果」节时不适用（不是缺陷）", () => {
+  assert.equal(checklist("## 摘要\n\nx\n").ok, true, "没有结果节即当期尚无核对内容，不受本项约束");
+});
+
+test("核对段形态：存量豁免——closed 且「结果」节逐字未改时整体放行（§15.3）", () => {
+  const body = "## 结果\n\n- 步骤 1：达成——证据：x\n"; // 存量式（旧前缀）
+  const fm = { plan: [{ step: "甲" }], status: "closed", outcome: "completed" };
+  // 未触碰该节 → 放行；已改动该节 → 受检（此处旧前缀即被拒）
+  assert.equal(validateChecklistForm(fm, body, fm, body).ok, true, "存量未改该节须放行");
+  assert.equal(validateChecklistForm(fm, body, fm, "## 结果\n\n旧内容\n").ok, false, "存量已改该节须受检");
+});
+
+test("核对段形态：真实载体全数过门禁（存量不因本项而失效）", () => {
+  // 仓库根由本文件的 plugin/ 位置上推（plugin/test → plugin → repo）。
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const dir = join(repoRoot, "ldvh-base", "workcases");
+  if (!existsSync(dir)) return;
+  const rejected = [];
+  for (const name of readdirSync(dir).filter((n) => n.endsWith(".md"))) {
+    const src = readFileSync(join(dir, name), "utf8");
+    const end = src.indexOf("\n---\n", 4);
+    if (end < 0) continue;
+    let fm;
+    try { fm = parseYaml(src.slice(0, end).replace(/^---\n/, "")); } catch { continue; }
+    const body = src.slice(end + 5);
+    if (typeof fm?.status !== "string" || !body.includes("## 结果")) continue;
+    // 与真实路径同口径：closed 载体以「结果节逐字未改」为基准放行（§15.3 存量不溯及）。
+    const baseline = fm.status === "closed" ? fm : null;
+    const baselineBody = fm.status === "closed" ? body : null;
+    if (!validateChecklistForm(fm, body, baseline, baselineBody).ok) rejected.push(name);
+  }
+  assert.deepEqual(rejected, [], `以下真实载体被核对段门禁拒绝（存量不得因本项失效）：\n${rejected.join("\n")}`);
+});
+
+// ---------------------------------------------------------------------------
+// 核对段形态 e2e：走**真实 close 入口**验证「形态不合即拒绝落盘且零写入」
+// （21 §190，Human 决定 2026-10-15）
+//
+// 为什么必须有 e2e 覆盖（同 `direction e2e` 的教训）：单元层直调 `validateChecklistForm`
+// 只证明「函数会拒绝」，**不证明门禁被接进了写入路径**——实测把接线段摘掉后单元层全绿。
+// 本用例从真实 `close` 入口发起，断言：① 形态不合被拒；② 拒绝发生在**任何落盘之前**
+// （对象逐字未变）；③ 同一对象改用登记形态即放行（正负对照，防「一律拒绝」的假门禁）。
+// ---------------------------------------------------------------------------
+test("checklist e2e: 核对条目形态不合在关闭入口被拒且零写入（21 §190）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const { uid, after } = await reviewed(root, await approved(root));
+    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+
+    // 造出「前缀为『步骤 N』」的不符形态（登记形态要求「计划步骤 N」）。
+    const badBody = closingBody(after.value.body, [
+      ["残留 A：X 未覆盖。", "**接受现状**：继续跟踪无增量。"],
+    ]).replace("- 计划步骤 1 判据「writer 文件存在且 node --check 通过」：达成——证据：node --check 通过。",
+               "- 步骤 1 判据「writer 文件存在且 node --check 通过」：达成——证据：node --check 通过。");
+
+    const rejected = await closeWithProposal({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: before.value.fingerprint,
+      outcome: "partial",
+      result: partialResult(),
+      changeSummary: "关闭（测试）",
+      bodyMarkdownAfter: badBody,
+      sessionSignature: SIG(),
+    });
+    assert.equal(rejected.ok, false, "核对条目形态不合须拒绝关闭");
+    assert.equal(rejected.error.code, "workcase/checklist_form_invalid", JSON.stringify(rejected.error));
+
+    // 零写入：拒绝必须发生在任何落盘之前。
+    const afterReject = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(afterReject.value.fingerprint, before.value.fingerprint, "被拒的关闭不得改动对象（零写入）");
+
+    // 正负对照：同一对象改用**登记形态**即放行——防止「一律拒绝」的假门禁。
+    const goodBody = closingBody(after.value.body, [
+      ["残留 A：X 未覆盖。", "**接受现状**：继续跟踪无增量。"],
+    ]);
+    const accepted = await closeWithProposal({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: afterReject.value.fingerprint,
+      outcome: "partial",
+      result: partialResult(),
+      changeSummary: "关闭（测试）",
+      bodyMarkdownAfter: goodBody,
+      sessionSignature: SIG(),
+    });
+    assert.ok(accepted.ok, `登记形态须放行：${JSON.stringify(accepted.error)}`);
   });
 });

@@ -1478,6 +1478,190 @@ export function parseResidualSection(resultSection) {
  * 补齐 `routed-to`——存量改写只有三种可行写法：写成「接受现状」（含非空理由）并如实
  * 说明原意向、保持「## 结果」节逐字不动、或由 Human 另行决定处置。本项不代替该决定。
  */
+/** 核对条目登记形态（`21 §190`，Human 决定 2026-10-15）：`- 计划步骤 N：<词>——证据：…`。 */
+const CHECKLIST_ENTRY_TITLED = /^计划步骤\s*(\d+)\s*(?:判据「.*?」|[（(][^）)]*[）)])?\s*[:：]\s*(.+)$/s;
+/** 区间形态：`- 计划步骤 N–M：<词>——证据：…`（逐条核对的区间简写，`21 §190`）。 */
+const CHECKLIST_ENTRY_RANGE = /^计划步骤\s*(\d+)\s*[–\-~]\s*(\d+)\s*[:：]\s*(.+)$/s;
+/**
+ * 核对段**结论词**闭集（`21 §190` 三词）。顺序敏感：先长词后短词
+ * （「达成」是「未达成」的子串，先判短词会把「未达成」误归一为「达成」）。
+ */
+const CHECKLIST_CONCLUSION_WORDS = ["部分达成", "未达成", "达成"];
+/**
+ * 段头（`21 §190`）：`### 逐条判据核对`；另接受既有的 bullet 形式（存量口径见 §15.3）。
+ * 该 H3 是段的起界——段外的同形文字不计入核对。
+ */
+const CHECKLIST_SECTION_HEADING = /^ {0,3}###\s+逐条判据核对\s*$/;
+const CHECKLIST_SECTION_OPENER = /^(criteria_checks|判据逐条核对)\s*[:：]?$/;
+
+/**
+ * 解析「## 结果」节的**逐条判据核对**段（`21 §190` 登记形态）。
+ *
+ * 与呈现层 `plugin/web/shared/workcaseResultDraft.ts` 的 `parseWorkCaseResultDraft`
+ * **同形态**（两棵树互不 import，同 `parseResidualSection` 的先例）：形态由 `§190`
+ * 单点登记，两处都只实现它。
+ *
+ * 为什么写入侧需要它：核对的登记形态是呈现层读取「待批准关闭」期核对的**唯一入口**，
+ * 形态不合则卡面渲染出**空块且无任何报错**——实测 `workcase-562f75c1` 因前缀写作
+ * 「计划步骤 1（…）」而使 6 条核对解析为 0 条。该失败必须由写入侧拦下，不得依赖
+ * Human 阅读发现（Human 决定 2026-10-15：形态不合即拒绝落盘）。
+ *
+ * 返回 `{ entries, unshapedLines }`：
+ *   - `entries`——形态合格的条目（含其 `N` 与结论词）；
+ *   - `unshapedLines`——段**内**、看起来在写核对（含闭集结论词）但**前缀不符**登记
+ *     形态的行。它使门禁能**区分**「没写核对段」与「写了但形态不合」——后者才是要拒的。
+ *
+ * **边界如实声明**：本函数只判**形态**（段头、前缀、`N` 是否落在 `plan` 界内、结论词
+ * 是否在闭集内、证据是否非空），**不判**证据是否成立、判据是否真被覆盖——后者归 AI
+ * 语义审核与 Human 阅读（`§16` 口径不变）。
+ *
+ * @param {string} resultSection 「## 结果」节的正文（不含该 H2 行本身）
+ * @param {number} planLength 当前 `plan` 长度（`N` 的界，`§178`）
+ */
+export function parseChecklistSection(resultSection, planLength) {
+  const entries = [];
+  const unshapedLines = [];
+  const lines = String(resultSection ?? "").split("\n");
+  let inFence = false;
+  let fenceMarker = "";
+  const bound = Number.isFinite(planLength) && planLength > 0 ? planLength : 0;
+
+  for (const rawLine of lines) {
+    const fence = /^ {0,3}(```|~~~)/.exec(rawLine);
+    if (fence) {
+      const marker = fence[1];
+      if (!inFence) { inFence = true; fenceMarker = marker; }
+      else if (marker === fenceMarker) { inFence = false; fenceMarker = ""; }
+      continue;
+    }
+    if (inFence) continue;
+
+    // **段头不是判据**（`§190`）：呈现层在「## 结果」节内逐条扫描登记形态的条目，
+    // 不要求 `### 逐条判据核对` 存在（既存载体两种写法都有）。故本解析器同样**不据段头
+    // 设门**——否则会出现「卡面能渲染、写入却拒绝」的新错配，正是本项要消除的缺陷形态。
+    // 段头行与开启符行只作跳过处理，不改变扫描范围。
+    if (CHECKLIST_SECTION_HEADING.test(rawLine)) continue;
+
+    const bullet = /^(\s*)-\s+(.*)$/.exec(rawLine);
+    if (!bullet) continue;
+    const item = bullet[2].trim();
+
+    // 开启符（`- criteria_checks:` / `- 判据逐条核对:`）本身不是核对条目，跳过。
+    if (CHECKLIST_SECTION_OPENER.test(item)) continue;
+
+    const range = CHECKLIST_ENTRY_RANGE.exec(item);
+    if (range) {
+      entries.push({ from: Number(range[1]), to: Number(range[2]), text: range[3] });
+      continue;
+    }
+    const titled = CHECKLIST_ENTRY_TITLED.exec(item);
+    if (titled) {
+      entries.push({ from: Number(titled[1]), to: Number(titled[1]), text: titled[2] });
+      continue;
+    }
+    // 形态不合但**看起来在写核对条目**——记下，供门禁区分「没写核对」与「写歪了」。
+    //
+    // **判据必须收敛到「像一条核对条目」，不能只看「含结论词」**：结果节的散文里出现
+    // 「达成」二字极常见（如「逐条核对：两步判据均达成。」「未达成的原因见下」），
+    // 把它们一律当不符形态会**误拒合规载体**——实测该过度判据使 13 个既有用例变红。
+    //
+    // 收敛后的判据（两条任一）：
+    //   ① 以「(计划)步骤 N」开头 —— 这是**已登记的旧形态**，属明确要拦的写法；
+    //   ② 形如 `<标题>：<词>`（`：` 前后都有内容，且冒号前是简短标题而非整句）——
+    //      即「本该用登记前缀、却写成了别的标题」。冒号前含句末标点或过长者判为散文。
+    const looksLikeEntry =
+      /^(?:计划)?步骤\s*\d/.test(item)
+      || (() => {
+        const colon = item.search(/[:：]/);
+        if (colon <= 0) return false;
+        const head = item.slice(0, colon).trim();
+        // 标题须短且不含句末标点——否则是散文（如「逐条核对：两步判据均达成。」）。
+        if (head.length > 24) return false;
+        if (/[。；;]/.test(head)) return false;
+        // 且冒号后须**紧跟闭集结论词**（允许 `**达成**` 这样的强调包裹）。
+        const tail = item.slice(colon + 1).replace(/^[\s*]*/, "");
+        return CHECKLIST_CONCLUSION_WORDS.some((word) => tail.startsWith(word) || tail.startsWith(`**${word}`));
+      })();
+    if (looksLikeEntry) {
+      unshapedLines.push(item);
+    }
+  }
+
+  // `N` 的界（`§178`）：落在界外的条目单列为越界，由门禁报告，不静默丢弃。
+  const outOfRange = entries.filter((entry) => bound > 0 && (entry.from < 1 || entry.to > bound));
+
+  return { entries, unshapedLines, outOfRange, bound };
+}
+
+/**
+ * 核对段形态门禁（`21 §190`，Human 决定 2026-10-15「形态不合即拒绝落盘」）。
+ *
+ * **只在「## 结果」节存在且写有核对内容时判定**——没有结果节（draft/executing 早期）
+ * 或没有核对段的载体不受本项约束（不是缺陷，是当期还没有内容）。
+ *
+ * **存量豁免**（`§15.3` 存量不溯及）：与 `validateDirectionCompleteness` 同基准——
+ * `baseline` 为 `closed` 且「## 结果」节**整体逐字未改**时整体放行；`baselineBody`
+ * 缺失时按**已改动**处理（fail closed：未知不等于未改动）。
+ *
+ * **与 §180 的边界**：本条只管「结果」节核对**条目**的形态，扫描范围限于该段之内；
+ * 不扫描正文其它位置对编号的自由引用——§180 的禁令对编号引用继续有效。
+ */
+export function validateChecklistForm(frontmatter, body, baseline = null, baselineBody = null) {
+  const issues = [];
+  const resultSection = sectionContent(body, BODY_H2_RESULT);
+  if (resultSection === null) return { ok: true, issues };
+
+  // 存量豁免：基线为 closed 且结果节逐字未改 → 整体放行（与去向门禁同一基准）。
+  if (baseline && baseline.status === "closed" && typeof baselineBody === "string") {
+    const baselineResult = sectionContent(baselineBody, BODY_H2_RESULT);
+    if (baselineResult !== null && baselineResult === resultSection) {
+      return { ok: true, issues };
+    }
+  }
+
+  const plan = Array.isArray(frontmatter.plan) ? frontmatter.plan : [];
+  const parsed = parseChecklistSection(resultSection, plan.length);
+
+  // ① 段内出现「看起来是核对、但前缀不符登记形态」的行——**这是本项要拦的主形态**。
+  //    给出可操作文案：登记形态是 `- 计划步骤 N：<词>——证据：…`。
+  if (parsed.unshapedLines.length > 0) {
+    issues.push(
+      `checklist form: "## 结果" 逐条判据核对段的条目必须使用登记形态 — found ${parsed.unshapedLines.length} 行含闭集结论词但不符形态。`
+      + ` 21 §190 (2026-10-15) 登记的形态是 "- 计划步骤 N：<词>——证据：…"（N 以当前 plan 为界；`
+      + ` 括号简述与判据引文可跟在 N 之后，但前缀必须是「计划步骤 N」——「步骤 N」不再是合法前缀）。`
+      + ` 可操作处置：把每条改写成 "- 计划步骤 N：<达成|部分达成|未达成>——证据：…"。`
+      + ` 不符行示例：${parsed.unshapedLines.slice(0, 3).map((line) => `"${line.slice(0, 60)}"`).join(" / ")}`
+      + ` — fail closed (21 §190；呈现层读不出则卡面渲染为空块且无报错，故须在写入侧拦下)`,
+    );
+  }
+
+  // ② `N` 越界（`§178`：N 以当前 plan 数组为界）。
+  if (parsed.outOfRange.length > 0) {
+    const nums = parsed.outOfRange
+      .map((entry) => (entry.from === entry.to ? `${entry.from}` : `${entry.from}–${entry.to}`));
+    issues.push(
+      `checklist form: "## 结果" 核对条目的 N 越出当前 plan 界 — found N=${nums.join(", ")}，plan 长度 ${plan.length} (21 §178：N 以当前 plan 数组为界)。`
+      + ` 可操作处置：按当前 plan 重编 N，或（若步骤已被 C2 局部重批增删）改以叙述形式引用旧序号（21 §8 历史记述处置）— fail closed`,
+    );
+  }
+
+  // ③ 写有核对条目但证据为空（`§190`：`——证据：` 后须有内容）。
+  for (const entry of parsed.entries) {
+    const word = CHECKLIST_CONCLUSION_WORDS.find((candidate) => entry.text.includes(candidate));
+    if (!word) continue; // 结论词不在闭集内另由 §190 词表覆盖（呈现层归一为 null，不在此重复判定）
+    const evidenceAt = entry.text.indexOf("证据");
+    const evidence = evidenceAt >= 0 ? entry.text.slice(evidenceAt).replace(/^证据\s*[:：]?/, "").trim() : "";
+    if (evidence.length === 0) {
+      issues.push(
+        `checklist form: "## 结果" 核对条目缺少证据 — N=${entry.from} 的「——证据：」后为空 (21 §190)。`
+        + ` 可操作处置：补写该条判据的可回读依据 — fail closed`,
+      );
+    }
+  }
+
+  return { ok: issues.length === 0, issues };
+}
+
 export function validateDirectionCompleteness(frontmatter, body, baseline = null, baselineBody = null) {
   const issues = [];
   const isClosed = frontmatter.status === "closed";
@@ -2013,6 +2197,10 @@ function runMechanicalChecks(frontmatter, body, baseline = null, baselineBody = 
   const directionCheck = validateDirectionCompleteness(frontmatter, body, baseline, baselineBody);
   if (!directionCheck.ok) {
     return { ok: false, code: "workcase/direction_incomplete", message: "残留去向 failed completeness checks", issues: directionCheck.issues };
+  }
+  const checklistCheck = validateChecklistForm(frontmatter, body, baseline, baselineBody);
+  if (!checklistCheck.ok) {
+    return { ok: false, code: "workcase/checklist_form_invalid", message: "逐条判据核对 failed form checks", issues: checklistCheck.issues };
   }
   return { ok: true };
 }

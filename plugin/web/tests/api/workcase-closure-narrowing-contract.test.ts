@@ -25,6 +25,8 @@ import { test } from 'node:test';
 import {
   WORKCASE_COLLAPSED_RESIDUAL,
   WORKCASE_DIRECTION_ROW_CLASS,
+  WORKCASE_RESIDUAL_BLOCK_CLASS,
+  WORKCASE_RESIDUAL_ROW_CLASS,
   groupDirectionRows,
   workCaseDirectionRows,
   workCaseResidualRows,
@@ -425,6 +427,52 @@ test('待批准关闭卡：两块（逐条核对 + 残留（含去向）），�
     draft,
     /advices\.length > 0/,
     '不得再无条件渲染平铺去向块（合并式下会与残留块内的子项重复）',
+  );
+});
+
+test('残留块内分割线：首行去线由**块级**判定，行类不得自带 first:（回归守卫）', () => {
+  // 缺陷（Human 2026-10-15 在卡面发现）：残留与残留之间**没有分割线**，而每条
+  // 「接受现状」之上**有**线——与 `10 §5.5`「块内条目之间有分割线、首条不加」相反。
+  //
+  // 根因：Tailwind 的 `first:` 作用于元素**在其直接父元素中**的位置。每条「残留 + 其
+  // 去向子项」包在一层 wrapper（`data-workcase-residual-row`，供测试取界）中，于是
+  // 每行都是自己 wrapper 的**第 1 个子元素**——行类里的 `first:border-t-0` 对**每一行**
+  // 都命中，块内分割线全部消失；而同一 wrapper 内的去向子项是第 2 个子元素、不命中，
+  // 反而画线。该 wrapper 是 2026-09-29 去向并入残留段时引入的（引入前各行直接是块的
+  // 孩子，`first:` 判据正确），故属那次结构改动带出的**静默**形态缺陷。
+  //
+  // 修法：行不自行声明「首行」；「首行去线」由**块级选择器**按行在块内整体次序判定。
+
+  // ① 残留行类**不得**带 `first:`——它在本块的嵌套下恒命中，等于取消全部分割线。
+  assert.match(WORKCASE_RESIDUAL_ROW_CLASS, /border-t/, '残留行须带分割线（否则行与行之间无线）');
+  assert.doesNotMatch(
+    WORKCASE_RESIDUAL_ROW_CLASS,
+    /first:border-t-0/,
+    '残留行类不得自带 first:border-t-0——行裹在每条残留自己的 wrapper 里，first: 会对每一行命中',
+  );
+
+  // ② 去向从属行同理（它在其 wrapper 内通常不是第 1 个，但同样不得靠 `first:` 判定）。
+  assert.doesNotMatch(
+    WORKCASE_DIRECTION_ROW_CLASS,
+    /first:border-t-0/,
+    '从属行不得自带 first:border-t-0（首行判据归块级）',
+  );
+
+  // ③ 块级选择器必须在位，且指向 wrapper 的首个孩子——这才是「每条残留的首行去线」。
+  assert.match(
+    WORKCASE_RESIDUAL_BLOCK_CLASS,
+    /\[&>div>\*:first-child\]:border-t-0/,
+    '残留块须以块级选择器给每条残留的首行去线（[&>div>*:first-child]:border-t-0）',
+  );
+
+  // ④ 块类须以**裸常量**使用（`className={WORKCASE_RESIDUAL_BLOCK_CLASS}`）：
+  //    本文件与 `workcase-design-language-contract.test.ts` 的块序守卫都按该 JSX 形态
+  //    定位残留块；若把它改成模板串（`className={`${...} ...`}`），两处守卫会因找不到
+  //    使用点而失败——那会让「块序」这条判据在无声中失效。
+  assert.match(
+    readSource(DRAFT_CARD),
+    /className=\{WORKCASE_RESIDUAL_BLOCK_CLASS\}/,
+    '残留块须以裸常量使用——块序守卫按该 JSX 形态定位，改成模板串会使其失效',
   );
 });
 

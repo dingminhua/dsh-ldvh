@@ -195,7 +195,7 @@ export function workCaseDirectionTextVisible(phase: 'awaiting_gate2' | 'closed')
  * 「每条残留都带有去向子项」者如实保留，见 `workCaseClosureNarrowsResidual`）。
  */
 export const WORKCASE_RESIDUAL_BLOCK_CLASS =
-  'min-w-0 rounded-md border border-amber-600/25 bg-amber-500/[0.05] px-2.5 py-2';
+  'min-w-0 rounded-md border border-amber-600/25 bg-amber-500/[0.05] px-2.5 py-2 [&>div>*:first-child]:border-t-0';
 
 /**
  * 去向子项在其所属残留之下的**缩进行**样式（`10 §5.5`「块序与逐条标记」）。
@@ -208,7 +208,7 @@ export const WORKCASE_RESIDUAL_BLOCK_CLASS =
  * `border-t`），用 margin 会把分割线也推离块宽，行与行的分割线不再对齐。
  */
 export const WORKCASE_DIRECTION_ROW_CLASS =
-  'border-t border-ldvh-border/40 py-1 pl-4 first:border-t-0 ldvh-caption text-ldvh-text-primary';
+  'border-t border-ldvh-border/40 py-1 pl-4 ldvh-caption text-ldvh-text-primary';
 
 /**
  * 去向分区块的**底色族**——按去向词取同族色（`10 §5.5`「去向分区」）。
@@ -521,8 +521,24 @@ export const WORKCASE_ITEM_LIST_CLASS = 'grid min-w-0';
 export const WORKCASE_RESIDUAL_TAG_CLASS =
   'border-amber-600/50 bg-amber-500/[0.12] text-amber-700 dark:text-amber-300';
 
-/** 残留条目行——即统一条目行样式（四块共用，见 `WORKCASE_ITEM_ROW_CLASS`）。 */
-export const WORKCASE_RESIDUAL_ROW_CLASS = WORKCASE_ITEM_ROW_CLASS;
+/**
+ * 残留条目行——与统一条目行样式（`WORKCASE_ITEM_ROW_CLASS`）同形，**只差「首行去线」的归属**。
+ *
+ * 为什么不能直接复用 `WORKCASE_ITEM_ROW_CLASS`：它的 `first:border-t-0` 作用于
+ * **元素在其直接父元素中的位置**。本块里每条「残留 + 其去向子项」包在一层 wrapper
+ * （`data-workcase-residual-row`）中，于是每一行都是自己 wrapper 的**第 1 个子元素**——
+ * `first:border-t-0` 对**每一行**都命中，残留与残留之间的分割线全部消失（而同一 wrapper
+ * 内的去向子项是第 2 个子元素、不命中，反而画线）。实测后果（Human 2026-10-15 发现）：
+ * 线只出现在每条「接受现状」之上，与 `10 §5.5`「块内条目之间有分割线、首条不加」相反。
+ *
+ * 该 wrapper 是 2026-09-29 去向并入残留段时引入的；引入前各行直接是块的孩子，`first:`
+ * 判据正确，故这是那次结构改动带出的**静默**形态缺陷（当时无测试覆盖）。
+ *
+ * 修法：行不再自行声明「首行」——**「首行去线」改由块级选择器按行在块内的整体次序判定**
+ *（见 `WorkCaseResultDraft` 的残留块）。此处只保留 `border-t`，使每行之间的线照常绘制。
+ */
+export const WORKCASE_RESIDUAL_ROW_CLASS =
+  'border-t border-ldvh-border/60 py-1.5 ldvh-caption text-ldvh-text-primary';
 
 /** 去向标记的兜底形态（未归类，或闭集之外的写法）。 */
 export const WORKCASE_ADVICE_TAG_FALLBACK_CLASS =

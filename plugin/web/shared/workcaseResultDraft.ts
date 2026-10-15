@@ -435,36 +435,42 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
       continue
     }
 
-    // ── 顶层「计划步骤 N」/「步骤 N」形态（含 ①②）──
+    // ── 顶层核对条目：`计划步骤 N：<词>——证据：…`（`21 §190` 登记形态）──
     //
-    // **前缀「计划步骤」与「步骤」等价**（`21 §178`）：该条明文要求「正文引用计划步骤时
-    // 须使用显式形式『计划步骤 N』」。本解析器此前只认「步骤 N」，于是**按规范写**的核对
-    // 行反而解析为 0 条——实测 4 份完全符合 §178 的载体（`562f75c1`／`c6d88dac`／
-    // `1a34f9e4`／`81c37ef0`）全部读不出，卡面渲染出空的核对块且无任何报错。
-    // 这不是「放宽形态」：两种前缀都指向同一个 `plan` 下标体系，接受 §178 的写法是**回
-    // 到规范**，不是额外容忍。至 §190 的条目形态被登记前，本处按 §178 既有明文实现。
+    // **登记形态只有一个**（Human 决定 2026-10-15）：`- 计划步骤 N：<词>——证据：…`。
+    // 前缀取 §178 明文要求的「计划步骤 N」（该条已规定正文引用计划步骤须用此显式形式），
+    // 故两个「计划步骤 N…」变体在此一并识别——它们是**同一登记形态**的合法书写，
+    // 不是第二种形态：
+    //   · 括号简述（`计划步骤 2（判据收紧）：达成`）：简述是给人读的散文，N 才是配对依据；
+    //   · 判据引文（`计划步骤 1 判据「…」：达成`）：引号内是 `plan[i].done_criteria` 的
+    //     逐字复述，同样不参与配对。
     //
-    // 括号简述同样不参与下标判定：实测载体里写作「计划步骤 2（判据收紧）：达成」，
-    // 简述是给人读的，N 才是唯一的对应依据。
-    if (mode === null || isTopLevel) {
-      // 「判据「…」」形态**不要求 `checks` 段头**：它自带显式 N，配对依据完整
-      //（与「步骤 N」同依据），段头在此不提供任何额外判据。此前它被门在
-      // `mode === 'checks'` 内，实测使两份载体（`1a34f9e4`／`81c37ef0`）——其核对段
-      // 直接跟在「## 结果」之下、无任何开启符——解析为 0 条。规范登记的是**条目形态**
-      //（§190 三词 + 本条 N），不是「必须有个段头 bullet」；故按形态自身识别。
-      const critTop = /^(?:计划)?步骤\s*(\d+)\s*判据「.*?」\s*[:：]\s*(.+)$/s.exec(item)
-      if (critTop) {
-        const i = Number(critTop[1]) - 1
-        if (!byIndex.has(i)) byIndex.set(i, statusOf(critTop[2]))
+    // **为什么此前读不出**（本项修复的动机）：本解析器原只认「步骤 N」，而 §178 要求
+    // 「计划步骤 N」——于是**按规范写反而解析为 0 条**。实测 `workcase-562f75c1` 的 6 条
+    // 核对因此全部读不出，卡面渲染出空的「逐条判据核对」块且**无任何报错**。接受 §178
+    // 的写法是**回到规范**，不是放宽。
+    //
+    // **严格面在写入侧**（`lib/workcase-writer.js`）：呈现层在此对既存载体保持宽容读取
+    // （存量不溯及，§15.3），而「形态不合即拒绝落盘」的门禁由写入侧执行。
+    // **不设 `isTopLevel` 门**：本形态自带显式 N，配对依据自足，与缩进无关——它既可能
+    // 直接跟在「## 结果」之下（缩进 0），也可能在 `- criteria_checks:` / `### 判据逐条核对`
+    // 之内（缩进 2+）。按缩进设门会使后者整段读不出（实测：登记形态在 `criteria_checks:`
+    // 下曾被判为非顶层而丢弃）。缩进在**去向**语境里有语义（区分残留条目与其子项，§194），
+    // 在核对条目的 N 语境里没有——故此处不据缩进排除。
+    {
+      const crit = /^计划步骤\s*(\d+)\s*(?:判据「.*?」|[（(][^）)]*[）)])?\s*[:：]\s*(.+)$/s.exec(item)
+      if (crit) {
+        const i = Number(crit[1]) - 1
+        if (!byIndex.has(i)) byIndex.set(i, statusOf(crit[2]))
         continue
       }
-      const range = /^(?:计划)?步骤\s*(\d+)\s*[–\-~]\s*(\d+)\s*[:：]\s*(.+)$/s.exec(item)
+      const range = /^计划步骤\s*(\d+)\s*[–\-~]\s*(\d+)\s*[:：]\s*(.+)$/s.exec(item)
       if (range) {
         const a = Number(range[1]); const b = Number(range[2]); const st = statusOf(range[3])
         for (let n = a; n <= b; n += 1) if (!byIndex.has(n - 1)) byIndex.set(n - 1, st)
         continue
       }
-      const single = /^(?:计划)?步骤\s*(\d+)\s*(?:[（(][^）)]*[）)])?\s*[:：]\s*(.+)$/s.exec(item)
+      const single = /^计划步骤\s*(\d+)\s*[:：]\s*(.+)$/s.exec(item)
       if (single) {
         const i = Number(single[1]) - 1
         if (!byIndex.has(i)) byIndex.set(i, statusOf(single[2]))
@@ -472,14 +478,13 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
       }
     }
 
-    // ── checks 段内 ──
+    // ── checks 段内：名称形态（③）──
+    //
+    // 「计划步骤 N：…」与「计划步骤 N 判据「…」：…」已由上方**顶层**分支统一处理
+    //（它们自带显式 N，不依赖段头，故不受 `mode` 限制）——此处不再重复一条同形正则，
+    // 避免同一形态出现两处判据。本分支只承担**无法从 N 定位**的那一种：按
+    // `plan[].step` 名称配对。
     if (mode === 'checks') {
-      const crit = /^(?:计划)?步骤\s*(\d+)\s*判据「.*?」\s*[:：]\s*(.+)$/s.exec(item)
-      if (crit) {
-        const i = Number(crit[1]) - 1
-        if (!byIndex.has(i)) byIndex.set(i, statusOf(crit[2]))
-        continue
-      }
       // ③ 名称形态：按 plan.step 匹配（取最长命中，避免短名误配）
       const named = /^(.*?)\s*[:：]\s*(.+)$/s.exec(item)
       if (named && stepTexts.length > 0) {

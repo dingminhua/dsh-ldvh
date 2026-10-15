@@ -50,12 +50,12 @@ test('resultSectionOf：无结果节返回空串', () => {
   assert.equal(resultSectionOf('## 执行\n只有执行'), '');
 });
 
-test('形态①：步骤 N 判据「…」：<词>——证据：…', () => {
+test('形态①：计划步骤 N 判据「…」：<词>——证据：…（21 §190 登记形态）', () => {
   const body = bodyOf([
     '- criteria_checks:',
-    '  - 步骤 1 判据「列出全部 7 个 action」：达成——证据：穷举确认。',
-    '  - 步骤 2 判据「存在可机械判定的校验」：未达成。所实现判据判定不成立。',
-    '  - 步骤 3 判据「两者均有行为测试」：部分达成——证据：writer 全绿。',
+    '  - 计划步骤 1 判据「列出全部 7 个 action」：达成——证据：穷举确认。',
+    '  - 计划步骤 2 判据「存在可机械判定的校验」：未达成。所实现判据判定不成立。',
+    '  - 计划步骤 3 判据「两者均有行为测试」：部分达成——证据：writer 全绿。',
   ]);
   const d = parseWorkCaseResultDraft(body, PLAN);
   assert.deepEqual(d.checks, [
@@ -65,10 +65,10 @@ test('形态①：步骤 N 判据「…」：<词>——证据：…', () => {
   ]);
 });
 
-test('形态②：步骤 N–M：<词>——证据：…（区间展开到每步）', () => {
+test('形态②：计划步骤 N–M：<词>——证据：…（区间展开到每步）', () => {
   const body = bodyOf([
-    '- 步骤 1–2：达成——证据：两处都落地。',
-    '- 步骤 3：达成——证据：已消解。',
+    '- 计划步骤 1–2：达成——证据：两处都落地。',
+    '- 计划步骤 3：达成——证据：已消解。',
   ]);
   const d = parseWorkCaseResultDraft(body, PLAN);
   assert.deepEqual(d.checks, [
@@ -94,7 +94,7 @@ test('形态③：名称形态按 plan.step 匹配', () => {
 test('只认登记三词：其它写法落为 null（不猜、不静默归一）', () => {
   const body = bodyOf([
     '- criteria_checks:',
-    '  - 步骤 1 判据「x」：已满足——证据：旧写法。',
+    '  - 计划步骤 1 判据「x」：已满足——证据：旧写法。',
   ]);
   const d = parseWorkCaseResultDraft(body, PLAN);
   assert.deepEqual(d.checks, [{ planIndex: 0, status: null }]);
@@ -469,7 +469,7 @@ test('取消记录：缺任一行时对应字段记空串（不猜、不填占�
 });
 
 test('取消记录：无该段时返回 null（非取消对象不产出）', () => {
-  assert.equal(parseWorkCaseCancellation(bodyOf(['- criteria_checks:', '  - 步骤 1：达成。'])), null);
+  assert.equal(parseWorkCaseCancellation(bodyOf(['- criteria_checks:', '  - 计划步骤 1：达成。'])), null);
   assert.equal(parseWorkCaseCancellation('## 执行\n无结果节'), null);
   assert.equal(parseWorkCaseCancellation(undefined), null);
 });
@@ -527,50 +527,50 @@ test('无补记声明时 adviceNote 为 null', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// 核对条目的**前缀形态**（`21 §178`）
+// 核对条目的**登记形态**（`21 §190`，Human 决定 2026-10-15：**只登记一个前缀**）
 //
-// 回归守卫：本解析器曾只认「步骤 N」，而 `21 §178` 明文要求「正文引用计划步骤时须使用
-// 显式形式『**计划步骤 N**』」。两者不一致的后果是**按规范写反而读不出**——实测 4 份完全
-// 符合 §178 的载体核对条目解析为 0 条，卡面渲染出空的「逐条判据核对」块，且**无任何报错**
-// （写入侧只校验 `result.criteria_checks` 字段，不校验正文形态）。
+// 回归守卫：本解析器曾只认「步骤 N」，而 `21 §178` 明文要求正文引用计划步骤时须使用
+// 显式形式「**计划步骤 N**」。两者不一致的后果是**按规范写反而读不出**——实测
+// `workcase-562f75c1` 的 6 条核对解析为 0 条，卡面渲染出空的「逐条判据核对」块且
+// **无任何报错**（写入侧当时只校验 `result.criteria_checks` 字段，不校验正文形态）。
 //
-// 故以下断言钉住「§178 的显式形式必须可解析」。它们**不是**在放宽形态——两种前缀都指向
-// 同一个 `plan` 下标体系，接受 §178 的写法是回到规范。
+// **一个前缀，不设两个**（Human 2026-10-15「主形态取哪个前缀，只可以用 1 个」）：
+// 登记形态为 `- 计划步骤 N：<词>——证据：…`；`N` 是唯一配对依据，附加的括号简述与
+// 判据引文不参与配对。**「步骤 N」不再是合法前缀**——它不在 §178 的显式形式内，
+// 保留两种前缀会让「哪个才是权威」无判据。
 // ─────────────────────────────────────────────────────────────────────────
-test('核对条目接受 §178 的显式形式「计划步骤 N」（回归守卫）', () => {
+test('核对条目认 §178 登记形态「计划步骤 N」（回归守卫）', () => {
   const cases: Array<[string, string]> = [
     ['计划步骤 N：<词>', '- 计划步骤 1：**达成**——证据：x'],
-    // 括号简述是给人读的，N 才是对应依据——实测载体写作「计划步骤 2（判据收紧）：达成」
     ['计划步骤 N（<简述>）：<词>', '- 计划步骤 1（核实范围）：**达成**——证据：x'],
-    // 该形态自带显式 N，配对依据完整，不依赖任何段头开启符（实测两份载体即无段头）
     ['计划步骤 N 判据「…」：<词>', '- 计划步骤 1 判据「核实范围与适用路径」：**达成**——证据：x'],
   ];
   for (const [label, line] of cases) {
-    const d = parseWorkCaseResultDraft(bodyOf([line]), PLAN);
-    assert.equal(d.checks.length, 1, `${label} 必须可解析——§178 要求正文用此形式引用计划步骤`);
-    assert.equal(d.checks[0].planIndex, 0, `${label} 须配对到 plan 下标 0`);
-    assert.equal(d.checks[0].status, 'achieved', `${label} 的三词须归一为 achieved`);
+    for (const body of [bodyOf([line]), bodyOf(['- criteria_checks:', `  ${line}`])]) {
+      const d = parseWorkCaseResultDraft(body, PLAN);
+      assert.equal(d.checks.length, 1, `${label} 必须可解析——§178 要求正文用此形式引用计划步骤`);
+      assert.equal(d.checks[0].planIndex, 0, `${label} 须配对到 plan 下标 0（不因缩进而丢弃）`);
+      assert.equal(d.checks[0].status, 'achieved', `${label} 的三词须归一为 achieved`);
+    }
   }
 });
 
-test('「计划步骤 N」与「步骤 N」逐案同判（两种前缀不得分岔）', () => {
+test('三词闭集在登记形态下逐词归一', () => {
   for (const [n, word, status] of [[1, '达成', 'achieved'], [2, '部分达成', 'partial'], [3, '未达成', 'not-achieved']] as const) {
-    const a = parseWorkCaseResultDraft(bodyOf([`- 计划步骤 ${n}：**${word}**——证据：x`]), PLAN);
-    const b = parseWorkCaseResultDraft(bodyOf([`- 步骤 ${n}：**${word}**——证据：x`]), PLAN);
-    assert.deepEqual(a.checks, b.checks, `N=${n}：「计划步骤」与「步骤」须给出同一结果`);
-    assert.equal(a.checks[0].status, status);
+    const d = parseWorkCaseResultDraft(bodyOf([`- 计划步骤 ${n}：**${word}**——证据：x`]), PLAN);
+    assert.deepEqual(d.checks, [{ planIndex: n - 1, status }]);
   }
 });
 
-test('区间与「判据「…」」形态在两种前缀下都成立', () => {
-  const rangePlan = parseWorkCaseResultDraft(bodyOf(['- 计划步骤 1–2：**达成**——证据：x']), PLAN);
-  assert.deepEqual(rangePlan.checks.map((c) => c.planIndex), [0, 1], '「计划步骤 N–M」按区间展开');
-  const crit = parseWorkCaseResultDraft(bodyOf(['- 计划步骤 1 判据「核实范围与适用路径」：**达成**——证据：x']), PLAN);
-  assert.equal(crit.checks.length, 1);
+test('「步骤 N」不再是合法前缀（单一形态，防两套并存）', () => {
+  // Human 2026-10-15：主形态只取一个。若有人只写「步骤 N」，那是**不符登记形态**——
+  // 呈现层不得替它猜配对（写入侧会直接拒绝落盘，见 lib/workcase-writer.js）。
+  const d = parseWorkCaseResultDraft(bodyOf(['- 步骤 1：**达成**——证据：x']), PLAN);
+  assert.deepEqual(d.checks, [], '「步骤 N」不在登记形态内——不得据以产出核对条目');
 });
 
-test('前缀不是「计划步骤」/「步骤」时不得误配（防放宽过度）', () => {
-  // 「判据 1（…）」等未登记前缀不在 §178 的显式形式内——不得静默当作计划步骤编号。
+test('未登记前缀不得误配（防放宽过度）', () => {
+  // 「判据 1（…）」「计划 1」等均不在登记形态内——不得静默当作计划步骤编号。
   for (const line of ['- 判据 1（核实范围）：**达成**——证据：x', '- 计划 1：**达成**——证据：x']) {
     const d = parseWorkCaseResultDraft(bodyOf([line]), PLAN);
     assert.equal(d.checks.length, 0, `「${line}」不应被当作计划步骤核对条目`);
