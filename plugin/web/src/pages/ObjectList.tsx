@@ -203,7 +203,6 @@ export function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate
  *
  * **沿革**：本函数此前另有一个消费方——「展示台」路由（`/showcase`），已于 2026-09-30
  * 按 Human 裁定整体删除；单一装配出口的纪律不因该路由消失而放松。 */
-// eslint-disable-next-line react-refresh/only-export-components
 export function WorkCaseListCard({
   obj,
   locale,
@@ -243,7 +242,6 @@ function sortObjectsForList(items: ObjectItem[], sort: ObjectListSort): ObjectIt
 }
 
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function ObjectCardFrame({
   obj,
   locale,
@@ -449,11 +447,9 @@ function SparkTerminalCardContent({ obj }: { obj: ObjectItem }) {
  * 一处另一处必然漂移——与行式收敛到 `FactAssociationCardRow` 是同一条纪律，故区域
  * 类名同样单点给出。
  */
-// eslint-disable-next-line react-refresh/only-export-components
 export const FACT_ASSOCIATION_ROWS_ZONE_CLASS = 'min-w-0 border-t border-ldvh-border/60 pt-1.5';
 
 /** 引用行的行间分割（与区域常量配套：不用 gap，间距由行的 padding 提供）。 */
-// eslint-disable-next-line react-refresh/only-export-components
 export const FACT_ASSOCIATION_ROWS_LIST_CLASS = 'divide-y divide-ldvh-border/45';
 
 function FactAssociationsCardContent({ associations, refs }: { associations?: FactCardAssociation[]; refs?: FactCardAssociation[] }) {
@@ -666,7 +662,6 @@ function FactAssociationStateIcon({ state, tooltip }: { state: FactAssociationSt
  * 注意二者**不是同一批数据**、也不互相替代（`api/services/facts.ts` 的登记）：
  * `factRefs` 是**外向**（本单引用了谁），`factRefSources` 是**反向**（谁引用了本单）。 */
 // eslint-disable-next-line react-refresh/only-export-components
-// eslint-disable-next-line react-refresh/only-export-components
 export function refSourceToAssociation(source: FactRefSource): FactCardAssociation {
   return {
     available: source.available,
@@ -710,7 +705,6 @@ const PITFALL_DECISION_FIELDS = [
   'applicability',
 ] as const;
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function PitfallCardContent({ obj }: { obj: ObjectItem }) {
   const { locale } = useI18n();
   if (obj.status === 'discarded') return <PitfallTerminalCardContent obj={obj} />;
@@ -981,6 +975,13 @@ export default function ObjectList() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+  // 本 effect 对 searchParams 的唯一读取是 `searchParams.get('status')`，其值已作为
+  // statusParam 列入下方依赖（第 884 行定义），故不存在陈旧闭包：status 一变，
+  // statusParam 即变，effect 必然重跑。而把整个 searchParams 对象加入依赖会适得其反——
+  // sort/serves 只改 URL、不改取数参数（fetchObjects 只吃 type 与三个筛选），
+  // 却会因此触发重取并把列表清成 spinner。最干净的写法是在该 filter 里直接用
+  // statusParam，但那行表达式被 pitfall-card-contract.test.ts:13 逐字钉住。
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上方说明：读取值已在依赖中，加对象反致多余重取
   }, [currentType, activeStatus, activeLifecycle, activePriority, statusParam]);
 
   const sortedItems = sortObjectsForList(items, activeSort);

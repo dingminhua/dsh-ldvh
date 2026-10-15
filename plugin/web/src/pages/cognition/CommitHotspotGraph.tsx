@@ -63,6 +63,7 @@ const RELATION_PHRASE_KEYS: Record<string, LocaleKey> = {
   'incoming:contributed-to': 'cognition.commitHotspots.workRelation.contributesToHotspot',
 };
 
+// eslint-disable-next-line react-refresh/only-export-components -- CognitionCenter 消费；web-design-consistency-contract 断言本文件含该导出签名。
 export function nodeKey(node: CognitionRecentHotspotNode): string {
   return node.object_uid ? `uid:${node.object_uid}` : `legacy:${node.type}:${node.id}`;
 }

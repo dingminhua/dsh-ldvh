@@ -58,18 +58,10 @@ import {
   AUXILIARY_META_KEYS_BY_TYPE,
   COMMON_AUXILIARY_META_KEYS,
   getObjectDetailContentEntries,
-  sortRelatedContentEntries,
   splitRelatedContentEntries,
   type RelatedContentEntry,
 } from '@/pages/object-detail/model';
 import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
-
-export {
-  getObjectDetailContentEntries,
-  sortRelatedContentEntries,
-  splitRelatedContentEntries,
-};
-export type { RelatedContentEntry };
 export { default as WorkCaseReadingLayout } from '@/pages/object-detail/WorkCaseReadingLayout';
 export { AdrReadingLayout, FrictionReadingLayout, GoalReadingLayout, NormReadingLayout, PitfallReadingLayout, SparkReadingLayout } from '@/pages/object-detail/FactReadingLayouts';
 
@@ -558,10 +550,7 @@ type LocalizedTitleItem = {
   title_zh?: string;
 };
 
-export function getLocalizedTitle(item: LocalizedTitleItem, locale: string): string {
-  return getLocalizedObjectTitle(item, locale, item.id);
-}
-
+// eslint-disable-next-line react-refresh/only-export-components -- PanelContent 与 GoalDetail 消费；契约测试按本文件路径读取该导出。
 export function getObjectHeaderStatus(
   objectType: string,
   status: string | undefined,
@@ -975,12 +964,6 @@ function getMaterialLabel(fieldKey: string, locale: string) {
   return getFieldLabel(fieldKey, locale);
 }
 
-export function hasDetailContent(value: unknown): boolean {
-  if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === 'string') return value.trim().length > 0;
-  return value !== null && value !== undefined;
-}
-
 const EVIDENCE_NODE_ORDER = ['验证计划', '验证命令', '验证结果', '结论'];
 
 export function EvidenceReadingNodes({ value }: { value: string }) {
@@ -1068,6 +1051,7 @@ export function RelatedContentSection({
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- GoalDetail 与 PanelContent 等 4 处消费，另有契约测试断言。
 export function getAuxiliaryMetaEntries(obj: Record<string, unknown>, objType: string) {
   const keys = Array.from(new Set([...(AUXILIARY_META_KEYS_BY_TYPE[objType] || []), ...COMMON_AUXILIARY_META_KEYS]));
   return keys
@@ -1080,7 +1064,7 @@ export function getAuxiliaryMetaEntries(obj: Record<string, unknown>, objType: s
 /** 字段标签（本页包装 i18n 的 getFieldLabel）。`type` 透传：同名 frontmatter 字段
  * 在不同类型下语义不同时（如 disposition：spark 的终态去向 vs friction 的废弃
  * 去向说明），按类型取专属词条。省略时走通用表，与既有调用方兼容。 */
-export function getFieldLabel(fieldKey: string, locale: string, type?: string) {
+function getFieldLabel(fieldKey: string, locale: string, type?: string) {
   return getLocalizedFieldLabel(fieldKey, locale, type);
 }
 
@@ -1163,6 +1147,7 @@ export function DetailSection({
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- 3 个阅读布局消费；workcase-design-language-contract 断言本文件含该符号。
 export function getReadingNodeNextState(state: ReadingNodeState): ReadingNodeState {
   return state === 'collapsed' ? 'expanded' : 'collapsed';
 }
@@ -1282,6 +1267,7 @@ const RESEARCH_BODY_SECTION_ORDER = [
 type ResearchBodySection = { title: string; body: string };
 
 /** 正文按固定 H2 分节（前端解析，跟随 EvidenceReadingNodes 的既有先例）。 */
+// eslint-disable-next-line react-refresh/only-export-components -- research-reading-contract 逐字断言本文件含此导出签名，拆文件即失败。
 export function parseResearchBodySections(body: string): ResearchBodySection[] {
   const lines = body.split('\n');
   const sections: Array<{ title: string; body: string[] }> = [];
@@ -1309,6 +1295,7 @@ export function parseResearchBodySections(body: string): ResearchBodySection[] {
 }
 
 /** 判断正文节是否属于 24 号规范的固定 H2（未知节由布局以「补充内容」兜底呈现）。 */
+// eslint-disable-next-line react-refresh/only-export-components -- 同上：该契约测试按本文件路径断言此签名。
 export function isKnownResearchBodySection(title: string): boolean {
   return (RESEARCH_BODY_SECTION_ORDER as readonly string[]).includes(title);
 }
@@ -1316,6 +1303,7 @@ export function isKnownResearchBodySection(title: string): boolean {
 type ResearchProvenance = { ref?: string; anchor?: string; body: string };
 
 /** 发现单元的溯源锚点行提取（24 §10 格式：`溯源：<ref>（<锚点>）`，锚点行从正文剥离单独回指）。 */
+// eslint-disable-next-line react-refresh/only-export-components -- 同上：该契约测试按本文件路径断言此签名。
 export function extractResearchProvenance(unitBody: string): ResearchProvenance {
   const match = unitBody.match(/^溯源：(https?:\/\/\S+?)（(.+?)）[。]?\s*$/m);
   if (!match) return { body: unitBody.trim() };
@@ -1326,6 +1314,7 @@ export function extractResearchProvenance(unitBody: string): ResearchProvenance 
 type ResearchFindingUnit = { title: string; body: string; provenanceRef?: string; provenanceAnchor?: string };
 
 /** 「关键发现」段按 H3 切分发现单元（每单元：声明标题 + 观察/价值判断正文 + 溯源锚点行）。 */
+// eslint-disable-next-line react-refresh/only-export-components -- 同上：该契约测试按本文件路径断言此签名。
 export function parseResearchFindingUnits(sectionBody: string): ResearchFindingUnit[] {
   const lines = sectionBody.split('\n');
   const units: Array<{ title: string; body: string[] }> = [];

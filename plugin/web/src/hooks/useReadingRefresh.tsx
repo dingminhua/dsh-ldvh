@@ -37,11 +37,13 @@ export function RefreshScopeProvider({ children }: { children: ReactNode }) {
 }
 
 /** 供读取方使用：当前刷新档位（放进重取 effect 的依赖即可随刷新重读）。 */
+// eslint-disable-next-line react-refresh/only-export-components -- 3 处读取方消费；navigation-layout-contract 按本文件路径断言 createContext/requestRefresh 形态，拆文件即打断。
 export function useRefreshKey(): number {
   return useContext(ReadingRefreshContext)?.refreshKey ?? 0;
 }
 
 /** 供侧栏刷新入口使用：请求一次全局重新读取。 */
+// eslint-disable-next-line react-refresh/only-export-components -- 侧栏刷新入口消费；与上方同属该契约测试钉住的共置机制。
 export function useRequestRefresh(): () => void {
   const context = useContext(ReadingRefreshContext);
   return context?.requestRefresh ?? (() => {});

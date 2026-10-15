@@ -23,6 +23,7 @@ import type { WorkCaseDetailData } from '@/utils/api';
  * 尺寸与圆角**不在此处自定**——由共享 class `ldvh-chip-sm` 统一给出（`h-[18px]`／
  * `text-[11px]`／`rounded-md`／`px-1.5`），避免与邻居并排时高低不一。
  */
+// eslint-disable-next-line react-refresh/only-export-components -- WorkCaseReadingLayout 消费的类名单点；契约测试按本文件路径读取。
 export const WORKCASE_CLOSED_STATUS_BADGE_CLASS: Record<string, string> = {
   completed: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
   partial: 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400',

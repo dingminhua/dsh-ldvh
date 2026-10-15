@@ -66,7 +66,7 @@ function getButtonClass(active: boolean): string {
   return `ldvh-tab-button ${active ? 'ldvh-tab-button-active' : 'ldvh-tab-button-idle'}`;
 }
 
-export function getFallbackStatuses(type: string, activeStatus: string | null): string[] {
+function getFallbackStatuses(type: string, activeStatus: string | null): string[] {
   const fallback = FALLBACK_STATUSES_BY_TYPE[type] ?? [];
   if (!activeStatus || fallback.includes(activeStatus)) return fallback;
   return [activeStatus, ...fallback];

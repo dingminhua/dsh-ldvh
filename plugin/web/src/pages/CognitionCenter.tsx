@@ -10,7 +10,7 @@
  * - 待决规模如实可见：超出首屏按服务端排序截断，底部如实提示总数与未显示数量，不分页。
  * - 模块级降级：issues 就地显示实际不可用范围与原因，其它内容正常呈现（02 §5.2）。
  */
-import { useEffect, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { AlertCircle, ChevronDown, ChevronUp, CirclePlay, GitFork, HeartPulse, History, Inbox } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
 import GoalSection from '@/components/GoalSection';
@@ -509,6 +509,10 @@ function toggleOnKeyboard(event: KeyboardEvent<HTMLDivElement>, toggle: () => vo
 
 export default function CognitionCenter({ hideCommitHotspots = false, embedded = false }: { hideCommitHotspots?: boolean; embedded?: boolean } = {}) {
   const [data, setData] = useState<CognitionData | null>(null);
+  // 「本模块是否已有快照」不能用 data 作为 effect 依赖：setData 后 data 变化会重新
+  // 触发取数，形成自激循环（react-hooks/exhaustive-deps）。故用 ref 记录同一事实——
+  // setData 是 data 的唯一写入点，ref 与它同步写入，语义与 `data !== null` 等价。
+  const hasSnapshotRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [inboxExpanded, setInboxExpanded] = useState(true);
   const [showAll, setShowAll] = useState(false);
@@ -531,13 +535,14 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
   // 首次进入才阻塞整页；切换近期窗口保留当前内容，只在本模块内更新快照。
   useEffect(() => {
     let cancelled = false;
-    const hasCurrentData = data !== null;
+    const hasCurrentData = hasSnapshotRef.current;
     setError(null);
     setRecentError(null);
     if (hasCurrentData) setRecentLoading(true);
     fetchCognition(locale, recentWindow)
       .then((next) => {
         if (!cancelled) {
+          hasSnapshotRef.current = true;
           setData(next);
           setSparkHealthAgeFilter(getDefaultSparkHealthAgeFilter(next.sparkHealth?.openItems ?? []));
           setRecentLoading(false);

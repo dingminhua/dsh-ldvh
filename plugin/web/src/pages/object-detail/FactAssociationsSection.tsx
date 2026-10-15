@@ -108,19 +108,23 @@ function RefTarget({ entry, currentProjectId, locale }: {
   const [detail, setDetail] = useState<ObjectDetail | null>(null);
   const locator = entry.resolvedTarget;
   const readable = Boolean(locator && currentProjectId && locator.governedProjectId === currentProjectId);
+  // effect 只消费这两个标量。依赖整个 locator 对象会在其每次新建时重取详情，故先在
+  // 渲染期取出，使依赖数组与 effect 真正读取的值一致（react-hooks/exhaustive-deps）。
+  const locatorFactTypeKey = locator?.factTypeKey;
+  const locatorObjectId = locator?.objectId;
 
   useEffect(() => {
-    if (!readable || !locator) {
+    if (!readable || !locatorFactTypeKey || !locatorObjectId) {
       setDetail(null);
       return;
     }
     let cancelled = false;
     setDetail(null);
-    fetchObjectDetail(locator.factTypeKey, locator.objectId)
+    fetchObjectDetail(locatorFactTypeKey, locatorObjectId)
       .then((value) => { if (!cancelled) setDetail(value); })
       .catch(() => { if (!cancelled) setDetail(null); });
     return () => { cancelled = true; };
-  }, [readable, locator?.factTypeKey, locator?.objectId]);
+  }, [readable, locatorFactTypeKey, locatorObjectId]);
 
   if (!readable || !locator) {
     return (
@@ -249,19 +253,22 @@ function ReadableRelationTarget({ relation, locale, showRelationKey }: {
   // 会破坏调用序（react-hooks/rules-of-hooks）。
   const { isOpen: panelOpen, content: panelContent, openPanel } = usePanel();
   const [detail, setDetail] = useState<ObjectDetail | null>(null);
+  // 同 RefTarget：effect 只消费这两个标量，取出后依赖数组与读取值一致。
+  const locatorFactTypeKey = locator?.factTypeKey;
+  const locatorObjectId = locator?.objectId;
 
   useEffect(() => {
-    if (!locator) {
+    if (!locatorFactTypeKey || !locatorObjectId) {
       setDetail(null);
       return;
     }
     let cancelled = false;
     setDetail(null);
-    fetchObjectDetail(locator.factTypeKey, locator.objectId)
+    fetchObjectDetail(locatorFactTypeKey, locatorObjectId)
       .then((value) => { if (!cancelled) setDetail(value); })
       .catch(() => { if (!cancelled) setDetail(null); });
     return () => { cancelled = true; };
-  }, [locator?.factTypeKey, locator?.objectId]);
+  }, [locatorFactTypeKey, locatorObjectId]);
 
   if (!locator) {
     return <ExternalRelationTarget relation={relation} locale={locale} showRelationKey={showRelationKey} />;
