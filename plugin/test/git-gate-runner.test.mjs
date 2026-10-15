@@ -283,3 +283,25 @@ test("an unresolvable reference exempts nothing", async () => {
 		assert.match(result.stderr, /validation\/load_bearing_resolution_missing/);
 	});
 });
+
+test("a fact reference resolves by the carrier's object_uid, not only by its file name", async () => {
+	// Review finding F2: resolution matched the uid against file PATHS, so an
+	// object whose carrier is not named after its uid could not back a
+	// reference. The carrier's own object_uid line is the declaration that
+	// counts (09 §5.3 item 6: "可解析的同项目事实对象").
+	await withTemp("ldvh-ggr.", async (base) => {
+		const root = await committedDeclarationRepo(base);
+		const uid = "11112222-3333-4444-5555-666677778888";
+		await mkdir(join(root, "ldvh-base", "adrs"), { recursive: true });
+		await writeFile(join(root, "ldvh-base", "adrs", "unnamed-carrier.md"), `---\nobject_uid: ${uid}\ntitle: x\n---\n\n# x\n`);
+		await gitOk(root, ["add", "-A"]);
+		await gitOk(root, ["commit", "-qm", "add fact carrier"]);
+		await writeFile(join(root, "specs", "01-test.md"), declarationFile("**无**——须按判据逐处核对"));
+		await gitOk(root, ["add", "-A"]);
+		const messageFile = join(root, "msg.txt");
+		await writeFile(messageFile, declarationMessage(`specs/01-test.md: 调整表述（独立复核 ${uid} 已确认范围关闭）`));
+
+		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(result.code, 0, result.stderr);
+	});
+});

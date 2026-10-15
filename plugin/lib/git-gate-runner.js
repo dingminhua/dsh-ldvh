@@ -195,7 +195,8 @@ async function allFactPaths(worktree, indexFile) {
  */
 async function referenceResolvable(worktree, indexFile, token, knownPaths) {
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(token)) {
-    return [...knownPaths].some((path) => path.startsWith("ldvh-base/") && path.includes(token));
+    if ([...knownPaths].some((path) => path.startsWith("ldvh-base/") && path.includes(token))) return true;
+    return await declaresObjectUid(worktree, indexFile, token);
   }
   try {
     await git(worktree, ["rev-parse", "--verify", "--quiet", `${token}^{commit}`], indexFile);
@@ -203,6 +204,34 @@ async function referenceResolvable(worktree, indexFile, token, knownPaths) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Does the repository hold a fact carrier that DECLARES this object_uid?
+ *
+ * Resolving a fact reference by file name alone would tie the check to a
+ * naming convention no mechanism enforces: a carrier named without its uid
+ * (or a future singleton carrier) would be refused even though the object it
+ * names exists. The carrier's own `object_uid` line is the declaration that
+ * counts, so both sources are consulted — the HEAD tree and the Index, since a
+ * reference may point at an object this very commit is landing.
+ */
+async function declaresObjectUid(worktree, indexFile, token) {
+  const pattern = `^object_uid: ${token}$`;
+  const queries = [
+    ["grep", "-l", "-E", pattern, "HEAD", "--", "ldvh-base"],
+    ["grep", "--cached", "-l", "-E", pattern, "--", "ldvh-base"]
+  ];
+  for (const args of queries) {
+    try {
+      const out = await git(worktree, args, indexFile);
+      if (out.trim().length > 0) return true;
+    } catch {
+      // git grep exits 1 on "no match"; an unreadable tree lands here too.
+      // Neither is evidence of absence, so the next source decides.
+    }
+  }
+  return false;
 }
 
 /**

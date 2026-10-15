@@ -406,37 +406,38 @@ export function extractLoadBearingUnits(text) {
   if (typeof text !== "string" || text.length === 0) return [];
   const units = [];
   for (const line of text.split("\n")) {
-    for (const at of markerUses(line)) {
-      const rest = line.slice(at + LOAD_BEARING_MARKER.length).trim();
-      const cut = rest.search(/[|｜：:]/);
-      const anchor = (cut >= 0 ? rest.slice(0, cut) : rest).replace(/\*\*|\s+/g, " ").trim().slice(0, 40);
-      if (anchor.length === 0) continue;
-      units.push({ anchor, hasResolution: line.includes(LOAD_BEARING_RESOLUTION_LABEL) });
-      break; // one unit per line: a declaration is one physical line
-    }
+    const uses = literalUsesOutsideCodeSpans(line, LOAD_BEARING_MARKER);
+    if (uses.length === 0) continue; // a mention is not a declaration
+    const rest = line.slice(uses[0] + LOAD_BEARING_MARKER.length).trim();
+    const cut = rest.search(/[|｜：:]/);
+    const anchor = (cut >= 0 ? rest.slice(0, cut) : rest).replace(/\*\*|\s+/g, " ").trim().slice(0, 40);
+    if (anchor.length === 0) continue;
+    units.push({ anchor, hasResolution: literalUsesOutsideCodeSpans(line, LOAD_BEARING_RESOLUTION_LABEL).length > 0 });
   }
   return units;
 }
 
 /**
- * Offsets where the marker is USED rather than merely MENTIONED.
+ * Offsets where a literal is USED rather than merely MENTIONED.
  *
- * A rule that defines the marker has to name it, and both the discipline
- * clause and the mechanical item write it inside a code span — `【承重声明】`.
- * Counting those as declarations would turn the rule's own text into a
- * protected unit and make every later wording fix demand a review reference.
- * A marker inside a code span (an odd number of backticks before it on the
- * same line) is a mention; everything else is a use.
+ * Both the marker and the resolution label have to be NAMED by the very rules
+ * that define them, and those rules write them inside code spans —
+ * `【承重声明】`, `**恢复条件**：…`. Counting a code-span occurrence would make
+ * the rule's own paragraph a protected unit, and (for the label) would accept a
+ * declaration whose label is only quoted rather than carried. A literal inside
+ * a code span (an odd number of backticks before it on the same line) is a
+ * mention; everything else is a use. Both checks go through this one helper so
+ * the marker side and the label side cannot drift apart.
  */
-function markerUses(line) {
+function literalUsesOutsideCodeSpans(line, literal) {
   const offsets = [];
   let from = 0;
   for (;;) {
-    const at = line.indexOf(LOAD_BEARING_MARKER, from);
+    const at = line.indexOf(literal, from);
     if (at < 0) return offsets;
     const backticks = (line.slice(0, at).match(/`/g) ?? []).length;
     if (backticks % 2 === 0) offsets.push(at);
-    from = at + LOAD_BEARING_MARKER.length;
+    from = at + literal.length;
   }
 }
 

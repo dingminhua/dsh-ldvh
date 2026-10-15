@@ -727,9 +727,12 @@ function makeExecute(deps) {
     const resolvable = new Set();
     for (const token of collectDeclarationReferenceTokens(message)) {
       if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(token)) {
-        // A fact reference resolves only against carriers the repository
-        // holds — an untracked file is not part of what this commit lands.
-        if (factPaths.some((path) => path.startsWith("ldvh-base/") && path.includes(token))) resolvable.add(token);
+        // A fact reference resolves against the carrier's own object_uid
+        // declaration, not only its file name (09 §5.3 item 6 says "可解析的
+        // 同项目事实对象"): the Index and the HEAD tree are both consulted, so
+        // an object this very commit lands can still back the reference.
+        const namedWithoutUid = factPaths.some((path) => path.startsWith("ldvh-base/") && path.includes(token));
+        if (namedWithoutUid || (await declaresObjectUid(token))) resolvable.add(token);
         continue;
       }
       try {
@@ -740,6 +743,21 @@ function makeExecute(deps) {
       }
     }
     return checkLoadBearingDeclarations(carriers, { message, resolvable, unreadable });
+
+    async function declaresObjectUid(token) {
+      const pattern = `^object_uid: ${token}$`;
+      for (const args of [
+        ["grep", "--cached", "-l", "-E", pattern, "--", "ldvh-base"],
+        ["grep", "-l", "-E", pattern, "HEAD", "--", "ldvh-base"]
+      ]) {
+        try {
+          if ((await runGit(args)).trim().length > 0) return true;
+        } catch {
+          // git grep exits 1 on no-match; an unreadable tree lands here too.
+        }
+      }
+      return false;
+    }
   }
 
   function checkSignatureAgainstRoute(message, route) {

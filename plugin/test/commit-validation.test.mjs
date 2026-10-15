@@ -755,3 +755,20 @@ test("one unit per line, and a mention stays a mention regardless of where it si
 	assert.deepEqual(extractLoadBearingUnits(`见 ${BT}${LOAD_BEARING_MARKER} 的约定${BT}`), []);
 	assert.deepEqual(extractLoadBearingUnits(`${BT}${LOAD_BEARING_MARKER}${BT} 标识`), []);
 });
+
+test("the resolution label must be CARRIED, not merely quoted in a code span", () => {
+	// Review finding F3: the marker side already ignored code spans while the
+	// label side used a plain substring test, so a declaration whose release
+	// element was only quoted satisfied the shape check. Both sides now share
+	// one use/mention helper.
+	const BT = String.fromCharCode(96);
+	const quoted = `| ${LOAD_BEARING_MARKER} 本文正文对 §7.2 的对齐 | 不得声称已完成 | 见 ${BT}${LOAD_BEARING_RESOLUTION_LABEL}…${BT} 的约定 |`;
+	const carried = `| ${LOAD_BEARING_MARKER} 本文正文对 §7.2 的对齐 | 不得声称已完成 | ${LOAD_BEARING_RESOLUTION_LABEL}完成后删除本行 |`;
+	assert.equal(extractLoadBearingUnits(quoted)[0].hasResolution, false);
+	assert.equal(extractLoadBearingUnits(carried)[0].hasResolution, true);
+	const result = checkLoadBearingDeclarations(specCarrier(quoted, carried), {
+		message: messageWith(["specs/21-WorkCase 工单.md: 把要件改成引用形式"]),
+	});
+	assert.equal(result.ok, false);
+	assert.deepEqual(result.issues.map((issue) => issue.rule), [LOAD_BEARING_RULES.resolutionMissing]);
+});
