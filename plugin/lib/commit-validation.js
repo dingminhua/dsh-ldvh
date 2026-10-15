@@ -406,15 +406,38 @@ export function extractLoadBearingUnits(text) {
   if (typeof text !== "string" || text.length === 0) return [];
   const units = [];
   for (const line of text.split("\n")) {
-    const at = line.indexOf(LOAD_BEARING_MARKER);
-    if (at < 0) continue;
-    const rest = line.slice(at + LOAD_BEARING_MARKER.length).trim();
-    const cut = rest.search(/[|｜：:]/);
-    const anchor = (cut >= 0 ? rest.slice(0, cut) : rest).replace(/\*\*|\s+/g, " ").trim().slice(0, 40);
-    if (anchor.length === 0) continue;
-    units.push({ anchor, hasResolution: line.includes(LOAD_BEARING_RESOLUTION_LABEL) });
+    for (const at of markerUses(line)) {
+      const rest = line.slice(at + LOAD_BEARING_MARKER.length).trim();
+      const cut = rest.search(/[|｜：:]/);
+      const anchor = (cut >= 0 ? rest.slice(0, cut) : rest).replace(/\*\*|\s+/g, " ").trim().slice(0, 40);
+      if (anchor.length === 0) continue;
+      units.push({ anchor, hasResolution: line.includes(LOAD_BEARING_RESOLUTION_LABEL) });
+      break; // one unit per line: a declaration is one physical line
+    }
   }
   return units;
+}
+
+/**
+ * Offsets where the marker is USED rather than merely MENTIONED.
+ *
+ * A rule that defines the marker has to name it, and both the discipline
+ * clause and the mechanical item write it inside a code span — `【承重声明】`.
+ * Counting those as declarations would turn the rule's own text into a
+ * protected unit and make every later wording fix demand a review reference.
+ * A marker inside a code span (an odd number of backticks before it on the
+ * same line) is a mention; everything else is a use.
+ */
+function markerUses(line) {
+  const offsets = [];
+  let from = 0;
+  for (;;) {
+    const at = line.indexOf(LOAD_BEARING_MARKER, from);
+    if (at < 0) return offsets;
+    const backticks = (line.slice(0, at).match(/`/g) ?? []).length;
+    if (backticks % 2 === 0) offsets.push(at);
+    from = at + LOAD_BEARING_MARKER.length;
+  }
 }
 
 const REFERENCE_UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;

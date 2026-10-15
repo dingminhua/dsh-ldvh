@@ -731,3 +731,27 @@ test("registered: every load-bearing rule is in the K1 registry as blocking", ()
 		assert.equal(GATE_RULES[rule].severity, "blocking");
 	}
 });
+
+test("mention vs use: a marker inside a code span is a mention, not a declaration", () => {
+	// The rule texts themselves write the marker inside backticks while
+	// defining it. Counting those as declarations would make the rule's own
+	// paragraph a protected unit and demand a review reference for every later
+	// wording fix — so a code-span marker must not open a unit.
+	const BT = String.fromCharCode(96);
+	const ruleText = `承重声明**须**以固定标记 ${BT}${LOAD_BEARING_MARKER}${BT} 标识，并以固定标签的恢复条件子件 ${BT}${LOAD_BEARING_RESOLUTION_LABEL}…${BT} 承载其解除要件；`;
+	assert.deepEqual(extractLoadBearingUnits(ruleText), []);
+	// The same marker OUTSIDE a code span is a use: it opens the unit.
+	assert.equal(extractLoadBearingUnits(`${LOAD_BEARING_MARKER} 本文正文对 §7.2 的对齐 | 不得声称… | ${LOAD_BEARING_RESOLUTION_LABEL}完成后删除本行 |`).length, 1);
+	assert.equal(extractLoadBearingUnits(`| ${LOAD_BEARING_MARKER} 授权包 | 不得声称… | ${LOAD_BEARING_RESOLUTION_LABEL}来源回填 |`).length, 1);
+});
+
+test("one unit per line, and a mention stays a mention regardless of where it sits", () => {
+	// Two mentions of the marker on one line describe ONE declaration (a table
+	// row whose text also names the marker): the unit count must not double.
+	const BT = String.fromCharCode(96);
+	const twoOnOneLine = `| ${LOAD_BEARING_MARKER} 授权包 | 见 ${LOAD_BEARING_MARKER} 的约定 | ${LOAD_BEARING_RESOLUTION_LABEL}来源回填 |`;
+	assert.equal(extractLoadBearingUnits(twoOnOneLine).length, 1);
+	// A code-span marker yields no unit, wherever in the line it appears.
+	assert.deepEqual(extractLoadBearingUnits(`见 ${BT}${LOAD_BEARING_MARKER} 的约定${BT}`), []);
+	assert.deepEqual(extractLoadBearingUnits(`${BT}${LOAD_BEARING_MARKER}${BT} 标识`), []);
+});
