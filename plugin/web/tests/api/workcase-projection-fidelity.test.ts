@@ -32,6 +32,19 @@ import { readFixture, writeFixtureCarriers } from './workcase-projection-fixture
 const REPOSITORY_ROOT = path.resolve(import.meta.dirname, '../../../..');
 const WORKCASE_DIR = path.join(REPOSITORY_ROOT, 'ldvh-base', 'workcases');
 
+/**
+ * **写入侧**的残留段解析器（`21 §15.1` 门禁② 跨树口径里 `lib` 的那一份）。
+ *
+ * 本文件用它取「正文里实际有几条残留」这一期望值，取代此前内联的一套近似规则。
+ * 为什么必须取独立实现而不是复用被测解析器：若两者是同一份代码，「投影是否忠实」
+ * 这一断言就退化成「解析器是否等于它自己」，解析器出错时必然同意自己。
+ * `lib` 是 ESM `.js`（由 `lib/package.json` 声明 type: module），用动态 import 载入，
+ * 与 `workcase-direction-parity-contract.test.ts` 的载入方式同款。
+ */
+const writer = await import(
+  path.join(REPOSITORY_ROOT, 'plugin/lib/workcase-writer.js')
+) as { parseResidualSection: (section: string) => { entries: unknown[] } };
+
 function workcaseScope(): LocalFactScope {
   return { worktreeLocator: REPOSITORY_ROOT, governedProjectId: 'dsh-ldvh' };
 }
@@ -943,20 +956,20 @@ test('待批准关闭：正文残留逐条投影，一条不少（21 §8）', as
     const source = detail.item.fact_object as Record<string, unknown>;
     if (source.status !== 'open') continue;
     const body = typeof source.report_body === 'string' ? source.report_body : '';
-    // 正文里实际有几条残留（同级 bullet 归下一段，与解析器同规则）
+    // 正文里实际有几条残留——**取自写入侧的独立解析器**，不在本测试里另写一套近似规则。
+    //
+    // 此前本处内联了「数同级 bullet」，它与 `parseResidualSection` 并非同一判据，实测
+    // 出过两类失效：① 旧近似把「残留条目」与其「去向子项」一起计数（7 条残留 + 7 条
+    // 去向 = 14），而 `21 §15.1` 门禁② 的数对象是**残留条目数**、不含子项；② 更隐蔽的
+    // 是两侧可同时为空——旧近似与旧解析器都只认「`- residual:` 独占一行」的形态，于是
+    // 对「行内 `- residual: <正文>`」的载体**双双返回 0 且相等**，断言在双方皆错时静默
+    // 通过（workcase-562f75c1 修复前正是该形态，该用例当时因此未拦下任何东西）。
+    //
+    // 故改为直接取写入侧解析器的条数：它是「两处必须逐案同数」（`21 §15.1` 门禁② 的
+    // 跨树口径）中**写入侧的那一份**，与呈现层 `parseWorkCaseResultDraft` 互为独立实现。
+    // 这样本断言检验的是「投影是否忠实搬运」，而不是「测试是否复述了被测解析器」。
     const section = body.slice(/^## 结果\s*$/m.exec(body)?.index ?? -1);
-    const marker = /^(\s*)-\s*(?:residual|残留责任)\s*[:：]?\s*$/m.exec(section);
-    let expected = 0;
-    if (marker) {
-      const modeIndent = marker[1].length;
-      for (const line of section.slice(marker.index + marker[0].length).split('\n')) {
-        if (!line.trim()) continue;
-        const bullet = /^(\s*)-\s+(.*)$/.exec(line);
-        if (!bullet) continue;
-        if (bullet[1].length <= modeIndent) break; // 归下一段
-        expected += 1;
-      }
-    }
+    const expected = writer.parseResidualSection(section).entries.length;
     const projected = projectCurrentWorkCaseCard(source, detail.item.source_content_fingerprint);
     const residual = Array.isArray(projected.result_residual) ? projected.result_residual : [];
     assert.equal(

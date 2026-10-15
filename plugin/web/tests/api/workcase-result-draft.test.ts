@@ -525,3 +525,54 @@ test('无补记声明时 adviceNote 为 null', () => {
   const body = bodyOf(['- advice:', '  - **直接行动**：X。']);
   assert.equal(parseWorkCaseResultDraft(body, PLAN).adviceNote, null);
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// 核对条目的**前缀形态**（`21 §178`）
+//
+// 回归守卫：本解析器曾只认「步骤 N」，而 `21 §178` 明文要求「正文引用计划步骤时须使用
+// 显式形式『**计划步骤 N**』」。两者不一致的后果是**按规范写反而读不出**——实测 4 份完全
+// 符合 §178 的载体核对条目解析为 0 条，卡面渲染出空的「逐条判据核对」块，且**无任何报错**
+// （写入侧只校验 `result.criteria_checks` 字段，不校验正文形态）。
+//
+// 故以下断言钉住「§178 的显式形式必须可解析」。它们**不是**在放宽形态——两种前缀都指向
+// 同一个 `plan` 下标体系，接受 §178 的写法是回到规范。
+// ─────────────────────────────────────────────────────────────────────────
+test('核对条目接受 §178 的显式形式「计划步骤 N」（回归守卫）', () => {
+  const cases: Array<[string, string]> = [
+    ['计划步骤 N：<词>', '- 计划步骤 1：**达成**——证据：x'],
+    // 括号简述是给人读的，N 才是对应依据——实测载体写作「计划步骤 2（判据收紧）：达成」
+    ['计划步骤 N（<简述>）：<词>', '- 计划步骤 1（核实范围）：**达成**——证据：x'],
+    // 该形态自带显式 N，配对依据完整，不依赖任何段头开启符（实测两份载体即无段头）
+    ['计划步骤 N 判据「…」：<词>', '- 计划步骤 1 判据「核实范围与适用路径」：**达成**——证据：x'],
+  ];
+  for (const [label, line] of cases) {
+    const d = parseWorkCaseResultDraft(bodyOf([line]), PLAN);
+    assert.equal(d.checks.length, 1, `${label} 必须可解析——§178 要求正文用此形式引用计划步骤`);
+    assert.equal(d.checks[0].planIndex, 0, `${label} 须配对到 plan 下标 0`);
+    assert.equal(d.checks[0].status, 'achieved', `${label} 的三词须归一为 achieved`);
+  }
+});
+
+test('「计划步骤 N」与「步骤 N」逐案同判（两种前缀不得分岔）', () => {
+  for (const [n, word, status] of [[1, '达成', 'achieved'], [2, '部分达成', 'partial'], [3, '未达成', 'not-achieved']] as const) {
+    const a = parseWorkCaseResultDraft(bodyOf([`- 计划步骤 ${n}：**${word}**——证据：x`]), PLAN);
+    const b = parseWorkCaseResultDraft(bodyOf([`- 步骤 ${n}：**${word}**——证据：x`]), PLAN);
+    assert.deepEqual(a.checks, b.checks, `N=${n}：「计划步骤」与「步骤」须给出同一结果`);
+    assert.equal(a.checks[0].status, status);
+  }
+});
+
+test('区间与「判据「…」」形态在两种前缀下都成立', () => {
+  const rangePlan = parseWorkCaseResultDraft(bodyOf(['- 计划步骤 1–2：**达成**——证据：x']), PLAN);
+  assert.deepEqual(rangePlan.checks.map((c) => c.planIndex), [0, 1], '「计划步骤 N–M」按区间展开');
+  const crit = parseWorkCaseResultDraft(bodyOf(['- 计划步骤 1 判据「核实范围与适用路径」：**达成**——证据：x']), PLAN);
+  assert.equal(crit.checks.length, 1);
+});
+
+test('前缀不是「计划步骤」/「步骤」时不得误配（防放宽过度）', () => {
+  // 「判据 1（…）」等未登记前缀不在 §178 的显式形式内——不得静默当作计划步骤编号。
+  for (const line of ['- 判据 1（核实范围）：**达成**——证据：x', '- 计划 1：**达成**——证据：x']) {
+    const d = parseWorkCaseResultDraft(bodyOf([line]), PLAN);
+    assert.equal(d.checks.length, 0, `「${line}」不应被当作计划步骤核对条目`);
+  }
+});

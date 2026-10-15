@@ -435,15 +435,36 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
       continue
     }
 
-    // ── 顶层「步骤 …」形态（含 ①②）──
+    // ── 顶层「计划步骤 N」/「步骤 N」形态（含 ①②）──
+    //
+    // **前缀「计划步骤」与「步骤」等价**（`21 §178`）：该条明文要求「正文引用计划步骤时
+    // 须使用显式形式『计划步骤 N』」。本解析器此前只认「步骤 N」，于是**按规范写**的核对
+    // 行反而解析为 0 条——实测 4 份完全符合 §178 的载体（`562f75c1`／`c6d88dac`／
+    // `1a34f9e4`／`81c37ef0`）全部读不出，卡面渲染出空的核对块且无任何报错。
+    // 这不是「放宽形态」：两种前缀都指向同一个 `plan` 下标体系，接受 §178 的写法是**回
+    // 到规范**，不是额外容忍。至 §190 的条目形态被登记前，本处按 §178 既有明文实现。
+    //
+    // 括号简述同样不参与下标判定：实测载体里写作「计划步骤 2（判据收紧）：达成」，
+    // 简述是给人读的，N 才是唯一的对应依据。
     if (mode === null || isTopLevel) {
-      const range = /^步骤\s*(\d+)\s*[–\-~]\s*(\d+)\s*[:：]\s*(.+)$/s.exec(item)
+      // 「判据「…」」形态**不要求 `checks` 段头**：它自带显式 N，配对依据完整
+      //（与「步骤 N」同依据），段头在此不提供任何额外判据。此前它被门在
+      // `mode === 'checks'` 内，实测使两份载体（`1a34f9e4`／`81c37ef0`）——其核对段
+      // 直接跟在「## 结果」之下、无任何开启符——解析为 0 条。规范登记的是**条目形态**
+      //（§190 三词 + 本条 N），不是「必须有个段头 bullet」；故按形态自身识别。
+      const critTop = /^(?:计划)?步骤\s*(\d+)\s*判据「.*?」\s*[:：]\s*(.+)$/s.exec(item)
+      if (critTop) {
+        const i = Number(critTop[1]) - 1
+        if (!byIndex.has(i)) byIndex.set(i, statusOf(critTop[2]))
+        continue
+      }
+      const range = /^(?:计划)?步骤\s*(\d+)\s*[–\-~]\s*(\d+)\s*[:：]\s*(.+)$/s.exec(item)
       if (range) {
         const a = Number(range[1]); const b = Number(range[2]); const st = statusOf(range[3])
         for (let n = a; n <= b; n += 1) if (!byIndex.has(n - 1)) byIndex.set(n - 1, st)
         continue
       }
-      const single = /^步骤\s*(\d+)\s*[:：]\s*(.+)$/s.exec(item)
+      const single = /^(?:计划)?步骤\s*(\d+)\s*(?:[（(][^）)]*[）)])?\s*[:：]\s*(.+)$/s.exec(item)
       if (single) {
         const i = Number(single[1]) - 1
         if (!byIndex.has(i)) byIndex.set(i, statusOf(single[2]))
@@ -453,7 +474,7 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
 
     // ── checks 段内 ──
     if (mode === 'checks') {
-      const crit = /^步骤\s*(\d+)\s*判据「.*?」\s*[:：]\s*(.+)$/s.exec(item)
+      const crit = /^(?:计划)?步骤\s*(\d+)\s*判据「.*?」\s*[:：]\s*(.+)$/s.exec(item)
       if (crit) {
         const i = Number(crit[1]) - 1
         if (!byIndex.has(i)) byIndex.set(i, statusOf(crit[2]))
