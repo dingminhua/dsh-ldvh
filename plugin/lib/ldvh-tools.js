@@ -1179,6 +1179,14 @@ export function renderEnvelope(operationKey, value) {
   if (env.result?.mechanical_outcome !== undefined) lines.push(`mechanical_outcome: ${env.result.mechanical_outcome}`);
   if (Array.isArray(env.result?.candidates)) lines.push(`${env.result.candidates.length} candidate(s) at ${env.result.layer}`);
   if (env.result?.state !== undefined) lines.push(`state: ${env.result.state}`);
+  // 机械预检的**失败原因**必须对调用方可读（09 §5.3 的意图是给出问题项，不是只给
+  // 一个 failed）。此前本渲染只印 gaps，而预检把问题项放在 `result.issues` 里，
+  // 于是「failed 但看不到为什么」——实测踩到（2026-10-15 的宿主目标功能提交前预检）。
+  for (const issue of env.result?.issues ?? []) {
+    const rule = issue?.rule ?? "issue";
+    const message = issue?.message ?? (typeof issue === "string" ? issue : JSON.stringify(issue));
+    lines.push(`issue: ${rule} — ${message}`);
+  }
   // Gaps may be structured records (05 §8 traceability), so stringify them
   // rather than interpolating them as [object Object].
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);

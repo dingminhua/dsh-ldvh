@@ -1177,3 +1177,26 @@ test("precheck-git-commit passes the same edit when a 关键变更 item carries 
 		assert.equal(envelope.result.mechanical_outcome, "passed");
 	});
 });
+
+test("renderEnvelope: 预检的失败原因必须对调用方可读（09 §5.3 的意图是给出问题项，不是只给 failed）", () => {
+	// 实测踩到（2026-10-15 宿主目标功能提交前预检）：渲染器只印 gaps，而预检把问题项
+	// 放在 `result.issues` 里，于是「failed 但看不到为什么」——调用方只能反复试错。
+	const blocks = renderEnvelope("precheck-git-commit", {
+		envelope: {
+			operation_key: "precheck-git-commit",
+			outcome: "completed",
+			result: {
+				mechanical_outcome: "failed",
+				issues: [
+					{ rule: "validation/signature_provider_mismatch", message: "trailer LDVH-Provider does not match the authoritative route" },
+					"裸字符串形态的问题项",
+				],
+			},
+			gaps: ["provider/model could not be traced to the authoritative session record"],
+		},
+	});
+	const text = blocks.map((block) => block.text).join("\n");
+	assert.match(text, /\nissue: validation\/signature_provider_mismatch — trailer LDVH-Provider does not match/);
+	assert.match(text, /\nissue: issue — 裸字符串形态的问题项/, "字符串形态的问题项也不得丢");
+	assert.match(text, /\ngap: provider\/model could not be traced/, "gaps 的既有呈现不受影响");
+});
