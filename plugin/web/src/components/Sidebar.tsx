@@ -11,10 +11,12 @@ import {
   Moon,
   Monitor,
   PanelLeft,
+  RefreshCw,
   type LucideProps,
 } from 'lucide-react';
 import { useI18n } from '@/i18n/context';
 import { useTheme } from '@/hooks/useTheme';
+import { useRequestRefresh } from '@/hooks/useReadingRefresh';
 import { getLanguageSwitchKey, getOppositeLanguageNameKey, getOppositeLocale, type LocaleKey } from '@/i18n/locales';
 import { OBJECT_TYPE_ICONS } from '@/components/SemanticIcon';
 import ProjectSwitcher from '@/components/ProjectSwitcher';
@@ -98,6 +100,7 @@ interface SidebarProps {
 export default function Sidebar({ collapsed, compact = false, onToggle }: SidebarProps) {
   const { locale, setLocale, t } = useI18n();
   const { mode, cycleTheme } = useTheme();
+  const requestRefresh = useRequestRefresh();
   const [visibleTooltip, setVisibleTooltip] = useState<{ key: string; position: TooltipPosition } | null>(null);
   const location = useLocation();
   const federationActive = location.pathname === '/federation' || location.pathname.startsWith('/federation/');
@@ -109,6 +112,7 @@ export default function Sidebar({ collapsed, compact = false, onToggle }: Sideba
     mode === 'system' ? t('theme.system') :
     mode === 'light' ? t('theme.light') :
     t('theme.dark');
+  const refreshLabel = t('nav.refreshReading');
   const showTooltip = (key: string, element: HTMLElement) => {
     const rect = element.getBoundingClientRect();
     setVisibleTooltip({ key, position: { top: rect.top + rect.height / 2, left: rect.right + 8 } });
@@ -191,57 +195,79 @@ export default function Sidebar({ collapsed, compact = false, onToggle }: Sideba
         </ul>
       </nav>
       <div className={`border-t border-ldvh-border ${isCollapsed ? 'px-2 py-3' : 'px-3 py-3'}`}>
-        <div className={isCollapsed ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1'}>
-          <button
-            onClick={() => {
-              setVisibleTooltip(null);
-              setLocale(getOppositeLocale(locale));
-            }}
-            onMouseEnter={(event) => showTooltip('language', event.currentTarget)}
-            onMouseLeave={() => setVisibleTooltip(null)}
-            onFocus={(event) => showTooltip('language', event.currentTarget)}
-            onBlur={() => setVisibleTooltip(null)}
-            aria-label={languageLabel}
-            className={`ldvh-card-title relative flex items-center rounded-md text-ldvh-text-secondary transition-colors hover:bg-ldvh-border/50 hover:text-ldvh-text-primary ${
-              isCollapsed ? 'h-9 w-9 justify-center px-0' : 'flex-1 gap-2 px-3 py-1.5'
-            }`}
-          >
-            <Globe size={16} />
-            {!isCollapsed && t(getOppositeLanguageNameKey(locale))}
-            {isCollapsed && <IconTooltip label={languageLabel} visible={visibleTooltip?.key === 'language'} position={visibleTooltip?.position} />}
-          </button>
-          <button
-            onClick={() => {
-              setVisibleTooltip(null);
-              cycleTheme();
-            }}
-            onMouseEnter={(event) => showTooltip('theme', event.currentTarget)}
-            onMouseLeave={() => setVisibleTooltip(null)}
-            onFocus={(event) => showTooltip('theme', event.currentTarget)}
-            onBlur={() => setVisibleTooltip(null)}
-            aria-label={themeLabel}
-            className="relative flex h-9 w-9 items-center justify-center rounded-md text-ldvh-text-secondary transition-colors hover:bg-ldvh-border/50 hover:text-ldvh-text-primary"
-          >
-            <ThemeIcon mode={mode} />
-            <IconTooltip label={themeLabel} visible={visibleTooltip?.key === 'theme'} position={isCollapsed ? visibleTooltip?.position : undefined} />
-          </button>
-          {!compact && onToggle && (
+        {/* 底部工具区两行：语言独占一行（名称需完整可读，不与图标抢宽）；其余图标独
+            占一行。展开态两行都靠左，与上方导航条目同一基线（Human 2026-09-19：三个
+            图标左对齐）；收起态两行都退化为居中的图标 rail。 */}
+        <div className={isCollapsed ? 'flex flex-col items-center gap-1' : 'flex flex-col gap-1.5'}>
+          <div className={`flex min-w-0 ${isCollapsed ? 'justify-center' : 'w-full'}`}>
             <button
               onClick={() => {
                 setVisibleTooltip(null);
-                onToggle();
+                setLocale(getOppositeLocale(locale));
               }}
-              onMouseEnter={(event) => showTooltip('sidebar-toggle', event.currentTarget)}
+              onMouseEnter={(event) => showTooltip('language', event.currentTarget)}
               onMouseLeave={() => setVisibleTooltip(null)}
-              onFocus={(event) => showTooltip('sidebar-toggle', event.currentTarget)}
+              onFocus={(event) => showTooltip('language', event.currentTarget)}
               onBlur={() => setVisibleTooltip(null)}
-              aria-label={sidebarToggleLabel}
+              aria-label={languageLabel}
+              className={`ldvh-card-title relative flex items-center rounded-md text-ldvh-text-secondary transition-colors hover:bg-ldvh-border/50 hover:text-ldvh-text-primary ${
+                isCollapsed ? 'h-9 w-9 justify-center px-0' : 'w-full min-w-0 gap-2 px-3 py-1.5'
+              }`}
+            >
+              <Globe size={16} className="shrink-0" />
+              {!isCollapsed && <span className="truncate">{t(getOppositeLanguageNameKey(locale))}</span>}
+              {isCollapsed && <IconTooltip label={languageLabel} visible={visibleTooltip?.key === 'language'} position={visibleTooltip?.position} />}
+            </button>
+          </div>
+          <div className={`flex items-center gap-1 ${isCollapsed ? 'flex-col' : 'justify-start'}`}>
+            <button
+              onClick={() => {
+                setVisibleTooltip(null);
+                cycleTheme();
+              }}
+              onMouseEnter={(event) => showTooltip('theme', event.currentTarget)}
+              onMouseLeave={() => setVisibleTooltip(null)}
+              onFocus={(event) => showTooltip('theme', event.currentTarget)}
+              onBlur={() => setVisibleTooltip(null)}
+              aria-label={themeLabel}
               className="relative flex h-9 w-9 items-center justify-center rounded-md text-ldvh-text-secondary transition-colors hover:bg-ldvh-border/50 hover:text-ldvh-text-primary"
             >
-              <PanelLeft size={16} className={isCollapsed ? 'rotate-180' : ''} />
-              <IconTooltip label={sidebarToggleLabel} visible={visibleTooltip?.key === 'sidebar-toggle'} position={isCollapsed ? visibleTooltip?.position : undefined} />
+              <ThemeIcon mode={mode} />
+              <IconTooltip label={themeLabel} visible={visibleTooltip?.key === 'theme'} position={isCollapsed ? visibleTooltip?.position : undefined} />
             </button>
-          )}
+            {!compact && onToggle && (
+              <button
+                onClick={() => {
+                  setVisibleTooltip(null);
+                  onToggle();
+                }}
+                onMouseEnter={(event) => showTooltip('sidebar-toggle', event.currentTarget)}
+                onMouseLeave={() => setVisibleTooltip(null)}
+                onFocus={(event) => showTooltip('sidebar-toggle', event.currentTarget)}
+                onBlur={() => setVisibleTooltip(null)}
+                aria-label={sidebarToggleLabel}
+                className="relative flex h-9 w-9 items-center justify-center rounded-md text-ldvh-text-secondary transition-colors hover:bg-ldvh-border/50 hover:text-ldvh-text-primary"
+              >
+                <PanelLeft size={16} className={isCollapsed ? 'rotate-180' : ''} />
+                <IconTooltip label={sidebarToggleLabel} visible={visibleTooltip?.key === 'sidebar-toggle'} position={isCollapsed ? visibleTooltip?.position : undefined} />
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setVisibleTooltip(null);
+                requestRefresh();
+              }}
+              onMouseEnter={(event) => showTooltip('refresh', event.currentTarget)}
+              onMouseLeave={() => setVisibleTooltip(null)}
+              onFocus={(event) => showTooltip('refresh', event.currentTarget)}
+              onBlur={() => setVisibleTooltip(null)}
+              aria-label={refreshLabel}
+              className="relative flex h-9 w-9 items-center justify-center rounded-md text-ldvh-text-secondary transition-colors hover:bg-ldvh-border/50 hover:text-ldvh-text-primary"
+            >
+              <RefreshCw size={16} />
+              <IconTooltip label={refreshLabel} visible={visibleTooltip?.key === 'refresh'} position={isCollapsed ? visibleTooltip?.position : undefined} />
+            </button>
+          </div>
         </div>
       </div>
     </aside>

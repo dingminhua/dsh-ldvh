@@ -7,6 +7,7 @@ import CommitPushStatusBadge from '@/components/CommitPushStatusBadge';
 import CommitSignatureMeta from '@/components/CommitSignatureMeta';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import { useI18n } from '@/i18n/context';
+import { useRefreshKey } from '@/hooks/useReadingRefresh';
 import {
   FactReadFailureContent,
   FactReadingContent,
@@ -42,13 +43,16 @@ export function EmptyPanelPreview() {
 }
 
 export function PanelContentRenderer({ content }: { content: PanelContent }) {
+  // 侧栏刷新档位：作为 key 让面板内容重挂，从而重新发起精确读取——面板挂在 App
+  // Shell 上，不随 `Layout` 那条「以 key 重挂当前路由页」的路径重建。
+  const refreshKey = useRefreshKey();
   switch (content.type) {
-    case 'object': return <ObjectPreview content={content} />;
-    case 'doc': return <DocPreview content={content} />;
-    case 'web': return <WebPreview content={content} />;
-    case 'yaml': return <YamlPreview content={content} />;
-    case 'evidence': return <EvidencePreview content={content} />;
-    case 'diff': return <DiffPreview content={content} />;
+    case 'object': return <ObjectPreview key={`object-${refreshKey}`} content={content} />;
+    case 'doc': return <DocPreview key={`doc-${refreshKey}`} content={content} />;
+    case 'web': return <WebPreview key={`web-${refreshKey}`} content={content} />;
+    case 'yaml': return <YamlPreview key={`yaml-${refreshKey}`} content={content} />;
+    case 'evidence': return <EvidencePreview key={`evidence-${refreshKey}`} content={content} />;
+    case 'diff': return <DiffPreview key={`diff-${refreshKey}`} content={content} />;
     default:
       return (
         <EmptyPanelPreview />

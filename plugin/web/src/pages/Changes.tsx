@@ -18,6 +18,7 @@ import {
   type DiffViewMode,
 } from '@/pages/project-files/model';
 import { useWorkspaceChanges } from '@/pages/changes/useWorkspaceChanges';
+import { useRefreshKey } from '@/hooks/useReadingRefresh';
 import { useProjectScope } from '@/utils/projectContext';
 import {
   fetchProjectWorktreeGitStatus,
@@ -59,6 +60,9 @@ export default function Changes() {
     error: projectsError,
   } = useProjectScope();
   const projectId = selectedProject?.id ?? '';
+  // 侧栏刷新档位：变更页读取的是工作区 Git 状态，须随刷新重取（本页在 Layout 的
+  // 重挂路径下会重建，但显式订阅可保证无论重挂与否都重读）。
+  const refreshKey = useRefreshKey();
   const {
     entries,
     entriesLoading,
@@ -67,7 +71,7 @@ export default function Changes() {
     diff,
     splitDiffRows,
     openDiff,
-  } = useWorkspaceChanges(projectId);
+  } = useWorkspaceChanges(projectId, refreshKey);
   const [diffViewMode, setDiffViewMode] = useState<DiffViewMode>(getDefaultDiffViewMode);
   const diffViewModeWasSelected = useRef(false);
 

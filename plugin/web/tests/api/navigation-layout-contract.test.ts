@@ -84,7 +84,7 @@ test('workspace changes reads status and diffs for the globally selected project
   const controller = fs.readFileSync(path.resolve('src/pages/changes/useWorkspaceChanges.ts'), 'utf8');
 
   assert.match(changes, /const projectId = selectedProject\?\.id \?\? '';/);
-  assert.match(changes, /useWorkspaceChanges\(projectId\)/);
+  assert.match(changes, /useWorkspaceChanges\(projectId, refreshKey\)/);
   assert.match(controller, /fetchProjectGitStatus\(projectId\)/);
   assert.match(controller, /fetchProjectGitDiff\(entry\.projectId, entry\.path, entry\.status\)/);
 });
@@ -123,4 +123,37 @@ test('files and changes share a compact divided page toolbar without application
   }
   assert.match(styles, /\.ldvh-page-toolbar \{\s*@apply[^;]*border-b[^;]*pb-4;/s);
   assert.doesNotMatch(changesPage, /changes\.(activeProject|activeProjectHint|projectScopeHint)/);
+});
+
+test('the sidebar footer stacks the language on its own row above the icon row, with refresh last', () => {
+  const sidebar = fs.readFileSync(path.resolve('src/components/Sidebar.tsx'), 'utf8');
+  const locales = fs.readFileSync(path.resolve('src/i18n/locales.ts'), 'utf8');
+  const refresh = fs.readFileSync(path.resolve('src/hooks/useReadingRefresh.tsx'), 'utf8');
+  const layout = fs.readFileSync(path.resolve('src/components/Layout.tsx'), 'utf8');
+
+  // Human 2026-09-18 指令：语言独占一行，三个图标（主题 / 收起 / 刷新）独占一行；
+  // 收起态把刷新放在该区域最后一个。
+  assert.match(sidebar, /RefreshCw/);
+  assert.match(sidebar, /'nav\.refreshReading'/);
+  assert.match(sidebar, /refreshLabel = t\('nav\.refreshReading'\)/);
+  const footer = sidebar.slice(sidebar.indexOf('border-t border-ldvh-border'));
+  assert.ok(footer.indexOf("showTooltip('language'") < footer.indexOf("showTooltip('theme'"), '语言行必须在图标行之前');
+  assert.ok(footer.indexOf("showTooltip('theme'") < footer.indexOf("showTooltip('sidebar-toggle'"), '图标行内主题在收起之前');
+  assert.ok(footer.indexOf("showTooltip('sidebar-toggle'") < footer.indexOf("showTooltip('refresh'"), '刷新必须是该区域最后一个图标');
+  // 收起态（compact）在移动端与桌面折叠态共用同一图标区：语言行与图标行都必须能
+  // 退化为居中 rail（语言行整行居中 + 图标行竖排居中，刷新仍是竖排里最后一个）；
+  // 展开态两行都靠左对齐（Human 2026-09-19 指令），不得改为右收口。
+  assert.match(sidebar, /isCollapsed \? 'flex flex-col items-center gap-1' : 'flex flex-col gap-1\.5'/);
+  assert.match(sidebar, /isCollapsed \? 'justify-center' : 'w-full'/);
+  assert.match(sidebar, /isCollapsed \? 'flex-col' : 'justify-start'/);
+  assert.doesNotMatch(sidebar, /justify-end/);
+  assert.match(locales, /'nav\.refreshReading': '刷新页面数据'/);
+  assert.match(locales, /'nav\.refreshReading': 'Refresh page data'/);
+
+  // 刷新是「重新读取当前页」，不是整页 reload：档位由 Context 承载并驱动重取。
+  assert.match(refresh, /createContext<ReadingRefreshValue \| null>\(null\)/);
+  assert.match(refresh, /requestRefresh: \(\) => setRefreshKey\(\(current\) => current \+ 1\)/);
+  assert.doesNotMatch(sidebar, /window\.location\.reload/);
+  assert.match(layout, /<RefreshScopeProvider>/);
+  assert.match(layout, /key=\{`page-\$\{selectedProjectId\}-\$\{selectedWorktreePath\}-\$\{refreshKey\}`\}/);
 });

@@ -4,6 +4,7 @@ import Sidebar from './Sidebar';
 import ReadingPanel from './ReadingPanel';
 import { PanelProvider, usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
+import { RefreshScopeProvider, useRefreshKey } from '@/hooks/useReadingRefresh';
 
 const SIDEBAR_STORAGE_KEY = 'ldvh-sidebar-collapsed';
 // Default: expanded. Only collapse when user has explicitly chosen to.
@@ -17,6 +18,8 @@ interface LayoutProps {
 function LayoutInner({ children }: LayoutProps) {
   const { isOpen: panelOpen, closePanel, openPanel } = usePanel();
   const { selectedProjectId, selectedWorktreePath } = useProjectScope();
+  // 侧栏刷新档位：与「切换项目」共用同一条重挂路径（见下方 key）。
+  const refreshKey = useRefreshKey();
   const location = useLocation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
@@ -95,8 +98,8 @@ function LayoutInner({ children }: LayoutProps) {
 
       {/* 中间主内容 */}
       <main className="ldvh-main-scroll min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain">
-        {/* 项目切换时重建当前路由页，触发数据重取；contents 保证不引入额外布局盒 */}
-        <div key={`page-${selectedProjectId}-${selectedWorktreePath}`} className="contents">{children}</div>
+        {/* 项目切换或侧栏刷新时重建当前路由页，触发数据重取；contents 保证不引入额外布局盒 */}
+        <div key={`page-${selectedProjectId}-${selectedWorktreePath}-${refreshKey}`} className="contents">{children}</div>
       </main>
 
       {/* 右侧扩展阅读区随项目切换重建。 */}
@@ -107,8 +110,10 @@ function LayoutInner({ children }: LayoutProps) {
 
 export default function Layout({ children }: LayoutProps) {
   return (
-    <PanelProvider>
-      <LayoutInner>{children}</LayoutInner>
-    </PanelProvider>
+    <RefreshScopeProvider>
+      <PanelProvider>
+        <LayoutInner>{children}</LayoutInner>
+      </PanelProvider>
+    </RefreshScopeProvider>
   );
 }
