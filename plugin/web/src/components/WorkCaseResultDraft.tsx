@@ -137,10 +137,12 @@ export default function WorkCaseResultDraft({
           `10 §5.5`：去向子项在**待批准关闭**期**缩进一行显示于所属残留之下**
           （主从关系可见）——已关闭期才因残留一侧不呈现而提升为平级行。 */}
       {residualRows.length > 0 && (
-        // 「每条残留的首行去分割线」由**块级选择器**统一判定（见
-        // `WORKCASE_RESIDUAL_BLOCK_CLASS` 的 `[&>div>*:first-child]:border-t-0`）——
+        // 「块内第 1 行去分割线」由**块级选择器**统一判定（见
+        // `WORKCASE_RESIDUAL_BLOCK_CLASS` 的 `[&>div:first-child>*:first-child]:border-t-0`）。
         // 判据不能留在行自身：行裹在 `data-workcase-residual-row` wrapper 里，行类上的
-        // `first:border-t-0` 会对其**每一行**命中，使块内分割线全部消失。详见该常量的注释。
+        // `first:border-t-0` 会对其**每一行**命中，使块内分割线全部消失（线只剩在去向行
+        // 之上）。选择器取值也必须落在「块内整体次序」：`[&>div>*:first-child]`（每个
+        // wrapper 的首个孩子）等价于「所有残留行去线」，仍会漏掉残留之间的线。详见该常量。
         <div className={WORKCASE_RESIDUAL_BLOCK_CLASS}>
           {visibleResidual.map((item, index) => (
             <div key={index} data-workcase-residual-row>

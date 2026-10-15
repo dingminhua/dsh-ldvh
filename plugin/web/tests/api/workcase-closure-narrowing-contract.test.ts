@@ -458,11 +458,22 @@ test('残留块内分割线：首行去线由**块级**判定，行类不得自�
     '从属行不得自带 first:border-t-0（首行判据归块级）',
   );
 
-  // ③ 块级选择器必须在位，且指向 wrapper 的首个孩子——这才是「每条残留的首行去线」。
+  // ③ 块级选择器必须在位，且命中「**第一个 wrapper 的首个孩子**」——即块内整体第 1 行。
+  //
+  // 取值必须落在**块内整体次序**，不能落在「wrapper 内次序」：`[&>div>*:first-child]`
+  // （每个 wrapper 的首个孩子）等价于「所有残留行都去线」，于是残留与残留之间**没有**
+  // 分割线——实测 Human 2026-10-15 在卡面看到「线只在接受现状之上」正是该形态。故本处
+  // 断言精确形态 `[&>div:first-child>*:first-child]`，把「少错一点」的写法也钉红。
   assert.match(
     WORKCASE_RESIDUAL_BLOCK_CLASS,
+    /\[&>div:first-child>\*:first-child\]:border-t-0/,
+    '残留块须以 [&>div:first-child>*:first-child]:border-t-0 只给块内整体第 1 行去线',
+  );
+  // 反向断言：不得退回「每个 wrapper 首个孩子都去线」的写法（残留之间会失去分割线）。
+  assert.doesNotMatch(
+    WORKCASE_RESIDUAL_BLOCK_CLASS,
     /\[&>div>\*:first-child\]:border-t-0/,
-    '残留块须以块级选择器给每条残留的首行去线（[&>div>*:first-child]:border-t-0）',
+    '不得用 [&>div>*:first-child]——它对每个 wrapper 都命中，残留之间将没有分割线',
   );
 
   // ④ 块类须以**裸常量**使用（`className={WORKCASE_RESIDUAL_BLOCK_CLASS}`）：
