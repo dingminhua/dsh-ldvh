@@ -139,6 +139,21 @@ const BODY_H2_RESULT = "结果";
  */
 const BODY_H2_ALLOWED = [...BODY_H2_CORE, BODY_H2_EXECUTION, BODY_H2_RESULT];
 
+/**
+ * 正文是否已携带「## 结果」节（21 §8「待批准关闭」期的判据之一）。
+ *
+ * 与 10 §5 的 `awaiting_gate2` 派生分组同源：`status = open` ∧ 本函数为真 ⇒ 该期。
+ * 用于 Gate 2 前置条件之四——关闭提案须**先行落盘**（见 closeWorkcaseObject）。
+ *
+ * **必须经 `h2Titles` 而非正则扫全文**：该函数按 CommonMark 语义跳过 fenced code
+ * block，故正文里作为**字面内容**出现的「## 结果」（如引用写法示例）不被误判为
+ * 真实章节。用朴素正则会使「结果节」在示例文本中被凭空认作存在，使本闸静默失效。
+ */
+function bodyHasResultSection(body) {
+  if (typeof body !== "string" || body.length === 0) return false;
+  return h2Titles(body).includes(BODY_H2_RESULT);
+}
+
 /** Title cap (21 §8: ≤ 30 字). */
 const MAX_TITLE_LENGTH = 30;
 
@@ -2943,6 +2958,52 @@ export async function closeWorkcaseObject(args) {
       + "不得带着未获决定的增量关闭（21 §14 增量审批，Human 裁定 2026-09-30）。"
       + "先由 Human 对该申请作出决定（ldvh_workcase_write action=decide_adjustment，须给 human_authorization），"
       + "或将其事项按 §8 丁档落成残留去向；不得以正文自述替代。",
+    );
+  }
+
+  // Gate 2 前置条件之四（21 §8「待批准关闭」期，Human 裁定 2026-10-14）：
+  // **关闭提案须已先行落盘**——不得把「写结果节」与「关闭」压进同一次调用。
+  //
+  // ## 为什么需要这道闸（实测教训）
+  //
+  // 21 §9.1 明写 Gate 2 是 **Human Gate**；§8 又定义了「待批准关闭」期，其判据是
+  // **`status = open` ∧ 正文含「## 结果」节**（与 10 §5 的 `awaiting_gate2` 派生
+  // 分组同源，机械可判）。两段合读，关闭的正确形态是**两步**：
+  //   ① AI 把逐条判据核对 + 残留 + 去向写进正文（经 `execute`，status 保持 `open`）
+  //      → 工单进入「待批准关闭」期，**交还 Human**；
+  //   ② Human 判定后，才由 Human 侧发起的 `close` 翻转终态。
+  //
+  // **闸前的实际失效**：本闸存在之前，`close` 接受「结果节首次出现」与「状态翻转」
+  // 在同一次调用里完成——AI 只需一次工具调用即可把对象从 `open` 直接推到 `closed`，
+  // 其间**没有任何 Human 决定的落点**。实测发生（workcase-88f3e568）：AI 记录独立
+  // 复核后 3 分 42 秒即自行关闭，`outcome=completed` 被当成既成事实——**判定权被
+  // 执行者自行行使**（00 §4 Human 决定权）。机械层当时未拦，因为既有的三条前置
+  // 条件（reviews 非空／复核独立／无待批增量）**都只校验内容是否齐备，不校验
+  // 「谁在何时发起关闭」**——而"须经 Human 批准"是语义要求，需要一个机械落点。
+  //
+  // ## 判据为什么是「上一步的正文」
+  //
+  // 「Human 是否真的批准过」在进程内**不可机械判定**（工具面无法证明调用者是 Human；
+  // 同 §9.2 对身份来源可信边界的声明）。故本闸不经由"批准凭证"做事后判定，而是
+  // **强制走完两步**：要求**上一次落盘的 `open` 对象**已携带同一个结果节。这使
+  // 「先提案、后关闭」在机械上不可跳过——执行者至少须先落一次**可见的**关闭提案，
+  // 该提案在 Web 上呈现为 `awaiting_gate2`、呈现在卡面与收件箱里供 Human 分诊。
+  //
+  // **本闸的保证边界（不得作过度声明）**：它证明「结果节不是与关闭同批写入的」，
+  // **不证明** Human 看过、批准过或介入过。两次调用之间无最小间隔、无 Human 签名，
+  // 故一个决定无视流程的调用者仍可连调两次 `execute`+`close`。本闸的作用是让
+  // **流程不可被静默合并**（提案必须落盘一次、在 Human 可及的界面上出现过），
+  // 而不是让批准不可伪造——后者需 Human 侧凭证，进程内做不到。
+  const priorBody = current.value.body ?? "";
+  if (!bodyHasResultSection(priorBody)) {
+    return failure(
+      "workcase/result_proposal_required",
+      "Gate 2 closure refused: 上一次落盘的正文**尚无「## 结果」节**——关闭提案须先行落盘，"
+      + "不得与关闭同批写入（21 §8「待批准关闭」期：status=open ∧ 正文含结果节）。"
+      + "正确次序：先用 action=execute 把「## 结果」节（逐条判据核对 + 残留段与去向子项）写入正文"
+      + "（status 保持 open，工单随之为「待批准关闭」），交还 Human 判定；"
+      + "经 Human 批准后才 action=close 翻转终态。"
+      + "本次调用把两者合并，会使 outcome 判定在无 Human 决定落点的情况下生效（21 §9.1 Gate 2 是 Human Gate）。",
     );
   }
 

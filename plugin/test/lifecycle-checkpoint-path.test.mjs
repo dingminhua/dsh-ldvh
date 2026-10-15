@@ -45,7 +45,7 @@ function fakeCtx() {
   };
 }
 
-async function setup({ withSubagents = true } = {}) {
+async function setup({ withSubagents = true, tasks = { "friction-discovery": true, "experience-capture": false } } = {}) {
   const { createLifecycleRegistry } = await import("../lib/lifecycle.js");
 
   const home = await mkdtemp(join(tmpdir(), "ldvh-lc-"));
@@ -103,6 +103,14 @@ async function setup({ withSubagents = true } = {}) {
     dshHomePath,
     workspaceRoot: project,
     sessionScopes: new Map(),
+    // **安静时长缩到 50ms**（36 §6.1）：真值 10 分钟，测试等不起。这是**注入的
+    // 测试参数**而非放宽判据——判据本身（「距最后活动 ≥ 安静时长」）原样生效，
+    // 只是把它的取值调小。测试仍须等定时器真的到期，不得绕过它直接派发。
+    getIdleSettings: () => ({
+      enabled: true,
+      tasks,
+      limits: { silenceMs: 50, quotaMax: 4, quotaWindowMs: 3_600_000 },
+    }),
     hostSeams: {
       observePath: () => {},
       // 工具注册路径需要 register 返回可用注册器（否则同步阶段报 DEFECT 并中断安装）
@@ -132,6 +140,8 @@ test("调用方覆盖：驱动检查点后**必须留下运行痕迹**（而非�
   await new Promise((r) => setTimeout(r, 500));
   await ctx.emit("agent/turn-stopping", { agent, turn: 7 });
   await ctx.emit("agent/status", { agent, status: "idle" });
+  // 36 §6.1：派发发生在**安静期到期**之后（注入值 50ms），故此处须等定时器真的
+  // 到期。等待时间须显著大于安静时长，否则会把「还没到点」误判成「机制没跑」。
   await new Promise((r) => setTimeout(r, 1200));
 
   const { readRuns } = await import("../lib/idle-runlog.js");
@@ -193,7 +203,10 @@ test("调用方覆盖：装配阶段不得引用未声明的标识符（静态�
 // ---------------------------------------------------------------------------
 
 test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自己的水位**", async () => {
-  const { ctx, dshHomePath, roots, project } = await setup();
+  // 本测试的**前提是两个任务都启用**（一个成功、一个失败才成其为 F-1 场景）。
+  const { ctx, dshHomePath, roots, project } = await setup({
+    tasks: { "friction-discovery": true, "experience-capture": true },
+  });
 
   // 让两个任务分别走「成功」与「失败」：经验积累的引证**不在窗口内**——这是
   // 真实高频失败（引证核对按材料正文做字符串比对），不是人为构造的异常。

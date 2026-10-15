@@ -104,35 +104,42 @@ const watermarkQueues = new Map();
 /**
  * 派发时刻列表的**保留上限**（有界，见 recordDispatch 的说明）。
  *
- * ## 为什么是推导出来的，而不是写死一个数（2026-10-11 复审 D8）
+ * ## 2026-10-14：依据变更（原为推导值，现为具名常量）
  *
- * 原先写死 64，理由是「按 10 分钟间隔，1 小时窗口内最多 6 次」。那个理由**依赖
- * 最小间隔的取值**——若间隔被设为 1 秒，1 小时窗口内可发生 3600 次，列表截断会
- * 使窗口内计数被**低估**，配额因而偏松（方向上不会造成永久终止，故属建议级）。
+ * 原实现（2026-10-11 复审 D8）按 `ceil(quotaWindowMs / minIntervalMs) + 2`
+ * **推导**容量下界——理由是「截断位置必须容纳窗口内一切可能的派发次数」，而
+ * 窗口内次数上界由「窗口 ÷ 最小间隔」给出。
  *
- * 故此处按**配额窗口与最小间隔的比值**推导：截断位置必须容纳窗口内一切可能的
- * 派发次数。取不到这两个配置时回落到一个保守下限。
+ * **该推导的一个输入已被删除**：36 §6.2（2026-10-14 修订）取消了「最小间隔」
+ * 一类准入约束（它被 §6.1 的安静时长结构性吸收）。分母消失后比值无定义，故
+ * 容量改由**本常量**直接给出。
  *
- * **上限的意义**：它是运行状态的体量上界（04 §14 第 5 条禁止无界账本）。推导
- * 只在两者都有界时给出有限值；若调用方给出荒谬的小间隔（如 0），
- * `numberOfWindowSlots` 会给 0 并回落到 `FALLBACK_MAX_DISPATCH_TIMES`。
+ * **为什么不用安静时长替代推导**：安静时长锚在「**会话活动**」而容量需要的是
+ * 「两次**派发**的最小间隔」——二者不是同一个量。会话活动可以密集发生（每轮
+ * 都刷新计时）而派发仍受配额约束，故以安静时长作分母会低估所需容量。
+ *
+ * **为什么具名常量不构成「不可观察的隐藏判据」**：本值是一个**可回读的常量**
+ * （源码内可见、注释说明其依据），它约束的是运行状态的**体量上界**而非派发
+ * 决策——不满足 36 §6.2 所定义的「准入约束」（那类约束收窄发起条件）。故它不属
+ * workcase-88f3e568 的 scope 所排除的形态。
+ *
+ * **上限的意义**：它是运行状态的体量上界（04 §14 第 5 条禁止无界账本）。
  */
 export const FALLBACK_MAX_DISPATCH_TIMES = 64;
 
 /**
- * 按「配额窗口 ÷ 最小间隔」推导窗口内可能的最大派发次数（即时刻列表的容量下界）。
+ * 窗口内可能的最大派发次数（即时刻列表的容量下界）。
  *
- * @param {{quotaWindowMs?: number, minIntervalMs?: number}} limits - 当前配置。
- * @returns {number} 容量下界；配置无效时返回 0（调用方据此回落）。
+ * **2026-10-14 起返回具名常量**：原依据（配额窗口 ÷ 最小间隔）的除数已被
+ * 36 §6.2 的修订删除，故不再推导。保留本函数名与签名，使调用点无须变更，
+ * 且「截断位置的依据」在代码中仍有一处显式落点（便于后续变更时定位）。
+ *
+ * @param {{quotaWindowMs?: number, minIntervalMs?: number}} _limits - 保留入参以
+ *   兼容既有调用方（`minIntervalMs` 已不存在，传入即被忽略）。
+ * @returns {number} 容量下界（现为常量）。
  */
-export function numberOfWindowSlots(limits) {
-  const windowMs = Number(limits?.quotaWindowMs);
-  const intervalMs = Number(limits?.minIntervalMs);
-  if (!Number.isFinite(windowMs) || windowMs <= 0) return 0;
-  // 间隔为 0 表示「不冷却」——此时窗口内次数无上界，故容量不可推导。
-  if (!Number.isFinite(intervalMs) || intervalMs <= 0) return 0;
-  // +2 吸收边界：窗口两端各可能多计一次（`countWithinWindow` 用闭区间）。
-  return Math.ceil(windowMs / intervalMs) + 2;
+export function numberOfWindowSlots(_limits) {
+  return FALLBACK_MAX_DISPATCH_TIMES;
 }
 
 function serialize(key, operation) {
@@ -394,6 +401,59 @@ export async function readDispatchState(dshHomePath, { projectRoot, sessionId } 
     lastDispatchAt: typeof at === "string" && at.length > 0 ? at : null,
     dispatchCount: Number.isInteger(count) && count >= 0 ? count : 0,
     dispatchTimes: times,
+    // **最后一次会话活动时刻**（36 §6.1 的安静期锚点，2026-10-14 新增）。
+    // 与 `lastDispatchAt` 是**两个不同的量**：本项问「人是否停了」（进入契约），
+    // 后者问「机制跑得勤不勤」（节流）。两者可各自独立地落后或领先。
+    lastActivityAt: typeof entry?.lastActivityAt === "string" && entry.lastActivityAt.length > 0
+      ? entry.lastActivityAt
+      : null,
+  });
+}
+
+/**
+ * 记「最后一次会话活动时刻」（36 §6.1 的安静期计时锚）。
+ *
+ * ## 为什么必须持久化（不能只存内存）
+ *
+ * `triggers.js` 的内存态随进程存活，而宿主会热重载插件——重载后内存归零，安静期
+ * 计时会失真：要么把「刚重载」误当「刚活动」而重新计时（该触发的不触发），要么
+ * 把「未知」当作「已安静很久」（不该触发的立刻触发）。故与派发状态同写一份载体。
+ *
+ * ## 为什么并入既有载体而非新建文件
+ *
+ * 同 `readDispatchState` 的说明（04 §14 第 5 条禁止第二状态账本）：本项与水位、
+ * 派发状态同属「辅助机制的运行状态」，且作用域相同（受管辖项目根 + 会话 id）。
+ *
+ * 返回 `{ ok: true, value: { lastActivityAt } }`（写入后的值）。
+ */
+export async function recordActivity(dshHomePath, { projectRoot, sessionId, at } = {}) {
+  if (typeof projectRoot !== "string" || projectRoot.length === 0) {
+    return failure("watermark/invalid_project_root", "projectRoot is required");
+  }
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    return failure("watermark/invalid_session_id", "sessionId is required");
+  }
+  const stamp = typeof at === "string" && at.length > 0 ? at : new Date().toISOString();
+
+  return serialize(watermarkPath(dshHomePath), async () => {
+    const doc = await readAll(dshHomePath);
+    if (!doc.ok) return doc;
+    const key = watermarkKey(projectRoot, sessionId);
+    const entry = doc.value[key] ?? {};
+    // **合并**而非重建：同一 key 下还住着水位与派发状态，重建会静默清掉它们
+    // （该陷阱已在 advanceWatermark 处实测踩过）。
+    const next = { ...doc.value, [key]: { ...entry, lastActivityAt: stamp } };
+    const written = await writeAll(dshHomePath, next);
+    if (!written.ok) return written;
+    const observed = await readAll(dshHomePath);
+    if (!observed.ok) return observed;
+    if (observed.value[key]?.lastActivityAt !== stamp) {
+      return failure(
+        "watermark/read_back_mismatch",
+        `expected lastActivityAt=${stamp} after recordActivity, got ${observed.value[key]?.lastActivityAt}`,
+      );
+    }
+    return success({ lastActivityAt: stamp });
   });
 }
 

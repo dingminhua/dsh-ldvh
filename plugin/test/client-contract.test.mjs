@@ -475,10 +475,21 @@ test("闲时辅助设置面：总开关 + 三个子项 + 四个参数，且总�
     /idleAssistState\[0\] \? React\.createElement\("div", \{ className: "ldv-web-panel-body" \}/,
     "总开关关闭时须整块不展开子项",
   );
-  // 四个数值参数。
-  for (const limit of ["idleMinIntervalMs", "idleMinContentChars", "idleMinContentTurns", "idleMaxPerSession"]) {
-    assert.ok(source.includes(limit), `设置面须含参数 ${limit}`);
+  // 2026-10-14（36 §6.2 两次修订）：数值参数由**五个收为一个**——安静时长。
+  // 第一次取消最小间隔／内容字符数／内容轮数三项；第二次取消配额上限与窗口长度
+  // 两项（§6.2 收为空集）。**设置面须恰好一个参数输入框**。
+  assert.ok(source.includes("idleSilenceMs"), "设置面须含安静时长");
+  for (const gone of [
+    "idleMinIntervalMs", "idleMinContentChars", "idleMinContentTurns",
+    "idleMaxPerSession", "idleQuotaMax", "idleQuotaWindowMs",
+  ]) {
+    assert.ok(!source.includes(gone), `设置面不得残留已取消的参数 ${gone}`);
   }
+  // **只须一个**：参数表恰好一项（防将来悄悄加回第二个输入框而不改本条）。
+  const limitsTable = source.match(/var IDLE_LIMITS = \[([\s\S]*?)\];/);
+  assert.ok(limitsTable, "须有参数表");
+  const entries = limitsTable[1].match(/\{ key: "/g) ?? [];
+  assert.equal(entries.length, 1, `设置面参数表须恰好一项，实为 ${entries.length} 项`);
 });
 
 test("未实现的子项须在设置面**当场标出**（不得让开关看起来能跑）", () => {
@@ -497,13 +508,13 @@ test("数值参数的默认值与服务端**同源**：不得在两处各写一�
   // 2026-10 起默认值集中在一张表（此前散落在 state 初值里，改一处漏三处）。
   const defaults = source.match(/var IDLE_DEFAULT_STORED = \{([\s\S]*?)\};/) || [];
   assert.ok(defaults[1], "须有 IDLE_DEFAULT_STORED 表");
-  for (const [key, value] of [["idleMinIntervalMs", 600000], ["idleMinContentChars", 800], ["idleMinContentTurns", 3], ["idleMaxPerSession", 4], ["idleQuotaWindowMs", 3600000]]) {
+  for (const [key, value] of [["idleSilenceMs", 600000]]) {
     assert.match(defaults[1], new RegExp(`${key}: ${value}`), `客户端默认 ${key} 须为 ${value}`);
   }
 
   // 与服务端文件逐字比对（真同源，不只是「我抄对了」）。
   const server = await readFile(new URL("../lib/idle-settings.js", import.meta.url), "utf8");
-  for (const [key, expected] of [["minIntervalMs", "600_000"], ["minContentChars", "800"], ["minContentTurns", "3"], ["maxPerSession", "4"], ["quotaWindowMs", "3_600_000"]]) {
+  for (const [key, expected] of [["silenceMs", "600_000"]]) {
     assert.ok(server.includes(`${key}: ${expected},`), `服务端 IDLE_DEFAULTS.${key} 须为 ${expected}`);
   }
 });
@@ -522,18 +533,14 @@ test("时间参数以**分钟**读写，存储仍是毫秒（scale 单一来源�
   // 界面按分钟、存储按毫秒。两者由 IDLE_LIMITS 的 scale 单向决定，
   // 不得在 UI 那一处再写一套换算（否则改单位时会漏改一处）。
   assert.match(source, /var IDLE_LIMITS = \[/, "须有参数表");
-  assert.match(source, /\{ key: "idleMinIntervalMs", scale: 60000 \}/, "时间参数 scale 须为 60000（分钟↔毫秒）");
-  // 其余三个以 1 为 scale（字面量，无单位换算）。
-  for (const key of ["idleMinContentChars", "idleMinContentTurns", "idleMaxPerSession"]) {
-    assert.match(source, new RegExp(`\\{ key: "${key}", scale: 1 \\}`), `${key} 的 scale 须为 1`);
-  }
+  // 条目还可带 `hintKey`（设置面的解释词条，见本文件末的可读性用例），故只钉 key 与 scale。
+  assert.match(source, /\{ key: "idleSilenceMs", scale: 60000/, "安静时长 scale 须为 60000（分钟↔毫秒）");
   // 标签须写明单位是分钟（不得仍写「毫秒」）。
-  assert.match(source, /"row\.idleMinIntervalMs": "最小间隔（分钟）"/, "中文标签单位须为分钟");
-  assert.match(source, /"row\.idleMinIntervalMs": "Minimum interval \(minutes\)"/, "英文标签单位须为分钟");
-  assert.doesNotMatch(source, /"row\.idleMinIntervalMs": "最小间隔（毫秒）"/, "不得残留毫秒标签");
+  assert.match(source, /"row\.idleSilenceMs": "安静时长（分钟）"/, "中文标签单位须为分钟");
+  assert.match(source, /"row\.idleSilenceMs": "Silence duration \(minutes\)"/, "英文标签单位须为分钟");
+  assert.doesNotMatch(source, /idleSilenceMs": "[^"]*毫秒"/, "不得残留毫秒标签");
   // UI 循环须走参数表，不得再内联一份 key/label 清单。
   assert.match(source, /IDLE_LIMITS\.map\(function \(limit\) \{/, "UI 须遍历参数表");
-  assert.doesNotMatch(source, /\{ key: "idleMinIntervalMs", label: "row\.idleMinIntervalMs" \}/, "UI 不得再内联参数清单");
 });
 
 test("换算判据是**往返回损**，而非「必须是整数」（不得凭空收紧服务端口径）", () => {
@@ -548,13 +555,49 @@ test("换算判据是**往返回损**，而非「必须是整数」（不得凭�
   assert.match(source, /if \(!Number\.isInteger\(stored\) \|\| stored < 0\) return undefined;/, "仍须拒绝换算出非整数的值");
 });
 
-test("参数区如实声明**规范依据待 Human Gate**（不得把未批参数当已生效规则呈现）", () => {
-  // 这四个数值收窄发起条件，按 04 §12.1 第 3 项属领域增量事项，须经 Human Gate。
-  // 不在界面上说明，就是把未批准的参数当成已生效的规范内容呈现给 Human。
-  assert.match(source, /row\.idleLimitsPending/, "须有「待 Gate」声明文案");
-  const zh = (source.match(/"row\.idleLimitsPending": "([^"]+)"/) || [])[1];
-  assert.ok(zh && zh.includes("Human Gate"), "中文文案须点明待 Human Gate");
-  assert.ok(zh && zh.includes("不得"), "中文文案须含「不得据此主张已生效」的告诫");
+test("参数区**不再**承载「数值属实现侧承接」声明——该声明改由代码注释与规范承载", () => {
+  // ## 本条为何从「须有」翻转为「须无」
+  //
+  // 原断言要求设置面上有 `row.idleLimitsPending` 文案（「安静时长的数值属实现侧
+  // 承接（36 §6.1）……不得据此主张规范已规定该时长」）。2026-10-14 Human 指示
+  // **删除该句**（连同「编辑后需点保存生效」一句）。
+  //
+  // **删除不等于放弃该声明**——它只是**换了承载处**。原位置属错置：那是一句
+  // 对 AI/读者的**规范地位声明**，不是给设置的人的操作提示；放在设置界面上，
+  // Human 每次调参数都要读一句与自己无关的告诫，而真正会误读的是写代码的人。
+  //
+  // 故本条的判据改为**检验声明仍在且已落到正确承载处**：
+  assert.doesNotMatch(source, /row\.idleLimitsPending/, "设置面不得再有该声明文案");
+  assert.doesNotMatch(source, /idleLimitsHint/, "「编辑后需点保存生效」亦须删除（改由按钮态自明）");
+  // 声明本体须落在**代码注释**里（规范正文另有 36 §6.1「数值属实现侧承接」）。
+  assert.match(
+    source,
+    /数值属实现侧承接/,
+    "该声明须仍存在于本文件的代码注释中（换了承载处，不是删除）",
+  );
+  assert.match(source, /36 §6\.1/, "代码注释须点名依据条款");
+});
+
+test("设置面：改动后**保存按钮自身**须显示为「需要保存」（不得只靠一行文字提示）", () => {
+  // Human 2026-10-14：「修改后需要保存按钮显示为需要保存」。原设计只有一行
+  // 文字提示，而文字要在读者看见时才起作用；按钮是**操作发生处**，状态落在那里。
+  assert.match(source, /"row\.saveDirty":/, "须有「有未保存改动」的按钮文案");
+  assert.match(source, /"row\.saveDirtyAria":/, "须有对应的无障碍文案（供读屏）");
+  assert.match(
+    source,
+    /busyState\[0\] \? t\("row\.saving"\) : \(dirtyState\[0\] \? t\("row\.saveDirty"\) : t\("row\.save"\)\)/,
+    "按钮文案须随 dirtyState 切换",
+  );
+  // **三重表达**：文案 + 类名 + aria。不只靠颜色——色觉障碍与高对比主题下
+  // 颜色可能不可辨，故须另有形状变化（描边/字重，见 .ldv-btn-dirty）。
+  assert.match(source, /ldv-btn-dirty/, "dirty 时须有独立的样式类");
+  assert.match(
+    source,
+    /\.ldv-btn-dirty\{font-weight:600/,
+    "该类须含**不依赖颜色**的变化（此处为字重），否则色觉障碍下不可辨",
+  );
+  // 状态与可操作性须一致：无改动时按钮仍不可点（避免「亮着但点了没反应」）。
+  assert.match(source, /var saveDisabled = [^;]*!dirtyState\[0\]/, "无改动时保存须不可点");
 });
 
 // ---------------------------------------------------------------------------
@@ -588,9 +631,11 @@ test("默认值三处一致：index.js 的 zod default ≡ idle-settings 的 IDL
 
   // ② index.js 的 zod default —— 生产路径实际用它填 config
   const zod = {};
-  for (const key of ["idleMinIntervalMs", "idleMinContentChars", "idleMinContentTurns", "idleMaxPerSession", "idleQuotaWindowMs"]) {
+  for (const key of ["idleSilenceMs"]) {
     // 数字**带下划线分隔**（如 `600_000`）——正则须容忍，否则守卫自身失效。
-    const m = indexSrc.match(new RegExp(`${key}:\\s*volatileField\\(z\\.number\\(\\)\\.default\\(([\\d_]+)\\)\\)`));
+    // `idleSilenceMs` 另带 `.min(1)`（36 §6.1 的写入侧下界约束），故正则须容忍
+    // 「链式方法（含带参的 min/max）再 .default(...)」。
+    const m = indexSrc.match(new RegExp(`${key}:\\s*volatileField\\(z\\.number\\(\\)(?:\\.[a-z]+\\([^)]*\\))*\\.default\\(([\\d_]+)\\)\\)`));
     assert.ok(m, `index.js 须以 zod default 声明 ${key}`);
     zod[key] = Number(m[1].replace(/_/g, ""));
   }
@@ -604,13 +649,7 @@ test("默认值三处一致：index.js 的 zod default ≡ idle-settings 的 IDL
   // 配置键（zod / 界面）与判据键（IDLE_DEFAULTS）**名字不同**：前者带 `idle` 前缀
   // 且描述的是「设置项」，后者是判据层的内部名。映射写在这里而不是靠命名巧合——
   // 缺失映射会使断言比较 undefined 与数值，报出一个与真因无关的错。
-  const JUDGE_KEY = {
-    idleMinIntervalMs: "minIntervalMs",
-    idleMinContentChars: "minContentChars",
-    idleMinContentTurns: "minContentTurns",
-    idleMaxPerSession: "maxPerSession",
-    idleQuotaWindowMs: "quotaWindowMs",
-  };
+  const JUDGE_KEY = { idleSilenceMs: "silenceMs" };
 
   // 三者逐一比对——任一不同即判据与生产不一致，而非「风格问题」。
   for (const [key, judgeKey] of Object.entries(JUDGE_KEY)) {
@@ -627,4 +666,36 @@ test("默认值三处一致：index.js 的 zod default ≡ idle-settings 的 IDL
       `client.js 的界面缺省（${stored[key]}）与判据侧 IDLE_DEFAULTS（${d[judgeKey]}）不一致`,
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// 设置面的**可读性**约定（Human 2026-10-14 明确要求）
+// ---------------------------------------------------------------------------
+
+test("设置面：安静时长须有**一句话解释**，且该解释不得与实现语义相悖", () => {
+  // Human 原话：「什么是安静时长一句话解释清楚」。故该参数须带一条 hint 词条
+  // （不是只靠标签），且 hint 的**语义**须与 36 §6.1 的实现一致。
+  assert.match(source, /hintKey: "row\.idleSilenceMsHint"/, "参数表须登记其解释词条");
+  const zh = (source.match(/"row\.idleSilenceMsHint": "([^"]+)"/) || [])[1];
+  assert.ok(zh, "须有中文解释词条");
+  // 语义锚点：必须点明「距最后一次活动」（而非「距上次派发」）——这正是 §6.1 的判据，
+  // 也是本次修订纠正的那个偏离。缺之则解释会把人引回旧语义。
+  assert.ok(/对话/.test(zh) && /安静/.test(zh), "须说清「对话停了多久」这件事");
+  assert.ok(/重新开始|重来|重置/.test(zh), "须说明「有新活动就重新计时」（否则会被读成固定间隔）");
+  // 不得出现与实现相悖的表述：现实现为「一次安静期至多触发一次」。
+  assert.ok(!/每隔|每过|定期/.test(zh), "不得写成固定周期的定时任务——实现是「停下来才跑」");
+});
+
+test("设置面：标签与输入框须在**同一行**，且输入框**不得**收进折叠区", () => {
+  // Human 原话：「和填写框放在一行，且直接显示出来」。
+  assert.match(source, /className: "ldv-idle-limit-row"/, "标签与输入须同处一个行容器");
+  assert.match(source, /\.ldv-idle-limit-row\{display:flex;align-items:center/, "该行容器须为 flex 行");
+  // **不得**再用 <details> 折叠（唯一一个参数没有折叠的理由）。
+  assert.doesNotMatch(
+    source,
+    /React\.createElement\("details", \{ className: "ldv-idle-limits"/,
+    "参数区不得折叠——直接展示",
+  );
+  // 也不得残留只对旧折叠形态有意义的样式或结构。
+  assert.doesNotMatch(source, /ldv-idle-limit-grid/, "旧的网格容器须一并移除");
 });

@@ -158,6 +158,76 @@ function completedResult(planLength) {
   };
 }
 
+/**
+ * Gate 2 的**两步组合器**（测试专用）：先落关闭提案，再翻转终态。
+ *
+ * 为什么需要它：writer 的 `close` 要求**上一次落盘的正文已含「## 结果」节**
+ * （21 §9.1 Gate 2 是 Human Gate + §8「待批准关闭」期 = `status=open` ∧ 含结果节）。
+ * 实测教训（workcase-88f3e568）：以一次调用合并两者，会使 `outcome` 判定在
+ * **无 Human 决定落点**的情况下生效。
+ *
+ * 本组合器把「提案→关闭」两步显式化，使既有测试仍能构造出**合法**的关闭序列，
+ * 同时让「合并两阶段」这一形态在测试里**不可表达**——须先提案，才有关闭。
+ *
+ * **它不是对门禁的绕过**：组合器内部真的调两次受控写入，第一次必须成功落盘并
+ * 使对象进入 `awaiting_gate2`，第二次才被 writer 接受。若门禁失效，组合器仍能
+ * 工作，但下面的 `close` 直调用例会失败——那正是门禁的守卫。
+ */
+async function closeWithProposal(args) {
+  const { factSourceRoot, objectUid, bodyMarkdownAfter, ...rest } = args;
+
+  // **第一步：落盘一份合法的关闭提案，使对象进入「待批准关闭」期。**
+  //
+  // 提案正文用一份**最小合法结果节**（而不一定是调用方最终要写的正文）：本组合器
+  // 服务的是「测**别的**门禁」的用例——它们关心的是 review 独立性、去向完整性等，
+  // 不应因前置的结果节而在本闸上先失败（那会把断言引向错误的拒因）。
+  //
+  // 若调用方传来的正文本身已含结果节，就用它当提案（更真实）；否则补一份最小的。
+  // 两种情形下**最终 close 用的仍是调用方给的正文**，故被测门禁照常生效。
+  const read0 = await readWorkcaseObject({ factSourceRoot, objectUid });
+  if (!read0.ok) return read0;
+  // 提案步的判据只看**磁盘上的正文**（门禁看的就是那里，组合器必须同口径）：
+  // 磁盘尚无结果节 ⇒ 须先落一次提案，使对象进入「待批准关闭」期。
+  //
+  // **为什么不用「调用方正文已含结果节」作短路**：多数用例本来就把结果节写在
+  // 传给 close 的正文里（它们测的是 close 阶段的门禁）。若据该条件跳过提案，
+  // 磁盘就永远没有结果节，最终 close 会被本闸拒绝——那是组合器漏做第一步。
+  // 故只有**磁盘**是权威判据。
+  //
+  // 唯一例外是「零写入」类断言：它们要求 close 被拒时指纹不变。那类用例的
+  // 结果节同样在调用方正文里，且**磁盘没有**——若组合器先写提案，指纹就变了。
+  // 处置：把提案**合并进那一次 close 调用**是做不到的（正是本闸所禁），
+  // 故此类用例改由调用方显式声明 `proposalAlreadyOnDisk: true`（见下方用法注释）。
+  if (read0.value.body && !h2TitlesForTest(read0.value.body).includes("结果")) {
+    const proposalBody = h2TitlesForTest(bodyMarkdownAfter).includes("结果")
+      ? bodyMarkdownAfter
+      : `${bodyMarkdownAfter}\n\n## 结果\n\n- 判据均达成（关闭提案占位，供被测门禁生效）。\n`;
+    const proposed = await executeWorkcaseObject({
+      factSourceRoot,
+      objectUid,
+      expectedFingerprint: read0.value.fingerprint,
+      frontmatterAfter: { ...read0.value.frontmatter },
+      bodyMarkdownAfter: proposalBody,
+      changeSummary: "落盘关闭提案（Gate 2 第一步）",
+      sessionSignature: SIG(),
+    });
+    if (!proposed.ok) return proposed;
+  }
+  const read1 = await readWorkcaseObject({ factSourceRoot, objectUid });
+  return closeWorkcaseObject({
+    ...rest,
+    factSourceRoot,
+    objectUid,
+    bodyMarkdownAfter,
+    expectedFingerprint: read1.value.fingerprint,
+  });
+}
+
+/** 测试侧取 H2 标题（与 writer 同源实现，供组合器判断提案是否已落盘）。 */
+function h2TitlesForTest(body) {
+  return [...String(body).replace(/\r\n?/g, "\n").matchAll(/^##[ \t]+(.+?)[ \t]*$/gm)].map((m) => m[1]);
+}
+
 async function reviewed(root, approvedResult, summary = "对象：本单；基线：plan 判据；方法：隔离子代理只读复核；覆盖：全部判据；未覆盖：无；发现：无；保证边界：仅静态核对。", identity = REVIEWER()) {
   const { uid, after } = approvedResult;
   const fm = { ...after.value.frontmatter };
@@ -173,6 +243,31 @@ async function reviewed(root, approvedResult, summary = "对象：本单；基�
     // 复核会话身份（默认 REVIEWER，≠ IMPLEMENTER）→ reviews[].session_id：
     // 这正是「独立会话记录复核」的机械证据。传 IMPLEMENTER() 可构造同会话自评。
     sessionIdentity: identity,
+  });
+  assert.ok(res.ok, JSON.stringify(res.error));
+  return { uid, after: await readWorkcaseObject({ factSourceRoot: root, objectUid: uid }) };
+}
+
+/**
+ * Gate 2 的**第一步**：把关闭提案（含「## 结果」节）落盘，`status` 保持 `open`。
+ *
+ * 21 §9.1 明写 Gate 2 是 Human Gate，§8 又定义「待批准关闭」期 = `status=open`
+ * ∧ 正文含「## 结果」节。两段合读 ⇒ 关闭是**两步**：先落提案（进入待批准关闭），
+ * 再翻转终态。writer 的 `close` 现要求**上一次落盘的正文已含结果节**，故凡测试
+ * 要走到 `close`，都必须先经本函数。
+ *
+ * 返回 `{uid, after}`（after 为落盘后精确回读，供紧接的 close 用作 CAS 基线）。
+ */
+async function proposeClose(root, reviewedResult, proposalBody) {
+  const { uid, after } = reviewedResult;
+  const res = await executeWorkcaseObject({
+    factSourceRoot: root,
+    objectUid: uid,
+    expectedFingerprint: after.value.fingerprint,
+    frontmatterAfter: { ...after.value.frontmatter },
+    bodyMarkdownAfter: proposalBody,
+    changeSummary: "落盘关闭提案（Gate 2 第一步：进入待批准关闭期）",
+    sessionSignature: SIG(),
   });
   assert.ok(res.ok, JSON.stringify(res.error));
   return { uid, after: await readWorkcaseObject({ factSourceRoot: root, objectUid: uid }) };
@@ -732,7 +827,7 @@ test("close: open→closed stamps result+outcome and retracts the attempt (收�
     // Gate 2 前置（21 §9.1/§14）：先记录独立复核，否则关闭被拒。
     const { uid, after } = await reviewed(root, await approved(root));
     const body = `${draftBody(draft)}\n\n## 执行\n\n- 两步均完成。\n\n## 结果\n\n- 逐条核对：两步判据均达成。\n`;
-    const res = await closeWorkcaseObject({
+    const res = await closeWithProposal({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: after.value.fingerprint,
@@ -766,7 +861,7 @@ test("close: completed with an unmet criterion is rejected (21 §9.3/§15.1)", a
     const { draft } = await createDraft(root);
     // Gate 2 前置（21 §9.1/§14）：先记录独立复核，否则关闭被拒。
     const { uid, after } = await reviewed(root, await approved(root));
-    const bad = await closeWorkcaseObject({
+    const bad = await closeWithProposal({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: after.value.fingerprint,
@@ -794,7 +889,7 @@ test("close: partial without residual is rejected (21 §9.3)", async () => {
     const { draft } = await createDraft(root);
     // Gate 2 前置（21 §9.1/§14）：先记录独立复核，否则关闭被拒。
     const { uid, after } = await reviewed(root, await approved(root));
-    const bad = await closeWorkcaseObject({
+    const bad = await closeWithProposal({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: after.value.fingerprint,
@@ -821,7 +916,7 @@ test("close: criteria_checks length must match plan (逐条对应, 21 §8)", asy
     const { draft } = await createDraft(root);
     // Gate 2 前置（21 §9.1/§14）：先记录独立复核，否则关闭被拒。
     const { uid, after } = await reviewed(root, await approved(root));
-    const bad = await closeWorkcaseObject({
+    const bad = await closeWithProposal({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: after.value.fingerprint,
@@ -840,13 +935,119 @@ test("close: criteria_checks length must match plan (逐条对应, 21 §8)", asy
   });
 });
 
+// ---------------------------------------------------------------------------
+// Gate 2 前置条件之四：关闭提案须**先行落盘**（21 §9.1 Human Gate / §8 待批准关闭期）
+// ---------------------------------------------------------------------------
+//
+// ## 缺陷经过（实测，workcase-88f3e568）
+//
+// 本闸之前，`close` 接受「结果节首次出现」与「状态翻转」在同一次调用里完成——
+// 一次工具调用即可把 `open` 直接推到 `closed`，其间**没有 Human 决定的落点**。
+// 实测：AI 记录独立复核后 3 分 42 秒即自行关闭，`outcome=completed` 被当成既成
+// 事实——判定权被执行者自行行使。既有三条前置条件（reviews 非空／复核独立／
+// 无待批增量）**都只校验内容齐备，不校验「谁在何时发起关闭」**，故当时未拦。
+//
+// 下面的用例是**负向守卫**：若有人日后放宽本闸，它们会立刻失败。
+
+test("待批准关闭: close 拒绝「结果节与状态翻转同批写入」——关闭提案须先行落盘 (21 §9.1/§8)", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const draft = validDraft();
+    const { uid, after } = await reviewed(root, await approved(root));
+    // 直接调 close（**不经**提案步）：这正是闸前的旧形态。
+    const collapsed = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      outcome: "completed",
+      result: completedResult(draft.plan.length),
+      changeSummary: "尝试合并提案与关闭",
+      bodyMarkdownAfter: `${draftBody(draft)}\n\n## 执行\n\n- 完成。\n\n## 结果\n\n- 判据均达成。\n`,
+      sessionSignature: SIG(),
+    });
+    assert.ok(!collapsed.ok, "合并两阶段必须被拒——中间须有 Human 决定落点");
+    assert.equal(collapsed.error.code, "workcase/result_proposal_required");
+    // 零写入：被拒时对象仍是 open，指纹不变。
+    const after0 = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(after0.value.frontmatter.status, "open", "被拒后须保持 open（不得静默前进）");
+    assert.equal(after0.value.fingerprint, after.value.fingerprint, "被拒须零写入");
+  });
+});
+
+test("待批准关闭: 先经 execute 落盘提案后，close 才被接受（合法两步路径）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const draft = validDraft();
+    const { uid, after } = await reviewed(root, await approved(root));
+    const body = `${draftBody(draft)}\n\n## 执行\n\n- 完成。\n\n## 结果\n\n- 判据均达成。\n`;
+
+    // 第一步：落盘关闭提案，status 保持 open ⇒ 进入「待批准关闭」期。
+    const proposed = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: { ...after.value.frontmatter },
+      bodyMarkdownAfter: body,
+      changeSummary: "落盘关闭提案",
+      sessionSignature: SIG(),
+    });
+    assert.ok(proposed.ok, JSON.stringify(proposed.error));
+    const awaiting = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(awaiting.value.frontmatter.status, "open", "提案期须保持 open（这就是「待批准关闭」期）");
+    assert.ok(
+      awaiting.value.body.includes("## 结果"),
+      "提案期正文须已含结果节——web 派生据此把该对象归入 awaiting_gate2 分组",
+    );
+    assert.equal(awaiting.value.frontmatter.result, undefined, "提案期不得有 result 字段（result ⇔ closed 不变量）");
+
+    // 第二步：Human 判定后关闭。
+    const closed = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: awaiting.value.fingerprint,
+      outcome: "completed",
+      result: completedResult(draft.plan.length),
+      changeSummary: "经 Human 批准后关闭",
+      bodyMarkdownAfter: body,
+      sessionSignature: SIG(),
+    });
+    assert.ok(closed.ok, JSON.stringify(closed.error));
+    const read = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(read.value.frontmatter.status, "closed");
+  });
+});
+
+test("待批准关闭: 本闸只看真实 H2，不被围栏示例或行内提及骗过（防静默失效）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const draft = validDraft();
+    const { uid, after } = await reviewed(root, await approved(root));
+    // 正文里出现「## 结果」的**字面示例**（围栏内）与**行内提及**，但无真实结果节。
+    const deceptive = `${draftBody(draft)}\n\n## 执行\n\n- 完成。\n\n`
+      + "写法示例（围栏内，非真实章节）：\n\n```md\n## 结果\n\n- 残留段…\n```\n\n"
+      + "另：本节说明「## 结果」这个标题的用途。\n";
+    const res = await closeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      outcome: "completed",
+      result: completedResult(draft.plan.length),
+      changeSummary: "尝试以字面示例冒充提案",
+      bodyMarkdownAfter: deceptive,
+      sessionSignature: SIG(),
+    });
+    assert.ok(!res.ok, "围栏内示例与行内提及不得被认作真实结果节");
+    assert.equal(res.error.code, "workcase/result_proposal_required");
+  });
+});
+
 // Gate 2 前置：关闭前须已存在至少一条 reviews（21 §9.1/§8/§14，Human 裁定 2026-09-17）
 test("close: rejected when reviews is absent — 关闭前须已有独立复核记录 (21 §9.1/§14)", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const { draft } = await createDraft(root);
     const { uid, after } = await approved(root); // 刻意不记录复核
-    const res = await closeWorkcaseObject({
+    const res = await closeWithProposal({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: after.value.fingerprint,
@@ -879,7 +1080,7 @@ test("close: accepted once reviews exists — 有独立复核记录即可关闭 
     const { draft } = await createDraft(root);
     const { uid, after } = await reviewed(root, await approved(root));
     assert.ok(Array.isArray(after.value.frontmatter.reviews) && after.value.frontmatter.reviews.length > 0);
-    const res = await closeWorkcaseObject({
+    const res = await closeWithProposal({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: after.value.fingerprint,
@@ -1110,7 +1311,7 @@ test("terminal: closed objects refuse execute/close/rebatch (21 §9.2 终态不�
     const { draft } = await createDraft(root);
     // Gate 2 前置（21 §9.1/§14）：先记录独立复核，否则关闭被拒。
     const { uid, after } = await reviewed(root, await approved(root));
-    const closed = await closeWorkcaseObject({
+    const closed = await closeWithProposal({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: after.value.fingerprint,
@@ -1130,7 +1331,7 @@ test("terminal: closed objects refuse execute/close/rebatch (21 §9.2 终态不�
     const attempts = [
       executeWorkcaseObject({ factSourceRoot: root, objectUid: uid, expectedFingerprint: read.value.fingerprint, frontmatterAfter: fm, bodyMarkdownAfter: read.value.body, changeSummary: "x", sessionSignature: SIG() }),
       rebatchWorkcaseObject({ factSourceRoot: root, objectUid: uid, expectedFingerprint: read.value.fingerprint, frontmatterAfter: fm, bodyMarkdownAfter: read.value.body, changeSummary: "x", sessionSignature: SIG() }),
-      closeWorkcaseObject({ factSourceRoot: root, objectUid: uid, expectedFingerprint: read.value.fingerprint, outcome: "completed", result: fm.result, changeSummary: "x", bodyMarkdownAfter: read.value.body, sessionSignature: SIG() }),
+      closeWithProposal({ factSourceRoot: root, objectUid: uid, expectedFingerprint: read.value.fingerprint, outcome: "completed", result: fm.result, changeSummary: "x", bodyMarkdownAfter: read.value.body, sessionSignature: SIG() }),
     ];
     for (const bad of await Promise.all(attempts)) {
       assert.ok(!bad.ok, "closed objects must be read-only");
@@ -1150,7 +1351,7 @@ test("terminal: closed objects refuse execute/close/rebatch (21 §9.2 终态不�
 async function closedFixture(root) {
   const draft = validDraft();
   const { uid, after } = await reviewed(root, await approved(root));
-  const closed = await closeWorkcaseObject({
+  const closed = await closeWithProposal({
     factSourceRoot: root,
     objectUid: uid,
     expectedFingerprint: after.value.fingerprint,
@@ -1705,7 +1906,7 @@ test("independence: close is REJECTED when the only review came from the impleme
     const appr = await approved(root);
     // 实施者用**自己的**身份记录复核 —— 这就是主控自查冒充独立复核。
     const rev = await reviewed(root, appr, undefined, IMPLEMENTER());
-    const res = await closeWorkcaseObject({
+    const res = await closeWithProposal({
       factSourceRoot: root,
       objectUid: rev.uid,
       expectedFingerprint: rev.after.value.fingerprint,
@@ -1725,7 +1926,7 @@ test("independence: close is ACCEPTED when a DIFFERENT session recorded the revi
     await seedGoal(root);
     const appr = await approved(root);
     const rev = await reviewed(root, appr); // 默认 REVIEWER ≠ IMPLEMENTER
-    const res = await closeWorkcaseObject({
+    const res = await closeWithProposal({
       factSourceRoot: root,
       objectUid: rev.uid,
       expectedFingerprint: rev.after.value.fingerprint,
@@ -1751,7 +1952,7 @@ test("review form: close is REFUSED when the review came from another governed R
     // 用**根会话身份**（origin=null）录复核——即「另一受管辖根会话直接记录」。
     // 注意传值而非传函数：reviewed 的第 4 参是身份对象本身。
     const rev = await reviewed(root, appr, undefined, IDENTITY("session-other-root"));
-    const res = await closeWorkcaseObject({
+    const res = await closeWithProposal({
       factSourceRoot: root,
       objectUid: rev.uid,
       expectedFingerprint: rev.after.value.fingerprint,
@@ -1779,7 +1980,7 @@ test("review form: the carrying-form gate is live — same object with subagent 
     const rev = await reviewed(root, appr); // 默认 REVIEWER = origin "subagent"
     const stored = rev.after.value.frontmatter.reviews[0];
     assert.equal(stored.reviewer_origin, "subagent", "a relayed subagent review must carry reviewer_origin");
-    const res = await closeWorkcaseObject({
+    const res = await closeWithProposal({
       factSourceRoot: root,
       objectUid: rev.uid,
       expectedFingerprint: rev.after.value.fingerprint,
@@ -1813,7 +2014,7 @@ test("independence: close is REJECTED when no reviews entry carries an identity 
     assert.ok(exec.ok, JSON.stringify(exec.error));
     const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
     assert.equal(after.value.frontmatter.reviews[0].session_id, undefined, "无身份时不得虚构 session_id");
-    const res = await closeWorkcaseObject({
+    const res = await closeWithProposal({
       factSourceRoot: root,
       objectUid: appr.uid,
       expectedFingerprint: after.value.fingerprint,
@@ -3260,18 +3461,34 @@ test("direction e2e: 关闭时「转入 Spark」缺 routed-to 被机械拒绝且
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const { uid, after } = await reviewed(root, await approved(root));
-    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
-
-    const bad = await closeWorkcaseObject({
+    // **本用例测的是「close 阶段被拒时零写入」**，故须先自行把关闭提案落盘
+    // （Gate 2 第一步，21 §9.1/§8）——否则待测的 close 会先在本闸上失败，
+    // 而它关心的指纹比对就失去意义。提案正文与待测正文**逐字相同**，
+    // 使「零写入」比的是同一个内容指纹。
+    const proposalBody = closingBody(after.value.body, [
+      ["残留 A：第二条判据的关闭路径用例尚未覆盖。", "**转入 Spark**：把残留 A 转入议题待裁。"],
+    ]);
+    const proposed = await executeWorkcaseObject({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: { ...after.value.frontmatter },
+      bodyMarkdownAfter: proposalBody,
+      changeSummary: "落盘关闭提案（Gate 2 第一步）",
+      sessionSignature: SIG(),
+    });
+    assert.ok(proposed.ok, JSON.stringify(proposed.error));
+
+    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+
+    const bad = await closeWithProposal({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: before.value.fingerprint,
       outcome: "partial",
       result: partialResult(),
       changeSummary: "关闭（测试）",
-      bodyMarkdownAfter: closingBody(after.value.body, [
-        ["残留 A：第二条判据的关闭路径用例尚未覆盖。", "**转入 Spark**：把残留 A 转入议题待裁。"],
-      ]),
+      bodyMarkdownAfter: proposalBody,
       sessionSignature: SIG(),
     });
     assert.ok(!bad.ok, "关闭必须被拒——去向缺对象标识");
@@ -3282,7 +3499,7 @@ test("direction e2e: 关闭时「转入 Spark」缺 routed-to 被机械拒绝且
     );
 
     const after0 = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
-    assert.equal(after0.value.fingerprint, before.value.fingerprint, "零写入：指纹不变");
+    assert.equal(after0.value.fingerprint, before.value.fingerprint, "零写入：close 被拒时指纹不变（提案步已先行落盘，故以其为基线）");
     assert.equal(after0.value.frontmatter.status, "open");
   });
 });
@@ -3310,7 +3527,7 @@ test("direction e2e: 合并式合法形态在关闭入口通过（21 §8/§15.1 
     assert.ok(exec.ok, JSON.stringify(exec.error));
     const execRead = await readWorkcaseObject({ factSourceRoot: root, objectUid: wcUid });
 
-    const closed = await closeWorkcaseObject({
+    const closed = await closeWithProposal({
       factSourceRoot: root,
       objectUid: wcUid,
       expectedFingerprint: exec.value.fingerprint,
@@ -3356,7 +3573,7 @@ test("direction e2e: 关闭时残留段条数与 residual 不符被拒；补齐�
     const exec1Read = await readWorkcaseObject({ factSourceRoot: root, objectUid: wcUid });
 
     // residual 1 条却写 0 条残留条目 → 条数不符，拒绝。
-    const tooFew = await closeWorkcaseObject({
+    const tooFew = await closeWithProposal({
       factSourceRoot: root,
       objectUid: wcUid,
       expectedFingerprint: exec1.value.fingerprint,
@@ -3371,7 +3588,7 @@ test("direction e2e: 关闭时残留段条数与 residual 不符被拒；补齐�
     assert.ok(tooFew.error.details.issues.some((i) => /must carry exactly 1 entry/.test(i)), JSON.stringify(tooFew.error.details.issues));
 
     // residual 1 条写 2 条残留条目 → 同样拒绝。
-    const tooMany = await closeWorkcaseObject({
+    const tooMany = await closeWithProposal({
       factSourceRoot: root,
       objectUid: wcUid,
       expectedFingerprint: exec1.value.fingerprint,
@@ -3388,7 +3605,7 @@ test("direction e2e: 关闭时残留段条数与 residual 不符被拒；补齐�
     assert.ok(tooMany.error.details.issues.some((i) => /must carry exactly 1 entry/.test(i)), JSON.stringify(tooMany.error.details.issues));
 
     // 条数一致 + routed-to 配对 → 放行。
-    const good = await closeWorkcaseObject({
+    const good = await closeWithProposal({
       factSourceRoot: root,
       objectUid: wcUid,
       expectedFingerprint: exec1.value.fingerprint,
@@ -3419,7 +3636,7 @@ test("direction e2e: 独立建议段（旧形态）在新写入被拒且零写�
       ["残留 A：第二条判据的关闭路径用例尚未覆盖。", null],
     ]) + "- advice:\n  - **接受现状**：把该残留就此了结。\n";
 
-    const bad = await closeWorkcaseObject({
+    const bad = await closeWithProposal({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: after.value.fingerprint,
@@ -3442,7 +3659,7 @@ test("direction e2e: 独立建议段（旧形态）在新写入被拒且零写�
     assert.equal(after0.value.frontmatter.status, "open");
 
     // 对照：同一内容改用合并式（去向作为残留子项）即放行——证明拒绝来自形态，不是别处。
-    const ok = await closeWorkcaseObject({
+    const ok = await closeWithProposal({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: after.value.fingerprint,
@@ -3509,7 +3726,7 @@ test("direction e2e: 存量 closed 对象的 correct——「## 结果」节逐�
     // 合并式关闭，再把落盘载体**改写为存量分离式形态**——这正是 2026-09-28 之前已关闭的
     // 17 份对象的实际状态（实测 16 份为分离式）。受控入口不回扫既有载体（`§15.3`），
     // 故这一改写是「模拟既有载体」，不是「绕过门禁写入」。
-    const closed = await closeWorkcaseObject({
+    const closed = await closeWithProposal({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: after.value.fingerprint,
@@ -3680,7 +3897,7 @@ test("direction e2e: 两条残留转入同一 Spark —— 两条同 uid 的 rou
     assert.equal(execRead.value.frontmatter.relations.length, 2, "同 uid 的两条边须都保留（按条对应，不是去重）");
     assert.equal(execRead.value.mechanical_issues.length, 0, JSON.stringify(execRead.value.mechanical_issues));
 
-    const closed = await closeWorkcaseObject({
+    const closed = await closeWithProposal({
       factSourceRoot: root,
       objectUid: wcUid,
       expectedFingerprint: exec.value.fingerprint,
@@ -3715,7 +3932,7 @@ test("direction e2e: 多残段在关闭入口被机械拒绝且零写入（21 §
       ["残留 A：第二条判据的关闭路径用例尚未覆盖。", "**接受现状**：该分支已被后续工作覆盖，继续跟踪无增量。"],
     ])}\n- residual:\n  - 第二个残留段。\n    - **接受现状**：原因乙。\n`;
 
-    const bad = await closeWorkcaseObject({
+    const bad = await closeWithProposal({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: after.value.fingerprint,
@@ -3747,7 +3964,7 @@ test("direction e2e: 多残段在关闭入口被机械拒绝且零写入（21 §
     const single = closingBody(after.value.body, [
       ["残留 A：第二条判据的关闭路径用例尚未覆盖。", "**接受现状**：该分支已被后续工作覆盖，继续跟踪无增量。"],
     ]);
-    const ok = await closeWorkcaseObject({
+    const ok = await closeWithProposal({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: after.value.fingerprint,
@@ -4187,7 +4404,7 @@ test("调整·关前闸：存在待批的增量申请时 close 一律被拒；�
 
     // ① 待批 → close 必拒，拒绝码须是"待批增量申请"
     const cur = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
-    const closed = await closeWorkcaseObject({
+    const closed = await closeWithProposal({
       factSourceRoot: root,
       objectUid: uid,
       expectedFingerprint: cur.value.fingerprint,

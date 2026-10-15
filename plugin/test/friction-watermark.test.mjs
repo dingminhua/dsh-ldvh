@@ -12,6 +12,7 @@ import {
   describeWindow,
   readDispatchState,
   recordDispatch,
+  recordActivity,
   numberOfWindowSlots,
   WATERMARK_RELATIVE_PATH,
 } from "../lib/friction-watermark.js";
@@ -318,47 +319,33 @@ test("派发状态：缺参与非法入参一律拒绝（不得静默写坏载�
 });
 
 // ---------------------------------------------------------------------------
-// 复审 D8（2026-10-11）：时刻列表容量须按配置**推导**，不得写死
+// ---------------------------------------------------------------------------
+// 时刻列表容量（2026-10-14 变更：由「按配置推导」改为**具名常量**）
 // ---------------------------------------------------------------------------
 //
-// 原先写死 64，理由是「按 10 分钟间隔，1 小时窗口内最多 6 次」。那个理由**依赖
-// 最小间隔的取值**——若间隔被设为 1 秒，1 小时窗口内可发生 3600 次，列表截断会
-// 使窗口内计数被**低估**，配额因而偏松。
+// **变更经过（workcase-88f3e568，36 §6.2 修订）**：原实现按 `配额窗口 ÷ 最小间隔`
+// 推导容量，理由是「间隔若被设为 1 秒，1 小时窗口内可发生 3600 次，写死 64 会低估」。
+// 该理由的**前提已被取消**——36 §6.2 取消了「最小间隔」一类准入约束（它被 §6.1 的
+// 安静时长结构性吸收），除数不复存在，故容量改由具名常量直接给出。
+//
+// **刻意不再成立的性质**：旧测试断言「间隔越小容量越大」（1 秒 → 3602）。该性质
+// 现在**不成立**，且这不是缺陷——容量不再由任何准入约束推导。
 
-test("numberOfWindowSlots：按「窗口 ÷ 间隔」推导，并吸收窗口两端的边界", async () => {
-  const { numberOfWindowSlots } = await import("../lib/friction-watermark.js");
-  // 默认：1h / 10min = 6，+2 边界 = 8。
-  assert.equal(numberOfWindowSlots({ quotaWindowMs: 3_600_000, minIntervalMs: 600_000 }), 8);
-  // 间隔 1 分钟 → 60 + 2。
-  assert.equal(numberOfWindowSlots({ quotaWindowMs: 3_600_000, minIntervalMs: 60_000 }), 62);
-  // 间隔 1 秒 → 3600 + 2（**旧实现写死 64 会在这里截断**）。
-  assert.equal(numberOfWindowSlots({ quotaWindowMs: 3_600_000, minIntervalMs: 1_000 }), 3602);
-});
-
-test("numberOfWindowSlots：间隔为 0（不冷却）或配置缺失时返回 0，由调用方回落", async () => {
+test("numberOfWindowSlots：返回具名常量（容量不再按配置推导——除数已随 §6.2 取消）", async () => {
   const { numberOfWindowSlots, FALLBACK_MAX_DISPATCH_TIMES } = await import("../lib/friction-watermark.js");
-  // 间隔 0 表示「不冷却」，此时窗口内次数**无上界**，容量不可推导——须回落。
-  assert.equal(numberOfWindowSlots({ quotaWindowMs: 3_600_000, minIntervalMs: 0 }), 0);
-  assert.equal(numberOfWindowSlots({}), 0);
-  assert.equal(numberOfWindowSlots(undefined), 0);
-  assert.equal(numberOfWindowSlots({ quotaWindowMs: 0, minIntervalMs: 1000 }), 0, "窗口非法同样不可推导");
-  assert.ok(FALLBACK_MAX_DISPATCH_TIMES > 0, "须有保守下限");
+  assert.ok(FALLBACK_MAX_DISPATCH_TIMES > 0, "须是有限正值（列表有界，04 §14 第 5 条）");
+  assert.equal(numberOfWindowSlots({ quotaWindowMs: 3_600_000, minIntervalMs: 600_000 }), FALLBACK_MAX_DISPATCH_TIMES);
+  assert.equal(numberOfWindowSlots({ quotaWindowMs: 3_600_000, minIntervalMs: 1_000 }), FALLBACK_MAX_DISPATCH_TIMES, "间隔不再是输入");
+  assert.equal(numberOfWindowSlots({}), FALLBACK_MAX_DISPATCH_TIMES, "缺配置同样返回常量（不再有回落到 0 的分支）");
+  assert.equal(numberOfWindowSlots(undefined), FALLBACK_MAX_DISPATCH_TIMES);
 });
 
-test("recordDispatch：容量按传入的 limits 推导——间隔很小时不得截断到 64", async () => {
-  await withTemp("ldvh-dispatch-", async (dir) => {
-    const dshHomePath = (...p) => join(dir, ...p);
-    const o = { projectRoot: "/proj", sessionId: "s1" };
-    // 间隔 1 秒、窗口 1 小时 → 容量约 3602。派发 100 次（> 旧的写死上限 64），
-    // 若仍按 64 截断，`dispatchTimes` 只会留 64 条。
-    const limits = { quotaWindowMs: 3_600_000, minIntervalMs: 1_000 };
-    for (let i = 0; i < 100; i += 1) {
-      await recordDispatch(dshHomePath, { ...o, at: new Date(1_700_000_000_000 + i * 1000).toISOString(), limits });
-    }
-    const st = await readDispatchState(dshHomePath, o);
-    assert.equal(st.value.dispatchTimes.length, 100, "100 次须全部保留（容量由配置推导，不是 64）");
-    assert.equal(st.value.dispatchCount, 100, "累计计数同步");
-  });
+test("numberOfWindowSlots：**任何入参都不返回 0**（旧实现缺配置返回 0 会让调用方回落）", async () => {
+  const { numberOfWindowSlots, FALLBACK_MAX_DISPATCH_TIMES } = await import("../lib/friction-watermark.js");
+  // 这是变更带来的行为差异，须显式钉住：调用方现在恒得一个有界正值。
+  for (const input of [undefined, {}, { quotaWindowMs: 0 }, { quotaWindowMs: -1 }, { minIntervalMs: 0 }]) {
+    assert.equal(numberOfWindowSlots(input), FALLBACK_MAX_DISPATCH_TIMES, `${JSON.stringify(input)} 亦返回常量`);
+  }
 });
 
 test("recordDispatch：未传 limits 时回落保守下限（不让列表无界增长）", async () => {
@@ -508,5 +495,64 @@ test("改名回落：现行键存在时优先于旧键（不因回落覆盖新�
     );
     const r = await readWatermark(h, { projectRoot: PROJECT, sessionId: SESSION, task: "friction-discovery" });
     assert.equal(r.value.lastTurn, 20, "现行键须优先——若回落旧键会**倒退**水位，使已处理区间被重复计入");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 活动时刻的持久化（2026-10-14，36 §6.1 的安静期锚点）
+// ---------------------------------------------------------------------------
+
+test("recordActivity：写入并回读活动时刻（36 §6.1 的安静期计时锚）", async () => {
+  await withTemp("ldvh-activity-", async (dir) => {
+    const dshHomePath = (...p) => join(dir, ...p);
+    const o = { projectRoot: "/proj", sessionId: "s1" };
+    const at = "2026-10-14T00:00:00.000Z";
+    const w = await recordActivity(dshHomePath, { ...o, at });
+    assert.ok(w.ok, JSON.stringify(w.error));
+    assert.equal(w.value.lastActivityAt, at);
+
+    const st = await readDispatchState(dshHomePath, o);
+    assert.equal(st.value.lastActivityAt, at, "须可经 readDispatchState 回读");
+  });
+});
+
+test("recordActivity：与派发状态**共载体但不互相覆盖**（合并而非重建）", async () => {
+  await withTemp("ldvh-activity-", async (dir) => {
+    const dshHomePath = (...p) => join(dir, ...p);
+    const o = { projectRoot: "/proj", sessionId: "s1" };
+    await recordActivity(dshHomePath, { ...o, at: "2026-10-14T00:00:00.000Z" });
+    await recordDispatch(dshHomePath, { ...o, at: "2026-10-14T01:00:00.000Z" });
+    const st = await readDispatchState(dshHomePath, o);
+    assert.equal(st.value.lastActivityAt, "2026-10-14T00:00:00.000Z", "派发不得清掉活动时刻");
+    assert.equal(st.value.lastDispatchAt, "2026-10-14T01:00:00.000Z", "活动不得清掉派发时刻");
+  });
+});
+
+test("recordActivity：同一 key 下的**水位**不被清掉（重建陷阱）", async () => {
+  await withTemp("ldvh-activity-", async (dir) => {
+    const h = homeOf(dir);
+    const o = { projectRoot: PROJECT, sessionId: SESSION };
+    await advanceWatermark(h, { ...o, task: "friction-discovery", turn: 42 });
+    await recordActivity(h, { ...o, at: "2026-10-14T00:00:00.000Z" });
+    const wm = await readWatermark(h, { ...o, task: "friction-discovery" });
+    assert.equal(wm.value.lastTurn, 42, "活动写入不得清掉水位（已实测踩过该陷阱）");
+  });
+});
+
+test("recordActivity：参数缺失即拒绝（fail-closed，不写半条）", async () => {
+  await withTemp("ldvh-activity-", async (dir) => {
+    const dshHomePath = (...p) => join(dir, ...p);
+    assert.equal((await recordActivity(dshHomePath, { sessionId: "s1" })).ok, false);
+    assert.equal((await recordActivity(dshHomePath, { projectRoot: "/p" })).ok, false);
+  });
+});
+
+test("recordActivity：未传 at 时用当前时刻（调用方无须自造时间戳）", async () => {
+  await withTemp("ldvh-activity-", async (dir) => {
+    const dshHomePath = (...p) => join(dir, ...p);
+    const o = { projectRoot: "/proj", sessionId: "s1" };
+    const w = await recordActivity(dshHomePath, o);
+    assert.ok(w.ok);
+    assert.ok(!Number.isNaN(Date.parse(w.value.lastActivityAt)), "须是可解析的 ISO 时刻");
   });
 });

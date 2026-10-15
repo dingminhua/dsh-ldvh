@@ -122,9 +122,14 @@ export const Config = z.object({
   //   · 三个 `*Enabled` 是「让 32 §10.2 已定义的三任务可被选择性停用」——
   //     不新增任务、不改职责、不改**派发律**（32 §10.2 已于 2026-10-11 改定为
   //     「不设任务轮换」：勾选即全做，一次派发遂行全部已启用任务）；
-  //   · `idleMin*` / `idleMaxPerSession` 三者**收窄发起条件**，按 04 §12.1 第 3 项
-  //     属领域增量事项，**其规范依据尚待 Human Gate**。当前实现为可用状态，
-  //     但不得据此主张「节流已按规范生效」。
+  //   · 闲时辅助的**安静时长**（`idleSilenceMs`）：其规范依据已于 2026-10-14 取得
+  //     ——36 §6.1（进入契约的判据）。其数值明文「属实现侧承接」，故本处只登记
+  //     数值、不主张规范已规定具体取值。
+  //   · **2026-10-14 取消的三类准入约束**：36 §6.2 原含三类，均经 Human Gate 取消
+  //     （理由见 idle-settings.js 的模块注释），故本 schema 依次删除
+  //     `idleMinContentChars` / `idleMinContentTurns` / `idleMinIntervalMs` 三键
+  //     （当轮），以及本轮删除的 `idleQuotaMax` / `idleQuotaWindowMs` 两键
+  //     ——**§6.2 现为空集，故本 schema 亦无任何节流配置键**。
   /** 闲时辅助总开关：关闭后不再派发任何辅助任务（含摩擦发现）。 */
   idleAssistEnabled: volatileField(z.boolean().default(true)),
   /** 闲时评审（反思摩擦，04 §8.4）：已实现，缺省开。 */
@@ -154,33 +159,23 @@ export const Config = z.object({
   capacityMaintenanceEnabled: volatileField(z.boolean().default(false)),
   /** 记忆健康体检（32 §10.5）：**尚未实现**，缺省关（同上）。 */
   memoryHealthEnabled: volatileField(z.boolean().default(false)),
-  /** 两次派发之间的最小间隔（毫秒）。锚点在派发**前**写入，故失败也计入。 */
-  idleMinIntervalMs: volatileField(z.number().default(600_000)),
-  /** 本区间新增内容的字符数门槛（与轮数门槛**取或**）。 */
-  idleMinContentChars: volatileField(z.number().default(800)),
-  /** 本区间新增内容的轮数门槛（与字符数门槛**取或**）。 */
-  idleMinContentTurns: volatileField(z.number().default(3)),
   /**
-   * 配额窗口内的派发次数上限；**0 表示不限**（0 是合法值，归一化时不得吃掉）。
+   * 安静时长（毫秒）——36 §6.1 进入契约的判据：**距最后一次会话活动**持续不短于
+   * 该时长，才算「会话确已空闲」并可派发。
    *
-   * **默认值须与 `idle-settings.js` 的 `IDLE_DEFAULTS.maxPerSession` 一致（=4）**。
-   * 两者曾不一致（此处 8、判据侧 4），后果是**判据侧的默认值被架空**——宿主按 zod
-   * 的 default 把 8 填进 config，于是 `resolveIdleSettings` 读到的永远是 8，而 4
-   * 那条从未生效。实测痕迹里 `quota.max` 恒为 8 即此。
+   * **须为正值**（`.min(1)`）：取 0 会使「已空闲」恒成立，等价于取消该判据——
+   * 36 §6.1 明文要求该取值在**写入时被拒绝并提示**，不得静默回落。
    *
-   * 为何取 4（复审 D7）：按默认间隔 10 分钟，1 小时窗口内**最多只能派发 6 次**，
-   * 上限若取 8 则**永远轮不到它绑定**——于是「配额存在」与「配额根本没实现」在
-   * 运行痕迹里完全不可区分，04 §8.4「派发准入」段要求的「各自可被独立观察」随之
-   * 落空。取 4 使它在密集会话中确实触发。
+   * **为什么是 `.min(1)` 而不是 `.positive()`**：宿主用的**不是真 zod**，而是
+   * `@deepseek-ai/schemastery` 的受限子集（其 number 只有 `min`/`max`/`step`/`default`
+   * 等，**无** `int`/`positive`）。调用不存在的方法会在装载期抛 TypeError 使整插件
+   * 起不来（实测如此），故这里只用该子集确认支持的方法。
+   * 非整数另有拦处：设置面按分钟读写并做往返无损检查（client.js），故毫秒值恒为整数。
+   *
+   * 默认 600000（10 分钟）：**该数值无规范依据**（§6.1 明文「数值属实现侧承接」），
+   * 它是实现默认，不得据以主张规范已规定该时长（§17 条件式要求）。
    */
-  idleMaxPerSession: volatileField(z.number().default(4)),
-  /**
-   * 配额窗口长度（毫秒）：配额按**滑动窗口**计，窗口滑过即容量恢复。
-   *
-   * **不以会话生命周期为口径**——那会使配额耗尽后同一会话内恒不可派发，
-   * 水位随即冻结、区间内容永不入账（04 §8.4「派发准入」段禁止此种取值）。
-   */
-  idleQuotaWindowMs: volatileField(z.number().default(3_600_000)),
+  idleSilenceMs: volatileField(z.number().min(1).default(600_000)),
 });
 
 /**

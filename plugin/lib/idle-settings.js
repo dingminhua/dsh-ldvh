@@ -22,14 +22,30 @@
  *   「停用某任务」，而是**直接决定本次派发做哪几件事**（勾选几个就做几件）——
  *   原「按预算轮换」的调度语义已删除，故开关的地位从「过滤轮换结果」升为
  *   「即调度本身」。
- * - **最小间隔、内容量门槛、会话配额**：三者都**收窄发起条件**——按 04 §12.1
- *   第 3 项「改变辅助机制的发起条件」属**领域增量事项**，须经 Human Gate 修订
- *   规范正文后方为生效条件。
+ * - **安静时长（`idleSilenceMs`）——本模块现存的唯一参数**：**2026-10-14 起其规范
+ *   依据已取得**——36 §6.1（进入契约的判据，锚在**最后一次会话活动**）。其数值明文
+ *   「属实现侧承接」，但其**判据与性质**须经 Human Gate 修订规范正文——2026-10-14
+ *   的修订即该 Gate 的产物（workcase-88f3e568）。
  *
- * **故本文件的现状须如实登记：判据已实现，但其规范依据尚未取得。** 在 Gate 通过
- * 之前，调用方**不得**据本文件主张「节流已按规范生效」，也不得把参数值写成既成
- * 规范内容。`specs/04 §14 第 3 项`（不以工具成功或测试通过冒充机械校验）与
- * `§8.5`（条件式要求）在此适用：实现存在不等于规范授权存在。
+ * **2026-10-14 取消的三类准入约束（如实登记，勿读作遗漏）**：36 §6.2 原含三类，
+ * **均经 Human Gate 取消**，本模块随之删除全部节流判据与配置键：
+ *   · **内容量门槛**（字符数/轮数）——与安静时长重叠，且实现在字符数与轮数间取
+ *     「或」关系、两门槛互为兜底；实测 14 个 admitted 样本的 chars 均 ≥ 800，
+ *     该门槛**从未参与任何一次判定**（当轮取消）。
+ *   · **最小间隔**——被安静时长**结构性吸收**（两次派发之间必然隔着「新活动 +
+ *     新安静期」，故「距上次派发」恒 ≥ 安静时长；当轮取消）。
+ *   · **配额**（窗口内次数不超过上限）——**同日二次修订取消**。它是本类约束的最后
+ *     一类，其实测从未绑定（1 小时窗口内最多用到 3、上限 4）。取消依据：安静时长
+ *     已在结构上界定频率，另设约束**不产生可观察差别**却要求 Human 在设置面上
+ *     判断其取值（「一个参数就可以控制其他的了……否则会乱」，Human 2026-10-14）。
+ * 故本文件现**无任何节流判据**：`cooldownDue`／`contentAdmitted`／`countWithinWindow`／
+ * `quotaLeft` 四个函数与 `quotaMax`／`quotaWindowMs` 两个配置键均已删除。
+ * **`admitIdleDispatch` 仍保留**，但它现在只判定两道 Human 明示开关，并返回空的
+ * `evaluations`（如实表达「§6.2 现为空集」）。
+ *
+ * **前提条件（不得省写）**：安静时长的取值**须为有限正值**——取零/负数/非数会使
+ * 「已空闲」恒成立（等价于取消该判据）。该约束由**写入侧**（设置面保存时）拒绝并
+ * 提示，实现见 `validateSilenceMs`；此处不得以「回落默认值」代替拒绝。
  */
 
 // 任务清单的**单一来源**是登记表（本模块原先自持第二份，实测导致新增任务在设置面
@@ -103,41 +119,41 @@ export function readBool(value, fallback) {
  *
  * 默认值即「Human 未作配置时机制如何行为」。取这些数的理由：
  *
- * - `minIntervalMs = 600000`（10 分钟）：参考实现 dsh-mnemon 用 300000（5 分钟）、
+ * - `silenceMs = 600000`（10 分钟）：36 §6.1 的**安静时长**——距最后一次会话活动
+ *   持续满该时长才算「会话确已空闲」。参考实现 dsh-mnemon 用 300000（5 分钟）、
  *   dsh-auto-memory 用 1800000（30 分钟，夜间翻倍）。本值取 5 与 30 之间偏保守的
- *   一侧；N=3 的阈值只需 3 次观察，10 分钟内正常对话即可攒到。（取值史：2026-10-12
- *   前执行体为 fork 全量继承，单次派发成本高（实测主控会话解压 21.7 MB）是本值的
- *   主要理由；2026-10-12 供给形态修订为零上下文派生 + 有界材料交付后成本大降，
- *   本值未随之重调——重调需证据，不按新形态倒推。）
- * - `minContentChars = 800`：单轮材料上限 2000 字符（`friction-window.js` 的
- *   `MAX_CHARS_PER_TURN`），800 约等于一个实质问答对。低于此值说明本区间几乎
- *   没有新内容，派发只会空转——实测 13 次运行里有 29 秒、58 秒的近乎零新增配对。
- * - `minContentTurns = 3`：与 `minContentChars` **取或**（任一满足即准入）。
- *   它是逃生阀：防「好的」「继续」这类短对话因字数不足而永远攒不到准入。
- * - `maxPerSession = 8`：参考 mnemon 的 20 与会话级日上限 8，取低者（LDVH 单次
- *   成本更高）。配额随水位键（含 sessionId）天然作用域独立。
- * - `maxPerSession = 4`：**窗口内可达**是选值的硬约束（2026-10-11 复审 D7）。
- *   参考 mnemon 的 20 与会话级日上限 8。但按默认间隔 10 分钟，1 小时窗口内最多
- *   只能派发 6 次——上限若取 8 则**永远轮不到它绑定**，于是「配额存在」与「配额
- *   根本没实现」在运行痕迹里**完全不可区分**，04 §8.4「派发准入」段所要求的
- *   「各自可被独立观察」随之落空。取 4 使它在密集会话中确实触发。
+ *   一侧。**该数值无规范依据**（36 §6.1 明文「数值属实现侧承接」），它是实现默认；
+ *   **不得**据它主张规范已规定该时长（§17 条件式要求）。
+ * - `quotaWindowMs = 3600000`（1 小时）与 `quotaMax = 4`：36 §6.2 现存的**唯一**
+ *   一类准入约束——「配额窗口内的派发次数未超过上限」。窗口 1 小时与「跑太勤」
+ *   的实际关切（一段密集工作里的派发密度）同尺度，且使窗口滑过后容量自然恢复。
+ *   **`quotaWindowMs` 不得取 0 或无界**：那会退化为会话生命周期累计，即 36 §6.2
+ *   明文禁止的取值（耗尽后同一会话恒不可派发、水位冻结、内容永不入账）。
+ *   非法值由 `readPositiveNumber` 回落本默认值。
  */
 export const IDLE_DEFAULTS = Object.freeze({
-  minIntervalMs: 600_000,
-  minContentChars: 800,
-  minContentTurns: 3,
-  maxPerSession: 4,
-  /**
-   * 配额窗口长度（毫秒）：配额按**滑动窗口**计（见 `countWithinWindow`），
-   * 而非会话生命周期累计。默认 1 小时——与「跑太勤」的实际关切（一段密集工作
-   * 里的派发密度）同尺度，且使窗口滑过后容量自然恢复。
-   *
-   * **不得取 0 或无界**：那会退化为会话生命周期累计，即 04 §8.4「派发准入」段
-   * 明文禁止的取值（耗尽后同一会话恒不可派发、水位冻结、内容永不入账）。
-   * 非法值由 `readPositiveNumber` 回落本默认值，**不按用户所填的 0 关闭窗口**。
-   */
-  quotaWindowMs: 3_600_000,
+  /** 安静时长（毫秒）——36 §6.1 进入契约的判据。**须为有限正值。** */
+  silenceMs: 600_000,
 });
+
+/**
+ * 安静时长的**写入侧校验**（36 §6.1 明文：非法取值须在写入时拒绝并提示）。
+ *
+ * 为什么单独成函数而不复用 `readPositiveNumber` 的回落语义：回落是**读取侧**
+ * 的容错（容忍存量脏数据），而本条要求的是**写入侧拒绝**——安静时长取 0 会使
+ * 「已空闲」恒成立（等价于取消该判据），静默回落为默认值会让误设**不可见**，
+ * 外观上表现为「机制跑得异常勤」。故写入路径须拿本函数拦下并提示。
+ *
+ * @param {unknown} value - 界面/配置提交的安静时长（毫秒）。
+ * @returns {{ok: true, value: number}|{ok: false, reason: string}}
+ */
+export function validateSilenceMs(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return { ok: false, reason: "not-a-finite-number" };
+  if (!Number.isInteger(n)) return { ok: false, reason: "not-an-integer" };
+  if (n <= 0) return { ok: false, reason: "not-positive" };
+  return { ok: true, value: n };
+}
 
 /**
  * 从 Config 解析出闲时辅助的完整设置（**纯**：只读入参，不读时钟/文件）。
@@ -184,139 +200,25 @@ export function resolveIdleSettings(config) {
     enabled: readBool(config?.idleAssistEnabled, true),
     tasks,
     limits: {
-      minIntervalMs: readNumber(config?.idleMinIntervalMs, IDLE_DEFAULTS.minIntervalMs),
-      minContentChars: readNumber(config?.idleMinContentChars, IDLE_DEFAULTS.minContentChars),
-      minContentTurns: readNumber(config?.idleMinContentTurns, IDLE_DEFAULTS.minContentTurns),
-      maxPerSession: readNumber(config?.idleMaxPerSession, IDLE_DEFAULTS.maxPerSession),
-      // 【D1】窗口长度用 readPositiveNumber：0/负数/非有限一律回落默认。
-      // 这与 `maxPerSession` 的处理**刻意不同**——后者的 0 是安全的「不限」，
-      // 前者的 0 是危险的「取消窗口」。两者 0 的语义相反，读取器也必须不同。
-      quotaWindowMs: readPositiveNumber(config?.idleQuotaWindowMs, IDLE_DEFAULTS.quotaWindowMs),
+      // 安静时长（36 §6.1）：读取侧回落默认（容忍存量脏数据）。
+      //
+      // **写入侧拒绝由另外两道承担，不在本处**（2026-10-14 复核更正）：
+      //   ① `client.js` 的 `idleSilenceOk`（设置面提交前拦 0/负/非数，并提示）；
+      //   ② `index.js` 的 `z.number().min(1)`（schema 层兜住绕过设置面的写入）。
+      // 本模块导出的 `validateSilenceMs` 是**同一判据的独立实现**，供这两道之外的
+      // 调用方（及单测）复用；**当前生产写入路径并未直接调用它**——不得据其存在
+      // 断言「写入已被校验」。
+      //
+      // **2026-10-14 二次修订**：本节原还含 `quotaMax`／`quotaWindowMs` 两项
+      // （配额上限与窗口长度）。经 Human Gate 取消后，**本节现只有安静时长一项**
+      // ——36 §6.2 现不设任何准入约束，故实现侧不再有配额判据的配置载体。
+      silenceMs: readPositiveNumber(config?.idleSilenceMs, IDLE_DEFAULTS.silenceMs),
     },
   };
 }
 
-/**
- * 冷却判据：距上次**派发**是否已满最小间隔。
- *
- * **锚点在派发前写入**（不由本函数读时钟决定）——这一点是有意的，参照
- * dsh-auto-memory `lib/index.js:4998` 与 dsh-mnemon `lifecycle.ts:464`：两处都在
- * 实际调用**之前**置位。理由是**失败也必须计入冷却**：若等结果再置位，一次失败
- * 就不占冷却窗口，下一次检查点立刻重跑，外观上正是 specs/04 §8.3 禁止的
- * 「不得自行重试」。
- *
- * `lastDispatchAt` 为 `null`/`undefined` 表示**从未派发过**——首次不冷却（立即可跑）。
- * 这一点是必须的：否则新会话要等满一个冷却窗口才可能首次产出。
- *
- * @param {number} now - 当前时刻（毫秒时间戳，由调用方提供）。
- * @param {number|null|undefined} lastDispatchAt - 上次派发时刻；从未派发为 null。
- * @param {number} minIntervalMs - 最小间隔（毫秒）。
- * @returns {boolean} true = 可以派发。
- */
-export function cooldownDue(now, lastDispatchAt, minIntervalMs) {
-  if (!Number.isFinite(now)) return false;
-  if (lastDispatchAt === null || lastDispatchAt === undefined) return true;
-  // 归一化为毫秒数。**必须接受 ISO 字符串**：载体的 `recordDispatch` 存的就是
-  // `new Date().toISOString()`（见 friction-watermark.js），而此前这里只认数字，
-  // 于是 `Number.isFinite("2026-…")` 为 false，直接走进下面的「不可解析 → 放行」
-  // 分支——冷却因此**从未生效**（实测配置 600 秒、间隔 67 秒仍放行）。
-  //
-  // 这与 `countWithinWindow` 的处理**必须一致**：同一份载体里的时刻，两处判据
-  // 用不同的类型口径，正是本缺陷的成因。
-  const at = typeof lastDispatchAt === "number" ? lastDispatchAt : Date.parse(String(lastDispatchAt));
-  // 不可解析（真正的脏数据）才视为「从未派发」。注意这条分支**只该在数据损坏时
-  // 走到**——正常路径下上面那一步已把 ISO 字符串转成数字。
-  if (!Number.isFinite(at)) return true;
-  if (!Number.isFinite(minIntervalMs) || minIntervalMs <= 0) return true;
-  return now - at >= minIntervalMs;
-}
 
-/**
- * 内容量判据：本区间的新增内容是否值得一次派发。
- *
- * **字符数与轮数取或**——任一达标即准入。两条各自都不充分：
- * - 只看字符数：短对话（「好的」「继续」）永远攒不满，内容被无限期推后；
- * - 只看轮数：几轮寒暄也能凑够轮数，而没有任何实质内容。
- *
- * **首次运行无条件准入**：`isFirstRun` 为真时直接放行。这不是优化，是正确性
- * 要求——水位为 null 意味着有**全部历史内容**待观察，此时若因某个区间恰好很短
- * 而拒跑，历史摩擦就永远不会被发现（`friction-watermark.js` 的 `from: null`
- * 语义即「首次运行，覆盖全部既有内容」）。
- *
- * @param {{chars: number, turns: number}} material - 本区间材料的规模。
- * @param {{minContentChars: number, minContentTurns: number}} limits - 门槛。
- * @param {{isFirstRun?: boolean}} [options] - `isFirstRun` 为真则无条件准入。
- * @returns {boolean} true = 可以派发。
- */
-export function contentAdmitted(material, limits, { isFirstRun = false } = {}) {
-  if (isFirstRun) return true;
-  const chars = Number(material?.chars);
-  const turns = Number(material?.turns);
-  if (!Number.isFinite(chars) || !Number.isFinite(turns)) return false;
-  const minChars = Number(limits?.minContentChars);
-  const minTurns = Number(limits?.minContentTurns);
-  // 门槛自身非法（NaN/负数）时不得放行——宁可少跑也不得因配置错误而无界派发。
-  const charsOk = Number.isFinite(minChars) && minChars >= 0 && chars >= minChars;
-  const turnsOk = Number.isFinite(minTurns) && minTurns >= 0 && turns >= minTurns;
-  return charsOk || turnsOk;
-}
 
-/**
- * 把派发时刻列表折算为**窗口内的次数**（纯函数；`now` 由调用方传入）。
- *
- * ## 为什么配额必须按滑动窗口计，而不能按会话累计（2026-10-11 独立审核 F2）
- *
- * 本判据原先把 `dispatchCount` 当作**会话生命周期内的累计**。审核给出反例并被
- * 实测证实：上限耗尽后，同一会话内**再无任何检查点可派发**——间隔再久、内容再多
- * 都不放行。此时水位不再推进、区间无限增长，**该会话剩余的全部内容永不入账**；
- * 而落地侧又不把它登记为失败，故该损失**无任何痕迹**。
- *
- * 那正是「抑制」而非「延后」：节流的正当性是「把内容并入下次观察区间」，而耗尽
- * 之后根本没有「下次」。故本函数按**滑动窗口**计数——窗口滑过即容量恢复，配额
- * 退回它本来的作用：**间隔被误设或关闭时的兜底**，而不是给会话封顶。
- *
- * ## 与「不得使派发永久终止」（04 §8.4 派发准入段）的对应
- *
- * 该条要求累计须以**可恢复**的口径计数，并明确不许以会话生命周期为口径。
- * 本函数即该要求的机械形态：只要窗口有限，容量终会恢复。
- *
- * @param {Array<string|number>} times - 历史派发时刻（ISO 字符串或毫秒数）。
- * @param {number} now - 当前时刻（毫秒时间戳）。
- * @param {number} windowMs - 窗口长度（毫秒）；`<= 0` 或非法表示**不限窗口**。
- * @returns {number} 窗口内的派发次数。
- */
-export function countWithinWindow(times, now, windowMs) {
-  if (!Array.isArray(times) || times.length === 0) return 0;
-  const stamps = times
-    .map((v) => (typeof v === "number" ? v : Date.parse(String(v))))
-    .filter((n) => Number.isFinite(n));
-  // 窗口不设或非法 → 退化为「全部计入」（与旧行为一致，但那要求**显式**这样配置，
-  // 而不是像原先那样默认就是全生命周期累计）。
-  if (!Number.isFinite(windowMs) || windowMs <= 0) return stamps.length;
-  if (!Number.isFinite(now)) return 0;
-  const floor = now - windowMs;
-  // 半开区间 [floor, now]：恰好落在窗口下界的那一刻计**在内**（与 cooldownDue 的
-  // 「正好满即放行」同一取向——边界按对机制有利的一侧取，避免差 1 毫秒的抖动）。
-  return stamps.filter((n) => n >= floor && n <= now).length;
-}
-
-/**
- * 配额判据：本会话是否还有派发余量。
- *
- * `maxPerSession <= 0` 表示**不限**（参照 dsh-mnemon 的 `maxPerSession` 允许 0 与
- * dsh-auto-memory 的注释「0=不冷却 是合法值，|| 1 会吃掉 0」——0 是有语义的取值，
- * 归一化时不得被吃掉）。故此处把 0 与负数都解释为「不限」，而非「一次也不许」。
- *
- * @param {number} dispatched - 本会话已派发次数。
- * @param {number} maxPerSession - 会话上限；<=0 表示不限。
- * @returns {number} 剩余次数；`Infinity` 表示不限。
- */
-export function quotaLeft(dispatched, maxPerSession) {
-  const used = Number.isFinite(dispatched) && dispatched > 0 ? dispatched : 0;
-  const max = Number(maxPerSession);
-  if (!Number.isFinite(max) || max <= 0) return Infinity;
-  return Math.max(0, max - used);
-}
 
 /**
  * 取**本次要跑的全部任务**——按 Human 在设置面的勾选逐项过滤（纯函数）。
@@ -379,11 +281,24 @@ export function pickEnabledAuxTasks(settings) {
 export { AUX_TASK_ORDER };
 
 /**
- * 派发准入的**单一判据**——把四个条件合成一个答案（纯函数）。
+ * 派发准入的**单一判据**——把全部条件合成一个答案（纯函数）。
  *
- * 顺序即理由：**总开关 → 子项开关 → 冷却 → 内容量 → 配额**。前两项是 Human 的
- * 明示配置，一旦关闭就不该再算其余（也不该因「条件不足」而记任何账）；后三项
- * 是机械节流，被挡下时调用方须**不推进水位**并把区间并入下次观察。
+ * 顺序即理由：**总开关 → 子项开关 → 配额**。前两项是 Human 的明示配置，一旦
+ * 关闭就不该再算其余（也不该因「条件不足」而记任何账）；末项是机械节流，
+ * 被挡下时调用方须**不推进水位**并把区间并入下次观察。
+ *
+ * ## 2026-10-14：判据由三类收为一类（36 §6.2 修订）
+ *
+ * 原判据为「冷却 → 内容量 → 配额」三类，经 Human Gate 取消前两类：
+ *   · **冷却（最小间隔）**——被 §6.1 的安静时长**结构性吸收**：两次派发之间
+ *     必然隔着「一段新的会话活动 + 一段新的安静期」，故「距上次派发」恒不小于
+ *     安静时长，该判据恒真、永不绑定。
+ *   · **内容量**——与安静时长重叠，且其两门槛互为兜底从未参与判定。
+ * **故本函数不再接收 `lastDispatchAt` / `material` / `isFirstRun` 三个入参**
+ * （改成可选忽略以防旧调用方传参报错，但不再参与判定）。
+ *
+ * **进入契约不在此处**：§6.1 的安静时长由 `triggers.js` 在**武装计时器之前**
+ * 判定，不属本函数（层次不同：前者是进入契约，本函数是节流）。
  *
  * 返回值带 `reason`，使调用方能把「被挡下」写成**可区分的运行阶段**
  * （参照 dsh-mnemon：节流不得与 stopped 混同，否则 Human 从痕迹里看不出
@@ -392,47 +307,32 @@ export { AUX_TASK_ORDER };
  * @param {object} input - 判据入参（见下各字段）。
  * @returns {{admit: boolean, reason: string}} 结论与理由（`reason` 为 `admitted` 或拒因码）。
  */
-export function admitIdleDispatch({ settings, task, now, lastDispatchAt, dispatched, dispatchTimes, material, isFirstRun }) {
+export function admitIdleDispatch({ settings, task }) {
   if (!settings?.enabled) return { admit: false, reason: "idle-assist-disabled" };
   if (settings.tasks?.[task] !== true) return { admit: false, reason: "task-disabled" };
-  const limits = settings.limits ?? {};
 
-  // 三类约束**各自**的评估结果随返回值一并给出（2026-10-11 复审 D2/D7）。
+  // **36 §6.2 现不设任何准入约束**（2026-10-14 二次修订，Human Gate 授权）：本节
+  // 原只保留「配额窗口内次数未超过上限」一类，该轮一并取消，故此处**没有**机械
+  // 节流判据可评估——放行与否只剩前面两道 Human 的明示配置（总开关、子项开关）。
   //
-  // 为什么必须给出：04 §8.4「派发准入」段要求三类约束「各自可被独立观察」，且
-  // **可观察性须能区分「存在但未触发」与「不存在」**。只记「被挡下」时写一条
-  // throttled 是不够的——某约束若在默认取值下恒不触发（例如上限远高于窗口内
-  // 可达次数），它在运行痕迹里与「根本没实现」完全不可区分。故把三类各自的
-  // 判定与规模一并留给调用方记录，使「生效但放行」也有痕。
-  const cooldownOk = cooldownDue(now, lastDispatchAt, limits.minIntervalMs);
-  const contentOk = contentAdmitted(material, limits, { isFirstRun });
-  // 配额按**滑动窗口**计（F2）。有 `dispatchTimes` 就用它；否则退回 `dispatched`
-  // 这一累计口径——但那只是向后兼容的降级路径，按 04 §8.4「派发准入」段属
-  // 「会使派发永久终止」的口径，调用方应尽量提供时刻列表。
-  const used = Array.isArray(dispatchTimes)
-    ? countWithinWindow(dispatchTimes, now, limits.quotaWindowMs)
-    : (Number.isFinite(dispatched) && dispatched > 0 ? dispatched : 0);
-  const quotaOk = quotaLeft(used, limits.maxPerSession) > 0;
-
-  // 供调用方如实记录（`evaluated` 即三类约束各自的判定，`scale` 是当时的规模）。
-  const evaluations = {
-    cooldown: { ok: cooldownOk, minIntervalMs: limits.minIntervalMs },
-    content: {
-      ok: contentOk,
-      chars: Number.isFinite(Number(material?.chars)) ? Number(material.chars) : null,
-      turns: Number.isFinite(Number(material?.turns)) ? Number(material.turns) : null,
-      isFirstRun: isFirstRun === true,
-    },
-    quota: { ok: quotaOk, used, max: limits.maxPerSession, windowMs: limits.quotaWindowMs },
-  };
-
-  const admit = cooldownOk && contentOk && quotaOk;
-  const reason = admit
-    ? "admitted"
-    : !cooldownOk
-      ? "cooldown"
-      : !contentOk
-        ? "insufficient-content"
-        : "quota-exhausted";
-  return { admit, reason, evaluations };
+  // ## 为什么不再需要节流判据
+  //
+  // §6.1 的安静时长**已在结构上界定频率**：要再次派发，必先有新的会话活动刷新
+  // 计时、再安静满一个安静时长，故单位时间内派发次数天然有界。实测亦印证：
+  // 配额上限 4 在 1 小时窗口内最多只用到 3，**从未绑定过**——它不产生任何可观察
+  // 差别，却要求 Human 在设置面上判断其取值。
+  //
+  // ## `evaluations` 为何保留（当前恒为空对象）
+  //
+  // 它是 §6.2「约束可被独立观察」这一**条件式要求**的落点：若将来重新引入约束，
+  // 各类约束的判定须随返回值一并给出（使「存在但未触发」与「不存在」可区分）。
+  // **当前无约束，故本对象为空**——这不是省略，而是如实表达「本节现无约束」；
+  // 调用方据此在运行痕迹里写下的 `evaluated: {}`，正是「本节为空集」的可观察形态。
+  //
+  // ## 入参
+  //
+  // 原还接收 `now`／`dispatched`／`dispatchTimes`（供配额判据计算窗口内次数）。
+  // 配额取消后三者**均无消费方**，故不再接收——保留它们会使调用方误以为仍有
+  // 节流在起作用，而「隐形的、不可观察的判据」正是 §6.2 明文禁止的形态。
+  return { admit: true, reason: "admitted", evaluations: {} };
 }

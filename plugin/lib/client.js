@@ -123,11 +123,17 @@ window.__ModuleLoader__.load({
       ".ldv-idle-tasks{display:flex;flex-direction:column;gap:10px}" +
       ".ldv-check-copy{display:flex;flex-direction:column;gap:2px;min-width:0}" +
       ".ldv-idle-badge{margin-left:6px;padding:0 5px;border-radius:4px;font-size:10px;line-height:15px;border:1px solid var(--dsw-alias-border-l2,#46474c);color:var(--dsw-alias-label-tertiary,#9a9a9a);vertical-align:middle}" +
+      // 「有未保存改动」的按钮态：在主题色之上叠一层**可见的形状变化**
+      // （描边加粗 + 字重），使色觉障碍或高对比主题下同样可辨。
+      ".ldv-btn-dirty{font-weight:600;box-shadow:0 0 0 2px color-mix(in srgb,currentColor 45%,transparent)}" +
       ".ldv-idle-limits{margin-top:12px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2,#46474c)}" +
-      ".ldv-idle-limits>summary{cursor:pointer;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#c2c2c2);user-select:none}" +
-      ".ldv-idle-limit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:10px 0 8px}" +
-      ".ldv-idle-limit{display:flex;flex-direction:column;gap:4px}" +
-      ".ldv-idle-limit-label{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#c2c2c2)}" +
+      ".ldv-idle-limit{display:flex;flex-direction:column;gap:4px;margin:10px 0 8px}" +
+      // 标签与输入框**同一行**（Human 2026-10-14）：标签不换行、输入框紧随其后。
+      ".ldv-idle-limit-row{display:flex;align-items:center;gap:10px}" +
+      ".ldv-idle-limit-label{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#c2c2c2);flex:0 0 auto}" +
+      // 输入框宽度受控：数值型短输入，不占满整行（原 grid 在窄列下会拉伸）。
+      ".ldv-idle-limit-input{flex:0 0 auto;width:88px}" +
+      ".ldv-idle-limit-hint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#c2c2c2)}" +
       ".ldv-idle-limit-invalid{font-size:11px;line-height:16px;color:var(--dsw-alias-state-error-primary,#f56c6c)}" +
       ".ldv-idle-pending{display:block;margin-top:6px;color:var(--dsw-alias-state-warning-primary,#e6a23c)}" +
       ".ldv-settings-input[aria-invalid=\"true\"]{border-color:var(--dsw-alias-state-error-primary,#f56c6c)}" +
@@ -296,14 +302,12 @@ window.__ModuleLoader__.load({
       "row.notImplemented": "尚未实现",
       "row.notImplementedHint": "后端能力尚未实现：开启后宜主仍会如实回报 not-implemented，不会假装已跑。",
       "row.idleLimits": "调度参数",
-      "row.idleLimitsHint": "编辑后需点「保存」生效。",
-      "row.idleMinIntervalMs": "最小间隔（分钟）",
-      "row.idleMinContentChars": "内容字符数门槛",
-      "row.idleMinContentTurns": "内容轮数门槛",
-      "row.idleMaxPerSession": "配额窗口内上限（0 = 不限）",
-      "row.idleQuotaWindowMs": "配额窗口长度（分钟，须大于 0）",
-      "row.idleLimitInvalid": "请填入大于等于 0 的整数。",
-      "row.idleLimitsPending": "参数尚未取得规范依据（待 Human Gate）：当前值为实现默认，不得据此主张已按规范生效。",
+      "row.idleSilenceMs": "安静时长（分钟）",
+      // **一句话解释**（Human 2026-10-14 明确要求）：说清「什么是安静时长」——
+      // 即它衡量的是「对话停了多久」，而不是「距上次跑完多久」。这句话须自足：
+      // Human 不必回读 36 号规范即可判断该填多少。
+      "row.idleSilenceMsHint": "指对话停下来后、连续安静多久才允许做一次闲时回顾：只要还有新的对话活动，计时就重新开始；真正停下来满这个时长，才回顾一次。",
+      "row.idleLimitInvalid": "请填入整数；安静时长须大于 0（配额上限填 0 表示不限）。",
       "row.webHint": "关闭时移除 LDVH 页面和 API；开启后自动挂载并检查是否可用。",
       "row.status": "Web 呈现状态",
       "row.statusChecking": "检测中…",
@@ -311,6 +315,9 @@ window.__ModuleLoader__.load({
       "row.statusUnmounted": "未挂载",
       "row.statusFail": "运行异常",
       "row.save": "保存",
+      // 有未保存改动时的按钮文案（Human 2026-10-14 要求「显示为需要保存」）。
+      "row.saveDirty": "保存改动",
+      "row.saveDirtyAria": "有未保存的更改，点此保存",
       "row.saving": "保存中…",
       "row.discard": "放弃修改",
       "row.cheer": "鼓励一下",
@@ -379,14 +386,9 @@ window.__ModuleLoader__.load({
       "row.notImplemented": "Not implemented",
       "row.notImplementedHint": "The backend capability does not exist yet: enabling it still reports not-implemented rather than pretending to run.",
       "row.idleLimits": "Dispatch limits",
-      "row.idleLimitsHint": "Takes effect after clicking Save.",
-      "row.idleMinIntervalMs": "Minimum interval (minutes)",
-      "row.idleMinContentChars": "Content char threshold",
-      "row.idleMinContentTurns": "Content turn threshold",
-      "row.idleMaxPerSession": "Cap within the quota window (0 = unlimited)",
-      "row.idleQuotaWindowMs": "Quota window length (minutes, must exceed 0)",
-      "row.idleLimitInvalid": "Enter an integer greater than or equal to 0.",
-      "row.idleLimitsPending": "These limits have no spec basis yet (pending Human Gate): the current values are implementation defaults, and must not be read as spec-effective.",
+      "row.idleSilenceMs": "Silence duration (minutes)",
+      "row.idleSilenceMsHint": "How long the conversation must stay quiet before a single idle review may run: any new activity restarts the count, and one review happens once the silence reaches this duration.",
+      "row.idleLimitInvalid": "Enter an integer; the silence duration must exceed 0 (0 in the cap means unlimited).",
       "row.webHint": "Turning it off removes the LDVH page and API; turning it on mounts them and checks availability automatically.",
       "row.status": "Web presentation status",
       "row.statusChecking": "Checking…",
@@ -394,6 +396,8 @@ window.__ModuleLoader__.load({
       "row.statusUnmounted": "Not mounted",
       "row.statusFail": "Unavailable",
       "row.save": "Save",
+      "row.saveDirty": "Save changes",
+      "row.saveDirtyAria": "You have unsaved changes; click to save",
       "row.saving": "Saving…",
       "row.discard": "Discard changes",
       "row.cheer": "Star on GitHub",
@@ -594,7 +598,7 @@ window.__ModuleLoader__.load({
 
     // ── LdvhSettingsRow: governed projects + web switch ──────────────────
     /**
-     * 闲时辅助的四个数值参数（**单一来源**；同 dsh-mnemon 的 `LIMITS`）。
+     * 闲时辅助的数值参数（**单一来源**；2026-10-14 收为**一个**：安静时长）。
      *
      * `scale` 是「**显示单位**与**存储单位**的比値」：界面上用分钟读写，而存进
      * Config 的是**毫秒**（服务端 `idle-settings.js` 按毫秗判定）。与 mnemon 的
@@ -605,25 +609,25 @@ window.__ModuleLoader__.load({
      * 都过 `scale`，不得在 UI 那一段另写一套换算。
      */
     var IDLE_LIMITS = [
-      { key: "idleMinIntervalMs", scale: 60000 },
-      { key: "idleMinContentChars", scale: 1 },
-      { key: "idleMinContentTurns", scale: 1 },
-      { key: "idleMaxPerSession", scale: 1 },
-      // 配额窗口：也以分钟读写。它是「配额按滑动窗口计」的另一半——
-      // 窗口滑过后容量恢复，故不会使派发永久终止（审核 F2）。
-      { key: "idleQuotaWindowMs", scale: 60000 }
+      // **本表现只有一个参数**（2026-10-14 二次修订，36 §6.2 收为**空集**）。
+      //
+      // 原含五项 → 当轮收为三项 → 本轮收为**一项**。配额上限与窗口长度两项
+      // 随 §6.2 的最后一道准入约束一并取消：安静时长已在结构上界定派发频率
+      // （两次派发之间必隔「新活动 + 一个安静期」），配额在实测中**从未绑定**
+      // （1 小时窗口内最多用到 3、上限 4），却要求 Human 在设置面上判断其取值
+      // ——「一个参数就可以控制其他的了……否则会乱」（Human 2026-10-14）。
+      //
+      // 界面用分钟，存储用毫秒。**须为正数**——写入侧另有下界判定（见
+      // idleSilenceOk）。
+      { key: "idleSilenceMs", scale: 60000, hintKey: "row.idleSilenceMsHint" }
     ];
     /**
-     * 四个参数的**存储单位**默认值——**必须与服务端
+     * 各参数的**存储单位**默认值——**必须与服务端
      * `idle-settings.js` 的 `IDLE_DEFAULTS` 逐字一致**（有契约测试比对两处）。
      * 两处漂移会让「设置页显示 A、实际生效 B」——用户永远看不到真实值。
      */
     var IDLE_DEFAULT_STORED = {
-      idleMinIntervalMs: 600000,
-      idleMinContentChars: 800,
-      idleMinContentTurns: 3,
-      idleMaxPerSession: 4,
-      idleQuotaWindowMs: 3600000
+      idleSilenceMs: 600000
     };
     /** 存储值 → 界面文本（除以 scale）。非法存储值落回空串（由校验拦下）。 */
     function idleLimitToText(value, scale) {
@@ -657,6 +661,19 @@ window.__ModuleLoader__.load({
       return stored;
     }
 
+    /**
+     * 安静时长的**下界判定**（36 §6.1，2026-10-14）。
+     *
+     * §6.1 明文：安静时长的取值**须为有限正值**——取 0 会使「已空闲」恒成立
+     * （等价于取消该判据），且该非法取值**须在写入时被拒绝并提示**，**不得**静默
+     * 回落为默认值。故本项单独拦一层：`0` 对配额上限是合法的（表示不限），
+     * 对安静时长**不合法**——两者的 0 语义相反，不能共用一条判据。
+     */
+    function idleSilenceOk(text) {
+      var stored = idleLimitToStored(text, 60000);
+      return stored !== undefined && stored > 0;
+    }
+
     function LdvhSettingsRow(props) {
       var t = props.t;
       var scope = props.settingsScope;
@@ -672,7 +689,7 @@ window.__ModuleLoader__.load({
       var idleCaptureState = React.useState(value.experienceCaptureEnabled === true);
       var idleCapacityState = React.useState(value.capacityMaintenanceEnabled === true);
       var idleMemoryState = React.useState(value.memoryHealthEnabled === true);
-      // 界面上的四个值按它们**各自的显示单位**存放（见 IDLE_LIMITS 的 scale）。
+      // 界面上的各值按它们**各自的显示单位**存放（见 IDLE_LIMITS 的 scale）。
       // 缺省值用**存储单位**给出，再过同一条换算——而不在这里另写一份「分钟数」，
       // 否则改默认值时会漏改一处。
       var idleLimitsState = React.useState((function () {
@@ -683,7 +700,7 @@ window.__ModuleLoader__.load({
         });
         return out;
       })());
-      // 四个参数的合法判定——判的是**存储值**（毫秒），不是界面文本。
+      // 各参数的合法判定——判的是**存储值**（毫秒），不是界面文本。
       //
       // 为什么必须判存储值：界面以分钟读写，而分钟×60000 可能得到非整数
       // （如用户输入 `0.333`）——那个值送进 Config 后，服务端的整数判定会把
@@ -691,9 +708,15 @@ window.__ModuleLoader__.load({
       function idleLimitOk(text, scale) {
         return idleLimitToStored(text, scale) !== undefined;
       }
+      // 逐参数判据：安静时长另有**下界**要求（须 > 0，36 §6.1），配额上限的 0 合法。
+      function idleLimitOkFor(key, text) {
+        if (key === "idleSilenceMs") return idleSilenceOk(text);
+        var limit = IDLE_LIMITS.filter(function (l) { return l.key === key; })[0];
+        return limit !== undefined && idleLimitOk(text, limit.scale);
+      }
       function idleLimitsAllOk(limits) {
         return IDLE_LIMITS.every(function (limit) {
-          return idleLimitOk(limits[limit.key], limit.scale);
+          return idleLimitOkFor(limit.key, limits[limit.key]);
         });
       }
       var dirtyState = React.useState(false);
@@ -909,8 +932,10 @@ window.__ModuleLoader__.load({
       }
       function save() {
         if (!snap || snap.status !== "ready" || snap.writable === false || busyState[0]) return;
-        // 四个数值参数不合法就**不写**（而不是写一个 NaN 进去）——服务端会把 NaN 回落
+        // **参数不合法就「不写」**（而不是写一个 NaN 进去）——服务端会把 NaN 回落
         // 默认值，那会让用户看到的值与实际生效的值不一致。故在写入前拦住并如实报失败。
+        // （2026-10-14：本节现只有一个参数；`idleLimitsAllOk` 逐键分派，
+        //   安静时长另有 `> 0` 的下界判据。）
         if (!idleLimitsAllOk(idleLimitsState[0])) {
           saveErrorState[1](true);
           return;
@@ -930,7 +955,7 @@ window.__ModuleLoader__.load({
               { op: "set", path: ["capacityMaintenanceEnabled"], value: !!idleCapacityState[0] },
               { op: "set", path: ["memoryHealthEnabled"], value: !!idleMemoryState[0] }
             ];
-            // 四个参数各自按 scale 换算回**存储单位**（分钟 × 60000 = 毫秒）。
+            // 参数各自按 scale 换算回**存储单位**（分钟 × 60000 = 毫秒）。
             // save() 已在前面拦过非法值，故此处不再回落。
             IDLE_LIMITS.forEach(function (limit) {
               operations.push({ op: "set", path: [limit.key], value: idleLimitToStored(idleLimitsState[0][limit.key], limit.scale) });
@@ -1154,21 +1179,22 @@ window.__ModuleLoader__.load({
                 );
               })
             ),
-            // 数值参数：折叠区（同 dsh-mnemon 的 <details>）——它们是调优参数，
-            // 不是每次都要看的东西，但必须可见且可改。
-            React.createElement("details", { className: "ldv-idle-limits" },
-              React.createElement("summary", null, t("row.idleLimits")),
-              React.createElement("div", { className: "ldv-idle-limit-grid" },
-                IDLE_LIMITS.map(function (limit) {
-                  var invalid = !idleLimitOk(idleLimitsState[0][limit.key], limit.scale);
-                  return React.createElement("label", { key: limit.key, className: "ldv-idle-limit" },
+            // 数值参数：**直接展示、不折叠**（Human 2026-10-14：这是唯一一个参数，
+            // 收进 <details> 只会多一次点击，且「藏起来」与「只有一个」相矛盾）。
+            // 标签与输入框**同一行**，行下紧跟一句解释——解释须自足，
+            // 使 Human 不必回读规范就知道这个数在控制什么。
+            React.createElement("div", { className: "ldv-idle-limits" },
+              IDLE_LIMITS.map(function (limit) {
+                var invalid = !idleLimitOkFor(limit.key, idleLimitsState[0][limit.key]);
+                return React.createElement("div", { key: limit.key, className: "ldv-idle-limit" },
+                  React.createElement("label", { className: "ldv-idle-limit-row" },
                     React.createElement("span", { className: "ldv-idle-limit-label" }, t("row." + limit.key)),
                     React.createElement("input", {
                       type: "number",
                       step: "1",
-                      min: "0",
+                      min: "1",
                       inputMode: "numeric",
-                      className: "ldv-settings-input",
+                      className: "ldv-settings-input ldv-idle-limit-input",
                       value: idleLimitsState[0][limit.key],
                       "aria-invalid": invalid,
                       "aria-label": t("row." + limit.key),
@@ -1179,15 +1205,23 @@ window.__ModuleLoader__.load({
                         idleLimitsState[1](next);
                         markDirty();
                       }
-                    }),
-                    invalid ? React.createElement("span", { className: "ldv-idle-limit-invalid" }, t("row.idleLimitInvalid")) : null
-                  );
-                })
-              ),
-              React.createElement("span", { className: "ldv-settings-hint" }, t("row.idleLimitsHint")),
-              // 如实声明：这四个数值收窄发起条件，按 04 §12.1 第 3 项属领域增量事项，
-              // **规范依据尚待 Human Gate**。不写这句就是把未批的参数当成已生效规则呈现。
-              React.createElement("span", { className: "ldv-settings-hint ldv-idle-pending" }, t("row.idleLimitsPending"))
+                    })
+                  ),
+                  // 一句话解释该参数限制什么——**每个参数各有一句**（用语在 IDLE_LIMITS
+                  // 的 `hintKey` 上登记，不在此处硬编码，避免与词条表两处各写一套）。
+                  limit.hintKey ? React.createElement("span", { className: "ldv-idle-limit-hint" }, t(limit.hintKey)) : null,
+                  invalid ? React.createElement("span", { className: "ldv-idle-limit-invalid" }, t("row.idleLimitInvalid")) : null
+                );
+              })
+              // **2026-10-14（Human 指示）：本节原另有两句提示词条——
+              //   ① 「编辑后需点保存生效。填大于 0 的整数」
+              //   ② 「安静时长的数值属实现侧承接（36 §6.1）……不得据此主张规范已规定该时长」
+              // 两句均已删除。**理由**：① 属可由界面自明的操作提示——改动后由「保存」
+              // 按钮自身的状态（见下方 footer）表达，不必另占一行文字；② 是对 AI/读者
+              // 的**规范地位声明**，不是给设置的人的提示，放在设置界面上属错置——它
+              // 该留在代码注释与规范正文里（36 §6.1 与 idle-settings.js 均已写明）。
+              // 删除不减少任何保障：**非法值仍在保存时被拒**（`idleSilenceOk` 的
+              // 行内错误提示保留），规范地位的声明仍在规范与代码注释中。
             )
           ) : null
         ),
@@ -1265,7 +1299,23 @@ window.__ModuleLoader__.load({
               : (saveErrorState[0] ? React.createElement("span", { className: "ldv-settings-footer-error", role: "alert" }, t("row.saveFailed")) : null)
           ),
           React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-outline", disabled: !dirtyState[0] || busyState[0], onClick: discard }, t("row.discard")),
-          React.createElement("button", { type: "button", className: "ldv-btn ldv-btn-primary", disabled: saveDisabled, onClick: save }, busyState[0] ? t("row.saving") : t("row.save"))
+          // **保存按钮自身承载「有未保存改动」这一状态**（2026-10-14，Human 指示：
+          // 「修改后需要保存按钮显示为需要保存」）。原设计只靠一行文字提示
+          // （「编辑后需点保存生效」，已删）——文字要读者先看见才起作用，而按钮
+          // 是**操作发生处**，状态就该落在那里。
+          //
+          // 三重表达（不只靠颜色：色觉障碍与高对比主题下颜色可能不可辨）：
+          //   ① 文案由「保存」变为「保存改动」；② 加 `ldv-btn-dirty` 类（描边与
+          //   字重变化）；③ `aria-label` 明确写出「有未保存的更改」，供读屏。
+          // `disabled` 仍为 `saveDisabled`（含 !dirty），故**无改动时按钮不可点**，
+          // 状态与可操作性一致——不会出现「按钮亮着但点了没反应」。
+          React.createElement("button", {
+            type: "button",
+            className: dirtyState[0] ? "ldv-btn ldv-btn-primary ldv-btn-dirty" : "ldv-btn ldv-btn-primary",
+            disabled: saveDisabled,
+            onClick: save,
+            "aria-label": busyState[0] ? t("row.saving") : (dirtyState[0] ? t("row.saveDirtyAria") : t("row.save"))
+          }, busyState[0] ? t("row.saving") : (dirtyState[0] ? t("row.saveDirty") : t("row.save")))
         ),
         toastState[0] ? React.createElement(Toast, { key: toastState[0].seq, text: toastState[0].text, onDone: function () { toastState[1](null); } }) : null
       );

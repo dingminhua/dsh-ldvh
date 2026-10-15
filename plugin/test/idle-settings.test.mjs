@@ -12,15 +12,12 @@ import { readFileSync } from "node:fs";
 import {
   IDLE_DEFAULTS,
   admitIdleDispatch,
-  contentAdmitted,
-  countWithinWindow,
   pickEnabledAuxTasks,
   AUX_TASK_ORDER,
-  cooldownDue,
-  quotaLeft,
   readBool,
   readNumber,
   resolveIdleSettings,
+  validateSilenceMs,
 } from "../lib/idle-settings.js";
 
 // ---------------------------------------------------------------------------
@@ -73,111 +70,16 @@ test("resolveIdleSettings：显式配置覆盖默认，且三个子项各自独�
     frictionDiscoveryEnabled: false,
     capacityMaintenanceEnabled: true,
     memoryHealthEnabled: false,
-    idleMinIntervalMs: 60_000,
-    idleMinContentChars: 100,
-    idleMinContentTurns: 1,
-    idleMaxPerSession: 3,
+    idleSilenceMs: 900_000,
   });
   assert.equal(s.enabled, false);
   assert.equal(s.tasks["friction-discovery"], false);
   assert.equal(s.tasks["capacity-maintenance"], true);
   assert.equal(s.tasks["memory-health"], false);
-  assert.deepEqual(s.limits, {
-    minIntervalMs: 60_000,
-    minContentChars: 100,
-    minContentTurns: 1,
-    maxPerSession: 3,
-    // 窗口长度未显式配置 → 回落默认（配额按滑动窗口计，见 F2）。
-    quotaWindowMs: IDLE_DEFAULTS.quotaWindowMs,
-  });
+  // 2026-10-14 二次修订：limits 现只含安静时长一项——配额两键随 §6.2 收为空集而删除。
+  assert.deepEqual(s.limits, { silenceMs: 900_000 });
 });
 
-// ---------------------------------------------------------------------------
-// cooldownDue
-// ---------------------------------------------------------------------------
-
-test("cooldownDue：从未派发过 → 立即可跑（首次不冷却）", () => {
-  // 这条是必须的：否则新会话要等满一个冷却窗口才可能首次产出。
-  assert.equal(cooldownDue(1_000_000, null, 600_000), true);
-  assert.equal(cooldownDue(1_000_000, undefined, 600_000), true);
-});
-
-test("cooldownDue：两侧边界——差 1 毫秒拦、正好满放", () => {
-  const now = 10_000_000;
-  const interval = 600_000;
-  assert.equal(cooldownDue(now, now - interval + 1, interval), false, "差 1 毫秒须拦");
-  assert.equal(cooldownDue(now, now - interval, interval), true, "正好满须放行");
-  assert.equal(cooldownDue(now, now - interval - 1, interval), true, "超过更须放行");
-});
-
-test("cooldownDue：间隔为 0 或非法 → 不冷却（0 的语义是「关掉节流」）", () => {
-  const now = 10_000_000;
-  assert.equal(cooldownDue(now, now, 0), true, "间隔 0 = 不冷却");
-  assert.equal(cooldownDue(now, now, -5), true, "负数同样视为不限");
-  assert.equal(cooldownDue(now, now, NaN), true, "非法间隔视为不限");
-});
-
-test("cooldownDue：now 非法 → 拒绝（不得因时钟异常而无界派发）", () => {
-  assert.equal(cooldownDue(NaN, null, 600_000), false);
-  assert.equal(cooldownDue(undefined, null, 600_000), false);
-});
-
-// ---------------------------------------------------------------------------
-// contentAdmitted
-// ---------------------------------------------------------------------------
-
-test("contentAdmitted：字符数与轮数**取或**——任一达标即准入", () => {
-  const limits = { minContentChars: 800, minContentTurns: 3 };
-  // 只满足字符数（一段长文但只有 1 轮）。
-  assert.equal(contentAdmitted({ chars: 800, turns: 1 }, limits), true, "字数达标即可");
-  // 只满足轮数（多轮寒暄，字数很少）。
-  assert.equal(contentAdmitted({ chars: 10, turns: 3 }, limits), true, "轮数达标即可");
-  // 两者都不满足。
-  assert.equal(contentAdmitted({ chars: 799, turns: 2 }, limits), false, "两者皆不满足须拦");
-});
-
-test("contentAdmitted：首次运行**无条件准入**（否则历史摩擦永不被发现）", () => {
-  // 水位为 null 表示有全部历史内容待观察；此时若因区间短而拒跑，历史摩擦
-  // 就永远不会被发现。这是正确性要求，不是优化。
-  const limits = { minContentChars: 800, minContentTurns: 3 };
-  assert.equal(contentAdmitted({ chars: 0, turns: 0 }, limits, { isFirstRun: true }), true);
-  assert.equal(contentAdmitted({ chars: 1, turns: 1 }, limits, { isFirstRun: true }), true);
-  // 对照：非首次同样输入须被拦（证明上面那条确实是 isFirstRun 起的作用）。
-  assert.equal(contentAdmitted({ chars: 1, turns: 1 }, limits, { isFirstRun: false }), false);
-});
-
-test("contentAdmitted：材料规模非法或门槛非法 → 一律拒绝（fail-closed）", () => {
-  const limits = { minContentChars: 800, minContentTurns: 3 };
-  assert.equal(contentAdmitted(undefined, limits), false, "无材料规模");
-  assert.equal(contentAdmitted({ chars: NaN, turns: 3 }, limits), false, "chars 非法");
-  assert.equal(contentAdmitted({ chars: 800, turns: undefined }, limits), false, "turns 非法");
-  // 门槛自身非法时宁可少跑——不得因配置错误而无界派发。
-  assert.equal(contentAdmitted({ chars: 999_999, turns: 999 }, { minContentChars: NaN, minContentTurns: NaN }), false);
-  assert.equal(contentAdmitted({ chars: 999_999, turns: 999 }, { minContentChars: -1, minContentTurns: -1 }), false);
-  // 门槛为 0 是合法值（任何材料都准入）。
-  assert.equal(contentAdmitted({ chars: 0, turns: 0 }, { minContentChars: 0, minContentTurns: 0 }), true);
-});
-
-// ---------------------------------------------------------------------------
-// quotaLeft
-// ---------------------------------------------------------------------------
-
-test("quotaLeft：0 与负数表示**不限**（不是「一次也不许」）", () => {
-  // 参照 mnemon 的 maxPerSession 允许 0、auto-memory 明写「0=不冷却 是合法值」。
-  assert.equal(quotaLeft(99, 0), Infinity, "0 = 不限");
-  assert.equal(quotaLeft(99, -1), Infinity, "负数 = 不限");
-  assert.equal(quotaLeft(99, NaN), Infinity, "非法 = 不限");
-});
-
-test("quotaLeft：正常配额递减，用尽为 0（不为负）", () => {
-  assert.equal(quotaLeft(0, 8), 8);
-  assert.equal(quotaLeft(3, 8), 5);
-  assert.equal(quotaLeft(8, 8), 0, "用尽为 0");
-  assert.equal(quotaLeft(99, 8), 0, "超出不为负");
-  // 已派发数非法时按 0 计（不得因计数损坏而拒绝服务）。
-  assert.equal(quotaLeft(NaN, 8), 8);
-  assert.equal(quotaLeft(-5, 8), 8);
-});
 
 // ---------------------------------------------------------------------------
 // admitIdleDispatch：合成判据
@@ -186,26 +88,17 @@ test("quotaLeft：正常配额递减，用尽为 0（不为负）", () => {
 const OPEN_SETTINGS = {
   enabled: true,
   tasks: { "friction-discovery": true, "capacity-maintenance": false, "memory-health": false },
-  limits: { minIntervalMs: 600_000, minContentChars: 800, minContentTurns: 3, maxPerSession: 8 },
+  limits: { quotaMax: 8 },
 };
 
-test("admitIdleDispatch：全部满足即准入", () => {
-  const r = admitIdleDispatch({
-    settings: OPEN_SETTINGS,
-    task: "friction-discovery",
-    now: 10_000_000,
-    lastDispatchAt: null,
-    dispatched: 0,
-    material: { chars: 1000, turns: 5 },
-  });
+test("admitIdleDispatch：开关已开即准入——**§6.2 现无约束可评估**", () => {
+  const r = admitIdleDispatch({ settings: OPEN_SETTINGS, task: "friction-discovery" });
   assert.equal(r.admit, true);
   assert.equal(r.reason, "admitted");
-  // 三类约束各自的评估须随返回值给出（04 §8.4「派发准入」段的「各自可被独立
-  // 观察」要求；复审 D2/D7）——放行时也须有，否则「生效但未触发」不可观察。
-  assert.equal(r.evaluations.cooldown.ok, true);
-  assert.equal(r.evaluations.content.ok, true);
-  assert.equal(r.evaluations.quota.ok, true);
-  assert.equal(r.evaluations.quota.max, 8);
+  // 2026-10-14 二次修订：§6.2 收为空集，故 evaluations 恒为 `{}`——**这正是
+  // 「本节无约束」的可观察形态**（不是省略、也不是漏实现）。若将来重新引入约束，
+  // 各类判定须在此逐项给出（当时须补测）。
+  assert.deepEqual(r.evaluations, {}, "§6.2 现为空集 → 无约束可评估");
 });
 
 test("admitIdleDispatch：**判据顺序**——Human 的明示配置先于机械节流", () => {
@@ -214,14 +107,12 @@ test("admitIdleDispatch：**判据顺序**——Human 的明示配置先于机�
   const closedAssist = { ...OPEN_SETTINGS, enabled: false };
   const r1 = admitIdleDispatch({
     settings: closedAssist, task: "friction-discovery", now: 1, lastDispatchAt: null, dispatched: 0,
-    material: { chars: 99999, turns: 99 },
   });
   assert.equal(r1.reason, "idle-assist-disabled", "总开关优先");
 
   const taskOff = { ...OPEN_SETTINGS, tasks: { ...OPEN_SETTINGS.tasks, "friction-discovery": false } };
   const r2 = admitIdleDispatch({
     settings: taskOff, task: "friction-discovery", now: 1, lastDispatchAt: null, dispatched: 0,
-    material: { chars: 99999, turns: 99 },
   });
   assert.equal(r2.reason, "task-disabled", "子项开关次之");
 });
@@ -232,46 +123,20 @@ test("admitIdleDispatch：未实现的子项即使被打开，也走各自任务
   const withCapacity = { ...OPEN_SETTINGS, tasks: { ...OPEN_SETTINGS.tasks, "capacity-maintenance": true } };
   const r = admitIdleDispatch({
     settings: withCapacity, task: "capacity-maintenance", now: 1, lastDispatchAt: null, dispatched: 0,
-    material: { chars: 99999, turns: 99 },
   });
   assert.equal(r.admit, true, "开关打开即准入（实现状态不在本层判断）");
   // 未打开时须拦。
   assert.equal(
     admitIdleDispatch({
       settings: OPEN_SETTINGS, task: "capacity-maintenance", now: 1, lastDispatchAt: null, dispatched: 0,
-      material: { chars: 99999, turns: 99 },
     }).reason,
     "task-disabled",
   );
 });
 
-test("admitIdleDispatch：三道机械闸各自的拒因可区分（痕迹里看得出是被节流还是坏了）", () => {
-  const now = 10_000_000;
-  const base = { settings: OPEN_SETTINGS, task: "friction-discovery", now, material: { chars: 99999, turns: 99 }, dispatched: 0 };
-  assert.equal(admitIdleDispatch({ ...base, lastDispatchAt: now - 1000 }).reason, "cooldown");
-  assert.equal(
-    admitIdleDispatch({ ...base, lastDispatchAt: null, material: { chars: 10, turns: 1 } }).reason,
-    "insufficient-content",
-  );
-  assert.equal(admitIdleDispatch({ ...base, lastDispatchAt: null, dispatched: 8 }).reason, "quota-exhausted");
-});
-
-test("admitIdleDispatch：首运在「刚派发过」之外仍受冷却约束（冷却与首运是两件事）", () => {
-  // isFirstRun 只解除**内容量**门槛（历史内容必须能被观察），不解除冷却——
-  // 冷却管的是「刚才是不是刚跑过」，与「材料是不是首次」无关。
-  const r = admitIdleDispatch({
-    settings: OPEN_SETTINGS, task: "friction-discovery", now: 10_000_000,
-    lastDispatchAt: 9_999_000, dispatched: 0,
-    material: { chars: 0, turns: 0 }, isFirstRun: true,
-  });
-  assert.equal(r.reason, "cooldown", "首运不解冷却");
-});
-
 test("admitIdleDispatch：isFirstRun 解除内容量门槛（历史摩擦不得因区间短而被漏掉）", () => {
   const r = admitIdleDispatch({
-    settings: OPEN_SETTINGS, task: "friction-discovery", now: 10_000_000,
-    lastDispatchAt: null, dispatched: 0,
-    material: { chars: 0, turns: 0 }, isFirstRun: true,
+    settings: OPEN_SETTINGS, task: "friction-discovery", now: 10_000_000, dispatched: 0,
   });
   assert.equal(r.admit, true, "首运即使材料为空也准入（那正是「覆盖全部既有内容」）");
 });
@@ -289,173 +154,24 @@ test("admitIdleDispatch：isFirstRun 解除内容量门槛（历史摩擦不得�
 // 故 04 §8.4「派发准入」段规定：累计须以**可恢复**的口径计数，不得以会话生命
 // 周期为口径。
 
-test("countWithinWindow：只计窗口内的次数（窗口外的不算）", () => {
-  const now = 10_000_000;
-  const HOUR = 3_600_000;
-  const times = [
-    now - 10_000,            // 窗内
-    now - 1_000_000,         // 窗内
-    now - 2 * HOUR,          // 窗外
-    now - 5 * HOUR,          // 窗外
-  ].map((n) => new Date(n).toISOString());
-  assert.equal(countWithinWindow(times, now, HOUR), 2, "只计窗内的两次");
-});
 
-test("countWithinWindow：**窗口滑过后容量恢复**（这是 F2 修复的核心性质）", () => {
-  const now = 10_000_000;
-  const HOUR = 3_600_000;
-  // 全部落在窗外 → 计 0（容量已恢复）。
-  const stale = Array.from({ length: 8 }, (_, i) => new Date(now - 2 * HOUR - i * 60_000).toISOString());
-  assert.equal(countWithinWindow(stale, now, HOUR), 0, "窗外的 8 次都不计入 → 容量恢复");
-});
 
-test("countWithinWindow：边界按「对外机制有利」取——恰好落在窗口下界计在内", () => {
-  const now = 10_000_000;
-  const HOUR = 3_600_000;
-  // 与 cooldownDue 的「正好满即放行」同一取向：避免差 1 毫秒的抖动使容量
-  // 时而恢复时而不恢复。
-  assert.equal(countWithinWindow([new Date(now - HOUR).toISOString()], now, HOUR), 1, "恰好在下界 → 计内");
-  assert.equal(countWithinWindow([new Date(now - HOUR - 1).toISOString()], now, HOUR), 0, "差 1 毫秒 → 计外");
-});
 
-test("countWithinWindow：窗口为 0 或非法 → 退化为「全部计入」（须显式选择）", () => {
-  // 该口径按 04 §8.4「派发准入」段属「会使派发永久终止」的取值，故默认不采用；
-  // 但它必须仍可表达（用户显式配置 0 时要尊重其选择，不得被静默替换）。
-  const now = 10_000_000;
-  const all = [new Date(now).toISOString(), new Date(now - 9e9).toISOString()];
-  assert.equal(countWithinWindow(all, now, 0), 2, "0 = 不限窗口");
-  assert.equal(countWithinWindow(all, now, -1), 2, "负数同样视为不限");
-  assert.equal(countWithinWindow(all, now, NaN), 2, "非法同样视为不限");
-});
 
-test("countWithinWindow：非法输入一律安全（不得抛错，也不得误放行）", () => {
-  const now = 10_000_000;
-  assert.equal(countWithinWindow(undefined, now, 1000), 0, "非数组 → 0");
-  assert.equal(countWithinWindow([], now, 1000), 0, "空数组 → 0");
-  assert.equal(countWithinWindow(["not-a-date"], now, 1000), 0, "无法解析的时刻被丢弃");
-  assert.equal(countWithinWindow([now], NaN, 1000), 0, "now 非法 → 0（宁可拦下也不误放行）");
-});
 
-test("admitIdleDispatch：**窗口滑过后配额不再永久拦下**（F2 的端到端断言）", () => {
-  const now = 10_000_000;
-  const HOUR = 3_600_000;
-  const CAP = 4;
-  const settings = {
-    enabled: true,
-    tasks: { "friction-discovery": true },
-    limits: { minIntervalMs: 600_000, minContentChars: 800, minContentTurns: 3, maxPerSession: CAP, quotaWindowMs: HOUR },
-  };
-  const base = { settings, task: "friction-discovery", now, material: { chars: 99999, turns: 99 } };
 
-  // 让 anchor 落在**冷却窗口之外**（20 分钟前 > 600 秒），使本测试验的确实是
-  // **配额**而非冷却。判据顺序是「冷却 → 内容量 → 配额」——若 anchor 太近，
-  // 先撞冷却，本测试就会以错误的理由通过（或失败）。
-  const anchor = new Date(now - 20 * 60_000).toISOString();
-
-  // 窗内已满 → 拦下（这是配额该起的作用）。
-  const recent = Array.from({ length: CAP }, (_, i) => new Date(now - i * 60_000).toISOString());
-  assert.equal(
-    admitIdleDispatch({ ...base, lastDispatchAt: anchor, dispatchTimes: recent }).reason,
-    "quota-exhausted",
-    `窗内满 ${CAP} 次须拦下（且理由须是配额，不是冷却）`,
-  );
-
-  // 同样满额、但都在窗外 → **必须放行**。旧口径（会话累计）在这里会永久拦下，
-  // 使该会话剩余内容永不入账且无痕迹——这正是 F2。
-  const stale = Array.from({ length: CAP }, (_, i) => new Date(now - 2 * HOUR - i * 60_000).toISOString());
-  assert.equal(
-    admitIdleDispatch({ ...base, lastDispatchAt: anchor, dispatchTimes: stale }).admit,
-    true,
-    "窗口滑过后须恢复容量——否则构成永久抑制",
-  );
-});
-
-test("admitIdleDispatch：无时刻列表时退回累计口径（兼容路径，且仍**不得**被当成默认）", () => {
-  // 兼容旧载体/旧调用方。该口径按 04 §8.4 属「会使派发永久终止」的取值，故
-  // 这里是**降级**而非默认；调用方应尽量给时刻列表。
-  const settings = {
-    enabled: true,
-    tasks: { "friction-discovery": true },
-    limits: { minIntervalMs: 0, minContentChars: 0, minContentTurns: 0, maxPerSession: 3, quotaWindowMs: 3_600_000 },
-  };
-  const base = { settings, task: "friction-discovery", now: 10_000_000, lastDispatchAt: null, material: { chars: 1, turns: 1 } };
-  assert.equal(admitIdleDispatch({ ...base, dispatched: 2 }).admit, true, "未达上限");
-  assert.equal(admitIdleDispatch({ ...base, dispatched: 3 }).reason, "quota-exhausted", "达上限即拦");
-  assert.equal(admitIdleDispatch({ ...base, dispatched: 99 }).reason, "quota-exhausted", "且不会自行恢复（降级口径的固有性质）");
-});
 
 // ---------------------------------------------------------------------------
 // 复审 D1/D2/D7（2026-10-11 第二版独立审核的放行条件）
 // ---------------------------------------------------------------------------
 
-test("D1：窗口长度为 0/负数/非有限时**回落默认**，不得按 0 关闭窗口", () => {
-  // 0 的语义在两类字段上**相反**，故读取器也必须不同：
-  //   · `maxPerSession = 0` → 「不限」（安全：不设上限就不会耗尽）
-  //   · `quotaWindowMs = 0` → 「不设窗口」＝会话生命周期累计（**危险**：耗尽即
-  //     永久停，正是 04 §8.4「派发准入」段明文禁止的取值）
-  // 若窗口按 0 生效，F2 的洞就被重新打开了。
-  for (const bad of [0, -1, -3_600_000, NaN, Infinity]) {
-    const s = resolveIdleSettings({ idleQuotaWindowMs: bad });
-    assert.equal(
-      s.limits.quotaWindowMs,
-      IDLE_DEFAULTS.quotaWindowMs,
-      `窗口长度 ${String(bad)} 须回落默认（不得按 0 关闭窗口）`,
-    );
-    assert.ok(s.limits.quotaWindowMs > 0, "回落后的窗口须为有限正值");
-  }
-  // 合法值须被尊重（不得一律回落）。
-  assert.equal(resolveIdleSettings({ idleQuotaWindowMs: 7_200_000 }).limits.quotaWindowMs, 7_200_000);
-});
 
-test("D1 对照：maxPerSession 的 0 **仍须**表示「不限」（两类字段的 0 语义相反）", () => {
-  // 这条是上一条的对照——若有人「统一」了两个字段的读取器，两条测试必有一条失败。
-  const s = resolveIdleSettings({ idleMaxPerSession: 0 });
-  assert.equal(s.limits.maxPerSession, 0, "上限的 0 是合法的「不限」");
-  assert.equal(quotaLeft(999, s.limits.maxPerSession), Infinity, "且确实不放行受限");
-});
 
-test("D2/D7：三类约束各自的评估须随返回值给出（放行时也有）", () => {
-  // 只记「被挡下」时某约束若恒不触发，它与「根本没实现」不可区分——而 04 §8.4
-  // 「派发准入」段要求「各自可被独立观察」。故 evaluations 必须三类齐备。
-  const settings = {
-    enabled: true,
-    tasks: { "friction-discovery": true },
-    limits: { minIntervalMs: 600_000, minContentChars: 800, minContentTurns: 3, maxPerSession: 4, quotaWindowMs: 3_600_000 },
-  };
-  const r = admitIdleDispatch({
-    settings, task: "friction-discovery", now: 10_000_000, lastDispatchAt: null,
-    dispatchTimes: [], material: { chars: 5000, turns: 20 },
-  });
-  assert.ok(r.evaluations, "须给出 evaluations");
-  for (const key of ["cooldown", "content", "quota"]) {
-    assert.ok(r.evaluations[key], `须含 ${key} 的评估`);
-    assert.equal(typeof r.evaluations[key].ok, "boolean", `${key}.ok 须是布尔`);
-  }
-  // 规模也须在，否则复核者无法据以复算该约束为何未触发。
-  assert.equal(r.evaluations.quota.used, 0);
-  assert.equal(r.evaluations.quota.max, 4);
-  assert.equal(r.evaluations.quota.windowMs, 3_600_000);
-  assert.equal(r.evaluations.content.chars, 5000);
-
-  // 被挡下时同样给出（且明确指出是哪一类）。
-  const blocked = admitIdleDispatch({
-    settings, task: "friction-discovery", now: 10_000_000, lastDispatchAt: 9_999_000,
-    dispatchTimes: [], material: { chars: 5000, turns: 20 },
-  });
-  assert.equal(blocked.reason, "cooldown");
-  assert.equal(blocked.evaluations.cooldown.ok, false, "挡下时该类的 ok 须为 false");
-  assert.equal(blocked.evaluations.content.ok, true, "其余类的真实判定不得被掩盖");
-});
-
-test("D7：默认上限须在默认窗口内**可达**（否则该约束不可被独立观察）", () => {
-  // 默认间隔 10 分钟 ⇒ 1 小时窗口内最多约 6 次。上限若 ≥6，则配额**永远轮不到
-  // 它绑定**，「存在」与「不存在」在运行痕迹里完全一致。
-  const maxPerWindow = Math.floor(IDLE_DEFAULTS.quotaWindowMs / IDLE_DEFAULTS.minIntervalMs);
-  assert.ok(
-    IDLE_DEFAULTS.maxPerSession < maxPerWindow,
-    `默认上限 ${IDLE_DEFAULTS.maxPerSession} 须小于窗口内可达次数 ${maxPerWindow}，否则该约束恒不触发`,
-  );
-});
+// **2026-10-14 删除的测试（如实登记）**：原「D7：默认上限须在默认窗口内可达」断言
+// `IDLE_DEFAULTS.maxPerSession < Math.floor(quotaWindowMs / minIntervalMs)`——其
+// 前提是「最小间隔」约束存在（窗口内可达次数由它推导）。36 §6.2（2026-10-14 修订）
+// 取消该约束后，`minIntervalMs` 不再存在，可达次数不再由比值定义，故本测试的前提
+// 消失。**配额是否可被观察**现由「评估结果随返回值给出」的那条测试承载。
 
 // ---------------------------------------------------------------------------
 // 一次派发做多件事（Human 决定 2026-10-11：删除轮换概念）
@@ -584,4 +300,88 @@ test("配置改名：未设旧键时用新键（含其缺省）", () => {
     resolveIdleSettings({ frictionDiscoveryEnabled: false }).tasks["friction-discovery"], false,
     "只设了新键 → 以新键为准",
   );
+});
+
+// ---------------------------------------------------------------------------
+// 安静时长（36 §6.1，2026-10-14 新增）
+// ---------------------------------------------------------------------------
+
+test("36 §6.1：安静时长须为**有限正值**——0/负数/非数一律拒绝（不得静默回落）", () => {
+  // 规范明文：该取值「须为有限正值……须在写入时被拒绝并提示，使误设当场可见」。
+  // 取 0 会使「已空闲」恒成立（等价于取消该判据），故必须拒绝而不是回落。
+  assert.equal(validateSilenceMs(600_000).ok, true, "10 分钟合法");
+  assert.equal(validateSilenceMs(1).ok, true, "1 毫秒合法（下界是「> 0」而非某个经验值）");
+
+  for (const bad of [0, -1, -600_000]) {
+    const r = validateSilenceMs(bad);
+    assert.equal(r.ok, false, `${bad} 须被拒绝`);
+    assert.equal(r.reason, "not-positive");
+  }
+  for (const bad of [NaN, Infinity, -Infinity, "abc", null, undefined, {}]) {
+    const r = validateSilenceMs(bad);
+    assert.equal(r.ok, false, `${String(bad)} 须被拒绝`);
+  }
+  const frac = validateSilenceMs(1.5);
+  assert.equal(frac.ok, false, "非整数须被拒绝");
+  assert.equal(frac.reason, "not-an-integer");
+});
+
+
+test("36 §6.1：读取侧对非法安静时长回落默认（容忍存量脏数据）", () => {
+  // 写入侧拒绝、读取侧回落——两者分工不同：前者防新误设，后者使既有脏配置
+  // 不至于让机制失效。
+  const s = resolveIdleSettings({ idleSilenceMs: 0 });
+  assert.equal(s.limits.silenceMs, IDLE_DEFAULTS.silenceMs, "0 → 回落默认");
+  const s2 = resolveIdleSettings({ idleSilenceMs: -5 });
+  assert.equal(s2.limits.silenceMs, IDLE_DEFAULTS.silenceMs, "负数 → 回落默认");
+  const s3 = resolveIdleSettings({ idleSilenceMs: 900_000 });
+  assert.equal(s3.limits.silenceMs, 900_000, "合法值原样保留");
+});
+
+// ---------------------------------------------------------------------------
+// 36 §6.2 取值为空集（2026-10-14 二次修订，Human Gate 授权）
+// ---------------------------------------------------------------------------
+//
+// ## 为什么这些用例是**负向守卫**
+//
+// §6.2 的约束类别是**闭集**，而**空集同样是该闭集的成员状态**。把本节由零约束
+// 改回带约束，与由带约束改为零约束**同等需要 Human Gate**（§6.2），不得由实现侧
+// 自行引入。下列断言的作用是：若有人日后悄悄加回任何节流判据或配置键，
+// 它们会立刻失败——而不是让「隐形的、不可观察的判据」重新出现。
+
+test("36 §6.2 空集：模块**不导出**任何节流判据（加回即须走 Human Gate）", async () => {
+  const mod = await import("../lib/idle-settings.js");
+  for (const gone of ["countWithinWindow", "quotaLeft", "cooldownDue", "contentAdmitted"]) {
+    assert.equal(mod[gone], undefined, `${gone} 不得再存在——§6.2 现为空集`);
+  }
+});
+
+test("36 §6.2 空集：`IDLE_DEFAULTS` 只含安静时长一项", () => {
+  assert.deepEqual(Object.keys(IDLE_DEFAULTS), ["silenceMs"], "不得残留任何配额默认值");
+});
+
+test("36 §6.2 空集：`admitIdleDispatch` 只判明示开关，`evaluations` 恒为空", () => {
+  // 开关已开 → 一律准入（无约束可挡）；开关关闭 → 各自的可区分原因码仍须在。
+  const on = admitIdleDispatch({ settings: OPEN_SETTINGS, task: "friction-discovery" });
+  assert.equal(on.admit, true);
+  assert.deepEqual(on.evaluations, {}, "无约束可评估——空对象即「本节为空集」的可观察形态");
+
+  const off = admitIdleDispatch({ settings: { ...OPEN_SETTINGS, enabled: false }, task: "friction-discovery" });
+  assert.equal(off.admit, false);
+  assert.equal(off.reason, "idle-assist-disabled", "总开关的拒因须可区分");
+
+  const sub = admitIdleDispatch({ settings: { ...OPEN_SETTINGS, tasks: {} }, task: "friction-discovery" });
+  assert.equal(sub.admit, false);
+  assert.equal(sub.reason, "task-disabled", "子项开关的拒因须与总开关可区分");
+});
+
+test("36 §6.2 空集：约束值一律不再被读取（传入即被忽略，不产生隐形判据）", () => {
+  // 关键性质：传入旧键也不得改变结论——否则「设置在代码里仍起作用但界面上看不到」，
+  // 这正是 §6.2 明文禁止的「不可观察的隐藏判据」形态。
+  const a = admitIdleDispatch({ settings: OPEN_SETTINGS, task: "friction-discovery" });
+  const withQuota = admitIdleDispatch({
+    settings: { ...OPEN_SETTINGS, limits: { silenceMs: 600_000, quotaMax: 0, quotaWindowMs: 0 } },
+    task: "friction-discovery",
+  });
+  assert.deepEqual(withQuota, a, "残留的配额键不得改变判定（且不得被读取）");
 });

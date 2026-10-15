@@ -30,7 +30,7 @@ import { runIdleCheckpoint } from "./idle-checkpoint.js";
 import { createDiscoveryProvider } from "./friction-discovery-provider.js";
 import { landDiscoveryVerdict, residualFromLandingError } from "./friction-landing.js";
 import { landCaptureVerdict, residualFromCaptureError } from "./experience-landing.js";
-import { advanceWatermark, readWatermark, readDispatchState, recordDispatch } from "./friction-watermark.js";
+import { advanceWatermark, readDispatchState, recordDispatch, recordActivity } from "./friction-watermark.js";
 import { admitIdleDispatch, pickEnabledAuxTasks } from "./idle-settings.js";
 import { recordRun } from "./idle-runlog.js";
 import { appendPendingEntry } from "./pending-queue.js";
@@ -290,14 +290,35 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         // Inline row title (Human 2026-09-04): "上下文注入 · dsh-ldvh · 本会话受 LDVH 管辖"
         noticeSummary: () => noticeSummaryFor(lifecycle.scopeState)
       });
-      // Turn-level triggers (04 §8.4 触发锚：会话检查点 + 二次空闲确认).
-      // 检查点到达由 agent/turn-stopping 标记，真正的调度由 agent/status 的
-      // idle 迁移确认之后发生——两步都在 triggers.js 内，此处只注入编排回调。
+      // Turn-level triggers（36 §6.1 触发判据，2026-10-14 修订）。
+      // 「会话确已空闲」= 距最后一次会话活动持续不短于安静时长；本块只注入
+      // 编排回调与两个注入点（取安静时长、落活动时刻），判据与计时在 triggers.js 内。
       const turnTriggers = createTurnTriggers(agent, {
         getScopeState: () => lifecycle.scopeState,
         turns: lifecycle.turns,
         activity: lifecycle.activity,
         log: ctx.logger,
+        // 取安静时长（36 §6.1）。经 `getIdleSettings` 的注入点读——与准入判据
+        // 同源，使设置面的改动对两者同时生效（不各读一份配置）。
+        readSilenceMs: () => {
+          const s = typeof getIdleSettings === "function" ? getIdleSettings() : undefined;
+          return s?.limits?.silenceMs;
+        },
+        // 落「最后一次会话活动时刻」。**尽力而为**：写入失败只记日志，不阻塞
+        // 宿主事件流——它服务的是跨热重载的计时连续性，不是正确性前提。
+        persistActivityAt: async (ms) => {
+          const cwd = agent?.session?.header?.cwd;
+          const sid = agent?.session?.header?.id;
+          if (typeof cwd !== "string" || cwd.length === 0) return;
+          if (typeof sid !== "string" || sid.length === 0) return;
+          const scope = await resolve(cwd);
+          if (scope.state !== "governed" || scope.project === undefined || scope.project === null) return;
+          await recordActivity(dshHomePath, {
+            projectRoot: scope.project.path,
+            sessionId: sid,
+            at: new Date(ms).toISOString(),
+          });
+        },
         onSessionCheckpoint: async ({ source, turn }) => {
           // 空闲辅助任务的调度（04 §8.3/§8.4 + 32 §10.2）。**不 await 关闭事件**
           // ——调用方（triggers）已把 promise 的拒绝收口为日志，此处保持同纪律。
@@ -347,60 +368,42 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             return;
           }
 
-          // ── 闲时辅助的准入闸（设置 + 节流）──────────────────────────────
+          // ── 闲时辅助的准入闸（仅剩设置面）────────────────────────────
           //
-          // 判据全部落在 `idle-settings.js` 的**纯函数**里（admitIdleDispatch）：
-          // 顺序为 总开关 → 子项开关 → 冷却 → 内容量 → 配额。此处只负责取状态
-          // 与执行后果。
+          // **36 §6.2 现不设任何准入约束**（2026-10-14 二次修订）：本节原含三类
+          // 准入约束，均已取消。故此处**没有**节流判据可算——`admitIdleDispatch`
+          // 只判定两道 Human 的明示开关（总开关、子项开关），其余一律放行。
           //
-          // **被挡下时不推进水位**：那段内容并入下一次观察区间——这正是节流
-          // 「只延后、不抑制」的机械形态（`idle-checkpoint.js` 对 skipped 已确立
-          // 同一纪律）。故被挡下**不是失败**，不进待处置队列。
+          // **2026-10-14：本检查点不再读派发状态**（原 `readDispatchState` 调用已
+          // 删除）。它此前只为配额判据提供「窗口内的派发时刻列表」；配额取消后
+          // 该值无消费方。**派发的记时仍在别处**——`recordDispatch` 在派发成功路径
+          // 上照常写入（保留 `dispatchTimes` 供诊断与将来的约束复核）。
+          //
+          // **为何仍需本闸**：它承载「总开关关闭 / 全部子项未勾选 → 不派发」这两道
+          // Human 的明示配置。这与节流不同：前者是「Human 说不要跑」，后者是
+          // 「机制自己觉得跑太勤了」。
+          //
+          // **被挡下时不推进水位**：那段内容并入下一次观察区间——这正是「只延后、
+          // 不抑制」的机械形态（`idle-checkpoint.js` 对 skipped 已确立同一纪律）。
+          // 故被挡下**不是失败**，不进待处置队列。
           const idleSettings = idleSettingsForPick;
           if (idleSettings !== undefined) {
-            const dispatchState = await readDispatchState(dshHomePath, { projectRoot: scope.project.path, sessionId });
-            const prior = dispatchState.ok ? dispatchState.value : { lastDispatchAt: null, dispatchCount: 0, dispatchTimes: [] };
-            // 水位为 null = 首次运行，覆盖全部既有内容；此时内容量门槛无条件解除
-            // （否则历史摩擦会因某个区间恰好很短而永不被发现）。冷却仍适用。
-            // **按任务读水位**（friction-watermark 的逐任务改造）。本次清单的
-            // 首个任务即当前编排的任务键；多任务落地时，各任务须各自读自己的键
-            // ——共用一条会使「一件成功、一件失败」互相牵连（成功者被重复落地）。
-            const priorWatermark = await readWatermark(dshHomePath, {
-              projectRoot: scope.project.path,
-              sessionId,
-              task: tasksForThisCheckpoint[0],
-            });
-            const isFirstRun = priorWatermark.ok ? priorWatermark.value.lastTurn === null : false;
-            // 材料规模取自累积器给出的区间（判据层不读时钟、不读窗口内容）。
-            const ahead = turnTriggers.windowFrom(priorWatermark.ok ? priorWatermark.value.lastTurn : null);
-            // 准入判据收在**任务清单**上：先按总开关/任务清单过一遍，再走三类
-            // 机械节流。`task` 传清单里的**第一个**任务仅用于「该任务是否被勾选」
-            // 这一沿用判据——清单非空即意味着至少一个任务已勾选，故该判定恒真，
-            // 真正起作用的只有冷却/内容量/配额三项。
-            //
-            // 为何不逐个任务分别过闸：三类约束（冷却/内容量/配额）度量的是**这次
-            // 派发**的整体代价——一个子代理一次跑完 N 件事，其开销不随 N 线性增长
-            // （上下文只解压一次），故按「一次派发」计量才是它真正的粒度。若按任务
-            // 分别计量，勾 3 件会让冷却与配额被消耗三次，而实际只派发了一次。
+            // **进入契约不在此处**：36 §6.1 的安静时长由 `triggers.js` 在武装计时器
+            // 之前判定（本次检查点能走到这里，说明安静期已满且计时器已到期）。
             const admission = admitIdleDispatch({
               settings: idleSettings,
               task: tasksForThisCheckpoint[0],
-              now: Date.now(),
-              lastDispatchAt: prior.lastDispatchAt,
-              dispatched: prior.dispatchCount,
-              // 配额按**滑动窗口**计（F2）：传入时刻列表，使窗口滑过后容量恢复。
-              dispatchTimes: prior.dispatchTimes,
-              material: {
-                chars: Array.isArray(ahead?.items)
-                  ? ahead.items.reduce((sum, it) => sum + String(it.user ?? "").length + String(it.assistant ?? "").length, 0)
-                  : 0,
-                turns: Array.isArray(ahead?.items) ? ahead.items.length : 0,
-              },
-              isFirstRun,
             });
             if (!admission.admit) {
-              // 如实记账：被节流挡下与「坏了」必须可区分，否则 Human 从痕迹里
-              // 看不出机制是在歇着还是停了（参照 dsh-mnemon 的 stage 可区分纪律）。
+              // 如实记账：被挡下与「坏了」必须可区分，否则 Human 从痕迹里看不出
+              // 机制是在歇着还是停了（参照 dsh-mnemon 的 stage 可区分纪律）。
+              //
+              // **2026-10-14：本分支的语义已收窄**。§6.2 现不设准入约束，故此处
+              // 记的**不再是「被节流」**，而是「Human 的明示配置要求不派发」——
+              // 实际只剩「全部子项未勾选」一种（总开关关闭在上游已 return）。
+              // `stage` 仍写 `throttled` 是为保持运行痕迹的**可读连续性**（既有
+              // 记录与消费方按该值归组）；其**准确含义**见本注释，不得据该字面
+              // 主张「配额仍在起作用」。
               //
               // `tasks` 记下本次**本想**做的全部事项——被挡下时 Human 需要知道
               // 「是哪几件事被推后了」，只记一个任务名会掩盖范围。
@@ -409,8 +412,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 tasks: [...tasksForThisCheckpoint],
                 stage: "throttled",
                 reason: admission.reason,
-                // 三类约束**各自**的判定——使「存在但未触发」可与「不存在」区分
-                // （04 §8.4「派发准入」段的「各自可被独立观察」要求；复审 D2/D7）。
+                // §6.2 现为空集，故 `evaluations` 恒为 `{}`——这正是「本节无约束」
+                // 的可观察形态（若将来重新引入约束，各类判定须在此逐项给出）。
                 evaluated: admission.evaluations,
                 at: new Date().toISOString(),
               });
@@ -843,13 +846,36 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       // agent/session-start 的首次响应。resume / clear / compact 的再次 announce
       // 由 start() 的 agent/created 分发路径 re-prime（见 reprimeAgent）。
       onPreStep.prime();
+      // 恢复持久化的「最后一次活动时刻」（36 §6.1）：热重载后从上次记录的时点
+      // 继续计时，而不是从零开始。取不到即不恢复（此时按「无从计时」处理——
+      // 须等下一次真实活动才武装，见 triggers 的 onAgentStatus）。
+      //
+      // **不阻塞 install**：本 effect 回调是同步的（注册钩子须在同帧完成），
+      // 故恢复走 promise 旁路；窗口极小（装载到首次活动之间），且即便错过也只
+      // 退化为「等下一次活动」——不影响正确性。
+      void (async () => {
+        try {
+          const sid0 = agent?.session?.header?.id;
+          const cwd0 = agent?.session?.header?.cwd;
+          if (typeof sid0 !== "string" || sid0.length === 0) return;
+          if (typeof cwd0 !== "string" || cwd0.length === 0) return;
+          const scope0 = await resolve(cwd0);
+          if (scope0.state !== "governed" || scope0.project === undefined || scope0.project === null) return;
+          const st0 = await readDispatchState(dshHomePath, { projectRoot: scope0.project.path, sessionId: sid0 });
+          if (st0.ok && typeof st0.value.lastActivityAt === "string" && st0.value.lastActivityAt.length > 0) {
+            turnTriggers.restoreActivityAt(Date.parse(st0.value.lastActivityAt));
+          }
+        } catch (error) {
+          ctx.logger?.warn?.("[dsh-ldvh] activity stamp restore failed: %s", String(error?.message ?? error));
+        }
+      })();
       const stops = [
         agent.ctx.on("system-prompt/assemble", (assembly, context, next) => onAssemble(assembly, context, next)),
         agent.ctx.on("agent/pre-step", (payload, next) => onPreStep.handler(payload, next), { prepend: true }),
         agent.ctx.on("agent/turn-stopping", (payload) => turnTriggers.onTurnStopping(payload)),
-        // 04 §8.4「触发后须二次确认会话确已空闲方可继续」的第二步：宿主
-        // agent/status 的 `idle`（「no driver remains scheduled or active」）
-        // 是权威空闲信号，本插件不自造判断。
+        // 36 §6.1（2026-10-14 修订）：`agent/status` 的 `idle` **不再是触发点**，
+        // 只负责武装安静期计时——宿主 idle 说明「此刻没有在跑的驱动」，但**不说明
+        // 会话已安静多久**。真正的派发由安静期到期时发出。
         agent.ctx.on("agent/status", (payload) => turnTriggers.onAgentStatus(payload)),
         agent.ctx.on("session/event", (session, event) => turnTriggers.onSessionEvent(session, event))
       ];
@@ -858,6 +884,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         for (const stop of stops.reverse()) {
           try { stop(); } catch { /* already removed */ }
         }
+        // 清安静期计时器（36 §6.1）：会话结束/插件卸载时不得留下仍在计时的
+        // 定时器——它会拖住进程退出，或在对象已销毁后仍尝试派发。
+        try { turnTriggers.dispose(); } catch { /* 已失效 */ }
         if (lifecycle.toolsDisposer !== null) {
           try { lifecycle.toolsDisposer(); } catch { /* already removed */ }
           lifecycle.toolsDisposer = null;
