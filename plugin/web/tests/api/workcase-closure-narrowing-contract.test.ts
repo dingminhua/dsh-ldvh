@@ -27,6 +27,7 @@ import {
   WORKCASE_DIRECTION_ROW_CLASS,
   WORKCASE_RESIDUAL_BLOCK_CLASS,
   WORKCASE_RESIDUAL_ROW_CLASS,
+  WORKCASE_RESIDUAL_UNIT_CLASS,
   groupDirectionRows,
   workCaseDirectionRows,
   workCaseResidualRows,
@@ -249,7 +250,14 @@ test('单一来源：去向从属行的缩进样式只有一处登记（开放�
   // 开放期的从属行——两期若各自写一份缩进，形态必然漂移。
   assert.equal(typeof WORKCASE_DIRECTION_ROW_CLASS, 'string');
   assert.match(WORKCASE_DIRECTION_ROW_CLASS, /pl-4/, '从属行须有缩进');
-  assert.match(WORKCASE_DIRECTION_ROW_CLASS, /border-t/, '从属行须与其余条目行同为带分割线的行');
+  // 从属行**不带边框**（Human 2026-10-15 定案：只在残留与残留之间画线，线归单元容器）。
+  // 此前本条断言「须为带分割线的行」，那是「线挂在行上」那一版的遗留——它正是每个单元
+  // 内部多出一条线、且与残留行深浅交替的原因。现改为反向断言，钉住定案形态。
+  assert.doesNotMatch(
+    WORKCASE_DIRECTION_ROW_CLASS,
+    /border-t/,
+    '从属行不得带分割线——单元内部不画线，线只在残留与残留之间（归单元容器）',
+  );
 
   const stateModule = readSource(STATE_MODULE);
   assert.match(stateModule, /export const WORKCASE_DIRECTION_ROW_CLASS/, '样式须在共享模块登记');
@@ -430,58 +438,58 @@ test('待批准关闭卡：两块（逐条核对 + 残留（含去向）），�
   );
 });
 
-test('残留块内分割线：首行去线由**块级**判定，行类不得自带 first:（回归守卫）', () => {
-  // 缺陷（Human 2026-10-15 在卡面发现）：残留与残留之间**没有分割线**，而每条
-  // 「接受现状」之上**有**线——与 `10 §5.5`「块内条目之间有分割线、首条不加」相反。
+test('残留块分割线：只在「残留与残留之间」画线，线由单元容器承载（回归守卫）', () => {
+  // 三版修法的收敛（Human 2026-10-15 逐次在卡面发现）：
+  //   ① 行类带 `first:border-t-0` —— `first:` 判「元素在其**直接父元素**中的位置」，而每行
+  //      都是自己 wrapper 的孩子 → 对**每一行**都命中，块内分割线全消失，线只剩在去向行
+  //      之上（它是第 2 个孩子、不命中）——与设计正好相反。
+  //   ② 改由块级 `[&>div:first-child>*:first-child]` 给「块内第 1 行」去线 —— 残留之间的线
+  //      回来了，但**每个单元内部仍有一条线**（去向行自带 `border-t`），且去向行用更浅的色
+  //      （`/40`）与残留行的 `/60` 交替，块内出现两种深浅（Human：「分割线多了」）。
+  //   ③ 定案：**线只由单元容器承载**，行一律不带边框。一个单元一根线、深浅只有一种，且
+  //      容器正是块的直接孩子，`first:border-t-0` 在此层级语义正确。
   //
-  // 根因：Tailwind 的 `first:` 作用于元素**在其直接父元素中**的位置。每条「残留 + 其
-  // 去向子项」包在一层 wrapper（`data-workcase-residual-row`，供测试取界）中，于是
-  // 每行都是自己 wrapper 的**第 1 个子元素**——行类里的 `first:border-t-0` 对**每一行**
-  // 都命中，块内分割线全部消失；而同一 wrapper 内的去向子项是第 2 个子元素、不命中，
-  // 反而画线。该 wrapper 是 2026-09-29 去向并入残留段时引入的（引入前各行直接是块的
-  // 孩子，`first:` 判据正确），故属那次结构改动带出的**静默**形态缺陷。
-  //
-  // 修法：行不自行声明「首行」；「首行去线」由**块级选择器**按行在块内整体次序判定。
+  // 结构原因（为什么前两版反复出错）：这条线的语义单位是**单元**（残留 + 其去向，`21 §8`
+  // 的不可分离单元），而不是**行**。判据挂在行上，就只能靠打补丁逼近，越补越复杂。
 
-  // ① 残留行类**不得**带 `first:`——它在本块的嵌套下恒命中，等于取消全部分割线。
-  assert.match(WORKCASE_RESIDUAL_ROW_CLASS, /border-t/, '残留行须带分割线（否则行与行之间无线）');
-  assert.doesNotMatch(
-    WORKCASE_RESIDUAL_ROW_CLASS,
-    /first:border-t-0/,
-    '残留行类不得自带 first:border-t-0——行裹在每条残留自己的 wrapper 里，first: 会对每一行命中',
-  );
-
-  // ② 去向从属行同理（它在其 wrapper 内通常不是第 1 个，但同样不得靠 `first:` 判定）。
-  assert.doesNotMatch(
-    WORKCASE_DIRECTION_ROW_CLASS,
-    /first:border-t-0/,
-    '从属行不得自带 first:border-t-0（首行判据归块级）',
-  );
-
-  // ③ 块级选择器必须在位，且命中「**第一个 wrapper 的首个孩子**」——即块内整体第 1 行。
-  //
-  // 取值必须落在**块内整体次序**，不能落在「wrapper 内次序」：`[&>div>*:first-child]`
-  // （每个 wrapper 的首个孩子）等价于「所有残留行都去线」，于是残留与残留之间**没有**
-  // 分割线——实测 Human 2026-10-15 在卡面看到「线只在接受现状之上」正是该形态。故本处
-  // 断言精确形态 `[&>div:first-child>*:first-child]`，把「少错一点」的写法也钉红。
+  // ① 线在单元容器上，且容器有「首单元去线」。
+  assert.match(WORKCASE_RESIDUAL_UNIT_CLASS, /border-t/, '单元容器须带分割线');
   assert.match(
-    WORKCASE_RESIDUAL_BLOCK_CLASS,
-    /\[&>div:first-child>\*:first-child\]:border-t-0/,
-    '残留块须以 [&>div:first-child>*:first-child]:border-t-0 只给块内整体第 1 行去线',
+    WORKCASE_RESIDUAL_UNIT_CLASS,
+    /first:border-t-0/,
+    '单元容器须对块内第一个单元去线（否则与块顶边框叠成双线）',
   );
-  // 反向断言：不得退回「每个 wrapper 首个孩子都去线」的写法（残留之间会失去分割线）。
+
+  // ② 行类**不得**带任何边框——单元内部不画线。
+  for (const [name, cls] of [
+    ['残留行', WORKCASE_RESIDUAL_ROW_CLASS],
+    ['去向从属行', WORKCASE_DIRECTION_ROW_CLASS],
+  ] as const) {
+    assert.doesNotMatch(
+      cls,
+      /border-t|first:border-t-0/,
+      `${name}不得带边框——分割线归单元容器；挂在行上会让单元内部也出现线`,
+    );
+  }
+
+  // ③ 块类**不得**再含分割线规则（前两版的块级选择器应已移除）。
   assert.doesNotMatch(
     WORKCASE_RESIDUAL_BLOCK_CLASS,
-    /\[&>div>\*:first-child\]:border-t-0/,
-    '不得用 [&>div>*:first-child]——它对每个 wrapper 都命中，残留之间将没有分割线',
+    /first-child/,
+    '块类不得再含分割线选择器——线已归单元容器，块级补丁是前一版的遗留',
   );
 
-  // ④ 块类须以**裸常量**使用（`className={WORKCASE_RESIDUAL_BLOCK_CLASS}`）：
-  //    本文件与 `workcase-design-language-contract.test.ts` 的块序守卫都按该 JSX 形态
-  //    定位残留块；若把它改成模板串（`className={`${...} ...`}`），两处守卫会因找不到
-  //    使用点而失败——那会让「块序」这条判据在无声中失效。
+  // ④ 组件须把单元容器样式接到 wrapper 上（只登记常量不接线等于没改）。
+  const draft = readSource(DRAFT_CARD);
   assert.match(
-    readSource(DRAFT_CARD),
+    draft,
+    /data-workcase-residual-row className=\{WORKCASE_RESIDUAL_UNIT_CLASS\}/,
+    '残留单元 wrapper 须接上 WORKCASE_RESIDUAL_UNIT_CLASS',
+  );
+
+  // ⑤ 块类仍须以**裸常量**使用：块序守卫按该 JSX 形态定位残留块。
+  assert.match(
+    draft,
     /className=\{WORKCASE_RESIDUAL_BLOCK_CLASS\}/,
     '残留块须以裸常量使用——块序守卫按该 JSX 形态定位，改成模板串会使其失效',
   );

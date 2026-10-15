@@ -14,6 +14,7 @@ import {
   WORKCASE_DIRECTION_ROW_CLASS,
   WORKCASE_RESIDUAL_BLOCK_CLASS,
   WORKCASE_RESIDUAL_ROW_CLASS,
+  WORKCASE_RESIDUAL_UNIT_CLASS,
   WORKCASE_ITEM_ROW_CLASS,
   WORKCASE_RESIDUAL_TAG_CLASS,
   workCaseAdviceTagClass,
@@ -137,15 +138,13 @@ export default function WorkCaseResultDraft({
           `10 §5.5`：去向子项在**待批准关闭**期**缩进一行显示于所属残留之下**
           （主从关系可见）——已关闭期才因残留一侧不呈现而提升为平级行。 */}
       {residualRows.length > 0 && (
-        // 「块内第 1 行去分割线」由**块级选择器**统一判定（见
-        // `WORKCASE_RESIDUAL_BLOCK_CLASS` 的 `[&>div:first-child>*:first-child]:border-t-0`）。
-        // 判据不能留在行自身：行裹在 `data-workcase-residual-row` wrapper 里，行类上的
-        // `first:border-t-0` 会对其**每一行**命中，使块内分割线全部消失（线只剩在去向行
-        // 之上）。选择器取值也必须落在「块内整体次序」：`[&>div>*:first-child]`（每个
-        // wrapper 的首个孩子）等价于「所有残留行去线」，仍会漏掉残留之间的线。详见该常量。
+        // **分割线由单元容器承载**（Human 2026-10-15 第三次定案：「只在残留与残留之间画线」）：
+        // 一个「残留 + 其去向」是一个不可分离的单元，单元内部不分线，线只画在单元之间。
+        // 行类因此不带任何边框；容器用 `first:border-t-0` 天然满足「首行不加线」——容器
+        // 正是块的直接孩子，`first:` 在此层级语义正确（行不是，详见 WORKCASE_RESIDUAL_UNIT_CLASS）。
         <div className={WORKCASE_RESIDUAL_BLOCK_CLASS}>
           {visibleResidual.map((item, index) => (
-            <div key={index} data-workcase-residual-row>
+            <div key={index} data-workcase-residual-row className={WORKCASE_RESIDUAL_UNIT_CLASS}>
               <div className={WORKCASE_RESIDUAL_ROW_CLASS}>
                 {/* 与核对、去向一致的「[标记] 正文」行结构（Human 裁定逐条加标记） */}
                 <span className={`${WORKCASE_CHECK_TAG_BASE} ${WORKCASE_RESIDUAL_TAG_CLASS}`}>

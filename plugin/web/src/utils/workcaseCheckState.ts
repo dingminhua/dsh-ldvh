@@ -194,37 +194,30 @@ export function workCaseDirectionTextVisible(phase: 'awaiting_gate2' | 'closed')
  * 单元：残留 + 去向子项）；在「已关闭」期**只在条件豁免成立时**呈现（不满足
  * 「每条残留都带有去向子项」者如实保留，见 `workCaseClosureNarrowsResidual`）。
  *
- * **分割线规则**（Human 2026-10-15 第二次修）：块内**除整体第 1 行外**，每行上方都有线：
+ * **分割线规则**（Human 2026-10-15 第三次定案）：**只在残留与残留之间画线**。即
+ * 单元（残留 + 其去向）内部不分线，线只画在单元之间：
  *
  * ```
  * ┌ 块顶边框
- * │ 残留 1           ← 块内第 1 行：无线（否则与块顶边框叠成双线）
- * │──── 线 ────
- * │   接受现状        ← 从属行：有线（与所属残留分隔）
- * │──── 线 ────
- * │ 残留 2           ← 新单元首行：**有线**（与上一单元分隔）
+ * │ 残留 1
+ * │   接受现状        ← 单元内：无线（缩进已表明从属）
+ * │──── 线 ────      ← 单元之间：有线
+ * │ 残留 2
+ * │   接受现状
  * └ 块底边框
  * ```
  *
- * **为什么必须由块级声明，不能留在行类里**：Tailwind 的 `first:` 作用于元素**在其直接
- * 父元素中**的位置。本块每条「残留 + 其去向子项」包在一层 wrapper
- *（`data-workcase-residual-row`，供测试取界）中，于是每行都是自己 wrapper 的**第 1 个
- * 子元素**——行类上的 `first:border-t-0` 对**每一行**都命中，块内分割线全部消失；而同一
- * wrapper 内的去向子项是第 2 个子元素、不命中，反而画线。实测后果（Human 2026-10-15 在
- * 卡面发现）：线只出现在每条「接受现状」之上，残留与残留之间没有线——与本节「块内条目
- * 之间有分割线、首条不加」相反。该 wrapper 是 2026-09-29 去向并入残留段时引入的；引入前
- * 各行直接是块的孩子，`first:` 正常，故属那次结构改动带出的**静默**形态缺陷。
+ * **线的承载者是单元容器**（`WORKCASE_RESIDUAL_UNIT_CLASS`），不是块、也不是行。
+ * 本常量因此**不含任何分割线规则**——三版修法的教训见该常量的注释：前两版都把线挂在
+ * **行**上，而这条线的语义单位是**单元**；层级挂错，两版都只能打补丁逼近。
  *
- * **选择器语义**：`[&>div:first-child>*:first-child]` 命中「**第一个 wrapper** 的
- * **第一个孩子**」——那正是块内整体第 1 行（首条残留行）。只有它去线；其余行（后续单元
- * 的残留行、全部去向子项）保留各自 row 类的 `border-t`。
- *
- * **反面教训（本块的第一版修法仍是错的）**：`[&>div>*:first-child]` 作用于**每个**
- * wrapper 的首个孩子，等价于「所有残留行都去线」——比原缺陷少错一点，仍不对（残留之间
- * 依然没线）。判据必须落在**块内整体次序**，不能落在「wrapper 内次序」。
+ * **为什么不能把线留在行类里**：Tailwind 的 `first:` 作用于元素**在其直接父元素中**的
+ * 位置。每行都是自己 wrapper 的第 1 或第 2 个孩子，`first:` 判不出「单元」这个层级——
+ * 这正是前两版反复出错的结构原因。线挂在容器上时，容器**确实**是块的直接孩子，
+ * `first:` 语义正确，无需任何块级后代选择器。
  */
 export const WORKCASE_RESIDUAL_BLOCK_CLASS =
-  'min-w-0 rounded-md border border-amber-600/25 bg-amber-500/[0.05] px-2.5 py-2 [&>div:first-child>*:first-child]:border-t-0';
+  'min-w-0 rounded-md border border-amber-600/25 bg-amber-500/[0.05] px-2.5 py-2';
 
 /**
  * 去向子项在其所属残留之下的**缩进行**样式（`10 §5.5`「块序与逐条标记」）。
@@ -237,7 +230,7 @@ export const WORKCASE_RESIDUAL_BLOCK_CLASS =
  * `border-t`），用 margin 会把分割线也推离块宽，行与行的分割线不再对齐。
  */
 export const WORKCASE_DIRECTION_ROW_CLASS =
-  'border-t border-ldvh-border/40 py-1 pl-4 ldvh-caption text-ldvh-text-primary';
+  'py-1 pl-4 ldvh-caption text-ldvh-text-primary';
 
 /**
  * 去向分区块的**底色族**——按去向词取同族色（`10 §5.5`「去向分区」）。
@@ -551,23 +544,49 @@ export const WORKCASE_RESIDUAL_TAG_CLASS =
   'border-amber-600/50 bg-amber-500/[0.12] text-amber-700 dark:text-amber-300';
 
 /**
- * 残留条目行——与统一条目行样式（`WORKCASE_ITEM_ROW_CLASS`）同形，**只差「首行去线」的归属**。
+ * 残留**单元容器**（每条残留 + 其去向子项各包一层，`data-workcase-residual-row`）。
  *
- * 为什么不能直接复用 `WORKCASE_ITEM_ROW_CLASS`：它的 `first:border-t-0` 作用于
- * **元素在其直接父元素中的位置**。本块里每条「残留 + 其去向子项」包在一层 wrapper
- * （`data-workcase-residual-row`）中，于是每一行都是自己 wrapper 的**第 1 个子元素**——
- * `first:border-t-0` 对**每一行**都命中，残留与残留之间的分割线全部消失（而同一 wrapper
- * 内的去向子项是第 2 个子元素、不命中，反而画线）。实测后果（Human 2026-10-15 发现）：
- * 线只出现在每条「接受现状」之上，与 `10 §5.5`「块内条目之间有分割线、首条不加」相反。
+ * **分割线的承载者就是本容器**（Human 2026-10-15 第三次定案：「只在残留与残留之间画线」）。
+ * 一个「残留 + 其去向」是**一个不可分离的单元**（`21 §8`：还剩什么 ＋ 打算怎么办），
+ * 单元**内部不再分线**，线只画在**单元之间**——故线属于容器，不属于容器里的任何一行。
  *
- * 该 wrapper 是 2026-09-29 去向并入残留段时引入的；引入前各行直接是块的孩子，`first:`
- * 判据正确，故这是那次结构改动带出的**静默**形态缺陷（当时无测试覆盖）。
+ * ```
+ * ┌ 块顶边框
+ * │ 残留 1
+ * │   接受现状        ← 单元内：无线（缩进已表明从属）
+ * │──── 线 ────      ← 单元之间：有线
+ * │ 残留 2
+ * │   接受现状
+ * └ 块底边框
+ * ```
  *
- * 修法：行不再自行声明「首行」——**「首行去线」改由块级选择器按行在块内的整体次序判定**
- *（见 `WorkCaseResultDraft` 的残留块）。此处只保留 `border-t`，使每行之间的线照常绘制。
+ * **为什么把线移到容器上，而不是留在行上**（三版修法的收敛）：
+ *   · 第 1 版：行类带 `first:border-t-0`。`first:` 判「元素在其**直接父元素**中的位置」，
+ *     而每行都是自己 wrapper 的第 1 个孩子 → 对**每一行**都命中，块内分割线全消失，
+ *     线只剩在去向行之上（去向行是第 2 个孩子、不命中）——与设计正好相反。
+ *   · 第 2 版：行类去掉 `first:`，改由块级 `[&>div:first-child>*:first-child]` 给「块内
+ *     第 1 行」去线。残留之间的线回来了，但**每个单元内部仍有一条线**（去向行自带
+ *     `border-t`），且去向行用的是更浅的色（`/40`），与残留行的 `/60` 交替，块内出现
+ *     两种深浅的线，读起来杂乱（Human：「分割线多了」）。
+ *   · 第 3 版（本版）：线**只由容器承载**，行一律不带 `border-t`。一个单元一根线，
+ *     深浅只有一种，且天然满足「首行不加线」——容器用 `first:border-t-0`，而容器确实
+ *     是块的直接孩子，`first:` 语义正确。
+ *
+ * 教训留在注释里：前两版都把线挂在**行**上，而「单元」才是这条线的语义单位；判据挂错
+ * 层级，两版都只能靠「打补丁」逼近，补出来的形态一次比一次复杂。挂对了层级，规则反而
+ * 最短——这正是本常量独立存在（而非复用 `WORKCASE_ITEM_ROW_CLASS`）的唯一理由。
+ */
+export const WORKCASE_RESIDUAL_UNIT_CLASS =
+  'border-t border-ldvh-border/60 pt-1.5 first:border-t-0';
+
+/**
+ * 残留条目行——单元内的首行，承载 `[残留] <正文>`。
+ *
+ * **不带任何边框**：分割线归容器（见 `WORKCASE_RESIDUAL_UNIT_CLASS`），本行与同单元的
+ * 去向子项之间不画线。此前本行带 `border-t`，是「线挂在行上」那一版的遗留。
  */
 export const WORKCASE_RESIDUAL_ROW_CLASS =
-  'border-t border-ldvh-border/60 py-1.5 ldvh-caption text-ldvh-text-primary';
+  'py-1.5 ldvh-caption text-ldvh-text-primary';
 
 /** 去向标记的兜底形态（未归类，或闭集之外的写法）。 */
 export const WORKCASE_ADVICE_TAG_FALLBACK_CLASS =
