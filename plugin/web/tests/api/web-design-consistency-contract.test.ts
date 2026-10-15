@@ -13,12 +13,72 @@ test('compact width only changes the shell navigation and secondary reading plac
   const copyButton = read('src/components/CopyPathButton.tsx');
   const readingPanel = read('src/components/ReadingPanel.tsx');
   const cognitionCenter = read('src/pages/CognitionCenter.tsx');
-  const objectDetail = read('src/pages/ObjectDetail.tsx');
   const objectList = read('src/pages/ObjectList.tsx');
 
-  assert.match(layout, /className="flex flex-shrink-0 sm:hidden"[\s\S]*<Sidebar collapsed compact \/>/);
-  assert.match(readingPanel, /const MOBILE_BREAKPOINT = 640/);
-  assert.match(readingPanel, /if \(isMobile\)[\s\S]*fixed bottom-0 left-0 right-0/);
+  // Compact 断点：**复算**两处是否同值，而不是钉死字面数字（Human 2026-10-16：640 → 1024）。
+  //
+  // 为什么复算：本仓的缺陷形态正是「同一个断点被写成两处，改一处漏一处」。此前
+  // ReadingPanel 用 `MOBILE_BREAKPOINT = 640`、Layout 用 Tailwind `sm:`（=640），
+  // 二者靠一句注释维持一致；改值时若只改一边，就会拼出「展开侧栏 + 底部抽屉」或
+  // 「图标栏 + 右侧面板」的错配组合——而断言 `= 640` 这种写法既拦不住错配，又会
+  // 在每次调值时强制改测试（把「测试跟着实现走」变成惯例）。
+  // 现改为：从两侧各自读出**当前取值**再比对，改值只需两处同步改，测试自动跟随。
+  const TAILWIND_SCREEN_PX: Record<string, number> = { sm: 640, md: 768, lg: 1024, xl: 1280 };
+
+  const breakpointDecl = /const COMPACT_BREAKPOINT = (\d+);/.exec(readingPanel);
+  assert.ok(breakpointDecl, 'ReadingPanel 须以 COMPACT_BREAKPOINT 常量声明 Compact 断点');
+  const compactPx = Number(breakpointDecl![1]);
+
+  const railSwitch = /className="flex flex-shrink-0 (sm|md|lg|xl):hidden"/.exec(layout);
+  assert.ok(railSwitch, 'Layout 的图标栏切换须使用 Tailwind 断点前缀');
+  const layoutPrefix = railSwitch![1];
+  assert.equal(
+    TAILWIND_SCREEN_PX[layoutPrefix],
+    compactPx,
+    `Layout 的 \`${layoutPrefix}:\`（${TAILWIND_SCREEN_PX[layoutPrefix]}px）与 ReadingPanel 的 ` +
+      `COMPACT_BREAKPOINT（${compactPx}px）不同值——两处断点必须同值，否则会出现` +
+      `「展开侧栏 + 底部抽屉」或「图标栏 + 右侧面板」的错配组合（docs/01 §1.6）。`,
+  );
+  assert.match(readingPanel, /if \(isCompact\)[\s\S]*fixed bottom-0 left-0 right-0/);
+
+  // 抽屉的触摸命中区必须**只在高断点以上**才收窄：导航按钮从 h-11/w-11（44px，抽屉内
+  // 触摸尺寸）降为 h-7/w-7（28px，桌面尺寸）。若该降档发生在 Compact 断点**之下**，
+  // 抽屉在平板宽度上就会用 28px 按钮——而 docs/01 §1.6 明确把抽屉命中区列为
+  // 「唯一允许的控件尺寸例外」。故此处要求两侧取**同一个前缀**。
+  //
+  // 覆盖口径（独立复核 2026-10-16 指出的两处漏洞，均已修）：
+  // ① `h-7` 与 `w-7` 的**两个**前缀都要取出来比——只比 h-7 时，
+  //    `lg:h-7 sm:w-7` 这类不对称写法会漏检（宽高取不同断点，视觉上是畸形按钮）；
+  // ② 用 `matchAll` 遍历**全部**导航按钮——原实现 `.exec` 只命中第一个（goBack），
+  //    goForward 漏检。两处按钮当前写法相同，但「相同」应由断言保证而非靠人工同步。
+  const navHitDecls = [...readingPanel.matchAll(
+    /disabled:opacity-35 ((?:sm|md|lg|xl):h-7) ((?:sm|md|lg|xl):w-7)/g,
+  )];
+  assert.ok(navHitDecls.length > 0, 'ReadingPanel 导航按钮须以 Tailwind 断点前缀控制桌面命中区尺寸');
+  for (const [index, decl] of navHitDecls.entries()) {
+    const hPrefix = decl[1].split(':')[0];
+    const wPrefix = decl[2].split(':')[0];
+    assert.equal(
+      hPrefix,
+      wPrefix,
+      `第 ${index + 1} 个导航按钮的 h-7/w-7 前缀不一致（${decl[1]} vs ${decl[2]}）——` +
+        `宽高须取同一断点，否则按钮在某区间是畸形尺寸。`,
+    );
+    assert.equal(
+      hPrefix,
+      layoutPrefix,
+      `第 ${index + 1} 个导航按钮命中区降档前缀 \`${hPrefix}:\` 须与 Compact 断点 \`${layoutPrefix}:\` 同值——` +
+        `否则抽屉在其自身区间内会失去触摸尺寸（docs/01 §1.6）。`,
+    );
+  }
+  // 期望值来源：ReadingPanel 的导航按钮恰好两个（上一个 / 下一个）。
+  // 断言条数写死在此，避免「新增第三个按钮但忘了让它受检」时静默通过。
+  assert.equal(
+    navHitDecls.length,
+    2,
+    `期望 ReadingPanel 恰有 2 个导航按钮受本项检查，实际命中 ${navHitDecls.length} 个——` +
+      `新增导航按钮时须同步确认它是否也需要桌面命中区降档。`,
+  );
   assert.match(styles, /\.ldvh-page-frame\s*\{\s*@apply p-6;/);
   assert.match(styles, /\.ldvh-tab-button\s*\{\s*@apply inline-flex min-w-0[\s\S]*?\}/);
   assert.doesNotMatch(styles, /\.ldvh-tab-button[\s\S]*min-h-11|\.ldvh-tab-list[\s\S]*min-h-11/);
@@ -29,11 +89,53 @@ test('compact width only changes the shell navigation and secondary reading plac
   assert.match(cognitionCenter, /function RecentActivityRow[\s\S]*role="button"[\s\S]*onClick=\{open\}[\s\S]*onKeyDown=\{\(event\) => openOnKeyboard\(event, open\)\}/);
   assert.match(cognitionCenter, /function SparkHealthRow[\s\S]*role="button"[\s\S]*onClick=\{open\}[\s\S]*onKeyDown=\{\(event\) => openOnKeyboard\(event, open\)\}/);
   assert.doesNotMatch(cognitionCenter, /cognition\.sparkHealth\.title[\s\S]{0,220}\btruncate\b/);
-  assert.doesNotMatch(copyButton, /\b(?:sm|md):/);
-  assert.doesNotMatch(objectDetail, /\b(?:sm|md):/);
+  // 业务组件不得在 Compact 断点上分岔（docs/01 §1.6.1 第 3 条）。
+  //
+  // 前缀集合随 Compact 断点走：Compact = 1024（`lg:`）之后，落在该边界上的前缀是
+  // `lg:`，而 `sm:`（640）/ `md:`（768）反而成了**边界内部**的次级分支——两者都属
+  // 「页面与通用业务组件建 Compact 专属结构」。`xl:` 不在此列：docs/01 §1.6 末段允许
+  // `xl` 等宽屏工作台增强，它不反向引入 Compact 专属呈现。
+  //
+  // **扫描口径：全仓 `src/`，不是抽样**（独立复核 2026-10-16 指出：原实现只采样
+  // copyButton/objectDetail/cognitionCenter/objectList 四个文件，却宣称「全仓业务组件
+  // 对 lg: 使用为零」——宣称超出断言覆盖，属 00 §5.6 意义上的超范围声明）。现改为
+  // 遍历 `src/**/*.{ts,tsx}`，并按「壳层文件」排除**仅有的两处**合法使用点：
+  // `Layout.tsx`（图标栏切换）与 `ReadingPanel.tsx`（抽屉切换 + 命中区降档），
+  // 即 docs/01 §1.6.1 第 1 条唯一许可的两个位置。排除面写死在下方数组里，
+  // 新增豁免须同时改本数组——不设通配式豁免。
+  const COMPACT_SHELL_FILES = ['src/components/Layout.tsx', 'src/components/ReadingPanel.tsx'];
+  const compactPrefixesOutsideShell = /\b(?:sm|md|lg):/;
+  const sourceFiles: string[] = [];
+  const walkSrc = (dir: string): void => {
+    for (const entry of fs.readdirSync(path.resolve(dir), { withFileTypes: true })) {
+      const child = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) walkSrc(child);
+      else if (/\.tsx?$/.test(entry.name)) sourceFiles.push(child);
+    }
+  };
+  walkSrc('src');
+  assert.ok(sourceFiles.length > 0, 'src/ 下应扫到源码文件');
 
-  const compactBranchesOutsideShell = [cognitionCenter, objectDetail, objectList, copyButton].join('\n');
-  assert.doesNotMatch(compactBranchesOutsideShell, /\b(?:sm|md):/);
+  const compactViolations: string[] = [];
+  for (const rel of sourceFiles) {
+    if (COMPACT_SHELL_FILES.includes(rel)) continue;
+    read(rel)
+      .split('\n')
+      .forEach((line, index) => {
+        // 剥离行注释后再判：注释里的 `sm:` / `md:` / `lg:` 是**沿革记载与说明文字**
+        // （本仓惯例要求如实保留改动的来龙去脉），不是渲染。不剥离会拒掉诚实记录。
+        const code = line.replace(/(^|[^:])\/\/.*$/, '$1');
+        if (compactPrefixesOutsideShell.test(code)) {
+          compactViolations.push(`${rel}:${index + 1}  ${line.trim().slice(0, 90)}`);
+        }
+      });
+  }
+  assert.equal(
+    compactViolations.length,
+    0,
+    `页面与通用业务组件不得使用 sm: / md: / lg: 建立 Compact 专属结构（docs/01 §1.6.1 第 3 条）：\n` +
+      `${compactViolations.join('\n')}`,
+  );
 });
 
 test('mobile reading panel identifies the current object and terminal cards retain status identity', () => {

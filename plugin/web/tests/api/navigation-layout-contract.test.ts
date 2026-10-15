@@ -7,8 +7,24 @@ test('compact viewport keeps the primary navigation as an icon rail', () => {
   const layout = fs.readFileSync(path.resolve('src/components/Layout.tsx'), 'utf8');
   const sidebar = fs.readFileSync(path.resolve('src/components/Sidebar.tsx'), 'utf8');
 
-  assert.match(layout, /className="flex flex-shrink-0 sm:hidden"\s*>\s*<Sidebar collapsed compact \/>/);
-  assert.match(layout, /className="hidden flex-shrink-0 sm:block"\s*>\s*<Sidebar collapsed=\{sidebarCollapsed\}/);
+  // Compact 断点（Human 2026-10-16：640 → 1024）。侧栏走 Tailwind 断点前缀。
+  //
+  // **本项钉住的是「形态」，不是断点取值**（独立复核 2026-10-16：原实现把 `lg:` 写进
+  // 正则，与同批「复算不钉字面数字」的目标矛盾——下次调值会在此产生无意义失败）。
+  // 前缀取 `\w+` 通配，取值正确性由 `web-design-consistency-contract.test.ts` 的
+  // 复算断言负责：那边从两侧源码读出实际值再比对，是唯一的取值权威。
+  assert.match(layout, /className="flex flex-shrink-0 [a-z]+:hidden"\s*>\s*<Sidebar collapsed compact \/>/);
+  assert.match(layout, /className="hidden flex-shrink-0 [a-z]+:block"\s*>\s*<Sidebar collapsed=\{sidebarCollapsed\}/);
+  // 两处前缀须一致（否则图标栏与展开态在某个区间同时显示或同时消失）。
+  const railPrefix = /className="flex flex-shrink-0 ([a-z]+):hidden"/.exec(layout);
+  const fullPrefix = /className="hidden flex-shrink-0 ([a-z]+):block"/.exec(layout);
+  assert.ok(railPrefix && fullPrefix, 'Layout 的两处侧栏分支须各带 Tailwind 断点前缀');
+  assert.equal(
+    railPrefix![1],
+    fullPrefix![1],
+    `图标栏（${railPrefix![1]}:hidden）与展开态（${fullPrefix![1]}:block）的前缀必须一致——` +
+      `不同前缀会在区间内同时显示或同时隐藏两种侧栏。`,
+  );
   assert.match(sidebar, /const isCollapsed = compact \|\| collapsed;/);
   assert.match(sidebar, /isCollapsed \? 'w-14' : 'w-\[186px\]'/);
   assert.match(sidebar, /flex h-full min-h-0 flex-shrink-0/);

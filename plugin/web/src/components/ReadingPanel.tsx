@@ -9,14 +9,18 @@ const MAX_WIDTH_RATIO = 0.58;
 const DEFAULT_WIDTH = 380;
 const DEFAULT_DOC_WIDTH = 680;
 const SNAP_THRESHOLD = 40;
-const MOBILE_BREAKPOINT = 640; // 与侧栏 Tailwind `sm:` 断点一致
+// Compact 断点（Human 2026-10-16：640 → 1024）。**必须与侧栏 Tailwind `lg:` 断点同值**：
+// 二者不同值时会拼出「展开侧栏 + 底部抽屉」或「图标栏 + 右侧面板」的错配组合
+// （`docs/01` §1.6 只登记了两种窄屏结构变化，均以同一个 Compact 断点为界）。
+// 命名不取 `MOBILE_*`：1024 已覆盖平板与窄桌面，该名会误导后续读者。
+const COMPACT_BREAKPOINT = 1024;
 
 export default function ReadingPanel() {
   const { isOpen, content, canGoBack, canGoForward, goBack, goForward, closePanel } = usePanel();
   const { t } = useI18n();
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [isDragging, setIsDragging] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const [isCompact, setIsCompact] = useState(false);
   const [bottomSheetHeight, setBottomSheetHeight] = useState(50);
   const [draggingSheet, setDraggingSheet] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -26,7 +30,7 @@ export default function ReadingPanel() {
   const startHeightRef = useRef(50);
 
   useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+    const check = () => setIsCompact(window.innerWidth < COMPACT_BREAKPOINT);
     check();
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
@@ -39,10 +43,10 @@ export default function ReadingPanel() {
   );
 
   useEffect(() => {
-    if (!isMobile && (content?.type === 'doc' || content?.type === 'web')) {
+    if (!isCompact && (content?.type === 'doc' || content?.type === 'web')) {
       setWidth((prev) => clamp(Math.max(prev, DEFAULT_DOC_WIDTH)));
     }
-  }, [clamp, content?.type, isMobile]);
+  }, [clamp, content?.type, isCompact]);
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -127,7 +131,7 @@ export default function ReadingPanel() {
   const panelTitle = content?.title || t('readingPanel.title');
   const preview = content ? <PanelContentRenderer content={content} /> : <EmptyPanelPreview />;
 
-  if (isMobile && !isOpen) return null;
+  if (isCompact && !isOpen) return null;
 
   const navigationControls = (
     <div className="flex shrink-0 items-center gap-1">
@@ -135,7 +139,7 @@ export default function ReadingPanel() {
         type="button"
         onClick={goBack}
         disabled={!canGoBack}
-        className="inline-flex h-11 w-11 items-center justify-center rounded text-ldvh-text-secondary transition-colors hover:bg-ldvh-border/30 hover:text-ldvh-text-primary disabled:cursor-default disabled:opacity-35 md:h-7 md:w-7"
+        className="inline-flex h-11 w-11 items-center justify-center rounded text-ldvh-text-secondary transition-colors hover:bg-ldvh-border/30 hover:text-ldvh-text-primary disabled:cursor-default disabled:opacity-35 lg:h-7 lg:w-7"
         title={t('readingPanel.previous')}
         aria-label={t('readingPanel.previous')}
       >
@@ -145,7 +149,7 @@ export default function ReadingPanel() {
         type="button"
         onClick={goForward}
         disabled={!canGoForward}
-        className="inline-flex h-11 w-11 items-center justify-center rounded text-ldvh-text-secondary transition-colors hover:bg-ldvh-border/30 hover:text-ldvh-text-primary disabled:cursor-default disabled:opacity-35 md:h-7 md:w-7"
+        className="inline-flex h-11 w-11 items-center justify-center rounded text-ldvh-text-secondary transition-colors hover:bg-ldvh-border/30 hover:text-ldvh-text-primary disabled:cursor-default disabled:opacity-35 lg:h-7 lg:w-7"
         title={t('readingPanel.next')}
         aria-label={t('readingPanel.next')}
       >
@@ -154,8 +158,8 @@ export default function ReadingPanel() {
     </div>
   );
 
-  // Mobile: bottom sheet
-  if (isMobile) {
+  // Compact（< 1024px）：底部阅读抽屉
+  if (isCompact) {
     return (
       <>
         <div className="fixed inset-0 z-40 bg-black/40" onClick={closePanel} />
@@ -195,7 +199,7 @@ export default function ReadingPanel() {
     );
   }
 
-  // Desktop: right panel
+  // 桌面（≥ 1024px）：右侧扩展阅读面板
   return (
     <div
       ref={panelRef}
