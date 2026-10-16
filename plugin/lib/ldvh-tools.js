@@ -695,8 +695,12 @@ function makeExecute(deps) {
   /** 候选 Index 与 HEAD 两版的 §7.2 节文本（并集比对）；两版都取不到即 fail-closed。 */
   async function readSection72BothFromIndex(projectPath) {
     try {
-      const listed = await execFileAsync("git", ["-C", projectPath, "ls-files", "--cached", "--", "specs/01-*.md"], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024 });
-      const path = String(listed.stdout ?? "").split("\n").map((line) => line.trim()).find((line) => line.length > 0);
+      // `-z` (see git-gate-runner.js findSpecCarrierOne): without it a
+      // `core.quotepath=true` Git C-quotes the non-ASCII path and the derived
+      // `git show :<path>` cannot resolve it. Both entries must read the same
+      // way — 09 §5.5 forbids them diverging.
+      const listed = await execFileAsync("git", ["-C", projectPath, "ls-files", "--cached", "-z", "--", "specs/01-*.md"], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024 });
+      const path = String(listed.stdout ?? "").split("\0").find((line) => line.length > 0);
       if (path === undefined) return [null, null];
       const candidate = await execFileAsync("git", ["-C", projectPath, "show", `:${path}`], { encoding: "utf8", timeout: 10000, maxBuffer: 32 * 1024 * 1024 });
       let baseline = null;
@@ -723,10 +727,14 @@ function makeExecute(deps) {
         return new Set();
       }
     };
-    const headPaths = await listPaths(["ls-tree", "-r", "--name-only", "HEAD", "--", "specs"], "\n");
+    // `-z` on both listings (see git-gate-runner.js collectLoadBearingDeclarations):
+    // these sets are membership-tested against `-z` (verbatim) diff paths, and a
+    // `core.quotepath=true` Git C-quotes non-ASCII names — the mismatch made a
+    // present HEAD path read as absent. Both entries must agree (09 §5.5).
+    const headPaths = await listPaths(["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", "specs"], "\0");
     const indexPaths = await listPaths(["ls-files", "--cached", "-z", "--", "specs"], "\0");
     const factPaths = [
-      ...(await listPaths(["ls-tree", "-r", "--name-only", "HEAD", "--", "ldvh-base"], "\n")),
+      ...(await listPaths(["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", "ldvh-base"], "\0")),
       ...(await listPaths(["ls-files", "--cached", "-z", "--", "ldvh-base"], "\0"))
     ];
     const carriers = [];

@@ -101,9 +101,14 @@ test('discovers current workspace Git worktrees with read-only status and regist
   assert.equal(response.status, 200, JSON.stringify(body))
   assert.equal(body.workspaceRoot, workspaceRoot)
   const items = body.items as Array<Record<string, unknown>>
-  const first = items.find((item) => item.path === fs.realpathSync(firstProject))
-  const second = items.find((item) => item.path === fs.realpathSync(secondProject))
-  const linked = items.find((item) => item.path === fs.realpathSync(firstLinkedWorktree))
+  // Canonicalize exactly as the API does: `governanceScope.ts` uses
+  // `realpathSync.native`, which on Windows expands the 8.3 short name
+  // (`ADMINI~1`) returned by `os.tmpdir()`. Plain `realpathSync` keeps the short
+  // form, so comparing the two forms fails only on Windows.
+  const canonical = (value: string): string => fs.realpathSync.native(value)
+  const first = items.find((item) => item.path === canonical(firstProject))
+  const second = items.find((item) => item.path === canonical(secondProject))
+  const linked = items.find((item) => item.path === canonical(firstLinkedWorktree))
   assert.ok(first)
   assert.ok(second)
   assert.ok(linked)

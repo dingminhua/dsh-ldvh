@@ -7,12 +7,16 @@
  *
  * 用法：node scripts/backfill-spark-priority.mjs [--dry-run]
  */
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { readSparkObject, updateSparkObject } from '../lib/spark-writer.js';
 import { authoritativeSignature } from '../lib/signature-channel.js';
 
-const REPO = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
+// `URL.pathname` is NOT a filesystem path: on Windows it yields `/D:/...` (a
+// drive-relative spelling with a leading slash) which `join` then mangles into
+// an unresolvable path. fileURLToPath gives the native form on every platform.
+const REPO = fileURLToPath(new URL('../..', import.meta.url)).replace(/[\\/]$/, '');
 /** 事实源根：writer 在 factSourceRoot 下拼 sparks/，故取 ldvh-base。 */
 const FACT_SOURCE_ROOT = join(REPO, 'ldvh-base');
 const SPARKS = join(FACT_SOURCE_ROOT, 'sparks');

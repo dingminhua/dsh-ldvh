@@ -13,12 +13,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { resolveGovernanceScope } from "../lib/governance-scope.js";
 import {
 	REGISTRATION_UNAVAILABLE_CODES,
 	evaluateRegistrationEntry,
+	registerProject,
 	registerProjectFromEntry,
 	resolveGitCommonDir,
+	resolveGitRoot,
 } from "../lib/governed-projects.js";
 import { createHostSeams, recordJudgementForGuard, observedVersionFor, resetObservations, writeShapedTools, registerWriteShapedTool } from "../lib/host-seams.js";
 import { bindMembershipEvidence } from "../lib/membership-evidence.js";
@@ -26,6 +29,36 @@ import { makeExecute } from "../lib/ldvh-tools.js";
 import { git, initRepo, withTemp } from "./helpers.mjs";
 
 const dshHome = (home) => (...segments) => join(home, ...segments);
+
+/**
+ * 07 §5.6 Windows clause: the AI registration entry (`registerProjectFromEntry`)
+ * fails closed on win32 because this implementation has no ACL verifier — the
+ * carrier's permission state cannot be confirmed, and the spec forbids a silent
+ * pass. That is the CORRECT product behaviour (norm-a1b559a6 red line 4), so
+ * these tests must not weaken it. What they need is a way to REACH a registered
+ * project on win32 so the surrounding mechanism (governance scope, discovery,
+ * the Human Gate routes) can still be exercised.
+ *
+ * `registerProject` is the unguarded registration primitive — the same one
+ * `installProject` (a Human-click-initiated transaction, 08 §6) uses as its
+ * registration step. Using it here is not a bypass of 07 §5.6 in the same
+ * sense the entry is: the entry exists to gate an AI-initiated write, and this
+ * call is fixture setup, not an entry point under test.
+ *
+ * Tests that are ABOUT the entry itself (its five unavailable codes, its
+ * idempotency) assert the win32 fail-closed outcome explicitly instead of
+ * pretending the entry succeeded.
+ */
+const WINDOWS_ACL_UNVERIFIED = process.platform === "win32";
+
+/** Register a project for fixture setup; on win32 fall back to the primitive. */
+async function registerForSetup(home, input) {
+	if (!WINDOWS_ACL_UNVERIFIED) return registerProjectFromEntry(dshHome(home), input);
+	return registerProject(dshHome(home), input);
+}
+
+/** Absolute path of a repo file as a REAL filesystem path (not `URL.pathname`). */
+const repoFile = (relative) => fileURLToPath(new URL(relative, import.meta.url));
 
 /** Minimal ToolExecution-shaped object for guard tests: only `name` + agent cwd. */
 const agentAt = (cwd) => ({ session: { header: { cwd } } });
@@ -67,7 +100,7 @@ test("item5: a linked worktree of a registered project is judged governed (07 §
 		assert.equal(mainCommon, linkedCommon);
 
 		await writeCarrier(home);
-		const registered = await registerProjectFromEntry(dshHome(home), { id: "p1", path: main });
+		const registered = await registerForSetup(home, { id: "p1", path: main });
 		assert.equal(registered.ok, true, JSON.stringify(registered));
 
 		const scope = await resolveGovernanceScope(dshHome(home), linked);
@@ -85,7 +118,7 @@ test("item5: an unrelated repository is still not_governed (no over-matching)", 
 		await git(other, ["commit", "-qm", "init"]);
 
 		await writeCarrier(home);
-		await registerProjectFromEntry(dshHome(home), { id: "p1", path: main });
+		await registerForSetup(home, { id: "p1", path: main });
 
 		const scope = await resolveGovernanceScope(dshHome(home), other);
 		assert.equal(scope.state, "not_governed");
@@ -101,7 +134,7 @@ test("item5: a non-Git directory is not_governed, never unavailable", async () =
 		await mkdir(plain);
 
 		await writeCarrier(home);
-		await registerProjectFromEntry(dshHome(home), { id: "p1", path: main });
+		await registerForSetup(home, { id: "p1", path: main });
 
 		const scope = await resolveGovernanceScope(dshHome(home), plain);
 		assert.equal(scope.state, "not_governed");
@@ -115,7 +148,7 @@ test("item5: containment inside the registered root still short-circuits (no git
 		await git(main, ["commit", "-qm", "init"]);
 
 		await writeCarrier(home);
-		await registerProjectFromEntry(dshHome(home), { id: "p1", path: main });
+		await registerForSetup(home, { id: "p1", path: main });
 
 		const scope = await resolveGovernanceScope(dshHome(home), join(main, "sub", "deeper"));
 		// `sub/deeper` does not exist; realpath fails → unavailable is correct
@@ -138,6 +171,21 @@ test("item4: registerProjectFromEntry registers a Git project and reads back", a
 		await writeCarrier(home);
 
 		const result = await registerProjectFromEntry(dshHome(home), { id: "p1", path: repo, name: "Demo" });
+		if (WINDOWS_ACL_UNVERIFIED) {
+			// 07 §5.6 Windows clause: no ACL verifier ⇒ the high-risk write fails
+			// closed. Assert the refusal is the DOCUMENTED one and that it wrote
+			// nothing — never that the entry "succeeded" by weakening the check.
+			assert.equal(result.ok, false, JSON.stringify(result));
+			assert.equal(result.unavailable, true);
+			assert.equal(result.error.code, REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED);
+			// The refusal must not have registered anything: the fixture carrier
+			// stays at zero projects (the ACL refusal is evaluated before any
+			// registration work).
+			const { readFile: rf } = await import("node:fs/promises");
+			const carrier = await rf(join(home, "ldvh", "governed-projects.yaml"), "utf8");
+			assert.match(carrier, /projects: \[\]/, "a refused entry must not register a project");
+			return;
+		}
 		assert.equal(result.ok, true, JSON.stringify(result));
 		assert.equal(result.value.changed, true);
 		assert.equal(result.value.project.id, "p1");
@@ -152,6 +200,21 @@ test("item4: a second registration of the same project writes nothing (07 §5.4 
 		await git(repo, ["commit", "-qm", "init"]);
 		await writeCarrier(home);
 
+		if (WINDOWS_ACL_UNVERIFIED) {
+			// The entry cannot complete at all on win32, so the idempotency half
+			// has no reachable path there. What is pinned instead is that repeated
+			// entry attempts keep refusing and never half-register (the carrier
+			// stays at zero projects). The primitive's own idempotency is covered
+			// by governed-projects.test.mjs.
+			await registerProjectFromEntry(dshHome(home), { id: "p1", path: repo });
+			const second = await registerProjectFromEntry(dshHome(home), { id: "p1", path: repo });
+			assert.equal(second.ok, false, "the entry keeps refusing on win32");
+			assert.equal(second.error.code, REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED);
+			const { readFile: rf } = await import("node:fs/promises");
+			const carrier = await rf(join(home, "ldvh", "governed-projects.yaml"), "utf8");
+			assert.match(carrier, /projects: \[\]/, "no project may be half-registered");
+			return;
+		}
 		const first = await registerProjectFromEntry(dshHome(home), { id: "p1", path: repo });
 		const second = await registerProjectFromEntry(dshHome(home), { id: "p1", path: repo });
 		assert.equal(second.ok, true);
@@ -183,6 +246,15 @@ test("item4: registration_schema_invalid when the carrier violates the v5 schema
 		const home = join(base, "home");
 		await writeCarrier(home, "schema_version: 99\n");
 		const result = await evaluateRegistrationEntry(dshHome(home));
+		if (WINDOWS_ACL_UNVERIFIED) {
+			// On win32 the ACL precondition is evaluated BEFORE the schema read,
+			// so this code is unreachable through `evaluateRegistrationEntry`
+			// there (the ACL code wins). The schema half stays covered on Unix;
+			// pinning the documented ACL refusal here is the honest win32
+			// expectation rather than an assertion the platform denies.
+			assert.equal(result.error.code, REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED);
+			return;
+		}
 		assert.equal(result.error.code, REGISTRATION_UNAVAILABLE_CODES.SCHEMA_INVALID);
 	});
 });
@@ -220,6 +292,20 @@ test("item4: the entry refuses a non-Git directory (07 §5.5)", async () => {
 		const plain = join(base, "plain");
 		await mkdir(plain);
 		await writeCarrier(home);
+		if (WINDOWS_ACL_UNVERIFIED) {
+			// On win32 the entry refuses at the ACL precondition before it ever
+			// inspects the candidate, so 07 §5.5 is unreachable THROUGH the entry
+			// there. Assert the 07 §5.5 substance directly instead of dropping it:
+			// the same identity resolution the entry performs must reject a
+			// non-Git directory on every platform.
+			const entry = await registerProjectFromEntry(dshHome(home), { id: "p1", path: plain });
+			assert.equal(entry.ok, false);
+			assert.equal(entry.error.code, REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED);
+			// `resolveGitRoot` THROWS for a non-Git directory (it is the internal
+			// helper; the entry converts the throw into `candidate_invalid`).
+			await assert.rejects(resolveGitRoot(plain), /Git|repository|root/i);
+			return;
+		}
 		const result = await registerProjectFromEntry(dshHome(home), { id: "p1", path: plain });
 		assert.equal(result.ok, false);
 		assert.equal(result.unavailable, undefined); // rejected, not unavailable
@@ -435,6 +521,17 @@ test("item6: the invariant installer asserts the carrier schema at install time"
 		await writeCarrier(home, "schema_version: 99\n");
 		let violation = null;
 		await seen.invariantFactory({}, (message) => { violation = message; throw new Error(message); }).catch(() => {});
+		if (WINDOWS_ACL_UNVERIFIED) {
+			// On win32 the installer sees `registration_permission_unverified`
+			// BEFORE the schema is read, and the implementation deliberately
+			// treats that code as a legitimate runtime state rather than an
+			// assertion failure (host-seams.js: only registration_schema_invalid
+			// calls `fail`). So the correct win32 expectation is "no violation
+			// reported" — asserting a schema label here would demand an order the
+			// platform denies. The schema label itself stays covered on Unix.
+			assert.equal(violation, null, "an unverifiable ACL is a runtime state, not an assertion failure");
+			return;
+		}
 		assert.match(String(violation), /registration_schema_invalid/);
 	});
 });
@@ -647,7 +744,7 @@ test("item4: discovery ACTUALLY parses declarations — the integration path, no
 		const home = join(base, "home");
 		await writeCarrier(home);
 		// The session must actually be governed for a project root to exist.
-		const registered = await registerProjectFromEntry(dshHome(home), { id: "gov", path: repo });
+		const registered = await registerForSetup(home, { id: "gov", path: repo });
 		assert.equal(registered.ok, true, JSON.stringify(registered));
 		const { handlers } = makeExecute({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
 		const exec = { agent: { session: { header: { cwd: repo } } } };
@@ -681,7 +778,7 @@ test("item4: an undeclared operation is reported as unavailable + diagnostic, ne
 
 		const home = join(base, "home");
 		await writeCarrier(home);
-		const registered = await registerProjectFromEntry(dshHome(home), { id: "bare", path: repo });
+		const registered = await registerForSetup(home, { id: "bare", path: repo });
 		assert.equal(registered.ok, true, JSON.stringify(registered));
 		const { handlers } = makeExecute({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
 		const envelope = await handlers["discover-ldvh-capabilities"]({}, { agent: { session: { header: { cwd: repo } } } });
@@ -709,7 +806,7 @@ test("item6: the CLI register/unregister entries refuse without explicit Human i
 		await git(repo, ["commit", "-qm", "init"]);
 		const home = join(base, "home");
 		await writeCarrier(home);
-		const binPath = new URL("../lib/bin.js", import.meta.url).pathname;
+		const binPath = repoFile("../lib/bin.js");
 		const { execFile } = await import("node:child_process");
 		const { promisify } = await import("node:util");
 		const run = promisify(execFile);
@@ -731,6 +828,17 @@ test("item6: the CLI register/unregister entries refuse without explicit Human i
 
 		// With it: the Human's explicit intent is recorded and the write proceeds.
 		const granted = await runCli(["register", "--project", repo, "--id", "p1", "--human-confirmed"]);
+		if (WINDOWS_ACL_UNVERIFIED) {
+			// The intent carrier is accepted (it is no longer a
+			// human_intent_required refusal) but the registration itself fails
+			// closed at the ACL precondition. That distinction is the whole point
+			// of this test: intent was granted and the gate still refused.
+			assert.equal(granted.code, 1, granted.stdout);
+			const payload = JSON.parse(granted.stdout);
+			assert.equal(payload.error.code, REGISTRATION_UNAVAILABLE_CODES.PERMISSION_UNVERIFIED);
+			assert.notEqual(payload.error.code, "human_intent_required", "the flag must satisfy the intent gate");
+			return;
+		}
 		assert.equal(granted.code, 0, granted.stdout);
 		assert.equal(JSON.parse(granted.stdout).ok, true);
 	});
@@ -742,7 +850,7 @@ test("item6: the Web unregister route requires an explicit human_confirmed flag 
 		await git(repo, ["commit", "-qm", "init"]);
 		const home = join(base, "home");
 		await writeCarrier(home);
-		await registerProjectFromEntry(dshHome(home), { id: "p1", path: repo });
+		await registerForSetup(home, { id: "p1", path: repo });
 
 		const { createGovernanceHandler } = await import("../lib/host-api.js");
 		const handler = createGovernanceHandler({ dshHomePath: dshHome(home), runnerPath: "/x", workspaceRoot: base });
@@ -775,7 +883,7 @@ test("item6: the CLI install entry is gated too — it registers the project (07
 		await git(repo, ["commit", "-qm", "init"]);
 		const home = join(base, "home");
 		await writeCarrier(home);
-		const binPath = new URL("../lib/bin.js", import.meta.url).pathname;
+		const binPath = repoFile("../lib/bin.js");
 		const { execFile } = await import("node:child_process");
 		const { promisify } = await import("node:util");
 		const run = promisify(execFile);
@@ -965,7 +1073,7 @@ test("signature: the tools layer refuses and reports Human when the route is una
 		await git(repo, ["commit", "-qm", "init"]);
 		const home = join(base, "home");
 		await writeCarrier(home);
-		await registerProjectFromEntry(dshHome(home), { id: "p", path: repo });
+		await registerForSetup(home, { id: "p", path: repo });
 
 		const { registerSparkTools } = await import("../lib/spark-tools.js");
 		const registered = new Map();

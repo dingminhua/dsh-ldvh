@@ -30,6 +30,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 
 import { parseWorkCaseResultDraft } from '../../shared/workcaseResultDraft.ts';
 
@@ -44,7 +45,7 @@ const REPOSITORY_ROOT = path.resolve(import.meta.dirname, '../../../..');
  * `workcase-execution-ledger-contract.test.ts` 顶部已登记的同类边界）。
  */
 const writer = await import(
-  path.join(REPOSITORY_ROOT, 'plugin/lib/workcase-writer.js')
+  pathToFileURL(path.join(REPOSITORY_ROOT, 'plugin/lib/workcase-writer.js')).href
 );
 
 /**

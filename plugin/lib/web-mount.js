@@ -330,7 +330,26 @@ export function createWebApiProcess(options) {
       // unref），但 Linux 的 inotify 句柄**不受 unref 影响**，实测进程无法退出。
       // 故不能只依赖 unref：dispose 之后一律不再创建，已创建的一律在 dispose 关闭。
       if (disposed) return;
-      watcher = fs.watch(join(webRoot, "api"), { recursive: true }, () => {
+      // Canonicalize the watch target BEFORE calling fs.watch.
+      //
+      // On Windows, watching a directory whose path contains an 8.3 SHORT name
+      // (`C:\Users\ADMINI~1\...`) and then mutating it ABORTS the whole process
+      // with a native libuv assertion:
+      //     Assertion failed: !_wcsnicmp(filename, dir, dirlen),
+      //       file src\win\fs-event.c, line 72
+      // ReadDirectoryChangesW reports the LONG name while the watcher holds the
+      // short one. A native abort cannot be caught by try/catch — it would take
+      // the entire DSH host down with it, not just the child — so the only
+      // workable defence is to never hand a short path to fs.watch.
+      //
+      // Upstream (Windows-only): https://github.com/libuv/libuv/issues/5010
+      //                          https://github.com/nodejs/node/issues/63638
+      // Reproduced deterministically on Node 24.19/Windows before this guard.
+      const watchTarget = (() => {
+        const target = join(webRoot, "api");
+        try { return fs.realpathSync.native(target); } catch { return target; }
+      })();
+      watcher = fs.watch(watchTarget, { recursive: true }, () => {
         if (disposed) return;
         if (watchTimer !== null) clearTimeout(watchTimer);
         // 去抖窗口比原 1s 长：真实改码是「truncate → 写 → 连续多事件」的一串，

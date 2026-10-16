@@ -24,7 +24,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 // The very function the DSH runtime calls before a tool handler runs.
@@ -362,7 +362,11 @@ const ORDER_ARRAYS = [
 
 test("schema/writer agreement: the frontmatter order array covers the writer's whole closed set", async () => {
 	for (const entry of ORDER_ARRAYS) {
-		const mod = await import(join(LIB, entry.module));
+		// `import()` takes a URL specifier, not a native filesystem path: on
+		// win32 a bare `D:\...\workcase-writer.js` is parsed as the scheme `d:`
+		// and rejected with ERR_UNSUPPORTED_ESM_URL_SCHEME. pathToFileURL gives
+		// the file:// form ESM requires, on every platform.
+		const mod = await import(pathToFileURL(join(LIB, entry.module)).href);
 		const order = mod[entry.arrayExport];
 		const keys = mod.VALID_FM_KEYS;
 		assert.ok(Array.isArray(order), `${entry.name}: ${entry.arrayExport} must be an exported array`);

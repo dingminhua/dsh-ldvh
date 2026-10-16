@@ -22,7 +22,11 @@ export default [
   },
   js.configs.recommended,
   {
-    files: ["lib/**/*.js", "test/**/*.mjs", "lib/bin.js"],
+    // `scripts/` is Node tooling (bench + test runner) and needs the Node
+    // globals for the same reason lib/ and test/ do. It was absent from this
+    // list, so `process`/`console`/`URL` read as undefined there — which is why
+    // backfill-spark-priority.mjs carried 14 pre-existing no-undef errors.
+    files: ["lib/**/*.js", "test/**/*.mjs", "lib/bin.js", "scripts/**/*.mjs"],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: "module",

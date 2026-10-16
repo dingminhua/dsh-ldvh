@@ -23,6 +23,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { readLocalFact, type LocalFactScope } from '../../api/services/localFactReader.ts';
 import { projectCurrentWorkCaseCard } from '../../api/services/facts.ts';
 import { toRfc3339Text } from '../../shared/timestamp.ts';
@@ -42,7 +43,7 @@ const WORKCASE_DIR = path.join(REPOSITORY_ROOT, 'ldvh-base', 'workcases');
  * 与 `workcase-direction-parity-contract.test.ts` 的载入方式同款。
  */
 const writer = await import(
-  path.join(REPOSITORY_ROOT, 'plugin/lib/workcase-writer.js')
+  pathToFileURL(path.join(REPOSITORY_ROOT, 'plugin/lib/workcase-writer.js')).href
 ) as { parseResidualSection: (section: string) => { entries: unknown[] } };
 
 function workcaseScope(): LocalFactScope {

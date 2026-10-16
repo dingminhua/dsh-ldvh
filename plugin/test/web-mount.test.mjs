@@ -7,11 +7,33 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import http from "node:http";
 import { mkdtemp, mkdir, readFile, utimes, writeFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import test from "node:test";
 import { createProxyHandler, createSpaHandler, createWebApiProcess } from "../lib/web-mount.js";
+
+/**
+ * A canonical (long-form) temp root.
+ *
+ * `os.tmpdir()` returns the 8.3 SHORT name on Windows (`C:\Users\ADMINI~1\...`).
+ * Handing a short path to `fs.watch(dir, { recursive: true })` and then mutating
+ * the directory ABORTS the whole Node process — `Assertion failed:
+ * !_wcsnicmp(filename, dir, dirlen), file src\win\fs-event.c, line 72` — because
+ * ReadDirectoryChangesW reports the LONG name while the watcher holds the short
+ * one. Reproduced on Node 24.19 / Windows before this helper existed.
+ *
+ * This is an upstream libuv defect, not an LDVH one:
+ *   https://github.com/libuv/libuv/issues/5010
+ *   https://github.com/nodejs/node/issues/63638
+ * Nothing in the product code is at fault (`fs.watch` is used exactly as
+ * documented), so the fixture resolves the path instead of the product
+ * weakening its watch. The crash is unrunnable to assert against — a native
+ * abort kills the runner — so it is registered as a known platform limitation
+ * rather than covered by a test.
+ */
+const longTempDir = () => realpathSync.native(tmpdir());
 
 /** 用真实 http.Server 包住 handler 再 fetch——比 mock req/res 更接近真实调用面。 */
 async function withHandler(handler, fn) {
@@ -169,7 +191,7 @@ test("proxy handler answers 502 when the upstream target is dead", async () => {
  * 「pid 变了 / 没变」，而不只是「端口通不通」。
  */
 async function makeWatchFixture() {
-  const root = await mkdtemp(join(tmpdir(), "ldvh-recycle-"));
+  const root = await mkdtemp(join(longTempDir(), "ldvh-recycle-"));
   const pidFile = join(root, "child.pid");
   await mkdir(join(root, "api"), { recursive: true });
   await writeFile(join(root, "api", "server.ts"), "// v1\n");
@@ -322,7 +344,7 @@ test("a change landing during an in-flight recycle is not lost", async () => {
   // 修法只是「回收没发生就不推进基线」，但 v3 此后不会再有 fs 事件来驱动它——
   // 实测（复核者在 /tmp 用慢启动子进程复现）进程会一直跑 v2 而磁盘是 v3。
   // 本用例用慢启动子进程放大这个窗口，并直接断言**最终跑的是 v3**。
-  const root = await mkdtemp(join(tmpdir(), "ldvh-recheck-"));
+  const root = await mkdtemp(join(longTempDir(), "ldvh-recheck-"));
   const bootFile = join(root, "booted");
   const pidFile = join(root, "child.pid");
   await mkdir(join(root, "api"), { recursive: true });
@@ -383,7 +405,13 @@ test("dispose still refuses to resurrect the child after an unexpected exit", as
   await manager.ensureReady();
   const firstPid = await readPid();
   manager.dispose();
-  process.kill(firstPid, "SIGKILL");
+  // Simulate the child dying out-of-band. `dispose()` already sent SIGTERM, and
+  // on Windows that terminates (and reaps) the process immediately — so this
+  // kill can legitimately race into ESRCH. Tolerating it does not weaken the
+  // assertion: "the child is gone" is exactly the precondition this test needs,
+  // and which of the two kills produced it is immaterial. On POSIX SIGTERM is
+  // asynchronous, so the pid is normally still resolvable here.
+  try { process.kill(firstPid, "SIGKILL"); } catch (error) { if (error?.code !== "ESRCH") throw error; }
   await new Promise((done) => setTimeout(done, 1500));
   assert.equal(manager.isRunning(), false);
   assert.equal(await manager.ensureReady(), null, "a disposed manager must never resurrect its child");
@@ -437,7 +465,7 @@ test("dispose() racing the async watcher import does not keep the process alive"
   // 修复后 exit=0）。此处直接断言子进程能否自然退出——超时即失败。
   //
   // watchSource 需为 true 且 webRoot/api 存在，才能走到 fs.watch 分支。
-  const webRoot = await mkdtemp(join(tmpdir(), "ldvh-watch-race-"));
+  const webRoot = await mkdtemp(join(longTempDir(), "ldvh-watch-race-"));
   await mkdir(join(webRoot, "api"), { recursive: true });
   await writeFile(join(webRoot, "api", "server.ts"), "// race fixture\n");
 
@@ -479,4 +507,82 @@ test("dispose() racing the async watcher import does not keep the process alive"
     `dispose() 与异步 watcher 创建竞态时进程应能正常退出，实际 code=${exit.code} signal=${exit.signal}——` +
       "残留的 fs.watch 句柄在 Linux 上会使进程永久挂起（macOS 因 unref 生效而掩盖）",
   );
+});
+
+/**
+ * 回归：`fs.watch` 遇 8.3 短路径时，写入该目录会让进程以 **libuv 原生断言**
+ * 中止——`Assertion failed: !_wcsnicmp(filename, dir, dirlen), file
+ * src\win\fs-event.c, line 72`（ReadDirectoryChangesW 报长名、watcher 持短名）。
+ *
+ * 为什么必须用**子进程**：原生 abort 不能被 try/catch 捕获，若在本进程里跑，
+ * 整轮测试会一起中止，连「失败了」都报不出来。放进子进程后，「子进程是否存活」
+ * 就是可断言的判据。
+ *
+ * 为什么这条用例有真实价值：症状在**宿主**侧。`webRoot` 若含短名组件
+ * （`os.tmpdir()` 在本机就返回 `C:\Users\ADMINI~1\...`），`web-mount.js` 建立的
+ * watcher 一旦被写入触发，会连带整个 DSH 宿主进程一起崩。修复是建立 watcher 前
+ * 先取长名（`realpathSync.native`）；本用例故意喂一个**短名** webRoot 并在建好
+ * 子进程后真实写入，从而锁住该修复。
+ *
+ * 非 Windows 上不存在该缺陷（`fs.watch` 走 inotify/FSEvent），故跳过；Windows
+ * 上若 `os.tmpdir()` 已是长名，则本机无法制造触发条件，同样跳过并说明原因。
+ */
+test("a short-name (8.3) webRoot does not abort the process when the watched tree changes", async (t) => {
+  if (process.platform !== "win32") {
+    t.skip("the 8.3 short-name defect is Windows-only (libuv src/win/fs-event.c)");
+    return;
+  }
+  const shortRoot = tmpdir();
+  if (!/~\d/.test(shortRoot)) {
+    t.skip(`os.tmpdir() is already the long form (${shortRoot}) — no short-name trigger on this machine`);
+    return;
+  }
+
+  const webRoot = await mkdtemp(join(shortRoot, "ldvh-shortpath-"));
+  await mkdir(join(webRoot, "api"), { recursive: true });
+  await writeFile(join(webRoot, "api", "server.ts"), "// v1\n");
+
+  const script = `
+    import { writeFile } from "node:fs/promises";
+    import { join } from "node:path";
+    import { createWebApiProcess } from ${JSON.stringify(new URL("../lib/web-mount.js", import.meta.url).href)};
+    const manager = createWebApiProcess({
+      webRoot: ${JSON.stringify(webRoot)},
+      port: 45998,
+      env: {},
+      watchSource: true,
+      command: {
+        exec: process.execPath,
+        argv: ["-e", "require('http').createServer((q,s)=>s.end('{}')).listen(Number(process.env.PORT),'127.0.0.1')"],
+      },
+      readinessPath: "/api/health",
+      readinessTimeoutMs: 10000,
+    });
+    await manager.ensureReady();
+    // 真实写入被监听的树：未加固时，这里整个进程以原生断言中止。
+    await writeFile(join(${JSON.stringify(webRoot)}, "api", "server.ts"), "// v2 changed\\n");
+    await new Promise((done) => setTimeout(done, 3000));
+    console.log("MUTATION_SURVIVED");
+    manager.dispose();
+    await new Promise((done) => setTimeout(done, 300));
+    process.exit(0);
+  `;
+
+  const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+  child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+
+  const watchdog = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* gone */ } }, 30_000);
+  const exit = await new Promise((resolve) => {
+    child.on("exit", (code, signal) => resolve({ code, signal }));
+  });
+  clearTimeout(watchdog);
+
+  assert.doesNotMatch(stderr, /_wcsnicmp|fs-event\.c/, `短路径 watcher 触发了 libuv 原生断言：${stderr}`);
+  assert.match(stdout, /MUTATION_SURVIVED/, `子进程应跑完脚本：${stderr}`);
+  assert.equal(exit.code, 0, `短名 webRoot 下进程被中止：code=${exit.code} signal=${exit.signal}`);
 });

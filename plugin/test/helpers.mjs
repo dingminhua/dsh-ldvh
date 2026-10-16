@@ -76,14 +76,40 @@ export async function runNode(args, options = {}) {
 }
 
 /**
+ * Remove a temp tree, retrying through the brief Windows EBUSY/EPERM window.
+ *
+ * A handle can outlive its owner by a few milliseconds (an HTTP server or
+ * fs.watch closing asynchronously), so an immediate `rm` fails on a tree that is
+ * not actually leaked. The attempt bound keeps a real leak failing loudly.
+ *
+ * Kept OUT of the `finally` block body on purpose: `no-unsafe-finally` forbids a
+ * `throw` there, because a cleanup failure would replace whatever the test body
+ * threw and hide the real failure. Calling a function that may throw keeps the
+ * original error primary.
+ */
+async function removeTreeWithRetry(target, attempts = 10) {
+	for (let attempt = 1; ; attempt += 1) {
+		try {
+			await rm(target, { recursive: true, force: true });
+			return;
+		} catch (error) {
+			const retryable = error?.code === "EBUSY" || error?.code === "EPERM" || error?.code === "ENOTEMPTY";
+			if (!retryable || attempt >= attempts) throw error;
+			await new Promise((done) => setTimeout(done, 50 * attempt));
+		}
+	}
+}
+
+/**
  * Create a temp directory, run fn(dir), then unconditionally remove it.
  * Every test should wrap its Git work in this helper so nothing leaks.
  */
-export async function withTemp(prefix, fn) {	const dir = await mkdtemp(join(tmpdir(), prefix));
+export async function withTemp(prefix, fn) {
+	const dir = await mkdtemp(join(tmpdir(), prefix));
 	try {
 		return await fn(dir);
 	} finally {
-		await rm(dir, { recursive: true, force: true });
+		await removeTreeWithRetry(dir);
 	}
 }
 

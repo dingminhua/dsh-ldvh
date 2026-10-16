@@ -9,6 +9,27 @@ import * as ldvhPlugin from "../lib/index.js";
 import { withTemp } from "./helpers.mjs";
 
 /**
+ * Remove a temp tree, tolerating the brief Windows EBUSY window.
+ *
+ * On Windows a handle can outlive its owner by a few milliseconds (the harness's
+ * HTTP server / fs.watch closing asynchronously), so an immediate `rm` fails
+ * with EBUSY even though nothing leaks. The bound keeps a real leak failing
+ * loudly instead of retrying forever.
+ */
+async function removeTreeWithRetry(target, attempts = 10) {
+	for (let attempt = 1; ; attempt += 1) {
+		try {
+			await rm(target, { recursive: true, force: true });
+			return;
+		} catch (error) {
+			const retryable = error?.code === "EBUSY" || error?.code === "EPERM" || error?.code === "ENOTEMPTY";
+			if (!retryable || attempt >= attempts) throw error;
+			await new Promise((done) => setTimeout(done, 50 * attempt));
+		}
+	}
+}
+
+/**
  * A minimal in-memory webServer stub: records every register() call so the
  * test can assert route registration / disposal without a real HTTP server.
  */
@@ -379,6 +400,11 @@ test("state endpoint resolves a cwd directly against the real registration", asy
 			await disposeHarness(harness);
 		}
 	} finally {
-		await rm(tempRoot, { recursive: true, force: true });
+		// Windows can still hold a handle on the tree for a moment after the
+		// harness is disposed (an fs.watch/HTTP handle closing asynchronously),
+		// and `rm` then fails with EBUSY rather than leaking anything. Retrying
+		// with a short backoff is the portable remedy; a genuinely locked tree
+		// still fails after the bounded attempts, so this does not mask a leak.
+		await removeTreeWithRetry(tempRoot);
 	}
 });

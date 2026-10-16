@@ -145,7 +145,17 @@ test("registerProject atomically creates the registration and makes the first pr
 		// atomic write: file exists with mode 0600, no leftover temp files
 		const registrationFile = join(home, "ldvh", "governed-projects.yaml");
 		const stat = await lstat(registrationFile);
-		assert.equal(stat.mode & 0o777, 0o600);
+		if (process.platform === "win32") {
+			// 07 §5.6 Windows clause: the carrier inherits the DSH user-config
+			// ACL — Windows does not honour POSIX mode bits, and `chmod` cannot
+			// produce 0600 (observed 0o666). The 0600/0700 target is a Unix-only
+			// assertion; what IS asserted on win32 is the atomic-write outcome
+			// (a regular file, no temp residue). The ACL half stays unverified
+			// and is registered as a known limitation rather than passed.
+			assert.ok(stat.isFile(), "the carrier must be written as a regular file");
+		} else {
+			assert.equal(stat.mode & 0o777, 0o600);
+		}
 		const ldvhDirEntries = await readdir(join(home, "ldvh"));
 		assert.deepEqual(ldvhDirEntries.filter((entry) => entry.endsWith(".tmp")), []);
 		const raw = await readFile(registrationFile, "utf8");

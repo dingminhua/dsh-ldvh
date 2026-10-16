@@ -23,6 +23,7 @@ import {
 	parseManagedHook,
 	renderHook,
 	resolveIdentity,
+	resolveShCommand,
 	uninstallHook,
 } from "../lib/hook-manager.js";
 import { git, gitOk, initRepo, runnerPath, VALID_COMMIT_MESSAGE, withTemp } from "./helpers.mjs";
@@ -37,9 +38,17 @@ const execFileAsync = promisify(execFile);
  * file must exercise the Hook as a real shell process. Inheriting the ambient
  * environment here would hide the very defect these tests exist for, so callers
  * pass the PATH they want to prove.
+ *
+ * On win32 the shell must come from `resolveShCommand()` — the SAME resolver
+ * production uses — rather than a bare "sh". Git for Windows ships sh.exe under
+ * its install root but does NOT put it on PATH, so a bare "sh" fails with
+ * ENOENT and the child never starts; the observed code was then 1 (Node's own
+ * spawn failure), not the 127 the Hook is asserting. Using the production
+ * resolver keeps the test measuring the Hook's contract instead of the
+ * runner's PATH.
  */
 async function runHookWithEnv(hookPath, messageFile, cwd, env) {
-	const command = process.platform === "win32" ? "sh" : hookPath;
+	const command = process.platform === "win32" ? await resolveShCommand() : hookPath;
 	const args = process.platform === "win32" ? [hookPath, messageFile] : [messageFile];
 	try {
 		const result = await execFileAsync(command, args, { cwd, env: { ...cleanGitEnvironment(), ...env }, encoding: "utf8", timeout: 20000 });

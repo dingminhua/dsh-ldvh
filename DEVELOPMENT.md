@@ -23,9 +23,32 @@ npm --prefix plugin test
 npm --prefix plugin pack --dry-run
 ```
 
-`npm test` 带 `--test-force-exit`（Node ≥22.14，仓库下限 22.15 已覆盖）：web-routes 一族用例挂载插件后，偶有连到本机 `127.0.0.1` 的 TCP 句柄残留到进程收尾，令测试进程在结果全部打印后仍空等约 84 秒。该 flag 只在测试完成后立即退出进程，不改变任何用例结果。基准方法（real+cpu 双指标、抗本机负载噪声）见 `plugin/scripts/bench-tests.sh`。
+`npm test` 走 `plugin/scripts/run-tests.mjs` 包装：在 Linux/macOS 上传 `--test-force-exit`（Node ≥22.14，仓库下限 22.15 已覆盖）——web-routes 一族用例挂载插件后，偶有连到本机 `127.0.0.1` 的 TCP 句柄残留到进程收尾，令测试进程在结果全部打印后仍空等约 84 秒。该 flag 只在测试完成后立即退出进程，不改变任何用例结果。
+
+在 **Windows 上不传**该 flag：强制退出会与 undici 尚在收尾的 `fetch` 句柄相撞，触发 libuv 原生断言（`Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94`）。原生断言无法被用例捕获——整个 runner 进程直接中止，报告里该文件失败而**没有任何失败用例**。Windows 实测该 flag 也不省时（全套 38.0s vs 37.9s），故略去零代价。上游：<https://github.com/nodejs/node/issues/58091>、<https://github.com/undici/undici/issues/5680>。
+
+基准方法（real+cpu 双指标、抗本机负载噪声）见 `plugin/scripts/bench-tests.sh`。
 
 当前还必须进行真实 UI 验收：设置卡片、LDVH 会话视图、`/ldvh`、`/ldvh/api/health`、停用/重启及卸载清理。
+
+## Windows 平台说明
+
+CI 跑 `ubuntu-latest`；以下为 Windows（开发机之一）上实测的平台差异，全部已在代码/测试中各自处置。
+
+**已修复的实现缺陷（非测试问题）**：
+
+- **Git 路径转义**：`core.quotepath` 默认为 `true` 时 Git 会把非 ASCII 路径 C 转义（`"specs/13-\346\211\277..."`）。这会让 ① `diff --git` 行匹配不到、`changedPaths` 读成空集，从而把每一条关键变更都误判为「未匹配」（假阻断）；② `git show :<转义路径>` 直接报「path does not exist」，使可读的 §7.2/承重声明载体被读成不可读。修复：在 `cleanGitEnvironment`（唯一的 Git 调用边界）统一注入 `core.quotepath=false`，并把路径列举改用 `-z` NUL 分隔。
+- **`fs.watch` 遇 8.3 短路径**：`fs.watch(dir, { recursive: true })` 后写入该目录，会让进程以 libuv 原生断言中止——`Assertion failed: !_wcsnicmp(filename, dir, dirlen), file src\win\fs-event.c, line 72`。`os.tmpdir()` 在本机返回短名（`C:\Users\ADMINI~1\...`），正是触发条件。原生断言**无法被 try/catch 捕获**，若宿主的 `webRoot` 含短名组件，会连带整个 DSH 宿主进程一起崩。修复：`web-mount.js` 在建立 watcher 前先 `realpathSync.native` 取长名；测试夹具同样用长名。上游：<https://github.com/libuv/libuv/issues/5010>、<https://github.com/nodejs/node/issues/63638>。
+
+**测试断言中的平台口径（未削弱任何断言）**：
+
+- **`mode & 0o777`**：Windows 忽略 POSIX 权限位（实测 `0o666`），故该断言按平台分支；ACL 核验不可得时按既有红线 **fail-closed**，行为不变。
+- **`realpathSync` vs `realpathSync.native`**：产品侧用 `.native`（展开短名），测试侧若用非 `.native` 便只剩 `Administrator` vs `ADMINI~1` 之差，故测试改用 `.native` 与产品对齐。
+- **`path.resolve` 为平台相关**：以 `/` 开头在 Windows 是「当前盘符相对」，期望值改用同一解析器构造，`null` 两条（越界防护）不动。
+- **`ESM import` 绝对路径**：`import('D:\\...')` 会报 `ERR_UNSUPPORTED_ESM_URL_SCHEME`（协议 `d:`），改用 `pathToFileURL().href`。
+- **临时目录清理**：句柄可短暂滞后于其属主（HTTP server / `fs.watch` 异步关闭），立即 `rm` 会在**未泄漏**的目录上报 EBUSY；`withTemp` 做有界重试，真泄漏仍会失败。
+
+**已知限制（不可断言，登记而非掩盖）**：`fs.watch` 短路径的原生中止与 `--test-force-exit` 的 `UV_HANDLE_CLOSING` 中止都是**进程级 abort**，用例内无法捕获或断言，因此不作为用例存在——前者由产品侧的短名规范化防住，后者由 `scripts/run-tests.mjs` 在 Windows 上不传该 flag 防住。
 
 ## 红线
 

@@ -103,8 +103,15 @@ async function collectNormCarriers(worktree, changedPaths, indexFile) {
 /** 当次候选树里 `specs/01-*.md` 的路径（§7.2 的载体）。取不到返回 null。 */
 async function findSpecCarrierOne(worktree, indexFile) {
   try {
-    const listed = await git(worktree, ["ls-files", "--cached", "--", "specs/01-*.md"], indexFile);
-    const first = String(listed ?? "").split("\n").map((line) => line.trim()).find((line) => line.length > 0);
+    // `-z` is mandatory, not stylistic: with the default `core.quotepath=true`
+    // Git C-quotes a non-ASCII path (`"specs/01-\350\247\204..."`), and that
+    // escaped spelling is NOT addressable — the follow-up `git show :<path>`
+    // dies with "path does not exist" even though the file is right there.
+    // Observed on Windows against this repository's own Chinese spec
+    // filenames; the effect was a false §7.2 unverifiable/unreadable verdict.
+    // NUL separation returns the path verbatim on every platform.
+    const listed = await git(worktree, ["ls-files", "--cached", "-z", "--", "specs/01-*.md"], indexFile);
+    const first = String(listed ?? "").split("\0").find((line) => line.length > 0);
     return first ?? null;
   } catch {
     return null;
@@ -157,7 +164,13 @@ async function collectChangedCarriers(worktree, message, diff, indexFile) {
 async function collectLoadBearingDeclarations(worktree, changedPaths, indexFile) {
   const carriers = [];
   const unreadable = [];
-  const headPaths = await treePaths(worktree, ["ls-tree", "-r", "--name-only", "HEAD", "--", "specs"], indexFile, "\n");
+  // Both listings are consumed as a set MEMBERSHIP test against `changedPaths`,
+  // which comes from a `-z` diff and is therefore verbatim. A `ls-tree` left at
+  // the default `core.quotepath=true` C-quotes non-ASCII paths, so `has(path)`
+  // could never match and a real HEAD path would be misreported as absent
+  // (which the caller turns into "baseline had no declarations"). `-z`/NUL
+  // keeps both sides in the same spelling on every platform.
+  const headPaths = await treePaths(worktree, ["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", "specs"], indexFile, "\0");
   const indexPaths = await treePaths(worktree, ["ls-files", "--cached", "-z", "--", "specs"], indexFile, "\0");
   const knownPaths = new Set([...headPaths, ...indexPaths, ...(await allFactPaths(worktree, indexFile))]);
   for (const path of changedPaths) {
@@ -192,7 +205,7 @@ async function treePaths(worktree, args, indexFile, separator) {
 
 /** Fact carriers the repository already holds at HEAD or in the Index. */
 async function allFactPaths(worktree, indexFile) {
-  const head = await treePaths(worktree, ["ls-tree", "-r", "--name-only", "HEAD", "--", "ldvh-base"], indexFile, "\n");
+  const head = await treePaths(worktree, ["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", "ldvh-base"], indexFile, "\0");
   const staged = await treePaths(worktree, ["ls-files", "--cached", "-z", "--", "ldvh-base"], indexFile, "\0");
   return [...head, ...staged];
 }

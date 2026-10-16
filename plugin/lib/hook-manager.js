@@ -332,4 +332,4 @@ export async function uninstallHook(projectRoot) {
   return { ok: true, value: await inspectHook(projectRoot) };
 }
 
-export { cleanGitEnvironment, parseManagedHook, resolveIdentity };
+export { cleanGitEnvironment, parseManagedHook, resolveIdentity, resolveShCommand };

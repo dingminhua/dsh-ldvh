@@ -7,6 +7,19 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { after, before, test } from 'node:test'
 
+/**
+ * Canonicalize a path the SAME way the API does.
+ *
+ * `api/services/governanceScope.ts` resolves fixtures with `realpathSync.native`,
+ * which on Windows expands the 8.3 short name (`ADMINI~1`) that `os.tmpdir()`
+ * hands back — while plain `realpathSync` keeps it. Comparing the API's native
+ * form against the non-native one therefore fails only on Windows, with the two
+ * strings differing by nothing but `Administrator` vs `ADMINI~1`. Using the
+ * native variant here lines the expectation up with the product instead of
+ * loosening the assertion.
+ */
+const canonical = (value: string): string => fs.realpathSync.native(value)
+
 const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ldvh-project-files-workspace-'))
 const projectRoot = path.join(workspaceRoot, 'demo')
 const alternateWorktreeRoot = path.join(workspaceRoot, 'demo-alternate')
@@ -98,8 +111,8 @@ test('lists and reads the current supported file kinds', async () => {
   assert.ok(secondary)
   assert.equal(demo.name, 'Demo')
   assert.equal(secondary.name, 'Secondary')
-  assert.equal(demo.path, fs.realpathSync(projectRoot))
-  assert.equal(secondary.path, fs.realpathSync(secondaryProjectRoot))
+  assert.equal(demo.path, canonical(projectRoot))
+  assert.equal(secondary.path, canonical(secondaryProjectRoot))
 
   const entries = await get('/api/project-files/entries?projectId=demo&dir=assets')
   assert.equal(entries.response.status, 200)
@@ -152,7 +165,7 @@ test('does not represent an unknown project Git status as an empty success resul
 
 test('reads files, Git status, and documents from the selected linked worktree', async () => {
   const worktreePath = encodeURIComponent(alternateWorktreeRoot)
-  const canonicalWorktreeRoot = fs.realpathSync(alternateWorktreeRoot)
+  const canonicalWorktreeRoot = canonical(alternateWorktreeRoot)
   const entries = await get(`/api/project-files/entries?projectId=demo&worktreePath=${worktreePath}`)
   assert.equal(entries.response.status, 200, JSON.stringify(entries.body))
   const listed = entries.body.entries as Array<Record<string, unknown>>

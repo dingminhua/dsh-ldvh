@@ -32,7 +32,20 @@ export function cleanGitEnvironment(extra = {}) {
   for (const key of Object.keys(env)) {
     if (["GIT_COMMON_DIR", "GIT_CONFIG_COUNT", "GIT_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_WORK_TREE"].includes(key) || key.startsWith("GIT_CONFIG_KEY_") || key.startsWith("GIT_CONFIG_VALUE_")) delete env[key];
   }
-  return { ...env, ...extra };
+  // `core.quotepath=false` is REQUIRED for every LDVH Git read, not a cosmetic
+  // preference. With the default (`true`) Git C-quotes a non-ASCII pathname —
+  // the diff header becomes `diff --git "a/specs/13-\346\211\277..." ...`.
+  // Two checks parse pathnames out of that output:
+  //   - extractDiffPaths' `/^diff --git a\/(.+) b\/(.+)$/` matches no quoted
+  //     line, so `changedPaths` came back EMPTY and every 关键变更 item was
+  //     reported unmatched (false blocking verdict);
+  //   - `git show :<path>` on a quoted spelling dies with "path does not exist",
+  //     so a readable §7.2 / declaration carrier read as unreadable.
+  // Observed on Windows against this repository's own Chinese spec filenames.
+  // Set here — the one shared Git invocation boundary (09 §6) — so the Git Gate
+  // and the Helper precheck can never diverge on it.
+  const quotepath = { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.quotepath", GIT_CONFIG_VALUE_0: "false" };
+  return { ...env, ...quotepath, ...extra };
 }
 
 export const HEADER_PATTERN = /^(feat|fix|docs|refactor|test|chore|build|ci|perf|style)(?:\([a-z0-9-]+\))?: .+/;
