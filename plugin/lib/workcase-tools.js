@@ -43,6 +43,7 @@ import {
   reviseWorkcaseObject,
   correctWorkcaseObject,
   recordWorkcaseReview,
+  recordWorkcaseAudit,
   requestWorkcaseAdjustment,
   decideWorkcaseAdjustment,
   listWorkcaseObjects,
@@ -81,7 +82,7 @@ const OPERATIONS = {
     // silently pays for create's human wait. See the descriptor factory for
     // why a deadline here would guarantee a wrong result rather than a slow one.
     awaitsHumanDecision: true,
-    summary: "Controlled write of WorkCase fact objects across the 工单 lifecycle: create (C1 提案, draft), approve (Gate 1: stamps authorization fingerprint + attempt 1; returns plan_step_reference — the authoritative 「计划步骤 N」清单), execute (open-period; plan/scope frozen by C2), close (Gate 2: result+outcome, attempt 收口; requires at least one review recorded by a session OTHER than the executor, workcase-2be11478), rebatch (C2 局部重批 open→draft), cancel (draft→closed cancelled), revise (draft evolution), correct (终态事实更正：仅 closed 对象，只重写正文并追加一条 change_log，终态判定与 result/reviews 逐字不变，须携带 Human 授权记录；21 §9.2:259 / 03 §10), record_review (append ONE review entry carrying the caller's Code-stamped session identity — the narrow channel for an isolated reviewer) (specs/03 §9.4–§9.5, specs/21 §14). 写「执行」节时引用计划步骤请用「计划步骤 N」（21 §8 记账纪律）",
+    summary: "Controlled write of WorkCase fact objects across the 工单 lifecycle: create (C1 提案, draft), approve (Gate 1: requires a covering pre-Gate-1 audit record — 时序闸+覆盖闸, 21 §14; stamps authorization fingerprint + attempt 1; returns plan_step_reference — the authoritative 「计划步骤 N」清单), execute (open-period; plan/scope frozen by C2), close (Gate 2: result+outcome, attempt 收口; requires at least one review recorded by a session OTHER than the executor, workcase-2be11478), rebatch (C2 局部重批 open→draft), cancel (draft→closed cancelled), revise (draft evolution), correct (终态事实更正：仅 closed 对象，只重写正文并追加一条 change_log，终态判定与 result/reviews 逐字不变，须携带 Human 授权记录；21 §9.2:259 / 03 §10), record_review (append ONE review entry carrying the caller's Code-stamped session identity — the narrow channel for an isolated reviewer; 复核轴, open 期), record_audit (append ONE pre_reviews entry carrying the auditor's Code-stamped identity and the Code-computed candidate fingerprint — the narrow channel for an isolated pre-Gate-1 audit; 审核轴, draft 期, ≤3 per candidate) (specs/03 §9.4–§9.5, specs/21 §14). 写「执行」节时引用计划步骤请用「计划步骤 N」（21 §8 记账纪律）",
     effect: "may_change_state"
   }
 };
@@ -372,7 +373,7 @@ async function executePrecheckCreate(args, exec, deps) {
 // rejection read like an unknown action rather than a broken gate.
 // `tool-descriptor-contract.test.mjs` now pins the two lists together so the
 // next omission cannot land unnoticed.
-const WRITE_ACTIONS = new Set(["create", "approve", "execute", "close", "rebatch", "cancel", "revise", "correct", "record_review", "request_adjustment", "decide_adjustment"]);
+const WRITE_ACTIONS = new Set(["create", "approve", "execute", "close", "rebatch", "cancel", "revise", "correct", "record_review", "record_audit", "request_adjustment", "decide_adjustment"]);
 
 /**
  * 21 §10.1 Gate 1 提请必含要素中**没有对象字段承载**的那几项。
@@ -787,6 +788,122 @@ async function executeWriteObject(args, exec, deps) {
         changeSummary, sessionSignature: sig.value, sessionIdentity: reviewerIdentity,
         reviewerNote: reviewerChildNote === null ? null : `记录自子代理会话 ${reviewerChildNote} 的最终产出（Code 捕获）`,
       });
+    } else if (action === "record_audit") {
+      // 建前审核结论回传通道（21 §14「建前审核记录」，2026-10-16 建立）：
+      // 只追加一条 pre_reviews 条目，不授予任何其它写能力。
+      //
+      // **与 record_review 完全同构**——两轴的差异只有一处：本通道只对
+      // status=draft 开放（审核轴的对象是尚未取得效力的候选），而 record_review
+      // 只对 open 开放。不可自证性的要求、身份来源可信边界、防代述门禁、
+      // 派生纪律全部相同，理由见 record_review 分支上方注释与 21 §14。
+      const childAgentId = requireString(args, "auditor_child_agent_id", action);
+      const verdict = requireString(args, "verdict", action);
+      let summary = requireString(args, "summary", action);
+      let auditorIdentity = ident.value;
+      let auditorChildNote = null;
+      if (childAgentId !== null) {
+        // 代子代理回传：身份取自宿主登记表（调用方**不可设置**），结论取子代理
+        // **真实产出的最终文本**（Code 在 turn-end 捕获）——故实施者既不能伪造
+        // 身份，也不能把自查文本冒充成子代理的审核结论。
+        const lookup = deps?.lookupChild;
+        if (typeof lookup !== "function") {
+          return envelope("workcase-write-object", "unavailable", {
+            result: null,
+            scope: { requested: action, completed: [], not_completed: [action] },
+            sources: [],
+            gaps: ["audit_channel_unavailable: the host does not expose the subagent registry, so a delegated "
+              + "audit cannot be attributed to the auditor's own session. Report to HUMAN — do not substitute the "
+              + "implementer's own summary for the auditor's conclusion."],
+            verification: { checks: ["governance-scope", "session-identity"], passed: false },
+            follow_up: ["human must enable the subagent registry seam, then retry"],
+          });
+        }
+        const child = lookup(childAgentId);
+        if (child === null) {
+          return invalidRequest("workcase-write-object",
+            `auditor_child_agent_id ${JSON.stringify(childAgentId)} is not a subagent registered under this session — `
+            + "only a session the host actually observed may be cited as the auditor", "record_audit");
+        }
+        if (typeof child.conclusion !== "string" || child.conclusion.trim().length === 0) {
+          return invalidRequest("workcase-write-object",
+            `subagent ${childAgentId} has produced no captured conclusion yet — there is nothing to record as its audit. `
+            + "Wait for it to finish its turn, then retry (an empty conclusion is a real state, not an audit).", "record_audit");
+        }
+        // 结论文本以子代理的真实产出为准：调用方只能提供**概要**（≤600），且该概要
+        // 必须是子代理结论的**逐字子串**——既保证概要有出处（不被父会话自由改写），
+        // 又让全文留在 transcript 里（21 §8「审核详情不入对象」）。
+        const conclusion = child.conclusion.trim();
+        if (summary !== null) {
+          if (!conclusion.includes(summary.trim())) {
+            return invalidRequest("workcase-write-object",
+              "the supplied summary is not a verbatim excerpt of the auditor subagent's captured conclusion — the "
+              + "recorded summary must be traceable to what the auditor actually produced, not rewritten by the parent "
+              + "session (防「代述」冒充). Pass an exact substring of its conclusion (the full text stays in the "
+              + "transcript, per 21 §8 审核详情不入对象).", "record_audit");
+          }
+          summary = summary.trim();
+        } else {
+          const firstParagraph = conclusion.split(/\n\s*\n/)[0].trim();
+          if (firstParagraph.length <= 600) {
+            summary = firstParagraph;
+          } else {
+            return invalidRequest("workcase-write-object",
+              "the auditor subagent's conclusion is longer than the 600-char pre_reviews[].summary cap (21 §8). The full "
+              + "text belongs in the transcript (审核详情不入对象); pass `summary` as a verbatim excerpt (≤600 chars) of "
+              + "it. Refusing rather than truncating: a silently truncated conclusion would read as complete.",
+              "record_audit");
+          }
+        }
+        auditorIdentity = authoritativeSessionIdentity({ sessionId: child.sessionId, source: "host", origin: "subagent" });
+        if (auditorIdentity === null) {
+          return invalidRequest("workcase-write-object", `subagent ${childAgentId} carries no usable session identity`, "record_audit");
+        }
+        auditorChildNote = childAgentId;
+      } else {
+        // 承载形式唯一化（与 record_review 同纪律；21 §14 承载形式依 04 §7.3 的
+        // 类比定位）：建前独立审核只承认受管辖隔离子代理（独立上下文）一种承载，
+        // 由父会话以 `auditor_child_agent_id` 回传。fail-closed 而非降级放行——
+        // 否则「主控自己写一段审核结论」即可满足覆盖闸，闸门形同虚设。
+        return invalidRequest("workcase-write-object",
+          "record_audit requires `auditor_child_agent_id`: 建前独立审核的唯一承载形式是受管辖隔离子代理（独立上下文，21 §14）。"
+          + "未提供子代理 id 时本调用方将以自身会话身份盖戳，产出的是主控自查而非独立审核——按 00 §5.7 停止并报告，"
+          + "不得以自查冒充。请派一个隔离子代理做建前独立审核（须后台派生以取得其 agent_id），完成后以 "
+          + "`auditor_child_agent_id` 回传；若无法创建子代理或 id 不可回传，按 00 §5.7 停止并报告。",
+          "record_audit",
+        );
+      }
+      if (summary === null) {
+        return invalidRequest(
+          "workcase-write-object",
+          "summary (the audit conclusion, ≤600 chars, covering the three dimensions 对象恰当性／方案可行性／scope 清晰度, each with 符合/不符＋证据) is required for action=record_audit",
+          "record_audit",
+        );
+      }
+      if (verdict === null) {
+        return invalidRequest(
+          "workcase-write-object",
+          "verdict (\"pass\" | \"needs_revision\") is required for action=record_audit — 覆盖闸只认 pass，missing/unknown 一律 fail closed（21 §8）",
+          "record_audit",
+        );
+      }
+      if (!ident.ok) {
+        return envelope("workcase-write-object", "unavailable", {
+          result: null,
+          scope: { requested: action, completed: [], not_completed: [action] },
+          sources: [],
+          gaps: [`audit_identity_unavailable: the caller's authoritative session identity could not be read from the DSH session record (${ident.reason}). `
+            + "This channel exists precisely so that WHO recorded an audit is proven by Code, not asserted by a caller — "
+            + "recording without it would make an implementer's self-check indistinguishable from an independent audit. "
+            + "REPORT TO HUMAN: run the audit from a DSH session whose session log is readable, then retry."],
+          verification: { checks: ["governance-scope", "signature-source", "session-identity"], passed: false },
+          follow_up: ["human must ensure the auditing session's authoritative record is readable, then retry"]
+        });
+      }
+      result = await recordWorkcaseAudit({
+        factSourceRoot, objectUid, expectedFingerprint, summary, verdict,
+        changeSummary, sessionSignature: sig.value, sessionIdentity: auditorIdentity,
+        auditorNote: auditorChildNote === null ? null : `记录自子代理会话 ${auditorChildNote} 的最终产出（Code 捕获）`,
+      });
     } else if (action === "correct") {
       // 终态事实更正（21 §9.2:259 / 03 §9.5 / §10）：**只对 closed 对象**，
       // 且**只改正文**——`frontmatter_after` 不是可选而是根本不存在于本动作：
@@ -984,6 +1101,26 @@ function parameterSchemaFor(operationKey) {
           additionalProperties: false,
         },
       },
+      pre_reviews: {
+        type: "array",
+        description: "建前独立审核的节点概要流水（**审核轴**，21 §8，2026-10-16 建立）：与 reviews 的复核轴分立互不替代。draft 期可行（Gate 1 提请前须至少一条覆盖当前候选）；open/closed 期保留为历史。正常写入通道是 action=record_audit（经 auditor_child_agent_id 回传），本字段在此声明以便整对象 carried write 不被工具面拒绝；at/署名/session_id/auditor_origin/candidate_fingerprint 均由 Code 托管，AI 不得自填。条数上限 20；同一次审核事项（同一 candidate_fingerprint）最多 3 条",
+        items: {
+          type: "object",
+          properties: {
+            at: { type: "string", description: "[Code-managed] RFC3339 — stamped by the writer" },
+            provider: { type: "string", description: "[Code-managed] authoritative provider from the session record" },
+            model: { type: "string", description: "[Code-managed] authoritative model from the session record" },
+            summary: { type: "string", description: "三维结论概要（对象恰当性／方案可行性／scope 清晰度，各含符合/不符＋证据）：≤ 600 字符" },
+            session_id: { type: "string", description: "[Code-managed] 审核者会话身份（取自 DSH 会话记录）" },
+            session_source: { type: "string", description: "[Code-managed] host | shell（仅 host 可作为判据）" },
+            auditor_origin: { type: "string", description: "[Code-managed] 审核者来源形态；受管辖隔离子代理记 subagent（21 §14 承载形式唯一化的机械凭据）" },
+            candidate_fingerprint: { type: "string", description: "[Code-managed] 该次审核针对的 plan+scope 内容指纹（与 gate_1.authorization_fingerprint 同源函数计算）；覆盖闸据此判定「审的是不是当前这一版」。AI 不得自填" },
+            verdict: { type: "string", enum: ["pass", "needs_revision"], description: "审核结论（21 §8 闭集）；覆盖闸只认 pass" },
+          },
+          required: ["summary", "verdict"],
+          additionalProperties: false,
+        },
+      },
       outcome: { type: "string", enum: ["completed", "partial", "not-achieved", "cancelled"], description: "[Code-stamped on close] 终态判定（21 §9.3）" },
       refs: {
         type: "array",
@@ -1028,7 +1165,9 @@ function parameterSchemaFor(operationKey) {
     by: { type: "string", description: "decide_adjustment: 作出决定的人（同 gate_1.approver 的形态，21 §14）。**先决：须同时给出 human_authorization（Human 的授权记录，缺之 fail-closed，与 correct 同规格）**；**注意：`by` 是自报文本**——「谁批的」的可核痕迹来自 Code 托管的决定者会话身份（**在能取得 host 来源身份时**盖戳进 decision.session_id；取不到时该痕迹缺失，返回值的 decider_identity 会显式报 unavailable），规范已如实声明该边界" },
     human_authorization: { type: "string", description: "decide_adjustment: **必填**——Human 的授权记录（谁／何时／覆盖什么），与 correct 的 human_authorization 同规格，缺之 fail-closed。它会被写进 change_log；**它不证明 Human 真的批过**，只让「没有转述的批准」机械上不可发生（21 §14）" },
     summary: { type: "string", description: "record_review: the review conclusion (≤600 chars), carrying the 02 §16 seven elements (对象/基线/方法/覆盖/未覆盖/发现/保证边界). `at`, provider/model and session_id are stamped by Code — the caller supplies only this text. When reviewer_child_agent_id is given, this MUST match the subagent's captured conclusion verbatim (or be omitted to adopt it)." },
-    reviewer_child_agent_id: { type: "string", description: "record_review: relay an ISOLATED SUBAGENT's review — REQUIRED (04 §7.3: 受管辖隔离子代理是独立复核的唯一承载形式). Pass its agent id (from a BACKGROUND subagent spawn — a synchronous spawn's id is reclaimed on return and cannot be relayed). The identity and the conclusion text are then taken from the host's own subagent registry (Code-observed, not settable by the caller), so the implementer can neither forge the reviewer's identity nor substitute its own text. Omitting it is refused: recording your own session's review is 主控自查, not 独立复核 — stop and report to Human (00 §5.7) instead." }
+    reviewer_child_agent_id: { type: "string", description: "record_review: relay an ISOLATED SUBAGENT's review — REQUIRED (04 §7.3: 受管辖隔离子代理是独立复核的唯一承载形式). Pass its agent id (from a BACKGROUND subagent spawn — a synchronous spawn's id is reclaimed on return and cannot be relayed). The identity and the conclusion text are then taken from the host's own subagent registry (Code-observed, not settable by the caller), so the implementer can neither forge the reviewer's identity nor substitute its own text. Omitting it is refused: recording your own session's review is 主控自查, not 独立复核 — stop and report to Human (00 §5.7) instead." },
+    auditor_child_agent_id: { type: "string", description: "record_audit: relay an ISOLATED SUBAGENT's pre-Gate-1 audit — REQUIRED, same mechanism and same rationale as reviewer_child_agent_id (21 §14「建前审核记录」). Pass a BACKGROUND-spawned audit subagent's agent id; the identity and conclusion text are taken from the host's own subagent registry, so the implementer cannot forge the auditor's identity nor substitute its own conclusion. Omitting it is refused — otherwise a self-written audit would satisfy the coverage gate and the gate would be vacuous. This channel acts on status=draft only (the audit axis targets a candidate that has not yet taken effect)." },
+    verdict: { type: "string", enum: ["pass", "needs_revision"], description: "record_audit: the audit verdict (21 §8 closed set). The Gate 1 coverage gate accepts ONLY \"pass\"; an unknown or missing value fails closed. `candidate_fingerprint` is computed by Code (same function as gate_1.authorization_fingerprint) and cannot be supplied by the caller — otherwise the「which version was audited」criterion would be handed to the party being judged." }
   };
   switch (operationKey) {
     case "workcase-read-object":
@@ -1063,7 +1202,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          action: { type: "string", enum: ["create", "approve", "execute", "close", "rebatch", "cancel", "revise", "correct", "record_review", "request_adjustment", "decide_adjustment"] },
+          action: { type: "string", enum: ["create", "approve", "execute", "close", "rebatch", "cancel", "revise", "correct", "record_review", "record_audit", "request_adjustment", "decide_adjustment"] },
           frontmatter_draft: workcaseFrontmatter,
           body_markdown: { type: "string", description: "create: the body markdown starting with '## 摘要' (H2 sections 摘要/授权范围/计划; the H1 is generated from title)" },
           expected_candidate_fingerprint: { type: "string", description: "create: the candidate_fingerprint returned by ldvh_workcase_precheck_create for THIS candidate content. When supplied, the write refuses if the content changed in between — so a precheck verdict never silently carries over to a different candidate (21 §14 create). Optional: omit when the candidate was not prechecked." },

@@ -389,7 +389,7 @@ const FINGERPRINT_PATTERN = /^[0-9a-f]{64}$/;
 export const VALID_FM_KEYS = new Set([
   "fact_type_key", "object_uid", "title", "status",
   "gist", "serves", "summary", "scope", "plan",
-  "gate_1", "attempt", "reviews", "result", "outcome",
+  "gate_1", "attempt", "reviews", "pre_reviews", "result", "outcome",
   "refs", "relations", "created_at", "change_log",
 ]);
 
@@ -407,6 +407,13 @@ export const REVIEW_SUMMARY_MAX_CHARS = 600;
 
 /** 21 §8: `reviews` 的条数上限（起草者按 Human「其他按你推荐」授权定为 20，比照 20 §8 evolution）。 */
 export const REVIEW_ENTRIES_MAX = 20;
+
+/**
+ * 21 §9.2「审核结论与主控判断不一致时的处置」：**同一次审核事项**最多 3 次。
+ * 计数以 `candidate_fingerprint` 为界（同一指纹的 `pre_reviews` 条目数），
+ * 指纹一变即为新事项、计数归零。达上限时拒绝第 4 条并转 Human 裁决。
+ */
+export const PRE_AUDIT_ENTRIES_PER_MATTER_MAX = 3;
 
 /** 03 §7.2 / 21 §8: bounded ordinary content references. */
 export const REFS_ENTRIES_MAX = 10;
@@ -491,7 +498,7 @@ function buildFileContent(frontmatter, body) {
 export const FRONTMATTER_FIELD_ORDER = [
   "fact_type_key", "object_uid", "title", "status", "gist",
   "serves", "summary", "scope", "plan",
-  "gate_1", "attempt", "reviews", "result", "outcome",
+  "pre_reviews", "gate_1", "attempt", "reviews", "result", "outcome",
   "refs", "relations", "created_at", "change_log",
 ];
 
@@ -862,6 +869,64 @@ function validateReviews(frontmatter, issues) {
   });
 }
 
+/**
+ * 21 §8：`pre_reviews`（**审核轴**的节点概要流水；2026-10-16 建立）。
+ *
+ * 与 `validateReviews` 形态对称、语义分立。两处关键差异：
+ *   ① 形状必填项不同——本类型以 `candidate_fingerprint`（64-hex）替代复核轴的
+ *      `implementer_*` 比对基准：审核轴的对象是**候选内容**，不是某次执行。
+ *   ② `verdict` 是闭集，且覆盖闸只认 `pass`——故形状校验必须拒绝未知值，
+ *      否则一个拼错的 verdict 会静默地永远无法满足覆盖闸（fail closed）。
+ */
+function validatePreReviews(frontmatter, issues) {
+  const list = frontmatter.pre_reviews;
+  if (list === undefined) return;
+  if (!Array.isArray(list)) {
+    issues.push("pre_reviews: must be an array of {at, provider, model, summary, session_id, candidate_fingerprint, verdict} (21 §8)");
+    return;
+  }
+  if (list.length === 0) {
+    issues.push("pre_reviews: must be omitted when there are no audit entries — an empty array fabricates a conditional field (03 §6.1)");
+    return;
+  }
+  if (list.length > REVIEW_ENTRIES_MAX) {
+    issues.push(`pre_reviews: exceeds the ${REVIEW_ENTRIES_MAX}-entry cap (21 §8); refuse rather than truncate or compress existing entries`);
+  }
+  list.forEach((entry, i) => {
+    if (!isPlainObject(entry)) {
+      issues.push(`pre_reviews[${i}]: must be an object {at, provider, model, summary, session_id, candidate_fingerprint, verdict} (21 §8)`);
+      return;
+    }
+    const extra = Object.keys(entry).filter((k) => !["at", "provider", "model", "summary", "session_id", "session_source", "auditor_origin", "candidate_fingerprint", "verdict"].includes(k));
+    if (extra.length > 0) issues.push(`pre_reviews[${i}]: unexpected field(s) ${extra.join(", ")} (only at/provider/model/summary/session_id/session_source/auditor_origin/candidate_fingerprint/verdict)`);
+    if (typeof entry.at !== "string" || !RFC3339_PATTERN.test(entry.at)) {
+      issues.push(`pre_reviews[${i}].at: required RFC3339 (Code-managed)`);
+    }
+    if (typeof entry.provider !== "string" || entry.provider.length === 0) {
+      issues.push(`pre_reviews[${i}].provider: required non-empty (Code-managed authoritative signature)`);
+    }
+    if (typeof entry.model !== "string" || entry.model.length === 0) {
+      issues.push(`pre_reviews[${i}].model: required non-empty (Code-managed authoritative signature)`);
+    }
+    if (entry.session_id !== undefined && (typeof entry.session_id !== "string" || entry.session_id.length === 0)) {
+      issues.push(`pre_reviews[${i}].session_id: when present must be a non-empty string (Code-managed session identity, 21 §14)`);
+    }
+    // `candidate_fingerprint` 是覆盖闸的判据本体：形状必须可校验，否则
+    // 比对退化为字符串相等而无法发现「写进去的是别的东西」。
+    if (typeof entry.candidate_fingerprint !== "string" || !FINGERPRINT_PATTERN.test(entry.candidate_fingerprint)) {
+      issues.push(`pre_reviews[${i}].candidate_fingerprint: required 64-hex SHA-256 over the candidate's plan+scope (Code-computed, 21 §8)`);
+    }
+    if (entry.verdict !== "pass" && entry.verdict !== "needs_revision") {
+      issues.push(`pre_reviews[${i}].verdict: must be "pass" or "needs_revision" (21 §8 闭集; the Gate 1 coverage gate accepts only "pass")`);
+    }
+    if (typeof entry.summary !== "string" || entry.summary.trim().length === 0) {
+      issues.push(`pre_reviews[${i}].summary: required non-empty (三维结论概要)`);
+    } else if (entry.summary.length > REVIEW_SUMMARY_MAX_CHARS) {
+      issues.push(`pre_reviews[${i}].summary: ${entry.summary.length} chars exceeds the ${REVIEW_SUMMARY_MAX_CHARS}-char cap (21 §8)`);
+    }
+  });
+}
+
 function validateResult(frontmatter, issues) {
   const r = frontmatter.result;
   if (!isPlainObject(r)) {
@@ -1016,6 +1081,14 @@ export function validateWorkcaseFrontmatter(frontmatter, baselinePlan = null, ba
     } else {
       validateReviews(frontmatter, issues);
     }
+  }
+  // pre_reviews（**审核轴**，2026-10-16 建立）：draft 期可行（Gate 1 提请前须至少
+  // 一条覆盖当前候选）；open/closed 期保留为历史。与 `reviews` 相反——后者在 draft
+  // 期**不得**出现。两轴的生命周期位置不同，故此处不能与上一条合并判断。
+  if (frontmatter.pre_reviews !== undefined) {
+    // 上限门禁在写入侧（recordWorkcaseAudit）逐次拒绝，此处只做形状校验——
+    // 同一判据两处实现必然分歧（09 §5 一致性纪律），故不重复计数。
+    validatePreReviews(frontmatter, issues);
   }
   // result/outcome 出现 ⇔ status=closed (§8)
   if (frontmatter.result !== undefined || frontmatter.outcome !== undefined) {
@@ -2539,6 +2612,61 @@ export async function approveWorkcaseObject(args) {
     return failure("workcase/transition_invalid", `Gate 1 approval requires status=draft, got ${JSON.stringify(fm.status)} (21 §9.2)`);
   }
 
+  // -------------------------------------------------------------------------
+  // Gate 1 前置·建前独立审核的两道机械门禁（21 §14 / §15.1，2026-10-16 建立）
+  //
+  // 规范背景：21 §14 要求 Gate 1 前必经一次建前独立审核。修订前该结论只是
+  //   「提请要素」（gate1_request 第五要素），不落对象字段、不做指纹绑定 ——
+  //   故「审没审」「审的是哪一版」都不可机械核验，一条审过又改的候选可直接进
+  //   Gate 1（实测：workcase-c36b0208 的审核裁决为「建议修订，3 项必改」，
+  //   而该候选随后仍以 draft 进 Gate 1 —— 因为判据只作用于提请那一刻）。
+  //
+  // 两道闸的**判据一概读 pre_reviews 字段**，不解析提请文本（21 §14 结论承载条
+  //   定「以 pre_reviews 为唯一权威」）。二者与关闭侧 `result_proposal_required`
+  //   （本文件 :3180 起，Human 裁定 2026-10-14）**同构**：那道闸证明「结果节不是
+  //   与关闭同批写入」，这两道闸证明「审核印记不是与批准同批写入」「存在一条针对
+  //   当前内容的通过结论」。
+  //
+  // ## 保证边界（不得作过度声明，21 §15.1/§16 已登记）
+  //   本组只证明两个**形式事实**：
+  //     ① 上一次落盘的 draft 已带 pre_reviews（⇒ 审核印记非与批准同批写入）；
+  //     ② 存在一条其 candidate_fingerprint 等于当前 plan+scope 指纹且 verdict=pass
+  //        的条目（⇒ 存在针对**当前**内容的通过结论，故「审完又改」不会沿用旧结论）。
+  //   **不证明**审核实际执行过、视角实质独立、三维覆盖充分、结论正确或方案可行 ——
+  //   那属 Human 批准时阅读把关（同关闭侧身份门禁的分工口径）。
+  //   本闸的作用是让**流程不可被静默合并**，而非让「审核」不可伪造；后者需 Human
+  //   侧凭证，进程内做不到（同 :3180 关闭闸的边界声明）。
+  const priorPreReviews = Array.isArray(fm.pre_reviews) ? fm.pre_reviews : [];
+  if (priorPreReviews.length === 0) {
+    return failure(
+      "workcase/pre_gate1_audit_proposal_required",
+      "Gate 1 approval refused: 上一次落盘的 draft **尚无 `pre_reviews` 条目**——建前独立审核须先行落盘，"
+      + "不得与批准同批写入（21 §14 Gate 1 前置·时序闸；同构于关闭侧「关闭提案须先行落盘」）。"
+      + "正确次序：先派受管辖隔离子代理做建前独立审核，完成后经 action=record_audit 以 "
+      + "`auditor_child_agent_id` 回传其结论（对象即在 Web 上呈现为「待建前审核」，`status` 保持 draft），"
+      + "再 action=approve 提请 Human 批准。本次调用把两者合并，会使 Gate 1 的授权在没有独立审核落点的"
+      + "情况下生效（21 §9.1：Gate 1 是 Human Gate，其前置把关须可回读）。",
+    );
+  }
+  const currentPairFingerprint = computeAuthorizationFingerprint(fm.plan, fm.scope);
+  const coveringAudit = priorPreReviews.find((entry) => (
+    isPlainObject(entry)
+    && entry.candidate_fingerprint === currentPairFingerprint
+    && entry.verdict === "pass"
+  ));
+  if (coveringAudit === undefined) {
+    return failure(
+      "workcase/pre_gate1_audit_not_covering_candidate",
+      "Gate 1 approval refused: 不存在一条 `pre_reviews` 条目，其 `candidate_fingerprint` 等于当前 "
+      + "`plan`+`scope` 的指纹且 `verdict = pass`（21 §14 Gate 1 前置·覆盖闸）。"
+      + "该字段现有 " + String(priorPreReviews.length) + " 条，但无一覆盖**当前**候选内容——"
+      + "最可能的原因是审核之后 `plan`/`scope` 又被改动（审完又改），旧结论不覆盖当前候选。"
+      + "正确处置：对当前内容重做（或按变化幅度增量）建前独立审核，再经 action=record_audit 落盘。"
+      + "注意「同一次审核事项最多 3 次」的计数以 `candidate_fingerprint` 为界——指纹一变即为新事项，"
+      + "计数归零（21 §9.2）。",
+    );
+  }
+
   const now = new Date().toISOString();
   const next = structuredClone(fm);
   next.status = "open";
@@ -2844,6 +2972,143 @@ export async function recordWorkcaseReview(args) {
   const written = await writeValidated(factSourceRoot, next, body, fm, current.value.body);
   if (!written.ok) return written;
   return success({ ...written.value, review_session_id: identity.sessionId });
+}
+
+// ---------------------------------------------------------------------------
+// 建前审核记录 — 审核轴（21 §14「建前审核记录」，2026-10-16 建立）
+// ---------------------------------------------------------------------------
+
+/**
+ * 审核轴的**唯一回传通道**：只追加一条 `pre_reviews` 条目，不授予任何其它写能力。
+ *
+ * 与 `recordWorkcaseReview`（复核轴）**形态同构、语义分立**：
+ *   - 复核轴核对**已发生的工作与结果**（关闭端）；本轴对**尚未取得效力的候选**
+ *     主动找错（Gate 1 前）。两轴对象、时点、主体皆不同，互不替代
+ *     （01 §5 第 12 项）。
+ *   - 身份与结论的**不可自证性**要求与复核轴完全相同：若本通道允许调用方自填
+ *     身份或自由改写结论，则「AI 自写一段审核结论」即可满足 Gate 1 的覆盖闸，
+ *     闸门形同虚设。故身份取自宿主子代理登记表（Code 亲观测），`summary` 须为
+ *     子代理捕获结论的**逐字子串**（防父会话代述）。
+ *
+ * ## 与 `recordWorkcaseReview` 的唯一实质差异
+ *   状态约束相反：本通道**只对 `status = draft` 开放**（审核轴的对象是尚未取得
+ *   效力的候选）；复核轴只对 `open` 开放。`open` 期已获授权，其把关归复核轴。
+ *
+ * ## 上限门禁（21 §9.2「审核结论与主控判断不一致时的处置」）
+ *   本事项（`candidate_fingerprint` 相同）条目数达 3 时**拒绝第 4 条**，转为提请
+ *   Human 裁决，对象保持 `draft`。计数以 `candidate_fingerprint` 为界——指纹一变
+ *   即为新事项，计数归零。这使 21 §14 末句此前无载体的再验纪律获得机械执行。
+ */
+export async function recordWorkcaseAudit(args) {
+  const {
+    factSourceRoot, objectUid, expectedFingerprint, summary, verdict,
+    changeSummary = null, sessionSignature = null, sessionIdentity = null,
+    auditorNote = null,
+  } = args;
+  const sig = requireAuthoritativeSignature(sessionSignature);
+  if (!sig.ok) return failure(sig.code, sig.message);
+  if (typeof summary !== "string" || summary.trim().length === 0) {
+    return failure("invalid_request", "summary is required (the audit conclusion, ≤600 chars, carrying the three dimensions 对象恰当性／方案可行性／scope 清晰度, each with 符合/不符＋证据)");
+  }
+  if (summary.length > REVIEW_SUMMARY_MAX_CHARS) {
+    return failure("invalid_request", `summary: ${summary.length} chars exceeds the ${REVIEW_SUMMARY_MAX_CHARS}-char cap (21 §8)`);
+  }
+  // verdict 是审核结论的机械落点（覆盖闸只认 pass）：闭集校验，未知值 fail closed。
+  if (verdict !== "pass" && verdict !== "needs_revision") {
+    return failure("invalid_request", `verdict must be "pass" or "needs_revision" (21 §8 pre_reviews.verdict 闭集), got ${JSON.stringify(verdict)}`);
+  }
+  // 身份不可得即拒绝 —— 与 recordWorkcaseReview 同一理由：本通道的价值全在
+  // 「谁记的」由 Code 证明；允许无身份写入等于给出一条可被实施者冒用的通道。
+  const identity = hostSessionIdentity(sessionIdentity);
+  if (identity !== null && identity.source === "shell") {
+    return failure(
+      "workcase/audit_identity_untrusted",
+      "refusing to record an audit with a shell-sourced session identity: that channel reads "
+      + "DSH_SESSION_JSONL / DSH_HOME+DSH_SESSION_ID, and BOTH are settable by the caller (a single bash "
+      + "invocation can mint any identity) — so it cannot evidence an independent audit "
+      + "(同 record_review 的 workcase-2be11478 教训，21 §14). Record the audit through the governed tool "
+      + "surface of a session whose identity comes from the host execution context "
+      + "(ldvh_workcase_write action=record_audit), which stamps source=\"host\".",
+    );
+  }
+  if (identity === null) {
+    return failure(
+      "workcase/audit_identity_unavailable",
+      "refusing to record an audit without the caller's authoritative session identity: the identity must come "
+      + "from the DSH session record via the branded carrier (21 §14). An unsigned-identity audit would be "
+      + "indistinguishable from an audit the implementer wrote for itself — which is exactly what the coverage "
+      + "gate is supposed to prevent.",
+    );
+  }
+  const current = await loadAndCheckFingerprint(factSourceRoot, objectUid, expectedFingerprint);
+  if (!current.ok) return current;
+  const fm = current.value.frontmatter;
+  if (fm.status !== "draft") {
+    return failure(
+      "workcase/transition_invalid",
+      `audit recording requires status=draft, got ${JSON.stringify(fm.status)} (21 §9.2: 审核轴的对象是尚未取得效力的候选；`
+      + "open 期已获授权，其把关归复核轴 record_review；closed 为终态)",
+    );
+  }
+
+  // 候选指纹由 Code 计算（与 gate_1.authorization_fingerprint 同源函数）——
+  // 调用方不可自填，否则「审的是哪一版」的判据交给被判方。
+  const candidateFingerprint = computeAuthorizationFingerprint(fm.plan, fm.scope);
+  const existing = Array.isArray(fm.pre_reviews) ? fm.pre_reviews : [];
+
+  // 上限门禁（21 §9.2）：只数**本事项**（同指纹）的条目，不跨事项累加。
+  const sameMatterCount = existing.filter((entry) => (
+    isPlainObject(entry) && entry.candidate_fingerprint === candidateFingerprint
+  )).length;
+  if (sameMatterCount >= PRE_AUDIT_ENTRIES_PER_MATTER_MAX) {
+    return failure(
+      "workcase/pre_gate1_audit_round_cap",
+      `建前审核已就本候选内容（同一 candidate_fingerprint）记录 ${sameMatterCount} 条，达上限 ${PRE_AUDIT_ENTRIES_PER_MATTER_MAX} —— `
+      + "拒绝第 4 次（21 §9.2「同一次审核事项最多 3 次」；第 4 次不得发起）。对象保持 `draft`，"
+      + "**停止自动循环并提请 Human 裁决**（改方案收敛、改对象承载或放弃建单）。"
+      + "注意计数以 `candidate_fingerprint` 为界：`plan`/`scope` 实质变化即为新事项、计数归零 —— "
+      + "但不得以此为手段绕过上限（那属把内容反复改动以重置计数，须如实登记为异常）。",
+    );
+  }
+  if (existing.length >= REVIEW_ENTRIES_MAX) {
+    return failure(
+      "workcase/pre_reviews_entries_exhausted",
+      `pre_reviews already holds ${existing.length} entries (cap ${REVIEW_ENTRIES_MAX}, 21 §8): refuses to truncate or compress `
+      + "existing entries. Report to Human — this object needs a decision, not a dropped history.",
+    );
+  }
+
+  const next = structuredClone(fm);
+  // 只追加，不触碰：plan/scope/gate_1/attempt/result/outcome 全部沿用落盘对象。
+  const now = new Date().toISOString();
+  next.pre_reviews = [...existing, {
+    at: now,
+    provider: sig.signature.provider ?? null,
+    model: sig.signature.model ?? null,
+    summary,
+    session_id: identity.sessionId,
+    session_source: identity.source,
+    auditor_origin: identity.origin ?? null,
+    candidate_fingerprint: candidateFingerprint,
+    verdict,
+  }];
+  appendChangeLog(
+    next, sig,
+    (typeof changeSummary === "string" && changeSummary.length > 0 ? changeSummary : "记录一条建前审核结论")
+      + ` [pre-gate1 audit recorded by session ${identity.sessionId}; verdict: ${verdict}; `
+      + `candidate_fingerprint: ${candidateFingerprint.slice(0, 12)}…; pre_reviews entries: ${existing.length + 1}`
+      + `${typeof auditorNote === "string" && auditorNote.length > 0 ? `; ${auditorNote}` : ""}]`,
+  );
+
+  const body = assembleBody(next.title, current.value.body.replace(/^#\s+.*\n+/, ""));
+  const written = await writeValidated(factSourceRoot, next, body, fm, current.value.body);
+  if (!written.ok) return written;
+  return success({
+    ...written.value,
+    audit_session_id: identity.sessionId,
+    candidate_fingerprint: candidateFingerprint,
+    verdict,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -3353,11 +3618,23 @@ export async function rebatchWorkcaseObject(args) {
   // 「draft 不得携带 reviews」的既有不变量（writer:472），又不丢历史。
   const voidedReviews = Array.isArray(fm.reviews) ? fm.reviews.length : 0;
   delete next.reviews;
+  // `pre_reviews` 处置（21 §9.2，2026-10-16 建立）：与 `reviews` **同纪律**——重批使
+  // `plan`/`scope` 实质变化，旧建前审核针对的是**旧候选内容**（其
+  // `candidate_fingerprint` 即旧指纹），故不得延续为当前候选的审核记录。
+  //
+  // 清零在此处**是必须的，不只是整洁**：留存的旧条目其指纹与重批后的指纹必然失配，
+  // 覆盖闸（approveWorkcaseObject）本就会拒绝批准——清零只是让该状态在字段上直接
+  // 可读，并使「重批后重走 Gate 1 前须重做建前审核」（§14）在机械上不可绕过。
+  // 「该次审核确实发生过」是历史事实，故要点（条数）以语义摘要形式随本次 change_log
+  // 留痕，与 `criteria_checks`/`reviews` 的既有处置范式同形。
+  const voidedPreReviews = Array.isArray(fm.pre_reviews) ? fm.pre_reviews.length : 0;
+  delete next.pre_reviews;
   appendChangeLog(
     next,
     sig,
     `${changeSummary} [C2 局部重批 open→draft; attempt ${voidedAttempt ?? "none"} voided, gate_1 dropped`
     + `${voidedReviews > 0 ? `, ${voidedReviews} 条 reviews 随授权失效作废（旧复核针对旧 plan/scope；概要要点见本条语义摘要）` : ""}`
+    + `${voidedPreReviews > 0 ? `, ${voidedPreReviews} 条 pre_reviews 随候选变更作废（旧审核针对旧 plan/scope；重走 Gate 1 前须重做建前审核，21 §14）` : ""}`
     + ` — 重新组织后重走 Gate 1]`,
   );
 

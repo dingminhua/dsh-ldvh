@@ -18,8 +18,8 @@ import { mkdir, writeFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
 import { registerWorkcaseTools } from "../lib/workcase-tools.js";
-import { createWorkcaseObject, readWorkcaseObject } from "../lib/workcase-writer.js";
-import { authoritativeSignature } from "../lib/signature-channel.js";
+import { createWorkcaseObject, readWorkcaseObject, recordWorkcaseAudit } from "../lib/workcase-writer.js";
+import { authoritativeSignature, authoritativeSessionIdentity } from "../lib/signature-channel.js";
 import { goalObjectiveFor } from "../lib/workcase-goals.js";
 
 const SIG = () => authoritativeSignature({ provider: "test-provider", model: "test-model" });
@@ -150,14 +150,30 @@ async function surface(base, goals) {
     sessionPersistence: sessionPersistenceWithRoutingLog(base),
     ...(goals === undefined ? {} : { goals: () => goals }),
   });
+  // Gate 1 前置·时序闸（21 §14，2026-10-16 建立）：建前审核须先落盘，否则 approve
+  // 被拒。本工件的被测对象是「宿主推进目标」接线，不是审核通道，故直接经 writer
+  // 注入一条覆盖当前候选的通过审核结论作夹具（审核通道自身的契约测试见
+  // workcase-writer.test.mjs）。
+  const seeded = await readWorkcaseObject({ factSourceRoot, objectUid: created.value.object_uid });
+  const audit = await recordWorkcaseAudit({
+    factSourceRoot,
+    objectUid: created.value.object_uid,
+    expectedFingerprint: seeded.value.fingerprint,
+    summary: "对象恰当性符合；方案可行性符合；scope 清晰度符合（夹具注入）",
+    verdict: "pass",
+    changeSummary: "记录一条建前审核结论（夹具）",
+    sessionSignature: SIG(),
+    sessionIdentity: authoritativeSessionIdentity({ sessionId: "session-auditor-fx", source: "host", origin: "subagent" }),
+  });
+  assert.ok(audit.ok, `fixture audit: ${JSON.stringify(audit.error)}`);
+  const audited = await readWorkcaseObject({ factSourceRoot, objectUid: created.value.object_uid });
   return {
     write: tools.get("ldvh_workcase_write"),
     factSourceRoot,
     objectUid: created.value.object_uid,
-    fingerprint: created.value.fingerprint,
+    fingerprint: audited.value.fingerprint,
     title: DRAFT.title,
-    exec: { agent: { session: { header: { cwd: projectDir } } } },
-  };
+    exec: { agent: { session: { header: { cwd: projectDir } } } },  };
 }
 
 function approveArgs(surface) {

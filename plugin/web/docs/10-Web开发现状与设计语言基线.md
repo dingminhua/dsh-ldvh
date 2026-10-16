@@ -128,21 +128,25 @@ WorkCase / 工作责任是工作主线对象，可以拥有不同于研究、决
 
 WorkCase 的呈现状态由 `status` 闭集三值（`draft` / `open` / `closed`）直接读取，不引入 v4 的 `phase` 或任何多值进度词汇。`closed` 配 `outcome` 四值（`completed` / `partial` / `not-achieved` / `cancelled`）呈现终态徽标。
 
-列表筛选与收件箱**共用同一派生函数**（`web/shared/workcaseLifecycle.ts`，防口径漂移）。四个派生组与“全部”构成五档筛选：
+列表筛选与收件箱**共用同一派生函数**（`web/shared/workcaseLifecycle.ts`，防口径漂移）。五个派生组与“全部”构成六档筛选：
 
 | 派生组 | 派生判据 | 词条 |
 |---|---|---|
-| `pending_gate1` | `status = draft`（含 C2 局部重批回退的对象——同在等 Gate 1） | 待批准执行 |
+| `pending_gate1_review` | `status = draft` ∧ **不存在**覆盖当前 `plan`+`scope` 指纹且 `verdict = pass` 的 `pre_reviews` 条目 | 待建前审核 |
+| `pending_gate1` | `status = draft` ∧ **存在**覆盖当前 `plan`+`scope` 指纹且 `verdict = pass` 的 `pre_reviews` 条目（含 C2 局部重批回退的对象——同在等 Gate 1） | 待批准执行 |
 | `executing` | `status = open` ∧ 正文不含 H2「结果」节 | 执行中 |
 | `awaiting_gate2` | `status = open` ∧ 正文**含** H2「结果」节 | 待批准关闭 |
 | `closed` | `status = closed` | 已关闭 |
 
 派生组是**呈现层派生值，不写回对象**。它必须经语义映射本地化呈现（`getObjectStatusLocale` / `getObjectStatusHint`），不得裸露 `pending_gate1` 一类 raw snake_case。
 
-四个派生组的语义色按 `docs/01` §1.10.2 的精确映射，且**两个 Human Gate 待办组必须显著不同色**（Human 指令 2026-09-17）——二者语义相反，同色会使 Human 无法一眼分辨「尚未开始」与「已完工待验收」：
+**`pending_gate1_review` 的派生依据（2026-10-16 新增，承 `specs/21` §8/§14）**：判据取自**对象字段** `pre_reviews` 与当前 `plan`+`scope` 内容指纹的比对（`candidate_fingerprint` ＝ 当前指纹 ∧ `verdict = pass`），**不得**改用「审核是否已派发」一类运行期状态——那不是事实源中可读的稳定内容（同「待批准关闭」以正文节为判据的理由）。该档的意义是让 Human 一眼分辨「这份候选尚不能批」与「可以批了」，故 **`pending_gate1_review` 不进 Human 的 Gate 1 待办收件箱**，只有 `pending_gate1` 进。
+
+五个派生组的语义色按 `docs/01` §1.10.2 的精确映射，且**两个 Human Gate 待办组必须显著不同色**（Human 指令 2026-09-17）——二者语义相反，同色会使 Human 无法一眼分辨「尚未开始」与「已完工待验收」：
 
 | 派生组 | 语义 | 配色 |
 |---|---|---|
+| `pending_gate1_review` | 候选已落盘，尚未取得覆盖当前内容的建前审核结论 | 暖灰／砂（与「不可批」语义同族，**须与琥珀显著可辨**） |
 | `pending_gate1` | 工单尚未开始，等 Gate 1 放行 | 琥珀（与 `draft`/`pending` 待办族同源） |
 | `executing` | 正在执行 | 天蓝 |
 | `awaiting_gate2` | 工单已做完，等 Gate 2 验收 | 紫（Human 待确认紫系） |
@@ -196,7 +200,7 @@ WorkCase 身份 / 优先级 / SG / 修改次数 / 派生分组
 
 WorkCase 详情用于完整理解同一项当前责任。它**不自行渲染对象身份块**——类型标签、状态徽标、标题、更新时间与复制入口由共享 `ObjectIdentityHeader` 统一承载（`docs/01` §1.8.1）；详情页与右侧扩展阅读同源，不得出现两套头部。
 
-正文段按 `specs/21` §8 的三态语义组织，四个派生组各有面向当前判断的主体；但**字段在场性不随分组变化**：条件字段可以随事实是否形成而省略，已存在字段不能因对象处于某个派生分组而消失。`summary` / `serves` / `scope` 三个身份与授权字段在四个主体中一律呈现（有值即显示），分组只改变**强调**，不改变**在场字段集**。
+正文段按 `specs/21` §8 的三态语义组织，五个派生组各有面向当前判断的主体；但**字段在场性不随分组变化**：条件字段可以随事实是否形成而省略，已存在字段不能因对象处于某个派生分组而消失。`summary` / `serves` / `scope` 三个身份与授权字段在四个主体中一律呈现（有值即显示），分组只改变**强调**，不改变**在场字段集**。
 
 ```text
 身份头部（共享，不在此布局内重复）

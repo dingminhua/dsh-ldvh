@@ -31,10 +31,31 @@ import { mkdir, writeFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
 import { registerWorkcaseTools } from "../lib/workcase-tools.js";
-import { createWorkcaseObject, readWorkcaseObject } from "../lib/workcase-writer.js";
-import { authoritativeSignature } from "../lib/signature-channel.js";
+import { createWorkcaseObject, readWorkcaseObject, recordWorkcaseAudit } from "../lib/workcase-writer.js";
+import { authoritativeSignature, authoritativeSessionIdentity } from "../lib/signature-channel.js";
 
 const SIG = () => authoritativeSignature({ provider: "test-provider", model: "test-model" });
+
+/**
+ * Gate 1 前置·时序闸（21 §14，2026-10-16 建立）：审核须先落盘。本工件直接经
+ * writer 注入一条覆盖当前候选的通过审核结论作夹具——被测对象是 approve/execute
+ * 的信封投影，不是审核通道；审核通道自身的契约测试在 workcase-writer.test.mjs。
+ */
+async function seedAudit(factSourceRoot, objectUid) {
+  const cur = await readWorkcaseObject({ factSourceRoot, objectUid });
+  const rec = await recordWorkcaseAudit({
+    factSourceRoot,
+    objectUid,
+    expectedFingerprint: cur.value.fingerprint,
+    summary: "对象恰当性符合；方案可行性符合；scope 清晰度符合（夹具注入）",
+    verdict: "pass",
+    changeSummary: "记录一条建前审核结论（夹具）",
+    sessionSignature: SIG(),
+    sessionIdentity: authoritativeSessionIdentity({ sessionId: "session-auditor-fx", source: "host", origin: "subagent" }),
+  });
+  assert.ok(rec.ok, `fixture audit must be recorded: ${JSON.stringify(rec.error)}`);
+  return await readWorkcaseObject({ factSourceRoot, objectUid });
+}
 
 /** Minimal ctx capturing registered tool descriptors. */
 function collectorCtx() {
@@ -190,7 +211,8 @@ const GATE1_REQUEST = {
 test("approve envelope carries plan_step_reference — the caller can see the N it must cite (21 §8)", async () => {
   await withTemp("workcase-psr-", async (base) => {
     const { write, draft, factSourceRoot, objectUid, exec } = await surface(base);
-    const before = await readWorkcaseObject({ factSourceRoot, objectUid });
+    // Gate 1 前置·时序闸（21 §14）：审核须先落盘，否则 approve 被拒。
+    const before = await seedAudit(factSourceRoot, objectUid);
 
     const result = await write.execute({
       action: "approve",
@@ -221,7 +243,8 @@ test("approve envelope carries plan_step_reference — the caller can see the N 
 test("execute envelope carries plan_step_reference — a cross-session executor has the list too (21 §8)", async () => {
   await withTemp("workcase-psr-ex-", async (base) => {
     const { write, draft, factSourceRoot, objectUid, exec } = await surface(base);
-    const before = await readWorkcaseObject({ factSourceRoot, objectUid });
+    // Gate 1 前置·时序闸（21 §14）：审核须先落盘，否则 approve 被拒。
+    const before = await seedAudit(factSourceRoot, objectUid);
     const approved = await write.execute({
       action: "approve",
       object_uid: objectUid,

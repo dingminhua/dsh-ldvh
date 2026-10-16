@@ -32,6 +32,7 @@ import {
   reviseWorkcaseObject,
   correctWorkcaseObject,
   recordWorkcaseReview,
+  recordWorkcaseAudit,
   requestWorkcaseAdjustment,
   decideWorkcaseAdjustment,
   listWorkcaseObjects,
@@ -50,6 +51,8 @@ const SIG = () => authoritativeSignature({ provider: "p", model: "m" });
 // 不可由调用者设置）。shell 来源可被一行环境变量伪造，故被拒——测试夹具用 host。
 const IDENTITY = (sessionId, origin = null) => authoritativeSessionIdentity({ sessionId, source: "host", origin });
 const IMPLEMENTER = () => IDENTITY("session-implementer-test");
+/** 建前审核者会话身份：受管辖隔离子代理（`origin: "subagent"`），21 §14 承载形式唯一。 */
+const AUDITOR = () => IDENTITY("session-auditor-test", "subagent");
 // 复核者是**受管辖隔离子代理**（04 §7.3 独立复核唯一承载形式）：origin="subagent"
 // 使其 reviews 条目带 `reviewer_origin: subagent`，从而计入关闭门禁的承载形式判据。
 // 若改成根会话身份（origin 为 null），关闭会被 `review_form_not_subagent` 拒绝——
@@ -121,13 +124,39 @@ function bodyWithoutH1(body) {
   return String(body).replace(/^#\s+.*\n+/, "").replace(/\s+$/, "") + "\n";
 }
 
+/**
+ * 记录一条建前审核（21 §14「建前审核记录」，2026-10-16 建立），使 draft 满足
+ * Gate 1 的两道机械前置（时序闸／覆盖闸）。默认 `verdict = "pass"`；
+ * 传 `verdict: "needs_revision"` 可构造「未通过」，用于钉住覆盖闸。
+ */
+async function audited(root, appr, {
+  verdict = "pass",
+  summary = "对象恰当性符合；方案可行性符合；scope 清晰度符合（测试注入）",
+} = {}) {
+  const cur = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+  const rec = await recordWorkcaseAudit({
+    factSourceRoot: root,
+    objectUid: appr.uid,
+    expectedFingerprint: cur.value.fingerprint,
+    summary,
+    verdict,
+    changeSummary: "记录一条建前审核结论（测试）",
+    sessionSignature: SIG(),
+    sessionIdentity: AUDITOR(),
+  });
+  assert.ok(rec.ok, JSON.stringify(rec.error));
+  return await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+}
+
 async function approved(root, overrides = {}) {
   const { created } = await createDraft(root, overrides);
-  const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+  // Gate 1 前置·时序闸（21 §14）：审核须先落盘、不得与批准同批写入。故先经
+  // record_audit 写入覆盖当前候选的通过结论，再批准——这正是规范要求的次序。
+  const gate1Audit = await audited(root, { uid: created.value.object_uid });
   const ok = await approveWorkcaseObject({
     factSourceRoot: root,
     objectUid: created.value.object_uid,
-    expectedFingerprint: before.value.fingerprint,
+    expectedFingerprint: gate1Audit.value.fingerprint,
     approver: "human-test",
     controller: "controller-a",
     changeSummary: "Gate 1 批准（测试）",
@@ -1136,10 +1165,12 @@ test("rebatch: open→draft voids the attempt, drops gate_1/result, and attempt 
 
     // Re-approval after rebatch allocates attempt 2 (1 was used and voided —
     // never reused; the id history lives in change_log, 21 §10.4 单调).
+    // 重批后 pre_reviews 被清空（21 §9.2），故须对新候选重做建前审核再批准。
+    const reAudit = await audited(root, { uid });
     const re = await approveWorkcaseObject({
       factSourceRoot: root,
       objectUid: uid,
-      expectedFingerprint: read.value.fingerprint,
+      expectedFingerprint: reAudit.value.fingerprint,
       approver: "human-test",
       controller: "controller-c",
       changeSummary: "重批后再批准",
@@ -1881,11 +1912,11 @@ test("independence: a caller-supplied (forged) identity is discarded — only th
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const { created } = await createDraft(root);
-    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    const g1 = await audited(root, { uid: created.value.object_uid });
     const ok = await approveWorkcaseObject({
       factSourceRoot: root,
       objectUid: created.value.object_uid,
-      expectedFingerprint: before.value.fingerprint,
+      expectedFingerprint: g1.value.fingerprint,
       approver: "human-test",
       controller: "controller-a",
       changeSummary: "Gate 1 批准（伪造身份用例）",
@@ -2088,11 +2119,11 @@ test("independence: a legacy attempt without session_id is BACKFILLED by heartbe
     await seedGoal(root);
     // 模拟「本锚点之前建立」的对象：approve 时不带身份。
     const { created } = await createDraft(root);
-    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    const g1 = await audited(root, { uid: created.value.object_uid });
     const ok = await approveWorkcaseObject({
       factSourceRoot: root,
       objectUid: created.value.object_uid,
-      expectedFingerprint: before.value.fingerprint,
+      expectedFingerprint: g1.value.fingerprint,
       approver: "human-test",
       controller: "controller-a",
       changeSummary: "Gate 1 批准（存量对象：无身份）",
@@ -2256,10 +2287,10 @@ test("independence: a legacy attempt lacking session_source is backfilled only b
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const { created } = await createDraft(root);
-    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    const g1 = await audited(root, { uid: created.value.object_uid });
     const ok = await approveWorkcaseObject({
       factSourceRoot: root, objectUid: created.value.object_uid,
-      expectedFingerprint: before.value.fingerprint,
+      expectedFingerprint: g1.value.fingerprint,
       approver: "human-test", controller: "controller-a",
       changeSummary: "Gate 1 批准（存量：无来源）",
       sessionSignature: SIG(), sessionIdentity: IMPLEMENTER(),
@@ -2267,9 +2298,18 @@ test("independence: a legacy attempt lacking session_source is backfilled only b
     assert.ok(ok.ok, JSON.stringify(ok.error));
     // 在**文件层**抹掉来源，模拟存量形态（经写入器抹会被其自身的补齐逻辑补回，
     // 那正是被测行为，故不能用它来构造前置状态）。
+    //
+    // 定位须**锚定 attempt 块**：`pre_reviews`（建前审核轴）条目也带
+    // `session_source`，泛匹配会先删掉审核条目的那一行而非 attempt 的（2026-10-16
+    // 实测：前置断言因此失败——attempt.session_source 仍为 host）。
     const filePath = join(root, "workcases", `workcase-${created.value.object_uid}.md`);
     const rawText = await readFile(filePath, "utf8");
-    await writeFile(filePath, rawText.replace(/^\s*session_source: host\n/m, ""), "utf8");
+    const attemptStart = rawText.indexOf("attempt:");
+    assert.ok(attemptStart >= 0, "前置：attempt 块存在");
+    const attemptBlock = rawText.slice(attemptStart);
+    const stripped = attemptBlock.replace(/^\s*session_source: host\n/m, "");
+    assert.notEqual(stripped, attemptBlock, "前置：attempt 块内确有 session_source 可抹");
+    await writeFile(filePath, rawText.slice(0, attemptStart) + stripped, "utf8");
     let after = await readWorkcaseObject({ factSourceRoot: root, objectUid: created.value.object_uid });
     assert.equal(after.value.frontmatter.attempt.session_source, undefined, "前置：来源确实缺失");
 
