@@ -393,15 +393,31 @@ export function deriveWorkCaseV5View(
 }
 
 /**
- * 相对时间（天级标签）：「今天」或「N天前」。
+ * 相对时间（天级标签）：「今天」/「昨天」/「N天前」。
  *
- * 与 `api/services/time.ts` 的 `getRelativeTime` 同口径（天级切片），但该函数住在
- * `api/` 层、前端组件无法直接消费，故在此单列一份供卡片使用。未来时间不作负数
- * （按「今天」兜底）——写入函数会把同批条目刷成同一时刻，时钟与数据的偏差不应
- * 显示成「-1天前」。
+ * ## 为什么按**日历日**算，而不是按「经过的 24 小时」算（2026-10-17 修复）
+ *
+ * 原实现是 `Math.floor((now - date) / 86_400_000)`，即「经过了多少个完整 24 小时」。
+ * 它与本组件的**按天分组**语义不一致：分组按日历日切，标签却按 24 小时切，于是
+ * 同一张卡片上「今天」这一组里可能躺着昨天的条目。
+ *
+ * 实测（Human 于 2026-10-17 截图指出）：2026-10-16 21:54 的条目，在 2026-10-17 10:21
+ * 查看时，毫秒差 = 0.52 天 ⇒ floor → 0 ⇒ 显示「今天」，而它其实是**昨天**的。
+ * 只要跨天但不足 24 小时，就会稳定误判——这不是偶发，是每个上午都必然出现。
+ *
+ * 故改为：把两个时刻各自归一到**本地日历日的零点**再相减。这样 0 = 同一天（今天）、
+ * 1 = 昨天、≥2 = N天前，与「按天分组」严格一致。
+ *
+ * 未来时间仍不作负数（按「今天」兜底）——写入函数会把同批条目刷成同一时刻，时钟与
+ * 数据的偏差不应显示成「-1天前」。
  */
 export function relativeDayLabel(date: Date, now: Date = new Date()): string {
-  const days = Math.floor((now.getTime() - date.getTime()) / 86_400_000)
+  // 归一到本地日历日零点：用 Date 构造器的「年月日」重载，它按本地时区解释，
+  // 因此 DST 切换日也得到该日的真实零点（直接减 86_400_000 会在 DST 当天偏一小时）。
+  const startOfDay = (d: Date): number =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const days = Math.round((startOfDay(now) - startOfDay(date)) / 86_400_000)
   if (days <= 0) return '今天'
+  if (days === 1) return '昨天'
   return `${days}天前`
 }
