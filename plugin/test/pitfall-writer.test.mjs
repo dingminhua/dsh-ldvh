@@ -25,6 +25,7 @@ import {
   pitfallFileName,
   PITFALL_DIRECTORY,
   validatePitfallBodyStructure,
+  validateCarrierCoherence,
 } from "../lib/pitfall-writer.js";
 import { authoritativeSignature } from "../lib/signature-channel.js";
 
@@ -846,4 +847,36 @@ test("list: statusFilter rejects values outside the closed set (23 §9)", async 
     assert.equal(bad.ok, false);
     assert.equal(bad.error.code, "invalid_request");
   });
+});
+
+// ---------------------------------------------------------------------------
+// Carrier coherence 的**报错可据以修正**（23 §8）
+// ---------------------------------------------------------------------------
+// 判据不变（仍要求 scope 逐字出现在段落内）；但报错若只给截断的 scope 前缀，
+// 调用方无从判断差在哪。实测 2026-10-17 两次落账失败即为此形态：
+//   ① scope 以 `。` 收尾，正文用 `；` 续写了半句；
+//   ② 正文段开头多写 `适用范围：`、并给术语补了反引号。
+// 两者都与 scope 高度相似，前缀比对看不出区别。故此处断言报错**并出两侧全文**。
+test("carrier coherence: the rejection names BOTH the scope and the section text, so the divergence is visible (23 §8)", () => {
+  // 真实失败样本①：整段只差结尾标点与续写的半句。
+  const scope = "LDVH 辅助任务登记链路中所有对 appendPendingEntry 的调用点及 pending-queue.js 契约适用场景。";
+  const section = "LDVH 辅助任务登记链路中所有对 appendPendingEntry 的调用点及 pending-queue.js 契约适用场景；影响所有依赖辅助任务登记队列的空闲辅助执行流程。";
+  const result = validateCarrierCoherence({ scope }, ["## 症状", "x", "## 影响与适用范围", section].join("\n"));
+  assert.equal(result.ok, false, "drifted scope must still be rejected — the judgement itself is unchanged");
+  const issue = result.issues[0];
+  // 两侧全文都须出现，否则差异不可见（这是本用例要钉住的那条）。
+  assert.ok(issue.includes(scope), `the scope text must be quoted in full; got: ${issue}`);
+  assert.ok(issue.includes(section), `the section text must be quoted in full; got: ${issue}`);
+  assert.ok(!issue.includes("…"), "a short scope/section must not be clipped");
+});
+
+test("carrier coherence: a section longer than the print budget is clipped WITH its true length (23 §8)", () => {
+  const scope = "适用于 X 场景。";
+  const filler = "这是一段用于撑长正文的填充文字。".repeat(60); // > 400 字
+  const result = validateCarrierCoherence({ scope }, ["## 影响与适用范围", `${filler}${scope}`].join("\n"));
+  // 段落里**确实包含** scope 时不该报错——先确认判据仍按「包含」而非「相等」。
+  assert.equal(result.ok, true, "containment (not equality) is the judgement; a long section that contains the scope passes");
+  const drifted = validateCarrierCoherence({ scope: "适用于 Y 场景。" }, ["## 影响与适用范围", `${filler}适用于 Z 场景。`].join("\n"));
+  assert.equal(drifted.ok, false);
+  assert.match(drifted.issues[0], /共 \d+ 字/, "a clipped section must disclose its full length instead of silently truncating");
 });

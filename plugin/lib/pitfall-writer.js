@@ -255,7 +255,18 @@ export function validateCarrierCoherence(frontmatter, body) {
   const content = sectionContent(body, "影响与适用范围");
   if (content === null) return { ok: true, issues }; // section presence checked in body structure
   if (!content.includes(text)) {
-    issues.push(`carrier coherence: 影响与适用范围 section must contain scope verbatim (frontmatter is the single authoritative text): "${text.slice(0, 40)}…"`);
+    // 判据不变（仍要求逐字包含），但报错必须**可据以修正**：只给截断到 40 字的
+    // scope 前缀时，调用方看不出「差在哪」。实测 2026-10-17 的两次失败分别是
+    // 「scope 以 `。` 收尾，正文用 `；` 续写了半句」与「正文段开头多写了
+    // `适用范围：`、并给术语补了反引号」——两者都与 scope 高度相似，前缀无从
+    // 区分。故此处给出 scope 全文与正文该段全文（段落过长时才截断），
+    // 让差异在报错里直接可见。
+    const clipped = (s, max) => (s.length > max ? `${s.slice(0, max)}…（共 ${s.length} 字）` : s);
+    issues.push(
+      "carrier coherence: 影响与适用范围 section must contain scope verbatim"
+      + ` (frontmatter is the single authoritative text): scope=${JSON.stringify(clipped(text, 400))}`
+      + `; section=${JSON.stringify(clipped(content, 400))}`,
+    );
   }
   return { ok: issues.length === 0, issues };
 }
