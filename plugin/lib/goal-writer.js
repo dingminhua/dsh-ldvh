@@ -36,6 +36,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
+import { buildUpdateFrontmatter } from "./after-integrity.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/25 §5, §6, §7)
@@ -67,6 +68,15 @@ const SG_ANCHOR_PATTERN = /^SG-[1-9]\d*$/;
 const VALID_FM_KEYS = new Set([
   "goal_key", "title", "status", "created_at", "change_log",
 ]);
+
+/**
+ * 可经 frontmatter_removals 删除的字段（specs/02 §10.5 实现对齐；21 §14 计划步骤 1）。
+ *
+ * 口径：白名单 = 该类型 §8 的**条件字段**中**非「终态伴随」**者。
+ * 终态伴随字段（disposition/relations/retirement_reason/retired_at）在 update 路径不可达
+ * （终态只读），故不列。
+ */
+export const GOAL_REMOVABLE_FIELDS = new Set([]);
 
 // ---------------------------------------------------------------------------
 // Result helpers
@@ -434,12 +444,12 @@ export async function createGoalObject(args) {
 }
 
 // ---------------------------------------------------------------------------
-// Update (specs/03 §9.5 + specs/25 §11)
+// Update (specs/02 §10.5 — 完整目标 after + content_fingerprint 绑定，:333；+ specs/25 §11)
 // ---------------------------------------------------------------------------
 
 export async function updateGoalObject(args) {
   const {
-    factSourceRoot, expectedFingerprint, frontmatterAfter, bodyMarkdownAfter, changeSummary,
+    factSourceRoot, expectedFingerprint, frontmatterAfter, frontmatterRemovals = null, bodyMarkdownAfter, changeSummary,
     sessionSignature = null,
   } = args;
   const sig = requireAuthoritativeSignature(sessionSignature);
@@ -462,8 +472,19 @@ export async function updateGoalObject(args) {
     return failure("goal/status_terminal", "status=achieved is terminal and the file is frozen as a historical record (25 §7); a fundamentally overturned goal is a controlled REVISION before achievement, not a reopen");
   }
 
-  const { change_summary: _stripped, ...afterFields } = frontmatterAfter ?? {};
-  const fm = { ...afterFields };
+  // Build updated frontmatter — 「磁盘基线 + 显式声明变更 + 显式删除通道」
+  // （specs/02 §10.5 实现对齐）：漏传的字段**继承磁盘**，不再被静默删除。
+  // goal 无 §8 条件字段，故 GOAL_REMOVABLE_FIELDS 为空：本类型不接受任何删除声明。
+  const built = buildUpdateFrontmatter({
+    currentFrontmatter: current.value.frontmatter,
+    frontmatterAfter,
+    frontmatterRemovals,
+    removableFields: GOAL_REMOVABLE_FIELDS,
+    typeLabel: "goal",
+    validFields: VALID_FM_KEYS,
+  });
+  if (!built.ok) return failure(built.error.code, built.error.message);
+  const fm = built.value;
   // 25 §5: identity is the path; the singleton adopts no uid/type key.
   fm.goal_key = GOAL_KEY;
   fm.created_at = current.value.frontmatter.created_at;

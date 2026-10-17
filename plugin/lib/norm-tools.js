@@ -46,6 +46,7 @@ import {
   ERR_DIRECTION_ALREADY_EXISTS,
 } from "./norm-writer.js";
 import { currentRouteValues } from "./session-signature.js";
+import { FRONTMATTER_AFTER_DESCRIPTION, FRONTMATTER_REMOVALS_DESCRIPTION } from "./after-integrity.js";
 import { authoritativeSignature } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { join } from "node:path";
@@ -301,6 +302,8 @@ async function executeWriteObject(args, exec, deps) {
   const objectUid = args?.object_uid;
   const expectedFingerprint = args?.expected_fingerprint;
   const frontmatterAfter = args?.frontmatter_after;
+  // 显式删除声明（specs/02 §10.5 三向声明）：省略即保留，删除须显式声明。
+  const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
   const bodyMarkdownAfter = args?.body_markdown_after;
   const changeSummary = args?.change_summary;
   if (typeof objectUid !== "string" || objectUid.length === 0) {
@@ -317,6 +320,7 @@ async function executeWriteObject(args, exec, deps) {
     objectUid,
     expectedFingerprint,
     frontmatterAfter,
+    frontmatterRemovals,
     bodyMarkdownAfter,
     changeSummary,
     sessionSignature: sig.value,
@@ -459,7 +463,7 @@ function parameterSchemaFor(operationKey) {
   };
   const normFrontmatterAfter = (() => {
     const { required: _r, ...rest } = normFrontmatter;
-    return { ...rest, description: "update: the complete target frontmatter (all fields; schema required relaxed here — handler validates completeness via CAS+writer)" };
+    return { ...rest, description: FRONTMATTER_AFTER_DESCRIPTION };
   })();
 
   if (operationKey === "norm-read-object") {
@@ -489,6 +493,7 @@ function parameterSchemaFor(operationKey) {
       object_uid: { type: "string", description: "update: target object" },
       expected_fingerprint: { type: "string", description: "update: CAS baseline fingerprint from your last precise read" },
       frontmatter_after: normFrontmatterAfter,
+      frontmatter_removals: { type: "array", items: { type: "string" }, description: FRONTMATTER_REMOVALS_DESCRIPTION },
       body_markdown_after: { type: "string", description: "update: the complete target body markdown (same shape as body_markdown, INCLUDING the H1 line — pass back what a precise read returned)" },
       change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry" }
     },

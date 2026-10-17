@@ -45,6 +45,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
+import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
 import { readGoalAnchors as readGoalAnchorsFromGoal } from "./goal-writer.js";
 
@@ -90,6 +91,16 @@ const VALID_FM_KEYS = new Set([
 
 /** priority closed set (20 §8: P0–P3; AI 出初值，Human 可调整). */
 const PRIORITY_VALUES = new Set(["P0", "P1", "P2", "P3"]);
+
+/**
+ * 可经 frontmatter_removals 删除的字段（specs/02 §10.5 实现对齐；21 §14 计划步骤 1）。
+ *
+ * 口径：白名单 = 该类型 §8 的**条件字段**中**非「终态伴随」**者。
+ * 终态伴随字段（disposition/relations）在 update 路径不可达（终态只读），故不列。
+ * `priority` 是 open 专属、open→implemented/discarded 时须清（20 §8 :133），
+ * 因而是本类型唯一真正需要顶层删除能力的字段。
+ */
+export const SPARK_REMOVABLE_FIELDS = new Set(["priority", "refs", "serves"]);
 
 /** Evolution cap (20 §8: 上限 20 项). */
 const MAX_EVOLUTION_ENTRIES = 20;
@@ -914,7 +925,7 @@ export async function listSparkObjects(args) {
 }
 
 // ---------------------------------------------------------------------------
-// Update via CAS (specs/03 §9.5 + specs/20 §13)
+// Update via CAS (specs/02 §10.5 — 完整目标 after + content_fingerprint 绑定，:333；+ specs/20 §13)
 // ---------------------------------------------------------------------------
 
 /**
@@ -930,7 +941,7 @@ export async function listSparkObjects(args) {
 export async function updateSparkObject(args) {
   const {
     factSourceRoot, objectUid, expectedFingerprint,
-    frontmatterAfter, bodyMarkdownAfter, changeSummary, sessionSignature = null,
+    frontmatterAfter, frontmatterRemovals = null, bodyMarkdownAfter, changeSummary, sessionSignature = null,
     dryRun = false,
   } = args;
   // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
@@ -970,9 +981,20 @@ export async function updateSparkObject(args) {
     }
   }
 
-  // Build updated frontmatter; strip the call-only param
-  const { change_summary: _stripped, ...afterFields } = frontmatterAfter;
-  const fm = { ...afterFields };
+  // Build updated frontmatter — 「磁盘基线 + 显式声明变更 + 显式删除通道」
+  // （specs/02 §10.5 实现对齐）：漏传的字段**继承磁盘**，不再被静默删除。
+  // 需要删除必须经 frontmatter_removals 声明（限 SPARK_REMOVABLE_FIELDS）。
+  const built = buildUpdateFrontmatter({
+    currentFrontmatter: current.value.frontmatter,
+    frontmatterAfter,
+    frontmatterRemovals,
+    removableFields: SPARK_REMOVABLE_FIELDS,
+    typeLabel: "spark",
+    validFields: VALID_FM_KEYS,
+  });
+  if (!built.ok) return failure(built.error.code, built.error.message);
+  const fm = built.value;
+  // ④ Code 重设托管字段
   fm.object_uid = objectUid;
   fm.fact_type_key = SPARK_TYPE_KEY;
   fm.created_at = current.value.frontmatter.created_at;

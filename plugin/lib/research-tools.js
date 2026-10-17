@@ -36,6 +36,7 @@ import {
   updateResearchObject,
 } from "./research-writer.js";
 import { currentRouteValues } from "./session-signature.js";
+import { FRONTMATTER_AFTER_DESCRIPTION, FRONTMATTER_REMOVALS_DESCRIPTION } from "./after-integrity.js";
 import { authoritativeSignature } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { join } from "node:path";
@@ -480,6 +481,8 @@ async function executeWriteObject(args, exec, deps) {
   const objectUid = args?.object_uid;
   const expectedFingerprint = args?.expected_fingerprint;
   const frontmatterAfter = args?.frontmatter_after;
+  // 显式删除声明（specs/02 §10.5 三向声明）：省略即保留，删除须显式声明。
+  const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
   const analysisBodyAfter = args?.analysis_body_after;
   const surveyBodyAfter = args?.survey_body_after ?? null;
   const changeSummary = args?.change_summary;
@@ -500,6 +503,7 @@ async function executeWriteObject(args, exec, deps) {
     objectUid,
     expectedFingerprint,
     frontmatterAfter,
+    frontmatterRemovals,
     analysisBodyAfter,
     surveyBodyAfter,
     changeSummary,
@@ -746,7 +750,8 @@ function parameterSchemaFor(operationKey) {
           survey_body: { type: "string", description: "create, exploratory only: the survey-stage markdown (四个固定 H3); omit for directed" },
           object_uid: { type: "string", description: "update: target object" },
           expected_fingerprint: { type: "string", description: "update: CAS baseline fingerprint from your last precise read" },
-          frontmatter_after: (() => { const { required: _r, ...rest } = researchFrontmatter; return { ...rest, description: "update: the complete target frontmatter (all fields; schema required relaxed here — handler validates completeness via CAS+writer)" }; })(),
+          frontmatter_after: (() => { const { required: _r, ...rest } = researchFrontmatter; return { ...rest, description: FRONTMATTER_AFTER_DESCRIPTION }; })(),
+          frontmatter_removals: { type: "array", items: { type: "string" }, description: FRONTMATTER_REMOVALS_DESCRIPTION },
           analysis_body_after: { type: "string", description: "update: the complete target analysis body" },
           survey_body_after: { type: "string", description: "update, exploratory only: the complete target survey body (sub-stage immutable)" },
           change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry" }

@@ -37,6 +37,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
+import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { h2Titles, sectionContent } from "./markdown-structure.js";
 
 // ---------------------------------------------------------------------------
@@ -84,6 +85,15 @@ const VALID_FM_KEYS = new Set([
   "phenomenon", "attribution", "attribution_ref", "impact", "relations",
   "occurrence", "disposition", "change_log",
 ]);
+
+/**
+ * 可经 frontmatter_removals 删除的字段（specs/02 §10.5 实现对齐；21 §14 计划步骤 1）。
+ *
+ * 口径：白名单 = 该类型 §8 的**条件字段**中**非「终态伴随」**者。
+ * 终态伴随字段（disposition/relations/retirement_reason/retired_at）在 update 路径不可达
+ * （终态只读），故不列。
+ */
+export const FRICTION_REMOVABLE_FIELDS = new Set(["attribution", "attribution_ref"]);
 
 // ---------------------------------------------------------------------------
 // Result helpers
@@ -585,13 +595,13 @@ export async function readFrictionObject(args) {
 }
 
 // ---------------------------------------------------------------------------
-// Update via CAS (specs/03 §9.5 + specs/26 §9, §13)
+// Update via CAS (specs/02 §10.5 — 完整目标 after + content_fingerprint 绑定，:333；+ specs/26 §9, §13)
 // ---------------------------------------------------------------------------
 
 export async function updateFrictionObject(args) {
   const {
     factSourceRoot, objectUid, expectedFingerprint,
-    frontmatterAfter, bodyMarkdownAfter, changeSummary, sessionSignature = null,
+    frontmatterAfter, frontmatterRemovals = null, bodyMarkdownAfter, changeSummary, sessionSignature = null,
     // commit 例外（26 §9.2）需要核验目标 commit 在本仓真实存在。resolver 由调用方
     // 注入（writer 不自行执行 git）；未注入时该核验 fail-closed，不静默放行。
     gitCommitResolver = null,
@@ -630,8 +640,20 @@ export async function updateFrictionObject(args) {
   }
 
   // Build updated frontmatter; strip the call-only param
-  const { change_summary: _stripped, ...afterFields } = frontmatterAfter;
-  const fm = { ...afterFields };
+  // Build updated frontmatter — 「磁盘基线 + 显式声明变更 + 显式删除通道」
+  // （specs/02 §10.5 实现对齐）：漏传的字段**继承磁盘**，不再被静默删除。
+  // 需要删除必须经 frontmatter_removals 声明（限 FRICTION_REMOVABLE_FIELDS）。
+  const built = buildUpdateFrontmatter({
+    currentFrontmatter: current.value.frontmatter,
+    frontmatterAfter,
+    frontmatterRemovals,
+    removableFields: FRICTION_REMOVABLE_FIELDS,
+    typeLabel: "friction",
+    validFields: VALID_FM_KEYS,
+  });
+  if (!built.ok) return failure(built.error.code, built.error.message);
+  const fm = built.value;
+  // ④ Code 重设托管字段
   fm.object_uid = objectUid;
   fm.fact_type_key = FRICTION_TYPE_KEY;
   fm.created_at = current.value.frontmatter.created_at;

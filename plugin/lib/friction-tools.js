@@ -29,6 +29,7 @@ import {
   listFrictionObjects,
 } from "./friction-writer.js";
 import { currentRouteValues } from "./session-signature.js";
+import { FRONTMATTER_AFTER_DESCRIPTION } from "./after-integrity.js";
 import { authoritativeSignature } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { join } from "node:path";
@@ -369,6 +370,8 @@ async function executeWriteObject(args, exec, deps) {
   const objectUid = args?.object_uid;
   const expectedFingerprint = args?.expected_fingerprint;
   const frontmatterAfter = args?.frontmatter_after;
+  // 显式删除声明（specs/02 §10.5 三向声明）：省略即保留，删除须显式声明。
+  const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
   const bodyMarkdownAfter = args?.body_markdown_after;
   const changeSummary = args?.change_summary;
   if (typeof objectUid !== "string" || objectUid.length === 0) {
@@ -388,6 +391,7 @@ async function executeWriteObject(args, exec, deps) {
     objectUid,
     expectedFingerprint,
     frontmatterAfter,
+    frontmatterRemovals,
     bodyMarkdownAfter,
     changeSummary,
     // Update path MUST brand the carrier exactly like the create path: a plain
@@ -555,12 +559,12 @@ function parameterSchemaFor(operationKey) {
           body_markdown: { type: "string", description: "create: the body markdown starting with '## 现象' (H2 sections 现象/入账依据, plus 处置 iff status resolved/voided; the H1 is generated from title)" },
           object_uid: { type: "string", description: "update/correct: target object" },
           expected_fingerprint: { type: "string", description: "update/correct: CAS baseline fingerprint from your last precise read" },
-          frontmatter_after: (() => { const { required: _r, ...rest } = frictionFrontmatter; return { ...rest, description: "update: the complete target frontmatter (all fields; schema required relaxed here — handler validates completeness via CAS+writer)" }; })(),
+          frontmatter_after: (() => { const { required: _r, ...rest } = frictionFrontmatter; return { ...rest, description: FRONTMATTER_AFTER_DESCRIPTION }; })(),
           body_markdown_after: { type: "string", description: "update/correct: the complete target body markdown (same shape as body_markdown)" },
           change_summary: { type: "string", description: "update/correct: one short semantic summary for the change_log entry" },
           relations_after: { type: "array", description: "correct ONLY: replaces the whole relations array (26 §13; every other field is inherited byte-identically unless explicitly removed). Omit to correct the body alone. Each entry {relation_key, target:{object_uid}, evidence_locator?:{commit}}; the whole array is re-validated and its targets re-resolved.", items: { type: "object" } },
           frontmatter_additions: { type: "object", description: "correct ONLY (2026-11): FILL a field newly admitted to the closed set (symmetric to frontmatter_removals). Only for a MISSING field — never to change an existing value; the value must be derivable from existing carriers, never fabricated (26 §13). Currently admits occurrence only.", additionalProperties: true },
-          frontmatter_removals: { type: "array", description: "correct ONLY (2026-10): explicitly REMOVE frontmatter fields already retired from the type's closed set — currently only [\"serves\"], dropped from 26 §8 in 2026-10. Removal is the only permitted frontmatter action: you cannot add or change a value, and omitting a field inherits it byte-identically. Needed because 受控更新 is read-only on resolved records (§9.2), so a terminal object cannot otherwise shed a field the spec no longer defines. Naming a field that is absent counts as no-op (02 §10.5).", items: { type: "string", enum: ["serves"] } },
+          frontmatter_removals: { type: "array", description: "update/correct: explicit deletion declarations. For update (specs/02 §10.5 三向声明): fields to DELETE; only attribution/attribution_ref are accepted for update, anything else is refused with zero writes; omitting a field no longer deletes it (省略即保留). For correct (2026-10): explicitly REMOVE frontmatter fields already retired from the type's closed set — currently only [\"serves\"], dropped from 26 §8 in 2026-10. Removal is the only permitted frontmatter action: you cannot add or change a value, and omitting a field inherits it byte-identically. Needed because 受控更新 is read-only on resolved records (§9.2), so a terminal object cannot otherwise shed a field the spec no longer defines. Naming a field that is absent counts as no-op (02 §10.5).", items: { type: "string", enum: ["serves","attribution","attribution_ref"] } },
           human_authorization: { type: "string", description: "correct ONLY, REQUIRED: the Human's authorization record (who/when/what it covers) for amending a terminal record. It is written verbatim into the change_log summary; a correction request without it fails closed (26 §13). NOTE: this field is a self-report — its presence and content are NOT proof that Human actually consented (the same boundary as 21 §14 correct); the mechanical gate only guarantees the record was supplied." }
         },
         required: ["action"],

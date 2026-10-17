@@ -27,6 +27,7 @@ import {
   updateGoalObject,
 } from "./goal-writer.js";
 import { currentRouteValues } from "./session-signature.js";
+import { FRONTMATTER_AFTER_DESCRIPTION, FRONTMATTER_REMOVALS_DESCRIPTION } from "./after-integrity.js";
 import { authoritativeSignature } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { registerWriteShapedTool } from "./host-seams.js";
@@ -190,6 +191,8 @@ export function makeExecute(deps) {
       return invalidRequest("goal-write-object", "expected_fingerprint is required for action=update (CAS baseline)", "update");
     }
     const frontmatterAfter = args?.frontmatter_after;
+    // 显式删除声明（specs/02 §10.5 三向声明）：省略即保留，删除须显式声明。
+    const frontmatterRemovals = Array.isArray(args?.frontmatter_removals) ? args.frontmatter_removals : null;
     const bodyMarkdownAfter = args?.body_markdown_after;
     const changeSummary = args?.change_summary;
     if (typeof frontmatterAfter !== "object" || frontmatterAfter === null || typeof bodyMarkdownAfter !== "string") {
@@ -199,7 +202,7 @@ export function makeExecute(deps) {
       return invalidRequest("goal-write-object", "change_summary is required for action=update (25 §6: 每条必含修订理由)", "update");
     }
     const updated = await updateGoalObject({
-      factSourceRoot, expectedFingerprint, frontmatterAfter, bodyMarkdownAfter, changeSummary,
+      factSourceRoot, expectedFingerprint, frontmatterAfter, frontmatterRemovals, bodyMarkdownAfter, changeSummary,
       sessionSignature: sig.value,
     });
     if (!updated.ok) {
@@ -307,7 +310,8 @@ function parameterSchemaFor(operationKey) {
           frontmatter_draft: { type: "object", description: "create: draft frontmatter; goal_key/created_at/change_log are Code-assigned (title carries the ≤40-char short title)", additionalProperties: true },
           body_markdown: { type: "string", description: "create: the markdown body starting with '## 目标陈述' (H1 is generated)" },
           expected_fingerprint: { type: "string", description: "update: CAS baseline fingerprint from your last precise read" },
-          frontmatter_after: { type: "object", description: "update: the complete target frontmatter (Code re-assigns goal_key/created_at and appends change_log)", additionalProperties: true },
+          frontmatter_after: { type: "object", description: FRONTMATTER_AFTER_DESCRIPTION, additionalProperties: true },
+          frontmatter_removals: { type: "array", items: { type: "string" }, description: FRONTMATTER_REMOVALS_DESCRIPTION },
           body_markdown_after: { type: "string", description: "update: the complete target body (existing SG-n anchors must survive unchanged)" },
           change_summary: { type: "string", description: "update: one reason line — must independently answer 'what changed + why' (25 §6)" }
         },

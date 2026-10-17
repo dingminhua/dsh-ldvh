@@ -44,6 +44,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
+import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { sectionContent } from "./markdown-structure.js";
 import { ID_PATTERN } from "./spec-registry.js";
 
@@ -84,6 +85,15 @@ const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
   "direction_key", "retirement_reason", "retired_at", "change_log",
 ]);
+
+/**
+ * 可经 frontmatter_removals 删除的字段（specs/02 §10.5 实现对齐；21 §14 计划步骤 1）。
+ *
+ * 口径：白名单 = 该类型 §8 的**条件字段**中**非「终态伴随」**者。
+ * 终态伴随字段（disposition/relations/retirement_reason/retired_at）在 update 路径不可达
+ * （终态只读），故不列。
+ */
+export const NORM_REMOVABLE_FIELDS = new Set([]);
 
 // ---------------------------------------------------------------------------
 // Result helpers
@@ -445,11 +455,11 @@ export async function readNormObject(args) {
 }
 
 // ---------------------------------------------------------------------------
-// Update (specs/03 §9.5 CAS + specs/27 §8.1, §11)
+// Update (specs/02 §10.5 — CAS + 完整目标 after，:333；+ specs/27 §8.1, §11)
 // ---------------------------------------------------------------------------
 
 export async function updateNormObject(args) {
-  const { factSourceRoot, objectUid, expectedFingerprint, frontmatterAfter, bodyMarkdownAfter, changeSummary, sessionSignature = null } = args;
+  const { factSourceRoot, objectUid, expectedFingerprint, frontmatterAfter, frontmatterRemovals = null, bodyMarkdownAfter, changeSummary, sessionSignature = null } = args;
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
@@ -459,7 +469,7 @@ export async function updateNormObject(args) {
     return failure("norm/invalid_uid", `objectUid must be a canonical UUIDv4, got ${JSON.stringify(objectUid)}`);
   }
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
-    return failure("norm/change_summary_required", "changeSummary is required for update (03 §9.5: exactly one change_log entry per actual modification)");
+    return failure("norm/change_summary_required", "changeSummary is required for update (specs/02 :331: exactly one change_log entry per actual modification)");
   }
 
   const filePath = objectFilePath(factSourceRoot, objectUid);
@@ -471,11 +481,11 @@ export async function updateNormObject(args) {
     return failure("norm/read_failed", String(error?.message || error));
   }
 
-  // CAS baseline (03 §9.5): the caller must present the fingerprint from its
+  // CAS baseline (specs/02 :333): the caller must present the fingerprint from its
   // own precise read — a mismatch means the object changed underneath.
   const baselineFingerprint = fileFingerprint(raw);
   if (typeof expectedFingerprint !== "string" || expectedFingerprint.length === 0) {
-    return failure("norm/fingerprint_required", "expectedFingerprint is required (03 §9.5 CAS)");
+    return failure("norm/fingerprint_required", "expectedFingerprint is required (specs/02 :333 CAS baseline)");
   }
   if (expectedFingerprint !== baselineFingerprint) {
     return failure("norm/fingerprint_mismatch", `CAS baseline mismatch: expected ${expectedFingerprint}, current ${baselineFingerprint}`, { current_fingerprint: baselineFingerprint });
@@ -490,15 +500,28 @@ export async function updateNormObject(args) {
     return failure("norm/terminal_readonly", `object is status=retired; 27 §8.1 forbids any transition out of retired`);
   }
 
-  if (typeof frontmatterAfter !== "object" || frontmatterAfter === null) {
-    return failure("invalid_request", "frontmatterAfter (complete target frontmatter) is required for update");
+  if (frontmatterAfter !== null && frontmatterAfter !== undefined && typeof frontmatterAfter !== "object") {
+    return failure("invalid_request", "frontmatterAfter must be an object when provided");
   }
   if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
     return failure("invalid_request", "bodyMarkdownAfter (complete target body markdown) is required for update");
   }
 
   const now = new Date().toISOString();
-  const next = { ...frontmatterAfter };
+  // Build updated frontmatter — 「磁盘基线 + 显式声明变更 + 显式删除通道」
+  // （specs/02 §10.5 实现对齐）：漏传的字段**继承磁盘**，不再被静默删除。
+  // norm 的两个 §8 条件字段（retirement_reason/retired_at）均为终态伴随，
+  // 在 update 路径不可达，故 NORM_REMOVABLE_FIELDS 为空：不接受任何删除声明。
+  const built = buildUpdateFrontmatter({
+    currentFrontmatter: before,
+    frontmatterAfter,
+    frontmatterRemovals,
+    removableFields: NORM_REMOVABLE_FIELDS,
+    typeLabel: "norm",
+    validFields: VALID_FM_KEYS,
+  });
+  if (!built.ok) return failure(built.error.code, built.error.message);
+  const next = built.value;
   // Identity fields are Code-owned and immutable across updates.
   next.object_uid = before.object_uid;
   next.fact_type_key = NORM_TYPE_KEY;

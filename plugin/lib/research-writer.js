@@ -28,6 +28,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
+import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { h2Titles, h3TitlesInSection } from "./markdown-structure.js";
 
 // ---------------------------------------------------------------------------
@@ -58,6 +59,15 @@ const VALID_FM_KEYS = new Set([
   "implications", "clarification_log",
   "retirement_reason", "retired_at",
 ]);
+
+/**
+ * 可经 frontmatter_removals 删除的字段（specs/02 §10.5 实现对齐；21 §14 计划步骤 1）。
+ *
+ * 口径：白名单 = 该类型 §8 的**条件字段**中**非「终态伴随」**者。
+ * 终态伴随字段（disposition/relations/retirement_reason/retired_at）在 update 路径不可达
+ * （终态只读），故不列。
+ */
+export const RESEARCH_REMOVABLE_FIELDS = new Set(["uncertain", "gaps", "clarification_log", "implications"]);
 
 /** Relation keys allowed for Research (24 §11). */
 const RELATION_KEYS = new Set(["inspired-by", "informs", "updates"]);
@@ -721,11 +731,11 @@ export async function readResearchObject(args) {
 }
 
 // ---------------------------------------------------------------------------
-// Update via CAS (specs/03 §9.5 + specs/24 §13)
+// Update via CAS (specs/02 §10.5 — 完整目标 after + content_fingerprint 绑定，:333；+ specs/24 §13)
 // ---------------------------------------------------------------------------
 
 export async function updateResearchObject(args) {
-  const { factSourceRoot, objectUid, expectedFingerprint, frontmatterAfter, analysisBodyAfter, surveyBodyAfter = null, changeSummary, sessionSignature = null } = args;
+  const { factSourceRoot, objectUid, expectedFingerprint, frontmatterAfter, frontmatterRemovals = null, analysisBodyAfter, surveyBodyAfter = null, changeSummary, sessionSignature = null } = args;
   // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
   // signed BY CODE and may not be written unsigned. Without a branded carrier the
   // write is REFUSED; the caller reports it for Human handling (09 requires a
@@ -765,8 +775,20 @@ export async function updateResearchObject(args) {
   // Build updated frontmatter
   // Strip caller-only params before building the persistent frontmatter.
   // Also strip Code-managed fields (retired_at) that AI must not supply.
-  const { change_summary: _strippedUpdate, retired_at: _strippedRetiredAt, ...afterFields } = frontmatterAfter;
-  const fm = { ...afterFields };
+  // Build updated frontmatter — 「磁盘基线 + 显式声明变更 + 显式删除通道」
+  // （specs/02 §10.5 实现对齐）：漏传的字段**继承磁盘**，不再被静默删除。
+  // 需要删除必须经 frontmatter_removals 声明（限 RESEARCH_REMOVABLE_FIELDS）。
+  const built = buildUpdateFrontmatter({
+    currentFrontmatter: current.value.frontmatter,
+    frontmatterAfter,
+    frontmatterRemovals,
+    removableFields: RESEARCH_REMOVABLE_FIELDS,
+    typeLabel: "research",
+    validFields: VALID_FM_KEYS,
+  });
+  if (!built.ok) return failure(built.error.code, built.error.message);
+  const fm = built.value;
+  // ④ Code 重设托管字段
   fm.object_uid = objectUid;
   fm.fact_type_key = RESEARCH_TYPE_KEY;
   fm.created_at = current.value.frontmatter.created_at;
