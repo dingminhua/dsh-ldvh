@@ -2116,6 +2116,62 @@ function stripCallerOnlyFields(draft) {
   return rest;
 }
 
+/**
+ * **审核轴的写权限隔离**（2026-10-16 建立，承独立复核 F1/F2）。
+ *
+ * ## 为什么必须「结构性剥离」而不是「形状校验」
+ *
+ * `pre_reviews` 承载的是「建前独立审核已经做过」这一断言。该断言的价值完全取决于
+ * **主控不能自己写它**——否则门禁读的是主控手里的文本，闸与被判方在同一信任域内。
+ *
+ * 实测失效（独立复核复现，2026-10-16）：`revise` 把调用方 `frontmatterAfter` 整体
+ * 作为 `next`，`pre_reviews` 不在其托管字段重设清单里，于是**一次 revise 就能自造
+ * 一条 verdict=pass、指纹正确的审核条目**，随后 approve 的两道闸全部放行：
+ *
+ *     approve without audit       → 拒绝（闸生效）
+ *     revise forging pre_reviews  → 成功（旁路）
+ *     approve after forged audit  → 放行（闸失效）
+ *
+ * 同一路径还能把子代理如实记下的 `needs_revision` **改写成 pass**。
+ *
+ * 形状校验挡不住：伪造的条目在形状上与真条目**完全一样**（这正是它能过闸的原因）。
+ * 故处置只能是 `gate_1`/`attempt` 已用的做法——**不读调用方提供的该字段**，
+ * 一律回落为落盘值。`record_audit` 由此成为该字段的**唯一写路径**。
+ *
+ * ## 为什么回落而非拒绝
+ *
+ * 本类型无删除操作（21 §14），且 `execute`/`revise` 的调用方普遍是「读出整个对象、
+ * 改一处、整体写回」的形态——他们**会**在 payload 里带上 `pre_reviews`（那是读出来的
+ * 原件，不是伪造）。若对这些一律拒绝，等于让所有整对象写回都失败。回落为落盘值
+ * 既保住唯一写路径，又不误伤正常调用。
+ *
+ * 但「回落」不等于「静默」：调用方**改动过**该字段时，说明要么误操作、要么在尝试
+ * 伪造——两者都必须报告，故返回 `attempted` 供调用方如实登记。
+ *
+ * @returns `fields`：已把 `pre_reviews` 替换为落盘值（落盘不存在则删除）；
+ *   `attempted`：调用方提交的该字段与落盘不等。
+ */
+function guardAuditField(candidate, storedFrontmatter) {
+  const fields = structuredClone(stripCallerOnlyFields(candidate));
+  const stored = storedFrontmatter?.pre_reviews;
+  const submitted = fields.pre_reviews;
+  // 规范化序列化比较：同一份内容换键序不应算「改动」。
+  const attempted = stableStringify(submitted ?? null) !== stableStringify(stored ?? null);
+  if (stored === undefined) {
+    delete fields.pre_reviews;
+  } else {
+    fields.pre_reviews = structuredClone(stored);
+  }
+  return { fields, attempted };
+}
+
+/** `guardAuditField` 的报告语：改动了该字段时如实说明已回滚（不静默吞掉）。 */
+function auditFieldGuardNote(attempted) {
+  return attempted
+    ? "；调用方提交的 pre_reviews 与落盘不一致，已回落为落盘值（审核轴唯一写路径是 record_audit，21 §14）"
+    : "";
+}
+
 // ---------------------------------------------------------------------------
 // create — draft (21 §14 C1 提案对象模式; 初态 draft)
 // ---------------------------------------------------------------------------
@@ -2193,6 +2249,15 @@ async function evaluateCreateCandidate({ factSourceRoot, frontmatterDraft, bodyM
   if (frontmatter.gate_1 !== undefined) return failure("workcase/frontmatter_invalid", "create must not carry gate_1 (only Gate 1 approval stamps it, 21 §14)");
   if (frontmatter.attempt !== undefined) return failure("workcase/frontmatter_invalid", "create must not carry attempt (only approve allocates it, 21 §10.4)");
   if (frontmatter.result !== undefined || frontmatter.outcome !== undefined) return failure("workcase/frontmatter_invalid", "create must not carry result/outcome (only Gate 2 closure stamps them, 21 §14)");
+  // 审核轴写权限隔离（承独立复核 F1，2026-10-16）：`pre_reviews` 的**唯一写路径**是
+  // `record_audit`。创建时就允许携带它，等于让「审核已做过」这一断言在建单瞬间即可
+  // 由主控自造——实测原实现正是如此：create 携带一条 verdict=pass 且指纹正确的条目
+  // 即落盘成功，approve 的两道闸随后全部放行，record_audit 通道被整条跳过。
+  //
+  // 此处取**拒绝**而非「回落删除」：与上面三条同形（都是「该状态本不该有」），
+  // 且创建时不存在「读出整个对象再写回」的正常形态，调用方带它就是错的。
+  // 写入期的回落（guardAuditField）针对的是整对象写回的既有形态，两者场景不同。
+  if (frontmatter.pre_reviews !== undefined) return failure("workcase/frontmatter_invalid", "create must not carry pre_reviews (只有建前审核的 record_audit 通道可写该字段，21 §14)");
 
   // `fact_type_key` / `created_at` 是校验器**必需**字段（实测：缺任一项即
   // frontmatter_invalid），故两条路径都必须写——它们由 Code 生成，不属候选内容，
@@ -2649,10 +2714,26 @@ export async function approveWorkcaseObject(args) {
     );
   }
   const currentPairFingerprint = computeAuthorizationFingerprint(fm.plan, fm.scope);
+  // 承载形式门禁（承独立复核 G1，2026-10-16）：与关闭侧的 `review_form_not_subagent`
+  // **同规格对齐**。上面的指纹+verdict 判据只证明「有一条针对当前内容的通过结论」，
+  // 但它**无法区分**该结论由受管辖隔离子代理产出、还是由实施者自己的 root 会话自记。
+  //
+  // 实测失效（独立复核复现，2026-10-16）：
+  //   G1a 自审 audit(origin=null) 落盘  → ALLOWED
+  //   G1c approve 放行                  → ALLOWED
+  // 即实施者根本不派生审核体，用自己会话经 record_audit 记一条 pass 即可过闸。
+  // 关闭侧早已为此另立一道 `reviewer_origin === "subagent"` 判据（见 :3611），
+  // 审核侧此前**漏掉了对称的那一道**。
+  //
+  // 分档如实登记（同关闭侧口径）：本检查只对**带该键**的条目生效；会话身份、结论文本
+  // 的不可自证性仍由 `record_audit` 的唯一回传通道（宿主子代理登记表 + 逐字子串）承担；
+  // 越过受控工具面直调 writer 可伪造 `auditor_origin`——该层防护属 09 代码评审与 06
+  // 受控提交（同 §14 既有声明）。
   const coveringAudit = priorPreReviews.find((entry) => (
     isPlainObject(entry)
     && entry.candidate_fingerprint === currentPairFingerprint
     && entry.verdict === "pass"
+    && entry.auditor_origin === "subagent"
   ));
   if (coveringAudit === undefined) {
     return failure(
@@ -2756,7 +2837,10 @@ export async function executeWorkcaseObject(args) {
     return failure("workcase/transition_invalid", `execute updates require status=open, got ${JSON.stringify(fm.status)} (21 §14)`);
   }
 
-  const next = structuredClone(stripCallerOnlyFields(frontmatterAfter));
+  // 审核轴写权限隔离（承独立复核 F1/F2）：pre_reviews 一律回落为落盘值，
+  // 使 record_audit 成为该字段的唯一写路径。见 guardAuditField 的注释。
+  const auditGuard = guardAuditField(frontmatterAfter, fm);
+  const next = auditGuard.fields;
   // Code-managed fields: identity, gate, attempt, change_log never come
   // from the caller payload.
   next.object_uid = fm.object_uid;
@@ -2859,7 +2943,7 @@ export async function executeWorkcaseObject(args) {
       ? `attempt ${fm.attempt.attempt_id} taken over → attempt ${newId} (controller: ${controller})`
       : `attempt ${fm.attempt.attempt_id} voided → attempt ${newId} reallocated (controller: ${controller})`;
   }
-  appendChangeLog(next, sig, `${changeSummary} [${attemptNote}]`);
+  appendChangeLog(next, sig, `${changeSummary} [${attemptNote}]${auditFieldGuardNote(auditGuard.attempted)}`);
 
   const relCheck = await resolveRelationsTargets(factSourceRoot, next.relations);
   if (relCheck) return relCheck;
@@ -3593,7 +3677,10 @@ export async function rebatchWorkcaseObject(args) {
     return failure("workcase/transition_invalid", `rebatch requires status=open (C2 invalidation happens while executing), got ${JSON.stringify(fm.status)} (21 §10.3)`);
   }
 
-  const next = structuredClone(stripCallerOnlyFields(frontmatterAfter));
+  // 审核轴写权限隔离（承独立复核 F1/F2）：pre_reviews 一律回落为落盘值，
+  // 使 record_audit 成为该字段的唯一写路径。见 guardAuditField 的注释。
+  const auditGuard = guardAuditField(frontmatterAfter, fm);
+  const next = auditGuard.fields;
   next.object_uid = fm.object_uid;
   next.fact_type_key = WORKCASE_TYPE_KEY;
   next.created_at = fm.created_at;
@@ -3635,7 +3722,8 @@ export async function rebatchWorkcaseObject(args) {
     `${changeSummary} [C2 局部重批 open→draft; attempt ${voidedAttempt ?? "none"} voided, gate_1 dropped`
     + `${voidedReviews > 0 ? `, ${voidedReviews} 条 reviews 随授权失效作废（旧复核针对旧 plan/scope；概要要点见本条语义摘要）` : ""}`
     + `${voidedPreReviews > 0 ? `, ${voidedPreReviews} 条 pre_reviews 随候选变更作废（旧审核针对旧 plan/scope；重走 Gate 1 前须重做建前审核，21 §14）` : ""}`
-    + ` — 重新组织后重走 Gate 1]`,
+    + ` — 重新组织后重走 Gate 1]`
+    + auditFieldGuardNote(auditGuard.attempted),
   );
 
   const servesCheck = await resolveServes(factSourceRoot, next.serves);
@@ -3716,13 +3804,16 @@ export async function reviseWorkcaseObject(args) {
     return failure("workcase/transition_invalid", `revise requires status=draft (pre-Gate-1 evolution); once open, substantive change goes through rebatch, got ${JSON.stringify(fm.status)}`);
   }
 
-  const next = structuredClone(stripCallerOnlyFields(frontmatterAfter));
+  // 审核轴写权限隔离（承独立复核 F1/F2）：pre_reviews 一律回落为落盘值，
+  // 使 record_audit 成为该字段的唯一写路径。见 guardAuditField 的注释。
+  const auditGuard = guardAuditField(frontmatterAfter, fm);
+  const next = auditGuard.fields;
   next.object_uid = fm.object_uid;
   next.fact_type_key = WORKCASE_TYPE_KEY;
   next.created_at = fm.created_at;
   next.status = "draft";
   next.change_log = fm.change_log;
-  appendChangeLog(next, sig, changeSummary);
+  appendChangeLog(next, sig, changeSummary + auditFieldGuardNote(auditGuard.attempted));
 
   const servesCheck = await resolveServes(factSourceRoot, next.serves);
   if (servesCheck) return servesCheck;

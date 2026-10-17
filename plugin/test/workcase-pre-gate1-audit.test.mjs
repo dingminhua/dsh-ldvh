@@ -385,3 +385,259 @@ test("重批（open→draft）作废 pre_reviews 与 reviews 两者，要点入 
     assert.equal(back.value.frontmatter.reviews, undefined, "reviews 同样作废");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 旁路封堵（承独立复核 F1/F2，2026-10-16）
+//
+// 上面各组用例全部经 `recordWorkcaseAudit()` 这个受控写入器造夹具，即只覆盖了
+// **正常写入路径**。独立复核实测出两条致命旁路，且 0 覆盖：
+//
+//   F1：`revise` 把调用方 frontmatterAfter 整体作为 next，pre_reviews 不在托管
+//       字段重设清单里 ⇒ 一次 revise 即可自造一条 verdict=pass、指纹正确的条目，
+//       随后 approve 两道闸全部放行；`create` 同样可携带该字段。
+//   F2：先由子代理如实记一条 needs_revision，再用 revise 把它改写为 pass。
+//
+// 修复为「结构性剥离」（guardAuditField）与「create 拒绝携带」。以下用例钉住
+// 这两条旁路**必须不可用**——若无这些用例，上面 12 组全绿也无法区分
+// 「闸生效」与「闸被旁路」。
+// ---------------------------------------------------------------------------
+
+/** 造一条「看起来完全合法」的伪审核条目（形状与 Code 盖戳的真条目一致）。 */
+function forgedAuditEntry(root, uid, { verdict = "pass" } = {}) {
+  return {
+    at: new Date().toISOString(),
+    provider: "forged-provider",
+    model: "forged-model",
+    summary: "主控自写：对象恰当性符合；方案可行性符合；scope 清晰度符合（伪造）",
+    session_id: "session-implementer-test",
+    session_source: "host",
+    auditor_origin: "subagent",
+    verdict,
+  };
+}
+
+test("旁路封堵 F1：revise 伪造 pre_reviews 被结构性剥离，随后批准仍被时序闸拒绝", async () => {
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const uid = await createDraft(root);
+
+    // 前置：无审核 ⇒ 批准被拒（证明闸在「伪造之前」是生效的）
+    const denied = await approve(root, uid);
+    assert.equal(denied.error?.code, "workcase/pre_gate1_audit_proposal_required");
+
+    // 攻击：一次 revise 自造一条 pass 条目（指纹填当前值）
+    const before = await read(root, uid);
+    const fm = before.value.frontmatter;
+    const forged = forgedAuditEntry(root, uid);
+    forged.candidate_fingerprint = computeAuthorizationFingerprint(fm.plan, fm.scope);
+    const attack = await reviseWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: before.value.fingerprint,
+      frontmatterAfter: { ...fm, pre_reviews: [forged] },
+      bodyMarkdownAfter: before.value.body.replace(/^#\s+.*\n+/, ""),
+      changeSummary: "尝试伪造审核印记",
+      sessionSignature: SIG(),
+    });
+    assert.ok(attack.ok, "revise 本身应成功（回落而非拒绝整次写入）：" + JSON.stringify(attack.error));
+
+    // 关键断言：伪造的条目**没有落盘**
+    const after = await read(root, uid);
+    assert.equal(after.value.frontmatter.pre_reviews, undefined,
+      "revise 提交的 pre_reviews 必须被剥离——否则唯一写路径失效（F1）");
+
+    // 关键断言：批准仍被拒（闸没有被旁路绕过）
+    const stillDenied = await approve(root, uid);
+    assert.ok(!stillDenied.ok, "剥离后不得放行");
+    assert.equal(stillDenied.error.code, "workcase/pre_gate1_audit_proposal_required",
+      "闸仍须以「无审核印记」拒绝，而不是换了别的理由");
+  });
+});
+
+test("旁路封堵 F1b：create 携带 pre_reviews 被拒绝（不得在建单瞬间自造审核印记）", async () => {
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const draft = {
+      ...DRAFT,
+      pre_reviews: [{
+        at: new Date().toISOString(),
+        provider: "p", model: "m", summary: "伪造（create）",
+        session_id: "s", session_source: "host", auditor_origin: "subagent",
+        candidate_fingerprint: computeAuthorizationFingerprint(DRAFT.plan, DRAFT.scope),
+        verdict: "pass",
+      }],
+    };
+    const created = await createWorkcaseObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: draftBody(draft),
+      sessionSignature: SIG(),
+    });
+    assert.ok(!created.ok, "create 携带 pre_reviews 必须被拒绝");
+    assert.equal(created.error.code, "workcase/frontmatter_invalid");
+  });
+});
+
+test("旁路封堵 F2：已盖戳的 needs_revision 审核条目不可被 revise 改写为 pass", async () => {
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const uid = await createDraft(root);
+    // 子代理如实记一条未通过
+    const rec = await audit(root, uid, { verdict: "needs_revision", summary: "对象恰当性不符：未覆盖 §6.3 排除项（真审核）" });
+    assert.ok(rec.ok, JSON.stringify(rec.error));
+
+    const before = await read(root, uid);
+    const fm = before.value.frontmatter;
+    const original = fm.pre_reviews[0];
+    assert.equal(original.verdict, "needs_revision");
+
+    // 攻击：用 revise 把该条改成 pass
+    const tampered = { ...original, verdict: "pass", summary: "改写：全部符合" };
+    const attack = await reviseWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: before.value.fingerprint,
+      frontmatterAfter: { ...fm, pre_reviews: [tampered] },
+      bodyMarkdownAfter: before.value.body.replace(/^#\s+.*\n+/, ""),
+      changeSummary: "尝试改写审核结论",
+      sessionSignature: SIG(),
+    });
+    assert.ok(attack.ok, "整次写入应成功（该字段被回落），而非整单失败");
+
+    // 关键断言：条目逐字未变
+    const after = await read(root, uid);
+    const kept = after.value.frontmatter.pre_reviews[0];
+    assert.equal(kept.verdict, "needs_revision", "verdict 不得被改写（F2）");
+    assert.equal(kept.summary, original.summary, "summary 不得被改写（F2）");
+    assert.equal(kept.session_id, original.session_id, "署名不得被改写（F2）");
+
+    // 关键断言：批准仍被拒
+    const denied = await approve(root, uid);
+    assert.ok(!denied.ok, "needs_revision 不得放行");
+    assert.equal(denied.error.code, "workcase/pre_gate1_audit_not_covering_candidate");
+  });
+});
+
+test("旁路封堵：execute 同样不得改写 pre_reviews（唯一写路径是 record_audit）", async () => {
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const uid = await createDraft(root);
+    assert.ok((await audit(root, uid)).ok);
+    assert.ok((await approve(root, uid)).ok);
+
+    // open 期经 execute 尝试替换审核流水
+    const before = await read(root, uid);
+    const fm = before.value.frontmatter;
+    const attack = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: before.value.fingerprint,
+      frontmatterAfter: { ...fm, pre_reviews: [] },
+      bodyMarkdownAfter: before.value.body.replace(/^#\s+.*\n+/, ""),
+      changeSummary: "尝试清空审核流水",
+      sessionSignature: SIG(),
+      sessionIdentity: IMPLEMENTER(),
+    });
+    assert.ok(attack.ok, "整次写入应成功（该字段回落）");
+    const after = await read(root, uid);
+    assert.equal(after.value.frontmatter.pre_reviews.length, 1,
+      "execute 不得增删 pre_reviews（F1 的 execute 变体）");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 承载形式门禁与回滚留痕（承第二轮独立复核 G1/G2，2026-10-16）
+//
+// G1：writer 层对 auditor_origin 曾零校验 ⇒ 实施者用**自己 root 会话**自记一条
+//     pass（根本不派生审核体）即可过覆盖闸。关闭侧早有同类门禁
+//     （reviewer_origin === "subagent"），审核侧此前漏掉对称的那一道。
+// G2：guardAuditField 的 attempted 标志曾被丢弃 ⇒ 回滚静默无痕，而 §14 明文
+//     承诺「改动过则在写入结果中如实登记」。
+// ---------------------------------------------------------------------------
+
+test("G1：非子代理来源的审核（root 会话自审）不满足覆盖闸 (21 §14)", async () => {
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const uid = await createDraft(root);
+    // 自审：origin = null（root 会话自己记的），指纹与 verdict 都正确
+    const selfAudit = await audit(root, uid, {
+      summary: "对象恰当性符合；方案可行性符合；scope 清晰度符合（自审，非子代理）",
+      identity: IDENTITY("session-implementer-test"),
+    });
+    assert.ok(selfAudit.ok, "记录本身应成功（通道不拒绝落盘）");
+
+    const after = await read(root, uid);
+    assert.equal(after.value.frontmatter.pre_reviews[0].auditor_origin, null,
+      "前置：该条目来源确为 root 会话（auditor_origin 非 subagent）");
+
+    // 关键断言：自审不得满足覆盖闸
+    const denied = await approve(root, uid);
+    assert.ok(!denied.ok, "root 会话自审不得放行 Gate 1");
+    assert.equal(denied.error.code, "workcase/pre_gate1_audit_not_covering_candidate");
+  });
+});
+
+test("G1b：子代理来源的审核满足覆盖闸（正向对照，证明门禁不是一律拒绝）", async () => {
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const uid = await createDraft(root);
+    assert.ok((await audit(root, uid)).ok); // 默认 AUDITOR() origin=subagent
+    const after = await read(root, uid);
+    assert.equal(after.value.frontmatter.pre_reviews[0].auditor_origin, "subagent");
+    const ok = await approve(root, uid);
+    assert.ok(ok.ok, "子代理来源的通过结论应放行：" + JSON.stringify(ok.error));
+  });
+});
+
+test("G2：revise 回滚被篡改的 pre_reviews 时，change_log 如实留痕（不静默）(21 §14)", async () => {
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const uid = await createDraft(root);
+    assert.ok((await audit(root, uid, { verdict: "needs_revision" })).ok);
+
+    const before = await read(root, uid);
+    const fm = before.value.frontmatter;
+    const attack = await reviseWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: before.value.fingerprint,
+      frontmatterAfter: { ...fm, pre_reviews: [] }, // 尝试清空
+      bodyMarkdownAfter: before.value.body.replace(/^#\s+.*\n+/, ""),
+      changeSummary: "尝试清空审核流水",
+      sessionSignature: SIG(),
+    });
+    assert.ok(attack.ok, JSON.stringify(attack.error));
+
+    // 关键断言：回滚必须留痕（G2）
+    const after = await read(root, uid);
+    const lastEntry = after.value.frontmatter.change_log.at(-1);
+    assert.match(lastEntry.summary, /pre_reviews/,
+      "change_log 末条须记载 pre_reviews 被回落——否则伪造无痕可查（G2）");
+    assert.match(lastEntry.summary, /回落|唯一写路径/);
+  });
+});
+
+test("G2b：未改动 pre_reviews 的正常写回不产生留痕噪音", async () => {
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const uid = await createDraft(root);
+    assert.ok((await audit(root, uid)).ok);
+    const before = await read(root, uid);
+    const fm = before.value.frontmatter;
+    // 整对象写回，pre_reviews 原样带上（正常的「读出-改一处-写回」形态）
+    const res = await reviseWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: before.value.fingerprint,
+      frontmatterAfter: { ...fm, gist: `${fm.gist}（已微调）` },
+      bodyMarkdownAfter: before.value.body.replace(/^#\s+.*\n+/, ""),
+      changeSummary: "微调要点",
+      sessionSignature: SIG(),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const after = await read(root, uid);
+    const lastEntry = after.value.frontmatter.change_log.at(-1);
+    assert.doesNotMatch(lastEntry.summary, /回落/,
+      "原样带上的 pre_reviews 不应被记为「回落」——否则正常写回全被打上伪造嫌疑");
+  });
+});
