@@ -92,6 +92,32 @@ test("append: residual must be an array — absent side-effect scope is not the 
   });
 });
 
+// 2026-10-18：`task` 的契约是**非空字符串**，但调用方曾整批传数组
+// （`plugin/lib/lifecycle.js` 的缺署名分支，自 `39e3623` 多任务派发改造起）。
+// 数组在**参数校验阶段**即被拒，而该调用方丢弃了返回值，于是「缺署名」这条
+// 登记从未真正入队、且不留任何痕迹（实测 2026-10-17T18:11 那次
+// `land-failed/no-signature` 在队列里查无此条）。
+// 本用例把这个契约钉住：非字符串必被拒，且**不得写入任何行**。
+test("append: a non-string task is refused at validation and writes nothing (callers must not batch tasks)", async () => {
+  await withHome(async (home) => {
+    for (const badTask of [["a", "b"], 42, null, ""]) {
+      const result = await appendPendingEntry(home, validEntry({ task: badTask }));
+      assert.ok(!result.ok, `task=${JSON.stringify(badTask)} must be refused`);
+      assert.equal(result.error.code, "pending_queue/invalid_task");
+    }
+    // 一次都不能落盘：拒绝发生在任何文件操作之前。
+    await assert.rejects(
+      readFile(join(home.base, "ldvh", "pending-queue.jsonl"), "utf8"),
+      "a refused append must not create the carrier",
+    );
+    // 对照：字符串 task 照常写入，证明上面失败的是守卫而非队列不可用。
+    const ok = await appendPendingEntry(home, validEntry({ task: "friction-discovery" }));
+    assert.ok(ok.ok, "a string task must still be accepted");
+    const raw = await readFile(join(home.base, "ldvh", "pending-queue.jsonl"), "utf8");
+    assert.equal(raw.trim().split("\n").length, 1);
+  });
+});
+
 test("append: empty residual array is accepted (verified-empty scope is a statement, not an omission)", async () => {
   await withHome(async (home) => {
     const result = await appendPendingEntry(home, validEntry({ residual: [] }));

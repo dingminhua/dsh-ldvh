@@ -626,14 +626,31 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             const signatureFailure = checkpoint.value?.decision?.executorSignatureFailure ?? null;
             const skippedBecause = checkpoint.value?.decision?.skipped ?? null;
             if (executorSignature === null) {
-              await appendPendingEntry(dshHomePath, {
-                task: tasksForThisCheckpoint,
-                reason: skippedBecause !== null
-                  ? `闭集落地未发生（本次跳过：${skippedBecause}，无判断产出故无执行体可署名）`
-                  : `闭集落地缺少执行体署名：${signatureFailure ?? "执行体未给出署名且未说明原因"}`,
-                residual: ["账目未写入（缺署名）"],
-                at: new Date().toISOString(),
-              });
+              // ⚠️ 曾把 `task` 传成 `tasksForThisCheckpoint`（数组）。`appendPendingEntry`
+              // 的 `task` 契约为**非空字符串**，数组必在参数校验阶段被拒并返回
+              // `{ok:false, code:"pending_queue/invalid_task"}`——而此处又丢弃了返回值，
+              // 于是「缺署名」这条登记**从未真正入队**（实测 2026-10-17T18:11 那次
+              // land-failed/no-signature 在队列里查无此条）。故改为逐任务各记一条：
+              // 既符合契约（字符串），又与下方「逐任务标 outcome」的语义一致。
+              for (const key of tasksForThisCheckpoint) {
+                // §8.3 第 6 项：队列不可用时不得降级登记，也不得当作已登记。
+                // 故返回值必须检查；失败只记录到活动痕迹，绝不伪造成功。
+                const queued = await appendPendingEntry(dshHomePath, {
+                  task: key,
+                  reason: skippedBecause !== null
+                    ? `闭集落地未发生（本次跳过：${skippedBecause}，无判断产出故无执行体可署名）`
+                    : `闭集落地缺少执行体署名：${signatureFailure ?? "执行体未给出署名且未说明原因"}`,
+                  residual: ["账目未写入（缺署名）"],
+                  at: new Date().toISOString(),
+                });
+                if (queued?.ok !== true) {
+                  lifecycle.activity?.record("session/checkpoint/queue-unavailable", {
+                    task: key,
+                    code: queued?.error?.code ?? "pending_queue/unknown",
+                    message: queued?.error?.message ?? "appendPendingEntry returned no result",
+                  });
+                }
+              }
               lifecycle.activity?.record("session/checkpoint/landed", { action: "no-signature" });
               landedAction = "no-signature";
               // 缺签名对**全部待落地任务**同样生效（它发生在逐任务分支之前），故逐一体标。
