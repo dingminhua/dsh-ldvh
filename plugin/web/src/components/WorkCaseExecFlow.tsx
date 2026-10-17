@@ -51,6 +51,11 @@ export interface WorkCaseExecFlowProps {
    * 为什么已关闭卡要默认收起：关闭后流水只增不减、必然越长越长，而卡面是扫读窗口
    * （10 §5.2），已关闭件又是数量最多的一档——全部铺开会把列表压成日志墙。
    * 前三个派生组的卡默认展开（它们条数少，且流水正是当下判断所需）。
+   *
+   * **责任边界（2026-10-17 修订）**：本项**只决定初值**，不决定「能否收起」。
+   * 「收起／显示」对**所有派生分组一律提供**（Human：「这个是所有生命周期都要有的，
+   * 只是已关闭是默认收起」）。此前把二者混在同一个条件里，导致除已关闭外根本没有
+   * 收起按钮——那是一个把「默认状态」误当成「能力有无」的错误。
    */
   defaultCollapsed?: boolean;
   className?: string;
@@ -166,22 +171,23 @@ export default function WorkCaseExecFlow({
     <div
       className={`${className} min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/50 px-2.5 py-2`.trim()}
     >
-      {defaultCollapsed && (
-        <div className="mb-1.5 flex min-w-0 justify-end">
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              setBlockOpen(false);
-            }}
-            className="flex items-center gap-0.5 ldvh-caption text-ldvh-text-secondary/85 transition-colors hover:text-ldvh-text-primary"
-            aria-expanded
-          >
-            <ChevronDown size={12} aria-hidden="true" className="shrink-0" />
-            <span>{t('objectList.workcaseFlowHide')}</span>
-          </button>
-        </div>
-      )}
+      {/* 收起入口**对所有派生分组都提供**（Human 2026-10-17：「这个是所有生命周期都要有的，
+          只是已关闭是默认收起」）。`defaultCollapsed` 只决定**初值**，不决定**能否收起**——
+          此前把二者混在一个条件里，导致除已关闭外根本没有收起按钮。 */}
+      <div className="mb-1.5 flex min-w-0 justify-end">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setBlockOpen(false);
+          }}
+          className="flex items-center gap-0.5 ldvh-caption text-ldvh-text-secondary/85 transition-colors hover:text-ldvh-text-primary"
+          aria-expanded
+        >
+          <ChevronDown size={12} aria-hidden="true" className="shrink-0" />
+          <span>{t('objectList.workcaseFlowHide')}</span>
+        </button>
+      </div>
       {pending !== null && (
         <div
           data-workcase-adjustment-pending="true"

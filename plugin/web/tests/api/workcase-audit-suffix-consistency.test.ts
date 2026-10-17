@@ -169,3 +169,25 @@ test('收起：组件支持整块收起并由 defaultCollapsed 决定初值', ()
   // 点按钮不得顺带打开详情（卡片外层可点）
   assert.match(flow, /event\.stopPropagation\(\)/, '按钮须阻止冒泡，避免点展开时打开详情')
 })
+
+test('收起能力：所有派生分组都能收起，defaultCollapsed 只管初值不管能否收起 (2026-10-17)', () => {
+  const flow = read('src/components/WorkCaseExecFlow.tsx')
+  // 「收起变更流水」按钮**不得**被 defaultCollapsed 条件包裹——它必须是无条件渲染的。
+  // 此前 `{defaultCollapsed && (<button …收起变更流水…>)}` 使除已关闭外根本无法收起：
+  // Human 截图指出「这个是所有生命周期都要有的，只是已关闭是默认收起」。
+  assert.doesNotMatch(
+    flow,
+    /\{defaultCollapsed\s*&&\s*\(\s*<div[\s\S]{0,400}?workcaseFlowHide/,
+    '收起按钮不得以 defaultCollapsed 为渲染条件——收起能力须对所有派生分组一律提供',
+  )
+  // 正向断言：收起按钮存在，且位于 defaultCollapsed 判断之外
+  assert.match(flow, /objectList\.workcaseFlowHide/, '须有「收起变更流水」按钮')
+  const hideIdx = flow.indexOf('objectList.workcaseFlowHide')
+  assert.ok(hideIdx > 0, '须有收起按钮')
+  // 按钮之前最近的一次 `{defaultCollapsed &&` 不应把它包住
+  const before = flow.slice(0, hideIdx)
+  const lastCond = before.lastIndexOf('{defaultCollapsed &&')
+  const lastClose = before.lastIndexOf(')}')
+  assert.ok(lastCond < 0 || lastClose > lastCond,
+    '收起按钮须在 defaultCollapsed 条件块之外（条件块已闭合）')
+})
