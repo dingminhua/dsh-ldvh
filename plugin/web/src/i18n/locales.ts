@@ -149,6 +149,22 @@ export function getWorkCaseGroupLabel(group: string, locale: string): string {
   return getObjectStatusLocale('workcase', group, locale);
 }
 
+/**
+ * 「待批准执行」徽标的**建前审核后缀**（21 §8 `pre_reviews`，2026-10-16 建立）。
+ *
+ * 形态（Human 2026-10-16 定）：已审保持原词「待批准执行」不动；未审追加
+ * 「· 待审核」。**不新增颜色、不新增派生组**——draft 的派生组仍是 `pending_gate1`，
+ * 唯一变化是徽标文字，使 Human 一眼看出「这份审了没」。
+ *
+ * 判据只读 `pre_audit_passed`（由投影层按「存在一条 verdict=pass 的条目」给出），
+ * 本函数不自行判定——单一来源，防口径漂移。
+ */
+export function getWorkCasePendingGate1Label(locale: string, preAuditPassed: boolean | undefined): string {
+  const base = getObjectStatusLocale('workcase', 'pending_gate1', locale);
+  if (preAuditPassed === true) return base;
+  return locale === 'en' ? `${base} · Awaiting audit` : `${base} · 待审核`;
+}
+
 export const TYPE_DESCRIPTION_LOCALES: Record<string, { zh: string; en: string }> = {
   workcase: { zh: '工单——需要持续保存当前计划、推进状态、质量关口与关闭判断的工作责任（21 §1）', en: 'A work responsibility that preserves its current plan, progress, quality gates, and closure decision' },
   adr: { zh: '决策记录', en: 'Architecture Decision Record' },

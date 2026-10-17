@@ -128,27 +128,37 @@ WorkCase / 工作责任是工作主线对象，可以拥有不同于研究、决
 
 WorkCase 的呈现状态由 `status` 闭集三值（`draft` / `open` / `closed`）直接读取，不引入 v4 的 `phase` 或任何多值进度词汇。`closed` 配 `outcome` 四值（`completed` / `partial` / `not-achieved` / `cancelled`）呈现终态徽标。
 
-列表筛选与收件箱**共用同一派生函数**（`web/shared/workcaseLifecycle.ts`，防口径漂移）。五个派生组与“全部”构成六档筛选：
+列表筛选与收件箱**共用同一派生函数**（`web/shared/workcaseLifecycle.ts`，防口径漂移）。**派生组仍是四档**与“全部”构成五档筛选：
 
 | 派生组 | 派生判据 | 词条 |
 |---|---|---|
-| `pending_gate1_review` | `status = draft` ∧ **不存在**覆盖当前 `plan`+`scope` 指纹且 `verdict = pass` 的 `pre_reviews` 条目 | 待建前审核 |
-| `pending_gate1` | `status = draft` ∧ **存在**覆盖当前 `plan`+`scope` 指纹且 `verdict = pass` 的 `pre_reviews` 条目（含 C2 局部重批回退的对象——同在等 Gate 1） | 待批准执行 |
+| `pending_gate1` | `status = draft`（含 C2 局部重批回退的对象——同在等 Gate 1）；**徽标按建前审核后缀分叉，见下** | 待批准执行 |
 | `executing` | `status = open` ∧ 正文不含 H2「结果」节 | 执行中 |
 | `awaiting_gate2` | `status = open` ∧ 正文**含** H2「结果」节 | 待批准关闭 |
 | `closed` | `status = closed` | 已关闭 |
 
 派生组是**呈现层派生值，不写回对象**。它必须经语义映射本地化呈现（`getObjectStatusLocale` / `getObjectStatusHint`），不得裸露 `pending_gate1` 一类 raw snake_case。
 
-**`pending_gate1_review` 的派生依据（2026-10-16 新增，承 `specs/21` §8/§14）**：判据取自**对象字段** `pre_reviews` 与当前 `plan`+`scope` 内容指纹的比对（`candidate_fingerprint` ＝ 当前指纹 ∧ `verdict = pass`），**不得**改用「审核是否已派发」一类运行期状态——那不是事实源中可读的稳定内容（同「待批准关闭」以正文节为判据的理由）。该档的意义是让 Human 一眼分辨「这份候选尚不能批」与「可以批了」，故 **`pending_gate1_review` 不进 Human 的 Gate 1 待办收件箱**，只有 `pending_gate1` 进。
+#### 「待批准执行」的建前审核后缀（2026-10-16，Human 定）
 
-五个派生组的语义色按 `docs/01` §1.10.2 的精确映射，且**两个 Human Gate 待办组必须显著不同色**（Human 指令 2026-09-17）——二者语义相反，同色会使 Human 无法一眼分辨「尚未开始」与「已完工待验收」：
+`specs/21` §8 新增审核轴字段 `pre_reviews`（Gate 1 前置·建前独立审核的承载）后，draft 卡须让 Human 一眼看出**这份候选审没审**。形态由 Human 直接定为：
+
+| 情形 | 徽标文字 | 判据 |
+|---|---|---|
+| 尚未取得通过结论 | **待批准执行 · 待审核** | 不存在 `verdict = pass` 的 `pre_reviews` 条目 |
+| 已取得通过结论 | **待批准执行**（原词不变） | 存在 `verdict = pass` 的条目 |
+
+**三条形态纪律**：① **不新增派生组**——`pending_gate1` 仍是 draft 的唯一派生组，变化只在徽标文字，`pre_audit_passed` 不写回对象、不参与派生分组；② **不新增颜色**——两态的配色完全相同（琥珀），区分只靠文字后缀，故不触及 `docs/01` §1.10.2 的「语义相反须显著不同色」纪律；③ **单一入口**——后缀在 `statusLabel` 一处拼接（`getWorkCasePendingGate1Label`），不得另设第二处 badge。
+
+**判据的边界（如实声明）**：投影层（`api/services/facts.ts`）只给「是否存在一条 `verdict = pass` 的条目」这一个布尔，**不在呈现层重算指纹覆盖**——`candidate_fingerprint` 的比对由 Gate 1 覆盖闸在写入侧保证；呈现层重复实现同一判据必然与门禁分歧（09 §5 一致性纪律）。故极端情形（审过之后又改了 plan/scope）下，徽标可能显示「已审」而实际批准会被覆盖闸拒绝；该情形由 Gate 1 的拒绝消息明示，呈现层不预演门禁结论。
+
+**draft 卡的变更流水（2026-10-16，Human 定）**：`pending_gate1` 卡与「执行中」卡**同形**显示 change_log 流水（同一个 `WorkCaseExecFlow` 组件）。作用是让 Human 看出候选「有没有动静」——尤其是否已有建前审核记录（`record_audit` 会向 change_log 追加带 `pre-gate1 audit recorded by session …` 的条目）。**徽标后缀是权威判据（读 `pre_reviews` 字段），流水只是佐证**，两者不互相顶替。
+
+四个派生组的语义色按 `docs/01` §1.10.2 的精确映射，且**两个 Human Gate 待办组必须显著不同色**（Human 指令 2026-09-17）——二者语义相反，同色会使 Human 无法一眼分辨「尚未开始」与「已完工待验收」：
 
 | 派生组 | 语义 | 配色 |
 |---|---|---|
-| `pending_gate1_review` | 候选已落盘，尚未取得覆盖当前内容的建前审核结论 | 暖灰／砂（与「不可批」语义同族，**须与琥珀显著可辨**） |
-| `pending_gate1` | 工单尚未开始，等 Gate 1 放行 | 琥珀（与 `draft`/`pending` 待办族同源） |
-| `executing` | 正在执行 | 天蓝 |
+| `pending_gate1` | 工单尚未开始，等 Gate 1 放行（「· 待审核」后缀不改变配色） | 琥珀（与 `draft`/`pending` 待办族同源） |
 | `awaiting_gate2` | 工单已做完，等 Gate 2 验收 | 紫（Human 待确认紫系） |
 | `closed` | 已关闭 | 低饱和蓝灰 |
 

@@ -26,7 +26,7 @@ import WorkCaseClosedSummary from '@/components/WorkCaseClosedSummary';
 import WorkCaseClosedStatusBadge from '@/components/WorkCaseClosedStatusBadge';
 import { fetchCognitionGoal, fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type FactRefSource, type ObjectItem, type ObjectStatusOption, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
-import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeDescription, getTypeLabel } from '@/i18n/locales';
+import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeDescription, getTypeLabel, getWorkCasePendingGate1Label } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import {
   DECISION_AMBER_BODY_HUE_CLASS,
@@ -134,6 +134,19 @@ export function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate
             />
           </div>
         ) : null}
+        {/* 变更流水（Human 2026-10-16 定）：draft 卡与「执行中」同形显示 changelog，
+            使 Human 能看出这份候选「有没有动静」——尤其是否已有一条建前审核记录
+            （`record_audit` 会向 change_log 追加一条带 `pre-gate1 audit recorded by
+            session …` 的条目）。组件与执行中卡**同一份**，不另写一套呈现。
+            徽标「· 待审核」给出的是**权威判据**（读 pre_reviews 字段），流水只是佐证；
+            两者不互相顶替。 */}
+        <WorkCaseExecFlow
+          className="mt-1.5"
+          changeLog={obj.change_log}
+          reviews={obj.reviews}
+          amendments={obj.gate_1?.amendments}
+          selfUid={obj.id}
+        />
       </div>
     );
   }
@@ -271,6 +284,13 @@ export function ObjectCardFrame({
     obj.type === 'workcase' && presentedStatus === 'closed' && typeof obj.outcome === 'string';
   const typeColor = CATEGORY_COLORS[obj.type] || CATEGORY_COLORS.other;
   const activityCount = Array.isArray(obj.change_log) ? obj.change_log.length : 0;
+  // 「待批准执行」的建前审核后缀（21 §8 `pre_reviews`，2026-10-16）：已审保持原词，
+  // 未审追加「· 待审核」。徽标 statusLabel 是本卡**单一入口**，故后缀在此处一次算出，
+  // 不在 JSX 里另起第二处 badge（两处必然分歧，docs/10 §4.2.1）。
+  const cardStatusLabel =
+    presentedStatus === 'pending_gate1' && obj.type === 'workcase'
+      ? getWorkCasePendingGate1Label(locale, obj.pre_audit_passed)
+      : getObjectStatusLocale(obj.type, presentedStatus, locale);
   const nonActiveReason = getNonActiveReason(obj, t);
   return (
     <div
@@ -335,7 +355,7 @@ export function ObjectCardFrame({
           // 此时 `status` 传空、改为传 `statusBadge`——两者互斥，不并排（Human 裁定 2026-09-30，
           // 只作用于 wc 的已关闭卡；其余类型与其余状态一律走默认 `StatusBadge`）。
           status={isWorkCaseClosed ? undefined : presentedStatus}
-          statusLabel={getObjectStatusLocale(obj.type, presentedStatus, locale)}
+          statusLabel={cardStatusLabel}
           statusBadge={
             isWorkCaseClosed ? (
               <WorkCaseClosedStatusBadge

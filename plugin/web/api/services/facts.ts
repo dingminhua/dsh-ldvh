@@ -651,6 +651,21 @@ function projectCurrentWorkCaseCardShape(
     Object.assign(projected, copyPresentFields(fact, ['summary', 'scope', 'serves']))
     const plan = projectWorkCasePlan(fact.plan)
     if (plan.length > 0) projected.plan = plan
+    // 建前审核轴（21 §8 `pre_reviews`，2026-10-16 建立）：draft 卡的徽标须区分
+    // 「待批准执行 · 待审核」与「待批准执行」（已审）。
+    //
+    // 这里只投影「是否已存在一条 verdict=pass 的条目」这一个派生布尔，**不**在
+    // 呈现层重算指纹覆盖——`candidate_fingerprint` 由 writer 落盘、覆盖关系由 Gate 1
+    // 覆盖闸在写入侧保证；呈现层重复实现同一判据必然与门禁分歧（09 §5 一致性纪律）。
+    // 也不投影条目明细：卡面只回答「审了没」，条目内容属详情面与会话 transcript
+    // （21 §8「审核详情不入对象」）。
+    const preReviews = Array.isArray(fact.pre_reviews) ? fact.pre_reviews : []
+    if (preReviews.some((entry) => (
+      entry !== null && typeof entry === 'object'
+      && (entry as Record<string, unknown>).verdict === 'pass'
+    ))) {
+      projected.pre_audit_passed = true
+    }
   } else if (view.status === 'open') {
     // open：attempt 现场 + plan + reviews。不投影「## 执行 节存在性」——该标记零消费方
     // （曾为 `has_execution_section`），属 v4 遗留的展示耦合；21 §8 未定义该字段，

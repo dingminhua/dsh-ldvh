@@ -57,6 +57,12 @@ export interface ObjectItem {
   group?: WorkCaseV5Group;
   outcome?: WorkCaseV5Outcome;
   has_result_draft?: boolean;
+  /**
+   * 建前审核轴（21 §8 `pre_reviews`，2026-10-16 建立）：draft 期是否已存在一条
+   * `verdict = pass` 的审核条目。仅作徽标后缀「· 待审核」与否的呈现判据——
+   * 指纹覆盖关系由 Gate 1 覆盖闸在写入侧保证，呈现层不重复实现。
+   */
+  pre_audit_passed?: boolean;
   current_snapshot_projection?: WorkCaseV5View;
   phase?: string;
   /** workcase 目标范围；22 §8 ADR scope（必填）复用同声明。 */
