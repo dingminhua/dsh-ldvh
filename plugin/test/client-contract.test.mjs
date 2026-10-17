@@ -266,15 +266,33 @@ test("betterSidebar LDVH tab registers as a soft dependency with iframe fallback
 	assert.ok(source.includes('LdvhSidebarTab'));
 });
 
-test("iframe points at the plugin's own loopback origin, never a relative /ldvh/ path", () => {
+test("iframe origin: loopback for the dsh-app desktop document, current origin for browser access", () => {
 	// 回归守护（2026-09-25）：iframe 若用相对路径 `/ldvh/`，在 `dsh-app://app`
 	// 主文档里会解析为 `dsh-app://app/ldvh/`，走宿主转发链；而宿主只在
 	// `request.frame === owner.mainFrame` 时注入身份头（lib/web-document.js:20），
 	// 子框架拿不到 → 403 → Tab 全白。实测报错 `GET dsh-app://app/ldvh/ 403`。
-	// 故 src 必须由绝对回环 origin 拼出。本断言锁死「不得退回相对路径」。
+	// 故桌面场景 src 必须由绝对回环 origin 拼出；本断言锁死「不得退回相对路径」。
+	//
+	// 2026-10-17 扩展（远程访问缺陷，实测：局域网访问 3081 时管辖项目列表只显示
+	// 访问设备本机的登记、或加载失败）：DSH Web GUI 经 http(s) 访问时（webServer
+	// 0.0.0.0 监听，主文档源是 http(s)://<服务器地址>），回环 origin 指向**访问
+	// 设备自己**——iframe 连到访问设备本地的 LDVH 服务。浏览器场景必须改用当前
+	// origin：宿主已挂载 /ldvh 静态与 /ldvh/api 代理，同源 iframe 自动携带认证
+	// cookie，读到的是服务器的登记数据。
+	// origin 构造统一收口在 webFrameOrigin(port)——消费点不得各自内联判定。
 	assert.ok(
-		/var ldvhWebOrigin = "http:\/\/127\.0\.0\.1:" \+ ldvhWebPort/.test(source),
-		"iframe origin must be built from an absolute loopback host + port",
+		/function webFrameOrigin\(port\)/.test(source),
+		"iframe origin construction must be centralized in webFrameOrigin(port)",
+	);
+	// 桌面场景：dsh-app: 协议 → 绝对回环 host + port（子框架 403 守护不回归）。
+	assert.ok(
+		/window\.location\.protocol === LDVH_APP_PROTOCOL\) return "http:\/\/127\.0\.0\.1:" \+ port/.test(source),
+		"the dsh-app desktop document must keep the absolute loopback origin (subframe 403 guard)",
+	);
+	// 浏览器场景：http/https → 当前 origin（读到服务器的登记数据）。
+	assert.ok(
+		/return window\.location\.origin/.test(source),
+		"browser-origin documents must build the iframe origin from the current origin",
 	);
 	assert.ok(
 		source.includes('var ldvhFrameLocation = ldvhWebOrigin + "/ldvh/"'),
@@ -298,6 +316,16 @@ test("iframe points at the plugin's own loopback origin, never a relative /ldvh/
 	assert.ok(
 		source.includes('applyWebPort(body.webPort)'),
 		"checkHealth must feed the host-reported webPort into the iframe origin",
+	);
+	// 健康判据两形兼容（浏览器场景命中宿主路由应答，无 success 字段）：
+	// 见 client-fallback.test.mjs 的行为测试——此处只钉判据函数存在且两形都在。
+	assert.ok(
+		/function healthBodyOk\(body\)/.test(source),
+		"the health verdict must be centralized in healthBodyOk (two response shapes)",
+	);
+	assert.ok(
+		/body\.ok === true && body\.status === "ok"/.test(source),
+		"healthBodyOk must accept the host-route shape { ok, status } (browser scenario)",
 	);
 });
 

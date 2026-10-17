@@ -427,19 +427,44 @@ window.__ModuleLoader__.load({
       return null;
     }
 
+    // ── iframe origin 分流（2026-10-17 修复：远程浏览器访问时项目列表错位）──
+    //
+    // 背景：DSH Web GUI 可经局域网访问（宿主 webServer 以 0.0.0.0 监听）。此时
+    // 主文档源是 http(s)://<服务器地址>，而下方「地址形状」注释所述的回环方案
+    // 是为 dsh-app://app 桌面客户端设计的——那套方案里 iframe 直连 127.0.0.1
+    // 的 Web API 子进程。浏览器里的 127.0.0.1 指向**访问设备自己**：iframe 于是
+    // 连到访问设备本地的 LDVH 服务（读到它本机的 governed-projects.yaml），
+    // 或因对方没有服务而打不开——实测表现为「远程访问时管辖项目列表少项目 /
+    // 加载失败，本地桌面端一切正常」。
+    //
+    // 分流判据是主文档协议（构造统一收口在 webFrameOrigin，两个消费点
+    // ldvhWebOrigin / applyWebPort 不得各自内联一份判定）：
+    //   - dsh-app:（桌面客户端）保留回环直连——子框架过宿主转发链会 403
+    //     （见下方 2026-09-25 的「地址形状」注释），行为与分流前逐字不变；
+    //   - http/https（浏览器，本机或远程）改用当前 origin——宿主 webServer
+    //     已挂载 /ldvh 静态与 /ldvh/api 代理，iframe 与主文档同源，认证
+    //     cookie 自动携带，读到的是**服务器**的登记数据。
+    var LDVH_APP_PROTOCOL = "dsh-app:";
+    function webFrameOrigin(port) {
+      // 无 window/location 的环境（Node vm 测试沙箱）守卫：退回回环地址。
+      if (typeof window === "undefined" || !window.location) return "http://127.0.0.1:" + port;
+      if (window.location.protocol === LDVH_APP_PROTOCOL) return "http://127.0.0.1:" + port;
+      return window.location.origin;
+    }
+
     // 端口不硬编码：宿主侧端口可被 LDVH_WEB_API_PORT 覆盖，硬编码会与宿主漂移。
     // 以宿主 health 返回的 `webPort` 为准（见 discoverWebPort），尚未取到时用
     // 编译期默认值兜底，避免首帧空 src。
     var LDVH_WEB_PORT_DEFAULT = 3299;
     var ldvhWebPort = LDVH_WEB_PORT_DEFAULT;
-    var ldvhWebOrigin = "http://127.0.0.1:" + ldvhWebPort;
+    var ldvhWebOrigin = webFrameOrigin(ldvhWebPort);
     var ldvhFrameLocation = ldvhWebOrigin + "/ldvh/";
     /** 端口就绪后重写 iframe 地址（保留当前记忆路径）。 */
     function applyWebPort(port) {
       if (typeof port !== "number" || !Number.isInteger(port) || port <= 0 || port > 65535) return;
       if (port === ldvhWebPort) return;
       ldvhWebPort = port;
-      ldvhWebOrigin = "http://127.0.0.1:" + ldvhWebPort;
+      ldvhWebOrigin = webFrameOrigin(ldvhWebPort);
       var tail = ldvhFrameLocation.indexOf("/ldvh") >= 0 ? ldvhFrameLocation.slice(ldvhFrameLocation.indexOf("/ldvh")) : "/ldvh/";
       ldvhFrameLocation = ldvhWebOrigin + tail;
     }
@@ -453,9 +478,10 @@ window.__ModuleLoader__.load({
     // 现在改为两段：
     //   ① 端口发现仍走宿主 /ldvh/api/health——**唯一**能取到 webPort 的通道
     //      （主框架请求才过宿主转发链，子框架拿不到身份头，见下方地址形状说明）；
-    //   ② 就绪判定走 **iframe 真正要连的那个绝对回环地址**，同源同端口。
+    //   ② 就绪判定走 **iframe 真正要连的那个绝对地址**（见 webFrameOrigin 的
+    //      origin 分流：dsh-app 桌面场景为回环子进程，浏览器场景为当前 origin）。
     //
-    // 跨源：主文档源是 dsh-app://app，直连 127.0.0.1 属跨源，且子进程 cors()
+    // 跨源：主文档源是 dsh-app://app 时，直连 127.0.0.1 属跨源，且子进程 cors()
     // 白名单只放行本机 dev server。故用 mode:"no-cors" 的不透明响应——它读不到
     // 状态码与响应体，但**能否 resolve 本身就是连通性结论**，而连通性正是此处
     // 要问的问题。cors 拒绝会落在 resolve 成功上（不透明响应照样送达），故本
@@ -492,14 +518,26 @@ window.__ModuleLoader__.load({
      * 此时只剩「有东西在应答」，判不出 500/503。调用方据 state 区分展示，
      * 不把弱结论表述成「健康」。
      */
+    /**
+     * 健康自报判据——两种应答形状（2026-10-17 起两形兼容）：
+     *   - 子进程直连（dsh-app 桌面场景，iframe 直连回环子进程）：/api/health
+     *     回 { success: true, message: "ok" }（见 plugin/web/api/app.ts）；
+     *   - 宿主路由（浏览器场景，iframe 走当前 origin）：/ldvh/api/health 优先
+     *     命中插件本地路由（lib/index.js 的 createApiHandler，先于代理），
+     *     回 { ok: true, service: "dsh-ldvh", status: "ok", webPort }——无
+     *     success 字段。判据只认其一会让另一个场景的探活恒判 unhealthy，
+     *     LDVH 视图永远落进失败分支。
+     */
+    function healthBodyOk(body) {
+      if (body && body.success === true) return true;
+      return Boolean(body && body.ok === true && body.status === "ok");
+    }
     function probeHealthStatus(then) {
       fetch(ldvhWebOrigin + "/ldvh/api/health", { method: "GET", cache: "no-store" })
         .then(function (r) {
           if (!r.ok) { then(false, "unhealthy"); return; }
           return r.json().then(function (body) {
-            // 子进程 /api/health 回 { success: true, message: "ok" }
-            // （见 plugin/web/api/app.ts）。
-            then(!!(body && body.success === true), body && body.success === true ? "healthy" : "unhealthy");
+            then(healthBodyOk(body), healthBodyOk(body) ? "healthy" : "unhealthy");
           }, function () {
             // 读不到体（实现变了或被代理改写）：退到「连得上」的弱结论。
             then(true, "reachable");

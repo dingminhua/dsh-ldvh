@@ -27,7 +27,7 @@ function createReactStub() {
  * useState 的槽位按调用序号分配：client.js 里有多个组件各持 state，替身若共用
  * 一个槽会互相覆盖，读到的就不是被测组件的结论了。
  */
-function runClientProbe(fetchImpl) {
+function runClientProbe(fetchImpl, options = {}) {
 	const observed = [];
 	const slots = new Map();
 	let nextSlot = 0;
@@ -48,12 +48,18 @@ function runClientProbe(fetchImpl) {
 	};
 
 	let plugin;
+	// options.location 注入 window.location——模拟浏览器主文档（http/https 源）。
+	// 缺省（含既有用例）无 location：client.js 的 webFrameOrigin 走无 location
+	// 守卫分支，行为等同 dsh-app 桌面场景（回环直连），既有断言不受影响。
 	const context = {
-		window: { __ModuleLoader__: { load(definition) { plugin = definition.factory((id) => {
-			if (id === "react") return reactStub;
-			if (id === "@deepseek-ai/dsh-client-ui-primitives") return { Toast() {}, IconChevronDownOutlineRegular() {} };
-			throw new Error(`unexpected require: ${id}`);
-		}); } } },
+		window: {
+			__ModuleLoader__: { load(definition) { plugin = definition.factory((id) => {
+				if (id === "react") return reactStub;
+				if (id === "@deepseek-ai/dsh-client-ui-primitives") return { Toast() {}, IconChevronDownOutlineRegular() {} };
+				throw new Error(`unexpected require: ${id}`);
+			}); } },
+			...(options.location ? { location: options.location } : {}),
+		},
 		document: undefined,
 		fetch: fetchImpl,
 		console: { error() {} },
@@ -173,6 +179,58 @@ test("client probe reports ready when the iframe origin serves, and probes that 
 	assert.ok(
 		loopbackPaths.some((url) => url === `http://127.0.0.1:${childPort}/ldvh/`),
 		`probe must hit the iframe's own origin: ${JSON.stringify(loopbackPaths)}`,
+	);
+});
+
+test("browser-origin documents probe the current origin and accept the host-route health shape", async () => {
+	// 2026-10-17 缺陷的行为侧守护（远程访问时管辖项目列表错位）：主文档源为
+	// http(s)（浏览器访问，含局域网远程）时，iframe 与探活都必须指向当前
+	// origin（宿主 /ldvh 路由）——浏览器里的 127.0.0.1 是**访问设备自己**，
+	// 回环直连会读到访问设备本机的登记数据或直接打不开。
+	// 健康判据还须接受宿主路由的 { ok, status } 应答形状（宿主 /ldvh/api/health
+	// 优先命中插件本地路由，无 success 字段），否则探活恒判 unhealthy。
+	const host = http.createServer((req, res) => {
+		if (req.url === "/ldvh/") { res.setHeader("content-type", "text/html"); res.end("<html>ok</html>"); return; }
+		if (req.url === "/ldvh/api/health") {
+			res.setHeader("content-type", "application/json; charset=utf-8");
+			res.end(JSON.stringify({ ok: true, service: "dsh-ldvh", status: "ok", prefix: "/ldvh/api", webPort: 3299 }));
+			return;
+		}
+		res.statusCode = 404; res.end();
+	});
+	await new Promise((resolve) => host.listen(0, "127.0.0.1", resolve));
+	const hostBase = `http://127.0.0.1:${host.address().port}`;
+
+	const absoluteProbes = [];
+	const fetchImpl = (input, init) => {
+		const url = String(input);
+		if (url.startsWith("/")) return fetch(hostBase + url, init);
+		absoluteProbes.push(url);
+		return fetch(url, init);
+	};
+
+	const { conclusions } = runClientProbe(fetchImpl, {
+		location: { protocol: "http:", origin: hostBase, href: `${hostBase}/` },
+	});
+	let seen = [];
+	for (let i = 0; i < 40 && seen.length === 0; i += 1) {
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		seen = conclusions();
+	}
+	host.closeAllConnections?.();
+	await new Promise((resolve) => host.close(resolve));
+
+	assert.ok(seen.length > 0, "the client probe must have reached a conclusion");
+	const final = seen[seen.length - 1];
+	assert.equal(final.ready, true, "probe must report ready when the current origin serves /ldvh and host-shape health");
+	// 所有绝对地址探活都须落在当前 origin 上——出现子进程直连地址即为缺陷复发。
+	assert.ok(
+		absoluteProbes.length > 0 && absoluteProbes.every((url) => url.startsWith(hostBase)),
+		`browser-origin probes must target the current origin, got: ${JSON.stringify(absoluteProbes)}`,
+	);
+	assert.ok(
+		!absoluteProbes.includes("http://127.0.0.1:3299/ldvh/") && !absoluteProbes.includes("http://127.0.0.1:3299/ldvh/api/health"),
+		"a browser-origin document must never probe the loopback web-api child directly",
 	);
 });
 
