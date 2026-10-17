@@ -22,10 +22,25 @@ test("D8：lifecycle.js 不得把未声明的名字当变量使用", async () =>
     "lifecycle.js 又出现了 `currentRouteValues(sessionPersistence?.())` —— " +
       "sessionPersistence 在本文件里只是属性名，不是变量，该行会抛 ReferenceError（D8）",
   );
+  // 2026-10-17：lifecycle 已**不再自己取路由**——署名改由执行体派发处（provider）
+  // 在 dispose 之前从执行体自己的会话记录取得，随 decision 上抛。故原先「本文件须
+  // 出现 currentRouteValues(ctx.get("sessionPersistence"))」的断言已成反向约束：
+  // 若该行重新出现在本文件，就意味着落账又回到了「以主控路由盖章」的缺陷形态。
+  // 护栏改为禁止它，并改为要求本层**消费**上抛的执行体署名。
+  assert.ok(
+    !/currentRouteValues\(/.test(text),
+    "lifecycle.js 不得再自行取路由：落账署名须来自执行体（09 §5.1「当次实际」），" +
+      "由 friction-discovery-provider.js 的 resolveExecutorSignature 取得并随 decision.executorSignature 上抛",
+  );
   assert.match(
     text,
-    /currentRouteValues\(\s*ctx\.get\("sessionPersistence"\)/,
-    "须经 ctx.get(\"sessionPersistence\") 取服务（与 ldvh-tools 等模块同形）",
+    /executorSignature/,
+    "lifecycle.js 须消费 decision.executorSignature（执行体署名），不得改用本会话路由",
+  );
+  assert.match(
+    text,
+    /ctx\.get\("sessionPersistence"\)/,
+    "provider 构造处仍须经 ctx.get(\"sessionPersistence\") 取服务（与 ldvh-tools 等模块同形）",
   );
 });
 

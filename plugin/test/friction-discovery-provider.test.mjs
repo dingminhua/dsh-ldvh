@@ -8,6 +8,7 @@ import {
   selectZeroContextProvider,
   createDiscoveryProvider,
 } from "../lib/friction-discovery-provider.js";
+import { resolveAuthoritativeSignature } from "../lib/signature-channel.js";
 
 // 子代理的「一份结论」——注意它现在由**复合对象**承载：每个任务占一个顶层字段
 // （Human 2026-10-11 的决定：一次派发做多件事，输出按任务命名空间分区）。
@@ -42,8 +43,40 @@ function fakeSubagents({ providers = [], startImpl } = {}) {
     start: async (name, request) => {
       starts.push({ name, request });
       if (startImpl) return startImpl({ name, request, starts });
-      return { id: "run-1", result: Promise.resolve({ stopReason: "completed", structured: VERDICT_SCHEMA_OK }), dispose: async () => {} };
+      return {
+        id: "run-1",
+        // 真宿主在进程内后端提供 localAgent（零上下文 spawn 的 child Agent）。缺它时
+        // provider 会如实报「执行体无 localAgent」而**不回落主控路由**——见
+        // resolveExecutorSignature。默认给一个，使成功路径可取到执行体署名。
+        localAgent: { session: { header: { id: "session-executor-1" } } },
+        result: Promise.resolve({ stopReason: "completed", structured: VERDICT_SCHEMA_OK }),
+        dispose: async () => {},
+      };
     },
+  };
+}
+
+/**
+ * 假 sessionPersistence：对**传入的那个 agent 的会话**返回一组 routing 事件。
+ *
+ * 这正是本改动要验证的语义——署名取自「谁的会话记录」。故这里按 `sessionId`
+ * 区分，使主控与会话执行体拿到**不同**的 provider/model，便于断言落账用的是
+ * 执行体那一份。
+ */
+function fakeSessionPersistence(routes = {}) {
+  const reads = [];
+  return {
+    reads,
+    locate: () => undefined,
+    open: (sessionId) => ({
+      read: async () => {
+        reads.push(sessionId);
+        const route = routes[sessionId];
+        if (route === undefined) return { events: [] };
+        return { events: [{ type: "model/selection", data: route }] };
+      },
+      close: async () => {},
+    }),
   };
 }
 
@@ -280,9 +313,123 @@ test("discover：区间未给 to 时不给出推进凭据（水位不推进）",
 test("discover：onRun 观察钩子上报各阶段（供活动记账与实跑取证）", async () => {
   const phases = [];
   const svc = fakeSubagents({ providers: [providerNamed("spawn")] });
-  const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL, onRun: (e) => phases.push(e.phase) });
+  const persistence = fakeSessionPersistence({ "session-executor-1": { provider: "executor-provider", model: "executor-model" } });
+  const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL, sessionPersistence: persistence, onRun: (e) => phases.push(e.phase) });
   await discover({ threshold: 3, candidates: [], window: { to: 3, items: [{ turn: 3, assistant: "这是一段足够长的材料内容原文。" }] } });
-  assert.deepEqual(phases, ["start", "started", "result", "verdict"]);
+  // `executor-signature` 是 2026-10-17 新增的阶段：在 run.result 之后、dispose 之前
+  // 实测执行体自家的路由，使「署名从哪来」可从运行痕迹读出。
+  assert.deepEqual(phases, ["start", "started", "executor-signature", "result", "verdict"]);
+});
+
+// ---------------------------------------------------------------------------
+// 执行体署名（2026-10-17）：落账的 provider/model 必须来自**执行体自己的会话记录**
+//
+// 缺陷形态（实测 2026-10-16T06:17:11Z）：主控 session-36dd0a0a 为
+// workbuddy/deepseek-v4.1-flash，实际派出的子代理 147acc26 为
+// ds-yue/deepseek-v4-flash，而落账对象 pitfall-2abbbc2f 记的是**主控值**。
+// 09 §5.1 要求「当次实际」的 provider/model——当次实际做判断的是执行体。
+//
+// 下列用例把两者取成**不同值**，故在旧实现（用主控 agent 取路由）下必然失败。
+// ---------------------------------------------------------------------------
+
+const EXECUTOR_ROUTE = { provider: "executor-provider", model: "executor-model" };
+
+function discoverWith(overrides = {}) {
+  const svc = fakeSubagents({ providers: [providerNamed("spawn")], ...overrides.subagents });
+  const persistence = fakeSessionPersistence({ "session-executor-1": EXECUTOR_ROUTE, ...overrides.routes });
+  const discover = createDiscoveryProvider({
+    subagents: svc,
+    parent: PARENT,
+    signal: SIGNAL,
+    sessionPersistence: overrides.sessionPersistence === undefined ? persistence : overrides.sessionPersistence,
+    onRun: overrides.onRun,
+  });
+  return { discover, svc, persistence };
+}
+
+const MATERIAL = { to: 3, items: [{ turn: 3, assistant: "这是一段足够长的材料内容原文。" }] };
+
+test("执行体署名：取执行体会话记录的路由，不是主控的", async () => {
+  const { discover, persistence } = discoverWith();
+  const out = await discover({ threshold: 3, candidates: [], window: MATERIAL });
+  assert.notEqual(out.executorSignature, null, "成功完成的运行必须带执行体署名");
+  const resolved = resolveAuthoritativeSignature(out.executorSignature);
+  assert.deepEqual(resolved, EXECUTOR_ROUTE, "署名须等于执行体会话记录的路由值");
+  assert.deepEqual(persistence.reads, ["session-executor-1"], "只应读执行体自己的会话记录");
+});
+
+test("执行体署名：读取发生在 dispose 之前（否则会话写入句柄已关闭）", async () => {
+  const order = [];
+  const svc = fakeSubagents({
+    providers: [providerNamed("spawn")],
+    startImpl: async () => ({
+      id: "run-order",
+      localAgent: { session: { header: { id: "session-executor-1" } } },
+      result: Promise.resolve({ stopReason: "completed", structured: VERDICT_SCHEMA_OK }),
+      dispose: async () => { order.push("dispose"); },
+    }),
+  });
+  const persistence = fakeSessionPersistence({ "session-executor-1": EXECUTOR_ROUTE });
+  const wrapped = {
+    ...persistence,
+    open: (sessionId) => ({
+      read: async () => { order.push(`read:${sessionId}`); return { events: [{ type: "model/selection", data: EXECUTOR_ROUTE }] }; },
+      close: async () => {},
+    }),
+  };
+  const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL, sessionPersistence: wrapped });
+  await discover({ threshold: 3, candidates: [], window: MATERIAL });
+  assert.deepEqual(order, ["read:session-executor-1", "dispose"], "须先读路由、后 dispose");
+});
+
+test("执行体署名：run.result 抛错时 dispose 仍执行（迁出 finally 后不得泄漏句柄）", async () => {
+  let disposed = 0;
+  const svc = fakeSubagents({
+    providers: [providerNamed("spawn")],
+    startImpl: async () => ({
+      id: "run-throw",
+      localAgent: { session: { header: { id: "session-executor-1" } } },
+      result: Promise.reject(new Error("boom")),
+      dispose: async () => { disposed += 1; },
+    }),
+  });
+  const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL, sessionPersistence: fakeSessionPersistence({}) });
+  await assert.rejects(() => discover({ threshold: 3, candidates: [], window: MATERIAL }));
+  assert.equal(disposed, 1, "result 抛错路径也必须 dispose");
+});
+
+test("执行体署名：无 localAgent 时如实报不可用，不回落主控路由", async () => {
+  const svc = fakeSubagents({
+    providers: [providerNamed("spawn")],
+    startImpl: async () => ({
+      id: "run-remote",
+      // 跨进程后端按构造返回 void 0（宿主注释「localAgent is undefined for remote runs」）
+      localAgent: undefined,
+      result: Promise.resolve({ stopReason: "completed", structured: VERDICT_SCHEMA_OK }),
+      dispose: async () => {},
+    }),
+  });
+  const persistence = fakeSessionPersistence({ "session-parent": { provider: "parent-provider", model: "parent-model" } });
+  const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL, sessionPersistence: persistence });
+  const out = await discover({ threshold: 3, candidates: [], window: MATERIAL });
+  assert.equal(out.executorSignature, null, "无执行体可署名时不得造出署名");
+  assert.match(String(out.executorSignatureFailure), /localAgent/, "失败因须点明 localAgent 缺失");
+  assert.deepEqual(persistence.reads, [], "不得改读主控会话记录来凑一个署名");
+});
+
+test("执行体署名：执行体会话无 routing 事件时如实报不可用", async () => {
+  const { discover } = discoverWith({ routes: { "session-executor-1": undefined } });
+  const out = await discover({ threshold: 3, candidates: [], window: MATERIAL });
+  assert.equal(out.executorSignature, null);
+  assert.match(String(out.executorSignatureFailure), /routing event|no model\/selection/i);
+});
+
+test("执行体署名：短路路径不带署名且不误报为缺签名", async () => {
+  const { discover } = discoverWith();
+  const out = await discover({ threshold: 3, candidates: [], window: { to: 3, items: [] } });
+  assert.equal(out.skipped, "empty-window");
+  assert.equal(out.executorSignature, null);
+  assert.equal(out.executorSignatureFailure, null, "未派生执行体不是「取不到署名」");
 });
 
 // ---------------------------------------------------------------------------

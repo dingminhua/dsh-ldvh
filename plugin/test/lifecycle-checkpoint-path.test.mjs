@@ -226,6 +226,11 @@ test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自
       };
       return {
       id: "run-f1",
+      // 2026-10-17：落账署名改写后，provider 必须在 dispose 之前从**执行体自己的
+      // 会话记录**取路由，故桩须提供 localAgent——缺它会如实报「执行体无署名」并
+      // 停止落地（本用例就验证不到 F-1 的按任务分支）。这正是审核指出的「测试把
+      // 这个洞盖住」：旧桩只为父会话配了路由，因而永远走不到执行体取署名那一步。
+      localAgent: { session: { header: { id: "session-executor-f1" } } },
       dispose: async () => {},
       result: Promise.resolve({
         stopReason: "completed",
@@ -249,10 +254,21 @@ test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自
   // 受控写入需要**权威路由签名**（02 §10.5）：本桩让 `open(id,"read").read()`
   // 返回一条**真实的 routing 事件**，使签名链路走通——否则落地会在「缺签名」
   // 处停住（记 `land-failed/no-signature`），本测试就验证不到「成功者是否落地」。
+  //
+  // 2026-10-17：签名改为取**执行体**会话路由（09 §5.1「当次实际」），故桩按 sessionId
+  // 分别作答——执行体会话给 `executor-provider/executor-model`，其余给父会话那组。
+  // 用**不同值**是为让「盖的是谁的章」在本用例里也可判（见下方签名断言）。
   ctx.set("sessionPersistence", {
     locate: () => undefined,
-    open: () => ({
-      read: async () => ({ events: [{ type: "model/selection", data: { provider: "stub-provider", model: "stub-model" } }] }),
+    open: (sid) => ({
+      read: async () => ({
+        events: [{
+          type: "model/selection",
+          data: String(sid) === "session-executor-f1"
+            ? { provider: "executor-provider", model: "executor-model" }
+            : { provider: "stub-provider", model: "stub-model" },
+        }],
+      }),
       close: async () => {},
     }),
   });

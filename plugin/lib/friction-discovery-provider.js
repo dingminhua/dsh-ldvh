@@ -42,10 +42,58 @@
 import { buildSharedPromptSection } from "./friction-subagent-contract.js";
 import { AUX_TASK_REGISTRY, buildCompositePrompt, compositeOutputSchema, splitRunnableTasks, validateCompositeOutput } from "./aux-task-registry.js";
 import { windowBody } from "./friction-window.js";
+import { currentRouteValues } from "./session-signature.js";
+import { authoritativeSignature } from "./signature-channel.js";
 
 /** 服务不可用时的失败（由调用方按 §8.3 入队，不静默降级）。 */
 function unavailable(reason) {
   return { ok: false, error: { code: "discovery_provider/unavailable", message: reason } };
+}
+
+/**
+ * 取得**执行体自身**的权威路由署名（specs/09 机械签名「当次实际 provider/model」）。
+ *
+ * ## 为什么必须取执行体的，而不是主控的
+ *
+ * 闲时落账曾以**主控会话**的 `agent` 调 `currentRouteValues`，于是执行体作出的判断
+ * 被盖上主控的路由章——实测 2026-10-16T06:17:11Z：主控 `session-36dd0a0a` 为
+ * `workbuddy/deepseek-v4.1-flash`，实际派出的子代理 `147acc26` 为
+ * `ds-yue/deepseek-v4-flash`，而落账对象 `pitfall-2abbbc2f` 记的是**主控值**。
+ * 09 §5.1 要求取「当次实际」的 provider/model；当次实际跑这个判断的是执行体。
+ *
+ * ## 时序（建前独立审核发现，关键）
+ *
+ * 必须在 `run.dispose()` **之前**读：dispose 关闭子会话的写入句柄，之后再读可能
+ * 得到「session has no model/selection or request/context routing events」——
+ * 恰是本改动要消除的失败形态。故本函数只允许在 dispose 前调用（见约定调用点）。
+ *
+ * ## 取不到时的处置（Human 裁定 2026-10-17：「不存在没有署名的情况」）
+ *
+ * 实测 132 个子代理会话，无 routing 事件的 3 个全部为 `turn/end reason=blocked`
+ * 且无任何 assistant 消息——即从未产出判断，本就走不到落地。故「产出判断 ⇒ 该会话
+ * 必有 routing 事件」成立，取不到只可能是实现缺陷或宿主契约被破坏：**如实返回失败
+ * 结果，绝不回落到主控路由冒签**。
+ *
+ * 依赖前提：`SubagentRun.localAgent` 在进程内后端可得（spawn/fork）。跨进程 run 该
+ * 字段恒为 `void 0`（宿主注释「localAgent is undefined for remote runs」）——此时
+ * 同样如实失败，由 Human 决定改读会话标识还是换后端，不静默降级。
+ */
+async function resolveExecutorSignature(sessionPersistence, run) {
+  const child = run?.localAgent;
+  if (child === undefined || child === null) {
+    return {
+      ok: false,
+      reason: `the executor run exposes no localAgent (run.id=${String(run?.id ?? "unknown")}) — the child route `
+        + "cannot be read from its own session record. Cross-process provider backends return localAgent: void 0 by "
+        + "construction; 09 §5.1 requires the executor's own provider/model, so this is reported as unavailable rather "
+        + "than falling back to the parent session's route (which would stamp the wrong value).",
+    };
+  }
+  const route = await currentRouteValues(sessionPersistence, child);
+  if (!route.ok) return { ok: false, reason: `executor route unavailable: ${route.reason}` };
+  const carrier = authoritativeSignature({ provider: route.value.provider, model: route.value.model });
+  if (carrier === null) return { ok: false, reason: "the executor route resolved but could not be branded" };
+  return { ok: true, value: carrier, route: route.value };
 }
 
 /**
@@ -98,10 +146,15 @@ export function selectZeroContextProvider(subagents) {
  *   - `onRun`（可选）：观察钩子，用于活动记账与实跑取证。
  *
  * 返回的函数签名与 `runIdleCheckpoint` 的 `discover` 契约一致：
- * `({ threshold, candidates, existingPitfalls, sessionSignature, window, tasks })`，返回
+ * `({ threshold, candidates, existingPitfalls, window, tasks })`，返回
  * `{ outcome, verdict, watermarkTurn? }` 或抛错（由调用方按 §8.3 入队）。
+ *
+ * `sessionSignature` **不再是入参**（2026-10-17 清退）：它曾由 `runIdleCheckpoint`
+ * 透传，而 `lifecycle` 调用时从不传入，故恒为 undefined——形参存在但永远读不到值，
+ * 读者会误以为署名走这条路。真正的署名由本模块在派发后自行从**执行体会话记录**
+ * 取得（见 `resolveExecutorSignature`），并随返回值的 `executorSignature` 上抛。
  */
-export function createDiscoveryProvider({ subagents, parent, signal, onRun, provideWindow, registry = AUX_TASK_REGISTRY } = {}) {
+export function createDiscoveryProvider({ subagents, parent, signal, onRun, provideWindow, registry = AUX_TASK_REGISTRY, sessionPersistence = null } = {}) {
   if (subagents === undefined || subagents === null) {
     throw new Error("createDiscoveryProvider requires the host `subagents` service");
   }
@@ -112,7 +165,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     throw new Error("createDiscoveryProvider requires an AbortSignal (subagents.start requires request.signal)");
   }
 
-  return async function discover({ threshold, candidates, existingPitfalls, sessionSignature, window: windowRange, tasks: requestedTasks }) {
+  return async function discover({ threshold, candidates, existingPitfalls, window: windowRange, tasks: requestedTasks }) {
     // 本次要跑的**全部**任务（有序）。未给出时退回单任务 `idle-review`——保持既有
     // 调用方（测试与诊断路径）无需改造，且它与「只勾选 idle-review」等价。
     //
@@ -200,6 +253,10 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
         skipped: "no-runnable-task",
         unimplementedTasks: unimplemented,
         taskResults: {},
+        // 短路：未派生执行体，故无判断产出、无执行体可署名。落地侧见 null 且
+        // skipped 非空时**不落地任何对象**，因此不会走到盖章处（不是「缺署名」）。
+        executorSignature: null,
+        executorSignatureFailure: null,
       };
     }
 
@@ -234,6 +291,9 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
         // 故 taskResults 为空、unimplemented 照实带上）。
         unimplementedTasks: unimplemented,
         taskResults: {},
+        // 短路：未派生执行体，无判断产出、无执行体可署名（同 no-runnable-task）。
+        executorSignature: null,
+        executorSignatureFailure: null,
       };
     }
 
@@ -324,9 +384,29 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
 
     onRun?.({ phase: "started", provider: picked.value.name, runId: run?.id });
 
+    // ── 取执行体自身的署名：**必须在 dispose 之前**（建前独立审核发现）────────
+    //
+    // dispose 会关闭子会话的写入句柄，之后再读可能拿到尚未落盘的会话而返回
+    // 「no routing events」。故读取紧跟在 result 之后、dispose 之前执行；dispose
+    // 仍然放在 finally 里——result 抛错时它也必须执行，否则句柄泄漏。
     let result;
+    let executorSignature = null;
+    let signatureFailure = null;
     try {
       result = await run.result;
+      // 只有真正产出结论（completed）的运行才有可署名的判断。非 completed 的
+      // 运行后面会按 §8.3 抛错入队，不落地、也就不需要署名——此时不去读它，
+      // 免得为一个不会被记录的结论制造一条「找不到署名」的噪声。
+      if (result?.stopReason === "completed") {
+        const resolved = await resolveExecutorSignature(sessionPersistence, run);
+        if (resolved.ok) {
+          executorSignature = resolved.value;
+          onRun?.({ phase: "executor-signature", provider: resolved.route.provider, model: resolved.route.model, runId: run?.id });
+        } else {
+          signatureFailure = resolved.reason;
+          onRun?.({ phase: "executor-signature-unavailable", reason: resolved.reason, runId: run?.id });
+        }
+      }
     } finally {
       // run 由持有者负责释放（服务文档：holder-owned）。释放失败不掩盖结果。
       try {
@@ -401,6 +481,11 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     // 据此逐条入队（比抛一个笼统异常更能说清范围）。这与 §8.3 不矛盾——§8.3 要求
     // 停止并登记，而停止的对象是**失败的那些任务**，不是整次运行。
     return {
+      // 执行体自身的权威署名（品牌载体）：落地侧必须用它盖 change_log，不得改用
+      // 主控会话的路由（09 §5.1「当次实际」）。为 null 时落地侧须停止并登记，
+      // 不得回落——见 signatureFailure 的失败因。
+      executorSignature,
+      executorSignatureFailure: signatureFailure,
       // 兼容形态：`outcome` 取 idle-review 的结论（成功时）；失败时为 `null`，
       // 使调用方无法把它误当「已产出一条摩擦结论」。
       outcome: primary?.ok === true ? primary.value.verdict : null,

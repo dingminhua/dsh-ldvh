@@ -36,8 +36,6 @@ import { advanceWatermark, readDispatchState, recordDispatch, recordActivity } f
 import { admitIdleDispatch, pickEnabledAuxTasks } from "./idle-settings.js";
 import { recordRun } from "./idle-runlog.js";
 import { appendPendingEntry } from "./pending-queue.js";
-import { currentRouteValues } from "./session-signature.js";
-import { authoritativeSignature } from "./signature-channel.js";
 import { createChildInstaller } from "./child.js";
 import { AgentLifecycle } from "./agent-lifecycle.js";
 import { recordJudgementForGuard } from "./host-seams.js";
@@ -496,6 +494,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   subagents,
                   parent: agent,
                   signal: controller.signal,
+                  // 执行体署名的取数通道：provider 在 run.dispose() 之前用它尾读
+                  // **执行体自己的**会话记录（09 §5.1「当次实际」）。
+                  sessionPersistence: ctx.get("sessionPersistence") ?? null,
                   // D1：把**区间材料**交给执行体——由调度侧（turnTriggers 的
                   // 累积器）给出，不由子代理按坐标自行划定。见 friction-window.js。
                   provideWindow: (watermarkTurn) => turnTriggers.windowFrom(watermarkTurn),
@@ -602,24 +603,34 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 这正是 36 §10.2「任一任务失败不使其余任务失效」的机械形态。
           if (checkpoint?.ok === true && (verdict != null || captureVerdict != null)) {
             const ledgerRoot = join(scope.project.path, "ldvh-base");
-            // 受控写入需要**权威路由签名**（02 §10.5）。取不到签名时**不落地**
-            // ——宁可停在这里，也不写一条签名缺失的账目（那会污染 change_log 的
-            // 归属）。取不到即按 §8.3 入队。
-            // **裸标识符陷阱（D8）**：此处原写作 `sessionPersistence?.()`，而
-            // `sessionPersistence` 在本文件里**只是 `registerLdvhTools` 的实参
-            // 属性名**（第 81 行 `sessionPersistence: () => ctx.get(...)`），
-            // 从未声明为变量。于是这一行**每次都抛 ReferenceError**，而该异常
-            // 沿 onSessionCheckpoint 冒泡后被执行体收口成一条日志（triggers.js
-            // 的 dispatchCheckpoint），运行载体上**不留任何痕迹**：账本无、队列
-            // 无、水位不动——与「机制没跑」外观完全相同。
-            // 正确形态与其它模块一致（adr-tools/friction-tools/ldvh-tools 等）：
-            // 经 `ctx.get("sessionPersistence")` 取服务后再可选调用。
-            const route = await currentRouteValues(ctx.get("sessionPersistence"), agent);
-            if (!route.ok) {
+            // 受控写入需要**权威路由签名**（02 §10.5 / 09 §5.1「当次实际」）。
+            // 取不到签名时**不落地**——宁可停在这里，也不写一条签名缺失的账目（那会
+            // 污染 change_log 的归属）。取不到即按 §8.3 入队。
+            //
+            // **署名取的是执行体，不是本会话（2026-10-17 修正）**：此前这里用主控
+            // 的 `agent` 调 `currentRouteValues`，于是执行体做出的判断被盖上主控的
+            // 路由章。实测 2026-10-16T06:17:11Z：主控 `session-36dd0a0a` 为
+            // workbuddy/deepseek-v4.1-flash，实际派出的子代理 `147acc26` 为
+            // ds-yue/deepseek-v4-flash，而落账对象 `pitfall-2abbbc2f` 记的是主控值。
+            // 09 §5.1 要求「当次实际」的 provider/model；当次实际做这个判断的是执行体。
+            // 现由 provider 在 dispose 之前从**执行体自己的会话记录**取得署名，随
+            // `decision.executorSignature` 上抛，本层只消费不重取。
+            //
+            // **裸标识符陷阱（D8）的历史告警保留**：此处原写作 `sessionPersistence?.()`，
+            // 而 `sessionPersistence` 在本文件里只是 `registerLdvhTools` 的实参属性名，
+            // 从未声明为变量，故每次都抛 ReferenceError 且被执行体收口成一条日志
+            // （账本无、队列无、水位不动——与「机制没跑」外观相同）。现本层不再取路由，
+            // 该陷阱随之消失；`ctx.get("sessionPersistence")` 仍在 provider 构造处使用。
+            const executorSignature = checkpoint.value?.decision?.executorSignature ?? null;
+            const signatureFailure = checkpoint.value?.decision?.executorSignatureFailure ?? null;
+            const skippedBecause = checkpoint.value?.decision?.skipped ?? null;
+            if (executorSignature === null) {
               await appendPendingEntry(dshHomePath, {
                 task: tasksForThisCheckpoint,
-                reason: `闭集落地缺少权威路由签名：${route.reason ?? "unknown"}`,
-                residual: ["账目未写入（缺签名）"],
+                reason: skippedBecause !== null
+                  ? `闭集落地未发生（本次跳过：${skippedBecause}，无判断产出故无执行体可署名）`
+                  : `闭集落地缺少执行体署名：${signatureFailure ?? "执行体未给出署名且未说明原因"}`,
+                residual: ["账目未写入（缺署名）"],
                 at: new Date().toISOString(),
               });
               lifecycle.activity?.record("session/checkpoint/landed", { action: "no-signature" });
@@ -629,7 +640,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 if (taskOutcomes[key] === undefined) taskOutcomes[key] = { outcome: "no-signature" };
               }
             } else {
-              // 签名已取得：**逐任务落地**。每个任务的结论由它自己的落地函数处理
+              // 署名已取得：**逐任务落地**。每个任务的结论由它自己的落地函数处理
               // ——不得只落地摩擦而把其它任务的结论留在 `decision` 里（那正是
               // 缺陷 D2 的形态：结论算完即丢，且不留痕迹）。
               if (verdict != null) {
@@ -637,10 +648,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   factSourceRoot: ledgerRoot,
                   verdict,
                   observationAt: checkpoint.value.at,
-                  sessionSignature: authoritativeSignature({
-                    provider: route.value.provider,
-                    model: route.value.model,
-                  }),
+                  sessionSignature: executorSignature,
                 });
                 if (!landed.ok) {
                   // §8.3 fail-closed：落地失败按停止处置并登记（不自行重试、不掩盖）。
@@ -729,10 +737,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   factSourceRoot: ledgerRoot,
                   verdict: captureVerdict,
                   observationAt: checkpoint.value.at,
-                  sessionSignature: authoritativeSignature({
-                    provider: route.value.provider,
-                    model: route.value.model,
-                  }),
+                  // 与摩擦路径同一份执行体署名：两条落地路径共用同一个执行体，
+                  // 故不得一条用执行体、一条用主控（那会使同一批产出的对象署名不一）。
+                  sessionSignature: executorSignature,
                 });
                 if (!captured.ok) {
                   // §8.3 fail-closed：落地失败按停止处置并登记（不自行重试、不掩盖）。

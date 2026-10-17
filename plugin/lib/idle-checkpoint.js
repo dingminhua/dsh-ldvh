@@ -86,7 +86,6 @@ export async function runIdleCheckpoint({
   task,
   tasks,
   discover,
-  sessionSignature,
   now,
   // §8.4 水位段所需：本次检查点所在的会话与轮次（位置标识，取自宿主事件载荷）。
   // `sessionId` 与 `currentTurn` 缺席时水位无法界定 —— 见下方校验。
@@ -255,7 +254,10 @@ export async function runIdleCheckpoint({
       threshold: FRICTION_THRESHOLD_N,
       candidates: candidates.value.candidates,
       existingPitfalls,
-      sessionSignature,
+      // 署名**不由本层传入**：执行体做出判断后，由 provider 从执行体自己的会话记录
+      // 取得并随返回值上抛（executorSignature）。此前这里透传一个 `sessionSignature`
+      // 形参，而 lifecycle 调用时从不传入，故该形参恒为 undefined——形参存在却永远
+      // 读不到值，读者会误以为署名走这条路（2026-10-17 清退）。
       // 区间与提示词一并交给执行体（提示词由 friction-subagent-contract.js 依
       // 这些机械前提组装；执行体不得自行界定区间）。
       window: windowRange,
