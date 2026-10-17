@@ -1,5 +1,5 @@
 /**
- * dsh-ldvh — 闭集落地：把子代理的结构化判断写成账目（specs/04 §8.4 第 2–4 项）.
+ * dsh-ldvh — 闭集落地：把子代理的结构化判断写成账目（specs/36 §9 第 2–4 项）.
  *
  * ## 本模块为什么存在（缺陷 D2 的修复）
  *
@@ -157,7 +157,7 @@ export async function landDiscoveryVerdict({
       sessionSignature,
     });
     if (!supplemented.ok) {
-      return failure(supplemented.error?.code ?? "friction/supplement_failed", `04 §8.4 第 2 项（补充级更新）失败：${supplemented.error?.message ?? "unknown"}`, {
+      return failure(supplemented.error?.code ?? "friction/supplement_failed", `36 §9 第 2 项（补充级更新）失败：${supplemented.error?.message ?? "unknown"}`, {
         stage: "supplement",
         cause: supplemented.error,
       });
@@ -171,7 +171,7 @@ export async function landDiscoveryVerdict({
       sessionSignature,
     });
     if (!promoted.ok) {
-      return failure(promoted.error?.code ?? "friction/promote_failed", `04 §8.4 第 4 项（阈值流转）失败：${promoted.error?.message ?? "unknown"}`, {
+      return failure(promoted.error?.code ?? "friction/promote_failed", `36 §9 第 4 项（阈值流转）失败：${promoted.error?.message ?? "unknown"}`, {
         stage: "promote",
         cause: promoted.error,
       });
@@ -204,7 +204,7 @@ export async function landDiscoveryVerdict({
       sessionSignature,
     });
     if (!created.ok) {
-      return failure(created.error?.code ?? "friction/create_failed", `04 §8.4 第 3 项（创建 observing 账目）失败：${created.error?.message ?? "unknown"}`, {
+      return failure(created.error?.code ?? "friction/create_failed", `36 §9 第 3 项（创建 observing 账目）失败：${created.error?.message ?? "unknown"}`, {
         stage: "create",
         cause: created.error,
       });
@@ -219,7 +219,7 @@ export async function landDiscoveryVerdict({
       sessionSignature,
     });
     if (!promoteAfterCreate.ok) {
-      return failure(promoteAfterCreate.error?.code ?? "friction/promote_failed", `04 §8.4 第 4 项（新账目的阈值判定）失败：${promoteAfterCreate.error?.message ?? "unknown"}`, {
+      return failure(promoteAfterCreate.error?.code ?? "friction/promote_failed", `36 §9 第 4 项（新账目的阈值判定）失败：${promoteAfterCreate.error?.message ?? "unknown"}`, {
         stage: "promote-after-create",
         cause: promoteAfterCreate.error,
       });
@@ -235,5 +235,5 @@ export async function landDiscoveryVerdict({
   }
 
   // 三态是闭集；走到这里说明调用方没先过 validateDiscoveryVerdict。
-  return failure("friction/verdict_out_of_set", `refusing to land an unknown verdict ${JSON.stringify(verdict.verdict)}; the closed set is same-obstacle/new-obstacle/no-discovery (04 §8.4 三态)`);
+  return failure("friction/verdict_out_of_set", `refusing to land an unknown verdict ${JSON.stringify(verdict.verdict)}; the closed set is same-obstacle/new-obstacle/no-discovery (36 §9 三态)`);
 }

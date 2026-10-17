@@ -1,11 +1,11 @@
 /**
  * dsh-ldvh — 摩擦发现的子代理契约：提示词与结构化输出 schema
- *   (specs/04 §8.4 第 1 项的语义判断，经宿主 outputSchema 承载).
+ *   (specs/36 §9 第 1 项的语义判断，经宿主 outputSchema 承载).
  *
- * 权威与边界：specs/04 §8.4、§8.2。本模块**只承载两样东西**——
+ * 权威与边界：specs/36 §9、§5.2。本模块**只承载两样东西**——
  *
  *   1. 交给派生出的受管辖隔离子代理的**提示词**（它以零上下文派生，判断所需
- *      输入由调度侧机械交付——窗口原文材料与既有账本候选，04 §8.4「执行体与
+ *      输入由调度侧机械交付——窗口原文材料与既有账本候选，36 §7.1「执行体与上下文供给」，
  *      上下文供给」段，Human 决定 2026-10-12）；
  *   2. 它的**结构化输出 schema**（由宿主在提交层强制，见下）。
  *
@@ -14,7 +14,7 @@
  *
  * ## 为什么用 outputSchema
  *
- * specs/04 §8.4 第 1 项的语义查重按 §8.2 第 1 条后半句**不由机械校验保障**——
+ * specs/36 §9 第 1 项的语义查重按 §8.2 第 1 条后半句**不由机械校验保障**——
  * 它是登记为 gap 的语义判断。但「子代理按结构提交」这件事**可以**升为机械校验：
  * 宿主 `outputSchema` 在**提交层**强制（实测 2026-10-11：越界的枚举值、多余字段
  * 都交不出来；不合规对象根本到不了调用方）。故本 schema 把三态与各态必填字段
@@ -95,7 +95,7 @@ export function discoveryOutputSchema() {
  * 组装交给子代理的提示词（§8.4 执行体：零上下文派生，依调度侧交付的材料判断）。
  *
  * 参数（全部为**机械前提**，由调度方提供，不得由子代理自行取得）：
- *   - `threshold`：固定阈值 N（04 §8.4 内嵌为 3）；
+ *   - `threshold`：固定阈值 N（36 §9 内嵌为 3）；
  *   - `candidates`：既有 `open`/`observing` 账目的候选投影（uid/title/phenomenon/status）；
  *   - `window`：本次运行的**水位区间**（自上次成功运行以来新增的会话内容范围）。
  *     其取值只来自宿主会话记录的位置标识（§8.4「观察范围的切分」）——
@@ -164,9 +164,9 @@ export function buildDiscoveryPromptSection({ threshold, candidates = [] } = {})
  * 提示词的**公共段**——对全部任务只出现一次的部分。
  *
  * 含四样东西，它们在任务之间完全相同：
- *   ① 身份与上下文供给声明（零上下文派生 + 机械交付，04 §8.4「执行体与上下文
+ *   ① 身份与上下文供给声明（零上下文派生 + 机械交付，36 §7.1「执行体与上下文供给」
  *      供给」段，Human 决定 2026-10-12）；
- *   ② **材料的确切边界**（04 §8.4 水位段：切分落在机械侧）；
+ *   ② **材料的确切边界**（36 §11 水位段：切分落在机械侧）；
  *   ③ 本次观察材料正文；
  *   ④ 产出方式（结构化工具提交）。
  *
@@ -207,13 +207,14 @@ export function buildSharedPromptSection({ window: windowRange, taskCount = 1 } 
     : "你本次要完成**一件事**（见下方事项段）。";
 
   return [
-    "你是 LDVH 的**空闲辅助执行体**（specs/04 §8.4 派生的受管辖隔离子代理）。",
-    "你以**零上下文**派生（spawn）——你看不到发起会话的任何内容；你判断所需的全部输入由调度侧**机械交付**（下方材料与既有账本候选，04 §8.4「执行体与上下文供给」段）。",
+    "你是 LDVH 的**空闲辅助执行体**（specs/36 §7.1 派生的受管辖隔离子代理）。",
+    "你以**零上下文**派生（spawn）——你看不到发起会话的任何内容；你判断所需的全部输入由调度侧**机械交付**（下方材料与既有账本候选，36 §7.1「执行体与上下文供给」段）。",
     taskLine,
     "",
     "## 你只能依据本次材料判断（重要）",
-    "**下面「本次观察材料」是本次运行的唯一观察依据。**「系统性」不靠单次运行的全量语境承载——它由既有账目比对与跨运行的累计计数结构性承载（04 §8.4 自动动作闭集第 1/2/4 项）；你只需判断**本次材料中是否出现阻碍现象**。",
+    "**下面「本次观察材料」是本次运行的唯一观察依据。**「系统性」不靠单次运行的全量语境承载——它由既有账目比对与跨运行的累计计数结构性承载（36 §9 自动动作闭集第 1/2/4 项）；你只需判断**本次材料中是否出现阻碍现象**。",
     "你的判断必须**逐字引证**材料中的原文（`quote` 字段），落地侧会机械核对该引证是否真出现在材料里；**引证不在材料中即判定该判断不成立**。",
+    "**「逐字」包含 Markdown 标记本身**：材料里的 `**加粗**`、`` `行内代码` ``、列表符号、标点与空白都是原文的一部分，复制时须**连标记一起复制**，不得剥除、不得重排、不得改用你自己的排版——剥掉 `**` 或反引号后的文本在材料里**并不存在**，会被判为「引证不在材料中」。",
     "",
     "### 材料的确切边界（照着找，别猜）",
     `本次材料被两行标记**完整包住**：起于 \`${WINDOW_OPEN}\`、止于 \`${WINDOW_CLOSE}\`。**只有夹在这两行之间的内容算材料**——这两行本身不算，也不要引它们。`,
@@ -234,7 +235,7 @@ export function buildSharedPromptSection({ window: windowRange, taskCount = 1 } 
     "用结构化输出工具提交你的结论。**不要用纯文本作答**——只有工具提交算数。",
     "你的输出是一个对象，**每个事项占一个自己的顶层字段**（字段名见各事项段）。",
     "字段必须符合给定 schema：三态各自的必填字段见字段说明；不合规的对象**交不出来**（宿主在提交层拦截）。",
-    "`quote` 必须是材料中的**逐字原文**（≥8 个字）；`reason` 说明你如何由该引证得出结论。",
+    "`quote` 必须是材料中的**逐字原文**（≥8 个字，且连 `**`／反引号等 Markdown 标记一并复制）；`reason` 说明你如何由该引证得出结论。",
   ].join("\n");
 }
 
@@ -281,7 +282,7 @@ export function validateDiscoveryVerdict(structured, { candidates = [], windowTe
     return failure("discovery/reason_missing", "reason is required and must be non-empty (it must point back to this run's window)");
   }
 
-  // D1 的核心：逐字引证 + 机械核对（04 §8.4 水位段——切分依据不得由 AI 判断）。
+  // D1 的核心：逐字引证 + 机械核对（36 §11 水位段——切分依据不得由 AI 判断）。
   // 提供了 windowText 才做核对；未提供时**只**校验 quote 存在，且调用方不应
   // 在这种情况下落地（会在 lifecycle 里被拦，见 friction-landing 的调用点）。
   // 复核发现④的修复：**非空窗口**下的 `no-discovery` 也必须引证。
@@ -308,7 +309,7 @@ export function validateDiscoveryVerdict(structured, { candidates = [], windowTe
   } else if (typeof quote !== "string" || quote.trim().length === 0) {
     return failure(
       "discovery/quote_missing",
-      "a non-empty verbatim quote is required for same-obstacle/new-obstacle — without it the landing side cannot tell whether the verdict derives from this run's window (04 §8.4 水位段)",
+      "a non-empty verbatim quote is required for same-obstacle/new-obstacle — without it the landing side cannot tell whether the verdict derives from this run's window (36 §11 水位段)",
     );
   }
   if (typeof quote === "string" && quote.trim().length > 0 && windowText !== null) {

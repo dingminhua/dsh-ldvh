@@ -254,7 +254,7 @@ test('同名字段按类型分派词条：disposition 在 spark 与 friction 语
  *
  * 卡头另有一枚 `History` chip 承载 `change_log.length`（写入次数）。二者是不同的量：
  * 一条账目可以只被观察 1 次却改过 7 次。二者混同会让 Human 把「改过几次」误读成
- * 「出现过几次」——而后者才是 04 §8.4 的阈值判据。故断言二者**不同图标**。
+ * 「出现过几次」——而后者才是 36 §9 的阈值判据。故断言二者**不同图标**。
  */
 test('26 §8 occurrence 在**三处**卡头都被渲染（词条存在不等于被消费）', () => {
   const list = read('src/pages/ObjectList.tsx');
@@ -302,7 +302,7 @@ test('26 §8 occurrence 与「修改次数」用**不同图标**（两个不同�
 test('26 §8 occurrence chip 只呈现事实值，不呈现阈值进度（N 的权威源是规范不是界面）', () => {
   const badge = read('src/components/FrictionOccurrenceBadge.tsx');
 
-  // 不显示 `1/3` 这类进度——阈值 N=3 由 04 §8.4 固定，印在卡面会让它看起来
+  // 不显示 `1/3` 这类进度——阈值 N=3 由 36 §9 固定，印在卡面会让它看起来
   // 像可变的呈现选择。
   // 只看**代码**（见 codeOnly 的说明）：注释里解释「为何不呈现阈值」是正当的。
   const badgeCode = codeOnly(badge);

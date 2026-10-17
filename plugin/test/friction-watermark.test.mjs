@@ -1,5 +1,5 @@
 // Tests for plugin/lib/friction-watermark.js —
-// 04 §8.4「观察范围的切分（水位）」的落地：位置标识、成功才推进、失败不推进、
+// 36 §11「观察范围的切分（水位）」的落地：位置标识、成功才推进、失败不推进、
 // 重复覆盖不重复计数、水位不进入事实源。
 import { test } from "node:test";
 import assert from "node:assert/strict";

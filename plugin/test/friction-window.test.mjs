@@ -1,6 +1,6 @@
 // Tests for plugin/lib/friction-window.js —
 // 缺陷 D1 的修复：把观察区间的内容**在调度侧机械累积**，并要求子代理逐字引证、
-// 由落地侧机械核对（04 §8.4 水位段：切分依据不得是「AI 认为哪些是新的」）。
+// 由落地侧机械核对（36 §11 水位段：切分依据不得是「AI 认为哪些是新的」）。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -306,7 +306,7 @@ test("空消息**在前**、有文本在后：文本仍须入账（两个方向�
 });
 
 test("累积后仍受单轮上限约束，且**截取前缀**（确定性规则，不做语义取舍）", () => {
-  // 04 §8.4 禁止让切分依据落在 AI 判断上，故「保留哪一段」必须是**确定性**规则。
+  // 36 §11 禁止让切分依据落在 AI 判断上，故「保留哪一段」必须是**确定性**规则。
   // 这里取前缀（按发生顺序），与 clamp 既有语义 `slice(0, max)` 一致。
   const acc = createWindowAccumulator({ maxCharsPerTurn: 10 });
   acc.observe(null, assistantEvent(1, [{ type: "text", text: "0123456789" }]));

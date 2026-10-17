@@ -132,7 +132,7 @@ export const Config = z.object({
   //     ——**§6.2 现为空集，故本 schema 亦无任何节流配置键**。
   /** 闲时辅助总开关：关闭后不再派发任何辅助任务（含摩擦发现）。 */
   idleAssistEnabled: volatileField(z.boolean().default(true)),
-  /** 闲时评审（反思摩擦，04 §8.4）：已实现，缺省开。 */
+  /** 闲时评审（反思摩擦，36 §9）：已实现，缺省开。 */
   // 摩擦发现（36 §9）。**曾用名 `idleReviewEnabled`**——旧键仍须能被读到，见下。
   frictionDiscoveryEnabled: volatileField(z.boolean().default(true)),
   /**

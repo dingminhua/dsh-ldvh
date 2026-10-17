@@ -1,5 +1,5 @@
 // Tests for plugin/lib/friction-landing.js —
-// 缺陷 D2 的修复：把子代理的结构化判断按 04 §8.4 闭集第 2–4 项写成账目。
+// 缺陷 D2 的修复：把子代理的结构化判断按 36 §9 闭集第 2–4 项写成账目。
 //
 // 本模块是「判断 → 账目」的那条此前缺失的接缝。测试要证明：
 //   ① 三态各自的机械动作正确（补充级更新 / 创建 / 无动作）；
@@ -465,7 +465,7 @@ test("residualFromLandingError：**逐条校验明细**必须带出（此前只�
     details: { issues: ["title: must be ≤ 30 characters (26 §8), got 31", "phenomenon: must be a single readable sentence"] },
   };
   const landedError = {
-    message: "04 §8.4 第 3 项（创建 observing 账目）失败：frontmatter failed mechanical checks",
+    message: "36 §9 第 3 项（创建 observing 账目）失败：frontmatter failed mechanical checks",
     cause: writerError,
   };
   const residual = residualFromLandingError(landedError);

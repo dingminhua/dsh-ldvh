@@ -210,7 +210,7 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       if (payload?.agent !== undefined && agentId !== undefined && payload.agent.id !== agentId) return;
       state.turnStoppingSeen += 1;
       state.lastTurn = payload?.turn;
-      // Gate: 未受管辖时不清点，也不武装——受管辖是 04 §8.4 运行的前提（git 层
+      // Gate: 未受管辖时不清点，也不武装——受管辖是 36 §4 运行的前提（git 层
       // 操作要求当前项目受管辖，32 §137）。
       state.lastReflectionGate = governed() ? "open" : "closed";
       if (state.lastReflectionGate === "open") {

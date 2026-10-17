@@ -1,5 +1,5 @@
 // Tests for plugin/lib/friction-subagent-contract.js —
-// 04 §8.4 第 1 项语义判断的承载契约（提示词 + outputSchema + 落地前校验）.
+// 36 §9 第 1 项语义判断的承载契约（提示词 + outputSchema + 落地前校验）.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 

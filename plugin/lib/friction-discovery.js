@@ -1,7 +1,7 @@
 /**
- * dsh-ldvh — 摩擦发现执行体的**机械部分** (specs/04 §8.4 自动动作闭集).
+ * dsh-ldvh — 摩擦发现执行体的**机械部分** (specs/36 §9 自动动作闭集).
  *
- * 权威：specs/04 §8.4。本模块只实现该节「自动动作闭集」中**可由 Code 确定性地
+ * 权威：specs/36 §9。本模块只实现该节「自动动作闭集」中**可由 Code 确定性地
  * 执行**的那部分，并严格守住 §8.2 的边界。逐项对应：
  *
  *   第 1 项 读取 open/observing 账本 + 语义查重
@@ -15,7 +15,7 @@
  *   第 3 项 创建 observing 账目（count=1）
  *           → 本模块实现。
  *   第 4 项 observing → open（count ≥ 3 ∧ human_return_at 为空）
- *           → 本模块实现。N = 3 由 04 §8.4 固定内嵌，**不设配置载体**（故此处
+ *           → 本模块实现。N = 3 由 36 §9 固定内嵌，**不设配置载体**（故此处
  *             是常量而非可注入参数——把它做成可配置即违反 §8.4 的「不可配置」）。
  *   第 5 项 精确回读
  *           → 每次写入后立即回读并比对，回读不符即视为失败（§8.4 第 6 项）。
@@ -39,7 +39,7 @@ import {
 } from "./friction-writer.js";
 
 /**
- * 阈值 N = 3（specs/04 §8.4「阈值 N」段：由本规范固定内嵌，不可配置）。
+ * 阈值 N = 3（specs/36 §9「阈值 N」段：由本规范固定内嵌，不可配置）。
  *
  * **刻意不做成参数或配置项**：§8.4 明确「N 不设取值规范的外部承载、不设配置
  * 载体、不设读取者……不得由配置、默认值、环境变量或实现侧常量另行给定」，且变更
@@ -184,7 +184,7 @@ export async function supplementOccurrence({
     expectedFingerprint: current.value.fingerprint,
     frontmatterAfter,
     bodyMarkdownAfter: nextBody,
-    changeSummary: `补充观察：count ${occurrence.count} → ${occurrence.count + 1}（04 §8.4 第 2 项）`,
+    changeSummary: `补充观察：count ${occurrence.count} → ${occurrence.count + 1}（36 §9 第 2 项）`,
     sessionSignature,
   });
   if (!updated.ok) return updated;
@@ -273,7 +273,7 @@ export async function createObserving({
     // 26 §8：occurrence 必填，创建初值 count=1、human_return_at=null。
     occurrence: { count: 1, first_at: now, last_at: now, human_return_at: null },
     ...(isNonEmptyString(attribution) ? { attribution: attribution.trim() } : {}),
-    change_summary: "摩擦发现机械通道创建（04 §8.4 第 3 项）",
+    change_summary: "摩擦发现机械通道创建（36 §9 第 3 项）",
   };
   // 正文固定序（26 §8）：现象 / 入账依据；创建为 observing 故无「处置」段。
   const bodyMarkdown = `## 现象\n${phenomenon.trim()}\n\n## 入账依据\n${basis.trim()}`;
@@ -363,7 +363,7 @@ export async function promoteIfThresholdMet({
     // 读-写契约不对称，同补充级更新——见 stripLeadingH1 的说明。此处若直接回传
     // `current.value.body`（含生成的 H1），写入侧会再前置一次，阈值流转即损坏载体。
     bodyMarkdownAfter: stripLeadingH1(current.value.body),
-    changeSummary: `阈值流转 observing → open（count ${fm.occurrence.count} ≥ 3，04 §8.4 第 4 项）`,
+    changeSummary: `阈值流转 observing → open（count ${fm.occurrence.count} ≥ 3，36 §9 第 4 项）`,
     sessionSignature,
   });
   if (!updated.ok) return updated;
@@ -406,7 +406,7 @@ export function verifyThresholdAvailable() {
   if (!Number.isInteger(n) || n < 1) {
     return failure(
       "friction/threshold_unavailable",
-      `the fixed threshold N is not a positive integer (got ${JSON.stringify(n)}); 04 §8.4 pins N = 3 and §8.3 requires the whole run to stop rather than proceed`,
+      `the fixed threshold N is not a positive integer (got ${JSON.stringify(n)}); 36 §9 pins N = 3 and §8.3 requires the whole run to stop rather than proceed`,
     );
   }
   return success({ threshold: n });

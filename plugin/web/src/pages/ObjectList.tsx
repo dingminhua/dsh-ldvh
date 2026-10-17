@@ -339,7 +339,7 @@ export function ObjectCardFrame({
           {obj.type === 'friction' && <FrictionImpactBadge value={obj.impact} locale={locale} />}
           {/* 26 §8 occurrence（重复观察次数）：**频次的机械权威源**——§8 明写正文现象段
               只是人类可读投影，「二者不一致时以本字段为准」。故它必须可见，否则 Human
-              读不到阈值判据（04 §8.4 的 `count ≥ 3` 自动流转就读它）。
+              读不到阈值判据（36 §9 的 `count ≥ 3` 自动流转就读它）。
 
               与紧随的「修改次数」chip（`History` + `change_log.length`）**是两回事**：
               那是写入次数，这是被观察次数。刻意用**不同图标**（Eye vs History）区分，

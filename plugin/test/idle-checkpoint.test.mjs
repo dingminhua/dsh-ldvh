@@ -1,6 +1,6 @@
 // Tests for plugin/lib/idle-checkpoint.js — 调度与 fail-closed 编排.
 //
-// Authority: specs/04 §8.4 (§8.3 fail-closed 收口) and specs/32 §10.2 (预算轮换).
+// Authority: specs/36 §12（fail-closed 收口） and specs/32 §10.2 (预算轮换).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile } from "node:fs/promises";

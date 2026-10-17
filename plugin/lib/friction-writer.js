@@ -683,7 +683,7 @@ export async function updateFrictionObject(args) {
       }
     }
     // open→observing（放回留观）：须写入 human_return_at，使机械通道的
-    // 阈值触发跳过该账目（26 §9.2 / 04 §8.4 第 4 项）
+    // 阈值触发跳过该账目（26 §9.2 / 36 §9 第 4 项）
     if (prevStatus === "open" && nextStatus === "observing") {
       if (!fm.occurrence || typeof fm.occurrence !== "object" || !fm.occurrence.human_return_at) {
         return failure("friction/frontmatter_invalid", "open→observing (放回留观) must stamp occurrence.human_return_at (26 §9.2 — 机械通道须据此跳过该账目)");

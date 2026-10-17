@@ -472,7 +472,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
 
           // §8.4 第 1 项的执行体：以**零上下文**派生（spawn）一个受管辖隔离子代理，
           // 判断输入由调度侧机械交付（窗口原文材料 + 候选账本投影），取回它的结构化
-          // 判断（04 §8.4「执行体与上下文供给」段，Human 决定 2026-10-12）。仅对
+          // 判断（36 §7.1「执行体与上下文供给」段，Human 决定 2026-10-12）。仅对
           // `friction-discovery` 需要（其余任务尚未实现，runIdleCheckpoint 会如实报
           // not-implemented）。
           //
@@ -600,7 +600,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // ②即独立代码审核的 F-1（高危）：按任务分别的**存储**已就位，但**策略**
           // 仍是全有或全无，于是它在唯一需要它的场景（一件成功、一件失败）里不生效。
           // 现改为：只要**本任务自己**取得了结论就落地它，与其它任务的成败无关——
-          // 这正是 36 §10.2「任一任务失败不使其余任务失效」的机械形态。
+          // 这正是 36 §11「跨任务不混排、各任务独立成轮各持水位」与 §12 第 1 项
+          // 「同派发下的任务各自成立、互不牵连」的机械形态。
           if (checkpoint?.ok === true && (verdict != null || captureVerdict != null)) {
             const ledgerRoot = join(scope.project.path, "ldvh-base");
             // 受控写入需要**权威路由签名**（02 §10.5 / 09 §5.1「当次实际」）。
