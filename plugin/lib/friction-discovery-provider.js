@@ -5,14 +5,15 @@
  * 封成一个**注入给 `runIdleCheckpoint` 的 `discover` 提供者**。它是 §8.4 那句
  * 「由受管辖隔离子代理作出语义判断」与宿主 `subagents` 服务之间的唯一接缝。
  *
- * ## 为什么是 `start` 而不是 `startContinuable`（实测依据）
+ * ## 为什么是 `startActivation` 而不是 `startContinuable`（实测依据）
  *
- * `ContinuableStartSpec.request` 的类型是
- * `Omit<SubagentStartRequest, 'label' | 'signal' | 'outputSchema'>`——**`outputSchema`
- * 被列名显式排除**，`startContinuable` 也只返回 `{ childId, messageId }`。而
- * `start(name, request)` 接受 `outputSchema`，且 `await run.result` 返回
- * `SubagentResult.structured`。本机制**不需要可续能力**（每次检查点独立派生、
- * 跑完即结束），但**需要**结构化判断——故取 `start`（2026-10-11 第三次 C2 重批）。
+ * 宿主 0.2.1-rc.1 起 `start` / `startContinuable` 均已移除，派发只剩
+ * `startActivation(spec)`；它返回 `SubagentActivation`
+ * （`{ childId, messageId?, result, dispose() }`），`await activation.result`
+ * 仍是取结构化判断 `SubagentResult.structured` 的通道，`outputSchema` 经
+ * `spec.request.outputSchema` 传入。本机制**不需要可续能力**（每次检查点独立
+ * 派生、跑完即结束），但**需要**结构化判断——故取 `startActivation`。
+ * （2026-10-11 第三次 C2 重批选定 `start`；2026-10-17 随宿主契约迁移。）
  *
  * ## provider 的选择：必须 `inheritsParentContext === false`（2026-10-12 规范修订）
  *
@@ -42,7 +43,7 @@
 import { buildSharedPromptSection } from "./friction-subagent-contract.js";
 import { AUX_TASK_REGISTRY, buildCompositePrompt, compositeOutputSchema, splitRunnableTasks, validateCompositeOutput } from "./aux-task-registry.js";
 import { windowBody } from "./friction-window.js";
-import { currentRouteValues } from "./session-signature.js";
+import { currentRouteValuesForSession } from "./session-signature.js";
 import { authoritativeSignature } from "./signature-channel.js";
 
 /** 服务不可用时的失败（由调用方按 §8.3 入队，不静默降级）。 */
@@ -61,11 +62,15 @@ function unavailable(reason) {
  * `ds-yue/deepseek-v4-flash`，而落账对象 `pitfall-2abbbc2f` 记的是**主控值**。
  * 09 §5.1 要求取「当次实际」的 provider/model；当次实际跑这个判断的是执行体。
  *
- * ## 时序（建前独立审核发现，关键）
+ * ## 时序（宿主源码核实，2026-10-17 随 rc.1 迁移重写）
  *
- * 必须在 `run.dispose()` **之前**读：dispose 关闭子会话的写入句柄，之后再读可能
- * 得到「session has no model/selection or request/context routing events」——
- * 恰是本改动要消除的失败形态。故本函数只允许在 dispose 前调用（见约定调用点）。
+ * 旧实现依赖 `SubagentRun.localAgent` 取子 agent 再读路由。rc.1 的
+ * `SubagentActivation` **没有** `localAgent`（甚至没有 `id`），只剩 `childId`；
+ * 且 `activation.result` 由 `finishDisposal` 内部结算，结算**之前**宿主已
+ * `resident.delete(childId)`——等 result 返回时 `agents.get(childId)` 也取不到。
+ *
+ * 故改按**会话标识**读权威记录：子会话在结算前已被 `flushFinalState` 刷盘，
+ * 此刻记录完整。这条路径既不依赖 agent 对象，也不与结算时序赛跑。
  *
  * ## 取不到时的处置（Human 裁定 2026-10-17：「不存在没有署名的情况」）
  *
@@ -73,23 +78,18 @@ function unavailable(reason) {
  * 且无任何 assistant 消息——即从未产出判断，本就走不到落地。故「产出判断 ⇒ 该会话
  * 必有 routing 事件」成立，取不到只可能是实现缺陷或宿主契约被破坏：**如实返回失败
  * 结果，绝不回落到主控路由冒签**。
- *
- * 依赖前提：`SubagentRun.localAgent` 在进程内后端可得（spawn/fork）。跨进程 run 该
- * 字段恒为 `void 0`（宿主注释「localAgent is undefined for remote runs」）——此时
- * 同样如实失败，由 Human 决定改读会话标识还是换后端，不静默降级。
  */
-async function resolveExecutorSignature(sessionPersistence, run) {
-  const child = run?.localAgent;
-  if (child === undefined || child === null) {
+async function resolveExecutorSignature(sessionPersistence, childId) {
+  if (typeof childId !== "string" || childId.length === 0) {
     return {
       ok: false,
-      reason: `the executor run exposes no localAgent (run.id=${String(run?.id ?? "unknown")}) — the child route `
-        + "cannot be read from its own session record. Cross-process provider backends return localAgent: void 0 by "
-        + "construction; 09 §5.1 requires the executor's own provider/model, so this is reported as unavailable rather "
-        + "than falling back to the parent session's route (which would stamp the wrong value).",
+      reason: "the activation exposes no childId — the executor's own session cannot be identified, so "
+        + "09 §5.1's provider/model cannot be read from its own record.",
     };
   }
-  const route = await currentRouteValues(sessionPersistence, child);
+  // 只认会话标识：宿主正规入口 open(id,'read') 自行定位日志；子会话在结算前
+  // 已被 flushFinalState 刷盘，故此刻可读（见 currentRouteValuesForSession 说明）。
+  const route = await currentRouteValuesForSession(sessionPersistence, { id: childId });
   if (!route.ok) return { ok: false, reason: `executor route unavailable: ${route.reason}` };
   const carrier = authoritativeSignature({ provider: route.value.provider, model: route.value.model });
   if (carrier === null) return { ok: false, reason: "the executor route resolved but could not be branded" };
@@ -159,10 +159,10 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     throw new Error("createDiscoveryProvider requires the host `subagents` service");
   }
   if (parent === undefined || parent === null) {
-    throw new Error("createDiscoveryProvider requires the initiating `parent` Agent (subagents.start requires request.parent — the governed-isolation linkage, not context inheritance)");
+    throw new Error("createDiscoveryProvider requires the initiating `parent` Agent (startActivation requires spec.request.parent — the governed-isolation linkage, not context inheritance)");
   }
   if (signal === undefined || signal === null) {
-    throw new Error("createDiscoveryProvider requires an AbortSignal (subagents.start requires request.signal)");
+    throw new Error("createDiscoveryProvider requires an AbortSignal (startActivation requires spec.signal, which the host no longer uses for cancellation — see the dispatch site)");
   }
 
   return async function discover({ threshold, candidates, existingPitfalls, window: windowRange, tasks: requestedTasks }) {
@@ -372,51 +372,68 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     //      分别在 `start` 之前与之后打点），同源同口径，不构成判读歧义。
     const dispatchedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
-    // `start` 的失败（能力不符、provider 缺失、语义检查不过）会直接 reject，且
-    // 不留 run 供释放——故这里不 try/finally dispose，按返回的 run 处理。
-    const run = await subagents.start(picked.value.name, {
+    // 宿主 0.2.1-rc.1 起 `start` 已移除，改由 `startActivation` 派发。
+    //
+    // spec 的必填项是 provider / label / request / signal / delivery；`childId`
+    // 可选且**本机制不传**——传入等于「指定复用既有子会话」，会触发
+    // DUPLICATE_CHILD 语义门槛。原 `start` 的 label/signal/outputSchema 分工随之
+    // 改变：label 与 signal 升到 spec 顶层，其余三个留在 `request` 内层。
+    //
+    // `delivery: 'caller'`（非默认的 'parent'）：本次派发的结论由**调用方**
+    // 取回并落地，不需要宿主建立 catalog 子项、也不需要结算通知——'parent'
+    // 会走 requirePersistence() 并要求 sessionPersistence 参与 catalog 生命
+    // 周期，与闲时辅助「独立派发、跑完即取」的形态不符。
+    const activation = await subagents.startActivation({
+      provider: picked.value.name,
       label: `ldvh-idle ${dispatchedAt}`,
-      prompt: [{ type: "text", text: prompt }],
-      parent,
+      request: {
+        prompt: [{ type: "text", text: prompt }],
+        parent,
+        outputSchema,
+      },
       signal,
-      outputSchema,
+      delivery: "caller",
     });
 
-    onRun?.({ phase: "started", provider: picked.value.name, runId: run?.id });
+    const childId = activation?.childId;
+    onRun?.({ phase: "started", provider: picked.value.name, runId: childId });
 
-    // ── 取执行体自身的署名：**必须在 dispose 之前**（建前独立审核发现）────────
+    // ── 取执行体自身的署名 ────────────────────────────────────────────────
     //
-    // dispose 会关闭子会话的写入句柄，之后再读可能拿到尚未落盘的会话而返回
-    // 「no routing events」。故读取紧跟在 result 之后、dispose 之前执行；dispose
-    // 仍然放在 finally 里——result 抛错时它也必须执行，否则句柄泄漏。
+    // 时序依据（宿主源码核实，2026-10-17）：`activation.result` 由
+    // `finishDisposal` 内部结算，而在结算**之前**宿主已执行
+    // `flushFinalState`（子会话日志刷盘）并 `resident.delete(childId)`。
+    // 故等 result 返回时子 Agent 已不在注册表，`agents.get(childId)` 取不到；
+    // 而会话**记录**此刻恰恰是完整的——署名只认记录，不依赖 agent 对象。
+    //
+    // 不调用 `activation.dispose()`：`dispose()` 恒为 `finishDisposal(stop=true)`，
+    // 会无条件 cancel 子 Agent 并把一次正常收束判成父级取消；而
+    // `watchLocalSettlement` 已负责自然收尾并结算 result。主动 dispose 既
+    // 多余又有害（见 2026-10-17 建前审核第二轮结论）。
     let result;
     let executorSignature = null;
     let signatureFailure = null;
     try {
-      result = await run.result;
+      result = await activation.result;
       // 只有真正产出结论（completed）的运行才有可署名的判断。非 completed 的
       // 运行后面会按 §8.3 抛错入队，不落地、也就不需要署名——此时不去读它，
       // 免得为一个不会被记录的结论制造一条「找不到署名」的噪声。
       if (result?.stopReason === "completed") {
-        const resolved = await resolveExecutorSignature(sessionPersistence, run);
+        const resolved = await resolveExecutorSignature(sessionPersistence, childId);
         if (resolved.ok) {
           executorSignature = resolved.value;
-          onRun?.({ phase: "executor-signature", provider: resolved.route.provider, model: resolved.route.model, runId: run?.id });
+          onRun?.({ phase: "executor-signature", provider: resolved.route.provider, model: resolved.route.model, runId: childId });
         } else {
           signatureFailure = resolved.reason;
-          onRun?.({ phase: "executor-signature-unavailable", reason: resolved.reason, runId: run?.id });
+          onRun?.({ phase: "executor-signature-unavailable", reason: resolved.reason, runId: childId });
         }
       }
-    } finally {
-      // run 由持有者负责释放（服务文档：holder-owned）。释放失败不掩盖结果。
-      try {
-        await run.dispose?.();
-      } catch {
-        /* dispose 失败不影响已取回的结果；下一次运行会重新派生。 */
-      }
+    } catch (error) {
+      onRun?.({ phase: "result-failed", provider: picked.value.name, runId: childId, reason: String(error?.message ?? error) });
+      throw error;
     }
 
-    onRun?.({ phase: "result", provider: picked.value.name, runId: run?.id, stopReason: result?.stopReason });
+    onRun?.({ phase: "result", provider: picked.value.name, runId: childId, stopReason: result?.stopReason });
 
     // 非正常收束：把 stopReason 如实上抛，由调用方按 §8.3 入队（不伪造结论）。
     if (result?.stopReason !== "completed") {

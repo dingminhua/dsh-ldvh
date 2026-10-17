@@ -307,9 +307,9 @@ async function runWithTwoTasks(structured) {
   const subagents = {
     list: () => ["spawn"],
     getProvider: () => ({ inheritsParentContext: false, capabilities: { outputSchema: true } }),
-    start: async (name, req) => {
-      captured = req;
-      return { id: "run", result: Promise.resolve({ stopReason: "completed", structured }), dispose: async () => {} };
+    startActivation: async (spec) => {
+      captured = spec.request;
+      return { childId: "session-executor", result: Promise.resolve({ stopReason: "completed", structured }), dispose: async () => {} };
     },
   };
   const provider = createDiscoveryProvider({
@@ -399,8 +399,8 @@ test("N=2 逐任务校验：某任务的校验器**抛错**不掀掉另一件（
   const subagents = {
     list: () => ["spawn"],
     getProvider: () => ({ inheritsParentContext: false, capabilities: { outputSchema: true } }),
-    start: async () => ({
-      id: "r",
+    startActivation: async () => ({
+      childId: "session-executor",
       result: Promise.resolve({ stopReason: "completed", structured: { "friction-discovery": GOOD_VERDICT, "capacity-maintenance": { entries: "x" } } }),
       dispose: async () => {},
     }),

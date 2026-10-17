@@ -33,22 +33,25 @@ const VERDICT_SCHEMA_OK = composed();
 
 const CANDIDATES = [{ object_uid: "11111111-2222-4333-8444-555555555555", status: "observing", title: "CI 慢", phenomenon: "CI 平均 8 分钟。" }];
 
-/** 假 subagents 服务：可控 provider 列表与 start 行为。 */
+/**
+ * 假 subagents 服务：可控 provider 列表与 startActivation 行为。
+ *
+ * 宿主 0.2.1-rc.1 起 `start` 已移除，派发只剩 `startActivation(spec)`，返回
+ * `SubagentActivation = { childId, messageId?, result, dispose? }`——**没有**
+ * `id`，也**没有** `localAgent`。故署名 fixture 走 `childId`：provider 以
+ * `activation.childId` 为键去 sessionPersistence 读会话记录，与真宿主同形。
+ */
 function fakeSubagents({ providers = [], startImpl } = {}) {
   const starts = [];
   return {
     starts,
     list: () => providers.map((p) => p.name),
     getProvider: (name) => providers.find((p) => p.name === name),
-    start: async (name, request) => {
-      starts.push({ name, request });
-      if (startImpl) return startImpl({ name, request, starts });
+    startActivation: async (spec) => {
+      starts.push({ spec });
+      if (startImpl) return startImpl({ spec, starts });
       return {
-        id: "run-1",
-        // 真宿主在进程内后端提供 localAgent（零上下文 spawn 的 child Agent）。缺它时
-        // provider 会如实报「执行体无 localAgent」而**不回落主控路由**——见
-        // resolveExecutorSignature。默认给一个，使成功路径可取到执行体署名。
-        localAgent: { session: { header: { id: "session-executor-1" } } },
+        childId: "session-executor-1",
         result: Promise.resolve({ stopReason: "completed", structured: VERDICT_SCHEMA_OK }),
         dispose: async () => {},
       };
@@ -146,14 +149,18 @@ test("discover：以 outputSchema 与零上下文 provider 调用 start（§8.4 
 
   assert.equal(svc.starts.length, 1);
   const call = svc.starts[0];
-  assert.equal(call.name, "spawn");
-  assert.equal(call.request.parent, PARENT);
-  assert.equal(call.request.signal, SIGNAL);
-  assert.ok(call.request.outputSchema, "outputSchema 必须随请求传递——它是结构化判断的唯一通道");
-  assert.equal(call.request.outputSchema.type, "object");
-  assert.ok(Array.isArray(call.request.prompt) && call.request.prompt[0].type === "text");
-  assert.match(call.request.prompt[0].text, /N=3/);
-  assert.ok(call.request.prompt[0].text.includes(CANDIDATES[0].object_uid));
+  // startActivation 的 spec：provider 与 label/signal 在顶层，prompt/parent/outputSchema
+  // 在 request 内层（SubagentActivationSpec 的形状，宿主 0.2.1-rc.1）。
+  assert.equal(call.spec.provider, "spawn");
+  assert.equal(call.spec.signal, SIGNAL);
+  assert.equal(call.spec.delivery, "caller", "闲时辅助按 caller 取回结论，不走 parent 结算通知");
+  assert.equal(call.spec.childId, undefined, "不得传 childId（会触发 DUPLICATE_CHILD 语义门槛）");
+  assert.equal(call.spec.request.parent, PARENT);
+  assert.ok(call.spec.request.outputSchema, "outputSchema 必须随请求传递——它是结构化判断的唯一通道");
+  assert.equal(call.spec.request.outputSchema.type, "object");
+  assert.ok(Array.isArray(call.spec.request.prompt) && call.spec.request.prompt[0].type === "text");
+  assert.match(call.spec.request.prompt[0].text, /N=3/);
+  assert.ok(call.spec.request.prompt[0].text.includes(CANDIDATES[0].object_uid));
   assert.equal(out.outcome, "no-discovery");
   assert.equal(out.watermarkTurn, 5, "成功完成才给出推进凭据");
 });
@@ -170,7 +177,7 @@ test("discover：label 为 `ldvh-idle <秒级时刻>`，不列举任务（Human 
   const window = { to: 5, items: [{ turn: 5, assistant: "这是一段足够长的材料内容原文。" }] };
 
   await discover({ threshold: 3, candidates: CANDIDATES, window });
-  const label = svc.starts[0].request.label;
+  const label = svc.starts[0].spec.label;
 
   // ① 形态：`ldvh-idle ` + 秒级 RFC3339 UTC（无毫秒）
   assert.match(label, /^ldvh-idle \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
@@ -193,7 +200,7 @@ test("discover：label 不因本次做几件事而改变形态（任务数不进
     const svc = fakeSubagents({ providers: [providerNamed("spawn")] });
     const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
     await discover({ threshold: 3, candidates: CANDIDATES, tasks, window: { to: 5, items: [{ turn: 5, assistant: "这是一段足够长的材料内容原文。" }] } });
-    return svc.starts[0].request.label;
+    return svc.starts[0].spec.label;
   };
   assert.match(await labelFor(["friction-discovery"]), /^ldvh-idle \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
   assert.match(await labelFor(["friction-discovery", "experience-capture"]), /^ldvh-idle \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
@@ -203,27 +210,30 @@ test("prompt：公共段声明零上下文派生 + 机械交付，旧「继承�
   const svc = fakeSubagents({ providers: [providerNamed("spawn")] });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
   await discover({ threshold: 3, candidates: CANDIDATES, window: { to: 5, items: [{ turn: 5, assistant: "这是一段足够长的材料内容原文。" }] } });
-  const text = svc.starts[0].request.prompt[0].text;
+  const text = svc.starts[0].spec.request.prompt[0].text;
   assert.match(text, /零上下文/);
   assert.match(text, /机械交付/);
   assert.doesNotMatch(text, /你继承发起会话的主控上下文/, "旧继承措辞不得残留（04 §8.4 上下文供给段，2026-10-12）");
 });
 
-test("discover：run 被释放（holder-owned）", async () => {
+test("discover：不主动 dispose（收尾由宿主 watchLocalSettlement 负责）", async () => {
+  // rc.1 契约：dispose() 恒为 finishDisposal(stop=true)，会无条件 cancel 子 Agent 并把
+  // 一次正常收束判成父级取消；而宿主已由 watchLocalSettlement 完成自然收尾并结算
+  // result。故本层调用越少越好——主动 dispose 既多余又有害（2026-10-17 审核结论）。
   let disposed = 0;
   const svc = fakeSubagents({
     providers: [providerNamed("spawn")],
-    startImpl: async () => ({ id: "run-x", result: Promise.resolve({ stopReason: "completed", structured: VERDICT_SCHEMA_OK }), dispose: async () => { disposed += 1; } }),
+    startImpl: async () => ({ childId: "run-x", result: Promise.resolve({ stopReason: "completed", structured: VERDICT_SCHEMA_OK }), dispose: async () => { disposed += 1; } }),
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
   await discover({ threshold: 3, candidates: [], window: { to: 2, items: [{ turn: 2, assistant: "这是一段足够长的材料内容原文。" }] } });
-  assert.equal(disposed, 1);
+  assert.equal(disposed, 0, "正常收束不得触发主动 dispose");
 });
 
 test("discover：dispose 抛错不影响已取回的结果", async () => {
   const svc = fakeSubagents({
     providers: [providerNamed("spawn")],
-    startImpl: async () => ({ id: "run-y", result: Promise.resolve({ stopReason: "completed", structured: VERDICT_SCHEMA_OK }), dispose: async () => { throw new Error("dispose failed"); } }),
+    startImpl: async () => ({ childId: "run-y", result: Promise.resolve({ stopReason: "completed", structured: VERDICT_SCHEMA_OK }), dispose: async () => { throw new Error("dispose failed"); } }),
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
   const out = await discover({ threshold: 3, candidates: [], window: { to: 2, items: [{ turn: 2, assistant: "这是一段足够长的材料内容原文。" }] } });
@@ -252,7 +262,7 @@ test("discover：start 自身 reject 时上抛（不留 run 供释放）", async
 test("discover：stopReason 非 completed 时上抛并带 diagnostic（不伪造结论）", async () => {
   const svc = fakeSubagents({
     providers: [providerNamed("spawn")],
-    startImpl: async () => ({ id: "run-z", result: Promise.resolve({ stopReason: "error", diagnostic: "provider 502" }), dispose: async () => {} }),
+    startImpl: async () => ({ childId: "run-z", result: Promise.resolve({ stopReason: "error", diagnostic: "provider 502" }), dispose: async () => {} }),
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
   await assert.rejects(() => discover({ threshold: 3, candidates: [], window: { to: 1, items: [{ turn: 1, assistant: "这是一段足够长的材料内容原文。" }] } }), /stopReason=error.*provider 502/s);
@@ -265,7 +275,7 @@ test("discover：落地前校验不通过时**如实载明**该任务失败（�
   const svc = fakeSubagents({
     providers: [providerNamed("spawn")],
     startImpl: async () => ({
-      id: "run-w",
+      childId: "run-w",
       result: Promise.resolve({ stopReason: "completed", structured: composed({ ...VERDICT_SLICE, verdict: "same-obstacle", target_uid: "99999999-0000-4000-8000-000000000000", quote: "这是一段足够长的材料内容原文。" }) }),
       dispose: async () => {},
     }),
@@ -293,7 +303,7 @@ test("discover：落地前校验不通过时**如实载明**该任务失败（�
 test("discover：structured 缺席时**如实载明**失败（不把空结论当作 no-discovery）", async () => {
   const svc = fakeSubagents({
     providers: [providerNamed("spawn")],
-    startImpl: async () => ({ id: "run-v", result: Promise.resolve({ stopReason: "completed" }), dispose: async () => {} }),
+    startImpl: async () => ({ childId: "run-v", result: Promise.resolve({ stopReason: "completed" }), dispose: async () => {} }),
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL });
   const out = await discover({ threshold: 3, candidates: [], window: { to: 1, items: [{ turn: 1, assistant: "这是一段足够长的材料内容原文。" }] } });
@@ -358,20 +368,24 @@ test("执行体署名：取执行体会话记录的路由，不是主控的", as
   assert.deepEqual(persistence.reads, ["session-executor-1"], "只应读执行体自己的会话记录");
 });
 
-test("执行体署名：读取发生在 dispose 之前（否则会话写入句柄已关闭）", async () => {
+test("执行体署名：署名按 childId 读会话记录，且不主动调用 dispose", async () => {
+  // 宿主 0.2.1-rc.1 契约（源码核实）：activation.result 由 finishDisposal 内部结算，
+  // 结算前已 flushFinalState 刷盘并 resident.delete(childId)。故：
+  //   ① 署名只能按 childId 读记录（此时子 Agent 已不在注册表）；
+  //   ② **不得**主动 dispose——dispose() 恒为 finishDisposal(stop=true)，会把一次
+  //      正常收束判成父级取消，而 watchLocalSettlement 已负责自然收尾。
   const order = [];
+  let disposes = 0;
   const svc = fakeSubagents({
     providers: [providerNamed("spawn")],
     startImpl: async () => ({
-      id: "run-order",
-      localAgent: { session: { header: { id: "session-executor-1" } } },
+      childId: "session-executor-1",
       result: Promise.resolve({ stopReason: "completed", structured: VERDICT_SCHEMA_OK }),
-      dispose: async () => { order.push("dispose"); },
+      dispose: async () => { disposes += 1; order.push("dispose"); },
     }),
   });
-  const persistence = fakeSessionPersistence({ "session-executor-1": EXECUTOR_ROUTE });
   const wrapped = {
-    ...persistence,
+    locate: () => undefined,
     open: (sessionId) => ({
       read: async () => { order.push(`read:${sessionId}`); return { events: [{ type: "model/selection", data: EXECUTOR_ROUTE }] }; },
       close: async () => {},
@@ -379,32 +393,33 @@ test("执行体署名：读取发生在 dispose 之前（否则会话写入句�
   };
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL, sessionPersistence: wrapped });
   await discover({ threshold: 3, candidates: [], window: MATERIAL });
-  assert.deepEqual(order, ["read:session-executor-1", "dispose"], "须先读路由、后 dispose");
+  assert.deepEqual(order, ["read:session-executor-1"], "须按 childId 读路由，且不调用 dispose");
+  assert.equal(disposes, 0, "主动 dispose 会把正常收束判成父级取消（2026-10-17 审核结论）");
 });
 
-test("执行体署名：run.result 抛错时 dispose 仍执行（迁出 finally 后不得泄漏句柄）", async () => {
+test("执行体署名：result 抛错时不主动 dispose（收尾由宿主自然结算负责）", async () => {
   let disposed = 0;
   const svc = fakeSubagents({
     providers: [providerNamed("spawn")],
     startImpl: async () => ({
-      id: "run-throw",
-      localAgent: { session: { header: { id: "session-executor-1" } } },
+      childId: "session-executor-1",
       result: Promise.reject(new Error("boom")),
       dispose: async () => { disposed += 1; },
     }),
   });
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL, sessionPersistence: fakeSessionPersistence({}) });
   await assert.rejects(() => discover({ threshold: 3, candidates: [], window: MATERIAL }));
-  assert.equal(disposed, 1, "result 抛错路径也必须 dispose");
+  assert.equal(disposed, 0, "收尾由宿主自然结算负责，本层不主动 dispose");
 });
 
-test("执行体署名：无 localAgent 时如实报不可用，不回落主控路由", async () => {
+test("执行体署名：activation 无 childId 时如实报不可用，不回落主控路由", async () => {
+  // rc.1 的 SubagentActivation 只剩 childId 这一个身份字段（无 id、无 localAgent）。
+  // 连 childId 都缺失时无从定位执行体的会话记录——此时须如实失败，**不得**改读
+  // 主控会话记录去凑一个署名（09 §5.1「当次实际」；2026-10-16 修掉的冒签形态）。
   const svc = fakeSubagents({
     providers: [providerNamed("spawn")],
     startImpl: async () => ({
-      id: "run-remote",
-      // 跨进程后端按构造返回 void 0（宿主注释「localAgent is undefined for remote runs」）
-      localAgent: undefined,
+      childId: undefined,
       result: Promise.resolve({ stopReason: "completed", structured: VERDICT_SCHEMA_OK }),
       dispose: async () => {},
     }),
@@ -413,7 +428,7 @@ test("执行体署名：无 localAgent 时如实报不可用，不回落主控�
   const discover = createDiscoveryProvider({ subagents: svc, parent: PARENT, signal: SIGNAL, sessionPersistence: persistence });
   const out = await discover({ threshold: 3, candidates: [], window: MATERIAL });
   assert.equal(out.executorSignature, null, "无执行体可署名时不得造出署名");
-  assert.match(String(out.executorSignatureFailure), /localAgent/, "失败因须点明 localAgent 缺失");
+  assert.match(String(out.executorSignatureFailure), /childId/, "失败因须点明 childId 缺失");
   assert.deepEqual(persistence.reads, [], "不得改读主控会话记录来凑一个署名");
 });
 
@@ -456,7 +471,7 @@ test("D5：provideWindow 返回 undefined / 空窗口 / 有材料，三种形状
     const svc = fakeSubagents({
       providers: [providerNamed("spawn")],
       startImpl: async () => ({
-        id: "run-shape",
+        childId: "run-shape",
         result: Promise.resolve({ stopReason: "completed", structured: composed({ ...VERDICT_SLICE, quote }) }),
         dispose: async () => {},
       }),
@@ -482,7 +497,7 @@ test("D5：无 provideWindow 时退回调用方给的 window（向后兼容旧�
   });
   assert.equal(out.outcome, "no-discovery");
   // 提示词须含该材料（证明退回路径也把内容交了出去）
-  assert.match(svc.starts[0].request.prompt[0].text, /这是一段足够长的材料内容原文。/);
+  assert.match(svc.starts[0].spec.request.prompt[0].text, /这是一段足够长的材料内容原文。/);
 });
 
 test("D6：窗口有未观察缺口时，缺口被带出交由调用方登记（不静默、也不死锁）", async () => {
@@ -644,7 +659,7 @@ test("F-1：一件失败一件成功时，`watermarkTurn` 仍须给出（否则�
   const subagents = fakeSubagents({
     providers: [providerNamed("exec")],
     startImpl: () => ({
-      id: "run-1",
+      childId: "run-1",
       dispose: async () => {},
       result: Promise.resolve({
         stopReason: "completed",
@@ -686,7 +701,7 @@ test("F-1：全成功时同样给出 watermarkTurn（回归：新条件不得反
   const subagents = fakeSubagents({
     providers: [providerNamed("exec")],
     startImpl: () => ({
-      id: "run-1",
+      childId: "run-1",
       dispose: async () => {},
       result: Promise.resolve({
         stopReason: "completed",

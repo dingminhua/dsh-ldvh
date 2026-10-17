@@ -80,10 +80,10 @@ async function setup({ withSubagents = true, tasks = { "friction-discovery": tru
   ctx.set("subagents", {
     list: () => ["fork"],
     getProvider: (n) => (n === "fork" ? { name: "fork", inheritsParentContext: true, capabilities: { outputSchema: true } } : undefined),
-    start: async () => {
+    startActivation: async () => {
       starts += 1;
       return {
-        id: "run-1",
+        childId: "run-1",
         result: Promise.resolve({
           stopReason: "completed",
           structured: { verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "", impact: "light", quote: "", reason: "无" },
@@ -214,7 +214,8 @@ test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自
   ctx.set("subagents", {
     list: () => ["spawn"],
     getProvider: () => ({ name: "spawn", inheritsParentContext: false, capabilities: { outputSchema: true, agentOptions: true, depthLimit: true } }),
-    start: async (name, request) => {
+    startActivation: async (spec) => {
+      const request = spec?.request;
       const promptText = request?.prompt?.[0]?.text ?? "";
       // 探针：把「桩是否被调用」与「窗口里到底有没有材料」写进可断言的地方——
       // 否则「没失败」既可能是逻辑正确，也可能是桩压根没跑（空过）。
@@ -225,12 +226,11 @@ test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自
         topKeys: Object.keys(request?.outputSchema?.properties ?? {}),
       };
       return {
-      id: "run-f1",
-      // 2026-10-17：落账署名改写后，provider 必须在 dispose 之前从**执行体自己的
-      // 会话记录**取路由，故桩须提供 localAgent——缺它会如实报「执行体无署名」并
-      // 停止落地（本用例就验证不到 F-1 的按任务分支）。这正是审核指出的「测试把
-      // 这个洞盖住」：旧桩只为父会话配了路由，因而永远走不到执行体取署名那一步。
-      localAgent: { session: { header: { id: "session-executor-f1" } } },
+      // 2026-10-17（rc.1 适配）：SubagentActivation 只暴露 childId——没有 id、
+      // 没有 localAgent。provider 以 childId 为键读**执行体自己的**会话记录取署名，
+      // 故桩须同时提供该会话的路由（缺它会如实报「执行体无署名」并停止落地，
+      // 本用例就验证不到 F-1 的按任务分支）。
+      childId: "session-executor-f1",
       dispose: async () => {},
       result: Promise.resolve({
         stopReason: "completed",

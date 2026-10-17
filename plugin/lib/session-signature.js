@@ -194,8 +194,40 @@ async function readSessionLogText(path) {
  * 且换接初期须保留一条可用的旧路径，避免入口异常导致签名整体不可得。
  */
 export async function currentRouteValues(sessionPersistence, agent) {
-  if (sessionPersistence === undefined || sessionPersistence === null) return { ok: false, reason: "sessionPersistence service is unavailable" };
   if (agent === undefined || agent?.session?.header === undefined) return { ok: false, reason: "caller session identity is unavailable" };
+  return currentRouteValuesForSession(sessionPersistence, agent.session.header);
+}
+
+/**
+ * 按**会话标识**取权威路由（09 §5.1「当次实际」的按 id 形态）。
+ *
+ * ## 为什么需要这条入口（2026-10-17，DSH 0.2.1-rc.1 适配）
+ *
+ * 上游把 `subagents.start` 换成 `startActivation`，返回的
+ * `SubagentActivation` 只有 `{ childId, messageId?, result, dispose() }`——
+ * 旧 `SubagentRun.localAgent` 字段在新类型表中**不存在**。而
+ * `activation.result` 结算发生在 `finishDisposal` 内部，且在结算**之前**
+ * 就执行了 `resident.delete(childId)`：等 `await activation.result` 返回时，
+ * 子 Agent 已从注册表移除，`ctx.agents.get(childId)` 取不到。
+ *
+ * 故「先等结果、再拿 agent」是不可能的顺序。但署名的**数据源**从来不是
+ * agent 对象，而是子会话的权威会话记录——它由宿主在结算前
+ * `flushFinalState` 刷盘，此刻已完整可读。故本入口只认会话标识。
+ *
+ * `session` 只需含 `id`：宿主正规入口 `open(id,'read')` 自行定位物理文件
+ * （后端 `requireStoredLog(id)` → `findLog(id)`，不依赖 cwd）；回退链路的
+ * `locate(meta)` 才读 `cwd`，故首条会话记录里的 `cwd` 会被一并带上——
+ * 只给 `{ id }` 时回退链路会如实返回失败，不猜测路径。
+ *
+ * ## 取不到时（09 §5.1）
+ *
+ * 如实返回失败，**绝不**回落到主控路由：那会把执行体的判断盖上主控的章，
+ * 恰是 2026-10-16 修掉的缺陷形态。
+ */
+export async function currentRouteValuesForSession(sessionPersistence, session) {
+  if (sessionPersistence === undefined || sessionPersistence === null) return { ok: false, reason: "sessionPersistence service is unavailable" };
+  if (session === undefined || session === null) return { ok: false, reason: "session identity is unavailable" };
+  const agent = { session: { header: session } };
   // ① 正规入口：open(id,'read').read() 取已解析事件。
   const viaHandle = await readRouteEventsViaHandle(sessionPersistence, agent.session.header);
   if (viaHandle !== undefined) return viaHandle;
