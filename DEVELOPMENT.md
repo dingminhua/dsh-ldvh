@@ -33,6 +33,8 @@ npm --prefix plugin pack --dry-run
 
 当前还必须进行真实 UI 验收：设置卡片、LDVH 会话视图、`/ldvh`、`/ldvh/api/health`、停用/重启及卸载清理。
 
+Windows npm（node v24.19 打包版）实测：`npm --prefix plugin pack --dry-run` 不认 `--prefix`，会去当前工作目录找 `package.json` 并报 ENOENT——`npm --prefix plugin ci` / `test` 不受影响。打包核对须 `cd plugin` 后直接 `npm pack --dry-run`（prepack/postpack 照常执行）。
+
 ## Windows 平台说明
 
 CI 跑 `ubuntu-latest`；以下为 Windows（开发机之一）上实测的平台差异，全部已在代码/测试中各自处置。
