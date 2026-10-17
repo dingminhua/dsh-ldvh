@@ -1,6 +1,6 @@
 ---
 title: 只抄写入函数未抄证据保管链致门禁可绕
-status: draft
+status: active
 scope: 适用于在受控写入路径上新增与既有证据链形态相近的审核/记录类字段，尤其是「抄一条已有链做新链」的实现场景；影响面为机制保证的真实性——缺保管链时相关条款的机械性声明不成立，据其做出的「未审不得放行」保证为空。范围：pre_reviews 之例；是否扩及其他字段需另行复核确认，本次未覆盖。
 object_uid: 9a0c5057-f2be-4a0d-8af5-10a1ea93ce16
 fact_type_key: pitfall
@@ -10,6 +10,10 @@ change_log:
     provider: workbuddy-global
     model: deepseek-v4.1-flash
     summary: 闲时辅助经验积累（机械通道）于 2026-10-17T02:06:16.097Z 形成候选
+  - at: 2026-10-17T07:41:48.174Z
+    provider: qoder
+    model: qfmodel
+    summary: 登记独立复现验证结论（23 §16.1 第 3 项）并按 Human 2026-10-17「情况属实就转正」入档（draft→active）：复现者用修复前 writer（64bf2d4）对 HEAD 旁路用例实跑得 6 红、证明门禁确曾被绕；HEAD 全 20 绿 + grep 确认四环保管链落地；据修复提交 4bbc9f6 与第二轮复核记录，把「第二次复核尚未返回」据实收窄为「已返回、五个面堵死」，仍属实的未覆盖项为其他受控写入路径是否还有同类旁路。机制语义与 scope 未变。
 ---
 
 # 只抄写入函数未抄证据保管链致门禁可绕
@@ -37,6 +41,8 @@ change_log:
 ## 验证
 
 旁路用例 16/16 通过，四条旁路（revise 伪造、create 直写、盖戳条目改写、门禁放行）全部被拦；变异测试临时撤掉结构性剥离后相关用例立刻变红、恢复后全绿，证明测试非空转；plugin 1539/1539、web 483/483、tsc 零错误、`build:dsh` 成功。修复后的第二次独立复核结论尚未返回，未覆盖：该复核可能提出的新增问题、以及未实测的其他受控写入路径是否还有同类旁路。
+
+**独立复现验证结论（2026-10-17，23 §16.1）**：复现主体为本会话主控（session-39edc51b），未参与本候选形成（候选由 36 §10 机械通道形成，见 change_log 首条）；独立性边界：同一底层模型、不同上下文，未做跨模型验证。复现方式为**实际重走该失败机制的可观察步骤**（旁路攻击），结果如下：① **旁路确曾成立**——取修复前 writer（提交 `64bf2d4` 的 `workcase-writer.js`）置于副本 `/tmp/mut`，对 HEAD 现有的 20 条旁路/门禁用例跑 `node --test`，得 `tests 20 / pass 14 / fail 6`，失败的正是「F1 revise 伪造」「F1b create 携带」「F2 改写已盖戳条目」「execute 改写」「G1 自审不满足覆盖闸」「G2 回滚留痕」六条——修复前门禁可绕，与本候选症状逐字吻合；② **修复后成立**——HEAD 同一文件、同一组用例全 20 通过；③ **保管链四环真实存在**——`grep` 确认 `stampReviewEntries`、`assertReviewHistoryNotRewritten`、`guardAuditField`、`stripCallerOnlyFields` 均在 HEAD 落地，`revise`/`execute`/`rebatch` 三处调用 `guardAuditField` 回落落盘值，`create` 携带 `pre_reviews` 被拒；④ **根因真实存在**——修复前 `64bf2d4` 中 `stampReviewEntries`/`assertReviewHistoryNotRewritten` 的调用点仅接在 `reviews` 上（`next.reviews` 两处），未接 `pre_reviews`，即「只抄写入函数与判据、未抄托管与不可改写两环」在代码上成立；⑤ 修复提交 `4bbc9f6` 的消息逐字记载 plugin 1543/1543、web 483/483、tsc 零错误与两轮变异检验，与本候选验证段一致；该消息另记载**修复后的第二轮独立复核已返回「修复有效，无致命缺陷」并独立实测 F1/F1b/F2/execute/rebatch 五个面全部堵死**——即候选验证段中「第二次独立复核结论尚未返回」这一条现已闭合，其未覆盖项已被另一主体补齐。**据此把本条的未覆盖范围据实收窄**：第二次复核已返回且未提出致命缺陷；仍属实、但仍未被复现者实测的是「其他受控写入路径是否还有同类旁路」——本会话只核到 workcase-writer 的 pre_reviews/reviews 两轴。
 
 ## 影响与适用范围
 

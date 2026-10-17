@@ -10,6 +10,10 @@ change_log:
     provider: workbuddy-global
     model: deepseek-v4.1-flash
     summary: 闲时辅助经验积累（机械通道）于 2026-10-17T02:58:21.551Z 形成候选
+  - at: 2026-10-17T07:32:45.408Z
+    provider: qoder
+    model: qfmodel
+    summary: 登记独立复现验证结论（23 §16.1 第 3 项）：证据链核对成立——rebase 被脏工作区挡住、无关改动为 idle 进程的 friction count 更新、8 提交变基与 f90d42f..ecf95b1 推送、测试数字与 stash 恢复均逐字命中；同时如实登记候选「解决」段一处方向相反的描述（实际 stash 的是非己方改动而非「自己的改动」），该项属解决段实质内容故不改本体、提请 Human 决定。症状/触发/根因/规避与 scope 未改。
 ---
 
 # 无关未提交改动阻塞变基致推送延迟
@@ -39,6 +43,10 @@ change_log:
 已观察到的结果：变基后 8 个提交完整重放到远端之上且无冲突，推送成功（f90d42f..ecf95b1），本地与远端同步为 0 / 0；plugin 测试 1544 个、1543 通过、0 失败（1 跳过），web 测试 499/499 通过，tsc -b 零错误。stash 的改动在推送后恢复。
 未覆盖的部分：材料未说明 stash 是否干净应用（是否有冲突提示），也未包含恢复后是否再次跑测试的观察，故「恢复后代码仍全绿」这一点本次未被观察到。
 
+**独立复现验证结论（2026-10-17，23 §16.1）**：复现主体为本会话主控（session-39edc51b）与另派的只读取证隔离子代理（agent 921408c8）；二者均未参与本候选形成（候选由 36 §10 机械通道形成，见 change_log 首条），上下文亦互相隔离；独立性边界：同一底层模型、仅上下文隔离，未跨模型。复现方式为核对原始证据链（本类失败的前置条件为共享工作区并发写入，无法在独占环境中重走）。逐条核实结果：① `git rebase` 确被脏工作区挡住——形成会话 session-62501037 turn 33 seq 3194 逐字返回 `error: cannot rebase: You have unstaged changes.`；② 该改动确非本会话产生——seq 3199 的 diff 显示为两个 friction 对象的 `occurrence.count` 补充观察（provider `workbuddy-global`），与本会话工作无关；③ 8 个提交变基与推送范围成立——seq 3194 计数 `1 8`、seq 3209 逐字 `Rebasing (1/8)…Rebasing (8/8) Successfully rebased`、seq 3229 逐字 `f90d42f..ecf95b1  dev -> dev`；仓库侧 `git rev-list --count f90d42f..ecf95b1` 亦为 8；④ 测试数字成立——seq 3214 `tests 1544 / pass 1543 / fail 0`、seq 3219 `499/499` + `TSC ok`（「1 跳过」系 1544−1543 的算术推定，日志未出现 skipped 行）；⑤ stash 恢复成立——seq 3234 逐字 `Dropped refs/stash@{0}` 且未报冲突，其后仅做 `git fetch` 与计数核对，无重跑测试（与候选「未覆盖」段自述一致）。
+
+**本次复现推翻候选「解决」段的一处表述（方向相反）**：候选称「再只针对自己的改动做 `git stash`」，而 seq 3203 的实际命令逐字为 `git stash push -m "idle-process friction count updates (not mine)" -- ldvh-base/frictions/friction-abf557e1…md ldvh-base/frictions/friction-efa9b5ef…md`——被 stash 的恰是**非本会话**产生的那两处改动（消息里自述 not mine），本会话自己的工作早已提交、当时工作区内并无待 stash 的己方改动。故当次做法是「限定路径 stash 无关改动」，不是「只 stash 自己的改动」。该处属「解决」段的实质内容，按 23 §9.3 不得以补充名义改写，故此处只作事实登记，候选本体保持原样，转正与否归 Human 决定（§16）。其余各段（症状、触发条件、根因、规避）均获逐字印证。未覆盖：本次未在独占工作区外重走该失败，结论建立在日志一手记录与仓库历史的一致性核对之上。
+
 ## 影响与适用范围
 
-影响与适用范围：适用于任何在共享工作树上需要保持工作区干净才能执行的操作（rebase、切换分支、部分 merge），且工作区可能同时存在本执行者与非本执行者（后台辅助进程、并行会话）产生的未提交改动的情形；不适用于独占工作树或无并发写入的场景。
+适用于任何在共享工作树上需要保持工作区干净才能执行的操作（rebase、切换分支、部分 merge），且工作区可能同时存在本执行者与非本执行者（后台辅助进程、并行会话）产生的未提交改动的情形；不适用于独占工作树或无并发写入的场景。
