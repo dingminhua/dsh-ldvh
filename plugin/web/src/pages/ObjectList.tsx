@@ -185,6 +185,15 @@ export function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate
           residual={obj.result_residual}
           residualEntries={obj.result_residual_entries}
         />
+        {/* 变更流水（Human 2026-10-17：全部 WC 卡都要显示 changelog）。本组默认展开：
+            待批准关闭是**当下要做判断**的一档（Gate 2），流水是判断所需。 */}
+        <WorkCaseExecFlow
+          className="mt-1.5"
+          changeLog={obj.change_log}
+          reviews={obj.reviews}
+          amendments={obj.gate_1?.amendments}
+          selfUid={obj.id}
+        />
       </div>
     );
   }
@@ -199,6 +208,17 @@ export function WorkCaseListCardBody({ obj, t }: { obj: ObjectItem; t: Translate
       <div className="min-w-0">
         <WorkCaseGistLine gist={obj.gist} group="closed" boxed />
         <WorkCaseClosedSummary className="mt-1.5" obj={obj} />
+        {/* 变更流水（Human 2026-10-17：全部 WC 卡都要显示 changelog；**已关闭默认收起**）。
+            已关闭件数量最多、流水只增不减，全部铺开会把列表压成日志墙（10 §5.2 卡面是
+            扫读窗口）。收起为一行「显示 N 条变更流水」，点击展开。 */}
+        <WorkCaseExecFlow
+          className="mt-1.5"
+          changeLog={obj.change_log}
+          reviews={obj.reviews}
+          amendments={obj.gate_1?.amendments}
+          selfUid={obj.id}
+          defaultCollapsed
+        />
       </div>
     );
   }

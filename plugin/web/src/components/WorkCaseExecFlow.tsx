@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useI18n } from '@/i18n/context';
 import { stripCardMarkdown } from '@/utils/cardText';
 import type { LocaleKey } from '@/i18n/locales';
@@ -40,6 +41,18 @@ export interface WorkCaseExecFlowProps {
   amendments?: unknown;
   /** 本对象 object_id（用于排除提及他对象的条目）。 */
   selfUid: string | null;
+  /**
+   * 默认**整体收起**（Human 2026-10-17：「已关闭状态下的 changelog 默认是收起状态」）。
+   *
+   * 收起形态只留一行摘要标题（`N 条变更`），点击后展开完整流水；这是与
+   * 「默认 5 条 + 更早 N 条」**不同的第二级收起**——后者是条目级，本项是整块级。
+   * 二者可叠加：展开整块后仍按 5 条分段。
+   *
+   * 为什么已关闭卡要默认收起：关闭后流水只增不减、必然越长越长，而卡面是扫读窗口
+   * （10 §5.2），已关闭件又是数量最多的一档——全部铺开会把列表压成日志墙。
+   * 前三个派生组的卡默认展开（它们条数少，且流水正是当下判断所需）。
+   */
+  defaultCollapsed?: boolean;
   className?: string;
 }
 
@@ -77,10 +90,14 @@ export default function WorkCaseExecFlow({
   reviews,
   amendments,
   selfUid,
+  defaultCollapsed = false,
   className = '',
 }: WorkCaseExecFlowProps) {
   const { t, locale } = useI18n();
   const [expanded, setExpanded] = useState(false);
+  // 整块级收起（独立于上面的条目级 `expanded`）：二者的状态互不覆盖，
+  // 故用独立 state，初值取 `defaultCollapsed`。
+  const [blockOpen, setBlockOpen] = useState(!defaultCollapsed);
 
   const { rows, hidden } = useMemo(() => {
     const own = ownChangeLogEntries(changeLog, selfUid);
@@ -121,10 +138,50 @@ export default function WorkCaseExecFlow({
         .filter((step) => step.length > 0)
     : [];
 
+  // 整块收起形态（Human 2026-10-17）：只留一行可点的摘要标题。
+  // 保留与外框一致的边框与内距，使展开前后**不跳动**（块的位置与占位不因展开改变）。
+  if (!blockOpen) {
+    return (
+      <div
+        className={`${className} min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/50 px-2.5 py-1`.trim()}
+      >
+        <button
+          type="button"
+          // 卡片外层本身可点开详情；这里必须阻止冒泡，否则点「展开」会顺带打开详情。
+          onClick={(event) => {
+            event.stopPropagation();
+            setBlockOpen(true);
+          }}
+          className="flex w-full min-w-0 items-center gap-1 text-left ldvh-caption text-ldvh-text-secondary/85 transition-colors hover:text-ldvh-text-primary"
+          aria-expanded={false}
+        >
+          <ChevronRight size={12} aria-hidden="true" className="shrink-0" />
+          <span>{t('objectList.workcaseFlowShow', { count: String(rows.length) })}</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`${className} min-w-0 rounded-md border border-ldvh-border bg-ldvh-bg/50 px-2.5 py-2`.trim()}
     >
+      {defaultCollapsed && (
+        <div className="mb-1.5 flex min-w-0 justify-end">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setBlockOpen(false);
+            }}
+            className="flex items-center gap-0.5 ldvh-caption text-ldvh-text-secondary/85 transition-colors hover:text-ldvh-text-primary"
+            aria-expanded
+          >
+            <ChevronDown size={12} aria-hidden="true" className="shrink-0" />
+            <span>{t('objectList.workcaseFlowHide')}</span>
+          </button>
+        </div>
+      )}
       {pending !== null && (
         <div
           data-workcase-adjustment-pending="true"

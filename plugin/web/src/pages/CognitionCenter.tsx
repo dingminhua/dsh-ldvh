@@ -254,6 +254,13 @@ function InboxCardContent({ item }: { item: CognitionInboxItem }) {
           residual={item.card.result_residual}
           residualEntries={item.card.result_residual_entries}
         />
+        {/* 变更流水（Human 2026-10-17：全部 WC 卡都要显示 changelog）：与列表卡的
+            awaiting_gate2 卡体同构，默认展开。 */}
+        <WorkCaseExecFlow
+          changeLog={item.card.change_log}
+          reviews={item.card.reviews}
+          selfUid={item.id}
+        />
       </div>
     );
   }

@@ -152,7 +152,19 @@ WorkCase 的呈现状态由 `status` 闭集三值（`draft` / `open` / `closed`�
 
 **判据的边界（如实声明）**：投影层（`api/services/facts.ts`）只给「是否存在一条 `verdict = pass` 的条目」这一个布尔，**不在呈现层重算指纹覆盖**——`candidate_fingerprint` 的比对由 Gate 1 覆盖闸在写入侧保证；呈现层重复实现同一判据必然与门禁分歧（09 §5 一致性纪律）。故极端情形（审过之后又改了 plan/scope）下，徽标可能显示「已审」而实际批准会被覆盖闸拒绝；该情形由 Gate 1 的拒绝消息明示，呈现层不预演门禁结论。
 
-**draft 卡的变更流水（2026-10-16，Human 定）**：`pending_gate1` 卡与「执行中」卡**同形**显示 change_log 流水（同一个 `WorkCaseExecFlow` 组件）。作用是让 Human 看出候选「有没有动静」——尤其是否已有建前审核记录（`record_audit` 会向 change_log 追加带 `pre-gate1 audit recorded by session …` 的条目）。**徽标后缀是权威判据（读 `pre_reviews` 字段），流水只是佐证**，两者不互相顶替。
+**全部 WC 卡的变更流水（2026-10-17，Human 定；此前逐条补，现为全覆盖）**：**四个派生分组 × 两个呈现面的 WC 卡体一律显示 change_log 流水**（同一个 `WorkCaseExecFlow` 组件）。
+
+覆盖清单（任一缺失即违规）：
+| 呈现面 | 卡体分支 | 流水 |
+|---|---|---|
+| 列表卡 | `pending_gate1` / `executing` / `awaiting_gate2` / `closed` | 四者皆有 |
+| 聚焦收件箱 | `plan_confirmation` / `closure_confirmation` | 两者皆有 |
+
+**收起纪律**：**`closed` 组的流水默认整体收起**，只留一行「显示 N 条变更流水」（点击展开，`defaultCollapsed`）；其余三组默认展开。理由：已关闭件数量最多、流水只增不减，全部铺开会把列表压成日志墙（§5.2 卡面是扫读窗口），而前三个分组的流水正是当下判断所需。收起是**整块级**，与既有「默认 5 条 + 更早 N 条」的**条目级**折叠是两级不同粒度，两者可叠加。
+
+**draft 卡的流水另有一层作用（2026-10-16）**：让 Human 看出候选「有没有动静」——尤其是否已有建前审核记录（`record_audit` 会向 change_log 追加带 `pre-gate1 audit recorded by session …` 的条目）。**徽标后缀是权威判据（读 `pre_reviews` 字段），流水只是佐证**，两者不互相顶替。
+
+**为什么不写「每个分支各自加一遍」**：2026-10-17 的两次失效（后缀不同步、聚焦卡缺流水）都是**逐处补**造成的——补一处、漏一处，Human 不得不反复指出。故本条以「全覆盖清单 + 契约测试逐分支断言」承载：`workcase-audit-suffix-consistency.test.ts` 对四个列表分支与两个聚焦分支逐一断言，任何一处缺失都会红。
 
 四个派生组的语义色按 `docs/01` §1.10.2 的精确映射，且**两个 Human Gate 待办组必须显著不同色**（Human 指令 2026-09-17）——二者语义相反，同色会使 Human 无法一眼分辨「尚未开始」与「已完工待验收」：
 

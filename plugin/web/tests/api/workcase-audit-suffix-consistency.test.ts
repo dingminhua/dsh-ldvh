@@ -91,3 +91,81 @@ test('卡体一致性：列表卡的 pending_gate1 与聚焦的 plan_confirmatio
   assert.match(inboxPlan, /<WorkCaseExecFlow/, '聚焦 plan_confirmation 卡体须有变更流水（与列表卡同构）')
   assert.match(inboxPlan, /changeLog=\{item\.card\.change_log\}/, '须传入该卡的 change_log')
 })
+
+// ---------------------------------------------------------------------------
+// 全部 WC 卡须显示变更流水；已关闭默认收起（Human 2026-10-17）
+//
+// 覆盖要求是「全部」而非「部分」——此前逐条补（先列表卡、再聚焦卡）恰好暴露了
+// 逐条补的坏处：补一处、漏一处，Human 不得不反复指出。故此处对**四个派生分组
+// × 两个呈现面**逐分支断言，任何一处缺失都会红。
+// ---------------------------------------------------------------------------
+
+/** 截取一段源码：从 startMarker 到 endMarker（不含）。 */
+function sliceBetween(src: string, startMarker: string, endMarker: string): string {
+  const start = src.indexOf(startMarker)
+  assert.ok(start >= 0, `未找到起点标记：${startMarker}`)
+  const end = src.indexOf(endMarker, start + startMarker.length)
+  assert.ok(end > start, `未找到终点标记：${endMarker}`)
+  return src.slice(start, end)
+}
+
+test('覆盖：列表卡四个派生分组的卡体都渲染变更流水', () => {
+  const objectList = read('src/pages/ObjectList.tsx')
+  const body = sliceBetween(objectList, 'export function WorkCaseListCardBody', 'export function WorkCaseListCard(')
+  for (const group of ['pending_gate1', 'executing', 'awaiting_gate2', 'closed']) {
+    const marker = `if (group === '${group}') {`
+    const nextMarker = group === 'closed'
+      ? 'return (\n    <p className={`ldvh-card-decision-body'
+      : `if (group === '`
+    const block = sliceBetween(body, marker, nextMarker)
+    assert.match(block, /<WorkCaseExecFlow/,
+      `列表卡 ${group} 分组缺变更流水——「全部 WC 卡都要显示 changelog」`)
+  }
+})
+
+test('覆盖：聚焦收件箱两个 WC 卡体都渲染变更流水', () => {
+  const cognition = read('src/pages/CognitionCenter.tsx')
+  const plan = sliceBetween(
+    cognition,
+    "if (item.inboxKind === 'plan_confirmation') {",
+    "if (item.inboxKind === 'closure_confirmation') {",
+  )
+  assert.match(plan, /<WorkCaseExecFlow/, '聚焦 plan_confirmation 缺变更流水')
+
+  const closure = sliceBetween(
+    cognition,
+    "if (item.inboxKind === 'closure_confirmation') {",
+    '\n  }\n',
+  )
+  assert.match(closure, /<WorkCaseExecFlow/, '聚焦 closure_confirmation 缺变更流水')
+})
+
+test('收起：已关闭卡传 defaultCollapsed，其余分组不传（默认展开）', () => {
+  const objectList = read('src/pages/ObjectList.tsx')
+  const body = sliceBetween(objectList, 'export function WorkCaseListCardBody', 'export function WorkCaseListCard(')
+
+  // closed 分支必须传 defaultCollapsed
+  const closedBlock = sliceBetween(
+    body,
+    "if (group === 'closed') {",
+    'return (\n    <p className={`ldvh-card-decision-body',
+  )
+  assert.match(closedBlock, /defaultCollapsed/, '已关闭卡的变更流水须默认收起')
+
+  // 其余三组不得默认收起（它们是当下判断所需，铺开才可读）
+  for (const group of ['pending_gate1', 'executing', 'awaiting_gate2']) {
+    const block = sliceBetween(body, `if (group === '${group}') {`, 'if (group === ')
+    assert.doesNotMatch(block, /defaultCollapsed\b/, `${group} 不应默认收起`)
+  }
+})
+
+test('收起：组件支持整块收起并由 defaultCollapsed 决定初值', () => {
+  const flow = read('src/components/WorkCaseExecFlow.tsx')
+  assert.match(flow, /defaultCollapsed\?: boolean/, '须声明 defaultCollapsed 属性')
+  assert.match(flow, /useState\(!defaultCollapsed\)/, '收起状态初值须取反 defaultCollapsed')
+  // 收起时必须有可点的恢复入口，否则一旦收起就再也看不到
+  assert.match(flow, /objectList\.workcaseFlowShow/, '收起态须给「显示 N 条变更流水」入口')
+  assert.match(flow, /aria-expanded/, '展开/收起须有 aria 状态')
+  // 点按钮不得顺带打开详情（卡片外层可点）
+  assert.match(flow, /event\.stopPropagation\(\)/, '按钮须阻止冒泡，避免点展开时打开详情')
+})

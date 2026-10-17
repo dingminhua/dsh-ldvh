@@ -1275,6 +1275,10 @@ export const UI_LOCALES = {
     // 不呈现阶段标签——状态显示恒为 21 号状态机的真实值。见 WorkCaseExecFlow。
     'objectList.workcaseFlowMore': '更早 {count} 条',
     'objectList.workcaseFlowCollapse': '收起',
+    // 整块级收起（已关闭卡默认收起，Human 2026-10-17）。与上面的条目级
+    // 「更早 N 条 / 收起」是两级不同粒度，措辞须能区分：这里是「显示/收起变更流水」。
+    'objectList.workcaseFlowShow': '显示 {count} 条变更流水',
+    'objectList.workcaseFlowHide': '收起变更流水',
     'objectList.workcaseFlowMark.review': '复核',
     'objectList.workcaseFlowMark.revise': '修订',
     'objectList.workcaseFlowMark.adjustment-approved': '已批准',
@@ -2020,6 +2024,8 @@ export const UI_LOCALES = {
     // Change flow (card body): key actions marked with a word (Human 2026-09-23).
     'objectList.workcaseFlowMore': '{count} earlier',
     'objectList.workcaseFlowCollapse': 'Collapse',
+    'objectList.workcaseFlowShow': 'Show {count} changelog entries',
+    'objectList.workcaseFlowHide': 'Hide changelog',
     'objectList.workcaseFlowMark.review': 'Review',
     'objectList.workcaseFlowMark.revise': 'Revise',
     'objectList.workcaseFlowMark.adjustment-approved': 'Adjustment approved',
