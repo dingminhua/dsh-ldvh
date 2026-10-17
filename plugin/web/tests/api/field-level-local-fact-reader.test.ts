@@ -501,3 +501,65 @@ test('markdown carriers carry their frontmatter verbatim as yaml_source', async 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('workcase pre_reviews is consumed by the reader instead of surfacing as an unparsed structure (21 §8 审核轴)', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ldvh-field-reader-'));
+  const scope: LocalFactScope = { worktreeLocator: root, governedProjectId: 'fixture' };
+  const directory = path.join(root, 'ldvh-base', 'workcases');
+  await mkdir(directory, { recursive: true });
+  const objectId = 'workcase-0a1b2c3d-4e5f-4678-9abc-def012345678';
+  // 21 §8 `pre_reviews`：draft 期 Gate 1 提请前的建前审核流水（审核轴）。
+  // 前端 draft 卡的 `pre_audit_passed` 派生依赖它留在 `fact_object` 里。
+  await writeFile(path.join(directory, `${objectId}.md`), [
+    '---',
+    `object_id: ${objectId}`,
+    'fact_type_key: workcase',
+    'title: Pre-audited candidate',
+    'status: draft',
+    'created_at: "2026-01-01"',
+    'summary: 已通过建前审核的候选',
+    'scope: |',
+    '  做什么：',
+    '  - 写一个字段',
+    '  明确不做什么：',
+    '  - 不改状态',
+    'plan:',
+    '  - step: 写一个字段',
+    '    done_criteria: 读取层能读到 pre_reviews',
+    'pre_reviews:',
+    '  - at: "2026-01-02T00:00:00Z"',
+    '    provider: fixture-provider',
+    '    model: fixture-model',
+    '    summary: 对象恰当性符合；方案可行性符合；scope 清晰度符合',
+    '    session_id: fixture-session',
+    '    session_source: host',
+    '    auditor_origin: subagent',
+    '    candidate_fingerprint: 0000000000000000000000000000000000000000000000000000000000000000',
+    '    verdict: pass',
+    '---',
+    '',
+    '# Pre-audited candidate',
+    '',
+    '## 摘要',
+    '',
+    '已通过建前审核的候选',
+    '',
+  ].join('\n'), 'utf8');
+  try {
+    const read = await readLocalFact('workcase', objectId, scope);
+    assert.equal(read.status, 'ok');
+    if (read.status !== 'ok') return;
+    // ① 不得被判为未解析结构（未登记进传输契约时的实际症状）。
+    assert.deepEqual(
+      read.item.unparsed_structures.filter((entry) => entry.path === 'pre_reviews'),
+      [],
+      'pre_reviews 是 21 §8 已登记的字段，不得判为 unconsumed_field',
+    );
+    // ② 必须留在 fact_object 中——卡面派生与详情呈现都读它。
+    const entries = read.item.fact_object?.pre_reviews;
+    assert.ok(Array.isArray(entries), 'pre_reviews 必须进入对象投影');
+    assert.equal((entries as Array<Record<string, unknown>>)[0]?.verdict, 'pass');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

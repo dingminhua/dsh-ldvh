@@ -57,6 +57,20 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     // {at, provider, model, summary}；summary ≤ 600 字符、条数 ≤ 20；
     // 复核详情不入对象，此处只承载节点概要。
     reviews: field('workcase-reviews', 'array', false),
+    // 21 §8：建前独立审核的节点概要流水（审核轴，2026-10-16 建立）。每项
+    // {at, provider, model, summary, session_id, session_source, auditor_origin,
+    // candidate_fingerprint, verdict}；draft 期可行、open/closed 期保留为历史。
+    //
+    // 此前遗漏登记（缺陷，2026-10-17 补）：它已作为 frontmatter 闭集成员落盘在
+    // 真实载体上，而 Web 传输契约未登记，读取层据此判为 `unconsumed_field` 并从
+    // 对象投影中**整段丢弃**——draft 卡的 `pre_audit_passed` 派生读的是
+    // `fact_object.pre_reviews`（facts.ts 的 draft 分支），于是「· 待审核」后缀
+    // 恒成立、与落盘事实相反；详情面则把该字段列进「未解析结构」。
+    //
+    // 登记为**顶层字段**而非 report_body 一类详情消费字段：审核轴徽标是卡面
+    // 判据，列表投影必须携带它（见 projectCurrentWorkCaseCard 的 draft 分支）。
+    // 条目明细仍不入卡面——卡上只回答「审了没」（facts.ts 只投影派生布尔）。
+    pre_reviews: field('workcase-pre-reviews', 'array', false),
     result: field('workcase-result', 'object', false),
     outcome: field('workcase-outcome', 'string', false),
     // 03 §7.2 / 21 §8：refs 是状态中立的普通内容关联，目标为

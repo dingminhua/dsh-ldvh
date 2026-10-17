@@ -165,3 +165,17 @@ test('terminal status closures are non-empty and cover each lifecycle', () => {
   assert.deepEqual(FACT_TERMINAL_STATUSES.spark, ['implemented', 'discarded']);
   assert.deepEqual(FACT_TERMINAL_STATUSES.research, ['retired']);
 });
+test('workcase registers both review axes (21 §8): pre_reviews and reviews', () => {
+  // 审核轴（`pre_reviews`，2026-10-16 建立）与复核轴（`reviews`）是两个独立字段，
+  // 21 §8 明文「分立互不替代」（01 §5 第 12 项）——传输契约不得只登记其一。
+  //
+  // 回归点（实测缺陷）：`pre_reviews` 曾是 frontmatter 闭集成员却未登记进本契约，
+  // 读取层据此把它判为 `unconsumed_field` 并从 `fact_object` 丢弃；而 draft 卡的
+  // `pre_audit_passed` 派生读的正是 `fact_object.pre_reviews`，于是徽标恒显示
+  // 「· 待审核」、详情面把合法字段列进「未解析结构」。缺这一行，两个呈现面就一起错。
+  assert.equal(FACT_FIELD_CONTRACT.workcase.reviews.expected, 'array');
+  assert.equal(FACT_FIELD_CONTRACT.workcase.pre_reviews.expected, 'array');
+  // 二者都是「按状态条件出现」的流水（draft 期审、open 期复核），跨状态口径可选。
+  assert.equal(FACT_FIELD_CONTRACT.workcase.reviews.required, false);
+  assert.equal(FACT_FIELD_CONTRACT.workcase.pre_reviews.required, false);
+});
