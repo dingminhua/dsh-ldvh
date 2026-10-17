@@ -39,6 +39,7 @@
   "files": [
     "lib",
     "icons",
+    "specs",
     "cordis.patch.yml",
     "web/dist",
     "LICENSE",
@@ -49,7 +50,9 @@
   "scripts": {
     "test": "node scripts/run-tests.mjs",
     "build:web": "cd web && pnpm build:dsh",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "prepack": "node scripts/specs-bundle.mjs copy",
+    "postpack": "node scripts/specs-bundle.mjs clean"
   },
   "dsh": {
     "bundle": {

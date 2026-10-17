@@ -13,14 +13,14 @@
 // operation_keys stay prefix-free (05 semantic identity — the DSH tool name
 // and the operation_key are deliberately different names, 05 §5.2 item 1).
 
-import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { parseSpecDocument, extractHeadings, resolveHeadingPath, contentFingerprint, projectLayer, parseOperationDeclarations as parseDeclarationTable } from "./spec-registry.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { evaluateRegistrationEntry, registerProjectFromEntry, unregisterProject } from "./governed-projects.js";
-import { bindMembershipEvidence } from "./membership-evidence.js";
+import { bindMembershipEvidence, notApplicableEvidence } from "./membership-evidence.js";
 import { currentRouteValues } from "./session-signature.js";
 import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText } from "./commit-validation.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
@@ -128,14 +128,87 @@ function detectCandidateCollisions(members) {
   return [...collisions.values()].filter((group) => group.paths.length > 1);
 }
 
-/** Scan the specs/ tree of a governed project root for candidate carriers. */
-async function scanSpecCandidates(projectRoot) {
-  const specsRoot = join(projectRoot, "specs");
+/**
+ * specs/01 §10.3 规范语料三级回退：一次受辖读取按以下顺序探测语料目录，
+ * 首个实际存在者即该次读取的唯一来源视图，同一次结果不跨级混读：
+ *
+ *   1. governed-project — 受辖项目根 specs/（项目自著语料；自举仓库与项目级扩展）
+ *   2. dev-checkout — 插件包父目录的 specs/（link／开发安装指向源仓库目录；以根
+ *      规范载体 00-理念与构成.md 的实际存在作辨认，防止同名目录误命中）
+ *   3. plugin-bundle — 插件包内 specs/（发布打包时自源仓库复制的语料副本）
+ *
+ * dev-checkout 排在 plugin-bundle 之前：prepack 生成、postpack 清理之间可能残留的
+ * 包内副本不得遮蔽源仓库目录（scripts/specs-bundle.mjs 的清理是尽力而为而非保证）。
+ * 解析失败时如实报告全部探测位置——「读不到语料」的失败必须可定位。
+ */
+const SPEC_ROOT_CARRIER = "00-理念与构成.md";
+
+async function isExistingDirectory(path) {
+  try {
+    const info = await stat(path);
+    return info.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** Any-type existence (the root carrier probe stats a FILE, not a directory). */
+async function pathExists(path) {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Resolve the corpus source for one governed read (01 §10.3 三级回退). */
+async function resolveSpecSourceRoot(projectRoot, workspaceRoot) {
+  const probed = [];
+  if (typeof projectRoot === "string" && projectRoot.length > 0) {
+    const specsDir = join(projectRoot, "specs");
+    probed.push(`governed-project ${specsDir}`);
+    if (await isExistingDirectory(specsDir)) return { ok: true, kind: "governed-project", specsDir };
+  }
+  if (typeof workspaceRoot === "string" && workspaceRoot.length > 0) {
+    let packageRoot = workspaceRoot;
+    try {
+      packageRoot = await realpath(workspaceRoot);
+    } catch {
+      // keep the given spelling — an unresolvable package root simply misses below
+    }
+    const devSpecs = join(dirname(packageRoot), "specs");
+    probed.push(`dev-checkout ${devSpecs}`);
+    // The dev checkout is identified by the canonical root carrier, not by the
+    // bare directory name: a sibling dependency literally named "specs" must
+    // not shadow the packaged corpus. The root carrier's fixed name is already
+    // part of the mechanical contract (spec-registry.js root profile check).
+    if (await pathExists(join(devSpecs, SPEC_ROOT_CARRIER))) {
+      return { ok: true, kind: "dev-checkout", specsDir: devSpecs };
+    }
+    const bundleSpecs = join(packageRoot, "specs");
+    probed.push(`plugin-bundle ${bundleSpecs}`);
+    if (await isExistingDirectory(bundleSpecs)) return { ok: true, kind: "plugin-bundle", specsDir: bundleSpecs };
+  }
+  return { ok: false, reason: `specs/ directory not found in the governed project or the plugin corpus (probed: ${probed.join("; ")})` };
+}
+
+/**
+ * Scan the corpus source resolved by the 01 §10.3 fallback for candidate
+ * carriers. repoPaths stay `specs/…`-shaped (canonical paths are
+ * corpus-relative), so the tree they resolve against is the PARENT of the
+ * resolved specs/ directory for every source kind — that parent is reported
+ * as snapshot.worktree_root and in the envelope sources[].
+ */
+async function scanSpecCandidates(projectRoot, workspaceRoot) {
+  const source = await resolveSpecSourceRoot(projectRoot, workspaceRoot);
+  if (!source.ok) return { ok: false, reason: source.reason };
+  const specsRoot = source.specsDir;
+  const corpusRoot = dirname(specsRoot);
   let entries;
   try {
     entries = await readdir(specsRoot, { withFileTypes: true });
   } catch (error) {
-    if (error?.code === "ENOENT") return { ok: false, reason: "specs/ directory not found in the governed project" };
     return { ok: false, reason: String(error?.message ?? error) };
   }
   // Defense 1 (specs/01 §9.1): excluded carriers are reported as diagnostics
@@ -173,7 +246,7 @@ async function scanSpecCandidates(projectRoot) {
   for (const repoPath of files.sort()) {
     let text;
     try {
-      text = await readFile(join(projectRoot, repoPath), "utf8");
+      text = await readFile(join(corpusRoot, repoPath), "utf8");
     } catch (error) {
       gaps.push({ responsibility_key: null, canonical_path: repoPath, reason: `unreadable: ${String(error?.message ?? error)}` });
       continue;
@@ -189,13 +262,13 @@ async function scanSpecCandidates(projectRoot) {
   // responsibility_key or canonical_path — or collide once NFC-normalized or
   // case-folded — every affected candidate is withheld from member reads
   // until the collision is resolved. No candidate is chosen as the winner.
-  const collisions = detectCandidateCollisions(members, projectRoot);
+  const collisions = detectCandidateCollisions(members);
   const withheld = new Set(collisions.flatMap((collision) => collision.paths));
   const admissible = members.filter((member) => !withheld.has(member.repoPath));
   // Defense 3 (specs/01 §9.1): one scan yields one snapshot; the member set,
   // the diagnostics and the fingerprint all describe that same snapshot.
   const snapshot = {
-    worktree_root: projectRoot,
+    worktree_root: corpusRoot,
     candidate_count: members.length,
     candidate_set_fingerprint: contentFingerprint([...members].map((m) => m.repoPath).sort().join("\n")),
     content_fingerprints: Object.fromEntries(
@@ -204,6 +277,7 @@ async function scanSpecCandidates(projectRoot) {
   };
   return {
     ok: true,
+    source: { kind: source.kind, corpus_root: corpusRoot },
     members: admissible,
     gaps,
     excluded,
@@ -214,7 +288,7 @@ async function scanSpecCandidates(projectRoot) {
 }
 
 function makeExecute(deps) {
-  const { dshHomePath } = deps;
+  const { dshHomePath, workspaceRoot } = deps;
 
   /**
    * 07 §5.6 Human Gate: obtain explicit intent before a registration write.
@@ -268,7 +342,7 @@ function makeExecute(deps) {
         follow_up: []
       });
     }
-    const scan = await scanSpecCandidates(governed.project.path);
+    const scan = await scanSpecCandidates(governed.project.path, workspaceRoot);
     if (!scan.ok) {
       return envelope("read-specification-candidates", "unavailable", {
         result: null,
@@ -284,7 +358,7 @@ function makeExecute(deps) {
       return envelope("read-specification-candidates", "rejected", {
         result: null,
         scope: { requested: requestedKey, completed: [], not_completed: [requestedKey] },
-        sources: sources({ kind: "governed-project", path: governed.project.path }),
+        sources: sources({ kind: scan.source.kind, path: scan.source.corpus_root }),
         gaps: [`no candidate carries responsibility_key "${requestedKey}"`],
         verification: { checks: ["key-lookup"], passed: false },
         follow_up: ["read-specification-candidates (no responsibility_key, to enumerate)"]
@@ -312,16 +386,23 @@ function makeExecute(deps) {
     // verdict.
     let evidence = null;
     if (args?.evidence === true) {
-      evidence = await bindMembershipEvidence(governed.project.path, selected, {
-        bindings: typeof args?.evidence_bindings === "object" && args.evidence_bindings !== null ? args.evidence_bindings : {},
-        reviews: Array.isArray(args?.evidence_reviews) ? args.evidence_reviews : [],
-        decisions: Array.isArray(args?.evidence_decisions) ? args.evidence_decisions : []
-      });
+      // specs/01 §10.3: a corpus answered by a fallback source is not authored
+      // by this governed project — the §9.2 mechanical sub-items are reported
+      // as NOT APPLICABLE instead of manufacturing per-project git noise
+      // ("no commit touches this carrier" would read like a corpus defect).
+      // The corpus's own membership conditions belong to its source repository.
+      evidence = scan.source.kind === "governed-project"
+        ? await bindMembershipEvidence(governed.project.path, selected, {
+          bindings: typeof args?.evidence_bindings === "object" && args.evidence_bindings !== null ? args.evidence_bindings : {},
+          reviews: Array.isArray(args?.evidence_reviews) ? args.evidence_reviews : [],
+          decisions: Array.isArray(args?.evidence_decisions) ? args.evidence_decisions : []
+        })
+        : notApplicableEvidence(scan.source);
     }
     return envelope("read-specification-candidates", "completed", {
       result: { layer, candidates, ...(evidence !== null ? { membership_evidence: evidence } : {}) },
       scope: { requested: requestedKey ?? "all", completed: selected.map((m) => m.identity.responsibilityKey), not_completed: [] },
-      sources: sources({ kind: "governed-project", path: governed.project.path, scan: "specs/", snapshot: scan.snapshot }),
+      sources: sources({ kind: scan.source.kind, path: scan.source.corpus_root, scan: "specs/", snapshot: scan.snapshot }),
       gaps: [...scanGaps, ...(evidence?.gaps ?? [])],
       verification: {
         checks: ["identity-parse", "layer-projection", "excluded-name-filter", "collision-detection", "snapshot-binding", ...(evidence !== null ? ["membership-evidence-mechanical-subparts"] : [])],
@@ -351,7 +432,7 @@ function makeExecute(deps) {
         verification: { checks: ["governance-scope"], passed: false }, follow_up: []
       });
     }
-    const scan = await scanSpecCandidates(governed.project.path);
+    const scan = await scanSpecCandidates(governed.project.path, workspaceRoot);
     if (!scan.ok) {
       return envelope("read-specification-content", "unavailable", {
         result: null, scope: { requested: key, completed: [], not_completed: [key] }, sources: [], gaps: [scan.reason],
@@ -372,7 +453,7 @@ function makeExecute(deps) {
           : `no member candidate carries responsibility_key "${key}"`;
       return envelope("read-specification-content", "rejected", {
         result: null, scope: { requested: key, completed: [], not_completed: [key] },
-        sources: sources({ kind: "governed-project", path: governed.project.path, snapshot: scan.snapshot }),
+        sources: sources({ kind: scan.source.kind, path: scan.source.corpus_root, snapshot: scan.snapshot }),
         gaps: [
           reason,
           ...(keyCollision === undefined ? [] : keyCollision.paths),
@@ -388,7 +469,7 @@ function makeExecute(deps) {
       return envelope("read-specification-content", "completed", {
         result: { layer: "L4", responsibility_key: key, canonical_path: member.repoPath, content_fingerprint: fingerprint, content: member.markdownText },
         scope: { requested: key, completed: [key], not_completed: [] },
-        sources: sources({ kind: "governed-project", path: join(governed.project.path, member.repoPath), content_fingerprint: fingerprint }),
+        sources: sources({ kind: scan.source.kind, path: join(scan.source.corpus_root, member.repoPath), content_fingerprint: fingerprint }),
         gaps: scan.gaps,
         verification: { checks: ["identity-parse", "full-read"], passed: true },
         follow_up: []
@@ -398,7 +479,7 @@ function makeExecute(deps) {
     if (!resolved.ok) {
       return envelope("read-specification-content", "rejected", {
         result: null, scope: { requested: `${key} ${headingPath}`, completed: [], not_completed: [key] },
-        sources: sources({ kind: "governed-project", path: join(governed.project.path, member.repoPath) }),
+        sources: sources({ kind: scan.source.kind, path: join(scan.source.corpus_root, member.repoPath) }),
         gaps: [`${resolved.error.code}: ${resolved.error.message}`],
         verification: { checks: ["heading-path-resolution"], passed: false },
         follow_up: ["read-specification-candidates at L2 for the section outline"]
@@ -419,7 +500,7 @@ function makeExecute(deps) {
         content: slice
       },
       scope: { requested: `${key} ${headingPath}`, completed: [`${key} ${headingPath}`], not_completed: [] },
-      sources: sources({ kind: "governed-project", path: join(governed.project.path, member.repoPath), lines: [resolved.value.startLine, resolved.value.endLine] }),
+      sources: sources({ kind: scan.source.kind, path: join(scan.source.corpus_root, member.repoPath), lines: [resolved.value.startLine, resolved.value.endLine] }),
       gaps: scan.gaps,
       verification: { checks: ["identity-parse", "heading-uniqueness"], passed: true },
       follow_up: ["read-specification-content without heading_path for L4 full source"]
@@ -435,7 +516,7 @@ function makeExecute(deps) {
     // come from real parsing of the declaring spec carrier, not from a
     // hardcoded `true`. An unparsable/missing declaration yields a precise
     // reason and the operation is reported as a diagnostic, never as declared.
-    const declarations = await parseOperationDeclarations(governed.state === "governed" ? governed.project.path : null);
+    const declarations = await parseOperationDeclarations(governed.state === "governed" ? governed.project.path : null, workspaceRoot);
     const declarationReporter = [];
     const entries = Object.entries(OPERATIONS)
       .filter(([key]) => requestedOperation === null || key === requestedOperation)
@@ -1017,19 +1098,20 @@ export function toolDescriptor(operationKey, operation, handler) {
  * row whose anchors do not resolve stays in the map carrying `anchor_errors`,
  * so the caller reports it instead of silently treating it as declared.
  *
- * NOTE the two-argument contract: this wrapper takes the PROJECT ROOT and does
+ * NOTE the two-argument contract: this wrapper takes the PROJECT ROOT (plus
+ * the plugin package root for the specs/01 §10.3 corpus fallback) and does
  * the file reading; `parseDeclarationTable` takes the carrier TEXT. Passing a
  * path straight to the latter parses nothing (a path has no newlines and no
  * header row), which is a silent total failure — hence the split is explicit.
  */
-async function parseOperationDeclarations(projectRoot) {
+async function parseOperationDeclarations(projectRoot, workspaceRoot) {
   const merged = new Map();
   const setReason = (reason) => Object.defineProperty(merged, "reason", { value: reason, enumerable: false });
   if (typeof projectRoot !== "string" || projectRoot.length === 0) {
     setReason("no governed project root available to parse declarations from");
     return merged;
   }
-  const scan = await scanSpecCandidates(projectRoot);
+  const scan = await scanSpecCandidates(projectRoot, workspaceRoot);
   if (!scan.ok) {
     setReason(`declaration sources are unscannable: ${scan.reason}`);
     return merged;
@@ -1228,4 +1310,4 @@ export function renderEnvelope(operationKey, value) {
   return text(lines.join("\n"));
 }
 
-export { OPERATIONS, makeExecute };
+export { OPERATIONS, makeExecute, resolveSpecSourceRoot };

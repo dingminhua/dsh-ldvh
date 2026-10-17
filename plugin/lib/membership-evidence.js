@@ -187,6 +187,7 @@ export async function bindMembershipEvidence(projectRoot, members, options = {})
   }
   return {
     spec: "01 §9.2",
+    applicable: true,
     items_covered: ["8", "9", "11", "12"],
     carriers,
     gaps,
@@ -200,6 +201,33 @@ export async function bindMembershipEvidence(projectRoot, members, options = {})
       "item 9: whether the Human decision was准确、充分 and still覆盖 the current candidate",
       "item 11: whether the controlled commit was properly authorised (signature presence ≠ authorisation)",
       "item 12: whether the bound decision remains applicable to the current candidate"
+    ]
+  };
+}
+
+/**
+ * specs/01 §10.3: the §9.2 mechanical sub-items apply to a corpus the governed
+ * project AUTHORS. When the reading was answered by a fallback source
+ * (dev-checkout / plugin-bundle), the consuming project carries no git
+ * history, review records or decision records for those carriers — running
+ * the per-project lookups would only manufacture "no commit touches this
+ * carrier" noise that reads like a corpus defect. The corpus's own membership
+ * conditions belong to its source repository, not to the consuming session.
+ */
+export function notApplicableEvidence(source) {
+  return {
+    spec: "01 §9.2",
+    applicable: false,
+    reason:
+      `spec corpus was answered by the ${source.kind} fallback (${source.corpus_root}); `
+      + "the governed project does not author these carriers, so per-project git/review/decision evidence does not exist (01 §10.3). "
+      + "The corpus's own membership conditions belong to its source repository.",
+    items_covered: [],
+    carriers: [],
+    gaps: [],
+    guarantee: "Not applicable is a scoping conclusion, not a pass: no §9.2 item was checked for this corpus in this project.",
+    semantic_remainder: [
+      "items 8/9/11/12: not checked here — membership evidence for this corpus must be obtained in its source repository"
     ]
   };
 }

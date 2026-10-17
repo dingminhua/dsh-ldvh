@@ -25,6 +25,8 @@ npm --prefix plugin pack --dry-run
 
 `npm test` 走 `plugin/scripts/run-tests.mjs` 包装：在 Linux/macOS 上传 `--test-force-exit`（Node ≥22.14，仓库下限 22.15 已覆盖）——web-routes 一族用例挂载插件后，偶有连到本机 `127.0.0.1` 的 TCP 句柄残留到进程收尾，令测试进程在结果全部打印后仍空等约 84 秒。该 flag 只在测试完成后立即退出进程，不改变任何用例结果。
 
+`npm pack` 的 prepack 会把仓库根 `specs/` 复制进 `plugin/specs/`（postpack 清理；两者均被 `plugin/.gitignore` 忽略，包内副本只是发布产物）。受辖会话的规范语料按三级回退解析（`specs/01 §10.3`）：项目根 `specs/` → 插件包父目录（即本仓库根——link 安装形态，以根规范载体 `00-理念与构成.md` 辨认）→ 插件包内 `specs/`（npm 安装形态）。因此在**其他受辖项目**里经 link 安装的插件直接读本仓库的 `specs/`，无需向项目复制语料。手工创建的 `plugin/specs/`（无 stamp 文件）不会被 postpack 删除。
+
 在 **Windows 上不传**该 flag：强制退出会与 undici 尚在收尾的 `fetch` 句柄相撞，触发 libuv 原生断言（`Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94`）。原生断言无法被用例捕获——整个 runner 进程直接中止，报告里该文件失败而**没有任何失败用例**。Windows 实测该 flag 也不省时（全套 38.0s vs 37.9s），故略去零代价。上游：<https://github.com/nodejs/node/issues/58091>、<https://github.com/undici/undici/issues/5680>。
 
 基准方法（real+cpu 双指标、抗本机负载噪声）见 `plugin/scripts/bench-tests.sh`。
