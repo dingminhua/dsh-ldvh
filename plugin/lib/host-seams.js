@@ -19,6 +19,8 @@
 // Every registration returns a disposer and is owned by the caller's fiber
 // (08 §6 + cordis effect discipline): nothing here leaks past plugin stop.
 
+import { findRouteDecision, recordRouteDecision } from "./workcase-route-ledger.js";
+
 /** 07 §5.6 consent question identity — the id and the affirmative label are
  * shared between what is ASKED and what is ACCEPTED, so the parse can never
  * grant on a label that was never offered. */
@@ -497,8 +499,27 @@ export function createHostSeams() {  const consumed = Object.create(null);
    * `signal` is the calling tool's cancellation signal. It MUST be forwarded:
    * this ask carries no wall-clock deadline (it waits for a human), so an
    * abandoned session would otherwise leave the prompt pending forever.
+   *
+   * ## 先读后问（2026-10-17，消灭「同一件事问两次」）
+   *
+   * 答复一旦取得即写入持久载体（`workcase-route-ledger.js`），以 `candidate_fingerprint`
+   * 为键。再次针对**同一候选**调用本函数时，先读载体：
+   *
+   *   - 命中 → **直接复用**当时的答复，**不再提问**。这解掉「预检通过、人已作答、
+   *     随后写入失败、重试再问一遍」——那种重复提问没有任何信息增量，只是在消耗
+   *     Human 的注意力预算。
+   *   - 未命中 → 才提请，并在拿到**已确定**的答复后落载体。
+   *
+   * 为什么键是候选指纹而不是「会话 + 时间」：提问的对象是**那份候选内容**。
+   * 内容没变（指纹相同）就是同一个问题，答案可复用；内容变了就是新问题，必须重问。
+   *
+   * `candidateKey` 缺席时**不读也不写载体**（保持旧行为）：那是调用方没有提供
+   * 候选身份的情形，此时无法判断「是不是同一个问题」，宁可问一次也不算错复用。
+   *
+   * 载体读写失败一律 fail-closed（返回 granted=false）：既不得当成「没问过」
+   * （会导致重复提问），也不得当成「已获授权」（会免去 Human 决定）。
    */
-  async function requestWorkcaseRouting({ request, rationale, agent, signal }) {
+  async function requestWorkcaseRouting({ request, rationale, agent, signal, candidateKey } = {}) {
     if (typeof seams.ask !== "function") {
       return { granted: false, routedTo: null, reason: "no human-answerer entry is available; 21 §6.3 routing requires an explicit Human decision, so it cannot be assumed" };
     }
@@ -519,6 +540,33 @@ export function createHostSeams() {  const consumed = Object.create(null);
     // 但不再进入任何呈报载体；语义上它本就只是 advisory，21 §6.3 未要求呈报。
     // 「你的要求」仍在 head（标题区）逐字呈现，Human 仍能认出在路由哪件事。
     const assembled = assembleBoundedAsk({ head, detail });
+
+    // ── 先读后问（消灭「同一件事问两次」）──────────────────────────────
+    //
+    // 候选身份缺席时不读也不写载体：无从判断「是不是同一个问题」，此时宁可
+    // 问一次，也不算错复用（误复用会把「直接执行」的旧答案套到新候选上）。
+    const reusableKey = typeof candidateKey === "string" && candidateKey.length > 0 ? candidateKey : null;
+    if (reusableKey !== null) {
+      const prior = await findRouteDecision(seams.dshHomePath, reusableKey);
+      if (!prior.ok) {
+        // 载体不可读：既不能当成「没问过」（会重复提问），也不能当成「已授权」
+        // （会免去 Human 决定）。停在报告上。
+        return { granted: false, routedTo: null, reason: `route-decision carrier unreadable (${prior.error.code}): ${prior.error.message}` };
+      }
+      if (prior.value !== null) {
+        // 命中：同一候选已问过且已答。直接复用，**不再提问**。
+        const reused = {
+          routedTo: prior.value.routed_to,
+          answer: prior.value.answer,
+          reused: true,
+          decidedAt: prior.value.at,
+        };
+        return prior.value.routed_to === "workcase"
+          ? { granted: true, ...reused }
+          : { granted: false, ...reused, reason: "Human chose 直接执行 — 21 §6.3 不对象化（复用既有答复，未重复提问）" };
+      }
+    }
+
     try {
       const answer = await seams.ask({
         questions: [{
@@ -539,11 +587,33 @@ export function createHostSeams() {  const consumed = Object.create(null);
       const answers = Array.isArray(answer?.answers) ? answer.answers : [];
       const entry = answers.find((a) => a?.id === ROUTE_QUESTION_ID) ?? null;
       const selected = selectedLabelOf(entry);
-      if (selected === ROUTE_WORKCASE_LABEL) return { granted: true, routedTo: "workcase", answer: selected };
-      if (selected === ROUTE_DIRECT_LABEL) {
-        return { granted: false, routedTo: "direct", answer: selected, reason: "Human chose 直接执行 — 21 §6.3 不对象化" };
+      // 空答复（`selected: []`，人按了跳过或关掉）是「未决策」，不是「答了」。
+      // 不写入载体：写入会让下一次 create 误以为问过而直接复用一个不存在的决定。
+      if (selected !== ROUTE_WORKCASE_LABEL && selected !== ROUTE_DIRECT_LABEL) {
+        return { granted: false, routedTo: null, reason: `human did not choose a routing option (answer: ${JSON.stringify(selected ?? null)})` };
       }
-      return { granted: false, routedTo: null, reason: `human did not choose a routing option (answer: ${JSON.stringify(selected ?? null)})` };
+      // 已确定的答复 → 立即落载体，使重试可复用、事后可回读。
+      if (reusableKey !== null) {
+        const recorded = await recordRouteDecision(seams.dshHomePath, {
+          candidate_fingerprint: reusableKey,
+          answer: selected,
+          routed_to: selected === ROUTE_WORKCASE_LABEL ? "workcase" : "direct",
+          request: typeof request === "string" ? request : undefined,
+        });
+        if (!recorded.ok) {
+          // 答复已取得但留不下痕迹：仍如实返回 Human 的选择，但把「留痕失败」
+          // 说清楚——不能静默，否则重试时会再问一次而这正是本模块要消灭的形态。
+          return {
+            granted: selected === ROUTE_WORKCASE_LABEL,
+            routedTo: selected === ROUTE_WORKCASE_LABEL ? "workcase" : "direct",
+            answer: selected,
+            recordError: `${recorded.error.code}: ${recorded.error.message}`,
+            ...(selected === ROUTE_WORKCASE_LABEL ? {} : { reason: "Human chose 直接执行 — 21 §6.3 不对象化" }),
+          };
+        }
+      }
+      if (selected === ROUTE_WORKCASE_LABEL) return { granted: true, routedTo: "workcase", answer: selected };
+      return { granted: false, routedTo: "direct", answer: selected, reason: "Human chose 直接执行 — 21 §6.3 不对象化" };
     } catch (error) {
       return { granted: false, routedTo: null, reason: `routing request failed: ${String(error?.message ?? error)}` };
     }
@@ -628,6 +698,16 @@ export function createHostSeams() {  const consumed = Object.create(null);
     /** Set by install(); `null` when no answerer is available (consent fails closed). */
     ask: null,
     humanGateAvailable: false,
+    /**
+     * The host home resolver captured at install; `null` until then.
+     *
+     * `requestWorkcaseRouting` needs it to locate the route-decision carrier
+     * (21 §6.3 先读后问). Before install() it is null, and the seam treats a
+     * null resolver exactly like an unreadable carrier: fail closed rather than
+     * assume "never asked" (that would re-ask the Human — the very defect the
+     * carrier exists to remove).
+     */
+    dshHomePath: null,
     /** The host fs service captured at install; `null` when unavailable. */
     fs: null,
     /** 07 §5.6 consent request routed through ctx.userQuestions.ask. */
@@ -691,6 +771,9 @@ export function createHostSeams() {  const consumed = Object.create(null);
         if (typeof outcome.dispose === "function") disposers.push(outcome.dispose);
       }
       seams.ask = results["ctx.userQuestions.ask"]?.ask;
+      // 路由询问的持久载体需要 home 解析器（21 §6.3 先读后问）。在此保存：install
+      // 是唯一能拿到它的地方，而 `requestWorkcaseRouting` 在之后被调用。
+      seams.dshHomePath = typeof dshHomePath === "function" ? dshHomePath : null;
       seams.humanGateAvailable = typeof seams.ask === "function";
       seams.emitter = ctx;
       return {

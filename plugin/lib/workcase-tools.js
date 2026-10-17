@@ -560,6 +560,10 @@ async function executeWriteObject(args, exec, deps) {
       // prompt, and forwarding it makes the ask abort (ASK_ABORTED) rather
       // than hang.
       signal: exec?.signal,
+      // 21 §6.3 先读后问：候选指纹就是「这个问题」的身份。同一候选的重试复用
+      // 既有答复而**不再提问**——这正是「同一件事问两次」的机械封堵点。
+      // 它取自本候选内容（与写入侧比对用的是同一个值），不是会话或时间。
+      candidateKey: candidateFingerprint,
     });
     if (routing.granted !== true) {
       return envelope("workcase-write-object", "rejected", {

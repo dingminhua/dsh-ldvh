@@ -89,6 +89,7 @@ const GOVERNED_GUIDANCE = `本会话工作锚点（specs/00-理念与构成.md�
 规则读取：ldvh_read_specification_candidates / ldvh_read_specification_content（L0–L4 渐进披露）；
 能力发现：ldvh_discover_capabilities；受控提交前：ldvh_precheck_git_commit；
 建工单前：先按 specs/21 §6.3 判定这项工作是否需要 WorkCase 承接；判定为需要时，再经 ldvh_workcase_write(action=create) 的路由询问取得 Human 选择（建工单／直接执行），不得未经询问擅自创建。对象边界以 specs/21 §6.3 原文为准，本引导不复述其正文；
+建工单询问的唯一入口：**不得在 ldvh_workcase_write 之外另发等效询问**。宿主 §6.3 询问经 ctx.userQuestions.ask 发出，**不写会话事件流**——故「日志里看不到提问记录」不等于「没问过」，不得据此用 ask_user_question 补问、也不得擅自重建。同一候选内容（内容指纹相同）重试 create 时，接缝会复用既有答复而不再提问；若确实需要重问，须先确认是候选内容已变（新问题）而非记录不可见；
 模型面提请：不经 LDVH 接缝、直接调用宿主 ask_user_question 时，也请将 question 文本控制在 200 字符内，判断依据写进对话正文。此为对 AI 的指令，无机械保障——模型面直调路径无任何长度校验；该工具不转发 detail 字段，长内容在弹窗内无承载位；
 管辖状态：ldvh_resolve_governance_scope。完整规则以规范源原文为准，本引导不复制规则正文。`;
 

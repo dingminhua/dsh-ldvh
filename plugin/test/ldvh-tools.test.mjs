@@ -1098,6 +1098,21 @@ test("GUIDANCE_SECTION_NAME and ORDER are exported constants", () => {
 	assert.ok(GUIDANCE_SECTION_ORDER > 0);
 });
 
+test("governed guidance forbids re-asking the 21 §6.3 routing question outside the controlled entry", () => {
+	// 来历（2026-10-17 实测）：宿主 §6.3 询问经 ctx.userQuestions.ask 发出，**不写会话
+	// 事件流**。主控因此在日志里看不到提问记录，误判「询问未发生」，又在工具之外用
+	// ask_user_question 补问了同一件事——同一件事问了两次。本断言把禁令钉在引导里，
+	// 使这条模型面纪律不随措辞漂移而丢失。
+	const text = guidanceTextFor("governed");
+	// 唯一入口
+	assert.match(text, /不得在 ldvh_workcase_write 之外另发等效询问/, "必须明写唯一入口禁令");
+	// 关键前提：看不见不等于没问过
+	assert.match(text, /不写会话事件流/, "必须说明 §6.3 询问不写事件流，否则禁令无从遵守");
+	assert.match(text, /不等于「没问过」/, "必须点明「日志里看不到」不等于「没问过」");
+	// 重试复用
+	assert.match(text, /复用既有答复而不再提问/, "必须说明同一候选重试会复用答复");
+});
+
 // ----- load-bearing declaration protection (01 §7 末段; 09 §5.3 item 6) -----
 //
 // The precheck entry must reach the SAME verdict as the Git Gate for the same
