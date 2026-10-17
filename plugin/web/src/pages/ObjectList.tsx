@@ -26,7 +26,7 @@ import WorkCaseClosedSummary from '@/components/WorkCaseClosedSummary';
 import WorkCaseClosedStatusBadge from '@/components/WorkCaseClosedStatusBadge';
 import { fetchCognitionGoal, fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type FactRefSource, type ObjectItem, type ObjectStatusOption, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
-import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusLocale, getTypeDescription, getTypeLabel, getWorkCasePendingGate1Label } from '@/i18n/locales';
+import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusDisplayLabel, getObjectStatusLocale, getTypeDescription, getTypeLabel } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import {
   DECISION_AMBER_BODY_HUE_CLASS,
@@ -284,13 +284,10 @@ export function ObjectCardFrame({
     obj.type === 'workcase' && presentedStatus === 'closed' && typeof obj.outcome === 'string';
   const typeColor = CATEGORY_COLORS[obj.type] || CATEGORY_COLORS.other;
   const activityCount = Array.isArray(obj.change_log) ? obj.change_log.length : 0;
-  // 「待批准执行」的建前审核后缀（21 §8 `pre_reviews`，2026-10-16）：已审保持原词，
-  // 未审追加「· 待审核」。徽标 statusLabel 是本卡**单一入口**，故后缀在此处一次算出，
-  // 不在 JSX 里另起第二处 badge（两处必然分歧，docs/10 §4.2.1）。
-  const cardStatusLabel =
-    presentedStatus === 'pending_gate1' && obj.type === 'workcase'
-      ? getWorkCasePendingGate1Label(locale, obj.pre_audit_passed)
-      : getObjectStatusLocale(obj.type, presentedStatus, locale);
+  // 状态徽标文案（含「待批准执行 · 待审核」后缀）。判据收敛在
+  // `getObjectStatusDisplayLabel` 单一入口——列表卡与聚焦卡、详情头必须同源，
+  // 否则同一工单在不同呈现面说法不同（2026-10-17 实测发生）。
+  const cardStatusLabel = getObjectStatusDisplayLabel(obj.type, presentedStatus, locale, obj.pre_audit_passed);
   const nonActiveReason = getNonActiveReason(obj, t);
   return (
     <div

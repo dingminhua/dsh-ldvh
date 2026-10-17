@@ -1006,6 +1006,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       }
       if (build.type === 'workcase') {
         entry.group = build.group
+        // 建前审核后缀的判据（21 §8 `pre_reviews`）：与收件箱卡、列表卡同源——
+        // 取自已投影的 `card`，不在此处重算指纹覆盖（呈现层不重复实现门禁判据）。
+        // 平铺到 entry 而非让客户端翻 card：近期动态行的徽标是平铺消费的。
+        if (typeof card.pre_audit_passed === 'boolean') entry.pre_audit_passed = card.pre_audit_passed
       }
       else entry.status = 'draft'
       // refs（03 §7.2 / 20 §8）：关联对象 chip，与卡头标签序一致

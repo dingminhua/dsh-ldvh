@@ -165,6 +165,36 @@ export function getWorkCasePendingGate1Label(locale: string, preAuditPassed: boo
   return locale === 'en' ? `${base} · Awaiting audit` : `${base} · 待审核`;
 }
 
+/**
+ * **状态徽标文案的唯一入口**（含建前审核后缀）：任何呈现面要显示某个对象的状态词，
+ * 都调本函数，不要直接调 `getObjectStatusLocale`。
+ *
+ * ## 为什么必须收敛到一处（2026-10-17）
+ *
+ * 后缀最初只加在**列表卡**（`ObjectList` 的 `cardStatusLabel`），聚焦页的四处徽标
+ * 仍各自直调 `getObjectStatusLocale`，于是同一张工单在列表卡上显示
+ * 「待批准执行 · 待审核」、在聚焦收件箱里却只显示「待批准执行」——**同一事实两处
+ * 说法不同**。Human 为此直接指出「聚焦栏的 card 表现要同步」。
+ *
+ * 根因不是漏改某一处，而是**判据没有单一来源**：只要后缀的拼接逻辑住在某个页面的
+ * 局部 const 里，任何新增的呈现面都必然再漏一次。故收敛到这里，各处只传数据。
+ *
+ * @param type 对象类型（只有 workcase 的 pending_gate1 有后缀）
+ * @param status 派生分组或状态值
+ * @param preAuditPassed 该对象的建前审核是否已取得通过结论（非 workcase 传 undefined）
+ */
+export function getObjectStatusDisplayLabel(
+  type: string,
+  status: string,
+  locale: string,
+  preAuditPassed?: boolean,
+): string {
+  if (type === 'workcase' && status === 'pending_gate1') {
+    return getWorkCasePendingGate1Label(locale, preAuditPassed);
+  }
+  return getObjectStatusLocale(type, status, locale);
+}
+
 export const TYPE_DESCRIPTION_LOCALES: Record<string, { zh: string; en: string }> = {
   workcase: { zh: '工单——需要持续保存当前计划、推进状态、质量关口与关闭判断的工作责任（21 §1）', en: 'A work responsibility that preserves its current plan, progress, quality gates, and closure decision' },
   adr: { zh: '决策记录', en: 'Architecture Decision Record' },

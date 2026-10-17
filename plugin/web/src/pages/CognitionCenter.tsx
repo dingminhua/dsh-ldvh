@@ -48,7 +48,7 @@ import WorkCaseResultDraft from '@/components/WorkCaseResultDraft';
 import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { useI18n } from '@/i18n/context';
-import { getLocalizedObjectTitle, getObjectStatusLocale, getTypeLabel, type LocaleKey } from '@/i18n/locales';
+import { getLocalizedObjectTitle, getObjectStatusDisplayLabel, getObjectStatusLocale, getTypeLabel, type LocaleKey } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import { getDefaultSparkHealthAgeFilter, type SparkHealthAgeFilter } from '@/utils/cognitionSparkHealth';
 import { LDVH_ERROR_TEXT_CLASS } from '@/utils/semanticColors';
@@ -257,6 +257,13 @@ function toObjectCard(item: CognitionCardItem): ObjectItem {
     ...(item.title_zh ? { title_zh: item.title_zh } : {}),
     status: item.type === 'workcase' ? item.group : item.status,
     ...(item.type === 'workcase' ? { group: item.group } : {}),
+    // 建前审核后缀的数据（21 §8 `pre_reviews`）：聚焦卡的徽标走与列表卡同一个
+    // `ObjectCardFrame` + 同一个 `getObjectStatusDisplayLabel` 入口，故这里只要把
+    // 判据透传进去。显式赋值而非依赖 `...item.card` 展开——展开是隐式的，
+    // 字段从 card 上消失时不会有任何报错，正是「两处不同步」的温床。
+    ...(item.type === 'workcase' && item.card.pre_audit_passed !== undefined
+      ? { pre_audit_passed: item.card.pre_audit_passed }
+      : {}),
     path: item.canonical_path ?? '',
     updated: item.updatedAt ?? '',
     ...(item.priority ? { priority: item.priority } : {}),
@@ -391,7 +398,7 @@ function RecentActivityRow({ item }: { item: CognitionRecentActivityItem }) {
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           {/* Human 定案 2026-09-12：goal 不显示状态徽章；复制与其他对象一致
               （projectId@目标md路径——goal 单例路径即身份，引用形态是 md 路径）。 */}
-          {status && item.type !== 'goal' && <StatusBadge status={status} statusLabel={getObjectStatusLocale(item.type, status, locale)} objectType={item.type} size="xs" variant="compact" />}
+          {status && item.type !== 'goal' && <StatusBadge status={status} statusLabel={getObjectStatusDisplayLabel(item.type, status, locale, item.pre_audit_passed)} objectType={item.type} size="xs" variant="compact" />}
           <ObjectReferenceCopyButton projectId={selectedProjectId} objectId={item.type === 'goal' ? 'ldvh-base/goal.md' : item.id} />
         </span>
       </div>

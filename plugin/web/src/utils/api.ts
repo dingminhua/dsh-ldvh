@@ -508,6 +508,13 @@ export interface CognitionInboxCard extends Record<string, unknown> {
   closure_narrows_residual?: boolean;
   change_log?: unknown[];
   reviews?: WorkCaseReviewEntry[];
+  /**
+   * 建前审核轴（21 §8 `pre_reviews`，2026-10-16 建立）：draft 期是否已存在一条
+   * `verdict = pass` 的审核条目。与 `ObjectItem.pre_audit_passed` 同源同义——
+   * 聚焦卡与列表卡必须**同形**呈现（Human 2026-09-24：「聚焦两处 WC 卡保持与
+   * wc card 一样的显示」），故该字段须在两处类型里都声明，缺一处就有一处不同步。
+   */
+  pre_audit_passed?: boolean;
 }
 
 interface CognitionInboxItemBase {
@@ -591,6 +598,12 @@ export interface CognitionRecentActivityItem {
   /** WorkCase 只携带派生 group；其它对象携带自身当前状态。 */
   group?: WorkCaseV5Group;
   status?: string;
+  /**
+   * 建前审核轴（21 §8 `pre_reviews`）的派生判据：draft 期是否已有 pass 结论。
+   * 近期动态行与列表卡、聚焦收件箱卡**必须同形**——状态词后缀不能只在一处出现
+   * （2026-10-17 Human 指出「聚焦栏的 card 表现要同步」）。
+   */
+  pre_audit_passed?: boolean;
   read_status: string;
   field_issues?: FieldIssue[];
   unparsed_structures?: UnparsedStructure[];
