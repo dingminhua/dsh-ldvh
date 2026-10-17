@@ -12,11 +12,11 @@ import {
   Monitor,
   PanelLeft,
   RefreshCw,
+  ExternalLink,
   type LucideProps,
 } from 'lucide-react';
 import { useI18n } from '@/i18n/context';
 import { useTheme } from '@/hooks/useTheme';
-import { useRequestRefresh } from '@/hooks/useReadingRefresh';
 import { getLanguageSwitchKey, getOppositeLanguageNameKey, getOppositeLocale, type LocaleKey } from '@/i18n/locales';
 import { OBJECT_TYPE_ICONS } from '@/components/SemanticIcon';
 import ProjectSwitcher from '@/components/ProjectSwitcher';
@@ -100,7 +100,6 @@ interface SidebarProps {
 export default function Sidebar({ collapsed, compact = false, onToggle }: SidebarProps) {
   const { locale, setLocale, t } = useI18n();
   const { mode, cycleTheme } = useTheme();
-  const requestRefresh = useRequestRefresh();
   const [visibleTooltip, setVisibleTooltip] = useState<{ key: string; position: TooltipPosition } | null>(null);
   const location = useLocation();
   const federationActive = location.pathname === '/federation' || location.pathname.startsWith('/federation/');
@@ -113,9 +112,48 @@ export default function Sidebar({ collapsed, compact = false, onToggle }: Sideba
     mode === 'light' ? t('theme.light') :
     t('theme.dark');
   const refreshLabel = t('nav.refreshReading');
+  const openInBrowserLabel = t('nav.openInBrowser');
   const showTooltip = (key: string, element: HTMLElement) => {
     const rect = element.getBoundingClientRect();
     setVisibleTooltip({ key, position: { top: rect.top + rect.height / 2, left: rect.right + 8 } });
+  };
+  /**
+   * 在浏览器中打开当前页面。
+   *
+   * 取当前文档的 origin + pathname（含 vite base，如 `/ldvh/`）+ search 拼出地址：
+   * 与用户在地址栏看到的同一页，深链接参数与原页面一致。`noopener,noreferrer` 是
+   * 必需的——DSH 侧栏 iframe 处于不透明源沙箱，新窗口不应回指 opener。
+   */
+  const openInBrowser = () => {
+    setVisibleTooltip(null);
+    const { origin, pathname, search } = window.location;
+    window.open(`${origin}${pathname}${search}`, '_blank', 'noopener,noreferrer');
+  };
+  /**
+   * 整页重载（Human 2026-10-17 指令：点刷新要能看到「改了代码」的变化）。
+   *
+   * 为什么不能只重取数据：`useReadingRefresh` 的档位只让各读取方重发 /api 请求，
+   * 不重新下载 JS。而 bundle 的文件名带内容 hash，新 hash 只存在于**新的
+   * index.html** 里；旧文档永远不会自己换 bundle——这正是「改码后必须关掉重开
+   * 侧栏才生效」的成因。
+   *
+   * 为什么不能只调 `location.reload()`：重载文档时浏览器可对 index.html 做条件
+   * 重验证（304），拿回的可能仍是缓存副本。故改用 `location.replace()` 导航到
+   * 带时间戳的同一地址：查询串唯一 ⇒ 文档必然重新请求 ⇒ 拿到新 HTML 与新 hash。
+   *
+   * `replace()` 而非 `assign()`：不往历史里堆一条假记录，后退不会在两份同一页
+   * 之间来回横跳。时间戳参数对应用无意义（路由只读 pathname/search 之外的部分
+   * 不受影响），重载后随即被下次导航冲掉。
+   *
+   * 已知边界：重载会丢失页内滚动位置与展开态等非持久状态——这是「看到新代码」
+   * 的必要代价，已在 Human 侧确认。
+   */
+  const hardReload = () => {
+    setVisibleTooltip(null);
+    const { origin, pathname, search } = window.location;
+    const params = new URLSearchParams(search);
+    params.set('__reload', String(Date.now()));
+    window.location.replace(`${origin}${pathname}?${params.toString()}`);
   };
 
   return (
@@ -253,9 +291,21 @@ export default function Sidebar({ collapsed, compact = false, onToggle }: Sideba
               </button>
             )}
             <button
+              onClick={openInBrowser}
+              onMouseEnter={(event) => showTooltip('open-in-browser', event.currentTarget)}
+              onMouseLeave={() => setVisibleTooltip(null)}
+              onFocus={(event) => showTooltip('open-in-browser', event.currentTarget)}
+              onBlur={() => setVisibleTooltip(null)}
+              aria-label={openInBrowserLabel}
+              className="relative flex h-9 w-9 items-center justify-center rounded-md text-ldvh-text-secondary transition-colors hover:bg-ldvh-border/50 hover:text-ldvh-text-primary"
+            >
+              <ExternalLink size={16} />
+              <IconTooltip label={openInBrowserLabel} visible={visibleTooltip?.key === 'open-in-browser'} position={isCollapsed ? visibleTooltip?.position : undefined} />
+            </button>
+            <button
               onClick={() => {
                 setVisibleTooltip(null);
-                requestRefresh();
+                hardReload();
               }}
               onMouseEnter={(event) => showTooltip('refresh', event.currentTarget)}
               onMouseLeave={() => setVisibleTooltip(null)}

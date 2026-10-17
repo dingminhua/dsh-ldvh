@@ -15,8 +15,10 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
  * 独立于 `useProjectScope`：`navigation-layout-contract` 明确禁止 `projectContext`
  * 内再长出刷新机制（项目切换只按需重载工作树列表）。
  *
- * 与 `window.location.reload()` 的分工：应用内的刷新入口一律走本档位；「强制整页
- * 重载」由浏览器自身承担（F5），不在应用内再造一个等价入口。
+ * 与 `window.location.reload()` 的分工：本档位只负责**数据重取**，不负责代码更新。
+ * 侧栏刷新入口已于 2026-10-17 改为整页重载（见 `Sidebar` 的 `hardReload`）——
+ * 因为唯有重新拉取 index.html 才能拿到新 bundle 的 hash，而本档位做不到这一点。
+ * 仍保留本机制：切换项目等路径继续用它做「只重取、不重载」的局部刷新。
  */
 interface ReadingRefreshValue {
   /** 当前档位；放进重取 effect 的依赖即可随刷新重读。 */
