@@ -60,3 +60,34 @@ test('数据通路：两个类型都声明了 pre_audit_passed', () => {
   assert.ok(occurrences.length >= 3,
     `pre_audit_passed 须在 ObjectItem / CognitionInboxCard / CognitionRecentActivityItem 三处类型声明，实得 ${occurrences.length} 处`)
 })
+
+// ---------------------------------------------------------------------------
+// 卡体「块的选择」一致性（2026-10-17）
+//
+// 徽标后缀恢复后，Human 仍指出「没有 changelog」——同一张待决定卡，徽标修好了、
+// 流水仍缺。根因与上一条同类：**块的选择不同**，不是样式差异。
+//
+// 反面判据（此前已由 Human 2026-09-24 确立）：「聚焦里，待决定事项中的 wc card…
+// 保持与 wc card 一样的显示」。既然列表卡的 pending_gate1 卡体有流水，聚焦的
+// plan_confirmation 卡体就必须也有。
+// ---------------------------------------------------------------------------
+
+test('卡体一致性：列表卡的 pending_gate1 与聚焦的 plan_confirmation 都渲染变更流水', () => {
+  const objectList = read('src/pages/ObjectList.tsx')
+  const cognition = read('src/pages/CognitionCenter.tsx')
+
+  // 列表卡 pending_gate1 分支 → 有 WorkCaseExecFlow（既有）
+  const listPending = objectList.slice(
+    objectList.indexOf("if (group === 'pending_gate1') {"),
+    objectList.indexOf("if (group === 'executing') {"),
+  )
+  assert.match(listPending, /<WorkCaseExecFlow/, '列表卡 pending_gate1 卡体须有变更流水')
+
+  // 聚焦 plan_confirmation 分支 → 也必须有（本次修复）
+  const inboxPlan = cognition.slice(
+    cognition.indexOf("if (item.inboxKind === 'plan_confirmation') {"),
+    cognition.indexOf("if (item.inboxKind === 'closure_confirmation') {"),
+  )
+  assert.match(inboxPlan, /<WorkCaseExecFlow/, '聚焦 plan_confirmation 卡体须有变更流水（与列表卡同构）')
+  assert.match(inboxPlan, /changeLog=\{item\.card\.change_log\}/, '须传入该卡的 change_log')
+})

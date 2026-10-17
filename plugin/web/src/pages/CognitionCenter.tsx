@@ -205,6 +205,14 @@ function InboxItemReadNotes({ item, locale }: { item: CognitionCardItem; locale:
 function InboxCardContent({ item }: { item: CognitionInboxItem }) {
   if (item.type === 'pitfall') return <PitfallCardContent obj={toObjectCard(item)} />;
   if (item.inboxKind === 'plan_confirmation') {
+    // 「待批准执行」的待决定卡：与列表卡的 pending_gate1 卡体**同构**（2026-10-17）。
+    //
+    // 此前本分支只有 gist + 计划清单，**缺变更流水**——而列表卡早有它。Human 于
+    // 2026-10-17 指出「显示了『待批准执行 · 待审核』但没有 changelog」：徽标恢复了，
+    // 流水仍是缺的。根因同上一条（`displayStatus` 那条）：块的选择不同，不是样式差异。
+    //
+    // 建前审核场景下这条流水尤其必要——它是 Human 判断「这份候选有没有动静、是不是
+    // 已经派过审核」的唯一时间线线索。组件与执行中卡、列表卡**同一份**。
     return (
       <div className="grid min-w-0 gap-2">
         <WorkCaseGistLine gist={item.card.gist} group="pending_gate1" boxed />
@@ -216,6 +224,11 @@ function InboxCardContent({ item }: { item: CognitionInboxItem }) {
             />
           </div>
         ) : null}
+        <WorkCaseExecFlow
+          changeLog={item.card.change_log}
+          reviews={item.card.reviews}
+          selfUid={item.id}
+        />
       </div>
     );
   }
