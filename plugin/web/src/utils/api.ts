@@ -64,7 +64,6 @@ export interface ObjectItem {
    */
   pre_audit_passed?: boolean;
   current_snapshot_projection?: WorkCaseV5View;
-  phase?: string;
   /** workcase 目标范围；22 §8 ADR scope（必填）复用同声明。 */
   scope?: string;
   path: string;
@@ -436,7 +435,7 @@ export interface ObjectDetail<TData extends Record<string, unknown> = Record<str
   ok: boolean;
   action: string;
   target: string;
-  summary: { id: string; type: string; status?: string; phase?: string; read_status?: FactReadStatus };
+  summary: { id: string; type: string; status?: string; read_status?: FactReadStatus };
   data: TData;
 }
 
@@ -479,8 +478,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 
-/** 认知中心待决类型：两个 WorkCase Human Gate、阻塞处置与 Pitfall draft 审核。 */
-export type CognitionInboxKind = 'plan_confirmation' | 'closure_confirmation' | 'blocked_resolution' | 'pitfall_confirmation';
+/** 认知中心待决类型（v5）：两个 WorkCase Human Gate，加 Pitfall draft 审核。 */
+export type CognitionInboxKind = 'plan_confirmation' | 'closure_confirmation' | 'pitfall_confirmation';
 
 /**
  * 决定依据区内联投影（Q3）：与 WorkCase 列表 Card 同源的 source-bound 字段子集，

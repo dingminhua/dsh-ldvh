@@ -90,7 +90,6 @@ function getRecentHotspotStatusGroup(node: CognitionRecentHotspotNode): Exclude<
 const INBOX_KIND_LABEL_KEYS: Record<CognitionInboxKind, LocaleKey> = {
   plan_confirmation: 'cognition.kind.plan_confirmation',
   closure_confirmation: 'cognition.kind.closure_confirmation',
-  blocked_resolution: 'cognition.kind.blocked_resolution',
   pitfall_confirmation: 'cognition.kind.pitfall_confirmation',
 };
 
@@ -119,7 +118,6 @@ function buildModuleSummary(data: CognitionData, locale: string, t: Translate): 
   const counts: Record<CognitionInboxKind, number> = {
     plan_confirmation: 0,
     closure_confirmation: 0,
-    blocked_resolution: 0,
     pitfall_confirmation: 0,
   };
   for (const item of data.inbox.items) counts[item.inboxKind] += 1;

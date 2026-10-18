@@ -3,7 +3,7 @@
  *
  * 以当前治理范围解析出的受管辖工作树（事实源）运行，断言 02 §8 当前已交付字段
  * （generatedAt / scope / inbox / activeWorkCases / recentActivity / sparkHealth / recentHotspots / issues）、待决与推进中收录及排序、命名纪律
- * （WorkCase 的两个 Human-position progress_group、blocked_resolution，加上 Pitfall 的 draft 待确认）、
+ * （WorkCase 的两个 Human Gate 派生分组 pending_gate1 / awaiting_gate2，加上 Pitfall 的 draft 待确认）、
  * 内联对象卡片依据、条件 canonical_path，以及近期动态的窗口与时间标记。
  *
  * 断言以“不依赖具体对象身份的不变式”为主：无论事实源是本仓库还是预览工作树，
@@ -106,12 +106,18 @@ function compareSort(a: Record<string, unknown>, b: Record<string, unknown>): nu
   return String(a.id).localeCompare(String(b.id))
 }
 
-/** WorkCase 模块归属来自 progress_group；blocked Human-position 改用非 Gate 呈现。 */
+/**
+ * 收件类型的期望值：由 v5 派生分组 `group` 单独给出（10 §4.2.1）。
+ *
+ * 此前本辅助器读 `progress_group` 与 `isBlocked`——两者都是 v4 词汇：v5 对象没有
+ * `progress_group` 字段（派生分组叫 `group`），也不存在 `isBlocked` 的产出方。于是
+ * 该辅助器对每条 WorkCase 都返回 null，`item.inboxKind` 与它比对上必然不相等——
+ * 只是恰好当日事实源里没有 WorkCase-in-inbox 样本，断言空转而未暴露。
+ */
 function expectedInboxKind(item: Record<string, unknown>): string | null {
-  if (item.isBlocked === true) return 'blocked_resolution'
-  const pg = item.progress_group
-  if (pg === 'plan_confirmation') return 'plan_confirmation'
-  if (pg === 'closure_confirmation') return 'closure_confirmation'
+  const group = item.group
+  if (group === 'pending_gate1') return 'plan_confirmation'
+  if (group === 'awaiting_gate2') return 'closure_confirmation'
   return null
 }
 
@@ -782,10 +788,15 @@ test('active WorkCases contain ordinary progress or termination cleanup and reus
   assert.deepEqual(items.map((item) => String(item.id)), items.slice().sort(compareSort).map((item) => String(item.id)))
   for (const item of items) {
     assert.equal(item.type, 'workcase')
-    assert.ok(['progressing', 'termination_cleanup'].includes(String(item.progress_group)))
-    assert.equal(typeof item.lifecycle_position, 'string')
+    // 21 §8 / 10 §4.2.1：v5 三态直读，「推进中」= status=open ∧ 正文无「## 结果」节
+    // ⇒ 派生分组 `executing`。v4 的 `progress_group`（progressing/termination_cleanup）
+    // 与 `isBlocked` 已不存在，断言它们为假而非断言其取值（此前该断言恒失败，
+    // 只因当日事实源内 activeWorkCases 为空才未暴露）。
+    assert.equal(item.group, 'executing')
+    assert.equal('progress_group' in item, false)
+    assert.equal('isBlocked' in item, false)
+    assert.equal('lifecycle_position' in item, false)
     assert.equal('phase' in item, false)
-    assert.equal(typeof item.isBlocked, 'boolean')
     assert.equal('status' in item, false)
     assert.equal('inboxKind' in item, false)
     assert.equal(inboxIds.has(String(item.id)), false, 'active item must not duplicate a Human Gate item')
@@ -811,11 +822,13 @@ test('inbox keeps WorkCase Human positions separate from Pitfall draft confirmat
   for (const item of items) {
     if (item.type === 'workcase') {
       workCaseCount += 1
-      assert.ok(['plan_confirmation', 'closure_confirmation'].includes(String(item.progress_group)))
-      assert.ok(['plan_confirmation', 'closure_confirmation', 'blocked_resolution'].includes(String(item.inboxKind)))
-      assert.equal(typeof item.lifecycle_position, 'string')
-      assert.equal(typeof item.isBlocked, 'boolean')
-      // WorkCase 条目只携带 progress_group；不得把来源 status 放在名为 status 的字段（02 §7.3）。
+      // 21 §8 / 10 §4.2.1：v5 派生分组是 `group`，四值闭集；v4 的 `progress_group`
+      // 与 `isBlocked` 不得再出现在投影里（它们是 v4 词汇，也从未有产出方）。
+      assert.ok(['pending_gate1', 'awaiting_gate2'].includes(String(item.group)))
+      assert.equal('progress_group' in item, false)
+      assert.equal('isBlocked' in item, false)
+      assert.ok(['plan_confirmation', 'closure_confirmation'].includes(String(item.inboxKind)))
+      // WorkCase 条目不得把来源 status 放在名为 status 的字段（02 §7.3）。
       assert.equal('status' in item, false)
       assert.equal(item.inboxKind, expectedInboxKind(item))
     } else if (item.type === 'pitfall') {
@@ -834,7 +847,7 @@ test('inbox keeps WorkCase Human positions separate from Pitfall draft confirmat
   assert.equal(workCaseCount + pitfallCount, items.length)
   // 当前事实源不保证每次读取都包含全部待决对象；只校验实际出现对象的投影契约。
   for (const kind of kinds) {
-    assert.ok(['plan_confirmation', 'closure_confirmation', 'blocked_resolution', 'pitfall_confirmation'].includes(kind))
+    assert.ok(['plan_confirmation', 'closure_confirmation', 'pitfall_confirmation'].includes(kind))
   }
 })
 

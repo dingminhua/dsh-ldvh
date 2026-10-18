@@ -2,8 +2,8 @@
  * 全部管辖联邦聚合（全部管辖计划 Step 3）。
  *
  * GET /api/federation/overview —— 跨管辖项目的只读汇总：
- * - 项目卡：每项目的悬置 Spark（open/P1）、进行中 WorkCase、待决定事项计数与最后动态时间；
- * - 跨项目悬置：全部项目 open Spark 按优先级与陈旧度取 Top N；
+ * - 项目卡：每项目的 open Spark 计数、进行中 WorkCase、待决定事项计数与最后动态时间；
+ * - 跨项目悬置：全部项目 open Spark 按陈旧度取 Top N（v5 Spark 无 `priority` 字段，20 §8）；
  * - 逐项目降级：单个项目读取失败时该卡如实带 issues，不影响其它项目（认知中心模块级降级同型）。
  *
  * 数据边界：全部经 Web 字段级直读（facts.ts listObjects 的显式 scope），无第二事实源；
@@ -38,8 +38,13 @@ export interface FederationCrossSpark {
   updatedAt?: string
 }
 
-const PENDING_WORKCASE_PHASES = new Set(['human_plan_confirming', 'human_closure_confirming'])
 const CROSS_SPARK_LIMIT = 8
+/**
+ * 「待决定」的 WorkCase 派生分组（`10 §4.2.1`）：`pending_gate1`（Gate 1 待批）与
+ * `awaiting_gate2`（Gate 2 待关）是本系统里仅有的两个 Human Gate 位置；`executing`
+ * 与 `closed` 都不在等 Human 决定。与认知中心收件箱的 `deriveInboxKind` 同源同义。
+ */
+const PENDING_WORKCASE_GROUPS = new Set(['pending_gate1', 'awaiting_gate2'])
 
 function itemsOf(result: unknown): { items: Array<Record<string, unknown>>; error?: string } {
   if (result && typeof result === 'object' && 'ok' in result && (result as { ok: boolean }).ok && 'data' in result) {
@@ -139,8 +144,19 @@ router.get('/overview', async (_req: Request, res: Response): Promise<void> => {
       }
       if (openSparks.length > 0) openSparksByProject.set(project.id, openSparks)
       if (!workCases.error) {
-        card.activeWorkCases = workCases.items.filter((item) => item.status === 'open' || item.status === 'blocked').length
-        card.pendingDecisions = workCases.items.filter((item) => typeof item.phase === 'string' && PENDING_WORKCASE_PHASES.has(item.phase)).length
+        // 21 §8 / 10 §4.2.1：v5 状态闭集只有 draft / open / closed，v5 亦无 `phase`（该值在
+        // v4 时代承载生命周期位置，v5 由派生分组取代）。故计数一律读**列表投影给出的派生
+        // 分组** `group`（`facts.ts` 经 `deriveWorkCaseV5View` 单点派生、不写回对象），不在
+        // 此处按字段名重算生命周期——重算即第二套判据（09 §5 一致性纪律）。
+        //
+        // 此前本处的判据是 v4 语义：`status === 'blocked'`（v5 中不存在该值，恒假）与
+        // `phase ∈ {human_plan_confirming, human_closure_confirming}`（v5 对象无该字段，
+        // 恒假）。实测 33 份载体中 blocked 与 phase 各 0 份，故两处计数恒为空——
+        // `pendingDecisions` 只剩 Pitfall draft 一项，WorkCase 的两个 Human Gate 永不入账。
+        card.activeWorkCases = workCases.items.filter((item) => item.status === 'open').length
+        card.pendingDecisions = workCases.items
+          .filter((item) => PENDING_WORKCASE_GROUPS.has(String(item.group ?? '')))
+          .length
       }
       if (!pitfalls.error) {
         card.pendingDecisions = (card.pendingDecisions ?? 0)

@@ -41,7 +41,10 @@ import yaml from 'js-yaml'
 
 const router = Router()
 
-type InboxKind = 'plan_confirmation' | 'closure_confirmation' | 'blocked_resolution' | 'pitfall_confirmation'
+// 收件类型闭集（v5）：WorkCase 侧只有两个 Human Gate，加 Pitfall draft 确认。
+// 曾经的 `blocked_resolution`（v4「阻塞待处置」）已移除——v5 状态闭集无 `blocked`，
+// `deriveInboxKind` 无法产出该值，保留它等于在类型上承认一个不可达分支。
+type InboxKind = 'plan_confirmation' | 'closure_confirmation' | 'pitfall_confirmation'
 type InboxObjectType = 'workcase' | 'pitfall'
 type RecentActivityKind = 'created' | 'updated'
 type RecentActivityWindow = '1d' | '3d' | '7d'

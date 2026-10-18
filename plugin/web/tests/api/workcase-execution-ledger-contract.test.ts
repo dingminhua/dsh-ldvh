@@ -91,7 +91,12 @@ test('approve 返回携带 plan_step_reference 权威清单（写入前可见）
 
   // approve（授权时点）与 execute（实际写正文时点）**两处都要给**——跨会话接力时
   // 执行者未必持有 approve 的返回值，只在 approve 给会让前置提示价值衰减。
-  const callSites = [...writer.matchAll(/planStepReference\(next\.plan\)/g)];
+  //
+  // 匹配式覆盖**两种承载变量**：approve 侧传 `next.plan`，execute 侧传 `persisted.plan`。
+  // 此前只匹配 `next` 一种，而两处实装都健在——于是这道守卫恒以「实际 1 处」失败，
+  // 失败信息指向的是匹配式的窄，不是实现的缺。守卫的失败必须能指向真对象，否则它
+  // 会训练人们无视它。
+  const callSites = [...writer.matchAll(/planStepReference\((?:next|persisted)\.plan\)/g)];
   assert.ok(
     callSites.length >= 2,
     `plan 清单须在 approve 与 execute 两处返回（实际 ${callSites.length} 处）——跨会话接力只靠 approve 会衰减`,
