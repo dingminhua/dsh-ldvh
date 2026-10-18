@@ -128,6 +128,23 @@ const watermarkQueues = new Map();
 export const FALLBACK_MAX_DISPATCH_TIMES = 64;
 
 /**
+ * 派发占用（`inFlight`）的租约时长。
+ *
+ * 占用是「本次派发尚在途」的标记，由 `releaseDispatch` 在 finally 中释放。若调用方
+ * 因异常或进程被杀而未能释放，占用会永驻，使该会话此后**永久拒绝派发**——那是一
+ * 个比重复派发更隐蔽的失效形态（「机制在歇着」与「机制停了」不可区分，正是 04 §8.3
+ * 反复强调要避免的）。故占用带超时：超过本值即由下一次判定视为无主并回收。
+ *
+ * **取值依据**：远大于一次派发的正常耗时（实测子代理往返 10–60 秒），又不至于让
+ * 一次崩溃导致长时间停摆。10 分钟给足慢速模型的余量，同时保证「进程被杀」不会
+ * 演变成「当天不再辅助」。
+ *
+ * 方向性：超时回收是**fail-open**（宁可多派一次，不可永久不派）——因为多派一次的
+ * 代价是重复 token，永久不派的代价是功能静默消失，后者严重得多。
+ */
+export const DISPATCH_LEASE_MS = 10 * 60 * 1000;
+
+/**
  * 窗口内可能的最大派发次数（即时刻列表的容量下界）。
  *
  * **2026-10-14 起返回具名常量**：原依据（配额窗口 ÷ 最小间隔）的除数已被
@@ -508,6 +525,174 @@ export async function recordDispatch(dshHomePath, { projectRoot, sessionId, at, 
       );
     }
     return success({ lastDispatchAt: stamp, dispatchCount: nextCount, dispatchTimes: nextTimes });
+  });
+}
+
+/**
+ * 原子的「判定并占用」派发（**2026-10-19**）。
+ *
+ * ## 为什么需要它（缺陷）
+ *
+ * `recordDispatch` 自身是串行的（与 `advanceWatermark` 共用同一 `serialize`
+ * 临界区），但**准入判定发生在该临界区之外**：调用方先自行判定「该不该派发」，
+ * 再进临界区写锚点。这两个动作之间没有互斥，于是并发的检查点各自读到同一份
+ * 旧状态、各自判定放行、再各自排队写入——**全都写成功**。
+ *
+ * 实测（2026-10-19 03:00:17）：四个检查点在 `19:00:17.464Z` 同一毫秒相继通过
+ * 准入，随后在 `19:00:18.23–.44` 派出四个 `ldvh-idle` 子代理，任务清单完全相同。
+ * 多出的三份工作不产生任何额外价值，只重复消耗上下文。
+ *
+ * 该缺陷是结构性的而非参数性的：36 §6.2 取消配额的理由是「§6.1 的安静时长已在
+ * **结构上**界定频率」，而该论证隐含「串行」前提。并发之下该前提不成立，故
+ * 「结构上界定频率」不再为真——补回配额并不能修好它（配额判定同样在临界区外），
+ * 唯一可靠的形态是把**判定与占用合并进同一临界区**。
+ *
+ * ## 语义
+ *
+ * `inFlight` 是**运行状态**（04 §14 第 5 条：不得无界增长），记「已占用、尚未
+ * 收尾」的派发。本函数在临界区内完成三件事，三者同属一个读-判-写序列：
+ *
+ *   1. 读回 `inFlight`，非空即判 **在途**（`admit: false`）——同一会话同一时刻
+ *      只允许一个派发在途；
+ *   2. 通过判定的同时**写入占用**（`token` 供收尾释放）；
+ *   3. 照旧累加 `dispatchCount` 与 `dispatchTimes`，使既有诊断口径不变。
+ *
+ * 占用由 `releaseDispatch` 释放；**调用方必须在 finally 中释放**，否则一次异常
+ * 会让该会话此后永久拒绝派发。为免「忘了释放」退化为静默停摆，占用带
+ * `expiresAt`，超时后由下一次判定视为无主并回收（fail-open 方向：宁可多派一次，
+ * 不可永久不派）。
+ *
+ * @param {object} options
+ * @param {string} options.token - 本次占用的唯一标识，收尾时用同一值释放。
+ * @param {number} [options.now] - 当前时刻（毫秒）；供测试注入。
+ * @param {number} [options.staleMs] - 占用视为无主的超时，默认 {@link DISPATCH_LEASE_MS}。
+ */
+export async function admitAndRecordDispatch(dshHomePath, { projectRoot, sessionId, at, limits, token, now, staleMs } = {}) {
+  if (typeof projectRoot !== "string" || projectRoot.length === 0) {
+    return failure("watermark/invalid_project_root", "projectRoot is required");
+  }
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    return failure("watermark/invalid_session_id", "sessionId is required");
+  }
+  if (typeof token !== "string" || token.length === 0) {
+    return failure("watermark/invalid_token", "token is required so the claim can be released");
+  }
+  const stamp = typeof at === "string" && at.length > 0 ? at : new Date().toISOString();
+  const nowMs = Number.isFinite(now) ? now : Date.parse(stamp);
+  const leaseMs = Number.isFinite(staleMs) && staleMs > 0 ? staleMs : DISPATCH_LEASE_MS;
+
+  return serialize(watermarkPath(dshHomePath), async () => {
+    const doc = await readAll(dshHomePath);
+    if (!doc.ok) return doc;
+    const key = watermarkKey(projectRoot, sessionId);
+    const entry = doc.value[key] ?? {};
+
+    // ── 判定：在途占用（含超时回收）──────────────────────────────────
+    //
+    // 超时判定用 `expiresAt` 而非「距 claim 多久」：后者需要每次重算，前者是
+    // 写入时算好的一次比较，且使「何时过期」在载体里可读（可诊断）。
+    const prior = entry.inFlight;
+    if (prior !== null && typeof prior === "object" && typeof prior.token === "string") {
+      const expiresAt = Number.isFinite(prior.expiresAt) ? prior.expiresAt : 0;
+      if (Number.isFinite(nowMs) && nowMs < expiresAt) {
+        // 真在途：拒绝，且**不**写任何状态（拒绝本身不是派发，不占配额、不动水位）。
+        return success({
+          admit: false,
+          reason: "dispatch-in-flight",
+          inFlight: { token: prior.token, since: prior.since ?? null, expiresAt },
+        });
+      }
+      // 过期占用：回收并继续（下面会写入本次占用）。回收事实随返回值上报，
+      // 使「上一次没收尾」在痕迹里可查，而不是被静默抹掉。
+    }
+    const reclaimed = prior !== null && typeof prior === "object" && typeof prior.token === "string";
+
+    // ── 占用 + 记账（同一写入，故判定与占用不可被并发拆开）──────────────
+    const prevCount = Number.isInteger(entry.dispatchCount) && entry.dispatchCount >= 0 ? entry.dispatchCount : 0;
+    const nextCount = prevCount + 1;
+    const prevTimes = Array.isArray(entry.dispatchTimes)
+      ? entry.dispatchTimes.filter((v) => typeof v === "string" && v.length > 0)
+      : [];
+    const capacity = Math.max(FALLBACK_MAX_DISPATCH_TIMES, numberOfWindowSlots(limits));
+    const nextTimes = [...prevTimes, stamp].slice(-capacity);
+    const claim = {
+      token,
+      since: stamp,
+      expiresAt: (Number.isFinite(nowMs) ? nowMs : Date.now()) + leaseMs,
+    };
+    const next = {
+      ...doc.value,
+      [key]: {
+        ...entry,
+        lastDispatchAt: stamp,
+        dispatchCount: nextCount,
+        dispatchTimes: nextTimes,
+        inFlight: claim,
+      },
+    };
+    const written = await writeAll(dshHomePath, next);
+    if (!written.ok) return written;
+
+    const readBack = await readAll(dshHomePath);
+    if (!readBack.ok) {
+      return failure("watermark/read_back_failed", `admitAndRecordDispatch reported success but the read-back failed: ${readBack.error.message}`);
+    }
+    const observed = readBack.value[key];
+    if (observed?.lastDispatchAt !== stamp || observed?.dispatchCount !== nextCount
+      || observed?.inFlight?.token !== token) {
+      return failure(
+        "watermark/read_back_mismatch",
+        `expected lastDispatchAt=${stamp} dispatchCount=${nextCount} inFlight.token=${token} after admitAndRecordDispatch, got lastDispatchAt=${observed?.lastDispatchAt} dispatchCount=${observed?.dispatchCount} inFlight.token=${observed?.inFlight?.token}`,
+      );
+    }
+
+    return success({
+      admit: true,
+      reason: reclaimed ? "admitted-after-stale-claim" : "admitted",
+      reclaimedStaleClaim: reclaimed,
+      inFlight: { token, since: claim.since, expiresAt: claim.expiresAt },
+      lastDispatchAt: stamp,
+      dispatchCount: nextCount,
+      dispatchTimes: nextTimes,
+    });
+  });
+}
+
+/**
+ * 释放一次派发占用（收尾）。
+ *
+ * **不是失败时也要调用**：占用代表「本次派发尚在途」，与成败无关。
+ *
+ * 幂等：token 不符（已被回收、或已被另一占用覆盖）时不报错，返回
+ * `{ ok: true, value: { released: false, reason } }`——收尾路径不应因状态漂移
+ * 而抛错，否则 finally 里的异常会盖住真正的失败原因。
+ */
+export async function releaseDispatch(dshHomePath, { projectRoot, sessionId, token } = {}) {
+  if (typeof projectRoot !== "string" || projectRoot.length === 0) {
+    return failure("watermark/invalid_project_root", "projectRoot is required");
+  }
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    return failure("watermark/invalid_session_id", "sessionId is required");
+  }
+  return serialize(watermarkPath(dshHomePath), async () => {
+    const doc = await readAll(dshHomePath);
+    if (!doc.ok) return doc;
+    const key = watermarkKey(projectRoot, sessionId);
+    const entry = doc.value[key];
+    if (entry === undefined || entry === null) {
+      return success({ released: false, reason: "no-entry" });
+    }
+    const held = entry.inFlight;
+    if (held === null || typeof held !== "object" || typeof held.token !== "string") {
+      return success({ released: false, reason: "not-in-flight" });
+    }
+    if (typeof token === "string" && token.length > 0 && held.token !== token) {
+      return success({ released: false, reason: "token-mismatch" });
+    }
+    const next = { ...doc.value, [key]: { ...entry, inFlight: null } };
+    const written = await writeAll(dshHomePath, next);
+    if (!written.ok) return written;
+    return success({ released: true, token: held.token });
   });
 }
 

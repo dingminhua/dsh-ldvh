@@ -14,6 +14,8 @@ import {
   recordDispatch,
   recordActivity,
   numberOfWindowSlots,
+  admitAndRecordDispatch,
+  releaseDispatch,
   WATERMARK_RELATIVE_PATH,
 } from "../lib/friction-watermark.js";
 import { withTemp } from "./helpers.mjs";
@@ -554,5 +556,122 @@ test("recordActivity：未传 at 时用当前时刻（调用方无须自造时�
     const w = await recordActivity(dshHomePath, o);
     assert.ok(w.ok);
     assert.ok(!Number.isNaN(Date.parse(w.value.lastActivityAt)), "须是可解析的 ISO 时刻");
+  });
+});
+
+// ── admitAndRecordDispatch / releaseDispatch（2026-10-19）──────────────────
+//
+// 复现并钉住 2026-10-19 03:00:17 的实测缺陷：四个检查点在同一毫秒相继通过准入，
+// 随后派出四个任务清单完全相同的子代理。根因是「判定」与「写锚点」分处两个临界区，
+// 并发之下各自读到同一份旧状态、各自放行。
+
+test("并发准入：同一毫秒的四个检查点只放行一个（复现 2026-10-19 缺陷）", async () => {
+  await withTemp("ldvh-dispatch-", async (dir) => {
+    const dshHomePath = (...p) => join(dir, ...p);
+    const opts = { projectRoot: PROJECT, sessionId: SESSION, at: "2026-10-18T19:00:17.464Z" };
+
+    // 四个**同时启动**的准入，全部不 await 中间态——这正是原来的缺陷形态。
+    const results = await Promise.all([
+      admitAndRecordDispatch(dshHomePath, { ...opts, token: "tok-1" }),
+      admitAndRecordDispatch(dshHomePath, { ...opts, token: "tok-2" }),
+      admitAndRecordDispatch(dshHomePath, { ...opts, token: "tok-3" }),
+      admitAndRecordDispatch(dshHomePath, { ...opts, token: "tok-4" }),
+    ]);
+
+    const admitted = results.filter((r) => r.ok && r.value.admit === true);
+    const blocked = results.filter((r) => r.ok && r.value.admit === false);
+    assert.equal(admitted.length, 1, `只应放行一个，实际 ${admitted.length}`);
+    assert.equal(blocked.length, 3);
+    for (const b of blocked) assert.equal(b.value.reason, "dispatch-in-flight");
+
+    // 被挡下的不占计数：dispatchCount 应恰为 1，不是 4。
+    const st = await readDispatchState(dshHomePath, { projectRoot: PROJECT, sessionId: SESSION });
+    assert.ok(st.ok, JSON.stringify(st.error));
+    assert.equal(st.value.dispatchCount, 1, "被挡下的准入不得计入派发次数");
+  });
+});
+
+test("占用释放后可再次准入（占用不是一次性封印）", async () => {
+  await withTemp("ldvh-dispatch-", async (dir) => {
+    const dshHomePath = (...p) => join(dir, ...p);
+    const o = { projectRoot: PROJECT, sessionId: SESSION };
+
+    const a = await admitAndRecordDispatch(dshHomePath, { ...o, at: "2026-10-18T19:00:17Z", token: "tok-a" });
+    assert.ok(a.ok, JSON.stringify(a.error));
+    assert.equal(a.value.admit, true);
+
+    const b = await admitAndRecordDispatch(dshHomePath, { ...o, at: "2026-10-18T19:00:18Z", token: "tok-b" });
+    assert.equal(b.value.admit, false, "在途期间第二个必须被挡下");
+
+    const rel = await releaseDispatch(dshHomePath, { ...o, token: "tok-a" });
+    assert.ok(rel.ok, JSON.stringify(rel.error));
+    assert.equal(rel.value.released, true);
+
+    const c = await admitAndRecordDispatch(dshHomePath, { ...o, at: "2026-10-18T19:00:30Z", token: "tok-c" });
+    assert.ok(c.ok, JSON.stringify(c.error));
+    assert.equal(c.value.admit, true, "释放后应能重新准入");
+  });
+});
+
+test("释放是幂等的：token 不符时如实返回 released:false，不抛错", async () => {
+  await withTemp("ldvh-dispatch-", async (dir) => {
+    const dshHomePath = (...p) => join(dir, ...p);
+    const o = { projectRoot: PROJECT, sessionId: SESSION };
+    await admitAndRecordDispatch(dshHomePath, { ...o, at: "2026-10-18T19:00:17Z", token: "tok-x" });
+
+    const wrong = await releaseDispatch(dshHomePath, { ...o, token: "tok-y" });
+    assert.ok(wrong.ok, "token 不符不得报错——收尾路径不应因状态漂移抛异常");
+    assert.equal(wrong.value.released, false);
+    assert.equal(wrong.value.reason, "token-mismatch");
+
+    // 原占用仍在，故仍拒绝新准入。
+    const again = await admitAndRecordDispatch(dshHomePath, { ...o, at: "2026-10-18T19:00:20Z", token: "tok-z" });
+    assert.equal(again.value.admit, false);
+
+    // 二次释放（已无占用）也是幂等的。
+    await releaseDispatch(dshHomePath, { ...o, token: "tok-x" });
+    const twice = await releaseDispatch(dshHomePath, { ...o, token: "tok-x" });
+    assert.ok(twice.ok);
+    assert.equal(twice.value.released, false);
+  });
+});
+
+test("租约超时：陈旧的占用被回收而非永久封印（fail-open）", async () => {
+  await withTemp("ldvh-dispatch-", async (dir) => {
+    const dshHomePath = (...p) => join(dir, ...p);
+    const o = { projectRoot: PROJECT, sessionId: SESSION };
+    const t0 = Date.parse("2026-10-18T19:00:00Z");
+
+    // 第一次占用，租约 1 秒。
+    const a = await admitAndRecordDispatch(dshHomePath, {
+      ...o, at: "2026-10-18T19:00:00Z", token: "tok-lease", now: t0, staleMs: 1000,
+    });
+    assert.equal(a.value.admit, true);
+
+    // 租约内（+500ms）：仍算在途。
+    const inside = await admitAndRecordDispatch(dshHomePath, {
+      ...o, at: "2026-10-18T19:00:00.500Z", token: "tok-new", now: t0 + 500, staleMs: 1000,
+    });
+    assert.equal(inside.value.admit, false, "租约内不得回收");
+
+    // 租约后（+2000ms）：视为无主并回收——宁可多派一次，不可永久不派。
+    const after = await admitAndRecordDispatch(dshHomePath, {
+      ...o, at: "2026-10-18T19:00:02Z", token: "tok-newer", now: t0 + 2000, staleMs: 1000,
+    });
+    assert.ok(after.ok, JSON.stringify(after.error));
+    assert.equal(after.value.admit, true, "过期占用应被回收");
+    assert.equal(after.value.reclaimedStaleClaim, true, "回收事实须在返回值里可读");
+  });
+});
+
+test("参数缺失即拒绝（fail-closed，不写半条）", async () => {
+  await withTemp("ldvh-dispatch-", async (dir) => {
+    const dshHomePath = (...p) => join(dir, ...p);
+    assert.equal((await admitAndRecordDispatch(dshHomePath, { sessionId: "s" , token: "t"})).ok, false);
+    assert.equal((await admitAndRecordDispatch(dshHomePath, { projectRoot: "/p", token: "t" })).ok, false);
+    // token 必填：没有它占用无法被释放。
+    const noToken = await admitAndRecordDispatch(dshHomePath, { projectRoot: "/p", sessionId: "s" });
+    assert.equal(noToken.ok, false);
+    assert.equal(noToken.error.code, "watermark/invalid_token");
   });
 });

@@ -40,7 +40,7 @@ import { runIdleCheckpoint } from "./idle-checkpoint.js";
 import { createDiscoveryProvider } from "./friction-discovery-provider.js";
 import { landDiscoveryVerdict, residualFromLandingError } from "./friction-landing.js";
 import { landCaptureVerdict, residualFromCaptureError } from "./experience-landing.js";
-import { advanceWatermark, readDispatchState, recordDispatch, recordActivity } from "./friction-watermark.js";
+import { advanceWatermark, readDispatchState, recordActivity, admitAndRecordDispatch, releaseDispatch } from "./friction-watermark.js";
 import { admitIdleDispatch, pickEnabledAuxTasks } from "./idle-settings.js";
 import { recordRun } from "./idle-runlog.js";
 import { appendPendingEntry } from "./pending-queue.js";
@@ -447,6 +447,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           const scope = await resolve(cwd);
           // 受管辖是运行前提（32 §137：git 层操作要求当前管辖）。
           if (scope.state !== "governed" || scope.project === undefined || scope.project === null) return;
+          // 本次派发的占用令牌（2026-10-19）。在准入处取得值，在派发收尾处释放；
+          // 未取得时保持 `null`，收尾处的释放因此是一次空操作。
+          let dispatchClaimed = null;
           // ── 一次派发做多件事（Human 决定 2026-10-11）──────────────────────
           //
           // 原实现按 `rotation % 3` 挑**一个**任务（32 §10.2 候选设计的「按预算
@@ -534,19 +537,28 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               lifecycle.activity?.record("session/checkpoint/throttled", { task: tasksForThisCheckpoint[0], tasks: [...tasksForThisCheckpoint], reason: admission.reason });
               return;
             }
-            // 冷却锚点在**派发之前**写入，故失败也计入——否则一次失败不占冷却窗口，
-            // 下一次检查点立刻重跑，外观上正是 §8.3 禁止的「自行重试」。
-            // 放行也留一次评估痕迹：某约束若在默认取值下恒不触发，只记「被挡下」
-            // 会使它与「根本没实现」完全不可区分（复审 D2/D7）。
-            await recordRun(dshHomePath, {
-              task: tasksForThisCheckpoint[0],
-              tasks: [...tasksForThisCheckpoint],
-              stage: "admitted",
-              reason: admission.reason,
-              evaluated: admission.evaluations,
+
+            // ── 判定与占用合并为**一个临界区**（2026-10-19 缺陷修复）───────
+            //
+            // 原实现先判定准入、再 `recordDispatch` 写锚点，两个动作之间没有互斥。
+            // 实测（2026-10-19 03:00:17）：四个检查点在 `19:00:17.464Z` 同一毫秒
+            // 相继通过准入，随后派出四个任务清单完全相同的 `ldvh-idle` 子代理。
+            //
+            // 该形态不是「参数调小了」而是**结构性**的：36 §6.2 取消配额的理由是
+            // 「§6.1 的安静时长已在结构上界定频率」，该论证隐含「串行」前提，而
+            // 并发之下该前提不成立。补回配额同样无效——配额判定也在临界区外。
+            // 唯一可靠的形态是把判定与占用写进同一个读-判-写序列，故改用
+            // `admitAndRecordDispatch`：读回 `inFlight`、判定、占用、记账一次完成。
+            //
+            // 占用在本次派发收尾时经 `releaseDispatch` 释放（见下方 finally）。
+            const dispatchToken = `dispatch-${sessionId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+            const recorded = await admitAndRecordDispatch(dshHomePath, {
+              projectRoot: scope.project.path,
+              sessionId,
               at: new Date().toISOString(),
+              limits: idleSettings.limits,
+              token: dispatchToken,
             });
-            const recorded = await recordDispatch(dshHomePath, { projectRoot: scope.project.path, sessionId, at: new Date().toISOString(), limits: idleSettings.limits });
             if (!recorded.ok) {
               // 写不进锚点即无法保证节流——按 fail-closed 停止本次（不派发）。
               await recordRun(dshHomePath, {
@@ -558,6 +570,42 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               });
               return;
             }
+            if (recorded.value?.admit !== true) {
+              // **在途派发**：上一次派发尚未收尾。这不是失败，也不进待处置队列——
+              // 与「被 Human 配置挡下」同属「只延后、不抑制」，故不推进水位。
+              // 必须留痕：否则「在途挡下」与「根本没跑」在痕迹里不可区分。
+              //
+              // `stage` 复用 `throttled` 保持可读连续性（既有消费方按该值归组），
+              // 但 `reason` 明确写 `dispatch-in-flight`——读痕迹者据此可知是并发
+              // 去重挡下的，不是配置挡下的。
+              await recordRun(dshHomePath, {
+                task: tasksForThisCheckpoint[0],
+                tasks: [...tasksForThisCheckpoint],
+                stage: "throttled",
+                reason: recorded.value?.reason ?? "dispatch-in-flight",
+                evaluated: admission.evaluations,
+                at: new Date().toISOString(),
+              });
+              lifecycle.activity?.record("session/checkpoint/throttled", {
+                task: tasksForThisCheckpoint[0],
+                tasks: [...tasksForThisCheckpoint],
+                reason: recorded.value?.reason ?? "dispatch-in-flight",
+              });
+              return;
+            }
+            dispatchClaimed = dispatchToken;
+            // 冷却锚点在**派发之前**写入，故失败也计入——否则一次失败不占冷却窗口，
+            // 下一次检查点立刻重跑，外观上正是 §8.3 禁止的「自行重试」。
+            // 放行也留一次评估痕迹：某约束若在默认取值下恒不触发，只记「被挡下」
+            // 会使它与「根本没实现」完全不可区分（复审 D2/D7）。
+            await recordRun(dshHomePath, {
+              task: tasksForThisCheckpoint[0],
+              tasks: [...tasksForThisCheckpoint],
+              stage: "admitted",
+              reason: recorded.value?.reason ?? admission.reason,
+              evaluated: admission.evaluations,
+              at: new Date().toISOString(),
+            });
           }
 
           // §8.4 第 1 项的执行体：以**零上下文**派生（spawn）一个受管辖隔离子代理，
@@ -977,6 +1025,29 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             lifecycle.activity?.record("session/checkpoint/runlog-failed", {
               reason: String(error?.message ?? error),
             });
+          }
+
+          // ── 释放派发占用（2026-10-19）────────────────────────────────────
+          //
+          // 占用代表「本次派发尚在途」，与成败无关——故在此处**无条件**释放。
+          // 位置选在所有可能的提前 `return` 之后：此前各分支（被挡下、写不进锚点、
+          // 在途去重）都没有取得占用，`dispatchClaimed` 保持 `null`，这里即空操作。
+          //
+          // 释放失败只记痕迹、不抛：占用带租约（`DISPATCH_LEASE_MS`），超时会被
+          // 下一次判定回收，故释放失败不会使该会话永久停摆。
+          if (dispatchClaimed !== null) {
+            try {
+              await releaseDispatch(dshHomePath, {
+                projectRoot: scope.project.path,
+                sessionId,
+                token: dispatchClaimed,
+              });
+            } catch (error) {
+              lifecycle.activity?.record("session/checkpoint/release-failed", {
+                reason: String(error?.message ?? error),
+              });
+            }
+            dispatchClaimed = null;
           }
 
           lifecycle.activity?.record("session/checkpoint", { source, tasks: [...tasksForThisCheckpoint] });
