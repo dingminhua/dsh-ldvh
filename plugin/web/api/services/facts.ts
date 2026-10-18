@@ -481,12 +481,15 @@ function projectWorkCaseResult(value: unknown): Record<string, unknown> | null {
         }
       })
       .filter((item): item is Record<string, unknown> => item !== null)
-    : []
+    : null
   const residual = Array.isArray(result.residual)
     ? result.residual.filter((item): item is string => typeof item === 'string')
     : null
   return {
-    ...(checks.length > 0 ? { criteria_checks: checks } : {}),
+    // 空数组是合法值（21 §9.3：`cancelled` 等场景无逐条判据核对，故 `criteria_checks`
+    // 可为空），必须与「缺失」区分——与下方 `residual` 同一口径，不得按 `length === 0`
+    // 丢弃字段：`cancelled` 详情里「无判据核对」与「未记录判据核对」不是同一件事。
+    ...(checks !== null ? { criteria_checks: checks } : {}),
     ...(typeof result.achieved_scope === 'string' ? { achieved_scope: result.achieved_scope } : {}),
     // 空数组是合法值（21 §9.3：`completed` 时 residual 可为空），必须与「缺失」
     // 区分——丢失它会让详情无法区分「无残留」与「未记录残留」。

@@ -300,6 +300,28 @@ test('投影按真实类型判定，不放宽字段闭集——类型不符者�
   );
 });
 
+test('空 criteria_checks 不塌缩为缺失——与「未记录」必须可区分（合成载体，不依赖仓库状态）', () => {
+  // 为什么这条不用真实载体：真实载体里「某字段是空数组」是生命周期副产品——仓库
+  // 一度没有这种对象时，真实载体扫描就静默失去判别力（夹具头注已声明该失效面）。
+  // 故此处用最小构造把「空数组 vs 缺失」这一对直接钉死，不依赖 ldvh-base 的状态分布。
+  const projected = projectCurrentWorkCaseCard({
+    status: 'closed',
+    outcome: 'cancelled',
+    result: { criteria_checks: [], achieved_scope: '本单未经执行期即取消', residual: [] },
+  }, 'c'.repeat(64)) as Record<string, unknown>;
+
+  const result = projected.result as Record<string, unknown>;
+  assert.ok(
+    'criteria_checks' in result,
+    'result.criteria_checks 为空数组时也必须存活——丢弃会让「无判据核对」退化为「未记录」，两者不是同一件事',
+  );
+  assert.deepEqual(
+    result.criteria_checks,
+    [],
+    '空 criteria_checks 必须是数组本身，而不是被当作「缺失」抹掉',
+  );
+});
+
 test('attempt.session_id 在投影后存活——关闭侧独立性比对的基准必须可回读（D5）', async () => {
   const ids = existingWorkCaseIds();
   let asserted = 0;
@@ -520,7 +542,19 @@ test('已关闭：投影必须带上 plan（卡面显示步骤标题的唯一来
     );
     assert.equal(placedPlan.length, sourcePlan.length, `${objectId}: plan 步数不得因投影而改变`);
     const checks = (projected.result as Record<string, unknown> | undefined)?.criteria_checks;
-    if (Array.isArray(checks)) {
+    // **cancelled 例外**（2026-10-18）：`outcome = cancelled` 的「未执行即取消」形态下，
+    // `criteria_checks` 允许为空、与 `plan` 步数**不等长**——依据 `21 §8`「结果」节的取消
+    // 记录明文：「计划未经执行即被取消的对象……写成**取消记录**，而不是逐条判据核对
+    // （**没有执行就没有核对结论可写**）」，并「取消记录存在时，本节不得再写逐条判据核对」。
+    // 写入侧同口径：`plugin/lib/workcase-writer.js:953` 以 `!isCancelled` 为前提才核对长度，
+    // `:970` 写作 `criteria_checks: required (one entry per plan step) unless outcome=cancelled`。
+    // 本断言关切的是「卡面按 `plan[i].step` 逐条配标题」——cancelled 卡面走**取消记录块**
+    // （`WorkCaseClosedSummary.tsx:158` 以 `cancellation !== null` 分支，与 `criteria_checks`
+    // 是否为空无关），不存在逐条配对，故该关切不适用；其投影保真由下一条测试
+    // （「`criteria_checks` 条数不得丢失」）独立守卫，本处放宽不削弱该守卫。
+    // 已如实登记：`specs/21 §15.1`「关闭完整性」与 §7 字段间不变量只写了「长度一致」，
+    // **未复述 §8 的 cancelled 例外**——该规范侧缺口不在本测试内自行改写规范。
+    if (Array.isArray(checks) && source.outcome !== 'cancelled') {
       assert.equal(
         checks.length,
         sourcePlan.length,
