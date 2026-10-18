@@ -36,6 +36,15 @@ jobs:
       - name: Run tests
         run: npm test
 
+      # 06 §5「ESLint 统一配置，提交前必须通过静态分析」的不可绕过层。
+      # 本地 commit-msg Hook 可被 `git commit --no-verify` 跳过，这一层不能：
+      # 它是「绕过之后仍会被发现」的唯一保证（详 ldvh-base/sparks/
+      # spark-8e57c3d0）。判据用退出码：0 通过、非 0 一律拒绝——
+      # 不设警告阈值，也不做「工具故障」与「代码不合规」的区分，CI 侧
+      # 无需区分：两者都应红。
+      - name: Lint
+        run: npm run lint
+
       - name: Verify JavaScript syntax
         run: |
           node --check lib/index.js
