@@ -236,7 +236,11 @@ function sparkCreateReport(draft, dedupResult) {
   if (typeof draft.question === "string" && draft.question.trim().length > 0) lines.push(`调查问题：${draft.question.trim()}`);
   if (typeof draft.scope_boundary === "string" && draft.scope_boundary.trim().length > 0) lines.push(`调查边界：${draft.scope_boundary.trim()}`);
   lines.push(`serves：${typeof draft.serves === "string" && draft.serves.trim().length > 0 ? draft.serves.trim() : "（未声明）"}`);
-  return lines.join("\n");
+  // 空行分段（friction-7a64bbe2 例①）：宿主把这份呈报按 **Markdown** 渲染，而单个
+  // `\\n` 在 Markdown 里不产生段落——四个独立字段会塌成一段连续文字，字段名与值
+  // 齐平、被误读为上一行的续行。空行才是段落边界，用它分隔字段既保住层级，也不
+  // 引入任何 Markdown 语法（纯文本读者看到的就是空行，同样是清晰的分段）。
+  return lines.join("\n\n");
 }
 
 /** 20 §16 呈报内容 for a terminal transition: target status, the full
@@ -253,7 +257,8 @@ function sparkTerminalReport(frontmatterAfter) {
       .join("；");
     lines.push(`关系目标：${targets}`);
   }
-  return lines.join("\n");
+  // 空行分段，同 sparkCreateReport（friction-7a64bbe2 例①）。
+  return lines.join("\n\n");
 }
 
 /**

@@ -31,7 +31,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
-import { registerWorkcaseTools } from "../lib/workcase-tools.js";
+import { registerWorkcaseTools, pickReviewSummary } from "../lib/workcase-tools.js";
 import { createLifecycleRegistry } from "../lib/lifecycle.js";
 import { createSessionScopes } from "../lib/session-scopes.js";
 
@@ -399,9 +399,41 @@ test("record_review: a LONG conclusion is not silently truncated — a verbatim 
       reviewer_child_agent_id: "child-5",
     }, exec);
     const text = JSON.stringify(result);
-    assert.match(text, /longer than the 600-char reviews\[\]\.summary cap/,
+    assert.match(text, /(longer than the 600-char reviews\[\]\.summary cap|cannot be recorded automatically)/,
       `a long conclusion must demand an explicit excerpt, not be truncated silently, got: ${text.slice(0, 400)}`);
   });
+});
+
+// friction-7a64bbe2 例② 回归：省略 summary 时**不得**只取首段。
+//
+// 缺陷事实：原实现取「首段」（`split(/\n\s*\n/)[0]`），而子代理收尾消息的第一段
+// 常常是过程话（实测录得 "I've completed the incremental review. Here's my final
+// summary of what I found."）——21 §8 要求 summary 承载判据七要素，过程话一个都
+// 不含，于是对象里留下一条「机械通过、实则无实质」的复核记录。
+//
+// 该分支在集成路径上排在身份校验之后（setupRelay 的 exec 无 session 身份，走不到），
+// 故直接覆盖被导出的纯函数 `pickReviewSummary`。
+test("pickReviewSummary: 不取过程话首段，取承载判据七要素的段落（friction-7a64bbe2 例②）", () => {
+  const processLine = "I've completed the incremental review. Here's my final summary of what I found.";
+  const substance = "对象：workcase-xxx 的授权范围。基线：21 §8。方法：逐条比对 plan 与 scope。"
+    + "覆盖：全部五项判据。未覆盖：宿主侧渲染。发现：三处不符。保证边界：仅覆盖本单。";
+  const picked = pickReviewSummary(`${processLine}\n\n${substance}`);
+  assert.doesNotMatch(picked, /I've completed the incremental review/,
+    "过程话不得被当作复核结论");
+  assert.match(picked, /保证边界/, "应取到承载七要素的实质段落");
+  assert.ok(substance.includes(picked), "取出的概要必须是结论的逐字子串");
+});
+
+test("pickReviewSummary: 多段时取含要素最多者；无要素时退回第一个装得下的段", () => {
+  const thin = "对象：A。基线：B。";
+  const rich = "对象：A。基线：B。方法：C。覆盖：D。未覆盖：E。发现：F。保证边界：G。";
+  assert.equal(pickReviewSummary(`过程话\n\n${thin}\n\n${rich}`), rich, "取要素最多的一段");
+  assert.equal(pickReviewSummary("过程话\n\n无要素的结论。"), "过程话", "无要素时退回第一个装得下的段");
+});
+
+test("pickReviewSummary: 一段都装不下时返回 null（由调用方 fail-closed，不截断）", () => {
+  assert.equal(pickReviewSummary("x".repeat(700)), null, "超限且无法切出合格段时必须拒绝而非截断");
+  assert.equal(pickReviewSummary(""), null, "空结论不是复核");
 });
 
 test("record_review: without the host subagent registry the channel fails closed (不降级为无身份写入)", async () => {

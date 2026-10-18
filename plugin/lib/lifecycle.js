@@ -404,6 +404,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         // Inline row title (Human 2026-09-04): "上下文注入 · dsh-ldvh · 本会话受 LDVH 管辖"
         noticeSummary: () => noticeSummaryFor(lifecycle.scopeState)
       });
+      // 把「会话视图被重置 → 清空注入台账」挂到 lifecycle 记录上，供
+      // agent/created（clear / compact / resume）调用。见下方 disposeCreated。
+      lifecycle.preStepResetVisibility = () => onPreStep.resetVisibility();
       // Turn-level triggers（36 §6.1 触发判据，2026-10-14 修订）。
       // 「会话确已空闲」= 距最后一次会话活动持续不短于安静时长；本块只注入
       // 编排回调与两个注入点（取安静时长、落活动时刻），判据与计时在 triggers.js 内。
@@ -1118,11 +1121,22 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       //   - 未装 → install()（内部含首次 prime）；
       //   - 已装 → 这是 resume / clear / compact 的再次 announce，install() 的
       //     agents.has() 去重会直接返回，因此在这里补做 re-prime。
+      //
+      // 会话视图重置（friction-41a43496）：clear / compact / resume 会让此前注入的
+      // 上下文行从模型可见视图里消失，而 pre-step 的注入台账仍记着它们，指针继续
+      // 有效就会永久静默。故这三类 source 必须同时清空台账；`startup` 是一次全新
+      // 装配，本就没有台账可言（清空是幂等的 no-op）。权威依据是 payload.source，
+      // 不是「本回合批次里没看到行」——后者在每一轮都成立，正是重复注入的成因。
+      const clearsView = (source) => source === "clear" || source === "compact" || source === "resume" || source === "startup";
       const disposeCreated = ctx.on("agent/created", (payload) => {
         const agent = payload?.agent;
         const id = agentIdOf(agent);
-        if (typeof id === "string" && agents.has(id)) reprimeAgent(id, agent);
-        else install(agent);
+        if (typeof id === "string" && agents.has(id)) {
+          if (clearsView(payload?.source) && typeof agents.get(id)?.preStepResetVisibility === "function") {
+            agents.get(id).preStepResetVisibility();
+          }
+          reprimeAgent(id, agent);
+        } else install(agent);
       });
       // 换接（2026-10-03）：子代理结论改由宿主的 `subagent/end` 事件承载。
       //

@@ -127,6 +127,32 @@ function isOwnMessage(message) {
 }
 
 /**
+ * 会话内已注入行的可见性台账（friction-41a43496）。
+ *
+ * **为什么不能只看 `decision.messages`**：该数组是**本回合装配出来的批次**，
+ * 不是会话的完整历史。上一回合 step-1 注入的行不会出现在下一回合的批次里，
+ * 于是「行不在批次中」被误判成「行已丢失（rewind/清空）」→ 走 loss-recovery
+ * 路径再注入一条。实测后果：同一管辖判定块在相邻轮次被重复注入。
+ *
+ * 判据因此分层，两种情形都要兼顾：
+ *   - **仍在视图**：本批次里能直接看到 → 刷新文本即可，不新增行；
+ *   - **落在历史里**：本回合批次看不到，但**上一回合的批次**里见过它
+ *     （`seen` 记录的是「该 id 曾在某次装配结果中出现过」，而装配结果会进入
+ *     模型可见的上下文）→ 也不新增行；
+ *   - **真的丢了**：rewind 到注入点之前、或会话被清空 → 既不在本批次、也没在
+ *     上一回合批次里见过 → 才走 loss-recovery 重新注入。
+ *
+ * 这个台账替代了原先「stub 成 true」的 cueVisible() 预留位：预留位之所以一直
+ * 没接上，正是因为当时无法从批次单点判断「跨回合可见」，只能靠跨回合记账补齐。
+ */
+function noteOwnMessages(state, messages) {
+  if (state.injectedIds === undefined) state.injectedIds = new Set();
+  for (const message of messages) {
+    if (isOwnMessage(message)) state.injectedIds.add(message.id);
+  }
+}
+
+/**
  * Create one DSH-native context-injection message (Human 2026-09-04: "这里要
  * 能看到啊" — the judgment must be VISIBLE in the conversation flow, exactly
  * like dsh-mnemon's "上下文注入 · dsh-mnemon" row).
@@ -185,6 +211,22 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
     /** session-start hook: prime the channel (mnemon primePending shape). */
     prime() { state.primePending = true; },
     /**
+     * 会话视图被重置时清空注入台账（friction-41a43496 的 rewind 恢复路径）。
+     *
+     * 台账记的是「某行曾在某次装配结果中出现过」，而装配结果进入模型可见上下文；
+     * 一旦会话被 **clear / compact**（或 resume 到一个更早的点），那些行就从视图里
+     * 消失了，指针继续有效就会永久静默——这正是原 rewind 恢复要防的情形。
+     *
+     * 权威信号是 `agent/created` 的 `payload.source ∈ startup|resume|clear|compact`
+     * （0.1.7 起携带 session-start 语义的唯一入口，见 lifecycle.js）。**不用**
+     * 「本回合批次里没看见行」推断 rewind：批次永远看不到历史行，那样推断会把
+     * 每一次正常轮次都当成 rewind，就是本摩擦的成因。
+     */
+    resetVisibility() {
+      state.injectedIds = new Set();
+      state.lastDigest = null;
+    },
+    /**
      * Judgment notice injection (2026-09-04): at the first step of every
      * turn where the judgment changed (or the session was just primed), one
      * visible context-injection row carries the judgment to BOTH audiences:
@@ -216,28 +258,38 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
       const currentNotice = getNoticeText();
       state.primePending = false;
       if (currentNotice === null || currentNotice === "") return decision;
-      // Loss detection (re-review finding, 2026-09-04): the digest gate alone
-      // meant a rewind to before our row, or a cleared conversation, silently
-      // lost the visible notice forever (lastDigest still matched, no
-      // re-injection). The real cue-visibility check: a row is "visible" only
-      // when it is still in THIS turn's message batch. If it is gone, treat
-      // the notice as changed and re-inject — the rewind/clear edge cases
-      // recover automatically (mnemon cueAlreadyVisible shape).
-      const ownMessage = decision.messages.find(isOwnMessage);
+      // Loss detection (re-review finding, 2026-09-04; **rewritten 2026-10-19**
+      // for friction-41a43496). The digest gate alone meant a rewind to before
+      // our row, or a cleared conversation, silently lost the visible notice
+      // forever (lastDigest still matched, no re-injection). The first repair
+      // checked `decision.messages` only — but that array is THIS turn's
+      // assembled batch, not the session history, so a row injected last turn
+      // was always judged "gone" and re-injected every turn. Correct shape:
+      // a row is lost only when it is neither in this batch NOR recorded from a
+      // previous batch (see noteOwnMessages).
+      const batch = Array.isArray(decision.messages) ? decision.messages : [];
+      const inBatch = batch.find(isOwnMessage);
+      noteOwnMessages(state, batch);
+      const everInjected = state.injectedIds !== undefined && state.injectedIds.size > 0;
       const changed = currentNotice !== state.lastDigest;
-      if (ownMessage === undefined || changed) {
-        // Row absent (first turn, rewind, or cleared conversation) or the
-        // notice changed: inject one fresh row. This is the loss-recovery
-        // path the digest gate alone could not cover (re-review finding).
+      if (!everInjected || changed) {
+        // Row never injected (first turn), or the notice changed: inject one
+        // fresh row. A row that is still live in an earlier turn does NOT
+        // trigger this branch — that was the duplicate-injection defect.
         state.lastDigest = currentNotice;
+        const fresh = createPluginMessage(currentNotice, (typeof noticeSummary === "function" ? noticeSummary() : noticeSummary) ?? "LDVH 管辖判定");
+        noteOwnMessages(state, [fresh]);
         return {
           kind: "enter",
-          messages: [...decision.messages, createPluginMessage(currentNotice, (typeof noticeSummary === "function" ? noticeSummary() : noticeSummary) ?? "LDVH 管辖判定")]
+          messages: [...batch, fresh]
         };
       }
       // Row present and notice unchanged: refresh the text in place so a
       // stale row never lingers after the judgment moved on between turns.
-      ownMessage.content = [{ type: "text", text: currentNotice }];
+      // When the row is not in this batch (it lives in an earlier turn) there
+      // is nothing to refresh here — the standing state stays with the
+      // system-prompt section, which carries the judgment every turn.
+      if (inBatch !== undefined) inBatch.content = [{ type: "text", text: currentNotice }];
       return decision;
     }
   };

@@ -699,6 +699,13 @@ test("pre-step: judgment change injects a visible context-injection row (plugin 
 
 	// Rewind/clear edge case (re-review finding): the row vanished from the
 	// batch but the digest still matches — must re-inject, not stay silent.
+	//
+	// **2026-10-19（friction-41a43496）**：这里原先靠「批次里没有行」来推断
+	// rewind，但宿主**每一轮**的批次都不含历史行——那条推断在真实形状下把每个
+	// 正常轮次都当成 rewind，就是重复注入的成因。rewind/clear 的真实信号是
+	// `agent/created` 的 `payload.source ∈ clear|compact|resume`，它会把注入台账
+	// 清空；故这里显式清台账，而不是让批次缺席冒充 rewind。
+	handler.resetVisibility();
 	const afterRewind = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: [...baseMessages] }));
 	assert.equal(afterRewind.messages.length, baseMessages.length + 1, "lost row is re-injected after rewind/clear");
 	assert.match(afterRewind.messages[afterRewind.messages.length - 1].content[0].text, /【LDVH 管辖判定】governed/);
@@ -727,6 +734,69 @@ test("pre-step: judgment change injects a visible context-injection row (plugin 
 	const withOwn = [...baseMessages, injected];
 	const fourth = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: withOwn }));
 	assert.equal(fourth.messages.length, withOwn.length, "own message suppresses re-injection");
+});
+
+// friction-41a43496 回归：管辖判定块**不得**在相邻轮次重复注入。
+//
+// 缺陷事实（2026-10-19 查明）：原先的丢失去重读的是 `decision.messages`——
+// 那是**本回合装配出来的批次**，不是会话历史。上一回合 step-1 注入的行不会
+// 出现在下一回合的批次里，于是每回合都被判成「行已丢失（rewind/清空）」，
+// 走 loss-recovery 路径再注入一条，肉眼可见同一判定块在相邻轮次重复出现。
+//
+// 上面那条 2026-09-04 用例为什么抓不到：它把上一回合的 `injected` 手工塞回
+// 下一回合的 `decision.messages`（`[...baseMessages, injected]`），造出了一个
+// 真实宿主不提供的形状——正是这条用例自身在替缺陷兜底。
+// 本用例按**真实形状**推进：每回合只给本回合自己的批次，历史行不进批次。
+// 按 09 §5 的变异检验口径，它正是那个能杀掉「只读本批次」写法的用例。
+test("pre-step: 相邻轮次不重复注入管辖判定块（真实宿主批次形状，friction-41a43496）", async () => {
+	const agent = makeAgent("s1", "/cwd");
+	const channel = { primePending: true, lastDigest: null };
+	const notice = "【LDVH 管辖判定】governed —— 本会话受 LDVH 管辖。";
+	const handler = createPreStepHandler(agent, {
+		isGoverned: () => true,
+		channel,
+		noticeText: () => notice,
+		noticeSummary: () => "本会话受 LDVH 管辖"
+	});
+	// 每回合宿主都只装配本回合的用户消息——历史注入行**不在**其中。
+	const baseMessages = [{ id: "u1", role: "user", content: [{ type: "text", text: "hi" }], source: { kind: "user" } }];
+
+	// 第 1 回合：首注，一行。
+	const turn1 = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: [...baseMessages] }));
+	assert.equal(turn1.messages.length, baseMessages.length + 1, "第 1 回合注入一行");
+
+	// 第 2 回合：判定未变；宿主批次里看不到上一回合那行（真实形状）。
+	// 必须**不新增**——这正是缺陷点。
+	const turn2 = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: [...baseMessages] }));
+	assert.equal(turn2.messages.length, baseMessages.length, "第 2 回合不得重复注入（判定未变且行仍在会话历史中）");
+
+	// 第 3 回合：同上，连续多轮都必须静默。
+	const turn3 = await handler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: [...baseMessages] }));
+	assert.equal(turn3.messages.length, baseMessages.length, "第 3 回合仍不得重复注入");
+
+	// 判定变化：仍然必须注入新行（不能因为「见过行」就把变化吞掉）。
+	const changedHandler = createPreStepHandler(agent, {
+		isGoverned: () => false,
+		channel,
+		noticeText: () => "【LDVH 管辖状态变更】governed → unavailable\n【LDVH 管辖判定】unavailable —— 登记不可读，按不受辖处理。",
+		noticeSummary: () => "LDVH 管辖判定"
+	});
+	const turn4 = await changedHandler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: [...baseMessages] }));
+	assert.equal(turn4.messages.length, baseMessages.length + 1, "判定变化必须注入新行");
+	assert.match(turn4.messages[turn4.messages.length - 1].content[0].text, /管辖状态变更/);
+
+	// rewind 恢复路径：台账被清空（rewind 到注入点之前 / 会话被清空）后，
+	// 下一回合必须重新注入，不能因为 lastDigest 仍匹配就永久静默。
+	const rewoundChannel = { primePending: true, lastDigest: notice };
+	const rewoundHandler = createPreStepHandler(agent, {
+		isGoverned: () => true,
+		channel: rewoundChannel,
+		noticeText: () => notice,
+		noticeSummary: () => "本会话受 LDVH 管辖"
+	});
+	const afterRewind = await rewoundHandler.handler({ agent, step: 1, signal: {} }, async () => ({ kind: "enter", messages: [...baseMessages] }));
+	assert.equal(afterRewind.messages.length, baseMessages.length + 1, "rewind/清空后行确实丢失，必须重新注入");
+	assert.match(afterRewind.messages[afterRewind.messages.length - 1].content[0].text, /【LDVH 管辖判定】governed/);
 });
 
 // ---------------------------------------------------------------------------

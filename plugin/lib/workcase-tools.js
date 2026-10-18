@@ -472,6 +472,40 @@ const GATE1_REQUEST_KEYS = [
 // 会要求 Human 做一个他还无从做出的判断，故本询问只承载「要不要以 WorkCase 承接」。
 // 提示语与选项由 host-seams.js 的 requestWorkcaseRouting 构造（单一实现）。
 
+/**
+ * 从子代理的捕获结论中挑出可入账的复核概要（friction-7a64bbe2 例②）。
+ *
+ * 21 §8 要求 `reviews[].summary` 非空、≤600 字符，且至少承载判据七要素（对象／
+ * 基线／方法／覆盖／未覆盖／发现／保证边界）。原实现取「首段」，而子代理收尾消息
+ * 的首段常是过程话（"I've completed the review. Here's my summary..."），一个要素
+ * 都不含——对象里于是留下一条「机械通过、实则无实质」的记录。
+ *
+ * 选取口径（全部是结论的**逐字子串**，不改写、不截断）：
+ *   1. 按空行切段；在能装进 600 的段落里，取**含要素最多**者（同分取靠前者）；
+ *   2. 没有段落含要素时，退化为第一个能装进 600 的段落；
+ *   3. 一段都装不下 → 返回 null，由调用方 fail-closed 要求显式逐字概要。
+ *
+ * 导出供单元测试直接覆盖（该分支在集成路径上被身份校验挡在前面）。
+ *
+ * @param {string} conclusion 子代理捕获的结论全文
+ * @returns {string|null} 可入账的概要；无法自动选取时为 null
+ */
+export function pickReviewSummary(conclusion) {
+  const CAP = 600;
+  const SEVEN = ["对象", "基线", "方法", "覆盖", "未覆盖", "发现", "保证边界"];
+  const text = typeof conclusion === "string" ? conclusion.trim() : "";
+  if (text.length === 0) return null;
+  const paragraphs = text
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  const fits = (p) => p.length <= CAP;
+  const hits = (p) => SEVEN.filter((label) => p.includes(label)).length;
+  const withElements = paragraphs.filter((p) => fits(p) && hits(p) > 0);
+  if (withElements.length > 0) return withElements.reduce((a, b) => (hits(b) > hits(a) ? b : a));
+  return paragraphs.find(fits) ?? null;
+}
+
 function requireString(args, key, action) {
   const v = args?.[key];
   return typeof v === "string" && v.length > 0 ? v : null;
@@ -794,18 +828,26 @@ async function executeWriteObject(args, exec, deps) {
           }
           summary = summary.trim();
         } else {
-          // 取首段；仍超限则要求调用方显式提供 ≤600 的逐字概要，而不是静默截断
-          // （截断会产生一个看似完整、实则被腰斩的结论，属伪造边界的形态）。
-          const firstParagraph = conclusion.split(/\n\s*\n/)[0].trim();
-          if (firstParagraph.length <= 600) {
-            summary = firstParagraph;
-          } else {
+          // **省略 summary 时取哪一段**（friction-7a64bbe2 例②）。
+          //
+          // 原实现取「首段」（`split(/\n\s*\n/)[0]`），实测录得的是子代理的过程话
+          // （"I've completed the incremental review. Here's my final summary..."）——
+          // 21 §8 要求 summary 承载**判据七要素**（对象/基线/方法/覆盖/未覆盖/发现/
+          // 保证边界），而过程话一个要素都不含，于是对象里留下一条看似「机械通过」、
+          // 实则没有任何复核实质的记录。
+          //
+          // 修正口径见 pickReviewSummary 的文档注释（原则：优先取承载七要素的段落，
+          // 不按位置取首段；一段都装不下则 fail-closed，绝不截断）。
+          const picked = pickReviewSummary(conclusion);
+          if (picked === null) {
             return invalidRequest("workcase-write-object",
-              "the reviewer subagent's conclusion is longer than the 600-char reviews[].summary cap (21 §8). The full "
-              + "text belongs in the transcript (复核详情不入对象); pass `summary` as a verbatim excerpt (≤600 chars) of "
-              + "it. Refusing rather than truncating: a silently truncated conclusion would read as complete.",
+              "the reviewer subagent's conclusion cannot be recorded automatically: it is longer than the 600-char "
+              + "reviews[].summary cap (21 §8) and no single paragraph of it fits. The full text belongs in the "
+              + "transcript (复核详情不入对象); pass `summary` as a verbatim excerpt (≤600 chars) carrying the 02 §16 "
+              + "seven elements. Refusing rather than truncating: a silently truncated conclusion would read as complete.",
               "record_review");
           }
+          summary = picked;
         }
         reviewerIdentity = authoritativeSessionIdentity({ sessionId: child.sessionId, source: "host", origin: "subagent" });
         if (reviewerIdentity === null) {
