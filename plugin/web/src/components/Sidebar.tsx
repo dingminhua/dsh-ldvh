@@ -7,6 +7,7 @@ import {
   FolderTree,
   GitPullRequestArrow,
   MapPinned,
+  Activity,
   Sun,
   Moon,
   Monitor,
@@ -39,6 +40,8 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
   // 帮助=带钉地图（导览/漫游指南；Human 定案 2026-09-12 终选——历经
   // CircleHelp→MapPinned→单独问号→回到 MapPinned）。
   { to: '/help', labelKey: 'nav.help', icon: MapPinned },
+  // 运行时诊断（2026-10-18 Human 定案）：末位入口，只读观察机制本身。
+  { to: '/diagnostics', labelKey: 'nav.diagnostics', icon: Activity },
 ];
 
 /** 联邦作用域导航（全部管辖计划 Step 4）：
@@ -56,6 +59,8 @@ const FEDERATION_NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon; di
   { to: '/changes', labelKey: 'nav.changes', icon: GitPullRequestArrow, disabled: true },
   { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog, disabled: true },
   { to: '/help', labelKey: 'nav.help', icon: MapPinned },
+  // 诊断数据是「本机这次运行」的账，跨项目聚合会把不同机器的运行混成一页——联邦态灰显。
+  { to: '/diagnostics', labelKey: 'nav.diagnostics', icon: Activity, disabled: true },
 ];
 
 function getNavItemLabel(item: (typeof NAV_ITEMS)[number], t: (key: LocaleKey) => string): string {

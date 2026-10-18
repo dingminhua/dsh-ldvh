@@ -13,6 +13,7 @@ import ObjectDetail from '@/pages/ObjectDetail';
 import Changelog from '@/pages/Changelog';
 import ChangelogDetail from '@/pages/ChangelogDetail';
 import Help from '@/pages/Help';
+import Diagnostics from '@/pages/Diagnostics';
 import { ProjectScopeProvider } from '@/utils/projectContext';
 
 function AppRoutes() {
@@ -31,6 +32,8 @@ function AppRoutes() {
         <Route path="/changelog" element={<Changelog />} />
         <Route path="/changelog/:hash" element={<ChangelogDetail />} />
         <Route path="/help" element={<Help />} />
+        {/* 运行时诊断：只读观察机制自身的失效形态，不参与业务裁决。 */}
+        <Route path="/diagnostics" element={<Diagnostics />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

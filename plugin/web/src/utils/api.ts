@@ -1156,3 +1156,88 @@ export async function setProjectColor(projectId: string, color: string | null): 
     body: JSON.stringify({ projectId, color }),
   });
 }
+
+// ============================================================
+// 运行时诊断（/api/diagnostics）：只读聚合「写入关卡」与「闲时辅助」的运行实况。
+// 两条数据来源不同——gate 来自宿主会话日志，idle 来自 ~/.dsh/ldvh 下插件自己的账。
+// ============================================================
+
+export interface DiagnosticsScope {
+  workspaceRoot?: string;
+  sessionDir?: string;
+  sessionDirExists?: boolean;
+  sessionsScanned?: number;
+  zstdAvailable?: boolean;
+  ldvhHome?: string;
+  queueFileExists?: boolean;
+  runsFileExists?: boolean;
+  limits?: string[];
+}
+
+export interface GateToolRow {
+  tool: string;
+  calls: number;
+  completed: number;
+  failed: number;
+}
+
+export interface GateFailureRow {
+  tool: string;
+  status: string;
+  codes?: string[];
+  detail?: string;
+  sessionId?: string;
+  at?: string | null;
+}
+
+export interface GateReport {
+  ok: boolean;
+  generatedAt: string;
+  scope: DiagnosticsScope;
+  totals: { calls: number; completed: number; failed: number };
+  byTool: GateToolRow[];
+  byCategory: { category: string; count: number }[];
+  byCode: { code: string; count: number }[];
+  recentFailures: GateFailureRow[];
+}
+
+export interface IdleQueueEntry {
+  at?: string | null;
+  task?: string | null;
+  category?: string;
+  reason?: string;
+}
+
+export interface IdleRunRow {
+  at?: string | null;
+  stage?: string;
+  code?: string | null;
+  action?: string | null;
+  task?: string | null;
+}
+
+export interface IdleReport {
+  ok: boolean;
+  generatedAt: string;
+  scope: DiagnosticsScope;
+  queue: {
+    total: number;
+    unresolved: number;
+    over24h: number;
+    byCategory: { category: string; count: number }[];
+    recent: IdleQueueEntry[];
+  };
+  runs: {
+    total: number;
+    byStage: { stage: string; count: number }[];
+    recent: IdleRunRow[];
+  };
+}
+
+export async function fetchGateReport(): Promise<GateReport> {
+  return request<GateReport>('/diagnostics/gate');
+}
+
+export async function fetchIdleReport(): Promise<IdleReport> {
+  return request<IdleReport>('/diagnostics/idle');
+}

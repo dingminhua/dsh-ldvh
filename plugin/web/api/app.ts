@@ -22,6 +22,7 @@ import projectFilesRoutes from './routes/project-files.js'
 import settingsRoutes from './routes/settings.js'
 import cognitionRoutes from './routes/cognition.js'
 import federationRoutes from './routes/federation.js'
+import diagnosticsRoutes from './routes/diagnostics.js'
 import { primeWebGovernanceScope, WebGovernanceError } from './services/governanceScope.js'
 
 // Express 4（本服务运行时）不会把 async 路由处理器的 rejection 送进错误链——
@@ -89,6 +90,8 @@ app.use('/api/project-files', projectFilesRoutes)
 app.use('/api/settings', settingsRoutes)
 app.use('/api/cognition', cognitionRoutes)
 app.use('/api/federation', federationRoutes)
+// 运行时诊断：只读地聚合「写入关卡」与「闲时辅助」的运行实况（不写任何载体）。
+app.use('/api/diagnostics', diagnosticsRoutes)
 
 /**
  * health
