@@ -12,7 +12,7 @@
  * 只读：本页不发任何写请求，也不提供操作按钮。
  */
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ChevronRight, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ChevronRight } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
 import { useI18n } from '@/i18n/context';
 import { fetchGateReport, fetchIdleReport, type GateReport, type IdleReport } from '@/utils/api';
@@ -277,8 +277,9 @@ export default function Diagnostics() {
   const [gate, setGate] = useState<GateReport | null>(null);
   const [idle, setIdle] = useState<IdleReport | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
 
+  // 采集时机就是进入本页与切换标签：离开页面即卸载，再进来一定重采。
+  // 因此不设单独的「重新采集」按钮——它没有独立的刷新语义（2026-10-18 实测确认）。
   useEffect(() => {
     let cancelled = false;
     setError(null);
@@ -296,7 +297,7 @@ export default function Diagnostics() {
     return () => {
       cancelled = true;
     };
-  }, [tab, reloadKey]);
+  }, [tab]);
 
   const current = tab === 'gate' ? gate : idle;
   const tabs = useMemo(() => ([
@@ -320,10 +321,6 @@ export default function Diagnostics() {
               </button>
             ))}
           </div>
-          <button type="button" className="ldvh-page-toolbar-action" onClick={() => setReloadKey((value) => value + 1)}>
-            <RefreshCw size={13} />
-            {t('diagnostics.refresh')}
-          </button>
         </div>
       </PageHeader>
 
