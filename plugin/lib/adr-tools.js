@@ -27,6 +27,7 @@ import {
   updateAdrObject,
   listAdrObjects,
 } from "./adr-writer.js";
+import { objectRef, objectRefOf } from "./object-reference.js";
 import { currentRouteValues } from "./session-signature.js";
 import { FRONTMATTER_AFTER_DESCRIPTION, FRONTMATTER_REMOVALS_DESCRIPTION } from "./after-integrity.js";
 import { authoritativeSignature } from "./signature-channel.js";
@@ -376,7 +377,7 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
     follow_up: code === "adr/cas_conflict"
       ? ["re-read the object (adr-read-object), reconcile the concurrent change, and retry with the fresh fingerprint"]
       : code === "adr/status_terminal"
-        ? ["retired ADRs are read-only (22 §9.2); decision changes go through a NEW ADR + superseded-by"]
+        ? ["retired ADRs are read-only (22 §9.2); decision changes go through a NEW ADR + superseded-by (or an absorbed-into edge when a Norm now carries the rule)"]
         : code === "adr/errata_boundary"
           ? ["decision/scope semantics changed — create a NEW ADR carrying the revision and retire this one via superseded-by (22 §9.3)"]
           : ["fix the reported mechanical issues and retry; zero write has occurred"]
@@ -396,7 +397,7 @@ function renderEnvelope(operationKey, value) {
   const env = value?.envelope ?? {};
   const lines = [`LDVH ${env.operation_key ?? operationKey}: ${env.outcome ?? "unknown"}`];
   const result = env.result;
-  if (result?.object_uid !== undefined) lines.push(`object: ${result.object_uid}`);
+  if (result?.object_uid !== undefined) lines.push(`object: ${objectRef({ object_uid: result.object_uid, fact_type_key: result.fact_type_key ?? "adr" })}`);
   if (result?.title !== undefined) lines.push(`title: ${result.title}`);
   if (result?.status !== undefined) lines.push(`status: ${result.status}`);
   if (result?.decision !== undefined) lines.push(`decision: ${result.decision}`);
@@ -413,10 +414,10 @@ function renderEnvelope(operationKey, value) {
   if (result?.count !== undefined) lines.push(`count: ${result.count}${result.total !== undefined && result.total !== result.count ? ` (of ${result.total})` : ""}`);
   if (Array.isArray(result?.items)) {
     for (const item of result.items) {
-      lines.push(`- ${item.object_uid} [${item.status}] ${item.title}${item.trigger_signal ? ` (信号: ${item.trigger_signal})` : ""}`);
+      lines.push(`- ${objectRef(item)} [${item.status}] ${item.title}${item.trigger_signal ? ` (信号: ${item.trigger_signal})` : ""}`);
     }
   }
-  if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${change.object_uid}`);
+  if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "adr")}`);
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
   return text(lines.join("\n"));
 }
@@ -430,7 +431,7 @@ function parameterSchemaFor(operationKey) {
   const relationEntry = {
     type: "object",
     properties: {
-      relation_key: { type: "string", enum: ["superseded-by"] },
+      relation_key: { type: "string", enum: ["superseded-by", "absorbed-into"] },
       target: { type: "object", properties: { object_uid: { type: "string" } }, required: ["object_uid"], additionalProperties: false }
     },
     required: ["relation_key", "target"],
@@ -446,8 +447,8 @@ function parameterSchemaFor(operationKey) {
       scope: { type: "string", description: "applicability statement; must appear verbatim in the 适用范围 body section" },
       trigger_signal: { type: "string", description: "when to revisit this decision (e.g. 「当 X 出现时重审」); omit when no real signal exists (03 §6.1 — no placeholder fabrications)" },
       urls: { type: "array", items: { type: "object", properties: { ref: { type: "string" }, title: { type: "string" }, summary: { type: "string" } }, required: ["ref"], additionalProperties: false }, description: "external evidence supporting the decision; when non-empty the body must carry a 证据 section" },
-      relations: { type: "array", items: relationEntry, description: "superseded-by (cardinality 1); only on retired + retirement_reason=superseded, target must resolve to an existing ADR (22 §11)" },
-      retirement_reason: { type: "string", enum: ["superseded", "outdated", "out-of-scope"], description: "required iff status=retired, forbidden while active (22 §9.2)" },
+      relations: { type: "array", items: relationEntry, description: "relation target of the retirement; each key has cardinality 1 and must match the reason: superseded→superseded-by (target resolves to an ADR), absorbed→absorbed-into (target resolves to a Norm); only on retired, forbidden on active/outdated/out-of-scope (22 §9.1, §11)" },
+      retirement_reason: { type: "string", enum: ["superseded", "absorbed", "outdated", "out-of-scope"], description: "required iff status=retired, forbidden while active (22 §9.2); superseded/absorbed each require the matching relation key" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
     required: ["title", "decision", "scope"],

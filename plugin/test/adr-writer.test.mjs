@@ -27,6 +27,7 @@ import {
   ADR_DIRECTORY,
 } from "../lib/adr-writer.js";
 import { authoritativeSignature } from "../lib/signature-channel.js";
+import { createNormObject } from "../lib/norm-writer.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -833,5 +834,205 @@ test("list: bad carrier (valid uid filename without frontmatter) lands in invali
     assert.equal(listed.value.invalid.length, 1);
     assert.ok(listed.value.invalid[0].file, `adr-${badUid}.md`);
     assert.ok(listed.value.invalid[0].reason.includes("no YAML frontmatter block"), JSON.stringify(listed.value.invalid));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// absorbed: ADR 被某方向 Norm 完整承接后的退休路径（22 §9.2 / §11）
+//
+// 缺口来源 spark-351a0b17：决策沉淀为规则体系后，ADR 没有合法退休路径，
+// 只能借 superseded 指向另一条 ADR（它在规范里不是 ADR）。以下四个用例
+// 锁定该路径的正向放行与三条反向拒绝，防止实现层与 22 §11 再次漂移。
+// ---------------------------------------------------------------------------
+
+const NORM_BODY_MIN = `## 方向定位与适用范围
+
+本方向管辖示例规则集。
+
+## 核心规则体系
+
+- 示例规则一。
+
+## 约束与反模式
+
+禁止示例反模式。
+
+## 验证与遵从性检查
+
+以示例检查为准。
+`;
+
+async function createNormForAbsorb(root, directionKey = "example-rules") {
+  const out = await createNormObject({
+    factSourceRoot: root,
+    frontmatterDraft: { title: "示例规则集", direction_key: directionKey },
+    bodyMarkdown: NORM_BODY_MIN,
+    sessionSignature: TEST_SIGNATURE,
+  });
+  assert.ok(out.ok, JSON.stringify(out.error));
+  return out.value.object_uid;
+}
+
+async function retireAbsorbed(root, read, relations) {
+  return updateAdrObject({
+    factSourceRoot: root,
+    objectUid: read.value.object_uid,
+    expectedFingerprint: read.value.fingerprint,
+    frontmatterAfter: {
+      ...read.value.frontmatter,
+      status: "retired",
+      retirement_reason: "absorbed",
+      ...(relations === undefined ? {} : { relations }),
+    },
+    bodyMarkdownAfter: validBodyMarkdown({
+      decision: read.value.frontmatter.decision,
+      scope: read.value.frontmatter.scope,
+    }),
+    changeSummary: "规则已并入方向规范",
+    sessionSignature: TEST_SIGNATURE,
+  });
+}
+
+test("absorbed: absorbed-into → 已存在的 Norm 通过，并按类型分派解析目标（22 §9.2/§11）", async () => {
+  await withTemp("adr-absorbed.", async (root) => {
+    const normUid = await createNormForAbsorb(root);
+    const { read } = await createAndRead(root);
+    const updated = await retireAbsorbed(root, read, [
+      { relation_key: "absorbed-into", target: { object_uid: normUid } },
+    ]);
+    assert.ok(updated.ok, JSON.stringify(updated.error));
+
+    const back = await readAdrObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+    assert.ok(back.ok);
+    const fm = back.value.frontmatter;
+    assert.equal(fm.status, "retired");
+    assert.equal(fm.retirement_reason, "absorbed");
+    assert.equal(fm.relations.length, 1);
+    assert.equal(fm.relations[0].relation_key, "absorbed-into");
+    assert.equal(fm.relations[0].target.object_uid, normUid);
+  });
+});
+
+test("absorbed: 目标不存在 → adr/relation_target_unresolvable 且零写入（22 §11 目标可解析）", async () => {
+  await withTemp("adr-absorbed.", async (root) => {
+    const { read } = await createAndRead(root);
+    const ghost = "11111111-1111-4111-8111-111111111111";
+    const updated = await retireAbsorbed(root, read, [
+      { relation_key: "absorbed-into", target: { object_uid: ghost } },
+    ]);
+    assert.equal(updated.ok, false);
+    assert.equal(updated.error.code, "adr/relation_target_unresolvable", JSON.stringify(updated.error));
+
+    const back = await readAdrObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+    assert.ok(back.ok);
+    assert.equal(back.value.frontmatter.status, "active");
+    assert.equal(back.value.frontmatter.retirement_reason, undefined);
+    assert.equal(back.value.frontmatter.relations, undefined);
+  });
+});
+
+test("absorbed: 理由与关系键错配（absorbed + superseded-by）被拒绝（22 §9.1 一一配对）", async () => {
+  await withTemp("adr-absorbed.", async (root) => {
+    const normUid = await createNormForAbsorb(root, "example-rules-mismatch");
+    const { read } = await createAndRead(root);
+    const updated = await retireAbsorbed(root, read, [
+      { relation_key: "superseded-by", target: { object_uid: normUid } },
+    ]);
+    assert.equal(updated.ok, false);
+    assert.equal(updated.error.code, "adr/relations_invalid", JSON.stringify(updated.error));
+    assert.ok(
+      updated.error.details.issues.some((i) => i.includes("requires relation_key")),
+      JSON.stringify(updated.error.details.issues),
+    );
+  });
+});
+
+test("absorbed: 关系键不在闭集（absorbed-by）被拒绝（22 §11 闭集）", async () => {
+  await withTemp("adr-absorbed.", async (root) => {
+    const normUid = await createNormForAbsorb(root, "example-rules-closed");
+    const { read } = await createAndRead(root);
+    const updated = await retireAbsorbed(root, read, [
+      { relation_key: "absorbed-by", target: { object_uid: normUid } },
+    ]);
+    assert.equal(updated.ok, false);
+    assert.equal(updated.error.code, "adr/relations_invalid", JSON.stringify(updated.error));
+    assert.ok(
+      updated.error.details.issues.some((i) => i.includes("not in closed set")),
+      JSON.stringify(updated.error.details.issues),
+    );
+  });
+});
+
+test("absorbed: 零条关系被拒绝（22 §9.1 absorbed 必带恰好一条 absorbed-into）", async () => {
+  await withTemp("adr-absorbed.", async (root) => {
+    const { read } = await createAndRead(root);
+    const updated = await retireAbsorbed(root, read, undefined);
+    assert.equal(updated.ok, false);
+    assert.equal(updated.error.code, "adr/relations_invalid", JSON.stringify(updated.error));
+    assert.ok(
+      updated.error.details.issues.some((i) => i.includes("required when retirement_reason") && i.includes("absorbed-into")),
+      JSON.stringify(updated.error.details.issues),
+    );
+  });
+});
+
+test("absorbed: 两条同一关系键被拒绝（22 §11 基数恰 1）", async () => {
+  await withTemp("adr-absorbed.", async (root) => {
+    const normA = await createNormForAbsorb(root, "example-rules-two-a");
+    const normB = await createNormForAbsorb(root, "example-rules-two-b");
+    const { read } = await createAndRead(root);
+    const updated = await retireAbsorbed(root, read, [
+      { relation_key: "absorbed-into", target: { object_uid: normA } },
+      { relation_key: "absorbed-into", target: { object_uid: normB } },
+    ]);
+    assert.equal(updated.ok, false);
+    assert.equal(updated.error.code, "adr/relations_invalid", JSON.stringify(updated.error));
+    assert.ok(
+      updated.error.details.issues.some((i) => i.includes("has cardinality exactly 1")),
+      JSON.stringify(updated.error.details.issues),
+    );
+  });
+});
+
+test("absorbed: 零关系数组（relations: []）被拒绝（22 §11 出现即非空）", async () => {
+  await withTemp("adr-absorbed.", async (root) => {
+    const { read } = await createAndRead(root);
+    const updated = await retireAbsorbed(root, read, []);
+    assert.equal(updated.ok, false);
+    assert.equal(updated.error.code, "adr/relations_invalid", JSON.stringify(updated.error));
+    assert.ok(
+      updated.error.details.issues.some((i) => i.includes("must be non-empty")),
+      JSON.stringify(updated.error.details.issues),
+    );
+  });
+});
+
+test("absorbed: 旧理由带关系被拒绝（outdated + 关系 → 22 §9.1 禁止）", async () => {
+  await withTemp("adr-absorbed.", async (root) => {
+    const normUid = await createNormForAbsorb(root, "example-rules-outdated");
+    const { read } = await createAndRead(root);
+    const updated = await updateAdrObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: read.value.fingerprint,
+      frontmatterAfter: {
+        ...read.value.frontmatter,
+        status: "retired",
+        retirement_reason: "outdated",
+        relations: [{ relation_key: "absorbed-into", target: { object_uid: normUid } }],
+      },
+      bodyMarkdownAfter: validBodyMarkdown({
+        decision: read.value.frontmatter.decision,
+        scope: read.value.frontmatter.scope,
+      }),
+      changeSummary: "环境变化",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(updated.ok, false);
+    assert.equal(updated.error.code, "adr/relations_invalid", JSON.stringify(updated.error));
+    assert.ok(
+      updated.error.details.issues.some((i) => i.includes("may only appear on status=retired")),
+      JSON.stringify(updated.error.details.issues),
+    );
   });
 });

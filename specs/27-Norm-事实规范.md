@@ -57,7 +57,7 @@ Norm 对象存在、处于 active 或正文包含规则条目，均不能单独�
 3. 受控提交契约（09 承载）；
 4. Human 作出或废除方向规范的过程（00 §4 承载——Norm 记录已确立的方向规范，不产生规范制定过程本身）；
 5. Web 呈现的视觉与交互细节（10 号承载）；
-6. ADR 终态流转的具体机制（22 号承载——ADR 被事实规范承接后的退役由 22 号的 retirement_reason 闭集扩展或 change_log 注记处理，本类型不定义 ADR 的退役细节）。
+6. ADR 终态流转的具体机制（22 号承载——ADR 被事实规范承接后的退役由 22 号 `retirement_reason=absorbed` + `absorbed-into` 关系表达，本类型不定义 ADR 的退役细节）。
 
 ### 3.3 相邻规范分工与唯一权威
 
@@ -193,7 +193,7 @@ frontmatter 闭集（全部必填，除标注外创建时一次落定）：
 
 不使用 `relations` 字段（类型来源声明不采用，02 §8.2 允许）。理由：方向规范之间不建立结构化对象关系。跨方向的规则约束（如「安全方向的规则适用于 API 方向的接口设计」）以「主规范承载 + 他处引用」实现——安全方向 Norm 正文承载完整安全规则，API 方向 Norm 正文中以自然语言引用安全方向的相关条目，不建立双向结构化关系。此设计禁止重复定义：同一规则只在一个方向的 Norm 中定义，它处只引用不重述。
 
-方向规范与 ADR 的边界处理：当零散 ADR 决策沉淀为成体系的事实规范后，相关 ADR 应当按 22 号的退役路径处理（retired，retirement_reason 由 22 号闭集定义）；ADR 的 change_log 中注明「规则已完整并入事实规范 `ldvh-base/norms/norm-<uid>.md`（方向：`<direction_key>`），退出约束，转为历史依据」。Norm 不建立指回 ADR 的结构化关系——ADR 可作为决策来源在正文自然语言中引用。
+方向规范与 ADR 的边界处理：当零散 ADR 决策沉淀为成体系的事实规范后，相关 ADR 应当按 22 号的退役路径处理（retired，`retirement_reason=absorbed`，并以 `absorbed-into` 关系指向承接它的 Norm，见 22 §9.2、§11）；ADR 的 change_log 中注明「规则已完整并入事实规范 `ldvh-base/norms/norm-<uid>.md`（方向：`<direction_key>`），退出约束，转为历史依据」。**该承接关系是单向的**：Norm 不建立指回 ADR 的结构化关系——ADR 可作为决策来源在正文自然语言中引用；「本方向承接了哪些 ADR」属于反向导航，由 Code/Web 从 ADR 侧 `absorbed-into` 边派生索引得到（02 §8.2 第 4 条），不在 Norm 对象上落字段、不构成第二权威。
 
 ## 10. 召回与消费
 

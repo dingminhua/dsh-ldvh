@@ -18,7 +18,7 @@
  *                 field-identical to the CAS baseline (机械比对；变了就
  *                 拒绝——语义变更走替代路径，新 ADR + 旧 retired);
  *               * active→retired = terminal transition: retirement_reason
- *                 closed set, retired_at Code-assigned, superseded-by
+ *                 closed set, retired_at Code-assigned, superseded-by / absorbed-into
  *                 relation validated + target resolvable.
  *             Terminal objects are read-only (22 §9.2 终态不重开).
  *
@@ -28,7 +28,7 @@
  *
  * Red lines honoured (22 §18): no context/alternatives frontmatter fields
  * (analysis lives in the body), no second update lane beyond
- * errata/replace, no forward supersedes key (superseded-by only, old→new).
+ * errata/replace, no forward key (superseded-by / absorbed-into, both old→new).
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -39,6 +39,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { h2Titles, sectionContent } from "./markdown-structure.js";
+import { readNormObject } from "./norm-writer.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/22 §7, §8, §9, §11)
@@ -54,10 +55,25 @@ const BODY_H2_REQUIRED = ["决策背景", "决定", "备选与理由", "后果",
 const BODY_H2_EVIDENCE = "证据";
 
 const STATUSES = new Set(["active", "retired"]);
-const RETIREMENT_REASONS = new Set(["superseded", "outdated", "out-of-scope"]);
+const RETIREMENT_REASONS = new Set(["superseded", "absorbed", "outdated", "out-of-scope"]);
 
-/** Relation keys allowed for ADR (22 §11 — closed set of exactly one). */
-const ADR_RELATION_KEYS = new Set(["superseded-by"]);
+/** Relation keys allowed for ADR (22 §11 — closed set of two, mutually exclusive). */
+const ADR_RELATION_KEYS = new Set(["superseded-by", "absorbed-into"]);
+
+/**
+ * 理由 → 关系键 的唯一对应（22 §9.1/§9.2：理由决定去向键，二者一一配对）。
+ * outdated / out-of-scope 无单一去向，故不出现。
+ */
+const REASON_TO_RELATION_KEY = new Map([
+  ["superseded", "superseded-by"],
+  ["absorbed", "absorbed-into"],
+]);
+
+/** 各关系键的目标事实类型（22 §11：superseded-by→ADR、absorbed-into→Norm）。 */
+const RELATION_KEY_TARGET_TYPE = new Map([
+  ["superseded-by", "adr"],
+  ["absorbed-into", "norm"],
+]);
 
 /** Title cap (22 §8: ≤ 30 字). */
 const MAX_TITLE_LENGTH = 30;
@@ -204,19 +220,32 @@ export function validateAdrFrontmatter(frontmatter) {
 }
 
 /**
- * Validate the relations contract (22 §11 + 03 §7.2).
+ * Validate the relations contract (22 §11 + 02 §8.2).
  *
- * Mechanical scope: key closed set (superseded-by only), status gating
- * (only retired + superseded), cardinality exactly 1, minimal entry/target
- * shape, no duplicates, no self-reference. Target resolvability is checked
- * by the create/update flows (they need the fact source root).
+ * Mechanical scope: key closed set (superseded-by / absorbed-into), status
+ * gating (only retired + the matching reason), reason↔key pairing (each edge
+ * must match the retirement_reason), cardinality exactly 1 per key, minimal
+ * entry/target shape, no duplicates, no self-reference. Target resolvability
+ * (by the target's fact_type_key) is checked by the create/update flows
+ * (they need the fact source root).
  */
 export function validateAdrRelations(frontmatter, selfUid = null) {
   const issues = [];
   const relations = frontmatter.relations;
-  if (relations === undefined) return { ok: true, issues };
+
+  // 22 §9.1 是双向的：reason 有去向键 ⇒ relations 必须出现；无去向键 ⇒ 禁止出现。
+  // 只在「relations 存在时」校验，会让 absorbed/superseded 漏掉「完全不写字段」这一形态
+  // ——那正是「无依据退休」，必须在这里拦住，而不是等到条目级校验。
+  const expectedKey = REASON_TO_RELATION_KEY.get(frontmatter.retirement_reason);
+  if (relations === undefined) {
+    if (expectedKey !== undefined) {
+      issues.push(`relations: required when retirement_reason=${JSON.stringify(frontmatter.retirement_reason)} — must carry exactly one ${expectedKey} (22 §9.1)`);
+      return { ok: false, issues };
+    }
+    return { ok: true, issues };
+  }
   if (!Array.isArray(relations)) {
-    issues.push("relations: must be an array (03 §7.2)");
+    issues.push("relations: must be an array (02 §8.2)");
     return { ok: false, issues };
   }
   if (relations.length === 0) {
@@ -224,9 +253,9 @@ export function validateAdrRelations(frontmatter, selfUid = null) {
     return { ok: false, issues };
   }
 
-  // Status gating (22 §11): superseded-by only on retired+superseded ADRs
-  if (frontmatter.status !== "retired" || frontmatter.retirement_reason !== "superseded") {
-    issues.push(`relations: superseded-by may only appear on status=retired + retirement_reason=superseded, got status=${JSON.stringify(frontmatter.status)}/reason=${JSON.stringify(frontmatter.retirement_reason)} (22 §11)`);
+  // Status gating (22 §9.1): relations only on retired + a reason that has a target
+  if (frontmatter.status !== "retired" || expectedKey === undefined) {
+    issues.push(`relations: may only appear on status=retired with retirement_reason in {${[...REASON_TO_RELATION_KEY.keys()].join(", ")}}, got status=${JSON.stringify(frontmatter.status)}/reason=${JSON.stringify(frontmatter.retirement_reason)} (22 §9.1)`);
   }
 
   const seen = new Set();
@@ -238,27 +267,27 @@ export function validateAdrRelations(frontmatter, selfUid = null) {
     // 03 §7.2 minimal shape: relation_key + target only
     const relExtra = Object.keys(rel).filter((k) => k !== "relation_key" && k !== "target");
     if (relExtra.length > 0) {
-      issues.push(`relations[]: entry carries fields beyond relation_key/target (${relExtra.join(", ")}) — 03 §7.2 minimal shape`);
+      issues.push(`relations[]: entry carries fields beyond relation_key/target (${relExtra.join(", ")}) — 02 §8.2 minimal shape`);
     }
 
     const key = rel.relation_key;
     if (typeof key !== "string" || !ADR_RELATION_KEYS.has(key)) {
-      issues.push(`relations[]: relation_key ${JSON.stringify(key)} not in closed set {superseded-by} (22 §11)`);
+      issues.push(`relations[]: relation_key ${JSON.stringify(key)} not in closed set {${[...ADR_RELATION_KEYS].join(", ")}} (22 §11)`);
       continue;
     }
 
     const target = rel.target;
     if (typeof target !== "object" || target === null || typeof target.object_uid !== "string" || !UUID_PATTERN.test(target.object_uid)) {
-      issues.push(`relations[]: target.object_uid must be a canonical UUID (03 §7.2); got ${JSON.stringify(target?.object_uid)}`);
+      issues.push(`relations[]: target.object_uid must be a canonical UUID (02 §8.2); got ${JSON.stringify(target?.object_uid)}`);
       continue;
     }
     const targetExtra = Object.keys(target).filter((k) => k !== "object_uid");
     if (targetExtra.length > 0) {
-      issues.push(`relations[]: target carries fields beyond object_uid (${targetExtra.join(", ")}) — 03 §7.2 minimal shape`);
+      issues.push(`relations[]: target carries fields beyond object_uid (${targetExtra.join(", ")}) — 02 §8.2 minimal shape`);
     }
 
     if (selfUid !== null && target.object_uid === selfUid) {
-      issues.push("relations[]: superseded-by target must not be the object itself (22 §11)");
+      issues.push(`relations[]: ${key} target must not be the object itself (22 §11)`);
     }
 
     const dedupe = `${key}::${target.object_uid}`;
@@ -266,19 +295,39 @@ export function validateAdrRelations(frontmatter, selfUid = null) {
     seen.add(dedupe);
   }
 
-  // Cardinality (22 §11): exactly one superseded-by edge
-  if (relations.filter((rel) => rel?.relation_key === "superseded-by").length !== 1) {
-    issues.push("relations[]: superseded-by has cardinality exactly 1 (22 §11)");
+  // Reason↔key pairing (22 §9.1/§9.2): every edge must match the retirement_reason.
+  // 理由与去向键一一配对，交叉错配拒绝（如 absorbed + superseded-by）。
+  if (expectedKey !== undefined) {
+    for (const rel of relations) {
+      const key = rel?.relation_key;
+      if (typeof key === "string" && ADR_RELATION_KEYS.has(key) && key !== expectedKey) {
+        issues.push(`relations[]: retirement_reason=${JSON.stringify(frontmatter.retirement_reason)} requires relation_key=${JSON.stringify(expectedKey)}, got ${JSON.stringify(key)} (22 §9.1)`);
+      }
+    }
+  }
+
+  // Cardinality (22 §11): the key the reason declares has cardinality exactly 1.
+  // 另一键的「零条」已由上面的配对校验覆盖（出现即错配），故不在此重复要求它恰为 1。
+  if (expectedKey !== undefined && relations.filter((rel) => rel?.relation_key === expectedKey).length !== 1) {
+    issues.push(`relations[]: ${expectedKey} has cardinality exactly 1 (22 §11)`);
   }
 
   return { ok: issues.length === 0, issues };
 }
 
-/** Extract the superseded-by target uid (for flow-level resolvability checks). */
-function supersededByTargetUid(frontmatter, selfUid) {
+/**
+ * Extract the resolvable target of the relations array, as
+ * { relation_key, target_object_uid, target_type } — used by the flow-level
+ * resolvability check. Only one edge can exist (22 §11: the two keys are
+ * mutually exclusive by retirement_reason), so the first match wins.
+ */
+function relationTarget(frontmatter, selfUid) {
   for (const rel of frontmatter.relations ?? []) {
     const uid = rel?.target?.object_uid;
-    if (rel?.relation_key === "superseded-by" && uid !== selfUid) return uid;
+    const key = rel?.relation_key;
+    if (typeof key === "string" && ADR_RELATION_KEYS.has(key) && uid !== selfUid) {
+      return { relation_key: key, target_object_uid: uid, target_type: RELATION_KEY_TARGET_TYPE.get(key) };
+    }
   }
   return null;
 }
@@ -471,7 +520,7 @@ export async function createAdrObject(args) {
     return failure("adr/frontmatter_invalid", "create must not carry retired_at (Code assigns it at the retirement transition only)");
   }
   if (frontmatter.relations !== undefined) {
-    return failure("adr/frontmatter_invalid", "create must not carry relations (22 §11: superseded-by only attaches to a retired transition)");
+    return failure("adr/frontmatter_invalid", "create must not carry relations (22 §11: relations only attach to a retired transition)");
   }
   frontmatter.change_log = [{
     at: now,
@@ -656,13 +705,16 @@ export async function updateAdrObject(args) {
     return failure("adr/relations_invalid", "updated relations failed mechanical checks", { issues: relCheck.issues });
   }
 
-  // superseded-by target must resolve to an existing ADR (22 §11/§14.1;
-  // status不限——链式替代后目标可能也已 retired)
-  const targetUid = supersededByTargetUid(fm, objectUid);
-  if (targetUid !== null) {
-    const targetRead = await readAdrObject({ factSourceRoot, objectUid: targetUid });
+  // The relation target must resolve to an existing object of the type the
+  // key declares (22 §11: superseded-by→ADR, absorbed-into→Norm).
+  // 状态不限——链式替代后目标可能也已 retired，承接它的 Norm 也可能已被后继取代。
+  const target = relationTarget(fm, objectUid);
+  if (target !== null) {
+    const targetRead = target.target_type === "norm"
+      ? await readNormObject({ factSourceRoot, objectUid: target.target_object_uid })
+      : await readAdrObject({ factSourceRoot, objectUid: target.target_object_uid });
     if (!targetRead.ok) {
-      return failure("adr/relation_target_unresolvable", `superseded-by target ${targetUid} does not resolve to an existing ADR object: ${targetRead.error.message}`);
+      return failure("adr/relation_target_unresolvable", `${target.relation_key} target ${target.target_object_uid} does not resolve to an existing ${target.target_type === "norm" ? "Norm" : "ADR"} object: ${targetRead.error.message}`);
     }
   }
 
@@ -749,6 +801,9 @@ export async function listAdrObjects(args) {
     if (!includeTerminal && status !== "active") continue;
     items.push({
       object_uid: uid,
+      // 02 §9.3（候选条款）：类型短名进投影，使渲染层能直接给出「类型短名 + 短标识」
+      // 的指称形态，而不必在渲染点硬编码类型短名（那会形成第二权威）。
+      fact_type_key: typeof frontmatter.fact_type_key === "string" ? frontmatter.fact_type_key : "",
       title: typeof frontmatter.title === "string" ? frontmatter.title : "",
       status,
       decision: typeof frontmatter.decision === "string" ? frontmatter.decision : "",
