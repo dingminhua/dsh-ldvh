@@ -531,18 +531,19 @@ test("未实现的子项须在设置面**当场标出**（不得让开关看起�
 });
 
 test("数值参数的默认值与服务端**同源**：不得在两处各写一套", async () => {
-  // 客户端默认 600000/800/3/8 必须与服务端 idle-settings.js 的 IDLE_DEFAULTS 一致。
+  // 客户端默认 300000 必须与服务端 idle-settings.js 的 IDLE_DEFAULTS 一致。
+  // （默认值现值 300000/5 分钟，Human 2026-10-18 改定；原 600000/10 分钟。）
   // 两处漂移会让「设置页显示 A、实际生效 B」——用户永远看不到真实值。
   // 2026-10 起默认值集中在一张表（此前散落在 state 初值里，改一处漏三处）。
   const defaults = source.match(/var IDLE_DEFAULT_STORED = \{([\s\S]*?)\};/) || [];
   assert.ok(defaults[1], "须有 IDLE_DEFAULT_STORED 表");
-  for (const [key, value] of [["idleSilenceMs", 600000]]) {
+  for (const [key, value] of [["idleSilenceMs", 300000]]) {
     assert.match(defaults[1], new RegExp(`${key}: ${value}`), `客户端默认 ${key} 须为 ${value}`);
   }
 
   // 与服务端文件逐字比对（真同源，不只是「我抄对了」）。
   const server = await readFile(new URL("../lib/idle-settings.js", import.meta.url), "utf8");
-  for (const [key, expected] of [["silenceMs", "600_000"]]) {
+  for (const [key, expected] of [["silenceMs", "300_000"]]) {
     assert.ok(server.includes(`${key}: ${expected},`), `服务端 IDLE_DEFAULTS.${key} 须为 ${expected}`);
   }
 });
@@ -636,8 +637,14 @@ test("设置面：改动后**保存按钮自身**须显示为「需要保存」�
 //
 // 默认配额上限同时声明在**三处**：`index.js` 的 zod schema、`idle-settings.js` 的
 // `IDLE_DEFAULTS`、`client.js` 的 `IDLE_DEFAULT_STORED`。复审 D7 把「窗口内可达」
-// 定为选值硬约束（1 小时窗口 ÷ 10 分钟间隔 ⇒ 最多 6 次可达，上限取 8 则**永不
-// 绑定**），于是判据侧改成了 4。
+// 定为选值硬约束（1 小时窗口 ÷ 当时 10 分钟的安静时长 ⇒ 最多 6 次可达，上限取 8
+// 则**永不绑定**），于是判据侧改成了 4。
+//
+// 注：该推导的分母**后来又变了**——安静时长于 2026-10-18 由 10 分钟改定为 5 分钟，
+// 按同一算式可达上限升至 12，8 仍不绑定，**结论不动**。但「最小间隔」一类约束已于
+// 2026-10-14 由 36 §6.2 取消（被 §6.1 安静时长结构性吸收），故这个算式如今只剩
+// **历史依据**的意义：现行容量由 `FALLBACK_MAX_DISPATCH_TIMES` 具名常量直接给出
+// （`plugin/lib/friction-watermark.js`），不再按窗口÷间隔推导。
 //
 // **但 zod schema 仍是 8。** 而生产路径读的是**它**——宿主按 zod 的 default 把 8
 // 填进 `config`，`resolveIdleSettings` 便永远读到 8，判据侧那个 4 **从未生效**。

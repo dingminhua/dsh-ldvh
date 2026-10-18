@@ -11,7 +11,7 @@
 // 故它等于「回合结束即派发」；且旧实现的待办位一经消费便不再置位，使**沉默越久
 // 反而越不会触发**。现改为：活动刷新计时 → idle 只负责武装 → 计时到期才派发。
 //
-// 测试用**假定时器**驱动（`globalThis.setTimeout` 被替换），从而不真等 10 分钟。
+// 测试用**假定时器**驱动（`globalThis.setTimeout` 被替换），从而不真等 5 分钟。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -70,7 +70,7 @@ function makeFakeTimers() {
   return api;
 }
 
-function makeTriggers({ governed = true, onSessionCheckpoint, silenceMs = 600_000, seedActivityAt, now } = {}) {
+function makeTriggers({ governed = true, onSessionCheckpoint, silenceMs = 300_000, seedActivityAt, now } = {}) {
   const dispatches = [];
   const activity = { entries: [], record(kind, payload) { this.entries.push({ kind, payload }); } };
   const persisted = [];
@@ -377,7 +377,7 @@ test("36 §6.1：同步抛出的调度回调同样被收口", async () => {
 // 安静时长的读取（含非法值回落）
 // ---------------------------------------------------------------------------
 
-test("36 §6.1：安静时长读取非法时回落 10 分钟（读取侧容错，写入侧另拦）", () => {
+test("36 §6.1：安静时长读取非法时回落 5 分钟（读取侧容错，写入侧另拦）", () => {
   const timers = makeFakeTimers();
   try {
     for (const bad of [0, -1, NaN, undefined, "abc"]) {
@@ -385,7 +385,7 @@ test("36 §6.1：安静时长读取非法时回落 10 分钟（读取侧容错�
       triggers.onTurnStopping({ agent: agentStub(), turn: 1 });
       triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
       const armed = [...timers.pending.values()][0];
-      assert.equal(armed.ms, 600_000, `安静时长 ${String(bad)} 须回落 600000`);
+      assert.equal(armed.ms, 300_000, `安静时长 ${String(bad)} 须回落 300000`);
       timers.fireAll();
       assert.equal(dispatches.length, 1);
     }

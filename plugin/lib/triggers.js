@@ -107,11 +107,11 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     return Number.isFinite(n) ? n : Date.now();
   }
 
-  /** 取安静时长（毫秒）。缺省/非法一律回落 600000——但**保存侧**须已拒绝非法值。 */
+  /** 取安静时长（毫秒）。缺省/非法一律回落 300000（5 分钟，与 IDLE_DEFAULTS 同值）——但**保存侧**须已拒绝非法值。 */
   function silenceMs() {
     const raw = typeof readSilenceMs === "function" ? readSilenceMs() : undefined;
     const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? n : 600000;
+    return Number.isFinite(n) && n > 0 ? n : 300000;
   }
 
   function clearSilenceTimer() {

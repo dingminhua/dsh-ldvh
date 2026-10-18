@@ -103,7 +103,7 @@ async function setup({ withSubagents = true, tasks = { "friction-discovery": tru
     dshHomePath,
     workspaceRoot: project,
     sessionScopes: new Map(),
-    // **安静时长缩到 50ms**（36 §6.1）：真值 10 分钟，测试等不起。这是**注入的
+    // **安静时长缩到 50ms**（36 §6.1）：真值 5 分钟，测试等不起。这是**注入的
     // 测试参数**而非放宽判据——判据本身（「距最后活动 ≥ 安静时长」）原样生效，
     // 只是把它的取值调小。测试仍须等定时器真的到期，不得绕过它直接派发。
     getIdleSettings: () => ({

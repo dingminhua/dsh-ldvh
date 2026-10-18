@@ -665,7 +665,7 @@ window.__ModuleLoader__.load({
      * 两处漂移会让「设置页显示 A、实际生效 B」——用户永远看不到真实值。
      */
     var IDLE_DEFAULT_STORED = {
-      idleSilenceMs: 600000
+      idleSilenceMs: 300000
     };
     /** 存储值 → 界面文本（除以 scale）。非法存储值落回空串（由校验拦下）。 */
     function idleLimitToText(value, scale) {

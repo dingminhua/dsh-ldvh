@@ -11,12 +11,12 @@ summary: |-
   ### 现状核实（本轮机械核验）
   - `specs/` 内共 8 处裸 8 位短标识，实测位置为 `04:166` 的 `82260dec`、`21:467`／`21:468`／`21:469`／`21:470` 的 `b57780cb`／`1a895068`／`e0bab773`／`e0bab773`（**`e0bab773` 出现两次**）、`26:203`／`26:204` 的 `bf73fad4`（两次）、`26:222` 的 `71930c4a`。其中 `b57780cb`、`1a895068`、`e0bab773` 在 `ldvh-base/` 事实源内**无任何可解析载体**（全库唯一命中即本单自身），读者无从定位。
   - `ldvh-base/` 正文中裸 8 位串的数量是本工单须固定的口径项，**不在此写死数值**（事实源随写入增长，固定值必然后续失真）。可复现口径与命令见计划步骤 1。
-  - 事实类型工具的投影**分四层，形态并不统一**（经四轮审核实测，行号逐条核对）：
-    - **列表渲染层**：`spark`／`workcase`／`adr`／`pitfall`／`friction` 五个工具输出「裸 `object_uid` + 标题」行且不带 `fact_type_key`（`spark-tools.js:660`、`workcase-tools.js:1053`、`adr-tools.js:412`、`pitfall-tools.js:410`、`friction-tools.js:497`）。类型短名**不在渲染层可得**——writer 层投影投出的 item 字段为 `object_uid/title/status/…`，**不含 `fact_type_key`**（`spark-writer.js:892`、`workcase-writer.js:3963`、`pitfall-writer.js:648`、`friction-writer.js:1093`、`adr-writer.js:735`；`listAdrObjects` 见 `adr-writer.js:676-740`），故改造须同时覆盖 writer 层投影。
-    - **读取 envelope 层**：五个工具各有 `object: ${result.object_uid}` 行（`adr-tools.js:395`、`spark-tools.js:636`、`pitfall-tools.js:394`、`friction-tools.js:481`、`workcase-tools.js:1039`），另有 `spark-tools.js:643` 的 `refs:` 行。
-    - **变更流水行**：`change: ${change.change} ${change.object_uid}` 六处同型（`adr-tools.js:415`、`spark-tools.js:663`、`workcase-tools.js:1056`、`pitfall-tools.js:413`、`friction-tools.js:500`、`research-tools.js:594`）。
-    - **其它渲染点**：`spark-tools.js:251` 的关系渲染 `${relation_key} → ${target.object_uid}`；`norm-tools.js:364` 的 gaps 行 `object_uid=${entry?.object_uid}`；`research-tools.js` 经 `renderEnvelope` 输出 `object:`／`title:`（`research-tools.js:575-599`，`object:` 在 :580、`title:` 在 :581）；`norm-tools.js` 直接 `JSON.stringify(env.result)`（`norm-tools.js:428-438`）；`experience-capture-contract.js:119` 与 `friction-subagent-contract.js:134` 两处同型列表渲染（`uid=` + `status` + `title`）。
-  - **`research` 无列表操作**：其 `OPERATIONS` 仅 `research-session-machine`／`research-read-object`／`research-write-object`（`research-tools.js:44-61`），故 research 不存在「列表投影」改造面，只有读取路径（`renderEnvelope`）需对齐。
+  - 事实类型工具的投影**分四层，形态并不统一**（经五轮审核实测，行号按当前工作树逐条核对）：
+    - **列表渲染层**：`spark`／`workcase`／`adr`／`pitfall`／`friction` 五个工具输出「裸 `object_uid` + 标题」行且不带 `fact_type_key`（`spark-tools.js:665`、`workcase-tools.js:1053`、`adr-tools.js:416`、`pitfall-tools.js:414`、`friction-tools.js:501`）。类型短名**不在渲染层可得**——writer 层投影投出的 item 字段为 `object_uid/title/status/…`，**不含 `fact_type_key`**（`spark-writer.js:903`、`workcase-writer.js:3963`、`pitfall-writer.js:681`、`friction-writer.js:1115`、`adr-writer.js:751`；`listAdrObjects` 见 `adr-writer.js:698-762`），故改造须同时覆盖 writer 层投影。
+    - **读取 envelope 层**：五个工具各有 `object: ${result.object_uid}` 行（`adr-tools.js:399`、`spark-tools.js:641`、`pitfall-tools.js:398`、`friction-tools.js:485`、`workcase-tools.js:1039`），另有 `spark-tools.js:648` 的 `refs:` 行。
+    - **变更流水行**：`change: ${change.change} ${change.object_uid}` 六处同型（`adr-tools.js:419`、`spark-tools.js:668`、`workcase-tools.js:1056`、`pitfall-tools.js:417`、`friction-tools.js:504`、`research-tools.js:598`）。
+    - **其它渲染点**：`spark-tools.js:252` 的关系渲染 `${relation_key} → ${target.object_uid}`；`norm-tools.js:368` 的 gaps 行 `object_uid=${entry?.object_uid}`；`research-tools.js` 的 `renderEnvelope`（`research-tools.js:579-602`）输出 `object:`／`title:`（`object:` 在 :584、`title:` 在 :585）；`norm-tools.js` 的 `renderEnvelope`（`norm-tools.js:430-442`）直接 `JSON.stringify(env.result)`（`norm-tools.js:433`）；`experience-capture-contract.js:119` 与 `friction-subagent-contract.js:134` 两处同型列表渲染（`uid=` + `status` + `title`）。
+  - **`research` 无列表操作**：其 `OPERATIONS` 仅 `research-session-machine`／`research-read-object`／`research-write-object`（`research-tools.js:45-58`，定义于 :46/:51/:56），故 research 不存在「列表投影」改造面，只有读取路径（`renderEnvelope`）需对齐。
   - 提交消息：`git log -60` 区间内带类型前缀的 `<type>-<uid>` 出现 73 处，**其中 44 处是文件路径片段**（如 `ldvh-base/frictions/friction-abf557e1`，不是指称形态问题），正文中的独立指称仅约 29 处；孤立裸 8 位短标识约 56 处（27 个去重值，已剔除非标识误命中）。故**就正文独立指称而言，裸写多于带前缀**（此前两稿分别写「20 余处为裸串」与「带前缀多于裸写」，均不准确，经第四轮审核更正）。口径提示：该计数随 `git log` 窗口与正则边界变化，**精确值以计划步骤 1 的可复现命令所出为准**，本单不以其固定值作为判据；步骤 1 须同时给出「路径片段 / 正文独立指称」的分类拆分。
 
   ### 落点建议（待 Human 决定）
@@ -35,7 +35,7 @@ scope: |-
   - 核实并固定事实对象指称的跨面现状（规范正文、事实对象正文、工具响应、提交消息），给出判据、去重口径、可复现命令、分类拆分与不可解析清单；
   - 在 02 形成准确候选条款，规定事实对象指称的最小形态与适用范围；
   - 逐份列出受该条款约束或需回指承接的消费面载体；
-  - 按 Human 采纳的条款对齐工具响应投影，改造面按**四层实际路径**枚举：① 五个列表渲染器（spark/workcase/adr/pitfall/friction）**及其 writer 层投影**（使 `fact_type_key` 可达）；② 五个读取 envelope 的 `object:` 行与 `spark-tools.js:643` 的 refs 行；③ 六处 `change:` 变更流水行（adr:415／spark:663／workcase:1056／pitfall:413／friction:500／research:594）；④ `spark-tools.js:251` 关系行、`norm-tools.js:364` gaps 行、research 的 `renderEnvelope`、norm 的 JSON 输出、`experience-capture-contract.js:119` 与 `friction-subagent-contract.js:134` 两处同型渲染。research 无列表操作，不在「列表」改造面内。并补相应契约测试。
+  - 按 Human 采纳的条款对齐工具响应投影，改造面按**四层实际路径**枚举：① 五个列表渲染器（spark/workcase/adr/pitfall/friction）**及其 writer 层投影**（使 `fact_type_key` 可达）；② 五个读取 envelope 的 `object:` 行与 `spark-tools.js:648` 的 refs 行；③ 六处 `change:` 变更流水行（adr:419／spark:668／workcase:1056／pitfall:417／friction:504／research:598）；④ `spark-tools.js:252` 关系行、`norm-tools.js:368` gaps 行、research 的 `renderEnvelope`、norm 的 JSON 输出、`experience-capture-contract.js:119` 与 `friction-subagent-contract.js:134` 两处同型渲染。research 无列表操作，不在「列表」改造面内。并补相应契约测试。
 
   明确不做什么：
   - 不改 00（受保护内容），不改 README、LICENSE 与版本声明点；
@@ -77,6 +77,30 @@ pre_reviews:
     auditor_origin: subagent
     candidate_fingerprint: cc2c6602a2658b174b99ca997e4e49ae5dff371d38bdef25e17459adc5fcd47a
     verdict: needs_revision
+  - at: 2026-10-17T20:48:27.143Z
+    provider: ds-yue
+    model: deepseek-v4-flash
+    summary: |-
+      - **对象恰当性：符合**
+      - **方案可行性：不符** — 机械核验行号在当前工作树不可复现（六工具文件多数引用行号偏移约 +4~+5）
+      - **scope 清晰度：符合**
+      - **审核结论（闭集）：needs_revision**
+
+      判定依据：前三轮历史修订目标（可复现计数、四层路径完整、Human 决定状态绑定、02 落盘排除、09/05/06/07/10 回指排除、提交消息分类）均已达成并经实测确认；唯一未达标项是工具文件行号引用与当前工作树不符（仅 workcase-tools 与两处契约精确），与本单「精确指称」主题及 step-1「可复现」判据相悖。修订面窄：按当前工作树刷正行号引用即可。
+    session_id: 814d2a29-121f-4fb4-8c1a-e08f67366b0e
+    session_source: host
+    auditor_origin: subagent
+    candidate_fingerprint: 77346470af314fcddb2afe1e3dcbc16c3291890929f0b6761cf991876a64f973
+    verdict: needs_revision
+  - at: 2026-10-17T21:18:04.776Z
+    provider: ds-yue
+    model: deepseek-v4-flash
+    summary: 本轮「刷正行号引用」目标全部达成，系统性偏移问题已消除，此前的实质内容无回归。
+    session_id: 0a64920d-d7b6-4500-af42-d088dece7960
+    session_source: host
+    auditor_origin: subagent
+    candidate_fingerprint: b26a4e0209d4549ab98a56a9d56ad128451882b1826558df7b660fdae7a0653d
+    verdict: pass
 created_at: 2026-10-16T09:36:08.502Z
 change_log:
   - at: 2026-10-16T09:36:08.502Z
@@ -107,6 +131,18 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 承第四轮建前独立审核（隔离子代理 35d543a4，needs_revision）修订：改造面补入四层枚举遗漏（六处 change 流水行、spark-tools.js:251 关系行、norm-tools.js:364 gaps 行）；按实测更正提交消息口径（73 处带前缀中 44 处为文件路径片段，正文独立指称约 29 处，裸写 56 处为多数），并要求步骤 1 按「路径片段/正文独立指称」分类；scope 明确 09/05/06/07/10 一行回指不在本单授权内；调用方提交的 pre_reviews 与落盘不一致，已回落为落盘值（审核轴唯一写路径是 record_audit，21 §14）
+  - at: 2026-10-17T20:48:27.143Z
+    provider: ds-yue
+    model: deepseek-v4-flash
+    summary: "录入第五轮建前独立审核（隔离子代理 814d2a29）——verdict=needs_revision：六工具文件机械核验行号相对当前工作树系统性偏移 [pre-gate1 audit recorded by session 814d2a29-121f-4fb4-8c1a-e08f67366b0e; verdict: needs_revision; candidate_fingerprint: 77346470af31…; pre_reviews entries: 3; 记录自子代理会话 814d2a29-121f-4fb4-8c1a-e08f67366b0e 的最终产出（Code 捕获）]"
+  - at: 2026-10-17T21:06:56.128Z
+    provider: ds-yue
+    model: deepseek-v4-flash
+    summary: 承第五轮建前独立审核（隔离子代理 814d2a29，needs_revision）修订：按当前工作树刷正六工具文件与两契约的全部机械核验行号引用（列表渲染层、writer 层投影、读取 envelope、change 流水、关系/gaps/JSON/OPERATIONS 等），其余内容与结构逐字不变。；调用方提交的 pre_reviews 与落盘不一致，已回落为落盘值（审核轴唯一写路径是 record_audit，21 §14）
+  - at: 2026-10-17T21:18:04.776Z
+    provider: ds-yue
+    model: deepseek-v4-flash
+    summary: "录入第六轮建前独立审核（隔离子代理 0a64920d，audit6-996e207a）——verdict=pass：清单 30 条工具与契约行号引用经实测与当前工作树一致，系统性偏移消除 [pre-gate1 audit recorded by session 0a64920d-d7b6-4500-af42-d088dece7960; verdict: pass; candidate_fingerprint: b26a4e0209d4…; pre_reviews entries: 4; 记录自子代理会话 0a64920d-d7b6-4500-af42-d088dece7960 的最终产出（Code 捕获）]"
 ---
 
 # 事实对象指称须带类型与标题
@@ -117,12 +153,12 @@ change_log:
 ### 现状核实（本轮机械核验）
 - `specs/` 内共 8 处裸 8 位短标识，实测位置为 `04:166` 的 `82260dec`、`21:467`／`21:468`／`21:469`／`21:470` 的 `b57780cb`／`1a895068`／`e0bab773`／`e0bab773`（**`e0bab773` 出现两次**）、`26:203`／`26:204` 的 `bf73fad4`（两次）、`26:222` 的 `71930c4a`。其中 `b57780cb`、`1a895068`、`e0bab773` 在 `ldvh-base/` 事实源内**无任何可解析载体**（全库唯一命中即本单自身），读者无从定位。
 - `ldvh-base/` 正文中裸 8 位串的数量是本工单须固定的口径项，**不在此写死数值**（事实源随写入增长，固定值必然后续失真）。可复现口径与命令见计划步骤 1。
-- 事实类型工具的投影**分四层，形态并不统一**（经四轮审核实测，行号逐条核对）：
-  - **列表渲染层**：`spark`／`workcase`／`adr`／`pitfall`／`friction` 五个工具输出「裸 `object_uid` + 标题」行且不带 `fact_type_key`（`spark-tools.js:660`、`workcase-tools.js:1053`、`adr-tools.js:412`、`pitfall-tools.js:410`、`friction-tools.js:497`）。类型短名**不在渲染层可得**——writer 层投影投出的 item 字段为 `object_uid/title/status/…`，**不含 `fact_type_key`**（`spark-writer.js:892`、`workcase-writer.js:3963`、`pitfall-writer.js:648`、`friction-writer.js:1093`、`adr-writer.js:735`；`listAdrObjects` 见 `adr-writer.js:676-740`），故改造须同时覆盖 writer 层投影。
-  - **读取 envelope 层**：五个工具各有 `object: ${result.object_uid}` 行（`adr-tools.js:395`、`spark-tools.js:636`、`pitfall-tools.js:394`、`friction-tools.js:481`、`workcase-tools.js:1039`），另有 `spark-tools.js:643` 的 `refs:` 行。
-  - **变更流水行**：`change: ${change.change} ${change.object_uid}` 六处同型（`adr-tools.js:415`、`spark-tools.js:663`、`workcase-tools.js:1056`、`pitfall-tools.js:413`、`friction-tools.js:500`、`research-tools.js:594`）。
-  - **其它渲染点**：`spark-tools.js:251` 的关系渲染 `${relation_key} → ${target.object_uid}`；`norm-tools.js:364` 的 gaps 行 `object_uid=${entry?.object_uid}`；`research-tools.js` 经 `renderEnvelope` 输出 `object:`／`title:`（`research-tools.js:575-599`，`object:` 在 :580、`title:` 在 :581）；`norm-tools.js` 直接 `JSON.stringify(env.result)`（`norm-tools.js:428-438`）；`experience-capture-contract.js:119` 与 `friction-subagent-contract.js:134` 两处同型列表渲染（`uid=` + `status` + `title`）。
-- **`research` 无列表操作**：其 `OPERATIONS` 仅 `research-session-machine`／`research-read-object`／`research-write-object`（`research-tools.js:44-61`），故 research 不存在「列表投影」改造面，只有读取路径（`renderEnvelope`）需对齐。
+- 事实类型工具的投影**分四层，形态并不统一**（经五轮审核实测，行号按当前工作树逐条核对）：
+  - **列表渲染层**：`spark`／`workcase`／`adr`／`pitfall`／`friction` 五个工具输出「裸 `object_uid` + 标题」行且不带 `fact_type_key`（`spark-tools.js:665`、`workcase-tools.js:1053`、`adr-tools.js:416`、`pitfall-tools.js:414`、`friction-tools.js:501`）。类型短名**不在渲染层可得**——writer 层投影投出的 item 字段为 `object_uid/title/status/…`，**不含 `fact_type_key`**（`spark-writer.js:903`、`workcase-writer.js:3963`、`pitfall-writer.js:681`、`friction-writer.js:1115`、`adr-writer.js:751`；`listAdrObjects` 见 `adr-writer.js:698-762`），故改造须同时覆盖 writer 层投影。
+  - **读取 envelope 层**：五个工具各有 `object: ${result.object_uid}` 行（`adr-tools.js:399`、`spark-tools.js:641`、`pitfall-tools.js:398`、`friction-tools.js:485`、`workcase-tools.js:1039`），另有 `spark-tools.js:648` 的 `refs:` 行。
+  - **变更流水行**：`change: ${change.change} ${change.object_uid}` 六处同型（`adr-tools.js:419`、`spark-tools.js:668`、`workcase-tools.js:1056`、`pitfall-tools.js:417`、`friction-tools.js:504`、`research-tools.js:598`）。
+  - **其它渲染点**：`spark-tools.js:252` 的关系渲染 `${relation_key} → ${target.object_uid}`；`norm-tools.js:368` 的 gaps 行 `object_uid=${entry?.object_uid}`；`research-tools.js` 的 `renderEnvelope`（`research-tools.js:579-602`）输出 `object:`／`title:`（`object:` 在 :584、`title:` 在 :585）；`norm-tools.js` 的 `renderEnvelope`（`norm-tools.js:430-442`）直接 `JSON.stringify(env.result)`（`norm-tools.js:433`）；`experience-capture-contract.js:119` 与 `friction-subagent-contract.js:134` 两处同型列表渲染（`uid=` + `status` + `title`）。
+- **`research` 无列表操作**：其 `OPERATIONS` 仅 `research-session-machine`／`research-read-object`／`research-write-object`（`research-tools.js:45-58`，定义于 :46/:51/:56），故 research 不存在「列表投影」改造面，只有读取路径（`renderEnvelope`）需对齐。
 - 提交消息：`git log -60` 区间内带类型前缀的 `<type>-<uid>` 出现 73 处，**其中 44 处是文件路径片段**（如 `ldvh-base/frictions/friction-abf557e1`，不是指称形态问题），正文中的独立指称仅约 29 处；孤立裸 8 位短标识约 56 处（27 个去重值，已剔除非标识误命中）。故**就正文独立指称而言，裸写多于带前缀**（此前两稿分别写「20 余处为裸串」与「带前缀多于裸写」，均不准确，经第四轮审核更正）。口径提示：该计数随 `git log` 窗口与正则边界变化，**精确值以计划步骤 1 的可复现命令所出为准**，本单不以其固定值作为判据；步骤 1 须同时给出「路径片段 / 正文独立指称」的分类拆分。
 
 ### 落点建议（待 Human 决定）
@@ -142,7 +178,7 @@ change_log:
 - 核实并固定事实对象指称的跨面现状（规范正文、事实对象正文、工具响应、提交消息），给出判据、去重口径、可复现命令、分类拆分与不可解析清单；
 - 在 02 形成准确候选条款，规定事实对象指称的最小形态与适用范围；
 - 逐份列出受该条款约束或需回指承接的消费面载体；
-- 按 Human 采纳的条款对齐工具响应投影，改造面按**四层实际路径**枚举：① 五个列表渲染器（spark/workcase/adr/pitfall/friction）**及其 writer 层投影**（使 `fact_type_key` 可达）；② 五个读取 envelope 的 `object:` 行与 `spark-tools.js:643` 的 refs 行；③ 六处 `change:` 变更流水行（adr:415／spark:663／workcase:1056／pitfall:413／friction:500／research:594）；④ `spark-tools.js:251` 关系行、`norm-tools.js:364` gaps 行、research 的 `renderEnvelope`、norm 的 JSON 输出、`experience-capture-contract.js:119` 与 `friction-subagent-contract.js:134` 两处同型渲染。research 无列表操作，不在「列表」改造面内。并补相应契约测试。
+- 按 Human 采纳的条款对齐工具响应投影，改造面按**四层实际路径**枚举：① 五个列表渲染器（spark/workcase/adr/pitfall/friction）**及其 writer 层投影**（使 `fact_type_key` 可达）；② 五个读取 envelope 的 `object:` 行与 `spark-tools.js:648` 的 refs 行；③ 六处 `change:` 变更流水行（adr:419／spark:668／workcase:1056／pitfall:417／friction:504／research:598）；④ `spark-tools.js:252` 关系行、`norm-tools.js:368` gaps 行、research 的 `renderEnvelope`、norm 的 JSON 输出、`experience-capture-contract.js:119` 与 `friction-subagent-contract.js:134` 两处同型渲染。research 无列表操作，不在「列表」改造面内。并补相应契约测试。
 
 明确不做什么：
 - 不改 00（受保护内容），不改 README、LICENSE 与版本声明点；
