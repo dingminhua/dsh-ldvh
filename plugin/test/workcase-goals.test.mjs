@@ -17,6 +17,7 @@ import {
 	GOAL_WRITE_POINTS,
 	goalCarriesObject,
 	goalObjectiveFor,
+	objectiveTitleOf,
 	resolveGoalsService,
 	syncWorkcaseGoal,
 } from '../lib/workcase-goals.js';
@@ -317,5 +318,70 @@ test('环境检查：目标不承载工单、无目标、服务不可用、身�
 		assert.equal(out.ok, true, '环境检查不产生失败——它没有可拒绝的对象');
 		assert.equal(out.action, 'none');
 		assert.match(out.detail.reason, new RegExp(word, 'i'));
+	}
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 回归：目标已 complete 而对象仍在执行期（2026-10-19 修复 workcase-996e207a 的实态）
+//
+// 修复前的形态：complete 落进 resume 分支 → 宿主抛 GOAL_INVALID_TRANSITION
+// （resume 的 resumable 闭集是 {active,paused,blocked}）→ catch 返回
+// `{ok:true, action:"none"}` → 每回合失败一次而外部完全不可见。
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('环境检查：目标已 complete 而工单仍在执行期时用 create 重建（不再撞 resume 的死路）', async () => {
+	const goals = fakeGoals(goalView({ phase: 'complete', activation: 'disarmed' }));
+	const out = await rearmInFlightWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, readWorkcaseStatus: async () => 'open' });
+	assert.equal(out.ok, true);
+	assert.equal(out.action, 'recreated');
+	assert.equal(out.detail.previous_phase, 'complete');
+	// 只读一次、写一次，且写的必须是 create 而不是 resume
+	assert.deepEqual(goals.calls.map((c) => c[0]), ['get', 'create']);
+	assert.equal(goals.calls[1][2].objective, goalObjectiveFor(UID, '某工单'));
+});
+
+test('环境检查：重建保留原目标的标题措辞', async () => {
+	const goals = fakeGoals(goalView({ phase: 'complete', activation: 'disarmed' }));
+	await rearmInFlightWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, readWorkcaseStatus: async () => 'open' });
+	assert.equal(goals.calls[1][2].objective, `推进 workcase-${UID} 到 Gate 2（某工单）`);
+});
+
+test('objectiveTitleOf 从目标文本还原标题', () => {
+	assert.equal(objectiveTitleOf(goalObjectiveFor(UID, '事实对象指称须带类型与标题')), '事实对象指称须带类型与标题');
+	assert.equal(objectiveTitleOf(goalObjectiveFor(UID, '')), '');
+	assert.equal(objectiveTitleOf('推进别的目标'), '');
+	assert.equal(objectiveTitleOf(undefined), '');
+});
+
+test('环境检查：重建失败不再被吞成 ok:true——对象在执行期而目标无武装必须可见', async () => {
+	const goals = fakeGoals(goalView({ phase: 'complete', activation: 'disarmed' }));
+	goals.create = () => {
+		goals.calls.push(['create-throws']);
+		throw new Error('goal create requires a fresh active revision-one goal');
+	};
+	const out = await rearmInFlightWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, readWorkcaseStatus: async () => 'open' });
+	assert.equal(out.ok, false);
+	assert.equal(out.code, 'workcase/goals_failed');
+	assert.match(out.message, /still in its execution period but its host goal is complete/);
+});
+
+test('环境检查：resume 失败同样不再被吞成 ok:true', async () => {
+	const goals = fakeGoals(goalView({ phase: 'paused', activation: 'disarmed' }));
+	goals.resume = () => {
+		goals.calls.push(['resume-throws']);
+		throw new Error('goal exhausted its round budget');
+	};
+	const out = await rearmInFlightWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, readWorkcaseStatus: async () => 'open' });
+	assert.equal(out.ok, false);
+	assert.equal(out.code, 'workcase/goals_failed');
+	assert.match(out.message, /could not be resumed/);
+});
+
+test('环境检查：complete 目标但工单已不在执行期时仍什么都不做（不得自行重建已收口的推进）', async () => {
+	for (const status of ['draft', 'closed', null]) {
+		const goals = fakeGoals(goalView({ phase: 'complete', activation: 'disarmed' }));
+		const out = await rearmInFlightWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, readWorkcaseStatus: async () => status });
+		assert.equal(out.action, 'none', `status=${status} 须不重建`);
+		assert.equal(goals.calls.length, 1, '只读不写');
 	}
 });

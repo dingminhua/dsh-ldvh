@@ -186,6 +186,19 @@ export function workcaseUidFromObjective(objective) {
 }
 
 /**
+ * 从既有目标文本里取回工单标题（`推进 workcase-<uid> 到 Gate 2（<title>）`）。
+ *
+ * 重建目标时若调用方没给 title，用它保持新目标与旧目标同一措辞——否则重建出来的
+ * 目标会丢掉标题，Human 看到的又是一条读不出是哪个工单的文本。解析失败返回空串
+ * （与 `goalObjectiveFor(uid, "")` 的既有行为一致，不抛）。
+ */
+export function objectiveTitleOf(objective) {
+  if (typeof objective !== "string") return "";
+  const match = objective.match(/到 Gate 2（(.*)）\s*$/);
+  return match === null ? "" : match[1];
+}
+
+/**
  * 接手侧的环境检查（`21 §14`「以及该会话续接本对象」）——**在会话继续干活时**把
  * 已在办工单的宿主目标恢复到武装状态。
  *
@@ -194,11 +207,19 @@ export function workcaseUidFromObjective(objective) {
  * 任何动作**（会话继续干活不该因为宿主目标服务不可用而被拦住）。故：
  *
  * - 服务不可用、会话身份取不到、目标读不到 → **什么都不做**并如实回报原因
- *   （不是失败：本函数没有可拒绝的对象）；
+ *   （不是失败：本函数没有可拒绝的对象——它不拦截会话的任何动作）；
  * - 当前目标不承载工单、或所承载的工单**不在执行期**（`draft`／`closed`）→ 什么都不做。
  *   后者是必须的：局部重批把执行期对象退回 `draft` 并**暂停**其目标，此时「续接」
  *   若一律重新武装，就等于无声撤销了那次暂停；
- * - 仅在目标属于**执行期（`open`）**工单、且其处于解除武装或暂停／受阻时，才 resume。
+ * - 目标属于**执行期（`open`）**工单且已武装 → `kept`，不做写操作；
+ * - 目标属于执行期工单但**已 complete** → `create` 重建为同一措辞的新目标
+ *   （`recreated`）。宿主 resume 的相位闭集不含 complete，这曾是本函数的死角：
+ *   它会退化成每回合一次的 GOAL_INVALID_TRANSITION，见函数体内注释；
+ * - 目标属于执行期工单但解除武装／暂停／受阻 → `resume`（`rearmed`）。
+ *
+ * **失败可见性**：重建与 resume 失败返回 `{ok:false, code:GOALS_FAILED}` 而不是
+ * 「`ok:true` + action:none」。`ok:false` 在这里**不拦任何动作**（本函数无拦截权），
+ * 它的唯一作用是把「对象在执行期却没有武装目标」这一实态交给调用方记录。
  */
 export async function rearmInFlightWorkcaseGoal({ ctx, agent, readWorkcaseStatus }) {
   const service = resolveGoalsService(ctx);
@@ -228,10 +249,47 @@ export async function rearmInFlightWorkcaseGoal({ ctx, agent, readWorkcaseStatus
   if (current.phase === "active" && current.activation === "armed") {
     return { ok: true, action: "kept", detail: { object_uid: objectUid } };
   }
+  // `complete` 是一条**独立分支**，不得落到下面的 resume（2026-10-19 修复）。
+  // 宿主 resume 的可接受相位闭集是 {active, paused, blocked}，对 complete 必抛
+  // GOAL_INVALID_TRANSITION；若与普通失败共用一个 catch 就会返回
+  // `{ok:true, action:"none"}`——看起来像「没事可做」，实际是「每个回合都在失败」
+  // （workcase-996e207a 自 2026-10-18 07:08:47 起正是如此）。目标已完成而对象仍在
+  // 执行期，意味推进被提前弃守——唯一能恢复的通道是 create 替换（宿主契约：
+  // complete 的目标可被 create 替换；与 syncWorkcaseGoal 设置点的同款处理一致）。
+  if (current.phase === "complete") {
+    try {
+      const objective = objectiveTitleOf(current.objective) === ""
+        ? goalObjectiveFor(objectUid, "")
+        : goalObjectiveFor(objectUid, objectiveTitleOf(current.objective));
+      const view = service.value.create(agent, { objective });
+      return {
+        ok: true,
+        action: "recreated",
+        detail: { object_uid: objectUid, previous_phase: "complete", objective, phase: view?.phase ?? null, activation: view?.activation ?? null, revision: view?.revision ?? null },
+      };
+    } catch (error) {
+      // 这里**不吞**：对象仍在执行期而目标已被完成，是「推进被弃守」的实态，
+      // 必须让调用方看得见，否则同一个不可见缺陷会重演。
+      return {
+        ok: false,
+        code: GOALS_FAILED,
+        action: "none",
+        message: `workcase-${objectUid} is still in its execution period but its host goal is complete, and replacing it failed: ${error instanceof Error ? error.message : String(error)}`,
+        detail: { object_uid: objectUid, previous_phase: "complete" },
+      };
+    }
+  }
   try {
     const view = service.value.resume(agent, { id: current.id, revision: current.revision });
     return { ok: true, action: "rearmed", detail: { object_uid: objectUid, phase: view?.phase ?? null, activation: view?.activation ?? null } };
   } catch (error) {
-    return { ok: true, action: "none", detail: { object_uid: objectUid, reason: `resume failed: ${error instanceof Error ? error.message : String(error)}` } };
+    // 同上：resume 失败不是「没事可做」——目标未武装而对象在执行期，必须可见。
+    return {
+      ok: false,
+      code: GOALS_FAILED,
+      action: "none",
+      message: `workcase-${objectUid} is in its execution period but its host goal (phase=${JSON.stringify(current.phase)}, activation=${JSON.stringify(current.activation)}) could not be resumed: ${error instanceof Error ? error.message : String(error)}`,
+      detail: { object_uid: objectUid, phase: current.phase, activation: current.activation },
+    };
   }
 }
