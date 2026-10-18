@@ -33,10 +33,24 @@ import { DelegatedChildRecord } from "./agent-lifecycle.js";
  * Bound on retained finished-child records. Map insertion order gives us
  * FIFO eviction for free. Deliberately small: this is a result-collection
  * window, not a durable store (durability belongs to the fact source / 06).
+ *
+ * 2026-10-18: the window stays small precisely because it no longer has to be
+ * durable — a record evicted (or lost to a plugin rebuild) is recoverable from
+ * the child's own session record via adoptFinishedChild, so eviction costs a
+ * re-read instead of the evidence. See child-session-record.js.
  */
 const RETIRED_LIMIT = 50;
 
-export function createChildInstaller(ctx, { agents, children, sessionScopes, retiredChildren }) {
+/**
+ * @param {(hook: string, detail?: object) => void} [onEvent] optional
+ *   registry-level observability sink: receipts for install/retire events so
+ *   the "when was the table touched" question is answerable at runtime
+ *   without the console (2026-10-18 子代理登记表被清空 修复, 步骤 1).
+ */
+export function createChildInstaller(ctx, { agents, children, sessionScopes, retiredChildren, onEvent }) {
+  const emit = (hook, detail) => {
+    if (typeof onEvent === "function") onEvent(hook, detail ?? {});
+  };
   /**
    * Install the child lifecycle for one subagent. Returns true when the
    * child was installed (parent found and governed chain established).
@@ -85,15 +99,10 @@ export function createChildInstaller(ctx, { agents, children, sessionScopes, ret
         // of a child that already finished. Without this, result collection
         // only ever saw children that were still running — which is exactly
         // the case nobody needs, since you collect a result AFTER it ends.
-        if (retiredChildren !== undefined && !retiredChildren.has(agentId)) {
-          record.retiredAt = new Date().toISOString();
-          record.retired = true;
-          retiredChildren.set(agentId, { record });
-          while (retiredChildren.size > RETIRED_LIMIT) {
-            const oldest = retiredChildren.keys().next().value;
-            retiredChildren.delete(oldest);
-          }
+        if (retiredChildren !== undefined) {
+          retireChildRecord({ retiredChildren, record, emit, source: "live" });
         }
+        emit("child/clear", { agentId });
         children.delete(agentId);
       };
       try {
@@ -198,7 +207,69 @@ export function createChildInstaller(ctx, { agents, children, sessionScopes, ret
     }, `dsh-ldvh: child lifecycle ${agentId}`);
 
     children.set(agentId, { dispose, record });
+    emit("child/register", { agentId, parentId: parentId ?? null, scopeState: record.scopeState ?? null });
     ctx.logger.info("[dsh-ldvh] installed child lifecycle for subagent %s (delegated state: %s)", agentId, record.scopeState ?? "none");
     return true;
   };
+}
+
+/**
+ * Move one finished child record into the bounded retired window.
+ *
+ * Shared policy by construction (2026-10-18 「子代理登记表被清空」 修复 · 步骤 3):
+ * the live dispose path (above) and the durable hydration path
+ * (`adoptFinishedChild`) must land records in the SAME window, under the same
+ * FIFO bound and with the same receipts — otherwise a child recovered from its
+ * own session record would behave differently from one observed live.
+ *
+ * Never overwrites: an id already in the window keeps the record that got there
+ * first (the live observation is the stronger evidence).
+ *
+ * @returns {boolean} true when this call retired the record.
+ */
+export function retireChildRecord({ retiredChildren, record, emit, source = "live" }) {
+  if (retiredChildren === undefined || record === null || typeof record !== "object") return false;
+  const agentId = record.agentId;
+  if (typeof agentId !== "string" || agentId.length === 0) return false;
+  if (retiredChildren.has(agentId)) return false;
+  record.retiredAt = new Date().toISOString();
+  record.retired = true;
+  record.retiredSource = source;
+  retiredChildren.set(agentId, { record });
+  emit("child/retire", { agentId, retiredAt: record.retiredAt, source });
+  while (retiredChildren.size > RETIRED_LIMIT) {
+    const oldest = retiredChildren.keys().next().value;
+    retiredChildren.delete(oldest);
+    emit("child/evict", { agentId: oldest });
+  }
+  return true;
+}
+
+/**
+ * Rebuild a finished child's record from its authoritative session header
+ * (lib/child-session-record.js did the reading and the lineage check).
+ *
+ * The record is marked `hydrated` so a consumer can tell「宿主亲观测到的子代理」
+ * from「登记表重建后按其会话记录复原的子代理」 — the identity and the conclusion
+ * both come from the host's own log, but they were read after the fact rather
+ * than captured live. `startedAt` is back-dated to the header's `createdAt` so a
+ * hydrated record does not claim to have started at hydration time.
+ *
+ * @returns {object|null} the record now in the retired window, or null.
+ */
+export function adoptFinishedChild({ retiredChildren, header, conclusion, emit = () => {}, source = "session-record" }) {
+  const sessionId = typeof header?.id === "string" ? header.id : null;
+  if (sessionId === null) return null;
+  const record = new DelegatedChildRecord({ id: sessionId, session: { header } }, header?.parentSession ?? null);
+  if (typeof header?.createdAt === "number") {
+    const startedAt = new Date(header.createdAt);
+    if (!Number.isNaN(startedAt.getTime())) record.startedAt = startedAt.toISOString();
+  }
+  record.retired = true;
+  record.retiredSource = source;
+  record.hydrated = true;
+  record.hydratedAt = new Date().toISOString();
+  if (typeof conclusion === "string" && conclusion.length > 0) record.setConclusion(conclusion);
+  retireChildRecord({ retiredChildren, record, emit, source });
+  return retiredChildren.get(sessionId)?.record ?? null;
 }

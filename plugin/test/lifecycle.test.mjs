@@ -184,7 +184,7 @@ test("pre-step channel: prime() marks the next step-1; own plugin message exerci
 // lifecycle registry
 // ---------------------------------------------------------------------------
 
-function makeHostCtx() {
+function makeHostCtx(services = {}) {
 	const listeners = {};
 	const ctx = {
 		agents: { roots: () => [] },
@@ -192,7 +192,9 @@ function makeHostCtx() {
 			(listeners[event] ??= []).push(listener);
 			return () => { listeners[event] = listeners[event].filter((candidate) => candidate !== listener); };
 		},
-		get(name) { return name === "agents" ? ctx.agents : undefined; },
+		// `services` carries every host service beyond `agents` (e.g.
+		// sessionPersistence, for the durable child-resolution path).
+		get(name) { return name === "agents" ? ctx.agents : services[name]; },
 		logger: { info() {}, warn() {} },
 		fire(event, payload) {
 			for (const listener of listeners[event] ?? []) listener(payload);
@@ -990,4 +992,242 @@ test("pre-step onTurnStart：抛错不得拦住回合，也不得静默吞掉", 
 	assert.equal(decision.kind, "enter", "回合照常进行");
 	assert.equal(warned.length, 1, "失败须留下日志，不是无声吞掉");
 	assert.match(warned[0], /goals service exploded/);
+});
+
+// ---------------------------------------------------------------------------
+// 2026-10-18 registry observability（子代理登记表被清空 修复 · 步骤 1）
+// ---------------------------------------------------------------------------
+//
+// 缺陷（workcase 复核无法收口）：插件 fiber 重建（dispose → start）后，
+// `children` / `retiredChildren` 被清空，且 start() 只 adopt roots() —— 已存在
+// 的子代理不再入表，导致 collect 恒 0 条、record_review 恒「not a subagent
+// registered」。本用例钉住**观测面**：三类事件（写 children／清空／adopt）必须
+// 有运行期可回读的轨迹（registryActivitySnapshot），不依赖控制台。
+
+test("registry activity trail: child register/retire/clear and root adopt are readable at runtime", async () => {
+	await withTemp("ldvh-lc.", async (base) => {
+		const home = join(base, "home");
+		const repo = await initRepo(base);
+		await registerProject(dshHome(home), { id: "demo", path: repo });
+
+		const ctx = makeHostCtx();
+		const parent = makeInstallableAgent("parent", repo, ctx);
+		const sessionScopes = createSessionScopes();
+		const registry = createLifecycleRegistry(ctx, { dshHomePath: dshHome(home), workspaceRoot: base, sessionScopes });
+
+		ctx.agents = { roots: () => [parent], get: (id) => (id === "parent" ? parent : undefined) };
+		const stopRegistry = registry.start();
+		ctx.fire("agent/created", { agent: parent });
+
+		// 根会话 adopt 被记录在 registry 轨迹上。
+		const adopted = registry.registryActivitySnapshot().filter((e) => e.hook === "root/adopt");
+		assert.equal(adopted.length >= 1, true, "root adopt recorded");
+		assert.ok(adopted.some((e) => e.detail.agentId === "parent"), "adopt names the agent");
+
+		// 子代理注册被记录。
+		const child = makeInstallableAgent("child", repo, ctx, { root: false });
+		child.session.header.origin = "subagent";
+		child.session.header.parentSession = "parent";
+		ctx.fire("agent/created", { agent: child });
+		const regs = registry.registryActivitySnapshot().filter((e) => e.hook === "child/register");
+		assert.equal(regs.some((e) => e.detail.agentId === "child"), true, "child/register recorded");
+		assert.equal(regs[regs.length - 1].detail.parentId, "parent");
+
+		// 子代理 fiber 销毁 → 移入 retired（child/retire）+ 从 live 删除（child/clear）。
+		await child.disposeFiber();
+		const trail = registry.registryActivitySnapshot();
+		assert.equal(trail.some((e) => e.hook === "child/retire" && e.detail.agentId === "child"), true, "child/retire recorded");
+		assert.equal(trail.some((e) => e.hook === "child/clear" && e.detail.agentId === "child"), true, "child/clear recorded");
+
+		// 插件 fiber 销毁（registry 的 start() 反安装函数被调用）→ 两张表被清空，
+		// 且 children/cleared 事件带清空前读数。
+		stopRegistry();
+		const cleared = registry.registryActivitySnapshot().filter((e) => e.hook === "children/cleared");
+		assert.equal(cleared.length >= 1, true, "children/cleared recorded on plugin dispose");
+		assert.ok(Array.isArray(cleared[cleared.length - 1].detail.clearedLive), "clearedLive captured");
+		assert.ok(Array.isArray(cleared[cleared.length - 1].detail.clearedRetired), "clearedRetired captured");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// 2026-10-18 缺陷复现：插件 fiber 重建后子代理登记表丢失
+// ---------------------------------------------------------------------------
+//
+// 复现条件（真实宿主具备，虚构 ctx 未必）：
+//   1. 父会话 + 子代理同时存活，registry.start() 把二人都 adopt 进来；
+//   2. 插件 fiber 重建 = registry 的 start() 反安装函数被调用（dispose），紧接着
+//      再 start() 一次（宿主重载插件时就是这个序列）；
+//   3. 重建前 children 表里有子代理 —— 重建后它必须仍在表里（可被 collect /
+//      record_review 查到），否则独立复核无法收口。
+//
+// 修复前：start() 只遍历 roots()，子代理（非 root）永不重新入表 → 该断言失败。
+// 修复后：start() 遍历 agentsService.list()（含子代理），子代理经 install() 的
+// origin/parentSession 判据重新走 installChild()。
+
+test("fiber rebuild: a live subagent is re-adopted after the plugin registry restarts", async () => {
+	await withTemp("ldvh-lc.", async (base) => {
+		const home = join(base, "home");
+		const repo = await initRepo(base);
+		await registerProject(dshHome(home), { id: "demo", path: repo });
+
+		const ctx = makeHostCtx();
+		const parent = makeInstallableAgent("parent", repo, ctx);
+		const child = makeInstallableAgent("child-rebuild", repo, ctx, { root: false });
+		child.session.header.origin = "subagent";
+		child.session.header.parentSession = "parent";
+
+		// 宿主 agents 服务：roots() 只含父；list() 含父与子（真实宿主形状）。
+		const roster = [parent, child];
+		const hostAgents = {
+			roots: () => [parent],
+			list: () => roster.slice(),
+			get: (id) => roster.find((a) => a.id === id)
+		};
+
+		// 两轮 registry 各自持有同一组 agent 与同一个 ctx（模拟插件重载：
+		// 进程不重启，宿主服务不变，只有插件自己的 fiber 被销毁再建）。
+		ctx.agents = hostAgents;
+		const sessionScopes = createSessionScopes();
+
+		const registry1 = createLifecycleRegistry(ctx, { dshHomePath: dshHome(home), workspaceRoot: base, sessionScopes });
+		const stop1 = registry1.start();
+		// 首次加载：父与子都在（父子都经 list() adopt）。
+		assert.equal(registry1.installedAgentIds().includes("parent"), true, "parent adopted on first load");
+		assert.notEqual(registry1.childActivityOf("child-rebuild"), null, "child registered on first load");
+		stop1();
+
+		// 插件 fiber 重建：新的 registry 实例用同一批仍存活的 agent 重新 start()。
+		const registry2 = createLifecycleRegistry(ctx, { dshHomePath: dshHome(home), workspaceRoot: base, sessionScopes });
+		const stop2 = registry2.start();
+		// 缺陷点：重建后子代理必须仍在登记表里（修复前这里是 null）。
+		assert.notEqual(
+			registry2.childActivityOf("child-rebuild"),
+			null,
+			"live subagent re-adopted after fiber rebuild (was lost before the fix)"
+		);
+		stop2();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// 2026-10-18 缺陷修复（步骤 3）：已结束子代理的**持久**复原
+// ---------------------------------------------------------------------------
+//
+// 复现条件：子代理在**插件重建之前**就已经结束。此时
+//   ① `children` 里没有它（fiber 已 dispose）；
+//   ② 重建后的 `retiredChildren` 也没有它（新实例、空表）；
+//   ③ `start()` 只 adopt 宿主仍列为活体的 agent —— 已结束的子代理不在其中。
+// 于是登记表**结构性地**看不到它，而复核通道问的恰好是这种子代理
+// （「复核者跑完了，现在登记它的结论」）。
+//
+// 修复：登记表未命中时回落到**子代理自己的会话记录**（宿主写的 header 证明它是
+// 子代理、parentSession 证明血统；结论取它自己最后的正文），复原结果落进
+// retiredChildren —— 后续 lookup / collect 照常命中。
+
+test("fiber rebuild: a child that finished before the rebuild resolves from its own session record", async () => {
+	await withTemp("ldvh-lc.", async (base) => {
+		const home = join(base, "home");
+		const repo = await initRepo(base);
+		await registerProject(dshHome(home), { id: "demo", path: repo });
+
+		// 宿主会话记录桩：形状与真实日志一致（首行 session header + 事件流）。
+		// reviewer-1 是本会话的子代理；reviewer-2 属于**另一个**会话。
+		const sessions = {
+			"session-parent": [{ type: "session", id: "session-parent", cwd: repo }],
+			"session-unrelated": [{ type: "session", id: "session-unrelated", cwd: repo }],
+			"reviewer-1": [
+				{
+					type: "session", version: 4, id: "reviewer-1", cwd: repo,
+					parentSession: "session-parent", origin: "subagent", delegationDepth: 1,
+					createdAt: 1792306316104
+				},
+				{ type: "assistant/message", seq: 5, data: { turn: 1, message: { content: [{ type: "tool-call", name: "bash" }] } } },
+				{ type: "assistant/message", seq: 7, data: { turn: 1, message: { content: [{ type: "text", text: "对象恰当性：符合（候选与已生效对象无重叠）。" }] } } },
+				// 最后一轮只有工具调用：不得用空值清掉既有结论（与 child.js 同规则）。
+				{ type: "assistant/message", seq: 9, data: { turn: 2, message: { content: [{ type: "tool-call", name: "bash" }] } } }
+			],
+			"reviewer-2": [
+				{
+					type: "session", version: 4, id: "reviewer-2", cwd: repo,
+					parentSession: "session-unrelated", origin: "subagent", delegationDepth: 1
+				},
+				{ type: "assistant/message", seq: 3, data: { turn: 1, message: { content: [{ type: "text", text: "别人的子代理。" }] } } }
+			]
+		};
+		const opened = [];
+		const sessionPersistence = {
+			async open(id, mode) {
+				opened.push({ id, mode });
+				if (sessions[id] === undefined) throw new Error(`no such session: ${id}`);
+				return { read: async () => ({ events: sessions[id] }), close: async () => {} };
+			}
+		};
+
+		const ctx = makeHostCtx({ sessionPersistence });
+		const parent = makeInstallableAgent("session-parent", repo, ctx);
+		ctx.agents = {
+			roots: () => [parent],
+			list: () => [parent],
+			get: (id) => (id === "session-parent" ? parent : undefined)
+		};
+
+		const sessionScopes = createSessionScopes();
+		const registry = createLifecycleRegistry(ctx, { dshHomePath: dshHome(home), workspaceRoot: base, sessionScopes });
+		const stop = registry.start();
+		ctx.fire("agent/created", { agent: parent });
+
+		// 前提：这个子代理**不在**登记表里（它早已结束，宿主不再把它列为活体）。
+		assert.equal(registry.childConclusionOf("reviewer-1"), null, "前提：登记表看不到已结束的子代理");
+
+		// ① 未命中 → 回落到子代理自己的会话记录。
+		const resolved = await registry.resolveChild("reviewer-1", { parentSessionId: "session-parent" });
+		assert.equal(resolved.ok, true, `必须能从会话记录复原：${JSON.stringify(resolved)}`);
+		assert.equal(resolved.source, "session-record");
+		assert.equal(resolved.record.parentAgentId, "session-parent");
+		assert.equal(resolved.record.hydrated, true);
+		assert.match(resolved.record.conclusion, /对象恰当性：符合/, "结论取子代理自己最后的正文");
+		assert.equal(resolved.record.startedAt, new Date(1792306316104).toISOString(), "startedAt 回填到会话实际创建时刻");
+
+		// ② 复原落地后就是普通登记表命中（第二次复核 / collect 不再读盘）。
+		const again = await registry.resolveChild("reviewer-1");
+		assert.equal(again.source, "registry");
+		assert.equal(again.record, resolved.record, "同一份记录，不重复建");
+		assert.equal(registry.childConclusionOf("reviewer-1"), resolved.record.conclusion);
+
+		// ③ 轨迹可回读：hydrate + retire 都留痕。
+		const trail = registry.registryActivitySnapshot();
+		assert.equal(
+			trail.some((e) => e.hook === "child/hydrated" && e.detail.childId === "reviewer-1"),
+			true, "child/hydrated recorded"
+		);
+		assert.equal(
+			trail.some((e) => e.hook === "child/retire" && e.detail.agentId === "reviewer-1" && e.detail.source === "session-record"),
+			true, "复原记录进入同一个 retired 窗口（带来源）"
+		);
+
+		// ④ 走宿主的正规读取入口，且只读。
+		assert.equal(opened.length >= 1, true);
+		assert.equal(opened.every((o) => o.mode === "read"), true, `必须以只读模式读取：${JSON.stringify(opened)}`);
+
+		// ⑤ 血统不符者仍被拒：登记表重建不能让任意会话冒充本会话的复核者。
+		const foreign = await registry.resolveChild("reviewer-2", { parentSessionId: "session-parent" });
+		assert.equal(foreign.ok, false, `别的会话的子代理不得被采纳：${JSON.stringify(foreign)}`);
+		assert.match(foreign.reason, /lineage|血统/i);
+		assert.equal(registry.childConclusionOf("reviewer-2"), null, "被拒的记录不得落表");
+		assert.equal(
+			registry.registryActivitySnapshot().some((e) => e.hook === "child/resolve-miss" && e.detail.childId === "reviewer-2"),
+			true, "拒绝也留痕"
+		);
+
+		// ⑥ 真重建（新 registry 实例，同一批仍存活的宿主 agent）：复原能力必须在，
+		//    且不依赖上一个实例遗留的内存。
+		stop();
+		const registry2 = createLifecycleRegistry(ctx, { dshHomePath: dshHome(home), workspaceRoot: base, sessionScopes });
+		const stop2 = registry2.start();
+		assert.equal(registry2.childConclusionOf("reviewer-1"), null, "重建后登记表确实是空的（这正是缺陷场景）");
+		const rebuilt = await registry2.resolveChild("reviewer-1", { parentSessionId: "session-parent" });
+		assert.equal(rebuilt.ok, true, `重建后仍须可收口：${JSON.stringify(rebuilt)}`);
+		assert.match(rebuilt.record.conclusion, /对象恰当性：符合/);
+		stop2();
+	});
 });

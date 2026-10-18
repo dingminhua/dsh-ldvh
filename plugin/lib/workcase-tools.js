@@ -145,6 +145,66 @@ async function sessionIdentityFor(deps, exec) {
 }
 
 /**
+ * Resolve a cited reviewer/auditor child to a record the caller cannot set.
+ *
+ * Source order (2026-10-18 「子代理登记表被清空」 修复 · 步骤 3):
+ *   ① the in-memory child registry — the live observation, strongest evidence;
+ *   ② the cited session's own record, through the registry's durable seam
+ *      (lifecycle.js resolveChild → child-session-record.js). The registry is
+ *      per-plugin-instance state and start() only re-adopts agents the host still
+ *      lists as live, so after a plugin rebuild EVERY child that had already
+ *      finished is invisible to ① — and a finished child is exactly what a
+ *      review/audit record is about. Five isolated reviewers were lost that way on
+ *      workcase-996e207a (record_review answered "not a subagent registered"
+ *      while the reviewers' own session records sat on disk).
+ *
+ * Neither source is settable by the caller: ② re-establishes「是子代理」from the
+ * header the host wrote and the delegation lineage from the calling session down.
+ *
+ * @returns {Promise<{available: boolean, child: object|null, source: string|null,
+ *   reason: string|null}>} `available: false` means neither seam exists (the
+ *   caller reports unavailable, as before); `child: null` with `available: true`
+ *   means both were consulted and neither holds this id.
+ */
+async function resolveCitedChild(deps, childAgentId, exec) {
+  const lookup = deps?.lookupChild;
+  const resolveChild = deps?.resolveChild;
+  if (typeof lookup !== "function" && typeof resolveChild !== "function") {
+    return { available: false, child: null, source: null, reason: null };
+  }
+  const known = typeof lookup === "function" ? lookup(childAgentId) : null;
+  if (known !== null && known !== undefined) {
+    return { available: true, child: known, source: "registry", reason: null };
+  }
+  if (typeof resolveChild !== "function") {
+    return { available: true, child: null, source: "registry", reason: null };
+  }
+  const parentSessionId = exec?.agent?.session?.header?.id;
+  let resolved;
+  try {
+    resolved = await resolveChild(childAgentId, {
+      parentSessionId: typeof parentSessionId === "string" && parentSessionId.length > 0 ? parentSessionId : undefined
+    });
+  } catch (error) {
+    return {
+      available: true,
+      child: null,
+      source: "session-record",
+      reason: `the durable session-record lookup threw: ${String(error?.message ?? error)}`
+    };
+  }
+  if (resolved?.ok === true && resolved.record !== null && resolved.record !== undefined) {
+    return { available: true, child: resolved.record, source: resolved.source ?? "session-record", reason: null };
+  }
+  return {
+    available: true,
+    child: null,
+    source: "session-record",
+    reason: resolved?.reason ?? "the session record did not resolve to a subagent of this session"
+  };
+}
+
+/**
  * 把一次受控写入与**本会话的宿主推进目标**对齐（specs/21 §14「宿主推进目标」）。
  *
  * 只在五个写入点生效（approve/execute 设置或恢复；close/cancel/rebatch 收口），
@@ -690,8 +750,8 @@ async function executeWriteObject(args, exec, deps) {
         // 代子代理回传：身份取自宿主登记表（调用方**不可设置**），结论取子代理
         // **真实产出的最终文本**（Code 在 turn-end 捕获）——故实施者既不能伪造
         // 身份，也不能把自查文本冒充成子代理的结论。
-        const lookup = deps?.lookupChild;
-        if (typeof lookup !== "function") {
+        const cited = await resolveCitedChild(deps, childAgentId, exec);
+        if (cited.available !== true) {
           return envelope("workcase-write-object", "unavailable", {
             result: null,
             scope: { requested: action, completed: [], not_completed: [action] },
@@ -703,11 +763,12 @@ async function executeWriteObject(args, exec, deps) {
             follow_up: ["human must enable the subagent registry seam, then retry"],
           });
         }
-        const child = lookup(childAgentId);
+        const child = cited.child;
         if (child === null) {
           return invalidRequest("workcase-write-object",
             `reviewer_child_agent_id ${JSON.stringify(childAgentId)} is not a subagent registered under this session — `
-            + "only a session the host actually observed may be cited as the reviewer", "record_review");
+            + "only a session the host actually observed may be cited as the reviewer"
+            + (cited.reason === null ? "" : `; the durable session-record lookup also failed: ${cited.reason}`), "record_review");
         }
         if (typeof child.conclusion !== "string" || child.conclusion.trim().length === 0) {
           return invalidRequest("workcase-write-object",
@@ -809,8 +870,8 @@ async function executeWriteObject(args, exec, deps) {
         // 代子代理回传：身份取自宿主登记表（调用方**不可设置**），结论取子代理
         // **真实产出的最终文本**（Code 在 turn-end 捕获）——故实施者既不能伪造
         // 身份，也不能把自查文本冒充成子代理的审核结论。
-        const lookup = deps?.lookupChild;
-        if (typeof lookup !== "function") {
+        const citedAudit = await resolveCitedChild(deps, childAgentId, exec);
+        if (citedAudit.available !== true) {
           return envelope("workcase-write-object", "unavailable", {
             result: null,
             scope: { requested: action, completed: [], not_completed: [action] },
@@ -822,11 +883,12 @@ async function executeWriteObject(args, exec, deps) {
             follow_up: ["human must enable the subagent registry seam, then retry"],
           });
         }
-        const child = lookup(childAgentId);
+        const child = citedAudit.child;
         if (child === null) {
           return invalidRequest("workcase-write-object",
             `auditor_child_agent_id ${JSON.stringify(childAgentId)} is not a subagent registered under this session — `
-            + "only a session the host actually observed may be cited as the auditor", "record_audit");
+            + "only a session the host actually observed may be cited as the auditor"
+            + (citedAudit.reason === null ? "" : `; the durable session-record lookup also failed: ${citedAudit.reason}`), "record_audit");
         }
         if (typeof child.conclusion !== "string" || child.conclusion.trim().length === 0) {
           return invalidRequest("workcase-write-object",

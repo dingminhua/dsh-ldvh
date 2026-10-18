@@ -5,7 +5,7 @@
 // and activity history. It does NOT register in subagent sessions, aligning
 // with the 'no tools' strategy for children.
 //
-// Data sources (2026-09-04 — all three now real):
+// Data sources (2026-09-04 — all three now real; 2026-10-18 third source added):
 // - lifecycle.js children Map: { dispose, record } per child, where record is
 //   a DelegatedChildRecord (agent-lifecycle.js) owning scopeState, an
 //   ActivityLog, a captured conclusion and parent-propagation bookkeeping.
@@ -14,6 +14,12 @@
 //   session-scoped `session/event` signals turn/end (there is no
 //   agent/turn-end in DSH; see child.js). null means "no turn has ended yet" —
 //   a real state, not a missing feature.
+// - 2026-10-18: a child that finished BEFORE a plugin rebuild is invisible to the
+//   in-memory maps, so such a record is hydrated from the child's own session
+//   record when the review channel asks for it (lifecycle.js resolveChild →
+//   child-session-record.js). Those records carry recordSource
+//   "session-record"; the enumeration above sees them because hydration lands in
+//   the same retired window (child.js retireChildRecord).
 //
 // Earlier this tool reported conclusion/activity as "not_available" because
 // the child record was a bare `{ scopeState }`. With DelegatedChildRecord the
@@ -48,7 +54,25 @@ function renderEnvelope(operationKey, value) {
   if (env.result?.children) {
     lines.push(`Found ${env.result.children.length} child record(s)`);
     for (const child of env.result.children) {
-      lines.push(`- ${child.agentId}: scope=${child.scopeState}, installed=${child.installedAt}`);
+      lines.push(`- ${child.agentId}: scope=${child.scopeState}, installed=${child.installedAt}`
+        + (child.recordSource === "session-record" ? ", record=session-record" : ""));
+      // The review/audit channel requires a VERBATIM excerpt of the child's own
+      // conclusion (workcase-tools record_review), so the text the parent has to
+      // quote must be readable here: the delegation notification is the only
+      // other copy, and a compaction can take it away. A targeted query (the same
+      // one that inlines the activity trail) prints it in full — truncating would
+      // make verbatim quoting impossible; the list-all case prints a preview so
+      // the parent knows which child to ask about.
+      const conclusion = typeof child.conclusion === "string" ? child.conclusion.trim() : "";
+      if (conclusion.length === 0) {
+        lines.push("  conclusion: (none captured yet — the child's first turn has not ended)");
+      } else if (child.agentId === env.scope?.requested) {
+        lines.push(`  conclusion (${conclusion.length} chars):`);
+        lines.push(conclusion);
+      } else {
+        const firstLine = conclusion.split("\n")[0].trim();
+        lines.push(`  conclusion (${conclusion.length} chars): ${firstLine.length > 100 ? `${firstLine.slice(0, 100)}…` : firstLine}`);
+      }
     }
   }
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
@@ -133,6 +157,13 @@ export function registerSubagentResultTool(ctx, deps) {
             // real state (still running), not a missing capability.
             conclusion: record.conclusion,
             conclusionLength: snap.conclusionLength,
+            // Provenance of the record itself (00 §5.6 据实声明): "registry" =
+            // observed live by this plugin instance; "session-record" = the
+            // registry had lost it (plugin rebuilt after the child finished) and
+            // the child's own session record was read instead. The identity and
+            // the conclusion come from the host's log either way — they were read
+            // after the fact in the second case.
+            recordSource: record.hydrated === true ? "session-record" : "registry",
             propagationCount: snap.propagationCount,
             activityCount: snap.activityCount,
             // Only inline the full trail for a single-agent query, so the

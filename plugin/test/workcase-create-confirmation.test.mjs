@@ -32,6 +32,8 @@ import { mkdir, writeFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
 import { registerWorkcaseTools } from "../lib/workcase-tools.js";
+import { createLifecycleRegistry } from "../lib/lifecycle.js";
+import { createSessionScopes } from "../lib/session-scopes.js";
 
 /** Minimal ctx capturing registered tool descriptors. */
 function collectorCtx() {
@@ -422,5 +424,89 @@ test("record_review: without the host subagent registry the channel fails closed
     const text = JSON.stringify(result);
     assert.match(text, /review_channel_unavailable|not a subagent registered/,
       `a missing registry must not silently degrade into an unattributed write, got: ${text.slice(0, 400)}`);
+  });
+});
+
+test("record_review: after a plugin rebuild the cited reviewer is resolved from its own session record", async () => {
+  // 缺陷（2026-10-18 「子代理登记表被清空」 修复 · 步骤 3）：登记表是**插件实例级**
+  // 内存。插件重建后，所有**在重建前就结束**的子代理都看不到——而复核通道问的恰恰
+  // 是这种（「复核者跑完了，现在登记它的结论」）。本用例走**真实链路**：真 registry
+  // 的 resolveChild + 真 child-session-record.js 读一份宿主日志形状的会话记录，
+  // 只有「宿主持久化服务」是桩。
+  await withTemp("workcase-relay-durable-", async (base) => {
+    const projectDir = join(base, "proj");
+    await mkdir(projectDir, { recursive: true });
+    await writeCarrier(base, projectDir);
+
+    const conclusion = "对象恰当性：符合（候选与已生效对象无重叠）。方案可行性：符合。scope 清晰度：符合。";
+    const sessions = {
+      // 调用方自己的会话：路由记录（供签名/路由取值）——登记表里**没有**子代理。
+      "session-parent": [
+        { type: "user/prompt", data: { text: "hi" } },
+        { type: "model/selection", data: { provider: "test-provider", model: "test-model" } },
+      ],
+      // 子代理会话：宿主机真实日志形状（首行 session header + 事件流）。
+      "reviewer-1": [
+        {
+          type: "session", version: 4, id: "reviewer-1", cwd: projectDir,
+          parentSession: "session-parent", origin: "subagent", delegationDepth: 1,
+          createdAt: 1792306316104,
+        },
+        { type: "assistant/message", seq: 7, data: { turn: 1, message: { content: [{ type: "text", text: conclusion }] } } },
+      ],
+    };
+    const persistenceService = {
+      ...sessionPersistenceWithRoutingLog(base)(),
+      async open(id, mode) {
+        if (sessions[id] === undefined) throw new Error(`no such session: ${id}`);
+        return { read: async () => ({ events: sessions[id] }), close: async () => {} };
+      },
+    };
+
+    const resolveCalls = [];
+    const { ctx, tools } = collectorCtx();
+    ctx.get = (name) => (name === "sessionPersistence" ? persistenceService : undefined);
+    const registry = createLifecycleRegistry(ctx, {
+      dshHomePath: (...segments) => join(base, ...segments),
+      workspaceRoot: base,
+      sessionScopes: createSessionScopes(),
+    });
+    assert.equal(registry.childConclusionOf("reviewer-1"), null, "前提：登记表看不到已结束的子代理");
+
+    registerWorkcaseTools(ctx, {
+      dshHomePath: (...segments) => join(base, ...segments),
+      sessionPersistence: () => persistenceService,
+      hostSeams: routingSeam(() => ({ granted: true, routedTo: "workcase" })),
+      // 插件重建后的真实状态：登记表为空表。
+      lookupChild: () => null,
+      // 记下调用参数：本用例要钉住「登记表未命中时**确实**去问了持久化来源」，
+      // 且血统判据带着**调用方自己的会话 id**——只钉「没报错」会漏掉
+      // 「静默跳过回落」这一形态（那正是缺陷本身）。
+      resolveChild: (...args) => { resolveCalls.push(args); return registry.resolveChild(...args); },
+    });
+
+    const write = tools.get("ldvh_workcase_write");
+    assert.ok(write, "write tool must be registered");
+    const result = await write.execute({
+      action: "record_review", object_uid: "00000000-0000-4000-8000-000000000000",
+      expected_fingerprint: "0".repeat(64), change_summary: "x",
+      reviewer_child_agent_id: "reviewer-1",
+      summary: "对象恰当性：符合",
+    }, { agent: { session: { header: { id: "session-parent", cwd: projectDir } } } });
+
+    const text = JSON.stringify(result);
+    assert.doesNotMatch(text, /is not a subagent registered under this session/,
+      `会话记录可复原的复核者不得再被拒：${text.slice(0, 400)}`);
+    // 已过「复核者身份」门：后续失败只可能是对象本身（fixture 里该 uid 不存在）。
+    assert.doesNotMatch(text, /review_channel_unavailable/,
+      `通道可用时不得报 unavailable：${text.slice(0, 400)}`);
+    // 复原的记录留在登记表里，且结论取自子代理自己最后的正文。
+    assert.equal(registry.childConclusionOf("reviewer-1"), conclusion, "复原后的结论须取自子代理自己的产出");
+    const again = await registry.resolveChild("reviewer-1");
+    assert.equal(again.source, "registry", "复原落地后即登记表命中，不重复读盘");
+    // 回落真的发生了，且血统判据用的是调用方会话 id（不是调用方自报的任意值）。
+    assert.equal(resolveCalls.length, 1, `登记表未命中必须回落到持久化来源：${JSON.stringify(resolveCalls)}`);
+    assert.equal(resolveCalls[0][0], "reviewer-1");
+    assert.equal(resolveCalls[0][1].parentSessionId, "session-parent", "血统须对调用方自己的会话 id 校验");
   });
 });

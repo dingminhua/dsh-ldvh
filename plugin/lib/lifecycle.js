@@ -7,10 +7,18 @@
 // automatic when that fiber is disposed — no manual agent/disposed sweeps.
 //
 // Discipline baked in here:
-//   - roots-only gate: non-root agents (subagents) are skipped this batch
-//     (Human pending item; zero-interference). Future task agents MUST be
-//     registered before install() runs, or the roots-only gate will misjudge
-//     them (review seam note, mirrors mnemon taskAgentIds).
+//   - subagent gate (2026-10-11, supersedes the earlier roots-only note):
+//     `origin === "subagent"` and, as the second criterion, a non-empty
+//     `parentSession` take the CHILD path (child.js: mechanism mounted, content
+//     empty — no tools, no pre-step channel, no sessionScopes publication). Any
+//     remaining non-root agent is skipped. Future task agents MUST be registered
+//     before install() runs, or this gate will misjudge them (review seam note,
+//     mirrors mnemon taskAgentIds).
+//   - child registry durability (2026-10-18): `children` / `retiredChildren` are
+//     per-instance Maps, so a plugin rebuild loses every child that had already
+//     finished — exactly the one the review channel asks about. start() re-adopts
+//     the live roster (agents.list) and `resolveChild` recovers a finished child
+//     from its own session record; see child-session-record.js.
 //   - tools registration timing (audit A/C): registration happens HERE at
 //     install time (assembly.tools are collected BEFORE the waterfall, so
 //     registering inside the assemble handler would hide the tools from the
@@ -36,8 +44,9 @@ import { advanceWatermark, readDispatchState, recordDispatch, recordActivity } f
 import { admitIdleDispatch, pickEnabledAuxTasks } from "./idle-settings.js";
 import { recordRun } from "./idle-runlog.js";
 import { appendPendingEntry } from "./pending-queue.js";
-import { createChildInstaller } from "./child.js";
-import { AgentLifecycle } from "./agent-lifecycle.js";
+import { adoptFinishedChild, createChildInstaller } from "./child.js";
+import { resolveChildFromSessionRecord } from "./child-session-record.js";
+import { ActivityLog, AgentLifecycle } from "./agent-lifecycle.js";
 import { recordJudgementForGuard } from "./host-seams.js";
 
 export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes, hostSeams, getIdleSettings }) {
@@ -54,7 +63,18 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
   // "Found 0 child record(s)" because the subagent had already ended. Bounded
   // FIFO eviction; this is a collection window, not a durable store.
   const retiredChildren = new Map();
-  const installChild = createChildInstaller(ctx, { agents, children, sessionScopes, retiredChildren });
+  // Registry-level activity trail (2026-10-18 子代理登记表被清空 修复, 步骤 1):
+  // children/retiredChildren 的写入、清空、adopt 三类事件，运行期可回读，不依赖
+  // 控制台。与 per-agent AgentLifecycle.activity (roots) 与 DelegatedChildRecord
+  // .activity (children) 同形——同一 ActivityLog 类、同一 consumer 形状。
+  const registryActivity = new ActivityLog();
+  const installChild = createChildInstaller(ctx, {
+    agents,
+    children,
+    sessionScopes,
+    retiredChildren,
+    onEvent: (hook, detail) => registryActivity.record(hook, detail)
+  });
 
   function agentIdOf(agent) {
     return agent?.id ?? agent?.session?.header?.id;
@@ -102,6 +122,12 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 设置**的可信事实——工具层据此代其落盘复核条目，使「开启代理做独立
           // 审核」在机械上真正可行。
           lookupChild,
+          // Durable fallback for the same channel (2026-10-18 「子代理登记表被清空」
+          // 修复 · 步骤 3): the registry cannot see a child that finished before a
+          // plugin rebuild, so a lookup miss asks the child's own session record.
+          // Without it, `record_review` stayed structurally unusable after any
+          // reload — see child-session-record.js head note.
+          resolveChild,
           // 08 §6: the registration entries route their 07 §5.6 Human Gate
           // consent through ctx.userQuestions.ask via this registry.
           hostSeams
@@ -167,6 +193,60 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
   /** One child by id, live or finished. */
   function lookupChild(childId) {
     return children.get(childId)?.record ?? retiredChildren.get(childId)?.record ?? null;
+  }
+
+  /**
+   * Resolve a delegated child for the review channel: the in-memory registry
+   * first, then the child's own session record.
+   *
+   * The registry is per-plugin-instance state, and start() can only re-adopt the
+   * agents the host still lists as live — so a plugin rebuild loses every child
+   * that had ALREADY FINISHED. That is exactly the child the review channel asks
+   * about (「复核者跑完了，现在登记它的结论」), which made独立复核 mechanically
+   * impossible after any reload: five isolated reviewers lost this way on
+   * workcase-996e207a. The durable source is the session record the host itself
+   * wrote; identity and lineage rules live in child-session-record.js, and the
+   * hydrated record lands in retiredChildren so the next lookup — collect
+   * included — is an ordinary registry hit.
+   *
+   * Reported as a result rather than thrown: the caller (workcase-tools) turns a
+   * miss into a fail-closed refusal that names the reason for Human.
+   *
+   * @param {string} childId cited agent/session id.
+   * @param {{parentSessionId?: string}} [options] the calling session, used to
+   *   require that the cited session is one it actually delegated to.
+   * @returns {Promise<{ok: true, record: object, source: string}|{ok: false, reason: string}>}
+   */
+  async function resolveChild(childId, { parentSessionId } = {}) {
+    const known = lookupChild(childId);
+    if (known !== null) return { ok: true, record: known, source: "registry" };
+    const resolved = await resolveChildFromSessionRecord({
+      sessionPersistence: ctx.get("sessionPersistence"),
+      childId,
+      parentSessionId
+    });
+    if (resolved.ok !== true) {
+      registryActivity.record("child/resolve-miss", {
+        childId,
+        parentSessionId: parentSessionId ?? null,
+        reason: resolved.reason
+      });
+      return { ok: false, reason: resolved.reason };
+    }
+    const record = adoptFinishedChild({
+      retiredChildren,
+      header: resolved.header,
+      conclusion: resolved.conclusion,
+      source: "session-record",
+      emit: (hook, detail) => registryActivity.record(hook, detail)
+    });
+    registryActivity.record("child/hydrated", {
+      childId,
+      parentId: resolved.header?.parentSession ?? null,
+      conclusionChars: resolved.conclusion.length,
+      ancestry: resolved.ancestry ?? []
+    });
+    return { ok: true, record, source: "session-record" };
   }
 
   function propagateToChildren(state, parentAgentId) {
@@ -285,15 +365,20 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         channel: lifecycle.preStep,
         // 接手侧的环境检查（21 §14「以及该会话续接本对象」）：会话继续干活时，把
         // **已在办且处于执行期**的工单的宿主目标恢复到武装状态。与受控写入点的分工
-        // 见 workcase-goals.js：这里不拒绝任何动作（会话继续干活不该被环境检查拦住），
-        // 失败只记日志；工单不在执行期（draft／closed）时什么都不做——否则会把局部
-        // 重批对目标的暂停无声撤销。
+        // 见 workcase-goals.js：这里不拒绝任何动作（会话继续干活不该被环境检查拦住）；
+        // 工单不在执行期（draft／closed）时什么都不做——否则会把局部重批对目标的
+        // 暂停无声撤销。
+        //
+        // 返回值**不许丢弃**（2026-10-19 修复）：`ok:false` 表示「对象仍在执行期，
+        // 目标却没能武装」——该状态若不落到日志，就是 workcase-996e207a 那种
+        // 「每回合都在失败、外面什么都看不见」的形态。成功方向只在真正动过目标
+        // （recreated／rearmed）时才记 warn 级以外的信息，避免每回合刷噪音。
         onTurnStart: async () => {
           const judged = lifecycle.lastScope;
           const projectPath = judged?.project?.path;
           if (typeof projectPath !== "string" || projectPath.length === 0) return;
           const factSourceRoot = join(projectPath, "ldvh-base");
-          await rearmInFlightWorkcaseGoal({
+          const rearm = await rearmInFlightWorkcaseGoal({
             ctx: { get: (key) => (key === "goals" ? ctx.get("goals") : undefined) },
             agent,
             readWorkcaseStatus: async (objectUid) => {
@@ -301,6 +386,11 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               return read.ok ? read.value.frontmatter.status : null;
             }
           });
+          if (rearm?.ok === false) {
+            ctx.logger?.warn?.(`[dsh-ldvh] host goal is not armed for an in-flight workcase: ${rearm.message ?? rearm.code}`);
+          } else if (rearm?.action === "recreated" || rearm?.action === "rearmed") {
+            ctx.logger?.info?.(`[dsh-ldvh] host goal ${rearm.action} for workcase-${rearm.detail?.object_uid}: ${rearm.detail?.objective ?? ""}`);
+          }
         },
         // Visible judgment row (Human 2026-09-04 "这里要能看到啊"): the
         // assemble handler updates noticeText on every judgement; the
@@ -1001,18 +1091,44 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       // without this, hot-reloaded plugins leave existing sessions hookless
       // and /ldvh/state answers unknown forever for them. The agents service
       // is optional in fabricated contexts (tests) — no roster, no adoption.
+      //
+      // 2026-10-18 修复「子代理登记表被清空」：本处原先只遍历 `roots()`，
+      // 而插件 fiber 重建会先清空 children/retiredChildren（见下方 children/cleared），
+      // 随后 start() 只把**根会话**装回来——**已存在的子代理不再入表**。后果是
+      // 重建后 ldvh_collect_subagent_results 恒 0 条、record_review 恒判
+      // 「not a subagent registered」，独立复核无法收口。
+      //
+      // 改用 `list()`（"All live agents, in registration order"——含子代理，
+      // 且父先于子注册）：子代理经 install() 的 origin/parentSession 判据走
+      // installChild()，父记录先装好，子据此继承委派链状态。`list()` 不存在时
+      // （旧宿主 / 虚构 ctx）回退到 `roots()`，行为与修复前一致。
       const agentsService = ctx.get("agents");
       if (agentsService !== undefined) {
-        for (const agent of agentsService.roots()) install(agent);
+        const roster = typeof agentsService.list === "function" ? agentsService.list() : agentsService.roots();
+        for (const agent of roster) {
+          const adopted = agentIdOf(agent);
+          install(agent);
+          registryActivity.record("root/adopt", { agentId: adopted ?? null });
+        }
       }
       return () => {
         try { disposeCreated(); } catch { /* already removed */ }
         try { disposeSubagentEnd(); } catch { /* already removed */ }
+        const clearedChildren = [...children.keys()];
         for (const { dispose } of children.values()) {
           try { dispose(); } catch { /* already removed */ }
         }
+        // 清空前读数：dispose() 会把每个活体子代理经 cleanup 移入 retiredChildren
+        // 再 children.delete —— 之后直接 clear 两张表。这里记录清空事件，使
+        // 「表何时被清空、被谁清空、清空前有哪些」可回读（步骤 1 观测点）。
+        const clearedRetired = [...retiredChildren.keys()];
         children.clear();
         retiredChildren.clear();
+        registryActivity.record("children/cleared", {
+          clearedLive: clearedChildren,
+          clearedRetired,
+          at: new Date().toISOString()
+        });
         for (const agentId of [...agents.keys()]) agents.delete(agentId);
       };
     },
@@ -1040,9 +1156,17 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
     childActivityOf(childId) {
       return lookupChild(childId)?.activitySnapshot() ?? null;
     },
+    /** Registry-first, session-record-fallback resolution (async). The review
+     * channel's entry point after a plugin rebuild; see resolveChild above. */
+    resolveChild,
     /** The child's captured final text, or null when not yet concluded. */
     childConclusionOf(childId) {
       return lookupChild(childId)?.conclusion ?? null;
+    },
+    /** Registry-level activity trail (children/retiredChildren write/clear/adopt).
+     * Entries: { at, hook, detail } — same shape as per-agent activity. */
+    registryActivitySnapshot() {
+      return registryActivity.snapshot();
     }
   };
 }
