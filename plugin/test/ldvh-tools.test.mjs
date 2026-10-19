@@ -647,7 +647,7 @@ test("precheck-git-commit returns passed when the route source agrees with the t
 			{ type: "model/selection", data: { provider: "deepseek-harness", model: "test" } },
 		]);
 		const message = [
-			"chore(code): add feature",
+			"chore(code): 新增特性文件",
 			"",
 			"关键变更:",
 			"- create feature.txt with the new line",
@@ -690,7 +690,7 @@ test("precheck-git-commit returns failed when the trailer values do not match th
 			{ type: "model/selection", data: { provider: "deepseek-harness", model: "test" } },
 		]);
 		const message = [
-			"chore(code): add feature",
+			"chore(code): 新增特性文件",
 			"",
 			"关键变更:",
 			"- create feature.txt with the new line",
@@ -732,7 +732,7 @@ test("precheck-git-commit returns failed when the trailer is structurally incomp
 		// missing LDVH-Model entirely (structural defect — decidable
 		// without any route source).
 		const message = [
-			"chore(code): add feature",
+			"chore(code): 新增特性文件",
 			"",
 			"关键变更:",
 			"- create feature.txt",
@@ -758,7 +758,7 @@ test("precheck-git-commit returns failed when the trailer values are empty (no r
 		await writeFile(join(root, "feature.txt"), "x\n");
 		await git(root, ["add", "feature.txt"]);
 		const message = [
-			"chore(code): add feature",
+			"chore(code): 新增特性文件",
 			"",
 			"关键变更:",
 			"- create feature.txt",
@@ -802,7 +802,7 @@ test("precheck-git-commit returns failed when a 关键变更: item names a chang
 		await writeFile(join(root, "feature.txt"), "x\n");
 		await git(root, ["add", "feature.txt"]);
 		const message = [
-			"chore(code): add feature",
+			"chore(code): 新增特性文件",
 			"",
 			"关键变更:",
 			"- rename bar.js to baz.js (NOT in diff)",
@@ -832,7 +832,7 @@ test("precheck-git-commit returns unverifiable (NOT passed) when the route sourc
 		await writeFile(join(root, "feature.txt"), "new content\n");
 		await git(root, ["add", "feature.txt"]);
 		const message = [
-			"chore(code): add feature",
+			"chore(code): 新增特性文件",
 			"",
 			"关键变更:",
 			"- create feature.txt with the new line",
@@ -872,7 +872,7 @@ test("precheck-git-commit returns unverifiable when the session log exists but c
 			{ type: "tool/result", data: { ok: true } },
 		]);
 		const message = [
-			"chore(code): add feature",
+			"chore(code): 新增特性文件",
 			"",
 			"关键变更:",
 			"- create feature.txt",

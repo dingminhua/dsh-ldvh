@@ -49,6 +49,19 @@ export function cleanGitEnvironment(extra = {}) {
 }
 
 export const HEADER_PATTERN = /^(feat|fix|docs|refactor|test|chore|build|ci|perf|style)(?:\([a-z0-9-]+\))?: .+/;
+/** The description half of a header: everything after `type(scope): `.
+ *  The header-language check judges this half only — the conventional prefix
+ *  is Latin by definition and must not count as "having a description". */
+export const HEADER_DESCRIPTION_PATTERN = /^(?:feat|fix|docs|refactor|test|chore|build|ci|perf|style)(?:\([a-z0-9-]+\))?: (.+)$/;
+/** 中文（CJK 统一表意文字）判定，供 header 描述的语言检查使用。 */
+export const CJK_CHARACTER_PATTERN = /[\u4e00-\u9fff]/;
+/** 实现层登记的历史豁免（与 EXEMPT_BASENAMES 同体例）：本规则生效之前
+ *  已经落入历史的两笔非中文 header。豁免按完整 header 文本逐字匹配，
+ *  不改变规范层语义边界，也不放行任何新提交。 */
+export const HEADER_LANGUAGE_EXEMPTIONS = Object.freeze([
+	"fix(injection): stop re-injecting the governance block on adjacent turns",
+	"fix(client): ctx.get→ctx.inject for betterSidebar tab registration",
+]);
 export const SIGNATURES = ["LDVH-Provider", "LDVH-Model"];
 export const SOURCE_FINGERPRINT = createHash("sha256").update("dsh-ldvh-git-gate-v1", "utf8").digest("hex");
 
@@ -61,6 +74,7 @@ export const SOURCE_FINGERPRINT = createHash("sha256").update("dsh-ldvh-git-gate
 
 export const GATE_RULES = Object.freeze({
   "validation/header_invalid": Object.freeze({ severity: "blocking", description: "first line must be a conventional commit header" }),
+  "validation/header_not_chinese": Object.freeze({ severity: "blocking", description: "header description must use Chinese: 09 §5.1 states the message contract in Chinese and requires the 关键变更: literal verbatim, so the description half carries the same language requirement (implementation gap 2026-10-19; two pre-existing Latin headers are registered as exemptions in HEADER_LANGUAGE_EXEMPTIONS)" }),
   "validation/key_changes_required": Object.freeze({ severity: "blocking", description: "body must contain exactly one 关键变更: section with non-empty items" }),
   "validation/signature_trailer_missing": Object.freeze({ severity: "blocking", description: "footer requires exactly one LDVH-Provider: and one LDVH-Model: line" }),
   "validation/key_change_unmatched": Object.freeze({ severity: "blocking", description: "a 关键变更 item names no staged change (06 §6.1: no items absent from the diff)" }),
@@ -77,6 +91,9 @@ export const GATE_RULES = Object.freeze({
   "validation/removal_basis_unquotable": Object.freeze({ severity: "blocking", description: "a 关键变更 item declares a §7.2 removal basis whose quoted sentence does not appear verbatim in the current §7.2 text" }),
   "validation/removal_basis_empty": Object.freeze({ severity: "blocking", description: "a §7.2 依据： declaration carries no quoted sentence" }),
   "validation/removal_basis_section_unreadable": Object.freeze({ severity: "blocking", description: "the candidate tree's §7.2 text could not be read, so a declared removal basis cannot be verified (fails closed)" }),
+  "git/friction_commit_unresolvable": Object.freeze({ severity: "blocking", description: "a staged friction carrier's informs target names a commit that does not resolve in this repository (26 §11: 目标必须存在且可解析; commit 例外形态同口径) — re-asserted at the commit seam because the writer is bypassable by a direct file write" }),
+  "git/friction_commit_malformed": Object.freeze({ severity: "blocking", description: "a staged friction carrier's informs target is not a 40-hex commit hash (02 §8.1 commit 形态)" }),
+  "git/friction_commit_unverifiable": Object.freeze({ severity: "blocking", description: "friction commit targets could not be verified because no commit resolver was supplied — fails closed rather than passing an unverified carrier (26 §11)" }),
 });
 
 /** Mechanical-artifact exemption for the bidirectional coverage check
@@ -89,6 +106,17 @@ export const EXEMPT_BASENAMES = Object.freeze(["package-lock.json", "pnpm-lock.y
 export function isExemptPath(path) {
   const base = path.split("/").pop() ?? path;
   return EXEMPT_BASENAMES.includes(base);
+}
+
+/** True when a header's description carries no CJK character and the header is
+ *  not a registered historical exemption. A non-conventional header is not
+ *  judged here — `validation/header_invalid` already rejects it, and stacking a
+ *  second finding on the same defect would blur which rule fired. */
+export function isHeaderDescriptionNonChinese(header) {
+	const match = HEADER_DESCRIPTION_PATTERN.exec(header ?? "");
+	if (match === null) return false;
+	if (HEADER_LANGUAGE_EXEMPTIONS.includes(header)) return false;
+	return !CJK_CHARACTER_PATTERN.test(match[1]);
 }
 
 /** Build one structured finding; `rule` must be registered. */
@@ -109,6 +137,11 @@ export function validateMessage(message) {
   const issues = [];
   const lines = message.replace(/\r\n/g, "\n").split("\n");
   if (!HEADER_PATTERN.test(lines[0] ?? "")) issues.push(newFinding("validation/header_invalid", "first line must be a conventional commit header", 1));
+  // 09 §5.1 的 message 契约以中文表述，并要求 `关键变更:` 这一中文字面量
+  // 逐字存在；header 描述承载同一语言要求。此前只有 `关键变更:` 受机械
+  // 校验，header 与正文散文不受，故一条全拉丁 header 可以完整通过两个入口
+  // （实例：2c476bd8，其 `关键变更:` 六项为中文、header 为英文）。
+  if (isHeaderDescriptionNonChinese(lines[0])) issues.push(newFinding("validation/header_not_chinese", "header description must contain at least one Chinese (CJK) character", 1));
   const keyIndexes = lines.flatMap((line, index) => (line === "关键变更:" ? [index] : []));
   if (keyIndexes.length !== 1 || !lines.slice(keyIndexes[0] + 1).some((line) => line.startsWith("- ") && line.slice(2).trim().length > 0)) {
     issues.push(newFinding("validation/key_changes_required", "body must contain one 关键变更: section with a non-empty - item", keyIndexes.length === 1 ? keyIndexes[0] + 1 : null));
@@ -617,4 +650,95 @@ export function checkRemovalBasisDeclarations({ message, sectionText, sectionTex
 
 export function isNormCarrierPath(path) {
   return path.startsWith(`${NORM_FACT_DIRECTORY}/`) && /\/norm-[^/]+\.md$/.test(path);
+}
+
+// ── 摩擦 relations 的 commit 目标：提交层的兜底校验 ──────────────────────
+//
+// 26 §11 要求 `informs` 的目标「存在且可解析」，commit 例外形态同样如此
+// （「机械层只核 hash 真实可解析」）。这条校验写在 friction-writer 里，覆盖
+// create/update/correct 三条受控路径——**但它覆盖不到不经 writer 的直接落盘**。
+//
+// 实测事故（2026-10-19 发现）：friction-ed844630 以 `git add` + `commit` 直接
+// 落盘（git 记录为 new file、42 行纯新增，status 一上来就是 resolved、relations
+// 一上来就带着两条 informs），完全绕过 writer，于是两个**从未存在过**的 commit
+// 标识堂而皇之地进了账目，Web 端渲染成死链接。writer 里的 fail-closed 再严密，
+// 对「不经过 writer」的写入也毫无作用。
+//
+// 提交缝是所有写入路径的唯一汇聚点，故在此再兜一层：校验的对象是 **Index 里
+// 暂存的内容**（即将进仓的那一版），而不是工作树上的副本——否则一笔提交可能
+// 携带一个尚未落盘的正确版本通过校验。
+//
+// 判定口径与 writer 一致（`git cat-file -e <hash>^{commit}`），差别只在失败
+// 处理的时机：writer 是在写之前拒绝，这里是在提交之前拒绝。
+const FRICTION_FACT_DIRECTORY = "ldvh-base/frictions";
+const COMMIT_HASH_PATTERN = /^[0-9a-f]{40}$/i;
+
+export function isFrictionCarrierPath(path) {
+  return path.startsWith(`${FRICTION_FACT_DIRECTORY}/`) && /\/friction-[^/]+\.md$/.test(path);
+}
+
+/**
+ * 从摩擦载体的 frontmatter 中取出所有 commit 形态的目标。
+ *
+ * 只做窄解析：本函数不承担 YAML 全集的正确性，它的输入是**已经过了 writer
+ * 校验或结构校验**的载体；这里要抓的是「标识是否真实存在于仓库」。因此只认
+ * `relations:` 块里 `target:` 下的 `commit:` 行，以及 `evidence_locator:` 下的
+ * `commit:` 行——两种形态在 02 §8.1 中并列，都必须真实可解析。
+ *
+ * 找不到 `relations:` 块返回空数组（绝大多数摩擦没有关系边，这是常态）。
+ */
+export function extractFrictionCommitTargets(content) {
+  const targets = [];
+  const lines = String(content ?? "").split(/\r?\n/);
+  // 只在 frontmatter 围栏内找：从首行 `---` 到下一个 `---`。
+  const start = lines.findIndex((line) => line.trim() === "---");
+  if (start === -1) return targets;
+  const end = lines.findIndex((line, index) => index > start && line.trim() === "---");
+  if (end === -1) return targets;
+
+  let inRelations = false;
+  for (let index = start + 1; index < end; index += 1) {
+    const line = lines[index];
+    // 顶层键（无缩进）决定是否已离开 relations 块。
+    if (/^[A-Za-z_][A-Za-z0-9_]*\s*:/.test(line)) {
+      inRelations = /^relations\s*:/.test(line);
+      continue;
+    }
+    if (!inRelations) continue;
+    const match = /^\s+commit\s*:\s*(.+?)\s*$/.exec(line);
+    if (match) targets.push(match[1].replace(/^["']|["']$/g, ""));
+  }
+  return targets;
+}
+
+/**
+ * 校验摩擦载体里的 commit 目标是否真实可解析。
+ *
+ * `resolves(hash)` 由调用方注入（gate runner 用 `git cat-file -e`），保持本模块
+ * 不直接触碰 git。**无 resolver 时 fail-closed**：无法核验即不通过——这正是
+ * writer 侧已经确立的口径，此处不因为「只是在提交时查一下」而放松。
+ */
+export async function checkFrictionCommitTargets(carriers, { resolves } = {}) {
+  const issues = [];
+  if (typeof resolves !== "function") {
+    return {
+      ok: false,
+      issues: [newFinding("git/friction_commit_unverifiable", "cannot verify friction commit targets: no commit resolver was supplied (26 §11, fails closed)", null)],
+      checked: 0,
+    };
+  }
+  let checked = 0;
+  for (const carrier of carriers ?? []) {
+    for (const hash of extractFrictionCommitTargets(carrier.content)) {
+      checked += 1;
+      if (!COMMIT_HASH_PATTERN.test(hash)) {
+        issues.push(newFinding("git/friction_commit_malformed", `${carrier.path}: relations target must be a 40-hex commit hash, got ${JSON.stringify(hash)} (02 §8.1 commit 形态)`, null));
+        continue;
+      }
+      if (!(await resolves(hash))) {
+        issues.push(newFinding("git/friction_commit_unresolvable", `${carrier.path}: commit ${hash} does not resolve to an existing commit in this repository (26 §11 — 目标必须存在且可解析)`, null));
+      }
+    }
+  }
+  return { ok: issues.length === 0, issues, checked };
 }

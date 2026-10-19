@@ -83,7 +83,7 @@ test("blocks a message that misses or duplicates a signature trailer", async () 
 		const messageFile = join(root, "msg.txt");
 
 		const missing = [
-			"chore(x): fine header",
+			"chore(x): 合规标题",
 			"",
 			"关键变更:",
 			"- README.md item",
@@ -97,7 +97,7 @@ test("blocks a message that misses or duplicates a signature trailer", async () 
 		assert.doesNotMatch(result.stderr, /header_invalid/);
 
 		const duplicated = [
-			"chore(x): fine header",
+			"chore(x): 合规标题",
 			"",
 			"关键变更:",
 			"- README.md item",
@@ -159,7 +159,7 @@ test("rejects legacy Product-Name/Model-Name trailers and accepts only LDVH-Prov
 		// LDVH-Model-Name names — exactly one of each, which the gate
 		// must still reject because the names themselves are wrong.
 		const legacy = [
-			"chore(x): fine header",
+			"chore(x): 合规标题",
 			"",
 			"关键变更:",
 			"- README.md item",
@@ -176,7 +176,7 @@ test("rejects legacy Product-Name/Model-Name trailers and accepts only LDVH-Prov
 		// The new trailer is accepted with the same header + 关键变更段,
 		// proving the gate's contract is precisely the new field names.
 		const current = [
-			"chore(x): fine header",
+			"chore(x): 合规标题",
 			"",
 			"关键变更:",
 			"- README.md item",

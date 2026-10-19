@@ -22,7 +22,7 @@ export const runnerPath = join(pluginRoot, "lib", "git-gate-runner.js");
 
 /** A commit message that satisfies every gate rule of git-gate-runner. */
 export const VALID_COMMIT_MESSAGE = [
-	"chore(code): add ldvh gate",
+	"chore(code): 接入 ldvh 提交校验",
 	"",
 	"关键变更:",
 	"- seed README.md test carrier",

@@ -1054,13 +1054,13 @@ test("signature: the writers REFUSE an unsigned change_log write (03 §6.1 / 09)
 
 test("signature: the commit layer keeps rejecting an unsigned commit message (06 §6.1)", async () => {
 	const { validateMessage } = await import("../lib/commit-validation.js");
-	const unsigned = ["fix: x", "", "关键变更:", "- y"].join("\n");
+	const unsigned = ["fix: 修复缺陷", "", "关键变更:", "- y"].join("\n");
 	const findings = validateMessage(unsigned);
 	assert.ok(
 		findings.some((f) => f.rule === "validation/signature_trailer_missing" && f.severity === "blocking"),
 		"a commit message without LDVH-Provider/LDVH-Model must be blocking"
 	);
-	const signed = ["fix: x", "", "关键变更:", "- y", "", "LDVH-Provider: p", "LDVH-Model: m"].join("\n");
+	const signed = ["fix: 修复缺陷", "", "关键变更:", "- y", "", "LDVH-Provider: p", "LDVH-Model: m"].join("\n");
 	assert.equal(validateMessage(signed).length, 0);
 });
 

@@ -304,7 +304,7 @@ test("real commit-msg: illegal commit is blocked, legal commit passes", async ()
 		const passed = await gitOk(root, ["commit", "-m", VALID_COMMIT_MESSAGE]);
 		assert.equal(passed.ok, true, `legal commit must pass: ${passed.stderr}`);
 		const log = await git(root, ["log", "--oneline"]);
-		assert.match(log, /add ldvh gate/);
+		assert.match(log, /接入 ldvh 提交校验/);
 	});
 });
 
@@ -325,7 +325,7 @@ test("preflight synthetic index stays tiny on a repository with commit history",
 			await writeFile(join(root, name), chunk.repeat(1200)); // ~1.2MB each
 			await git(root, ["add", name]);
 		}
-		await git(root, ["commit", "-m", "chore(code): add bulk files"]);
+		await git(root, ["commit", "-m", "chore(code): 批量添加文件"]);
 
 		const install = await installHook({ projectRoot: root, runnerPath, workspaceRoot: base });
 		assert.equal(install.ok, true, install.error?.message);

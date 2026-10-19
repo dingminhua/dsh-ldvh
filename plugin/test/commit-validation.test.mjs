@@ -8,6 +8,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	HEADER_PATTERN,
+	isHeaderDescriptionNonChinese,
+	HEADER_LANGUAGE_EXEMPTIONS,
 	SIGNATURES,
 	SOURCE_FINGERPRINT,
 	checkKeyChangesAgainstDiff,
@@ -29,11 +31,12 @@ import {
 	isSpecCarrierPath,
 	LOAD_BEARING_MARKER,
 	LOAD_BEARING_RESOLUTION_LABEL,
-	LOAD_BEARING_RULES, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText} from "../lib/commit-validation.js";
+	LOAD_BEARING_RULES, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText,
+	checkFrictionCommitTargets, extractFrictionCommitTargets, isFrictionCarrierPath} from "../lib/commit-validation.js";
 
 /** A canonical, fully-legal commit message. */
 const validMessage = [
-	"chore(code): add ldvh gate",
+	"chore(code): 接入 ldvh 提交校验",
 	"",
 	"关键变更:",
 	"- wire commit-msg gate into git",
@@ -53,7 +56,7 @@ test("validateMessage returns no issues for a fully legal message", () => {
 test("validateMessage accepts every conventional-commit type", () => {
 	for (const type of ["feat", "fix", "docs", "refactor", "test", "chore", "build", "ci", "perf", "style"]) {
 		const msg = [
-			`${type}: short summary`,
+			`${type}: 简短描述`,
 			"",
 			"关键变更:",
 			"- item",
@@ -68,7 +71,7 @@ test("validateMessage accepts every conventional-commit type", () => {
 
 test("validateMessage accepts the transition-period scoped header (e.g. chore(code): ...)", () => {
 	const msg = [
-		"chore(scope): add gate",
+		"chore(scope): 接入校验",
 		"",
 		"关键变更:",
 		"- wire gate",
@@ -99,6 +102,43 @@ test("validateMessage rejects an unknown header type", () => {
 	const msg = ["quantum: add gate", "", "关键变更:", "- x", "", "LDVH-Provider: a", "LDVH-Model: b"].join("\n");
 	const issues = validateMessage(msg);
 	assert.ok(issues.some((i) => i.rule.startsWith("validation/header_invalid")));
+});
+
+// ---------------------------------------------------------------------------
+// validateMessage — header 描述语言（09 §5.1 中文契约的 header 半边）
+// ---------------------------------------------------------------------------
+
+test("validateMessage rejects a header whose description has no Chinese character", () => {
+	const msg = ["fix(injection): stop re-injecting the governance block on adjacent turns", "", "关键变更:", "- x", "", "LDVH-Provider: a", "LDVH-Model: b"].join("\n");
+	const issues = validateMessage(msg.replace("fix(injection): stop re-injecting the governance block on adjacent turns", "fix(injection): stop the duplicate injection"));
+	assert.ok(issues.some((i) => i.rule === "validation/header_not_chinese"));
+});
+
+test("validateMessage accepts a Chinese description that keeps a Latin technical identifier", () => {
+	const msg = ["fix(guidance): 注入台账改用 state.injectedIds 取代本回合批次判据", "", "关键变更:", "- plugin/lib/guidance.js: 注入台账", "", "LDVH-Provider: a", "LDVH-Model: b"].join("\n");
+	assert.deepEqual(validateMessage(msg), []);
+});
+
+test("validateMessage accepts a description that is Chinese only", () => {
+	const msg = ["chore: 增加提交校验", "", "关键变更:", "- 增加校验", "", "LDVH-Provider: a", "LDVH-Model: b"].join("\n");
+	assert.deepEqual(validateMessage(msg), []);
+});
+
+test("validateMessage exempts the two registered historical Latin headers", () => {
+	for (const header of HEADER_LANGUAGE_EXEMPTIONS) {
+		assert.equal(isHeaderDescriptionNonChinese(header), false, `expected exemption for: ${header}`);
+	}
+});
+
+test("isHeaderDescriptionNonChinese does not judge a non-conventional header", () => {
+	// 该形态已由 validation/header_invalid 拒绝；本规则不叠加第二个 finding。
+	assert.equal(isHeaderDescriptionNonChinese("Bug fix on Tuesday"), false);
+	assert.equal(isHeaderDescriptionNonChinese(""), false);
+});
+
+test("isHeaderDescriptionNonChinese flags a fresh Latin description", () => {
+	assert.equal(isHeaderDescriptionNonChinese("feat(gate): add language check"), true);
+	assert.equal(isHeaderDescriptionNonChinese("docs: update the readme"), true);
 });
 
 // ---------------------------------------------------------------------------
@@ -375,6 +415,7 @@ test("SOURCE_FINGERPRINT is a 64-hex string and stable", () => {
 test("GATE_RULES registers every rule the validator emits, each with severity and description", () => {
 	const expected = [
 		"validation/header_invalid",
+		"validation/header_not_chinese",
 		"validation/key_changes_required",
 		"validation/signature_trailer_missing",
 		"validation/key_change_unmatched",
@@ -384,6 +425,9 @@ test("GATE_RULES registers every rule the validator emits, each with severity an
 		"git/index_empty",
 		"facts/norm_direction_collision",
 		"facts/norm_carrier_unparseable",
+		"git/friction_commit_malformed",
+		"git/friction_commit_unresolvable",
+		"git/friction_commit_unverifiable",
 		"validation/docs_reference_dangling",
 		"validation/load_bearing_declaration_removed",
 		"validation/load_bearing_resolution_missing",
@@ -830,4 +874,92 @@ test("标签落在代码跨度内属提及、不构成依据申报（本轮实�
 	// 同一行里既有提及又有裸写：仍须申报（裸写那处要核对）
 	const both = collectRemovalBasisDeclarations("§7.2 依据：甲 与 `§7.2 依据：乙`");
 	assert.deepEqual(both, ["甲 与 `§7.2 依据：乙`"], "以第一个**裸写**标签为锚，其余留在引用文本内");
+});
+
+// ── 摩擦 informs 的 commit 目标：提交层兜底（26 §11）───────────────────────
+//
+// 这一层的存在理由是一次实测事故：friction-ed844630 由 `git add` + `commit`
+// 直接落盘（git 记录为 new file、42 行纯新增、status 一上来就是 resolved），
+// 完全绕过 friction-writer，于是两个从未存在过的 commit 标识进了账目，Web 端
+// 渲染成死链接。writer 的 fail-closed 再严密，也管不到不经 writer 的写入。
+
+const FRICTION_OK = `---
+title: 示例摩擦
+status: resolved
+relations:
+  - relation_key: informs
+    target:
+      commit: ${"a".repeat(40)}
+object_uid: 11111111-2222-3333-4444-555555555555
+---
+## 现象
+单句现象。
+`;
+
+test("摩擦载体：提取 commit 形态目标（含 evidence_locator）", () => {
+	const content = `---
+title: t
+status: resolved
+relations:
+  - relation_key: informs
+    target:
+      commit: ${"b".repeat(40)}
+    evidence_locator:
+      commit: ${"c".repeat(40)}
+  - relation_key: informs
+    target:
+      object_uid: 99999999-8888-7777-6666-555555555555
+object_uid: 11111111-2222-3333-4444-555555555555
+---
+## 现象
+x
+`;
+	assert.deepEqual(extractFrictionCommitTargets(content), ["b".repeat(40), "c".repeat(40)]);
+	// 无 relations 的摩擦是常态，不得误报
+	assert.deepEqual(extractFrictionCommitTargets("---\ntitle: t\nstatus: observing\n---\n## 现象\nx\n"), []);
+	// object_uid 形态不参与 commit 校验
+	assert.deepEqual(extractFrictionCommitTargets(FRICTION_OK.replace("commit:", "object_uid:")), []);
+});
+
+test("摩擦载体：commit 目标不可解析即拦下（事故形态复现）", async () => {
+	// 场景一：标识不在仓库中——正是 friction-ed844630 的形态
+	const missing = await checkFrictionCommitTargets(
+		[{ path: "ldvh-base/frictions/friction-x.md", content: FRICTION_OK }],
+		{ resolves: async () => false }
+	);
+	assert.equal(missing.ok, false);
+	assert.deepEqual(missing.issues.map((i) => i.rule), ["git/friction_commit_unresolvable"]);
+
+	// 场景二：标识可解析——放行
+	const present = await checkFrictionCommitTargets(
+		[{ path: "ldvh-base/frictions/friction-x.md", content: FRICTION_OK }],
+		{ resolves: async (hash) => hash === "a".repeat(40) }
+	);
+	assert.equal(present.ok, true);
+	assert.equal(present.checked, 1);
+});
+
+test("摩擦载体：格式不合法的 commit 单独报错，不混同为不可解析", async () => {
+	const bad = FRICTION_OK.replace("a".repeat(40), "1f1b276");
+	const outcome = await checkFrictionCommitTargets(
+		[{ path: "ldvh-base/frictions/friction-x.md", content: bad }],
+		{ resolves: async () => true }
+	);
+	assert.equal(outcome.ok, false);
+	assert.deepEqual(outcome.issues.map((i) => i.rule), ["git/friction_commit_malformed"]);
+});
+
+test("摩擦载体：无 resolver 时 fail-closed（不能因「只是提交时查一下」而放松）", async () => {
+	const outcome = await checkFrictionCommitTargets(
+		[{ path: "ldvh-base/frictions/friction-x.md", content: FRICTION_OK }],
+		{}
+	);
+	assert.equal(outcome.ok, false);
+	assert.deepEqual(outcome.issues.map((i) => i.rule), ["git/friction_commit_unverifiable"]);
+});
+
+test("摩擦载体路径判定只认 frictions/ 下的 friction-*.md", () => {
+	assert.equal(isFrictionCarrierPath("ldvh-base/frictions/friction-abc.md"), true);
+	assert.equal(isFrictionCarrierPath("ldvh-base/frictions/notes.md"), false);
+	assert.equal(isFrictionCarrierPath("ldvh-base/pitfalls/pitfall-abc.md"), false);
 });
