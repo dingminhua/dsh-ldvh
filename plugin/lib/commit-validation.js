@@ -283,11 +283,18 @@ function itemMatchesPath(item, path) {
 //   - `plugin/web/docs/` is a DIFFERENT directory (Web design docs, owned by
 //     07) and is never matched: the pattern is anchored so that `docs/` must
 //     begin a path segment.
+//   - The tail class accepts any Unicode letter/mark/number, not only ASCII:
+//     a path may end in a CJK filename segment (e.g.
+//     `docs/workcase-xxxx-指称形态候选-2026-10-18.md`). An ASCII-only class
+//     truncates the match before the CJK run and existence-checks the
+//     truncated token — a false `docs_reference_dangling` on a reference that
+//     resolves. The prefix class stays ASCII-punctuated so a CJK character
+//     directly before `docs/` still acts as the segment-start boundary.
 //
 // `carriers` is supplied as { path, content, baseline? } so this stays pure
 // and testable; the runner gathers content from the Index (staged content is
 // authoritative for what the commit would land) and the baseline from HEAD.
-export const DOCS_REFERENCE_PATTERN = /(?:^|[^A-Za-z0-9._/-])(docs\/[A-Za-z0-9._/-]*[A-Za-z0-9_-])/g;
+export const DOCS_REFERENCE_PATTERN = /(?:^|[^A-Za-z0-9._/-])(docs\/[\p{L}\p{N}\p{M}._/-]*[A-Za-z0-9_-])/gu;
 
 /** True when a repo-relative path is under the top-level temporary docs/ tree. */
 export function isTemporaryDocsPath(path) {

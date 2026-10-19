@@ -613,6 +613,25 @@ test("extractDocsReferences ignores the bare directory token without a path", ()
 	assert.deepEqual(extractDocsReferences("文档一律位于 docs/ 目录"), []);
 });
 
+// A docs/ filename may carry a CJK segment. An ASCII-only tail class stops the
+// match at the first CJK run and existence-checks the truncated token — a
+// false `docs_reference_dangling` on a reference that resolves. The prefix
+// class stays ASCII-punctuated so `见docs/…` (no boundary) and CJK-before-docs
+// rules are unaffected.
+test("extractDocsReferences extracts a CJK filename segment to its full extent", () => {
+	assert.deepEqual(
+		extractDocsReferences("产出：`docs/workcase-996e207a-指称形态候选-2026-10-18.md` §1"),
+		["docs/workcase-996e207a-指称形态候选-2026-10-18.md"],
+	);
+	// Two such paths in one sentence are both taken whole.
+	assert.deepEqual(
+		extractDocsReferences("见 docs/a-中文.md 与 docs/b-二.md。"),
+		["docs/a-中文.md", "docs/b-二.md"],
+	);
+	// A CJK run in the middle, with an ASCII tail, is still one path.
+	assert.deepEqual(extractDocsReferences("（`docs/候选/x.md`）"), ["docs/候选/x.md"]);
+});
+
 test("isTemporaryDocsPath distinguishes top-level docs/ from plugin/web/docs/", () => {
 	assert.equal(isTemporaryDocsPath("docs/a.md"), true);
 	assert.equal(isTemporaryDocsPath("docs/archive/b.md"), true);
