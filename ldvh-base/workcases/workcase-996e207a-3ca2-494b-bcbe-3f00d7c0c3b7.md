@@ -129,6 +129,19 @@ attempt:
   heartbeat_at: 2026-10-19T06:15:32.311Z
   session_id: session-afff56ac-abf9-4be1-b3d3-f97f2c7e49d6
   session_source: host
+reviews:
+  - at: 2026-10-19T06:51:23.609Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    session_id: 33e4c8ad-b4a0-444d-becc-48ea71c8bed6
+    session_source: host
+    implementer_session_id: session-afff56ac-abf9-4be1-b3d3-f97f2c7e49d6
+    implementer_session_source: host
+    reviewer_origin: subagent
+    summary: |-
+      ```dsh-ui
+      {"title":"处置建议（按优先级）","gap":10,"items":[{"type":"steps","steps":[{"title":"决定性：步骤 5 状态自相矛盾","desc":"451 行「不宣称步骤 5 已完整达成」与 280 行「步骤 5 达成」互斥，327 行又只列步骤 1–4 达成。二择一：(a) 认定不达成 → 同步改 280/327/340–344，并把「决定三 (C) 是否要求新增运行时门禁机制」提请 Human；(b) 认定已交付 → 删去 451 行「缺口／不宣称达成」定性，只保留可核的机械观察句。"},{"title":"次要：changes 零命中括注","desc":"改为「六 writer 无 changes[] 数组构造」；该不实括注源自第 10 轮记录 441 行，建议一并更正。"},{"title":"次要：发现计数少报","desc":"338 行「其两项发现」改为「其三项发现」（437/439/441 行）。"},{"title":"改完后请复核","desc":"第十二轮应重点验证三处改动与本轮九项中的机械一致性、授权边界未被带偏。"}]}]}
+      ```
 created_at: 2026-10-16T09:36:08.502Z
 change_log:
   - at: 2026-10-16T09:36:08.502Z
@@ -187,6 +200,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 第十轮复核处置：以呈交记录为准更正决定三 (C)、补记越界事实、更正 changes[] 归因、如实登记运行时门禁缺口 [attempt 1 heartbeat refreshed]
+  - at: 2026-10-19T06:51:23.609Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: "记录第十一轮 Gate 2 独立复核结论（复核者 33e4c8ad，verdict: needs_revision） [review recorded by session 33e4c8ad-b4a0-444d-becc-48ea71c8bed6; reviews entries: 1; 记录自子代理会话 33e4c8ad-b4a0-444d-becc-48ea71c8bed6 的最终产出（Code 捕获）]"
 ---
 
 # 事实对象指称须带类型与标题
@@ -277,7 +294,7 @@ change_log:
 
 ### 计划步骤 5 — 工具响应投影改造
 
-达成（以 `d872b9a` 之后的工作树为准；在此之前多次被独立复核否证，见下）。四层路径与取证：
+**达成，但基于载体外的代码状态**（详见本节末「计划步骤 5 达成状态的口径」）。以 `d872b9a` 之后的工作树为准；在此之前多次被独立复核否证，见下。四层路径与取证：
 
 - **列表层**：五个渲染器改 `objectRef(item)`；六个 writer（spark／adr／pitfall／friction／norm／workcase）的列表投影均补 `fact_type_key`。
 - **读取层**：五个 envelope 的 `object:` 行改类型短名；`spark-tools.js` 的 `refs:` 行经派生投影带类型（`listSparkObjects` 内建按需构建的 uid→类型索引）。
@@ -322,6 +339,17 @@ change_log:
 - 发现 2 已在本节就地更正。
 - 发现 3 经查为**并发执行所致**：`plugin/test/lifecycle.test.mjs` 单独连跑 10 次全过；该文件用 `dshHome(home)` 为每例开独立临时目录，隔离正常，失败只发生在两个进程同时跑同一 `dshHome` 临时目录时。故口径为「单进程全量」。
 
+#### 计划步骤 5 达成状态的口径（2026-10-19 定，消除第 11 轮复核发现 ① 指出的矛盾）
+
+第 11 轮复核指认：本节「计划步骤 5」记「达成」，而这里「收口状态」又记「不宣称步骤 5 已完整达成」，两处互斥。矛盾属实，**先前的处理方式是错的**——用「按 Human 决定已达成的部分达成」这类限定语调和两处表述，本身就是含糊。
+
+统一口径如下，二者不再并列：
+
+1. **按计划步骤 5 自己写定的完成判据**（「改造覆盖授权范围枚举的四层路径，逐条以回读的实际输出为证；契约测试通过并给出通过计数」）——**该判据未达成**。原因不是授权缺位，而是取证方式：改造实际落在**仓库工作树与已提交代码**（`d872b9a` 及后续修复提交）中，而**运行中的插件实例是另一份加载态代码**，本会话从未取得「四层路径在运行实例上逐条回读」的证据。这正是「声称覆盖面 ＞ 实际覆盖面」的第四次同类风险（前三次见「收口状态」段）。
+2. 因此本单**不宣称步骤 5 达成**。载体外的代码改造是事实（有提交、有测试、有实跑输出），**但「代码已改」不等于「步骤 5 的完成判据已由回读证据满足」**。
+
+据此，本单即使关闭，`outcome` 也**不得**为 `completed`；合法选项为 `partial`（步骤 1–4 达成、步骤 5 按上述口径未达成）或继续 `open` 等待运行实例取证。
+
 ### 收口状态（2026-10-18 立，2026-10-19 多次修订）
 
 计划步骤 1–5 **按 Human 决定已达成的部分达成**：步骤 1–4 达成（Human 决定已取得，决定①采纳§9.3、②全部消费面、③机械门禁设于工具响应投影面 + 契约测试面（决定三 C）、④存量不回改、⑤回指草案采纳）；步骤 5 的工具投影改造在授权范围内反复返工，**「覆盖四层」的声称先后三次失守**——第 6 轮 workcase 层缺口、第 8 轮代码未落工作树（本节描述的是 `stash@{0}` 而非工作树）、第 9 轮 `spark-tools.js` 关系目标行仍打印完整 UUID。三次均由独立复核实跑发现，均已修复并补契约测试（含反向验证）。
@@ -335,7 +363,9 @@ change_log:
 - （历史）`action=close` 要求 `reviews` 中至少一条条目同时携带「复核者会话身份」与「写入当时的实施者身份」，且 `reviewer_origin === "subagent"`（`plugin/lib/workcase-writer.js` 的 close 门禁，`workcase-2be11478` / `04 §7.3`）。
 - （历史）`reviews` 条目只能经 `action=record_review` 写入，而该通道**强制要求** `reviewer_child_agent_id`，并由 `deps.lookupChild` 在**宿主子代理注册表**中查证；修复前注册表在插件重建后为空，五次后台派生的隔离子代理（`4dfcc7e9`／`7b598299`／`47ef943e`／`230fe389`／`61ae6b21`）均查不到，`record_review` 对 `61ae6b21` 明确返回 `is not a subagent registered under this session`。依 close 门禁自身的指示「If no independent session can review, do NOT close — hold open and hand back to Human (21 §18)」，当时不关闭、也不以主控自查或文本表格冒充 `reviews` 条目。
 
-**当前真实状态**：`reviews` 字段仍为空；第 10 轮隔离子代理复核判 needs_revision，其两项发现已在本稿处置（见「第十轮处置」小节并已提交）；第 11 轮隔离子代理复核已在派出。该轮判 `pass` 并经开 `action=record_review` 写入后，才谈得上关闭。
+**当前真实状态（2026-10-19 复核通道打通后据实更正）**：`reviews` 字段**已有一条**——第 11 轮隔离子代理复核（`33e4c8ad`）经 `action=record_review` 写入成功，`reviewer_origin: subagent`、`session_source: host`。该轮结论是 **`needs_revision`**，三项发现：① 步骤 5 达成状态的正文自相矛盾（本节「计划步骤 5」记「达成」而「收口状态」记「不宣称已完整达成」）；② 第 10 轮记录对 `changes[]` 的括注不实；③ 第 10 轮发现计数少报（「两项」实为三项）。
+
+**关闭门禁只要求「存在一条独立复核记录」，不要求该记录的结论为 pass**（`04 §7.3`／`21 §14`）。但上文第 11 轮复核的发现 ① 指出的矛盾必须在关闭前消除，否则关闭提案本身建立在自相矛盾的载体上。此处不以「门禁已过」替代「载体内一致」。
 
 仍未完成、且不在本单授权内的部分：
 
