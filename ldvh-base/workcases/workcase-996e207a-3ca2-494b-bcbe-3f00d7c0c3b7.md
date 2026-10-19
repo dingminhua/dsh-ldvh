@@ -337,6 +337,14 @@ change_log:
 - 试过 `plugin_manager` 对 `include:dsh-ldvh` 原地停用再启用（`enabled=false` → `enabled=true`，两次均返回 `application: "applied"`、`changed: true`）。切换后**逐项复测，行为不变**：形态不可核验的正文仍流到 writer 层 `body_invalid`；`ldvh_workcase_list` 仍输出 `workcase-996e207a` 形态（该形态在更早的提交已生效，故此处只能证明**该次切换没有载入本次提交**）。
 - 结论：`plugin_manager` 的停用/启用只改配置与条目状态，**不触发该插件 fiber 的代码重载**；本环境下服务端插件的代码更新只能靠重启宿主。此结论对后续同类修复同样成立——「配置已 applied」不等于「代码已重载」，两者必须分别取证。
 
+**机制层面的补充查证（2026-10-19 第二轮，读了宿主包源码，把上面的经验结论升级为可解释的机制结论）**：
+
+- `dsh-plugin-manager` 的 `change()` 里，`application: "applied"` 的判据**只是「`hmr` 服务是否存在」**（`this.ownerContext.get("hmr") !== void 0`），与本次改动是否真的换掉了运行中的代码无关。所以 `applied` 不构成「已生效」的证据——上一轮据此判断是读错了这个字段的语义。
+- `plugin_manager` 确实会走 `hmr.reconcileProfile(requiredIds)`，且 HMR 的 `profileRoots()` 会**收录 link 包的真实目录**（`resolution.linkedRoots.map(root => root.realPath)`），所以「link 包被 `**/node_modules` 忽略」并不是原因——这个猜测是错的。
+- 真正的原因在 `files.compare(this.profileModules(roots))`：`profileModules` 取的是 **`loadedUrls()`，即已经进入本进程模块缓存的那些 URL**；只比对「已加载过的文件」与其磁盘内容。本次缺陷的位置是 `workcase-tools.js` 的 `execute` 分支逻辑，而该模块在进程启动时早已加载、其 URL 也在集合里，理论上应能比出 stale——但实测未发生替换，说明这条替换路径在本环境下对该插件未走通。此处据实记：「机制如何被短路，未查到确证」；不写猜测当结论。
+- 补充实测：对已经为 `true` 的条目再调一次 `setPluginEnabled(enabled=true)`，返回 `changed: false`——即配置无差异时宿主直接短路，这也是必须「先改成 false 再改回 true」才能触发一次 `reconcileProfile` 的原因。
+- 因此不再重复尝试运行期重载：可用的入口只有 `plugin_manager` 一个，已实测无效；`ctx.hmr.reconcileProfile` 要求调用方处于 `runExclusive` 事务内，不经宿主通道无法合法调用。
+
 **对本单的直接后果**：`## 结果` 节无法经 `action=execute` 落盘（该路径正被上述未重载的旧代码挡住），故 Gate 2 在本轮**不能凭「运行实例已验收」收口**。这是一条据实的待办边界，不是已完成的步骤。
 
 #### 第六轮复核发现的 workcase 层缺口与修复（2026-10-19）
