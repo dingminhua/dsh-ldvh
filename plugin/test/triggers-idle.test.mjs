@@ -690,3 +690,53 @@ test("到期早退后须重武装：安静不足的早退不得把计时器消�
     assert.equal(dispatches.length, 1, "重武装的计时器到期后应正常派发");
   } finally { timers.restore(); }
 });
+
+// ---------------------------------------------------------------------------
+// 轮次恢复（2026-10-19）：重启后尚无回合时，从宿主会话记录回填位置
+// ---------------------------------------------------------------------------
+//
+// 失效路径（实测）：`lastTurn` 只在回合边界事件里赋值、无持久化载体。进程重启
+// 后若该会话尚未开启新回合，`lastTurn` 就是 undefined；此时安静期计时器已被
+// 启动恢复旁路武装（同批修复），到期派发拿不到区间端点 → `no_current_turn`
+// fail-closed。故必须能从宿主记录回填，且**不得**覆盖运行时已更新的值。
+
+test("轮次恢复：重启后尚无回合时，回填的轮次随派发上抛（此前必为 undefined）", () => {
+  const timers = makeFakeTimers();
+  try {
+    const { triggers, dispatches } = makeTriggers();
+    // 只有活动锚点，从未收到任何 turn 事件——重启后的真实形态。
+    triggers.restoreActivityAt(globalThis.__ldvhTestClock() - 1000);
+    assert.equal(triggers.snapshot().lastTurn, undefined, "恢复活动时刻不会顺带恢复轮次");
+    assert.equal(triggers.restoreLastTurn(9), true);
+    triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
+    timers.fireAll();
+    assert.equal(dispatches.length, 1);
+    assert.equal(dispatches[0].turn, 9, "派发必须带上从宿主记录读回的轮次号");
+  } finally { timers.restore(); }
+});
+
+test("轮次恢复：已有轮次时不得覆盖（本函数不是第二条写 lastTurn 的通道）", () => {
+  const timers = makeFakeTimers();
+  try {
+    const { triggers, dispatches } = makeTriggers();
+    triggers.onTurnStopping({ agent: agentStub(), turn: 12 });
+    assert.equal(triggers.restoreLastTurn(9), false, "已有更新值时拒不采纳");
+    assert.equal(triggers.snapshot().lastTurn, 12);
+    triggers.restoreActivityAt(globalThis.__ldvhTestClock() - 1000);
+    triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
+    timers.fireAll();
+    assert.equal(dispatches[0].turn, 12, "陈旧快照不得把水位推回去（否则 10–12 轮会被重复计入）");
+  } finally { timers.restore(); }
+});
+
+test("轮次恢复：非法值与已销毁对象一律拒不采纳（不抛、不半提交）", () => {
+  const { triggers } = makeTriggers();
+  for (const bad of [undefined, null, -1, 1.5, "3", Number.NaN]) {
+    assert.equal(triggers.restoreLastTurn(bad), false, `非法值 ${String(bad)} 不得采纳`);
+  }
+  assert.equal(triggers.snapshot().lastTurn, undefined);
+  assert.equal(triggers.restoreLastTurn(0), true, "第 0 轮是合法位置");
+  triggers.dispose();
+  assert.equal(triggers.restoreLastTurn(5), false, "已销毁：不得再写状态");
+  assert.equal(triggers.snapshot().lastTurn, 0, "销毁后回填不得改动状态");
+});

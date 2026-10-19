@@ -380,3 +380,123 @@ test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自
     "**失败者（experience-capture）的水位不得推进**——推进会使那段内容被标记为已处理而永不复查",
   );
 });
+
+// ---------------------------------------------------------------------------
+// 重启/热重载：轮次号从宿主会话记录回填（2026-10-19）
+// ---------------------------------------------------------------------------
+//
+// 失效路径（生产实测 2026-10-19 10:46–10:51，六次连续失败）：进程重启后
+//   · 启动恢复旁路把「最后一次活动时刻」写回并**武装**安静期计时器；
+//   · 该会话尚未开启新回合 → `triggers.onTurnStopping` / `onSessionEvent` 都没被
+//     调用 → `state.lastTurn` 保持 undefined；
+//   · 安静期到期 → `onSessionCheckpoint({ turn: undefined })` → runIdleCheckpoint
+//     按 §8.4 第 6 项 fail-closed（`no_current_turn`）。
+// 即：**重启后第一次闲时派发必然失败**。
+//
+// 修复后：位置缺失时从宿主会话记录取最后一个轮次号（36 §11 明定「切分依据只能
+// 是宿主会话记录中的位置」），并写回触发器；仍取不到时维持 fail-closed 并如实
+// 记下原因。本测试走**真实生命周期回调**——不绕过 onSessionCheckpoint 直调下游
+// （D1/D2/D3/D8 全都是这么躲过 1281 条单元测试的）。
+
+test("重启：无回合事件时从宿主会话记录回填轮次，派发照常跑通", async () => {
+  const { ctx, dshHomePath, roots, project, lifecycle } = await setup();
+  const agent = { id: "agent-restart", session: { header: { id: `session-restart-${Date.now()}`, cwd: project } }, ctx };
+
+  // 宿主记录：本会话已经跑过 7 轮（重启前），但新进程还没收到任何回合事件。
+  ctx.set("sessionPersistence", {
+    locate: () => undefined,
+    open: async (id, access) => {
+      assert.equal(access, "read", "只允许纯读访问（读位置不取写租约）");
+      return {
+        read: async () => ({
+          events: [
+            { type: "session", seq: 0, data: { id } },
+            { type: "turn/start", seq: 1, data: { turn: 1 } },
+            { type: "turn/end", seq: 2, data: { turn: 1 } },
+            { type: "turn/start", seq: 13, data: { turn: 7 } },
+            { type: "turn/end", seq: 14, data: { turn: 7 } },
+          ],
+        }),
+        close: async () => {},
+      };
+    },
+  });
+
+  // 「重启」的形态：没有任何 turn-stopping / session/event，直接恢复活动锚点。
+  // 令锚点足够久远，修复后的 restoreActivityAt 会立刻武装并按剩余量到期。
+  const { recordActivity } = await import("../lib/friction-watermark.js");
+  await recordActivity(dshHomePath, {
+    projectRoot: project,
+    sessionId: agent.session.header.id,
+    at: new Date(Date.now() - 60_000).toISOString(),
+  });
+
+  roots.push(agent);
+  await ctx.emit("agent/created", { agent, source: "startup" });
+  await new Promise((r) => setTimeout(r, 500));   // 等异步受管辖判定
+  await ctx.emit("agent/status", { agent, status: "idle" });  // 重启后宿主报 idle
+  await new Promise((r) => setTimeout(r, 1200));   // 等安静期到期（注入 50ms）
+
+  // ① 位置确已写回触发器：`lastTurn` 此前必为 undefined，现在须是宿主记录里的最大值。
+  //    触发器状态直接住在 `lifecycle.turns` 里（createTurnTriggers 的注入点），
+  //    故 `snapshotOf` 是「机制内部状态」的只读观测口——不需要读插件日志。
+  const turns = lifecycle.snapshotOf(agent.id)?.turns;
+  assert.ok(turns, "agent 生命周期快照须可读");
+  assert.equal(turns.lastTurn, 7, "重启后回填的轮次须是宿主记录里的最大 turn");
+  // 派发确已发生（`lastCheckpointDispatch` 在**进入**回调前记录，故它的 turn
+  // 仍是回填前的 undefined——回填发生在回调内部，这正是修复的位置）。
+  assert.equal(turns.lastCheckpointDispatch?.source, "silence:timer", "安静期到期须真的派发了一次");
+
+  // ② 派发确已跑起来（不是被 no_current_turn 挡在门外）
+  const { readRuns } = await import("../lib/idle-runlog.js");
+  const runs = await readRuns(dshHomePath);
+  assert.ok(runs.ok && runs.value.total >= 1, "重启后的检查点必须留下运行痕迹");
+  const latest = runs.value.runs[runs.value.runs.length - 1];
+  assert.notEqual(
+    latest.stage, "stopped",
+    `重启后派发不得以 stopped 收场（修复前必然是 no_current_turn）：${JSON.stringify(latest)}`,
+  );
+  assert.notEqual(latest.code, "idle_checkpoint/no_current_turn", "本次修复要消灭的正是这个码");
+});
+
+test("重启：宿主记录不可读时维持 fail-closed 并如实记下原因（不推测位置）", async () => {
+  const { ctx, dshHomePath, roots, project, lifecycle } = await setup();
+  const agent = { id: "agent-restart-2", session: { header: { id: `session-restart2-${Date.now()}`, cwd: project } }, ctx };
+
+  // 入口可用但读取失败：必须如实上报，不得退化为「当作全部内容」。
+  ctx.set("sessionPersistence", {
+    locate: () => undefined,
+    open: async () => { throw new Error("session log is not flushed"); },
+  });
+
+  const { recordActivity } = await import("../lib/friction-watermark.js");
+  await recordActivity(dshHomePath, {
+    projectRoot: project,
+    sessionId: agent.session.header.id,
+    at: new Date(Date.now() - 60_000).toISOString(),
+  });
+
+  roots.push(agent);
+  await ctx.emit("agent/created", { agent, source: "startup" });
+  await new Promise((r) => setTimeout(r, 500));
+  await ctx.emit("agent/status", { agent, status: "idle" });
+  await new Promise((r) => setTimeout(r, 1200));
+
+  // 读不到就不得报成已恢复：触发器的 lastTurn 必须仍是 undefined（无位置），
+  // 且派发确实以 undefined 走到 fail-closed。
+  const turns = lifecycle.snapshotOf(agent.id)?.turns;
+  assert.equal(turns?.lastTurn, undefined, "读不到时不得凭空写入轮次号");
+  assert.equal(turns?.lastCheckpointDispatch?.source, "silence:timer", "派发确实发生过（不是没到点）");
+
+  // fail-closed：仍以 no_current_turn 停止，且**入了待处置队列**（§12）。
+  const { readRuns } = await import("../lib/idle-runlog.js");
+  const runs = await readRuns(dshHomePath);
+  const latest = runs.value.runs[runs.value.runs.length - 1];
+  assert.equal(latest.code, "idle_checkpoint/no_current_turn", "位置不可得须维持 fail-closed，不得当作覆盖全部内容");
+  const { readPendingQueue } = await import("../lib/pending-queue.js");
+  const queue = await readPendingQueue(dshHomePath);
+  assert.ok(
+    queue.value.items.some((item) => /currentTurn .* is required/.test(item.reason)),
+    `fail-closed 停止须入待处置队列，实测：${JSON.stringify(queue.value.items)}`,
+  );
+});

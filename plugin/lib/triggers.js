@@ -408,6 +408,42 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       note("info", "[dsh-ldvh] activity anchor restored from %s; silence timer armed", new Date(n).toISOString());
     },
 
+    /**
+     * 恢复「最后一个已知轮次」（由 lifecycle 在派发时回填，见 onSessionCheckpoint）。
+     *
+     * **为什么需要它**（2026-10-19）：`lastTurn` 只在回合边界事件里被赋值
+     * （`onTurnStopping` 的载荷、`onSessionEvent` 的 `turn/end`），**没有任何
+     * 持久化载体**。于是进程重启/插件热重载之后，只要该会话尚未开启新回合，
+     * `lastTurn` 就是 `undefined`；安静期到期时派发拿不到区间端点，按 36 §8.4
+     * 第 6 项 fail-closed——重启后的第一次闲时派发**必然**失败。
+     *
+     * 位置来源只能是宿主会话记录（36 §11「切分依据只能是宿主会话记录中的位置」），
+     * 由调用方读好后经本函数写回。本函数**不自己读**：triggers 只拿会话事件，
+     * 没有持久化依赖，让计时器模块去读日志会把「调度判据」与「材料来源」混在一起。
+     *
+     * 三条纪律与 `restoreActivityAt` 同构：
+     *
+     * 1. **单调**：只接受比当前更新的轮次号。陈旧快照不得覆盖运行时已更新的
+     *    `lastTurn`——否则刚跑完第 12 轮的会话会被以陈旧的第 9 轮作水位，
+     *    使第 10–12 轮被重复计入（正是水位段要消除的失效面）。
+     * 2. **不覆盖已定义值**：`lastTurn` 已有值时一律不动。本函数只服务「重启后
+     *    尚无任何回合」这一种情形，不该成为另一条写 `lastTurn` 的通道。
+     * 3. **不抛**：调用方是 fire-and-forget 旁路；此处若抛，内部状态已变（半提交）。
+     *
+     * @param {number} turn 轮次号（非负整数）
+     * @returns {boolean} 是否采纳
+     */
+    restoreLastTurn(turn) {
+      if (!Number.isInteger(turn) || turn < 0) return false;
+      if (state.disposed === true) return false;
+      // 已有值即不覆盖：本函数只补「重启后还没有任何回合」的空白，不是第二条
+      // 写通道。运行时事件给的 `lastTurn` 永远比装载期读到的快照新。
+      if (state.lastTurn !== undefined) return false;
+      state.lastTurn = turn;
+      note("info", "[dsh-ldvh] last turn restored from the host session record: turn=%d", turn);
+      return true;
+    },
+
     /** Test/diagnostic seam. */
     snapshot() {
       return { ...state };

@@ -122,17 +122,35 @@ export async function runIdleCheckpoint({
     return success({ task: taskId, tasks: [...requested], outcome: "not-implemented", unimplemented: [...unimplemented, ...notOrchestrated], at });
   }
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
-    return failure("idle_checkpoint/no_fact_source", "factSourceRoot is required to read the friction ledger");
+    return recordAndFail(dshHomePath, {
+      task: taskId,
+      reason: "factSourceRoot is required to read the friction ledger",
+      residual: [],
+      at,
+      code: "idle_checkpoint/no_fact_source",
+    });
   }
   // §8.4 水位段：区间端点取自宿主会话记录的位置标识。两者缺席时**无法界定区间**，
   // 于是也就无法保证「只对新增内容作观察」——按 §8.4 第 6 项整任务停（fail-closed）。
   // **不得**退化为「没有位置就当作全部内容」：那会把同一段内容反复计入，正是水位
   // 段要消除的失效面。
   if (typeof sessionId !== "string" || sessionId.length === 0) {
-    return failure("idle_checkpoint/no_session_id", "sessionId is required to key the observation watermark (36 §11 水位段) — 不得以「无位置」退化为覆盖全部内容");
+    return recordAndFail(dshHomePath, {
+      task: taskId,
+      reason: "sessionId is required to key the observation watermark (36 §11 水位段) — 不得以「无位置」退化为覆盖全部内容",
+      residual: ["本次未运行（缺少会话位置标识）"],
+      at,
+      code: "idle_checkpoint/no_session_id",
+    });
   }
   if (!Number.isInteger(currentTurn)) {
-    return failure("idle_checkpoint/no_current_turn", "currentTurn (the turn published by the host event payload) is required to bound this run's window (36 §11 水位段)");
+    return recordAndFail(dshHomePath, {
+      task: taskId,
+      reason: "currentTurn (the turn published by the host event payload) is required to bound this run's window (36 §11 水位段)",
+      residual: ["本次未运行（缺少轮次位置标识）"],
+      at,
+      code: "idle_checkpoint/no_current_turn",
+    });
   }
 
   // §8.4 第 6 项：任一校验不可用即整任务停——阈值是第一道。
@@ -313,8 +331,12 @@ export async function runIdleCheckpoint({
  * **队列本身不可用时**：§8.3 第 6 条要求不得降级登记、也不得继续。此时返回的失败
  * 里带上 `queue_unavailable`，使调用方**无法**把这次失败当作已登记（这正是
  * 「不得据『已尝试登记』主张登记已完成」的机械形态）。
+ *
+ * `code`（可选）：沿用调用方给出的**具体**错误码。前置校验（缺账本根、缺会话/轮次
+ * 位置标识）各有专用的码，调用方与测试据它区分「为什么没跑」；若一律收口成
+ * `idle_checkpoint/stopped`，这个区分就丢了。缺省仍是 `idle_checkpoint/stopped`。
  */
-async function recordAndFail(dshHomePath, { task, reason, residual, at }) {
+async function recordAndFail(dshHomePath, { task, reason, residual, at, code }) {
   const queued = await appendPendingEntry(dshHomePath, { task, reason, residual, at });
   if (!queued.ok) {
     return failure("idle_checkpoint/queue_unavailable", `${reason}（且待处置队列不可写：${queued.error.message}——04 §8.3 第 6 条禁止降级登记，故本次未登记）`, {
@@ -323,7 +345,7 @@ async function recordAndFail(dshHomePath, { task, reason, residual, at }) {
       queue_unavailable: true,
     });
   }
-  return failure("idle_checkpoint/stopped", reason, {
+  return failure(code ?? "idle_checkpoint/stopped", reason, {
     stop_reason: reason,
     residual,
     pending_entry_id: queued.value.entry_id,

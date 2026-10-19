@@ -225,11 +225,19 @@ test("§8.3：执行体抛错时入队，且错误不逃逸到宿主事件分发
   });
 });
 
-test("§8.3：缺 factSourceRoot 时拒绝并说明（不自造路径）", async () => {
+test("§8.3：缺 factSourceRoot 时拒绝并说明（不自造路径），且须入待处置队列", async () => {
   await withHome(async ({ home }) => {
     const result = await runIdleCheckpoint({ dshHomePath: home, task: "friction-discovery" });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "idle_checkpoint/no_fact_source");
+    // 36 §12：fail-closed 停止须登记待处置队列（不得只在返回值里报一声就消失）。
+    // 此前这三条前置是裸 return failure，一条都没入队——实测 2026-10-19 重启后
+    // 六次 no_current_turn 在队列里查无记录。
+    const queue = await readPendingQueue(home);
+    assert.equal(queue.value.items.length, 1, "前置校验失败同样要入队");
+    assert.equal(queue.value.items[0].task, "friction-discovery");
+    assert.match(queue.value.items[0].reason, /factSourceRoot is required/);
+    assert.ok(result.error.pending_entry_id, "返回值须带 entry_id，使「已登记」可核对");
   });
 });
 
@@ -335,6 +343,16 @@ test("§8.4 水位：缺 sessionId / currentTurn 时 fail-closed（不得退化�
     const noTurn = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "friction-discovery", sessionId: RUN_SESSION });
     assert.ok(!noTurn.ok);
     assert.equal(noTurn.error.code, "idle_checkpoint/no_current_turn");
+
+    // 36 §12：两条前置失败都须入待处置队列。实测 2026-10-19 重启后六次
+    // no_current_turn 在队列里查无记录——「已停止」与「已登记」是两件事，
+    // 只做前者等于让失败凭空消失。
+    const queue = await readPendingQueue(home);
+    assert.equal(queue.value.items.length, 2, "每次停止各追加一条（仅追加，不覆盖）");
+    assert.match(queue.value.items[0].reason, /sessionId is required/);
+    assert.match(queue.value.items[1].reason, /currentTurn \(the turn published by the host event payload\) is required/);
+    assert.ok(noSession.error.pending_entry_id);
+    assert.ok(noTurn.error.pending_entry_id);
   });
 });
 
