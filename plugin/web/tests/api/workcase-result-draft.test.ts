@@ -626,6 +626,26 @@ test('标题形态：不带「残留」字样的其它标题不开启残留段�
   assert.equal(d.checks.length, 1, '该标题不得阻断其后核对条目的解析');
 });
 
+test('标题形态：句中含「残留」但不以它结尾的标题不得开启残留段', () => {
+  // 实测来源：workcase-4af2b871 的结果节里有标题
+  // `### 清除 v4 残留与登记呈现契约`——「残留」在句中，讲的是 v4 迁移工作，
+  // 不是残留段。若判据只做 `includes('残留')`，这里会开出一个假段，把紧随其后的
+  // `- residual:` 真锚点当成「段内第二个开启符」处理，反而丢掉真残留。
+  const d = parseWorkCaseResultDraft(
+    bodyOf([
+      '### 清除 v4 残留与登记呈现契约',
+      '',
+      '- residual:',
+      '  - 真残留甲',
+      '    - **接受现状**：就此了结',
+    ]),
+    PLAN,
+  );
+  assert.equal(d.residualEntries.length, 1, '句中「残留」不得开启残留段，真锚点仍须照常读出');
+  assert.equal(d.residualEntries[0].text, '真残留甲');
+  assert.equal(d.residualEntries[0].directions.length, 1);
+});
+
 test('标题形态：核对段标题不把其后条目误判为残留', () => {
   const d = parseWorkCaseResultDraft(
     bodyOf([
