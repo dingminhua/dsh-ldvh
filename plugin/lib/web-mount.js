@@ -40,6 +40,21 @@ const PROXY_BODY_LIMIT = 50 * 1024 * 1024;
 const PROXY_RESPONSE_LIMIT = 50 * 1024 * 1024;
 const PROXY_TIMEOUT_MS = 120_000;
 
+/**
+ * 内容热刷新要盯住的源码根（相对 `webRoot`）。
+ *
+ * **为什么是这两个**（2026-10-19 实证）：API 子进程跑的是 `api/server.ts`，而它
+ * **import 了 `web/shared/` 下的模块**（如 `api/services/facts.ts` 引
+ * `shared/workcaseResultDraft.ts`）。只盯 `api/` 时，改共享模块不触发回收——子进程
+ * 一直跑旧码，而磁盘早已更新，表现为「改了没生效」，且没有任何报错。实测：改
+ * `shared/workcaseResultDraft.ts` 后 API 仍返回旧的解析结果，须手动往 `api/` 下
+ * 踢一脚才收敛。
+ *
+ * 只列这两个子树而不是整个 `webRoot`：`src/`（浏览器侧，不经 API 子进程加载）与
+ * `node_modules/`、`dist/` 都很大，纳入指纹既慢又会让前端构建触发无关回收。
+ */
+const WATCHED_SOURCE_ROOTS = Object.freeze(["api", "shared"]);
+
 function isSafeMethod(method) {
   return method === "GET" || method === "HEAD";
 }
@@ -183,13 +198,16 @@ export function createWebApiProcess(options) {
   let exited = true;
   let starting = null;
   let disposed = false;
-  // 源码热刷新：监听 api/ 目录（子进程跑的是 link: 仓库的实时文件——源码更新后
-  // 长驻子进程仍是旧码，须杀掉重拉）。去抖避免构建期连杀。
+  // 源码热刷新：监听 `WATCHED_SOURCE_ROOTS`（子进程跑的是 link: 仓库的实时文件——
+  // 源码更新后长驻子进程仍是旧码，须杀掉重拉）。去抖避免构建期连杀。
+  //
+  // 监听面不止 api/：API 进程 import 了 web/shared/ 下的模块，只盯 api/ 时改共享
+  // 模块不触发回收，表现为「改了没生效」且无任何报错（2026-10-19 实证）。
   //
   // 回收判据（2026-10-09，工单 c6d88dac）：只有**内容真的变了**才回收。原实现
   // 对任何 mtime 事件都 kill，一次 `touch` 就能把页面打死——而重拉只能靠已经
-  // 打不开的页面发来的 /ldvh/api/* 请求，形成死锁。故此处对整个 api/ 树取内容
-  // 指纹（路径 + 长度 + 内容 hash，**不含 mtime**——混进 mtime 等于没修），
+  // 打不开的页面发来的 /ldvh/api/* 请求，形成死锁。故此处对整棵被监听源码树取
+  // 内容指纹（路径 + 长度 + 内容 hash，**不含 mtime**——混进 mtime 等于没修），
   // 指纹不变即跳过回收。
   let watchTimer = null;
   let watcher = null;
@@ -268,7 +286,7 @@ export function createWebApiProcess(options) {
     const seen = pendingFingerprint;
     pendingFingerprint = null;
     if (seen === sourceFingerprint) return; // 磁盘已回到基线内容：无事可做
-    const recycled = await recycleChild("api source content changed (requeued)");
+    const recycled = await recycleChild("web source content changed (api/ or shared/, requeued)");
     if (recycled) { sourceFingerprint = seen; recheckDelayMs = 250; return; }
     // 仍没能回收（又进了节流/回收窗口）：差异重新挂起，退避后重试。
     if (disposed) return;
@@ -286,7 +304,8 @@ export function createWebApiProcess(options) {
     import("node:fs").then(async (fs) => {
       const nodeCrypto = await import("node:crypto");
       /**
-       * api/ 树的内容指纹：目录内所有文件（跳过 node_modules 与 .git）按绝对路径
+       * 被监听源码树的内容指纹：`WATCHED_SOURCE_ROOTS` 各根下所有文件（跳过
+       * node_modules 与 .git）按绝对路径
        * 排序后，把「路径\0size\0内容 sha1」逐条喂进一个 sha1。
        *
        * **只取内容，不取 mtime**——判据是「内容未变就不回收」，把 mtime 喂进指纹
@@ -294,8 +313,7 @@ export function createWebApiProcess(options) {
        * 不会引入这一类假阳性。指纹只回答「这一轮看下来的内容有没有变」——不回答
        * 变的是什么、该不该重启。
        */
-      const fingerprintApiTree = async () => {
-        const root = join(webRoot, "api");
+      const fingerprintSourceTree = async () => {
         /** @type {string[]} */
         const files = [];
         const walk = async (dir) => {
@@ -308,7 +326,7 @@ export function createWebApiProcess(options) {
             if (entry.isFile()) files.push(full);
           }
         };
-        await walk(root);
+        for (const root of WATCHED_SOURCE_ROOTS) await walk(join(webRoot, root));
         files.sort();
         const hash = nodeCrypto.createHash("sha1");
         for (const file of files) {
@@ -320,7 +338,7 @@ export function createWebApiProcess(options) {
         return hash.digest("hex");
       };
       /** 取不到指纹时返回 null——调用方按「无法判定」处理，不当作「内容未变」。 */
-      const probeFingerprint = async () => fingerprintApiTree().catch(() => null);
+      const probeFingerprint = async () => fingerprintSourceTree().catch(() => null);
 
       // 基线在 watcher 建立**之前**取：否则建立与取基线之间发生的写入会落在基线
       // 之后、又没有 watch 事件，真实改码被当成「内容未变」而漏回收。
@@ -349,12 +367,13 @@ export function createWebApiProcess(options) {
       // Upstream (Windows-only): https://github.com/libuv/libuv/issues/5010
       //                          https://github.com/nodejs/node/issues/63638
       // Reproduced deterministically on Node 24.19/Windows before this guard.
-      const watchTarget = (() => {
-        const target = join(webRoot, "api");
+      const watchTargets = WATCHED_SOURCE_ROOTS.map((root) => {
+        const target = join(webRoot, root);
         try { return fs.realpathSync.native(target); } catch { return target; }
-      })();
-      watchTargetPath = watchTarget;
-      watcher = fs.watch(watchTarget, { recursive: true }, () => {
+      });
+      watchTargetPath = watchTargets;
+      /** 每个根一个 watcher；任一触发都走同一段去抖 + 指纹判据。 */
+      const watchers = watchTargets.map((watchTarget) => fs.watch(watchTarget, { recursive: true }, () => {
         if (disposed) return;
         if (watchTimer !== null) clearTimeout(watchTimer);
         // 去抖窗口比原 1s 长：真实改码是「truncate → 写 → 连续多事件」的一串，
@@ -372,7 +391,7 @@ export function createWebApiProcess(options) {
             // recycleChild 因节流或正在回收而早退，本次真实改码就被「吃掉」了：
             // 基线已是新内容，下次事件会判成未变，进程却还跑着旧码。故回收未发生
             // 时保持旧基线，让后续事件（或本次的重试）仍能看到差异。
-            const recycled = await recycleChild("api source content changed");
+            const recycled = await recycleChild("web source content changed (api/ or shared/)");
             if (recycled) { sourceFingerprint = next; return; }
             // 回收被节流或正在回收而早退：**基线不动，本次差异也不能丢**。
             // 第二次独立复核实测：v2 回收进行中再来 v3，若只是「不推进基线」就
@@ -383,18 +402,19 @@ export function createWebApiProcess(options) {
             void scheduleRecheck();
           })();
         }, 1500);
-      });
-      watcher.on("error", () => { /* watch 不可用时静默退化为手动重启 */ });
+      }));
+      watchers.forEach((w) => w.on("error", () => { /* watch 不可用时静默退化为手动重启 */ }));
+      watcher = watchers;
       // 二次检查：watcher 创建与赋值之间不会让出事件循环，但仍保留此关口，
       // 以便 dispose 在任何 await 边界之后发生也能覆盖到。
       if (disposed) {
-        try { watcher.close(); } catch { /* already closed */ }
+        for (const w of watchers) { try { w.close(); } catch { /* already closed */ } }
         watcher = null;
         return;
       }
       // unref 只是补充手段（darwin 有效、Linux inotify 无效），真正的保障是
       // dispose() 中的显式 close。
-      watcher.unref?.();
+      for (const w of watchers) w.unref?.();
     }).catch(() => { /* fs 不可用（理论不可达） */ });
   }
 
@@ -493,13 +513,15 @@ export function createWebApiProcess(options) {
      * 未建立 watcher 时返回空数组。仅供测试断言「先解析再 watch」这条不变量。
      */
     watchTargets() {
-      return watchTargetPath === null ? [] : [watchTargetPath];
+      return watchTargetPath === null ? [] : [...watchTargetPath];
     },
     dispose() {
       disposed = true;
       // 显式关闭 watcher：这是进程能退出的**唯一可靠保障**——watcher.unref?.()
       // 在 Linux 的 inotify 下无效（实测进程被永久挂住），只在 darwin 生效。
-      try { watcher?.close(); } catch { /* already closed */ }
+      for (const w of (Array.isArray(watcher) ? watcher : (watcher ? [watcher] : []))) {
+        try { w.close(); } catch { /* already closed */ }
+      }
       watcher = null;
       // 清掉待触发的去抖定时器，避免 dispose 后仍有回调计划执行。
       if (watchTimer !== null) {

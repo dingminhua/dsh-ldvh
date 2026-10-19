@@ -525,6 +525,7 @@ test("watcher resolves the watch target before fs.watch (cross-platform half of 
   const realDir = join(base, "real");
   const linkDir = join(base, "link");
   await mkdir(join(realDir, "api"), { recursive: true });
+  await mkdir(join(realDir, "shared"), { recursive: true });
   await mkdir(join(realDir, "src"), { recursive: true });
   try {
     await (await import("node:fs/promises")).symlink(realDir, linkDir, "dir");
@@ -567,12 +568,14 @@ test("watcher resolves the watch target before fs.watch (cross-platform half of 
     // **不能**用 realpathSync 归一后再比较：它会把两侧都折叠成同一个真实路径，
     // 于是「watcher 拿到的是 link 还是 real」这个待判事实被断言自己抹平了
     // （实测：去掉修复后该写法照样通过）。必须比较**未经解析的字面路径**。
-    const expectTarget = realpathSync(join(realDir, "api"));
-    assert.equal(targets.length, 1, `应当只有一个 watch 目标：${JSON.stringify(targets)}`);
-    assert.equal(
-      targets[0],
-      expectTarget,
-      `watcher 必须拿到 realpath 解析后的路径（而不是调用方传入的 link 字面量），实际：${JSON.stringify(targets)}`,
+    //
+    // 监听面是 `WATCHED_SOURCE_ROOTS` 的每一根（api/ 与 shared/）——API 子进程
+    // import 了 shared/ 下的模块，只盯 api/ 会让共享模块的改动不触发回收。
+    const expectTargets = ["api", "shared"].map((root) => realpathSync(join(realDir, root)));
+    assert.deepEqual(
+      targets,
+      expectTargets,
+      `watcher 必须拿到 realpath 解析后的每一根源码目录（而不是调用方传入的 link 字面量），实际：${JSON.stringify(targets)}`,
     );
   } finally {
     manager.dispose();
