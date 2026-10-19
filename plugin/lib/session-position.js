@@ -14,7 +14,7 @@
  *   2. 该会话在重启后**没有新的回合**，于是 `triggers.onTurnStopping` /
  *      `onSessionEvent` 都不会被调用，`state.lastTurn` 保持 `undefined`；
  *   3. 安静期到期 → `onSessionCheckpoint({ turn: undefined })` →
- *      `runIdleCheckpoint` 按 §8.4 第 6 项 fail-closed（`no_current_turn`）。
+ *      `runIdleCheckpoint` 按 36 §12 fail-closed（`no_current_turn`）。
  *
  * 结果是：**重启后第一次闲时派发必然失败**。这不是「偶发竞态」，而是
  * 「重启必定进入」的确定性路径——修复前它只是被「不武装计时器」这个更早的缺陷
@@ -25,7 +25,7 @@
  * 本模块**只取位置**，不重建、不提取区间材料。区间材料由调度侧的事件累积器给出
  * （`friction-window.js`；宿主只发布事件、不回放，故重启前的材料确实不可恢复——
  * 这一点已在 `friction-discovery-provider.js` 的缺口处置里如实登记）。把「读会话
- * 记录」误用成「从日志重建材料」会绕过 §11 的水位切分，正是 36 §8.4 明令禁止的
+ * 记录」误用成「从日志重建材料」会绕过 §11 的水位切分，正是 36 §7.1/§11 明令禁止的
  * 「全量交付」。
  *
  * ## 取不到时的处置（00 §5.6 据实声明）
@@ -40,9 +40,16 @@
  *   运行中的会话也可安全调用；会话尚未落盘（内存态）时同样返回可读句柄。
  * - `handle.read()` 返回 `{ eventState, events }`，`events` 是**正序**（seq 升序）
  *   的逻辑日志切片。
- * - 轮次号只出现在事件载荷里：`turn/start` 与 `turn/end` 的 `data.turn`
- *   （`dsh-agent-loop` 自己也是这样读的）。会话 header 与 Session 对象均不暴露
- *   轮次计数。
+ * - 轮次号出现在**很多**事件的 `data.turn` 里（实测一条真实会话记录：`tool/call`
+ *   1091、`tool/result` 1090、`step/start` 999、`step/end` 998、`assistant/message`
+ *   995、`turn/start` 25、`turn/end` 24，另有 `assistant/attempt`/`llm/retry`/
+ *   `workspace/changes`/`system/message`/`developer/message` 等）。本模块**只认
+ *   轮次边界事件**（`turn/start` 与 `turn/end`）：其余事件里的 `data.turn` 表示
+ *   「这一轮内发生了什么」，不是「位置前进到哪」，混用会让位置口径漂移。
+ * - 该取舍与宿主自身的位置定义**等价**：宿主 `turnBoundary` 投影只在
+ *   `turn/start` 上写 `lastTurn`，`turn/end` 不改（`dsh-agent-loop`）。因轮次号
+ *   单调，`max(turn/start ∪ turn/end) == max(turn/start)`。
+ * - 会话 header 与 Session 对象均不暴露轮次计数。
  */
 
 /**

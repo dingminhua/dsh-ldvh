@@ -729,14 +729,25 @@ test("轮次恢复：已有轮次时不得覆盖（本函数不是第二条写 l
   } finally { timers.restore(); }
 });
 
-test("轮次恢复：非法值与已销毁对象一律拒不采纳（不抛、不半提交）", () => {
+test("轮次恢复：非法值一律拒不采纳且不半提交", () => {
   const { triggers } = makeTriggers();
   for (const bad of [undefined, null, -1, 1.5, "3", Number.NaN]) {
     assert.equal(triggers.restoreLastTurn(bad), false, `非法值 ${String(bad)} 不得采纳`);
   }
-  assert.equal(triggers.snapshot().lastTurn, undefined);
-  assert.equal(triggers.restoreLastTurn(0), true, "第 0 轮是合法位置");
+  assert.equal(triggers.snapshot().lastTurn, undefined, "被拒的值不得留下任何状态");
+});
+
+test("轮次恢复：已销毁后拒不采纳（disposed 守卫须独立成立）", () => {
+  // ⚠️ 首版把这条与「非法值」合在一起，于是它靠 `restoreLastTurn(0)` 先写下的
+  // `lastTurn=0`、由**「不覆盖已定义值」**那条纪律代为挡下——删掉 disposed 守卫
+  // 用例照样全绿（2026-10-19 变异测试 M8，0/36 命中）。此处不预置任何值，使
+  // 「销毁后写入」成为唯一可能的拒绝理由，守卫才是真的被验证。
+  const { triggers } = makeTriggers();
+  assert.equal(triggers.snapshot().lastTurn, undefined, "前提：销毁前尚无轮次（否则被测的是另一条纪律）");
   triggers.dispose();
   assert.equal(triggers.restoreLastTurn(5), false, "已销毁：不得再写状态");
-  assert.equal(triggers.snapshot().lastTurn, 0, "销毁后回填不得改动状态");
+  assert.equal(triggers.snapshot().lastTurn, undefined, "销毁后回填不得改动状态");
+  // 第 0 轮同样不得被写入——校验顺序不得让合法值绕开 disposed 检查。
+  assert.equal(triggers.restoreLastTurn(0), false, "合法值同样须被 disposed 守卫挡下");
+  assert.equal(triggers.snapshot().lastTurn, undefined);
 });

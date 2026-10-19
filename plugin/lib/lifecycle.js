@@ -47,7 +47,7 @@ import { appendPendingEntry } from "./pending-queue.js";
 import { adoptFinishedChild, createChildInstaller } from "./child.js";
 import { resolveChildFromSessionRecord } from "./child-session-record.js";
 // 36 §11「切分依据只能是宿主会话记录中的位置」：重启后从记录里取回最后轮次号
-// （`lastTurn` 没有持久化载体，见 session-position.js 与 §8.4 那段注释）。
+// （`lastTurn` 没有持久化载体，见 session-position.js）。
 import { readLastTurn } from "./session-position.js";
 import { ActivityLog, AgentLifecycle } from "./agent-lifecycle.js";
 import { recordJudgementForGuard } from "./host-seams.js";
@@ -444,7 +444,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // ——调用方（triggers）已把 promise 的拒绝收口为日志，此处保持同纪律。
           const cwd = agent?.session?.header?.cwd;
           if (typeof cwd !== "string" || cwd.length === 0) return;
-          // §8.4「观察范围的切分（水位）」需要两个**位置标识**：会话 id 与轮次号。
+          // 36 §11「观察范围的切分（水位）」需要两个**位置标识**：会话 id 与轮次号。
           // 会话 id 取自 agent 的会话头；轮次号首选宿主 `turn/end` 载荷（triggers
           // 已用它记账）。**取不到时回落到宿主会话记录**（2026-10-19 修复）：
           // `lastTurn` 只在回合边界事件里赋值、没有持久化载体，故进程重启或插件
@@ -456,33 +456,6 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           const scope = await resolve(cwd);
           // 受管辖是运行前提（32 §137：git 层操作要求当前管辖）。
           if (scope.state !== "governed" || scope.project === undefined || scope.project === null) return;
-          // 轮次号缺失时从宿主会话记录回填（见上方 §8.4 注释）。位置**放在受管辖
-          // 判定之后**：非受管辖的会话根本不会跑到这里，不该为它读会话日志。
-          let currentTurn = turn;
-          if (!Number.isInteger(currentTurn)) {
-            const position = await readLastTurn({
-              sessionPersistence: ctx.get("sessionPersistence"),
-              sessionId,
-            });
-            if (position.ok === true) {
-              currentTurn = position.turn;
-              // 写回触发器：后续派发不必再读一次日志；且 restoreLastTurn 的单调
-              // 纪律保证运行时事件给出的更新值不会被这份快照覆盖。
-              turnTriggers.restoreLastTurn(position.turn);
-              lifecycle.activity?.record("session/checkpoint/position-recovered", {
-                source: "session-record",
-                turn: position.turn,
-                events: position.events,
-              });
-            } else {
-              // 取不到就**不跑**（水位无法界定 → runIdleCheckpoint 会 fail-closed
-              // 并入待处置队列）：不得退化为「当作全部内容」，那会使同一段内容被
-              // 反复计入。如实记下原因，使「为什么这一次没跑」可核对。
-              lifecycle.activity?.record("session/checkpoint/position-unavailable", {
-                reason: position.reason,
-              });
-            }
-          }
           // 本次派发的占用令牌（2026-10-19）。在准入处取得值，在派发收尾处释放；
           // 未取得时保持 `null`，收尾处的释放因此是一次空操作。
           let dispatchClaimed = null;
@@ -692,6 +665,39 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // `await runIdleCheckpoint({...})`，返回值被直接丢弃——于是子代理算出的
           // 结论被算完即丢，账本永远不会有新账目，而水位照常推进，看起来像"跑通了"。
           // 现在把返回值接住，并按三态执行闭集动作。
+          // 轮次号缺失时从宿主会话记录回填（见 §11 注释）。
+          //
+          // 位置有三项讲究：
+          //   · **在受管辖判定之后**（上面已判定）：非受管辖的会话根本不该为其读日志。
+          //   · **在「无启用任务」早退与准入闸之后**：Human 关掉总开关/子项时本检查点
+          //     什么都不做，此时读一遍会话日志纯属浪费（大会话可达数十 MB）。
+          //   · **在调用之前**：`currentTurn` 是下面这次调用的入参。
+          let currentTurn = turn;
+          if (!Number.isInteger(currentTurn)) {
+            const position = await readLastTurn({
+              sessionPersistence: ctx.get("sessionPersistence"),
+              sessionId,
+            });
+            if (position.ok === true) {
+              currentTurn = position.turn;
+              // 写回触发器：后续派发不必再读一次日志；且 restoreLastTurn 的
+              // 「不覆盖已定义值」纪律保证运行时事件给出的更新值不会被这份快照覆盖。
+              turnTriggers.restoreLastTurn(position.turn);
+              lifecycle.activity?.record("session/checkpoint/position-recovered", {
+                source: "session-record",
+                turn: position.turn,
+                events: position.events,
+              });
+            } else {
+              // 取不到就**不跑**（水位无法界定 → runIdleCheckpoint 会按 36 §12
+              // fail-closed 并入待处置队列）：不得退化为「当作全部内容」，那会使
+              // 同一段内容被反复计入。如实记下原因，使「为什么这一次没跑」可核对。
+              lifecycle.activity?.record("session/checkpoint/position-unavailable", {
+                reason: position.reason,
+              });
+            }
+          }
+
           const checkpoint = await runIdleCheckpoint({
             dshHomePath,
             factSourceRoot: join(scope.project.path, "ldvh-base"),
@@ -699,7 +705,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             projectRoot: scope.project.path,
             sessionId,
             // 位置标识：优先用 triggers 从回合事件取得的轮次号；重启后尚无回合
-            // 时用上面从宿主会话记录读回的值（见 §8.4 那段注释）。
+            // 时用上面从宿主会话记录读回的值（见 §11 那段注释）。
             currentTurn,
             tasks: [...tasksForThisCheckpoint],
             discover,

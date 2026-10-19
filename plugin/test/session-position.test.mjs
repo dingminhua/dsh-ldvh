@@ -70,7 +70,7 @@ test("取最大轮次号：非法载荷被跳过（不抛、不猜）", () => {
 // ---------------------------------------------------------------------------
 
 /** 一个最简的宿主持久化桩：把 events 交给 handle.read()。 */
-function persistenceStub(events, { throwOnOpen = false, throwOnRead = false, noRead = false } = {}) {
+function persistenceStub(events, { throwOnOpen = false, throwOnRead = false, noRead = false, throwOnClose = false } = {}) {
   const calls = { open: [], closed: 0 };
   return {
     calls,
@@ -86,6 +86,7 @@ function persistenceStub(events, { throwOnOpen = false, throwOnRead = false, noR
           },
         close: async () => {
           calls.closed += 1;
+          if (throwOnClose) throw new Error("close failed");
         },
       };
     },
@@ -119,6 +120,22 @@ test("读取失败：read 抛错时如实返回原因", async () => {
   assert.equal(result.ok, false);
   assert.match(result.reason, /host read\(\) failed: log unreadable/);
   assert.equal(persistence.calls.closed, 1, "读取失败时句柄仍须关闭");
+});
+
+test("关闭失败：已取到的位置照常返回（关闭失败不抹掉位置，也不抛出）", async () => {
+  // 宿主 teardown 会统一回收句柄；close() 本身幂等。关闭失败不影响已读到的
+  // 位置——若因此把整个读取判成失败，等于让「清理异常」冒充「位置不可得」。
+  const persistence = persistenceStub(
+    [
+      { type: "turn/start", seq: 1, data: { turn: 3 } },
+      { type: "turn/end", seq: 2, data: { turn: 3 } },
+    ],
+    { throwOnClose: true },
+  );
+  const result = await readLastTurn({ sessionPersistence: persistence, sessionId: "session-a" });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.turn, 3, "位置仍须可取");
+  assert.equal(persistence.calls.closed, 1, "关闭仍被尝试执行");
 });
 
 test("读取失败：read 缺失或没有 events 数组时如实返回原因（不得当作空历史）", async () => {

@@ -398,21 +398,65 @@ test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自
 // 记下原因。本测试走**真实生命周期回调**——不绕过 onSessionCheckpoint 直调下游
 // （D1/D2/D3/D8 全都是这么躲过 1281 条单元测试的）。
 
-test("重启：无回合事件时从宿主会话记录回填轮次，派发照常跑通", async () => {
+test("重启：无回合事件时从宿主会话记录回填轮次，且回填值须一路流到水位", async () => {
   const { ctx, dshHomePath, roots, project, lifecycle } = await setup();
-  const agent = { id: "agent-restart", session: { header: { id: `session-restart-${Date.now()}`, cwd: project } }, ctx };
+  const sessionId = `session-restart-${Date.now()}`;
+  const session = { header: { id: sessionId, cwd: project }, id: sessionId };
+  const agent = { id: "agent-restart", session, ctx };
+  const EXECUTOR_ID = "session-executor-restart";
+
+  // 窗口材料（重启前该会话最后一轮的内容）。它经 `session/event` 机械累积——
+  // **不**由本测试从会话日志重建（36 §11：材料只来自调度侧累积器）。
+  const userText = "这次恢复之后，我又遇到重复解析失败。";
+  const assistantText = "已定位到缓存条目未失效导致的重复解析失败。";
+
+  // 执行体桩：只跑摩擦发现一件，结论为「无发现」并逐字引证窗口材料。
+  // 必须让**落地真的发生**，否则回填出的轮次号在下游没有任何可断言的位置——
+  // 首版只断言 `stage !== "stopped"`，实测落在 `land-failed/no-signature`，
+  // 于是「回填值被改小/被改 0」这类失效全绿通过（变异测试 M9，0/5 命中）。
+  ctx.set("subagents", {
+    list: () => ["spawn"],
+    getProvider: () => ({ name: "spawn", inheritsParentContext: false, capabilities: { outputSchema: true, agentOptions: true, depthLimit: true } }),
+    startActivation: async () => ({
+      childId: EXECUTOR_ID,
+      dispose: async () => {},
+      result: Promise.resolve({
+        stopReason: "completed",
+        structured: {
+          "friction-discovery": {
+            verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "",
+            impact: "light", quote: "缓存条目未失效导致的重复解析失败", reason: "本次没有系统性阻碍",
+          },
+        },
+      }),
+    }),
+  });
 
   // 宿主记录：本会话已经跑过 7 轮（重启前），但新进程还没收到任何回合事件。
+  // 执行体会话的桩另给一条 routing 事件——落地需要**执行体自己的**署名
+  // （09 §5.1「当次实际」），缺它会停在 no-signature，本条就又验证不到水位。
+  const openCalls = [];
   ctx.set("sessionPersistence", {
     locate: () => undefined,
     open: async (id, access) => {
+      openCalls.push([id, access]);
       assert.equal(access, "read", "只允许纯读访问（读位置不取写租约）");
+      if (String(id) === EXECUTOR_ID) {
+        return {
+          read: async () => ({
+            events: [{ type: "model/selection", seq: 0, data: { provider: "executor-provider", model: "executor-model" } }],
+          }),
+          close: async () => {},
+        };
+      }
       return {
         read: async () => ({
           events: [
             { type: "session", seq: 0, data: { id } },
             { type: "turn/start", seq: 1, data: { turn: 1 } },
             { type: "turn/end", seq: 2, data: { turn: 1 } },
+            { type: "turn/start", seq: 11, data: { turn: 6 } },
+            { type: "turn/end", seq: 12, data: { turn: 6 } },
             { type: "turn/start", seq: 13, data: { turn: 7 } },
             { type: "turn/end", seq: 14, data: { turn: 7 } },
           ],
@@ -422,7 +466,7 @@ test("重启：无回合事件时从宿主会话记录回填轮次，派发照�
     },
   });
 
-  // 「重启」的形态：没有任何 turn-stopping / session/event，直接恢复活动锚点。
+  // 「重启」的形态：没有任何 turn-stopping / turn-end 事件，直接恢复活动锚点。
   // 令锚点足够久远，修复后的 restoreActivityAt 会立刻武装并按剩余量到期。
   const { recordActivity } = await import("../lib/friction-watermark.js");
   await recordActivity(dshHomePath, {
@@ -433,9 +477,16 @@ test("重启：无回合事件时从宿主会话记录回填轮次，派发照�
 
   roots.push(agent);
   await ctx.emit("agent/created", { agent, source: "startup" });
-  await new Promise((r) => setTimeout(r, 500));   // 等异步受管辖判定
-  await ctx.emit("agent/status", { agent, status: "idle" });  // 重启后宿主报 idle
-  await new Promise((r) => setTimeout(r, 1200));   // 等安静期到期（注入 50ms）
+  // 喂入窗口材料：只有 `assistant/message`（**不是** turn/end）不会写 `lastTurn`，
+  // 故「重启后尚无回合」这一被测前提仍然成立。
+  //
+  // ⚠️ 必须在 `agent/created` 返回后**同帧**发出：事件处理器在 install 里同步注册，
+  // 而启动恢复旁路的武装是异步的（先 await 受管辖判定）。若先等一轮再喂材料，
+  // 恢复锚点会让安静期计时器**立刻**到期并派发——此时累积器还是空的，本次运行
+  // 会被判成 `empty-window`，材料一条都进不去（实测踩过：这正是首版失败的原因）。
+  await ctx.emit("session/event", session, { type: "user/message", data: { content: [{ type: "text", text: userText }] } });
+  await ctx.emit("session/event", session, { type: "assistant/message", data: { turn: 7, message: { content: [{ type: "text", text: assistantText }] } } });
+  await new Promise((r) => setTimeout(r, 1500));   // 受管辖判定 + 武装 + 安静期到期（注入 50ms）
 
   // ① 位置确已写回触发器：`lastTurn` 此前必为 undefined，现在须是宿主记录里的最大值。
   //    触发器状态直接住在 `lifecycle.turns` 里（createTurnTriggers 的注入点），
@@ -446,6 +497,7 @@ test("重启：无回合事件时从宿主会话记录回填轮次，派发照�
   // 派发确已发生（`lastCheckpointDispatch` 在**进入**回调前记录，故它的 turn
   // 仍是回填前的 undefined——回填发生在回调内部，这正是修复的位置）。
   assert.equal(turns.lastCheckpointDispatch?.source, "silence:timer", "安静期到期须真的派发了一次");
+  assert.equal(turns.lastCheckpointDispatch?.turn, undefined, "回填发生在回调内部，派发记录的 turn 仍是缺失的原值");
 
   // ② 派发确已跑起来（不是被 no_current_turn 挡在门外）
   const { readRuns } = await import("../lib/idle-runlog.js");
@@ -457,6 +509,74 @@ test("重启：无回合事件时从宿主会话记录回填轮次，派发照�
     `重启后派发不得以 stopped 收场（修复前必然是 no_current_turn）：${JSON.stringify(latest)}`,
   );
   assert.notEqual(latest.code, "idle_checkpoint/no_current_turn", "本次修复要消灭的正是这个码");
+
+  // ③ 回填出的轮次号必须**流到下游**并被水位钉住。这一条是本用例的判据核心：
+  //    ②只说明「没被前置挡掉」，落地缺签名、空窗口等路径都能让 ② 成立，而
+  //    「回填值是多少」全程无人核对（变异测试 M9 正是这样逃过的）。
+  assert.equal(
+    latest.stage, "landed",
+    `回填后的派发须真的走到落地（否则回填值无人消费）：${JSON.stringify(latest)}`,
+  );
+  assert.equal(latest.action, "none", "无发现即`action: none`——它证明落地函数真的被调用过，而不是停在缺签名");
+  assert.equal(
+    latest.watermark, 7,
+    `**水位须推进到回填出的轮次**——若回填值被改小/改 0，此处即刻暴露：${JSON.stringify(latest)}`,
+  );
+  assert.equal(
+    latest.per_task?.["friction-discovery"]?.watermark_advanced, true,
+    "成功者的逐任务水位推进须可见",
+  );
+
+  // ④ 两次读取各自钉住来源：先父会话（取位置），后执行体会话（取署名）。
+  assert.deepEqual(
+    openCalls.map((c) => c[0]), [sessionId, EXECUTOR_ID],
+    "位置读父会话、署名读执行体会话，各一次",
+  );
+});
+
+test("重启：Human 关闭全部子项时不得为读位置而打开会话日志（顺序纪律）", async () => {
+  // 回填读的是会话日志（大会话可达数十 MB），故它必须发生在「无启用任务」早退
+  // **之后**：Human 关掉机制时本检查点什么都不做。变异测试 M10 把回填移到前置
+  // 判定之前，虽然能红，但那是 TDZ 事故而非本纪律——故补一条专属用例：
+  // 此处**没有**任何 turn 事件（lastTurn 必为 undefined，回填一定会触发），
+  // 唯一可能阻止读取的就是顺序纪律本身。
+  const { ctx, dshHomePath, roots, project, lifecycle } = await setup({
+    tasks: { "friction-discovery": false, "experience-capture": false },
+  });
+  const sessionId = `session-restart-disabled-${Date.now()}`;
+  const session = { header: { id: sessionId, cwd: project }, id: sessionId };
+  const agent = { id: "agent-restart-disabled", session, ctx };
+
+  const openCalls = [];
+  ctx.set("sessionPersistence", {
+    locate: () => undefined,
+    open: async (id, access) => {
+      openCalls.push([id, access]);
+      throw new Error("Human 已关闭全部子项，本检查点不得读取会话日志");
+    },
+  });
+
+  const { recordActivity } = await import("../lib/friction-watermark.js");
+  await recordActivity(dshHomePath, {
+    projectRoot: project,
+    sessionId,
+    at: new Date(Date.now() - 60_000).toISOString(),
+  });
+
+  roots.push(agent);
+  await ctx.emit("agent/created", { agent, source: "startup" });
+  await new Promise((r) => setTimeout(r, 500));
+  await ctx.emit("agent/status", { agent, status: "idle" });
+  await new Promise((r) => setTimeout(r, 1200));
+
+  // 先证明**检查点真的被派发过**——否则「没读日志」是空过（根本没走到回调）。
+  const turns = lifecycle.snapshotOf(agent.id)?.turns;
+  assert.equal(
+    turns?.lastCheckpointDispatch?.source, "silence:timer",
+    "安静期到期须真的派发过一次——否则本用例什么都没验证",
+  );
+  assert.deepEqual(openCalls, [], "Human 关闭全部子项时本检查点什么都不做，不得为读位置而打开会话日志");
+  assert.equal(turns?.lastTurn, undefined, "早退路径不得回填（回填发生在「无启用任务」早退之后）");
 });
 
 test("重启：宿主记录不可读时维持 fail-closed 并如实记下原因（不推测位置）", async () => {
