@@ -9,13 +9,18 @@
 //   - workcase-list-objects (effect: read)             — F0/F1 discovery:
 //     title/status/serves/outcome projection, draft+open by default
 //     (21 §13: closed 只在精确引用、证据链反查或历史追溯时展开).
-//   - workcase-write-object (effect: may_change_state) — seven controlled
-//     actions mapped to the 21 §14 operations:
+//   - workcase-write-object (effect: may_change_state) — the controlled
+//     actions mapped to the 21 §14 operations (see WRITE_ACTIONS for the
+//     authoritative list; 21 §14 has grown past the original seven):
 //       create  — C1 提案对象模式, draft initial state;
 //       approve — Gate 1 (draft→open): stamps gate_1 (authorization
 //                 fingerprint computed by Code) + allocates attempt 1;
 //       execute — open-period update: heartbeat/takeover/reallocate,
-//                 body progress, result drafts; plan/scope frozen by C2;
+//                 body progress, result drafts; plan/scope frozen by C2.
+//                 **The Gate 2 closure proposal travels through execute**:
+//                 writing `## 结果` while keeping status=open is the only
+//                 path into 「待批准关闭」 (awaiting_gate2) — close cannot be
+//                 the first call that introduces that section;
 //       close   — Gate 2 (open→closed): result+outcome, attempt 收口;
 //       rebatch — C2 局部重批 (open→draft): attempt voided, gate_1
 //                 dropped, evidence snapshot into change_log;
@@ -83,7 +88,7 @@ const OPERATIONS = {
     // silently pays for create's human wait. See the descriptor factory for
     // why a deadline here would guarantee a wrong result rather than a slow one.
     awaitsHumanDecision: true,
-    summary: "Controlled write of WorkCase fact objects across the 工单 lifecycle: create (C1 提案, draft), approve (Gate 1: requires a covering pre-Gate-1 audit record — 时序闸+覆盖闸, 21 §14; stamps authorization fingerprint + attempt 1; returns plan_step_reference — the authoritative 「计划步骤 N」清单), execute (open-period; plan/scope frozen by C2), close (Gate 2: result+outcome, attempt 收口; requires at least one review recorded by a session OTHER than the executor, workcase-2be11478), rebatch (C2 局部重批 open→draft), cancel (draft→closed cancelled), revise (draft evolution), correct (终态事实更正：仅 closed 对象，只重写正文并追加一条 change_log，终态判定与 result/reviews 逐字不变，须携带 Human 授权记录；21 §9.2:259 / 03 §10), record_review (append ONE review entry carrying the caller's Code-stamped session identity — the narrow channel for an isolated reviewer; 复核轴, open 期), record_audit (append ONE pre_reviews entry carrying the auditor's Code-stamped identity and the Code-computed candidate fingerprint — the narrow channel for an isolated pre-Gate-1 audit; 审核轴, draft 期, ≤3 per candidate) (specs/03 §9.4–§9.5, specs/21 §14). 写「执行」节时引用计划步骤请用「计划步骤 N」（21 §8 记账纪律）",
+    summary: "Controlled write of WorkCase fact objects across the 工单 lifecycle: create (C1 提案, draft), approve (Gate 1: requires a covering pre-Gate-1 audit record — 时序闸+覆盖闸, 21 §14; stamps authorization fingerprint + attempt 1; returns plan_step_reference — the authoritative 「计划步骤 N」清单), execute (open-period update: attempt heartbeat/takeover/reallocate, 执行 progress, **and the Gate 2 closure PROPOSAL** — writing the `## 结果` section through execute with status kept `open` is what puts the case into 「待批准关闭」 (awaiting_gate2) and hands it back to Human; plan/scope frozen by C2), close (Gate 2: result+outcome, attempt 收口; requires at least one review recorded by a session OTHER than the executor, workcase-2be11478; **requires that the previously persisted body ALREADY carries `## 结果`** — a first-time 结果 section and the status flip may not be merged into one call, workcase/result_proposal_required, so the two-step order execute-then-close is mandatory and close is withheld until Human rules on the proposal), rebatch (C2 局部重批 open→draft), cancel (draft→closed cancelled), revise (draft evolution), correct (终态事实更正：仅 closed 对象，只重写正文并追加一条 change_log，终态判定与 result/reviews 逐字不变，须携带 Human 授权记录；21 §9.2:259 / 03 §10), record_review (append ONE review entry carrying the caller's Code-stamped session identity — the narrow channel for an isolated reviewer; 复核轴, open 期), record_audit (append ONE pre_reviews entry carrying the auditor's Code-stamped identity and the Code-computed candidate fingerprint — the narrow channel for an isolated pre-Gate-1 audit; 审核轴, draft 期, ≤3 per candidate) (specs/03 §9.4–§9.5, specs/21 §14). 写「执行」节时引用计划步骤请用「计划步骤 N」（21 §8 记账纪律）",
     effect: "may_change_state"
   }
 };
