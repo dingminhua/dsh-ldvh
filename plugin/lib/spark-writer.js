@@ -899,8 +899,28 @@ export async function listSparkObjects(args) {
       continue;
     }
     if (!includeTerminal && status !== "open") continue;
+    // refs 目标的类型必须在此解析（见下方注释）：逐条时目标是别的类型，渲染层
+    // 无从推断。解析失败的保留裸 uid —— 丢弃会让读者以为没有关联。
+    const refsProjection = Array.isArray(frontmatter.refs) && frontmatter.refs.length > 0
+      ? await (async () => {
+        const check = await resolveRefsTargets(factSourceRoot, frontmatter.refs);
+        return frontmatter.refs
+          .map((entry) => {
+            const refUid = typeof entry === "string" ? entry : entry?.object_uid;
+            if (typeof refUid !== "string") return null;
+            const hit = check.resolved?.get(refUid);
+            return hit ? { object_uid: refUid, fact_type_key: hit.type } : { object_uid: refUid };
+          })
+          .filter((entry) => entry !== null);
+      })()
+      : undefined;
     items.push({
       object_uid: uid,
+      // 02 §8 / §9 F1：`fact_type_key` 是跨类型公共身份字段，F1 卡片须自证类型——
+      // 否则渲染层只能按「当前在列哪个页面」硬编码类型短名，换个消费面就错。
+      // 三处列表投影（spark/pitfall/workcase）此前都漏了它（object-reference 测试
+      // 早已断言却一直红着）。取落盘值而非常量：承载被改成别的类型时如实暴露。
+      fact_type_key: typeof frontmatter.fact_type_key === "string" ? frontmatter.fact_type_key : SPARK_TYPE_KEY,
       title: typeof frontmatter.title === "string" ? frontmatter.title : "",
       status,
       question: typeof frontmatter.question === "string" ? frontmatter.question : "",
@@ -909,9 +929,13 @@ export async function listSparkObjects(args) {
       // this spark is related to. Targets are enriched with type/title for
       // readability only — this is a derived projection, never written back
       // (03 §7.2 invariant 4: no second authority).
-      refs: Array.isArray(frontmatter.refs) && frontmatter.refs.length > 0
-        ? frontmatter.refs.map((entry) => ({ object_uid: entry?.object_uid })).filter((entry) => typeof entry.object_uid === "string")
-        : undefined,
+      //
+      // 此处的注释一直声称「enriched with type/title」，实现却只保留了
+      // `object_uid` —— 于是读路径渲染 `spark-2074408b`、F1 列表行渲染裸
+      // `2074408b`，**同一目标在两条消费路径上指称不同**（第 7 轮复核发现 1）。
+      // 类型必须在这里解析出来：渲染层无从得知目标属于哪一类（它可能与本行
+      // 的宿主对象不同类）。解析不到的保留裸 uid，绝不猜造类型。
+      refs: refsProjection,
       priority: typeof frontmatter.priority === "string" ? frontmatter.priority : undefined,
       created_at: typeof frontmatter.created_at === "string" ? frontmatter.created_at : "",
     });

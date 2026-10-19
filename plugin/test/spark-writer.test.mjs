@@ -1329,7 +1329,12 @@ test("refs: F1 list projection carries refs for the Human card (20 §12)", async
     const listed = await listSparkObjects({ factSourceRoot: root });
     assert.ok(listed.ok, JSON.stringify(listed.error));
     const item = listed.value.items.find((i) => i.object_uid === created.value.object_uid);
-    assert.deepEqual(item.refs, [{ object_uid: REF_UID }]);
+    // 投影必须带解析出的类型：`object-reference.test.mjs` 的「spark F1 list: refs
+    // targets carry a resolved type」钉的是同一件事——两条消费路径（read / list）
+    // 对同一目标必须给出同一指称，否则列表行渲染成裸 8hex 而读路径渲染成
+    // `pitfall-8hex`。原断言只允许 {object_uid}，与本文件上文 writer 注释里早已
+    // 写明的「Targets are enriched with type/title」互相矛盾。
+    assert.deepEqual(item.refs, [{ object_uid: REF_UID, fact_type_key: "research" }]);
   });
 });
 

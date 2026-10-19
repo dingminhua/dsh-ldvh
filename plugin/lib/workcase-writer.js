@@ -3961,6 +3961,8 @@ export async function listWorkcaseObjects(args) {
     if (!includeClosed && status === "closed") continue;
     items.push({
       object_uid: uid,
+      // 02 §8 / §9 F1：F1 卡片须自证类型（同 spark 列表，此前三处一并漏掉）。
+      fact_type_key: typeof frontmatter.fact_type_key === "string" ? frontmatter.fact_type_key : WORKCASE_TYPE_KEY,
       title: typeof frontmatter.title === "string" ? frontmatter.title : "",
       status,
       serves: typeof frontmatter.serves === "string" ? frontmatter.serves : undefined,

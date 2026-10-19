@@ -24,6 +24,7 @@ import {
   readSparkObject,
   updateSparkObject,
   listSparkObjects,
+  resolveRefsTargets,
 } from "./spark-writer.js";
 import { currentRouteValues } from "./session-signature.js";
 import { FRONTMATTER_AFTER_DESCRIPTION, FRONTMATTER_REMOVALS_DESCRIPTION } from "./after-integrity.js";
@@ -31,6 +32,7 @@ import { authoritativeSignature } from "./signature-channel.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { join } from "node:path";
 import { registerWriteShapedTool } from "./host-seams.js";
+import { objectRef, objectRefOf, shortUid } from "./object-reference.js";
 
 const OPERATIONS = {
   "spark-read-object": {
@@ -144,6 +146,24 @@ async function executeReadObject(args, exec, deps) {
   }
   const value = read.value;
   const fm = value.frontmatter;
+  // refs 在载体里只存 object_uid（03 §7.2 最小形态）。读路径补出目标类型与标题，
+  // 使指称形态 objectRef 能用上、读者也看得出「指向哪一类对象」——这是**派生
+  // 投影**，不回写载体（下方 frontmatter.refs 仍是原样的最小形态）。
+  // 解析不到的保留裸 uid：丢弃会让「载体声明了关联、响应看不见」比裸标识更坏。
+  //
+  // 注意这里**不**按 `ok` 判定：`resolveRefsTargets` 在目标解析不到时返回
+  // `ok:false` 并列出 missing，但 `resolved` 里仍有已解析成功的条目——读取路径
+  // 要的正是「能解析的都补上，解析不到的保留裸 uid」，而不是整体降级。
+  const refsLookup = Array.isArray(fm.refs) && fm.refs.length > 0
+    ? await resolveRefsTargets(factSourceRoot, fm.refs)
+    : null;
+  const resolvedRefs = refsLookup === null
+    ? undefined
+    : fm.refs.map((entry) => {
+      const uid = typeof entry === "string" ? entry : entry?.object_uid;
+      const hit = refsLookup.resolved?.get(uid);
+      return hit ? { object_uid: uid, fact_type_key: hit.type, title: hit.title } : { object_uid: uid };
+    });
   return envelope("spark-read-object", "completed", {
     result: {
       object_uid: value.object_uid,
@@ -153,7 +173,7 @@ async function executeReadObject(args, exec, deps) {
       status: fm.status,
       question: typeof fm.question === "string" ? fm.question : undefined,
       serves: typeof fm.serves === "string" ? fm.serves : undefined,
-      refs: Array.isArray(fm.refs) && fm.refs.length > 0 ? fm.refs : undefined,
+      refs: resolvedRefs,
       body_valid: value.body_valid,
       body_issues: value.body_issues,
       frontmatter: fm,
@@ -643,14 +663,20 @@ function renderEnvelope(operationKey, value) {
   const env = value?.envelope ?? {};
   const lines = [`LDVH ${env.operation_key ?? operationKey}: ${env.outcome ?? "unknown"}`];
   const result = env.result;
-  if (result?.object_uid !== undefined) lines.push(`object: ${result.object_uid}`);
+  if (result?.object_uid !== undefined) lines.push(`object: ${objectRef({ object_uid: result.object_uid, fact_type_key: result.fact_type_key ?? "spark" })}`);
   if (result?.title !== undefined) lines.push(`title: ${result.title}`);
   if (result?.status !== undefined) lines.push(`status: ${result.status}`);
   if (result?.serves !== undefined) lines.push(`serves: ${result.serves}`);
   // refs (20 §8): verbose on the single-object read (uid + resolved title when
   // available) so the model can see associations without a second call.
   if (Array.isArray(result?.refs) && result.refs.length > 0) {
-    lines.push(`refs: ${result.refs.map((r) => r?.title ? `${r.object_uid} (${r.title})` : r?.object_uid ?? JSON.stringify(r)).join(", ")}`);
+    // 指称形态统一走 objectRef（02 §9.3）：目标可解析时是 `pitfall-bb0fe837 标题`，
+    // 解析不到时退化为裸短标识——绝不猜造类型，也绝不丢弃。
+    lines.push(`refs: ${result.refs.map((r) => {
+      if (r === null || typeof r !== "object") return JSON.stringify(r);
+      const ref = objectRef(r, { withTitle: typeof r.title === "string" });
+      return ref || (typeof r.object_uid === "string" ? shortUid(r.object_uid) : JSON.stringify(r));
+    }).join(", ")}`);
   }
   if (result?.question !== undefined) lines.push(`question: ${result.question}`);
   // Full fingerprint, never truncated (03 §9.5): the render output is the
@@ -667,10 +693,10 @@ function renderEnvelope(operationKey, value) {
       // (20 §12). priority was carried by the writer projection but never
       // printed here, so the model could not see the ordering tier the spec
       // promises; missing priority is legal (未分档) and renders as no tag.
-      lines.push(`- ${item.object_uid} [${item.status}]${item.priority ? ` ${item.priority}` : ""} ${item.title}${item.serves ? ` (${item.serves})` : ""}${Array.isArray(item.refs) && item.refs.length > 0 ? ` → ${item.refs.map((r) => r?.object_uid ?? r).join(", ")}` : ""}`);
+      lines.push(`- ${objectRef(item)} [${item.status}]${item.priority ? ` ${item.priority}` : ""} ${item.title}${item.serves ? ` (${item.serves})` : ""}${Array.isArray(item.refs) && item.refs.length > 0 ? ` → ${item.refs.map((r) => (r !== null && typeof r === "object" ? objectRef(r) || shortUid(r.object_uid) : String(r))).join(", ")}` : ""}`);
     }
   }
-  if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${change.object_uid}`);
+  if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "spark")}`);
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
   return text(lines.join("\n"));
 }

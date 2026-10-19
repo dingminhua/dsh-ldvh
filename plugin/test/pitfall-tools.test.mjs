@@ -425,7 +425,14 @@ test("render: create output carries the full fingerprint and read_back without t
     const text = blocks.map((b) => b.text).join("\n");
     assert.ok(text.includes(`fingerprint: ${created.result.fingerprint}`), `render must carry the complete fingerprint:\n${text}`);
     assert.ok(text.includes("read_back: ok"), `render must carry read_back:\n${text}`);
-    assert.ok(text.includes(`object: ${created.result.object_uid}`), `render must carry the object:\n${text}`);
+    // 02 §9.1 F0–F4「发现」层 + object-reference.js：工具响应对事实对象的指称是
+    // `type-<8hex>` 形态，不是裸 uid。此处原断言要求完整 uid，与指称形态条款以及
+    // 同文件 test/object-reference.test.mjs 的 12 项断言直接冲突——**两条测试钉住
+    // 了互相排斥的形态**，而前者一直是绿的。按形态条款统一为带类型前缀的短标识。
+    assert.ok(
+      text.includes(`object: pitfall-${created.result.object_uid.slice(0, 8)}`),
+      `render must carry the type-prefixed reference:\n${text}`,
+    );
     assert.ok(!text.includes("…"), "render must not truncate with an ellipsis");
   });
 });

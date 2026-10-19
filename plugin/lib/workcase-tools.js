@@ -55,6 +55,7 @@ import { resolveGovernanceScope } from "./governance-scope.js";
 import { syncWorkcaseGoal, GOAL_WRITE_POINTS } from "./workcase-goals.js";
 import { join } from "node:path";
 import { registerWriteShapedTool } from "./host-seams.js";
+import { objectRef, objectRefOf } from "./object-reference.js";
 
 const OPERATIONS = {
   "workcase-read-object": {
@@ -1140,7 +1141,7 @@ function renderEnvelope(operationKey, value) {
   const env = value?.envelope ?? {};
   const lines = [`LDVH ${env.operation_key ?? operationKey}: ${env.outcome ?? "unknown"}`];
   const result = env.result;
-  if (result?.object_uid !== undefined) lines.push(`object: ${result.object_uid}`);
+  if (result?.object_uid !== undefined) lines.push(`object: ${objectRef({ object_uid: result.object_uid, fact_type_key: result.fact_type_key ?? "workcase" })}`);
   if (result?.title !== undefined) lines.push(`title: ${result.title}`);
   if (result?.status !== undefined) lines.push(`status: ${result.status}`);
   if (result?.attempt_id !== undefined) lines.push(`attempt: ${result.attempt_id} (controller: ${result.controller ?? "unknown"})`);
@@ -1154,10 +1155,10 @@ function renderEnvelope(operationKey, value) {
   if (result?.count !== undefined) lines.push(`count: ${result.count}${result.total !== undefined && result.total !== result.count ? ` (of ${result.total})` : ""}`);
   if (Array.isArray(result?.items)) {
     for (const item of result.items) {
-      lines.push(`- ${item.object_uid} [${item.status}]${item.outcome ? ` outcome=${item.outcome}` : ""} ${item.title}${item.serves ? ` (${item.serves})` : ""}`);
+      lines.push(`- ${objectRef(item)} [${item.status}]${item.outcome ? ` outcome=${item.outcome}` : ""} ${item.title}${item.serves ? ` (${item.serves})` : ""}`);
     }
   }
-  if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${change.object_uid}`);
+  if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "workcase")}`);
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
   return text(lines.join("\n"));
 }
