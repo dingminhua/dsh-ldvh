@@ -464,7 +464,13 @@ export async function resolveRefsTargets(factSourceRoot, refs) {
   const resolved = new Map();
   const missing = [];
   for (const entry of refs) {
-    const uid = typeof entry === "string" ? entry : entry?.object_uid;
+    // 两种形态都要认：`refs` 条目把 uid 放在自身（03 §7.2 关联引用型），
+    // `relations` 条目把 uid 放在 `target` 下（03 §7.2 生命周期关系型）。
+    // 只认前者会让 relations 条目被**静默跳过**——resolved 为空、missing 也为空，
+    // 调用方拿到一个「成功但什么都没解析到」的结果（第九轮复核实测定性）。
+    const uid = typeof entry === "string"
+      ? entry
+      : (entry?.object_uid ?? entry?.target?.object_uid);
     if (typeof uid !== "string") continue;
     const hit = index.get(uid.toLowerCase());
     if (hit === undefined) missing.push(uid);

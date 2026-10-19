@@ -409,3 +409,102 @@ test("spark F1 list: refs targets carry a resolved type, so the line is type-pre
     assert.ok(!text.includes(`→ ${targetUid.slice(0, 8)}`), `must not render the bare short id:\n${text}`);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Layer ④: the spark terminal-transition report (relation targets)
+// ---------------------------------------------------------------------------
+//
+// 第九轮复核的决定性发现：`sparkTerminalReport` 的「关系目标：<key> → <uid>」行
+// 仍输出完整 36 位 UUID，是四层中唯一漏改的渲染点。关系目标在载体里只有
+// object_uid（03 §7.2），呈报要按 02 §9.3 出指称就得先解析出目标类型。
+test("spark terminal report: relation targets render with the type prefix, never the full uid", async () => {
+  await withTemp("object-reference.relation.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const sparks = join(repo, "ldvh-base", "sparks");
+    const seed = (uid, title) => writeFile(
+      join(sparks, `spark-${uid}.md`),
+      [
+        "---",
+        `object_uid: ${uid}`,
+        "fact_type_key: spark",
+        `title: ${title}`,
+        "status: open",
+        "question: 关系目标该怎样被指称？",
+        "scope_boundary: 仅以本仓库单元测试为证据。",
+        "intent: 钉住关系行的指称形态。",
+        "summary: 关系目标按 02 §9.3 渲染。",
+        "created_at: 2026-10-18T00:00:00.000Z",
+        "---",
+        "",
+        `# ${title}`,
+        "",
+        "## 当前理解",
+        "",
+        "关系目标按 02 §9.3 渲染。",
+        "",
+        "## 调查问题",
+        "",
+        "关系目标该怎样被指称？",
+        "",
+        "## 调查边界",
+        "",
+        "仅以本仓库单元测试为证据。",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    const targetUid = "11111111-1111-4111-8111-111111111111";
+    const hostUid = "996e207a-3ca2-494b-bcbe-3f00d7c0c3b7";
+    await seed(targetUid, "合并目标（测试夹具）");
+    await seed(hostUid, "被合并议题（测试夹具）");
+
+    // 抓 Host 收到的那一份 Gate 呈报正文——它就是渲染点本身。
+    const captured = [];
+    const descriptors = makeDescriptors(sparkToolsModule.registerSparkTools, {
+      dshHomePath: dshHome(home),
+      workspaceRoot: base,
+      sessionPersistence: sessionPersistenceWithRoutingLog(base),
+      hostSeams: {
+        requestSparkConsent: async (request) => {
+          captured.push(String(request.summary ?? ""));
+          return { granted: true, answer: "确认" };
+        },
+      },
+    });
+
+    const read = await run(descriptors, "ldvh_spark_read", { object_uid: hostUid }, repo);
+    assert.equal(read.outcome, "completed", JSON.stringify(read));
+    const merged = await run(descriptors, "ldvh_spark_write", {
+      action: "update",
+      object_uid: hostUid,
+      expected_fingerprint: read.result.fingerprint,
+      frontmatter_after: {
+        status: "discarded",
+        disposition: "合并：议题收敛进目标。",
+        relations: [{ relation_key: "merged-into", target: { object_uid: targetUid } }],
+      },
+      body_markdown_after: [
+        "## 当前理解",
+        "",
+        "关系目标按 02 §9.3 渲染。",
+        "",
+        "## 调查问题",
+        "",
+        "关系目标该怎样被指称？",
+        "",
+        "## 调查边界",
+        "",
+        "仅以本仓库单元测试为证据。",
+      ].join("\n"),
+      change_summary: "合并进目标（测试夹具）",
+    }, repo);
+    assert.equal(merged.outcome, "completed", JSON.stringify(merged));
+    assert.equal(captured.length, 1, "exactly one 20 §16 Gate must be asked on a terminal transition");
+    const report = captured[0];
+    assert.ok(
+      report.includes(`merged-into → spark-${targetUid.slice(0, 8)}`),
+      `relation line must carry the type prefix:\n${report}`,
+    );
+    assert.ok(!report.includes(targetUid), `relation line must not print the full 36-char uid:\n${report}`);
+  });
+});

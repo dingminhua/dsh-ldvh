@@ -264,8 +264,13 @@ function sparkCreateReport(draft, dedupResult) {
 }
 
 /** 20 §16 呈报内容 for a terminal transition: target status, the full
- * disposition, and (for a merge/split) every relation target. */
-function sparkTerminalReport(frontmatterAfter) {
+ * disposition, and (for a merge/split) every relation target.
+ *
+ * `resolveTargetType` 是本工具无关的**类型解析回调**（`(uid) => type | undefined`，
+ * 通常由 `resolveRefsTargets` 换来）。关系目标在载体里只存 `object_uid`
+ * （03 §7.2 最小形态），呈报要按 02 §9.3 的指称形态输出就得先知道目标类型；
+ * 解析不到时退回裸短标识而非丢弃——与 refs 行同一条边界。 */
+function sparkTerminalReport(frontmatterAfter, resolveTargetType) {
   const lines = [];
   lines.push(`拟转状态：${String(frontmatterAfter?.status ?? "").trim() || "（缺失）"}`);
   const disposition = typeof frontmatterAfter?.disposition === "string" ? frontmatterAfter.disposition.trim() : "";
@@ -273,7 +278,15 @@ function sparkTerminalReport(frontmatterAfter) {
   const relations = Array.isArray(frontmatterAfter?.relations) ? frontmatterAfter.relations : [];
   if (relations.length > 0) {
     const targets = relations
-      .map((r) => `${String(r?.relation_key ?? "?")} → ${String(r?.target?.object_uid ?? "?")}`)
+      .map((r) => {
+        const uid = typeof r?.target?.object_uid === "string" ? r.target.object_uid : "";
+        // 02 §9.3：指称形态是「类型短名 + 8 位短标识」，不再是完整 36 位 UUID。
+        const type = typeof uid === "string" && uid.length > 0 && typeof resolveTargetType === "function"
+          ? resolveTargetType(uid)
+          : undefined;
+        const ref = objectRef({ object_uid: uid, fact_type_key: type });
+        return `${String(r?.relation_key ?? "?")} → ${ref || (uid.length > 0 ? shortUid(uid) : "?")}`;
+      })
       .join("；");
     lines.push(`关系目标：${targets}`);
   }
@@ -552,10 +565,18 @@ async function executeWriteObject(args, exec, deps) {
     // re-states the same status. Requiring a fresh Gate for it would convert
     // every typo fix into a Human Gate, which 20 §9.2 does not ask for.
     if (!wasTerminal) {
+      // 呈报里的关系目标也要按 02 §9.3 的指称形态输出，而 relation target 在载体里
+      // 只有 object_uid。这里用与 refs 行同一解析器当类型查询表：解析不到的类型
+      // 留给 objectRef 退回裸短标识，绝不猜造类型。
+      const relationTargets = Array.isArray(frontmatterAfter?.relations) ? frontmatterAfter.relations : [];
+      const relationLookup = relationTargets.length > 0
+        ? await resolveRefsTargets(factSourceRoot, relationTargets)
+        : null;
+      const resolveTargetType = (uid) => relationLookup?.resolved?.get(uid)?.type;
       const consent = await requestSparkGate(deps, exec, {
         action: "terminal",
         objectTitle: before.value.frontmatter.title ?? null,
-        summary: sparkTerminalReport(frontmatterAfter),
+        summary: sparkTerminalReport(frontmatterAfter, resolveTargetType),
       });
       if (!consent.ok) return consent.envelope;
     }
