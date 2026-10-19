@@ -291,6 +291,33 @@ test("checkKeyChangesAgainstDiff returns key_change_unmatched for an item naming
 	assert.ok(result.issues.some((i) => i.rule.startsWith("validation/key_change_unmatched") && i.message.includes("bar.js")));
 });
 
+// friction-1a1f2d8f「块结构规则无权威源致预检反复打回」：这条规则是双向的，而预检
+// 过去在第一个失配处就 return——使用者只看到单条局部要求，无从得知还有反向半边，
+// 也无从得知匹配依据是「文件路径」，于是逐轮改写逐轮被打回。修法是把同一规则的
+// 完整约束一次说清（判定逻辑不动，只改回显的形状）。
+test("checkKeyChangesAgainstDiff 同时报出两个方向的失配，并在失配项里带上匹配口径（friction-1a1f2d8f）", () => {
+	// 一个 item 无对应改动（方向一），一个改动无对应 item（方向二）。
+	const diff = "diff --git a/plugin/lib/foo.js b/plugin/lib/foo.js\ndiff --git a/plugin/lib/zap.js b/plugin/lib/zap.js\n";
+	const msg = ["chore: mixed", "", "关键变更:", "- add foo.js", "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
+	const result = checkKeyChangesAgainstDiff(msg, diff);
+	assert.equal(result.ok, false);
+	// 方向二：zap.js 没被任何 item 覆盖。
+	assert.ok(result.issues.some((i) => i.rule.startsWith("validation/staged_path_uncovered") && i.message.includes("zap.js")), "uncovered path must be reported");
+	// 方向一：item 文本本身能命中 foo.js（stem 匹配），故此处不产生 unmatched；
+	// 换一个真正无对应的 item 验证方向一与匹配口径说明。
+	const msg2 = ["chore: mixed", "", "关键变更:", "- add foo.js", "- rewrite entirely-unrelated-thing", "", "LDVH-Provider: a", "LDVH-Model: m"].join("\n");
+	const result2 = checkKeyChangesAgainstDiff(msg2, diff);
+	assert.equal(result2.ok, false);
+	const unmatchedIssue = result2.issues.find((i) => i.rule.startsWith("validation/key_change_unmatched"));
+	assert.ok(unmatchedIssue, "unmatched item must be reported");
+	// 匹配口径必须出现在诊断里——这是本条摩擦的核心：使用者过去只能靠反复失败反推。
+	assert.ok(unmatchedIssue.message.includes("匹配依据是") && unmatchedIssue.message.includes("文件路径"), "diagnostic must state the matching basis");
+	// 已改路径必须一并回显，使用者不必自己去翻 diff。
+	assert.ok(unmatchedIssue.message.includes("plugin/lib/foo.js"), "changed paths must be echoed");
+	// 两个方向同时存在时，须给一条整体说明（规则是双向的）。
+	assert.ok(result2.issues.some((i) => i.message.includes("双向一一对应")), "when both directions fail, explain the bidirectional rule once");
+});
+
 test("checkKeyChangesAgainstDiff accepts a diff with no diff lines (no path-level claim)", () => {
 	// Empty diff: there is nothing to match against. Every key-change item
 	// would be unmatched — the implementation surfaces that as ok:false

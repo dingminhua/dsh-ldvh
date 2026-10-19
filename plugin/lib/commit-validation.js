@@ -189,14 +189,37 @@ export function checkKeyChangesAgainstDiff(message, diff) {
   }
   if (items.length === 0) return { ok: false, issues: [newFinding("validation/key_changes_required", "关键变更: has no non-empty item", keyIndex + 1)] };
   const changedPaths = extractDiffPaths(diff);
+  // friction-1a1f2d8f「块结构规则无权威源致预检反复打回」：这条规则是**双向**的，
+  // 而预检过去在第一个失配处就 return，只回显一条局部要求——使用者无从得知还有
+  // 反向半边，也无从得知匹配依据是「文件路径」，于是逐轮改写逐轮被打回。
+  //
+  // 修法不是放宽规则，而是**把同一条规则的完整约束一次说清**：两个方向一起算、
+  // 一起报，并在诊断文本里带上可操作的匹配口径。判定逻辑本身一个字没动。
   const unmatched = [];
   for (const item of items) {
     if (!changedPaths.some((path) => itemMatchesPath(item.text, path))) unmatched.push(item);
   }
-  if (unmatched.length > 0) return { ok: false, issues: unmatched.map((item) => newFinding("validation/key_change_unmatched", `no staged change corresponds to "${item.text}"`, item.line)) };
   // Reverse half: every non-exempt staged path must be covered by some item.
   const uncovered = changedPaths.filter((path) => !isExemptPath(path) && !items.some((item) => itemMatchesPath(item.text, path)));
-  if (uncovered.length > 0) return { ok: false, issues: uncovered.map((path) => newFinding("validation/staged_path_uncovered", `staged path "${path}" is not covered by any 关键变更 item`, null)) };
+  if (unmatched.length > 0 || uncovered.length > 0) {
+    const issues = [];
+    // 方向一：正文提到的东西必须真的被改了。
+    for (const item of unmatched) {
+      // 给出该项**实际能命中什么**的线索：已改路径里与该文本最接近的那个。
+      const nearest = changedPaths.length > 0 ? ` 已改路径：${changedPaths.map((p) => `"${p}"`).join("、")}` : " 本次提交没有任何已改路径";
+      issues.push(newFinding("validation/key_change_unmatched", `关键变更 item "${item.text}" 未命中任何已改路径（该方向要求：item 须点名它对应的改动，匹配依据是**文件路径**——完整路径、文件名、去扩展名的词干（≥3 字符）或目录段，任一出现在 item 文本中即算命中）。${nearest}`, item.line));
+    }
+    // 方向二：改了的东西必须被正文覆盖。
+    for (const path of uncovered) {
+      issues.push(newFinding("validation/staged_path_uncovered", `已改路径 "${path}" 没有任何 关键变更 item 覆盖它（该方向要求：每个非豁免的已暂存改动都须在 关键变更 中被点名，否则等于漏报改动）。补一条点名 "${path}" 的 item 即可。`, null));
+    }
+    // 两个方向同时存在时，额外给一条整体说明——「规则是双向的」这件事过去
+    // 只存在于实现里，使用者只能靠反复失败反推。
+    if (unmatched.length > 0 && uncovered.length > 0) {
+      issues.push(newFinding("validation/key_changes_required", `关键变更 与已暂存改动是**双向一一对应**关系（06 §6.1 K1）：每个 item 须命中一个已改路径，每个已改路径须被一个 item 命中。本次同时有 ${unmatched.length} 个 item 无对应改动、${uncovered.length} 个改动无对应 item——请一并修正后再提交，不必逐轮试探。`, null));
+    }
+    return { ok: false, issues };
+  }
   return { ok: true, changedPaths };
 }
 
