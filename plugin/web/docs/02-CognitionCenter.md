@@ -45,15 +45,21 @@
 
 模块默认展开；Human 可通过标题带右侧的折叠按钮收起整个待决定事项正文。收起态仍保留模块名、总数与复制模块摘要，使后续模块可继续阅读而不丢失当前待决规模。
 
+### 0.3 2026-10-19 待决定事项增加「待修的摩擦」（Human 决定）
+
+26 号把 Friction 纳入事实类型后，账本有了独立的「障碍累积」通道，但聚焦页此前只在近期动态里露过它的影响标签——待修摩擦从未进入待决定事项。Human 于 2026-10-19 要求把**待修的摩擦**纳入待决定事项，并就范围作出选择：**只收 `open`**（`observing` 不收），且**沿用现有徽章**、不新增可见标签体系。
+
+据实声明的边界：本改动**只增加呈现**，不改变任何流转。`observing → open` 仍由 26 §9.2 的阈值/Human 提前排期决定，`open → resolved` 仍需 `informs 1..n` 且由受控写入承载。本页展示 open 账目不等于提出修复方案，也不构成对摩擦的记录或处置。
+
 ## 1. 页面目标
 
 聚焦页是 LDVH 面向 Human 的项目认知入口，内部概念和源码仍使用 Cognition Center。当前价值判断以 `specs/00-理念与构成.md` §6 的 HV1-HV5 为上位来源；本页只按实际机制声明直接承接或提供材料：
 
 | 标准 | 名称 | 本页承接与边界 |
 |---|---|---|
-| HV1 | 决策提请清晰可决 | 待决定事项汇集当前 Human Gate 与 draft Pitfall，复用同源 Card、次级阅读和模块摘要呈现决定对象、依据、处理入口及可见缺口；页面不补造选项或结论 |
+| HV1 | 决策提请清晰可决 | 待决定事项汇集当前 Human Gate、draft Pitfall 与 open Friction，复用同源 Card、次级阅读和模块摘要呈现决定对象、依据、处理入口及可见缺口；页面不补造选项或结论 |
 | HV2 | 授权执行受控可续 | 推进中事项呈现 WorkCase 的当前推进位置、阻塞和接续入口；对已获批对象，完整授权基线与边界仍进入同源次级阅读核查，页面不把推进状态解释为新增授权 |
-| HV3 | 入档闭环节点可验 | 待决定事项呈现当前 Human Gate，Spark 健康度呈现状态分布和静默 open 条目；被展示对象可进入同源阅读核查。页面不提供完整生命周期日志或全部终态明细，对象存在或计数不等于闭环完成 |
+| HV3 | 入档闭环节点可验 | 待决定事项呈现当前 Human Gate 与 open Friction（含 `impact` 评级与重复观察次数），Spark 健康度呈现状态分布和静默 open 条目；被展示对象可进入同源阅读核查。页面不提供完整生命周期日志或全部终态明细，对象存在或计数不等于闭环完成 |
 | HV4 | 积累效用直观可见 | **尚未完整承接**；近期热点只能显示哪些对象在事实流水中活跃及其正式关系，不能证明积累被实际使用或复用、产生可观察效用 |
 | HV5 | 项目演进脉络可循 | 近期动态与近期热点关系提供明确时间窗口内的事实流水和一跳正式关系材料；本页不串联长期意图、关键决定、重要工作和结果，不声明完整 HV5 已成立 |
 
@@ -98,8 +104,13 @@
 | 待确认关闭 | WorkCase resolved `current_snapshot_projection.handoff_narrative_key = gate2_waiting` 且 `blocking_overlay = false` | 与对象列表相同的关闭确认 Card：`goal`、`closure_proposal` 与实际 contributed Pitfall |
 | 阻塞待处置 | WorkCase resolved `progress_group = plan_confirmation / closure_confirmation` 且 `blocking_overlay = true` | 显示完整 `blocking_summary` 与当前确认位置；不显示 Gate waiting、批准计划或确认关闭入口 |
 | 待确认经验 | Pitfall `status = draft` | 与对象列表共享普通 Pitfall Card；正文显示可读的 `symptoms`、`trigger_conditions`、`resolution`、`avoidance`、`validation_summary`、`applicability` |
+| 待修摩擦 | Friction `status = open` | 与对象列表共享普通 Friction Card；卡体留空（与列表卡一致），身份与状态由卡头托承载：类型、`impact`（轻/中/重）、`occurrence` 重复观察、修改次数；标题即现象单句的浓缩，现象全文与入账依据住详情页 |
 
-- 排序：有合法 `priority` 的 WorkCase（P0→P3）→ 无优先级条目（含 Pitfall draft）→ `updated_at` 正序（等待最久在前）。排序是派生展示规则，不表达语义重要性结论。
+- 待修摩擦的收录口径（26 §12「Web 账本呈现」，Human 2026-10-19 决定）：**只收 `open`**。`observing` 是 26 §8 的初态、由 `count ≥ 3` 的机械通道转入 open，不承诺修复也不排期，故不进待决定事项；`resolved` / `voided` 是终态，同样不进默认候选。不呈现「攒熟进度」，以免把观察噪声读成待修规模。
+- 待修摩擦不是 Human Gate：本页不新增任何授权动作，流转由 26 §9 的 Human Gate 与补充级更新承载。其 `inboxKind` 取 `friction_repair`，模块摘要标签为「待修摩擦」而非「待确认」——避免 Human 在页面上寻找一个不存在的批准按钮。
+- `impact` 与 `occurrence` 由服务端**平铺到条目根**（`CognitionFrictionInboxItem`），不要求客户端翻 `card`：卡头徽标读对象根字段，只投影进 `card` 会让徽标在聚焦页静默消失（近期动态投影当初即踩此坑）。
+
+- 排序：有合法 `priority` 的 WorkCase（P0→P3）→ 无优先级条目（含 Pitfall draft 与 Friction open，后者 26 §8 闭集无 `priority` 字段）→ `updated_at` 正序（等待最久在前）。排序是派生展示规则，不表达语义重要性结论。
 - 待决类型是 UI 枚举：resolved WorkCase 先由 `progress_group` 确定性归入既有两个行动模块；plan/closure group 进入待决定事项，progressing 进入推进中事项。未阻塞的实际 Gate 类型继续只由两个 handoff key 证明；`blocking_overlay=true` 的 Human-position 改用 `blocked_resolution`，保留在待决定事项但不是 Human Gate。Pitfall 只由类型专属 `draft` 映射为待确认。
 - 条目形态直接复用对象列表 Card；聚焦页不新增对象正文。点击标题打开右侧扩展阅读（复用同源对象阅读布局）；标题以外区域不触发路由。
 - 复制入口只位于模块标题带：“复制模块摘要”面向 AI 对话，含各待确认类型计数与条目稳定 ID。条目本身保持与对象列表 Card 相同的复制与交互，不因进入聚焦页增加按钮；近期动态的当前时间范围由高亮的快捷按钮表达，不重复显示范围说明。
@@ -209,9 +220,9 @@ Helper 成功写入并回读后，浏览器没有可被 Helper 直接调用的�
 `GET /api/cognition?locale=&window=1d|3d|7d` 聚合返回（类型命名仅为契约描述，实现以 TS 类型为准）：
 
 ```typescript
-type CognitionObjectType = 'workcase' | 'adr' | 'pitfall' | 'spark' | 'study';
+type CognitionObjectType = 'workcase' | 'adr' | 'pitfall' | 'spark' | 'study' | 'friction';
 type WorkCaseProgressGroup = 'plan_confirmation' | 'progressing' | 'closure_confirmation' | 'closed';
-type InboxKind = 'plan_confirmation' | 'closure_confirmation' | 'blocked_resolution' | 'pitfall_confirmation';
+type InboxKind = 'plan_confirmation' | 'closure_confirmation' | 'blocked_resolution' | 'pitfall_confirmation' | 'friction_repair';
 
 interface CognitionInboxItemBase {
   id: string;
@@ -243,6 +254,13 @@ type CognitionInboxItem =
       type: 'pitfall';
       status: 'draft';
       inboxKind: 'pitfall_confirmation';
+    })
+  | (CognitionInboxItemBase & {
+      type: 'friction';
+      status: 'open';                       // 来源状态直读，不派生展示态
+      inboxKind: 'friction_repair';
+      impact?: string;                      // 26 §8，平铺到条目根供卡头徽标消费
+      occurrence?: Record<string, unknown>; // 26 §8，同上
     });
 
 interface CognitionRecentActivityItem {
@@ -332,7 +350,7 @@ interface CognitionData {
 
 ## 10. 验收标准
 
-1. Human 打开 `/` 后第一屏看到两个 WorkCase Human Gate 类型与 draft Pitfall 形成的全部待决定事项；blocked 对象不混入该收件箱。每项复用自身 Card，标题可直接打开同源次级阅读。
+1. Human 打开 `/` 后第一屏看到两个 WorkCase Human Gate 类型、draft Pitfall 与 open Friction 形成的全部待决定事项；blocked 对象与 `observing` / 终态 Friction 不混入该收件箱。每项复用自身 Card，标题可直接打开同源次级阅读。
 2. 完成一次真实闭环：收件箱模块摘要或对象稳定 ID → 粘贴到 AI 对话 → AI 经 Helper 精确读取同一对象 → Human 作出决定 → 受控写入回写事实源 → 重新进入本页后收件箱反映新状态。
 3. 每个模块可见派生身份；某类型读取失败时模块级降级并如实标注，不整页失败。近期动态切换窗口时保留旧列表，成功返回后原位替换。
 4. 双语切换：无 raw status / raw enum / raw 字段名；事实正文不翻译；英文布局不溢出。

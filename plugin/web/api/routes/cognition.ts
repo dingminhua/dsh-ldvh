@@ -41,11 +41,13 @@ import yaml from 'js-yaml'
 
 const router = Router()
 
-// 收件类型闭集（v5）：WorkCase 侧只有两个 Human Gate，加 Pitfall draft 确认。
+// 收件类型闭集（v5）：WorkCase 侧只有两个 Human Gate，加 Pitfall draft 确认，
+// 加 Friction `open` 待修（Human 2026-10-19 决定，见 cognition-inbox-contract 的
+// 「待修的摩擦」用例）。
 // 曾经的 `blocked_resolution`（v4「阻塞待处置」）已移除——v5 状态闭集无 `blocked`，
 // `deriveInboxKind` 无法产出该值，保留它等于在类型上承认一个不可达分支。
-type InboxKind = 'plan_confirmation' | 'closure_confirmation' | 'pitfall_confirmation'
-type InboxObjectType = 'workcase' | 'pitfall'
+type InboxKind = 'plan_confirmation' | 'closure_confirmation' | 'pitfall_confirmation' | 'friction_repair'
+type InboxObjectType = 'workcase' | 'pitfall' | 'friction'
 type RecentActivityKind = 'created' | 'updated'
 type RecentActivityWindow = '1d' | '3d' | '7d'
 
@@ -248,7 +250,18 @@ function priorityRank(priority: unknown): number {
 
 /** 与 localFactReader.metadataFor 一致：按事实类型返回当前 canonical path。 */
 function canonicalPath(type: InboxObjectType, objectId: string): string {
-  return `ldvh-base/${type === 'workcase' ? 'workcases' : 'pitfalls'}/${objectId}${type === 'workcase' ? '.md' : '.md'}`
+  // 三类载体都是平铺单文件且文件名就是 `<对象 id>.md`（02 §7.2 / 26 §7），故只有
+  // 目录名随类型变化。此前写作 `'workcase' ? 'workcases' : 'pitfalls'` 的二元式，
+  // 新增类型时会静默落到 fallback 分支给出**错误的目录**——错误路径不会报错，
+  // 只会让「复制对象路径」复制出不存在的位置。故改为显式查表，缺项即失败。
+  const directories: Record<InboxObjectType, string> = {
+    workcase: 'workcases',
+    pitfall: 'pitfalls',
+    friction: 'frictions',
+  }
+  const directory = directories[type]
+  if (directory === undefined) throw new Error(`未知收件类型：${String(type)}`)
+  return `ldvh-base/${directory}/${objectId}.md`
 }
 
 function factKey(type: string, objectId: string, objectUid?: string): string {
@@ -268,6 +281,27 @@ function deriveInboxKind(view: WorkCaseV5View): InboxKind | null {
   if (view.group === 'pending_gate1') return 'plan_confirmation'
   if (view.group === 'awaiting_gate2') return 'closure_confirmation'
   return null
+}
+
+/**
+ * 26 §8 Friction `impact`（影响评级闭集）与 `occurrence`（重复观察证据）在收件项上的
+ * 平铺投影。
+ *
+ * **为什么必须平铺**：卡头徽标（`FrictionImpactBadge` / `FrictionOccurrenceBadge`）在
+ * `ObjectCardFrame` 里读的是**对象根**上的 `obj.impact` / `obj.occurrence`。列表卡传入的
+ * 是完整 `ObjectItem`，而收件项走 `toObjectCard` 平铺——`impact` 只落在 `card` 里时，
+ * 徽标在聚焦页静默消失（近期动态投影当初正是踩了这条：`recentItems` 逐字段重建时丢掉
+ * `impact`，界面上就是「聚焦里没有重中轻的标签」）。故此处与 workcase 的 `pre_audit_passed`
+ * 同法：在 build → entry 这一层显式平铺，不依赖客户端翻 `card`。
+ */
+function projectFrictionImpact(raw: Record<string, unknown>): { impact?: string } {
+  return typeof raw.impact === 'string' && raw.impact.trim() ? { impact: raw.impact } : {}
+}
+
+function projectFrictionOccurrence(raw: Record<string, unknown>): { occurrence?: Record<string, unknown> } {
+  return typeof raw.occurrence === 'object' && raw.occurrence !== null
+    ? { occurrence: raw.occurrence as Record<string, unknown> }
+    : {}
 }
 
 function compareCardBuild(
@@ -895,6 +929,39 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    // 26 §12「Web 账本呈现」消费点：open 账目进入聚焦的待决定事项（Human 2026-10-19
+    // 决定：只收 `open`，不收 `observing`）。
+    //
+    // 为什么 `observing` 不进：26 §8 把初态定为 `observing`，`count ≥ 3` 才转 `open`
+    // （36 §9 的机械通道），今天账本里 observing 有 49 条、open 只有 4 条——把 observing
+    // 也铺进来，真正的待修账会被攒熟中的噪声淹没，而「待修」这个说法本身就不成立
+    // （§5：observing 不承诺修复、不排期）。`resolved`/`voided` 是终态，26 §12 明写
+    // 不进默认候选。故本分支只认 `open` 一个值，**不做**任何「攒熟进度」推断。
+    if (!frictionResult.ok || !('data' in frictionResult)) {
+      const message = frictionResult.ok ? 'Friction 列表读取失败' : (frictionResult as { error: string }).error
+      issues.push({ section: 'inbox', code: 'friction_list_unavailable', message })
+    } else {
+      const data = frictionResult.data as { items: Array<Record<string, unknown>>; collection_issues?: Array<Record<string, unknown>> }
+      for (const issue of Array.isArray(data.collection_issues) ? data.collection_issues : []) issues.push(toIssue(issue))
+      for (const raw of data.items) {
+        if (raw.status !== 'open') continue
+        const object_id = String(raw.object_id ?? '')
+        builds.push({
+          type: 'friction', inboxKind: 'friction_repair', object_id, title: String(raw.title ?? object_id),
+          ...(typeof raw.object_uid === 'string' ? { object_uid: raw.object_uid } : {}),
+          ...(typeof raw.title_en === 'string' ? { title_en: raw.title_en } : {}),
+          ...(typeof raw.title_zh === 'string' ? { title_zh: raw.title_zh } : {}),
+          // Friction 无 priority 字段（26 §8 闭集无它）——不传，排序自然落到
+          // `priorityRank(undefined)=4` 的「缺失排最后」分支，与 Pitfall 同法。
+          updated_at: getLatestChangeLogAt(raw.change_log),
+          read_status: String(raw.read_status ?? 'unknown'), projection: raw,
+          field_issues: Array.isArray(raw.field_issues) ? (raw.field_issues as Array<Record<string, unknown>>) : [],
+          unparsed_structures: Array.isArray(raw.unparsed_structures) ? (raw.unparsed_structures as Array<Record<string, unknown>>) : [],
+          read_issues: Array.isArray(raw.read_issues) ? (raw.read_issues as Array<Record<string, unknown>>) : [],
+        })
+      }
+    }
+
     builds.sort(compareCardBuild)
     activeWorkCaseBuilds.sort(compareCardBuild)
 
@@ -1014,7 +1081,15 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         // 平铺到 entry 而非让客户端翻 card：近期动态行的徽标是平铺消费的。
         if (typeof card.pre_audit_passed === 'boolean') entry.pre_audit_passed = card.pre_audit_passed
       }
-      else entry.status = 'draft'
+      else if (build.type === 'pitfall') entry.status = 'draft'
+      else {
+        // Friction（26 §8）：`status` 是来源状态的直读值（本分支只收 `open`），
+        // 与 Pitfall 的 `draft` 同法平铺——否则 entry 上没有 status，客户端
+        // `toObjectCard` 会把 `undefined` 当状态传给状态徽标。
+        // `impact`/`occurrence` 见 projectFriction* 的注释：卡头徽标读对象根。
+        entry.status = String(build.projection.status ?? '')
+        Object.assign(entry, projectFrictionImpact(build.projection), projectFrictionOccurrence(build.projection))
+      }
       // refs（03 §7.2 / 20 §8）：关联对象 chip，与卡头标签序一致
       // （类型 → 优先级 → SG → refs → 修改次数）。
       if (build.refs !== undefined) entry.refs = build.refs

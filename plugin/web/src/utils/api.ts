@@ -478,8 +478,9 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 
-/** 认知中心待决类型（v5）：两个 WorkCase Human Gate，加 Pitfall draft 审核。 */
-export type CognitionInboxKind = 'plan_confirmation' | 'closure_confirmation' | 'pitfall_confirmation';
+/** 认知中心待决类型（v5）：两个 WorkCase Human Gate，加 Pitfall draft 审核，
+ * 加 Friction `open` 待修（Human 2026-10-19 决定：只收 open，observing 不进）。 */
+export type CognitionInboxKind = 'plan_confirmation' | 'closure_confirmation' | 'pitfall_confirmation' | 'friction_repair';
 
 /**
  * 决定依据区内联投影（Q3）：与 WorkCase 列表 Card 同源的 source-bound 字段子集，
@@ -534,6 +535,13 @@ interface CognitionInboxItemBase {
   field_issues?: FieldIssue[];
   unparsed_structures?: UnparsedStructure[];
   read_issues?: Array<Record<string, unknown>>;
+  /**
+   * 26 §8 Friction 的 `impact` / `occurrence`：**平铺在条目根上**，与列表卡给
+   * `ObjectCardFrame` 的输入同形（卡头徽标读对象根，不翻 card）。服务端显式投影，
+   * 见 `cognition.ts` 的 `projectFrictionImpact` / `projectFrictionOccurrence`。
+   */
+  impact?: string;
+  occurrence?: Record<string, unknown>;
 }
 
 /** 21 号三态直读：WorkCase 待办收件只携带派生 group（pending_gate1 / awaiting_gate2）。 */
@@ -550,7 +558,19 @@ export interface CognitionPitfallInboxItem extends CognitionInboxItemBase {
   inboxKind: 'pitfall_confirmation';
 }
 
-export type CognitionInboxItem = CognitionWorkCaseInboxItem | CognitionPitfallInboxItem;
+/**
+ * 26 §12「Web 账本呈现」：Friction `open` 账目进待决定事项（Human 2026-10-19 决定）。
+ *
+ * `status` 是来源状态的直读值而不是派生值——本收件只收 `open`，与 Pitfall 的 `draft`
+ * 同法（类型专属状态直接呈现，不新造展示态）。
+ */
+export interface CognitionFrictionInboxItem extends CognitionInboxItemBase {
+  type: 'friction';
+  status: 'open';
+  inboxKind: 'friction_repair';
+}
+
+export type CognitionInboxItem = CognitionWorkCaseInboxItem | CognitionPitfallInboxItem | CognitionFrictionInboxItem;
 
 /** 处于执行主链的 WorkCase（group=executing）；与两个 Human Gate 的待决定事项互斥。 */
 export interface CognitionActiveWorkCaseItem extends Omit<CognitionInboxItemBase, 'inboxKind'> {

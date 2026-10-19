@@ -1021,3 +1021,54 @@ test('近期动态投影携带 friction 的 impact（API 链路不丢字段）',
   assert.match(cognition, /build\.impact !== undefined \? \{ impact: build\.impact \}/, '③ 投影给前端')
   assert.match(api, /impact\?: string/, '④ 前端类型声明 impact')
 })
+
+// ── 26 §12「Web 账本呈现」：open 摩擦进待决定事项（Human 2026-10-19 决定）─────────
+//
+// Human 原话（m00001）：「web 的聚焦，待决定事项里要增加 待修的摩擦」；对范围的
+// 追问答「只要 open」、对标签问「沿用现有徽章即可」。故本节钉三件事：
+// ① 收录口径恰为 `open`（observing 不进——26 §8 初态 observing 是攒熟中的活账，
+//    账本里 observing 有 49 条、open 只有 4 条，平铺会淹没真正的待修账）；
+// ② 条目复用列表卡形态（impact/occurrence 平铺到条目根，卡头徽标才读得到）；
+// ③ 不新增独立标签组件——`inboxKind` 只用于模块摘要计数。
+
+test('待决定事项收录 open 摩擦：observing 与终态一律不进（26 §12）', () => {
+  const route = readFileSync(path.resolve(repositoryRoot, 'api/routes/cognition.ts'), 'utf8')
+
+  // 判定是**字面**的 `raw.status !== 'open'`——写成集合或包含 observing 的谓词都是
+  // 口径漂移，会在下次有人「顺手带上 observing」时静默通过。
+  assert.match(route, /for \(const raw of data\.items\) \{\s*if \(raw\.status !== 'open'\) continue/,
+    '只收 open 账目');
+  assert.match(route, /type: 'friction', inboxKind: 'friction_repair'/, '摩擦走独立 inboxKind');
+  assert.doesNotMatch(route, /'observing'[^\n]*friction_repair|friction_repair[^\n]*'observing'/,
+    'observing 不得进入待修收件');
+  // 名册对不上时如实降级（02 §5.4），不静默丢整个分类。
+  assert.match(route, /code: 'friction_list_unavailable'/, 'friction 读取失败须进 issues');
+})
+
+test('摩擦收件项把 impact/occurrence 平铺到条目根（卡头徽标读对象根）', () => {
+  const route = readFileSync(path.resolve(repositoryRoot, 'api/routes/cognition.ts'), 'utf8')
+  const api = readFileSync(path.resolve(repositoryRoot, 'src/utils/api.ts'), 'utf8')
+  const page = readFileSync(path.resolve(repositoryRoot, 'src/pages/CognitionCenter.tsx'), 'utf8')
+
+  // 服务端：投影函数存在且被 entry 层调用。
+  assert.match(route, /function projectFrictionImpact/, '① 影响投影函数');
+  assert.match(route, /function projectFrictionOccurrence/, '② 重复观察投影函数');
+  assert.match(route, /projectFrictionImpact\(build\.projection\), projectFrictionOccurrence\(build\.projection\)/,
+    '③ entry 层显式平铺（不依赖客户端翻 card）');
+  // 客户端类型：条目根上声明两字段。
+  assert.match(api, /impact\?: string;[\s\S]{0,200}?occurrence\?: Record<string, unknown>;/, '④ 前端条目类型声明');
+  // 呈现：摩擦分支走**列表卡同一组件**，不另写聚焦专属卡体。
+  assert.match(page, /if \(item\.type === 'friction'\) return <FrictionCardContent obj=\{toObjectCard\(item\)\} \/>;/,
+    '⑤ 复用 FrictionCardContent');
+  assert.match(page, /friction_repair: 'cognition\.kind\.friction_repair'/, '⑥ 模块摘要标签');
+})
+
+test('摩擦条目的 canonical_path 指向 frictions 目录而非 pitfalls 回落', () => {
+  const route = readFileSync(path.resolve(repositoryRoot, 'api/routes/cognition.ts'), 'utf8')
+  const fn = route.slice(route.indexOf('function canonicalPath'), route.indexOf('function factKey'))
+  // 曾经的二元式 `type === 'workcase' ? 'workcases' : 'pitfalls'` 会让新类型静默
+  // 复制出一个**不存在的路径**（不报错，只是复制错位置）。故要求显式查表。
+  assert.match(fn, /friction: 'frictions'/, '① friction 有显式目录');
+  assert.match(fn, /throw new Error/, '② 未知类型失败而非回落');
+  assert.doesNotMatch(fn, /type === 'workcase' \? 'workcases' : 'pitfalls'/, '③ 不得保留二元回落');
+})

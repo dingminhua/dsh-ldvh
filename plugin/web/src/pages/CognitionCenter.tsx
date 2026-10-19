@@ -20,6 +20,7 @@ import ServesSgBadge from '@/components/ServesSgBadge';
 import FrictionImpactBadge from '@/components/FrictionImpactBadge';
 import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
 import {
+  FrictionCardContent,
   ObjectCardFrame,
   PitfallCardContent,
 } from '@/pages/ObjectList';
@@ -91,6 +92,11 @@ const INBOX_KIND_LABEL_KEYS: Record<CognitionInboxKind, LocaleKey> = {
   plan_confirmation: 'cognition.kind.plan_confirmation',
   closure_confirmation: 'cognition.kind.closure_confirmation',
   pitfall_confirmation: 'cognition.kind.pitfall_confirmation',
+  // 26 §12：open 摩擦账目进待决定事项（Human 2026-10-19 决定）。标签词刻意用
+  // 「待修摩擦」而非「待确认」——它不是 Human Gate、没有一步待授权动作，混用
+  // 「待确认」会让 Human 去找一个不存在的批准按钮（26 §9 的流转由
+  // Human Gate 与补充级更新各自承载，本页只呈现）。
+  friction_repair: 'cognition.kind.friction_repair',
 };
 
 type Translate = ReturnType<typeof useI18n>['t'];
@@ -119,6 +125,7 @@ function buildModuleSummary(data: CognitionData, locale: string, t: Translate): 
     plan_confirmation: 0,
     closure_confirmation: 0,
     pitfall_confirmation: 0,
+    friction_repair: 0,
   };
   for (const item of data.inbox.items) counts[item.inboxKind] += 1;
   const countParts = (Object.keys(counts) as CognitionInboxKind[])
@@ -202,6 +209,11 @@ function InboxItemReadNotes({ item, locale }: { item: CognitionCardItem; locale:
 // `t` 已不再是本函数的依赖：改用共享组件后不再在此拼接文案（Human 2026-09-24）。
 function InboxCardContent({ item }: { item: CognitionInboxItem }) {
   if (item.type === 'pitfall') return <PitfallCardContent obj={toObjectCard(item)} />;
+  // 26 §9 卡体分工：`open` 摩擦的卡体**留空**（与 `observing`/`resolved` 同），身份与
+  // 状态由卡头（类型 + 影响 + 重复观察 + 修改次数）与标题托承载——标题已是现象单句的
+  // 浓缩。现象全文、入账依据住详情页；故这里与列表卡同走 `FrictionCardContent`
+  // （它对非 `voided` 返回 null），不另写一套聚焦专属卡体。
+  if (item.type === 'friction') return <FrictionCardContent obj={toObjectCard(item)} />;
   if (item.inboxKind === 'plan_confirmation') {
     // 「待批准执行」的待决定卡：与列表卡的 pending_gate1 卡体**同构**（2026-10-17）。
     //
