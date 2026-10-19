@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
+import vm from "node:vm";
 
 const source = await readFile(new URL("../lib/client.js", import.meta.url), "utf8");
 
@@ -733,4 +734,64 @@ test("设置面：标签与输入框须在**同一行**，且输入框**不得**
   );
   // 也不得残留只对旧折叠形态有意义的样式或结构。
   assert.doesNotMatch(source, /ldv-idle-limit-grid/, "旧的网格容器须一并移除");
+});
+
+// ---------------------------------------------------------------------------
+// 宿主提问卡（Human Gate 落点）观感覆写
+// ---------------------------------------------------------------------------
+
+/** 求值 client.js 里的 GATE_CSS 字面量，得到**实际下发的** CSS 文本。
+ *  断言必须打在求值结果上而不是源码片段上：字符串拼接的产物与源码里的片段
+ *  不是一回事（漏一个 `+` 或引号转义错位，源码看着对、下发的是坏 CSS）。 */
+function gateCssText() {
+  const start = source.indexOf("var GATE_CSS = ");
+  assert.ok(start >= 0, "GATE_CSS 常量须存在");
+  const body = start + "var GATE_CSS = ".length;
+  // 语句终止符取 `;` + 换行：CSS 串内不出现裸 `;\n`（每条声明以 `}"` 收尾），
+  // 而按 `"}` 或 `";` 找都会落进串内——实测停在 `transition:none!important;` 上，
+  // 截出半条语句，vm 求值抛 SyntaxError。
+  const end = source.indexOf(";\n", body);
+  assert.ok(end > body, "GATE_CSS 字面量须有结束位置");
+  return vm.runInNewContext(`(${source.slice(body, end)})`);
+}
+
+test("提问卡覆写以独立 style 卡下发，可单独摘除", () => {
+  assert.match(source, /\["dsh-ldvh\/client\.css", SETTINGS_CSS\]/, "本插件自有面须为一张");
+  assert.match(source, /\["dsh-ldvh\/gate\.css", GATE_CSS\]/, "宿主观感覆写须单独一张");
+  assert.match(source, /cssSheets\.length/, "两张卡须由同一循环装载");
+});
+
+test("提问卡覆写**零 `!important`**（唯一例外：reduced-motion 的撤销）", () => {
+  const css = gateCssText();
+  const offenders = css.split("}").filter((block) => block.includes("!important") && !/prefers-reduced-motion/.test(block));
+  assert.deepEqual(offenders, [], `不得用 !important 压宿主（特异性靠 [data-question-key] 根抬）：${offenders.join(" | ")}`);
+});
+
+test("提问卡覆写的每条规则都锚在 `[data-question-key]` 上", () => {
+  const css = gateCssText();
+  const selectors = [...css.matchAll(/(^|[}\n])\s*([^@{}\n][^{]*)\{/g)].map((m) => m[2].trim());
+  assert.ok(selectors.length >= 20, `规则数异常（解析到 ${selectors.length} 条），先修断言再谈通过`);
+  const loose = selectors.filter((sel) => sel !== "@media" && !sel.startsWith("[data-question-key]"));
+  assert.deepEqual(loose, [], `未锚定的选择器会波及宿主其它表面：${loose.join(" | ")}`);
+});
+
+test("选择器命中**局部类名子串**，不得依赖构建期哈希的 `_` 边界", () => {
+  const css = gateCssText();
+  // 宿主 CSS module 打包后形如 `22xwLW_frame`：哈希前缀长度不定，`_frame` 只在
+  // 未打包的 dev 构建里成立。写成 `[class*="_frame"]` 等于把覆写绑死在构建形态上。
+  assert.doesNotMatch(css, /\[class\*="_/, "子串选择器不得带下划线前缀");
+  assert.ok(/\[class\*="eyebrow"\]/.test(css), "局部名子串口径须在（丢了即整卡失焦）");
+});
+
+test("颜色与圆角全部走宿主 token，不硬编码色值", () => {
+  const css = gateCssText();
+  assert.doesNotMatch(css, /#[0-9a-fA-F]{3,8}\b/, "不得出现十六进制色值（浅/深主题须自动跟随）");
+  assert.ok(/var\(--dsw-alias-state-business-primary\)/.test(css), "强调色须取宿主语义 token");
+});
+
+test("只改观感：不得出现接管行为或隐藏内容的声明", () => {
+  const css = gateCssText();
+  assert.doesNotMatch(css, /pointer-events\s*:/, "不得接管指针事件（答复通道属宿主）");
+  assert.doesNotMatch(css, /display\s*:\s*none/, "不得抽掉元素——页脚是 space-between，抽掉整组会让按钮横向抖动");
+  assert.ok(/visibility:hidden/.test(css), "单题 pager 用 visibility 隐藏（保留占位，理由见源码注释）");
 });

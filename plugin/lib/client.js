@@ -203,13 +203,100 @@ window.__ModuleLoader__.load({
       ".ldv-btn-outline:hover:not(:disabled){color:var(--dsw-alias-label-primary,#e6e6e6);border-color:var(--dsw-alias-label-dimmed,#777);background:rgba(255,255,255,.04)}" +
       ".ldv-btn:disabled{opacity:.4;cursor:default}" +
       "";
+
+    // ── 宿主提问卡（Human Gate 落点）观感覆写 ────────────────────────────
+    // 本插件的受控写入一律经 `ctx.userQuestions.ask` 提请 Human 决定，答复面
+    // 就是宿主的提问卡（宿主包 ui-user-questions 的 QuestionComposer）。该卡
+    // 原样把「问题」与「备选项」压成同一种灰度行，Gate 上最该看清的「选哪个、
+    // 选了会发生什么」反而最不显眼。这里只改观感：选项成卡片、选中态有强调色、
+    // 正文与选项分层、页脚有分隔——**不改行为、不改 DOM、不接管答复通道**。
+    //
+    // 选择器口径（为什么不用类名）：宿主 CSS module 打包后的类名带构建期哈希
+    // （实测形态 `22xwLW_frame`），哈希随宿主版本变、局部名不大会变，故用
+    // `[class*="eyebrow"]` 这类**子串**命中局部名——刻意**不带下划线**：哈希与
+    // 局部名之间的 `_` 只在未打包的 dev 构建里位置固定，写进选择器就等于把
+    // 覆写绑死在构建形态上。`data-question-key` /
+    // `data-question-scroll` 是组件自己挂的契约属性，比类名稳，因此全部规则以
+    // `[data-question-key]` 为根——顺带把特异性抬到宿主单类规则之上，**全篇零
+    // `!important`**（唯一例外是 reduced-motion 的撤销，见末尾）。子树一律用
+    // 后代组合器而非 `>`：宿主升级多包一层容器不该让整张卡静默失焦。
+    //
+    // 作用域边界（如实声明）：这段 CSS 覆写的是**宿主全局**的提问卡，不只本
+    // 插件发起的 Gate——宿主没有「按提问方」区分的钩子可锚。颜色全部走
+    // `--dsw-alias-*` token（强调色底用 `color-mix`），浅/深主题自动跟随；
+    // 宿主组件未装载时选择器命中为空，不产生任何副作用。
+    var GATE_CSS = "" +
+      /* 卡片外壳：原本只有 elevation-panel 那层极淡投影，浅底上几乎不成立
+         （截图里像一块没有边界的白板）→ 补 stroke 描边 + 一层稍实的投影。 */
+      "[data-question-key]{display:flex;justify-content:center;padding:10px calc(var(--dsh-composer-side-clearance,16px) + 16px) 14px}" +
+      "[data-question-key] section{border-radius:var(--dsw-radius-panel,28px);background:var(--dsw-specific-input-major);box-shadow:var(--dsw-elevation-stroke,0 0 0 .5px var(--dsw-alias-border-l2)),var(--dsw-elevation-panel,0 3px 8px rgba(0,0,0,.03)),0 12px 32px rgba(0,0,0,.08);overflow:hidden}" +
+      /* 折叠态只剩标题行：高度上限与内滚动位都要撤掉，否则留一段空 body。 */
+      "[data-question-key] section[class*=\"cardMinimized\"]{max-height:none;overflow:visible}" +
+      /* eyebrow 原样是 11px 裸灰字，读起来像被截断的正文 → 收成小标签。 */
+      "[data-question-key] header{padding:18px 14px 0 20px}" +
+      "[data-question-key] [class*=\"eyebrow\"]{display:inline-flex;align-items:center;height:22px;padding:0 9px;margin-bottom:8px;border-radius:999px;background:var(--dsw-alias-bg-overlay);color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:600;letter-spacing:.02em;line-height:16px}" +
+      "[data-question-key] h2{font-size:16px;font-weight:600;letter-spacing:-.01em;line-height:24px}" +
+      /* 内滚动位：只补左右内衬，让正文与选项的缩进和标题对齐。高度上限**沿用
+          宿主的 min(60vh,520px)**——卡片是 flex 列、body 靠 flex 收缩到卡片余量，
+          改它没有收益，只有「内容超出卡片被 overflow:hidden 裁掉却已无滚动位」
+          的风险（宿主注释里「行不能被压缩、溢出归 .options」同源教训）。 */
+      "[data-question-key] [data-question-scroll]{padding:2px 8px 0;overscroll-behavior:contain}" +
+      "[data-question-key] [class*=\"options\"]{gap:0;margin:10px 0 0;padding:0 12px}" +
+      /* 正文（detail）与选项同灰度同字号，糊成一坨 → 收成引用块。 */
+      "[data-question-key] [class*=\"detail\"]{margin:10px 12px 2px;padding:10px 12px;border-left:2px solid var(--dsw-alias-border-l4);border-radius:0 var(--dsw-radius-sm,8px) var(--dsw-radius-sm,8px) 0;background:color-mix(in srgb,var(--dsw-alias-bg-module-platform) 55%,transparent);font-size:13px;line-height:21px}" +
+      /* 选项：1px 间隙 + 透明边框 = 两行没有边界的灰字 → 可点卡片。 */
+      "[data-question-key] [role=\"radio\"],[data-question-key] [role=\"checkbox\"]{position:relative;box-sizing:border-box;min-height:48px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md,12px);background:color-mix(in srgb,var(--dsw-alias-bg-module-platform) 45%,transparent);text-align:left;cursor:pointer;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease,transform .14s ease}" +
+      "[data-question-key] [role=\"radio\"]+[role=\"radio\"],[data-question-key] [role=\"checkbox\"]+[role=\"checkbox\"],[data-question-key] [role=\"radio\"]+[role=\"checkbox\"],[data-question-key] [role=\"checkbox\"]+[role=\"radio\"]{margin-top:6px}" +
+      "[data-question-key] [role=\"radio\"]:hover:not(:disabled),[data-question-key] [role=\"checkbox\"]:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l4);transform:translateY(-.5px)}" +
+      "[data-question-key] [role=\"radio\"]:active:not(:disabled),[data-question-key] [role=\"checkbox\"]:active:not(:disabled){transform:translateY(0)}" +
+      /* 选中态：强调色描边 + 淡底 + 外圈光晕，序号块反白——一眼看出选的是哪项。 */
+      "[data-question-key] [role=\"radio\"][aria-checked=\"true\"],[data-question-key] [role=\"checkbox\"][aria-checked=\"true\"]{border-color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 9%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 13%,transparent)}" +
+      "[data-question-key] [role=\"radio\"]:focus-visible,[data-question-key] [role=\"checkbox\"]:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}" +
+      "[data-question-key] [role=\"radio\"]:disabled,[data-question-key] [role=\"checkbox\"]:disabled{cursor:default;opacity:.55;transform:none}" +
+      /* 序号块：20px 方角灰底 → 18px 圆片，选中时取强调色。 */
+      "[data-question-key] [class*=\"number\"]{width:18px;flex:0 0 18px;height:18px;margin-top:3px;border:1px solid var(--dsw-alias-border-l4);border-radius:999px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:11px;font-weight:600;line-height:16px;transition:background-color .14s ease,border-color .14s ease,color .14s ease}" +
+      "[data-question-key] [aria-checked=\"true\"] [class*=\"number\"]{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-foreground)}" +
+      /* 多选方框与序号不同形，统一语言：同尺寸，选中取强调色填充。 */
+      "[data-question-key] [class*=\"checkbox\"]{width:18px;flex:0 0 18px;height:18px;margin-top:3px}" +
+      "[data-question-key] [class*=\"checkbox\"]::before{width:18px;height:18px;border:1px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-xs,4px)}" +
+      "[data-question-key] [class*=\"checkbox\"][class*=\"checkboxChecked\"]{color:var(--dsw-alias-label-primary-foreground)}" +
+      "[data-question-key] [class*=\"checkbox\"][class*=\"checkboxChecked\"]::before{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-primary)}" +
+      /* 备选项文案：label 与 description 原样同为 14px，主次不分。 */
+      "[data-question-key] [class*=\"optionLabel\"]{font-size:14px;font-weight:600;line-height:22px}" +
+      "[data-question-key] [class*=\"description\"]{font-size:13px;line-height:20px}" +
+      /* 自由作答行：与选项同形，虚线边区分「这不是一个选项」。 */
+      "[data-question-key] [class*=\"customRow\"]{box-sizing:border-box;min-height:48px;margin-top:6px;padding:10px 12px;border:1px dashed var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md,12px);background:transparent;transition:background-color .14s ease,border-color .14s ease}" +
+      "[data-question-key] [class*=\"customRow\"]:hover,[data-question-key] [class*=\"customRow\"]:focus-within,[data-question-key] [class*=\"customRow\"][class*=\"customRowActive\"]{border-style:solid;border-color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 6%,transparent)}" +
+      "[data-question-key] [class*=\"customBlock\"]{border:1px dashed var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md,12px)}" +
+      "[data-question-key] [class*=\"customBlock\"]:focus-within{border-style:solid;border-color:var(--dsw-alias-state-business-primary)}" +
+      /* 页脚：与内容之间没有分隔，按钮像浮在卡底 → 补 hairline；主按钮取品牌填充。 */
+      "[data-question-key] footer{margin-top:12px;padding:10px 14px 12px 20px;border-top:1px solid var(--dsw-alias-border-l2)}" +
+      "[data-question-key] footer [class*=\"footerActions\"]>button:last-child{border-color:transparent;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground);font-weight:600}" +
+      "[data-question-key] footer [class*=\"footerActions\"]>button:last-child:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}" +
+      /* 单题时 ‹ 1/1 › 是纯噪声：没有可翻的东西，却像个计数器。判据取「左右
+         两个箭头同时 disabled」——宿主只在「当前即第一题且即末题」时如此。
+         用 visibility 不用 display：页脚是 space-between，抽掉整组会让右侧
+         按钮在提交那一刻（busy 时箭头也全禁用）横向抖一下，留占位就不动。 */
+      "[data-question-key] footer [class*=\"pager\"]:has(> button:disabled + [class*=\"progress\"] + button:disabled){visibility:hidden}" +
+      "@media (max-width:720px){" +
+      "[data-question-key] header{padding:14px 10px 0 14px}" +
+      "[data-question-key] [data-question-scroll]{padding:2px 4px 0}" +
+      "[data-question-key] footer{padding:10px 10px 12px 14px}" +
+      "}" +
+      "@media (prefers-reduced-motion:reduce){" +
+      "[data-question-key],[data-question-key] *{transition:none!important;transform:none!important}" +
+      "}";
     if (typeof document !== "undefined") {
-      var cssId = "dsh-ldvh/client.css";
-      if (!document.querySelector("style[data-plugin-css='" + cssId + "']")) {
+      // 两张 style 卡分开装：本插件自有面（.ldv-*）与宿主观感覆写混在一张里，
+      // 出问题时无法单独摘除；宿主升级后想停用覆写也只能改代码。
+      var cssSheets = [["dsh-ldvh/client.css", SETTINGS_CSS], ["dsh-ldvh/gate.css", GATE_CSS]];
+      for (var cssSheetIndex = 0; cssSheetIndex < cssSheets.length; cssSheetIndex++) {
+        var cssId = cssSheets[cssSheetIndex][0];
+        if (document.querySelector("style[data-plugin-css='" + cssId + "']")) continue;
         var styleTag = document.createElement("style");
         styleTag.dataset.plugin = "dsh-ldvh";
         styleTag.dataset.pluginCss = cssId;
-        styleTag.textContent = SETTINGS_CSS;
+        styleTag.textContent = cssSheets[cssSheetIndex][1];
         document.head.appendChild(styleTag);
       }
     }
