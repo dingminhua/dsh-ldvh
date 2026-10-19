@@ -2151,8 +2151,33 @@ function stripCallerOnlyFields(draft) {
  * @returns `fields`：已把 `pre_reviews` 替换为落盘值（落盘不存在则删除）；
  *   `attempted`：调用方提交的该字段与落盘不等。
  */
+/**
+ * 02 §10.5：「局部补丁可以是调用方降低表达摩擦的请求形态……必须把它绑定当前对象
+ * 指纹，**在内存中形成完整目标 after**」。本函数就是那一步：把 payload 里缺省
+ * （键不存在或值为 `undefined`）的字段补成落盘值，形成完整的 after。
+ *
+ * 为什么必须归一化 `undefined`：`structuredClone` 会保留键、只是值为 undefined；
+ * 而「省略」与「显式给 undefined」在调用方看来是同一件事（工具参数里没填）。
+ * 若不归一，after 里 `plan: undefined` 与 before 的 `plan: {...}` 指纹不同，
+ * C2 守卫会把它读成「试图改冻结字段」而拒绝一次完全合法的正文更新。
+ *
+ * 只补**缺省**的键；显式给了值的字段原样保留——所以「真的想改 plan」仍然会被
+ * C2 守卫拦下（那才是它该拦的）。
+ */
+function inheritOmittedFields(candidate, storedFrontmatter) {
+  const supplied = candidate !== null && typeof candidate === "object" ? candidate : {};
+  const after = {};
+  // 先落盘值打底，再以调用方提供的值覆盖：缺省即继承。
+  for (const [key, value] of Object.entries(storedFrontmatter ?? {})) after[key] = value;
+  for (const [key, value] of Object.entries(supplied)) {
+    if (value === undefined) continue; // 显式 undefined 等价于省略
+    after[key] = value;
+  }
+  return after;
+}
+
 function guardAuditField(candidate, storedFrontmatter) {
-  const fields = structuredClone(stripCallerOnlyFields(candidate));
+  const fields = structuredClone(stripCallerOnlyFields(inheritOmittedFields(candidate, storedFrontmatter)));
   const stored = storedFrontmatter?.pre_reviews;
   const submitted = fields.pre_reviews;
   // 规范化序列化比较：同一份内容换键序不应算「改动」。
