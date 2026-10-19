@@ -30,6 +30,7 @@
 export const VERDICTS = Object.freeze(["same-obstacle", "new-obstacle", "no-discovery"]);
 
 import { verifyQuotation, renderWindowText, WINDOW_OPEN, WINDOW_CLOSE } from "./friction-window.js";
+import { promptObjectRef } from "./object-reference.js";
 
 /**
  * 给子代理的结构化输出 schema。
@@ -131,7 +132,7 @@ export function buildDiscoveryPromptSection({ threshold, candidates = [] } = {})
   const list = candidates.length === 0
       ? "（本账本当前没有 open/observing 账目——任何新发现的阻碍都只能是 new-obstacle）"
       : candidates
-          .map((c) => `- uid=${c.object_uid} [${c.status}] ${c.title}｜现象：${c.phenomenon ?? "（未投影）"}`)
+          .map((c) => `- ${promptObjectRef(c)} [${c.status}]｜现象：${c.phenomenon ?? "（未投影）"}`)
           .join("\n");
 
   return [

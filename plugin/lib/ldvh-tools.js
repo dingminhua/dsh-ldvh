@@ -1200,7 +1200,14 @@ export function registerLdvhTools(ctx, deps) {
       // 工具回落到只含活体的 Map，从而「只在子代理运行中查得到」——而收集结果
       // 恰恰发生在其结束之后（2026-09-26 修；首版修复即因漏传此处而在真实路径上
       // 不生效，由 lifecycle 的「已结束子代理仍可枚举」用例捕获）。
-      listChildren: deps.listChildren
+      listChildren: deps.listChildren,
+      // 2026-10-19: 同样的「漏传即静默失效」在本处重演了一次。插件 fiber 重建
+      // 后登记表被清空，`listChildren` 也随之只覆盖新实例的活体，于是已结束的
+      // 复核者查不到——而「收集结果」恰恰发生在子代理结束之后。`resolveChild`
+      // 是复原侧的唯一入口（lifecycle.js:220，从子代理自身会话记录回溯）：
+      // 不透传它，subagent-result.js 里的回落分支永远不执行，工具会在历史
+      // 复核者明明存在时仍报 "no child record found"。
+      resolveChild: deps.resolveChild
     }));
   }
   // Research mechanical layer (specs/30 state machine + specs/24 writer),

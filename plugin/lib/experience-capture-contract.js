@@ -26,6 +26,7 @@
  */
 
 import { verifyQuotation } from "./friction-window.js";
+import { promptObjectRef } from "./object-reference.js";
 
 /** 本任务的判定态（闭集两值）。 */
 export const CAPTURE_VERDICTS = Object.freeze(["new-experience", "no-capture"]);
@@ -116,7 +117,7 @@ export function buildCapturePromptSection({ existing = [] } = {}) {
   const list = existing.length === 0
       ? "（本知识库当前没有 `active` 或 `draft` 的 Pitfall——任何命中四前提的失败机制都只能是 new-experience）"
       : existing
-          .map((c) => `- uid=${c.object_uid} [${c.status}] ${c.title}`)
+          .map((c) => `- ${promptObjectRef(c)} [${c.status}]`)
           .join("\n");
 
   return [

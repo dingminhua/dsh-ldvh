@@ -526,3 +526,48 @@ test("carrier: file name encodes the UID and the H1 mirrors the title (27 §7)",
 		assert.ok(raw.includes("\n# 代码风格\n") || raw.includes("# 代码风格\n"));
 	});
 });
+
+// ---------------------------------------------------------------------------
+// 02 §9.3 指称形态：工具的 JSON 输出不得留下裸 object_uid
+// ---------------------------------------------------------------------------
+
+test("render: norm read/list JSON output carries the typed reference, not a bare uid (02 §9.3)", () => {
+	const uid = "abf557e1-1111-2222-3333-444455556666";
+	for (const [operationKey, result] of [
+		["norm-read-object", { object_uid: uid, title: "代码风格", fact_type_key: "norm" }],
+		["norm-list-objects", { count: 1, total: 1, items: [{ object_uid: uid, title: "代码风格", status: "active" }] }],
+	]) {
+		const descriptor = toolDescriptorFor(operationKey, OPERATIONS[operationKey], () => {});
+		const blocks = descriptor.output.render({}, {
+			envelope: { operation_key: operationKey, outcome: "completed", result, gaps: [], follow_up: [] },
+		});
+		const rendered = blocks.map((block) => block.text).join("\n");
+		assert.ok(
+			rendered.includes("norm-abf557e1"),
+			`${operationKey}: the reference must carry its type (got: ${rendered})`,
+		);
+		assert.ok(
+			!rendered.includes(uid),
+			`${operationKey}: the full raw uid must not be the reference form (got: ${rendered})`,
+		);
+	}
+});
+
+test("render: an unattributable uid is left alone rather than given a guessed type (02 §9.3)", () => {
+	const descriptor = toolDescriptorFor("norm-list-objects", OPERATIONS["norm-list-objects"], () => {});
+	const blocks = descriptor.output.render({}, {
+		envelope: {
+			operation_key: "some-other-operation",
+			outcome: "completed",
+			result: { object_uid: "deadbeef-0000-0000-0000-000000000000" },
+			gaps: [],
+			follow_up: [],
+		},
+	});
+	const rendered = blocks.map((block) => block.text).join("\n");
+	assert.ok(
+		!rendered.includes("norm-deadbeef"),
+		"a non-Norm envelope must not stamp the norm type onto its uids",
+	);
+	assert.ok(rendered.includes("deadbeef"), "the uid must still be visible, not dropped");
+});

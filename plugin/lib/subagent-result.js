@@ -100,7 +100,7 @@ export function registerSubagentResultTool(ctx, deps) {
   // `listChildren` is the host-provided enumeration over BOTH live and retired
   // children (lifecycle.js childRecords). `children` (live-only) remains as a
   // fallback so a caller that has not adopted the seam still gets live results.
-  const { dshHomePath, children, listChildren } = deps;
+  const { dshHomePath, children, listChildren, resolveChild } = deps;
   const operationKey = "collect-subagent-results";
   const operation = OPERATIONS[operationKey];
 
@@ -177,13 +177,65 @@ export function registerSubagentResultTool(ctx, deps) {
 
         if (requestedId) {
           results = results.filter(r => r.agentId === requestedId);
+          // 2026-10-19: after a plugin rebuild the registry is empty — and so is
+          // the enumeration above, since `listChildren` only spans children this
+          // plugin instance has seen. That is exactly the case where a finished
+          // reviewer gets cited. Ask the durable session-record fallback before
+          // declaring "not found". A successful read also re-adopts the record
+          // into the registry, so the second call hits the fast path.
+          let resolveNote = null;
+          if (results.length === 0 && typeof resolveChild === "function") {
+            const parentSessionId = exec?.agent?.session?.header?.id;
+            let resolved = null;
+            try {
+              resolved = await resolveChild(requestedId, {
+                parentSessionId: typeof parentSessionId === "string" && parentSessionId.length > 0 ? parentSessionId : undefined
+              });
+            } catch (error) {
+              resolveNote = `the durable session-record lookup threw: ${String(error?.message ?? error)}`;
+            }
+            // resolveChild returns {ok, source, record, reason}; `record` is the
+            // re-adopted registry entry (an instance with snapshot()/conclusion),
+            // and `source` says where it came from ("registry" | "session-record").
+            if (resolved?.ok === true && resolved.record !== null && resolved.record !== undefined) {
+              const adopted = resolved.record;
+              const snap = adopted.snapshot();
+              results = [{
+                agentId: requestedId,
+                parentAgentId: snap.parentAgentId,
+                scopeState: snap.scopeState,
+                startedAt: snap.startedAt,
+                conclusion: adopted.conclusion,
+                conclusionLength: snap.conclusionLength,
+                // Provenance (00 §5.6) describes the RECORD, not this lookup:
+                // "session-record" means the registry had once lost it and the
+                // child's own host log was read to recover it. `resolved.source`
+                // cannot serve here — after the first recovery the record sits in
+                // `retiredChildren` and every later lookup reports "registry",
+                // which would silently re-attribute a recovered record as observed.
+                // `adopted.hydrated === true` is the durable mark (child.js:270).
+                recordSource: adopted.hydrated === true ? "session-record" : "registry",
+                propagationCount: snap.propagationCount,
+                activityCount: snap.activityCount,
+                activity: adopted.activitySnapshot()
+              }];
+            } else if (resolved !== null && resolveNote === null) {
+              resolveNote = resolved?.reason ?? "the session record did not resolve to a subagent of this session";
+            }
+          }
           if (results.length === 0) {
             return {
               envelope: envelope(operationKey, "rejected", {
                 result: null,
                 scope: { requested: requestedId, completed: [], not_completed: [requestedId] },
                 sources: [],
-                gaps: [`no child record found for agentId "${requestedId}"`],
+                gaps: [
+                  `no child record found for agentId "${requestedId}"`,
+                  // 据实声明：注册表与持久回落都查过了才敢说「没有」。
+                  ...(typeof resolveChild === "function"
+                    ? [`the durable session-record lookup was consulted as well${resolveNote === null ? " and found no matching subagent session" : ` and reported: ${resolveNote}`}`]
+                    : ["no durable session-record lookup is wired into this instance, so only the in-memory registry was consulted"]),
+                ],
                 verification: { checks: ["child-lookup"], passed: false },
                 follow_up: ["Omit agentId to list all children"]
               })

@@ -667,6 +667,10 @@ export async function listNormObjects(args) {
 
   const projected = servable.map((item) => ({
     object_uid: item.frontmatter.object_uid ?? null,
+    // fact_type_key is projected so the renderer can build the typed reference
+    // form `<type>-<8hex>` without guessing the type (02 §9.3 指称形态); the
+    // same field is projected by the other five writers' list paths.
+    fact_type_key: typeof item.frontmatter.fact_type_key === "string" ? item.frontmatter.fact_type_key : "",
     file: item.file,
     title: item.frontmatter.title ?? null,
     status: item.frontmatter.status ?? null,

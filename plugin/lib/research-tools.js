@@ -30,6 +30,7 @@ import {
   checkDeliveryContract,
   ResearchSession,
 } from "./research-session.js";
+import { objectRef, objectRefOf } from "./object-reference.js";
 import {
   createResearchObject,
   readResearchObject,
@@ -581,7 +582,7 @@ function renderEnvelope(operationKey, value) {
   const lines = [`LDVH ${env.operation_key ?? operationKey}: ${env.outcome ?? "unknown"}`];
   const result = env.result;
   if (result?.session_id !== undefined) lines.push(`session: ${result.session_id}`);
-  if (result?.object_uid !== undefined) lines.push(`object: ${result.object_uid}`);
+  if (result?.object_uid !== undefined) lines.push(`object: ${objectRef({ object_uid: result.object_uid, fact_type_key: result.fact_type_key ?? "research" })}`);
   if (result?.title !== undefined) lines.push(`title: ${result.title}`);
   if (result?.status !== undefined) lines.push(`status: ${result.status}`);
   if (result?.sub_stage !== undefined) lines.push(`sub_stage: ${result.sub_stage}`);
@@ -595,7 +596,7 @@ function renderEnvelope(operationKey, value) {
   if (result?.file !== undefined) lines.push(`file: ${result.file}`);
   if (result?.stop !== undefined) lines.push(`converged: ${result.stop}${result.reason ? ` (${result.reason})` : ""}`);
   if (result?.round_number !== undefined) lines.push(`round: ${result.round_number}/${result.max_rounds ?? "?"}`);
-  if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${change.object_uid}`);
+  if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "research")}`);
   if (typeof env.changes !== "undefined" && Array.isArray(env.changes)) { /* result.changes already covered */ }
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
   return text(lines.join("\n"));

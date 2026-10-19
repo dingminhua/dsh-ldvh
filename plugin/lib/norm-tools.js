@@ -45,6 +45,7 @@ import {
   listNormObjects,
   ERR_DIRECTION_ALREADY_EXISTS,
 } from "./norm-writer.js";
+import { objectRef, objectRefOf } from "./object-reference.js";
 import { currentRouteValues } from "./session-signature.js";
 import { FRONTMATTER_AFTER_DESCRIPTION, FRONTMATTER_REMOVALS_DESCRIPTION } from "./after-integrity.js";
 import { authoritativeSignature } from "./signature-channel.js";
@@ -365,7 +366,7 @@ export function renderDirectionConflictGaps(details) {
   const key = typeof details.direction_key === "string" ? details.direction_key : "(未提供)";
   return [
     `direction_key "${key}" 已被 ${conflicts.length} 条现行 Norm 占用（27 §11：同方向键至多一条 active）——走该对象的受控更新路径，或先废止再新建`,
-    ...conflicts.map((entry) => `占用者：${entry?.title ?? "(无标题)"}｜object_uid=${entry?.object_uid ?? "(未知)"}｜status=${entry?.status ?? "active"}｜文件=${entry?.file ?? "(未知)"}`)
+    ...conflicts.map((entry) => `占用者：${entry?.title ?? "(无标题)"}｜object=${objectRef({ object_uid: entry?.object_uid, fact_type_key: entry?.fact_type_key ?? "norm" }) || "(未知)"}｜status=${entry?.status ?? "active"}｜文件=${entry?.file ?? "(未知)"}`)
   ];
 }
 
@@ -430,7 +431,16 @@ function text(body) {
 function renderEnvelope(operationKey, value) {
   const env = value?.envelope ?? value ?? {};
   const lines = [`LDVH ${env.operation_key ?? operationKey}: ${env.outcome ?? "unknown"}`];
-  if (env.result) lines.push(JSON.stringify(env.result, null, 2));
+  if (env.result) {
+    // 02 §9.3 指称形态: the result JSON carries a raw object_uid wherever a
+    // reader needs to point at an object. Rewrite those references to the
+    // typed form `<type>-<8hex>` before serialising — a bare 8-hex uid tells
+    // the reader nothing about what kind of object it points at. The carrier
+    // is untouched (this is a rendering projection, 03 §7.2 invariant 4), and
+    // a type outside the known vocabulary degrades to the bare short id
+    // rather than guessing a type that was never asserted.
+    lines.push(JSON.stringify(projectResultRefs(env.result, envelopeFactTypeKey(env)), null, 2));
+  }
   if (Array.isArray(env.gaps) && env.gaps.length > 0) {
     // Gaps may be structured records (05 §8 traceability), so stringify them
     // rather than interpolating them as [object Object].
@@ -440,6 +450,49 @@ function renderEnvelope(operationKey, value) {
     lines.push("follow-up:", ...env.follow_up.map((item) => `  - ${typeof item === "string" ? item : JSON.stringify(item)}`));
   }
   return text(lines.join("\n"));
+}
+
+/**
+ * The fact type an envelope describes, used as the fallback when a projected
+ * record omits its own `fact_type_key`. Derived from the operation key
+ * (`norm-read-object` / `norm-list-objects` → `norm`) rather than assumed: an
+ * operation key outside the known fact-type vocabulary yields "" and the
+ * renderer then leaves uids untouched instead of guessing.
+ */
+function envelopeFactTypeKey(env) {
+  const operationKey = typeof env.operation_key === "string" ? env.operation_key : "";
+  const factType = operationKey.split("-")[0];
+  // The value vocabulary stays in object-reference.js (single source): an
+  // unknown type already degrades to the bare short id inside objectRefOf, so
+  // this only guarantees the envelope actually describes a NORM operation.
+  return factType === "norm" ? factType : "";
+}
+
+/**
+ * Deep-replace raw `object_uid` values with a typed reference for rendering.
+ *
+ * Rules (02 §9.3):
+ * - a record carrying `object_uid` renders it as `<type>-<8hex>`, using its own
+ *   `fact_type_key` when present and otherwise inheriting the enclosing type;
+ * - the enclosing type is the type of the object being described, which the
+ *   caller supplies because it is always known at the envelope level;
+ * - a uid with no attributable type is left untouched: this function never
+ *   invents a type for a uid it cannot attribute (objectRefOf degrades to the
+ *   bare short id on an unknown/empty type).
+ */
+function projectResultRefs(value, factTypeKey) {
+  if (Array.isArray(value)) return value.map((entry) => projectResultRefs(entry, factTypeKey));
+  if (!value || typeof value !== "object") return value;
+  const ownType = typeof value.fact_type_key === "string" && value.fact_type_key !== "" ? value.fact_type_key : factTypeKey;
+  const out = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (key === "object_uid" && typeof raw === "string" && raw !== "") {
+      out[key] = objectRefOf(raw, ownType ?? "") || raw;
+      continue;
+    }
+    out[key] = projectResultRefs(raw, ownType);
+  }
+  return out;
 }
 
 const OUTPUT_SCHEMA = { type: "object", additionalProperties: true };

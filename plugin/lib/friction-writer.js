@@ -1113,6 +1113,9 @@ export async function listFrictionObjects(args) {
     if (!includeResolved && (status === "resolved" || status === "voided")) continue;
     items.push({
       object_uid: uid,
+      // 02 §9.3（候选条款）：类型短名进投影，使渲染层能直接给出「类型短名 + 短标识」
+      // 的指称形态，而不必在渲染点硬编码类型短名（那会形成第二权威）。
+      fact_type_key: typeof frontmatter.fact_type_key === "string" ? frontmatter.fact_type_key : "",
       title: typeof frontmatter.title === "string" ? frontmatter.title : "",
       status,
       impact: typeof frontmatter.impact === "string" ? frontmatter.impact : "",
