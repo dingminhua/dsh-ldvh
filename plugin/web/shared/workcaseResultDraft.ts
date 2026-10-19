@@ -97,23 +97,6 @@ export type WorkCaseAdviceDisplayKind = WorkCaseAdviceKind | WorkCaseAdviceLegac
 
 /** 残留段开启符：`- residual:` / `- 残留责任:`（`21 §8`，冒号可省）。 */
 const RESIDUAL_BLOCK = /^(residual|残留责任)\s*[:：]?$/
-/**
- * 残留段的**标题形态**开启符：`### 残留与去向` / `### 残留` / `### 剩余与去向` 等。
- *
- * **为什么需要**（2026-10-19，`workcase-3246058d` 实证）：写入侧只要求「存在残留条目」，
- * 并不强制以 `- residual:` 列表项开启；而同一份结果节里**核对条目**的登记形态是标题
- * `### 核对条目`。作者跟着上一节的先例写 `### 残留与去向`，是完全自然的读法。
- * 但本解析器原只认列表项开启符，于是整段残留**静默读不出**——`checks` 照常解析
- * 出 4 条、`residualEntries` 为 `[]`，卡面只剩核对条目，Human 在唯一该看残余的
- * 关口看不到残余，且**没有任何报错**。
- *
- * 呈现层对既存载体保持**宽容读取**（`§15.3` 存量不溯及），严格面在写入侧——
- * 与核对条目形态「按规范写反而解析为 0 条」那次修复同一处置方向（见下方核对条目注释）。
- * 本常量只放宽**读**，不改变写入侧门禁，也不改变 `21 §8` 的登记形态要求。
- */
-const RESIDUAL_HEADING = /残留(与去向|与处置|段|项)?\s*$/
-/** 旧形态独立建议段的标题写法（`### 建议`／`### 剩余责任的去向`）；仅存量可读。 */
-const ADVICE_HEADING = /^(建议|去向|剩余责任的去向)$/
 /** 旧形态的独立建议段开启符（`21 §8` 2026-09-28 二次修订后不再登记，仅存量可读）。 */
 const ADVICE_BLOCK = /^(advice|建议)\s*[:：]?$/
 /** 去向子项/去向条目形态：去向词以 `**` 包裹并位于行首，后接 `：`（`21 §8`，冒号可省）。 */
@@ -363,8 +346,6 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
   let modeIndent = 0
   /** residual 段内：当前所属残留条目的缩进；`null` 表示尚未读到任何条目。 */
   let residualEntryIndent: number | null = null
-  /** 当前 residual 段是否由**标题**开启（而非 `- residual:` 列表项）。 */
-  let headingOpenedResidual = false
 
   /** 去向正文的公共归一：剥存量尾注、判去向词。 */
   const toDirection = (item: string): WorkCaseDraftAdvice => {
@@ -385,30 +366,6 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
   }
 
   for (const rawLine of section.split('\n')) {
-    // ── 标题形态的段头（`### 残留与去向` / `### 建议` 等）──
-    //
-    // **必须先于 bullet 判定**：标题行不是 bullet，若不在此识别，`mode` 会一直停在
-    // 上一段（或停在 `null`），标题下的条目要么被吞进前一段、要么整段读不出——
-    // 这正是 `workcase-3246058d` 的实测现象（`checks` 有 4 条、`residualEntries`
-    // 为 `[]`，卡面只剩核对条目）。
-    //
-    // 只升级**已知段头**；其它标题（如 `### Gate 2 提请`）不改变 `mode`——它们可能
-    // 出现在任何段内部，其后若仍有 bullet 属当前段，收束交给 bullet 缩进规则。
-    if (/^ {0,3}#{1,6}\s/.test(rawLine)) {
-      const heading = rawLine.replace(/^ {0,3}#{1,6}\s+/, '').trim()
-      if (RESIDUAL_HEADING.test(heading)) {
-        // 标题无缩进语义：把段基准锚到标题下**首条** bullet 的缩进（读到即定）。
-        // 取 -1 使任何缩进的 bullet 都能成为首条（`indent <= -1` 恒假）。
-        mode = 'residual'; modeIndent = -1; residualEntryIndent = null
-        headingOpenedResidual = true
-        continue
-      }
-      if (ADVICE_HEADING.test(heading)) {
-        mode = 'advice'
-        continue
-      }
-      continue
-    }
     const bullet = /^(\s*)-\s+(.*)$/.exec(rawLine)
     if (!bullet) {
       // 非 bullet 行：只有**明确的事后补记声明**才记录（见 `adviceNote` 注释）。
@@ -429,16 +386,16 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
       mode = 'checks'; modeIndent = indent; residualEntryIndent = null; continue
     }
     if (RESIDUAL_BLOCK.test(item)) {
-      // **标题形态 + 列表项开启符共存**（`workcase-3246058d` 实证）：正文既可写
-      // `### 残留与去向`，也可在其下再写 `- residual:` 作登记形态锚点——两者是
-      // 「段标题」与「段开启符」的叠加，不是两个并列的段。此时 `- residual:` 只
-      // 重设缩进基准，**不得闭合已由标题开启的段**；否则其后条目全部落空（实测
-      // 卡面 `residualEntries` 为 0、四条残留与去向全丢）。
-      if (mode === 'residual' && headingOpenedResidual) {
-        modeIndent = indent
-        residualEntryIndent = null
-        continue
-      }
+      // ── 段标题不是段开启符 ──
+      //
+      // `21 §8` 的登记形态只有一个开启符 `- residual:`（`§15.1` 判据边界第一条
+      //  sogar 点名「`### 残留` 标题式」按零条计）。故 `### 残留` 这类标题**不开启**
+      // 残留段，它只是排版——真正的开启发生在本分支。
+      //
+      // 这解释了 `workcase-3246058d` 的实测现象：标题在上、`- residual:` 紧随其后，
+      // 把标题当段头会先开一段、再被锚点当成「第二个开启符」闭合，四条残留全落空。
+      // 正确读法是**只有锚点开段**，标题不参与状态机。
+      //
       // **残留段不累积**：`mode` 为 'residual' 时遇第二个开启符即闭合（不并入前段）。
       // 与写入器同一状态机；多开启符形态另由写入器门禁①在受控写入层整体拒绝
       //（`21 §8/§15.1`），**且①状态无关**（不只在 closed 生效），故该形态在任何
@@ -449,7 +406,6 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
         continue
       }
       mode = 'residual'; modeIndent = indent; residualEntryIndent = null
-      headingOpenedResidual = false
       continue
     }
     if (ADVICE_BLOCK.test(item)) {
