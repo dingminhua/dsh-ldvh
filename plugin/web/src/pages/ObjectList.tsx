@@ -60,7 +60,12 @@ function isDeprecatedListCard(obj: ObjectItem): boolean {
 
 function getNonActiveReason(obj: ObjectItem, t: Translate): StatusReason | null {
   if (!statusRequiresDisposition(obj)) return null;
-  const disposition = obj.disposition_summary;
+  // 与各类型终态卡同源取 `disposition`（v5 闭集字段，见 factFieldContract：
+  // adr/pitfall/spark/friction 的终态理由都由它承载）。此处此前读 v4 的
+  // `disposition_summary`——该字段已随 23 号移出闭集，读它恒为 undefined，
+  // 于是**状态说明条**对每一条终态对象都退到「缺失理由」文案，与卡体显示的
+  // 完整理由自相矛盾（同一张卡上卡体写「理由全文」、说明条写「缺失」）。
+  const disposition = obj.disposition;
   if (typeof disposition === 'string' && disposition.trim()) {
     const text = formatReasonText(disposition);
     if (text) return { label: t('objectList.disposition'), text };
@@ -725,7 +730,19 @@ export function SparkCardContent({ obj }: { obj: ObjectItem }) {
 
 function PitfallTerminalCardContent({ obj }: { obj: ObjectItem }) {
   const { t } = useI18n();
-  const disposition = obj.disposition_summary?.trim() || t('objectList.dispositionMissing');
+  // 23 §8：Pitfall 的终态理由由 **`disposition`** 承载（仅 discarded 时条件必填）。
+  //
+  // 此处曾读 `disposition_summary`——那是 v4 字段，**已随 23 号移出闭集**
+  // （`factFieldContract.ts` 的 pitfall 段注释逐字记着「disposition_summary 已随
+  // 23 号移除」）。读取一个已被移出的字段永远得到 `undefined`，于是每一条
+  // discarded Pitfall 都退到 `dispositionMissing`，卡片上恒显「处置说明缺失。」
+  // 而载体里明明写着完整理由（实测 pitfall-e590edb8：API 的列表与详情两条
+  // 路径都正常送回 `disposition`，只有本处取错了键）。
+  //
+  // 这是「字段在、数据在、唯独消费方读错名字」的典型形态：类型检查不报错
+  // （`disposition_summary` 仍在 `ObjectItem` 的 v4 兼容声明里），仅靠肉眼
+  // 看卡片才能发现。故由 `pitfall-disposition-terminal-contract` 契约测试守住。
+  const disposition = obj.disposition?.trim() || t('objectList.dispositionMissing');
 
   return (
     <TerminalFactPanel tone="retired" content={formatReasonText(disposition)} />
