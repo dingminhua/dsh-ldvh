@@ -510,6 +510,76 @@ test("dispose() racing the async watcher import does not keep the process alive"
 });
 
 /**
+ * 跨平台半：watcher 必须监听 **realpath 解析后的**目录，而不是调用方传进来的
+ * 字符串。
+ *
+ * 为什么要有这一条：上面那条 Windows 用例在本机（macOS/Linux）整条跳过，
+ * 于是 `web-mount.js` 里「建立 watcher 前先取长名」这段修复**在非 Windows 上
+ * 一行都没被执行过**——修复本身可以被改坏而无人发现。8.3 短名只在 Windows
+ * 存在，但「watcher 拿的是解析后路径」这个**机制**在符号链接上可以跨平台验证
+ * （符号链接与短名一样，都是「路径字面量 ≠ 真实目录」）。两边合起来才覆盖完整：
+ * 这里钉机制，Windows 用例钉那个能 abort 进程的具体触发条件。
+ */
+test("watcher resolves the watch target before fs.watch (cross-platform half of the short-name guard)", async () => {
+  const base = await mkdtemp(join(tmpdir(), "ldvh-watch-realpath-"));
+  const realDir = join(base, "real");
+  const linkDir = join(base, "link");
+  await mkdir(join(realDir, "api"), { recursive: true });
+  await mkdir(join(realDir, "src"), { recursive: true });
+  try {
+    await (await import("node:fs/promises")).symlink(realDir, linkDir, "dir");
+  } catch {
+    // 平台不允许建符号链接（Windows 无符号链接权限）：本半无法验证，
+    // Windows 那半仍在（见下一条用例）。此处如实返回而非静默通过——
+    // 断言失败会误报，故直接跳过。
+    return;
+  }
+
+  const manager = createWebApiProcess({
+    webRoot: linkDir,
+    port: 45997,
+    env: {},
+    watchSource: true,
+    command: {
+      exec: process.execPath,
+      argv: ["-e", "require('http').createServer((q,s)=>s.end('{}')).listen(Number(process.env.PORT),'127.0.0.1')"],
+    },
+    readinessPath: "/api/health",
+    readinessTimeoutMs: 10000,
+  });
+  try {
+    await manager.ensureReady();
+    // watcher 建立在 `import("node:fs").then(...)` 的异步链里，ensureReady 返回时
+    // 未必已建立。必须等到它出现再断言——否则 watchTargets() 返回空数组，断言整段
+    // 被跳过，用例就成了**空转的绿灯**（实测：把 realpath 修复删掉，本用例照样通过）。
+    const deadline = Date.now() + 5000;
+    let targets = [];
+    while (Date.now() < deadline) {
+      targets = manager.watchTargets();
+      if (targets.length > 0) break;
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    assert.ok(targets.length > 0, "watcher 必须在 5s 内建立（否则本用例无法验证任何东西）");
+
+    // 关键断言：webRoot 传的是 `link`（符号链接），watcher 必须挂到 realpath 解析后
+    // 的真实目录。删掉 realpathSync.native 这段修复，此处即失败。
+    //
+    // **不能**用 realpathSync 归一后再比较：它会把两侧都折叠成同一个真实路径，
+    // 于是「watcher 拿到的是 link 还是 real」这个待判事实被断言自己抹平了
+    // （实测：去掉修复后该写法照样通过）。必须比较**未经解析的字面路径**。
+    const expectTarget = realpathSync(join(realDir, "api"));
+    assert.equal(targets.length, 1, `应当只有一个 watch 目标：${JSON.stringify(targets)}`);
+    assert.equal(
+      targets[0],
+      expectTarget,
+      `watcher 必须拿到 realpath 解析后的路径（而不是调用方传入的 link 字面量），实际：${JSON.stringify(targets)}`,
+    );
+  } finally {
+    manager.dispose();
+  }
+});
+
+/**
  * 回归：`fs.watch` 遇 8.3 短路径时，写入该目录会让进程以 **libuv 原生断言**
  * 中止——`Assertion failed: !_wcsnicmp(filename, dir, dirlen), file
  * src\win\fs-event.c, line 72`（ReadDirectoryChangesW 报长名、watcher 持短名）。

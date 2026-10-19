@@ -193,6 +193,10 @@ export function createWebApiProcess(options) {
   // 指纹不变即跳过回收。
   let watchTimer = null;
   let watcher = null;
+  // 实际交给 fs.watch 的目标路径（已 realpath 解析）。暴露为只读观察点是为了让
+  // 「watcher 拿的是解析后路径」这条不变量**可被跨平台断言**——8.3 短名缺陷只在
+  // Windows 触发，但该机制在符号链接上同样可验（见 test/web-mount.test.mjs）。
+  let watchTargetPath = null;
   let sourceFingerprint = null;
   // 挂起的差异：回收被节流/正在回收时，本次真实改码既没被消费也不该丢。记下它，
   // 等当前这轮回收结束后重新按**当前**内容判一次（第二次独立复核发现的残留竞态：
@@ -349,6 +353,7 @@ export function createWebApiProcess(options) {
         const target = join(webRoot, "api");
         try { return fs.realpathSync.native(target); } catch { return target; }
       })();
+      watchTargetPath = watchTarget;
       watcher = fs.watch(watchTarget, { recursive: true }, () => {
         if (disposed) return;
         if (watchTimer !== null) clearTimeout(watchTimer);
@@ -482,6 +487,13 @@ export function createWebApiProcess(options) {
     ensureReady,
     isRunning() {
       return !disposed && spawned !== null && !exited;
+    },
+    /**
+     * 只读观察点：watcher 实际监听的目标（已 realpath 解析）。
+     * 未建立 watcher 时返回空数组。仅供测试断言「先解析再 watch」这条不变量。
+     */
+    watchTargets() {
+      return watchTargetPath === null ? [] : [watchTargetPath];
     },
     dispose() {
       disposed = true;
