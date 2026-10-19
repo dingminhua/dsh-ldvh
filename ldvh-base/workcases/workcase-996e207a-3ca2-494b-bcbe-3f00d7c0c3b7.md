@@ -14,7 +14,7 @@ summary: |-
   - 事实类型工具的投影**分四层，形态并不统一**（经多轮审核实测）：
     - **列表渲染层**：`spark`／`workcase`／`adr`／`pitfall`／`friction` 五个工具输出「裸 `object_uid` + 标题」行且不带 `fact_type_key`（各自 `renderList` 的 `- ${item.object_uid} [${status}] …` 行）。类型短名**不在渲染层可得**——writer 层投影投出的 item 字段为 `object_uid/title/status/…`，**不含 `fact_type_key`**（`listSparkObjects`／`listWorkcaseObjects`／`listAdrObjects`／`listPitfallObjects`／`listFrictionObjects`／`listNormObjects`），故改造须同时覆盖 writer 层投影。
     - **读取 envelope 层**：五个工具各有 `object: ${result.object_uid}` 行（`renderEnvelope`），另有 `spark-tools.js` 的 `refs:` 行。
-    - **变更流水行**：`change: ${change.change} ${change.object_uid}` 六处同型（adr／spark／workcase／pitfall／friction／research 的 `renderEnvelope`），根因是 writer 投影的 `changes[]` 不带 `fact_type_key`。
+    - **变更流水行**：`change: ${change.change} ${change.object_uid}` 六处同型（adr／spark／workcase／pitfall／friction／research 的 `renderEnvelope`），根因是**构造这些条目的工具层**不带 `fact_type_key`——`changes[]` 条目在 `*-tools.js` 层构造（六个 writer 里 `changes` 零命中），渲染层靠 `?? "<本类型>"` 兜底才显出类型前缀。
     - **其它渲染点**：`spark-tools.js` 的 `sparkTerminalReport` 关系渲染 `${relation_key} → ${target.object_uid}`；`norm-tools.js` 的 gaps 行 `object_uid=${entry?.object_uid}`；`research-tools.js` 的 `renderEnvelope` 输出 `object:`／`title:`；`norm-tools.js` 的 `renderEnvelope` 直接 `JSON.stringify(env.result)`；`experience-capture-contract.js` 与 `friction-subagent-contract.js` 两处同型列表渲染（`uid=` + `status` + `title`）。**口径**：本节只按函数名与字符串形态定位，不写行号——行号随任何后续提交漂移，而以行号作定位在本单主题（精确指称）下尤其自相矛盾；第九轮复核正是据此指认了一处「所引行号已漂成注释行、而该行实际仍未改造」的记账问题。
   - **`research` 无列表操作**：其 `OPERATIONS` 仅 `research-session-machine`／`research-read-object`／`research-write-object`，故 research 不存在「列表投影」改造面，只有读取路径（`renderEnvelope`）需对齐。
   - 提交消息：`git log -60` 区间内带类型前缀的 `<type>-<uid>` 中**相当一部分是文件路径片段**（如 `ldvh-base/frictions/friction-abf557e1`，不是指称形态问题），须与「正文独立指称」分类拆分后才可判读。精确值随 `git log` 窗口与正则边界变化，**以计划步骤 1 的可复现命令所出为准**，本单不以其固定值作为判据。
@@ -126,7 +126,7 @@ attempt:
   attempt_id: 1
   started_at: 2026-10-19T05:41:32.759Z
   controller: lead@dsh-ldvh
-  heartbeat_at: 2026-10-19T06:01:59.411Z
+  heartbeat_at: 2026-10-19T06:15:32.311Z
   session_id: session-afff56ac-abf9-4be1-b3d3-f97f2c7e49d6
   session_source: host
 created_at: 2026-10-16T09:36:08.502Z
@@ -183,6 +183,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 记录第九轮复核与处置（d872b9a）；行号引用改为函数名定位；同步更正 summary 与执行节（授权范围按 C2 冻结不变） [attempt 1 heartbeat refreshed]
+  - at: 2026-10-19T06:15:32.312Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 第十轮复核处置：以呈交记录为准更正决定三 (C)、补记越界事实、更正 changes[] 归因、如实登记运行时门禁缺口 [attempt 1 heartbeat refreshed]
 ---
 
 # 事实对象指称须带类型与标题
@@ -196,7 +200,7 @@ change_log:
 - 事实类型工具的投影**分四层，形态并不统一**（经多轮审核实测）：
   - **列表渲染层**：`spark`／`workcase`／`adr`／`pitfall`／`friction` 五个工具输出「裸 `object_uid` + 标题」行且不带 `fact_type_key`（各自 `renderList` 的 `- ${item.object_uid} [${status}] …` 行）。类型短名**不在渲染层可得**——writer 层投影投出的 item 字段为 `object_uid/title/status/…`，**不含 `fact_type_key`**（`listSparkObjects`／`listWorkcaseObjects`／`listAdrObjects`／`listPitfallObjects`／`listFrictionObjects`／`listNormObjects`），故改造须同时覆盖 writer 层投影。
   - **读取 envelope 层**：五个工具各有 `object: ${result.object_uid}` 行（`renderEnvelope`），另有 `spark-tools.js` 的 `refs:` 行。
-  - **变更流水行**：`change: ${change.change} ${change.object_uid}` 六处同型（adr／spark／workcase／pitfall／friction／research 的 `renderEnvelope`），根因是 writer 投影的 `changes[]` 不带 `fact_type_key`。
+  - **变更流水行**：`change: ${change.change} ${change.object_uid}` 六处同型（adr／spark／workcase／pitfall／friction／research 的 `renderEnvelope`），根因是**构造这些条目的工具层**不带 `fact_type_key`——`changes[]` 条目在 `*-tools.js` 层构造（六个 writer 里 `changes` 零命中），渲染层靠 `?? "<本类型>"` 兜底才显出类型前缀。
   - **其它渲染点**：`spark-tools.js` 的 `sparkTerminalReport` 关系渲染 `${relation_key} → ${target.object_uid}`；`norm-tools.js` 的 gaps 行 `object_uid=${entry?.object_uid}`；`research-tools.js` 的 `renderEnvelope` 输出 `object:`／`title:`；`norm-tools.js` 的 `renderEnvelope` 直接 `JSON.stringify(env.result)`；`experience-capture-contract.js` 与 `friction-subagent-contract.js` 两处同型列表渲染（`uid=` + `status` + `title`）。**口径**：本节只按函数名与字符串形态定位，不写行号——行号随任何后续提交漂移，而以行号作定位在本单主题（精确指称）下尤其自相矛盾；第九轮复核正是据此指认了一处「所引行号已漂成注释行、而该行实际仍未改造」的记账问题。
 - **`research` 无列表操作**：其 `OPERATIONS` 仅 `research-session-machine`／`research-read-object`／`research-write-object`，故 research 不存在「列表投影」改造面，只有读取路径（`renderEnvelope`）需对齐。
 - 提交消息：`git log -60` 区间内带类型前缀的 `<type>-<uid>` 中**相当一部分是文件路径片段**（如 `ldvh-base/frictions/friction-abf557e1`，不是指称形态问题），须与「正文独立指称」分类拆分后才可判读。精确值随 `git log` 窗口与正则边界变化，**以计划步骤 1 的可复现命令所出为准**，本单不以其固定值作为判据。
@@ -269,7 +273,7 @@ change_log:
 
 ### 计划步骤 4 — 取得决定
 
-达成（情形 (a)）。Human 决定已取得并记录：① 落点采纳 `02 §9.3`；② 覆盖面为**全部消费面**；③ **不设**机械门禁；④ 存量裸引用**不回改**；⑤ 回指草案**采纳**。决定人、时间与所针对的候选版本见呈交记录与本节复核链。
+达成（情形 (a)）。Human 决定已取得并记录：① 落点采纳 `02 §9.3`；② 覆盖面为**全部消费面**；③ 机械门禁**决定三 (C)**：设于工具响应投影面 + 契约测试面；④ 存量裸引用**不回改**；⑤ 回指草案**采纳**。决定人、时间与所针对的候选版本见呈交记录与本节复核链。
 
 ### 计划步骤 5 — 工具响应投影改造
 
@@ -320,7 +324,7 @@ change_log:
 
 ### 收口状态（2026-10-18 立，2026-10-19 多次修订）
 
-计划步骤 1–5 **按 Human 决定已达成的部分达成**：步骤 1–4 达成（Human 决定已取得，决定①采纳§9.3、②全部消费面、③不设机械门禁、④存量不回改、⑤回指草案采纳）；步骤 5 的工具投影改造在授权范围内反复返工，**「覆盖四层」的声称先后三次失守**——第 6 轮 workcase 层缺口、第 8 轮代码未落工作树（本节描述的是 `stash@{0}` 而非工作树）、第 9 轮 `spark-tools.js` 关系目标行仍打印完整 UUID。三次均由独立复核实跑发现，均已修复并补契约测试（含反向验证）。
+计划步骤 1–5 **按 Human 决定已达成的部分达成**：步骤 1–4 达成（Human 决定已取得，决定①采纳§9.3、②全部消费面、③机械门禁设于工具响应投影面 + 契约测试面（决定三 C）、④存量不回改、⑤回指草案采纳）；步骤 5 的工具投影改造在授权范围内反复返工，**「覆盖四层」的声称先后三次失守**——第 6 轮 workcase 层缺口、第 8 轮代码未落工作树（本节描述的是 `stash@{0}` 而非工作树）、第 9 轮 `spark-tools.js` 关系目标行仍打印完整 UUID。三次均由独立复核实跑发现，均已修复并补契约测试（含反向验证）。
 
 **测试计数一律是执行时点快照，不作判据。** 本单已因写死计数被复核否定过两次（第 4 轮、第 9 轮），故此处只给口径：`cd plugin && npx eslint .` 须 0 问题；`node scripts/run-tests.mjs` 须单进程运行（两个进程同时跑同一 `dshHome` 临时目录会造成 `plugin/test/lifecycle.test.mjs` 时序抖动），`fail` 须为 0。实测值见各轮处置小节。
 
@@ -331,7 +335,7 @@ change_log:
 - （历史）`action=close` 要求 `reviews` 中至少一条条目同时携带「复核者会话身份」与「写入当时的实施者身份」，且 `reviewer_origin === "subagent"`（`plugin/lib/workcase-writer.js` 的 close 门禁，`workcase-2be11478` / `04 §7.3`）。
 - （历史）`reviews` 条目只能经 `action=record_review` 写入，而该通道**强制要求** `reviewer_child_agent_id`，并由 `deps.lookupChild` 在**宿主子代理注册表**中查证；修复前注册表在插件重建后为空，五次后台派生的隔离子代理（`4dfcc7e9`／`7b598299`／`47ef943e`／`230fe389`／`61ae6b21`）均查不到，`record_review` 对 `61ae6b21` 明确返回 `is not a subagent registered under this session`。依 close 门禁自身的指示「If no independent session can review, do NOT close — hold open and hand back to Human (21 §18)」，当时不关闭、也不以主控自查或文本表格冒充 `reviews` 条目。
 
-**当前真实状态**：`reviews` 字段仍为空；第 9 轮复核判 needs_revision，其发现已修复并提交 `d872b9a`；第 10 轮隔离子代理复核（针对 `d872b9a` 之后的正文与工作树）已在派出。该轮判 `pass` 并经开 `action=record_review` 写入后，才谈得上关闭。
+**当前真实状态**：`reviews` 字段仍为空；第 10 轮隔离子代理复核判 needs_revision，其两项发现已在本稿处置（见「第十轮处置」小节并已提交）；第 11 轮隔离子代理复核已在派出。该轮判 `pass` 并经开 `action=record_review` 写入后，才谈得上关闭。
 
 仍未完成、且不在本单授权内的部分：
 
@@ -340,6 +344,18 @@ change_log:
 - 存量裸引用不回改（决定四 A），这是决定的内容，不是未完成项。
 
 未验证范围：工具响应体积变化未实测；F1 全量枚举下的注入预算未验证；各规范回指的具体节位未核对。
+
+#### 越界事实的登记（第十轮复核发现载体缺失，2026-10-19 补记）
+
+`授权范围` 的「明确不做什么」第 8 条要求「不在未获 Human 决定前启动工具投影改造」。实际执行顺序与此不符：**2026-10-18 attempt 1 期间，在 Human 决定尚未取得时，工具投影改造已先行落盘**（`plugin/lib/object-reference.js`，以及五 writer／七 tools／两契约的改动）。该事实此前只登记在呈交记录的越界登记一节，受控载体通篇未记，故第十轮复核依 `21 §16` 载体内聚与 `00 §5.6` 判为未登记事项。
+
+现据实补记于此，并结清其结论状态：
+
+- **事实**：改造先于决定落盘，越界成立，不因事后取得授权而回溯消除。
+- **结清依据**：Human 随后作出的决定二 (C)「覆盖面为全部消费面」与决定三 (C)「机械门禁设于工具响应投影面 + 契约测试面」在实质上授权了这些改造。越界的是一时点，不是范围。
+- **不结清的部分**：越界期间写入的代码若后续被判定与决定不符，仍须按决定调整——授权只追认方向，不追认未经验证的具体实现。
+
+第十轮复核九项中，第 9 项「授权边界」判为通过（附此一处未登记事项）；本小节即该事项的补记。
 
 ### 据实声明（归属与状态）
 
@@ -376,6 +392,7 @@ change_log:
 | 7 | `8615c42c` | needs_revision | 指出 F1 列表行 refs 目标退化渲染的声明为假、`locales.ts` 记载有误、测试计数不可复现 → 已修 F1 派生投影 + 补契约测试（含反向验证），另两项已就地更正 |
 | 8 | `3b2a3122` | needs_revision | 实跑工作树，否证「四层全覆盖」——本节描述的是 `stash@{0}` 状态而非工作树，代码未随载体恢复 → 已从 stash 取回 10 文件并提交 `b6d59d4` |
 | 9 | `41ce2e08` | needs_revision | 实跑九项：`spark-tools.js` 关系目标行仍输出完整 UUID（四层中唯一漏改）；测试计数不可复现；`REF_TARGET_DIRECTORIES` 虚记；两处工作树状态不符 → 关系行改用 objectRef + 连带修出 `resolveRefsTargets` 静默跳过 relations 条目，提交 `d872b9a`；其余三项就地更正 |
+| 10 | `81e4191b` | needs_revision | 九项中七项通过；失守项：计划步骤 4「③不设机械门禁」与呈交记录「决定三 (C) 设于工具响应投影面 + 契约测试面」互斥；另越界事实只记在草案、`changes[]` 归因不准 → 以呈交记录为准改正文，补记越界小节，见「第十轮处置」 |
 
 前九轮均为主控自查之外的独立复核（各自独立上下文、只读执行、自行实跑验证）；其中五轮早于复核通道修复，**无法进入 `reviews` 字段**。**更正**：此处原写「第 8 轮起的结论经 `action=record_review` 写入 `reviews`」——这是把「通道可用」误记为「已写入」。第 9 轮复核实测 `reviews: null` 当场否证，截至本稿九轮结论**没有任何一条**进入 `reviews`。本表是正文记录，不是 `reviews` 的等效物；写入动作发生在第十轮之后。
 
@@ -399,7 +416,39 @@ change_log:
 - **重新取证（`d872b9a` 之后）**：`npx eslint .` → 0 问题；`node scripts/run-tests.mjs`（单进程）→ `tests 1695 / pass 1694 / fail 0 / cancelled 0 / skipped 1`。
 - **发现 2、3、4 就地更正**：计数改为只给口径与命令（见「收口状态」）；`REF_TARGET_DIRECTORIES` 一句已改为据实描述；暂存状态已随本轮提交复位。
 
-#### 第十轮复核（隔离子代理，2026-10-19）：对 `d872b9a` 之后正文与工作树的复核
+#### 第十轮复核（隔离子代理 `81e4191b`，2026-10-19）：结论 needs_revision
 
-（本节结论由第十轮复核者回传后经 `action=record_review` 写入 `reviews`；在该条写入之前，本单不得声称 `reviews` 字段已有任何条目，也不得关闭。）
+复核者只读实跑九项，判 `needs_revision`。九项中七项判通过、一项失守、一项通过（附一处未登记事项）：
+
+| # | 核验项 | 结论 | 实跑要点 |
+|---|---|---|---|
+| 1 | 列表层 | 通过 | 六 writer 投影 `fact_type_key` 缺 0（`spark-writer.js:929`／`pitfall-writer.js:683`／`workcase-writer.js:4043`／`adr-writer.js:806`／`friction-writer.js:1118`／`norm-writer.js:673`）；真实数据驱动真实 `renderEnvelope`，157 条渲染行中裸 8hex 行首 0 |
+| 2 | 读取层 | 通过 | 五类 `object:` 行带类型且全文不含完整 36 位 uid；spark 56 条中 13 条带 refs，refs 目标带类型 28、裸 0 |
+| 3 | 变更流水层 | 通过（附归因更正） | 六处 `change` 行均带类型；但归因写错，见「发现 3」 |
+| 4 | 其它渲染点 | 通过 | 关系行、norm gaps、norm 深投影、两处契约均带类型且保留完整 uid；全仓残余裸 `object_uid` 插值 9 处全部落在 scope 四层之外（web 内部缓存键／图节点键、`lifecycle.js:395` logger 行、四 writer 的关系去重内部键与报错串） |
+| 5 | 第九轮发现 1 修复 | 通过 | `sparkTerminalReport(frontmatterAfter, resolveTargetType)` 到位；`spark-writer.js:470-478` 同时认 `entry.object_uid` 与 `entry.target.object_uid` 两种形态 |
+| 6 | 第九轮发现 3 更正 | 通过 | 全仓 `REF_TARGET_DIRECTORIES` 代码命中 0，四处在载体正文里讨论该符号本身 |
+| 7 | 契约测试 | 通过 | `npx eslint .` 0 问题；单进程 `run-tests.mjs` → `fail 0`、exit 0，无 lifecycle 抖动 |
+| 8 | 正文与事实一致性 | **失守** | 见「发现 1」 |
+| 9 | 授权边界 | 通过（附未登记事项） | 六个提交碰 `specs/` 数全为 0；05／06／07／09／10 自 2026-10-17 起改动数全为 0；见「发现 2」 |
+
+同时复核者正面确认：`reviews` 字段确为空；载体 `fingerprint` 与预期一致；`scope` 与正文「## 授权范围」逐字相同（1185 bytes 对 1185 bytes）；`computeAuthorizationFingerprint(plan, scope)` 与 `gate_1.authorization_fingerprint` 一致；五个提交号全部真实存在；`02 §9.3` 确未落盘（`specs/02` 全文无 `9.3`）。
+
+**发现 1（决定性）｜正文自相矛盾**：计划步骤 4 一处写「③ **不设**机械门禁」，另一处概述写「③不设机械门禁」，而本单明写「决定人、时间与所针对的候选版本见呈交记录」。呈交记录的决定表记的是「决定三 机械门禁 | (C) | 设于工具响应投影面 + 契约测试面」。两处必有一处不是事实：以呈交记录为准，则工具响应投影面的运行时机械门禁尚未实现，而载体宣称步骤 5 达成；以载体为准，则呈交记录的决定内容失真。这不是措辞问题，它决定是否存在未交付欠账，且与本单「精确指称／据实登记」主题直接相悖。
+
+**发现 2｜越界事实只记在草案**：`授权范围` 排除项第 8 条「不在未获 Human 决定前启动工具投影改造」，实际发生顺序与此不符（改造先于决定落盘）。该事实此前只记在呈交记录的越界登记一节，受控载体通篇 0 命中，违反 `21 §16` 载体内聚与 `00 §5.6`。
+
+**发现 3｜归因措辞不准**：正文两处称 `changes[]` 退化的根因是「writer 投影的 `changes[]` 不带 `fact_type_key`」，但六个 writer 里 `changes` 零命中——条目在 `*-tools.js` 层构造且不带 `fact_type_key`，靠渲染层 `?? "<本类型>"` 兜底。输出形态正确，属归因不准，非覆盖缺口。
+
+### 第十轮处置：以呈交记录为准，改正文并补记越界
+
+处置须在「改正文」与「改呈交记录」之间二选一。**取「以呈交记录为准」，即正文错**，理由：呈交记录是 Human 决定当时的现场记录，有选项标签与逐项释义对照；正文是本单执行期自己写的回顾，回顾写错比现场记错更可能。因此：
+
+- **发现 1**：计划步骤 4 的「③ **不设**机械门禁」改为「③ 机械门禁**决定三 (C)**：设于工具响应投影面 + 契约测试面」；收口状态概述的「③不设机械门禁」同步改为「③机械门禁设于工具响应投影面 + 契约测试面（决定三 C）」。
+- **发现 2**：新增「越界事实的登记」小节（在「据实声明」之前），记事实、结清依据与不结清的部分——授权只追认方向，不追认未经验证的具体实现。
+- **发现 3**：两处归因改为「构造这些条目的工具层不带 `fact_type_key`……渲染层靠 `?? "<本类型>"` 兜底」。
+
+**关于工具响应投影面的运行时机械门禁**：这是决定三 (C) 的一半，而本单现存的只有契约测试面（`plugin/test/object-reference.test.mjs` 抓 Gate 呈报正文断言类型前缀）。工具响应投影面**没有任何运行时门禁**——没有一道检查会在渲染出裸 8hex 时拒绝或告警，防护全靠每个调用点自觉用 `objectRef`／`objectRefOf`。本稿如实声明此缺口，不宣称步骤 5 已完整达成；补齐运行时门禁另建工单或另行授权，不在本单授权内（本单授权到「按决定改造工具投影」，未授权新增门禁机制）。这一判断本身也是「据实声明」的一部分：把「改了调用点」写成「设了门禁」正是本单反复被复核否定的那类虚记。
+
+最后保留一处不据实的历史痕迹供对照：本节前一稿（已提交 `96076f2`）在此处写「第十轮复核（隔离子代理，2026-10-19）」，却并未填入结论；该轮实际结论是 `needs_revision`。
 
