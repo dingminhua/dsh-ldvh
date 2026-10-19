@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
-import { registerWorkcaseTools } from "../lib/workcase-tools.js";
+import { registerWorkcaseTools, normalizeBodyMarkdown } from "../lib/workcase-tools.js";
 import { createWorkcaseObject, readWorkcaseObject, recordWorkcaseAudit } from "../lib/workcase-writer.js";
 import { authoritativeSignature, authoritativeSessionIdentity } from "../lib/signature-channel.js";
 
@@ -184,5 +184,85 @@ test("execute 只显式改 scope：继承机制不得成为 C2 后门", async ()
     // 零写入：重新读取，scope 必须原样。
     const after = await readWorkcaseObject({ factSourceRoot, objectUid });
     assert.equal(after.value.frontmatter.scope, scopeBefore, "拒绝必须零写入");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 正文通道的换行归一（2026-10-19，承 workcase-996e207a 三度落盘失败）
+//
+// 实测缺陷形态：同一份正确正文经**工具通道**进入时被 `carrier coherence` 拒绝，
+// 经**直接调用 writer** 进入时成功。原因在工具层原样透传 `args.body_markdown_after`：
+// multiline 在通道里被转义成字面量 `\n`（反斜杠 + n）后，正文折成一行，
+// `## 授权范围` 不再是独占一行的 H2，`sectionContent` 取不到该节 → 载体内聚失败。
+//
+// 这里钉住两半：① 被转义的正文必须还原成真换行后写入成功；② 形态无法核验的正文
+// 必须**明确拒绝**并给出可操作说明，不得静默写进载体。
+// ---------------------------------------------------------------------------
+function escapeNewlines(body) {
+  // 模拟通道把真换行转义成字面量 `\n` 的形态（正文变成单行）。
+  return body.replace(/\n/g, "\\n");
+}
+
+test("normalizeBodyMarkdown：归一契约（转义→真换行；真换行原样；无摘要节→null）", () => {
+  // 归一函数本身的行为先钉死——上面的端到端用例依赖它，若它退化，
+  // 失败会表现为「载体内聚拒绝」这一层间接症状，定位成本很高。
+  assert.equal(normalizeBodyMarkdown("## 摘要\\n\\n第一段\\n"), "## 摘要\n\n第一段\n", "被转义的单行正文必须还原成真换行");
+  assert.equal(normalizeBodyMarkdown("## 摘要\n\n第一段\n"), "## 摘要\n\n第一段\n", "已含真换行的正文必须原样透传");
+  assert.equal(normalizeBodyMarkdown("# 没有摘要节\\n\\n正文"), null, "缺 '## 摘要' 必须返回 null（不得静默修补）");
+  assert.equal(normalizeBodyMarkdown(""), null, "空串必须返回 null");
+  assert.equal(normalizeBodyMarkdown(undefined), null, "未提供必须返回 null");
+});
+
+test("execute：被转义成单行的正文须先还原换行再写入（不得因载体内聚被误拒）", async () => {
+  await withTemp("workcase-body-escape-", async (base) => {
+    const { write, factSourceRoot, objectUid, exec, open, openBody } = await openSurface(base);
+    const nextBody = `${openBody()}\n- 计划步骤 1 完成：正文经通道进入。\n`;
+    const escaped = escapeNewlines(nextBody);
+    assert.ok(!escaped.includes("\n"), "夹具前提：转义后的正文必须不含真换行，否则测不到缺陷形态");
+    const result = await write.execute({
+      action: "execute",
+      object_uid: objectUid,
+      expected_fingerprint: open.value.fingerprint,
+      frontmatter_after: {},
+      body_markdown_after: escaped,
+      change_summary: "执行进展（正文经转义通道进入）",
+    }, exec);
+    const env = result.envelope ?? result;
+    assert.equal(env.outcome, "completed", `转义正文应被还原后写入成功，实际：${JSON.stringify(result).slice(0, 800)}`);
+    // 回读：落盘正文必须是多行的，且新增那一行真的在。
+    const after = await readWorkcaseObject({ factSourceRoot, objectUid });
+    const body = after.value.body;
+    assert.ok(body.includes("\n## 摘要\n"), "落盘正文必须保留真换行（H2 独占一行）");
+    assert.ok(body.includes("正文经通道进入"), "转义正文的新增内容必须落地，而不是被静默吞掉");
+    assert.ok(!body.includes("\\n## 摘要"), "落盘正文不得残留字面量 \\n 转义");
+  });
+});
+
+test("execute：正文无法还原成以 '## 摘要' 起头的多行体时必须明确拒绝（不静默写入）", async () => {
+  await withTemp("workcase-body-shape-", async (base) => {
+    const { write, factSourceRoot, objectUid, exec, open, openBody } = await openSurface(base);
+    const before = await readWorkcaseObject({ factSourceRoot, objectUid });
+    // 缺 '## 摘要' 的正文：还原与否都不可核验形态 → 必须拒绝。
+    // 注意这里必须逐段 escapeNewlines 后**用字面量 `\\n` 拼接**：若写成真换行再整段
+    // 转义，正文仍是以 '## 摘要' 开头、只是把标题换了个名字，拒绝理由就会落到 writer
+    // 层的 H1 计数上——那样测到的是另一道闸，无法证明工具层的形态门禁真的生效。
+    const escaped = `${escapeNewlines("# 没有摘要节的正文")}\\n\\n${escapeNewlines(openBody().replace(/^## 摘要/, "## 概述"))}`;
+    const result = await write.execute({
+      action: "execute",
+      object_uid: objectUid,
+      expected_fingerprint: open.value.fingerprint,
+      frontmatter_after: {},
+      body_markdown_after: escaped,
+      change_summary: "形态不可核验的正文",
+    }, exec);
+    const env = result.envelope ?? result;
+    const msg = JSON.stringify(result);
+    // 拒绝形态是 `invalid_request`（工具层参数门禁），不是 writer 的 `rejected`——
+    // 这个区别正是本用例要钉住的：形态不明的正文在工具层就被挡下，不会流进 writer。
+    assert.equal(env.outcome, "invalid_request", `形态不可核验的正文必须被拒，实际：${msg.slice(0, 600)}`);
+    assert.match(msg, /## 摘要/, `拒绝理由须指出缺少 '## 摘要'，实际：${msg.slice(0, 600)}`);
+    // 零写入。
+    const after = await readWorkcaseObject({ factSourceRoot, objectUid });
+    assert.equal(after.value.fingerprint, before.value.fingerprint, "拒绝必须零写入");
   });
 });

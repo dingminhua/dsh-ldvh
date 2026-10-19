@@ -98,6 +98,54 @@ function envelope(operationKey, outcome, fields) {
   return { operation_key: operationKey, outcome, ...fields };
 }
 
+/**
+ * 正文通道的**换行归一**（2026-10-19 建立，承 workcase-996e207a 三度落盘失败）。
+ *
+ * ## 为什么需要它
+ *
+ * 写路径（`executeWorkcaseObject` 等）把 `body_markdown_after` 当作**已成型的多行
+ * markdown**：载体内聚校验要求 `frontmatter.scope` 逐字出现在正文「## 授权范围」节中，
+ * 而正文节是按行切分的（`sectionContent`）。一旦正文折成一行，`## 授权范围` 不再是
+ * 独占一行的 H2，`sectionContent` 取不到该节 → `carrier coherence: frontmatter scope
+ * must appear verbatim` 拒绝写入。
+ *
+ * 实测（workcase-996e207a，2026-10-19）：同一份正确正文经**工具通道**进入时被拒，
+ * 经**直接调用 writer** 进入时成功；把工具收到的字符串打出来，换行是字面量 `\n`
+ * （反斜杠 + n）而不是 U+000A——即 multiline 在通道里被转义成了字面量。此时正文
+ * 变成单行，H2 不再独占一行，故必然触发上述载体内聚失败。
+ *
+ * ## 处置范围（刻意保守）
+ *
+ * 只把**输入中不含真换行**且含字面量 `\n` 的字符串视为「被转义的正文」并还原。
+ * 已含真换行的正常正文一律原样透传——避免把正文里合法出现的字面量 `\n`（例如描述
+ * 某个转义序列的说明文字）误改成换行。
+ *
+ * 还原后仍须含 `## 摘要`：本函数只做形态还原，**不做静默修补**。还原仍不成形而
+ * 返回 `null` 时，调用方按 `invalid_request` 拒绝并给出可操作说明——把一份形态不明
+ * 的正文写进载体，比拒绝更危险。
+ *
+ * @returns {string|null} 归一后的正文，或 null（无法安全归一）
+ */
+export function normalizeBodyMarkdown(value) {
+  if (typeof value !== "string" || value.length === 0) return null;
+  let body = value;
+  if (!body.includes("\n") && body.includes("\\n")) {
+    body = body.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+  }
+  return body.includes("## 摘要") ? body : null;
+}
+
+/** 正文归一失败时的统一拒绝语（指名可操作处置，不静默修补）。 */
+function bodyMarkdownInvalidRequest(action) {
+  return invalidRequest(
+    "workcase-write-object",
+    `body_markdown_after must be the complete next body as multi-line markdown starting with '## 摘要' (no H1 — it is generated from title). `
+    + `Received a value that does not contain the '## 摘要' heading even after un-escaping literal '\\n' — refusing to write a body whose shape cannot be verified (21 §8 载体内聚: frontmatter summary/scope 须逐字出现在正文同名节). `
+    + `Pass the body as real newlines, not as an escaped one-line string.`,
+    action,
+  );
+}
+
 function invalidRequest(operationKey, gap, requested) {
   return envelope(operationKey, "invalid_request", {
     result: null,
@@ -716,32 +764,34 @@ async function executeWriteObject(args, exec, deps) {
       result = await approveWorkcaseObject({ factSourceRoot, objectUid, expectedFingerprint, approver, controller, changeSummary, sessionSignature: sig.value, sessionIdentity: ident.value });
     } else if (action === "execute") {
       const frontmatterAfter = args?.frontmatter_after;
-      const bodyMarkdownAfter = args?.body_markdown_after;
-      if (typeof frontmatterAfter !== "object" || frontmatterAfter === null || typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
+      const bodyMarkdownAfter = normalizeBodyMarkdown(args?.body_markdown_after);
+      if (typeof frontmatterAfter !== "object" || frontmatterAfter === null || args?.body_markdown_after === undefined) {
         return invalidRequest("workcase-write-object", "frontmatter_after (object) and body_markdown_after (the full next body starting with '## 摘要') are required for action=execute", "execute");
       }
+      if (bodyMarkdownAfter === null) return bodyMarkdownInvalidRequest("execute");
       const attemptOperation = args?.attempt_operation ?? "heartbeat";
       const newController = typeof args?.new_controller === "string" && args.new_controller.length > 0 ? args.new_controller : null;
       result = await executeWorkcaseObject({ factSourceRoot, objectUid, expectedFingerprint, frontmatterAfter, bodyMarkdownAfter, changeSummary, attemptOperation, newController, sessionSignature: sig.value, sessionIdentity: ident.value });
     } else if (action === "close") {
       const outcome = args?.outcome;
       const resultPayload = args?.result;
-      const bodyMarkdownAfter = args?.body_markdown_after;
-      if (typeof outcome !== "string" || typeof resultPayload !== "object" || resultPayload === null || typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
+      const bodyMarkdownAfter = normalizeBodyMarkdown(args?.body_markdown_after);
+      if (typeof outcome !== "string" || typeof resultPayload !== "object" || resultPayload === null || args?.body_markdown_after === undefined) {
         return invalidRequest("workcase-write-object", "outcome, result ({criteria_checks[], achieved_scope, residual[]}) and body_markdown_after (including the 结果 section) are required for action=close — Gate 2 (21 §10.2)", "close");
       }
+      if (bodyMarkdownAfter === null) return bodyMarkdownInvalidRequest("close");
       result = await closeWorkcaseObject({ factSourceRoot, objectUid, expectedFingerprint, outcome, result: resultPayload, changeSummary, bodyMarkdownAfter, sessionSignature: sig.value });
     } else if (action === "rebatch") {
       const frontmatterAfter = args?.frontmatter_after;
-      const bodyMarkdownAfter = args?.body_markdown_after;
-      if (typeof frontmatterAfter !== "object" || frontmatterAfter === null || typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
+      const bodyMarkdownAfter = normalizeBodyMarkdown(args?.body_markdown_after);
+      if (typeof frontmatterAfter !== "object" || frontmatterAfter === null || bodyMarkdownAfter === null) {
         return invalidRequest("workcase-write-object", "frontmatter_after (the revised draft fields) and body_markdown_after (the revised 摘要/授权范围/计划 body) are required for action=rebatch — change_summary must carry 重批原因 + 当时核对快照结论 (21 §9.2)", "rebatch");
       }
       result = await rebatchWorkcaseObject({ factSourceRoot, objectUid, expectedFingerprint, frontmatterAfter, bodyMarkdownAfter, changeSummary, sessionSignature: sig.value });
     } else if (action === "cancel") {
       const resultPayload = args?.result;
-      const bodyMarkdownAfter = args?.body_markdown_after;
-      if (typeof resultPayload !== "object" || resultPayload === null || typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
+      const bodyMarkdownAfter = normalizeBodyMarkdown(args?.body_markdown_after);
+      if (typeof resultPayload !== "object" || resultPayload === null || bodyMarkdownAfter === null) {
         return invalidRequest("workcase-write-object", "result ({achieved_scope: 取消理由与未发生的范围}) and body_markdown_after (including the 结果 section) are required for action=cancel (21 §9.2)", "cancel");
       }
       result = await cancelWorkcaseObject({ factSourceRoot, objectUid, expectedFingerprint, result: resultPayload, changeSummary, bodyMarkdownAfter, sessionSignature: sig.value });
@@ -765,7 +815,7 @@ async function executeWriteObject(args, exec, deps) {
       if (typeof humanAuthorization !== "string" || humanAuthorization.trim().length === 0) {
         return invalidRequest("workcase-write-object", "human_authorization is required for action=decide_adjustment — 本通道在执行期实时扩大授权，须给出 Human 的授权记录（谁／何时／覆盖什么），缺之 fail-closed（与 correct 同规格；21 §14）", "decide_adjustment");
       }
-      result = await decideWorkcaseAdjustment({ factSourceRoot, objectUid, expectedFingerprint, decision, by, humanAuthorization, bodyMarkdownAfter: args?.body_markdown_after ?? null, changeSummary, sessionSignature: sig.value, sessionIdentity: ident.value });
+      result = await decideWorkcaseAdjustment({ factSourceRoot, objectUid, expectedFingerprint, decision, by, humanAuthorization, bodyMarkdownAfter: normalizeBodyMarkdown(args?.body_markdown_after), changeSummary, sessionSignature: sig.value, sessionIdentity: ident.value });
     } else if (action === "record_review") {
       // 复核结论回传通道（workcase-2be11478 计划步骤 4）：只追加一条 reviews 条目，
       // 不授予任何其它写能力。
@@ -1018,9 +1068,9 @@ async function executeWriteObject(args, exec, deps) {
       // 且**只改正文**——`frontmatter_after` 不是可选而是根本不存在于本动作：
       // 终态判定与授权快照由 writer 从落盘对象逐字继承（结构保证）。
       // Human 授权是必填项，而不是注释里的礼貌：更正与其它受控更新同权限。
-      const bodyMarkdownAfter = args?.body_markdown_after;
+      const bodyMarkdownAfter = normalizeBodyMarkdown(args?.body_markdown_after);
       const humanAuthorization = args?.human_authorization;
-      if (typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
+      if (bodyMarkdownAfter === null) {
         return invalidRequest("workcase-write-object", "body_markdown_after (the full corrected body starting with '## 摘要', no H1) is required for action=correct", "correct");
       }
       if (typeof humanAuthorization !== "string" || humanAuthorization.trim().length === 0) {
@@ -1030,8 +1080,8 @@ async function executeWriteObject(args, exec, deps) {
     } else {
       // revise
       const frontmatterAfter = args?.frontmatter_after;
-      const bodyMarkdownAfter = args?.body_markdown_after;
-      if (typeof frontmatterAfter !== "object" || frontmatterAfter === null || typeof bodyMarkdownAfter !== "string" || bodyMarkdownAfter.length === 0) {
+      const bodyMarkdownAfter = normalizeBodyMarkdown(args?.body_markdown_after);
+      if (typeof frontmatterAfter !== "object" || frontmatterAfter === null || bodyMarkdownAfter === null) {
         return invalidRequest("workcase-write-object", "frontmatter_after and body_markdown_after are required for action=revise (pre-Gate-1 draft evolution)", "revise");
       }
       result = await reviseWorkcaseObject({ factSourceRoot, objectUid, expectedFingerprint, frontmatterAfter, bodyMarkdownAfter, changeSummary, sessionSignature: sig.value });
