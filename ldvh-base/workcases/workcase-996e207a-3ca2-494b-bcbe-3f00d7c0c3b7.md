@@ -331,6 +331,14 @@ change_log:
 
 **验证边界（必须据实声明）**：`npx eslint .` 0 问题；单进程 `node scripts/run-tests.mjs` → `tests 1711 / pass 1710 / fail 0 / skipped 1`。但**运行中的插件实例仍是提交前的代码**——探测结论是决定性的：一份既无「## 摘要」、也无真换行的正文，新代码应在工具层返回 `invalid_request`，实测却一路流到 writer 的 `body_invalid`。故本修复**尚未在运行实例上验收**，须重载宿主后重验。「代码已提交且测试通过」不等于「运行实例已生效」，这两件事在本单里已经混淆过一次，不再重复。
 
+**重载尝试的实测结论（2026-10-19）**：为免再等一次宿主重启，查过并试过不重启的重载入口，均**无效**——
+
+- profile 侧确认加载路径本身没问题：`~/.dsh/profiles/desktop/package.json` 以 `"dsh-ldvh": "link:/Users/dmh2002/DshProject/dsh-ldvh/plugin"` 引入，符号链接 `node_modules/dsh-ldvh` 解析到源码目录，磁盘文件确为新版（`normalizeBodyMarkdown` 在 `plugin/lib/workcase-tools.js:129` 定义、`:767` 的 `execute` 分支调用）。
+- 试过 `plugin_manager` 对 `include:dsh-ldvh` 原地停用再启用（`enabled=false` → `enabled=true`，两次均返回 `application: "applied"`、`changed: true`）。切换后**逐项复测，行为不变**：形态不可核验的正文仍流到 writer 层 `body_invalid`；`ldvh_workcase_list` 仍输出 `workcase-996e207a` 形态（该形态在更早的提交已生效，故此处只能证明**该次切换没有载入本次提交**）。
+- 结论：`plugin_manager` 的停用/启用只改配置与条目状态，**不触发该插件 fiber 的代码重载**；本环境下服务端插件的代码更新只能靠重启宿主。此结论对后续同类修复同样成立——「配置已 applied」不等于「代码已重载」，两者必须分别取证。
+
+**对本单的直接后果**：`## 结果` 节无法经 `action=execute` 落盘（该路径正被上述未重载的旧代码挡住），故 Gate 2 在本轮**不能凭「运行实例已验收」收口**。这是一条据实的待办边界，不是已完成的步骤。
+
 #### 第六轮复核发现的 workcase 层缺口与修复（2026-10-19）
 
 第六轮隔离子代理复核（`999f1522`）判 **needs_revision**，逐条实跑核验 10 项，9 项通过、1 项失守：`workcase-writer.js` 的 `listWorkcaseObjects` 只投 `{object_uid,title,status,serves,outcome,created_at}`，`workcase-tools.js` 的列表行因取不到类型而退化为裸 8hex（实测首项输出 `88510e0e`）。本轮之前的「五个 writer」表述本身也不含 workcase，两处合起来构成声称＞实际，与第 2 轮 norm 缺口同类。
