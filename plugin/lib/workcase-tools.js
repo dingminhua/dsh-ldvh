@@ -630,7 +630,12 @@ async function executeWriteObject(args, exec, deps) {
         });
       }
     }
-  } else if (GOAL_WRITE_POINTS.includes(action)) {
+  } else if (action !== "execute" && GOAL_WRITE_POINTS.includes(action)) {
+    // execute 不在此列：它的写入点**按目的分岔**（本次正文首次带上「## 结果」节
+    // ⇒ `propose_close`，否则 `execute`），判据需要读正文，只有 execute 分支内部
+    // 才知道。若在此按 `point = action = "execute"` 先武装／恢复一次，随后分支内的
+    // `propose_close` 暂停会在同一次调用里被前一跳抵消——待批准关闭期的目标暂停
+    // 将静默失效（2026-10-19 实测复现：落盘结果节后目标仍为 active/armed）。
     const goalUid = requireString(args, "object_uid", action);
     if (goalUid !== null) {
       goalSync = await syncGoalForWrite({ deps, exec, action, factSourceRoot, objectUid: goalUid });
@@ -810,18 +815,23 @@ async function executeWriteObject(args, exec, deps) {
         && bodyHasResultSection(bodyMarkdownAfter);
       if (willProposeClosure) {
         goalSync = await syncGoalForWrite({ deps, exec, action, point: "propose_close", factSourceRoot, objectUid });
-        if (!goalSync.ok) {
-          return envelope("workcase-write-object", "rejected", {
-            result: { goal: { ok: false, code: goalSync.code, message: goalSync.message } },
-            scope: { requested: action, completed: [], not_completed: [objectUid] },
-            sources: [{ kind: "host-service", path: "goals" }],
-            gaps: [`${goalSync.code}: ${goalSync.message}`],
-            verification: { checks: ["governance-scope", "signature-source", "host-goal-consistency"], passed: false },
-            follow_up: [
-              "resolve the host goal conflict or make the goals service available, then retry — the object was NOT written"
-            ]
-          });
-        }
+      } else {
+        // 执行期推进：目标保持武装。仍须走一次一致性检查（目标服务不可用、取不到
+        // 本会话 agent、或目标指向另一对象时 fail-closed），否则「目标指向他单却照
+        // 写本单」的半态会从这条路径溜过去——两条分岔都必须判定，只是写入点不同。
+        goalSync = await syncGoalForWrite({ deps, exec, action, point: "execute", factSourceRoot, objectUid });
+      }
+      if (!goalSync.ok) {
+        return envelope("workcase-write-object", "rejected", {
+          result: { goal: { ok: false, code: goalSync.code, message: goalSync.message } },
+          scope: { requested: action, completed: [], not_completed: [objectUid] },
+          sources: [{ kind: "host-service", path: "goals" }],
+          gaps: [`${goalSync.code}: ${goalSync.message}`],
+          verification: { checks: ["governance-scope", "signature-source", "host-goal-consistency"], passed: false },
+          follow_up: [
+            "resolve the host goal conflict or make the goals service available, then retry — the object was NOT written"
+          ]
+        });
       }
       result = await executeWorkcaseObject({ factSourceRoot, objectUid, expectedFingerprint, frontmatterAfter, bodyMarkdownAfter, changeSummary, attemptOperation, newController, sessionSignature: sig.value, sessionIdentity: ident.value });
     } else if (action === "close") {

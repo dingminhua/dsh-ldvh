@@ -322,3 +322,40 @@ test("收口点遇目标服务不可用：**照常收尾**并在信封里如实�
     assert.equal(after.value.frontmatter.status, "closed", "收口不得因目标服务缺失而失败");
   });
 });
+
+test("提交关闭提案（execute 首次落「## 结果」节）时：推进目标转为 paused，且不被同一次调用的另一跳重新武装", async () => {
+  // 回归（2026-10-19 实测复现）：写入点按目的分岔之前，`execute` 先被通用写入点分支
+  // 按 `point = execute` 同步了一次（对已武装目标即 kept、对暂停目标即 resume），
+  // 随后分支内的 `propose_close` 暂停在同一会话里被前一跳到抵消的顺序打乱——
+  // 落盘结果节后目标仍是 active/armed，自动续轮照旧把工单推向终态，
+  // 「待批准关闭」期在动力层从未真正存在。本用例钉住：一次 execute 提关闭提案后，
+  // 目标的终态必须是 paused。
+  await withTemp("wc-goal-", async (base) => {
+    const goals = fakeGoals(undefined);
+    const s = await surface(base, goals);
+    const approved = env(await s.write.execute(approveArgs(s), s.exec));
+    assert.equal(approved.outcome, "completed", JSON.stringify(approved.gaps));
+    assert.equal(goals.current().phase, "active", "批准后目标应为 active");
+
+    const after = await readWorkcaseObject({ factSourceRoot: s.factSourceRoot, objectUid: s.objectUid });
+    const body = after.value.body.replace(/^#[^\n]*\n/, "").trimEnd();
+    // 基线正文尚无「## 结果」节 ⇒ 本次写入即「提交关闭提案」。
+    const proposed = env(await s.write.execute({
+      action: "execute",
+      object_uid: s.objectUid,
+      expected_fingerprint: after.value.fingerprint,
+      frontmatter_after: { ...after.value.frontmatter },
+      body_markdown_after: `${body}\n\n## 结果\n\n- criteria_checks:\n  - 计划步骤 1 判据「夹具判据」：达成——证据：夹具\n- achieved_scope: 夹具\n`,
+      change_summary: "落盘关闭提案",
+    }, s.exec));
+    assert.equal(proposed.outcome, "completed", JSON.stringify(proposed.gaps));
+    assert.equal(proposed.result.goal.action, "paused", JSON.stringify(proposed.result.goal));
+    assert.equal(goals.current().phase, "paused", "进入待批准关闭期后目标必须停在 paused，否则自动续轮会把工单直接推到终态");
+    assert.equal(goals.current().activation, "disarmed", "paused 的目标须同时解除武装");
+    // 暂停只发生一次：不得出现「先 resumed 再 paused」这种自相抵消的两跳。
+    const resumeCalls = goals.calls.filter((c) => c[0] === "resume").length;
+    const pauseCalls = goals.calls.filter((c) => c[0] === "pause").length;
+    assert.equal(pauseCalls, 1, "提出关闭提案应恰好暂停一次");
+    assert.equal(resumeCalls, 0, "同一次调用内不得先重新武装再暂停——那会让暂停形同虚设");
+  });
+});
