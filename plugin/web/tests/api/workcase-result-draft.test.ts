@@ -639,3 +639,48 @@ test('标题形态：核对段标题不把其后条目误判为残留', () => {
   assert.equal(d.checks.length, 1);
   assert.equal(d.checks[0].status, 'partial');
 });
+
+test('标题形态：标题下再写 `- residual:` 登记形态锚点，不闭合已开启的段', () => {
+  // `workcase-3246058d` 实证：正文既写 `### 残留与去向` 作段标题，又在其下写
+  // `- residual:` 作登记形态锚点，四条残留缩进 2 格、去向子项缩进 4 格。
+  // 修复前 `- residual:` 被判作「第二个开启符」而把段闭合，四条残留全部落空
+  // （卡面 `residualEntries` 为 0），而写入侧按同一形态判为合规——两处不同数。
+  const d = parseWorkCaseResultDraft(
+    bodyOf([
+      '### 残留与去向',
+      '',
+      '- residual:',
+      '  - 残留甲',
+      '    - **接受现状**：甲的去向',
+      '  - 残留乙',
+      '    - **接受现状**：乙的去向',
+    ]),
+    PLAN,
+  );
+  assert.equal(d.residualEntries.length, 2, '标题 + 锚点下的两条残留都必须读出');
+  assert.equal(d.residualEntries[0].text, '残留甲');
+  assert.equal(d.residualEntries[0].directions.length, 1);
+  assert.equal(d.residualEntries[0].directions[0].kind, '接受现状');
+  assert.equal(d.residualEntries[1].text, '残留乙');
+});
+
+test('纯列表项形态：两个 `- residual:` 开启符仍是两段，按不累积闭合', () => {
+  // 防放宽过度：上一条的修复只对「标题开启的段」生效。无标题时，第二个
+  // `- residual:` 必须照旧闭合并重开——写入器门禁①按同一状态机整体拒绝该形态。
+  const d = parseWorkCaseResultDraft(
+    bodyOf([
+      '- residual:',
+      '  - 残留甲',
+      '    - **接受现状**：甲的去向',
+      '- residual:',
+      '  - 残留乙',
+      '    - **接受现状**：乙的去向',
+    ]),
+    PLAN,
+  );
+  // 实测语义：第二个开启符把 `mode` 闭合，其后条目不再计入**该段**——故只读到
+  // 前一段的条目（`残留乙` 那条因缩进浅于新的段基准而被丢弃）。写入器用同一
+  // 状态机，两处逐案同数；而该形态本身由门禁①在受控写入层整体拒绝。
+  assert.equal(d.residualEntries.length, 1, '无标题时两个开启符只保留前一段的条目');
+  assert.equal(d.residualEntries[0].text, '残留甲');
+});

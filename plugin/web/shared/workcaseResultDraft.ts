@@ -363,6 +363,8 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
   let modeIndent = 0
   /** residual 段内：当前所属残留条目的缩进；`null` 表示尚未读到任何条目。 */
   let residualEntryIndent: number | null = null
+  /** 当前 residual 段是否由**标题**开启（而非 `- residual:` 列表项）。 */
+  let headingOpenedResidual = false
 
   /** 去向正文的公共归一：剥存量尾注、判去向词。 */
   const toDirection = (item: string): WorkCaseDraftAdvice => {
@@ -398,6 +400,7 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
         // 标题无缩进语义：把段基准锚到标题下**首条** bullet 的缩进（读到即定）。
         // 取 -1 使任何缩进的 bullet 都能成为首条（`indent <= -1` 恒假）。
         mode = 'residual'; modeIndent = -1; residualEntryIndent = null
+        headingOpenedResidual = true
         continue
       }
       if (ADVICE_HEADING.test(heading)) {
@@ -426,6 +429,16 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
       mode = 'checks'; modeIndent = indent; residualEntryIndent = null; continue
     }
     if (RESIDUAL_BLOCK.test(item)) {
+      // **标题形态 + 列表项开启符共存**（`workcase-3246058d` 实证）：正文既可写
+      // `### 残留与去向`，也可在其下再写 `- residual:` 作登记形态锚点——两者是
+      // 「段标题」与「段开启符」的叠加，不是两个并列的段。此时 `- residual:` 只
+      // 重设缩进基准，**不得闭合已由标题开启的段**；否则其后条目全部落空（实测
+      // 卡面 `residualEntries` 为 0、四条残留与去向全丢）。
+      if (mode === 'residual' && headingOpenedResidual) {
+        modeIndent = indent
+        residualEntryIndent = null
+        continue
+      }
       // **残留段不累积**：`mode` 为 'residual' 时遇第二个开启符即闭合（不并入前段）。
       // 与写入器同一状态机；多开启符形态另由写入器门禁①在受控写入层整体拒绝
       //（`21 §8/§15.1`），**且①状态无关**（不只在 closed 生效），故该形态在任何
@@ -435,7 +448,9 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
         residualEntryIndent = null
         continue
       }
-      mode = 'residual'; modeIndent = indent; residualEntryIndent = null; continue
+      mode = 'residual'; modeIndent = indent; residualEntryIndent = null
+      headingOpenedResidual = false
+      continue
     }
     if (ADVICE_BLOCK.test(item)) {
       // 存量分离式（`§15.3`）：`- advice:` 段独立存在，条目缩进在其下。
