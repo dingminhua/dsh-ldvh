@@ -317,6 +317,20 @@ change_log:
 
 以 `action=execute` 携带本节提交时，写路径曾返回 `workcase/c2_fingerprint_invalidated`。根因为 `plugin/lib/workcase-writer.js` 的 `executeWorkcaseObject` 只把 C2 比较基线设为 `{...fm, ...(frontmatterAfter ?? {})}`，而值为 `undefined` 的键有两处独立危害：① 展开运算里 `undefined` **覆盖**落盘值 → 指纹照样失配（`stableStringify` 把 `undefined` 归一为 `"null"`）；② 校验器把 payload 里的 `undefined` 当「显式置空」，`plan`／`scope` 被判缺失。修法：两处均先滤掉 `undefined` 值（省略即继承），并补 `plugin/test/workcase-execute-inherit.test.mjs` 3 例。该缺陷不属本单授权范围的工具投影改造，但它是本单能否如实记账的直接阻碍，故在此登记来源与范围。
 
+#### 正文通道的换行转义缺陷（2026-10-19 定位并修复，提交 `75cd9d6`）
+
+上面那条 C2 缺陷修好后，本节仍**三次**以 `action=execute` 落盘失败，错误恒为 `workcase/coherence_invalid: carrier coherence failed` 加 `frontmatter scope must appear verbatim in "## 授权范围"`。三次我都先假定是正文自身写得不对（先怀疑 summary 与「## 摘要」不一致，再怀疑时间戳格式），并据此反复重写正文——**这个方向从一开始就是错的**。
+
+真正的差异在通道，不在内容：同一份正文**直接调用 writer 成功**，**经工具通道进入失败**。把工具层收到的字符串打出来，换行是字面量 `\n`（反斜杠 + n）而不是 U+000A——multiline 在通道里被转义成字面量后，正文折成单行，`## 授权范围` 不再是独占一行的 H2，`sectionContent` 取不到该节，载体内聚必然失败。写路径对正文的要求本身没错，错在工具层把参数原样透传。
+
+修法（`plugin/lib/workcase-tools.js`）：新增 `normalizeBodyMarkdown`，仅在「输入不含真换行且含字面量 `\n`」时还原（已含真换行的正文原样透传，避免把正文里合法出现的转义序列说明误改成换行）；还原后仍须含 `## 摘要`，否则返回 `null` 并由调用方按 `invalid_request` 拒绝——**不做静默修补**，形态不可核验的正文写进载体比拒绝更危险。`execute`／`close`／`rebatch`／`cancel`／`correct`／`revise`／`decide_adjustment` 七个写分支统一走归一。
+
+契约测试（`plugin/test/workcase-execute-inherit.test.mjs`）：一条归一契约用例 + 两条端到端用例。**反向验证已做**：摘掉解转义逻辑后恰为这两条失败、其余 5 条不受影响，证明它们钉的是真行为而非空断言。
+
+此处还要据实记一笔夹具自身的自欺：那条「缺 `## 摘要` 必须拒绝」的用例，第一版夹具把原正文的 `## 摘要` 改名为 `## 概述`，于是拒绝理由落到 writer 层的 H1 计数上——测的是另一道闸，无法证明工具层门禁生效。已改为逐段转义后以字面量 `\n` 拼接，并把断言从 `rejected` 改为 `invalid_request`，以钉住「在工具层就被挡下」。
+
+**验证边界（必须据实声明）**：`npx eslint .` 0 问题；单进程 `node scripts/run-tests.mjs` → `tests 1711 / pass 1710 / fail 0 / skipped 1`。但**运行中的插件实例仍是提交前的代码**——探测结论是决定性的：一份既无「## 摘要」、也无真换行的正文，新代码应在工具层返回 `invalid_request`，实测却一路流到 writer 的 `body_invalid`。故本修复**尚未在运行实例上验收**，须重载宿主后重验。「代码已提交且测试通过」不等于「运行实例已生效」，这两件事在本单里已经混淆过一次，不再重复。
+
 #### 第六轮复核发现的 workcase 层缺口与修复（2026-10-19）
 
 第六轮隔离子代理复核（`999f1522`）判 **needs_revision**，逐条实跑核验 10 项，9 项通过、1 项失守：`workcase-writer.js` 的 `listWorkcaseObjects` 只投 `{object_uid,title,status,serves,outcome,created_at}`，`workcase-tools.js` 的列表行因取不到类型而退化为裸 8hex（实测首项输出 `88510e0e`）。本轮之前的「五个 writer」表述本身也不含 workcase，两处合起来构成声称＞实际，与第 2 轮 norm 缺口同类。
