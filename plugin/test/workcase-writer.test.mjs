@@ -1049,6 +1049,67 @@ test("待批准关闭: 先经 execute 落盘提案后，close 才被接受（合
   });
 });
 
+// 「待批准关闭」期的**冻结**（21 §8）：提案落盘之后、Human 判定之前，
+// 结果节不得被再改一次。
+//
+// 为什么需要这道闸：`result_proposal_required` 只保证「关闭提案先落盘过一次」，
+// 于是存在一条合法却使提案失真的路径——execute 写结果节 → close 被某项前置拒绝
+// → **再 execute 一次改写结果节** → close 通过。此时 Human 从未决策，而被搁置
+// 待批的那份提案已经换成另一份：机械上「先提案后关闭」成立，语义上判定权的
+// 载体被替换。本用例锁住该路径。
+test("待批准关闭: 提案落盘后，结果节不得在等待期内被改写（result_proposal_frozen）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const draft = validDraft();
+    const { uid, after } = await reviewed(root, await approved(root));
+    const proposal = `${draftBody(draft)}\n\n## 执行\n\n- 完成。\n\n## 结果\n\n- 判据均达成。\n`;
+
+    const proposed = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: after.value.fingerprint,
+      frontmatterAfter: { ...after.value.frontmatter },
+      bodyMarkdownAfter: proposal,
+      changeSummary: "落盘关闭提案",
+      sessionSignature: SIG(),
+    });
+    assert.ok(proposed.ok, JSON.stringify(proposed.error));
+    // 写入侧如实回报「本次调用即进入待批准关闭」——工具面据此暂停宿主推进目标。
+    assert.deepEqual(proposed.value.result_proposal, { has_result_section: true, entered_awaiting_gate2: true });
+
+    const awaiting = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+
+    // ① 改写结果节 ⇒ 拒绝，且零写入。
+    const rewritten = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: awaiting.value.fingerprint,
+      frontmatterAfter: { ...awaiting.value.frontmatter },
+      bodyMarkdownAfter: proposal.replace("- 判据均达成。", "- 判据均达成（措辞被换过）。"),
+      changeSummary: "等待期内改写提案",
+      sessionSignature: SIG(),
+    });
+    assert.ok(!rewritten.ok, "等待期内改写结果节必须被拒——否则待批提案可被换成另一份");
+    assert.equal(rewritten.error.code, "workcase/result_proposal_frozen");
+    const unchanged = await readWorkcaseObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(unchanged.value.fingerprint, awaiting.value.fingerprint, "被拒须零写入");
+
+    // ② 结果节逐字未改的正文更新（执行流水追加）⇒ 放行：本闸拦的是提案失真，不是整单冻结。
+    const heartbeat = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: awaiting.value.fingerprint,
+      frontmatterAfter: { ...awaiting.value.frontmatter },
+      bodyMarkdownAfter: proposal.replace("- 完成。", "- 完成。\n- 补记：等待 Human 判定。"),
+      changeSummary: "等待期记流水",
+      sessionSignature: SIG(),
+    });
+    assert.ok(heartbeat.ok, JSON.stringify(heartbeat.error));
+    // 第二次 execute 不再「首次进入」该期。
+    assert.deepEqual(heartbeat.value.result_proposal, { has_result_section: true, entered_awaiting_gate2: false });
+  });
+});
+
 test("待批准关闭: 本闸只看真实 H2，不被围栏示例或行内提及骗过（防静默失效）", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);

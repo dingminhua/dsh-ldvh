@@ -222,6 +222,47 @@ test('收口·局部重批：属于本对象的当前目标即暂停（pause）'
 	assert.deepEqual(goals.calls[1], ['pause', AGENT, { id: 'g-1', revision: 3 }]);
 });
 
+test('收口·提交关闭提案：进入「待批准关闭」即暂停推进目标（pause）', async () => {
+	// `propose_close` 是收口侧的暂停点：落盘关闭提案那一刻起，工单要做的
+	// 不再是「推进到 Gate 2」（那正是自动续轮把工单直接关掉的动力），而是
+	// 「等 Human 判定」。宿主只有 paused/blocked/complete 三种停法，其中只有
+	// paused 是可恢复的——Human 批准后 close 才能续接。
+	const goals = fakeGoals(goalView());
+	const synced = await syncWorkcaseGoal({ ctx: ctxWith(goals), agent: AGENT, point: 'propose_close', objectUid: UID, title: '某工单' });
+	assert.equal(synced.ok, true);
+	assert.equal(synced.action, 'paused');
+	assert.deepEqual(goals.calls[1], ['pause', AGENT, { id: 'g-1', revision: 3 }]);
+
+	// 已是 paused 时幂等：重复提交提案不重复暂停。
+	const again = await syncWorkcaseGoal({ ctx: ctxWith(fakeGoals(goalView({ phase: 'paused', activation: 'disarmed' }))), agent: AGENT, point: 'propose_close', objectUid: UID, title: 't' });
+	assert.equal(again.action, 'none');
+});
+
+test('环境检查：待批准关闭期的工单不被重新武装——否则提案的暂停会被每回合撤销', async () => {
+	// 这是 propose_close 的**第二种撤销形态**（与 rebatch 暂停同类）：
+	// `onTurnStart` 的接手逻辑看到「工单还 open 且目标 disarmed」就 resume，
+	// 于是下一回合自动续轮又被点燃，等着 Human 的工单被 AI 自己推着关掉。
+	const goals = fakeGoals(goalView({ phase: 'paused', activation: 'disarmed' }));
+	const out = await rearmInFlightWorkcaseGoal({
+		ctx: ctxWith(goals), agent: AGENT,
+		readWorkcaseStatus: async () => 'open',
+		readAwaitingGate2: async () => true,
+	});
+	assert.equal(out.action, 'none');
+	assert.equal(out.detail.awaiting_gate2, true);
+	assert.equal(goals.calls.length, 1, '待批准关闭期不得对目标做写操作');
+});
+
+test('环境检查：结果节尚未落盘时照常重新武装（本闸只让位于待批准关闭期）', async () => {
+	const goals = fakeGoals(goalView({ phase: 'paused', activation: 'disarmed' }));
+	const out = await rearmInFlightWorkcaseGoal({
+		ctx: ctxWith(goals), agent: AGENT,
+		readWorkcaseStatus: async () => 'open',
+		readAwaitingGate2: async () => false,
+	});
+	assert.equal(out.action, 'rearmed');
+});
+
 test('收口三点：本无当前目标时是 none（不是失败——目标可能已由 Human 清除）', async () => {
 	for (const point of ['close', 'cancel', 'rebatch']) {
 		const goals = fakeGoals(undefined);

@@ -53,6 +53,7 @@ import {
   decideWorkcaseAdjustment,
   listWorkcaseObjects,
   precheckWorkcaseCreate,
+  bodyHasResultSection,
 } from "./workcase-writer.js";
 import { currentRouteValues, currentSessionIdentity } from "./session-signature.js";
 import { authoritativeSignature, authoritativeSessionIdentity } from "./signature-channel.js";
@@ -88,7 +89,7 @@ const OPERATIONS = {
     // silently pays for create's human wait. See the descriptor factory for
     // why a deadline here would guarantee a wrong result rather than a slow one.
     awaitsHumanDecision: true,
-    summary: "Controlled write of WorkCase fact objects across the 工单 lifecycle: create (C1 提案, draft), approve (Gate 1: requires a covering pre-Gate-1 audit record — 时序闸+覆盖闸, 21 §14; stamps authorization fingerprint + attempt 1; returns plan_step_reference — the authoritative 「计划步骤 N」清单), execute (open-period update: attempt heartbeat/takeover/reallocate, 执行 progress, **and the Gate 2 closure PROPOSAL** — writing the `## 结果` section through execute with status kept `open` is what puts the case into 「待批准关闭」 (awaiting_gate2) and hands it back to Human; plan/scope frozen by C2), close (Gate 2: result+outcome, attempt 收口; requires at least one review recorded by a session OTHER than the executor, workcase-2be11478; **requires that the previously persisted body ALREADY carries `## 结果`** — a first-time 结果 section and the status flip may not be merged into one call, workcase/result_proposal_required, so the two-step order execute-then-close is mandatory and close is withheld until Human rules on the proposal), rebatch (C2 局部重批 open→draft), cancel (draft→closed cancelled), revise (draft evolution), correct (终态事实更正：仅 closed 对象，只重写正文并追加一条 change_log，终态判定与 result/reviews 逐字不变，须携带 Human 授权记录；21 §9.2:259 / 03 §10), record_review (append ONE review entry carrying the caller's Code-stamped session identity — the narrow channel for an isolated reviewer; 复核轴, open 期), record_audit (append ONE pre_reviews entry carrying the auditor's Code-stamped identity and the Code-computed candidate fingerprint — the narrow channel for an isolated pre-Gate-1 audit; 审核轴, draft 期, ≤3 per candidate) (specs/03 §9.4–§9.5, specs/21 §14). 写「执行」节时引用计划步骤请用「计划步骤 N」（21 §8 记账纪律）",
+    summary: "Controlled write of WorkCase fact objects across the 工单 lifecycle: create (C1 提案, draft), approve (Gate 1: requires a covering pre-Gate-1 audit record — 时序闸+覆盖闸, 21 §14; stamps authorization fingerprint + attempt 1; returns plan_step_reference — the authoritative 「计划步骤 N」清单), execute (open-period update: attempt heartbeat/takeover/reallocate, 执行 progress, **and the Gate 2 closure PROPOSAL** — writing the `## 结果` section through execute with status kept `open` is what puts the case into 「待批准关闭」 (awaiting_gate2) and hands it back to Human — at that moment the host advance goal is **paused** (write point `propose_close`), so automatic continuation stops until Human rules; while in that period the 结果 section is FROZEN (workcase/result_proposal_frozen) and further execute calls may only leave it byte-identical; plan/scope frozen by C2), close (Gate 2: result+outcome, attempt 收口; requires at least one review recorded by a session OTHER than the executor, workcase-2be11478; **requires that the previously persisted body ALREADY carries `## 结果`** — a first-time 结果 section and the status flip may not be merged into one call, workcase/result_proposal_required, so the two-step order execute-then-close is mandatory and close is withheld until Human rules on the proposal), rebatch (C2 局部重批 open→draft), cancel (draft→closed cancelled), revise (draft evolution), correct (终态事实更正：仅 closed 对象，只重写正文并追加一条 change_log，终态判定与 result/reviews 逐字不变，须携带 Human 授权记录；21 §9.2:259 / 03 §10), record_review (append ONE review entry carrying the caller's Code-stamped session identity — the narrow channel for an isolated reviewer; 复核轴, open 期), record_audit (append ONE pre_reviews entry carrying the auditor's Code-stamped identity and the Code-computed candidate fingerprint — the narrow channel for an isolated pre-Gate-1 audit; 审核轴, draft 期, ≤3 per candidate) (specs/03 §9.4–§9.5, specs/21 §14). 写「执行」节时引用计划步骤请用「计划步骤 N」（21 §8 记账纪律）",
     effect: "may_change_state"
   }
 };
@@ -268,14 +269,14 @@ async function resolveCitedChild(deps, childAgentId, exec) {
  * 目标文本须承载对象标识，故先做一次精确读取取标题——writer 内部也会读一次，
  * 这次多读的代价换的是「拒绝发生在写之前」。
  */
-async function syncGoalForWrite({ deps, exec, action, factSourceRoot, objectUid }) {
-  if (!GOAL_WRITE_POINTS.includes(action)) return { ok: true, action: "not-applicable", detail: {} };
+async function syncGoalForWrite({ deps, exec, action, factSourceRoot, objectUid, point = action }) {
+  if (!GOAL_WRITE_POINTS.includes(point)) return { ok: true, action: "not-applicable", detail: {} };
   const read = await readWorkcaseObject({ factSourceRoot, objectUid });
   if (!read.ok) return { ok: true, action: "not-applicable", detail: { reason: "object unreadable; the writer reports it" } };
   return syncWorkcaseGoal({
     ctx: deps.goals === undefined ? undefined : { get: (key) => (key === "goals" ? deps.goals() : undefined) },
     agent: exec?.agent,
-    point: action,
+    point,
     objectUid,
     title: read.value.frontmatter.title,
   });
@@ -606,7 +607,30 @@ async function executeWriteObject(args, exec, deps) {
   // （fail-closed）。拒绝发生在 writer 之前，故不会留下「对象前进了、目标没跟上」
   // 的半态；收口点遇「本无目标」是 none 而非失败（目标可能已由 Human 清除）。
   let goalSync = { ok: true, action: "not-applicable", detail: {} };
-  if (GOAL_WRITE_POINTS.includes(action)) {
+  if (action === "close") {
+    // close 是「待批准关闭」期的**结束**写入点：`propose_close` 把推进目标暂停了，
+    // 若在 close 之前仍按「设置点」重新武装，就会在 Human 已作出判定的当次写入里
+    // 先重新点燃自动续轮、再关闭——两次目标操作互相抵消，且中间那一瞬是错的。
+    // 故 close 先**解除暂停**（resume 到 active，不 complete：complete 是不可恢复的
+    // 终态，若随后的关闭写入失败，目标就再也武装不回来），writer 成功后由
+    // `settleGoalAfterClose` 收口到 complete。
+    const goalUid = requireString(args, "object_uid", action);
+    if (goalUid !== null) {
+      goalSync = await syncGoalForWrite({ deps, exec, action, point: "approve", factSourceRoot, objectUid: goalUid });
+      if (!goalSync.ok) {
+        return envelope("workcase-write-object", "rejected", {
+          result: { goal: { ok: false, code: goalSync.code, message: goalSync.message } },
+          scope: { requested: action, completed: [], not_completed: [goalUid] },
+          sources: [{ kind: "host-service", path: "goals" }],
+          gaps: [`${goalSync.code}: ${goalSync.message}`],
+          verification: { checks: ["governance-scope", "signature-source", "host-goal-consistency"], passed: false },
+          follow_up: [
+            "resolve the host goal conflict or make the goals service available, then retry — the object was NOT written"
+          ]
+        });
+      }
+    }
+  } else if (GOAL_WRITE_POINTS.includes(action)) {
     const goalUid = requireString(args, "object_uid", action);
     if (goalUid !== null) {
       goalSync = await syncGoalForWrite({ deps, exec, action, factSourceRoot, objectUid: goalUid });
@@ -776,6 +800,29 @@ async function executeWriteObject(args, exec, deps) {
       if (bodyMarkdownAfter === null) return bodyMarkdownInvalidRequest("execute");
       const attemptOperation = args?.attempt_operation ?? "heartbeat";
       const newController = typeof args?.new_controller === "string" && args.new_controller.length > 0 ? args.new_controller : null;
+      // 写入点按**目的**分岔（21 §8「待批准关闭」期）：本次正文若首次带上「## 结果」
+      // 节，这次调用就是**提交关闭提案**，宿主目标随之暂停（`propose_close`）；
+      // 否则仍是执行期推进，目标保持武装（`execute`）。判据在写入侧同函数
+      // `bodyHasResultSection`，比较基线是上一次落盘正文——调用方自证不了「上次已有」。
+      const priorRead = await readWorkcaseObject({ factSourceRoot, objectUid });
+      const willProposeClosure = priorRead.ok
+        && !bodyHasResultSection(priorRead.value.body ?? "")
+        && bodyHasResultSection(bodyMarkdownAfter);
+      if (willProposeClosure) {
+        goalSync = await syncGoalForWrite({ deps, exec, action, point: "propose_close", factSourceRoot, objectUid });
+        if (!goalSync.ok) {
+          return envelope("workcase-write-object", "rejected", {
+            result: { goal: { ok: false, code: goalSync.code, message: goalSync.message } },
+            scope: { requested: action, completed: [], not_completed: [objectUid] },
+            sources: [{ kind: "host-service", path: "goals" }],
+            gaps: [`${goalSync.code}: ${goalSync.message}`],
+            verification: { checks: ["governance-scope", "signature-source", "host-goal-consistency"], passed: false },
+            follow_up: [
+              "resolve the host goal conflict or make the goals service available, then retry — the object was NOT written"
+            ]
+          });
+        }
+      }
       result = await executeWorkcaseObject({ factSourceRoot, objectUid, expectedFingerprint, frontmatterAfter, bodyMarkdownAfter, changeSummary, attemptOperation, newController, sessionSignature: sig.value, sessionIdentity: ident.value });
     } else if (action === "close") {
       const outcome = args?.outcome;
@@ -786,6 +833,12 @@ async function executeWriteObject(args, exec, deps) {
       }
       if (bodyMarkdownAfter === null) return bodyMarkdownInvalidRequest("close");
       result = await closeWorkcaseObject({ factSourceRoot, objectUid, expectedFingerprint, outcome, result: resultPayload, changeSummary, bodyMarkdownAfter, sessionSignature: sig.value });
+      // 「待批准关闭」期到此结束：把先前解除的暂停收口为 complete（21 §14 收口点）。
+      // 放在 writer **之后**：关闭写入失败时目标必须仍停在暂停态，否则一次失败的
+      // 关闭会顺带把工单重新推回自动续轮。
+      if (result.ok && result.value?.gate_2?.awaiting_gate2_closed === true) {
+        goalSync = await syncGoalForWrite({ deps, exec, action: "close", point: "close", factSourceRoot, objectUid });
+      }
     } else if (action === "rebatch") {
       const frontmatterAfter = args?.frontmatter_after;
       const bodyMarkdownAfter = normalizeBodyMarkdown(args?.body_markdown_after);

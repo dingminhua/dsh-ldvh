@@ -35,7 +35,7 @@ import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
 import { createTurnTriggers } from "./triggers.js";
 import { rearmInFlightWorkcaseGoal } from "./workcase-goals.js";
-import { readWorkcaseObject } from "./workcase-writer.js";
+import { readWorkcaseObject, bodyHasResultSection } from "./workcase-writer.js";
 import { runIdleCheckpoint } from "./idle-checkpoint.js";
 import { createDiscoveryProvider } from "./friction-discovery-provider.js";
 import { landDiscoveryVerdict, residualFromLandingError } from "./friction-landing.js";
@@ -387,6 +387,13 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             readWorkcaseStatus: async (objectUid) => {
               const read = await readWorkcaseObject({ factSourceRoot, objectUid });
               return read.ok ? read.value.frontmatter.status : null;
+            },
+            // 待批准关闭期（21 §8）不重新武装：`propose_close` 在那一刻暂停了推进目标，
+            // 而对象 status 仍是 open——只看 status 会让每次接手把那次暂停撤销掉。
+            // 判据与呈现层 `awaiting_gate2` 同源：正文含「## 结果」节。
+            readAwaitingGate2: async (objectUid) => {
+              const read = await readWorkcaseObject({ factSourceRoot, objectUid });
+              return read.ok ? bodyHasResultSection(read.value.body ?? "") : false;
             }
           });
           if (rearm?.ok === false) {

@@ -149,7 +149,7 @@ const BODY_H2_ALLOWED = [...BODY_H2_CORE, BODY_H2_EXECUTION, BODY_H2_RESULT];
  * block，故正文里作为**字面内容**出现的「## 结果」（如引用写法示例）不被误判为
  * 真实章节。用朴素正则会使「结果节」在示例文本中被凭空认作存在，使本闸静默失效。
  */
-function bodyHasResultSection(body) {
+export function bodyHasResultSection(body) {
   if (typeof body !== "string" || body.length === 0) return false;
   return h2Titles(body).includes(BODY_H2_RESULT);
 }
@@ -2862,6 +2862,34 @@ export async function executeWorkcaseObject(args) {
     return failure("workcase/transition_invalid", `execute updates require status=open, got ${JSON.stringify(fm.status)} (21 §14)`);
   }
 
+  // 已进入「待批准关闭」期的工单，execute **不得再改正文**（21 §8，2026-10-19）。
+  //
+  // 这道闸补的是 `result_proposal_required` 的对称面。那道闸只保证「关闭提案先落盘
+  // 过一次」，于是存在一条合法却使提案失真的路径：execute 写结果节 → close 被某项前置
+  // 拒绝 → **AI 再 execute 一次改写结果节** → close 通过。此时 Human 从未决策，而被
+  // 搁置待批的那份提案已经被换成另一份——「先提案、后关闭」在机械上成立，在语义上
+  // 落空（判定权的载体被替换）。
+  //
+  // 判据**只认基线**：上一次落盘的正文已含「## 结果」节即视为已进入该期。故
+  // ① 进入该期的那一次 execute（基线尚无结果节）照常放行；
+  // ② 其余心跳、进度更新仍可经 `attempt_operation` 通道进行——本闸拦的是**正文改写**，
+  //    不是「整单冻结」（复核、增量申请、决定、重批各有自己的窄通道）。
+  // 结论必须改时，走 Human 决定的 `rebatch`（C2 局部重批），不是原地重写。
+  if (bodyHasResultSection(current.value.body ?? "") && bodyHasResultSection(bodyMarkdownAfter)) {
+    const priorSection = (sectionContent(current.value.body ?? "", BODY_H2_RESULT) ?? "").trim();
+    const nextSection = (sectionContent(bodyMarkdownAfter, BODY_H2_RESULT) ?? "").trim();
+    if (priorSection !== nextSection) {
+      return failure(
+        "workcase/result_proposal_frozen",
+        "execute refused: 工单已处于「待批准关闭」期（上一次落盘的正文已含「## 结果」节），"
+        + "该节的结论不得在等待 Human 判定期间被改写——否则被搁置待批的那份提案会被换成另一份，"
+        + "「先提案、后关闭」在机械上成立而语义落空（21 §8）。"
+        + "等待期内的合法动作：Human 作出判定后 action=close；或用 action=rebatch 走 C2 局部重批"
+        + "（Human 决定，重走 Gate 1）。来源节逐字相同的正文更新（如执行流水的追加）不受本闸限制。",
+      );
+    }
+  }
+
   // 审核轴写权限隔离（承独立复核 F1/F2）：pre_reviews 一律回落为落盘值，
   // 使 record_audit 成为该字段的唯一写路径。见 guardAuditField 的注释。
   const auditGuard = guardAuditField(frontmatterAfter, fm);
@@ -2981,7 +3009,19 @@ export async function executeWorkcaseObject(args) {
   // 跨会话接力时执行者未必持有 approve 的返回值，故 execute 亦带前置提示（纯告知）。
   const written = await writeValidated(factSourceRoot, next, body, fm, current.value.body);
   if (!written.ok) return written;
-  return success({ ...written.value, plan_step_reference: planStepReference(next.plan) });
+  // 本次写入是否**首次**把「## 结果」节带进正文——即本次调用是否就是提交关闭提案
+  // （21 §8「待批准关闭」期的进入动作）。判据与呈现层 `awaiting_gate2` 同源：
+  // 写入侧同函数 `bodyHasResultSection`，基线是**上一次落盘**的正文（不是调用方 payload，
+  // 故不可由调用方自证「上次已有」）。调用方据此决定宿主目标该武装（仍在推进）还是
+  // 暂停（已交还 Human）——这是 `GOAL_WRITE_POINTS` 两点的唯一分歧点。
+  return success({
+    ...written.value,
+    plan_step_reference: planStepReference(next.plan),
+    result_proposal: {
+      has_result_section: bodyHasResultSection(body),
+      entered_awaiting_gate2: !bodyHasResultSection(current.value.body) && bodyHasResultSection(body),
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -3675,7 +3715,12 @@ export async function closeWorkcaseObject(args) {
   appendChangeLog(next, sig, `${changeSummary} [gate_2 closed with outcome=${outcome}; attempt ${closedAttempt ?? "none"} retracted]`);
 
   const body = assembleBody(next.title, bodyMarkdownAfter);
-  return writeValidated(factSourceRoot, next, body, fm, current.value.body);
+  const closed = await writeValidated(factSourceRoot, next, body, fm, current.value.body);
+  if (!closed.ok) return closed;
+  // 关闭意味着「待批准关闭」期结束（21 §8）：目标侧据此把暂停解除并收口。
+  // 只回传**状态事实**，不改目标——目标同步是调用方（受控工具面）的机械副作用，
+  // 分层与本文件其余部分一致（writer 不认识宿主目标）。
+  return success({ ...closed.value, gate_2: { awaiting_gate2_closed: bodyHasResultSection(current.value.body ?? "") } });
 }
 
 // ---------------------------------------------------------------------------

@@ -27,8 +27,29 @@ export function goalCarriesObject(objective, objectUid) {
   return typeof objective === "string" && objective.includes(`workcase-${objectUid}`);
 }
 
-/** The five controlled write points this module serves. */
-export const GOAL_WRITE_POINTS = Object.freeze(["approve", "execute", "close", "cancel", "rebatch"]);
+/**
+ * The controlled write points this module serves.
+ *
+ * `execute` has **two** outcomes that differ in what the goal must say
+ * afterwards, and the split is decided on the object side (whether the newly
+ * written body carries 「## 結果」), not here:
+ *
+ * - while the case is still在推进（no 結果 section）→ `execute`：设置点，保持武装；
+ * - the update that FIRST落盘 the 結果 section puts the case into 「待批准关闭」
+ *   (awaiting_gate2) → `propose_close`：**收口点之暂停**，目标 disarm。
+ *
+ * Why the third point exists (2026-10-19, Friction fa304c6d): until this point
+ * the host goal kept driving toward Gate 2 during the whole closure-proposal
+ * window. Because the write points and the driver have no notion of 「等 Human
+ * 判定」, the same automatic run that proposed closure also closed it — the
+ * awaiting_gate2 state existed on disk for minutes (measured 2m43s,
+ * workcase-996e207a) and never surfaced to the Human as a decision point.
+ *
+ * 边界（不得作过度声明）：暂停只移除**宿主侧**的自动续轮动力；它不撤销
+ * 「Human 批过 Gate 1」这一授权，也不证明 Human 看过提案。若调用方随后仍连调
+ * `close`，机械层拦不住（同 `result_proposal_required` 的自认边界）。
+ */
+export const GOAL_WRITE_POINTS = Object.freeze(["approve", "execute", "propose_close", "close", "cancel", "rebatch"]);
 
 export const GOALS_UNAVAILABLE = "workcase/goals_unavailable";
 export const GOALS_CONFLICT = "workcase/goals_conflict";
@@ -95,9 +116,9 @@ export async function syncWorkcaseGoal({ ctx, agent, point, objectUid, title }) 
     return { ok: false, code: GOALS_FAILED, message: "objectUid is required to keep the host goal consistent" };
   }
   // 设置点与收口点的失败面**不同**（Human 2026-10-15 裁定 D1/D3）：
-  //   设置点（批准／接手）——服务不可用、会话身份取不到、目标指向他对象，一律拒绝写入。
-  //   收口点（关闭／取消／重批）——上述情形一律**不做任何事**并如实报告，**不拒绝**写入：
-  //     拿不到目标服务，或目标早已指向别处，都不该成为收口（关单／取消）的拦路石。
+  //   设置点（批准／执行期更新）——服务不可用、会话身份取不到、目标指向他对象，一律拒绝写入。
+  //   收口点（关闭／取消／重批／提请关闭）——上述情形一律**不做任何事**并如实报告，**不拒绝**写入：
+  //     拿不到目标服务，或目标早已指向别处，都不该成为收口（关单／取消／交还 Human）的拦路石。
   const settingPoint = point === "approve" || point === "execute";
   const degrade = (reason) => ({ ok: true, action: "none", detail: { degraded: true, reason } });
 
@@ -141,6 +162,12 @@ export async function syncWorkcaseGoal({ ctx, agent, point, objectUid, title }) 
         return { ok: true, action: "cleared", detail: { revision: tombstone?.revision ?? null } };
       }
       // rebatch: open → draft，推进被暂停，不是被放弃。
+      //
+      // propose_close: 落盘关闭提案（待批准关闭期）——**同一撤销**：推进目标在
+      // 那一刻起不再是「推进到 Gate 2」（那正是自动续轮把工单直接关掉的动力），
+      // 而是「等 Human 判定」。宿主只有 paused／blocked 两种停法，paused 是
+      // 「可恢复地停下」，与 Human 批准后可续接的语义一致（不用 blocked：它不是
+      // 故障，也不该触发「报告阻塞并结束自主运行」的收尾文案）。
       if (current.phase === "paused") return { ok: true, action: "none", detail: { reason: "already paused" } };
       const view = goals.pause(agent, ref);
       return { ok: true, action: "paused", detail: { phase: view?.phase ?? null } };
@@ -211,6 +238,10 @@ export function objectiveTitleOf(objective) {
  * - 当前目标不承载工单、或所承载的工单**不在执行期**（`draft`／`closed`）→ 什么都不做。
  *   后者是必须的：局部重批把执行期对象退回 `draft` 并**暂停**其目标，此时「续接」
  *   若一律重新武装，就等于无声撤销了那次暂停；
+ * - 工单在执行期但**已进入「待批准关闭」期**（正文含「## 结果」节）→ 什么都不做。
+ *   这是同一撤销风险的第二种形态（2026-10-19）：`propose_close` 暂停了目标，而对象
+ *   的 `status` 仍是 `open`——若此处只看 status，每回合接手都会把它重新武装，暂停
+ *   当场失效。判据与呈现层 `awaiting_gate2` 同源（21 §8：`status=open` ∧ 正文含结果节）；
  * - 目标属于**执行期（`open`）**工单且已武装 → `kept`，不做写操作；
  * - 目标属于执行期工单但**已 complete** → `create` 重建为同一措辞的新目标
  *   （`recreated`）。宿主 resume 的相位闭集不含 complete，这曾是本函数的死角：
@@ -221,7 +252,7 @@ export function objectiveTitleOf(objective) {
  * 「`ok:true` + action:none」。`ok:false` 在这里**不拦任何动作**（本函数无拦截权），
  * 它的唯一作用是把「对象在执行期却没有武装目标」这一实态交给调用方记录。
  */
-export async function rearmInFlightWorkcaseGoal({ ctx, agent, readWorkcaseStatus }) {
+export async function rearmInFlightWorkcaseGoal({ ctx, agent, readWorkcaseStatus, readAwaitingGate2 }) {
   const service = resolveGoalsService(ctx);
   if (!service.ok) return { ok: true, action: "none", detail: { reason: service.message } };
   if (agent === null || agent === undefined) {
@@ -245,6 +276,29 @@ export async function rearmInFlightWorkcaseGoal({ ctx, agent, readWorkcaseStatus
   }
   if (status !== "open") {
     return { ok: true, action: "none", detail: { reason: `workcase-${objectUid} is not in its execution period (${JSON.stringify(status)})`, object_uid: objectUid } };
+  }
+  // 待批准关闭期（21 §8）：status 仍是 open，但推进已交还 Human——重新武装目标
+  // 等于撤销 propose_close 的那次暂停。判据由调用方从落盘对象读出（正文含「## 结果」节），
+  // 缺省（未传该依赖）时按「未进入待批准关闭」处理：本函数无拒绝权，且旧的调用点
+  // 若不传，行为与本次引入该依赖之前完全一致。
+  let awaitingGate2 = false;
+  if (typeof readAwaitingGate2 === "function") {
+    try {
+      awaitingGate2 = (await readAwaitingGate2(objectUid)) === true;
+    } catch {
+      awaitingGate2 = false;
+    }
+  }
+  if (awaitingGate2) {
+    return {
+      ok: true,
+      action: "none",
+      detail: {
+        reason: `workcase-${objectUid} is awaiting Gate 2 (the closure proposal has been persisted; 21 §8 「待批准关闭」期) — the host goal stays disarmed until the Human rules on the proposal`,
+        object_uid: objectUid,
+        awaiting_gate2: true,
+      },
+    };
   }
   if (current.phase === "active" && current.activation === "armed") {
     return { ok: true, action: "kept", detail: { object_uid: objectUid } };
