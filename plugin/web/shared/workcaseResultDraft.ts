@@ -97,6 +97,23 @@ export type WorkCaseAdviceDisplayKind = WorkCaseAdviceKind | WorkCaseAdviceLegac
 
 /** 残留段开启符：`- residual:` / `- 残留责任:`（`21 §8`，冒号可省）。 */
 const RESIDUAL_BLOCK = /^(residual|残留责任)\s*[:：]?$/
+/**
+ * 残留段的**标题形态**开启符：`### 残留与去向` / `### 残留` / `### 剩余与去向` 等。
+ *
+ * **为什么需要**（2026-10-19，`workcase-3246058d` 实证）：写入侧只要求「存在残留条目」，
+ * 并不强制以 `- residual:` 列表项开启；而同一份结果节里**核对条目**的登记形态是标题
+ * `### 核对条目`。作者跟着上一节的先例写 `### 残留与去向`，是完全自然的读法。
+ * 但本解析器原只认列表项开启符，于是整段残留**静默读不出**——`checks` 照常解析
+ * 出 4 条、`residualEntries` 为 `[]`，卡面只剩核对条目，Human 在唯一该看残余的
+ * 关口看不到残余，且**没有任何报错**。
+ *
+ * 呈现层对既存载体保持**宽容读取**（`§15.3` 存量不溯及），严格面在写入侧——
+ * 与核对条目形态「按规范写反而解析为 0 条」那次修复同一处置方向（见下方核对条目注释）。
+ * 本常量只放宽**读**，不改变写入侧门禁，也不改变 `21 §8` 的登记形态要求。
+ */
+const RESIDUAL_HEADING = /残留/
+/** 旧形态独立建议段的标题写法（`### 建议`／`### 剩余责任的去向`）；仅存量可读。 */
+const ADVICE_HEADING = /^(建议|去向|剩余责任的去向)$/
 /** 旧形态的独立建议段开启符（`21 §8` 2026-09-28 二次修订后不再登记，仅存量可读）。 */
 const ADVICE_BLOCK = /^(advice|建议)\s*[:：]?$/
 /** 去向子项/去向条目形态：去向词以 `**` 包裹并位于行首，后接 `：`（`21 §8`，冒号可省）。 */
@@ -366,6 +383,29 @@ export function parseWorkCaseResultDraft(body: unknown, plan: unknown): WorkCase
   }
 
   for (const rawLine of section.split('\n')) {
+    // ── 标题形态的段头（`### 残留与去向` / `### 建议` 等）──
+    //
+    // **必须先于 bullet 判定**：标题行不是 bullet，若不在此识别，`mode` 会一直停在
+    // 上一段（或停在 `null`），标题下的条目要么被吞进前一段、要么整段读不出——
+    // 这正是 `workcase-3246058d` 的实测现象（`checks` 有 4 条、`residualEntries`
+    // 为 `[]`，卡面只剩核对条目）。
+    //
+    // 只升级**已知段头**；其它标题（如 `### Gate 2 提请`）不改变 `mode`——它们可能
+    // 出现在任何段内部，其后若仍有 bullet 属当前段，收束交给 bullet 缩进规则。
+    if (/^ {0,3}#{1,6}\s/.test(rawLine)) {
+      const heading = rawLine.replace(/^ {0,3}#{1,6}\s+/, '').trim()
+      if (RESIDUAL_HEADING.test(heading)) {
+        // 标题无缩进语义：把段基准锚到标题下**首条** bullet 的缩进（读到即定）。
+        // 取 -1 使任何缩进的 bullet 都能成为首条（`indent <= -1` 恒假）。
+        mode = 'residual'; modeIndent = -1; residualEntryIndent = null
+        continue
+      }
+      if (ADVICE_HEADING.test(heading)) {
+        mode = 'advice'
+        continue
+      }
+      continue
+    }
     const bullet = /^(\s*)-\s+(.*)$/.exec(rawLine)
     if (!bullet) {
       // 非 bullet 行：只有**明确的事后补记声明**才记录（见 `adviceNote` 注释）。

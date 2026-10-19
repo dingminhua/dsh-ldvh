@@ -576,3 +576,66 @@ test('未登记前缀不得误配（防放宽过度）', () => {
     assert.equal(d.checks.length, 0, `「${line}」不应被当作计划步骤核对条目`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// 标题形态的残留段（2026-10-19，`workcase-3246058d` 实证）
+// ---------------------------------------------------------------------------
+//
+// 写入侧只要求「存在残留条目」，不强制以 `- residual:` 列表项开启；而同一份结果节里
+// **核对条目**的登记形态是标题 `### 核对条目`。作者跟着先例写 `### 残留与去向` 是完全
+// 自然的读法，原解析器却只认列表项开启符——整段残留**静默读不出**（`checks` 有 4 条、
+// `residualEntries` 为 `[]`），卡面只剩核对条目，Human 在唯一该看残余的关口看不到残余，
+// 且没有任何报错。这是呈现层的**宽容读取**（`§15.3`），不放宽写入侧门禁。
+
+test('标题形态：`### 残留与去向` 开启的残留段可读出（含去向子项）', () => {
+  const d = parseWorkCaseResultDraft(
+    bodyOf([
+      '### 核对条目',
+      '',
+      '- 计划步骤 1：达成——证据：a',
+      '',
+      '### 残留与去向',
+      '',
+      '- 第一条残留',
+      '  - **接受现状**：去向一',
+      '- 第二条残留',
+      '  - **转入 Spark**：去向二',
+    ]),
+    PLAN,
+  );
+  assert.equal(d.checks.length, 1, '核对条目照常解析');
+  assert.equal(d.residualEntries.length, 2, '标题形态下的两条残留都应读出');
+  assert.equal(d.residualEntries[0].text, '第一条残留');
+  assert.equal(d.residualEntries[0].directions.length, 1);
+  assert.equal(d.residualEntries[0].directions[0].kind, '接受现状');
+  assert.equal(d.residualEntries[1].directions[0].kind, '转入 Spark');
+  // `residual` 是 `residualEntries[].text` 的投影，二者不可能漂移。
+  assert.deepEqual(d.residual, ['第一条残留', '第二条残留']);
+});
+
+test('标题形态：不带「残留」字样的其它标题不开启残留段（防放宽过度）', () => {
+  const d = parseWorkCaseResultDraft(
+    bodyOf([
+      '### Gate 2 提请',
+      '',
+      '- 计划步骤 1：达成——证据：a',
+    ]),
+    PLAN,
+  );
+  assert.equal(d.residualEntries.length, 0, '标题不含「残留」时不得开启残留段');
+  assert.equal(d.checks.length, 1, '该标题不得阻断其后核对条目的解析');
+});
+
+test('标题形态：核对段标题不把其后条目误判为残留', () => {
+  const d = parseWorkCaseResultDraft(
+    bodyOf([
+      '### 核对条目',
+      '',
+      '- 计划步骤 2：部分达成——证据：b',
+    ]),
+    PLAN,
+  );
+  assert.equal(d.residualEntries.length, 0);
+  assert.equal(d.checks.length, 1);
+  assert.equal(d.checks[0].status, 'partial');
+});
