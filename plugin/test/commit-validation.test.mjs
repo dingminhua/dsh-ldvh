@@ -23,6 +23,7 @@ import {
 	isNormCarrierPath,
 	checkDocsReferences,
 	extractDocsReferences,
+	DOCS_REFERENCE_PATTERN,
 	isTemporaryDocsPath,
 	isSpecOrFactCarrierPath,
 	checkLoadBearingDeclarations,
@@ -630,6 +631,26 @@ test("extractDocsReferences extracts a CJK filename segment to its full extent",
 	);
 	// A CJK run in the middle, with an ASCII tail, is still one path.
 	assert.deepEqual(extractDocsReferences("（`docs/候选/x.md`）"), ["docs/候选/x.md"]);
+});
+
+// The extractor is also called at RUNTIME through `new RegExp(..., "g")` (the
+// skill's load_module bridge rebuilds each module's regex literals from their
+// source). Without the `u` flag a `\p{L}` class degrades to a literal "p",
+// "L", "{" set, so the pattern only ever matches `docs/p` — every reference,
+// including bare ASCII ones, becomes invisible and the rule silently passes.
+// Pin the flag against the SOURCE so a future re-serialization cannot drop it.
+test("DOCS_REFERENCE_PATTERN source keeps the u flag when rebuilt with new RegExp", () => {
+	const rebuilt = new RegExp(DOCS_REFERENCE_PATTERN.source, "gu");
+	const found = [];
+	for (const match of "见 docs/real.md 与 `docs/x.md`。".matchAll(rebuilt)) found.push(match[1]);
+	assert.deepEqual(found, ["docs/real.md", "docs/x.md"]);
+	// And the degradation is real, not hypothetical: without `u` the same
+	// source yields ONLY the first character after `docs/` (`docs/r`), never
+	// the reference. This is what made the extractor blind in the running
+	// instance while the CLI entry looked healthy.
+	const withoutU = new RegExp(DOCS_REFERENCE_PATTERN.source, "g");
+	const degraded = [..."见 docs/real.md".matchAll(withoutU)].map((match) => match[1]);
+	assert.deepEqual(degraded, ["docs/r"], "without u the class degrades to a literal char set — the extractor sees docs/r, never docs/real.md");
 });
 
 test("isTemporaryDocsPath distinguishes top-level docs/ from plugin/web/docs/", () => {
