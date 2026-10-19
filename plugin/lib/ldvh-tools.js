@@ -22,7 +22,7 @@ import { resolveGovernanceScope } from "./governance-scope.js";
 import { evaluateRegistrationEntry, registerProjectFromEntry, unregisterProject } from "./governed-projects.js";
 import { bindMembershipEvidence, notApplicableEvidence } from "./membership-evidence.js";
 import { currentRouteValues } from "./session-signature.js";
-import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets } from "./commit-validation.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
 import { registerResearchTools } from "./research-tools.js";
 import { registerSparkTools } from "./spark-tools.js";
@@ -662,6 +662,12 @@ function makeExecute(deps) {
       if (!basis.ok) issues.push(...basis.issues);
     }
     if (!declarations.ok) issues.push(...declarations.issues);
+    // 26 §11 同一规则的第二入口：摩擦 `informs` 的 commit 形态目标必须真实可
+    // 解析。Git Gate 与预检共用 checkFrictionCommitTargets 这一个校验器（09 §5.5：
+    // 同一 validator，不建第二套规则）。此处针对**暂存区内容**校验——一个尚未
+    // 落盘的正确版本不得替暂存的错误版本通过。
+    const frictionCommits = await checkFrictionCommitTargetsForIndex(governed.project.path);
+    if (!frictionCommits.ok) issues.push(...frictionCommits.issues);
     // Signature values must trace back to the authoritative session record.
     const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
     const signatureCheck = checkSignatureAgainstRoute(message, route);
@@ -700,6 +706,44 @@ function makeExecute(deps) {
       gaps: route.ok ? [] : [`provider/model could not be traced to the authoritative session record: ${route.reason ?? "session identity unavailable"}`],
       verification: { checks: ["header", "key_changes", "diff_correspondence", "trailers", "signature_traceability", "docs_references"], passed: issues.length === 0 },
       follow_up: mechanicalOutcome === "passed" ? ["commit; then verify the Git Gate stderr snapshot_identity equals this result's snapshot_identity"] : ["fix the reported issues and re-run precheck"]
+    });
+  }
+
+  /**
+   * 26 §11 for the precheck entrypoint: read every staged friction carrier from
+   * the Index and assert its `informs` commit targets resolve. Shares
+   * checkFrictionCommitTargets with the Git Gate (09 §5.5).
+   */
+  async function checkFrictionCommitTargetsForIndex(projectPath) {
+    const runGit = async (args) => {
+      const result = await execFileAsync("git", ["-C", projectPath, ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024, env: cleanGitEnvironment() });
+      return result.stdout;
+    };
+    let staged = [];
+    try {
+      staged = (await runGit(["ls-files", "--cached", "-z"])).split("\0").filter(Boolean);
+    } catch {
+      staged = [];
+    }
+    const carriers = [];
+    for (const path of staged) {
+      if (!isFrictionCarrierPath(path)) continue;
+      try {
+        carriers.push({ path, content: await runGit(["show", `:${path}`]) });
+      } catch {
+        carriers.push({ path, content: "" });
+      }
+    }
+    if (carriers.length === 0) return { ok: true, issues: [] };
+    return checkFrictionCommitTargets(carriers, {
+      resolves: async (hash) => {
+        try {
+          await runGit(["cat-file", "-e", `${hash}^{commit}`]);
+          return true;
+        } catch {
+          return false;
+        }
+      },
     });
   }
 

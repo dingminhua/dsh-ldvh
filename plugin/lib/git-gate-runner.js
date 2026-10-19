@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText, isFrictionCarrierPath, checkFrictionCommitTargets } from "./commit-validation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -341,6 +341,46 @@ async function main(argv) {
   // The writer refuses such a write up front (layer 1) and consumption fails
   // closed (layer 3), but neither covers a hand-edited or shell-written
   // carrier — that is exactly the bypass this layer exists to catch.
+  // 26 §11: a friction's `informs` target must exist and resolve — including the
+  // commit-exception form. The writer enforces this on create/update/correct,
+  // but a carrier written straight to disk and committed never passes through
+  // the writer (measured: friction-ed844630 entered the ledger that way, carrying
+  // two commit ids that never existed in this repository and rendered as dead
+  // links in the Web UI). The commit seam is the only point every write path
+  // converges on, so the same rule is re-asserted here against the STAGED bytes.
+  {
+    let staged = [];
+    try {
+      staged = (await git(root, ["ls-files", "--cached", "-z"], indexFile)).split("\0").filter(Boolean);
+    } catch {
+      staged = [];
+    }
+    const frictionCarriers = [];
+    for (const path of staged) {
+      if (!isFrictionCarrierPath(path)) continue;
+      try {
+        frictionCarriers.push({ path, content: await git(root, ["show", `:${path}`], indexFile) });
+      } catch {
+        // Unreadable staged bytes cannot be verified: fail closed with a finding
+        // rather than letting an unverified carrier through.
+        frictionCarriers.push({ path, content: "" });
+      }
+    }
+    if (frictionCarriers.length > 0) {
+      const frictionCommits = await checkFrictionCommitTargets(frictionCarriers, {
+        resolves: async (hash) => {
+          try {
+            await git(root, ["cat-file", "-e", `${hash}^{commit}`], indexFile);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+      });
+      if (!frictionCommits.ok) issues.push(...frictionCommits.issues);
+    }
+  }
+
   const normCarriers = await collectNormCarriers(root, correspondence.changedPaths ?? [], indexFile);
   if (normCarriers.length > 0) {
     const uniqueness = checkNormDirectionUniqueness(normCarriers);
