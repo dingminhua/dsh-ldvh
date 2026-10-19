@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
+import { access, readFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText, isFrictionCarrierPath, checkFrictionCommitTargets } from "./commit-validation.js";
+import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, extractDiffPaths, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText, isFrictionCarrierPath, checkFrictionCommitTargets } from "./commit-validation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -316,25 +317,35 @@ async function changedPathStatuses(worktree, indexFile) {
   return statuses;
 }
 
-async function main(argv) {
-  if (argv[0] !== "git-commit-msg") throw new Error("unsupported runner command");
-  const workspaceRoot = valueAfter(argv, "--workspace-root");
-  const worktree = valueAfter(argv, "--worktree");
-  const messageFile = valueAfter(argv, "--message-file");
-  const indexFile = valueAfter(argv, "--index-file");
-  if (![workspaceRoot, worktree, messageFile].every((value) => typeof value === "string" && isAbsolute(value))) throw new Error("workspace-root, worktree, and message-file must be absolute paths");
-  // The workspace root may legitimately live inside the governed repo: link
-  // installs and self-governing (dogfood) repos ship the plugin runtime under
-  // the very tree the gate protects, so only absolute-path validation applies.
-  // The v5 gate is anchored by the user-config registration, not by a v4-style
-  // external workspace layout.
-  const root = resolve(worktree);
-  const message = await readFile(messageFile, "utf8");
-  const issues = validateMessage(message);
+/**
+ * The checks both entrypoints converge on, run against the STAGED bytes.
+ *
+ * Extracted so pre-commit and commit-msg cannot drift: the point of putting a
+ * check at the commit seam (rather than in the writer) is that EVERY write path
+ * passes through it, and that guarantee evaporates the moment the two Hooks
+ * run different check lists.
+ */
+async function runSharedChecks(root, indexFile, message) {
+  const issues = [];
+  // "Empty Index" means it HOLDS NO ENTRIES, not "the diff renders as zero
+  // bytes": measuring the rendered diff misses an index whose entries are all
+  // deletions (the diff is non-empty but nothing remains), and `git diff
+  // --cached` can emit bytes for an index that tracks nothing. ls-files is the
+  // question actually being asked, and it is what makes the pre-commit
+  // preflight's "refuses an empty Index" assertion mean something.
+  const tracked = (await git(root, ["ls-files", "--cached", "-z"], indexFile)).split("\0").filter(Boolean);
+  if (tracked.length === 0) issues.push(newFinding("git/index_empty", "candidate Index is empty"));
   const diff = await git(root, ["diff", "--cached", "--binary", "--no-ext-diff"], indexFile);
-  if (diff.length === 0) issues.push(newFinding("git/index_empty", "candidate Index is empty"));
-  const correspondence = checkKeyChangesAgainstDiff(message, diff);
-  if (!correspondence.ok) issues.push(...correspondence.issues);
+  // The changed-path list must NOT come from checkKeyChangesAgainstDiff: that
+  // helper returns no `changedPaths` at all when the message lacks a usable
+  // 关键变更 section, and every check that feeds on it (norm uniqueness, docs
+  // references, load-bearing declarations, removal basis) then silently scans
+  // nothing. That is exactly the fail-OPEN shape this seam exists to close —
+  // a commit with a malformed message used to skip the load-bearing rules
+  // entirely (measured: stripping a 恢复条件 element passed the gate). Paths are
+  // taken from the diff itself so they are available regardless of message.
+  const changedPaths = extractDiffPaths(diff);
+  const correspondence = { changedPaths };
 
   // 27 §11 uniqueness, second layer: assert Count(direction_key=d ∧
   // status="active") ≤ 1 across the carriers this commit would contain.
@@ -391,7 +402,7 @@ async function main(argv) {
   // this commit adds or modifies must not reference a docs/ path that does not
   // exist. Only NEW dangling references block — pre-existing ones are cleaned
   // up gradually per the Human's instruction and must not stop commits.
-  const changedCarriers = await collectChangedCarriers(root, message, diff, indexFile);
+  const changedCarriers = await collectChangedCarriers(root, message ?? "", diff, indexFile);
   if (changedCarriers.length > 0) {
     const candidatePaths = await candidateTreePaths(root, indexFile);
     const docsRefs = checkDocsReferences(changedCarriers, { exists: (p) => candidatePaths.has(p) });
@@ -406,17 +417,17 @@ async function main(argv) {
   const declarations = await collectLoadBearingDeclarations(root, correspondence.changedPaths ?? [], indexFile);
   if (declarations.carriers.length > 0 || declarations.unreadable.length > 0) {
     const resolvable = new Set();
-    for (const token of collectDeclarationReferenceTokens(message)) {
+    for (const token of collectDeclarationReferenceTokens(message ?? "")) {
       if (await referenceResolvable(root, indexFile, token, declarations.knownPaths)) resolvable.add(token);
     }
-    const outcome = checkLoadBearingDeclarations(declarations.carriers, { message, resolvable, unreadable: declarations.unreadable });
+    const outcome = checkLoadBearingDeclarations(declarations.carriers, { message: message ?? "", resolvable, unreadable: declarations.unreadable });
     if (!outcome.ok) issues.push(...outcome.issues);
   }
 
   // 09 §5.3 item 7 (Human 决定 2026-10-15): 以「§7.2 违规」为由删除规范内容时，消息
   // 须携带逐字引用 §7.2 原文的声明，且该引用须在当次 §7.2 文本中逐字存在。来历见
   // commit-validation.js 的说明；强度边界为「只在自愿申报时生效」。
-  if (collectRemovalBasisDeclarations(message).length > 0) {
+  if (collectRemovalBasisDeclarations(message ?? "").length > 0) {
     // HEAD 与候选两版并集：本次提交可能正是要删掉被引的那句（那样它不在候选里），
     // 而本项抓的是**编造判据**——两版都没有即引用不成立。
     const sections = [];
@@ -429,19 +440,141 @@ async function main(argv) {
     } catch {
       sections.push(null); // fail-closed: a declared basis that cannot be verified blocks
     }
-    const basis = checkRemovalBasisDeclarations({ message, sectionTexts: sections });
+    const basis = checkRemovalBasisDeclarations({ message: message ?? "", sectionTexts: sections });
     if (!basis.ok) issues.push(...basis.issues);
   }
 
-  if (issues.length > 0) {
-    // Structured findings (K1): human-readable stderr keeps the rule ID so the
-    // failing check is referenceable; line stays null for diff-level findings.
-    process.stderr.write("LDVH Git Gate (commit-msg) failed:\n" + issues.map((issue) => `- ${issue.rule}: ${issue.message}`).join("\n") + "\n");
-    return 1;
-  }
-  const snapshot = snapshotIdentity(diff, message);
+  return { root, indexFile, issues, diff, correspondence };
+}
+
+async function main(argv) {
+  const command = argv[0];
+  if (command === "git-pre-commit") return mainPreCommit(argv);
+  if (command !== "git-commit-msg") throw new Error("unsupported runner command");
+  return runCommitMsgChecks(argv);
+}
+
+/**
+ * Report findings the way both entrypoints must: the rule ID stays on stderr
+ * so a failing check is referenceable (K1), and the Hook name is named so an
+ * interrupted commit says which stage refused it.
+ */
+function report(hookName, issues) {
+  if (issues.length === 0) return 0;
+  process.stderr.write(`LDVH Git Gate (${hookName}) failed:\n` + issues.map((issue) => `- ${issue.rule}: ${issue.message}`).join("\n") + "\n");
+  return 1;
+}
+
+async function runCommitMsgChecks(argv) {
+  const workspaceRoot = valueAfter(argv, "--workspace-root");
+  const worktree = valueAfter(argv, "--worktree");
+  const messageFile = valueAfter(argv, "--message-file");
+  const indexFile = valueAfter(argv, "--index-file");
+  if (![workspaceRoot, worktree, messageFile].every((value) => typeof value === "string" && isAbsolute(value))) throw new Error("workspace-root, worktree, and message-file must be absolute paths");
+  // The workspace root may legitimately live inside the governed repo: link
+  // installs and self-governing (dogfood) repos ship the plugin runtime under
+  // the very tree the gate protects, so only absolute-path validation applies.
+  // The v5 gate is anchored by the user-config registration, not by a v4-style
+  // external workspace layout.
+  const root = resolve(worktree);
+  const message = await readFile(messageFile, "utf8");
+  const shared = await runSharedChecks(root, indexFile, message);
+  const correspondence = checkKeyChangesAgainstDiff(message, shared.diff);
+  const issues = [...validateMessage(message), ...shared.issues];
+  if (!correspondence.ok) issues.push(...correspondence.issues);
+  if (issues.length > 0) return report("commit-msg", issues);
+  const snapshot = snapshotIdentity(shared.diff, message);
   process.stderr.write(`LDVH Git Gate (commit-msg) passed: source_fingerprint=${SOURCE_FINGERPRINT} snapshot_identity=${snapshot}\n`);
   return 0;
+}
+
+/**
+ * pre-commit entrypoint: lint, and nothing message-shaped.
+ *
+ * Runs BEFORE the message exists, so every check that needs a message
+ * (key-change correspondence, load-bearing declarations, removal basis) is
+ * absent here — not forgotten, structurally unavailable. commit-msg runs the
+ * full list a moment later.
+ */
+async function mainPreCommit(argv) {
+  const workspaceRoot = valueAfter(argv, "--workspace-root");
+  const worktree = valueAfter(argv, "--worktree");
+  const indexFile = valueAfter(argv, "--index-file");
+  if (![workspaceRoot, worktree].every((value) => typeof value === "string" && isAbsolute(value))) throw new Error("workspace-root and worktree must be absolute paths");
+  const root = resolve(worktree);
+  const issues = [...(await runSharedChecks(root, indexFile)).issues];
+  // The lint surface is the PLUGIN's workspace (where eslint.config.js and
+  // node_modules live), not the governed project — the same split commit-msg
+  // already makes by receiving --workspace-root separately from --worktree.
+  // LDVH_PREFLIGHT_INDEX overwrites it during the install preflight, whose
+  // synthetic repository has no dependencies of its own.
+  const lintRoot = process.env.LDVH_WORKSPACE_ROOT || workspaceRoot || root;
+  const lint = await checkLint(lintRoot);
+  if (!lint.ok) issues.push(...lint.issues);
+  if (issues.length > 0) return report("pre-commit", issues);
+  process.stderr.write("LDVH Git Gate (pre-commit) passed\n");
+  return 0;
+}
+
+/**
+ * Locate the eslint binary this workspace installed — never `npx`.
+ *
+ * Measured: `npx --no-install eslint --version` succeeds from an unrelated
+ * directory (it falls back to a global/cached install), so a gate written on
+ * npx would silently validate against a version nobody chose and that the
+ * lockfile does not describe. An absent binary is therefore a REFUSAL, not a
+ * pass: fail-closed, with an instruction, rather than a quiet downgrade.
+ */
+async function resolveEslint(workspaceRoot) {
+  const candidate = join(workspaceRoot, "node_modules", "eslint", "bin", "eslint.js");
+  try {
+    await access(candidate, constants.X_OK);
+    return candidate;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run the workspace's lint over its whole configured surface.
+ *
+ * Whole-surface, not the staged subset: strictness was the stated priority,
+ * and a per-file run misses cross-file rules and lets a pre-existing error sit
+ * untouched behind a stream of small commits. The measured cost is 2.3-3.4s
+ * cold, against a test suite that already takes 40s.
+ *
+ * The exit code is the verdict — 0 pass, anything else refuse. The two
+ * failures are then told apart in the MESSAGE, because they need different
+ * fixes: real lint findings say which file and line to change, while a broken
+ * config or a missing binary means the tool itself must be repaired.
+ */
+async function checkLint(workspaceRoot) {
+  const eslint = await resolveEslint(workspaceRoot);
+  if (eslint === null) {
+    return { ok: false, issues: [newFinding("validation/lint_failed", `eslint is not installed in ${workspaceRoot}/node_modules — run npm ci there before committing (the gate refuses rather than skipping lint)`, null)] };
+  }
+  let code = 0;
+  let stdout = "";
+  let stderr = "";
+  try {
+    const result = await execFileAsync(process.execPath, [eslint, ".", "--no-cache"], { cwd: workspaceRoot, encoding: "utf8", timeout: 120000, maxBuffer: 16 * 1024 * 1024 });
+    ({ stdout, stderr } = result);
+  } catch (error) {
+    if (typeof error?.code !== "number") {
+      return { ok: false, issues: [newFinding("validation/lint_failed", `eslint could not run: ${String(error?.message || error)}`, null)] };
+    }
+    code = error.code;
+    stdout = error?.stdout ?? "";
+    stderr = error?.stderr ?? "";
+  }
+  if (code === 0) return { ok: true, issues: [] };
+  const report = `${stdout}${stderr}`.trim();
+  // eslint's "tool failed" exit path leads with this banner; a plain lint
+  // failure prints per-file findings instead. The distinction only changes the
+  // wording of the refusal — both refuse.
+  const toolFault = /Oops! Something went wrong|ESLint couldn't find|SyntaxError:/.test(report);
+  const detail = report.split("\n").slice(0, 40).join("\n");
+  return { ok: false, issues: [newFinding("validation/lint_failed", toolFault ? `eslint could not analyze the workspace (repair the lint configuration or reinstall dependencies):\n${detail}` : `eslint reported findings:\n${detail}`, null)] };
 }
 
 // CLI entry guard: this module is imported as a library by the plugin's

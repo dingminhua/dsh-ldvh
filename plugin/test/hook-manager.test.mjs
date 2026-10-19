@@ -26,7 +26,7 @@ import {
 	resolveShCommand,
 	uninstallHook,
 } from "../lib/hook-manager.js";
-import { git, gitOk, initRepo, runnerPath, VALID_COMMIT_MESSAGE, withTemp } from "./helpers.mjs";
+import { git, gitOk, initRepo, pluginRoot, runnerPath, VALID_COMMIT_MESSAGE, withTemp } from "./helpers.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -291,8 +291,14 @@ test("real commit-msg: illegal commit is blocked, legal commit passes", async ()
 		const install = await installHook({ projectRoot: root, runnerPath, workspaceRoot: base });
 		assert.equal(install.ok, true, install.error?.message);
 
-		// Illegal message: header is not a conventional commit header.
-		const blocked = await gitOk(root, ["commit", "-m", "bad header no colon"]);
+		// Illegal message: header is not a conventional commit header. The
+		// install writes BOTH Hooks, so the run reaches commit-msg only if
+		// pre-commit let the staged README through — the assertions below pick
+		// both up, which is what makes this a test of the pair rather than of
+		// one file in isolation. The temp repo has no node_modules of its own,
+		// so the rendered pre-commit Hook is pointed at this plugin's tree,
+		// exactly as a real install points it at the governed workspace.
+		const blocked = await gitOk(root, ["commit", "-m", "bad header no colon"], { env: { ...process.env, LDVH_WORKSPACE_ROOT: pluginRoot } });
 		assert.equal(blocked.ok, false, "commit with illegal message must be blocked");
 		assert.match(blocked.stderr, /LDVH Git Gate \(commit-msg\) failed/);
 		assert.match(blocked.stderr, /validation\/header_invalid/);
@@ -301,7 +307,7 @@ test("real commit-msg: illegal commit is blocked, legal commit passes", async ()
 		assert.match(porcelain, /^A {2}README\.md/m);
 
 		// Legal message: full conventional header + 关键变更 + signatures.
-		const passed = await gitOk(root, ["commit", "-m", VALID_COMMIT_MESSAGE]);
+		const passed = await gitOk(root, ["commit", "-m", VALID_COMMIT_MESSAGE], { env: { ...process.env, LDVH_WORKSPACE_ROOT: pluginRoot } });
 		assert.equal(passed.ok, true, `legal commit must pass: ${passed.stderr}`);
 		const log = await git(root, ["log", "--oneline"]);
 		assert.match(log, /接入 ldvh 提交校验/);
@@ -489,8 +495,13 @@ test("installed Hook reports outdated once HOOK_BUNDLE_VERSION moves (propagatio
 		// Simulate an install made by an older bundle: same template, older
 		// version marker. This is the only channel through which a Hook-body fix
 		// reaches an existing installation, so it must flip managed -> outdated.
+		// BOTH owned Hooks go stale: the rollup reports the worst state across
+		// the pair, so a stale commit-msg beside an absent pre-commit would
+		// report `absent` — correct, but it would test the rollup rather than
+		// the version propagation this test is named for.
 		const stale = renderHook({ runnerPath, workspaceRoot: base, bundleVersion: "0.0.0-older" });
 		await writeFile(join(root, ".git", "hooks", "commit-msg"), stale, { mode: 0o755 });
+		await writeFile(join(root, ".git", "hooks", "pre-commit"), renderHook({ runnerPath, workspaceRoot: base, bundleVersion: "0.0.0-older", hookName: "pre-commit" }), { mode: 0o755 });
 
 		const staleInspect = await inspectHook(root);
 		assert.equal(staleInspect.state, "outdated");

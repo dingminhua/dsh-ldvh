@@ -30,7 +30,7 @@
 import z from "@deepseek-ai/schemastery";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ensureRegistrationCarrier, readGovernedProjects, setCarrierObserver } from "./governed-projects.js";
+import { ensureRegistrationCarrier, setCarrierObserver } from "./governed-projects.js";
 import { createGovernanceHandler } from "./host-api.js";
 import { createProxyHandler, createSpaHandler, createWebApiProcess } from "./web-mount.js";
 import { createLifecycleRegistry } from "./lifecycle.js";
@@ -38,6 +38,7 @@ import { resolveIdleSettings } from "./idle-settings.js";
 import { createSessionScopes } from "./session-scopes.js";
 import { createHostSeams } from "./host-seams.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
+import { repairHooksOnStartup } from "./hook-repair.js";
 import { registerLdvhRpc, registerLdvhCommands } from "./rpc.js";
 
 const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -470,17 +471,29 @@ export function apply(ctx, config) {
   // empty file in place, adding a governed project updates it. Only a
   // missing file is created; existing carriers are never rewritten here and
   // corrupt or unreadable ones stay fail-closed (logged, not overwritten).
-  // The follow-up inspection is read-only: every launch checks registered
-  // projects without silently installing or updating anything.
+  //
+  // The follow-up inspection is no longer read-only: it repairs absent/outdated
+  // Git Hooks (Human decision, m01853 — "机械修复", conflict untouched). The
+  // reason is in hook-repair.js: installing a project installs its Hooks exactly
+  // once, so without a startup pass a project registered two releases ago would
+  // keep running a Hook body nobody maintains. A conflict is REPORTED, never
+  // overwritten — that Hook belongs to someone else.
   if (typeof dshHomePath === "function") {
     Promise.resolve(ensureRegistrationCarrier(dshHomePath))
       .then((ensured) => {
         if (ensured.created) ctx.logger.info("[dsh-ldvh] initialized empty governed-projects registration carrier");
-        return readGovernedProjects(dshHomePath);
+        return repairHooksOnStartup({
+          dshHomePath,
+          runnerPath: GATE_RUNNER_PATH,
+          workspaceRoot: PACKAGE_ROOT,
+          logger: ctx.logger,
+        });
       })
-      .then((result) => {
-        if (!result.ok) ctx.logger.warn("[dsh-ldvh] governed-project startup inspection unavailable: %s", result.error.message);
-        else ctx.logger.info("[dsh-ldvh] inspected %d governed project(s) at startup", result.value.projects.length);
+      .then((summary) => {
+        ctx.logger.info(
+          "[dsh-ldvh] governed-project startup check: %d project(s), %d Hook set(s) repaired, %d skipped, %d failed",
+          summary.checked, summary.repaired.length, summary.skipped.length, summary.failed.length
+        );
       })
       .catch((error) => ctx.logger.warn(error));
   }

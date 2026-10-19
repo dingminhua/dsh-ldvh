@@ -463,6 +463,7 @@ test("GATE_RULES registers every rule the validator emits, each with severity an
 		"validation/removal_basis_empty",
 		"validation/removal_basis_section_unreadable",
 		"validation/removal_basis_unquotable",
+		"validation/lint_failed",
 	];
 	assert.deepEqual(Object.keys(GATE_RULES).sort(), expected.sort());
 	for (const entry of Object.values(GATE_RULES)) {

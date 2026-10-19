@@ -94,6 +94,7 @@ export const GATE_RULES = Object.freeze({
   "git/friction_commit_unresolvable": Object.freeze({ severity: "blocking", description: "a staged friction carrier's informs target names a commit that does not resolve in this repository (26 §11: 目标必须存在且可解析; commit 例外形态同口径) — re-asserted at the commit seam because the writer is bypassable by a direct file write" }),
   "git/friction_commit_malformed": Object.freeze({ severity: "blocking", description: "a staged friction carrier's informs target is not a 40-hex commit hash (02 §8.1 commit 形态)" }),
   "git/friction_commit_unverifiable": Object.freeze({ severity: "blocking", description: "friction commit targets could not be verified because no commit resolver was supplied — fails closed rather than passing an unverified carrier (26 §11)" }),
+  "validation/lint_failed": Object.freeze({ severity: "blocking", description: "the pre-commit Hook's lint step refused: either eslint reported findings, or eslint could not run at all (missing binary, broken configuration). 06 §5 requires 提交前必须通过静态分析 and 09 §5.3 puts the check at the commit seam; both cases refuse rather than pass, and the message distinguishes them because the repair differs" }),
 });
 
 /** Mechanical-artifact exemption for the bidirectional coverage check
@@ -223,7 +224,7 @@ export function checkKeyChangesAgainstDiff(message, diff) {
   return { ok: true, changedPaths };
 }
 
-function extractDiffPaths(diff) {
+export function extractDiffPaths(diff) {
   const paths = new Set();
   for (const line of diff.split("\n")) {
     const match = line.match(/^diff --git a\/(.+) b\/(.+)$/);

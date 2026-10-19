@@ -8,13 +8,40 @@ const execFileAsync = promisify(execFile);
 const MARKER_PREFIX = "# ldvh-native-commit-msg-hook: v1 sha256:";
 const VERSION_PREFIX = "# ldvh-hook-bundle-version: ";
 const GIT_TIMEOUT_MS = 10000;
+
+/**
+ * Every Git Hook this manager owns, in the order they run during a commit.
+ *
+ * Why a list and not a single `hookPath`: the manager was written when only
+ * commit-msg existed, so "the Hook" was the identity's one hardcoded path
+ * (`join(hookDirectory, "commit-msg")`). Adding pre-commit means the same
+ * install/inspect/uninstall paths must address TWO files, and the state the
+ * rest of the system reads must answer "is this project's gate healthy?",
+ * not "what does one arbitrary file look like" — see `inspectHook`'s rollup.
+ *
+ * `code` is the runner command the rendered Hook invokes, and `argument` says
+ * how the Hook receives its parameters: "message-file" for the commit-msg
+ * Hook (git passes the message path as $1), null for pre-commit, which git
+ * invokes with no arguments at all.
+ */
+export const MANAGED_HOOKS = Object.freeze([
+  Object.freeze({ name: "commit-msg", code: "git-commit-msg", argument: "message-file" }),
+  Object.freeze({ name: "pre-commit", code: "git-pre-commit", argument: null })
+]);
+
+const DEFAULT_HOOK_NAME = "commit-msg";
 // The Hook bundle version is the ONLY propagation channel for a change to the
 // Hook body: `inspectHook` compares it against this constant, so an installed
 // Hook whose body changes without this value changing stays `managed` forever
 // and is never refreshed (the client only offers repair for absent/outdated).
 // Bump it whenever `renderHook` changes what it emits — this is this constant's
 // job, not a mirror of `package.json.version`.
-export const HOOK_BUNDLE_VERSION = "1.0.0-dev.2";
+//
+// 1.0.0-dev.3: the bundle now owns TWO Hooks (commit-msg + pre-commit), and the
+// commit-msg body is byte-identical to dev.2 apart from the marker's Hook name.
+// The bump is still mandatory — without it an installation carrying only
+// commit-msg would stay `managed` forever and never receive its pre-commit half.
+export const HOOK_BUNDLE_VERSION = "1.0.0-dev.3";
 
 /**
  * Emitted by the Hook itself when it cannot find a node interpreter.
@@ -28,7 +55,18 @@ export const HOOK_BUNDLE_VERSION = "1.0.0-dev.2";
  * 6cb53179). The marker lets the caller separate the two, since the exit code
  * cannot. Exported so tests assert the same string.
  */
-export const INTERPRETER_UNAVAILABLE_MARKER = "LDVH Git Gate (commit-msg) cannot run: no node interpreter found";
+export const INTERPRETER_UNAVAILABLE_PREFIX = "LDVH Git Gate cannot run: no node interpreter found";
+
+/**
+ * The commit-msg-era spelling of the marker above. Kept because the message
+ * itself names the Hook it belongs to; every new Hook renders its own name
+ * into the same sentence so `preflight` can assert the marker it expects.
+ */
+export const INTERPRETER_UNAVAILABLE_MARKER = `LDVH Git Gate (commit-msg) cannot run: no node interpreter found`;
+
+function interpreterUnavailableMarker(hookName) {
+  return hookName === DEFAULT_HOOK_NAME ? INTERPRETER_UNAVAILABLE_MARKER : `LDVH Git Gate (${hookName}) cannot run: no node interpreter found`;
+}
 
 /**
  * Interpreter candidates tried in order, as shell words.
@@ -95,7 +133,7 @@ async function resolveIdentity(candidate) {
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
   }
-  return { projectRoot: root, gitCommonDir: commonDir, hookDirectory, hookPath: join(hookDirectory, "commit-msg") };
+  return { projectRoot: root, gitCommonDir: commonDir, hookDirectory, hookPath: join(hookDirectory, "commit-msg"), hookPaths: Object.fromEntries(MANAGED_HOOKS.map((hook) => [hook.name, join(hookDirectory, hook.name)])) };
 }
 
 function digest(body) {
@@ -117,7 +155,9 @@ function parseManagedHook(content) {
   return { owned: true, valid, version, body };
 }
 
-export function renderHook({ runnerPath, workspaceRoot, bundleVersion = HOOK_BUNDLE_VERSION, interpreterCandidates = defaultInterpreterCandidates() }) {
+export function renderHook({ runnerPath, workspaceRoot, bundleVersion = HOOK_BUNDLE_VERSION, interpreterCandidates = defaultInterpreterCandidates(), hookName = DEFAULT_HOOK_NAME }) {
+  const spec = MANAGED_HOOKS.find((hook) => hook.name === hookName);
+  if (spec === undefined) throw new Error(`unmanaged Git Hook: ${hookName}`);
   const runner = shellQuote(runnerPath);
   const workspace = shellQuote(workspaceRoot);
   // Each candidate is probed, then used as an argv[0] word — never spliced into
@@ -128,19 +168,31 @@ export function renderHook({ runnerPath, workspaceRoot, bundleVersion = HOOK_BUN
   const probes = interpreterCandidates
     .map((candidate, index) => `${index === interpreterCandidates.length - 1 ? "  " : "    "}${shellQuote(candidate)}${index === interpreterCandidates.length - 1 ? "" : " \\"}`)
     .join("\n");
+  // The argument handling differs per Hook and cannot be shared: git hands
+  // commit-msg the message path as $1 and calls pre-commit with NO arguments,
+  // so the commit-msg body's `[ "$#" -ne 1 ]` guard would reject every
+  // pre-commit invocation outright.
+  const argumentLines = spec.argument === "message-file"
+    ? [
+        'if [ "$#" -ne 1 ]; then',
+        '  printf "%s\\n" "LDVH Git commit-msg Hook expected one message-file argument" >&2',
+        "  exit 1",
+        "fi",
+        'worktree=$(git rev-parse --show-toplevel) || exit 1',
+        'case "$1" in',
+        '  /*|[A-Za-z]:\\\\*|//*) message_file=$1 ;;',
+        '  *) message_file="$worktree/$1" ;;',
+        "esac",
+        `set -- ${spec.code} --workspace-root ${workspace} --worktree "$worktree" --message-file "$message_file"`
+      ]
+    : [
+        'worktree=$(git rev-parse --show-toplevel) || exit 1',
+        `set -- ${spec.code} --workspace-root ${workspace} --worktree "$worktree"`
+      ];
   const body = [
     `${VERSION_PREFIX}${bundleVersion}`,
     "set -eu",
-    'if [ "$#" -ne 1 ]; then',
-    '  printf "%s\\n" "LDVH Git commit-msg Hook expected one message-file argument" >&2',
-    "  exit 1",
-    "fi",
-    'worktree=$(git rev-parse --show-toplevel) || exit 1',
-    'case "$1" in',
-    '  /*|[A-Za-z]:\\\\*|//*) message_file=$1 ;;',
-    '  *) message_file="$worktree/$1" ;;',
-    "esac",
-    `set -- git-commit-msg --workspace-root ${workspace} --worktree "$worktree" --message-file "$message_file"`,
+    ...argumentLines,
     // The preflight passes a synthetic index through LDVH_PREFLIGHT_INDEX so
     // the gate proves its real diff path without touching the worktree's
     // staging state; real commits never set this variable.
@@ -156,7 +208,7 @@ export function renderHook({ runnerPath, workspaceRoot, bundleVersion = HOOK_BUN
     'if [ -z "$node_bin" ]; then',
     // Fail CLOSED and say why: the exit code cannot carry this meaning (git
     // normalizes 126/127/1 all to 1), so the distinction has to ride on stderr.
-    `  printf "%s\\n" ${shellQuote(INTERPRETER_UNAVAILABLE_MARKER)} >&2`,
+    `  printf "%s\\n" ${shellQuote(interpreterUnavailableMarker(spec.name))} >&2`,
     "  exit 127",
     "fi",
     // ELECTRON_RUN_AS_NODE: when the host is Electron (DSH Desktop), the baked
@@ -171,26 +223,87 @@ export function renderHook({ runnerPath, workspaceRoot, bundleVersion = HOOK_BUN
   return `#!/bin/sh\n${MARKER_PREFIX}${digest(body)}\n${body}`;
 }
 
-export async function inspectHook(candidate) {
+async function inspectOneHook(identity, spec) {
+  const hookPath = identity.hookPaths[spec.name];
+  let content;
+  try {
+    content = await readFile(hookPath, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return { name: spec.name, hookPath, state: "absent", detail: "Git Hook is not installed", hookBundleVersion: null };
+    return { name: spec.name, hookPath, state: "unavailable", detail: String(error?.message || error), hookBundleVersion: null };
+  }
+  const parsed = parseManagedHook(content);
+  if (!parsed.owned) return { name: spec.name, hookPath, state: "conflict", detail: `an unmanaged ${spec.name} Hook already exists`, hookBundleVersion: null };
+  if (!parsed.valid) return { name: spec.name, hookPath, state: "conflict", detail: "the LDVH Hook marker digest does not match its body", hookBundleVersion: parsed.version };
+  return parsed.version === HOOK_BUNDLE_VERSION
+    ? { name: spec.name, hookPath, state: "managed", detail: "LDVH Git Hook is current", hookBundleVersion: parsed.version }
+    : { name: spec.name, hookPath, state: "outdated", detail: `LDVH Git Hook ${parsed.version ?? "unknown"} requires update`, hookBundleVersion: parsed.version };
+}
+
+/**
+ * Severity order used for the rollup: the FIRST state present wins, so the
+ * rollup reports the worst thing found rather than the last thing inspected.
+ *
+ * "managed" is last because it is the only healthy state. `absent` outranks
+ * `outdated`: an outdated Hook still blocks (its body runs, just an older
+ * version of it), while a missing one means that half of the gate does not
+ * exist — reporting `outdated` for a project whose pre-commit is entirely
+ * missing would understate the gap. `conflict` stays first for the original
+ * reason: a foreign Hook is never overwritten, and the caller must see it
+ * before anything proposes a repair.
+ */
+const HOOK_STATE_SEVERITY = Object.freeze(["conflict", "unavailable", "absent", "outdated", "managed"]);
+
+/**
+ * Inspect ONE project's Hooks and roll them up into a single status.
+ *
+ * The returned object keeps its pre-pre-commit shape (`state`, `detail`,
+ * `hookBundleVersion`, `expectedHookBundleVersion`, and the identity fields)
+ * because every consumer — the CLI list, the installation transaction, the
+ * Host API JSON — asks the same question: "is this project's gate healthy?".
+ * None of them ever needed to know WHICH Hook a state described, so the
+ * rollup answers the question they actually ask instead of widening the
+ * contract and leaving two representations of the same fact. Per-Hook detail
+ * rides in `hooks[]` for diagnosis.
+ *
+ * `hookPath` remains the commit-msg path so old readers keep resolving it;
+ * `hooks[].hookPath` carries the path for each individual Hook.
+ */
+export async function inspectHook(candidate, { hookName } = {}) {
   let identity;
   try {
     identity = await resolveIdentity(candidate);
   } catch (error) {
     return { state: "unavailable", detail: String(error?.message || error), expectedHookBundleVersion: HOOK_BUNDLE_VERSION };
   }
-  let content;
-  try {
-    content = await readFile(identity.hookPath, "utf8");
-  } catch (error) {
-    if (error?.code === "ENOENT") return { ...identity, state: "absent", detail: "Git Hook is not installed", hookBundleVersion: null, expectedHookBundleVersion: HOOK_BUNDLE_VERSION };
-    return { ...identity, state: "unavailable", detail: String(error?.message || error), hookBundleVersion: null, expectedHookBundleVersion: HOOK_BUNDLE_VERSION };
+  if (hookName !== undefined) {
+    const spec = MANAGED_HOOKS.find((hook) => hook.name === hookName);
+    if (spec === undefined) return { ...identity, state: "unavailable", detail: `unmanaged Git Hook: ${hookName}`, hookBundleVersion: null, expectedHookBundleVersion: HOOK_BUNDLE_VERSION };
+    const single = await inspectOneHook(identity, spec);
+    return { ...identity, ...single, expectedHookBundleVersion: HOOK_BUNDLE_VERSION };
   }
-  const parsed = parseManagedHook(content);
-  if (!parsed.owned) return { ...identity, state: "conflict", detail: "an unmanaged commit-msg Hook already exists", hookBundleVersion: null, expectedHookBundleVersion: HOOK_BUNDLE_VERSION };
-  if (!parsed.valid) return { ...identity, state: "conflict", detail: "the LDVH Hook marker digest does not match its body", hookBundleVersion: parsed.version, expectedHookBundleVersion: HOOK_BUNDLE_VERSION };
-  return parsed.version === HOOK_BUNDLE_VERSION
-    ? { ...identity, state: "managed", detail: "LDVH Git Hook is current", hookBundleVersion: parsed.version, expectedHookBundleVersion: HOOK_BUNDLE_VERSION }
-    : { ...identity, state: "outdated", detail: `LDVH Git Hook ${parsed.version ?? "unknown"} requires update`, hookBundleVersion: parsed.version, expectedHookBundleVersion: HOOK_BUNDLE_VERSION };
+  const hooks = [];
+  for (const spec of MANAGED_HOOKS) hooks.push(await inspectOneHook(identity, spec));
+  const worst = HOOK_STATE_SEVERITY.find((state) => hooks.some((hook) => hook.state === state)) ?? "unavailable";
+  return {
+    ...identity,
+    state: worst,
+    detail: rollupDetail(worst, hooks),
+    hookBundleVersion: hooks.find((hook) => hook.state === worst)?.hookBundleVersion ?? null,
+    expectedHookBundleVersion: HOOK_BUNDLE_VERSION,
+    hooks
+  };
+}
+
+function rollupDetail(worst, hooks) {
+  const offenders = hooks.filter((hook) => hook.state === worst);
+  if (offenders.length === 1) return offenders[0].detail;
+  // A healthy rollup is the common case and every existing reader asserts this
+  // exact string, so the single-Hook wording is preserved verbatim. Anything
+  // else names the offending Hook(s): a bare "not installed" must not leave
+  // the reader guessing which half of the gate is gone.
+  if (worst === "managed") return "LDVH Git Hook is current";
+  return offenders.map((hook) => `${hook.name}: ${hook.detail}`).join("; ");
 }
 
 async function atomicReplace(path, content, expected) {
@@ -240,94 +353,194 @@ async function resolveShCommand() {
   throw new Error("no sh executable found for the Git Hook preflight (Git for Windows installs one)");
 }
 
-async function invokeHook(path, messageFile, cwd, env = {}) {
+async function invokeHook(path, args, cwd, env = {}) {
+  // git invokes pre-commit with no arguments; commit-msg gets the message
+  // path. The array form keeps that difference explicit instead of relying on
+  // the caller passing undefined.
   const command = process.platform === "win32" ? await resolveShCommand() : path;
-  const args = process.platform === "win32" ? [path, messageFile] : [messageFile];
+  const argv = process.platform === "win32" ? [path, ...args] : args;
   try {
-    const result = await execFileAsync(command, args, { cwd, env: cleanGitEnvironment(env), encoding: "utf8", timeout: 20000, maxBuffer: 1024 * 1024 });
+    const result = await execFileAsync(command, argv, { cwd, env: cleanGitEnvironment(env), encoding: "utf8", timeout: 20000, maxBuffer: 1024 * 1024 });
     return { code: 0, stdout: result.stdout, stderr: result.stderr };
   } catch (error) {
     return { code: typeof error?.code === "number" ? error.code : 1, stdout: error?.stdout ?? "", stderr: error?.stderr ?? String(error?.message || error) };
   }
 }
 
-async function preflight(rendered, identity) {
-  const tempDir = join(identity.gitCommonDir, `ldvh-preflight-${process.pid}-${Date.now()}`);
-  const hook = join(tempDir, "commit-msg");
-  const invalid = join(tempDir, "invalid-message");
-  const valid = join(tempDir, "valid-message");
+/**
+ * Build the synthetic Index the preflight runs against.
+ *
+ * Shared by both Hooks because the reason is the same for both: it keeps the
+ * preflight independent of the worktree's transient staging state, so the gate
+ * proves its real `git diff --cached` path without requiring the user to have
+ * something staged at install/update time. Seeded from HEAD because
+ * `git diff --cached` compares the index against HEAD — without the read-tree
+ * a repository with history would diff "delete every tracked file" (megabytes)
+ * and blow the runner's maxBuffer. The orphan blob is garbage-collectable and
+ * the temp dir is removed by the caller's finally.
+ */
+async function seedPreflightIndex(identity, tempDir) {
   const blobFile = join(tempDir, "preflight-blob");
   const preflightIndex = join(tempDir, "preflight-index");
+  await writeFile(blobFile, "ldvh-preflight\n", "utf8");
+  const blob = await runGit(identity.projectRoot, ["hash-object", "-w", blobFile]);
+  try {
+    await runGit(identity.projectRoot, ["read-tree", "HEAD"], { env: { GIT_INDEX_FILE: preflightIndex } });
+  } catch {
+    /* no HEAD yet (empty repository): start from the empty tree */
+  }
+  await runGit(identity.projectRoot, ["update-index", "--add", "--cacheinfo", `100644,${blob},ldvh-preflight`], { env: { GIT_INDEX_FILE: preflightIndex } });
+  return preflightIndex;
+}
+
+/**
+ * Prove a rendered Hook actually blocks before it is installed.
+ *
+ * The two Hooks prove different things, because they receive different input:
+ *   - commit-msg: an invalid and a valid message, asserting "blocks the bad,
+ *     lets the good through";
+ *   - pre-commit: no message exists to vary, so it asserts the two things that
+ *     must hold for the Hook to be load-bearing at all — it RUNS to completion
+ *     (a synthetic valid Index, exit 0) and it REFUSES an empty Index (exit
+ *     non-zero). The second is what distinguishes a working gate from a script
+ *     that silently exits 0.
+ *
+ * Both share the same fail-closed subtlety (friction 6cb53179): a nonzero exit
+ * is NOT proof of blocking, because the Hook also exits nonzero when it cannot
+ * start the validator. The interpreter marker is the only reliable signal, so
+ * each Hook asserts the marker that carries ITS OWN name.
+ */
+async function preflight(rendered, identity, spec, workspaceRoot) {
+  const tempDir = join(identity.gitCommonDir, `ldvh-preflight-${process.pid}-${Date.now()}`);
+  const hook = join(tempDir, spec.name);
+  const marker = interpreterUnavailableMarker(spec.name);
   try {
     await mkdir(tempDir, { mode: 0o700 });
     await writeFile(hook, rendered, { mode: 0o755 });
-    await writeFile(invalid, "bad\n", "utf8");
-    await writeFile(valid, "chore(code): 预检\n\n关键变更:\n- add ldvh-preflight synthetic index entry\n\nLDVH-Provider: deepseek-harness\nLDVH-Model: preflight\n", "utf8");
-    // A synthetic index keeps the preflight independent of the worktree's
-    // transient staging state: the gate proves its real `git diff --cached`
-    // path against a known non-empty index instead of requiring the user
-    // to have something staged at install/update time. `git diff --cached`
-    // compares the index against HEAD, so the synthetic index must be seeded
-    // from HEAD first — otherwise a repository with committed history would
-    // diff "delete every tracked file" (megabytes) and blow the runner's
-    // maxBuffer. On a repository without any commit, read-tree fails and the
-    // single-entry index correctly diffs against the empty tree instead.
-    // The orphan blob is garbage-collectable and the temp dir is removed in
-    // finally.
-    await writeFile(blobFile, "ldvh-preflight\n", "utf8");
-    const blob = await runGit(identity.projectRoot, ["hash-object", "-w", blobFile]);
-    try {
-      await runGit(identity.projectRoot, ["read-tree", "HEAD"], { env: { GIT_INDEX_FILE: preflightIndex } });
-    } catch {
-      /* no HEAD yet (empty repository): start from the empty tree */
+    const preflightIndex = await seedPreflightIndex(identity, tempDir);
+    const hookEnv = { LDVH_WORKSPACE_ROOT: workspaceRoot };
+    if (spec.argument === "message-file") {
+      const invalid = join(tempDir, "invalid-message");
+      const valid = join(tempDir, "valid-message");
+      await writeFile(invalid, "bad\n", "utf8");
+      await writeFile(valid, "chore(code): 预检\n\n关键变更:\n- add ldvh-preflight synthetic index entry\n\nLDVH-Provider: deepseek-harness\nLDVH-Model: preflight\n", "utf8");
+      const blocked = await invokeHook(hook, [invalid], identity.projectRoot, { ...hookEnv, LDVH_PREFLIGHT_INDEX: preflightIndex });
+      if (blocked.code === 0) throw new Error("Git Hook preflight did not block an invalid message");
+      if (blocked.stderr.includes(marker)) throw new Error(`Git Hook preflight could not start the validator: ${blocked.stderr.trim()}`);
+      const allowed = await invokeHook(hook, [valid], identity.projectRoot, { ...hookEnv, LDVH_PREFLIGHT_INDEX: preflightIndex });
+      if (allowed.code !== 0) throw new Error(`Git Hook preflight rejected a valid message: ${allowed.stderr || allowed.stdout}`);
+      return;
     }
-    await runGit(identity.projectRoot, ["update-index", "--add", "--cacheinfo", `100644,${blob},ldvh-preflight`], { env: { GIT_INDEX_FILE: preflightIndex } });
-    const blocked = await invokeHook(hook, invalid, identity.projectRoot, { LDVH_PREFLIGHT_INDEX: preflightIndex });
-    if (blocked.code === 0) throw new Error("Git Hook preflight did not block an invalid message");
-    // A nonzero exit is NOT sufficient proof that the gate blocked: the Hook
-    // also exits nonzero when it cannot start the validator at all. Before this
-    // check, a missing interpreter made the shell exit 127 — comfortably
-    // nonzero — so `blocked.code === 0` passed while nothing had been validated
-    // (see friction 6cb53179). The marker is the only reliable signal, since
-    // git collapses 126/127/1 to 1 in real commits.
-    if (blocked.stderr.includes(INTERPRETER_UNAVAILABLE_MARKER)) {
-      throw new Error(`Git Hook preflight could not start the validator: ${blocked.stderr.trim()}`);
-    }
-    const allowed = await invokeHook(hook, valid, identity.projectRoot, { LDVH_PREFLIGHT_INDEX: preflightIndex });
-    if (allowed.code !== 0) throw new Error(`Git Hook preflight rejected a valid message: ${allowed.stderr || allowed.stdout}`);
+    // pre-commit: a Hook that cannot even run is the fail-open this branch
+    // exists to catch, so an empty Index must be refused.
+    const emptyIndex = join(tempDir, "empty-index");
+    await runGit(identity.projectRoot, ["read-tree", "--empty"], { env: { GIT_INDEX_FILE: emptyIndex } });
+    const refused = await invokeHook(hook, [], identity.projectRoot, { ...hookEnv, LDVH_PREFLIGHT_INDEX: emptyIndex });
+    if (refused.stderr.includes(marker)) throw new Error(`Git Hook preflight could not start the validator: ${refused.stderr.trim()}`);
+    if (refused.code === 0) throw new Error("Git Hook preflight did not block an empty Index");
+    const accepted = await invokeHook(hook, [], identity.projectRoot, { ...hookEnv, LDVH_PREFLIGHT_INDEX: preflightIndex });
+    if (accepted.stderr.includes(marker)) throw new Error(`Git Hook preflight could not start the validator: ${accepted.stderr.trim()}`);
+    if (accepted.code !== 0) throw new Error(`Git Hook preflight rejected a valid Index: ${accepted.stderr || accepted.stdout}`);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
 }
 
+async function readOriginal(path) {
+  try { return await readFile(path); } catch (error) { if (error?.code !== "ENOENT") throw error; return null; }
+}
+
+/**
+ * Install every managed Hook that is missing or outdated.
+ *
+ * Refuses wholesale on conflict/unavailable. The refusal is all-or-nothing on
+ * purpose: a foreign pre-commit belongs to the user, and half-installing the
+ * bundle would leave the project with a commit-msg that runs newer code than
+ * its pre-commit — two Hook bodies from two different bundle versions.
+ *
+ * Failure during the multi-file write rolls back the files this call already
+ * replaced, restoring their previous bytes, so a mid-install error (a Hook
+ * that raced, a permission problem, a failing preflight) never leaves an
+ * unknown mix behind. `rewritten` counts how many Hook files actually changed,
+ * which is what "was there anything to repair?" really means — the old code
+ * inferred it from the pre-install state and so could not tell "already
+ * current" from "repaired".
+ */
 export async function installHook({ projectRoot, runnerPath, workspaceRoot }) {
   const identity = await resolveIdentity(projectRoot);
   const status = await inspectHook(projectRoot);
   if (status.state === "conflict" || status.state === "unavailable") return { ok: false, error: { code: "hook_conflict", message: status.detail, details: status } };
-  const rendered = renderHook({ runnerPath, workspaceRoot });
-  await preflight(rendered, identity);
-  let original = null;
-  try { original = await readFile(identity.hookPath); } catch (error) { if (error?.code !== "ENOENT") throw error; }
+  // Render + prove EVERY Hook before touching the disk: a preflight failure on
+  // the second Hook must not leave the first one already replaced.
+  const plans = [];
+  for (const spec of MANAGED_HOOKS) {
+    const current = status.hooks.find((hook) => hook.name === spec.name);
+    if (current.state === "managed") continue;
+    const rendered = renderHook({ runnerPath, workspaceRoot, hookName: spec.name });
+    // The preflight tells the Hook which workspace's lint to enforce. It is
+    // NOT the install caller's `workspaceRoot`: that is the governed project
+    // being hooked, whose lint surface is unrelated to this plugin's. The lint
+    // configuration that must pass belongs to the tree the RUNNER lives in,
+    // so it is derived from runnerPath — the only argument that is guaranteed
+    // to name this plugin's own checkout (link installs, self-governing repos
+    // and test fixtures all differ in projectRoot, and a fixture has no
+    // node_modules at all).
+    await preflight(rendered, identity, spec, dirname(dirname(resolve(runnerPath))));
+    plans.push({ spec, rendered, original: await readOriginal(identity.hookPaths[spec.name]) });
+  }
+  const replaced = [];
   try {
-    await atomicReplace(identity.hookPath, rendered, original);
+    for (const plan of plans) {
+      const hookPath = identity.hookPaths[plan.spec.name];
+      await atomicReplace(hookPath, plan.rendered, plan.original);
+      replaced.push({ hookPath, original: plan.original });
+    }
   } catch (error) {
-    return { ok: false, error: { code: "hook_install_failed", message: String(error?.message || error), details: identity } };
+    const rollback = [];
+    for (const entry of replaced.reverse()) {
+      try {
+        if (entry.original === null) await rm(entry.hookPath, { force: true });
+        else await atomicReplace(entry.hookPath, entry.original, await readOriginal(entry.hookPath));
+      } catch (rollbackError) {
+        rollback.push(`${entry.hookPath}: ${String(rollbackError?.message || rollbackError)}`);
+      }
+    }
+    return { ok: false, error: { code: "hook_install_failed", message: String(error?.message || error), details: { identity, rollback, rewritten: replaced.length } } };
   }
   const after = await inspectHook(projectRoot);
-  return after.state === "managed" ? { ok: true, value: after } : { ok: false, error: { code: "hook_verify_failed", message: after.detail, details: after } };
+  return after.state === "managed"
+    ? { ok: true, value: { ...after, rewritten: replaced.length } }
+    : { ok: false, error: { code: "hook_verify_failed", message: after.detail, details: after } };
 }
 
+/**
+ * Remove every managed Hook. Absent ones are skipped rather than reported.
+ *
+ * A conflict on ANY Hook aborts the whole removal before any file is touched:
+ * deleting the commit-msg of a project whose pre-commit belongs to someone
+ * else would leave a half-managed state that the next install then refuses to
+ * repair (it sees the same conflict).
+ */
 export async function uninstallHook(projectRoot) {
   const status = await inspectHook(projectRoot);
   if (status.state === "absent") return { ok: true, value: status };
   if (!['managed', 'outdated'].includes(status.state)) return { ok: false, error: { code: "hook_conflict", message: status.detail, details: status } };
-  const before = await readFile(status.hookPath, "utf8");
-  const parsed = parseManagedHook(before);
-  if (!parsed.owned || !parsed.valid) return { ok: false, error: { code: "hook_conflict", message: "managed Hook changed before removal", details: status } };
-  try {
-    await rm(status.hookPath);
-  } catch (error) {
-    return { ok: false, error: { code: "hook_uninstall_failed", message: String(error?.message || error), details: status } };
+  const removable = [];
+  for (const hook of status.hooks) {
+    if (hook.state === "absent") continue;
+    if (!["managed", "outdated"].includes(hook.state)) return { ok: false, error: { code: "hook_conflict", message: `${hook.name}: ${hook.detail}`, details: status } };
+    let before;
+    try { before = await readFile(hook.hookPath, "utf8"); } catch (error) { return { ok: false, error: { code: "hook_uninstall_failed", message: String(error?.message || error), details: status } }; }
+    const parsed = parseManagedHook(before);
+    if (!parsed.owned || !parsed.valid) return { ok: false, error: { code: "hook_conflict", message: `managed ${hook.name} Hook changed before removal`, details: status } };
+    removable.push(hook);
+  }
+  for (const hook of removable) {
+    try {
+      await rm(hook.hookPath);
+    } catch (error) {
+      return { ok: false, error: { code: "hook_uninstall_failed", message: String(error?.message || error), details: { status, removed: removable.length } } };
+    }
   }
   return { ok: true, value: await inspectHook(projectRoot) };
 }
