@@ -294,7 +294,18 @@ function itemMatchesPath(item, path) {
 // `carriers` is supplied as { path, content, baseline? } so this stays pure
 // and testable; the runner gathers content from the Index (staged content is
 // authoritative for what the commit would land) and the baseline from HEAD.
-export const DOCS_REFERENCE_PATTERN = /(?:^|[^A-Za-z0-9._/-])(docs\/[\p{L}\p{N}\p{M}._/-]*[A-Za-z0-9_-])/gu;
+// The pattern is BUILT from `_FLAGS`, not only from a literal's own flags. The
+// precheck entrypoint re-compiles this module's source and rebuilds every regex
+// literal with `new RegExp(<literal>.source, <flags>)`; when that path supplied
+// only "g", the `u` flag was dropped and `\p{L}` degraded from a Unicode
+// property class to a literal character set — the tail class then matched ONE
+// character, so `docs/real.md` extracted as `docs/r` and every reference
+// silently vanished (the rule was blind, not strict). Keeping the flags in a
+// constant makes the indicator explicit in the source itself, and the pattern
+// source carries no `/` delimiter so recompilation stays safe.
+const _FLAGS = "gu";
+const _SOURCE = String.raw`(?:^|[^A-Za-z0-9._/-])(docs\/[\p{L}\p{N}\p{M}._/-]*[A-Za-z0-9_-])`;
+export const DOCS_REFERENCE_PATTERN = new RegExp(_SOURCE, _FLAGS);
 
 /** True when a repo-relative path is under the top-level temporary docs/ tree. */
 export function isTemporaryDocsPath(path) {
