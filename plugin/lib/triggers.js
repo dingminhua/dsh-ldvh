@@ -67,6 +67,26 @@ function eventTurn(event) {
  */
 export function createTurnTriggers(agent, { getScopeState, turns, activity, log, onSessionCheckpoint, readSilenceMs, persistActivityAt, now }) {
   const agentId = agent?.id ?? agent?.session?.header?.id;
+
+  /**
+   * 尽力而为地写一条日志——**日志绝不能影响控制流**。
+   *
+   * 存在的理由：`armSilenceTimer` 的到期回调在 `setTimeout` 顶层执行，那里一旦
+   * 抛异常就会逃逸成未捕获异常（可能带崩进程）。而 logger 是外部注入的，它的
+   * 实现未必不抛（参数序列化、被替换成抛错桩等），`log?.info?.()` 只防了「没有
+   * log / 没有该方法」，防不住「方法自己抛」。改动前的静默 `return` 没有这个
+   * 风险，故补日志时必须同时补这层保护，否则是「为了可观测性引入了新故障」。
+   *
+   * 注意：这里吞掉的只是**日志**的异常，**派发判定本身仍走原有 `try/catch`**
+   * （见 `dispatchCheckpoint`），两者不可混为一谈。
+   */
+  function note(level, ...args) {
+    try {
+      log?.[level]?.(...args);
+    } catch {
+      // 日志失败即静默放弃：这里再抛就失去意义了。
+    }
+  }
   const state = turns ?? {
     turnStoppingSeen: 0,
     turnEndSeen: 0,
@@ -89,6 +109,11 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     // 出现新的会话活动才复位。这是「一次安静期至多触发一次」的机械形态——
     // 同时是 §12「不得自行重试」的实现：失败后没有新活动就不得自动再试。
     silenceFired: false,
+    // **已销毁**：`dispose()` 置真后不得再武装。存在的理由见 `dispose()` 与
+    // `restoreActivityAt`：后者由 lifecycle 的 fire-and-forget 旁路在两次 `await`
+    // 之后才调用，那时会话可能已经卸载，若无此标记就会为已销毁的对象留下一个
+    // 真实计时器，到期后对死对象派发一次。
+    disposed: false,
     lastIdleSeen: 0,
     lastCheckpointDispatch: undefined
   };
@@ -148,13 +173,28 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
    *
    * **不重复武装已触发过的安静期**：`silenceFired` 为真时直接返回——这使
    * 「一次安静期至多触发一次」成立，并使失败后不会自动重试（§12）。
+   *
+   * **按「剩余安静时长」而非整段时长武装**（2026-10-19 独立审核）：
+   * 原实现无条件 `setTimeout(fn, idleMs)`，于是恢复一个久远锚点后还要再白等
+   * 一整个安静时长才轮到到期判定——而 36 §6.1 的判据是「距最后一次活动已
+   * 持续不短于安静时长」，该判据当时**已经被满足**。延迟取剩余量即可。
    */
   function armSilenceTimer() {
-    if (state.silenceFired === true) return; // 本段安静期已触发，等新活动复位
+    // **销毁是终局**：`dispose()` 之后不得再武装。这条检查**可达**——`onAgentStatus`
+    // 收到 idle 就会调本函数，而宿主在会话卸载途中仍可能派发状态事件；不拦的话，
+    // 已销毁的对象会重新得到计时器，到期后对死对象派发一次（实测：dispose →
+    // onTurnStopping → onAgentStatus(idle) → pending 变为 1）。故这里是硬守卫，
+    // 不是重复保险；`restoreActivityAt` 的入口检查同样保留（那条路径在武装之前
+    // 就返回，避免写坏状态）。
+    if (state.disposed === true) return;       // 已销毁：不得再武装
+    if (state.silenceFired === true) return;   // 本段安静期已触发，等新活动复位
     if (state.lastActivityAt === null) return; // 无从计时
     if (state.silenceTimer !== null) return;   // 已在计时
     const idleMs = silenceMs();
     const startedAt = state.lastActivityAt;
+    // 剩余量取非负：锚点若在未来（时钟回拨等），按「立即到期」处理，由到期
+    // 判定里的 `quietFor < idleMs` 早退兜住，不在这里猜。
+    const remainingMs = Math.max(0, idleMs - (nowMs() - startedAt));
     state.silenceTimer = setTimeout(() => {
       state.silenceTimer = null;
       // 到期时**再确认**一次：期间若有过新活动，计时已被 `touchActivity` 重置，
@@ -164,13 +204,47 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       // 使「假定时器推进」与「时钟推进」同步——否则假定时器到期时 `Date.now()`
       // 仍是旧值，本判据会把一次合法触发误判为竞态。
       const quietFor = nowMs() - (state.lastActivityAt ?? 0);
-      if (quietFor < idleMs) return;
-      if (state.lastActivityAt !== startedAt) return; // 计时起点已变，本次作废
-      if (!governed()) return;
-      if (state.silenceFired === true) return;
+      // **到期早退必须留痕**（2026-10-19 独立审核）：此前它们全是静默 `return`，
+      // 使「计时器到点了却没有派发」在事后无从归因——2026-10-19 03:24:05 本会话
+      // 安静 740 秒（阈值 300 秒）却无派发，两位独立审核者都无法判定走了哪条早退，
+      // 因为这里不写任何痕迹。判定语义**不变**，只补可观测性。
+      //
+      // **一律用 info，不用 debug**：cordis logger 的等级过滤是
+      // `(exporter.levels?.default ?? this.level ?? 1) < level` 即丢弃
+      // （`@deepseek-ai/cordis/lib/index.js:474`），而 debug 的等级是 3
+      // （同文件 `:460`）。默认等级 1 下 **debug 日志根本不输出**——用它留痕
+      // 等于没留，恰好废掉本改动的全部目的。
+      //
+      // **日志本身不得影响控制流**：本回调在 `setTimeout` 顶层执行，日志若抛出
+      // 会逃逸成未捕获异常（改动前的静默 `return` 无此风险）。故一律经 `note()`
+      // 吞掉日志自身的异常——**留痕是尽力而为，派发判定不受它牵连**。
+      //
+      // 早退之后若安静期仍可触发，**重武装**：否则计时器被消费而无人重建，
+      // 会话会静默到下一次宿主 `agent/status` 变化（而宿主只在 status **变化**
+      // 时发事件，一个已经 idle 的会话不会再发）。`armSilenceTimer` 的自身守卫
+      // 保证不会重复武装、也不会在 `silenceFired` 后复活。
+      if (quietFor < idleMs) {
+        note("info", "[dsh-ldvh] silence timer expired but NOT quiet enough: quietFor=%dms threshold=%dms", quietFor, idleMs);
+        armSilenceTimer();
+        return;
+      }
+      if (state.lastActivityAt !== startedAt) {
+        // 计时起点已变，本次作废
+        note("info", "[dsh-ldvh] silence timer expired but the start anchor moved: startedAt=%s lastActivityAt=%s", String(startedAt), String(state.lastActivityAt));
+        armSilenceTimer();
+        return;
+      }
+      if (!governed()) {
+        note("warn", "[dsh-ldvh] silence timer expired but the scope is no longer governed: no checkpoint dispatched");
+        return;
+      }
+      // 注：此处**没有** `silenceFired === true` 的早退。`armSilenceTimer` 的入口
+      // 守卫（`state.silenceFired === true` 即不武装）已保证到期回调执行时它必为
+      // 假，故原本那条早退是**不可达的死代码**（2026-10-19 独立审核：穷举 1296 条
+      // 公开 API 调用序列，命中 0 次）。删掉它，免得后来者以为这里还护着一支分支。
       state.silenceFired = true; // 先置位：此后除非有新活动，不得再触发
       dispatchCheckpoint("silence:timer");
-    }, idleMs);
+    }, remainingMs);
     // 不阻止进程退出：计时器纯属后台检修，宿主退出时无须等它。
     if (typeof state.silenceTimer?.unref === "function") state.silenceTimer.unref();
   }
@@ -286,16 +360,52 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
      * 随对象销毁自然消失。
      */
     dispose() {
+      state.disposed = true; // 之后的 restoreActivityAt 一律不得再武装
       clearSilenceTimer();
     },
 
-    /** 恢复持久化的活动时刻（装载时由 lifecycle 注入；见 `persistActivityAt`）。 */
+    /**
+     * 恢复持久化的活动时刻（装载时由 lifecycle 注入；见 `persistActivityAt`）。
+     *
+     * **恢复后必须武装计时器**（2026-10-19 独立审核）：此前本函数只写锚点与复位
+     * `silenceFired`，**不武装**——于是插件热重载（或进程重启装载）之后，该会话
+     * 在「下一次 `agent/status: idle`」到来之前**完全没有计时器在跑**。而宿主的
+     * `agent/status` 只在 status **发生变化**时发出（`agent-loop` 的 `setPhase`
+     * 判 `status !== previousStatus`），一个已经 idle 的会话不会再发一次 idle
+     * ——这不只是「延迟一次」，而是「等到下一次真实的 running→idle 转变」。
+     *
+     * 恢复出来的锚点本就是「最后一次活动时刻」，安静时长应自它起算；不武装
+     * 等于把已经过去的安静时间全部丢弃。到期延迟由 `armSilenceTimer` 按**剩余量**
+     * 计算，故久远锚点会立刻进入判定，不白等一个完整安静时长。
+     *
+     * 本函数由 lifecycle 的 **fire-and-forget** 异步旁路调用（该 IIFE 中间有两次
+     * `await`，期间会话可能已被销毁或已有新的真实活动）。故必须满足三条：
+     *
+     * 1. **锚点单调**：只接受比当前更新的时刻。陈旧快照不得覆盖运行时已更新的
+     *    锚点——否则「刚活动过的会话」会被以陈旧锚点误判为「已安静很久」并派发。
+     * 2. **先清后武装**：`clearSilenceTimer()` 再 `armSilenceTimer()`，保证计时器
+     *    与锚点**同源**。否则旧计时器的闭包仍指向旧 `startedAt`，到期必命中
+     *    「起点已变」早退并被消费，使会话静默到下一次宿主状态变化——正是本次
+     *    修复要消灭的那类空转。
+     * 3. **不抛**：调用方在 `try/catch` 里，但本函数原契约就是「不抛」；且此处
+     *    若在写状态/武装之后抛错，调用方会拿到异常而内部状态已变（半提交）。
+     */
     restoreActivityAt(ms) {
       const n = Number(ms);
-      if (Number.isFinite(n) && n > 0) {
-        state.lastActivityAt = n;
-        state.silenceFired = false;
-      }
+      if (!Number.isFinite(n) || n <= 0) return; // 非法值：忽略，保持既有锚点
+      // 超出 `Date` 可表示范围（±8.64e15）的值必须挡在写状态之前：`new Date(n)
+      // .toISOString()` 会抛 `RangeError: Invalid time value`，而那时锚点已写、
+      // 计时器已武装——调用方拿到异常却留下半提交的状态。本函数原契约是「不抛」，
+      // 由 lifecycle 的 fire-and-forget 旁路调用，半提交尤其不可接受。
+      if (n > 8_640_000_000_000_000) return;
+      if (state.disposed === true) return;       // 已销毁：不得武装（见 dispose）
+      const current = state.lastActivityAt ?? 0;
+      if (n <= current) return;                  // 陈旧锚点：不覆盖更新的锚点
+      state.lastActivityAt = n;
+      state.silenceFired = false;
+      clearSilenceTimer();                       // 与 touchActivity 对齐：先清后武装
+      armSilenceTimer();
+      note("info", "[dsh-ldvh] activity anchor restored from %s; silence timer armed", new Date(n).toISOString());
     },
 
     /** Test/diagnostic seam. */

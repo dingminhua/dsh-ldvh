@@ -391,3 +391,302 @@ test("36 §6.1：安静时长读取非法时回落 5 分钟（读取侧容错，
     }
   } finally { timers.restore(); }
 });
+
+// ---------------------------------------------------------------------------
+// 可观测性与恢复到计时（2026-10-19 独立审核后重写）
+//
+// 本组用例在首版基础上按两份独立审核报告重写。首版有两条是**虚假保障**：
+//   · 「安静期已触发过」那条：两次到期都走正常派发路径，`silenceFired` 早退
+//     一次都没进；且该早退本身是不可达死代码（已从实现中删除）。它守的是空气。
+//   · 「恢复久远时刻不白等」那条：`fireAll()` 会把时钟推进满整个延迟，于是
+//     「立即到期」与「等满 idleMs」两种实现都能通过——它证伪不了自己声称的回归。
+// 重写版对每条都做了变异验证：删掉被守护的那行代码，本用例必须变红。
+// ---------------------------------------------------------------------------
+
+/** 带日志捕获的构造器（info/warn/debug 全捕获）。 */
+function makeTriggersWithLogs(opts = {}) {
+  const logs = [];
+  const dispatches = [];
+  const triggers = createTurnTriggers(agentStub(), {
+    getScopeState: () => (opts.governed === false ? "not_governed" : "governed"),
+    turns: undefined,
+    log: {
+      info(...a) { logs.push({ level: "info", text: a.join(" ") }); },
+      warn(...a) { logs.push({ level: "warn", text: a.join(" ") }); },
+      debug(...a) { logs.push({ level: "debug", text: a.join(" ") }); }
+    },
+    readSilenceMs: () => opts.silenceMs ?? 300_000,
+    now: opts.now ?? globalThis.__ldvhTestClock,
+    onSessionCheckpoint: (info) => { dispatches.push(info); return Promise.resolve(); }
+  });
+  return { triggers, dispatches, logs };
+}
+
+test("可观测性：到期时安静不足须留痕，且留痕级别须为 info（debug 在默认等级下不输出）", () => {
+  // 制造 `quietFor < idleMs` 的干净办法：让到期时**时钟不推进**（时钟可独立拨动，
+  // 不随 fireAll 推进）。生产中对应「系统时钟回拨」：`Date.now()` 非单调，而
+  // `setTimeout` 走 libuv 单调时钟，两者脱钩时合法到期会被判成「不够安静」。
+  const timers = makeFakeTimers();
+  try {
+    let fakeClock = 1_000_000_000_000;
+    const { triggers, dispatches, logs } = makeTriggersWithLogs({ now: () => fakeClock });
+    triggers.onTurnStopping({ agent: agentStub(), turn: 4 });
+    triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
+    assert.equal(timers.size(), 1, "计时器已武装");
+    timers.fireAll();               // 内部时钟推进，但 now() 读的是 fakeClock，仍为 0
+    assert.equal(dispatches.length, 0, "安静不足不得派发");
+    const quiet = logs.filter((l) => /NOT quiet enough/.test(l.text));
+    assert.equal(quiet.length, 1, "静默丢弃不可接受：须恰好留一条痕迹");
+    assert.equal(quiet[0].level, "info", "**级别必须是 info**：debug 的等级是 3，默认等级 1 下被丢弃（cordis:474/:460），用它留痕等于没留");
+  } finally { timers.restore(); }
+});
+
+test("可观测性：到期时管辖状态已变须留痕（warn 级，该派发却未派发）", () => {
+  const timers = makeFakeTimers();
+  try {
+    let governed = true;
+    const logs = [];
+    const dispatches = [];
+    const triggers = createTurnTriggers(agentStub(), {
+      getScopeState: () => (governed ? "governed" : "not_governed"),
+      turns: undefined,
+      log: {
+        info(...a) { logs.push({ level: "info", text: a.join(" ") }); },
+        warn(...a) { logs.push({ level: "warn", text: a.join(" ") }); },
+        debug(...a) { logs.push({ level: "debug", text: a.join(" ") }); }
+      },
+      readSilenceMs: () => 300_000,
+      now: globalThis.__ldvhTestClock,
+      onSessionCheckpoint: (info) => { dispatches.push(info); return Promise.resolve(); }
+    });
+    triggers.onTurnStopping({ agent: agentStub(), turn: 4 });
+    triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
+    governed = false;              // 到期前脱离管辖
+    timers.fireAll();
+    assert.equal(dispatches.length, 0);
+    assert.equal(logs.length, 1, "恰好一条痕迹");
+    assert.equal(logs[0].level, "warn", "「该派发却因管辖状态未派发」是异常路径，用 warn");
+    assert.match(logs[0].text, /no longer governed/);
+  } finally { timers.restore(); }
+});
+
+test("可观测性：到期时计时起点已变须留痕（补上首版零覆盖的那条早退）", () => {
+  // 这条早退（`state.lastActivityAt !== startedAt`）在首版中零覆盖，且有一个旧
+  // 用例冒充在测它——那个用例没推进时钟，实际先命中「安静不足」早退。
+  //
+  // 构造要点（两处都不显然）：
+  // 1. 不能用 `restoreActivityAt` 前移锚点：锚点单调性会拒绝更旧的值。
+  // 2. 只让锚点变化还不够——本早退排在「安静不足」之后，若时钟没走够，
+  //    会先被 `quietFor < idleMs` 拦下。故必须让时钟先跳到足够远的位置，
+  //    再由一次新活动把锚点写近，最后再推进一点使 quietFor 达标。
+  //    只有这样才能同时满足「起点变了」与「确已安静」两个前提。
+  const timers = makeFakeTimers();
+  try {
+    let fakeClock = 1_000_000_000_000;
+    const { triggers, dispatches, logs } = makeTriggersWithLogs({ now: () => fakeClock });
+    triggers.onTurnStopping({ agent: agentStub(), turn: 4 });   // startedAt = 1e12
+    triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
+    const id = [...timers.pending.keys()][0];
+    const staleCallback = timers.pending.get(id).fn;
+    timers.pending.delete(id);              // 只从表里移除，回调仍在手里
+    fakeClock += 900_000;                   // 时钟跳远
+    triggers.onTurnStopping({ agent: agentStub(), turn: 5 });   // 锚点被新活动改写
+    fakeClock += 400_000;                   // 再走一点，使 quietFor 达标
+    staleCallback();                        // 旧计时器到期：起点已变
+    const moved = logs.filter((l) => /start anchor moved/.test(l.text));
+    assert.equal(moved.length, 1, "计时起点已变必须留痕");
+    assert.equal(moved[0].level, "info");
+    assert.equal(dispatches.length, 0, "起点已变时本次作废，不得派发");
+  } finally { timers.restore(); }
+});
+
+test("可观测性：日志调用抛错不得影响控制流，且不得逃逸出回调", () => {
+  // 存在理由：日志在 `setTimeout` 顶层执行，logger 是外部注入的，其实现未必
+  // 不抛。`log?.info?.()` 只防「没有 log / 没有该方法」，防不住「方法自己抛」。
+  //
+  // **注意本用例的边界**：`makeFakeTimers` 把 `setTimeout` 换成同步调用，故异常
+  // 是同步冒泡出 `fireAll()`，而非异步的 uncaughtException。这里断言的是
+  // 「不抛到调用方」+「判定不被反转」；异步场景由下面那条真定时器用例覆盖。
+  const timers = makeFakeTimers();
+  try {
+    let dispatched = 0;
+    const boom = () => { throw new Error("logger boom"); };
+    let governed = true;
+    const triggers = createTurnTriggers(agentStub(), {
+      getScopeState: () => (governed ? "governed" : "not_governed"),
+      turns: undefined,
+      log: { info: boom, warn: boom, debug: boom },
+      readSilenceMs: () => 300_000,
+      now: globalThis.__ldvhTestClock,
+      onSessionCheckpoint: () => { dispatched++; return Promise.resolve(); }
+    });
+    triggers.onTurnStopping({ agent: agentStub(), turn: 1 });
+    triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
+    governed = false;
+    assert.doesNotThrow(() => timers.fireAll(), "日志抛错不得冒泡出到期回调");
+    assert.equal(dispatched, 0, "早退不得因日志抛错被反转成派发");
+  } finally { timers.restore(); }
+});
+
+test("可观测性：真定时器下日志抛错不得逃逸为 uncaughtException（异步场景）", async () => {
+  // 上面那条是同步冒泡，覆盖不到真正的 uncaughtException 场景。本用例用真实
+  // `setTimeout`（极短安静时长）让回调在异步上下文里执行。
+  const seen = [];
+  const onUncaught = (e) => { seen.push(e); };
+  process.on("uncaughtException", onUncaught);
+  try {
+    let governed = true;
+    const triggers = createTurnTriggers(agentStub(), {
+      getScopeState: () => (governed ? "governed" : "not_governed"),
+      turns: undefined,
+      log: { info() { throw new Error("boom-info"); }, warn() { throw new Error("boom-warn"); }, debug() { throw new Error("boom-debug"); } },
+      readSilenceMs: () => 10,           // 10ms 后到期
+      onSessionCheckpoint: () => Promise.resolve()
+    });
+    triggers.onTurnStopping({ agent: agentStub(), turn: 1 });
+    triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
+    governed = false;                     // 走 warn 分支，而 warn 抛错
+    await new Promise((r) => setTimeout(r, 120));
+    assert.deepEqual(seen, [], "日志抛错不得在异步上下文里逃逸成 uncaughtException");
+  } finally {
+    process.removeListener("uncaughtException", onUncaught);
+  }
+});
+
+test("恢复计时：`restoreActivityAt` 后立即武装（热重载后不得无计时器空转）", () => {
+  const timers = makeFakeTimers();
+  try {
+    const { triggers, dispatches } = makeTriggersWithLogs();
+    assert.equal(timers.size(), 0, "尚未恢复时无计时器");
+    triggers.restoreActivityAt(globalThis.__ldvhTestClock() - 1000);
+    assert.equal(timers.size(), 1, "恢复活动时刻后必须立刻武装");
+    timers.fireAll();
+    assert.equal(dispatches.length, 1, "恢复后到期应正常派发");
+  } finally { timers.restore(); }
+});
+
+test("恢复计时：久远锚点按**剩余量**武装（延迟接近 0，不白等一个完整安静时长）", () => {
+  // 首版这条用「fireAll 之后派发数」断言，而 fireAll 会把时钟推进满整个延迟，
+  // 于是「立即到期」与「等满 idleMs」两种实现都能通过——证伪不了它声称的回归。
+  // 改为直接断言**计时器的延迟参数**，这才是「等多久」的可观测点。
+  const timers = makeFakeTimers();
+  try {
+    const { triggers } = makeTriggersWithLogs();
+    triggers.restoreActivityAt(globalThis.__ldvhTestClock() - 24 * 3600 * 1000); // 24 小时前
+    const [entry] = [...timers.pending.values()];
+    assert.ok(entry, "应已武装");
+    assert.equal(entry.ms, 0, `久远锚点应立刻到期（剩余量 0），实际延迟 ${entry.ms}ms`);
+  } finally { timers.restore(); }
+});
+
+test("恢复计时：已武装时恢复**更新**的锚点 → 计时器与锚点同源，到期仍会派发（不得空转）", () => {
+  // 首版缺这条，而它正是改动第一次尝试时被引入的真实缺陷：restore 只改锚点、
+  // 不清旧计时器，旧计时器到期必命中「起点已变」早退并被消费，此后无人重建，
+  // 会话静默到下一次宿主状态变化——而宿主只在 status 变化时发事件。
+  const timers = makeFakeTimers();
+  try {
+    const { triggers, dispatches } = makeTriggersWithLogs();
+    triggers.onTurnStopping({ agent: agentStub(), turn: 1 });
+    triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
+    assert.equal(timers.size(), 1);
+    triggers.restoreActivityAt(globalThis.__ldvhTestClock() + 1000); // 更新的锚点
+    assert.equal(timers.size(), 1, "仍只有一个计时器（先清后武装，不得并存）");
+    timers.fireAll();
+    assert.equal(dispatches.length, 1, "旧计时器不得被消费成空转");
+  } finally { timers.restore(); }
+});
+
+test("恢复计时：陈旧锚点不得覆盖更新的锚点（异步旁路的陈旧快照）", () => {
+  const timers = makeFakeTimers();
+  try {
+    const { triggers } = makeTriggersWithLogs();
+    triggers.onTurnStopping({ agent: agentStub(), turn: 1 });   // 锚点 = now
+    const before = triggers.snapshot().lastActivityAt;
+    triggers.restoreActivityAt(globalThis.__ldvhTestClock() - 299_000); // 陈旧
+    assert.equal(triggers.snapshot().lastActivityAt, before, "陈旧锚点不得覆盖更新的锚点");
+    triggers.restoreActivityAt(before);                        // 相等亦不覆盖
+    assert.equal(triggers.snapshot().lastActivityAt, before);
+  } finally { timers.restore(); }
+});
+
+test("恢复计时：`dispose()` 之后不得再武装、不得对已销毁对象派发", () => {
+  // lifecycle 的恢复旁路是 fire-and-forget，中间两次 await 期间会话可能已卸载。
+  const timers = makeFakeTimers();
+  try {
+    const { triggers, dispatches } = makeTriggersWithLogs();
+    triggers.dispose();
+    const anchorBefore = triggers.snapshot().lastActivityAt;
+    // 用一个**更新的**锚点：否则锚点单调性会先拒绝，测不到 disposed 检查本身。
+    triggers.restoreActivityAt(globalThis.__ldvhTestClock() + 5000);
+    assert.equal(timers.size(), 0, "已销毁后不得武装计时器");
+    // 关键：销毁后的恢复必须**整体**不生效，不能只靠 `armSilenceTimer` 那层拦住
+    // 武装而把锚点写坏（半提交）。这条断言把 `restoreActivityAt` 入口的 disposed
+    // 检查与「只靠下游守卫」区分开。
+    assert.equal(triggers.snapshot().lastActivityAt, anchorBefore, "已销毁后不得写坏锚点（半提交）");
+    timers.fireAll();
+    assert.equal(dispatches.length, 0, "不得对已销毁对象派发");
+  } finally { timers.restore(); }
+});
+
+test("恢复计时：超出 Date 可表示范围的值不得抛错，也不得留下半提交状态", () => {
+  const timers = makeFakeTimers();
+  try {
+    const { triggers } = makeTriggersWithLogs();
+    const before = triggers.snapshot().lastActivityAt;
+    assert.doesNotThrow(() => triggers.restoreActivityAt(1e18), "`new Date(1e18).toISOString()` 会抛 RangeError，须挡在写状态之前");
+    assert.equal(timers.size(), 0, "不得留下已武装的计时器");
+    assert.equal(triggers.snapshot().lastActivityAt, before, "不得写坏锚点");
+  } finally { timers.restore(); }
+});
+
+test("恢复计时：非法值不得武装（NaN/0/负数/非数字）", () => {
+  const timers = makeFakeTimers();
+  try {
+    for (const bad of [NaN, 0, -1, "abc", undefined, null]) {
+      const { triggers } = makeTriggersWithLogs();
+      triggers.restoreActivityAt(bad);
+      assert.equal(timers.size(), 0, `非法值 ${String(bad)} 不得武装`);
+      triggers.dispose();
+    }
+  } finally { timers.restore(); }
+});
+
+test("恢复计时：`dispose()` 之后新活动与 idle 也不得再武装（销毁是终局）", () => {
+  // `dispose()` 的语义是「本对象不再工作」。此前的实现只清计时器而**不记销毁**，
+  // 于是 lifecycle 的 fire-and-forget 恢复旁路在两次 await 之后仍会为已销毁的
+  // 对象武装计时器，到期后对死对象派发一次。
+  // 注：`armSilenceTimer` 内部**没有** disposed 检查（已证实不可达，见源码注释）；
+  // 保护在 `restoreActivityAt` 的入口，以及这里验证的「销毁后 onTurnStopping /
+  // onAgentStatus 不再产生计时器」这条整体性质。
+  const timers = makeFakeTimers();
+  try {
+    const { triggers, dispatches } = makeTriggersWithLogs();
+    triggers.dispose();
+    triggers.onTurnStopping({ agent: agentStub(), turn: 1 });
+    triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
+    assert.equal(timers.size(), 0, "已销毁对象不得因新活动/状态事件武装计时器");
+    timers.fireAll();
+    assert.equal(dispatches.length, 0, "不得对已销毁对象派发");
+  } finally { timers.restore(); }
+});
+
+test("到期早退后须重武装：安静不足的早退不得把计时器消费成永久空转", () => {
+  // 变异 M10 存活暴露的缺口：删掉「安静不足」早退后的 `armSilenceTimer()`，
+  // 测试仍全绿——因为原用例只断言了「没派发」和「留了痕」，没检查计时器还在不在。
+  // 真实后果：系统时钟回拨一次，会话就永久失去计时器（宿主只在 status 变化时
+  // 发事件，已 idle 的会话不会再发 idle）。
+  const timers = makeFakeTimers();
+  try {
+    let fakeClock = 1_000_000_000_000;
+    const { triggers, dispatches } = makeTriggersWithLogs({ now: () => fakeClock });
+    triggers.onTurnStopping({ agent: agentStub(), turn: 1 });
+    triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
+    timers.fireAll();               // 到期：quietFor=0 < idleMs，走「安静不足」早退
+    assert.equal(dispatches.length, 0, "安静不足不得派发");
+    assert.equal(timers.size(), 1, "早退后必须重武装，否则计时器被消费成永久空转");
+    // 时钟回拨恢复后，下一次到期应能正常派发（证明重武装的是真计时器，不是空壳）
+    fakeClock += 400_000;
+    timers.fireAll();
+    assert.equal(dispatches.length, 1, "重武装的计时器到期后应正常派发");
+  } finally { timers.restore(); }
+});
