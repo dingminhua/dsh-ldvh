@@ -46,6 +46,50 @@ const toolOnly = (seq, turn) => ({
 	data: { turn, message: { content: [{ type: "tool-call", name: "bash" }] } }
 });
 
+// A handle shaped the way the REAL host shapes it (measured 2026-10-19 against a
+// live reviewer record): the session header lives on the HANDLE — `handle.header` —
+// while `handle.read()` returns body events only, with no `type: "session"` line.
+// The stub above keeps the older shape on purpose (both must resolve); this one
+// pins the actual host, which is the shape that silently broke the review channel.
+function hostShapedPersistence(sessions, opened = []) {
+	return {
+		async open(id, mode) {
+			opened.push({ id, mode });
+			if (sessions[id] === undefined) throw new Error(`no such session: ${id}`);
+			const all = sessions[id];
+			const header = all.find((event) => event?.type === "session") ?? null;
+			return {
+				header,
+				read: async () => ({ events: all.filter((event) => event?.type !== "session") }),
+				close: async () => { opened.push({ id, closed: true }); }
+			};
+		}
+	};
+}
+
+test("resolve: the real host puts the header on the HANDLE, not in the events array", async () => {
+	// Regression: the reviewer channel reported every finished child as
+	// 「carries no session header」 against the live host, because the header was
+	// searched for inside `read()`'s events. It is a handle property.
+	const opened = [];
+	const sessions = {
+		"reviewer-1": [
+			subagentHeader("reviewer-1", "session-parent"),
+			text(5, 1, "复核结论：needs_revision。")
+		]
+	};
+	const resolved = await resolveChildFromSessionRecord({
+		sessionPersistence: hostShapedPersistence(sessions, opened),
+		childId: "reviewer-1",
+		parentSessionId: "session-parent"
+	});
+	assert.equal(resolved.ok, true, JSON.stringify(resolved));
+	assert.equal(resolved.header.id, "reviewer-1");
+	assert.equal(resolved.header.origin, "subagent");
+	assert.equal(resolved.conclusion, "复核结论：needs_revision。");
+	assert.deepEqual(resolved.ancestry, ["session-parent"]);
+});
+
 test("resolve: a direct subagent resolves with its own last text as the conclusion", async () => {
 	const opened = [];
 	const sessions = {

@@ -70,7 +70,17 @@ export async function resolveChildFromSessionRecord({
   if (cited.ok !== true) {
     return { ok: false, reason: `child session ${childId} unreadable: ${cited.reason}` };
   }
-  const header = cited.events.find((event) => event?.type === "session") ?? null;
+  // The host exposes the session header as a property of the SESSION HANDLE, not
+  // as an event in the returned array (measured 2026-10-19 against a real reviewer
+  // record: handle.header = {id, createdAt, cwd, parentSession, origin,
+  // delegationDepth}; handle.read() returns only the body events). Reading the
+  // header out of `events` therefore never matched and every finished child was
+  // reported as "carries no session header" — the review channel stayed broken
+  // even after the durable lookup was wired. Keep the events fallback for
+  // backends that DO emit a session line as an event.
+  const header = cited.header
+    ?? cited.events.find((event) => event?.type === "session")
+    ?? null;
   if (header === null) {
     return { ok: false, reason: `child session ${childId} carries no session header` };
   }
@@ -111,7 +121,10 @@ async function readSessionEvents(sessionPersistence, sessionId) {
     const result = await handle?.read?.();
     const events = result?.events;
     if (!Array.isArray(events)) return { ok: false, reason: "host read() returned no events array" };
-    return { ok: true, events };
+    // handle.header is the authority for the session header (see the caller's
+    // note); it is optional here so a backend without it still resolves.
+    const header = handle?.header !== null && typeof handle?.header === "object" ? handle.header : null;
+    return { ok: true, events, header };
   } catch (error) {
     return { ok: false, reason: `host read() failed: ${String(error?.message ?? error)}` };
   } finally {
