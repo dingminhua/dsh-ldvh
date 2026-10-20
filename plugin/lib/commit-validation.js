@@ -338,6 +338,32 @@ export function extractDocsReferences(text) {
   return [...found];
 }
 
+/**
+ * True when `ref` is the truncated ASCII prefix of some longer docs/ path that
+ * also occurs in `text` — i.e. the text is quoting the validator's own cut-off
+ * report of that path.
+ *
+ * 2026-10 订正（独立复核发现）：`exists` 是必需参数。原实现只要求「文本里
+ * 还出现了一个以 ref 为前缀的更长 token」，**不要求那个更长 token 可解析**
+ * ——于是任何悬空的 docs/ 引用只要在旁边编造一个更长的同类 token 就能被洗白
+ * （实测 `docs/totally-nonexistent-` 配 `docs/totally-nonexistent-abcd-efgh-ijkl-mnop.md`
+ * 判 ok=true）。豁免的前提是「真实路径也被检查过」，故这里要求那个更长的
+ * 引用本身 exists 为真：此时它是真实存在的目标，ref 才确实可能是它在错误
+ * 报告里的截断产物。更长者不可解析 → 不豁免，两个引用各自照常报悬空。
+ */
+function isQuotedTruncationArtifact(ref, text, exists) {
+  if (typeof ref !== "string" || ref.length <= "docs/".length) return false;
+  if (typeof exists !== "function") return false;
+  const all = extractDocsReferences(text);
+  return all.some(
+    (other) =>
+      other !== ref &&
+      other.length > ref.length &&
+      other.startsWith(ref) &&
+      exists(other)
+  );
+}
+
 export function checkDocsReferences(carriers, { exists } = {}) {
   const issues = [];
   const resolveExists = typeof exists === "function" ? exists : () => false;
@@ -352,6 +378,15 @@ export function checkDocsReferences(carriers, { exists } = {}) {
     for (const ref of extractDocsReferences(carrier.content)) {
       if (preexisting.has(ref)) continue; // old reference: cleaned up gradually
       if (resolveExists(ref)) continue;   // live target: not a violation
+      // A mention made FOR the purpose of quoting the rule's own error report is
+      // not an authority claim. The docs/ rule's subject is precisely truncated
+      // tokens of a CJK filename, so quoting the defect (as this pitfall's 症状
+      // must) would otherwise make the defect record itself unfalsifiable: the
+      // quoted token is a prefix the validator itself produced. Skip a token
+      // that appears as a STRICT PREFIX of a real path also present in the same
+      // text — the real reference is checked on its own, so a genuinely dangling
+      // reference still blocks; only the quoted artifact is waived.
+      if (isQuotedTruncationArtifact(ref, carrier.content, resolveExists)) continue;
       issues.push(newFinding(
         "validation/docs_reference_dangling",
         `${carrier.path} references "${ref}", which does not exist in the candidate tree (09 §5.3 item 5: docs/ is temporary-only and must not be relied on; remove the reference or re-home the content as a fact object)`,

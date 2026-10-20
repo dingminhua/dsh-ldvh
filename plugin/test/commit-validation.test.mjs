@@ -716,6 +716,57 @@ test("checkDocsReferences does not flag plugin/web/docs references", () => {
 	assert.equal(result.ok, true);
 });
 
+test("checkDocsReferences exempts a token quoted as the rule's own truncation report", () => {
+	// The docs/ rule's own subject is a truncated CJK-filename token. Quoting that
+	// defect (as pitfall-430bef13's 症状 must) names BOTH the real path and the
+	// prefix the validator produced; the prefix alone is an artifact of the rule,
+	// not an authority claim. The real path is still checked on its own.
+	const content = "报出的 token 是被截断的 ASCII 前缀（如 `docs/workcase-996e207a-指称形态候选-2026-10-18.md` 被截成 `docs/workcase-996e207a-`）。";
+	const result = checkDocsReferences(
+		[{ path: "ldvh-base/pitfalls/pitfall-430bef13-3984-4b67-92e8-2dc5ab4c07cf.md", content }],
+		{ exists: (p) => p === "docs/workcase-996e207a-指称形态候选-2026-10-18.md" }
+	);
+	assert.equal(result.ok, true);
+});
+
+test("checkDocsReferences still blocks the real path when only the quoted prefix appears", () => {
+	// Same shape, but the full path does NOT resolve: the prefix cannot excuse
+	// itself by being mentioned, so the dangling real target still blocks.
+	const result = checkDocsReferences(
+		[{ path: "specs/99-new.md", content: "见 `docs/missing-指称候选.md`（其截断形为 `docs/missing-`）。" }],
+		{ exists: () => false }
+	);
+	assert.equal(result.ok, false);
+	assert.equal(result.issues[0].rule, "validation/docs_reference_dangling");
+});
+
+test("checkDocsReferences does not waive a dangling prefix for a fabricated longer token", () => {
+	// 2026-10 订正（独立复核发现）：原豁免条件只要求「文本里另有一个以该前缀开头的
+	// 更长 token」，**不要求那个更长 token 可解析**——于是任何悬空的 docs/ 引用只
+	// 要在旁边编造一个更长的同类 token 就能被洗白。豁免的前提是「真实路径也被检
+	// 查过」，故更长者必须自己 exists 为真；它是假的，就谁都豁免不了。
+	const content = "见 `docs/totally-nonexistent-abcd-efgh-ijkl-mnop.md` 与其截断形 `docs/totally-nonexistent-`。";
+	const result = checkDocsReferences(
+		[{ path: "specs/99-new.md", content }],
+		{ exists: () => false }
+	);
+	assert.equal(result.ok, false, "a fabricated longer token must not launder the dangling prefix");
+	const flagged = result.issues.map((issue) => issue.message).join("\n");
+	assert.ok(flagged.includes("docs/totally-nonexistent-"), "the truncated token itself must be reported");
+	assert.ok(flagged.includes("docs/totally-nonexistent-abcd-efgh-ijkl-mnop.md"), "the fabricated token must be reported too");
+});
+
+test("checkDocsReferences waives the prefix only when the longer token really exists", () => {
+	// 同一条文本，只把 exists 改为认识那个真实路径：此时前缀是校验器自己产出的截断
+	// 产物，可豁免；真实路径自行核验通过；整体无悬空引用。
+	const content = "见 `docs/totally-nonexistent-abcd-efgh-ijkl-mnop.md` 与其截断形 `docs/totally-nonexistent-`。";
+	const result = checkDocsReferences(
+		[{ path: "specs/99-new.md", content }],
+		{ exists: (p) => p === "docs/totally-nonexistent-abcd-efgh-ijkl-mnop.md" }
+	);
+	assert.equal(result.ok, true);
+});
+
 test("isSpecOrFactCarrierPath limits the rule to spec/fact carriers", () => {
 	assert.equal(isSpecOrFactCarrierPath("specs/00-x.md"), true);
 	assert.equal(isSpecOrFactCarrierPath("specs/attachments/a.md"), true);
