@@ -10,13 +10,36 @@ export const FACT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'f
 export type FactType = (typeof FACT_TYPES)[number]
 export type FieldExpectation = 'string' | 'number' | 'array' | 'object'
 
+/**
+ * `expected: 'object'` 的内容核验形状（workcase-54d4d176 复核发现 3）。
+ *
+ * 只登记 `'object'` 无法回答「什么样的对象才算数」：读取层的
+ * `matchesExpectation` 对 object 只能做 `isRecord` 判定，于是 `{}` 与
+ * `{ garbage_key: 1 }` 都会被当作合法承载**原样投影**（而 CLI 侧
+ * `normalizeAttributionRef` 对同样输入返回 undefined、根本不投影）——同一
+ * 载体两套读法，且 web 侧那套是静默放行。
+ *
+ * `requiredKeys` 是「对象形态还必须带哪些身份键」的最小声明；`nonEmptyKeys`
+ * 是「这些键的值必须是非空字符串」。二者都只描述**承载完整性**，不解释语义
+ * （语义仍归规范源）。未给出的 object 字段维持既有宽松行为，不在本次扩围。
+ */
+export type ObjectShape = Readonly<{
+  requiredKeys?: readonly string[]
+  nonEmptyKeys?: readonly string[]
+}>
+
 export type FactFieldContract = Readonly<Record<string, Readonly<{
   fieldKey: string
   expected: FieldExpectation
   required: boolean
+  objectShape?: ObjectShape
 }>>>
 
-const field = (fieldKey: string, expected: FieldExpectation, required: boolean) => ({ fieldKey, expected, required })
+const field = (fieldKey: string, expected: FieldExpectation, required: boolean) =>
+  ({ fieldKey, expected, required })
+
+const objectField = (fieldKey: string, required: boolean, objectShape: ObjectShape) =>
+  ({ fieldKey, expected: 'object' as const, required, objectShape })
 
 const common = {
   object_uid: field('object-uid', 'string', false),
@@ -127,7 +150,13 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     ...common,
     phenomenon: field('friction-phenomenon', 'string', true),
     attribution: field('friction-attribution', 'string', false),
-    attribution_ref: field('friction-attribution-ref', 'string', false),
+    // 26 §8/§11（2026-10 订正）：attribution_ref 是**对象形态**
+    // { object_uid }，与 relations 的 target 同一承载——原登记 string 致
+    // 真实载体（对象形态）被读取层 type_mismatch 静默丢弃（workcase-54d4d176）。
+    attribution_ref: objectField('friction-attribution-ref', false, {
+      requiredKeys: ['object_uid'],
+      nonEmptyKeys: ['object_uid'],
+    }),
     impact: field('friction-impact', 'string', true),
     // occurrence（§8 必填）与 disposition（§8 条件必填）在契约里都登记为**可选**：
     // 契约只有 required 二值，无法表达「按状态条件必填」，而二者恰都是条件字段

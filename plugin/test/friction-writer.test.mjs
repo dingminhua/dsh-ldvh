@@ -1568,3 +1568,251 @@ test("list: bad carrier with invalid status lands in invalid (26 §12)", async (
     assert.equal(listed.value.invalid[0].reason.includes("outside the closed set"), true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 26 §8/§11 锚点型（2026-10 订正）：attribution_ref 的规范形态是对象
+// { object_uid }，裸 string 仅存量兼容。
+// ---------------------------------------------------------------------------
+
+/** Build a complete (Code-assigned) Friction frontmatter for field-level validation tests. */
+function validStoredFrontmatter(overrides = {}) {
+  return {
+    object_uid: "33333333-3333-4333-8333-333333333333",
+    fact_type_key: "friction",
+    title: "CI 构建缓慢",
+    status: "observing",
+    phenomenon: "CI 每次构建平均需要 8 分钟，其中 5 分钟花在重复依赖安装上。",
+    impact: "heavy",
+    created_at: "2026-09-10T12:00:00+08:00",
+    occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" },
+    change_log: [{ at: "2026-09-10T12:00:00+08:00", summary: "受控创建" }],
+    ...overrides,
+  };
+}
+
+test("attribution_ref 形态：对象形态与裸 string 均接受，坏形态被拒（26 §8/§11 锚点型）", () => {
+  const anchorUid = "8d5437b7-91c4-4cbe-af27-1d6f305297af";
+
+  // 对象形态（规范）
+  const objectForm = validateFrictionFrontmatter(validStoredFrontmatter({ attribution_ref: { object_uid: anchorUid } }));
+  assert.deepEqual(objectForm.issues, [], "object form is the canonical carrier shape");
+
+  // 裸 string（存量兼容）
+  const bareString = validateFrictionFrontmatter(validStoredFrontmatter({ attribution_ref: anchorUid }));
+  assert.deepEqual(bareString.issues, [], "bare uuid string stays accepted for legacy carriers");
+
+  // 裸 string 但不是合法 uuid
+  const badString = validateFrictionFrontmatter(validStoredFrontmatter({ attribution_ref: "not-a-uuid" }));
+  assert.equal(badString.issues.length, 1);
+  assert.match(badString.issues[0], /bare string must be a valid object_uid uuid/);
+
+  // 对象形态但 object_uid 非法
+  const badObject = validateFrictionFrontmatter(validStoredFrontmatter({ attribution_ref: { object_uid: "nope" } }));
+  assert.equal(badObject.issues.length, 1);
+  assert.match(badObject.issues[0], /must be \{ object_uid \} with a valid uuid/);
+
+  // 错误类型
+  const badType = validateFrictionFrontmatter(validStoredFrontmatter({ attribution_ref: 42 }));
+  assert.equal(badType.issues.length, 1);
+  assert.match(badType.issues[0], /must be \{ object_uid \} object form/);
+
+  // 未出现 = 合法（26 §8：条件出现）
+  assert.deepEqual(validateFrictionFrontmatter(validStoredFrontmatter()).issues, []);
+});
+
+test("attribution_ref 可解析性：指向已存在对象→入账；指向空气→零写拒绝（26 §8/§11）", async () => {
+  await withTemp("friction-attribution.", async (root) => {
+    const anchorUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createAdrFixture(root, anchorUid);
+
+    // 可解析：对象形态
+    const okObject = await createFrictionObject({
+      factSourceRoot: root,
+      frontmatterDraft: validFrontmatterDraft({ title: "对象形态归因", attribution_ref: { object_uid: anchorUid } }),
+      bodyMarkdown: validBodyMarkdown(validFrontmatterDraft({ title: "对象形态归因", attribution_ref: { object_uid: anchorUid } })),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(okObject.ok, JSON.stringify(okObject.error));
+    const readBack = await readFrictionObject({ factSourceRoot: root, objectUid: okObject.value.object_uid });
+    assert.ok(readBack.ok);
+    assert.deepEqual(readBack.value.frontmatter.attribution_ref, { object_uid: anchorUid },
+      "read projects attribution_ref in the canonical object shape");
+
+    // 可解析：裸 string 存量形态
+    const okBare = await createFrictionObject({
+      factSourceRoot: root,
+      frontmatterDraft: validFrontmatterDraft({ title: "裸串归因", attribution_ref: anchorUid }),
+      bodyMarkdown: validBodyMarkdown(validFrontmatterDraft({ title: "裸串归因", attribution_ref: anchorUid })),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(okBare.ok, JSON.stringify(okBare.error));
+
+    // 不可解析：指向不存在的 uid → 拒绝且零写
+    const ghostUid = "00000000-0000-4000-8000-000000000000";
+    const ghostDraft = validFrontmatterDraft({ title: "悬空归因", attribution_ref: { object_uid: ghostUid } });
+    const rejected = await createFrictionObject({
+      factSourceRoot: root,
+      frontmatterDraft: ghostDraft,
+      bodyMarkdown: validBodyMarkdown(ghostDraft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(rejected.ok, false, "an unresolvable anchor must not be admitted");
+    assert.equal(rejected.error.code, "friction/attribution_ref_unresolvable");
+    assert.match(rejected.error.message, /does not resolve to any same-project fact object/);
+
+    const listed = await listFrictionObjects({ factSourceRoot: root });
+    assert.ok(listed.ok);
+    assert.equal(listed.value.total, 2, "the rejected carrier left no file behind (zero-write)");
+    assert.equal(listed.value.items.some((item) => item.title === "悬空归因"), false);
+  });
+});
+
+test("attribution_ref 可解析性：update 与 correct 同样核验（补充级更新不留后门，26 §8/§11）", async () => {
+  await withTemp("friction-attribution-u.", async (root) => {
+    const anchorUid = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff";
+    await createAdrFixture(root, anchorUid);
+
+    const created = await createFrictionObject({
+      factSourceRoot: root,
+      frontmatterDraft: validFrontmatterDraft(),
+      bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+    const objectUid = created.value.object_uid;
+    const read = await readFrictionObject({ factSourceRoot: root, objectUid });
+    assert.ok(read.ok);
+
+    // update：后补一个可解析的归因锚点 → 通过
+    const updatedOk = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid,
+      expectedFingerprint: read.value.fingerprint,
+      frontmatterAfter: { attribution_ref: { object_uid: anchorUid } },
+      bodyMarkdownAfter: validBodyMarkdown(),
+      changeSummary: "补充归因锚点",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(updatedOk.ok, JSON.stringify(updatedOk.error));
+
+    const reread = await readFrictionObject({ factSourceRoot: root, objectUid });
+    assert.ok(reread.ok);
+    assert.deepEqual(reread.value.frontmatter.attribution_ref, { object_uid: anchorUid });
+
+    // update：改成悬空锚点 → 拒绝且零写
+    const ghostUid = "11111111-1111-4111-8111-111111111111";
+    const updatedBad = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid,
+      expectedFingerprint: reread.value.fingerprint,
+      frontmatterAfter: { attribution_ref: { object_uid: ghostUid } },
+      bodyMarkdownAfter: validBodyMarkdown(),
+      changeSummary: "改成悬空锚点",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(updatedBad.ok, false);
+    assert.equal(updatedBad.error.code, "friction/attribution_ref_unresolvable");
+
+    const afterReject = await readFrictionObject({ factSourceRoot: root, objectUid });
+    assert.ok(afterReject.ok);
+    assert.deepEqual(afterReject.value.frontmatter.attribution_ref, { object_uid: anchorUid },
+      "rejected update left the carrier byte-identical in substance");
+
+    // correct（终态）：attr 继承落盘值可解析则放行；改为悬空则拒绝。
+    // 终态记录需先 resolve 才有处置段，这里直接用 resolved 路径造一条。
+    await withTemp("friction-attribution-c.", async (root2) => {
+      await createAdrFixture(root2, anchorUid);
+      const draft = validFrontmatterDraft({ attribution_ref: { object_uid: anchorUid } });
+      const c = await createFrictionObject({
+        factSourceRoot: root2,
+        frontmatterDraft: draft,
+        bodyMarkdown: validBodyMarkdown(draft),
+        sessionSignature: TEST_SIGNATURE,
+      });
+      assert.ok(c.ok, JSON.stringify(c.error));
+      const r = await readFrictionObject({ factSourceRoot: root2, objectUid: c.value.object_uid });
+      assert.ok(r.ok);
+      // 让记录进入终态：observing → voided（无需 informs）
+      const voided = await updateFrictionObject({
+        factSourceRoot: root2,
+        objectUid: c.value.object_uid,
+        expectedFingerprint: r.value.fingerprint,
+        frontmatterAfter: { status: "voided", disposition: "误记：现象由外部服务维护窗口造成，与本项目无关。" },
+        bodyMarkdownAfter: validBodyMarkdown(draft, { disposition: "误记：现象由外部服务维护窗口造成，与本项目无关。" }),
+        changeSummary: "作废",
+        sessionSignature: TEST_SIGNATURE,
+      });
+      assert.ok(voided.ok, JSON.stringify(voided.error));
+      const r2 = await readFrictionObject({ factSourceRoot: root2, objectUid: c.value.object_uid });
+      assert.ok(r2.ok);
+
+      const correctedOk = await correctFrictionObject({
+        factSourceRoot: root2,
+        objectUid: c.value.object_uid,
+        expectedFingerprint: r2.value.fingerprint,
+        bodyMarkdownAfter: validBodyMarkdown(draft, { disposition: "误记：现象由外部服务维护窗口造成，与本项目无关。" }) + "\n\n更正补充说明。",
+        humanAuthorization: "Human 于 2026-10 授权更正（测试）",
+        changeSummary: "终态正文更正",
+        sessionSignature: TEST_SIGNATURE,
+      });
+      assert.ok(correctedOk.ok, JSON.stringify(correctedOk.error));
+
+      // 26 §13：correct 不接收 frontmatter 值（只收 relations/正文/字段有无），
+      // 悬空锚点只能来自落盘的继承值——下面直接篡改载体验证继承值同样过核验闸。
+      // 篡改落盘载体：把 attribution_ref 改成指向空气的 uid（模拟非法写入/迁移残留）。
+      // correct 继承落盘 frontmatter，必须在写盘前被可解析性核验拦下——即便正文有变更。
+      const carrierPath = join(root2, FRICTION_DIRECTORY, frictionFileName(c.value.object_uid));
+      const rawCarrier = await readFile(carrierPath, "utf8");
+      const tampered = rawCarrier.replace(anchorUid, "22222222-2222-4222-8222-222222222222");
+      assert.notEqual(tampered, rawCarrier, "tampering actually rewrote the anchor uid");
+      await writeFile(carrierPath, tampered, "utf8");
+      const r3 = await readFrictionObject({ factSourceRoot: root2, objectUid: c.value.object_uid });
+      assert.ok(r3.ok);
+
+      const correctedBad = await correctFrictionObject({
+        factSourceRoot: root2,
+        objectUid: c.value.object_uid,
+        expectedFingerprint: r3.value.fingerprint,
+        bodyMarkdownAfter: validBodyMarkdown(draft, { disposition: "误记：现象由外部服务维护窗口造成，与本项目无关。" }) + "\n\n第二次更正说明。",
+        humanAuthorization: "Human 于 2026-10 授权更正（测试）",
+        changeSummary: "正文更正（落盘锚点已悬空）",
+        sessionSignature: TEST_SIGNATURE,
+      });
+      assert.equal(correctedBad.ok, false, "correct must not admit a carrier whose inherited anchor is dangling");
+      assert.equal(correctedBad.error.code, "friction/attribution_ref_unresolvable");
+    });
+  });
+});
+
+test("attribution_ref 可解析性只认顶层 object_uid 声明行（缩进 uid 不得被当成可解析，26 §8/§11）", async () => {
+  // 2026-10 复核发现 6 的 fail-open 方向：判定「目标可解析」时若允许行首空白，
+  // 那么 relations 成员或正文里的**缩进** uid 行就会被当成某载体声明的身份。
+  // 于是「引用一个只作为关系目标出现在别人文件里的 uid」也会被判可解析——
+  // 等于绕开「同项目某已存在事实对象」这条要求。这里钉住行首锚定。
+  await withTemp("friction-attribution-ind.", async (root) => {
+    const ghostUid = "cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa";
+    const hostUid = "dddddddd-eeee-4fff-8aaa-bbbbbbbbbbbb";
+    // 抓取面存在的「宿主」载体：它自己的 object_uid 是 hostUid，ghostUid 只以
+    // 缩进的关系目标形态出现——不是顶层声明。
+    await mkdir(join(root, FRICTION_DIRECTORY), { recursive: true });
+    await writeFile(
+      join(root, FRICTION_DIRECTORY, `friction-${hostUid}.md`),
+      `---\nobject_uid: ${hostUid}\nfact_type_key: friction\ntitle: host carrier\nstatus: observing\n` +
+        `created_at: "2026-01-01T00:00:00.000Z"\nimpact: light\nphenomenon: "host"\n` +
+        `relations:\n  - relation_key: informs\n    target:\n      object_uid: ${ghostUid}\n` +
+        `occurrence:\n  count: 1\n  first_at: "2026-01-01T00:00:00.000Z"\n  last_at: "2026-01-01T00:00:00.000Z"\n` +
+        `change_log: []\n---\n\n## 现象\n\nfixture\n`,
+      "utf8",
+    );
+
+    const result = await createFrictionObject({
+      factSourceRoot: root,
+      frontmatterDraft: validFrontmatterDraft({ attribution_ref: { object_uid: ghostUid } }),
+      bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
+      changeSummary: "pin: indented uid is not a carrier declaration",
+    });
+    assert.equal(result.ok, false, "a uid that only appears as an indented relation target must not resolve");
+    assert.equal(result.error.code, "friction/attribution_ref_unresolvable");
+  });
+});

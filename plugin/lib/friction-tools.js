@@ -27,6 +27,10 @@ import {
   updateFrictionObject,
   correctFrictionObject,
   listFrictionObjects,
+  // 投影归一只有一份权威（workcase-54d4d176 复核发现 7）：原先此处内联了一份
+  // 逐字等价的 copy，两份一旦漂移就会出现「详情归一了、列表没归一」这类只在
+  // 某个读法上暴露的分叉。writer 侧已 export，直接复用。
+  normalizeAttributionRef,
 } from "./friction-writer.js";
 import { objectRef, objectRefOf } from "./object-reference.js";
 import { currentRouteValues } from "./session-signature.js";
@@ -144,7 +148,10 @@ async function executeReadObject(args, exec, deps) {
       status: fm.status,
       phenomenon: typeof fm.phenomenon === "string" ? fm.phenomenon : undefined,
       attribution: typeof fm.attribution === "string" ? fm.attribution : undefined,
-      attribution_ref: typeof fm.attribution_ref === "string" ? fm.attribution_ref : undefined,
+      // 26 §8/§11（2026-10 订正）：attribution_ref 是对象形态 { object_uid }
+      // （锚点型）。原 `typeof === 'string'` 判定把真实载体的对象形态静默丢弃
+      // （workcase-54d4d176）。裸 string 为存量兼容，归一为对象形态后投影。
+      attribution_ref: normalizeAttributionRef(fm.attribution_ref),
       impact: typeof fm.impact === "string" ? fm.impact : undefined,
       occurrence: fm.occurrence && typeof fm.occurrence === "object" ? fm.occurrence : undefined,
       disposition: typeof fm.disposition === "string" ? fm.disposition : undefined,
@@ -449,6 +456,10 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
     "friction/frontmatter_invalid", "friction/body_invalid", "friction/coherence_invalid",
     "friction/initial_state_violation", "friction/status_transition_invalid", "friction/status_terminal",
     "friction/relations_invalid", "friction/relation_target_unresolvable", "friction/occurrence_invalid",
+    // 26 §8/§11 锚点型：attribution_ref 出现时 object_uid 必须可解析为同项目事实
+    // 对象；不可解析即零写拒绝——必须登记在此，否则会被当作 availability 失败
+    // 报成 unavailable（workcase/refs_target_unresolvable 漏登记的同类教训）。
+    "friction/attribution_ref_unresolvable",
     "friction/cas_conflict", "friction/change_summary_required", "friction/invalid_uid",
     "invalid_request",
   ]);
@@ -521,7 +532,22 @@ function parameterSchemaFor(operationKey) {
       status: { type: "string", enum: ["observing", "open", "resolved", "voided"], description: "create must be observing; transitions: observing→open (threshold / Human 提前排期), open→observing (放回留观, stamps occurrence.human_return_at), →resolved (informs 1..n), →voided (no relations); resolved & voided terminal & read-only (26 §9)" },
       phenomenon: { type: "string", description: "single-sentence phenomenon statement (non-conclusion, e.g. 「CI 平均 8 分钟」 not 「CI 太慢」); must appear verbatim in the 现象 body section" },
       attribution: { type: "string", description: "which subsystem/spec/process the obstacle roots in; free text — the root is often a spec/tool/process with no object identity; omit when not yet attributable (backfill via supplement update)" },
-      attribution_ref: { type: "string", description: "precise reference to an existing same-project fact object_uid for the root; optional — when present Code verifies it resolves (26 §8); enables mechanical aggregation by attribution" },
+      // 26 §8/§11（2026-10 订正）：规范形态是对象 { object_uid }（锚点型，与
+      // relations 的 target 同一承载）；裸 string 保留为存量兼容分支，排名在
+      // 第一——schema-writer-agreement.test.mjs 的 valueSatisfying 取 oneOf[0]
+      // 造样，string 在前既保持存量样仍是合法样，也不会把对象形态判成不合法。
+      attribution_ref: {
+        oneOf: [
+          { type: "string" },
+          {
+            type: "object",
+            properties: { object_uid: { type: "string" } },
+            required: ["object_uid"],
+            additionalProperties: false
+          }
+        ],
+        description: "precise reference to an existing same-project fact object_uid for the root, as the OBJECT form { object_uid: \"<uuid>\" } (26 §8/§11 锚点型, 2026-10 订正 — the same carrier shape as relations.target); a bare uuid string is accepted for legacy carriers only. Optional — when present Code verifies object_uid resolves (26 §8); enables mechanical aggregation by attribution"
+      },
       occurrence: { type: "object", properties: { count: { type: "integer" }, first_at: { type: "string" }, last_at: { type: "string" }, human_return_at: { type: "string" } }, required: ["count", "first_at", "last_at"], additionalProperties: false, description: "REQUIRED on create with count=1, first_at=last_at=now, human_return_at=null; count increments by 1 per supplement update (same update as the 现象 extension); frozen once resolved/voided; human_return_at is stamped by open→observing (放回留观) and makes the threshold transition skip this record (26 §8/§9.2, 36 §9 item 4)" },
       impact: { type: "string", enum: ["light", "medium", "heavy"], description: "impact rating; consumers anchored in 26 §12 (F1 projection, metric aggregation) and the heavy-bypasses-buffer birth path" },
 

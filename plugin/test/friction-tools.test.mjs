@@ -851,3 +851,36 @@ test("tool schema: frontmatter_after update schema omits required, carries type 
     assert.ok(typeof schema.properties === "object", "must carry properties");
   });
 });
+
+// ---------------------------------------------------------------------------
+// attribution_ref 可解析性（26 §8/§11 锚点型）：新失败码必须进 mechanicalCodes，
+// 否则会被 enevelope 层的 availability 判定吞掉、报成 unavailable——
+// workcase/refs_target_unresolvable 漏登记曾造成同类缺陷。
+// ---------------------------------------------------------------------------
+test("friction-write-object create: unresolvable attribution_ref is a mechanical rejection carrying the code (26 §8/§11)", async () => {
+  await withTemp("friction-tools-attr.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const deps = makeDeps(home, base);
+    const desc = makeDescriptors(deps);
+    await writeFile(join(repo, "ldvh-base", "goal.md"), GOAL_MD_FIXTURE, "utf8");
+
+    const draft = validFrontmatterDraft({ attribution_ref: { object_uid: "00000000-0000-4000-8000-000000000000" } });
+    const env = await run(desc, "ldvh_friction_write", {
+      action: "create",
+      frontmatter_draft: draft,
+      body_markdown: validBodyMarkdown(draft),
+    }, repo);
+
+    assert.notEqual(env.outcome, "unavailable",
+      "a dangling anchor is a mechanical rejection, not an availability failure (gaps=" + JSON.stringify(env.gaps) + ")");
+    assert.equal(env.outcome, "rejected");
+    assert.equal(env.result, null);
+    assert.deepEqual(env.scope.not_completed, ["write"]);
+    assert.ok(
+      env.gaps.some((g) => g.includes("friction/attribution_ref_unresolvable")),
+      "the rejection must surface the specific code; gaps=" + JSON.stringify(env.gaps),
+    );
+    const items = await readFile(join(repo, "ldvh-base", "frictions"), "utf8").catch(() => null);
+    assert.equal(items, null, "no file should be written (zero write)");
+  });
+});

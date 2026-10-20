@@ -179,3 +179,16 @@ test('workcase registers both review axes (21 §8): pre_reviews and reviews', ()
   assert.equal(FACT_FIELD_CONTRACT.workcase.reviews.required, false);
   assert.equal(FACT_FIELD_CONTRACT.workcase.pre_reviews.required, false);
 });
+
+test('friction registers attribution_ref as an object reference (26 §8/§11)', () => {
+  // 回归点（workcase-54d4d176）：attribution_ref 原登记为 string，而真实载体
+  // （ldvh-base/frictions/friction-abf557e1…md）写的是 {object_uid} 对象形态——
+  // 读取层按 type_mismatch 静默丢弃该字段（Web 详情与 CLI 列表/详情三处全丢）。
+  // 26 §8 字段表已订正为 object 形态（与 relations 的 target 同一承载），契约随之。
+  assert.equal(FACT_FIELD_CONTRACT.friction.attribution_ref.expected, 'object');
+  assert.equal(FACT_FIELD_CONTRACT.friction.attribution_ref.required, false);
+  // 归因自由文本仍为 string（26 §8：不强制指向事实对象），两字段分工不变。
+  assert.equal(FACT_FIELD_CONTRACT.friction.attribution.expected, 'string');
+  // 列表投影携带 attribution_ref（F1 按归因机械聚合的输入，26 §12）。
+  assert.ok(FACT_LIST_FIELD_NAMES.friction.includes('attribution_ref'));
+});

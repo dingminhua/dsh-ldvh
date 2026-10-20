@@ -107,6 +107,90 @@ function success(value) {
   return { ok: true, value };
 }
 
+/**
+ * 26 §8/§11（2026-10 订正）：attribution_ref 的规范形态是对象 { object_uid }
+ * （锚点型）。列表/详情投影时把两种合法承载归一到对象形态：裸 string 为存量
+ * 兼容（历史载体写法），提升为 { object_uid: <string> }；对象形态取其
+ * object_uid。形状不合法者返回 undefined —— 不把坏数据投影出去
+ * （workcase-54d4d176 回归点：原 `typeof === 'string'` 判定把对象形态静默丢弃）。
+ *
+ * 这是投影归一的**唯一**权威：friction-tools.js 直接 import 本函数，不再内联
+ * 副本（2026-10 复核发现 7——两份逐字等价的 copy 一旦漂移，就会出现「详情归一
+ * 了、列表没归一」这类只在某一种读法上暴露的分叉）。
+ */
+export function normalizeAttributionRef(value) {
+  if (typeof value === "string" && value.length > 0) {
+    return { object_uid: value };
+  }
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    typeof value.object_uid === "string" &&
+    value.object_uid.length > 0
+  ) {
+    return { object_uid: value.object_uid };
+  }
+  return undefined;
+}
+
+/** Fact-type directories scanned when resolving an anchor reference. */
+const ATTRIBUTION_REF_DIRS = [
+  ["spark", "sparks"],
+  ["workcase", "workcases"],
+  ["adr", "adrs"],
+  ["pitfall", "pitfalls"],
+  ["research", "researches"],
+  ["friction", "frictions"],
+  ["norm", "norms"],
+];
+
+/**
+ * 26 §8/§11 可解析性：`attribution_ref` 出现时，Code 必须核验其 object_uid 指向
+ * 同项目某**已存在**的事实对象；不可解析即拒绝入账（零写）。
+ *
+ * 为什么必须在写流程里做、而不是只做形态校验：26 §8 的承诺是「出现时由 Code
+ * 机械核验可解析」。只校验形态（uuid 长得像）等于允许一个指向空气的锚点通过，
+ * 而 §12 按归因机械聚合会把这条账算到一个不存在的对象头上——形态合法但语义
+ * 悬空，正是 workcase-54d4d176 那类静默错误的上游形态。
+ *
+ * 返回 { ok:true } 或 { ok:false, code, message }。裸 string 与对象形态都按
+ * 存量兼容接受（归一后取 object_uid），形状问题由 validateFrictionFrontmatter
+ * 在更早的关口拦下，这里只负责「指向的对象在不在」。
+ */
+async function verifyAttributionRefResolves(factSourceRoot, frontmatter) {
+  const uid = normalizeAttributionRef(frontmatter.attribution_ref)?.object_uid;
+  if (typeof uid !== "string" || uid.length === 0) return { ok: true }; // 未出现 = 不经此核验（26 §8：出现不强制）
+  const target = uid.toLowerCase();
+  for (const [, dir] of ATTRIBUTION_REF_DIRS) {
+    const abs = join(factSourceRoot, dir);
+    let entries;
+    try {
+      entries = await readdir(abs, { withFileTypes: true });
+    } catch {
+      continue; // 目录缺失 = 该类型未在本项目落地，继续扫其余类型
+    }
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      if (!/\.(md|yaml|yml)$/.test(entry.name)) continue;
+      const raw = await readFile(join(abs, entry.name), "utf8").catch(() => null);
+      if (raw === null) continue;
+      // 行首锚定 + 不带 \s* 前缀：只认顶层 object_uid 声明行。带 `^\s*` 会把
+      // relations 成员或正文里的缩进 uid 也当成「本载体声明的身份」，那会让
+      // 「引用别处出现过的 uid」被误判为可解析（fail-open 方向，2026-10 复核发现 6）。
+      // 捕获值再走 UUID_PATTERN：本函数只在 writer 内部使用，直接复用同一格式常量，
+      // 不让「可解析」与「合法 uid」分裂成两套判定。
+      const uidMatch = raw.match(/^object_uid:[ \t]*["']?([^"'\s]+)["']?[ \t]*$/m);
+      if (uidMatch && UUID_PATTERN.test(uidMatch[1]) && uidMatch[1].toLowerCase() === target) return { ok: true };
+    }
+  }
+  return {
+    ok: false,
+    code: "friction/attribution_ref_unresolvable",
+    message: `attribution_ref.object_uid "${uid}" does not resolve to any same-project fact object (26 §8/§11 锚点型：出现时 Code 机械核验可解析，不可解析即拒绝入账)`,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Validation (the mechanical slice of specs/26 §8, §9, §13, §14.1)
 // ---------------------------------------------------------------------------
@@ -170,6 +254,27 @@ export function validateFrictionFrontmatter(frontmatter) {
   if (frontmatter.attribution !== undefined) {
     if (typeof frontmatter.attribution !== "string" || frontmatter.attribution.length === 0) {
       issues.push("attribution: when present must be a non-empty string (03 §6.1 — omit when not yet attributable)");
+    }
+  }
+
+  // attribution_ref (26 §8/§11 锚点型, 2026-10 订正): conditional — when present
+  // it must be the object form { object_uid } with a syntactically valid uuid.
+  // A bare string is lifted (存量兼容) so legacy carriers keep validating; any
+  // other shape rejects the frontmatter. 语义可解析性（object_uid 指向的载体
+  // 真实存在）由 create/update/correct 流程核验 —— 它们握有 factSourceRoot。
+  if (frontmatter.attribution_ref !== undefined) {
+    const ref = frontmatter.attribution_ref;
+    if (typeof ref === "string") {
+      // 存量裸字符串：提升后仍须是合法 uuid（空串/乱形状拒）
+      if (ref.length === 0 || !UUID_PATTERN.test(ref)) {
+        issues.push("attribution_ref: bare string must be a valid object_uid uuid (26 §8/§11 锚点型)");
+      }
+    } else if (ref !== null && typeof ref === "object" && !Array.isArray(ref)) {
+      if (typeof ref.object_uid !== "string" || ref.object_uid.length === 0 || !UUID_PATTERN.test(ref.object_uid)) {
+        issues.push("attribution_ref: must be { object_uid } with a valid uuid (26 §8/§11 — 对象形态, 2026-10 订正)");
+      }
+    } else {
+      issues.push("attribution_ref: must be { object_uid } object form (26 §8/§11)");
     }
   }
 
@@ -526,6 +631,9 @@ export async function createFrictionObject(args) {
   if (!relCheck.ok) {
     return failure("friction/relations_invalid", "relations failed mechanical checks", { issues: relCheck.issues });
   }
+  // 26 §8/§11：attribution_ref 出现时核验 object_uid 指向已存在的事实对象（零写拒绝）。
+  const attrCheck = await verifyAttributionRefResolves(factSourceRoot, frontmatter);
+  if (!attrCheck.ok) return failure(attrCheck.code, attrCheck.message);
 
   // Body structure + carrier coherence (26 §8, §14.1)
   const body = assembleBody(frontmatter.title, bodyMarkdown);
@@ -732,6 +840,9 @@ export async function updateFrictionObject(args) {
   if (!relCheck.ok) {
     return failure("friction/relations_invalid", "updated relations failed mechanical checks", { issues: relCheck.issues });
   }
+  // 26 §8/§11：归因锚点出现（含「归因后补」的补充级更新）时核验可解析（零写拒绝）。
+  const attrCheck = await verifyAttributionRefResolves(factSourceRoot, fm);
+  if (!attrCheck.ok) return failure(attrCheck.code, attrCheck.message);
 
   // informs targets must resolve to existing ADR/WorkCase objects (26 §11;
   // ADR 任状态可解析；WorkCase 关闭状态是审核义务，机械只查存在可解析)。
@@ -953,6 +1064,10 @@ export async function correctFrictionObject(args) {
   if (!relCheck.ok) {
     return failure("friction/relations_invalid", "corrected relations failed mechanical checks", { issues: relCheck.issues });
   }
+  // 26 §8/§11：correct 继承落盘 frontmatter，attribution_ref 若存在同样须可解析
+  // （受控更正是唯一改终态记录的入口，不能成为绕过锚点核验的后门）。
+  const attrCheck = await verifyAttributionRefResolves(factSourceRoot, next);
+  if (!attrCheck.ok) return failure(attrCheck.code, attrCheck.message);
 
   // 关系目标解析（含 commit locator），与 update 路径同口径。
   for (const rel of next.relations ?? []) {
@@ -1120,7 +1235,10 @@ export async function listFrictionObjects(args) {
       status,
       impact: typeof frontmatter.impact === "string" ? frontmatter.impact : "",
       attribution: typeof frontmatter.attribution === "string" ? frontmatter.attribution : undefined,
-      attribution_ref: typeof frontmatter.attribution_ref === "string" ? frontmatter.attribution_ref : undefined,
+      // 26 §8/§11（2026-10 订正）：attribution_ref 是对象形态 { object_uid }
+      // （锚点型）。原 `typeof === 'string'` 判定把真实载体的对象形态静默丢弃
+      // （workcase-54d4d176）。裸 string 为存量兼容，归一为对象形态后投影。
+      attribution_ref: normalizeAttributionRef(frontmatter.attribution_ref),
       // 26 §8 两条 UI 消费字段：occurrence 是「攒到什么程度」的直接依据（留观/待修
       // 的判断输入），disposition 是 voided 的废弃理由（列表卡终态框直读，不必进
       // 详情页）。二者都在 F1 投影内——不投影则卡面无从呈现。

@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto'
 import { lstat, readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import yaml from 'js-yaml'
-import { FACT_FIELD_CONTRACT, type FactType, type FieldExpectation } from './factFieldContract.js'
+import { FACT_FIELD_CONTRACT, type FactType, type FieldExpectation, type ObjectShape } from './factFieldContract.js'
 import { canonicalUid } from '../../shared/factIdentity.js'
 
 export const FACT_TYPE_DIRS = {
@@ -178,9 +178,30 @@ function isTimestampField(field: string): boolean {
   return TIMESTAMP_FIELDS.has(field)
 }
 
-function matchesExpectation(value: unknown, expected: FieldExpectation): boolean {
+/**
+ * 契约对象的承载完整性判定（workcase-54d4d176 复核发现 3）。
+ *
+ * 只做 `isRecord` 时，`{}` 与 `{ garbage_key: 1 }` 都会被当成合法的
+ * `expected: 'object'` 承载原样投影，而 CLI 侧 `normalizeAttributionRef` 对
+ * 同样输入返回 undefined——同一载体两套读法，web 那套是静默放行。故契约可以
+ * 声明 `objectShape`（必备身份键 + 非空键），这里按声明核验；未声明形状的
+ * object 字段维持既有宽松行为（不在本次扩围）。
+ */
+function matchesObjectShape(value: Record<string, unknown>, shape: ObjectShape | undefined): boolean {
+  if (!shape) return true
+  for (const key of shape.requiredKeys ?? []) {
+    if (!(key in value)) return false
+  }
+  for (const key of shape.nonEmptyKeys ?? []) {
+    const member = value[key]
+    if (typeof member !== 'string' || member.trim().length === 0) return false
+  }
+  return true
+}
+
+function matchesExpectation(value: unknown, expected: FieldExpectation, shape?: ObjectShape): boolean {
   if (expected === 'array') return Array.isArray(value)
-  if (expected === 'object') return isRecord(value)
+  if (expected === 'object') return isRecord(value) && matchesObjectShape(value as Record<string, unknown>, shape)
   return typeof value === expected
 }
 
@@ -285,7 +306,7 @@ function projectFields(type: LocalFactType, objectId: string, parsed: Record<str
       if (contract.required) fieldIssues.push({ path: field, reason: 'missing', expected: kind })
       continue
     }
-    if (!matchesExpectation(value, kind)) {
+    if (!matchesExpectation(value, kind, contract.objectShape)) {
       fieldIssues.push({ path: field, reason: 'type_mismatch', expected: kind, raw_value: value })
       continue
     }

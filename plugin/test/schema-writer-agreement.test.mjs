@@ -157,6 +157,23 @@ function valueSatisfying(schema) {
 }
 
 /**
+ * Every legal carrier shape a declared property admits.
+ *
+ * `valueSatisfying` returns ONE sample (for oneOf: the first branch). When a
+ * field carries several legal shapes — `attribution_ref` accepts both the
+ * object form `{ object_uid }` and the legacy bare string — sampling only the
+ * first branch means the other branches are never exercised by this guard, and
+ * a branch that the DSH validator would reject would stay invisible. So probe
+ * each oneOf branch with its own sample.
+ */
+function valueVariantsSatisfying(schema) {
+	if (Array.isArray(schema.oneOf) && schema.oneOf.length > 0) {
+		return schema.oneOf.map((branch) => valueSatisfying(branch));
+	}
+	return [valueSatisfying(schema)];
+}
+
+/**
  * A minimal schema-valid argument object for the create action of a type,
  * carrying every declared create-time argument the tool schema accepts.
  */
@@ -266,15 +283,21 @@ test("schema/writer agreement: the DSH argument validator accepts every optional
 		const aiSupplied = [...writerKeys].filter((field) => !CODE_ASSIGNED.has(field));
 
 		for (const field of aiSupplied) {
-			const args = structuredClone(base);
-			// Only optional fields need probing; required ones are already in.
-			args[key][field] = schema.properties?.[field] !== undefined
-				? valueSatisfying(schema.properties[field])
-				: "x";
+			// 一个字段可能有**多条**合法承载（oneOf 分支）。只造 oneOf[0] 的样会让
+			// 其余分支零覆盖——守卫看起来在守，实际从没验过那些分支。故对 oneOf
+			// 逐分支造样各探一次（这是复核发现 5 指出的覆盖缺口）。
+			const declared = schema.properties?.[field];
+			const candidates = declared !== undefined ? valueVariantsSatisfying(declared) : ["x"];
+			for (const [variantIndex, candidate] of candidates.entries()) {
+				const args = structuredClone(base);
+				// Only optional fields need probing; required ones are already in.
+				args[key][field] = candidate;
 
-			// The exact call the DSH runtime makes before the handler runs.
-			const violations = validateJsonSchemaValue(descriptor.parameters, args, "");
-			for (const violation of violations) failures.push(`${type.name}.${field}: ${violation}`);
+				// The exact call the DSH runtime makes before the handler runs.
+				const violations = validateJsonSchemaValue(descriptor.parameters, args, "");
+				const label = candidates.length > 1 ? `${type.name}.${field}[oneOf#${variantIndex}]` : `${type.name}.${field}`;
+				for (const violation of violations) failures.push(`${label}: ${violation}`);
+			}
 		}
 	}
 
