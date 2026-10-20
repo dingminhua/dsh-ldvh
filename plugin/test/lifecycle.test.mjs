@@ -207,14 +207,18 @@ function makeHostCtx(services = {}) {
 	return ctx;
 }
 
-function makeInstallableAgent(id, cwd, ctx, { root = true, origin, parentSession } = {}) {
+function makeInstallableAgent(id, cwd, ctx, { root = true, origin, parentSession, isSeeded, delegationDepth } = {}) {
 	const disposers = [];
 	// `origin` / `parentSession` 按宿主真实会话头的形状注入（可缺省＝字段不存在）。
 	// 二者是本插件识别子代理的两条判据，故测试必须能分别构造——早期 helper 只造
 	// `{id, cwd}`，使「子代理识别」在测试里**无法表达**，这正是缺陷长期未被发现的原因。
+	// `isSeeded` / `delegationDepth` 同理（2026-10-20 补）：宿主用这两个字段区分
+	// 「委派」与「前缀继承」（isSeeded = fork-inherited prefix），判据收敛需要它们可构造。
 	const header = { id, cwd };
 	if (origin !== undefined) header.origin = origin;
 	if (parentSession !== undefined) header.parentSession = parentSession;
+	if (isSeeded !== undefined) header.isSeeded = isSeeded;
+	if (delegationDepth !== undefined) header.delegationDepth = delegationDepth;
 	const agent = {
 		id,
 		session: { header },
@@ -333,6 +337,68 @@ test("lifecycle: 子代理按 parentSession 识别——origin 缺失的宿主�
 		assert.ok(
 			registry.installedAgentIds().includes("s-blank"),
 			"纯空白的 parentSession 不得被当作子代理（否则根会话会被误拦）",
+		);
+	});
+});
+
+test("lifecycle: 种子根会话（fork/continue）带 parentSession 仍须走 root 路径", async () => {
+	// ## 缺陷经过（2026-10-20 实测）
+	//
+	// 上一用例补的 `parentSession` 判据把**前缀继承**也当成了委派：宿主从既有会话
+	// fork/continue 出新会话时，同样写 `parentSession`（SessionHeader 的 `isSeeded`
+	// 描述逐字为 "Whether the Session contains a fork-inherited prefix"），但不写
+	// `origin`，且 `delegationDepth` 为 0。
+	//
+	// 后果链：`install()` 走 child → `installChild()` 的血缘检查要求父会话是活体
+	// agent，而父通常不是 → 返回 false → 而 install() 早已无条件 return。该会话
+	// 于是**永久没有 ldvh_* 工具、没有 pre-step、没有 sessionScopes**，只剩一条
+	// 32 项 tool-removal 与指引段，无日志无报错。实测全库 407 个会话中 4 个种子根
+	// 会话的 ldvh_* 从 32 掉到 0，49 个普通根与 350 个真子代理无一例外。
+	await withTemp("ldvh-lc.", async (base) => {
+		const home = join(base, "home");
+		const repo = await initRepo(base);
+		await registerProject(dshHome(home), { id: "demo", path: repo });
+
+		const ctx = makeHostCtx();
+		const live = makeInstallableAgent("s-live", repo, ctx);
+		ctx.agents = { roots: () => [live] };
+		const sessionScopes = createSessionScopes();
+		const registry = createLifecycleRegistry(ctx, { dshHomePath: dshHome(home), workspaceRoot: base, sessionScopes });
+		registry.start();
+		assert.deepEqual(registry.installedAgentIds(), ["s-live"], "根会话照常 install 在前");
+
+		// ★ 核心：parentSession 非空 + isSeeded + delegationDepth=0 —— 种子根会话，
+		// 必须 install（工具/通道全在 install 之后的路径上）。
+		const seededRoot = makeInstallableAgent("s-seeded-root", repo, ctx, {
+			parentSession: "s-a-previous-session-not-live",
+			isSeeded: true,
+			delegationDepth: 0,
+		});
+		ctx.agents = { roots: () => [live, seededRoot], get: () => undefined };
+		ctx.fire("agent/created", { agent: seededRoot });
+		assert.ok(
+			registry.installedAgentIds().includes("s-seeded-root"),
+			"种子根会话必须被 install——否则它永久没有 ldvh_* 工具",
+		);
+		assert.deepEqual(registry.childSnapshots().map((c) => c.agentId), [], "且不得被登记为子代理");
+
+		// 对照 A：isSeeded 但 delegationDepth=1 —— 子代理的种子副本，仍须走 child。
+		const seededChild = makeInstallableAgent("s-seeded-child", repo, ctx, {
+			parentSession: "s-live",
+			isSeeded: true,
+			delegationDepth: 1,
+		});
+		ctx.agents = { roots: () => [live, seededRoot, seededChild], get: () => live };
+		ctx.fire("agent/created", { agent: seededChild });
+		assert.deepEqual(registry.childSnapshots().map((c) => c.agentId), ["s-seeded-child"], "depth≥1 仍走 child");
+
+		// 对照 B：没有 isSeeded / delegationDepth 的旧宿主 —— 保留原行为（按子代理）。
+		const legacy = makeInstallableAgent("s-legacy-ps", repo, ctx, { parentSession: "s-live" });
+		ctx.agents = { roots: () => [live, seededRoot, legacy], get: () => live };
+		ctx.fire("agent/created", { agent: legacy });
+		assert.ok(
+			registry.childSnapshots().map((c) => c.agentId).includes("s-legacy-ps"),
+			"缺 delegationDepth 的旧宿主上不得回退为 install（会重引 2026-10-11 子代理自派生）",
 		);
 	});
 });

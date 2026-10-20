@@ -7,10 +7,13 @@
 // automatic when that fiber is disposed — no manual agent/disposed sweeps.
 //
 // Discipline baked in here:
-//   - subagent gate (2026-10-11, supersedes the earlier roots-only note):
-//     `origin === "subagent"` and, as the second criterion, a non-empty
-//     `parentSession` take the CHILD path (child.js: mechanism mounted, content
-//     empty — no tools, no pre-step channel, no sessionScopes publication). Any
+//   - subagent gate (2026-10-11, corrected 2026-10-20): `origin === "subagent"`
+//     and, as the second criterion, a non-empty `parentSession` take the CHILD
+//     path (child.js: mechanism mounted, content empty — no tools, no pre-step
+//     channel, no sessionScopes publication). The 2026-10-20 correction excludes
+//     **seeded root sessions** (`isSeeded === true && delegationDepth === 0`):
+//     the host writes `parentSession` for a fork-inherited prefix too, so the
+//     bare criterion starved those sessions of every LDVH tool. Any
 //     remaining non-root agent is skipped. Future task agents MUST be registered
 //     before install() runs, or this gate will misjudge them (review seam note,
 //     mirrors mnemon taskAgentIds).
@@ -296,9 +299,10 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
     const agentId = agentIdOf(agent);
     if (typeof agentId !== "string") return;
     if (agents.has(agentId)) return;
+    const header = agent?.session?.header;
     // Subagents take the child path (mechanism mounted, content empty —
     // see child.js); any other non-root agent is skipped.
-    if (agent?.session?.header?.origin === "subagent") {
+    if (header?.origin === "subagent") {
       installChild(agent);
       return;
     }
@@ -319,10 +323,31 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
     // **与 `origin` 的关系**：两者**任一为真即走 child 路径**，不互相替代——
     // `origin` 在提供该字段的宿主上是更明确的信号，`parentSession` 是可移植的
     // 兜底。不删 `origin` 那条：删了会在提供 origin 的宿主上退化为只靠兜底。
-    const parentSession = agent?.session?.header?.parentSession;
+    //
+    // ── 2026-10-20 修正：种子根会话不是子代理 ────────────────────────────
+    //
+    // 宿主也用 `parentSession` 记录**前缀继承来源**：从既有会话 fork/continue 出来
+    // 的**新根会话**同样写入 `parentSession`，同时 `isSeeded: true`、
+    // `delegationDepth: 0`（宿主 SessionHeader 的 `isSeeded` 描述逐字为
+    // "Whether the Session contains a fork-inherited prefix"）。
+    //
+    // 只判 `parentSession` 非空会把这类会话误判为子代理，且 `installChild` 的
+    // 血缘检查找不到活体父（父常是另一条不并发的会话）→ 返回 false —— 而 `install()`
+    // 当时已无条件 `return`，于是该会话**永久没有工具、没有 pre-step、没有
+    // sessionScopes**，只有一条 32 项 `tool-removal` 与指引段，无日志、无报错。
+    // 实测（该工作区 407 个会话）：4 个种子根会话在某个 turn 后 `ldvh_*` 从 32 掉到 0；
+    // 49 个普通根与 350 个真子代理无一例外保持应形态。
+    //
+    // 判据收敛为：委派 ⟺ `delegationDepth >= 1`；`isSeeded && delegationDepth === 0`
+    // 是种子根会话，**必须**走 root 路径。`delegationDepth` 缺失的旧宿主保留原行为
+    // （仍按子代理处理），以免在无该字段的宿主上重新引入 2026-10-11 的失效面。
+    const parentSession = header?.parentSession;
     if (typeof parentSession === "string" && parentSession.trim().length > 0) {
-      installChild(agent);
-      return;
+      const seededRoot = header?.isSeeded === true && header?.delegationDepth === 0;
+      if (!seededRoot) {
+        installChild(agent);
+        return;
+      }
     }
     // Roots-only gate: the agents service is read via ctx.get: host
     // compositions always provide it, but a minimal test/fabricated ctx may
