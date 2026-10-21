@@ -37,7 +37,7 @@ import {
 // ---------------------------------------------------------------------------
 
 test("登记表：四个任务在册，顺序即 AUX_TASK_ORDER（规范叙述次序）", () => {
-  // 顺序取自 36 §8 的叙述次序「反思摩擦、积累经验、记忆维护」，容量维护随其后。
+  // 顺序取自 11 §8 的叙述次序「反思摩擦、积累经验、记忆维护」，容量维护随其后。
   assert.deepEqual([...AUX_TASK_ORDER], ["friction-discovery", "experience-capture", "capacity-maintenance", "memory-health"]);
   for (const key of AUX_TASK_ORDER) {
     assert.ok(AUX_TASK_REGISTRY[key] !== undefined, `${key} 须在登记表内`);

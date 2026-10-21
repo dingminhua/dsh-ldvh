@@ -1,12 +1,12 @@
 /**
- * dsh-ldvh — 闲时辅助「经验积累·审核段」的落地侧（specs/36 §10.2，6 项闭集）。
+ * dsh-ldvh — 闲时辅助「经验积累·审核段」的落地侧（specs/11 §10.2，6 项闭集）。
  *
  * ## 本模块是什么、不是什么
  *
  * 本模块是审核段 6 项闭集的**代码形态**：读缓冲 → 查重 → 建 draft 候选 → 精确回读
  * → 结算缓冲条目 → 不足成文则 discarded → 任一校验不可用/未通过即 fail-closed。
  * 它**只**读留观缓冲载体（`observation-buffer.js`）与既有 Pitfall 事实对象，
- * **不**创建 active、**不**升格、**不**废止（36 §10.2「审核段不得做的事」；
+ * **不**创建 active、**不**升格、**不**废止（11 §10.2「审核段不得做的事」；
  * 23 §16：这三者均属 Human Gate）。
  *
  * ## 「不读实时对话」的机械形态
@@ -15,10 +15,10 @@
  * 载体句柄（`dshHomePath` 路径拼装函数、`factSourceRoot`）与**调用方给出的结构化
  * 提案**（`proposals[]`）。材料只有一条通路进入：缓冲条目本身。这不是一句自律承诺
  * ——是入参闭集：`messages` / `transcript` / `history` 之类的字段在本模块无任何读取点，
- * 传进来也没有任何作用。36 §10.2「不得读实时对话、不得引用缓冲之外的任何材料」
+ * 传进来也没有任何作用。11 §10.2「不得读实时对话、不得引用缓冲之外的任何材料」
  * 因此成为**结构上不可能违反**的约束，而不仅是运行时纪律。
  *
- * 对应地，36 §12bis「证据不留在缓冲」由本模块机械兜底：候选正文必须**逐字复制**
+ * 对应地，11 §12bis「证据不留在缓冲」由本模块机械兜底：候选正文必须**逐字复制**
  * 所用的引证片段与来源标识，不得只写 `buffer:<id>`（见 `verifyEvidenceCopy`）。
  *
  * ## 七段常量为何在这里再声明一次
@@ -30,7 +30,7 @@
  * 写盘路径上跑一次并整体拒绝。两者读的是同一份 23 §8 事实，本模块的常量是它的
  * 只读投影；权威校验仍在 writer 侧（`validatePitfallBodyStructure`）。
  *
- * ## 语义判断与机械校验的分界（23 §6.2 / 36 §18）
+ * ## 语义判断与机械校验的分界（23 §6.2 / 11 §18）
  *
  * **查重是 AI 语义判断**（对照 title 与症状／根因语义），规范明确「02 §9.2 不建立
  * 相似度自动裁决」。本模块因此**不自己裁决**：它只校验「查重已执行且对照集覆盖
@@ -43,14 +43,14 @@
  * 本模块机械兜底的是**回指**本身（每段必须逐字含缓冲 evidence 的片段）与 discarded
  * 登记理由也必须带证据。
  *
- * ## 一次运行至多形成 1 条候选（36 §10.2「每次运行上限」）
+ * ## 一次运行至多形成 1 条候选（11 §10.2「每次运行上限」）
  *
  * `MAX_CANDIDATES_PER_RUN = 1` 是模块内的硬常量：**没有任何入参可以改写它**。
  * 查重命中的如实登记与 discarded 处置不计入该配额（规范明示）。配额一旦用尽，
- * 本次运行**停止全部动作**（36 §11 水位纪律：遇第一个无剩余配额可处理的合格对象
+ * 本次运行**停止全部动作**（11 §11 水位纪律：遇第一个无剩余配额可处理的合格对象
  * 即停止）；未处理的条目原样留在缓冲里、status 仍为 pending，**不静默移除**。
  *
- * ## fail-closed（36 §12 / §10.2 第 6 项）
+ * ## fail-closed（11 §12 / §10.2 第 6 项）
  *
  * 校验不可用、未通过或回读不完整 → 返回 `{ok:false}`，由调用方停止该次任务、
  * 保留副作用并如实登记。**不得把部分写入当作完成**：候选已落盘但回读不符时，
@@ -85,7 +85,7 @@ export const REVIEW_REQUIRED_BODY_SECTIONS = Object.freeze([
 ]);
 
 /**
- * 36 §12bis：症状／触发条件／验证三段是引证复制的主承重段
+ * 11 §12bis：症状／触发条件／验证三段是引证复制的主承重段
  * （「主要是症状/触发条件/验证三段」），故对这三段执行逐字复制核对。
  */
 export const EVIDENCE_COPY_REQUIRED_SECTIONS = Object.freeze(["症状", "触发条件", "验证"]);
@@ -100,11 +100,11 @@ export const EVIDENCE_COPY_REQUIRED_SECTIONS = Object.freeze(["症状", "触发�
  */
 export const MIN_VERBATIM_FRAGMENT_LENGTH = 8;
 
-/** 36 §10.2「每次运行至多形成 1 条候选」——固定不可调。 */
+/** 11 §10.2「每次运行至多形成 1 条候选」——固定不可调。 */
 export const MAX_CANDIDATES_PER_RUN = 1;
 
 /**
- * 23 §9 / 36 §18：以占位符或「待查明」冒充正文者拒绝创建。
+ * 23 §9 / 11 §18：以占位符或「待查明」冒充正文者拒绝创建。
  * 命中即拒绝，不做「清洗后放行」——清洗会把「承认没查明」变成「看起来填过了」。
  */
 const PLACEHOLDER_PATTERNS = [
@@ -113,7 +113,7 @@ const PLACEHOLDER_PATTERNS = [
   /\bunknown\b/i, /\bplaceholder\b/i,
 ];
 
-/** 来源标识的机械形态：会话标识 / 文件:行 / 命令与输出引文（36 §12bis evidence 定义）。 */
+/** 来源标识的机械形态：会话标识 / 文件:行 / 命令与输出引文（11 §12bis evidence 定义）。 */
 const SOURCE_REFERENCE_PATTERNS = [
   /(?:会话|session)\s*[:：#]?\s*[A-Za-z0-9_-]{6,}/i, // 会话 id + 位置
   /[\w./\\-]+\.(?:md|txt|log|json|jsonl|mjs|cjs|js|ts|yaml|yml)(?::|：)\d+/, // 文件:行
@@ -185,7 +185,7 @@ function findPlaceholder(text) {
 }
 
 /**
- * 36 §12bis「证据不留在缓冲」的机械校验（= 36 §18「经验候选的七段完整」行的一半）。
+ * 11 §12bis「证据不留在缓冲」的机械校验（= 11 §18「经验候选的七段完整」行的一半）。
  *
  * 逐条规则：
  * 1. 七段每段非空（23 §9.1 / §18）；
@@ -199,7 +199,7 @@ function findPlaceholder(text) {
  *    命令引文），正文至少须逐字含其中一条；解析不出时，退回「正文须含 ≥ 24 字的
  *    逐字片段」——即要求连引证连来源一起整段搬过来。
  *
- * **本函数不判定引证是否切题**：36 §18 对该行明写「不证明七段内容据实」，切题性
+ * **本函数不判定引证是否切题**：11 §18 对该行明写「不证明七段内容据实」，切题性
  * 是 AI 语义审核的职责，不在本模块的机械射程内。
  *
  * @returns {{ok: boolean, issues: string[]}}
@@ -223,7 +223,7 @@ export function verifyEvidenceCopy(bodyMarkdown, entry) {
   }
 
   if (evidence.length === 0) {
-    issues.push("entry: evidence is empty — without a verbatim quotation there is nothing for any section to point back to (36 §12bis)");
+    issues.push("entry: evidence is empty — without a verbatim quotation there is nothing for any section to point back to (11 §12bis)");
   }
 
   const sectionTexts = new Map();
@@ -237,16 +237,16 @@ export function verifyEvidenceCopy(bodyMarkdown, entry) {
     }
     const placeholder = findPlaceholder(content);
     if (placeholder !== null) {
-      issues.push(`body: section "${title}" carries the placeholder ${JSON.stringify(placeholder)} (23 §9 / 36 §18: a draft may not pass a placeholder off as content)`);
+      issues.push(`body: section "${title}" carries the placeholder ${JSON.stringify(placeholder)} (23 §9 / 11 §18: a draft may not pass a placeholder off as content)`);
     }
     if (evidence.length > 0 && !sharesVerbatimFragment(content, evidence, MIN_VERBATIM_FRAGMENT_LENGTH)) {
       issues.push(
-        `body: section "${title}" cannot be pointed back to the entry evidence — no ≥${MIN_VERBATIM_FRAGMENT_LENGTH}-character verbatim fragment of the evidence appears in it (36 §10.2 item 3: a section whose basis cannot be traced to a buffer entry's evidence does not hold, so the candidate does not hold)`,
+        `body: section "${title}" cannot be pointed back to the entry evidence — no ≥${MIN_VERBATIM_FRAGMENT_LENGTH}-character verbatim fragment of the evidence appears in it (11 §10.2 item 3: a section whose basis cannot be traced to a buffer entry's evidence does not hold, so the candidate does not hold)`,
       );
     }
   }
 
-  // 36 §12bis：不得只写 buffer:<id>。凡出现该形态的段，必须同时含逐字引证。
+  // 11 §12bis：不得只写 buffer:<id>。凡出现该形态的段，必须同时含逐字引证。
   for (const title of EVIDENCE_COPY_REQUIRED_SECTIONS) {
     const content = sectionTexts.get(title) ?? "";
     if (content.trim().length === 0) continue;
@@ -254,7 +254,7 @@ export function verifyEvidenceCopy(bodyMarkdown, entry) {
       && !sharesVerbatimFragment(content, evidence, MIN_VERBATIM_FRAGMENT_LENGTH);
     if (onlyBufferRef) {
       issues.push(
-        `body: section "${title}" cites the buffer entry by id (buffer:<id>) without copying the verbatim quotation — the authoritative object's evidence chain would then depend on an explicitly evictable non-authoritative carrier (36 §12bis 证据不留在缓冲)`,
+        `body: section "${title}" cites the buffer entry by id (buffer:<id>) without copying the verbatim quotation — the authoritative object's evidence chain would then depend on an explicitly evictable non-authoritative carrier (11 §12bis 证据不留在缓冲)`,
       );
     }
   }
@@ -266,12 +266,12 @@ export function verifyEvidenceCopy(bodyMarkdown, entry) {
       const copied = references.some((ref) => bodyMarkdown.includes(ref));
       if (!copied) {
         issues.push(
-          `body: no source reference from the entry evidence was copied into the body (found ${references.slice(0, 3).map((r) => JSON.stringify(r)).join(", ")} in the evidence; 36 §12bis requires the quotation AND its source identifier to be copied)`,
+          `body: no source reference from the entry evidence was copied into the body (found ${references.slice(0, 3).map((r) => JSON.stringify(r)).join(", ")} in the evidence; 11 §12bis requires the quotation AND its source identifier to be copied)`,
         );
       }
     } else if (!sharesVerbatimFragment(bodyMarkdown, evidence, Math.max(MIN_VERBATIM_FRAGMENT_LENGTH * 3, 24))) {
       issues.push(
-        `body: the entry evidence carries no parsable source reference and the body shares only a short fragment with it — copy the quotation together with its source citation (36 §12bis)`,
+        `body: the entry evidence carries no parsable source reference and the body shares only a short fragment with it — copy the quotation together with its source citation (11 §12bis)`,
       );
     }
   }
@@ -337,7 +337,7 @@ export async function collectExistingPitfalls({ factSourceRoot, limit = 200 } = 
 }
 
 /**
- * 机械侧只校验「查重已执行且对照集覆盖全部 active 与 draft」（23 §6.2 + 36 §18
+ * 机械侧只校验「查重已执行且对照集覆盖全部 active 与 draft」（23 §6.2 + 11 §18
  * 「经验候选的查重已执行」行）。语义结论由调用方给出。
  */
 function verifyDedupeRecord(proposal, existingPitfalls) {
@@ -367,7 +367,7 @@ function verifyDedupeRecord(proposal, existingPitfalls) {
   }
   if (dedupe.conclusion === "duplicate") {
     if (!isNonEmptyString(dedupe.duplicate_of)) {
-      issues.push("dedupe: conclusion=duplicate requires duplicate_of = the object_uid of the existing object (36 §10.2 item 4: the entry is settled consumed pointing at the existing object)");
+      issues.push("dedupe: conclusion=duplicate requires duplicate_of = the object_uid of the existing object (11 §10.2 item 4: the entry is settled consumed pointing at the existing object)");
     } else if (existingPitfalls.length > 0 && !existingPitfalls.some((p) => p.object_uid === dedupe.duplicate_of)) {
       issues.push(`dedupe: duplicate_of ${JSON.stringify(dedupe.duplicate_of)} is not among the compared active/draft objects`);
     }
@@ -376,23 +376,23 @@ function verifyDedupeRecord(proposal, existingPitfalls) {
 }
 
 // ---------------------------------------------------------------------------
-// 缓冲条目校验（36 §18「留观缓冲条目的写入合法」行的读取侧复核）
+// 缓冲条目校验（11 §18「留观缓冲条目的写入合法」行的读取侧复核）
 // ---------------------------------------------------------------------------
 
 function verifyEntryCarriage(entry) {
   const issues = [];
   const missing = BUFFER_REQUIRED_FIELDS.filter((field) => !(field in entry));
   if (missing.length > 0) {
-    issues.push(`entry ${entry?.id}: missing closed-set field(s) ${missing.join(", ")} (36 §12bis)`);
+    issues.push(`entry ${entry?.id}: missing closed-set field(s) ${missing.join(", ")} (11 §12bis)`);
   }
   if (entry?.status !== "pending") {
     issues.push(`entry ${entry?.id}: status must be pending for the review pass (got ${JSON.stringify(entry?.status)})`);
   }
   if (!isNonEmptyString(entry?.evidence)) {
-    issues.push(`entry ${entry?.id}: evidence must be a verbatim quotation with its source reference (36 §12bis)`);
+    issues.push(`entry ${entry?.id}: evidence must be a verbatim quotation with its source reference (11 §12bis)`);
   }
   if (!isNonEmptyString(entry?.phenomenon)) {
-    issues.push(`entry ${entry?.id}: phenomenon is required (36 §12bis)`);
+    issues.push(`entry ${entry?.id}: phenomenon is required (11 §12bis)`);
   }
   return { ok: issues.length === 0, issues };
 }
@@ -402,7 +402,7 @@ function verifyEntryCarriage(entry) {
 // ---------------------------------------------------------------------------
 
 /**
- * 执行一次审核段运行（36 §10.2 六项闭集）。
+ * 执行一次审核段运行（11 §10.2 六项闭集）。
  *
  * ## 入参闭集（这就是「不读实时对话」的机械形态）
  *
@@ -435,7 +435,7 @@ export async function reviewPendingEntries({
     return failure("observation_review/invalid_request", "dshHomePath must be the path-joining function of observation-buffer.js");
   }
   if (!isNonEmptyString(factSourceRoot)) {
-    return failure("observation_review/invalid_request", "factSourceRoot is required (the draft candidate is a fact object, 36 §10.2 item 3)");
+    return failure("observation_review/invalid_request", "factSourceRoot is required (the draft candidate is a fact object, 11 §10.2 item 3)");
   }
   if (entryId !== null && entryId !== undefined && !isNonEmptyString(entryId)) {
     return failure("observation_review/invalid_request", "entry_id must be a non-empty string when given (§12ter.1: optional buffer entry identifier)");
@@ -454,7 +454,7 @@ export async function reviewPendingEntries({
       return failure("observation_review/invalid_request", "each proposal must name the buffer entry it reviews (entry_id) — a proposal may not be matched by guessing");
     }
     if (proposalsByEntry.has(item.entry_id)) {
-      return failure("observation_review/invalid_request", `entry ${item.entry_id} carries more than one proposal — one pass forms at most one candidate per entry (36 §10.2)`);
+      return failure("observation_review/invalid_request", `entry ${item.entry_id} carries more than one proposal — one pass forms at most one candidate per entry (11 §10.2)`);
     }
     proposalsByEntry.set(item.entry_id, item);
   }
@@ -465,7 +465,7 @@ export async function reviewPendingEntries({
     // §12ter.1 共同前提：缓冲不可读时按 §12 fail-closed，不得降级为内存或日志。
     return failClosed(
       read.error?.code ?? "observation_review/buffer_unreadable",
-      `the observation buffer could not be read (36 §12ter.1 / §12bis item 4: fail-closed, never degrade to memory or a log): ${read.error?.message ?? "unknown"}`,
+      `the observation buffer could not be read (11 §12ter.1 / §12bis item 4: fail-closed, never degrade to memory or a log): ${read.error?.message ?? "unknown"}`,
       { stage: "read-pending" },
     );
   }
@@ -474,7 +474,7 @@ export async function reviewPendingEntries({
     const detail = read.value.invalid.map((i) => `line ${i.line}: ${i.reason}`).join("; ");
     return failClosed(
       "observation_review/buffer_read_incomplete",
-      `the observation buffer read back incompletely (${read.value.invalid.length} defect line(s) — ${detail}); 36 §10.2 item 6 / §12: stop this run, keep the side effects and register them honestly (see also 36 §18: 缓冲条目不可写／不可回读)`,
+      `the observation buffer read back incompletely (${read.value.invalid.length} defect line(s) — ${detail}); 11 §10.2 item 6 / §12: stop this run, keep the side effects and register them honestly (see also 11 §18: 缓冲条目不可写／不可回读)`,
       { stage: "read-pending" },
     );
   }
@@ -499,7 +499,7 @@ export async function reviewPendingEntries({
   };
   const existing = Array.isArray(existingPitfalls) ? existingPitfalls : [];
 
-  // ── 第 2–5 项：逐条处理。配额用尽即停止全部动作（36 §11 水位纪律）────────
+  // ── 第 2–5 项：逐条处理。配额用尽即停止全部动作（11 §11 水位纪律）────────
   for (const entry of pending) {
     if (state.candidates >= MAX_CANDIDATES_PER_RUN) break;
 
@@ -507,7 +507,7 @@ export async function reviewPendingEntries({
     if (!carriage.ok) {
       return failClosed(
         "observation_review/entry_carriage_invalid",
-        `the buffer entry does not satisfy the §12bis field closed set: ${carriage.issues.join("; ")} (36 §10.2 item 6 / §18 留观缓冲条目的写入合法)`,
+        `the buffer entry does not satisfy the §12bis field closed set: ${carriage.issues.join("; ")} (11 §10.2 item 6 / §18 留观缓冲条目的写入合法)`,
         { stage: "verify-entry", ...stateSnapshot(state, null) },
       );
     }
@@ -525,14 +525,14 @@ export async function reviewPendingEntries({
       if (!isNonEmptyString(reason)) {
         return failClosed(
           "observation_review/discard_reason_missing",
-          `proposal for entry ${entry.id} declares the entry insufficient but gives no reason; 36 §10.2 item 5 requires an honest registration — a discard is not a rejection of the experience`,
+          `proposal for entry ${entry.id} declares the entry insufficient but gives no reason; 11 §10.2 item 5 requires an honest registration — a discard is not a rejection of the experience`,
           { stage: "verify-insufficient", ...stateSnapshot(state, null) },
         );
       }
       if (!sharesVerbatimFragment(reason, entry.evidence, MIN_VERBATIM_FRAGMENT_LENGTH)) {
         return failClosed(
           "observation_review/discard_reason_untraced",
-          `proposal for entry ${entry.id} discards it with a reason that shares no ≥${MIN_VERBATIM_FRAGMENT_LENGTH}-character verbatim fragment of the entry evidence — the discard itself must be traceable to the entry (36 §10.2 item 1: a section that cannot be written does not constitute a candidate, it must not be written into existence)`,
+          `proposal for entry ${entry.id} discards it with a reason that shares no ≥${MIN_VERBATIM_FRAGMENT_LENGTH}-character verbatim fragment of the entry evidence — the discard itself must be traceable to the entry (11 §10.2 item 1: a section that cannot be written does not constitute a candidate, it must not be written into existence)`,
           { stage: "verify-insufficient", ...stateSnapshot(state, null) },
         );
       }
@@ -540,7 +540,7 @@ export async function reviewPendingEntries({
       if (!settled.ok) {
         return failClosed(
           settled.error?.code ?? "observation_review/settle_failed",
-          `cannot settle entry ${entry.id} as discarded: ${settled.error?.message ?? "unknown"} (36 §12ter.2: fail-closed, never a success shape)`,
+          `cannot settle entry ${entry.id} as discarded: ${settled.error?.message ?? "unknown"} (11 §12ter.2: fail-closed, never a success shape)`,
           { stage: "settle-discarded", ...stateSnapshot(state, null) },
         );
       }
@@ -553,7 +553,7 @@ export async function reviewPendingEntries({
     if (!dedupe.ok) {
       return failClosed(
         "observation_review/dedup_not_recorded",
-        `the dedup record for entry ${entry.id} does not satisfy 23 §6.2 / 36 §18: ${dedupe.issues.join("; ")}`,
+        `the dedup record for entry ${entry.id} does not satisfy 23 §6.2 / 11 §18: ${dedupe.issues.join("; ")}`,
         { stage: "verify-dedup", ...stateSnapshot(state, null) },
       );
     }
@@ -568,7 +568,7 @@ export async function reviewPendingEntries({
       if (!settled.ok) {
         return failClosed(
           settled.error?.code ?? "observation_review/settle_failed",
-          `cannot settle entry ${entry.id} as consumed pointing at ${proposal.dedupe.duplicate_of}: ${settled.error?.message ?? "unknown"} (36 §12ter.2: fail-closed, never a success shape)`,
+          `cannot settle entry ${entry.id} as consumed pointing at ${proposal.dedupe.duplicate_of}: ${settled.error?.message ?? "unknown"} (11 §12ter.2: fail-closed, never a success shape)`,
           { stage: "settle-duplicate", ...stateSnapshot(state, null) },
         );
       }
@@ -595,7 +595,7 @@ export async function reviewPendingEntries({
       // 03 §6.1 / 09：change_log 必须由 Code 签名，缺载体即拒绝并交 Human 处置。
       return failClosed(
         "observation_review/signature_unavailable",
-        `entry ${entry.id}: the authoritative session signature is unavailable; 36 §12ter.1 — the signature is not carried by parameters and an unsigned change_log entry must not be written (03 §6.1). REPORT TO HUMAN; this run is refused (36 §12)`,
+        `entry ${entry.id}: the authoritative session signature is unavailable; 11 §12ter.1 — the signature is not carried by parameters and an unsigned change_log entry must not be written (03 §6.1). REPORT TO HUMAN; this run is refused (11 §12)`,
         { stage: "signature", ...stateSnapshot(state, null) },
       );
     }
@@ -604,21 +604,21 @@ export async function reviewPendingEntries({
     if (!bodyCheck.ok) {
       return failClosed(
         "observation_review/body_invalid",
-        `entry ${entry.id}: the candidate body was refused before creation (36 §12bis 证据不留在缓冲 / 36 §18 经验候选的七段完整: 拒绝创建): ${bodyCheck.issues.join("; ")}`,
+        `entry ${entry.id}: the candidate body was refused before creation (11 §12bis 证据不留在缓冲 / 11 §18 经验候选的七段完整: 拒绝创建): ${bodyCheck.issues.join("; ")}`,
         { stage: "verify-body", ...stateSnapshot(state, null) },
       );
     }
 
     const created = await createPitfallObject({
       factSourceRoot,
-      // 机械通道初态只能是 draft（36 §10.2 第 3 项 / 23 §13）；创建与入档是同一
+      // 机械通道初态只能是 draft（11 §10.2 第 3 项 / 23 §13）；创建与入档是同一
       // 决定的 Human 入口在此处不可达，故此处不存在任何 active 分支。
       frontmatterDraft: {
         title: proposal.title,
         scope: proposal.scope,
         status: "draft",
         ...(Array.isArray(proposal.urls) && proposal.urls.length > 0 ? { urls: proposal.urls } : {}),
-        change_summary: `闲时辅助经验积累·审核段据缓冲条目 ${entry.id} 形成候选（36 §10.2 第 3 项）`,
+        change_summary: `闲时辅助经验积累·审核段据缓冲条目 ${entry.id} 形成候选（11 §10.2 第 3 项）`,
       },
       bodyMarkdown: proposal.body,
       sessionSignature,
@@ -626,7 +626,7 @@ export async function reviewPendingEntries({
     if (!created.ok) {
       return failClosed(
         created.error?.code ?? "observation_review/create_failed",
-        `entry ${entry.id}: creating the draft candidate failed (36 §10.2 item 6): ${created.error?.message ?? "unknown"}`,
+        `entry ${entry.id}: creating the draft candidate failed (11 §10.2 item 6): ${created.error?.message ?? "unknown"}`,
         { stage: "create", ...stateSnapshot(state, null) },
       );
     }
@@ -647,7 +647,7 @@ export async function reviewPendingEntries({
       // 不得把部分写入当作完成：候选已落盘，故 formed 仍如实带出。
       return failClosed(
         "observation_review/read_back_failed",
-        `entry ${entry.id}: the draft candidate was created but did not read back completely (${detail}); 36 §10.2 item 6 / §12 — stop this run, keep the side effect and register it honestly`,
+        `entry ${entry.id}: the draft candidate was created but did not read back completely (${detail}); 11 §10.2 item 6 / §12 — stop this run, keep the side effect and register it honestly`,
         { stage: "read-back", ...stateSnapshot(state, entry.id) },
       );
     }
@@ -662,7 +662,7 @@ export async function reviewPendingEntries({
     if (!settled.ok) {
       return failClosed(
         settled.error?.code ?? "observation_review/settle_failed",
-        `entry ${entry.id}: the candidate ${created.value.object_uid} exists but the entry could not be settled as consumed (${settled.error?.message ?? "unknown"}); 36 §12ter.2 — fail-closed, never a success shape`,
+        `entry ${entry.id}: the candidate ${created.value.object_uid} exists but the entry could not be settled as consumed (${settled.error?.message ?? "unknown"}); 11 §12ter.2 — fail-closed, never a success shape`,
         { stage: "settle-consumed", ...stateSnapshot(state, entry.id) },
       );
     }
@@ -673,7 +673,7 @@ export async function reviewPendingEntries({
   if (!after.ok) {
     return failClosed(
       after.error?.code ?? "observation_review/buffer_unreadable",
-      `the pending entry count could not be re-read after the run: ${after.error?.message ?? "unknown"} (36 §12: fail-closed rather than report an unverified number)`,
+      `the pending entry count could not be re-read after the run: ${after.error?.message ?? "unknown"} (11 §12: fail-closed rather than report an unverified number)`,
       { stage: "recount-pending", ...stateSnapshot(state, null) },
     );
   }

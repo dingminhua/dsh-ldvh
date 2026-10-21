@@ -374,7 +374,7 @@ export async function createPitfallObject(args) {
   frontmatter.fact_type_key = PITFALL_TYPE_KEY;
   frontmatter.created_at = now;
   // 23 §13：创建分两条通道，初态依通道而异——
-  //   机械通道（36 §10 经验积累）只产出 draft，不含入档判断；
+  //   机械通道（11 §10 经验积累）只产出 draft，不含入档判断；
   //   Human 入口（执行中发现 / Human 直接提出）在确认入档时创建，落盘即 active
   //     （此时创建与入档是同一决定的两面）。
   // 无论哪条通道，都不得以 create 进入终态 discarded。
@@ -383,11 +383,11 @@ export async function createPitfallObject(args) {
   // 那是给「任何调用方都能在无 Human 决定的情况下落一个 active 对象」留的口子
   // ——`active` 是入档后的状态，而入档属 23 §16 的 Human Gate。通道差异是
   // **语义差异而不是默认值差异**：Human 入口显式传 `active`（创建与入档是同一
-  // 决定的两面），机械通道显式传 `draft`（36 §10.2 第 3 项）。故省略一律拒绝，
+  // 决定的两面），机械通道显式传 `draft`（11 §10.2 第 3 项）。故省略一律拒绝，
   // 不替调用方猜——猜出来的那一个方向恰好是绕过 Gate 的那一个。
   const requestedStatus = frontmatter.status;
   if (requestedStatus === undefined || requestedStatus === null) {
-    return failure("pitfall/status_required", "create must state status explicitly: status=active (23 §13 Human entry — creation and admission are the same decision) or status=draft (36 §10.2 mechanical channel). Omission is refused: there is no default, because defaulting to active would admit an object without a Human decision (23 §8/§13/§16)");
+    return failure("pitfall/status_required", "create must state status explicitly: status=active (23 §13 Human entry — creation and admission are the same decision) or status=draft (11 §10.2 mechanical channel). Omission is refused: there is no default, because defaulting to active would admit an object without a Human decision (23 §8/§13/§16)");
   }
   if (requestedStatus !== "active" && requestedStatus !== "draft") {
     return failure("pitfall/initial_state_violation", `create must initialise as status=active or status=draft; got ${JSON.stringify(requestedStatus)} (23 §9/§13)`);

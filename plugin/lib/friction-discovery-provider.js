@@ -1,5 +1,5 @@
 /**
- * dsh-ldvh — 摩擦发现的执行体派生 (specs/36 §9 第 1 项，§8.2).
+ * dsh-ldvh — 摩擦发现的执行体派生 (specs/11 §9 第 1 项，§8.2).
  *
  * 本模块把「派一个受管辖隔离子代理去做语义查重、取回它的结构化判断」这件事
  * 封成一个**注入给 `runIdleCheckpoint` 的 `discover` 提供者**。它是 §8.4 那句
@@ -17,7 +17,7 @@
  *
  * ## provider 的选择：必须 `inheritsParentContext === false`（2026-10-12 规范修订）
  *
- * 36 §7.1「执行体与上下文供给」段（Human 决定 2026-10-12）规定：执行体以**零
+ * 11 §7.1「执行体与上下文供给」段（Human 决定 2026-10-12）规定：执行体以**零
  * 上下文**派生（spawn），判断所需输入全部由调度侧**机械交付**（窗口原文材料 +
  * 候选账本投影）；**禁止全量交付**——含以「继承主控上下文」为通道的交付：全量
  * 可见使水位切分只剩提示词约束，且执行体输入随会话增长单调扩大（实测 fork 全量
@@ -100,7 +100,7 @@ async function resolveExecutorSignature(sessionPersistence, childId) {
  * 在已注册的 provider 中挑选**零上下文**的那一个（2026-10-12 规范修订）。
  *
  * 顺序：优先 `spawn`（本宿主实测名），否则取第一个 `inheritsParentContext === false`
- * 的。**没有零上下文 provider 即不可用**——36 §7.1「禁止全量交付」：不得以「继承
+ * 的。**没有零上下文 provider 即不可用**——11 §7.1「禁止全量交付」：不得以「继承
  * 主控上下文」为通道向执行体交付未经水位切分的全量会话历史，故此时**不得**退回
  * `fork`（它会把父会话最后一个 turn/end 之前的全部事件作为 seed 交付执行体）。
  */
@@ -127,7 +127,7 @@ export function selectZeroContextProvider(subagents) {
   }
   if (zeroContext.length === 0) {
     return unavailable(
-      `no registered subagent provider is zero-context (candidates: ${names.join(", ")}) — 36 §9 (Human 2026-10-12) requires zero-context spawn with scheduler-delivered bounded material; refusing to fall back to a context-inheriting provider (全量交付禁止)`,
+      `no registered subagent provider is zero-context (candidates: ${names.join(", ")}) — 11 §9 (Human 2026-10-12) requires zero-context spawn with scheduler-delivered bounded material; refusing to fall back to a context-inheriting provider (全量交付禁止)`,
     );
   }
   // 能力面：需要 outputSchema 才能把判断结果升为机械校验。
@@ -150,7 +150,7 @@ export function selectZeroContextProvider(subagents) {
  * `{ outcome, verdict, watermarkTurn? }` 或抛错（由调用方按 §8.3 入队）。
  *
  * `existingPitfalls` **不再是入参**（2026-10-20 清退）：它曾为「经验积累」的查重
- * 提供既有 Pitfall 列表。两段式之后查重属于审核段（36 §10.2 第 2 项），捕获段
+ * 提供既有 Pitfall 列表。两段式之后查重属于审核段（11 §10.2 第 2 项），捕获段
  * 明令不判重复（§10.1「捕获段不得做的事」），生产方 `idle-checkpoint` 也不再读取
  * 该列表——形参留着只会恒为 undefined，读者却会以为查重走这条路。审核段自己经
  * `collectExistingPitfalls` 取对照集。
@@ -223,7 +223,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
 
     // ── 空区间的短路（2026-10-11）────────────────────────────────────────
     //
-    // 区间内**没有任何新增内容**、且**没有缺口**时，本就没有观察对象：36 §9
+    // 区间内**没有任何新增内容**、且**没有缺口**时，本就没有观察对象：11 §9
     // 把观察对象定义为「自上次运行以来新增的会话内容」，没有新增即无从观察。
     //
     // 此前会照常 fork 一个**继承主控完整上下文**的子代理（实测主控会话解压
@@ -274,7 +274,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
         phase: "skipped",
         reason: "empty-window",
         // 说清短路的确切条件，使痕迹本身可核对（而非只报一个字符串）。
-        note: "本次区间无任何新增内容且无缺口——依 36 §11「观察对象=新增内容」无观察对象，未派生执行体",
+        note: "本次区间无任何新增内容且无缺口——依 11 §11「观察对象=新增内容」无观察对象，未派生执行体",
         window: { from: windowRange?.from ?? null, to: windowRange?.to ?? null, turns: 0, truncated: false },
       });
       // 返回值须与「真跑了子代理且它报 no-discovery」**完全同形**——调用方
@@ -286,7 +286,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
       // 读 `verdict.verdict`），不是笔误，照它写。
       return {
         outcome: "no-discovery",
-        verdict: { verdict: "no-discovery", quote: "", reason: "本次区间无任何新增内容（36 §11：观察对象=自上次运行以来新增的会话内容），故未派生执行体", impact: "light" },
+        verdict: { verdict: "no-discovery", quote: "", reason: "本次区间无任何新增内容（11 §11：观察对象=自上次运行以来新增的会话内容），故未派生执行体", impact: "light" },
         unobserved: null,
         // 与正常路径一致：水位推进到本次区间终点。**这不是「凭空推进」**——
         // 区间内确实没有内容可丢，推进语义与「子代理看了空材料报 no-discovery」
@@ -450,7 +450,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     // 引证须真在窗口内等）——那是宿主支持的 JSON Schema 子集表达不了的，见
     // friction-subagent-contract.js。
     //
-    // **为什么逐任务收口**：36 §9 的闭集动作按任务分别成立——`idle-review` 的
+    // **为什么逐任务收口**：11 §9 的闭集动作按任务分别成立——`idle-review` 的
     // 引证不成立不影响「容量维护该压缩哪些条目」这类结论。整体失败会使一次可用的
     // 运行被整条丢弃，而那正是「一次做多件」最该避免的损失。
     const checkedByTask = validateCompositeOutput(result?.structured, {

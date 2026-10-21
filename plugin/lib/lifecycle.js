@@ -49,7 +49,7 @@ import { recordRun } from "./idle-runlog.js";
 import { appendPendingEntry } from "./pending-queue.js";
 import { adoptFinishedChild, createChildInstaller } from "./child.js";
 import { resolveChildFromSessionRecord } from "./child-session-record.js";
-// 36 §11「切分依据只能是宿主会话记录中的位置」：重启后从记录里取回最后轮次号
+// 11 §11「切分依据只能是宿主会话记录中的位置」：重启后从记录里取回最后轮次号
 // （`lastTurn` 没有持久化载体，见 session-position.js）。
 import { readLastTurn } from "./session-position.js";
 import { ActivityLog, AgentLifecycle } from "./agent-lifecycle.js";
@@ -442,7 +442,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       // 把「会话视图被重置 → 清空注入台账」挂到 lifecycle 记录上，供
       // agent/created（clear / compact / resume）调用。见下方 disposeCreated。
       lifecycle.preStepResetVisibility = () => onPreStep.resetVisibility();
-      // Turn-level triggers（36 §6.1 触发判据，2026-10-14 修订）。
+      // Turn-level triggers（11 §6.1 触发判据，2026-10-14 修订）。
       // 「会话确已空闲」= 距最后一次会话活动持续不短于安静时长；本块只注入
       // 编排回调与两个注入点（取安静时长、落活动时刻），判据与计时在 triggers.js 内。
       const turnTriggers = createTurnTriggers(agent, {
@@ -450,7 +450,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         turns: lifecycle.turns,
         activity: lifecycle.activity,
         log: ctx.logger,
-        // 取安静时长（36 §6.1）。经 `getIdleSettings` 的注入点读——与准入判据
+        // 取安静时长（11 §6.1）。经 `getIdleSettings` 的注入点读——与准入判据
         // 同源，使设置面的改动对两者同时生效（不各读一份配置）。
         readSilenceMs: () => {
           const s = typeof getIdleSettings === "function" ? getIdleSettings() : undefined;
@@ -476,7 +476,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // ——调用方（triggers）已把 promise 的拒绝收口为日志，此处保持同纪律。
           const cwd = agent?.session?.header?.cwd;
           if (typeof cwd !== "string" || cwd.length === 0) return;
-          // 36 §11「观察范围的切分（水位）」需要两个**位置标识**：会话 id 与轮次号。
+          // 11 §11「观察范围的切分（水位）」需要两个**位置标识**：会话 id 与轮次号。
           // 会话 id 取自 agent 的会话头；轮次号首选宿主 `turn/end` 载荷（triggers
           // 已用它记账）。**取不到时回落到宿主会话记录**（2026-10-19 修复）：
           // `lastTurn` 只在回合边界事件里赋值、没有持久化载体，故进程重启或插件
@@ -528,7 +528,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
 
           // ── 闲时辅助的准入闸（仅剩设置面）────────────────────────────
           //
-          // **36 §6.2 现不设任何准入约束**（2026-10-14 二次修订）：本节原含三类
+          // **11 §6.2 现不设任何准入约束**（2026-10-14 二次修订）：本节原含三类
           // 准入约束，均已取消。故此处**没有**节流判据可算——`admitIdleDispatch`
           // 只判定两道 Human 的明示开关（总开关、子项开关），其余一律放行。
           //
@@ -546,7 +546,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 故被挡下**不是失败**，不进待处置队列。
           const idleSettings = idleSettingsForPick;
           if (idleSettings !== undefined) {
-            // **进入契约不在此处**：36 §6.1 的安静时长由 `triggers.js` 在武装计时器
+            // **进入契约不在此处**：11 §6.1 的安静时长由 `triggers.js` 在武装计时器
             // 之前判定（本次检查点能走到这里，说明安静期已满且计时器已到期）。
             const admission = admitIdleDispatch({
               settings: idleSettings,
@@ -585,7 +585,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             // 实测（2026-10-19 03:00:17）：四个检查点在 `19:00:17.464Z` 同一毫秒
             // 相继通过准入，随后派出四个任务清单完全相同的 `ldvh-idle` 子代理。
             //
-            // 该形态不是「参数调小了」而是**结构性**的：36 §6.2 取消配额的理由是
+            // 该形态不是「参数调小了」而是**结构性**的：11 §6.2 取消配额的理由是
             // 「§6.1 的安静时长已在结构上界定频率」，该论证隐含「串行」前提，而
             // 并发之下该前提不成立。补回配额同样无效——配额判定也在临界区外。
             // 唯一可靠的形态是把判定与占用写进同一个读-判-写序列，故改用
@@ -651,7 +651,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
 
           // §8.4 第 1 项的执行体：以**零上下文**派生（spawn）一个受管辖隔离子代理，
           // 判断输入由调度侧机械交付（窗口原文材料 + 候选账本投影），取回它的结构化
-          // 判断（36 §7.1「执行体与上下文供给」段，Human 决定 2026-10-12）。仅对
+          // 判断（11 §7.1「执行体与上下文供给」段，Human 决定 2026-10-12）。仅对
           // `friction-discovery` 需要（其余任务尚未实现，runIdleCheckpoint 会如实报
           // not-implemented）。
           //
@@ -721,7 +721,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 events: position.events,
               });
             } else {
-              // 取不到就**不跑**（水位无法界定 → runIdleCheckpoint 会按 36 §12
+              // 取不到就**不跑**（水位无法界定 → runIdleCheckpoint 会按 11 §12
               // fail-closed 并入待处置队列）：不得退化为「当作全部内容」，那会使
               // 同一段内容被反复计入。如实记下原因，使「为什么这一次没跑」可核对。
               lifecycle.activity?.record("session/checkpoint/position-unavailable", {
@@ -756,7 +756,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // `checkpoint.value.decision.verdict`。写错这一层会让落地**永不触发**，
           // 而那正是缺陷 D2 的形态（静默不落地），故有回归护栏守着它。
           const verdict = checkpoint?.ok === true ? checkpoint.value?.decision?.verdict : undefined;
-          // 经验积累（36 §10）的结论——与摩擦的 verdict **并列**，由各自的落地函数
+          // 经验积累（11 §10）的结论——与摩擦的 verdict **并列**，由各自的落地函数
           // 处理。它取自逐任务结论表而非兼容字段 `verdict`（后者只承载摩擦）。
           const captureVerdict = checkpoint?.ok === true
             ? (checkpoint.value?.decision?.taskVerdicts?.["experience-capture"] ?? null)
@@ -774,7 +774,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             ? (checkpoint.value?.decision?.failedTasks ?? [])
             : [];
 
-          // **逐任务结局表**（36 §11 留痕前提「其二」——F-2 子项 3）：整轮粒度的
+          // **逐任务结局表**（11 §11 留痕前提「其二」——F-2 子项 3）：整轮粒度的
           // `action`/`watermark` 单字段无法回答「本次**哪个任务**推进到哪」，而
           // 「连续停滞轮次由读取侧推断」正以此为前提（d0b5bee 登记的缺口在此闭合）。
           // 初值把**校验失败**的任务直接标 `rejected`：它们在逐任务落地闸门放开
@@ -814,7 +814,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // ②即独立代码审核的 F-1（高危）：按任务分别的**存储**已就位，但**策略**
           // 仍是全有或全无，于是它在唯一需要它的场景（一件成功、一件失败）里不生效。
           // 现改为：只要**本任务自己**取得了结论就落地它，与其它任务的成败无关——
-          // 这正是 36 §11「跨任务不混排、各任务独立成轮各持水位」与 §12 第 1 项
+          // 这正是 11 §11「跨任务不混排、各任务独立成轮各持水位」与 §12 第 1 项
           // 「同派发下的任务各自成立、互不牵连」的机械形态。
           if (checkpoint?.ok === true && (verdict != null || captureVerdict != null)) {
             const ledgerRoot = join(scope.project.path, "ldvh-base");
@@ -963,7 +963,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 }
               }
 
-              // ── 经验积累（36 §10.1）的落地：机械通道只写**留观缓冲条目** ──────
+              // ── 经验积累（11 §10.1）的落地：机械通道只写**留观缓冲条目** ──────
               //
               // 缓冲条目不是事实对象（§12bis 定性），故这里**不建 Pitfall**、
               // **不需要执行体署名**（§12bis 字段闭集 9 项里没有署名位）——
@@ -1151,7 +1151,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       // agent/session-start 的首次响应。resume / clear / compact 的再次 announce
       // 由 start() 的 agent/created 分发路径 re-prime（见 reprimeAgent）。
       onPreStep.prime();
-      // 恢复持久化的「最后一次活动时刻」（36 §6.1）：热重载后从上次记录的时点
+      // 恢复持久化的「最后一次活动时刻」（11 §6.1）：热重载后从上次记录的时点
       // 继续计时，而不是从零开始。取不到即不恢复（此时按「无从计时」处理——
       // 须等下一次真实活动才武装，见 triggers 的 onAgentStatus）。
       //
@@ -1178,7 +1178,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         agent.ctx.on("system-prompt/assemble", (assembly, context, next) => onAssemble(assembly, context, next)),
         agent.ctx.on("agent/pre-step", (payload, next) => onPreStep.handler(payload, next), { prepend: true }),
         agent.ctx.on("agent/turn-stopping", (payload) => turnTriggers.onTurnStopping(payload)),
-        // 36 §6.1（2026-10-14 修订）：`agent/status` 的 `idle` **不再是触发点**，
+        // 11 §6.1（2026-10-14 修订）：`agent/status` 的 `idle` **不再是触发点**，
         // 只负责武装安静期计时——宿主 idle 说明「此刻没有在跑的驱动」，但**不说明
         // 会话已安静多久**。真正的派发由安静期到期时发出。
         agent.ctx.on("agent/status", (payload) => turnTriggers.onAgentStatus(payload)),
@@ -1189,7 +1189,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         for (const stop of stops.reverse()) {
           try { stop(); } catch { /* already removed */ }
         }
-        // 清安静期计时器（36 §6.1）：会话结束/插件卸载时不得留下仍在计时的
+        // 清安静期计时器（11 §6.1）：会话结束/插件卸载时不得留下仍在计时的
         // 定时器——它会拖住进程退出，或在对象已销毁后仍尝试派发。
         try { turnTriggers.dispose(); } catch { /* 已失效 */ }
         if (lifecycle.toolsDisposer !== null) {

@@ -1,6 +1,6 @@
 // Tests for plugin/lib/observation-buffer.js — the §12bis 留观缓冲 carrier.
 //
-// Every case is derived from specs/36 §12bis (the single authority for this carrier),
+// Every case is derived from specs/11 §12bis (the single authority for this carrier),
 // §18 (写入合法 / 不可写不可回读) and specs/02 §6.1 末「事实源之外的中间产物」.
 // Where the implementation diverges from the spec the failure is reported, never
 // "fixed" by bending the assertion.

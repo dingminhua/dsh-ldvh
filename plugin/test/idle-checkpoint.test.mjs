@@ -1,6 +1,6 @@
 // Tests for plugin/lib/idle-checkpoint.js — 调度与 fail-closed 编排.
 //
-// Authority: specs/36 §12（fail-closed 收口） and specs/32 §10.2 (预算轮换).
+// Authority: specs/11 §12（fail-closed 收口） and specs/32 §10.2 (预算轮换).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile } from "node:fs/promises";
@@ -230,7 +230,7 @@ test("§8.3：缺 factSourceRoot 时拒绝并说明（不自造路径），且�
     const result = await runIdleCheckpoint({ dshHomePath: home, task: "friction-discovery" });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "idle_checkpoint/no_fact_source");
-    // 36 §12：fail-closed 停止须登记待处置队列（不得只在返回值里报一声就消失）。
+    // 11 §12：fail-closed 停止须登记待处置队列（不得只在返回值里报一声就消失）。
     // 此前这三条前置是裸 return failure，一条都没入队——实测 2026-10-19 重启后
     // 六次 no_current_turn 在队列里查无记录。
     const queue = await readPendingQueue(home);
@@ -344,7 +344,7 @@ test("§8.4 水位：缺 sessionId / currentTurn 时 fail-closed（不得退化�
     assert.ok(!noTurn.ok);
     assert.equal(noTurn.error.code, "idle_checkpoint/no_current_turn");
 
-    // 36 §12：两条前置失败都须入待处置队列。实测 2026-10-19 重启后六次
+    // 11 §12：两条前置失败都须入待处置队列。实测 2026-10-19 重启后六次
     // no_current_turn 在队列里查无记录——「已停止」与「已登记」是两件事，
     // 只做前者等于让失败凭空消失。
     const queue = await readPendingQueue(home);

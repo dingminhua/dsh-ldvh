@@ -124,17 +124,17 @@ export const Config = z.object({
   //     不新增任务、不改职责、不改**派发律**（32 §10.2 已于 2026-10-11 改定为
   //     「不设任务轮换」：勾选即全做，一次派发遂行全部已启用任务）；
   //   · 闲时辅助的**安静时长**（`idleSilenceMs`）：其规范依据已于 2026-10-14 取得
-  //     ——36 §6.1（进入契约的判据）。其数值明文「属实现侧承接」，故本处只登记
+  //     ——11 §6.1（进入契约的判据）。其数值明文「属实现侧承接」，故本处只登记
   //     数值、不主张规范已规定具体取值。
-  //   · **2026-10-14 取消的三类准入约束**：36 §6.2 原含三类，均经 Human Gate 取消
+  //   · **2026-10-14 取消的三类准入约束**：11 §6.2 原含三类，均经 Human Gate 取消
   //     （理由见 idle-settings.js 的模块注释），故本 schema 依次删除
   //     `idleMinContentChars` / `idleMinContentTurns` / `idleMinIntervalMs` 三键
   //     （当轮），以及本轮删除的 `idleQuotaMax` / `idleQuotaWindowMs` 两键
   //     ——**§6.2 现为空集，故本 schema 亦无任何节流配置键**。
   /** 闲时辅助总开关：关闭后不再派发任何辅助任务（含摩擦发现）。 */
   idleAssistEnabled: volatileField(z.boolean().default(true)),
-  /** 闲时评审（反思摩擦，36 §9）：已实现，缺省开。 */
-  // 摩擦发现（36 §9）。**曾用名 `idleReviewEnabled`**——旧键仍须能被读到，见下。
+  /** 闲时评审（反思摩擦，11 §9）：已实现，缺省开。 */
+  // 摩擦发现（11 §9）。**曾用名 `idleReviewEnabled`**——旧键仍须能被读到，见下。
   frictionDiscoveryEnabled: volatileField(z.boolean().default(true)),
   /**
    * @deprecated 摩擦发现开关的**旧键**，仅为存量配置回落而保留。
@@ -152,7 +152,7 @@ export const Config = z.object({
    * 时被新键取代，此后即可移除。
    */
   idleReviewEnabled: volatileField(z.boolean()),
-  // 积累经验（36 §10）：**已实现**，但缺省**关**。与摩擦（缺省开）不同：摩擦是
+  // 积累经验（11 §10）：**已实现**，但缺省**关**。与摩擦（缺省开）不同：摩擦是
   // 既有行为，改成缺省关会使升级即静默停用（行为突变）；本任务是**新增**能力，
   // 默认打开会在 Human 尚未知情时就开始写 Pitfall 候选。缺省关更诚实。
   experienceCaptureEnabled: volatileField(z.boolean().default(false)),
@@ -161,11 +161,11 @@ export const Config = z.object({
   /** 记忆健康体检（32 §10.5）：**尚未实现**，缺省关（同上）。 */
   memoryHealthEnabled: volatileField(z.boolean().default(false)),
   /**
-   * 安静时长（毫秒）——36 §6.1 进入契约的判据：**距最后一次会话活动**持续不短于
+   * 安静时长（毫秒）——11 §6.1 进入契约的判据：**距最后一次会话活动**持续不短于
    * 该时长，才算「会话确已空闲」并可派发。
    *
    * **须为正值**（`.min(1)`）：取 0 会使「已空闲」恒成立，等价于取消该判据——
-   * 36 §6.1 明文要求该取值在**写入时被拒绝并提示**，不得静默回落。
+   * 11 §6.1 明文要求该取值在**写入时被拒绝并提示**，不得静默回落。
    *
    * **为什么是 `.min(1)` 而不是 `.positive()`**：宿主用的**不是真 zod**，而是
    * `@deepseek-ai/schemastery` 的受限子集（其 number 只有 `min`/`max`/`step`/`default`

@@ -1,5 +1,5 @@
 /**
- * dsh-ldvh — 观察区间的机械累积 (specs/36 §11「观察范围的切分（水位）」).
+ * dsh-ldvh — 观察区间的机械累积 (specs/11 §11「观察范围的切分（水位）」).
  *
  * ## 本模块为何存在（缺陷 D1 的修复）
  *
@@ -136,7 +136,7 @@ export function createWindowAccumulator({ maxCharsPerTurn = MAX_CHARS_PER_TURN, 
         //
         // **保留哪 2000 字**：`clamp` 截取**开头**，即按发生顺序的**前缀**。这
         // 是有意选择的**确定性**规则——「保留语义上最要紧的 2000 字」需要判断，
-        // 而 36 §11 禁止让切分依据落在 AI 判断上。前缀规则另外还与 `clamp` 的
+        // 而 11 §11 禁止让切分依据落在 AI 判断上。前缀规则另外还与 `clamp` 的
         // 既有语义（`slice(0, max)`）、与材料「照抄原文」的用途一致。
         //
         // 空文本**不得**参与覆盖：它不进 patch，本轮已有内容原样保留。
@@ -287,7 +287,7 @@ export function verifyQuotation(quote, windowText, { minChars = 8 } = {}) {
       ok: false,
       error: {
         code: "discovery/quote_too_short",
-        message: `the quote is ${q.length} chars, below the ${minChars}-char floor — too short to establish that it came from this run's window (36 §11 水位段：切分依据不得由 AI 判断). Quote: ${JSON.stringify(q.slice(0, 80))}. 注意：该长度下限是**实现侧护栏**（防止极短引证无法在材料中定位跨度），不是规范 36 §11 的规定——规范只要求引证「在交付材料内」；若认为下限过严，须按规范修订流程处理，不得在本层私自调低。`,
+        message: `the quote is ${q.length} chars, below the ${minChars}-char floor — too short to establish that it came from this run's window (11 §11 水位段：切分依据不得由 AI 判断). Quote: ${JSON.stringify(q.slice(0, 80))}. 注意：该长度下限是**实现侧护栏**（防止极短引证无法在材料中定位跨度），不是规范 11 §11 的规定——规范只要求引证「在交付材料内」；若认为下限过严，须按规范修订流程处理，不得在本层私自调低。`,
       },
     };
   }
@@ -296,7 +296,7 @@ export function verifyQuotation(quote, windowText, { minChars = 8 } = {}) {
       ok: false,
       error: {
         code: "discovery/quote_not_in_window",
-        message: `the quote is not present in this run's window — the verdict cites material outside the observation window, so it cannot be counted as a new observation (36 §11 水位段). Quote: ${JSON.stringify(q.slice(0, 80))}`,
+        message: `the quote is not present in this run's window — the verdict cites material outside the observation window, so it cannot be counted as a new observation (11 §11 水位段). Quote: ${JSON.stringify(q.slice(0, 80))}`,
       },
     };
   }

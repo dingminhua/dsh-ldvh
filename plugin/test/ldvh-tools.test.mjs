@@ -548,7 +548,7 @@ test("discover-ldvh-capabilities enumerates all operations", async () => {
 	const keys = envelope.result.operations.map((o) => o.operation_key).sort();
 	assert.deepEqual(keys, [
 		"discover-ldvh-capabilities",
-		// 36 §12ter 的两条公开操作，声明在承担语义的来源自己文件里（05 §6.1 明许
+		// 11 §12ter 的两条公开操作，声明在承担语义的来源自己文件里（05 §6.1 明许
 		// 「声明位置由承担语义的来源自定」），故 discovery 仍从 36 解析到它们。
 		"observation-buffer-list",
 		"observation-buffer-review",

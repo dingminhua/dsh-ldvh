@@ -46,7 +46,7 @@ export class AgentLifecycle {
     // Pre-step channel state (prime/digest — content seams for batch 3).
     this.preStep = { primePending: false, lastDigest: null };
     // Turn-trigger markers (session-checkpoint / idle-confirmation seams).
-    // `checkpointPending` 是 36 §6.1 两步触发的第一步标记（检查点已到达），
+    // `checkpointPending` 是 11 §6.1 两步触发的第一步标记（检查点已到达），
     // 由 agent/status 的 idle 迁移消费。
     //
     // 曾有一个 `auxRotation` 计数器（32 §10.2 三任务预算轮换）。Human 于
@@ -60,7 +60,7 @@ export class AgentLifecycle {
       checkpointPending: false,
       lastIdleSeen: 0,
       lastCheckpointDispatch: undefined,
-      // 36 §7.1 执行体的取消信号（每次检查点派生时替换，旧的先 abort——避免
+      // 11 §7.1 执行体的取消信号（每次检查点派生时替换，旧的先 abort——避免
       // 多轮检查点的派生堆积）。会话销毁时由 dispose 路径收口。
       discoveryAbort: undefined
     };

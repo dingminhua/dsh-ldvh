@@ -16,7 +16,7 @@
 //   session/event turn/end   turn-close bookkeeping + activity refresh  [ACTIVE]
 //   agent/disposed           (fiber-owned cleanup — no hook needed)     [implicit]
 //
-// 触发判据（36 §6.1，2026-10-14 修订）：「会话确已空闲」= **距最后一次会话活动
+// 触发判据（11 §6.1，2026-10-14 修订）：「会话确已空闲」= **距最后一次会话活动
 // 已持续不短于安静时长**。故本模块的形态是：
 //   - `agent/turn-stopping` / `session/event turn/end`：**刷新活动时刻并重置**
 //     安静期计时（对话在继续就不倒计时）；
@@ -32,7 +32,7 @@
 //      越不会触发**，更长的增量永远不会被观察。
 //
 // 一次安静期**至多触发一次**（`silenceFired`）：触发后须有**新的会话活动**才
-// 重新计时。这同时是 36 §12「不得自行重试」的机械形态——失败后不得自动再试。
+// 重新计时。这同时是 11 §12「不得自行重试」的机械形态——失败后不得自动再试。
 //
 // Skeleton points evaluate their gate (governance state) and record
 // observability markers, but deliberately DO NO work: the content of
@@ -57,7 +57,7 @@ function eventTurn(event) {
  * receives hook-action entries. `log` is the host logger.
  *
  * `onSessionCheckpoint` is invoked when a **session checkpoint** has arrived
- * AND the session has been confirmed idle (36 §6.1 的两步：活动之后须安静满
+ * AND the session has been confirmed idle (11 §6.1 的两步：活动之后须安静满
  * 一个安静时长). It receives `{ turn, source }` and is expected to return a
  * promise; the hook does not await it (the host event is a synchronous emit)
  * — rejections are logged and never escape into the host's event dispatch.
@@ -95,7 +95,7 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     // ── 2026-10-14：触发判据由「idle 事件 + 待办位」改为「安静期计时」──────
     //
     // `checkpointPending` 已**删除**：它服务的旧语义（「检查点到达」由 idle 消费）
-    // 正是被 36 §6.1 判为偏离的形态——宿主在回合刚结束时就报 idle，故那等于
+    // 正是被 11 §6.1 判为偏离的形态——宿主在回合刚结束时就报 idle，故那等于
     // 「回合结束即派发」，且待办位一经消费便不再置位，使**沉默越久越不会触发**。
     //
     // `lastActivityAt`：最后一次会话活动时刻（毫秒）。它是«空闲»判据的锚——
@@ -147,7 +147,7 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
   }
 
   /**
-   * 刷新「最后一次活动时刻」并**重置**安静期（36 §6.1：计时自活动发生时重新开始）。
+   * 刷新「最后一次活动时刻」并**重置**安静期（11 §6.1：计时自活动发生时重新开始）。
    *
    * 对话在继续时不得处于倒计时状态——故本函数必先取消既有计时器。
    */
@@ -169,14 +169,14 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
   }
 
   /**
-   * 武装安静期计时：到期且**再次确认确已安静**后派发（36 §6.1 二次确认的实现）。
+   * 武装安静期计时：到期且**再次确认确已安静**后派发（11 §6.1 二次确认的实现）。
    *
    * **不重复武装已触发过的安静期**：`silenceFired` 为真时直接返回——这使
    * 「一次安静期至多触发一次」成立，并使失败后不会自动重试（§12）。
    *
    * **按「剩余安静时长」而非整段时长武装**（2026-10-19 独立审核）：
    * 原实现无条件 `setTimeout(fn, idleMs)`，于是恢复一个久远锚点后还要再白等
-   * 一整个安静时长才轮到到期判定——而 36 §6.1 的判据是「距最后一次活动已
+   * 一整个安静时长才轮到到期判定——而 11 §6.1 的判据是「距最后一次活动已
    * 持续不短于安静时长」，该判据当时**已经被满足**。延迟取剩余量即可。
    */
   function armSilenceTimer() {
@@ -269,7 +269,7 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     /**
      * agent/turn-stopping — 会话活动（触发的**计时起点**）。
      *
-     * **2026-10-14 语义变更（36 §6.1 修订）**：本事件不再「置位一次待办」而由
+     * **2026-10-14 语义变更（11 §6.1 修订）**：本事件不再「置位一次待办」而由
      * idle 消费，而是**刷新「最后一次会话活动时刻」并（重新）武装安静期计时**。
      * 原实现把它当「检查点已到达」的标记，真正的调度由 `agent/status:idle`
      * 触发——而宿主在**回合刚结束**时即进入 idle，故那等于「回合一结束就可能派发」，
@@ -284,7 +284,7 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       if (payload?.agent !== undefined && agentId !== undefined && payload.agent.id !== agentId) return;
       state.turnStoppingSeen += 1;
       state.lastTurn = payload?.turn;
-      // Gate: 未受管辖时不清点，也不武装——受管辖是 36 §4 运行的前提（git 层
+      // Gate: 未受管辖时不清点，也不武装——受管辖是 11 §4 运行的前提（git 层
       // 操作要求当前项目受管辖，32 §137）。
       state.lastReflectionGate = governed() ? "open" : "closed";
       if (state.lastReflectionGate === "open") {
@@ -303,7 +303,7 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
      * 待遇（都算「已空闲」），而后者反而**永不触发**（原实现的待办位已被首次
      * idle 消费、且 idle 是迁移事件不会重放）。
      *
-     * 现行（36 §6.1）：本事件只负责在受管辖且确有活动的情况下**武装安静期计时**；
+     * 现行（11 §6.1）：本事件只负责在受管辖且确有活动的情况下**武装安静期计时**；
      * 真正的派发由安静期到期时发出。故此处不再有 `checkpointPending` 的置位/消费。
      */
     onAgentStatus(payload) {
@@ -414,10 +414,10 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
      * **为什么需要它**（2026-10-19）：`lastTurn` 只在回合边界事件里被赋值
      * （`onTurnStopping` 的载荷、`onSessionEvent` 的 `turn/end`），**没有任何
      * 持久化载体**。于是进程重启/插件热重载之后，只要该会话尚未开启新回合，
-     * `lastTurn` 就是 `undefined`；安静期到期时派发拿不到区间端点，按 36 §12
+     * `lastTurn` 就是 `undefined`；安静期到期时派发拿不到区间端点，按 11 §12
      * fail-closed——重启后的第一次闲时派发**必然**失败。
      *
-     * 位置来源只能是宿主会话记录（36 §11「切分依据只能是宿主会话记录中的位置」），
+     * 位置来源只能是宿主会话记录（11 §11「切分依据只能是宿主会话记录中的位置」），
      * 由调用方读好后经本函数写回。本函数**不自己读**：triggers 只拿会话事件，
      * 没有持久化依赖，让计时器模块去读日志会把「调度判据」与「材料来源」混在一起。
      *

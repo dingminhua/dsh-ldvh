@@ -1,6 +1,6 @@
-// Tests for plugin/lib/observation-review.js + the two 36 §12ter 公开操作。
+// Tests for plugin/lib/observation-review.js + the two 11 §12ter 公开操作。
 //
-// Every case is derived from specs/36 (the single authority):
+// Every case is derived from specs/11 (the single authority):
 //   §10.2 审核段六项闭集、每次运行上限、「不得做的事」；
 //   §12bis 留观缓冲（唯一消费者、证据不留在缓冲、条目只追加）；
 //   §12ter.1/§12ter.2 公开操作的输入与结果契约；
@@ -44,7 +44,7 @@ const TEST_SIGNATURE = testSignature();
 // Fixtures
 // ---------------------------------------------------------------------------
 
-/** 证据必须是轮次材料中的逐字片段 + 来源引用（36 §12bis）。 */
+/** 证据必须是轮次材料中的逐字片段 + 来源引用（11 §12bis）。 */
 const EVIDENCE_LINE = "EACCES: permission denied, open '/tmp/ldvh/config.json'";
 const EVIDENCE_SOURCE = "来源：session sess-2026-03-01-abc turn-014";
 const EVIDENCE = `${EVIDENCE_LINE}\n${EVIDENCE_SOURCE}`;
@@ -61,7 +61,7 @@ async function withHome(fn) {
   return fn(home);
 }
 
-/** 造一条合法的待审核条目（36 §12bis 字段闭集）。 */
+/** 造一条合法的待审核条目（11 §12bis 字段闭集）。 */
 function validEntry(overrides = {}) {
   return {
     session: "sess-2026-03-01-abc",
@@ -80,7 +80,7 @@ async function appendEntry(home, overrides = {}) {
 }
 
 /**
- * 七段正文（23 §8）：每段都含 evidence 的 ≥8 字逐字片段（36 §10.2 第 3 项
+ * 七段正文（23 §8）：每段都含 evidence 的 ≥8 字逐字片段（11 §10.2 第 3 项
  * 「逐段可回指」），并把来源标识逐字复制进正文（§12bis「证据不留在缓冲」）。
  */
 function goodBody({ scope = GOOD_SCOPE, symptom = `编辑 config 时出现 ${EVIDENCE_LINE}，写入失败。` } = {}) {
@@ -166,10 +166,10 @@ async function listPitfallFiles(factSourceRoot) {
 
 test("审核段常量：七段取自 23 §8，配额是模块内不可调常量", () => {
   assert.deepEqual([...REVIEW_REQUIRED_BODY_SECTIONS], ["症状", "触发条件", "根因", "解决", "规避", "验证", "影响与适用范围"]);
-  // 36 §12bis「主要是症状/触发条件/验证三段」——引证复制的主承重段。
+  // 11 §12bis「主要是症状/触发条件/验证三段」——引证复制的主承重段。
   assert.deepEqual([...EVIDENCE_COPY_REQUIRED_SECTIONS], ["症状", "触发条件", "验证"]);
   assert.equal(MIN_VERBATIM_FRAGMENT_LENGTH, 8);
-  // 36 §10.2：一次运行至多形成 1 条候选，且「配额不接受调用方放大」（§12ter.1）。
+  // 11 §10.2：一次运行至多形成 1 条候选，且「配额不接受调用方放大」（§12ter.1）。
   assert.equal(MAX_CANDIDATES_PER_RUN, 1);
 });
 
@@ -277,7 +277,7 @@ test("第 3–4 项：形成一条 draft 候选，并把条目置 consumed 指�
       assert.deepEqual(result.value.discarded, []);
       assert.equal(result.value.remaining_pending, 0);
 
-      // 候选初态只能是 draft（23 §13 / 36 §10.2：建 active 属 Human Gate，不在此）。
+      // 候选初态只能是 draft（23 §13 / 11 §10.2：建 active 属 Human Gate，不在此）。
       const readBack = await readPitfallObject({ factSourceRoot, objectUid: formed.object_uid });
       assert.equal(readBack.ok, true, JSON.stringify(readBack.error));
       assert.equal(readBack.value.frontmatter.status, "draft");
@@ -414,7 +414,7 @@ test("第 3 项：正文只写 buffer:<id> 而不复制逐字引证 → 拒绝�
   });
 });
 
-test("第 3 项：正文缺一段 / 含占位符 → 拒绝创建（23 §9.1、36 §18）", async () => {
+test("第 3 项：正文缺一段 / 含占位符 → 拒绝创建（23 §9.1、11 §18）", async () => {
   await withHome(async (home) => {
     await withTemp("observation-review-facts-", async (factSourceRoot) => {
       const entryId = await appendEntry(home);

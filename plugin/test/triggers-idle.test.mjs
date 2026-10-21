@@ -1,6 +1,6 @@
-// Tests for plugin/lib/triggers.js — 36 §6.1 触发段（会话活动 → 安静期 → 一次触发）.
+// Tests for plugin/lib/triggers.js — 11 §6.1 触发段（会话活动 → 安静期 → 一次触发）.
 //
-// Authority: specs/36 §6.1（2026-10-14 修订）：「会话确已空闲」的判据是**距最后一次
+// Authority: specs/11 §6.1（2026-10-14 修订）：「会话确已空闲」的判据是**距最后一次
 // 会话活动已持续不短于一个「安静时长」**；安静期**自活动发生时重新开始**，触发后
 // **不再自动重新武装**（须有新活动）——故一次安静期至多触发一次。
 //
@@ -92,7 +92,7 @@ function makeTriggers({ governed = true, onSessionCheckpoint, silenceMs = 300_00
 // 核心语义：活动 → 安静满 → 触发一次
 // ---------------------------------------------------------------------------
 
-test("36 §6.1：仅有活动而无安静期满 → 不派发（对话仍在继续）", () => {
+test("11 §6.1：仅有活动而无安静期满 → 不派发（对话仍在继续）", () => {
   const timers = makeFakeTimers();
   try {
     const { triggers, dispatches } = makeTriggers();
@@ -103,7 +103,7 @@ test("36 §6.1：仅有活动而无安静期满 → 不派发（对话仍在继�
   } finally { timers.restore(); }
 });
 
-test("36 §6.1：活动 → 安静期满 → 派发一次，且 source 标明是安静期到期", () => {
+test("11 §6.1：活动 → 安静期满 → 派发一次，且 source 标明是安静期到期", () => {
   const timers = makeFakeTimers();
   try {
     const { triggers, dispatches } = makeTriggers();
@@ -116,7 +116,7 @@ test("36 §6.1：活动 → 安静期满 → 派发一次，且 source 标明是
   } finally { timers.restore(); }
 });
 
-test("36 §6.1：只有 idle 而**从未有过活动** → 不武装、不派发", () => {
+test("11 §6.1：只有 idle 而**从未有过活动** → 不武装、不派发", () => {
   const timers = makeFakeTimers();
   try {
     const { triggers, dispatches } = makeTriggers();
@@ -126,7 +126,7 @@ test("36 §6.1：只有 idle 而**从未有过活动** → 不武装、不派发
   } finally { timers.restore(); }
 });
 
-test("36 §6.1：**新活动重置**安静期——对话不停止永不触发", () => {
+test("11 §6.1：**新活动重置**安静期——对话不停止永不触发", () => {
   const timers = makeFakeTimers();
   try {
     const { triggers, dispatches } = makeTriggers();
@@ -142,7 +142,7 @@ test("36 §6.1：**新活动重置**安静期——对话不停止永不触发",
   } finally { timers.restore(); }
 });
 
-test("36 §6.1：**一次安静期至多触发一次**——计时器不重复派发", () => {
+test("11 §6.1：**一次安静期至多触发一次**——计时器不重复派发", () => {
   const timers = makeFakeTimers();
   try {
     const { triggers, dispatches } = makeTriggers();
@@ -158,7 +158,7 @@ test("36 §6.1：**一次安静期至多触发一次**——计时器不重复�
   } finally { timers.restore(); }
 });
 
-test("36 §12：派发失败后**不自动重新武装**——须有新活动才再计时（不得自行重试）", () => {
+test("11 §12：派发失败后**不自动重新武装**——须有新活动才再计时（不得自行重试）", () => {
   const timers = makeFakeTimers();
   try {
     const { triggers, dispatches } = makeTriggers({
@@ -170,7 +170,7 @@ test("36 §12：派发失败后**不自动重新武装**——须有新活动才
     assert.equal(dispatches.length, 1);
     // 失败之后：无新活动，不得再武装、不得重试
     triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
-    assert.equal(timers.size(), 0, "失败后不得自动重新武装（36 §12 不得自行重试）");
+    assert.equal(timers.size(), 0, "失败后不得自动重新武装（11 §12 不得自行重试）");
     // 有新活动才重新计时
     triggers.onTurnStopping({ agent: agentStub(), turn: 5 });
     assert.equal(timers.size(), 0, "活动本身只重置，须等 idle 才武装");
@@ -179,7 +179,7 @@ test("36 §12：派发失败后**不自动重新武装**——须有新活动才
   } finally { timers.restore(); }
 });
 
-test("36 §6.1：到期时**再次确认**确已安静——期间有过新活动则作废", () => {
+test("11 §6.1：到期时**再次确认**确已安静——期间有过新活动则作废", () => {
   const timers = makeFakeTimers();
   try {
     const { triggers, dispatches } = makeTriggers();
@@ -197,7 +197,7 @@ test("36 §6.1：到期时**再次确认**确已安静——期间有过新活�
 // 多会话隔离
 // ---------------------------------------------------------------------------
 
-test("36 §6.1：其它 agent 的活动与 idle 事件被忽略（不武装、不派发）", () => {
+test("11 §6.1：其它 agent 的活动与 idle 事件被忽略（不武装、不派发）", () => {
   const timers = makeFakeTimers();
   try {
     const { triggers, dispatches } = makeTriggers();
@@ -208,7 +208,7 @@ test("36 §6.1：其它 agent 的活动与 idle 事件被忽略（不武装、�
   } finally { timers.restore(); }
 });
 
-test("36 §6.1：`running` 迁移不武装（只有 idle 才武装计时）", () => {
+test("11 §6.1：`running` 迁移不武装（只有 idle 才武装计时）", () => {
   const timers = makeFakeTimers();
   try {
     const { triggers, dispatches } = makeTriggers();
@@ -226,7 +226,7 @@ test("36 §6.1：`running` 迁移不武装（只有 idle 才武装计时）", ()
 // 管辖门（32 §137：git 层操作要求当前项目受管辖）
 // ---------------------------------------------------------------------------
 
-test("36 §6.1：未受管辖时既不计时也不派发", () => {
+test("11 §6.1：未受管辖时既不计时也不派发", () => {
   const timers = makeFakeTimers();
   try {
     const { triggers, dispatches } = makeTriggers({ governed: false });
@@ -239,7 +239,7 @@ test("36 §6.1：未受管辖时既不计时也不派发", () => {
   } finally { timers.restore(); }
 });
 
-test("36 §6.1：受管辖判定在**到期时刻**复核——期间转为未受管辖则不派发", () => {
+test("11 §6.1：受管辖判定在**到期时刻**复核——期间转为未受管辖则不派发", () => {
   const timers = makeFakeTimers();
   try {
     let governed = true;
@@ -261,10 +261,10 @@ test("36 §6.1：受管辖判定在**到期时刻**复核——期间转为未�
 });
 
 // ---------------------------------------------------------------------------
-// 定时器生命周期（36 §6.1：不得留下仍在计时的定时器）
+// 定时器生命周期（11 §6.1：不得留下仍在计时的定时器）
 // ---------------------------------------------------------------------------
 
-test("36 §6.1：`dispose()` 清定时器——会话结束/插件卸载不得留下待触发的计时器", () => {
+test("11 §6.1：`dispose()` 清定时器——会话结束/插件卸载不得留下待触发的计时器", () => {
   const timers = makeFakeTimers();
   try {
     const { triggers, dispatches } = makeTriggers();
@@ -277,7 +277,7 @@ test("36 §6.1：`dispose()` 清定时器——会话结束/插件卸载不得�
   } finally { timers.restore(); }
 });
 
-test("36 §6.1：定时器带 unref（不拖住进程退出）", () => {
+test("11 §6.1：定时器带 unref（不拖住进程退出）", () => {
   const timers = makeFakeTimers();
   try {
     // 假 setTimeout 返回数字 id（无 unref）——真实环境返回 Timeout 对象。
@@ -289,10 +289,10 @@ test("36 §6.1：定时器带 unref（不拖住进程退出）", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 活动时刻的持久化与恢复（36 §6.1：不得只存内存态）
+// 活动时刻的持久化与恢复（11 §6.1：不得只存内存态）
 // ---------------------------------------------------------------------------
 
-test("36 §6.1：活动时刻经 `persistActivityAt` 落盘（热重载后计时不失真）", () => {
+test("11 §6.1：活动时刻经 `persistActivityAt` 落盘（热重载后计时不失真）", () => {
   const timers = makeFakeTimers();
   try {
     const { triggers, persisted } = makeTriggers();
@@ -302,7 +302,7 @@ test("36 §6.1：活动时刻经 `persistActivityAt` 落盘（热重载后计时
   } finally { timers.restore(); }
 });
 
-test("36 §6.1：`restoreActivityAt` 恢复后可直接计时（无须等新活动）", () => {
+test("11 §6.1：`restoreActivityAt` 恢复后可直接计时（无须等新活动）", () => {
   const timers = makeFakeTimers();
   try {
     const { triggers, dispatches } = makeTriggers({ seedActivityAt: 1_000_000_000_000 - 1000 });
@@ -313,7 +313,7 @@ test("36 §6.1：`restoreActivityAt` 恢复后可直接计时（无须等新活�
   } finally { timers.restore(); }
 });
 
-test("36 §6.1：`restoreActivityAt` 拒绝非法值（不得把未知读成「刚活动过」）", () => {
+test("11 §6.1：`restoreActivityAt` 拒绝非法值（不得把未知读成「刚活动过」）", () => {
   const timers = makeFakeTimers();
   try {
     const { triggers } = makeTriggers();
@@ -329,7 +329,7 @@ test("36 §6.1：`restoreActivityAt` 拒绝非法值（不得把未知读成「�
 // 调度失败不得逃逸到宿主事件分发（安全侧）
 // ---------------------------------------------------------------------------
 
-test("36 §6.1/§12：调度回调抛出的拒绝被收口，不逃逸也不重复调度", async () => {
+test("11 §6.1/§12：调度回调抛出的拒绝被收口，不逃逸也不重复调度", async () => {
   const timers = makeFakeTimers();
   try {
     const warns = [];
@@ -353,7 +353,7 @@ test("36 §6.1/§12：调度回调抛出的拒绝被收口，不逃逸也不重�
   } finally { timers.restore(); }
 });
 
-test("36 §6.1：同步抛出的调度回调同样被收口", async () => {
+test("11 §6.1：同步抛出的调度回调同样被收口", async () => {
   const timers = makeFakeTimers();
   try {
     const warns = [];
@@ -377,7 +377,7 @@ test("36 §6.1：同步抛出的调度回调同样被收口", async () => {
 // 安静时长的读取（含非法值回落）
 // ---------------------------------------------------------------------------
 
-test("36 §6.1：安静时长读取非法时回落 5 分钟（读取侧容错，写入侧另拦）", () => {
+test("11 §6.1：安静时长读取非法时回落 5 分钟（读取侧容错，写入侧另拦）", () => {
   const timers = makeFakeTimers();
   try {
     for (const bad of [0, -1, NaN, undefined, "abc"]) {

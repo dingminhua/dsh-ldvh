@@ -1,5 +1,5 @@
 // Tests for plugin/lib/friction-discovery-provider.js —
-// 36 §7.1 执行体派生：provider 选择（零上下文派生，Human 决定 2026-10-12）、
+// 11 §7.1 执行体派生：provider 选择（零上下文派生，Human 决定 2026-10-12）、
 // start 调用面、结构化结果的落地前校验、以及各失败路径必须上抛（由调用方按 §8.3 入队）。
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -213,7 +213,7 @@ test("prompt：公共段声明零上下文派生 + 机械交付，旧「继承�
   const text = svc.starts[0].spec.request.prompt[0].text;
   assert.match(text, /零上下文/);
   assert.match(text, /机械交付/);
-  assert.doesNotMatch(text, /你继承发起会话的主控上下文/, "旧继承措辞不得残留（36 §7.1 上下文供给段，2026-10-12）");
+  assert.doesNotMatch(text, /你继承发起会话的主控上下文/, "旧继承措辞不得残留（11 §7.1 上下文供给段，2026-10-12）");
 });
 
 test("discover：不主动 dispose（收尾由宿主 watchLocalSettlement 负责）", async () => {
@@ -530,7 +530,7 @@ test("D6：无缺口时 unobserved 为 null（不得误报）", async () => {
 
 // ---------------------------------------------------------------------------
 // 空区间短路（2026-10-11）——
-// 36 §11 把观察对象定义为「自上次运行以来新增的会话内容」：无新增即无从观察。
+// 11 §11 把观察对象定义为「自上次运行以来新增的会话内容」：无新增即无从观察。
 // 此前会照常 fork 一个**继承主控完整上下文**的子代理，只为让它回答「材料为空
 // → no-discovery」——而提示词已写死该情形下只能这样答，故这次派发不可能产出
 // 别的结论。代价（实测主控会话解压 21.7 MB）与收益完全不相称。
@@ -570,7 +570,7 @@ test("空窗口且**无缺口**：不派生执行体，但结果与「子代理�
   const skipped = h.events.filter((e) => e.phase === "skipped");
   assert.equal(skipped.length, 1, "须记一条 skipped 痕迹");
   assert.equal(skipped[0].reason, "empty-window");
-  assert.match(skipped[0].note, /§8\.4|新增内容/, "note 须说清依据（36 §11 观察对象=新增内容）");
+  assert.match(skipped[0].note, /§8\.4|新增内容/, "note 须说清依据（11 §11 观察对象=新增内容）");
 });
 
 test("空窗口但**有缺口**：**绝不短路**——缺口正是必须登记的对象", async () => {
@@ -646,7 +646,7 @@ test("短路判定**先于 provider 选择**：无可用 provider 时空窗口�
 // **该修复在唯一需要它的场景里不生效**——而当时没有任何测试覆盖该场景。
 // ---------------------------------------------------------------------------
 
-// 2026-10-20（36 §10.1 两段式）：捕获段的判定态改为 failure-observed／no-failure，
+// 2026-10-20（11 §10.1 两段式）：捕获段的判定态改为 failure-observed／no-failure，
 // 只表达「有无失败现象」，且输出里不再有正文与四前提陈述字段。
 const CAPTURE_SLICE_OK = {
   verdict: "no-failure",

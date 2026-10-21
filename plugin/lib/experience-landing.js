@@ -1,12 +1,12 @@
 /**
- * dsh-ldvh — 闲时辅助「积累经验」**捕获段的落地**（36 §10.1 第 2 项）.
+ * dsh-ldvh — 闲时辅助「积累经验」**捕获段的落地**（11 §10.1 第 2 项）.
  *
  * ## 本模块只做一件事：把捕获段的判断写成**一条留观缓冲条目**
  *
- * 缓冲条目**不是事实对象**（36 §12bis 定性）：它不适用事实类型契约、不参与
+ * 缓冲条目**不是事实对象**（11 §12bis 定性）：它不适用事实类型契约、不参与
  * 受控写入、不进 `ldvh-base/`、不取得授权或结论效力、不需要 `change_log` 署名。
  * 故本模块**不调用** `createPitfallObject`——建 Pitfall `draft` 是审核段的事
- * （`observation-review.js`，36 §10.2 第 3 项）。
+ * （`observation-review.js`，11 §10.2 第 3 项）。
  *
  * ## 为什么这里没有「查重」与「无候选」的处置
  *
@@ -47,7 +47,7 @@ export async function landCaptureVerdict({
   dshHomePath, verdict, observationAt, sessionId, anchor,
 } = {}) {
   if (typeof dshHomePath !== "function") {
-    return failure("capture/home_missing", "dshHomePath resolver is required to locate the observation buffer (36 §12bis)");
+    return failure("capture/home_missing", "dshHomePath resolver is required to locate the observation buffer (11 §12bis)");
   }
   if (typeof verdict !== "object" || verdict === null) {
     return failure("capture/verdict_missing", "verdict must be the validated capture verdict object");
@@ -71,10 +71,10 @@ export async function landCaptureVerdict({
   // `session` / `anchor` 是 §12bis 的必填字段（回指来源）。取不到时**不臆造**：
   // 写入一条无法回指的条目会使审核段无从核对证据，故如实失败。
   if (typeof sessionId !== "string" || sessionId.trim().length === 0) {
-    return failure("capture/session_missing", "session is required for a buffer entry (36 §12bis field `session`; it must not be fabricated)");
+    return failure("capture/session_missing", "session is required for a buffer entry (11 §12bis field `session`; it must not be fabricated)");
   }
   if (typeof anchor !== "string" || anchor.trim().length === 0) {
-    return failure("capture/anchor_missing", "anchor is required for a buffer entry (36 §12bis field `anchor`; it must point at the source position)");
+    return failure("capture/anchor_missing", "anchor is required for a buffer entry (11 §12bis field `anchor`; it must point at the source position)");
   }
 
   const appended = await appendBufferEntry(dshHomePath, {
@@ -89,7 +89,7 @@ export async function landCaptureVerdict({
     // §12 fail-closed：缓冲不可写/回读不通过时不得降级为内存或日志（§12bis 纪律 4）。
     return failure(
       appended.error?.code ?? "capture/buffer_write_failed",
-      `36 §12bis（写留观缓冲条目）失败：${appended.error?.message ?? "unknown"}`,
+      `11 §12bis（写留观缓冲条目）失败：${appended.error?.message ?? "unknown"}`,
       { stage: "buffer-append", cause: appended.error },
     );
   }

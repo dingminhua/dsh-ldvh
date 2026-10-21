@@ -1,7 +1,7 @@
 /**
  * dsh-ldvh — 空闲辅助任务的调度与 fail-closed 编排.
  *
- * 权威：specs/36 §9（摩擦发现的触发、执行体、闭集与上限）与 §8.3（fail-closed
+ * 权威：specs/11 §9（摩擦发现的触发、执行体、闭集与上限）与 §8.3（fail-closed
  * 与待处置队列）；specs/32 §10.2（三任务共用触发点、**不设轮换**——一次派发做全部
  * 已启用任务）。
  *
@@ -17,7 +17,7 @@
  *      原因与残留范围**追加**进待处置队列，**不重试、不部分完成、不静默**。
  *
  * **为什么本模块不自己「发现摩擦」**：§8.4 的执行体是「宿主派生一个受管辖隔离
- * 子代理」（以零上下文派生、判断输入由调度侧机械交付——36 §7.1「执行体与上下文供给」
+ * 子代理」（以零上下文派生、判断输入由调度侧机械交付——11 §7.1「执行体与上下文供给」
  * 供给」段，Human 决定 2026-10-12）。该判断
  * 是语义判断（§8.2 第 1 条后半句明文不由机械校验保障）。Code 无法替代它，也不
  * 得伪造一个「机械查重」冒充它。故本模块的角色是：**为子代理准备好机械前提
@@ -136,7 +136,7 @@ export async function runIdleCheckpoint({
   if (typeof sessionId !== "string" || sessionId.length === 0) {
     return recordAndFail(dshHomePath, {
       task: taskId,
-      reason: "sessionId is required to key the observation watermark (36 §11 水位段) — 不得以「无位置」退化为覆盖全部内容",
+      reason: "sessionId is required to key the observation watermark (11 §11 水位段) — 不得以「无位置」退化为覆盖全部内容",
       residual: ["本次未运行（缺少会话位置标识）"],
       at,
       code: "idle_checkpoint/no_session_id",
@@ -145,7 +145,7 @@ export async function runIdleCheckpoint({
   if (!Number.isInteger(currentTurn)) {
     return recordAndFail(dshHomePath, {
       task: taskId,
-      reason: "currentTurn (the turn published by the host event payload) is required to bound this run's window (36 §11 水位段)",
+      reason: "currentTurn (the turn published by the host event payload) is required to bound this run's window (11 §11 水位段)",
       residual: ["本次未运行（缺少轮次位置标识）"],
       at,
       code: "idle_checkpoint/no_current_turn",
@@ -215,7 +215,7 @@ export async function runIdleCheckpoint({
       tasks: [...requested],
       unimplemented: [...unimplemented],
       outcome: "skipped",
-      reason: "no semantic-judgement provider: 36 §9 第 1 项的语义查重是登记为 gap 的语义判断，机械层不得代为判断，故本次不入账",
+      reason: "no semantic-judgement provider: 11 §9 第 1 项的语义查重是登记为 gap 的语义判断，机械层不得代为判断，故本次不入账",
       threshold: FRICTION_THRESHOLD_N,
       candidates: candidates.value.candidates.length,
       window: windowRange,
@@ -226,7 +226,7 @@ export async function runIdleCheckpoint({
     });
   }
 
-  // **既有 Pitfall 列表不再在此读取**（2026-10-20，36 §10 两段式改造）：查重
+  // **既有 Pitfall 列表不再在此读取**（2026-10-20，11 §10 两段式改造）：查重
   // 已移入审核段（§10.2 第 2 项），捕获段（§10.1）只判「有没有失败发生过」，
   // 它的失效方向是漏记而不是重复建档，故不需要既有对象作为前提。在此读取反而
   // 会把「Pitfall 载体不可读」变成捕获段失败的伪前提，且诱使捕获段去判重复。

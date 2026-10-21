@@ -1,19 +1,19 @@
 /**
- * dsh-ldvh — 闲时辅助「积累经验」**捕获段**的契约切片（36 §10.1 捕获段）.
+ * dsh-ldvh — 闲时辅助「积累经验」**捕获段**的契约切片（11 §10.1 捕获段）.
  *
- * 权威：specs/36 §10.1（捕获段）与 §12bis（留观缓冲）；specs/23（Pitfall 事实类型）。
+ * 权威：specs/11 §10.1（捕获段）与 §12bis（留观缓冲）；specs/23（Pitfall 事实类型）。
  *
  * ## 本模块与摩擦发现的契约模块（`friction-subagent-contract.js`）的分工
  *
  * 两者结构同形（提示词段 + 输出 schema + 落地前校验），但**产出不同**：摩擦发现
- * 产出 Friction 账目的判定（26 号），本模块产出一条**留观缓冲条目**（36 §12bis，
- * 不是事实对象）。36 §8 明文二者「产出不同对象，互不替代」，故本模块**不引用**
+ * 产出 Friction 账目的判定（26 号），本模块产出一条**留观缓冲条目**（11 §12bis，
+ * 不是事实对象）。11 §8 明文二者「产出不同对象，互不替代」，故本模块**不引用**
  * 摩擦侧的常量与校验——各任务的提示词段与输出字段必须**各自独立、互不引用**
  * （`aux-task-registry.js` 的三条纪律之一）。
  *
- * ## 本模块只做「捕获」，不做「审核」（36 §10 两段分工）
+ * ## 本模块只做「捕获」，不做「审核」（11 §10 两段分工）
  *
- * 2026-10-20 起，经验积累由一段判断拆成两段（36 §10.1/§10.2）：
+ * 2026-10-20 起，经验积累由一段判断拆成两段（11 §10.1/§10.2）：
  *
  * - **捕获段（本模块）**：只判「有没有一个失败发生过」，产出一条缓冲条目。
  *   它**不判根因、不判解法、不判是否已解决、不判是否与既有经验重复**，
@@ -29,8 +29,8 @@
  *
  * ## 机械通道的边界
  *
- * 捕获段的机械通道**仅限写入一条缓冲条目**（36 §10.1 第 2 项）。写缓冲不产生
- * 任何事实对象、不进入事实源、不取得授权或结论效力（36 §12bis 定性）。故本模块
+ * 捕获段的机械通道**仅限写入一条缓冲条目**（11 §10.1 第 2 项）。写缓冲不产生
+ * 任何事实对象、不进入事实源、不取得授权或结论效力（11 §12bis 定性）。故本模块
  * 的输出**只能**表达「观察到一次失败现象」或「没有观察到」，不能表达任何
  * 「该不该记／是不是重复／影响多大」的判断。
  */
@@ -43,7 +43,7 @@ import { verifyQuotation } from "./friction-window.js";
  * - `failure-observed`：本次材料里有**一次失败发生过**，写一条缓冲条目；
  * - `no-failure`：本次材料里没有失败现象（含材料为空）。
  *
- * 两者都不表达「这是不是同一个已知机制」——查重在审核段（36 §10.2 第 2 项）。
+ * 两者都不表达「这是不是同一个已知机制」——查重在审核段（11 §10.2 第 2 项）。
  */
 export const CAPTURE_VERDICTS = Object.freeze(["failure-observed", "no-failure"]);
 
@@ -57,7 +57,7 @@ export const REQUIRED_BODY_SECTIONS = Object.freeze([
 ]);
 
 /**
- * 缓冲条目字段的长度上限（与 36 §12bis 的实现侧承接一致，见 `observation-buffer.js`）。
+ * 缓冲条目字段的长度上限（与 11 §12bis 的实现侧承接一致，见 `observation-buffer.js`）。
  *
  * `evidence` 的 3000 低于载体字段的 4000：载体上的 `evidence` 是「逐字片段 +
  * 换行 + 来源引用」的合成串，3000 + 256 仍留有余量，故不会出现「本层通过、
@@ -123,7 +123,7 @@ export function captureOutputSchema() {
 /**
  * 本任务的提示词段——**必须自足**：说明本任务要判断什么、输出什么字段。
  *
- * 本段**不再携带既有 Pitfall 列表**：查重已移入审核段（36 §10.2 第 2 项、23 §6.2），
+ * 本段**不再携带既有 Pitfall 列表**：查重已移入审核段（11 §10.2 第 2 项、23 §6.2），
  * 捕获段拿到既有对象只会诱使它做「是重复吗」的判断——那正是 §10.1 禁止的事。
  *
  * @param {{existing?: Array<object>}} _ctx - 兼容 provider 的统一拼段调用；本段忽略。
@@ -167,7 +167,7 @@ function isOneSentence(text) {
  * 落地前的**跨字段校验**（宿主支持的 schema 子集表达不了条件约束）。
  *
  * 与落地侧共用同一份判据。校验通过**不等于**该现象会成立为经验候选——那由
- * 审核段据缓冲条目判断（36 §10.2）。
+ * 审核段据缓冲条目判断（11 §10.2）。
  *
  * @param {object} slice - 本任务在复合输出里的那一片。
  * @param {{windowText?: string|null}} ctx - `windowText` 是本轮观察材料正文，用于引证机械核对。
@@ -225,13 +225,13 @@ export function validateCaptureVerdict(slice, { windowText = null } = {}) {
       return failure(`capture/${field}_missing`, `verdict=failure-observed requires a non-empty ${field}`);
     }
     if (value.trim().length > maxLength) {
-      return failure(`capture/${field}_too_long`, `${field} must be ≤ ${maxLength} characters (36 §12bis), got ${value.trim().length}`);
+      return failure(`capture/${field}_too_long`, `${field} must be ≤ ${maxLength} characters (11 §12bis), got ${value.trim().length}`);
     }
   }
 
-  // phenomenon 是**一句话的描述**，不是一串结论（36 §12bis 字段表）。
+  // phenomenon 是**一句话的描述**，不是一串结论（11 §12bis 字段表）。
   if (!isOneSentence(phenomenon)) {
-    return failure("capture/phenomenon_not_one_sentence", "phenomenon must be a single-sentence description (36 §12bis)");
+    return failure("capture/phenomenon_not_one_sentence", "phenomenon must be a single-sentence description (11 §12bis)");
   }
 
   // evidence 的「逐字」由 quote 机械核对承载：quote 必须是 evidence 的子串，
@@ -241,7 +241,7 @@ export function validateCaptureVerdict(slice, { windowText = null } = {}) {
   if (normQuote.length > 0 && !normEvidence.includes(normQuote)) {
     return failure(
       "capture/evidence_quote_mismatch",
-      `evidence must contain the verbatim quote ${JSON.stringify(normQuote)} — evidence is the quoted span, not a paraphrase (36 §12bis)`,
+      `evidence must contain the verbatim quote ${JSON.stringify(normQuote)} — evidence is the quoted span, not a paraphrase (11 §12bis)`,
     );
   }
 
@@ -264,7 +264,7 @@ export function validateCaptureVerdict(slice, { windowText = null } = {}) {
 /**
  * 候选正文的结构核对：七段按序、各段非空、无占位符。
  *
- * **审核段使用**（36 §10.2 第 3 项）；捕获段不产出正文，故不调用。
+ * **审核段使用**（11 §10.2 第 3 项）；捕获段不产出正文，故不调用。
  * **只管结构**——不判断七段内容是否据实（那属语义工作，由 Human 与另一主体的
  * 复现验证承担，23 §16.1）。故本函数的通过**不证明**四前提确已齐备。
  */
@@ -278,12 +278,12 @@ export function validateCaptureBody(body) {
   if (/^#\s+\S/m.test(text.split("\n")[0] ?? "")) {
     return failure("capture/body_has_h1", "body must not start with an H1 — the title is generated from `title`; start at `## 症状`");
   }
-  // 占位符检测：明文禁止以「待查明」类标记冒充（36 §10.2 第 3 项）。
+  // 占位符检测：明文禁止以「待查明」类标记冒充（11 §10.2 第 3 项）。
   const placeholder = text.match(/待查明|待补充|TBD|TODO|\?\?\?|（略）|\(略\)/);
   if (placeholder) {
     return failure(
       "capture/body_placeholder",
-      `body contains a placeholder marker ${JSON.stringify(placeholder[0])} — a section that cannot be written truthfully means the entry does not support a candidate; settle it as discarded instead (36 §10.2 第 5 项)`,
+      `body contains a placeholder marker ${JSON.stringify(placeholder[0])} — a section that cannot be written truthfully means the entry does not support a candidate; settle it as discarded instead (11 §10.2 第 5 项)`,
     );
   }
   const headings = [...text.matchAll(/^##\s+(.+?)\s*$/gm)].map((m) => m[1]);
@@ -305,7 +305,7 @@ export function validateCaptureBody(body) {
     const h = heads.indexOf(required[i]);
     const content = (bodies[h] ?? "").trim();
     if (content.length === 0) {
-      return failure("capture/body_section_empty", `body section 「${required[i]}」 is empty — all seven sections must be non-empty (23 §8; 36 §10.2 forbids placeholders)`);
+      return failure("capture/body_section_empty", `body section 「${required[i]}」 is empty — all seven sections must be non-empty (23 §8; 11 §10.2 forbids placeholders)`);
     }
   }
   return { ok: true, value: { headings } };

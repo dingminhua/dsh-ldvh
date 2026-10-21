@@ -52,10 +52,10 @@ export const AUX_TASK_ORDER = Object.freeze(["friction-discovery", "experience-c
  */
 
 
-/** 摩擦发现（36 §9）的任务键。**曾用名 `idle-review`**（见 friction-watermark 的改名回落）。 */
+/** 摩擦发现（11 §9）的任务键。**曾用名 `idle-review`**（见 friction-watermark 的改名回落）。 */
 const FRICTION_DISCOVERY_KEY = "friction-discovery";
 
-/** 经验积累（36 §10）的任务键。 */
+/** 经验积累（11 §10）的任务键。 */
 const EXPERIENCE_CAPTURE_KEY = "experience-capture";
 
 /**
@@ -262,7 +262,7 @@ export const AUX_TASK_REGISTRY = Object.freeze({
     implemented: true,
     // 与摩擦侧同构：三部位正文由契约模块提供，本表只**引用**、不复制。
     //
-    // **捕获段（36 §10.1）**：本任务现在只判「有没有失败发生过」并写一条留观
+    // **捕获段（11 §10.1）**：本任务现在只判「有没有失败发生过」并写一条留观
     // 缓冲条目，不判重复、不产正文。故 `validate` 不再接收既有 Pitfall 列表
     // （查重已移审核段 §10.2 第 2 项），只留引证核对所需的 `windowText`。
     promptSection: buildCapturePromptSection,

@@ -1,8 +1,8 @@
-// Tests for 36 §10.1（经验积累·捕获段）的两个实现切片：
+// Tests for 11 §10.1（经验积累·捕获段）的两个实现切片：
 //   - lib/experience-capture-contract.js（提示词段 / 输出 schema / 落地前校验）
 //   - lib/experience-landing.js（机械通道的落地：只写一条留观缓冲条目）
 //
-// 权威：specs/36 §10.1（捕获段）与 §12bis（留观缓冲）。
+// 权威：specs/11 §10.1（捕获段）与 §12bis（留观缓冲）。
 // 断言的是规范行为；实现与规范不符时在任务报告里如实登记，不靠改断言「修正」。
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -57,11 +57,11 @@ function goodBody(scope = SCOPE) {
 // 契约：闭集与 schema
 // ---------------------------------------------------------------------------
 
-test("36 §10.1：判定态是闭集两值——只表达「有无失败现象」，不表达任何入档判断", () => {
+test("11 §10.1：判定态是闭集两值——只表达「有无失败现象」，不表达任何入档判断", () => {
   assert.deepEqual([...CAPTURE_VERDICTS], ["failure-observed", "no-failure"]);
 });
 
-test("36 §10.1：输出 schema 面向缓冲条目，且不再携带四前提陈述字段", () => {
+test("11 §10.1：输出 schema 面向缓冲条目，且不再携带四前提陈述字段", () => {
   const schema = captureOutputSchema();
   // 四前提已按 23 §10 重定位为 draft→active 前置，捕获段不核对。
   for (const f of ["failure_observed", "root_cause_known", "resolution_adopted", "verification_observed"]) {
@@ -75,7 +75,7 @@ test("36 §10.1：输出 schema 面向缓冲条目，且不再携带四前提陈
   assert.deepEqual([...schema.required], ["verdict", "quote", "reason"]);
 });
 
-test("36 §10.1：提示词段自足——只判有无失败，且明确禁止判重复/根因/入档", () => {
+test("11 §10.1：提示词段自足——只判有无失败，且明确禁止判重复/根因/入档", () => {
   const section = buildCapturePromptSection();
   for (const kw of ["有没有一个失败", "failure-observed", "no-failure", "逐字", "phenomenon", "candidate_question"]) {
     assert.ok(section.includes(kw), `提示词段须说明「${kw}」`);
@@ -87,7 +87,7 @@ test("36 §10.1：提示词段自足——只判有无失败，且明确禁止�
   assert.ok(!section.includes("查重比对对象"), "捕获段不得再收到查重比对对象");
 });
 
-test("36 §10.1：提示词段显式声明「宁可多记不可漏记」（失效方向被限定为漏记）", () => {
+test("11 §10.1：提示词段显式声明「宁可多记不可漏记」（失效方向被限定为漏记）", () => {
   const section = buildCapturePromptSection();
   assert.ok(section.includes("不可漏记"));
   assert.ok(section.includes("不可漏记") && section.includes("觉得这条没用"), "须点名「觉得没用」这一具体失效");
@@ -97,7 +97,7 @@ test("36 §10.1：提示词段显式声明「宁可多记不可漏记」（失�
 // 契约：落地前校验
 // ---------------------------------------------------------------------------
 
-test("36 §10.1：合法捕获通过，并合成缓冲载体字段（evidence 附来源引用）", () => {
+test("11 §10.1：合法捕获通过，并合成缓冲载体字段（evidence 附来源引用）", () => {
   const r = validateCaptureVerdict(goodVerdict(), { windowText: WINDOW });
   assert.ok(r.ok, JSON.stringify(r.error));
   assert.equal(r.value.verdict, "failure-observed");
@@ -107,13 +107,13 @@ test("36 §10.1：合法捕获通过，并合成缓冲载体字段（evidence �
   assert.equal(r.value.entry.candidate_question, goodVerdict().candidate_question);
 });
 
-test("36 §10.1：非空材料下「无失败」也必须引证（否则恒报无失败不可见）", () => {
+test("11 §10.1：非空材料下「无失败」也必须引证（否则恒报无失败不可见）", () => {
   const r = validateCaptureVerdict({ verdict: "no-failure", quote: "", reason: "r" }, { windowText: WINDOW });
   assert.equal(r.ok, false);
   assert.equal(r.error.code, "capture/quote_missing");
 });
 
-test("36 §10.1：no-failure 态通过但不产出条目", () => {
+test("11 §10.1：no-failure 态通过但不产出条目", () => {
   const r = validateCaptureVerdict(
     { verdict: "no-failure", quote: EVIDENCE, reason: "材料里没有失败现象" },
     { windowText: WINDOW },
@@ -122,13 +122,13 @@ test("36 §10.1：no-failure 态通过但不产出条目", () => {
   assert.equal(r.value.entry, null);
 });
 
-test("36 §10.1：引证必须真在材料内（不得取自材料外）", () => {
+test("11 §10.1：引证必须真在材料内（不得取自材料外）", () => {
   const r = validateCaptureVerdict(goodVerdict({ quote: "这段话不在材料里", evidence: "这段话不在材料里" }), { windowText: WINDOW });
   assert.equal(r.ok, false, "引证不在材料内须被拒");
   assert.equal(r.error.code, "discovery/quote_not_in_window");
 });
 
-test("36 §10.1：缺任一缓冲字段即不通过", () => {
+test("11 §10.1：缺任一缓冲字段即不通过", () => {
   for (const f of ["phenomenon", "evidence", "source", "candidate_question"]) {
     const r = validateCaptureVerdict(goodVerdict({ [f]: "" }), { windowText: WINDOW });
     assert.equal(r.ok, false, `${f} 为空须被拒`);
@@ -136,7 +136,7 @@ test("36 §10.1：缺任一缓冲字段即不通过", () => {
   }
 });
 
-test("36 §12bis：phenomenon 必须是一句话的描述（多句被拒）", () => {
+test("11 §12bis：phenomenon 必须是一句话的描述（多句被拒）", () => {
   const r = validateCaptureVerdict(
     goodVerdict({ phenomenon: "升级后报解析失败。清理缓存后恢复。" }),
     { windowText: WINDOW },
@@ -145,7 +145,7 @@ test("36 §12bis：phenomenon 必须是一句话的描述（多句被拒）", ()
   assert.equal(r.error.code, "capture/phenomenon_not_one_sentence");
 });
 
-test("36 §12bis：evidence 必须含逐字引证（转述式的 evidence 被拒）", () => {
+test("11 §12bis：evidence 必须含逐字引证（转述式的 evidence 被拒）", () => {
   const r = validateCaptureVerdict(
     goodVerdict({ evidence: "升级之后会出现反复的解析失败现象" }),
     { windowText: WINDOW },
@@ -154,13 +154,13 @@ test("36 §12bis：evidence 必须含逐字引证（转述式的 evidence 被拒
   assert.equal(r.error.code, "capture/evidence_quote_mismatch");
 });
 
-test("36 §12bis：字段长度上限（超出即越界）", () => {
+test("11 §12bis：字段长度上限（超出即越界）", () => {
   const r = validateCaptureVerdict(goodVerdict({ source: "s".repeat(257) }), { windowText: WINDOW });
   assert.equal(r.ok, false);
   assert.equal(r.error.code, "capture/source_too_long");
 });
 
-test("36 §10.1：判定态越界即拒绝（旧两态 new-experience/no-capture 已不在闭集）", () => {
+test("11 §10.1：判定态越界即拒绝（旧两态 new-experience/no-capture 已不在闭集）", () => {
   for (const verdict of ["new-experience", "no-capture"]) {
     const r = validateCaptureVerdict(goodVerdict({ verdict }), { windowText: WINDOW });
     assert.equal(r.ok, false);
@@ -194,7 +194,7 @@ test("23 §8：七段结构校验仍在（审核段复用），且缺段/空段/
 });
 
 // ---------------------------------------------------------------------------
-// 落地：机械通道只写缓冲条目（36 §10.1 第 2 项 / §12bis）
+// 落地：机械通道只写缓冲条目（11 §10.1 第 2 项 / §12bis）
 // ---------------------------------------------------------------------------
 
 const OBSERVED_AT = "2026-10-20T00:00:00.000Z";
@@ -215,7 +215,7 @@ function landingArgs(dshHomePath, overrides = {}) {
   };
 }
 
-test("36 §10.1：落地写一条缓冲条目，返回 entry_id，且不创建任何 Pitfall", async () => {
+test("11 §10.1：落地写一条缓冲条目，返回 entry_id，且不创建任何 Pitfall", async () => {
   await withTemp("experience-landing.", async (root) => {
     const landed = await landCaptureVerdict(landingArgs(root));
     assert.ok(landed.ok, JSON.stringify(landed.error));
@@ -242,7 +242,7 @@ test("36 §10.1：落地写一条缓冲条目，返回 entry_id，且不创建�
   });
 });
 
-test("36 §10.1：缓冲载体不存在时读到空集合（不是错误），且落地前不建任何目录外的对象", async () => {
+test("11 §10.1：缓冲载体不存在时读到空集合（不是错误），且落地前不建任何目录外的对象", async () => {
   await withTemp("experience-landing.", async (root) => {
     const read = await readBufferEntries(homeResolver(root));
     assert.ok(read.ok);
@@ -257,7 +257,7 @@ test("36 §10.1：缓冲载体不存在时读到空集合（不是错误），�
   });
 });
 
-test("36 §10.1：no-failure 不写条目（如实登记的「没观察到」，不是「确认没有」）", async () => {
+test("11 §10.1：no-failure 不写条目（如实登记的「没观察到」，不是「确认没有」）", async () => {
   await withTemp("experience-landing.", async (root) => {
     const landed = await landCaptureVerdict(landingArgs(root, {
       verdict: { verdict: "no-failure", entry: null },
@@ -268,7 +268,7 @@ test("36 §10.1：no-failure 不写条目（如实登记的「没观察到」，
   });
 });
 
-test("36 §12bis：缓冲不可写时 fail-closed——不得降级为内存或日志", async () => {
+test("11 §12bis：缓冲不可写时 fail-closed——不得降级为内存或日志", async () => {
   await withTemp("experience-landing.", async (root) => {
     // 在 `<root>/ldvh` 处放一个普通文件：缓冲载体的父路径不是目录，写入必然失败
     // （ENOTDIR），读取也不会返回「空集合」这种成功形状。
@@ -285,7 +285,7 @@ test("36 §12bis：缓冲不可写时 fail-closed——不得降级为内存或�
   });
 });
 
-test("36 §12bis：取不到来源会话/位置时不臆造——如实拒绝写入", async () => {
+test("11 §12bis：取不到来源会话/位置时不臆造——如实拒绝写入", async () => {
   await withTemp("experience-landing.", async (root) => {
     for (const [field, code] of [["sessionId", "capture/session_missing"], ["anchor", "capture/anchor_missing"]]) {
       const landed = await landCaptureVerdict(landingArgs(root, { [field]: "" }));
@@ -296,7 +296,7 @@ test("36 §12bis：取不到来源会话/位置时不臆造——如实拒绝写
   });
 });
 
-test("36 §10.1：缺失或未校验的 verdict 被拒（不得绕过契约直接落缓冲）", async () => {
+test("11 §10.1：缺失或未校验的 verdict 被拒（不得绕过契约直接落缓冲）", async () => {
   await withTemp("experience-landing.", async (root) => {
     const noVerdict = await landCaptureVerdict({ dshHomePath: homeResolver(root), sessionId: "s", anchor: "a" });
     assert.equal(noVerdict.ok, false);
@@ -308,7 +308,7 @@ test("36 §10.1：缺失或未校验的 verdict 被拒（不得绕过契约直�
   });
 });
 
-test("36 §12bis：落缓冲不写署名（缓冲条目不是事实对象，字段闭集里没有署名位）", async () => {
+test("11 §12bis：落缓冲不写署名（缓冲条目不是事实对象，字段闭集里没有署名位）", async () => {
   await withTemp("experience-landing.", async (root) => {
     const landed = await landCaptureVerdict(landingArgs(root));
     assert.ok(landed.ok, JSON.stringify(landed.error));

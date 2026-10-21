@@ -76,20 +76,20 @@ const OPERATIONS = {
     effect: "may_change_state",
     awaitsHumanDecision: true
   },
-  // 36 §12ter 的两条公开操作。summary 与 effect 逐字对齐 specs/36 §12ter 声明表；
-  // `awaitsHumanDecision` **刻意不设**：审核段是机械通道（36 §10.2 机械通道边界
+  // 11 §12ter 的两条公开操作。summary 与 effect 逐字对齐 specs/11 §12ter 声明表；
+  // `awaitsHumanDecision` **刻意不设**：审核段是机械通道（11 §10.2 机械通道边界
   // ——仅 §10.1 第 2 项与 §10.2 第 3 项，无须事前 Human 确认并保留事后否决权，
   // 23 §13）。入档（draft→active）与废止才是 23 §16 的 Human Gate，本模块不做
   // 也不声明这两件事——把它标成 awaitsHumanDecision 会让宿主对一条**不提问**的
   // 工具撤掉超时上限（toolDescriptor 的 timeoutMs 逻辑），反而制造挂死窗口。
   "observation-buffer-list": {
     toolName: "ldvh_observation_buffer_list",
-    summary: "Read the observation buffer entries and their status; declaring no entry as a fact or an experience (specs/36 §12ter.1 input contract, §12ter.2 result contract)",
+    summary: "Read the observation buffer entries and their status; declaring no entry as a fact or an experience (specs/11 §12ter.1 input contract, §12ter.2 result contract)",
     effect: "read"
   },
   "observation-buffer-review": {
     toolName: "ldvh_observation_buffer_review",
-    summary: "Run one experience-accumulation review pass: form at most one experience candidate from the pending buffer entries and settle that entry's status (specs/36 §12ter.1 input contract, §12ter.2 result contract)",
+    summary: "Run one experience-accumulation review pass: form at most one experience candidate from the pending buffer entries and settle that entry's status (specs/11 §12ter.1 input contract, §12ter.2 result contract)",
     effect: "may_change_state"
   }
 };
@@ -1082,7 +1082,7 @@ function makeExecute(deps) {
   }
 
   /**
-   * 36 §12ter.1 只读入口：读取留观缓冲条目及其状态。
+   * 11 §12ter.1 只读入口：读取留观缓冲条目及其状态。
    *
    * **返回不构成事实读取**（§12ter.2）：条目是事实源之外的中间产物（§12bis），
    * 除审核段外任何消费方都不得把它当作依据（§12bis 写入与读取纪律第 2 条）。
@@ -1097,7 +1097,7 @@ function makeExecute(deps) {
         result: null,
         scope: { requested: status, completed: [], not_completed: ["status"] },
         sources: [],
-        gaps: [`status must be one of ${BUFFER_STATUSES.join(", ")} (36 §12bis field closed set); got ${JSON.stringify(status)}`],
+        gaps: [`status must be one of ${BUFFER_STATUSES.join(", ")} (11 §12bis field closed set); got ${JSON.stringify(status)}`],
         verification: { checks: ["status-closed-set"], passed: false },
         follow_up: ["retry with a status member or omit the argument"]
       });
@@ -1108,7 +1108,7 @@ function makeExecute(deps) {
         result: null,
         scope: { requested: limit, completed: [], not_completed: ["limit"] },
         sources: [],
-        gaps: [`limit must be a positive integer (36 §12ter.1: it may only lower the number of entries returned); got ${JSON.stringify(limit)}`],
+        gaps: [`limit must be a positive integer (11 §12ter.1: it may only lower the number of entries returned); got ${JSON.stringify(limit)}`],
         verification: { checks: ["limit-positive-integer"], passed: false },
         follow_up: ["retry with a positive integer or omit the argument"]
       });
@@ -1119,7 +1119,7 @@ function makeExecute(deps) {
         result: null,
         scope: { requested: status ?? "all", completed: [], not_completed: [status ?? "all"] },
         sources: [],
-        gaps: [`governance state is ${governed.state}: the observation buffer serves governed sessions only (36 §12ter.1 common precondition)`],
+        gaps: [`governance state is ${governed.state}: the observation buffer serves governed sessions only (11 §12ter.1 common precondition)`],
         verification: { checks: ["governance-scope"], passed: false },
         follow_up: []
       });
@@ -1131,7 +1131,7 @@ function makeExecute(deps) {
         result: null,
         scope: { requested: status ?? "all", completed: [], not_completed: [status ?? "all"] },
         sources: sources({ kind: "observation-buffer", path: BUFFER_RELATIVE_PATH.join("/"), fingerprint: null }),
-        gaps: [`${read.error?.code ?? "observation_buffer/unreadable"}: ${read.error?.message ?? "unknown"} (36 §12bis item 4: fail-closed, never degrade to memory or a log)`],
+        gaps: [`${read.error?.code ?? "observation_buffer/unreadable"}: ${read.error?.message ?? "unknown"} (11 §12bis item 4: fail-closed, never degrade to memory or a log)`],
         verification: { checks: ["buffer-read"], passed: false },
         follow_up: ["restore the buffer carrier and retry; do not substitute another carrier"]
       });
@@ -1153,7 +1153,7 @@ function makeExecute(deps) {
       gaps: complete
         ? []
         : [
-            `${value.invalid?.length ?? 0} defect line(s) in the buffer carrier were not consumed as entries (36 §18: an unreadable or unwritable buffer entry is fail-closed, never silently dropped)`,
+            `${value.invalid?.length ?? 0} defect line(s) in the buffer carrier were not consumed as entries (11 §18: an unreadable or unwritable buffer entry is fail-closed, never silently dropped)`,
             ...(value.invalid ?? []).map((item) => `line ${item.line}: ${item.reason}`)
           ],
       verification: { checks: ["status-closed-set", "limit-positive-integer", "buffer-read", "retention-settlement"], passed: complete },
@@ -1162,11 +1162,11 @@ function makeExecute(deps) {
   }
 
   /**
-   * 36 §12ter.1 审核段入口：一次运行至多形成 1 条候选。
+   * 11 §12ter.1 审核段入口：一次运行至多形成 1 条候选。
    *
    * ## 为什么本操作接收 `proposals`（内容输入，不是策略参数）
    *
-   * 审核段的语义判断由调用方执行体作出（36 §10.2：查重是 AI 语义判断、某段是否可写
+   * 审核段的语义判断由调用方执行体作出（11 §10.2：查重是 AI 语义判断、某段是否可写
    * 是材料筛选语义判断），机械侧只做结构校验与结算。故本操作必须收到该判断的**结构化
    * 产物**，否则「形成的候选」无从产生——本模块是确定性的，它自己写不出七段。
    *
@@ -1184,7 +1184,7 @@ function makeExecute(deps) {
         result: null,
         scope: { requested: entryId, completed: [], not_completed: ["entry_id"] },
         sources: [],
-        gaps: ["entry_id must be a non-empty string when given (36 §12ter.1)"],
+        gaps: ["entry_id must be a non-empty string when given (11 §12ter.1)"],
         verification: { checks: ["entry-id-form"], passed: false },
         follow_up: ["retry with a buffer entry id or omit the argument"]
       });
@@ -1194,7 +1194,7 @@ function makeExecute(deps) {
         result: null,
         scope: { requested: null, completed: [], not_completed: ["proposals"] },
         sources: [],
-        gaps: ["proposals must be an array of per-entry review proposals (36 §10.2); a non-array cannot be interpreted"],
+        gaps: ["proposals must be an array of per-entry review proposals (11 §10.2); a non-array cannot be interpreted"],
         verification: { checks: ["proposals-form"], passed: false },
         follow_up: ["retry with the proposals array produced by the review judgement"]
       });
@@ -1205,7 +1205,7 @@ function makeExecute(deps) {
         result: null,
         scope: { requested: entryId ?? "next", completed: [], not_completed: [entryId ?? "next"] },
         sources: [],
-        gaps: [`governance state is ${governed.state}: the review pass serves governed sessions only (36 §12ter.1 common precondition)`],
+        gaps: [`governance state is ${governed.state}: the review pass serves governed sessions only (11 §12ter.1 common precondition)`],
         verification: { checks: ["governance-scope"], passed: false },
         follow_up: []
       });
@@ -1223,7 +1223,7 @@ function makeExecute(deps) {
         scope: { requested: entryId ?? "next", completed: [], not_completed: ["signature", "candidate-formation"] },
         sources: [],
         gaps: [
-          `observation_review/signature_unavailable: the authoritative session route is unavailable (${route?.reason ?? "unknown"}); 36 §12ter.1 — provider/model are not carried by parameters and an unsigned change_log entry must not be written (03 §6.1 / 06 §6). REPORT TO HUMAN`
+          `observation_review/signature_unavailable: the authoritative session route is unavailable (${route?.reason ?? "unknown"}); 11 §12ter.1 — provider/model are not carried by parameters and an unsigned change_log entry must not be written (03 §6.1 / 06 §6). REPORT TO HUMAN`
         ],
         verification: { checks: ["signature-authoritative"], passed: false },
         follow_up: ["restore the authoritative session route, then retry; do not pass provider/model as arguments"]
@@ -1235,7 +1235,7 @@ function makeExecute(deps) {
         result: null,
         scope: { requested: entryId ?? "next", completed: [], not_completed: ["dedup-baseline", "candidate-formation"] },
         sources: sources({ kind: "fact-source", path: "ldvh-base/pitfalls", fingerprint: null }),
-        gaps: [`${existing.error?.code ?? "observation_review/list_failed"}: ${existing.error?.message ?? "unknown"} (36 §10.2 item 6 / §12: the dedup baseline could not be read — fail-closed, never form a candidate without it)`],
+        gaps: [`${existing.error?.code ?? "observation_review/list_failed"}: ${existing.error?.message ?? "unknown"} (11 §10.2 item 6 / §12: the dedup baseline could not be read — fail-closed, never form a candidate without it)`],
         verification: { checks: ["dedup-baseline"], passed: false },
         follow_up: ["repair the Pitfall carrier read path, then retry"]
       });
@@ -1283,8 +1283,8 @@ function makeExecute(deps) {
       gaps: [],
       verification: { checks: ["buffer-read", "dedup-record", "evidence-copy", "read-back", "settle"], passed: true },
       follow_up: value.formed !== null
-        ? ["draft → active requires the 23 §16 Human Gate with another party's reproduction (36 §10.2); this pass does not and cannot promote it"]
-        : (value.remaining_pending > 0 ? ["pending entries remain; the next run may form at most one more candidate (36 §10.2)"] : [])
+        ? ["draft → active requires the 23 §16 Human Gate with another party's reproduction (11 §10.2); this pass does not and cannot promote it"]
+        : (value.remaining_pending > 0 ? ["pending entries remain; the next run may form at most one more candidate (11 §10.2)"] : [])
     });
   }
 
@@ -1536,7 +1536,7 @@ function parameterSchemaFor(operationKey) {
         additionalProperties: false
       };
     case "observation-buffer-list":
-      // 36 §12ter.1：status 可选闭集四值、limit 可选正整数（只可降低返回条数，
+      // 11 §12ter.1：status 可选闭集四值、limit 可选正整数（只可降低返回条数，
       // 不得绕过 §12bis 的容量上限与淘汰规则）。
       return {
         type: "object",
@@ -1544,7 +1544,7 @@ function parameterSchemaFor(operationKey) {
           status: {
             type: "string",
             enum: [...BUFFER_STATUSES],
-            description: "Filter by buffer entry status (36 §12bis closed set); omit for all"
+            description: "Filter by buffer entry status (11 §12bis closed set); omit for all"
           },
           limit: {
             type: "integer",
@@ -1555,7 +1555,7 @@ function parameterSchemaFor(operationKey) {
         additionalProperties: false
       };
     case "observation-buffer-review":
-      // 36 §12ter.1：唯一可调参数是 entry_id（可选，指定优先处理的条目）。
+      // 11 §12ter.1：唯一可调参数是 entry_id（可选，指定优先处理的条目）。
       // `proposals` 是**内容输入不是策略参数**（见 handler 注释）：它不改变产出
       // 配额（§10.2 固定「一次运行至多 1 条」，在 reviewPendingEntries 内是不可入参
       // 改写的常量）、不改变处理顺序、不跳过六项中的任何一项，且提交的正文仍须过

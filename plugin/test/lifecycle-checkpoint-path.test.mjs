@@ -103,7 +103,7 @@ async function setup({ withSubagents = true, tasks = { "friction-discovery": tru
     dshHomePath,
     workspaceRoot: project,
     sessionScopes: new Map(),
-    // **安静时长缩到 50ms**（36 §6.1）：真值 5 分钟，测试等不起。这是**注入的
+    // **安静时长缩到 50ms**（11 §6.1）：真值 5 分钟，测试等不起。这是**注入的
     // 测试参数**而非放宽判据——判据本身（「距最后活动 ≥ 安静时长」）原样生效，
     // 只是把它的取值调小。测试仍须等定时器真的到期，不得绕过它直接派发。
     getIdleSettings: () => ({
@@ -140,7 +140,7 @@ test("调用方覆盖：驱动检查点后**必须留下运行痕迹**（而非�
   await new Promise((r) => setTimeout(r, 500));
   await ctx.emit("agent/turn-stopping", { agent, turn: 7 });
   await ctx.emit("agent/status", { agent, status: "idle" });
-  // 36 §6.1：派发发生在**安静期到期**之后（注入值 50ms），故此处须等定时器真的
+  // 11 §6.1：派发发生在**安静期到期**之后（注入值 50ms），故此处须等定时器真的
   // 到期。等待时间须显著大于安静时长，否则会把「还没到点」误判成「机制没跑」。
   await new Promise((r) => setTimeout(r, 1200));
 
@@ -239,7 +239,7 @@ test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自
             verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "",
             impact: "light", quote: materialText.slice(0, 20), reason: "本次没有系统性阻碍",
           },
-          // 经验侧失败靠引证不在材料内（36 §10.1 两段式后只剩这一个高频失败点：
+          // 经验侧失败靠引证不在材料内（11 §10.1 两段式后只剩这一个高频失败点：
           // 判定态与缓冲字段都合法，唯独 quote 不是材料里的原文）。
           "experience-capture": {
             verdict: "no-failure", phenomenon: "", evidence: "", source: "",
@@ -394,7 +394,7 @@ test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自
 //     按 §8.4 第 6 项 fail-closed（`no_current_turn`）。
 // 即：**重启后第一次闲时派发必然失败**。
 //
-// 修复后：位置缺失时从宿主会话记录取最后一个轮次号（36 §11 明定「切分依据只能
+// 修复后：位置缺失时从宿主会话记录取最后一个轮次号（11 §11 明定「切分依据只能
 // 是宿主会话记录中的位置」），并写回触发器；仍取不到时维持 fail-closed 并如实
 // 记下原因。本测试走**真实生命周期回调**——不绕过 onSessionCheckpoint 直调下游
 // （D1/D2/D3/D8 全都是这么躲过 1281 条单元测试的）。
@@ -407,7 +407,7 @@ test("重启：无回合事件时从宿主会话记录回填轮次，且回填�
   const EXECUTOR_ID = "session-executor-restart";
 
   // 窗口材料（重启前该会话最后一轮的内容）。它经 `session/event` 机械累积——
-  // **不**由本测试从会话日志重建（36 §11：材料只来自调度侧累积器）。
+  // **不**由本测试从会话日志重建（11 §11：材料只来自调度侧累积器）。
   const userText = "这次恢复之后，我又遇到重复解析失败。";
   const assistantText = "已定位到缓存条目未失效导致的重复解析失败。";
 

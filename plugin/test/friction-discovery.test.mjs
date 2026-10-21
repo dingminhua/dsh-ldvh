@@ -1,6 +1,6 @@
 // Tests for plugin/lib/friction-discovery.js — the §8.4 自动动作闭集.
 //
-// Every case is derived from specs/36 §9 (the single authority) and specs/26
+// Every case is derived from specs/11 §9 (the single authority) and specs/26
 // (the ledger contract). Where the implementation diverges from the spec the
 // failure is reported, never "fixed" by bending the assertion.
 import { test } from "node:test";
@@ -67,12 +67,12 @@ async function seed(base, { count = 1, humanReturnAt = null, title = "重复出�
 // N 的固定性（§8.4「阈值 N」：不可配置）
 // ---------------------------------------------------------------------------
 
-test("36 §9：N 固定为 3 且不经任何配置载体", () => {
-  assert.equal(FRICTION_THRESHOLD_N, 3, "N is pinned to 3 by 36 §9");
+test("11 §9：N 固定为 3 且不经任何配置载体", () => {
+  assert.equal(FRICTION_THRESHOLD_N, 3, "N is pinned to 3 by 11 §9");
   assert.equal(MAX_CREATES_PER_RUN, 1, "§8.4 每次运行上限：至多创建 1 条");
 });
 
-test("36 §9：阈值求值可用（N 固定后该校验不再恒不可用）", () => {
+test("11 §9：阈值求值可用（N 固定后该校验不再恒不可用）", () => {
   const check = verifyThresholdAvailable();
   assert.ok(check.ok, JSON.stringify(check.error));
   assert.equal(check.value.threshold, 3);
