@@ -32,7 +32,6 @@ import { appendPendingEntry } from "./pending-queue.js";
 // 推进（见下方「水位推进必须以落地成功为前提」的说明）。故一并删除。
 import { readWatermark, describeWindow } from "./friction-watermark.js";
 import { splitRunnableTasks } from "./aux-task-registry.js";
-import { listPitfallObjects } from "./pitfall-writer.js";
 import {
   verifyThresholdAvailable,
   loadDedupCandidates,
@@ -227,51 +226,16 @@ export async function runIdleCheckpoint({
     });
   }
 
-  // 经验积累（36 §10）的机械前提：既有 Pitfall 列表（查重比对对象）。
-  // **只在本次清单含该任务时才读**——否则「Pitfall 载体不可读」会变成一次
-  // 与它无关的运行失败（那违反「一个任务的产出缺失不得影响其它任务」）。
-  let existingPitfalls = [];
-  if (requested.includes("experience-capture")) {
-    const listed = await listPitfallObjects({ factSourceRoot, statusFilter: ["active", "draft"], limit: 200 });
-    if (!listed.ok) {
-      // 查重前提不可得 → 该任务的判断**不可能正确**（会把既有机制当新机制重记）。
-      // 按 §8.3 fail-closed 停止该任务并登记，**不**以空列表冒充「确实没有既有经验」。
-      return recordAndFail(dshHomePath, {
-        task: "experience-capture",
-        reason: `既有经验不可读，查重前提不完整：${listed.error.message}`,
-        residual: [`错误码 ${listed.error.code ?? "unknown"}`],
-        at,
-      });
-    }
-    // **截断须回指**（独立代码审核 F-4）：`limit` 命中上限时 `complete === false`，
-    // 意味着查重只比对了**前 N 条**。若不回指而静默使用，则「查重前提完整」这一
-    // 声明为假——一个本可命中的既有机制会因落在截断之外而被当成新机制**重复建档**。
-    // 处置与「载体不可读」同源：停止该任务并如实登记，不用不完整的前提冒充完整。
-    if (listed.value.complete === false) {
-      return recordAndFail(dshHomePath, {
-        task: "experience-capture",
-        reason: `既有经验超出读取上限（共 ${listed.value.total} 条，本次只读到 ${listed.value.items.length} 条），查重前提不完整`,
-        residual: ["查重只比对了一部分既有对象——越过上限者若本应命中，会重复建档", "上限见 idle-checkpoint 的 limit 实参"],
-        at,
-      });
-    }
-    existingPitfalls = listed.value.items;
-    if (Array.isArray(listed.value.invalid) && listed.value.invalid.length > 0) {
-      return recordAndFail(dshHomePath, {
-        task: "experience-capture",
-        reason: `既有经验存在不可读载体，查重前提不完整（${listed.value.invalid.length} 条）`,
-        residual: listed.value.invalid.map((item) => `${item.file ?? item.line}: ${item.reason}`),
-        at,
-      });
-    }
-  }
+  // **既有 Pitfall 列表不再在此读取**（2026-10-20，36 §10 两段式改造）：查重
+  // 已移入审核段（§10.2 第 2 项），捕获段（§10.1）只判「有没有失败发生过」，
+  // 它的失效方向是漏记而不是重复建档，故不需要既有对象作为前提。在此读取反而
+  // 会把「Pitfall 载体不可读」变成捕获段失败的伪前提，且诱使捕获段去判重复。
 
   let decision;
   try {
     decision = await discover({
       threshold: FRICTION_THRESHOLD_N,
       candidates: candidates.value.candidates,
-      existingPitfalls,
       // 署名**不由本层传入**：执行体做出判断后，由 provider 从执行体自己的会话记录
       // 取得并随返回值上抛（executorSignature）。此前这里透传一个 `sessionSignature`
       // 形参，而 lifecycle 调用时从不传入，故该形参恒为 undefined——形参存在却永远

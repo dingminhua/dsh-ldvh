@@ -361,7 +361,7 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
   // availability failures (carrier/IO-level problems). Both are zero-write.
   const mechanicalCodes = new Set([
     "pitfall/frontmatter_invalid", "pitfall/body_invalid", "pitfall/coherence_invalid",
-    "pitfall/initial_state_violation", "pitfall/status_transition_invalid", "pitfall/status_terminal",
+    "pitfall/initial_state_violation", "pitfall/status_required", "pitfall/status_transition_invalid", "pitfall/status_terminal",
     "pitfall/supplement_boundary", "pitfall/cas_conflict", "pitfall/change_summary_required", "pitfall/invalid_uid",
     "invalid_request",
   ]);
@@ -431,7 +431,7 @@ function parameterSchemaFor(operationKey) {
     description: "AI-supplied type fields; Code assigns object_uid/fact_type_key/created_at/change_log and generates the H1 from title",
     properties: {
       title: { type: "string", description: "≤ 30 characters; failure-mechanism short title (highlight the platform when environment-specific)" },
-      status: { type: "string", enum: ["draft", "active", "discarded"], description: "create: status=active (Human entry, ie confirmed at creation) or status=draft (mechanical channel — 36 §10 experience capture, no admission judgement); update: legal transitions are draft→active (admission), active→discarded and draft→discarded (both terminal, read-only afterwards) — 23 §9/§13" },
+      status: { type: "string", enum: ["draft", "active", "discarded"], description: "**REQUIRED on create — there is no default; omitting it is rejected with pitfall/status_required.** create: status=active (23 §13 Human entry — creation and admission are the same decision) or status=draft (mechanical channel — 36 §10 experience capture, no admission judgement); update: legal transitions are draft→active (admission), active→discarded and draft→discarded (both terminal, read-only afterwards) — 23 §9/§13" },
       scope: { type: "string", description: "impact & applicability statement; must appear verbatim in the 影响与适用范围 body section" },
       trigger_signal: { type: "string", description: "when to re-examine this experience (dependency version change, environment migration, etc.); omit when no real signal exists (03 §6.1 — no placeholder fabrications)" },
       urls: { type: "array", items: { type: "object", properties: { ref: { type: "string" }, title: { type: "string" }, summary: { type: "string" } }, required: ["ref"], additionalProperties: false }, description: "external evidence supporting the experience; when non-empty the body must carry a 证据 section" },

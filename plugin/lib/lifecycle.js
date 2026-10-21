@@ -963,15 +963,25 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 }
               }
 
-              // ── 经验积累（36 §10）的落地：机械通道只建 draft 候选 ────────────
+              // ── 经验积累（36 §10.1）的落地：机械通道只写**留观缓冲条目** ──────
+              //
+              // 缓冲条目不是事实对象（§12bis 定性），故这里**不建 Pitfall**、
+              // **不需要执行体署名**（§12bis 字段闭集 9 项里没有署名位）——
+              // 建 `draft` 候选是审核段的事（§10.2 第 3 项）。
               if (captureVerdict != null) {
+                // `anchor` 取 §11 的序键区间（本次观察区间的轮次范围）：它是
+                // 机械可得的来源位置，使审核段能回到区间去看原话。具体出处
+                // （会话 id + 位置 / 文件:行 / 命令引文）由捕获段写进条目的
+                // `evidence` 里（§12bis：evidence 须附来源引用）。
+                const anchorFrom = checkpoint.value?.window?.from;
+                const anchorTo = checkpoint.value?.window?.to;
+                const anchor = `turn ${anchorFrom ?? "?"}..${anchorTo ?? "?"}`;
                 const captured = await landCaptureVerdict({
-                  factSourceRoot: ledgerRoot,
+                  dshHomePath,
                   verdict: captureVerdict,
                   observationAt: checkpoint.value.at,
-                  // 与摩擦路径同一份执行体署名：两条落地路径共用同一个执行体，
-                  // 故不得一条用执行体、一条用主控（那会使同一批产出的对象署名不一）。
-                  sessionSignature: executorSignature,
+                  sessionId,
+                  anchor,
                 });
                 if (!captured.ok) {
                   // §8.3 fail-closed：落地失败按停止处置并登记（不自行重试、不掩盖）。
@@ -993,21 +1003,28 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   lifecycle.activity?.record("session/checkpoint/landed", {
                     task: "experience-capture",
                     action: captured.value.action,
-                    object_uid: captured.value.object_uid,
+                    // 缓冲条目不是事实对象，故这里记 `entry_id` 而不是 `object_uid`
+                    // （留痕字段名照实：缓冲条目没有 object_uid，写一个不存在的
+                    // 标识会让读者以为它进了事实源）。
+                    entry_id: captured.value.entry_id,
                   });
                   // 整轮字段取摩擦的动作（若两件都跑，摩擦是主项）；只在摩擦未
                   // 产出动作时用经验积累的动作填充，使「本次做了什么」仍可见。
                   //
                   // **F-5 修复（`??=` 遮蔽）**：原写法在「摩擦也跑出动作」时把
-                  // 经验的 `duplicate-registered` **整个抹掉**——`create` 与
-                  // `duplicate-registered` 是不同的处置，被抹掉后持久痕迹只剩
-                  // 摩擦的 `create`，查重命中这件事在落盘面上**不可区分**。
+                  // 经验的动作**整个抹掉**——两件任务的处置是不同的，被抹掉后
+                  // 持久痕迹只剩摩擦那一个，经验侧做了什么在落盘面上**不可区分**。
                   // 整轮字段仍只有一份（兼容既有 reader），但**真相进 per_task**：
                   // 逐任务结局表把经验的动作一体一记，不再靠遮蔽竞争。
+                  //
+                  // 2026-10-20 两段式后经验侧的动作只有三种：`buffer-appended`
+                  // （写入一条留观缓冲条目）、`none`（本次没有观察到失败现象）、
+                  // `failed`（落地失败，见上面的分支）——不再有查重命中或建候选。
                   landedAction ??= captured.value.action;
-                  landedUid ??= captured.value.object_uid;
                   taskOutcomes["experience-capture"] = {
-                    outcome: "landed", action: captured.value.action, object_uid: captured.value.object_uid,
+                    outcome: "landed",
+                    action: captured.value.action,
+                    ...(captured.value.entry_id ? { entry_id: captured.value.entry_id } : {}),
                   };
                   // **推进经验积累自己的水位**（逐任务水位的意义所在）：它与摩擦
                   // 互不牵连——摩擦失败不会使经验积累被重覆盖，反之亦然。
@@ -1022,7 +1039,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                     if (!advanced.ok) {
                       await appendPendingEntry(dshHomePath, {
                         task: "experience-capture",
-                        reason: `水位推进失败（候选已写入，下次将重覆盖同一区间，可能重复建候选）：${advanced.error.message}`,
+                        reason: `水位推进失败（缓冲条目已写入，下次将重覆盖同一区间，可能再写一条同现象条目）：${advanced.error.message}`,
                         residual: [`水位键 ${advanced.error.code}`, `重覆盖区间终点 turn=${pendingTurn}`],
                         at: new Date().toISOString(),
                       });

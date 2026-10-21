@@ -261,10 +261,13 @@ export const AUX_TASK_REGISTRY = Object.freeze({
     key: EXPERIENCE_CAPTURE_KEY,
     implemented: true,
     // 与摩擦侧同构：三部位正文由契约模块提供，本表只**引用**、不复制。
+    //
+    // **捕获段（36 §10.1）**：本任务现在只判「有没有失败发生过」并写一条留观
+    // 缓冲条目，不判重复、不产正文。故 `validate` 不再接收既有 Pitfall 列表
+    // （查重已移审核段 §10.2 第 2 项），只留引证核对所需的 `windowText`。
     promptSection: buildCapturePromptSection,
     outputSchema: captureOutputSchema,
     validate: (slice, ctx) => validateCaptureVerdict(slice, {
-      existing: ctx?.existingPitfalls ?? [],
       windowText: ctx?.windowText ?? null,
     }),
   }),

@@ -22,6 +22,9 @@ import { resolveGovernanceScope } from "./governance-scope.js";
 import { evaluateRegistrationEntry, registerProjectFromEntry, unregisterProject } from "./governed-projects.js";
 import { bindMembershipEvidence, notApplicableEvidence } from "./membership-evidence.js";
 import { currentRouteValues } from "./session-signature.js";
+import { authoritativeSignature } from "./signature-channel.js";
+import { BUFFER_RELATIVE_PATH, BUFFER_STATUSES, readBufferEntries } from "./observation-buffer.js";
+import { collectExistingPitfalls, reviewPendingEntries } from "./observation-review.js";
 import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets } from "./commit-validation.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
 import { registerResearchTools } from "./research-tools.js";
@@ -72,6 +75,22 @@ const OPERATIONS = {
     summary: "Remove a project's LDVH governance registration through the 07 §5.7 AI entry (07 §5.4 preconditions checked)",
     effect: "may_change_state",
     awaitsHumanDecision: true
+  },
+  // 36 §12ter 的两条公开操作。summary 与 effect 逐字对齐 specs/36 §12ter 声明表；
+  // `awaitsHumanDecision` **刻意不设**：审核段是机械通道（36 §10.2 机械通道边界
+  // ——仅 §10.1 第 2 项与 §10.2 第 3 项，无须事前 Human 确认并保留事后否决权，
+  // 23 §13）。入档（draft→active）与废止才是 23 §16 的 Human Gate，本模块不做
+  // 也不声明这两件事——把它标成 awaitsHumanDecision 会让宿主对一条**不提问**的
+  // 工具撤掉超时上限（toolDescriptor 的 timeoutMs 逻辑），反而制造挂死窗口。
+  "observation-buffer-list": {
+    toolName: "ldvh_observation_buffer_list",
+    summary: "Read the observation buffer entries and their status; declaring no entry as a fact or an experience (specs/36 §12ter.1 input contract, §12ter.2 result contract)",
+    effect: "read"
+  },
+  "observation-buffer-review": {
+    toolName: "ldvh_observation_buffer_review",
+    summary: "Run one experience-accumulation review pass: form at most one experience candidate from the pending buffer entries and settle that entry's status (specs/36 §12ter.1 input contract, §12ter.2 result contract)",
+    effect: "may_change_state"
   }
 };
 
@@ -1062,6 +1081,213 @@ function makeExecute(deps) {
     });
   }
 
+  /**
+   * 36 §12ter.1 只读入口：读取留观缓冲条目及其状态。
+   *
+   * **返回不构成事实读取**（§12ter.2）：条目是事实源之外的中间产物（§12bis），
+   * 除审核段外任何消费方都不得把它当作依据（§12bis 写入与读取纪律第 2 条）。
+   * 本 handler **不做语义裁量**——不按调用方身份筛选语义内容，只按闭集参数
+   * 过滤 status 与降低返回条数；`limit` 不得绕过 §12bis 的容量上限与淘汰规则
+   * （读取本身已含惰性结算，`limit` 只切返回窗口，见 observation-buffer.js）。
+   */
+  async function executeObservationBufferList(args, exec) {
+    const status = args?.status === undefined ? null : args.status;
+    if (status !== null && !BUFFER_STATUSES.includes(status)) {
+      return envelope("observation-buffer-list", "invalid_request", {
+        result: null,
+        scope: { requested: status, completed: [], not_completed: ["status"] },
+        sources: [],
+        gaps: [`status must be one of ${BUFFER_STATUSES.join(", ")} (36 §12bis field closed set); got ${JSON.stringify(status)}`],
+        verification: { checks: ["status-closed-set"], passed: false },
+        follow_up: ["retry with a status member or omit the argument"]
+      });
+    }
+    const limit = args?.limit === undefined ? null : args.limit;
+    if (limit !== null && (!Number.isInteger(limit) || limit < 1)) {
+      return envelope("observation-buffer-list", "invalid_request", {
+        result: null,
+        scope: { requested: limit, completed: [], not_completed: ["limit"] },
+        sources: [],
+        gaps: [`limit must be a positive integer (36 §12ter.1: it may only lower the number of entries returned); got ${JSON.stringify(limit)}`],
+        verification: { checks: ["limit-positive-integer"], passed: false },
+        follow_up: ["retry with a positive integer or omit the argument"]
+      });
+    }
+    const governed = await resolveGovernanceScope(dshHomePath, exec?.agent?.session?.header?.cwd);
+    if (governed.state !== "governed") {
+      return envelope("observation-buffer-list", "unavailable", {
+        result: null,
+        scope: { requested: status ?? "all", completed: [], not_completed: [status ?? "all"] },
+        sources: [],
+        gaps: [`governance state is ${governed.state}: the observation buffer serves governed sessions only (36 §12ter.1 common precondition)`],
+        verification: { checks: ["governance-scope"], passed: false },
+        follow_up: []
+      });
+    }
+    const read = await readBufferEntries(dshHomePath, { status, limit });
+    if (!read.ok) {
+      // §12bis 写入与读取纪律第 4 条：不可读即 fail-closed，不得降级为内存或日志。
+      return envelope("observation-buffer-list", "unavailable", {
+        result: null,
+        scope: { requested: status ?? "all", completed: [], not_completed: [status ?? "all"] },
+        sources: sources({ kind: "observation-buffer", path: BUFFER_RELATIVE_PATH.join("/"), fingerprint: null }),
+        gaps: [`${read.error?.code ?? "observation_buffer/unreadable"}: ${read.error?.message ?? "unknown"} (36 §12bis item 4: fail-closed, never degrade to memory or a log)`],
+        verification: { checks: ["buffer-read"], passed: false },
+        follow_up: ["restore the buffer carrier and retry; do not substitute another carrier"]
+      });
+    }
+    const value = read.value;
+    const complete = value.complete === true;
+    return envelope("observation-buffer-list", complete ? "completed" : "partial", {
+      result: {
+        entries: value.items,
+        total: value.total,
+        live_total: value.live_total,
+        by_status: value.by_status,
+        at_capacity: value.at_capacity,
+        capacity: value.capacity,
+        carrier: value.carrier
+      },
+      scope: { requested: status ?? "all", completed: [status ?? "all"], not_completed: [] },
+      sources: sources({ kind: "observation-buffer", path: BUFFER_RELATIVE_PATH.join("/"), fingerprint: null }),
+      gaps: complete
+        ? []
+        : [
+            `${value.invalid?.length ?? 0} defect line(s) in the buffer carrier were not consumed as entries (36 §18: an unreadable or unwritable buffer entry is fail-closed, never silently dropped)`,
+            ...(value.invalid ?? []).map((item) => `line ${item.line}: ${item.reason}`)
+          ],
+      verification: { checks: ["status-closed-set", "limit-positive-integer", "buffer-read", "retention-settlement"], passed: complete },
+      follow_up: complete ? [] : ["repair or remove the defect line(s) by hand; the read is partial and must not be treated as a complete inventory"]
+    });
+  }
+
+  /**
+   * 36 §12ter.1 审核段入口：一次运行至多形成 1 条候选。
+   *
+   * ## 为什么本操作接收 `proposals`（内容输入，不是策略参数）
+   *
+   * 审核段的语义判断由调用方执行体作出（36 §10.2：查重是 AI 语义判断、某段是否可写
+   * 是材料筛选语义判断），机械侧只做结构校验与结算。故本操作必须收到该判断的**结构化
+   * 产物**，否则「形成的候选」无从产生——本模块是确定性的，它自己写不出七段。
+   *
+   * 这与 §12ter.1「无其它可调参数」不冲突：该句的射程是**不得用参数改变策略**——
+   * 不得放大产出配额（§10.2 固定「一次运行至多 1 条」，`reviewPendingEntries` 里是
+   * 不可入参改写的常量）、不得改变条目处理顺序、不得跳过 §10.2 六项中的任何一项。
+   * 提案不改变上述任何一件；它还要过 §12bis「证据不留在缓冲」的逐字引证复制校验，
+   * 引证不回指条目者一律拒绝。**缺省提案即不形成候选**：未提交提案的 pending 条目
+   * 原样留在缓冲，不得由缺省代替材料判断（§10.2 第 5 项）。
+   */
+  async function executeObservationBufferReview(args, exec) {
+    const entryId = args?.entry_id === undefined ? null : args.entry_id;
+    if (entryId !== null && (typeof entryId !== "string" || entryId.length === 0)) {
+      return envelope("observation-buffer-review", "invalid_request", {
+        result: null,
+        scope: { requested: entryId, completed: [], not_completed: ["entry_id"] },
+        sources: [],
+        gaps: ["entry_id must be a non-empty string when given (36 §12ter.1)"],
+        verification: { checks: ["entry-id-form"], passed: false },
+        follow_up: ["retry with a buffer entry id or omit the argument"]
+      });
+    }
+    if (args?.proposals !== undefined && !Array.isArray(args.proposals)) {
+      return envelope("observation-buffer-review", "invalid_request", {
+        result: null,
+        scope: { requested: null, completed: [], not_completed: ["proposals"] },
+        sources: [],
+        gaps: ["proposals must be an array of per-entry review proposals (36 §10.2); a non-array cannot be interpreted"],
+        verification: { checks: ["proposals-form"], passed: false },
+        follow_up: ["retry with the proposals array produced by the review judgement"]
+      });
+    }
+    const governed = await resolveGovernanceScope(dshHomePath, exec?.agent?.session?.header?.cwd);
+    if (governed.state !== "governed") {
+      return envelope("observation-buffer-review", "unavailable", {
+        result: null,
+        scope: { requested: entryId ?? "next", completed: [], not_completed: [entryId ?? "next"] },
+        sources: [],
+        gaps: [`governance state is ${governed.state}: the review pass serves governed sessions only (36 §12ter.1 common precondition)`],
+        verification: { checks: ["governance-scope"], passed: false },
+        follow_up: []
+      });
+    }
+    const factSourceRoot = join(governed.project.path, "ldvh-base");
+    // 03 §6.1 / 06 §6：change_log 的 provider/model 由 Code 从权威会话取得，不得由
+    // 调用方参数承载、也不得自填（§12ter.1）。取不到即拒绝，不做静默降级。
+    const route = await currentRouteValues(deps.sessionPersistence?.(), exec?.agent);
+    const sessionSignature = route?.ok === true
+      ? authoritativeSignature({ provider: route.value?.provider, model: route.value?.model })
+      : null;
+    if (sessionSignature === null) {
+      return envelope("observation-buffer-review", "unavailable", {
+        result: null,
+        scope: { requested: entryId ?? "next", completed: [], not_completed: ["signature", "candidate-formation"] },
+        sources: [],
+        gaps: [
+          `observation_review/signature_unavailable: the authoritative session route is unavailable (${route?.reason ?? "unknown"}); 36 §12ter.1 — provider/model are not carried by parameters and an unsigned change_log entry must not be written (03 §6.1 / 06 §6). REPORT TO HUMAN`
+        ],
+        verification: { checks: ["signature-authoritative"], passed: false },
+        follow_up: ["restore the authoritative session route, then retry; do not pass provider/model as arguments"]
+      });
+    }
+    const existing = await collectExistingPitfalls({ factSourceRoot });
+    if (!existing.ok) {
+      return envelope("observation-buffer-review", "unavailable", {
+        result: null,
+        scope: { requested: entryId ?? "next", completed: [], not_completed: ["dedup-baseline", "candidate-formation"] },
+        sources: sources({ kind: "fact-source", path: "ldvh-base/pitfalls", fingerprint: null }),
+        gaps: [`${existing.error?.code ?? "observation_review/list_failed"}: ${existing.error?.message ?? "unknown"} (36 §10.2 item 6 / §12: the dedup baseline could not be read — fail-closed, never form a candidate without it)`],
+        verification: { checks: ["dedup-baseline"], passed: false },
+        follow_up: ["repair the Pitfall carrier read path, then retry"]
+      });
+    }
+    const reviewed = await reviewPendingEntries({
+      dshHomePath,
+      factSourceRoot,
+      entryId,
+      existingPitfalls: existing.value.items,
+      proposals: args?.proposals ?? null,
+      sessionSignature
+    });
+    if (!reviewed.ok) {
+      // §12ter.2：回读不完整或校验不可用时不得返回成功形状；已发生的结算如实带出。
+      const partial = reviewed.error?.partial ?? {};
+      return envelope("observation-buffer-review", "unavailable", {
+        result: {
+          formed: partial.formed ?? null,
+          duplicate: partial.duplicate ?? null,
+          discarded: partial.discarded ?? [],
+          remaining_pending: partial.remaining_pending ?? null,
+          fail_closed: reviewed.error?.fail_closed ?? { code: reviewed.error?.code ?? null, message: reviewed.error?.message ?? null, stage: reviewed.error?.stage ?? null }
+        },
+        scope: { requested: entryId ?? "next", completed: [], not_completed: ["review-pass"] },
+        sources: sources({ kind: "observation-buffer", path: BUFFER_RELATIVE_PATH.join("/"), fingerprint: null }),
+        gaps: [`${reviewed.error?.code ?? "observation_review/failed"}: ${reviewed.error?.message ?? "unknown"}`],
+        verification: { checks: ["review-pass"], passed: false },
+        follow_up: ["resolve the reported fail-closed condition, then retry; the settlement already made is reported above and must not be treated as success"]
+      });
+    }
+    const value = reviewed.value;
+    return envelope("observation-buffer-review", "completed", {
+      result: {
+        formed: value.formed,
+        duplicate: value.duplicate,
+        discarded: value.discarded,
+        remaining_pending: value.remaining_pending,
+        fail_closed: value.fail_closed
+      },
+      scope: { requested: entryId ?? "next", completed: ["read-pending", "dedup", "candidate-formation", "read-back", "settle"], not_completed: [] },
+      sources: [
+        ...sources({ kind: "observation-buffer", path: BUFFER_RELATIVE_PATH.join("/"), fingerprint: null }),
+        ...(value.formed !== null ? sources({ kind: "pitfall-draft", path: value.formed.file ?? value.formed.object_uid, fingerprint: null }) : [])
+      ],
+      gaps: [],
+      verification: { checks: ["buffer-read", "dedup-record", "evidence-copy", "read-back", "settle"], passed: true },
+      follow_up: value.formed !== null
+        ? ["draft → active requires the 23 §16 Human Gate with another party's reproduction (36 §10.2); this pass does not and cannot promote it"]
+        : (value.remaining_pending > 0 ? ["pending entries remain; the next run may form at most one more candidate (36 §10.2)"] : [])
+    });
+  }
+
   const handlers = {
     "resolve-governance-scope": executeResolveGovernanceScope,
     "read-specification-candidates": executeReadSpecificationCandidates,
@@ -1069,7 +1295,9 @@ function makeExecute(deps) {
     "discover-ldvh-capabilities": executeDiscoverCapabilities,
     "precheck-git-commit": executePrecheckGitCommit,
     "register-governed-project": executeRegisterGovernedProject,
-    "unregister-governed-project": executeUnregisterGovernedProject
+    "unregister-governed-project": executeUnregisterGovernedProject,
+    "observation-buffer-list": executeObservationBufferList,
+    "observation-buffer-review": executeObservationBufferReview
   };
 
   return { handlers, OPERATIONS };
@@ -1304,6 +1532,45 @@ function parameterSchemaFor(operationKey) {
         type: "object",
         properties: {
           operation_key: { type: "string", description: "Check a single operation; omit to enumerate all" }
+        },
+        additionalProperties: false
+      };
+    case "observation-buffer-list":
+      // 36 §12ter.1：status 可选闭集四值、limit 可选正整数（只可降低返回条数，
+      // 不得绕过 §12bis 的容量上限与淘汰规则）。
+      return {
+        type: "object",
+        properties: {
+          status: {
+            type: "string",
+            enum: [...BUFFER_STATUSES],
+            description: "Filter by buffer entry status (36 §12bis closed set); omit for all"
+          },
+          limit: {
+            type: "integer",
+            minimum: 1,
+            description: "Lower the number of entries returned; it may not bypass the §12bis capacity limit or the eviction order, and it does not change the buffer"
+          }
+        },
+        additionalProperties: false
+      };
+    case "observation-buffer-review":
+      // 36 §12ter.1：唯一可调参数是 entry_id（可选，指定优先处理的条目）。
+      // `proposals` 是**内容输入不是策略参数**（见 handler 注释）：它不改变产出
+      // 配额（§10.2 固定「一次运行至多 1 条」，在 reviewPendingEntries 内是不可入参
+      // 改写的常量）、不改变处理顺序、不跳过六项中的任何一项，且提交的正文仍须过
+      // §12bis「证据不留在缓冲」的逐字引证复制校验。没有它，确定性的机械侧无从
+      // 获得审核段的语义判断产物，也就无法形成任何候选——那不是更严格的机械性，
+      // 只是把「审核段」变成「什么都不做」。
+      return {
+        type: "object",
+        properties: {
+          entry_id: { type: "string", description: "Review this pending buffer entry first (§12ter.1); omit to process in buffer order" },
+          proposals: {
+            type: "array",
+            description: "Structured review conclusions, one per reviewed entry: entry_id plus either insufficient:{reason} or dedupe:{checked,compared,conclusion,duplicate_of} with title/scope/body. Content input, not a policy parameter: it cannot raise the one-candidate-per-run quota, reorder entries or skip a step.",
+            items: { type: "object", additionalProperties: true }
+          }
         },
         additionalProperties: false
       };

@@ -1,122 +1,118 @@
 /**
- * dsh-ldvh — 闲时辅助「积累经验」任务的**落地侧**（36 §10 经验积累）.
+ * dsh-ldvh — 闲时辅助「积累经验」**捕获段的落地**（36 §10.1 第 2 项）.
  *
- * 权威：specs/36 §10（含「机械通道的边界」）与 specs/23（Pitfall 事实类型）。
+ * ## 本模块只做一件事：把捕获段的判断写成**一条留观缓冲条目**
  *
- * ## 本模块的动作面被规范**收窄**为一件
+ * 缓冲条目**不是事实对象**（36 §12bis 定性）：它不适用事实类型契约、不参与
+ * 受控写入、不进 `ldvh-base/`、不取得授权或结论效力、不需要 `change_log` 署名。
+ * 故本模块**不调用** `createPitfallObject`——建 Pitfall `draft` 是审核段的事
+ * （`observation-review.js`，36 §10.2 第 3 项）。
  *
- * 36 §10 明文：机械通道**仅限创建 `draft` 候选**——不得创建 `active`、不得升格、
- * 不得废止。故本模块对 `new-experience` 只做一件事：调 `createPitfallObject` 建
- * 一条 `draft`。**入档（`draft → active`）不在本模块**：它以另一主体的独立复现
- * 验证为前置（23 §16.1），且属 Human Gate。
+ * ## 为什么这里没有「查重」与「无候选」的处置
  *
- * ## 与摩擦落地的结构差异
+ * 2026-10-20 两段式改造后：
  *
- * 摩擦落地有两种动作（补充级更新 + 阈值流转），因为它们服务「同一阻碍反复出现」
- * 的计数语义。**经验积累没有计数**：Pitfall 的准入是四前提齐（23 §5），不是
- * 「重复够多」。故本模块只有「建一条 draft」与「无事可做」两种结果，
- * **没有**对应的补充/升格分支。
+ * - 查重移入审核段（§10.2 第 2 项，23 §6.2）——捕获段拿到既有对象只会诱使它
+ *   做「这是不是重复」的判断，而 §10.1 明文禁止该判断；
+ * - 捕获段的「无失败」态不产出任何对象，故本模块返回 `{action:"none"}`——
+ *   它是**如实登记的「本次没有观察到失败」**，不是「确认没有失败机制」。
  *
- * ## 查重命中时做什么：什么都不做
+ * ## 署名
  *
- * 36 §10 规定：查重命中的如实登记，不计入「每次运行至多形成 1 条候选」的上限。
- * 而 23 §6.3 的补充级更新是**Friction 侧的机制**——Pitfall 侧「同一机制已存在」
- * 时的正确动作是**不新建**（既有对象已承载该经验），并如实登记一次「命中了谁」。
- * 故本模块返回 `action: "duplicate-registered"`，由调用方登记。
+ * 缓冲条目无署名（不是事实对象，`change_log` 是事实类型的载体字段）。执行体
+ * 身份仍由编排层从 DSH 权威会话取得并记进运行日志（lifecycle 的
+ * `executorSignature`），只是**不写进缓冲条目**——§12bis 的字段闭集只有 9 项，
+ * 多写一项即越界。
  */
 
-import { createPitfallObject } from "./pitfall-writer.js";
+import { appendBufferEntry } from "./observation-buffer.js";
 
-function success(value) {
-  return { ok: true, value };
-}
-
-function failure(code, message, details = {}) {
-  return { ok: false, error: { code, message, ...details } };
-}
+const success = (value) => ({ ok: true, value });
+const failure = (code, message, details = {}) => ({ ok: false, error: { code, message, ...details } });
 
 /**
- * 落地一条经验积累的判断。
+ * 把捕获段的判断落地。
  *
  * @param {object} args
- * @param {string} args.factSourceRoot - 受管辖事实源根（Pitfall 目录在其下）。
- * @param {object} args.verdict - **已经过** `validateCaptureVerdict` 的结论切片。
- * @param {string} args.observationAt - 本次观察时刻（ISO 串）。
- * @param {*} args.sessionSignature - 品牌化署名载体（03 §6.1 / 09：change_log 由
- *   Code 签名，不得无签名写入；缺载体即拒绝并交由 Human 处置）。
- * @returns {{ok: true, value: {action: string, object_uid: string|null}}|{ok: false, error: object}}
+ * @param {Function} args.dshHomePath - 宿主侧持久化根的路径解析器
+ *   （`(...segments) => path`，与 `pending-queue.js` / `observation-buffer.js` 同形；
+ *   缓冲载体在其下的 `ldvh/` 内）
+ * @param {object} args.verdict - 捕获段经 `validateCaptureVerdict` 通过的 `value`
+ * @param {string} [args.observationAt] - 观察时间（区间终点时刻），缺省取当前时间
+ * @param {string} [args.sessionId] - 来源会话标识（§12bis 的 `session` 字段）
+ * @param {string} [args.anchor] - 来源位置（§12bis 的 `anchor` 字段，§11 序键）
+ * @returns {Promise<{ok:true, value:{action:string, entry_id?:string}}|{ok:false, error:object}>}
  */
 export async function landCaptureVerdict({
-  factSourceRoot,
-  verdict,
-  observationAt,
-  sessionSignature,
+  dshHomePath, verdict, observationAt, sessionId, anchor,
 } = {}) {
-  if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
-    return failure("invalid_request", "factSourceRoot is required");
+  if (typeof dshHomePath !== "function") {
+    return failure("capture/home_missing", "dshHomePath resolver is required to locate the observation buffer (36 §12bis)");
   }
   if (typeof verdict !== "object" || verdict === null) {
-    return failure("invalid_request", "verdict is required (the landing runs on an already-validated structured verdict)");
+    return failure("capture/verdict_missing", "verdict must be the validated capture verdict object");
   }
 
-  const at = typeof observationAt === "string" && observationAt.length > 0 ? observationAt : new Date().toISOString();
+  const at = typeof observationAt === "string" && observationAt.length > 0
+    ? observationAt
+    : new Date().toISOString();
 
-  if (verdict.verdict === "no-capture") {
-    // 没有候选就没有动作：**不建、不推进、不记账**。若原因是「同一机制已存在」，
-    // 如实登记命中了谁（36 §10：查重命中的登记不计入产出上限）。
-    const duplicateOf = typeof verdict.duplicateOf === "string" && verdict.duplicateOf.length > 0
-      ? verdict.duplicateOf
-      : null;
-    return success({
-      action: duplicateOf === null ? "none" : "duplicate-registered",
-      object_uid: duplicateOf,
-    });
+  // no-failure：本次没有观察到失败现象——不产出任何对象（§10.1「无失败」态）。
+  if (verdict.verdict === "no-failure") {
+    return success({ action: "none" });
   }
-
-  // verdict === "new-experience"：机械通道的**唯一**动作——建一条 draft。
-  //
-  // **为什么初态是 draft 而不是 active**：36 §10「机械通道的边界」明文机械通道
-  // 仅限创建 draft 候选；入档须经 Human Gate 且以另一主体独立复现验证为前置
-  // （23 §16.1）。写成 active 会**绕过该闸门**——那正是「没有机制能阻止跳过它」
-  // 的形态，且它会在外观上与正常入档无从区分。
-  const created = await createPitfallObject({
-    factSourceRoot,
-    frontmatterDraft: {
-      title: verdict.title,
-      scope: verdict.scope,
-      status: "draft",
-      change_summary: `闲时辅助经验积累（机械通道）于 ${at} 形成候选`,
-    },
-    bodyMarkdown: verdict.body,
-    sessionSignature,
-  });
-  if (!created.ok) {
+  if (verdict.verdict !== "failure-observed" || typeof verdict.entry !== "object" || verdict.entry === null) {
     return failure(
-      created.error?.code ?? "capture/create_failed",
-      `36 §10（形成 draft 候选）失败：${created.error?.message ?? "unknown"}`,
-      { stage: "create", cause: created.error },
+      "capture/verdict_unusable",
+      `verdict ${JSON.stringify(verdict.verdict)} carries no buffer entry — only a verdict that passed validateCaptureVerdict can be landed`,
     );
   }
 
-  return success({ action: "candidate-created", object_uid: created.value.object_uid });
+  // `session` / `anchor` 是 §12bis 的必填字段（回指来源）。取不到时**不臆造**：
+  // 写入一条无法回指的条目会使审核段无从核对证据，故如实失败。
+  if (typeof sessionId !== "string" || sessionId.trim().length === 0) {
+    return failure("capture/session_missing", "session is required for a buffer entry (36 §12bis field `session`; it must not be fabricated)");
+  }
+  if (typeof anchor !== "string" || anchor.trim().length === 0) {
+    return failure("capture/anchor_missing", "anchor is required for a buffer entry (36 §12bis field `anchor`; it must point at the source position)");
+  }
+
+  const appended = await appendBufferEntry(dshHomePath, {
+    session: sessionId,
+    anchor,
+    phenomenon: verdict.entry.phenomenon,
+    evidence: verdict.entry.evidence,
+    candidate_question: verdict.entry.candidate_question,
+    at,
+  });
+  if (!appended.ok) {
+    // §12 fail-closed：缓冲不可写/回读不通过时不得降级为内存或日志（§12bis 纪律 4）。
+    return failure(
+      appended.error?.code ?? "capture/buffer_write_failed",
+      `36 §12bis（写留观缓冲条目）失败：${appended.error?.message ?? "unknown"}`,
+      { stage: "buffer-append", cause: appended.error },
+    );
+  }
+
+  return success({ action: "buffer-appended", entry_id: appended.value.entry_id });
 }
 
 /**
- * 把落地失败提炼成**完整**诊断（形制同 `friction-landing.js` 的
- * `residualFromLandingError`）。
+ * 把落地错误转成待处置队列的 `residual` 条目（§12 的登记纪律：诊断不丢）。
  *
- * **为什么不能只留 message**：`pitfall-writer` 的失败常带 `issues` 明细（逐条
- * 结构缺陷），只取 message 会使「为什么被拒」在待处置队列里不可见——而那条
- * 明细正是 Human 处置时唯一可据的线索。
+ * @param {object} error - `landCaptureVerdict` 返回的 `error` 对象
+ * @returns {string[]}
  */
 export function residualFromCaptureError(error) {
-  if (error === null || typeof error !== "object") return ["（无诊断信息）"];
-  const out = [];
-  if (typeof error.code === "string" && error.code.length > 0) out.push(`错误码 ${error.code}`);
-  if (typeof error.message === "string" && error.message.length > 0) out.push(error.message);
+  if (typeof error !== "object" || error === null) return ["（无诊断信息）"];
+  const lines = [];
+  if (typeof error.code === "string" && error.code.length > 0) lines.push(`错误码 ${error.code}`);
+  if (typeof error.message === "string" && error.message.length > 0) lines.push(error.message);
   const issues = error.cause?.details?.issues ?? error.issues;
-  if (Array.isArray(issues) && issues.length > 0) {
-    for (const issue of issues) out.push(`· ${typeof issue === "string" ? issue : JSON.stringify(issue)}`);
+  if (Array.isArray(issues)) {
+    for (const issue of issues) {
+      lines.push(`· ${typeof issue === "string" ? issue : JSON.stringify(issue)}`);
+    }
   }
-  return out.length > 0 ? out : ["（无诊断信息）"];
+  return lines.length > 0 ? lines : ["（无诊断信息）"];
 }
