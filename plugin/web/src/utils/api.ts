@@ -753,8 +753,8 @@ export async function fetchCognition(locale?: string, window: CognitionRecentAct
   return request<CognitionData>(`/cognition${params}`);
 }
 
-/** Goal(单例冻结锚) 的蓝图投影读取 —— 对应 GET /api/cognition/goal（specs/25 直读消费点）。
- *  承载 goal.md 原文投影：蓝图窄字段（statement/sub_goals）+ 详情阅读面
+/** Goal(单例冻结锚) 的 Web 投影读取 —— 对应 GET /api/cognition/goal（specs/25 直读消费点）。
+ *  承载 goal.md 原文投影：窄字段（statement/sub_goals）+ 详情阅读面
  *  （created_at/change_log 修订史 + 读取层元数据，同多例类型 exact-read 形态）。 */
 export interface CognitionGoalData {
   ok: boolean;

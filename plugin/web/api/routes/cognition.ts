@@ -1225,9 +1225,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 })
 
 /**
- * GET /api/cognition/goal — 蓝图「当前目标」投影的机械来源读取（specs/25 直读消费点）。
+ * GET /api/cognition/goal — Web「当前目标」投影的机械来源读取（specs/25 直读消费点）。
  *
- * 读取被管辖项目 worktree 下的单例 goal.md，投影字段覆盖两档消费：蓝图窄字段
+ * 读取被管辖项目 worktree 下的单例 goal.md，投影字段覆盖两档消费：窄字段
  * （目标陈述 + 子目标 SG-n 清单）与详情阅读面（created_at + change_log 修订史 +
  * 读取层元数据——canonical_path/carrier/read_status 供前端 getFactReadMeta 消费）。
  * 此处不做任何 AI 判断或派生——只把 goal.md 原文里的结构化字段搬给前端；服务端

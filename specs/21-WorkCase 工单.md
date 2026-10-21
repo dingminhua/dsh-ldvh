@@ -80,7 +80,7 @@ WorkCase 对象存在、处于 open 状态、Gate 记录齐全或 attempt 令牌
 
 ### 4.2 适用场景
 
-本规范用于 WorkCase 的创建（主控方案收敛产出的可执行计划、Human 直接提出的已定工单）、Gate 1 授权与批准、执行期的 attempt 接续与冷恢复、计划或范围变化后的局部重批、Gate 2 结果与关闭判定，以及消费（蓝图、sub-goal 达成证据链、Pitfall 贡献关联、systemPrompt 注入）。
+本规范用于 WorkCase 的创建（主控方案收敛产出的可执行计划、Human 直接提出的已定工单）、Gate 1 授权与批准、执行期的 attempt 接续与冷恢复、计划或范围变化后的局部重批、Gate 2 结果与关闭判定，以及消费（Web 呈现、sub-goal 达成证据链、Pitfall 贡献关联、systemPrompt 注入）。
 
 ### 4.3 明确排除与证明边界
 
@@ -386,7 +386,7 @@ attempt 令牌回答「当前谁在做、做到哪里」，**不承载任何授�
 | Pitfall 贡献关联 | 执行期发现或验证踩坑经验时（23 §3.2） | 写 WC 侧 `contributed-to` 关系 |
 | 关闭 WC 的普通引用召回 | 读取 closed WorkCase 列表卡或详情时（02 §8.2） | 消费方实时扫描当前项目内可读事实对象的 `refs`，按 `object_uid` 反查声明引用本 WC 的来源，并显示来源存在性/状态；这只证明声明关联，不证明建议履行、语义覆盖、批准或闭环，不写回目标对象 |
 | 关闭 WC 的残留去向召回 | 读取 closed WorkCase 列表卡或详情时（§8 残留段的去向子项、§12） | 按 `relations.routed-to` 反查该单的残留实际转入了哪些 Spark，并显示各目标的当前 `status` 与 `title`；正文残留段中「转入 Spark」的**去向子项**与该关系**条数一致**，故呈现层可给出「本单的哪几条残留转入了哪些 Spark」的候选配对（每条去向 ↔ 一条关系，按序陈列）。**该配对的顺序依据是写法约定、非机械可核验事实**——去向子项不携带目标标识，机械层不证明第 k 条去向就是第 k 条关系所承载的那条残留，呈现层不得把按序配对表述为「已验证的对应关系」。**机械层只证明「本单声明的转入去向落在这些 Spark 上、且各目标在写入时为 open、去向子项与关系条数一致」**——不证明该 Spark 确实容纳了这条残留、不证明去向选择恰当或理由成立（后者归 AI 语义审核与 Human 阅读）；目标 Spark 其后转为 `implemented`/`discarded` **不使 `routed-to` 失效**（历史事实不变，同 `contributed-to` 对 `discarded` 目标的处置），但消费方必须标注目标已终结 |
-| 蓝图「进行中/已完成」 | 每次蓝图渲染（10 号） | draft/open/closed 列表与 `outcome` 概览 |
+| Web「进行中/已完成」 | 每次 Web 呈现（07 号；细则见 `plugin/web/docs/10`） | draft/open/closed 列表与 `outcome` 概览 |
 | systemPrompt 注入 | 每会话（25 §11 已声明注入 active WC 列表一行摘要） | open WC 的 title + status + `serves` |
 
 召回分层（02 §9.1）：F1 枚举 open WC 计数（title + status + `serves`）；F2 按类型、状态、稳定引用或 `serves` 命中的候选卡（`title`/`summary`/`scope` 有界摘录 + 命中依据）；F3 展开完整对象（含 `plan`、`attempt`、`reviews`、`result`）；F4 按需展开引用的 Goal/ADR/Spark/Research/Pitfall。默认候选只含 draft 与 open；closed 只在精确引用、证据链反查或历史追溯时展开。AI 展开候选后必须重新核对当前目标与 `scope` 边界——WorkCase 被召回不表示应当续跑、不表示授权仍然覆盖、也不表示可以提高优先级。**`reviews` 按节点呈现**（07 §5.3「显示该对象的变更历史（摘要形态）」），其详情不入对象、不构成召回内容。
