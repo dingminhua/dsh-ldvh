@@ -48,9 +48,13 @@ async function run(descriptors, toolName, args, cwd) {
 // Fixtures
 // ---------------------------------------------------------------------------
 
+// `status` 是 create 的**必填**字段（2026-10-20 起省略即 pitfall/status_required）。
+// 夹具取 `active` 作缺省，与旧行为等价（旧实现省略时默认落 active），使各既有
+// 用例保持原意；断言「省略被拒」的用例显式删掉它再传。
 function validFrontmatterDraft(overrides = {}) {
   return {
     title: "SG-4 落地后重复采坑（工具）",
+    status: "active",
     scope: "适用于本仓库依赖升级场景；经验可信于同版本组合，跨大版本需重审。",
     trigger_signal: "当 SG-4 依赖升级时重审本经验",
     change_summary: "受控创建（测试夹具）",

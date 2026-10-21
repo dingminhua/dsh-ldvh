@@ -239,10 +239,11 @@ test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自
             verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "",
             impact: "light", quote: materialText.slice(0, 20), reason: "本次没有系统性阻碍",
           },
+          // 经验侧失败靠引证不在材料内（36 §10.1 两段式后只剩这一个高频失败点：
+          // 判定态与缓冲字段都合法，唯独 quote 不是材料里的原文）。
           "experience-capture": {
-            verdict: "no-capture", title: "", scope: "", body: "",
-            failure_observed: "", root_cause_known: "", resolution_adopted: "",
-            verification_observed: "", duplicate_of: "",
+            verdict: "no-failure", phenomenon: "", evidence: "", source: "",
+            candidate_question: "",
             quote: "这段引证根本不在材料里面呀", reason: "无命中",
           },
         },

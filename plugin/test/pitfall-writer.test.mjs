@@ -9,7 +9,7 @@
 // the assertion. lib/ is NOT modified here.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { testSignature, withTemp } from "./helpers.mjs";
@@ -35,9 +35,13 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 // Fixtures
 // ---------------------------------------------------------------------------
 
+// 注意：`status` 在契约里是**必填**（2026-10-20 起省略即 `pitfall/status_required`）。
+// 本 helper 取 `active` 作为缺省，与旧行为等价（旧实现省略时默认落 active）——
+// 使各既有用例不必逐个改；专门断言「省略被拒」的用例显式把它删掉再传。
 function validFrontmatterDraft(overrides = {}) {
   return {
     title: "SG-4 落地后重复采坑",
+    status: "active",
     scope: "适用于本仓库依赖升级场景；经验可信于同版本组合，跨大版本需重审。",
     trigger_signal: "当 SG-4 依赖升级时重审本经验",
     change_summary: "受控创建（测试）",
@@ -706,9 +710,43 @@ test("create: status=draft is accepted (23 §13 机械通道初态)", async () =
   });
 });
 
-test("create: status omitted defaults to active (23 §13 Human 入口创建即入档)", async () => {
+test("create: status omitted is rejected — there is no default (23 §8/§13/§16)", async () => {
   await withTemp("pitfall-writer.", async (root) => {
+    // 省略 status 曾经默认落 `active`——那等于让任何调用方在无 Human 决定的情况下
+    // 落一个已入档对象（active 是入档后状态，入档属 23 §16 Human Gate）。
+    // 通道差异是**语义差异而不是默认值差异**，故现在省略一律拒绝。
     const draft = validFrontmatterDraft();
+    delete draft.status;
+    const created = await createPitfallObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(created.ok, false, "omitting status must be refused, never defaulted");
+    assert.equal(created.error.code, "pitfall/status_required");
+    // 零写入：拒绝后载体目录内不得出现任何对象
+    await assert.rejects(readdir(join(root, "pitfalls")), { code: "ENOENT" });
+  });
+});
+
+test("create: status=null is rejected on the same ground as omission", async () => {
+  await withTemp("pitfall-writer.", async (root) => {
+    const draft = validFrontmatterDraft({ status: null });
+    const created = await createPitfallObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(created.ok, false);
+    assert.equal(created.error.code, "pitfall/status_required");
+  });
+});
+
+test("create: status=active explicit still lands active (Human 入口创建即入档)", async () => {
+  await withTemp("pitfall-writer.", async (root) => {
+    const draft = validFrontmatterDraft({ status: "active" });
     const created = await createPitfallObject({
       factSourceRoot: root,
       frontmatterDraft: draft,

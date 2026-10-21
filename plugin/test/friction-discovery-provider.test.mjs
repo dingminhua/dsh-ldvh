@@ -646,13 +646,13 @@ test("短路判定**先于 provider 选择**：无可用 provider 时空窗口�
 // **该修复在唯一需要它的场景里不生效**——而当时没有任何测试覆盖该场景。
 // ---------------------------------------------------------------------------
 
+// 2026-10-20（36 §10.1 两段式）：捕获段的判定态改为 failure-observed／no-failure，
+// 只表达「有无失败现象」，且输出里不再有正文与四前提陈述字段。
 const CAPTURE_SLICE_OK = {
-  verdict: "no-capture",
-  title: "", scope: "", body: "",
-  failure_observed: "", root_cause_known: "", resolution_adopted: "",
-  verification_observed: "", duplicate_of: "",
+  verdict: "no-failure",
+  phenomenon: "", evidence: "", source: "", candidate_question: "",
   quote: "这是一段足够长的材料内容原文。",
-  reason: "本次没有命中四前提的失败机制。",
+  reason: "本次没有观察到失败现象。",
 };
 
 test("F-1：一件失败一件成功时，`watermarkTurn` 仍须给出（否则成功者也被重覆盖）", async () => {
@@ -682,7 +682,6 @@ test("F-1：一件失败一件成功时，`watermarkTurn` 仍须给出（否则�
   const out = await discover({
     threshold: 3,
     candidates: [],
-    existingPitfalls: [],
     sessionSignature: null,
     window: { from: 0, to: 5 },
     tasks: ["friction-discovery", "experience-capture"],
@@ -716,7 +715,7 @@ test("F-1：全成功时同样给出 watermarkTurn（回归：新条件不得反
     provideWindow: () => ({ items: [{ turn: 1, user: "这是一段足够长的材料内容原文。" }], truncated: false }),
   });
   const out = await discover({
-    threshold: 3, candidates: [], existingPitfalls: [], sessionSignature: null,
+    threshold: 3, candidates: [], sessionSignature: null,
     window: { from: 0, to: 9 }, tasks: ["friction-discovery", "experience-capture"],
   });
   assert.deepEqual(out.failedTasks, []);

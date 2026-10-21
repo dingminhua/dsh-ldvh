@@ -1,29 +1,46 @@
-// Tests for 36 §10（经验积累）的两个实现切片：
+// Tests for 36 §10.1（经验积累·捕获段）的两个实现切片：
 //   - lib/experience-capture-contract.js（提示词段 / 输出 schema / 落地前校验）
-//   - lib/experience-landing.js（机械通道的落地：仅建 draft 候选）
+//   - lib/experience-landing.js（机械通道的落地：只写一条留观缓冲条目）
 //
-// 权威：specs/36 §10（含「机械通道的边界」）与 specs/23（Pitfall 事实类型）。
+// 权威：specs/36 §10.1（捕获段）与 §12bis（留观缓冲）。
 // 断言的是规范行为；实现与规范不符时在任务报告里如实登记，不靠改断言「修正」。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { parse as parseYaml } from "yaml";
 import { testSignature, withTemp } from "./helpers.mjs";
 import {
   CAPTURE_VERDICTS,
   REQUIRED_BODY_SECTIONS,
   buildCapturePromptSection,
   captureOutputSchema,
+  validateCaptureBody,
   validateCaptureVerdict,
 } from "../lib/experience-capture-contract.js";
 import { landCaptureVerdict, residualFromCaptureError } from "../lib/experience-landing.js";
-import { listPitfallObjects } from "../lib/pitfall-writer.js";
+import {
+  BUFFER_CAPACITY, BUFFER_REQUIRED_FIELDS, bufferEntryPath, readBufferEntries,
+} from "../lib/observation-buffer.js";
 
-const TEST_SIGNATURE = testSignature();
 const SCOPE = "适用范围：本仓库依赖升级场景；经验可信于同版本组合，跨大版本需重审。";
 const WINDOW = "本次材料原文：升级后解析失败反复出现，清理缓存后恢复。";
+const EVIDENCE = "升级后解析失败反复出现";
+const SOURCE = "session-abc turn 12 / 归档读取流程的输出";
 
+function goodVerdict(overrides = {}) {
+  return {
+    verdict: "failure-observed",
+    phenomenon: "归档读取流程在升级后连续报同一种解析失败",
+    evidence: EVIDENCE,
+    source: SOURCE,
+    candidate_question: "依赖升级与缓存未失效叠加时，解析失败是由哪一层机制触发的",
+    quote: EVIDENCE,
+    reason: "材料里有一处失败实际发生过",
+    ...overrides,
+  };
+}
+
+/** 六段固定正文（仅为复用 `validateCaptureBody` 的回归断言，捕获段不产出正文）。 */
 function goodBody(scope = SCOPE) {
   return [
     "## 症状", "升级后出现重复的解析失败，报错指向同一异常签名。",
@@ -36,211 +53,286 @@ function goodBody(scope = SCOPE) {
   ].join("\n\n");
 }
 
-function goodVerdict(overrides = {}) {
-  return {
-    verdict: "new-experience",
-    title: "缓存键变更致解析失败",
-    scope: SCOPE,
-    body: goodBody(),
-    failure_observed: "会话留痕：同一异常签名出现 3 次",
-    root_cause_known: "依赖缓存键语义变更使旧缓存未失效",
-    resolution_adopted: "清理缓存并重建索引",
-    verification_observed: "已在测试环境观察 3 次连续成功；未覆盖并发升级",
-    duplicate_of: "",
-    quote: "升级后解析失败反复出现",
-    reason: "该失败已实际发生、根因已查明、解法已采用且有观察",
-    ...overrides,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // 契约：闭集与 schema
 // ---------------------------------------------------------------------------
 
-test("36 §10：判定态是闭集两值（无阈值流转，故不像摩擦那样需要 same-obstacle）", () => {
-  assert.deepEqual([...CAPTURE_VERDICTS], ["new-experience", "no-capture"]);
+test("36 §10.1：判定态是闭集两值——只表达「有无失败现象」，不表达任何入档判断", () => {
+  assert.deepEqual([...CAPTURE_VERDICTS], ["failure-observed", "no-failure"]);
 });
 
-test("36 §10 / 23 §8：输出 schema 的必填字段含四项前提各自的陈述", () => {
+test("36 §10.1：输出 schema 面向缓冲条目，且不再携带四前提陈述字段", () => {
   const schema = captureOutputSchema();
-  assert.deepEqual([...schema.required], ["verdict", "title", "scope", "body", "quote", "reason"]);
+  // 四前提已按 23 §10 重定位为 draft→active 前置，捕获段不核对。
   for (const f of ["failure_observed", "root_cause_known", "resolution_adopted", "verification_observed"]) {
-    assert.ok(schema.properties[f] !== undefined, `${f} 须在 schema 内（四前提各自的陈述）`);
+    assert.equal(schema.properties[f], undefined, `${f} 是四前提陈述，捕获段不得再采集`);
+  }
+  // 缓冲条目字段齐备。
+  for (const f of ["phenomenon", "evidence", "source", "candidate_question", "quote", "reason"]) {
+    assert.ok(schema.properties[f] !== undefined, `${f} 须在 schema 内`);
   }
   assert.equal(schema.additionalProperties, false);
+  assert.deepEqual([...schema.required], ["verdict", "quote", "reason"]);
 });
 
-test("36 §10：提示词段自足——含四前提与七段要求", () => {
+test("36 §10.1：提示词段自足——只判有无失败，且明确禁止判重复/根因/入档", () => {
   const section = buildCapturePromptSection();
-  for (const kw of ["四前提", ...REQUIRED_BODY_SECTIONS, "no-capture", "不要写 H1"]) {
+  for (const kw of ["有没有一个失败", "failure-observed", "no-failure", "逐字", "phenomenon", "candidate_question"]) {
     assert.ok(section.includes(kw), `提示词段须说明「${kw}」`);
   }
-  // 既有对象为空时须显式说明（否则执行体不知道是「没有」还是「没给它」）
-  assert.ok(section.includes("当前没有"));
+  assert.ok(section.includes("不判根因"), "须明确不判根因");
+  assert.ok(section.includes("重复"), "须明确不判是否重复");
+  assert.ok(section.includes("不创建任何经验对象"), "须明确捕获段不建事实对象");
+  // 不判重复 ⇒ 不再把既有 Pitfall 列表交给捕获段。
+  assert.ok(!section.includes("查重比对对象"), "捕获段不得再收到查重比对对象");
 });
 
-test("36 §10：提示词段列出既有对象（查重比对对象）", () => {
-  const section = buildCapturePromptSection({
-    existing: [{ object_uid: "u-1", status: "draft", title: "既有经验甲" }],
-  });
-  assert.ok(section.includes("u-1"), "既有对象的 uid 须出现");
-  assert.ok(section.includes("既有经验甲"));
-  assert.ok(section.includes("draft"), "状态须出现（active 与 draft 都是查重对象）");
+test("36 §10.1：提示词段显式声明「宁可多记不可漏记」（失效方向被限定为漏记）", () => {
+  const section = buildCapturePromptSection();
+  assert.ok(section.includes("不可漏记"));
+  assert.ok(section.includes("不可漏记") && section.includes("觉得这条没用"), "须点名「觉得没用」这一具体失效");
 });
 
 // ---------------------------------------------------------------------------
 // 契约：落地前校验
 // ---------------------------------------------------------------------------
 
-test("36 §10：合法候选通过（四前提齐 + 七段齐）", () => {
+test("36 §10.1：合法捕获通过，并合成缓冲载体字段（evidence 附来源引用）", () => {
   const r = validateCaptureVerdict(goodVerdict(), { windowText: WINDOW });
   assert.ok(r.ok, JSON.stringify(r.error));
-  assert.equal(r.value.verdict, "new-experience");
+  assert.equal(r.value.verdict, "failure-observed");
+  assert.equal(r.value.entry.phenomenon, goodVerdict().phenomenon);
+  assert.ok(r.value.entry.evidence.startsWith(EVIDENCE), "evidence 须以逐字片段开头");
+  assert.ok(r.value.entry.evidence.includes(SOURCE), "§12bis：evidence 须附来源引用");
+  assert.equal(r.value.entry.candidate_question, goodVerdict().candidate_question);
 });
 
-test("36 §10：非空材料下「无候选」也必须引证（否则恒报无候选不可见）", () => {
-  const r = validateCaptureVerdict({ verdict: "no-capture", quote: "", reason: "r" }, { windowText: WINDOW });
+test("36 §10.1：非空材料下「无失败」也必须引证（否则恒报无失败不可见）", () => {
+  const r = validateCaptureVerdict({ verdict: "no-failure", quote: "", reason: "r" }, { windowText: WINDOW });
   assert.equal(r.ok, false);
   assert.equal(r.error.code, "capture/quote_missing");
 });
 
-test("36 §10：引证必须真在材料内（不得取自材料外）", () => {
-  const r = validateCaptureVerdict(goodVerdict({ quote: "这段话不在材料里" }), { windowText: WINDOW });
-  assert.equal(r.ok, false, "引证不在材料内须被拒");
+test("36 §10.1：no-failure 态通过但不产出条目", () => {
+  const r = validateCaptureVerdict(
+    { verdict: "no-failure", quote: EVIDENCE, reason: "材料里没有失败现象" },
+    { windowText: WINDOW },
+  );
+  assert.ok(r.ok, JSON.stringify(r.error));
+  assert.equal(r.value.entry, null);
 });
 
-test("36 §10：缺任一前提陈述即不构成候选", () => {
-  for (const f of ["failure_observed", "root_cause_known", "resolution_adopted", "verification_observed"]) {
+test("36 §10.1：引证必须真在材料内（不得取自材料外）", () => {
+  const r = validateCaptureVerdict(goodVerdict({ quote: "这段话不在材料里", evidence: "这段话不在材料里" }), { windowText: WINDOW });
+  assert.equal(r.ok, false, "引证不在材料内须被拒");
+  assert.equal(r.error.code, "discovery/quote_not_in_window");
+});
+
+test("36 §10.1：缺任一缓冲字段即不通过", () => {
+  for (const f of ["phenomenon", "evidence", "source", "candidate_question"]) {
     const r = validateCaptureVerdict(goodVerdict({ [f]: "" }), { windowText: WINDOW });
     assert.equal(r.ok, false, `${f} 为空须被拒`);
     assert.equal(r.error.code, `capture/${f}_missing`);
   }
 });
 
-test("36 §10 / 23 §8：正文七段须按序齐备且各段非空", () => {
-  const missing = validateCaptureVerdict(goodVerdict({ body: goodBody().replace("## 规避", "## 别的") }), { windowText: WINDOW });
+test("36 §12bis：phenomenon 必须是一句话的描述（多句被拒）", () => {
+  const r = validateCaptureVerdict(
+    goodVerdict({ phenomenon: "升级后报解析失败。清理缓存后恢复。" }),
+    { windowText: WINDOW },
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "capture/phenomenon_not_one_sentence");
+});
+
+test("36 §12bis：evidence 必须含逐字引证（转述式的 evidence 被拒）", () => {
+  const r = validateCaptureVerdict(
+    goodVerdict({ evidence: "升级之后会出现反复的解析失败现象" }),
+    { windowText: WINDOW },
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "capture/evidence_quote_mismatch");
+});
+
+test("36 §12bis：字段长度上限（超出即越界）", () => {
+  const r = validateCaptureVerdict(goodVerdict({ source: "s".repeat(257) }), { windowText: WINDOW });
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, "capture/source_too_long");
+});
+
+test("36 §10.1：判定态越界即拒绝（旧两态 new-experience/no-capture 已不在闭集）", () => {
+  for (const verdict of ["new-experience", "no-capture"]) {
+    const r = validateCaptureVerdict(goodVerdict({ verdict }), { windowText: WINDOW });
+    assert.equal(r.ok, false);
+    assert.equal(r.error.code, "capture/verdict_out_of_set");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 契约：七段结构校验仍导出（供审核段复用，捕获段不调用）
+// ---------------------------------------------------------------------------
+
+test("23 §8：七段结构校验仍在（审核段复用），且缺段/空段/占位符/H1 都被拒", () => {
+  assert.deepEqual([...REQUIRED_BODY_SECTIONS], ["症状", "触发条件", "根因", "解决", "规避", "验证", "影响与适用范围"]);
+  assert.ok(validateCaptureBody(goodBody()).ok);
+
+  const missing = validateCaptureBody(goodBody().replace("## 规避", "## 别的"));
   assert.equal(missing.ok, false);
   assert.equal(missing.error.code, "capture/body_section_missing");
 
-  const empty = validateCaptureVerdict(goodVerdict({ body: goodBody().replace("依赖内部缓存键变更，旧缓存未失效导致重复命中失败路径。", "") }), { windowText: WINDOW });
+  const empty = validateCaptureBody(goodBody().replace("依赖内部缓存键变更，旧缓存未失效导致重复命中失败路径。", ""));
   assert.equal(empty.ok, false);
   assert.equal(empty.error.code, "capture/body_section_empty");
-});
 
-test("36 §10：正文不得用占位符冒充（写不出该段说明四前提未齐）", () => {
-  const r = validateCaptureVerdict(goodVerdict({ body: goodBody().replace("依赖内部缓存键变更，旧缓存未失效导致重复命中失败路径。", "待查明") }), { windowText: WINDOW });
-  assert.equal(r.ok, false);
-  assert.equal(r.error.code, "capture/body_placeholder");
-});
+  const placeholder = validateCaptureBody(goodBody().replace("依赖内部缓存键变更，旧缓存未失效导致重复命中失败路径。", "待查明"));
+  assert.equal(placeholder.ok, false);
+  assert.equal(placeholder.error.code, "capture/body_placeholder");
 
-test("36 §10：正文不得自带 H1（标题由 title 生成）", () => {
-  const r = validateCaptureVerdict(goodVerdict({ body: `# 标题\n\n${goodBody()}` }), { windowText: WINDOW });
-  assert.equal(r.ok, false);
-  assert.equal(r.error.code, "capture/body_has_h1");
-});
-
-test("36 §10：报「已存在」时 duplicate_of 须指向本次交给它的对象", () => {
-  const bad = validateCaptureVerdict(
-    { verdict: "no-capture", quote: "升级后解析失败反复出现", reason: "r", duplicate_of: "11111111-1111-4111-8111-111111111111" },
-    { windowText: WINDOW, existing: [] },
-  );
-  assert.equal(bad.ok, false);
-  assert.equal(bad.error.code, "capture/duplicate_of_unknown");
-
-  const ok = validateCaptureVerdict(
-    { verdict: "no-capture", quote: "升级后解析失败反复出现", reason: "r", duplicate_of: "u-1" },
-    { windowText: WINDOW, existing: [{ object_uid: "u-1" }] },
-  );
-  assert.ok(ok.ok, JSON.stringify(ok.error));
-  assert.equal(ok.value.duplicateOf, "u-1");
-});
-
-test("23 §8：title 上限 30 字", () => {
-  const r = validateCaptureVerdict(goodVerdict({ title: "字".repeat(31) }), { windowText: WINDOW });
-  assert.equal(r.ok, false);
-  assert.equal(r.error.code, "capture/title_too_long");
+  const h1 = validateCaptureBody(`# 标题\n\n${goodBody()}`);
+  assert.equal(h1.ok, false);
+  assert.equal(h1.error.code, "capture/body_has_h1");
 });
 
 // ---------------------------------------------------------------------------
-// 落地：机械通道的边界（36 §10）
+// 落地：机械通道只写缓冲条目（36 §10.1 第 2 项 / §12bis）
 // ---------------------------------------------------------------------------
 
-test("36 §10：机械通道只建 draft——初态绝不是 active", async () => {
+const OBSERVED_AT = "2026-10-20T00:00:00.000Z";
+
+/** 与 `pending-queue.js` / `observation-buffer.js` 同形的 home 解析器。 */
+function homeResolver(root) {
+  return (...segments) => join(root, ...segments);
+}
+
+function landingArgs(dshHomePath, overrides = {}) {
+  return {
+    dshHomePath: homeResolver(dshHomePath),
+    sessionId: "session-abc",
+    anchor: "turn 4..12",
+    observationAt: OBSERVED_AT,
+    verdict: validateCaptureVerdict(goodVerdict(), { windowText: WINDOW }).value,
+    ...overrides,
+  };
+}
+
+test("36 §10.1：落地写一条缓冲条目，返回 entry_id，且不创建任何 Pitfall", async () => {
   await withTemp("experience-landing.", async (root) => {
-    const landed = await landCaptureVerdict({
-      factSourceRoot: root,
-      verdict: { verdict: "new-experience", title: "缓存键变更致解析失败", scope: SCOPE, body: goodBody() },
-      observationAt: "2026-10-14T00:00:00.000Z",
-      sessionSignature: TEST_SIGNATURE,
-    });
+    const landed = await landCaptureVerdict(landingArgs(root));
     assert.ok(landed.ok, JSON.stringify(landed.error));
-    assert.equal(landed.value.action, "candidate-created");
+    assert.equal(landed.value.action, "buffer-appended");
+    assert.equal(typeof landed.value.entry_id, "string");
 
-    const raw = await readFile(join(root, "pitfalls", `pitfall-${landed.value.object_uid}.md`), "utf8");
-    const fm = parseYaml(raw.slice(4, raw.indexOf("\n---\n", 5)));
-    assert.equal(fm.status, "draft", "机械通道的初态必须是 draft（入档属 Human Gate，23 §16.1）");
-    assert.equal(fm.disposition, undefined, "draft 是非终态，不得带 disposition");
+    const read = await readBufferEntries(homeResolver(root));
+    assert.ok(read.ok, JSON.stringify(read.error));
+    assert.equal(read.value.items.length, 1, "一条运行至多写 1 条（§12bis 纪律 1）");
+    const item = read.value.items[0];
+    assert.equal(item.status, "pending", "捕获段写入的条目初态必须是 pending");
+    assert.equal(item.session, "session-abc");
+    assert.equal(item.anchor, "turn 4..12");
+    assert.equal(item.at, OBSERVED_AT);
+    assert.ok(item.evidence.includes(EVIDENCE), "逐字引证须原样留在条目里");
+    assert.ok(item.evidence.includes(SOURCE), "来源引用须留在条目里");
+    assert.equal(item.consumed_by, null);
+
+    // 载体字段闭集：多一个字段即越界（§12bis）。
+    for (const key of Object.keys(item)) {
+      if (key === "settled_at") continue; // 实现侧保留期记账字段，不承载语义
+      assert.ok(BUFFER_REQUIRED_FIELDS.includes(key), `条目出现了闭集之外的字段 ${key}`);
+    }
   });
 });
 
-test("36 §10：建出的 draft 不进默认候选，但待确认队列能枚举它", async () => {
+test("36 §10.1：缓冲载体不存在时读到空集合（不是错误），且落地前不建任何目录外的对象", async () => {
   await withTemp("experience-landing.", async (root) => {
-    await landCaptureVerdict({
-      factSourceRoot: root,
-      verdict: { verdict: "new-experience", title: "缓存键变更致解析失败", scope: SCOPE, body: goodBody() },
-      sessionSignature: TEST_SIGNATURE,
-    });
-    const def = await listPitfallObjects({ factSourceRoot: root });
-    assert.equal(def.value.items.length, 0, "draft 不得进入默认候选（23 §12）");
-    const queue = await listPitfallObjects({ factSourceRoot: root, statusFilter: ["draft"] });
-    assert.equal(queue.value.items.length, 1, "待确认队列须能枚举该候选");
+    const read = await readBufferEntries(homeResolver(root));
+    assert.ok(read.ok);
+    assert.equal(read.value.total, 0);
+    assert.equal(read.value.carrier, "absent");
+    // 落一条之后载体才出现。
+    const landed = await landCaptureVerdict(landingArgs(root));
+    assert.ok(landed.ok, JSON.stringify(landed.error));
+    const raw = await readFile(bufferEntryPath(homeResolver(root)), "utf8");
+    assert.ok(raw.trim().length > 0);
+    assert.equal(BUFFER_CAPACITY, 200);
   });
 });
 
-test("36 §10：无候选时不建、不改、不记账", async () => {
+test("36 §10.1：no-failure 不写条目（如实登记的「没观察到」，不是「确认没有」）", async () => {
   await withTemp("experience-landing.", async (root) => {
-    const landed = await landCaptureVerdict({
-      factSourceRoot: root,
-      verdict: { verdict: "no-capture", duplicateOf: "" },
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(landed.ok);
+    const landed = await landCaptureVerdict(landingArgs(root, {
+      verdict: { verdict: "no-failure", entry: null },
+    }));
+    assert.ok(landed.ok, JSON.stringify(landed.error));
     assert.equal(landed.value.action, "none");
-    assert.equal((await listPitfallObjects({ factSourceRoot: root, statusFilter: ["draft"] })).value.items.length, 0);
+    assert.equal((await readBufferEntries(homeResolver(root))).value.total, 0, "no-failure 不得留下条目");
   });
 });
 
-test("36 §10：查重命中如实登记（不改既有对象）", async () => {
+test("36 §12bis：缓冲不可写时 fail-closed——不得降级为内存或日志", async () => {
   await withTemp("experience-landing.", async (root) => {
-    const landed = await landCaptureVerdict({
-      factSourceRoot: root,
-      verdict: { verdict: "no-capture", duplicateOf: "u-existing" },
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(landed.ok);
-    assert.equal(landed.value.action, "duplicate-registered");
-    assert.equal(landed.value.object_uid, "u-existing");
+    // 在 `<root>/ldvh` 处放一个普通文件：缓冲载体的父路径不是目录，写入必然失败
+    // （ENOTDIR），读取也不会返回「空集合」这种成功形状。
+    await (await import("node:fs/promises")).writeFile(join(root, "ldvh"), "x");
+    const landed = await landCaptureVerdict(landingArgs(root));
+    assert.equal(landed.ok, false, "写入失败不得被吞成成功");
+    assert.equal(landed.error.stage, "buffer-append");
+    assert.match(landed.error.code, /observation_buffer\//);
+
+    // 没有第二处降级载体：既读不到条目，也不假装「读到空集合」。
+    const read = await readBufferEntries(homeResolver(root));
+    assert.equal(read.ok, false, "载体不可读时不得返回成功形状");
+    assert.equal(read.error.code, "observation_buffer/unreadable");
   });
 });
 
-test("09 机械签名：无署名载体即拒绝写入（不得无签名记账）", async () => {
+test("36 §12bis：取不到来源会话/位置时不臆造——如实拒绝写入", async () => {
   await withTemp("experience-landing.", async (root) => {
-    const landed = await landCaptureVerdict({
-      factSourceRoot: root,
-      verdict: { verdict: "new-experience", title: "t", scope: SCOPE, body: goodBody() },
-      sessionSignature: null,
-    });
-    assert.equal(landed.ok, false);
-    assert.match(landed.error.code, /signature/);
+    for (const [field, code] of [["sessionId", "capture/session_missing"], ["anchor", "capture/anchor_missing"]]) {
+      const landed = await landCaptureVerdict(landingArgs(root, { [field]: "" }));
+      assert.equal(landed.ok, false, `${field} 缺失须拒绝`);
+      assert.equal(landed.error.code, code);
+    }
+    assert.equal((await readBufferEntries(homeResolver(root))).value.total, 0);
+  });
+});
+
+test("36 §10.1：缺失或未校验的 verdict 被拒（不得绕过契约直接落缓冲）", async () => {
+  await withTemp("experience-landing.", async (root) => {
+    const noVerdict = await landCaptureVerdict({ dshHomePath: homeResolver(root), sessionId: "s", anchor: "a" });
+    assert.equal(noVerdict.ok, false);
+    assert.equal(noVerdict.error.code, "capture/verdict_missing");
+
+    const noEntry = await landCaptureVerdict(landingArgs(root, { verdict: { verdict: "failure-observed" } }));
+    assert.equal(noEntry.ok, false);
+    assert.equal(noEntry.error.code, "capture/verdict_unusable");
+  });
+});
+
+test("36 §12bis：落缓冲不写署名（缓冲条目不是事实对象，字段闭集里没有署名位）", async () => {
+  await withTemp("experience-landing.", async (root) => {
+    const landed = await landCaptureVerdict(landingArgs(root));
+    assert.ok(landed.ok, JSON.stringify(landed.error));
+    const item = (await readBufferEntries(homeResolver(root))).value.items[0];
+    for (const forbidden of ["change_log", "provider", "model", "signature", "sessionSignature"]) {
+      assert.equal(item[forbidden], undefined, `缓冲条目不得带 ${forbidden}（§12bis 字段闭集 9 项）`);
+    }
   });
 });
 
 test("落地失败须保留完整诊断（issues 明细不得只留 message）", () => {
   const residual = residualFromCaptureError({
-    code: "pitfall/body_invalid",
-    message: "updated body failed structure checks",
-    cause: { details: { issues: ["缺 根因 段", "缺 验证 段"] } },
+    code: "observation_buffer/unavailable",
+    message: "carrier is not writable",
+    cause: { details: { issues: ["字段 phenomenon 越界", "字段 source 越界"] } },
   });
-  assert.ok(residual.some((l) => l.includes("pitfall/body_invalid")));
-  assert.ok(residual.some((l) => l.includes("缺 根因 段")), "逐条 issues 须保留");
+  assert.ok(residual.some((l) => l.includes("observation_buffer/unavailable")));
+  assert.ok(residual.some((l) => l.includes("字段 phenomenon 越界")), "逐条 issues 须保留");
+});
+
+// 保持 testSignature 依赖不失效：署名不在缓冲落地路径上，但签名通道仍是
+// 事实写入的共用入口，这里断言它仍可取得（防止有人把签名通道一起删掉）。
+test("09：签名通道仍可用（事实写入的共用入口，缓冲落地不使用它）", () => {
+  const sig = testSignature();
+  assert.equal(typeof sig, "object");
+  assert.ok(sig !== null);
 });
