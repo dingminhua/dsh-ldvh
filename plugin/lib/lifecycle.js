@@ -37,6 +37,7 @@ import { registerLdvhTools } from "./ldvh-tools.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
 import { createTurnTriggers } from "./triggers.js";
+import { createHostScheduler } from "./host-schedule.js";
 import { rearmInFlightWorkcaseGoal } from "./workcase-goals.js";
 import { readWorkcaseObject, bodyHasResultSection } from "./workcase-writer.js";
 import { runIdleCheckpoint } from "./idle-checkpoint.js";
@@ -445,7 +446,14 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       // Turn-level triggers（11 §6.1 触发判据，2026-10-14 修订）。
       // 「会话确已空闲」= 距最后一次会话活动持续不短于安静时长；本块只注入
       // 编排回调与两个注入点（取安静时长、落活动时刻），判据与计时在 triggers.js 内。
+      // 宿主调度适配器（11 §6.1「实现侧不得自行维护计时器」）。**按会话构造**：
+      // 宿主任务绑定创建它的会话，故每个 agent 一个适配器；`ctx.schedule` 未挂载
+      // 时适配器 `available=false`，triggers 会如实登记为未兑现范围而**不回落**
+      // 到自建计时器（那正是本次要消灭的形态）。
+      const hostSessionId = agent?.session?.header?.id;
+      const scheduler = createHostScheduler(ctx, typeof hostSessionId === "string" ? hostSessionId : "");
       const turnTriggers = createTurnTriggers(agent, {
+        scheduler,
         getScopeState: () => lifecycle.scopeState,
         turns: lifecycle.turns,
         activity: lifecycle.activity,
