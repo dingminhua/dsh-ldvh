@@ -473,6 +473,10 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       }
       const turnTriggers = createTurnTriggers(agent, {
         scheduler,
+        // §12 待处置登记的注入点（11 §6.1「撤掉的完成判据」）：撤掉失败时调用。
+        registerPending: async ({ task, reason, residual }) => {
+          await appendPendingEntry(dshHomePath, { task, reason, residual, at: new Date().toISOString() });
+        },
         getScopeState: () => lifecycle.scopeState,
         turns: lifecycle.turns,
         activity: lifecycle.activity,

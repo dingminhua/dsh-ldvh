@@ -118,7 +118,7 @@ function isOwnSilenceDelivery(userMessage) {
  * 任何进程内计时器（11 §6.1）。未注入或宿主服务不可用时按 §12 fail-closed——不派发、
  * 只如实登记「宿主调度不可用」，**不得回落到自建计时器**。
  */
-export function createTurnTriggers(agent, { getScopeState, turns, activity, log, onSessionCheckpoint, readSilenceMs, persistActivityAt, now, scheduler }) {
+export function createTurnTriggers(agent, { getScopeState, turns, activity, log, onSessionCheckpoint, readSilenceMs, persistActivityAt, now, scheduler, registerPending }) {
   const agentId = agent?.id ?? agent?.session?.header?.id;
 
   /**
@@ -163,6 +163,9 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     // **本回合是否为本插件自投递的回合**：`turn/stopping` 认出自投递时置真，
     // 该回合的 `turn/end` 据此不刷新活动时刻（见 onSessionEvent）。一个回合一次。
     ownDeliveryTurn: false,
+    // **本回合是否仍在进行**（2026-10-23 修订）：`turn/start` 置真、`turn/end` 置假。
+    // 用途有二——回合进行中不派发（§6.3），以及回合开始时撤掉计时器的判定依据。
+    turnInFlight: false,
     // **排期代际**：每发起一次排期就自增。`scheduleId` 的回流是异步的，若期间
     // 已有新活动（`deferSilenceTask`），回流的排期结果必须被丢弃——否则登记会
     // 表里会留下一条「我方以为已撤销、实际仍在」的任务。用代际号而非「比较
@@ -339,6 +342,13 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     state.scheduledAt = null;
     if (state.disposed === true) return;
     if (state.silenceFired === true) return;   // 本段安静期已派发过
+    // **回合进行中不得派发**（§6.3，2026-10-23 修订）：撤掉若未生效，任务可能在
+    // 对话进行中到期。此处拒绝派发，且**不重排**——回合结束时自会重启计时。
+    if (state.turnInFlight === true) {
+      note("info", "[dsh-ldvh] silence task delivered during a running turn: refusing to dispatch");
+      activity?.record("session/checkpoint/refused-turn-in-flight", { turn: state.lastTurn });
+      return;
+    }
     const current = state.lastActivityAt;
     // **到期早退必须留痕**：此前它们是静默 `return`，使「到点了却没有派发」在事后
     // 无从归因。判定语义不变，只补可观测性。一律用 info——cordis 默认等级 1 下
@@ -388,6 +398,52 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       });
     } catch (error) {
       note("warn", "[dsh-ldvh] silence task removal threw (id=%s): %s", String(id), String(error?.message ?? error));
+    }
+  }
+
+  /**
+   * **撤掉安静期任务**（11 §6.1，2026-10-23 修订）：回合开始时调用。
+   *
+   * 与 `clearSilenceTask` 的分工：后者是会话销毁的终局清理，本函数是**计时器的
+   * 暂停**——回合结束时 `armSilenceTask` 会重新登记，故它是「撤掉 + 稍后重建」的
+   * 前半步。**失败不得静默**：撤掉不成立时按 §12 登记待处置（§6.1「撤掉的完成判据」）。
+   */
+  function retireSilenceTask(reason) {
+    if (state.disposed === true) return;
+    const id = state.scheduleId;
+    state.scheduleId = null;
+    state.scheduledAt = null;
+    state.scheduleEpoch = (state.scheduleEpoch ?? 0) + 1;
+    activity?.record("session/silence-retired", { turn: state.lastTurn, reason, id });
+    if (id === null || typeof scheduler?.remove !== "function") {
+      note("info", "[dsh-ldvh] silence retire skipped (%s): no task id or no remove()", reason);
+      return;
+    }
+    try {
+      Promise.resolve(scheduler.remove(id)).then(() => {
+        activity?.record("session/silence-retired-ok", { turn: state.lastTurn, id });
+      }).catch((error) => registerRetireFailure(error, id, reason));
+    } catch (error) {
+      registerRetireFailure(error, id, reason);
+    }
+  }
+
+  /** 撤掉失败的收口：日志 + 活动轨迹 + §12 待处置登记（三者都不得抛）。 */
+  function registerRetireFailure(error, id, reason) {
+    const detail = String(error?.message ?? error);
+    note("warn", "[dsh-ldvh] silence task retire failed (id=%s, %s): %s", String(id), String(reason), detail);
+    activity?.record("session/silence-retired-failed", { turn: state.lastTurn, id, detail });
+    if (typeof registerPending !== "function") return;
+    try {
+      Promise.resolve(registerPending({
+        task: "silence-retire",
+        reason: `安静期任务撤掉失败（id=${String(id)}，触发点=${String(reason)}）：${detail}`,
+        residual: ["撤掉未生效：回合进行中宿主侧可能仍存在本任务"],
+      })).catch((error2) => {
+        note("warn", "[dsh-ldvh] pending registration for retire failed: %s", String(error2?.message ?? error2));
+      });
+    } catch (error2) {
+      note("warn", "[dsh-ldvh] pending registration for retire threw: %s", String(error2?.message ?? error2));
     }
   }
 
@@ -482,6 +538,7 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       // 等下一次真实的回合结束再计时。不得以「现在」充作活动时刻：那会把
       // 「从未活动过」读成「刚活动过」。
       if (state.lastActivityAt === null) return;
+      if (state.turnInFlight === true) return;   // 回合仍在进行：不得武装（§6.1）
       armSilenceTask();
     },
 
@@ -503,8 +560,17 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
         activity?.record("session/own-delivery", { turn: state.lastTurn });
         return;
       }
+      // **回合开始 = 暂停计时**（11 §6.1，2026-10-23 修订）：撤掉宿主任务，使对话
+      // 进行中不存在倒计时。自投递回合不撤——那条任务已被本次投递消费掉了。
+      if (session === agent?.session && event?.type === "turn/start") {
+        state.turnInFlight = true;
+        if (state.ownDeliveryTurn !== true) retireSilenceTask("turn/start");
+        activity?.record("turn/start", { turn: eventTurn(event) ?? state.lastTurn });
+        return;
+      }
       if (session !== agent?.session || event?.type !== "turn/end") return;
       state.turnEndSeen += 1;
+      state.turnInFlight = false;
       state.lastTurn = eventTurn(event) ?? state.lastTurn;
       // **会话活动**（2026-10-14）：`turn/end` 也是活动——它同时是区间材料的
       // 结算点。此处刷新活动时刻（重置安静期），使「对话还在进行」不会被误判为
@@ -516,6 +582,9 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       // 结束是机制自己造成的，不是人的活动。判据与 `turn/stopping` 一致。
       if (!state.ownDeliveryTurn) {
         if (governed()) touchActivity(nowMs());
+        // **回合结束 = 重启计时**（11 §6.1）：撤掉时已清空登记，此处按「结束后 +
+        // 安静时长」重新登记。`armSilenceTask` 对相同到期时点幂等。
+        if (governed()) armSilenceTask();
       } else {
         // 本回合是自投递：标记随回合结束清除（一个回合一次）。
         state.ownDeliveryTurn = false;
