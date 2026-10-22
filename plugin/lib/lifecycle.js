@@ -447,11 +447,30 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       // 「会话确已空闲」= 距最后一次会话活动持续不短于安静时长；本块只注入
       // 编排回调与两个注入点（取安静时长、落活动时刻），判据与计时在 triggers.js 内。
       // 宿主调度适配器（11 §6.1「实现侧不得自行维护计时器」）。**按会话构造**：
-      // 宿主任务绑定创建它的会话，故每个 agent 一个适配器；`ctx.schedule` 未挂载
+      // 宿主任务绑定创建它的会话，故每个 agent 一个适配器；宿主调度服务未挂载
       // 时适配器 `available=false`，triggers 会如实登记为未兑现范围而**不回落**
       // 到自建计时器（那正是本次要消灭的形态）。
+      //
+      // **可选依赖的失败不得掀翻整条目**（2026-10-22）：本函数位于 `install()`
+      // 内部，而 `install()` 由 `apply()` → `start()` 同步驱动。适配器构造一旦
+      // 抛出（线上形态：裸取 `ctx.schedule` 在真实 Proxy 上下文上抛
+      // `cannot get property "schedule" without inject`），异常一路穿出 `apply()`，
+      // 宿主就把**整个插件条目**记成 `did not activate` —— 设置面、配置面、
+      // 工具批全部不生效，只因为一个本来声明为可选的服务。故此处收口为：
+      // 构造失败只降级为「安静期无法武装」，并如实登记到活动轨迹，其余一切照常。
       const hostSessionId = agent?.session?.header?.id;
-      const scheduler = createHostScheduler(ctx, typeof hostSessionId === "string" ? hostSessionId : "");
+      let scheduler;
+      try {
+        scheduler = createHostScheduler(ctx, typeof hostSessionId === "string" ? hostSessionId : "");
+      } catch (error) {
+        ctx.logger.warn(
+          "[dsh-ldvh] host schedule adapter unavailable for %s (idle assistance cannot be armed; no self-built timer fallback): %s",
+          agentId,
+          String(error?.message ?? error)
+        );
+        lifecycle.activity.record("schedule/adapter-unavailable", { detail: String(error?.message ?? error) });
+        scheduler = undefined;
+      }
       const turnTriggers = createTurnTriggers(agent, {
         scheduler,
         getScopeState: () => lifecycle.scopeState,
