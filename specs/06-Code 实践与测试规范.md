@@ -37,7 +37,7 @@ ldvh_spec:
 本文直接依据：
 
 1. `ldvh-root`：00 §3.5 的技术与机械保障、§5.6 的据实声明、§5.7 的必停情形与恢复、§5.8 的 Output Envelope 与交还；
-2. `specification-model-foundation`：01 §6 的身份块契约（含 `01.Att.02` 授权的 Code 消费入口字段解析）、§7 的共同章节结构、§10 的 L0–L4 读取层级、§12 的独立审核；
+2. `specification-model-foundation`：01 §6 的身份块契约（含 `01.Att.02` 的字段形状与 §6.2 登记的根级 Code 消费入口解析）、§7 的共同章节结构、§10 的 L0–L4 读取层级、§12 的独立审核；
 3. `check-auxiliary-mechanism-foundation`：检查机制规范 §6 的检查机制三形态、§7 的视角纪律与 §8 的检查结果与声明边界（本文 §6 的机械实现与 §7 的验证边界受其约束）；
 4. `fact-model-foundation`：事实源与事实模型基础规范 §6.1 的公共字段署名要求（事实 `change_log` 的 provider/model 由 Code 从权威记录取得，本文 §6 的机械签名实现受其约束）；
 5. `source-of-truth-traceability`：受控提交与机械守护规范 §5.1 的 message 契约（提交署名 trailer 的格式与来源要求，本文 §6 的机械签名实现受其约束）；
@@ -123,7 +123,7 @@ JavaScript 运行时、包管理器、测试运行器与构建工具只提供工
 
 **单一实现原则**：下述职责分别由 01、02、05、07、08、09、10 定义唯一领域语义，06 只规定实现纪律，不替它们定义接口或行为。对应 Code 必须通过单一职责入口实现，严禁复制副本逻辑。
 
-**规范解析实现**：01 §6 的身份块契约与 §10.3 的读取入口（`read-specification-candidates` / `read-specification-content`）由单一解析入口实现并测试，实现不得改变 01 语义；领域语义由 01 定义，06 只登记实现与测试纪律。
+**规范解析实现**：01 §6 的身份块契约、§6.2 登记的根级 Code 消费入口解析与 §10.3 的读取入口（`read-specification-candidates` / `read-specification-content`）由单一解析入口实现并测试，实现不得改变 01 语义；领域语义由 01 定义，06 只登记实现与测试纪律。
 
 **LDVH CLI 操作契约**：LDVH CLI 仅负责共同请求/响应的解析与异常拦截，具体领域逻辑通过调用规范独立实现完成，不得在 LDVH CLI 中直接实现领域逻辑。
 
