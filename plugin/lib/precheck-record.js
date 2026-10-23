@@ -1472,4 +1472,62 @@ export function detectRitualRecord(fields = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Human Gate 领域增量事项（34 §15.1 / §15.2）
+// ---------------------------------------------------------------------------
+
+/** 34 §15.1 的四项领域增量事项（原文逐条）。 */
+export const HUMAN_GATE_ITEMS = Object.freeze([
+  { key: "sourceConflict", label: "两个以上来源给出互斥要求，需在来源之间取舍" },
+  { key: "sourceDefect", label: "识别发现既有规则、事实或决定本身存在缺口，而修复须修改规范源或根决定" },
+  { key: "scopeEscalation", label: "偏离的影响范围已超出当次行动，需决定是否暂停更大范围" },
+  { key: "acceptIncomplete", label: "是否接受「识别不完整但已声明缺口」的行动继续" },
+]);
+
+/**
+ * 判定一组待决事项中哪些触发了 Human Gate（34 §15.1）。
+ *
+ * ## 为什么这个函数必须存在
+ *
+ * §15.1 的四项有共同形状：都是**授权边界**，而 §11 明写「任何涉及授权边界的判断
+ * 不得产自快通道」。若不在机械层把这四项标出来，一件本应提请 Human 的事容易被当作
+ * 普通技术决定做掉——而 00 §4.2 把「新增、改写或扩张可强制执行规则」等列为只能
+ * 由 Human 决定之事。
+ *
+ * ## 边界（§15.2 是我不能越的部分）
+ *
+ * §15.2 原文：「Human 决定只证明决定及其作用范围，**不替代**本系统的识别质量、
+ * 三段判断的正确性或约束落实的核对；**Human 批准某个行动不使该行动未经识别的部分
+ * 转为已识别**。」
+ *
+ * 故本函数只返回「这一项须提请 Human」，**永不返回「Human 已批准，故可以继续」**。
+ * 它连 `approved` 这样的字段都不提供——批准不解除识别义务。
+ */
+export function checkHumanGate(items = []) {
+  if (!Array.isArray(items)) {
+    return fail("invalid_request", "items must be an array (each item names a pending decision)");
+  }
+  const allowed = new Set(HUMAN_GATE_ITEMS.map((item) => item.key));
+  const unknown = items.filter((item) => !allowed.has(item));
+  if (unknown.length > 0) {
+    return fail(
+      "gate/item_unknown",
+      `待决事项须落在 34 §15.1 的四项内；未知项：${unknown.join("、")}`,
+      { allowed: [...allowed] },
+    );
+  }
+  const triggered = HUMAN_GATE_ITEMS.filter((item) => items.includes(item.key));
+  return {
+    ok: true,
+    requiresHuman: triggered.length > 0,
+    triggered: triggered.map((item) => item.key),
+    labels: triggered.map((item) => item.label),
+    // §11：涉及授权边界不得走快通道——触发 Gate 即不可快通道。
+    fastPathAllowed: triggered.length === 0,
+    // §15.2：批准不等于识别义务解除。恒为 true，调用方无法覆盖。
+    approvalDoesNotGrantIdentification: true,
+    approvalDoesNotGrantCompliance: true,
+  };
+}
+
 export { join };

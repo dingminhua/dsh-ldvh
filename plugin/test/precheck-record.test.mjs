@@ -54,6 +54,8 @@ import {
 	renderPrecheckRecord,
 	parseRecord,
 	detectRitualRecord,
+	HUMAN_GATE_ITEMS,
+	checkHumanGate,
 	roundTripRecord,
 	buildHandover,
 	summarizeApplications,
@@ -1437,4 +1439,57 @@ test("renderPrecheckRecord：实质内容不产生仪式提醒", () => {
 	const result = renderPrecheckRecord(COMPLETE_FIELDS);
 	assert.equal(result.ritualSuspected, false);
 	assert.equal(result.ritualNotice, null);
+});
+
+// ---------------------------------------------------------------------------
+// Human Gate 领域增量（34 §15.1 / §15.2）
+// ---------------------------------------------------------------------------
+
+test("HUMAN_GATE_ITEMS 恰为 34 §15.1 的四项", () => {
+	assert.equal(HUMAN_GATE_ITEMS.length, 4);
+	assert.deepEqual(
+		HUMAN_GATE_ITEMS.map((i) => i.key),
+		["sourceConflict", "sourceDefect", "scopeEscalation", "acceptIncomplete"],
+	);
+});
+
+test("checkHumanGate：空列表不需 Human", () => {
+	const result = checkHumanGate([]);
+	assert.equal(result.ok, true);
+	assert.equal(result.requiresHuman, false);
+	assert.equal(result.fastPathAllowed, true);
+});
+
+test("checkHumanGate：任一项触发即需 Human，且禁用快通道（§11 授权边界）", () => {
+	for (const item of HUMAN_GATE_ITEMS) {
+		const result = checkHumanGate([item.key]);
+		assert.equal(result.requiresHuman, true, `${item.key} 应触发 Gate`);
+		assert.equal(result.fastPathAllowed, false, `${item.key} 不得走快通道`);
+		assert.deepEqual(result.triggered, [item.key]);
+		assert.deepEqual(result.labels, [item.label]);
+	}
+});
+
+test("checkHumanGate：多项并发时逐条列出，不只报第一项", () => {
+	const result = checkHumanGate(["sourceConflict", "scopeEscalation"]);
+	assert.deepEqual(result.triggered, ["sourceConflict", "scopeEscalation"]);
+	assert.equal(result.labels.length, 2);
+});
+
+test("checkHumanGate：永不提供「已批准」出口（§15.2 批准不解除识别义务）", () => {
+	const result = checkHumanGate(["acceptIncomplete"]);
+	assert.equal(result.approved, undefined, "不得提供 approved 字段");
+	assert.equal(result.approvalDoesNotGrantIdentification, true);
+	assert.equal(result.approvalDoesNotGrantCompliance, true);
+});
+
+test("checkHumanGate：未知事项拒绝并列出允许集", () => {
+	const result = checkHumanGate(["我想继续"]);
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "gate/item_unknown");
+	assert.equal(result.allowed.length, 4);
+});
+
+test("checkHumanGate：非数组拒绝", () => {
+	assert.equal(checkHumanGate("sourceConflict").error.code, "invalid_request");
 });
