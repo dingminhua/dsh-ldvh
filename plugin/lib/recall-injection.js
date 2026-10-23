@@ -26,7 +26,7 @@
 //   注入行只列候选，定性由 AI 后续判断。
 // - 不无条件注入——`02 §9.2` 明确「新会话、压缩、委派或生命周期事件本身不自动
 //   证明事实消费必要」。故本模块设**进入条件**：只有从本回合用户消息里能提出
-//   有效的行动性 token 时才召回（见 `enterFactConsumption`）。
+//   命中 34 §6 进入信号（或判不出、按不确定处理）时才召回（见 `classifyEntry`）。
 // - 不重复注入不变的内容——digest 去重（与管辖判定行同机制）。
 // - 不静默截断——超预算如实写在注入行里（`05 §9.2`「超预算、分页、不可用和未
 //   展开范围必须据实返回 partial/unavailable」）。
@@ -44,22 +44,117 @@ const MIN_HITS = 1;
 export const RECALL_CHAR_BUDGET = 900;
 
 /**
- * 判断本回合是否进入事实消费（`02 §9.2` 的进入条件）。
+ * 改变状态的动作标记（`34 §6` 进入信号第 1 项：「即将执行会产生副作用或改变
+ * 状态的动作」）。
  *
- * `02 §9.2` 禁止「新会话/压缩/委派/生命周期事件本身」作为进入理由。本函数因此
- * **只看用户消息本身**：从里面提不出有效 token 就不进——那样召回必然空手，
- * 注入一行空候选既无用，也正是 `02 §9.2` 要防的「无条件全量注入」。
+ * 这是**判断辅助**而非规范清单：34 §6 给的是语义条件，不是词表。词表只能近似，
+ * 故本函数的产出必须允许「不确定」这一档（见 `classifyEntry`），不得把「没匹配上」
+ * 当作「不在范围内」——那正是 §6 不确定处理禁止的「按无约束处理」。
+ */
+const WRITE_ACTIONS = Object.freeze([
+  "改", "修改", "写入", "写", "新增", "增加", "加", "删除", "删", "移除", "重命名", "改名",
+  "创建", "建", "建立", "提交", "commit", "push", "合并", "merge", "回滚", "revert",
+  "安装", "卸载", "升级", "配置", "部署", "发布", "迁移", "更新", "修正", "重写", "重构",
+  "设置", "调整", "替换", "覆盖", "清空", "落盘", "保存", "生成", "起草", "实现", "修复",
+]);
+
+/**
+ * 纯读取与纯查询的动作标记（`34 §6` 排除条件：「纯读取与纯查询动作不进入本系统」）。
+ */
+const READ_ACTIONS = Object.freeze([
+  "看", "看看", "读", "读一下", "查", "查看", "查询", "列", "列出", "列一下", "找", "找出",
+  "搜", "搜索", "检索", "统计", "数一下", "有几", "多少", "是什么", "为什么", "有哪些",
+  "解释", "说明", "告诉我", "show", "list", "read", "find", "search", "grep", "cat",
+]);
+
+/**
+ * `34 §6` 进入判定的三态结果。
+ *
+ * **为什么必须是三态而不是布尔**：`34 §6`「不确定处理」明文——
+ * 「适用性无法判定时，**不得**按『无约束』处理……须将该项登记为未验证范围」。
+ * 一个 `boolean` 必然把「读不出动作性质」压成 `false`，那就是按无约束处理。
+ *
+ * - `enter`：命中 §6 进入信号（有改变状态的迹象），或无迹象但也不像纯读（不确定→按进入处理）
+ * - `exclude`：命中 §6 排除条件（纯读取/纯查询），明确不进
+ * - `uncertain`：读不出动作性质，且输入过短无法判断
+ */
+export const ENTRY_VERDICTS = Object.freeze(["enter", "exclude", "uncertain"]);
+
+/**
+ * 判定本回合是否进入（`34 §6` 进入信号 + 排除条件，不是 `02 §9.2`）。
+ *
+ * **这里判的是「时点」，不是「必要性」**——`02 §9.2` 判「值不值得查」（通用），
+ * `34 §6` 判「现在是不是该查的那个点」（本业务过程）。二者正交，不可互相替代：
+ * 本函数只回答后者。进入之后再由召回本身决定有没有东西可给。
+ *
+ * 判据优先级（依据 `34 §6` 的节内顺序）：
+ * 1. 先看**排除条件**：纯读取/纯查询 → `exclude`（§6 明文排除）。
+ * 2. 再看**进入信号**：有改变状态的迹象 → `enter`。
+ * 3. 两者都不命中 → `uncertain`，**按进入处理**（§6 不确定处理：不得按无约束）。
+ *
+ * @param {string} text 本回合用户消息文本
+ * @returns {"enter" | "exclude" | "uncertain"}
+ */
+export function classifyEntry(text) {
+  // 空输入不是「判不出来」，是「没有动作可言」——故排除，不归不确定。
+  if (typeof text !== "string") return "uncertain";
+  if (text.trim() === "") return "exclude";
+  const normalized = text.toLowerCase();
+
+  // **本函数的精度边界（必须如实声明，`00 §5.6`）**
+  //
+  // 34 §6 的进入信号是**语义条件**（「会产生副作用或改变状态的动作」），词表匹配
+  // 只能近似。实测它有两种确定的错误：
+  //   (a) 「看看这些 ADR 是怎么**写**的」——询问句，但含「写」字，被判为写动作；
+  //   (b) 「改这个文件好不好」——征询，不是执行。
+  //
+  // 因此本函数**不声称能精确判定动作性质**。它只做一件事：把**明显**的纯读取
+  // 排掉（「看看」「列出」「查一下」这类，这是误召回的主要来源），其余一律交给
+  // 保守方向——进入。
+  //
+  // 判据：**读与写字典同时命中时判 enter**（因为写迹象意味着可能改状态，而 §6
+  // 不确定处理禁止按无约束跳过）；**只命中读**才排除。这样 (a) 会被判 enter ——
+  // 即「多召回一次」，代价是多注入一行候选，而不是漏掉一次本该做的召回。
+  // 这个方向是刻意的：漏召回的代价高于多召回。
+  const isRead = READ_ACTIONS.some((word) => normalized.includes(word.toLowerCase()));
+  const isWrite = WRITE_ACTIONS.some((word) => normalized.includes(word.toLowerCase()));
+  if (isWrite) return "enter";
+  if (isRead) return "exclude";
+
+  // 既无读也无写迹象：可能是「这个怎么理解」这类纯对话，也可能是「把它弄好」这类
+  // 隐含动作。§6 不确定处理要求不得按无约束处理，故判 uncertain 并按进入处理。
+  // 但过短的输入（「好」「继续」）没有可召回的内容，强行召回只会刷噪声，
+  // 这种情形归 exclude —— 它不是「可能改状态」，而是「没有动作可言」。
+  const meaningful = text.replace(/[\s\p{P}\p{S}]/gu, "");
+  // 阈值 3：让「继续」「ok」「好的」这类**没有动作内容**的短句排除。
+  // 它们不是「判不出来要保守召回」，而是根本没有可召回的东西——强行为它们
+  // 召回，只会把注入行变成每回合的固定噪声，反而稀释真正需要召回时的信号。
+  if (meaningful.length < 3) return "exclude";
+  return "uncertain";
+}
+
+/**
+ * 判断本回合是否进入双源召回（`34 §6`）。
+ *
+ * `enter` 与 `uncertain` 都返回 `true`：§6 不确定处理禁止按无约束处理，
+ * 故「判不出来」时的安全方向是**召回**而不是跳过。
+ * 只有明确命中 §6 排除条件（纯读取/纯查询）才返回 `false`。
  *
  * @param {string} text 本回合用户消息文本
  * @returns {boolean}
  */
+export function shouldRecall(text) {
+  const verdict = classifyEntry(text);
+  return verdict === "enter" || verdict === "uncertain";
+}
+
+/**
+ * @deprecated 用 `shouldRecall` —— 「事实消费进入条件」是 `02 §9.2` 的概念，
+ * 本模块判的是 `34 §6` 的时点判据，两者不是一回事（见 `classifyEntry` 注释）。
+ * 保留此别名仅为兼容既有导入，行为已切到 `shouldRecall`。
+ */
 export function enterFactConsumption(text) {
-  if (typeof text !== "string") return false;
-  // 去掉空白与纯标点后还剩至少 4 个字符，才认为「有可召回的内容」。
-  // 短于这个长度的输入（"好"、"继续"、"ok"）不足以构成查询，强行召回只会
-  // 返回噪声，反而让注入行变成每回合的固定噪音。
-  const meaningful = text.replace(/[\s\p{P}\p{S}]/gu, "");
-  return meaningful.length >= 4;
+  return shouldRecall(text);
 }
 
 /**
@@ -144,8 +239,8 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes 
     return { inject: false, reason: "no-project" };
   }
   // 02 §9.2 进入条件：用户消息不足以构成查询时不进。
-  if (!enterFactConsumption(userText)) {
-    return { inject: false, reason: "no-fact-consumption" };
+  if (!shouldRecall(userText)) {
+    return { inject: false, reason: "excluded-by-34-6" };
   }
   let result;
   try {

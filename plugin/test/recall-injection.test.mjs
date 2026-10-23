@@ -11,35 +11,74 @@ import test from "node:test";
 import { join } from "node:path";
 
 import {
+	ENTRY_VERDICTS,
 	RECALL_CHAR_BUDGET,
 	RECALL_SUMMARY,
 	buildRecallInjection,
+	classifyEntry,
 	currentUserText,
-	enterFactConsumption,
 	renderRecallRow,
+	shouldRecall,
 } from "../lib/recall-injection.js";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 
 // ---------------------------------------------------------------------------
-// 02 §9.2 进入条件
+// 34 §6 进入判定（进入信号 + 排除条件 + 不确定处理）
 // ---------------------------------------------------------------------------
 
-test("enterFactConsumption：过短或纯标点的输入不进入（02 §9.2 防无条件注入）", () => {
-	for (const text of ["", "  ", "好", "继续", "ok", "？", "，。！"]) {
-		assert.equal(enterFactConsumption(text), false, `「${text}」不应进入事实消费`);
+test("34 §6 排除条件：纯读取与纯查询动作不进入本系统", () => {
+	// §6 逐字：「纯读取与纯查询动作不进入本系统」
+	for (const text of [
+		"看看这个文件里有什么",
+		"列一下所有 ADR 的标题",
+		"读一下 34 号规范",
+		"现在有几条 Pitfall",
+		"搜一下验证相关的经验",
+	]) {
+		assert.equal(classifyEntry(text), "exclude", `「${text}」是纯读取，应排除`);
+		assert.equal(shouldRecall(text), false, `「${text}」不应触发召回`);
 	}
 });
 
-test("enterFactConsumption：正常的行动描述进入", () => {
-	assert.equal(enterFactConsumption("修改受保护内容 guidance-text.js"), true);
-	assert.equal(enterFactConsumption("这个 ADR 该怎么写"), true);
+test("34 §6 进入信号第 1 项：会改变状态的动作进入", () => {
+	// §6 逐字：「即将执行会产生副作用或改变状态的动作」
+	for (const text of [
+		"把 guidance-text.js 加一行引导",
+		"删除这个 ADR",
+		"提交这批改动",
+		"新建一个 Pitfall",
+		"重写 34 号规范",
+	]) {
+		assert.equal(classifyEntry(text), "enter", `「${text}」会改状态，应进入`);
+		assert.equal(shouldRecall(text), true, `「${text}」应触发召回`);
+	}
 });
 
-test("enterFactConsumption：非字符串不进入", () => {
-	assert.equal(enterFactConsumption(null), false);
-	assert.equal(enterFactConsumption(undefined), false);
-	assert.equal(enterFactConsumption(42), false);
+test("34 §6 不确定处理：判不出动作性质时按进入处理，不得按无约束跳过", () => {
+	// §6 逐字：「适用性无法判定时，**不得**按「无约束」处理」
+	const verdict = classifyEntry("这个 ADR 该怎么理解");
+	assert.equal(verdict, "uncertain", "无明显读/写迹象应判不确定");
+	assert.equal(shouldRecall("这个 ADR 该怎么理解"), true, "不确定时必须召回，不得跳过");
+});
+
+test("34 §6：过短且无动作可言的输入排除（不是「可能改状态」，是没有动作）", () => {
+	for (const text of ["", "  ", "好", "继续", "ok", "？", "，。！", "嗯"]) {
+		assert.equal(shouldRecall(text), false, `「${text}」没有动作可言，不应召回`);
+	}
+});
+
+test("classifyEntry 只产出三态闭集 ENTRY_VERDICTS", () => {
+	assert.deepEqual([...ENTRY_VERDICTS], ["enter", "exclude", "uncertain"]);
+	for (const text of ["改文件", "看看", "理解一下", "好", ""]) {
+		assert.ok(ENTRY_VERDICTS.includes(classifyEntry(text)), `「${text}」产出了闭集外的值`);
+	}
+});
+
+test("34 §6：非字符串一律判不确定（不得当作「不在范围内」）", () => {
+	for (const value of [null, undefined, 42, {}, []]) {
+		assert.equal(classifyEntry(value), "uncertain");
+	}
 });
 
 // ---------------------------------------------------------------------------
@@ -143,10 +182,10 @@ test("buildRecallInjection：无项目路径不注入", async () => {
 	assert.equal(r.reason, "no-project");
 });
 
-test("buildRecallInjection：用户消息不足以构成查询时不注入（02 §9.2）", async () => {
-	const r = await buildRecallInjection({ userText: "好", projectRoot: ROOT });
+test("buildRecallInjection：命中 34 §6 排除条件时不注入", async () => {
+	const r = await buildRecallInjection({ userText: "看看这个文件", projectRoot: ROOT });
 	assert.equal(r.inject, false);
-	assert.equal(r.reason, "no-fact-consumption");
+	assert.equal(r.reason, "excluded-by-34-6");
 });
 
 test("buildRecallInjection：有命中时注入，且带回 digest 供去重", async () => {
@@ -194,4 +233,33 @@ test("RECALL_CHAR_BUDGET 是固定常量（不是动态计算）", () => {
 
 test("RECALL_SUMMARY 标出「双源召回」，Human 侧折叠可见", () => {
 	assert.match(RECALL_SUMMARY, /双源召回/);
+});
+
+test("34 §6：空串是「没有动作」故排除，非字符串才是「判不出来」故不确定", () => {
+	// 这两者必须分开：空串有明确含义（没有输入），非字符串是调用方的类型错误。
+	assert.equal(classifyEntry(""), "exclude", "空串应排除");
+	assert.equal(classifyEntry("   "), "exclude", "纯空白应排除");
+	assert.equal(classifyEntry(null), "uncertain", "非字符串是不确定，不是排除");
+	assert.equal(shouldRecall(""), false, "空串不触发召回");
+	assert.equal(shouldRecall(null), true, "不确定一律触发（§6 不得按无约束）");
+});
+
+test("34 §6：纯读取即使含领域词也排除（内容相关度不压过排除条件）", () => {
+	// 含领域词的纯读取仍应排除：排除条件不看内容相关度。
+	assert.equal(shouldRecall("列出所有 Pitfall 的标题"), false);
+	assert.equal(shouldRecall("看看这些 ADR 有哪些"), false);
+	assert.equal(shouldRecall("读一下 34 号规范的输入来源"), false);
+});
+
+test("已知精度边界：词表匹配会把「怎么写的」误判为写动作（如实登记，不假装没有）", () => {
+	// 34 §6 的进入信号是语义条件，词表只能近似。实测反例：
+	// 「看看这些 ADR 是怎么写的」是询问，但含「写」字 → 判 enter。
+	//
+	// 这是**刻意的取舍方向**：判成 enter 的代价是多注入一行候选；判成 exclude 的
+	// 代价是漏掉一次本该做的召回。后者更贵（§6 不确定处理：不得按无约束处理）。
+	// 故本测试登记该误判为「已知边界」，而非断言它不成立——规范原文不要求
+	// 实现对语义动作的精确分类，只要求不把「判不出」当作「不在范围内」。
+	assert.equal(classifyEntry("看看这些 ADR 是怎么写的"), "enter", "已知误判方向：偏保守");
+	// 反向保证：不含写动作字的纯读取确实被排除（这才是排除条件的主要作用）。
+	assert.equal(classifyEntry("看看这些 ADR 有哪些"), "exclude");
 });
