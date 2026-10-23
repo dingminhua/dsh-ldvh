@@ -187,6 +187,30 @@ function parseFrontmatter(text) {
  * **现读现解析**，不建持久索引（34 §17 第 1 项）。
  */
 /**
+ * 候选集合的确定性指纹（对排序后的路径做 FNV-1a 摘要）。
+ *
+ * **只覆盖「集合成员」，不覆盖内容**——它回答「还是不是同一批候选」，
+ * 不是「内容有没有变」。故 `02 §9.1` 的「指纹」在此如实限定为集合指纹，
+ * 不冒称内容指纹（内容级指纹由各载体的受控读取提供）。
+ */
+function fingerprintOf(candidates) {
+  const paths = candidates.map((candidate) => candidate.path).filter((p) => typeof p === "string").sort();
+  let hash = 0x811c9dc5;
+  const text = paths.join("\n");
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return {
+    kind: "candidate-set",
+    algorithm: "fnv1a-32 over sorted paths",
+    value: hash.toString(16).padStart(8, "0"),
+    memberCount: paths.length,
+    coversContent: false,
+  };
+}
+
+/**
  * 按 `01 §10.3` 的三级回退解析规范语料来源。
  *
  * > 规范语料来源按三级回退解析：受辖项目根 `specs/` → 插件开发布局的源仓库根
@@ -497,17 +521,21 @@ export async function recallForAction(input = {}) {
     .filter(Boolean)
     // 排序：先按层（命中越精确的字段越前），同层按命中词数降序、再按路径稳定排序。
     // 命中词数是计数不是权重——可解释（hitReason 列出命中词）、可复算、无学习参数。
-    .sort((a, b) => a.tier - b.tier || b.hits - a.hits || a.path.localeCompare(b.path))
-    .slice(0, limit);
+    .sort((a, b) => a.tier - b.tier || b.hits - a.hits || a.path.localeCompare(b.path));
   };
 
-  const specHits = collect(specs, (c) => ({
+  // `collect` 返回**截断前的全部命中**（已排序）；`limit` 在此处应用。
+  // 这样 `counts.specHits` 才是「命中总数」而非「返回数」——
+  // `02 §9.1` 要求「数量…必须可观察」，读者要看的正是**丢了多少**。
+  const allSpecHits = collect(specs, (c) => ({
     kind: "spec", ref: c.ref, title: c.title, path: c.path,
     positioning: c.positioning.slice(0, 160),
   }));
-  const factHits = collect(pool, (c) => ({
+  const allFactHits = collect(pool, (c) => ({
     kind: "fact", type: c.type, ref: c.ref, title: c.title, status: c.status, path: c.path,
   }));
+  const specHits = allSpecHits.slice(0, limit);
+  const factHits = allFactHits.slice(0, limit);
 
   // 预算：按返回内容的 UTF-8 字节数裁剪，超了如实标 truncated（fd133f0d A3）。
   //
@@ -533,7 +561,12 @@ export async function recallForAction(input = {}) {
   };
   const keptSpecs = keepWithFloor(specHits);
   const keptFacts = keepWithFloor(factHits);
-  const truncated = keptSpecs.length < specHits.length || keptFacts.length < factHits.length;
+  // 截断有两种来源：**limit**（结果条数上限）与**预算**（字节上限）。
+  // 原实现只比 `kept*` 与 `*Hits`，而 `*Hits` 已按 limit 截过，故 limit 造成
+  // 的丢弃被漏掉（实测 limit=2 时 12 份命中只给 2 份，却报 truncated=false）。
+  // 现与**截断前总数**比较，两种来源都能被观察。
+  const truncated =
+    keptSpecs.length < allSpecHits.length || keptFacts.length < allFactHits.length;
   // 保底后 used 可能超过 budgetBytes——如实报告超额，不掩盖。
   const overBudget = used > budgetBytes;
 
@@ -549,6 +582,42 @@ export async function recallForAction(input = {}) {
     provesApplicability: false,
     // 确定性召回会漏（换个说法就漏），如实声明，不假装完整。
     coverage: "deterministic-token-match; may miss rephrasings; not exhaustive",
+    // **`02 §9.1` 明文要求**：「分层结果的数量、排序、分页、截断、指纹和
+    // **未完成范围必须可观察**；超预算必须分页、继续缩小或返回 partial，
+    // 不得静默截断后声称完整」。故逐项给出：
+    //   数量 → counts；排序 → ranking；分页 → pagination；
+    //   截断 → truncated/overBudget；指纹 → fingerprint；
+    //   未完成范围 → unchecked（**具体是谁**，不只是一个布尔）。
+    partial: truncated,
+    counts: {
+      // 命中总数（**截断前**）与返回数（截断后）都给出，差额即被丢弃数。
+      specHits: allSpecHits.length,
+      factHits: allFactHits.length,
+      specsReturned: keptSpecs.length,
+      factsReturned: keptFacts.length,
+      candidatesScanned: specs.length + facts.length,
+    },
+    pagination: {
+      limit,
+      // 本实现不持有跨调用游标（按需重算），如实说明，不假装有游标。
+      hasCursor: false,
+      howToGetMore: "调大 limit 或缩小 action 描述范围后重新召回（本实现不持有跨调用游标）",
+    },
+    unchecked: {
+      specs: allSpecHits.slice(keptSpecs.length).map((spec) => ({ title: spec.title, path: spec.path })),
+      facts: allFactHits.slice(keptFacts.length).map((fact) => ({ title: fact.title, path: fact.path })),
+    },
+    // 排序依据如实声明（`02 §9` 红线：不得用相似度/embedding/关键词权重/AI 裁决相关性）。
+    ranking: {
+      keys: ["tier", "hits", "path"],
+      usesWeights: false,
+      usesSimilarity: false,
+      usesEmbedding: false,
+      usesAiJudgement: false,
+      truncationIsNotJudgement: true,
+      note: "tier 是字段位置（确定性），hits 是同层命中词个数（等权、可复算），path 仅为稳定输出；limit 截断只表示排得靠后，不表示不相关",
+    },
+    fingerprint: fingerprintOf([...specs, ...facts]),
     // **来源披露**（01 §10.3）：如实标注规范语料的实际应答方，不得把回退来源
     // 表述为项目自著语料。`tier` 为 null 表示三级都无可用语料。
     sourceView: {

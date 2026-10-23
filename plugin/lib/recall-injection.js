@@ -245,6 +245,21 @@ export function renderRecallRow(result) {
   if (specs.length === 0 && facts.length === 0) {
     lines.push("本次未命中候选。这不证明「无相关约束」——确定性匹配会漏（换个说法就漏），必要时请自行扩大检索。");
   }
+  // **`02 §9.1`**：截断/partial 必须可观察，且不得声称完整。
+  // 除既有「超出预算已裁剪」外，这里把**具体被丢弃的是谁**也说出来——
+  // 只说「有东西被裁掉」没用，读者要知道「没看到什么」。
+  const droppedTotal =
+    (result?.unchecked?.specs?.length ?? 0) + (result?.unchecked?.facts?.length ?? 0);
+  if (result?.partial === true && droppedTotal > 0 && result?.overBudget !== true) {
+    const names = [
+      ...(result.unchecked.specs ?? []).map((s) => `规范「${s.title}」`),
+      ...(result.unchecked.facts ?? []).map((f) => `事实「${f.title}」`),
+    ].slice(0, 3);
+    lines.push(
+      `（本次为 **partial**：另有 ${droppedTotal} 条候选未列出（${names.join("、")}${droppedTotal > 3 ? " 等" : ""}）。` +
+        `未列出只表示排得靠后，**不代表不相关**——需要时请调大 limit 或缩小动作范围。）`,
+    );
+  }
   if (result?.truncated === true) {
     if (result.overBudget === true) {
       // 保底一条导致超额：必须说清「预算极小、只给了保底项」，

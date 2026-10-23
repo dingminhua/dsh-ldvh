@@ -326,7 +326,9 @@ test("预算极小不得返回零结果（零结果会被读成「无相关约�
 test("预算充足时不标 overBudget", async () => {
 	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3, budgetBytes: 40000 });
 	assert.equal(r.overBudget, false);
-	assert.equal(r.truncated, false);
+	// 预算充足不等于**不截断**：limit=3 仍可能丢掉超出的命中（02 §9.1 要求可观察）。
+	// 故这里只断言「预算未超」，截断由 limit 决定、另有专门用例覆盖。
+	assert.equal(r.budget.usedBytes <= 40000, true);
 });
 
 test("受辖但无语料的项目不得抛 ENOENT（新建项目/语料未建立是正常状态）", async () => {
@@ -614,4 +616,67 @@ test("三级回退：渲染行须如实标注语料来自回退来源（不得�
 	} finally {
 		await rm(project, { recursive: true, force: true });
 	}
+});
+
+// ---------------------------------------------------------------------------
+// 02 §9.1：数量/排序/分页/截断/指纹/未完成范围必须可观察
+// ---------------------------------------------------------------------------
+
+test("02 §9.1：counts 须报**截断前总数**，而非返回数", async () => {
+	// 实测缺陷：collect 内先 slice 再统计，导致 specHits 恒等于返回数，
+	// 「丢了多少」无从看出（limit=1 时 specHits 恒为 1）。
+	const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 2 });
+	assert.ok(r.counts.specHits > r.counts.specsReturned, "命中总数应大于返回数");
+	assert.equal(r.counts.specsReturned, r.specs.length);
+	assert.equal(r.counts.factsReturned, r.facts.length);
+	assert.equal(r.counts.candidatesScanned, 337, "本轮扫描的候选总数");
+});
+
+test("02 §9.1：limit 造成的丢弃须标 partial/truncated（不只预算）", async () => {
+	const small = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 2 });
+	assert.equal(small.partial, true, "limit 截断时须报 partial");
+	assert.equal(small.truncated, true, "limit 截断时须报 truncated");
+
+	const big = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 99, budgetBytes: 999999 });
+	assert.equal(big.partial, false, "未截断时不得虚报 partial");
+	assert.equal(big.truncated, false);
+});
+
+test("02 §9.1：unchecked 须列出**具体被丢弃的候选**，不只是一个布尔", async () => {
+	const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 2 });
+	const dropped = r.unchecked.specs.length + r.unchecked.facts.length;
+	const kept = r.specs.length + r.facts.length;
+	assert.equal(kept + dropped, r.counts.specHits + r.counts.factHits, "保留数 + 丢弃数 = 命中总数");
+	assert.ok(dropped > 0, "limit=2 时必有丢弃");
+	for (const item of [...r.unchecked.specs, ...r.unchecked.facts]) {
+		assert.equal(typeof item.title, "string");
+		assert.equal(typeof item.path, "string");
+	}
+});
+
+test("02 §9：排序不得使用相似度/embedding/关键词权重/AI 判断（红线）", async () => {
+	const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 3 });
+	assert.equal(r.ranking.usesWeights, false, "02 §9 红线：不得使用关键词权重");
+	assert.equal(r.ranking.usesSimilarity, false);
+	assert.equal(r.ranking.usesEmbedding, false);
+	assert.equal(r.ranking.usesAiJudgement, false, "02 §9 红线：不得用 AI 输出自动裁决相关性");
+	// 排序键必须是可复核的确定性量。
+	assert.deepEqual(r.ranking.keys, ["tier", "hits", "path"]);
+	// 截断不等于判定不相关——须明确告知。
+	assert.equal(r.ranking.truncationIsNotJudgement, true);
+});
+
+test("02 §9.1：fingerprint 须为确定性集合指纹，且不得冒称内容指纹", async () => {
+	const a = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 3 });
+	const b = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 3 });
+	assert.equal(a.fingerprint.value, b.fingerprint.value, "同一候选集合的指纹须稳定");
+	assert.equal(a.fingerprint.kind, "candidate-set");
+	assert.equal(a.fingerprint.coversContent, false, "不得冒称内容指纹");
+	assert.equal(a.fingerprint.memberCount, a.counts.candidatesScanned);
+});
+
+test("02 §9.1：pagination 须如实说明无游标及如何取更多", async () => {
+	const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 2 });
+	assert.equal(r.pagination.hasCursor, false, "本实现不持有跨调用游标，须如实说明");
+	assert.match(r.pagination.howToGetMore, /limit|范围/, "须说明如何取得更多结果");
 });
