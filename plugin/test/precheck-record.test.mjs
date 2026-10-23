@@ -15,6 +15,10 @@ import { join } from "node:path";
 
 import {
 	APPLICATION_CRITERIA,
+	ENTRY_SIGNALS,
+	FAILURE_ROUTES,
+	checkEntry,
+	routeFailure,
 	FAST_PATH_REQUIREMENTS,
 	RISK_TIERS,
 	STAGE_MINIMUM_TIER,
@@ -858,4 +862,93 @@ test("checkFastPathDeclaration：不得声明免除三段判断（03 §6.2 第 3
 	});
 	assert.equal(result.ok, false);
 	assert.equal(result.error.code, "fastpath/waives_three_way");
+});
+
+// ---------------------------------------------------------------------------
+// 进入判定（34 §6）与失败分流 / 停止位置（34 §8）
+// ---------------------------------------------------------------------------
+
+test("ENTRY_SIGNALS 恰为 34 §6 列出的四种情形", () => {
+	assert.equal(ENTRY_SIGNALS.length, 4);
+	assert.ok(ENTRY_SIGNALS.some((s) => s.includes("副作用")));
+	assert.ok(ENTRY_SIGNALS.some((s) => s.includes("未验证范围")));
+});
+
+test("checkEntry：纯读取不进入本系统（§6 排除条件优先于进入信号）", () => {
+	for (const kind of ["纯读取", "纯查询"]) {
+		const result = checkEntry({ actionKind: kind, signals: ["即将执行会产生副作用或改变状态的动作"] });
+		assert.equal(result.ok, true);
+		assert.equal(result.entered, false, `${kind} 不应进入`);
+		assert.match(result.reason, /排除条件/);
+	}
+});
+
+test("checkEntry：命中任一进入信号即进入", () => {
+	const result = checkEntry({ signals: ["既有规则、事实、决定或授权发生变化"] });
+	assert.equal(result.entered, true);
+	assert.deepEqual(result.signals, ["既有规则、事实、决定或授权发生变化"]);
+});
+
+test("checkEntry：适用性不明时不得按「无约束」处理（§6 不确定处理）", () => {
+	const result = checkEntry({ signals: [], applicabilityUndetermined: true });
+	assert.equal(result.ok, true);
+	assert.equal(result.entered, null, "不得返回 entered:false 冒充「不适用」");
+	assert.equal(result.undetermined, true);
+	assert.equal(result.mustRegisterAsUnverified, true);
+	assert.equal(result.mustStop, true);
+	assert.match(result.reason, /不得按「无约束」处理/);
+});
+
+test("checkEntry：不明但确认不会改变行动是否被允许时可不停（仍须登记未验证范围）", () => {
+	const result = checkEntry({ applicabilityUndetermined: true, mayChangePermission: false });
+	assert.equal(result.mustStop, false);
+	assert.equal(result.mustRegisterAsUnverified, true);
+});
+
+test("checkEntry：未知进入信号拒绝并列出允许集", () => {
+	const result = checkEntry({ signals: ["我觉得要检查"] });
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "entry/signal_unknown");
+	assert.equal(result.allowed.length, 4);
+});
+
+test("checkEntry：无信号且未声明不明时给「未命中」而非「已排除」", () => {
+	const result = checkEntry({ signals: [] });
+	assert.equal(result.entered, false);
+	assert.match(result.reason, /不表示适用性已被否证/);
+});
+
+test("FAILURE_ROUTES 恰为 34 §8 的四条失败分流", () => {
+	assert.deepEqual(
+		[...FAILURE_ROUTES],
+		["识别失败", "三段判断不成立", "落实未发生", "偏离已发生"],
+	);
+});
+
+test("routeFailure：四条去向一律 mustStop（§8 停止位置：任一失败分流点都是停止位置）", () => {
+	for (const route of FAILURE_ROUTES) {
+		const result = routeFailure({ route });
+		assert.equal(result.ok, true);
+		assert.equal(result.mustStop, true, `${route} 必须停止`);
+		assert.equal(result.partialDeliveryForbidden, true, "不得以「其余部分已完成」部分交付");
+		assert.equal(result.mustCarryResidualToHandover, true, "残留范围须进入交还");
+	}
+});
+
+test("routeFailure：三条判断不成立的处置按性质分别说明", () => {
+	const result = routeFailure({ route: "三段判断不成立" });
+	assert.match(result.action, /生效不成立补来源/);
+	assert.match(result.action, /适用不成立缩小范围/);
+	assert.match(result.action, /行动允许不成立停止/);
+});
+
+test("routeFailure：识别失败不得以「已尽力检索」代替结论", () => {
+	const result = routeFailure({ route: "识别失败" });
+	assert.match(result.action, /不得以「已尽力检索」代替识别结论/);
+});
+
+test("routeFailure：未知去向拒绝", () => {
+	const result = routeFailure({ route: "再看看" });
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "failure/route_unknown");
 });

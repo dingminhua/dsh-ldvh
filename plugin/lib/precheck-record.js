@@ -793,4 +793,121 @@ export function checkFastPathDeclaration(declaration = {}) {
   return { ok: true, complete: true, tiers: [...RISK_TIERS], waivesThreeWay: false };
 }
 
+// ---------------------------------------------------------------------------
+// 进入判定与停止位置（34 §6 / §8 失败分流与停止位置）
+// ---------------------------------------------------------------------------
+
+/** 34 §6「进入信号」的四种情形（原文逐条）。 */
+export const ENTRY_SIGNALS = Object.freeze([
+  "即将执行会产生副作用或改变状态的动作",
+  "既有规则、事实、决定或授权发生变化",
+  "上一轮交还声明了未验证范围，而本次行动落在该范围之内",
+  "执行中发现实际影响超出事先假设的范围",
+]);
+
+/** 34 §6「排除条件」：纯读取与纯查询动作不进入本系统。 */
+export const EXCLUDED_ACTION_KINDS = Object.freeze(["纯读取", "纯查询"]);
+
+/**
+ * 判定一次行动是否进入本系统（34 §6）。
+ *
+ * §6 的三条要点，机械层可核的是**形态**：
+ *  1. 排除条件优先——「纯读取与纯查询动作不进入本系统」，即使命中某个进入信号；
+ *  2. 进入信号命中任一即进入（§6 原文「出现以下任一情形时」）；
+ *  3. **适用性不明不得按「无约束」处理**——§6「不确定处理」：须登记为未验证范围，
+ *     并判断是否升级；可能改变行动是否被允许时须停止。故本函数在三态之外多给一个
+ *     `undetermined`，并明确它**不是** `entered: false` 的同义词。
+ *
+ * **本函数不判断**行动是否真的会产生副作用、适用性是否真的不明——那是调用方的
+ * 语义判断（§14）。它只为那个判断提供不可跳过的三个出口。
+ */
+export function checkEntry(input = {}) {
+  const kind = input.actionKind;
+  const signals = Array.isArray(input.signals) ? input.signals : [];
+  const unknownSignals = signals.filter((signal) => !ENTRY_SIGNALS.includes(signal));
+  if (unknownSignals.length > 0) {
+    return fail(
+      "entry/signal_unknown",
+      `进入信号须为 34 §6 列出的四种之一；未知项：${unknownSignals.join("、")}`,
+      { allowed: [...ENTRY_SIGNALS] },
+    );
+  }
+  if (EXCLUDED_ACTION_KINDS.includes(kind)) {
+    // §6 排除条件：不进入本系统。注意这**不是**「可以不做识别」的意思，
+    // 而是该动作不产生需授权的变更；一旦真产生了副作用，就不属纯读取了。
+    return { ok: true, entered: false, undetermined: false, reason: `34 §6 排除条件：${kind}动作不进入本系统` };
+  }
+  if (input.applicabilityUndetermined === true) {
+    // §6 不确定处理：不得按「无约束」处理。
+    return {
+      ok: true,
+      entered: null,
+      undetermined: true,
+      mustRegisterAsUnverified: true,
+      reason: "34 §6 不确定处理：适用性无法判定时不得按「无约束」处理，须登记为未验证范围",
+      // §6 末句：可能改变行动是否被允许时须停止并交还。
+      mustStop: input.mayChangePermission !== false,
+    };
+  }
+  if (signals.length === 0) {
+    // 无进入信号、非排除动作、适用性未声明不明——这是「未命中」而非「已排除」。
+    return {
+      ok: true,
+      entered: false,
+      undetermined: false,
+      reason: "未命中 34 §6 的任一进入信号；注意这表示当次不进入，不表示适用性已被否证",
+    };
+  }
+  return { ok: true, entered: true, undetermined: false, signals, reason: null };
+}
+
+/** 34 §8「失败分流」的四条去向（原文逐条）。 */
+export const FAILURE_ROUTES = Object.freeze([
+  "识别失败",
+  "三段判断不成立",
+  "落实未发生",
+  "偏离已发生",
+]);
+
+/**
+ * 判定某个失败点的处置（34 §8 失败分流 + 停止位置）。
+ *
+ * §8 原文的对应关系：
+ *  - 识别失败 → 按 03 §6.3 升级并按 00 §5.7 暂停；
+ *  - 三段判断任一项不成立 → 按性质分流（生效补来源／适用缩小范围／允许停止）；
+ *  - 落实未发生 → 视为未落实，按 §8.3 判定后停止或重做；
+ *  - 偏离已发生 → 进入 §9 偏离处置。
+ *
+ * 以及「停止位置」段：「任一失败分流点都是停止位置：不在该点继续后续环节，也不以
+ * 『其余部分已完成』为由部分交付。停止位置的残留范围须如实进入交还。」
+ * → 故**四条去向一律 `mustStop: true`**，且**一律要求**残留范围进入交还。
+ */
+export function routeFailure(input = {}) {
+  const route = input.route;
+  if (!FAILURE_ROUTES.includes(route)) {
+    return fail(
+      "failure/route_unknown",
+      `失败去向须为 34 §8 列出的四条之一（${FAILURE_ROUTES.join(" / ")}）`,
+      { allowed: [...FAILURE_ROUTES] },
+    );
+  }
+  const actions = {
+    识别失败: "按 03 §6.3 升级并按 00 §5.7 暂停；不得以「已尽力检索」代替识别结论",
+    三段判断不成立: "按性质分流：生效不成立补来源／适用不成立缩小范围／行动允许不成立停止",
+    落实未发生: "视为未落实，不得以记录齐全替代；按 §8.3 判定后停止或重做",
+    偏离已发生: "进入 §9 偏离处置（形态须落在 §9.1 闭集内）",
+  };
+  return {
+    ok: true,
+    route,
+    action: actions[route],
+    // §8 停止位置：四条去向都是停止位置，无一例外。
+    mustStop: true,
+    // §8 停止位置：不得以「其余部分已完成」为由部分交付。
+    partialDeliveryForbidden: true,
+    // §8 停止位置：残留范围须如实进入交还。
+    mustCarryResidualToHandover: true,
+  };
+}
+
 export { join };
