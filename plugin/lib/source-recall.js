@@ -214,6 +214,28 @@ export const MATCH_TIERS = Object.freeze([
 ]);
 
 /**
+ * 计算某个候选集合内各 token 的**文档频率**（出现该 token 的候选数）。
+ *
+ * 用途：过滤「几乎出现在每一份候选里」的 token。实测（2026-10-24，27 份规范）：
+ * 规范 scope 字段中「定义」27/27 = 100%、「适用」26/27 = 96%、「用于」26/27 = 96%
+ * ——它们命中**任何**查询，是召回噪声的主要来源。
+ *
+ * **为什么是按源分算而不是全量算**：同一 token 在两个源里的区分度不同。
+ * 跨全量（337 条）看「规范」只占 27%，但在规范源内部它同时出现在近半数的
+ * scope 里。用全局阈值会把「在事实源里很有区分度」的词一并削弱，故按集合分算。
+ *
+ * **这不是权重、不是学习参数**：它只产生一个**布尔保留/丢弃**，不参与排序打分的
+ * 数值运算。阈值是固定常量，可复算（同一集合、同一公式）。
+ */
+export const HIGH_DF_RATIO = 0.6;
+
+/** 一个 token 在该集合中是否过于普遍（出现在 ≥ `HIGH_DF_RATIO` 比例的候选里）。 */
+function isTooCommon(token, docFreq, total) {
+  if (total < 4) return false; // 样本太小，比例不可靠，不丢任何词
+  return (docFreq.get(token) ?? 0) / total >= HIGH_DF_RATIO;
+}
+
+/**
  * 判定一个候选与动作的相关层。
  *
  * @param {string[]} actionTokens 动作描述的 token
@@ -309,9 +331,31 @@ export async function recallForAction(input = {}) {
     return statuses.includes(c.status);
   });
 
-  const collect = (list, mapper) => list
+  // 按源分算文档频率，过滤过于普遍的 token（见 `HIGH_DF_RATIO`）。
+  // 每个源各自一套 DF：规范源 27 份、事实源 310 条，区分度分布不同。
+  const docFreqOf = (list) => {
+    const df = new Map();
+    for (const c of list) {
+      const seen = new Set([
+        ...tokenize(c.scope ?? ""),
+        ...tokenize(c.detail ?? ""),
+        ...tokenize(c.title ?? ""),
+      ]);
+      for (const token of seen) df.set(token, (df.get(token) ?? 0) + 1);
+    }
+    return df;
+  };
+
+  const collect = (list, mapper) => {
+    const df = docFreqOf(list);
+    // 有效查询词 = 原 tokens 里**不过于普遍**的那些。若全被滤掉（例如查询只由
+    // 「规范」「定义」组成），退回原 tokens——宁可给噪声也不能给零结果，
+    // 因为零结果会被误读成「无相关约束」。
+    const effective = tokens.filter((token) => !isTooCommon(token, df, list.length));
+    const queryTokens = effective.length > 0 ? effective : tokens;
+    return list
     .map((c) => {
-      const m = matchCandidate(tokens, c);
+      const m = matchCandidate(queryTokens, c);
       // `hits` 必须显式带出：mapper 的返回里没有它，之前漏掉导致排序键是
       // `undefined - undefined = NaN`，同层排序退化成只按路径字典序，
       // 使命中词更多的条目反而排在后面（实测：34 号 hits=2 被 01 号 hits=1 挤掉）。
@@ -322,6 +366,7 @@ export async function recallForAction(input = {}) {
     // 命中词数是计数不是权重——可解释（hitReason 列出命中词）、可复算、无学习参数。
     .sort((a, b) => a.tier - b.tier || b.hits - a.hits || a.path.localeCompare(b.path))
     .slice(0, limit);
+  };
 
   const specHits = collect(specs, (c) => ({
     kind: "spec", ref: c.ref, title: c.title, path: c.path,

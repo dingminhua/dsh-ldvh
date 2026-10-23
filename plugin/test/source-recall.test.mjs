@@ -12,6 +12,7 @@ import test from "node:test";
 import { join } from "node:path";
 
 import {
+	HIGH_DF_RATIO,
 	MATCH_TIERS,
 	loadFacts,
 	loadSpecs,
@@ -237,4 +238,34 @@ test("同层排序：命中词多的必须排在命中词少的前面（曾因 h
 	for (let i = 1; i < sameTier.length; i += 1) {
 		assert.ok(sameTier[i - 1].hits >= sameTier[i].hits, "同层 hits 须非递增");
 	}
+});
+
+test("高文档频率过滤：普遍词不再把大半规范拉进来", async () => {
+	// 实测缺陷：「规范」出现在 19/27 份规范的 scope 里（70%），命中任何查询；
+	// 「定义」27/27（100%）。它们制造假相关。查询「34 号规范改名」时，
+	// 01/02/03 等只靠「规范」命中——那是假相关，不是适用。
+	const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 10, budgetBytes: 20000 });
+	assert.ok(r.specs.length > 0, "应至少命中 34 号");
+	// 34 号靠编号命中，必须排第一。
+	assert.match(r.specs[0].hitReason, /规范编号命中：34/);
+	// 不得因「规范」这个普遍词把 10 份规范都拉进来。
+	assert.ok(r.specs.length <= 3, `普遍词未过滤干净，实际 ${r.specs.length} 份`);
+});
+
+test("高文档频率过滤：过滤后仍能命中真正相关的（不得因过滤而清空）", async () => {
+	// 「web」在规范源里 14/27 (52%) 未过阈值，故 Web 类查询仍应命中规范。
+	const r = await recallForAction({ action: "给 Web 页面加一个新面板", root: ROOT, limit: 5, budgetBytes: 20000 });
+	assert.ok(r.specs.length > 0, "Web 查询应仍能命中规范");
+	assert.ok(r.facts.some((f) => f.title.includes("白屏")), "应命中 SPA 白屏教训");
+});
+
+test("高文档频率过滤：全部查询词都过于普遍时退回原词，不得给零结果", async () => {
+	// 「规范」「定义」都极普遍。若全被滤掉仍须退回，否则零结果会被读成「无相关约束」。
+	const r = await recallForAction({ action: "规范定义适用", root: ROOT, limit: 5, budgetBytes: 20000 });
+	assert.equal(r.ok, true);
+	assert.ok(r.specs.length + r.facts.length > 0, "不得因过滤过狠而返回空");
+});
+
+test("HIGH_DF_RATIO 是固定常量，样本过小时不丢词", () => {
+	assert.equal(HIGH_DF_RATIO, 0.6);
 });
