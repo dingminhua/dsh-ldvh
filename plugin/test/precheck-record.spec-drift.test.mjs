@@ -43,6 +43,7 @@ import {
 	RISK_TIERS,
 	STAGE_MINIMUM_TIER,
 	STOP_CONDITIONS,
+	STOP_RULES,
 	THREE_WAY_ITEMS,
 	APPLICATION_CRITERIA,
 	GAP_FIELDS,
@@ -241,4 +242,16 @@ test("34 §6 退出条件与停止情形：代码常量须逐字来自原文", a
 	assertVerbatim(spec, "34 号", "停止情形", STOP_CONDITIONS.map((c) => c.label));
 	assert.ok(spec.includes("三段判断完成并生成预检落实记录后退出"));
 	assert.ok(spec.includes("不得以「上次已确认」代替本次判断"));
+});
+
+test("34 §16.1 六条必停：每条的依据须逐字可回指原文", async () => {
+	const spec = await readSpec("34-规则遵守系统规范.md");
+	const section = spec.slice(spec.indexOf("### 16.1"));
+	const stopSection = section.slice(0, section.indexOf("### 16.2"));
+	assert.equal(STOP_RULES.length, 6, "§16.1 恰六条");
+	for (const rule of STOP_RULES) {
+		// 每条的依据片段须在 §16.1 原文中存在（防漂移）。
+		const anchor = rule.specRef.match(/第 (\d) 项/)[1];
+		assert.ok(stopSection.includes(`${anchor}.`), `§16.1 第 ${anchor} 项须在原文中`);
+	}
 });

@@ -27,6 +27,8 @@ import {
 	checkGapRegistration,
 	FAILURE_ROUTES,
 	checkEntry,
+	checkStopConditions,
+	STOP_RULES,
 	checkExit,
 	checkReuseBasis,
 	STOP_CONDITIONS,
@@ -1746,4 +1748,60 @@ test("checkReuseBasis：跨会话一律不得复用（§6 不延续到后续行�
 test("checkReuseBasis：sessionId 或 recordSessionId 缺失即拒绝", () => {
 	assert.equal(checkReuseBasis({ sessionId: "s1" }).error.code, "invalid_request");
 	assert.equal(checkReuseBasis({ recordSessionId: "s1" }).error.code, "invalid_request");
+});
+
+// ---------------------------------------------------------------------------
+// 必停情形统一入口（34 §16.1 六条）
+// ---------------------------------------------------------------------------
+
+test("STOP_RULES 恰为 34 §16.1 的六条", () => {
+	assert.equal(STOP_RULES.length, 6);
+	assert.deepEqual(STOP_RULES.map((r) => r.index), [1, 2, 3, 4, 5, 6]);
+	for (const rule of STOP_RULES) assert.match(rule.specRef, /34 §16\.1 第 \d 项/);
+});
+
+test("checkStopConditions：无触发时不需暂停", () => {
+	const result = checkStopConditions({});
+	assert.equal(result.ok, true);
+	assert.equal(result.mustSuspend, false);
+	assert.deepEqual(result.triggered, []);
+	assert.equal(result.minimumScopeOnly, true);
+	assert.equal(result.provesOnlySuspension, true);
+});
+
+test("checkStopConditions：六条逐个触发时均须暂停并标出条号与依据", () => {
+	for (const rule of STOP_RULES) {
+		const result = checkStopConditions({ [rule.key]: true });
+		assert.equal(result.mustSuspend, true, `第 ${rule.index} 项应触发暂停`);
+		assert.deepEqual(result.triggered, [rule.index]);
+		assert.equal(result.details[0].specRef, rule.specRef);
+	}
+});
+
+test("checkStopConditions：多条并存时逐条列出，不只报第一条", () => {
+	const result = checkStopConditions({
+		applicabilityUndetermined: true,
+		subsequentActionBuildsOnDeviation: true,
+		choseOneAndExecuted: true,
+	});
+	assert.deepEqual(result.triggered, [1, 3, 4]);
+	assert.equal(result.details.length, 3);
+});
+
+test("checkStopConditions：恒不提供扩大暂停范围的出口（§16.1 最小范围）", () => {
+	const result = checkStopConditions({ applicabilityUndetermined: true });
+	assert.equal(result.minimumScopeOnly, true, "§16.1 明文「暂停最小受影响范围」");
+	assert.equal(result.expandScope, undefined, "不得提供扩大范围的字段");
+});
+
+test("checkStopConditions：恒只报告触发，不替调用方判是否应当暂停", () => {
+	const result = checkStopConditions({ claimsComplianceWithoutChange: true });
+	assert.equal(result.provesOnlySuspension, true);
+	assert.equal(result.shouldSuspend, undefined, "不得替调用方判价值");
+});
+
+test("checkStopConditions：非布尔值不计为触发（避免 truthy 误判）", () => {
+	const result = checkStopConditions({ applicabilityUndetermined: "yes", claimsComplianceWithoutChange: 1 });
+	assert.equal(result.mustSuspend, false);
+	assert.deepEqual(result.triggered, []);
 });

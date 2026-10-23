@@ -1903,4 +1903,69 @@ export function checkReuseBasis(input = {}) {
   return { ok: true, reusable: true, failed: [], lazyClaim: null, basis };
 }
 
+// ---------------------------------------------------------------------------
+// 必停情形统一入口（34 §16.1 六条 + 00 §5.7 暂停范围）
+// ---------------------------------------------------------------------------
+
+/**
+ * 34 §16.1 的六条领域触发（原文逐条）。
+ *
+ * §16.1 原文：「出现以下任一情况时，按 00 §5.7 **暂停最小受影响范围**」。
+ *
+ * ## 为什么需要这个统一入口
+ *
+ * 这六条分散在 §6、§8.3、§9.2、§9.1、§9.3、§11 各处，各处的判据函数
+ * （`checkEntry` / `evaluateApplication` / `evaluateDeviation` / `routeConflict` /
+ * `checkRetroactiveCoverage` / `checkTransverseMerge`）**分别成立**。
+ * 但「必须暂停」这件事本身是 §16.1 的统一要求——调用方若要自查「我该不该停」，
+ * 不应被要求跑六个函数再自己合并结论。故本函数提供单一入口。
+ *
+ * ## 每条映射到哪个判据函数
+ *
+ * | §16.1 条 | 承载 | 本函数取哪个信号 |
+ * |---|---|---|
+ * | 1 适用性不确定且可能改变允许 | `checkEntry` | `undetermined` + `mayChangePermission` |
+ * | 2 未改变行动却以「已遵守」继续 | `evaluateApplication` | 第②项出现合并措辞 |
+ * | 3 偏离已登记但后续仍建立其上 | `evaluateDeviation` + 本节 | `subsequentActionBuildsOnDeviation` |
+ * | 4 来源冲突已择一执行未交还 | `routeConflict` + 本节 | `choseOneAndExecuted` |
+ * | 5 补做识别覆盖缺口事实 | `checkRetroactiveCoverage` | `backfilledAt > actionAt` 且未声明保留 |
+ * | 6 横切预检互相免除 | `checkTransverseMerge` | 两套缺任一 |
+ *
+ * ## 本函数不判断什么
+ *
+ * 不判断**是否应当暂停**的语义价值（那是 Human 或主控的判断），只报告
+ * 「哪几条已被触发」。`minimumScopeOnly` 恒为 true——§16.1 明文「暂停最小受影响
+ * 范围」，本函数不提供扩大范围的出口。
+ */
+export const STOP_RULES = Object.freeze([
+  { index: 1, key: "applicabilityUndetermined", specRef: "34 §16.1 第 1 项（§6）" },
+  { index: 2, key: "claimsComplianceWithoutChange", specRef: "34 §16.1 第 2 项（§8.3）" },
+  { index: 3, key: "subsequentActionBuildsOnDeviation", specRef: "34 §16.1 第 3 项（§9.2）" },
+  { index: 4, key: "choseOneAndExecuted", specRef: "34 §16.1 第 4 项（§9.1）" },
+  { index: 5, key: "backfillCoversGap", specRef: "34 §16.1 第 5 项（§9.3）" },
+  { index: 6, key: "transverseMutualExemption", specRef: "34 §16.1 第 6 项（§11）" },
+]);
+
+/**
+ * 按 34 §16.1 判定哪些必停情形被触发。
+ *
+ * @param {object} input 每个字段对应 `STOP_RULES` 的一个 `key`；true 即该条被触发。
+ *
+ * 返回 `triggered`（触发的条号）与 `mustSuspend`。恒不提供扩大暂停范围的出口。
+ */
+export function checkStopConditions(input = {}) {
+  const triggered = STOP_RULES.filter((rule) => input[rule.key] === true);
+  return {
+    ok: true,
+    mustSuspend: triggered.length > 0,
+    triggered: triggered.map((rule) => rule.index),
+    details: triggered.map((rule) => ({ index: rule.index, specRef: rule.specRef })),
+    all: STOP_RULES.map((rule) => ({ index: rule.index, specRef: rule.specRef })),
+    // §16.1：暂停最小受影响范围——本函数不提供扩大范围的出口。
+    minimumScopeOnly: true,
+    // §16.1 只规定「暂停」，不规定「如何判」；本函数不取代语义判断。
+    provesOnlySuspension: true,
+  };
+}
+
 export { join };
