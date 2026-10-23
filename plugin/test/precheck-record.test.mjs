@@ -14,10 +14,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+	APPLICATION_CRITERIA,
 	CONDITIONAL_SECTIONS,
 	DEVIATION_FIELDS,
 	DEVIATION_FORMS,
 	checkRetroactiveCoverage,
+	evaluateApplication,
 	evaluateDeviation,
 	FINDING_STATES,
 	RECALLED_LABEL,
@@ -31,6 +33,7 @@ import {
 	recordFingerprint,
 	renderPrecheckRecord,
 	buildHandover,
+	summarizeApplications,
 	carrierStatus,
 } from "../lib/precheck-record.js";
 
@@ -628,4 +631,129 @@ test("本模块不导出任何写盘入口（§17 第 3 项：不得建专属存
 	for (const forbidden of ["writeRecord", "readRecord", "recordPath", "STORE_DIR"]) {
 		assert.equal(module[forbidden], undefined, `${forbidden} 不应存在——那属于已禁的专属存储`);
 	}
+});
+
+// ---------------------------------------------------------------------------
+// 约束落实三判据（34 §8.3，本系统核心判据）
+// ---------------------------------------------------------------------------
+
+const SETTLED_FINDING = {
+	statement: "34 §17 第 3 项禁专属存储",
+	hasTarget: "范围：本模块不写盘",
+	hasChange: "从「写 ldvh/precheck-records/」改为「交还正文承载」",
+	hasTraceableBasis: "34 §17 第 3 项 + §10「不要求写入事实源」",
+};
+
+test("APPLICATION_CRITERIA 恰为 34 §8.3 的三项", () => {
+	assert.deepEqual(
+		APPLICATION_CRITERIA.map((c) => c.label),
+		["有指向", "有改变", "有可回指依据"],
+	);
+});
+
+test("evaluateApplication：三项齐备判为落实", () => {
+	const result = evaluateApplication(SETTLED_FINDING);
+	assert.equal(result.ok, true);
+	assert.equal(result.state, "落实");
+	assert.deepEqual(result.unresolvedCriteria, []);
+	assert.equal(result.claimsCompliance, false, "仍不得给出合并式「已遵守」");
+});
+
+test("evaluateApplication：缺任一项即按「已识别未落实」处理（不因其余齐备而改判）", () => {
+	for (const criterion of APPLICATION_CRITERIA) {
+		const partial = { ...SETTLED_FINDING };
+		delete partial[criterion.key];
+		const result = evaluateApplication(partial);
+		assert.equal(result.ok, true);
+		assert.equal(result.state, "已识别未落实", `缺 ${criterion.label} 应判未落实`);
+		assert.deepEqual(result.unresolvedCriteria, [criterion.label]);
+		assert.match(result.reason, /§8\.3/);
+	}
+});
+
+test("evaluateApplication：三项全缺时逐项列出，不只报第一个", () => {
+	const result = evaluateApplication({ statement: "某约束" });
+	assert.equal(result.state, "已识别未落实");
+	assert.deepEqual(result.unresolvedCriteria, ["有指向", "有改变", "有可回指依据"]);
+});
+
+test("evaluateApplication：第②项写「已遵守」类措辞即拒绝（§8.3 末段）", () => {
+	for (const term of ["已遵守", "已检查", "已确认", "没问题", "符合要求"]) {
+		const result = evaluateApplication({ ...SETTLED_FINDING, hasChange: `该约束${term}` });
+		assert.equal(result.ok, false, `${term} 不应被当作「有改变」`);
+		assert.equal(result.error.code, "application/merged_compliance_claim");
+	}
+});
+
+test("evaluateApplication：合法的「按设计不改变」须给理由，否则拒绝", () => {
+	const result = evaluateApplication({
+		...SETTLED_FINDING,
+		hasChange: undefined,
+		actionUnchangedByDesign: true,
+	});
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "application/no_change_rationale_missing");
+});
+
+test("evaluateApplication：按设计不改变且给足理由时判为落实，但标记 unchangedByDesign", () => {
+	const result = evaluateApplication({
+		statement: "纯读取动作不进入本系统（34 §6 排除条件）",
+		hasTarget: "是否继续：不进入本系统",
+		actionUnchangedByDesign: true,
+		noChangeRationale: "§6 排除条件明文排除纯读取；该约束不要求改变本次读取",
+		hasTraceableBasis: "34 §6 排除条件",
+	});
+	assert.equal(result.ok, true);
+	assert.equal(result.state, "落实");
+	assert.equal(result.unchangedByDesign, true);
+	assert.equal(result.claimsCompliance, false);
+});
+
+test("evaluateApplication：按设计不改变时仍须有指向与依据（缺则未落实）", () => {
+	const result = evaluateApplication({
+		statement: "某约束",
+		actionUnchangedByDesign: true,
+		noChangeRationale: "理由",
+	});
+	assert.equal(result.state, "已识别未落实");
+	assert.deepEqual(result.unresolvedCriteria, ["有指向", "有可回指依据"]);
+});
+
+test("evaluateApplication：缺 statement 即拒绝", () => {
+	for (const bad of [undefined, "", "   ", null]) {
+		const result = evaluateApplication({ statement: bad });
+		assert.equal(result.ok, false);
+		assert.equal(result.error.code, "invalid_request");
+	}
+});
+
+test("summarizeApplications：两类结论分列，永不合并（34 §12）", () => {
+	const result = summarizeApplications([
+		SETTLED_FINDING,
+		{ statement: "只识别未改行动", hasTarget: "范围", hasTraceableBasis: "依据" },
+		{ statement: "另一条落实", hasTarget: "路径", hasChange: "换路径", hasTraceableBasis: "依据" },
+	]);
+	assert.equal(result.ok, true);
+	assert.equal(result.落实.length, 2);
+	assert.equal(result.已识别未落实.length, 1);
+	assert.equal(result.claimsCompliance, false);
+	assert.equal(result.mergedConclusionForbidden, true);
+});
+
+test("summarizeApplications：空数组合法，仍不给合并结论", () => {
+	const result = summarizeApplications([]);
+	assert.equal(result.ok, true);
+	assert.deepEqual(result.落实, []);
+	assert.deepEqual(result.已识别未落实, []);
+	assert.equal(result.claimsCompliance, false);
+});
+
+test("summarizeApplications：任一条非法即整体拒绝，不返回部分结论", () => {
+	const result = summarizeApplications([SETTLED_FINDING, { statement: "x", hasChange: "已遵守" }]);
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "application/merged_compliance_claim");
+});
+
+test("summarizeApplications：非数组拒绝", () => {
+	assert.equal(summarizeApplications("已遵守").error.code, "invalid_request");
 });

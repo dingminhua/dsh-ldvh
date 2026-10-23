@@ -249,6 +249,128 @@ export function carrierStatus() {
  */
 export const FINDING_STATES = Object.freeze(["落实", "已识别未落实", "未识别"]);
 
+/**
+ * 约束落实的三项判据（34 §8.3，本系统核心判据）。
+ *
+ * §8.3 原文：「一项识别结果构成『已落实』，须同时满足：1. 有指向……2. 有改变
+ * ……3. 有可回指依据……」。
+ *
+ * **本模块能机械做的只有一件事**：检查调用方是否**逐项给出了**这三项，以及是否
+ * 出现了 §8.3 明禁的两种写法。它**不能**判断「有改变」是否真的成立——那要看
+ * 「该要素与未识别到该项时不同」，是一个反事实比较，只有调用方掌握两侧。
+ *
+ * §8.3 末段还给了两种合法/非法写法，机械层可抓：
+ * - **合法**：「确认约束后决定不需要改变行动」——但**须**作为三段判断中
+ *   「行动允许」的显式结论，并说明为何该约束不要求改变；
+ * - **非法**：以省略该项、或写「已遵守」来隐含该结论。
+ */
+export const APPLICATION_CRITERIA = Object.freeze([
+  { key: "hasTarget", label: "有指向", question: "对应到当次行动的哪个具体要素（范围／路径／前置条件／是否继续／是否提请）" },
+  { key: "hasChange", label: "有改变", question: "该要素与「未识别到该项时」有何不同（须可被指出，不是「确认无需改变」）" },
+  { key: "hasTraceableBasis", label: "有可回指依据", question: "改变的理由如何回到该识别结果本身（不是事后归因）" },
+]);
+
+/** §8.3 明禁的合并写法：这些词一律不得充当「已落实」的结论。 */
+const MERGED_COMPLIANCE_TERMS = Object.freeze(["已遵守", "已检查", "已确认", "没问题", "符合要求"]);
+
+/**
+ * 判定一条识别结果是否构成「已落实」（34 §8.3）。
+ *
+ * @param {object} finding
+ * @param {string} finding.statement         被识别到的约束（一句话）
+ * @param {string} [finding.hasTarget]       ①有指向的答案
+ * @param {string} [finding.hasChange]       ②有改变的答案
+ * @param {string} [finding.hasTraceableBasis]③有可回指依据的答案
+ * @param {boolean} [finding.actionUnchangedByDesign]
+ *        为 true 表示「确认约束后决定不需要改变行动」。§8.3 允许它，但**要求**
+ *        它作为「行动允许」的显式结论并说明理由——故须同时给 `noChangeRationale`。
+ * @param {string} [finding.noChangeRationale] 不改变行动的理由
+ *
+ * 返回 `state`：
+ * - `落实`——三项齐备（或合法的「按设计不改变」）；
+ * - `已识别未落实`——§8.3「三项中任一不成立」时的处置。
+ */
+export function evaluateApplication(finding = {}) {
+  if (!isNonEmptyString(finding.statement)) {
+    return fail("invalid_request", "each finding needs a statement (the constraint that was identified)");
+  }
+  const merged = MERGED_COMPLIANCE_TERMS.find((term) => String(finding.hasChange ?? "").includes(term));
+  if (merged !== undefined) {
+    // §8.3 末段：不得以写「已遵守」来隐含「确认无需改变」这一结论。
+    return fail(
+      "application/merged_compliance_claim",
+      `第②项写成了「${merged}」：§8.3 禁止以「已遵守」类措辞代替可指出的改变；若确属「确认无需改变」，须走 actionUnchangedByDesign + noChangeRationale 显式形态`,
+    );
+  }
+
+  const byDesign = finding.actionUnchangedByDesign === true;
+  if (byDesign && !isNonEmptyString(finding.noChangeRationale)) {
+    return fail(
+      "application/no_change_rationale_missing",
+      "声明「确认约束后决定不需要改变行动」时须说明为何该约束不要求改变（§8.3 末段），不得只写结论",
+    );
+  }
+
+  const missing = APPLICATION_CRITERIA
+    .filter((criterion) => !isNonEmptyString(finding[criterion.key]))
+    .map((criterion) => criterion.label);
+
+  // 合法的「按设计不改变」：第②项本就不适用（无改变是结论而非缺口），
+  // 但①③仍须齐备——否则连「识别到了什么、依据在哪」都无从回指。
+  const unresolved = byDesign
+    ? missing.filter((label) => label !== "有改变")
+    : missing;
+
+  if (unresolved.length > 0) {
+    return {
+      ok: true,
+      statement: finding.statement,
+      state: "已识别未落实",
+      unresolvedCriteria: unresolved,
+      // §8.3：三项之任一不成立即未落实——不因其余两项齐备而改判。
+      reason: `缺 ${unresolved.join("、")}；按 §8.3「三项中任一不成立」处理为已识别未落实`,
+      claimsCompliance: false,
+    };
+  }
+
+  return {
+    ok: true,
+    statement: finding.statement,
+    state: "落实",
+    unresolvedCriteria: [],
+    unchangedByDesign: byDesign,
+    claimsCompliance: false,
+  };
+}
+
+/**
+ * 批量判定，直接产出 34 §12 交还所需的两类区分。
+ *
+ * 与 `evaluateApplication` 的分工：后者判单条，本函数汇总并给出 §12 要求的分组
+ * （「已落实」与「已识别未落实」**分列**，绝不合并成一句「已遵守」）。
+ */
+export function summarizeApplications(findings = []) {
+  if (!Array.isArray(findings)) {
+    return fail("invalid_request", "findings must be an array");
+  }
+  const settled = [];
+  const unsettled = [];
+  for (const finding of findings) {
+    const verdict = evaluateApplication(finding);
+    if (verdict.ok !== true) return verdict;
+    (verdict.state === "落实" ? settled : unsettled).push(verdict);
+  }
+  return {
+    ok: true,
+    // §12：两类结论分列，位置固定。
+    落实: settled,
+    已识别未落实: unsettled,
+    // §12 的禁区：不得给出合并式结论。
+    claimsCompliance: false,
+    mergedConclusionForbidden: true,
+  };
+}
+
 export function checkFindingStates(findings) {
   if (!Array.isArray(findings)) {
     return fail("invalid_request", "findings must be an array");
