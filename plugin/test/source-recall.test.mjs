@@ -371,3 +371,36 @@ test("受辖但无语料：注入层报 no-hits 而非报错", async () => {
 		await rm(project, { recursive: true, force: true });
 	}
 });
+
+test("实义动词单字兜底：短指令不得切空（改一下/删了/加个）", () => {
+	// 实测缺陷：「含虚字的二元组一律丢弃」这条过滤，把「改一下」里的「一下」
+	// 丢掉后，剩下的「改」是单字又不进 token，整句切空 → 召回 no_tokens。
+	// 实测 15 个常用动词短语里 11 个切空，而它们是真实使用中最常见的说法。
+	const cases = [
+		["改一下", "改"], ["删了", "删"], ["加个", "加"], ["建个", "建"],
+		["修一下", "修"], ["把这个改了", "改"],
+	];
+	for (const [phrase, want] of cases) {
+		const tokens = tokenize(phrase);
+		assert.ok(tokens.includes(want), `「${phrase}」应切出「${want}」，实际：${JSON.stringify(tokens)}`);
+	}
+});
+
+test("实义动词单字兜底：宽泛字仍不收，避免请回噪声", () => {
+	// 「弄/搞/调/换」语义太宽，收进来会把噪声请回来——故刻意不收。
+	for (const phrase of ["弄一下", "调一下", "换个"]) {
+		assert.deepEqual(tokenize(phrase), [], `「${phrase}」不应切出 token（宽泛字刻意不收）`);
+	}
+});
+
+test("实义动词单字兜底：短指令能真实召回且质量不退化", async () => {
+	const { buildRecallInjection } = await import("../lib/recall-injection.js");
+	for (const q of ["改一下", "把这个改了", "删了它"]) {
+		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
+		assert.equal(r.inject, true, `「${q}」应能召回（此前报 recall/no_tokens）`);
+	}
+	// 原有质量不得退化：编号点名仍以 tier 0 居首。
+	const r2 = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 3, budgetBytes: 2400 });
+	assert.equal(r2.specs[0].tier, 0);
+	assert.match(r2.specs[0].hitReason, /规范编号命中：34/);
+});
