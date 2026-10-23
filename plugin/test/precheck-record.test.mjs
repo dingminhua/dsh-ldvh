@@ -52,6 +52,8 @@ import {
 	fingerprintCarriers,
 	recordFingerprint,
 	renderPrecheckRecord,
+	parseRecord,
+	roundTripRecord,
 	buildHandover,
 	summarizeApplications,
 	carrierStatus,
@@ -1284,4 +1286,83 @@ test("recalled：标准路径下未逐级标明不产生快通道警告（该警
 		recalled: { adr: "未触发" },
 	});
 	assert.deepEqual(result.fastPathWarnings, []);
+});
+
+// ---------------------------------------------------------------------------
+// 回读（34 §10「生成后须可回读」）
+// ---------------------------------------------------------------------------
+
+test("parseRecord：把完整记录解析回结构化字段", () => {
+	const { text } = renderPrecheckRecord(COMPLETE_FIELDS);
+	const parsed = parseRecord(text);
+	assert.equal(parsed.ok, true);
+	assert.equal(parsed.complete, true);
+	assert.deepEqual(parsed.missing, []);
+	assert.equal(parsed.fields.effective, COMPLETE_FIELDS.effective);
+	assert.equal(parsed.fields.applicable, COMPLETE_FIELDS.applicable);
+	assert.equal(parsed.fields.allowed, COMPLETE_FIELDS.allowed);
+	assert.equal(parsed.fields.unverified, COMPLETE_FIELDS.unverified);
+});
+
+test("parseRecord：两级「已召回」各自解析", () => {
+	const { text } = renderPrecheckRecord({
+		...COMPLETE_FIELDS,
+		recalled: { adr: "adr-1 适用", pitfall: "未遍历" },
+	});
+	const parsed = parseRecord(text);
+	assert.deepEqual(parsed.fields.recalled, { adr: "adr-1 适用", pitfall: "未遍历" });
+});
+
+test("parseRecord：条件段出现即解析，未出现则不在结果里（不虚构占位）", () => {
+	const without = parseRecord(renderPrecheckRecord(COMPLETE_FIELDS).text);
+	assert.equal(without.fields.fastPath, undefined);
+	assert.equal(without.fields.escalation, undefined);
+
+	const withFast = parseRecord(
+		renderPrecheckRecord({ ...COMPLETE_FIELDS, fastPath: "低风险", escalation: "触及受控写入" }).text,
+	);
+	assert.equal(withFast.fields.fastPath, "低风险");
+	assert.equal(withFast.fields.escalation, "触及受控写入");
+});
+
+test("parseRecord：缺段时 complete=false 并列出缺项（回读的交还入口）", () => {
+	const parsed = parseRecord(`${RECORD_HEADER}\n\n- 生效规则：x\n`);
+	assert.equal(parsed.complete, false);
+	assert.deepEqual(parsed.missing, ["适用规则", "行动允许", "未验证范围", "已召回"]);
+});
+
+test("parseRecord：不解析段内语义，明写只证明可解析", () => {
+	const parsed = parseRecord(renderPrecheckRecord(COMPLETE_FIELDS).text);
+	assert.match(parsed.proves, /不证明其取值正确或识别充分/);
+});
+
+test("parseRecord：缺起首标记与空入参均拒绝", () => {
+	assert.equal(parseRecord("- 生效规则：x").error.code, "record/header_missing");
+	for (const bad of ["", "   ", null, undefined]) {
+		assert.equal(parseRecord(bad).error.code, "invalid_request");
+	}
+});
+
+test("parseRecord：不认识的段被忽略，不误当已识别项", () => {
+	const parsed = parseRecord(`${RECORD_HEADER}\n\n- 生效规则：x\n- 随便一段：y\n`);
+	assert.equal(parsed.fields.effective, "x");
+	assert.equal(parsed.fields["随便一段"], undefined);
+});
+
+test("roundTripRecord：渲染再解析后字段等价（防渲染器与解析器漂移）", () => {
+	const result = roundTripRecord(COMPLETE_FIELDS);
+	assert.equal(result.ok, true);
+	assert.equal(result.roundTripStable, true);
+	assert.deepEqual(result.diffs, []);
+});
+
+test("roundTripRecord：含条件段时往返仍稳定", () => {
+	const result = roundTripRecord({ ...COMPLETE_FIELDS, fastPath: "低风险", escalation: "升级原因" });
+	assert.equal(result.roundTripStable, true);
+});
+
+test("roundTripRecord：渲染阶段被拒时原样返回该拒绝（不吞错误）", () => {
+	const result = roundTripRecord({ effective: "只有一段" });
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "record/section_missing");
 });

@@ -1314,4 +1314,93 @@ export function routeConflict(input = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// 回读（34 §10「预检落实记录生成后须可回读」）
+// ---------------------------------------------------------------------------
+
+/**
+ * 把一段 §7.2 形态的记录**解析回结构化字段**。
+ *
+ * 为什么这是「可回读」而非「形态核对」：§10 要求「生成后须可回读（当次交还中
+ * 即可见）」。只判「段名在不在」不算回读——那只能证明有人写过那几个字。回读要求
+ * 把**内容**取回来，使下游（如 §14 的「格式解析与逐项核对」）能真的逐项核对。
+ *
+ * ## 边界
+ *
+ * - 只解析 §7.2 定义的六段与其两级「已召回」；**不解析段内语义**（不判断「生效规则」
+ *   列出的规范是否真的生效——那是 §14「不证明取值正确」）。
+ * - 解析失败的段如实留空，**不猜测、不补默认值**。
+ * - 条件段未出现即不出现在结果里——不虚构占位。
+ */
+export function parseRecord(text) {
+  if (!isNonEmptyString(text)) {
+    return fail("invalid_request", "text must be a non-empty string");
+  }
+  if (!text.startsWith(RECORD_HEADER)) {
+    return fail("record/header_missing", `记录须以 ${RECORD_HEADER} 起首（03 §7.2）`);
+  }
+  const lines = text.split("\n");
+  const out = { recalled: {} };
+  const found = [];
+  // 段标签 → 字段名。段名即 §7.2 的原文，不得改名（§17 第 4 项）。
+  const labelToKey = new Map([
+    ...REQUIRED_SECTIONS.map((section) => [section.label, section.key]),
+    ...CONDITIONAL_SECTIONS.map((section) => [section.label, section.key]),
+  ]);
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (new RegExp(`^- ${RECALLED_LABEL}：\\s*$`).test(line)) {
+      found.push(RECALLED_LABEL);
+      for (let inner = index + 1; inner < lines.length; inner += 1) {
+        const match = /^\s+- (ADR|Pitfall)：(.*)$/.exec(lines[inner]);
+        if (match === null) break;
+        out.recalled[match[1].toLowerCase()] = match[2].trim();
+        index = inner;
+      }
+      continue;
+    }
+    const match = /^- ([^：]+)：(.*)$/.exec(line);
+    if (match === null) continue;
+    const key = labelToKey.get(match[1].trim());
+    if (key === undefined) continue;
+    out[key] = match[2].trim();
+    found.push(match[1].trim());
+  }
+
+  const missing = REQUIRED_SECTIONS
+    .map((section) => section.label)
+    .filter((label) => !found.includes(label));
+  if (!found.includes(RECALLED_LABEL)) missing.push(RECALLED_LABEL);
+
+  return {
+    ok: true,
+    fields: out,
+    // §14「格式解析与逐项核对」的入口：缺项直接交出去。
+    complete: missing.length === 0,
+    missing,
+    present: found,
+    // 回读只证明「记录里有这些内容」，不证明内容为真。
+    proves: "记录可被解析回结构化字段；不证明其取值正确或识别充分",
+  };
+}
+
+/** 回读的往返校验：解析再比对，防解析器与渲染器漂移。 */
+export function roundTripRecord(fields) {
+  const rendered = renderPrecheckRecord(fields);
+  if (rendered.ok !== true) return rendered;
+  const parsed = parseRecord(rendered.text);
+  if (parsed.ok !== true) return parsed;
+  const original = {
+    effective: fields.effective.trim(),
+    applicable: fields.applicable.trim(),
+    allowed: fields.allowed.trim(),
+    unverified: fields.unverified.trim(),
+  };
+  const diffs = Object.entries(original)
+    .filter(([key, value]) => parsed.fields[key] !== value)
+    .map(([key, rendered_]) => ({ key, rendered: rendered_, parsed: parsed.fields[key] }));
+  return { ok: true, roundTripStable: diffs.length === 0, diffs, parsed };
+}
+
 export { join };
