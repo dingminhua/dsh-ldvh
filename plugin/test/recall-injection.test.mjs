@@ -225,10 +225,12 @@ test("buildRecallInjection：预算可下调，且超预算标 truncated", async
 	}
 });
 
-test("RECALL_CHAR_BUDGET 是固定常量（不是动态计算）", () => {
+test("RECALL_CHAR_BUDGET 是固定常量，且大到能容纳 3 规范 + 3 事实", () => {
 	assert.equal(typeof RECALL_CHAR_BUDGET, "number");
-	assert.ok(RECALL_CHAR_BUDGET > 0);
-	assert.equal(RECALL_CHAR_BUDGET, 900);
+	assert.equal(RECALL_CHAR_BUDGET, 2400);
+	// 实测：limit:3 时三条规范候选约 1400–1500 字节、三条事实约 870–910 字节。
+	// 预算过紧会让每一次召回都 truncated，使它失去「防超量」的原意。
+	assert.ok(RECALL_CHAR_BUDGET >= 2200, "须容纳完整的一轮 3+3 候选");
 });
 
 test("RECALL_SUMMARY 标出「双源召回」，Human 侧折叠可见", () => {
