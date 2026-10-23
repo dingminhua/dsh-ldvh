@@ -960,4 +960,77 @@ export function checkTransverseMerge(input = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// 未识别缺口的登记（34 §14 该行 / §8 失败分流 / §9.3）
+// ---------------------------------------------------------------------------
+
+/** §14 明禁的替代写法：这些话不得代替缺口登记。 */
+const GAP_SUBSTITUTE_TERMS = Object.freeze(["已尽力", "尽力了", "已充分检索", "已全面检索", "应该没有遗漏"]);
+
+/** 缺口须带的三项（§14 该行「缺口清单核对」）。 */
+export const GAP_FIELDS = Object.freeze([
+  { key: "source", label: "未识别的来源" },
+  { key: "scope", label: "影响的范围" },
+  { key: "state", label: "缺口状态" },
+]);
+
+/**
+ * 核对未识别缺口的登记（34 §14「未识别缺口的登记」行）。
+ *
+ * §14 该行：成立条件为「未识别到的来源已被登记为缺口，而非静默略过」；可接受
+ * 依据为「交还中的未验证范围段与偏离登记」；**未满足时的处理**为「补齐登记后
+ * 交还；不得以『已尽力』替代缺口登记」。
+ *
+ * §8 失败分流同向：「不得以『已尽力检索』代替识别结论」。
+ *
+ * 故本函数做两件事：
+ *  1. **禁止替代**：缺口的说明里出现「已尽力」类措辞即拒绝——那是 §14 点名禁止
+ *     的写法，不是措辞偏好；
+ *  2. **要求逐项**：每个缺口须有来源、影响范围、状态三项，缺项即该缺口未被如实
+ *     登记（不是「登记得不够好」）。
+ *
+ * **本函数不判断**缺口是否已闭合——§14 该行「可证明范围」明写「缺口是否被如实
+ * 列出；不证明缺口已闭合」。
+ */
+export function checkGapRegistration(gaps) {
+  if (!Array.isArray(gaps)) {
+    return fail("invalid_request", "gaps must be an array (empty array = no gaps, which is a claim to be judged semantically)");
+  }
+  const rejected = [];
+  const incomplete = [];
+  for (const [index, gap] of gaps.entries()) {
+    const note = String(gap?.note ?? gap?.reason ?? gap?.description ?? "");
+    const substitute = GAP_SUBSTITUTE_TERMS.find((term) => note.includes(term));
+    if (substitute !== undefined) {
+      rejected.push({ index, term: substitute });
+      continue;
+    }
+    const missing = GAP_FIELDS
+      .filter((field) => !isNonEmptyString(gap?.[field.key]))
+      .map((field) => field.label);
+    if (missing.length > 0) incomplete.push({ index, missing });
+  }
+  if (rejected.length > 0) {
+    return fail(
+      "gap/substitute_claim",
+      `34 §14 禁止以「${rejected.map((item) => item.term).join("」「")}」替代缺口登记；须补齐来源、影响范围与状态`,
+      { rejected },
+    );
+  }
+  if (incomplete.length > 0) {
+    return fail(
+      "gap/incomplete",
+      `缺口登记缺项：${incomplete.map((item) => `#${item.index} 缺 ${item.missing.join("、")}`).join("；")}`,
+      { incomplete },
+    );
+  }
+  return {
+    ok: true,
+    count: gaps.length,
+    // §14 该行的可证明范围，逐字保留其边界。
+    proves: "缺口是否被如实列出；不证明缺口已闭合",
+    closesGaps: false,
+  };
+}
+
 export { join };

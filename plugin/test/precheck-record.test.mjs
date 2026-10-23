@@ -16,6 +16,8 @@ import { join } from "node:path";
 import {
 	APPLICATION_CRITERIA,
 	ENTRY_SIGNALS,
+	GAP_FIELDS,
+	checkGapRegistration,
 	FAILURE_ROUTES,
 	checkEntry,
 	routeFailure,
@@ -1003,4 +1005,65 @@ test("checkTransverseMerge：缺 systemKey 即拒绝（不知在哪个系统内�
 		assert.equal(result.ok, false);
 		assert.equal(result.error.code, "invalid_request");
 	}
+});
+
+// ---------------------------------------------------------------------------
+// 未识别缺口的登记（34 §14 该行：不得以「已尽力」替代）
+// ---------------------------------------------------------------------------
+
+test("GAP_FIELDS 恰为 §14 缺口清单核对要求的三项", () => {
+	assert.deepEqual(GAP_FIELDS.map((f) => f.label), ["未识别的来源", "影响的范围", "缺口状态"]);
+});
+
+test("checkGapRegistration：三项齐备即登记成立，但不声称缺口已闭合", () => {
+	const result = checkGapRegistration([
+		{ source: "specs/07 Web 呈现", scope: "本单不做呈现层", state: "未识别" },
+	]);
+	assert.equal(result.ok, true);
+	assert.equal(result.count, 1);
+	assert.match(result.proves, /不证明缺口已闭合/);
+	assert.equal(result.closesGaps, false);
+});
+
+test("checkGapRegistration：写「已尽力」类措辞即拒绝（§14 点名禁止）", () => {
+	for (const term of ["已尽力", "尽力了", "已充分检索", "已全面检索", "应该没有遗漏"]) {
+		const result = checkGapRegistration([
+			{ source: "x", scope: "y", state: "未识别", note: `关于这个来源，${term}` },
+		]);
+		assert.equal(result.ok, false, `${term} 不应被接受`);
+		assert.equal(result.error.code, "gap/substitute_claim");
+	}
+});
+
+test("checkGapRegistration：缺口缺任一项即未如实登记", () => {
+	for (const field of GAP_FIELDS) {
+		const gap = { source: "s", scope: "p", state: "未识别" };
+		delete gap[field.key];
+		const result = checkGapRegistration([gap]);
+		assert.equal(result.ok, false, `缺 ${field.label} 须拒绝`);
+		assert.equal(result.error.code, "gap/incomplete");
+		assert.deepEqual(result.incomplete[0].missing, [field.label]);
+	}
+});
+
+test("checkGapRegistration：多个缺口缺项时逐个指出，不只报第一个", () => {
+	const result = checkGapRegistration([
+		{ source: "a", scope: "b", state: "未识别" },
+		{ source: "a" },
+		{ scope: "b" },
+	]);
+	assert.equal(result.error.code, "gap/incomplete");
+	assert.equal(result.incomplete.length, 2);
+	assert.deepEqual(result.incomplete.map((i) => i.index), [1, 2]);
+});
+
+test("checkGapRegistration：空数组合法（表示无缺口，其真假由语义判断）", () => {
+	const result = checkGapRegistration([]);
+	assert.equal(result.ok, true);
+	assert.equal(result.count, 0);
+	assert.equal(result.closesGaps, false);
+});
+
+test("checkGapRegistration：非数组拒绝", () => {
+	assert.equal(checkGapRegistration("无缺口").error.code, "invalid_request");
 });
