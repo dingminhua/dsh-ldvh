@@ -941,9 +941,11 @@ test("checkEntry：无信号且未声明不明时给「未命中」而非「已�
 });
 
 test("FAILURE_ROUTES 恰为 34 §8 的四条失败分流", () => {
+	// 措辞取 34 §8「失败分流」原文逐字（2026-10-23 修正：原写「三段判断不成立」，
+	// 原文是「三段判断任一项不成立 → 按其性质分流」）。
 	assert.deepEqual(
 		[...FAILURE_ROUTES],
-		["识别失败", "三段判断不成立", "落实未发生", "偏离已发生"],
+		["识别失败", "三段判断任一项不成立", "落实未发生", "偏离已发生"],
 	);
 });
 
@@ -958,7 +960,7 @@ test("routeFailure：四条去向一律 mustStop（§8 停止位置：任一失�
 });
 
 test("routeFailure：三条判断不成立的处置按性质分别说明", () => {
-	const result = routeFailure({ route: "三段判断不成立" });
+	const result = routeFailure({ route: "三段判断任一项不成立" });
 	assert.match(result.action, /生效不成立补来源/);
 	assert.match(result.action, /适用不成立缩小范围/);
 	assert.match(result.action, /行动允许不成立停止/);

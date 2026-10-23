@@ -497,9 +497,24 @@ export function checkFindingStates(findings) {
  * `unverifiable`），而**不是**默认通过；但也不因此要求调用方全量扫描。
  */
 export const REUSE_CONDITIONS = Object.freeze([
-  { key: "sameScope", label: "同一会话、目标与行动范围未实质变化", mechanical: false },
-  { key: "sourcesUnchanged", label: "作为预检依据的规则源与事实载体未变更", mechanical: true },
-  { key: "noNewSignal", label: "未出现新的召回触发、风险升级、能力缺口或 Human Gate 信号", mechanical: false },
+  {
+    key: "sameScope",
+    // 03 §7.3 第 1 条原文。
+    label: "同一会话的连续行动步骤中，Human 目标、工作对象和当前行动范围未发生实质变化或超出上次覆盖范围",
+    mechanical: false,
+  },
+  {
+    key: "sourcesUnchanged",
+    // 03 §7.3 第 2 条原文。
+    label: "上次记录后，当前 Working Tree 中作为预检依据的规则源和事实载体没有发生变更",
+    mechanical: true,
+  },
+  {
+    key: "noNewSignal",
+    // 03 §7.3 第 3 条原文。
+    label: "未出现新的召回触发、风险升级、能力缺口或 Human Gate 信号",
+    mechanical: false,
+  },
 ]);
 
 /**
@@ -770,11 +785,11 @@ export const STAGE_MINIMUM_TIER = Object.freeze({
   三段判断: "标准路径",
   约束落实判定: "标准路径",
   偏离判定: "标准路径",
-  授权边界判断: "标准路径",
+  涉及授权边界的判断: "标准路径",
 });
 
 /** 任一环节涉及授权边界时，快通道一律不可用（§11 末句）。 */
-const AUTHORIZATION_STAGE = "授权边界判断";
+const AUTHORIZATION_STAGE = "涉及授权边界的判断";
 
 /**
  * 判定一次风险路由声明是否满足 34 §11。
@@ -939,7 +954,7 @@ export function checkEntry(input = {}) {
 /** 34 §8「失败分流」的四条去向（原文逐条）。 */
 export const FAILURE_ROUTES = Object.freeze([
   "识别失败",
-  "三段判断不成立",
+  "三段判断任一项不成立",
   "落实未发生",
   "偏离已发生",
 ]);
@@ -968,7 +983,7 @@ export function routeFailure(input = {}) {
   }
   const actions = {
     识别失败: "按 03 §6.3 升级并按 00 §5.7 暂停；不得以「已尽力检索」代替识别结论",
-    三段判断不成立: "按性质分流：生效不成立补来源／适用不成立缩小范围／行动允许不成立停止",
+    三段判断任一项不成立: "按性质分流：生效不成立补来源／适用不成立缩小范围／行动允许不成立停止",
     落实未发生: "视为未落实，不得以记录齐全替代；按 §8.3 判定后停止或重做",
     偏离已发生: "进入 §9 偏离处置（形态须落在 §9.1 闭集内）",
   };
@@ -1043,10 +1058,22 @@ export function checkTransverseMerge(input = {}) {
 const GAP_SUBSTITUTE_TERMS = Object.freeze(["已尽力", "尽力了", "已充分检索", "已全面检索", "应该没有遗漏"]);
 
 /** 缺口须带的三项（§14 该行「缺口清单核对」）。 */
+/**
+ * 缺口登记须带的三项。
+ *
+ * **注意**：34 §14 的「未识别缺口的登记」行**没有**逐字列出这三项名；它的成立
+ * 条件是「未识别到的来源已被登记为缺口，而非静默略过」，可接受依据是「交还中的
+ * 未验证范围段与偏离登记」，未满足时的处理是「补齐登记后交还；不得以『已尽力』
+ * 替代缺口登记」。
+ *
+ * 故这三项是**本模块按该行语义拆出的机械字段**，不是原文措辞——`GAP_FIELDS` 的
+ * label 因此不参与「逐字回指原文」的漂移守卫（见 spec-drift 测试对应断言）。
+ * 若日后 34 号明列三项，须把 label 改为原文措辞。
+ */
 export const GAP_FIELDS = Object.freeze([
-  { key: "source", label: "未识别的来源" },
-  { key: "scope", label: "影响的范围" },
-  { key: "state", label: "缺口状态" },
+  { key: "source", label: "未识别的来源", verbatim: false },
+  { key: "scope", label: "影响的范围", verbatim: false },
+  { key: "state", label: "缺口状态", verbatim: false },
 ]);
 
 /**
