@@ -311,3 +311,30 @@ test("归因不得混同：取不到用户消息 ≠ 34 §6 排除", async () =>
 	const r2 = await buildRecallInjection({ userText: "看看这个文件里有什么", projectRoot: ROOT });
 	assert.equal(r2.reason, "excluded-by-34-6");
 });
+
+test("诊断问句不得判为纯读取（34 §6 排除条件只挡「只为取信息」的动作）", async () => {
+	// 实测缺陷：「为什么」「解释」「说明」曾在 READ_ACTIONS 里，导致「为什么这里
+	// 不对」「这里为什么报错」「为什么不生效」这类**导向修**的问句被判 exclude，
+	// 完全不进入召回。排除条件要挡的是「看看/列一下/查一下」这种只取信息的动作。
+	for (const q of ["为什么这里不对", "这里为什么报错", "为什么不生效", "解释一下这段"]) {
+		const verdict = classifyEntry(q);
+		assert.notEqual(verdict, "exclude", `「${q}」是诊断问句，不得判为纯读取`);
+	}
+	// 真纯读取仍须排除。
+	for (const q of ["看看这个文件", "列出所有 ADR", "读一下这一节"]) {
+		assert.equal(classifyEntry(q), "exclude", `「${q}」是纯读取，应排除`);
+	}
+});
+
+test("诊断问句能召回（有主题词时）", async () => {
+	const r = await buildRecallInjection({ userText: "这里为什么报错", projectRoot: ROOT });
+	assert.equal(r.inject, true, "有主题词的诊断问句应能召回");
+});
+
+test("无主题词的问句：no_tokens 是合理结果，如实报出而非假装召回", async () => {
+	// 「为什么这里不对」全是虚字 + 「不对」，没有任何**主题词**——不知道要召回
+	// 什么主题，no_tokens 是正确行为。这里断言「如实报出」，不是断言「必须召回」。
+	const r = await buildRecallInjection({ userText: "为什么这里不对", projectRoot: ROOT });
+	assert.equal(r.inject, false);
+	assert.match(r.reason, /no_tokens|no-hits/, "应如实说明召回器无从下手，而不是伪装成无相关约束");
+});
