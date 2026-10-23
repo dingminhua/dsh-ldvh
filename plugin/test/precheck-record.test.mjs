@@ -9,7 +9,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -23,6 +23,7 @@ import {
 	checkFindingStates,
 	checkRecordShape,
 	evaluateReuse,
+	fingerprintCarriers,
 	readRecord,
 	recordFingerprint,
 	recordPath,
@@ -439,4 +440,109 @@ test("evaluateReuse：缺 sessionId 即拒绝（无法判定是否同一会话�
 		assert.equal(result.ok, false);
 		assert.equal(result.error.code, "invalid_request");
 	}
+});
+
+// ---------------------------------------------------------------------------
+// fingerprintCarriers：真实读盘算指纹，不给调用方自证的机会
+// ---------------------------------------------------------------------------
+
+test("fingerprintCarriers：读真实文件算 SHA-256，与 recordFingerprint 同源", async () => {
+	const root = await mkdtemp(join(tmpdir(), "ldvh-carriers-"));
+	try {
+		await writeFile(join(root, "a.md"), "内容甲", "utf8");
+		const result = await fingerprintCarriers(root, ["a.md"]);
+		assert.equal(result.ok, true);
+		assert.equal(result.carriers[0].current, recordFingerprint("内容甲"));
+		assert.equal(result.carriers[0].baseline, null, "未给基线时如实为 null，不伪造");
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("fingerprintCarriers：不存在的载体记 current=null，不伪造为「无变化」", async () => {
+	const root = await mkdtemp(join(tmpdir(), "ldvh-carriers-"));
+	try {
+		const result = await fingerprintCarriers(root, ["missing.md"]);
+		assert.equal(result.ok, true);
+		assert.equal(result.carriers[0].current, null);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("fingerprintCarriers：保留调用方给的基线指纹", async () => {
+	const root = await mkdtemp(join(tmpdir(), "ldvh-carriers-"));
+	try {
+		await writeFile(join(root, "a.md"), "x", "utf8");
+		const result = await fingerprintCarriers(root, [{ path: "a.md", baseline: "deadbeef" }]);
+		assert.equal(result.carriers[0].baseline, "deadbeef");
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("fingerprintCarriers → evaluateReuse：内容真变了就判不可复用（端到端）", async () => {
+	const root = await mkdtemp(join(tmpdir(), "ldvh-carriers-"));
+	try {
+		const file = join(root, "spec.md");
+		await writeFile(file, "第一版", "utf8");
+		const atRecordTime = await fingerprintCarriers(root, ["spec.md"]);
+		// 记录之后载体被改
+		await writeFile(file, "第二版", "utf8");
+		const now = await fingerprintCarriers(root, [
+			{ path: "spec.md", baseline: atRecordTime.carriers[0].current },
+		]);
+		const verdict = evaluateReuse({
+			recordSessionId: "s",
+			sessionId: "s",
+			sameScope: true,
+			noNewSignal: true,
+			carriers: now.carriers,
+		});
+		assert.equal(verdict.reusable, false);
+		assert.equal(verdict.failed[0].condition, "sourcesUnchanged");
+		assert.match(verdict.failed[0].reason, /spec\.md/);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("fingerprintCarriers → evaluateReuse：内容未变则第 2 条通过（端到端）", async () => {
+	const root = await mkdtemp(join(tmpdir(), "ldvh-carriers-"));
+	try {
+		const file = join(root, "spec.md");
+		await writeFile(file, "稳定内容", "utf8");
+		const atRecordTime = await fingerprintCarriers(root, ["spec.md"]);
+		const now = await fingerprintCarriers(root, [
+			{ path: "spec.md", baseline: atRecordTime.carriers[0].current },
+		]);
+		const verdict = evaluateReuse({
+			recordSessionId: "s",
+			sessionId: "s",
+			sameScope: true,
+			noNewSignal: true,
+			carriers: now.carriers,
+		});
+		assert.equal(verdict.reusable, true);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("fingerprintCarriers：不枚举目录——只读点名的路径，多给的路径不会扩大读取面", async () => {
+	const root = await mkdtemp(join(tmpdir(), "ldvh-carriers-"));
+	try {
+		await writeFile(join(root, "a.md"), "甲", "utf8");
+		await writeFile(join(root, "b.md"), "乙", "utf8");
+		const result = await fingerprintCarriers(root, ["a.md"]);
+		assert.equal(result.carriers.length, 1, "只回一个载体，不扫出 b.md");
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("fingerprintCarriers：缺 root、carriers 非数组、条目缺 path 均拒绝", async () => {
+	assert.equal((await fingerprintCarriers("", ["a.md"])).error.code, "invalid_request");
+	assert.equal((await fingerprintCarriers("/x", "a.md")).error.code, "invalid_request");
+	assert.equal((await fingerprintCarriers("/x", [{}])).error.code, "invalid_request");
 });

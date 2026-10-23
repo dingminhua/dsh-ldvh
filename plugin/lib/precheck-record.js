@@ -398,6 +398,50 @@ export function evaluateReuse(input = {}) {
   };
 }
 
+/**
+ * 实际读盘计算一组载体的指纹，产出 `evaluateReuse` 需要的 `carriers` 入参。
+ *
+ * 存在的理由：03 §7.3 第 2 条要的是「上次记录后载体没有变更」，而不只是「调用方
+ * 声称没有变更」。把这个比对交给调用方去手算，等于让被判断的一方自己出结论——
+ * 那正是 34 §1 说的「识别的自我证明」。故本函数只做**确定性的读取与摘要**：
+ * 读不存在的载体记 `current: null`（不伪造），读得到的算 SHA-256。
+ *
+ * **它不做的事**（与 §7.3 末句一致）：
+ * - 不枚举目录、不 glob、不建索引——只读调用方逐个点名的路径；
+ * - 不决定「该核对哪些载体」——那属语义判断（哪条规则/事实是本次预检的依据）；
+ * - 不判断指纹变化是否影响本次行动——变化即变化，影响由调用方按 §7.3 末段处置。
+ *
+ * @param {string} root 项目根（载体路径相对于它解析）
+ * @param {Array<string | {path: string, baseline?: string|null}>} carriers
+ * @returns {Promise<{ok: true, carriers: Array<{path: string, baseline: string|null, current: string|null}>}>}
+ */
+export async function fingerprintCarriers(root, carriers) {
+  if (!isNonEmptyString(root)) {
+    return fail("invalid_request", "root is required to resolve carrier paths");
+  }
+  if (!Array.isArray(carriers)) {
+    return fail("invalid_request", "carriers must be an array of path strings or {path, baseline} objects");
+  }
+  const out = [];
+  for (const entry of carriers) {
+    const path = typeof entry === "string" ? entry : entry?.path;
+    if (!isNonEmptyString(path)) {
+      return fail("invalid_request", "every carrier entry needs a path");
+    }
+    const baseline = typeof entry === "object" && entry !== null ? (entry.baseline ?? null) : null;
+    let current = null;
+    try {
+      const text = await readFile(join(root, path), "utf8");
+      current = recordFingerprint(text);
+    } catch {
+      // 读不到就记 null——「不可读」是一个要如实交还的状态，不是「无变化」。
+      current = null;
+    }
+    out.push({ path, baseline, current });
+  }
+  return { ok: true, carriers: out };
+}
+
 /** 供调用方拼装路径的工具导出（测试与工具层共用，避免各自拼串）。 */
 export const STORE_DIR = STORE_SUBDIR;
 export { join };
