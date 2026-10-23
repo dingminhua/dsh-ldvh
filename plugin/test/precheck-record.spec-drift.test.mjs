@@ -194,3 +194,37 @@ test("34 §11 环节级声明：每个环节名须逐字来自原文", async () 
 		assert.ok(spec.includes(stage), `环节「${stage}」不在 34 §11 原文中`);
 	}
 });
+
+// ---------------------------------------------------------------------------
+// 34 §17 反过度设计红线（实为 7 条，非 4 条——2026-10-23 核对纠正）
+// ---------------------------------------------------------------------------
+
+test("34 §17 恰为 7 条红线（我此前误按 4 条自查，漏了第 5、6、7 条）", async () => {
+	const spec = await readSpec("34-规则遵守系统规范.md");
+	const section = spec.slice(spec.indexOf("## 17. 反过度设计红线"));
+	const items = section.match(/^\d+\. /gm) ?? [];
+	assert.equal(items.length, 7, "§17 实为 7 条；若规范改了条数，本断言会提示复核");
+});
+
+test("§17 第 5 条（不得扩张为规则解释者）：代码中无解释执行路径", async () => {
+	const source = await readFile(join(import.meta.dirname, "..", "lib", "precheck-record.js"), "utf8");
+	// 只禁止「执行解释」这类实现形态，不禁止注释里提到该词（本文件正解释了为何不做）。
+	assert.ok(!/\binterpret(Rule|Regulation|Clause)\s*\(/.test(source), "不得出现解释规则含义的函数");
+	// §17 第 5 条原文须仍在（守卫依据）。
+	const spec = await readSpec("34-规则遵守系统规范.md");
+	assert.ok(spec.includes("不把规则遵守系统扩张为「规则解释者」"));
+});
+
+test("§17 第 7 条（不预设冲突图）：CONFLICT_TIERS 逐行来自 §7.5 原文，不是预建结构", async () => {
+	const spec = await readSpec("34-规则遵守系统规范.md");
+	// 每一行的来源名都必须在 §7.5 原文中存在——承载原文，而非预造。
+	for (const tier of CONFLICT_TIERS) {
+		assert.ok(spec.includes(tier.source), `层级来源「${tier.source}」不在原文 §7.5 中，疑为预建结构`);
+	}
+});
+
+test("§17 第 6 条（不以横切性为由复制判据）：模块只在本文件定义一次闭集", async () => {
+	// 本模块不向其它规范或模块复制规则文本；此断言仅核对 §17 第 6 条原文仍在。
+	const spec = await readSpec("34-规则遵守系统规范.md");
+	assert.ok(spec.includes("不以本系统的横切性为由要求其它规范重复其判据"));
+});
