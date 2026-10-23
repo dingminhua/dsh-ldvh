@@ -55,6 +55,8 @@ import {
 	parseRecord,
 	detectRitualRecord,
 	HUMAN_GATE_ITEMS,
+	NON_EQUIVALENCES,
+	checkConceptBoundaries,
 	checkHumanGate,
 	roundTripRecord,
 	buildHandover,
@@ -1492,4 +1494,92 @@ test("checkHumanGate：未知事项拒绝并列出允许集", () => {
 
 test("checkHumanGate：非数组拒绝", () => {
 	assert.equal(checkHumanGate("sourceConflict").error.code, "invalid_request");
+});
+
+// ---------------------------------------------------------------------------
+// 相近概念区分（34 §13 末条 / §14 末段的三条边界）
+// ---------------------------------------------------------------------------
+
+test("NON_EQUIVALENCES 覆盖 §13 的五条与 §14 的三条边界", () => {
+	const pairs = NON_EQUIVALENCES.map((n) => `${n.left}≠${n.doesNotImply}`);
+	for (const expected of [
+		"识别≠落实", "落实≠授权", "预检记录完成≠行动完成",
+		"已识别≠已允许", "补做识别≠从未偏离", "已落实≠已完成",
+	]) {
+		assert.ok(pairs.includes(expected), `应含 ${expected}`);
+	}
+});
+
+test("checkConceptBoundaries：干净文本无违规", () => {
+	const result = checkConceptBoundaries("本次识别到三条约束，其中一条已落实，另一条已识别未落实。");
+	assert.equal(result.clean, true);
+	assert.deepEqual(result.violations, []);
+});
+
+test("checkConceptBoundaries：三条 §14 末段边界逐个可抓", () => {
+	const cases = [
+		["已识别即已允许，可以继续", "已识别", "已允许"],
+		["该项已落实=已完成", "已落实", "已完成"],
+		["补做识别就是从未偏离", "补做识别", "从未偏离"],
+	];
+	for (const [text, left, right] of cases) {
+		const result = checkConceptBoundaries(text);
+		assert.equal(result.clean, false, `${text} 应被抓到`);
+		assert.equal(result.violations[0].left, left);
+		assert.equal(result.violations[0].right, right);
+	}
+});
+
+test("checkConceptBoundaries：§13 的另外三条也可抓", () => {
+	for (const text of ["识别即落实", "落实即授权", "预检记录完成即行动完成"]) {
+		assert.equal(checkConceptBoundaries(text).clean, false, `${text} 应被抓到`);
+	}
+});
+
+test("checkConceptBoundaries：多种符号写法都能抓到", () => {
+	for (const sep of ["即", "=", "＝", "就是"]) {
+		const result = checkConceptBoundaries(`已识别${sep}已允许`);
+		assert.equal(result.clean, false, `分隔符 ${sep} 应被抓到`);
+	}
+});
+
+test("checkConceptBoundaries：违规项带规范依据与说明", () => {
+	const result = checkConceptBoundaries("已识别即已允许");
+	assert.match(result.violations[0].specRef, /34 §/);
+	assert.match(result.violations[0].note, /不得被跨越/);
+});
+
+test("checkConceptBoundaries：明写只抓字面等式，不证明未隐含（边界声明）", () => {
+	const result = checkConceptBoundaries("本次工作已识别全部相关规则。");
+	assert.equal(result.clean, true);
+	assert.match(result.proves, /不证明文中未隐含该结论/);
+	assert.equal(result.nonEquivalences, 6);
+});
+
+test("checkConceptBoundaries：空入参拒绝", () => {
+	for (const bad of ["", "  ", null, undefined]) {
+		assert.equal(checkConceptBoundaries(bad).error.code, "invalid_request");
+	}
+});
+
+// ---------------------------------------------------------------------------
+// 段数的事实核对（2026-10-23 修正：注释首版误称「六段」）
+// ---------------------------------------------------------------------------
+
+test("03 §7.2 的顶层条目为 7 个：4 字符串必需 + 已召回 + 2 条件", () => {
+	// 这是对规范原文的核对，不是对实现的核对——防止注释再次数与原文不符。
+	assert.equal(REQUIRED_SECTIONS.length, 4, "字符串必需段四个");
+	assert.equal(CONDITIONAL_SECTIONS.length, 2, "条件条目两个，原文均带「如」");
+	// 4 + 已召回(1) + 2 = 7
+	assert.equal(REQUIRED_SECTIONS.length + 1 + CONDITIONAL_SECTIONS.length, 7);
+	// 必备标签数（含已召回）为 5——checkRecordShape 与 parseRecord 同口径。
+	const requiredLabels = [...REQUIRED_SECTIONS.map((s) => s.label), RECALLED_LABEL];
+	assert.equal(requiredLabels.length, 5);
+	const parsed = parseRecord(`${RECORD_HEADER}\n\n`);
+	assert.deepEqual(parsed.missing.slice().sort(), requiredLabels.slice().sort());
+});
+
+test("条件条目的原文措辞确实带「如」（不得把它们当必需段）", () => {
+	const labels = CONDITIONAL_SECTIONS.map((s) => s.label);
+	assert.deepEqual(labels, ["快通道声明", "升级记录"]);
 });
