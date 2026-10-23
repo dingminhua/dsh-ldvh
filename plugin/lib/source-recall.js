@@ -186,6 +186,40 @@ function parseFrontmatter(text) {
  *
  * **现读现解析**，不建持久索引（34 §17 第 1 项）。
  */
+/**
+ * 按 `01 §10.3` 的三级回退解析规范语料来源。
+ *
+ * > 规范语料来源按三级回退解析：受辖项目根 `specs/` → 插件开发布局的源仓库根
+ * > `specs/`（link／开发安装指向源目录，以根规范载体的实际存在辨认）→ 插件包内
+ * > `specs/`。三级按序探测，首个实际存在的目录即该次读取的唯一来源视图，
+ * > 同一次结果不得跨级混读；来源披露必须如实标注实际应答方，不得把回退来源
+ * > 表述为项目自著语料。
+ *
+ * `34 §7` 把召回绑到这个入口（「规则来源为规范源（经 01 §10 的 L0–L4 读取取得）」），
+ * 故召回必须走同一套解析——否则无自著语料的受辖项目会得到零命中，
+ * 而正确行为是回退到源仓库语料并**如实标注**应答方。
+ *
+ * **「以根规范载体的实际存在辨认」**：某一级目录存在但里面没有根规范载体时，
+ * 不算「实际存在」——空目录不得冒充语料来源。
+ *
+ * @returns {{dir: string, tier: "project"|"source-repo"|"package"} | null}
+ */
+export async function resolveSpecsRoot(projectRoot) {
+  const candidates = [
+    { dir: join(projectRoot, "specs"), tier: "project" },
+    // 插件开发布局：本模块位于 `<源码根>/plugin/lib/`，故源码根是 `../..`。
+    { dir: join(import.meta.dirname, "..", "..", "specs"), tier: "source-repo" },
+    // 包内副本：发布打包时自源仓库复制。
+    { dir: join(import.meta.dirname, "..", "specs"), tier: "package" },
+  ];
+  for (const candidate of candidates) {
+    const files = await readdirOrEmpty(candidate.dir);
+    // 「根规范载体的实际存在」：至少有一个 .md 文件才算这一级成立。
+    if (files.some((file) => file.endsWith(".md"))) return candidate;
+  }
+  return null;
+}
+
 export async function loadSpecs(specsDir) {
   // 目录不存在时返回空数组，不抛 ENOENT。
   // 实测：缺失 `specs/` 的受辖项目（新建项目、语料尚未建立）会让每次召回都抛
@@ -417,8 +451,10 @@ export async function recallForAction(input = {}) {
   }
 
   const root = input.root ?? join(import.meta.dirname, "..", "..");
+  // 规范语料按 01 §10.3 三级回退解析（见 `resolveSpecsRoot`）；事实源只有项目内一源。
+  const specsSource = includeSpecs ? await resolveSpecsRoot(root) : null;
   const [specs, facts] = await Promise.all([
-    includeSpecs ? loadSpecs(join(root, "specs")) : [],
+    specsSource === null ? [] : loadSpecs(specsSource.dir),
     loadFacts(join(root, "ldvh-base")),
   ]);
 
@@ -513,5 +549,14 @@ export async function recallForAction(input = {}) {
     provesApplicability: false,
     // 确定性召回会漏（换个说法就漏），如实声明，不假装完整。
     coverage: "deterministic-token-match; may miss rephrasings; not exhaustive",
+    // **来源披露**（01 §10.3）：如实标注规范语料的实际应答方，不得把回退来源
+    // 表述为项目自著语料。`tier` 为 null 表示三级都无可用语料。
+    sourceView: {
+      specs: specsSource === null ? null : { tier: specsSource.tier, dir: specsSource.dir },
+      // 项目自著语料与回退来源是**不同来源**，消费方须能区分。
+      // 由回退来源应答时，01 §9.2 的机械核对对该受辖项目按「不适用」报告。
+      specsAreProjectAuthored: specsSource !== null && specsSource.tier === "project",
+      facts: { dir: join(root, "ldvh-base") },
+    },
   };
 }

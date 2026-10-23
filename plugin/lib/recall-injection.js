@@ -219,7 +219,18 @@ export function renderRecallRow(result) {
   lines.push("【双源召回 · 行动前候选】");
   lines.push("以下由确定性匹配从规范源与事实源取得，是**候选**不是结论：召回的命中不等于适用（02 §9.2／34 §13），是否适用须自行判断。");
   if (specs.length > 0) {
-    lines.push("规范源：");
+    // **来源披露**（01 §10.3）：语料由回退来源应答时，必须如实标注，
+    // 不得把回退来源表述为项目自著语料。读者据此知道「这些规则来自源仓库/
+    // 插件包，而非本项目自著」——两者的成员条件与核对义务不同。
+    const sourceView = result?.sourceView;
+    if (sourceView?.specsAreProjectAuthored === false) {
+      const tierLabel =
+        sourceView.specs?.tier === "source-repo" ? "插件源仓库" :
+        sourceView.specs?.tier === "package" ? "插件包内副本" : "外部来源";
+      lines.push(`规范源（语料来自**${tierLabel}**，非本项目自著；其成员条件核对归源仓库）：`);
+    } else {
+      lines.push("规范源：");
+    }
     for (const spec of specs) {
       lines.push(`- ${spec.title}（${spec.path}）— ${spec.hitReason}`);
     }

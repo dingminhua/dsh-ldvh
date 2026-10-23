@@ -18,6 +18,7 @@ import {
 	loadSpecs,
 	matchCandidate,
 	recallForAction,
+	resolveSpecsRoot,
 	tokenize,
 } from "../lib/source-recall.js";
 
@@ -346,11 +347,15 @@ test("受辖但无语料的项目不得抛 ENOENT（新建项目/语料未建立
 		try {
 			await setup(project);
 			const r = await recallForAction({ action: "把 34 号规范改名", root: project, limit: 3 });
-			assert.equal(r.ok, true, `${name}：不应失败`);
-			assert.equal(r.specs.length, 0);
-			assert.equal(r.facts.length, 0);
-			// 零命中不是错误，也不是「无相关约束」的证明——由调用方如实解释。
+			assert.equal(r.ok, true, `${name}：不应失败（不得抛 ENOENT）`);
+			// 规范可经 01 §10.3 三级回退取得（故可能非空）；事实源只有项目内一源，
+			// 无 ldvh-base/ 时必为空。要点是**不抛错**，而不是「必须零命中」。
+			assert.equal(r.facts.length, 0, `${name}：无 ldvh-base/ 时事实必为空`);
 			assert.equal(r.provesApplicability, false);
+			// 若回退到了外部语料，必须如实标注（不得冒充项目自著）。
+			if (r.specs.length > 0) {
+				assert.equal(r.sourceView.specsAreProjectAuthored, false, `${name}：回退语料须标明非项目自著`);
+			}
 		} finally {
 			await rm(project, { recursive: true, force: true });
 		}
@@ -365,8 +370,13 @@ test("受辖但无语料：注入层报 no-hits 而非报错", async () => {
 	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-deg2-"));
 	try {
 		const r = await buildRecallInjection({ userText: "把 34 号规范改名", projectRoot: project });
-		assert.equal(r.inject, false);
-		assert.equal(r.reason, "no-hits", "应报零命中，不是抛错");
+		// 规范可经 01 §10.3 回退取得，故此时**可能注入**（来自源仓库语料）；
+		// 关键是不得抛错。若未注入，须是 no-hits 而非 recall-failed。
+		if (r.inject === false) {
+			assert.equal(r.reason, "no-hits", "应报零命中，不是抛错");
+		} else {
+			assert.match(r.text, /非本项目自著/, "回退语料须如实标注来源");
+		}
 	} finally {
 		await rm(project, { recursive: true, force: true });
 	}
@@ -540,5 +550,68 @@ test("通用词降级不得削弱短指令路径", async () => {
 	for (const q of ["改一下", "删了", "加个"]) {
 		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
 		assert.equal(r.inject, true, `「${q}」必须仍能召回`);
+	}
+});
+
+// ---------------------------------------------------------------------------
+// 01 §10.3 三级回退（34 §7 把召回绑到这个入口）
+// ---------------------------------------------------------------------------
+
+test("三级回退：受辖项目无自著语料时须回退，不得零命中", async () => {
+	// 01 §10.3 逐字：受辖项目根 specs/ → 插件源仓库根 specs/ → 插件包内 specs/。
+	// 34 §7 把召回绑到此入口（「规则来源为规范源（经 01 §10 的 L0–L4 读取取得）」），
+	// 故无自著语料的受辖项目应回退取用源仓库语料，而不是返回零命中。
+	const { mkdtemp, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join: joinPath } = await import("node:path");
+	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-tier-"));
+	try {
+		const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: project, limit: 3 });
+		assert.equal(r.ok, true);
+		assert.ok(r.specs.length > 0, "无自著语料时应回退取得语料，而非零命中");
+		assert.equal(r.sourceView.specs.tier, "source-repo", "应回退到插件源仓库");
+		assert.equal(r.sourceView.specsAreProjectAuthored, false);
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+});
+
+test("三级回退：有自著语料时用项目语料，不得回退", async () => {
+	// 本项目自己有 specs/，必须用自己那份——「首个实际存在的目录即唯一来源视图」。
+	const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 3 });
+	assert.equal(r.sourceView.specs.tier, "project");
+	assert.equal(r.sourceView.specsAreProjectAuthored, true);
+});
+
+test("三级回退：空目录不得冒充语料来源（以根规范载体的实际存在辨认）", async () => {
+	// 01 §10.3：「以根规范载体的实际存在辨认」。某级目录存在但里面没有 .md 时，
+	// 不算这一级成立，须继续回退。
+	const { mkdtemp, mkdir, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join: joinPath } = await import("node:path");
+	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-empty-"));
+	try {
+		await mkdir(joinPath(project, "specs"), { recursive: true }); // 空目录
+		const resolved = await resolveSpecsRoot(project);
+		assert.notEqual(resolved?.tier, "project", "空的 specs/ 不得被当作项目语料来源");
+		assert.equal(resolved?.tier, "source-repo", "应继续回退到源仓库");
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+});
+
+test("三级回退：渲染行须如实标注语料来自回退来源（不得冒充项目自著）", async () => {
+	const { mkdtemp, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join: joinPath } = await import("node:path");
+	const { renderRecallRow } = await import("../lib/recall-injection.js");
+	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-render-"));
+	try {
+		const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: project, limit: 2 });
+		const row = renderRecallRow(r);
+		assert.match(row, /非本项目自著/, "回退来源必须在渲染行里如实标注");
+		assert.match(row, /插件源仓库/, "应点名具体回退层级");
+	} finally {
+		await rm(project, { recursive: true, force: true });
 	}
 });
