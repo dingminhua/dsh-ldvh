@@ -35,6 +35,7 @@ import { join } from "node:path";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { registerLdvhTools } from "./ldvh-tools.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
+import { RECALL_SUMMARY, buildRecallInjection } from "./recall-injection.js";
 import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
 import { createTurnTriggers } from "./triggers.js";
 import { createHostScheduler } from "./host-schedule.js";
@@ -438,7 +439,16 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         // complete card from it so the very first turn gets its visible row.
         noticeText: () => lifecycle.noticeText ?? (lifecycle.lastScope !== undefined && lifecycle.lastScope !== null ? noticeTextFor(lifecycle.lastScope) : null),
         // Inline row title (Human 2026-09-04): "上下文注入 · dsh-ldvh · 本会话受 LDVH 管辖"
-        noticeSummary: () => noticeSummaryFor(lifecycle.scopeState)
+        noticeSummary: () => noticeSummaryFor(lifecycle.scopeState),
+        // 行动前双源召回（10 §5.3「行动前引导入口」）。只在受管辖且项目路径可用时召回；
+        // 未受管辖、无项目、或用户消息不足以构成查询时返回 inject:false（02 §9.2 进入条件）。
+        recallRow: async ({ userText }) => {
+          if (lifecycle.scopeState !== "governed") return { inject: false, reason: "not-governed" };
+          const projectPath = lifecycle.lastScope?.project?.path;
+          if (typeof projectPath !== "string" || projectPath.length === 0) return { inject: false, reason: "no-project" };
+          return buildRecallInjection({ userText, projectRoot: projectPath });
+        },
+        recallSummary: () => RECALL_SUMMARY
       });
       // 把「会话视图被重置 → 清空注入台账」挂到 lifecycle 记录上，供
       // agent/created（clear / compact / resume）调用。见下方 disposeCreated。

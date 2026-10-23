@@ -33,6 +33,7 @@
 //      and tested before content ever flows.
 
 import { buildGuidance } from "./guidance-budget.js";
+import { currentUserText } from "./recall-injection.js";
 import { GUIDANCE_SECTION_NAME, migrationLineFor, noticeTextFor } from "./guidance-text.js";
 
 /**
@@ -211,7 +212,7 @@ function createPluginMessage(text, summary) {
   };
 }
 
-export function createPreStepHandler(agent, { isGoverned, channel, noticeText, noticeSummary, onTurnStart } = {}) {
+export function createPreStepHandler(agent, { isGoverned, channel, noticeText, noticeSummary, onTurnStart, recallRow, recallSummary } = {}) {
   const agentId = agent?.id ?? agent?.session?.header?.id;
   // Channel state lives on the AgentLifecycle object (single per-agent
   // home); fall back to a local state for direct/test usage without one.
@@ -224,6 +225,11 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
   // 「以及该会话续接本对象」）。它不产出任何上下文行，也不得影响本回合的进行：
   // 抛错只记日志——「会话继续干活」不该被环境检查拦住。
   const runOnTurnStart = typeof onTurnStart === "function" ? onTurnStart : null;
+  // recallRow(): 行动前双源召回（10 §5.3「行动前引导入口」）。返回
+  // {inject:false, reason} 或 {inject:true, text, digest}。它**不产出必停**：
+  // 召回是输入侧，失败只记日志，不拦回合（与 runOnTurnStart 同一纪律）。
+  const getRecallRow = typeof recallRow === "function" ? recallRow : null;
+  const recallLabel = typeof recallSummary === "function" ? recallSummary : () => recallSummary;
   return {
     /** session-start hook: prime the channel (mnemon primePending shape). */
     prime() { state.primePending = true; },
@@ -242,6 +248,7 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
     resetVisibility() {
       state.injectedIds = new Set();
       state.lastDigest = null;
+      state.lastRecallDigest = null;
     },
     /**
      * Judgment notice injection (2026-09-04): at the first step of every
@@ -289,24 +296,42 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
       noteOwnMessages(state, batch);
       const everInjected = state.injectedIds !== undefined && state.injectedIds.size > 0;
       const changed = currentNotice !== state.lastDigest;
+      const extras = [];
       if (!everInjected || changed) {
         // Row never injected (first turn), or the notice changed: inject one
         // fresh row. A row that is still live in an earlier turn does NOT
         // trigger this branch — that was the duplicate-injection defect.
         state.lastDigest = currentNotice;
-        const fresh = createPluginMessage(currentNotice, (typeof noticeSummary === "function" ? noticeSummary() : noticeSummary) ?? "LDVH 管辖判定");
-        noteOwnMessages(state, [fresh]);
-        return {
-          kind: "enter",
-          messages: [...batch, fresh]
-        };
+        extras.push(createPluginMessage(currentNotice, (typeof noticeSummary === "function" ? noticeSummary() : noticeSummary) ?? "LDVH 管辖判定"));
+      } else if (inBatch !== undefined) {
+        // Row present and notice unchanged: refresh the text in place so a
+        // stale row never lingers after the judgment moved on between turns.
+        inBatch.content = [{ type: "text", text: currentNotice }];
       }
-      // Row present and notice unchanged: refresh the text in place so a
-      // stale row never lingers after the judgment moved on between turns.
-      // When the row is not in this batch (it lives in an earlier turn) there
-      // is nothing to refresh here — the standing state stays with the
-      // system-prompt section, which carries the judgment every turn.
-      if (inBatch !== undefined) inBatch.content = [{ type: "text", text: currentNotice }];
+      // 行动前双源召回（10 §5.3）：**独立于**管辖判定行，自带 digest 去重。
+      // 它不因管辖判定行未变化而被跳过——两者是不同注入面。
+      if (getRecallRow !== null) {
+        let recall = null;
+        try {
+          // 本回合用户消息由本模块提取（它已持有 isOwnMessage 与批次），
+          // 回调只负责「给定查询 → 召回 → 渲染」。这样召回侧不必认识
+          // 本插件的消息形状，耦合只在一个方向上。
+          recall = await getRecallRow({ userText: currentUserText(batch, isOwnMessage) });
+        } catch (error) {
+          // 召回失败不拦回合；如实记日志，不假装「无相关」。
+          agent?.ctx?.logger?.warn?.(`ldvh: recall injection failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        if (recall !== null && recall?.inject === true && typeof recall.text === "string" && recall.text !== "") {
+          if (recall.digest !== state.lastRecallDigest) {
+            state.lastRecallDigest = recall.digest;
+            extras.push(createPluginMessage(recall.text, recallLabel() ?? "双源召回 · 行动前候选"));
+          }
+        }
+      }
+      if (extras.length > 0) {
+        noteOwnMessages(state, extras);
+        return { kind: "enter", messages: [...batch, ...extras] };
+      }
       return decision;
     }
   };
