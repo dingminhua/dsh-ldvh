@@ -387,6 +387,11 @@ export async function recallForAction(input = {}) {
   }));
 
   // 预算：按返回内容的 UTF-8 字节数裁剪，超了如实标 truncated（fd133f0d A3）。
+  //
+  // **保底一条**：若预算小到连第一条都放不下，不能返回空数组——空数组会被
+  // 调用方读成「没有相关约束」，而那正是 `02 §9.2` 禁止的「把零结果当无约束」。
+  // 故此时**保底返回第一条并把 truncated 置真**，由渲染侧如实写明「已裁剪」，
+  // 使 AI 知道「有关系项、只是没全给」，而不是「没有」。
   let used = 0;
   const fits = (item) => {
     const size = Buffer.byteLength(JSON.stringify(item), "utf8");
@@ -394,9 +399,20 @@ export async function recallForAction(input = {}) {
     used += size;
     return true;
   };
-  const keptSpecs = specHits.filter(fits);
-  const keptFacts = factHits.filter(fits);
+  const keepWithFloor = (hits) => {
+    const kept = hits.filter(fits);
+    if (kept.length === 0 && hits.length > 0) {
+      const first = hits[0];
+      used += Buffer.byteLength(JSON.stringify(first), "utf8");
+      return [first];
+    }
+    return kept;
+  };
+  const keptSpecs = keepWithFloor(specHits);
+  const keptFacts = keepWithFloor(factHits);
   const truncated = keptSpecs.length < specHits.length || keptFacts.length < factHits.length;
+  // 保底后 used 可能超过 budgetBytes——如实报告超额，不掩盖。
+  const overBudget = used > budgetBytes;
 
   return {
     ok: true,
@@ -404,6 +420,7 @@ export async function recallForAction(input = {}) {
     specs: keptSpecs,
     facts: keptFacts,
     truncated,
+    overBudget,
     budget: { limitBytes: budgetBytes, usedBytes: used, limit },
     // 34 §13：召回命中 ≠ 适用。
     provesApplicability: false,

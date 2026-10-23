@@ -229,7 +229,13 @@ export function renderRecallRow(result) {
     lines.push("本次未命中候选。这不证明「无相关约束」——确定性匹配会漏（换个说法就漏），必要时请自行扩大检索。");
   }
   if (result?.truncated === true) {
-    lines.push(`（超出预算已裁剪：上限 ${result.budget?.limitBytes ?? "?"} 字节，实际用 ${result.budget?.usedBytes ?? "?"} 字节。未列出的部分不代表不存在。）`);
+    if (result.overBudget === true) {
+      // 保底一条导致超额：必须说清「预算极小、只给了保底项」，
+      // 否则读者会以为这么多就是全部相关项。
+      lines.push(`（预算极小（上限 ${result.budget?.limitBytes ?? "?"} 字节）已超额，仅保底给出首项（实际 ${result.budget?.usedBytes ?? "?"} 字节）。**未列出的部分不代表不存在**，需要时请扩大检索。）`);
+    } else {
+      lines.push(`（超出预算已裁剪：上限 ${result.budget?.limitBytes ?? "?"} 字节，实际用 ${result.budget?.usedBytes ?? "?"} 字节。未列出的部分不代表不存在。）`);
+    }
   }
   return lines.join("\n");
 }

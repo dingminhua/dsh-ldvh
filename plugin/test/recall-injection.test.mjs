@@ -220,8 +220,11 @@ test("buildRecallInjection：预算可下调，且超预算标 truncated", async
 		budgetBytes: 120,
 	});
 	if (r.inject === true) {
-		assert.ok(r.result.budget.usedBytes <= 120, "不得超预算");
-		assert.match(r.text, /超出预算已裁剪|候选/, "超预算须标明或至少是候选行");
+		// 保底一条可能超额；未走保底时不得超。
+		if (r.result.overBudget !== true) {
+			assert.ok(r.result.budget.usedBytes <= 120, "未走保底时不得超预算");
+		}
+		assert.match(r.text, /超出预算已裁剪|预算极小|候选/, "超预算须标明或至少是候选行");
 	}
 });
 

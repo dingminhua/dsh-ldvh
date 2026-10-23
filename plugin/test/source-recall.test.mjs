@@ -180,7 +180,13 @@ test("recallForAction：预算超限时如实标 truncated，不静默", async (
 	});
 	assert.equal(r.ok, true);
 	assert.equal(r.truncated, true, "超预算须标 truncated");
-	assert.ok(r.budget.usedBytes <= 200, "返回内容不得超预算");
+	// 保底一条可能超额（见「预算极小不得返回零结果」用例）：此时不再要求
+	// usedBytes <= 预算，但必须如实标 overBudget，使调用方知道超额原因。
+	if (r.overBudget !== true) {
+		assert.ok(r.budget.usedBytes <= 200, "未走保底时返回内容不得超预算");
+	} else {
+		assert.ok(r.specs.length + r.facts.length > 0, "保底必须给出至少一条");
+	}
 });
 
 test("recallForAction：includeSpecs=false 时不回规范源", async () => {
@@ -298,4 +304,26 @@ test("规范正文层：受保护内容的出处能被召回（00 §4.3）", asy
 		r.specs.some((s) => s.title.includes("理念与构成")),
 		`00 号（受保护内容的规定处）应被命中，实际：[${r.specs.map((s) => s.title).join(", ")}]`,
 	);
+});
+
+test("预算极小不得返回零结果（零结果会被读成「无相关约束」）", async () => {
+	// 实测缺陷：budgetBytes 为 1/50/200 时 keepSpecs 与 keepFacts 都为空，
+	// 调用方看到 specs: [] + truncated: true 会读成「没有相关约束」——
+	// 而 02 §9.2 明文禁止把零结果当作无约束。
+	for (const budgetBytes of [1, 50, 200]) {
+		const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3, budgetBytes });
+		assert.equal(r.ok, true);
+		assert.ok(
+			r.specs.length + r.facts.length > 0,
+			`预算 ${budgetBytes} 时不得返回零结果`,
+		);
+		assert.equal(r.truncated, true, "应标为已裁剪");
+		assert.equal(r.overBudget, true, "保底导致超额时须如实标出");
+	}
+});
+
+test("预算充足时不标 overBudget", async () => {
+	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3, budgetBytes: 40000 });
+	assert.equal(r.overBudget, false);
+	assert.equal(r.truncated, false);
 });
