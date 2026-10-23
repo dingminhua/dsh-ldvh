@@ -442,6 +442,118 @@ export async function fingerprintCarriers(root, carriers) {
   return { ok: true, carriers: out };
 }
 
+// ---------------------------------------------------------------------------
+// 时序判据（34 §9.2 登记时机 / §9.3 不追溯为已遵守 / §6 排除条件）
+// ---------------------------------------------------------------------------
+
+/** 偏离形态闭集（34 §9.1 的四类）。 */
+export const DEVIATION_FORMS = Object.freeze([
+  "未识别偏离",
+  "已识别未落实偏离",
+  "判断错误偏离",
+  "来源本身冲突",
+]);
+
+/** 偏离登记须含的四项（34 §9.2 原文列举）。 */
+export const DEVIATION_FIELDS = Object.freeze([
+  { key: "form", label: "偏离形态" },
+  { key: "affectedScope", label: "受影响范围" },
+  { key: "sideEffects", label: "已发生的副作用" },
+  { key: "pendingChecks", label: "待核对项" },
+]);
+
+/**
+ * 判定一次偏离登记是否满足 34 §9.2 的两项要求：
+ *
+ *  1. **形态在闭集内**（§9.1 四类）——否则无法按形态分流；
+ *  2. **发现即登记**——`registeredAt` 必须不晚于 `returnedAt`（交还时刻），
+ *     且两者都必须存在。§9.2 原文：「偏离须在发现时立即登记，不得等到交还时
+ *     一并说明」。延迟登记**本身**须作为一项偏离如实登记（§14 该行「未满足时
+ *     的处理」），故此处返回 `lateRegistration` 供调用方据此追加一条。
+ *
+ * **本函数不判断**：偏离是否真的发生、形态判定是否正确、影响范围是否完整——
+ * 那是语义判断（§14：机械结果与语义判断互不替代）。
+ */
+export function evaluateDeviation(input = {}) {
+  const missing = DEVIATION_FIELDS
+    .filter((field) => !isNonEmptyString(input[field.key]))
+    .map((field) => field.label);
+  if (missing.length > 0) {
+    return fail(
+      "deviation/fields_missing",
+      `偏离登记缺 §9.2 要求的项：${missing.join("、")}`,
+      { missing },
+    );
+  }
+  if (!DEVIATION_FORMS.includes(input.form)) {
+    return fail(
+      "deviation/form_invalid",
+      `偏离形态须落在 34 §9.1 的闭集内（${DEVIATION_FORMS.join(" / ")}）`,
+      { allowed: [...DEVIATION_FORMS] },
+    );
+  }
+  const discovered = Date.parse(input.discoveredAt ?? "");
+  const registered = Date.parse(input.registeredAt ?? "");
+  const returned = Date.parse(input.returnedAt ?? "");
+  if (Number.isNaN(discovered) || Number.isNaN(registered)) {
+    return fail("deviation/timestamp_invalid", "discoveredAt 与 registeredAt 须为可解析的时间");
+  }
+  if (!Number.isNaN(returned) && registered > returned) {
+    return fail("deviation/registered_after_return", "登记时刻晚于交还时刻：§9.2 要求发现时立即登记");
+  }
+  const lateRegistration = registered > discovered;
+  return {
+    ok: true,
+    form: input.form,
+    // §9.2 的时间序判据：登记不得晚于交还。
+    registeredBeforeReturn: Number.isNaN(returned) ? null : registered <= returned,
+    // 发现与登记不同刻即属「延迟登记」——§14 要求该延迟本身再登记为一条偏离。
+    lateRegistration,
+    // §9.3 的禁区：补做识别不改变已发生偏离的性质。
+    retroactiveReliefGranted: false,
+  };
+}
+
+/**
+ * 判定一次「事后补做识别」是否被当成「从未偏离」（34 §9.3 的禁区）。
+ *
+ * §9.3 原文：「已发生的偏离不因事后补做识别而视为未发生，也不因补做后记录完整
+ * 而转为『已遵守』。事后补齐的识别只能证明补齐后的状态，其前一段的偏离须如实
+ * 保留在交还与记录中。」
+ *
+ * 故：任何一份记录若其 `backfilledAt` 晚于 `actionAt`（行动已发生才补做识别），
+ * 它的 `coversDeviations` 就**不得**为 false——否则就是拿补做覆盖了那一段。
+ * 本函数只在机械上抓住这一种形态，不评价补齐质量。
+ */
+export function checkRetroactiveCoverage(input = {}) {
+  const action = Date.parse(input.actionAt ?? "");
+  const backfilled = Date.parse(input.backfilledAt ?? "");
+  const declared = input.coversDeviations;
+  if (Number.isNaN(action)) {
+    return fail("invalid_request", "actionAt must be a parseable timestamp");
+  }
+  // 无 backfilledAt ＝ 不是补做，无需此判据。
+  if (Number.isNaN(backfilled)) {
+    return { ok: true, backfilled: false, retroactive: false, acceptable: true };
+  }
+  const retroactive = backfilled > action;
+  if (retroactive && declared === false) {
+    return fail(
+      "record/retroactive_coverage",
+      "补做识别（backfilledAt 晚于 actionAt）却声明未覆盖偏离：34 §9.3 禁止以补做识别覆盖已发生的偏离",
+    );
+  }
+  return {
+    ok: true,
+    backfilled: true,
+    retroactive,
+    // 补做时须显式保留偏离段；声明已覆盖即为合法形态。
+    acceptable: !retroactive || declared === true,
+    // §9.3：补做只能证明补齐后的状态。
+    provesOnlyAfterBackfill: retroactive,
+  };
+}
+
 /** 供调用方拼装路径的工具导出（测试与工具层共用，避免各自拼串）。 */
 export const STORE_DIR = STORE_SUBDIR;
 export { join };

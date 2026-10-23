@@ -15,6 +15,10 @@ import { join } from "node:path";
 
 import {
 	CONDITIONAL_SECTIONS,
+	DEVIATION_FIELDS,
+	DEVIATION_FORMS,
+	checkRetroactiveCoverage,
+	evaluateDeviation,
 	FINDING_STATES,
 	RECALLED_LABEL,
 	RECORD_HEADER,
@@ -545,4 +549,118 @@ test("fingerprintCarriers：缺 root、carriers 非数组、条目缺 path 均�
 	assert.equal((await fingerprintCarriers("", ["a.md"])).error.code, "invalid_request");
 	assert.equal((await fingerprintCarriers("/x", "a.md")).error.code, "invalid_request");
 	assert.equal((await fingerprintCarriers("/x", [{}])).error.code, "invalid_request");
+});
+
+// ---------------------------------------------------------------------------
+// 偏离登记（34 §9.1 形态闭集 / §9.2 发现即登记 / §9.3 不追溯为已遵守）
+// ---------------------------------------------------------------------------
+
+const DEVIATION_OK = {
+	form: "已识别未落实偏离",
+	affectedScope: "plugin/lib/precheck-record.js 的 render 分支",
+	sideEffects: "无写入；仅当次交还缺失该段",
+	pendingChecks: "确认调用方是否已据结论改行动",
+	discoveredAt: "2026-10-23T15:00:00+08:00",
+	registeredAt: "2026-10-23T15:00:00+08:00",
+	returnedAt: "2026-10-23T15:30:00+08:00",
+};
+
+test("DEVIATION_FORMS 恰为 34 §9.1 的四类形态", () => {
+	assert.deepEqual(
+		[...DEVIATION_FORMS],
+		["未识别偏离", "已识别未落实偏离", "判断错误偏离", "来源本身冲突"],
+	);
+});
+
+test("evaluateDeviation：四要素齐备、形态在闭集、登记不晚于交还即通过", () => {
+	const result = evaluateDeviation(DEVIATION_OK);
+	assert.equal(result.ok, true);
+	assert.equal(result.registeredBeforeReturn, true);
+	assert.equal(result.lateRegistration, false);
+});
+
+test("evaluateDeviation：缺 §9.2 任一项即拒绝并指名", () => {
+	for (const field of DEVIATION_FIELDS) {
+		const partial = { ...DEVIATION_OK };
+		delete partial[field.key];
+		const result = evaluateDeviation(partial);
+		assert.equal(result.ok, false, `缺 ${field.label} 须拒绝`);
+		assert.equal(result.error.code, "deviation/fields_missing");
+		assert.deepEqual(result.missing, [field.label]);
+	}
+});
+
+test("evaluateDeviation：形态不在闭集内即拒绝（无法按形态分流）", () => {
+	const result = evaluateDeviation({ ...DEVIATION_OK, form: "小失误" });
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "deviation/form_invalid");
+	assert.deepEqual(result.allowed, [...DEVIATION_FORMS]);
+});
+
+test("evaluateDeviation：登记晚于交还即拒绝（§9.2 不得等到交还时一并说明）", () => {
+	const result = evaluateDeviation({
+		...DEVIATION_OK,
+		registeredAt: "2026-10-23T15:45:00+08:00",
+	});
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "deviation/registered_after_return");
+});
+
+test("evaluateDeviation：发现与登记不同刻即标记 lateRegistration（需再登记为一条偏离）", () => {
+	const result = evaluateDeviation({
+		...DEVIATION_OK,
+		discoveredAt: "2026-10-23T14:00:00+08:00",
+		registeredAt: "2026-10-23T15:00:00+08:00",
+	});
+	assert.equal(result.ok, true);
+	assert.equal(result.lateRegistration, true, "延迟登记本身须作为一项偏离登记（§14）");
+});
+
+test("evaluateDeviation：从不授予「追溯为已遵守」", () => {
+	const result = evaluateDeviation(DEVIATION_OK);
+	assert.equal(result.retroactiveReliefGranted, false);
+});
+
+test("evaluateDeviation：时间戳不可解析即拒绝", () => {
+	const result = evaluateDeviation({ ...DEVIATION_OK, registeredAt: "昨天" });
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "deviation/timestamp_invalid");
+});
+
+// §9.3：补做识别不得覆盖已发生的偏离
+
+test("checkRetroactiveCoverage：非补做（无 backfilledAt）不受此判据约束", () => {
+	const result = checkRetroactiveCoverage({ actionAt: "2026-10-23T10:00:00+08:00" });
+	assert.equal(result.ok, true);
+	assert.equal(result.backfilled, false);
+	assert.equal(result.retroactive, false);
+});
+
+test("checkRetroactiveCoverage：补做却声明未覆盖偏离即拒绝（§9.3 禁区）", () => {
+	const result = checkRetroactiveCoverage({
+		actionAt: "2026-10-23T10:00:00+08:00",
+		backfilledAt: "2026-10-23T11:00:00+08:00",
+		coversDeviations: false,
+	});
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "record/retroactive_coverage");
+});
+
+test("checkRetroactiveCoverage：补做且声明保留偏离段即为合法形态", () => {
+	const result = checkRetroactiveCoverage({
+		actionAt: "2026-10-23T10:00:00+08:00",
+		backfilledAt: "2026-10-23T11:00:00+08:00",
+		coversDeviations: true,
+	});
+	assert.equal(result.ok, true);
+	assert.equal(result.acceptable, true);
+	assert.equal(result.provesOnlyAfterBackfill, true, "补做只能证明补齐后的状态（§9.3）");
+});
+
+test("checkRetroactiveCoverage：actionAt 缺失或不可解析即拒绝", () => {
+	for (const bad of [undefined, "", "昨天"]) {
+		const result = checkRetroactiveCoverage({ actionAt: bad });
+		assert.equal(result.ok, false);
+		assert.equal(result.error.code, "invalid_request");
+	}
 });
