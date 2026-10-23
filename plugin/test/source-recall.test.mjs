@@ -327,3 +327,47 @@ test("预算充足时不标 overBudget", async () => {
 	assert.equal(r.overBudget, false);
 	assert.equal(r.truncated, false);
 });
+
+test("受辖但无语料的项目不得抛 ENOENT（新建项目/语料未建立是正常状态）", async () => {
+	// 实测缺陷：缺失 specs/ 或 ldvh-base/ 目录时，loadSpecs/loadFacts 直接抛
+	// `ENOENT ... scandir`。上层虽有 try/catch 只记日志，但那意味着**这类项目
+	// 每回合都在报错**——而「还没有语料」是正常状态，02 §9.2 也没有把它定为错误。
+	const { mkdtemp, mkdir, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join: joinPath } = await import("node:path");
+
+	const shapes = [
+		["完全没有目录", async () => {}],
+		["只有空 specs/", async (p) => { await mkdir(joinPath(p, "specs"), { recursive: true }); }],
+		["只有空 ldvh-base/", async (p) => { await mkdir(joinPath(p, "ldvh-base"), { recursive: true }); }],
+	];
+	for (const [name, setup] of shapes) {
+		const project = await mkdtemp(joinPath(tmpdir(), "ldvh-deg-"));
+		try {
+			await setup(project);
+			const r = await recallForAction({ action: "把 34 号规范改名", root: project, limit: 3 });
+			assert.equal(r.ok, true, `${name}：不应失败`);
+			assert.equal(r.specs.length, 0);
+			assert.equal(r.facts.length, 0);
+			// 零命中不是错误，也不是「无相关约束」的证明——由调用方如实解释。
+			assert.equal(r.provesApplicability, false);
+		} finally {
+			await rm(project, { recursive: true, force: true });
+		}
+	}
+});
+
+test("受辖但无语料：注入层报 no-hits 而非报错", async () => {
+	const { mkdtemp, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join: joinPath } = await import("node:path");
+	const { buildRecallInjection } = await import("../lib/recall-injection.js");
+	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-deg2-"));
+	try {
+		const r = await buildRecallInjection({ userText: "把 34 号规范改名", projectRoot: project });
+		assert.equal(r.inject, false);
+		assert.equal(r.reason, "no-hits", "应报零命中，不是抛错");
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+});

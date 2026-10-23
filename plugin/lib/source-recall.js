@@ -98,6 +98,24 @@ function intersect(a, b) {
 // 载入
 // ---------------------------------------------------------------------------
 
+/**
+ * `readdir` 的容错版：目录不存在时返回空数组。
+ *
+ * **为什么**：`loadSpecs`/`loadFacts` 面对的是「受辖项目」，而受辖不等于必有语料——
+ * 新建项目、语料尚未建立、或只建了一半（有 `specs/` 无 `ldvh-base/`）都是
+ * 正常状态。`02 §9.2` 也没有「没有语料即错误」这种规定。故这里把「目录不存在」
+ * 与「目录为空」同等对待：都是「没有候选」，由调用方如实报告零命中，
+ * 而不是每回合抛一次 ENOENT 让上层去 catch。
+ */
+async function readdirOrEmpty(dir, options) {
+  try {
+    return await readdir(dir, options);
+  } catch (error) {
+    if (error !== null && typeof error === "object" && error.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
 /** 解析 markdown 顶层 frontmatter（`key: value` 与 `key:\n  - item` 两种）。 */
 function parseFrontmatter(text) {
   const m = /^---\n([\s\S]*?)\n---/.exec(text);
@@ -125,9 +143,14 @@ function parseFrontmatter(text) {
  * **现读现解析**，不建持久索引（34 §17 第 1 项）。
  */
 export async function loadSpecs(specsDir) {
-  const files = (await readdir(specsDir)).filter((f) => f.endsWith(".md")).sort();
+  // 目录不存在时返回空数组，不抛 ENOENT。
+  // 实测：缺失 `specs/` 的受辖项目（新建项目、语料尚未建立）会让每次召回都抛
+  // `ENOENT ... scandir .../specs`。上层虽有 try/catch 只记日志，但那意味着
+  // **这类项目每回合都在报错**——而「还没有语料」是正常状态，不是错误。
+  const files = await readdirOrEmpty(specsDir);
+  const markdown = files.filter((f) => f.endsWith(".md")).sort();
   const out = [];
-  for (const file of files) {
+  for (const file of markdown) {
     const text = await readFile(join(specsDir, file), "utf8");
     const fm = parseFrontmatter(text);
     // 嵌套在 ldvh_spec 下，本仓用两空格缩进；直接按行再抽一次。
@@ -165,11 +188,12 @@ export async function loadSpecs(specsDir) {
  * **现读现解析**，不建持久索引。
  */
 export async function loadFacts(baseDir) {
-  const dirs = (await readdir(baseDir, { withFileTypes: true }))
-    .filter((d) => d.isDirectory()).map((d) => d.name).sort();
+  // 同 loadSpecs：事实源目录不存在时返回空数组，不抛 ENOENT。
+  const entries = await readdirOrEmpty(baseDir, { withFileTypes: true });
+  const dirs = entries.filter((d) => d.isDirectory()).map((d) => d.name).sort();
   const out = [];
   for (const dir of dirs) {
-    const files = (await readdir(join(baseDir, dir)))
+    const files = (await readdirOrEmpty(join(baseDir, dir)))
       .filter((f) => f.endsWith(".md")).sort();
     for (const file of files) {
       const text = await readFile(join(baseDir, dir, file), "utf8");
