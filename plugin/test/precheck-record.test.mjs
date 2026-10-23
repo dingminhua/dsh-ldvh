@@ -42,6 +42,7 @@ import {
 	evaluateDeviation,
 	FINDING_STATES,
 	RECALLED_LABEL,
+	RECALL_MARKS,
 	RECORD_HEADER,
 	REQUIRED_SECTIONS,
 	REUSE_CONDITIONS,
@@ -138,10 +139,13 @@ test("render：非对象入参拒绝", () => {
 // 「已召回」两级结构（03 §7.2：ADR / Pitfall 各一行，未触发须标记）
 // ---------------------------------------------------------------------------
 
-test("recalled：未传时两级都标「未触发」，不省略行", () => {
+test("recalled：未传时如实留「未声明」并带出理由，不冒充「未触发」（03 §7.2 末句）", () => {
 	const result = renderPrecheckRecord(COMPLETE_FIELDS);
-	assert.match(result.text, /^ {2}- ADR：未触发$/m);
-	assert.match(result.text, /^ {2}- Pitfall：未触发$/m);
+	// 修正（首版错误）：缺省只说明调用方没说，不说明召回时机未成立。
+	// 把未知写成「未触发」正是 §7.2 要防的「把没查的写成查过了」。
+	assert.match(result.text, /^ {2}- ADR：未声明$/m);
+	assert.match(result.text, /^ {2}- Pitfall：未声明$/m);
+	assert.match(result.recallDeclarationGap, /未给出「已召回」区/);
 });
 
 test("recalled：传对象时逐级呈现", () => {
@@ -158,7 +162,8 @@ test("recalled：单串无法区分两级时如实标记 undifferentiated，不�
 	const result = renderPrecheckRecord({ ...COMPLETE_FIELDS, recalled: "ADR 与 Pitfall 均已核对" });
 	assert.equal(result.undifferentiatedRecall, true);
 	assert.match(result.text, /^ {2}- ADR：ADR 与 Pitfall 均已核对$/m);
-	assert.match(result.text, /^ {2}- Pitfall：未触发$/m);
+	// 不能替调用方判 Pitfall 未触发——缺省即「未声明」。
+	assert.match(result.text, /^ {2}- Pitfall：未声明$/m);
 });
 
 // ---------------------------------------------------------------------------
@@ -1232,4 +1237,51 @@ test("routeConflict：非法层级拒绝并列出允许集", () => {
 		assert.equal(result.ok, false, `${JSON.stringify(bad)} 应被拒绝`);
 		assert.equal(result.error.code, "conflict/level_invalid");
 	}
+});
+
+// ---------------------------------------------------------------------------
+// 「未触发」与「未遍历」不得互换（03 §7.2 末句，2026-10-23 修正）
+// ---------------------------------------------------------------------------
+
+test("RECALL_MARKS 恰为三个合法取值", () => {
+	assert.deepEqual([...RECALL_MARKS], ["未触发", "未遍历", "未声明"]);
+});
+
+test("recalled：显式声明「未触发」与「未遍历」各自原样保留", () => {
+	const result = renderPrecheckRecord({
+		...COMPLETE_FIELDS,
+		tier: "快通道",
+		recalled: { adr: "未触发", pitfall: "未遍历" },
+	});
+	assert.match(result.text, /^ {2}- ADR：未触发$/m);
+	assert.match(result.text, /^ {2}- Pitfall：未遍历$/m);
+});
+
+test("recalled：快通道下未逐级标明即带出警告（§7.2 末句要求明确标记）", () => {
+	const result = renderPrecheckRecord({
+		...COMPLETE_FIELDS,
+		tier: "快通道",
+		recalled: { adr: "未触发" },
+	});
+	assert.equal(result.fastPathWarnings.length, 1);
+	assert.match(result.fastPathWarnings[0], /未遍历/);
+});
+
+test("recalled：把「未遍历」写成「已核对」即拒绝（§7.2 点名禁止）", () => {
+	const result = renderPrecheckRecord({
+		...COMPLETE_FIELDS,
+		recalled: { adr: "未遍历（已核对全部）", pitfall: "未触发" },
+	});
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "record/recall_mark_swapped");
+	assert.deepEqual(result.offenders.map((o) => o.level), ["ADR"]);
+});
+
+test("recalled：标准路径下未逐级标明不产生快通道警告（该警告仅属快通道）", () => {
+	const result = renderPrecheckRecord({
+		...COMPLETE_FIELDS,
+		tier: "标准路径",
+		recalled: { adr: "未触发" },
+	});
+	assert.deepEqual(result.fastPathWarnings, []);
 });

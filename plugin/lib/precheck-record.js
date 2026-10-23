@@ -79,31 +79,76 @@ function isNonEmptyString(value) {
 }
 
 /**
- * 归一「已召回」：接受字符串，或 `{ adr, pitfall }` 对象，或字符串数组。
- * 无论哪种形态，呈现都是 §7.2 的两行结构；缺哪一级就写「未触发」——
- * 这是 §7.2 原文对该段的显式要求（「若未触发则标记未触发」），不是填充。
+ * 「已召回」区的三种合法取值（03 §7.2 末句区分，不得混用）。
+ *
+ * §7.2 原文末句：「快通道时，『已召回』区只记录适用来源要求的召回；**未要求的
+ * 全量召回应明确标记『未遍历』，不得把未遍历写成已核对**。标准或加固路径时，
+ * 按适用来源要求列出实际完成的召回及其适用结论。」
+ *
+ * 三个词因此是**三个不同的事实**：
+ * - `未触发`——该来源的召回时机未成立（类型规范判定的结果）；
+ * - `未遍历`——快通道下按 §6.2 本就不遍历，**不等于已核对**；
+ * - 具体内容——实际完成的召回及其适用结论。
+ *
+ * **首版把「缺省」一律渲染为「未触发」，那是错的**：缺省只说明调用方没说，
+ * 不说明召回时机未成立。把未知写成「未触发」正是 §7.2 要防的那种「把没查的写成
+ * 查过了」。故本函数改为：未声明即 `未声明`（如实留白），并单列一条诊断。
  */
-function normalizeRecalled(value) {
+export const RECALL_MARKS = Object.freeze(["未触发", "未遍历", "未声明"]);
+
+function normalizeRecalled(value, tier) {
+  const blank = (reason) => ({
+    adr: "未声明",
+    pitfall: "未声明",
+    declared: false,
+    reason,
+  });
   if (value === undefined || value === null) {
-    return { adr: "未触发", pitfall: "未触发" };
+    return blank("调用方未给出「已召回」区；按 03 §7.2 不得以「未触发」冒充，故如实留「未声明」");
   }
   if (typeof value === "string") {
     const text = value.trim();
-    if (text === "") return { adr: "未触发", pitfall: "未触发" };
-    // 单串无法区分 ADR / Pitfall：原样落在 ADR 行、Pitfall 行标未触发，
-    // 并在 message 外连同一句诊断交还——不猜、不拆、不静默丢弃。
-    return { adr: text, pitfall: "未触发", undifferentiated: true };
+    if (text === "") return blank("「已召回」为空串，等同于未给出");
+    // 单串无法区分 ADR / Pitfall：原样落在 ADR 行、Pitfall 行如实留「未声明」，
+    // 并置 undifferentiated 供调用方补全——不猜、不拆、不静默丢弃。
+    return { adr: text, pitfall: "未声明", undifferentiated: true, declared: false };
   }
   if (Array.isArray(value)) {
     const text = value.filter((item) => isNonEmptyString(item)).map((item) => item.trim()).join("；");
-    return { adr: text === "" ? "未触发" : text, pitfall: "未触发", undifferentiated: true };
+    if (text === "") return blank("「已召回」为空数组，等同于未给出");
+    return { adr: text, pitfall: "未声明", undifferentiated: true, declared: false };
   }
   if (typeof value === "object") {
-    const adr = isNonEmptyString(value.adr) ? value.adr.trim() : "未触发";
-    const pitfall = isNonEmptyString(value.pitfall) ? value.pitfall.trim() : "未触发";
-    return { adr, pitfall };
+    // 逐级判断：给了就呈现，没给就留「未声明」——不替调用方填「未触发」。
+    const level = (raw) => {
+      if (isNonEmptyString(raw)) return raw.trim();
+      // 显式写「未触发」/「未遍历」是合法声明；两者不得互换（§7.2 末句）。
+      return "未声明";
+    };
+    const adr = level(value.adr);
+    const pitfall = level(value.pitfall);
+    // §7.2 末句：快通道下如实标「未遍历」是义务，不是可选项。
+    const fastPath = tier === "快通道";
+    const warns = [];
+    if (fastPath && (adr === "未声明" || pitfall === "未声明")) {
+      warns.push("快通道下的「已召回」区须逐级标明「未触发」或「未遍历」，不得留「未声明」（03 §7.2 末句）");
+    }
+    return { adr, pitfall, declared: true, fastPathWarnings: warns };
   }
-  return { adr: "未触发", pitfall: "未触发" };
+  return blank(`「已召回」的形态无法识别（${typeof value}）`);
+}
+
+/** 「未遍历」与「未触发」不得互换：声明「已核对」而实为未遍历，是 §7.2 点名禁止的。 */
+function checkRecallMarkSwap(recalled) {
+  const offenders = [];
+  for (const level of RECALLED_SUB_LABELS) {
+    const text = String(recalled[level.toLowerCase()] ?? "");
+    // 把「未遍历」写成「已核对」——§7.2 明禁。
+    if (/未遍历/.test(text) && /已核对|已检查|已遍历/.test(text)) {
+      offenders.push({ level, text });
+    }
+  }
+  return offenders;
 }
 
 /**
@@ -128,7 +173,16 @@ export function renderPrecheckRecord(fields = {}) {
     );
   }
 
-  const recalled = normalizeRecalled(fields.recalled);
+  const recalled = normalizeRecalled(fields.recalled, fields.tier);
+  // §7.2 末句：把「未遍历」写成「已核对」是点名禁止的混淆，机械层先拦。
+  const swapped = checkRecallMarkSwap(recalled);
+  if (swapped.length > 0) {
+    return fail(
+      "record/recall_mark_swapped",
+      `03 §7.2 末句：不得把「未遍历」写成已核对；违规级别：${swapped.map((s) => s.level).join("、")}`,
+      { offenders: swapped },
+    );
+  }
   const lines = [RECORD_HEADER, ""];
   const present = new Set();
 
@@ -159,6 +213,10 @@ export function renderPrecheckRecord(fields = {}) {
     text: `${lines.join("\n")}\n`,
     sections: [...present],
     undifferentiatedRecall: recalled.undifferentiated === true,
+    // §7.2 末句：快通道下未逐级标明的，连同警告一并交还，不静默放过。
+    fastPathWarnings: recalled.fastPathWarnings ?? [],
+    // 缺省未声明时如实带出理由（不冒充「未触发」）。
+    recallDeclarationGap: recalled.declared === false ? (recalled.reason ?? null) : null,
   };
 }
 
