@@ -1,8 +1,16 @@
 // dsh-ldvh — guidance surface: per-agent system-prompt/assemble injection and
 // the agent/pre-step channel skeleton.
 //
-// Authority: specs/08 §5.3 (guidance surface), specs/01 §10.4 (seven-anchor
-// minimal guidance content), framework doc §4 (startup six-point plan).
+// Authority: specs/10 §5.3 (guidance surface — two injection entries, content
+// single-authority / no verbatim rule text / size as a fixed constant),
+// specs/01 §10.4 (minimal guidance 00 anchors — SIX items, not seven: 身份块/
+// §2/§3/§4/§5（含 §5.6–§5.8）/§6), specs/10 §7.6 (protected-text registration).
+//
+// 2026-10-23 修正：本注释原写「specs/08 §5.3 (guidance surface)」与
+// 「seven-anchor」。二者皆错——08 §5.3 的标题是「判定方式」（同级规范全文无
+// 「引导」二字），01 §10.4 列的是六项。同一错误也存在于 guidance-text.js:8 与
+// :47 的受保护文本中，那两处须经 Human 逐段同意方可改（00 §4.3），此处只修
+// 本文件的注疏，不改受保护文本。
 //
 // Two channels, both per-agent (installed from lifecycle.js):
 //
@@ -24,7 +32,8 @@
 //      gate, reject/abort pass-through and ownRequest stub are all in place
 //      and tested before content ever flows.
 
-import { GUIDANCE_SECTION_NAME, guidanceTextFor, migrationLineFor, noticeTextFor } from "./guidance-text.js";
+import { buildGuidance } from "./guidance-budget.js";
+import { GUIDANCE_SECTION_NAME, migrationLineFor, noticeTextFor } from "./guidance-text.js";
 
 /**
  * Build the assemble-waterfall handler for ONE agent. `resolve(cwd)` must be
@@ -62,7 +71,15 @@ export function createAssembleHandler(agent, { resolve, syncTools, recordScope }
     // scope.noticeText onto the AgentLifecycle, so it must already be set
     // when the callback reads it (order bug found by live reproduction —
     // the copy always read null because the assignment came after).
-    let text = guidanceTextFor(scope.state);
+    // 体量核对（10 §5.3「体量以固定常量承载」）。超预算按 10 §10.1 第 3 项的
+    // 必停语义处理：不注入超预算的引导，但也不阻断整个装配——注入是能力承载，
+    // 其缺失不应让会话无法开始；此处如实降级为「不注入 + 记录原因」。
+    const guided = buildGuidance(scope.state);
+    let text = guided.ok ? guided.text : "";
+    if (!guided.ok) {
+      // 超预算时不静默注入半截文本，而是交还「未注入及原因」（10 §10.1-3）。
+      scope.guidanceBudgetExceeded = guided.error.message;
+    }
     let noticeText = noticeTextFor(scope);
     if (lastState !== null && lastState !== scope.state) {
       const migrationLine = migrationLineFor(lastState, scope.state);
