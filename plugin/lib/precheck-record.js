@@ -41,8 +41,8 @@
  */
 
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 /**
  * 必需段（03 §7.2 的六段中，原文未带「如」的四段）。顺序即呈现顺序。
@@ -69,9 +69,6 @@ const RECALLED_SUB_LABELS = Object.freeze(["ADR", "Pitfall"]);
 
 /** 交还开头标记（03 §7.2 的 `[预检落实记录]`）。 */
 export const RECORD_HEADER = "[预检落实记录]";
-
-/** 落盘子目录与文件名前缀（specs/10 §7.7 的 ldvh/ 域之下）。 */
-const STORE_SUBDIR = "precheck-records";
 
 function fail(code, message, extra = {}) {
   return { ok: false, error: { code, message }, ...extra };
@@ -191,55 +188,55 @@ export function recordFingerprint(text) {
 }
 
 /**
- * 落盘路径：`<dshHome>/ldvh/precheck-records/<session>-<stamp>.txt`。
+ * 交还承载：把记录包成交还结构，**不落盘**。
  *
- * 路径一律由 `dshHomePath` 解析得到，不硬编码（specs/10 §7.7 的同一纪律）。
- * `stamp` 由调用方给（可观测、可复算），本模块不取系统时钟——纯函数化便于测试。
+ * ## 为什么本模块不写盘（34 §17 第 3 项 / §10）
+ *
+ * 34 §17 第 3 项红线：「不为本系统新建事实类型、状态字段或**专属存储**；
+ * 预检落实记录按 03 §7，写入按既有类型。」§10「是否必须写入」进一步说明：
+ * 「预检落实记录**必须生成并随交还呈现**（03 §7），但**不要求写入事实源**。」
+ *
+ * 故本模块**不**建 `ldvh/precheck-records/` 之类的私有目录——那正是红线所禁的
+ * 「专属存储」。记录是**交还时的呈现物**：生成、返回、由调用方的交还正文承载。
+ *
+ * 需要跨交还留存时的正路是 specs/10 §7.7 的 Output Envelope 载体
+ * （`ldvh/` 域，与管辖登记同级）。**该裁体尚未建成**，10 §7.7 对此已有明文：
+ * 「机器承载建成前，交还维持 Human 可读正文并如实披露承载未建，不得声明已存在
+ * 宿主承载。」故 `carrierStatus()` 如实报告未建，而不是自己造一个。
  */
-export function recordPath(dshHomePath, { sessionId, stamp }) {
-  if (typeof dshHomePath !== "function") {
-    throw new Error("dshHomePath resolver is required (specs/10 §7.7: no hard-coded paths)");
-  }
-  if (!isNonEmptyString(sessionId) || !isNonEmptyString(stamp)) {
-    throw new Error("sessionId and stamp are required to name a record carrier");
-  }
-  const safe = (value) => String(value).replace(/[^A-Za-z0-9._-]/g, "_");
-  return dshHomePath("ldvh", STORE_SUBDIR, `${safe(sessionId)}-${safe(stamp)}.txt`);
+export function buildHandover(fields = {}) {
+  const rendered = renderPrecheckRecord(fields);
+  if (!rendered.ok) return rendered;
+  return {
+    ok: true,
+    // 交还正文直接可用的文本（03 §7.2 形态）。
+    text: rendered.text,
+    fingerprint: recordFingerprint(rendered.text),
+    shape: checkRecordShape(rendered.text),
+    sections: rendered.sections,
+    undifferentiatedRecall: rendered.undifferentiatedRecall,
+    // §10：记录不是事实对象，这里如实声明其承载边界。
+    carrier: carrierStatus(),
+  };
 }
 
 /**
- * 原子写 + 写后回读。回读不一致即报失败，绝不静默通过（specs/03 §9 读回同形纪律）。
+ * 记录承载的当前状态（10 §7.7 的如实披露，不陈述「已建成」）。
+ *
+ * 返回 `persisted: false` 是**机械上可核对的事实**：本模块没有任何写盘路径。
+ * 上游一旦建成 Output Envelope 载体，此函数须随之更新，且不得提前声称已建成。
  */
-export async function writeRecord(filePath, text) {
-  await mkdir(dirname(filePath), { recursive: true });
-  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmp, text, "utf8");
-  const readBack = await readFile(tmp, "utf8");
-  if (readBack !== text) {
-    await unlink(tmp).catch(() => {});
-    return fail("record/write_verify_failed", "写入后回读内容与写入内容不一致；未落盘");
-  }
-  await rename(tmp, filePath);
-  const finalRead = await readFile(filePath, "utf8");
-  if (finalRead !== text) {
-    return fail("record/readback_mismatch", "落盘后回读内容与写入内容不一致");
-  }
-  return { ok: true, file: filePath, fingerprint: recordFingerprint(finalRead) };
-}
-
-/** 回读一份已落盘的记录：原文 + 指纹 + 形态核对结论。 */
-export async function readRecord(filePath) {
-  let text;
-  try {
-    text = await readFile(filePath, "utf8");
-  } catch (error) {
-    return fail("record/unreadable", String(error?.message ?? error));
-  }
+export function carrierStatus() {
   return {
-    ok: true,
-    text,
-    fingerprint: recordFingerprint(text),
-    shape: checkRecordShape(text),
+    persisted: false,
+    // 记录落在交还正文而非任何载体（34 §10「不要求写入事实源」）。
+    carriedBy: "handover-text",
+    envelope: {
+      specRef: "specs/10 §7.7",
+      // 10 §7.7 原文限定：载体形态随记忆系统设计定案；建成前须如实披露未建。
+      built: false,
+      disclosure: "Output Envelope 机器承载未建（specs/10 §7.7 允许此状态并禁止声明已建成）",
+    },
   };
 }
 
@@ -554,6 +551,4 @@ export function checkRetroactiveCoverage(input = {}) {
   };
 }
 
-/** 供调用方拼装路径的工具导出（测试与工具层共用，避免各自拼串）。 */
-export const STORE_DIR = STORE_SUBDIR;
 export { join };

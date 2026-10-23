@@ -28,11 +28,10 @@ import {
 	checkRecordShape,
 	evaluateReuse,
 	fingerprintCarriers,
-	readRecord,
 	recordFingerprint,
-	recordPath,
 	renderPrecheckRecord,
-	writeRecord,
+	buildHandover,
+	carrierStatus,
 } from "../lib/precheck-record.js";
 
 /** 一份满足 03 §7.2 四段必需项的最小输入。 */
@@ -193,75 +192,6 @@ test("checkRecordShape：空入参拒绝", () => {
 		assert.equal(shape.ok, false);
 		assert.equal(shape.error.code, "invalid_request");
 	}
-});
-
-// ---------------------------------------------------------------------------
-// 落盘与回读（specs/10 §7.7：路径由 dshHomePath 解析，不硬编码）
-// ---------------------------------------------------------------------------
-
-test("recordPath：路径由 dshHomePath 解析得到，落在 ldvh/ 域内且不碰事实源", () => {
-	const calls = [];
-	const fakeHome = (...segments) => {
-		calls.push(segments);
-		return join("/dsh-home", ...segments);
-	};
-	const path = recordPath(fakeHome, { sessionId: "session-abc", stamp: "20261023T140000" });
-	assert.equal(calls[0][0], "ldvh", "首段须是 ldvh 域（10 §7.7）");
-	assert.ok(path.startsWith(join("/dsh-home", "ldvh")), `路径须在 ldvh 域下，实际 ${path}`);
-	assert.doesNotMatch(path, /ldvh-base/, "不得写入项目事实源目录（34 §10）");
-});
-
-test("recordPath：sessionId 与 stamp 中的路径分隔符被规范化，不能逃出目录", () => {
-	const path = recordPath((...segments) => join("/dsh-home", ...segments), {
-		sessionId: "../../etc/passwd",
-		stamp: "a/b",
-	});
-	assert.doesNotMatch(path, /\.\.\//, "不得把 .. 带进落盘路径");
-	assert.equal(path.startsWith(join("/dsh-home", "ldvh")), true);
-});
-
-test("recordPath：缺少参数或 dshHomePath 不可用时抛错，不退回默认路径", () => {
-	assert.throws(() => recordPath(undefined, { sessionId: "s", stamp: "t" }), /dshHomePath/);
-	assert.throws(() => recordPath((...s) => s.join("/"), { stamp: "t" }), /sessionId/);
-	assert.throws(() => recordPath((...s) => s.join("/"), { sessionId: "s" }), /stamp/);
-});
-
-test("writeRecord：落盘后回读逐字一致，并给出内容指纹", async () => {
-	const root = await mkdtemp(join(tmpdir(), "ldvh-precheck-"));
-	try {
-		const home = (...segments) => join(root, ...segments);
-		const { text } = renderPrecheckRecord(COMPLETE_FIELDS);
-		const file = recordPath(home, { sessionId: "session-abc", stamp: "s1" });
-		const written = await writeRecord(file, text);
-		assert.equal(written.ok, true);
-		assert.equal(written.fingerprint, recordFingerprint(text));
-		assert.equal(await readFile(file, "utf8"), text);
-	} finally {
-		await rm(root, { recursive: true, force: true });
-	}
-});
-
-test("readRecord：回读给出原文、指纹与形态核对结论", async () => {
-	const root = await mkdtemp(join(tmpdir(), "ldvh-precheck-"));
-	try {
-		const home = (...segments) => join(root, ...segments);
-		const { text } = renderPrecheckRecord(COMPLETE_FIELDS);
-		const file = recordPath(home, { sessionId: "session-abc", stamp: "s2" });
-		await writeRecord(file, text);
-		const read = await readRecord(file);
-		assert.equal(read.ok, true);
-		assert.equal(read.text, text);
-		assert.equal(read.fingerprint, recordFingerprint(text));
-		assert.equal(read.shape.complete, true);
-	} finally {
-		await rm(root, { recursive: true, force: true });
-	}
-});
-
-test("readRecord：不存在的载体报不可读，不伪造空记录", async () => {
-	const read = await readRecord(join(tmpdir(), "ldvh-definitely-missing", "x.txt"));
-	assert.equal(read.ok, false);
-	assert.equal(read.error.code, "record/unreadable");
 });
 
 // ---------------------------------------------------------------------------
@@ -662,5 +592,40 @@ test("checkRetroactiveCoverage：actionAt 缺失或不可解析即拒绝", () =>
 		const result = checkRetroactiveCoverage({ actionAt: bad });
 		assert.equal(result.ok, false);
 		assert.equal(result.error.code, "invalid_request");
+	}
+});
+
+// ---------------------------------------------------------------------------
+// 承载：交还文本，不落盘（34 §17 第 3 项禁专属存储 / §10 不要求写入事实源）
+// ---------------------------------------------------------------------------
+
+test("carrierStatus：如实报告未建 Output Envelope 载体，不声称已建成", () => {
+	const status = carrierStatus();
+	assert.equal(status.persisted, false, "本模块没有任何写盘路径");
+	assert.equal(status.carriedBy, "handover-text");
+	assert.equal(status.envelope.built, false);
+	assert.match(status.envelope.disclosure, /未建/);
+	assert.match(status.envelope.specRef, /10 §7\.7/);
+});
+
+test("buildHandover：返回可直接进交还正文的文本与指纹，且带承载声明", () => {
+	const result = buildHandover(COMPLETE_FIELDS);
+	assert.equal(result.ok, true);
+	assert.ok(result.text.startsWith(RECORD_HEADER));
+	assert.equal(result.fingerprint, recordFingerprint(result.text));
+	assert.equal(result.shape.complete, true);
+	assert.deepEqual(result.carrier, carrierStatus());
+});
+
+test("buildHandover：缺必需段时与 render 同样拒绝，不产出半份交还", () => {
+	const result = buildHandover({ effective: "只有这一段" });
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "record/section_missing");
+});
+
+test("本模块不导出任何写盘入口（§17 第 3 项：不得建专属存储）", async () => {
+	const module = await import("../lib/precheck-record.js");
+	for (const forbidden of ["writeRecord", "readRecord", "recordPath", "STORE_DIR"]) {
+		assert.equal(module[forbidden], undefined, `${forbidden} 不应存在——那属于已禁的专属存储`);
 	}
 });
