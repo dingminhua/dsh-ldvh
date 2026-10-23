@@ -1366,3 +1366,21 @@ test("roundTripRecord：渲染阶段被拒时原样返回该拒绝（不吞错�
 	assert.equal(result.ok, false);
 	assert.equal(result.error.code, "record/section_missing");
 });
+
+test("shape 与 parseRecord 对同一输入的 complete 判定必须一致（防两套标签逻辑漂移）", () => {
+	const cases = [
+		renderPrecheckRecord(COMPLETE_FIELDS).text,
+		renderPrecheckRecord({ ...COMPLETE_FIELDS, fastPath: "e" }).text,
+		`${RECORD_HEADER}\n\n- 生效规则：x\n`,
+		`${RECORD_HEADER}\n`,
+	];
+	for (const [index, text] of cases.entries()) {
+		const shape = checkRecordShape(text);
+		const parsed = parseRecord(text);
+		assert.equal(
+			shape.complete,
+			parsed.complete,
+			`第 ${index} 个输入上两个判定器结论不一致：shape=${shape.complete} parse=${parsed.complete}`,
+		);
+	}
+});
