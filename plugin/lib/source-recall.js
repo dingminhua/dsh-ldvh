@@ -1,0 +1,345 @@
+// source-recall.js —— 行动前召回规范源与事实源（规则遵守系统的输入侧）
+//
+// ## 这个模块在干什么
+//
+// 34 §7「输入来源」逐字：
+//   「规则来源为规范源（经 01 §10 的 L0–L4 读取取得）；事实来源为事实源（经 02 §9
+//    的 F0–F4 召回取得）；决定来源为 Human 决定记录与各事实类型中的决定类对象；
+//    授权来源为 00 §4 与各授权程序。输入来源的读取深度须与风险层相称（03 §6.1）。」
+//
+// 34 §8.1 第 1 项（适用识别）逐字：
+//   「从来源中**找出**与当次行动相关的规则、事实、决定与授权，并给出每一项的适用
+//    依据（为何相关、覆盖哪一段行动）。」
+//
+// 故本模块做的是**找出**这一半：给一个动作描述，从两个源里找出相关的规则与事实，
+// 并给出命中理由。它**不判定适用**——34 §13 明文「召回的命中不等于适用」，
+// 判适用是本系统后续的判断，不由召回代劳。
+//
+// ## 为什么不建索引、不上向量
+//
+// 34 §17 第 1 项：「不为本系统建立全量规则索引、实时规则同步或规则依赖图——识别
+// 按需从来源读取，不预建索引。」
+//
+// 仓内两份独立调研（`0b3471af` A3、`fd133f0d` A2）得出同一结论：**零依赖启发式
+// 起步（tokenize/jaccard）而非向量**。`fd133f0d` F7 记录 Mem0 实测图增益仅约 2%。
+// 故本模块：现读现解析、确定性匹配、按层排序不算分、无持久索引、无向量。
+//
+// ## 为什么匹配是「分层布尔」而不是打分
+//
+// 打分（权重/相似度）不可解释，且会在决定/规则场景里制造假阳性。故按**层**排序：
+// 命中越精确的字段，层越前；同层按时间倒序。每一层都产出 `hitReason`，
+// 使调用方可核对「为什么这条被认为相关」。
+//
+// ## 边界
+//
+// - **不判定适用**（34 §13）：只给候选与理由。
+// - **不写任何东西**：纯读，不落盘、不建索引、不回写。
+// - **不补漏**：确定性召回会漏（换个说法就漏），漏了不补——这与 02 §9 的取舍一致。
+// - **预算硬约束**（`fd133f0d` A3，以 Anthropic 注意力预算为一手依据）：返回内容
+//   有字节上限，超了如实标 `truncated`，不静默截断后仍宣称完整。
+
+import { readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
+
+// ---------------------------------------------------------------------------
+// 分词：中文二元组 + ASCII 词，零依赖
+// ---------------------------------------------------------------------------
+
+/** 中文虚字：含任一虚字的二元组不参与匹配（不承载意义，只制造噪声）。 */
+const FUNCTION_CHARS = new Set(
+  "的了是在和与或一个这对就也都是而把被让从到向但并且还又会能要可以不没无这那什么你我他她它们所因如果现之其等该者",
+);
+
+/**
+ * 把一段文本切成可匹配的 token。
+ *
+ * - ASCII 词：按非字母数字切，小写化，长度 ≥ 2；
+ * - 中文：逐字 + 相邻二元组（bigram）。「预检落实」→ 预检、检落、落实，
+ *   使「预检落实记录」与「预检」也能命中——这是零依赖下对中文最有效的做法，
+ *   也是 `0b3471af` F3 所指的 tokenize 路线。
+ * - 数字与编号（§10.4、03、27）保留，便于按章节号命中。
+ *
+ * 短于 2 字的中文单字不单独成 token，避免「的」「了」这类噪声。
+ */
+export function tokenize(text) {
+  if (typeof text !== "string" || text === "") return [];
+  const tokens = new Set();
+  // ASCII 词与数字/编号
+  for (const m of text.toLowerCase().matchAll(/[a-z0-9][a-z0-9._-]*/g)) {
+    if (m[0].length >= 2) tokens.add(m[0]);
+  }
+  // 中文只取**二元组**（bigram），单字不进匹配集；含虚字的二元组也不进。
+  //
+  // 实测教训一：单字参与匹配时「的/一/本/是」命中一切。
+  // 实测教训二：二元组里仍有纯虚字组合（「一个」「可能」「可以」）与跨词噪声
+  // （「建一」「板的」「的取」）命中一切。
+  // 两层过滤都是「不承载意义就不参与比对」，不是权重，故仍可解释、可复算。
+  const cjk = text.match(/[\u4e00-\u9fff]+/g) ?? [];
+  for (const run of cjk) {
+    for (let i = 0; i + 1 < run.length; i += 1) {
+      const bigram = run.slice(i, i + 2);
+      if (FUNCTION_CHARS.has(bigram[0]) || FUNCTION_CHARS.has(bigram[1])) continue;
+      tokens.add(bigram);
+    }
+    // 长度为 1 的 run 取不到二元组，此时单字才有区分度，才单独成 token；
+    // 但虚字单字（的/了/是…）仍不进——它只制造噪声（实测曾让「的」进命中理由）。
+    if (run.length === 1 && !FUNCTION_CHARS.has(run)) tokens.add(run);
+  }
+  return [...tokens];
+}
+
+/** 两个 token 集的交集大小（不打分做排序，只用于「是否有交集」与命中理由）。 */
+function intersect(a, b) {
+  const set = new Set(b);
+  return a.filter((t) => set.has(t));
+}
+
+// ---------------------------------------------------------------------------
+// 载入
+// ---------------------------------------------------------------------------
+
+/** 解析 markdown 顶层 frontmatter（`key: value` 与 `key:\n  - item` 两种）。 */
+function parseFrontmatter(text) {
+  const m = /^---\n([\s\S]*?)\n---/.exec(text);
+  if (m === null) return {};
+  const out = {};
+  let cur = null;
+  for (const line of m[1].split("\n")) {
+    const kv = /^([A-Za-z_][\w]*):\s*(.*)$/.exec(line);
+    if (kv !== null) { cur = kv[1]; out[cur] = kv[2].trim(); continue; }
+    const item = /^\s+-\s+(.*)$/.exec(line);
+    if (item !== null && cur !== null) {
+      out[cur] = `${typeof out[cur] === "string" ? out[cur] : ""} ${item[1].trim()}`.trim();
+    }
+  }
+  return out;
+}
+
+/**
+ * 载入规范源 `specs/`。
+ *
+ * 规范源的 frontmatter 是嵌套在 `ldvh_spec:` 下的，本函数把它拍平取所需字段：
+ * `spec_key` / `spec_id` / `title` / `positioning` / `scope` / `basis`。
+ * 另取正文标题行，使章节标题也可参与匹配（如「预检落实记录」）。
+ *
+ * **现读现解析**，不建持久索引（34 §17 第 1 项）。
+ */
+export async function loadSpecs(specsDir) {
+  const files = (await readdir(specsDir)).filter((f) => f.endsWith(".md")).sort();
+  const out = [];
+  for (const file of files) {
+    const text = await readFile(join(specsDir, file), "utf8");
+    const fm = parseFrontmatter(text);
+    // 嵌套在 ldvh_spec 下，本仓用两空格缩进；直接按行再抽一次。
+    const block = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? "";
+    const pick = (key) => {
+      const direct = fm[key];
+      if (direct !== undefined && direct !== "") return direct;
+      const m = new RegExp(`^\\s+${key}:\\s*(.+)$`, "m").exec(block);
+      return m !== null ? m[1].trim().replace(/^["']|["']$/g, "") : "";
+    };
+    const headings = [...text.matchAll(/^#{2,3}\s+(.+)$/gm)].map((m) => m[1].trim());
+    out.push({
+      source: "spec",
+      ref: pick("spec_key") || file.replace(/\.md$/, ""),
+      specId: pick("spec_id"),
+      title: pick("title") || file.replace(/\.md$/, ""),
+      positioning: pick("positioning"),
+      scope: pick("scope"),
+      basis: pick("basis"),
+      path: `specs/${file}`,
+      headings,
+      text,
+    });
+  }
+  return out;
+}
+
+/**
+ * 载入事实源 `ldvh-base/`。
+ *
+ * 每个子目录是一个事实类型（adrs/frictions/norms/pitfalls/researches/sparks/workcases）。
+ * 取 `title` / `status` 与类型相关的可匹配字段（scope、decision、phenomenon、question、
+ * research_question、gist、trigger_signal 等），外加正文前若干行做补充匹配。
+ *
+ * **现读现解析**，不建持久索引。
+ */
+export async function loadFacts(baseDir) {
+  const dirs = (await readdir(baseDir, { withFileTypes: true }))
+    .filter((d) => d.isDirectory()).map((d) => d.name).sort();
+  const out = [];
+  for (const dir of dirs) {
+    const files = (await readdir(join(baseDir, dir)))
+      .filter((f) => f.endsWith(".md")).sort();
+    for (const file of files) {
+      const text = await readFile(join(baseDir, dir, file), "utf8");
+      const fm = parseFrontmatter(text);
+      // 正文（去掉 frontmatter）的前 1200 字做补充匹配，控制成本。
+      const body = text.replace(/^---\n[\s\S]*?\n---\n?/, "").slice(0, 1200);
+      out.push({
+        source: "fact",
+        // 类型名直接取 frontmatter 的 fact_type_key（权威），不从目录名猜单复数——
+        // 「researches→research」这类英文变形易错（曾得 "researche"/"workca"）。
+        type: fm.fact_type_key || dir.replace(/s$/, ""),
+        dir,
+        ref: fm.object_uid || file.replace(/\.md$/, ""),
+        title: fm.title ?? "",
+        status: fm.status ?? "",
+        scope: fm.scope ?? fm.scope_boundary ?? "",
+        // 类型相关的可匹配字段，逐类拼在一起。
+        detail: [
+          fm.decision, fm.phenomenon, fm.question, fm.research_question,
+          fm.gist, fm.intent, fm.direction_key, fm.research_purpose,
+        ].filter(Boolean).join(" "),
+        trigger: fm.trigger_signal ?? "",
+        path: `ldvh-base/${dir}/${file}`,
+        body,
+      });
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// 分层布尔匹配
+// ---------------------------------------------------------------------------
+
+/** 四层：命中越精确的字段，层号越前。只排序，不打分。 */
+export const MATCH_TIERS = Object.freeze([
+  { tier: 1, field: "scope", label: "适用范围命中" },
+  { tier: 2, field: "detail", label: "类型正文命中" },
+  { tier: 3, field: "title", label: "标题命中" },
+  { tier: 4, field: "body", label: "正文片段命中" },
+]);
+
+/**
+ * 判定一个候选与动作的相关层。
+ *
+ * @param {string[]} actionTokens 动作描述的 token
+ * @param {object} candidate 载入的候选
+ * @returns {{tier: number, hitReason: string} | null} 无关则 null
+ */
+export function matchCandidate(actionTokens, candidate) {
+  const sections = [
+    { tier: 1, text: candidate.scope, label: "适用范围" },
+    { tier: 2, text: candidate.detail, label: "内容" },
+    { tier: 3, text: candidate.title, label: "标题" },
+    { tier: 4, text: candidate.body, label: "正文" },
+  ];
+  for (const section of sections) {
+    if (typeof section.text !== "string" || section.text === "") continue;
+    const hits = intersect(actionTokens, tokenize(section.text));
+    if (hits.length > 0) {
+      // 命中理由只列前 3 个 token，避免把整段塞进理由。
+      return {
+        tier: section.tier,
+        hits: hits.length,
+        hitReason: `${section.label}命中：${hits.slice(0, 3).join("、")}`,
+      };
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// 召回入口
+// ---------------------------------------------------------------------------
+
+/**
+ * 行动前召回：给一个动作描述，从两个源找出相关候选。
+ *
+ * @param {object} input
+ * @param {string} input.action       动作描述（即将发生什么）
+ * @param {string} [input.scope]      补充范围词（文件/对象/能力，34 §7 必需输入）
+ * @param {string[]} [input.types]    只召回这些事实类型（adrs/norms/pitfalls/…）
+ * @param {string[]} [input.statuses] 默认 `["active"]`；写入前查重可加 `["draft","open"]`
+ * @param {boolean} [input.includeSpecs] 是否召回规范源，默认 true
+ * @param {number} [input.limit]     每侧最多返回条数，默认 5
+ * @param {number} [input.budgetBytes] 返回内容的字节上限，默认 4000
+ *
+ * @returns {{ok: true, specs, facts, truncated, budget, recalledAt}}
+ *   或 `{ok:false, error}`。`truncated` 为 true 时如实说明被裁剪，不静默。
+ *
+ * ## 边界（34 §13）
+ *
+ * **召回的命中不等于适用。** 本函数只给候选与命中理由，不给「这条适用于本次行动」
+ * 的结论。调用方须另行判定适用——那属 34 §8.1 第 2、3 项。
+ */
+export async function recallForAction(input = {}) {
+  const action = typeof input.action === "string" ? input.action.trim() : "";
+  if (action === "") {
+    return { ok: false, error: { code: "recall/action_required", message: "动作描述必填" } };
+  }
+  const limit = Number.isInteger(input.limit) && input.limit > 0 ? input.limit : 5;
+  const budgetBytes = Number.isInteger(input.budgetBytes) && input.budgetBytes > 0
+    ? input.budgetBytes : 4000;
+  const statuses = Array.isArray(input.statuses) && input.statuses.length > 0
+    ? input.statuses : ["active"];
+  const types = Array.isArray(input.types) ? input.types : null;
+  const includeSpecs = input.includeSpecs !== false;
+
+  const query = `${action} ${input.scope ?? ""}`.trim();
+  const tokens = tokenize(query);
+  if (tokens.length === 0) {
+    return {
+      ok: false,
+      error: { code: "recall/no_tokens", message: "动作描述切不出可匹配的词，召回无从开始" },
+    };
+  }
+
+  const root = input.root ?? join(import.meta.dirname, "..", "..");
+  const [specs, facts] = await Promise.all([
+    includeSpecs ? loadSpecs(join(root, "specs")) : [],
+    loadFacts(join(root, "ldvh-base")),
+  ]);
+
+  // 过滤：类型 + 状态。事实按 status，规范无 status 概念故全量参与。
+  const pool = facts.filter((c) => {
+    if (types !== null && !types.includes(c.type)) return false;
+    return statuses.includes(c.status);
+  });
+
+  const collect = (list, mapper) => list
+    .map((c) => {
+      const m = matchCandidate(tokens, c);
+      return m === null ? null : { ...mapper(c), tier: m.tier, hitReason: m.hitReason };
+    })
+    .filter(Boolean)
+    // 排序：先按层（命中越精确的字段越前），同层按命中词数降序、再按路径稳定排序。
+    // 命中词数是计数不是权重——可解释（hitReason 列出命中词）、可复算、无学习参数。
+    .sort((a, b) => a.tier - b.tier || b.hits - a.hits || a.path.localeCompare(b.path))
+    .slice(0, limit);
+
+  const specHits = collect(specs, (c) => ({
+    kind: "spec", ref: c.ref, title: c.title, path: c.path,
+    positioning: c.positioning.slice(0, 160),
+  }));
+  const factHits = collect(pool, (c) => ({
+    kind: "fact", type: c.type, ref: c.ref, title: c.title, status: c.status, path: c.path,
+  }));
+
+  // 预算：按返回内容的 UTF-8 字节数裁剪，超了如实标 truncated（fd133f0d A3）。
+  let used = 0;
+  const fits = (item) => {
+    const size = Buffer.byteLength(JSON.stringify(item), "utf8");
+    if (used + size > budgetBytes) return false;
+    used += size;
+    return true;
+  };
+  const keptSpecs = specHits.filter(fits);
+  const keptFacts = factHits.filter(fits);
+  const truncated = keptSpecs.length < specHits.length || keptFacts.length < factHits.length;
+
+  return {
+    ok: true,
+    query: { action, scope: input.scope ?? "", tokens: tokens.length },
+    specs: keptSpecs,
+    facts: keptFacts,
+    truncated,
+    budget: { limitBytes: budgetBytes, usedBytes: used, limit },
+    // 34 §13：召回命中 ≠ 适用。
+    provesApplicability: false,
+    // 确定性召回会漏（换个说法就漏），如实声明，不假装完整。
+    coverage: "deterministic-token-match; may miss rephrasings; not exhaustive",
+  };
+}
