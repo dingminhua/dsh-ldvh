@@ -445,3 +445,54 @@ test("单字噪声不得造成假命中（00 号不得靠「成」命中）", as
 		);
 	}
 });
+
+test("单字不得单独构成命中依据（真实消息实测：10 条里 4-5 条是单字噪声）", async () => {
+	// 实测（用本会话真实用户消息）：
+	//   「把这批改动合入吧」10 条结果里 5 条纯单字命中——WorkCase 工单靠「批」、
+	//   火花记录与规则遵守靠「合」；「经验也要召回啊」有 4 条靠单字「回」。
+	// 单个汉字在本语料里覆盖 50–70% 的候选（实测「改」231/337），
+	// 靠一个字命中几乎等于没命中。
+	// 「决定性命中词全为单字」——用于判定一条命中是否只靠单字。
+	const isAllSingleChar = (reason) => {
+		const m = /命中（[^）]*）：(.+)$/.exec(reason) ?? /命中：(.+)$/.exec(reason);
+		if (m === null) return false;
+		return m[1].split("、").every((token) => token.length === 1);
+	};
+	// **核心断言：有强词可用时，不得出现「只靠单字、却未标注」的命中。**
+	// 注意不能写成「跳过带标注的」，那会让断言空转——破坏实现后测试仍全过
+	// （实测过：把 strong 改成 >=1 后本条仍通过）。故这里要求：
+	//   凡命中词全为单字的条目，必须带「仅单字」标注；否则即为缺陷。
+	const r = await recallForAction({ action: "经验也要召回啊", root: ROOT, limit: 5, budgetBytes: 20000 });
+	assert.ok(r.specs.some((s) => s.title.includes("Pitfall")), "应命中 Pitfall 类型规范");
+	assert.ok(r.specs.length > 0, "应至少命中一份规范");
+	for (const s of [...r.specs, ...r.facts]) {
+		if (isAllSingleChar(s.hitReason)) {
+			assert.match(
+				s.hitReason,
+				/仅单字/,
+				`${s.title} 的命中词全是单字却未标注「仅单字」：${s.hitReason}`,
+			);
+		}
+	}
+	// 且「经验」这个强词必须被用上（证明强词优先于单字）。
+	assert.ok(
+		r.specs.some((s) => /命中：.*经验/.test(s.hitReason) && !/仅单字/.test(s.hitReason)),
+		`应有一份规范靠强词「经验」命中，实际：${r.specs.map((s) => s.hitReason).join(" | ")}`,
+	);
+});
+
+test("靠单字命中时须标注「仅单字…相关性弱」，不得让读者误以为相关性强", async () => {
+	const r = await recallForAction({ action: "把这批改动合入吧", root: ROOT, limit: 5, budgetBytes: 20000 });
+	const singleHits = r.specs.filter((s) => /仅单字/.test(s.hitReason));
+	for (const s of singleHits) {
+		assert.match(s.hitReason, /相关性弱，须自行核实/, "标注须说明相关性弱");
+	}
+});
+
+test("单字兜底不得被削弱：短指令仍须能召回（第 16 轮路径）", async () => {
+	const { buildRecallInjection } = await import("../lib/recall-injection.js");
+	for (const q of ["改一下", "删了", "加个", "建个"]) {
+		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
+		assert.equal(r.inject, true, `「${q}」必须仍能召回——单字是它唯一的词`);
+	}
+});

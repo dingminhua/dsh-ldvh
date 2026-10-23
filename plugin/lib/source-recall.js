@@ -321,13 +321,29 @@ export function matchCandidate(actionTokens, candidate) {
   for (const section of sections) {
     if (typeof section.text !== "string" || section.text === "") continue;
     const hits = intersect(actionTokens, tokenize(section.text));
-    if (hits.length >= (section.minHits ?? 1)) {
-      // 命中理由只列前 3 个 token，避免把整段塞进理由。
-      return {
-        tier: section.tier,
-        hits: hits.length,
-        hitReason: `${section.label}命中：${hits.slice(0, 3).join("、")}`,
-      };
+    // **单字只作辅助，不单独构成命中依据。**
+    //
+    // 实测（2026-10-24，用本会话真实用户消息）：「把这批改动合入吧」10 条结果里
+    // 5 条是纯单字命中——`WorkCase 工单` 靠「批」、`火花记录` 与 `规则遵守` 靠「合」；
+    // 「经验也要召回啊」有 4 条靠单字「回」命中。单个汉字在本语料里覆盖 50–70%
+    // 的候选（实测「改」231/337），「靠一个字命中」几乎等于没命中。
+    //
+    // 但单字**不能丢**：短指令「改一下／删了／加个」只有单字可切（第 16 轮修的
+    // 就是这个）。故规则是——**单字只在「没有别的词命中」时才算数**：
+    //   · 多字词至少命中一个 → 用多字词为准（单字附在后面仅供读者对照）；
+    //   · 只有单字命中 → 仍然算命中（短指令路径不被破坏）。
+    const strong = hits.filter((token) => token.length >= 2);
+    const weak = hits.filter((token) => token.length === 1);
+    const decisive = strong.length > 0 ? strong : weak;
+    if (decisive.length >= (section.minHits ?? 1)) {
+      // 命中理由只列前 3 个词；若靠单字命中，明确标出「仅单字」，
+      // 使读者知道这条的相关性弱，须自行核实。
+      const shown = decisive.slice(0, 3).join("、");
+      const reason =
+        strong.length > 0
+          ? `${section.label}命中：${shown}`
+          : `${section.label}仅单字命中（相关性弱，须自行核实）：${shown}`;
+      return { tier: section.tier, hits: decisive.length, hitReason: reason };
     }
   }
   return null;
