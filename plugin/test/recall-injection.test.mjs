@@ -265,3 +265,30 @@ test("已知精度边界：词表匹配会把「怎么写的」误判为写动�
 	// 反向保证：不含写动作字的纯读取确实被排除（这才是排除条件的主要作用）。
 	assert.equal(classifyEntry("看看这些 ADR 有哪些"), "exclude");
 });
+
+// ---------------------------------------------------------------------------
+// 第一回合时序：lastScope 可能尚未就绪
+// ---------------------------------------------------------------------------
+
+test("时序：lastScope 未就绪时不得静默跳过召回（pre-step 先于首次 assemble）", async () => {
+	// 背景：lifecycle.lastScope 由安装时的异步 resolve() 在 .then 里赋值，而
+	// pre-step（prepend）在首次 assemble **之前**运行。故第一回合读 lastScope
+	// 可能仍是 undefined。若此时直接返回 no-project，召回会在第一回合静默失效。
+	//
+	// 这里守的是「兜底路径存在且可用」：给定 cwd 能解析出项目时，仍应召回。
+	// 用 buildRecallInjection 直接验证兜底的输入（projectRoot）可得，
+	// 而不依赖 lifecycle 内部的私有状态。
+	const r = await buildRecallInjection({
+		userText: "把 34 号规范改名成双源召回",
+		projectRoot: ROOT, // 兜底路径解析出来的正是这个值
+	});
+	assert.equal(r.inject, true, "有 projectRoot 就必须召回，不得因时序而跳过");
+});
+
+test("时序：projectRoot 缺失时返回 no-project（不假装召回成功）", async () => {
+	for (const projectRoot of [undefined, null, ""]) {
+		const r = await buildRecallInjection({ userText: "把 34 号规范改名", projectRoot });
+		assert.equal(r.inject, false);
+		assert.equal(r.reason, "no-project");
+	}
+});

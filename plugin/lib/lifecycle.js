@@ -444,7 +444,29 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         // 未受管辖、无项目、或用户消息不足以构成查询时返回 inject:false（02 §9.2 进入条件）。
         recallRow: async ({ userText }) => {
           if (lifecycle.scopeState !== "governed") return { inject: false, reason: "not-governed" };
-          const projectPath = lifecycle.lastScope?.project?.path;
+          // **时序陷阱**：`lifecycle.lastScope` 由安装时的异步 `resolve()` 在 `.then`
+          // 里赋值，而 pre-step（prepend）在**首次 assemble 之前**运行。故第一回合
+          // 到这里时 `lastScope` 可能仍是 undefined，直接读会得到 no-project 而静默
+          // 跳过召回——召回看起来「接了」，实际第一回合永远不生效。
+          //
+          // 兜底：最后再从会话 cwd 现解析一次（幂等、有缓存语义由 resolve 自身承担）。
+          // 只在 lastScope 缺 project.path 时才多这一次调用，正常路径零额外开销。
+          let projectPath = lifecycle.lastScope?.project?.path;
+          if (typeof projectPath !== "string" || projectPath.length === 0) {
+            try {
+              const cwd = agent?.session?.header?.cwd;
+              if (typeof cwd === "string" && cwd.length > 0) {
+                const late = await resolve(cwd);
+                if (late?.project?.path) {
+                  projectPath = late.project.path;
+                  // 顺手补上，使后续回合走快路径。
+                  if (lifecycle.lastScope === undefined || lifecycle.lastScope === null) lifecycle.lastScope = late;
+                }
+              }
+            } catch (error) {
+              agent?.ctx?.logger?.warn?.(`[dsh-ldvh] recall: late scope resolve failed: ${String(error?.message ?? error)}`);
+            }
+          }
           if (typeof projectPath !== "string" || projectPath.length === 0) return { inject: false, reason: "no-project" };
           return buildRecallInjection({ userText, projectRoot: projectPath });
         },
