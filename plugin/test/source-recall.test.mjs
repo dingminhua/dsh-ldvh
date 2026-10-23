@@ -469,8 +469,8 @@ test("单字不得单独构成命中依据（真实消息实测：10 条里 4-5 
 		if (isAllSingleChar(s.hitReason)) {
 			assert.match(
 				s.hitReason,
-				/仅单字/,
-				`${s.title} 的命中词全是单字却未标注「仅单字」：${s.hitReason}`,
+				/仅单字|仅通用词/,
+				`${s.title} 的命中词全是单字却未标注弱相关：${s.hitReason}`,
 			);
 		}
 	}
@@ -483,7 +483,7 @@ test("单字不得单独构成命中依据（真实消息实测：10 条里 4-5 
 
 test("靠单字命中时须标注「仅单字…相关性弱」，不得让读者误以为相关性强", async () => {
 	const r = await recallForAction({ action: "把这批改动合入吧", root: ROOT, limit: 5, budgetBytes: 20000 });
-	const singleHits = r.specs.filter((s) => /仅单字/.test(s.hitReason));
+	const singleHits = r.specs.filter((s) => /仅单字|仅通用词/.test(s.hitReason));
 	for (const s of singleHits) {
 		assert.match(s.hitReason, /相关性弱，须自行核实/, "标注须说明相关性弱");
 	}
@@ -494,5 +494,51 @@ test("单字兜底不得被削弱：短指令仍须能召回（第 16 轮路径�
 	for (const q of ["改一下", "删了", "加个", "建个"]) {
 		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
 		assert.equal(r.inject, true, `「${q}」必须仍能召回——单字是它唯一的词`);
+	}
+});
+
+test("通用词不得单独构成命中依据（真实 friction 实测：15% 命中只靠通用词）", async () => {
+	// 实测（40 条真实 friction 现象陈述 × 3 = 92 条命中）：14 条（15%）只靠
+	// 通用词命中。例如「install() 分发器…」靠「任何/执行」命中了
+	// 「无关未提交改动阻塞变基致推送延迟」——几乎肯定不相关。
+	// 通用词（任何/规范/执行/测试/写/改/回…）有实义但**不足以单独支撑相关**，
+	// 与虚字不同，故不丢、只降级并在理由中标注。
+	const isAllSingleChar = (reason) => {
+		const m = /命中（[^）]*）：(.+)$/.exec(reason) ?? /命中：(.+)$/.exec(reason);
+		if (m === null) return false;
+		return m[1].split("、").every((token) => token.length === 1);
+	};
+	const r = await recallForAction({
+		action: "install() 分发器在 agent/created 回调里没有 try/catch 致子代理注册失败",
+		root: ROOT,
+		limit: 3,
+		budgetBytes: 20000,
+	});
+	// 真相关的那条必须命中，且靠的是实义词「子代/代理」而非通用词。
+	const relevant = r.facts.find((f) => f.title.includes("插件重建清空子代理登记表"));
+	assert.ok(relevant !== undefined, "应命中子代理登记表相关的教训");
+	assert.ok(!/仅通用词|仅单字/.test(relevant.hitReason), `真相关命中不应被降级：${relevant.hitReason}`);
+	// 凡只靠通用词命中的，必须带弱相关标注。
+	const GENERIC_ONLY_MARK = /仅通用词|仅单字/;
+	for (const f of r.facts) {
+		if (f === relevant) continue;
+		if (isAllSingleChar(f.hitReason)) {
+			assert.match(f.hitReason, GENERIC_ONLY_MARK, `${f.title} 只靠单字却未标注弱相关`);
+		}
+	}
+});
+
+test("通用词降级后：真主题查询仍须命中真相关项", async () => {
+	const r = await recallForAction({ action: "经验也要召回啊", root: ROOT, limit: 3, budgetBytes: 20000 });
+	assert.ok(r.specs.some((s) => s.title.includes("Pitfall")), "「经验」应命中 Pitfall 类型规范");
+	const pitfallSpec = r.specs.find((s) => s.title.includes("Pitfall"));
+	assert.ok(!/仅通用词|仅单字/.test(pitfallSpec.hitReason), "靠「经验」命中不应被降级");
+});
+
+test("通用词降级不得削弱短指令路径", async () => {
+	const { buildRecallInjection } = await import("../lib/recall-injection.js");
+	for (const q of ["改一下", "删了", "加个"]) {
+		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
+		assert.equal(r.inject, true, `「${q}」必须仍能召回`);
 	}
 });

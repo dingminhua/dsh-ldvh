@@ -47,6 +47,24 @@ import { join } from "node:path";
 
 /** 中文虚字：含任一虚字的二元组不参与匹配（不承载意义，只制造噪声）。 */
 /**
+ * **通用词**：在本语料里高频出现、本身不锁定主题的词（「任何」「规范」「执行」
+ * 「测试」「写」「改」…）。它们**不该单独构成命中依据**，但在真正的主题查询里
+ * 是必需的组成部分，故不丢、只降级。
+ *
+ * 实测依据（2026-10-24，40 条真实 friction 现象陈述 × 3 条结果 = 92 条命中）：
+ * 其中 **14 条（15%）只靠通用词命中**，例如「install() 分发器…」靠「任何/执行」
+ * 命中了「无关未提交改动阻塞变基致推送延迟」——几乎肯定不相关。
+ *
+ * 与 `FUNCTION_CHARS` 的区别：那个是**虚字**（的/了/是），连词都不算；
+ * 这个是有实义的**高频实词**，只是不足以单独支撑「相关」这个判断。
+ */
+const GENERIC_TOKENS = new Set([
+  "任何", "规范", "写作", "执行", "测试", "验证", "校验", "检查", "工单", "复核", "审核",
+  "独立", "写", "改", "回", "做", "用", "说", "看", "有", "无", "时停", "停止",
+  "事实", "系统", "机制", "业务", "流程", "结果", "问题", "情况", "内容", "部分",
+]);
+
+/**
  * 实义单字动作。**不是虚字**，但常与虚字组成短语（「改一下」「删了」「加个」），
  * 在「含虚字的二元组一律丢弃」的过滤下会被一并吞掉，导致整句话切不出 token。
  *
@@ -334,15 +352,18 @@ export function matchCandidate(actionTokens, candidate) {
     //   · 只有单字命中 → 仍然算命中（短指令路径不被破坏）。
     const strong = hits.filter((token) => token.length >= 2);
     const weak = hits.filter((token) => token.length === 1);
-    const decisive = strong.length > 0 ? strong : weak;
+    // 通用词降级：多字但语义通用的词（任何/规范/执行…）不算强证据；
+    // 若命中的**全是通用词**，则视为弱命中（与单字同档）。
+    const specific = strong.filter((token) => !GENERIC_TOKENS.has(token));
+    const decisive = specific.length > 0 ? specific : (strong.length > 0 ? strong : weak);
     if (decisive.length >= (section.minHits ?? 1)) {
       // 命中理由只列前 3 个词；若靠单字命中，明确标出「仅单字」，
       // 使读者知道这条的相关性弱，须自行核实。
       const shown = decisive.slice(0, 3).join("、");
-      const reason =
-        strong.length > 0
-          ? `${section.label}命中：${shown}`
-          : `${section.label}仅单字命中（相关性弱，须自行核实）：${shown}`;
+      const onlyGenericOrWeak = specific.length === 0;
+      const reason = onlyGenericOrWeak
+        ? `${section.label}仅通用词/单字命中（相关性弱，须自行核实）：${shown}`
+        : `${section.label}命中：${shown}`;
       return { tier: section.tier, hits: decisive.length, hitReason: reason };
     }
   }
