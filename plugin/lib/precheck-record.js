@@ -910,4 +910,54 @@ export function routeFailure(input = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// 横切合并且不替代（34 §11 横切性的边界 / §16.1 第 6 项必停）
+// ---------------------------------------------------------------------------
+
+/**
+ * 判定两套预检是否「合并而非替代」（34 §11 横切性的边界）。
+ *
+ * §11 原文：「本系统横切全部业务系统，故在任何一个业务系统内执行时，其预检须与
+ * 该系统自身的预检**合并而非替代**——不得因本系统已执行而免除该系统的专属预检，
+ * 也不得因该系统已预检而免除本系统的适用识别。」
+ *
+ * §16.1 第 6 项把它列为**领域必停情形**：「在某个业务系统内以本系统预检替代该
+ * 系统的专属预检，或以该系统预检免去本系统的适用识别」。
+ *
+ * 故这是**双向**的（§11 的两句对称，正是它区别于普通分工声明之处）：
+ *  - 只做本系统、没做该系统 → 不免除，不构成通过；
+ *  - 只做该系统、没做本系统 → 同样不免除。
+ *
+ * **本函数能核的只有「两套是否都在」这一形式事实**（§14 该行「两套预检并存的事实；
+ * 不证明任一套正确」）。它不判断两套质量。
+ */
+export function checkTransverseMerge(input = {}) {
+  if (!isNonEmptyString(input.systemKey)) {
+    return fail("invalid_request", "systemKey is required (which business system this action runs inside)");
+  }
+  const hasRuleCompliance = input.ruleComplianceExecuted === true;
+  const hasSystemSpecific = input.systemSpecificExecuted === true;
+  const missing = [];
+  if (!hasRuleCompliance) missing.push("本系统的适用识别与预检");
+  if (!hasSystemSpecific) missing.push(`${input.systemKey} 的专属预检`);
+  if (missing.length > 0) {
+    return {
+      ok: true,
+      // §14 该行未满足处置：「缺任一套即不构成通过」。
+      passed: false,
+      missing,
+      // §16.1 第 6 项：这正是必停情形本身。
+      stopCondition: "34 §16.1 第 6 项",
+      reason: `横切合并且不替代：缺 ${missing.join("、")}；34 §11 双向都不免除`,
+    };
+  }
+  return {
+    ok: true,
+    passed: true,
+    missing: [],
+    // §14 该行的可证明范围：只证明两套并存。
+    proves: "两套预检并存的事实；不证明任一套正确",
+  };
+}
+
 export { join };

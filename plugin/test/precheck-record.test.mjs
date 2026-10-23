@@ -24,6 +24,7 @@ import {
 	STAGE_MINIMUM_TIER,
 	checkFastPathDeclaration,
 	checkRiskRouting,
+	checkTransverseMerge,
 	CONDITIONAL_SECTIONS,
 	DEVIATION_FIELDS,
 	DEVIATION_FORMS,
@@ -951,4 +952,55 @@ test("routeFailure：未知去向拒绝", () => {
 	const result = routeFailure({ route: "再看看" });
 	assert.equal(result.ok, false);
 	assert.equal(result.error.code, "failure/route_unknown");
+});
+
+// ---------------------------------------------------------------------------
+// 横切合并且不替代（34 §11 / §16.1 第 6 项必停）
+// ---------------------------------------------------------------------------
+
+test("checkTransverseMerge：两套都执行才构成通过", () => {
+	const result = checkTransverseMerge({
+		systemKey: "workcase",
+		ruleComplianceExecuted: true,
+		systemSpecificExecuted: true,
+	});
+	assert.equal(result.ok, true);
+	assert.equal(result.passed, true);
+	assert.deepEqual(result.missing, []);
+	assert.match(result.proves, /不证明任一套正确/);
+});
+
+test("checkTransverseMerge：只做本系统不免除该系统（§11 第一句）", () => {
+	const result = checkTransverseMerge({
+		systemKey: "workcase",
+		ruleComplianceExecuted: true,
+		systemSpecificExecuted: false,
+	});
+	assert.equal(result.passed, false);
+	assert.deepEqual(result.missing, ["workcase 的专属预检"]);
+	assert.equal(result.stopCondition, "34 §16.1 第 6 项");
+});
+
+test("checkTransverseMerge：只做该系统不免除本系统（§11 第二句，双向对称）", () => {
+	const result = checkTransverseMerge({
+		systemKey: "workcase",
+		ruleComplianceExecuted: false,
+		systemSpecificExecuted: true,
+	});
+	assert.equal(result.passed, false);
+	assert.deepEqual(result.missing, ["本系统的适用识别与预检"]);
+});
+
+test("checkTransverseMerge：两套都缺时逐项列出", () => {
+	const result = checkTransverseMerge({ systemKey: "spark" });
+	assert.equal(result.passed, false);
+	assert.equal(result.missing.length, 2);
+});
+
+test("checkTransverseMerge：缺 systemKey 即拒绝（不知在哪个系统内执行）", () => {
+	for (const bad of [undefined, "", null]) {
+		const result = checkTransverseMerge({ systemKey: bad });
+		assert.equal(result.ok, false);
+		assert.equal(result.error.code, "invalid_request");
+	}
 });
