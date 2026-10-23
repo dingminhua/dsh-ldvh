@@ -673,4 +673,124 @@ export function checkRetroactiveCoverage(input = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// 风险路由（34 §11 环节级声明 / 03 §6.2 快通道声明 / §6.3 升级）
+// ---------------------------------------------------------------------------
+
+/** 三个风险层（03 §6.1 的闭集；34 §17 第 4 项禁增设中间层）。 */
+export const RISK_TIERS = Object.freeze(["快通道", "标准路径", "加固路径"]);
+
+/**
+ * 34 §11 的环节级声明：哪些环节可走快通道，哪些必须标准路径以上。
+ *
+ * §11 原文：「纯读取与来源检索环节可走快通道；**三段判断、约束落实判定与偏离
+ * 判定必须标准路径以上**；任何涉及授权边界的判断不得产自快通道。」
+ *
+ * 这张表是**机械可核的**：调用方声明的「本环节走快通道」与该环节的最低要求一比对，
+ * 就能判出这次声明是否越权。它不判断风险高低——那属语义与 03 §6.3。
+ */
+export const STAGE_MINIMUM_TIER = Object.freeze({
+  纯读取: "快通道",
+  来源检索: "快通道",
+  三段判断: "标准路径",
+  约束落实判定: "标准路径",
+  偏离判定: "标准路径",
+  授权边界判断: "标准路径",
+});
+
+/** 任一环节涉及授权边界时，快通道一律不可用（§11 末句）。 */
+const AUTHORIZATION_STAGE = "授权边界判断";
+
+/**
+ * 判定一次风险路由声明是否满足 34 §11。
+ *
+ * @param {object} input
+ * @param {string} input.stage      环节名（须为 STAGE_MINIMUM_TIER 的键）
+ * @param {string} input.tier       调用方声明的风险层
+ * @param {boolean} [input.involvesAuthorization] 本环节是否涉及授权边界
+ *
+ * 返回 `allowed` 为 false 时同时给出 `minimumTier` 与 `reason`——这正是 03 §6.2
+ * 第 4 项要求的「升级触发」在机械侧的样子：不是「建议升级」，是「此声明不成立」。
+ */
+export function checkRiskRouting(input = {}) {
+  const stage = input.stage;
+  const tier = input.tier;
+  if (!isNonEmptyString(stage) || !Object.hasOwn(STAGE_MINIMUM_TIER, stage)) {
+    return fail(
+      "routing/stage_unknown",
+      `环节须为 34 §11 声明的环节之一（${Object.keys(STAGE_MINIMUM_TIER).join(" / ")}）`,
+      { allowed: Object.keys(STAGE_MINIMUM_TIER) },
+    );
+  }
+  if (!RISK_TIERS.includes(tier)) {
+    return fail(
+      "routing/tier_invalid",
+      `风险层须落在 03 §6.1 的三层内（${RISK_TIERS.join(" / ")}）；34 §17 第 4 项禁增设中间层`,
+      { allowed: [...RISK_TIERS] },
+    );
+  }
+  const minimum = STAGE_MINIMUM_TIER[stage];
+  const rank = (value) => RISK_TIERS.indexOf(value);
+  const involvesAuthorization = input.involvesAuthorization === true;
+
+  // §11 末句：任何涉及授权边界的判断不得产自快通道——独立于环节表再判一次。
+  if (involvesAuthorization && tier === "快通道") {
+    return {
+      ok: true,
+      allowed: false,
+      stage,
+      tier,
+      minimumTier: AUTHORIZATION_STAGE,
+      reason: "34 §11：任何涉及授权边界的判断不得产自快通道（与环节表独立）",
+    };
+  }
+  if (rank(tier) < rank(minimum)) {
+    return {
+      ok: true,
+      allowed: false,
+      stage,
+      tier,
+      minimumTier: minimum,
+      reason: `34 §11：${stage} 必须 ${minimum} 以上，声明的 ${tier} 不足`,
+    };
+  }
+  return { ok: true, allowed: true, stage, tier, minimumTier: minimum, reason: null };
+}
+
+/**
+ * 快通道声明的五要素核对（03 §6.2）。
+ *
+ * §6.2 要求快通道声明必须包含：①适用条件 ②排除条件 ③最低预检覆盖
+ * ④升级触发 ⑤声明方式。缺项即该声明不成立——机械层只能查**是否给了**，
+ * 不能查**写得对不对**（那属 03 §6.2 的语义与本系统 §14 的边界）。
+ */
+export const FAST_PATH_REQUIREMENTS = Object.freeze([
+  { key: "applicability", label: "适用条件" },
+  { key: "exclusions", label: "排除条件" },
+  { key: "minimumCoverage", label: "最低预检覆盖" },
+  { key: "escalationTriggers", label: "升级触发" },
+  { key: "declarationForm", label: "声明方式" },
+]);
+
+export function checkFastPathDeclaration(declaration = {}) {
+  const missing = FAST_PATH_REQUIREMENTS
+    .filter((requirement) => !isNonEmptyString(declaration[requirement.key]))
+    .map((requirement) => requirement.label);
+  if (missing.length > 0) {
+    return fail(
+      "fastpath/declaration_incomplete",
+      `快通道声明缺 03 §6.2 要求的要素：${missing.join("、")}`,
+      { missing },
+    );
+  }
+  // §6.2 第 3 项：快通道仍须完成三段判断——这是下限，声明不得低于它。
+  if (declaration.waivesThreeWayJudgement === true) {
+    return fail(
+      "fastpath/waives_three_way",
+      "03 §6.2 第 3 项：快通道仍必须完成生效/适用/行动允许三段判断，不得声明免除",
+    );
+  }
+  return { ok: true, complete: true, tiers: [...RISK_TIERS], waivesThreeWay: false };
+}
+
 export { join };

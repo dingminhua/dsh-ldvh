@@ -15,6 +15,11 @@ import { join } from "node:path";
 
 import {
 	APPLICATION_CRITERIA,
+	FAST_PATH_REQUIREMENTS,
+	RISK_TIERS,
+	STAGE_MINIMUM_TIER,
+	checkFastPathDeclaration,
+	checkRiskRouting,
 	CONDITIONAL_SECTIONS,
 	DEVIATION_FIELDS,
 	DEVIATION_FORMS,
@@ -756,4 +761,101 @@ test("summarizeApplications：任一条非法即整体拒绝，不返回部分�
 
 test("summarizeApplications：非数组拒绝", () => {
 	assert.equal(summarizeApplications("已遵守").error.code, "invalid_request");
+});
+
+// ---------------------------------------------------------------------------
+// 风险路由（34 §11 环节级声明 / 03 §6.1 三层 / §6.2 快通道五要素）
+// ---------------------------------------------------------------------------
+
+test("RISK_TIERS 恰为 03 §6.1 的三层（34 §17 第 4 项禁增设中间层）", () => {
+	assert.deepEqual([...RISK_TIERS], ["快通道", "标准路径", "加固路径"]);
+});
+
+test("checkRiskRouting：纯读取可走快通道（34 §11 环节级声明）", () => {
+	const result = checkRiskRouting({ stage: "纯读取", tier: "快通道" });
+	assert.equal(result.ok, true);
+	assert.equal(result.allowed, true);
+	assert.equal(result.reason, null);
+});
+
+test("checkRiskRouting：三段判断走快通道即不成立，并指出最低要求", () => {
+	const result = checkRiskRouting({ stage: "三段判断", tier: "快通道" });
+	assert.equal(result.ok, true);
+	assert.equal(result.allowed, false);
+	assert.equal(result.minimumTier, "标准路径");
+	assert.match(result.reason, /必须 标准路径 以上/);
+});
+
+test("checkRiskRouting：约束落实判定与偏离判定同样不可走快通道", () => {
+	for (const stage of ["约束落实判定", "偏离判定"]) {
+		const result = checkRiskRouting({ stage, tier: "快通道" });
+		assert.equal(result.allowed, false, `${stage} 不应允许快通道`);
+		assert.equal(result.minimumTier, "标准路径");
+	}
+});
+
+test("checkRiskRouting：涉及授权边界时快通道一律不可用（与环节表独立）", () => {
+	const result = checkRiskRouting({ stage: "纯读取", tier: "快通道", involvesAuthorization: true });
+	assert.equal(result.allowed, false);
+	assert.match(result.reason, /授权边界.*不得产自快通道/);
+});
+
+test("checkRiskRouting：加固路径满足任何环节的最低要求", () => {
+	for (const stage of Object.keys(STAGE_MINIMUM_TIER)) {
+		const result = checkRiskRouting({ stage, tier: "加固路径" });
+		assert.equal(result.allowed, true, `${stage} 在加固路径下应允许`);
+	}
+});
+
+test("checkRiskRouting：未知环节拒绝并列出允许集", () => {
+	const result = checkRiskRouting({ stage: "随便什么", tier: "标准路径" });
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "routing/stage_unknown");
+	assert.ok(result.allowed.includes("三段判断"));
+});
+
+test("checkRiskRouting：四层或非法风险层拒绝（禁增设中间层）", () => {
+	for (const tier of ["中间路径", "快速通道", "", undefined]) {
+		const result = checkRiskRouting({ stage: "纯读取", tier });
+		assert.equal(result.ok, false);
+		assert.equal(result.error.code, "routing/tier_invalid");
+	}
+});
+
+test("checkFastPathDeclaration：五要素齐备即完整", () => {
+	const result = checkFastPathDeclaration({
+		applicability: "低风险、已反复执行",
+		exclusions: "涉及受控写入时不适用",
+		minimumCoverage: "仍完成三段判断",
+		escalationTriggers: "实际影响超出假设",
+		declarationForm: "进入时声明「本次走快通道」并附适用依据",
+	});
+	assert.equal(result.ok, true);
+	assert.equal(result.complete, true);
+	assert.equal(result.waivesThreeWay, false);
+});
+
+test("checkFastPathDeclaration：缺任要素即拒绝并逐项列出", () => {
+	const full = {
+		applicability: "a", exclusions: "b", minimumCoverage: "c",
+		escalationTriggers: "d", declarationForm: "e",
+	};
+	for (const requirement of FAST_PATH_REQUIREMENTS) {
+		const partial = { ...full };
+		delete partial[requirement.key];
+		const result = checkFastPathDeclaration(partial);
+		assert.equal(result.ok, false, `缺 ${requirement.label} 须拒绝`);
+		assert.equal(result.error.code, "fastpath/declaration_incomplete");
+		assert.deepEqual(result.missing, [requirement.label]);
+	}
+});
+
+test("checkFastPathDeclaration：不得声明免除三段判断（03 §6.2 第 3 项）", () => {
+	const result = checkFastPathDeclaration({
+		applicability: "a", exclusions: "b", minimumCoverage: "c",
+		escalationTriggers: "d", declarationForm: "e",
+		waivesThreeWayJudgement: true,
+	});
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "fastpath/waives_three_way");
 });
