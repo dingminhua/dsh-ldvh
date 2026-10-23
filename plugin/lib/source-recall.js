@@ -206,6 +206,7 @@ export async function loadFacts(baseDir) {
 
 /** 四层：命中越精确的字段，层号越前。只排序，不打分。 */
 export const MATCH_TIERS = Object.freeze([
+  { tier: 0, field: "specId", label: "规范编号命中" },
   { tier: 1, field: "scope", label: "适用范围命中" },
   { tier: 2, field: "detail", label: "类型正文命中" },
   { tier: 3, field: "title", label: "标题命中" },
@@ -220,6 +221,15 @@ export const MATCH_TIERS = Object.freeze([
  * @returns {{tier: number, hitReason: string} | null} 无关则 null
  */
 export function matchCandidate(actionTokens, candidate) {
+  // **编号层（tier 0）最优先**：`spec_id` 是规范的稳定编号，用户说「34 号规范」
+  // 时点名的是它，不是标题里的字。此层不设会漏掉最精确的一种命中——实测缺陷：
+  // 查询含「34」，但 34 号规范只能靠 scope 里的「规范」二字命中，与其它 18 份
+  // 规范同层同分，被路径字典序挤到后面。
+  // 只认**整词相等**（不认子串），避免「3」命中「34」、「1」命中「10」。
+  const specId = candidate.specId;
+  if (typeof specId === "string" && specId !== "" && actionTokens.includes(specId)) {
+    return { tier: 0, hits: 1, hitReason: `规范编号命中：${specId}` };
+  }
   const sections = [
     { tier: 1, text: candidate.scope, label: "适用范围" },
     { tier: 2, text: candidate.detail, label: "内容" },
@@ -302,7 +312,10 @@ export async function recallForAction(input = {}) {
   const collect = (list, mapper) => list
     .map((c) => {
       const m = matchCandidate(tokens, c);
-      return m === null ? null : { ...mapper(c), tier: m.tier, hitReason: m.hitReason };
+      // `hits` 必须显式带出：mapper 的返回里没有它，之前漏掉导致排序键是
+      // `undefined - undefined = NaN`，同层排序退化成只按路径字典序，
+      // 使命中词更多的条目反而排在后面（实测：34 号 hits=2 被 01 号 hits=1 挤掉）。
+      return m === null ? null : { ...mapper(c), tier: m.tier, hits: m.hits, hitReason: m.hitReason };
     })
     .filter(Boolean)
     // 排序：先按层（命中越精确的字段越前），同层按命中词数降序、再按路径稳定排序。

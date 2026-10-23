@@ -101,9 +101,10 @@ test("loadFacts：每条都有 status 与 title", async () => {
 // ---------------------------------------------------------------------------
 
 test("MATCH_TIERS 层号递增，scope 是最精确的一层", () => {
-	assert.deepEqual(MATCH_TIERS.map((t) => t.tier), [1, 2, 3, 4]);
-	assert.equal(MATCH_TIERS[0].field, "scope");
-	assert.equal(MATCH_TIERS[3].field, "body");
+	assert.deepEqual(MATCH_TIERS.map((t) => t.tier), [0, 1, 2, 3, 4]);
+	assert.equal(MATCH_TIERS[0].field, "specId");
+	assert.equal(MATCH_TIERS[1].field, "scope");
+	assert.equal(MATCH_TIERS[4].field, "body");
 });
 
 test("matchCandidate：命中 scope 层号最前，命中 title 层号靠后", () => {
@@ -212,4 +213,28 @@ test("tokenize：虚字单字也不进匹配集（曾让「的」进命中理由
 	}
 	// 实义单字仍保留（长度为 1 的 run 无二元组可取）。
 	assert.ok(tokenize("云").includes("云"), "实义单字应保留");
+});
+
+test("同层排序：命中词多的必须排在命中词少的前面（曾因 hits 未带出而退化成按路径排序）", async () => {
+	// 实测缺陷：collect 的 mapper 返回对象里没有 hits，排序键变成
+	// `undefined - undefined = NaN`，同层排序退化为只按路径字典序，
+	// 使命中 2 个词的 34 号被命中 1 个词的 01 号挤掉。
+	// 查询里同时含「34」与「规范」，故 34 号的 scope 会命中两个词。
+	const r = await recallForAction({ action: "把 34 号规范改名，走独立审核", root: ROOT, limit: 3, budgetBytes: 4000 });
+	assert.ok(r.specs.length > 0, "应有规范命中");
+	const first = r.specs[0];
+	assert.ok(typeof first.hits === "number" && first.hits >= 1, `hits 必须带出，实际 ${first.hits}`);
+	// 34 号是唯一会同时命中「34」与「规范」的规范，必须排在前列。
+	assert.ok(
+		r.specs.slice(0, 3).some((s) => s.title.includes("规则遵守")),
+		`34 号应在前三条内，实际：[${r.specs.map((s) => s.title).join(", ")}]`,
+	);
+	// 点名编号时，编号层（tier 0）必须压过一切文本层命中。
+	assert.equal(first.tier, 0, "「34」是编号命中，应落在 tier 0");
+	assert.match(first.hitReason, /规范编号命中/);
+	// 同层内 hits 必须非递增。
+	const sameTier = r.specs.filter((s) => s.tier === r.specs[0].tier);
+	for (let i = 1; i < sameTier.length; i += 1) {
+		assert.ok(sameTier[i - 1].hits >= sameTier[i].hits, "同层 hits 须非递增");
+	}
 });
