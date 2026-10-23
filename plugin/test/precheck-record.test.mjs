@@ -19,6 +19,9 @@ import {
 	THREE_WAY_ITEMS,
 	COMPLIANCE_BUCKET_LABELS,
 	assembleReturn,
+	CONFLICT_TIERS,
+	SELF_TIER_SEGMENT,
+	routeConflict,
 	ENTRY_SIGNALS,
 	GAP_FIELDS,
 	checkGapRegistration,
@@ -1172,4 +1175,61 @@ test("assembleReturn：合法偏离情况逐条留痕", () => {
 	assert.equal(result.ok, true);
 	assert.equal(result.deviations.length, 1);
 	assert.match(result.text, /1 项，均已按 §9\.2 登记/);
+});
+
+// ---------------------------------------------------------------------------
+// 来源冲突层级（34 §7.5：只用于提请，不构成自动裁决）
+// ---------------------------------------------------------------------------
+
+test("CONFLICT_TIERS 恰为 34 §7.5 的五级", () => {
+	assert.deepEqual(CONFLICT_TIERS.map((t) => t.level), [1, 2, 3, 4, 5]);
+	assert.equal(SELF_TIER_SEGMENT, "30–39 业务系统规范");
+});
+
+test("routeConflict：任何合法层级组合都只提请 Human，永不自动裁决", () => {
+	for (const a of [1, 2, 3, 4, 5]) {
+		for (const b of [1, 2, 3, 4, 5]) {
+			if (a === b) continue;
+			const result = routeConflict({ levelA: a, levelB: b });
+			assert.equal(result.ok, true);
+			assert.equal(result.escalateTo, "Human", `${a} vs ${b} 须提请 Human`);
+			assert.equal(result.autoResolved, false, `${a} vs ${b} 不得自动裁决`);
+			assert.equal(result.picks, null, "不得给出「选哪一方」的出口");
+		}
+	}
+});
+
+test("routeConflict：层级数值不是优先级分数（§7.5 边界）", () => {
+	const result = routeConflict({ levelA: 1, levelB: 5 });
+	assert.equal(result.levelsAreScores, false);
+	assert.equal(result.picks, null, "高一级不得自动覆盖低一级");
+});
+
+test("routeConflict：本规范自身不在表内，故涉己时不得按级处置（表头括注）", () => {
+	const result = routeConflict({ levelA: 4, levelB: 3, involvesThisSpec: true });
+	assert.equal(result.escalateTo, "Human");
+	assert.match(result.reason, /本规范自身不在层级表内/);
+	assert.equal(result.autoResolved, false);
+});
+
+test("routeConflict：第 1 级且触及根决定清单时一律提请（§7.5 两段式）", () => {
+	const result = routeConflict({ levelA: 1, levelB: 2, touchesRootDecisionList: true });
+	assert.equal(result.escalateTo, "Human");
+	assert.match(result.reason, /一律提请 Human/);
+});
+
+test("routeConflict：第 1 级未触及根决定时仍提请，不自行依根规范处置", () => {
+	// §7.5 给了「仅当不触及根决定且根规范已给明文结论」的窄路，但那需要
+	// 调用方证明「根规范已给出明文结论」——本函数不替它判定，故仍回提请。
+	const result = routeConflict({ levelA: 1, levelB: 5 });
+	assert.equal(result.escalateTo, "Human");
+	assert.equal(result.autoResolved, false);
+});
+
+test("routeConflict：非法层级拒绝并列出允许集", () => {
+	for (const bad of [0, 6, -1, 1.5, "1", undefined]) {
+		const result = routeConflict({ levelA: bad, levelB: 2 });
+		assert.equal(result.ok, false, `${JSON.stringify(bad)} 应被拒绝`);
+		assert.equal(result.error.code, "conflict/level_invalid");
+	}
 });

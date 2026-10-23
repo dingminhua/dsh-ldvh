@@ -1177,4 +1177,83 @@ export function assembleReturn(input = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// 来源冲突的层级参考（34 §7.5 —— 只用于提请，不构成自动裁决）
+// ---------------------------------------------------------------------------
+
+/** §7.5 的层级表（原文五级）。`self: true` 表示本规范自身不在表内。 */
+export const CONFLICT_TIERS = Object.freeze([
+  { level: 1, source: "00 根规范", self: false },
+  { level: 2, source: "01–11 基础规范", self: false },
+  { level: 3, source: "20–27 事实类型规范", self: false },
+  { level: 4, source: "30–39 业务系统规范", self: false },
+  { level: 5, source: "项目事实源中的事实与决定", self: false },
+]);
+
+/** 34 号自身的归属段（§7.5 明写「本规范自身不在本表内」）。 */
+export const SELF_TIER_SEGMENT = "30–39 业务系统规范";
+
+/**
+ * 判定一次来源冲突该向谁提请（34 §7.5）。
+ *
+ * ## 这张表的边界，是本函数存在的全部理由
+ *
+ * §7.5 原文末段：「层级只表示**在发现冲突时向谁提请**，不表示高层级来源可以自动
+ * 覆盖低层级来源的具体要求——除非该覆盖本身有来源明文授权。层级数值不构成优先级
+ * 分数，**不用于自动裁决**，也不因本表存在而免除本节前段的冲突处理义务。」
+ *
+ * 故本函数**只返回 `escalateTo: "Human"`，永不返回任何「选哪一方」的结论**。
+ * 它连 `winner` 这样的字段都不提供——提供即等于给自动裁决留了口子。
+ *
+ * ## 表外的两种情形
+ *
+ * - **本规范自身不在表内**（§7.5 表头括注）：34 号与任何来源冲突时，
+ *   不得以「本规范是第 4 级」为由自裁——按 §7「缺失和冲突处理」交还 Human。
+ * - **层级 1 的特殊性**：原文对该级有两段式——冲突涉及 00 §4.2 根决定清单所列
+ *   事项时**一律提请**；仅当冲突不触及根决定、且根规范已给出明文结论时，
+ *   才可依根规范处置。本函数把这两个分支都如实返回，不替调用方判断「是否涉及根决定」。
+ */
+export function routeConflict(input = {}) {
+  const levels = [input.levelA, input.levelB];
+  for (const level of levels) {
+    if (!Number.isInteger(level) || !CONFLICT_TIERS.some((tier) => tier.level === level)) {
+      return fail(
+        "conflict/level_invalid",
+        `层级须为 34 §7.5 表内的一至五级；收到 ${JSON.stringify(level)}`,
+        { allowed: CONFLICT_TIERS.map((tier) => tier.level) },
+      );
+    }
+  }
+  if (input.involvesThisSpec === true) {
+    // §7.5 表头括注：本规范自身不在本表内，故不存在「按级处置」这条路。
+    return {
+      ok: true,
+      escalateTo: "Human",
+      reason: "34 §7.5：本规范自身不在层级表内（不自指），故不得按级处置，须按 §7 交还 Human",
+      autoResolved: false,
+      picks: null,
+    };
+  }
+  if (levels.includes(1) && input.touchesRootDecisionList === true) {
+    return {
+      ok: true,
+      escalateTo: "Human",
+      reason: "34 §7.5 第 1 级：冲突涉及 00 §4.2 根决定清单所列事项时一律提请 Human",
+      autoResolved: false,
+      picks: null,
+    };
+  }
+  // 其余情形：原文一律「冲突须提请 Human，不得自行取舍」。
+  return {
+    ok: true,
+    escalateTo: "Human",
+    reason: "34 §7.5：层级只表示向谁提请，冲突须提请 Human，不得自行取舍",
+    autoResolved: false,
+    // 刻意恒为 null：§7.5 明禁自动裁决，本函数不提供任何「选哪一方」的出口。
+    picks: null,
+    // 层级数值不是优先级分数，如实回显以免被当成分数用。
+    levelsAreScores: false,
+  };
+}
+
 export { join };
