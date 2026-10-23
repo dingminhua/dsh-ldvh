@@ -42,6 +42,7 @@ import {
 	REUSE_CONDITIONS,
 	RISK_TIERS,
 	STAGE_MINIMUM_TIER,
+	STOP_CONDITIONS,
 	THREE_WAY_ITEMS,
 	APPLICATION_CRITERIA,
 	GAP_FIELDS,
@@ -233,4 +234,11 @@ test("§17 第 6 条（不以横切性为由复制判据）：模块只在本文
 test("03 §5.5 三层交还：代码常量须逐字来自原文", async () => {
 	const spec = await readSpec("03-业务系统基础规范.md");
 	assertVerbatim(spec, "03 号", "交还层名", HANDOVER_LAYERS.map((l) => l.label));
+});
+
+test("34 §6 退出条件与停止情形：代码常量须逐字来自原文", async () => {
+	const spec = await readSpec("34-规则遵守系统规范.md");
+	assertVerbatim(spec, "34 号", "停止情形", STOP_CONDITIONS.map((c) => c.label));
+	assert.ok(spec.includes("三段判断完成并生成预检落实记录后退出"));
+	assert.ok(spec.includes("不得以「上次已确认」代替本次判断"));
 });

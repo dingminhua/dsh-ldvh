@@ -27,6 +27,9 @@ import {
 	checkGapRegistration,
 	FAILURE_ROUTES,
 	checkEntry,
+	checkExit,
+	checkReuseBasis,
+	STOP_CONDITIONS,
 	routeFailure,
 	FAST_PATH_REQUIREMENTS,
 	RISK_TIERS,
@@ -1653,4 +1656,94 @@ test("declareHandoverLayer：什么都没成立时也停在第一层且标 parti
 	assert.equal(result.ok, true);
 	assert.equal(result.reached, "流程完成层");
 	assert.equal(result.status, "partial/unverified");
+});
+
+// ---------------------------------------------------------------------------
+// 退出条件与当次作用范围（34 §6）
+// ---------------------------------------------------------------------------
+
+test("STOP_CONDITIONS 恰为 34 §6 点名的三种停止情形", () => {
+	assert.deepEqual(
+		STOP_CONDITIONS.map((c) => c.label),
+		["识别失败", "约束冲突无法调和", "不确定项可能改变行动是否被允许"],
+	);
+});
+
+test("checkExit：三段判断完成且记录已生成才可退出", () => {
+	const result = checkExit({ threeWayJudgementComplete: true, recordGenerated: true });
+	assert.equal(result.ok, true);
+	assert.equal(result.mayExit, true);
+	assert.equal(result.mustStopAndHandover, false);
+	assert.equal(result.ownershipUnchanged, true, "§6 末句：转交不改变主控对行动的整体责任");
+});
+
+test("checkExit：三段判断未完成则不得退出", () => {
+	const result = checkExit({ threeWayJudgementComplete: false, recordGenerated: true });
+	assert.equal(result.mayExit, false);
+	assert.deepEqual(result.missing, ["三段判断完成"]);
+});
+
+test("checkExit：未生成记录则不得退出（§6 明文要求生成记录）", () => {
+	const result = checkExit({ threeWayJudgementComplete: true, recordGenerated: false });
+	assert.equal(result.mayExit, false);
+	assert.deepEqual(result.missing, ["生成预检落实记录"]);
+});
+
+test("checkExit：任一停止情形命中即不退出而是停止交还，且逐条列出", () => {
+	for (const condition of STOP_CONDITIONS) {
+		const result = checkExit({
+			threeWayJudgementComplete: true, recordGenerated: true, [condition.key]: true,
+		});
+		assert.equal(result.mayExit, false, `${condition.label} 不应允许退出`);
+		assert.equal(result.mustStopAndHandover, true);
+		assert.deepEqual(result.stoppedBy, [condition.label]);
+		assert.match(result.reason, /停止交还/);
+	}
+});
+
+test("checkExit：多种停止情形并存时逐条列出，不只报第一项", () => {
+	const result = checkExit({
+		threeWayJudgementComplete: true, recordGenerated: true,
+		identificationFailed: true, conflictIrreconcilable: true,
+	});
+	assert.equal(result.stoppedBy.length, 2);
+});
+
+test("checkReuseBasis：给出可回指依据且同会话即可复用", () => {
+	const result = checkReuseBasis({
+		recordSessionId: "s1", sessionId: "s1",
+		basis: "同一约束在同一范围内已核对且载体未变更（03 §7.3 第 2 条）",
+	});
+	assert.equal(result.reusable, true);
+	assert.deepEqual(result.failed, []);
+});
+
+test("checkReuseBasis：未给依据即不得复用（§6 的必要条件）", () => {
+	const result = checkReuseBasis({ recordSessionId: "s1", sessionId: "s1" });
+	assert.equal(result.reusable, false);
+	assert.match(result.failed[0], /可回指的依据/);
+});
+
+test("checkReuseBasis：写「上次已确认」类措辞即拒绝（§6 点名禁止）", () => {
+	for (const term of ["上次已确认", "上次已检查", "沿用上次", "同上次", "上次预检过"]) {
+		const result = checkReuseBasis({
+			recordSessionId: "s1", sessionId: "s1",
+			basis: "有依据", note: `这个约束${term}`,
+		});
+		assert.equal(result.reusable, false, `${term} 应被拒绝`);
+		assert.equal(result.lazyClaim, term);
+	}
+});
+
+test("checkReuseBasis：跨会话一律不得复用（§6 不延续到后续行动）", () => {
+	const result = checkReuseBasis({
+		recordSessionId: "s1", sessionId: "s2", basis: "给了依据也不行",
+	});
+	assert.equal(result.reusable, false);
+	assert.match(result.failed[0], /跨会话/);
+});
+
+test("checkReuseBasis：sessionId 或 recordSessionId 缺失即拒绝", () => {
+	assert.equal(checkReuseBasis({ sessionId: "s1" }).error.code, "invalid_request");
+	assert.equal(checkReuseBasis({ recordSessionId: "s1" }).error.code, "invalid_request");
 });

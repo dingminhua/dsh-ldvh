@@ -1775,4 +1775,132 @@ export function declareHandoverLayer(input = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// 当次作用范围与退出条件（34 §6）
+// ---------------------------------------------------------------------------
+
+/** §6「退出与转交条件」点名的三种停止情形。 */
+export const STOP_CONDITIONS = Object.freeze([
+  { key: "identificationFailed", label: "识别失败" },
+  { key: "conflictIrreconcilable", label: "约束冲突无法调和" },
+  { key: "uncertaintyMayChangePermission", label: "不确定项可能改变行动是否被允许" },
+]);
+
+/**
+ * 判定一次预检能否**退出**（34 §6「退出与转交条件」）。
+ *
+ * §6 原文：「**三段判断完成并生成预检落实记录后退出**，转由行动本身承接；
+ * 识别失败、约束冲突无法调和、或不确定项可能改变行动是否被允许时，
+ * **不退出而是停止交还**（§14）。转交不改变主控对行动的整体责任。」
+ *
+ * 故退出的充要条件是两条同时成立：三段判断完成 + 记录已生成。
+ * 三个停止情形任一命中即不得退出。
+ *
+ * ## 本函数不判断什么
+ *
+ * 不判断三段判断的**取值是否正确**（那属 §14「不证明取值正确」），
+ * 只判断「是否已作出三项结论且记录已生成」这一形态事实。
+ * `ownershipUnchanged` 恒为 true——§6 末句「转交不改变主控对行动的整体责任」
+ * 是必须随退出一并带出的边界，不是可选项。
+ */
+export function checkExit(input = {}) {
+  const threeWayDone = input.threeWayJudgementComplete === true;
+  const recordGenerated = input.recordGenerated === true;
+  const stops = STOP_CONDITIONS.filter((c) => input[c.key] === true);
+
+  if (stops.length > 0) {
+    return {
+      ok: true,
+      mayExit: false,
+      mustStopAndHandover: true,
+      stoppedBy: stops.map((c) => c.label),
+      reason: "34 §6：出现停止情形时不退出而是停止交还（§14）",
+      // §6 末句：转交不改变主控对行动的整体责任。
+      ownershipUnchanged: true,
+    };
+  }
+  if (!threeWayDone || !recordGenerated) {
+    const missing = [];
+    if (!threeWayDone) missing.push("三段判断完成");
+    if (!recordGenerated) missing.push("生成预检落实记录");
+    return {
+      ok: true,
+      mayExit: false,
+      mustStopAndHandover: false,
+      stoppedBy: [],
+      missing,
+      reason: `34 §6：退出以「${missing.join(" 且 ")}」为前提，条件未齐不得退出`,
+      ownershipUnchanged: true,
+    };
+  }
+  return {
+    ok: true,
+    mayExit: true,
+    mustStopAndHandover: false,
+    stoppedBy: [],
+    reason: "三段判断完成且记录已生成，可退出并转由行动本身承接",
+    // §6 末句：转交不改变主控对行动的整体责任。
+    ownershipUnchanged: true,
+  };
+}
+
+/** §6「不得以『上次已确认』代替本次判断」点名的替代措辞。 */
+const LAZY_RECHECK_TERMS = Object.freeze([
+  "上次已确认", "上次已检查", "之前已确认", "此前已确认", "沿用上次", "同上次", "上次预检过",
+]);
+
+/**
+ * 判定一次复用是否满足 §6「当次作用范围」的可回指依据要求。
+ *
+ * §6 原文：「一次预检结论只覆盖当次行动与当次识别范围，**不延续到后续行动**；
+ * 后续行动即使同类，也须重新识别——识别的复用须有**可回指的依据**
+ * （如同一约束在同一范围内已核对且未变化），**不得以「上次已确认」代替本次判断**。」
+ *
+ * 本函数做两件**形式**判定：
+ *  1. **是否给了可回指依据**——不给即不得复用（§6 的必要条件）；
+ *  2. **是否写了「上次已确认」类措辞**——§6 点名禁止的替代写法。
+ *
+ * 与 `evaluateReuse`（03 §7.3 三条低成本可观察条件）的分工：
+ * `evaluateReuse` 判「载体变没变」，本函数判「有没有给依据」。
+ * 二者独立成立，复用须同时过两关。
+ *
+ * ## 不判断什么
+ *
+ * 不判断所给依据**是否真的成立**（那是语义判断）。它只保证「有依据」而非「无依据复用」。
+ */
+export function checkReuseBasis(input = {}) {
+  if (!isNonEmptyString(input.recordSessionId) || !isNonEmptyString(input.sessionId)) {
+    return fail("invalid_request", "recordSessionId and sessionId are required");
+  }
+  const basis = isNonEmptyString(input.basis) ? input.basis.trim() : "";
+  // §6：不延续到后续行动——跨会话复用一律不成立。
+  if (input.recordSessionId !== input.sessionId) {
+    return {
+      ok: true,
+      reusable: false,
+      failed: ["跨会话：§6 明文作用范围限于当次行动，不延续到后续行动"],
+      lazyClaim: null,
+    };
+  }
+  const haystack = `${basis} ${input.note ?? ""}`;
+  const lazy = LAZY_RECHECK_TERMS.find((term) => haystack.includes(term));
+  if (lazy !== undefined) {
+    return {
+      ok: true,
+      reusable: false,
+      failed: [`34 §6：不得以「${lazy}」代替本次判断`],
+      lazyClaim: lazy,
+    };
+  }
+  if (basis === "") {
+    return {
+      ok: true,
+      reusable: false,
+      failed: ["34 §6：复用须有可回指的依据，未给出即不得复用"],
+      lazyClaim: null,
+    };
+  }
+  return { ok: true, reusable: true, failed: [], lazyClaim: null, basis };
+}
+
 export { join };
