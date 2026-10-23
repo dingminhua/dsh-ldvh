@@ -1055,14 +1055,15 @@ test("Human-facing asks forward the caller's cancellation signal", async () => {
 // guidance-text
 // ---------------------------------------------------------------------------
 
-test("guidanceTextFor returns the governed text with the seven 00 anchors", () => {
+test("guidanceTextFor returns the governed text with the six 00 anchors", () => {
 	const text = guidanceTextFor("governed");
 	assert.ok(text.length > 0);
-	// 00 anchors: identity block, §2 root scheme, §3.1 work model,
-	// §4 Human decision rights, §5 AI responsibilities, §6 dual-track
-	// values, and the former §7 anchors now carried by §5.6 据实声明 /
-	// §5.7 必停情形与恢复 / §5.8 交还与撤回 (00 第七章并入第五章).
-	for (const anchor of ["身份块", "§2", "§3.1", "§4", "§5", "§6", "§5.6", "§5.7", "§5.8"]) {
+	// 01 §10.4 contract: identity block, §2 root scheme, §3 构成解析,
+	// §4 Human decision rights, §5 AI responsibilities (with §5.6 据实声明 /
+	// §5.7 必停情形与恢复 / §5.8 交还与撤回), §6 dual-track values.
+	// §3 is the whole-chapter 构成解析 anchor — 00 §3.1 is titled
+	// 「能力承载」, not 「工作模型」, so the anchor must not be §3.1.
+	for (const anchor of ["身份块", "§2", "§3 构成解析", "§4", "§5", "§6", "§5.6", "§5.7", "§5.8"]) {
 		assert.ok(text.includes(anchor), `governed guidance missing anchor: ${anchor}`);
 	}
 });
