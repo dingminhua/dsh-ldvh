@@ -19,8 +19,10 @@ import {
 	RECALLED_LABEL,
 	RECORD_HEADER,
 	REQUIRED_SECTIONS,
+	REUSE_CONDITIONS,
 	checkFindingStates,
 	checkRecordShape,
+	evaluateReuse,
 	readRecord,
 	recordFingerprint,
 	recordPath,
@@ -296,4 +298,145 @@ test("checkFindingStates：非数组拒绝", () => {
 	const result = checkFindingStates("已遵守");
 	assert.equal(result.ok, false);
 	assert.equal(result.error.code, "invalid_request");
+});
+
+// ---------------------------------------------------------------------------
+// 复用条件（03 §7.3：三条全部满足才可直接复用）
+// ---------------------------------------------------------------------------
+
+test("REUSE_CONDITIONS 恰为 03 §7.3 的三条，且标明哪条机械可核", () => {
+	assert.deepEqual(
+		REUSE_CONDITIONS.map((c) => c.mechanical),
+		[false, true, false],
+		"只有第 2 条（载体未变更）机械可核；第 1、3 条是语义判断",
+	);
+});
+
+test("evaluateReuse：三条全成立时判为可复用，且无待办处置", () => {
+	const result = evaluateReuse({
+		recordSessionId: "session-abc",
+		sessionId: "session-abc",
+		sameScope: true,
+		noNewSignal: true,
+		carriers: [{ path: "specs/34-规则遵守系统规范.md", baseline: "h1", current: "h1" }],
+	});
+	assert.equal(result.ok, true);
+	assert.equal(result.reusable, true);
+	assert.deepEqual(result.failed, []);
+	assert.deepEqual(result.unverifiable, []);
+	assert.equal(result.requiredAction, null);
+});
+
+test("evaluateReuse：跨会话一律不得直接复用（第 1 条的前置）", () => {
+	const result = evaluateReuse({
+		recordSessionId: "session-old",
+		sessionId: "session-new",
+		sameScope: true,
+		noNewSignal: true,
+		carriers: [{ path: "p", baseline: "h", current: "h" }],
+	});
+	assert.equal(result.reusable, false);
+	assert.deepEqual(result.failed.map((f) => f.condition), ["sameScope"]);
+	assert.match(result.failed[0].reason, /跨会话/);
+});
+
+test("evaluateReuse：调用方未确认范围未变时不复用（语义判断不由机械代替）", () => {
+	for (const sameScope of [false, undefined, "true"]) {
+		const result = evaluateReuse({
+			recordSessionId: "s",
+			sessionId: "s",
+			sameScope,
+			noNewSignal: true,
+			carriers: [{ path: "p", baseline: "h", current: "h" }],
+		});
+		assert.equal(result.reusable, false, `sameScope=${JSON.stringify(sameScope)} 不应判为可复用`);
+		assert.ok(result.failed.some((f) => f.condition === "sameScope"));
+	}
+});
+
+test("evaluateReuse：载体指纹已变即不复用，并指出是哪个载体", () => {
+	const result = evaluateReuse({
+		recordSessionId: "s",
+		sessionId: "s",
+		sameScope: true,
+		noNewSignal: true,
+		carriers: [
+			{ path: "specs/34-规则遵守系统规范.md", baseline: "aaa", current: "bbb" },
+			{ path: "ldvh-base/adrs/adr-1.md", baseline: "ccc", current: "ccc" },
+		],
+	});
+	assert.equal(result.reusable, false);
+	assert.equal(result.failed.length, 1);
+	assert.equal(result.failed[0].condition, "sourcesUnchanged");
+	assert.match(result.failed[0].reason, /specs\/34-规则遵守系统规范\.md/);
+});
+
+test("evaluateReuse：载体不可读即不复用，不当成「没变化」", () => {
+	const result = evaluateReuse({
+		recordSessionId: "s",
+		sessionId: "s",
+		sameScope: true,
+		noNewSignal: true,
+		carriers: [{ path: "gone.md", baseline: "h", current: null }],
+	});
+	assert.equal(result.reusable, false);
+	assert.match(result.failed[0].reason, /不可读/);
+});
+
+test("evaluateReuse：未提供载体指纹时按未核验处理，不默认通过", () => {
+	const result = evaluateReuse({
+		recordSessionId: "s",
+		sessionId: "s",
+		sameScope: true,
+		noNewSignal: true,
+		carriers: [],
+	});
+	assert.equal(result.reusable, false);
+	assert.deepEqual(result.unverifiable.map((u) => u.condition), ["sourcesUnchanged"]);
+	assert.match(result.unverifiable[0].reason, /不默认通过/);
+});
+
+test("evaluateReuse：载体缺基线指纹时按未核验处理（无法证明未变更）", () => {
+	const result = evaluateReuse({
+		recordSessionId: "s",
+		sessionId: "s",
+		sameScope: true,
+		noNewSignal: true,
+		carriers: [{ path: "x.md", baseline: null, current: "h" }],
+	});
+	assert.equal(result.reusable, false);
+	assert.equal(result.unverifiable[0].condition, "sourcesUnchanged");
+});
+
+test("evaluateReuse：不成立的处置是「重做受影响部分的预检」，不是全量重扫", () => {
+	const result = evaluateReuse({
+		recordSessionId: "s",
+		sessionId: "s",
+		sameScope: false,
+		noNewSignal: true,
+		carriers: [],
+	});
+	assert.equal(result.reusable, false);
+	assert.match(result.requiredAction, /重新执行受影响部分的预检/);
+	assert.match(result.requiredAction, /不得以「无法证明没有变化」为由全量重扫/);
+});
+
+test("evaluateReuse：第 3 条未确认时不复用", () => {
+	const result = evaluateReuse({
+		recordSessionId: "s",
+		sessionId: "s",
+		sameScope: true,
+		noNewSignal: false,
+		carriers: [{ path: "p", baseline: "h", current: "h" }],
+	});
+	assert.equal(result.reusable, false);
+	assert.deepEqual(result.failed.map((f) => f.condition), ["noNewSignal"]);
+});
+
+test("evaluateReuse：缺 sessionId 即拒绝（无法判定是否同一会话）", () => {
+	for (const bad of ["", undefined, null, 42]) {
+		const result = evaluateReuse({ sessionId: bad, sameScope: true, noNewSignal: true });
+		assert.equal(result.ok, false);
+		assert.equal(result.error.code, "invalid_request");
+	}
 });

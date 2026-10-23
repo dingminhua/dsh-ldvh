@@ -278,6 +278,126 @@ export function checkFindingStates(findings) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// 复用判定（specs/03 §7.3）
+// ---------------------------------------------------------------------------
+
+/**
+ * 复用条件的三条判据，逐条对应 03 §7.3：
+ *
+ *  1. 同一会话的连续行动步骤中，Human 目标、工作对象和当前行动范围未发生
+ *     实质变化或超出上次覆盖范围；
+ *  2. 上次记录后，当前 Working Tree 中作为预检依据的规则源和事实载体没有发生
+ *     变更；
+ *  3. 未出现新的召回触发、风险升级、能力缺口或 Human Gate 信号。
+ *
+ * **三条全部满足才可直接复用**（§7.3 首句「只可在……全部满足时」）。本模块把
+ * 第 1、3 条留给调用方以布尔声明传入——它们含「实质变化」「新的召回触发」这类
+ * 语义判断，机械层无法判定，**本模块不假装能判**（34 §14：机械结果与语义判断
+ * 互不替代）。第 2 条可以机械地做：调用方给出上次记录时的载体指纹，本次回读同一
+ * 批载体比对即可。
+ *
+ * **§7.3 末句的禁区**：「AI 不得以『无法证明没有变化』为由无差别重扫全部规则源
+ * 或事实源；只核对当前行动所依赖的可观察范围。」故本函数**不扫描任何目录**——
+ * 它只比对调用方显式列出的载体。没有列出载体时，第 2 条无法成立（返回
+ * `unverifiable`），而**不是**默认通过；但也不因此要求调用方全量扫描。
+ */
+export const REUSE_CONDITIONS = Object.freeze([
+  { key: "sameScope", label: "同一会话、目标与行动范围未实质变化", mechanical: false },
+  { key: "sourcesUnchanged", label: "作为预检依据的规则源与事实载体未变更", mechanical: true },
+  { key: "noNewSignal", label: "未出现新的召回触发、风险升级、能力缺口或 Human Gate 信号", mechanical: false },
+]);
+
+/**
+ * 判断一份既有记录可否直接复用。
+ *
+ * @param {object} input
+ * @param {string} input.recordSessionId   既有记录所属会话
+ * @param {string} input.sessionId         当前会话
+ * @param {boolean} input.sameScope        调用方对第 1 条的语义结论
+ * @param {boolean} input.noNewSignal      调用方对第 3 条的语义结论
+ * @param {Array<{path: string, baseline: string|null, current: string|null}>} input.carriers
+ *        第 2 条要核对的载体及其指纹。`current` 为 null 表示载体已不可读。
+ *
+ * 返回 `reusable` 只在三条**全部**成立时为 true；任何一条不成立或不可核验，
+ * `reusable` 即为 false，并在 `failed` 里逐条说明是哪一条、为什么。
+ */
+export function evaluateReuse(input = {}) {
+  const failed = [];
+  const unverifiable = [];
+
+  if (!isNonEmptyString(input.sessionId)) {
+    return fail("invalid_request", "sessionId is required to judge 03 §7.3 condition 1");
+  }
+
+  // 条件 1：同会话 + 调用方的语义结论。
+  if (!isNonEmptyString(input.recordSessionId) || input.recordSessionId !== input.sessionId) {
+    failed.push({
+      condition: "sameScope",
+      reason: `既有记录不属于当前会话（记录=${input.recordSessionId ?? "未知"}，当前=${input.sessionId}）；跨会话不得直接复用`,
+    });
+  } else if (input.sameScope !== true) {
+    failed.push({
+      condition: "sameScope",
+      reason: "调用方未确认目标、工作对象与行动范围未实质变化（03 §7.3 第 1 条，语义判断不由机械判定）",
+    });
+  }
+
+  // 条件 2：载体指纹比对（机械可核）。
+  const carriers = Array.isArray(input.carriers) ? input.carriers : [];
+  if (carriers.length === 0) {
+    unverifiable.push({
+      condition: "sourcesUnchanged",
+      reason: "未提供任何作为预检依据的载体指纹；该项按未核验处理，不默认通过（也不得据此要求全量扫描，03 §7.3 末句）",
+    });
+  } else {
+    for (const carrier of carriers) {
+      const path = carrier?.path;
+      if (!isNonEmptyString(path)) {
+        unverifiable.push({ condition: "sourcesUnchanged", reason: "载体条目缺 path，无法比对" });
+        continue;
+      }
+      if (!isNonEmptyString(carrier.baseline)) {
+        unverifiable.push({
+          condition: "sourcesUnchanged",
+          reason: `${path}：未记录基线指纹，无法证明未变更`,
+        });
+        continue;
+      }
+      if (carrier.current === null || carrier.current === undefined) {
+        failed.push({ condition: "sourcesUnchanged", reason: `${path}：载体当前不可读` });
+        continue;
+      }
+      if (carrier.current !== carrier.baseline) {
+        failed.push({
+          condition: "sourcesUnchanged",
+          reason: `${path}：内容指纹已变更（基线 ${String(carrier.baseline).slice(0, 12)}… → 当前 ${String(carrier.current).slice(0, 12)}…）`,
+        });
+      }
+    }
+  }
+
+  // 条件 3：调用方的语义结论。
+  if (input.noNewSignal !== true) {
+    failed.push({
+      condition: "noNewSignal",
+      reason: "调用方未确认未出现新的召回触发、风险升级、能力缺口或 Human Gate 信号（03 §7.3 第 3 条）",
+    });
+  }
+
+  return {
+    ok: true,
+    reusable: failed.length === 0 && unverifiable.length === 0,
+    failed,
+    unverifiable,
+    // §7.3 末句：不成立的处置是「重新执行受影响部分的预检并形成新的记录」，
+    // 不是「扩大扫描」。本字段把该处置直说出来，免得调用方自行发挥。
+    requiredAction: failed.length === 0 && unverifiable.length === 0
+      ? null
+      : "重新执行受影响部分的预检并形成新的预检落实记录（03 §7.3 末段）；不得以「无法证明没有变化」为由全量重扫",
+  };
+}
+
 /** 供调用方拼装路径的工具导出（测试与工具层共用，避免各自拼串）。 */
 export const STORE_DIR = STORE_SUBDIR;
 export { join };
