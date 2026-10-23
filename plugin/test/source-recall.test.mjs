@@ -404,3 +404,44 @@ test("实义动词单字兜底：短指令能真实召回且质量不退化", as
 	assert.equal(r2.specs[0].tier, 0);
 	assert.match(r2.specs[0].hitReason, /规范编号命中：34/);
 });
+
+test("单字兜底不得引入泛字噪声（回归：成/回/立/新/开/生 曾致假命中）", () => {
+	// 实测回归：初版 ACTION_CHARS 收了「成」「回」「立」「新」「开」「生」等泛字。
+	// 「改名**成**双源召回」切出单字「成」，「已经完**成**」切「成」，「**回**到上一节」切「回」。
+	// 后果：查询「把 34 号规范改名成双源召回」时，00 号规范靠 scope 里的「构**成**」
+	// 命中，命中理由显示「适用范围命中：成」——单字噪声把假相关送了回来。
+	// 这些字曾误入 ACTION_CHARS，且**出现在几乎任何句子里**。
+	const FORBIDDEN_SINGLE_CHARS = ["成", "立", "新", "开", "生", "设", "存", "保", "清", "替", "启", "停"];
+	for (const phrase of [
+		"把 34 号规范改名成双源召回",
+		"这个功能已经完成",
+		"新开一个分支",
+		"保存这段设置",
+	]) {
+		const tokens = tokenize(phrase);
+		for (const ch of FORBIDDEN_SINGLE_CHARS) {
+			assert.ok(
+				!tokens.includes(ch),
+				`「${phrase}」不得切出泛字「${ch}」，实际：${JSON.stringify(tokens)}`,
+			);
+		}
+	}
+});
+
+test("单字兜底：真正的动作字仍须切出（不得因收窄而误删）", () => {
+	for (const [phrase, want] of [
+		["改一下", "改"], ["删了", "删"], ["加个", "加"], ["建个", "建"], ["修一下", "修"],
+	]) {
+		assert.ok(tokenize(phrase).includes(want), `「${phrase}」须切出「${want}」`);
+	}
+});
+
+test("单字噪声不得造成假命中（00 号不得靠「成」命中）", async () => {
+	const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 5, budgetBytes: 20000 });
+	for (const s of r.specs) {
+		assert.ok(
+			!/^.*命中：成$/.test(s.hitReason),
+			`${s.title} 的命中理由是单字「成」，属泛字噪声`,
+		);
+	}
+});
