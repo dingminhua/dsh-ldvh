@@ -247,7 +247,14 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes 
   if (typeof projectRoot !== "string" || projectRoot === "") {
     return { inject: false, reason: "no-project" };
   }
-  // 02 §9.2 进入条件：用户消息不足以构成查询时不进。
+  // **区分两种「不进」**（归因不得混同）：
+  //   - 取不到用户消息（`currentUserText` 返回空串）→ 是**输入缺失**，不是 §6 排除。
+  //     报成 excluded-by-34-6 会让人以为「系统判断这是纯读取」，从而不去查为什么
+  //     取不到输入——那正是「验证手段在骗我」的形态。
+  //   - 取到了但不满足 §6 进入条件 → 才是 excluded-by-34-6。
+  if (typeof userText !== "string" || userText.trim() === "") {
+    return { inject: false, reason: "no-user-text" };
+  }
   if (!shouldRecall(userText)) {
     return { inject: false, reason: "excluded-by-34-6" };
   }

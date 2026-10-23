@@ -292,3 +292,19 @@ test("时序：projectRoot 缺失时返回 no-project（不假装召回成功）
 		assert.equal(r.reason, "no-project");
 	}
 });
+
+
+test("归因不得混同：取不到用户消息 ≠ 34 §6 排除", async () => {
+	// 这两者的处置完全不同：取不到输入要去查「为什么取不到」（批次形态、
+	// step 语义、注入行是否被误当成用户消息）；§6 排除是**正常判定**。
+	// 若都报 excluded-by-34-6，前者会被当成后者，从而无人调查——那正是
+	// 「验证手段在骗我」的形态。
+	for (const userText of ["", "   ", null, undefined]) {
+		const r = await buildRecallInjection({ userText, projectRoot: ROOT });
+		assert.equal(r.inject, false);
+		assert.equal(r.reason, "no-user-text", `「${String(userText)}」应报输入缺失，不是 §6 排除`);
+	}
+	// 取到了但不满足进入条件，才是 §6 排除。
+	const r2 = await buildRecallInjection({ userText: "看看这个文件里有什么", projectRoot: ROOT });
+	assert.equal(r2.reason, "excluded-by-34-6");
+});
