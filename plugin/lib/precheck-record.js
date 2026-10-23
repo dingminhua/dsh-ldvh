@@ -208,10 +208,14 @@ export function renderPrecheckRecord(fields = {}) {
     present.add(section.label);
   }
 
+  const ritual = detectRitualRecord(fields);
   return {
     ok: true,
     text: `${lines.join("\n")}\n`,
     sections: [...present],
+    // §17 第 2 项：疑似空记录随记录交还，不阻断（判据在语义侧）。
+    ritualSuspected: ritual.ok === true && ritual.ritualSuspected === true,
+    ritualNotice: ritual.ok === true ? ritual.notice : null,
     undifferentiatedRecall: recalled.undifferentiated === true,
     // §7.2 末句：快通道下未逐级标明的，连同警告一并交还，不静默放过。
     fastPathWarnings: recalled.fastPathWarnings ?? [],
@@ -1401,6 +1405,71 @@ export function roundTripRecord(fields) {
     .filter(([key, value]) => parsed.fields[key] !== value)
     .map(([key, rendered_]) => ({ key, rendered: rendered_, parsed: parsed.fields[key] }));
   return { ok: true, roundTripStable: diffs.length === 0, diffs, parsed };
+}
+
+// ---------------------------------------------------------------------------
+// 反仪式自查（34 §17 第 2 项）
+// ---------------------------------------------------------------------------
+
+/** §17 第 2 项所指的「空结论」措辞（片段匹配，不含实质性内容即为疑似）。 */
+const EMPTY_CONTENT_TERMS = Object.freeze([
+  "无", "没有", "不存在", "不适用", "略", "同上", "见前", "无需", "n/a", "-", "—",
+]);
+
+/**
+ * 检出疑似「仪式化记录」（34 §17 第 2 项）。
+ *
+ * §17 原文：「不把预检变仪式——无相关约束来源时不制造『已检查』的空记录，
+ * 也不为凑齐三项而填写无内容的结论。」
+ *
+ * ## 为什么只「检出」而不「拒绝」
+ *
+ * 「无」在有些场合是**正确答案**：确无相关约束来源时，如实写「无」比编一条更诚实。
+ * 机械层无法区分「诚实的无」与「凑段的空」——那是语义判断（§14）。故本函数**不拒绝**，
+ * 只把疑似的段落列出来随记录交还，让 Human 或调用方看见「这几段没有实质内容」。
+ *
+ * 若拒绝，反而会：① 逼调用方把「无」改写成看似有内容的空话（更糟）；
+ * ② 把语义判断偷换成机械判断，违反 §14「机械结果与语义判断互不替代」。
+ */
+export function detectRitualRecord(fields = {}) {
+  if (fields === null || typeof fields !== "object" || Array.isArray(fields)) {
+    return fail("invalid_request", "fields must be a plain object");
+  }
+  const suspect = [];
+  const check = (label, value) => {
+    if (typeof value !== "string") return;
+    const text = value.trim();
+    // 去掉标点后若仅剩空内容措辞，或全文极短且含此类措辞，即记为疑似。
+    const stripped = text.replace(/[。，、；：！？\s]/g, "");
+    const lowered = stripped.toLowerCase();
+    // 大小写不敏感：「N/A」与「n/a」是同一件事。
+    const isBare = EMPTY_CONTENT_TERMS.some((term) => term.toLowerCase() === lowered);
+    const isTiny = stripped.length <= 2 && EMPTY_CONTENT_TERMS.some((term) => lowered.includes(term.toLowerCase()));
+    if (isBare || isTiny) suspect.push({ section: label, value: text });
+  };
+  for (const section of REQUIRED_SECTIONS) check(section.label, fields[section.key]);
+  check("未验证范围", fields.unverified);
+  // 已召回：两级都为「未声明」时也算疑似——它意味着整个召回区没有交代。
+  const recalled = fields.recalled;
+  if (recalled !== null && typeof recalled === "object" && !Array.isArray(recalled)) {
+    const adr = String(recalled.adr ?? "").trim();
+    const pitfall = String(recalled.pitfall ?? "").trim();
+    if (adr === "未声明" && pitfall === "未声明") {
+      suspect.push({ section: RECALLED_LABEL, value: "两级均为「未声明」" });
+    }
+  }
+  return {
+    ok: true,
+    // 疑似项随记录交还，不阻断。
+    suspect,
+    ritualSuspected: suspect.length > 0,
+    // §17 第 2 项的真正判据在语义侧，本函数只给线索。
+    judged: false,
+    notice:
+      suspect.length === 0
+        ? null
+        : `34 §17 第 2 项：以下段落无实质内容，请确认它们是「如实写无」还是「凑段」：${suspect.map((item) => item.section).join("、")}`,
+  };
 }
 
 export { join };

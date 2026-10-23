@@ -53,6 +53,7 @@ import {
 	recordFingerprint,
 	renderPrecheckRecord,
 	parseRecord,
+	detectRitualRecord,
 	roundTripRecord,
 	buildHandover,
 	summarizeApplications,
@@ -1383,4 +1384,57 @@ test("shape 与 parseRecord 对同一输入的 complete 判定必须一致（防
 			`第 ${index} 个输入上两个判定器结论不一致：shape=${shape.complete} parse=${parsed.complete}`,
 		);
 	}
+});
+
+// ---------------------------------------------------------------------------
+// 反仪式自查（34 §17 第 2 项）
+// ---------------------------------------------------------------------------
+
+test("detectRitualRecord：全「无」内容的记录被标为疑似，但不拒绝", () => {
+	const result = detectRitualRecord({
+		effective: "无", applicable: "无", allowed: "无", unverified: "无",
+		recalled: { adr: "无", pitfall: "无" },
+	});
+	assert.equal(result.ok, true);
+	assert.equal(result.ritualSuspected, true);
+	assert.equal(result.judged, false, "机械层不做语义判定");
+	assert.ok(result.suspect.length >= 4);
+	assert.match(result.notice, /§17 第 2 项/);
+});
+
+test("detectRitualRecord：有实质内容时不标疑", () => {
+	const result = detectRitualRecord(COMPLETE_FIELDS);
+	assert.equal(result.ritualSuspected, false);
+	assert.equal(result.notice, null);
+});
+
+test("detectRitualRecord：两级召回均为「未声明」也算疑似（整个召回区没交代）", () => {
+	const result = detectRitualRecord({
+		...COMPLETE_FIELDS,
+		recalled: { adr: "未声明", pitfall: "未声明" },
+	});
+	assert.ok(result.suspect.some((item) => item.section === RECALLED_LABEL));
+});
+
+test("detectRitualRecord：「略」「同上」「N/A」等也计入", () => {
+	for (const term of ["略", "同上", "N/A", "—"]) {
+		const result = detectRitualRecord({ ...COMPLETE_FIELDS, effective: term });
+		assert.equal(result.ritualSuspected, true, `${term} 应被检出`);
+	}
+});
+
+test("renderPrecheckRecord：疑似空记录仍渲染成功，但带出提醒（不阻断）", () => {
+	const result = renderPrecheckRecord({
+		effective: "无", applicable: "无", allowed: "无", unverified: "无",
+		recalled: { adr: "无", pitfall: "无" },
+	});
+	assert.equal(result.ok, true, "不得因疑似而拒绝——会逼出更糟的空话");
+	assert.equal(result.ritualSuspected, true);
+	assert.match(result.ritualNotice, /凑段/);
+});
+
+test("renderPrecheckRecord：实质内容不产生仪式提醒", () => {
+	const result = renderPrecheckRecord(COMPLETE_FIELDS);
+	assert.equal(result.ritualSuspected, false);
+	assert.equal(result.ritualNotice, null);
 });
