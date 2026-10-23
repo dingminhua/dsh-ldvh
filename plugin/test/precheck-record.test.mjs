@@ -15,6 +15,10 @@ import { join } from "node:path";
 
 import {
 	APPLICATION_CRITERIA,
+	RETURN_ITEMS,
+	THREE_WAY_ITEMS,
+	COMPLIANCE_BUCKET_LABELS,
+	assembleReturn,
 	ENTRY_SIGNALS,
 	GAP_FIELDS,
 	checkGapRegistration,
@@ -1066,4 +1070,106 @@ test("checkGapRegistration：空数组合法（表示无缺口，其真假由语
 
 test("checkGapRegistration：非数组拒绝", () => {
 	assert.equal(checkGapRegistration("无缺口").error.code, "invalid_request");
+});
+
+// ---------------------------------------------------------------------------
+// §12 交还组装（七项 + 强制区分两类结论）
+// ---------------------------------------------------------------------------
+
+const RETURN_INPUT = {
+	identification: "读 specs/34 §12 与 §14 全文；查 plugin/lib 现有导出",
+	threeWayJudgement: { effective: "34 与 03 §7.2 均生效", applicable: "§12 交还结构适用", allowed: "本会话授权仅限 plugin/ 下" },
+	application: summarizeApplications([
+		{ statement: "a", hasTarget: "范围", hasChange: "改为分列", hasTraceableBasis: "§12" },
+		{ statement: "b", hasTarget: "路径", hasTraceableBasis: "§8.3" },
+	]),
+	recalled: "ADR 一条（已适用）；Pitfall 未触发",
+	unverified: "specs/34 的 operation 声明未落盘",
+	humanDecisions: "是否批准 34 号加操作声明",
+};
+
+test("RETURN_ITEMS 恰为 34 §12 的七项，且只有「偏离情况」是条件项", () => {
+	assert.equal(RETURN_ITEMS.length, 7);
+	const optional = RETURN_ITEMS.filter((i) => !i.required).map((i) => i.label);
+	assert.deepEqual(optional, ["偏离情况"], "原文只有偏离情况带「如有」");
+});
+
+test("assembleReturn：六项齐备 + 三段判断逐项 + 两类分列即组装成功", () => {
+	const result = assembleReturn(RETURN_INPUT);
+	assert.equal(result.ok, true);
+	assert.equal(result.complete, true);
+	assert.equal(result.claimsCompliance, false);
+	assert.equal(result.distinctionEnforced, true);
+	assert.deepEqual(result.buckets, { 已落实: 1, 已识别未落实: 1 });
+	assert.match(result.text, /已落实：1 项/);
+	assert.match(result.text, /已识别未落实：1 项/);
+});
+
+test("assembleReturn：缺任一必填项即拒绝并列出缺项", () => {
+	for (const item of RETURN_ITEMS.filter((i) => i.required)) {
+		const partial = { ...RETURN_INPUT };
+		delete partial[item.key];
+		const result = assembleReturn(partial);
+		assert.equal(result.ok, false, `缺 ${item.label} 须拒绝`);
+		assert.equal(result.error.code, "return/items_missing");
+		assert.ok(result.missing.some((m) => m.includes(item.label)));
+	}
+});
+
+test("assembleReturn：偏况缺省合法（「如有」），不会因缺它而拒绝", () => {
+	const result = assembleReturn({ ...RETURN_INPUT, deviations: undefined });
+	assert.equal(result.ok, true);
+	assert.match(result.text, /偏离情况：无/);
+});
+
+test("assembleReturn：三段判断写成一句话即拒绝（§12「逐项」）", () => {
+	const result = assembleReturn({ ...RETURN_INPUT, threeWayJudgement: "三项都成立" });
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "return/three_way_not_itemized");
+});
+
+test("assembleReturn：三段判断缺其中一项即拒绝，并指明缺哪项", () => {
+	for (const item of THREE_WAY_ITEMS) {
+		const threeWay = { ...RETURN_INPUT.threeWayJudgement };
+		delete threeWay[item.key];
+		const result = assembleReturn({ ...RETURN_INPUT, threeWayJudgement: threeWay });
+		assert.equal(result.ok, false);
+		assert.ok(result.missing.some((m) => m.includes(item.label)));
+	}
+});
+
+test("assembleReturn：约束落实未分列两类即拒绝（§12 第二段）", () => {
+	// 注意 `{落实: [], 已识别未落实: []}` 是**正确**的分列形态（summarizeApplications 的返回），
+	// 空数组不等于缺失——不得把它当违规。故此处只列真正未分列的三种。
+	for (const bad of ["已落实 3 项、未落实 1 项", { 落实: [] }, null]) {
+		const result = assembleReturn({ ...RETURN_INPUT, application: bad });
+		assert.equal(result.ok, false, `${JSON.stringify(bad)} 不应被接受`);
+		assert.equal(result.error.code, "return/items_missing");
+		// 未分列的两种违规形态会走不同分支：单串走「形态不符」，缺一个桶走「须分列」。
+		// 二者都是拒绝，断言只要求「问题项落在约束落实这一段」，不钉具体措辞。
+		assert.ok(result.missing.some((m) => m.includes("约束落实的具体形态")));
+	}
+});
+
+test("assembleReturn：正文出现「已遵守」即拒绝（§12 禁合并结论）", () => {
+	const result = assembleReturn({ ...RETURN_INPUT, identification: "本次已遵守全部约束" });
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "return/merged_conclusion");
+	assert.match(result.error.message, /已遵守/);
+});
+
+test("assembleReturn：偏离情况逐条过 §9.2，非法形态整体拒绝", () => {
+	const result = assembleReturn({
+		...RETURN_INPUT,
+		deviations: [{ ...DEVIATION_OK }, { ...DEVIATION_OK, form: "小失误" }],
+	});
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "deviation/form_invalid");
+});
+
+test("assembleReturn：合法偏离情况逐条留痕", () => {
+	const result = assembleReturn({ ...RETURN_INPUT, deviations: [DEVIATION_OK] });
+	assert.equal(result.ok, true);
+	assert.equal(result.deviations.length, 1);
+	assert.match(result.text, /1 项，均已按 §9\.2 登记/);
 });

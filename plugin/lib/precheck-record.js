@@ -1033,4 +1033,148 @@ export function checkGapRegistration(gaps) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// 交还结构（34 §12：七项 + 强制区分）
+// ---------------------------------------------------------------------------
+
+/** 三段判断的三项（34 §8 第 2 项；字段与格式以 03 §7.2 为准）。 */
+export const THREE_WAY_ITEMS = Object.freeze([
+  { key: "effective", label: "生效" },
+  { key: "applicable", label: "适用" },
+  { key: "allowed", label: "行动允许" },
+]);
+
+/**
+ * §12 交还的七项。
+ *
+ * §12 原文：「每次交还：当次识别的来源范围与识别结论；三段判断的结果（逐项）；
+ * 约束落实的具体形态（§8.3 的三项各自如何成立）；已召回与未触发的类型；
+ * **未验证范围**（哪些来源未识别、哪些判断未核对）；偏离情况（如有，按 §9.2
+ * 已登记）；待 Human 决定事项。」
+ *
+ * 只有「偏离情况」带「如有」——故它是**条件项**，其余六项必填。这与 §17 第 2 项
+ * 的纪律一致：不带「如有」的项不得省略，带「如有」的项不得凭空造一条。
+ */
+export const RETURN_ITEMS = Object.freeze([
+  { key: "identification", label: "当次识别的来源范围与识别结论", required: true, shape: "string" },
+  { key: "threeWayJudgement", label: "三段判断的结果", required: true, shape: "object" },
+  { key: "application", label: "约束落实的具体形态", required: true, shape: "object" },
+  { key: "recalled", label: "已召回与未触发的类型", required: true, shape: "string" },
+  { key: "unverified", label: "未验证范围", required: true, shape: "string" },
+  { key: "deviations", label: "偏离情况", required: false, shape: "array" },
+  { key: "humanDecisions", label: "待 Human 决定事项", required: true, shape: "string" },
+]);
+
+/** 按声明的形态判「这一项有没有给」。结构化项不看字符串，否则对象必被误判为缺失。 */
+function presentByShape(value, shape) {
+  if (shape === "string") return isNonEmptyString(value);
+  if (shape === "object") return value !== null && typeof value === "object" && !Array.isArray(value);
+  if (shape === "array") return Array.isArray(value);
+  return false;
+}
+
+/** §12 的强制区分：两类结论的标题（位置固定，不合并）。 */
+export const COMPLIANCE_BUCKET_LABELS = Object.freeze(["已落实", "已识别未落实"]);
+
+/**
+ * 组装一次 §12 交还。
+ *
+ * 做三件事，都是**形式核对**，不判断内容正确：
+ *  1. 六项必填是否都在（偏离情况按「如有」条件）；
+ *  2. 三段判断**逐项**是否有结论（§12「逐项」，缺一项即不齐）；
+ *  3. 两类结论是否**分列**且交还文本里不出现合并式「已遵守」（§12 第二段，强制）。
+ *
+ * 偏离情况若给出，逐条过 `evaluateDeviation`（§9.2 的形态闭集与时间序）。
+ *
+ * **本函数不判断**：识别是否充分、三段判断取值是否正确、落实是否真的发生。
+ * 它返回的 `claimsCompliance` 恒为 false——§12 禁止本系统给出合并结论。
+ */
+export function assembleReturn(input = {}) {
+  // 三段判断须逐项：单串无法承载「逐项」，拒绝而非拆解。
+  if (isNonEmptyString(input.threeWayJudgement)) {
+    return fail(
+      "return/three_way_not_itemized",
+      "三段判断须逐项给出（生效／适用／行动允许），不得以一句概括替代（34 §12「逐项」）",
+      { required: THREE_WAY_ITEMS.map((item) => item.label) },
+    );
+  }
+
+  const missing = RETURN_ITEMS
+    .filter((item) => item.required && !presentByShape(input[item.key], item.shape))
+    .map((item) => item.label);
+
+  // 三段判断逐项核对（对象形态）。
+  const threeWay = input.threeWayJudgement ?? {};
+  const threeWayMissing = THREE_WAY_ITEMS
+    .filter((item) => !isNonEmptyString(threeWay[item.key]))
+    .map((item) => item.label);
+  if (threeWayMissing.length > 0 && !missing.includes("三段判断的结果")) {
+    missing.push(`三段判断的结果（缺 ${threeWayMissing.join("、")}）`);
+  }
+
+  // 强制区分：`application` 须是 summarizeApplications 的形状且分列。
+  const application = input.application;
+  const hasBuckets = application !== null
+    && typeof application === "object"
+    && Array.isArray(application.落实)
+    && Array.isArray(application.已识别未落实);
+  if (!hasBuckets && !missing.includes("约束落实的具体形态")) {
+    missing.push(
+      "约束落实的具体形态（须按 §8.3 逐项给出，并分列「已落实」与「已识别未落实」；合并为一句即不成立）",
+    );
+  }
+
+  if (missing.length > 0) {
+    return fail("return/items_missing", `34 §12 交还缺项：${missing.join("；")}`, { missing });
+  }
+
+  // 偏离情况（如有）：逐条过 §9.2。
+  const deviations = Array.isArray(input.deviations) ? input.deviations : [];
+  const deviationResults = [];
+  for (const deviation of deviations) {
+    const verdict = evaluateDeviation(deviation);
+    if (verdict.ok !== true) return verdict;
+    deviationResults.push(verdict);
+  }
+
+  // §12 第二段：不得把两类合并成「已遵守」。
+  const haystack = [input.identification, input.unverified, threeWay.effective, threeWay.applicable, threeWay.allowed]
+    .filter((value) => typeof value === "string")
+    .join("\n");
+  const merged = MERGED_COMPLIANCE_TERMS.find((term) => haystack.includes(term));
+  if (merged !== undefined) {
+    return fail(
+      "return/merged_conclusion",
+      `交还正文出现「${merged}」：34 §12 要求显式区分「已落实」与「已识别未落实」，不得合并为「已遵守」`,
+    );
+  }
+
+  const lines = [
+    "## 交还（34 §12）",
+    "",
+    `- 当次识别的来源范围与识别结论：${input.identification.trim()}`,
+    "- 三段判断的结果：",
+    ...THREE_WAY_ITEMS.map((item) => `  - ${item.label}：${threeWay[item.key].trim()}`),
+    "- 约束落实的具体形态：",
+    `  - ${COMPLIANCE_BUCKET_LABELS[0]}：${application.落实.length} 项`,
+    `  - ${COMPLIANCE_BUCKET_LABELS[1]}：${application.已识别未落实.length} 项`,
+    `- 已召回与未触发的类型：${input.recalled.trim()}`,
+    `- 未验证范围：${input.unverified.trim()}`,
+    `- 偏离情况：${deviations.length === 0 ? "无（本节按 34 §9.2 为空；空白不代替登记）" : `${deviations.length} 项，均已按 §9.2 登记`}`,
+    `- 待 Human 决定事项：${input.humanDecisions.trim()}`,
+  ];
+
+  return {
+    ok: true,
+    text: `${lines.join("\n")}\n`,
+    complete: true,
+    deviations: deviationResults,
+    buckets: { 已落实: application.落实.length, 已识别未落实: application.已识别未落实.length },
+    // §12 的禁区：本模块从不给出合并式结论。
+    claimsCompliance: false,
+    // §12 第二段的强制项，如实回显已执行。
+    distinctionEnforced: true,
+  };
+}
+
 export { join };
