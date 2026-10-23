@@ -248,8 +248,13 @@ test("高文档频率过滤：普遍词不再把大半规范拉进来", async ()
 	assert.ok(r.specs.length > 0, "应至少命中 34 号");
 	// 34 号靠编号命中，必须排第一。
 	assert.match(r.specs[0].hitReason, /规范编号命中：34/);
-	// 不得因「规范」这个普遍词把 10 份规范都拉进来。
-	assert.ok(r.specs.length <= 3, `普遍词未过滤干净，实际 ${r.specs.length} 份`);
+	// 「规范」这个普遍词不得把大半规范拉进**同一层**：34 号应在 tier 0 独占鳌头，
+	// 其余正文层命中的必须是因为真命中 ≥2 个实义词，而非靠「规范」一词。
+	assert.equal(r.specs[0].tier, 0, "34 号应以编号层居首");
+	// 正文层（tier 4）保留的必须命中 ≥2 个词（单靠一个普遍词的已被 minHits 剔除）。
+	for (const s of r.specs.filter((x) => x.tier === 4)) {
+		assert.ok(s.hits >= 2, `正文层条目 ${s.title} 只命中 ${s.hits} 个词，应被 minHits 剔除`);
+	}
 });
 
 test("高文档频率过滤：过滤后仍能命中真正相关的（不得因过滤而清空）", async () => {
@@ -268,4 +273,29 @@ test("高文档频率过滤：全部查询词都过于普遍时退回原词，�
 
 test("HIGH_DF_RATIO 是固定常量，样本过小时不丢词", () => {
 	assert.equal(HIGH_DF_RATIO, 0.6);
+});
+
+test("规范正文层必须参与匹配（曾因读 body 而规范只有 text 导致整层失效）", async () => {
+	// 实测缺陷：matchCandidate 的正文层读 `candidate.body`，但 loadSpecs 返回的是
+	// `text`（全文）。结果规范正文这一层**从未匹配过**——查询「改 guidance-text.js
+	// 的引导文本」一条规范都命中不了，而该文件名只出现在 10 与 00 的正文里，
+	// 不在它们的 scope/positioning/title 里。
+	const r = await recallForAction({ action: "改 guidance-text.js 的引导文本", root: ROOT, limit: 5, budgetBytes: 20000 });
+	assert.ok(r.specs.length > 0, "必须命中规范（此前为 0 条）");
+	// 该文件名由 10 号规范规定为受保护文本，必须命中它。
+	assert.ok(
+		r.specs.some((s) => s.title.includes("环境接入") || s.title.includes("插件发布")),
+		`应命中 10 号规范，实际：[${r.specs.map((s) => s.title).join(", ")}]`,
+	);
+	// 命中的层应是正文层（tier 4）——这正是此前失效的那一层。
+	assert.ok(r.specs.some((s) => s.tier === 4), "应有正文层（tier 4）命中");
+});
+
+test("规范正文层：受保护内容的出处能被召回（00 §4.3）", async () => {
+	const r = await recallForAction({ action: "受保护内容怎么改", root: ROOT, limit: 5, budgetBytes: 20000 });
+	assert.ok(r.specs.length > 0, "应命中规范");
+	assert.ok(
+		r.specs.some((s) => s.title.includes("理念与构成")),
+		`00 号（受保护内容的规定处）应被命中，实际：[${r.specs.map((s) => s.title).join(", ")}]`,
+	);
 });

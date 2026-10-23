@@ -252,16 +252,26 @@ export function matchCandidate(actionTokens, candidate) {
   if (typeof specId === "string" && specId !== "" && actionTokens.includes(specId)) {
     return { tier: 0, hits: 1, hitReason: `规范编号命中：${specId}` };
   }
+  // `minHits`：该层至少要命中几个词才算相关。
+  //
+  // **为什么正文层要 2 个**：正文有数千字，命中 1 个词几乎必然——实测查询
+  // 「把 34 号规范改名成双源召回」在正文层命中 22 份规范，其中 17 份只命中
+  // 1 个词（「改名」或「召回」）。而 scope/title/detail 是短字段，命中 1 个词
+  // 即有区分度，故取 1。
   const sections = [
-    { tier: 1, text: candidate.scope, label: "适用范围" },
-    { tier: 2, text: candidate.detail, label: "内容" },
-    { tier: 3, text: candidate.title, label: "标题" },
-    { tier: 4, text: candidate.body, label: "正文" },
+    { tier: 1, text: candidate.scope, label: "适用范围", minHits: 1 },
+    { tier: 2, text: candidate.detail, label: "内容", minHits: 1 },
+    { tier: 3, text: candidate.title, label: "标题", minHits: 1 },
+    // 规范载入的是 `text`（全文）、事实载入的是 `body`（前 1200 字截断）。
+    // 曾只读 `body`，导致**规范正文这一层从未参与匹配**——缺陷：查询
+    // 「改 guidance-text.js 的引导文本」一条规范都命中不了，因为该文件名只
+    // 出现在 00/10 的正文里，不在它们的 scope/positioning/title 里。
+    { tier: 4, text: candidate.body ?? candidate.text, label: "正文", minHits: 2 },
   ];
   for (const section of sections) {
     if (typeof section.text !== "string" || section.text === "") continue;
     const hits = intersect(actionTokens, tokenize(section.text));
-    if (hits.length > 0) {
+    if (hits.length >= (section.minHits ?? 1)) {
       // 命中理由只列前 3 个 token，避免把整段塞进理由。
       return {
         tier: section.tier,
