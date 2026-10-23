@@ -1367,3 +1367,90 @@ test("fiber rebuild: a child that finished before the rebuild resolves from its 
 		stop2();
 	});
 });
+
+// ---------------------------------------------------------------------------
+// pre-step: 行动前双源召回注入（10 §5.3 行动前引导入口）
+// ---------------------------------------------------------------------------
+
+test("pre-step recall: 有命中时追加召回行，且与管辖判定行互不替代", async () => {
+	const agent = makeAgent("s1", "/cwd");
+	const channel = createPreStepHandler(agent, {
+		isGoverned: () => true,
+		noticeText: () => "管辖判定块",
+		noticeSummary: () => "本会话受 LDVH 管辖",
+		recallRow: async () => ({ inject: true, text: "【双源召回】候选…", digest: "d1" }),
+		recallSummary: () => "双源召回 · 行动前候选"
+	});
+	const enter = { kind: "enter", messages: [{ role: "user", content: [{ type: "text", text: "改点什么" }] }] };
+	const r = await channel.handler({ agent, step: 1, signal: {} }, async () => enter);
+	// 两块都进：管辖判定 + 召回，是不同注入面。
+	assert.equal(r.messages.length, 3, `应为 原批次+判定+召回 = 3，实际 ${r.messages.length}`);
+	const texts = r.messages.map((m) => m.content?.[0]?.text ?? "");
+	assert.ok(texts.includes("管辖判定块"), "管辖判定行应在");
+	assert.ok(texts.some((t) => t.includes("双源召回")), "召回行应在");
+});
+
+test("pre-step recall: digest 未变时不重复注入", async () => {
+	const agent = makeAgent("s1", "/cwd");
+	const channel = createPreStepHandler(agent, {
+		isGoverned: () => true,
+		noticeText: () => "管辖判定块",
+		noticeSummary: () => "n",
+		recallRow: async () => ({ inject: true, text: "【双源召回】候选…", digest: "same" }),
+		recallSummary: () => "r"
+	});
+	const mk = () => ({ kind: "enter", messages: [{ role: "user", content: [{ type: "text", text: "改点什么" }] }] });
+	const r1 = await channel.handler({ agent, step: 1, signal: {} }, async () => mk());
+	const n1 = r1.messages.length;
+	// 第二次：被注入的行已被记入台账，digest 未变 → 不再追加召回行。
+	const r2 = await channel.handler({ agent, step: 1, signal: {} }, async () => mk());
+	assert.ok(r2.messages.length <= n1, `digest 未变不得增加注入行：${n1} → ${r2.messages.length}`);
+});
+
+test("pre-step recall: inject:false 时不追加召回行（02 §9.2 进入条件）", async () => {
+	const agent = makeAgent("s1", "/cwd");
+	const channel = createPreStepHandler(agent, {
+		isGoverned: () => true,
+		noticeText: () => "管辖判定块",
+		noticeSummary: () => "n",
+		recallRow: async () => ({ inject: false, reason: "no-fact-consumption" }),
+		recallSummary: () => "r"
+	});
+	const enter = { kind: "enter", messages: [{ role: "user", content: [{ type: "text", text: "好" }] }] };
+	const r = await channel.handler({ agent, step: 1, signal: {} }, async () => enter);
+	assert.equal(r.messages.length, 2, "只有 原批次+判定，无召回行");
+	assert.ok(!r.messages.some((m) => (m.content?.[0]?.text ?? "").includes("双源召回")));
+});
+
+test("pre-step recall: recallRow 抛错不拦回合（召回是输入侧，不是闸门）", async () => {
+	const agent = makeAgent("s1", "/cwd");
+	const channel = createPreStepHandler(agent, {
+		isGoverned: () => true,
+		noticeText: () => "管辖判定块",
+		noticeSummary: () => "n",
+		recallRow: async () => { throw new Error("召回炸了"); },
+		recallSummary: () => "r"
+	});
+	const enter = { kind: "enter", messages: [{ role: "user", content: [{ type: "text", text: "改点什么" }] }] };
+	const r = await channel.handler({ agent, step: 1, signal: {} }, async () => enter);
+	assert.equal(r.messages.length, 2, "召回失败仍应注入管辖判定行，回合不被拦");
+	assert.ok(r.messages.some((m) => (m.content?.[0]?.text ?? "") === "管辖判定块"));
+});
+
+test("pre-step recall: resetVisibility 清空召回 digest，使 rewind 后能重新注入", async () => {
+	const agent = makeAgent("s1", "/cwd");
+	let text = "【双源召回】A";
+	const channel = createPreStepHandler(agent, {
+		isGoverned: () => true,
+		noticeText: () => "管辖判定块",
+		noticeSummary: () => "n",
+		recallRow: async () => ({ inject: true, text, digest: text }),
+		recallSummary: () => "r"
+	});
+	const mk = () => ({ kind: "enter", messages: [{ role: "user", content: [{ type: "text", text: "改点什么" }] }] });
+	await channel.handler({ agent, step: 1, signal: {} }, async () => mk());
+	channel.resetVisibility();
+	text = "【双源召回】B";
+	const r = await channel.handler({ agent, step: 1, signal: {} }, async () => mk());
+	assert.ok(r.messages.some((m) => (m.content?.[0]?.text ?? "").includes("双源召回")), "reset 后应能重新注入");
+});
