@@ -28,6 +28,9 @@ import {
 	FAILURE_ROUTES,
 	checkEntry,
 	checkStopConditions,
+	checkSuspensionAction,
+	checkRecovery,
+	SUSPENSION_ALLOWED_ACTIONS,
 	STOP_RULES,
 	checkExit,
 	checkReuseBasis,
@@ -1804,4 +1807,65 @@ test("checkStopConditions：非布尔值不计为触发（避免 truthy 误判�
 	const result = checkStopConditions({ applicabilityUndetermined: "yes", claimsComplianceWithoutChange: 1 });
 	assert.equal(result.mustSuspend, false);
 	assert.deepEqual(result.triggered, []);
+});
+
+// ---------------------------------------------------------------------------
+// 暂停期间允许动作与恢复（34 §16.2 / §16.3）
+// ---------------------------------------------------------------------------
+
+test("SUSPENSION_ALLOWED_ACTIONS 恰为 §16.2 列举的四种", () => {
+	assert.equal(SUSPENSION_ALLOWED_ACTIONS.length, 4);
+	assert.deepEqual(
+		SUSPENSION_ALLOWED_ACTIONS.map((a) => a.label),
+		["补做受影响的识别", "补齐来源读取", "登记缺口与偏离", "缩小行动范围到已识别部分可支持的范围"],
+	);
+});
+
+test("checkSuspensionAction：四种允许动作逐个通过", () => {
+	for (const action of SUSPENSION_ALLOWED_ACTIONS) {
+		const result = checkSuspensionAction({ action: action.key });
+		assert.equal(result.allowed, true, `${action.label} 应允许`);
+		assert.equal(result.matched, action.label);
+	}
+});
+
+test("checkSuspensionAction：继续执行受影响行动即越界（§16.2 明禁）", () => {
+	const result = checkSuspensionAction({ action: "redoAffectedIdentification", continueAffectedAction: true });
+	assert.equal(result.allowed, false);
+	assert.deepEqual(result.forbidden, ["继续执行受影响行动"]);
+	assert.match(result.reason, /不得/);
+});
+
+test("checkSuspensionAction：扩大声明范围即越界（§16.2 明禁）", () => {
+	const result = checkSuspensionAction({ action: "narrowActionScope", expandDeclaredScope: true });
+	assert.equal(result.allowed, false);
+	assert.deepEqual(result.forbidden, ["扩大声明范围"]);
+});
+
+test("checkSuspensionAction：不在四种允许集内的动作拒绝并列出允许集", () => {
+	const result = checkSuspensionAction({ action: "continueTheWorkAnyway" });
+	assert.equal(result.allowed, false);
+	assert.equal(result.allowedActions.length, 4);
+});
+
+test("checkRecovery：给出触发原因且未再次触发即恢复", () => {
+	const result = checkRecovery({ triggerReason: "§6 不确定项已核实" });
+	assert.equal(result.ok, true);
+	assert.equal(result.recovered, true);
+	assert.equal(result.requiresHumanGate, false);
+	assert.equal(result.retroactiveReliefForbidden, true, "§16.3 末句：补齐不追溯使偏离消失");
+});
+
+test("checkRecovery：未给触发原因即不得恢复（§16.3 要求对应）", () => {
+	const result = checkRecovery({});
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "recovery/reason_missing");
+});
+
+test("checkRecovery：再次触发须进 Human Gate，且无自行恢复出口", () => {
+	const result = checkRecovery({ triggerReason: "已核实", retriggered: true });
+	assert.equal(result.recovered, false);
+	assert.equal(result.requiresHumanGate, true);
+	assert.equal(result.recoveredBySelf, undefined, "不得提供自行恢复的字段");
+	assert.match(result.reason, /Human Gate/);
 });

@@ -1968,4 +1968,105 @@ export function checkStopConditions(input = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// 暂停期间允许动作与恢复（34 §16.2 / §16.3）
+// ---------------------------------------------------------------------------
+
+/** 34 §16.2 原文列举的暂停期间唯一四种允许动作。 */
+export const SUSPENSION_ALLOWED_ACTIONS = Object.freeze([
+  { key: "redoAffectedIdentification", label: "补做受影响的识别" },
+  { key: "completeSourceReading", label: "补齐来源读取" },
+  { key: "registerGapsAndDeviations", label: "登记缺口与偏离" },
+  { key: "narrowActionScope", label: "缩小行动范围到已识别部分可支持的范围" },
+]);
+
+/**
+ * 判定一次暂停期间的动作是否越界（34 §16.2）。
+ *
+ * §16.2 原文：「暂停期间只允许：补做受影响的识别、补齐来源读取、登记缺口与偏离、
+ * 缩小行动范围到已识别部分可支持的范围。**不得继续执行受影响行动，也不得扩大
+ * 声明范围**。」
+ *
+ * 本函数做两件**形式**判定：
+ *  1. 动作是否落在四种允许集内；
+ *  2. 两个明确的禁止项（继续执行受影响行动／扩大声明范围）是否被触发。
+ *
+ * ## 不判断什么
+ *
+ * 不判断「缩小行动范围」是否真的缩小了——那需要语义比对。本函数只在调用方
+ * 自报的两个禁止项为 true 时拒绝，并核对动作是否在允许集内。
+ */
+export function checkSuspensionAction(input = {}) {
+  const forbidden = [];
+  if (input.continueAffectedAction === true) forbidden.push("继续执行受影响行动");
+  if (input.expandDeclaredScope === true) forbidden.push("扩大声明范围");
+  if (forbidden.length > 0) {
+    return {
+      ok: true,
+      allowed: false,
+      forbidden,
+      reason: `34 §16.2：暂停期间不得${forbidden.join("，也不得")}`,
+    };
+  }
+  const action = input.action;
+  const matched = SUSPENSION_ALLOWED_ACTIONS.find((a) => a.key === action);
+  if (matched === undefined) {
+    return {
+      ok: true,
+      allowed: false,
+      forbidden: [],
+      reason: `34 §16.2：暂停期间只允许四种动作（${SUSPENSION_ALLOWED_ACTIONS.map((a) => a.label).join("／")}），收到的动作不在其内`,
+      allowedActions: SUSPENSION_ALLOWED_ACTIONS.map((a) => a.key),
+    };
+  }
+  return { ok: true, allowed: true, forbidden: [], matched: matched.label, reason: null };
+}
+
+/**
+ * 判定一次恢复是否成立（34 §16.3）。
+ *
+ * §16.3 原文：「恢复须**与触发原因对应**，且只覆盖当前识别依据支持的范围；
+ * **补齐后的识别不追溯性地使偏离消失**（§9.3）。同一停止条件恢复后**再次触发**时，
+ * 按 00 §5.7 的恢复与再次触发**进入 Human Gate**。」
+ *
+ * 三条要求，本函数做两件形式判定：
+ *  1. **与触发原因对应**——不给 `triggerReason` 即不得恢复；
+ *  2. **再次触发须进 Human Gate**——`retriggered === true` 时返回
+ *     `requiresHumanGate: true`，且**不提供任何「自行恢复」的出口**。
+ *
+ * 第三条「补齐后的识别不追溯性地使偏离消失」不由本函数判——它由
+ * `checkRetroactiveCoverage`（§9.3）承载；本函数在此只声明该边界存在。
+ *
+ * ## 不判断什么
+ *
+ * 不判断「所给触发原因是否真实成立」——那是语义判断。它只保证「有原因」而非
+ * 「无原因恢复」，并保证再次触发时交 Human 而非静默自愈。
+ */
+export function checkRecovery(input = {}) {
+  if (!isNonEmptyString(input.triggerReason)) {
+    return fail(
+      "recovery/reason_missing",
+      "34 §16.3：恢复须与触发原因对应，未给原因即不得恢复",
+    );
+  }
+  if (input.retriggered === true) {
+    return {
+      ok: true,
+      recovered: false,
+      requiresHumanGate: true,
+      reason: "34 §16.3：同一停止条件恢复后再次触发，按 00 §5.7 进入 Human Gate",
+      // §16.3：补齐后的识别不追溯性地使偏离消失（§9.3）。
+      retroactiveReliefForbidden: true,
+    };
+  }
+  return {
+    ok: true,
+    recovered: true,
+    requiresHumanGate: false,
+    reason: "触发原因已给出，且未再次触发；恢复只覆盖当前识别依据支持的范围",
+    // §16.3 末句：补齐后的识别不追溯性地使偏离消失（§9.3）。
+    retroactiveReliefForbidden: true,
+  };
+}
+
 export { join };

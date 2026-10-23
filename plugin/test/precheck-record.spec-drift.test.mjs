@@ -44,6 +44,7 @@ import {
 	STAGE_MINIMUM_TIER,
 	STOP_CONDITIONS,
 	STOP_RULES,
+	SUSPENSION_ALLOWED_ACTIONS,
 	THREE_WAY_ITEMS,
 	APPLICATION_CRITERIA,
 	GAP_FIELDS,
@@ -254,4 +255,12 @@ test("34 §16.1 六条必停：每条的依据须逐字可回指原文", async (
 		const anchor = rule.specRef.match(/第 (\d) 项/)[1];
 		assert.ok(stopSection.includes(`${anchor}.`), `§16.1 第 ${anchor} 项须在原文中`);
 	}
+});
+
+test("34 §16.2 四种允许动作与 §16.3 恢复要求：代码常量须逐字来自原文", async () => {
+	const spec = await readSpec("34-规则遵守系统规范.md");
+	assertVerbatim(spec, "34 号", "暂停期间允许动作", SUSPENSION_ALLOWED_ACTIONS.map((a) => a.label));
+	assert.ok(spec.includes("恢复须与触发原因对应"));
+	assert.ok(spec.includes("补齐后的识别不追溯性地使偏离消失"));
+	assert.ok(spec.includes("同一停止条件恢复后"));
 });
