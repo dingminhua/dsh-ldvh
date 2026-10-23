@@ -65,3 +65,13 @@ test("buildGuidance：未知 state 回退到 not_governed 预算（不静默放�
 	const unknown = buildGuidance("some_future_state");
 	assert.equal(unknown.budget, GUIDANCE_CHAR_BUDGET.not_governed);
 });
+
+test("注入路径确实经过体量核对（guidance.js 实际调用 buildGuidance）", async () => {
+	const { readFile } = await import("node:fs/promises");
+	const { join } = await import("node:path");
+	const source = await readFile(join(import.meta.dirname, "..", "lib", "guidance.js"), "utf8");
+	assert.match(source, /buildGuidance\(/, "注入处须调用 buildGuidance，否则预算常量只是摆设");
+	assert.match(source, /guidanceBudgetExceeded/, "超预算时须记录原因，而非静默丢弃");
+	// 不得在超预算时注入半截文本：断言没有对 text 做 slice/substring 截断。
+	assert.ok(!/text\s*=\s*text\.(slice|substring)\(/.test(source), "不得静默截断引导文本");
+});
