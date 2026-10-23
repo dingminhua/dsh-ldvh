@@ -45,6 +45,7 @@ import {
 	THREE_WAY_ITEMS,
 	APPLICATION_CRITERIA,
 	GAP_FIELDS,
+	HANDOVER_LAYERS,
 	CONFLICT_TIERS,
 	DEVIATION_FORMS as FORMS,
 } from "../lib/precheck-record.js";
@@ -227,4 +228,9 @@ test("§17 第 6 条（不以横切性为由复制判据）：模块只在本文
 	// 本模块不向其它规范或模块复制规则文本；此断言仅核对 §17 第 6 条原文仍在。
 	const spec = await readSpec("34-规则遵守系统规范.md");
 	assert.ok(spec.includes("不以本系统的横切性为由要求其它规范重复其判据"));
+});
+
+test("03 §5.5 三层交还：代码常量须逐字来自原文", async () => {
+	const spec = await readSpec("03-业务系统基础规范.md");
+	assertVerbatim(spec, "03 号", "交还层名", HANDOVER_LAYERS.map((l) => l.label));
 });

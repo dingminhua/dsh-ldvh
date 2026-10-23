@@ -1692,4 +1692,67 @@ export function checkConceptBoundaries(text) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// 系统执行分层交还（03 §5.5）—— 让记录有真实的上游消费方
+// ---------------------------------------------------------------------------
+
+/** 03 §5.5 的三层（原文逐字；互不替代）。 */
+export const HANDOVER_LAYERS = Object.freeze([
+  { key: "flow", label: "流程完成层", meaning: "系统流程按定义执行完毕，未触发停止条件" },
+  { key: "verified", label: "验证通过层", meaning: "流程完成层成立，且系统定义的验证入口全部通过" },
+  { key: "carried", label: "交还承接层", meaning: "验证通过层成立，且结果、已验证与未验证范围、残留风险与待决事项已交还" },
+]);
+
+/**
+ * 按 03 §5.5 声明一次系统执行停在哪一层。
+ *
+ * ## 为什么这个函数是本模块与真实流程的接缝
+ *
+ * `assembleReturn` 产出的是 §12 交还正文，但「停在什么程度」由 03 §5.5 定义。
+ * 两者不是同一件事：§12 说**必须交还什么内容**，§5.5 说**这些内容支撑到哪一层结论**。
+ *
+ * §5.5 的关键约束（原文）：
+ * - 「流程完成层不等于验证通过层；验证通过层也不等于价值成立」；
+ * - 验证未完成或覆盖不足时「只能交还 partial/unverified」；
+ * - §5.4 第 3 项：验证未通过时「不得宣称系统结论成立」。
+ *
+ * 故本函数**不允许跳层**，并且**永不返回「价值成立」**——§5.5 明文「交还承接层……
+ * 不替代 00 的价值判断」。
+ */
+export function declareHandoverLayer(input = {}) {
+  const flow = input.flowComplete === true;
+  const verified = input.verificationPassed === true;
+  const carried = input.handoverCarried === true;
+  const insufficient = input.coverageInsufficient === true;
+
+  // 跳层即不成立：§5.5「流程完成层不等于验证通过层」。
+  if (verified && !flow) {
+    return fail(
+      "handover/layer_skipped",
+      "03 §5.5：验证通过层以流程完成层成立为前提，不得跳层声明",
+    );
+  }
+  if (carried && !verified) {
+    return fail(
+      "handover/layer_skipped",
+      "03 §5.5：交还承接层以验证通过层成立为前提，不得跳层声明",
+    );
+  }
+
+  // 覆盖不足时，最高只停在 flow 层并交还 partial/unverified（§5.4 第 3 项）。
+  const ceiling = insufficient ? "flow" : (carried ? "carried" : (verified ? "verified" : "flow"));
+  const reachedIndex = HANDOVER_LAYERS.findIndex((layer) => layer.key === ceiling);
+
+  return {
+    ok: true,
+    reached: HANDOVER_LAYERS[reachedIndex].label,
+    status: verified && !insufficient ? (carried ? "carried" : "verified") : "partial/unverified",
+    layers: HANDOVER_LAYERS.slice(0, reachedIndex + 1).map((layer) => layer.label),
+    // §5.5 末句：交还承接层不替代 00 的价值判断。
+    provesValue: false,
+    // §5.4 末句：工具返回成功、Git commit 已创建都不单独替代成立条件。
+    staticExistenceSuffices: false,
+  };
+}
+
 export { join };

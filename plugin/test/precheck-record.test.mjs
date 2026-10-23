@@ -58,6 +58,8 @@ import {
 	NON_EQUIVALENCES,
 	checkConceptBoundaries,
 	checkHumanGate,
+	HANDOVER_LAYERS,
+	declareHandoverLayer,
 	roundTripRecord,
 	buildHandover,
 	summarizeApplications,
@@ -1584,4 +1586,71 @@ test("03 §7.2 的顶层条目为 7 个：4 字符串必需 + 已召回 + 2 条�
 test("条件条目的原文措辞确实带「如」（不得把它们当必需段）", () => {
 	const labels = CONDITIONAL_SECTIONS.map((s) => s.label);
 	assert.deepEqual(labels, ["快通道声明", "升级记录"]);
+});
+
+// ---------------------------------------------------------------------------
+// 系统执行分层交还（03 §5.5）—— 三层互不替代、不得跳层
+// ---------------------------------------------------------------------------
+
+test("HANDOVER_LAYERS 恰为 03 §5.5 的三层", () => {
+	assert.deepEqual(
+		HANDOVER_LAYERS.map((l) => l.label),
+		["流程完成层", "验证通过层", "交还承接层"],
+	);
+});
+
+test("declareHandoverLayer：三层全成立时到交还承接层", () => {
+	const result = declareHandoverLayer({
+		flowComplete: true, verificationPassed: true, handoverCarried: true,
+	});
+	assert.equal(result.ok, true);
+	assert.equal(result.reached, "交还承接层");
+	assert.deepEqual(result.layers, ["流程完成层", "验证通过层", "交还承接层"]);
+	assert.equal(result.status, "carried");
+});
+
+test("declareHandoverLayer：永不声称价值成立（§5.5 末句）", () => {
+	const result = declareHandoverLayer({
+		flowComplete: true, verificationPassed: true, handoverCarried: true,
+	});
+	assert.equal(result.provesValue, false);
+	// §5.4 末句：静态存在不单独替代成立条件。
+	assert.equal(result.staticExistenceSuffices, false);
+});
+
+test("declareHandoverLayer：不得跳层到验证通过层", () => {
+	const result = declareHandoverLayer({ flowComplete: false, verificationPassed: true });
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "handover/layer_skipped");
+	assert.match(result.error.message, /验证通过层/);
+});
+
+test("declareHandoverLayer：不得跳层到交还承接层", () => {
+	const result = declareHandoverLayer({ flowComplete: true, verificationPassed: false, handoverCarried: true });
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "handover/layer_skipped");
+	assert.match(result.error.message, /交还承接层/);
+});
+
+test("declareHandoverLayer：覆盖不足时只能停在流程完成层并交还 partial/unverified", () => {
+	const result = declareHandoverLayer({
+		flowComplete: true, verificationPassed: true, handoverCarried: true, coverageInsufficient: true,
+	});
+	assert.equal(result.ok, true);
+	assert.equal(result.reached, "流程完成层");
+	assert.equal(result.status, "partial/unverified");
+	assert.deepEqual(result.layers, ["流程完成层"]);
+});
+
+test("declareHandoverLayer：仅流程完成即如实停在第一层", () => {
+	const result = declareHandoverLayer({ flowComplete: true });
+	assert.equal(result.reached, "流程完成层");
+	assert.equal(result.status, "partial/unverified");
+});
+
+test("declareHandoverLayer：什么都没成立时也停在第一层且标 partial", () => {
+	const result = declareHandoverLayer({});
+	assert.equal(result.ok, true);
+	assert.equal(result.reached, "流程完成层");
+	assert.equal(result.status, "partial/unverified");
 });
