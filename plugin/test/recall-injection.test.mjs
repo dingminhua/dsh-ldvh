@@ -369,7 +369,10 @@ test("渲染文本须有硬上限，超限按行裁剪并如实说明（不得�
 	};
 	const out = renderRecallRow(fake);
 	assert.ok(out.length <= RECALL_RENDER_CHAR_LIMIT, `渲染 ${out.length} 超过上限 ${RECALL_RENDER_CHAR_LIMIT}`);
-	assert.match(out, /渲染文本超出上限/, "超限须如实说明");
+	// N-6：统一裁剪后说明行为「渲染层按硬约束（字符上限 N）裁去 M 条候选」。
+	assert.match(out, /渲染层按硬约束/, "超限须如实说明");
+	assert.match(out, /字符上限/, "归因须点名生效的约束");
+	assert.match(out, /裁去 \d+ 条候选/, "须如实注明裁了几条");
 	assert.match(out, /不代表不存在/, "须说明未列出的不代表不存在");
 	assert.equal(RECALL_RENDER_CHAR_LIMIT, 1600, "常量值应固定（实测最坏 1167，留约 37% 余量）");
 });
@@ -377,7 +380,7 @@ test("渲染文本须有硬上限，超限按行裁剪并如实说明（不得�
 test("渲染文本未超限时不得添加裁剪说明", async () => {
 	const r = await buildRecallInjection({ userText: "页面白屏了", projectRoot: ROOT });
 	if (r.inject) {
-		assert.ok(!/渲染文本超出上限/.test(r.text), "未超限时不得出现裁剪说明");
+		assert.ok(!/渲染层按硬约束/.test(r.text), "未超限时不得出现裁剪说明");
 	}
 });
 
@@ -544,6 +547,84 @@ test("N-5：partial/unavailable 时注入行须呈现三态与未读取源；com
 		recallCompleteness: "complete",
 	});
 	assert.ok(!completeRow.includes("本次召回完整度"), "complete 时不得加三态行（稳态安静）");
+});
+
+test("N-6：字符硬上限路径不得裁掉三态披露行（统一从尾部裁候选行）", () => {
+	// 第七次复审 N-6：旧字符上限路径「从头部保留、尾部整段丢弃」，三态披露行
+	// 与截断归因行排在末尾会被一并裁掉——N-5 刚补上的披露在这条路径上恰好被
+	// 吞掉，且说明行把被丢弃的**披露**误称为**候选**。修复后统一为「只从尾部
+	// 裁 `- ` 候选行，披露行永不裁剪」。
+	// 构造：12 条超长候选行使 chars 远超 1600 + partial 三态。
+	const longTitle = "A".repeat(120);
+	const out = renderRecallRow({
+		ok: true,
+		specs: Array.from({ length: 12 }, (_, i) => ({
+			title: `${longTitle}${i}`,
+			path: `specs/${i}.md`,
+			hitReason: `正文命中：${"R".repeat(80)}`,
+		})),
+		facts: [],
+		recallCompleteness: "partial",
+		uncheckedRange: { sourceNotRead: ["事实源（不存在或不可读，未读取）"] },
+		budget: { limitBytes: 100000, usedBytes: 5000, limit: 99 },
+	});
+	assert.ok(out.length <= RECALL_RENDER_CHAR_LIMIT, `渲染 ${out.length} 须 ≤ 上限 ${RECALL_RENDER_CHAR_LIMIT}`);
+	assert.match(out, /本次召回完整度：\*\*partial\*\*/, "字符裁剪路径不得吞掉三态披露行");
+	assert.match(out, /未读取的源：事实源/, "未读取源披露同样不得被裁掉");
+	assert.match(out, /渲染层按硬约束（字符上限 1600）裁去 \d+ 条候选/, "裁剪说明须如实注明约束与条数");
+	// 说明行不得把披露误称为候选（旧文案「未列出的候选」出现在披露被裁的场景）。
+	const candidateLines = out.split("\n").filter((l) => l.startsWith("- ")).length;
+	assert.ok(candidateLines < 12, "确应裁去部分候选行（否则未触及本场景）");
+	assert.ok(candidateLines > 0, "候选行不应被裁光（只裁到满足上限为止）");
+});
+
+test("N-7：字节兜底裁剪须反映到 result.render.truncated 与 droppedCandidates", async () => {
+	// 第七次复审 N-7：旧 renderTruncated 正则只认字符上限文案，字节兜底裁剪
+	// 被漏报成 truncated:false（文本已裁、字段说未裁——机器可读面撒谎）。
+	// 统一裁剪后说明行为「渲染层按硬约束…裁去 N 条候选」，字段由它派生。
+	const r = await buildRecallInjection({
+		userText: "把 34 号规范改名成双源召回",
+		projectRoot: ROOT,
+		limit: 99,
+		budgetBytes: 800, // 极小预算必触发渲染层裁剪
+	});
+	assert.equal(r.inject, true);
+	if (/裁去 \d+ 条候选/.test(r.text)) {
+		assert.equal(r.result.render.truncated, true, "文本被裁时 truncated 不得为 false");
+		const m = /裁去 (\d+) 条候选/.exec(r.text);
+		assert.equal(r.result.render.droppedCandidates, Number(m[1]), "droppedCandidates 须与说明行一致");
+	} else {
+		assert.equal(r.result.render.truncated, false, "未裁时 truncated 须为 false");
+		assert.equal(r.result.render.droppedCandidates, 0);
+	}
+	// 最终字节仍不得超预算（两道约束同时满足）。
+	assert.ok(
+		Buffer.byteLength(r.text, "utf8") <= 800,
+		`实际 ${Buffer.byteLength(r.text, "utf8")} 字节不得超预算 800`,
+	);
+});
+
+test("N-8：三态披露行须含「被类型/状态过滤」类别（34 §12 逐类清单）", async () => {
+	// 第七次复审 N-8：34 §12「未检查范围须逐类列出：哪些来源未读取、哪些候选
+	// 被类型／状态过滤挡掉、哪些因预算或条数未返回」——第三类由截断归因行承载，
+	// 第一类由 N-5 的未读取源承载，第二类此前在注入面缺失（数据层有
+	// uncheckedRange.excludedBy* 但不进注入文本）。
+	const r = await buildRecallInjection({
+		userText: "把 34 号规范改名成双源召回",
+		projectRoot: ROOT,
+		limit: 3,
+	});
+	assert.equal(r.inject, true);
+	const ur = r.result.uncheckedRange;
+	const filteredCount =
+		(ur.excludedByTypeFilter?.length ?? 0) +
+		(ur.excludedByStatus?.length ?? 0) +
+		(ur.excludedByTypeWhitelist?.length ?? 0);
+	assert.ok(filteredCount > 0, "本仓事实源有 draft/留观等被过滤候选（实测约 110 条），前提须成立");
+	// partial 时三态行须带过滤计数。
+	if (r.result.recallCompleteness === "partial") {
+		assert.match(r.text, /另 \d+ 条被类型\/状态过滤/, "三态行须披露被过滤类别与数量（34 §12）");
+	}
 });
 
 test("渲染裁剪须可观察（02 §9.1「截断必须可观察」）", async () => {

@@ -409,66 +409,76 @@ export function renderRecallRow(result) {
     const notRead = Array.isArray(result?.uncheckedRange?.sourceNotRead)
       ? result.uncheckedRange.sourceNotRead
       : [];
+    // **N-8（第七次复审）：「被类型/状态过滤挡掉」也是 34 §12 的逐类清单项**
+    // （「哪些来源未读取、哪些候选被类型／状态过滤挡掉、哪些因预算或条数未返回」
+    // ——后者由截断归因行承载，前两者在此承载）。只报数量与类别；逐条清单在
+    // 数据层 uncheckedRange.excludedBy*，注入面不复制（预算纪律）。
+    const ur = result?.uncheckedRange;
+    const filteredCount =
+      (Array.isArray(ur?.excludedByTypeFilter) ? ur.excludedByTypeFilter.length : 0) +
+      (Array.isArray(ur?.excludedByStatus) ? ur.excludedByStatus.length : 0) +
+      (Array.isArray(ur?.excludedByTypeWhitelist) ? ur.excludedByTypeWhitelist.length : 0);
+    const filteredNote = filteredCount > 0 ? `；另 ${filteredCount} 条被类型/状态过滤` : "";
     lines.push(
-      `（本次召回完整度：**${completeness}**${notRead.length > 0 ? `；未读取的源：${notRead.join("；")}` : ""}。` +
+      `（本次召回完整度：**${completeness}**${notRead.length > 0 ? `；未读取的源：${notRead.join("；")}` : ""}${filteredNote}。` +
         (completeness === "unavailable"
           ? "「未命中」**不构成「无相关约束」的证据**（34 §12／§16.1 第 7 项），不得据此按零命中路径继续。"
           : "未取得的部分不代表不存在；「未命中」同样不构成「无相关」的证据（34 §12）。") +
         "）",
     );
   }
-  // **两道渲染层硬约束，最终文本须同时满足**（2026-10-25，N-5 引出重构）：
+  // **两道渲染层硬约束，最终文本须同时满足**（2026-10-25，N-5 引出重构；
+  // N-6/N-7 修正裁剪方向）：
   // ① 字符硬上限 RECALL_RENDER_CHAR_LIMIT——渲染面自身的绝对上限；
   // ② 字节预算 limitBytes（`10:241`「未超 LDVH 侧常量预算」）——数据侧按
   //    「候选行估算 + 720 字节固定开销预留」装填，但**条件披露行**（截断说明、
   //    三态完整度行）只在渲染时才产生、未计入预留，实测预算 1200 时注入达
   //    1260 字节。渲染文本的真实字节只有这里知道，故兜底放这里。
-  // 裁剪纪律：候选行可裁（**从尾部裁**，且必须如实注明裁了几条）；固定声明与
-  // 披露行不裁（34 §12 三态与截断披露不得静默省略）。①先裁（保留 120 字符
-  // 余量给②的说明行），②再裁；两道各自出声，互不掩盖。
-  let outLines = lines;
-  const rendered = lines.join("\n");
-  if (rendered.length > RECALL_RENDER_CHAR_LIMIT) {
-    const kept = [];
-    let used = 0;
-    for (const line of lines) {
-      if (used + line.length + 1 > RECALL_RENDER_CHAR_LIMIT - 120) break;
-      kept.push(line);
-      used += line.length + 1;
-    }
-    kept.push(
-      `（**渲染文本超出上限 ${RECALL_RENDER_CHAR_LIMIT} 字符**，已按行裁剪；未列出的候选不代表不存在，` +
-        `需要时请调大 limit 或缩小动作范围重新召回。）`,
-    );
-    outLines = kept;
-  }
+  // **统一裁剪纪律（N-6）**：只从尾部裁「- 」开头的候选行，固定声明与披露行
+  // （三态完整度行、截断归因行）永不裁剪，且如实注明裁了几条（34 §12 三态
+  // 与截断披露不得静默省略；02 §9.1 不得静默截断）。旧实现的字符上限路径
+  // 「从头部保留、尾部整段丢弃」会把排在末尾的披露行连同候选一起裁掉，
+  // 且说明行把被丢弃的**披露**误称为**候选**——两条路径纪律相反，现统一。
   const limitBytes = typeof result?.budget?.limitBytes === "number" ? result.budget.limitBytes : null;
-  if (limitBytes !== null && limitBytes > 0) {
-    // 为②的说明行预留字节（中文约 3 字节/字，说明行 ≤ 55 字）。
-    const NOTE_RESERVE = 170;
-    const trimmed = [...outLines];
-    let droppedByBudget = 0;
-    const overBytes = () => {
-      const noteBytes = droppedByBudget > 0 ? NOTE_RESERVE : 0;
-      return Buffer.byteLength(trimmed.join("\n"), "utf8") + noteBytes > limitBytes;
-    };
-    while (overBytes()) {
-      let idx = -1;
-      for (let i = trimmed.length - 1; i >= 0; i -= 1) {
-        if (trimmed[i].startsWith("- ")) { idx = i; break; }
-      }
-      if (idx === -1) break; // 已无候选行可裁；固定与披露文本如实带出，不静默删
-      trimmed.splice(idx, 1);
-      droppedByBudget += 1;
+  // 为「如实注明」说明行预留空间。实测最坏说明行（字符上限+字节预算双归因、
+  // 三位数条数）约 225 字节／97 字符；预留取 240 字节／120 字符——宁可少放
+  // 一条候选，不得超限后声称未超（`10:241`）。
+  const NOTE_RESERVE_CHARS = 120;
+  const NOTE_RESERVE_BYTES = 240;
+  const trimmed = [...lines];
+  const joined = () => trimmed.join("\n");
+  const overChars = () => joined().length > RECALL_RENDER_CHAR_LIMIT - NOTE_RESERVE_CHARS;
+  const overBytes = () =>
+    limitBytes !== null && limitBytes > 0 &&
+    Buffer.byteLength(joined(), "utf8") + NOTE_RESERVE_BYTES > limitBytes;
+  let droppedByRender = 0;
+  // 归因记录**裁剪期间实际生效的约束**（裁完再判会把「因 A 裁到 B 也满足」误报成 B）。
+  let charTriggered = false;
+  let byteTriggered = false;
+  while (overChars() || overBytes()) {
+    if (overChars()) charTriggered = true;
+    if (overBytes()) byteTriggered = true;
+    let idx = -1;
+    for (let i = trimmed.length - 1; i >= 0; i -= 1) {
+      if (trimmed[i].startsWith("- ")) { idx = i; break; }
     }
-    if (droppedByBudget > 0) {
-      trimmed.push(
-        `（渲染层按字节预算（上限 ${limitBytes}）另裁去 ${droppedByBudget} 条候选；未列出的部分不代表不存在。）`,
-      );
-    }
-    outLines = trimmed;
+    if (idx === -1) break; // 已无候选行可裁；固定与披露文本如实带出，不静默删
+    trimmed.splice(idx, 1);
+    droppedByRender += 1;
   }
-  return outLines.join("\n");
+  if (droppedByRender > 0) {
+    const reasons = [];
+    if (charTriggered) reasons.push(`字符上限 ${RECALL_RENDER_CHAR_LIMIT}`);
+    if (byteTriggered) reasons.push(`字节预算 ${limitBytes}`);
+    // **最终条数须如实**：上方「仅列出前 N 条」说明行取的是数据层条数，
+    // 渲染层再裁后该 N 已过时——本行给出实际列出的条数，使两行合读不矛盾。
+    const finalCount = trimmed.filter((l) => l.startsWith("- ")).length;
+    trimmed.push(
+      `（**渲染层按硬约束（${reasons.join("／")}）裁去 ${droppedByRender} 条候选**，现实际列出 ${finalCount} 条；` +
+        `未列出的候选不代表不存在，需要时请调大 limit 或缩小动作范围重新召回。）`,
+    );
+  }
+  return trimmed.join("\n");
 }
 
 /**
@@ -524,17 +534,23 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
   // 实测缺口（2026-10-24）：渲染层的硬上限会按行裁剪，提示语里也写明了，
   // 但 `result` 上**没有对应字段**——调用方与测试无法机械观察「这次渲染被裁过」，
   // 只能去正则匹配那段中文提示。现补一个布尔与计数，使该事实可编程判定。
+  // **N-7（第七次复审）**：统一裁剪后说明行文案变了（「渲染层按硬约束…裁去 N 条
+  // 候选」），旧正则只认字符上限文案，会把字节兜底裁剪漏报成 truncated:false。
+  // 正则须与 renderRecallRow 的说明行同步——两处同文件相邻，改动时一并核对。
   const renderChars = text.length;
-  const renderTruncated = /渲染文本超出上限/.test(text);
+  const droppedMatch = /裁去 (\d+) 条候选/.exec(text);
+  const renderTruncated = droppedMatch !== null;
   result.render = {
     chars: renderChars,
     limitChars: RECALL_RENDER_CHAR_LIMIT,
     truncated: renderTruncated,
+    // 裁去的候选条数（未裁为 0）——使「裁了几条」也可编程判定，不必解析中文。
+    droppedCandidates: renderTruncated ? Number(droppedMatch[1]) : 0,
     // 说明：这一步只裁**渲染文本**，不动候选数据；数据侧的裁剪由
     // result.truncated / partial / unchecked 承载，两者是不同的事。
     note: renderTruncated
-      ? "渲染文本超上限已按行裁剪；候选数据本身未因此减少，调大 limit 未必能显示更多，需先缩短标题/命中理由或提高上限（后者属 Human 决定事项，10:261）"
-      : "渲染文本未超上限",
+      ? "渲染文本触硬约束（字符上限／字节预算）已按行裁去部分候选行；固定声明与披露行未裁；候选数据本身未因此减少，调大 limit 未必能显示更多，需先缩短标题/命中理由或提高上限（后者属 Human 决定事项，10:261）"
+      : "渲染文本未触硬约束",
   };
   return { inject: true, text, digest: text, result };
 }
