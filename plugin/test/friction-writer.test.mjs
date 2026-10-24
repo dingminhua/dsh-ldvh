@@ -2,9 +2,12 @@
 //
 // Every case is derived from specs/26 (the single authority):
 //   §6 查重与攒账, §8 字段契约与正文三段（处置段条件出现）,
-//   §9 状态机（observing 可逆！resolved/voided 终态！informs 只在销账流转写入）,
+//   §9 状态机（**三值闭集 open/resolved/voided**；resolved/voided 终态；
+//      informs 只在销账流转写入。观察态 observing 已于 2026-10 退出闭集——
+//      观察材料改由 11 §12bis.1 的摩擦观察缓冲承载（非事实对象），不进事实源；
+//      `observing → open`（阈值）与 `open → observing`（放回留观）两条流转一并删除）,
 //   §11 informs 关系（目标限 ADR/WorkCase 目录可解析）,
-//   §12 召回（默认 observing+open，resolved 只在 includeResolved）,
+//   §12 召回（默认 open；resolved/voided 只在 includeResolved）,
 //   §13 受控操作, §14.1 特有验证.
 // Tests assert spec behaviour; where the implementation diverges from the
 // spec the failure is reported in the task report, never "fixed" by bending
@@ -94,7 +97,10 @@ function validFrontmatterDraft(overrides = {}) {
     title: "CI 构建缓慢",
     phenomenon: "CI 每次构建平均需要 8 分钟，其中 5 分钟花在重复依赖安装上。",
     impact: "heavy",
-    // 26 §8 必填：创建时初值 count=1、first_at=last_at、human_return_at=null。
+    // 26 §8 必填：创建时初值 count=1、first_at=last_at。
+    // 成员闭集 = { count, first_at, last_at }——`human_return_at` 已随
+    // `open → observing`（放回留观）流转一并删除（2026-10 修订），多带即拒
+    // （`friction/occurrence_invalid`，三入口统一：create / update / correct 补填）。
     // d925ad6 起 create 拒绝缺 occurrence 的草稿；本夹具此前漏改，导致本文件
     // 全部 create 路径在 ESM 之外的机械层被拒（2026-10 修复）。
     occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" },
@@ -161,7 +167,7 @@ test("isSingleSentence rejects two terminals, terminal-not-at-end and empty inpu
 // create 正向 (26 §13)
 // ---------------------------------------------------------------------------
 
-test("create: valid draft lands at frictions/friction-<uid>.md with Code identity and precise read-back", async () => {
+test("create: 合法草稿落盘于 frictions/friction-<uid>.md，Code 指派身份且精确回读一致（26 §7/§8/§9——初态为 open）", async () => {
   await withTemp("friction-writer.", async (root) => {
     const { draft, created, read } = await createAndRead(root);
     const uid = created.value.object_uid;
@@ -177,7 +183,7 @@ test("create: valid draft lands at frictions/friction-<uid>.md with Code identit
     const fm = parseFrontmatter(raw);
     assert.equal(fm.object_uid, uid);
     assert.equal(fm.fact_type_key, "friction");
-    assert.equal(fm.status, "observing", "26 §9：创建初态为 observing（非 open）");
+    assert.equal(fm.status, "open", "26 §9：创建初态为 open（观察态 observing 已退出闭集，观察材料在 11 §12bis.1 缓冲侧）");
     assert.ok(typeof fm.created_at === "string" && fm.created_at.length > 0);
     assert.equal(fm.change_log.length, 1);
     assert.equal(fm.change_log[0].summary, "受控创建（测试）");
@@ -223,6 +229,148 @@ test("create: serves 已退出闭集，带该字段一律被机械拒绝（26 §
 });
 
 // ---------------------------------------------------------------------------
+// occurrence 成员闭集（26 §8，2026-10 修订）
+//
+// `occurrence` 的成员闭集 = { count, first_at, last_at }——**不多不少**。
+// `human_return_at` 随 `open → observing`（放回留观）流转一并删除后仍在载体里
+// 出现过；此前只有 correct 的补填分支校验成员，create/update 只查存在性，
+// 于是携带已删除字段的载体一路落盘（fail-open）。本次修订把校验收到一处，
+// 三个入口共用同一判据。本组用例逐入口钉住「多带即拒」。
+// ---------------------------------------------------------------------------
+
+test("create: occurrence 携带已删除的 human_return_at 被拒（26 §8 成员闭集——堵住 fail-open）", async () => {
+  await withTemp("friction-writer.", async (root) => {
+    const draft = validFrontmatterDraft({
+      occurrence: {
+        count: 1,
+        first_at: "2026-11-01T00:00:00.000Z",
+        last_at: "2026-11-01T00:00:00.000Z",
+        human_return_at: "2026-11-02T00:00:00.000Z",
+      },
+    });
+    const result = await createFrictionObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!result.ok, "occurrence 多出已删除字段 human_return_at 必须被拒——否则是 fail-open");
+    assert.equal(result.error.code, "friction/occurrence_invalid");
+    assert.match(result.error.message, /human_return_at/);
+    assert.match(result.error.message, /closed set/);
+
+    // 零写：被拒的草稿不得留下载体
+    const listed = await listFrictionObjects({ factSourceRoot: root });
+    assert.ok(listed.ok, JSON.stringify(listed.error));
+    assert.equal(listed.value.total, 0, "被拒的创建不得留下载体");
+  });
+});
+
+test("create: occurrence 携带任意表外成员同样被拒（26 §8 成员闭集——不多不少）", async () => {
+  await withTemp("friction-writer.", async (root) => {
+    const draft = validFrontmatterDraft({
+      occurrence: {
+        count: 1,
+        first_at: "2026-11-01T00:00:00.000Z",
+        last_at: "2026-11-01T00:00:00.000Z",
+        observed_by: "人类观察者",
+      },
+    });
+    const result = await createFrictionObject({
+      factSourceRoot: root,
+      frontmatterDraft: draft,
+      bodyMarkdown: validBodyMarkdown(draft),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!result.ok, "occurrence 的成员闭集不多不少——表外成员一律被拒");
+    assert.equal(result.error.code, "friction/occurrence_invalid");
+    assert.match(result.error.message, /observed_by/);
+  });
+});
+
+test("update: occurrence 携带已删除的 human_return_at 被拒（26 §8 成员闭集——补充级同样过共享关口）", async () => {
+  await withTemp("friction-writer.", async (root) => {
+    const { read: r1 } = await createAndRead(root);
+    const result = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        occurrence: { ...r1.value.frontmatter.occurrence, human_return_at: "2026-11-02T00:00:00.000Z" },
+      },
+      bodyMarkdownAfter: validBodyMarkdown(),
+      changeSummary: "给 occurrence 补一个已删除字段",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!result.ok, "补充级更新同样不得把已删除字段写回 occurrence——否则 fail-open 从更新侧复现");
+    // update 路径的共享关口是 validateFrictionFrontmatter：它把成员违规作为
+    // issue 收进 issues，故顶层码是 frontmatter_invalid，而拒绝理由必须点名
+    // human_return_at 与闭集（否则「以别的理由被拒」也会让本用例通过）。
+    assert.equal(result.error.code, "friction/frontmatter_invalid");
+    const issues = result.error.details?.issues ?? [];
+    assert.ok(
+      issues.some((i) => i.includes("human_return_at") && i.includes("closed set")),
+      `拒绝理由须点名 occurrence 的成员闭集违规；got ${JSON.stringify(issues)}`,
+    );
+
+    // 零写：被拒的更新不得改动载体
+    const after = await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid });
+    assert.equal(after.value.fingerprint, r1.value.fingerprint, "被拒的更新必须零写");
+    assert.equal(after.value.frontmatter.occurrence.human_return_at, undefined);
+  });
+});
+
+test("correct: 补填 occurrence 带 human_return_at 被拒（26 §8 成员闭集 / §13 补填通道）", async () => {
+  await withTemp("friction-writer.", async (root) => {
+    // 补填通道只补「新进入闭集」的字段（26 §13），而补进去的**值**仍须满足
+    // §8 的成员闭集——否则补填通道就成了绕过成员校验的后门。
+    // 造一条**缺 occurrence** 的 voided 存量载体（§14.2 豁免允许 voided 无 occurrence）。
+    const uid = "44444444-4444-4444-8444-444444444444";
+    const phenomenon = "存量载体带一条被误记的摩擦。";
+    const disposition = "误记：与本项目无关。";
+    await mkdir(join(root, FRICTION_DIRECTORY), { recursive: true });
+    await writeFile(
+      join(root, FRICTION_DIRECTORY, frictionFileName(uid)),
+      `---\nobject_uid: ${uid}\nfact_type_key: friction\ntitle: 存量作废载体\nstatus: voided\n` +
+        `phenomenon: "${phenomenon}"\nimpact: light\ndisposition: "${disposition}"\n` +
+        `created_at: "2026-01-01T00:00:00.000Z"\nchange_log: []\n` +
+        `---\n\n# 存量作废载体\n\n## 现象\n${phenomenon}\n\n## 入账依据\n依据。\n\n## 处置\n${disposition}\n`,
+      "utf8",
+    );
+
+    const rejected = await correctFrictionObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: (await readFrictionObject({ factSourceRoot: root, objectUid: uid })).value.fingerprint,
+      frontmatterAdditions: {
+        occurrence: {
+          count: 1,
+          first_at: "2026-11-01T00:00:00.000Z",
+          last_at: "2026-11-01T00:00:00.000Z",
+          human_return_at: "2026-11-02T00:00:00.000Z",
+        },
+      },
+      bodyMarkdownAfter: [
+        `## 现象\n${phenomenon}`,
+        "## 入账依据\n依据。",
+        `## 处置\n${disposition}`,
+      ].join("\n\n"),
+      changeSummary: "补填 occurrence（夹带已删除字段）",
+      humanAuthorization: "Human 于 2026-10 授权（测试）",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!rejected.ok, "补填通道不得成为 occurrence 成员闭集的后门");
+    assert.equal(rejected.error.code, "friction/occurrence_invalid");
+    assert.match(rejected.error.message, /human_return_at/);
+
+    // 零写：被拒的补填不得改动终态载体
+    const after = await readFrictionObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(after.value.frontmatter.occurrence, undefined, "被拒的补填不得写入 occurrence");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 签名通道负向 (specs/03 §6.1 + specs/09 机械签名)
 // ---------------------------------------------------------------------------
 
@@ -247,9 +395,13 @@ test("create: a forged plain sessionSignature is REFUSED — no unsigned change_
 // create 反向 (26 §8/§9/§11/§13/§14.1)
 // ---------------------------------------------------------------------------
 
-test("create: non-observing initial status is rejected (26 §9 — 初态必须 observing)", async () => {
+test("create: 非 open 的初态一律被拒（26 §9 三值闭集——观察态 observing 已退出）", async () => {
+  // 2026-10 修订（Human 决定）：状态闭集由四值（observing/open/resolved/voided）
+  // 收缩为三值（open/resolved/voided），创建初态随之由 observing 改为 open。
+  // 故「非 observing 的初态该被拒」这条判据整体反向：**非 open 的初态**才该被拒，
+  // 且 observing 自身现在也是闭集外取值。
   await withTemp("friction-writer.", async (root) => {
-    for (const status of ["open", "resolved", "voided", "deferred"]) {
+    for (const status of ["observing", "resolved", "voided", "deferred"]) {
       const result = await createFrictionObject({
         factSourceRoot: root,
         frontmatterDraft: { ...validFrontmatterDraft(), status },
@@ -258,6 +410,20 @@ test("create: non-observing initial status is rejected (26 §9 — 初态必须 
       });
       assert.ok(!result.ok, `${status} should be rejected`);
       assert.equal(result.error.code, "friction/initial_state_violation");
+    }
+
+    // 正向：不声明 status 或显式声明 open，落盘初态都是 open
+    for (const draft of [validFrontmatterDraft(), validFrontmatterDraft({ status: "open" })]) {
+      const created = await createFrictionObject({
+        factSourceRoot: root,
+        frontmatterDraft: draft,
+        bodyMarkdown: validBodyMarkdown(),
+        sessionSignature: TEST_SIGNATURE,
+      });
+      assert.ok(created.ok, JSON.stringify(created.error));
+      const read = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+      assert.ok(read.ok, JSON.stringify(read.error));
+      assert.equal(read.value.frontmatter.status, "open");
     }
   });
 });
@@ -358,7 +524,7 @@ test("create: goal.md 缺席不再阻断——serves 退出闭集后无锚点依
   await withTemp("friction-writer.", async (root) => {
     // no goal.md in root
     const { created, read } = await createAndRead(root);
-    assert.equal(read.value.frontmatter.status, "observing");
+    assert.equal(read.value.frontmatter.status, "open", "26 §9：创建初态为 open");
     assert.equal(read.value.frontmatter.serves, undefined, "闭集内不得再出现 serves");
   });
 });
@@ -441,94 +607,71 @@ test("create: empty H2 section rejected (26 §8 body must carry content)", async
 // State machine transitions (26 §9.2 重点)
 // ---------------------------------------------------------------------------
 
-test("state machine: observing→open succeeds (26 §9.2 Human 提前排期)", async () => {
+test("state machine: 阈值晋升流转已随观察态删除——创建即为 open，观察材料不进事实源（26 §9 三值闭集 / 11 §12bis.1 观察缓冲）", async () => {
+  // 2026-10 修订：`observing → open`（阈值晋升）随观察态退出闭集而删除。原用例
+  // 断言「晋升后 status=open」，现在**创建初态就是 open**，账本里不再存在
+  // 「observing 前态」这一段。观察材料改由 11 §12bis.1 的摩擦观察缓冲承载
+  // （本地缓冲、非事实对象），事实源里关于观察的唯一载体是 `occurrence` 计数。
   await withTemp("friction-writer.", async (root) => {
-    const { read } = await createAndRead(root);
-    const fp = read.value.fingerprint;
+    const { read: r1 } = await createAndRead(root);
+    assert.equal(r1.value.frontmatter.status, "open", "26 §9：创建初态即 open，无 observing 前态");
+    assert.equal(r1.value.frontmatter.occurrence.count, 1, "观察次数只由 occurrence 承载");
+    const fmKeys = Object.keys(r1.value.frontmatter);
+    assert.ok(!fmKeys.includes("observing"), "观察态不得以字段形式进事实源");
+    assert.ok(!fmKeys.includes("observation_buffer"), "观察缓冲不是事实对象，载体上不得留指针字段");
+
+    // 补充级更新（status 逐字未变）只累积观察次数，状态不动
     const updated = await updateFrictionObject({
       factSourceRoot: root,
-      objectUid: read.value.object_uid,
-      expectedFingerprint: fp,
-      frontmatterAfter: { ...read.value.frontmatter, status: "open" },
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        occurrence: { ...r1.value.frontmatter.occurrence, count: 3, last_at: "2026-11-03T00:00:00.000Z" },
+      },
       bodyMarkdownAfter: validBodyMarkdown(),
-      changeSummary: "排期",
+      changeSummary: "观察次数累积到 3",
       sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated.ok, JSON.stringify(updated.error));
 
-    const read2 = await readFrictionObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+    const read2 = await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid });
     assert.ok(read2.ok);
-    assert.equal(read2.value.frontmatter.status, "open");
+    assert.equal(read2.value.frontmatter.status, "open", "补充级更新不得改变状态");
+    assert.equal(read2.value.frontmatter.occurrence.count, 3);
     assert.equal(read2.value.body_valid, true);
     assert.equal(read2.value.frontmatter.change_log.length, 2);
   });
 });
 
-test("state machine: open→observing 放回留观须盖 human_return_at（26 §9.2）", async () => {
+test("state machine: open→observing 放回留观流转已删除——一律被拒（26 §9 三值闭集）", async () => {
+  // 2026-10 修订（Human 决定）：「放回留观」这条流转已随观察态退出闭集而删除
+  // （Human 明示「open 的都是累积到达 3 次观察到的，不存在放回去的说法」）。
+  // 原用例断言「盖了 human_return_at 才放行」——现在正确判据是**反向**的：
+  // 目标状态 observing 不在闭集内，机械必须拒绝，零写。
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
-    const toOpen = await updateFrictionObject({
-      factSourceRoot: root,
-      objectUid: r1.value.object_uid,
-      expectedFingerprint: r1.value.fingerprint,
-      frontmatterAfter: { ...r1.value.frontmatter, status: "open" },
-      bodyMarkdownAfter: validBodyMarkdown(),
-      changeSummary: "排期",
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(toOpen.ok, JSON.stringify(toOpen.error));
+    assert.equal(r1.value.frontmatter.status, "open", "创建即 open（26 §9）");
 
-    // 无 human_return_at → 机械拒绝（放回留观的判别标记）
-    const missing = await updateFrictionObject({
-      factSourceRoot: root,
-      objectUid: r1.value.object_uid,
-      expectedFingerprint: toOpen.value.fingerprint,
-      frontmatterAfter: { ...r1.value.frontmatter, status: "observing" },
-      bodyMarkdownAfter: validBodyMarkdown(),
-      changeSummary: "放回留观但未盖戳",
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(!missing.ok);
-    assert.equal(missing.error.code, "friction/frontmatter_invalid");
-    assert.ok(missing.error.message.includes("human_return_at"), missing.error.message);
-
-    // 盖戳后放行，且反向 observing→open 必须清 human_return_at
     const returned = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
-      expectedFingerprint: toOpen.value.fingerprint,
-      frontmatterAfter: {
-        ...r1.value.frontmatter,
-        status: "observing",
-        occurrence: { ...r1.value.frontmatter.occurrence, human_return_at: "2026-11-02T00:00:00.000Z" },
-      },
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: { ...r1.value.frontmatter, status: "observing" },
       bodyMarkdownAfter: validBodyMarkdown(),
-      changeSummary: "放回留观",
+      changeSummary: "放回留观（流转已删除）",
       sessionSignature: TEST_SIGNATURE,
     });
-    assert.ok(returned.ok, JSON.stringify(returned.error));
+    assert.ok(!returned.ok, "open → observing 必须被拒——该流转已随观察态退出闭集而删除");
+    assert.equal(returned.error.code, "friction/status_transition_invalid");
+    assert.match(returned.error.message, /closed set/);
 
-    const read2 = await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid });
-    assert.ok(read2.ok);
-    assert.equal(read2.value.frontmatter.status, "observing");
-    assert.equal(read2.value.frontmatter.occurrence.human_return_at, "2026-11-02T00:00:00.000Z");
-    assert.equal(read2.value.body_valid, true);
-
-    const staleReopen = await updateFrictionObject({
-      factSourceRoot: root,
-      objectUid: r1.value.object_uid,
-      expectedFingerprint: read2.value.fingerprint,
-      frontmatterAfter: {
-        ...read2.value.frontmatter,
-        status: "open",
-        occurrence: { ...read2.value.frontmatter.occurrence, human_return_at: "2026-11-02T00:00:00.000Z" },
-      },
-      bodyMarkdownAfter: validBodyMarkdown(),
-      changeSummary: "带着 human_return_at 排期",
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(!staleReopen.ok);
-    assert.ok(staleReopen.error.message.includes("clear occurrence.human_return_at"), staleReopen.error.message);
+    // 零写：被拒的流转不得改动载体（状态与 change_log 均不变）
+    const after = await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid });
+    assert.ok(after.ok);
+    assert.equal(after.value.frontmatter.status, "open");
+    assert.equal(after.value.frontmatter.change_log.length, 1, "被拒的流转不得追加 change_log");
+    assert.equal(after.value.fingerprint, r1.value.fingerprint, "被拒的流转必须零写");
   });
 });
 
@@ -1131,14 +1274,14 @@ test("state machine: open→resolved succeeds with informs written at that trans
     const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
     await createAdrFixture(root, adrUid);
 
-    // First: observing→open
+    // First: 活账上的补充级更新（status 逐字未变——创建即 open，26 §9）
     const updated1 = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
       expectedFingerprint: r1.value.fingerprint,
       frontmatterAfter: { ...r1.value.frontmatter, status: "open" },
       bodyMarkdownAfter: validBodyMarkdown(),
-      changeSummary: "排期",
+      changeSummary: "补充级更新（状态未变）",
       sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(updated1.ok, JSON.stringify(updated1.error));
@@ -1245,7 +1388,9 @@ test("state machine: informs target pointing to spark file (wrong type) → rela
   });
 });
 
-test("state machine: observing→open with relations → relations_invalid (26 §11 — open 不得带关系)", async () => {
+test("state machine: open 活账携带 relations → relations_invalid (26 §11 — 活账不得带关系)", async () => {
+  // 原用例写作「observing→open with relations」；三值闭集下活账只有 open 一值，
+  // 该判据的实质不变：26 §11 的 informs 只在销账流转写入，活账带关系一律被拒。
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
     const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -1268,29 +1413,19 @@ test("state machine: observing→open with relations → relations_invalid (26 �
   });
 });
 
-test("state machine: open→observing with relations → relations_invalid (26 §9.2 放回留观不带关系)", async () => {
+test("state machine: open→observing 带关系同样被拒（26 §9 三值闭集——闭集检查先于关系检查）", async () => {
+  // 原用例断言「放回留观带关系 → relations_invalid」。该流转已随观察态退出闭集
+  // 而删除，故正确判据变为：目标状态 observing 不在闭集内 → 机械拒绝。
+  // 实现上闭集检查发生在关系检查之前，故错误码是 status_transition_invalid。
   await withTemp("friction-writer.", async (root) => {
     const { read: r1 } = await createAndRead(root);
     const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
     await createAdrFixture(root, adrUid);
 
-    // First: observing→open
-    const updated1 = await updateFrictionObject({
-      factSourceRoot: root,
-      objectUid: r1.value.object_uid,
-      expectedFingerprint: r1.value.fingerprint,
-      frontmatterAfter: { ...r1.value.frontmatter, status: "open" },
-      bodyMarkdownAfter: validBodyMarkdown(),
-      changeSummary: "排期",
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(updated1.ok, JSON.stringify(updated1.error));
-
-    // Try open→observing with relations
     const result = await updateFrictionObject({
       factSourceRoot: root,
       objectUid: r1.value.object_uid,
-      expectedFingerprint: updated1.value.fingerprint,
+      expectedFingerprint: r1.value.fingerprint,
       frontmatterAfter: {
         ...r1.value.frontmatter,
         status: "observing",
@@ -1298,11 +1433,11 @@ test("state machine: open→observing with relations → relations_invalid (26 �
         relations: [{ relation_key: "informs", target: { object_uid: adrUid } }],
       },
       bodyMarkdownAfter: validBodyMarkdown(),
-      changeSummary: "放回留观带关系",
+      changeSummary: "放回留观带关系（流转已删除）",
       sessionSignature: TEST_SIGNATURE,
     });
-    assert.ok(!result.ok);
-    assert.equal(result.error.code, "friction/relations_invalid");
+    assert.ok(!result.ok, "open → observing（带关系）必须被拒——闭集里没有 observing");
+    assert.equal(result.error.code, "friction/status_transition_invalid");
   });
 });
 
@@ -1332,7 +1467,7 @@ test("update: supplement-level — status unchanged, phenomenon unchanged, attri
     assert.equal(read2.value.frontmatter.change_log.length, beforeLogLength + 1, "exactly one entry appended");
     assert.equal(read2.value.frontmatter.change_log[1].summary, "归因后补");
     assert.equal(read2.value.frontmatter.created_at, created_at, "created_at must not change");
-    assert.equal(read2.value.frontmatter.status, "observing", "status must stay unchanged on supplement");
+    assert.equal(read2.value.frontmatter.status, "open", "status must stay unchanged on supplement（26 §9：初态即 open）");
     assert.equal(read2.value.frontmatter.attribution, "CI 配置问题");
     assert.equal(read2.value.frontmatter.phenomenon, draft.phenomenon, "phenomenon must stay unchanged on supplement");
     assert.equal(read2.value.body_valid, true);
@@ -1407,7 +1542,7 @@ test("read: non-existent uid rejected with object_not_found (26 §13)", async ()
 });
 
 // ---------------------------------------------------------------------------
-// list (26 §12 召回 —— 默认 observing+open, resolved 仅 includeResolved)
+// list (26 §12 召回 —— 默认 open, resolved/voided 仅 includeResolved)
 // ---------------------------------------------------------------------------
 
 test("list: empty frictions directory is a valid empty state (26 §12)", async () => {
@@ -1421,25 +1556,15 @@ test("list: empty frictions directory is a valid empty state (26 §12)", async (
   });
 });
 
-test("list: 2 live (observing/open) + 1 resolved — default lists 2, includeResolved lists 3; projection carries uid/title/status/impact/attribution/occurrence", async () => {
+test("list: 2 live（open）+ 1 resolved——默认召回 2 条，includeResolved 召回 3 条；投影带 uid/title/status/impact/attribution/occurrence（26 §12）", async () => {
+  // 2026-10 修订：三值闭集下**活账只有 open 一值**（observing 已退出闭集，
+  // 观察材料在 11 §12bis.1 的缓冲侧）。故默认召回覆盖的是 open，
+  // resolved（与 voided）作为终态只在 includeResolved 时展开。
   await withTemp("friction-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
     const draftA = { ...validFrontmatterDraft(), title: "甲摩擦" };
     const a = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draftA, bodyMarkdown: validBodyMarkdown(draftA) , sessionSignature: TEST_SIGNATURE});
     assert.ok(a.ok, JSON.stringify(a.error));
-
-    // 甲升到 open，使默认召回同时覆盖 observing 与 open 两值
-    const readA = await readFrictionObject({ factSourceRoot: root, objectUid: a.value.object_uid });
-    const openA = await updateFrictionObject({
-      factSourceRoot: root,
-      objectUid: a.value.object_uid,
-      expectedFingerprint: readA.value.fingerprint,
-      frontmatterAfter: { ...readA.value.frontmatter, status: "open" },
-      bodyMarkdownAfter: validBodyMarkdown(draftA),
-      changeSummary: "排期",
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(openA.ok, JSON.stringify(openA.error));
 
     const draftB = { ...validFrontmatterDraft(), title: "乙摩擦", attribution: "外部工具" };
     const b = await createFrictionObject({ factSourceRoot: root, frontmatterDraft: draftB, bodyMarkdown: validBodyMarkdown(draftB) , sessionSignature: TEST_SIGNATURE});
@@ -1467,14 +1592,15 @@ test("list: 2 live (observing/open) + 1 resolved — default lists 2, includeRes
     });
     assert.ok(resolvedC.ok, JSON.stringify(resolvedC.error));
 
-    // default: observing + open = 2 (resolved excluded)
+    // default: open = 2 (resolved excluded)
     const listed = await listFrictionObjects({ factSourceRoot: root });
     assert.ok(listed.ok, JSON.stringify(listed.error));
-    assert.equal(listed.value.total, 2); // total = filtered projection count (observing+open), resolved excluded
+    assert.equal(listed.value.total, 2); // total = filtered projection count (open), resolved excluded
     assert.equal(listed.value.items.length, 2);
     assert.equal(listed.value.complete, true);
     for (const item of listed.value.items) {
       assert.notEqual(item.status, "resolved", "resolved must not appear in default list (26 §12)");
+      assert.notEqual(item.status, "voided", "voided must not appear in default list (26 §12)");
     }
     const uids = listed.value.items.map((i) => i.object_uid).sort();
     assert.deepEqual(uids, [a.value.object_uid, b.value.object_uid].sort());
@@ -1486,7 +1612,7 @@ test("list: 2 live (observing/open) + 1 resolved — default lists 2, includeRes
       assert.ok(typeof item.impact === "string" && item.impact.length > 0, "item must project impact");
     }
     const statuses = listed.value.items.map((i) => i.status).sort();
-    assert.deepEqual(statuses, ["observing", "open"], "默认召回覆盖 observing 与 open 两值（26 §12）");
+    assert.deepEqual(statuses, ["open", "open"], "默认召回只覆盖 open（26 §12：三值闭集下活账仅 open 一值）");
     const withOcc = listed.value.items.find((i) => i.object_uid === a.value.object_uid);
     assert.equal(withOcc.occurrence?.count, 1, "26 §8：occurrence 进F1 投影");
     assert.equal(withOcc.serves, undefined, "serves 已退出闭集，投影中不得出现");
@@ -1580,7 +1706,7 @@ function validStoredFrontmatter(overrides = {}) {
     object_uid: "33333333-3333-4333-8333-333333333333",
     fact_type_key: "friction",
     title: "CI 构建缓慢",
-    status: "observing",
+    status: "open",
     phenomenon: "CI 每次构建平均需要 8 分钟，其中 5 分钟花在重复依赖安装上。",
     impact: "heavy",
     created_at: "2026-09-10T12:00:00+08:00",
@@ -1732,7 +1858,7 @@ test("attribution_ref 可解析性：update 与 correct 同样核验（补充级
       assert.ok(c.ok, JSON.stringify(c.error));
       const r = await readFrictionObject({ factSourceRoot: root2, objectUid: c.value.object_uid });
       assert.ok(r.ok);
-      // 让记录进入终态：observing → voided（无需 informs）
+      // 让记录进入终态：open → voided（无需 informs）
       const voided = await updateFrictionObject({
         factSourceRoot: root2,
         objectUid: c.value.object_uid,
@@ -1797,7 +1923,7 @@ test("attribution_ref 可解析性只认顶层 object_uid 声明行（缩进 uid
     await mkdir(join(root, FRICTION_DIRECTORY), { recursive: true });
     await writeFile(
       join(root, FRICTION_DIRECTORY, `friction-${hostUid}.md`),
-      `---\nobject_uid: ${hostUid}\nfact_type_key: friction\ntitle: host carrier\nstatus: observing\n` +
+      `---\nobject_uid: ${hostUid}\nfact_type_key: friction\ntitle: host carrier\nstatus: open\n` +
         `created_at: "2026-01-01T00:00:00.000Z"\nimpact: light\nphenomenon: "host"\n` +
         `relations:\n  - relation_key: informs\n    target:\n      object_uid: ${ghostUid}\n` +
         `occurrence:\n  count: 1\n  first_at: "2026-01-01T00:00:00.000Z"\n  last_at: "2026-01-01T00:00:00.000Z"\n` +

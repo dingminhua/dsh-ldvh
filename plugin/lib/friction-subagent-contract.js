@@ -27,7 +27,26 @@
  */
 
 /** 三态判断的闭集（schema 的 `enum` 与下方校验共用同一来源，防二者漂移）。 */
-export const VERDICTS = Object.freeze(["same-obstacle", "new-obstacle", "no-discovery"]);
+/**
+ * 判定态闭集（2026-10 修订：由三态扩为四态）。
+ *
+ * **为什么扩**：观察与账目分两层后，「这条观察归属哪里」有三种可能，加上「没有发现」
+ * 共四态。原三态里 `new-obstacle` 同时承担「新建账目」，现在它不再新建账目——观察材料
+ * 一律先进缓冲，只有攒够 N 条才晋升为账目。
+ *
+ * | 态 | 含义 | 落地动作（§9） |
+ * |---|---|---|
+ * | `same-obstacle` | 与**既有 open 账目**同一阻碍 | 第 4 项：对既有账目补充级更新 |
+ * | `same-observation-group` | 与**缓冲中某个 pending 组**同一阻碍 | 第 2 项：追加进该组；若达 N 则第 3 项晋升 |
+ * | `new-observation` | 账本与缓冲都没有的**新阻碍**（构成一次观察） | 第 2 项：开一个新组（count 1，留在缓冲） |
+ * | `no-discovery` | 本次材料没有构成系统性阻碍的现象 | 无动作 |
+ */
+export const VERDICTS = Object.freeze([
+  "same-obstacle",
+  "same-observation-group",
+  "new-observation",
+  "no-discovery",
+]);
 
 import { verifyQuotation, renderWindowText, WINDOW_OPEN, WINDOW_CLOSE } from "./friction-window.js";
 import { promptObjectRef } from "./object-reference.js";
@@ -48,33 +67,43 @@ export function discoveryOutputSchema() {
         type: "string",
         enum: [...VERDICTS],
         description:
-          "三态之一：same-obstacle=本次观察与既有某条账目是同一阻碍；new-obstacle=构成本账本尚未记录的阻碍；no-discovery=本次新增内容中没有构成系统性阻碍的现象。",
+          "四态之一：same-obstacle=与既有 open 账目是同一阻碍；same-observation-group=与缓冲中某个 pending 观察组是同一阻碍；new-observation=账本与缓冲都没有的新阻碍；no-discovery=本次新增内容中没有构成系统性阻碍的现象。",
       },
       target_uid: {
         type: "string",
         description:
-          "verdict=same-obstacle 时必填：被命中的既有账目 object_uid（UUIDv4）。其余两态填空字符串。",
+          "verdict=same-obstacle 时必填：被命中的既有 open 账目 object_uid（UUIDv4）。其余三态填空字符串。",
+      },
+      group: {
+        type: "string",
+        description:
+          "verdict=same-observation-group 时必填：命中的观察组键（从给你的观察组清单里原样复制）。verdict=new-observation 时必填：你为该阻碍新起的稳定键（小写 kebab-case，如「ci-slow-build」，此后同一阻碍都用它）。其余两态填空字符串。",
       },
       title: {
         type: "string",
         description:
-          "verdict=new-obstacle 时必填：阻碍的短标题（≤30 字）。其余两态填空字符串。",
+          "verdict=same-observation-group 或 new-observation 时必填：该阻碍的短标题（≤30 字）。**这两态都要填**——因为你这一条可能正好是该组攒够 N 条的那一条，届时它会被晋升为账目，标题就用这一条。其余两态填空字符串。",
       },
       phenomenon: {
         type: "string",
         description:
-          "verdict=new-obstacle 时必填：单句现象陈述（非结论，如「CI 平均 8 分钟」而非「CI 太慢」）。其余两态填空字符串。",
+          "同上两态必填：单句现象陈述（非结论，如「CI 平均 8 分钟」而非「CI 太慢」）。其余两态填空字符串。",
       },
       basis: {
         type: "string",
         description:
-          "verdict=new-obstacle 时必填：入账依据（可归因性 + 修了会更好的预期）。其余两态填空字符串。",
+          "同上两态必填：入账依据（可归因性 + 修了会更好的预期）。只在晋升时使用，但每次都填以免晋升那一条恰好缺它。其余两态填空字符串。",
+      },
+      attribution: {
+        type: "string",
+        description:
+          "同上两态必填：**归因陈述**——该阻碍的根源落在哪个子系统/规范/流程（如「plugin/lib/lifecycle.js 的返回值丢弃」或「11 §9 的闭集措辞」）。摩擦的根源常是规范/工具/流程本身而无对象身份，故这是自由文本。**不得省略、不得写「暂缺」**：省略会使晋升出的账目缺归因（本机制此前的实现缺陷，95/97 条机械入账缺该字段）。其余两态填空字符串。",
       },
       impact: {
         type: "string",
         enum: ["light", "medium", "heavy"],
         description:
-          "verdict=new-obstacle 时必填：影响评级。其余两态填 \"light\"（占位，落地侧按 verdict 忽略）。",
+          "同上两态必填：影响评级。其余两态填 \"light\"（占位，落地侧按 verdict 忽略）。",
       },
       quote: {
         type: "string",
@@ -87,7 +116,7 @@ export function discoveryOutputSchema() {
           "必填：判定理由——说明你如何从该引证得出该 verdict。",
       },
     },
-    required: ["verdict", "target_uid", "title", "phenomenon", "basis", "impact", "quote", "reason"],
+    required: ["verdict", "target_uid", "group", "title", "phenomenon", "basis", "attribution", "impact", "quote", "reason"],
     additionalProperties: false,
   };
 }
@@ -97,7 +126,10 @@ export function discoveryOutputSchema() {
  *
  * 参数（全部为**机械前提**，由调度方提供，不得由子代理自行取得）：
  *   - `threshold`：固定阈值 N（11 §9 内嵌为 3）；
- *   - `candidates`：既有 `open`/`observing` 账目的候选投影（uid/title/phenomenon/status）；
+ *   - `candidates`：既有 **`open`** 账目的候选投影（uid/title/phenomenon/status）——2026-10 修订后
+ *     账本里已无 `observing`（观察材料在 11 §12bis.1 的缓冲里）；
+ *   - `observationGroups`：缓冲中既有 `pending` 组的投影（group/pending_count/phenomenon）
+ *     ——这是**观察层**的查重对象，缺它同一阻碍永远攒不到 N；
  *   - `window`：本次运行的**水位区间**（自上次成功运行以来新增的会话内容范围）。
  *     其取值只来自宿主会话记录的位置标识（§8.4「观察范围的切分」）——
  *     **不由子代理判断哪些是新的**，它只在该区间内作判断。
@@ -125,39 +157,69 @@ export function discoveryOutputSchema() {
  * 核对是按材料正文做字符串比对的，措辞漂移直接使引证被拒（实测该类拒绝占失败
  * 的大多数）。故本段只**引用**该规则，不重述。
  *
- * @param {{threshold: number, candidates?: Array}} ctx - 机械前提（阈值、候选账本）。
+ * @param {{threshold: number, candidates?: Array, observationGroups?: Array}} ctx
+ *        - 机械前提（阈值、账本候选、观察组）。
  * @returns {string} 该任务的提示词段。
  */
-export function buildDiscoveryPromptSection({ threshold, candidates = [] } = {}) {
-  const list = candidates.length === 0
-      ? "（本账本当前没有 open/observing 账目——任何新发现的阻碍都只能是 new-obstacle）"
+export function buildDiscoveryPromptSection({ threshold, candidates = [], observationGroups = [] } = {}) {
+  // 账本侧：只有 open 账目（观察态已退出闭集）。
+  const ledgerList = candidates.length === 0
+      ? "（本账本当前没有 open 账目——任何阻碍都还不能与既有账目比对）"
       : candidates
           .map((c) => `- ${promptObjectRef(c)} [${c.status}]｜现象：${c.phenomenon ?? "（未投影）"}`)
           .join("\n");
 
+  // 观察侧：缓冲里已有的 pending 组。**这一层必须给出**——否则同一阻碍每次都
+  // 会被判成新组，聚合永远到不了阈值（11 §9 第 3 项）。
+  const groupList = observationGroups.length === 0
+      ? "（观察缓冲当前没有待晋升的组——本次若观察到阻碍，只能是 new-observation）"
+      : observationGroups
+          .map((g) => `- \`${g.group}\`｜已有 ${g.pending_count} 次观察｜现象：${g.phenomenon ?? "（未投影）"}`)
+          .join("\n");
+
   return [
-    "**要判断的事情**：本次观察材料中，是否存在与既有账本比对后属于下列三态之一的**系统性阻碍**。",
+    "**要判断的事情**：本次观察材料中是否出现了**系统性阻碍**；若出现，它归属哪里。",
     "",
     "**你只能做判断，不能做决定**：本机制没有主控，你的产出不取得授权或完成效力"
     + "（04 §8.2 第 4 条），也不得产生需要 Human 决定的结论（§8.2 第 2 条）。具体地："
     + "你**不得**判断某笔摩擦「值不值得修」「要不要销账」「要不要废弃」，也不得改影响"
-    + "评级——那些是必须外送 Human 的判断项（§8.4）。",
+    + "评级——那些是必须外送 Human 的判断项（§9）。",
     "",
-    "**阈值**：本账本的阈值固定为 N=" + String(threshold) + "：某条账目 occurrence.count "
-    + "达到该值时才会由机械通道从 observing 转为 open。**你不需要也不得自己数 count**"
-    + "——计数与流转由机械层完成。",
+    "**两层结构（这是本次任务的形状，请务必理解）**：",
+    "- **账本层**：`open` 账目是**已经攒够、待修的阻碍**。它们已是事实对象。",
+    "- **观察层**：观察缓冲里的组是**还没攒够的证据**，**不是账目**。同一阻碍的每次出现"
+    + "各自一条，按 `group` 聚合；当某组的待晋升条目达到 N=" + String(threshold)
+    + " 条时，机械层会把它们**晋升为一条新的 `open` 账目**。",
     "",
-    "**判定的三态**：",
-    "- `same-obstacle`：本次材料的内容与**既有某条账目**是同一阻碍 → 必填 `target_uid`（该账目的 uid）。",
-    "- `new-obstacle`：本次材料的内容构成一个**账本尚未记录**的阻碍 → 必填 `title`/`phenomenon`/`basis`/`impact`。",
-    "- `no-discovery`：本次材料中**没有**构成系统性阻碍的现象 → 其余字段填空字符串（`impact` 填 \"light\" 占位）。",
+    "**因此：你的判断不会直接创建账目。** 观察层只负责把这次观察归到正确的组；"
+    + "攒够与否、是否晋升、晋升后的账目长什么样，都由机械层按 N 与组计数决定。"
+    + "**你不需要也不得自己数条目数**。",
     "",
-    "**你要输出的字段**：`verdict`（上述三态之一）、`target_uid`、`title`、`phenomenon`、"
-    + "`basis`、`impact`、`quote`、`reason`。三态各自的必填字段见上；`quote` 与 `reason` "
-    + "两态下都必填（材料非空时）。字段的逐条说明见输出 schema。",
+    "**判定的四态**：",
+    "- `same-obstacle`：本次材料与**既有某条 open 账目**是同一阻碍 → 必填 `target_uid`（该账目的 uid）。"
+    + "机械层会对那条账目做补充级更新（计数 +1）。",
+    "- `same-observation-group`：本次材料与**观察缓冲中某个已有组**是同一阻碍 → 必填 `group`"
+    + "（从下方组清单里原样复制组键）。",
+    "- `new-observation`：本次材料构成一个**账本与缓冲都没有**的阻碍 → 必填 `group`"
+    + "（你为它起一个稳定键，小写 kebab-case，此后同一阻碍都用它）。",
+    "- `no-discovery`：本次材料中**没有**构成系统性阻碍的现象 → 其余字段填空字符串"
+    + "（`impact` 填 \"light\" 占位）。",
     "",
-    "**本任务的既有账本（查重比对对象）**：",
-    list,
+    "**关于 `title`/`phenomenon`/`basis`/`attribution`/`impact`**：`same-observation-group`"
+    + " 与 `new-observation` **两态都要填齐**。原因很实际——**你这一条可能正好是该组攒够"
+    + " N 条的那一条**，届时它会被立即晋升为账目，标题、现象、入账依据与归因就取自你这份"
+    + "产出。缺任何一项都会使晋升失败。`attribution` 是**必填**（该阻碍的根源落在哪个"
+    + "子系统/规范/流程），不得写「暂缺」。",
+    "",
+    "**你要输出的字段**：`verdict`（上述四态之一）、`target_uid`、`group`、`title`、"
+    + "`phenomenon`、`basis`、`attribution`、`impact`、`quote`、`reason`。"
+    + "各态的必填字段见上；`quote` 与 `reason` 在材料非空时都必填。逐条说明见输出 schema。",
+    "",
+    "**本账本的 open 账目（账本层查重对象）**：",
+    ledgerList,
+    "",
+    "**观察缓冲中已有的组（观察层查重对象）**：",
+    groupList,
   ].join("\n");
 }
 
@@ -269,12 +331,23 @@ export function buildDiscoveryPrompt({ threshold, candidates = [], window: windo
  *
  * 返回 `{ ok: true, value }` 或 `{ ok: false, error }`。
  */
-export function validateDiscoveryVerdict(structured, { candidates = [], windowText = null } = {}) {
+export function validateDiscoveryVerdict(structured, { candidates = [], observationGroups = [], windowText = null } = {}) {
   const failure = (code, message) => ({ ok: false, error: { code, message } });
   if (typeof structured !== "object" || structured === null) {
     return failure("discovery/verdict_malformed", `structured output is not an object (got ${JSON.stringify(structured)})`);
   }
-  const { verdict, target_uid: targetUid, title, phenomenon, basis, impact, quote, reason } = structured;
+  const {
+    verdict,
+    target_uid: targetUid,
+    group,
+    title,
+    phenomenon,
+    basis,
+    attribution,
+    impact,
+    quote,
+    reason,
+  } = structured;
 
   if (!VERDICTS.includes(verdict)) {
     return failure("discovery/verdict_out_of_set", `verdict ${JSON.stringify(verdict)} is not in the closed set ${JSON.stringify([...VERDICTS])}`);
@@ -284,17 +357,7 @@ export function validateDiscoveryVerdict(structured, { candidates = [], windowTe
   }
 
   // D1 的核心：逐字引证 + 机械核对（11 §11 水位段——切分依据不得由 AI 判断）。
-  // 提供了 windowText 才做核对；未提供时**只**校验 quote 存在，且调用方不应
-  // 在这种情况下落地（会在 lifecycle 里被拦，见 friction-landing 的调用点）。
-  // 复核发现④的修复：**非空窗口**下的 `no-discovery` 也必须引证。
-  // 早先的写法对 no-discovery 免引证，于是「恒报无发现」这一失效**完全不可见**
-  // ——它每次都推进水位、永不入账，而从记录上看不出任何异常。要求它至少引证一段
-  // 材料原文，使「它确实看过材料」成为可核对的机械事实（引证还必须真在窗口内，
-  // 见下方 verifyQuotation）。
-  // 空窗口（本次没有材料）是唯一的例外：那时无从引证，且此时 quote 必须为空。
-  // 判据：**本次确实提供了窗口材料**（`windowText` 为字符串）时，无论三态都须引证。
-  // 未提供窗口（`windowText === null`）时只做形状校验——那是「调用方未启用核对」
-  // 的旧调用面，不是「材料为空」。
+  // 空窗口（本次没有材料）是唯一免引证的情形；非空窗口下四态都须引证。
   const windowProvided = typeof windowText === "string";
   const windowIsEmpty = windowProvided && windowText.trim().length === 0;
   if (verdict === "no-discovery") {
@@ -310,7 +373,7 @@ export function validateDiscoveryVerdict(structured, { candidates = [], windowTe
   } else if (typeof quote !== "string" || quote.trim().length === 0) {
     return failure(
       "discovery/quote_missing",
-      "a non-empty verbatim quote is required for same-obstacle/new-obstacle — without it the landing side cannot tell whether the verdict derives from this run's window (11 §11 水位段)",
+      "a non-empty verbatim quote is required for same-obstacle/same-observation-group/new-observation — without it the landing side cannot tell whether the verdict derives from this run's window (11 §11 水位段)",
     );
   }
   if (typeof quote === "string" && quote.trim().length > 0 && windowText !== null) {
@@ -333,19 +396,40 @@ export function validateDiscoveryVerdict(structured, { candidates = [], windowTe
     }
   }
 
-  if (verdict === "new-obstacle") {
-    for (const [field, value] of [["title", title], ["phenomenon", phenomenon], ["basis", basis]]) {
+  // 观察层的两态（same-observation-group / new-observation）：都要 `group`，且都要
+  // title/phenomenon/basis/attribution——因为**这一条可能正是攒够 N 的那一条**，
+  // 届时要立刻用它晋升为账目（§9 第 3 项）。若只在 new-observation 时要求这些字段，
+  // 晋升那一条恰好可能缺标题或归因。
+  const isObservation = verdict === "same-observation-group" || verdict === "new-observation";
+  if (isObservation) {
+    if (typeof group !== "string" || group.trim().length === 0) {
+      return failure(
+        "discovery/group_missing",
+        `verdict=${verdict} requires a non-empty group — it is the aggregation key the threshold is computed on (11 §9 第 3 项); without it the group can never accumulate to N`,
+      );
+    }
+    if (verdict === "same-observation-group") {
+      const known = observationGroups.some((g) => g.group === group.trim());
+      if (!known) {
+        return failure(
+          "discovery/group_unknown",
+          `group ${JSON.stringify(group)} is not among the observation groups supplied this run (${observationGroups.length} supplied) — a verdict may only join a group it was shown`,
+        );
+      }
+    }
+    for (const [field, value] of [["title", title], ["phenomenon", phenomenon], ["basis", basis], ["attribution", attribution]]) {
       if (typeof value !== "string" || value.trim().length === 0) {
-        return failure(`discovery/${field}_missing`, `verdict=new-obstacle requires a non-empty ${field}`);
+        return failure(`discovery/${field}_missing`, `verdict=${verdict} requires a non-empty ${field}`);
       }
     }
     if (!["light", "medium", "heavy"].includes(impact)) {
-      return failure("discovery/impact_out_of_set", `verdict=new-obstacle requires impact in light/medium/heavy (got ${JSON.stringify(impact)})`);
+      return failure("discovery/impact_out_of_set", `verdict=${verdict} requires impact in light/medium/heavy (got ${JSON.stringify(impact)})`);
     }
     if (title.trim().length > 30) {
       return failure("discovery/title_too_long", `title must be ≤ 30 characters (got ${title.trim().length}) — 26 §8`);
     }
   }
 
-  return { ok: true, value: { verdict, target_uid: targetUid?.trim?.() ?? "", title: title?.trim?.() ?? "", phenomenon: phenomenon?.trim?.() ?? "", basis: basis?.trim?.() ?? "", impact, quote: typeof quote === "string" ? quote : "", reason: reason.trim() } };
+
+  return { ok: true, value: { verdict, target_uid: targetUid?.trim?.() ?? "", group: group?.trim?.() ?? "", title: title?.trim?.() ?? "", phenomenon: phenomenon?.trim?.() ?? "", basis: basis?.trim?.() ?? "", attribution: attribution?.trim?.() ?? "", impact, quote: typeof quote === "string" ? quote : "", reason: reason.trim() } };
 }

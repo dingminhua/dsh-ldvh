@@ -24,7 +24,12 @@ async function withHome(fn) {
   const base = await mkdtemp(join(tmpdir(), "idle-checkpoint-"));
   const home = (...segments) => join(base, "home", ...segments);
   const factSourceRoot = join(base, "ldvh-base");
-  await fn({ home, factSourceRoot, base });
+  // 2026-10 修订：摩擦观察缓冲按**管辖项目 id** 分区（11 §12bis.1），故调度层必须
+  // 给出 projectId（真实调用方 lifecycle 传的是 scope.project.id）。此处给固定值，
+  // 并同时给出 projectRoot（水位按「项目根 + 会话」分键）。
+  const projectId = "test-project";
+  const projectRoot = base;
+  await fn({ home, factSourceRoot, base, projectId, projectRoot });
 }
 
 // ---------------------------------------------------------------------------
@@ -39,10 +44,12 @@ async function withHome(fn) {
 test("多任务：清单里既有已实现又有未实现时，已实现的照常跑（不因一件没实现而整批不跑）", async () => {
   // 「勾了三件，其中两件没实现」是**常态**（默认配置就是如此）。若按「有一件没
   // 实现就整批不跑」，Human 从痕迹里看不出为什么——而实际能做的那些本来可以做。
-  await withHome(async ({ home, factSourceRoot }) => {
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     const result = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
+      projectId,
+      projectRoot,
       tasks: ["friction-discovery", "capacity-maintenance", "memory-health"],
       sessionId: RUN_SESSION,
       currentTurn: 5,
@@ -58,10 +65,12 @@ test("多任务：清单里既有已实现又有未实现时，已实现的照�
 });
 
 test("多任务：清单里**全**是未实现者时，如实报 not-implemented（不假装跑过）", async () => {
-  await withHome(async ({ home, factSourceRoot }) => {
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     const result = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
+      projectId,
+      projectRoot,
       tasks: ["capacity-maintenance", "memory-health"],
       sessionId: RUN_SESSION,
       currentTurn: 5,
@@ -73,10 +82,12 @@ test("多任务：清单里**全**是未实现者时，如实报 not-implemented
 });
 
 test("多任务：清单顺序原样带出（痕迹与提示词的次序不得被本层重排）", async () => {
-  await withHome(async ({ home, factSourceRoot }) => {
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     const result = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
+      projectId,
+      projectRoot,
       tasks: ["memory-health", "friction-discovery"],
       sessionId: RUN_SESSION,
       currentTurn: 5,
@@ -90,7 +101,7 @@ test("多任务：清单顺序原样带出（痕迹与提示词的次序不得�
 // ---------------------------------------------------------------------------
 
 test("§8.5：容量/体检尚未实现时如实报告 not-implemented，不假装已运行", async () => {
-  await withHome(async ({ home, factSourceRoot }) => {
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     for (const task of ["capacity-maintenance", "memory-health"]) {
       const result = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task, sessionId: RUN_SESSION, currentTurn: 5 });
       assert.ok(result.ok, JSON.stringify(result.error));
@@ -107,8 +118,8 @@ test("§8.5：容量/体检尚未实现时如实报告 not-implemented，不假�
 // ---------------------------------------------------------------------------
 
 test("§8.4 第 1 项：无语义判断提供者时 skipped——机械层不得代为查重", async () => {
-  await withHome(async ({ home, factSourceRoot }) => {
-    const result = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
+    const result = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, projectId, projectRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
     assert.ok(result.ok, JSON.stringify(result.error));
     assert.equal(result.value.outcome, "skipped");
     assert.equal(result.value.threshold, 3);
@@ -122,12 +133,14 @@ test("§8.4 第 1 项：无语义判断提供者时 skipped——机械层不得
 });
 
 test("§8.4：有子代理时把机械前提交给它，并上抛其结论", async () => {
-  await withHome(async ({ home, factSourceRoot }) => {
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     let sawThreshold;
     let sawCandidates;
     const result = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
+      projectId,
+      projectRoot,
       task: "friction-discovery",
       sessionId: RUN_SESSION,
       currentTurn: 5,
@@ -149,14 +162,14 @@ test("§8.4：有子代理时把机械前提交给它，并上抛其结论", asy
 // ---------------------------------------------------------------------------
 
 test("§8.3：账本有不可读载体时停止，并把原因与残留追加进待处置队列", async () => {
-  await withHome(async ({ home, factSourceRoot }) => {
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     // 造一个坏载体：文件名合法但无 frontmatter。
     const { mkdir } = await import("node:fs/promises");
     const dir = join(factSourceRoot, "frictions");
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "friction-11111111-2222-4333-8444-555555555555.md"), "no frontmatter here", "utf8");
 
-    const result = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
+    const result = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, projectId, projectRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
     assert.ok(!result.ok, "an incomplete dedup input must stop the run");
     assert.equal(result.error.code, "idle_checkpoint/stopped");
     assert.ok(typeof result.error.pending_entry_id === "string", "the stop is registered in the pending queue");
@@ -170,7 +183,7 @@ test("§8.3：账本有不可读载体时停止，并把原因与残留追加进
 });
 
 test("§8.3 第 6 条：队列不可写时不得降级登记，且如实上报 queue_unavailable", async () => {
-  await withHome(async ({ factSourceRoot, base }) => {
+  await withHome(async ({ factSourceRoot, base, projectId, projectRoot }) => {
     // 用一个把 DSH home 指向普通文件的 home 函数 → 队列必然不可写。
     const fileAsDir = join(base, "blocked");
     await writeFile(fileAsDir, "x", "utf8");
@@ -181,7 +194,7 @@ test("§8.3 第 6 条：队列不可写时不得降级登记，且如实上报 q
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "friction-11111111-2222-4333-8444-555555555555.md"), "bad", "utf8");
 
-    const result = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
+    const result = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, projectId, projectRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "idle_checkpoint/queue_unavailable");
     assert.equal(result.error.queue_unavailable, true, "the caller must be able to tell the stop was NOT registered");
@@ -190,14 +203,14 @@ test("§8.3 第 6 条：队列不可写时不得降级登记，且如实上报 q
 });
 
 test("§8.3 第 3 项：停止后不自行重试——同一失败再跑一次会追加第二条登记（不静默覆盖）", async () => {
-  await withHome(async ({ home, factSourceRoot }) => {
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     const { mkdir } = await import("node:fs/promises");
     const dir = join(factSourceRoot, "frictions");
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "friction-11111111-2222-4333-8444-555555555555.md"), "bad", "utf8");
 
-    await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
-    await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
+    await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, projectId, projectRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
+    await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, projectId, projectRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 5 });
 
     const queue = await readPendingQueue(home);
     assert.equal(queue.value.items.length, 2, "each stop is its own append (仅追加, no silent overwrite)");
@@ -205,10 +218,12 @@ test("§8.3 第 3 项：停止后不自行重试——同一失败再跑一次�
 });
 
 test("§8.3：执行体抛错时入队，且错误不逃逸到宿主事件分发", async () => {
-  await withHome(async ({ home, factSourceRoot }) => {
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     const result = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
+      projectId,
+      projectRoot,
       task: "friction-discovery",
       sessionId: RUN_SESSION,
       currentTurn: 5,
@@ -246,11 +261,13 @@ test("§8.3：缺 factSourceRoot 时拒绝并说明（不自造路径），且�
 // ---------------------------------------------------------------------------
 
 test("§8.4 水位：把本次区间（自上水位起）交给执行体", async () => {
-  await withHome(async ({ home, factSourceRoot }) => {
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     let sawWindow;
     await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
+      projectId,
+      projectRoot,
       task: "friction-discovery",
       sessionId: RUN_SESSION,
       currentTurn: 9,
@@ -265,11 +282,13 @@ test("§8.4 水位：把本次区间（自上水位起）交给执行体", async
 });
 
 test("§8.4 水位：执行体成功时不自行推进，而是把可推进轮次交给调用方（顺序纪律）", async () => {
-  await withHome(async ({ home, factSourceRoot }) => {
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     const { readWatermark } = await import("../lib/friction-watermark.js");
     const r = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
+      projectId,
+      projectRoot,
       task: "friction-discovery",
       sessionId: RUN_SESSION,
       currentTurn: 4,
@@ -286,11 +305,13 @@ test("§8.4 水位：执行体成功时不自行推进，而是把可推进轮�
 });
 
 test("§8.4 水位：执行体未给 watermarkTurn 时不推进（回读未通过即不推进）", async () => {
-  await withHome(async ({ home, factSourceRoot }) => {
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     const { readWatermark } = await import("../lib/friction-watermark.js");
     const r = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
+      projectId,
+      projectRoot,
       task: "friction-discovery",
       sessionId: RUN_SESSION,
       currentTurn: 4,
@@ -304,9 +325,9 @@ test("§8.4 水位：执行体未给 watermarkTurn 时不推进（回读未通�
 });
 
 test("§8.4 水位：skipped 不推进（本次没处理该区间，推进会使内容永失观察机会）", async () => {
-  await withHome(async ({ home, factSourceRoot }) => {
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     const { readWatermark } = await import("../lib/friction-watermark.js");
-    const r = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 4 });
+    const r = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, projectId, projectRoot, task: "friction-discovery", sessionId: RUN_SESSION, currentTurn: 4 });
     assert.equal(r.value.outcome, "skipped");
     assert.equal(r.value.watermark_advanced, false);
     const w = await readWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, task: "friction-discovery" });
@@ -315,11 +336,13 @@ test("§8.4 水位：skipped 不推进（本次没处理该区间，推进会使
 });
 
 test("§8.4 水位：执行体抛错时不推进（fail-closed 侧，下次重覆盖同一区间）", async () => {
-  await withHome(async ({ home, factSourceRoot }) => {
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     const { readWatermark } = await import("../lib/friction-watermark.js");
     const r = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
+      projectId,
+      projectRoot,
       task: "friction-discovery",
       sessionId: RUN_SESSION,
       currentTurn: 4,
@@ -335,7 +358,7 @@ test("§8.4 水位：执行体抛错时不推进（fail-closed 侧，下次重�
 });
 
 test("§8.4 水位：缺 sessionId / currentTurn 时 fail-closed（不得退化为覆盖全部内容）", async () => {
-  await withHome(async ({ home, factSourceRoot }) => {
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     const noSession = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "friction-discovery", currentTurn: 4 });
     assert.ok(!noSession.ok);
     assert.equal(noSession.error.code, "idle_checkpoint/no_session_id");
@@ -357,7 +380,7 @@ test("§8.4 水位：缺 sessionId / currentTurn 时 fail-closed（不得退化�
 });
 
 test("§8.4 水位：第二次运行从上次水位起算（区间不再从零开始）", async () => {
-  await withHome(async ({ home, factSourceRoot }) => {
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     const seen = [];
     // 调用方负责在「落地成功之后」推进水位（顺序纪律）——此测试模拟一个
     // 正确实现的调用方。
@@ -366,6 +389,8 @@ test("§8.4 水位：第二次运行从上次水位起算（区间不再从零�
       const r = await runIdleCheckpoint({
         dshHomePath: home,
         factSourceRoot,
+        projectId,
+        projectRoot,
         task: "friction-discovery",
         sessionId: RUN_SESSION,
         currentTurn: seen.length === 0 ? 3 : 8,
@@ -375,7 +400,10 @@ test("§8.4 水位：第二次运行从上次水位起算（区间不再从零�
         },
       });
       if (r.ok && Number.isInteger(r.value.pending_watermark_turn)) {
-        await advanceWatermark(home, { projectRoot: factSourceRoot, sessionId: RUN_SESSION, turn: r.value.pending_watermark_turn, task: "friction-discovery" });
+        // 水位键是「项目根 + 会话 + 任务」——必须与 runIdleCheckpoint 内部用的
+        // projectRoot 一致。2026-10 起调度层显式传 projectRoot（= 仓库根），它与
+        // factSourceRoot（= 仓库根/ldvh-base）不同，故此处用 projectRoot。
+        await advanceWatermark(home, { projectRoot, sessionId: RUN_SESSION, turn: r.value.pending_watermark_turn, task: "friction-discovery" });
       }
       return r;
     };

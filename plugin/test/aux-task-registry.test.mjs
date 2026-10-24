@@ -253,15 +253,20 @@ test("逐任务校验：未实现/无校验步骤的任务按失败收口（不�
   assert.equal(out.results["capacity-maintenance"].error.code, "aux_task/not_implemented");
 });
 
-test("提示词段自足：任务段含三态与字段要求，公共段不含（分工不得混）", () => {
+test("提示词段自足：任务段含四态与字段要求，公共段不含（分工不得混）", () => {
   const section = buildDiscoveryPromptSection({ threshold: 3, candidates: [] });
+  // 2026-10 修订：三态 → 四态（观察层与账本层分开判定）。
   assert.match(section, /same-obstacle/);
-  assert.match(section, /new-obstacle/);
+  assert.match(section, /same-observation-group/);
+  assert.match(section, /new-observation/);
   assert.match(section, /no-discovery/);
+  // 旧名 `new-obstacle` 已作废——它同时承担「新建账目」，而现在观察不进账本。
+  assert.doesNotMatch(section, /new-obstacle/, "旧态名不得再出现在提示词里");
   assert.match(section, /你要输出的字段/);
-  // 公共段不重复任务的三态要求（重复即有两种措辞，执行体按更宽松的理解）。
+  assert.match(section, /attribution/, "归因是必填字段（本次修订的关键新增）");
+  // 公共段不重复任务的四态要求（重复即有两种措辞，执行体按更宽松的理解）。
   const shared = buildSharedPromptSection({ window: { items: [] } });
-  assert.doesNotMatch(shared, /same-obstacle/, "三态属任务段，公共段不得重述");
+  assert.doesNotMatch(shared, /same-obstacle/, "四态属任务段，公共段不得重述");
 });
 
 // ---------------------------------------------------------------------------

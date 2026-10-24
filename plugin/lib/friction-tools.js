@@ -8,12 +8,12 @@
 //     object_uid: frontmatter, body, mechanical issues and fingerprint.
 //   - friction-list-objects (effect: read)             — F0/F1 discovery:
 //     ledger-relevant projection (title/phenomenon/status/impact/attribution),
-//     open+observing by default (26 §12: resolved stays out of ordinary
+//     open by default (26 §12 2026-10 修订：观察态已退出闭集; resolved stays out of ordinary
 //     candidates until historical tracing).
 //   - friction-write-object (effect: may_change_state) — controlled create
 //     (after Human-confirmed proposal incl. dedup result) and CAS update
 //     with change_log: status-preserving updates are supplement-level
-//     (26 §9.3); transitions follow 26 §9.2 (observing reversible, resolved/voided terminal).
+//     (26 §9.3); transitions follow 26 §9.2 (open→resolved/voided, both terminal; 观察不进账本).
 //
 // Authorities: specs/05 §6 (operation declaration + common envelope),
 // §9.3 (may_change_state), specs/03 §9 (controlled read/create/update,
@@ -49,13 +49,13 @@ const OPERATIONS = {
   },
   "friction-list-objects": {
     toolName: "ldvh_friction_list",
-    summary: "Enumerate Friction fact objects (F0/F1 discovery): ledger projection (title/phenomenon/status/impact/attribution/attribution_ref/occurrence) for the governed project; observing+open by default, resolved/voided only with status=all (specs/03 §8, specs/26 §12)",
+    summary: "Enumerate Friction fact objects (F0/F1 discovery): ledger projection (title/phenomenon/status/impact/attribution/attribution_ref/occurrence) for the governed project; open by default (2026-10 修订：观察材料已移出事实源，改由 11 §12bis.1 的摩擦观察缓冲承载——账本无 observing 状态), resolved/voided only with status=all (specs/03 §8, specs/26 §12)",
     effect: "read"
   },
   "friction-write-object": {
     toolName: "ldvh_friction_write",
     writeShaped: true,
-    summary: "Controlled write of Friction fact objects: create (after Human-confirmed proposal incl. dedup result) and CAS update with change_log; status-preserving updates are supplement-level, transitions per 26 §9.2 (observing→open threshold / Human 提前排期; open→observing 放回留观 reversible; →resolved needs informs 1..n; →voided no relations; resolved & voided terminal) (specs/03 §9.4–§9.5, specs/26 §13)",
+    summary: "Controlled write of Friction fact objects: create (after Human-confirmed proposal incl. dedup result) and CAS update with change_log; status-preserving updates are supplement-level, transitions per 26 §9.2 (2026-10 修订：闭集为 open/resolved/voided，初态即 open；→resolved needs informs 1..n; →voided no relations + disposition; both terminal。观察不进账本——阈值晋升在 11 §12bis.1 的缓冲侧完成，机械通道不改变既有账目状态) (specs/03 §9.4–§9.5, specs/26 §13)",
     effect: "may_change_state"
   }
 };
@@ -203,7 +203,7 @@ async function executeListObject(args, exec, deps) {
     result: {
       count: value.items.length,
       total: value.complete ? value.items.length : value.total,
-      filter: includeResolved ? "all" : "open+observing",
+      filter: includeResolved ? "all" : "open",
       items: value.items,
     },
     scope: {
@@ -529,7 +529,7 @@ function parameterSchemaFor(operationKey) {
     description: "AI-supplied type fields; Code assigns object_uid/fact_type_key/created_at/change_log and generates the H1 from title",
     properties: {
       title: { type: "string", description: "≤ 30 characters; obstacle short title for locating and Human scanning" },
-      status: { type: "string", enum: ["observing", "open", "resolved", "voided"], description: "create must be observing; transitions: observing→open (threshold / Human 提前排期), open→observing (放回留观, stamps occurrence.human_return_at), →resolved (informs 1..n), →voided (no relations); resolved & voided terminal & read-only (26 §9)" },
+      status: { type: "string", enum: ["open", "resolved", "voided"], description: "create must be open (26 §9 2026-10 修订：观察态已退出闭集，账目初态即待修态); transitions: →resolved (informs 1..n), →voided (no relations, requires disposition); resolved & voided terminal & read-only. 机械通道不改变任何既有账目的状态——阈值晋升只发生在观察缓冲侧 (11 §12bis.1)" },
       phenomenon: { type: "string", description: "single-sentence phenomenon statement (non-conclusion, e.g. 「CI 平均 8 分钟」 not 「CI 太慢」); must appear verbatim in the 现象 body section" },
       attribution: { type: "string", description: "which subsystem/spec/process the obstacle roots in; free text — the root is often a spec/tool/process with no object identity; omit when not yet attributable (backfill via supplement update)" },
       // 26 §8/§11（2026-10 订正）：规范形态是对象 { object_uid }（锚点型，与
@@ -548,7 +548,7 @@ function parameterSchemaFor(operationKey) {
         ],
         description: "precise reference to an existing same-project fact object_uid for the root, as the OBJECT form { object_uid: \"<uuid>\" } (26 §8/§11 锚点型, 2026-10 订正 — the same carrier shape as relations.target); a bare uuid string is accepted for legacy carriers only. Optional — when present Code verifies object_uid resolves (26 §8); enables mechanical aggregation by attribution"
       },
-      occurrence: { type: "object", properties: { count: { type: "integer" }, first_at: { type: "string" }, last_at: { type: "string" }, human_return_at: { type: "string" } }, required: ["count", "first_at", "last_at"], additionalProperties: false, description: "REQUIRED on create with count=1, first_at=last_at=now, human_return_at=null; count increments by 1 per supplement update (same update as the 现象 extension); frozen once resolved/voided; human_return_at is stamped by open→observing (放回留观) and makes the threshold transition skip this record (26 §8/§9.2, 11 §9 item 4)" },
+      occurrence: { type: "object", properties: { count: { type: "integer" }, first_at: { type: "string" }, last_at: { type: "string" } }, required: ["count", "first_at", "last_at"], additionalProperties: false, description: "REQUIRED on create. count = the number of independent sightings CONFIRMED WHEN THE ENTRY CAME INTO BEING (from the observation group size at promotion time; 1 for a Human-entered entry). It is NOT a threshold input any more — the threshold lives in the observation buffer (11 §9 第 3 项 / §12bis.1). first_at/last_at = earliest/latest sighting time. Frozen once resolved/voided. 例外: voided 且来源为闭集收缩改判者可缺 (26 §14.2). 2026-10 修订已删除 human_return_at：放回留观流转取消，机械通道不再按 count 改任何既有账目状态" },
       impact: { type: "string", enum: ["light", "medium", "heavy"], description: "impact rating; consumers anchored in 26 §12 (F1 projection, metric aggregation) and the heavy-bypasses-buffer birth path" },
 
       disposition: { type: "string", description: "why this entry was voided; REQUIRED iff status=voided, forbidden otherwise (26 §8) — the list card renders it so Human can read the reason without opening the detail page. resolved carries no such field: its outcome is already carried by the informs relation" },
@@ -572,7 +572,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          status: { type: "string", enum: ["open", "all"], description: "open = default (open+observing live ledger, 26 §12); all = include resolved for historical tracing" },
+          status: { type: "string", enum: ["open", "all"], description: "open = default (open 待修账目; 26 §12 2026-10 修订：观察态已退出闭集，账本里不再有 observing); all = include resolved/voided for historical tracing" },
           limit: { type: "number", description: "max items returned (default 200; exceeding the cap returns a partial page with the true total — never a silent truncation, 03 §8.1)" }
         },
         additionalProperties: false
