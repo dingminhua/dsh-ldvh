@@ -77,7 +77,7 @@ async function createHarness() {
 	roots.push(agent);
 
 	return {
-		root, agent, project,
+		root, agent, project, homeDir: home,
 		async dispose() {
 			await fiber.dispose();
 			await root.fiber.dispose();
@@ -179,5 +179,67 @@ test("首回合时序陷阱：不等待 resolve 完成时，召回仍须生效�
 		);
 	} finally {
 		await harness.dispose();
+	}
+});
+
+test("未受管辖的会话不得注入召回（整体行为，不拆道门）", async () => {
+	// **这条测的是整体行为，而非某一道门**——因为两道门在真实路径下**同源**：
+	// `resolveGovernanceScope` 返回的 `state` 与 `project` 在同一个对象里，
+	// 未受管辖时二者必然同时为假。故无法在真实路径下构造「state 非 governed
+	// 但 project.path 存在」的输入来单独测第一道门。
+	//
+	// 破坏性验证的结论（2026-10-24 实测）：
+	//   · 只拆第一道门（scopeState 检查）→ 本用例仍通过：第二道门（projectPath）接手；
+	//   · 把 `resolveGovernanceScope` 的 not_governed 改为 governed
+	//     → **本用例的等价手工验证显示会注入**（已验证），证明管辖判断确实在起作用。
+	// 故本用例的有效性系于「resolve 如实判定」，而不系于某一道门。
+	//
+	// 注意：不能通过「改 payload 里 agent 的 cwd」来构造负例——`createPreStepHandler`
+	// 把 `agent` 绑定为**闭包变量**，监听器读的是闭包里的 cwd（guidance.js:61），
+	// 不是 payload.agent 的。故必须用独立 harness，让会话从一开始就在未登记目录。
+	const regHarness = await createHarness();
+	const outside = await mkdtemp(join(tmpdir(), "ldvh-outside-"));
+	let fiber;
+	let root;
+	try {
+		root = new Context();
+		const roots = [];
+		root.provide("tools", new (class { register() { return () => {}; } })());
+		root.provide("systemPrompt", new (class { register() { return () => {}; } })());
+		// 复用已登记 harness 的 home：其登记表里只有 regHarness.project，不含 outside。
+		root.provide("dshHomePath", (...s) => join(regHarness.homeDir, ...s));
+		root.provide("agents", { roots: () => roots, list: () => roots });
+		await root[Symbol.for("cordis.init")]?.();
+		fiber = root.registry.plugin(ldvhPlugin, { webEnabled: false });
+		await fiber;
+
+		const agent = {
+			id: "session-outside",
+			session: { header: { id: "session-outside", cwd: outside, origin: "user" } },
+			ctx: root.extend({}),
+		};
+		roots.push(agent);
+		root.emit("agent/created", { agent, source: "startup" });
+		await settle();
+
+		const batch = [{ id: "u3", role: "user", content: [{ type: "text", text: "改一下字段然后提交校验" }] }];
+		const decision = await root.waterfall(
+			"agent/pre-step",
+			{ agent, messages: batch, turn: 1, step: 1 },
+			async () => ({ kind: "continue", messages: batch }),
+		);
+		const recallRows = (decision.messages ?? []).filter((m) =>
+			/双源召回/.test((m.content ?? []).map((c) => c.text ?? "").join("")),
+		);
+		assert.equal(
+			recallRows.length,
+			0,
+			`未受管辖的会话不得注入召回行；实际 kind=${decision.kind} 消息=${JSON.stringify((decision.messages ?? []).map((m) => (m.content ?? []).map((c) => (c.text ?? "").slice(0, 30)).join("")))}`,
+		);
+	} finally {
+		if (fiber !== undefined) await fiber.dispose();
+		if (root !== undefined) await root.fiber.dispose();
+		await regHarness.dispose();
+		await rm(outside, { recursive: true, force: true });
 	}
 });
