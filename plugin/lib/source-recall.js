@@ -1011,6 +1011,40 @@ export async function recallForAction(input = {}) {
       specs: allSpecHits.slice(keptSpecs.length).map((spec) => ({ title: spec.title, path: spec.path })),
       facts: allFactHits.slice(keptFacts.length).map((fact) => ({ title: fact.title, path: fact.path })),
     },
+    // **`gaps`**（`01 §10.3`）：
+    // > 读取契约不承载某项时，须**如实披露该项缺失并使其进入 `gaps`**，
+    // > 不得以「已披露」或省略代替。
+    //
+    // 实测缺口（2026-10-24）：本模块此前把缺失写成**说明文字**（如
+    // `limitations.unimplemented` 里那段中文），却没有结构化的 `gaps` 字段。
+    // 而该条明确禁止「以『已披露』代替」——**只写在文字里不算**：消费方要能
+    // 机械枚举出「这次读取有哪些没承载」，字符串说明做不到。
+    //
+    // 本仓库既有约定见 `adr-tools.js`（多处 `gaps: [...]`），本模块此前未跟上。
+    // 逐项检查四类必披露内容是否承载，缺者入 gaps：
+    gaps: [
+      // ① 来源视图：三级回退全失败时无来源可披露。
+      ...(includeSpecs && specsSource === null
+        ? ["来源视图缺失：规范源三级回退（01 §10.3）均无可用语料"]
+        : []),
+      // ② 候选集合指纹：`fingerprintOf([...specs, ...facts])` 恒有返回值（覆盖空集），
+      //    故不设缺失分支——此处不造假想的 gap。
+      // ③ 各载体内容指纹：任一卡片缺指纹即登记（不留「多数有」的模糊印象）。
+      ...[...allSpecHits, ...allFactHits].some((c) => c.source?.contentFingerprint?.value === undefined)
+        ? ["部分载体内容指纹缺失"]
+        : [],
+      // ④ 完成与未完成范围：由 completeness 承载，unavailable 时即为 gap。
+      ...(specs.length + facts.length === 0
+        ? ["完成范围：一源都未读到，无法给出任何候选"]
+        : []),
+      // ⑤ 明确的未兑现能力（见 limitations.unimplemented）：同样必须入 gaps，
+      //    否则「已写在 limitations 里」正是该条禁止的「以已披露代替」。
+      ...(includeSpecs ? [] : ["规范源未读取（includeSpecs:false）"]),
+      // ⑤ 明确的未兑现能力必须**同时**进入 gaps——`limitations.unimplemented`
+      //    里写着“既有行动结构路由未实现”，但那只是说明文字；`01 §10.3` 明禁
+      //    「以『已披露』或省略代替」，故这里必须再结构化登记一次。
+      "既有行动结构路由未实现（10 §5.3 要求；无可路由载体，见 limitations.unimplemented）",
+    ],
     // **F0 层**（`02 §9.1`）：类型/状态计数、coverage、未完成范围。
     //
     // 实测缺口（2026-10-24）：本模块此前只有「本次召回的命中数」，

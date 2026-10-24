@@ -1479,3 +1479,37 @@ test("「同义改写 95% 命中」须与实测一致（防再次过时）", asy
 		`说明声称 ${claimed[1]}%，实测 ${hit}/${total} = ${actual}%`,
 	);
 });
+
+test("须给出结构化 gaps（01 §10.3 明禁「以已披露代替」）", async () => {
+	// `01 §10.3` 逐字：「读取契约不承载某项时，须**如实披露该项缺失并使其进入
+	// `gaps`**，不得以「已披露」或省略代替」。
+	//
+	// 实测缺口（2026-10-24）：本模块此前把缺失写成**说明文字**（如
+	// limitations.unimplemented 里那段中文），却没有结构化 `gaps` 字段——
+	// 而该条明确禁止「以『已披露』代替」：消费方要能**机械枚举**缺失项，
+	// 字符串说明做不到。本仓库既有约定见 adr-tools.js（多处 `gaps: [...]`）。
+	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
+	assert.ok(Array.isArray(r.gaps), "须有 gaps 数组（可为空，但不得缺失）");
+
+	// 未兑现能力必须**同时**出现在 gaps 里，不能只写在 limitations 文字中。
+	assert.ok(
+		r.limitations.unimplemented.length > 0,
+		"前提：本实现确有未兑现能力",
+	);
+	assert.ok(
+		r.gaps.some((g) => /行动结构/.test(g)),
+		`未兑现能力须结构化进入 gaps，实际 gaps=${JSON.stringify(r.gaps)}`,
+	);
+
+	// 不读规范源时须如实登记该缺失。
+	const noSpecs = await recallForAction({
+		action: "把 34 号规范改名",
+		root: ROOT,
+		limit: 3,
+		includeSpecs: false,
+	});
+	assert.ok(
+		noSpecs.gaps.some((g) => /规范源未读取/.test(g)),
+		"includeSpecs:false 须登记该缺失",
+	);
+});
