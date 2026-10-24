@@ -378,6 +378,36 @@ export function matchCandidate(actionTokens, candidate) {
   if (typeof specId === "string" && specId !== "" && actionTokens.includes(specId)) {
     return { tier: 0, hits: 1, hitReason: `规范编号命中：${specId}` };
   }
+
+  // **类型点名层（tier 0.5）**：用户说「写一个 WorkCase」「记一条 Spark」时，
+  // 点名的是某个**事实类型**，最该命中该类型自己的规范。
+  //
+  // 实测缺陷（2026-10-24）：「写一个 WorkCase」的首位是 `Spark-火花` 而不是
+  // `WorkCase 工单`——因为类型名会出现在多份规范的 scope 里（实测 workcase 命中
+  // 6 份、adr/pitfall/spark 各 4 份），同层同分后只能按路径字典序，而 `20-Spark`
+  // 排在 `21-WorkCase` 前面。
+  //
+  // 判据：查询的某 token **整词等于**本规范标题里出现的类型短名。标题形如
+  // `WorkCase 工单`、`Spark-火花`、`ADR-决策`——取标题中 ASCII 词作为类型名，
+  // 与查询 token 做**大小写无关的整词比较**（不认子串，避免 `adr` 命中 `adrenal`）。
+  // 这是确定性事实（标题里有没有这个词），无权重、无 AI 判断。
+  //
+  // **只对规范生效，不对事实生效**（2026-10-24 修）：类型点名是为了找到「该类型的
+  // 定义规范」，事实对象没有这个角色。实测回归——查询「install() 分发器在
+  // agent/created 回调里…」含 token `agent`，事实侧 4 条 Agent 调研文档因此以
+  // `类型点名命中：agent` 冲到最前，把「插件重建清空子代理登记表」挤出 limit。
+  if (candidate.source === "spec" && typeof candidate.title === "string") {
+    // **注意尾部连字符**：`Spark-火花`、`ADR-决策` 这类标题里，贪婪匹配会把
+    // 分隔用的 `-` 吞进词里（实测 `Pitfall-踩坑经验` 得到 `pitfall-`，
+    // 导致与查询词 `pitfall` 永不相等）。故尾部连字符不算词的一部分。
+    const titleTypeNames = (candidate.title.match(/[A-Za-z][A-Za-z0-9_]*(?:-[A-Za-z0-9_]+)*/g) ?? []).map((w) => w.toLowerCase());
+    if (titleTypeNames.length > 0) {
+      const named = actionTokens.find((token) => titleTypeNames.includes(token.toLowerCase()));
+      if (named !== undefined) {
+        return { tier: 0.5, hits: 1, hitReason: `类型点名命中：${named}` };
+      }
+    }
+  }
   // `minHits`：该层至少要命中几个词才算相关。
   //
   // **为什么正文层要 2 个**：正文有数千字，命中 1 个词几乎必然——实测查询

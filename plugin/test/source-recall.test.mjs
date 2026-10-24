@@ -751,3 +751,63 @@ test("排序键 weakHit 须为确定性事实，不得引入权重", async () =>
 	assert.equal(r.ranking.usesWeights, false);
 	assert.deepEqual(r.ranking.keys, ["tier", "hits", "path"]);
 });
+
+test("类型点名层：点名某事实类型时，该类型自己的规范须居首", async () => {
+	// 实测缺陷：「写一个 WorkCase」首位是 `Spark-火花` 而不是 `WorkCase 工单`——
+	// 类型名会出现在多份规范的 scope 里（实测 workcase 命中 6 份、adr/pitfall/spark
+	// 各 4 份），同层同分后只按路径字典序，而 `20-Spark` 排在 `21-WorkCase` 前面。
+	const cases = [
+		{ q: "写一个 WorkCase", want: "WorkCase" },
+		{ q: "写一个 ADR", want: "ADR" },
+		{ q: "记一条 Spark", want: "Spark" },
+		{ q: "新增一条 Pitfall", want: "Pitfall" },
+		{ q: "处理一个 Friction", want: "Friction" },
+		{ q: "写一份 Research", want: "Research" },
+	];
+	for (const { q, want } of cases) {
+		const r = await recallForAction({ action: q, root: ROOT, limit: 3, budgetBytes: 20000 });
+		assert.ok(r.specs.length > 0, `「${q}」应命中规范`);
+		assert.ok(
+			r.specs[0].title.includes(want),
+			`「${q}」首位应为含「${want}」的规范，实际：${r.specs[0].title}（${r.specs[0].hitReason}）`,
+		);
+		assert.match(r.specs[0].hitReason, /类型点名命中/, `「${q}」应靠类型点名层命中`);
+	}
+});
+
+test("类型点名层：标题里带连字符的类型名须能整词匹配（曾切成 pitfall-）", async () => {
+	// 实测缺陷：贪婪正则把 `Pitfall-踩坑经验` 里分隔用的连字符吞进词里，
+	// 得到 `pitfall-`，与查询词 `pitfall` 永不相等。
+	const r = await recallForAction({ action: "新增一条 Pitfall", root: ROOT, limit: 2 });
+	assert.equal(r.specs[0].title.includes("Pitfall"), true);
+	assert.match(r.specs[0].hitReason, /类型点名命中：pitfall/);
+});
+
+test("类型点名层：编号点名仍须优先（tier 0 高于 tier 0.5）", async () => {
+	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
+	assert.equal(r.specs[0].tier, 0, "编号点名应压过类型点名");
+	assert.match(r.specs[0].hitReason, /规范编号命中：34/);
+});
+
+test("类型点名层只对规范生效，不得作用于事实（实测回归）", async () => {
+	// 实测回归：类型点名曾对事实也生效。查询「install() 分发器在 agent/created
+	// 回调里…」含 token `agent`，事实侧 4 条 Agent 调研文档因此以
+	// `类型点名命中：agent` 冲到最前，把「插件重建清空子代理登记表」挤出 limit。
+	// 类型点名的目的**只是**找到「该类型的定义规范」，事实对象没有这个角色。
+	const r = await recallForAction({
+		action: "install() 分发器在 agent/created 回调里没有 try/catch 致子代理注册失败",
+		root: ROOT,
+		limit: 5,
+		budgetBytes: 20000,
+	});
+	for (const f of r.facts) {
+		assert.ok(
+			!/类型点名命中/.test(f.hitReason),
+			`事实不得靠类型点名层命中：${f.title} → ${f.hitReason}`,
+		);
+	}
+	assert.ok(
+		r.facts.some((f) => f.title.includes("插件重建清空子代理登记表")),
+		"真相关的教训须仍被召回",
+	);
+});
