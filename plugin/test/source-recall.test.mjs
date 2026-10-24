@@ -851,3 +851,32 @@ test("调用方可显式覆盖默认类型", async () => {
 	const specOnly = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3, types: [] });
 	assert.equal(specOnly.facts.length, 0, "types: [] 应只要规范");
 });
+
+test("10 §5.3：未实现的「既有行动结构路由」须如实登记，不得静默省略", async () => {
+	// 10 §5.3 逐字：行动前引导入口须「提供事实候选**与既有行动结构路由**」。
+	// 本函数只做了事实候选。后一半当前**无载体可路由**：
+	//   03:447 声明旧 action-template-foundation 已退出，其可复用行动结构内容
+	//   「在相应业务系统规范按 §9 承接之前，不取得规范效力」；ldvh-base/ 下
+	//   也无 action/template 类事实载体。
+	// 按 00 §5.6 据实声明：登记为未兑现，不伪造空路由字段冒充已实现。
+	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
+	const items = r.limitations.unimplemented;
+	assert.ok(Array.isArray(items) && items.length > 0, "须登记未兑现项");
+	const actionRoute = items.find((x) => x.item.includes("行动结构"));
+	assert.ok(actionRoute !== undefined, "须点名「既有行动结构路由」未实现");
+	assert.match(actionRoute.requiredBy, /10 §5\.3/, "须给出规范依据");
+	assert.ok(actionRoute.reason.length > 0, "须说明原因（无可路由载体）");
+	assert.equal(actionRoute.status, "unavailable-until-carrier-exists");
+});
+
+test("10 §5.3：注入不得复制规则正文（不成为第二规则源）", async () => {
+	// 10:108「内容须单一权威来源、逐字节一致、不复制规则正文、不成为第二规则源」。
+	// 召回行只应给 title + path + 命中理由，让读者自行按路径读取正文。
+	const { renderRecallRow } = await import("../lib/recall-injection.js");
+	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 2 });
+	const row = renderRecallRow(r);
+	// 规范正文的特征句（34 §13 的那句）不应出现在召回行里。
+	assert.ok(!/召回的命中不等于适用（02 §9\.1|识别不到的来源不因未被指向而不存在/.test(row), "不得复制规范正文");
+	// 但必须给出可回指路径。
+	assert.match(row, /specs\/|ldvh-base\//, "须给出可回指路径");
+});

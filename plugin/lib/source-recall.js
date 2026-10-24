@@ -722,6 +722,26 @@ export async function recallForAction(input = {}) {
       insufficientForConsumptionPoints: [
         "23 §12 故障调查（按表现匹配已知机制——跨层需要语义判断）",
       ],
+      // **未兑现范围**（`00 §5.6` 据实声明 / `00 §5.7` 交还）：`10 §5.3` 规定
+      // 行动前引导入口须「提供事实候选**与既有行动结构路由**」。
+      //
+      // 本函数只做了前一半。后一半**当前无载体可路由**：
+      //   · `03:447` 说明旧 `action-template-foundation`（行动模板基础规范）已退出，
+      //     其「可复用行动结构」内容「在相应业务系统规范按本文 §9 承接之前，
+      //     **不取得规范效力**」；
+      //   · `ldvh-base/` 下也无 action/template 类事实载体（实测只有
+      //     adrs/frictions/norms/pitfalls/researches/sparks/goal/workcases）。
+      //
+      // 故这不是「本函数忘了做」，而是**上游承载尚未建立**。如实登记为未兑现，
+      // 不伪造一个空的路由字段冒充已实现。
+      unimplemented: [
+        {
+          item: "既有行动结构路由",
+          requiredBy: "10 §5.3（行动前引导入口须提供事实候选与既有行动结构路由）",
+          reason: "无可路由载体：03:447 声明旧行动模板规范已退出且其内容在 §9 承接前不取得规范效力；ldvh-base/ 下无 action/template 类事实类型",
+          status: "unavailable-until-carrier-exists",
+        },
+      ],
     },
     // **来源披露**（01 §10.3）：如实标注规范语料的实际应答方，不得把回退来源
     // 表述为项目自著语料。`tier` 为 null 表示三级都无可用语料。
