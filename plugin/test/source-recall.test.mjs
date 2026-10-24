@@ -1050,3 +1050,40 @@ test("includeSpecs:false 时须把「规范源未读」列入未检查范围", a
 	assert.ok(withoutSpecs.uncheckedRange.sourceNotRead.length > 0, "未读规范源时须如实列出");
 	assert.match(withoutSpecs.uncheckedRange.sourceNotRead.join(""), /规范源/);
 });
+
+test("保底不得按源各自触发（曾致总用量超预算）", async () => {
+	// 实测缺陷：原实现对 specs 与 facts **分别**保底——specs 收 3 条用 2073 字节，
+	// 轮到 facts 时第一条放不下、kept.length===0 成立，于是强行塞入 451 字节，
+	// 总用量 2524 **超过 2400 预算**。保底本意是「宁可超额也不能给零结果」，
+	// 前提是**整体**一条都没有。
+	const r = await recallForAction({
+		action: "把 34 号规范改名成双源召回",
+		root: ROOT,
+		limit: 3,
+		budgetBytes: 2400,
+	});
+	assert.ok(r.specs.length + r.facts.length > 0, "应有结果");
+	if (r.overBudget !== true) {
+		assert.ok(
+			r.budget.usedBytes <= r.budget.limitBytes,
+			`未走保底时用量 ${r.budget.usedBytes} 不得超预算 ${r.budget.limitBytes}`,
+		);
+	}
+});
+
+test("双源须各得份额：不得让规范占满预算致事实恒为 0", async () => {
+	// 实测缺陷：规范先占满预算（3 条 ≈2073 字节，预算 2400），而单条事实最小
+	// 需 451 字节——剩 327 不够，事实**永远为 0 条**。可「双源召回」本意是两源
+	// 都要有；只有规范没有事实等于退化成单源。
+	for (const q of ["把 34 号规范改名成双源召回", "经验也要召回啊", "提交前跑机械校验"]) {
+		const r = await recallForAction({ action: q, root: ROOT, limit: 3, budgetBytes: 2400 });
+		assert.ok(r.specs.length > 0, `「${q}」应有规范`);
+		assert.ok(r.facts.length > 0, `「${q}」应有事实（不得被规范挤光）`);
+	}
+});
+
+test("保底仍须生效：极小预算下不得返回零结果", async () => {
+	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3, budgetBytes: 1 });
+	assert.ok(r.specs.length + r.facts.length > 0, "极小预算仍须至少给一条");
+	assert.equal(r.overBudget, true, "保底导致超额须如实标注");
+});

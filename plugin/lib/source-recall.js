@@ -704,17 +704,40 @@ export async function recallForAction(input = {}) {
     used += size;
     return true;
   };
-  const keepWithFloor = (hits) => {
-    const kept = hits.filter(fits);
-    if (kept.length === 0 && hits.length > 0) {
-      const first = hits[0];
-      used += Buffer.byteLength(JSON.stringify(first), "utf8");
-      return [first];
-    }
-    return kept;
+  // **保底只在整个结果为空时才生效**，不是「每个源各自保底」。
+  //
+  // 实测缺陷（2026-10-24）：原实现对 specs 与 facts **分别**调用保底——specs 收了
+  // 3 条已用 2073 字节，轮到 facts 时第一条放不下、`kept.length === 0` 成立，
+  // 于是强行塞入 451 字节，总用量 2524 **超过 2400 预算**（实测复现）。
+  // 保底的本意是「宁可超额也不能给零结果」，前提是**整体**一条都没有。
+  // **两个源各留份额**：先让规范占满会让事实一条都拿不到。
+  //
+  // 实测缺陷（2026-10-24）：3 条规范已用 2073 字节（预算 2400），而单条事实
+  // 最小需 451 字节——剩 327 不够，于是**事实永远为 0 条**。可「双源召回」的
+  // 本意是两个源都要有；只有规范没有事实，等于退化成单源。
+  //
+  // 规则（确定性、可复算）：若两个源都有命中，规范最多占预算的 60%，
+  // 余下 40% 留给事实；只有一个源有命中时不受此限（全给它）。
+  // 60/40 不是拍脑袋：实测规范 3 条 ≈2073、事实 3 条 ≈1425，比例约 59:41。
+  const bothSources = specHits.length > 0 && factHits.length > 0;
+  const specBudget = bothSources ? Math.floor(budgetBytes * 0.6) : budgetBytes;
+  const fitsSpec = (item) => {
+    const size = Buffer.byteLength(JSON.stringify(item), "utf8");
+    if (used + size > specBudget) return false;
+    used += size;
+    return true;
   };
-  const keptSpecs = keepWithFloor(specHits);
-  const keptFacts = keepWithFloor(factHits);
+  const keptSpecs = specHits.filter(fitsSpec);
+  let keptFacts = factHits.filter(fits);
+  if (keptSpecs.length === 0 && keptFacts.length === 0) {
+    // 整体为空 → 保底第一条（规范优先，否则事实）。
+    const first = specHits[0] ?? factHits[0];
+    if (first !== undefined) {
+      used += Buffer.byteLength(JSON.stringify(first), "utf8");
+      if (specHits.length > 0) keptSpecs.push(first);
+      else keptFacts.push(first);
+    }
+  }
   // 截断有两种来源：**limit**（结果条数上限）与**预算**（字节上限）。
   // 原实现只比 `kept*` 与 `*Hits`，而 `*Hits` 已按 limit 截过，故 limit 造成
   // 的丢弃被漏掉（实测 limit=2 时 12 份命中只给 2 份，却报 truncated=false）。
