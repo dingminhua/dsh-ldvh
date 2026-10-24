@@ -466,3 +466,21 @@ test("两个预算常量的单位必须真的不同：字节 vs 字符（防命�
 		`数据预算须按字节生效：used=${r.budget.usedBytes} limit=${RECALL_BYTE_BUDGET}`,
 	);
 });
+
+test("渲染行须显示候选摘录（数据层有而渲染不显示 = 读者仍看不到）", async () => {
+	// `02 §9.1` F2 要求「有界确定性摘录」。数据层加了 excerpt 但渲染层不显示时，
+	// 读者依然只能看到 title + path，F2 的分层意义丢失。
+	const r = await buildRecallInjection({
+		userText: "把 34 号规范改名",
+		projectRoot: ROOT,
+		limit: 2,
+		budgetBytes: 40000,
+	});
+	assert.equal(r.inject, true);
+	// 摘录以「↳ 」引导行呈现。
+	assert.match(r.text, /↳ /, "渲染行须出现摘录引导符");
+	// 且摘录内容须来自数据层（非重复标题）。
+	const excerptLine = r.text.split("\n").find((l) => l.trim().startsWith("↳"));
+	assert.ok(excerptLine !== undefined);
+	assert.ok(excerptLine.trim().length > 5, "摘录不得为空");
+});

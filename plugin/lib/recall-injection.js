@@ -282,7 +282,11 @@ export function renderRecallRow(result) {
     lines.push("事实源：");
     for (const fact of facts) {
       const status = typeof fact.status === "string" && fact.status !== "" ? `/${fact.status}` : "";
-      lines.push(`- [${fact.type}${status}] ${fact.title}（${fact.path}）— ${fact.hitReason}`);
+      // **摘录必须出现在渲染行里**（`02 §9.1` F2「有界确定性摘录」）。
+      // 数据层有 excerpt 而渲染层不显示，读者依然无法筛选——F2 的分层意义就丢了。
+      // 摘录取数据层的 `excerpt`（已是有界确定性截断），此处不再二次加工。
+      const excerpt = typeof fact.excerpt === "string" && fact.excerpt !== "" ? `\n  ↳ ${fact.excerpt}` : "";
+      lines.push(`- [${fact.type}${status}] ${fact.title}（${fact.path}）— ${fact.hitReason}${excerpt}`);
     }
   }
   if (specs.length === 0 && facts.length === 0) {

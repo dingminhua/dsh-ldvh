@@ -1321,3 +1321,29 @@ test("须给出 F0 层：类型/状态计数使「有多少在等」不依赖查
 		"F0 计数须不受 types/statuses 过滤影响",
 	);
 });
+
+test("F2 须给出「有界确定性摘录」，否则候选无法筛选", async () => {
+	// `02 §9.1` 对 F2 的定义含「候选卡、命中依据和**有界确定性摘录**」，
+	// 用途是「筛选少量候选并**选择 F3**」。只给 title + path，读者无法筛选，
+	// 只能逐个打开全文——F2 就失去了分层意义。
+	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
+	assert.ok(r.facts.length > 0, "应召回事实");
+	for (const f of r.facts) {
+		assert.equal(typeof f.excerpt, "string", `${f.title} 缺 excerpt`);
+		assert.ok(f.excerpt.length > 0, `${f.title} 的摘录不得为空`);
+		// 有界：硬截断 120 字符（加省略号共 121）。
+		assert.ok(f.excerpt.length <= 121, `${f.title} 摘录超界：${f.excerpt.length} 字符`);
+		// 确定性：折叠空白为单空格，故不得含换行。
+		assert.ok(!f.excerpt.includes("\n"), `${f.title} 摘录含换行，未折叠`);
+	}
+});
+
+test("摘录须确定性：同一对象两次召回摘录完全一致", async () => {
+	const a = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
+	const b = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
+	assert.deepEqual(
+		a.facts.map((f) => f.excerpt),
+		b.facts.map((f) => f.excerpt),
+		"摘录必须是确定性的截断，不得含随机或摘要成分",
+	);
+});

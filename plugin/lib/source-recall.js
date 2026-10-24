@@ -274,6 +274,26 @@ function parseFrontmatter(text) {
  * **现读现解析**，不建持久索引（34 §17 第 1 项）。
  */
 /**
+ * **有界确定性摘录**（`02 §9.1` F2 要求「有界确定性摘录」）。
+ *
+ * 「有界」：硬截断到 EXCERPT_MAX_CHARS，不因内容而异。
+ * 「确定性」：只做**截断与空白折叠**，不摘要、不改写、不选句——同一输入必得同一
+ * 输出，故可复算、可核对（`02 §9` 禁止用 AI 输出裁决内容；摘要是改写，此处不做）。
+ *
+ * 为什么需要它：F2 的用途是「筛选少量候选并**选择 F3**」。只给 title + path，
+ * 读者无法筛选，只能逐个打开全文——F2 就失去了分层意义。
+ */
+const EXCERPT_MAX_CHARS = 120;
+
+function excerptOf(text) {
+  if (typeof text !== "string") return "";
+  // 折叠所有空白（含换行）为单空格：摘录是单行展示位，换行会撑破行。
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= EXCERPT_MAX_CHARS) return flat;
+  return `${flat.slice(0, EXCERPT_MAX_CHARS)}…`;
+}
+
+/**
  * 单个载体的**内容指纹**（FNV-1a over 全文）。
  *
  * 与集合指纹的区别：集合指纹回答「还是不是同一批候选」，**不覆盖内容**；
@@ -482,8 +502,27 @@ export async function loadFacts(baseDir) {
           // 「升级了依赖」「换环境了」时，应当召回那些标了该信号的 Pitfall，
           // 否则「何时该重看这条经验」这条信息就白记了。
           fm.trigger_signal,
+          // **`summary` 必须进匹配面**（2026-10-24 修，第 48 轮曾误以为已加、实际未生效）。
+          //
+          // 全库 94 条事实带 summary。各类型都把它当核心内容：
+          //   · `20`：「**完整的当前语义快照**……使未读原聊天的后续执行者可独立理解」；
+          //   · `21`：「要做什么的完整语义快照」。
+          // 即它是最该被召回的那段话——记了却不参与匹配，等于白记。
+          fm.summary,
         ].filter(Boolean).join(" "),
         trigger: fm.trigger_signal ?? "",
+        summary: fm.summary ?? "",
+        // **F2「有界确定性摘录」的来源**（`02 §9.1`）：按类型取最能代表内容的短字段。
+        //   · spark → summary（20：完整的当前语义快照）
+        //   · workcase → gist（21：给 Human 扫读的一句话要点）
+        //   · adr → decision（22：单句决策）
+        //   · friction → phenomenon（26：单句现象陈述）
+        //   · research → research_question
+        //   · pitfall → scope（23：六要素住正文，frontmatter 只有 scope/trigger_signal）
+        //   · norm/goal → 无长文本字段，退回 title（不在此处，见卡片层兜底）
+        excerptSource:
+          fm.summary ?? fm.gist ?? fm.decision ?? fm.phenomenon
+          ?? fm.research_question ?? fm.scope ?? fm.scope_boundary ?? "",
         path: `ldvh-base/${dir}/${file}`,
         absolutePath: join(baseDir, dir, file),
         body,
@@ -805,6 +844,10 @@ export async function recallForAction(input = {}) {
   const allFactHits = collect(pool, (c) => ({
     kind: "fact", type: c.type, ref: c.ref, title: c.title, status: c.status, path: c.path,
     absolutePath: c.absolutePath,
+    // **F2「有界确定性摘录」**：此前候选卡只有 title + path，读者必须打开文件才
+    // 知道讲什么，而 F2 的用途正是「筛选少量候选并选择 F3」——没有摘录就无法筛选。
+    // 无长文本字段的类型（norm/goal）退回 title，保证摘录位不空。
+    excerpt: excerptOf(c.excerptSource) || c.title,
     // 同规范卡：每张事实卡也带来源与内容指纹（02 §9.2）。
     // 事实源只有项目内一源，故 tier 恒为 "project"。
     source: {
