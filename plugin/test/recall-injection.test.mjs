@@ -21,7 +21,7 @@ import {
 	renderRecallRow,
 	shouldRecall,
 } from "../lib/recall-injection.js";
-import { recallForAction } from "../lib/source-recall.js";
+import { recallForAction, RECALL_DIRECT_BYTE_BUDGET } from "../lib/source-recall.js";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 
@@ -465,6 +465,34 @@ test("两个预算常量的单位必须真的不同：字节 vs 字符（防命�
 		r.budget.usedBytes <= RECALL_BYTE_BUDGET || r.overBudget === true,
 		`数据预算须按字节生效：used=${r.budget.usedBytes} limit=${RECALL_BYTE_BUDGET}`,
 	);
+});
+
+test("M-20：注入路径与直调路径的两个预算常量不得互相代入（34 §11 第 3 条）", async () => {
+	// 第五次审核 M-20：34 §11 规定召回侧须区分**两个预算**——宿主注入路径
+	// （RECALL_BYTE_BUDGET，属 10 §5.3 引导面预算）与直调路径
+	// （RECALL_DIRECT_BYTE_BUDGET，不进入引导面，由 34 承接），二者「分别承载、
+	// 不得互相代入」。此前只有注释说明，无机械断言：一旦有人把两个常量写成相等、
+	// 或让注入路径误用直调预算，规范约束就静默失效。
+	//
+	// 断言三件事：① 两个常量都是有限正数（确为承载了的具名常量，非运行期猜测）；
+	// ② 二者取值不同（若相等即「互相代入」，违反 §11「不得互相代入」）；
+	// ③ recallForAction 的默认预算取自直调常量（证明默认走的是直调路径预算）。
+	assert.ok(Number.isFinite(RECALL_BYTE_BUDGET) && RECALL_BYTE_BUDGET > 0, "注入预算须为具名正常量");
+	assert.ok(Number.isFinite(RECALL_DIRECT_BYTE_BUDGET) && RECALL_DIRECT_BYTE_BUDGET > 0, "直调预算须为具名正常量");
+	assert.notEqual(
+		RECALL_BYTE_BUDGET,
+		RECALL_DIRECT_BYTE_BUDGET,
+		`两个预算不得相等（互相代入）：注入=${RECALL_BYTE_BUDGET} 直调=${RECALL_DIRECT_BYTE_BUDGET}`,
+	);
+	// ③ 直调默认预算 = RECALL_DIRECT_BYTE_BUDGET（不传 budgetBytes 时）。
+	const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 3 });
+	assert.equal(
+		r.budget.limitBytes,
+		RECALL_DIRECT_BYTE_BUDGET,
+		`recallForAction 默认预算须取自直调常量（${RECALL_DIRECT_BYTE_BUDGET}），实测 ${r.budget.limitBytes}`,
+	);
+	// 注入路径用的是另一个常量：证明两条路径各取各的预算。
+	assert.equal(RECALL_BYTE_BUDGET, 2400, "注入路径预算锚定 2400（10 §5.3 引导面预算）");
 });
 
 test("渲染行须显示候选摘录（数据层有而渲染不显示 = 读者仍看不到）", async () => {

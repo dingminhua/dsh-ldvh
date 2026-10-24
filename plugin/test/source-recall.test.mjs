@@ -1418,6 +1418,48 @@ test("unavailable 与「零命中」须可区分（前者不得当作无相关�
 	}
 });
 
+test("M-21：一源不可读但另一源有非截断命中时，须报 partial 而非 complete", async () => {
+	// 第五次审核 M-21 反例 (a)——**这是危险方向**：旧判定用
+	// `specs.length + facts.length === 0 ? unavailable : ... : complete`，
+	// 当事实源目录不可读（facts=0）但规范源回退到源码仓、有命中且未截断时，
+	// 旧逻辑走到末档报 `complete`——把「事实源根本没读到」洗成「完整召回」。
+	// 34 §12 的 `complete` 定义明确要求「两源均可读」，§6 的零命中退出路径正以
+	// complete 为前提，故此误报会让未读源冒充完整召回。
+	//
+	// 构造：临时 root 不含 ldvh-base（事实源不可读）；includeSpecs 默认→规范源
+	// 三级回退到插件源码仓 specs/（有命中）；limit 设大到不触发截断。
+	// 新判定：factSideUnreadable=true → 必为 partial。
+	const { mkdtemp, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join: joinPath2 } = await import("node:path");
+	const e = await mkdtemp(joinPath2(tmpdir(), "ldvh-nofacts-"));
+	try {
+		const r = await recallForAction({
+			action: "把 34 号规范改名成双源召回",
+			root: e,
+			limit: 500, // 大到规范命中不被截断（specHits≈19 < 500）
+		});
+		// 前提自检：确有规范命中、未截断、事实源零候选——否则本用例失去意义。
+		assert.ok(r.counts.specHits > 0, "须有规范命中，否则未触及本场景");
+		assert.equal(r.truncated, false, "limit 须大到不截断，否则旧逻辑也会报 partial");
+		assert.equal(r.counts.factHits, 0, "事实源不可读，事实命中须为 0");
+		// 核心断言：一源不可读 → 不得报 complete。
+		assert.equal(
+			r.recallCompleteness,
+			"partial",
+			"一源不可读且有非截断命中时须为 partial；报 complete 即 M-21 反例(a)复现",
+		);
+	} finally {
+		await rm(e, { recursive: true, force: true });
+	}
+	// **据实声明（bug(b) 在本仓不可构造）**：M-21 的另一反例——新建项目「两源可读
+	// 但零对象」被旧逻辑误报 unavailable——**无法在插件仓库内构造**：`resolveSpecsRoot`
+	// 的 tier-2 恒回退到插件源码仓 specs/（非空、有命中），规范源永远非空且命中必被
+	// limit 截断，故「两源可读但零对象」这条 unavailable 分支在本仓走不到。该修复
+	// （可读但空 → complete 而非 unavailable）已由代码逻辑承载，但缺一个能在此环境
+	// 触发的用例；如实登记为验证缺口，不以一个不区分新旧的伪用例冒充覆盖。
+});
+
 test("代码注释里的实测数字须与当前实现一致（防再次过时）", async () => {
 	// 第 54/55 轮教训：注释里「实测 X%」这类数字有出处、有样本，最容易被信任而
 	// 从不复核。实测第 54 轮发现 43% 已变 100%、第 55 轮发现「改」覆盖 231/337

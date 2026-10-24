@@ -1486,11 +1486,13 @@ test("renderPrecheckRecord：实质内容不产生仪式提醒", () => {
 // ---------------------------------------------------------------------------
 
 test("HUMAN_GATE_ITEMS 恰为 34 §15.1 的五项（平铺一组）", () => {
-	// §15.1 是平铺清单，未区分触发方式；代码不得发明规范没有的分类（01 §11.4）。
+	// §15.1 是平铺清单，未区分触发方式；代码发明规范没有的分类＝制造第二规则源
+	// （01 §11.4：不得由 Code 先行制造事实上的第二规则源）。
 	// 历史版本曾把第 5、6 项拆到 STANDING_HUMAN_GATE_ITEMS——该二分无规范依据、
 	// 无生产消费方，且使 checkHumanGate 把合法的 §15.1 事项报成「未知项」（第四次
 	// 审核 M-10）。§15.1 第 6 项（承载形态对齐）已按第四次审核 B-2 移出 Human Gate
-	// 清单（它是上位规范之间的对齐事项，归规范维护程序，不是当次待决事项）。
+	// 清单（它不是当次待决事项；若将来处置走既有规范修改入口——00 侧按
+	// 00 §4.3，03 侧按 01 §11 与 09，见 34 §10／§15.1 末段）。
 	assert.equal(HUMAN_GATE_ITEMS.length, 5);
 	assert.deepEqual(
 		HUMAN_GATE_ITEMS.map((i) => i.key),
@@ -1761,6 +1763,41 @@ test("checkExit：多种停止情形并存时逐条列出，不只报第一项",
 		identificationFailed: true, conflictIrreconcilable: true,
 	});
 	assert.equal(result.stoppedBy.length, 2);
+});
+
+test("checkExit：零命中退出以 recallCompleteness=complete 为前提（§6／§16.1 第 7 项，B-8）", () => {
+	// 第五次审核 B-8：旧实现只查「三段判断完成 + 记录已生成」，partial/unavailable
+	// 召回下同样返回 mayExit:true——与 §6「召回未完成时不得走零命中退出路径」相反。
+	const base = { threeWayJudgementComplete: true, recordGenerated: true, zeroHitExit: true };
+	// complete → 可退出
+	assert.equal(checkExit({ ...base, recallCompleteness: "complete" }).mayExit, true);
+	// partial / unavailable → 不得退出，且须停止交还
+	for (const state of ["partial", "unavailable"]) {
+		const result = checkExit({ ...base, recallCompleteness: state });
+		assert.equal(result.mayExit, false, `${state} 不得走零命中退出`);
+		assert.equal(result.mustStopAndHandover, true, `${state} 须停止交还（§16.1 第 7 项）`);
+		assert.match(result.reason, /§16\.1 第 7 项/);
+	}
+	// 未提供完整度 → fail-closed：不得视同 complete
+	const missing = checkExit(base);
+	assert.equal(missing.mayExit, false, "未提供 recallCompleteness 时不得放行（fail-closed）");
+	assert.equal(missing.mustStopAndHandover, false, "缺输入按条件未齐处理，不是停止情形");
+	assert.match(missing.reason, /fail-closed/);
+	// 非零命中的常规退出不受完整度门槛影响（识别结论存在时按两条充要条件判）
+	const normal = checkExit({ threeWayJudgementComplete: true, recordGenerated: true, recallCompleteness: "partial" });
+	assert.equal(normal.mayExit, true, "常规退出路径不以 complete 为前提；partial 的处置在 §6 缩小范围条款");
+});
+
+test("assembleReturn：待 Human 决定事项纳入描述档扫描（M-17）", () => {
+	// 第五次审核 M-17：humanDecisions 此前漏扫——「已遵守」写进待决定事项
+	// 会原样进入交还正文。三词（已遵守／符合要求／没问题）须拒；「已确认」放行。
+	for (const term of ["已遵守", "符合要求", "没问题"]) {
+		const bad = assembleReturn({ ...RETURN_INPUT, humanDecisions: `是否${term}即可` });
+		assert.equal(bad.ok, false, `待决定事项出现「${term}」须拒绝`);
+		assert.equal(bad.error.code, "return/merged_conclusion");
+	}
+	const ok = assembleReturn({ ...RETURN_INPUT, humanDecisions: "Human 已确认是否批准 34 号加操作声明" });
+	assert.equal(ok.ok, true, `「已确认」在待决定事项中是合法词汇：${ok.error?.message ?? ""}`);
 });
 
 test("checkReuseBasis：给出可回指依据且同会话即可复用", () => {

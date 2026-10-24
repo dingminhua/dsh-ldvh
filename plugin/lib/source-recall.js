@@ -56,7 +56,7 @@
 // - **预算硬约束**（`fd133f0d` A3，以 Anthropic 注意力预算为一手依据）：返回内容
 //   有字节上限，超了如实标 `truncated`，不静默截断后仍宣称完整。
 
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -274,6 +274,25 @@ async function readdirOrEmpty(dir, options) {
   } catch (error) {
     if (error !== null && typeof error === "object" && error.code === "ENOENT") return [];
     throw error;
+  }
+}
+
+/**
+ * 目录是否**存在且可读**（区别于「存在但为空」）。
+ *
+ * **为什么需要它**（2026-10-25 第五次审核 M-21）：`recallCompleteness` 的三态判定
+ * 须按 34 §12 区分「源不可读」与「源可读但零对象」——前者使「未命中」失去证据
+ * 资格（unavailable/partial），后者是诚实的零命中（complete 可成立，§6 的零命中
+ * 退出路径正为此设）。旧判定用 `specs.length + facts.length === 0` 近似「不可读」，
+ * 把两种情形混为一谈：规范源三级回退全失败但事实源有对象时报 `complete`（危险），
+ * 两源可读但为空（新建项目）时报 `unavailable`（挡死了合法的零命中路径）。
+ */
+async function isReadableDir(dir) {
+  try {
+    const s = await stat(dir);
+    return s.isDirectory();
+  } catch {
+    return false;
   }
 }
 
@@ -700,8 +719,8 @@ export function matchCandidate(actionTokens, candidate) {
     // 实测（2026-10-24，用本会话真实用户消息）：「把这批改动合入吧」10 条结果里
     // 5 条是纯单字命中——`WorkCase 工单` 靠「批」、`火花记录` 与 `双源召回` 靠「合」；
     // 「经验也要召回啊」有 4 条靠单字「回」命中。单个汉字在本语料里覆盖 50–70%
-    // 的候选（2026-10-25 复测：「改」出现在 **293/344 = 85%** 的载体里——规范侧
-    // 27/27 全覆盖、事实侧 266/317；此前注记为 291/343，已过时——事实源由宿主
+    // 的候选（2026-10-25 复测：「改」出现在 **294/345 = 85%** 的载体里——规范侧
+    // 27/27 全覆盖、事实侧 267/318；此前注记为 293/344，已过时——事实源由宿主
     // 辅助任务持续写入，本数字随之漂移，漂移即本测试的正确报警），
     // 「靠一个字命中」几乎等于没命中。
     //
@@ -812,9 +831,14 @@ export async function recallForAction(input = {}) {
   const root = input.root ?? join(import.meta.dirname, "..", "..");
   // 规范语料按 01 §10.3 三级回退解析（见 `resolveSpecsRoot`）；事实源只有项目内一源。
   const specsSource = includeSpecs ? await resolveSpecsRoot(root) : null;
-  const [specs, facts] = await Promise.all([
+  const factsDir = join(root, "ldvh-base");
+  const [specs, facts, factsReadable] = await Promise.all([
     specsSource === null ? [] : loadSpecs(specsSource.dir),
-    loadFacts(join(root, "ldvh-base")),
+    loadFacts(factsDir),
+    // **可读性与「有无对象」分开跟踪**（34 §12 三态判定的前提，M-21）：
+    // 规范侧的可读性由三级回退是否解析成功承载（specsSource !== null）；
+    // 事实侧没有回退链，须显式探测目录是否存在且可读。
+    isReadableDir(factsDir),
   ]);
 
   // 过滤：**已登记类型** + 类型 + 状态。
@@ -1079,7 +1103,8 @@ export async function recallForAction(input = {}) {
     //   截断 → truncated/overBudget；指纹 → fingerprint；
     //   未完成范围 → unchecked（**具体是谁**，不只是一个布尔）。
     partial: truncated,
-    // **完整性三态**（`02 §9.2`／`02:308`）。
+    // **完整性三态**（`02 §9.2`／`02:308`；判定口径按 34 §12——名称沿用 02，
+    // 召回场景的操作口径是 34 §12 的领域增量，其依赖登记亦在该节）。
     //
     // `02:308` 逐字要求「报告 **complete/partial/unavailable** 及具体未完成范围」；
     // `02 §9.2` 末句也要求「未完成、超预算或不可用范围必须按本规范的
@@ -1087,11 +1112,20 @@ export async function recallForAction(input = {}) {
     // 无法区分「拿到了但有缺」与「根本没拿到」——这两者的处置完全不同：
     // 前者可继续用（已知缺什么），后者**不得当作「无相关」**（`02 §9.2` 明禁）。
     //
-    // 判定：
-    //   · `unavailable`：**一个源都没读到**（规范侧三级回退全失败且事实源不存在），
-    //     或读到了但零对象——此时任何「未命中」都不构成「无相关」的证据；
-    //   · `partial`：读到了对象，但有命中未返回（截断）或存在未检查范围；
-    //   · `complete`：全部命中均已返回，且无未检查范围。
+    // 判定（2026-10-25 第五次审核 M-21 修正——**可读性与「有无对象」分开跟踪**）：
+    //   · `unavailable`：34 §12「两源中至少一源不可读，且当次未取得任何可用候选」
+    //     ——源不可读（规范侧三级回退全失败，或事实源目录不存在/不可读）且零返回。
+    //     此时任何「未命中」都不构成「无相关」的证据（34 §16.1 第 7 项）。
+    //   · `partial`：已取得部分候选，但存在因预算、条数、类型/状态过滤或
+    //     **单源不可读**而未返回的部分；调用方显式单源（includeSpecs=false）亦属此档
+    //     （34 §7：单源结果可以交付，但须声明「本次为单源」）。
+    //   · `complete`：两源均可读、无截断、无过滤丢弃、未声明单源——**含「两源可读
+    //     但零命中」**（诚实的零命中，34 §6 的零命中退出路径正为此设；旧判定把
+    //     「读到了但零对象」归入 unavailable，挡死了该合法路径）。
+    // 旧判定的两个实害（M-21）：规范侧回退全失败但事实侧有对象时报 complete
+    // （把「规范源根本没读到」洗成「完整召回」，§6 零命中路径据此误放行）；
+    // 两源可读但为空时报 unavailable（新建项目永远走不了零命中退出）。
+    //
     // **注意命名**（2026-10-24 修）：这里描述的是**本次召回**的完整度，
     // 不是**事实集合**的完整度。二者是不同概念（`02 §10.2` 第四条是后者）：
     //   · 本字段 `recallCompleteness`：这次返回是否齐（受 limit／预算／过滤影响）；
@@ -1103,12 +1137,19 @@ export async function recallForAction(input = {}) {
     //
     // 判定（不能在此引用同级的 `uncheckedRange`——同一对象字面量里后续声明的键
     // 此时尚未求值，会 ReferenceError；故只用前面已算好的量）。
-    recallCompleteness:
-      specs.length + facts.length === 0
-        ? "unavailable"
-        : truncated || facts.length - pool.length > 0 || includeSpecs === false
-          ? "partial"
-          : "complete",
+    recallCompleteness: (() => {
+      const returnedCount = keptSpecs.length + keptFacts.length;
+      // 规范侧可读性＝三级回退是否解析成功（调用方显式排除不算「不可读」，
+      // 单算「声明单源」）；事实侧可读性＝目录存在且可读（isReadableDir）。
+      const specSideUnreadable = includeSpecs && specsSource === null;
+      const factSideUnreadable = !factsReadable;
+      const sourceUnreadable = specSideUnreadable || factSideUnreadable;
+      const filteredOut = facts.length - pool.length > 0;
+      const singleSourceByCaller = includeSpecs === false;
+      if (sourceUnreadable && returnedCount === 0) return "unavailable";
+      if (truncated || filteredOut || sourceUnreadable || singleSourceByCaller) return "partial";
+      return "complete";
+    })(),
     counts: {
       // 命中总数（**截断前**）与返回数（截断后）都给出，差额即被丢弃数。
       specHits: allSpecHits.length,

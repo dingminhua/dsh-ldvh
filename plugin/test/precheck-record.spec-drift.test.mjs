@@ -311,20 +311,34 @@ test("34 §16.2 四种允许动作与 §16.3 恢复要求：代码常量须逐�
 
 test("34 §6 退出契约：checkExit 注释引文的关键句须在原文中逐字存在", async () => {
 	// **为什么要有这条**（第四次审核 B-4）：checkExit 的文档注释自称「§6 原文」，
-	// 但上一版逐字引用的是 §6 被改写**前**的旧文——注释与规范各说各话而无任何
-	// 机械提醒。本断言把「注释引文 ⊆ 规范原文」变成可核对：§6 再被改写而注释
-	// 未同步时，本条会失败。只取关键句（完整引文见注释），避免脆断。
+	// 但当时逐字引用的是 §6 被改写**前**的旧文——注释与规范各说各话而无任何
+	// 机械提醒。**第五次审核 M-16 指出旧版是空守护**：关键句只对着规范断言、
+	// 从不读代码注释，注释引文改错也不会失败。现改为**双向核对**：每个关键句
+	// 必须同时逐字出现在 checkExit 的文档注释与 §6 原文中（各自归一化后），
+	// 任何一侧漂移都会失败。
 	const spec = await readSpec("34-双源召回系统规范.md");
 	const section6 = spec.slice(spec.indexOf("### 退出与转交条件"), spec.indexOf("## 7. 输入与前置条件"));
-	for (const quote of [
+	const libSource = await readFile(new URL("../lib/precheck-record.js", import.meta.url), "utf8");
+	const fnStart = libSource.indexOf("export function checkExit");
+	assert.ok(fnStart > 0, "precheck-record.js 须导出 checkExit");
+	const docComment = libSource.slice(libSource.lastIndexOf("/**", fnStart), fnStart);
+	// 归一化：去空白、Markdown 粗体标记与反引号——注释以 ` * ` 折行、规范以
+	// **…** 强调、三态以 `code` 标记，三者语义同一而形不同。
+	const normalize = (text) => text.replace(/\s+/g, "").replace(/[*`]/g, "");
+	const commentFlat = normalize(docComment);
+	const specFlat = normalize(section6);
+	const keySentences = [
 		"三段判断完成并生成预检落实记录后退出，转由行动本身承接",
 		"本系统同样退出，预检落实记录仍须生成",
-		"召回未完成时不适用本路径",
-		"须按 §16.1 第 7 项停止交还",
+		"召回未完成（三态取值 partial 或 unavailable）时不得走上述零命中退出路径",
+		"以「未命中」断言「无相关约束」并据此继续的",
 		"不退出而是停止交还（§12、§16）",
 		"转交不改变主控对行动的整体责任",
-	]) {
-		assert.ok(section6.includes(quote), `checkExit 注释引文「${quote}」不在 34 §6 原文中——注释或规范已漂移`);
+	];
+	for (const sentence of keySentences) {
+		const flat = normalize(sentence);
+		assert.ok(specFlat.includes(flat), `关键句「${sentence}」不在 34 §6 原文中——规范已漂移`);
+		assert.ok(commentFlat.includes(flat), `关键句「${sentence}」不在 checkExit 注释引文中——注释已漂移`);
 	}
 	// 机器可见的 reason 串同样须与 §6 现行文本一致（旧版仍写「（§14）」）。
 	assert.ok(section6.includes("停止交还（§12、§16）"), "§6 的停止交还回指应为（§12、§16）");
