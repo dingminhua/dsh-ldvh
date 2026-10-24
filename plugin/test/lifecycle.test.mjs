@@ -1454,3 +1454,45 @@ test("pre-step recall: resetVisibility 清空召回 digest，使 rewind 后能�
 	const r = await channel.handler({ agent, step: 1, signal: {} }, async () => mk());
 	assert.ok(r.messages.some((m) => (m.content?.[0]?.text ?? "").includes("双源召回")), "reset 后应能重新注入");
 });
+
+test("旧召回行仍在时须刷新，且不得覆盖管辖判定行", async () => {
+	// 2026-10-24 修：召回行此前只比 digest、相同就什么都不做——但 digest 相同
+	// 不代表内容仍最新（语料可能已变）。而管辖判定行在同样情形下会走
+	// `inBatch.content = ...` 就地刷新，召回行缺这一步。
+	//
+	// 关键安全性：不能用 `inBatch`（批次里第一条我方消息，可能是判定行）——
+	// 上轮正是因此会覆盖判定行而作废。判别用 `source.summary`。
+	const { createPreStepHandler } = await import("../lib/guidance.js");
+	const RECALL = "双源召回 · dsh-ldvh · 行动前候选";
+	const NOTICE = "本会话受 LDVH 管辖";
+	const mk = (text, summary) => ({
+		id: Math.random().toString(36),
+		role: "user",
+		content: [{ type: "text", text }],
+		source: { kind: "dsh-ldvh", plugin: "dsh-ldvh", form: "notice", summary },
+	});
+	const agent = { id: "a1", ctx: { logger: { warn: () => {} } } };
+	let calls = 0;
+	const handler = createPreStepHandler(agent, {
+		isGoverned: () => true,
+		channel: undefined,
+		noticeText: () => "【LDVH 管辖判定】governed",
+		noticeSummary: () => NOTICE,
+		recallRow: async () => {
+			calls += 1;
+			return { inject: true, text: `召回内容 v${calls}`, digest: "same-digest" };
+		},
+		recallSummary: () => RECALL,
+	});
+	const step = (batch) =>
+		handler.handler({ agent, step: 1, messages: batch }, async () => ({ kind: "continue", messages: batch }));
+
+	await step([]); // 首回合：两种行都不在
+	const notice = mk("判定旧内容", NOTICE);
+	const recall = mk("召回旧内容", RECALL);
+	await step([notice, recall]); // 次回合：两行都在、digest 相同
+
+	assert.notEqual(notice.content[0].text, "召回内容 v2", "管辖判定行**不得**被召回内容覆盖");
+	assert.equal(notice.content[0].text, "【LDVH 管辖判定】governed", "判定行须保持自身内容");
+	assert.equal(recall.content[0].text, "召回内容 v2", "旧召回行须被刷新为最新内容");
+});

@@ -135,6 +135,25 @@ export function createAssembleHandler(agent, { resolve, syncTools, recordScope }
  */
 const LDVH_PLUGIN_SOURCE = "dsh-ldvh";
 
+/**
+ * 判定一条我方消息**是不是召回行**（而不是管辖判定行）。
+ *
+ * 为什么需要：两种行都由 `createPluginMessage` 产出，`isOwnMessage` 只能分辨
+ * 「是不是我方消息」，分不出是哪一种。此前想给召回行补「旧行仍在则刷新」的分支时，
+ * 就是因为分不出而**会覆盖掉判定行**，改动只能作废。
+ *
+ * 判别依据是 `source.summary`——两条路径写入的 summary 值互不相同且稳定：
+ *   · 管辖判定行：`noticeSummaryFor(scopeState)` → "本会话受 LDVH 管辖" 等；
+ *   · 召回行：`RECALL_SUMMARY` → "双源召回 · dsh-ldvh · 行动前候选"。
+ * 它是**已存在的字段**，故判别不需要改生产端、不改变消息形状。
+ */
+function isRecallMessage(message, recallSummary) {
+  if (!isOwnMessage(message)) return false;
+  const summary = message?.source?.summary;
+  if (typeof summary !== "string" || typeof recallSummary !== "string") return false;
+  return summary === recallSummary;
+}
+
 function isOwnMessage(message) {
   const source = message?.source;
   // 0.1.7 起本插件写入端用自有 producer kind（"dsh-ldvh"）；旧会话里可能还残留
@@ -322,9 +341,27 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
           agent?.ctx?.logger?.warn?.(`ldvh: recall injection failed: ${error instanceof Error ? error.message : String(error)}`);
         }
         if (recall !== null && recall?.inject === true && typeof recall.text === "string" && recall.text !== "") {
+          const label = recallLabel() ?? "双源召回 · 行动前候选";
           if (recall.digest !== state.lastRecallDigest) {
             state.lastRecallDigest = recall.digest;
-            extras.push(createPluginMessage(recall.text, recallLabel() ?? "双源召回 · 行动前候选"));
+            extras.push(createPluginMessage(recall.text, label));
+          } else {
+            // **旧召回行仍在时须刷新内容**（2026-10-24 修）。
+            //
+            // 此前只比 digest、相同就什么都不做——但 digest 相同**不代表内容仍
+            // 最新**：语料可能已变（事实对象被更新、规范被修订）。同一句查询两次
+            // 算出相同 digest（digest 就是渲染文本），旧行不刷新就会继续显示过时内容。
+            //
+            // 与管辖判定行同一形态（上方 `changed` 分支的 `inBatch.content = ...`），
+            // 召回行此前**缺这一步**。
+            //
+            // **安全性**：只刷新**确认是召回行**的那条（`isRecallMessage` 按
+            // `source.summary` 判别）。不能用 `inBatch`——它是「批次里第一条我方
+            // 消息」，可能是管辖判定行，直接覆盖会把判定行内容改掉（上轮因此作废）。
+            const priorRecall = batch.find((m) => isRecallMessage(m, label));
+            if (priorRecall !== undefined) {
+              priorRecall.content = [{ type: "text", text: recall.text }];
+            }
           }
         }
       }
