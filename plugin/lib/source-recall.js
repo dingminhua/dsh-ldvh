@@ -439,6 +439,16 @@ export async function loadFacts(baseDir) {
         detail: [
           fm.decision, fm.phenomenon, fm.question, fm.research_question,
           fm.gist, fm.intent, fm.direction_key, fm.research_purpose,
+          // **`trigger_signal` 必须进匹配面**（2026-10-24 修）。
+          //
+          // 此前它被单独读进 `trigger` 字段、**从未参与任何匹配层**——读进变量
+          // 却不用，等于「重新审视信号」对召回不可见。
+          //
+          // `23 §8` 对它 的定义是「**重新审视信号**：存在真实重审前提时写
+          // （依赖版本变更、环境迁移等）」。这恰是召回最该用的一种输入：用户说
+          // 「升级了依赖」「换环境了」时，应当召回那些标了该信号的 Pitfall，
+          // 否则「何时该重看这条经验」这条信息就白记了。
+          fm.trigger_signal,
         ].filter(Boolean).join(" "),
         trigger: fm.trigger_signal ?? "",
         path: `ldvh-base/${dir}/${file}`,

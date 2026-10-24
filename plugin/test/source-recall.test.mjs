@@ -1218,3 +1218,23 @@ test("事实正文须全文参与匹配：不得截断掉「规避/验证」等�
 		`须有靠「规避」命中的：${r.facts.map((f) => f.hitReason).join(" / ")}`,
 	);
 });
+
+test("trigger_signal 须参与匹配（不得读进变量却不用）", async () => {
+	// 2026-10-24 修：trigger_signal 原被单独读进 `trigger` 字段，
+	// 但**从未参与任何匹配层**——等于「重新审视信号」对召回不可见。
+	//
+	// `23 §8` 定义它是「**重新审视信号**：存在真实重审前提时写（依赖版本变更、
+	// 环境迁移等）」。这恰是召回最该用的一种输入：用户说「升级了依赖」时应当
+	// 召回标了该信号的 Pitfall/ADR，否则「何时该重看这条经验」就白记了。
+	const facts = await loadFacts(joinPath(ROOT, "ldvh-base"));
+	const withTrigger = facts.filter((f) => typeof f.trigger === "string" && f.trigger.trim() !== "");
+	assert.ok(withTrigger.length > 0, "应存在带 trigger_signal 的事实");
+
+	// 关键：该字段的文本必须进入 detail（唯一的事实侧匹配面之一）。
+	for (const f of withTrigger.slice(0, 5)) {
+		assert.ok(
+			f.detail.includes(f.trigger.trim().slice(0, 20)),
+			`trigger_signal 未进入匹配面：${f.title}`,
+		);
+	}
+});
