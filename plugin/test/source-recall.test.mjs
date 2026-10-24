@@ -1347,3 +1347,39 @@ test("摘录须确定性：同一对象两次召回摘录完全一致", async ()
 		"摘录必须是确定性的截断，不得含随机或摘要成分",
 	);
 });
+
+test("完整性须为 complete/partial/unavailable 三态（02 §9.2、02:308）", async () => {
+	// `02:308` 逐字要求「报告 **complete/partial/unavailable** 及具体未完成范围」；
+	// `02 §9.2` 末句也要求「未完成、超预算或不可用范围必须按本规范的
+	// **partial/unavailable** 边界交还」。此前只有一个布尔 `partial`，无法区分
+	// 「拿到了但有缺」（可继续用）与「根本没拿到」（**不得当作「无相关」**）。
+	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
+	assert.ok(["complete", "partial", "unavailable"].includes(r.completeness), `非法三态：${r.completeness}`);
+	// 存在被过滤（未检查）的候选时不得声称 complete。
+	if (r.counts.candidatesExcluded > 0) {
+		assert.notEqual(r.completeness, "complete", "有未检查范围时不得声称 complete");
+	}
+	// 有命中未返回时必须是 partial。
+	if (r.truncated) assert.equal(r.completeness, "partial", "截断时须为 partial");
+});
+
+test("unavailable 与「零命中」须可区分（前者不得当作无相关）", async () => {
+	// 构造一个「事实源与规范源都读不到」的场景：用一个空目录 + 关闭 includeSpecs。
+	const { mkdtemp, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join: joinPath2 } = await import("node:path");
+	const empty = await mkdtemp(joinPath2(tmpdir(), "ldvh-empty-"));
+	try {
+		const r = await recallForAction({
+			action: "任意查询内容",
+			root: empty,
+			limit: 3,
+			includeSpecs: false,
+		});
+		// 没有任何对象可读 → unavailable（而非「无相关」）。
+		assert.equal(r.facts.length, 0);
+		assert.equal(r.completeness, "unavailable", "一源都读不到时须为 unavailable");
+	} finally {
+		await rm(empty, { recursive: true, force: true });
+	}
+});

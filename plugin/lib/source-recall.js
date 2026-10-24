@@ -955,6 +955,27 @@ export async function recallForAction(input = {}) {
     //   截断 → truncated/overBudget；指纹 → fingerprint；
     //   未完成范围 → unchecked（**具体是谁**，不只是一个布尔）。
     partial: truncated,
+    // **完整性三态**（`02 §9.2`／`02:308`）。
+    //
+    // `02:308` 逐字要求「报告 **complete/partial/unavailable** 及具体未完成范围」；
+    // `02 §9.2` 末句也要求「未完成、超预算或不可用范围必须按本规范的
+    // **partial/unavailable** 边界交还」。此前只有一个布尔 `partial`，
+    // 无法区分「拿到了但有缺」与「根本没拿到」——这两者的处置完全不同：
+    // 前者可继续用（已知缺什么），后者**不得当作「无相关」**（`02 §9.2` 明禁）。
+    //
+    // 判定：
+    //   · `unavailable`：**一个源都没读到**（规范侧三级回退全失败且事实源不存在），
+    //     或读到了但零对象——此时任何「未命中」都不构成「无相关」的证据；
+    //   · `partial`：读到了对象，但有命中未返回（截断）或存在未检查范围；
+    //   · `complete`：全部命中均已返回，且无未检查范围。
+    // 判定（注意：不能在此处引用同级的 `uncheckedRange`——它是同一对象字面量里
+    // 后续声明的键，此时尚未求值；故这里只用前面已算好的量）。
+    completeness:
+      specs.length + facts.length === 0
+        ? "unavailable"
+        : truncated || facts.length - pool.length > 0 || includeSpecs === false
+          ? "partial"
+          : "complete",
     counts: {
       // 命中总数（**截断前**）与返回数（截断后）都给出，差额即被丢弃数。
       specHits: allSpecHits.length,
