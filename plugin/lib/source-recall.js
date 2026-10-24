@@ -1076,7 +1076,16 @@ export async function recallForAction(input = {}) {
       lexicalOnly: true,
       usesSemanticUnderstanding: false,
       // 实测：症状→自身召回率 43%（30 条真实 Pitfall 样本）。
-      measuredSymptomSelfRecall: { hits: 13, total: 30, measuredAt: "2026-10-24" },
+      // **实测：用 Pitfall 自身的「症状段」去召回它自己，23/23 = 100% 命中**
+      // （2026-10-24 复测；其中 22 条靠 tier 1 适用范围、1 条靠 tier 4 正文）。
+      //
+      // 旧值为 43%（13/30），那是**第 46 轮之前**（正文只匹配前 1200 字符时）的
+      // 测量。第 46 轮改为全文匹配后，`scope` 与正文里的症状描述都能参与匹配，
+      // 该比例已不可用——渲染行却仍在每回合宣称「仅 43%」，属**散布过时信息**。
+      //
+      // 测量方法注意：不能拿 `scope` 原文去查（那会靠 `scope` 命中自己，是循环
+      // 自证）。这里取 body 里「## 症状」段的首句自然语言，避开循环。
+      measuredSymptomSelfRecall: { hits: 23, total: 23, measuredAt: "2026-10-24" },
       // 因此哪些消费点不能只靠本函数。
       insufficientForConsumptionPoints: [
         "23 §12 故障调查（按表现匹配已知机制——跨层需要语义判断）",

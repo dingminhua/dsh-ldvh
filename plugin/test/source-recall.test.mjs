@@ -702,18 +702,23 @@ test("02 §9.1：pagination 须如实说明无游标及如何取更多", async (
 // ---------------------------------------------------------------------------
 
 test("limitations 须如实披露词法匹配的固有边界", async () => {
-	// 实测（2026-10-24）：用 30 条真实 Pitfall 的「症状」原文召回它自己，
-	// 只有 13/30 = 43% 命中。原因是结构性的：title 描述**机制**
-	// （「写入侧与呈现层两套残留段解析规则致门禁判据与展示不一致」），
-	// 症状描述**表现**（「工单关闭提交被机械门禁拒绝：workcase/direction_incomplete」），
-	// 二者常常没有任何字面重叠。词法匹配没有语义能力。
-	//
-	// 23 §12「故障调查」要求「按表现匹配已知机制」——跨这一层需要语义判断，
-	// 本函数做不到，必须让调用方知道。
+	// **口径变更说明**（2026-10-24，第 54 轮）：本用例原先断言样本量为 30，
+	// 且备注「只有 13/30 = 43% 命中」。两处都已过时：
+	//   · 样本量：早先未按类型区分默认状态，Pitfall 的 draft 也算进可见集；
+	//     第 48 轮按 `23 §12` 改为「默认只含 active」后，候选是 23 条；
+	//   · 命中率：早先正文只匹配前 1200 字符，症状段（在 body 中后部）常被截掉；
+	//     第 46 轮改为全文匹配后复测为 23/23 = 100%。
+	// 故此处只断言**结构性边界仍在**，不再钉死数字——数字随实现演进，
+	// 钉死会让「实现改进」反而弄坏测试。数值一致性由另一条用例
+	// （「数据侧实测值须与当前实现一致」）动态比对。
 	const r = await recallForAction({ action: "页面白屏了", root: ROOT, limit: 3 });
 	assert.equal(r.limitations.lexicalOnly, true, "须声明是纯词法匹配");
 	assert.equal(r.limitations.usesSemanticUnderstanding, false, "不得声称有语义理解");
-	assert.ok(r.limitations.measuredSymptomSelfRecall.total === 30, "须给出实测样本量");
+	assert.ok(r.limitations.measuredSymptomSelfRecall.total > 0, "须给出实测样本量");
+	assert.ok(
+		r.limitations.insufficientForConsumptionPoints.some((x) => /故障调查/.test(x)),
+		"须点明「故障调查」这一消费点不能只靠本函数",
+	);
 	assert.ok(
 		r.limitations.insufficientForConsumptionPoints.some((p) => p.includes("故障调查")),
 		"须点名哪些消费点不能只靠本函数",

@@ -511,3 +511,56 @@ test("渲染裁剪须可观察（02 §9.1「截断必须可观察」）", async 
 	// 且与「数据侧截断」是两个独立字段，不得混同。
 	assert.equal(typeof big.result.truncated, "boolean", "数据侧截断字段须独立存在");
 });
+
+test("渲染行不得宣称过时的实测百分比（旧值 43% 已与现状 100% 相差巨大）", async () => {
+	// 实测缺陷（2026-10-24）：渲染行每回合都宣称「用 Pitfall 症状召回自身仅 43%
+	// （13/30）」。那是**第 46 轮之前**（正文只匹配前 1200 字符时）的测量；
+	// 改为全文匹配后复测为 **23/23 = 100%**（22 条靠 tier 1、1 条靠 tier 4）。
+	//
+	// 危害：数字每回合被注入，会给读者**错误的悲观预期**（以为查故障基本查不到），
+	// 从而不敢用这个功能。故渲染行不引用具体百分比，只保留结构性边界。
+	const r = await buildRecallInjection({
+		userText: "把 34 号规范改名",
+		projectRoot: ROOT,
+		limit: 3,
+	});
+	assert.equal(r.inject, true);
+	assert.ok(!/43%/.test(r.text), "不得再出现已过时的 43%");
+	assert.ok(!/13\/30/.test(r.text), "不得再出现旧样本数");
+	// 结构性边界仍须在（它不因实现改进而变假）。
+	assert.match(r.text, /未命中不代表没有同类教训/, "结构性边界须保留");
+});
+
+test("数据侧实测值须与当前实现一致（症状→自身召回）", async () => {
+	const { recallForAction } = await import("../lib/source-recall.js");
+	const { loadFacts } = await import("../lib/source-recall.js");
+	const facts = await loadFacts(join(ROOT, "ldvh-base"));
+	const pitfalls = facts.filter((f) => f.type === "pitfall" && f.status === "active");
+	assert.ok(pitfalls.length > 0, "应有 active Pitfall");
+
+	// 用**症状段**（body 的「## 症状」首句），不用 scope——用 scope 查会靠 scope
+	// 命中自己，是循环自证。
+	let hit = 0;
+	let total = 0;
+	for (const p of pitfalls) {
+		const sym = /## 症状\s*\n+([^\n#]+)/.exec(p.body ?? "")?.[1] ?? "";
+		if (sym.length < 20) continue;
+		total += 1;
+		const r = await recallForAction({
+			action: sym.slice(0, 60),
+			root: ROOT,
+			limit: 10,
+			budgetBytes: 400000,
+			includeSpecs: false,
+		});
+		if (r.facts.some((f) => f.ref === p.ref)) hit += 1;
+	}
+	assert.ok(total > 0, "样本须非空");
+	// 声明值须与实际相符（允许将来实现变化时更新两侧，但不能只改一侧）。
+	// 用一个能命中 token 的查询——`action: "x"` 会走 no_tokens 短路，返回不含 limitations。
+	const probe = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 1 });
+	assert.ok(probe.limitations !== undefined, "探测查询须返回 limitations");
+	const declared = probe.limitations.measuredSymptomSelfRecall;
+	assert.equal(declared.total, total, "声明的 total 须与实际样本数一致");
+	assert.equal(declared.hits, hit, "声明的 hits 须与实际命中数一致");
+});
