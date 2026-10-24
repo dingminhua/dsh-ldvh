@@ -200,6 +200,52 @@ test("auditCitationLoop flags unanchored inline quote", () => {
 });
 
 // ---------------------------------------------------------------------------
+// §10 引用闭环审计 — 声明形状与实现形状必须一致
+//
+// 回归背景：工具 schema 把 `confirmed` 声明为 string[]，而审计函数读
+// `c.quotes`，按声明形状调用即 TypeError（"Cannot read properties of
+// undefined (reading 'some')"），descriptor 的 catch 把它包成
+// execution_error —— 引用闭环这道门在它自己的契约上不可用。以下用例同时
+// 钉住「两种形状都能被接受」与「不可核验时不得放行」。
+// ---------------------------------------------------------------------------
+
+test("auditCitationLoop accepts the tool-declared shape (bare statement strings)", () => {
+  // The schema told callers to pass this; it used to throw.
+  const result = auditCitationLoop("Finding [1] holds.", ["only a statement"]);
+  assert.ok(result.ok, JSON.stringify(result.issues));
+});
+
+test("auditCitationLoop accepts the finalize shape (evidence entries with quotes)", () => {
+  const confirmed = [{ statement: "s1", confidence: "high", quotes: [{ text: "verbatim text here", anchor: "a", source: "https://x.com" }] }];
+  const body = "Finding 「verbatim text here」 [1].";
+  const result = auditCitationLoop(body, confirmed);
+  assert.ok(result.ok, JSON.stringify(result.issues));
+});
+
+test("auditCitationLoop still catches an out-of-range reference in the bare-statement shape", () => {
+  const result = auditCitationLoop("Finding [2].", ["only one statement"]);
+  assert.ok(!result.ok);
+  assert.ok(result.issues.some((i) => i.includes("[2]")));
+});
+
+test("auditCitationLoop fails closed on quotes it cannot check, naming the real cause", () => {
+  // No entry carries quotes → the quote is UNVERIFIABLE, not proven wrong.
+  // The gate must not go green, and the message must not accuse the quote.
+  const result = auditCitationLoop("Finding 「some quote」 [1].", ["only a statement"]);
+  assert.ok(!result.ok, "unverifiable quote evidence must not pass the gate");
+  assert.ok(result.issues.some((i) => i.includes("cannot be checked")));
+  assert.ok(result.issues.some((i) => i.includes("finalize bundle")));
+});
+
+test("auditCitationLoop does not throw on malformed entries (non-object garbage is dropped, not crashed on)", () => {
+  const result = auditCitationLoop("Finding [1].", [null, { statement: "s" }, 42]);
+  assert.ok(Array.isArray(result.issues));
+  // null and 42 carry no statement, so they are dropped; [1] then points at the
+  // single real entry and the audit is honest about what it could check.
+  assert.ok(result.ok, JSON.stringify(result.issues));
+});
+
+// ---------------------------------------------------------------------------
 // §10 交付合同
 // ---------------------------------------------------------------------------
 
@@ -258,7 +304,7 @@ test("ResearchSession no-gain flow: two empty rounds converge", () => {
     question: "无法找到证据的问题",
     purpose: "测试 no-gain",
     subQuestions: ["unanswerable"],
-    maxRounds: 5,
+    maxRounds: 4,
   });
 
   const r1 = session.submitRound([]);
@@ -266,10 +312,42 @@ test("ResearchSession no-gain flow: two empty rounds converge", () => {
   const r2 = session.submitRound([]);
   assert.equal(r2.stop, true);
   assert.equal(r2.reason, "no-gain");
+});
+
+// 更正（2026-10-25）：旧用例在此断言「零证据 no-gain 的 finalize 成功」，
+// 与 24 §8 直接冲突——三态至少一项、urls 必填非空，两者都不允许空 bundle
+// 成为对象。于是 finalize 返回的 bundle 只能被唯一的消费者（writer）拒绝，
+// 调用方要到落盘那一刻才看到一个像自己填错的 frontmatter 错误。
+// 现在 finalize 当场拒绝并指出补救方向（把未覆盖范围记为 gap）。
+test("ResearchSession: zero-evidence finalize is refused — the bundle could never become an object (24 §8)", () => {
+  const session = new ResearchSession({
+    question: "一个没有任何证据的问题",
+    purpose: "测试零证据",
+    subQuestions: ["unanswerable"],
+    maxRounds: 4,
+  });
+  session.submitRound([]);
+  const r2 = session.submitRound([]);
+  assert.equal(r2.reason, "no-gain");
 
   const final = session.finalize();
-  assert.ok(final.ok);
-  assert.equal(final.value.stopping_reason, "no-gain");
+  assert.equal(final.ok, false);
+  assert.equal(final.error.code, "session/empty_evidence");
+  assert.match(final.error.message, /gap/);
+});
+
+test("ResearchSession: a bundle with no registered source is refused (24 §8 urls non-empty)", () => {
+  const session = new ResearchSession({ question: "q?", purpose: "p", subQuestions: [], maxRounds: 4 });
+  session.submitRound([
+    { statement: "只记录一个缺口", state: "gap", gap: { description: "无法获取 X", priority: "low" } },
+  ]);
+  session.submitRound([
+    { statement: "仍无法获取 X", state: "gap", gap: { description: "无法获取 X", priority: "low" } },
+  ]);
+  const final = session.finalize();
+  assert.equal(final.ok, false);
+  assert.equal(final.error.code, "session/no_source");
+  assert.match(final.error.message, /urls/);
 });
 
 test("ResearchSession round-cap flow with gaps declared", () => {

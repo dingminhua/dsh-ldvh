@@ -1,7 +1,7 @@
 /**
  * dsh-ldvh — Research session runner (minimal research sub-agent orchestration).
  *
- * Implements the mechanical slice of specs/30 §5–§8:
+ * Implements the mechanical slice of specs/33 §7–§10:
  *
  *  - §5 入口澄清: detect ambiguity in the research question and produce
  *    ≤3 clarification questions (the caller surfaces them to Human;
@@ -12,7 +12,7 @@
  *  - §8 引用闭环: verbatim-quote citation loop discipline.
  *
  * This module is a pure state machine + validator: it does NOT spawn
- * sub-agents itself (that is the 编排 layer's job per specs/30 §11.3).
+ * sub-agents itself (that is the 编排 layer's job per specs/33 §14.3).
  * The caller (main controller or a workflow) drives the rounds and feeds
  * back raw findings; this module validates, classifies into three states,
  * tracks convergence, and produces the final validated evidence bundle
@@ -90,7 +90,7 @@ function detectMultiMeaningTerms(text) {
 }
 
 // ---------------------------------------------------------------------------
-// §6 三层收敛 (three-layer convergence)
+// §8 三层收敛 (three-layer convergence)
 // ---------------------------------------------------------------------------
 
 /**
@@ -149,7 +149,7 @@ function allSubQuestionsCovered(subQuestions, confirmed) {
 }
 
 // ---------------------------------------------------------------------------
-// §7 三态证据 (three-state evidence shaping)
+// §9 三态证据 (three-state evidence shaping)
 // ---------------------------------------------------------------------------
 
 /**
@@ -227,7 +227,21 @@ export function shapeEvidence(finding) {
       if (!["high", "medium", "low"].includes(p)) {
         return { ok: false, error: { code: "evidence/bad_priority", message: `priority must be high/medium/low, got ${p}` } };
       }
-      return { ok: true, value: { description, priority: p } };
+      // 33 §9.3 / 24 §10: a gap may carry `blocked_scope` describing what the
+      // missing information blocks. It was declared in the tool schema, accepted
+      // by the writer and then silently dropped here — the caller saw the field
+      // in its own input, saw no error, and the evidence bundle lost it. Carry
+      // it through when present (absent stays absent: no empty-string default,
+      // so the writer's "recorded as empty" vs "not recorded" distinction holds).
+      const blockedScope = typeof payload.blocked_scope === "string" && payload.blocked_scope.length > 0
+        ? payload.blocked_scope
+        : undefined;
+      return {
+        ok: true,
+        value: blockedScope === undefined
+          ? { description, priority: p }
+          : { description, priority: p, blocked_scope: blockedScope },
+      };
     }
     default:
       return { ok: false, error: { code: "evidence/bad_state", message: `state must be confirmed/uncertain/gap, got ${finding.state}` } };
@@ -235,13 +249,13 @@ export function shapeEvidence(finding) {
 }
 
 // ---------------------------------------------------------------------------
-// §8 引用闭环 (citation loop audit)
+// §10 引用闭环 (citation loop audit)
 // ---------------------------------------------------------------------------
 
 /**
  * Audit the citation loop of a research report body against the evidence.
  *
- * Checks (specs/30 §8.3):
+ * Checks (specs/33 §10.2/§10.3):
  *  1. Every [n] reference in the body has a corresponding confirmed entry
  *  2. Quoted text in the body matches the evidence verbatim
  *  3. No unanchored quotes (must have both source and anchor)
@@ -253,10 +267,11 @@ export function shapeEvidence(finding) {
  */
 export function auditCitationLoop(body, confirmed) {
   const issues = [];
+  const entries = normalizeConfirmedEntries(confirmed);
 
   // Build index: statement → entry
   const index = new Map();
-  confirmed.forEach((c, i) => index.set(c.statement, { entry: c, num: i + 1 }));
+  entries.forEach((c, i) => index.set(c.statement, { entry: c, num: i + 1 }));
 
   // Find all [n] references in the body
   const refs = [...body.matchAll(/\[(\d+)\]/g)];
@@ -265,8 +280,8 @@ export function auditCitationLoop(body, confirmed) {
   for (const match of refs) {
     const num = parseInt(match[1], 10);
     usedNumbers.add(num);
-    if (num < 1 || num > confirmed.length) {
-      issues.push(`citation loop: reference [${num}] has no corresponding evidence entry (1–${confirmed.length})`);
+    if (num < 1 || num > entries.length) {
+      issues.push(`citation loop: reference [${num}] has no corresponding evidence entry (1–${entries.length})`);
     }
   }
 
@@ -278,12 +293,22 @@ export function auditCitationLoop(body, confirmed) {
   }
 
   // Check verbatim quotes in body: lines containing "「...」" after a [n] reference
-  // This is a light check — full verbatim comparison happens at F4 (source re-read)
+  // This is a light check — full verbatim comparison happens at F4 (source re-read).
+  // When NO entry carries quotes at all (the statement-only caller form), saying
+  // "not found in any evidence entry" would be a false accusation: the quote was
+  // never checkable, not wrong. Report the missing evidence instead, so the audit
+  // stays non-passing (the gate must not go green on unverifiable input) while the
+  // message names the real cause.
+  const anyQuotes = entries.some((c) => c.quotes.length > 0);
   for (const line of body.split("\n")) {
     const inlineQuote = line.match(/「([^」]+)」/);
     if (inlineQuote) {
       const quoteText = inlineQuote[1];
-      const found = confirmed.some((c) => c.quotes.some((q) => q.text.includes(quoteText)));
+      if (!anyQuotes) {
+        issues.push(`citation loop: inline quote 「${quoteText.slice(0, 40)}…」 cannot be checked — no confirmed entry carries quote evidence (pass the finalize bundle entries, not bare statements)`);
+        continue;
+      }
+      const found = entries.some((c) => c.quotes.some((q) => q.text.includes(quoteText)));
       if (!found) {
         issues.push(`citation loop: inline quote 「${quoteText.slice(0, 40)}…」 not found in any evidence entry`);
       }
@@ -293,8 +318,42 @@ export function auditCitationLoop(body, confirmed) {
   return { ok: issues.length === 0, issues };
 }
 
+/**
+ * Accept both shapes the two callers legitimately hold.
+ *
+ * The tool schema declares `confirmed` as `string[]` (the statements a caller
+ * copies out of the finalize bundle), while `finalize()` itself hands back the
+ * full evidence entries (`{ statement, quotes[], confidence, sub_question_key }`)
+ * and the internal round loop works on those. Reading `.quotes` straight off a
+ * string threw `TypeError: Cannot read properties of undefined (reading 'some')`
+ * and the descriptor's catch turned it into an `execution_error` envelope — i.e.
+ * the citation gate was unusable through its own declared contract.
+ *
+ * Normalising instead of narrowing the schema is deliberate: the statement-only
+ * form is the one an AI can produce from a report without re-plumbing the
+ * session, and it still supports checks (1) and (3) below. Quote matching simply
+ * degrades to "no evidence can vouch for this quote" — reported, never silently
+ * passed.
+ */
+function normalizeConfirmedEntries(confirmed) {
+  if (!Array.isArray(confirmed)) return [];
+  return confirmed
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return { statement: entry, quotes: [] };
+      }
+      if (entry === null || typeof entry !== "object") return null;
+      const statement = typeof entry.statement === "string" ? entry.statement : "";
+      const quotes = Array.isArray(entry.quotes)
+        ? entry.quotes.filter((q) => q !== null && typeof q === "object" && typeof q.text === "string")
+        : [];
+      return { ...entry, statement, quotes };
+    })
+    .filter((entry) => entry !== null);
+}
+
 // ---------------------------------------------------------------------------
-// §10 交付合同 (delivery contract)
+// §13 交付合同 (delivery contract)
 // ---------------------------------------------------------------------------
 
 const PLACEHOLDER_PATTERNS = [/\{\{[^}]*\}\}/g, /\bTODO\b/g, /\bFIXME\b/g, /\bTBD\b/g, /\[待填\]/g];
@@ -399,7 +458,7 @@ export class ResearchSession {
       }
     }
 
-    // Evaluate convergence (§6)
+    // Evaluate convergence (§8)
     const convergence = evaluateConvergence(
       { confirmed: roundConfirmed, gaps: this.gaps },
       { subQuestions: this.subQuestions, roundNumber: this.roundNumber, maxRounds: this.maxRounds, consecutiveNoGainRounds: this.consecutiveNoGain },
@@ -422,11 +481,23 @@ export class ResearchSession {
       return { ok: false, error: { code: "session/not_converged", message: "session has not converged — keep submitting rounds or check maxRounds" } };
     }
 
-    // Three-state invariant: at least one — EXCEPT no-gain with zero
-    // evidence, which is a valid "found nothing" outcome (the object
-    // will still carry its research_question and stopping_reason).
-    if (this.stoppingReason !== "no-gain" && this.confirmed.length === 0 && this.uncertain.length === 0 && this.gaps.length === 0) {
-      return { ok: false, error: { code: "session/empty_evidence", message: "no evidence accumulated" } };
+    // Three-state invariant (24 §8 invariant 1): at least one of
+    // confirmed/uncertain/gaps must be present — with NO exception.
+    //
+    // This previously carved out "no-gain with zero evidence" as a valid
+    // "found nothing" outcome, but such a bundle can never become an object:
+    // 24 §8 also requires a non-empty `urls` array (external evidence), and
+    // the writer rejects both an empty three-state and empty urls. So finalize
+    // handed back a bundle that the only consumer must refuse — the caller
+    // learned about the contradiction only at write time, as a frontmatter
+    // error that reads like its own mistake. Refuse here instead, and name the
+    // remedy (record the residue as a gap; a research with no source at all is
+    // not an external-object research, see 24 §6 condition 1).
+    if (this.confirmed.length === 0 && this.uncertain.length === 0 && this.gaps.length === 0) {
+      return { ok: false, error: { code: "session/empty_evidence", message: "no evidence accumulated — 24 §8 requires at least one of confirmed/uncertain/gaps; record the uncovered scope as a gap (33 §9.3) before finalizing" } };
+    }
+    if (this.urls.size === 0) {
+      return { ok: false, error: { code: "session/no_source", message: "no source registered — 24 §8 requires urls to be non-empty (a Research object is evidence about an external object); register at least one HTTP(S) source before finalizing" } };
     }
 
     // Citation loop: every confirmed has quotes with source ∈ urls
@@ -445,9 +516,12 @@ export class ResearchSession {
     if (this.stoppingReason === "sufficient" && this.gaps.some((g) => g.priority === "high")) {
       return { ok: false, error: { code: "session/sufficient_high_gap", message: "sufficient must not have an open high-priority gap" } };
     }
-    if (this.stoppingReason === "round-cap" && this.gaps.length === 0) {
-      return { ok: false, error: { code: "session/roundcap_no_gaps", message: "round-cap must declare unmet scope in gaps" } };
-    }
+    // round-cap: 24 §8 invariant 3 allows the uncovered scope to be declared in
+    // `gaps` **or** in the body's 后续分流 section. At finalize time no body
+    // exists yet (the report is composed after this bundle), so a hard failure
+    // here would force a synthetic gap entry for a residue the author intends to
+    // declare in 后续分流 — inventing structured evidence to satisfy a check.
+    // The check therefore runs where the body is available (research-writer.js).
 
     return {
       ok: true,

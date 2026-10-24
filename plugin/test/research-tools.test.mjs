@@ -1,6 +1,6 @@
 import { validateJsonSchemaValue } from "@deepseek-ai/dsh-tools";
 // Tests for plugin/lib/research-tools.js — the runtime wiring of the
-// research mechanical layer (specs/30 state machine + specs/24 writer) into
+// research mechanical layer (specs/33 state machine + specs/24 writer) into
 // the governed ldvh_* tool surface.
 //
 // Coverage follows the sibling ldvh-tools.test.mjs pattern: handlers are
@@ -81,7 +81,7 @@ function validFrontmatterDraft() {
     title: "工具接入调研（测试夹具）",
     status: "active",
     research_question: "调研机械层工具接入对主控工作流有什么影响？",
-    research_purpose: "验证 specs/30+24 机械层的运行时通道",
+    research_purpose: "验证 specs/33+24 机械层的运行时通道",
     stopping_reason: "sufficient",
     urls: [
       { ref: "https://example.com/docs/guide", title: "Example Guide", summary: "机制说明" },
@@ -126,7 +126,7 @@ ${FINDINGS_BODY}
 // Registration surface
 // ---------------------------------------------------------------------------
 
-test("registerResearchTools registers exactly the three research tools", async () => {
+test("registerResearchTools registers exactly the four research tools", async () => {
   await withTemp("ldvh-rt.", async (base) => {
     const registered = [];
     const ctx = { tools: { register: (descriptor) => { registered.push(descriptor.name); return () => {}; } } };
@@ -135,7 +135,7 @@ test("registerResearchTools registers exactly the three research tools", async (
     const dispose = registerResearchTools(ctx, deps);
     assert.deepEqual(
       [...registered].sort(),
-      ["ldvh_research_read", "ldvh_research_session", "ldvh_research_write"]
+      ["ldvh_research_list", "ldvh_research_read", "ldvh_research_session", "ldvh_research_write"]
     );
     assert.equal(deps.dshHomePath("ldvh"), join(base, "home", "ldvh"));
     dispose();
@@ -491,4 +491,220 @@ test("render: research read output carries the FULL 64-char fingerprint and sema
     assert.ok(text.includes("body_valid: true"), `render must carry body_valid:\n${text}`);
     assert.ok(!text.includes("…"), "render must not truncate with an ellipsis");
   });
+});
+
+// ---------------------------------------------------------------------------
+// research-list-objects (24 §12 F0/F1 discovery)
+//
+// Why this block exists: research was the only fact type without a list tool
+// (the other six each expose read+list+write), so the model could not find any
+// existing Research object and the 24 §6 dedup duty was unexecutable. These
+// tests pin the projection, the status scope and the truncation honesty.
+// ---------------------------------------------------------------------------
+
+test("list: projects the F1 field set and nothing beyond it (24 §12)", async () => {
+  await withTemp("ldvh-rt.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const handlers = governedHandlers(home, base);
+    const created = await handlers["ldvh_research_write"].execute(
+      { action: "create", frontmatter_draft: validFrontmatterDraft(), analysis_body: ANALYSIS_BODY },
+      exec(repo)
+    );
+    assert.equal(created.outcome, "completed", JSON.stringify(created));
+
+    const listed = await handlers["ldvh_research_list"].execute({}, exec(repo));
+    assert.equal(listed.outcome, "completed", JSON.stringify(listed));
+    assert.equal(listed.result.count, 1);
+    const item = listed.result.items[0];
+    assert.equal(item.object_uid, created.result.object_uid);
+    assert.equal(item.fact_type_key, "research");
+    assert.equal(item.status, "active");
+    assert.ok(typeof item.title === "string" && item.title.length > 0);
+    assert.ok(typeof item.research_question === "string" && item.research_question.length > 0);
+    assert.ok(typeof item.research_purpose === "string" && item.research_purpose.length > 0);
+    assert.equal(item.stopping_reason, "sufficient");
+    assert.ok(typeof item.created_at === "string" && item.created_at.length > 0);
+    // 24 §12: three-state content, finding units, provenance anchors and the
+    // sub-stage are NOT projected onto the card layer.
+    for (const forbidden of ["confirmed_statements", "uncertain", "gaps", "urls", "relations", "body", "sub_stage"]) {
+      assert.ok(!(forbidden in item), `F1 projection must not carry ${forbidden}`);
+    }
+  });
+});
+
+test("list: active-only by default, retired only under status=all (24 §12 F2)", async () => {
+  await withTemp("ldvh-rt.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const handlers = governedHandlers(home, base);
+    const created = await handlers["ldvh_research_write"].execute(
+      { action: "create", frontmatter_draft: validFrontmatterDraft(), analysis_body: ANALYSIS_BODY },
+      exec(repo)
+    );
+    assert.equal(created.outcome, "completed", JSON.stringify(created));
+    const uid = created.result.object_uid;
+
+    const retiredBody = ANALYSIS_BODY.replace(
+      "## 建议\n",
+      "## 建议\n\n本对象在来源失效后仍可被回查，锚点保留。\n"
+    );
+    const retired = await handlers["ldvh_research_write"].execute(
+      {
+        action: "update",
+        object_uid: uid,
+        expected_fingerprint: created.result.fingerprint,
+        frontmatter_after: { status: "retired", retirement_reason: "outdated", change_summary: "退出测试" },
+        analysis_body_after: retiredBody,
+        change_summary: "退出测试",
+      },
+      exec(repo)
+    );
+    assert.equal(retired.outcome, "completed", JSON.stringify(retired));
+
+    const activeOnly = await handlers["ldvh_research_list"].execute({}, exec(repo));
+    assert.equal(activeOnly.result.count, 0, "retired objects are not current evidence inputs by default");
+    assert.equal(activeOnly.result.filter, "active");
+
+    const all = await handlers["ldvh_research_list"].execute({ status: "all" }, exec(repo));
+    assert.equal(all.result.count, 1);
+    assert.equal(all.result.filter, "all");
+    assert.equal(all.result.items[0].status, "retired");
+  });
+});
+
+test("list: truncation is reported as partial with the true total, never silently (03 §8.1)", async () => {
+  await withTemp("ldvh-rt.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const handlers = governedHandlers(home, base);
+    for (const title of ["甲调研", "乙调研"]) {
+      const draft = { ...validFrontmatterDraft(), title };
+      const created = await handlers["ldvh_research_write"].execute(
+        { action: "create", frontmatter_draft: draft, analysis_body: ANALYSIS_BODY },
+        exec(repo)
+      );
+      assert.equal(created.outcome, "completed", JSON.stringify(created));
+    }
+
+    const page = await handlers["ldvh_research_list"].execute({ limit: 1 }, exec(repo));
+    assert.equal(page.outcome, "partial");
+    assert.equal(page.result.count, 1);
+    assert.equal(page.result.total, 2);
+    assert.ok(page.gaps.some((g) => g.includes("truncated")), `truncation must be stated in gaps: ${JSON.stringify(page.gaps)}`);
+    assert.ok(page.scope.not_completed.length > 0);
+  });
+});
+
+test("list: an absent researches directory is an empty set, not an error (24 §12)", async () => {
+  await withTemp("ldvh-rt.", async (base) => {
+    const home = join(base, "home");
+    const repo = await initRepo(base);
+    // Deliberately no ldvh-base/researches.
+    await registerProject(dshHome(home), { id: "demo", path: repo });
+    const handlers = governedHandlers(home, base);
+    const listed = await handlers["ldvh_research_list"].execute({}, exec(repo));
+    assert.equal(listed.outcome, "completed", JSON.stringify(listed));
+    assert.equal(listed.result.count, 0);
+    assert.equal(listed.result.total, 0);
+  });
+});
+
+test("list: an ungoverned directory is unavailable — discovery never guesses (08)", async () => {
+  const handlers = require_handlers().createHandlers({
+    dshHomePath: dshHome("/nope"),
+    workspaceRoot: "/nope",
+    sessionPersistence: () => undefined,
+  });
+  const out = await handlers["ldvh_research_list"].execute({}, exec("/tmp"));
+  assert.equal(out.envelope.outcome, "unavailable");
+  assert.ok(out.envelope.gaps.some((g) => g.includes("governance state")));
+});
+
+test("list: newest first — the order dedup scans and resumption depend on", async () => {
+  await withTemp("ldvh-rt.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const handlers = governedHandlers(home, base);
+    const created = [];
+    for (const title of ["较早的调研", "较晚的调研"]) {
+      const draft = { ...validFrontmatterDraft(), title };
+      const out = await handlers["ldvh_research_write"].execute(
+        { action: "create", frontmatter_draft: draft, analysis_body: ANALYSIS_BODY },
+        exec(repo)
+      );
+      assert.equal(out.outcome, "completed", JSON.stringify(out));
+      created.push(out.result.object_uid);
+      // Distinct created_at values: the writer stamps at call time.
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    const listed = await handlers["ldvh_research_list"].execute({}, exec(repo));
+    assert.deepEqual(listed.result.items.map((i) => i.object_uid), [created[1], created[0]]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Session loss must name its real cause (33 §12.2 read honestly)
+//
+// 33 §12.2 keeps in-progress research out of the fact source, so sessions live
+// in process memory. The old failure said "does not resolve to a live research
+// session" for BOTH an evicted id and a post-restart id — indistinguishable from
+// the caller's own typo, so the honest instruction ("your rounds are gone,
+// restart") never reached anyone.
+// ---------------------------------------------------------------------------
+
+test("session machine: an unknown id is reported as in-memory/restart, not as a caller typo", async () => {
+  const out = await run("ldvh_research_session", { action: "state", session_id: "rs-does-not-exist" });
+  assert.equal(out.outcome, "rejected");
+  const reason = out.gaps.join(" ");
+  assert.ok(reason.includes("in-memory only"), `must say sessions do not persist:\n${reason}`);
+  assert.ok(reason.includes("recreate with action=create"), `must give the recovery step:\n${reason}`);
+});
+
+test("session machine: an evicted id is reported as evicted, with the cause and the recovery step", async () => {
+  // Fill past the cap so the oldest session is pushed out.
+  const first = await run("ldvh_research_session", {
+    action: "create",
+    question: "第一个会话会被淘汰吗？",
+    purpose: "验证淘汰告知",
+  });
+  assert.equal(first.outcome, "completed");
+  const evictedId = first.result.session_id;
+  for (let i = 0; i < 32; i += 1) {
+    await run("ldvh_research_session", { action: "create", question: `填充会话 ${i}？`, purpose: "占位" });
+  }
+  const out = await run("ldvh_research_session", { action: "state", session_id: evictedId });
+  assert.equal(out.outcome, "rejected");
+  const reason = out.gaps.join(" ");
+  assert.ok(reason.includes("evicted"), `must name eviction rather than a bad id:\n${reason}`);
+  assert.ok(reason.includes("at most 32"), `must state the cap:\n${reason}`);
+});
+
+test("session machine: clarification_log is reachable from the tool and reaches the bundle", async () => {
+  // 33 §7.3 requires the Q&A record; before this the schema had no such
+  // parameter, so the obligation was unfulfillable through the tool surface.
+  const created = await run("ldvh_research_session", {
+    action: "create",
+    question: "澄清日志能进 bundle 吗？",
+    purpose: "验证 §7.3 通道",
+    clarification_log: [
+      { question: "指哪一个编排？", answer: "指 DSH 子代理编排", answered_by: "human" },
+    ],
+  });
+  assert.equal(created.outcome, "completed", JSON.stringify(created));
+  const sessionId = created.result.session_id;
+
+  const round = await run("ldvh_research_session", {
+    action: "submit-round",
+    session_id: sessionId,
+    findings: [
+      {
+        statement: "澄清日志经工具参数可达",
+        state: "confirmed",
+        evidence: { text: "clarification_log 进入 bundle", anchor: "测试", source: "https://example.com/x", confidence: "high" },
+      },
+    ],
+  });
+  assert.equal(round.outcome, "completed", JSON.stringify(round));
+
+  const bundle = await run("ldvh_research_session", { action: "finalize", session_id: sessionId });
+  assert.equal(bundle.outcome, "completed", JSON.stringify(bundle));
+  assert.equal(bundle.result.clarification_log.length, 1);
+  assert.equal(bundle.result.clarification_log[0].answer, "指 DSH 子代理编排");
 });

@@ -1438,7 +1438,7 @@ export function registerLdvhTools(ctx, deps) {
       resolveChild: deps.resolveChild
     }));
   }
-  // Research mechanical layer (specs/30 state machine + specs/24 writer),
+  // Research mechanical layer (specs/33 state machine + specs/24 writer),
   // same registration surface: governed sessions only.
   disposers.push(registerResearchTools(ctx, deps));
   // Spark mechanical layer (specs/20 writer), same registration surface.

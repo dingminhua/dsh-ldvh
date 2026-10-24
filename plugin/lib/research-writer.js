@@ -23,13 +23,13 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { access, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
-import { h2Titles, h3TitlesInSection } from "./markdown-structure.js";
+import { h2Titles, h3TitlesInSection, sectionContent } from "./markdown-structure.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/24 §8, §13)
@@ -93,7 +93,7 @@ function success(value) {
 // Validation (the mechanical slice of specs/24 §6, §8, §13)
 // ---------------------------------------------------------------------------
 
-export function validateResearchFrontmatter(frontmatter, { allowRetiredAtMissing = false } = {}) {
+export function validateResearchFrontmatter(frontmatter, { allowRetiredAtMissing = false, body = null } = {}) {
   const issues = [];
 
   // Closed-set check (24 §8.5): unknown fields reject the object
@@ -176,8 +176,21 @@ export function validateResearchFrontmatter(frontmatter, { allowRetiredAtMissing
     const hasHighGap = gaps.some((g) => g.priority === "high");
     if (hasHighGap) issues.push("stopping consistency: sufficient must not have an open high-priority gap");
   }
+  // 24 §8 invariant 3: round-cap must declare the uncovered scope **in `gaps`
+  // or in the body's 后续分流 section** — the authority offers two carriers, and
+  // the previous check demanded `gaps` unconditionally, rejecting a report that
+  // declared its residue only in 后续分流 (stricter than the rule it implements).
+  //
+  // 如实登记本检查的效力边界：第二个分支（后续分流 非空）由 §7 的「非空 H2」
+  // 结构校验在构造上恒成立，因此本行实际只拦「两者都空」这一种不可能的形态。
+  // 「后续分流 到底有没有声明未覆盖范围」是内容判断，两个载体在字形上不可分
+  // （一个是结构化数组、一个是自由正文），故不新增关键词门禁（06 §5），
+  // 该判断留给 AI 语义审核与 Human 阅读。
   if (frontmatter.stopping_reason === "round-cap" && gaps.length === 0) {
-    issues.push("stopping consistency: round-cap must declare unmet scope in gaps");
+    const diversion = sectionContent(body ?? "", "后续分流");
+    if (diversion === null || diversion.length === 0) {
+      issues.push("stopping consistency: round-cap must declare unmet scope in gaps or in the body's 后续分流 section");
+    }
   }
 
   const statements = new Set(confirmed_statements);
@@ -499,6 +512,106 @@ export function validateIndexBodyCoherence(frontmatter, body) {
 }
 
 // ---------------------------------------------------------------------------
+// Discovery: list (specs/03 §8, specs/24 §12 F0/F1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Enumerate Research objects for F0/F1 discovery.
+ *
+ * 24 §12 pins the projection to the smallest authoritative field set:
+ * `object_uid`, `fact_type_key`, `title`, `status`, `research_question`,
+ * `research_purpose`, `stopping_reason`, `created_at`. Three-state content,
+ * finding units, provenance anchors and the sub-stage are deliberately NOT
+ * projected, and the card layer does not interpret conclusion currency.
+ *
+ * Why this exists at all: the other six fact types each expose read+list+write,
+ * while research exposed only read+write — so this repo's real Research objects
+ * were invisible to the model, which made the 24 §6 dedup duty ("recall
+ * adjacent Research before creating") impossible to discharge. The Web side
+ * could already list them (`cognition.ts`), so humans saw what the model could
+ * not. This closes that asymmetry; it adds no second authority — the projection
+ * is derived on every call and never written back (03 §7.2 invariant 4).
+ *
+ * Default status scope is `active` only (24 §12 F2): `retired` enters candidates
+ * only on precise reference, research history or source tracing.
+ */
+export async function listResearchObjects(args) {
+  const { factSourceRoot, includeRetired = false, limit = 200 } = args;
+  if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
+    return failure("invalid_request", "factSourceRoot is required");
+  }
+  if (!Number.isInteger(limit) || limit < 1) {
+    return failure("invalid_request", "limit must be a positive integer");
+  }
+
+  const typeDir = join(factSourceRoot, RESEARCH_DIRECTORY);
+  let entries;
+  try {
+    entries = await readdir(typeDir, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      // An absent type directory is a legitimate empty set, not a defect.
+      return success({ items: [], total: 0, complete: true, invalid: [] });
+    }
+    return failure("research/directory_unavailable", `cannot read researches directory: ${error.message}`);
+  }
+
+  const invalid = [];
+  const items = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const nameMatch = entry.name.match(/^research-([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.md$/i);
+    if (!nameMatch) continue; // non-carrier files (tmp staging, .bak) are not objects
+    const uid = nameMatch[1].toLowerCase();
+    let content;
+    try {
+      content = await readFile(join(typeDir, entry.name), "utf8");
+    } catch (error) {
+      invalid.push({ file: entry.name, reason: `unreadable: ${error.message}` });
+      continue;
+    }
+    const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n/);
+    if (!fmMatch) {
+      invalid.push({ file: entry.name, reason: "no YAML frontmatter block" });
+      continue;
+    }
+    let frontmatter;
+    try {
+      frontmatter = parseYaml(fmMatch[1]);
+    } catch (error) {
+      invalid.push({ file: entry.name, reason: `frontmatter parse error: ${error.message}` });
+      continue;
+    }
+    const status = frontmatter.status;
+    if (!STATUSES.has(status)) {
+      invalid.push({ file: entry.name, reason: `status ${JSON.stringify(status)} outside the closed set` });
+      continue;
+    }
+    if (!includeRetired && status !== "active") continue;
+    items.push({
+      object_uid: uid,
+      // Take the on-disk value rather than the module constant: when a carrier
+      // has been retyped, the projection must expose that instead of hiding it.
+      fact_type_key: typeof frontmatter.fact_type_key === "string" ? frontmatter.fact_type_key : RESEARCH_TYPE_KEY,
+      title: typeof frontmatter.title === "string" ? frontmatter.title : "",
+      status,
+      // The three F1 research fields (24 §12). Absent values stay undefined so
+      // the card layer can distinguish "not recorded" from "recorded as empty".
+      research_question: typeof frontmatter.research_question === "string" ? frontmatter.research_question : undefined,
+      research_purpose: typeof frontmatter.research_purpose === "string" ? frontmatter.research_purpose : undefined,
+      stopping_reason: typeof frontmatter.stopping_reason === "string" ? frontmatter.stopping_reason : undefined,
+      created_at: typeof frontmatter.created_at === "string" ? frontmatter.created_at : "",
+    });
+  }
+
+  // Newest first — the natural order for dedup scans and resumption.
+  items.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
+  const complete = items.length <= limit;
+  const projected = complete ? items : items.slice(0, limit);
+  return success({ items: projected, total: items.length, complete, invalid });
+}
+
+// ---------------------------------------------------------------------------
 // File helpers
 // ---------------------------------------------------------------------------
 
@@ -623,7 +736,7 @@ export async function createResearchObject(args) {
   }];
 
   // Validate
-  const fmCheck = validateResearchFrontmatter(frontmatter);
+  const fmCheck = validateResearchFrontmatter(frontmatter, { body });
   if (!fmCheck.ok) {
     return failure("research/frontmatter_invalid", "frontmatter failed mechanical checks", { issues: fmCheck.issues });
   }
@@ -818,7 +931,7 @@ export async function updateResearchObject(args) {
   }];
 
   // Validate
-  const fmCheck = validateResearchFrontmatter(fm);
+  const fmCheck = validateResearchFrontmatter(fm, { body });
   if (!fmCheck.ok) {
     return failure("research/frontmatter_invalid", "updated frontmatter failed mechanical checks", { issues: fmCheck.issues });
   }

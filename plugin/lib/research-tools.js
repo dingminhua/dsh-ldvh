@@ -4,7 +4,7 @@
 // tool surface so the main controller can actually drive them from a live
 // session:
 //
-//   - research-session.js (specs/30 §5–§8+§10): the research session state
+//   - research-session.js (specs/33 §5–§8+§10): the research session state
 //     machine — clarification analysis, three-layer convergence, three-state
 //     evidence shaping, citation-loop audit, delivery contract, and the
 //     round-driven ResearchSession. Exposed as ONE tool whose `action`
@@ -33,6 +33,7 @@ import {
 import { objectRef, objectRefOf } from "./object-reference.js";
 import {
   createResearchObject,
+  listResearchObjects,
   readResearchObject,
   updateResearchObject,
 } from "./research-writer.js";
@@ -46,12 +47,17 @@ import { registerWriteShapedTool } from "./host-seams.js";
 const OPERATIONS = {
   "research-session-machine": {
     toolName: "ldvh_research_session",
-    summary: "Drive the specs/30 research session state machine: clarify the question, submit evidence rounds (three-state + citation loop), audit convergence, and finalize the evidence bundle (specs/30 §5–§8, §10)",
+    summary: "Drive the specs/33 research session state machine: clarify the question, submit evidence rounds (three-state + citation loop), audit convergence, and finalize the evidence bundle (specs/33 §7–§10, §13)",
     effect: "read"
   },
   "research-read-object": {
     toolName: "ldvh_research_read",
     summary: "Precise read of one Research fact object by object_uid: frontmatter, body, sub-stage and file fingerprint (specs/03 §9.2, specs/24 §13)",
+    effect: "read"
+  },
+  "research-list-objects": {
+    toolName: "ldvh_research_list",
+    summary: "Enumerate Research fact objects (F0/F1 discovery): dedup-relevant projection (title/research_question/research_purpose/stopping_reason) for the governed project; active-only by default (specs/03 §8, specs/24 §12)",
     effect: "read"
   },
   "research-write-object": {
@@ -69,15 +75,27 @@ const FACT_SOURCE_ROOT_DIR = "ldvh-base";
 // A session accumulates rounds in memory only; it never touches the fact
 // source. Bounded FIFO eviction keeps the map from growing without limit in
 // a very long-lived agent process.
+//
+// Eviction is NOT silent: 33 §12.2 says an in-progress research stays out of the
+// fact source, which was read as "memory is enough" — but a caller that comes
+// back to an evicted id then gets "does not resolve", indistinguishable from its
+// own typo, and the honest reading ("your rounds are gone, restart") never
+// reaches it. `evictedIds` is a bounded ring of recently dropped ids so the
+// failure can name its real cause instead of blaming the caller's input.
+// Process restart is a different failure and is reported separately.
 // ---------------------------------------------------------------------------
 
 const MAX_SESSIONS = 32;
+const MAX_EVICTED_REMEMBERED = 128;
 const sessions = new Map();
+const evictedIds = [];
 
 function createSession(question, purpose, options) {
   if (sessions.size >= MAX_SESSIONS) {
     const oldest = sessions.keys().next().value;
     sessions.delete(oldest);
+    evictedIds.push(oldest);
+    if (evictedIds.length > MAX_EVICTED_REMEMBERED) evictedIds.shift();
   }
   const id = `rs-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const session = new ResearchSession({
@@ -93,6 +111,20 @@ function createSession(question, purpose, options) {
 
 function getSession(id) {
   return sessions.get(id) ?? null;
+}
+
+/**
+ * Explain why a session id did not resolve.
+ *
+ * Three distinct causes, three distinct messages — the caller acts differently
+ * in each case (restart the research / re-read the id / nothing to do).
+ */
+function sessionLossReason(id) {
+  if (typeof id !== "string" || id.length === 0) return "session_id is required";
+  if (evictedIds.includes(id)) {
+    return `session ${id} was evicted: at most ${MAX_SESSIONS} live sessions are kept and this one aged out; its accumulated rounds are gone — recreate with action=create (33 §12.2 keeps in-progress research out of the fact source, so nothing was persisted)`;
+  }
+  return `session ${id} does not resolve to a live research session in this process — sessions are in-memory only and do not survive a restart; if this session predates a host restart, recreate with action=create`;
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +178,7 @@ async function signatureFor(deps, exec) {
 }
 
 // ---------------------------------------------------------------------------
-// research-session-machine handlers (specs/30 mechanical slice)
+// research-session-machine handlers (specs/33 mechanical slice)
 // ---------------------------------------------------------------------------
 
 function executeSessionAction(args, exec) {
@@ -185,11 +217,11 @@ function executeClarify(args) {
   return Promise.resolve(envelope("research-session-machine", "completed", {
     result: analysis.value,
     scope: { requested: "clarify", completed: ["clarify"], not_completed: [] },
-    sources: [{ kind: "spec", path: "specs/30-调研系统规范.md", section: "5. 调研入口澄清" }],
+    sources: [{ kind: "spec", path: "specs/33-调研吸收系统规范.md", section: "7. 调研入口澄清" }],
     gaps: [],
     verification: { checks: ["ambiguity-heuristics"], passed: true },
     follow_up: analysis.value.needsClarification
-      ? ["surface the ≤3 clarification questions to Human (or record the degradation per 11 §5.4)", "action=create to start the session"]
+      ? ["surface the ≤3 clarification questions to Human (or record the degradation per 33 §7.4)", "action=create to start the session"]
       : ["action=create to start the session"]
   }));
 }
@@ -203,14 +235,45 @@ function executeSessionCreate(args) {
   if (typeof purpose !== "string" || purpose.length === 0) {
     return Promise.resolve(invalidRequest("research-session-machine", "purpose is required for action=create (the project judgement this research supports)", "create"));
   }
+  // 33 §7.3: the clarification Q&A must be recorded verbatim so it can be
+  // carried into the Research object. Before this the schema had no parameter
+  // for it, so the obligation was unfulfillable through the tool surface.
+  const clarificationLog = Array.isArray(args?.clarification_log) ? args.clarification_log : [];
+  for (const [index, entry] of clarificationLog.entries()) {
+    if (entry === null || typeof entry !== "object") {
+      return Promise.resolve(invalidRequest("research-session-machine", `clarification_log[${index}] must be an object { question, answer, answered_by }`, "create"));
+    }
+    if (typeof entry.question !== "string" || entry.question.length === 0
+      || typeof entry.answer !== "string" || entry.answer.length === 0
+      || !["human", "external", "ai"].includes(entry.answered_by)) {
+      return Promise.resolve(invalidRequest("research-session-machine", `clarification_log[${index}] requires non-empty question/answer and answered_by ∈ {human, external, ai} (24 §8 clarification_log 成员契约)`, "create"));
+    }
+  }
+
+  // 33 §8.3: "轮次上限须与调研范围成正比，小范围调研不超过两轮，大范围调研不超过四轮."
+  // The cap is the caller's judgement of scope, but a value outside [1,4] is not
+  // a scope judgement — it silently disables the round-cap layer. Refuse instead
+  // of clamping: clamping would let a caller believe it set 12 rounds.
+  const requestedMaxRounds = args?.max_rounds;
+  if (requestedMaxRounds !== undefined
+    && (typeof requestedMaxRounds !== "number" || !Number.isInteger(requestedMaxRounds) || requestedMaxRounds < 1 || requestedMaxRounds > 4)) {
+    return Promise.resolve(invalidRequest("research-session-machine", `max_rounds must be an integer in 1..4 (33 §8.3: small-scope ≤2, large-scope ≤4); got ${JSON.stringify(requestedMaxRounds)}`, "create"));
+  }
+
   const { id, session } = createSession(question, purpose, {
     sub_questions: Array.isArray(args?.sub_questions) ? args.sub_questions : [],
-    max_rounds: typeof args?.max_rounds === "number" && args.max_rounds > 0 ? args.max_rounds : 4,
+    max_rounds: typeof requestedMaxRounds === "number" ? requestedMaxRounds : 4,
+    clarification_log: clarificationLog,
   });
   return Promise.resolve(envelope("research-session-machine", "completed", {
-    result: { session_id: id, max_rounds: session.maxRounds, sub_questions: session.subQuestions.length },
+    result: {
+      session_id: id,
+      max_rounds: session.maxRounds,
+      sub_questions: session.subQuestions.length,
+      clarification_log_entries: clarificationLog.length,
+    },
     scope: { requested: "create", completed: ["create"], not_completed: [] },
-    sources: [{ kind: "spec", path: "specs/30-调研系统规范.md", section: "6. 三层收敛判定" }],
+    sources: [{ kind: "spec", path: "specs/33-调研吸收系统规范.md", section: "8. 三层收敛判定" }],
     gaps: [],
     verification: { checks: ["session-created"], passed: true },
     follow_up: ["action=submit-round with findings (each: statement, state, evidence/issue/gap)"]
@@ -221,7 +284,7 @@ function executeSubmitRound(args) {
   const id = args?.session_id;
   const session = typeof id === "string" ? getSession(id) : null;
   if (session === null) {
-    return Promise.resolve(rejected("research-session-machine", [`session_id ${JSON.stringify(id)} does not resolve to a live research session`]));
+    return Promise.resolve(rejected("research-session-machine", [sessionLossReason(id)]));
   }
   const findings = args?.findings;
   if (!Array.isArray(findings) || findings.length === 0) {
@@ -244,7 +307,7 @@ function executeSubmitRound(args) {
       completed: round.accepted.length > 0 ? [`round ${session.roundNumber}: ${round.accepted.length} finding(s) accepted`] : [],
       not_completed: round.rejected.length > 0 ? [`${round.rejected.length} finding(s) rejected (reshape and resubmit)`] : []
     },
-    sources: [{ kind: "spec", path: "specs/30-调研系统规范.md", section: "7. 三态证据结构" }],
+    sources: [{ kind: "spec", path: "specs/33-调研吸收系统规范.md", section: "9. 三态证据结构" }],
     gaps: round.rejected.length > 0 ? round.rejected.map((r) => `${r.error?.code}: ${r.error?.message}`) : [],
     verification: { checks: ["evidence-shaping", "convergence-evaluation"], passed: round.rejected.length === 0 },
     follow_up: round.stop
@@ -266,10 +329,10 @@ function executeAuditCitation(args) {
   return Promise.resolve(envelope("research-session-machine", audit.ok ? "completed" : "rejected", {
     result: { ok: audit.ok, issues: audit.issues },
     scope: { requested: "audit-citation", completed: audit.ok ? ["citation loop"] : [], not_completed: audit.ok ? [] : ["citation loop"] },
-    sources: [{ kind: "spec", path: "specs/30-调研系统规范.md", section: "8. 引用闭环" }],
+    sources: [{ kind: "spec", path: "specs/33-调研吸收系统规范.md", section: "10. 引用闭环" }],
     gaps: audit.issues,
     verification: { checks: ["citation-loop-audit"], passed: audit.ok },
-    follow_up: audit.ok ? [] : ["fix the cited issues; the report must not be delivered while the audit fails (11 §8.3)"]
+    follow_up: audit.ok ? [] : ["fix the cited issues; the report must not be delivered while the audit fails (33 §10.3)"]
   }));
 }
 
@@ -282,10 +345,10 @@ function executeCheckDelivery(args) {
   return Promise.resolve(envelope("research-session-machine", check.ok ? "completed" : "rejected", {
     result: { ok: check.ok, issues: check.issues },
     scope: { requested: "check-delivery", completed: check.ok ? ["placeholder scan"] : [], not_completed: check.ok ? [] : ["placeholder scan"] },
-    sources: [{ kind: "spec", path: "specs/30-调研系统规范.md", section: "10. 交付合同" }],
+    sources: [{ kind: "spec", path: "specs/33-调研吸收系统规范.md", section: "13. 交付合同" }],
     gaps: check.issues,
     verification: { checks: ["placeholder-scan"], passed: check.ok },
-    follow_up: check.ok ? [] : ["fill the placeholders and re-run; fail loud, no half-finished report (11 §10.3)"]
+    follow_up: check.ok ? [] : ["fill the placeholders and re-run; fail loud, no half-finished report (33 §13.3)"]
   }));
 }
 
@@ -293,7 +356,7 @@ function executeFinalize(args) {
   const id = args?.session_id;
   const session = typeof id === "string" ? getSession(id) : null;
   if (session === null) {
-    return Promise.resolve(rejected("research-session-machine", [`session_id ${JSON.stringify(id)} does not resolve to a live research session`]));
+    return Promise.resolve(rejected("research-session-machine", [sessionLossReason(id)]));
   }
   const bundle = session.finalize();
   if (!bundle.ok) {
@@ -302,7 +365,7 @@ function executeFinalize(args) {
   return Promise.resolve(envelope("research-session-machine", "completed", {
     result: { session_id: id, ...bundle.value },
     scope: { requested: "finalize", completed: ["evidence bundle"], not_completed: [] },
-    sources: [{ kind: "spec", path: "specs/30-调研系统规范.md", section: "6. 三层收敛判定" }],
+    sources: [{ kind: "spec", path: "specs/33-调研吸收系统规范.md", section: "8. 三层收敛判定" }],
     gaps: [],
     verification: { checks: ["three-state-invariants", "stopping-consistency", "citation-loop"], passed: true },
     follow_up: ["research-write-object action=create to persist the Research object (specs/24 §13)"]
@@ -313,7 +376,7 @@ function executeSessionState(args) {
   const id = args?.session_id;
   const session = typeof id === "string" ? getSession(id) : null;
   if (session === null) {
-    return Promise.resolve(rejected("research-session-machine", [`session_id ${JSON.stringify(id)} does not resolve to a live research session`]));
+    return Promise.resolve(rejected("research-session-machine", [sessionLossReason(id)]));
   }
   return Promise.resolve(envelope("research-session-machine", "completed", {
     result: {
@@ -334,8 +397,63 @@ function executeSessionState(args) {
 }
 
 // ---------------------------------------------------------------------------
-// research-read-object / research-write-object (specs/03 §9 + specs/24 §13)
+// research-read-object / research-list-objects / research-write-object
+// (specs/03 §8–§9 + specs/24 §12–§13)
 // ---------------------------------------------------------------------------
+
+async function executeListObject(args, exec, deps) {
+  const governed = await governedProject(deps.dshHomePath, exec);
+  if (!governed.ok) {
+    return envelope("research-list-objects", "unavailable", {
+      result: null,
+      scope: { requested: "list", completed: [], not_completed: ["list"] },
+      sources: [],
+      gaps: [`governance state is ${governed.scope.state}: fact-object discovery serves governed sessions only`],
+      verification: { checks: ["governance-scope"], passed: false },
+      follow_up: []
+    });
+  }
+  const includeRetired = args?.status === "all";
+  const limit = typeof args?.limit === "number" && Number.isInteger(args.limit) && args.limit > 0 ? args.limit : 200;
+  const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
+  const listed = await listResearchObjects({ factSourceRoot, includeRetired, limit });
+  if (!listed.ok) {
+    return envelope("research-list-objects", "unavailable", {
+      result: null,
+      scope: { requested: "list", completed: [], not_completed: ["list"] },
+      sources: [{ kind: "fact-object", path: join(factSourceRoot, "researches") }],
+      gaps: [`${listed.error.code}: ${listed.error.message}`],
+      verification: { checks: ["directory-scan"], passed: false },
+      follow_up: []
+    });
+  }
+  const value = listed.value;
+  const gaps = value.invalid.map((entry) => `invalid carrier ${entry.file}: ${entry.reason}`);
+  if (!value.complete) {
+    // 03 §8.1: never let a truncated page pass for the full set.
+    gaps.push(`projection truncated at limit=${limit} of ${value.total} matching objects — narrow the filter or raise the limit; do not treat this page as the full set (03 §8.1)`);
+  }
+  return envelope("research-list-objects", value.complete ? "completed" : "partial", {
+    result: {
+      count: value.items.length,
+      total: value.complete ? value.items.length : value.total,
+      filter: includeRetired ? "all" : "active",
+      items: value.items,
+    },
+    scope: {
+      requested: "list",
+      completed: value.complete ? ["list"] : [`first ${value.items.length} of ${value.total}`],
+      not_completed: value.complete ? [] : [`${value.total - value.items.length} objects beyond the limit`],
+    },
+    sources: [{ kind: "fact-object", path: join(factSourceRoot, "researches") }],
+    gaps,
+    verification: { checks: ["directory-scan", "frontmatter-parse", "f1-projection"], passed: gaps.length === 0 },
+    follow_up: [
+      "dedup (24 §6) is a semantic comparison over research_question — performed by the AI on this projection, never by the tool",
+      "research-read-object for the F3 full content of any candidate",
+    ]
+  });
+}
 
 async function executeReadObject(args, exec, deps) {
   const governed = await governedProject(deps.dshHomePath, exec);
@@ -719,15 +837,56 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          action: { type: "string", enum: ["clarify", "create", "submit-round", "audit-citation", "check-delivery", "finalize", "state"], description: "State-machine entry (specs/30 §5–§8, §10)" },
+          action: { type: "string", enum: ["clarify", "create", "submit-round", "audit-citation", "check-delivery", "finalize", "state"], description: "State-machine entry (specs/33 §7–§10, §13)" },
           question: { type: "string", description: "clarify/create: the research question" },
           purpose: { type: "string", description: "clarify/create: the project judgement this research supports" },
           sub_questions: { type: "array", items: { type: "string" }, description: "create: sub-question keys for sufficient-coverage checks" },
-          max_rounds: { type: "number", description: "create: round-cap limit (default 4; small-scope ≤2, large-scope ≤4 per 11 §6.3)" },
+          max_rounds: { type: "number", description: "create: round-cap limit (default 4; small-scope ≤2, large-scope ≤4 per 33 §8.3)" },
+          clarification_log: {
+            type: "array",
+            description: "create: clarification Q&A that changed the question, object boundary or evidence reading (33 §7.3). Recorded verbatim so the finalize bundle can carry it into the Research object's clarification_log.",
+            items: {
+              type: "object",
+              properties: {
+                question: { type: "string" },
+                answer: { type: "string" },
+                answered_by: { type: "string", enum: ["human", "external", "ai"] }
+              },
+              required: ["question", "answer", "answered_by"],
+              additionalProperties: false
+            }
+          },
           session_id: { type: "string", description: "submit-round/finalize/state: session id from create" },
           findings: { type: "array", items: findingSchema, description: "submit-round: raw findings for this round" },
           body: { type: "string", description: "audit-citation/check-delivery: the report markdown to audit" },
-          confirmed: { type: "array", items: { type: "string" }, description: "audit-citation: the confirmed statements array from finalize" }
+          confirmed: {
+            type: "array",
+            items: {
+              oneOf: [
+                { type: "string", description: "a confirmed statement" },
+                {
+                  type: "object",
+                  description: "a confirmed evidence entry from the finalize bundle ({ statement, quotes[] }) — required for verbatim quote checking",
+                  properties: {
+                    statement: { type: "string" },
+                    confidence: { type: "string" },
+                    quotes: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          text: { type: "string" },
+                          anchor: { type: "string" },
+                          source: { type: "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            description: "audit-citation: the confirmed evidence array from finalize. Bare statements are accepted (checks references only); pass the full entries to also check verbatim quotes"
+          }
         },
         required: ["action"],
         additionalProperties: false
@@ -739,6 +898,23 @@ function parameterSchemaFor(operationKey) {
           object_uid: { type: "string", description: "Canonical object_uid of the Research object to read" }
         },
         required: ["object_uid"],
+        additionalProperties: false
+      };
+    case "research-list-objects":
+      return {
+        type: "object",
+        properties: {
+          status: {
+            type: "string",
+            enum: ["active", "all"],
+            description: "active = default (current evidence inputs, 24 §12 F2); all = include retired for research history / source tracing"
+          },
+          limit: {
+            type: "number",
+            description: "max items returned (default 200; exceeding the cap returns a partial page with the true total — never a silent truncation, 03 §8.1)"
+          }
+        },
+        required: [],
         additionalProperties: false
       };
     case "research-write-object":
@@ -799,6 +975,7 @@ export function registerResearchTools(ctx, deps) {
   const handlers = {
     "research-session-machine": (args, exec) => executeSessionAction(args, exec),
     "research-read-object": (args, exec) => executeReadObject(args, exec, deps),
+    "research-list-objects": (args, exec) => executeListObject(args, exec, deps),
     "research-write-object": (args, exec) => executeWriteObject(args, exec, deps),
   };
   const disposers = [];
