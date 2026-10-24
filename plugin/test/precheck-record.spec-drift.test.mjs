@@ -203,14 +203,15 @@ test("34 §11 环节级声明：每个环节名须逐字来自原文", async () 
 // 34 §17 反过度设计红线（实为 7 条，非 4 条——2026-10-23 核对纠正）
 // ---------------------------------------------------------------------------
 
-test("34 §17 恰为 10 条红线（原 7 条 + 改名后追加的 3 条召回侧红线）", async () => {
-	// 2026-10-25 34 号改名：原 7 条一字未动，其后追加 3 条召回侧红线
-	// （不建持久索引／不用相似度裁决／不把召回质量当验收指标）。
-	// 条数从 7 变 10 是**有意的**，本断言随之更新；若将来再改条数，这里会再次提示复核。
+test("34 §17 恰为 9 条红线（原 7 条 + 召回侧 2 条，第 1 条已合并原第 8 条）", async () => {
+	// 2026-10-25 34 号改名：原 7 条中第 1 条吸收「不建持久搜索索引」（原拟作第 8 条，
+	// 因与第 1 条同义重复而合并，01 §7.2 要求同一语义元素只完整展开一次），
+	// 另新增「不用相似度裁决」与「不把召回质量当验收指标」两条 → 共 9 条。
+	// 若将来再改条数，本断言会再次提示复核。
 	const spec = await readSpec("34-双源召回系统规范.md");
 	const section = spec.slice(spec.indexOf("## 17. 反过度设计红线"));
 	const items = section.match(/^\d+\. /gm) ?? [];
-	assert.equal(items.length, 10, "§17 实为 10 条；若规范改了条数，本断言会提示复核");
+	assert.equal(items.length, 9, "§17 实为 9 条；若规范改了条数，本断言会提示复核");
 });
 
 test("§17 第 5 条（不得扩张为规则解释者）：代码中无解释执行路径", async () => {
@@ -252,12 +253,29 @@ test("34 §16.1 六条必停：每条的依据须逐字可回指原文", async (
 	const spec = await readSpec("34-双源召回系统规范.md");
 	const section = spec.slice(spec.indexOf("### 16.1"));
 	const stopSection = section.slice(0, section.indexOf("### 16.2"));
-	assert.equal(STOP_RULES.length, 6, "§16.1 恰六条");
+	// **本切片承接第 1–6 项**（不是「§16.1 恰六条」——2026-10-25 34 号改名后
+	// §16.1 已增为 8 条，第 7、8 项属召回侧，不在本切片判据函数的覆盖范围内）。
+	assert.equal(STOP_RULES.length, 6, "本切片承接 §16.1 第 1–6 项");
 	for (const rule of STOP_RULES) {
 		// 每条的依据片段须在 §16.1 原文中存在（防漂移）。
 		const anchor = rule.specRef.match(/第 (\d) 项/)[1];
 		assert.ok(stopSection.includes(`${anchor}.`), `§16.1 第 ${anchor} 项须在原文中`);
 	}
+
+	// **独立断言：从规范原文数 §16.1 的条目总数**。
+	// 没有这一条时，「规范加条、代码不加」这种漂移完全不可见——上一版只断言
+	// STOP_RULES.length===6 且逐项 anchor 存在，而 anchor 只在 1–6 里找，
+	// 规范加到 8 条也照样通过（属空守护，2026-10-25 复审发现）。
+	const itemsInSpec = (stopSection.match(/^\d+\. /gm) ?? []).length;
+	assert.equal(
+		itemsInSpec,
+		8,
+		`§16.1 原文应为 8 条；若规范改了条数，本断言会提示复核本切片的承接范围（当前承接第 1–6 项）`,
+	);
+	assert.ok(
+		STOP_RULES.length <= itemsInSpec,
+		`本切片承接数（${STOP_RULES.length}）不得超过原文条数（${itemsInSpec}）`,
+	);
 });
 
 test("34 §16.2 四种允许动作与 §16.3 恢复要求：代码常量须逐字来自原文", async () => {

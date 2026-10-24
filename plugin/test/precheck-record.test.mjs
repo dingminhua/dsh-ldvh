@@ -1754,10 +1754,10 @@ test("checkReuseBasis：sessionId 或 recordSessionId 缺失即拒绝", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 必停情形统一入口（34 §16.1 六条）
+// 必停情形统一入口（34 §16.1 领域触发，本切片承接第 1–6 项）
 // ---------------------------------------------------------------------------
 
-test("STOP_RULES 恰为 34 §16.1 的六条", () => {
+test("STOP_RULES 恰为 34 §16.1 第 1–6 项（本切片承接范围）", () => {
 	assert.equal(STOP_RULES.length, 6);
 	assert.deepEqual(STOP_RULES.map((r) => r.index), [1, 2, 3, 4, 5, 6]);
 	for (const rule of STOP_RULES) assert.match(rule.specRef, /34 §16\.1 第 \d 项/);
