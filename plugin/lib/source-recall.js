@@ -760,7 +760,13 @@ export async function recallForAction(input = {}) {
       factHits: allFactHits.length,
       specsReturned: keptSpecs.length,
       factsReturned: keptFacts.length,
-      candidatesScanned: specs.length + facts.length,
+      // **实际参与匹配的候选数**（= 规范全量 + 通过类型/状态/白名单过滤的事实）。
+      // 曾误写为 `specs.length + facts.length`，其中 facts 是**过滤前**的全量，
+      // 于是无论 types 怎么过滤它都恒为 337（实测 types=["adr","pitfall"] 与
+      // 不传 types 得到同一个数）——「扫了多少」这个数就失去意义。
+      candidatesScanned: specs.length + pool.length,
+      // 载入后**未进入匹配**的候选数（被类型/状态/白名单过滤掉的）。
+      candidatesExcluded: facts.length - pool.length,
     },
     pagination: {
       limit,
@@ -771,6 +777,32 @@ export async function recallForAction(input = {}) {
     unchecked: {
       specs: allSpecHits.slice(keptSpecs.length).map((spec) => ({ title: spec.title, path: spec.path })),
       facts: allFactHits.slice(keptFacts.length).map((fact) => ({ title: fact.title, path: fact.path })),
+    },
+    // **未检查范围**（`02 §9` 第 2 项：「召回…并保留命中依据和**未检查范围**」）。
+    //
+    // 与 `unchecked` 的区别（两者常被混为一谈，语义完全不同）：
+    //   · `unchecked`：**已匹配但被截断丢弃**——这些是相关的，只是没列出来；
+    //   · `uncheckedRange`：**从未参与匹配**——被类型/状态/类型白名单过滤掉的，
+    //     以及根本没被载入的来源（如 includeSpecs:false 时的规范源）。
+    //
+    // 后者才是「我不知道有没有相关东西」的范围。不给出它，读者会把
+    // 「没看到」误当成「没有」——正是 `02 §9.2` 要防的「把零结果当无约束」。
+    uncheckedRange: {
+      // 被过滤掉的事实（按原因分列，读者可判断是否需要放宽）。
+      excludedByTypeFilter: types === null ? [] : facts
+        .filter((fact) => !types.includes(fact.type))
+        .map((fact) => ({ type: fact.type, title: fact.title, path: fact.path })),
+      excludedByStatus: facts
+        .filter((fact) => types === null || types.includes(fact.type))
+        .filter((fact) => !statuses.includes(fact.status))
+        .map((fact) => ({ type: fact.type, status: fact.status, title: fact.title, path: fact.path })),
+      excludedByTypeWhitelist: facts
+        .filter((fact) => !REGISTERED_FACT_TYPES.includes(fact.type))
+        .map((fact) => ({ type: fact.type, title: fact.title, path: fact.path })),
+      // 整源未载入（includeSpecs:false 时不读取规范源——那一片完全没看）。
+      sourceNotRead: includeSpecs ? [] : ["规范源（includeSpecs:false，未读取）"],
+      // 事实源无第二来源可回退，故此处只有项目内一源；若将来引入回退须在此列出。
+      note: "本实现只扫描项目内 ldvh-base/ 与 01 §10.3 解析出的规范源；其它目录、其它 worktree、回退来源之外的语料均未检查",
     },
     // 排序依据如实声明（`02 §9` 红线：不得用相似度/embedding/关键词权重/AI 裁决相关性）。
     ranking: {

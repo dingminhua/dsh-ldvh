@@ -631,7 +631,8 @@ test("02 §9.1：counts 须报**截断前总数**，而非返回数", async () =
 	assert.ok(r.counts.specHits > r.counts.specsReturned, "命中总数应大于返回数");
 	assert.equal(r.counts.specsReturned, r.specs.length);
 	assert.equal(r.counts.factsReturned, r.facts.length);
-	assert.equal(r.counts.candidatesScanned, 337, "本轮扫描的候选总数");
+	assert.ok(r.counts.candidatesScanned > 0, "须报实际参与匹配的候选数");
+	assert.equal(r.counts.candidatesScanned, 337 - r.counts.candidatesExcluded, "扫描数 + 排除数 = 载入总数");
 });
 
 test("02 §9.1：limit 造成的丢弃须标 partial/truncated（不只预算）", async () => {
@@ -674,7 +675,7 @@ test("02 §9.1：fingerprint 须为确定性集合指纹，且不得冒称内容
 	assert.equal(a.fingerprint.value, b.fingerprint.value, "同一候选集合的指纹须稳定");
 	assert.equal(a.fingerprint.kind, "candidate-set");
 	assert.equal(a.fingerprint.coversContent, false, "不得冒称内容指纹");
-	assert.equal(a.fingerprint.memberCount, a.counts.candidatesScanned);
+	assert.equal(a.fingerprint.memberCount, a.counts.candidatesScanned + a.counts.candidatesExcluded, "指纹覆盖载入的全部候选（含被排除的）");
 });
 
 test("02 §9.1：pagination 须如实说明无游标及如何取更多", async () => {
@@ -989,4 +990,63 @@ test("内容指纹须稳定：同一载体两次召回指纹一致", async () =>
 		a.specs.map((s) => s.source.contentFingerprint.value),
 		b.specs.map((s) => s.source.contentFingerprint.value),
 	);
+});
+
+test("02 §9：召回须保留「未检查范围」，且它不等于「被截断的」", async () => {
+	// 02 §9 第 2 项逐字：「召回：按当前目标、类型来源和已知对象形成少量候选，
+	// 并保留**命中依据**和**未检查范围**」。
+	//
+	// 两个概念常被混为一谈，语义完全不同：
+	//   · unchecked      = 已匹配但被截断丢弃（**相关**，只是没列出来）
+	//   · uncheckedRange = 从未参与匹配（被类型/状态/白名单过滤，或整源未读）
+	// 后者才是「不知道有没有相关东西」的范围。不给它，读者会把「没看到」
+	// 误当成「没有」——正是 02 §9.2 要防的。
+	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
+	assert.ok(r.uncheckedRange !== undefined, "须给出未检查范围");
+	assert.ok(Array.isArray(r.uncheckedRange.excludedByStatus), "须按原因分列");
+	assert.ok(r.uncheckedRange.note.length > 0, "须说明哪些语料没看");
+});
+
+test("uncheckedRange 的分类须与 candidatesExcluded 自洽", async () => {
+	const r = await recallForAction({
+		action: "把 34 号规范改名",
+		root: ROOT,
+		limit: 3,
+		types: ["adr", "pitfall"],
+	});
+	const u = r.uncheckedRange;
+	const sum = u.excludedByTypeFilter.length + u.excludedByStatus.length + u.excludedByTypeWhitelist.length;
+	assert.equal(sum, r.counts.candidatesExcluded, "三类之和须等于被排除总数");
+});
+
+test("candidatesScanned 须反映**实际参与匹配**的候选数（防御性：曾恒为常量）", async () => {
+	// 实测缺陷：曾写作 `specs.length + facts.length`，其中 facts 是**过滤前**全量，
+	// 于是无论 types 怎么过滤它恒为 337。现应为 specs.length + pool.length。
+	const wide = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
+	const narrow = await recallForAction({
+		action: "把 34 号规范改名",
+		root: ROOT,
+		limit: 3,
+		types: ["adr", "pitfall"],
+	});
+	assert.ok(
+		narrow.counts.candidatesScanned < wide.counts.candidatesScanned,
+		`收窄类型后参与匹配的候选数应减少：wide=${wide.counts.candidatesScanned} narrow=${narrow.counts.candidatesScanned}`,
+	);
+	assert.ok(narrow.counts.candidatesExcluded > wide.counts.candidatesExcluded, "被排除数应增加");
+});
+
+test("includeSpecs:false 时须把「规范源未读」列入未检查范围", async () => {
+	// 控制组：默认读规范源 → 该列为空（不得声称未读）。
+	const withSpecs = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
+	assert.deepEqual(withSpecs.uncheckedRange.sourceNotRead, [], "读规范源时不得声称未读");
+	// 实验组：不读规范源 → 须如实列入未检查范围。
+	const withoutSpecs = await recallForAction({
+		action: "把 34 号规范改名",
+		root: ROOT,
+		limit: 3,
+		includeSpecs: false,
+	});
+	assert.ok(withoutSpecs.uncheckedRange.sourceNotRead.length > 0, "未读规范源时须如实列出");
+	assert.match(withoutSpecs.uncheckedRange.sourceNotRead.join(""), /规范源/);
 });
