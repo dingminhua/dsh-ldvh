@@ -936,6 +936,39 @@ export async function recallForAction(input = {}) {
       specs: allSpecHits.slice(keptSpecs.length).map((spec) => ({ title: spec.title, path: spec.path })),
       facts: allFactHits.slice(keptFacts.length).map((fact) => ({ title: fact.title, path: fact.path })),
     },
+    // **F0 层**（`02 §9.1`）：类型/状态计数、coverage、未完成范围。
+    //
+    // 实测缺口（2026-10-24）：本模块此前只有「本次召回的命中数」，
+    // **没有 F0 层**。而 `02 §9.1` 对 F0 的定义逐字包含：
+    // > 管辖项目、实际 worktree/common-dir、**类型/状态计数**、Schema/对象集指纹、
+    // > 当前工作对象、coverage、cursor、无效/不可用对象清单和未完成范围
+    //
+    // 缺它的直接后果：`23 §12`「待确认队列」要求「**必须能枚举 `draft`，不得只列
+    // `active`**」，其目的是「Human 能知道**有多少候选在等**」。实测全库有 16 条
+    // draft Pitfall，但用「有多少候选在等」查只能命中 0 条（按词匹配根本没命中），
+    // 「待确认的候选」命中 2 条——**计数这种事不该靠词法匹配**，它属 F0。
+    //
+    // 故这里给出全量（不受 types/statuses 过滤影响）的类型×状态计数，
+    // 使「有多少在等」可被直接回答，而不依赖查询措辞。
+    f0: {
+      // 全量对象计数：type → status → count。**不受本次 types/statuses 过滤影响**，
+      // 因为 F0 描述的是事实源的整体状况，不是本次召回的子集。
+      countsByTypeStatus: facts.reduce((acc, fact) => {
+        acc[fact.type] ??= {};
+        acc[fact.type][fact.status] = (acc[fact.type][fact.status] ?? 0) + 1;
+        return acc;
+      }, {}),
+      totalObjects: facts.length,
+      // coverage：本次实际扫描的候选占全量的比例（`02 §9.1` F0 要求可观察）。
+      coverage: {
+        scanned: specs.length + pool.length,
+        totalLoaded: specs.length + facts.length,
+        // 未参与匹配的（被类型/状态/白名单过滤）——与 uncheckedRange 同源但此处给数。
+        notScanned: facts.length - pool.length,
+      },
+      // 类型清单：使消费方能知道「有哪些类型存在」，而非只知道「命中了哪些」。
+      typesPresent: [...new Set(facts.map((fact) => fact.type))].sort(),
+    },
     // **未检查范围**（`02 §9` 第 2 项：「召回…并保留命中依据和**未检查范围**」）。
     //
     // 与 `unchecked` 的区别（两者常被混为一谈，语义完全不同）：

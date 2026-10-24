@@ -1288,3 +1288,36 @@ test("默认候选状态须按类型取，不得统一写死 active（20–27 �
 		assert.equal(f.status, "open", `spark 默认不应含 ${f.status}`);
 	}
 });
+
+test("须给出 F0 层：类型/状态计数使「有多少在等」不依赖查询措辞", async () => {
+	// 实测缺口（2026-10-24）：本模块此前只有「本次召回的命中数」，**没有 F0 层**。
+	// 而 `02 §9.1` 对 F0 的定义逐字包含「**类型/状态计数**、…coverage…」。
+	//
+	// 后果：`23 §12`「待确认队列」要求「必须能枚举 draft，不得只列 active」，
+	// 其目的是「Human 能知道**有多少候选在等**」。实测全库 16 条 draft Pitfall，
+	// 但用「有多少候选在等」查只能命中 0 条——计数这种事不该靠词法匹配。
+	const r = await recallForAction({ action: "有多少候选在等", root: ROOT, limit: 3 });
+	assert.ok(r.f0 !== undefined, "须给出 F0 层");
+	assert.ok(r.f0.countsByTypeStatus !== undefined, "须给出类型/状态计数");
+	assert.equal(typeof r.f0.totalObjects, "number", "须给出对象总数");
+	assert.ok(r.f0.coverage !== undefined, "须给出 coverage");
+
+	// 关键：draft 的计数必须可读——这是「有多少候选在等」的唯一可靠来源。
+	const draftCount = r.f0.countsByTypeStatus.pitfall?.draft ?? 0;
+	assert.ok(draftCount > 0, `应能直接读出 draft 数量（实测全库有 16 条），实际 ${draftCount}`);
+
+	// 计数必须覆盖**全量**，不受本次 types/statuses 过滤影响——
+	// 否则「有多少在等」会被查询策略扭曲。
+	const filtered = await recallForAction({
+		action: "有多少候选在等",
+		root: ROOT,
+		limit: 3,
+		types: ["adr"],
+		statuses: ["active"],
+	});
+	assert.deepEqual(
+		filtered.f0.countsByTypeStatus,
+		r.f0.countsByTypeStatus,
+		"F0 计数须不受 types/statuses 过滤影响",
+	);
+});
