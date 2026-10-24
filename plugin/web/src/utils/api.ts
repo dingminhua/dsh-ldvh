@@ -125,8 +125,13 @@ export interface ObjectItem {
   phenomenon?: string;
   attribution?: string;
   impact?: string;
-  /** 26 §8 `occurrence`：重复观察的证据载体，**频次的机械权威源**（`count ≥ 3`
-   * 且 `human_return_at` 为空是机械通道唯一的自主流转判据）。
+  /** 26 §8 `occurrence`：重复观察的证据载体，**频次的机械权威源**。
+   *
+   * （2026-10 修订，Human 决定：观察不进事实源）`count` 记录「该阻碍被独立
+   * 观察到的次数」，**不再是任何状态流转的阈值判据**——阈值判定已移到
+   * 11 §12bis.1 的摩擦观察缓冲，既有账目的状态变更全部属 Human Gate
+   * （26 §9.2）。原第四个键 `human_return_at` 随「放回留观」流转一并删除，
+   * 故此处不再声明它。
    *
    * **此处登记为可选**：§8 对「闭集收缩改判而来的 `voided`」有必填豁免（§14.2），
    * 届时该字段合法缺席——呈现层据此不渲染该 chip，不补零、不占位。
@@ -138,7 +143,6 @@ export interface ObjectItem {
     count?: number;
     first_at?: string;
     last_at?: string;
-    human_return_at?: string | null;
   };
   /** Norm-specific（27 §8：direction_key 必填；retirement_reason/retired_at 终态条件） */
   direction_key?: string;
@@ -479,7 +483,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 
 /** 认知中心待决类型（v5）：两个 WorkCase Human Gate，加 Pitfall draft 审核，
- * 加 Friction `open` 待修（Human 2026-10-19 决定：只收 open，observing 不进）。 */
+ * 加 Friction `open` 待修（Human 2026-10-19 决定：只收 open；
+ * 2026-10 修订后 26 §9 闭集只剩 open/resolved/voided，已无第四态可收）。 */
 export type CognitionInboxKind = 'plan_confirmation' | 'closure_confirmation' | 'pitfall_confirmation' | 'friction_repair';
 
 /**
@@ -607,12 +612,13 @@ export interface CognitionRecentActivityItem {
    * 与 `impact` 同规格：摩擦的近期动态行同序同形显示它（Human 2026-11 的
    * 「聚焦里依然没有重中轻的标签」在同一处暴露了 occurrence 的同类缺口）。
    *
-   * 条件出现而非必填：§8 对「闭集收缩改判而来的 `voided`」有必填豁免（§14.2）。 */
+   * 条件出现而非必填：§8 对「闭集收缩改判而来的 `voided`」有必填豁免（§14.2）。
+   * 形状依 §8：`{ count, first_at, last_at }`（`human_return_at` 已随
+   * 「放回留观」流转删除）。 */
   occurrence?: {
     count?: number;
     first_at?: string;
     last_at?: string;
-    human_return_at?: string | null;
   };
   /** WorkCase 只携带派生 group；其它对象携带自身当前状态。 */
   group?: WorkCaseV5Group;

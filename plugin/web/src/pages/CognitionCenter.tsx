@@ -209,7 +209,7 @@ function InboxItemReadNotes({ item, locale }: { item: CognitionCardItem; locale:
 // `t` 已不再是本函数的依赖：改用共享组件后不再在此拼接文案（Human 2026-09-24）。
 function InboxCardContent({ item }: { item: CognitionInboxItem }) {
   if (item.type === 'pitfall') return <PitfallCardContent obj={toObjectCard(item)} />;
-  // 26 §9 卡体分工：`open` 摩擦的卡体**留空**（与 `observing`/`resolved` 同），身份与
+  // 26 §9 卡体分工：`open` 摩擦的卡体**留空**（与 `resolved` 同），身份与
   // 状态由卡头（类型 + 影响 + 重复观察 + 修改次数）与标题托承载——标题已是现象单句的
   // 浓缩。现象全文、入账依据住详情页；故这里与列表卡同走 `FrictionCardContent`
   // （它对非 `voided` 返回 null），不另写一套聚焦专属卡体。

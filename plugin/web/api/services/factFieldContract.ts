@@ -272,7 +272,9 @@ export const FACT_TERMINAL_STATUSES: Record<FactType, readonly string[]> = {
   pitfall: ['discarded'],
   spark: ['implemented', 'discarded'],
   research: ['retired'],
-  // 26 §9：resolved 与 voided 为终态；observing/open 非终态。
+  // 26 §9：resolved 与 voided 为终态；open 非终态。
+  // （2026-10 修订：原第四值 observing 已退出状态闭集，观察材料改由
+  // 11 §12bis.1 的摩擦观察缓冲承载，非事实对象、不进事实源。）
   friction: ['resolved', 'voided'],
   // 27 号 §9：active/retired 两态，retired 为终态（不重开）。
   norm: ['retired'],
