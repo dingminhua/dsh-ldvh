@@ -1153,3 +1153,37 @@ test("长查询的正文层门槛不得放宽（防噪声回归）", async () =>
 		}
 	}
 });
+
+test("正文层匹配不得吃 frontmatter 字段名（元数据形状不是规范内容）", async () => {
+	// 实测缺陷（2026-10-24）：规范的 `text` 含 YAML frontmatter，正文层原用它匹配，
+	// 于是查询命中 `canonical_path`／`parent_spec`／`positioning` 这些**字段名**也被
+	// 报成「正文命中」——那是元数据形状，不是规范内容（`02 §9.1`「机械有效不能
+	// 替代语义相关」）。现正文层改用剥离 frontmatter 的 `bodyText`。
+	//
+	// 判据须选一个**正文从不提及、只作为 YAML 键存在**的字段名。
+	// 注意 `spec_key`／`parent_spec` **不是**这样的词——前者在 01/02/05 正文里
+	// 真实出现，后者在 01 正文出现 7 次（它是规范模型的字段定义），都是真命中。
+	// 本地实测：`positioning` 只在 frontmatter 里出现，正文无一处。
+	const metadataOnly = await recallForAction({
+		action: "positioning",
+		root: ROOT,
+		limit: 99,
+		budgetBytes: 400000,
+	});
+	assert.equal(
+		metadataOnly.specs.length,
+		0,
+		`仅存在于 frontmatter 的字段名不得命中任何规范，实际命中：${metadataOnly.specs.map((s) => `${s.title}(${s.hitReason})`).join("、")}`,
+	);
+});
+
+test("正文层仍须能命中真正写在正文里的术语", async () => {
+	// 反向保护：剥离 frontmatter 不能过度——`spec_key` 在 01/02/05 的**正文**里
+	// 真实出现（它们是规范模型、事实模型、CLI 契约规范），应当照常命中。
+	const r = await recallForAction({ action: "spec_key", root: ROOT, limit: 99, budgetBytes: 400000 });
+	assert.ok(r.specs.length > 0, "正文真提及 spec_key 的规范仍须命中");
+	assert.ok(
+		r.specs.every((s) => s.kind === "spec"),
+		"应只命中规范",
+	);
+});

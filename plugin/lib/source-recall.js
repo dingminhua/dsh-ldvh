@@ -370,6 +370,17 @@ export async function loadSpecs(specsDir) {
       absolutePath: join(specsDir, file),
       headings,
       text,
+      // **正文（剥离 frontmatter）**：正文层匹配只能用这个，不能用 `text`。
+      //
+      // 实测缺陷（2026-10-24）：`text` 含 YAML frontmatter，于是查询命中
+      // `canonical_path`／`spec_key`／`parent_spec`／`positioning` 这些**字段名**
+      // 也被报成「正文命中」——实测各命中 3 份规范，理由写「正文命中：spec_key」。
+      // 那是元数据形状，不是规范内容，把它当相关性证据属误报
+      // （`02 §9.1`「机械有效不能替代语义相关」）。
+      //
+      // 注意：`text` 仍保留全文供内容指纹使用（指纹须覆盖完整载体），
+      // 只是**匹配**改用 `bodyText`。
+      bodyText: text.replace(/^---\n[\s\S]*?\n---\n?/, ""),
     });
   }
   return out;
@@ -537,7 +548,9 @@ export function matchCandidate(actionTokens, candidate) {
     // 曾只读 `body`，导致**规范正文这一层从未参与匹配**——缺陷：查询
     // 「改 guidance-text.js 的引导文本」一条规范都命中不了，因为该文件名只
     // 出现在 00/10 的正文里，不在它们的 scope/positioning/title 里。
-    { tier: 4, text: candidate.body ?? candidate.text, label: "正文", minHits: bodyMinHits },
+    // 规范用 `bodyText`（剥离 frontmatter），事实用 `body`（前 1200 字）。
+    // 绝不能用 `candidate.text`——它含 YAML 字段名（见 loadSpecs 的说明）。
+    { tier: 4, text: candidate.bodyText ?? candidate.body, label: "正文", minHits: bodyMinHits },
   ];
   for (const section of sections) {
     if (typeof section.text !== "string" || section.text === "") continue;
