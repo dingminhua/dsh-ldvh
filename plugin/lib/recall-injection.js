@@ -279,7 +279,12 @@ export function renderRecallRow(result) {
     const preferAbsolute = result?.sourceView?.specsAreProjectAuthored === false;
     for (const spec of specs) {
       const shown = preferAbsolute && typeof spec.absolutePath === "string" ? spec.absolutePath : spec.path;
-      lines.push(`- ${spec.title}（${shown}）— ${spec.hitReason}`);
+      // **判断依据前置**（2026-10-24）：读者要判断「这条为什么相关」，
+      // 而路径（尤其事实侧的 UUID 文件名）对人零信息量、却排在理由之前。
+      // 实测：单条规范卡 114 字符里路径占 67（59%），读者须先读完
+      // `ldvh-base/pitfalls/pitfall-86f03312-6d12-47f2-…md` 才看到命中理由。
+      // 故顺序改为：标题 → **命中理由** → 路径（路径仍保留，供打开文件）。
+      lines.push(`- ${spec.title} — ${spec.hitReason}（${shown}）`);
     }
   }
   if (facts.length > 0) {
@@ -290,7 +295,10 @@ export function renderRecallRow(result) {
       // 数据层有 excerpt 而渲染层不显示，读者依然无法筛选——F2 的分层意义就丢了。
       // 摘录取数据层的 `excerpt`（已是有界确定性截断），此处不再二次加工。
       const excerpt = typeof fact.excerpt === "string" && fact.excerpt !== "" ? `\n  ↳ ${fact.excerpt}` : "";
-      lines.push(`- [${fact.type}${status}] ${fact.title}（${fact.path}）— ${fact.hitReason}${excerpt}`);
+      // 同规范卡：**命中理由前置**，路径后置（理由才是读者判断的依据）。
+      // 注意「摘录另起一行」——若把路径拼在摘录之后，它会跟到换行后的末尾，
+      // 与摘录挤在同一行（实测缺陷：路径出现在摘录行尾，读者看不出归属）。
+      lines.push(`- [${fact.type}${status}] ${fact.title} — ${fact.hitReason}（${fact.path}）${excerpt}`);
     }
   }
   if (specs.length === 0 && facts.length === 0) {

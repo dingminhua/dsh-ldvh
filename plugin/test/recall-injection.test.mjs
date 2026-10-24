@@ -564,3 +564,30 @@ test("数据侧实测值须与当前实现一致（症状→自身召回）", as
 	assert.equal(declared.total, total, "声明的 total 须与实际样本数一致");
 	assert.equal(declared.hits, hit, "声明的 hits 须与实际命中数一致");
 });
+
+test("命中理由须排在路径之前（路径对人零信息量，却是读者最先读到的）", async () => {
+	// 实测缺陷（2026-10-24）：单条规范卡 114 字符里路径占 67（59%），且路径排在
+	// 命中理由之前——读者须先读完 `ldvh-base/pitfalls/pitfall-86f03312-…md`
+	// 才看到「这条为什么相关」。而路径里是 UUID，对人零信息量。
+	// 规范（02 §9.1 F2）要求的是「候选卡、命中依据、有界确定性摘录」，本无路径义务。
+	// 修正后顺序：标题 → **命中理由** → 摘录 → 路径（路径仍保留供打开文件）。
+	const r = await buildRecallInjection({
+		userText: "把 34 号规范改名",
+		projectRoot: ROOT,
+		limit: 2,
+	});
+	assert.equal(r.inject, true);
+
+	const specLine = r.text.split("\n").find((l) => l.startsWith("- ") && l.includes("—"));
+	assert.ok(specLine !== undefined, "应有规范卡行");
+	const reasonAt = specLine.indexOf("— ");
+	const pathAt = specLine.indexOf("（specs/");
+	assert.ok(reasonAt > 0 && pathAt > 0, "行内须同时有命中理由与路径");
+	assert.ok(reasonAt < pathAt, `命中理由须在路径之前：理由@${reasonAt} 路径@${pathAt}`);
+
+	const factLine = r.text.split("\n").find((l) => l.startsWith("- ["));
+	assert.ok(factLine !== undefined, "应有事实卡行");
+	const fReasonAt = factLine.indexOf("— ");
+	const fPathAt = factLine.indexOf("（ldvh-base/");
+	assert.ok(fReasonAt < fPathAt, `事实卡的理由也须在路径之前：理由@${fReasonAt} 路径@${fPathAt}`);
+});
