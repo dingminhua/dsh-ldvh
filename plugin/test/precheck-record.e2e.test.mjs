@@ -180,8 +180,12 @@ test("端到端：进入 → 风险路由 → 三段判断 → 落实 → 记录
 		},
 		application: settled,
 		recalled: "ADR 一条（适用）；Pitfall 未遍历（快通道下未扫）",
+		verified: "34 与 03 §7.2 全文已读；ADR 当前对象已按 F3 读取",
 		unverified: "未验证：注入后的实际理解效果",
+		residualRisk: "注入理解效果未验证，可能误把候选当适用",
 		humanDecisions: "偏离影响是否扩大暂停范围（34 §15.1 第 3 项）",
+		madeHumanDecisions: "本会话 Human 授权：限 plugin/ 下的受控写入",
+		continuation: "先核 ADR 范围边界，再决定是否恢复偏离",
 		deviations: [
 			{
 				form: "判断错误偏离",

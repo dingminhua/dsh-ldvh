@@ -63,6 +63,7 @@ import {
 	parseRecord,
 	detectRitualRecord,
 	HUMAN_GATE_ITEMS,
+	STANDING_HUMAN_GATE_ITEMS,
 	NON_EQUIVALENCES,
 	checkConceptBoundaries,
 	checkHumanGate,
@@ -1100,7 +1101,7 @@ test("checkGapRegistration：非数组拒绝", () => {
 });
 
 // ---------------------------------------------------------------------------
-// §12 交还组装（七项 + 强制区分两类结论）
+// §12 交还组装（十一项 + 强制区分两类结论）
 // ---------------------------------------------------------------------------
 
 const RETURN_INPUT = {
@@ -1111,17 +1112,22 @@ const RETURN_INPUT = {
 		{ statement: "b", hasTarget: "路径", hasTraceableBasis: "§8.3" },
 	]),
 	recalled: "ADR 一条（已适用）；Pitfall 未触发",
+	verified: "34 与 03 §7.2 已逐条读毕",
 	unverified: "specs/34 的 operation 声明未落盘",
+	residualRisk: "operation 声明缺失时，改名相关调用方可能读不到新号",
+	deviations: undefined,
 	humanDecisions: "是否批准 34 号加操作声明",
+	madeHumanDecisions: "本会话 Human 授权：仅改 plugin/ 与 specs/34",
+	continuation: "下一步补 operation 声明后重跑 spec-drift 断言",
 };
 
-test("RETURN_ITEMS 恰为 34 §12 的七项，且只有「偏离情况」是条件项", () => {
-	assert.equal(RETURN_ITEMS.length, 7);
+test("RETURN_ITEMS 恰为 34 §12 的十一项，且只有「偏离情况」是条件项", () => {
+	assert.equal(RETURN_ITEMS.length, 11);
 	const optional = RETURN_ITEMS.filter((i) => !i.required).map((i) => i.label);
 	assert.deepEqual(optional, ["偏离情况"], "原文只有偏离情况带「如有」");
 });
 
-test("assembleReturn：六项齐备 + 三段判断逐项 + 两类分列即组装成功", () => {
+test("assembleReturn：十一项齐备 + 三段判断逐项 + 两类分列即组装成功", () => {
 	const result = assembleReturn(RETURN_INPUT);
 	assert.equal(result.ok, true);
 	assert.equal(result.complete, true);
@@ -1459,12 +1465,32 @@ test("renderPrecheckRecord：实质内容不产生仪式提醒", () => {
 // Human Gate 领域增量（34 §15.1 / §15.2）
 // ---------------------------------------------------------------------------
 
-test("HUMAN_GATE_ITEMS 恰为 34 §15.1 的四项", () => {
+test("HUMAN_GATE_ITEMS 恰为 34 §15.1 的当次待决四项", () => {
 	assert.equal(HUMAN_GATE_ITEMS.length, 4);
 	assert.deepEqual(
 		HUMAN_GATE_ITEMS.map((i) => i.key),
 		["sourceConflict", "sourceDefect", "scopeEscalation", "acceptIncomplete"],
 	);
+});
+
+test("STANDING_HUMAN_GATE_ITEMS 恰为 34 §15.1 的第 5、6 项（常设决定事项）", () => {
+	// **为什么另立一份而不并入 HUMAN_GATE_ITEMS**：§15.1 现有六项，前四项由
+	// **当次行动**触发（出现即须提请），第 5、6 项由**情形出现**触发（该领域内
+	// 一旦出现相应情形就必须先有 Human 决定）。并入会让「尚未发生的情形」被
+	// `checkHumanGate` 报成「当次触发的待决事项」——那是过度声明。
+	// 两者合起来必须等于 §15.1 的六项（由 spec-drift 断言从原文数条数）。
+	assert.equal(STANDING_HUMAN_GATE_ITEMS.length, 2);
+	assert.deepEqual(
+		STANDING_HUMAN_GATE_ITEMS.map((i) => i.key),
+		["recallBudgetScope", "carrierFormCompatibility"],
+	);
+	// 两组不得有交集——有交集即意味着某项被同时当作「当次触发」与「情形触发」。
+	const actionKeys = new Set(HUMAN_GATE_ITEMS.map((i) => i.key));
+	for (const item of STANDING_HUMAN_GATE_ITEMS) {
+		assert.equal(actionKeys.has(item.key), false, `${item.key} 不得同时属两组`);
+		assert.equal(typeof item.trigger, "string");
+		assert.ok(item.trigger.length > 0, `${item.key} 须写明触发情形`);
+	}
 });
 
 test("checkHumanGate：空列表不需 Human", () => {

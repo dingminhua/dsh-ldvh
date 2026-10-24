@@ -35,6 +35,7 @@ import {
 	FAILURE_ROUTES,
 	FAST_PATH_REQUIREMENTS,
 	HUMAN_GATE_ITEMS,
+	STANDING_HUMAN_GATE_ITEMS,
 	NON_EQUIVALENCES,
 	RECALL_MARKS,
 	REQUIRED_SECTIONS,
@@ -104,14 +105,35 @@ test("34 §9.1 偏离形态闭集：代码常量须逐字来自原文", async ()
 	assert.equal(FORMS.length, 4, "§9.1 恰四类，多一类或少一类都是漂移");
 });
 
-test("34 §12 交还七项：代码常量须逐字来自原文", async () => {
+test("34 §12 交还十一项：代码常量须逐字来自原文", async () => {
 	const spec = await readSpec("34-双源召回系统规范.md");
 	assertVerbatim(spec, "34 号", "交还项", RETURN_ITEMS.map((item) => item.label));
 });
 
-test("34 §15.1 Human Gate 四事项：代码常量须逐字来自原文", async () => {
+test("34 §15.1 Human Gate 六事项：代码常量须逐字来自原文", async () => {
 	const spec = await readSpec("34-双源召回系统规范.md");
 	assertVerbatim(spec, "34 号", "Gate 事项", HUMAN_GATE_ITEMS.map((item) => item.label));
+	assertVerbatim(spec, "34 号", "Gate 常设事项", STANDING_HUMAN_GATE_ITEMS.map((item) => item.label));
+});
+
+test("34 §15.1 六项：两组代码常量之和须等于原文条数（防「规范加条、代码不加」）", async () => {
+	// **为什么要有这条**：上一版只断言「代码里的每个 label 都能在原文找到」——
+	// 那是**单向**检查，规范加了第 5 项而代码只有四项时照样全过（空守护，
+	// 与 2026-10-25 复验的 K3 同类）。故此处**从原文数条数**，与代码两组之和比对。
+	const spec = await readSpec("34-双源召回系统规范.md");
+	const section = spec.slice(spec.indexOf("### 15.1"));
+	const gateSection = section.slice(0, section.indexOf("### 15.2"));
+	const itemsInSpec = (gateSection.match(/^\d+\. /gm) ?? []).length;
+	assert.equal(
+		itemsInSpec,
+		6,
+		`§15.1 原文应为 6 条；若规范改了条数，本断言会提示复核两组常量的划分（当前：${HUMAN_GATE_ITEMS.length} 当次 + ${STANDING_HUMAN_GATE_ITEMS.length} 常设）`,
+	);
+	assert.equal(
+		HUMAN_GATE_ITEMS.length + STANDING_HUMAN_GATE_ITEMS.length,
+		itemsInSpec,
+		"两组常量之和须等于原文条数——少即漏承接，多即凭空增项",
+	);
 });
 
 test("34 §13/§14 禁止等式的九个词：须逐字来自原文", async () => {

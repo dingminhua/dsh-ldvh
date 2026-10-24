@@ -315,6 +315,20 @@ function parseFrontmatter(text) {
  */
 const EXCERPT_MAX_CHARS = 120;
 
+/**
+ * 通用召回接口（`recallForAction`）的默认字节预算。
+ *
+ * **与注入路径的 `RECALL_BYTE_BUDGET`（2400）是两个不同的常量**——本接口面向
+ * CLI／诊断脚本等直接调用方，候选预算较宽；注入路径受引导面预算约束，须更紧。
+ * 两者**故意不同**，不可互相代入（历史上测试曾把二者当同一个数而断言失败）。
+ *
+ * 之所以具名：34 §11 要求「上限须以具名常量承载，不得是运行期猜测」。字面量
+ * `4000` 散落在调用处时，既无法从一处追溯预算是多少，改预算时也看不出改了哪一处。
+ * **变更走受控提交**（`10 §5.3`「体量以固定常量承载，变更走受控提交」）；
+ * 提高该上限须 Human 决定（34 §15.1 第 5 项）。
+ */
+export const RECALL_DIRECT_BYTE_BUDGET = 4000;
+
 function excerptOf(text) {
   if (typeof text !== "string") return "";
   // 折叠所有空白（含换行）为单空格：摘录是单行展示位，换行会撑破行。
@@ -739,7 +753,7 @@ export function matchCandidate(actionTokens, candidate) {
  * @param {string[]} [input.statuses] 默认 `["active"]`；写入前查重可加 `["draft","open"]`
  * @param {boolean} [input.includeSpecs] 是否召回规范源，默认 true
  * @param {number} [input.limit]     每侧最多返回条数，默认 5
- * @param {number} [input.budgetBytes] 返回内容的字节上限，默认 4000
+ * @param {number} [input.budgetBytes] 返回内容的字节上限，默认 `RECALL_DIRECT_BYTE_BUDGET`
  *
  * @returns {{ok: true, specs, facts, truncated, budget, recalledAt}}
  *   或 `{ok:false, error}`。`truncated` 为 true 时如实说明被裁剪，不静默。
@@ -754,15 +768,18 @@ export async function recallForAction(input = {}) {
   if (action === "") {
     return { ok: false, error: { code: "recall/action_required", message: "动作描述必填" } };
   }
-  // **默认值注**（2026-10-24）：本函数默认 `limit=5`／`budgetBytes=4000`，而
-  // 注入路径（`buildRecallInjection`）默认 `limit=3`／`2400`。二者**故意不同**：
+  // **默认值注**（2026-10-24）：本函数默认 `limit=5`／`budgetBytes=RECALL_DIRECT_BYTE_BUDGET`，
+  // 而注入路径（`buildRecallInjection`）默认 `limit=3`／`RECALL_BYTE_BUDGET`（2400）。
+  // 二者**故意不同**：
   //   · 本函数是**通用召回接口**，调用方（CLI、诊断脚本）通常想要更多候选；
   //   · 注入路径受引导面预算约束（`10:241`「未超 LDVH 侧常量预算」），须更紧。
   // 混用会让「预算到底是多少」说不清——测试里就曾把两者当同一个数而断言失败。
   // 需要稳定基数时请显式传参，不要依赖默认值。
+  // **两个上限都以具名常量承载**（34 §11「上限须以具名常量承载，不得是运行期猜测」），
+  // 不再是散落在调用处的字面量——字面量无法从一处追溯，改预算时也看不出改了哪一处。
   const limit = Number.isInteger(input.limit) && input.limit > 0 ? input.limit : 5;
   const budgetBytes = Number.isInteger(input.budgetBytes) && input.budgetBytes > 0
-    ? input.budgetBytes : 4000;
+    ? input.budgetBytes : RECALL_DIRECT_BYTE_BUDGET;
   // 显式传入优先；否则**按类型取各自的默认候选状态集**
   // （统一写死 `active` 会让多数类型零召回，见 `DEFAULT_STATUSES_BY_TYPE`）。
   const explicitStatuses = Array.isArray(input.statuses) && input.statuses.length > 0

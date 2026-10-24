@@ -1167,14 +1167,18 @@ export const THREE_WAY_ITEMS = Object.freeze([
 ]);
 
 /**
- * §12 交还的七项。
+ * §12 交还的十一项（其中「偏离情况」为条件项）。
  *
- * §12 原文：「每次交还：当次识别的来源范围与识别结论；三段判断的结果（逐项）；
- * 约束落实的具体形态（§8.3 的三项各自如何成立）；已召回与未触发的类型；
- * **未验证范围**（哪些来源未识别、哪些判断未核对）；偏离情况（如有，按 §9.2
- * 已登记）；待 Human 决定事项。」
+ * §12 原文：「每次交还须给出 03 §11.3 第 9 项要求的五组内容：**当次状态**——当次
+ * 识别的来源范围与识别结论；**结果与证据**——三段判断的结果（逐项）、约束落实的
+ * 具体形态（§8.3 的三项各自如何成立）、已召回与未触发的类型；**已验证范围**（哪些
+ * 来源已读、哪些判断已核对）与**未验证范围**（哪些来源未识别、哪些判断未核对）；
+ * **残留风险**（未验证部分对当次行动的影响）；**待决定事项**（待 Human 决定事项）。
+ * 偏离情况（如有，按 §9.2 已登记）随交还给出。」
  *
- * 只有「偏离情况」带「如有」——故它是**条件项**，其余六项必填。这与 §17 第 2 项
+ * §12 第二段（领域增量）：「**已作出的 Human 决定与授权边界**」「**继续入口**」。
+ *
+ * 只有「偏离情况」带「如有」——故它是**条件项**，其余十项必填。这与 §17 第 2 项
  * 的纪律一致：不带「如有」的项不得省略，带「如有」的项不得凭空造一条。
  */
 export const RETURN_ITEMS = Object.freeze([
@@ -1182,9 +1186,13 @@ export const RETURN_ITEMS = Object.freeze([
   { key: "threeWayJudgement", label: "三段判断的结果", required: true, shape: "object" },
   { key: "application", label: "约束落实的具体形态", required: true, shape: "object" },
   { key: "recalled", label: "已召回与未触发的类型", required: true, shape: "string" },
+  { key: "verified", label: "已验证范围", required: true, shape: "string" },
   { key: "unverified", label: "未验证范围", required: true, shape: "string" },
+  { key: "residualRisk", label: "残留风险", required: true, shape: "string" },
   { key: "deviations", label: "偏离情况", required: false, shape: "array" },
   { key: "humanDecisions", label: "待 Human 决定事项", required: true, shape: "string" },
+  { key: "madeHumanDecisions", label: "已作出的 Human 决定与授权边界", required: true, shape: "string" },
+  { key: "continuation", label: "继续入口", required: true, shape: "string" },
 ]);
 
 /** 按声明的形态判「这一项有没有给」。结构化项不看字符串，否则对象必被误判为缺失。 */
@@ -1260,7 +1268,17 @@ export function assembleReturn(input = {}) {
   }
 
   // §12 第二段：不得把两类合并成「已遵守」。
-  const haystack = [input.identification, input.unverified, threeWay.effective, threeWay.applicable, threeWay.allowed]
+  const haystack = [
+    input.identification,
+    input.verified,
+    input.unverified,
+    input.residualRisk,
+    input.madeHumanDecisions,
+    input.continuation,
+    threeWay.effective,
+    threeWay.applicable,
+    threeWay.allowed,
+  ]
     .filter((value) => typeof value === "string")
     .join("\n");
   const merged = MERGED_COMPLIANCE_TERMS.find((term) => haystack.includes(term));
@@ -1281,9 +1299,13 @@ export function assembleReturn(input = {}) {
     `  - ${COMPLIANCE_BUCKET_LABELS[0]}：${application.落实.length} 项`,
     `  - ${COMPLIANCE_BUCKET_LABELS[1]}：${application.已识别未落实.length} 项`,
     `- 已召回与未触发的类型：${input.recalled.trim()}`,
+    `- 已验证范围：${input.verified.trim()}`,
     `- 未验证范围：${input.unverified.trim()}`,
+    `- 残留风险：${input.residualRisk.trim()}`,
     `- 偏离情况：${deviations.length === 0 ? "无（本节按 34 §9.2 为空；空白不代替登记）" : `${deviations.length} 项，均已按 §9.2 登记`}`,
     `- 待 Human 决定事项：${input.humanDecisions.trim()}`,
+    `- 已作出的 Human 决定与授权边界：${input.madeHumanDecisions.trim()}`,
+    `- 继续入口：${input.continuation.trim()}`,
   ];
 
   return {
@@ -1550,7 +1572,20 @@ export function detectRitualRecord(fields = {}) {
 // Human Gate 领域增量事项（34 §15.1 / §15.2）
 // ---------------------------------------------------------------------------
 
-/** 34 §15.1 的四项领域增量事项（原文逐条）。 */
+/**
+ * 34 §15.1 的六项领域增量事项（原文逐条）。
+ *
+ * **前四项是「当次行动触发的待决事项」**——一次预检里出现了其中某一项，就须
+ * 提请 Human（`checkHumanGate` 消费的就是这四项）。
+ *
+ * **第 5、6 项是「本系统领域的常设 Human 决定事项」**，形态不同：它们不由某次
+ * 行动触发，而是该领域内**一旦出现相应情形就必须先有 Human 决定**才能继续
+ * （提高召回预算常量／扩大召回类型范围；本系统结论的承载形态与根定义的相容性）。
+ * 它们同样属 00 §4.2 的 Human 决定面，故一并登记在此，但**不**作为
+ * `checkHumanGate` 的「当次待决项」——那会把「尚未发生的情形」报成「当次触发的
+ * 待决事项」。故单列 `STANDING_HUMAN_GATE_ITEMS`，供调用方在相应情形出现时核对
+ * 「该事项是否已有 Human 决定」。
+ */
 export const HUMAN_GATE_ITEMS = Object.freeze([
   { key: "sourceConflict", label: "两个以上来源给出互斥要求，需在来源之间取舍" },
   { key: "sourceDefect", label: "识别发现既有规则、事实或决定本身存在缺口，而修复须修改规范源或根决定" },
@@ -1559,14 +1594,37 @@ export const HUMAN_GATE_ITEMS = Object.freeze([
 ]);
 
 /**
+ * 34 §15.1 的常设 Human 决定事项（第 5、6 项）。
+ *
+ * **它们与 `HUMAN_GATE_ITEMS` 的差别是触发方式，不是强制力**：两者同样只能由
+ * Human 决定（00 §4.2）。差别在于前者由**当次行动**触发、后者由**情形出现**
+ * 触发——本模块只登记事实，不判断该情形是否已发生（那是调用方与主控的判断）。
+ */
+export const STANDING_HUMAN_GATE_ITEMS = Object.freeze([
+  {
+    key: "recallBudgetScope",
+    label: "是否提高召回的字节预算常量或扩大召回的类型范围",
+    trigger: "当次行动需要更大的召回预算或更广的召回类型范围时",
+  },
+  {
+    key: "carrierFormCompatibility",
+    label: "本系统结论的承载形态与根定义的相容性",
+    trigger: "当次行动须依赖「结论由 03 §7.1 机械承载承接」这一尚未经 Human 裁定的关系时",
+  },
+]);
+
+/**
  * 判定一组待决事项中哪些触发了 Human Gate（34 §15.1）。
  *
  * ## 为什么这个函数必须存在
  *
- * §15.1 的四项有共同形状：都是**授权边界**，而 §11 明写「任何涉及授权边界的判断
+ * §15.1 的**当次待决**四项有共同形状：都是**授权边界**，而 §11 明写「任何涉及授权边界的判断
  * 不得产自快通道」。若不在机械层把这四项标出来，一件本应提请 Human 的事容易被当作
  * 普通技术决定做掉——而 00 §4.2 把「新增、改写或扩张可强制执行规则」等列为只能
  * 由 Human 决定之事。
+ *
+ * §15.1 的第 5、6 项（常设决定事项）不在本函数的消费范围内：它们不由当次行动
+ * 触发，见 `STANDING_HUMAN_GATE_ITEMS` 的说明。
  *
  * ## 边界（§15.2 是我不能越的部分）
  *
@@ -1586,7 +1644,7 @@ export function checkHumanGate(items = []) {
   if (unknown.length > 0) {
     return fail(
       "gate/item_unknown",
-      `待决事项须落在 34 §15.1 的四项内；未知项：${unknown.join("、")}`,
+      `待决事项须落在 34 §15.1 的当次待决四项内；未知项：${unknown.join("、")}`,
       { allowed: [...allowed] },
     );
   }
@@ -1911,9 +1969,13 @@ export function checkReuseBasis(input = {}) {
  * 34 §16.1 的领域触发，**本切片承接第 1–6 项**（原文逐条）。
  *
  * **本切片不承接第 7、8 项**（2026-10-25 34 号改名时追加：召回为空/unavailable 当作
- * 无相关、命中当适用而未识别）。它们由召回侧与适用识别侧自行守护（见
- * `recall-injection.js` 的截断归因与 `source-recall.js` 的 gaps），不入本切片的
- * STOP_RULES 表——因为本切片的判据函数只覆盖预检记录这一承载，无法判定召回侧状态。
+ * 无相关、命中当适用而未识别）。它们**目前没有机械落点**——本切片不承接，是因为
+ * 判据函数只覆盖预检记录这一承载，无法判定召回侧状态；**召回侧也没有机械落点**：
+ * `recall-injection.js` 在 `no-hits`／`recall-unavailable` 时返回 `inject: false`，
+ * 该原因**不进入上下文**（AI 看到的是「没有召回行」，不是「召回不可用，须停止」），
+ * `source-recall.js` 的 `gaps` 是数据字段、不产生停止。故第 7 项这一最危险误读
+ * 目前**只由 §14 的验证行（人工／语义核对）承担**，不得被记作「已有机械守护」。
+ * 该缺口已按 34 §14 的「未满足时的处理」如实登记，不在此静默补齐。
  * 规范原文的 §16.1 条目总数由 `precheck-record.spec-drift.test.mjs` 独立断言，
  * 使「规范加条、代码不加」这种漂移可见。
  *
