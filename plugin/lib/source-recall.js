@@ -47,6 +47,21 @@ import { join } from "node:path";
 
 /** 中文虚字：含任一虚字的二元组不参与匹配（不承载意义，只制造噪声）。 */
 /**
+ * **必需优先**的事实类型（`03 §6.1` 标准路径：「完成所需的 **ADR/Pitfall** 召回」）。
+ *
+ * 为什么是「排序优先」而不是「过滤限定」：过滤会**漏**。
+ *   · 过滤（曾试）：默认只召回这两类 → 「加个」这类短指令因只能搜这两类而
+ *     召回不到东西（实测 inject 由 true 变 false），属真实退化。
+ *   · 排序（现用）：仍召回全部被触发的类型，只是把 ADR/Pitfall 排在同层前面，
+ *     确保它们不被 research 等无关类型挤掉（实测「写一个 ADR」曾在 limit=3 时
+ *     返回两条 research、一条 adr 都没有）。
+ *
+ * `03 §6.1` 快通道那条写的是「不遍历**未被当前目标和来源规则触发的**全量规则或
+ * 事实」——不该全量遍历，但被触发的仍应召回到。排序满足这一点而不牺牲召回面。
+ */
+export const REQUIRED_RECALL_TYPES = Object.freeze(["adr", "pitfall"]);
+
+/**
  * **通用词**：在本语料里高频出现、本身不锁定主题的词（「任何」「规范」「执行」
  * 「测试」「写」「改」…）。它们**不该单独构成命中依据**，但在真正的主题查询里
  * 是必需的组成部分，故不丢、只降级。
@@ -496,6 +511,13 @@ export async function recallForAction(input = {}) {
     ? input.budgetBytes : 4000;
   const statuses = Array.isArray(input.statuses) && input.statuses.length > 0
     ? input.statuses : ["active"];
+  // 事实类型过滤。**默认不限定类型**——`03 §6.1` 快通道那条写的是「不遍历
+  // **未被当前目标和来源规则触发的**全量规则或事实」，即：不该全量遍历，
+  // 但被触发的类型仍应召回。曾把默认收窄为 `["adr","pitfall"]`，结果
+  // 「加个」这类短指令因只能搜这两类而召回不到东西（实测 inject 由 true 变 false）。
+  //
+  // ADR/Pitfall 的优先级改由**排序**保证（见 `REQUIRED_RECALL_TYPES`），
+  // 而不是靠**过滤**——过滤会漏，排序只是把必需类型提前。
   const types = Array.isArray(input.types) ? input.types : null;
   const includeSpecs = input.includeSpecs !== false;
 
@@ -584,7 +606,16 @@ export async function recallForAction(input = {}) {
   }));
   const allFactHits = collect(pool, (c) => ({
     kind: "fact", type: c.type, ref: c.ref, title: c.title, status: c.status, path: c.path,
-  }));
+  })).map((fact, index) => ({ fact, index }))
+    // **必需类型优先**（`03 §6.1` 标准路径的点名要求）。
+    // 排序键：是否属于 ADR/Pitfall（0/1）→ 原有次序（collect 已按其键排好）。
+    // 稳定排序由 `index` 兜底，保证同组内保持 collect 的既有质量次序。
+    // 这**不是过滤**：其余类型仍全部保留，只是排在必需类型之后。
+    .sort((a, b) => {
+      const rank = (x) => (REQUIRED_RECALL_TYPES.includes(x.fact.type) ? 0 : 1);
+      return rank(a) - rank(b) || a.index - b.index;
+    })
+    .map((entry) => entry.fact);
   const specHits = allSpecHits.slice(0, limit);
   const factHits = allFactHits.slice(0, limit);
 

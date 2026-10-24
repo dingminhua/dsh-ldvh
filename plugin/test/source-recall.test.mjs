@@ -12,6 +12,7 @@ import test from "node:test";
 import { join } from "node:path";
 
 import {
+	REQUIRED_RECALL_TYPES,
 	HIGH_DF_RATIO,
 	MATCH_TIERS,
 	loadFacts,
@@ -810,4 +811,43 @@ test("类型点名层只对规范生效，不得作用于事实（实测回归�
 		r.facts.some((f) => f.title.includes("插件重建清空子代理登记表")),
 		"真相关的教训须仍被召回",
 	);
+});
+
+test("默认事实类型须为 ADR/Pitfall（03 §6.1 标准路径的明示要求）", async () => {
+	// 03 §6.1 标准路径逐字：「完成适用来源要求的行动前事实预检；召回时机成立时，
+	// 按相应来源完成所需的 **ADR/Pitfall 召回**」。
+	// 此前默认召回全部类型，实测「写一个 ADR」limit=3 时两条事实**全是 research**，
+	// 一条 ADR 都没有（research 文档 scope 恰含 adr 且路径字典序靠前）——
+	// 即「所需的 ADR/Pitfall 召回」被无关类型挤掉了。
+	assert.deepEqual([...REQUIRED_RECALL_TYPES], ["adr", "pitfall"]);
+
+	// 关键：ADR/Pitfall 必须**排在最前**，不能被 research 等无关类型挤掉。
+	const r = await recallForAction({ action: "写一个 ADR", root: ROOT, limit: 3, budgetBytes: 24000 });
+	assert.ok(r.facts.length > 0, "应召回到事实");
+	assert.ok(
+		r.facts.some((f) => f.type === "adr"),
+		`「写一个 ADR」须召回 adr，实际：${r.facts.map((f) => f.type).join(",")}`,
+	);
+	// 前 limit 条里不得出现非必需类型排在必需类型之前。
+	const firstRequired = r.facts.findIndex((f) => REQUIRED_RECALL_TYPES.includes(f.type));
+	assert.ok(firstRequired >= 0, "至少有一条必需类型");
+	for (let i = 0; i < firstRequired; i += 1) {
+		// 不可能：firstRequired 已是第一个。
+		assert.fail("必需类型未排在最前");
+	}
+});
+
+test("调用方可显式覆盖默认类型", async () => {
+	// 默认收窄不等于强制——查 Friction 时应能传自己的类型。
+	const r = await recallForAction({
+		action: "这条 friction 该销账吗",
+		root: ROOT,
+		limit: 3,
+		budgetBytes: 24000,
+		types: ["friction"],
+	});
+	for (const f of r.facts) assert.equal(f.type, "friction", "显式 types 应生效");
+	// 传空数组表示只要规范。
+	const specOnly = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3, types: [] });
+	assert.equal(specOnly.facts.length, 0, "types: [] 应只要规范");
 });
