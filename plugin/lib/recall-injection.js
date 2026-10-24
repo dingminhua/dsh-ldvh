@@ -277,7 +277,16 @@ export function renderRecallRow(result) {
   // 只说「有东西被裁掉」没用，读者要知道「没看到什么」。
   const droppedTotal =
     (result?.unchecked?.specs?.length ?? 0) + (result?.unchecked?.facts?.length ?? 0);
-  if (result?.partial === true && droppedTotal > 0 && result?.overBudget !== true) {
+  // **只保留一条截断说明**：`partial` 与 `truncated` 在数据层是同一个值
+  // （`partial: truncated`），此前渲染层为它输出了两条不同措辞的提示
+  // （「排得靠后」与「超预算已裁剪」），既重复又互相矛盾。现由下方
+  // `truncated` 分支统一说明**真实原因**，此处仅在部分场景补充「具体是谁被丢」。
+  if (
+    result?.partial === true &&
+    droppedTotal > 0 &&
+    result?.overBudget !== true &&
+    result?.truncated !== true
+  ) {
     const names = [
       ...(result.unchecked.specs ?? []).map((s) => `规范「${s.title}」`),
       ...(result.unchecked.facts ?? []).map((f) => `事实「${f.title}」`),
@@ -288,12 +297,25 @@ export function renderRecallRow(result) {
     );
   }
   if (result?.truncated === true) {
+    // **区分裁剪的真实原因**（此前一律说「超出预算已裁剪」，而实测多数情形
+    // 根本没超预算——例如 used 2330 < limit 2400 却仍打这句话，属**误报**）。
+    // 裁剪有三种来源，只有第二种与预算有关：
+    //   1. `limit`（条数上限）——结果按条数截断；
+    //   2. 预算（字节上限）——放不下更多；
+    //   3. 保底——预算极小到连首项都放不下，仍然给出（此时才超额）。
+    const usedBytes = result.budget?.usedBytes ?? 0;
+    const limitBytes = result.budget?.limitBytes ?? 0;
     if (result.overBudget === true) {
-      // 保底一条导致超额：必须说清「预算极小、只给了保底项」，
-      // 否则读者会以为这么多就是全部相关项。
-      lines.push(`（预算极小（上限 ${result.budget?.limitBytes ?? "?"} 字节）已超额，仅保底给出首项（实际 ${result.budget?.usedBytes ?? "?"} 字节）。**未列出的部分不代表不存在**，需要时请扩大检索。）`);
+      // 保底导致超额：必须说清「预算极小、只给了保底项」。
+      lines.push(`（预算极小（上限 ${limitBytes} 字节）已超额，仅保底给出首项（实际 ${usedBytes} 字节）。**未列出的部分不代表不存在**，需要时请扩大检索。）`);
+    } else if (limitBytes > 0 && usedBytes >= limitBytes * 0.95) {
+      // 用 `>=` 而非 `>`：190/200 恰为 95%，属预算压线，仍应按预算受限说明
+      // （用 `>` 会把它误归到「条数限制」，而该情形预算其实已经很紧）。
+      // 确实是被预算挡住了（用量贴近上限）。
+      lines.push(`（受预算限制已裁剪：上限 ${limitBytes} 字节，实际用 ${usedBytes} 字节。未列出的部分不代表不存在。）`);
     } else {
-      lines.push(`（超出预算已裁剪：上限 ${result.budget?.limitBytes ?? "?"} 字节，实际用 ${result.budget?.usedBytes ?? "?"} 字节。未列出的部分不代表不存在。）`);
+      // 预算还很宽松 —— 说明是 **limit（条数）** 挡住的，如实说 limit。
+      lines.push(`（受条数上限（limit=${result.budget?.limit ?? "?"}）限制，仅列出前 ${(result.specs?.length ?? 0) + (result.facts?.length ?? 0)} 条；预算尚有余量（实际用 ${usedBytes}/${limitBytes} 字节）。未列出的部分不代表不存在，调大 limit 即可看到。）`);
     }
   }
   // **渲染文本硬上限**：超限时按行裁剪，保留头部（标题与边界声明）与

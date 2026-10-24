@@ -167,7 +167,9 @@ test("renderRecallRow：超预算如实标出裁剪与字节数（05 §9.2）", 
 		truncated: true,
 		budget: { limitBytes: 200, usedBytes: 190 },
 	});
-	assert.match(text, /超出预算已裁剪/);
+	// 文案已按真实原因细分（2026-10-24）：190/200 = 95%，属**预算受限**，
+	// 故走「受预算限制已裁剪」而非笼统的「超出预算已裁剪」（后者在未超预算时是误报）。
+	assert.match(text, /受预算限制已裁剪/);
 	assert.match(text, /200/);
 	assert.match(text, /190/);
 	assert.match(text, /不代表不存在/);
@@ -373,4 +375,42 @@ test("渲染文本未超限时不得添加裁剪说明", async () => {
 	if (r.inject) {
 		assert.ok(!/渲染文本超出上限/.test(r.text), "未超限时不得出现裁剪说明");
 	}
+});
+
+test("截断说明须区分真实原因（预算 vs 条数），不得一律说「超预算」", async () => {
+	// 实测缺陷：渲染层对 `truncated` 一律输出「超出预算已裁剪」，而多数情形
+	// **根本没超预算**（实测 used 2330 < limit 2400 却仍如此声明）——属误报。
+	// 裁剪有三种来源：limit（条数）、预算（字节）、保底（超额）。
+	// 1) 条数限制：预算余量充足。
+	const byLimit = await buildRecallInjection({
+		userText: "把 34 号规范改名成双源召回",
+		projectRoot: ROOT,
+		limit: 1,
+		budgetBytes: 40000,
+	});
+	assert.equal(byLimit.inject, true);
+	assert.match(byLimit.text, /受条数上限/, "条数限制须说 limit");
+	assert.ok(!/超出预算已裁剪/.test(byLimit.text), "预算充足时不得声称超预算");
+	assert.match(byLimit.text, /预算尚有余量/, "须如实说明预算有余量");
+
+	// 2) 预算限制：用量贴近上限。
+	const byBudget = await buildRecallInjection({
+		userText: "把 34 号规范改名成双源召回",
+		projectRoot: ROOT,
+		limit: 3,
+		budgetBytes: 2400,
+	});
+	assert.equal(byBudget.inject, true);
+	assert.match(byBudget.text, /受预算限制|预算极小/, "预算受限须点名预算");
+});
+
+test("partial 与 truncated 是同一个值，渲染不得输出两条互相矛盾的提示", async () => {
+	const r = await buildRecallInjection({
+		userText: "把 34 号规范改名成双源召回",
+		projectRoot: ROOT,
+		limit: 3,
+		budgetBytes: 2400,
+	});
+	const truncationLines = (r.text.match(/^（(本次为|受预算|受条数|预算极小)[^\n]*/gm) ?? []);
+	assert.ok(truncationLines.length <= 1, `截断说明不得重复输出，实际 ${truncationLines.length} 条：${truncationLines.join(" | ")}`);
 });
