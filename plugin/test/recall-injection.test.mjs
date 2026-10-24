@@ -484,3 +484,30 @@ test("渲染行须显示候选摘录（数据层有而渲染不显示 = 读者�
 	assert.ok(excerptLine !== undefined);
 	assert.ok(excerptLine.trim().length > 5, "摘录不得为空");
 });
+
+test("渲染裁剪须可观察（02 §9.1「截断必须可观察」）", async () => {
+	// 实测缺口（2026-10-24）：渲染层硬上限会按行裁剪、提示语也写明了，但
+	// `result` 上没有对应字段——调用方与测试只能正则匹配那段中文提示，
+	// 无法机械判定「这次渲染被裁过」。
+	const normal = await buildRecallInjection({
+		userText: "把 34 号规范改名",
+		projectRoot: ROOT,
+		limit: 2,
+		budgetBytes: 2400,
+	});
+	assert.ok(normal.result.render !== undefined, "须给出 render 观察字段");
+	assert.equal(normal.result.render.limitChars, RECALL_RENDER_CHAR_LIMIT);
+	assert.equal(typeof normal.result.render.truncated, "boolean");
+
+	// 大 limit 下渲染文本会超上限并被裁剪 → truncated 须为 true。
+	const big = await buildRecallInjection({
+		userText: "把 34 号规范改名成双源召回",
+		projectRoot: ROOT,
+		limit: 50,
+		budgetBytes: 999999,
+	});
+	assert.equal(big.result.render.truncated, true, "超上限时须标 truncated");
+	assert.ok(big.result.render.chars > 0);
+	// 且与「数据侧截断」是两个独立字段，不得混同。
+	assert.equal(typeof big.result.truncated, "boolean", "数据侧截断字段须独立存在");
+});

@@ -430,5 +430,22 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
     return { inject: false, reason: "no-hits" };
   }
   const text = renderRecallRow(result);
+  // **渲染裁剪须可观察**（`02 §9.1`「截断……必须可观察」/ `10:241` 预算核对）。
+  //
+  // 实测缺口（2026-10-24）：渲染层的硬上限会按行裁剪，提示语里也写明了，
+  // 但 `result` 上**没有对应字段**——调用方与测试无法机械观察「这次渲染被裁过」，
+  // 只能去正则匹配那段中文提示。现补一个布尔与计数，使该事实可编程判定。
+  const renderChars = text.length;
+  const renderTruncated = /渲染文本超出上限/.test(text);
+  result.render = {
+    chars: renderChars,
+    limitChars: RECALL_RENDER_CHAR_LIMIT,
+    truncated: renderTruncated,
+    // 说明：这一步只裁**渲染文本**，不动候选数据；数据侧的裁剪由
+    // result.truncated / partial / unchecked 承载，两者是不同的事。
+    note: renderTruncated
+      ? "渲染文本超上限已按行裁剪；候选数据本身未因此减少，调大 limit 未必能显示更多，需先缩短标题/命中理由或提高上限（后者属 Human 决定事项，10:261）"
+      : "渲染文本未超上限",
+  };
   return { inject: true, text, digest: text, result };
 }
