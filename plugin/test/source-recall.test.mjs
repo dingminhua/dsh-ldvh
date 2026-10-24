@@ -12,6 +12,7 @@ import test from "node:test";
 import { join } from "node:path";
 
 import {
+	DEFAULT_STATUSES_BY_TYPE,
 	REGISTERED_FACT_TYPES,
 	REQUIRED_RECALL_TYPES,
 	HIGH_DF_RATIO,
@@ -642,9 +643,19 @@ test("02 §9.1：limit 造成的丢弃须标 partial/truncated（不只预算）
 	assert.equal(small.partial, true, "limit 截断时须报 partial");
 	assert.equal(small.truncated, true, "limit 截断时须报 truncated");
 
-	const big = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 99, budgetBytes: 999999 });
-	assert.equal(big.partial, false, "未截断时不得虚报 partial");
-	assert.equal(big.truncated, false);
+	// 注意（2026-10-24）：按类型取默认候选状态集后候选池变大（friction 92 条、
+	// spark 34 条现在都可见），`limit: 99` 也可能真的不够——实测该查询命中
+	// 144 条事实而 limit 99 只能返回 99 条。故「不虚报」的判据不能再用固定
+	// limit 值，而应断言：partial 为真 ⟺ 确实有命中未返回。
+	const big = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 999, budgetBytes: 9999999 });
+	const reallyDropped =
+		big.counts.specsReturned < big.counts.specHits || big.counts.factsReturned < big.counts.factHits;
+	assert.equal(
+		big.partial,
+		reallyDropped,
+		`partial 须与「是否真有未返回的命中」一致：partial=${big.partial} dropped=${reallyDropped}`,
+	);
+	assert.equal(big.truncated, reallyDropped, "truncated 同理");
 });
 
 test("02 §9.1：unchecked 须列出**具体被丢弃的候选**，不只是一个布尔", async () => {
@@ -1236,5 +1247,44 @@ test("trigger_signal 须参与匹配（不得读进变量却不用）", async ()
 			f.detail.includes(f.trigger.trim().slice(0, 20)),
 			`trigger_signal 未进入匹配面：${f.title}`,
 		);
+	}
+});
+
+test("默认候选状态须按类型取，不得统一写死 active（20–27 各自规定）", async () => {
+	// 实测缺陷（2026-10-24）：默认状态原写死 ["active"]，而多数类型**没有**
+	// active 这个状态——结果它们默认一条都召回不到：
+	//   Spark 默认是 open（34 条不可见）、WorkCase 是 draft+open（36 条全不可见）、
+	//   Friction 是 open+observing（92 条不可见）。合计 142 条本可召回的不可见。
+	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.spark], ["open"], "20：默认候选只含 open");
+	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.workcase], ["draft", "open"], "21 §13：默认含 draft 与 open");
+	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.friction], ["open", "observing"], "26：默认含 open 与 observing");
+	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.adr], ["active"], "22：默认含 active");
+	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.norm], ["active"], "27：默认含 active");
+	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.pitfall], ["active"], "23 §12：draft 不进默认候选");
+
+	// 关键行为：各类的默认候选确实能被召回。
+	// Friction 的 observing 是「活账」，必须可见（否则摩擦账本读不到东西）。
+	const friction = await recallForAction({
+		action: "这条 friction 该销账吗",
+		root: ROOT,
+		limit: 5,
+		budgetBytes: 40000,
+		types: ["friction"],
+	});
+	assert.ok(friction.facts.length > 0, "friction 默认候选须非空");
+	for (const f of friction.facts) {
+		assert.ok(["open", "observing"].includes(f.status), `friction 默认不应含 ${f.status}`);
+	}
+
+	// Spark 的 open 必须可见，implemented/discarded 不可见。
+	const spark = await recallForAction({
+		action: "记一条 Spark",
+		root: ROOT,
+		limit: 20,
+		budgetBytes: 400000,
+		types: ["spark"],
+	});
+	for (const f of spark.facts) {
+		assert.equal(f.status, "open", `spark 默认不应含 ${f.status}`);
 	}
 });

@@ -65,6 +65,39 @@ import { join } from "node:path";
 
 /** 中文虚字：含任一虚字的二元组不参与匹配（不承载意义，只制造噪声）。 */
 /**
+ * **按类型的默认候选状态集**（`20–27` 各类型规范分别规定，**不得统一为 active**）。
+ *
+ * 实测缺陷（2026-10-24）：默认状态原写死 `["active"]`，而多数类型**没有**
+ * `active` 这个状态——结果它们**默认一条都召回不到**：
+ *
+ *   · Spark（20）默认候选是 `open` → 34 条 open 不可见；
+ *   · WorkCase（21 §13）是 `draft`+`open` → 36 条全部不可见（它连 active 都没有）；
+ *   · Friction（26）是 `open`+`observing` → 92 条不可见；
+ *   · ADR（22）／Norm（27）是 `active` → 恰好正确；
+ *   · Pitfall（23 §12）是 `active` → 恰好正确（draft 只在「待确认队列」专门查询时列出）。
+ *
+ * 合计 **142 条本可召回的事实**默认完全不可见。
+ *
+ * 逐条依据：
+ *   · `20`「默认候选只包含 open Spark；implemented/discarded 不进入普通未处置候选」；
+ *   · `21 §13`「默认候选只含 draft 与 open；closed 只在精确引用、证据链反查或历史追溯时展开」；
+ *   · `23 §12`「默认候选只含 active；draft 不进入默认候选——它尚未入档」；
+ *   · `26`「默认候选含 open 与 observing（observing 是活账）；resolved 仅精确引用时展开」；
+ *   · `22`「默认候选只含 active——当前决策基线就是 active 集本身」；
+ *   · `27`「默认候选只含 active——当前生效规范就是 active 集本身」。
+ *
+ * 未列出的类型沿用 `["active"]`（`24` 未对默认候选另作规定）。
+ */
+export const DEFAULT_STATUSES_BY_TYPE = Object.freeze({
+  spark: ["open"],
+  workcase: ["draft", "open"],
+  friction: ["open", "observing"],
+  adr: ["active"],
+  norm: ["active"],
+  pitfall: ["active"],
+});
+
+/**
  * **已登记事实类型的白名单**（`02 §9.2`「中间产物不进入召回」的落实）。
  *
  * > 中间产物不进入召回：事实源之外的中间产物（如 11 §12bis 的留观缓冲）
@@ -652,8 +685,15 @@ export async function recallForAction(input = {}) {
   const limit = Number.isInteger(input.limit) && input.limit > 0 ? input.limit : 5;
   const budgetBytes = Number.isInteger(input.budgetBytes) && input.budgetBytes > 0
     ? input.budgetBytes : 4000;
-  const statuses = Array.isArray(input.statuses) && input.statuses.length > 0
-    ? input.statuses : ["active"];
+  // 显式传入优先；否则**按类型取各自的默认候选状态集**
+  // （统一写死 `active` 会让多数类型零召回，见 `DEFAULT_STATUSES_BY_TYPE`）。
+  const explicitStatuses = Array.isArray(input.statuses) && input.statuses.length > 0
+    ? input.statuses : null;
+  // `statuses` 保留为一个**判定函数**的语义位：实际按每个候选的类型查表。
+  const statusAllowed = (type, status) => {
+    const allowed = explicitStatuses ?? DEFAULT_STATUSES_BY_TYPE[type] ?? ["active"];
+    return allowed.includes(status);
+  };
   // 事实类型过滤。**默认不限定类型**——`03 §6.1` 快通道那条写的是「不遍历
   // **未被当前目标和来源规则触发的**全量规则或事实」，即：不该全量遍历，
   // 但被触发的类型仍应召回。曾把默认收窄为 `["adr","pitfall"]`，结果
@@ -688,7 +728,7 @@ export async function recallForAction(input = {}) {
     // 未登记类型（留观缓冲、缓存、草稿箱等事实源之外的中间产物）不形成候选卡。
     if (!REGISTERED_FACT_TYPES.includes(c.type)) return false;
     if (types !== null && !types.includes(c.type)) return false;
-    return statuses.includes(c.status);
+    return statusAllowed(c.type, c.status);
   });
 
   // 按源分算文档频率，过滤过于普遍的 token（见 `HIGH_DF_RATIO`）。
@@ -912,7 +952,7 @@ export async function recallForAction(input = {}) {
         .map((fact) => ({ type: fact.type, title: fact.title, path: fact.path })),
       excludedByStatus: facts
         .filter((fact) => types === null || types.includes(fact.type))
-        .filter((fact) => !statuses.includes(fact.status))
+        .filter((fact) => !statusAllowed(fact.type, fact.status))
         .map((fact) => ({ type: fact.type, status: fact.status, title: fact.title, path: fact.path })),
       excludedByTypeWhitelist: facts
         .filter((fact) => !REGISTERED_FACT_TYPES.includes(fact.type))
