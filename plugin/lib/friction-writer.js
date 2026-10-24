@@ -68,6 +68,21 @@ const CORRECT_ADDABLE_FIELDS = new Set(["occurrence", "disposition"]);
 // 条件约束者。闭集收缩或条件约束建立时在此登记。
 const CORRECT_REMOVABLE_FIELDS = new Set(["serves", "occurrence"]);
 
+/**
+ * 第三类删除许可（26 §13，2026-10 扩围）：**目标已退役的锚点字段**。
+ *
+ * 只含锚点型字段（当前仅 `attribution_ref`）。该类的准入不只靠"字段在名单里"，
+ * 还须机械核验**其目标此刻不可解析**——即目标对象确实已不存在。仅凭字段名放行
+ * 会把「归因缺失」伪装成「目标已退役」，是数据伪造（26 §13 明文）。
+ *
+ * **存在理由**（与 26 §13「悬空锚点的可达性约束」是一对）：`attribution_ref` 的
+ * 可解析性核验发生在任何写入之前，故目标一旦消失，该终态载体此后既不能 update
+ * （终态只读）也不能 correct（核验先拦）。若无本类，闭集收缩必然在终态对象上留下
+ * 无法清除的悬空锚点。实测用例：abf557e1 的 attribution_ref 指向 observing 载体
+ * 5d5862c9，而该状态随 2026-10 闭集收缩退出、其载体经 Human 决定删除。
+ */
+const CORRECT_REMOVABLE_ANCHOR_FIELDS = new Set(["attribution_ref"]);
+
 /** Relation keys allowed for Friction (26 §11 — closed set of exactly one). */
 const FRICTION_RELATION_KEYS = new Set(["informs"]);
 
@@ -1037,9 +1052,30 @@ export async function correctFrictionObject(args) {
       }
       continue;
     }
+    // ③ 目标已退役的锚点字段（26 §13，2026-10 扩围）。**准入须两项同时成立**：
+    //    字段是锚点型，且其目标此刻**不可解析**。核验放在这里而不是靠调用方自觉——
+    //    「目标确实不在了」是这个许可的全部正当性，机械层必须自己核。
+    if (CORRECT_REMOVABLE_ANCHOR_FIELDS.has(field)) {
+      const anchorUid = normalizeAttributionRef(next[field])?.object_uid;
+      if (anchorUid === undefined) {
+        // 字段不存在或形状不可读：按 no-op 处理（与 ①② 同一口径），不额外报错。
+        continue;
+      }
+      const resolves = await verifyAttributionRefResolves(factSourceRoot, { attribution_ref: next[field] });
+      if (resolves.ok) {
+        return failure(
+          "friction/correction_anchor_target_alive",
+          `refusing to remove ${JSON.stringify(field)}: its target ${JSON.stringify(anchorUid)} still resolves to a live fact object `
+          + "(26 §13 第三类：只允许删除**指向已退役或将退役目标**的锚点字段——目标仍可解析时删除它，等于把「归因缺失」伪装成「目标已退役」)",
+        );
+      }
+      delete next[field];
+      removedFields.push(field);
+      continue;
+    }
     return failure(
       "friction/correction_removal_not_permitted",
-      `correct may only remove fields retired from the type's closed set; got ${JSON.stringify(field)} (26 §13: 终态事实更正不得新增或改值 frontmatter)`,
+      `correct may only remove fields retired from the type's closed set, fields violating §8 conditional constraints, or anchor fields whose target no longer resolves; got ${JSON.stringify(field)} (26 §13: 终态事实更正不得新增或改值 frontmatter)`,
     );
   }
   // 26 §13 对称的补填动作：闭集扩张时补填新进入闭集的字段。

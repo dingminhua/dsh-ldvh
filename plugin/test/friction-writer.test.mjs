@@ -368,6 +368,135 @@ test("correct: 补填 occurrence 带 human_return_at 被拒（26 §8 成员闭�
     const after = await readFrictionObject({ factSourceRoot: root, objectUid: uid });
     assert.equal(after.value.frontmatter.occurrence, undefined, "被拒的补填不得写入 occurrence");
   });
+
+// ---------------------------------------------------------------------------
+// correct 的第三类删除许可：目标已退役的锚点字段（26 §13，2026-10 扩围）
+// ---------------------------------------------------------------------------
+
+/** 造一条 resolved 账目，携带指向某目标的 attribution_ref。 */
+async function seedResolvedWithAnchor(root, { anchorUid, informsUid }) {
+  const uid = "55555555-5555-4555-8555-555555555555";
+  const phenomenon = "某阻碍已被修复销账。";
+  const title = "已销账的阻碍";
+  await mkdir(join(root, FRICTION_DIRECTORY), { recursive: true });
+  await writeFile(
+    join(root, FRICTION_DIRECTORY, frictionFileName(uid)),
+    `---\nobject_uid: ${uid}\nfact_type_key: friction\ntitle: ${title}\nstatus: resolved\n` +
+      `phenomenon: "${phenomenon}"\nimpact: medium\n` +
+      `relations:\n  - relation_key: informs\n    target:\n      object_uid: ${informsUid}\n` +
+      `attribution_ref:\n  object_uid: ${anchorUid}\n` +
+      `occurrence:\n  count: 3\n  first_at: "2026-10-01T00:00:00.000Z"\n  last_at: "2026-10-05T00:00:00.000Z"\n` +
+      `created_at: "2026-10-01T00:00:00.000Z"\nchange_log: []\n` +
+      `---\n\n# ${title}\n\n## 现象\n${phenomenon}\n\n## 入账依据\n依据。\n\n## 处置\n已修复。\n`,
+    "utf8",
+  );
+  return uid;
+}
+
+/** 造一个最小的 informs 目标（workcase 目录下的载体，只要 object_uid 可解析）。 */
+async function seedInformsTarget(root, uid) {
+  await mkdir(join(root, "workcases"), { recursive: true });
+  await writeFile(
+    join(root, "workcases", `workcase-${uid}.md`),
+    `---\nobject_uid: ${uid}\nfact_type_key: workcase\ntitle: 解药工单\nstatus: closed\ncreated_at: "2026-10-01T00:00:00.000Z"\n---\n\n# 解药工单\n`,
+    "utf8",
+  );
+}
+
+/** 造一个可解析的锚点目标（spark）。 */
+async function seedAnchorTarget(root, uid) {
+  await mkdir(join(root, "sparks"), { recursive: true });
+  await writeFile(
+    join(root, "sparks", `spark-${uid}.md`),
+    `---\nobject_uid: ${uid}\nfact_type_key: spark\ntitle: 归因目标\nstatus: open\ncreated_at: "2026-10-01T00:00:00.000Z"\n---\n\n# 归因目标\n`,
+    "utf8",
+  );
+}
+
+const ANCHOR_UID = "66666666-6666-4666-8666-666666666666";
+const INFORMS_UID = "77777777-7777-4777-8777-777777777777";
+
+test("correct 第三类：目标仍可解析时**拒绝**删除 attribution_ref（26 §13——不得把归因缺失伪装成目标退役）", async () => {
+  await withTemp("friction-writer.", async (root) => {
+    const uid = await seedResolvedWithAnchor(root, { anchorUid: ANCHOR_UID, informsUid: INFORMS_UID });
+    await seedInformsTarget(root, INFORMS_UID);
+    await seedAnchorTarget(root, ANCHOR_UID); // 目标仍在
+
+    const current = await readFrictionObject({ factSourceRoot: root, objectUid: uid });
+    const body = current.value.body.replace(/^# .*\n/, "").replace(/^\n+/, "");
+    const attempt = await correctFrictionObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: current.value.fingerprint,
+      bodyMarkdownAfter: body,
+      frontmatterRemovals: ["attribution_ref"],
+      humanAuthorization: "Human 于 2026-10 授权（测试：目标还活着的情况）",
+      changeSummary: "试图删除仍可解析的锚点",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!attempt.ok, "目标可解析时不得删除锚点——那等于伪造「目标已退役」");
+    assert.equal(attempt.error.code, "friction/correction_anchor_target_alive");
+
+    // 零写
+    const after = await readFrictionObject({ factSourceRoot: root, objectUid: uid });
+    assert.notEqual(after.value.frontmatter.attribution_ref, undefined, "被拒后锚点仍在");
+    assert.equal(after.value.fingerprint, current.value.fingerprint, "零写：指纹不变");
+  });
+});
+
+test("correct 第三类：目标已退役时**允许**删除 attribution_ref，且 status 与终态判定逐字不变（26 §13）", async () => {
+  await withTemp("friction-writer.", async (root) => {
+    const uid = await seedResolvedWithAnchor(root, { anchorUid: ANCHOR_UID, informsUid: INFORMS_UID });
+    await seedInformsTarget(root, INFORMS_UID);
+    // **不**造 ANCHOR_UID —— 目标已退役，正是本许可的适用情形。
+
+    const current = await readFrictionObject({ factSourceRoot: root, objectUid: uid });
+    const body = current.value.body.replace(/^# .*\n/, "").replace(/^\n+/, "");
+    const corrected = await correctFrictionObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: current.value.fingerprint,
+      bodyMarkdownAfter: body,
+      frontmatterRemovals: ["attribution_ref"],
+      humanAuthorization: "Human 于 2026-10 授权：删除指向已退役目标的 attribution_ref（26 §13 第三类）",
+      changeSummary: "删除指向已退役目标的 attribution_ref",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(corrected.ok, JSON.stringify(corrected.error));
+
+    const after = await readFrictionObject({ factSourceRoot: root, objectUid: uid });
+    assert.equal(after.value.frontmatter.attribution_ref, undefined, "锚点已删除");
+    assert.equal(after.value.frontmatter.status, "resolved", "终态判定逐字不变（不使 resolved 可重开）");
+    assert.deepEqual(after.value.frontmatter.relations, current.value.frontmatter.relations, "relations 逐字不变");
+    assert.equal(
+      after.value.frontmatter.change_log.length,
+      current.value.frontmatter.change_log.length + 1,
+      "change_log 恰好追加一条",
+    );
+  });
+});
+
+test("correct 第三类：非锚点型字段仍不得经此通道删除（许可只补一个缺口）", async () => {
+  await withTemp("friction-writer.", async (root) => {
+    const uid = await seedResolvedWithAnchor(root, { anchorUid: ANCHOR_UID, informsUid: INFORMS_UID });
+    await seedInformsTarget(root, INFORMS_UID);
+    const current = await readFrictionObject({ factSourceRoot: root, objectUid: uid });
+    const body = current.value.body.replace(/^# .*\n/, "").replace(/^\n+/, "");
+    const attempt = await correctFrictionObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: current.value.fingerprint,
+      bodyMarkdownAfter: body,
+      // impact 是闭集内的普通字段——既未退出闭集，也不是锚点型。
+      frontmatterRemovals: ["impact"],
+      humanAuthorization: "Human 于 2026-10 授权（测试：越界删除）",
+      changeSummary: "试图删除闭集内的普通字段",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!attempt.ok, "第三类许可不得被扩张成「可删任意字段」");
+    assert.equal(attempt.error.code, "friction/correction_removal_not_permitted");
+  });
+});
 });
 
 // ---------------------------------------------------------------------------
