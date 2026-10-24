@@ -32,7 +32,7 @@ Pitfall 对象存在、处于 active 或形成经验积累，均不能单独证�
 
 1. `source-of-truth-traceability`：02 §5 事实源载体与溯源、09 §5 受控提交契约。
 2. `specification-model-foundation`：01 §12.2 独立审核的执行体范围与独立性判据（§16.1 的入档前置验证承接该判据）。
-3. `business-system-foundation`：业务系统基础规范 §9.6 规则遵守业务系统（执行前预检是 Pitfall 的结构性消费点）。
+3. `business-system-foundation`：业务系统基础规范 §9.5 双源召回业务系统（执行前预检是 Pitfall 的结构性消费点）。
 
 本文不依赖外部语法或行业标准定义 Pitfall 语义。v4 specs/23 的实证设计（六字段分工、九区段阅读投影）只作设计输入，不取得规范效力。发生冲突或权威关系无法确认时，按 00 §5.7 暂停受影响范围并完成对齐。
 
