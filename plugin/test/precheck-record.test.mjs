@@ -1,4 +1,4 @@
-// tests for plugin/lib/precheck-record.js — 规则遵守系统的机械承载切片
+// tests for plugin/lib/precheck-record.js — 双源召回系统的机械承载切片
 //
 // 权威：specs/34 §8/§10/§12/§14；specs/03 §7.2（公共格式唯一权威）；
 // specs/10 §7.7（ldvh/ 域承载，不硬编码路径）。
@@ -297,7 +297,7 @@ test("evaluateReuse：三条全成立时判为可复用，且无待办处置", (
 		sessionId: "session-abc",
 		sameScope: true,
 		noNewSignal: true,
-		carriers: [{ path: "specs/34-规则遵守系统规范.md", baseline: "h1", current: "h1" }],
+		carriers: [{ path: "specs/34-双源召回系统规范.md", baseline: "h1", current: "h1" }],
 	});
 	assert.equal(result.ok, true);
 	assert.equal(result.reusable, true);
@@ -340,14 +340,14 @@ test("evaluateReuse：载体指纹已变即不复用，并指出是哪个载体"
 		sameScope: true,
 		noNewSignal: true,
 		carriers: [
-			{ path: "specs/34-规则遵守系统规范.md", baseline: "aaa", current: "bbb" },
+			{ path: "specs/34-双源召回系统规范.md", baseline: "aaa", current: "bbb" },
 			{ path: "ldvh-base/adrs/adr-1.md", baseline: "ccc", current: "ccc" },
 		],
 	});
 	assert.equal(result.reusable, false);
 	assert.equal(result.failed.length, 1);
 	assert.equal(result.failed[0].condition, "sourcesUnchanged");
-	assert.match(result.failed[0].reason, /specs\/34-规则遵守系统规范\.md/);
+	assert.match(result.failed[0].reason, /specs\/34-双源召回系统规范\.md/);
 });
 
 test("evaluateReuse：载体不可读即不复用，不当成「没变化」", () => {

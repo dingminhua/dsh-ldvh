@@ -31,7 +31,7 @@ const BENCH = Object.freeze([
 	{
 		q: "把 34 号规范改名成双源召回，走独立审核",
 		why: "点名编号 + 点名审核；34 号必须靠编号层直接命中",
-		must: ["规则遵守系统规范"],
+		must: ["双源召回系统规范"],
 		mustNot: [],
 		maxSpecs: 5,
 	},

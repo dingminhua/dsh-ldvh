@@ -74,48 +74,48 @@ function assertVerbatim(specText, specLabel, groupLabel, values) {
 }
 
 test("specs 语料可读（不可读须显式失败，不得静默通过）", async () => {
-	const spec34 = await readSpec("34-规则遵守系统规范.md");
+	const spec34 = await readSpec("34-双源召回系统规范.md");
 	const spec03 = await readSpec("03-业务系统基础规范.md");
-	assert.ok(spec34 !== null, `语料不可读：${SPECS_DIR}/34-规则遵守系统规范.md（发布包内无语料时须如实失败）`);
+	assert.ok(spec34 !== null, `语料不可读：${SPECS_DIR}/34-双源召回系统规范.md（发布包内无语料时须如实失败）`);
 	assert.ok(spec03 !== null, `语料不可读：${SPECS_DIR}/03-业务系统基础规范.md`);
 });
 
 test("34 §6 进入信号与排除条件：代码常量须逐字来自原文", async () => {
-	const spec = await readSpec("34-规则遵守系统规范.md");
+	const spec = await readSpec("34-双源召回系统规范.md");
 	assertVerbatim(spec, "34 号", "进入信号", ENTRY_SIGNALS);
 	assertVerbatim(spec, "34 号", "排除动作类型", EXCLUDED_ACTION_KINDS);
 });
 
 test("34 §8 失败分流四条：代码常量须逐字来自原文", async () => {
-	const spec = await readSpec("34-规则遵守系统规范.md");
+	const spec = await readSpec("34-双源召回系统规范.md");
 	assertVerbatim(spec, "34 号", "失败去向", FAILURE_ROUTES);
 	// 三段判断的三项在 §8 与 §12 中均以「生效／适用／行动允许」出现。
 	assertVerbatim(spec, "34 号", "三段判断项", THREE_WAY_ITEMS.map((item) => item.label));
 });
 
 test("34 §8.3 三判据：代码常量须逐字来自原文", async () => {
-	const spec = await readSpec("34-规则遵守系统规范.md");
+	const spec = await readSpec("34-双源召回系统规范.md");
 	assertVerbatim(spec, "34 号", "落实三判据", APPLICATION_CRITERIA.map((item) => item.label));
 });
 
 test("34 §9.1 偏离形态闭集：代码常量须逐字来自原文", async () => {
-	const spec = await readSpec("34-规则遵守系统规范.md");
+	const spec = await readSpec("34-双源召回系统规范.md");
 	assertVerbatim(spec, "34 号", "偏离形态", DEVIATION_FORMS);
 	assert.equal(FORMS.length, 4, "§9.1 恰四类，多一类或少一类都是漂移");
 });
 
 test("34 §12 交还七项：代码常量须逐字来自原文", async () => {
-	const spec = await readSpec("34-规则遵守系统规范.md");
+	const spec = await readSpec("34-双源召回系统规范.md");
 	assertVerbatim(spec, "34 号", "交还项", RETURN_ITEMS.map((item) => item.label));
 });
 
 test("34 §15.1 Human Gate 四事项：代码常量须逐字来自原文", async () => {
-	const spec = await readSpec("34-规则遵守系统规范.md");
+	const spec = await readSpec("34-双源召回系统规范.md");
 	assertVerbatim(spec, "34 号", "Gate 事项", HUMAN_GATE_ITEMS.map((item) => item.label));
 });
 
 test("34 §13/§14 禁止等式的九个词：须逐字来自原文", async () => {
-	const spec = await readSpec("34-规则遵守系统规范.md");
+	const spec = await readSpec("34-双源召回系统规范.md");
 	for (const item of NON_EQUIVALENCES) {
 		assert.ok(spec.includes(item.left), `「${item.left}」不在 34 号原文中`);
 		assert.ok(spec.includes(item.doesNotImply), `「${item.doesNotImply}」不在 34 号原文中`);
@@ -123,7 +123,7 @@ test("34 §13/§14 禁止等式的九个词：须逐字来自原文", async () =
 });
 
 test("34 §7.5 层级来源段：代码常量须逐字来自原文", async () => {
-	const spec = await readSpec("34-规则遵守系统规范.md");
+	const spec = await readSpec("34-双源召回系统规范.md");
 	for (const tier of CONFLICT_TIERS) {
 		assert.ok(spec.includes(tier.source), `层级来源「${tier.source}」不在原文中`);
 	}
@@ -157,7 +157,7 @@ test("03 §6.2 快通道五要素：代码常量须逐字来自原文", async ()
 });
 
 test("34 §7.3 复用条件：代码常量须逐字来自原文", async () => {
-	const spec = await readSpec("34-规则遵守系统规范.md");
+	const spec = await readSpec("34-双源召回系统规范.md");
 	const spec03 = await readSpec("03-业务系统基础规范.md");
 	// 复用条件在 03 §7.3 定义、34 号引用；两个载体都应能对上措辞片段。
 	for (const condition of REUSE_CONDITIONS) {
@@ -167,12 +167,12 @@ test("34 §7.3 复用条件：代码常量须逐字来自原文", async () => {
 });
 
 test("34 §9.2 偏离登记四项：代码常量须逐字来自原文", async () => {
-	const spec = await readSpec("34-规则遵守系统规范.md");
+	const spec = await readSpec("34-双源召回系统规范.md");
 	assertVerbatim(spec, "34 号", "偏离登记项", DEVIATION_FIELDS.map((item) => item.label));
 });
 
 test("34 §14 缺口登记：§14 该行未逐字列出三项名，故不得伪装成原文措辞", async () => {
-	const spec = await readSpec("34-规则遵守系统规范.md");
+	const spec = await readSpec("34-双源召回系统规范.md");
 	// 34 §14「未识别缺口的登记」行的成立条件是「未识别到的来源已被登记为缺口，
 	// 而非静默略过」；它没有逐字列出「未识别的来源／影响的范围／缺口状态」三项名。
 	// 故 GAP_FIELDS 的 label 是本模块按该行语义拆出的机械字段，已标 verbatim:false。
@@ -193,7 +193,7 @@ test("34 §14 缺口登记：§14 该行未逐字列出三项名，故不得伪�
 });
 
 test("34 §11 环节级声明：每个环节名须逐字来自原文", async () => {
-	const spec = await readSpec("34-规则遵守系统规范.md");
+	const spec = await readSpec("34-双源召回系统规范.md");
 	for (const stage of Object.keys(STAGE_MINIMUM_TIER)) {
 		assert.ok(spec.includes(stage), `环节「${stage}」不在 34 §11 原文中`);
 	}
@@ -203,11 +203,14 @@ test("34 §11 环节级声明：每个环节名须逐字来自原文", async () 
 // 34 §17 反过度设计红线（实为 7 条，非 4 条——2026-10-23 核对纠正）
 // ---------------------------------------------------------------------------
 
-test("34 §17 恰为 7 条红线（我此前误按 4 条自查，漏了第 5、6、7 条）", async () => {
-	const spec = await readSpec("34-规则遵守系统规范.md");
+test("34 §17 恰为 10 条红线（原 7 条 + 改名后追加的 3 条召回侧红线）", async () => {
+	// 2026-10-25 34 号改名：原 7 条一字未动，其后追加 3 条召回侧红线
+	// （不建持久索引／不用相似度裁决／不把召回质量当验收指标）。
+	// 条数从 7 变 10 是**有意的**，本断言随之更新；若将来再改条数，这里会再次提示复核。
+	const spec = await readSpec("34-双源召回系统规范.md");
 	const section = spec.slice(spec.indexOf("## 17. 反过度设计红线"));
 	const items = section.match(/^\d+\. /gm) ?? [];
-	assert.equal(items.length, 7, "§17 实为 7 条；若规范改了条数，本断言会提示复核");
+	assert.equal(items.length, 10, "§17 实为 10 条；若规范改了条数，本断言会提示复核");
 });
 
 test("§17 第 5 条（不得扩张为规则解释者）：代码中无解释执行路径", async () => {
@@ -215,12 +218,12 @@ test("§17 第 5 条（不得扩张为规则解释者）：代码中无解释执
 	// 只禁止「执行解释」这类实现形态，不禁止注释里提到该词（本文件正解释了为何不做）。
 	assert.ok(!/\binterpret(Rule|Regulation|Clause)\s*\(/.test(source), "不得出现解释规则含义的函数");
 	// §17 第 5 条原文须仍在（守卫依据）。
-	const spec = await readSpec("34-规则遵守系统规范.md");
-	assert.ok(spec.includes("不把规则遵守系统扩张为「规则解释者」"));
+	const spec = await readSpec("34-双源召回系统规范.md");
+	assert.ok(spec.includes("不把双源召回系统扩张为「规则解释者」"));
 });
 
 test("§17 第 7 条（不预设冲突图）：CONFLICT_TIERS 逐行来自 §7.5 原文，不是预建结构", async () => {
-	const spec = await readSpec("34-规则遵守系统规范.md");
+	const spec = await readSpec("34-双源召回系统规范.md");
 	// 每一行的来源名都必须在 §7.5 原文中存在——承载原文，而非预造。
 	for (const tier of CONFLICT_TIERS) {
 		assert.ok(spec.includes(tier.source), `层级来源「${tier.source}」不在原文 §7.5 中，疑为预建结构`);
@@ -229,7 +232,7 @@ test("§17 第 7 条（不预设冲突图）：CONFLICT_TIERS 逐行来自 §7.5
 
 test("§17 第 6 条（不以横切性为由复制判据）：模块只在本文件定义一次闭集", async () => {
 	// 本模块不向其它规范或模块复制规则文本；此断言仅核对 §17 第 6 条原文仍在。
-	const spec = await readSpec("34-规则遵守系统规范.md");
+	const spec = await readSpec("34-双源召回系统规范.md");
 	assert.ok(spec.includes("不以本系统的横切性为由要求其它规范重复其判据"));
 });
 
@@ -239,14 +242,14 @@ test("03 §5.5 三层交还：代码常量须逐字来自原文", async () => {
 });
 
 test("34 §6 退出条件与停止情形：代码常量须逐字来自原文", async () => {
-	const spec = await readSpec("34-规则遵守系统规范.md");
+	const spec = await readSpec("34-双源召回系统规范.md");
 	assertVerbatim(spec, "34 号", "停止情形", STOP_CONDITIONS.map((c) => c.label));
 	assert.ok(spec.includes("三段判断完成并生成预检落实记录后退出"));
 	assert.ok(spec.includes("不得以「上次已确认」代替本次判断"));
 });
 
 test("34 §16.1 六条必停：每条的依据须逐字可回指原文", async () => {
-	const spec = await readSpec("34-规则遵守系统规范.md");
+	const spec = await readSpec("34-双源召回系统规范.md");
 	const section = spec.slice(spec.indexOf("### 16.1"));
 	const stopSection = section.slice(0, section.indexOf("### 16.2"));
 	assert.equal(STOP_RULES.length, 6, "§16.1 恰六条");
@@ -258,7 +261,7 @@ test("34 §16.1 六条必停：每条的依据须逐字可回指原文", async (
 });
 
 test("34 §16.2 四种允许动作与 §16.3 恢复要求：代码常量须逐字来自原文", async () => {
-	const spec = await readSpec("34-规则遵守系统规范.md");
+	const spec = await readSpec("34-双源召回系统规范.md");
 	assertVerbatim(spec, "34 号", "暂停期间允许动作", SUSPENSION_ALLOWED_ACTIONS.map((a) => a.label));
 	assert.ok(spec.includes("恢复须与触发原因对应"));
 	assert.ok(spec.includes("补齐后的识别不追溯性地使偏离消失"));
