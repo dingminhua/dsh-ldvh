@@ -635,7 +635,17 @@ test("02 §9.1：counts 须报**截断前总数**，而非返回数", async () =
 	assert.equal(r.counts.specsReturned, r.specs.length);
 	assert.equal(r.counts.factsReturned, r.facts.length);
 	assert.ok(r.counts.candidatesScanned > 0, "须报实际参与匹配的候选数");
-	assert.equal(r.counts.candidatesScanned, 337 - r.counts.candidatesExcluded, "扫描数 + 排除数 = 载入总数");
+	// **分母须动态取，不得写死 337**（2026-10-24 合并 dev 时暴露）：
+	// 该常量随事实源增长而失效——合并 dev 带进 1 个新 spark 后载入总数变为 338，
+	// 而写死的 337 使本用例误报失败。缺陷本意是「扫描数 + 排除数 = 载入总数」，
+	// 那就应当**真的去数载入总数**。
+	const specsLoaded = await loadSpecs(join(ROOT, "specs"));
+	const factsLoaded = await loadFacts(join(ROOT, "ldvh-base"));
+	assert.equal(
+		r.counts.candidatesScanned + r.counts.candidatesExcluded,
+		specsLoaded.length + factsLoaded.length,
+		"扫描数 + 排除数 = 载入总数",
+	);
 });
 
 test("02 §9.1：limit 造成的丢弃须标 partial/truncated（不只预算）", async () => {

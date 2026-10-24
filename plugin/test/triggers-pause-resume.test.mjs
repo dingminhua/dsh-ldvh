@@ -1,12 +1,15 @@
-// Tests for 11 §6.1（2026-10-23 修订）：**回合开始暂停计时、回合结束重启计时**。
+// Tests for 11 §6.1（2026-10-23 纪律，2026-10-24 回退后仍成立）：
+// **回合开始暂停计时、回合结束重启计时**。
 //
-// 被取代的旧纪律：「取消的含义限于推迟」「不得以删后重建替代原地更新」。
-// 新模型下，定时任务**只在等待窗内存在**——对话进行中宿主侧没有本任务的倒计时。
+// 2026-10-23 把这条纪律写成「回合开始撤掉宿主定时任务、回合结束重新登记」。2026-10-24
+// 计时载体改回进程内 `setTimeout` 后，纪律本身不变，但承载形状变了：**清掉计时器**
+// 而不是删除宿主任务，且清理同步生效、状态可本地回读——因此「撤掉未生效」这一危险
+// 残留窗口在进程内载体下不再存在（宿主形态下它曾需要单独的登记路径）。
 //
-// 本文件只测三处可错点：
-//   1. 回合开始有没有真的把任务撤掉；
-//   2. 撤掉失败（宿主拒绝）时，任务可能在回合中到期——**不得派发**，且须登记；
-//   3. 回合结束有没有按「结束时刻 + 安静时长」重新登记。
+// 本文件测三处可错点：
+//   1. 回合开始有没有真的把计时器清掉（且 `silenceTimer` 立刻回读为 null）；
+//   2. 回合进行中即使有旧的到期回调到达，也**不得派发**；
+//   3. 回合结束有没有按「结束时刻 + 安静时长」重新武装（剩余量恰为安静时长）。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -14,44 +17,29 @@ import { createTurnTriggers } from "../lib/triggers.js";
 
 const SILENCE_MS = 300_000;
 
-async function settle() {
-  for (let i = 0; i < 6; i += 1) await Promise.resolve();
-}
-
 /**
- * 最小测试台：真实触发器 + 假宿主调度器 + 注入的时钟。
+ * 最小测试台：真实触发器 + 假定时器 + 注入的时钟。
  *
- * `removeThrows` 用来模拟「宿主拒绝撤掉」——这是新模型里唯一会产生危险残留的
- * 路径，必须单独覆盖，否则「撤掉」写成「发起撤掉」也照样测得过。
+ * 假定时器提供「让已武装的回调到期」与「把它摘掉」两种手法，使到期与清理
+ * 都能被显式驱动——本文件测的正是这两者的时序关系。
  */
-function makeHarness({ removeThrows = false } = {}) {
+function makeHarness() {
   const agent = { id: "agent-1", session: { header: { id: "agent-1", cwd: "/tmp/project" } } };
   let seq = 0;
   let clock = 1_000_000_000_000;
-  let singleId = null;
-  const pending = new Map();   // id -> { dueAt, onDue }
-  const removed = [];
-  const scheduler = {
-    available: true,
-    cancelled: new Set(),
-    async schedule({ dueAt, onDue }) {
-      if (singleId !== null && pending.has(singleId)) {
-        pending.set(singleId, { dueAt, onDue });
-        return singleId;
-      }
-      singleId = `sched-${++seq}`;
-      pending.set(singleId, { dueAt, onDue });
-      return singleId;
-    },
-    async remove(id) {
-      removed.push(id);
-      if (removeThrows) throw new Error("remove refused by host");
-      pending.delete(id);
-    },
+  const pending = new Map();   // id -> { fn, ms }
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  globalThis.setTimeout = (fn, ms) => {
+    const id = ++seq;
+    pending.set(id, { fn, ms });
+    return id;
   };
+  globalThis.clearTimeout = (id) => { pending.delete(id); };
+
   const dispatches = [];
-  const pendings = [];
   const activity = { entries: [], record(kind, payload) { this.entries.push({ kind, payload }); } };
+  const diagnostics = [];
   const triggers = createTurnTriggers(agent, {
     getScopeState: () => "governed",
     turns: undefined,
@@ -60,123 +48,132 @@ function makeHarness({ removeThrows = false } = {}) {
     readSilenceMs: () => SILENCE_MS,
     now: () => clock,
     persistActivityAt: () => Promise.resolve(),
+    registerDiagnostic: (entry) => { diagnostics.push(entry); return Promise.resolve(); },
     onSessionCheckpoint: (info) => { dispatches.push(info); return Promise.resolve(); },
-    scheduler,
-    registerPending: (entry) => { pendings.push(entry); return Promise.resolve(); },
   });
+
   return {
-    agent, triggers, dispatches, pendings, activity, pending, removed,
+    agent, triggers, dispatches, activity, diagnostics, pending,
+    size: () => pending.size,
     now: () => clock,
     advance(ms) { clock += ms; },
-    fireDue() {
-      const ids = [...pending.keys()];
-      for (const id of ids) {
-        const entry = pending.get(id);
-        pending.delete(id);
-        entry.onDue();
-      }
+    /** 取得已武装回调的快照，并从待触发集合里摘掉（模拟它已到期）。 */
+    takeArmed() {
+      const entry = [...pending.entries()].pop();
+      if (entry === undefined) return undefined;
+      pending.delete(entry[0]);
+      return entry[1];
+    },
+    restore() {
+      globalThis.setTimeout = realSetTimeout;
+      globalThis.clearTimeout = realClearTimeout;
     },
   };
 }
 
-/** 走一遍「有活动 → 安静期武装」，得到一条挂着的宿主任务。 */
-async function arm(h, turn = 7) {
+/** 走一遍「有活动 → 安静期武装」，得到一条挂着的计时器。 */
+function arm(h, turn = 7) {
   h.triggers.onTurnStopping({ agent: h.agent, turn });
   h.triggers.onAgentStatus({ agent: h.agent, status: "idle" });
-  await settle();   // 排期是异步的：生产里任务先落到宿主，回合才可能开始
 }
 
 // ---------------------------------------------------------------------------
-// 1. 回合开始 = 撤掉
+// 1. 回合开始 = 清掉计时器
 // ---------------------------------------------------------------------------
 
-test("§6.1：回合开始后，宿主侧不再有本任务（撤掉真的发生过）", async () => {
+test("§6.1：回合开始后，计时器被清掉且句柄可本地回读为 null", () => {
   const h = makeHarness();
-  await arm(h);
-  assert.equal(h.pending.size, 1, "前提：安静期已被武装");
+  try {
+    arm(h);
+    assert.equal(h.size(), 1, "前提：安静期已被武装");
 
-  h.triggers.onSessionEvent(h.agent.session, { type: "turn/start" });
-  await settle();
+    h.triggers.onSessionEvent(h.agent.session, { type: "turn/start" });
 
-  assert.equal(h.pending.size, 0, "回合开始后不得再有计时器");
-  assert.equal(h.removed.length, 1, "撤掉须真的发出删除，而不是只在内存里标记");
+    assert.equal(h.size(), 0, "回合开始后不得再有计时器");
+    assert.equal(h.triggers.snapshot().silenceTimer, null, "清理须可本地回读");
+  } finally { h.restore(); }
 });
 
-test("§6.1：回合开始后，回合进行中不得武装（idle 事件不得把计时器加回来）", async () => {
+test("§6.1：回合开始后，回合进行中不得武装（idle 事件不得把计时器加回来）", () => {
   const h = makeHarness();
-  await arm(h);
-  h.triggers.onSessionEvent(h.agent.session, { type: "turn/start" });
-  await settle();
+  try {
+    arm(h);
+    h.triggers.onSessionEvent(h.agent.session, { type: "turn/start" });
 
-  h.triggers.onAgentStatus({ agent: h.agent, status: "idle" });
-  await settle();
-  assert.equal(h.pending.size, 0, "回合进行中的 idle 不得重新武装");
+    h.triggers.onAgentStatus({ agent: h.agent, status: "idle" });
+    assert.equal(h.size(), 0, "回合进行中的 idle 不得重新武装");
+  } finally { h.restore(); }
 });
 
 // ---------------------------------------------------------------------------
-// 2. 撤掉失败：残留任务在回合中到期 → 不派发 + 登记
+// 2. 回合进行中到达的到期回调：拒绝派发
 // ---------------------------------------------------------------------------
 
-test("§6.1/§6.3：撤掉失败时任务可能在回合中到期——拒绝派发，且按 §12 登记", async () => {
-  const h = makeHarness({ removeThrows: true });
-  await arm(h);
-  h.triggers.onSessionEvent(h.agent.session, { type: "turn/start" });
-  await settle();
-
-  assert.equal(h.pending.size, 1, "前提：宿主拒绝了撤掉，任务仍残留");
-  assert.equal(h.pendings.length, 1, "撤掉失败须进入待处置登记，不得静默");
-  assert.match(h.pendings[0].reason, /撤掉失败/);
-
-  h.advance(SILENCE_MS);
-  h.fireDue();
-  await settle();
-
-  assert.equal(h.dispatches.length, 0, "回合进行中到期也不得派发");
-  assert.ok(
-    h.activity.entries.some((e) => e.kind === "session/checkpoint/refused-turn-in-flight"),
-    "拒绝派发须留痕",
-  );
-});
-
-test("§6.1：撤掉成功的路径不得登记（避免把正常路径写成缺口）", async () => {
+test("§6.1/§6.3：回合进行中到达的到期回调——拒绝派发，且留痕", () => {
   const h = makeHarness();
-  await arm(h);
-  h.triggers.onSessionEvent(h.agent.session, { type: "turn/start" });
-  await settle();
-  assert.equal(h.pendings.length, 0, "撤掉成功时不应有待处置登记");
+  try {
+    arm(h);
+    const armed = h.takeArmed();          // 已到期的回调（在清理之前捕获）
+    h.triggers.onSessionEvent(h.agent.session, { type: "turn/start" });
+
+    armed.fn();
+
+    assert.equal(h.dispatches.length, 0, "回合进行中到期也不得派发");
+    assert.ok(
+      h.activity.entries.some((e) => e.kind === "session/checkpoint/refused-turn-in-flight"),
+      "拒绝派发须留痕",
+    );
+    assert.ok(
+      h.diagnostics.some((d) => d.reason === "turn-in-flight"),
+      "诊断痕迹须可回读为 turn-in-flight",
+    );
+  } finally { h.restore(); }
 });
 
 // ---------------------------------------------------------------------------
 // 3. 回合结束 = 重启，且重新起算
 // ---------------------------------------------------------------------------
 
-test("§6.1：回合结束后重新登记，目标时刻 = 回合结束时刻 + 安静时长", async () => {
+test("§6.1：回合结束后重新武装，剩余量 = 安静时长（自回合结束起重新起算）", () => {
   const h = makeHarness();
-  await arm(h);
-  h.triggers.onSessionEvent(h.agent.session, { type: "turn/start" });
-  await settle();
-  assert.equal(h.pending.size, 0);
+  try {
+    arm(h);
+    h.triggers.onSessionEvent(h.agent.session, { type: "turn/start" });
+    assert.equal(h.size(), 0);
 
-  h.advance(90_000); // 回合进行了一段不短于零的时间
-  const endedAt = h.now();
-  h.triggers.onSessionEvent(h.agent.session, { type: "turn/end" });
-  await settle();
+    h.advance(90_000); // 回合进行了一段不短于零的时间
+    h.triggers.onSessionEvent(h.agent.session, { type: "turn/end" });
 
-  assert.equal(h.pending.size, 1, "回合结束须重新登记");
-  const entry = [...h.pending.values()][0];
-  assert.equal(entry.dueAt, endedAt + SILENCE_MS, "计时须自回合结束起重新起算，不是接着旧的走");
+    assert.equal(h.size(), 1, "回合结束须重新武装");
+    const entry = [...h.pending.values()][0];
+    assert.equal(entry.ms, SILENCE_MS, "计时须自回合结束起重新起算，不是接着旧的走");
+  } finally { h.restore(); }
 });
 
-test("§6.1：回合结束后到期 → 派发一次", async () => {
+test("§6.1：回合结束后到期 → 派发一次", () => {
   const h = makeHarness();
-  await arm(h);
-  h.triggers.onSessionEvent(h.agent.session, { type: "turn/start" });
-  await settle();
-  h.triggers.onSessionEvent(h.agent.session, { type: "turn/end" });
-  await settle();
+  try {
+    arm(h);
+    h.triggers.onSessionEvent(h.agent.session, { type: "turn/start" });
+    h.triggers.onSessionEvent(h.agent.session, { type: "turn/end" });
 
-  h.advance(SILENCE_MS);
-  h.fireDue();
-  await settle();
-  assert.equal(h.dispatches.length, 1, "安静期满须派发一次");
+    const armed = h.takeArmed();
+    h.advance(SILENCE_MS);
+    armed.fn();
+
+    assert.equal(h.dispatches.length, 1, "安静期满须派发一次");
+    assert.equal(h.dispatches[0].source, "silence:timer");
+  } finally { h.restore(); }
+});
+
+test("§6.1：回合进行中中断（从未收到 turn/end）→ 不得派发，也不得自行重建", () => {
+  const h = makeHarness();
+  try {
+    arm(h);
+    h.triggers.onSessionEvent(h.agent.session, { type: "turn/start" });
+    h.advance(SILENCE_MS * 3);
+
+    assert.equal(h.size(), 0, "没有 turn/end 就没有重启：不得自行重建计时");
+    assert.equal(h.dispatches.length, 0);
+  } finally { h.restore(); }
 });

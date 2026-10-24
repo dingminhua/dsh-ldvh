@@ -47,44 +47,11 @@ function fakeCtx() {
 
 
 /**
- * 极小的宿主调度服务桩（`ctx.schedule`）。
- *
- * **为什么需要它**：11 §6.1 规定计时由宿主承载，实现侧不再自建计时器；于是要
- * 「让安静期真的到期」，测试必须提供一个会到期的宿主服务——而不是去伪造
- * `setTimeout`。本桩用真实定时器在 `at` 时刻调用一次回调，语义与宿主一致
- * （一次性、到期投递、可撤销）。
+ * **计时载体是进程内 `setTimeout`（2026-10-24 回退）**，故本文件不再提供任何宿主
+ * 调度服务桩：把注入的安静时长调小（50ms）后，触发器自己的计时器就会在真实时间
+ * 里到期。测试仍须**等它真的到期**（等待显著大于安静时长），不得绕过计时器直接
+ * 调派发——那会把「判据没生效」测成通过。
  */
-function fakeScheduleService(dispatchDue) {
-  let seq = 0;
-  const tasks = new Map();
-  const timers = new Map();
-  return {
-    tasks,
-    async create(sessionId, request) {
-      const id = `schedule-${++seq}`;
-      tasks.set(id, { sessionId, request });
-      // `at` 只精确到秒，故到期时点最晚可能被截断到「下一秒的整点」——这是宿主
-      // 本身的精度限制，不是桩的问题。延迟按截断后的绝对时点算，不按剩余量。
-      const { date, time } = request.at;
-      const dueAt = new Date(`${date}T${time}`).getTime();
-      const delay = Math.max(0, dueAt - Date.now()) + 50;
-      timers.set(id, setTimeout(() => { tasks.delete(id); dispatchDue(id, sessionId); }, delay));
-      return { id };
-    },
-    async list({ sessionId }) {
-      return [...tasks.entries()]
-        .filter(([, t]) => t.sessionId === sessionId)
-        .map(([id, t]) => ({ id, prompt: t.request.prompt }));
-    },
-    async update() { throw new Error("not used"); },
-    async delete({ id }) {
-      const timer = timers.get(id);
-      if (timer !== undefined) clearTimeout(timer);
-      timers.delete(id);
-      tasks.delete(id);
-    }
-  };
-}
 
 async function setup({ withSubagents = true, tasks = { "friction-discovery": true, "experience-capture": false } } = {}) {
   const { createLifecycleRegistry } = await import("../lib/lifecycle.js");
@@ -105,26 +72,8 @@ async function setup({ withSubagents = true, tasks = { "friction-discovery": tru
   const ctx = fakeCtx();
   const dshHomePath = (...n) => join(home, ...n);
   ctx.set("dshHomePath", dshHomePath);
-  // 安静期到期 = 宿主把任务投递回来：渲染成 `[SCHEDULE REMINDER]` 用户消息，
-  // 与宿主真实形态一致（`renderReminderFraming`），使触发器能认出「这是自己的回音」。
-  // 投递目标按 **会话 id** 解析，不按 `roots[0]`——同一用例里可能装入多个 agent。
-  const scheduleService = fakeScheduleService((id, sessionId) => {
-    const agent = roots.find((a) => a?.session?.header?.id === sessionId);
-    if (agent === undefined) return;
-    void ctx.emit("session/event", agent.session, {
-      type: "user/message",
-      data: {
-        id: `msg-${id}`,
-        role: "user",
-        content: [{ type: "text", text: "[SCHEDULE REMINDER]\nreminder_prompt_json: \"dsh-ldvh:session-silence\"" }]
-      }
-    });
-    // **不编造轮次号**：安静期到期不是新回合，投递时沿用宿主已记下的 `lastTurn`
-    // （由此前的 `turn/stopping` / `turn/end` 写入）。硬编码一个数字会让
-    // 「重启后从宿主记录回填轮次」这类用例失去意义。
-    void ctx.emit("agent/turn-stopping", { agent });
-  });
-  ctx.set("schedule", scheduleService);
+  // **不装配任何宿主调度服务**（2026-10-24 回退后计时器在进程内）：本文件整体
+  // 也不再依赖 `ctx.schedule` 的存在与否。
 
   // install 的 roots-only 闸门：ctx.get("agents").roots() 须含该 agent
   const roots = [];
@@ -181,7 +130,7 @@ async function setup({ withSubagents = true, tasks = { "friction-discovery": tru
   });
   lifecycle.start();
 
-  return { ctx, lifecycle, home, project, dshHomePath, roots, scheduleService, startsRef: () => starts };
+  return { ctx, lifecycle, home, project, dshHomePath, roots, startsRef: () => starts };
 }
 
 test("调用方覆盖：驱动检查点后**必须留下运行痕迹**（而非抛错被吞）", async () => {
@@ -265,7 +214,7 @@ test("调用方覆盖：装配阶段不得引用未声明的标识符（静态�
 
 test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自己的水位**", async () => {
   // 本测试的**前提是两个任务都启用**（一个成功、一个失败才成其为 F-1 场景）。
-  const { ctx, dshHomePath, roots, project, scheduleService, lifecycle } = await setup({
+  const { ctx, dshHomePath, roots, project, lifecycle } = await setup({
     tasks: { "friction-discovery": true, "experience-capture": true },
   });
 
@@ -559,7 +508,7 @@ test("重启：无回合事件时从宿主会话记录回填轮次，且回填�
   assert.equal(turns.lastTurn, 7, "重启后回填的轮次须是宿主记录里的最大 turn");
   // 派发确已发生（`lastCheckpointDispatch` 在**进入**回调前记录，故它的 turn
   // 仍是回填前的 undefined——回填发生在回调内部，这正是修复的位置）。
-  assert.equal(turns.lastCheckpointDispatch?.source, "silence:host-schedule", "安静期到期须真的派发了一次");
+  assert.equal(turns.lastCheckpointDispatch?.source, "silence:timer", "安静期到期须真的派发了一次");
   assert.equal(turns.lastCheckpointDispatch?.turn, undefined, "回填发生在回调内部，派发记录的 turn 仍是缺失的原值");
 
   // ② 派发确已跑起来（不是被 no_current_turn 挡在门外）
@@ -635,7 +584,7 @@ test("重启：Human 关闭全部子项时不得为读位置而打开会话日�
   // 先证明**检查点真的被派发过**——否则「没读日志」是空过（根本没走到回调）。
   const turns = lifecycle.snapshotOf(agent.id)?.turns;
   assert.equal(
-    turns?.lastCheckpointDispatch?.source, "silence:host-schedule",
+    turns?.lastCheckpointDispatch?.source, "silence:timer",
     "安静期到期须真的派发过一次——否则本用例什么都没验证",
   );
   assert.deepEqual(openCalls, [], "Human 关闭全部子项时本检查点什么都不做，不得为读位置而打开会话日志");
@@ -669,7 +618,7 @@ test("重启：宿主记录不可读时维持 fail-closed 并如实记下原因�
   // 且派发确实以 undefined 走到 fail-closed。
   const turns = lifecycle.snapshotOf(agent.id)?.turns;
   assert.equal(turns?.lastTurn, undefined, "读不到时不得凭空写入轮次号");
-  assert.equal(turns?.lastCheckpointDispatch?.source, "silence:host-schedule", "派发确实发生过（不是没到点）");
+  assert.equal(turns?.lastCheckpointDispatch?.source, "silence:timer", "派发确实发生过（不是没到点）");
 
   // fail-closed：仍以 no_current_turn 停止，且**入了待处置队列**（§12）。
   const { readRuns } = await import("../lib/idle-runlog.js");

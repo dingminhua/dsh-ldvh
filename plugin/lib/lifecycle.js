@@ -38,7 +38,6 @@ import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { RECALL_SUMMARY, buildRecallInjection } from "./recall-injection.js";
 import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
 import { createTurnTriggers } from "./triggers.js";
-import { createHostScheduler } from "./host-schedule.js";
 import { rearmInFlightWorkcaseGoal } from "./workcase-goals.js";
 import { readWorkcaseObject, bodyHasResultSection } from "./workcase-writer.js";
 import { runIdleCheckpoint } from "./idle-checkpoint.js";
@@ -504,39 +503,28 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       // 把「会话视图被重置 → 清空注入台账」挂到 lifecycle 记录上，供
       // agent/created（clear / compact / resume）调用。见下方 disposeCreated。
       lifecycle.preStepResetVisibility = () => onPreStep.resetVisibility();
-      // Turn-level triggers（11 §6.1 触发判据，2026-10-14 修订）。
+      // Turn-level triggers（11 §6.1 触发判据，2026-10-14 修订；2026-10-24 计时载体回退）。
       // 「会话确已空闲」= 距最后一次会话活动持续不短于安静时长；本块只注入
       // 编排回调与两个注入点（取安静时长、落活动时刻），判据与计时在 triggers.js 内。
-      // 宿主调度适配器（11 §6.1「实现侧不得自行维护计时器」）。**按会话构造**：
-      // 宿主任务绑定创建它的会话，故每个 agent 一个适配器；宿主调度服务未挂载
-      // 时适配器 `available=false`，triggers 会如实登记为未兑现范围而**不回落**
-      // 到自建计时器（那正是本次要消灭的形态）。
       //
-      // **可选依赖的失败不得掀翻整条目**（2026-10-22）：本函数位于 `install()`
-      // 内部，而 `install()` 由 `apply()` → `start()` 同步驱动。适配器构造一旦
-      // 抛出（线上形态：裸取 `ctx.schedule` 在真实 Proxy 上下文上抛
-      // `cannot get property "schedule" without inject`），异常一路穿出 `apply()`，
-      // 宿主就把**整个插件条目**记成 `did not activate` —— 设置面、配置面、
-      // 工具批全部不生效，只因为一个本来声明为可选的服务。故此处收口为：
-      // 构造失败只降级为「安静期无法武装」，并如实登记到活动轨迹，其余一切照常。
-      const hostSessionId = agent?.session?.header?.id;
-      let scheduler;
-      try {
-        scheduler = createHostScheduler(ctx, typeof hostSessionId === "string" ? hostSessionId : "");
-      } catch (error) {
-        ctx.logger.warn(
-          "[dsh-ldvh] host schedule adapter unavailable for %s (idle assistance cannot be armed; no self-built timer fallback): %s",
-          agentId,
-          String(error?.message ?? error)
-        );
-        lifecycle.activity.record("schedule/adapter-unavailable", { detail: String(error?.message ?? error) });
-        scheduler = undefined;
-      }
+      // **计时器在进程内，本块不再装配任何宿主调度服务**（2026-10-24 回退）：
+      // 2026-10-22 至 2026-10-24 期间，安静期计时交给宿主定时任务承载（`ctx.schedule`
+      // 排期 + `[SCHEDULE REMINDER]` 投递回会话）。该形态在真实宿主上连续多次投递
+      // 均未走到派发，且识别与判定环节须靠在每处早退落盘才能归因；Human 决定停用，
+      // 改回每个会话各自的进程内计时（见 triggers.js 文件头）。故此处**不再有任何
+      // 可选依赖**——triggers 的武装不依赖宿主服务是否存在，也就不存在「服务缺失即
+      // 无法武装」的降级路径。
       const turnTriggers = createTurnTriggers(agent, {
-        scheduler,
-        // §12 待处置登记的注入点（11 §6.1「撤掉的完成判据」）：撤掉失败时调用。
-        registerPending: async ({ task, reason, residual }) => {
-          await appendPendingEntry(dshHomePath, { task, reason, residual, at: new Date().toISOString() });
+        // 诊断痕迹注入点（2026-10-23）：dispatchCheckpoint 的派发/失败/抛错落盘。
+        // 此前四次投递 0 运行记录、0 待处置条目，无法区分「没派发」与「派发后
+        // 静默 return」。本注入点使 dispatchCheckpoint 的调用可被回读。
+        registerDiagnostic: async (entry) => {
+          await recordRun(dshHomePath, {
+            ...entry,
+            task: "diagnostic",
+            tasks: ["diagnostic"],
+            at: new Date().toISOString(),
+          });
         },
         getScopeState: () => lifecycle.scopeState,
         turns: lifecycle.turns,
@@ -567,7 +555,14 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 空闲辅助任务的调度（04 §8.3/§8.4 + 32 §10.2）。**不 await 关闭事件**
           // ——调用方（triggers）已把 promise 的拒绝收口为日志，此处保持同纪律。
           const cwd = agent?.session?.header?.cwd;
-          if (typeof cwd !== "string" || cwd.length === 0) return;
+          if (typeof cwd !== "string" || cwd.length === 0) {
+            await recordRun(dshHomePath, {
+              task: "diagnostic", tasks: ["diagnostic"], stage: "early-return",
+              reason: "cwd-empty", note: `agent?.session?.header?.cwd=${JSON.stringify(cwd)}`,
+              at: new Date().toISOString(),
+            });
+            return;
+          }
           // 11 §11「观察范围的切分（水位）」需要两个**位置标识**：会话 id 与轮次号。
           // 会话 id 取自 agent 的会话头；轮次号首选宿主 `turn/end` 载荷（triggers
           // 已用它记账）。**取不到时回落到宿主会话记录**（2026-10-19 修复）：
@@ -579,7 +574,14 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           const sessionId = agent?.session?.header?.id;
           const scope = await resolve(cwd);
           // 受管辖是运行前提（32 §137：git 层操作要求当前管辖）。
-          if (scope.state !== "governed" || scope.project === undefined || scope.project === null) return;
+          if (scope.state !== "governed" || scope.project === undefined || scope.project === null) {
+            await recordRun(dshHomePath, {
+              task: "diagnostic", tasks: ["diagnostic"], stage: "early-return",
+              reason: "not-governed", note: `scope.state=${scope.state} detail=${scope.detail ?? ""}`,
+              at: new Date().toISOString(),
+            });
+            return;
+          }
           // 本次派发的占用令牌（2026-10-19）。在准入处取得值，在派发收尾处释放；
           // 未取得时保持 `null`，收尾处的释放因此是一次空操作。
           let dispatchClaimed = null;
@@ -614,6 +616,11 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           if (tasksForThisCheckpoint.length === 0) {
             lifecycle.activity?.record("session/checkpoint/no-enabled-task", {
               reason: pickedTasks.reason ?? "all-tasks-disabled",
+            });
+            await recordRun(dshHomePath, {
+              task: "diagnostic", tasks: ["diagnostic"], stage: "early-return",
+              reason: "no-enabled-task", note: `pickedTasks.reason=${pickedTasks.reason ?? "all-tasks-disabled"}`,
+              at: new Date().toISOString(),
             });
             return;
           }
