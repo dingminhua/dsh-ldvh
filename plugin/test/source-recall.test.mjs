@@ -1193,6 +1193,25 @@ test("正文层匹配不得吃 frontmatter 字段名（元数据形状不是规�
 		0,
 		`仅存在于 frontmatter 的字段名不得命中任何规范，实际命中：${metadataOnly.specs.map((s) => `${s.title}(${s.hitReason})`).join("、")}`,
 	);
+
+	// **上面那条 `positioning` 断言其实是空的**（2026-10-24 变异测试发现）：
+	// `positioning` 只作为**返回字段**存在（source-recall.js:835），并不参与匹配面
+	// （匹配面是 scope／detail／title／bodyText），故它无论剥离与否都是 0 命中。
+	// 实测：把 frontmatter 剥离去掉（`const body = text`）后该断言照样通过。
+	//
+	// 改用真正能分辨的判据：`spec_kind` —— 正文 **0 篇**提及、全文 **27 篇**出现。
+	// 剥离有效时命中 0；剥离失效时会命中 27。这条才有分辨力。
+	const specKind = await recallForAction({
+		action: "spec_kind",
+		root: ROOT,
+		limit: 99,
+		budgetBytes: 400000,
+	});
+	assert.equal(
+		specKind.specs.length,
+		0,
+		`frontmatter 字段名 spec_kind（正文 0 篇、全文 27 篇）不得命中；实际命中 ${specKind.specs.length} 篇——若为 27 篇说明正文层未剥离 frontmatter`,
+	);
 });
 
 test("正文层仍须能命中真正写在正文里的术语", async () => {
@@ -1545,5 +1564,29 @@ test("「本次召回完整度」与「事实集合完整性」须分开表达�
 		narrow.f0.setAudit.status,
 		"complete",
 		"集合级审计不得因本次查询收窄而变化",
+	);
+});
+
+test("事实正文层也须剥离 frontmatter（object_uid 判据）", async () => {
+	// 变异测试发现（2026-10-24，第 65 轮）：把事实侧的 frontmatter 剥离去掉
+	// （`const body = text`）后，**没有任何测试失败**——事实侧这段剥离缺少守护。
+	//
+	// 为什么之前没被抓到：`fact_type_key` 这类字段名虽然只写在 frontmatter，
+	// 但它的**值**（`pitfall`／`adr` 等）在正文里大量出现，故「剥离失效」不改变
+	// 命中数（实测破坏前后都是 99 条）。必须选一个「字段名本身在正文极少出现」
+	// 的判据。
+	//
+	// `object_uid`：正文仅 22 篇提及、全文 310 篇出现。剥离有效时应显著少于
+	// 全文数；若剥离失效，命中数会跳到 310。
+	const r = await recallForAction({
+		action: "object_uid",
+		root: ROOT,
+		limit: 400,
+		budgetBytes: 40_000_000,
+		includeSpecs: false,
+	});
+	assert.ok(
+		r.facts.length < 100,
+		`object_uid 命中不得接近全文数（310）——若接近说明事实正文层未剥离 frontmatter；实际 ${r.facts.length}`,
 	);
 });
