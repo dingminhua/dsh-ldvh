@@ -17,18 +17,13 @@ summary: |-
   - 现有实现只有**运行时软探测**（plugin/lib/host-seams.js 的 `snapshot()` 对五缝返回 consumed/absent/available/partial，plugin/lib/index.js:373-390 在装载期逐条 logger.info），它探测「宿主缺该能力」，不比对「宿主版本变了」，且派发点 friction-discovery-provider.js:386 直接调用 `subagents.startActivation(...)`、无存在性守卫。
   - 现有「版本推进 → CHANGELOG 记一条 + 契约差分数字」是**手工惯例**（plugin/CHANGELOG.md 已有 0.1.7-rc.2 / 0.2.0-rc.1 / 0.2.0-rc.2 三条先例），未被任何机械检查承接。
 
-  ### 机制须回答的问题
+  ### 现状核实（2026-10-24 实测）
 
-  1. 基线登记：宿主基线的权威登记点在哪（现分散于 norm a1b559a6 目标环境、CHANGELOG、package.json peer/dev）且如何一处为权威。
-  2. 差分取证：契约面差分的机械取数方式（服务/事件/类型/工具名/槽位闭集 + 条目指纹），及「只比本插件消费面」的收敛口径。
-  3. 侵入性判定：差分结果如何机械落到「对插件是破坏 / 静默降级 / 无关」三态，避免每次靠人工通读 40 份 upgrade-guide。
-  4. 落地时序：机制停留在「报告」还是可以「阻断」；参照 36 号规范 §11/§12 的 fail-closed 与待处置队列范式。
-
-  ### 边界与未决
-
-  - 本机制的实现须守住 spec 10 §11 与 spec 36 §21 的反过度设计红线：只针对 DSH 一个宿主、不建通用抽象、不为每个场景建独立账本。
-  - 未决：「宿主装了什么」的权威取值方式（asar 解析已建成取证脚本但仍有偏移脆弱性，见 pitfall d8d4bc4a）；peer 包 `dsh-client-ui-primitives` 在 0.2.1-rc.2 asar 中缺席而插件仍运行，此事实尚未解释，**不得据此主张任何结论**。
-  - 未决：机制落点是 spec 10 新增条款、还是 CLI 侧确定性检查（spec 05 helper-service-contract）由 Human 决定。
+  - 宿主已推进到 **0.2.1-rc.3**（`CFBundleShortVersionString`；asar 内 `dsh/node_modules/@deepseek-ai` 下 297 个 `dsh*` 包全为 `0.2.1-rc.3`，该目录共 308 个 `@deepseek-ai` 包）；本仓登记的开发基线（norm `a1b559a6`）已按 Human 决定推进到该版。
+  - 区间 dsh-v0.2.1-rc.2（2026-10-17）→ dsh-v0.2.1-rc.3（2026-10-23）共 6 commits、640 文件：**服务端零契约变更**——本插件消费的 10 条宿主缝（tools.register/guard、userQuestions.ask、fs/observed 与 fs 服务、webServer.register、systemPrompt、sessionPersistence、三个 agent 事件、dshHomePath、atomic-write）所在目录的差异**仅为 package.json 版本行**；客户端槽位纯新增（74→77，新增三个 `*.actions` 槽位，零删除），本插件使用的四个槽位 registration 字段逐字未变。
+  - 此前登记的「0.2.0-rc.2 → 0.2.1-rc.2 区间未做契约比对」缺口已补上：区间 dsh-v0.2.0-rc.2 → dsh-v0.2.1-rc.3 共 1931 commits，本插件消费的 10 条缝签名**全部保留**；唯一被删除的宿主服务 `invariants` 已定位到唯一提交 `f028f25667`（2026-09-30，`refactor: remove runtime invariant plugins`，1355 files / −15409 行），**首个缺失该缝的发布 tag 是 `0.2.1-alpha.1`**（`packages/**/src/invariant.ts` 计数 0.2.0-rc.2=38 → 0.2.1-alpha.1 起=0）；区间内两处取值域收窄（tools 的 `mode:'both'` 被移除、webserver 的 `host` 不再接受 `'0.0.0.0'`）属宿主侧配置，本插件不写这两处配置。
+  - 本轮实际落地：两个**普通依赖**（自带副本）`@deepseek-ai/dsh-atomic-write` 与 `@deepseek-ai/dsh-home-paths` 此前解析到 `0.1.2-alpha.3`、与宿主内的 `0.2.1-rc.3` 分叉（旧副本不含「已退出持有者锁接管」的 `ESRCH` 探针，而插件的部署约束登记一直按该语义陈述），已钉到 `^0.2.1-rc.3`；devDependencies 的四个 dsh 包与 cordis 同步对齐宿主。
+  - 仍未决：`dsh-client-ui-primitives` 在 rc.3 的 asar（打包区与 unpacked 区）均缺席而插件客户端仍能加载，本轮以同一提取方式复现该观察，**不作结论**；「宿主装了什么」的权威取值方式仍待定；机制落点（spec 10 新增条款 vs CLI 侧确定性检查）仍待 Human 决定。
 serves: SG-3
 priority: P1
 object_uid: 76ee7b7b-208c-4ed3-bade-6cf85ba307d3
@@ -51,6 +46,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: Human 指令 m00496：由「上游 DSH 能力变化的吸收」收紧为「建立上游 DSH 能力变化的吸收与同步机制」，标题/问题/边界/当前理解实质重写并补 2026-10-19 实测取证
+  - at: 2026-10-24T05:59:45.832Z
+    provider: minmax
+    model: MiniMax-M3.1-Flash
+    summary: 补记 2026-10-24 实测：宿主已到 0.2.1-rc.3（基线经 Human 决定推进），0.2.1-rc.2→rc.3 服务端零契约变更且客户端槽位纯新增，0.2.0-rc.2→0.2.1-rc.3 的比对缺口已补上并把 ctx.invariants 的移除定位到提交 f028f25667（首个缺失该缝的发布 tag 为 0.2.1-alpha.1），两个宿主库依赖的版本分叉已对齐
 refs:
   - object_uid: 25a34e54-fa56-45e7-92a9-85eb222aee97
 ---
@@ -70,6 +69,14 @@ refs:
 - specs 全文无「宿主版本追踪 / 契约快照 / 侵入性检查 / 基线核对」条款；spec 10 §8 验证表 10 行全部是「本仓内部一致性」，没有一行比对上游版本差异。
 - 现有实现只有**运行时软探测**（plugin/lib/host-seams.js 的 `snapshot()` 对五缝返回 consumed/absent/available/partial，plugin/lib/index.js:373-390 在装载期逐条 logger.info），它探测「宿主缺该能力」，不比对「宿主版本变了」，且派发点 friction-discovery-provider.js:386 直接调用 `subagents.startActivation(...)`、无存在性守卫。
 - 现有「版本推进 → CHANGELOG 记一条 + 契约差分数字」是**手工惯例**（plugin/CHANGELOG.md 已有 0.1.7-rc.2 / 0.2.0-rc.1 / 0.2.0-rc.2 三条先例），未被任何机械检查承接。
+
+### 现状核实（2026-10-24 实测）
+
+- 宿主已推进到 **0.2.1-rc.3**（`CFBundleShortVersionString`；asar 内 `dsh/node_modules/@deepseek-ai` 下 297 个 `dsh*` 包全为 `0.2.1-rc.3`，该目录共 308 个 `@deepseek-ai` 包）；本仓登记的开发基线（norm `a1b559a6`）已按 Human 决定推进到该版。
+- 区间 dsh-v0.2.1-rc.2（2026-10-17）→ dsh-v0.2.1-rc.3（2026-10-23）共 6 commits、640 文件：**服务端零契约变更**——本插件消费的 10 条宿主缝（tools.register/guard、userQuestions.ask、fs/observed 与 fs 服务、webServer.register、systemPrompt、sessionPersistence、三个 agent 事件、dshHomePath、atomic-write）所在目录的差异**仅为 package.json 版本行**；客户端槽位纯新增（74→77，新增三个 `*.actions` 槽位，零删除），本插件使用的四个槽位 registration 字段逐字未变。
+- 此前登记的「0.2.0-rc.2 → 0.2.1-rc.2 区间未做契约比对」缺口已补上：区间 dsh-v0.2.0-rc.2 → dsh-v0.2.1-rc.3 共 1931 commits，本插件消费的 10 条缝签名**全部保留**；唯一被删除的宿主服务 `invariants` 已定位到唯一提交 `f028f25667`（2026-09-30，`refactor: remove runtime invariant plugins`，1355 files / −15409 行），**首个缺失该缝的发布 tag 是 `0.2.1-alpha.1`**（`packages/**/src/invariant.ts` 计数 0.2.0-rc.2=38 → 0.2.1-alpha.1 起=0）；区间内两处取值域收窄（tools 的 `mode:'both'` 被移除、webserver 的 `host` 不再接受 `'0.0.0.0'`）属宿主侧配置，本插件不写这两处配置。
+- 本轮实际落地：两个**普通依赖**（自带副本）`@deepseek-ai/dsh-atomic-write` 与 `@deepseek-ai/dsh-home-paths` 此前解析到 `0.1.2-alpha.3`、与宿主内的 `0.2.1-rc.3` 分叉（旧副本不含「已退出持有者锁接管」的 `ESRCH` 探针，而插件的部署约束登记一直按该语义陈述），已钉到 `^0.2.1-rc.3`；devDependencies 的四个 dsh 包与 cordis 同步对齐宿主。
+- 仍未决：`dsh-client-ui-primitives` 在 rc.3 的 asar（打包区与 unpacked 区）均缺席而插件客户端仍能加载，本轮以同一提取方式复现该观察，**不作结论**；「宿主装了什么」的权威取值方式仍待定；机制落点（spec 10 新增条款 vs CLI 侧确定性检查）仍待 Human 决定。
 
 ### 机制须回答的问题
 
