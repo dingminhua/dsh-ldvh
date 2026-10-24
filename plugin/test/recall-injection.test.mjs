@@ -13,6 +13,7 @@ import { join } from "node:path";
 import {
 	ENTRY_VERDICTS,
 	RECALL_CHAR_BUDGET,
+	RECALL_RENDER_CHAR_LIMIT,
 	RECALL_SUMMARY,
 	buildRecallInjection,
 	classifyEntry,
@@ -337,4 +338,39 @@ test("无主题词的问句：no_tokens 是合理结果，如实报出而非假�
 	const r = await buildRecallInjection({ userText: "为什么这里不对", projectRoot: ROOT });
 	assert.equal(r.inject, false);
 	assert.match(r.reason, /no_tokens|no-hits/, "应如实说明召回器无从下手，而不是伪装成无相关约束");
+});
+
+test("渲染文本须有硬上限，超限按行裁剪并如实说明（不得静默截断）", async () => {
+	// 此前只有**数据**预算（RECALL_CHAR_BUDGET，约束候选 JSON 字节量），
+	// 没有**渲染文本**预算——同批数据的渲染长度取决于标题长短、命中理由、
+	// 是否带 partial/来源/边界提示，实测同一批从 802 到 1167 字符不等。
+	// 项目语料变大后渲染层可无界增长（10:241 对引导面有「未超常量预算」核对项，
+	// 召回面此前缺对应约束）。
+	const fake = {
+		ok: true, truncated: false, overBudget: false, partial: false,
+		specs: Array.from({ length: 20 }, (_, i) => ({
+			title: `很长的规范标题${i}`.repeat(3), path: `specs/${i}.md`,
+			hitReason: "正文命中：某个很长的命中理由说明文字",
+		})),
+		facts: Array.from({ length: 20 }, (_, i) => ({
+			type: "pitfall", status: "active", title: `很长的事实标题${i}`.repeat(3),
+			path: `ldvh-base/x/${i}.md`, hitReason: "适用范围命中：另一段很长的理由",
+		})),
+		budget: { limitBytes: 2400, usedBytes: 2300, limit: 20 },
+		counts: { specHits: 20, factHits: 20, specsReturned: 20, factsReturned: 20, candidatesScanned: 337 },
+		unchecked: { specs: [], facts: [] },
+		ranking: { keys: ["tier", "hits", "path"] },
+	};
+	const out = renderRecallRow(fake);
+	assert.ok(out.length <= RECALL_RENDER_CHAR_LIMIT, `渲染 ${out.length} 超过上限 ${RECALL_RENDER_CHAR_LIMIT}`);
+	assert.match(out, /渲染文本超出上限/, "超限须如实说明");
+	assert.match(out, /不代表不存在/, "须说明未列出的不代表不存在");
+	assert.equal(RECALL_RENDER_CHAR_LIMIT, 1600, "常量值应固定（实测最坏 1167，留约 37% 余量）");
+});
+
+test("渲染文本未超限时不得添加裁剪说明", async () => {
+	const r = await buildRecallInjection({ userText: "页面白屏了", projectRoot: ROOT });
+	if (r.inject) {
+		assert.ok(!/渲染文本超出上限/.test(r.text), "未超限时不得出现裁剪说明");
+	}
 });

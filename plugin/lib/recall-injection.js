@@ -53,6 +53,25 @@ const MIN_HITS = 1;
 export const RECALL_CHAR_BUDGET = 2400;
 
 /**
+ * **渲染后文本**的硬上限（UTF-16 码元）。
+ *
+ * 与 `RECALL_CHAR_BUDGET` 的区别：那个约束的是**候选数据**的字节量，
+ * 这个约束的是**最终注入的这段文字**。二者不重合——同批数据的渲染长度
+ * 取决于标题长短、命中理由、是否带 partial/来源/边界提示等，实测同一批
+ * 候选从 802 到 1167 字符不等。
+ *
+ * 为什么需要它：引导面在 `10:241` 有「未超 LDVH 侧常量预算」的核对项，
+ * 而召回这一面此前只有数据预算、没有文本预算——即**渲染层可以无界增长**
+ * （项目语料变大、标题变长、命中理由变多时）。这不是新增预算边界
+ * （那属 `10:261` 的 Human 决定事项），而是给已声明的 2400 预算补上
+ * 它在渲染端的对应约束。
+ *
+ * 定值依据：实测最坏情况 1167 字符（8 类查询 × 4 档 limit 取最大），
+ * 取 1600 留约 37% 余量，同时确保不因正常波动而误裁。
+ */
+export const RECALL_RENDER_CHAR_LIMIT = 1600;
+
+/**
  * 改变状态的动作标记（`34 §6` 进入信号第 1 项：「即将执行会产生副作用或改变
  * 状态的动作」）。
  *
@@ -277,7 +296,22 @@ export function renderRecallRow(result) {
       lines.push(`（超出预算已裁剪：上限 ${result.budget?.limitBytes ?? "?"} 字节，实际用 ${result.budget?.usedBytes ?? "?"} 字节。未列出的部分不代表不存在。）`);
     }
   }
-  return lines.join("\n");
+  // **渲染文本硬上限**：超限时按行裁剪，保留头部（标题与边界声明）与
+  // 「被裁剪」的如实说明，绝不静默截断（`02 §9.1` 不得静默截断后声称完整）。
+  const rendered = lines.join("\n");
+  if (rendered.length <= RECALL_RENDER_CHAR_LIMIT) return rendered;
+  const kept = [];
+  let used = 0;
+  for (const line of lines) {
+    if (used + line.length + 1 > RECALL_RENDER_CHAR_LIMIT - 120) break;
+    kept.push(line);
+    used += line.length + 1;
+  }
+  kept.push(
+    `（**渲染文本超出上限 ${RECALL_RENDER_CHAR_LIMIT} 字符**，已按行裁剪；未列出的候选不代表不存在，` +
+      `需要时请调大 limit 或缩小动作范围重新召回。）`,
+  );
+  return kept.join("\n");
 }
 
 /**
