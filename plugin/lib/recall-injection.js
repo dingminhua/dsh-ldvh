@@ -409,16 +409,25 @@ export function renderRecallRow(result) {
     const notRead = Array.isArray(result?.uncheckedRange?.sourceNotRead)
       ? result.uncheckedRange.sourceNotRead
       : [];
-    // **N-8（第七次复审）：「被类型/状态过滤挡掉」也是 34 §12 的逐类清单项**
-    // （「哪些来源未读取、哪些候选被类型／状态过滤挡掉、哪些因预算或条数未返回」
-    // ——后者由截断归因行承载，前两者在此承载）。只报数量与类别；逐条清单在
-    // 数据层 uncheckedRange.excludedBy*，注入面不复制（预算纪律）。
+    // **N-8（第七次复审）+ 观察 B（第八次复核）：「被过滤挡掉」也是 34 §12 的
+    // 逐类清单项**（「哪些来源未读取、哪些候选被类型／状态过滤挡掉、哪些因预算
+    // 或条数未返回」——后者由截断归因行承载，前两者在此承载）。按**非零类别
+    // 分列**：excludedByTypeWhitelist 是未登记类型（02 §9.2：中间产物不参与
+    // 「无相关」的判定），语义与类型/状态过滤不同，不得并入同一标签。
+    // 只报数量与类别；逐条清单在数据层 uncheckedRange.excludedBy*，注入面
+    // 不复制（预算纪律）。
     const ur = result?.uncheckedRange;
-    const filteredCount =
-      (Array.isArray(ur?.excludedByTypeFilter) ? ur.excludedByTypeFilter.length : 0) +
-      (Array.isArray(ur?.excludedByStatus) ? ur.excludedByStatus.length : 0) +
-      (Array.isArray(ur?.excludedByTypeWhitelist) ? ur.excludedByTypeWhitelist.length : 0);
-    const filteredNote = filteredCount > 0 ? `；另 ${filteredCount} 条被类型/状态过滤` : "";
+    const filterParts = [];
+    if (Array.isArray(ur?.excludedByTypeFilter) && ur.excludedByTypeFilter.length > 0) {
+      filterParts.push(`${ur.excludedByTypeFilter.length} 条被类型过滤`);
+    }
+    if (Array.isArray(ur?.excludedByStatus) && ur.excludedByStatus.length > 0) {
+      filterParts.push(`${ur.excludedByStatus.length} 条被状态过滤`);
+    }
+    if (Array.isArray(ur?.excludedByTypeWhitelist) && ur.excludedByTypeWhitelist.length > 0) {
+      filterParts.push(`${ur.excludedByTypeWhitelist.length} 条未登记类型不参与`);
+    }
+    const filteredNote = filterParts.length > 0 ? `；另 ${filterParts.join("、")}` : "";
     lines.push(
       `（本次召回完整度：**${completeness}**${notRead.length > 0 ? `；未读取的源：${notRead.join("；")}` : ""}${filteredNote}。` +
         (completeness === "unavailable"
@@ -440,11 +449,11 @@ export function renderRecallRow(result) {
   // 「从头部保留、尾部整段丢弃」会把排在末尾的披露行连同候选一起裁掉，
   // 且说明行把被丢弃的**披露**误称为**候选**——两条路径纪律相反，现统一。
   const limitBytes = typeof result?.budget?.limitBytes === "number" ? result.budget.limitBytes : null;
-  // 为「如实注明」说明行预留空间。实测最坏说明行（字符上限+字节预算双归因、
-  // 三位数条数）约 225 字节／97 字符；预留取 240 字节／120 字符——宁可少放
-  // 一条候选，不得超限后声称未超（`10:241`）。
+  // 为「如实注明」说明行预留空间。实测最坏说明行（字符上限+字节预算双归因
+  // 含预留披露、三位数条数）约 257 字节／111 字符；预留取 280 字节／120 字符
+  // ——宁可少放一条候选，不得超限后声称未超（`10:241`）。
   const NOTE_RESERVE_CHARS = 120;
-  const NOTE_RESERVE_BYTES = 240;
+  const NOTE_RESERVE_BYTES = 280;
   const trimmed = [...lines];
   const joined = () => trimmed.join("\n");
   const overChars = () => joined().length > RECALL_RENDER_CHAR_LIMIT - NOTE_RESERVE_CHARS;
@@ -469,14 +478,32 @@ export function renderRecallRow(result) {
   if (droppedByRender > 0) {
     const reasons = [];
     if (charTriggered) reasons.push(`字符上限 ${RECALL_RENDER_CHAR_LIMIT}`);
-    if (byteTriggered) reasons.push(`字节预算 ${limitBytes}`);
+    // **观察 A（第八次复核）**：预算内含说明行预留（NOTE_RESERVE_BYTES），
+    // 不写明会让读者把「为披露留空间」误读成「超了预算才裁」。
+    if (byteTriggered) reasons.push(`字节预算 ${limitBytes}，含披露行预留 ${NOTE_RESERVE_BYTES} 字节`);
     // **最终条数须如实**：上方「仅列出前 N 条」说明行取的是数据层条数，
     // 渲染层再裁后该 N 已过时——本行给出实际列出的条数，使两行合读不矛盾。
     const finalCount = trimmed.filter((l) => l.startsWith("- ")).length;
-    trimmed.push(
+    const fullNote =
       `（**渲染层按硬约束（${reasons.join("／")}）裁去 ${droppedByRender} 条候选**，现实际列出 ${finalCount} 条；` +
-        `未列出的候选不代表不存在，需要时请调大 limit 或缩小动作范围重新召回。）`,
-    );
+      `未列出的候选不代表不存在，需要时请调大 limit 或缩小动作范围重新召回。）`;
+    // **地板情形的紧凑说明行**（第八次复核观察 C 的明示取舍之机械承载）：
+    // 候选行裁光后固定声明+披露行仍可能顶破预算（实测 800 字节下 807）——
+    // 预留机制管不到「零候选」地板。此时改用紧凑说明行：保留 `02 §9.1` 强制
+    // 要素（约束归因、裁去条数、实际条数、「不代表不存在」），舍去「含披露行
+    // 预留」精度细节——披露底线优先于说明行冗长度。紧凑行仍放不下时如实
+    // 超预算带出（固定与披露文本不静默删，见上）；生产常量 2400 与测试矩阵
+    // 800–4000 均不触及该残余。
+    const compactReasons = [];
+    if (charTriggered) compactReasons.push(`字符上限 ${RECALL_RENDER_CHAR_LIMIT}`);
+    if (byteTriggered) compactReasons.push(`字节预算 ${limitBytes}`);
+    const compactNote =
+      `（渲染层按硬约束（${compactReasons.join("／")}）裁去 ${droppedByRender} 条候选，` +
+      `现列出 ${finalCount} 条；未列出的不代表不存在。）`;
+    trimmed.push(fullNote);
+    if (limitBytes !== null && limitBytes > 0 && Buffer.byteLength(trimmed.join("\n"), "utf8") > limitBytes) {
+      trimmed[trimmed.length - 1] = compactNote;
+    }
   }
   return trimmed.join("\n");
 }

@@ -604,11 +604,13 @@ test("N-7：字节兜底裁剪须反映到 result.render.truncated 与 droppedCa
 	);
 });
 
-test("N-8：三态披露行须含「被类型/状态过滤」类别（34 §12 逐类清单）", async () => {
+test("N-8：三态披露行须含「被过滤」类别且按非零类别分列（34 §12 逐类清单）", async () => {
 	// 第七次复审 N-8：34 §12「未检查范围须逐类列出：哪些来源未读取、哪些候选
 	// 被类型／状态过滤挡掉、哪些因预算或条数未返回」——第三类由截断归因行承载，
 	// 第一类由 N-5 的未读取源承载，第二类此前在注入面缺失（数据层有
 	// uncheckedRange.excludedBy* 但不进注入文本）。
+	// 第八次复核观察 B：三类过滤不得合并计数——excludedByTypeWhitelist 是
+	// 未登记类型（02 §9.2：中间产物不参与「无相关」判定），语义不同须分列。
 	const r = await buildRecallInjection({
 		userText: "把 34 号规范改名成双源召回",
 		projectRoot: ROOT,
@@ -621,10 +623,26 @@ test("N-8：三态披露行须含「被类型/状态过滤」类别（34 §12 �
 		(ur.excludedByStatus?.length ?? 0) +
 		(ur.excludedByTypeWhitelist?.length ?? 0);
 	assert.ok(filteredCount > 0, "本仓事实源有 draft/留观等被过滤候选（实测约 110 条），前提须成立");
-	// partial 时三态行须带过滤计数。
+	// partial 时三态行须带过滤计数，且**按非零类别分列**（本仓只有状态过滤非零）。
 	if (r.result.recallCompleteness === "partial") {
-		assert.match(r.text, /另 \d+ 条被类型\/状态过滤/, "三态行须披露被过滤类别与数量（34 §12）");
+		assert.match(r.text, /另 \d+ 条被状态过滤/, "三态行须按类别分列披露被过滤数（34 §12）");
+		assert.ok(
+			!r.text.includes("被类型/状态过滤"),
+			"不得再用合并标签（观察 B：白名单桶语义不同，不得并入）",
+		);
 	}
+	// 纯函数路径：三类都非零时须三类分列。
+	const row = renderRecallRow({
+		specs: [{ title: "T", path: "specs/t.md", hitReason: "命中" }],
+		facts: [],
+		recallCompleteness: "partial",
+		uncheckedRange: {
+			excludedByTypeFilter: [{}, {}],
+			excludedByStatus: [{}, {}, {}],
+			excludedByTypeWhitelist: [{}],
+		},
+	});
+	assert.match(row, /另 2 条被类型过滤、3 条被状态过滤、1 条未登记类型不参与/, "三类非零须分列");
 });
 
 test("渲染裁剪须可观察（02 §9.1「截断必须可观察」）", async () => {

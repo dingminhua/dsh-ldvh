@@ -45,7 +45,7 @@ const MUTATIONS = [
 	[LIB, "规范正文未剥离 frontmatter", '      bodyText: text.replace(/^---\\n[\\s\\S]*?\\n---\\n?/, ""),', "      bodyText: text,"],
 	[LIB, "事实正文未剥离 frontmatter", '      const body = text.replace(/^---\\n[\\s\\S]*?\\n---\\n?/, "");', "      const body = text;"],
 	[INJ, "截断归因只看事实侧（漏规范侧）", '      ((result.counts?.factHits ?? 0) > 0 && (result.counts?.factsReturned ?? 0) === 0) ||\n      ((result.counts?.specHits ?? 0) > 0 && (result.counts?.specsReturned ?? 0) === 0);', '      (result.counts?.factHits ?? 0) > 0 && (result.counts?.factsReturned ?? 0) === 0;'],
-	[INJ, "渲染不标截断", '  const renderTruncated = /渲染文本超出上限/.test(text);', "  const renderTruncated = false;"],
+	[INJ, "渲染不标截断", "  const renderTruncated = droppedMatch !== null;", "  const renderTruncated = false;"],
 	[INJ, "命中理由排到路径之后", "`- ${spec.title} — ${spec.hitReason}（${shown}）`", "`- ${spec.title}（${shown}）— ${spec.hitReason}`"],
 	// —— 接线层（目标第(1)项「自动运行」的关键路径）——
 	[GUID, "每步都注入（不只在 step 1）", "      if (payload.step !== 1) return decision;", "      // 破坏：每步都注入"],
@@ -53,7 +53,7 @@ const MUTATIONS = [
 	[GUID, "召回行刷新时覆盖错行", "const priorRecall = batch.find((m) => isRecallMessage(m, label));", "const priorRecall = batch[0];"],
 	[LIFE, "召回不检查管辖状态", '          if (lifecycle.scopeState !== "governed") return { inject: false, reason: "not-governed" };', ""],
 	[LIB, "候选缺 tier 语义说明", '        matchTierMeaning:\n          "匹配层（命中了哪个字段），非 F0–F4 事实分层、非 L0–L4 规范读取分层（02 §9.1）",', ""],
-	[LIB, "预算不按源分配（事实恒饿死）", "const specBudget = bothSources ? Math.floor(budgetBytes * 0.6) : budgetBytes;", "const specBudget = budgetBytes;"],
+	[LIB, "预算不按源分配（事实恒饿死）", "const specBudget = bothSources ? Math.floor(usableBudget * 0.6) : usableBudget;", "const specBudget = usableBudget;"],
 	[LIB, "排序无确定性兜底", "        a.path.localeCompare(b.path),", "        0,"],
 	[LIB, "类型点名层失效", "        return { tier: 0.5, hits: 1, hitReason: `类型点名命中：${named}` };", "        return { tier: 9, hits: 1, hitReason: `x` };"],
 	[LIFE, "召回头缺失 projectPath 兜底", '          if (typeof projectPath !== "string" || projectPath.length === 0) return { inject: false, reason: "no-project" };', ""],
@@ -79,7 +79,12 @@ try {
 	for (const [file, name, from, to] of MUTATIONS) {
 		const base = originals.get(file);
 		if (!base.includes(from)) {
-			rows.push([name, "锚点未找到（源码已变，需更新脚本）", 0]);
+			// **锚点失效必须判失败**（2026-10-25，第八次复核 N-9）：此前把
+			// 「锚点未找到」记为一种普通行、既不施加变异、也不影响退出码，
+			// 且被汇总式 `rows.length - survived.length` 计入「被抓住」分子——
+			// 源码改写后守护悄悄失效，覆盖率却虚高，正是本脚本要防的
+			// 「测试通过 ≠ 测试有效」在元工具自身的复现。
+			rows.push([name, "**锚点失效**", 0]);
 			continue;
 		}
 		await writeFile(file, base, "utf8"); // 复位，防上一项污染
@@ -96,9 +101,15 @@ try {
 }
 
 const survived = rows.filter(([, s]) => s === "**存活**");
+const staleAnchor = rows.filter(([, s]) => s === "**锚点失效**");
+const caught = rows.filter(([, s]) => s === "被抓住");
 for (const [n, s, f] of rows) console.log(`  ${s.padEnd(6)} ${n}${f ? `  (${f} 处失败)` : ""}`);
-console.log(`\n${rows.length - survived.length}/${rows.length} 被抓住`);
+console.log(`\n${caught.length}/${rows.length} 被抓住`);
 if (survived.length > 0) {
 	console.log("\n存活项需人工看：可能是该行为由别处承担，也可能是缺守护。");
+	process.exitCode = 1;
+}
+if (staleAnchor.length > 0) {
+	console.log("\n锚点失效项：源码已改写而变异锚点未同步——该行为当前**无变异级守护**，须更新锚点。");
 	process.exitCode = 1;
 }
