@@ -591,3 +591,29 @@ test("命中理由须排在路径之前（路径对人零信息量，却是读�
 	const fPathAt = factLine.indexOf("（ldvh-base/");
 	assert.ok(fReasonAt < fPathAt, `事实卡的理由也须在路径之前：理由@${fReasonAt} 路径@${fPathAt}`);
 });
+
+test("规范侧有命中却返回 0 时，归因须指向预算而非条数（原只查事实侧）", async () => {
+	// 实测缺陷（2026-10-24，第 68 轮）：`oneSourceEmpty` 只检查事实侧
+	// （`factsReturned === 0`），**漏了规范侧**。当规范侧有命中却返回 0
+	// （预算按 60/40 分配、规范配额放不下任何一条）时，渲染会报
+	// 「受条数上限（limit=99）限制」——而 limit=99 根本不构成限制，属**归因错误**。
+	//
+	// 实测复现：limit=99、budgetBytes=1200 → specHits=12、specsReturned=0、
+	// factsReturned=1、used=899/1200。正确归因是「受预算限制」。
+	const r = await buildRecallInjection({
+		userText: "把 34 号规范改名成双源召回",
+		projectRoot: ROOT,
+		limit: 99,
+		budgetBytes: 1200,
+	});
+	assert.equal(r.inject, true);
+	const counts = r.result.counts;
+	assert.equal(counts.specsReturned, 0, "前提：规范侧返回 0");
+	assert.ok(counts.specHits > 0, "前提：规范侧确有命中");
+
+	assert.match(r.text, /受预算限制/, "须归因到预算");
+	assert.ok(
+		!/受条数上限/.test(r.text),
+		`不得误报为条数限制（limit=99 不构成限制）；实际：${r.text.slice(-120)}`,
+	);
+});

@@ -682,7 +682,14 @@ export function matchCandidate(actionTokens, candidate) {
       // 于是「tier 1 的弱命中」会排在「tier 4 的强命中」前面并挤掉它们
       // （实测：「把 34 号规范改名成双源召回」limit=3 时，2 个弱命中挤掉了
       // 随后 5 个强命中）。弱命中不是不相关，但它不该抢占强命中的名额。
-      return { tier: section.tier, hits: decisive.length, hitReason: reason, weakHit: onlyGenericOrWeak };
+      return {
+        tier: section.tier,
+        matchTierMeaning:
+          "匹配层（命中了哪个字段），非 F0–F4 事实分层、非 L0–L4 规范读取分层（02 §9.1）",
+        hits: decisive.length,
+        hitReason: reason,
+        weakHit: onlyGenericOrWeak,
+      };
     }
   }
   return null;
@@ -800,8 +807,25 @@ export async function recallForAction(input = {}) {
       // `hits` 必须显式带出：mapper 的返回里没有它，之前漏掉导致排序键是
       // `undefined - undefined = NaN`，同层排序退化成只按路径字典序，
       // 使命中词更多的条目反而排在后面（实测：34 号 hits=2 被 01 号 hits=1 挤掉）。
+      // **`tier` 命名须加注**（2026-10-24，第 68 轮）。
+      //
+      // 本文件里 `tier` 一词有三种含义，读者极易混淆：
+      //   · 语料回退来源（`tier: "project"|"source-repo"|"package"`，见 `specDirToUse`）；
+      //   · **匹配层**（数值，见顶部 `MATCH_TIERS`）；
+      //   · 候选对象上的暴露值（就是这一个，等于匹配层）。
+      //
+      // 更危险的是：`02 §9.1` 明令「F0–F4 是事实召回分层，**不能与 01 的
+      // L0–L4 规范读取分层混用**」。读者看到 `tier: 1`／`tier: 2` 很容易误读成
+      // **F1 层（最小权威字段卡）** 或 **L1 层**，而它实际只表示「命中了哪个字段」。
+      // 故在此显式并列给出 `matchTier` 语义说明，使误读不可能发生而不自知。
       return m === null ? null : {
-        ...mapper(c), tier: m.tier, hits: m.hits, hitReason: m.hitReason,
+        ...mapper(c),
+        tier: m.tier,
+        // 明确语义：这不是 F 层也不是 L 层，只是「命中了候选的哪个字段」。
+        matchTierMeaning:
+          "匹配层（命中了哪个字段），非 F0–F4 事实分层、非 L0–L4 规范读取分层（02 §9.1）",
+        hits: m.hits,
+        hitReason: m.hitReason,
         weakHit: m.weakHit === true,
       };
     })

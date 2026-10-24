@@ -1590,3 +1590,24 @@ test("事实正文层也须剥离 frontmatter（object_uid 判据）", async () 
 		`object_uid 命中不得接近全文数（310）——若接近说明事实正文层未剥离 frontmatter；实际 ${r.facts.length}`,
 	);
 });
+
+test("候选的 tier 须说明它不是 F 层也不是 L 层（02 §9.1 禁止混用）", async () => {
+	// 实测缺陷（2026-10-24，第 68 轮）：本文件里 `tier` 一词有**三种**含义——
+	// 语料回退来源（project/source-repo/package）、匹配层（数值 0–4）、
+	// 以及候选对象上的暴露值（等于匹配层）。
+	//
+	// 更危险的是 `02 §9.1` 明令「F0–F4 是事实召回分层，**不能与 01 的 L0–L4
+	// 规范读取分层混用**」。读者看到 `tier: 1`／`tier: 2` 极易误读成
+	// **F1 层（最小权威字段卡）** 或 **L1 层**，而它实际只表示「命中了哪个字段」。
+	// 故候选上须并列给出语义说明，使误读不可能发生而不自知。
+	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
+	assert.ok(r.specs.length > 0 && r.facts.length > 0, "前提：双源皆有候选");
+
+	for (const c of [...r.specs, ...r.facts]) {
+		assert.equal(typeof c.matchTierMeaning, "string", `${c.title} 须带 matchTierMeaning`);
+		assert.match(c.matchTierMeaning, /非 F0–F4/, "须明确排除 F 层");
+		assert.match(c.matchTierMeaning, /非 L0–L4/, "须明确排除 L 层");
+		// 且原 tier 数值仍须保留（排序与调试依赖它）。
+		assert.equal(typeof c.tier, "number", "tier 数值仍须存在");
+	}
+});

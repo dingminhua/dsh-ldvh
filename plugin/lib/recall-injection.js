@@ -350,8 +350,14 @@ export function renderRecallRow(result) {
     // 注：`unchecked` 里存的是精简卡（title+path），不是完整候选，故用它做
     // 精确大小判断不可靠；这里改用**是否有被预算挡住的迹象**：
     // 两源都有命中却有一源结果为 0，且剩余空间小于一条常规卡（约 400 字节）。
+    // **两源都要检查**（2026-10-24 修）。原实现只看事实侧
+    // （`factsReturned === 0`），而「规范侧有命中却返回 0」是同样强的证据。
+    // 实测：limit=99、预算 1200 时 `specHits=12` 但 `specsReturned=0`（60% 的
+    // 规范配额放不下任何一条），此时渲染却报「受条数上限（limit=99）限制」——
+    // **归因错误**：limit=99 根本不构成限制，真实原因是规范侧被预算挡掉。
     const oneSourceEmpty =
-      (result.counts?.factHits ?? 0) > 0 && (result.counts?.factsReturned ?? 0) === 0;
+      ((result.counts?.factHits ?? 0) > 0 && (result.counts?.factsReturned ?? 0) === 0) ||
+      ((result.counts?.specHits ?? 0) > 0 && (result.counts?.specsReturned ?? 0) === 0);
     // 判据收紧：**有一源命中却返回 0** 本身就是「放不下」的强证据——
     // 若真是条数限制，limit=99 时两源都该有条目。此时不必再猜剩余空间。
     // （实测：limit=99、预算 1200 → specs=1、facts=0、remaining=526，
