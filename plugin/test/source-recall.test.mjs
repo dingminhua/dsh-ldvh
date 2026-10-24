@@ -1449,6 +1449,26 @@ test("M-21：一源不可读但另一源有非截断命中时，须报 partial �
 			"partial",
 			"一源不可读且有非截断命中时须为 partial；报 complete 即 M-21 反例(a)复现",
 		);
+		// **N-1（第六次审核）：取值如实，清单也须如实**——34 §12「取值须与
+		// 未检查范围逐类对应」、§14 三态行「逐类列出未读取……的范围」。
+		// 修复前：sourceNotRead=[]、gaps 不登记事实源不可读、note 仍无条件
+		// 声称「扫描项目内 ldvh-base/」（与 00 §5.6 据实声明相抵）。
+		assert.ok(
+			Array.isArray(r.uncheckedRange?.sourceNotRead) && r.uncheckedRange.sourceNotRead.length > 0,
+			"一源不可读时 sourceNotRead 不得为空（34 §12 逐类对应）",
+		);
+		assert.ok(
+			r.uncheckedRange.sourceNotRead.some((s) => s.includes("事实源") && s.includes("ldvh-base")),
+			`sourceNotRead 须点名不可读的事实源：${JSON.stringify(r.uncheckedRange.sourceNotRead)}`,
+		);
+		assert.ok(
+			(r.gaps ?? []).some((g) => g.includes("事实源不可读")),
+			`gaps 须结构化登记事实源不可读（「以已披露代替」为 01 §10.3 所禁）：${JSON.stringify(r.gaps)}`,
+		);
+		assert.ok(
+			(r.uncheckedRange?.note ?? "").includes("未扫描"),
+			`note 不得在 ldvh-base/ 不存在时声称扫描了它（00 §5.6）：${r.uncheckedRange?.note}`,
+		);
 	} finally {
 		await rm(e, { recursive: true, force: true });
 	}

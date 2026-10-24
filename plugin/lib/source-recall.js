@@ -719,8 +719,8 @@ export function matchCandidate(actionTokens, candidate) {
     // 实测（2026-10-24，用本会话真实用户消息）：「把这批改动合入吧」10 条结果里
     // 5 条是纯单字命中——`WorkCase 工单` 靠「批」、`火花记录` 与 `双源召回` 靠「合」；
     // 「经验也要召回啊」有 4 条靠单字「回」命中。单个汉字在本语料里覆盖 50–70%
-    // 的候选（2026-10-25 复测：「改」出现在 **294/345 = 85%** 的载体里——规范侧
-    // 27/27 全覆盖、事实侧 267/318；此前注记为 293/344，已过时——事实源由宿主
+    // 的候选（2026-10-25 复测：「改」出现在 **295/346 = 85%** 的载体里——规范侧
+    // 27/27 全覆盖、事实侧 268/319；此前注记为 294/345，已过时——事实源由宿主
     // 辅助任务持续写入，本数字随之漂移，漂移即本测试的正确报警），
     // 「靠一个字命中」几乎等于没命中。
     //
@@ -1064,6 +1064,26 @@ export async function recallForAction(input = {}) {
   // overBudget（保底本就是明知超额仍给一条，必须说清）。
   const overBudget = used + RENDER_OVERHEAD_BYTES > budgetBytes;
 
+  // **源可读性一次计算、四处复用**（2026-10-25 第六次审核 N-1）：三态判定、
+  // gaps 登记、sourceNotRead 清单与 note 措辞必须对「哪一源不可读」说同一句话，
+  // 否则取值如实而清单失实（34 §12「取值须与未检查范围逐类对应」）。
+  // 规范侧可读性＝三级回退是否解析成功；调用方显式排除（includeSpecs:false）
+  // 不算「不可读」，单算「声明单源」（34 §7）。事实侧可读性＝目录存在且可读。
+  const specSideUnreadable = includeSpecs && specsSource === null;
+  const factSideUnreadable = !factsReadable;
+  const sourceUnreadable = specSideUnreadable || factSideUnreadable;
+  const returnedCount = keptSpecs.length + keptFacts.length;
+  // **三态取值先算后用**（N-1）：gaps 第 ④ 项与 recallCompleteness 字段须引用
+  // 同一个值，不得各算各的——同一对象字面量内后续声明的键此时尚未求值，
+  // 内联 IIFE 无法被 gaps 引用，故提取为函数级 const。判定口径见 return 处注释。
+  const recallCompletenessValue = (() => {
+    const filteredOut = facts.length - pool.length > 0;
+    const singleSourceByCaller = includeSpecs === false;
+    if (sourceUnreadable && returnedCount === 0) return "unavailable";
+    if (truncated || filteredOut || sourceUnreadable || singleSourceByCaller) return "partial";
+    return "complete";
+  })();
+
   return {
     ok: true,
     query: { action, scope: input.scope ?? "", tokens: tokens.length },
@@ -1137,19 +1157,7 @@ export async function recallForAction(input = {}) {
     //
     // 判定（不能在此引用同级的 `uncheckedRange`——同一对象字面量里后续声明的键
     // 此时尚未求值，会 ReferenceError；故只用前面已算好的量）。
-    recallCompleteness: (() => {
-      const returnedCount = keptSpecs.length + keptFacts.length;
-      // 规范侧可读性＝三级回退是否解析成功（调用方显式排除不算「不可读」，
-      // 单算「声明单源」）；事实侧可读性＝目录存在且可读（isReadableDir）。
-      const specSideUnreadable = includeSpecs && specsSource === null;
-      const factSideUnreadable = !factsReadable;
-      const sourceUnreadable = specSideUnreadable || factSideUnreadable;
-      const filteredOut = facts.length - pool.length > 0;
-      const singleSourceByCaller = includeSpecs === false;
-      if (sourceUnreadable && returnedCount === 0) return "unavailable";
-      if (truncated || filteredOut || sourceUnreadable || singleSourceByCaller) return "partial";
-      return "complete";
-    })(),
+    recallCompleteness: recallCompletenessValue,
     counts: {
       // 命中总数（**截断前**）与返回数（截断后）都给出，差额即被丢弃数。
       specHits: allSpecHits.length,
@@ -1196,9 +1204,19 @@ export async function recallForAction(input = {}) {
       ...[...allSpecHits, ...allFactHits].some((c) => c.source?.contentFingerprint?.value === undefined)
         ? ["部分载体内容指纹缺失"]
         : [],
-      // ④ 完成与未完成范围：由 completeness 承载，unavailable 时即为 gap。
-      ...(specs.length + facts.length === 0
-        ? ["完成范围：一源都未读到，无法给出任何候选"]
+      // ④ 完成与未完成范围：由 recallCompleteness 承载，unavailable 时即为 gap。
+      //    （N-1：旧判据用 `specs.length + facts.length === 0` 近似「不可读」，
+      //    与 M-21 修正后的三态口径不一致——改用同一套可读性变量。）
+      ...(recallCompletenessValue === "unavailable"
+        ? ["完成范围：一源不可读且未取得任何候选，无法给出任何结果"]
+        : []),
+      // ④bis 单源不可读（N-1）：即使另一源有命中使整体为 partial，不可读的那一源
+      //     仍是「未检查范围」，须结构化登记——否则取值如实而清单失实。
+      ...(specSideUnreadable
+        ? ["规范源不可读：01 §10.3 三级回退均无可用语料，该源未检查"]
+        : []),
+      ...(factSideUnreadable
+        ? ["事实源不可读：项目内 ldvh-base/ 不存在或不可读，该源未检查"]
         : []),
       // ⑤ 明确的未兑现能力（见 limitations.unimplemented）：同样必须入 gaps，
       //    否则「已写在 limitations 里」正是该条禁止的「以已披露代替」。
@@ -1295,10 +1313,21 @@ export async function recallForAction(input = {}) {
       excludedByTypeWhitelist: facts
         .filter((fact) => !REGISTERED_FACT_TYPES.includes(fact.type))
         .map((fact) => ({ type: fact.type, title: fact.title, path: fact.path })),
-      // 整源未载入（includeSpecs:false 时不读取规范源——那一片完全没看）。
-      sourceNotRead: includeSpecs ? [] : ["规范源（includeSpecs:false，未读取）"],
+      // 整源未载入（N-1：三种情形都算「该源完全没看」，逐类列出）：
+      //   · 调用方显式排除规范源（includeSpecs:false）；
+      //   · 规范源三级回退全失败（不可读）；
+      //   · 事实源目录不存在或不可读。
+      // 34 §12「取值须与未检查范围逐类对应」——取值说了 partial/unavailable，
+      // 清单就必须说清缺的是哪一源。
+      sourceNotRead: [
+        ...(includeSpecs ? [] : ["规范源（includeSpecs:false，未读取）"]),
+        ...(specSideUnreadable ? ["规范源（01 §10.3 三级回退均无可用语料，不可读，未读取）"] : []),
+        ...(factSideUnreadable ? ["事实源（项目内 ldvh-base/ 不存在或不可读，未读取）"] : []),
+      ],
       // 事实源无第二来源可回退，故此处只有项目内一源；若将来引入回退须在此列出。
-      note: "本实现只扫描项目内 ldvh-base/ 与 01 §10.3 解析出的规范源；其它目录、其它 worktree、回退来源之外的语料均未检查",
+      // **note 只声称实际扫描了什么**（N-1：旧文案在 ldvh-base/ 不存在时仍无条件
+      // 声称「扫描项目内 ldvh-base/」，与 00 §5.6 据实声明相抵）。
+      note: `本次实际扫描：${specSideUnreadable ? "规范源不可读（未扫描）" : includeSpecs ? `规范源（01 §10.3 第 ${specsSource?.tier === "project" ? "1（项目自著）" : specsSource?.tier === "source-repo" ? "2（插件源仓库）" : "3（插件包内副本）"}级）` : "规范源（includeSpecs:false，未扫描）"}；${factSideUnreadable ? "事实源 ldvh-base/ 不存在或不可读（未扫描）" : "事实源（项目内 ldvh-base/）"}。其它目录、其它 worktree、回退来源之外的语料均未检查`,
     },
     // 排序依据如实声明（`02 §9` 红线：不得用相似度/embedding/关键词权重/AI 裁决相关性）。
     ranking: {

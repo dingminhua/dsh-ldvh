@@ -399,22 +399,76 @@ export function renderRecallRow(result) {
       lines.push(`（受条数上限（limit=${result.budget?.limit ?? "?"}）限制，仅列出前 ${(result.specs?.length ?? 0) + (result.facts?.length ?? 0)} 条；预算尚有余量（实际用 ${usedBytes}/${limitBytes} 字节）。未列出的部分不代表不存在，调大 limit 即可看到。）`);
     }
   }
-  // **渲染文本硬上限**：超限时按行裁剪，保留头部（标题与边界声明）与
-  // 「被裁剪」的如实说明，绝不静默截断（`02 §9.1` 不得静默截断后声称完整）。
-  const rendered = lines.join("\n");
-  if (rendered.length <= RECALL_RENDER_CHAR_LIMIT) return rendered;
-  const kept = [];
-  let used = 0;
-  for (const line of lines) {
-    if (used + line.length + 1 > RECALL_RENDER_CHAR_LIMIT - 120) break;
-    kept.push(line);
-    used += line.length + 1;
+  // **三态取值与未读取源须在注入面披露**（第六次审核 N-5）：34 §12 要求
+  // 「召回范围的完整度须以三态交还」「取值须与未检查范围逐类对应」，而注入
+  // 路径此前只渲染截断说明、从不渲染 `recallCompleteness`——AI 在注入上下文中
+  // 无从核对 §6 零命中退出路径的 complete 前提。`complete` 时不加行（稳态安静，
+  // 与截断说明只在有事发生时输出同一纪律）；`partial`/`unavailable` 必须出声。
+  const completeness = result?.recallCompleteness;
+  if (completeness === "partial" || completeness === "unavailable") {
+    const notRead = Array.isArray(result?.uncheckedRange?.sourceNotRead)
+      ? result.uncheckedRange.sourceNotRead
+      : [];
+    lines.push(
+      `（本次召回完整度：**${completeness}**${notRead.length > 0 ? `；未读取的源：${notRead.join("；")}` : ""}。` +
+        (completeness === "unavailable"
+          ? "「未命中」**不构成「无相关约束」的证据**（34 §12／§16.1 第 7 项），不得据此按零命中路径继续。"
+          : "未取得的部分不代表不存在；「未命中」同样不构成「无相关」的证据（34 §12）。") +
+        "）",
+    );
   }
-  kept.push(
-    `（**渲染文本超出上限 ${RECALL_RENDER_CHAR_LIMIT} 字符**，已按行裁剪；未列出的候选不代表不存在，` +
-      `需要时请调大 limit 或缩小动作范围重新召回。）`,
-  );
-  return kept.join("\n");
+  // **两道渲染层硬约束，最终文本须同时满足**（2026-10-25，N-5 引出重构）：
+  // ① 字符硬上限 RECALL_RENDER_CHAR_LIMIT——渲染面自身的绝对上限；
+  // ② 字节预算 limitBytes（`10:241`「未超 LDVH 侧常量预算」）——数据侧按
+  //    「候选行估算 + 720 字节固定开销预留」装填，但**条件披露行**（截断说明、
+  //    三态完整度行）只在渲染时才产生、未计入预留，实测预算 1200 时注入达
+  //    1260 字节。渲染文本的真实字节只有这里知道，故兜底放这里。
+  // 裁剪纪律：候选行可裁（**从尾部裁**，且必须如实注明裁了几条）；固定声明与
+  // 披露行不裁（34 §12 三态与截断披露不得静默省略）。①先裁（保留 120 字符
+  // 余量给②的说明行），②再裁；两道各自出声，互不掩盖。
+  let outLines = lines;
+  const rendered = lines.join("\n");
+  if (rendered.length > RECALL_RENDER_CHAR_LIMIT) {
+    const kept = [];
+    let used = 0;
+    for (const line of lines) {
+      if (used + line.length + 1 > RECALL_RENDER_CHAR_LIMIT - 120) break;
+      kept.push(line);
+      used += line.length + 1;
+    }
+    kept.push(
+      `（**渲染文本超出上限 ${RECALL_RENDER_CHAR_LIMIT} 字符**，已按行裁剪；未列出的候选不代表不存在，` +
+        `需要时请调大 limit 或缩小动作范围重新召回。）`,
+    );
+    outLines = kept;
+  }
+  const limitBytes = typeof result?.budget?.limitBytes === "number" ? result.budget.limitBytes : null;
+  if (limitBytes !== null && limitBytes > 0) {
+    // 为②的说明行预留字节（中文约 3 字节/字，说明行 ≤ 55 字）。
+    const NOTE_RESERVE = 170;
+    const trimmed = [...outLines];
+    let droppedByBudget = 0;
+    const overBytes = () => {
+      const noteBytes = droppedByBudget > 0 ? NOTE_RESERVE : 0;
+      return Buffer.byteLength(trimmed.join("\n"), "utf8") + noteBytes > limitBytes;
+    };
+    while (overBytes()) {
+      let idx = -1;
+      for (let i = trimmed.length - 1; i >= 0; i -= 1) {
+        if (trimmed[i].startsWith("- ")) { idx = i; break; }
+      }
+      if (idx === -1) break; // 已无候选行可裁；固定与披露文本如实带出，不静默删
+      trimmed.splice(idx, 1);
+      droppedByBudget += 1;
+    }
+    if (droppedByBudget > 0) {
+      trimmed.push(
+        `（渲染层按字节预算（上限 ${limitBytes}）另裁去 ${droppedByBudget} 条候选；未列出的部分不代表不存在。）`,
+      );
+    }
+    outLines = trimmed;
+  }
+  return outLines.join("\n");
 }
 
 /**

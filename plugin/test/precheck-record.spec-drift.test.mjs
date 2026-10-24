@@ -340,6 +340,18 @@ test("34 §6 退出契约：checkExit 注释引文的关键句须在原文中逐
 		assert.ok(specFlat.includes(flat), `关键句「${sentence}」不在 34 §6 原文中——规范已漂移`);
 		assert.ok(commentFlat.includes(flat), `关键句「${sentence}」不在 checkExit 注释引文中——注释已漂移`);
 	}
+	// **否定断言（第六次审核 N-4）**：只防「缺句」不防「多句」——注释里若残留
+	// 已从 §6 删除的旧句（B-5 改写前的措辞），正向断言照样通过。旧句与新 §6
+	// 语义相反（旧：partial/unavailable 一律停止交还；新：停止义务绑定行为），
+	// 残留即注释撒谎，必须机械可见。
+	for (const stale of [
+		"召回未完成时不适用本路径",
+		"须按 §16.1 第 7 项停止交还",
+	]) {
+		const flat = normalize(stale);
+		assert.ok(!commentFlat.includes(flat), `checkExit 注释残留 §6 旧句「${stale}」——B-5 改写前的措辞已删除，注释须同步`);
+		assert.ok(!specFlat.includes(flat), `34 §6 原文残留旧句「${stale}」——规范已漂移`);
+	}
 	// 机器可见的 reason 串同样须与 §6 现行文本一致（旧版仍写「（§14）」）。
 	assert.ok(section6.includes("停止交还（§12、§16）"), "§6 的停止交还回指应为（§12、§16）");
 });

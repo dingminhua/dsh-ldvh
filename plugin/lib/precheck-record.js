@@ -1606,10 +1606,11 @@ export function detectRitualRecord(fields = {}) {
  * 方式，本模块不发明规范没有的分类；01 §11.4：不得由 Code 先行制造事实上的
  * 第二规则源，也不得因实现方便反向改变规范语义）。
  *
- * §15.1 前言（第五次审核 M-18 修正后）：第 1、2 项是 00 §4.2 根清单（重大取舍
- * 交 Human／新增改写扩张可强制执行规则）的领域具体化；第 3、4 项是 00 §4.1「风险
- * 接受」决定域的领域具体化；第 5 项是上位未完整定义的本领域决定事项（直调路径
- * 召回预算常量，见 34 §11 第 3 条）。五项的共同形状都是**授权边界**——
+ * §15.1 前言（第五次审核 M-18、第六次审核 N-3 修正后）：第 1、2 项属 01 §7.3
+ * 第 2 项第一类（00 §4.2 根清单的领域具体化）；第 5 项属第二类（上位未完整定义
+ * 的本领域决定事项——直调路径召回预算常量，见 34 §11 第 3 条）；第 3、4 项另依
+ * 00 §4.1「风险接受」决定域与 00 §4.2 第二段进入 Human Gate。五项的共同形状
+ * 都是**授权边界**——
  * `checkHumanGate` 对五项一视同仁：待决事项中出现任何一项即须提请 Human，
  * 且不得走快通道（§11）。
  *
@@ -1872,10 +1873,13 @@ export const STOP_CONDITIONS = Object.freeze([
  * 停止交还（§12、§16）。转交不改变主控对行动的整体责任。」
  *
  * 常规退出（有识别结论）的条件是两条同时成立：三段判断完成 + 记录已生成。
- * **零命中退出路径（`zeroHitExit: true`）另须 `recallCompleteness === "complete"`**
- * ——partial/unavailable 时「未命中」不构成「无相关」的证据，不得借该路径退出；
- * 未如实提供召回完整度时同样不得视同 complete（fail-closed）。
- * 三个停止情形任一命中即不得退出。
+ * **零命中退出路径另须 `recallCompleteness === "complete"`**——partial/unavailable
+ * 时「未命中」不构成「无相关」的证据，不得借该路径退出；未如实提供召回完整度时
+ * 同样不得视同 complete（fail-closed）。
+ * **`unavailable` 无条件拦截（第六次审核 N-2）**：按 34 §12 该取值蕴含「未取得
+ * 任何可用候选」，任何退出都实质是零命中退出路径，故不依赖调用方自报
+ * `zeroHitExit`；`partial` + 调用方如实传入 `recallReturnedCount === 0` 时同理
+ * 自行判定为零命中。三个停止情形任一命中即不得退出。
  *
  * ## 本函数不判断什么
  *
@@ -1905,9 +1909,30 @@ export function checkExit(input = {}) {
       ownershipUnchanged: true,
     };
   }
+  // **N-2（第六次审核）：`unavailable` 无条件拦截，不依赖调用方自报 flag。**
+  // 34 §12 定义 `unavailable`＝「至少一源不可读**且当次未取得任何可用候选**」——
+  // 该取值蕴含零候选，此时任何退出都实质是零命中退出路径；「三段判断完成」
+  // 只可能是以未命中断言无相关（§16.1 第 7 项明禁）。调用方漏报 `zeroHitExit`
+  // 不得使本守卫失效（fail-open）。
+  if (recallCompleteness === "unavailable") {
+    return {
+      ok: true,
+      mayExit: false,
+      mustStopAndHandover: true,
+      stoppedBy: [],
+      reason: "34 §6／§12／§16.1 第 7 项：召回 unavailable（至少一源不可读且未取得任何候选）时「未命中」不构成「无相关」的证据，任何退出都属零命中退出路径，须停止交还",
+      ownershipUnchanged: true,
+    };
+  }
+  // **N-2 补强：partial + 零返回同样按零命中退出路径拦截。**
+  // 调用方如实传入召回返回数（`recallReturnedCount`，即 counts.specsReturned +
+  // counts.factsReturned）时，本函数自行判定「零命中」，不依赖自报 flag；
+  // 未传该数时维持原契约（以 `zeroHitExit` 为准），不虚判。
+  const zeroHitInferred =
+    zeroHitExit || (typeof input.recallReturnedCount === "number" && input.recallReturnedCount === 0);
   // §6/§16.1 第 7 项：零命中退出以召回完整完成为前提；未完成召回不得借该路径
   // 把「未命中」当作「无相关」。完整度未提供时 fail-closed（不得视同 complete）。
-  if (zeroHitExit && recallCompleteness !== "complete") {
+  if (zeroHitInferred && recallCompleteness !== "complete") {
     const incomplete = recallCompleteness === "partial" || recallCompleteness === "unavailable";
     return {
       ok: true,

@@ -1788,6 +1788,48 @@ test("checkExit：零命中退出以 recallCompleteness=complete 为前提（§6
 	assert.equal(normal.mayExit, true, "常规退出路径不以 complete 为前提；partial 的处置在 §6 缩小范围条款");
 });
 
+test("checkExit：unavailable 无条件拦截，不依赖调用方自报 zeroHitExit（N-2）", () => {
+	// 第六次审核 N-2：34 §12 定义 unavailable＝「至少一源不可读且未取得任何可用
+	// 候选」——该取值蕴含零候选，任何退出都实质是零命中退出路径。修复前守卫以
+	// `zeroHitExit` 为前提，调用方漏报 flag 时 unavailable 仍返回 mayExit:true
+	// （fail-open，与 §6／§16.1 第 7 项相反）。修复后 unavailable 无条件拦截。
+	const noFlag = { threeWayJudgementComplete: true, recordGenerated: true, recallCompleteness: "unavailable" };
+	const blocked = checkExit(noFlag);
+	assert.equal(blocked.mayExit, false, "unavailable + 未置 flag 也不得退出（fail-open 已堵）");
+	assert.equal(blocked.mustStopAndHandover, true, "unavailable 须停止交还（§16.1 第 7 项）");
+	assert.match(blocked.reason, /§12/, "reason 须点出 unavailable 蕴含零候选的 §12 依据");
+	// 即便同时置了 zeroHitExit，结论一致（unavailable 分支先命中）。
+	const withFlag = checkExit({ ...noFlag, zeroHitExit: true });
+	assert.equal(withFlag.mayExit, false);
+	assert.equal(withFlag.mustStopAndHandover, true);
+});
+
+test("checkExit：partial + 零返回数经 recallReturnedCount 自判为零命中（N-2 补强）", () => {
+	// N-2 建议 2：让 checkExit 接收召回返回数自行判定「零命中」，而非仅依赖
+	// 调用方自报 flag（漏报即 fail-open）。partial + returnedCount=0 时，
+	// 「三段判断完成」实质只能是以未命中断言无相关，须拦截。
+	const inferred = checkExit({
+		threeWayJudgementComplete: true,
+		recordGenerated: true,
+		recallCompleteness: "partial",
+		recallReturnedCount: 0,
+	});
+	assert.equal(inferred.mayExit, false, "partial + 零返回须按零命中路径拦截");
+	assert.equal(inferred.mustStopAndHandover, true);
+	assert.match(inferred.reason, /§16\.1 第 7 项/);
+	// 对照：partial + 有返回（缩小范围后继续，03 §8.1 第 1 项）不拦截。
+	const withResults = checkExit({
+		threeWayJudgementComplete: true,
+		recordGenerated: true,
+		recallCompleteness: "partial",
+		recallReturnedCount: 3,
+	});
+	assert.equal(withResults.mayExit, true, "partial + 有返回属缩小范围继续，不是零命中退出");
+	// 未传 recallReturnedCount 时维持原契约（以 zeroHitExit 为准），不虚判。
+	const legacy = checkExit({ threeWayJudgementComplete: true, recordGenerated: true, recallCompleteness: "partial" });
+	assert.equal(legacy.mayExit, true, "未传返回数时不误判为零命中");
+});
+
 test("assembleReturn：待 Human 决定事项纳入描述档扫描（M-17）", () => {
 	// 第五次审核 M-17：humanDecisions 此前漏扫——「已遵守」写进待决定事项
 	// 会原样进入交还正文。三词（已遵守／符合要求／没问题）须拒；「已确认」放行。

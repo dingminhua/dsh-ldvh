@@ -513,6 +513,39 @@ test("渲染行须显示候选摘录（数据层有而渲染不显示 = 读者�
 	assert.ok(excerptLine.trim().length > 5, "摘录不得为空");
 });
 
+test("N-5：partial/unavailable 时注入行须呈现三态与未读取源；complete 保持安静", () => {
+	// 第六次审核 N-5：34 §12 要求「召回范围的完整度须以三态交还」「取值须与
+	// 未检查范围逐类对应」，而注入路径此前从不渲染 recallCompleteness——
+	// §6 零命中退出路径的 complete 前提在注入上下文中无从核对。
+	// renderRecallRow 是纯函数，用最小构造结果直接核对渲染。
+	const partialRow = renderRecallRow({
+		specs: [{ title: "双源召回系统规范", path: "specs/34-双源召回系统规范.md", hitReason: "命中", excerpt: "……", source: {} }],
+		facts: [],
+		recallCompleteness: "partial",
+		uncheckedRange: { sourceNotRead: ["事实源（项目内 ldvh-base/ 不存在或不可读，未读取）"] },
+	});
+	assert.match(partialRow, /本次召回完整度：\*\*partial\*\*/, "partial 须在注入行出声");
+	assert.match(partialRow, /事实源/, "未读取的源须逐类点名（34 §12）");
+	assert.match(partialRow, /不构成「无相关」的证据/, "partial 须带出证据资格限定（34 §12）");
+
+	const unavailableRow = renderRecallRow({
+		specs: [],
+		facts: [],
+		recallCompleteness: "unavailable",
+		uncheckedRange: { sourceNotRead: ["规范源（01 §10.3 三级回退均无可用语料，不可读，未读取）", "事实源（项目内 ldvh-base/ 不存在或不可读，未读取）"] },
+	});
+	assert.match(unavailableRow, /本次召回完整度：\*\*unavailable\*\*/);
+	assert.match(unavailableRow, /§16\.1 第 7 项/, "unavailable 须点名必停条款");
+
+	// complete 稳态安静：不加三态行（与截断说明只在有事发生时输出同一纪律）。
+	const completeRow = renderRecallRow({
+		specs: [{ title: "双源召回系统规范", path: "specs/34-双源召回系统规范.md", hitReason: "命中", excerpt: "……", source: {} }],
+		facts: [],
+		recallCompleteness: "complete",
+	});
+	assert.ok(!completeRow.includes("本次召回完整度"), "complete 时不得加三态行（稳态安静）");
+});
+
 test("渲染裁剪须可观察（02 §9.1「截断必须可观察」）", async () => {
 	// 实测缺口（2026-10-24）：渲染层硬上限会按行裁剪、提示语也写明了，但
 	// `result` 上没有对应字段——调用方与测试只能正则匹配那段中文提示，
