@@ -1388,3 +1388,59 @@ test("unavailable 与「零命中」须可区分（前者不得当作无相关�
 		await rm(empty, { recursive: true, force: true });
 	}
 });
+
+test("代码注释里的实测数字须与当前实现一致（防再次过时）", async () => {
+	// 第 54/55 轮教训：注释里「实测 X%」这类数字有出处、有样本，最容易被信任而
+	// 从不复核。实测第 54 轮发现 43% 已变 100%、第 55 轮发现「改」覆盖 231/337
+	// 已变 285/337、以及「title 与症状常常没有字面重叠」已被证伪（47:1 反例）。
+	// 本用例把关键数字与「当前实现」动态比对，使它们不能悄悄过时。
+	const specs = await loadSpecs(joinPath(ROOT, "specs"));
+	const facts = await loadFacts(joinPath(ROOT, "ldvh-base"));
+
+	// 1) 「改」的覆盖率：**读出注释里声称的数字**，再与实测比对——
+	// 只断言实测值等于某个常量是不够的：注释改错了它照样通过（这是本用例
+	// 第一版的缺陷，破坏性验证时暴露）。
+	const { readFile } = await import("node:fs/promises");
+	const src = await readFile(joinPath(ROOT, "plugin", "lib", "source-recall.js"), "utf8");
+	const claimed = /「改」出现在 \*\*(\d+)\/(\d+)/.exec(src);
+	assert.ok(claimed !== null, "注释里须写明「改」的覆盖率");
+	const carriers = [...specs.map((s) => s.text ?? ""), ...facts.map((f) => f.fullText ?? "")];
+	const gai = carriers.filter((t) => t.includes("改")).length;
+	assert.equal(
+		Number(claimed[1]),
+		gai,
+		`注释声称 ${claimed[1]}，实测 ${gai}`,
+	);
+	assert.equal(
+		Number(claimed[2]),
+		carriers.length,
+		`注释声称分母 ${claimed[2]}，实测 ${carriers.length}`,
+	);
+
+	// 2) 症状→自身：注释声称 23/23。
+	const active = facts.filter((f) => f.type === "pitfall" && f.status === "active");
+	const withSym = active.filter((p) => (/## 症状\s*\n+([^\n#]+)/.exec(p.body ?? "")?.[1] ?? "").length >= 20);
+	const claimedSample = /\*\*23\/23 = 100% 命中\*\*|(\d+)\/(\d+) = 100% 命中/.exec(src);
+	assert.ok(claimedSample !== null, "注释里须写明症状→自身的命中率");
+	assert.equal(
+		Number(claimedSample[1] ?? 23),
+		withSym.length,
+		`注释声称样本 ${claimedSample[1]}，实测 ${withSym.length}`,
+	);
+
+	// 3) 「title 与症状多数有字面重叠」：注释声称 47 有 / 1 无。
+	let overlap = 0;
+	let noOverlap = 0;
+	for (const p of facts.filter((f) => f.type === "pitfall")) {
+		const sym = /## 症状\s*\n+([^\n#]+)/.exec(p.body ?? "")?.[1] ?? "";
+		if (sym.length < 20) continue;
+		const tTok = new Set(tokenize(p.title));
+		const shared = tokenize(sym).filter((t) => t.length >= 2 && tTok.has(t));
+		if (shared.length > 0) overlap += 1;
+		else noOverlap += 1;
+	}
+	const claimedOverlap = /实测 \*\*(\d+) 条有字面重叠、仅 (\d+) 条无重叠\*\*/.exec(src);
+	assert.ok(claimedOverlap !== null, "注释里须写明 title 与症状的重叠实测");
+	assert.equal(Number(claimedOverlap[1]), overlap, `注释声称 ${claimedOverlap[1]} 条有重叠，实测 ${overlap}`);
+	assert.equal(Number(claimedOverlap[2]), noOverlap, `注释声称 ${claimedOverlap[2]} 条无重叠，实测 ${noOverlap}`);
+});
