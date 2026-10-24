@@ -120,7 +120,7 @@ function isNonEmptyString(value) {
  *
  * 三个词因此是**三个不同的事实**：
  * - `未触发`——该来源的召回时机未成立（类型规范判定的结果）；
- * - `未遍历`——快通道下按 §6.2 本就不遍历，**不等于已核对**；
+ * - `未遍历`——快通道下按 03 §6.2 本就不遍历，**不等于已核对**；
  * - 具体内容——实际完成的召回及其适用结论。
  *
  * **首版把「缺省」一律渲染为「未触发」，那是错的**：缺省只说明调用方没说，
@@ -367,6 +367,20 @@ export const APPLICATION_CRITERIA = Object.freeze([
 
 /** §8.3 明禁的合并写法：这些词一律不得充当「已落实」的结论。 */
 const MERGED_COMPLIANCE_TERMS = Object.freeze(["已遵守", "已检查", "已确认", "没问题", "符合要求"]);
+
+/**
+ * 描述性交还字段中仍禁的合并式结论词（`MERGED_COMPLIANCE_TERMS` 的子集）。
+ *
+ * **为什么要分两档**（2026-10-25 第四次审核 M-9）：§12 的五个描述性字段
+ * （已验证范围／未验证范围／残留风险／已作出的 Human 决定与授权边界／继续入口）
+ * 的合法内容会自然用到「已确认」「已检查」——「Human **已确认**授权范围」「**已检查**
+ * 的来源：specs/34」是对事实的描述，不是把两类结论合并成「已遵守」。全表扫描会把
+ * 合法交还误拒为 `return/merged_conclusion`，机械层由 fail-closed 变成不可用。
+ * 故描述性字段只禁**无条件合规主张**三词（「已遵守」「符合要求」「没问题」）——
+ * 它们在任何字段、任何语境下都是合并式结论；「已检查」「已确认」只在承载本系统
+ * 结论的字段（识别结论与三段判断）中禁用。
+ */
+const DESCRIPTIVE_FIELD_BANNED_TERMS = Object.freeze(["已遵守", "符合要求", "没问题"]);
 
 /**
  * 判定一条识别结果是否构成「已落实」（34 §8.3）。
@@ -1156,10 +1170,10 @@ export function checkGapRegistration(gaps) {
 }
 
 // ---------------------------------------------------------------------------
-// 交还结构（34 §12：七项 + 强制区分）
+// 交还结构（34 §12：十一项 + 强制区分）
 // ---------------------------------------------------------------------------
 
-/** 三段判断的三项（34 §8 第 3 项；字段与格式以 03 §7.2 为准）。 */
+/** 三段判断的三项（34 §8.1 第 3 项；字段与格式以 03 §7.2 为准）。 */
 export const THREE_WAY_ITEMS = Object.freeze([
   { key: "effective", label: "生效" },
   { key: "applicable", label: "适用" },
@@ -1210,7 +1224,7 @@ export const COMPLIANCE_BUCKET_LABELS = Object.freeze(["已落实", "已识别�
  * 组装一次 §12 交还。
  *
  * 做三件事，都是**形式核对**，不判断内容正确：
- *  1. 六项必填是否都在（偏离情况按「如有」条件）；
+ *  1. 十项必填是否都在（偏离情况按「如有」条件）；
  *  2. 三段判断**逐项**是否有结论（§12「逐项」，缺一项即不齐）；
  *  3. 两类结论是否**分列**且交还文本里不出现合并式「已遵守」（§12 第二段，强制）。
  *
@@ -1267,25 +1281,35 @@ export function assembleReturn(input = {}) {
     deviationResults.push(verdict);
   }
 
-  // §12 第二段：不得把两类合并成「已遵守」。
-  const haystack = [
-    input.identification,
+  // §12 第二段：不得把两类合并成「已遵守」。两档扫描（M-9 修复）：
+  // 结论字段（识别结论 + 三段判断）扫全表五词；描述性字段只扫无条件合规主张三词，
+  // 「已确认／已检查」在描述字段是合法词汇（「Human 已确认授权」「已检查的来源：X」），
+  // 全表扫描会把合法交还误拒。
+  const conclusionHaystack = [input.identification, threeWay.effective, threeWay.applicable, threeWay.allowed]
+    .filter((value) => typeof value === "string")
+    .join("\n");
+  const merged = MERGED_COMPLIANCE_TERMS.find((term) => conclusionHaystack.includes(term));
+  if (merged !== undefined) {
+    return fail(
+      "return/merged_conclusion",
+      `交还结论出现「${merged}」：34 §12 要求显式区分「已落实」与「已识别未落实」，不得合并为「已遵守」`,
+    );
+  }
+  const descriptiveHaystack = [
     input.verified,
     input.unverified,
     input.residualRisk,
     input.madeHumanDecisions,
     input.continuation,
-    threeWay.effective,
-    threeWay.applicable,
-    threeWay.allowed,
+    input.recalled,
   ]
     .filter((value) => typeof value === "string")
     .join("\n");
-  const merged = MERGED_COMPLIANCE_TERMS.find((term) => haystack.includes(term));
-  if (merged !== undefined) {
+  const mergedDescriptive = DESCRIPTIVE_FIELD_BANNED_TERMS.find((term) => descriptiveHaystack.includes(term));
+  if (mergedDescriptive !== undefined) {
     return fail(
       "return/merged_conclusion",
-      `交还正文出现「${merged}」：34 §12 要求显式区分「已落实」与「已识别未落实」，不得合并为「已遵守」`,
+      `交还描述字段出现「${mergedDescriptive}」：该词是无条件合规主张，34 §12 禁止以合并式结论替代两类分列`,
     );
   }
 
@@ -1573,44 +1597,25 @@ export function detectRitualRecord(fields = {}) {
 // ---------------------------------------------------------------------------
 
 /**
- * 34 §15.1 的六项领域增量事项（原文逐条）。
+ * 34 §15.1 的五项 Human 决定增量事项（原文逐条，平铺一组——§15.1 未区分触发
+ * 方式，本模块不发明规范没有的分类；01 §11.4：Code 不得自创规范未建立的分类）。
  *
- * **前四项是「当次行动触发的待决事项」**——一次预检里出现了其中某一项，就须
- * 提请 Human（`checkHumanGate` 消费的就是这四项）。
+ * §15.1 前言：第 1–4 项是 00 §4.2 根清单的领域具体化，第 5 项是上位未完整
+ * 定义的本领域决定事项（召回预算常量，见 34 §11 第 3 条的两个常量）。五项的
+ * 共同形状都是**授权边界**——`checkHumanGate` 对五项一视同仁：待决事项中出现
+ * 任何一项即须提请 Human，且不得走快通道（§11）。
  *
- * **第 5、6 项是「本系统领域的常设 Human 决定事项」**，形态不同：它们不由某次
- * 行动触发，而是该领域内**一旦出现相应情形就必须先有 Human 决定**才能继续
- * （提高召回预算常量／扩大召回类型范围；本系统结论的承载形态与根定义的相容性）。
- * 它们同样属 00 §4.2 的 Human 决定面，故一并登记在此，但**不**作为
- * `checkHumanGate` 的「当次待决项」——那会把「尚未发生的情形」报成「当次触发的
- * 待决事项」。故单列 `STANDING_HUMAN_GATE_ITEMS`，供调用方在相应情形出现时核对
- * 「该事项是否已有 Human 决定」。
+ * **§15.1 明确不登记 §10 的「00 §3.4 末段与 03 §7.1 机械承载的待对齐事项」**——
+ * 那是上位规范之间的对齐问题，归规范维护程序（00 §4.3），不是本系统每次行动的
+ * 待决事项。故本清单**不含**该项（历史版本曾单列 STANDING_HUMAN_GATE_ITEMS
+ * 承载它与预算项，该二分无规范依据、且无任何生产消费方，已撤销）。
  */
 export const HUMAN_GATE_ITEMS = Object.freeze([
   { key: "sourceConflict", label: "两个以上来源给出互斥要求，需在来源之间取舍" },
   { key: "sourceDefect", label: "识别发现既有规则、事实或决定本身存在缺口，而修复须修改规范源或根决定" },
   { key: "scopeEscalation", label: "偏离的影响范围已超出当次行动，需决定是否暂停更大范围" },
   { key: "acceptIncomplete", label: "是否接受「识别不完整但已声明缺口」的行动继续" },
-]);
-
-/**
- * 34 §15.1 的常设 Human 决定事项（第 5、6 项）。
- *
- * **它们与 `HUMAN_GATE_ITEMS` 的差别是触发方式，不是强制力**：两者同样只能由
- * Human 决定（00 §4.2）。差别在于前者由**当次行动**触发、后者由**情形出现**
- * 触发——本模块只登记事实，不判断该情形是否已发生（那是调用方与主控的判断）。
- */
-export const STANDING_HUMAN_GATE_ITEMS = Object.freeze([
-  {
-    key: "recallBudgetScope",
-    label: "是否提高召回的字节预算常量或扩大召回的类型范围",
-    trigger: "当次行动需要更大的召回预算或更广的召回类型范围时",
-  },
-  {
-    key: "carrierFormCompatibility",
-    label: "本系统结论的承载形态与根定义的相容性",
-    trigger: "当次行动须依赖「结论由 03 §7.1 机械承载承接」这一尚未经 Human 裁定的关系时",
-  },
+  { key: "recallBudgetScope", label: "是否提高召回的字节预算常量或扩大召回的类型范围" },
 ]);
 
 /**
@@ -1618,13 +1623,14 @@ export const STANDING_HUMAN_GATE_ITEMS = Object.freeze([
  *
  * ## 为什么这个函数必须存在
  *
- * §15.1 的**当次待决**四项有共同形状：都是**授权边界**，而 §11 明写「任何涉及授权边界的判断
- * 不得产自快通道」。若不在机械层把这四项标出来，一件本应提请 Human 的事容易被当作
+ * §15.1 的五项有共同形状：都是**授权边界**，而 §11 明写「任何涉及授权边界的判断
+ * 不得产自快通道」。若不在机械层把这五项标出来，一件本应提请 Human 的事容易被当作
  * 普通技术决定做掉——而 00 §4.2 把「新增、改写或扩张可强制执行规则」等列为只能
  * 由 Human 决定之事。
  *
- * §15.1 的第 5、6 项（常设决定事项）不在本函数的消费范围内：它们不由当次行动
- * 触发，见 `STANDING_HUMAN_GATE_ITEMS` 的说明。
+ * 五项**一视同仁**：待决事项列表里出现任何一项即触发。调用方传入的是「当次行动
+ * 实际待决的事项」——尚未发生的事项不进列表，这是调用方的职责；机械层不猜测、
+ * 不区分触发方式（§15.1 未建立该区分，本模块不发明它）。
  *
  * ## 边界（§15.2 是我不能越的部分）
  *
@@ -1644,7 +1650,7 @@ export function checkHumanGate(items = []) {
   if (unknown.length > 0) {
     return fail(
       "gate/item_unknown",
-      `待决事项须落在 34 §15.1 的当次待决四项内；未知项：${unknown.join("、")}`,
+      `待决事项须落在 34 §15.1 的五项内；未知项：${unknown.join("、")}`,
       { allowed: [...allowed] },
     );
   }
@@ -1847,11 +1853,19 @@ export const STOP_CONDITIONS = Object.freeze([
 /**
  * 判定一次预检能否**退出**（34 §6「退出与转交条件」）。
  *
- * §6 原文：「**三段判断完成并生成预检落实记录后退出**，转由行动本身承接；
- * 识别失败、约束冲突无法调和、或不确定项可能改变行动是否被允许时，
- * **不退出而是停止交还**（§14）。转交不改变主控对行动的整体责任。」
+ * §6 原文（2026-10-25 第四次审核 B-4 修复：本引文随 §6 改写同步，此前逐字引用
+ * 的是改写前旧文）：「三段判断完成并生成预检落实记录后退出，转由行动本身承接。
+ * **召回已按 §8.1 完整完成（三态取值 `complete`）但未发现任何相关约束来源时，
+ * 本系统同样退出，预检落实记录仍须生成**（`03 §7.2`：不得省略预检落实记录……）
+ * ——记录内容须如实写明「已完成双源召回、未发现相关约束来源」及已读与未读范围，
+ * **不得写成「已检查」或以「预检已完成」一句带过**……**召回未完成时不适用本路径**：
+ * 取值为 `partial` 或 `unavailable`……须按 §16.1 第 7 项停止交还。识别失败、约束
+ * 冲突无法调和、或不确定项可能改变行动是否被允许时，不退出而是停止交还（§12、
+ * §16）。转交不改变主控对行动的整体责任。」
  *
- * 故退出的充要条件是两条同时成立：三段判断完成 + 记录已生成。
+ * 故退出的充要条件是两条同时成立：三段判断完成 + 记录已生成。**「召回完整完成且
+ * 零命中」的退出路径不豁免记录**——它只改变记录的内容要求（如实写明零命中与未读
+ * 范围），该要求由 `assembleReturn` 的必填字段与 §16.1 第 9 项的必停共同守护。
  * 三个停止情形任一命中即不得退出。
  *
  * ## 本函数不判断什么
@@ -1872,7 +1886,7 @@ export function checkExit(input = {}) {
       mayExit: false,
       mustStopAndHandover: true,
       stoppedBy: stops.map((c) => c.label),
-      reason: "34 §6：出现停止情形时不退出而是停止交还（§14）",
+      reason: "34 §6：出现停止情形时不退出而是停止交还（§12、§16）",
       // §6 末句：转交不改变主控对行动的整体责任。
       ownershipUnchanged: true,
     };
@@ -1968,16 +1982,17 @@ export function checkReuseBasis(input = {}) {
 /**
  * 34 §16.1 的领域触发，**本切片承接第 1–6 项**（原文逐条）。
  *
- * **本切片不承接第 7、8 项**（2026-10-25 34 号改名时追加：召回为空/unavailable 当作
- * 无相关、命中当适用而未识别）。它们**目前没有机械落点**——本切片不承接，是因为
- * 判据函数只覆盖预检记录这一承载，无法判定召回侧状态；**召回侧也没有机械落点**：
- * `recall-injection.js` 在 `no-hits`／`recall-unavailable` 时返回 `inject: false`，
- * 该原因**不进入上下文**（AI 看到的是「没有召回行」，不是「召回不可用，须停止」），
- * `source-recall.js` 的 `gaps` 是数据字段、不产生停止。故第 7 项这一最危险误读
- * 目前**只由 §14 的验证行（人工／语义核对）承担**，不得被记作「已有机械守护」。
- * 该缺口已按 34 §14 的「未满足时的处理」如实登记，不在此静默补齐。
- * 规范原文的 §16.1 条目总数由 `precheck-record.spec-drift.test.mjs` 独立断言，
- * 使「规范加条、代码不加」这种漂移可见。
+ * **本切片不承接第 7、8、9 项**（召回侧：7＝召回**未完成**（partial/unavailable）
+ * 被当作无相关；8＝命中当适用而未识别；9＝召回完整完成且零命中却未如实声明，
+ * 第四次审核 B-1 收窄第 7 项并追加第 9 项）。它们**目前没有机械落点**——本切片
+ * 不承接，是因为判据函数只覆盖预检记录这一承载，无法判定召回侧状态；**召回侧也
+ * 没有机械落点**：`recall-injection.js` 在 `no-hits`／`recall-unavailable` 时返回
+ * `inject: false`，该原因**不进入上下文**（AI 看到的是「没有召回行」，不是「召回
+ * 不可用，须停止」），`source-recall.js` 的 `gaps` 是数据字段、不产生停止。故第 7
+ * 项这一最危险误读目前**只由 §14 的验证行（人工／语义核对）承担**，不得被记作
+ * 「已有机械守护」。该缺口已按 34 §14 的「未满足时的处理」如实登记，不在此静默
+ * 补齐。规范原文的 §16.1 条目总数由 `precheck-record.spec-drift.test.mjs` 独立
+ * 断言（现为 9 条），使「规范加条、代码不加」这种漂移可见。
  *
  * §16.1 原文：「出现以下任一情况时，按 00 §5.7 **暂停最小受影响范围**」。
  *

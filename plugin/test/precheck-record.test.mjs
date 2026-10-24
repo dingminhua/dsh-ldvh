@@ -63,7 +63,6 @@ import {
 	parseRecord,
 	detectRitualRecord,
 	HUMAN_GATE_ITEMS,
-	STANDING_HUMAN_GATE_ITEMS,
 	NON_EQUIVALENCES,
 	checkConceptBoundaries,
 	checkHumanGate,
@@ -1191,6 +1190,27 @@ test("assembleReturn：正文出现「已遵守」即拒绝（§12 禁合并结�
 	assert.match(result.error.message, /已遵守/);
 });
 
+test("assembleReturn：结论字段出现「已确认／已检查」即拒绝，描述字段出现同词不误拒（M-9 两档扫描）", () => {
+	// 结论字段（识别结论、三段判断）：「已确认」是合并式结论，拒绝。
+	const inConclusion = assembleReturn({ ...RETURN_INPUT, identification: "约束已确认无碍" });
+	assert.equal(inConclusion.ok, false);
+	assert.equal(inConclusion.error.code, "return/merged_conclusion");
+	// 描述字段：「Human 已确认授权范围」「已检查的来源清单」是对事实的描述，
+	// 全表扫描会把它误拒（第四次审核 M-9 的假阳性反例）。
+	const inDescriptive = assembleReturn({
+		...RETURN_INPUT,
+		madeHumanDecisions: "Human 已确认：本会话授权限 plugin/ 下的受控写入",
+		verified: "已检查的来源：specs/34 全文、03 §7.2",
+	});
+	assert.equal(inDescriptive.ok, true, `合法交还被误拒：${inDescriptive.error?.message ?? ""}`);
+	// 但描述字段中的**无条件合规主张**仍然拒绝（「已遵守」「符合要求」「没问题」）。
+	for (const term of ["已遵守", "符合要求", "没问题"]) {
+		const bad = assembleReturn({ ...RETURN_INPUT, residualRisk: `本次${term}` });
+		assert.equal(bad.ok, false, `描述字段出现「${term}」须拒绝`);
+		assert.equal(bad.error.code, "return/merged_conclusion");
+	}
+});
+
 test("assembleReturn：偏离情况逐条过 §9.2，非法形态整体拒绝", () => {
 	const result = assembleReturn({
 		...RETURN_INPUT,
@@ -1465,32 +1485,33 @@ test("renderPrecheckRecord：实质内容不产生仪式提醒", () => {
 // Human Gate 领域增量（34 §15.1 / §15.2）
 // ---------------------------------------------------------------------------
 
-test("HUMAN_GATE_ITEMS 恰为 34 §15.1 的当次待决四项", () => {
-	assert.equal(HUMAN_GATE_ITEMS.length, 4);
+test("HUMAN_GATE_ITEMS 恰为 34 §15.1 的五项（平铺一组）", () => {
+	// §15.1 是平铺清单，未区分触发方式；代码不得发明规范没有的分类（01 §11.4）。
+	// 历史版本曾把第 5、6 项拆到 STANDING_HUMAN_GATE_ITEMS——该二分无规范依据、
+	// 无生产消费方，且使 checkHumanGate 把合法的 §15.1 事项报成「未知项」（第四次
+	// 审核 M-10）。§15.1 第 6 项（承载形态对齐）已按第四次审核 B-2 移出 Human Gate
+	// 清单（它是上位规范之间的对齐事项，归规范维护程序，不是当次待决事项）。
+	assert.equal(HUMAN_GATE_ITEMS.length, 5);
 	assert.deepEqual(
 		HUMAN_GATE_ITEMS.map((i) => i.key),
-		["sourceConflict", "sourceDefect", "scopeEscalation", "acceptIncomplete"],
+		["sourceConflict", "sourceDefect", "scopeEscalation", "acceptIncomplete", "recallBudgetScope"],
 	);
 });
 
-test("STANDING_HUMAN_GATE_ITEMS 恰为 34 §15.1 的第 5、6 项（常设决定事项）", () => {
-	// **为什么另立一份而不并入 HUMAN_GATE_ITEMS**：§15.1 现有六项，前四项由
-	// **当次行动**触发（出现即须提请），第 5、6 项由**情形出现**触发（该领域内
-	// 一旦出现相应情形就必须先有 Human 决定）。并入会让「尚未发生的情形」被
-	// `checkHumanGate` 报成「当次触发的待决事项」——那是过度声明。
-	// 两者合起来必须等于 §15.1 的六项（由 spec-drift 断言从原文数条数）。
-	assert.equal(STANDING_HUMAN_GATE_ITEMS.length, 2);
-	assert.deepEqual(
-		STANDING_HUMAN_GATE_ITEMS.map((i) => i.key),
-		["recallBudgetScope", "carrierFormCompatibility"],
-	);
-	// 两组不得有交集——有交集即意味着某项被同时当作「当次触发」与「情形触发」。
-	const actionKeys = new Set(HUMAN_GATE_ITEMS.map((i) => i.key));
-	for (const item of STANDING_HUMAN_GATE_ITEMS) {
-		assert.equal(actionKeys.has(item.key), false, `${item.key} 不得同时属两组`);
-		assert.equal(typeof item.trigger, "string");
-		assert.ok(item.trigger.length > 0, `${item.key} 须写明触发情形`);
-	}
+test("checkHumanGate：预算事项作为当次待决项可被接受并触发 Gate（不得报未知项）", () => {
+	// M-10 的反例锚定：旧版把 recallBudgetScope 划出允许集，调用方如实报告
+	// 「本次需要提高召回预算」反被判 gate/item_unknown——机械门禁面比规范窄。
+	const result = checkHumanGate(["recallBudgetScope"]);
+	assert.equal(result.ok, true);
+	assert.equal(result.requiresHuman, true);
+	assert.equal(result.fastPathAllowed, false);
+	assert.deepEqual(result.triggered, ["recallBudgetScope"]);
+});
+
+test("checkHumanGate：已移出的承载形态事项不再是合法待决项（§15.1 第 6 项已撤）", () => {
+	const result = checkHumanGate(["carrierFormCompatibility"]);
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "gate/item_unknown");
 });
 
 test("checkHumanGate：空列表不需 Human", () => {
@@ -1527,7 +1548,7 @@ test("checkHumanGate：未知事项拒绝并列出允许集", () => {
 	const result = checkHumanGate(["我想继续"]);
 	assert.equal(result.ok, false);
 	assert.equal(result.error.code, "gate/item_unknown");
-	assert.equal(result.allowed.length, 4);
+	assert.equal(result.allowed.length, 5);
 });
 
 test("checkHumanGate：非数组拒绝", () => {
@@ -1714,7 +1735,9 @@ test("checkExit：三段判断未完成则不得退出", () => {
 	assert.deepEqual(result.missing, ["三段判断完成"]);
 });
 
-test("checkExit：未生成记录则不得退出（§6 明文要求生成记录）", () => {
+test("checkExit：未生成记录则不得退出（§6 对一切退出路径要求生成记录，含零命中路径）", () => {
+	// 第四次审核 B-1/B-3 修复后：「召回完整完成且零命中」的退出路径**不豁免**
+	// 记录——它只改变记录的内容要求（如实写明零命中），由 §16.1 第 9 项守护。
 	const result = checkExit({ threeWayJudgementComplete: true, recordGenerated: false });
 	assert.equal(result.mayExit, false);
 	assert.deepEqual(result.missing, ["生成预检落实记录"]);

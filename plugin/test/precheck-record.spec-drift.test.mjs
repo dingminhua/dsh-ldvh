@@ -35,7 +35,6 @@ import {
 	FAILURE_ROUTES,
 	FAST_PATH_REQUIREMENTS,
 	HUMAN_GATE_ITEMS,
-	STANDING_HUMAN_GATE_ITEMS,
 	NON_EQUIVALENCES,
 	RECALL_MARKS,
 	REQUIRED_SECTIONS,
@@ -110,29 +109,30 @@ test("34 §12 交还十一项：代码常量须逐字来自原文", async () => 
 	assertVerbatim(spec, "34 号", "交还项", RETURN_ITEMS.map((item) => item.label));
 });
 
-test("34 §15.1 Human Gate 六事项：代码常量须逐字来自原文", async () => {
+test("34 §15.1 Human Gate 五事项：代码常量须逐字来自原文", async () => {
 	const spec = await readSpec("34-双源召回系统规范.md");
 	assertVerbatim(spec, "34 号", "Gate 事项", HUMAN_GATE_ITEMS.map((item) => item.label));
-	assertVerbatim(spec, "34 号", "Gate 常设事项", STANDING_HUMAN_GATE_ITEMS.map((item) => item.label));
 });
 
-test("34 §15.1 六项：两组代码常量之和须等于原文条数（防「规范加条、代码不加」）", async () => {
-	// **为什么要有这条**：上一版只断言「代码里的每个 label 都能在原文找到」——
-	// 那是**单向**检查，规范加了第 5 项而代码只有四项时照样全过（空守护，
-	// 与 2026-10-25 复验的 K3 同类）。故此处**从原文数条数**，与代码两组之和比对。
+test("34 §15.1 五项：代码常量条数须等于原文条数（防「规范加条、代码不加」）", async () => {
+	// **为什么要有这条**：只断言「代码里的每个 label 都能在原文找到」是**单向**
+	// 检查，规范加了条目而代码不加时照样全过（空守护，与 2026-10-25 复验的 K3
+	// 同类）。故此处**从原文数条数**，与代码常量条数比对。
+	// §15.1 现为平铺五项（第四次审核 B-2/M-10：承载形态对齐事项移出、代码自创的
+	// STANDING 二分撤销）。
 	const spec = await readSpec("34-双源召回系统规范.md");
 	const section = spec.slice(spec.indexOf("### 15.1"));
 	const gateSection = section.slice(0, section.indexOf("### 15.2"));
 	const itemsInSpec = (gateSection.match(/^\d+\. /gm) ?? []).length;
 	assert.equal(
 		itemsInSpec,
-		6,
-		`§15.1 原文应为 6 条；若规范改了条数，本断言会提示复核两组常量的划分（当前：${HUMAN_GATE_ITEMS.length} 当次 + ${STANDING_HUMAN_GATE_ITEMS.length} 常设）`,
+		5,
+		`§15.1 原文应为 5 条；若规范改了条数，本断言会提示同步 HUMAN_GATE_ITEMS（当前 ${HUMAN_GATE_ITEMS.length} 条）`,
 	);
 	assert.equal(
-		HUMAN_GATE_ITEMS.length + STANDING_HUMAN_GATE_ITEMS.length,
+		HUMAN_GATE_ITEMS.length,
 		itemsInSpec,
-		"两组常量之和须等于原文条数——少即漏承接，多即凭空增项",
+		"代码常量条数须等于原文条数——少即漏承接（机械门禁面窄于规范），多即凭空增项",
 	);
 });
 
@@ -276,7 +276,8 @@ test("34 §16.1 六条必停：每条的依据须逐字可回指原文", async (
 	const section = spec.slice(spec.indexOf("### 16.1"));
 	const stopSection = section.slice(0, section.indexOf("### 16.2"));
 	// **本切片承接第 1–6 项**（不是「§16.1 恰六条」——2026-10-25 34 号改名后
-	// §16.1 已增为 8 条，第 7、8 项属召回侧，不在本切片判据函数的覆盖范围内）。
+	// §16.1 先增为 8 条、第四次审核修复后增为 9 条，第 7–9 项属召回侧，不在本切片
+	// 判据函数的覆盖范围内）。
 	assert.equal(STOP_RULES.length, 6, "本切片承接 §16.1 第 1–6 项");
 	for (const rule of STOP_RULES) {
 		// 每条的依据片段须在 §16.1 原文中存在（防漂移）。
@@ -291,8 +292,8 @@ test("34 §16.1 六条必停：每条的依据须逐字可回指原文", async (
 	const itemsInSpec = (stopSection.match(/^\d+\. /gm) ?? []).length;
 	assert.equal(
 		itemsInSpec,
-		8,
-		`§16.1 原文应为 8 条；若规范改了条数，本断言会提示复核本切片的承接范围（当前承接第 1–6 项）`,
+		9,
+		`§16.1 原文应为 9 条（第四次审核 B-1：第 7 项收窄为未完成召回、第 9 项新增零命中未如实声明）；若规范改了条数，本断言会提示复核本切片的承接范围（当前承接第 1–6 项）`,
 	);
 	assert.ok(
 		STOP_RULES.length <= itemsInSpec,
@@ -306,4 +307,25 @@ test("34 §16.2 四种允许动作与 §16.3 恢复要求：代码常量须逐�
 	assert.ok(spec.includes("恢复须与触发原因对应"));
 	assert.ok(spec.includes("补齐后的识别不追溯性地使偏离消失"));
 	assert.ok(spec.includes("同一停止条件恢复后"));
+});
+
+test("34 §6 退出契约：checkExit 注释引文的关键句须在原文中逐字存在", async () => {
+	// **为什么要有这条**（第四次审核 B-4）：checkExit 的文档注释自称「§6 原文」，
+	// 但上一版逐字引用的是 §6 被改写**前**的旧文——注释与规范各说各话而无任何
+	// 机械提醒。本断言把「注释引文 ⊆ 规范原文」变成可核对：§6 再被改写而注释
+	// 未同步时，本条会失败。只取关键句（完整引文见注释），避免脆断。
+	const spec = await readSpec("34-双源召回系统规范.md");
+	const section6 = spec.slice(spec.indexOf("### 退出与转交条件"), spec.indexOf("## 7. 输入与前置条件"));
+	for (const quote of [
+		"三段判断完成并生成预检落实记录后退出，转由行动本身承接",
+		"本系统同样退出，预检落实记录仍须生成",
+		"召回未完成时不适用本路径",
+		"须按 §16.1 第 7 项停止交还",
+		"不退出而是停止交还（§12、§16）",
+		"转交不改变主控对行动的整体责任",
+	]) {
+		assert.ok(section6.includes(quote), `checkExit 注释引文「${quote}」不在 34 §6 原文中——注释或规范已漂移`);
+	}
+	// 机器可见的 reason 串同样须与 §6 现行文本一致（旧版仍写「（§14）」）。
+	assert.ok(section6.includes("停止交还（§12、§16）"), "§6 的停止交还回指应为（§12、§16）");
 });
