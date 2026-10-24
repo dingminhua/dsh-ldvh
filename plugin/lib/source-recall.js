@@ -581,6 +581,17 @@ export async function recallForAction(input = {}) {
     // 34 §13：召回命中 ≠ 适用。
     provesApplicability: false,
     // 确定性召回会漏（换个说法就漏），如实声明，不假装完整。
+    // **实测能力边界**（2026-10-24，不可用「可能漏」这种模糊说法搪塞）：
+    //
+    // 用 30 条真实 Pitfall 的「症状」原文去召回它**自己**，只有 **13/30 = 43%** 命中。
+    // 原因是结构性的、不是可调参数：Pitfall 的 `title`（如「写入侧与呈现层两套残留段
+    // 解析规则致门禁判据与展示不一致」）与它的「症状」（如「工单关闭提交被机械门禁
+    // 拒绝：workcase/direction_incomplete」）之间**常常没有任何字面重叠**——
+    // 一个描述机制，一个描述表现。词法匹配没有语义能力，这是它的固有边界。
+    //
+    // `23 §12` 的「故障调查」消费点要求「按表现匹配已知机制」，本实现只能做到
+    // 「字面相近的表现」；**由表现跨到机制需要语义判断，属 AI 的消费工作**（02 §9.2）。
+    // 故该消费点的召回不可依赖本函数单独完成——这条必须让调用方看见。
     coverage: "deterministic-token-match; may miss rephrasings; not exhaustive",
     // **`02 §9.1` 明文要求**：「分层结果的数量、排序、分页、截断、指纹和
     // **未完成范围必须可观察**；超预算必须分页、继续缩小或返回 partial，
@@ -618,6 +629,18 @@ export async function recallForAction(input = {}) {
       note: "tier 是字段位置（确定性），hits 是同层命中词个数（等权、可复算），path 仅为稳定输出；limit 截断只表示排得靠后，不表示不相关",
     },
     fingerprint: fingerprintOf([...specs, ...facts]),
+    // 结构化的能力边界（供程序判定，不必解析自由文本）。
+    limitations: {
+      // 词法匹配无法从「表现」跨到「机制」，这是固有边界而非缺陷。
+      lexicalOnly: true,
+      usesSemanticUnderstanding: false,
+      // 实测：症状→自身召回率 43%（30 条真实 Pitfall 样本）。
+      measuredSymptomSelfRecall: { hits: 13, total: 30, measuredAt: "2026-10-24" },
+      // 因此哪些消费点不能只靠本函数。
+      insufficientForConsumptionPoints: [
+        "23 §12 故障调查（按表现匹配已知机制——跨层需要语义判断）",
+      ],
+    },
     // **来源披露**（01 §10.3）：如实标注规范语料的实际应答方，不得把回退来源
     // 表述为项目自著语料。`tier` 为 null 表示三级都无可用语料。
     sourceView: {

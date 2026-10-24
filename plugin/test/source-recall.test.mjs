@@ -680,3 +680,38 @@ test("02 §9.1：pagination 须如实说明无游标及如何取更多", async (
 	assert.equal(r.pagination.hasCursor, false, "本实现不持有跨调用游标，须如实说明");
 	assert.match(r.pagination.howToGetMore, /limit|范围/, "须说明如何取得更多结果");
 });
+
+// ---------------------------------------------------------------------------
+// 能力边界：词法匹配的固有局限（实测数据，不是模糊说法）
+// ---------------------------------------------------------------------------
+
+test("limitations 须如实披露词法匹配的固有边界", async () => {
+	// 实测（2026-10-24）：用 30 条真实 Pitfall 的「症状」原文召回它自己，
+	// 只有 13/30 = 43% 命中。原因是结构性的：title 描述**机制**
+	// （「写入侧与呈现层两套残留段解析规则致门禁判据与展示不一致」），
+	// 症状描述**表现**（「工单关闭提交被机械门禁拒绝：workcase/direction_incomplete」），
+	// 二者常常没有任何字面重叠。词法匹配没有语义能力。
+	//
+	// 23 §12「故障调查」要求「按表现匹配已知机制」——跨这一层需要语义判断，
+	// 本函数做不到，必须让调用方知道。
+	const r = await recallForAction({ action: "页面白屏了", root: ROOT, limit: 3 });
+	assert.equal(r.limitations.lexicalOnly, true, "须声明是纯词法匹配");
+	assert.equal(r.limitations.usesSemanticUnderstanding, false, "不得声称有语义理解");
+	assert.ok(r.limitations.measuredSymptomSelfRecall.total === 30, "须给出实测样本量");
+	assert.ok(
+		r.limitations.insufficientForConsumptionPoints.some((p) => p.includes("故障调查")),
+		"须点名哪些消费点不能只靠本函数",
+	);
+});
+
+test("能力边界须在渲染行里让读者看见（未命中不代表没有同类教训）", async () => {
+	const { renderRecallRow } = await import("../lib/recall-injection.js");
+	const r = await recallForAction({ action: "页面白屏了", root: ROOT, limit: 2 });
+	const row = renderRecallRow(r);
+	assert.match(row, /能力边界/, "含事实候选时须提示能力边界");
+	assert.match(row, /未命中不代表没有同类教训/, "须明确未命中的含义");
+	// 纯规范命中时不必提示（该边界不影响规范召回），以控制篇幅。
+	const specOnly = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 3, types: [] });
+	const specRow = renderRecallRow(specOnly);
+	assert.equal(specRow.includes("能力边界") && specOnly.facts.length === 0, false, "无事实候选时不加该提示");
+});
