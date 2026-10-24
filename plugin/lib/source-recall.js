@@ -47,6 +47,27 @@ import { join } from "node:path";
 
 /** 中文虚字：含任一虚字的二元组不参与匹配（不承载意义，只制造噪声）。 */
 /**
+ * **已登记事实类型的白名单**（`02 §9.2`「中间产物不进入召回」的落实）。
+ *
+ * > 中间产物不进入召回：事实源之外的中间产物（如 11 §12bis 的留观缓冲）
+ * > **不在 F0–F4 的任何一层里**——它们不是事实对象，故不形成候选卡。
+ *
+ * 实测缺陷（2026-10-24）：`loadFacts` 只按目录扫 `.md`，**不校验类型是否已登记**。
+ * 在 `ldvh-base/observation-buffer/` 下放一条 `fact_type_key: observation-buffer`
+ * 的条目，它能作为事实候选被召回——中间产物进入了 F2，等于「因被召回而取得
+ * 适用性」的假象，恰是 02 §9.2 明禁的。
+ *
+ * 白名单来自 `specs/20–29` 段已登记的事实类型（`01 §8.1` 号段归属）。
+ * 不在名单内的 `fact_type_key` 一律**不形成候选**。
+ *
+ * 维护：新增事实类型规范（20–29 段）时须同步此表；两处不一致会让新类型默默
+ * 召回不到——故 `source-recall.test.mjs` 有一条用例直接比对 specs 目录与本表。
+ */
+export const REGISTERED_FACT_TYPES = Object.freeze([
+  "spark", "workcase", "adr", "pitfall", "research", "goal", "friction", "norm",
+]);
+
+/**
  * **必需优先**的事实类型（`03 §6.1` 标准路径：「完成所需的 **ADR/Pitfall** 召回」）。
  *
  * 为什么是「排序优先」而不是「过滤限定」：过滤会**漏**。
@@ -538,8 +559,12 @@ export async function recallForAction(input = {}) {
     loadFacts(join(root, "ldvh-base")),
   ]);
 
-  // 过滤：类型 + 状态。事实按 status，规范无 status 概念故全量参与。
+  // 过滤：**已登记类型** + 类型 + 状态。
+  // 规范无 status 概念故全量参与。
   const pool = facts.filter((c) => {
+    // **中间产物不进入召回**（02 §9.2）：只保留已登记类型。
+    // 未登记类型（留观缓冲、缓存、草稿箱等事实源之外的中间产物）不形成候选卡。
+    if (!REGISTERED_FACT_TYPES.includes(c.type)) return false;
     if (types !== null && !types.includes(c.type)) return false;
     return statuses.includes(c.status);
   });

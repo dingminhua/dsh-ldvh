@@ -12,6 +12,7 @@ import test from "node:test";
 import { join } from "node:path";
 
 import {
+	REGISTERED_FACT_TYPES,
 	REQUIRED_RECALL_TYPES,
 	HIGH_DF_RATIO,
 	MATCH_TIERS,
@@ -879,4 +880,70 @@ test("10 §5.3：注入不得复制规则正文（不成为第二规则源）", 
 	assert.ok(!/召回的命中不等于适用（02 §9\.1|识别不到的来源不因未被指向而不存在/.test(row), "不得复制规范正文");
 	// 但必须给出可回指路径。
 	assert.match(row, /specs\/|ldvh-base\//, "须给出可回指路径");
+});
+
+test("中间产物不得进入召回（02 §9.2）", async () => {
+	// 02 §9.2 逐字：「中间产物不进入召回：事实源之外的中间产物（如 11 §12bis 的
+	// 留观缓冲）**不在 F0–F4 的任何一层里**——它们不是事实对象，故不形成候选卡、
+	// 不参与「无相关」的判定、也不因被召回而取得任何适用性。」
+	//
+	// 实测缺陷（2026-10-24）：loadFacts 只按目录扫 .md，不校验类型是否已登记。
+	// 在 ldvh-base/observation-buffer/ 下放一条 fact_type_key: observation-buffer
+	// 的条目，它能被召回——中间产物进入了 F2。
+	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join: joinPath } = await import("node:path");
+	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-mid-"));
+	try {
+		const make = (dir, type, uid) => {
+			// 先建目录与文件
+			return mkdir(joinPath(project, "ldvh-base", dir), { recursive: true }).then(() =>
+				writeFile(
+					joinPath(project, "ldvh-base", dir, "x.md"),
+					`---\ntitle: 测试缓冲区留观条目\nstatus: active\nscope: 适用于测试缓冲区\nobject_uid: ${uid}\nfact_type_key: ${type}\n---\n\n# 测试缓冲区留观条目\n\n## 现象\n\n中间产物。\n`,
+					"utf8",
+				),
+			);
+		};
+		await make("observation-buffer", "observation-buffer", "88888888-8888-4888-8888-888888888888");
+		await make("adrs", "adr", "99999999-9999-4999-8999-999999999999");
+
+		const r = await recallForAction({
+			action: "测试缓冲区留观条目",
+			root: project,
+			limit: 5,
+			budgetBytes: 40000,
+			includeSpecs: false,
+		});
+		assert.ok(
+			!r.facts.some((f) => f.type === "observation-buffer"),
+			"中间产物（留观缓冲）不得形成候选卡",
+		);
+		assert.ok(r.facts.some((f) => f.type === "adr"), "已登记类型仍须正常召回");
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+});
+
+test("REGISTERED_FACT_TYPES 须与 specs/20–29 段一致（防漂移）", async () => {
+	// 白名单是手写常量，与规范目录可能漂移：新增事实类型规范后若忘了同步，
+	// 新类型会**默默召回不到**——这种缺陷没有任何报错，只能靠自动比对拦住。
+	const { readdir } = await import("node:fs/promises");
+	const { join: joinPath } = await import("node:path");
+	const specsDir = joinPath(ROOT, "specs");
+	const files = (await readdir(specsDir)).filter((f) => /^2[0-9]-.*\.md$/.test(f));
+	// 从文件名取 ASCII 类型名（如 `21-WorkCase 工单.md` → workcase）。
+	const fromSpecs = files
+		.map((f) => {
+			const name = f.replace(/\.md$/, "").replace(/^2[0-9]-/, "");
+			const m = name.match(/[A-Za-z][A-Za-z0-9_]*/);
+			return m === null ? null : m[0].toLowerCase();
+		})
+		.filter((x) => x !== null)
+		.sort();
+	assert.deepEqual(
+		[...REGISTERED_FACT_TYPES].sort(),
+		fromSpecs,
+		`白名单与 specs/20–29 不一致：白名单=${[...REGISTERED_FACT_TYPES].sort().join(",")}，规范目录=${fromSpecs.join(",")}`,
+	);
 });
