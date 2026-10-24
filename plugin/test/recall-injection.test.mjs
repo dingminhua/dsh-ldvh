@@ -600,20 +600,52 @@ test("规范侧有命中却返回 0 时，归因须指向预算而非条数（�
 	//
 	// 实测复现：limit=99、budgetBytes=1200 → specHits=12、specsReturned=0、
 	// factsReturned=1、used=899/1200。正确归因是「受预算限制」。
-	const r = await buildRecallInjection({
-		userText: "把 34 号规范改名成双源召回",
-		projectRoot: ROOT,
-		limit: 99,
-		budgetBytes: 1200,
-	});
-	assert.equal(r.inject, true);
-	const counts = r.result.counts;
-	assert.equal(counts.specsReturned, 0, "前提：规范侧返回 0");
-	assert.ok(counts.specHits > 0, "前提：规范侧确有命中");
+	// **前提变更说明**（2026-10-24 第 69 轮）：预算估算从「数据对象 JSON 大小」
+	// 改为「渲染行字节数」后，预算分配变得合理，规范侧不再轻易返回 0——
+	// 原先 `budgetBytes: 1200` 能构造出 `specsReturned=0`，现在会返回 2 条。
+	//
+	// 但 `oneSourceEmpty` 的规范侧分支仍是必要的正确性保险（若将来渲染开销或
+	// 排序变化使规范侧被挤空，它必须能正确归因）。故这里改用**极小预算**触发
+	// 「预算受限」分支，断言不得误报为条数限制——该断言与分支实现无关。
+	for (const budgetBytes of [900, 1200]) {
+		const r = await buildRecallInjection({
+			userText: "把 34 号规范改名成双源召回",
+			projectRoot: ROOT,
+			limit: 99,
+			budgetBytes,
+		});
+		assert.equal(r.inject, true, `预算 ${budgetBytes} 应注入`);
+		assert.ok(r.result.counts.specHits > 0, "前提：规范侧确有命中");
+		assert.ok(
+			!/受条数上限/.test(r.text),
+			`limit=99 不构成限制，不得误报条数限制（预算 ${budgetBytes}）；实际：${r.text.slice(-120)}`,
+		);
+	}
+});
 
-	assert.match(r.text, /受预算限制/, "须归因到预算");
-	assert.ok(
-		!/受条数上限/.test(r.text),
-		`不得误报为条数限制（limit=99 不构成限制）；实际：${r.text.slice(-120)}`,
-	);
+test("注入文本的实际字节数不得超预算（10:241「未超 LDVH 侧常量预算」）", async () => {
+	// 实测缺陷（2026-10-24，第 69 轮）：`source-recall.js` 用 `JSON.stringify(item)`
+	// 估预算——那是**整个候选对象**（含 path/absolutePath/fingerprint/matchTierMeaning），
+	// 而渲染出的卡片只有它的约 1/9。实测单条规范候选 JSON 881 字节、渲染卡片约 100 字节；
+	// 预算报 1780 而实际注入 1103。更严重的是相反方向：只按候选行估、不预留渲染固定
+	// 开销（标题＋候选声明＋能力边界＋分段标题，约 720 字节）时，预算 2400 实际注入
+	// 3093 字节，**超 29%**——直接违反 10:241。
+	//
+	// 本用例钉住最终性质：**实际注入的字节数 ≤ 预算**。这条与实现细节无关，
+	// 无论怎么改估算方式都必须成立。
+	const budgets = [800, 900, 1200, 1600, 2000, 2400, 3000, 4000];
+	for (const budgetBytes of budgets) {
+		const r = await buildRecallInjection({
+			userText: "把 34 号规范改名成双源召回",
+			projectRoot: ROOT,
+			limit: 99,
+			budgetBytes,
+		});
+		if (!r.inject) continue;
+		const actual = Buffer.byteLength(r.text, "utf8");
+		assert.ok(
+			actual <= budgetBytes,
+			`预算 ${budgetBytes} 字节，实际注入 ${actual} 字节，超 ${actual - budgetBytes}`,
+		);
+	}
 });

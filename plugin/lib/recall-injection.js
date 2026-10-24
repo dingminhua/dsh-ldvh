@@ -342,11 +342,28 @@ export function renderRecallRow(result) {
     // 674+586>1200）。用「是否 ≥95%」判会误判成条数限制。
     // 正确判据：未列出的候选里，是否存在「若预算足够本可加入」的——
     // 即 `unchecked` 非空且其首条大小超过剩余空间。
-    const remaining = limitBytes - usedBytes;
+    // **两侧口径必须一致**（2026-10-24 修）。
+    //
+    // `source-recall.js` 的预算估算已改为「渲染行字节 + 预留渲染开销」，
+    // 而这里仍按「总预算 − 候选行用量」算剩余空间、并按 `JSON.stringify` 估
+    // 下一条大小——两处口径不一致会误判归因。
+    //
+    // 实测：预算 1200 时 `usedBytes=474`，按老算法剩余 726「够放」→ 归因成
+    // 「受条数上限（limit=99）限制」；而实际可用 = 1200 − 720(渲染开销) = 480，
+    // 已用 474，**只剩 6 字节**，确实是预算放不下。
+    //
+    // 故此处同样扣除渲染开销，并用与数据侧一致的「行字节」估算下一条。
+    const RENDER_OVERHEAD_BYTES = 720;
+    const remaining = limitBytes - RENDER_OVERHEAD_BYTES - usedBytes;
+    const estimateLineBytes = (item) => {
+      const title = typeof item?.title === "string" ? item.title : "";
+      const reason = typeof item?.hitReason === "string" ? item.hitReason : "";
+      const path = typeof item?.path === "string" ? item.path : "";
+      const excerpt = typeof item?.excerpt === "string" ? item.excerpt : "";
+      return Buffer.byteLength(`${title}${reason}${path}${excerpt}`, "utf8") + 8;
+    };
     const nextDropped = result.unchecked?.specs?.[0] ?? result.unchecked?.facts?.[0];
-    const nextSize = nextDropped === undefined
-      ? 0
-      : Buffer.byteLength(JSON.stringify(nextDropped), "utf8");
+    const nextSize = nextDropped === undefined ? 0 : estimateLineBytes(nextDropped);
     // 注：`unchecked` 里存的是精简卡（title+path），不是完整候选，故用它做
     // 精确大小判断不可靠；这里改用**是否有被预算挡住的迹象**：
     // 两源都有命中却有一源结果为 0，且剩余空间小于一条常规卡（约 400 字节）。

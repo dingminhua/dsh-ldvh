@@ -902,9 +902,41 @@ export async function recallForAction(input = {}) {
   // 故此时**保底返回第一条并把 truncated 置真**，由渲染侧如实写明「已裁剪」，
   // 使 AI 知道「有关系项、只是没全给」，而不是「没有」。
   let used = 0;
+  // **估的是「注入文本」的大小，不是「数据对象」的大小**（2026-10-24 修）。
+  //
+  // 原实现用 `JSON.stringify(item)` 估预算——那是**整个候选对象的序列化**，
+  // 含 `path`／`absolutePath`／`source.contentFingerprint`／`matchTierMeaning`
+  // 等**根本不会出现在注入文本里**的字段。实测：单条规范候选 JSON 881 字节，
+  // 而渲染出的卡片约 100 字节，**相差近 9 倍**；`limit=99, 预算 2400` 时
+  // 预算报 1780 字节、实际注入文本仅 1103 字节（多算 62%）。
+  //
+  // 后果不只是难看：`10:241` 的核对项是「注入内容……**未超 LDVH 侧常量预算**」，
+  // 限的是**注入内容**。用数据对象大小去限，会让预算远早于真实需要就切断，
+  // 表面上「守住了预算」，实际牺牲了召回条数（实测规范命中 12 条只返回 1 条）。
+  //
+  // 故改为估算**渲染行**的字节数：标题 + 命中理由 + 路径 + 摘录。
+  // 这是确定性可复算的（不依赖渲染器实现），且与真实注入量同阶。
+  // **渲染固定开销须计入预算**（2026-10-24 再修）。
+  //
+  // 只算候选行会低估：渲染层还要加三行固定文本（标题、候选声明、能力边界）
+  // 与分段标题（「规范源：」「事实源：」）。实测这部分约 700 字节——若不预留，
+  // 预算 2400 时实际注入会达 3093 字节，**超预算 29%**，直接违反 `10:241`
+  // 的「注入内容……未超 LDVH 侧常量预算」。
+  //
+  // 预留值取 720 字节：三行固定文本实测约 660～700 字节，留一点余量。
+  const RENDER_OVERHEAD_BYTES = 720;
+  const usableBudget = Math.max(0, budgetBytes - RENDER_OVERHEAD_BYTES);
+  const estimateLineBytes = (item) => {
+    const title = typeof item.title === "string" ? item.title : "";
+    const reason = typeof item.hitReason === "string" ? item.hitReason : "";
+    const path = typeof item.path === "string" ? item.path : "";
+    const excerpt = typeof item.excerpt === "string" ? item.excerpt : "";
+    // 前缀（`- [type/status] `）、分隔符与本行换行的粗略常量，取 8 字节。
+    return Buffer.byteLength(`${title}${reason}${path}${excerpt}`, "utf8") + 8;
+  };
   const fits = (item) => {
-    const size = Buffer.byteLength(JSON.stringify(item), "utf8");
-    if (used + size > budgetBytes) return false;
+    const size = estimateLineBytes(item);
+    if (used + size > usableBudget) return false;
     used += size;
     return true;
   };
@@ -924,9 +956,9 @@ export async function recallForAction(input = {}) {
   // 余下 40% 留给事实；只有一个源有命中时不受此限（全给它）。
   // 60/40 不是拍脑袋：实测规范 3 条 ≈2073、事实 3 条 ≈1425，比例约 59:41。
   const bothSources = specHits.length > 0 && factHits.length > 0;
-  const specBudget = bothSources ? Math.floor(budgetBytes * 0.6) : budgetBytes;
+  const specBudget = bothSources ? Math.floor(usableBudget * 0.6) : usableBudget;
   const fitsSpec = (item) => {
-    const size = Buffer.byteLength(JSON.stringify(item), "utf8");
+    const size = estimateLineBytes(item);
     if (used + size > specBudget) return false;
     used += size;
     return true;
@@ -937,7 +969,7 @@ export async function recallForAction(input = {}) {
     // 整体为空 → 保底第一条（规范优先，否则事实）。
     const first = specHits[0] ?? factHits[0];
     if (first !== undefined) {
-      used += Buffer.byteLength(JSON.stringify(first), "utf8");
+      used += estimateLineBytes(first);
       if (specHits.length > 0) keptSpecs.push(first);
       else keptFacts.push(first);
     }
@@ -949,7 +981,16 @@ export async function recallForAction(input = {}) {
   const truncated =
     keptSpecs.length < allSpecHits.length || keptFacts.length < allFactHits.length;
   // 保底后 used 可能超过 budgetBytes——如实报告超额，不掩盖。
-  const overBudget = used > budgetBytes;
+  // **超额判断须含渲染固定开销**（2026-10-24 修）。
+  //
+  // 原为 `used > budgetBytes`——但 `used` 只累加候选行，不含渲染层那三行固定
+  // 文本与分段标题（约 720 字节）。实测预算 200 时 `used=91 < 200` 故判未超额，
+  // 而渲染后实际注入必然超过 200（91 + 720 > 200）——**静默超预算**，
+  // 恰是 `10:241`「未超 LDVH 侧常量预算」要防的。
+  //
+  // 故判断改为「候选行 + 渲染开销 > 预算」。这也使极小预算下的保底如实标记
+  // overBudget（保底本就是明知超额仍给一条，必须说清）。
+  const overBudget = used + RENDER_OVERHEAD_BYTES > budgetBytes;
 
   return {
     ok: true,
