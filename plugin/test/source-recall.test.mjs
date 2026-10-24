@@ -1444,3 +1444,38 @@ test("代码注释里的实测数字须与当前实现一致（防再次过时�
 	assert.equal(Number(claimedOverlap[1]), overlap, `注释声称 ${claimedOverlap[1]} 条有重叠，实测 ${overlap}`);
 	assert.equal(Number(claimedOverlap[2]), noOverlap, `注释声称 ${claimedOverlap[2]} 条无重叠，实测 ${noOverlap}`);
 });
+
+test("「同义改写 95% 命中」须与实测一致（防再次过时）", async () => {
+	// 第 56 轮结论：把症状段的**后半句**当查询（模拟「换个说法」），仍能召回自身
+	// 21/22 = 95%。该数字写进了 limitations 的说明里，故须受本用例守护——
+	// 上一轮刚因「注释数字过时」吃过教训（54/55 轮）。
+	const { readFile } = await import("node:fs/promises");
+	const src = await readFile(joinPath(ROOT, "plugin", "lib", "source-recall.js"), "utf8");
+	const claimed = /实测同义改写 (\d+)% 仍命中/.exec(src);
+	assert.ok(claimed !== null, "说明里须写明同义改写的命中率");
+
+	const facts = await loadFacts(joinPath(ROOT, "ldvh-base"));
+	const active = facts.filter((f) => f.type === "pitfall" && f.status === "active");
+	let hit = 0;
+	let total = 0;
+	for (const p of active) {
+		const sym = /## 症状\s*\n+([^\n#]+)/.exec(p.body ?? "")?.[1] ?? "";
+		if (sym.length < 40) continue;
+		total += 1;
+		const tail = sym.slice(Math.floor(sym.length / 2));
+		const r = await recallForAction({
+			action: tail,
+			root: ROOT,
+			limit: 8,
+			budgetBytes: 400000,
+			includeSpecs: false,
+		});
+		if (r.facts.some((f) => f.ref === p.ref)) hit += 1;
+	}
+	const actual = Math.round((100 * hit) / total);
+	assert.equal(
+		Number(claimed[1]),
+		actual,
+		`说明声称 ${claimed[1]}%，实测 ${hit}/${total} = ${actual}%`,
+	);
+});
