@@ -947,3 +947,46 @@ test("REGISTERED_FACT_TYPES 须与 specs/20–29 段一致（防漂移）", asyn
 		`白名单与 specs/20–29 不一致：白名单=${[...REGISTERED_FACT_TYPES].sort().join(",")}，规范目录=${fromSpecs.join(",")}`,
 	);
 });
+
+test("02 §9.2：每张候选卡须带来源与内容指纹", async () => {
+	// 02 §9.2 逐字：「只交付**带来源与指纹**的候选、卡片或恢复入口」。
+	// 此前只有**集合级** fingerprint（回答「还是不是同一批候选」，coversContent:false），
+	// 每张卡没有自己的来源与内容指纹——语料可能来自 01 §10.3 的回退层级，
+	// 卡片无法自述「我来自哪一级、内容有没有变」。
+	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
+	for (const card of [...r.specs, ...r.facts]) {
+		assert.ok(card.source !== undefined, `${card.title} 缺 source`);
+		assert.ok(
+			card.source.tier === "project" || card.source.tier === "source-repo" || card.source.tier === "package",
+			`${card.title} 的 source.tier 非法：${card.source.tier}`,
+		);
+		const fp = card.source.contentFingerprint;
+		assert.ok(fp !== undefined, `${card.title} 缺内容指纹`);
+		assert.equal(fp.kind, "content");
+		assert.equal(fp.coversContent, true, "内容指纹必须声明覆盖内容");
+		assert.match(fp.value, /^[0-9a-f]{8}$/, "指纹须为 8 位十六进制");
+	}
+});
+
+test("02 §9.2：内容指纹须覆盖**全文**，不得只盖截断后的片段", async () => {
+	// 实测缺陷：事实卡指纹原用 `body`（正文前 1200 字截断）计算。某 ADR 真实
+	// 3796 字符，body 只 1200——后 2596 字符的内容变化对指纹完全不可见，
+	// 而指纹声明 coversContent: true，属**过度声明**。
+	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3, includeSpecs: false });
+	assert.ok(r.facts.length > 0, "应召回事实");
+	// 至少要有一条事实的载体超过 1200 字符，其指纹 length 必须大于 1200。
+	const longOnes = r.facts.filter((f) => f.source.contentFingerprint.length > 1200);
+	assert.ok(
+		longOnes.length > 0,
+		`所有事实指纹都 ≤1200 字符，说明仍在用截断后的 body：${r.facts.map((f) => f.source.contentFingerprint.length).join(",")}`,
+	);
+});
+
+test("内容指纹须稳定：同一载体两次召回指纹一致", async () => {
+	const a = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 2 });
+	const b = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 2 });
+	assert.deepEqual(
+		a.specs.map((s) => s.source.contentFingerprint.value),
+		b.specs.map((s) => s.source.contentFingerprint.value),
+	);
+});

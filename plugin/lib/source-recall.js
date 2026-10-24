@@ -223,6 +223,32 @@ function parseFrontmatter(text) {
  * **现读现解析**，不建持久索引（34 §17 第 1 项）。
  */
 /**
+ * 单个载体的**内容指纹**（FNV-1a over 全文）。
+ *
+ * 与集合指纹的区别：集合指纹回答「还是不是同一批候选」，**不覆盖内容**；
+ * 内容指纹回答「这份载体的内容有没有变」。`02 §9.2` 要求候选卡「带来源与
+ * 指纹」，指的是后者——否则调用方无法判断读到的是不是当前版本。
+ *
+ * 边界：这是**机械可比的摘要**，不证明内容真实、充分或正确（`02 §9.2` 各层
+ * 「不能单独证明」列已限定）。算法与集合指纹一致（FNV-1a 32），实现简单可复算。
+ */
+function contentFingerprintOf(text) {
+  const value = typeof text === "string" ? text : "";
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return {
+    kind: "content",
+    algorithm: "fnv1a-32",
+    value: hash.toString(16).padStart(8, "0"),
+    coversContent: true,
+    length: value.length,
+  };
+}
+
+/**
  * 候选集合的确定性指纹（对排序后的路径做 FNV-1a 摘要）。
  *
  * **只覆盖「集合成员」，不覆盖内容**——它回答「还是不是同一批候选」，
@@ -338,6 +364,9 @@ export async function loadFacts(baseDir) {
       const fm = parseFrontmatter(text);
       // 正文（去掉 frontmatter）的前 1200 字做补充匹配，控制成本。
       const body = text.replace(/^---\n[\s\S]*?\n---\n?/, "").slice(0, 1200);
+      // **全文**保留，仅供内容指纹使用——指纹必须覆盖完整载体，
+      // 否则载体后半部分的变化对指纹不可见（见 `contentFingerprintOf` 的说明）。
+      const fullText = text;
       out.push({
         source: "fact",
         // 类型名直接取 frontmatter 的 fact_type_key（权威），不从目录名猜单复数——
@@ -356,6 +385,7 @@ export async function loadFacts(baseDir) {
         trigger: fm.trigger_signal ?? "",
         path: `ldvh-base/${dir}/${file}`,
         body,
+        fullText,
       });
     }
   }
@@ -628,9 +658,26 @@ export async function recallForAction(input = {}) {
   const allSpecHits = collect(specs, (c) => ({
     kind: "spec", ref: c.ref, title: c.title, path: c.path,
     positioning: c.positioning.slice(0, 160),
+    // **每张卡带来源与指纹**（`02 §9.2`「只交付带来源与指纹的候选、卡片或
+    // 恢复入口」）。集合级 `fingerprint` 只说明「还是不是同一批候选」，
+    // 不说明「这张卡来自哪一级、内容有没有变」——而语料可能来自回退来源
+    // （01 §10.3 三级回退），此时每条卡都必须能自述它来自哪一级。
+    source: {
+      tier: specsSource === null ? null : specsSource.tier,
+      // 内容指纹：该载体全文的确定性摘要，供过期检查（与集合指纹不同，它盖内容）。
+      contentFingerprint: contentFingerprintOf(c.text),
+    },
   }));
   const allFactHits = collect(pool, (c) => ({
     kind: "fact", type: c.type, ref: c.ref, title: c.title, status: c.status, path: c.path,
+    // 同规范卡：每张事实卡也带来源与内容指纹（02 §9.2）。
+    // 事实源只有项目内一源，故 tier 恒为 "project"。
+    source: {
+      tier: "project",
+      // 用**全文**算指纹：用截断后的 body 会让载体后半部分的变化对指纹不可见
+      // （实测某 ADR 真实 3796 字符，body 只 1200——后 2596 字符的内容变化查不出）。
+      contentFingerprint: contentFingerprintOf(c.fullText ?? c.body ?? ""),
+    },
   })).map((fact, index) => ({ fact, index }))
     // **必需类型优先**（`03 §6.1` 标准路径的点名要求）。
     // 排序键：是否属于 ADR/Pitfall（0/1）→ 原有次序（collect 已按其键排好）。
