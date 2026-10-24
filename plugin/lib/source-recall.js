@@ -88,10 +88,40 @@ import { join } from "node:path";
  *
  * 未列出的类型沿用 `["active"]`（`24` 未对默认候选另作规定）。
  */
+/**
+ * **参与匹配的 frontmatter 字段名清单**（导出供漂移检查回指规范）。
+ *
+ * 为什么要单独列成常量而不是散在 `detail` 数组里：这几项是**从 02 与 20–27
+ * 抄来的知识**——字段名一旦在某类型规范里改名（如 `trigger_signal`），代码里
+ * 这个字符串就失效，该字段内容对召回永久不可见，且**不会有任何测试报错**。
+ * 抽成常量后，`recall-spec-drift.test.mjs` 可以逐项回指原文
+ * （与 `precheck-record.spec-drift.test.mjs` 同口径）。
+ */
+export const MATCHED_FACT_FIELDS = Object.freeze([
+  "decision",
+  "phenomenon",
+  "question",
+  "research_question",
+  "gist",
+  "intent",
+  "direction_key",
+  "research_purpose",
+  "trigger_signal",
+  "summary",
+  "scope",
+  "title",
+]);
+
 export const DEFAULT_STATUSES_BY_TYPE = Object.freeze({
   spark: ["open"],
   workcase: ["draft", "open"],
   friction: ["open", "observing"],
+  // **`research` 须显式声明**（2026-10-24 修）：`24` 原文「默认状态范围
+  // `status=active`，`retired` 只在精确引用、调研历史或来源追溯时进入候选」。
+  // 此前它在白名单里却**缺这一项**，靠 `?? ["active"]` 的回退值碰巧对了——
+  // 但那是巧合而非声明：一旦回退默认值改动，research 会静默改变候选范围，
+  // 且无任何测试报错。漂移检查用例发现此缺项。
+  research: ["active"],
   adr: ["active"],
   norm: ["active"],
   pitfall: ["active"],
@@ -1118,6 +1148,23 @@ export async function recallForAction(input = {}) {
       //    里写着“既有行动结构路由未实现”，但那只是说明文字；`01 §10.3` 明禁
       //    「以『已披露』或省略代替」，故这里必须再结构化登记一次。
       "既有行动结构路由未实现（10 §5.3 要求；无可路由载体，见 limitations.unimplemented）",
+      // **未登记事实类型须进 gaps**（2026-10-24 修，第 70 轮）。
+      //
+      // `ldvh-base/` 下若出现白名单外的类型目录（新增事实类型而代码未跟随，
+      // 或第三方工具写入的目录），当前实现会**静默挡掉**——用户只会看到
+      // 「没有这类事实」，而实际是「有，但我不认识」。
+      //
+      // `02 §9.2` 禁把零结果当无约束；同一道理，禁把「不认识」当「不存在」。
+      // 具体被挡的条目另见 uncheckedRange.excludedByTypeWhitelist。
+      ...(() => {
+        const unknown = facts.filter((fact) => !REGISTERED_FACT_TYPES.includes(fact.type));
+        if (unknown.length === 0) return [];
+        const byType = [...new Set(unknown.map((fact) => fact.type))].sort();
+        return [
+          `未登记事实类型被排除在召回外：${byType.join("、")}（共 ${unknown.length} 条）。` +
+            `这不表示该类事实不存在——是白名单未收录，须按 20–27 的类型规范同步 REGISTERED_FACT_TYPES`,
+        ];
+      })(),
     ],
     // **F0 层**（`02 §9.1`）：类型/状态计数、coverage、未完成范围。
     //
