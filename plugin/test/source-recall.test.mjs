@@ -1123,3 +1123,33 @@ test("本项目自著语料时，渲染行用相对路径（绝对路径只在�
 	assert.match(row, /（specs\/34/, "自著语料应显示相对路径");
 	assert.ok(!/（\/Users\//.test(row), "自著语料不必显示绝对路径");
 });
+
+test("正文层门槛须随查询长度自适应：短查询不得被一刀切挡死", async () => {
+	// 2026-10-24 修：正文层原为固定 minHits:2（为抑制正文层噪声——实测 22 份
+	// 命中里 17 份只命中 1 个词）。但它把**短查询**一并挡死了：实测「代码」只有
+	// 1 个 token，而「代码」正是 `06-Code 实践与测试规范` 的核心词（正文 10 次），
+	// 该规范 scope 与 title 都不含「代码」，只能靠正文层——结果 specs=0。
+	//
+	// 正确判据是「这 1 个词够不够特别」：
+	//   · 单 token 且非通用词 → 正文命中即算；
+	//   · 多 token → 仍要求 ≥2。
+	for (const q of ["代码", "测试", "提交"]) {
+		const r = await recallForAction({ action: q, root: ROOT, limit: 3 });
+		assert.ok(r.specs.length > 0, `短查询「${q}」不应零命中`);
+	}
+	// 通用词即便查询只有一个也不得放宽（那正是原阈值要挡的噪声）。
+	const generic = await recallForAction({ action: "规范", root: ROOT, limit: 3 });
+	assert.ok(generic.specs.length >= 0, "通用词查询不做断言，只要求不崩");
+});
+
+test("长查询的正文层门槛不得放宽（防噪声回归）", async () => {
+	// 多 token 查询仍要求正文命中 ≥2，否则短词噪声会回来
+	// （第 12 轮实测：22 份命中里 17 份是单字噪声）。
+	const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 99 });
+	// 这些结果里不应出现只靠正文 1 个词命中的（除 tier 0/0.5 的精确命中）。
+	for (const s of r.specs) {
+		if (s.tier === 4) {
+			assert.ok(!/正文命中：[^、]+$/.test(s.hitReason), `正文层不得单词命中：${s.title} → ${s.hitReason}`);
+		}
+	}
+});

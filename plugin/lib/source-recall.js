@@ -514,6 +514,21 @@ export function matchCandidate(actionTokens, candidate) {
   // 「把 34 号规范改名成双源召回」在正文层命中 22 份规范，其中 17 份只命中
   // 1 个词（「改名」或「召回」）。而 scope/title/detail 是短字段，命中 1 个词
   // 即有区分度，故取 1。
+  // **正文层门槛须随查询长度自适应**（2026-10-24 修）。
+  //
+  // 原为固定 `minHits: 2`，理由是抑制正文层噪声（实测 22 份命中里 17 份只命中
+  // 1 个词）。但它把**短查询**一并挡死了：实测查询「代码」只有 1 个 token，
+  // 而「代码」正是 `06-Code 实践与测试规范` 的核心词（正文出现 10 次）——该规范
+  // 的 scope 与 title 都不含「代码」，只能靠正文层命中，于是 `specs=0`。
+  //
+  // 正确判据不是「要 2 个词」，而是「这 1 个词够不够特别」：
+  //   · 查询只有 1 个 token 且**不是通用词** → 它本身就是明确主题，正文命中即算；
+  //   · 查询有多个 token → 仍要求命中 ≥2（逐词命中越多越可能真相关）。
+  // 通用词（`GENERIC_TOKENS`，如「任何/规范/执行」）即便查询只有一个也**不**
+  // 放宽——那正是原阈值要挡的噪声。
+  const singleStrongToken =
+    actionTokens.length === 1 && !GENERIC_TOKENS.has(actionTokens[0]);
+  const bodyMinHits = singleStrongToken ? 1 : 2;
   const sections = [
     { tier: 1, text: candidate.scope, label: "适用范围", minHits: 1 },
     { tier: 2, text: candidate.detail, label: "内容", minHits: 1 },
@@ -522,7 +537,7 @@ export function matchCandidate(actionTokens, candidate) {
     // 曾只读 `body`，导致**规范正文这一层从未参与匹配**——缺陷：查询
     // 「改 guidance-text.js 的引导文本」一条规范都命中不了，因为该文件名只
     // 出现在 00/10 的正文里，不在它们的 scope/positioning/title 里。
-    { tier: 4, text: candidate.body ?? candidate.text, label: "正文", minHits: 2 },
+    { tier: 4, text: candidate.body ?? candidate.text, label: "正文", minHits: bodyMinHits },
   ];
   for (const section of sections) {
     if (typeof section.text !== "string" || section.text === "") continue;
