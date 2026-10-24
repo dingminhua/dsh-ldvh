@@ -1087,3 +1087,39 @@ test("保底仍须生效：极小预算下不得返回零结果", async () => {
 	assert.ok(r.specs.length + r.facts.length > 0, "极小预算仍须至少给一条");
 	assert.equal(r.overBudget, true, "保底导致超额须如实标注");
 });
+
+test("回退来源时，卡片路径须可实际读取（absolutePath）", async () => {
+	// 实测缺陷：语料回退到源仓库时，卡片给出的是**相对项目根**的 `specs/34-…md`，
+	// 而该路径在项目根下**不存在**——读者按给的路径去读会失败。
+	// 这是 01 §10.3 三级回退引入后遗留的问题：数据能召回，但取不到正文。
+	const { mkdtemp, rm, access } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join: joinPath } = await import("node:path");
+	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-abs-"));
+	try {
+		const r = await recallForAction({ action: "把 34 号规范改名", root: project, limit: 2 });
+		assert.equal(r.sourceView.specsAreProjectAuthored, false, "应回退到外部语料");
+		assert.ok(r.specs.length > 0, "应召回规范");
+		for (const spec of r.specs) {
+			assert.equal(typeof spec.absolutePath, "string", `${spec.title} 缺 absolutePath`);
+			// 关键断言：按 absolutePath 必须真的能读到文件。
+			await access(spec.absolutePath);
+			// 反证：相对的 path 在项目根下应当读不到（否则这条测试没意义）。
+			await assert.rejects(
+				() => access(joinPath(project, spec.path)),
+				"回退来源下相对 path 不应可读——若可读则本用例前提不成立",
+			);
+		}
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+});
+
+test("本项目自著语料时，渲染行用相对路径（绝对路径只在回退时需要）", async () => {
+	const { renderRecallRow } = await import("../lib/recall-injection.js");
+	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 1 });
+	assert.equal(r.sourceView.specsAreProjectAuthored, true);
+	const row = renderRecallRow(r);
+	assert.match(row, /（specs\/34/, "自著语料应显示相对路径");
+	assert.ok(!/（\/Users\//.test(row), "自著语料不必显示绝对路径");
+});

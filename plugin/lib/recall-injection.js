@@ -254,12 +254,20 @@ export function renderRecallRow(result) {
       const tierLabel =
         sourceView.specs?.tier === "source-repo" ? "插件源仓库" :
         sourceView.specs?.tier === "package" ? "插件包内副本" : "外部来源";
-      lines.push(`规范源（语料来自**${tierLabel}**，非本项目自著；其成员条件核对归源仓库）：`);
+      lines.push(
+        `规范源（语料来自**${tierLabel}**，非本项目自著；其成员条件核对归源仓库。` +
+          `下列相对路径在本项目根下**读不到**，须用绝对路径读取）：`,
+      );
     } else {
       lines.push("规范源：");
     }
+    // **路径须可直接读取**（2026-10-24 修）：语料来自回退来源时，`path` 是相对
+    // **源仓库**的相对路径，按本项目根去读会失败（实测回退到源仓库时
+    // `specs/34-…md` 在项目根下不存在）。此时显示 `absolutePath`。
+    const preferAbsolute = result?.sourceView?.specsAreProjectAuthored === false;
     for (const spec of specs) {
-      lines.push(`- ${spec.title}（${spec.path}）— ${spec.hitReason}`);
+      const shown = preferAbsolute && typeof spec.absolutePath === "string" ? spec.absolutePath : spec.path;
+      lines.push(`- ${spec.title}（${shown}）— ${spec.hitReason}`);
     }
   }
   if (facts.length > 0) {
@@ -305,12 +313,38 @@ export function renderRecallRow(result) {
     //   3. 保底——预算极小到连首项都放不下，仍然给出（此时才超额）。
     const usedBytes = result.budget?.usedBytes ?? 0;
     const limitBytes = result.budget?.limitBytes ?? 0;
+    // **判据：还有没有候选是因为「放不下」而被丢的**——不是看用量百分比。
+    // 实测反例：预算 1200、用量 674（56%）却已放不下任何一条事实（单条 586，
+    // 674+586>1200）。用「是否 ≥95%」判会误判成条数限制。
+    // 正确判据：未列出的候选里，是否存在「若预算足够本可加入」的——
+    // 即 `unchecked` 非空且其首条大小超过剩余空间。
+    const remaining = limitBytes - usedBytes;
+    const nextDropped = result.unchecked?.specs?.[0] ?? result.unchecked?.facts?.[0];
+    const nextSize = nextDropped === undefined
+      ? 0
+      : Buffer.byteLength(JSON.stringify(nextDropped), "utf8");
+    // 注：`unchecked` 里存的是精简卡（title+path），不是完整候选，故用它做
+    // 精确大小判断不可靠；这里改用**是否有被预算挡住的迹象**：
+    // 两源都有命中却有一源结果为 0，且剩余空间小于一条常规卡（约 400 字节）。
+    const oneSourceEmpty =
+      (result.counts?.factHits ?? 0) > 0 && (result.counts?.factsReturned ?? 0) === 0;
+    // 判据收紧：**有一源命中却返回 0** 本身就是「放不下」的强证据——
+    // 若真是条数限制，limit=99 时两源都该有条目。此时不必再猜剩余空间。
+    // （实测：limit=99、预算 1200 → specs=1、facts=0、remaining=526，
+    //   而单条事实 586 > 526，确实是放不下；「剩 526<400」判断太粗会漏。）
+    // 三个彼此独立的「放不下」迹象，任一成立即为预算受限：
+    //   a) 已超额（保底）；
+    //   b) 有一源有命中却返回 0（真条数限制下不会如此）；
+    //   c) 剩余空间已不足一张常规卡（实测最小卡约 200 字节）。
+    const blockedByBudget =
+      result.overBudget === true ||
+      (oneSourceEmpty && (result.counts?.specHits ?? 0) > 0) ||
+      remaining < Math.max(nextSize, 200);
     if (result.overBudget === true) {
       // 保底导致超额：必须说清「预算极小、只给了保底项」。
       lines.push(`（预算极小（上限 ${limitBytes} 字节）已超额，仅保底给出首项（实际 ${usedBytes} 字节）。**未列出的部分不代表不存在**，需要时请扩大检索。）`);
-    } else if (limitBytes > 0 && usedBytes >= limitBytes * 0.95) {
-      // 用 `>=` 而非 `>`：190/200 恰为 95%，属预算压线，仍应按预算受限说明
-      // （用 `>` 会把它误归到「条数限制」，而该情形预算其实已经很紧）。
+    } else if (blockedByBudget) {
+      // 真实原因是预算：可能用量百分比不高，但已放不下下一条。
       // 确实是被预算挡住了（用量贴近上限）。
       lines.push(`（受预算限制已裁剪：上限 ${limitBytes} 字节，实际用 ${usedBytes} 字节。未列出的部分不代表不存在。）`);
     } else {
@@ -345,7 +379,7 @@ export function renderRecallRow(result) {
  * @param {number} [input.budgetBytes]
  * @returns {Promise<{inject: false, reason: string} | {inject: true, text: string, digest: string, result: object}>}
  */
-export async function buildRecallInjection({ userText, projectRoot, budgetBytes } = {}) {
+export async function buildRecallInjection({ userText, projectRoot, budgetBytes, limit } = {}) {
   if (typeof projectRoot !== "string" || projectRoot === "") {
     return { inject: false, reason: "no-project" };
   }
@@ -365,7 +399,9 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes 
     result = await recallForAction({
       action: userText,
       root: projectRoot,
-      limit: 3,
+      // `limit` 可覆盖（此前硬编码为 3 且不接受入参，测试传 limit=1 被静默忽略，
+      // 导致「条数限制」的提示显示 limit=3 与实际调用不符）。
+      limit: Number.isInteger(limit) && limit > 0 ? limit : 3,
       budgetBytes: Number.isInteger(budgetBytes) ? budgetBytes : RECALL_CHAR_BUDGET,
     });
   } catch (error) {

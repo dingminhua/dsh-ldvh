@@ -334,7 +334,12 @@ export async function loadSpecs(specsDir) {
       positioning: pick("positioning"),
       scope: pick("scope"),
       basis: pick("basis"),
+      // `path` 是**相对项目根**的展示路径（本项目自著语料时即真实可读路径）。
+      // `absolutePath` 是该载体的实际位置——语料来自 01 §10.3 的回退层级时，
+      // `path` 相对当前项目根**读不到**（实测：回退到源仓库时 `specs/34-…md`
+      // 在项目根下不存在），读者必须用 `absolutePath` 才能取到正文。
       path: `specs/${file}`,
+      absolutePath: join(specsDir, file),
       headings,
       text,
     });
@@ -384,6 +389,7 @@ export async function loadFacts(baseDir) {
         ].filter(Boolean).join(" "),
         trigger: fm.trigger_signal ?? "",
         path: `ldvh-base/${dir}/${file}`,
+        absolutePath: join(baseDir, dir, file),
         body,
         fullText,
       });
@@ -657,6 +663,8 @@ export async function recallForAction(input = {}) {
   // `02 §9.1` 要求「数量…必须可观察」，读者要看的正是**丢了多少**。
   const allSpecHits = collect(specs, (c) => ({
     kind: "spec", ref: c.ref, title: c.title, path: c.path,
+    // 绝对路径：语料来自回退来源时 `path` 在项目根下读不到，须用此字段。
+    ...(c.absolutePath === undefined ? {} : { absolutePath: c.absolutePath }),
     positioning: c.positioning.slice(0, 160),
     // **每张卡带来源与指纹**（`02 §9.2`「只交付带来源与指纹的候选、卡片或
     // 恢复入口」）。集合级 `fingerprint` 只说明「还是不是同一批候选」，
@@ -670,6 +678,7 @@ export async function recallForAction(input = {}) {
   }));
   const allFactHits = collect(pool, (c) => ({
     kind: "fact", type: c.type, ref: c.ref, title: c.title, status: c.status, path: c.path,
+    absolutePath: c.absolutePath,
     // 同规范卡：每张事实卡也带来源与内容指纹（02 §9.2）。
     // 事实源只有项目内一源，故 tier 恒为 "project"。
     source: {

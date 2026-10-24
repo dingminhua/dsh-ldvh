@@ -161,10 +161,13 @@ test("renderRecallRow：零命中时如实说明会漏，不写成「无相关�
 });
 
 test("renderRecallRow：超预算如实标出裁剪与字节数（05 §9.2）", () => {
+	// 夹具补上 counts：新判据用「有一源命中却返回 0」识别「放不下」，
+	// 缺 counts 时无法判断，会退到条数分支（2026-10-24 改）。
 	const text = renderRecallRow({
 		specs: [],
 		facts: [{ type: "adr", status: "active", title: "某决定", path: "ldvh-base/adrs/a.md", hitReason: "标题命中：决定" }],
 		truncated: true,
+		counts: { specHits: 3, factHits: 1, specsReturned: 0, factsReturned: 1 },
 		budget: { limitBytes: 200, usedBytes: 190 },
 	});
 	// 文案已按真实原因细分（2026-10-24）：190/200 = 95%，属**预算受限**，
@@ -393,15 +396,19 @@ test("截断说明须区分真实原因（预算 vs 条数），不得一律说�
 	assert.ok(!/超出预算已裁剪/.test(byLimit.text), "预算充足时不得声称超预算");
 	assert.match(byLimit.text, /预算尚有余量/, "须如实说明预算有余量");
 
-	// 2) 预算限制：用量贴近上限。
+	// 2) 预算限制：须把预算压到确实放不下更多候选的程度。
+	// 注意（2026-10-24）：第 34 轮改成按源分配预算（规范最多 60%）后，正常预算
+	// 不再压线（实测 1981/2400 = 82.5%），此时正确归因是「条数限制」而非预算。
+	// 故此处必须用**真正紧张**的预算才能触发预算分支。
 	const byBudget = await buildRecallInjection({
 		userText: "把 34 号规范改名成双源召回",
 		projectRoot: ROOT,
-		limit: 3,
-		budgetBytes: 2400,
+		limit: 99,
+		budgetBytes: 1200,
 	});
 	assert.equal(byBudget.inject, true);
-	assert.match(byBudget.text, /受预算限制|预算极小/, "预算受限须点名预算");
+	assert.match(byBudget.text, /受预算限制|预算极小/, `预算受限须点名预算，实际：${byBudget.text.slice(-160)}`);
+	assert.ok(!/受条数上限/.test(byBudget.text), "预算受限时不得归因为条数限制");
 });
 
 test("partial 与 truncated 是同一个值，渲染不得输出两条互相矛盾的提示", async () => {
