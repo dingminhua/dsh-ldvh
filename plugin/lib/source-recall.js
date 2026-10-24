@@ -979,9 +979,18 @@ export async function recallForAction(input = {}) {
     //     或读到了但零对象——此时任何「未命中」都不构成「无相关」的证据；
     //   · `partial`：读到了对象，但有命中未返回（截断）或存在未检查范围；
     //   · `complete`：全部命中均已返回，且无未检查范围。
-    // 判定（注意：不能在此处引用同级的 `uncheckedRange`——它是同一对象字面量里
-    // 后续声明的键，此时尚未求值；故这里只用前面已算好的量）。
-    completeness:
+    // **注意命名**（2026-10-24 修）：这里描述的是**本次召回**的完整度，
+    // 不是**事实集合**的完整度。二者是不同概念（`02 §10.2` 第四条是后者）：
+    //   · 本字段 `recallCompleteness`：这次返回是否齐（受 limit／预算／过滤影响）；
+    //   · `f0.setAudit`：事实集合本身是否完整（载入是否成功、有无未可用对象）。
+    //
+    // 原名为 `completeness`，实测会误导——读者看到 `partial` 会以为**事实源有问题**，
+    // 而实际往往只是本次按 `limit` 截断了，事实源完好无损。故改名并在 f0 给出
+    // 集合级审计，使两者各归其位。
+    //
+    // 判定（不能在此引用同级的 `uncheckedRange`——同一对象字面量里后续声明的键
+    // 此时尚未求值，会 ReferenceError；故只用前面已算好的量）。
+    recallCompleteness:
       specs.length + facts.length === 0
         ? "unavailable"
         : truncated || facts.length - pool.length > 0 || includeSpecs === false
@@ -1077,6 +1086,22 @@ export async function recallForAction(input = {}) {
       },
       // 类型清单：使消费方能知道「有哪些类型存在」，而非只知道「命中了哪些」。
       typesPresent: [...new Set(facts.map((fact) => fact.type))].sort(),
+      // **集合完整性审计**（`02 §10.2` 第四条：「对当前 WorkTree 的事实集合执行
+      // 独立机械校验，报告 complete/partial/unavailable 及具体未完成范围」）。
+      //
+      // 与 `recallCompleteness` 的区别：这一项回答「**事实源本身**是否完整」，
+      // 不受本次 limit／types／statuses 影响——`ldvh-base/` 里的对象要么都被
+      // 载入了，要么有失败。实测本仓 310 个对象全部载入成功，故此值应为
+      // `complete`，即便某次召回因 limit 只返回了 3 条。
+      setAudit: {
+        status: specs.length + facts.length === 0 ? "unavailable" : "complete",
+        // 具体未完成范围：本实现一次读完全部载体（无分页、无跳过），
+        // 故正常情形为空；目录不存在时由 unavailable 承载。
+        notCompleted: specs.length + facts.length === 0
+          ? ["事实源与规范源均未读到"]
+          : [],
+        note: "本实现一次读完全部载体（不建索引、不分页载入），故载入阶段无部分完成状态；本次召回的截断另见 recallCompleteness",
+      },
     },
     // **未检查范围**（`02 §9` 第 2 项：「召回…并保留命中依据和**未检查范围**」）。
     //

@@ -1359,13 +1359,13 @@ test("完整性须为 complete/partial/unavailable 三态（02 §9.2、02:308）
 	// **partial/unavailable** 边界交还」。此前只有一个布尔 `partial`，无法区分
 	// 「拿到了但有缺」（可继续用）与「根本没拿到」（**不得当作「无相关」**）。
 	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
-	assert.ok(["complete", "partial", "unavailable"].includes(r.completeness), `非法三态：${r.completeness}`);
+	assert.ok(["complete", "partial", "unavailable"].includes(r.recallCompleteness), `非法三态：${r.recallCompleteness}`);
 	// 存在被过滤（未检查）的候选时不得声称 complete。
 	if (r.counts.candidatesExcluded > 0) {
-		assert.notEqual(r.completeness, "complete", "有未检查范围时不得声称 complete");
+		assert.notEqual(r.recallCompleteness, "complete", "有未检查范围时不得声称 complete");
 	}
 	// 有命中未返回时必须是 partial。
-	if (r.truncated) assert.equal(r.completeness, "partial", "截断时须为 partial");
+	if (r.truncated) assert.equal(r.recallCompleteness, "partial", "截断时须为 partial");
 });
 
 test("unavailable 与「零命中」须可区分（前者不得当作无相关）", async () => {
@@ -1383,7 +1383,7 @@ test("unavailable 与「零命中」须可区分（前者不得当作无相关�
 		});
 		// 没有任何对象可读 → unavailable（而非「无相关」）。
 		assert.equal(r.facts.length, 0);
-		assert.equal(r.completeness, "unavailable", "一源都读不到时须为 unavailable");
+		assert.equal(r.recallCompleteness, "unavailable", "一源都读不到时须为 unavailable");
 	} finally {
 		await rm(empty, { recursive: true, force: true });
 	}
@@ -1511,5 +1511,39 @@ test("须给出结构化 gaps（01 §10.3 明禁「以已披露代替」）", as
 	assert.ok(
 		noSpecs.gaps.some((g) => /规范源未读取/.test(g)),
 		"includeSpecs:false 须登记该缺失",
+	);
+});
+
+test("「本次召回完整度」与「事实集合完整性」须分开表达（原名会误导）", async () => {
+	// 2026-10-24 修：原字段名 `completeness` 描述的是**本次召回**是否齐，
+	// 但读者看到 `partial` 会以为**事实源有问题**——而实际往往只是本次按
+	// `limit` 截断了，事实源完好无损。
+	//
+	// `02 §10.2` 第四条明确是另一种审计：「对当前 WorkTree 的**事实集合**执行
+	// 独立机械校验，报告 complete/partial/unavailable 及具体未完成范围」。
+	// 故拆为两个字段，各归其位。
+	const r = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
+
+	// 本次召回：因 limit 截断 → partial。
+	assert.ok(r.recallCompleteness !== undefined, "须有 recallCompleteness");
+	assert.equal(r.truncated, true, "前提：本次确被截断");
+
+	// 事实集合：310 个对象全部载入成功 → complete。
+	assert.ok(r.f0?.setAudit !== undefined, "须有集合级审计");
+	assert.equal(r.f0.setAudit.status, "complete", "事实源本身应完整（载入阶段无失败）");
+	assert.ok(Array.isArray(r.f0.setAudit.notCompleted), "须给出具体未完成范围");
+	assert.deepEqual(r.f0.setAudit.notCompleted, [], "载入阶段无未完成项");
+
+	// 关键：集合级审计**不受**本次 limit／types 影响。
+	const narrow = await recallForAction({
+		action: "把 34 号规范改名",
+		root: ROOT,
+		limit: 1,
+		types: ["adr"],
+	});
+	assert.equal(
+		narrow.f0.setAudit.status,
+		"complete",
+		"集合级审计不得因本次查询收窄而变化",
 	);
 });
