@@ -41,7 +41,15 @@ export const RECALL_SUMMARY = "双源召回 · dsh-ldvh · 行动前候选";
 const MIN_HITS = 1;
 
 /**
- * 默认单次注入预算（字节）。与 guidance 的 1500 分开计——两者是不同的注入面。
+ * 默认单次注入预算（**字节**，不是字符）。
+ *
+ * **命名注**（2026-10-24）：原名为 `RECALL_CHAR_BUDGET`，但它的实际用法是传给
+ * `budgetBytes` 按 UTF-8 字节计算——名字说 CHAR、用法算 BYTE，同一份文件里
+ * `RECALL_RENDER_CHAR_LIMIT` 又真的按字符计（`line.length`）。两个「CHAR」不同义，
+ * 中文一字三字节，极易让维护者按字符估算而严重低估（2400 字节只合 800 汉字）。
+ * 故改名为 `RECALL_BYTE_BUDGET`，并在两条用例里校验二者单位不同。
+ *
+ * 与 guidance 的 1500 分开计——两者是不同的注入面。
  *
  * 定值依据（实测，2026-10-24）：`limit: 3` 时三条规范的候选卡约 1400–1500 字节、
  * 三条事实约 870–910 字节，合计约 **2300 字节**。原定 900 字节导致**每一条**都被
@@ -50,12 +58,12 @@ const MIN_HITS = 1;
  * 故定为 2400：足以容纳 3 规范 + 3 事实，仍对更大结果形成硬上限
  * （`fd133f0d` A3 要求预算为机械约束，不是无上限）。
  */
-export const RECALL_CHAR_BUDGET = 2400;
+export const RECALL_BYTE_BUDGET = 2400;
 
 /**
  * **渲染后文本**的硬上限（UTF-16 码元）。
  *
- * 与 `RECALL_CHAR_BUDGET` 的区别：那个约束的是**候选数据**的字节量，
+ * 与 `RECALL_BYTE_BUDGET` 的区别：那个约束的是**候选数据**的字节量，
  * 这个约束的是**最终注入的这段文字**。二者不重合——同批数据的渲染长度
  * 取决于标题长短、命中理由、是否带 partial/来源/边界提示等，实测同一批
  * 候选从 802 到 1167 字符不等。
@@ -402,7 +410,7 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
       // `limit` 可覆盖（此前硬编码为 3 且不接受入参，测试传 limit=1 被静默忽略，
       // 导致「条数限制」的提示显示 limit=3 与实际调用不符）。
       limit: Number.isInteger(limit) && limit > 0 ? limit : 3,
-      budgetBytes: Number.isInteger(budgetBytes) ? budgetBytes : RECALL_CHAR_BUDGET,
+      budgetBytes: Number.isInteger(budgetBytes) ? budgetBytes : RECALL_BYTE_BUDGET,
     });
   } catch (error) {
     // 召回失败不拦回合（它是输入侧，不是闸门）；如实标出原因，不假装「无相关」。

@@ -606,6 +606,12 @@ export async function recallForAction(input = {}) {
   if (action === "") {
     return { ok: false, error: { code: "recall/action_required", message: "动作描述必填" } };
   }
+  // **默认值注**（2026-10-24）：本函数默认 `limit=5`／`budgetBytes=4000`，而
+  // 注入路径（`buildRecallInjection`）默认 `limit=3`／`2400`。二者**故意不同**：
+  //   · 本函数是**通用召回接口**，调用方（CLI、诊断脚本）通常想要更多候选；
+  //   · 注入路径受引导面预算约束（`10:241`「未超 LDVH 侧常量预算」），须更紧。
+  // 混用会让「预算到底是多少」说不清——测试里就曾把两者当同一个数而断言失败。
+  // 需要稳定基数时请显式传参，不要依赖默认值。
   const limit = Number.isInteger(input.limit) && input.limit > 0 ? input.limit : 5;
   const budgetBytes = Number.isInteger(input.budgetBytes) && input.budgetBytes > 0
     ? input.budgetBytes : 4000;

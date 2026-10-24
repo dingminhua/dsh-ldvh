@@ -12,7 +12,7 @@ import { join } from "node:path";
 
 import {
 	ENTRY_VERDICTS,
-	RECALL_CHAR_BUDGET,
+	RECALL_BYTE_BUDGET,
 	RECALL_RENDER_CHAR_LIMIT,
 	RECALL_SUMMARY,
 	buildRecallInjection,
@@ -21,6 +21,7 @@ import {
 	renderRecallRow,
 	shouldRecall,
 } from "../lib/recall-injection.js";
+import { recallForAction } from "../lib/source-recall.js";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 
@@ -234,12 +235,12 @@ test("buildRecallInjection：预算可下调，且超预算标 truncated", async
 	}
 });
 
-test("RECALL_CHAR_BUDGET 是固定常量，且大到能容纳 3 规范 + 3 事实", () => {
-	assert.equal(typeof RECALL_CHAR_BUDGET, "number");
-	assert.equal(RECALL_CHAR_BUDGET, 2400);
+test("RECALL_BYTE_BUDGET 是固定常量，且大到能容纳 3 规范 + 3 事实", () => {
+	assert.equal(typeof RECALL_BYTE_BUDGET, "number");
+	assert.equal(RECALL_BYTE_BUDGET, 2400);
 	// 实测：limit:3 时三条规范候选约 1400–1500 字节、三条事实约 870–910 字节。
 	// 预算过紧会让每一次召回都 truncated，使它失去「防超量」的原意。
-	assert.ok(RECALL_CHAR_BUDGET >= 2200, "须容纳完整的一轮 3+3 候选");
+	assert.ok(RECALL_BYTE_BUDGET >= 2200, "须容纳完整的一轮 3+3 候选");
 });
 
 test("RECALL_SUMMARY 标出「双源召回」，Human 侧折叠可见", () => {
@@ -346,7 +347,7 @@ test("无主题词的问句：no_tokens 是合理结果，如实报出而非假�
 });
 
 test("渲染文本须有硬上限，超限按行裁剪并如实说明（不得静默截断）", async () => {
-	// 此前只有**数据**预算（RECALL_CHAR_BUDGET，约束候选 JSON 字节量），
+	// 此前只有**数据**预算（RECALL_BYTE_BUDGET，约束候选 JSON 字节量），
 	// 没有**渲染文本**预算——同批数据的渲染长度取决于标题长短、命中理由、
 	// 是否带 partial/来源/边界提示，实测同一批从 802 到 1167 字符不等。
 	// 项目语料变大后渲染层可无界增长（10:241 对引导面有「未超常量预算」核对项，
@@ -420,4 +421,48 @@ test("partial 与 truncated 是同一个值，渲染不得输出两条互相矛�
 	});
 	const truncationLines = (r.text.match(/^（(本次为|受预算|受条数|预算极小)[^\n]*/gm) ?? []);
 	assert.ok(truncationLines.length <= 1, `截断说明不得重复输出，实际 ${truncationLines.length} 条：${truncationLines.join(" | ")}`);
+});
+
+test("两个预算常量的单位必须真的不同：字节 vs 字符（防命名混同）", async () => {
+	// 2026-10-24：原名 RECALL_CHAR_BUDGET 实际按 UTF-8 字节使用（传给 budgetBytes），
+	// 而同文件的 RECALL_RENDER_CHAR_LIMIT 真按字符计（line.length）。两个「CHAR」
+	// 不同义——中文一字三字节，混同会让维护者按字符估算而低估 3 倍。
+	// 现字节预算已改名为 RECALL_BYTE_BUDGET。
+	assert.equal(RECALL_BYTE_BUDGET, 2400);
+	assert.equal(RECALL_RENDER_CHAR_LIMIT, 1600);
+
+	// 实测同一段文本的字符数与字节数确实不同（中文占 3 字节），
+	// 若两者相等则说明全部是 ASCII——那样这条校验就失去意义。
+	const sample = "双源召回 · 行动前候选";
+	assert.notEqual(
+		sample.length,
+		Buffer.byteLength(sample, "utf8"),
+		"样本须含非 ASCII 字符，否则无法体现字节与字符之差",
+	);
+	// 逐字核算，不断言「整体 = 字符数×3」——样本含 `·`（U+00B7，2 字节）与空格
+	// （1 字节），整体并非纯 3 字节。只断言「汉字占 3 字节」这一条事实。
+	for (const ch of sample) {
+		if (/[\u4e00-\u9fff]/.test(ch)) {
+			assert.equal(Buffer.byteLength(ch, "utf8"), 3, `汉字「${ch}」应占 3 字节`);
+		}
+	}
+	assert.ok(
+		Buffer.byteLength(sample, "utf8") > sample.length,
+		"含中文的样本，字节数必大于字符数",
+	);
+
+	// 数据预算按字节生效：显式传 RECALL_BYTE_BUDGET 后，用量须受其字节约束。
+	// 注意 `recallForAction` 自身的默认预算是 4000（另一个函数、另一个默认值），
+	// 与 `RECALL_BYTE_BUDGET`（buildRecallInjection 的默认）不是同一个数——
+	// 这正是本条用例要锁住的地方：混用会让「预算到底是多少」变得说不清。
+	const r = await recallForAction({
+		action: "把 34 号规范改名成双源召回",
+		root: ROOT,
+		limit: 3,
+		budgetBytes: RECALL_BYTE_BUDGET,
+	});
+	assert.ok(
+		r.budget.usedBytes <= RECALL_BYTE_BUDGET || r.overBudget === true,
+		`数据预算须按字节生效：used=${r.budget.usedBytes} limit=${RECALL_BYTE_BUDGET}`,
+	);
 });
