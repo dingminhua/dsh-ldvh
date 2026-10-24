@@ -153,3 +153,31 @@ test("召回：仅在 step===1 注入（不得每步重复）", async () => {
 		await harness.dispose();
 	}
 });
+
+test("首回合时序陷阱：不等待 resolve 完成时，召回仍须生效（late resolve 兜底）", async () => {
+	// 真实缺陷（第 20 轮修过，但从未在真实接线里验证）：
+	// `lifecycle.lastScope` 由安装时的异步 `resolve()` 在 `.then` 里赋值，而
+	// pre-step（prepend）在**首次 assemble 之前**运行。故第一回合到这里时
+	// `lastScope` 可能仍是 undefined，若直接读会得到 no-project 而静默跳过召回——
+	// **召回看起来「接了」，实际第一回合永远不生效**。
+	//
+	// 本用例的关键：**完全不等待** —— `agent/created` 之后立刻发 pre-step，
+	// 使 resolve 大概率尚未落地，从而逼出 late resolve 兜底路径。
+	const harness = await createHarness();
+	try {
+		harness.root.emit("agent/created", { agent: harness.agent, source: "startup" });
+		// 刻意不 settle()：立即触发首回合 pre-step。
+
+		const decision = await runPreStep(harness, "改一下字段然后提交校验", 1);
+		const messages = Array.isArray(decision.messages) ? decision.messages : [];
+		const recallRows = messages.filter((m) =>
+			/双源召回/.test((m.content ?? []).map((c) => c.text ?? "").join("")),
+		);
+		assert.ok(
+			recallRows.length > 0,
+			`首回合（不等 resolve）须注入召回行——这是 late resolve 兜底要保证的；kind=${decision.kind} 消息数=${messages.length}`,
+		);
+	} finally {
+		await harness.dispose();
+	}
+});

@@ -443,14 +443,43 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         // 行动前双源召回（10 §5.3「行动前引导入口」）。只在受管辖且项目路径可用时召回；
         // 未受管辖、无项目、或用户消息不足以构成查询时返回 inject:false（02 §9.2 进入条件）。
         recallRow: async ({ userText }) => {
-          if (lifecycle.scopeState !== "governed") return { inject: false, reason: "not-governed" };
-          // **时序陷阱**：`lifecycle.lastScope` 由安装时的异步 `resolve()` 在 `.then`
-          // 里赋值，而 pre-step（prepend）在**首次 assemble 之前**运行。故第一回合
-          // 到这里时 `lastScope` 可能仍是 undefined，直接读会得到 no-project 而静默
-          // 跳过召回——召回看起来「接了」，实际第一回合永远不生效。
+          // **时序陷阱（两道门，2026-10-24 修第二道）**：
           //
-          // 兜底：最后再从会话 cwd 现解析一次（幂等、有缓存语义由 resolve 自身承担）。
-          // 只在 lastScope 缺 project.path 时才多这一次调用，正常路径零额外开销。
+          // `lifecycle.scopeState` 与 `lifecycle.lastScope` 都由安装时的异步
+          // `resolve()` 在 `.then` 里赋值（`agent-lifecycle.js:42` 初始 `null`、
+          // `:75` 才写入）。而 pre-step（prepend）在**首次 assemble 之前**运行，
+          // 故第一回合到这里时两者可能都还是初始值。
+          //
+          // 第 20 轮只兜底了 `project.path`（第二道门），**漏了 `scopeState` 本身
+          // （第一道门）**——实测真实接线：`agent/created` 之后立即发 pre-step，
+          // 召回返回 `not-governed`、注入行完全不出现。即「第一回合永远不生效」
+          // 这个缺陷其实**并未真正修好**，只是被「先 settle 再测」的夹具掩盖了。
+          //
+          // 现两道门共用同一次 late resolve：仅当 `scopeState` 或 `project.path`
+          // 任一缺失时才多这一次调用，正常路径零额外开销。
+          const needsLateResolve =
+            lifecycle.scopeState !== "governed" ||
+            typeof lifecycle.lastScope?.project?.path !== "string" ||
+            lifecycle.lastScope.project.path.length === 0;
+          if (needsLateResolve) {
+            try {
+              const cwd = agent?.session?.header?.cwd;
+              if (typeof cwd === "string" && cwd.length > 0) {
+                const late = await resolve(cwd);
+                if (late !== undefined && late !== null) {
+                  // 补齐第一道门：判定状态。
+                  if (lifecycle.scopeState !== late.state) lifecycle.setScope?.(late);
+                  if (lifecycle.lastScope === undefined || lifecycle.lastScope === null) {
+                    lifecycle.lastScope = late;
+                  }
+                }
+              }
+            } catch (error) {
+              agent?.ctx?.logger?.warn?.(`[dsh-ldvh] recall: late scope resolve failed: ${String(error?.message ?? error)}`);
+            }
+          }
+          // 兜底之后仍不受管辖 → 如实返回（此时是真不受辖，不是时序未就绪）。
+          if (lifecycle.scopeState !== "governed") return { inject: false, reason: "not-governed" };
           let projectPath = lifecycle.lastScope?.project?.path;
           if (typeof projectPath !== "string" || projectPath.length === 0) {
             try {

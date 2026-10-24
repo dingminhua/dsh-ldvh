@@ -300,7 +300,17 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
       }
       const currentNotice = getNoticeText();
       state.primePending = false;
-      if (currentNotice === null || currentNotice === "") return decision;
+      // **不得因「判定文本尚未就绪」而连召回一起跳过**（2026-10-24 修）。
+      //
+      // 实测缺陷（真实接线复现）：`getNoticeText()` 返回 null（首回合 `lastScope`
+      // 尚未由异步 resolve 写入）时，这里**直接 return**，而召回代码在其后——
+      // 于是召回头一回合完全不执行。即「召回接好了但首回合不生效」这个缺陷
+      // 的第**三**道门（前两道分别是 `scopeState` 与 `project.path`）。
+      //
+      // 正确形状：管辖判定行与召回行是**两个独立注入面**（下文注释亦如此声明），
+      // 前者未就绪不应连坐后者。故这里不再提前返回，而是用一个「空判定」继续
+      // 走流程，仅跳过判定行的注入。
+      const noticeReady = currentNotice !== null && currentNotice !== "";
       // Loss detection (re-review finding, 2026-09-04; **rewritten 2026-10-19**
       // for friction-41a43496). The digest gate alone meant a rewind to before
       // our row, or a cleared conversation, silently lost the visible notice
@@ -314,15 +324,15 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
       const inBatch = batch.find(isOwnMessage);
       noteOwnMessages(state, batch);
       const everInjected = state.injectedIds !== undefined && state.injectedIds.size > 0;
-      const changed = currentNotice !== state.lastDigest;
+      const changed = noticeReady && currentNotice !== state.lastDigest;
       const extras = [];
-      if (!everInjected || changed) {
+      if (noticeReady && (!everInjected || changed)) {
         // Row never injected (first turn), or the notice changed: inject one
         // fresh row. A row that is still live in an earlier turn does NOT
         // trigger this branch — that was the duplicate-injection defect.
         state.lastDigest = currentNotice;
         extras.push(createPluginMessage(currentNotice, (typeof noticeSummary === "function" ? noticeSummary() : noticeSummary) ?? "LDVH 管辖判定"));
-      } else if (inBatch !== undefined) {
+      } else if (noticeReady && inBatch !== undefined) {
         // Row present and notice unchanged: refresh the text in place so a
         // stale row never lingers after the judgment moved on between turns.
         inBatch.content = [{ type: "text", text: currentNotice }];
