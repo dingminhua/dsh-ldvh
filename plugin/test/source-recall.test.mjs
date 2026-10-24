@@ -25,6 +25,8 @@ import {
 } from "../lib/source-recall.js";
 
 const ROOT = join(import.meta.dirname, "..", "..");
+// 本文件内统一用 `joinPath` 指代 `join`（与 lib 中的命名一致，避免与测试变量重名）。
+const joinPath = join;
 
 // ---------------------------------------------------------------------------
 // 分词
@@ -1185,5 +1187,34 @@ test("正文层仍须能命中真正写在正文里的术语", async () => {
 	assert.ok(
 		r.specs.every((s) => s.kind === "spec"),
 		"应只命中规范",
+	);
+});
+
+test("事实正文须全文参与匹配：不得截断掉「规避/验证」等后半段章节", async () => {
+	// 实测缺陷（2026-10-24）：事实正文原只匹配前 1200 字符。抽查 50 条，
+	// **56% 的正文超过 1200 字符**；某条 Pitfall 正文 4707 字符，而
+	// 「解决」「规避」「验证」「影响与适用范围」四节全在 1200 之后——
+	// 即整个后半段从未参与匹配。
+	//
+	// 为什么这是实质缺陷而非取舍：`23 §12` 明确 Pitfall 的价值是
+	// 「什么会出错、**怎么识别、怎么规避**」，而「规避」恰在被截掉的区间。
+	const facts = await loadFacts(joinPath(ROOT, "ldvh-base"));
+	assert.ok(facts.length > 0, "应载入事实");
+	// 至少存在一条正文超过 1200 字符的事实（否则本用例前提不成立）。
+	const longOnes = facts.filter((f) => (f.body ?? "").length > 1200);
+	assert.ok(longOnes.length > 0, `应存在长正文事实，实际最大 ${Math.max(...facts.map((f) => (f.body ?? "").length))} 字符`);
+
+	// 关键断言：查询「规避」须能召回正文里真有「规避」章节的事实。
+	const r = await recallForAction({
+		action: "怎么规避这个坑",
+		root: ROOT,
+		limit: 5,
+		budgetBytes: 40000,
+		includeSpecs: false,
+	});
+	assert.ok(r.facts.length > 0, "「怎么规避」须能召回事实");
+	assert.ok(
+		r.facts.some((f) => /规避/.test(f.hitReason)),
+		`须有靠「规避」命中的：${r.facts.map((f) => f.hitReason).join(" / ")}`,
 	);
 });
