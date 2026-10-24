@@ -422,7 +422,11 @@ export function matchCandidate(actionTokens, candidate) {
       const reason = onlyGenericOrWeak
         ? `${section.label}仅通用词/单字命中（相关性弱，须自行核实）：${shown}`
         : `${section.label}命中：${shown}`;
-      return { tier: section.tier, hits: decisive.length, hitReason: reason };
+      // `weakHit` 必须带出供排序使用：此前它只体现在文字里，排序看不到，
+      // 于是「tier 1 的弱命中」会排在「tier 4 的强命中」前面并挤掉它们
+      // （实测：「把 34 号规范改名成双源召回」limit=3 时，2 个弱命中挤掉了
+      // 随后 5 个强命中）。弱命中不是不相关，但它不该抢占强命中的名额。
+      return { tier: section.tier, hits: decisive.length, hitReason: reason, weakHit: onlyGenericOrWeak };
     }
   }
   return null;
@@ -516,12 +520,29 @@ export async function recallForAction(input = {}) {
       // `hits` 必须显式带出：mapper 的返回里没有它，之前漏掉导致排序键是
       // `undefined - undefined = NaN`，同层排序退化成只按路径字典序，
       // 使命中词更多的条目反而排在后面（实测：34 号 hits=2 被 01 号 hits=1 挤掉）。
-      return m === null ? null : { ...mapper(c), tier: m.tier, hits: m.hits, hitReason: m.hitReason };
+      return m === null ? null : {
+        ...mapper(c), tier: m.tier, hits: m.hits, hitReason: m.hitReason,
+        weakHit: m.weakHit === true,
+      };
     })
     .filter(Boolean)
     // 排序：先按层（命中越精确的字段越前），同层按命中词数降序、再按路径稳定排序。
     // 命中词数是计数不是权重——可解释（hitReason 列出命中词）、可复算、无学习参数。
-    .sort((a, b) => a.tier - b.tier || b.hits - a.hits || a.path.localeCompare(b.path));
+    // 排序键（全部为确定性事实，无权重——02 §9 红线）：
+    //   1. `weakHit`——**强命中一律优先于弱命中**。弱命中（只靠单字/通用词）
+    //      仍是候选，但不该抢占名额把强命中挤出去（实测 limit=3 时 2 个弱命中
+    //      挤掉了随后 5 个强命中）。这不是「裁决相关性」，而是「把证据更薄的
+    //      排在后面」，弱命中仍然如实列出、仍然标注弱相关。
+    //   2. `tier`——命中落在哪个字段（编号 > 适用范围 > 内容 > 标题 > 正文）。
+    //   3. `hits`——同层命中词个数（等权、可复算）。
+    //   4. `path`——仅为让输出稳定可复现。
+    .sort(
+      (a, b) =>
+        Number(a.weakHit === true) - Number(b.weakHit === true) ||
+        a.tier - b.tier ||
+        b.hits - a.hits ||
+        a.path.localeCompare(b.path),
+    );
   };
 
   // `collect` 返回**截断前的全部命中**（已排序）；`limit` 在此处应用。

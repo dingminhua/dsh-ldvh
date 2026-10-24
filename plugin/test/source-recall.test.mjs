@@ -715,3 +715,39 @@ test("能力边界须在渲染行里让读者看见（未命中不代表没有�
 	const specRow = renderRecallRow(specOnly);
 	assert.equal(specRow.includes("能力边界") && specOnly.facts.length === 0, false, "无事实候选时不加该提示");
 });
+
+test("弱命中不得抢占强命中的名额（实测：limit=3 时 2 弱命中挤掉 5 强命中）", async () => {
+	// 实测缺陷：排序只看 tier，而弱命中混在 tier 1、强命中在 tier 4，
+	// 于是「把 34 号规范改名成双源召回，走独立审核」limit=3 时返回
+	//   [强 34号, 弱 WorkCase, 弱 Research]
+	// 而随后还有 5 个强命中（01/03/11/09/工单执行）被 limit 挤掉。
+	// 弱命中不是不相关，但它证据更薄，不该抢占名额。
+	const q = "把 34 号规范改名成双源召回，走独立审核";
+	const r = await recallForAction({ action: q, root: ROOT, limit: 3 });
+	const weak = (x) => /仅通用词|仅单字/.test(x.hitReason);
+	// limit=3 时返回的应当全是强命中（存在足够强命中的前提下）。
+	assert.ok(r.specs.length > 0);
+	assert.equal(
+		r.specs.filter(weak).length,
+		0,
+		`limit=3 时不应有弱命中，实际：${r.specs.map((s) => `${weak(s) ? "弱" : "强"}${s.title.slice(0, 10)}`).join(" / ")}`,
+	);
+	// 而放宽 limit 后，弱命中仍须如实列出（不得被丢弃）。
+	const all = await recallForAction({ action: q, root: ROOT, limit: 99, budgetBytes: 999999 });
+	assert.ok(all.specs.some(weak), "弱命中仍须保留在候选中，只是排后");
+});
+
+test("弱命中仍是候选，不得因排序改动而被丢弃", async () => {
+	const r = await recallForAction({ action: "改一下", root: ROOT, limit: 5, budgetBytes: 40000 });
+	// 「改一下」只有单字，命中必然都是弱命中——它们必须仍然出现。
+	assert.ok(r.facts.length > 0, "短指令的弱命中不得被丢弃");
+	assert.ok(r.facts.every((f) => /仅通用词|仅单字/.test(f.hitReason)), "短指令应仅有弱命中");
+});
+
+test("排序键 weakHit 须为确定性事实，不得引入权重", async () => {
+	const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 3 });
+	// 02 §9 红线：不得用相似度/embedding/关键词权重/AI 裁决相关性。
+	// weakHit 是「命中词是否全为单字/通用词」的布尔事实，可复算、无参数。
+	assert.equal(r.ranking.usesWeights, false);
+	assert.deepEqual(r.ranking.keys, ["tier", "hits", "path"]);
+});
