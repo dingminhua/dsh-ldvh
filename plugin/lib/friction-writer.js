@@ -17,8 +17,9 @@
  *               * status-preserving = 补充级: status must be field-identical
  *                 to the CAS baseline (攒账计数/现象补充/归因后补；变了就
  *                 拒绝——状态变化走流转).
- *               * state transitions (Human-gated upstream): observing→open
- *                 (threshold) / open→observing (放回留观) / observing→resolved
+ *               * state transitions (Human-gated): open→resolved (销账) /
+ *                 →voided (废弃)。2026-10 修订：observing 退出闭集，
+ *                 阈值晋升改由 friction-observation-buffer 侧完成（11 §12bis.1）
  *                 / →voided follow §9.2; resolved requires 1..n informs
  *                 relations with resolvable targets; resolved & voided are
  *                 terminal & read-only.
@@ -53,7 +54,9 @@ export const FRICTION_DIRECTORY = "frictions";
 const BODY_H2_REQUIRED = ["现象", "入账依据"];
 const BODY_H2_DISPOSITION = "处置";
 
-const STATUSES = new Set(["observing", "open", "resolved", "voided"]);
+// 26 §9（2026-10 修订，Human 决定：观察不进事实源）：状态闭集三值。
+// `observing` 已退出——观察材料由 11 §12bis.1 的摩擦观察缓冲承载（非事实对象）。
+const STATUSES = new Set(["open", "resolved", "voided"]);
 const IMPACT_VALUES = new Set(["light", "medium", "heavy"]);
 
 // 26 §13：`correct` 的补填通道只接受**新进入闭集**的字段。闭集扩张时在此登记
@@ -64,6 +67,21 @@ const CORRECT_ADDABLE_FIELDS = new Set(["occurrence", "disposition"]);
 // 26 §13：`correct` 的删除通道只接受两类字段——已退出闭集者，或存在即违反 §8
 // 条件约束者。闭集收缩或条件约束建立时在此登记。
 const CORRECT_REMOVABLE_FIELDS = new Set(["serves", "occurrence"]);
+
+/**
+ * 第三类删除许可（26 §13，2026-10 扩围）：**目标已退役的锚点字段**。
+ *
+ * 只含锚点型字段（当前仅 `attribution_ref`）。该类的准入不只靠"字段在名单里"，
+ * 还须机械核验**其目标此刻不可解析**——即目标对象确实已不存在。仅凭字段名放行
+ * 会把「归因缺失」伪装成「目标已退役」，是数据伪造（26 §13 明文）。
+ *
+ * **存在理由**（与 26 §13「悬空锚点的可达性约束」是一对）：`attribution_ref` 的
+ * 可解析性核验发生在任何写入之前，故目标一旦消失，该终态载体此后既不能 update
+ * （终态只读）也不能 correct（核验先拦）。若无本类，闭集收缩必然在终态对象上留下
+ * 无法清除的悬空锚点。实测用例：abf557e1 的 attribution_ref 指向 observing 载体
+ * 5d5862c9，而该状态随 2026-10 闭集收缩退出、其载体经 Human 决定删除。
+ */
+const CORRECT_REMOVABLE_ANCHOR_FIELDS = new Set(["attribution_ref"]);
 
 /** Relation keys allowed for Friction (26 §11 — closed set of exactly one). */
 const FRICTION_RELATION_KEYS = new Set(["informs"]);
@@ -85,6 +103,52 @@ const VALID_FM_KEYS = new Set([
   "phenomenon", "attribution", "attribution_ref", "impact", "relations",
   "occurrence", "disposition", "change_log",
 ]);
+
+/**
+ * `occurrence` 的形状校验（26 §8；**三入口统一**）。
+ *
+ * ## 为什么必须共享（2026-10 修订，实测缺陷）
+ *
+ * 此前只有 `correct` 的补填分支校验 occurrence 的**成员**，而 `create` / `update`
+ * 只查「有没有这个字段」。后果是 fail-open：携带已删除字段的载体一路落盘——
+ * 实测 `createFrictionObject` 接受 `occurrence: { count, first_at, last_at,
+ * human_return_at }` 并原样写入，而 §8 的闭集早已删除 `human_return_at`。
+ *
+ * 该缺陷的形态值得记一笔：**校验写在了最容易写的那条路径上**（correct 的补填分支
+ * 因为要逐个字段判断，顺带做了成员校验），而真正高频的 create/update 反而只查了
+ * 存在性。因此这里把校验收到一处，三个入口都调它。
+ *
+ * 成员闭集由 §8 定：`{ count, first_at, last_at }`，**不多不少**。多出任何字段
+ * （包括已删除的 `human_return_at`）即拒——「不得以空字段或占位代替判断」（§8 末）。
+ *
+ * @returns {{ok:true}|{ok:false,code:string,message:string}}
+ */
+function validateOccurrenceShape(occurrence) {
+  if (typeof occurrence !== "object" || occurrence === null || Array.isArray(occurrence)) {
+    return failure("friction/occurrence_invalid", "occurrence must be an object (26 §8)");
+  }
+  const allowed = new Set(["count", "first_at", "last_at"]);
+  for (const key of Object.keys(occurrence)) {
+    if (!allowed.has(key)) {
+      return failure(
+        "friction/occurrence_invalid",
+        `occurrence field "${key}" is outside the §8 closed set { count, first_at, last_at } — `
+        + (key === "human_return_at"
+          ? "human_return_at was REMOVED in 2026-10 (the open→observing 放回留观 transition is gone; the mechanical channel no longer flips any existing entry's status)"
+          : "unknown fields must not enter the canonical object (26 §8 末)"),
+      );
+    }
+  }
+  if (!Number.isInteger(occurrence.count) || occurrence.count < 1) {
+    return failure("friction/occurrence_invalid", "occurrence.count must be an integer >= 1 (26 §8)");
+  }
+  for (const field of ["first_at", "last_at"]) {
+    if (typeof occurrence[field] !== "string" || !/^\d{4}-\d{2}-\d{2}T/.test(occurrence[field])) {
+      return failure("friction/occurrence_invalid", `occurrence.${field} must be an RFC3339 timestamp (26 §8)`);
+    }
+  }
+  return { ok: true };
+}
 
 /**
  * 可经 frontmatter_removals 删除的字段（specs/02 §10.5 实现对齐；21 §14 计划步骤 1）。
@@ -248,6 +312,18 @@ export function validateFrictionFrontmatter(frontmatter) {
 
   if (!IMPACT_VALUES.has(frontmatter.impact)) {
     issues.push(`impact: must be one of ${[...IMPACT_VALUES].join("/")} (26 §8)`);
+  }
+
+  // occurrence (26 §8, 2026-10 修订)：形状与**成员闭集**。此处是 create 与 update
+  // 的共同关口，故校验放这里；correct 的补填分支另调同一函数（validateOccurrenceShape）——
+  // 三入口共用一份判据，避免"只有一处做了成员校验"的漂移。
+  //
+  // **必填性不在此判**：`voided` 且来源为闭集收缩改判者可缺该字段（§14.2 豁免），
+  // 故缺失的判定留在各入口（create 要求必带；correct 的补填分支自己决定）。此处只
+  // 校验"出现了就必须合法"。
+  if (frontmatter.occurrence !== undefined) {
+    const shape = validateOccurrenceShape(frontmatter.occurrence);
+    if (!shape.ok) issues.push(shape.error.message);
   }
 
   // attribution (26 §8): conditional — present means non-empty (后补 via supplement).
@@ -598,20 +674,23 @@ export async function createFrictionObject(args) {
   frontmatter.object_uid = uid;
   frontmatter.fact_type_key = FRICTION_TYPE_KEY;
   frontmatter.created_at = now;
-  // 26 §9: 初态 observing — create must never enter resolved/voided
-  if (frontmatter.status !== undefined && frontmatter.status !== "observing") {
-    return failure("friction/initial_state_violation", `create must initialise as status=observing; got ${JSON.stringify(frontmatter.status)} (26 §9 — 销账/废弃是流转，不是初态)`);
+  // 26 §9（2026-10 修订）：初态 open — create must never enter resolved/voided.
+  if (frontmatter.status !== undefined && frontmatter.status !== "open") {
+    return failure("friction/initial_state_violation", `create must initialise as status=open; got ${JSON.stringify(frontmatter.status)} (26 §9 — 观察态已退出闭集；销账/废弃是流转，不是初态)`);
   }
-  frontmatter.status = "observing";
-  // 26 §8：disposition 是终态伴随字段——创建必为 observing，故一律不得带。
+  frontmatter.status = "open";
+  // 26 §8：disposition 是终态伴随字段——创建必为 open，故一律不得带。
   if (frontmatter.disposition !== undefined) {
-    return failure("friction/frontmatter_invalid", "create must not carry disposition (26 §8: 出现 ⇔ status ∈ {resolved, voided}；初态为 observing)");
+    return failure("friction/frontmatter_invalid", "create must not carry disposition (26 §8: 出现 ⇔ status ∈ {resolved, voided}；初态为 open)");
   }
-  // 26 §8: occurrence 必填——创建时初值 count=1、first_at=last_at=now、
-  // human_return_at=null。除 §14.2 的闭集收缩改判外，occurrence 不可缺。
+  // 26 §8（2026-10 修订）：occurrence 必填，形状 { count, first_at, last_at }
+  // ——`human_return_at` 随 `open → observing` 流转一并删除。
+  // count 取「该账目成立时已确认的观察次数」（晋升时由同源条目数写入）。
   if (frontmatter.occurrence === undefined) {
-    return failure("friction/frontmatter_invalid", "create must carry occurrence { count, first_at, last_at, human_return_at } (26 §8 必填)");
+    return failure("friction/frontmatter_invalid", "create must carry occurrence { count, first_at, last_at } (26 §8 必填)");
   }
+  const occurrenceShape = validateOccurrenceShape(frontmatter.occurrence);
+  if (!occurrenceShape.ok) return occurrenceShape;
   // 26 §11: informs relations cannot exist at creation (open)
   if (frontmatter.relations !== undefined) {
     return failure("friction/frontmatter_invalid", "create must not carry relations (26 §11: informs only attaches to a resolved transition)");
@@ -768,14 +847,14 @@ export async function updateFrictionObject(args) {
 
   const nextStatus = fm.status;
   if (nextStatus === undefined || !STATUSES.has(nextStatus)) {
-    return failure("friction/status_transition_invalid", `target status ${JSON.stringify(nextStatus)} is not in the closed set (observing/open/resolved/voided, 26 §9)`);
+    return failure("friction/status_transition_invalid", `target status ${JSON.stringify(nextStatus)} is not in the closed set (open/resolved/voided, 26 §9)`);
   }
 
   // 26 §9.3 补充边界：status 保持不变的更新是补充级（攒账计数/现象补充/
   // 归因后补）——status 与 CAS 基线逐字段一致（变了走流转，本入口即流转）。
   const isTransition = nextStatus !== prevStatus;
   // 26 §13：闭集校验只施加于目标状态，历史源状态不因闭集收缩而被拒绝。
-  if (!isTransition && (prevStatus === "observing" || prevStatus === "open")) {
+  if (!isTransition && prevStatus === "open") {
     if (fm.relations !== undefined) {
       return failure("friction/relations_invalid", "supplement-level update must not carry relations (26 §11: informs only attaches to a resolved transition)");
     }
@@ -783,26 +862,11 @@ export async function updateFrictionObject(args) {
 
   // 26 §9.2 transition guards:
   if (isTransition) {
-    // observing→open / open→observing：两条激活路径都不带关系（26 §9.2）
-    if ((prevStatus === "observing" && nextStatus === "open") ||
-        (prevStatus === "open" && nextStatus === "observing")) {
-      if (fm.relations !== undefined) {
-        return failure("friction/relations_invalid", `${prevStatus}→${nextStatus} must not carry relations (26 §9.2)`);
-      }
-    }
-    // open→observing（放回留观）：须写入 human_return_at，使机械通道的
-    // 阈值触发跳过该账目（26 §9.2 / 11 §9 第 4 项）
-    if (prevStatus === "open" && nextStatus === "observing") {
-      if (!fm.occurrence || typeof fm.occurrence !== "object" || !fm.occurrence.human_return_at) {
-        return failure("friction/frontmatter_invalid", "open→observing (放回留观) must stamp occurrence.human_return_at (26 §9.2 — 机械通道须据此跳过该账目)");
-      }
-    }
-    // observing→open（Human 主动提前排期）：须清除 human_return_at
-    if (prevStatus === "observing" && nextStatus === "open" && fm.occurrence?.human_return_at) {
-      return failure("friction/frontmatter_invalid", "observing→open must clear occurrence.human_return_at (26 §9.2)");
-    }
+    // 2026-10 修订：`observing → open`（阈值）与 `open → observing`（放回留观）
+    // 两条流转已随观察态退出闭集而删除——Human 决定「不存在放回」。
+    // 合法流转只剩 open→resolved（销账）与 →voided（废弃），二者的护栏在下面。
     if (nextStatus === "resolved") {
-      // observing/open→resolved：informs 1..n 在销账流转写入
+      // open→resolved：informs 1..n 在销账流转写入
       if (!Array.isArray(fm.relations) || fm.relations.length === 0) {
         return failure("friction/relations_invalid", "resolving requires 1..n informs relations pointing at the remedy objects (26 §9.2/§11)");
       }
@@ -957,7 +1021,7 @@ export async function correctFrictionObject(args) {
   if (fm.status !== "resolved" && fm.status !== "voided") {
     return failure(
       "friction/correction_requires_terminal",
-      `terminal fact correction applies to a RESOLVED or VOIDED record only (26 §13: 适用于 resolved 与 voided 两个终态); got status=${JSON.stringify(fm.status)} — observing/open 内容修正走补充级更新或状态流转，本入口不得承载（否则等于把更正伪装成状态转换，02 §10.5）`,
+      `terminal fact correction applies to a RESOLVED or VOIDED record only (26 §13: 适用于 resolved 与 voided 两个终态); got status=${JSON.stringify(fm.status)} — open 内容修正走补充级更新或状态流转，本入口不得承载（否则等于把更正伪装成状态转换，02 §10.5）`,
     );
   }
   if (fm.status === "voided") {
@@ -988,9 +1052,30 @@ export async function correctFrictionObject(args) {
       }
       continue;
     }
+    // ③ 目标已退役的锚点字段（26 §13，2026-10 扩围）。**准入须两项同时成立**：
+    //    字段是锚点型，且其目标此刻**不可解析**。核验放在这里而不是靠调用方自觉——
+    //    「目标确实不在了」是这个许可的全部正当性，机械层必须自己核。
+    if (CORRECT_REMOVABLE_ANCHOR_FIELDS.has(field)) {
+      const anchorUid = normalizeAttributionRef(next[field])?.object_uid;
+      if (anchorUid === undefined) {
+        // 字段不存在或形状不可读：按 no-op 处理（与 ①② 同一口径），不额外报错。
+        continue;
+      }
+      const resolves = await verifyAttributionRefResolves(factSourceRoot, { attribution_ref: next[field] });
+      if (resolves.ok) {
+        return failure(
+          "friction/correction_anchor_target_alive",
+          `refusing to remove ${JSON.stringify(field)}: its target ${JSON.stringify(anchorUid)} still resolves to a live fact object `
+          + "(26 §13 第三类：只允许删除**指向已退役或将退役目标**的锚点字段——目标仍可解析时删除它，等于把「归因缺失」伪装成「目标已退役」)",
+        );
+      }
+      delete next[field];
+      removedFields.push(field);
+      continue;
+    }
     return failure(
       "friction/correction_removal_not_permitted",
-      `correct may only remove fields retired from the type's closed set; got ${JSON.stringify(field)} (26 §13: 终态事实更正不得新增或改值 frontmatter)`,
+      `correct may only remove fields retired from the type's closed set, fields violating §8 conditional constraints, or anchor fields whose target no longer resolves; got ${JSON.stringify(field)} (26 §13: 终态事实更正不得新增或改值 frontmatter)`,
     );
   }
   // 26 §13 对称的补填动作：闭集扩张时补填新进入闭集的字段。
@@ -1028,14 +1113,10 @@ export async function correctFrictionObject(args) {
         }
       }
       if (field === "occurrence") {
-        if (typeof value !== "object" || value === null || Array.isArray(value)
-          || !Number.isInteger(value.count) || value.count < 1
-          || typeof value.first_at !== "string" || typeof value.last_at !== "string") {
-          return failure(
-            "friction/occurrence_invalid",
-            "occurrence must be { count: integer >= 1, first_at: RFC3339, last_at: RFC3339 } (26 §8)",
-          );
-        }
+        // 与 create/update 共用同一校验（见 validateOccurrenceShape 的说明）——
+        // 三处各写一份必然会漂移，而这个缺陷最初的形态正是「只有这一处做了校验」。
+        const shape = validateOccurrenceShape(value);
+        if (!shape.ok) return shape;
       }
       next[field] = structuredClone(value);
       addedFields.push(field);
@@ -1166,7 +1247,7 @@ export async function correctFrictionObject(args) {
 
 /**
  * Enumerate Friction objects (F0/F1: deterministic filter + minimal
- * projection). Default status filter: open + observing (26 §12: observing 是
+ * projection). Default status filter: open only (26 §12 2026-10 修订：观察态
  * 活账——攒够待修的候选源；resolved 与 voided 均为终态，仅精确引用/历史追溯
  * 时展开)；includeResolved（历史命名，语义为「含全部终态」）includes all.
  * Files that fail to parse are reported in `invalid` — never skipped silently.
@@ -1222,9 +1303,10 @@ export async function listFrictionObjects(args) {
       invalid.push({ file: entry.name, reason: `status ${JSON.stringify(status)} outside the closed set` });
       continue;
     }
-    // 26 §12：默认候选含 open 与 observing；resolved 与 voided 为终态，仅在
-    // 「精确引用/历史追溯」时展开。参数名 includeResolved 沿用历史命名，其实际
-    // 语义是「包含全部终态」（resolved + voided）——两个终态一并由此开关控制。
+    // 26 §12（2026-10 修订）：默认候选只含 open——观察态已退出闭集，账本里不存在
+    // 「攒够待修的候选源」这一状态；resolved 与 voided 为终态，仅在「精确引用/
+    // 历史追溯」时展开。参数名 includeResolved 沿用历史命名，其实际语义是
+    // 「包含全部终态」（resolved + voided）——两个终态一并由此开关控制。
     if (!includeResolved && (status === "resolved" || status === "voided")) continue;
     items.push({
       object_uid: uid,
@@ -1239,9 +1321,9 @@ export async function listFrictionObjects(args) {
       // （锚点型）。原 `typeof === 'string'` 判定把真实载体的对象形态静默丢弃
       // （workcase-54d4d176）。裸 string 为存量兼容，归一为对象形态后投影。
       attribution_ref: normalizeAttributionRef(frontmatter.attribution_ref),
-      // 26 §8 两条 UI 消费字段：occurrence 是「攒到什么程度」的直接依据（留观/待修
-      // 的判断输入），disposition 是 voided 的废弃理由（列表卡终态框直读，不必进
-      // 详情页）。二者都在 F1 投影内——不投影则卡面无从呈现。
+      // 26 §8 两条 UI 消费字段：occurrence 是「该阻碍被观察到多少次」的直接依据
+      // （晋升时由同源条目数写入，此后作补充级记账），disposition 是 voided 的
+      // 废弃理由（列表卡终态框直读，不必进详情页）。二者都在 F1 投影内。
       occurrence: frontmatter.occurrence && typeof frontmatter.occurrence === "object" ? frontmatter.occurrence : undefined,
       disposition: typeof frontmatter.disposition === "string" ? frontmatter.disposition : undefined,
       created_at: typeof frontmatter.created_at === "string" ? frontmatter.created_at : "",

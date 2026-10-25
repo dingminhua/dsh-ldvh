@@ -8,8 +8,9 @@ export const ALL_STATUS_PARAM = 'all';
 export function getDefaultListStatus(type: string): string | null {
   if (type === 'workcase') return WORKCASE_DEFAULT_LIST_STATUS;
   if (type === 'spark') return 'open';
-  // 26 §12：Friction 默认候选含 open 与 observing（observing 是活账——攒够待修
-  // 的候选源）；列表过滤是单选 tab，默认落在最常用的 open（待修的账）。
+  // 26 §12：Friction 默认候选**只含 open**（2026-10 修订：观察态已退出闭集，
+  // 账本里不再有「攒够待修的候选源」这一状态）；列表过滤是单选 tab，
+  // 默认落在 open（待修的账）。
   if (type === 'friction') return 'open';
   // 27 §10：Norm 默认候选只含 active——当前生效规范就是 active 集本身。
   return DEFAULT_ACTIVE_TYPES.has(type) ? 'active' : null;

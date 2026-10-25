@@ -254,6 +254,9 @@ export const AUX_TASK_REGISTRY = Object.freeze({
     outputSchema: discoveryOutputSchema,
     validate: (slice, ctx) => validateDiscoveryVerdict(slice, {
       candidates: ctx?.candidates ?? [],
+      // 2026-10 修订：观察层的判定需要知道「缓冲里已有哪些组」——否则子代理
+      // 无法把本次观察并入既有组，聚合永远到不了 N（11 §9 第 1、3 项）。
+      observationGroups: ctx?.observationGroups ?? [],
       windowText: ctx?.windowText ?? null,
     }),
   }),

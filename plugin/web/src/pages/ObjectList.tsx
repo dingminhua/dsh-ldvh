@@ -651,10 +651,10 @@ function getFactAssociationState(association: FactCardAssociation): FactAssociat
     if (association.group === 'pending_gate1' || association.group === 'awaiting_gate2') return 'pending';
     if (association.group === 'executing') return 'progressing';
   }
-  // 26 §9：friction 关联目标——observing/open 是活账（留观/待修均待处理），
-  // resolved 已销、voided 已废弃，两者均属终态族。
+  // 26 §9：friction 关联目标——open 是活账（待修），resolved 已销、voided 已废弃，
+  // 两者均属终态族。（2026-10 修订：原第四值 observing 已退出闭集。）
   if (targetType === 'friction') {
-    if (association.status === 'observing' || association.status === 'open') return 'pending';
+    if (association.status === 'open') return 'pending';
     if (association.status === 'resolved' || association.status === 'voided') return 'closed';
   }
   // 27 号 §9：norm 关联目标——retired 已退役（历史档案），active 生效中（下方默认）。
@@ -851,13 +851,13 @@ function FrictionTerminalCardContent({ obj }: { obj: ObjectItem }) {
 }
 
 export function FrictionCardContent({ obj }: { obj: ObjectItem }) {
-  // 26 §9 四态的卡体分工（Human 裁定 2026-11「card 只显示标题」）：
+  // 26 §9 三态的卡体分工（Human 裁定 2026-11「card 只显示标题」）：
   //
   // - `voided`：终态理由由 `disposition`（§8 条件必填）承载，走终态说明框——
   //   与 Spark 的 discarded（`SparkTerminalCardContent`）、Pitfall 的 discarded、
   //   Norm 的 retired **同一形态**（`TerminalFactPanel`），Human 在列表页即可读到
   //   废弃理由，不必进详情页。
-  // - `observing` / `open` / `resolved`：**卡体留空**，只由卡头（类型标签 +
+  // - `open` / `resolved`：**卡体留空**，只由卡头（类型标签 +
   //   轻/中重影响标签 + 修改次数）与标题托（`ldvh-card-title`）承载身份与状态。
   //   这与 Spark 活跃卡的「克制」同例（`SparkCardContent`：open 时返回 null）
   //   ——标题已是现象单句的浓缩，再复述一遍现象全文与归因是重复而非信息。

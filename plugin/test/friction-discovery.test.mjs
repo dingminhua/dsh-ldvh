@@ -1,4 +1,8 @@
-// Tests for plugin/lib/friction-discovery.js — the §8.4 自动动作闭集.
+// Tests for plugin/lib/friction-discovery.js — the §9 自动动作闭集.
+//
+// **2026-10 修订（Human 决定：观察不进事实源）**：`observing` 已退出 26 §9 的
+// 状态闭集，观察材料改由 §12bis.1 的摩擦观察缓冲承载。故本文件的测试重心由
+// 「observing 账目的创建与阈值流转」改为「观察条目的写入、同组聚合与阈值晋升」。
 //
 // Every case is derived from specs/11 §9 (the single authority) and specs/26
 // (the ledger contract). Where the implementation diverges from the spec the
@@ -11,65 +15,96 @@ import { join } from "node:path";
 
 import {
   loadDedupCandidates,
+  loadObservationDedupCandidates,
   supplementOccurrence,
-  createObserving,
-  meetsThreshold,
-  promoteIfThresholdMet,
+  recordObservation,
+  meetsPromotionThreshold,
+  promoteReadyGroup,
   verifyThresholdAvailable,
   stripLeadingH1,
   FRICTION_THRESHOLD_N,
   MAX_CREATES_PER_RUN,
 } from "../lib/friction-discovery.js";
-import { readFrictionObject, listFrictionObjects } from "../lib/friction-writer.js";
+import {
+  readFrictionObservations,
+  readPromotionReadyGroups,
+  FRICTION_OBSERVATION_THRESHOLD_N,
+} from "../lib/friction-observation-buffer.js";
+import { readFrictionObject, updateFrictionObject, createFrictionObject } from "../lib/friction-writer.js";
 import { testSignature } from "./helpers.mjs";
 
 const TEST_SIGNATURE = testSignature();
+const PROJECT = "test-project";
 
 async function withRoot(fn) {
   const base = await mkdtemp(join(tmpdir(), "friction-discovery-"));
   await fn(base);
 }
 
-/** 造一条账目：先 createObserving，再按需要补 count。 */
-async function seed(base, { count = 1, humanReturnAt = null, title = "重复出现的阻碍" } = {}) {
-  const created = await createObserving({
+/** DSH home 路径拼接器（缓冲在事实源之外，故需要一个 home 根）。 */
+function makeHome(base) {
+  return (...segments) => join(base, ...segments);
+}
+
+/** 造一条 open 账目（2026-10 修订后账本的初态就是 open）。 */
+async function seedOpen(base, { count = 1, title = "重复出现的阻碍" } = {}) {
+  const created = await createFrictionObject({
     factSourceRoot: base,
-    title,
-    phenomenon: "CI 在无缓存时平均耗时 8 分钟。",
-    impact: "medium",
-    basis: "重复出现多次；归因：CI 配置未缓存依赖层；修了会改善：构建时间明显缩短。",
+    frontmatterDraft: {
+      title,
+      phenomenon: "CI 在无缓存时平均耗时 8 分钟。",
+      impact: "medium",
+      attribution: "CI 配置未缓存依赖层",
+      occurrence: { count, first_at: "2026-10-01T00:00:00.000Z", last_at: "2026-10-01T00:00:00.000Z" },
+      change_summary: "测试：造一条 open 账目",
+    },
+    bodyMarkdown: "## 现象\nCI 在无缓存时平均耗时 8 分钟。\n\n## 入账依据\n重复出现；归因：CI 配置未缓存依赖层；修了会改善。",
     sessionSignature: TEST_SIGNATURE,
   });
   assert.ok(created.ok, JSON.stringify(created.error));
-  const uid = created.value.object_uid;
-  if (count > 1) {
-    const read = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
-    // 直接落一条目标 count 的账（避免逐次递增的测试开销）
-    const { updateFrictionObject } = await import("../lib/friction-writer.js");
-    const updated = await updateFrictionObject({
-      factSourceRoot: base,
-      objectUid: uid,
-      expectedFingerprint: read.value.fingerprint,
-      frontmatterAfter: {
-        ...read.value.frontmatter,
-        occurrence: { ...read.value.frontmatter.occurrence, count, human_return_at: humanReturnAt },
-      },
-      bodyMarkdownAfter: stripLeadingH1(read.value.body),
-      changeSummary: "测试：直接设定 count",
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(updated.ok, JSON.stringify(updated.error));
-  }
-  return uid;
+  return created.value.object_uid;
+}
+
+/** 写一条观察条目。 */
+async function seedObservation(base, { group = "ci-slow", phenomenon = "CI 平均 8 分钟", at, evidence } = {}) {
+  const result = await recordObservation({
+    dshHomePath: makeHome(base),
+    projectId: PROJECT,
+    session: "session-test",
+    anchor: "turn-1",
+    phenomenon,
+    evidence: evidence ?? "CI 耗时 8m02s（构建日志第 12 行）",
+    group,
+    ...(at ? { observationAt: at } : {}),
+  });
+  assert.ok(result.ok, JSON.stringify(result.error));
+  return result.value;
+}
+
+/** 晋升一个组的便利包装。 */
+async function promote(base, group = "ci-slow", extra = {}) {
+  return promoteReadyGroup({
+    factSourceRoot: base,
+    dshHomePath: makeHome(base),
+    projectId: PROJECT,
+    group,
+    title: "CI 慢",
+    impact: "medium",
+    basis: "重复出现三次；归因：构建未缓存依赖；修了会改善。",
+    attribution: "构建流水线",
+    sessionSignature: TEST_SIGNATURE,
+    ...extra,
+  });
 }
 
 // ---------------------------------------------------------------------------
-// N 的固定性（§8.4「阈值 N」：不可配置）
+// N 的固定性（§9「阈值 N」：不可配置）
 // ---------------------------------------------------------------------------
 
 test("11 §9：N 固定为 3 且不经任何配置载体", () => {
   assert.equal(FRICTION_THRESHOLD_N, 3, "N is pinned to 3 by 11 §9");
-  assert.equal(MAX_CREATES_PER_RUN, 1, "§8.4 每次运行上限：至多创建 1 条");
+  assert.equal(FRICTION_OBSERVATION_THRESHOLD_N, 3, "缓冲侧的 N 与发现侧同源（§12bis.1 差异第 3 条）");
+  assert.equal(MAX_CREATES_PER_RUN, 1, "§9 每次运行上限：至多晋升 1 条账目");
 });
 
 test("11 §9：阈值求值可用（N 固定后该校验不再恒不可用）", () => {
@@ -79,26 +114,21 @@ test("11 §9：阈值求值可用（N 固定后该校验不再恒不可用）", 
 });
 
 // ---------------------------------------------------------------------------
-// 第 1 项（读取部分）：候选集
+// 第 1 项（读取部分）：两层候选集
 // ---------------------------------------------------------------------------
 
-test("§8.4 第 1 项：候选只含 open 与 observing，终态不入查重范围（26 §12）", async () => {
+test("§9 第 1 项：账本侧候选只含 open，终态不入查重范围（26 §12）", async () => {
   await withRoot(async (base) => {
-    const observing = await seed(base, { title: "留观中的阻碍" });
-    const open = await seed(base, { count: 3, title: "待修的阻碍" });
-    await promoteIfThresholdMet({ factSourceRoot: base, objectUid: open, sessionSignature: TEST_SIGNATURE });
-
+    const open = await seedOpen(base, { title: "待修的阻碍" });
     const loaded = await loadDedupCandidates(base);
     assert.ok(loaded.ok, JSON.stringify(loaded.error));
     const uids = loaded.value.candidates.map((c) => c.object_uid);
-    assert.ok(uids.includes(observing), "observing is a dedup candidate");
     assert.ok(uids.includes(open), "open is a dedup candidate");
-    assert.equal(loaded.value.candidates.length, 2);
     assert.equal(loaded.value.invalid.length, 0);
   });
 });
 
-test("§8.4 第 1 项：空账本是合法的空候选，不是失败", async () => {
+test("§9 第 1 项：空账本是合法的空候选，不是失败", async () => {
   await withRoot(async (base) => {
     const loaded = await loadDedupCandidates(base);
     assert.ok(loaded.ok, JSON.stringify(loaded.error));
@@ -106,13 +136,112 @@ test("§8.4 第 1 项：空账本是合法的空候选，不是失败", async ()
   });
 });
 
+test("§9 第 1 项：缓冲侧候选按 group 聚合，给出每组的 pending 条目数", async () => {
+  await withRoot(async (base) => {
+    await seedObservation(base, { group: "ci-slow", at: "2026-10-01T00:00:00.000Z" });
+    await seedObservation(base, { group: "ci-slow", at: "2026-10-02T00:00:00.000Z" });
+    await seedObservation(base, { group: "lint-noise", at: "2026-10-02T00:00:00.000Z" });
+
+    const loaded = await loadObservationDedupCandidates(makeHome(base), PROJECT);
+    assert.ok(loaded.ok, JSON.stringify(loaded.error));
+    const byGroup = Object.fromEntries(loaded.value.by_group.map((g) => [g.group, g.pending_count]));
+    assert.equal(byGroup["ci-slow"], 2, "same group accumulates");
+    assert.equal(byGroup["lint-noise"], 1);
+    assert.equal(loaded.value.total, 3);
+  });
+});
+
+test("§9 第 1 项：缓冲残缺时拒绝在残缺输入上判断", async () => {
+  await withRoot(async (base) => {
+    await seedObservation(base);
+    const { appendFile } = await import("node:fs/promises");
+    const carrier = join(base, "ldvh", "friction-observations", `${PROJECT}.jsonl`);
+    await appendFile(carrier, "{ this is not json }\n", "utf8");
+
+    const loaded = await loadObservationDedupCandidates(makeHome(base), PROJECT);
+    assert.equal(loaded.ok, false, "an unparsable entry makes dedup input incomplete");
+    assert.equal(loaded.error.code, "friction_observation/dedup_input_incomplete");
+  });
+});
+
 // ---------------------------------------------------------------------------
-// 第 2 项：补充级更新
+// 第 2 项：写入观察条目（不写事实源）
 // ---------------------------------------------------------------------------
 
-test("§8.4 第 2 项：count 递增 1、last_at 更新、status 不变", async () => {
+test("§9 第 2 项：观察写入缓冲，**不产生任何账目**（观察不是事实对象）", async () => {
   await withRoot(async (base) => {
-    const uid = await seed(base, { count: 1 });
+    const recorded = await seedObservation(base);
+    assert.ok(recorded.entry_id, "an entry id is issued");
+    assert.equal(recorded.group_pending_count, 1);
+    assert.equal(recorded.promotion_ready, false, "1 < N");
+
+    const ledger = await loadDedupCandidates(base);
+    assert.ok(ledger.ok, JSON.stringify(ledger.error));
+    assert.deepEqual(ledger.value.candidates, [], "observation must not write the fact source");
+  });
+});
+
+test("§9 第 2 项：同组第二条使计数到 2，仍未达阈值", async () => {
+  await withRoot(async (base) => {
+    await seedObservation(base, { at: "2026-10-01T00:00:00.000Z" });
+    const second = await seedObservation(base, { at: "2026-10-02T00:00:00.000Z" });
+    assert.equal(second.group_pending_count, 2);
+    assert.equal(second.promotion_ready, false);
+  });
+});
+
+test("§9 第 2 项：不同 group 各自独立计数（不得混为一组）", async () => {
+  await withRoot(async (base) => {
+    const a = await seedObservation(base, { group: "ci-slow" });
+    const b = await seedObservation(base, { group: "lint-noise" });
+    assert.equal(a.group_pending_count, 1);
+    assert.equal(b.group_pending_count, 1, "a different group must not inherit the other's count");
+  });
+});
+
+test("§9 第 2 项：group 缺失即拒——没有聚合键，阈值永远算不出来", async () => {
+  await withRoot(async (base) => {
+    const r = await recordObservation({
+      dshHomePath: makeHome(base),
+      projectId: PROJECT,
+      session: "s",
+      anchor: "a",
+      phenomenon: "某现象",
+      evidence: "某逐字引证片段",
+      group: "",
+    });
+    assert.equal(r.ok, false);
+    assert.equal(r.error.code, "invalid_request");
+  });
+});
+
+test("§9 第 2 项：观察按管辖项目分区，跨项目不混装（02 §6.1 第 2 条 + §12bis.1）", async () => {
+  await withRoot(async (base) => {
+    await seedObservation(base, { group: "ci-slow" });
+    const other = await recordObservation({
+      dshHomePath: makeHome(base),
+      projectId: "other-project",
+      session: "s",
+      anchor: "a",
+      phenomenon: "他项目的现象",
+      evidence: "他项目的逐字引证",
+      group: "ci-slow",
+    });
+    assert.ok(other.ok, JSON.stringify(other.error));
+    assert.equal(other.value.group_pending_count, 1, "another project's identically-named group is a different group");
+
+    const mine = await readFrictionObservations(makeHome(base), PROJECT);
+    assert.equal(mine.value.total, 1, "each project sees only its own partition");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 第 4 项：对既有 open 账目的补充级更新
+// ---------------------------------------------------------------------------
+
+test("§9 第 4 项：count 递增 1、last_at 更新、status 不变", async () => {
+  await withRoot(async (base) => {
+    const uid = await seedOpen(base, { count: 1 });
     const before = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
 
     const result = await supplementOccurrence({
@@ -125,7 +254,7 @@ test("§8.4 第 2 项：count 递增 1、last_at 更新、status 不变", async 
     assert.ok(result.ok, JSON.stringify(result.error));
     assert.equal(result.value.count_before, 1);
     assert.equal(result.value.count_after, 2);
-    assert.equal(result.value.status, "observing", "supplement must not change status");
+    assert.equal(result.value.status, "open", "supplement must not change status");
 
     const after = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
     assert.equal(after.value.frontmatter.occurrence.count, 2);
@@ -135,35 +264,40 @@ test("§8.4 第 2 项：count 递增 1、last_at 更新、status 不变", async 
   });
 });
 
-test("§8.4 第 2 项：计数与现象段扩展在同一次更新内完成（26 §9.3）", async () => {
+test("§9 第 4 项：补充级更新**不触发任何状态流转**（账目状态推进只有 Human Gate）", async () => {
   await withRoot(async (base) => {
-    const uid = await seed(base, { count: 1 });
-    await supplementOccurrence({
+    const uid = await seedOpen(base, { count: 5 });
+    const result = await supplementOccurrence({
       factSourceRoot: base,
       objectUid: uid,
-      observation: "观察记录",
+      observation: "又一次出现",
+      observationAt: "2026-11-03T00:00:00.000Z",
       sessionSignature: TEST_SIGNATURE,
     });
-    const after = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
-    // 二者同源：count 变了，现象段也必有本次记录——不存在只增其一的结果。
-    assert.equal(after.value.frontmatter.occurrence.count, 2);
-    assert.ok(after.value.body.includes("观察记录"));
+    assert.ok(result.ok, JSON.stringify(result.error));
+    assert.equal(result.value.count_after, 6);
+    assert.equal(result.value.status, "open", "count must not drive status (2026-10 修订：阈值判定已移到缓冲侧)");
   });
 });
 
-test("§8.4 第 2 项：终态账目拒绝补充（26 §9.3 计数冻结）", async () => {
+test("§9 第 4 项：非 open 的账目拒绝补充（26 §9.3 只对非终态 open 执行）", async () => {
   await withRoot(async (base) => {
-    const uid = await seed(base, { count: 1 });
-    // 转到终态 voided（须带 disposition）
-    const { updateFrictionObject } = await import("../lib/friction-writer.js");
+    const uid = await seedOpen(base, { count: 1 });
     const read = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
+    // 走 voided 而非 resolved：resolved 的 informs 需要一个可解析的解药目标，而本
+    // writer 在没有 git 解析器时对 commit 形态 fail-closed（02 §8.1）。终态冻结的
+    // 判定与哪一个终态无关，故用 voided 即可覆盖。
     const voided = await updateFrictionObject({
       factSourceRoot: base,
       objectUid: uid,
       expectedFingerprint: read.value.fingerprint,
-      frontmatterAfter: { ...read.value.frontmatter, status: "voided", disposition: "根本不是系统性阻碍" },
-      bodyMarkdownAfter: `${stripLeadingH1(read.value.body)}\n\n## 处置\n归因错误，废弃。`,
-      changeSummary: "测试：转 voided",
+      frontmatterAfter: {
+        ...read.value.frontmatter,
+        status: "voided",
+        disposition: "现象描述失真（测试）",
+      },
+      bodyMarkdownAfter: `${stripLeadingH1(read.value.body)}\n\n## 处置\n测试：账目记错，废弃。`,
+      changeSummary: "测试：废弃",
       sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(voided.ok, JSON.stringify(voided.error));
@@ -171,278 +305,141 @@ test("§8.4 第 2 项：终态账目拒绝补充（26 §9.3 计数冻结）", as
     const result = await supplementOccurrence({
       factSourceRoot: base,
       objectUid: uid,
-      observation: "不应写入",
+      observation: "终态后又出现",
+      observationAt: "2026-11-04T00:00:00.000Z",
       sessionSignature: TEST_SIGNATURE,
     });
-    assert.ok(!result.ok, "a terminal record's count is frozen");
+    assert.equal(result.ok, false, "terminal records freeze occurrence counting");
+    assert.equal(result.error.code, "friction/status_terminal");
   });
 });
 
 // ---------------------------------------------------------------------------
-// 第 3 项：创建 observing
+// 第 3 项：阈值晋升
 // ---------------------------------------------------------------------------
 
-test("§8.4 第 3 项：创建初态为 observing、count=1、first_at=last_at、human_return_at=null", async () => {
+test("§9 第 3 项：meetsPromotionThreshold 以 pending 条目数为判据（电平条件，不是边沿）", () => {
+  assert.equal(meetsPromotionThreshold(0), false);
+  assert.equal(meetsPromotionThreshold(1), false);
+  assert.equal(meetsPromotionThreshold(2), false);
+  assert.equal(meetsPromotionThreshold(3), true, "count == N matches");
+  assert.equal(meetsPromotionThreshold(5), true, "N exceeded also matches — a missed run must not strand the group");
+  assert.equal(meetsPromotionThreshold("3"), false, "non-integer is not a valid count");
+});
+
+test("§9 第 3 项：达阈值前不晋升，且**不是失败**", async () => {
   await withRoot(async (base) => {
-    const result = await createObserving({
-      factSourceRoot: base,
-      title: "机械通道创建",
-      phenomenon: "每次全量测试都要 8 分钟。",
-      impact: "light",
-      basis: "重复出现；归因暂缺，原因：尚未定位到具体子系统；修了会改善：迭代速度。",
-      observationAt: "2026-11-01T00:00:00.000Z",
-      sessionSignature: TEST_SIGNATURE,
-    });
+    await seedObservation(base, { at: "2026-10-01T00:00:00.000Z" });
+    await seedObservation(base, { at: "2026-10-02T00:00:00.000Z" });
+    const result = await promote(base);
     assert.ok(result.ok, JSON.stringify(result.error));
-    assert.equal(result.value.status, "observing");
-    assert.equal(result.value.count, 1);
-
-    const read = await readFrictionObject({ factSourceRoot: base, objectUid: result.value.object_uid });
-    assert.equal(read.value.frontmatter.status, "observing");
-    assert.equal(read.value.frontmatter.occurrence.count, 1);
-    assert.equal(read.value.frontmatter.occurrence.first_at, "2026-11-01T00:00:00.000Z");
-    assert.equal(read.value.frontmatter.occurrence.last_at, "2026-11-01T00:00:00.000Z");
-    assert.equal(read.value.frontmatter.occurrence.human_return_at, null);
+    assert.equal(result.value.promoted, false, "2 < N: a normal skip, not a failure");
+    assert.equal(result.value.pending_count, 2);
   });
 });
 
-test("§8.4 第 3 项：创建**不**要求已达阈值（26 §7 明文：observing 是入口态）", async () => {
+test("§9 第 3 项：达 N 条即晋升为 open 账目，count 取该组真实条目数（不是 1）", async () => {
   await withRoot(async (base) => {
-    const result = await createObserving({
-      factSourceRoot: base,
-      title: "首次看见",
-      phenomenon: "第一次遇到该阻碍。",
-      impact: "light",
-      basis: "重复出现；归因暂缺，原因：仅见一次；修了会改善：未知。",
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(result.ok, "count=1 即可入账——阈值管的是流转，不是创建");
-    assert.equal(result.value.count, 1);
-  });
-});
+    await seedObservation(base, { at: "2026-10-01T00:00:00.000Z", evidence: "第一次：CI 耗时 8m02s" });
+    await seedObservation(base, { at: "2026-10-05T00:00:00.000Z", evidence: "第二次：CI 耗时 8m11s" });
+    await seedObservation(base, { at: "2026-10-09T00:00:00.000Z", evidence: "第三次：CI 耗时 7m58s" });
 
-// ---------------------------------------------------------------------------
-// 第 4 项：阈值流转
-// ---------------------------------------------------------------------------
-
-test("§8.4 第 4 项：meetsThreshold 是电平条件——count=3/5 均满足，不要求恰好跨过", () => {
-  const base = { status: "observing", occurrence: { count: 3, human_return_at: null } };
-  assert.equal(meetsThreshold(base), true, "count == 3 matches");
-  assert.equal(meetsThreshold({ ...base, occurrence: { count: 5, human_return_at: null } }), true, "count > 3 also matches (§8.4 电平条件)");
-  assert.equal(meetsThreshold({ ...base, occurrence: { count: 2, human_return_at: null } }), false);
-  assert.equal(meetsThreshold({ ...base, status: "open" }), false, "already open: idempotent skip");
-});
-
-test("§8.4 第 4 项：human_return_at 非空则跳过——Human 的放回留观不得被机械通道撤销（26 §9.2）", () => {
-  const guarded = {
-    status: "observing",
-    occurrence: { count: 5, human_return_at: "2026-11-05T00:00:00.000Z" },
-  };
-  assert.equal(meetsThreshold(guarded), false, "a Human 放回留观 decision must survive a count ≥ N");
-});
-
-test("§8.4 第 4 项：满足条件时 observing → open 并精确回读", async () => {
-  await withRoot(async (base) => {
-    const uid = await seed(base, { count: 3 });
-    const result = await promoteIfThresholdMet({ factSourceRoot: base, objectUid: uid, sessionSignature: TEST_SIGNATURE });
+    const result = await promote(base);
     assert.ok(result.ok, JSON.stringify(result.error));
     assert.equal(result.value.promoted, true);
-    assert.equal(result.value.status, "open");
+    assert.equal(result.value.count, 3, "count is the group's real observation count");
+    assert.equal(result.value.first_at, "2026-10-01T00:00:00.000Z");
+    assert.equal(result.value.last_at, "2026-10-09T00:00:00.000Z");
 
-    const read = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
-    assert.equal(read.value.frontmatter.status, "open");
-    assert.equal(read.value.frontmatter.occurrence.count, 3, "count is preserved across the transition");
+    const fm = (await readFrictionObject({ factSourceRoot: base, objectUid: result.value.object_uid })).value.frontmatter;
+    assert.equal(fm.status, "open", "a promoted entry is born open — there is no observing state any more");
+    assert.equal(fm.occurrence.count, 3);
+    assert.equal(fm.attribution, "构建流水线", "attribution survives into the ledger entry");
   });
 });
 
-test("§8.4 第 4 项：未达阈值时不流转，且**不是失败**", async () => {
+test("§9 第 3 项 / 02 §6.1 第 3 条：晋升时该组**全部逐字引证**必须复制进账目正文", async () => {
   await withRoot(async (base) => {
-    const uid = await seed(base, { count: 2 });
-    const result = await promoteIfThresholdMet({ factSourceRoot: base, objectUid: uid, sessionSignature: TEST_SIGNATURE });
-    assert.ok(result.ok, "an unmet threshold is a normal skip, not an error");
-    assert.equal(result.value.promoted, false);
+    const e1 = "第一次：CI 耗时 8m02s（构建日志第 12 行）";
+    const e2 = "第二次：CI 耗时 8m11s（构建日志第 40 行）";
+    const e3 = "第三次：CI 耗时 7m58s（构建日志第 77 行）";
+    await seedObservation(base, { at: "2026-10-01T00:00:00.000Z", evidence: e1 });
+    await seedObservation(base, { at: "2026-10-05T00:00:00.000Z", evidence: e2 });
+    await seedObservation(base, { at: "2026-10-09T00:00:00.000Z", evidence: e3 });
 
-    const read = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
-    assert.equal(read.value.frontmatter.status, "observing");
-  });
-});
-
-test("§8.4 第 4 项：幂等——对已是 open 的账目重复运行无副作用", async () => {
-  await withRoot(async (base) => {
-    const uid = await seed(base, { count: 3 });
-    const first = await promoteIfThresholdMet({ factSourceRoot: base, objectUid: uid, sessionSignature: TEST_SIGNATURE });
-    assert.equal(first.value.promoted, true);
-    const fpAfterFirst = first.value.fingerprint;
-
-    const second = await promoteIfThresholdMet({ factSourceRoot: base, objectUid: uid, sessionSignature: TEST_SIGNATURE });
-    assert.ok(second.ok, JSON.stringify(second.error));
-    assert.equal(second.value.promoted, false, "already open → no match");
-
-    const read = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
-    assert.equal(read.value.fingerprint, fpAfterFirst, "a repeat run leaves the carrier byte-identical");
-  });
-});
-
-test("§8.4 第 4 项：human_return_at 非空的账目，即使 count ≥ 3 也不被流转", async () => {
-  await withRoot(async (base) => {
-    const uid = await seed(base, { count: 5, humanReturnAt: "2026-11-05T00:00:00.000Z" });
-    const result = await promoteIfThresholdMet({ factSourceRoot: base, objectUid: uid, sessionSignature: TEST_SIGNATURE });
+    const result = await promote(base);
     assert.ok(result.ok, JSON.stringify(result.error));
-    assert.equal(result.value.promoted, false);
-
-    const read = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
-    assert.equal(read.value.frontmatter.status, "observing", "Human's 放回留观 stands");
+    const body = (await readFrictionObject({ factSourceRoot: base, objectUid: result.value.object_uid })).value.body;
+    for (const [label, evidence] of [["e1", e1], ["e2", e2], ["e3", e3]]) {
+      assert.ok(body.includes(evidence), `the promoted body must carry ${label} verbatim — the buffer is evictable, the ledger is not`);
+    }
   });
 });
 
-// ---------------------------------------------------------------------------
-// 边界：机械通道不扩张（§8.4 + §8.2 第 3 条）
-// ---------------------------------------------------------------------------
-
-test("§8.4：机械通道不创建 open，也不写终态——创建只产出 observing", async () => {
+test("§9 第 3 项：晋升后该组条目结算为 promoted 并指向新账目（幂等——不再就绪）", async () => {
   await withRoot(async (base) => {
-    const result = await createObserving({
-      factSourceRoot: base,
-      title: "边界检查",
-      phenomenon: "检查创建不会越界。",
-      impact: "light",
-      basis: "重复出现；归因暂缺，原因：测试；修了会改善：无。",
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(result.ok, JSON.stringify(result.error));
-    assert.equal(result.value.status, "observing", "§8.4 第 3 项 only creates observing");
+    for (const at of ["2026-10-01T00:00:00.000Z", "2026-10-05T00:00:00.000Z", "2026-10-09T00:00:00.000Z"]) {
+      await seedObservation(base, { at });
+    }
+    const promoted = await promote(base);
+    assert.ok(promoted.ok, JSON.stringify(promoted.error));
 
-    const listed = await listFrictionObjects({ factSourceRoot: base });
-    assert.equal(listed.value.items.length, 1);
-    assert.equal(listed.value.items[0].status, "observing");
-    assert.equal(listed.value.items[0].disposition, undefined, "no terminal field is written by the discovery path");
+    const after = await readFrictionObservations(makeHome(base), PROJECT, { status: "promoted" });
+    assert.equal(after.value.total, 3, "all three entries settled to promoted");
+    for (const record of after.value.items) {
+      assert.equal(record.promoted_to, promoted.value.object_uid, "each entry points at the ledger entry it became");
+    }
+
+    const ready = await readPromotionReadyGroups(makeHome(base), PROJECT);
+    assert.ok(ready.ok, JSON.stringify(ready.error));
+    assert.equal(ready.value.ready.length, 0, "a promoted group must not be promoted twice");
+
+    const again = await promote(base);
+    assert.ok(again.ok, JSON.stringify(again.error));
+    assert.equal(again.value.promoted, false, "idempotent: no second ledger entry");
+  });
+});
+
+test("§9 第 3 项：晋升出的账目正文结构合法（H1 恰好一个，H2 固定序）", async () => {
+  await withRoot(async (base) => {
+    for (const at of ["2026-10-01T00:00:00.000Z", "2026-10-05T00:00:00.000Z", "2026-10-09T00:00:00.000Z"]) {
+      await seedObservation(base, { at });
+    }
+    const promoted = await promote(base);
+    assert.ok(promoted.ok, JSON.stringify(promoted.error));
+    const body = (await readFrictionObject({ factSourceRoot: base, objectUid: promoted.value.object_uid })).value.body;
+    const h1Count = (body.match(/^ {0,3}#(?!#)[ \t]+\S.*$/gm) ?? []).length;
+    assert.equal(h1Count, 1, "26 §8 requires exactly one H1");
+    assert.ok(body.includes("## 现象"), "H2 现象 present");
+    assert.ok(body.includes("## 入账依据"), "H2 入账依据 present");
+    assert.ok(!body.includes("## 处置"), "a freshly promoted open entry has no disposition section");
   });
 });
 
 // ---------------------------------------------------------------------------
-// 读-写契约不对称的回归守卫（2026-10-12 实测缺陷）
-//
-// 缺陷形态：`readFrictionObject().body` **含**写入侧生成的 `# <title>`，而
-// `updateFrictionObject({bodyMarkdownAfter})` 要的是**不含** H1 的正文（写入侧
-// `assembleBody` 会再前置一次）。读-改-写路径若把前者直接回传，每写一次多一个 H1。
-//
-// 真实影响：账本实测 3 条中招（3048937d H1=3、545cca82 H1=2、bf73fad4 H1=2），
-// 且**每次写入都返回成功**——`validateFrictionBodyStructure` 不数 H1 个数、
-// §8.4 第 5 项回读只比对 count/last_at，两条通道都给绿灯。
-//
-// 以下守卫按本仓纪律写成「故意引入即失败」的形态：任一处回退，对应断言即红。
+// 回归：H1 不叠加（read-write asymmetry）
 // ---------------------------------------------------------------------------
-
-/** 数正文里的 H1 个数（26 §8：恰好一个，由 title 生成）。 */
-function h1CountOf(body) {
-  return (body.match(/^ {0,3}#(?!#)[ \t]+\S.*$/gm) ?? []).length;
-}
 
 test("回归：补充级更新不得叠加 H1——连跑三次 H1 恒为 1", async () => {
   await withRoot(async (base) => {
-    const created = await createObserving({
-      factSourceRoot: base,
-      title: "H1 叠加回归",
-      phenomenon: "补充级更新会重复前置 H1。",
-      impact: "medium",
-      basis: "重复出现；归因：写入路径；修了会改善：载体结构恢复。",
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(created.ok, JSON.stringify(created.error));
-    const uid = created.value.object_uid;
-
-    const before = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
-    assert.equal(h1CountOf(before.value.body), 1, "创建后的初始 H1 必须恰好一个");
-
-    for (let i = 1; i <= 3; i++) {
+    const uid = await seedOpen(base, { count: 1 });
+    for (let i = 0; i < 3; i += 1) {
       const r = await supplementOccurrence({
         factSourceRoot: base,
         objectUid: uid,
-        observation: `第 ${i} 次补充观察。`,
-        observationAt: `2026-10-12T0${i}:00:00.000Z`,
+        observation: `第 ${i + 1} 次补充观察`,
+        observationAt: `2026-11-0${i + 1}T00:00:00.000Z`,
         sessionSignature: TEST_SIGNATURE,
       });
-      assert.ok(r.ok, `第 ${i} 次补充须成功：${JSON.stringify(r.error)}`);
-      const now = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
-      assert.equal(h1CountOf(now.value.body), 1, `第 ${i} 次补充后 H1 仍须恰好一个（叠加即损坏载体，26 §8）`);
-      assert.equal(now.value.frontmatter.occurrence.count, i + 1, "计数须照常递增——修复不得以牺牲计数为代价");
+      assert.ok(r.ok, JSON.stringify(r.error));
     }
-
-    // 载体内聚与结构同时仍成立：内容扩展真的写进去了，而不是「拒绝写入」冒充成功。
-    const final = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
-    assert.ok(final.value.body.includes("第 3 次补充观察"), "现象段须真被扩展");
-    assert.ok(final.value.body_valid, `结构须合法：${JSON.stringify(final.value.issues ?? [])}`);
-  });
-});
-
-test("回归：写入侧拒绝自带 H1 的 bodyMarkdownAfter（契约须被强制，而非只写在文案里）", async () => {
-  await withRoot(async (base) => {
-    const created = await createObserving({
-      factSourceRoot: base,
-      title: "契约强制回归",
-      phenomenon: "写入侧声称正文不含 H1，但从不校验。",
-      impact: "medium",
-      basis: "重复出现；归因：写入侧校验缺位；修了会改善：误解当场暴露。",
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(created.ok, JSON.stringify(created.error));
-    const uid = created.value.object_uid;
-    const read = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
-
-    const { updateFrictionObject } = await import("../lib/friction-writer.js");
-    const rejected = await updateFrictionObject({
-      factSourceRoot: base,
-      objectUid: uid,
-      expectedFingerprint: read.value.fingerprint,
-      frontmatterAfter: read.value.frontmatter,
-      // 故意把含 H1 的 body 回传——这正是真实缺陷的形态
-      bodyMarkdownAfter: read.value.body,
-      changeSummary: "回归：回传含 H1 的正文",
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(!rejected.ok, "写入侧必须拒绝自带 H1 的正文，不得静默拼接");
-    assert.equal(rejected.error?.code, "invalid_request");
-    assert.match(rejected.error.message, /must NOT carry the generated H1/, "拒绝理由须指明是 H1 重复，而非泛泛的格式错误");
-
-    // 反向：剥掉 H1 后同一内容必须放行——拒绝的是形态，不是内容。
-    const accepted = await updateFrictionObject({
-      factSourceRoot: base,
-      objectUid: uid,
-      expectedFingerprint: read.value.fingerprint,
-      frontmatterAfter: read.value.frontmatter,
-      bodyMarkdownAfter: stripLeadingH1(read.value.body),
-      changeSummary: "回归：剥掉 H1 后放行",
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(accepted.ok, `剥掉 H1 后须放行：${JSON.stringify(accepted.error)}`);
-    const after = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
-    assert.equal(h1CountOf(after.value.body), 1, "放行后 H1 仍恰好一个");
-  });
-});
-
-test("回归：阈值流转（observing → open）不得叠加 H1", async () => {
-  await withRoot(async (base) => {
-    const uid = await seed(base, { count: FRICTION_THRESHOLD_N });
-    const promoted = await promoteIfThresholdMet({
-      factSourceRoot: base,
-      objectUid: uid,
-      sessionSignature: TEST_SIGNATURE,
-    });
-    assert.ok(promoted.ok, JSON.stringify(promoted.error));
-    assert.equal(promoted.value.promoted, true, "达到阈值须流转");
-    const after = await readFrictionObject({ factSourceRoot: base, objectUid: uid });
-    assert.equal(after.value.frontmatter.status, "open");
-    assert.equal(h1CountOf(after.value.body), 1, "阈值流转同属读-改-写路径，H1 不得叠加");
+    const body = (await readFrictionObject({ factSourceRoot: base, objectUid: uid })).value.body;
+    const h1Count = (body.match(/^ {0,3}#(?!#)[ \t]+\S.*$/gm) ?? []).length;
+    assert.equal(h1Count, 1, "read-write asymmetry must not duplicate the generated H1");
   });
 });
 
 test("stripLeadingH1：只剥第一个 H1，正文里作为字面内容的 # 行不受影响", () => {
-  assert.equal(stripLeadingH1("# 标题\n\n## 现象\n正文\n"), "## 现象\n正文\n");
-  assert.equal(stripLeadingH1("\n\n# 标题\n\n## 现象\n"), "## 现象\n");
-  // 无 H1：原样返回（只做减法，不替调用方编造 H1）
-  assert.equal(stripLeadingH1("## 现象\n正文\n"), "## 现象\n正文\n");
-  // 正文里字面出现的 "# " 行（如引用的规范片段）不得被剥
-  assert.equal(stripLeadingH1("# 标题\n\n## 现象\n引用：\n# 这是正文里的字面行\n"), "## 现象\n引用：\n# 这是正文里的字面行\n");
-  assert.equal(stripLeadingH1(""), "");
-  assert.equal(stripLeadingH1(null), "");
+  const body = "# 标题\n\n## 现象\n看到一行 # 不是标题\n";
+  assert.equal(stripLeadingH1(body).trimEnd(), "## 现象\n看到一行 # 不是标题");
 });

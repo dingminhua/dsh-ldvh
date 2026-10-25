@@ -4,29 +4,31 @@
  * 权威：specs/11 §9。本模块只实现该节「自动动作闭集」中**可由 Code 确定性地
  * 执行**的那部分，并严格守住 §8.2 的边界。逐项对应：
  *
- *   第 1 项 读取 open/observing 账本 + 语义查重
- *           → 读取由本模块做（listFrictionObjects）；**语义查重不做**——它是
+ * **2026-10 修订（Human 决定：观察不进事实源）**：`observing` 已退出 26 §9 的
+ * 状态闭集，观察材料改由 §12bis.1 的摩擦观察缓冲承载（非事实对象）。闭集因此
+ * 变为**两层**——缓冲（观察）与账本（已晋升的待修账目）。逐项对应：
+ *
+ *   第 1 项 读取 open 账本 + 读观察缓冲 + 语义查重
+ *           → 两层读取由本模块做（`loadDedupCandidates` 读账本、
+ *             `loadObservationDedupCandidates` 读缓冲）；**语义查重不做**——它是
  *             §8.4 明文登记的 gap（「本环节属语义判断，其正确性不由机械校验
  *             保障」），只能由派生出的子代理（LLM）完成。本模块因此只**提供**
- *             候选清单，并把「哪条是同一阻碍」的判断留给调用方（子代理）。
- *   第 2 项 补充级更新（count 递增 1、last_at 更新、status 不变）
- *           → 本模块实现，且把「递增」与「现象段扩展」放在**同一次** update 内
- *             （26 §9.3 要求二者同一次完成）。
- *   第 3 项 创建 observing 账目（count=1）
- *           → 本模块实现。
- *   第 4 项 observing → open（count ≥ 3 ∧ human_return_at 为空）
- *           → 本模块实现。N = 3 由 11 §9 固定内嵌，**不设配置载体**（故此处
- *             是常量而非可注入参数——把它做成可配置即违反 §8.4 的「不可配置」）。
- *   第 5 项 精确回读
- *           → 每次写入后立即回读并比对，回读不符即视为失败（§8.4 第 6 项）。
- *   第 6 项 任一校验不可用/未通过/回读不完整 → §8.3 fail-closed
- *           → 本模块所有失败路径都返回结构化失败，**由调用方**按 §8.3 停止并
- *             登记待处置队列（本模块不自行入队：入队是整任务级的处置，属调用方
- *             的编排职责，见 discovery-runner 的使用方式）。
+ *             两层候选清单，并把「哪条是同一阻碍」的判断留给调用方（子代理）。
+ *   第 2 项 写入观察缓冲条目（§9 第 2 项）
+ *           → `recordObservation`（本模块）→ `appendFrictionObservation`
+ *             （friction-observation-buffer.js）。**不写事实源。**
+ *   第 3 项 达阈值晋升为 open 账目（§9 第 3 项）
+ *           → `promoteReadyGroup`：把该组全部 `evidence` 一次性复制进新建账目正文
+ *             （02 §6.1 第 3 条硬要求），再结算缓冲条目为 `promoted`。
+ *   第 4 项 对既有 open 账目的补充级更新（count 递增、last_at 更新、status 不变）
+ *           → `supplementOccurrence`。**不参与任何阈值判定**（账目状态推进只有
+ *             Human Gate）。
+ *   第 5 项 精确回读 → 每次写入后立即回读并比对。
+ *   第 6 项 任一校验不可用/未通过/回读不完整 → §12 fail-closed（由调用方执行）。
  *
- * 边界（§8.2）：本模块**不**做价值判断、不产生需要 Human 决定的结论、不扩张
- * 机械通道（§8.4 明文「仅限第 3 项与第 4 项」）。第 2 项是补充级更新，按 26
- * §7 属「补充级更新」通道而非机械通道的扩张。
+ * 边界：本模块**不**做价值判断、不产生需要 Human 决定的结论、不扩张机械通道
+ * （§9 明文「仅限第 2／3／4 项」）。**机械通道不改变任何既有账目的状态**。
+ * N = 3 由 11 §9 固定内嵌，**不设配置载体**。
  */
 
 import { createHash } from "node:crypto";
@@ -37,6 +39,13 @@ import {
   createFrictionObject,
   updateFrictionObject,
 } from "./friction-writer.js";
+import {
+  appendFrictionObservation,
+  readFrictionObservations,
+  readPromotionReadyGroups,
+  settleGroupPromoted,
+  FRICTION_OBSERVATION_THRESHOLD_N,
+} from "./friction-observation-buffer.js";
 
 /**
  * 阈值 N = 3（specs/11 §9「阈值 N」段：由本规范固定内嵌，不可配置）。
@@ -93,10 +102,12 @@ export function stripLeadingH1(body) {
 // ---------------------------------------------------------------------------
 
 /**
- * 读取 `open` 与 `observing` 账本，作为**语义查重**的输入（§8.4 第 1 项）。
+ * 读取 `open` 账本，作为**语义查重**的账本侧输入（§9 第 1 项；2026-10 修订后
+ * 只有 `open`——`observing` 已退出 26 §9 的闭集）。
  *
  * 只读，不改动。终态（resolved/voided）不在候选内——26 §12 明确 voided
- * 「不参与查重范围」。
+ * 「不参与查重范围」。**缓冲侧的查重输入见 `loadObservationDedupCandidates`**——
+ * 两层都要查（§9 第 1 项），只查本函数构成漏查重。
  *
  * 返回 `{ ok, value: { candidates: [...], invalid: [...] } }`。**`invalid` 非空
  * 时必须按 §8.3 处理**：读不出的账目意味着查重输入不完整，而「查重不可靠」会
@@ -106,13 +117,63 @@ export function stripLeadingH1(body) {
 export async function loadDedupCandidates(factSourceRoot) {
   const listed = await listFrictionObjects({ factSourceRoot, includeResolved: false, limit: 200 });
   if (!listed.ok) return listed;
-  const candidates = listed.value.items.filter((item) => item.status === "open" || item.status === "observing");
+  // 2026-10 修订（Human 决定：观察不进事实源）：账本侧查重对象**只有 `open`**
+  // ——`observing` 已退出 26 §9 的闭集。**但本函数不是查重的全部**：11 §9 第 1 项
+  // 要求同时读观察缓冲（`loadObservationDedupCandidates`），只查账本会把同一阻碍
+  // 在缓冲里拆成互不相干的条目，使聚合永远到不了 N。
+  const candidates = listed.value.items.filter((item) => item.status === "open");
   return success({
     candidates,
     invalid: listed.value.invalid,
     complete: listed.value.complete,
     total: listed.value.total,
   });
+}
+
+/**
+ * 读观察缓冲侧的查重输入（11 §9 第 1 项的第二层；§12bis.1）。
+ *
+ * 返回该项目的 `pending` 条目与「已就绪待晋升」的组——**二者都是查重输入**：
+ * 前者用来判断本次观察该并入哪个 `group`，后者用来判断是否该触发晋升。
+ *
+ * 与 `loadDedupCandidates` 分开的理由：账本在事实源内、缓冲在事实源外，二者的
+ * 读取通道与失败语义不同（缓冲不可读同样须 fail-closed，但它是宿主侧载体）。
+ */
+export async function loadObservationDedupCandidates(dshHomePath, projectId, options = {}) {
+  const read = await readFrictionObservations(dshHomePath, projectId, {
+    status: "pending",
+    ...options,
+  });
+  if (!read.ok) return read;
+  if (read.value.invalid.length > 0) {
+    // 读不出的条目意味着查重输入不完整——与账本侧同一纪律：不可在不完整输入上判断。
+    return failure(
+      "friction_observation/dedup_input_incomplete",
+      `${read.value.invalid.length} buffer entr(ies) could not be parsed; dedup input is incomplete (11 §9 第 1 项)`,
+    );
+  }
+  return success({
+    entries: read.value.items,
+    by_group: groupEntries(read.value.items),
+    complete: read.value.complete,
+    total: read.value.total,
+    evicted_pending: read.value.evicted_pending,
+  });
+}
+
+/** 把条目按 `group` 归并（**只做相等比较**，不判断两个 group 是否同一阻碍）。 */
+function groupEntries(entries) {
+  const groups = new Map();
+  for (const entry of entries) {
+    if (!groups.has(entry.group)) groups.set(entry.group, []);
+    groups.get(entry.group).push(entry);
+  }
+  const result = [];
+  for (const [group, items] of groups) {
+    const ordered = [...items].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+    result.push({ group, pending_count: ordered.length, entries: ordered });
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -147,8 +208,9 @@ export async function supplementOccurrence({
   if (!current.ok) return current;
   const fm = current.value.frontmatter;
   const status = fm.status;
-  if (status !== "observing" && status !== "open") {
-    return failure("friction/status_terminal", `status=${status} is terminal; occurrence counting is frozen (26 §9.3). A recurring obstacle goes through a NEW ledger entry.`);
+  // 2026-10 修订：只有 `open` 可做补充级更新（`observing` 已不在闭集内）。
+  if (status !== "open") {
+    return failure("friction/status_terminal", `status=${status} is not open; occurrence counting only applies to an existing open ledger entry (26 §9.3: 仅非终态 open 时可执行). A new obstacle goes through the observation buffer instead (11 §12bis.1).`);
   }
   const occurrence = fm.occurrence;
   if (typeof occurrence !== "object" || occurrence === null || !Number.isInteger(occurrence.count)) {
@@ -239,44 +301,142 @@ export async function supplementOccurrence({
 }
 
 // ---------------------------------------------------------------------------
-// 第 3 项：创建 observing 账目
+// 第 2 项：写入摩擦观察条目（§9 第 2 项，非事实源）
 // ---------------------------------------------------------------------------
 
 /**
- * 创建 `observing` 账目（§8.4 第 3 项：初态 `count=1`、`first_at`=本次观察时间）。
+ * 把一次观察写入摩擦观察缓冲（§9 第 2 项 / §12bis.1）。
  *
- * 入账三条件（26 §7）中，「重复出现」一项**仅适用于 open 及以上状态**——创建
- * 不受「≥3 次」约束（留观的语义正是「已看见但尚未攒够」）。故本函数的门槛是
- * 「该观察是否可归因 + 修了会更好」等语义判断，**由子代理做出**；本函数只做
- * 机械落地与校验。
+ * **本函数不写事实源、不产生 object_uid**——观察材料在达到阈值前不是账目。
+ * 「这条与哪条同源」的判断（`group`）由子代理做出后传入；本函数只做机械落地
+ * 与校验，**不判断同源**（那是 §9 第 1 项的语义工作）。
  *
- * 机械通道**不得扩张**（§8.4）：本函数不创建 open，只创建 observing。
+ * @returns {Promise<{ok:true,value:{entry_id:string,group:string,group_pending_count:number,promotion_ready:boolean,evicted_pending:Array}}|{ok:false,error:object}>}
  */
-export async function createObserving({
-  factSourceRoot,
-  title,
+export async function recordObservation({
+  dshHomePath,
+  projectId,
+  session,
+  anchor,
   phenomenon,
+  evidence,
+  group,
+  observationAt,
+}) {
+  if (!isNonEmptyString(phenomenon)) {
+    return failure("invalid_request", "phenomenon is required (a single-sentence description of what was seen)");
+  }
+  if (!isNonEmptyString(evidence)) {
+    return failure("invalid_request", "evidence is required (the verbatim fragment plus its source reference)");
+  }
+  if (!isNonEmptyString(group)) {
+    return failure(
+      "invalid_request",
+      "group is required — it is the aggregation key the semantic dedup step decided; without it the threshold can never be computed (11 §9 第 3 项)",
+    );
+  }
+  return appendFrictionObservation(dshHomePath, {
+    project: projectId,
+    session,
+    anchor,
+    phenomenon,
+    evidence,
+    group,
+    ...(isNonEmptyString(observationAt) ? { at: observationAt } : {}),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 第 3 项：达阈值晋升为 open 账目（§9 第 3 项）
+// ---------------------------------------------------------------------------
+
+/**
+ * 判定某组是否达晋升阈值（§9 第 3 项），**纯函数，不做副作用**。
+ *
+ * 判据只有一条：该组 **`pending` 条目数 ≥ N**。没有「Human 放回」的护栏字段了
+ * ——`human_return_at` 随 `open → observing` 流转一并删除，因为机械通道已不再按
+ * `count` 翻任何**既有账目**的状态（阈值判定只发生在缓冲侧，且只作用于
+ * 尚未成为账目的材料）。
+ */
+export function meetsPromotionThreshold(pendingCount) {
+  return Number.isInteger(pendingCount) && pendingCount >= FRICTION_OBSERVATION_THRESHOLD_N;
+}
+
+/**
+ * 把一个已达阈值的组晋升为一条新的 `open` 账目（§9 第 3 项）。
+ *
+ * **三条硬要求**（缺一即失败）：
+ *   1. 该组 `pending` 条目数 ≥ N；
+ *   2. 新建账目正文**写入该组全部条目的逐字引证与来源**——02 §6.1 第 3 条：权威
+ *      对象必须自身完整承载证据，缓冲可淘汰，**只写 `buffer:<id>` 等于留下一条
+ *      无法核对的转述**；
+ *   3. 晋升后该组条目结算为 `promoted` 并指向新账目 uid。**幂等**——已 `promoted`
+ *      的条目不参与再次计数，故同一组不会被晋升两次。
+ *
+ * `occurrence` 取该组的真实观察统计（count = 条目数、first_at/last_at = 该组最早
+ * 与最近观察时间）——这是「该账目成立时已确认的观察次数」，不是凭空写的 1。
+ *
+ * 建账目与结算缓冲**不是原子操作**：账目建好而结算失败时，条目仍为 `pending`，
+ * 下次运行会**再次晋升**同一条（产生重复账目）。故结算失败一律返回失败，由调用方
+ * 按 §12 fail-closed 并登记——**不得**静默放过。
+ */
+export async function promoteReadyGroup({
+  factSourceRoot,
+  dshHomePath,
+  projectId,
+  group,
+  title,
   impact,
   basis,
   attribution,
-  observationAt,
   sessionSignature,
 }) {
-  if (!isNonEmptyString(phenomenon)) return failure("invalid_request", "phenomenon is required (a single-sentence phenomenon statement)");
-  if (!isNonEmptyString(basis)) return failure("invalid_request", "basis is required (the 入账依据 paragraph)");
+  if (!isNonEmptyString(group)) return failure("invalid_request", "group is required");
+  if (!isNonEmptyString(title)) {
+    return failure("invalid_request", "title is required — the promoted ledger entry needs a short title (26 §8 ≤ 30 字)");
+  }
+  if (!isNonEmptyString(basis)) {
+    return failure("invalid_request", "basis is required — the 入账依据 paragraph answering the three conditions");
+  }
 
-  const now = isNonEmptyString(observationAt) ? observationAt : new Date().toISOString();
+  const ready = await readPromotionReadyGroups(dshHomePath, projectId);
+  if (!ready.ok) return ready;
+  const target = ready.value.ready.find((item) => item.group === group);
+  if (!target) {
+    // 不满足即**不是失败**——正常的不匹配，调用方据此跳过。
+    const read = await readFrictionObservations(dshHomePath, projectId, { status: "pending", group });
+    const count = read.ok ? read.value.total : 0;
+    return success({
+      action: "promotion-skip",
+      group,
+      pending_count: count,
+      threshold: FRICTION_OBSERVATION_THRESHOLD_N,
+      promoted: false,
+    });
+  }
+
+  const entries = target.entries;
+  const count = entries.length;
+  const firstAt = entries[0].at;
+  const lastAt = entries[entries.length - 1].at;
+
+  // 现象段：逐条列出该组的观察与来源——这些逐字引证**必须**进账目正文。
+  const phenomenonLines = entries
+    .map((entry, index) => `${index + 1}. （${entry.at}，${entry.session} @ ${entry.anchor}）${entry.evidence}`)
+    .join("\n");
+  const phenomenon = entries[entries.length - 1].phenomenon;
+  const bodyMarkdown = `## 现象\n${phenomenon}\n\n### 该阻碍的历次观察（${count} 次，逐字引证）\n${phenomenonLines}\n\n## 入账依据\n${basis.trim()}`;
+
   const frontmatterDraft = {
     title: title.trim(),
     phenomenon: phenomenon.trim(),
     impact,
-    // 26 §8：occurrence 必填，创建初值 count=1、human_return_at=null。
-    occurrence: { count: 1, first_at: now, last_at: now, human_return_at: null },
+    // 26 §8：occurrence 必填；count 取该组真实条目数（不是 1——账目成立的判据正是
+    // 「观察到了这么多次」），first_at/last_at 取该组最早与最近观察时间。
+    occurrence: { count, first_at: firstAt, last_at: lastAt },
     ...(isNonEmptyString(attribution) ? { attribution: attribution.trim() } : {}),
-    change_summary: "摩擦发现机械通道创建（11 §9 第 3 项）",
+    change_summary: `摩擦发现阈值晋升（观察缓冲同源条目 ${count} 条 ≥ ${FRICTION_OBSERVATION_THRESHOLD_N}，11 §9 第 3 项）`,
   };
-  // 正文固定序（26 §8）：现象 / 入账依据；创建为 observing 故无「处置」段。
-  const bodyMarkdown = `## 现象\n${phenomenon.trim()}\n\n## 入账依据\n${basis.trim()}`;
 
   const created = await createFrictionObject({
     factSourceRoot,
@@ -287,102 +447,54 @@ export async function createObserving({
   if (!created.ok) return created;
 
   const uid = created.value?.object_uid ?? created.value?.uid;
-  // §8.4 第 5 项：精确回读。
+
+  // §8.4 第 5 项：精确回读（含证据是否真的进了正文）。
   const readBack = await readFrictionObject({ factSourceRoot, objectUid: uid });
   if (!readBack.ok) {
     return failure("friction/read_back_failed", `create reported success but the read-back failed: ${readBack.error.message}`);
   }
-  if (readBack.value.frontmatter.status !== "observing" || readBack.value.frontmatter.occurrence?.count !== 1) {
+  const fm = readBack.value.frontmatter;
+  if (fm.status !== "open" || fm.occurrence?.count !== count) {
     return failure(
       "friction/read_back_mismatch",
-      `§8.4 第 3 项 requires initial status=observing and count=1; read back status=${readBack.value.frontmatter.status} count=${readBack.value.frontmatter.occurrence?.count}`,
+      `promotion requires initial status=open and count=${count}; read back status=${fm.status} count=${fm.occurrence?.count}`,
+    );
+  }
+  // 证据复制核对：该组每一条 evidence 都须逐字出现在正文里。
+  const body = readBack.value.body ?? "";
+  for (const entry of entries) {
+    if (!body.includes(entry.evidence)) {
+      return failure(
+        "friction/evidence_not_carried",
+        `the promoted entry body does not contain buffer entry ${entry.id}'s verbatim evidence — 02 §6.1 第 3 条 forbids leaving the evidence chain in an evictable carrier`,
+      );
+    }
+  }
+
+  // 结算缓冲条目。失败即 fail-closed（否则下次运行会重复晋升）。
+  const settled = await settleGroupPromoted(dshHomePath, projectId, entries.map((entry) => entry.id), uid);
+  if (!settled.ok) {
+    return failure(
+      "friction_observation/promotion_settle_failed",
+      `the ledger entry ${uid} was created but settling the buffer entries failed (${settled.error.code}: ${settled.error.message}); `
+      + `the group's entries are still pending and the next run would promote them again — stop and register this (§12), do not continue`,
     );
   }
 
   return success({
-    action: "create",
+    action: "promotion",
     object_uid: uid,
-    status: "observing",
-    count: 1,
-    fingerprint: readBack.value.fingerprint,
-  });
-}
-
-// ---------------------------------------------------------------------------
-// 第 4 项：observing → open（阈值流转）
-// ---------------------------------------------------------------------------
-
-/**
- * 判定某账目是否满足阈值流转条件（§8.4 第 4 项），**纯函数，不做副作用**。
- *
- * 触发条件是**电平条件**（三者全中即流转，不要求「恰好跨过 3」）：
- *   1. `status === "observing"`；
- *   2. `occurrence.count >= 3`；
- *   3. `occurrence.human_return_at` 为空。
- *
- * 第 3 条是 Human 决定的护栏（26 §9.2）：Human 主动「放回留观」会写入
- * `human_return_at`，机械通道**不得**据 count 把该决定翻回来。
- */
-export function meetsThreshold(frontmatter) {
-  const status = frontmatter?.status;
-  const occurrence = frontmatter?.occurrence;
-  if (status !== "observing") return false;
-  if (typeof occurrence !== "object" || occurrence === null) return false;
-  if (!Number.isInteger(occurrence.count)) return false;
-  if (occurrence.count < FRICTION_THRESHOLD_N) return false;
-  if (occurrence.human_return_at !== null && occurrence.human_return_at !== undefined) return false;
-  return true;
-}
-
-/**
- * 执行阈值流转（§8.4 第 4 项）。
- *
- * 幂等：已是 open 者不匹配（`meetsThreshold` 要求 status=observing），故重复运行
- * 无副作用。**不做存量遍历**——只作用于调用方传进来的这一条（§8.4 明文）。
- */
-export async function promoteIfThresholdMet({
-  factSourceRoot,
-  objectUid,
-  sessionSignature,
-}) {
-  if (!isNonEmptyString(objectUid)) return failure("invalid_request", "objectUid is required");
-
-  const current = await readFrictionObject({ factSourceRoot, objectUid });
-  if (!current.ok) return current;
-  if (!meetsThreshold(current.value.frontmatter)) {
-    // 不满足即**不是失败**——这是正常的不匹配，调用方据此跳过。
-    return success({ action: "threshold-skip", object_uid: objectUid, status: current.value.frontmatter.status, promoted: false });
-  }
-
-  const fm = current.value.frontmatter;
-  const updated = await updateFrictionObject({
-    factSourceRoot,
-    objectUid,
-    expectedFingerprint: current.value.fingerprint,
-    frontmatterAfter: { ...fm, status: "open" },
-    // 读-写契约不对称，同补充级更新——见 stripLeadingH1 的说明。此处若直接回传
-    // `current.value.body`（含生成的 H1），写入侧会再前置一次，阈值流转即损坏载体。
-    bodyMarkdownAfter: stripLeadingH1(current.value.body),
-    changeSummary: `阈值流转 observing → open（count ${fm.occurrence.count} ≥ 3，11 §9 第 4 项）`,
-    sessionSignature,
-  });
-  if (!updated.ok) return updated;
-
-  // §8.4 第 5 项：精确回读。
-  const readBack = await readFrictionObject({ factSourceRoot, objectUid });
-  if (!readBack.ok) {
-    return failure("friction/read_back_failed", `threshold transition reported success but the read-back failed: ${readBack.error.message}`);
-  }
-  if (readBack.value.frontmatter.status !== "open") {
-    return failure("friction/read_back_mismatch", `expected status=open after the threshold transition, got ${readBack.value.frontmatter.status}`);
-  }
-
-  return success({
-    action: "threshold-promote",
-    object_uid: objectUid,
-    count: fm.occurrence.count,
+    group,
+    count,
+    first_at: firstAt,
+    last_at: lastAt,
     status: "open",
+    // `promoted` 与 `pending_count` 与「跳过」分支同形（同一函数两个分支的返回值
+    // 须可被判据统一消费，否则调用方要按 action 分别判断）。
     promoted: true,
+    pending_count: count,
+    threshold: FRICTION_OBSERVATION_THRESHOLD_N,
+    settled_entries: settled.value.settled,
     fingerprint: readBack.value.fingerprint,
   });
 }

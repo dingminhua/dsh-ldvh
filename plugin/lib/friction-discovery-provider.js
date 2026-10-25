@@ -171,7 +171,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     throw new Error("createDiscoveryProvider requires an AbortSignal (startActivation requires spec.signal, which the host no longer uses for cancellation — see the dispatch site)");
   }
 
-  return async function discover({ threshold, candidates, window: windowRange, tasks: requestedTasks }) {
+  return async function discover({ threshold, candidates, observationGroups, window: windowRange, tasks: requestedTasks }) {
     // 本次要跑的**全部**任务（有序）。未给出时退回单任务 `idle-review`——保持既有
     // 调用方（测试与诊断路径）无需改造，且它与「只勾选 idle-review」等价。
     //
@@ -333,7 +333,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
       // 本层不知道各任务需要什么。若只传其中一组，需要其它前提的任务会**静默**
       // 拿到默认空值，而该失效不影响任何字段的形状，故从输出上看不出异常。
       // 传全量前提使新任务无需改动本层。
-      sections[key] = build({ threshold, candidates });
+      sections[key] = build({ threshold, candidates, observationGroups: observationGroups ?? [] });
     }
     const prompt = buildCompositePrompt({
       tasks: runnable,
@@ -347,6 +347,9 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
       provider: picked.value.name,
       window: { from: windowRange?.from ?? null, to: windowRange?.to ?? null, turns: Array.isArray(effectiveWindow?.items) ? effectiveWindow.items.length : 0, truncated: effectiveWindow?.truncated === true },
       candidates: candidates?.length ?? 0,
+      // 观察组的数量也进痕迹：否则「缓冲里有几组攒到几分」在运行记录上看不出来，
+      // 而它正是阈值判定能否发生的前提（11 §9 第 3 项）。
+      observation_groups: observationGroups?.length ?? 0,
       // 本次要求作答的任务清单——使「派了几件」与「收了几件」可在痕迹里核对。
       tasks: [...runnable],
       unimplemented_tasks: [...unimplemented],
@@ -457,7 +460,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
       tasks: runnable,
       registry,
       contexts: Object.fromEntries(
-        runnable.map((key) => [key, { candidates: candidates ?? [], windowText }]),
+        runnable.map((key) => [key, { candidates: candidates ?? [], observationGroups: observationGroups ?? [], windowText }]),
       ),
     });
 

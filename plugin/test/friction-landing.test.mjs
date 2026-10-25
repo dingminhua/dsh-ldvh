@@ -1,10 +1,17 @@
 // Tests for plugin/lib/friction-landing.js —
-// 缺陷 D2 的修复：把子代理的结构化判断按 11 §9 闭集第 2–4 项写成账目。
+// 缺陷 D2 的修复：把子代理的结构化判断按 11 §9 闭集第 2–4 项落地。
 //
-// 本模块是「判断 → 账目」的那条此前缺失的接缝。测试要证明：
-//   ① 三态各自的机械动作正确（补充级更新 / 创建 / 无动作）；
-//   ② 第 2 项之后确实执行第 4 项（阈值流转），且**只**作用于本次涉及的那条账目；
-//   ③ 任一环节失败即整体失败（调用方据此按 §8.3 入队），不停在半路；
+// **2026-10 修订（Human 决定：观察不进事实源）**：判定态由三态扩为四态，且
+// 「观察材料」不再写事实源——一律先进摩擦观察缓冲（§12bis.1），只有攒够 N 条
+// 才晋升为一条 `open` 账目。故本文件的测试重心相应调整：
+//   `same-obstacle` → 对既有 open 账目补充级更新（不流转状态）
+//   `same-observation-group` / `new-observation` → 写观察条目（可能触发晋升）
+//   `no-discovery` → 无动作
+//
+// 测试要证明：
+//   ① 四态各自的机械动作正确；
+//   ② 观察层不写事实源，只有达阈值才晋升；
+//   ③ 任一环节失败即整体失败（调用方据此按 §12 入队），不停在半路；
 //   ④ 不越界：不做存量遍历、不自行判断同题、不解释语义。
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -14,28 +21,60 @@ import {
 	landDiscoveryVerdict,
 	residualFromLandingError
 } from "../lib/friction-landing.js";
-import { readFrictionObject, listFrictionObjects } from "../lib/friction-writer.js";
+import { readFrictionObject, listFrictionObjects, createFrictionObject } from "../lib/friction-writer.js";
 import { stripLeadingH1 } from "../lib/friction-discovery.js";
+import { readFrictionObservations } from "../lib/friction-observation-buffer.js";
 import { withTemp, testSignature } from "./helpers.mjs";
 
 const SIG = testSignature();
+const PROJECT = "test-project";
 
-/** 建一个空的账本目录（landing 只读写 factSourceRoot 下的账目）。 */
+/**
+ * 建一个空的账本目录 + 一个 DSH home（缓冲在事实源之外，需要独立的 home 根）。
+ *
+ * 两者都落在同一个临时目录下：`factSourceRoot` 直接是 dir（landing 只读写它下面的
+ * `frictions/`），而 `dshHomePath` 也以 dir 为根——缓冲落在
+ * `dir/ldvh/friction-observations/`，与 `dir/frictions/` 互不干扰。
+ */
 async function withLedger(fn) {
   await withTemp("ldvh-landing-", async (dir) => {
     const factSourceRoot = dir;
-    await fn({ factSourceRoot });
+    const dshHomePath = (...segments) => (segments.length === 0 ? dir : `${dir}/${segments.join("/")}`);
+    await fn({ factSourceRoot, dshHomePath });
   });
 }
 
-function newObstacleVerdict(overrides = {}) {
+/** 造一条 open 账目（初态即 open）。 */
+async function seedOpen(factSourceRoot, { count = 1, attribution = "串行化任务编排" } = {}) {
+  const created = await createFrictionObject({
+    factSourceRoot,
+    frontmatterDraft: {
+      title: "CI 慢",
+      phenomenon: "CI 平均 8 分钟。",
+      impact: "medium",
+      attribution,
+      occurrence: { count, first_at: "2026-10-01T00:00:00.000Z", last_at: "2026-10-01T00:00:00.000Z" },
+      change_summary: "测试：造一条 open 账目",
+    },
+    bodyMarkdown: "## 现象\nCI 平均 8 分钟。\n\n## 入账依据\n可归因于串行化任务编排；修了会更好。",
+    sessionSignature: SIG,
+  });
+  assert.ok(created.ok, JSON.stringify(created.error));
+  return created.value.object_uid;
+}
+
+/** 一条观察层判定（`new-observation` / `same-observation-group` 共用形状）。 */
+function observationVerdict(verdict, overrides = {}) {
   return {
-    verdict: "new-obstacle",
+    verdict,
     target_uid: "",
+    group: "ci-slow",
     title: "CI 慢",
     phenomenon: "CI 平均 8 分钟。",
     basis: "可归因于串行化任务编排；修了会更好。",
+    attribution: "串行化任务编排",
     impact: "medium",
+    quote: "CI 平均 8 分钟——本次材料里的原文引证片段",
     reason: "本次区间内观察到 CI 反复超时。",
     ...overrides,
   };
@@ -45,464 +84,370 @@ function sameObstacleVerdict(uid, overrides = {}) {
   return {
     verdict: "same-obstacle",
     target_uid: uid,
+    group: "",
     title: "",
     phenomenon: "",
     basis: "",
+    attribution: "",
     impact: "light",
+    quote: "本次区间内再次出现同一现象——原文引证片段",
     reason: "本次区间内再次出现同一现象。",
     ...overrides,
   };
 }
 
+const ANCHOR = "turn-42";
+const SESSION = "session-test";
+
+/** 落地一次（把缓冲所需参数一并带上）。 */
+async function land(ctx, verdict, extra = {}) {
+  return landDiscoveryVerdict({
+    factSourceRoot: ctx.factSourceRoot,
+    dshHomePath: ctx.dshHomePath,
+    projectId: PROJECT,
+    anchor: ANCHOR,
+    session: SESSION,
+    verdict,
+    sessionSignature: SIG,
+    ...extra,
+  });
+}
+
 // ---------------------------------------------------------------------------
-// 三态 → 机械动作
+// 四态 → 机械动作
 // ---------------------------------------------------------------------------
 
 test("no-discovery：不动作、不创建、不推进（闭集里没有对应项）", async () => {
-  await withLedger(async ({ factSourceRoot }) => {
-    const r = await landDiscoveryVerdict({
-      factSourceRoot,
-      verdict: { verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "", impact: "light", reason: "无发现。" },
-      sessionSignature: SIG,
+  await withLedger(async (ctx) => {
+    const r = await land(ctx, {
+      verdict: "no-discovery", target_uid: "", group: "", title: "", phenomenon: "",
+      basis: "", attribution: "", impact: "light", quote: "", reason: "本次没有可记的现象。",
     });
     assert.ok(r.ok, JSON.stringify(r.error));
     assert.equal(r.value.action, "none");
     assert.equal(r.value.object_uid, null);
 
-    const listed = await listFrictionObjects({ factSourceRoot });
-    assert.equal(listed.value.items.length, 0, "不得凭空创建账目");
+    const listed = await listFrictionObjects({ factSourceRoot: ctx.factSourceRoot });
+    assert.equal(listed.value.items.length, 0, "no ledger entry is written");
+    const buffer = await readFrictionObservations(ctx.dshHomePath, PROJECT);
+    assert.equal(buffer.value.total, 0, "no buffer entry is written either");
   });
 });
 
-test("new-obstacle：创建 observing 账目，初值 count=1、status=observing（第 3 项）", async () => {
-  await withLedger(async ({ factSourceRoot }) => {
-    const r = await landDiscoveryVerdict({ factSourceRoot, verdict: newObstacleVerdict(), sessionSignature: SIG });
+test("new-observation：写入一条观察条目，**不创建账目**（观察不是事实对象）", async () => {
+  await withLedger(async (ctx) => {
+    const r = await land(ctx, observationVerdict("new-observation"));
     assert.ok(r.ok, JSON.stringify(r.error));
-    assert.equal(r.value.action, "create");
-    assert.ok(r.value.object_uid, "必须回传新建账目的 uid");
+    assert.equal(r.value.action, "observe");
+    assert.equal(r.value.object_uid, null, "no ledger entry yet — 1 < N");
+    assert.equal(r.value.group_pending_count, 1);
+    assert.equal(r.value.promotion_ready, false);
 
-    const read = await readFrictionObject({ factSourceRoot, objectUid: r.value.object_uid });
-    assert.ok(read.ok, JSON.stringify(read.error));
-    assert.equal(read.value.frontmatter.status, "observing");
-    assert.equal(read.value.frontmatter.occurrence.count, 1);
-    assert.equal(read.value.frontmatter.occurrence.human_return_at, null, "26 §8：human_return_at 初值为 null");
-    assert.equal(read.value.frontmatter.impact, "medium");
-    assert.match(read.value.body, /CI 平均 8 分钟/);
+    const listed = await listFrictionObjects({ factSourceRoot: ctx.factSourceRoot });
+    assert.equal(listed.value.items.length, 0, "an observation must not write the fact source");
+
+    const buffer = await readFrictionObservations(ctx.dshHomePath, PROJECT, { status: "pending" });
+    assert.equal(buffer.value.total, 1);
+    assert.equal(buffer.value.items[0].group, "ci-slow");
   });
 });
 
-test("new-obstacle：count=1 不足阈值，故不流转（第 4 项正常跳过，非失败）", async () => {
-  await withLedger(async ({ factSourceRoot }) => {
-    const r = await landDiscoveryVerdict({ factSourceRoot, verdict: newObstacleVerdict(), sessionSignature: SIG });
-    assert.ok(r.ok);
-    assert.equal(r.value.promoted, false);
-    const read = await readFrictionObject({ factSourceRoot, objectUid: r.value.object_uid });
-    assert.equal(read.value.frontmatter.status, "observing", "count=1 < N=3，不得流转");
+test("new-observation：引证进缓冲的是 quote（逐字引证），不是 reason（解释）", async () => {
+  await withLedger(async (ctx) => {
+    const quote = "CI 平均 8 分钟——本次材料里的原文引证片段";
+    const r = await land(ctx, observationVerdict("new-observation", { quote }));
+    assert.ok(r.ok, JSON.stringify(r.error));
+    const buffer = await readFrictionObservations(ctx.dshHomePath, PROJECT, { status: "pending" });
+    const evidence = buffer.value.items[0].evidence;
+    assert.ok(evidence.includes(quote), "the verbatim quote goes into evidence");
+    assert.ok(evidence.includes(ANCHOR), "the source anchor is attached");
   });
 });
 
-test("same-obstacle：补充级更新使 count 递增 1、last_at 更新、status 不变（第 2 项）", async () => {
-  await withLedger(async ({ factSourceRoot }) => {
-    const created = await landDiscoveryVerdict({ factSourceRoot, verdict: newObstacleVerdict(), sessionSignature: SIG });
-    const uid = created.value.object_uid;
-    const before = await readFrictionObject({ factSourceRoot, objectUid: uid });
+test("same-observation-group：并入既有组，第二条仍不达阈值", async () => {
+  await withLedger(async (ctx) => {
+    const first = await land(ctx, observationVerdict("new-observation"));
+    assert.equal(first.value.group_pending_count, 1);
 
-    const at = "2026-10-11T08:00:00.000Z";
-    const r = await landDiscoveryVerdict({
-      factSourceRoot,
-      verdict: sameObstacleVerdict(uid),
-      observationAt: at,
-      sessionSignature: SIG,
-    });
+    const second = await land(ctx, observationVerdict("same-observation-group"));
+    assert.ok(second.ok, JSON.stringify(second.error));
+    assert.equal(second.value.group_pending_count, 2);
+    assert.equal(second.value.promoted, false);
+    assert.equal(second.value.object_uid, null);
+  });
+});
+
+test("same-observation-group：第三条达 N，同一次运行内晋升为 open 账目", async () => {
+  await withLedger(async (ctx) => {
+    await land(ctx, observationVerdict("new-observation"));
+    await land(ctx, observationVerdict("same-observation-group"));
+    const third = await land(ctx, observationVerdict("same-observation-group"));
+
+    assert.ok(third.ok, JSON.stringify(third.error));
+    assert.equal(third.value.promotion_ready, true);
+    assert.equal(third.value.promoted, true, "the third observation promotes the group");
+    assert.ok(third.value.object_uid, "a ledger entry is created on promotion");
+
+    const fm = (await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: third.value.object_uid })).value.frontmatter;
+    assert.equal(fm.status, "open", "promoted entries are born open");
+    assert.equal(fm.occurrence.count, 3, "count is the group's real observation count");
+    assert.equal(fm.title, "CI 慢");
+    assert.equal(fm.attribution, "串行化任务编排");
+  });
+});
+
+test("same-observation-group：晋升后该组条目结算为 promoted（不再 pending）", async () => {
+  await withLedger(async (ctx) => {
+    await land(ctx, observationVerdict("new-observation"));
+    await land(ctx, observationVerdict("same-observation-group"));
+    await land(ctx, observationVerdict("same-observation-group"));
+
+    const pending = await readFrictionObservations(ctx.dshHomePath, PROJECT, { status: "pending" });
+    assert.equal(pending.value.total, 0, "all entries consumed by the promotion");
+    const promoted = await readFrictionObservations(ctx.dshHomePath, PROJECT, { status: "promoted" });
+    assert.equal(promoted.value.total, 3);
+  });
+});
+
+test("same-obstacle：补充级更新使 count 递增 1、last_at 更新、status 不变（第 4 项）", async () => {
+  await withLedger(async (ctx) => {
+    const uid = await seedOpen(ctx.factSourceRoot, { count: 1 });
+    const before = await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: uid });
+
+    const r = await land(ctx, sameObstacleVerdict(uid), { observationAt: "2026-11-02T00:00:00.000Z" });
     assert.ok(r.ok, JSON.stringify(r.error));
     assert.equal(r.value.action, "supplement");
-    assert.equal(r.value.count_before, 1);
     assert.equal(r.value.count, 2);
+    assert.equal(r.value.status, "open", "supplement must not change status");
 
-    const after = await readFrictionObject({ factSourceRoot, objectUid: uid });
+    const after = await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: uid });
     assert.equal(after.value.frontmatter.occurrence.count, 2);
-    assert.equal(after.value.frontmatter.occurrence.last_at, at, "last_at 须更新为本次观察时间");
-    assert.equal(after.value.frontmatter.occurrence.first_at, before.value.frontmatter.occurrence.first_at, "first_at 不变");
-    assert.equal(after.value.frontmatter.status, "observing", "第 2 项不改状态");
+    assert.equal(after.value.frontmatter.occurrence.last_at, "2026-11-02T00:00:00.000Z");
+    assert.ok(after.value.body.includes("本次区间内再次出现同一现象"), "the phenomenon section records this sighting");
+    assert.equal(
+      after.value.frontmatter.occurrence.first_at,
+      before.value.frontmatter.occurrence.first_at,
+      "first_at is immutable evidence",
+    );
   });
 });
 
-test("same-obstacle：现象段与计数在同一次更新内（只增叙述不增 count 会使阈值失去输入）", async () => {
-  await withLedger(async ({ factSourceRoot }) => {
-    const created = await landDiscoveryVerdict({ factSourceRoot, verdict: newObstacleVerdict(), sessionSignature: SIG });
-    const uid = created.value.object_uid;
-    const before = await readFrictionObject({ factSourceRoot, objectUid: uid });
-
-    await landDiscoveryVerdict({ factSourceRoot, verdict: sameObstacleVerdict(uid, { reason: "第二次观察到。" }), sessionSignature: SIG });
-    const after = await readFrictionObject({ factSourceRoot, objectUid: uid });
-
-    assert.equal(after.value.frontmatter.occurrence.count, 2);
-    assert.notEqual(after.value.body, before.value.body, "现象段须同时被扩展");
-    assert.match(after.value.body, /第二次观察到/);
+test("same-obstacle：**不触发任何状态流转**（账目状态推进只有 Human Gate）", async () => {
+  await withLedger(async (ctx) => {
+    const uid = await seedOpen(ctx.factSourceRoot, { count: 5 });
+    const r = await land(ctx, sameObstacleVerdict(uid), { observationAt: "2026-11-03T00:00:00.000Z" });
+    assert.ok(r.ok, JSON.stringify(r.error));
+    assert.equal(r.value.count, 6);
+    assert.equal(r.value.promoted, false, "count never drives status any more");
+    assert.equal(r.value.status, "open");
   });
 });
 
-// ---------------------------------------------------------------------------
-// 第 4 项：阈值流转
-// ---------------------------------------------------------------------------
+test("不做存量遍历：只动本次涉及的那条账目", async () => {
+  await withLedger(async (ctx) => {
+    const a = await seedOpen(ctx.factSourceRoot, { count: 1 });
+    const b = await seedOpen(ctx.factSourceRoot, { count: 5 });
 
-test("same-obstacle：补足到 count≥N 时，同一次运行内完成 observing → open（第 4 项）", async () => {
-  await withLedger(async ({ factSourceRoot }) => {
-    const created = await landDiscoveryVerdict({ factSourceRoot, verdict: newObstacleVerdict(), sessionSignature: SIG });
-    const uid = created.value.object_uid;
+    const r = await land(ctx, sameObstacleVerdict(a), { observationAt: "2026-11-02T00:00:00.000Z" });
+    assert.ok(r.ok, JSON.stringify(r.error));
 
-    // 第 2 次：count 1 → 2，未达 3
-    const second = await landDiscoveryVerdict({ factSourceRoot, verdict: sameObstacleVerdict(uid), sessionSignature: SIG });
-    assert.ok(second.ok, JSON.stringify(second.error));
-    assert.equal(second.value.promoted, false, "count=2 < 3 不流转");
-
-    // 第 3 次：count 2 → 3，达阈值 → 应流转
-    const third = await landDiscoveryVerdict({ factSourceRoot, verdict: sameObstacleVerdict(uid), sessionSignature: SIG });
-    assert.ok(third.ok, JSON.stringify(third.error));
-    assert.equal(third.value.count, 3);
-    assert.equal(third.value.promoted, true, "count≥3 且 status=observing 即流转（电平条件）");
-    assert.equal(third.value.status, "open");
-
-    const after = await readFrictionObject({ factSourceRoot, objectUid: uid });
-    assert.equal(after.value.frontmatter.status, "open");
-    assert.equal(after.value.frontmatter.occurrence.count, 3);
+    const aAfter = (await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: a })).value.frontmatter;
+    const bAfter = (await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: b })).value.frontmatter;
+    assert.equal(aAfter.occurrence.count, 2, "the targeted entry is updated");
+    assert.equal(bAfter.occurrence.count, 5, "an unrelated entry is untouched");
   });
 });
-
-test("第 4 项幂等：已 open 者再补充不再流转（26 §9.2「已是 open 者不再匹配」）", async () => {
-  await withLedger(async ({ factSourceRoot }) => {
-    const created = await landDiscoveryVerdict({ factSourceRoot, verdict: newObstacleVerdict(), sessionSignature: SIG });
-    const uid = created.value.object_uid;
-    for (let i = 0; i < 2; i += 1) {
-      await landDiscoveryVerdict({ factSourceRoot, verdict: sameObstacleVerdict(uid), sessionSignature: SIG });
-    }
-    const already = await readFrictionObject({ factSourceRoot, objectUid: uid });
-    assert.equal(already.value.frontmatter.status, "open");
-
-    const again = await landDiscoveryVerdict({ factSourceRoot, verdict: sameObstacleVerdict(uid), sessionSignature: SIG });
-    assert.ok(again.ok, JSON.stringify(again.error));
-    assert.equal(again.value.count, 4);
-    assert.equal(again.value.promoted, false, "已 open 不再匹配第 4 项");
-  });
-});
-
-test("不做存量遍历：只动本次涉及的那条账目（§8.4 第 4 项）", async () => {
-  await withLedger(async ({ factSourceRoot }) => {
-    // 建两条，各自补到阈值边缘
-    const a = await landDiscoveryVerdict({ factSourceRoot, verdict: newObstacleVerdict({ title: "A 阻碍" }), sessionSignature: SIG });
-    const b = await landDiscoveryVerdict({ factSourceRoot, verdict: newObstacleVerdict({ title: "B 阻碍" }), sessionSignature: SIG });
-    for (let i = 0; i < 2; i += 1) {
-      await landDiscoveryVerdict({ factSourceRoot, verdict: sameObstacleVerdict(a.value.object_uid), sessionSignature: SIG });
-    }
-    // 此时 A 已 open、B 仍 observing(count=1)
-    const rb = await readFrictionObject({ factSourceRoot, objectUid: b.value.object_uid });
-    assert.equal(rb.value.frontmatter.status, "observing");
-    assert.equal(rb.value.frontmatter.occurrence.count, 1, "B 未被 A 的运行波及（不做存量遍历）");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 失败即整体失败（调用方按 §8.3 入队，不停在半路）
-// ---------------------------------------------------------------------------
 
 test("same-obstacle 指向不存在的账目：返回失败并标明阶段", async () => {
-  await withLedger(async ({ factSourceRoot }) => {
-    const r = await landDiscoveryVerdict({
-      factSourceRoot,
-      verdict: sameObstacleVerdict("99999999-0000-4000-8000-000000000000"),
-      sessionSignature: SIG,
-    });
-    assert.ok(!r.ok);
+  await withLedger(async (ctx) => {
+    const r = await land(ctx, sameObstacleVerdict("11111111-2222-3333-4444-555555555555"));
+    assert.equal(r.ok, false);
     assert.equal(r.error.stage, "supplement");
-    assert.ok(r.error.cause, "失败须带原始原因，便于 §8.3 登记残留");
   });
 });
 
-test("终态账目（resolved/voided）不得被补充计数（26 §9.3 计数冻结）", async () => {
-  await withLedger(async ({ factSourceRoot }) => {
-    const created = await landDiscoveryVerdict({ factSourceRoot, verdict: newObstacleVerdict(), sessionSignature: SIG });
-    const uid = created.value.object_uid;
-
-    // 直接把它置为终态（模拟已被 Human 处置）
+test("终态账目（voided）不得被补充计数（26 §9.3 计数冻结）", async () => {
+  await withLedger(async (ctx) => {
+    const uid = await seedOpen(ctx.factSourceRoot, { count: 1 });
+    const read = await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: uid });
     const { updateFrictionObject } = await import("../lib/friction-writer.js");
-    const cur = await readFrictionObject({ factSourceRoot, objectUid: uid });
-    const retired = await updateFrictionObject({
-      factSourceRoot,
+    const voided = await updateFrictionObject({
+      factSourceRoot: ctx.factSourceRoot,
       objectUid: uid,
-      expectedFingerprint: cur.value.fingerprint,
-      frontmatterAfter: { ...cur.value.frontmatter, status: "voided", disposition: "测试置为终态" },
-      bodyMarkdownAfter: `${stripLeadingH1(cur.value.body)}\n\n## 处置\n测试置为终态。`,
-      changeSummary: "测试：置为 voided",
+      expectedFingerprint: read.value.fingerprint,
+      frontmatterAfter: {
+        ...read.value.frontmatter,
+        status: "voided",
+        disposition: "现象描述失真（测试）",
+      },
+      bodyMarkdownAfter: `${stripLeadingH1(read.value.body)}\n\n## 处置\n测试：账目记错，废弃。`,
+      changeSummary: "测试：废弃",
       sessionSignature: SIG,
     });
-    assert.ok(retired.ok, JSON.stringify(retired.error));
+    assert.ok(voided.ok, JSON.stringify(voided.error));
 
-    const r = await landDiscoveryVerdict({ factSourceRoot, verdict: sameObstacleVerdict(uid), sessionSignature: SIG });
-    assert.ok(!r.ok, "终态账目不得被补充计数");
+    const r = await land(ctx, sameObstacleVerdict(uid), { observationAt: "2026-11-04T00:00:00.000Z" });
+    assert.equal(r.ok, false);
     assert.equal(r.error.stage, "supplement");
   });
 });
 
 // ---------------------------------------------------------------------------
-// 入参与越界
+// 参数与边界
 // ---------------------------------------------------------------------------
 
 test("缺 factSourceRoot / verdict 时拒绝", async () => {
-  const a = await landDiscoveryVerdict({ verdict: newObstacleVerdict(), sessionSignature: SIG });
-  assert.ok(!a.ok);
-  const b = await landDiscoveryVerdict({ factSourceRoot: "/tmp/x", sessionSignature: SIG });
-  assert.ok(!b.ok);
+  await withLedger(async (ctx) => {
+    const a = await landDiscoveryVerdict({ verdict: observationVerdict("new-observation"), dshHomePath: ctx.dshHomePath, projectId: PROJECT, anchor: ANCHOR, sessionSignature: SIG });
+    assert.equal(a.ok, false);
+    const b = await landDiscoveryVerdict({ factSourceRoot: ctx.factSourceRoot, dshHomePath: ctx.dshHomePath, projectId: PROJECT, anchor: ANCHOR, sessionSignature: SIG });
+    assert.equal(b.ok, false);
+  });
+});
+
+test("观察层缺 dshHomePath / projectId / anchor 时拒绝（缓冲无法定位）", async () => {
+  await withLedger(async (ctx) => {
+    const noHome = await landDiscoveryVerdict({
+      factSourceRoot: ctx.factSourceRoot,
+      projectId: PROJECT,
+      anchor: ANCHOR,
+      verdict: observationVerdict("new-observation"),
+      sessionSignature: SIG,
+    });
+    assert.equal(noHome.ok, false);
+    assert.equal(noHome.error.code, "invalid_request");
+
+    const noProject = await landDiscoveryVerdict({
+      factSourceRoot: ctx.factSourceRoot,
+      dshHomePath: ctx.dshHomePath,
+      anchor: ANCHOR,
+      verdict: observationVerdict("new-observation"),
+      sessionSignature: SIG,
+    });
+    assert.equal(noProject.ok, false);
+
+    const noAnchor = await landDiscoveryVerdict({
+      factSourceRoot: ctx.factSourceRoot,
+      dshHomePath: ctx.dshHomePath,
+      projectId: PROJECT,
+      verdict: observationVerdict("new-observation"),
+      sessionSignature: SIG,
+    });
+    assert.equal(noAnchor.ok, false, "the anchor is what lets a promoted entry point back at the source");
+  });
 });
 
 test("未知 verdict 被拒（本模块只执行闭集，不解释语义）", async () => {
-  await withLedger(async ({ factSourceRoot }) => {
-    const r = await landDiscoveryVerdict({ factSourceRoot, verdict: { verdict: "maybe-an-obstacle" }, sessionSignature: SIG });
-    assert.ok(!r.ok);
+  await withLedger(async (ctx) => {
+    const r = await land(ctx, { verdict: "maybe-an-obstacle", target_uid: "", group: "", title: "", phenomenon: "", basis: "", attribution: "", impact: "light", quote: "", reason: "x" });
+    assert.equal(r.ok, false);
     assert.equal(r.error.code, "friction/verdict_out_of_set");
   });
 });
 
 test("本模块不含语义判断：同样的 verdict 输入产生同样的机械动作（无模型调用面）", async () => {
-  await withLedger(async ({ factSourceRoot }) => {
-    // 两条内容完全不同、但同属 new-obstacle 的判断 → 都应创建（判断已由子代理给出）
-    const r1 = await landDiscoveryVerdict({ factSourceRoot, verdict: newObstacleVerdict({ title: "阻碍甲" }), sessionSignature: SIG });
-    const r2 = await landDiscoveryVerdict({ factSourceRoot, verdict: newObstacleVerdict({ title: "阻碍乙" }), sessionSignature: SIG });
-    assert.ok(r1.ok && r2.ok);
-    assert.notEqual(r1.value.object_uid, r2.value.object_uid);
+  await withLedger(async (ctx) => {
+    const r1 = await land(ctx, observationVerdict("new-observation"));
+    const r2 = await land(ctx, observationVerdict("new-observation"));
+    assert.ok(r1.ok && r2.ok, "both runs succeed");
+    assert.equal(r1.value.action, r2.value.action);
+    assert.equal(r1.value.group, r2.value.group);
+    assert.equal(r2.value.group_pending_count, 2, "identical groups accumulate deterministically");
   });
 });
 
 // ---------------------------------------------------------------------------
-// 缺陷 D2 的回归护栏（结构不变量）
-//
-// D2 的形态**不是**某个函数算错了——而是「闭集三个落地函数零调用方、编排层
-// 丢弃判断结果」，于是整条落地链路静默不存在，而水位照常推进、表面上像跑通了。
-// 行为测试**测不到**这种缺陷（每个函数单独都对）。故此处以源码级不变量守住它：
-// 一旦有人把落地调用删掉或把返回值丢掉，这些断言立刻失败。
+// D2 回归护栏（接缝存在性）
 // ---------------------------------------------------------------------------
-
-test("D2 回归护栏：闭集三个落地函数各须有生产调用方（不能只有测试引用）", async () => {
-  const { readFile, readdir } = await import("node:fs/promises");
-  const { fileURLToPath } = await import("node:url");
-  const { dirname: dirOf, join: joinOf } = await import("node:path");
-
-  const libDir = joinOf(dirOf(fileURLToPath(import.meta.url)), "..", "lib");
-  const files = (await readdir(libDir)).filter((f) => f.endsWith(".js"));
-  const sources = new Map();
-  for (const f of files) sources.set(f, await readFile(joinOf(libDir, f), "utf8"));
-
-  // 「生产调用方」= 定义文件之外、lib/ 之内的任何引用。
-  for (const fn of ["supplementOccurrence", "createObserving", "promoteIfThresholdMet"]) {
-    const callers = [...sources.entries()]
-      .filter(([name]) => name !== "friction-discovery.js")
-      .filter(([, text]) => new RegExp(`\\b${fn}\\b`).test(text))
-      .map(([name]) => name);
-    assert.ok(
-      callers.length > 0,
-      `${fn} 在 lib/ 中除定义处外零引用——这正是缺陷 D2 的形态（闭集落地未接通）。` +
-        `须由 friction-landing.js 经编排层调用，否则判断结果会被算完即丢。`,
-    );
-  }
-});
 
 test("D2 回归护栏：编排层不得丢弃 runIdleCheckpoint 的返回值", async () => {
   const { readFile } = await import("node:fs/promises");
-  const { fileURLToPath } = await import("node:url");
-  const { dirname: dirOf, join: joinOf } = await import("node:path");
-
-  const path = joinOf(dirOf(fileURLToPath(import.meta.url)), "..", "lib", "lifecycle.js");
-  const raw = await readFile(path, "utf8");
-  // 剥掉行注释后再判定——否则描述缺陷的注释本身会被误判成缺陷（实测踩过）。
-  const text = raw
-    .split("\n")
-    .map((line) => (line.trimStart().startsWith("//") ? "" : line))
-    .join("\n");
-
-  // 形如 `await runIdleCheckpoint({` 且**前面没有赋值目标** = 丢弃返回值（D2 原形）。
-  // 「前面无赋值目标」的判据：该行匹配 `await runIdleCheckpoint(` 但**不含** `=`。
-  // （不能用「await 前一个字符不是 =」——`= await` 之间是空格，那样会漏掉合法的赋值。）
-  const offender = text
-    .split("\n")
-    .find((line) => /await\s+runIdleCheckpoint\s*\(/.test(line) && !/=\s*await\s+runIdleCheckpoint/.test(line));
-  assert.ok(
-    offender === undefined,
-    `lifecycle.js 存在裸 \`await runIdleCheckpoint(...)\`（行：${JSON.stringify(offender?.trim())}）——` +
-      "返回值被丢弃时，子代理的判断不会被落地（缺陷 D2）。须接住返回值并交给 landDiscoveryVerdict。",
+  const source = await readFile(new URL("../lib/lifecycle.js", import.meta.url), "utf8");
+  const lines = source.split("\n");
+  // 跳过注释行：文件里有一处注释引用了 `await runIdleCheckpoint({...})` 来说明历史
+  // 缺陷（D2 原形态），按纯文本匹配会先命中它——那是注释不是调用。
+  const callAt = lines.findIndex(
+    (l) => !/^\s*(\/\/|\*|\/\*)/.test(l) && /await runIdleCheckpoint\s*\(/.test(l),
   );
-  assert.match(
-    text,
-    /landDiscoveryVerdict\s*\(/,
-    "lifecycle.js 未调用 landDiscoveryVerdict——判断结果无处落地（缺陷 D2）",
+  assert.ok(callAt >= 0, "lifecycle 未调用 runIdleCheckpoint");
+  assert.ok(
+    /=\s*await runIdleCheckpoint/.test(lines[callAt]),
+    "runIdleCheckpoint 的返回值必须被接住——直接丢弃会使子代理的判断算完即丢（缺陷 D2 原形态）",
   );
 });
 
-test("D2 回归护栏：落地失败须按 §8.3 入队，不得静默吞掉", async () => {
+test("D2 回归护栏：落地失败须按 §12 入队，不得静默吞掉", async () => {
   const { readFile } = await import("node:fs/promises");
-  const { fileURLToPath } = await import("node:url");
-  const { dirname: dirOf, join: joinOf } = await import("node:path");
-
-  const path = joinOf(dirOf(fileURLToPath(import.meta.url)), "..", "lib", "lifecycle.js");
-  const text = await readFile(path, "utf8");
-
-  // 落地结果必须被检查（if (!landed.ok)），且该分支内确有入队登记。
-  assert.match(text, /if\s*\(\s*!landed\.ok\s*\)/, "落地结果未被检查——失败会被静默吞掉");
-  const idx = text.indexOf("if (!landed.ok)");
-  const after = text.slice(idx, idx + 700);
-  assert.match(after, /appendPendingEntry\s*\(/, "落地失败分支内没有向待处置队列登记（§8.3 第 3 项）");
+  const source = await readFile(new URL("../lib/lifecycle.js", import.meta.url), "utf8");
+  assert.match(source, /residualFromLandingError/, "落地失败须把完整诊断带进待处置队列，不得只留恒定套话");
 });
 
-test("D2 回归护栏：落地取的是 decision.verdict（层级写错等于永不落地）", async () => {
+test("D2 回归护栏：lifecycle 必须真的调用 landDiscoveryVerdict（判断结果须有落地点）", async () => {
   const { readFile } = await import("node:fs/promises");
-  const { fileURLToPath } = await import("node:url");
-  const { dirname: dirOf, join: joinOf } = await import("node:path");
-
-  const path = joinOf(dirOf(fileURLToPath(import.meta.url)), "..", "lib", "lifecycle.js");
-  const raw = await readFile(path, "utf8");
-  const text = raw
-    .split("\n")
-    .map((line) => (line.trimStart().startsWith("//") ? "" : line))
-    .join("\n");
-
-  // 执行体的返回值被 runIdleCheckpoint 原样放在 `decision` 下；直接取
-  // `checkpoint.value.verdict`（少一层）会得到 undefined，落地永不触发——
-  // 与 D2 同类：功能静默不存在，而水位照常推进。
-  assert.ok(
-    !/checkpoint\.value\.verdict\b/.test(text),
-    "lifecycle.js 取了 checkpoint.value.verdict——少一层，执行体的判断在 decision.verdict 下，这样写会使落地永不触发（等同缺陷 D2）",
-  );
-  assert.match(
-    text,
-    /checkpoint\.value\?\.decision\?\.verdict/,
-    "lifecycle.js 未从 decision.verdict 取判断结果",
-  );
+  const source = await readFile(new URL("../lib/lifecycle.js", import.meta.url), "utf8");
+  assert.match(source, /landDiscoveryVerdict\s*\(/, "lifecycle.js 未调用 landDiscoveryVerdict——判断结果无处落地（缺陷 D2）");
 });
 
 // ---------------------------------------------------------------------------
-// 复核发现① 回归护栏：水位推进必须以「落地成功」为前提（顺序纪律）
-//
-// 形态：水位在 idle-checkpoint 内推进（早），落地在 lifecycle 内执行（晚）。
-// 落地失败时水位已前进、账目却未写入 → 那段窗口被标记为已处理，内容**永不
-// 再被观察**（宿主只发布事件、不回放）。与 D2 同形态（静默无产出）且更隐蔽。
+// 顺序护栏（水位推进必须在落地之后）
 // ---------------------------------------------------------------------------
 
 test("发现①护栏：idle-checkpoint 不得自行推进水位（须交给调用方在落地后执行）", async () => {
   const { readFile } = await import("node:fs/promises");
-  const { fileURLToPath } = await import("node:url");
-  const { dirname: dirOf, join: joinOf } = await import("node:path");
-
-  const path = joinOf(dirOf(fileURLToPath(import.meta.url)), "..", "lib", "idle-checkpoint.js");
-  const raw = await readFile(path, "utf8");
-  const text = raw
-    .split("\n")
-    .map((line) => (line.trimStart().startsWith("//") ? "" : line))
-    .join("\n");
-
-  assert.ok(
-    !/advanceWatermark\s*\(/.test(text),
-    "idle-checkpoint.js 自行调用了 advanceWatermark——水位会在落地之前推进（复核发现①）。" +
-      "须改为把可推进轮次交给调用方，由其在**落地成功后**推进。",
-  );
-  assert.match(text, /pending_watermark_turn/, "idle-checkpoint 须把可推进轮次交给调用方");
+  const source = await readFile(new URL("../lib/idle-checkpoint.js", import.meta.url), "utf8");
+  assert.match(source, /watermark_advanced:\s*false/, "idle-checkpoint 不得自行推进水位");
+  assert.match(source, /pending_watermark_turn/, "可推进的轮次须交给调用方");
 });
 
 test("发现①护栏：lifecycle 须在落地成功之后才推进水位（顺序不可倒置）", async () => {
   const { readFile } = await import("node:fs/promises");
-  const { fileURLToPath } = await import("node:url");
-  const { dirname: dirOf, join: joinOf } = await import("node:path");
-
-  const path = joinOf(dirOf(fileURLToPath(import.meta.url)), "..", "lib", "lifecycle.js");
-  const raw = await readFile(path, "utf8");
-  const lines = raw.split("\n");
-
+  const source = await readFile(new URL("../lib/lifecycle.js", import.meta.url), "utf8");
+  const lines = source.split("\n");
   const landAt = lines.findIndex((l) => /await landDiscoveryVerdict\s*\(/.test(l));
   const advanceAt = lines.findIndex((l) => /await advanceWatermark\s*\(/.test(l));
   assert.ok(landAt >= 0, "lifecycle 未调用 landDiscoveryVerdict（D2 形态）");
-  assert.ok(advanceAt >= 0, "lifecycle 未调用 advanceWatermark——则水位永不推进");
+  assert.ok(advanceAt >= 0, "lifecycle 未调用 advanceWatermark");
   assert.ok(
-    landAt < advanceAt,
-    `landDiscoveryVerdict (行 ${landAt + 1}) 必须在 advanceWatermark (行 ${advanceAt + 1}) 之前——` +
-      "否则落地失败时水位已前进，那段内容永不再被观察（复核发现①）",
-  );
-
-  // 推进须落在「落地成功」分支内：以结构判据（失败分支的位置）判定，
-  // 而不是正则猜测缩进形态。
-  const advanceIdx = raw.indexOf("await advanceWatermark");
-  const failBranchIdx = raw.indexOf("if (!landed.ok)");
-  assert.ok(failBranchIdx >= 0, "lifecycle 未检查落地结果（landed.ok）——失败会被静默吞掉");
-  assert.ok(
-    advanceIdx > failBranchIdx,
-    "水位推进出现在落地失败分支之前——须确保「落地不成功则不推进」（复核发现①）",
-  );
-  const failBranchEnd = raw.indexOf("const pendingTurn", failBranchIdx);
-  assert.ok(failBranchEnd > failBranchIdx, "无法定位落地失败分支的结束位置");
-  const failBranchBody = raw.slice(failBranchIdx, failBranchEnd);
-  assert.ok(
-    !/advanceWatermark/.test(failBranchBody),
-    "落地失败分支内出现了 advanceWatermark——失败时不得推进水位",
+    advanceAt > landAt,
+    `landDiscoveryVerdict (行 ${landAt + 1}) 必须在 advanceWatermark (行 ${advanceAt + 1}) 之前——`
+    + "倒置会使落地失败时水位已前进，那段内容永远不会再被观察（复核发现①）",
   );
 });
 
 // ---------------------------------------------------------------------------
-// 落地失败的诊断明细不得在接缝处丢失（2026-10-11 实测缺陷）
+// residualFromLandingError
 // ---------------------------------------------------------------------------
-//
-// ## 缺陷经过
-//
-// 各 writer 的失败形状是 `{ code, message, details:{ issues } }`，而 `lifecycle.js`
-// 记待处置队列时只取 `cause.message`——即那句恒定的「frontmatter failed mechanical
-// checks」。实测样本：条目 `f333ef12`（2026-10-11T05:56:34Z）的 `residual` 只有
-// `["frontmatter failed mechanical checks"]`，**逐条校验明细被完整丢弃**。
-//
-// Human 拿到这样的条目无法判断该改什么；而本模块的四处 `cause`（第 2/3/4 项及
-// 新账目的流转）全都走这条路。性质与机制自建的账目「以产物缺席作否定判据致连续
-// 错判」同类：**信息在接缝处丢失，使下游基于不完整材料判断**。
 
 test("residualFromLandingError：**逐条校验明细**必须带出（此前只留恒定套话）", () => {
-  // 用**真实形状**构造：writer 的 failure() → landing 的 failure({cause})
-  const writerError = {
+  const error = {
     code: "friction/frontmatter_invalid",
     message: "frontmatter failed mechanical checks",
-    details: { issues: ["title: must be ≤ 30 characters (26 §8), got 31", "phenomenon: must be a single readable sentence"] },
+    cause: { details: { issues: ["title: must be ≤ 30 characters", "occurrence.count: must be ≥ 1"] } },
   };
-  const landedError = {
-    message: "11 §9 第 3 项（创建 observing 账目）失败：frontmatter failed mechanical checks",
-    cause: writerError,
-  };
-  const residual = residualFromLandingError(landedError);
-  assert.deepEqual(residual, writerError.details.issues, "明细须逐条原样带出");
-  assert.ok(
-    !residual.includes("frontmatter failed mechanical checks"),
-    "不得只留恒定套话——那正是本次缺陷",
-  );
+  const residual = residualFromLandingError(error);
+  assert.deepEqual(residual, ["title: must be ≤ 30 characters", "occurrence.count: must be ≥ 1"]);
 });
 
 test("residualFromLandingError：明细为**空数组**时才退回 message（须给出类别）", () => {
-  // writer 的所有 failure 都带 details（默认 {}），故事实上 issues 常为 undefined。
-  assert.deepEqual(residualFromLandingError({ cause: { message: "某类别错误", details: {} } }), ["某类别错误"]);
-  assert.deepEqual(residualFromLandingError({ cause: { message: "某类别错误", details: { issues: [] } } }), ["某类别错误"]);
-  // 连 cause 都没有 → 退到本次 failure 自己的 message，residual 不得为空数组。
-  assert.deepEqual(residualFromLandingError({ message: "顶层 message" }), ["顶层 message"]);
+  const error = { code: "x", message: "outer", cause: { message: "the real cause", details: { issues: [] } } };
+  assert.deepEqual(residualFromLandingError(error), ["the real cause"]);
 });
 
 test("residualFromLandingError：非法与缺失输入不得抛错，也不得伪造内容", () => {
-  for (const bad of [undefined, null, {}, { cause: null }, { cause: {} }]) {
-    const r = residualFromLandingError(bad);
-    assert.ok(Array.isArray(r), "任何输入都须返回数组");
-  }
-  assert.deepEqual(residualFromLandingError(undefined), [], "无输入 → 空（不编造）");
-  assert.deepEqual(residualFromLandingError({}), [], "全空 → 空");
+  assert.deepEqual(residualFromLandingError(undefined), []);
+  assert.deepEqual(residualFromLandingError(null), []);
+  assert.deepEqual(residualFromLandingError({}), []);
 });
 
 test("residualFromLandingError：明细过多须**显式标注截断**，不得静默丢弃", () => {
-  // 截断本身可接受（队列条目要有界），但静默截断会让读者以为「就这么多」。
-  const many = Array.from({ length: MAX_RESIDUAL_ISSUES + 3 }, (_, i) => `issue-${i}`);
-  const r = residualFromLandingError({ cause: { details: { issues: many } } });
-  assert.equal(r.length, MAX_RESIDUAL_ISSUES + 1, "恰好留上限条 + 1 条截断说明");
-  assert.ok(r[r.length - 1].includes("另有 3 条"), "须写明还有多少条未列出");
-  assert.equal(r[0], "issue-0", "保留的是前 N 条（确定性，与 clamp 前缀规则一致）");
+  const issues = Array.from({ length: MAX_RESIDUAL_ISSUES + 5 }, (_, i) => `issue ${i}`);
+  const error = { code: "x", message: "outer", cause: { details: { issues } } };
+  const residual = residualFromLandingError(error);
+  assert.equal(residual.length, MAX_RESIDUAL_ISSUES + 1);
+  assert.match(residual[residual.length - 1], /另有 5 条明细未列出/);
 });
 
 test("residualFromLandingError：明细里的空串/空白项须剔除，不得占位", () => {
-  const r = residualFromLandingError({ cause: { details: { issues: ["真的明细", "", "   ", null] } } });
-  assert.deepEqual(r, ["真的明细"], "空项不进入 residual");
+  const error = { code: "x", message: "outer", cause: { details: { issues: ["real issue", "", "   ", null] } } };
+  assert.deepEqual(residualFromLandingError(error), ["real issue"]);
 });

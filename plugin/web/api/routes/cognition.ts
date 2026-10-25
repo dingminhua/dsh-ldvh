@@ -156,8 +156,12 @@ interface RecentActivityBuildItem {
    * 「词条在、数据在、唯独没有消费方」是同一类缺口（Human 2026-11 发现）。
    *
    * 条件出现而非必填：§8 对「闭集收缩改判而来的 `voided`」有必填豁免（§14.2），
-   * 届时合法缺席——呈现层据此不渲染，不补零。 */
-  occurrence?: { count?: number; first_at?: string; last_at?: string; human_return_at?: string | null }
+   * 届时合法缺席——呈现层据此不渲染，不补零。
+   *
+   * 形状依 26 §8（2026-10 修订）：`{ count, first_at, last_at }`。原第四个键
+   * `human_return_at` 随「放回留观」流转一并删除（该流转已随观察态退出闭集
+   * 而作废，26 §9.2），故此处不再声明它。 */
+  occurrence?: { count?: number; first_at?: string; last_at?: string }
   /** 关联的事实对象引用（03 §7.2 / 20 §8 refs），条件出现。 */
   refs?: Array<{ object_uid: string; title?: string; type?: string }>
   read_status: string
@@ -381,7 +385,7 @@ function buildRecentActivityItem(
     // 26 §8 occurrence：同上同序（重复观察次数紧随影响标签）。只透传事实源里
     // 已有的形状，**不构造、不补零**——`voided` 的 §14.2 豁免形态据此原样缺席。
     ...(type === 'friction' && typeof raw.occurrence === 'object' && raw.occurrence !== null
-      ? { occurrence: raw.occurrence as { count?: number; first_at?: string; last_at?: string; human_return_at?: string | null } }
+      ? { occurrence: raw.occurrence as { count?: number; first_at?: string; last_at?: string } }
       : {}),
     read_status: String(raw.read_status ?? 'unknown'),
     field_issues: Array.isArray(raw.field_issues) ? raw.field_issues as Array<Record<string, unknown>> : [],
@@ -686,13 +690,18 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     }
 
     // 26 §12「Web 账本呈现」消费点：open 账目进入聚焦的待决定事项（Human 2026-10-19
-    // 决定：只收 `open`，不收 `observing`）。
+    // 决定：只收 `open`）。
     //
-    // 为什么 `observing` 不进：26 §8 把初态定为 `observing`，`count ≥ 3` 才转 `open`
-    // （36 §9 的机械通道），今天账本里 observing 有 49 条、open 只有 4 条——把 observing
-    // 也铺进来，真正的待修账会被攒熟中的噪声淹没，而「待修」这个说法本身就不成立
-    // （§5：observing 不承诺修复、不排期）。`resolved`/`voided` 是终态，26 §12 明写
-    // 不进默认候选。故本分支只认 `open` 一个值，**不做**任何「攒熟进度」推断。
+    // 为什么只收 `open`（2026-10 修订后的口径）：26 §9 的状态闭集**只有三值**
+    // ——`open`（待修）/ `resolved`（已销账）/ `voided`（已废弃）。原第四值
+    // `observing`（留观）**已退出闭集**：「已看见但尚未攒够」的观察不再作为
+    // 事实对象存在，改由 11 §12bis.1 的摩擦观察缓冲承载（非事实对象、不进
+    // 事实源、不参与 F0–F4 召回）——故本分支**不再有「攒熟中的活账」可铺**，
+    // 只剩「已攒够、确实待修」的账目才是待决定事项。
+    //
+    // `resolved`/`voided` 是终态，26 §12 明写不进默认候选（`voided` 还额外
+    // 不参与查重、度量与迭代决策输入）。故本分支只认 `open` 一个值，
+    // **不做**任何「攒熟进度」推断。
     if (!frictionResult.ok || !('data' in frictionResult)) {
       const message = frictionResult.ok ? 'Friction 列表读取失败' : (frictionResult as { error: string }).error
       issues.push({ section: 'inbox', code: 'friction_list_unavailable', message })

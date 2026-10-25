@@ -854,6 +854,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             factSourceRoot: join(scope.project.path, "ldvh-base"),
             // 水位按「项目根 + 会话」分键（跨项目、跨会话各自独立）。
             projectRoot: scope.project.path,
+            // 摩擦观察缓冲按**管辖项目 id** 分区（11 §12bis.1）。它与 projectRoot
+            // 不是同一维度（id vs 路径），故显式传入而不靠 basename 兜底。
+            projectId: scope.project.id,
             sessionId,
             // 位置标识：优先用 triggers 从回合事件取得的轮次号；重启后尚无回合
             // 时用上面从宿主会话记录读回的值（见 §11 那段注释）。
@@ -997,7 +1000,17 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               if (verdict != null) {
                 const landed = await landDiscoveryVerdict({
                   factSourceRoot: ledgerRoot,
+                  // 观察层落地需要缓冲载体与分区标识（11 §12bis.1）：账本在事实源内，
+                  // 缓冲在事实源之外，二者的通道不同故都要给出。
+                  dshHomePath,
+                  projectId: scope.project.id,
                   verdict,
+                  // `anchor` 是本次观察区间在会话内的位置标识（§12bis.1 `anchor` 行）
+                  // ——取区间终点：它使晋升后的账目能回指原始位置。
+                  anchor: checkpoint.value.window?.to !== undefined && checkpoint.value.window?.to !== null
+                    ? String(checkpoint.value.window.to)
+                    : String(currentTurn ?? ""),
+                  session: sessionId,
                   observationAt: checkpoint.value.at,
                   sessionSignature: executorSignature,
                 });

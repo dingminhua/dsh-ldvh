@@ -164,6 +164,13 @@ test('terminal status closures are non-empty and cover each lifecycle', () => {
   assert.deepEqual(FACT_TERMINAL_STATUSES.pitfall, ['discarded']);
   assert.deepEqual(FACT_TERMINAL_STATUSES.spark, ['implemented', 'discarded']);
   assert.deepEqual(FACT_TERMINAL_STATUSES.research, ['retired']);
+  // 26 §9（2026-10 修订，Human 决定：观察不进事实源）：摩擦的状态闭集为三值
+  // `open` / `resolved` / `voided`——原第四值 `observing` 已退出（观察材料改由
+  // 11 §12bis.1 的摩擦观察缓冲承载，非事实对象）。故终态只有销账与废弃两值，
+  // **不得**把已退出的 `observing` 登记成终态或非终态。
+  assert.deepEqual(FACT_TERMINAL_STATUSES.friction, ['resolved', 'voided']);
+  assert.ok(!FACT_TERMINAL_STATUSES.friction.includes('observing'),
+    'observing 已退出 26 §9 闭集，不得出现在摩擦终态集里');
 });
 test('workcase registers both review axes (21 §8): pre_reviews and reviews', () => {
   // 审核轴（`pre_reviews`，2026-10-16 建立）与复核轴（`reviews`）是两个独立字段，

@@ -1,5 +1,26 @@
 // Tests for plugin/lib/friction-subagent-contract.js —
 // 11 §9 第 1 项语义判断的承载契约（提示词 + outputSchema + 落地前校验）.
+//
+// 2026-10 修订（Human 决定：摩擦的观察不进事实源）：子代理的判定态闭集由三态扩为
+// **四态**——观察材料不再直接进事实源，一律先进 11 §12bis.1 的摩擦观察缓冲，攒够
+// N=3 才晋升为一条 `open` 账目。故判定态闭集与落地动作是：
+//
+// | 态 | 含义 | 落地动作（11 §9） |
+// |---|---|---|
+// | `same-obstacle` | 与**既有 open 账目**同一阻碍 | 第 4 项：补充级更新（count+1） |
+// | `same-observation-group` | 与**缓冲中某个 pending 组**同一阻碍 | 第 2 项：追加进该组；达 N 则第 3 项晋升 |
+// | `new-observation` | 账本与缓冲都没有的**新阻碍** | 第 2 项：开一个新组（留在缓冲） |
+// | `no-discovery` | 没有构成系统性阻碍的现象 | 无动作 |
+//
+// 旧名 `new-obstacle`（它曾直接建账目）已退场——本文件钉住「旧名不得再交出来」。
+//
+// **本次修订新增的两个必填字段**：
+//   - `group`：观察层的聚合键（11 §12bis.1）——`same-observation-group` 必须命中本次
+//     交付的观察组清单（不得凭空并组），`new-observation` 则由子代理新起一个键；
+//   - `attribution`：归因陈述——**观察层两态都必填**。这修的是一个既有缺陷：机械
+//     通道入账 95/97 条缺归因（见 schema 字段说明）。两态都要填，因为**这一条可能
+//     正是攒够 N 的那一条**——届时它要立刻晋升为账目（11 §9 第 3 项）。
+
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -7,6 +28,7 @@ import {
   VERDICTS,
   discoveryOutputSchema,
   buildDiscoveryPrompt,
+  buildDiscoveryPromptSection,
   validateDiscoveryVerdict,
 } from "../lib/friction-subagent-contract.js";
 // 材料边界与引证核对走**同一来源**（friction-window.js）——测试直接 import 它，
@@ -19,24 +41,69 @@ import {
   WINDOW_CLOSE,
 } from "../lib/friction-window.js";
 
+/**
+ * 账本侧候选（11 §9 第 1 项的**第一层**）：2026-10 修订后只有 `open`——
+ * `observing` 已退出 26 §9 的状态闭集（观察改由缓冲承载）。
+ */
 const CANDIDATES = [
-  { object_uid: "11111111-2222-4333-8444-555555555555", status: "observing", title: "CI 慢", phenomenon: "CI 平均 8 分钟。" },
+  { object_uid: "11111111-2222-4333-8444-555555555555", status: "open", title: "CI 慢", phenomenon: "CI 平均 8 分钟。" },
   { object_uid: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", status: "open", title: "钩子依赖 PATH", phenomenon: "提交钩子找不到 node。" },
 ];
 
+/**
+ * 观察层候选（11 §9 第 1 项的**第二层** / §12bis.1）：形状与 idle-checkpoint 实际
+ * 交付给 provider 的一致（`group` 键 + 组内条数 + 现象摘要；不带 `evidence` 全文）。
+ */
+const OBSERVATION_GROUPS = [
+  { group: "ci-slow-build", pending_count: 2, phenomenon: "CI 平均 8 分钟。" },
+  { group: "hook-missing-node", pending_count: 1, phenomenon: "提交钩子找不到 node。" },
+];
+
+/**
+ * 四个态共用的字段集（宿主 schema 无条件约束，故全部字段都在场且都在 `required` 内；
+ * 「哪一态必填哪些」由落地侧校验承载——11 §12bis.1 与 §9 第 2/3 项）。
+ */
 function verdict(overrides = {}) {
   return {
     verdict: "no-discovery",
     target_uid: "",
+    group: "",
     title: "",
     phenomenon: "",
     basis: "",
+    attribution: "",
     impact: "light",
     quote: "",
     reason: "本次区间内没有出现反复出现的阻碍。",
     ...overrides,
   };
 }
+
+/**
+ * 观察层两态（`same-observation-group` / `new-observation`）的**合规基线**——
+ * 两态的必填字段集完全相同（11 §9 第 3 项：这一条可能正是攒够 N 的那一条）。
+ */
+function observationVerdict(overrides = {}) {
+  return verdict({
+    verdict: "new-observation",
+    group: "ci-slow-build",
+    title: "CI 构建缓慢",
+    phenomenon: "CI 平均 8 分钟。",
+    basis: "可归因于依赖安装未缓存，修了构建会更快。",
+    attribution: "CI 配置未开依赖缓存（CI 配置文件）。",
+    impact: "medium",
+    quote: "某段材料原文内容。",
+    ...overrides,
+  });
+}
+
+/**
+ * 提示词任务段里「新发现」一态的**状态名**。
+ *
+ * 本次修订把 `new-obstacle` 改名为 `new-observation`（旧名曾直接建账目，语义已变）。
+ * 提示词任务段已跟进新名，故此处**严格**取新名——旧名不得再出现在提示词里。
+ */
+const NEW_STATE_NAME = "new-observation";
 
 // ---------------------------------------------------------------------------
 // schema 形状（宿主支持的子集）
@@ -61,14 +128,35 @@ test("schema: object root，只有受支持的 JSON Schema 子集（无 oneOf/$r
 test("schema: verdict 的 enum 与模块导出的闭集同源（防规范与实现漂移）", () => {
   const s = discoveryOutputSchema();
   assert.deepEqual(s.properties.verdict.enum, [...VERDICTS]);
-  assert.deepEqual([...VERDICTS], ["same-obstacle", "new-obstacle", "no-discovery"]);
+  assert.deepEqual([...VERDICTS], ["same-obstacle", "same-observation-group", "new-observation", "no-discovery"]);
 });
 
-test("schema: 所有字段都在 required 内（三态共用一套字段，跨态约束由落地侧校验）", () => {
+test("schema: 闭集为四值，旧名 new-obstacle 已退场（11 §9 四态闭集）", () => {
+  // 旧名曾直接建账目，语义已随「观察不进事实源」而变——不得再被交出来。
+  assert.equal(VERDICTS.length, 4, "四态闭集（11 §9 第 1–3 项 + 无发现）");
+  assert.ok(!VERDICTS.includes("new-obstacle"), "旧名不得留在闭集里");
+  assert.ok(!discoveryOutputSchema().properties.verdict.enum.includes("new-obstacle"));
+});
+
+test("schema: 所有字段都在 required 内（四态共用一套字段，跨态约束由落地侧校验）", () => {
   const s = discoveryOutputSchema();
   for (const name of Object.keys(s.properties)) {
-    assert.ok(s.required.includes(name), `${name} must be required (宿主子集无条件 schema，故三态不填者交空串)`);
+    assert.ok(s.required.includes(name), `${name} must be required (宿主子集无条件 schema，故不适用者交空串)`);
   }
+});
+
+test("schema: 观察层新增的两个字段都在 schema 里——group 与 attribution（11 §12bis.1 / 26 §8）", () => {
+  const s = discoveryOutputSchema();
+  assert.ok(s.properties.group, "须有 group 字段（观察层聚合键，§12bis.1）");
+  assert.equal(s.properties.group.type, "string");
+  assert.ok(s.properties.attribution, "须有 attribution 字段（归因陈述，26 §8）");
+  assert.equal(s.properties.attribution.type, "string");
+  assert.ok(s.required.includes("group"), "group 须在 required 内（不适用者交空串）");
+  assert.ok(s.required.includes("attribution"), "attribution 须在 required 内（不适用者交空串）");
+});
+
+test("schema: impact 的枚举闭集为 light/medium/heavy（26 §8 影响评级）", () => {
+  assert.deepEqual(discoveryOutputSchema().properties.impact.enum, ["light", "medium", "heavy"]);
 });
 
 // ---------------------------------------------------------------------------
@@ -102,8 +190,49 @@ test("prompt: 明确要求只判断区间内内容，且不得默默扩大范围
 
 test("prompt: 空候选时如实说明（避免子代理误报 same-obstacle）", () => {
   const prompt = buildDiscoveryPrompt({ threshold: 3, candidates: [], window: { items: [] } });
-  assert.match(prompt, /没有 open\/observing 账目/);
-  assert.match(prompt, /只能是 new-obstacle/);
+  assert.match(prompt, /本账本当前没有 open 账目/, "空候选须如实说明账本侧无可比对对象");
+  assert.match(prompt, /还不能与既有账目比对/, "须说明「本次不能与账本比对」，而非留白");
+});
+
+test("prompt: 空观察组时如实说明（本次若观察到阻碍只能是 new-observation）", () => {
+  const prompt = buildDiscoveryPrompt({ threshold: 3, candidates: [], window: { items: [] } });
+  assert.match(prompt, /观察缓冲当前没有待晋升的组/, "空观察组须如实说明");
+  assert.match(prompt, new RegExp(`只能是 ${NEW_STATE_NAME}`), "须点名「新观察」那一态");
+});
+
+test("prompt: 任务段按**四态**表述，且旧名 new-obstacle 不再出现（11 §9 四态闭集）", () => {
+  const prompt = buildDiscoveryPrompt({ threshold: 3, candidates: CANDIDATES, window: { items: [{ turn: 1, assistant: "材料。" }] } });
+  // 判据取「**定义行**」而非「字符串出现过」——四态名在别处（如两态都要填齐那段）
+  // 也会出现，只查出现过就测不出「某一态的定义被删掉」。
+  for (const v of ["same-obstacle", "same-observation-group", "new-observation", "no-discovery"]) {
+    assert.match(prompt, new RegExp(`- \`${v}\`：`), `提示词须逐态定义：${v}`);
+  }
+  assert.ok(!prompt.includes("new-obstacle"), "旧名不得再出现（它曾直接建账目，语义已变）");
+  assert.match(prompt, /四态/, "须明示这是四态（不是三态）");
+});
+
+test("prompt: 交付观察组清单（组键 + 条数 + 现象），使子代理能判断并入哪个组（11 §9 第 1 项第二层）", () => {
+  // **两层查重**：只给账本候选而不给观察组清单，子代理每次都把同一阻碍判成新组，
+  // 聚合永远到不了 N（§9 第 3 项）。
+  const prompt = buildDiscoveryPromptSection({ threshold: 3, candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS });
+  assert.match(prompt, /观察缓冲中已有的组/, "须有一节列出观察组");
+  assert.ok(prompt.includes("ci-slow-build"), "组键须可见（否则无从产出 group）");
+  assert.match(prompt, /已有 2 次观察/, "须给出组内条数（机械层按 N 判晋升，子代理据此理解形状）");
+  assert.ok(prompt.includes("CI 平均 8 分钟。"), "须给出组内现象摘要（供归属判断）");
+});
+
+test("prompt: 任务段列出 group 与 attribution 两个字段，并写明归因不得省略（26 §8）", () => {
+  const prompt = buildDiscoveryPromptSection({ threshold: 3, candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS });
+  assert.match(prompt, /`group`/, "须列出 group 字段");
+  assert.match(prompt, /`attribution`/, "须列出 attribution 字段");
+  assert.match(prompt, /`attribution`[^。]{0,40}必填/, "须写明归因必填");
+  assert.match(prompt, /不得写「暂缺」/, "须禁止用「暂缺」冒充归因");
+});
+
+test("prompt: 明示判断**不直接创建账目**（观察层只归组，晋升由机械层按 N 决定，11 §9 第 2/3 项）", () => {
+  const prompt = buildDiscoveryPromptSection({ threshold: 3, candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS });
+  assert.match(prompt, /不会直接创建账目/, "须纠正旧语义（子代理的产出不再是账目）");
+  assert.match(prompt, /两层/, "须讲清账本层与观察层");
 });
 
 test("prompt: 未给出区间时要求子代理声明其边界（不自行假定）", () => {
@@ -112,9 +241,20 @@ test("prompt: 未给出区间时要求子代理声明其边界（不自行假定
   assert.match(prompt, /不得凭你可见的其他上下文编造发现/);
 });
 
-test("prompt: 不得由子代理自行数 count（计数属机械层）", () => {
+test("prompt: 不得由子代理自行数条目数（计数属机械层，11 §9 第 3 项）", () => {
+  // 2026-10 修订后计数的对象变了：不再是账目的 occurrence.count，而是**组内 pending
+  // 条目数**（11 §9 第 3 项：达 N 即晋升）。无论数什么，都不由子代理数。
   const prompt = buildDiscoveryPrompt({ threshold: 3, candidates: CANDIDATES, window: { items: [{ turn: 1, assistant: "w" }] } });
-  assert.match(prompt, /不得自己数 count/);
+  assert.match(prompt, /不得自己数/);
+});
+
+test("prompt: 任务段接受观察组清单参数而不报错（provider 已按 2026-10 修订传入；单任务兼容入口的转发问题见文末 todo）", () => {
+  // provider 现在按 `{ threshold, candidates, observationGroups }` 调任务段
+  // （friction-discovery-provider.js:336）——契约侧收下这个参数不得抛错，
+  // 且组清单须真的进了提示词（内容由上一条断言）。
+  const section = buildDiscoveryPromptSection({ threshold: 3, candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS });
+  assert.match(section, /N=3/, "任务段须带机械前提");
+  assert.match(section, /same-obstacle/, "任务段须说明既有账目那一态");
 });
 
 // ---------------------------------------------------------------------------
@@ -122,9 +262,13 @@ test("prompt: 不得由子代理自行数 count（计数属机械层）", () => 
 // ---------------------------------------------------------------------------
 
 test("validate: no-discovery 合法（其余字段可为空串）", () => {
-  const r = validateDiscoveryVerdict(verdict(), { candidates: CANDIDATES });
+  const r = validateDiscoveryVerdict(verdict(), { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS });
   assert.ok(r.ok, JSON.stringify(r.error));
   assert.equal(r.value.verdict, "no-discovery");
+  // 无发现态不要求任何观察层字段（group / attribution / title 等皆为空串）。
+  assert.equal(r.value.group, "");
+  assert.equal(r.value.attribution, "");
+  assert.equal(r.value.target_uid, "");
 });
 
 test("validate: verdict 越界被拒", () => {
@@ -133,57 +277,30 @@ test("validate: verdict 越界被拒", () => {
   assert.equal(r.error.code, "discovery/verdict_out_of_set");
 });
 
-test("validate: same-obstacle 缺 target_uid 被拒", () => {
-  const r = validateDiscoveryVerdict(verdict({ verdict: "same-obstacle", target_uid: "", quote: "某段材料原文内容。" }), { candidates: CANDIDATES });
-  assert.ok(!r.ok);
-  assert.equal(r.error.code, "discovery/target_uid_missing");
-});
-
-test("validate: same-obstacle 指向本次未提供的 uid 被拒（只能指它见过的账目）", () => {
-  const r = validateDiscoveryVerdict(
-    verdict({ verdict: "same-obstacle", target_uid: "99999999-8888-4777-8666-555555555555", quote: "某段材料原文内容。" }),
-    { candidates: CANDIDATES },
-  );
-  assert.ok(!r.ok);
-  assert.equal(r.error.code, "discovery/target_uid_unknown");
-});
-
-test("validate: same-obstacle 指向候选内的 uid 通过", () => {
-  const r = validateDiscoveryVerdict(
-    verdict({ verdict: "same-obstacle", target_uid: CANDIDATES[0].object_uid, quote: "某段材料原文内容。" }),
-    { candidates: CANDIDATES },
-  );
-  assert.ok(r.ok, JSON.stringify(r.error));
-  assert.equal(r.value.target_uid, CANDIDATES[0].object_uid);
-});
-
-test("validate: new-obstacle 必填字段逐个缺失均被拒", () => {
-  for (const field of ["title", "phenomenon", "basis"]) {
+test("validate: no-discovery 的必填字段逐个缺失均被拒（quote 与 reason；非空窗口下 quote 必填）", () => {
+  // 四态各有各的必填字段集，逐态钉住：
+  //   same-obstacle         → target_uid
+  //   same-observation-group → group + title + phenomenon + basis + attribution
+  //   new-observation       → group + title + phenomenon + basis + attribution
+  //   no-discovery          → quote（非空窗口时）+ reason
+  const windowText = "[turn 1]\nassistant: 这里有大量内容，其中包含一段可引证原文。";
+  for (const field of ["quote", "reason"]) {
     const r = validateDiscoveryVerdict(
-      verdict({ verdict: "new-obstacle", title: "T", phenomenon: "P 现象。", basis: "B 依据。", quote: "某段材料原文内容。", [field]: "" }),
-      { candidates: CANDIDATES },
+      verdict({ verdict: "no-discovery", [field]: "" }),
+      { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS, windowText },
     );
     assert.ok(!r.ok, `${field} missing must be rejected`);
     assert.equal(r.error.code, `discovery/${field}_missing`);
   }
 });
 
-test("validate: new-obstacle 的 impact 必须在闭集内", () => {
+test("validate: 已改名的旧名 new-obstacle 不得再交出来（11 §9 四态闭集）", () => {
   const r = validateDiscoveryVerdict(
-    verdict({ verdict: "new-obstacle", title: "T", phenomenon: "P。", basis: "B。", quote: "某段材料原文内容。", impact: "critical" }),
-    { candidates: CANDIDATES },
+    observationVerdict({ verdict: "new-obstacle" }),
+    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS },
   );
-  assert.ok(!r.ok);
-  assert.equal(r.error.code, "discovery/impact_out_of_set");
-});
-
-test("validate: new-obstacle 的 title 超 30 字被拒（26 §8）", () => {
-  const r = validateDiscoveryVerdict(
-    verdict({ verdict: "new-obstacle", title: "x".repeat(31), phenomenon: "P。", basis: "B。", quote: "某段材料原文内容。" }),
-    { candidates: CANDIDATES },
-  );
-  assert.ok(!r.ok);
-  assert.equal(r.error.code, "discovery/title_too_long");
+  assert.ok(!r.ok, "旧名曾直接建账目，语义已变，不得再被接受");
+  assert.equal(r.error.code, "discovery/verdict_out_of_set");
 });
 
 test("validate: reason 必填（须指回本次区间）", () => {
@@ -200,15 +317,203 @@ test("validate: 非对象输入被拒（结构化通道理论上交不出，仍�
   }
 });
 
-test("validate: 通过时返回已 trim 的规范形态", () => {
+test("validate: 通过时返回已 trim 的规范形态（含新增的 group 与 attribution）", () => {
   const r = validateDiscoveryVerdict(
-    verdict({ verdict: "new-obstacle", title: "  带空格的标题  ", phenomenon: " P。 ", basis: " B。 ", quote: "某段材料原文内容。" }),
-    { candidates: CANDIDATES },
+    observationVerdict({
+      verdict: "new-observation",
+      group: "  ci-slow-build  ",
+      title: "  带空格的标题  ",
+      phenomenon: " P。 ",
+      basis: " B。 ",
+      attribution: " A。 ",
+      reason: "  据该引证判断。  ",
+      quote: "  某段材料原文内容。  ",
+    }),
+    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS },
   );
   assert.ok(r.ok, JSON.stringify(r.error));
+  assert.equal(r.value.group, "ci-slow-build");
   assert.equal(r.value.title, "带空格的标题");
   assert.equal(r.value.phenomenon, "P。");
   assert.equal(r.value.basis, "B。");
+  assert.equal(r.value.attribution, "A。");
+  assert.equal(r.value.reason, "据该引证判断。");
+  // 引证**不得被 trim 改写**——它须与材料里的原文逐字一致（§11 水位段）。
+  assert.equal(r.value.quote, "  某段材料原文内容。  ");
+});
+
+// ---------------------------------------------------------------------------
+// 态一：same-obstacle（与既有 open 账目同一阻碍 → 11 §9 第 4 项补充级更新）
+// ---------------------------------------------------------------------------
+
+test("validate: same-obstacle 缺 target_uid 被拒", () => {
+  const r = validateDiscoveryVerdict(verdict({ verdict: "same-obstacle", target_uid: "", quote: "某段材料原文内容。" }), { candidates: CANDIDATES });
+  assert.ok(!r.ok);
+  assert.equal(r.error.code, "discovery/target_uid_missing");
+});
+
+test("validate: same-obstacle 指向本次未提供的 uid 被拒（只能指它见过的账目）", () => {
+  const r = validateDiscoveryVerdict(
+    verdict({ verdict: "same-obstacle", target_uid: "99999999-8888-4777-8666-555555555555", quote: "某段材料原文内容。" }),
+    { candidates: CANDIDATES },
+  );
+  assert.ok(!r.ok);
+  assert.equal(r.error.code, "discovery/target_uid_unknown");
+});
+
+test("validate: same-obstacle 指向候选内的 uid 通过（uid 首尾空白被 trim 后仍命中）", () => {
+  const r = validateDiscoveryVerdict(
+    verdict({ verdict: "same-obstacle", target_uid: `  ${CANDIDATES[0].object_uid}  `, quote: "某段材料原文内容。" }),
+    { candidates: CANDIDATES },
+  );
+  assert.ok(r.ok, JSON.stringify(r.error));
+  assert.equal(r.value.target_uid, CANDIDATES[0].object_uid);
+});
+
+test("validate: same-obstacle 只认 target_uid，不要求观察层字段（11 §9 第 4 项是补充级更新，不建条目）", () => {
+  // 观察层的 group/title/phenomenon/basis/attribution 是**写缓冲条目**时才需要的；
+  // 补充级更新只落在既有账目上，故这一态不要求它们。
+  const r = validateDiscoveryVerdict(
+    verdict({ verdict: "same-obstacle", target_uid: CANDIDATES[0].object_uid, quote: "某段材料原文内容。" }),
+    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS },
+  );
+  assert.ok(r.ok, JSON.stringify(r.error));
+  assert.equal(r.value.group, "");
+  assert.equal(r.value.attribution, "");
+});
+
+// ---------------------------------------------------------------------------
+// 态二：same-observation-group（与缓冲中某个 pending 组同一阻碍 → 11 §9 第 2/3 项）
+// ---------------------------------------------------------------------------
+
+test("validate: same-observation-group 必填字段逐个缺失均被拒（11 §9 第 2/3 项）", () => {
+  for (const field of ["group", "title", "phenomenon", "basis", "attribution"]) {
+    const r = validateDiscoveryVerdict(
+      observationVerdict({ verdict: "same-observation-group", group: "ci-slow-build", [field]: "" }),
+      { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS },
+    );
+    assert.ok(!r.ok, `${field} missing must be rejected`);
+    assert.equal(r.error.code, `discovery/${field}_missing`);
+  }
+});
+
+test("validate: same-observation-group 的 group 不在本次观察组清单内被拒（不得凭空并组）", () => {
+  const r = validateDiscoveryVerdict(
+    observationVerdict({ verdict: "same-observation-group", group: "not-shown-this-run" }),
+    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS },
+  );
+  assert.ok(!r.ok, "并入一个本次没给过的组 → 落地侧无从核对，机械层必须拦下");
+  assert.equal(r.error.code, "discovery/group_unknown");
+});
+
+test("validate: same-observation-group 命中观察组清单内的 group 通过", () => {
+  const r = validateDiscoveryVerdict(
+    observationVerdict({ verdict: "same-observation-group", group: "hook-missing-node" }),
+    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS },
+  );
+  assert.ok(r.ok, JSON.stringify(r.error));
+  assert.equal(r.value.group, "hook-missing-node");
+});
+
+test("validate: same-observation-group 缺 attribution 被拒（两态都必填——晋升那一条不得缺归因）", () => {
+  const r = validateDiscoveryVerdict(
+    observationVerdict({ verdict: "same-observation-group", group: "ci-slow-build", attribution: "" }),
+    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS },
+  );
+  assert.ok(!r.ok, "缺归因必须被拒（本次修订的关键新增字段）");
+  assert.equal(r.error.code, "discovery/attribution_missing");
+});
+
+// ---------------------------------------------------------------------------
+// 态三：new-observation（账本与缓冲都没有的新阻碍 → 11 §9 第 2 项开新组）
+// ---------------------------------------------------------------------------
+
+test("validate: new-observation 必填字段逐个缺失均被拒（11 §9 第 2 项）", () => {
+  for (const field of ["group", "title", "phenomenon", "basis", "attribution"]) {
+    const r = validateDiscoveryVerdict(
+      observationVerdict({ verdict: "new-observation", group: "ci-slow-build", [field]: "" }),
+      { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS },
+    );
+    assert.ok(!r.ok, `${field} missing must be rejected`);
+    assert.equal(r.error.code, `discovery/${field}_missing`);
+  }
+});
+
+test("validate: new-observation 缺 attribution 被拒（本次修订的关键新增字段——晋升出的账目不得缺归因）", () => {
+  // 既有缺陷：机械通道入账 95/97 条缺归因。归因须**每次**都填——因为这一条可能
+  // 正是攒够 N 的那一条，届时它要立刻晋升为账目（11 §9 第 3 项）。
+  const r = validateDiscoveryVerdict(
+    observationVerdict({ verdict: "new-observation", attribution: "" }),
+    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS },
+  );
+  assert.ok(!r.ok, "缺归因必须被拒");
+  assert.equal(r.error.code, "discovery/attribution_missing");
+});
+
+test("validate: new-observation 缺 group 被拒（组键是阈值判定的聚合维度，11 §9 第 3 项）", () => {
+  const r = validateDiscoveryVerdict(
+    observationVerdict({ verdict: "new-observation", group: "" }),
+    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS },
+  );
+  assert.ok(!r.ok);
+  assert.equal(r.error.code, "discovery/group_missing");
+});
+
+test("validate: new-observation 的 group 无需在观察组清单内（新组键由子代理新起）", () => {
+  // **反证**：与 same-observation-group 相反，new-observation 是「开新组」，故其组键
+  // 本就不在清单里。机械层只做相等比较，不判断两个组键是否指向同一阻碍
+  //（11 §12bis.1「机械层不判断两个 group 值是否指向同一阻碍」——那是 §9 第 1 项的
+  // 语义判断，登记为 gap）。
+  const r = validateDiscoveryVerdict(
+    observationVerdict({ verdict: "new-observation", group: "brand-new-group" }),
+    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS },
+  );
+  assert.ok(r.ok, JSON.stringify(r.error));
+  assert.equal(r.value.group, "brand-new-group");
+});
+
+test("validate: 同一个组键在两态的判定相反（反证：成员关系才是两态的分界）", () => {
+  const opts = { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS };
+  const asNew = validateDiscoveryVerdict(observationVerdict({ verdict: "new-observation", group: "brand-new-group" }), opts);
+  const asSame = validateDiscoveryVerdict(observationVerdict({ verdict: "same-observation-group", group: "brand-new-group" }), opts);
+  assert.ok(asNew.ok, JSON.stringify(asNew.error));
+  assert.ok(!asSame.ok, "该组不在清单内 → 报 same-observation-group 必须被拒");
+  assert.equal(asSame.error.code, "discovery/group_unknown");
+});
+
+test("validate: new-observation 的 impact 必须在闭集内", () => {
+  const r = validateDiscoveryVerdict(
+    observationVerdict({ verdict: "new-observation", impact: "critical" }),
+    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS },
+  );
+  assert.ok(!r.ok);
+  assert.equal(r.error.code, "discovery/impact_out_of_set");
+});
+
+test("validate: new-observation 的 title 超 30 字被拒（26 §8）", () => {
+  const r = validateDiscoveryVerdict(
+    observationVerdict({ verdict: "new-observation", title: "x".repeat(31) }),
+    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS },
+  );
+  assert.ok(!r.ok);
+  assert.equal(r.error.code, "discovery/title_too_long");
+});
+
+test("validate: same-observation-group 的 impact 与 title 约束与 new-observation 同（两态共用一组必填字段）", () => {
+  const opts = { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS };
+  const badImpact = validateDiscoveryVerdict(
+    observationVerdict({ verdict: "same-observation-group", group: "ci-slow-build", impact: "critical" }),
+    opts,
+  );
+  assert.ok(!badImpact.ok);
+  assert.equal(badImpact.error.code, "discovery/impact_out_of_set");
+
+  const longTitle = validateDiscoveryVerdict(
+    observationVerdict({ verdict: "same-observation-group", group: "ci-slow-build", title: "x".repeat(31) }),
+    opts,
+  );
+  assert.ok(!longTitle.ok);
+  assert.equal(longTitle.error.code, "discovery/title_too_long");
 });
 
 // ---------------------------------------------------------------------------
@@ -216,10 +521,10 @@ test("validate: 通过时返回已 trim 的规范形态", () => {
 // ---------------------------------------------------------------------------
 
 test("validate: 非 no-discovery 缺 quote 被拒（无引证则无从核对其依据来自本次材料）", () => {
-  for (const v of ["same-obstacle", "new-obstacle"]) {
+  for (const v of ["same-obstacle", "same-observation-group", "new-observation"]) {
     const r = validateDiscoveryVerdict(
-      verdict({ verdict: v, target_uid: CANDIDATES[0].object_uid, title: "T", phenomenon: "P。", basis: "B。", quote: "" }),
-      { candidates: CANDIDATES },
+      observationVerdict({ verdict: v, target_uid: CANDIDATES[0].object_uid, group: "ci-slow-build", quote: "" }),
+      { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS },
     );
     assert.ok(!r.ok, `${v} without quote must be rejected`);
     assert.equal(r.error.code, "discovery/quote_missing");
@@ -229,14 +534,15 @@ test("validate: 非 no-discovery 缺 quote 被拒（无引证则无从核对其�
 test("validate: 提供了 windowText 时，**窗口外的引证被拒**（D1 的机械判定点）", () => {
   const windowText = "[turn 4]\nassistant: 这次构建在链接阶段失败了。";
   const r = validateDiscoveryVerdict(
-    verdict({
-      verdict: "new-obstacle",
+    observationVerdict({
+      verdict: "new-observation",
       title: "构建失败",
       phenomenon: "链接阶段失败。",
       basis: "可归因于依赖版本。",
+      attribution: "依赖版本未锁定。",
       quote: "这是一段并不在上述材料里的内容，子代理凭上下文自行回忆出来的。",
     }),
-    { candidates: CANDIDATES, windowText },
+    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS, windowText },
   );
   assert.ok(!r.ok);
   assert.equal(r.error.code, "discovery/quote_not_in_window");
@@ -245,15 +551,16 @@ test("validate: 提供了 windowText 时，**窗口外的引证被拒**（D1 的
 test("validate: 引证确实在窗口内则通过（正例，证明上一条不是恒拒）", () => {
   const windowText = "[turn 4]\nassistant: 这次构建在链接阶段失败了。";
   const r = validateDiscoveryVerdict(
-    verdict({
-      verdict: "new-obstacle",
+    observationVerdict({
+      verdict: "new-observation",
       title: "构建失败",
       phenomenon: "链接阶段失败。",
       basis: "可归因于依赖版本。",
+      attribution: "依赖版本未锁定。",
       quote: "这次构建在链接阶段失败了。",
       reason: "据该引证判断。",
     }),
-    { candidates: CANDIDATES, windowText },
+    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS, windowText },
   );
   assert.ok(r.ok, JSON.stringify(r.error));
   assert.equal(r.value.quote, "这次构建在链接阶段失败了。");
@@ -263,14 +570,14 @@ test("发现④：no-discovery 在**非空窗口**下也须引证（否则「恒
   const windowText = "[turn 1]\nassistant: 这里有大量内容，其中包含一段可引证原文。";
   const missing = validateDiscoveryVerdict(
     verdict({ verdict: "no-discovery", quote: "" }),
-    { candidates: CANDIDATES, windowText },
+    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS, windowText },
   );
   assert.ok(!missing.ok, "非空窗口下 no-discovery 免引证 → 恒报无发现的失效不可见");
   assert.equal(missing.error.code, "discovery/quote_missing");
 
   const withQuote = validateDiscoveryVerdict(
     verdict({ verdict: "no-discovery", quote: "这里有大量内容，其中包含一段可引证原文。" }),
-    { candidates: CANDIDATES, windowText },
+    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS, windowText },
   );
   assert.ok(withQuote.ok, JSON.stringify(withQuote.error));
 });
@@ -278,15 +585,15 @@ test("发现④：no-discovery 在**非空窗口**下也须引证（否则「恒
 test("发现④：**空窗口**下 no-discovery 的引证必须为空（那时无从引证）", () => {
   const r = validateDiscoveryVerdict(
     verdict({ verdict: "no-discovery", quote: "" }),
-    { candidates: CANDIDATES, windowText: "" },
+    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS, windowText: "" },
   );
   assert.ok(r.ok, JSON.stringify(r.error));
 });
 
-test("发现④：no-discovery 引证窗口外文本同样被拒（引证核对不因三态而放松）", () => {
+test("发现④：no-discovery 引证窗口外文本同样被拒（引证核对不因判定态而放松）", () => {
   const r = validateDiscoveryVerdict(
     verdict({ verdict: "no-discovery", quote: "这是我凭上下文回忆出来的一段内容。" }),
-    { candidates: CANDIDATES, windowText: "[turn 1]\nassistant: 材料里的原文。" },
+    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS, windowText: "[turn 1]\nassistant: 材料里的原文。" },
   );
   assert.ok(!r.ok);
   assert.equal(r.error.code, "discovery/quote_not_in_window");
@@ -439,3 +746,21 @@ test("空窗口：材料段**不含**边界标记（空材料不该有边界；�
   assert.equal(renderWindowText([]), "", "空窗口不渲染材料（也就没有边界标记）");
   assert.equal(renderWindowText(undefined), "", "未提供窗口时同样不渲染");
 });
+
+// ---------------------------------------------------------------------------
+// 已知缺口（待 lib/ 修订后启用；本次**不修改 lib/**）
+// ---------------------------------------------------------------------------
+//
+// 单任务兼容入口 `buildDiscoveryPrompt` **不转发 `observationGroups`**——它调
+// `buildDiscoveryPromptSection({ threshold, candidates })`，故该入口生成的提示词
+// 恒称「观察缓冲当前没有待晋升的组」，即使本次确有观察组。
+//
+// 影响面有限：生产路径走 `aux-task-registry.js` 的任务段（provider 直接调
+// `buildDiscoveryPromptSection` 并传入 `observationGroups`），故真实派发不受影响；
+// 受影响的是**测试与诊断路径**（aux-task-registry.test.mjs 的「两条路径逐字相同」
+// 断言也据此把观察组排除在比较之外）。
+//
+// 修订后应成立：`buildDiscoveryPrompt({ threshold, candidates, observationGroups })`
+// 与 `buildDiscoveryPromptSection({ threshold, candidates, observationGroups })`
+// 在同一组前提下产出**逐字相同**的任务段。
+test.todo("单任务兼容入口须转发 observationGroups（当前恒称缓冲为空，测试与诊断路径受影响）");

@@ -796,21 +796,24 @@ test('近期动态投影携带 friction 的 impact（API 链路不丢字段）',
 //
 // Human 原话（m00001）：「web 的聚焦，待决定事项里要增加 待修的摩擦」；对范围的
 // 追问答「只要 open」、对标签问「沿用现有徽章即可」。故本节钉三件事：
-// ① 收录口径恰为 `open`（observing 不进——26 §8 初态 observing 是攒熟中的活账，
-//    账本里 observing 有 49 条、open 只有 4 条，平铺会淹没真正的待修账）；
+// ① 收录口径恰为 `open`（2026-10 修订后闭集只剩三值 open/resolved/voided：
+//    `observing` 已退出 26 §9 闭集，观察材料改由 11 §12bis.1 的摩擦观察缓冲
+//    承载、非事实对象，故账本里本就没有「攒熟中的活账」可铺）；
 // ② 条目复用列表卡形态（impact/occurrence 平铺到条目根，卡头徽标才读得到）；
 // ③ 不新增独立标签组件——`inboxKind` 只用于模块摘要计数。
 
-test('待决定事项收录 open 摩擦：observing 与终态一律不进（26 §12）', () => {
+test('待决定事项收录 open 摩擦：闭集外取值与终态一律不进（26 §12）', () => {
   const route = readFileSync(path.resolve(repositoryRoot, 'api/routes/cognition.ts'), 'utf8')
 
-  // 判定是**字面**的 `raw.status !== 'open'`——写成集合或包含 observing 的谓词都是
-  // 口径漂移，会在下次有人「顺手带上 observing」时静默通过。
+  // 判定是**字面**的 `raw.status !== 'open'`——写成集合或包含其它状态的谓词都是
+  // 口径漂移，会在下次有人「顺手多带上一个状态」时静默通过。
   assert.match(route, /for \(const raw of data\.items\) \{\s*if \(raw\.status !== 'open'\) continue/,
     '只收 open 账目');
   assert.match(route, /type: 'friction', inboxKind: 'friction_repair'/, '摩擦走独立 inboxKind');
+  // `observing` 已不在 26 §9 闭集内（观察材料改由 11 §12bis.1 的缓冲承载），
+  // 它既不是合法账目状态，也不得进入待修收件——此处按「拒绝」语义保留断言。
   assert.doesNotMatch(route, /'observing'[^\n]*friction_repair|friction_repair[^\n]*'observing'/,
-    'observing 不得进入待修收件');
+    'observing（闭集外）不得进入待修收件');
   // 名册对不上时如实降级（02 §5.4），不静默丢整个分类。
   assert.match(route, /code: 'friction_list_unavailable'/, 'friction 读取失败须进 issues');
 })

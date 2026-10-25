@@ -35,6 +35,7 @@ import { splitRunnableTasks } from "./aux-task-registry.js";
 import {
   verifyThresholdAvailable,
   loadDedupCandidates,
+  loadObservationDedupCandidates,
   FRICTION_THRESHOLD_N,
 } from "./friction-discovery.js";
 
@@ -93,6 +94,10 @@ export async function runIdleCheckpoint({
   // 水位按「项目根 + 会话」分键。项目根缺省时退回 factSourceRoot（同属该项目的
   // 稳定标识），但调用方应显式给出 projectRoot 以免两处语义漂移。
   projectRoot,
+  // 摩擦观察缓冲按**管辖项目 id** 分区（11 §12bis.1），与本文件的 projectRoot
+  // （路径）不是同一维度：前者是登记 id，后者是文件系统路径。缺省时退回 projectRoot
+  // 的 basename 是一种**兜底**，调用方应显式给出。
+  projectId,
 } = {}) {
   const at = typeof now === "string" ? now : new Date().toISOString();
   // 任务清单（兼容单个字符串 `task`——既有调用方与测试走这条）。
@@ -184,6 +189,38 @@ export async function runIdleCheckpoint({
     });
   }
 
+  // §9 第 1 项的第二层（2026-10 修订）：**观察缓冲也是查重输入**。
+  //
+  // 只查账本不足以判定归属——同一阻碍在缓冲里可能已有 1、2 条，若本次不并入那个
+  // 组，它就永远攒不到 N（11 §9 第 3 项），账目永远不会成立。故必须把既有的
+  // `pending` 组一并交给执行体。缓冲不可读同样不得继续——在不完整的输入上做
+  // 归属判断，与在残缺账本上做查重是同一类失效。
+  // `projectId` 缺省时退回 projectRoot 的 basename——这是**兜底**，不是等价语义：
+  // 分区键应当来自管辖登记的 id（`governed-projects.yaml`），basename 在重命名或
+  // 同名目录下会漂移。调用方（lifecycle）已显式传入，此处只防单点漏传。
+  const observationProjectId = typeof projectId === "string" && projectId.length > 0
+    ? projectId
+    : (typeof projectRoot === "string" && projectRoot.length > 0
+        ? projectRoot.split(/[\\/]/).filter(Boolean).pop()
+        : null);
+  if (observationProjectId === null || observationProjectId === undefined) {
+    return recordAndFail(dshHomePath, {
+      task: taskId,
+      reason: "无法确定管辖项目标识，摩擦观察缓冲无法定位（11 §12bis.1 按项目分载体）：projectId 与 projectRoot 均未给出",
+      residual: [],
+      at,
+    });
+  }
+  const observationInput = await loadObservationDedupCandidates(dshHomePath, observationProjectId);
+  if (!observationInput.ok) {
+    return recordAndFail(dshHomePath, {
+      task: taskId,
+      reason: `观察缓冲不可读或残缺，查重输入不完整：${observationInput.error.message}`,
+      residual: [],
+      at,
+    });
+  }
+
   // §8.4「观察范围的切分（水位）」：本次运行只看**自上次成功运行以来**新增的内容。
   // 区间端点取自宿主会话记录的轮次号（`currentTurn`），不是「AI 认为哪些是新的」。
   // **按任务分别读水位**（friction-watermark 的逐任务改造）：本模块当前只编排
@@ -236,6 +273,14 @@ export async function runIdleCheckpoint({
     decision = await discover({
       threshold: FRICTION_THRESHOLD_N,
       candidates: candidates.value.candidates,
+      // 观察层：既有 pending 组（供子代理判断「并入哪个组」）+ 组键与现象摘要。
+      // 只传 `group`/`phenomenon`/`pending_count`——把 `evidence` 全文塞进提示词会
+      // 使提示词随缓冲增长单调膨胀，而归属判断只需现象与键。
+      observationGroups: (observationInput.value.by_group ?? []).map((g) => ({
+        group: g.group,
+        pending_count: g.pending_count,
+        phenomenon: g.entries[g.entries.length - 1]?.phenomenon ?? "",
+      })),
       // 署名**不由本层传入**：执行体做出判断后，由 provider 从执行体自己的会话记录
       // 取得并随返回值上抛（executorSignature）。此前这里透传一个 `sessionSignature`
       // 形参，而 lifecycle 调用时从不传入，故该形参恒为 undefined——形参存在却永远

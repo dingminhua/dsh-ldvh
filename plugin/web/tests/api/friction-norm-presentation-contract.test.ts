@@ -71,13 +71,18 @@ test('both types carry icons, colors, type labels, and status closures', () => {
   // 类型词表（中英）与状态闭集词表（26 §9 / 27 §9）。
   assert.match(locales, /friction: \{ zh: '摩擦', en: 'Friction' \}/);
   assert.match(locales, /norm: \{ zh: '规范', en: 'Norm' \}/);
-  assert.match(locales, /friction: \{\s*\n\s*\/\/ 26 §9 状态闭集四值[\s\S]*?observing: \{ zh: '留观', en: 'Observing' \},[\s\S]*?open: \{ zh: '待修', en: 'Open' \},[\s\S]*?resolved: \{ zh: '已销账', en: 'Resolved' \},[\s\S]*?voided: \{ zh: '已废弃', en: 'Voided' \},/);
+  assert.match(locales, /friction: \{\s*\n\s*\/\/ 26 §9 状态闭集三值[\s\S]*?open: \{ zh: '待修', en: 'Open' \},[\s\S]*?resolved: \{ zh: '已销账', en: 'Resolved' \},[\s\S]*?voided: \{ zh: '已废弃', en: 'Voided' \},/);
+  // 26 §9（2026-10 修订，Human 决定：观察不进事实源）：闭集由四值收缩为三值，
+  // `observing`（留观）已退出——观察材料改由 11 §12bis.1 的摩擦观察缓冲承载，
+  // 非事实对象。故状态词表里不得再有留观词条。
+  assert.doesNotMatch(locales, /observing: \{ zh: '留观', en: 'Observing' \}/,
+    '留观词条随闭集收缩一并退出');
   assert.match(locales, /norm: \{\s*\n\s*\/\/ 27 号 §9 状态闭集[\s\S]*?active: \{ zh: '生效中', en: 'Active' \},[\s\S]*?retired: \{ zh: '已退役', en: 'Retired' \},/);
 });
 
 test('list defaults filter friction to open and norm to active', () => {
   const listStatus = read('src/utils/listStatus.ts');
-  // 26 §12：friction 默认候选含 open 与 observing——单选 tab 默认 open。
+  // 26 §12：friction 默认候选只含 open（闭集收缩后已无「攒够待修的候选源」状态）——单选 tab 默认 open。
   assert.match(listStatus, /if \(type === 'friction'\) return 'open';/);
   // 27 §10：norm 默认候选只含 active。
   assert.match(listStatus, /new Set\(\['adr', 'pitfall', 'research', 'norm'\]\)/);
@@ -158,8 +163,12 @@ test('identity copy and association rows treat both types as first-class facts',
 
   // 复制走对象引用（@对象 引用），不是路径复制。
   assert.match(identityActions, /objectType === 'friction' \|\| objectType === 'norm'/);
-  // 关联行状态映射：friction observing/open 是活账（pending），resolved/voided 属终态（closed）。
-  assert.match(objectList, /targetType === 'friction'[\s\S]*?association\.status === 'observing' \|\| association\.status === 'open'\) return 'pending';[\s\S]*?association\.status === 'resolved' \|\| association\.status === 'voided'\) return 'closed';/);
+  // 关联行状态映射：friction open 是活账（pending），resolved/voided 属终态（closed）。
+  assert.match(objectList, /targetType === 'friction'[\s\S]*?association\.status === 'open'\) return 'pending';[\s\S]*?association\.status === 'resolved' \|\| association\.status === 'voided'\) return 'closed';/);
+  // 26 §9（2026-10 修订）：闭集三值后，observing 不再是任何合法状态，关联行
+  // 映射里也不得保留它（否则闭集外的值会被映射成活账）。
+  assert.doesNotMatch(objectList, /association\.status === 'observing'/,
+    'observing 已退出 26 §9 闭集，不得参与关联行状态映射');
 });
 
 test('resolved 走达成绿而 voided 走收敛灰（Human 定案 2026-11）', () => {
@@ -177,9 +186,10 @@ test('resolved 走达成绿而 voided 走收敛灰（Human 定案 2026-11）', (
   assert.match(statusBadge, /objectType === 'friction' && status === 'voided'/);
   assert.match(statusBadge, /objectType === 'norm' && status === 'retired'/);
   assert.match(statusColors, /voided: \{ light: '#9ca3af', dark: '#6b7280' \}/);
-  // observing（留观）有独立状态色；四态过滤项齐全。
-  assert.match(statusColors, /observing: \{ light: '#d4a017', dark: '#f0c040' \}/);
-  assert.match(statusFilter, /friction: \['observing', 'open', 'resolved', 'voided'\],/);
+  // 26 §9（2026-10 修订）：闭集三值后不留观状态色，过滤项只列三值。
+  assert.doesNotMatch(statusColors, /observing:/, '留观状态色随闭集收缩一并退出');
+  assert.doesNotMatch(statusFilter, /'observing'/, '过滤项不再列留观');
+  assert.match(statusFilter, /friction: \['open', 'resolved', 'voided'\],/);
   assert.match(statusFilter, /norm: \['active', 'retired'\],/);
 });
 
@@ -254,7 +264,7 @@ test('同名字段按类型分派词条：disposition 在 spark 与 friction 语
  *
  * 卡头另有一枚 `History` chip 承载 `change_log.length`（写入次数）。二者是不同的量：
  * 一条账目可以只被观察 1 次却改过 7 次。二者混同会让 Human 把「改过几次」误读成
- * 「出现过几次」——而后者才是 36 §9 的阈值判据。故断言二者**不同图标**。
+ * 「出现过几次」——而后者才是 26 §8 认定的频次权威源。故断言二者**不同图标**。
  */
 test('26 §8 occurrence 在**三处**卡头都被渲染（词条存在不等于被消费）', () => {
   const list = read('src/pages/ObjectList.tsx');
@@ -302,8 +312,8 @@ test('26 §8 occurrence 与「修改次数」用**不同图标**（两个不同�
 test('26 §8 occurrence chip 只呈现事实值，不呈现阈值进度（N 的权威源是规范不是界面）', () => {
   const badge = read('src/components/FrictionOccurrenceBadge.tsx');
 
-  // 不显示 `1/3` 这类进度——阈值 N=3 由 36 §9 固定，印在卡面会让它看起来
-  // 像可变的呈现选择。
+  // 不显示 `1/3` 这类进度——阈值 N=3 固定在摩擦观察缓冲侧（11 §12bis.1），
+  // 印在卡面会让它看起来像可变的呈现选择。
   // 只看**代码**（见 codeOnly 的说明）：注释里解释「为何不呈现阈值」是正当的。
   const badgeCode = codeOnly(badge);
   // 判据要精确：不得写 `{count}/3` 这类进度，也不得引入阈值常量。
@@ -318,9 +328,14 @@ test('26 §8 occurrence chip 只呈现事实值，不呈现阈值进度（N 的�
 test('26 §8 occurrence 在前端类型面有声明（此前缺失致消费方无从落地）', () => {
   const api = read('src/utils/api.ts');
   assert.match(api, /occurrence\?: \{/, 'ObjectItem 须声明 occurrence —— 此前 API 送而类型无');
-  // 与 §8 字段形状一致：count/first_at/last_at/human_return_at。
+  // 与 §8 字段形状一致：count/first_at/last_at。
+  // 2026-10 修订（Human 决定：观察不进事实源）：`human_return_at` 随「放回留观」
+  // 流转一并删除（26 §9.2 该流转已作废），故类型面不得再声明它。
+  // 只看**代码**（见 codeOnly 的说明）：注释里说明「该字段为何被删除」是正当的。
   assert.match(api, /count\?: number;/);
-  assert.match(api, /human_return_at\?: string \| null;/);
+  assert.match(api, /first_at\?: string;/);
+  assert.match(api, /last_at\?: string;/);
+  assert.doesNotMatch(codeOnly(api), /human_return_at/, 'human_return_at 已随放回留观流转删除');
 });
 
 test('26 §8 occurrence 的悬浮说明与「修改次数」措辞明确区分', () => {
@@ -356,7 +371,9 @@ test('26 §8 occurrence 在 /api/cognition 的两段投影里都携带（漏一�
   assert.match(src, /build\.occurrence !== undefined \? \{ occurrence: build\.occurrence \}/, '第二段投影（recentItems 映射）须携带 occurrence');
 
   // 两段都带上 build/raw 的类型声明，否则 TS 会拦下（证明类型面也在）。
-  assert.match(src, /occurrence\?: \{ count\?: number; first_at\?: string; last_at\?: string; human_return_at\?: string \| null \}/);
+  assert.match(src, /occurrence\?: \{ count\?: number; first_at\?: string; last_at\?: string \}/);
+  // 只看**代码**（见 codeOnly 的说明）：注释里说明「该字段为何被删除」是正当的。
+  assert.doesNotMatch(codeOnly(src), /human_return_at/, 'human_return_at 已随放回留观流转删除（26 §9.2）');
 
   // 对照：impact 是既有正确形态，两段都在——occurrence 须与之同规格。
   assert.match(src, /raw\.impact/, 'impact 第一段仍在');

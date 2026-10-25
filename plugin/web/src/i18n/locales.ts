@@ -103,9 +103,10 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     retired: { zh: '已废弃', en: 'Retired' },
   },
   friction: {
-    // 26 §9 状态闭集四值：observing（留观）/ open（待修）/ resolved（已销账，
-    // informs 指向解药）/ voided（已废弃）。
-    observing: { zh: '留观', en: 'Observing' },
+    // 26 §9 状态闭集三值（2026-10 修订，Human 决定：观察不进事实源）：
+    // open（待修）/ resolved（已销账，informs 指向解药）/ voided（已废弃）。
+    // 原第四值 `observing`（留观）已退出闭集——观察材料改由 11 §12bis.1 的
+    // 摩擦观察缓冲承载（非事实对象、不进事实源），故此处不再有留观词条。
     open: { zh: '待修', en: 'Open' },
     resolved: { zh: '已销账', en: 'Resolved' },
     // 与其余事实对象（Pitfall/Spark 的 discarded、ADR/Research 的 retired）统一
@@ -861,15 +862,11 @@ export function getObjectStatusHint(type: string, status: string, locale: string
         : '不再跟踪，或已被合并/拆分到其他火花'
     }
   }
-  // 26 §9：账目语义限定——observing 是入口态（已入账未攒够），open 参与攒账
-  // 与度量，resolved 由 informs 指向解药，voided 是记错了的账目（不参与查重、
-  // 度量与迭代决策输入）。
+  // 26 §9：账目语义限定——open 是待修的账（参与攒账与度量），resolved 由
+  // informs 指向解药，voided 是记错了的账目（不参与查重、度量与迭代决策输入）。
+  // （2026-10 修订：原第四值 observing 已退出闭集，观察材料改由 11 §12bis.1 的
+  // 摩擦观察缓冲承载，非事实对象，故此处不再有留观的语义限定文案。）
   if (type === 'friction') {
-    if (status === 'observing') {
-      return locale === 'en'
-        ? 'On the books but not yet accumulated enough; no judgement on whether it is worth fixing'
-        : '留观：已入账但尚未攒够，不作「值不值得修」的判断';
-    }
     if (status === 'open') {
       return locale === 'en'
         ? 'An unpaid ledger entry: pending fix, counted toward accumulation and metrics'

@@ -143,22 +143,13 @@ async function seedResolvedFriction(root, adrUid) {
   return { draft, created, read, updated };
 }
 
-// 26 §9：原 deferred 状态已退出闭集，退场后由 observing（留观）/ open（排期）
-// 承担「已入账但未销账」的两种活态。此处 seed 出 open 以覆盖 open 分支。
+// 26 §9（2026-10 修订）：观察态已退出闭集，**创建初态就是 open**——故「open 账目」
+// 无需任何流转即可得到。此 helper 保留原名（调用方多），但不再做状态流转。
 async function seedOpenFriction(root, overrides = {}) {
   const { draft, created } = await seedFriction(root, overrides);
   const read = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
-  const updated = await updateFrictionObject({
-    factSourceRoot: root,
-    objectUid: created.value.object_uid,
-    expectedFingerprint: read.value.fingerprint,
-    frontmatterAfter: { ...read.value.frontmatter, status: "open" },
-    bodyMarkdownAfter: validBodyMarkdown(draft),
-    changeSummary: "排期",
-    sessionSignature: testSignature(),
-  });
-  assert.ok(updated.ok, JSON.stringify(updated.error));
-  return { draft, created, read, updated };
+  assert.equal(read.value.frontmatter.status, "open", "26 §9：创建初态即 open");
+  return { draft, created, read, updated: null };
 }
 
 async function createAdrFixture(root, uid) {
@@ -258,7 +249,7 @@ test("friction-read-object: read-back full envelope for an existing friction", a
     assert.equal(env.outcome, "completed");
     assert.equal(env.result.object_uid, created.value.object_uid);
     assert.equal(env.result.fingerprint, created.value.fingerprint);
-    assert.equal(env.result.status, "observing", "26 §9：创建初态为 observing");
+    assert.equal(env.result.status, "open", "26 §9（2026-10 修订）：创建初态为 open");
     assert.equal(env.result.phenomenon, validFrontmatterDraft().phenomenon);
     assert.equal(env.result.body_valid, true);
     assert.ok(env.result.body.length > 0, "body must be returned");
@@ -309,30 +300,32 @@ test("friction-read-object: object_uid omitted → invalid_request envelope", as
 // friction-list-objects
 // ---------------------------------------------------------------------------
 
-test("friction-list-objects: default (observing+open) filter and full projection", async () => {
+test("friction-list-objects: default (open only) filter and full projection", async () => {
   await withTemp("friction-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const deps = makeDeps(home, base);
     const desc = makeDescriptors(deps);
 
-    const watching = await seedFriction(join(repo, "ldvh-base"), { title: "留观摩擦" });
-    const open = await seedOpenFriction(join(repo, "ldvh-base"), { title: "排期摩擦" });
+    // 2026-10 修订后账本只有 open/resolved/voided——没有 observing 可做样本，
+    // 故两条活账都用 open（它们是同一个状态，只是建了两条）。
+    const first = await seedFriction(join(repo, "ldvh-base"), { title: "摩擦甲" });
+    const second = await seedFriction(join(repo, "ldvh-base"), { title: "摩擦乙" });
     const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
     await createAdrFixture(join(repo, "ldvh-base"), adrUid);
     const resolved = await seedResolvedFriction(join(repo, "ldvh-base"), adrUid);
 
     const env = await run(desc, "ldvh_friction_list", {}, repo);
     assert.equal(env.outcome, "completed");
-    assert.equal(env.result.filter, "open+observing");
+    assert.equal(env.result.filter, "open");
     assert.equal(env.result.count, 2);
     assert.equal(env.result.total, 2);
     assert.equal(env.result.items.length, 2);
     for (const item of env.result.items) assert.notEqual(item.status, "resolved");
 
     const itemUids = env.result.items.map((i) => i.object_uid).sort();
-    const expected = [watching.created.value.object_uid, open.created.value.object_uid].sort();
+    const expected = [first.created.value.object_uid, second.created.value.object_uid].sort();
     assert.deepEqual(itemUids, expected);
-    assert.deepEqual(env.result.items.map((i) => i.status).sort(), ["observing", "open"]);
+    assert.deepEqual(env.result.items.map((i) => i.status).sort(), ["open", "open"]);
 
     assert.ok(env.follow_up.some((s) => s.includes("dedup")));
     assert.ok(env.follow_up.some((s) => s.includes("friction-read-object")));
@@ -477,7 +470,8 @@ test("friction-write-object update: normal transition and read-back", async () =
 
     const { draft, created } = await seedFriction(join(repo, "ldvh-base"), { title: "摩擦甲" });
     const read1 = await readFrictionObject({ factSourceRoot: join(repo, "ldvh-base"), objectUid: created.value.object_uid });
-    assert.equal(read1.value.frontmatter.status, "observing");
+    // 26 §9（2026-10 修订）：创建初态即 open——观察态已退出闭集。
+    assert.equal(read1.value.frontmatter.status, "open");
 
     const env = await run(
       desc,
@@ -486,9 +480,10 @@ test("friction-write-object update: normal transition and read-back", async () =
         action: "update",
         object_uid: created.value.object_uid,
         expected_fingerprint: read1.value.fingerprint,
+        // 补充级更新：改标题、status 逐字保持 open。
         frontmatter_after: { ...read1.value.frontmatter, title: "摩擦甲（修订）", status: "open" },
         body_markdown_after: validBodyMarkdown(draft),
-        change_summary: "排期",
+        change_summary: "标题精化",
       },
       repo
     );
@@ -502,7 +497,7 @@ test("friction-write-object update: normal transition and read-back", async () =
     assert.equal(env.verification.passed, true);
     assert.equal(env.result.changes.length, 1);
     assert.equal(env.result.changes[0].change, "updated");
-    assert.equal(env.result.changes[0].summary, "排期");
+    assert.equal(env.result.changes[0].summary, "标题精化");
   });
 });
 
@@ -605,10 +600,49 @@ test("friction-write-object update: resolve without informs → rejected (26 §9
 });
 
 // ---------------------------------------------------------------------------
-// friction-write-object update: open→observing 放回留观（26 §9.2）
+// friction-write-object update: 旧「放回留观」流转已被删除（26 §9.2，2026-10 修订）
 // ---------------------------------------------------------------------------
 
-test("friction-write-object update: open→observing 放回留观须盖 human_return_at (26 §9.2)", async () => {
+test("friction-write-object update: open→observing 已被删除——目标状态不在闭集即拒（26 §9.2）", async () => {
+  await withTemp("friction-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const deps = makeDeps(home, base);
+    const desc = makeDescriptors(deps);
+
+    const { created } = await seedFriction(join(repo, "ldvh-base"));
+    const read1 = await readFrictionObject({ factSourceRoot: join(repo, "ldvh-base"), objectUid: created.value.object_uid });
+    assert.equal(read1.value.frontmatter.status, "open", "创建初态即 open（26 §9 三值闭集）");
+
+    // Human 决定：「open 的都是累积到达 3 次观察到的，不存在放回去的说法，要么就是废弃。」
+    // 故 `observing` 不再是合法目标状态——即便调用方照旧写法也一律被拒。
+    const attempt = await run(
+      desc,
+      "ldvh_friction_write",
+      {
+        action: "update",
+        object_uid: created.value.object_uid,
+        expected_fingerprint: read1.value.fingerprint,
+        frontmatter_after: { ...read1.value.frontmatter, status: "observing" },
+        body_markdown_after: validBodyMarkdown(),
+        change_summary: "试图放回留观",
+      },
+      repo
+    );
+    assert.equal(attempt.outcome, "rejected", "observing 已不在闭集，不放行");
+    const reason = JSON.stringify(attempt.gaps ?? []) + JSON.stringify(attempt.result ?? {});
+    assert.ok(
+      reason.includes("closed set") || reason.includes("status_transition_invalid") || reason.includes("observing"),
+      `拒绝理由须指向状态闭集；实际=${reason.slice(0, 400)}`,
+    );
+
+    // 载体不得被改动（拒绝即零写）。
+    const read2 = await readFrictionObject({ factSourceRoot: join(repo, "ldvh-base"), objectUid: created.value.object_uid });
+    assert.equal(read2.value.frontmatter.status, "open", "拒绝后载体逐字不变");
+    assert.equal(read2.value.fingerprint, read1.value.fingerprint, "零写：指纹不变");
+  });
+});
+
+test("friction-write-object update: occurrence 携带已删除的 human_return_at 即拒（26 §8）", async () => {
   await withTemp("friction-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const deps = makeDeps(home, base);
@@ -617,66 +651,26 @@ test("friction-write-object update: open→observing 放回留观须盖 human_re
     const { created } = await seedFriction(join(repo, "ldvh-base"));
     const read1 = await readFrictionObject({ factSourceRoot: join(repo, "ldvh-base"), objectUid: created.value.object_uid });
 
-    // First: observing→open
-    const env1 = await run(
+    // §8 的 occurrence 成员闭集是 { count, first_at, last_at }。多出任何字段即越界
+    // ——包括 2026-10 修订中删除的 human_return_at。这是本次修订堵住的一个 fail-open：
+    // 此前 create/update 只查「有没有 occurrence」，成员不校验，已删字段一路落盘。
+    const attempt = await run(
       desc,
       "ldvh_friction_write",
       {
         action: "update",
         object_uid: created.value.object_uid,
         expected_fingerprint: read1.value.fingerprint,
-        frontmatter_after: { ...read1.value.frontmatter, status: "open" },
-        body_markdown_after: validBodyMarkdown(),
-        change_summary: "排期",
-      },
-      repo
-    );
-    assert.equal(env1.outcome, "completed", JSON.stringify(env1.result));
-
-    // 放回留观：未盖 human_return_at 即被机械拒绝
-    const noStamp = await run(
-      desc,
-      "ldvh_friction_write",
-      {
-        action: "update",
-        object_uid: created.value.object_uid,
-        expected_fingerprint: env1.result.fingerprint,
-        frontmatter_after: { ...read1.value.frontmatter, status: "observing" },
-        body_markdown_after: validBodyMarkdown(),
-        change_summary: "放回留观但未盖戳",
-      },
-      repo
-    );
-    assert.equal(noStamp.outcome, "rejected");
-    assert.ok(
-      noStamp.gaps.some((g) => g.includes("human_return_at")),
-      `拒绝理由须点名 human_return_at；实际 gaps=${JSON.stringify(noStamp.gaps)}`,
-    );
-
-    // 盖戳后放行
-    const env2 = await run(
-      desc,
-      "ldvh_friction_write",
-      {
-        action: "update",
-        object_uid: created.value.object_uid,
-        expected_fingerprint: env1.result.fingerprint,
         frontmatter_after: {
           ...read1.value.frontmatter,
-          status: "observing",
           occurrence: { ...read1.value.frontmatter.occurrence, human_return_at: "2026-11-02T00:00:00.000Z" },
         },
         body_markdown_after: validBodyMarkdown(),
-        change_summary: "放回留观",
+        change_summary: "试图写入已删除字段",
       },
       repo
     );
-    assert.equal(env2.outcome, "completed", JSON.stringify(env2.result));
-    assert.equal(env2.result.read_back.ok, true);
-    const read2 = await readFrictionObject({ factSourceRoot: join(repo, "ldvh-base"), objectUid: created.value.object_uid });
-    assert.equal(read2.value.frontmatter.status, "observing");
-    assert.equal(read2.value.frontmatter.occurrence.human_return_at, "2026-11-02T00:00:00.000Z");
-    assert.equal(read2.value.frontmatter.relations, undefined, "放回留观 must not carry relations");
+    assert.equal(attempt.outcome, "rejected", "human_return_at 已从 §8 删除，不得落盘");
   });
 });
 
