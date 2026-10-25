@@ -795,3 +795,32 @@ test("只改观感：不得出现接管行为或隐藏内容的声明", () => {
   assert.doesNotMatch(css, /display\s*:\s*none/, "不得抽掉元素——页脚是 space-between，抽掉整组会让按钮横向抖动");
   assert.ok(/visibility:hidden/.test(css), "单题 pager 用 visibility 隐藏（保留占位，理由见源码注释）");
 });
+
+test("召回预算档位：客户端选项须与服务端 INJECTION_BUDGET_TIERS **同源**", async () => {
+  // 与 IDLE_DEFAULT_STORED 同一纪律：两处各写一套必然漂移，漂移后「设置页选
+  // 20K、实际生效 10K」，而用户永远看不到真实值。
+  const { readFile } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const serverSrc = await readFile(join(import.meta.dirname, "..", "lib", "source-recall.js"), "utf8");
+
+  // 1) 客户端选项表须存在且列出 10/20/30/40/50。
+  const opts = source.match(/var INJECTION_BUDGET_TIER_OPTIONS = \[([^\]]+)\]/);
+  assert.ok(opts, "客户端须有 INJECTION_BUDGET_TIER_OPTIONS 表");
+  const clientTiers = opts[1].split(",").map((s) => Number(s.trim())).filter((n) => Number.isFinite(n));
+  assert.deepEqual(clientTiers, [10, 20, 30, 40, 50], "客户端档位选项须为 10/20/30/40/50");
+
+  // 2) 服务端档位键须与客户端**逐个一致**（同源，不只是抄对）。
+  const serverTiers = [...serverSrc.matchAll(/^ {2}(\d+): \d+ \* 1024,$/gm)].map((m) => Number(m[1]));
+  assert.deepEqual(clientTiers, serverTiers, "客户端选项须与服务端 INJECTION_BUDGET_TIERS 的键逐个一致");
+
+  // 3) 默认档须一致。
+  const clientDefault = source.match(/var INJECTION_BUDGET_TIER_DEFAULT = (\d+);/);
+  assert.ok(clientDefault, "客户端须有 INJECTION_BUDGET_TIER_DEFAULT");
+  const serverDefault = serverSrc.match(/export const DEFAULT_INJECTION_BUDGET_TIER = (\d+);/);
+  assert.ok(serverDefault, "服务端须有 DEFAULT_INJECTION_BUDGET_TIER");
+  assert.equal(Number(clientDefault[1]), Number(serverDefault[1]), "两端默认档须一致");
+
+  // 4) 设置面须真的渲染该控件（不是只有状态没有 UI）。
+  assert.match(source, /t\("row\.injectionBudgetTier"\)/, "须渲染档位控件标签");
+  assert.match(source, /path: \["injectionBudgetTier"\]/, "保存时须提交该字段");
+});

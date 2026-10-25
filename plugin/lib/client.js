@@ -389,6 +389,8 @@ window.__ModuleLoader__.load({
       "row.notImplemented": "尚未实现",
       "row.notImplementedHint": "后端能力尚未实现：开启后宜主仍会如实回报 not-implemented，不会假装已跑。",
       "row.idleLimits": "调度参数",
+      "row.injectionBudgetTier": "召回预算档位（K 字节）",
+      "row.injectionBudgetTierHint": "行动前召回的体量上限，可选 10/20/30/40/50（K 字节）。档位值本身是受控常量（改档位集合须走受控提交），此处只做选择；提高上限属 Human 决定事项。引导面（管辖判定与最小规则引导）是固定内容，不参与本档位。",
       "row.idleSilenceMs": "安静时长（分钟）",
       // **一句话解释**（Human 2026-10-14 明确要求）：说清「什么是安静时长」——
       // 即它衡量的是「对话停了多久」，而不是「距上次跑完多久」。这句话须自足：
@@ -473,6 +475,8 @@ window.__ModuleLoader__.load({
       "row.notImplemented": "Not implemented",
       "row.notImplementedHint": "The backend capability does not exist yet: enabling it still reports not-implemented rather than pretending to run.",
       "row.idleLimits": "Dispatch limits",
+      "row.injectionBudgetTier": "Recall budget tier (KiB)",
+      "row.injectionBudgetTierHint": "Size cap for pre-action recall: choose 10/20/30/40/50 (KiB). The tier set itself is a controlled constant (changing it requires a controlled commit); this field only selects. Raising the cap is a Human decision. The guidance surface (jurisdiction verdict + minimal guidance) is fixed and does not share this tier.",
       "row.idleSilenceMs": "Silence duration (minutes)",
       "row.idleSilenceMsHint": "How long the conversation must stay quiet before a single idle review may run: any new activity restarts the count, and one review happens once the silence reaches this duration.",
       "row.idleLimitInvalid": "Enter an integer; the silence duration must exceed 0 (0 in the cap means unlimited).",
@@ -754,6 +758,23 @@ window.__ModuleLoader__.load({
     var IDLE_DEFAULT_STORED = {
       idleSilenceMs: 300000
     };
+    /**
+     * 召回预算的**已登记档位**（K 字节）。
+     *
+     * **必须与服务端 `source-recall.js` 的 `INJECTION_BUDGET_TIERS` 逐字一致**
+     * ——两处漂移会让「设置页选 20K、实际生效 10K」，而用户永远看不到真实值
+     * （同 `IDLE_DEFAULT_STORED` 的契约要求）。
+     *
+     * 为什么是下拉选择而非自由输入：档位集合是受控常量（`10 §5.3`
+     * 「预算的承载形态」），任意数值会让审计无法确定当时生效的是哪一版。
+     */
+    var INJECTION_BUDGET_TIER_OPTIONS = [10, 20, 30, 40, 50];
+    var INJECTION_BUDGET_TIER_DEFAULT = 10;
+    /** 档位是否合法（须为已登记成员）。 */
+    function injectionBudgetTierOk(value) {
+      var n = Number(value);
+      return INJECTION_BUDGET_TIER_OPTIONS.indexOf(n) !== -1;
+    }
     /** 存储值 → 界面文本（除以 scale）。非法存储值落回空串（由校验拦下）。 */
     function idleLimitToText(value, scale) {
       if (value === undefined || value === null || value === "") return "";
@@ -817,6 +838,10 @@ window.__ModuleLoader__.load({
       // 界面上的各值按它们**各自的显示单位**存放（见 IDLE_LIMITS 的 scale）。
       // 缺省值用**存储单位**给出，再过同一条换算——而不在这里另写一份「分钟数」，
       // 否则改默认值时会漏改一处。
+      // 召回预算档位（K 字节）——受控常量集合中的选择，非法值在保存前拦下。
+      var injectionBudgetState = React.useState(
+        injectionBudgetTierOk(value.injectionBudgetTier) ? Number(value.injectionBudgetTier) : INJECTION_BUDGET_TIER_DEFAULT
+      );
       var idleLimitsState = React.useState((function () {
         var out = {};
         IDLE_LIMITS.forEach(function (limit) {
@@ -890,6 +915,9 @@ window.__ModuleLoader__.load({
         idleCaptureState[1](next.experienceCaptureEnabled === true);
         idleCapacityState[1](next.capacityMaintenanceEnabled === true);
         idleMemoryState[1](next.memoryHealthEnabled === true);
+        injectionBudgetState[1](
+          injectionBudgetTierOk(next.injectionBudgetTier) ? Number(next.injectionBudgetTier) : INJECTION_BUDGET_TIER_DEFAULT
+        );
         idleLimitsState[1]((function () {
           var out = {};
           IDLE_LIMITS.forEach(function (limit) {
@@ -1078,7 +1106,8 @@ window.__ModuleLoader__.load({
               { op: "set", path: ["frictionDiscoveryEnabled"], value: !!frictionDiscoveryState[0] },
               { op: "set", path: ["experienceCaptureEnabled"], value: !!idleCaptureState[0] },
               { op: "set", path: ["capacityMaintenanceEnabled"], value: !!idleCapacityState[0] },
-              { op: "set", path: ["memoryHealthEnabled"], value: !!idleMemoryState[0] }
+              { op: "set", path: ["memoryHealthEnabled"], value: !!idleMemoryState[0] },
+              { op: "set", path: ["injectionBudgetTier"], value: Number(injectionBudgetState[0]) }
             ];
             // 参数各自按 scale 换算回**存储单位**（分钟 × 60000 = 毫秒）。
             // save() 已在前面拦过非法值，故此处不再回落。
@@ -1347,6 +1376,34 @@ window.__ModuleLoader__.load({
               // 该留在代码注释与规范正文里（11 §6.1 与 idle-settings.js 均已写明）。
               // 删除不减少任何保障：**非法值仍在保存时被拒**（`idleSilenceOk` 的
               // 行内错误提示保留），规范地位的声明仍在规范与代码注释中。
+            ),
+            // **召回预算档位**（Human 决定 2026-10-25）：下拉选择而非自由输入
+            // ——档位集合是受控常量（`10 §5.3`「预算的承载形态」），任意数值会让
+            // 审计无法确定当时生效的是哪一版。选择本身属 Human 决定，落在
+            // profile 配置；提高上限（改档位集合）须走受控提交。
+            React.createElement("div", { className: "ldv-idle-limits" },
+              React.createElement("div", { className: "ldv-idle-limit" },
+                React.createElement("label", { className: "ldv-idle-limit-row" },
+                  React.createElement("span", { className: "ldv-idle-limit-label" }, t("row.injectionBudgetTier")),
+                  React.createElement("select", {
+                    className: "ldv-settings-input ldv-idle-limit-input",
+                    value: String(injectionBudgetState[0]),
+                    "aria-label": t("row.injectionBudgetTier"),
+                    onChange: function (e) {
+                      injectionBudgetState[1](Number(e.target.value));
+                      markDirty();
+                    }
+                  },
+                    INJECTION_BUDGET_TIER_OPTIONS.map(function (tier) {
+                      return React.createElement("option", { key: String(tier), value: String(tier) }, String(tier) + " K");
+                    })
+                  )
+                ),
+                React.createElement("span", { className: "ldv-idle-limit-hint" }, t("row.injectionBudgetTierHint")),
+                injectionBudgetTierOk(injectionBudgetState[0])
+                  ? null
+                  : React.createElement("span", { className: "ldv-idle-limit-invalid" }, t("row.idleLimitInvalid"))
+              )
             )
           ) : null
         ),

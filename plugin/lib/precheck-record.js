@@ -1625,7 +1625,9 @@ export const HUMAN_GATE_ITEMS = Object.freeze([
   { key: "sourceDefect", label: "识别发现既有规则、事实或决定本身存在缺口，而修复须修改规范源或根决定" },
   { key: "scopeEscalation", label: "偏离的影响范围已超出当次行动，需决定是否暂停更大范围" },
   { key: "acceptIncomplete", label: "是否接受「识别不完整但已声明缺口」的行动继续" },
-  { key: "recallBudgetScope", label: "是否提高召回的字节预算常量或扩大召回的类型范围" },
+  // 逐字取自 34 §15.1 第 5 项（01 §11.4 禁第二规则源：规范改则此处必须同步）。
+  // 须取原文中**连续存在**的片段——插入的括号说明不可省，否则整串在原文找不到。
+  { key: "recallBudgetScope", label: "是否提高召回的字节预算常量（含提高已登记档位集合的上限档）或扩大召回的类型范围" },
 ]);
 
 /**
