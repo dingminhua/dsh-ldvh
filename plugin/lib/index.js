@@ -35,6 +35,7 @@ import { createGovernanceHandler } from "./host-api.js";
 import { createProxyHandler, createSpaHandler, createWebApiProcess } from "./web-mount.js";
 import { createLifecycleRegistry } from "./lifecycle.js";
 import { resolveIdleSettings } from "./idle-settings.js";
+import { resolveInjectionBudget } from "./source-recall.js";
 import { createSessionScopes } from "./session-scopes.js";
 import { createHostSeams } from "./host-seams.js";
 import { resolveGovernanceScope } from "./governance-scope.js";
@@ -177,6 +178,23 @@ export const Config = z.object({
    * 它是实现默认，不得据以主张规范已规定该时长（§17 条件式要求）。
    */
   idleSilenceMs: volatileField(z.number().min(1).default(300_000)),
+
+  // ── 注入上下文总预算（Human 决定 2026-10-25）──────────────────────────
+  //
+  // **为何可配置**：此前两块注入面（引导面 / 召回面）各有一个写死在代码里的
+  // 魔法数字（1500 字符 / 2400 字节），互相不知道对方用了多少，且单位不同
+  // （字符 vs 字节）——于是同一回合里一块宽裕、一块紧张，Human 无法调。
+  //
+  // **为何是档位而非任意数**：`10 §5.3`「体量以固定常量承载，变更走受控提交」
+  // 要求预算有可核对的基准；任意可填数值会让审计无法确定「当时生效的是哪一版」。
+  // 档位把可调性交给 Human、把数值留在受控代码里。
+  //
+  // **规范依据**：`10 §5.3`（预算归属）、`10 §9.1` 第 2 项（改变注入形式或预算
+  // 边界须 Human 决定）、`34 §15.1` 第 5 项（提高召回的字节预算常量须 Human 决定）。
+  // 本字段的引入即经 Human 决定（2026-10-25 会话内：档位取 10/20/30/40/50 K）。
+  //
+  // 未登记档位不静默回落——见 `resolveInjectionBudget` 的如实拒绝。
+  injectionBudgetTier: volatileField(z.number().default(10)),
 });
 
 /**
@@ -194,6 +212,23 @@ function readSwitch(value, fallback = true) {
   if (value === undefined || value === null) return fallback;
   if (typeof value.get === "function") return value.get() !== false;
   return value !== false;
+}
+
+/**
+ * 读一个可热改**数值**字段的当前值（volatile 引用或普通值两代通吃）。
+ *
+ * 与 `readSwitch` 同形，但返回数值或 `undefined`——**不用默认值兜底**：
+ * 未登记档位要由 `resolveInjectionBudget` 如实拒绝，静默回落会让 Human
+ * 以为自己选了 30K 而实际生效 10K（`10 §9.1` 精神：非法配置须可见）。
+ *
+ * @param {{get?: () => unknown}|unknown} value - Config 字段的解析结果。
+ * @returns {number|undefined}
+ */
+function readVolatileNumber(value) {
+  if (value === undefined || value === null) return undefined;
+  const raw = typeof value.get === "function" ? value.get() : value;
+  const num = typeof raw === "string" ? Number(raw) : raw;
+  return typeof num === "number" && Number.isFinite(num) ? num : undefined;
 }
 
 const API_PREFIX = "/ldvh/api";
@@ -406,6 +441,12 @@ export function apply(ctx, config) {
     // ——见上文 readSwitch 的说明）。故传一个取值函数而非快照：Human 在设置页
     // 改动后，下一次检查点即看到新值，无需重载插件。
     getIdleSettings: () => resolveIdleSettings(config),
+    // 注入上下文总预算：同样是**每次现读**（volatile 字段无变更通知）。
+    // 返回解析结果而非字节数——未登记档位要能被如实拒绝，不能悄悄回落。
+    getInjectionBudget: () => {
+      const raw = readVolatileNumber(config?.injectionBudgetTier);
+      return resolveInjectionBudget(raw);
+    },
   });
   const stopLifecycle = lifecycle.start();
 

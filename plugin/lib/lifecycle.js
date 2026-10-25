@@ -36,6 +36,7 @@ import { resolveGovernanceScope } from "./governance-scope.js";
 import { registerLdvhTools } from "./ldvh-tools.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { RECALL_SUMMARY, buildRecallInjection } from "./recall-injection.js";
+import { allocateInjectionBudget } from "./injection-budget.js";
 import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
 import { createTurnTriggers } from "./triggers.js";
 import { rearmInFlightWorkcaseGoal } from "./workcase-goals.js";
@@ -56,7 +57,7 @@ import { readLastTurn } from "./session-position.js";
 import { ActivityLog, AgentLifecycle } from "./agent-lifecycle.js";
 import { recordJudgementForGuard } from "./host-seams.js";
 
-export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes, hostSeams, getIdleSettings }) {
+export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes, hostSeams, getIdleSettings, getInjectionBudget }) {
   // Per-agent lifecycle objects (agent-lifecycle.js): single home for all
   // per-agent state + snapshot() diagnostics. The Map is bookkeeping only;
   // hook cleanup rides the agent fiber.
@@ -496,7 +497,30 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             }
           }
           if (typeof projectPath !== "string" || projectPath.length === 0) return { inject: false, reason: "no-project" };
-          return buildRecallInjection({ userText, projectRoot: projectPath });
+          // **注入总预算协调**（2026-10-25，Human 决定）：引导面与召回面共享一个
+          // 档位预算。引导面先取它上限所需的量（它按字符计量，折算成字节上限），
+          // 召回面取剩余但不少于原下限——故档位只会让召回面变大，不会因引导面
+          // 占用而变小（否则「调高档位反而更糟」）。未登记档位如实拒绝，不回落。
+          let recallBudget;
+          try {
+            const resolved = getInjectionBudget?.();
+            if (resolved?.ok === false) {
+              agent?.ctx?.logger?.warn?.(`[dsh-ldvh] recall: ${resolved.reason}`);
+            }
+            const state = lifecycle.lastScope?.state ?? "governed";
+            const alloc = allocateInjectionBudget(resolved?.bytes ?? 0, state);
+            if (alloc.ok === false) {
+              agent?.ctx?.logger?.warn?.(`[dsh-ldvh] recall: ${alloc.reason}`);
+            }
+            recallBudget = alloc.recallBytes > 0 ? alloc.recallBytes : undefined;
+          } catch (error) {
+            agent?.ctx?.logger?.warn?.(`[dsh-ldvh] recall: budget allocate failed: ${String(error?.message ?? error)}`);
+          }
+          return buildRecallInjection({
+            userText,
+            projectRoot: projectPath,
+            ...(recallBudget === undefined ? {} : { budgetBytes: recallBudget }),
+          });
         },
         recallSummary: () => RECALL_SUMMARY
       });

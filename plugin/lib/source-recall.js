@@ -376,6 +376,65 @@ export const BASELINE_YIELD_BELOW_BYTES = 1200;
  */
 export const BASELINE_BUDGET_SHARE_DIVISOR = 3;
 
+/**
+ * **注入上下文总预算的量化档位**（Human 决定 2026-10-25：10/20/30/40/50 K）。
+ *
+ * 为什么是「档位」而不是任意数值：`10 §5.3` 要求「体量以固定常量承载，变更走
+ * 受控提交」——任意可填的数值会让「预算守住了」失去机械核对基准（审计时看到的是
+ * 哪一版？）。档位把可调性（Human 能在设置里选）与可核对性（档位值仍是代码里
+ * 受控的常量）同时保住。
+ *
+ * 为什么单位是 **K 字节**而非字符：两块注入面此前计量单位不一致（引导面按
+ * UTF-16 字符、召回面按 UTF-8 字节），中文一字≈3 字节，导致「1500 字符」与
+ * 「2400 字节」无法放进同一个盘子判断。统一为字节后，档位才可比。
+ *
+ * 取值依据（实测 2026-10-25，本仓语料）：
+ *   · 引导面 governed 实际 2675 字节；
+ *   · 召回面去冗余后 2400 预算下最大 2130 字节、3000 下 2721 字节；
+ *   · 两块合计约 4.8–5.4K → 故 10K 档已留约 2 倍余量，足以容纳 ADR 增长与
+ *     更长语料；20K 以上属「大语料项目」的宽裕档。
+ *
+ * **档位值是受控常量**：改档位集合本身须走受控提交 + Human 决定（`34 §15.1`
+ * 第 5 项）；运行期只能在已列档位中选择。
+ */
+export const INJECTION_BUDGET_TIERS = Object.freeze({
+  10: 10 * 1024,
+  20: 20 * 1024,
+  30: 30 * 1024,
+  40: 40 * 1024,
+  50: 50 * 1024,
+});
+
+/** 默认档位（10K）：覆盖本仓实测约 5.4K 的两块合计，留约 2 倍余量。 */
+export const DEFAULT_INJECTION_BUDGET_TIER = 10;
+
+/**
+ * 把档位解析为字节总预算。
+ *
+ * 未登记档位**不静默回落**：按 `10 §9.1` 的精神，配置值非法时须如实呈现，
+ * 不得悄悄用默认值掩盖（否则 Human 以为自己选了 30K，实际生效 10K）。
+ *
+ * @param {number|string|undefined|null} tier - 档位（K）。undefined/null → 默认档。
+ * @returns {{ok: true, tier: number, bytes: number} | {ok: false, reason: string, tier: number, bytes: number}}
+ */
+export function resolveInjectionBudget(tier) {
+  if (tier === undefined || tier === null) {
+    return { ok: true, tier: DEFAULT_INJECTION_BUDGET_TIER, bytes: INJECTION_BUDGET_TIERS[DEFAULT_INJECTION_BUDGET_TIER] };
+  }
+  const key = typeof tier === "string" ? Number(tier) : tier;
+  const bytes = INJECTION_BUDGET_TIERS[key];
+  if (bytes === undefined) {
+    const allowed = Object.keys(INJECTION_BUDGET_TIERS).join("/");
+    return {
+      ok: false,
+      reason: `未登记的预算档位 ${JSON.stringify(tier)}；可用档位：${allowed}（单位 K 字节）`,
+      tier: DEFAULT_INJECTION_BUDGET_TIER,
+      bytes: INJECTION_BUDGET_TIERS[DEFAULT_INJECTION_BUDGET_TIER],
+    };
+  }
+  return { ok: true, tier: key, bytes };
+}
+
 function excerptOf(text) {
   if (typeof text !== "string") return "";
   // 折叠所有空白（含换行）为单空格：摘录是单行展示位，换行会撑破行。
@@ -747,8 +806,8 @@ export function matchCandidate(actionTokens, candidate) {
     // 实测（2026-10-24，用本会话真实用户消息）：「把这批改动合入吧」10 条结果里
     // 5 条是纯单字命中——`WorkCase 工单` 靠「批」、`火花记录` 与 `双源召回` 靠「合」；
     // 「经验也要召回啊」有 4 条靠单字「回」命中。单个汉字在本语料里覆盖 50–70%
-    // 的候选（2026-10-25 复测：「改」出现在 **295/346 = 85%** 的载体里——规范侧
-    // 27/27 全覆盖、事实侧 268/319；此前注记为 294/345，已过时——事实源由宿主
+    // 的候选（2026-10-25 复测：「改」出现在 **295/347 = 85%** 的载体里——规范侧
+    // 27/27 全覆盖、事实侧 268/320；此前注记为 295/346，已过时——事实源由宿主
     // 辅助任务持续写入，本数字随之漂移，漂移即本测试的正确报警），
     // 「靠一个字命中」几乎等于没命中。
     //
