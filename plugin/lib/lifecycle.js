@@ -36,7 +36,6 @@ import { resolveGovernanceScope } from "./governance-scope.js";
 import { registerLdvhTools } from "./ldvh-tools.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { RECALL_SUMMARY, buildRecallInjection } from "./recall-injection.js";
-import { allocateInjectionBudget } from "./injection-budget.js";
 import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
 import { createTurnTriggers } from "./triggers.js";
 import { rearmInFlightWorkcaseGoal } from "./workcase-goals.js";
@@ -497,24 +496,21 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             }
           }
           if (typeof projectPath !== "string" || projectPath.length === 0) return { inject: false, reason: "no-project" };
-          // **注入总预算协调**（2026-10-25，Human 决定）：引导面与召回面共享一个
-          // 档位预算。引导面先取它上限所需的量（它按字符计量，折算成字节上限），
-          // 召回面取剩余但不少于原下限——故档位只会让召回面变大，不会因引导面
-          // 占用而变小（否则「调高档位反而更糟」）。未登记档位如实拒绝，不回落。
+          // **召回面用自己的预算**（2026-10-25，Human 决定改定）：**不与引导面共用
+          // 台账**——引导面（管辖判定 + 最小规则引导）是系统固定内容，不随业务变化，
+          // 由它自己的固定常量承载；召回面随语料增长，由档位承载。两者各自独立，
+          // 互不扣减（这也更合 `34 §3.3`「各规范唯一权威」的分工：注入形式与预算
+          // 归属由 `10 §5.3` 统一，但两块面各自的体量各自由其常量决定）。
+          // 未登记档位如实记 warn，不静默回落。
           let recallBudget;
           try {
             const resolved = getInjectionBudget?.();
             if (resolved?.ok === false) {
               agent?.ctx?.logger?.warn?.(`[dsh-ldvh] recall: ${resolved.reason}`);
             }
-            const state = lifecycle.lastScope?.state ?? "governed";
-            const alloc = allocateInjectionBudget(resolved?.bytes ?? 0, state);
-            if (alloc.ok === false) {
-              agent?.ctx?.logger?.warn?.(`[dsh-ldvh] recall: ${alloc.reason}`);
-            }
-            recallBudget = alloc.recallBytes > 0 ? alloc.recallBytes : undefined;
+            if (resolved?.bytes > 0) recallBudget = resolved.bytes;
           } catch (error) {
-            agent?.ctx?.logger?.warn?.(`[dsh-ldvh] recall: budget allocate failed: ${String(error?.message ?? error)}`);
+            agent?.ctx?.logger?.warn?.(`[dsh-ldvh] recall: budget resolve failed: ${String(error?.message ?? error)}`);
           }
           return buildRecallInjection({
             userText,
