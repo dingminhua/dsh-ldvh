@@ -6,7 +6,7 @@
  */
 import { existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { lstat, readdir, readFile } from 'node:fs/promises'
+import { lstat, readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import yaml from 'js-yaml'
 import { FACT_FIELD_CONTRACT, type FactType, type FieldExpectation, type ObjectShape } from './factFieldContract.js'
@@ -101,6 +101,57 @@ export interface LocalFactScope {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+/**
+ * 读取层缓存：事实载体是磁盘上的只读文件，Web API 进程不写它们（写入走 LDVH
+ * CLI 独立进程）。因此以「目录 + 每个载体的 (mtimeMs, size)」作为失效指纹——
+ * 外部写入必然改变其中至少一项，缓存随即自愈，不会读到陈旧内容。
+ *
+ * 代价：一次指纹只花 stat（320 个载体约 11ms），远低于重读全文（约 86ms）；
+ * 而 listObjects 每次调用都要重建全部 7 类索引两遍，指纹摊薄后收益成倍放大。
+ */
+interface ListCacheEntry {
+  signature: string
+  list: LocalFactList
+}
+
+const listCache = new Map<string, ListCacheEntry>()
+const LIST_CACHE_LIMIT = 64
+
+function cacheKeyOf(scope: LocalFactScope, type: LocalFactType): string {
+  return `${scope.governedProjectId}\u0000${scope.worktreeLocator}\u0000${type}`
+}
+
+/** 目录内容指纹：文件名 + mtime + size。任一载体新增/删除/改写都会改变它。 */
+async function carrierSignature(dir: string): Promise<string | null> {
+  let entries: import('node:fs').Dirent[]
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch {
+    return null
+  }
+  const parts: string[] = []
+  for (const entry of entries) {
+    if (!entry.isFile()) continue
+    try {
+      const info = await stat(path.join(dir, entry.name))
+      parts.push(`${entry.name}:${info.mtimeMs}:${info.size}`)
+    } catch {
+      // 读指纹期间文件被删：本轮指纹按缺失处理，交给下次重建。
+      parts.push(`${entry.name}:missing`)
+    }
+  }
+  parts.sort()
+  return parts.join('|')
+}
+
+function rememberList(key: string, entry: ListCacheEntry): void {
+  if (listCache.size >= LIST_CACHE_LIMIT && !listCache.has(key)) {
+    const oldest = listCache.keys().next().value
+    if (oldest !== undefined) listCache.delete(oldest)
+  }
+  listCache.set(key, entry)
 }
 
 function baseDirOf(scope: LocalFactScope, type: LocalFactType): string {
@@ -410,7 +461,14 @@ function directoryStatus(scope: LocalFactScope, type: LocalFactType): LocalFactL
 export async function listLocalFacts(type: LocalFactType, scope: LocalFactScope): Promise<LocalFactList> {
   const missing = directoryStatus(scope, type)
   if (missing) return missing
-  const entries = await readdir(baseDirOf(scope, type), { withFileTypes: true })
+  const dir = baseDirOf(scope, type)
+  const key = cacheKeyOf(scope, type)
+  const signature = await carrierSignature(dir)
+  if (signature !== null) {
+    const cached = listCache.get(key)
+    if (cached && cached.signature === signature) return cached.list
+  }
+  const entries = await readdir(dir, { withFileTypes: true })
   const carriers = entries.filter((entry) => entry.isFile() && looksLikeFactCarrier(entry.name))
   const fileNames = carriers.filter((entry) => isExpectedCarrierName(type, entry.name)).map((entry) => entry.name).sort((left, right) => left.localeCompare(right))
   // 21 §7：v5 markdown 类型（workcase/spark/research/adr/pitfall/friction/norm）文件名编码 UID；其余类型维持 NNNN/ULID。
@@ -422,7 +480,9 @@ export async function listLocalFacts(type: LocalFactType, scope: LocalFactScope)
       : `${type} 正式载体必须是 ${type}-NNNN${FACT_TYPE_CARRIERS[type]}，已忽略错载体 ${entry.name}`,
     path: path.posix.join('ldvh-base', FACT_TYPE_DIRS[type], entry.name),
   }))
-  return { status: 'complete', items: await Promise.all(fileNames.map((fileName) => readItemFile(scope, type, fileName))), issues }
+  const list: LocalFactList = { status: 'complete', items: await Promise.all(fileNames.map((fileName) => readItemFile(scope, type, fileName))), issues }
+  if (signature !== null) rememberList(key, { signature, list })
+  return list
 }
 
 // v5 markdown 载体类型（spark/research/adr/pitfall/friction/norm）对象 ID 为

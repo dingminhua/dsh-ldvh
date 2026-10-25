@@ -15,12 +15,6 @@ import { validateWorkcaseStructuredText } from '../../shared/workcaseTextStructu
 import { toRfc3339Text } from '../../shared/timestamp.js'
 import { FACT_LIST_FIELD_NAMES } from './factFieldContract.js'
 import { getGitCommit } from './git.js'
-import {
-  getWorktreeInfos,
-  collectFingerprints,
-  calculateMergeMeta,
-  type CrossWorktreeMeta,
-} from './crossWorktreeMerger.js'
 
 // 27 号 §7：norm 事实规范与既有六类同路径（ldvh-base/norms/，localFactReader
 // 已登记载体与目录）——纳入列表/详情/关联解析的活跃类型面。
@@ -174,22 +168,41 @@ function projectFactAssociationTarget(value: unknown): FactAssociationTarget | n
  * 读失败（提交不可达、git 不可用、worktree 不在 Git 仓内）一律返回 null，
  * 由调用方退回短 hash——标题是增强，不是可用性的前提。
  */
+/**
+ * 提交描述缓存：每条 commit 形态的关联都要读一次提交标题，而一次 git 子进程
+ * 约 79ms。事实对象里的 commit hash 是**不可变**的（同一 hash 永远同一提交），
+ * 因此按 hash + worktree 缓存永不失效——这是唯一无需指纹判据的缓存。
+ */
+const commitDescriptionCache = new Map<string, string | null>()
+const COMMIT_CACHE_LIMIT = 512
+
 async function readCommitDescription(hash: string, scope: { worktreeLocator?: string }): Promise<string | null> {
   const cwd = scope.worktreeLocator;
   if (typeof cwd !== 'string' || !cwd) return null;
+  const cacheKey = `${cwd}\u0000${hash}`
+  if (commitDescriptionCache.has(cacheKey)) return commitDescriptionCache.get(cacheKey) ?? null
   try {
     const entry = await getGitCommit(hash, 'zh', cwd);
     // 只取**描述部分**：conventional commit 前缀（type(scope): / type!:）是提交
     // 纪律的记账格式，不是内容。读者要看的是「这次提交做了什么」，不需要在前缀上
     // 再读一遍它的类型与范围（与 08 §5「定位符不当内容呈现」同一纪律）。
     const description = typeof entry?.description === 'string' ? entry.description.trim() : '';
-    if (description) return description;
+    if (description) return rememberCommit(cacheKey, description);
     // 非常规格式（或解析失败）时退回整条 subject——宁可多显示前缀，也不显示空。
     const message = typeof entry?.message === 'string' ? entry.message.trim() : '';
-    return message || null;
+    return rememberCommit(cacheKey, message || null);
   } catch {
-    return null;
+    return rememberCommit(cacheKey, null);
   }
+}
+
+function rememberCommit(key: string, value: string | null): string | null {
+  if (commitDescriptionCache.size >= COMMIT_CACHE_LIMIT && !commitDescriptionCache.has(key)) {
+    const oldest = commitDescriptionCache.keys().next().value
+    if (oldest !== undefined) commitDescriptionCache.delete(oldest)
+  }
+  commitDescriptionCache.set(key, value)
+  return value
 }
 
 function isObjectType(value: string): value is ObjectType {
@@ -788,53 +801,6 @@ export async function listObjects(type: ObjectType, _baseDir?: string, status?: 
     const projectedItems = await Promise.all(
       listed.items.map((item) => projectListItemWithAssociations(type, item, resolvedScope, uidTargets, refSourceIndex)),
     )
-    // 跨 worktree 合并：当前 worktree 缺的对象补充进来；带分支元数据
-    const mergeMeta = await buildCrossWorktreeMeta(type, resolvedScope)
-    if (mergeMeta.ok) {
-      const { itemsByWorktree, meta } = mergeMeta
-      for (const item of projectedItems) {
-        const metaForItem = meta.get(String(item.object_id ?? item.id))
-        if (metaForItem) Object.assign(item, metaForItem)
-      }
-      const presentIds = new Set(projectedItems.map((item) => String(item.object_id ?? item.id)))
-      const extraProjects: Array<Promise<Record<string, unknown>>> = []
-      // Foreign items must resolve both outgoing refs and inbound WorkCase refs
-      // against their own readable worktree. Cache the all-type scan per scope so
-      // a worktree containing many extras does not trigger one scan per item.
-      const foreignIndexes = new Map<string, Promise<FactProjectionIndexes>>()
-      for (const fps of itemsByWorktree) {
-        const foreignScope: LocalFactScope = {
-          worktreeLocator: fps.path,
-          governedProjectId: fps.governedProjectId,
-        }
-        const scopeKey = `${foreignScope.governedProjectId}\u0000${foreignScope.worktreeLocator}`
-        let indexesPromise = foreignIndexes.get(scopeKey)
-        if (!indexesPromise) {
-          indexesPromise = currentProjectProjectionIndexes(foreignScope)
-          foreignIndexes.set(scopeKey, indexesPromise)
-        }
-        const indexes = await indexesPromise
-        for (const item of fps.items) {
-          const objectId = item.object_ref.object_id
-          if (presentIds.has(objectId)) continue
-          // 非当前 worktree 的对象，用其所在 worktree 读取；其 refs 与
-          // factRefSources 不能错误地使用当前 worktree 的 UID 索引。
-          const projected = projectListItemWithAssociations(
-            type,
-            item,
-            foreignScope,
-            indexes.uidTargets,
-            indexes.refSourceIndex,
-          )
-          const m = meta.get(objectId)
-          if (m) Object.assign(await projected, m)
-          presentIds.add(objectId)
-          extraProjects.push(projected)
-        }
-      }
-      const extras = await Promise.all(extraProjects)
-      projectedItems.push(...extras)
-    }
     const items = projectedItems.filter((item) => !status || item.status === status)
     const response = result('list', type, { items, coverage_status: 'complete', collection_issues: listed.issues })
     response.issues = [
@@ -850,32 +816,6 @@ export async function listObjects(type: ObjectType, _baseDir?: string, status?: 
     return response
   } catch (caught) {
     return error(caught)
-  }
-}
-
-/** 跨 worktree 合并的元数据构建（列表流程内部使用）。 */
-async function buildCrossWorktreeMeta(
-  type: ObjectType,
-  resolvedScope: LocalFactScope,
-): Promise<{ ok: true; itemsByWorktree: Array<{ path: string; governedProjectId: string; items: LocalFactItem[] }>; meta: Map<string, CrossWorktreeMeta> } | { ok: false }> {
-  try {
-    const worktreeInfos = await getWorktreeInfos(resolvedScope.worktreeLocator)
-    if (worktreeInfos.length <= 1) return { ok: false }
-    const { fingerprints, itemsByWorktree } = await collectFingerprints(
-      worktreeInfos,
-      resolvedScope.governedProjectId,
-      type,
-    )
-    const meta = calculateMergeMeta(
-      fingerprints,
-      worktreeInfos,
-      resolvedScope.worktreeLocator,
-      worktreeInfos[0].path, // 主工作区 = 第一条
-    )
-    return { ok: true, itemsByWorktree: Array.from(itemsByWorktree.entries()).map(([path, items]) => ({ path, governedProjectId: resolvedScope.governedProjectId, items })), meta }
-  } catch {
-    // 合并失败不阻断主流程（当前 worktree 数据始终可用）
-    return { ok: false }
   }
 }
 

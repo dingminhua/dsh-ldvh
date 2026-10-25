@@ -2,7 +2,7 @@
  * 项目认知中心：GET /api/cognition 收件箱与近期动态契约测试。
  *
  * 以当前治理范围解析出的受管辖工作树（事实源）运行，断言 02 §8 当前已交付字段
- * （generatedAt / scope / inbox / activeWorkCases / recentActivity / sparkHealth / recentHotspots / issues）、待决与推进中收录及排序、命名纪律
+ * （generatedAt / scope / inbox / activeWorkCases / recentActivity / sparkHealth / issues）、待决与推进中收录及排序、命名纪律
  * （WorkCase 的两个 Human Gate 派生分组 pending_gate1 / awaiting_gate2，加上 Pitfall 的 draft 待确认）、
  * 内联对象卡片依据、条件 canonical_path，以及近期动态的窗口与时间标记。
  *
@@ -18,7 +18,6 @@ import type { AddressInfo } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { after, before, test } from 'node:test'
-import { projectRecentHotspotFact, type RecentHotspotBuildItem } from '../../api/routes/cognition.ts'
 import { compareTimestamps } from '../../api/services/time.ts'
 
 /** Web 源码根：供读取前端源文件的静态契约用例使用（与治理范围无关）。 */
@@ -144,7 +143,6 @@ test('all five AI module summaries use human-readable type and title without mac
     'buildRecentActivitySummary',
     'buildActiveWorkCaseSummary',
     'buildSparkHealthSummary',
-    'buildRecentHotspotSummary',
   ]
   for (const [index, name] of summaryNames.entries()) {
     const start = source.indexOf(`function ${name}`)
@@ -157,7 +155,7 @@ test('all five AI module summaries use human-readable type and title without mac
   }
 })
 
-test('cognition endpoint returns inbox, fact activity, Spark health, and fact hotspot contract shapes with observation time', async () => {
+test('cognition endpoint returns inbox, fact activity, and Spark health contract shapes with observation time', async () => {
   const body = await cognition('zh')
 
   assert.match(String(body.generatedAt), RFC3339)
@@ -197,240 +195,12 @@ test('cognition endpoint returns inbox, fact activity, Spark health, and fact ho
   assert.equal('silentItems' in sparkHealth, false)
   assert.equal('silentThresholdDays' in sparkHealth, false)
   assert.equal('silentCount' in sparkHealth, false)
-  assert.ok(body.recentHotspots && typeof body.recentHotspots === 'object')
-  const hotspots = body.recentHotspots as Record<string, unknown>
-  assert.equal(hotspots.window, '7d')
-  for (const key of ['totalEvents', 'hotspotTotal', 'relationTotal']) {
-    assert.equal(typeof hotspots[key], 'number')
-  }
-  assert.ok(Array.isArray(hotspots.clusters))
-  assert.equal('independentHotspots' in hotspots, false)
+  // 2026-10-26 删除：一周关系热点整块功能已移除（Human 决定），端点不再投影该字段。
+  assert.equal('recentHotspots' in body, false, 'removed hotspot module must not be projected')
   // 其余尚未建设的模块仍整体省略。
   for (const moduleKey of ['whileAway', 'timeline', 'direction']) {
     assert.equal(moduleKey in body, false, `not-yet-built module must omit ${moduleKey}`)
   }
-})
-
-test('recent hotspots preserve only fact activity and one-hop formal relation shape', async () => {
-  const body = await cognition('zh', '1d')
-  const hotspots = body.recentHotspots as Record<string, unknown>
-  assert.equal(hotspots.window, '7d')
-  const clusters = hotspots.clusters as Array<Record<string, unknown>>
-  const primaryKeys = new Set<string>()
-  const assertNode = (node: Record<string, unknown>) => {
-    assert.ok(['workcase', 'adr', 'pitfall', 'spark', 'research'].includes(String(node.type)))
-    assert.match(String(node.id), /^(workcase|adr|pitfall|spark|study)-(?:\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})$/)
-    assert.equal(typeof node.title, 'string')
-    assert.equal(typeof node.typeColor, 'string')
-    assert.ok(Array.isArray(node.activityRefs))
-    const refs = node.activityRefs as Array<Record<string, unknown>>
-    for (const ref of refs) {
-      assert.match(String(ref.occurred_at), RFC3339)
-      assert.ok(['created', 'updated'].includes(String(ref.activity)))
-    }
-  }
-
-  const uniqueRelations = new Set<string>()
-  let previousPrimaryActivityTotal = Number.POSITIVE_INFINITY
-  for (const cluster of clusters) {
-    assert.ok(cluster.primary && typeof cluster.primary === 'object')
-    const primary = cluster.primary as Record<string, unknown>
-    assertNode(primary)
-    const primaryKey = `${primary.type}:${primary.id}`
-    assert.equal(primaryKeys.has(primaryKey), false, `duplicate primary hotspot: ${primaryKey}`)
-    primaryKeys.add(primaryKey)
-    const primaryActivityTotal = (primary.activityRefs as unknown[]).length
-    assert.ok(primaryActivityTotal > 0, 'each cluster must have exactly one fact-activity primary hotspot')
-    assert.ok(primaryActivityTotal <= previousPrimaryActivityTotal, 'clusters must be ordered by fact activity')
-    previousPrimaryActivityTotal = primaryActivityTotal
-    assert.ok(Array.isArray(cluster.relations))
-    assert.ok((cluster.relations as unknown[]).length > 0)
-    for (const relation of cluster.relations as Array<Record<string, unknown>>) {
-      assert.ok(relation.direction === 'outgoing' || relation.direction === 'incoming')
-      assert.equal(typeof relation.relationKey, 'string')
-      assert.ok(String(relation.relationKey).length > 0)
-      assert.ok(relation.node && typeof relation.node === 'object')
-      const node = relation.node as Record<string, unknown>
-      assertNode(node)
-      const nodeKey = `${node.type}:${node.id}`
-      assert.notEqual(primaryKey, nodeKey)
-      const source = relation.direction === 'outgoing' ? primaryKey : nodeKey
-      const target = relation.direction === 'outgoing' ? nodeKey : primaryKey
-      uniqueRelations.add(`${source}\u0000${target}\u0000${relation.relationKey}`)
-    }
-  }
-  assert.equal(primaryKeys.size, hotspots.hotspotTotal)
-  assert.equal(uniqueRelations.size, hotspots.relationTotal)
-})
-
-test('recent hotspot builder does not absorb transitive peers and rejects invalid relation semantics', async () => {
-  const { buildRecentHotspots } = await import('../../api/routes/cognition.ts')
-  const target = (fact_type_key: string, object_id: string) => ({ governed_project_id: 'demo', fact_type_key, object_id })
-  const fact = (
-    type: RecentHotspotBuildItem['type'],
-    object_id: string,
-    status: string,
-    relations: unknown = undefined,
-  ): RecentHotspotBuildItem => ({
-    type,
-    object_id,
-    title: object_id,
-    status,
-    ...(type === 'workcase' ? { progress_group: status === 'closed' ? 'closed' : 'progressing' } : {}),
-    read_status: 'readable',
-    relations,
-  })
-  const facts: RecentHotspotBuildItem[] = [
-    fact('spark', 'spark-0001', 'open', [
-      { relation_key: 'related-to', target: target('spark', 'spark-0002') },
-    ]),
-    fact('spark', 'spark-0002', 'open', [
-      { relation_key: 'related-to', target: target('spark', 'spark-0003') },
-    ]),
-    fact('spark', 'spark-0003', 'open'),
-    fact('research', 'research-0001', 'active', [
-      { relation_key: 'informs', target: target('spark', 'spark-0001') },
-    ]),
-    fact('workcase', 'workcase-0001', 'open', [
-      { relation_key: 'contributed-to', target: target('workcase', 'workcase-0002') },
-    ]),
-    fact('workcase', 'workcase-0002', 'open'),
-  ]
-  const activityByFact = new Map([
-    ['spark:spark-0001', [{ occurred_at: '2026-08-01T00:00:00Z', activity: 'updated' as const }]],
-  ])
-  const result = buildRecentHotspots(facts, activityByFact, 'demo')
-  assert.equal(result.hotspotTotal, 1)
-  assert.equal(result.relationTotal, 2)
-  assert.equal(result.clusters.length, 1)
-  assert.equal(result.clusters[0].primary.id, 'spark-0001')
-  assert.deepEqual(
-    result.clusters[0].relations.map((relation) => `${relation.direction}:${relation.relationKey}:${relation.node.id}`),
-    ['outgoing:related-to:spark-0002', 'incoming:informs:research-0001'],
-  )
-  assert.equal(result.clusters[0].relations.some((relation) => relation.node.id === 'spark-0003'), false)
-  assert.equal(result.clusters[0].relations.some((relation) => relation.node.id === 'workcase-0002'), false)
-})
-
-test('recent hotspots use UID identity, preserve UID activity, and reject mixed targets', async () => {
-  const { buildRecentHotspots } = await import('../../api/routes/cognition.ts')
-  const firstUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abc'
-  const secondUid = '0198f1c7-8a2b-4c3d-9e4f-123456789abd'
-  const facts: RecentHotspotBuildItem[] = [
-    {
-      type: 'spark', object_id: 'spark-0001', object_uid: firstUid,
-      title: 'First UID object', status: 'open', read_status: 'readable',
-      relations: [
-        { relation_key: 'related-to', target: { object_uid: secondUid } },
-        {
-          relation_key: 'informs',
-          target: { object_uid: secondUid, governed_project_id: 'demo', fact_type_key: 'spark', object_id: 'spark-0001' },
-        },
-      ],
-    },
-    {
-      type: 'spark', object_id: 'spark-0001', object_uid: secondUid,
-      title: 'Second UID object', status: 'open', read_status: 'readable', relations: [],
-    },
-  ]
-  const uidActivity = new Map([
-    [`uid:${firstUid}`, [{ occurred_at: '2026-08-01T00:00:00Z', activity: 'updated' as const }]],
-  ])
-
-  const result = buildRecentHotspots(facts, uidActivity, 'demo')
-  assert.equal(result.hotspotTotal, 1)
-  assert.equal(result.relationTotal, 1)
-  assert.equal(result.clusters[0].primary.object_uid, firstUid)
-  assert.equal(result.clusters[0].primary.activityRefs.length, 1)
-  assert.equal(result.clusters[0].relations[0].node.object_uid, secondUid)
-
-  const ambiguousLegacyActivity = new Map([
-    ['spark:spark-0001', [{ occurred_at: '2026-08-01T00:00:00Z', activity: 'updated' as const }]],
-  ])
-  assert.equal(buildRecentHotspots(facts, ambiguousLegacyActivity, 'demo').hotspotTotal, 0)
-})
-
-test('recent hotspots do not project a legacy Spark routed-to edge as a current responsibility', async () => {
-  const { buildRecentHotspots } = await import('../../api/routes/cognition.ts')
-  const target = (fact_type_key: string, object_id: string) => ({ governed_project_id: 'demo', fact_type_key, object_id })
-  const facts: RecentHotspotBuildItem[] = [
-    {
-      type: 'spark',
-      object_id: 'spark-0101',
-      title: '源议题',
-      status: 'routed',
-      read_status: 'readable',
-      relations: [{ relation_key: 'routed-to', target: target('spark', 'spark-0102') }],
-    },
-    {
-      type: 'spark',
-      object_id: 'spark-0102',
-      title: '残余议题',
-      status: 'open',
-      read_status: 'readable',
-      relations: [],
-    },
-  ]
-  const activityByFact = new Map([
-    ['spark:spark-0101', [{ occurred_at: '2026-08-01T00:00:00Z', activity: 'updated' as const }]],
-  ])
-
-  const result = buildRecentHotspots(facts, activityByFact, 'demo')
-  assert.equal(result.relationTotal, 0)
-  assert.equal(result.clusters.length, 0)
-})
-
-test('recent hotspot projection preserves full UID identity for readable nodes', () => {
-  const item = {
-    object_ref: { governed_project_id: 'demo', fact_type_key: 'spark', object_id: 'spark-0103' },
-    canonical_path: 'ldvh-base/sparks/spark-0103.yaml',
-    absolute_path: '/tmp/spark-0103.yaml',
-    carrier: 'yaml' as const,
-    read_status: 'readable' as const,
-    source_content_fingerprint: null,
-    fact_object: {
-      object_id: 'spark-0103',
-      object_uid: '019ffb52-ebb5-4812-9630-8e7aad44da3d',
-      title: '可读热点',
-      status: 'open',
-      relations: [],
-    },
-    field_issues: [],
-    unparsed_structures: [],
-    issues: [],
-  }
-  assert.deepEqual(
-    projectRecentHotspotFact(item, 'spark'),
-    {
-      type: 'spark',
-      object_id: 'spark-0103',
-      object_uid: '019ffb52-ebb5-4812-9630-8e7aad44da3d',
-      title: '可读热点',
-      status: 'open',
-      read_status: 'readable',
-      relations: [],
-    },
-  )
-})
-
-test('recent hotspot projection omits facts without a readable title instead of falling back to objectId', () => {
-  const item = {
-    object_ref: { governed_project_id: 'demo', fact_type_key: 'spark', object_id: 'spark-0103' },
-    canonical_path: 'ldvh-base/sparks/spark-0103.yaml',
-    absolute_path: '/tmp/spark-0103.yaml',
-    carrier: 'yaml' as const,
-    read_status: 'readable' as const,
-    source_content_fingerprint: null,
-    fact_object: { object_id: 'spark-0103', status: 'open' },
-    field_issues: [],
-    unparsed_structures: [],
-    issues: [],
-  }
-  assert.equal(projectRecentHotspotFact(item, 'spark'), null)
-  assert.equal(
-    projectRecentHotspotFact({ ...item, fact_object: { ...item.fact_object, title: '  ' } }, 'spark'),
-    null,
-  )
 })
 
 test('Spark health splits the current pool into terminal and open items, ordered by days-since-update (no silent threshold)', async () => {

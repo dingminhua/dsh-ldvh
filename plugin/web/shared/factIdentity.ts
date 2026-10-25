@@ -7,8 +7,8 @@
  * never encoded in the identity field.
  *
  * Every reader-side consumer shares this one predicate — association target
- * resolution, list/detail field validation, `authority_ref` projection, hotspot
- * keys and the client-side reading projection. It lives in `shared/` because
+ * resolution, list/detail field validation, `authority_ref` projection and the
+ * client-side reading projection. It lives in `shared/` because
  * both the API plane and the browser client consume it.
  *
  * History (why this file exists): the Web layer once carried four independent

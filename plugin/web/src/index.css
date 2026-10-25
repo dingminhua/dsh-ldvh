@@ -254,13 +254,6 @@
     gap: 1.5rem;
   }
 
-  .ldvh-hotspot-grid {
-    display: grid;
-    width: 100%;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, max(22rem, calc((100% - 6rem) / 5))), 1fr));
-    gap: 1.5rem;
-  }
-
   .ldvh-mini-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 7.5rem), 1fr));

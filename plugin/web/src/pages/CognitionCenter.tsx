@@ -27,11 +27,9 @@ import {
 import StatusBadge from '@/components/StatusBadge';
 import PriorityIcon from '@/components/PriorityIcon';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
-import { CommitHotspotCluster, CommitHotspotRelationLegend, nodeKey } from '@/pages/cognition/CommitHotspotGraph';
 import {
   fetchCognition,
   type CognitionActiveWorkCaseItem,
-  type CognitionRecentHotspotNode,
   type CognitionData,
   type CognitionInboxItem,
   type CognitionInboxKind,
@@ -66,27 +64,6 @@ const SPARK_PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
 const RECENT_ACTIVITY_WINDOWS: CognitionRecentActivityWindow[] = ['1d', '3d', '7d'];
 const SPARK_HEALTH_AGE_FILTERS: SparkHealthAgeFilter[] = ['all', '3d', '7d'];
 
-type RecentHotspotStatusFilter = 'all' | 'progressing' | 'decision' | 'settled';
-
-const RECENT_HOTSPOT_STATUS_FILTERS: RecentHotspotStatusFilter[] = ['all', 'progressing', 'decision', 'settled'];
-const RECENT_HOTSPOT_TERMINAL_STATUSES: Record<string, Set<string>> = {
-  workcase: new Set(['closed']),
-  adr: new Set(['retired']),
-  pitfall: new Set(['discarded']),
-  spark: new Set(['implemented', 'discarded']),
-  research: new Set(['retired']),
-};
-
-function getRecentHotspotStatusGroup(node: CognitionRecentHotspotNode): Exclude<RecentHotspotStatusFilter, 'all'> {
-  if (node.status && RECENT_HOTSPOT_TERMINAL_STATUSES[node.type]?.has(node.status)) return 'settled';
-  if (node.type === 'workcase') {
-    if (node.group === 'pending_gate1' || node.group === 'awaiting_gate2') return 'decision';
-    if (node.group === 'closed') return 'settled';
-    return 'progressing';
-  }
-  if (node.type === 'pitfall' && node.status === 'draft') return 'decision';
-  return 'progressing';
-}
 
 const INBOX_KIND_LABEL_KEYS: Record<CognitionInboxKind, LocaleKey> = {
   plan_confirmation: 'cognition.kind.plan_confirmation',
@@ -182,21 +159,6 @@ function buildSparkHealthSummary(data: CognitionData, locale: string, t: Transla
   return lines.join('\n');
 }
 
-function buildRecentHotspotSummary(data: CognitionData, locale: string, t: Translate): string {
-  const hotspots = data.recentHotspots;
-  if (!hotspots) return t('cognition.commitHotspots.title');
-  const lines = [
-    t('cognition.commitHotspots.title'),
-    t(`cognition.recent.window.${hotspots.window}` as LocaleKey),
-    t('cognition.commitHotspots.totalCommits', { count: String(hotspots.totalEvents) }),
-    t('cognition.commitHotspots.summary', { hotspots: String(hotspots.hotspotTotal), relations: String(hotspots.relationTotal) }),
-  ];
-  for (const cluster of hotspots.clusters) {
-    const item = cluster.primary;
-    lines.push(`- ${formatHumanObjectReference(item.type, getLocalizedObjectTitle(item, locale, item.id), locale)} · ${item.activityRefs.length}`);
-  }
-  return lines.join('\n');
-}
 /* eslint-enable @typescript-eslint/no-unused-vars -- 五个 AI 对话摘要构造器到此为止 */
 
 /** 读取问题与未解析结构在消费位置就地显示（02 §5.4）。 */
@@ -544,7 +506,7 @@ function toggleOnKeyboard(event: KeyboardEvent<HTMLDivElement>, toggle: () => vo
   toggle();
 }
 
-export default function CognitionCenter({ hideCommitHotspots = false, embedded = false }: { hideCommitHotspots?: boolean; embedded?: boolean } = {}) {
+export default function CognitionCenter({ embedded = false }: { embedded?: boolean } = {}) {
   const [data, setData] = useState<CognitionData | null>(null);
   // 「本模块是否已有快照」不能用 data 作为 effect 依赖：setData 后 data 变化会重新
   // 触发取数，形成自激循环（react-hooks/exhaustive-deps）。故用 ref 记录同一事实——
@@ -564,9 +526,6 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
   const [sparkHealthExpanded, setSparkHealthExpanded] = useState(true);
   const [sparkHealthAgeFilter, setSparkHealthAgeFilter] = useState<SparkHealthAgeFilter>('7d');
   const [showAllSpark, setShowAllSpark] = useState(false);
-  const [recentHotspotsExpanded, setRecentHotspotsExpanded] = useState(true);
-  const [expandedHotspotKey, setExpandedHotspotKey] = useState<string | null>(null);
-  const [recentHotspotStatusFilter, setRecentHotspotStatusFilter] = useState<RecentHotspotStatusFilter>('progressing');
   const { t, locale } = useI18n();
 
   // 首次进入才阻塞整页；切换近期窗口保留当前内容，只在本模块内更新快照。
@@ -656,22 +615,6 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
       .map((priority) => `${priority} × ${sparkHealth.openByPriority[priority]}`)
       .join(' / ')
     : '';
-  const recentHotspots = data.recentHotspots;
-  const recentHotspotIssues = (data.issues ?? []).filter((issue) => issue.section === 'recentHotspots');
-  const filteredRecentHotspotClusters = !recentHotspots
-    ? []
-    : recentHotspotStatusFilter === 'all'
-      ? recentHotspots.clusters
-      : recentHotspots.clusters.filter((cluster) => getRecentHotspotStatusGroup(cluster.primary) === recentHotspotStatusFilter);
-  const recentHotspotStatusCounts = recentHotspots?.clusters.reduce<Record<RecentHotspotStatusFilter, number>>((counts, cluster) => {
-    counts.all += 1;
-    counts[getRecentHotspotStatusGroup(cluster.primary)] += 1;
-    return counts;
-  }, { all: 0, progressing: 0, decision: 0, settled: 0 }) ?? { all: 0, progressing: 0, decision: 0, settled: 0 };
-  const recentHotspotRelationKeys = [...new Set(filteredRecentHotspotClusters.flatMap((cluster) => (
-    cluster.relations.map((relation) => relation.relationKey)
-  )))];
-
   return (
     <div className={`flex min-h-full flex-col${embedded ? '' : ' p-6'}`}>
       <div className="ldvh-page-toolbar mb-4 min-w-0 shrink-0">
@@ -1044,102 +987,6 @@ export default function CognitionCenter({ hideCommitHotspots = false, embedded =
         )}
         </section>
       </div>
-
-      {/* 模块三：以事实流水为热点中心，仅展开一跳正式关系；不推断语义关联或重要性。
-          可经 hideCommitHotspots 隐藏——蓝图(v5)聚焦页以长期意图区取代此动态热点呈现。 */}
-      {!hideCommitHotspots && (
-      <section className="mt-4 rounded-xl border border-ldvh-border bg-ldvh-panel p-4">
-        <div
-          role="button"
-          tabIndex={0}
-          aria-expanded={recentHotspotsExpanded}
-          aria-controls="cognition-recent-hotspots-content"
-          onClick={() => setRecentHotspotsExpanded((expanded) => !expanded)}
-          onKeyDown={(event) => toggleOnKeyboard(event, () => setRecentHotspotsExpanded((expanded) => !expanded))}
-          className={`-mx-1 flex min-w-0 cursor-pointer flex-wrap items-center gap-2 rounded-md px-1 transition-colors hover:bg-ldvh-bg/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ldvh-accent/50 ${recentHotspotsExpanded ? 'mb-4' : ''}`}
-        >
-          <GitFork size={16} className="shrink-0 text-ldvh-accent" aria-hidden="true" />
-          <h3 className="ldvh-section-title min-w-0">{t('cognition.commitHotspots.title')}</h3>
-          {recentHotspots && recentHotspots.hotspotTotal > 0 && (
-            <div
-              className="ldvh-tab-list ml-1 flex min-w-0 flex-wrap"
-              role="group"
-              aria-label={t('cognition.commitHotspots.statusFilterLabel')}
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => event.stopPropagation()}
-            >
-              {RECENT_HOTSPOT_STATUS_FILTERS.map((filter) => (
-                <button
-                  key={filter}
-                  type="button"
-                  aria-pressed={recentHotspotStatusFilter === filter}
-                  onClick={() => {
-                    setRecentHotspotStatusFilter(filter);
-                    setExpandedHotspotKey(null);
-                  }}
-                  className={`ldvh-tab-button ${recentHotspotStatusFilter === filter ? 'ldvh-tab-button-active' : 'ldvh-tab-button-idle'}`}
-                >
-                  {t(`cognition.commitHotspots.statusFilter.${filter}` as LocaleKey)}
-                  <span className="ml-1 tabular-nums opacity-75">{recentHotspotStatusCounts[filter]}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          <span className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
-            <button
-              type="button"
-              aria-expanded={recentHotspotsExpanded}
-              aria-controls="cognition-recent-hotspots-content"
-              onClick={(event) => {
-                event.stopPropagation();
-                setRecentHotspotsExpanded((expanded) => !expanded);
-              }}
-              className="ldvh-icon-button"
-              title={t(recentHotspotsExpanded ? 'cognition.commitHotspots.collapseSection' : 'cognition.commitHotspots.expandSection')}
-            >
-              {recentHotspotsExpanded ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
-              <span className="sr-only">{t(recentHotspotsExpanded ? 'cognition.commitHotspots.collapseSection' : 'cognition.commitHotspots.expandSection')}</span>
-            </button>
-          </span>
-        </div>
-
-        {recentHotspotsExpanded && (
-          <div id="cognition-recent-hotspots-content">
-            <ModuleIssuesNotice issues={recentHotspotIssues} t={t} unavailableKey="cognition.commitHotspots.unavailable" />
-            {recentHotspots && (
-              recentHotspots.hotspotTotal === 0 ? (
-                recentHotspotIssues.length === 0 && <p className="ldvh-body-muted">{t('cognition.commitHotspots.empty')}</p>
-              ) : (
-                <div className="flex min-w-0 flex-col gap-3">
-                  {recentHotspotRelationKeys.length > 0 && (
-                    <CommitHotspotRelationLegend relationKeys={recentHotspotRelationKeys} />
-                  )}
-                  {filteredRecentHotspotClusters.length === 0 ? (
-                    <p className="ldvh-body-muted">{t('cognition.commitHotspots.filterEmpty')}</p>
-                  ) : (
-                    <div className="ldvh-hotspot-grid min-w-0 items-start">
-                      {filteredRecentHotspotClusters.map((cluster, index) => {
-                        const clusterKey = nodeKey(cluster.primary);
-                        return (
-                          <CommitHotspotCluster
-                            key={clusterKey}
-                            cluster={cluster}
-                            index={index}
-                            canExpand={cluster.relations.length > 0}
-                            expanded={expandedHotspotKey === clusterKey}
-                            onExpandedChange={(expanded) => setExpandedHotspotKey(expanded ? clusterKey : null)}
-                          />
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )
-            )}
-          </div>
-        )}
-      </section>
-      )}
     </div>
   );
 }

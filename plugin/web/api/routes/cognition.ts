@@ -1,11 +1,10 @@
 /**
  * Cognition API 路由：聚合项目认知中心的待决定事项、推进中事项与近期动态。
  *
- * 已交付模块一（待决定事项）、模块二（近期动态）、模块三（近期热点关系）与模块四（Spark 池健康）
+ * 已交付模块一（待决定事项）、模块二（近期动态）与模块三（Spark 池健康）
  * + §5 全局信任标记所需的派生字段：
  * generatedAt（观察时间）、scope、inbox（WorkCase Human Gate 与 Pitfall draft 审核的派生收录与排序）、
- * recentActivity（指定窗口内事实对象 change_log 的创建 / 更新事件）、recentHotspots（最近一周内
- * 的事实热点及一跳正式关系）与 issues（模块级降级）。
+ * recentActivity（指定窗口内事实对象 change_log 的创建 / 更新事件）与 issues（模块级降级）。
  * 数据经 Web 字段级直读（localFactReader / facts.ts 的 listObjects），不复用 /api/dashboard 聚合逻辑。
  *
  * 命名纪律（02 §7 第 3 条）：WorkCase 条目只携带 group（21 号三态直读派生组）；
@@ -15,7 +14,6 @@
 
 import { Router, type Request, type Response } from 'express'
 import { listObjects, type ObjectType } from '../services/facts.js'
-import { listLocalFacts, type LocalFactItem } from '../services/localFactReader.js'
 import { canonicalUid } from '../../shared/factIdentity.js'
 import {
   WORKCASE_V5_STATUSES,
@@ -56,7 +54,6 @@ const RECENT_ACTIVITY_WINDOWS: Record<RecentActivityWindow, number> = {
   '3d': 3,
   '7d': 7,
 }
-const RECENT_HOTSPOT_WINDOW: RecentActivityWindow = '7d'
 // 2026-09-27 移除：`SPARK_SILENT_THRESHOLD_DAYS = 5` 曾把「距最近一次 change_log
 // 流水 ≥5 天」的 open Spark 判定为「沉默」并单列成组。该**阈值判据无规范来源**
 // （specs/ 全库零授权；20 §12 登记该消费点时已注明「其阈值与判据不由本文定义」），
@@ -202,43 +199,6 @@ interface SparkHealthBuildItem {
 
 /** 面向 Web 的当前两字段事实流水署名；历史字段只读兼容但不投影。单一实现在 shared/factChangeLog。 */
 type FactChangeSignature = ChangeLogSignature
-
-export interface RecentHotspotBuildItem {
-  type: ObjectType
-  object_id: string
-  object_uid?: string
-  title: string
-  title_en?: string
-  title_zh?: string
-  status?: string
-  group?: WorkCaseV5Group
-  priority?: string
-  read_status: string
-  relations: unknown
-}
-
-interface RecentHotspotRef {
-  occurred_at: string
-  activity: RecentActivityKind
-}
-
-interface RecentHotspotNode extends Omit<RecentHotspotBuildItem, 'object_id' | 'relations' | 'phase'> {
-  id: string
-  typeColor: string
-  activityRefs: RecentHotspotRef[]
-}
-
-interface RecentHotspotEdge {
-  source: string
-  target: string
-  relationKey: string
-}
-
-interface RecentHotspotRelation {
-  direction: 'outgoing' | 'incoming'
-  relationKey: string
-  node: RecentHotspotNode
-}
 
 /** P0=0 … P3=3；缺失或非法落 4（排最后，并省略优先级信号）。 */
 function priorityRank(priority: unknown): number {
@@ -611,210 +571,6 @@ export function buildSparkHealth(
   }
 }
 
-export function projectRecentHotspotFact(item: LocalFactItem, type: ObjectType): RecentHotspotBuildItem | null {
-  const raw = item.fact_object
-  if (item.read_status !== 'readable' || raw === null || item.field_issues.length > 0) return null
-  if (item.object_ref.fact_type_key !== type || !item.object_ref.object_id) return null
-  const objectId = item.object_ref.object_id
-  const title = typeof raw.title === 'string' && raw.title.trim() ? raw.title : null
-  if (title === null) return null
-  const status = typeof raw.status === 'string' ? raw.status : undefined
-  const currentView = type === 'workcase'
-    ? deriveWorkCaseV5View(raw.status, raw.outcome, raw.report_body, item.source_content_fingerprint)
-    : null
-  const group = currentView?.resolution === 'resolved' ? currentView.group : undefined
-  const priority = priorityRank(raw.priority) < 4 && typeof raw.priority === 'string' ? raw.priority : undefined
-  return {
-    type,
-    object_id: objectId,
-    ...(typeof raw.object_uid === 'string' ? { object_uid: raw.object_uid } : {}),
-    title,
-    ...(typeof raw.title_en === 'string' ? { title_en: raw.title_en } : {}),
-    ...(typeof raw.title_zh === 'string' ? { title_zh: raw.title_zh } : {}),
-    ...(status ? { status } : {}),
-    ...(type === 'workcase' && group ? { group } : {}),
-    ...(priority ? { priority } : {}),
-    read_status: item.read_status,
-    relations: raw.relations,
-  }
-}
-
-function isDisplayableFormalRelation(
-  source: RecentHotspotBuildItem,
-  target: RecentHotspotBuildItem,
-  relationKey: string,
-): boolean {
-  if (source.type === 'spark') {
-    if (relationKey === 'related-to') return true
-    return false
-  }
-  if (source.type === 'workcase') {
-    if (!source.status || !['draft', 'open', 'closed'].includes(source.status)) return false
-    if (relationKey === 'related-to') return true
-    if (relationKey === 'depends-on') {
-      return source.group !== 'closed'
-        && target.type === 'workcase'
-        && (target.status === 'open' || target.status === 'draft')
-    }
-    // 显示层收窄，**不是**写入期有效性判定——`routed-to` 写入期与语义的唯一权威是 21 §12：
-    // 目标必须是同项目 Spark，且**写入时**须为 `open`。
-    //
-    // ① 目标**只接受 spark**：21 §12 的目标类型是 Spark，WorkCase 目标在本关系下从不合法，
-    //    显示层不得放宽出规范不承认的形态（本仓事实源当前 0 条 `routed-to`，无历史数据受影响）。
-    // ② 仍接受 implemented／discarded 目标：21 §13 规定目标其后转终态**不使该边失效**，且
-    //    消费方**必须**标注目标已终结——故终态目标要显示（由节点自己的状态徽标承载），
-    //    而不是过滤掉。过滤会让「已终结的目标」静默消失，违反 §13。
-    // ③ 已知收窄（如实登记）：只画 `closed` 源对象上的边。对象在 `open` 期经 `execute` 落盘
-    //    `routed-to`、尚未关闭的窗口内该边不显示（21 §14 的 CREATE-FIRST 次序会把边先写下来）。
-    //    这是显示选择，不主张该边无效，也不构成第二权威。
-    if (relationKey === 'routed-to') {
-      return source.status === 'closed'
-        && target.type === 'spark'
-        && ['open', 'implemented', 'discarded'].includes(target.status ?? '')
-    }
-    if (relationKey === 'contributed-to') {
-      return target.type === 'pitfall' && ['draft', 'active', 'discarded'].includes(target.status ?? '')
-    }
-    return false
-  }
-  if (source.type === 'research') {
-    return (relationKey === 'inspired-by' || relationKey === 'informs')
-      && (target.type === 'spark' || target.type === 'workcase' || target.type === 'adr')
-  }
-  return false
-}
-
-function compareRecentHotspotRef(a: RecentHotspotRef, b: RecentHotspotRef): number {
-  const timeDelta = compareTimestamps(b.occurred_at, a.occurred_at)
-  if (timeDelta !== 0) return timeDelta
-  if (a.activity !== b.activity) return a.activity === 'updated' ? -1 : 1
-  return 0
-}
-
-function compareHotspotNode(a: RecentHotspotNode, b: RecentHotspotNode): number {
-  if (a.activityRefs.length !== b.activityRefs.length) return b.activityRefs.length - a.activityRefs.length
-  const aLatest = a.activityRefs[0]?.occurred_at ?? ''
-  const bLatest = b.activityRefs[0]?.occurred_at ?? ''
-  const timeDelta = compareTimestamps(bLatest, aLatest)
-  if (timeDelta !== 0) return timeDelta
-  // 活跃度相同时，非终态 WorkCase 只作为稳定的阅读顺序兜底，不覆盖事实热点本身。
-  const aWorkCase = a.type === 'workcase' && a.group !== 'closed'
-  const bWorkCase = b.type === 'workcase' && b.group !== 'closed'
-  if (aWorkCase !== bWorkCase) return aWorkCase ? -1 : 1
-  return factKey(a.type, a.id).localeCompare(factKey(b.type, b.id))
-}
-
-export function buildRecentHotspots(
-  facts: RecentHotspotBuildItem[],
-  activityByFact: Map<string, RecentHotspotRef[]>,
-  governedProjectId: string,
-) {
-  const uidCounts = new Map<string, number>()
-  for (const item of facts) {
-    if (item.object_uid) uidCounts.set(item.object_uid, (uidCounts.get(item.object_uid) ?? 0) + 1)
-  }
-  const nodeKey = (item: RecentHotspotBuildItem) => factKey(
-    item.type,
-    item.object_id,
-    item.object_uid && uidCounts.get(item.object_uid) === 1 ? item.object_uid : undefined,
-  )
-  const byKey = new Map(facts.map((item) => [nodeKey(item), item]))
-  const byLegacyKey = new Map<string, string | null>()
-  for (const item of facts) {
-    const legacyKey = factKey(item.type, item.object_id)
-    const authorityKey = nodeKey(item)
-    if (!byLegacyKey.has(legacyKey)) byLegacyKey.set(legacyKey, authorityKey)
-    else if (byLegacyKey.get(legacyKey) !== authorityKey) byLegacyKey.set(legacyKey, null)
-  }
-  const activityKey = (key: string) => byKey.has(key) ? key : (byLegacyKey.get(`legacy:${key}`) ?? undefined)
-  const hotspots = new Set([...activityByFact.entries()]
-    .filter(([, refs]) => refs.length > 0)
-    .map(([key]) => activityKey(key))
-    .filter((key): key is string => typeof key === 'string')
-    .filter((key) => byKey.has(key)))
-  const edges = new Map<string, RecentHotspotEdge>()
-  for (const source of facts) {
-    const sourceKey = nodeKey(source)
-    if (!Array.isArray(source.relations)) continue
-    for (const relation of source.relations) {
-      if (!relation || typeof relation !== 'object' || Array.isArray(relation)) continue
-      const record = relation as Record<string, unknown>
-      const target = record.target
-      if (typeof record.relation_key !== 'string' || !target || typeof target !== 'object' || Array.isArray(target)) continue
-      const targetRecord = target as Record<string, unknown>
-      const targetFields = new Set(Object.keys(targetRecord))
-      let targetKey: string | undefined
-      if (targetFields.size === 1 && targetFields.has('object_uid')
-        && typeof targetRecord.object_uid === 'string'
-        && uidCounts.get(targetRecord.object_uid) === 1
-        && factKey('', '', targetRecord.object_uid).startsWith('uid:')) targetKey = `uid:${targetRecord.object_uid}`
-      else {
-        if (targetFields.size !== 3
-          || !targetFields.has('governed_project_id')
-          || !targetFields.has('fact_type_key')
-          || !targetFields.has('object_id')
-          || targetRecord.governed_project_id !== governedProjectId
-          || typeof targetRecord.fact_type_key !== 'string'
-          || typeof targetRecord.object_id !== 'string') continue
-        targetKey = byLegacyKey.get(factKey(targetRecord.fact_type_key, targetRecord.object_id)) ?? undefined
-      }
-      if (!targetKey) continue
-      const targetFact = byKey.get(targetKey)
-      if (!targetFact || targetKey === sourceKey || (!hotspots.has(sourceKey) && !hotspots.has(targetKey))) continue
-      if (!isDisplayableFormalRelation(source, targetFact, record.relation_key)) continue
-      const edge: RecentHotspotEdge = { source: sourceKey, target: targetKey, relationKey: record.relation_key }
-      edges.set(`${edge.source}\u0000${edge.target}\u0000${edge.relationKey}`, edge)
-    }
-  }
-
-  const edgeValues = [...edges.values()]
-  const makeNode = (key: string): RecentHotspotNode => {
-    const item = byKey.get(key)
-    if (!item) throw new Error(`Recent hotspot fact not found: ${key}`)
-    const legacyActivityKey = `${item.type}:${item.object_id}`
-    const refs = [...(activityByFact.get(key) ?? activityByFact.get(legacyActivityKey) ?? [])]
-      .sort(compareRecentHotspotRef)
-    return {
-      type: item.type,
-      id: item.object_id,
-      ...(item.object_uid !== undefined ? { object_uid: item.object_uid } : {}),
-      title: item.title,
-      ...(item.title_en !== undefined ? { title_en: item.title_en } : {}),
-      ...(item.title_zh !== undefined ? { title_zh: item.title_zh } : {}),
-      ...(item.status !== undefined ? { status: item.status } : {}),
-      ...(item.group !== undefined ? { group: item.group } : {}),
-      ...(item.priority !== undefined ? { priority: item.priority } : {}),
-      read_status: item.read_status,
-      typeColor: getTypeColor(item.type),
-      activityRefs: refs,
-    }
-  }
-
-  const clusters: Array<{ primary: RecentHotspotNode; relations: RecentHotspotRelation[] }> = []
-  for (const hotspotKey of [...hotspots].sort()) {
-    const incident = edgeValues.filter((edge) => edge.source === hotspotKey || edge.target === hotspotKey)
-    if (incident.length === 0) continue
-    const relations = incident.map((edge): RecentHotspotRelation => ({
-      direction: edge.source === hotspotKey ? 'outgoing' : 'incoming',
-      relationKey: edge.relationKey,
-      node: makeNode(edge.source === hotspotKey ? edge.target : edge.source),
-    })).sort((a, b) => {
-      if (a.direction !== b.direction) return a.direction === 'outgoing' ? -1 : 1
-      if (a.relationKey !== b.relationKey) return a.relationKey.localeCompare(b.relationKey)
-      return factKey(a.node.type, a.node.id).localeCompare(factKey(b.node.type, b.node.id))
-    })
-    clusters.push({ primary: makeNode(hotspotKey), relations })
-  }
-  clusters.sort((a, b) => compareHotspotNode(a.primary, b.primary))
-
-  return {
-    totalEvents: [...activityByFact.values()].reduce((total, refs) => total + refs.length, 0),
-    hotspotTotal: clusters.length,
-    relationTotal: edgeValues.length,
-    clusters,
-  }
-}
-
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   const generatedAt = new Date().toISOString()
   try {
@@ -966,7 +722,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     activeWorkCaseBuilds.sort(compareCardBuild)
 
     const recentStart = new Date(generatedAt).getTime() - RECENT_ACTIVITY_WINDOWS[recentWindow] * 24 * 60 * 60 * 1000
-    const hotspotStart = new Date(generatedAt).getTime() - RECENT_ACTIVITY_WINDOWS[RECENT_HOTSPOT_WINDOW] * 24 * 60 * 60 * 1000
     const recentBuilds: RecentActivityBuildItem[] = []
     // 近期动态的取数范围 = OBJECT_TYPES 全集（活跃事实类型皆有 change_log 流水）。
     // 此前本表停在早期的五类上，friction/norm 加入 OBJECT_TYPES 时未随行——遗漏
@@ -1019,43 +774,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       issues.push({ section: 'recentActivity', code: 'goal_unreadable', message: goalRecord.issues[0]?.message ?? 'goal.md 读取失败' })
     }
     recentBuilds.sort(compareRecentActivity)
-
-    // 模块三与近期动态共用事实 change_log；只读取当前正式关系，不从 Git、标题或关键词推断关联。
-    let recentHotspots: ReturnType<typeof buildRecentHotspots> | undefined
-    try {
-      const graphFacts: RecentHotspotBuildItem[] = []
-      const activityByFact = new Map<string, RecentHotspotRef[]>()
-      const graphTypes: ObjectType[] = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction']
-      const graphResults = await Promise.all(graphTypes.map(async (type) => [type, await listLocalFacts(type, factScope)] as const))
-      for (const [type, result] of graphResults) {
-        if (result.status !== 'complete') {
-          issues.push({ section: 'recentHotspots', code: `${type}_relation_list_unavailable`, message: result.issues[0]?.message ?? `${type} 正式关系读取失败` })
-          continue
-        }
-        for (const item of result.items) {
-          const projected = projectRecentHotspotFact(item, type)
-          if (!projected) continue
-          graphFacts.push(projected)
-          activityByFact.set(
-            factKey(projected.type, projected.object_id, projected.object_uid),
-            buildFactActivityItems(item.fact_object ?? {}, type, hotspotStart, parseTimestamp(generatedAt)).map((activity) => ({
-              occurred_at: activity.occurred_at,
-              activity: activity.activity,
-            })),
-          )
-        }
-        for (const issue of result.issues) {
-          issues.push({ section: 'recentHotspots', code: issue.code, message: issue.message })
-        }
-      }
-      recentHotspots = buildRecentHotspots(graphFacts, activityByFact, project.id)
-    } catch (caught) {
-      issues.push({
-        section: 'recentHotspots',
-        code: 'recent_hotspot_data_unavailable',
-        message: caught instanceof Error ? caught.message : '近期事实热点数据不可用',
-      })
-    }
 
     const items = builds.map((build) => {
       const card = Object.fromEntries(
@@ -1175,15 +893,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         modelUsage: recentActivityView.modelUsage,
         environmentUsage: recentActivityView.environmentUsage,
       },
-      ...(recentHotspots ? {
-        recentHotspots: {
-          window: RECENT_HOTSPOT_WINDOW,
-          totalEvents: recentHotspots.totalEvents,
-          hotspotTotal: recentHotspots.hotspotTotal,
-          relationTotal: recentHotspots.relationTotal,
-          clusters: recentHotspots.clusters,
-        },
-      } : {}),
       ...(sparkHealth ? {
         sparkHealth: {
           total: sparkHealth.total,

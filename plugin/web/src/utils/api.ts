@@ -668,54 +668,6 @@ export interface CognitionSparkHealth {
   openItems: CognitionSparkHealthItem[];
 }
 
-/** 近期热点中心对应的事实修改流水；只表示本窗口内的事实活动。 */
-export interface CognitionRecentHotspotRef {
-  occurred_at: string;
-  activity: CognitionRecentActivityKind;
-}
-
-export interface CognitionRecentHotspotNode {
-  type: string;
-  id: string;
-  object_uid?: string;
-  title: string;
-  title_en?: string;
-  title_zh?: string;
-  /** WorkCase 仅携带派生 group；其它对象携带自身状态。 */
-  group?: WorkCaseV5Group;
-  status?: string;
-  priority?: string;
-  read_status: string;
-  typeColor: string;
-  /** 仅热点中心有非空数组；一跳关系节点为 []。 */
-  activityRefs: CognitionRecentHotspotRef[];
-}
-
-export interface CognitionRecentHotspotRelation {
-  direction: 'outgoing' | 'incoming';
-  relationKey: string;
-  node: CognitionRecentHotspotNode;
-}
-
-export interface CognitionRecentHotspotCluster {
-  /** 当前窗口内有事实修改流水的唯一中心。 */
-  primary: CognitionRecentHotspotNode;
-  /** 只含与中心直接相连的一跳正式关系；不会递归展开邻居。 */
-  relations: CognitionRecentHotspotRelation[];
-}
-
-/**
- * 当前窗口内由事实 change_log 直接产生的热点。
- * 只返回至少有一条正式关系、能展开一跳工作的热点关系簇。
- */
-export interface CognitionRecentHotspots {
-  window: CognitionRecentActivityWindow;
-  totalEvents: number;
-  hotspotTotal: number;
-  relationTotal: number;
-  clusters: CognitionRecentHotspotCluster[];
-}
-
 export interface CognitionIssue {
   section: string;
   code: string;
@@ -741,8 +693,6 @@ export interface CognitionData {
   };
   /** Spark 列表不可读取时整体省略，并通过 issues 就地说明。 */
   sparkHealth?: CognitionSparkHealth;
-  /** 事实流水或关系读取不可用时整体省略，并通过 issues 就地说明。 */
-  recentHotspots?: CognitionRecentHotspots;
   issues?: CognitionIssue[];
 }
 
