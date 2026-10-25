@@ -357,6 +357,74 @@ test("§8.4 水位：执行体抛错时不推进（fail-closed 侧，下次重�
   });
 });
 
+test("执行体失败须把可诊断信息写进待处置队列（不得只留 stopReason）", async () => {
+  // 2026-10-26 补：此前 `residual` 硬编码为空数组，队列里 135 条失败**全部只有**
+  // 一句 `stopReason=error`——知道失败了，但查不出为什么（队列、运行痕迹、活动
+  // 日志三处都取不到更多信息）。本用例钉住「失败必须携带可诊断线索」。
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
+    const { readPendingQueue } = await import("../lib/pending-queue.js");
+    const r = await runIdleCheckpoint({
+      dshHomePath: home,
+      factSourceRoot,
+      projectId,
+      projectRoot,
+      task: "friction-discovery",
+      sessionId: RUN_SESSION,
+      currentTurn: 4,
+      discover: async () => {
+        const error = new Error("subagent run did not complete (stopReason=error)");
+        error.code = "discovery_provider/incomplete_run";
+        error.runId = "child-abc-123";
+        error.stopReason = "error";
+        throw error;
+      },
+    });
+    assert.ok(!r.ok);
+
+    const queue = await readPendingQueue(home);
+    const entry = queue.value.items[0];
+    assert.ok(entry, "失败须入队");
+
+    const residual = Array.isArray(entry.residual) ? entry.residual : [];
+    assert.ok(residual.length > 0, `失败条目不得带空 residual；实际=${JSON.stringify(entry.residual)}`);
+
+    const joined = residual.join("\n");
+    assert.ok(joined.includes("discovery_provider/incomplete_run"), `须带错误码；实际=${joined}`);
+    // runId 是「这条失败」连回「那次实际发生了什么」的唯一线索（子会话以它命名）。
+    assert.ok(joined.includes("child-abc-123"), `须带 runId 以便反查宿主子会话；实际=${joined}`);
+    // 宿主没给 diagnostic 时须**明说缺**——「未提供」是可行动的结论，静默留空不是。
+    assert.ok(joined.includes("diagnostic"), `须标注 diagnostic 是否可得；实际=${joined}`);
+  });
+});
+
+test("执行体失败带 diagnostic 时须原样搬运进队列", async () => {
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
+    const { readPendingQueue } = await import("../lib/pending-queue.js");
+    await runIdleCheckpoint({
+      dshHomePath: home,
+      factSourceRoot,
+      projectId,
+      projectRoot,
+      task: "friction-discovery",
+      sessionId: RUN_SESSION,
+      currentTurn: 4,
+      discover: async () => {
+        const error = new Error("subagent run did not complete (stopReason=max-tokens, diagnostic=context window exceeded)");
+        error.code = "discovery_provider/incomplete_run";
+        error.runId = "child-xyz-789";
+        error.stopReason = "max-tokens";
+        error.diagnostic = "context window exceeded";
+        throw error;
+      },
+    });
+    const queue = await readPendingQueue(home);
+    const joined = (queue.value.items[0]?.residual ?? []).join("\n");
+    assert.ok(joined.includes("context window exceeded"), `宿主诊断须原样搬运；实际=${joined}`);
+    // 有 diagnostic 时**不得**再标注「未提供」。
+    assert.ok(!joined.includes("宿主未提供 diagnostic"), "有诊断时不得声称未提供");
+  });
+});
+
 test("§8.4 水位：缺 sessionId / currentTurn 时 fail-closed（不得退化为覆盖全部内容）", async () => {
   await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     const noSession = await runIdleCheckpoint({ dshHomePath: home, factSourceRoot, task: "friction-discovery", currentTurn: 4 });

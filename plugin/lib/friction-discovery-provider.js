@@ -441,8 +441,22 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
 
     // 非正常收束：把 stopReason 如实上抛，由调用方按 §8.3 入队（不伪造结论）。
     if (result?.stopReason !== "completed") {
+      // 消息保持既有形态（下游与既有测试按 `stopReason=` 解析），另外把**可诊断
+      // 的字段挂到 error 上**——由 idle-checkpoint 的 describeExecutorFailure 搬运
+      // 进待处置队列（2026-10-26：此前这些信息全部丢失，135 条失败只剩一句
+      // `stopReason=error`，三处载体都查不出根因）。
+      //
+      // `runId` 最要紧：子会话目录以它命名，是「这条失败」连回「那次实际发生了
+      // 什么」的**唯一**线索。`stopReason` 与 provider 名同样带上，便于按 provider
+      // 聚合（本仓 pitfall 已登记过「子代理审核因 provider 超时连续零产出」）。
       const error = new Error(`subagent run did not complete (stopReason=${String(result?.stopReason)}${result?.diagnostic ? `, diagnostic=${result.diagnostic}` : ""})`);
       error.code = "discovery_provider/incomplete_run";
+      error.runId = childId;
+      error.stopReason = result?.stopReason;
+      error.provider = picked.value.name;
+      if (result?.diagnostic !== undefined && result?.diagnostic !== null) {
+        error.diagnostic = result.diagnostic;
+      }
       throw error;
     }
 

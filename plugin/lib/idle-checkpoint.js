@@ -292,10 +292,23 @@ export async function runIdleCheckpoint({
       tasks: [...requested],
     });
   } catch (error) {
+    // ── 失败原因须可诊断（2026-10-26 补）────────────────────────────────
+    //
+    // 此前 `residual` 是**硬编码的空数组**，于是队列里 135 条失败**全部只留下
+    // 一句 `stopReason=error`**：知道「失败了」，但查不出「为什么」。这不是
+    // 「没登记」——登记了，登记得不足以诊断。实测代价：本轮排查这 135 条时，
+    // 队列、运行痕迹、活动日志三处都取不到任何超出 stopReason 的信息。
+    //
+    // 故把**当下确实拿得到**的诊断项逐项写进 `residual`，并**明确标注哪一项
+    // 宿主未提供**——「未提供」本身是结论（它说明该信息缺口在宿主侧，不在本
+    // 模块），比静默留空有用。
+    //
+    // 边界：只搬运，不解释。不猜测 error 的根因、不把 stopReason 翻译成白话
+    // 结论（那会变成第二规则源），也不因补了诊断就改变「不推进水位」的处置。
     return recordAndFail(dshHomePath, {
       task: taskId,
       reason: `执行体（受管辖隔离子代理）失败：${String(error?.message ?? error)}`,
-      residual: [],
+      residual: describeExecutorFailure(error),
       at,
       // 派生/判断失败：水位**不推进**（§8.4 水位段），下次重覆盖同一区间。
       watermarkAdvanced: false,
@@ -345,6 +358,47 @@ export async function runIdleCheckpoint({
  * 位置标识）各有专用的码，调用方与测试据它区分「为什么没跑」；若一律收口成
  * `idle_checkpoint/stopped`，这个区分就丢了。缺省仍是 `idle_checkpoint/stopped`。
  */
+/**
+ * 把执行体失败的可诊断信息整理成 `residual` 条目。
+ *
+ * **只搬运当场拿得到的东西**：不推断根因、不把 `stopReason` 翻译成结论式白话
+ * （那会变成第二个规则源，01 §11.4）。缺什么就**明说缺什么**——「宿主未提供
+ * X」是可行动的结论（缺口在宿主侧），静默留空则不可行动。
+ *
+ * 已知的三个来源：
+ *   · `error.message` —— 已含 `stopReason=`（provider 拼的），是全队唯一稳定的项；
+ *   · `error.code` —— 本插件自己的错误码（如 `discovery_provider/incomplete_run`）；
+ *   · `error.diagnostic` / `error.runId` / `error.stack` —— **有没有取决于上游**，
+ *     有就带、没有就标注。
+ *
+ * 为什么 `runId` 值得带：同一个 runId 能在宿主侧的会话记录里反查这次派发的子
+ * 会话（子会话目录以 runId 命名），这是目前**唯一**能把「这条失败」连到「那次
+ * 实际发生了什么」的线索。
+ */
+function describeExecutorFailure(error) {
+  const residual = [];
+  const code = error?.code;
+  if (typeof code === "string" && code.length > 0) {
+    residual.push(`错误码：${code}`);
+  }
+  if (error?.diagnostic !== undefined && error?.diagnostic !== null) {
+    residual.push(`宿主诊断：${String(error.diagnostic)}`);
+  }
+  if (typeof error?.runId === "string" && error.runId.length > 0) {
+    residual.push(`子代理运行标识（可据此反查宿主的子会话记录）：${error.runId}`);
+  }
+  if (typeof error?.stack === "string" && error.stack.length > 0) {
+    // 只留首帧：栈能指出「失败抛在哪个模块」，全量栈对队列读者是噪声。
+    const firstFrame = error.stack.split("\n").find((line) => line.trim().startsWith("at "));
+    if (firstFrame) residual.push(`抛出位置：${firstFrame.trim()}`);
+  }
+  if (typeof error?.diagnostic === "undefined" || error?.diagnostic === null) {
+    // 如实标注缺失：这一项若在，85 条 `stopReason=error` 本该由此说清根因。
+    residual.push("宿主未提供 diagnostic —— 失败根因在宿主侧不可得，本模块只能记录 stopReason");
+  }
+  return residual;
+}
+
 async function recordAndFail(dshHomePath, { task, reason, residual, at, code }) {
   const queued = await appendPendingEntry(dshHomePath, { task, reason, residual, at });
   if (!queued.ok) {
