@@ -16,9 +16,12 @@ import { AlertTriangle, ChevronRight } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
 import { useI18n } from '@/i18n/context';
 import {
+  fetchCleanupPreview,
   fetchFrictionObservationReport,
   fetchGateReport,
   fetchIdleReport,
+  runCleanup,
+  type CleanupPlan,
   type FrictionObservationReport,
   type GateReport,
   type IdleReport,
@@ -26,7 +29,7 @@ import {
 import { LDVH_ERROR_TEXT_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
 import type { LocaleKey } from '@/i18n/locales';
 
-type Tab = 'gate' | 'idle' | 'observations';
+type Tab = 'gate' | 'idle' | 'observations' | 'cleanup';
 
 /** 与 i18n context 的 `t` 同签名（可带插值参数）。 */
 type Translation = (key: LocaleKey, params?: Record<string, string>) => string;
@@ -401,12 +404,201 @@ function ObservationPanel({ report, t }: { report: FrictionObservationReport; t:
   );
 }
 
+/**
+ * 运行账清理面板。
+ *
+ * ## 为什么每个目标都要单独勾选，而不是一个「全部清理」按钮
+ *
+ * 这几类东西性质不同（见后端 logsCleanup.ts 文件头）：流水可以丢，**观察材料
+ * 丢了就是丢证据**。一个「全部清理」的按钮会让后者被顺手带走。故默认只勾最安全
+ * 的一类，观察材料须显式勾。
+ *
+ * ## 为什么先预览再删
+ *
+ * 删除不可逆（除自动备份）。预览与真删走后端**同一条**计算路径，故「将删除 N 条」
+ * 就是真删的条数——这条由测试钉住。用户看过数字再决定。
+ *
+ * ## 水位为什么不在列表里
+ *
+ * 后端 `LOGGABLE_TARGETS` 刻意不含它：删水位会让机制重新观察已处理内容并重复
+ * 入账。本面板在页面底部把这条写明，免得用户以为「没列出来 = 忘了做」。
+ */
+function CleanupPanel({
+  report,
+  setReport,
+  t,
+}: {
+  report: CleanupPlan | null;
+  setReport: (plan: CleanupPlan | null) => void;
+  t: Translation;
+}) {
+  const [days, setDays] = useState<number>(3);
+  const [selected, setSelected] = useState<Record<string, boolean>>({
+    // 默认只勾「流水」类——观察材料须显式勾选（丢了就是丢证据）。
+    'pending-queue': true,
+    'idle-runs': true,
+    'queue-backups': false,
+    'experience-buffer': false,
+    'friction-observations': false,
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  const chosen = useMemo(() => Object.keys(selected).filter((k) => selected[k]), [selected]);
+  const totalRemoving = report?.targets.reduce((sum, row) => sum + row.removing, 0) ?? 0;
+
+  const preview = async () => {
+    setBusy(true); setError(null); setDone(null);
+    try {
+      const plan = await fetchCleanupPreview(days, chosen);
+      setReport(plan);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally { setBusy(false); }
+  };
+
+  const clean = async () => {
+    // 破坏性操作：让用户再看一眼要删多少条（预览已给过数字时不重复弹窗）。
+    setBusy(true); setError(null); setDone(null);
+    try {
+      const result = await runCleanup(days, chosen);
+      setReport(result);
+      const removed = result.applied?.reduce((sum, row) => sum + row.removed, 0) ?? 0;
+      setDone(
+        t('diagnostics.cleanup.doneDetail', {
+          count: String(removed),
+          path: result.backupPath ?? '—',
+        }),
+      );
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <section className="rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
+        <h2 className="ldvh-card-title">{t('diagnostics.cleanup.retention')}</h2>
+        <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.cleanup.retentionHint')}</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {[1, 3, 7].map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => { setDays(option); setReport(null); setDone(null); }}
+              className={`ldvh-tab-button ${days === option ? 'ldvh-tab-button-active' : 'ldvh-tab-button-idle'}`}
+            >
+              {t('diagnostics.cleanup.keepDays', { n: String(option) })}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
+        <h2 className="ldvh-card-title">{t('diagnostics.cleanup.targets')}</h2>
+        <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.cleanup.targetsHint')}</p>
+        <div className="mt-3 flex flex-col gap-2">
+          {(report?.targets ?? []).length === 0 && !report ? (
+            // 尚未预览：给出静态的目标清单（让用户先知道能清什么再点预览）。
+            <div className="flex flex-col gap-2">
+              {[
+                { id: 'pending-queue', label: t('diagnostics.cleanup.t.pendingQueue'), note: t('diagnostics.cleanup.n.pendingQueue') },
+                { id: 'idle-runs', label: t('diagnostics.cleanup.t.idleRuns'), note: t('diagnostics.cleanup.n.idleRuns') },
+                { id: 'queue-backups', label: t('diagnostics.cleanup.t.queueBackups'), note: t('diagnostics.cleanup.n.queueBackups') },
+                { id: 'experience-buffer', label: t('diagnostics.cleanup.t.experienceBuffer'), note: t('diagnostics.cleanup.n.experienceBuffer') },
+                { id: 'friction-observations', label: t('diagnostics.cleanup.t.frictionObservations'), note: t('diagnostics.cleanup.n.frictionObservations') },
+              ].map((row) => (
+                <label key={row.id} className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={selected[row.id] === true}
+                    onChange={(e) => { setSelected({ ...selected, [row.id]: e.target.checked }); setReport(null); }}
+                    className="mt-0.5"
+                  />
+                  <span className="min-w-0">
+                    <span className="ldvh-meta block text-ldvh-text-primary">{row.label}</span>
+                    <span className="ldvh-meta block text-[11px] text-ldvh-text-secondary">{row.note}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            report?.targets.map((row) => (
+              <div key={row.id} className="grid grid-cols-[minmax(0,1fr)_4rem_4rem] items-center gap-2 border-b border-ldvh-border/40 pb-2 last:border-0">
+                <div className="min-w-0">
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selected[row.id] === true}
+                      onChange={(e) => { setSelected({ ...selected, [row.id]: e.target.checked }); setReport(null); }}
+                      className="mt-0.5"
+                    />
+                    <span className="min-w-0">
+                      <span className="ldvh-meta block text-ldvh-text-primary">{row.label}</span>
+                      <span className="ldvh-meta block text-[11px] text-ldvh-text-secondary">{row.note}</span>
+                    </span>
+                  </label>
+                </div>
+                <span className={`ldvh-meta text-right text-[12px] ${row.removing > 0 ? LDVH_WARN_TITLE_CLASS : 'text-ldvh-text-secondary'}`}>
+                  {t('diagnostics.cleanup.removeCount', { count: String(row.removing) })}
+                </span>
+                <span className="ldvh-meta text-right text-[12px] text-ldvh-text-secondary">
+                  {t('diagnostics.cleanup.keepCount', { count: String(row.keeping) })}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={busy || chosen.length === 0}
+            onClick={preview}
+            className="ldvh-tab-button ldvh-tab-button-idle disabled:opacity-50"
+          >
+            {busy ? t('diagnostics.cleanup.working') : t('diagnostics.cleanup.preview')}
+          </button>
+          <button
+            type="button"
+            disabled={busy || chosen.length === 0}
+            onClick={clean}
+            className="ldvh-tab-button ldvh-tab-button-active disabled:opacity-50"
+          >
+            {t('diagnostics.cleanup.clean')}
+          </button>
+          {report ? (
+            <span className="ldvh-meta text-[12px] text-ldvh-text-secondary">
+              {t('diagnostics.cleanup.willRemove', { count: String(totalRemoving), cutoff: report.cutoff.slice(0, 10) })}
+            </span>
+          ) : null}
+        </div>
+
+        {error ? <p className={`ldvh-meta mt-2 ${LDVH_ERROR_TEXT_CLASS}`}>{error}</p> : null}
+        {done ? <p className="ldvh-meta mt-2 text-ldvh-text-primary">{done}</p> : null}
+        {report?.backupPath ? (
+          <p className="ldvh-meta mt-2 font-mono text-[11px] text-ldvh-text-secondary">
+            {t('diagnostics.cleanup.backupAt')}: {report.backupPath}
+          </p>
+        ) : null}
+      </section>
+
+      <section className="rounded-lg border border-dashed border-ldvh-border bg-ldvh-panel p-3">
+        <h2 className="ldvh-card-title">{t('diagnostics.cleanup.notListed')}</h2>
+        <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.cleanup.notListedHint')}</p>
+      </section>
+    </div>
+  );
+}
+
 export default function Diagnostics() {
   const { t } = useI18n();
   const [tab, setTab] = useState<Tab>('gate');
   const [gate, setGate] = useState<GateReport | null>(null);
   const [idle, setIdle] = useState<IdleReport | null>(null);
   const [observations, setObservations] = useState<FrictionObservationReport | null>(null);
+  const [cleanup, setCleanup] = useState<CleanupPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // 采集时机就是进入本页与切换标签：离开页面即卸载，再进来一定重采。
@@ -414,6 +606,11 @@ export default function Diagnostics() {
   useEffect(() => {
     let cancelled = false;
     setError(null);
+    // 清理页不自动预览：预览要传保留天数，由用户选。
+    if (tab === 'cleanup') {
+      setCleanup(null);
+      return () => { cancelled = true; };
+    }
     const load =
       tab === 'gate'
         ? fetchGateReport()
@@ -436,11 +633,12 @@ export default function Diagnostics() {
     };
   }, [tab]);
 
-  const current = tab === 'gate' ? gate : tab === 'idle' ? idle : observations;
+  const current = tab === 'gate' ? gate : tab === 'idle' ? idle : tab === 'observations' ? observations : (cleanup ?? true);
   const tabs = useMemo(() => ([
     { key: 'gate' as Tab, label: t('diagnostics.tab.gate') },
     { key: 'idle' as Tab, label: t('diagnostics.tab.idle') },
     { key: 'observations' as Tab, label: t('diagnostics.tab.observations') },
+    { key: 'cleanup' as Tab, label: t('diagnostics.tab.cleanup') },
   ]), [t]);
 
   return (
@@ -475,8 +673,10 @@ export default function Diagnostics() {
         <GatePanel report={gate} t={t} />
       ) : tab === 'idle' && idle ? (
         <IdlePanel report={idle} t={t} />
-      ) : observations ? (
+      ) : tab === 'observations' && observations ? (
         <ObservationPanel report={observations} t={t} />
+      ) : tab === 'cleanup' ? (
+        <CleanupPanel report={cleanup} setReport={setCleanup} t={t} />
       ) : null}
     </div>
   );

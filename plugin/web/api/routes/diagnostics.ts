@@ -18,7 +18,9 @@ import {
   buildFrictionObservationReport,
   buildGateReport,
   dshHomeFromEnvironment,
+  invalidateGateReportCache,
 } from '../services/runtimeDiagnostics.js'
+import { LOGGABLE_TARGETS, RETENTION_CHOICES, planCleanup } from '../services/logsCleanup.js'
 import { LDVH_WORKSPACE_ROOT } from '../services/pytools.js'
 import { ProjectScopeError, requestProject } from '../services/requestScope.js'
 
@@ -214,6 +216,70 @@ router.get('/observations', async (_req: Request, res: Response) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     fail(res, 500, 'OBSERVATION_REPORT_FAILED', message)
+  }
+})
+
+/**
+ * `GET /diagnostics/logs/preview?days=N&targets=a,b` —— 清理预览（**只算不删**）。
+ *
+ * 与真删走同一条 `planCleanup`（`apply=false`），故界面显示的「将删除 N 条」
+ * 就是真删会删掉的条数——不存在「提示与实际不符」。
+ */
+router.get('/logs/preview', async (req: Request, res: Response) => {
+  try {
+    const days = Number.parseInt(String(req.query.days ?? '7'), 10)
+    if (!Number.isInteger(days) || days <= 0) {
+      fail(res, 400, 'INVALID_RETENTION', 'days must be a positive integer')
+      return
+    }
+    const raw = req.query.targets
+    const targets = typeof raw === 'string' && raw.length > 0
+      ? raw.split(',').map((x) => x.trim()).filter(Boolean)
+      : LOGGABLE_TARGETS.map((t) => t.id)
+    const plan = await planCleanup({ retentionDays: days, targetIds: targets, apply: false })
+    res.json(plan)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    fail(res, 500, 'LOG_PREVIEW_FAILED', message)
+  }
+})
+
+/**
+ * `POST /diagnostics/logs/clean` —— 执行清理（**会写文件，且不可逆**）。
+ *
+ * 前置：`days` 必须是给定选项之一（1/3/7），`targets` 非空。
+ * 每次真删都在 `ldvh/cleanup-backups/<时间戳>/` 下留一份备份。
+ *
+ * **水位不在可清理清单里**：`LOGGABLE_TARGETS` 刻意不包含它——删水位会让机制
+ * 重新观察已处理内容并重复入账（见 logsCleanup.ts 文件头）。
+ */
+router.post('/logs/clean', async (req: Request, res: Response) => {
+  try {
+    const body = (req.body ?? {}) as { days?: unknown; targets?: unknown }
+    const days = Number.parseInt(String(body.days ?? ''), 10)
+    if (!Number.isInteger(days) || !RETENTION_CHOICES.includes(days as 1 | 3 | 7)) {
+      fail(res, 400, 'INVALID_RETENTION', `days must be one of ${RETENTION_CHOICES.join(', ')}`)
+      return
+    }
+    const targets = Array.isArray(body.targets)
+      ? body.targets.filter((x): x is string => typeof x === 'string' && x.length > 0)
+      : []
+    if (targets.length === 0) {
+      fail(res, 400, 'NO_TARGETS', 'at least one target must be selected')
+      return
+    }
+    const unknown = targets.filter((id) => !LOGGABLE_TARGETS.some((t) => t.id === id))
+    if (unknown.length > 0) {
+      fail(res, 400, 'UNKNOWN_TARGET', `unknown target(s): ${unknown.join(', ')}`)
+      return
+    }
+    const result = await planCleanup({ retentionDays: days, targetIds: targets, apply: true })
+    // 清理后 /gate 的缓存必须失效，否则页面还显示清理前的数字。
+    invalidateGateReportCache()
+    res.json(result)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    fail(res, 500, 'LOG_CLEAN_FAILED', message)
   }
 })
 

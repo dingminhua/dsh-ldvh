@@ -1266,3 +1266,38 @@ export interface FrictionObservationReport {
 export async function fetchFrictionObservationReport(): Promise<FrictionObservationReport> {
   return request<FrictionObservationReport>('/diagnostics/observations');
 }
+
+/** 可清理的日志目标（与后端 `LOGGABLE_TARGETS` 对应）。 */
+export interface LogTargetPreview {
+  id: string;
+  label: string;
+  note: string;
+  exists: boolean;
+  removing: number;
+  keeping: number;
+  unparsable: number;
+  bytes: number;
+}
+
+export interface CleanupPlan {
+  ok: boolean;
+  cutoff: string;
+  retentionDays: number;
+  targets: LogTargetPreview[];
+  backupDir: string | null;
+  applied?: { id: string; removed: number; kept: number; error?: string }[];
+  backupPath?: string | null;
+}
+
+export async function fetchCleanupPreview(days: number, targets: string[]): Promise<CleanupPlan> {
+  const qs = new URLSearchParams({ days: String(days), targets: targets.join(',') });
+  return request<CleanupPlan>(`/diagnostics/logs/preview?${qs.toString()}`);
+}
+
+export async function runCleanup(days: number, targets: string[]): Promise<CleanupPlan> {
+  return request<CleanupPlan>('/diagnostics/logs/clean', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ days, targets }),
+  });
+}

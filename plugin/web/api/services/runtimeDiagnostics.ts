@@ -75,6 +75,13 @@ export type DiagnosticsScope = {
   zstdAvailable: boolean
   /** 覆盖不到的地方——如实列在响应里，避免局部数据被当成全局结论。 */
   limits: string[]
+  /**
+   * 命中缓存时，原始生成时刻（RFC3339）。
+   *
+   * 缺席 = 本次实时计算。读者据此区分「此刻的数字」与「几分钟前的数字」——
+   * 不标注会让缓存在界面上变成谎报。
+   */
+  cachedAt?: string
 }
 
 export type GateReport = {
@@ -272,6 +279,60 @@ function isCompressedLog(fileName: string): boolean {
   return fileName.endsWith('.zstd')
 }
 
+/**
+ * `/gate` 报告的 TTL 缓存。
+ *
+ * **为什么加**：进一次页面就全量扫 725 个会话 / 158MB，实测 5.8 秒。而诊断页是
+ * 「看一眼现状」的用途——5 分钟前的数字与此刻没有区别，因为它回答的是「机制在
+ * 实际使用中哪里在失效」，不是实时行情。
+ *
+ * **为什么必须可主动失效**：清理日志之后如果还显示清理前的数字，页面会自相矛盾。
+ * 故 `invalidateGateReportCache()` 由清理路径调用（见 logsCleanup service）。
+ *
+ * **为什么键里带 sessionDir**：不同项目根对应不同会话目录，缓存不能跨项目串。
+ */
+const GATE_CACHE_TTL_MS = 5 * 60 * 1000
+const gateReportCache = new Map<string, { at: number; value: GateReport }>()
+
+/** 清空 `/gate` 缓存（清理日志后必须调用，否则页面会显示旧数字）。 */
+export function invalidateGateReportCache(): void {
+  gateReportCache.clear()
+}
+
+/**
+ * 会话扫描的并发度。
+ *
+ * 取 8：每个任务都是一次 `zstd` 子进程（IO 与 CPU 各占一半），8 路足以吃满常见
+ * 笔记本的核心数而不把机器拖死。设成 `sessions.length` 会把 725 个进程一次性
+ * 拉起——那会让整台机器卡顿，比慢更糟。
+ */
+const SESSION_SCAN_CONCURRENCY = 8
+
+/**
+ * 有界并发 map，保持**结果顺序与输入顺序一致**（不靠「谁先完成谁先排」）。
+ *
+ * 顺序必须稳定：统计结果虽与顺序无关，但 `scope` 与 limits 的文本会进报告，
+ * 顺序漂移会让同一份数据两次呈现不同，读者会以为数据变了。
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let cursor = 0
+  const runners = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, async () => {
+    for (;;) {
+      const index = cursor
+      cursor += 1
+      if (index >= items.length) return
+      results[index] = await worker(items[index])
+    }
+  })
+  await Promise.all(runners)
+  return results
+}
+
 async function readSessionLog(sessionDir: string): Promise<string | null> {
   for (const name of SESSION_LOG_CANDIDATES) {
     const candidate = path.join(sessionDir, name)
@@ -285,9 +346,23 @@ async function readSessionLog(sessionDir: string): Promise<string | null> {
 export async function buildGateReport(options: {
   workspaceRoot: string
   dshHome?: string
+  /** 为 true 时跳过缓存（清理后首次读取、或用户显式要求刷新）。 */
+  noCache?: boolean
 }): Promise<GateReport> {
   const dshHome = options.dshHome ?? dshHomeFromEnvironment()
   const sessionDir = path.join(dshHome, 'sessions', sessionDirNameFor(options.workspaceRoot))
+
+  const cacheKey = sessionDir
+  if (options.noCache !== true) {
+    const cached = gateReportCache.get(cacheKey)
+    if (cached && Date.now() - cached.at < GATE_CACHE_TTL_MS) {
+      return {
+        ...cached.value,
+        // 命中缓存须**如实标注**：否则读者会把 5 分钟前的数字当成此刻的。
+        scope: { ...cached.value.scope, cachedAt: new Date(cached.at).toISOString() },
+      }
+    }
+  }
   const hasZstd = await zstdAvailable()
   const limits = [
     '只覆盖当前管辖项目工作目录下的会话；其他项目的 LDVH 调用不在本页。',
@@ -305,16 +380,37 @@ export async function buildGateReport(options: {
   }
   if (!hasZstd) limits.push('未找到 zstd 可执行文件，压缩的会话日志无法读取——本页数据为空不代表没有调用。')
 
+  // ── 为什么改成并发 + 缓存（2026-10-26 实测慢）────────────────────────────
+  //
+  // 用户反馈「诊断页进去很慢」。实测：本仓 725 个会话目录、共 158MB，原实现**串行**
+  // 逐个 `zstd -dc`，buildGateReport 耗时 **5847ms**，而产出的调用记录只有 579 条。
+  //
+  // 三处浪费，逐条对应下面的三个修法：
+  //   ① **串行** —— 每个会话都要起一个 zstd 子进程，725 次串行排队。改成有界并发。
+  //   ② **每次都全量重扫** —— 进一次页面扫一遍。加 TTL 缓存（默认 5 分钟）：
+  //      诊断页是「看一眼现状」的用途，5 分钟内的旧数据不改变任何判断。
+  //   ③ **（已放弃）按体积预筛** —— 曾想「小于 8KB 的会话直接跳过」，但实测会
+  //      误伤：小会话也可能含 LDVH 调用（既有测试造的就是几行事件）。体积不是
+  //      「有无调用」的可靠判据，跳过它会**静默少统计**——那比慢更糟，故撤回。
+  //      留下这条记录，免得下次又想起来试一遍。
+  //
+  // 边界：剩下两项都**不改统计口径**——并发只改调度顺序，缓存只改复用。
   const outcomes: ToolCallOutcome[] = []
   if (hasZstd && sessionDirExists) {
-    for (const session of sessions) {
+    const collected = await mapWithConcurrency(sessions, SESSION_SCAN_CONCURRENCY, async (session) => {
+      const dir = path.join(sessionDir, session)
       try {
-        const raw = await readSessionLog(path.join(sessionDir, session))
-        if (raw) outcomes.push(...extractToolOutcomes(raw, session))
+        const raw = await readSessionLog(dir)
+        if (!raw) return { skipped: false, outcomes: [] }
+        return { skipped: false, outcomes: extractToolOutcomes(raw, session) }
       } catch {
         // 单个会话读不动不影响其余：降级为「少统计一个会话」，并在 scope 里如实计数。
-        continue
+        return { skipped: false, outcomes: [] }
       }
+    })
+    for (const item of collected) {
+      if (!item) continue
+      outcomes.push(...item.outcomes)
     }
   }
 
@@ -343,7 +439,7 @@ export async function buildGateReport(options: {
     .sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
     .slice(0, 60)
 
-  return {
+  const report: GateReport = {
     generatedAt: new Date().toISOString(),
     scope: {
       workspaceRoot: path.resolve(options.workspaceRoot),
@@ -362,6 +458,8 @@ export async function buildGateReport(options: {
       .sort((a, b) => b.count - a.count),
     recentFailures,
   }
+  gateReportCache.set(cacheKey, { at: Date.now(), value: report })
+  return report
 }
 
 // ---------------------------------------------------------------------------
