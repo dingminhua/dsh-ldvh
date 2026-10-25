@@ -1288,16 +1288,19 @@ test("默认候选状态须按类型取，不得统一写死 active（20–27 �
 	// 实测缺陷（2026-10-24）：默认状态原写死 ["active"]，而多数类型**没有**
 	// active 这个状态——结果它们默认一条都召回不到：
 	//   Spark 默认是 open（34 条不可见）、WorkCase 是 draft+open（36 条全不可见）、
-	//   Friction 是 open+observing（92 条不可见）。合计 142 条本可召回的不可见。
+	//   Friction 是 open（+ 当时的 observing，2026-10-26 已退出闭集；当时 92 条不可见）。
+	//   合计 142 条本可召回的不可见。
 	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.spark], ["open"], "20：默认候选只含 open");
 	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.workcase], ["draft", "open"], "21 §13：默认含 draft 与 open");
-	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.friction], ["open", "observing"], "26：默认含 open 与 observing");
+	// 2026-10-26 修订：observing 已退出 26 §9 闭集（观察材料改由 11 §12bis.1 的
+	// 本地缓冲承载，不进事实源），故默认候选只含 open。
+	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.friction], ["open"], "26：默认只含 open");
 	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.adr], ["active"], "22：默认含 active");
 	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.norm], ["active"], "27：默认含 active");
 	assert.deepEqual([...DEFAULT_STATUSES_BY_TYPE.pitfall], ["active"], "23 §12：draft 不进默认候选");
 
 	// 关键行为：各类的默认候选确实能被召回。
-	// Friction 的 observing 是「活账」，必须可见（否则摩擦账本读不到东西）。
+	// Friction 的 open 是「活账」，必须可见（否则摩擦账本读不到东西）。
 	const friction = await recallForAction({
 		action: "这条 friction 该销账吗",
 		root: ROOT,
@@ -1307,7 +1310,7 @@ test("默认候选状态须按类型取，不得统一写死 active（20–27 �
 	});
 	assert.ok(friction.facts.length > 0, "friction 默认候选须非空");
 	for (const f of friction.facts) {
-		assert.ok(["open", "observing"].includes(f.status), `friction 默认不应含 ${f.status}`);
+		assert.equal(f.status, "open", `friction 默认只应含 open，实际含 ${f.status}`);
 	}
 
 	// Spark 的 open 必须可见，implemented/discarded 不可见。

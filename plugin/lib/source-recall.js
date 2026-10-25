@@ -72,7 +72,7 @@ import { join } from "node:path";
  *
  *   · Spark（20）默认候选是 `open` → 34 条 open 不可见；
  *   · WorkCase（21 §13）是 `draft`+`open` → 36 条全部不可见（它连 active 都没有）；
- *   · Friction（26）是 `open`+`observing` → 92 条不可见；
+ *   · Friction（26）是 `open`（+ 当时的 `observing`，2026-10-26 已退出闭集）→ 当时 92 条不可见；
  *   · ADR（22）／Norm（27）是 `active` → 恰好正确；
  *   · Pitfall（23 §12）是 `active` → 恰好正确（draft 只在「待确认队列」专门查询时列出）。
  *
@@ -82,7 +82,7 @@ import { join } from "node:path";
  *   · `20`「默认候选只包含 open Spark；implemented/discarded 不进入普通未处置候选」；
  *   · `21 §13`「默认候选只含 draft 与 open；closed 只在精确引用、证据链反查或历史追溯时展开」；
  *   · `23 §12`「默认候选只含 active；draft 不进入默认候选——它尚未入档」；
- *   · `26`「默认候选含 open 与 observing（observing 是活账）；resolved 仅精确引用时展开」；
+ *   · `26`「默认候选只含 `open`」（2026-10-26 修订：观察态已退出闭集）；resolved 与 voided 仅在精确引用时展开；
  *   · `22`「默认候选只含 active——当前决策基线就是 active 集本身」；
  *   · `27`「默认候选只含 active——当前生效规范就是 active 集本身」。
  *
@@ -115,7 +115,9 @@ export const MATCHED_FACT_FIELDS = Object.freeze([
 export const DEFAULT_STATUSES_BY_TYPE = Object.freeze({
   spark: ["open"],
   workcase: ["draft", "open"],
-  friction: ["open", "observing"],
+  // **`friction` 于 2026-10-26 修订**：`observing` 已退出 26 §9 状态闭集（观察
+  // 材料改由 11 §12bis.1 的本地缓冲承载，不进事实源），故默认候选只含 `open`。
+  friction: ["open"],
   // **`research` 须显式声明**（2026-10-24 修）：`24` 原文「默认状态范围
   // `status=active`，`retired` 只在精确引用、调研历史或来源追溯时进入候选」。
   // 此前它在白名单里却**缺这一项**，靠 `?? ["active"]` 的回退值碰巧对了——
@@ -812,9 +814,10 @@ export function matchCandidate(actionTokens, candidate) {
     // 实测（2026-10-24，用本会话真实用户消息）：「把这批改动合入吧」10 条结果里
     // 5 条是纯单字命中——`WorkCase 工单` 靠「批」、`火花记录` 与 `双源召回` 靠「合」；
     // 「经验也要召回啊」有 4 条靠单字「回」命中。单个汉字在本语料里覆盖 50–70%
-    // 的候选（2026-10-25 复测：「改」出现在 **295/347 = 85%** 的载体里——规范侧
-    // 27/27 全覆盖、事实侧 268/320；此前注记为 295/346，已过时——事实源由宿主
-    // 辅助任务持续写入，本数字随之漂移，漂移即本测试的正确报警），
+    // 的候选（2026-10-26 复测：「改」出现在 **251/271 = 93%** 的载体里——规范侧
+    // 27/27 全覆盖、事实侧 224/244；此前注记为 295/347，已过时——事实源由宿主
+    // 辅助任务持续写入、本次又删去一批观察载体，本数字随之双向漂移，漂移即本测试
+    // 的正确报警），
     // 「靠一个字命中」几乎等于没命中。
     //
     // 但单字**不能丢**：短指令「改一下／删了／加个」只有单字可切（第 16 轮修的
