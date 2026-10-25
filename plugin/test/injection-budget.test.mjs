@@ -90,3 +90,41 @@ test("档位提高不得改变召回结果内容（只影响是否裁断，不�
 	const titles50 = (r50.text.match(/^- .*$/gm) || []).join("\n");
 	assert.equal(titles10, titles50, "候选内容应相同（档位不改变召回质量，只改变是否裁断）");
 });
+
+test("Config 字段 injectionBudgetTier 须有约束且默认 10（Major-1/Major-4）", async () => {
+	// 第四十一次审核：该字段此前全仓零测试（grep 命中 0），schema 约束、默认值、
+	// 非法值都没有用例。本用例钉住 schema 层面的可配置面。
+	const { Config } = await import("../lib/index.js");
+	assert.ok(Config, "须导出 Config");
+	// schemastery 的字段对象不直接暴露 default；用解析验证：缺省解析应得 10。
+	const parsed = Config({});
+	const tier = parsed?.injectionBudgetTier;
+	const value = tier && typeof tier.get === "function" ? tier.get() : tier;
+	assert.equal(value, 10, "缺省档位须为 10（默认档）");
+});
+
+test("非法档位须在消费点如实拒绝，且非数值不得静默兜底（Major-1/D3）", async () => {
+	const { resolveInjectionBudget } = await import("../lib/source-recall.js");
+	// 非数值：readVolatileNumber 现返回 NaN，故 resolve 须拒绝而非静默取默认档。
+	const nanResult = resolveInjectionBudget(Number.NaN);
+	assert.equal(nanResult.ok, false, "NaN 须被拒绝，不得静默回落默认档");
+	// 未登记数值：同样拒绝并列出可用档。
+	for (const bad of [15, -1, 10.5, 1e3]) {
+		const r = resolveInjectionBudget(bad);
+		assert.equal(r.ok, false, `档位 ${bad} 须被拒绝`);
+		assert.match(r.reason, /10\/20\/30\/40\/50/);
+	}
+});
+
+test("档位解析须与 lifecycle 接线同源（getInjectionBudget → buildRecallInjection）", async () => {
+	// 第四十一次审核 Major-4：Config → getInjectionBudget → buildRecallInjection
+	// 整条路径无用例。此处验证「档位字节数」确实能作为 budgetBytes 生效。
+	const { resolveInjectionBudget } = await import("../lib/source-recall.js");
+	const { buildRecallInjection } = await import("../lib/recall-injection.js");
+	const bytes = resolveInjectionBudget(10).bytes;
+	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 3, budgetBytes: bytes });
+	assert.equal(r.inject, true);
+	// 结果里须能看到该预算被采纳（数据层回传 limitBytes）。
+	assert.equal(r.result.budget.limitBytes, bytes, "档位字节数须作为 budgetBytes 生效");
+	assert.ok(Buffer.byteLength(r.text, "utf8") <= bytes, "实际注入须 ≤ 档位预算");
+});

@@ -31,6 +31,12 @@ const TESTS = [
 	"test/recall-injection.test.mjs",
 	"test/recall-integration.test.mjs",
 	"test/recall-real-activation.test.mjs",
+	// **新代码的守护必须随代码增长**（第四十一次审核 Major-3）：此前这份列表
+	// 只有四个文件，而 `test/injection-budget.test.mjs`（预算档位）与
+	// `test/lifecycle.test.mjs`（接线）从未参与变异检查——于是「24/24 被抓住」
+	// 只覆盖了旧代码，新功能的变异根本不会被发现。
+	"test/injection-budget.test.mjs",
+	"test/lifecycle.test.mjs",
 ];
 
 const MUTATIONS = [
@@ -66,6 +72,12 @@ const MUTATIONS = [
 	// 于是预算按「只有候选」分配、实际注入时基线再挤进来——这正是
 	// 「预留量须与实际基线段字节相符」用例要防的错配（欠预留会让注入超预算）。
 	[LIB, "基线不预留预算（预算按无基线分配）", "    : Math.min(baselineFullBytes, baselineScaledCap);", "    : 0;"],
+	// —— 召回面预算档位（第四十一次审核 Major-3：新代码零变异守护）——
+	//
+	// 锚点须对准**行为不变量**，不是「常量值等于某个数」（后者改常量就会误报）。
+	[LIB, "档位表被改成无上限（任意数可填）", "  10: 10 * 1024,", "  10: Number.MAX_SAFE_INTEGER,"],
+	[LIB, "未登记档位静默回落（不报错）", "    return {\n      ok: false,", "    return {\n      ok: true,"],
+	[LIB, "默认档退回旧常量（数值偏小未解决）", "export const DEFAULT_INJECTION_BUDGET_TIER = 10;", "export const DEFAULT_INJECTION_BUDGET_TIER = 2;"],
 ];
 
 async function failCount() {

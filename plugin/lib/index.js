@@ -194,7 +194,13 @@ export const Config = z.object({
   // 本字段的引入即经 Human 决定（2026-10-25 会话内：档位取 10/20/30/40/50 K）。
   //
   // 未登记档位不静默回落——见 `resolveInjectionBudget` 的如实拒绝。
-  injectionBudgetTier: volatileField(z.number().default(10)),
+  // **枚举约束**（第四十一次审核 Major-1）：此前只有 `z.number()`，Human 在
+  // 设置里填 15 会「保存成功」而运行时不生效——与本仓既有纪律相悖
+  // （`idleSilenceMs` 的注释明写「11 §6.1 要求该取值在写入时被拒绝并提示，
+  // 不得静默回落」，客户端也确实做了保存时拦截）。
+  // 这里用 schemastery 受限子集能表达的最强约束（min/max 圈定合法区间），
+  // 精确的档位成员校验由 `resolveInjectionBudget` 在消费点完成并**如实报错**。
+  injectionBudgetTier: volatileField(z.number().min(10).max(50).step(10).default(10)),
 });
 
 /**
@@ -228,7 +234,11 @@ function readVolatileNumber(value) {
   if (value === undefined || value === null) return undefined;
   const raw = typeof value.get === "function" ? value.get() : value;
   const num = typeof raw === "string" ? Number(raw) : raw;
-  return typeof num === "number" && Number.isFinite(num) ? num : undefined;
+  if (typeof num === "number" && Number.isFinite(num)) return num;
+  // **非数值不得兜底成 undefined**（第四十一次审核 Major-1/D3）：undefined 会被
+  // `resolveInjectionBudget` 当作「未配置」而静默取默认档，于是 `"abc"` 这种
+  // 非法值**完全无声**。返回 NaN 使其走「未登记档位」分支并如实报错。
+  return Number.NaN;
 }
 
 const API_PREFIX = "/ldvh/api";

@@ -501,7 +501,10 @@ export function renderRecallRow(result) {
       lines.push(`（受预算限制已裁剪：上限 ${limitBytes} 字节，实际用 ${usedBytes} 字节。未列出的部分不代表不存在。）`);
     } else {
       // 预算还很宽松 —— 说明是 **limit（条数）** 挡住的，如实说 limit。
-      lines.push(`（受条数上限（limit=${result.budget?.limit ?? "?"}）限制，仅列出前 ${(result.specs?.length ?? 0) + (result.facts?.length ?? 0)} 条；预算尚有余量（实际用 ${usedBytes}/${limitBytes} 字节），调大 limit 可看到更多。）`);
+      // **`34 §11` 第 2 项三要素须同行**（第四十一次审核 Minor-2/3）：截断来源、
+      // 实际用量与「未返回的部分不代表不存在」。此前末者被移到三态行承接，要素
+      // 未丢但可追溯性变弱——读者读到这条截断行时，须当行即知「没列出的不是没有」。
+      lines.push(`（受条数上限（limit=${result.budget?.limit ?? "?"}）限制，仅列出前 ${(result.specs?.length ?? 0) + (result.facts?.length ?? 0)} 条；预算尚有余量（实际用 ${usedBytes}/${limitBytes} 字节）。未返回的部分不代表不存在，调大 limit 可看到更多。）`);
     }
   }
   // **三态取值与未读取源须在注入面披露**（第六次审核 N-5）：34 §12 要求
