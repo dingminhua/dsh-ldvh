@@ -37,10 +37,12 @@ test("buildGuidance：返回文本与 guidanceTextFor 逐字一致（不截断�
 
 test("buildGuidance：governed 当前体量与预算的关系可复算", () => {
 	const result = buildGuidance("governed");
-	// 实测 1288 字符（2026-10-23）；若此断言失效，说明引导被改过，须复核预算。
-	assert.equal(result.length, 1288, "引导体量已变：若为受保护文本变更，须同步复核预算常量");
+	// 实测 1052 字符（2026-10-25；此前 1288）。本断言失效即说明引导被改过，
+	// 须复核预算常量——2026-10-25 那次是受保护文本压缩（工单/提请三行→两行、
+	// 去掉语料依赖的 specs/21 指针，纪律本身未删），常量 1500 复核后保持不变。
+	assert.equal(result.length, 1052, "引导体量已变：若为受保护文本变更，须同步复核预算常量");
 	assert.equal(result.budget, 1500);
-	assert.equal(result.remaining, 212);
+	assert.equal(result.remaining, 448);
 });
 
 test("GUIDANCE_BILLING_BASIS 如实披露宿主计量不可用（10 §5.3）", () => {

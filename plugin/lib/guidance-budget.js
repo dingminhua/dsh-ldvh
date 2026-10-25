@@ -39,7 +39,9 @@ import { guidanceTextFor } from "./guidance-text.js";
  * 2026-10-23 实测值向上取整 + 小量余量。**改动须走受控提交**（`10 §5.3`）。
  */
 export const GUIDANCE_CHAR_BUDGET = Object.freeze({
-  // 实测 1288（governed 全文含判定行）。
+  // 实测 1052（governed 全文含判定行；2026-10-25 受保护文本压缩后由 1288 降至
+  // 1052——工单/提请三行压为两行、去掉语料依赖的 specs/21 指针，纪律本身未删）。
+  // 常量 1500 保持不变：余量从 212 增至 448，压缩不该反向收紧上限。
   governed: 1500,
   // 实测远小于此；留足余量以免误拦。
   unavailable: 800,
