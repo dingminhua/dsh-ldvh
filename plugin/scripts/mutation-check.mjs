@@ -57,6 +57,12 @@ const MUTATIONS = [
 	[LIB, "排序无确定性兜底", "        a.path.localeCompare(b.path),", "        0,"],
 	[LIB, "类型点名层失效", "        return { tier: 0.5, hits: 1, hitReason: `类型点名命中：${named}` };", "        return { tier: 9, hits: 1, hitReason: `x` };"],
 	[LIFE, "召回头缺失 projectPath 兜底", '          if (typeof projectPath !== "string" || projectPath.length === 0) return { inject: false, reason: "no-project" };', ""],
+	// —— F1 决策基线（22 §12 义务召回；2026-10-25 方案 A）——
+	// 钉住本功能的**核心不变量**：基线必须无条件交付，不得被词法命中条件挡住。
+	// 若把 baselineHasContent 恒为 false，就退回到「法定决策靠词面运气」——
+	// 实测「每次回复先称呼老丁」在无关消息上零召回，正是该缺陷的现场。
+	[INJ, "零命中时基线被短路（退回词面运气）", "  if (total < MIN_HITS && !baselineHasContent) {", "  if (total < MIN_HITS) {"],
+	[INJ, "基线未预留预算（挤占候选后仍声称未超）", "        ? Math.floor(limitBytesForBaseline / 3)", "        ? limitBytesForBaseline"],
 ];
 
 async function failCount() {

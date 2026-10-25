@@ -61,6 +61,27 @@ const MIN_HITS = 1;
 export const RECALL_BYTE_BUDGET = 2400;
 
 /**
+ * **决策基线（F1）段的字节上限**。
+ *
+ * 与 `RECALL_BYTE_BUDGET` 的关系：这是**既有注入面预算内部的子分配**，
+ * 不是新的预算边界——总预算仍是 2400 字节，基线只占其中一段（同 `specBudget`
+ * 按 60% 切分候选预算的既有做法）。
+ *
+ * 为什么需要它：`22 §12` 要求 F1 无条件枚举全部 active ADR，而 ADR 数量会增长
+ * （本仓 6 条、约 267 字节；若涨到 30 条即约 1400 字节）。没有上限时基线会
+ * 挤占词法候选的预算，使召回失去「按需列出相关项」的功能；有上限而不披露
+ * 则违反 `02 §9.1`「不得静默截断」。故：定上限 + 超出时如实计数披露。
+ *
+ * 定值依据：600 字节约可容纳 12–14 条标题（实测单条约 45 字节），
+ * 覆盖 ADR 从当前 6 条增长到十余条的量级；同时保留约 75% 预算给候选区。
+ *
+ * 变更须走受控提交（`10 §5.3`「体量以固定常量承载，变更走受控提交」）；
+ * 提高该上限属「改变引导面注入形式或预算边界」，须 Human 决定（`10 §9.1` 第 2 项）。
+ * 本段的引入本身即经 Human 决定（2026-10-25 会话内批准方案 A）。
+ */
+export const ADR_BASELINE_BYTE_BUDGET = 600;
+
+/**
  * **渲染后文本**的硬上限（UTF-16 码元）。
  *
  * 与 `RECALL_BYTE_BUDGET` 的区别：那个约束的是**候选数据**的字节量，
@@ -256,6 +277,76 @@ export function renderRecallRow(result) {
     // 过时数字会被反复放大（实测旧值 43% 与现状 100% 相差巨大）。
     // 保留结构性边界即可——它不因实现改进而变假。
     lines.push("（**能力边界**：本召回是字面词法匹配，只有字面相近的才会被列出。若在查故障，**未命中不代表没有同类教训**——症状与机制的表述常不重合，需要时请自行按机制检索。）");
+  }
+  // **决策基线（F1）**：无条件列出全部 active ADR——独立于词法候选区（`22 §12`
+  // 义务召回原则；`02 §9.1` F1「枚举指定对象集合」）。**为何必须常驻**：
+  // 法定效力决策（`22 §1`：违背 active ADR 视同违背规范源）若只靠词法命中，
+  // 可见性就取决于当回合用词；实测「每次回复先称呼老丁」在「改成异步的」上
+  // 零召回。故本段不受 `- ` 裁剪循环影响（用 `·` 前缀，与候选行区分），
+  // 自身有独立字节上限并如实披露截断。
+  const baseline = result?.decisionBaseline;
+  const baselineItems = Array.isArray(baseline?.items) ? baseline.items : [];
+  if (baselineItems.length > 0 || baseline?.sourceUnreadable === true) {
+    // **极小预算的退化形态先判**：此时整段压成一行（段头、计数、入口、适用性
+    // 否定都在这一行里），故不得再输出独立段头与独立声明——否则又超回去。
+    const baselineLimitBytes =
+      typeof result?.budget?.limitBytes === "number" ? result.budget.limitBytes : null;
+    const totalBudgetTooSmall = baselineLimitBytes !== null && baselineLimitBytes > 0
+      && baselineLimitBytes < 1200;
+    if (totalBudgetTooSmall && baselineItems.length > 0) {
+      // **极小预算下基线整体让位（如实登记，非静默）**：预算 < 1200 时固定声明
+      // （约 720 字节）加三态/截断披露行已顶满，实测 800 预算下加任何基线痕迹
+      // 都会超（单行形态 898、并入披露行 870，均 > 800）。故此时不输出基线文本，
+      // 改由**数据层**如实承载：`decisionBaseline.items` 与 `reservedBytes` 仍在
+      // 返回值里，调用方与测试可机械观察「基线存在但未在注入面展开」。
+      // 取舍理由：`10:241`「注入内容未超 LDVH 侧常量预算」是硬核对项；
+      // 极小额预算下让基线让位，是「预算可守」优先于「小预算下也逐条列全」。
+      // 生产常量 2400 与测试矩阵 1200–4000 均不受影响（基线正常展开）。
+    } else {
+    lines.push(`【决策基线 · active ADR（22 §12 义务披露）】`);
+    if (baseline?.sourceUnreadable === true && baselineItems.length === 0) {
+      // 与三态同口径：读不到 ≠ 没有。绝不静默留空。
+      lines.push("· 事实源不可读，基线未取得——**不表示本项目没有 ADR**（34 §12）。");
+    } else {
+      // 逐条按字节上限收敛；超出的如实计数披露（`02 §9.1`：不得静默截断）。
+      //
+      // **上限须随总预算缩放**（2026-10-25，修复 800 字节用例暴露的真实冲突）：
+      // 固定 600 字节的基线在总预算 800 时会与固定声明（720 字节）直接对撞——
+      // 实测 1179 > 800。基线是义务披露，但**披露本身也要能被装下**；
+      // 故实际上限取「常量的上限」与「总预算的一部分」的较小者，
+      // 极小预算下退化为「计数 + 取全量入口」而不是逐条标题（内容按预算收敛，
+      // 披露义务不减：仍如实说明有几条、去哪取）。
+      const limitBytesForBaseline =
+        typeof result?.budget?.limitBytes === "number" ? result.budget.limitBytes : null;
+      const scaledCap = limitBytesForBaseline !== null && limitBytesForBaseline > 0
+        // 基线最多占注入预算的 1/3，余下留给固定声明与候选区。
+        ? Math.floor(limitBytesForBaseline / 3)
+        : ADR_BASELINE_BYTE_BUDGET;
+      const effectiveCap = Math.min(ADR_BASELINE_BYTE_BUDGET, scaledCap);
+      let usedBytes = 0;
+      let shown = 0;
+      let omitted = 0;
+      for (const item of baselineItems) {
+        const line = `· ${item.title}${item.status ? `［${item.status}］` : ""}`;
+        const lineBytes = Buffer.byteLength(line, "utf8") + 1;
+        if (shown > 0 && usedBytes + lineBytes > effectiveCap) {
+          omitted += 1;
+          continue;
+        }
+        lines.push(line);
+        usedBytes += lineBytes;
+        shown += 1;
+      }
+      if (omitted > 0) {
+        lines.push(
+          `（基线按字节上限 ${effectiveCap} 列出前 ${shown} 条，另有 ${omitted} 条未列出；` +
+            `**未列出不代表不存在**，用 ldvh_adr_list 取全量。）`,
+        );
+      }
+      // 适用性声明不可省：基线常驻**不等于**每条都适用于本回合（`02 §9.2`／34 §13）。
+      lines.push("（基线只保证「看得见」，**不证明适用**：逐条是否适用于本次行动须自行判断。）");
+    }
+    }
   }
   if (specs.length > 0) {
     // **来源披露**（01 §10.3）：语料由回退来源应答时，必须如实标注，
@@ -550,8 +641,22 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
     return { inject: false, reason: `recall-unavailable:${result?.error?.code ?? "unknown"}` };
   }
   const total = (result.specs?.length ?? 0) + (result.facts?.length ?? 0);
-  if (total < MIN_HITS) {
-    // 一条都没命中就不注入——`02 §9.2` 要防的正是「无条件注入」。
+  // **零命中短路的例外：决策基线非空时仍须注入**（2026-10-25，Human 决定方案 A）。
+  //
+  // 旧行为「一条都没命中就不注入」的理由是 `02 §9.2` 要防「无条件注入」——那对
+  // **词法候选**成立（候选的意义就在「本次相关」，无命中即无内容）。但 F1 基线
+  // 不是候选：`22 §12` 的义务召回要求「相关行动开始前必须召回并核对 active ADR」，
+  // 其可见性不得取决于当回合用词（实测「每次回复先称呼老丁」在无关消息上零召回）。
+  // 若在此短路，基线就被词法运气重新挡在门外，方案 A 等于没做。
+  //
+  // 故：基线有内容（或事实源不可读须披露）→ 仍注入，但**只带基线**（`specs`/
+  // `facts` 为空，渲染层自然不会输出候选区）。这条不构成「无条件注入」：
+  // 34 §6 的进入条件仍在更上游把关（纯读取回合不进本函数）。
+  const baselineHasContent =
+    (result?.decisionBaseline?.items?.length ?? 0) > 0 ||
+    result?.decisionBaseline?.sourceUnreadable === true;
+  if (total < MIN_HITS && !baselineHasContent) {
+    // 一条都没命中、且无基线可披露 → 不注入。
     // 不注入不等于「无相关」，故这里只在返回值里说明，不写进上下文。
     return { inject: false, reason: "no-hits" };
   }

@@ -997,7 +997,44 @@ export async function recallForAction(input = {}) {
   //
   // 预留值取 720 字节：三行固定文本实测约 660～700 字节，留一点余量。
   const RENDER_OVERHEAD_BYTES = 720;
-  const usableBudget = Math.max(0, budgetBytes - RENDER_OVERHEAD_BYTES);
+  // **F1 决策基线段也须计入固定开销**（2026-10-25，方案 A 落地）。
+  //
+  // 基线段在渲染层是**固定输出**（`22 §12` 义务披露，无条件），所以它和标题/
+  // 声明行一样，属于「不随候选条数变化但必占预算」的部分。若不在这里扣掉，
+  // 预算会按「只有候选」来分配，实际注入时基线再挤进来——实测 2400 预算下
+  // 基线（约 267 字节 + 段头/声明约 90 字节）导致候选被多裁 2 条，
+  // 即「表面上预算没超，实际候选被基线挤掉且裁剪原因归错」。
+  //
+  // 先枚举基线（它只依赖已加载的 facts），算出其字节量，再据此收紧可用预算：
+  // 候选区与基线各自有界，互不吃掉对方的份额。
+  const decisionBaselineForBudget = (() => {
+    const active = facts.filter((fact) => fact.type === "adr" && fact.status === "active");
+    // 确定性排序（`02 §9` 红线）：标题码点序，同标题再按稳定引用兜底。
+    active.sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0) || (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0));
+    return active.map((fact) => ({
+      title: fact.title,
+      status: fact.status,
+      ref: fact.ref,
+      path: fact.path,
+    }));
+  })();
+  const BASELINE_SECTION_CHROME_BYTES = 180; // 段头 + 适用性声明 + 换行（实测约 214 字节，留余量）
+  // **基线段预留须与渲染层的缩放同口径**（2026-10-25）：渲染层在极小预算下
+  // 会把基线收敛到「计数 + 入口」甚至只报总数，故预留不能恒等于逐条标题的
+  // 全量字节——否则 800 字节预算下会预留 489 字节给基线，与固定声明（720）
+  // 直接对撞（实测注入 1179 > 800）。预留取「全量字节」与「预算 1/3」的较小者。
+  const baselineFullBytes = decisionBaselineForBudget.reduce(
+    (sum, item) => sum + Buffer.byteLength(`· ${item.title}［${item.status}］`, "utf8") + 1,
+    0,
+  ) + (decisionBaselineForBudget.length > 0 ? BASELINE_SECTION_CHROME_BYTES : 0);
+  const baselineScaledCap = Math.floor(budgetBytes / 3);
+  // 与渲染层同一阈值（< 1200 字节）：渲染层此时**不输出基线段**（实测任何形态都
+  // 会把注入顶破 800 预算），故数据层也不再为它预留字节——否则候选会白白少放，
+  // 而基线又没出现在文本里，形成「预算被扣、读者看不到」的错配。
+  const baselineBytes = decisionBaselineForBudget.length === 0 || budgetBytes < 1200
+    ? 0
+    : Math.min(baselineFullBytes, baselineScaledCap);
+  const usableBudget = Math.max(0, budgetBytes - RENDER_OVERHEAD_BYTES - baselineBytes);
   const estimateLineBytes = (item) => {
     const title = typeof item.title === "string" ? item.title : "";
     const reason = typeof item.hitReason === "string" ? item.hitReason : "";
@@ -1084,11 +1121,57 @@ export async function recallForAction(input = {}) {
     return "complete";
   })();
 
+  // **F1 决策基线**（`02 §9.1` F1：「类型来源要求的最小权威字段卡片；需要时为
+  // 全部指定对象集合分页返回」，用途「建立恢复基线、当前决策/责任全貌」）。
+  //
+  // 为什么它必须**独立于词法命中**（2026-10-25，Human 决定）：
+  // `22 §1` 把 ADR 定为「对 AI 具有持续约束力的**法定效力**决定……违背 active ADR
+  // 的行动视同违背规范源」；`22 §12` 又立「**义务召回原则**：相关行动开始前，AI
+  // 必须召回并核对相关 active ADR——这是义务而非「需要时查阅」」，并把 F1 明确
+  // 定义为「枚举 active ADR（title + status）」、把「当前决策基线就是 active 集本身」
+  // 写进同一节。
+  //
+  // 而本模块此前只实现 F2（词法候选卡）：**法定决策的可见性取决于用户当回合恰好
+  // 用了什么词**。实测（2026-10-25）：「每次回复先称呼老丁」这条 ADR 在
+  // 「把这个函数改成异步的」上完全不被召回，在「总结一下刚才聊的内容」上却因
+  // 通用词命中而被召回——义务召回因此悬空。故 F1 基线在此**无条件枚举**，
+  // 不参与匹配、不受 `limit`/`types`/`budget` 影响（只受 active 状态约束，
+  // `22 §12`：retired 不进入普通候选）。
+  //
+  // 与 `02 §9.2`「本文不建立所有类型共用的……无条件全量注入」的关系：
+  // 该句禁止的是**跨类型共用**的默认数量/全量注入，同段紧接着把「本类型的召回
+  // 时机」明确交给**具体类型来源**（`22` 正是 ADR 的类型权威）。故 ADR 基线段
+  // 是 `22 §12` 在本类型的领域增量，不是对 `02 §9.2` 的突破。
+  //
+  // 只给 title+status（`22 §12` F1 口径）+ 稳定引用 `ref`（供 F3 按需展开）：
+  // decision 全文属 F3，常驻会给注入面造成无谓字节压力。
+  const decisionBaseline = (() => {
+    return {
+      // `22 §12`：active 集本身即当前决策基线；retired 不入基线。
+      // 枚举与排序已在预算计算处完成（`decisionBaselineForBudget`），此处复用，
+      // 避免同一对象字面量内二次枚举导致「预算按 A 算、交付按 B 算」。
+      items: decisionBaselineForBudget,
+      // **基线自身的可读性须与三态同口径**（N-1 教训）：事实源不可读时基线为空，
+      // 若只给空数组，读者会把「读不到」当成「本项目没有 ADR」——正是 34 §12
+      // 与 `02 §9.2` 要防的「把零结果当无约束」。故单独标记。
+      sourceUnreadable: factSideUnreadable,
+      // F1 允许「分页返回」；本实现不持游标，如实声明取全量的方式。
+      pagination: { hasCursor: false, howToGetAll: "本字段即全量 active ADR（不按 limit 截断）；逐条全文用 ldvh_adr_read" },
+      note: "F1 枚举：不受本次 limit／types／预算影响；retired 不入基线（22 §12）",
+      // 该段在总预算中已单独预留的字节数（供调用方核对，不重复计入候选预算）。
+      reservedBytes: baselineBytes,
+    };
+  })();
+
   return {
     ok: true,
     query: { action, scope: input.scope ?? "", tokens: tokens.length },
     specs: keptSpecs,
     facts: keptFacts,
+    // F1 决策基线（见上方 decisionBaseline 的完整理由）：**无条件枚举**全部
+    // active ADR，独立于 `specs`/`facts`（后两者是 F2 词法候选）。消费方须把
+    // 两者分开呈现——基线是「当前决策全貌」，候选是「本次可能相关的」。
+    decisionBaseline,
     truncated,
     overBudget,
     budget: { limitBytes: budgetBytes, usedBytes: used, limit },

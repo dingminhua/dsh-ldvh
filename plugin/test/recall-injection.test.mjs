@@ -378,9 +378,26 @@ test("渲染文本须有硬上限，超限按行裁剪并如实说明（不得�
 });
 
 test("渲染文本未超限时不得添加裁剪说明", async () => {
-	const r = await buildRecallInjection({ userText: "页面白屏了", projectRoot: ROOT });
+	// **前提须显式构造**（2026-10-25 修）：原用例用「页面白屏了」走真实召回，
+	// 但 F1 决策基线常驻后该回合也会注入基线，2400 预算下总字节可能触到裁剪线
+	// ——那说明「基线常驻确实占预算」，不是「未超限却加了说明」。
+	// 本用例要钉的是后者，故直接构造一个明确不超限的结果保住原意。
+	const small = {
+		ok: true, truncated: false, overBudget: false, partial: false,
+		specs: [{ title: "短标题", path: "specs/x.md", hitReason: "正文命中：短理由" }],
+		facts: [],
+		budget: { limitBytes: 2400, usedBytes: 120, limit: 3 },
+		counts: { specHits: 1, factHits: 0, specsReturned: 1, factsReturned: 0, candidatesScanned: 10 },
+		unchecked: { specs: [], facts: [] },
+		ranking: { keys: ["tier", "hits", "path"] },
+		decisionBaseline: { items: [], sourceUnreadable: false },
+	};
+	const out = renderRecallRow(small);
+	assert.ok(!/渲染层按硬约束/.test(out), "未超限时不得出现裁剪说明");
+	// 真实路径另钉一条：预算充裕时同样安静（基线展开但不触限）。
+	const r = await buildRecallInjection({ userText: "页面白屏了", projectRoot: ROOT, budgetBytes: 4000 });
 	if (r.inject) {
-		assert.ok(!/渲染层按硬约束/.test(r.text), "未超限时不得出现裁剪说明");
+		assert.ok(!/渲染层按硬约束/.test(r.text), "预算充裕时不得出现裁剪说明");
 	}
 });
 
@@ -808,4 +825,93 @@ test("注入文本的实际字节数不得超预算（10:241「未超 LDVH 侧�
 			`预算 ${budgetBytes} 字节，实际注入 ${actual} 字节，超 ${actual - budgetBytes}`,
 		);
 	}
+});
+
+// ---------------------------------------------------------------------------
+// F1 决策基线（22 §12 义务召回原则 / 02 §9.1 F1「枚举指定对象集合」）
+//
+// 2026-10-25 Human 决定方案 A：注入面在词法候选区之外**无条件**列出全部
+// active ADR。理由：22 §1 把 ADR 定为法定效力决定（违背 active ADR 视同违背
+// 规范源），22 §12 立义务召回原则；若基线只靠词法命中，法定决策的可见性
+// 就取决于当回合用词——实测「每次回复先称呼老丁」在「改成异步的」上零召回。
+// ---------------------------------------------------------------------------
+
+test("F1 基线：法定决策不得靠词面运气——零词法命中时基线仍须出现", async () => {
+	// 这条用例钉住方案 A 的全部意义所在。实测（修复前）：「把这个函数改成异步的」
+	// 对「每次回复先称呼老丁」这条 ADR **零召回**——而它是法定效力决定，
+	// 违背它视同违背规范源（22 §1）。若基线随词法命中一起缺席，义务召回悬空。
+	const r = await buildRecallInjection({
+		userText: "把这个函数改成异步的",
+		projectRoot: ROOT,
+		limit: 3,
+	});
+	assert.equal(r.inject, true, "有 active ADR 时必须注入（基线无条件）");
+	const items = r.result.decisionBaseline.items;
+	assert.ok(items.length > 0, "本仓有 active ADR（前提须成立）");
+	for (const item of items) {
+		assert.equal(item.status, "active", "retired 不入基线（22 §12）");
+		assert.ok(r.text.includes(item.title), `基线须列出全部 active ADR 标题，缺「${item.title}」`);
+	}
+	// 基线是**独立段**：不能混进词法候选区（`- ` 前缀），否则会被裁剪循环吃掉。
+	assert.match(r.text, /【决策基线 · active ADR/, "基线段须有独立段头");
+	assert.match(r.text, /^· /m, "基线行用 `· ` 前缀（与候选 `- ` 区分，不被裁剪）");
+});
+
+test("F1 基线：常驻不等于适用——须带「不证明适用」声明（02 §9.2／34 §13）", async () => {
+	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 3 });
+	assert.equal(r.inject, true);
+	assert.match(r.text, /基线只保证「看得见」，\*\*不证明适用\*\*/, "须显式否定适用性");
+	// 数据层也不得把基线写成适用（与 provesApplicability:false 同纪律）。
+	assert.equal(r.result.provesApplicability, false);
+});
+
+test("F1 基线：事实源不可读时须披露「基线未取得」而非静默留空（34 §12）", () => {
+	// 读不到 ≠ 没有。若只给空数组，读者会把「读不到」当成「本项目没有 ADR」，
+	// 正是 34 §12 与 02 §9.2 要防的「把零结果当无约束」。
+	const row = renderRecallRow({
+		specs: [],
+		facts: [],
+		decisionBaseline: { items: [], sourceUnreadable: true },
+	});
+	assert.match(row, /事实源不可读，基线未取得/, "不可读须显式披露");
+	assert.match(row, /\*\*不表示本项目没有 ADR\*\*/, "须否定「没有」的误读");
+});
+
+test("F1 基线：零 active ADR 时整段安静（不输出空段头）", () => {
+	const row = renderRecallRow({ specs: [], facts: [], decisionBaseline: { items: [], sourceUnreadable: false } });
+	assert.ok(!row.includes("决策基线"), "无 active ADR 时不出现空段");
+});
+
+test("F1 基线：超出字节上限时须如实计数披露，不得静默截断（02 §9.1）", () => {
+	// 造 30 条超长标题，远超 ADR_BASELINE_BYTE_BUDGET。
+	const items = Array.from({ length: 30 }, (_, i) => ({
+		title: `第${i}条很长的决策标题用来占满基线预算的测试项`,
+		status: "active",
+		ref: `adr-${i}`,
+		path: `ldvh-base/adrs/adr-${i}.md`,
+	}));
+	const row = renderRecallRow({ specs: [], facts: [], decisionBaseline: { items, sourceUnreadable: false } });
+	const shown = (row.match(/^· /gm) || []).length;
+	assert.ok(shown > 0 && shown < 30, `须部分列出（实测 ${shown} 条）`);
+	assert.match(row, /另有 \d+ 条未列出/, "须如实披露未列出条数");
+	assert.match(row, /\*\*未列出不代表不存在\*\*/, "须否定「未列出=不存在」");
+});
+
+test("F1 基线：基线字节已从候选预算中扣除（不得挤占后仍声称未超预算）", async () => {
+	// 若基线不预留，预算按「只有候选」分配，实际注入时基线再挤进来——
+	// 表现为候选被多裁且裁剪原因归错。本用例钉住：总字节仍 ≤ 预算，
+	// 且数据层如实给出基线预留量。
+	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes: 2400 });
+	assert.equal(r.inject, true);
+	const actual = Buffer.byteLength(r.text, "utf8");
+	assert.ok(actual <= 2400, `实际注入 ${actual} 字节须 ≤ 2400`);
+	assert.ok(r.result.decisionBaseline.reservedBytes > 0, "须给出基线预留字节数供核对");
+});
+
+test("F1 基线：同一事实集两次调用须逐字节一致（确定性排序，02 §9 红线）", async () => {
+	const a = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 3 });
+	const b = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 3 });
+	const titlesA = a.result.decisionBaseline.items.map((i) => i.title);
+	const titlesB = b.result.decisionBaseline.items.map((i) => i.title);
+	assert.deepEqual(titlesA, titlesB, "基线顺序须确定（不引入相似度/权重）");
 });
