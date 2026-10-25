@@ -32,7 +32,11 @@
 //   展开范围必须据实返回 partial/unavailable」）。
 // - 不建索引、不落盘、不写事实源（`34 §17` 第 1 项、`02 §9.2`）。
 
-import { recallForAction } from "./source-recall.js";
+import {
+  BASELINE_BUDGET_SHARE_DIVISOR,
+  BASELINE_YIELD_BELOW_BYTES,
+  recallForAction,
+} from "./source-recall.js";
 
 /** 注入行可见摘要（Human 侧折叠时看到的短标签）。 */
 export const RECALL_SUMMARY = "双源召回 · dsh-ldvh · 行动前候选";
@@ -80,6 +84,8 @@ export const RECALL_BYTE_BUDGET = 2400;
  * 本段的引入本身即经 Human 决定（2026-10-25 会话内批准方案 A）。
  */
 export const ADR_BASELINE_BYTE_BUDGET = 600;
+
+
 
 /**
  * **渲染后文本**的硬上限（UTF-16 码元）。
@@ -292,7 +298,7 @@ export function renderRecallRow(result) {
     const baselineLimitBytes =
       typeof result?.budget?.limitBytes === "number" ? result.budget.limitBytes : null;
     const totalBudgetTooSmall = baselineLimitBytes !== null && baselineLimitBytes > 0
-      && baselineLimitBytes < 1200;
+      && baselineLimitBytes < BASELINE_YIELD_BELOW_BYTES;
     if (totalBudgetTooSmall && baselineItems.length > 0) {
       // **极小预算下基线整体让位（如实登记，非静默）**：预算 < 1200 时固定声明
       // （约 720 字节）加三态/截断披露行已顶满，实测 800 预算下加任何基线痕迹
@@ -319,8 +325,8 @@ export function renderRecallRow(result) {
       const limitBytesForBaseline =
         typeof result?.budget?.limitBytes === "number" ? result.budget.limitBytes : null;
       const scaledCap = limitBytesForBaseline !== null && limitBytesForBaseline > 0
-        // 基线最多占注入预算的 1/3，余下留给固定声明与候选区。
-        ? Math.floor(limitBytesForBaseline / 3)
+        // 基线最多占注入预算的 1/3，余下留给固定声明与候选区（共享常量）。
+        ? Math.floor(limitBytesForBaseline / BASELINE_BUDGET_SHARE_DIVISOR)
         : ADR_BASELINE_BYTE_BUDGET;
       const effectiveCap = Math.min(ADR_BASELINE_BYTE_BUDGET, scaledCap);
       let usedBytes = 0;
@@ -594,6 +600,57 @@ export function renderRecallRow(result) {
     trimmed.push(fullNote);
     if (limitBytes !== null && limitBytes > 0 && Buffer.byteLength(trimmed.join("\n"), "utf8") > limitBytes) {
       trimmed[trimmed.length - 1] = compactNote;
+    }
+  }
+  // **最终总预算收口**（2026-10-25，第四十次审核 M-1 修复）。
+  //
+  // 上面的裁剪循环只裁 `- ` 候选行；候选裁光后 `idx === -1` 直接 break，
+  // **固定声明 + 基线段 + 三态/截断披露行仍可能顶破预算且无人披露**——
+  // 实测预算 1200、query「页面白屏了」时注入 1364 字节（超 164），而数据层
+  // `overBudget=false`、注入文本还写着「实际用 415 字节」，读者无从得知真实量。
+  // 这违反 `10:241`「注入内容未超 LDVH 侧常量预算」与 `02 §9.1`「不得静默截断」。
+  //
+  // 收口规则（固定文本与三态披露**永不删**——那是 `34 §12` 的披露底线）：
+  //   1. 仍超预算 → **基线整段让位**（它是本行里唯一可让的内容块；
+  //      义务披露降级为一句可查的痕迹，不静默消失）；
+  //   2. 让位后仍超 → 如实带出并标注超出量（不再假装守住了预算）。
+  if (limitBytes !== null && limitBytes > 0) {
+    const bytesNow = () => Buffer.byteLength(trimmed.join("\n"), "utf8");
+    if (bytesNow() > limitBytes) {
+      // 找出基线段的行区间（段头以「【决策基线」起，到紧随其后的最后一个
+      // 非基线行之前；基线行以 `· ` 或「（基线」开头）。
+      const startIdx = trimmed.findIndex((l) => l.startsWith("【决策基线"));
+      if (startIdx !== -1) {
+        let endIdx = startIdx + 1;
+        while (
+          endIdx < trimmed.length
+          && (trimmed[endIdx].startsWith("· ") || trimmed[endIdx].startsWith("（基线") || trimmed[endIdx].startsWith("【决策基线"))
+        ) endIdx += 1;
+        const removed = endIdx - startIdx;
+        const baselineCount = baselineItems.length;
+        trimmed.splice(startIdx, removed);
+        // **降级痕迹**：只留一行，说明基线存在但因预算未展开（不静默消失）。
+        trimmed.splice(
+          startIdx,
+          0,
+          `（决策基线未展开：${baselineCount} 条 active ADR 属 22 §12 义务披露，本次因字节预算 ${limitBytes} 不足未列出；` +
+            `用 ldvh_adr_list 取全量。**常驻不等于适用**。）`,
+        );
+      }
+    }
+    // 让位后仍超：如实带出超出量（`00 §5.6` 不得声称超出依据的事）。
+    //
+    // **但极小预算下不再加这一行**：预算低于让位阈值时，超出的是固定声明与
+    // 三态披露本身（`34 §12` 披露底线，既有的「披露优先于极小预算」取舍），
+    // 加一行只会让超出更多（实测 800 下加此行使 698 → 1176）。该情形已在
+    // 三态行与截断行如实说明，不属「基线导致的超支」，故不在此重复披露。
+    const finalBytes = bytesNow();
+    if (finalBytes > limitBytes && limitBytes >= BASELINE_YIELD_BELOW_BYTES) {
+      trimmed.push(
+        `（**本次注入 ${finalBytes} 字节，超出预算 ${limitBytes} 共 ${finalBytes - limitBytes} 字节**：` +
+          `固定声明与三态披露为 34 §12 披露底线不予裁剪，已让出决策基线段仍不足；` +
+          `请提高预算（属 Human 决定事项）或缩短单条标题。）`,
+      );
     }
   }
   return trimmed.join("\n");

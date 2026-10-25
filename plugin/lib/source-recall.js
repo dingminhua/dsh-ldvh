@@ -348,6 +348,34 @@ const EXCERPT_MAX_CHARS = 120;
  */
 export const RECALL_DIRECT_BYTE_BUDGET = 4000;
 
+/**
+ * **渲染固定开销的字节估算**（`10:241` 预算核对用）。
+ *
+ * 覆盖：标题行 + 候选声明行 + 能力边界行 + 分段标题（「规范源：」「事实源：」）。
+ * 实测约 445 字节（37+172+236），取 720 留余量。
+ *
+ * **为何放在本文件**：`recall-injection.js` 从本模块 import（依赖方向如此），
+ * 故共享常量必须定义在下层。第十次审核 Minor：此前两个文件各写一份字面量
+ * （720 / 180 / 1200 / 3 共 4 处），极易左右漂移——现统一从此处取。
+ */
+export const RENDER_FIXED_OVERHEAD_BYTES = 720;
+
+/**
+ * **基线段让位阈值**（字节）：总预算低于此值时，渲染层不输出基线段、本模块也不预留。
+ *
+ * 依据：固定开销（720）+ 三态/截断披露行（约 300）已接近该值，再输出基线必顶破
+ * 预算（实测 800 下任何基线形态都超：单行 898、并入披露行 870）。
+ */
+export const BASELINE_YIELD_BELOW_BYTES = 1200;
+
+/**
+ * **基线段可占注入预算的比例分母**（3 = 最多占 1/3）。
+ *
+ * 基线是义务披露，但不得吃掉候选区全部份额——ADR 增长时宁可截断基线
+ * （并如实披露）也要留住词法候选。
+ */
+export const BASELINE_BUDGET_SHARE_DIVISOR = 3;
+
 function excerptOf(text) {
   if (typeof text !== "string") return "";
   // 折叠所有空白（含换行）为单空格：摘录是单行展示位，换行会撑破行。
@@ -995,8 +1023,7 @@ export async function recallForAction(input = {}) {
   // 预算 2400 时实际注入会达 3093 字节，**超预算 29%**，直接违反 `10:241`
   // 的「注入内容……未超 LDVH 侧常量预算」。
   //
-  // 预留值取 720 字节：三行固定文本实测约 660～700 字节，留一点余量。
-  const RENDER_OVERHEAD_BYTES = 720;
+  // 预留值取 RENDER_FIXED_OVERHEAD_BYTES（720，共享常量，见文件头注释）。
   // **F1 决策基线段也须计入固定开销**（2026-10-25，方案 A 落地）。
   //
   // 基线段在渲染层是**固定输出**（`22 §12` 义务披露，无条件），所以它和标题/
@@ -1008,7 +1035,14 @@ export async function recallForAction(input = {}) {
   // 先枚举基线（它只依赖已加载的 facts），算出其字节量，再据此收紧可用预算：
   // 候选区与基线各自有界，互不吃掉对方的份额。
   const decisionBaselineForBudget = (() => {
-    const active = facts.filter((fact) => fact.type === "adr" && fact.status === "active");
+    // **状态判定复用受漂移守卫的常量**（第四十次审核 Minor-5）：此前硬编码
+    // `"active"`，而 `DEFAULT_STATUSES_BY_TYPE.adr`（本文件 :125）才是有
+    // `recall-spec-drift.test.mjs` 守卫、随 22 状态闭集同步的那份。两处不一致
+    // 时基线会静默漂移（第二规则源风险，01 §11.4）。
+    const adrActiveStatuses = DEFAULT_STATUSES_BY_TYPE.adr;
+    const active = facts.filter(
+      (fact) => fact.type === "adr" && adrActiveStatuses.includes(fact.status),
+    );
     // 确定性排序（`02 §9` 红线）：标题码点序，同标题再按稳定引用兜底。
     active.sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0) || (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0));
     return active.map((fact) => ({
@@ -1018,23 +1052,37 @@ export async function recallForAction(input = {}) {
       path: fact.path,
     }));
   })();
-  const BASELINE_SECTION_CHROME_BYTES = 180; // 段头 + 适用性声明 + 换行（实测约 214 字节，留余量）
-  // **基线段预留须与渲染层的缩放同口径**（2026-10-25）：渲染层在极小预算下
-  // 会把基线收敛到「计数 + 入口」甚至只报总数，故预留不能恒等于逐条标题的
-  // 全量字节——否则 800 字节预算下会预留 489 字节给基线，与固定声明（720）
-  // 直接对撞（实测注入 1179 > 800）。预留取「全量字节」与「预算 1/3」的较小者。
-  const baselineFullBytes = decisionBaselineForBudget.reduce(
+  // **基线段预留**（2026-10-25，第四十次审核 M-1/Minor-2 修复）：
+  // 预留必须与渲染层的实际消耗**同口径**，否则会出现「预留 400、实际 473」
+  // 的欠预留（实测 1200–1466 窗内最多欠 73 字节，直接导致注入超预算）。
+  //
+  // 渲染层基线段实际由三部分构成，这里逐项对齐（常量取自 recall-injection.js，
+  // 不在本文件重复字面量）：
+  //   · 条目行：`· 标题［status］` + 换行
+  //   · 段头：`【决策基线 · active ADR（22 §12 义务披露）】`
+  //   · 段尾：适用性声明 `（基线只保证「看得见」…）`
+  //   · 可能的省略披露行 `（基线按字节上限 N 列出前 M 条…）`
+  const BASELINE_HEADER = "【决策基线 · active ADR（22 §12 义务披露）】";
+  const BASELINE_FOOTER = "（基线只保证「看得见」，**不证明适用**：逐条是否适用于本次行动须自行判断。）";
+  // 省略披露行按最坏情形估（三位数条数 + 三位数上限）。
+  const BASELINE_OMIT_NOTE_BYTES = 150;
+  const baselineItemBytes = decisionBaselineForBudget.reduce(
     (sum, item) => sum + Buffer.byteLength(`· ${item.title}［${item.status}］`, "utf8") + 1,
     0,
-  ) + (decisionBaselineForBudget.length > 0 ? BASELINE_SECTION_CHROME_BYTES : 0);
-  const baselineScaledCap = Math.floor(budgetBytes / 3);
-  // 与渲染层同一阈值（< 1200 字节）：渲染层此时**不输出基线段**（实测任何形态都
-  // 会把注入顶破 800 预算），故数据层也不再为它预留字节——否则候选会白白少放，
-  // 而基线又没出现在文本里，形成「预算被扣、读者看不到」的错配。
-  const baselineBytes = decisionBaselineForBudget.length === 0 || budgetBytes < 1200
+  );
+  const baselineFullBytes = decisionBaselineForBudget.length === 0
+    ? 0
+    : baselineItemBytes
+      + Buffer.byteLength(BASELINE_HEADER, "utf8") + 1
+      + Buffer.byteLength(BASELINE_FOOTER, "utf8") + 1
+      + BASELINE_OMIT_NOTE_BYTES;
+  const baselineScaledCap = Math.floor(budgetBytes / BASELINE_BUDGET_SHARE_DIVISOR);
+  // 与渲染层同一阈值（共享常量）：低于让位阈值时渲染层**不输出基线段**，
+  // 故数据层也不再预留——否则候选会白白少放，而基线又没出现在文本里。
+  const baselineBytes = decisionBaselineForBudget.length === 0 || budgetBytes < BASELINE_YIELD_BELOW_BYTES
     ? 0
     : Math.min(baselineFullBytes, baselineScaledCap);
-  const usableBudget = Math.max(0, budgetBytes - RENDER_OVERHEAD_BYTES - baselineBytes);
+  const usableBudget = Math.max(0, budgetBytes - RENDER_FIXED_OVERHEAD_BYTES - baselineBytes);
   const estimateLineBytes = (item) => {
     const title = typeof item.title === "string" ? item.title : "";
     const reason = typeof item.hitReason === "string" ? item.hitReason : "";
@@ -1099,7 +1147,7 @@ export async function recallForAction(input = {}) {
   //
   // 故判断改为「候选行 + 渲染开销 > 预算」。这也使极小预算下的保底如实标记
   // overBudget（保底本就是明知超额仍给一条，必须说清）。
-  const overBudget = used + RENDER_OVERHEAD_BYTES > budgetBytes;
+  const overBudget = used + RENDER_FIXED_OVERHEAD_BYTES + baselineBytes > budgetBytes;
 
   // **源可读性一次计算、四处复用**（2026-10-25 第六次审核 N-1）：三态判定、
   // gaps 登记、sourceNotRead 清单与 note 措辞必须对「哪一源不可读」说同一句话，
@@ -1128,8 +1176,8 @@ export async function recallForAction(input = {}) {
   // `22 §1` 把 ADR 定为「对 AI 具有持续约束力的**法定效力**决定……违背 active ADR
   // 的行动视同违背规范源」；`22 §12` 又立「**义务召回原则**：相关行动开始前，AI
   // 必须召回并核对相关 active ADR——这是义务而非「需要时查阅」」，并把 F1 明确
-  // 定义为「枚举 active ADR（title + status）」、把「当前决策基线就是 active 集本身」
-  // 写进同一节。
+  // 定义为「F1 枚举 active ADR **计数**（title + status）」（逐字含「计数」二字，
+  // 第四十次审核 Minor-1 修正）、把「当前决策基线就是 active 集本身」写进同一节。
   //
   // 而本模块此前只实现 F2（词法候选卡）：**法定决策的可见性取决于用户当回合恰好
   // 用了什么词**。实测（2026-10-25）：「每次回复先称呼老丁」这条 ADR 在
@@ -1139,9 +1187,21 @@ export async function recallForAction(input = {}) {
   // `22 §12`：retired 不进入普通候选）。
   //
   // 与 `02 §9.2`「本文不建立所有类型共用的……无条件全量注入」的关系：
-  // 该句禁止的是**跨类型共用**的默认数量/全量注入，同段紧接着把「本类型的召回
-  // 时机」明确交给**具体类型来源**（`22` 正是 ADR 的类型权威）。故 ADR 基线段
-  // 是 `22 §12` 在本类型的领域增量，不是对 `02 §9.2` 的突破。
+  // **此处存在规范解释张力，本实现不作单方裁定**（2026-10-25，第四十次审核 M-4）。
+  //
+  // 两种读法在文本上都能成立：
+  //   · 读法一：限定语「所有类型共用的」统辖整个并列清单，故 `02` 只拒绝跨类型
+  //     共用的默认量；同段前句把「本类型的召回时机」明确授权给具体类型来源，
+  //     `22` 正是 ADR 的类型权威 → 本段是类型领域增量。
+  //   · 读法二：`02 §9.2` 第 1 段的进入条件（「只有在项目事实对当次理解、判断、
+  //     验证或行动确实必要……才进入事实消费分支」）**不在**该授权范围内，
+  //     而本实现把基线推到每一个行动回合，等于绕过进入条件。
+  //
+  // 按 `34 §7.5` 层级参考，`02`（层级 2，01–11 基础规范）与 `22`（层级 3，
+  // 20–27 事实类型规范）冲突「须提请 Human，不得自行取舍」；按 `01 §7.4` C-1
+  // 「权威关系无法确认时，不静默选边」。故：**本实现不写结论式断言**，
+  // 该张力已作为待决事项提请 Human 裁定（见提交说明与交还报告）。
+  // 裁定前本段按「22 为 ADR 类型权威」实施，这是可回退的临时口径。
   //
   // 只给 title+status（`22 §12` F1 口径）+ 稳定引用 `ref`（供 F3 按需展开）：
   // decision 全文属 F3，常驻会给注入面造成无谓字节压力。

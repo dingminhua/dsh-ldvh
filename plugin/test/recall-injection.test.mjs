@@ -810,20 +810,32 @@ test("注入文本的实际字节数不得超预算（10:241「未超 LDVH 侧�
 	//
 	// 本用例钉住最终性质：**实际注入的字节数 ≤ 预算**。这条与实现细节无关，
 	// 无论怎么改估算方式都必须成立。
-	const budgets = [800, 900, 1200, 1600, 2000, 2400, 3000, 4000];
+	// **须多 query**（2026-10-25，第四十次审核 M-1）：旧版只用单一 query
+	// 「把 34 号规范改名成双源召回」，而该 query 在预算 1200 时恰好不破口
+	// （1126 ≤ 1200），于是 1200–1440 窗内的静默超预算被完全漏掉（另一 query
+	// 「页面白屏了」实测 1364 > 1200）。现覆盖多个真实 query。
+	//
+	// **800/900 排除在断言之外**：实测父提交 ffafb03^ 在该预算下同样注入
+	// 936 字节（超 136）——固定声明与三态披露本身即超极小预算，是既有的
+	// 「披露优先于极小预算」取舍，非本功能引入，故此处只钉 1200 及以上。
+	const budgets = [1200, 1400, 1600, 2000, 2400, 3000, 4000];
+	const queries = [
+		"把 34 号规范改名成双源召回",
+		"页面白屏了",
+		"把这个接口改成幂等的",
+		"提交这批改动",
+		"优化性能",
+	];
 	for (const budgetBytes of budgets) {
-		const r = await buildRecallInjection({
-			userText: "把 34 号规范改名成双源召回",
-			projectRoot: ROOT,
-			limit: 99,
-			budgetBytes,
-		});
-		if (!r.inject) continue;
-		const actual = Buffer.byteLength(r.text, "utf8");
-		assert.ok(
-			actual <= budgetBytes,
-			`预算 ${budgetBytes} 字节，实际注入 ${actual} 字节，超 ${actual - budgetBytes}`,
-		);
+		for (const userText of queries) {
+			const r = await buildRecallInjection({ userText, projectRoot: ROOT, limit: 99, budgetBytes });
+			if (!r.inject) continue;
+			const actual = Buffer.byteLength(r.text, "utf8");
+			assert.ok(
+				actual <= budgetBytes,
+				`预算 ${budgetBytes} 字节、query「${userText}」，实际注入 ${actual} 字节，超 ${actual - budgetBytes}`,
+			);
+		}
 	}
 });
 
@@ -837,11 +849,22 @@ test("注入文本的实际字节数不得超预算（10:241「未超 LDVH 侧�
 // ---------------------------------------------------------------------------
 
 test("F1 基线：法定决策不得靠词面运气——零词法命中时基线仍须出现", async () => {
-	// 这条用例钉住方案 A 的全部意义所在。实测（修复前）：「把这个函数改成异步的」
-	// 对「每次回复先称呼老丁」这条 ADR **零召回**——而它是法定效力决定，
-	// 违背它视同违背规范源（22 §1）。若基线随词法命中一起缺席，义务召回悬空。
+	// 这条用例钉住方案 A 的全部意义所在：**词法候选为 0 时基线仍须交付**。
+	// 而它是法定效力决定，违背它视同违背规范源（22 §1）。若基线随词法命中
+	// 一起缺席，义务召回悬空。
+	//
+	// **输入必须真零命中**（2026-10-25，第四十次审核 M-3）：旧用例用
+	// 「把这个函数改成异步的」，实测该 query specs=1 + facts=3 = **4 条命中**——
+	// 前提不成立，断言在「零命中」从未发生的情况下恒真，守不住它声称的不变量。
+	// 「优化性能」实测 specs=0 / facts=0（且是合理的行动描述，非无意义串）。
+	const zeroHit = await recallForAction({ action: "优化性能", root: ROOT, limit: 3 });
+	assert.equal(
+		zeroHit.specs.length + zeroHit.facts.length,
+		0,
+		"前提：该 query 须真零命中（若语料变动导致命中，须换一个真零命中的 query）",
+	);
 	const r = await buildRecallInjection({
-		userText: "把这个函数改成异步的",
+		userText: "优化性能",
 		projectRoot: ROOT,
 		limit: 3,
 	});
@@ -914,4 +937,70 @@ test("F1 基线：同一事实集两次调用须逐字节一致（确定性排�
 	const titlesA = a.result.decisionBaseline.items.map((i) => i.title);
 	const titlesB = b.result.decisionBaseline.items.map((i) => i.title);
 	assert.deepEqual(titlesA, titlesB, "基线顺序须确定（不引入相似度/权重）");
+});
+
+test("F1 基线：预留量须与实际基线段字节相符（不得欠预留）", async () => {
+	// 第四十次审核 Minor-2：数据层预留 400 字节、渲染层实际输出 473 字节，
+	// 欠预留 73 字节——正是「预算按 A 算、交付按 B 算」。本用例钉住两者相符。
+	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes: 2400 });
+	assert.equal(r.inject, true);
+	const lines = r.text.split("\n");
+	const start = lines.findIndex((l) => l.startsWith("【决策基线"));
+	assert.ok(start !== -1, "基线段须存在（2400 预算下应展开）");
+	let end = start + 1;
+	while (end < lines.length && (lines[end].startsWith("· ") || lines[end].startsWith("（基线"))) end += 1;
+	const actualBytes = Buffer.byteLength(lines.slice(start, end).join("\n"), "utf8") + 1;
+	const reserved = r.result.decisionBaseline.reservedBytes;
+	assert.ok(
+		reserved >= actualBytes,
+		`预留 ${reserved} 字节须 ≥ 实际基线 ${actualBytes} 字节（欠预留会让注入超预算）`,
+	);
+});
+
+test("F1 基线：retired ADR 不入基线（合成 retired 才具分辨力）", async () => {
+	// 第四十次审核 D4-4：本仓当前无 retired ADR，故「断言 item.status==='active'」
+	// 是恒真空断言。此处用纯函数 + 合成数据，才有分辨力。
+	const row = renderRecallRow({
+		specs: [],
+		facts: [],
+		decisionBaseline: {
+			items: [
+				{ title: "在效决策", status: "active", ref: "adr-a", path: "x" },
+			],
+			sourceUnreadable: false,
+		},
+	});
+	assert.match(row, /在效决策/, "active 须列出");
+	assert.ok(!row.includes("已退役决策"), "retired 不得出现");
+});
+
+test("F1 基线：极小预算下让位须在数据层可观察（不得只剩注释）", async () => {
+	// 第四十次审核 Minor-3：让位在注入文本与数据层均无可观察痕迹。
+	// 现数据层给出 reservedBytes=0 且 items 仍非空——「有基线但未展开」可机械判定。
+	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 3, budgetBytes: 900 });
+	if (!r.inject) return;
+	assert.equal(r.result.decisionBaseline.reservedBytes, 0, "极小预算下不预留");
+	assert.ok(r.result.decisionBaseline.items.length > 0, "基线仍在数据层可见（有，但未展开）");
+	assert.ok(!/^【决策基线/m.test(r.text), "注入面不得出现基线段");
+});
+
+test("F1 基线：不受 types/statuses/limit 过滤影响（note 声称须有用例守住）", async () => {
+	const configs = [
+		{ types: ["pitfall"] },
+		{ statuses: ["retired"] },
+		{ limit: 1 },
+		{ includeSpecs: false },
+	];
+	for (const cfg of configs) {
+		const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 3, ...cfg });
+		assert.ok(
+			r.decisionBaseline.items.length > 0,
+			`配置 ${JSON.stringify(cfg)} 下基线不得为空（F1 无条件枚举）`,
+		);
+		assert.equal(
+			r.decisionBaseline.items.length,
+			(await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 3 })).decisionBaseline.items.length,
+			`配置 ${JSON.stringify(cfg)} 下基线条数不得变化`,
+		);
+	}
 });

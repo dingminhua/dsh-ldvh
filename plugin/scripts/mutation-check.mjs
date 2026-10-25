@@ -62,7 +62,10 @@ const MUTATIONS = [
 	// 若把 baselineHasContent 恒为 false，就退回到「法定决策靠词面运气」——
 	// 实测「每次回复先称呼老丁」在无关消息上零召回，正是该缺陷的现场。
 	[INJ, "零命中时基线被短路（退回词面运气）", "  if (total < MIN_HITS && !baselineHasContent) {", "  if (total < MIN_HITS) {"],
-	[INJ, "基线未预留预算（挤占候选后仍声称未超）", "        ? Math.floor(limitBytesForBaseline / 3)", "        ? limitBytesForBaseline"],
+		// **对准真实不变量**（第四十次审核 M-2）：数据层不为基线预留预算，
+	// 于是预算按「只有候选」分配、实际注入时基线再挤进来——这正是
+	// 「预留量须与实际基线段字节相符」用例要防的错配（欠预留会让注入超预算）。
+	[LIB, "基线不预留预算（预算按无基线分配）", "    : Math.min(baselineFullBytes, baselineScaledCap);", "    : 0;"],
 ];
 
 async function failCount() {
