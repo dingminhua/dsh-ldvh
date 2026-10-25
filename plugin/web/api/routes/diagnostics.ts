@@ -3,7 +3,9 @@
  *
  * 两页数据形态不同、来源也不同：
  * - `/gate`：受控写入关卡的调用实况，来自宿主会话日志（见 runtimeDiagnostics.ts）；
- * - `/idle`：闲时辅助的运行记录与待处置登记，来自 `~/.dsh/ldvh/` 下插件自己落的账。
+ * - `/idle`：闲时辅助的运行记录与待处置登记，来自 `~/.dsh/ldvh/` 下插件自己落的账；
+ * - `/observations`：摩擦观察缓冲（11 §12bis.1）的只读现状——**非事实对象**，与本页
+ *   其余部分同理属本机运行状态（故不放在事实对象列表页）。
  *
  * 两者都**只读**：本模块不写任何载体，也不改事实源。`scope` 字段如实说明覆盖范围，
  * 页面据此把「本页看不到」与「确实没有」区分开——这正是这个页面存在的意义。
@@ -12,7 +14,11 @@ import { Router, type Request, type Response } from 'express'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
-import { buildGateReport, dshHomeFromEnvironment } from '../services/runtimeDiagnostics.js'
+import {
+  buildFrictionObservationReport,
+  buildGateReport,
+  dshHomeFromEnvironment,
+} from '../services/runtimeDiagnostics.js'
 import { LDVH_WORKSPACE_ROOT } from '../services/pytools.js'
 import { ProjectScopeError, requestProject } from '../services/requestScope.js'
 
@@ -187,6 +193,27 @@ router.get('/idle', async (_req: Request, res: Response) => {
     }
     const message = error instanceof Error ? error.message : String(error)
     fail(res, 500, 'IDLE_REPORT_FAILED', message)
+  }
+})
+
+/**
+ * `/observations` —— 摩擦观察缓冲的只读现状（11 §12bis.1）。
+ *
+ * 为什么在诊断页而不是对象列表：缓冲条目**不是事实对象**（非事实、无对象身份），
+ * 混进事实列表会造成「它们是账目」的误读。这里与水位、待处置队列、运行记录同层——
+ * 都是本机运行状态。
+ *
+ * 呈现口径由 11 §12bis.1 第 2 条钉死：只可展示存在与数量、以及现象/时间/来源/状态
+ * 四项，不得展示 evidence 全文、不得可点击进入事实对象。故服务层投影刻意不含
+ * evidence/session/promoted_to —— 这是规范要求的最小面，不是遗漏。
+ */
+router.get('/observations', async (_req: Request, res: Response) => {
+  try {
+    const report = await buildFrictionObservationReport()
+    res.json(report)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    fail(res, 500, 'OBSERVATION_REPORT_FAILED', message)
   }
 })
 

@@ -1216,3 +1216,53 @@ export async function fetchGateReport(): Promise<GateReport> {
 export async function fetchIdleReport(): Promise<IdleReport> {
   return request<IdleReport>('/diagnostics/idle');
 }
+
+/**
+ * 摩擦观察缓冲（11 §12bis.1）的只读投影。
+ *
+ * **字段面即规范面**：11 §12bis.1 第 2 条只允许呈现现象/时间/来源/状态四项，
+ * 不得呈现 `evidence` 全文、不得使其可点击进入事实对象（它没有对象身份）。
+ * 故本类型**刻意不含** `evidence`/`session`/`promoted_to`——不是遗漏。
+ */
+export interface ObservationRow {
+  at: string | null;
+  /** 「来源」：材料位置（anchor），不是会话 id。 */
+  anchor: string | null;
+  phenomenon: string | null;
+  status: string | null;
+  /** 观察组：只为看出「同一阻碍被看过几次」，不是对象标识。 */
+  group: string | null;
+}
+
+export interface ObservationGroupRow {
+  group: string;
+  pendingCount: number;
+  promotionReady: boolean;
+  firstAt: string | null;
+  lastAt: string | null;
+  latestPhenomenon: string | null;
+}
+
+export interface FrictionObservationReport {
+  ok: boolean;
+  generatedAt: string;
+  scope: {
+    ldvhHome: string;
+    bufferDir: string;
+    bufferDirExists: boolean;
+    files: string[];
+    threshold: number;
+    limits: string[];
+  };
+  totals: {
+    entries: number;
+    byStatus: { status: string; count: number }[];
+    projects: number;
+  };
+  groups: ObservationGroupRow[];
+  recent: ObservationRow[];
+}
+
+export async function fetchFrictionObservationReport(): Promise<FrictionObservationReport> {
+  return request<FrictionObservationReport>('/diagnostics/observations');
+}

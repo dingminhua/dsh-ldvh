@@ -15,11 +15,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ChevronRight } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
 import { useI18n } from '@/i18n/context';
-import { fetchGateReport, fetchIdleReport, type GateReport, type IdleReport } from '@/utils/api';
+import {
+  fetchFrictionObservationReport,
+  fetchGateReport,
+  fetchIdleReport,
+  type FrictionObservationReport,
+  type GateReport,
+  type IdleReport,
+} from '@/utils/api';
 import { LDVH_ERROR_TEXT_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
 import type { LocaleKey } from '@/i18n/locales';
 
-type Tab = 'gate' | 'idle';
+type Tab = 'gate' | 'idle' | 'observations';
 
 /** 与 i18n context 的 `t` 同签名（可带插值参数）。 */
 type Translation = (key: LocaleKey, params?: Record<string, string>) => string;
@@ -271,11 +278,135 @@ function IdlePanel({ report, t }: { report: IdleReport; t: Translation }) {
   );
 }
 
+/**
+ * 摩擦观察缓冲面板（11 §12bis.1）。
+ *
+ * ## 这里为什么没有「点进去看详情」
+ *
+ * 缓冲条目**不是事实对象**——没有对象身份、不在事实源里。故本面板刻意不提供
+ * 任何进入详情页的入口：给了入口就等于暗示「它是一个对象」。这与「诊断页只读」
+ * 是同一条纪律的两个面。
+ *
+ * ## 为什么只显示四项
+ *
+ * 11 §12bis.1 第 2 条（Human 决定 2026-10）明写只可呈现现象/时间/来源/状态，
+ * 不得呈现 `evidence` 全文。本面板严格遵守——不是信息缺失，是规范边界。
+ */
+function ObservationPanel({ report, t }: { report: FrictionObservationReport; t: Translation }) {
+  const ready = report.groups.filter((group) => group.promotionReady).length;
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="ldvh-metric-grid">
+        <MetricCard
+          label={t('diagnostics.observations.entries')}
+          value={String(report.totals.entries)}
+          hint={t('diagnostics.observations.projects', { count: String(report.totals.projects) })}
+        />
+        <MetricCard
+          label={t('diagnostics.observations.groups')}
+          value={String(report.groups.length)}
+          hint={t('diagnostics.observations.threshold', { n: String(report.scope.threshold) })}
+        />
+        <MetricCard
+          label={t('diagnostics.observations.ready')}
+          value={String(ready)}
+          tone={ready > 0 ? 'warning' : undefined}
+        />
+        <MetricCard
+          label={t('diagnostics.observations.pending')}
+          value={String(report.totals.byStatus.find((row) => row.status === 'pending')?.count ?? 0)}
+        />
+      </div>
+
+      <ScopeNotice limits={report.scope.limits ?? []} />
+
+      {/* 目录不存在是**正常初态**（还没有任何观察落地），须说清楚，否则读者会
+          以为功能坏了。这与「读失败」必须区分开。 */}
+      {!report.scope.bufferDirExists ? (
+        <div className="rounded-lg border border-dashed border-ldvh-border bg-ldvh-panel px-4 py-6 text-center">
+          <p className="ldvh-body-muted">{t('diagnostics.observations.noBufferDir')}</p>
+          <p className="ldvh-meta mt-1 font-mono text-ldvh-text-secondary">{report.scope.bufferDir}</p>
+          <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.observations.noBufferDirHint')}</p>
+        </div>
+      ) : null}
+
+      <section className="rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
+        <h2 className="ldvh-card-title">{t('diagnostics.observations.groupsTitle')}</h2>
+        <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.observations.groupsHint')}</p>
+        <div className="mt-3 flex flex-col gap-2">
+          {report.groups.length === 0 ? (
+            <p className="ldvh-body-muted">{t('diagnostics.observations.empty')}</p>
+          ) : report.groups.map((group) => (
+            <div
+              key={group.group}
+              className="grid grid-cols-[minmax(0,1fr)_5.5rem_5rem] items-center gap-2 border-b border-ldvh-border/40 pb-2 last:border-0"
+            >
+              <div className="min-w-0">
+                <p className="ldvh-meta truncate text-ldvh-text-primary">
+                  {group.latestPhenomenon ?? group.group}
+                </p>
+                <p className="ldvh-meta truncate font-mono text-[11px] text-ldvh-text-secondary">
+                  {group.group}
+                  {group.lastAt ? ` · ${group.lastAt}` : ''}
+                </p>
+              </div>
+              <div className="flex items-center gap-1">
+                <ShareBar value={group.pendingCount} total={report.scope.threshold} />
+                <span className="font-mono text-[12px] text-ldvh-text-secondary">
+                  {group.pendingCount}/{report.scope.threshold}
+                </span>
+              </div>
+              <div className="text-right">
+                {group.promotionReady ? (
+                  <span className={`ldvh-chip-sm ${LDVH_WARN_TITLE_CLASS}`}>
+                    {t('diagnostics.observations.readyBadge')}
+                  </span>
+                ) : (
+                  <span className="ldvh-meta text-ldvh-text-secondary">—</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
+        <h2 className="ldvh-card-title">{t('diagnostics.observations.recentTitle')}</h2>
+        <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.observations.recentHint')}</p>
+        <div className="mt-2 flex flex-col">
+          {report.recent.length === 0 ? (
+            <p className="ldvh-body-muted py-2">{t('diagnostics.observations.empty')}</p>
+          ) : report.recent.map((row, index) => (
+            <div
+              key={`${row.at ?? ''}-${index}`}
+              className="grid grid-cols-[9.5rem_minmax(0,1fr)_5.5rem] items-start gap-2 border-b border-ldvh-border/40 py-1.5 last:border-0"
+            >
+              <span className="ldvh-meta font-mono text-[11px] text-ldvh-text-secondary">
+                {row.at ?? '—'}
+              </span>
+              <div className="min-w-0">
+                <p className="ldvh-meta truncate text-ldvh-text-primary">{row.phenomenon ?? '—'}</p>
+                <p className="ldvh-meta truncate font-mono text-[11px] text-ldvh-text-secondary">
+                  {row.anchor ?? '—'}
+                </p>
+              </div>
+              <span className="ldvh-meta text-right text-[11px] text-ldvh-text-secondary">
+                {row.status ?? '—'}
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function Diagnostics() {
   const { t } = useI18n();
   const [tab, setTab] = useState<Tab>('gate');
   const [gate, setGate] = useState<GateReport | null>(null);
   const [idle, setIdle] = useState<IdleReport | null>(null);
+  const [observations, setObservations] = useState<FrictionObservationReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // 采集时机就是进入本页与切换标签：离开页面即卸载，再进来一定重采。
@@ -283,12 +414,18 @@ export default function Diagnostics() {
   useEffect(() => {
     let cancelled = false;
     setError(null);
-    const load = tab === 'gate' ? fetchGateReport() : fetchIdleReport();
+    const load =
+      tab === 'gate'
+        ? fetchGateReport()
+        : tab === 'idle'
+          ? fetchIdleReport()
+          : fetchFrictionObservationReport();
     load
       .then((result) => {
         if (cancelled) return;
         if (tab === 'gate') setGate(result as GateReport);
-        else setIdle(result as IdleReport);
+        else if (tab === 'idle') setIdle(result as IdleReport);
+        else setObservations(result as FrictionObservationReport);
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -299,10 +436,11 @@ export default function Diagnostics() {
     };
   }, [tab]);
 
-  const current = tab === 'gate' ? gate : idle;
+  const current = tab === 'gate' ? gate : tab === 'idle' ? idle : observations;
   const tabs = useMemo(() => ([
     { key: 'gate' as Tab, label: t('diagnostics.tab.gate') },
     { key: 'idle' as Tab, label: t('diagnostics.tab.idle') },
+    { key: 'observations' as Tab, label: t('diagnostics.tab.observations') },
   ]), [t]);
 
   return (
@@ -335,8 +473,10 @@ export default function Diagnostics() {
         </div>
       ) : tab === 'gate' && gate ? (
         <GatePanel report={gate} t={t} />
-      ) : idle ? (
+      ) : tab === 'idle' && idle ? (
         <IdlePanel report={idle} t={t} />
+      ) : observations ? (
+        <ObservationPanel report={observations} t={t} />
       ) : null}
     </div>
   );

@@ -363,3 +363,214 @@ export async function buildGateReport(options: {
     recentFailures,
   }
 }
+
+// ---------------------------------------------------------------------------
+// 摩擦观察缓冲（11 §12bis.1）的只读投影
+// ---------------------------------------------------------------------------
+//
+// ## 为什么放在诊断页而不是事实对象列表
+//
+// 摩擦观察缓冲里的条目**不是事实对象**（11 §12bis.1：非事实、不进事实源、无对象
+// 身份）。把它们混进「事实对象」的列表页会立刻造成误读——读者会以为它们是账目。
+// 诊断页承载的是「本机运行状态」，缓冲正属同一类地方（与水位、待处置队列、
+// 运行记录同层，同在 ~/.dsh/ldvh 下）。
+//
+// ## 呈现口径由规范钉死，本函数**不是**自由设计
+//
+// 11 §12bis.1 第 2 条（Human 决定 2026-10）明写：**只可展示其存在与数量、以及
+// 现象/时间/来源/状态四项**，**不得展示 `evidence` 全文**，**不得使其可被点击进入
+// 事实对象详情**（它没有对象身份）。故本投影**刻意不返回** `evidence`、`session`、
+// `promoted_to` 等字段——不是遗漏，是规范要求的最小面。
+//
+// 超出这四项的信息若要呈现在别处，须先改规范，不能在读取层顺手放开。
+
+/** 缓冲条目在「四项可呈现字段」内的投影（11 §12bis.1 第 2 条）。 */
+export type ObservationProjection = {
+  at: string | null
+  /** 「来源」——用 anchor（材料位置）而非 session（会话 id），前者才是读者要的出处。 */
+  anchor: string | null
+  phenomenon: string | null
+  status: string | null
+  /** 所属观察组：**仅用于让读者看出「同一阻碍被看过几次」**，不是对象标识。 */
+  group: string | null
+}
+
+export type ObservationGroupRow = {
+  group: string
+  /** 该组当前 pending 条目数——与阈值 N 并列呈现，读者才看得出「攒到几分」。 */
+  pendingCount: number
+  promotionReady: boolean
+  /** 组内最早/最新一次观察时刻（现象取最新一条）。 */
+  firstAt: string | null
+  lastAt: string | null
+  latestPhenomenon: string | null
+}
+
+export type FrictionObservationReport = {
+  ok: boolean
+  generatedAt: string
+  scope: {
+    ldvhHome: string
+    bufferDir: string
+    bufferDirExists: boolean
+    files: string[]
+    threshold: number
+    limits: string[]
+  }
+  totals: {
+    entries: number
+    byStatus: { status: string; count: number }[]
+    projects: number
+  }
+  groups: ObservationGroupRow[]
+  recent: ObservationProjection[]
+}
+
+/** 缓冲条目的字段闭集（11 §12bis.1）。读取时不认表外字段——与写入侧同口径。 */
+const OBSERVATION_STATUSES = new Set(['pending', 'promoted', 'discarded', 'evicted'])
+
+/** 阈值 N=3 由 11 §9 内嵌固定，不可配置（§12bis.1 亦引用此值）。 */
+const OBSERVATION_THRESHOLD = 3
+
+/**
+ * 读取摩擦观察缓冲并作出**只含四项**的投影。
+ *
+ * 破损行跳过而不中断：缓冲是追加型流水，一行坏掉不该让整页空白（与本站
+ * `readJsonLines` 对队列的处理同一纪律）。但**跳过数须如实计数**，否则
+ * 「解析失败」会伪装成「条目较少」。
+ */
+export async function buildFrictionObservationReport(options: {
+  dshHome?: string
+} = {}): Promise<FrictionObservationReport> {
+  const dshHome = options.dshHome ?? dshHomeFromEnvironment()
+  const ldvhHome = path.join(dshHome, 'ldvh')
+  const bufferDir = path.join(ldvhHome, 'friction-observations')
+
+  const limits: string[] = [
+    '观察缓冲是**非事实对象**的本地运行状态（11 §12bis.1）：不进事实源、无对象身份，故本页不提供「点击进入详情」。',
+    '按规范只呈现现象/时间/来源/状态四项；`evidence` 全文与 `promoted_to` 不在呈现面内（11 §12bis.1 第 2 条）。',
+    `阈值 N=${OBSERVATION_THRESHOLD} 固定不可配置；「攒到几分」= 同组 pending 条目数。`,
+    '缓冲按管辖项目分文件；本页汇总全部项目。条目保留期 pending 90 天、终态 90 天，容量 200/项目。',
+    '本页只读：不写缓冲、不改账本。',
+  ]
+
+  let files: string[] = []
+  let bufferDirExists = false
+  try {
+    const names = await readdir(bufferDir)
+    files = names.filter((name) => name.endsWith('.jsonl')).sort()
+    bufferDirExists = true
+  } catch {
+    // 目录不存在是**正常初态**（还没有任何观察落地），不是错误——故只用
+    // bufferDirExists=false 如实标注，不抛异常、不伪造空数据。
+    bufferDirExists = false
+  }
+
+  type Row = {
+    at?: string
+    anchor?: string
+    phenomenon?: string
+    status?: string
+    group?: string
+  }
+
+  const rows: Row[] = []
+  let skippedLines = 0
+  for (const name of files) {
+    let text = ''
+    try {
+      text = await readFile(path.join(bufferDir, name), 'utf8')
+    } catch {
+      skippedLines += 1
+      continue
+    }
+    for (const line of text.split('\n')) {
+      const trimmed = line.trim()
+      if (trimmed === '') continue
+      try {
+        const parsed = JSON.parse(trimmed) as Row
+        // 状态不在闭集内即**不投影**（不把闭集外的值当合法状态呈现）。
+        if (typeof parsed.status === 'string' && !OBSERVATION_STATUSES.has(parsed.status)) {
+          skippedLines += 1
+          continue
+        }
+        rows.push(parsed)
+      } catch {
+        skippedLines += 1
+      }
+    }
+  }
+
+  const statusCounts = new Map<string, number>()
+  for (const row of rows) {
+    const status = typeof row.status === 'string' ? row.status : 'unknown'
+    statusCounts.set(status, (statusCounts.get(status) ?? 0) + 1)
+  }
+
+  // 分组：只为让读者看出「同一阻碍被看过几次」，故只对 pending 建组——
+  // 终态条目（promoted/discarded/evicted）已不属于「正在攒」的那一批。
+  const groupMap = new Map<string, Row[]>()
+  for (const row of rows) {
+    if (row.status !== 'pending') continue
+    const group = typeof row.group === 'string' && row.group !== '' ? row.group : '(无组)'
+    if (!groupMap.has(group)) groupMap.set(group, [])
+    groupMap.get(group)!.push(row)
+  }
+
+  const groups: ObservationGroupRow[] = Array.from(groupMap, ([group, entries]) => {
+    const times = entries
+      .map((entry) => (typeof entry.at === 'string' ? entry.at : null))
+      .filter((value): value is string => value !== null)
+      .sort()
+    const latest = entries
+      .slice()
+      .sort((a, b) => String(b.at ?? '').localeCompare(String(a.at ?? '')))[0]
+    return {
+      group,
+      pendingCount: entries.length,
+      promotionReady: entries.length >= OBSERVATION_THRESHOLD,
+      firstAt: times[0] ?? null,
+      lastAt: times[times.length - 1] ?? null,
+      latestPhenomenon: typeof latest?.phenomenon === 'string' ? latest.phenomenon : null,
+    }
+  }).sort((a, b) => b.pendingCount - a.pendingCount || a.group.localeCompare(b.group))
+
+  // 最近若干条（按时间倒序），只投影四项 + group。
+  const recent: ObservationProjection[] = rows
+    .slice()
+    .sort((a, b) => String(b.at ?? '').localeCompare(String(a.at ?? '')))
+    .slice(0, 40)
+    .map((row) => ({
+      at: typeof row.at === 'string' ? row.at : null,
+      anchor: typeof row.anchor === 'string' ? row.anchor : null,
+      phenomenon: typeof row.phenomenon === 'string' ? row.phenomenon : null,
+      status: typeof row.status === 'string' ? row.status : null,
+      group: typeof row.group === 'string' ? row.group : null,
+    }))
+
+  if (skippedLines > 0) {
+    limits.push(`另有 ${skippedLines} 行无法解析或状态在闭集外，已跳过并如实计数（不伪装成「本来就没有」）。`)
+  }
+
+  return {
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    scope: {
+      ldvhHome,
+      bufferDir,
+      bufferDirExists,
+      files,
+      threshold: OBSERVATION_THRESHOLD,
+      limits,
+    },
+    totals: {
+      entries: rows.length,
+      byStatus: Array.from(statusCounts, ([status, count]) => ({ status, count })).sort(
+        (a, b) => b.count - a.count,
+      ),
+      projects: files.length,
+    },
+    groups,
+    recent,
+  }
+}
