@@ -25,6 +25,7 @@ import { currentRouteValues } from "./session-signature.js";
 import { authoritativeSignature } from "./signature-channel.js";
 import { BUFFER_STATUSES, bufferRelativePath, readBufferEntries } from "./observation-buffer.js";
 import { probeHostAutomation } from "./host-automation-probe.js";
+import { findReviewSession } from "./experience-review-schedule.js";
 import { collectExistingPitfalls, reviewPendingEntries } from "./observation-review.js";
 import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets } from "./commit-validation.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
@@ -1320,6 +1321,67 @@ function makeExecute(deps) {
    * 交给调用方（Human）决定。
    */
   async function executeProbeHostAutomation(args, exec) {
+    // ── 只读诊断：当前审核的实际武装状态（2026-10-26）────────────────────
+    //
+    // 用途：Human 报「改了设置没反应」时，靠它能当场分辨三种情形——
+    //   ① 开关是关的（配置值）→ 本来就该不动；
+    //   ② 开关开着但没有专属会话/任务 → 协调没跑或失败了；
+    //   ③ 两者都在但间隔不符 → 同步没生效。
+    // 只读：不建会话、不建任务、不改配置。
+    if (args?.reconcile === true) {
+      const governedScope = await resolveGovernanceScope(dshHomePath, exec?.agent?.session?.header?.cwd);
+      if (governedScope.state !== "governed") {
+        return envelope("probe-host-automation", "unavailable", {
+          result: null,
+          scope: { requested: "reconcile", completed: [], not_completed: ["reconcile"] },
+          sources: [],
+          gaps: [`governance state is ${governedScope.state}`],
+          verification: { checks: ["governance-scope"], passed: false },
+          follow_up: [],
+        });
+      }
+      const settingsOf = typeof deps.getIdleSettings === "function" ? deps.getIdleSettings : () => ({});
+      const settings = settingsOf();
+      const probeCtx = deps.agentCtx ?? null;
+      const state = { enabled: settings.review.enabled, intervalMs: settings.review.intervalMs, model: settings.review.model };
+      let session = null;
+      let scheduleRows = [];
+      if (probeCtx !== null) {
+        const found = await findReviewSession(probeCtx, { projectId: governedScope.project.id });
+        if (found.ok) {
+          session = found.sessionId;
+          if (session !== null) {
+            try {
+              const schedule = probeCtx.get("schedule");
+              const rows = await schedule.list({ sessionId: session });
+              scheduleRows = (Array.isArray(rows) ? rows : []).map((row) => ({
+                id: row.id,
+                everySeconds: row.everySeconds,
+                mine: typeof row.prompt === "string" && row.prompt.startsWith("[dsh-ldvh:experience-review]"),
+              }));
+            } catch (error) {
+              scheduleRows = [{ error: String(error?.message ?? error) }];
+            }
+          }
+        }
+      }
+      const mine = scheduleRows.filter((row) => row.mine === true);
+      return envelope("probe-host-automation", "completed", {
+        result: {
+          settings: state,
+          session,
+          schedules: scheduleRows,
+          verdict: state.enabled
+            ? (session === null ? "enabled-but-no-session" : (mine.length === 0 ? "enabled-session-but-no-schedule" : (mine[0].everySeconds === Math.floor(state.intervalMs / 1000) ? "in-sync" : "interval-mismatch")))
+            : (session === null && mine.length === 0 ? "disabled-and-clean" : "disabled-but-leftovers"),
+        },
+        scope: { requested: "reconcile", completed: ["settings", "session", "schedules"], not_completed: [] },
+        sources: sources({ kind: "host-services", path: "schedule.list / sessionController.list", fingerprint: null }),
+        gaps: state.enabled ? [] : ["review is disabled by settings, so nothing should be armed — this is not a failure"],
+        verification: { checks: ["settings", "session", "schedules"], passed: true },
+        follow_up: [],
+      });
+    }
     const governed = await resolveGovernanceScope(dshHomePath, exec?.agent?.session?.header?.cwd);
     if (governed.state !== "governed") {
       return envelope("probe-host-automation", "unavailable", {

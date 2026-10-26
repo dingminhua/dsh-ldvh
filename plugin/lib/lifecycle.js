@@ -108,6 +108,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         lifecycle.toolsDisposer = registerLdvhTools(agent.ctx, {
           dshHomePath,
           workspaceRoot,
+          // 审核设置的取值函数（供 ldvh_probe_host_automation 的 reconcile 诊断读
+          // 「当前实际生效的开关/间隔」——那是判断「改了设置有没有生效」的唯一依据）。
+          getIdleSettings,
           sessionPersistence: () => ctx.get("sessionPersistence"),
           // Host goal service (specs/10 §5.8, specs/21 §14 「宿主推进目标」): the
           // getter is passed rather than a resolved value, so a composition
