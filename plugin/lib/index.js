@@ -557,6 +557,23 @@ export function apply(ctx, config) {
     }),
   );
 
+  // **装载时补跑一次**（2026-10-27 实证缺陷修复）。
+  //
+  // 症状：用户把审核开着、配置也存好了，重启后却**一个专属会话都没建**、任务数为 0。
+  //
+  // 根因：协调只挂在两个**事件**上。而配置在进程启动**之前**就已写进 profile，加载时
+  // 没有任何事件发生——于是协调一次都没跑过。这个缺陷是我上一轮把武装从
+  // `agent/created` 挪到事件订阅时**自己造成的**：挪走时我盯着「改设置要当场生效」，
+  // 漏了「首次装载时也该有一次」。
+  //
+  // **为什么用 `ctx.effect` + 异步旁路而不是同步 await**：`apply` 是同步的（钩子须在
+  // 同一帧注册完），而协调要读项目注册表、调宿主服务。故 fire-and-forget，失败只
+  // 记日志——装载不得因为审核协调失败而中断。
+  ctx.effect(() => {
+    void reconcileReviewSettings("startup");
+    return () => {};
+  });
+
   // Soft web mount (framework doc §4 point 3): the webServer service is NOT a
   // hard injection anymore. In compositions that provide one, this child
   // fiber mounts the routes; headless compositions simply never run the

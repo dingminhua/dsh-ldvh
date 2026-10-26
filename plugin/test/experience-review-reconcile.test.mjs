@@ -22,6 +22,9 @@
 // 而 Human 关掉审核的意思是「别再自动跑了」，不是「把历史抹掉」。若有人把它改成
 // 连会话一起删，这个测试会红。
 import { test } from "node:test";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 
 import { reconcileAllProjects, reconcileProjectReview } from "../lib/experience-review-reconcile.js";
@@ -442,3 +445,36 @@ test("落点会话被归档后：清掉它上面的孤儿任务，并在新会�
   assert.equal(schedules.length, 1, "新会话上应恰好一条任务");
   assert.ok(schedules.every((row) => row.sessionId !== ARCHIVED), "不得再有任务绑在归档会话上");
 });
+
+// ── 装载时补跑（2026-10-27 实证缺陷）───────────────────────────────────
+
+test("**装载时须补跑一次协调**：配置在进程启动前就存好时，也要武装起来", () => {
+  // 症状：审核开着、配置也存了，重启后一个专属会话都没建、任务数为 0。
+  // 根因：协调只挂在 app-boot/config-reload 与 settings/document-updated 两个**事件**
+  // 上；配置在进程启动**之前**写入 profile，加载时没有任何事件发生，于是协调一次都没跑。
+  //
+  // 这个缺陷是把武装从 agent/created 挪到事件订阅时自己造成的：挪的时候盯着
+  // 「改设置要当场生效」，漏了「首次装载也该有一次」。
+  //
+  // 判据：index.js 里必须有非事件触发的 reconcileReviewSettings 调用（startup）。
+  const source = readFileSync(join(LIB, "..", "lib", "index.js"), "utf8");
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(
+    /reconcileReviewSettings\("startup"\)/.test(code),
+    "装载路径上必须调用一次 reconcileReviewSettings(\"startup\")——只靠事件订阅会让「先存配置、后重启」的场景永远不武装",
+  );
+  // 且该调用不得在事件回调内部（否则仍只在事件发生时跑）。
+  const startupIdx = code.indexOf('reconcileReviewSettings("startup")');
+  const beforeStartup = code.slice(0, startupIdx);
+  const lastListener = Math.max(
+    beforeStartup.lastIndexOf('ctx.on("app-boot/config-reload"'),
+    beforeStartup.lastIndexOf('ctx.on("settings/document-updated"'),
+  );
+  const lastListenerClose = beforeStartup.indexOf(");", beforeStartup.indexOf("}),", lastListener));
+  assert.ok(
+    startupIdx > lastListenerClose || lastListener < 0,
+    "startup 调用须位于两个事件订阅之外——若嵌在回调里就仍只在事件发生时跑",
+  );
+});
+
+const LIB = join(dirname(fileURLToPath(import.meta.url)), "..", "lib");
