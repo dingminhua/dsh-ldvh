@@ -47,6 +47,22 @@ import { armReviewAutomation, dedupeReviewSchedules, ensureReviewSchedule, findR
  * @param {object} [args.activity] - 活动轨迹（记账用）
  * @returns {Promise<{action:string, ok:boolean, detail?:object}>}
  */
+/**
+ * 取宿主服务；未装配时返回 `undefined`（不抛）。
+ *
+ * **只能走 `ctx.get`**：这些服务不在本插件的 `inject` 里，而 cordis 的 Proxy 对
+ * 「未 inject 且无 provide」的属性访问**直接抛错**（2026-10-22 实测）。
+ * 本文件与 experience-review-schedule.js 各有一份同名实现——两处都只有三行，
+ * 抽成共享模块会让「谁依赖谁」变复杂，而这里没有第二个消费者。
+ */
+function serviceOf(ctx, name) {
+  try {
+    return ctx.get(name);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function reconcileProjectReview(args) {
   // **串行化下沉到这一层**（2026-10-26 修正）：第一版把队列放在
   // `reconcileAllProjects` 上，结果测试直接调本函数时绕过了队列——并发建出 3 个
@@ -125,6 +141,23 @@ async function reconcileProjectReviewNow({ ctx, project, settings, activity }) {
     return { action: "armed", ok: true, detail: { projectId, scheduleId: created.scheduleId, everySeconds: created.everySeconds } };
   }
 
+  // **归档会话上的孤儿任务**（2026-10-26）：落点会话被归档后，`findReviewSession`
+  // 不再把它当命中，本节会新建一个会话；但**旧会话上那条周期任务还在**，会继续按
+  // 自己的间隔往一个已归档（用户已收起）的对话里投递——看不见、也停不下来。
+  // 故新建前先把归档会话上的本插件任务撤掉。
+  //
+  // 判据：本插件任务所绑的会话**已归档**。不靠「会话不在 list 里」推断——会话可能
+  // 只是没被 list 返回，那与「被归档」是两件事。
+  try {
+    const orphans = await retireArchivedSessionSchedules(ctx, { activity });
+    if (orphans.removed.length > 0) {
+      activity?.record?.("review/orphans-retired", { removed: orphans.removed });
+    }
+  } catch (error) {
+    // 清孤儿是尽力而为：清不掉不该阻断新会话的建立（那样审核就完全不跑了）。
+    activity?.record?.("review/orphan-cleanup-failed", { reason: String(error?.message ?? error) });
+  }
+
   const armed = await armReviewAutomation(ctx, { projectId, projectRoot, intervalMs, activity });
   if (!armed.ok) {
     return { action: "failed", ok: false, detail: { stage: armed.stage, error: armed.error } };
@@ -141,6 +174,64 @@ async function reconcileProjectReviewNow({ ctx, project, settings, activity }) {
     ok: true,
     detail: { projectId, sessionId: armed.sessionId, scheduleId: armed.scheduleId, everySeconds: armed.everySeconds },
   };
+}
+
+/**
+ * 撤掉**绑在已归档会话上**的本插件周期任务。
+ *
+ * 见调用处的注释：归档会话不再是落点，但它上面若还挂着任务，就会继续往一个用户
+ * 已经收起的对话里投递。这类任务在新代码下不会再被创建（`findReviewSession` 已
+ * 排除归档），故这里是**收历史遗留**，不是常规路径。
+ */
+async function retireArchivedSessionSchedules(ctx, { activity }) {
+  const schedule = serviceOf(ctx, "schedule");
+  if (schedule === undefined || typeof schedule.list !== "function" || typeof schedule.delete !== "function") {
+    return { removed: [] };
+  }
+  // 归档集合：经 workspaceController 读（与 findReviewSession 同源）。
+  const controller = serviceOf(ctx, "workspaceController");
+  if (controller === undefined || typeof controller.follow !== "function") return { removed: [] };
+  let archived;
+  try {
+    const iterator = controller.follow(new AbortController().signal);
+    try {
+      for await (const frame of iterator) {
+        if (frame?.type === "baseline" && Array.isArray(frame.value?.archivedSessionIds)) {
+          archived = new Set(frame.value.archivedSessionIds);
+        }
+        break;
+      }
+    } finally {
+      try { await iterator?.return?.(); } catch { /* 关闭失败不影响结论 */ }
+    }
+  } catch {
+    return { removed: [] };
+  }
+  if (archived === undefined) return { removed: [] };
+
+  // 全表扫描本插件任务：schedule.list 需要一个 sessionId，故先取全部会话 id
+  // 会出现「不知道往哪查」的问题。改用 catalog（不绑会话、返回全部任务）。
+  let rows;
+  try {
+    rows = typeof schedule.catalog === "function" ? await schedule.catalog() : [];
+  } catch {
+    return { removed: [] };
+  }
+  const removed = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const rec = row?.record ?? row;
+    const sessionId = row?.sessionId ?? rec?.sessionId;
+    const prompt = typeof rec?.prompt === "string" ? rec.prompt : "";
+    if (!prompt.startsWith("[dsh-ldvh:experience-review]")) continue;
+    if (sessionId === undefined || !archived.has(sessionId)) continue;
+    try {
+      await schedule.delete({ sessionId, id: rec?.id ?? row?.id });
+      removed.push(rec?.id ?? row?.id);
+    } catch (error) {
+      activity?.record?.("review/orphan-delete-failed", { sessionId, reason: String(error?.message ?? error) });
+    }
+  }
+  return { removed };
 }
 
 /** 在专属会话上找本插件的周期任务，返回其 id 或 null。 */

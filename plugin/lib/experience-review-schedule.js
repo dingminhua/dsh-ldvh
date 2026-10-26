@@ -113,11 +113,60 @@ async function resolveWorkspaceId(ctx, projectRoot) {
  *
  * @returns {Promise<{ok:true, sessionId:string|null, candidates:number}|{ok:false,error:object}>}
  */
+/**
+ * 读出**已归档的会话 id 集合**（2026-10-26，Human 要求：归档视为删除）。
+ *
+ * ## 为什么必须自己读
+ *
+ * `sessionController.list()` **不过滤归档**——实测证据：本项目 113 条已归档会话
+ * 仍在 list 的返回里。故「按固定标题查找落点会话」会把**已被用户归档的会话**
+ * 当成有效落点继续复用，表现为「审核不断回到一个用户已经收起来的对话里」。
+ *
+ * ## 取数通道
+ *
+ * 走宿主的 `workspaceController.follow()` 读一次 baseline 就断开：它的
+ * `WorkspaceBaseline.archivedSessionIds` 正是权威集合。不直接读
+ * `~/.dsh/storages/workspace.json`——那是宿主的持久化实现细节，格式由它自己决定，
+ * 跨版本会变；读它等于把宿主内部结构当成契约。
+ *
+ * 读不到时返回 `null`（**未知**），由调用方决定策略——不返回空集合，因为空集合
+ * 的含义是「确认没有任何归档」，与「没读到」是两件事。
+ *
+ * @returns {Promise<Set<string>|null>}
+ */
+async function readArchivedSessionIds(ctx) {
+  const controller = serviceOf(ctx, "workspaceController");
+  if (controller === undefined || typeof controller.follow !== "function") return null;
+  let iterator;
+  try {
+    iterator = controller.follow(new AbortController().signal);
+  } catch {
+    return null;
+  }
+  try {
+    // 只要第一帧（baseline）就够了；拿到就断开，不长期占用流。
+    for await (const frame of iterator) {
+      if (frame?.type === "baseline" && Array.isArray(frame.value?.archivedSessionIds)) {
+        return new Set(frame.value.archivedSessionIds);
+      }
+      // 第一帧若不是 baseline（理论上不会），继续等一帧再放弃。
+      break;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    // 显式关闭流：`follow` 是长连接，不关会泄漏一个订阅。
+    try { await iterator?.return?.(); } catch { /* 关闭失败不影响结论 */ }
+  }
+}
+
 export async function findReviewSession(ctx, { projectId }) {
   const controller = serviceOf(ctx, "sessionController");
   if (controller === undefined || typeof controller.list !== "function") {
     return { ok: false, error: { code: "review_session/service_unavailable", message: "sessionController.list is not wired into this composition" } };
   }
+  const archived = await readArchivedSessionIds(ctx);
   const title = reviewSessionTitle(projectId);
   let listed;
   try {
@@ -129,7 +178,12 @@ export async function findReviewSession(ctx, { projectId }) {
   const items = Array.isArray(listed?.items) ? listed.items : [];
   const matching = items.filter((item) => {
     const itemTitle = item?.projections?.values?.title;
-    return typeof itemTitle === "string" && itemTitle === title;
+    if (typeof itemTitle !== "string" || itemTitle !== title) return false;
+    // **归档视为删除**（Human 2026-10-26）：用户把对话收起来，就是不要它了。
+    // 继续往归档会话里投递，会让审核在一个「已经不存在的对话」里跑——用户既看不到
+    // 也管不了。故已归档的不算命中，交给「找不到则新建」那条路。
+    if (archived !== null && archived.has(item?.sessionId)) return false;
+    return true;
   });
   // **一个项目至多一个**：若有多条同标题（标题被人工改过又改回、或历史遗留），取
   // 最近活动的一条并如实报出候选数——不静默挑一个假装只有一条。

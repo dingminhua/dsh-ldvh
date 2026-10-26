@@ -370,3 +370,70 @@ test("周期调度模块不得使用 setTimeout/setInterval（形态 2 的周期
   }
   assert.ok(code.includes("every_seconds"), "必须走宿主的 every_seconds 规则");
 });
+
+// ── 归档视为删除（2026-10-26 Human 要求）────────────────────────────────
+
+test("**已归档的会话不算命中**（归档即删除，不得继续往里投递）", async () => {
+  // 实测依据：本项目 113 条已归档会话仍在 sessionController.list() 的返回里
+  // ——宿主不过滤归档，故必须自己判。若不判，审核会不断回到一个用户已经收起来的
+  // 对话里：用户既看不到、也管不了它。
+  const { ctx, sessions } = fakeHost();
+  const archivedId = "session-archived";
+  sessions.push({
+    sessionId: archivedId,
+    cwd: PROJECT_ROOT,
+    running: false,
+    projections: { values: { title: reviewSessionTitle(PROJECT_ID) } },
+  });
+  // 给这个宿主补一个 workspaceController.follow()，baseline 里带上归档集合。
+  const withArchive = {
+    get: (name) => {
+      if (name === "workspaceController") {
+        return {
+          follow: () => (async function* () {
+            yield { type: "baseline", value: { items: [], archivedSessionIds: [archivedId], pinnedSessionIds: [] } };
+          })(),
+        };
+      }
+      return ctx.get(name);
+    },
+  };
+
+  const found = await findReviewSession(withArchive, { projectId: PROJECT_ID });
+  assert.equal(found.ok, true);
+  assert.equal(found.sessionId, null, "已归档的会话不得被当作落点");
+});
+
+test("未归档的同标题会话仍正常命中（排除归档不得误伤）", async () => {
+  const { ctx } = fakeHost();
+  await ensureReviewSession(ctx, { projectId: PROJECT_ID, projectRoot: PROJECT_ROOT });
+  const withArchive = {
+    get: (name) => {
+      if (name === "workspaceController") {
+        return {
+          follow: () => (async function* () {
+            yield { type: "baseline", value: { items: [], archivedSessionIds: ["some-other-session"], pinnedSessionIds: [] } };
+          })(),
+        };
+      }
+      return ctx.get(name);
+    },
+  };
+  const found = await findReviewSession(withArchive, { projectId: PROJECT_ID });
+  assert.equal(found.ok, true);
+  assert.notEqual(found.sessionId, null, "别的会话被归档，不该影响本项目的落点");
+});
+
+test("读不到归档集合时**不当作「没有归档」**，仍按标题查找（保守但可用）", async () => {
+  // 读不到 = 未知。此时若报错，审核就完全不能跑了；若当作「全都已归档」，
+  // 则会无限新建会话。故按标题正常查找——这是最小损害的退化，且不产生新问题：
+  // 最坏情况是复用了一个已归档会话（与修复前相同），而不是彻底停摆。
+  const { ctx } = fakeHost();
+  const noWorkspaceController = {
+    get: (name) => (name === "workspaceController" ? undefined : ctx.get(name)),
+  };
+  await ensureReviewSession(noWorkspaceController, { projectId: PROJECT_ID, projectRoot: PROJECT_ROOT });
+  const found = await findReviewSession(noWorkspaceController, { projectId: PROJECT_ID });
+  assert.equal(found.ok, true);
+  assert.notEqual(found.sessionId, null, "读不到归档信息时仍应能命中已有会话");
+});

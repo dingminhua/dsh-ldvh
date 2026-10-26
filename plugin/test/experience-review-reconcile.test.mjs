@@ -365,3 +365,80 @@ test("只有一个任务时自愈不动它（不做无谓删除）", async () =>
   assert.equal(schedules.length, 1);
   assert.equal(schedules[0].id, before, "单条任务不得被删重建");
 });
+
+// ── 归档视为删除（2026-10-26 Human 要求）────────────────────────────────
+
+test("落点会话被归档后：清掉它上面的孤儿任务，并在新会话上重建", async () => {
+  // 场景：用户把审核会话收起来了（归档 = 删除）。此后：
+  //   · 旧会话不再算命中 → 应新建一个会话作为落点
+  //   · 但旧会话上那条周期任务还在 → 会继续往「已经收起来的对话」投递
+  // 故协调必须先把孤儿任务撤掉，否则审核在一个用户看不到的会话里跑。
+  const ARCHIVED = "session-archived-review";
+  const sessions = [
+    { sessionId: ARCHIVED, cwd: PROJECT.path, running: false, projections: { values: { title: reviewSessionTitle(PROJECT.id) } } },
+  ];
+  const schedules = [
+    { id: "sched-orphan", sessionId: ARCHIVED, kind: "every", everySeconds: 300, prompt: `${REVIEW_TAG} x`, scheduledAt: "2026-10-26T15:00:00.000Z" },
+  ];
+  let createdSession = null;
+  const ctx = {
+    get: (name) => {
+      if (name === "schedule") {
+        return {
+          // catalog 返回**平铺**结构（ScheduleRecord & {sessionId,status}），无 record 嵌套。
+          catalog: async () => schedules.map((row) => ({ ...row, status: "active" })),
+          list: async ({ sessionId }) => schedules.filter((row) => row.sessionId === sessionId).map((row) => ({ ...row })),
+          create: async (sessionId, request) => {
+            const record = { id: `created-${schedules.length}`, sessionId, kind: "every", everySeconds: request.every_seconds, prompt: request.prompt, scheduledAt: new Date().toISOString() };
+            schedules.push(record);
+            return record;
+          },
+          update: async ({ id, change }) => {
+            const row = schedules.find((r) => r.id === id);
+            if (row !== undefined) row.everySeconds = change.every_seconds;
+            return { updated: true, id };
+          },
+          delete: async ({ id }) => {
+            const index = schedules.findIndex((r) => r.id === id);
+            if (index < 0) return { deleted: false };
+            schedules.splice(index, 1);
+            return { deleted: true };
+          },
+        };
+      }
+      if (name === "sessionController") {
+        return {
+          list: async () => ({ items: sessions.map((row) => ({ ...row })) }),
+          create: async (request) => {
+            createdSession = `session-fresh`;
+            sessions.push({ sessionId: createdSession, cwd: request.cwd, running: false, projections: { values: { title: null } } });
+            return { sessionId: createdSession };
+          },
+          rename: async ({ sessionId, title }) => {
+            const row = sessions.find((r) => r.sessionId === sessionId);
+            if (row !== undefined) row.projections.values.title = title;
+            return { title, seq: 1 };
+          },
+        };
+      }
+      if (name === "workspaceController") {
+        return {
+          follow: () => (async function* () {
+            yield { type: "baseline", value: { items: [], archivedSessionIds: [ARCHIVED], pinnedSessionIds: [] } };
+          })(),
+        };
+      }
+      if (name === "workspaceRegistry") return undefined; // 不影响本测试
+      return undefined;
+    },
+  };
+
+  const result = await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: true, intervalMs: 300_000 }) });
+
+  assert.equal(result.ok, true, JSON.stringify(result.detail));
+  assert.equal(createdSession, "session-fresh", "归档会话不再算命中，应新建一个落点会话");
+  const orphanStillThere = schedules.some((row) => row.id === "sched-orphan");
+  assert.equal(orphanStillThere, false, "归档会话上那条孤儿任务必须被撤掉——否则它会继续往用户已收起的对话投递");
+  assert.equal(schedules.length, 1, "新会话上应恰好一条任务");
+  assert.ok(schedules.every((row) => row.sessionId !== ARCHIVED), "不得再有任务绑在归档会话上");
+});
