@@ -25,7 +25,7 @@ import { currentRouteValues } from "./session-signature.js";
 import { authoritativeSignature } from "./signature-channel.js";
 import { BUFFER_STATUSES, bufferRelativePath, readBufferEntries } from "./observation-buffer.js";
 import { probeHostAutomation } from "./host-automation-probe.js";
-import { findReviewSession } from "./experience-review-schedule.js";
+import { isReviewDue, isReviewRunning, reviewTiming } from "./experience-review-trigger.js";
 import { collectExistingPitfalls, reviewPendingEntries } from "./observation-review.js";
 import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets } from "./commit-validation.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
@@ -1342,43 +1342,30 @@ function makeExecute(deps) {
       }
       const settingsOf = typeof deps.getIdleSettings === "function" ? deps.getIdleSettings : () => ({});
       const settings = settingsOf();
-      const probeCtx = deps.agentCtx ?? null;
       const state = { enabled: settings.review.enabled, intervalMs: settings.review.intervalMs, model: settings.review.model };
-      let session = null;
-      let scheduleRows = [];
-      if (probeCtx !== null) {
-        const found = await findReviewSession(probeCtx, { projectId: governedScope.project.id });
-        if (found.ok) {
-          session = found.sessionId;
-          if (session !== null) {
-            try {
-              const schedule = probeCtx.get("schedule");
-              const rows = await schedule.list({ sessionId: session });
-              scheduleRows = (Array.isArray(rows) ? rows : []).map((row) => ({
-                id: row.id,
-                everySeconds: row.everySeconds,
-                mine: typeof row.prompt === "string" && row.prompt.startsWith("[dsh-ldvh:experience-review]"),
-              }));
-            } catch (error) {
-              scheduleRows = [{ error: String(error?.message ?? error) }];
-            }
-          }
-        }
-      }
-      const mine = scheduleRows.filter((row) => row.mine === true);
+      // **形态 2 已改由静置检查点驱动**（2026-10-27）：不再有专属会话、不再有宿主
+      // 周期任务。故诊断项随之改变——不再报「会话/任务是否在」，而是报「到点条件是否
+      // 成立」与「当前是否正在跑」。旧的三态 verdict（enabled-but-no-session /
+      // enabled-session-but-no-schedule / in-sync）已随机制一并失效。
+      const running = isReviewRunning();
+      const due = isReviewDue({ lastRunAtMs: reviewTiming().lastCompletedAtMs, intervalMs: state.intervalMs, nowMs: Date.now() });
       return envelope("probe-host-automation", "completed", {
         result: {
           settings: state,
-          session,
-          schedules: scheduleRows,
-          verdict: state.enabled
-            ? (session === null ? "enabled-but-no-session" : (mine.length === 0 ? "enabled-session-but-no-schedule" : (mine[0].everySeconds === Math.floor(state.intervalMs / 1000) ? "in-sync" : "interval-mismatch")))
-            : (session === null && mine.length === 0 ? "disabled-and-clean" : "disabled-but-leftovers"),
+          trigger: "idle-checkpoint",
+          running: running.busy,
+          runningReason: running.reason,
+          due: due.due,
+          dueReason: due.reason,
+          remainingMs: due.remainingMs ?? null,
+          verdict: state.enabled === true
+            ? (running.busy ? "enabled-and-running" : (due.due ? "enabled-and-due" : "enabled-waiting-interval"))
+            : "disabled",
         },
-        scope: { requested: "reconcile", completed: ["settings", "session", "schedules"], not_completed: [] },
-        sources: sources({ kind: "host-services", path: "schedule.list / sessionController.list", fingerprint: null }),
-        gaps: state.enabled ? [] : ["review is disabled by settings, so nothing should be armed — this is not a failure"],
-        verification: { checks: ["settings", "session", "schedules"], passed: true },
+        scope: { requested: "reconcile", completed: ["settings", "trigger", "running", "due"], not_completed: [] },
+        sources: sources({ kind: "host-services", path: "getIdleSettings / experience-review-trigger", fingerprint: null }),
+        gaps: state.enabled === true ? [] : ["review is disabled by settings, so nothing should run — this is not a failure"],
+        verification: { checks: ["settings", "trigger", "running", "due"], passed: true },
         follow_up: [],
       });
     }

@@ -35,8 +35,6 @@ import { createGovernanceHandler } from "./host-api.js";
 import { createProxyHandler, createSpaHandler, createWebApiProcess } from "./web-mount.js";
 import { createLifecycleRegistry } from "./lifecycle.js";
 import { resolveIdleSettings } from "./idle-settings.js";
-import { readGovernedProjects } from "./governed-projects.js";
-import { reconcileAllProjects } from "./experience-review-reconcile.js";
 import { resolveInjectionBudget } from "./source-recall.js";
 import { createSessionScopes } from "./session-scopes.js";
 import { createHostSeams } from "./host-seams.js";
@@ -510,81 +508,20 @@ export function apply(ctx, config) {
   //
   // 顺带纠正上方那句旧注释：`volatile` 字段确实没有逐字段的变更通知，但**整份配置
   // 重协调是有事件的**——「无变更通知」只对「字段级订阅」成立，不对「配置重载」成立。
-  let reconcileSeq = 0;
-  const reconcileReviewSettings = async (trigger) => {
-    const stamp = ++reconcileSeq;
-    try {
-      const settings = resolveIdleSettings(config);
-      const listed = await readGovernedProjects(dshHomePath);
-      if (!listed.ok) {
-        ctx.logger?.warn?.("[dsh-ldvh] review reconcile skipped: cannot read governed projects: %s", String(listed.error ?? ""));
-        return;
-      }
-      const { results } = await reconcileAllProjects({
-        ctx,
-        projects: listed.value.projects,
-        settings,
-        activity: lifecycle.activity,
-      });
-      // **序号守卫**：配置可能在协调进行中又被改。只有最后发起的那次才写结论，
-      // 否则一条过期结果会覆盖新结论（设置面连点几下就会发生）。
-      if (stamp !== reconcileSeq) return;
-      for (const one of results) {
-        if (one.ok === false) {
-          ctx.logger?.warn?.(
-            "[dsh-ldvh] review reconcile failed for %s (%s): %s",
-            one.projectId,
-            one.action,
-            JSON.stringify(one.detail ?? {}),
-          );
-        }
-      }
-    } catch (error) {
-      ctx.logger?.warn?.("[dsh-ldvh] review reconcile failed: %s", String(error?.message ?? error));
-    }
-  };
-  // `app-boot/config-reload` 覆盖「Profile patches 重协调」；`settings/document-updated`
-  // 覆盖「设置面的表单值变更」。两者覆盖面互补，都订阅（重复触发由序号守卫与
-  // 「状态一致则不动」吸收，代价是几次只读列举）。
-  ctx.effect(() =>
-    ctx.on("app-boot/config-reload", () => {
-      void reconcileReviewSettings("config-reload");
-    }),
-  );
-  ctx.effect(() =>
-    ctx.on("settings/document-updated", () => {
-      void reconcileReviewSettings("settings-document-updated");
-    }),
-  );
-
-  // **装载时补跑一次**（2026-10-27 实证缺陷修复）。
+  // ── 审核触发（2026-10-27 重做，Human 方案）──────────────────────────────
   //
-  // 症状：用户把审核开着、配置也存好了，重启后却**一个专属会话都没建**、任务数为 0。
+  // **旧机制已整体移除**：宿主周期任务 + 绑定「专属会话」+ 归档过滤 + 协调自愈。
+  // 移除理由（实测）：那个「专属会话」是一个普通对话，会被人当工作对话使用——
+  // `session-2827e177` 03:22:51 被本插件创建，03:29:49 Human 就在里面提问。于是
+  // 审核提醒直接投进 Human 正在工作的对话，而 Human 的内容也被当成审核上下文。
+  // 只要落点是可用对话，这个占用就必然发生，改投递路由治不了。
   //
-  // 根因：协调只挂在两个**事件**上。而配置在进程启动**之前**就已写进 profile，加载时
-  // 没有任何事件发生——于是协调一次都没跑过。这个缺陷是我上一轮把武装从
-  // `agent/created` 挪到事件订阅时**自己造成的**：挪走时我盯着「改设置要当场生效」，
-  // 漏了「首次装载时也该有一次」。
+  // 现行做法：审核挂在**静置触发**上，派发前判「是否已有审核在跑」（进程内互斥）。
+  // 不再需要任何专属会话，因此 `schedule` / `workspaceController` 也不再是依赖。
   //
-  // **时机：等宿主服务就绪后再跑，不在 `apply` 当场跑**（2026-10-27 第二次修正）。
-  //
-  // 第一版写成 `ctx.effect(() => { void reconcileReviewSettings("startup"); })`——
-  // 它在 `apply` 期间**立刻**执行，那时 `workspaceController` / `schedule` /
-  // `sessionController` 很可能还没装配完（Loader 是异步装配整棵树）。此时协调会拿不到
-  // 服务、静默失败，症状与「没跑过」完全一样——等于修复无效但看不出来。
-  //
-  // `ctx.inject([...])` 是宿主提供的**正确时机**：它等所列服务都可用之后才回调。
-  // 本插件其余需要宿主服务的接线（webServer、connection）都用的这个形态，此处与之一致。
-  //
-  // 为什么只 inject 这三个：它们是协调的最小依赖集——
-  //   · `sessionController`：查/建专属会话；
-  //   · `schedule`：建/改/删周期任务；
-  //   · `workspaceController`：读归档集合（判断落点是否已被用户收起）与解析分组。
-  // 少一个都会让协调退化（比如没有 workspaceController 就读不到归档），故不逐个
-  // 用软取——软取会让「服务没装配」与「服务装了但没数据」混淆。
-  ctx.inject(["sessionController", "schedule", "workspaceController"], () => {
-    void reconcileReviewSettings("startup");
-  });
+  // 与设置的连接方式：不再需要「协调」——没有需要创建/维护的宿主对象了。审核开关
+  // 与间隔在每次静置检查点**现读**（`getIdleSettings()`），改动下一检查点即生效。
+  // 这同时消掉了此前两个真实缺陷的成因：「装载时不协调」与「apply 当场服务未装配」。
 
   // Soft web mount (framework doc §4 point 3): the webServer service is NOT a
   // hard injection anymore. In compositions that provide one, this child
