@@ -25,8 +25,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { reconcileAllProjects, reconcileProjectReview } from "../lib/experience-review-reconcile.js";
+import { reviewSessionTitle } from "../lib/experience-review-schedule.js";
 
 const PROJECT = { id: "fixture-project", path: "/Users/dev/projects/fixture" };
+// **已含方括号**：拼接时不再套 `[...]`——第一版写成 `` `[${REVIEW_TAG}] x` ``，
+// 产出 `[[dsh-ldvh:experience-review]]`，于是 startsWith 判定全部落空、去重被跳过，
+// 而断言看到的症状是「重复任务没被收敛」，看起来像被测代码的缺陷。夹具差一个字符，
+// 结论就指向错误的地方。
 const REVIEW_TAG = "[dsh-ldvh:experience-review]";
 
 /**
@@ -266,4 +271,97 @@ test("周期任务的 prompt 带本插件标签（撤除与查重都靠它识别
   const { ctx, schedules } = fakeHost();
   await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: true, intervalMs: 120_000 }) });
   assert.ok(schedules[0].prompt.startsWith(REVIEW_TAG), "标签须在 prompt 首部");
+});
+
+// ── 并发缺陷（2026-10-26 实测：两条任务相隔 25 毫秒）─────────────────────
+
+test("**并发调用协调不得创建两条任务**（实测缺陷的回归护栏）", async () => {
+  // 症状：Human 打开审核后，同一会话上出现两条周期任务，scheduledAt 差 25ms。
+  // 根因：订阅了两个事件，改一次设置两个都触发；ensureReviewSchedule 是「先查后建」，
+  // 两次并发都读到「没有」，于是各建一条。
+  //
+  // 这条测试**必须真的并发**（Promise.all），顺序 await 永远发现不了这个缺陷。
+  const { ctx, schedules, sessions } = fakeHost();
+  const settingsOn = settings({ enabled: true, intervalMs: 300_000 });
+
+  await Promise.all([
+    reconcileProjectReview({ ctx, project: PROJECT, settings: settingsOn }),
+    reconcileProjectReview({ ctx, project: PROJECT, settings: settingsOn }),
+    reconcileProjectReview({ ctx, project: PROJECT, settings: settingsOn }),
+  ]);
+
+  assert.equal(sessions.length, 1, `不得建出第二个会话，实为 ${sessions.length}`);
+  assert.equal(schedules.length, 1, `三个并发调用只能有一条任务，实为 ${schedules.length}`);
+});
+
+test("**自愈**：同会话已有多条任务时，收敛为一条（保留最早）", async () => {
+  // 造出「历史并发缺陷留下的现场」：同一会话两条任务，`scheduledAt` 差 25 毫秒
+  // ——正是 2026-10-26 实测到的形态（15:14:50.619 / .644）。
+  //
+  // **本测试自建整套宿主，不复用 fakeHost()**：上一版复用它时，`fakeHost` 的
+  // `create` 会生成自己的 `session-N` 会话，与这里手工铺的 `s-1` 并存，于是协调
+  // 找到的是**新会话**而非 `s-1`，去重被跳过、断言看到 3 条。夹具的隐藏状态
+  // 会伪装成被测代码的缺陷——故这里把状态全部显式铺出来。
+  const SESSION_ID = "session-review";
+  const titles = reviewSessionTitle(PROJECT.id);
+  const sessions = [{ sessionId: SESSION_ID, cwd: PROJECT.path, running: false, projections: { values: { title: titles } } }];
+  const schedules = [
+    { id: "sched-old", sessionId: SESSION_ID, kind: "every", everySeconds: 300, prompt: `${REVIEW_TAG} x`, scheduledAt: "2026-10-26T15:14:50.619Z" },
+    { id: "sched-new", sessionId: SESSION_ID, kind: "every", everySeconds: 300, prompt: `${REVIEW_TAG} x`, scheduledAt: "2026-10-26T15:14:50.644Z" },
+  ];
+  let createCalls = 0;
+  const ctx = {
+    get: (name) => {
+      if (name === "schedule") {
+        return {
+          list: async () => schedules.map((row) => ({ ...row })),
+          create: async (sessionId, request) => {
+            createCalls += 1;
+            const record = { id: `created-${createCalls}`, sessionId, kind: "every", everySeconds: request.every_seconds, prompt: request.prompt, scheduledAt: new Date().toISOString() };
+            schedules.push(record);
+            return record;
+          },
+          update: async ({ id, change }) => {
+            const row = schedules.find((r) => r.id === id);
+            if (row !== undefined) row.everySeconds = change.every_seconds;
+            return { updated: true, id };
+          },
+          delete: async ({ id }) => {
+            const index = schedules.findIndex((r) => r.id === id);
+            if (index < 0) return { deleted: false };
+            schedules.splice(index, 1);
+            return { deleted: true };
+          },
+        };
+      }
+      if (name === "sessionController") {
+        return {
+          list: async () => ({ items: sessions.map((row) => ({ ...row })) }),
+          create: async () => {
+            throw new Error("本测试不应创建会话——专属会话已存在");
+          },
+          rename: async () => ({ title: "x", seq: 1 }),
+        };
+      }
+      return undefined;
+    },
+  };
+
+  const result = await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: true, intervalMs: 300_000 }) });
+
+  assert.equal(result.ok, true, JSON.stringify(result.detail));
+  assert.equal(schedules.length, 1, `重复任务须被收敛为一条，实为 ${schedules.length}：${schedules.map((r) => r.id).join(",")}`);
+  assert.equal(schedules[0].id, "sched-old", "须保留**最早**那条（它有最长的投递历史）");
+  assert.equal(createCalls, 0, "去重后仍有一条任务存在，不该再补建");
+  // 间隔本就一致，故行动只是「同步间隔」。
+  assert.equal(result.action, "interval-synced", `间隔已一致时应为 interval-synced，实为 ${result.action}`);
+});
+
+test("只有一个任务时自愈不动它（不做无谓删除）", async () => {
+  const { ctx, schedules } = fakeHost();
+  await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: true, intervalMs: 300_000 }) });
+  const before = schedules[0].id;
+  await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: true, intervalMs: 300_000 }) });
+  assert.equal(schedules.length, 1);
+  assert.equal(schedules[0].id, before, "单条任务不得被删重建");
 });

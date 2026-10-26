@@ -35,7 +35,7 @@
 // 审核的落点**按管辖项目唯一**（§6.1：一个项目至多一个专属会话，不得跨项目）。
 // 故协调必须遍历全部已登记项目，而不是只处理当前会话所属的那个——否则在 A 项目里
 // 改设置，B 项目的周期任务永远不会被同步。
-import { armReviewAutomation, ensureReviewSchedule, findReviewSession, removeReviewSchedule } from "./experience-review-schedule.js";
+import { armReviewAutomation, dedupeReviewSchedules, ensureReviewSchedule, findReviewSession, removeReviewSchedule } from "./experience-review-schedule.js";
 
 /**
  * 协调一个项目的审核周期任务。
@@ -47,7 +47,15 @@ import { armReviewAutomation, ensureReviewSchedule, findReviewSession, removeRev
  * @param {object} [args.activity] - 活动轨迹（记账用）
  * @returns {Promise<{action:string, ok:boolean, detail?:object}>}
  */
-export async function reconcileProjectReview({ ctx, project, settings, activity }) {
+export async function reconcileProjectReview(args) {
+  // **串行化下沉到这一层**（2026-10-26 修正）：第一版把队列放在
+  // `reconcileAllProjects` 上，结果测试直接调本函数时绕过了队列——并发建出 3 个
+  // 会话。防护必须放在**真正做写入的那一层**，而不是它的调用者之一；否则任何新的
+  // 调用路径都会绕过它。这正是「防护位置选在用法上而非性质上」的典型错误。
+  return enqueueReconcile(() => reconcileProjectReviewNow(args));
+}
+
+async function reconcileProjectReviewNow({ ctx, project, settings, activity }) {
   const wanted = settings?.review?.enabled === true;
   const intervalMs = settings?.review?.intervalMs;
   const projectId = project?.id;
@@ -80,7 +88,20 @@ export async function reconcileProjectReview({ ctx, project, settings, activity 
     return { action: "disarmed", ok: true, detail: { projectId, scheduleId: schedule.value } };
   }
 
-  // 应当武装。已有会话则只同步间隔（原地改），没有则完整武装（含建会话）。
+  // 应当武装。**先收敛重复**：同一会话若已有多条本插件任务（历史并发缺陷、或别的
+  // 路径造成），先删多余的，再按「已有则改间隔」处理。不先收敛的话，后面
+  // ensureReviewSchedule 只会改第一条，其余继续按自己的间隔投递——审核频率翻倍。
+  if (found.sessionId !== null) {
+    const deduped = await dedupeReviewSchedules(ctx, { sessionId: found.sessionId, activity });
+    if (deduped.ok && deduped.removed.length > 0) {
+      activity?.record?.("review/reconcile-deduped", {
+        projectId,
+        kept: deduped.kept,
+        removed: deduped.removed,
+        duplicates: deduped.duplicates,
+      });
+    }
+  }
   if (found.sessionId !== null) {
     const schedule = await findProjectSchedule(ctx, { sessionId: found.sessionId });
     if (!schedule.ok) {
@@ -152,7 +173,72 @@ async function findProjectSchedule(ctx, { sessionId }) {
  *
  * @returns {Promise<{results:Array<{projectId:string, action:string, ok:boolean, detail?:object}>}>}
  */
+/**
+ * 进程内**串行队列**：所有协调按到达顺序一条一条跑（2026-10-26 并发缺陷修复）。
+ *
+ * ## 为什么必须有（实测依据）
+ *
+ * 症状：Human 打开审核后，**同一个专属会话上出现了两条周期任务**，
+ * `scheduledAt` 相差 **25 毫秒**（15:14:50.619 / .644）。
+ *
+ * 根因：本插件订阅了两个事件（`app-boot/config-reload` 与
+ * `settings/document-updated`）。改一次设置两个都触发，两次协调几乎同时进入
+ * `ensureReviewSchedule`——它**先查后建**，两次都读到「没有任务」，于是各建一条。
+ *
+ * 我原以为「序号守卫 + 状态一致则不动」能吸收重复触发。**这个判断是错的**：
+ * 序号守卫只保证最后一次的结论不被旧结果覆盖，不阻止两次都真的去创建。
+ *
+ * ## 为什么是队列而不是锁
+ *
+ * 协调是**幂等**的（查→对齐→不动或补建），故不需要「拒绝第二个」；只需要让第二个
+ * 在第一个**做完之后**再看一次状态——那时它就会看到任务已存在，于是不动。队列正好
+ * 给出这个语义，且不必处理「锁超时」「锁泄漏」。
+ *
+ * 队列按模块实例持有：同一进程内所有协调共享。跨进程不共享——但协调只在宿主主
+ * 进程内被这些事件触发，没有第二个写入者。
+ */
+const reconcileQueue = [];
+let reconcileRunning = false;
+
+function enqueueReconcile(task) {
+  return new Promise((resolve, reject) => {
+    reconcileQueue.push({ task, resolve, reject });
+    drainReconcileQueue();
+  });
+}
+
+function drainReconcileQueue() {
+  if (reconcileRunning) return;
+  const next = reconcileQueue.shift();
+  if (next === undefined) return;
+  reconcileRunning = true;
+  Promise.resolve()
+    .then(() => next.task())
+    .then(
+      (value) => { reconcileRunning = false; next.resolve(value); drainReconcileQueue(); },
+      (error) => { reconcileRunning = false; next.reject(error); drainReconcileQueue(); },
+    );
+}
+
+/** 供测试断言：队列是否已排空（不等待，只读）。 */
+export function reconcileQueueIdle() {
+  return reconcileRunning === false && reconcileQueue.length === 0;
+}
+
+/**
+ * 重新协调**全部已登记项目**。
+ *
+ * **经串行队列执行**：调用方可以并发调用任意多次，实际协调永远是串行的——
+ * 于是「先查后建」的中间窗口不再可能被两次调用同时穿过。
+ */
 export async function reconcileAllProjects({ ctx, projects, settings, activity }) {
+  // **不再自己入队**：串行化已下沉到 `reconcileProjectReview`（真正写入的那层）。
+  // 若这里也入队，内层再入队就会自我等待——第一个任务占着 `reconcileRunning`
+  // 等自己的子任务，而死锁。故本函数只做遍历，逐项调用已串行化的下层。
+  return reconcileAllProjectsNow({ ctx, projects, settings, activity });
+}
+
+async function reconcileAllProjectsNow({ ctx, projects, settings, activity }) {
   const results = [];
   for (const project of Array.isArray(projects) ? projects : []) {
     // 只处理**可解析**的项目（inspectCandidate 失败的项目路径可能已不存在）。

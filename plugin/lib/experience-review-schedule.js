@@ -213,15 +213,73 @@ export async function ensureReviewSession(ctx, { projectId, projectRoot, activit
  * 抢同一个任务行——后一个项目把自己当成「已有任务」，于是永不新建；而这个错误在单
  * 项目场景下**完全看不出来**。
  */
-async function findOwnSchedule(schedule, sessionId) {
+async function findOwnSchedules(schedule, sessionId) {
   const rows = await schedule.list({ sessionId });
+  const mine = [];
   for (const row of Array.isArray(rows) ? rows : []) {
     // ① 会话归属：自己判，不外包给宿主的过滤参数。
     if (row?.sessionId !== undefined && row.sessionId !== sessionId) continue;
     // ② 本插件标签。
-    if (typeof row?.prompt === "string" && row.prompt.startsWith(`[${REVIEW_SCHEDULE_TAG}]`)) return row;
+    if (typeof row?.prompt === "string" && row.prompt.startsWith(`[${REVIEW_SCHEDULE_TAG}]`)) mine.push(row);
   }
-  return undefined;
+  return mine;
+}
+
+async function findOwnSchedule(schedule, sessionId) {
+  return (await findOwnSchedules(schedule, sessionId))[0];
+}
+
+/**
+ * **自愈**：同一会话上若有多条本插件的周期任务，删掉多余的，保留最早创建的那条。
+ *
+ * ## 为什么要有（实测依据）
+ *
+ * 2026-10-26 收敛缺陷导致同一会话上出现了两条任务（相隔 25 毫秒），表现为
+ * 「审核频率悄悄翻倍」——而界面上只是**看起来有两条一样的条目**，不显眼。Human
+ * 靠截图才发现。并发缺陷已在协调层用串行队列修掉，但**已经产生的重复不会自己消失**，
+ * 且未来的其它路径（比如两个进程、或手工建的一条）也可能造出重复。故此处的策略是：
+ * **协调时顺手收敛**，而不是只依赖「不产生新的」。
+ *
+ * 保留**最早**那条（`scheduledAt` 升序取第一条）：它有最长的历史与最早的投递锚，
+ * 删它反而会丢记录。
+ *
+ * @returns {Promise<{ok:true, kept:string|null, removed:string[], duplicates:number}>}
+ */
+export async function dedupeReviewSchedules(ctx, { sessionId, activity }) {
+  const schedule = serviceOf(ctx, "schedule");
+  if (schedule === undefined || typeof schedule.list !== "function" || typeof schedule.delete !== "function") {
+    return { ok: false, error: { code: "review_schedule/service_unavailable", message: "schedule list/delete is not wired into this composition" } };
+  }
+  let rows;
+  try {
+    rows = await findOwnSchedules(schedule, sessionId);
+  } catch (error) {
+    return { ok: false, error: { code: "review_schedule/list_failed", message: String(error?.message ?? error) } };
+  }
+  if (rows.length <= 1) {
+    return { ok: true, kept: rows[0]?.id ?? null, removed: [], duplicates: rows.length };
+  }
+  // 按 scheduledAt 升序（取不到时间的排后面，不因缺字段而误删最早那条）。
+  const ordered = rows.slice().sort((a, b) => {
+    const ta = typeof a.scheduledAt === "string" ? Date.parse(a.scheduledAt) : Number.POSITIVE_INFINITY;
+    const tb = typeof b.scheduledAt === "string" ? Date.parse(b.scheduledAt) : Number.POSITIVE_INFINITY;
+    return ta - tb;
+  });
+  const kept = ordered[0];
+  const removed = [];
+  for (const row of ordered.slice(1)) {
+    try {
+      await schedule.delete({ sessionId, id: row.id });
+      removed.push(row.id);
+    } catch (error) {
+      // 删不掉就登记，不抛——收敛是尽力而为，删不动不该让整个协调失败。
+      activity?.record?.("review/dedupe-delete-failed", { sessionId, id: row.id, reason: String(error?.message ?? error) });
+    }
+  }
+  if (removed.length > 0) {
+    activity?.record?.("review/dedupe", { sessionId, kept: kept.id, removed, duplicates: rows.length });
+  }
+  return { ok: true, kept: kept.id, removed, duplicates: rows.length };
 }
 
 /**

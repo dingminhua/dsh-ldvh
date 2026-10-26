@@ -1782,6 +1782,24 @@ export function renderEnvelope(operationKey, value) {
       lines.push(`cleanup: ${item.kind} ${JSON.stringify(item.request ?? item.sessionId)}`);
     }
   }
+  // **reconcile 诊断的结果**（2026-10-26）：它的形状与探针不同（有 settings /
+  // session / schedules / verdict，没有 steps 数组），故上面那段不覆盖它。
+  // 不补这段的后果实测过：调 reconcile 只看到 「completed」而**内容一个字都没有**
+  // ——与「探针没跑」无法区分。诊断的价值全在能不能读到具体状态。
+  if (env.result !== null && typeof env.result === "object" && env.result.settings !== undefined) {
+    const st = env.result.settings ?? {};
+    lines.push(`review.enabled: ${st.enabled}`);
+    lines.push(`review.intervalMs: ${st.intervalMs}`);
+    lines.push(`review.model: ${st.model === null || st.model === undefined ? "(default route)" : `${st.model.provider}/${st.model.model}${st.model.reasoningEffort ? `#${st.model.reasoningEffort}` : ""}`}`);
+    lines.push(`review.session: ${env.result.session === null || env.result.session === undefined ? "(none)" : env.result.session}`);
+    const schedules = Array.isArray(env.result.schedules) ? env.result.schedules : [];
+    lines.push(`review.schedules: ${schedules.length}`);
+    for (const row of schedules) {
+      if (row.error !== undefined) { lines.push(`  ! ${row.error}`); continue; }
+      lines.push(`  · ${row.id} every=${row.everySeconds}s${row.mine === true ? " (ours)" : ""}`);
+    }
+    lines.push(`verdict: ${env.result.verdict}`);
+  }
   return text(lines.join("\n"));
 }
 
