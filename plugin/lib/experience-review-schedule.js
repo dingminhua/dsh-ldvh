@@ -224,8 +224,19 @@ export async function ensureReviewSession(ctx, { projectId, projectRoot, activit
     // 解析顺序：先按项目根查已存在的 workspace，查到就用它的 id；查不到就为这个
     // 目录建一个（`create(path, title)` 对同路径是幂等的：已存在则原样返回）。
     const workspaceId = await resolveWorkspaceId(ctx, projectRoot);
+    // **`cwd` 与 `workspaceId` 互斥**（2026-10-27 实测报错原文：
+    //   "session.create accepts workspaceId or cwd, not both"）。
+    //
+    // 我第一版两个都传，以为「双保险」更稳——实际宿主直接拒绝，于是**每次建会话都
+    // 失败**，而失败点排在「协调是否跑起来」之后，前四轮排查都没看到它。
+    //
+    // 为什么给 `workspaceId` 就不必给 `cwd`：workspace 本身绑定一个目录，会话经由它
+    // 就落在那个目录下。**两者不是「目录 + 分组」，而是「分组」或「裸目录」二选一**——
+    // 我先前把 workspaceId 理解成「附加的分组标签」，那个理解是错的。
+    //
+    // 故：能解析到 workspace 就给 workspaceId（顺带把分组定好），解析不到才退回 cwd。
     const created = await controller.create(
-      workspaceId === null ? { cwd: projectRoot } : { cwd: projectRoot, workspaceId },
+      workspaceId === null ? { cwd: projectRoot } : { workspaceId },
     );
     const sessionId = created?.sessionId ?? null;
     if (sessionId === null) {

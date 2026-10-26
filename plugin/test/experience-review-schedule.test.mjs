@@ -41,6 +41,7 @@ import {
 
 const LIB = join(dirname(fileURLToPath(import.meta.url)), "..", "lib");
 const PROJECT_ID = "fixture-project";
+const WORKSPACE_PATHS = { "ws-fixture": "/Users/dev/projects/fixture" };
 const PROJECT_ROOT = "/Users/dev/projects/fixture";
 
 /** 假宿主：schedule + sessionController。 */
@@ -78,11 +79,22 @@ function fakeHost() {
   const sessionController = {
     list: async () => ({ items: sessions.map((row) => ({ ...row })) }),
     create: async (request) => {
+      // **模拟真实宿主的两条契约**：
+      //   ① `cwd` 与 `workspaceId` **互斥**——同时传直接抛（实测报错原文
+      //      "session.create accepts workspaceId or cwd, not both"）；
+      //   ② 只给 `workspaceId` 时，会话的 `cwd` 由该 workspace 绑定目录推出。
+      //      夹具若只照抄 `request.cwd`，就会把「给 workspaceId 的正确调用」记成
+      //      cwd 缺失，从而把正确实现判成错的。
+      if (request.cwd !== undefined && request.workspaceId !== undefined && request.workspaceId !== null) {
+        throw new Error("session.create accepts workspaceId or cwd, not both");
+      }
       const sessionId = `session-${++seq}`;
       createdRequests.push({ ...request });
       sessions.push({
         sessionId,
-        cwd: request.cwd,
+        cwd: request.workspaceId !== undefined && request.workspaceId !== null
+          ? (WORKSPACE_PATHS[request.workspaceId] ?? null)
+          : request.cwd,
         workspaceId: request.workspaceId ?? null,
         running: false,
         projections: { values: { title: null } },
@@ -136,18 +148,35 @@ test("没有专属会话时创建，且 cwd 是该管辖项目根（「只在本
   );
 });
 
+test("**cwd 与 workspaceId 互斥**：能解析到 workspace 时只传 workspaceId", async () => {
+  // 实测报错原文（2026-10-27）："session.create accepts workspaceId or cwd, not both"
+  //
+  // 我第一版两个都传，以为「双保险」更稳——宿主直接拒绝，于是每次建会话都失败，
+  // 而失败点排在「协调是否跑起来」之后，前四轮排查都没看到它。
+  //
+  // 为什么给 workspaceId 就不必给 cwd：workspace 本身绑定一个目录。两者**不是**
+  // 「目录 + 分组」，而是「分组」或「裸目录」二选一。
+  const { ctx, createdRequests } = fakeHost();
+  const result = await ensureReviewSession(ctx, { projectId: PROJECT_ID, projectRoot: PROJECT_ROOT });
+
+  assert.equal(result.ok, true, JSON.stringify(result.error));
+  const sent = createdRequests[0];
+  assert.ok(sent.workspaceId !== undefined && sent.workspaceId !== null, "须传 workspaceId（它决定目录与分组）");
+  assert.equal(sent.cwd, undefined, "**不得同时传 cwd**——宿主会直接拒绝创建");
+});
+
 test("**专属会话须归入该项目的 workspace，而不是「未分组」**", async () => {
   const { ctx, createdRequests } = fakeHost();
   const result = await ensureReviewSession(ctx, { projectId: PROJECT_ID, projectRoot: PROJECT_ROOT });
 
   assert.equal(result.ok, true, JSON.stringify(result.error));
   const sent = createdRequests[0];
-  assert.equal(sent.cwd, PROJECT_ROOT, "cwd 仍须是项目根（目录落点）");
   assert.equal(
     sent.workspaceId,
     "ws-fixture",
     "**必须传 workspaceId**——只传 cwd 会让会话出现在「未分组」（Human 从截图实测发现）",
   );
+  assert.equal(sent.cwd, undefined, "不得同时传 cwd（宿主拒绝两者并存）");
 });
 
 test("项目根没有对应 workspace 时：为它建一个，仍然归好组", async () => {
