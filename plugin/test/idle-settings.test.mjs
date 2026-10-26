@@ -6,6 +6,7 @@
 // 43 分钟内、最短间隔 29 秒）与过紧（真实摩擦永不被观察）。故每条判据都要
 // 有**两侧**断言：该放行的放行、该拦的拦住。
 import { test } from "node:test";
+import { readModelSelection } from "../lib/idle-settings.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
@@ -384,4 +385,35 @@ test("11 §6.2 空集：约束值一律不再被读取（传入即被忽略，�
     task: "friction-discovery",
   });
   assert.deepEqual(withQuota, a, "残留的配额键不得改变判定（且不得被读取）");
+});
+
+
+// ── 审核执行体的模型解析（2026-10-26 Human 要求）─────────────────────────
+
+test("模型选择按第一个 / 切分（model 名里可能含 /）", () => {
+  assert.deepEqual(readModelSelection("deepseek/deepseek-chat"), { provider: "deepseek", model: "deepseek-chat" });
+  // 只切第一个斜杠：后面的全归 model。
+  assert.deepEqual(readModelSelection("meta-llama/Llama-3/8b"), { provider: "meta-llama", model: "Llama-3/8b" });
+});
+
+test("空串／全空白 = 不指定（沿用宿主默认路由）", () => {
+  for (const raw of ["", "   ", "\t\n"]) {
+    assert.equal(readModelSelection(raw), null, `取值 ${JSON.stringify(raw)} 应表示「不指定」`);
+  }
+});
+
+test("格式不合法一律解析为 null，不猜、不回落成某个默认模型", () => {
+  for (const raw of ["nope", "/x", "x/", "  /  ", "/"]) {
+    assert.equal(readModelSelection(raw), null, `取值 ${JSON.stringify(raw)} 不合法，须返回 null`);
+  }
+});
+
+test("非字符串一律 null（不得因类型意外而静默生效）", () => {
+  for (const raw of [undefined, null, 42, {}, [], true]) {
+    assert.equal(readModelSelection(raw), null);
+  }
+});
+
+test("首尾空白被裁掉（粘贴来的值常带空白）", () => {
+  assert.deepEqual(readModelSelection("  deepseek/deepseek-chat  "), { provider: "deepseek", model: "deepseek-chat" });
 });

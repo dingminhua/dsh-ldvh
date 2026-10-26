@@ -77,6 +77,34 @@ function serviceOf(ctx, name) {
 }
 
 /**
+ * 解析项目根对应的 workspace id（侧边栏分组）。
+ *
+ * **拿不到就返回 null，不猜**：返回 null 时会话仍会建在正确的 cwd 下，只是可能落在
+ * 「未分组」——那比编一个 id 好（编 id 会让宿主拒绝创建，连会话都没有）。
+ *
+ * 注意 `resolveByPath` 在目录不存在时会 reject；`create` 则要求路径是已存在的目录。
+ * 两者都不吞异常到「当作没有 workspace」——那会让一个真问题伪装成「未分组」。
+ */
+async function resolveWorkspaceId(ctx, projectRoot) {
+  const registry = serviceOf(ctx, "workspaceRegistry");
+  if (registry === undefined) return null;
+  try {
+    if (typeof registry.resolveByPath === "function") {
+      const existing = await registry.resolveByPath(projectRoot);
+      if (existing?.id !== undefined && existing.id !== null) return existing.id;
+    }
+    if (typeof registry.create === "function") {
+      const made = await registry.create(projectRoot);
+      if (made?.id !== undefined && made.id !== null) return made.id;
+    }
+    return null;
+  } catch {
+    // 目录不存在或解析失败：如实退回「不指定分组」，会话仍建在 cwd 下。
+    return null;
+  }
+}
+
+/**
  * 按固定标题查找专属会话。
  *
  * **标题不在 `SessionSummary` 顶层**，而在 `projections.values.title`——这一点若搞错，
@@ -130,8 +158,21 @@ export async function ensureReviewSession(ctx, { projectId, projectRoot, activit
     return { ok: false, error: { code: "review_session/service_unavailable", message: "sessionController.create is not wired into this composition" } };
   }
   try {
-    // **cwd 是「只在本项目内创建」的机械保证**——创建时指定项目根，会话就落在那里。
-    const created = await controller.create({ cwd: projectRoot });
+    // **分组与落点是两件事**（2026-10-26 实测修正）：
+    //
+    //   · `cwd` 决定会话的**工作目录**（它在哪里读写文件）；
+    //   · `workspaceId` 决定会话在侧边栏归到**哪个分组**。
+    //
+    // 第一版只传了 `cwd`，于是会话建在了正确的目录下，却归进了「未分组」——
+    // Human 从截图里一眼看出来。分组是 workspace 的事，不给就进未分组，这与
+    // 「只在本项目内创建」看起来像但**不是同一件事**：前者关乎目录，后者关乎归属。
+    //
+    // 解析顺序：先按项目根查已存在的 workspace，查到就用它的 id；查不到就为这个
+    // 目录建一个（`create(path, title)` 对同路径是幂等的：已存在则原样返回）。
+    const workspaceId = await resolveWorkspaceId(ctx, projectRoot);
+    const created = await controller.create(
+      workspaceId === null ? { cwd: projectRoot } : { cwd: projectRoot, workspaceId },
+    );
     const sessionId = created?.sessionId ?? null;
     if (sessionId === null) {
       return { ok: false, error: { code: "review_session/create_no_id", message: "sessionController.create returned no sessionId" } };
@@ -158,10 +199,26 @@ export async function ensureReviewSession(ctx, { projectId, projectRoot, activit
   }
 }
 
-/** 在指定会话上查找本插件的周期任务（按 prompt 标签识别，不按标题——标题可被改）。 */
+/**
+ * 在指定会话上查找本插件的周期任务。
+ *
+ * **两道判据，缺一不可**：
+ *   ① `row.sessionId === sessionId`——**自己再判一次会话归属**，不假设宿主的
+ *      `list({sessionId})` 一定按参过滤；
+ *   ② `prompt` 首部的本插件标签——同一会话可能还有别的任务，标题又可能被人工改，
+ *      标签是唯一稳定的识别物（**不用标题**）。
+ *
+ * 第 ① 条是**实测教训**：多项目测试里两个项目只建出一条任务，根因就是这里原先只信
+ * 宿主的过滤。若宿主的 filter 与实现有偏差（或某个实现直接返回全表），两个项目就会
+ * 抢同一个任务行——后一个项目把自己当成「已有任务」，于是永不新建；而这个错误在单
+ * 项目场景下**完全看不出来**。
+ */
 async function findOwnSchedule(schedule, sessionId) {
   const rows = await schedule.list({ sessionId });
   for (const row of Array.isArray(rows) ? rows : []) {
+    // ① 会话归属：自己判，不外包给宿主的过滤参数。
+    if (row?.sessionId !== undefined && row.sessionId !== sessionId) continue;
+    // ② 本插件标签。
     if (typeof row?.prompt === "string" && row.prompt.startsWith(`[${REVIEW_SCHEDULE_TAG}]`)) return row;
   }
   return undefined;

@@ -35,6 +35,8 @@ import { createGovernanceHandler } from "./host-api.js";
 import { createProxyHandler, createSpaHandler, createWebApiProcess } from "./web-mount.js";
 import { createLifecycleRegistry } from "./lifecycle.js";
 import { resolveIdleSettings } from "./idle-settings.js";
+import { readGovernedProjects } from "./governed-projects.js";
+import { reconcileAllProjects } from "./experience-review-reconcile.js";
 import { resolveInjectionBudget } from "./source-recall.js";
 import { createSessionScopes } from "./session-scopes.js";
 import { createHostSeams } from "./host-seams.js";
@@ -212,6 +214,30 @@ export const Config = z.object({
    *  是**两个量**，不得合并。须为正（`.min(1)`）：取 0 使周期恒成立，§6.1 明文要求
    *  写入时拒绝。默认 60 分钟**无规范依据**（§6.1：数值由实现侧承接）。 */
   experienceReviewIntervalMs: volatileField(z.number().min(1).default(3_600_000)),
+  /**
+   * 审核段**派生子代理时使用的模型**（`provider/model`，2026-10-26 Human 要求）。
+   *
+   * ## 为什么需要它
+   *
+   * 审核段是**零上下文派生子代理**（§10.2 第 1 项）。不指定时它继承主控会话的模型
+   * ——而 Human 的主控模型通常是**最强的那个**，用来做「这条材料够不够成文」这种
+   * 窄判断是浪费；更实际的问题是：主控模型在长会话里可能已接近上下文上限，而审核
+   * 执行体需要**稳定可用**。故允许单独指定一个模型。
+   *
+   * ## 为什么是空字符串而不是 undefined
+   *
+   * 空串 = **不指定，沿用宿主默认路由**。这与「显式指定」必须可区分——若用
+   * undefined，`volatile` 字段的重协调会让「用户没设」与「用户设了又被清掉」无法
+   * 分开。空串是明确的「继承默认」。
+   *
+   * ## 格式与校验
+   *
+   * `"<provider>/<model>"`，如 `deepseek/deepseek-chat`。**不在此处枚举合法值**：
+   * 可用模型取决于当前部署的 provider 拓扑（`sessionController.modelCatalog()`），
+   * 写死在 schema 里必然与部署漂移——那会变成「设置了却永远保存不上」。校验在
+   * 消费点做：解析不出 provider/model 就如实失败，不静默回落。
+   */
+  experienceReviewModel: volatileField(z.string().default("")),
 });
 
 /**
@@ -470,6 +496,66 @@ export function apply(ctx, config) {
     },
   });
   const stopLifecycle = lifecycle.start();
+
+  // ── 设置变更 → 当场重新协调审核周期任务（2026-10-26）────────────────────
+  //
+  // **这是一个实测出来的缺陷的修复**。第一版把武装写在 `agent/created` 里，而改设置
+  // 不会创建 agent——于是 Human 打开「自动审核经验」并把间隔改成 2 分钟后，配置确实
+  // 落盘（`cordis.patch.yml` 里 `experienceReviewEnabled: true`、
+  // `experienceReviewIntervalMs: 120000`），但系统里既没有专属会话也没有周期任务。
+  // 界面上勾了、实际没跑——比没有这个开关更糟。
+  //
+  // 宿主有这个能力：`app-boot/config-reload`（「Profile patches 已协调进运行中的
+  // Loader 树」，**不携带 diff，监听者自行重读**）。此前本插件从没订阅它。
+  //
+  // 顺带纠正上方那句旧注释：`volatile` 字段确实没有逐字段的变更通知，但**整份配置
+  // 重协调是有事件的**——「无变更通知」只对「字段级订阅」成立，不对「配置重载」成立。
+  let reconcileSeq = 0;
+  const reconcileReviewSettings = async (trigger) => {
+    const stamp = ++reconcileSeq;
+    try {
+      const settings = resolveIdleSettings(config);
+      const listed = await readGovernedProjects(dshHomePath);
+      if (!listed.ok) {
+        ctx.logger?.warn?.("[dsh-ldvh] review reconcile skipped: cannot read governed projects: %s", String(listed.error ?? ""));
+        return;
+      }
+      const { results } = await reconcileAllProjects({
+        ctx,
+        projects: listed.value.projects,
+        settings,
+        activity: lifecycle.activity,
+      });
+      // **序号守卫**：配置可能在协调进行中又被改。只有最后发起的那次才写结论，
+      // 否则一条过期结果会覆盖新结论（设置面连点几下就会发生）。
+      if (stamp !== reconcileSeq) return;
+      for (const one of results) {
+        if (one.ok === false) {
+          ctx.logger?.warn?.(
+            "[dsh-ldvh] review reconcile failed for %s (%s): %s",
+            one.projectId,
+            one.action,
+            JSON.stringify(one.detail ?? {}),
+          );
+        }
+      }
+    } catch (error) {
+      ctx.logger?.warn?.("[dsh-ldvh] review reconcile failed: %s", String(error?.message ?? error));
+    }
+  };
+  // `app-boot/config-reload` 覆盖「Profile patches 重协调」；`settings/document-updated`
+  // 覆盖「设置面的表单值变更」。两者覆盖面互补，都订阅（重复触发由序号守卫与
+  // 「状态一致则不动」吸收，代价是几次只读列举）。
+  ctx.effect(() =>
+    ctx.on("app-boot/config-reload", () => {
+      void reconcileReviewSettings("config-reload");
+    }),
+  );
+  ctx.effect(() =>
+    ctx.on("settings/document-updated", () => {
+      void reconcileReviewSettings("settings-document-updated");
+    }),
+  );
 
   // Soft web mount (framework doc §4 point 3): the webServer service is NOT a
   // hard injection anymore. In compositions that provide one, this child

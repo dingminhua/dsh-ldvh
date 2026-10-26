@@ -186,6 +186,7 @@ function structuredOf(result) {
  */
 export async function runReviewStage({
   subagents, parent, scope, lifecycle, taskOutcomes = {}, dshHomePath, sessionPersistence = null,
+  model = null,
 }) {
   const activity = lifecycle?.activity;
   const record = (outcome, extra = {}) => {
@@ -247,6 +248,28 @@ export async function runReviewStage({
     projectId: scope.project.id,
   });
   const controller = new AbortController();
+  // **模型指定**（2026-10-26 Human 要求）：`request.agentOptions` 是宿主给子代理
+  // 指定路由的**唯一**入口（`AgentOptions = { provider?, model?, reasoningEffort?,
+  // maxTokens? }`）。不传则继承主控会话的模型。
+  //
+  // **只在 provider 明确支持时传**（`capabilities.agentOptions`）：有的 provider
+  // 不认这个字段，硬传会被它忽略或报错——忽略更危险，因为设置面上会显示「已指定
+  // 某模型」而实际仍跑默认。故先查能力，不支持就**如实登记并未生效**。
+  let agentOptions;
+  let modelApplied = null;
+  if (model !== null && model !== undefined) {
+    const supported = picked.value.provider?.capabilities?.agentOptions === true;
+    if (supported) {
+      agentOptions = { provider: model.provider, model: model.model };
+      modelApplied = `${model.provider}/${model.model}`;
+    } else {
+      activity?.record("review/model-unsupported", {
+        requested: `${model.provider}/${model.model}`,
+        provider: picked.value.name,
+        reason: "provider does not accept agentOptions, so the requested model would be ignored",
+      });
+    }
+  }
   let activation;
   try {
     activation = await subagents.startActivation({
@@ -256,6 +279,7 @@ export async function runReviewStage({
         prompt: [{ type: "text", text: prompt }],
         parent,
         outputSchema: reviewOutputSchema(),
+        ...(agentOptions === undefined ? {} : { agentOptions }),
       },
       signal: controller.signal,
       delivery: "caller",
@@ -310,6 +334,8 @@ export async function runReviewStage({
     duplicate: value.duplicate,
     discarded: value.discarded,
     remaining_pending: value.remaining_pending,
+    // 用了哪个模型：事后核对「设置的那个模型到底有没有生效」全靠这一项。
+    model: modelApplied,
   });
   return { ok: true, value };
 }

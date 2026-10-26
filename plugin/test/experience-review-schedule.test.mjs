@@ -79,9 +79,11 @@ function fakeHost() {
     list: async () => ({ items: sessions.map((row) => ({ ...row })) }),
     create: async (request) => {
       const sessionId = `session-${++seq}`;
+      createdRequests.push({ ...request });
       sessions.push({
         sessionId,
         cwd: request.cwd,
+        workspaceId: request.workspaceId ?? null,
         running: false,
         projections: { values: { title: null } },
       });
@@ -94,14 +96,27 @@ function fakeHost() {
       return { title, seq: 1 };
     },
   };
+  // workspaceRegistry：侧边栏分组的来源。测试里预置一个已存在的 workspace，
+  // 使「解析得到的 workspaceId」可断言（而不是恒为 null 而看不出问题）。
+  const workspaces = [{ id: "ws-fixture", path: PROJECT_ROOT, title: "fixture" }];
+  const createdRequests = [];
+  const workspaceRegistry = {
+    resolveByPath: async (path) => workspaces.find((w) => w.path === path),
+    create: async (path) => {
+      const made = { id: `ws-${path.replaceAll("/", "-")}`, path, title: path.split("/").at(-1) };
+      workspaces.push(made);
+      return made;
+    },
+  };
   const ctx = {
     get: (name) => {
       if (name === "schedule") return schedule;
       if (name === "sessionController") return sessionController;
+      if (name === "workspaceRegistry") return workspaceRegistry;
       return undefined;
     },
   };
-  return { ctx, sessions, schedules };
+  return { ctx, sessions, schedules, workspaces, createdRequests };
 }
 
 // ── ① 找不到就创建，且落在项目根 ──────────────────────────────────────────
@@ -119,6 +134,46 @@ test("没有专属会话时创建，且 cwd 是该管辖项目根（「只在本
     reviewSessionTitle(PROJECT_ID),
     "标题必须是固定标题，否则下次找不到",
   );
+});
+
+test("**专属会话须归入该项目的 workspace，而不是「未分组」**", async () => {
+  const { ctx, createdRequests } = fakeHost();
+  const result = await ensureReviewSession(ctx, { projectId: PROJECT_ID, projectRoot: PROJECT_ROOT });
+
+  assert.equal(result.ok, true, JSON.stringify(result.error));
+  const sent = createdRequests[0];
+  assert.equal(sent.cwd, PROJECT_ROOT, "cwd 仍须是项目根（目录落点）");
+  assert.equal(
+    sent.workspaceId,
+    "ws-fixture",
+    "**必须传 workspaceId**——只传 cwd 会让会话出现在「未分组」（Human 从截图实测发现）",
+  );
+});
+
+test("项目根没有对应 workspace 时：为它建一个，仍然归好组", async () => {
+  const { ctx, createdRequests, workspaces } = fakeHost();
+  const otherRoot = "/Users/dev/projects/other";
+  const result = await ensureReviewSession(ctx, { projectId: PROJECT_ID, projectRoot: otherRoot });
+
+  assert.equal(result.ok, true, JSON.stringify(result.error));
+  assert.ok(createdRequests[0].workspaceId !== null && createdRequests[0].workspaceId !== undefined, "须解析出 workspaceId");
+  assert.ok(
+    workspaces.some((w) => w.path === otherRoot),
+    "没有现成 workspace 时应为该项目根建一个",
+  );
+});
+
+test("workspace 服务未装配时仍能建会话（只退化为可能未分组，不失败）", async () => {
+  const { ctx, sessions } = fakeHost();
+  const noWs = {
+    get: (name) => {
+      if (name === "workspaceRegistry") return undefined;
+      return ctx.get(name);
+    },
+  };
+  const result = await ensureReviewSession(noWs, { projectId: PROJECT_ID, projectRoot: PROJECT_ROOT });
+  assert.equal(result.ok, true, "不该因为拿不到分组就整个失败");
+  assert.equal(sessions.length, 1, "会话仍应建出来");
 });
 
 test("已有同标题会话时复用，不重复创建", async () => {

@@ -400,6 +400,9 @@ window.__ModuleLoader__.load({
       "row.experienceReviewHint": "定期检查留观区里收集的经验材料，判断哪些已经够格写成经验草稿（草稿是否入档仍需你确认）。与「积累经验」各自独立：关掉它只是不再自动审核，已有材料仍留在留观区。审核会单独开一个专属对话来跑，避免多个审核撞在一起。",
       "row.experienceReviewIntervalMs": "审核间隔（分钟）",
       "row.experienceReviewIntervalMsHint": "每隔多久自动审核一次留观区。它与上面的「安静时长」是两件事：安静时长管「对话停止多久后收集」，审核间隔管「多久把已收集的材料审一遍」。须大于 0。",
+      "row.experienceReviewModel": "审核模型",
+      "row.experienceReviewModelHint": "自动审核时另派一个子代理来判定，这里指定它用哪个模型，格式为「供应商/模型名」。留空则跟随当前默认模型。建议选一个稳定、便宜的模型——审核做的是窄判断，不需要最强的模型。",
+      "row.experienceReviewModelInvalid": "格式须为「供应商/模型名」，例如 deepseek/deepseek-chat。",
       "row.idleLimitInvalid": "请填入整数；安静时长须大于 0（配额上限填 0 表示不限）。",
       "row.webHint": "关闭时移除 LDVH 页面和 API；开启后自动挂载并检查是否可用。",
       "row.status": "Web 呈现状态",
@@ -487,6 +490,9 @@ window.__ModuleLoader__.load({
       "row.experienceReviewHint": "Periodically examines the material collected in the observation buffer and decides which items are ready to become experience drafts (filing a draft still needs your confirmation). Independent of capture: turning it off stops auto-review only, and collected material stays in the buffer. Reviews run in a dedicated session so two of them never collide.",
       "row.experienceReviewIntervalMs": "Review interval (minutes)",
       "row.experienceReviewIntervalMsHint": "How often to review the observation buffer. This is separate from the silence duration above: silence governs when material is captured, the interval governs how often captured material is reviewed. Must be greater than 0.",
+      "row.experienceReviewModel": "Review model",
+      "row.experienceReviewModelHint": "Auto-review spawns a separate subagent to decide, and this sets which model it uses, written as provider/model. Leave blank to follow the current default model. A stable, inexpensive model is usually right here — review is a narrow judgement and does not need the strongest model.",
+      "row.experienceReviewModelInvalid": "Use provider/model, for example deepseek/deepseek-chat.",
       "row.idleLimitInvalid": "Enter an integer; the silence duration must exceed 0 (0 in the cap means unlimited).",
       "row.webHint": "Turning it off removes the LDVH page and API; turning it on mounts them and checks availability automatically.",
       "row.status": "Web presentation status",
@@ -849,6 +855,10 @@ window.__ModuleLoader__.load({
       // 经验**审核**开关（2026-10-26）。与捕获分成两个——Human：「一个是对话结束捕获，
       // 一个是自动的审核捕获，所以要分开设置」。
       var idleReviewState = React.useState(value.experienceReviewEnabled === true);
+      // 审核执行体的模型（2026-10-26 Human 要求）。**缺省空串 = 沿用宿主默认路由**。
+      var idleReviewModelState = React.useState(
+        typeof value.experienceReviewModel === "string" ? value.experienceReviewModel : ""
+      );
       var idleCapacityState = React.useState(value.capacityMaintenanceEnabled === true);
       var idleMemoryState = React.useState(value.memoryHealthEnabled === true);
       // 界面上的各值按它们**各自的显示单位**存放（见 IDLE_LIMITS 的 scale）。
@@ -933,6 +943,7 @@ window.__ModuleLoader__.load({
         frictionDiscoveryState[1](next.frictionDiscoveryEnabled !== false || next.idleReviewEnabled === true);
         idleCaptureState[1](next.experienceCaptureEnabled === true);
         idleReviewState[1](next.experienceReviewEnabled === true);
+        idleReviewModelState[1](typeof next.experienceReviewModel === "string" ? next.experienceReviewModel : "");
         idleCapacityState[1](next.capacityMaintenanceEnabled === true);
         idleMemoryState[1](next.memoryHealthEnabled === true);
         injectionBudgetState[1](
@@ -1128,6 +1139,9 @@ window.__ModuleLoader__.load({
               // 审核开关独立提交：漏掉这一行，界面上勾了也存不进去，且看不出来
               // （勾选态来自本地 state，保存后仍显示已勾选，重开才归零）。
               { op: "set", path: ["experienceReviewEnabled"], value: !!idleReviewState[0] },
+              // 模型：**去掉首尾空白后原样提交**。不做归一化（不补 provider 前缀、
+              // 不猜大小写）——猜错了会静默跑另一个模型，而界面看不出区别。
+              { op: "set", path: ["experienceReviewModel"], value: String(idleReviewModelState[0] ?? "").trim() },
               { op: "set", path: ["capacityMaintenanceEnabled"], value: !!idleCapacityState[0] },
               { op: "set", path: ["memoryHealthEnabled"], value: !!idleMemoryState[0] },
               { op: "set", path: ["injectionBudgetTier"], value: Number(injectionBudgetState[0]) }
@@ -1391,7 +1405,40 @@ window.__ModuleLoader__.load({
                   limit.hintKey ? React.createElement("span", { className: "ldv-idle-limit-hint" }, t(limit.hintKey)) : null,
                   invalid ? React.createElement("span", { className: "ldv-idle-limit-invalid" }, t("row.idleLimitInvalid")) : null
                 );
-              })
+              }),
+              // ── 审核执行体的模型（2026-10-26 Human 要求）──────────────────────
+              //
+              // **为什么是文本框而不是下拉框**：可选模型取决于当前部署的 provider
+              // 拓扑（`sessionController.modelCatalog()`），它是**运行时动态的**——
+              // 用户装了新 provider、换了 key、或某个模型下线，列表就变。把列表固化
+              // 进设置面，就要额外维护一份与宿主不同步的副本；而设置页是低频操作，
+              // 一个文本框 + 明确的格式提示足够，且永远不会显示过时的选项。
+              //
+              // 留空 = 沿用宿主默认路由（不是「未设置」的错误态）。
+              React.createElement("div", { className: "ldv-idle-limit" },
+                React.createElement("label", { className: "ldv-idle-limit-row" },
+                  React.createElement("span", { className: "ldv-idle-limit-label" }, t("row.experienceReviewModel")),
+                  React.createElement("input", {
+                    type: "text",
+                    className: "ldv-settings-input ldv-idle-limit-input",
+                    value: idleReviewModelState[0],
+                    placeholder: "provider/model",
+                    spellCheck: false,
+                    "aria-label": t("row.experienceReviewModel"),
+                    onChange: function (e) { idleReviewModelState[1](e.target.value); markDirty(); }
+                  })
+                ),
+                React.createElement("span", { className: "ldv-idle-limit-hint" }, t("row.experienceReviewModelHint")),
+                // **格式不对当场提示**：能写进去但解析不出来，等于「设了没生效」——
+                // 那正是本仓反复记载的缺陷形态。故在输入处就用与服务端**同一条**
+                // 判据（readModelSelection）预检，不等保存。
+                (function () {
+                  var raw = String(idleReviewModelState[0] ?? "").trim();
+                  if (raw.length === 0) return null;
+                  var bad = !/^[^/\s]+\/\S+$/.test(raw);
+                  return bad ? React.createElement("span", { className: "ldv-idle-limit-invalid" }, t("row.experienceReviewModelInvalid")) : null;
+                })()
+              )
               // **2026-10-14（Human 指示）：本节原另有两句提示词条——
               //   ① 「编辑后需点保存生效。填大于 0 的整数」
               //   ② 「安静时长的数值属实现侧承接（11 §6.1）……不得据此主张规范已规定该时长」

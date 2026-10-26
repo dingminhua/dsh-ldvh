@@ -1,0 +1,269 @@
+// 审核周期任务的**设置联动**（2026-10-26）。
+//
+// ## 这个文件为什么存在
+//
+// Human 实测报的缺陷：「我修改了间隔时间，但没有发现同步调整」。核查发现配置确实
+// 落盘了（`experienceReviewEnabled: true`、`experienceReviewIntervalMs: 120000`），
+// 但系统里既没有专属会话也没有周期任务。根因两条：
+//
+//   ① 武装写在 `agent/created` 里 —— 改设置不创建 agent，代码不重跑；
+//   ② 从未订阅 `app-boot/config-reload` —— 宿主有热更新能力却没用上。
+//
+// 所以这里守的是**四种状态迁移**，而不是「单个函数能跑」：
+//
+//   关闭 → 开启（武装：建会话 + 建周期任务）
+//   开启 → 改间隔（**原地同步**，不重建）
+//   开启 → 关闭（撤除周期任务，**但不删会话**）
+//   关闭 → 关闭（不动，不做无谓的宿主调用）
+//
+// ## 一条刻意的设计决定，专门守
+//
+// **撤除只撤周期任务，不删专属会话。** 会话里是历次审核的运行痕迹，删了不可逆；
+// 而 Human 关掉审核的意思是「别再自动跑了」，不是「把历史抹掉」。若有人把它改成
+// 连会话一起删，这个测试会红。
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+import { reconcileAllProjects, reconcileProjectReview } from "../lib/experience-review-reconcile.js";
+
+const PROJECT = { id: "fixture-project", path: "/Users/dev/projects/fixture" };
+const REVIEW_TAG = "[dsh-ldvh:experience-review]";
+
+/**
+ * 假宿主。会话与任务都真的存着，以便断言「有没有被创建/撤除」。
+ *
+ * `schedule.update` 只改间隔、**不换 id**——这正是「原地同步」与「删后重建」的
+ * 可区分之处：重建会换 id。
+ */
+function fakeHost() {
+  const sessions = [];
+  const schedules = [];
+  let seq = 0;
+  const schedule = {
+    list: async () => schedules.map((row) => ({ ...row })),
+    create: async (sessionId, request) => {
+      const record = {
+        id: `sched-${++seq}`,
+        sessionId,
+        kind: request.every_seconds !== undefined ? "every" : "at",
+        title: request.title,
+        prompt: request.prompt,
+        everySeconds: request.every_seconds,
+      };
+      schedules.push(record);
+      return record;
+    },
+    update: async ({ id, change }) => {
+      const row = schedules.find((item) => item.id === id);
+      if (row === undefined) return { updated: false, code: "schedule_not_found" };
+      row.everySeconds = change.every_seconds;
+      return { updated: true, id };
+    },
+    delete: async ({ id }) => {
+      const index = schedules.findIndex((item) => item.id === id);
+      if (index < 0) return { deleted: false };
+      schedules.splice(index, 1);
+      return { deleted: true };
+    },
+  };
+  const sessionController = {
+    list: async () => ({ items: sessions.map((row) => ({ ...row })) }),
+    create: async (request) => {
+      const sessionId = `session-${++seq}`;
+      sessions.push({ sessionId, cwd: request.cwd, running: false, projections: { values: { title: null } } });
+      return { sessionId };
+    },
+    rename: async ({ sessionId, title }) => {
+      const row = sessions.find((item) => item.sessionId === sessionId);
+      if (row === undefined) throw new Error("session_not_found");
+      row.projections.values.title = title;
+      return { title, seq: 1 };
+    },
+  };
+  const ctx = {
+    get: (name) => {
+      if (name === "schedule") return schedule;
+      if (name === "sessionController") return sessionController;
+      return undefined;
+    },
+  };
+  return { ctx, sessions, schedules };
+}
+
+function settings({ enabled, intervalMs = 3_600_000 }) {
+  return { review: { enabled, intervalMs } };
+}
+
+function quietActivity() {
+  const events = [];
+  return { record: (name, payload) => events.push({ name, payload }), events };
+}
+
+// ── 关闭 → 开启 ────────────────────────────────────────────────────────
+
+test("关闭状态下协调：什么都不做（不建会话、不建任务）", async () => {
+  const { ctx, sessions, schedules } = fakeHost();
+  const result = await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: false }) });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.action, "noop");
+  assert.equal(sessions.length, 0, "关闭时不得建会话");
+  assert.equal(schedules.length, 0, "关闭时不得建任务");
+});
+
+test("打开开关 → 武装：建出专属会话与周期任务，间隔按设置", async () => {
+  const { ctx, sessions, schedules } = fakeHost();
+  const activity = quietActivity();
+  const result = await reconcileProjectReview({
+    ctx,
+    project: PROJECT,
+    settings: settings({ enabled: true, intervalMs: 120_000 }),
+    activity,
+  });
+
+  assert.equal(result.ok, true, JSON.stringify(result.detail));
+  assert.equal(result.action, "armed");
+  assert.equal(sessions.length, 1, "须建出专属会话");
+  assert.equal(sessions[0].cwd, PROJECT.path, "会话须落在该项目内");
+  assert.equal(schedules.length, 1);
+  assert.equal(schedules[0].everySeconds, 120, "间隔须按设置换算成秒");
+  assert.equal(schedules[0].sessionId, sessions[0].sessionId, "任务须绑到专属会话");
+  assert.ok(activity.events.some((e) => e.name === "review/armed"), "须记账");
+});
+
+// ── 开启 → 改间隔（Human 报的那个症状）──────────────────────────────────
+
+test("**间隔改小 → 原地同步**（不重建任务，id 不变）", async () => {
+  const { ctx, schedules } = fakeHost();
+  await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: true, intervalMs: 3_600_000 }) });
+  const originalId = schedules[0].id;
+  assert.equal(schedules[0].everySeconds, 3600);
+
+  const result = await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: true, intervalMs: 120_000 }) });
+
+  assert.equal(result.ok, true, JSON.stringify(result.detail));
+  assert.equal(result.action, "interval-synced", "应识别为「同步间隔」而不是重新武装");
+  assert.equal(schedules.length, 1, "**不得**出现第二条任务");
+  assert.equal(schedules[0].id, originalId, "**id 不变**才叫原地同步；换 id 就是删后重建");
+  assert.equal(schedules[0].everySeconds, 120, "间隔必须真的改成 120 秒（2 分钟）");
+});
+
+test("连续多次改间隔：每次都同步到最新值，任务始终只有一条", async () => {
+  const { ctx, schedules } = fakeHost();
+  for (const minutes of [60, 30, 5, 2, 1]) {
+    await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: true, intervalMs: minutes * 60_000 }) });
+  }
+  assert.equal(schedules.length, 1, "不得累积出多条");
+  assert.equal(schedules[0].everySeconds, 60, "最终须是最新的 1 分钟");
+});
+
+// ── 开启 → 关闭 ────────────────────────────────────────────────────────
+
+test("**关闭 → 撤除周期任务，但不删专属会话**（历史痕迹不可逆地丢）", async () => {
+  const { ctx, schedules, sessions } = fakeHost();
+  await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: true, intervalMs: 120_000 }) });
+  assert.equal(schedules.length, 1);
+  assert.equal(sessions.length, 1);
+
+  const activity = quietActivity();
+  const result = await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: false }), activity });
+
+  assert.equal(result.ok, true, JSON.stringify(result.detail));
+  assert.equal(result.action, "disarmed");
+  assert.equal(schedules.length, 0, "周期任务须被撤除（否则还会继续投递）");
+  assert.equal(sessions.length, 1, "**会话必须留着**——里面是历次审核的运行痕迹，删了不可逆");
+  assert.ok(activity.events.some((e) => e.name === "review/disarmed"));
+});
+
+test("关闭后再次关闭：不动（不重复删）", async () => {
+  const { ctx, schedules } = fakeHost();
+  await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: true, intervalMs: 120_000 }) });
+  await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: false }) });
+  const result = await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: false }) });
+  assert.equal(result.action, "noop");
+  assert.equal(schedules.length, 0);
+});
+
+test("关闭 → 再开启：复用既有会话，不建第二个", async () => {
+  const { ctx, sessions, schedules } = fakeHost();
+  await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: true, intervalMs: 120_000 }) });
+  await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: false }) });
+  const back = await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: true, intervalMs: 120_000 }) });
+
+  assert.equal(back.ok, true, JSON.stringify(back.detail));
+  assert.equal(back.action, "armed");
+  assert.equal(sessions.length, 1, "**不得**建第二个会话——固定标题查找应命中");
+  assert.equal(schedules.length, 1, "任务须被重新建上");
+});
+
+// ── 残缺状态的自愈 ──────────────────────────────────────────────────────
+
+test("会话在、任务丢了 → 补建任务（不重建会话）", async () => {
+  const { ctx, schedules, sessions } = fakeHost();
+  await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: true, intervalMs: 120_000 }) });
+  schedules.length = 0; // 模拟任务被外部删掉
+
+  const result = await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: true, intervalMs: 120_000 }) });
+  assert.equal(result.ok, true);
+  assert.equal(result.action, "armed");
+  assert.equal(schedules.length, 1, "任务须补回");
+  assert.equal(sessions.length, 1, "会话不得重建");
+});
+
+// ── 多项目 ────────────────────────────────────────────────────────────
+
+test("遍历全部项目：各自一个专属会话，互不混用", async () => {
+  const { ctx, sessions, schedules } = fakeHost();
+  const projects = [
+    { id: "alpha", path: "/Users/dev/projects/alpha" },
+    { id: "beta", path: "/Users/dev/projects/beta" },
+  ];
+  const { results } = await reconcileAllProjects({ ctx, projects, settings: settings({ enabled: true, intervalMs: 120_000 }) });
+
+  assert.equal(results.length, 2);
+  assert.ok(results.every((r) => r.ok), JSON.stringify(results));
+  assert.equal(sessions.length, 2, "每个项目各一个会话");
+  assert.equal(schedules.length, 2, "每个项目各一条任务");
+  // 落点不得跨项目。
+  const alpha = sessions.find((s) => s.cwd === "/Users/dev/projects/alpha");
+  const beta = sessions.find((s) => s.cwd === "/Users/dev/projects/beta");
+  assert.ok(alpha && beta, "两个项目各自的会话须落在各自根目录");
+  assert.notEqual(alpha.sessionId, beta.sessionId);
+});
+
+test("单个项目失败不阻断其余项目", async () => {
+  const { ctx } = fakeHost();
+  const projects = [
+    { id: "broken", path: "/nope", status: { error: "path missing" } },
+    { id: "alpha", path: "/Users/dev/projects/alpha" },
+  ];
+  const { results } = await reconcileAllProjects({ ctx, projects, settings: settings({ enabled: true, intervalMs: 120_000 }) });
+
+  assert.equal(results.length, 2);
+  assert.equal(results[0].ok, false, "坏项目如实失败");
+  assert.equal(results[0].action, "skipped");
+  assert.equal(results[1].ok, true, "**好项目不得被坏项目带停**");
+});
+
+// ── 记账 ───────────────────────────────────────────────────────────────
+
+test("每次动作都记账，便于事后核对开关到底有没有生效", async () => {
+  const { ctx } = fakeHost();
+  const activity = quietActivity();
+  await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: true, intervalMs: 120_000 }), activity });
+  await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: true, intervalMs: 60_000 }), activity });
+  await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: false }), activity });
+
+  const names = activity.events.map((e) => e.name);
+  assert.ok(names.includes("review/armed"), `须记「已武装」，实际：${names.join(", ")}`);
+  assert.ok(names.includes("review/interval-synced"), `须记「间隔已同步」，实际：${names.join(", ")}`);
+  assert.ok(names.includes("review/disarmed"), `须记「已撤除」，实际：${names.join(", ")}`);
+  // 记账须带项目标识——否则多项目下看不出是谁。
+  assert.ok(activity.events.every((e) => e.payload?.projectId === PROJECT.id));
+});
+
+test("周期任务的 prompt 带本插件标签（撤除与查重都靠它识别）", async () => {
+  const { ctx, schedules } = fakeHost();
+  await reconcileProjectReview({ ctx, project: PROJECT, settings: settings({ enabled: true, intervalMs: 120_000 }) });
+  assert.ok(schedules[0].prompt.startsWith(REVIEW_TAG), "标签须在 prompt 首部");
+});

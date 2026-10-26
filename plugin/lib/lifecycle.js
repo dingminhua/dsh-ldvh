@@ -34,7 +34,6 @@ import { join } from "node:path";
 
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { registerLdvhTools } from "./ldvh-tools.js";
-import { armReviewAutomation } from "./experience-review-schedule.js";
 import { runReviewStage } from "./experience-review-stage.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { RECALL_SUMMARY, buildRecallInjection } from "./recall-injection.js";
@@ -628,6 +627,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               lifecycle,
               taskOutcomes: reviewOutcomes,
               dshHomePath,
+              // 审核执行体的模型（Human 2026-10-26 要求）：null = 沿用宿主默认路由。
+              model: reviewCfg?.review?.model ?? null,
             });
             try {
               const reviewOutcome = reviewOutcomes["experience-review"];
@@ -1361,38 +1362,16 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             turnTriggers.restoreActivityAt(Date.parse(st0.value.lastActivityAt));
           }
 
-          // ── 经验审核的周期任务（11 §6.1 形态 2，2026-10-26）──────────────
+          // ── 经验审核的周期任务**不再在这里武装**（2026-10-26 修正）──────────
           //
-          // 与安静期那条**相反**：它不依赖会话活动，装载后就该存在。故在这里武装。
-          // 开关缺省关；关闭时**不武装**（也不撤掉别人建的——那是 owner 的事）。
-          const reviewSettings = typeof getIdleSettings === "function" ? getIdleSettings() : undefined;
-          if (reviewSettings?.review?.enabled === true) {
-            const armed = await armReviewAutomation(ctx, {
-              projectId: scope0.project.id,
-              projectRoot: scope0.project.path,
-              intervalMs: reviewSettings.review.intervalMs,
-              activity: lifecycle.activity,
-            });
-            if (!armed.ok) {
-              // fail-closed 的登记面：周期任务没武装上，审核就不会按间隔跑。如实记。
-              lifecycle.activity.record("review/arm-failed", {
-                stage: armed.stage,
-                code: armed.error?.code ?? "unknown",
-                message: String(armed.error?.message ?? ""),
-              });
-              ctx.logger?.warn?.("[dsh-ldvh] review automation could not be armed (%s): %s", armed.stage, String(armed.error?.message ?? ""));
-            } else {
-              lifecycle.activity.record("review/armed", {
-                sessionId: armed.sessionId,
-                scheduleId: armed.scheduleId,
-                everySeconds: armed.everySeconds,
-                sessionCreated: armed.sessionCreated,
-                scheduleCreated: armed.scheduleCreated,
-              });
-            }
-          } else {
-            lifecycle.activity.record("review/not-armed", { reason: "disabled by settings" });
-          }
+          // 第一版把武装写在这个位置（`agent/created` 装载路径上），实测出真缺陷：
+          // 改设置**不会**创建 agent，故那段代码在配置变更后根本不重跑——Human 打开
+          // 「自动审核经验」、把间隔改成 2 分钟，配置确实落盘了，但专属会话与周期任务
+          // 一个都没出现。界面上勾了、实际没跑。
+          //
+          // 现在武装由 `index.js` 的 `app-boot/config-reload` 订阅驱动（装载时也会
+          // 经它跑一次），见 `experience-review-reconcile.js`。这里只留注释，让后来者
+          // 不会因为「在 lifecycle 里找不到武装」而把它加回来。
         } catch (error) {
           ctx.logger?.warn?.("[dsh-ldvh] activity stamp restore failed: %s", String(error?.message ?? error));
         }
