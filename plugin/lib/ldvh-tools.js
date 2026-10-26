@@ -24,6 +24,7 @@ import { bindMembershipEvidence, notApplicableEvidence } from "./membership-evid
 import { currentRouteValues } from "./session-signature.js";
 import { authoritativeSignature } from "./signature-channel.js";
 import { BUFFER_STATUSES, bufferRelativePath, readBufferEntries } from "./observation-buffer.js";
+import { probeHostAutomation } from "./host-automation-probe.js";
 import { collectExistingPitfalls, reviewPendingEntries } from "./observation-review.js";
 import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets } from "./commit-validation.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
@@ -90,6 +91,21 @@ const OPERATIONS = {
   "observation-buffer-review": {
     toolName: "ldvh_observation_buffer_review",
     summary: "Run one experience-accumulation review pass: form at most one experience candidate from the pending buffer entries and settle that entry's status (specs/11 §12ter.1 input contract, §12ter.2 result contract)",
+    effect: "may_change_state"
+  },
+  // ── 宿主能力探针（2026-10-26）─────────────────────────────────────────
+  //
+  // **为什么它是一个工具而不是一个诊断路由**：探针要调宿主的 `schedule` 与
+  // `sessionController` 服务，而这两个只有宿主 `ctx` 能取到。诊断 Web API 是
+  // **独立模块**（web/api/app.ts 自成一体，拿不到 ctx）。工具 handler 由
+  // `registerLdvhTools(agent.ctx, …)` 注册，那里正是有 ctx 的地方。
+  //
+  // **它是临时探针，不是长期能力**：§6.1 修订后周期审核依赖宿主的两条接口，
+  // 那两条此前只在宿主包声明里读到过。探针用于在真实宿主上取证一次；取证完成后
+  // 可以撤掉，也可以留作诊断（成本很低，且 `dryRun` 缺省为真）。
+  "probe-host-automation": {
+    toolName: "ldvh_probe_host_automation",
+    summary: "Probe the host automation capabilities the periodic review depends on (11 §6.1 形态 2): schedule.create with every_seconds, sessionController.create/list, and whether a session title is readable from projections. Read-only by default; pass write=true to actually create a session plus one schedule, in which case the result carries the exact cleanup parameters",
     effect: "may_change_state"
   }
 };
@@ -538,6 +554,12 @@ function makeExecute(deps) {
     const declarations = await parseOperationDeclarations(governed.state === "governed" ? governed.project.path : null, workspaceRoot);
     const declarationReporter = [];
     const entries = Object.entries(OPERATIONS)
+      // **探针不进 discovery**（2026-10-26）：它不在任何规范声明表里（§12ter 只声明
+      // observation-buffer-list 与 observation-buffer-review 两个），是**实现侧诊断
+      // 工具**。若让它出现在这里，它会被显示为「已声明=false」——而读者会据以认为
+      // 「这是一条规范要求但实现没声明」的缺口，那是假缺口。05 §6.2 明写「操作目录
+      // 不等于许可白名单」，反向亦然：不在目录里不等于它不存在。
+      .filter(([key]) => key !== "probe-host-automation")
       .filter(([key]) => requestedOperation === null || key === requestedOperation)
       .map(([key, operation]) => {
         const declaration = declarations.get(key) ?? null;
@@ -1288,6 +1310,61 @@ function makeExecute(deps) {
     });
   }
 
+  /**
+   * 宿主能力探针（见 OPERATIONS 的注释）。
+   *
+   * **缺省只读**：`write` 不为 true 时只探测服务可用性与标题可读性，不创建任何东西。
+   * 这是刻意的——一个诊断工具被误调时不应在宿主机上留下会话与定时任务。
+   *
+   * 结果里带 `cleanup`：确切的删除参数。探针**不自动删**——删会话是不可逆操作，
+   * 交给调用方（Human）决定。
+   */
+  async function executeProbeHostAutomation(args, exec) {
+    const governed = await resolveGovernanceScope(dshHomePath, exec?.agent?.session?.header?.cwd);
+    if (governed.state !== "governed") {
+      return envelope("probe-host-automation", "unavailable", {
+        result: null,
+        scope: { requested: "probe", completed: [], not_completed: ["probe"] },
+        sources: [],
+        gaps: [`governance state is ${governed.state}: the probe creates sessions inside a governed project, so it serves governed sessions only`],
+        verification: { checks: ["governance-scope"], passed: false },
+        follow_up: []
+      });
+    }
+    const write = args?.write === true;
+    const probeCtx = deps.agentCtx ?? null;
+    if (probeCtx === null || typeof probeCtx.get !== "function") {
+      // 没有宿主 ctx 时**如实拒绝**，不降级成「假装探过了」。
+      return envelope("probe-host-automation", "unavailable", {
+        result: null,
+        scope: { requested: "probe", completed: [], not_completed: ["probe"] },
+        sources: [],
+        gaps: ["no host ctx is wired into this tool batch, so host services cannot be reached; the probe requires a live agent context"],
+        verification: { checks: ["host-ctx"], passed: false },
+        follow_up: ["call this tool from a session whose agent context is live (the tool batch registers with agent.ctx)"]
+      });
+    }
+    const result = await probeHostAutomation(probeCtx, {
+      projectRoot: governed.project.path,
+      title: `LDVH 经验审核 · ${governed.project.id}`,
+      dryRun: !write,
+    });
+    const complete = result.verdict === "dry-run-complete" || result.verdict === "all-probes-passed";
+    return envelope("probe-host-automation", complete ? "completed" : "partial", {
+      result,
+      scope: { requested: "probe", completed: ["services", "list", "title", ...(write ? ["session", "schedule"] : [])], not_completed: [] },
+      sources: sources({ kind: "host-services", path: "ctx.get('schedule') / ctx.get('sessionController')", fingerprint: null }),
+      gaps: result.steps.filter((step) => !step.ok).map((step) => `${step.name}: ${step.detail ?? ""}`),
+      verification: {
+        checks: ["host-services", "session-list", "title-projection", ...(write ? ["session-create", "schedule-every"] : [])],
+        passed: complete,
+      },
+      follow_up: result.cleanup.length > 0
+        ? [`cleanup is NOT automatic; the exact delete parameters are in result.cleanup: ${JSON.stringify(result.cleanup)}`]
+        : [],
+    });
+  }
+
   const handlers = {
     "resolve-governance-scope": executeResolveGovernanceScope,
     "read-specification-candidates": executeReadSpecificationCandidates,
@@ -1297,7 +1374,8 @@ function makeExecute(deps) {
     "register-governed-project": executeRegisterGovernedProject,
     "unregister-governed-project": executeUnregisterGovernedProject,
     "observation-buffer-list": executeObservationBufferList,
-    "observation-buffer-review": executeObservationBufferReview
+    "observation-buffer-review": executeObservationBufferReview,
+    "probe-host-automation": executeProbeHostAutomation
   };
 
   return { handlers, OPERATIONS };
@@ -1413,7 +1491,11 @@ async function parseOperationDeclarations(projectRoot, workspaceRoot) {
 }
 
 export function registerLdvhTools(ctx, deps) {
-  const { handlers } = makeExecute(deps);
+  // **把宿主 ctx 交给 handler**（2026-10-26）：探针工具要调 `schedule` 与
+  // `sessionController`，而这两个服务只有 ctx 取得到。`ctx` 是本函数的第一个
+  // 形参（`registerLdvhTools(agent.ctx, …)`），故直接注入，不再要求调用方
+  // 另传一份——两份会漂移。
+  const { handlers } = makeExecute({ ...deps, agentCtx: ctx });
   const disposers = [];
   for (const [operationKey, operation] of Object.entries(OPERATIONS)) {
     const handler = handlers[operationKey];
