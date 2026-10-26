@@ -101,6 +101,15 @@ test("carrier: the buffer and the pending queue are separate carriers (§12bis �
 // 追加：字段闭集（§12bis 字段表 9 项；§18 第 1 行「字段闭集齐备」）
 // ---------------------------------------------------------------------------
 
+/**
+ * 载体的一条物理行是**事件**（2026-10-26 起追加事件日志形态），不是完整记录。
+ * 取事件里的 entry 记录，供既有断言用。
+ */
+function entryEventOf(line) {
+  const parsed = JSON.parse(line);
+  return parsed.kind === "entry" ? parsed.record : parsed;
+}
+
 test("append: writes one JSONL line carrying the whole field set (§12bis 字段闭集)", async () => {
   await withHome(async (home) => {
     const result = await appendBufferEntry(home, validEntry());
@@ -110,7 +119,9 @@ test("append: writes one JSONL line carrying the whole field set (§12bis 字段
     const raw = await readFile(bufferEntryPath(home), "utf8");
     const lines = raw.trim().split("\n");
     assert.equal(lines.length, 1, "one append writes one JSONL line");
-    const parsed = JSON.parse(lines[0]);
+    // 该行是 `{kind:"entry", record}` 事件（追加事件日志形态，2026-10-26）。
+    assert.equal(JSON.parse(lines[0]).kind, "entry", "追加写的是一个 entry 事件");
+    const parsed = entryEventOf(lines[0]);
     for (const field of BUFFER_REQUIRED_FIELDS) {
       assert.ok(field in parsed, `§12bis requires field "${field}"`);
     }
@@ -224,7 +235,7 @@ test("append: keeps the evidence verbatim, byte for byte (§12bis：不得转述
     const result = await appendBufferEntry(home, validEntry({ evidence }));
     assert.ok(result.ok, JSON.stringify(result.error));
     const raw = await readFile(bufferEntryPath(home), "utf8");
-    const parsed = JSON.parse(raw.trim().split("\n")[0]);
+    const parsed = entryEventOf(raw.trim().split("\n")[0]);
     assert.equal(parsed.evidence, evidence, "the evidence is stored verbatim, not trimmed");
   });
 });
@@ -238,7 +249,7 @@ test("append: rejects a malformed at and accepts an explicit RFC3339 at (§12bis
     const good = await appendBufferEntry(home, validEntry({ at: "2026-03-01T10:00:00.000Z" }));
     assert.ok(good.ok, JSON.stringify(good.error));
     const raw = await readFile(bufferEntryPath(home), "utf8");
-    const parsed = JSON.parse(raw.trim().split("\n")[0]);
+    const parsed = entryEventOf(raw.trim().split("\n")[0]);
     assert.equal(parsed.at, "2026-03-01T10:00:00.000Z");
   });
 });
@@ -321,7 +332,8 @@ test("read: a broken line is reported, never silently dropped (§12bis 读取纪
     await mkdir(join(home.base, "ldvh"), { recursive: true });
     await writeFile(
       bufferEntryPath(home),
-      `${JSON.stringify({ id: "x", at: "2026-03-01T00:00:00.000Z" })}\n{ this is not json\n`,
+      // 一行是**字段不全的 entry 事件**，另一行是**破损 JSON**——两者都须如实报出。
+      `${JSON.stringify({ kind: "entry", record: { id: "x", at: "2026-03-01T00:00:00.000Z" } })}\n{ this is not json\n`,
       "utf8",
     );
 
@@ -435,9 +447,13 @@ test("capacity: an append after an eviction still writes a parsable line (§12bi
 
     const raw = await readFile(bufferEntryPath(home), "utf8");
     const lines = raw.trim().split("\n");
-    assert.equal(lines.length, 5);
+    // 5 次追加各写一条 entry 事件；淘汰写成额外的 settle 事件（追加事件日志形态）。
+    // 故行数 ≥ 5，且**每一行都须可解析**——这是本条真正要守的性质。
+    assert.ok(lines.length >= 5, `at least one event per append (got ${lines.length})`);
     for (const line of lines) {
       assert.doesNotThrow(() => JSON.parse(line), "every carrier line stays parsable");
+      const event = JSON.parse(line);
+      assert.ok(["entry", "settle", "remove"].includes(event.kind), "每一行都须是合法事件类型");
     }
   });
 });
@@ -586,8 +602,18 @@ test("settle: writes status, consumed_by and settled_at, and preserves the rest 
     });
     assert.ok(result.ok, JSON.stringify(result.error));
 
+    // 追加事件日志形态：结算写的是**一条 settle 事件**，不是改写第一行。
+    // 故从**折叠后的视图**断言当前状态（这正是读者看到的东西）。
     const raw = await readFile(bufferEntryPath(home), "utf8");
-    const parsed = JSON.parse(raw.trim().split("\n")[0]);
+    const events = raw.trim().split("\n").map((line) => JSON.parse(line));
+    assert.equal(events.length, 2, "一次追加 + 一次结算 = 两条事件");
+    assert.equal(events[0].kind, "entry");
+    assert.equal(events[1].kind, "settle");
+    assert.equal(events[1].status, "consumed");
+    assert.equal(events[1].consumed_by, "draft-object-uid-1");
+
+    const view = await readBufferEntries(home);
+    const parsed = view.value.items[0];
     assert.equal(parsed.status, "consumed");
     assert.equal(parsed.consumed_by, "draft-object-uid-1");
     assert.match(parsed[BUFFER_SETTLED_AT_FIELD], /^\d{4}-\d{2}-\d{2}T/, "settled_at is RFC3339");

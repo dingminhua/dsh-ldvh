@@ -537,6 +537,235 @@ const OBSERVATION_THRESHOLD = 3
  * `readJsonLines` 对队列的处理同一纪律）。但**跳过数须如实计数**，否则
  * 「解析失败」会伪装成「条目较少」。
  */
+/** 经验缓冲条目状态闭集（11 §12bis 字段表第 8 行）。 */
+const EXPERIENCE_BUFFER_STATUSES = new Set(['pending', 'consumed', 'discarded', 'evicted'])
+
+/** 经验留观区条目的投影（**只四项**，11 §12bis 读取纪律第 2 条）。 */
+export type ExperienceBufferProjection = {
+  at: string | null
+  /** 「来源」——用 anchor（材料位置）而非 session（会话 id）。 */
+  anchor: string | null
+  phenomenon: string | null
+  status: string | null
+}
+
+export type ExperienceBufferReport = {
+  ok: boolean
+  generatedAt: string
+  scope: {
+    ldvhHome: string
+    bufferDir: string
+    bufferDirExists: boolean
+    /** 分区后的文件名（= 项目 id + `.jsonl`）；同时充当「本项目」的可读标识。 */
+    files: string[]
+    limits: string[]
+  }
+  totals: {
+    entries: number
+    byStatus: { status: string; count: number }[]
+    /** 分区载体数量（= 参与统计的项目数）。 */
+    projects: number
+  }
+  /** 未审核条目数——读者最关心的那个数：还有多少材料等着被审。 */
+  pendingCount: number
+  /** 最旧一条 pending 的时刻：用来判断「是不是积压太久了」。 */
+  oldestPendingAt: string | null
+  recent: ExperienceBufferProjection[]
+}
+
+/**
+ * 读取**经验**留观缓冲并作出**只含四项**的投影（11 §12bis 读取纪律第 2 条）。
+ *
+ * ## 与摩擦侧（`buildFrictionObservationReport`）的三处**必要差异**
+ *
+ * 1. **无 `group`**：经验缓冲没有聚合键（§12bis 闭集 9 项，摩擦侧才有 `group`）。
+ *    故不呈现「攒到几分」——经验不需要攒够次数才成立。
+ * 2. **无阈值**：摩擦的 N=3 是 §9 的晋升判据；经验侧没有对应数值，凭空给一个就是
+ *    编造规范。
+ * 3. **多出 `pendingCount`/`oldestPendingAt`**：经验缓冲的读取方是审核段（要判「够不够
+ *    成文」），读者最需要的是「还有多少待审、最老的等了多久」——这两个数摩擦侧不需要
+ *    （它关心的是「哪一组快攒够了」）。
+ *
+ * ## 为什么与摩擦侧同页、同口径
+ *
+ * Human 2026-10-26：「留观区一样出现在诊断 tab 里，和摩擦一样」。而 §12bis 与 §12bis.1
+ * 的读取纪律给的是**同一套呈现边界**（只可展示存在与数量 + 现象/时间/来源/状态）。
+ * 故两块的形状刻意对齐，读者不必学两套。
+ *
+ * ## 载体格式：追加事件日志（2026-10-26）
+ *
+ * 载体的每一行是**事件**而非完整记录：
+ *
+ * ```
+ * {"kind":"entry",  "record":{…§12bis 九字段…}}
+ * {"kind":"settle", "id":"…","status":"…","consumed_by":"…","settled_at":"…"}
+ * {"kind":"remove", "id":"…","at":"…"}
+ * ```
+ *
+ * 本页必须按同一套折叠规则读，否则会把每条事件当成一条「记录」——实测症状是
+ * **条目数正确、字段全 null**（事件外壳上没有 `phenomenon`），看起来像「数据坏了」。
+ * 这是本轮真实发生过的缺陷，故在此写明，并由测试用**生产同格式**的夹具钉住。
+ *
+ * ## 不得做的事（规范红线，不是遗漏）
+ *
+ * 不含 `evidence`（它是逐字引证，属「内容」不属「运行状态」）；不含 `candidate_question`
+ * （那是审核段的判断输入）；不含 `id`/`consumed_by`（那是对象身份与去向，本页不提供
+ * 「点击进入详情」）；不提供导出/复制/搜索（那等于把非事实材料搬出诊断面）。
+ */
+export async function buildExperienceBufferReport(options: {
+  dshHome?: string
+} = {}): Promise<ExperienceBufferReport> {
+  const dshHome = options.dshHome ?? dshHomeFromEnvironment()
+  const ldvhHome = path.join(dshHome, 'ldvh')
+  const bufferDir = path.join(ldvhHome, 'experience-buffers')
+
+  const limits: string[] = [
+    '经验留观区是**非事实对象**的本地运行状态（11 §12bis）：不进事实源、无对象身份，故本页不提供「点击进入详情」。',
+    '按规范只呈现现象/时间/来源/状态四项；`evidence` 全文、待审核问题与消费去向不在呈现面内（11 §12bis 读取纪律第 2 条）。',
+    '缓冲按管辖项目分文件（§12bis 载体段 2026-10 修订）；本页汇总全部项目，每个项目一个文件。',
+    '条目保留期 pending 30 天、终态 90 天，容量 200/项目。保留期**不是审核期限**——它不产生「逾期必须审核」的义务。',
+    '本页只读：不写缓冲、不形成候选。',
+  ]
+
+  let files: string[] = []
+  let bufferDirExists = false
+  try {
+    const names = await readdir(bufferDir)
+    files = names.filter((name) => name.endsWith('.jsonl')).sort()
+    bufferDirExists = true
+  } catch {
+    // 目录不存在是**正常初态**（还没有任何观察落地），不是错误。
+    bufferDirExists = false
+  }
+
+  type Row = {
+    at?: string
+    anchor?: string
+    phenomenon?: string
+    status?: string
+  }
+
+  /** 折叠后的条目（= 载体里 `entry` 事件经 settle/remove 折叠后的当前状态）。 */
+  const rows: Row[] = []
+  let skippedLines = 0
+  for (const name of files) {
+    let text = ''
+    try {
+      text = await readFile(path.join(bufferDir, name), 'utf8')
+    } catch {
+      skippedLines += 1
+      continue
+    }
+    // **按事件折叠**（不是「一行一条记录」）。逐行收集事件，再折叠成当前状态。
+    const byId = new Map<string, Row>()
+    const order: string[] = []
+    for (const line of text.split('\n')) {
+      const trimmed = line.trim()
+      if (trimmed === '') continue
+      let event: { kind?: string; record?: Row; id?: string; status?: string }
+      try {
+        event = JSON.parse(trimmed)
+      } catch {
+        skippedLines += 1
+        continue
+      }
+      if (event === null || typeof event !== 'object') {
+        skippedLines += 1
+        continue
+      }
+      if (event.kind === 'entry') {
+        const record = event.record
+        if (record === null || typeof record !== 'object') {
+          skippedLines += 1
+          continue
+        }
+        const id = typeof (record as { id?: unknown }).id === 'string' ? (record as { id: string }).id : null
+        if (id === null) {
+          skippedLines += 1
+          continue
+        }
+        byId.set(id, record)
+        order.push(id)
+        continue
+      }
+      if (event.kind === 'settle') {
+        const id = typeof event.id === 'string' ? event.id : null
+        const target = id === null ? undefined : byId.get(id)
+        if (target === undefined || typeof event.status !== 'string') {
+          skippedLines += 1
+          continue
+        }
+        // 状态不在闭集内即**不投影**（不把闭集外的值当合法状态呈现）。
+        if (!EXPERIENCE_BUFFER_STATUSES.has(event.status)) {
+          skippedLines += 1
+          continue
+        }
+        byId.set(id as string, { ...target, status: event.status })
+        continue
+      }
+      if (event.kind === 'remove') {
+        const id = typeof event.id === 'string' ? event.id : null
+        if (id === null) {
+          skippedLines += 1
+          continue
+        }
+        // **整条移除**：从视图里彻底消失（90 天保留期到点的形态）。
+        byId.delete(id)
+        continue
+      }
+      // 未知事件类型：如实计为跳过，不猜。
+      skippedLines += 1
+    }
+    for (const id of order) {
+      const row = byId.get(id)
+      if (row !== undefined) rows.push(row)
+    }
+  }
+
+  const statusCounts = new Map<string, number>()
+  for (const row of rows) {
+    const status = typeof row.status === 'string' ? row.status : 'unknown'
+    statusCounts.set(status, (statusCounts.get(status) ?? 0) + 1)
+  }
+
+  const pending = rows.filter((row) => row.status === 'pending')
+  const pendingTimes = pending
+    .map((row) => (typeof row.at === 'string' ? row.at : null))
+    .filter((value): value is string => value !== null)
+    .sort()
+
+  const recent: ExperienceBufferProjection[] = rows
+    .slice()
+    .sort((a, b) => String(b.at ?? '').localeCompare(String(a.at ?? '')))
+    .slice(0, 40)
+    .map((row) => ({
+      at: typeof row.at === 'string' ? row.at : null,
+      anchor: typeof row.anchor === 'string' ? row.anchor : null,
+      phenomenon: typeof row.phenomenon === 'string' ? row.phenomenon : null,
+      status: typeof row.status === 'string' ? row.status : null,
+    }))
+
+  if (skippedLines > 0) {
+    limits.push(`另有 ${skippedLines} 行无法解析或状态在闭集外，已跳过并如实计数（不伪装成「本来就没有」）。`)
+  }
+
+  return {
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    scope: { ldvhHome, bufferDir, bufferDirExists, files, limits },
+    totals: {
+      entries: rows.length,
+      byStatus: Array.from(statusCounts, ([status, count]) => ({ status, count })).sort(
+        (a, b) => b.count - a.count,
+      ),
+      projects: files.length,
+    },
+    pendingCount: pending.length,
+    oldestPendingAt: pendingTimes[0] ?? null,
+    recent,
+  }
+}
+
 export async function buildFrictionObservationReport(options: {
   dshHome?: string
 } = {}): Promise<FrictionObservationReport> {

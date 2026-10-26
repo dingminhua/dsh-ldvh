@@ -44,10 +44,19 @@ const failure = (code, message, details = {}) => ({ ok: false, error: { code, me
  * @returns {Promise<{ok:true, value:{action:string, entry_id?:string}}|{ok:false, error:object}>}
  */
 export async function landCaptureVerdict({
-  dshHomePath, verdict, observationAt, sessionId, anchor,
+  dshHomePath, verdict, observationAt, sessionId, anchor, projectId,
 } = {}) {
   if (typeof dshHomePath !== "function") {
     return failure("capture/home_missing", "dshHomePath resolver is required to locate the observation buffer (11 §12bis)");
+  }
+  // **按管辖项目分载体**（§12bis 载体段，2026-10 修订，Human 决定）：缺 projectId 会
+  // 写进所有项目共用的旧全局载体，正是该修订要纠正的已知缺陷。代码选择拒绝而不是
+  // 落到旧位置——静默回落会让「忘了传」看起来完全正常。
+  if (typeof projectId !== "string" || projectId.trim().length === 0) {
+    return failure(
+      "capture/project_missing",
+      "projectId is required — the observation buffer is partitioned per governed project (11 §12bis 载体段 2026-10 修订); writing to the shared legacy carrier would mix this project's material with every other project's",
+    );
   }
   if (typeof verdict !== "object" || verdict === null) {
     return failure("capture/verdict_missing", "verdict must be the validated capture verdict object");
@@ -84,7 +93,7 @@ export async function landCaptureVerdict({
     evidence: verdict.entry.evidence,
     candidate_question: verdict.entry.candidate_question,
     at,
-  });
+  }, { projectId });
   if (!appended.ok) {
     // §12 fail-closed：缓冲不可写/回读不通过时不得降级为内存或日志（§12bis 纪律 4）。
     return failure(

@@ -1114,6 +1114,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   observationAt: checkpoint.value.at,
                   sessionId,
                   anchor,
+                  // **按管辖项目分载体**（§12bis 载体段 2026-10 修订）：不传会让条目
+                  // 写进所有项目共用的旧全局载体，即该修订要纠正的已知缺陷。
+                  projectId: scope.project.id,
                 });
                 if (!captured.ok) {
                   // §8.3 fail-closed：落地失败按停止处置并登记（不自行重试、不掩盖）。

@@ -204,9 +204,19 @@ function homeResolver(root) {
   return (...segments) => join(root, ...segments);
 }
 
+/**
+ * 夹具的管辖项目 id。
+ *
+ * 11 §12bis 载体段（2026-10 修订）要求缓冲**按管辖项目分文件**；`landCaptureVerdict`
+ * 缺 `projectId` 会拒绝写入（避免落进所有项目共用的旧全局载体）。夹具统一给一个固定
+ * id，使各用例不必逐个传；验证「缺 projectId 即拒绝」的用例自行 overrides 掉它。
+ */
+const FIXTURE_PROJECT_ID = "fixture-project";
+
 function landingArgs(dshHomePath, overrides = {}) {
   return {
     dshHomePath: homeResolver(dshHomePath),
+    projectId: FIXTURE_PROJECT_ID,
     sessionId: "session-abc",
     anchor: "turn 4..12",
     observationAt: OBSERVED_AT,
@@ -222,7 +232,7 @@ test("11 §10.1：落地写一条缓冲条目，返回 entry_id，且不创建�
     assert.equal(landed.value.action, "buffer-appended");
     assert.equal(typeof landed.value.entry_id, "string");
 
-    const read = await readBufferEntries(homeResolver(root));
+    const read = await readBufferEntries(homeResolver(root), { projectId: FIXTURE_PROJECT_ID });
     assert.ok(read.ok, JSON.stringify(read.error));
     assert.equal(read.value.items.length, 1, "一条运行至多写 1 条（§12bis 纪律 1）");
     const item = read.value.items[0];
@@ -244,14 +254,14 @@ test("11 §10.1：落地写一条缓冲条目，返回 entry_id，且不创建�
 
 test("11 §10.1：缓冲载体不存在时读到空集合（不是错误），且落地前不建任何目录外的对象", async () => {
   await withTemp("experience-landing.", async (root) => {
-    const read = await readBufferEntries(homeResolver(root));
+    const read = await readBufferEntries(homeResolver(root), { projectId: FIXTURE_PROJECT_ID });
     assert.ok(read.ok);
     assert.equal(read.value.total, 0);
     assert.equal(read.value.carrier, "absent");
     // 落一条之后载体才出现。
     const landed = await landCaptureVerdict(landingArgs(root));
     assert.ok(landed.ok, JSON.stringify(landed.error));
-    const raw = await readFile(bufferEntryPath(homeResolver(root)), "utf8");
+    const raw = await readFile(bufferEntryPath(homeResolver(root), FIXTURE_PROJECT_ID), "utf8");
     assert.ok(raw.trim().length > 0);
     assert.equal(BUFFER_CAPACITY, 200);
   });
@@ -264,7 +274,7 @@ test("11 §10.1：no-failure 不写条目（如实登记的「没观察到」，
     }));
     assert.ok(landed.ok, JSON.stringify(landed.error));
     assert.equal(landed.value.action, "none");
-    assert.equal((await readBufferEntries(homeResolver(root))).value.total, 0, "no-failure 不得留下条目");
+    assert.equal((await readBufferEntries(homeResolver(root), { projectId: FIXTURE_PROJECT_ID })).value.total, 0, "no-failure 不得留下条目");
   });
 });
 
@@ -279,7 +289,7 @@ test("11 §12bis：缓冲不可写时 fail-closed——不得降级为内存或�
     assert.match(landed.error.code, /observation_buffer\//);
 
     // 没有第二处降级载体：既读不到条目，也不假装「读到空集合」。
-    const read = await readBufferEntries(homeResolver(root));
+    const read = await readBufferEntries(homeResolver(root), { projectId: FIXTURE_PROJECT_ID });
     assert.equal(read.ok, false, "载体不可读时不得返回成功形状");
     assert.equal(read.error.code, "observation_buffer/unreadable");
   });
@@ -292,13 +302,16 @@ test("11 §12bis：取不到来源会话/位置时不臆造——如实拒绝写
       assert.equal(landed.ok, false, `${field} 缺失须拒绝`);
       assert.equal(landed.error.code, code);
     }
-    assert.equal((await readBufferEntries(homeResolver(root))).value.total, 0);
+    assert.equal((await readBufferEntries(homeResolver(root), { projectId: FIXTURE_PROJECT_ID })).value.total, 0);
   });
 });
 
 test("11 §10.1：缺失或未校验的 verdict 被拒（不得绕过契约直接落缓冲）", async () => {
   await withTemp("experience-landing.", async (root) => {
-    const noVerdict = await landCaptureVerdict({ dshHomePath: homeResolver(root), sessionId: "s", anchor: "a" });
+    // 这一条测的是 **verdict 缺失**，不是 projectId 缺失——故须把 projectId 补上，
+    // 否则新加的必填校验会先命中，断言就从「verdict_missing」跳到「project_missing」，
+    // 测的东西变了。
+    const noVerdict = await landCaptureVerdict({ dshHomePath: homeResolver(root), projectId: FIXTURE_PROJECT_ID, sessionId: "s", anchor: "a" });
     assert.equal(noVerdict.ok, false);
     assert.equal(noVerdict.error.code, "capture/verdict_missing");
 
@@ -312,7 +325,7 @@ test("11 §12bis：落缓冲不写署名（缓冲条目不是事实对象，字�
   await withTemp("experience-landing.", async (root) => {
     const landed = await landCaptureVerdict(landingArgs(root));
     assert.ok(landed.ok, JSON.stringify(landed.error));
-    const item = (await readBufferEntries(homeResolver(root))).value.items[0];
+    const item = (await readBufferEntries(homeResolver(root), { projectId: FIXTURE_PROJECT_ID })).value.items[0];
     for (const forbidden of ["change_log", "provider", "model", "signature", "sessionSignature"]) {
       assert.equal(item[forbidden], undefined, `缓冲条目不得带 ${forbidden}（§12bis 字段闭集 9 项）`);
     }

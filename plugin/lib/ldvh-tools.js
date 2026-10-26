@@ -23,7 +23,7 @@ import { evaluateRegistrationEntry, registerProjectFromEntry, unregisterProject 
 import { bindMembershipEvidence, notApplicableEvidence } from "./membership-evidence.js";
 import { currentRouteValues } from "./session-signature.js";
 import { authoritativeSignature } from "./signature-channel.js";
-import { BUFFER_RELATIVE_PATH, BUFFER_STATUSES, readBufferEntries } from "./observation-buffer.js";
+import { BUFFER_STATUSES, bufferRelativePath, readBufferEntries } from "./observation-buffer.js";
 import { collectExistingPitfalls, reviewPendingEntries } from "./observation-review.js";
 import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets } from "./commit-validation.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
@@ -1124,13 +1124,13 @@ function makeExecute(deps) {
         follow_up: []
       });
     }
-    const read = await readBufferEntries(dshHomePath, { status, limit });
+    const read = await readBufferEntries(dshHomePath, { status, limit, projectId: governed.project.id });
     if (!read.ok) {
       // §12bis 写入与读取纪律第 4 条：不可读即 fail-closed，不得降级为内存或日志。
       return envelope("observation-buffer-list", "unavailable", {
         result: null,
         scope: { requested: status ?? "all", completed: [], not_completed: [status ?? "all"] },
-        sources: sources({ kind: "observation-buffer", path: BUFFER_RELATIVE_PATH.join("/"), fingerprint: null }),
+        sources: sources({ kind: "observation-buffer", path: bufferRelativePath(governed.project.id).join("/"), fingerprint: null }),
         gaps: [`${read.error?.code ?? "observation_buffer/unreadable"}: ${read.error?.message ?? "unknown"} (11 §12bis item 4: fail-closed, never degrade to memory or a log)`],
         verification: { checks: ["buffer-read"], passed: false },
         follow_up: ["restore the buffer carrier and retry; do not substitute another carrier"]
@@ -1149,7 +1149,7 @@ function makeExecute(deps) {
         carrier: value.carrier
       },
       scope: { requested: status ?? "all", completed: [status ?? "all"], not_completed: [] },
-      sources: sources({ kind: "observation-buffer", path: BUFFER_RELATIVE_PATH.join("/"), fingerprint: null }),
+      sources: sources({ kind: "observation-buffer", path: bufferRelativePath(governed.project.id).join("/"), fingerprint: null }),
       gaps: complete
         ? []
         : [
@@ -1260,7 +1260,7 @@ function makeExecute(deps) {
           fail_closed: reviewed.error?.fail_closed ?? { code: reviewed.error?.code ?? null, message: reviewed.error?.message ?? null, stage: reviewed.error?.stage ?? null }
         },
         scope: { requested: entryId ?? "next", completed: [], not_completed: ["review-pass"] },
-        sources: sources({ kind: "observation-buffer", path: BUFFER_RELATIVE_PATH.join("/"), fingerprint: null }),
+        sources: sources({ kind: "observation-buffer", path: bufferRelativePath(governed.project.id).join("/"), fingerprint: null }),
         gaps: [`${reviewed.error?.code ?? "observation_review/failed"}: ${reviewed.error?.message ?? "unknown"}`],
         verification: { checks: ["review-pass"], passed: false },
         follow_up: ["resolve the reported fail-closed condition, then retry; the settlement already made is reported above and must not be treated as success"]
@@ -1277,7 +1277,7 @@ function makeExecute(deps) {
       },
       scope: { requested: entryId ?? "next", completed: ["read-pending", "dedup", "candidate-formation", "read-back", "settle"], not_completed: [] },
       sources: [
-        ...sources({ kind: "observation-buffer", path: BUFFER_RELATIVE_PATH.join("/"), fingerprint: null }),
+        ...sources({ kind: "observation-buffer", path: bufferRelativePath(governed.project.id).join("/"), fingerprint: null }),
         ...(value.formed !== null ? sources({ kind: "pitfall-draft", path: value.formed.file ?? value.formed.object_uid, fingerprint: null }) : [])
       ],
       gaps: [],

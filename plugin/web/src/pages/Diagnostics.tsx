@@ -18,11 +18,13 @@ import { useI18n } from '@/i18n/context';
 import {
   fetchCleanupPreview,
   fetchFrictionObservationReport,
+  fetchExperienceBufferReport,
   fetchGateReport,
   fetchIdleReport,
   runCleanup,
   type CleanupPlan,
   type FrictionObservationReport,
+  type ExperienceBufferReport,
   type GateReport,
   type IdleReport,
 } from '@/utils/api';
@@ -405,6 +407,95 @@ function ObservationPanel({ report, t }: { report: FrictionObservationReport; t:
 }
 
 /**
+ * 经验留观区面板（11 §12bis）。
+ *
+ * ## 与摩擦面板（`ObservationPanel`）的三处刻意差异
+ *
+ * 1. **没有「攒到几分」**：经验缓冲没有聚合键与阈值（§12bis 闭集 9 项没有 `group`）。
+ *    经验不需要攒够次数才成立——给它画一个进度条就是凭空造出一个规范里不存在的判据。
+ * 2. **多出「待审核」与「最老一条」**：读者最关心的是「还有多少等着被审、最老的等了
+ *    多久」。摩擦侧关心的是「哪组快攒够了」，两边的核心问题不同。
+ * 3. **条目列表只四列**（时间/现象/来源/状态）：与摩擦侧同口径，且**不含** `evidence`
+ *    （属内容）、不含 `candidate_question`（属判断输入）、不含对象身份。
+ *
+ * ## 不得做的事（规范红线，不是遗漏）
+ *
+ * 不提供「点击进入详情」——条目没有对象身份；不提供导出/复制/搜索——那等于把非事实
+ * 材料搬出诊断面（§12bis 读取纪律第 2 条）。
+ */
+function ExperienceBufferPanel({ report, t }: { report: ExperienceBufferReport; t: Translation }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h2 className="ldvh-card-title">{t('diagnostics.experience.title')}</h2>
+        <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.experience.subtitle')}</p>
+      </div>
+
+      <div className="ldvh-metric-grid">
+        <MetricCard
+          label={t('diagnostics.experience.entries')}
+          value={String(report.totals.entries)}
+          hint={t('diagnostics.experience.projects', { count: String(report.totals.projects) })}
+        />
+        <MetricCard
+          label={t('diagnostics.experience.pending')}
+          value={String(report.pendingCount)}
+          tone={report.pendingCount > 0 ? 'warning' : undefined}
+        />
+        <MetricCard
+          label={t('diagnostics.experience.oldest')}
+          value={report.oldestPendingAt ? report.oldestPendingAt.slice(0, 10) : '—'}
+          hint={report.oldestPendingAt ?? t('diagnostics.experience.oldestNone')}
+        />
+        <MetricCard
+          label={t('diagnostics.experience.projects').replace('{count}', String(report.totals.projects))}
+          value={String(report.totals.projects)}
+        />
+      </div>
+
+      <ScopeNotice limits={report.scope.limits ?? []} />
+
+      {/* 目录不存在是**正常初态**（还没有任何观察落地）。须与「读失败」区分开。 */}
+      {!report.scope.bufferDirExists ? (
+        <div className="rounded-lg border border-dashed border-ldvh-border bg-ldvh-panel px-4 py-6 text-center">
+          <p className="ldvh-body-muted">{t('diagnostics.experience.noBufferDir')}</p>
+          <p className="ldvh-meta mt-1 font-mono text-ldvh-text-secondary">{report.scope.bufferDir}</p>
+          <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.experience.noBufferDirHint')}</p>
+        </div>
+      ) : null}
+
+      <section className="rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
+        <h2 className="ldvh-card-title">{t('diagnostics.experience.entriesTitle')}</h2>
+        <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.experience.entriesHint')}</p>
+        <div className="mt-2 flex flex-col">
+          {report.recent.length === 0 ? (
+            <p className="ldvh-body-muted py-2">{t('diagnostics.experience.empty')}</p>
+          ) : report.recent.map((row, index) => (
+            <div
+              key={`${row.at ?? ''}-${index}`}
+              className="grid grid-cols-[9.5rem_minmax(0,1fr)_5.5rem] items-start gap-2 border-b border-ldvh-border/40 py-1.5 last:border-0"
+            >
+              <span className="ldvh-meta font-mono text-[11px] text-ldvh-text-secondary">
+                {row.at ?? '—'}
+              </span>
+              <div className="min-w-0">
+                <p className="ldvh-meta truncate text-ldvh-text-primary">{row.phenomenon ?? '—'}</p>
+                <p className="ldvh-meta truncate font-mono text-[11px] text-ldvh-text-secondary">
+                  {row.anchor ?? '—'}
+                </p>
+              </div>
+              <span className="ldvh-meta text-right text-[11px] text-ldvh-text-secondary">
+                {row.status ?? '—'}
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/**
  * 运行账清理面板。
  *
  * ## 为什么每个目标都要单独勾选，而不是一个「全部清理」按钮
@@ -595,6 +686,9 @@ function CleanupPanel({
 export default function Diagnostics() {
   const { t } = useI18n();
   const [tab, setTab] = useState<Tab>('gate');
+  // 经验留观区（11 §12bis）。与摩擦区同页签并列——Human 2026-10-26：「留观区一样
+  // 出现在诊断 tab 里，和摩擦一样」。两者是两个载体，故各取各的报告。
+  const [experienceBuffer, setExperienceBuffer] = useState<ExperienceBufferReport | null>(null);
   const [gate, setGate] = useState<GateReport | null>(null);
   const [idle, setIdle] = useState<IdleReport | null>(null);
   const [observations, setObservations] = useState<FrictionObservationReport | null>(null);
@@ -611,18 +705,32 @@ export default function Diagnostics() {
       setCleanup(null);
       return () => { cancelled = true; };
     }
+    // observations 页签要**两份**报告（摩擦 + 经验）。两载体各自独立读取：一个读失败
+    // 不该让另一个也空白——所以用 allSettled 而不是 all，失败的一份留空并由页面
+    // 如实说明，另一份照常显示。
+    if (tab === 'observations') {
+      Promise.allSettled([fetchFrictionObservationReport(), fetchExperienceBufferReport()])
+        .then(([frictionResult, experienceResult]) => {
+          if (cancelled) return;
+          if (frictionResult.status === 'fulfilled') setObservations(frictionResult.value);
+          else setError(frictionResult.reason instanceof Error ? frictionResult.reason.message : String(frictionResult.reason));
+          if (experienceResult.status === 'fulfilled') setExperienceBuffer(experienceResult.value);
+        })
+        .catch((e: unknown) => {
+          if (cancelled) return;
+          setError(e instanceof Error ? e.message : String(e));
+        });
+      return () => { cancelled = true; };
+    }
     const load =
       tab === 'gate'
         ? fetchGateReport()
-        : tab === 'idle'
-          ? fetchIdleReport()
-          : fetchFrictionObservationReport();
+        : fetchIdleReport();
     load
       .then((result) => {
         if (cancelled) return;
         if (tab === 'gate') setGate(result as GateReport);
-        else if (tab === 'idle') setIdle(result as IdleReport);
-        else setObservations(result as FrictionObservationReport);
+        else setIdle(result as IdleReport);
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -674,7 +782,10 @@ export default function Diagnostics() {
       ) : tab === 'idle' && idle ? (
         <IdlePanel report={idle} t={t} />
       ) : tab === 'observations' && observations ? (
-        <ObservationPanel report={observations} t={t} />
+        <div className="flex flex-col gap-8">
+          <ObservationPanel report={observations} t={t} />
+          {experienceBuffer ? <ExperienceBufferPanel report={experienceBuffer} t={t} /> : null}
+        </div>
       ) : tab === 'cleanup' ? (
         <CleanupPanel report={cleanup} setReport={setCleanup} t={t} />
       ) : null}

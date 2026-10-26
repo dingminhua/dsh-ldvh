@@ -54,6 +54,12 @@ const GOOD_SCOPE = "适用于插件 hook 写文件的场景；经验可信于同
 
 const GOOD_TITLE = "hook 写配置时 EACCES 失败";
 
+/**
+ * 夹具的管辖项目 id。11 §12bis 载体段（2026-10 修订）要求缓冲按管辖项目分文件；
+ * `reviewPendingEntries` 缺 `projectId` 会拒绝（否则会读到所有项目的材料）。
+ */
+const FIXTURE_PROJECT_ID = "fixture-project";
+
 async function withHome(fn) {
   const base = await mkdtemp(join(tmpdir(), "observation-review-"));
   const home = (...segments) => join(base, ...segments);
@@ -74,7 +80,7 @@ function validEntry(overrides = {}) {
 }
 
 async function appendEntry(home, overrides = {}) {
-  const appended = await appendBufferEntry(home, validEntry(overrides));
+  const appended = await appendBufferEntry(home, validEntry(overrides), { projectId: FIXTURE_PROJECT_ID });
   assert.equal(appended.ok, true, `appendBufferEntry failed: ${JSON.stringify(appended.error)}`);
   return appended.value.entry_id;
 }
@@ -149,7 +155,7 @@ async function seedExistingPitfalls(factSourceRoot) {
 }
 
 async function readEntry(home, entryId) {
-  const read = await readBufferEntries(home);
+  const read = await readBufferEntries(home, { projectId: FIXTURE_PROJECT_ID });
   assert.equal(read.ok, true, JSON.stringify(read.error));
   return read.value.items.find((item) => item.id === entryId) ?? null;
 }
@@ -188,11 +194,12 @@ test("第 1 项：只处理 pending 条目——已结算条目不再进入审�
     await withTemp("observation-review-facts-", async (factSourceRoot) => {
       const pendingId = await appendEntry(home, { phenomenon: "第一次以只读身份写配置失败。" });
       const consumedId = await appendEntry(home, { phenomenon: "第二次以只读身份写配置失败。" });
-      const settled = await settleBufferEntry(home, consumedId, { status: "consumed", consumedBy: "uid-existing" });
+      const settled = await settleBufferEntry(home, consumedId, { status: "consumed", consumedBy: "uid-existing", projectId: FIXTURE_PROJECT_ID });
       assert.equal(settled.ok, true, JSON.stringify(settled.error));
 
       const result = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [],
         proposals: [],
@@ -221,6 +228,7 @@ test("第 1 项：entry_id 定向——只处理指定条目，其余留 pending
       const second = await appendEntry(home, { phenomenon: "第二条以只读身份写配置失败。" });
       const result = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         entryId: second,
         existingPitfalls: [],
@@ -242,6 +250,7 @@ test("第 1 项：entry_id 指向不存在的条目 → entry_not_found（不猜
       await appendEntry(home);
       const result = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         entryId: "no-such-entry",
         existingPitfalls: [],
@@ -264,6 +273,7 @@ test("第 3–4 项：形成一条 draft 候选，并把条目置 consumed 指�
       const entryId = await appendEntry(home);
       const result = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [],
         proposals: [newCandidateProposal(entryId)],
@@ -313,6 +323,7 @@ test("第 2 项：查重命中 → 不新建、条目 consumed 指向既有对�
       const entryId = await appendEntry(home);
       const result = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [{ object_uid: existingUid, status: "active" }],
         proposals: [{
@@ -342,6 +353,7 @@ test("第 2 项：查重未登记 → fail-closed（不得在无对照记录时�
       const noDedupe = { entry_id: base.entry_id, title: base.title, scope: base.scope, body: base.body };
       const result = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [{ object_uid: uid, status: "active" }],
         proposals: [noDedupe],
@@ -365,6 +377,7 @@ test("第 2 项：对照集未覆盖全部 active 与 draft → 拒绝（23 §6.
       const entryId = await appendEntry(home);
       const result = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [{ object_uid: uid, status: "active" }, { object_uid: "uid-draft-uncompared", status: "draft" }],
         proposals: [newCandidateProposal(entryId, {
@@ -395,6 +408,7 @@ test("第 3 项：正文只写 buffer:<id> 而不复制逐字引证 → 拒绝�
       ].join("\n\n");
       const result = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [],
         proposals: [newCandidateProposal(entryId, { body })],
@@ -421,6 +435,7 @@ test("第 3 项：正文缺一段 / 含占位符 → 拒绝创建（23 §9.1、1
       const missing = goodBody().replace("## 规避\n改配置前先确认 hook 身份；命中 " + EVIDENCE_LINE + " 时先查挂载。\n\n", "");
       const short = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [],
         proposals: [newCandidateProposal(entryId, { body: missing })],
@@ -432,6 +447,7 @@ test("第 3 项：正文缺一段 / 含占位符 → 拒绝创建（23 §9.1、1
       const placeholderBody = goodBody({ symptom: `编辑 config 时出现 ${EVIDENCE_LINE}，待查明。` });
       const withPlaceholder = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [],
         proposals: [newCandidateProposal(entryId, { body: placeholderBody })],
@@ -450,6 +466,7 @@ test("第 3 项：缺署名 → signature_unavailable，不写任何对象（03 
       const entryId = await appendEntry(home);
       const result = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [],
         proposals: [newCandidateProposal(entryId)],
@@ -476,6 +493,7 @@ test("第 5 项：声明条目不足 → discarded，且理由须带证据片段
       const reason = `材料里只有一句 ${EVIDENCE_LINE}，不足以写出根因与验证两段。`;
       const result = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [],
         proposals: [{ entry_id: entryId, insufficient: { reason } }],
@@ -498,6 +516,7 @@ test("第 5 项：discarded 理由与证据毫无逐字关联 → 拒绝（处�
       const entryId = await appendEntry(home);
       const result = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [],
         proposals: [{ entry_id: entryId, insufficient: { reason: "看起来没什么用。" } }],
@@ -516,6 +535,7 @@ test("第 5 项：声明不足却没给理由 → 拒绝（不得用缺省代替
       const entryId = await appendEntry(home);
       const result = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [],
         proposals: [{ entry_id: entryId, insufficient: {} }],
@@ -542,6 +562,7 @@ test("每次运行上限：两条合格条目也至多形成 1 条候选，第�
       });
       const result = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [],
         proposals: [newCandidateProposal(first), newCandidateProposal(second)],
@@ -569,6 +590,7 @@ test("每次运行上限：配额的入参无法放大（传 proposals 数量不
       }
       const result = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [],
         proposals: ids.map((id) => newCandidateProposal(id)),
@@ -597,6 +619,7 @@ test("§12bis 纪律 4：缓冲不可读 → fail-closed，不返回成功形状
     const home = (...segments) => join(base, ...segments);
     const result = await reviewPendingEntries({
       dshHomePath: home,
+      projectId: FIXTURE_PROJECT_ID,
       factSourceRoot: join(base, "ldvh-base"),
       existingPitfalls: [],
       proposals: [],
@@ -609,7 +632,7 @@ test("§12bis 纪律 4：缓冲不可读 → fail-closed，不返回成功形状
     assert.equal(typeof result.error.fail_closed.message, "string");
     // 成功形状的字段一个都不许有——不得「返回空集合冒充成功」。
     assert.equal("value" in result, false);
-    assert.equal(bufferEntryPath(home).endsWith("observation-buffer.jsonl"), true);
+    assert.equal(bufferEntryPath(home, FIXTURE_PROJECT_ID).endsWith("fixture-project.jsonl"), true);
   });
 });
 
@@ -618,6 +641,7 @@ test("载体不存在是合法初态：返回空集合而非错误（§12ter.2�
     await withTemp("observation-review-facts-", async (factSourceRoot) => {
       const result = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [],
         proposals: [],
@@ -638,17 +662,21 @@ test("条目字段闭集不齐 / status 不是 pending → fail-closed（缓冲�
     await withTemp("observation-review-facts-", async (factSourceRoot) => {
       const entryId = await appendEntry(home);
       // 手工把 evidence 抹成空串：模拟一个「载体上存在但字段闭集不合法」的条目。
-      const carrierPath = bufferEntryPath(home);
+      //
+      // 载体是**追加事件日志**（2026-10-26）：条目在 `{kind:"entry", record}` 的
+      // `record` 里。改坏它须改到 record 上，否则改的是事件外壳、测不到读取侧复核。
+      const carrierPath = bufferEntryPath(home, FIXTURE_PROJECT_ID);
       const raw = await readFile(carrierPath, "utf8");
       const lines = raw.trim().split("\n").map((line) => {
-        const record = JSON.parse(line);
-        if (record.id === entryId) record.evidence = "";
-        return JSON.stringify(record);
+        const event = JSON.parse(line);
+        if (event.kind === "entry" && event.record.id === entryId) event.record.evidence = "";
+        return JSON.stringify(event);
       });
       await writeFile(carrierPath, `${lines.join("\n")}\n`, "utf8");
 
       const result = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [],
         proposals: [newCandidateProposal(entryId)],
@@ -675,6 +703,7 @@ test("入参闭集：传 messages/transcript/history 不改变任何行为（结
     const entryId = await appendEntry(home);
     const result = await reviewPendingEntries({
       dshHomePath: home,
+      projectId: FIXTURE_PROJECT_ID,
       factSourceRoot,
       existingPitfalls: [],
       proposals: [newCandidateProposal(entryId)],
@@ -724,6 +753,7 @@ test("材料只有一条通路：提案里的正文段落若不回指缓冲证�
       ].join("\n\n");
       const result = await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [],
         proposals: [newCandidateProposal(entryId, { body: foreignBody })],
@@ -806,6 +836,7 @@ test("结算只改 status/consumed_by：条目其余字段逐字保持（§12bis
       const before = await readEntry(home, entryId);
       await reviewPendingEntries({
         dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [],
         proposals: [newCandidateProposal(entryId)],

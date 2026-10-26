@@ -16,6 +16,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
   buildFrictionObservationReport,
+  buildExperienceBufferReport,
   buildGateReport,
   dshHomeFromEnvironment,
   invalidateGateReportCache,
@@ -209,6 +210,26 @@ router.get('/idle', async (_req: Request, res: Response) => {
  * 四项，不得展示 evidence 全文、不得可点击进入事实对象。故服务层投影刻意不含
  * evidence/session/promoted_to —— 这是规范要求的最小面，不是遗漏。
  */
+/**
+ * `/experience-observations` —— **经验**留观缓冲的只读现状（11 §12bis）。
+ *
+ * 与 `/observations`（摩擦，§12bis.1）**并列而分立**：两类载体各有唯一消费者
+ * （02 §6.1 第 2 条），故各占一个路由、各显示一块。呈现口径同源——§12bis 与
+ * §12bis.1 的读取纪律给的都是「存在与数量 + 现象/时间/来源/状态四项」。
+ *
+ * 为什么在诊断页：缓冲条目**不是事实对象**（非事实、无对象身份），混进事实列表会造成
+ * 「它们是候选」的误读。这里与水位、待处置队列、运行记录同层——都是本机运行状态。
+ */
+router.get('/experience-observations', async (_req: Request, res: Response) => {
+  try {
+    const report = await buildExperienceBufferReport()
+    res.json(report)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    fail(res, 500, 'EXPERIENCE_BUFFER_REPORT_FAILED', message)
+  }
+})
+
 router.get('/observations', async (_req: Request, res: Response) => {
   try {
     const report = await buildFrictionObservationReport()

@@ -430,9 +430,19 @@ export async function reviewPendingEntries({
   sessionSignature = null,
   now = new Date(),
   capacity,
+  projectId = null,
 } = {}) {
   if (typeof dshHomePath !== "function") {
     return failure("observation_review/invalid_request", "dshHomePath must be the path-joining function of observation-buffer.js");
+  }
+  // **按管辖项目分载体**（§12bis 载体段 2026-10 修订）：缺 projectId 会读到**所有
+  // 项目**的材料，而 draft 写进当前项目——那会「用别的项目的材料在本项目建经验」。
+  // 拒绝而不是落到旧全局载体。
+  if (typeof projectId !== "string" || projectId.trim().length === 0) {
+    return failure(
+      "observation_review/project_missing",
+      "projectId is required — the observation buffer is partitioned per governed project (11 §12bis 载体段 2026-10 修订); reading the shared legacy carrier would compare this project's dedupe set against other projects' material",
+    );
   }
   if (!isNonEmptyString(factSourceRoot)) {
     return failure("observation_review/invalid_request", "factSourceRoot is required (the draft candidate is a fact object, 11 §10.2 item 3)");
@@ -460,7 +470,7 @@ export async function reviewPendingEntries({
   }
 
   // ── 第 1 项：读 status=pending 的缓冲条目（只读缓冲，不读实时对话）─────────
-  const read = await readBufferEntries(dshHomePath, { status: "pending", now, capacity });
+  const read = await readBufferEntries(dshHomePath, { status: "pending", now, capacity, projectId });
   if (!read.ok) {
     // §12ter.1 共同前提：缓冲不可读时按 §12 fail-closed，不得降级为内存或日志。
     return failClosed(
@@ -536,7 +546,7 @@ export async function reviewPendingEntries({
           { stage: "verify-insufficient", ...stateSnapshot(state, null) },
         );
       }
-      const settled = await settleBufferEntry(dshHomePath, entry.id, { status: "discarded", now, capacity });
+      const settled = await settleBufferEntry(dshHomePath, entry.id, { status: "discarded", now, capacity, projectId });
       if (!settled.ok) {
         return failClosed(
           settled.error?.code ?? "observation_review/settle_failed",
@@ -564,6 +574,7 @@ export async function reviewPendingEntries({
         consumedBy: proposal.dedupe.duplicate_of,
         now,
         capacity,
+        projectId,
       });
       if (!settled.ok) {
         return failClosed(
@@ -658,6 +669,7 @@ export async function reviewPendingEntries({
       consumedBy: created.value.object_uid,
       now,
       capacity,
+      projectId,
     });
     if (!settled.ok) {
       return failClosed(
@@ -669,7 +681,7 @@ export async function reviewPendingEntries({
   }
 
   // ── remaining_pending：未处理且仍为 pending 的条目数（重读，不靠本地计数）──
-  const after = await readBufferEntries(dshHomePath, { status: "pending", now, capacity });
+  const after = await readBufferEntries(dshHomePath, { status: "pending", now, capacity, projectId });
   if (!after.ok) {
     return failClosed(
       after.error?.code ?? "observation_review/buffer_unreadable",
