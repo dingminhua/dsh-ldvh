@@ -834,3 +834,67 @@ test("召回预算档位：客户端选项须与服务端 INJECTION_BUDGET_TIERS
   assert.match(source, /t\("row\.injectionBudgetTier"\)/, "须渲染档位控件标签");
   assert.match(source, /path: \["injectionBudgetTier"\]/, "保存时须提交该字段");
 });
+
+// ── 审核模型：两级联动下拉（2026-10-26 Human 指定参考 dsh-subagent-default-model）──
+
+test("审核模型用**下拉**选择，不是手打文本框", () => {
+  // Human 的反馈是「参考 subagent-default-model 的做法」——那套做法的要点是
+  // 「从宿主模型目录拉选项」。手打文本框的问题不是好不好用，而是**错误可被机械
+  // 消除却留给了人工**：拼错 provider 或 model 就变成「设了不生效」，而界面上
+  // 看不出任何异常。
+  assert.match(
+    source,
+    /row\.experienceReviewModel/,
+    "审核模型的行须存在",
+  );
+  // 取目录的方式：remote.session.modelCatalog（与参考实现一致）。
+  assert.ok(
+    source.includes("modelCatalog"),
+    "须从宿主的 modelCatalog 取模型目录——那是唯一权威来源",
+  );
+  // 必须有「跟随默认」的空选项：留空 = 不指定，这条语义不能丢。
+  assert.ok(
+    source.includes("row.experienceReviewModelInherit"),
+    "须有「跟随默认」选项（空值 = 沿用宿主默认路由）",
+  );
+  // 两级联动：provider 与 model 各一个下拉。
+  assert.ok(source.includes("row.experienceReviewProvider"), "须有 provider 级选择");
+  assert.ok(source.includes("row.experienceReviewModelName"), "须有 model 级选择");
+});
+
+test("模型目录异步就绪：须有界重试，且空目录时如实说明（不静默显示为空下拉）", () => {
+  // `remote.session` 由异步的 `remote.$mount()` 装配，单次探测会拿到空目录，
+  // 表现是「下拉里只有『跟随默认』一项」——与「宿主确实没有任何 provider」外观
+  // 相同，用户无从分辨。故须重试，且耗尽后如实提示。
+  assert.ok(
+    /MAX_ATTEMPTS\s*=\s*\d+/.test(source),
+    "须有重试次数上限（有界，不得无限轮询）",
+  );
+  assert.ok(
+    source.includes("row.experienceReviewCatalogEmpty"),
+    "目录为空时须如实提示——空下拉会被误读为「没有模型」",
+  );
+});
+
+test("已保存但不在目录里的模型须仍能显示（否则下拉落到第一项，看着像设置丢了）", () => {
+  // 用户设了某模型、之后该模型下线：目录里就没有它了。若直接按目录渲染，
+  // select 的 value 匹配不到任何 option，浏览器会显示第一项（「跟随默认」）——
+  // 用户会以为自己的设置被清掉了。实际是「设了但当前不可用」，两件事外观相同、
+  // 处置完全不同。故须把已保存值补进选项。
+  assert.match(
+    source,
+    /reviewSelectedProvider/,
+    "须把已保存值补进 provider 选项",
+  );
+  assert.match(
+    source,
+    /reviewSelectedModel/,
+    "须把已保存值补进 model 选项",
+  );
+  // 补进去的那一项必须是从已保存值构造的（而不是从目录）。
+  assert.ok(
+    /providers\s*=\s*\[\{\s*id:\s*reviewSelectedProvider/.test(source) ||
+      /models\s*=\s*\[\{\s*id:\s*reviewSelectedModel/.test(source),
+    "已保存值须被显式构造为选项（否则它匹配不到任何 option）",
+  );
+});
