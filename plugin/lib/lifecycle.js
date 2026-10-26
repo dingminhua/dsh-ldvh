@@ -34,6 +34,8 @@ import { join } from "node:path";
 
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { registerLdvhTools } from "./ldvh-tools.js";
+import { armReviewAutomation } from "./experience-review-schedule.js";
+import { runReviewStage } from "./experience-review-stage.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { RECALL_SUMMARY, buildRecallInjection } from "./recall-injection.js";
 import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
@@ -593,6 +595,59 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 不是推测，也不是「当作全部内容」。
           const sessionId = agent?.session?.header?.id;
           const scope = await resolve(cwd);
+
+          // ── 两条时机形态分流（2026-10-26，Human：两件事分开设置）────────────
+          //
+          //   `session-silence`（形态 1，一次延迟）→ 摩擦发现 + 经验**捕获**
+          //   `experience-review`（形态 2，固定间隔）→ **只**做审核段
+          //
+          // 为什么不复用同一条路径：审核周期到点时**没有**新的会话内容可观察。若走
+          // 捕获路径，会拿一个与审核无关的水位区间凭空写出一条缓冲条目；反过来把
+          // 审核塞进安静期路径，又会让「审核频率」被捕获的空窗节奏绑死——那正是
+          // 本次要拆开的。
+          if (source === "experience-review") {
+            const reviewScope = await resolve(cwd);
+            if (reviewScope.state !== "governed" || reviewScope.project === undefined || reviewScope.project === null) {
+              lifecycle.activity?.record("review/skipped", { reason: "not-governed" });
+              return;
+            }
+            const reviewCfg = typeof getIdleSettings === "function" ? getIdleSettings() : undefined;
+            if (reviewCfg?.enabled === false || reviewCfg?.review?.enabled !== true) {
+              // 开关在运行期被关掉：如实记账，不静默继续跑。
+              lifecycle.activity?.record("review/skipped", { reason: "disabled" });
+              return;
+            }
+            const reviewOutcomes = {};
+            await runReviewStage({
+              subagents: (() => {
+                try { return agent?.ctx?.get?.("subagents") ?? null; } catch { return null; }
+              })(),
+              parent: agent,
+              sessionPersistence: ctx.get("sessionPersistence") ?? null,
+              scope: reviewScope,
+              lifecycle,
+              taskOutcomes: reviewOutcomes,
+              dshHomePath,
+            });
+            try {
+              const reviewOutcome = reviewOutcomes["experience-review"];
+              await recordRun(dshHomePath, {
+                at: new Date().toISOString(),
+                task: "experience-review",
+                tasks: ["experience-review"],
+                unimplemented: [],
+                stage: reviewOutcome?.outcome === "landed" ? "landed"
+                  : reviewOutcome?.outcome === "skipped" ? "skipped"
+                  : "land-failed",
+                action: reviewOutcome?.action,
+                per_task: reviewOutcomes,
+              });
+            } catch {
+              // 诊断旁路不得打断机制（与安静期路径同一纪律）。
+            }
+            return;
+          }
+
           // 受管辖是运行前提（32 §137：git 层操作要求当前管辖）。
           if (scope.state !== "governed" || scope.project === undefined || scope.project === null) {
             await recordRun(dshHomePath, {
@@ -1304,6 +1359,39 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           const st0 = await readDispatchState(dshHomePath, { projectRoot: scope0.project.path, sessionId: sid0 });
           if (st0.ok && typeof st0.value.lastActivityAt === "string" && st0.value.lastActivityAt.length > 0) {
             turnTriggers.restoreActivityAt(Date.parse(st0.value.lastActivityAt));
+          }
+
+          // ── 经验审核的周期任务（11 §6.1 形态 2，2026-10-26）──────────────
+          //
+          // 与安静期那条**相反**：它不依赖会话活动，装载后就该存在。故在这里武装。
+          // 开关缺省关；关闭时**不武装**（也不撤掉别人建的——那是 owner 的事）。
+          const reviewSettings = typeof getIdleSettings === "function" ? getIdleSettings() : undefined;
+          if (reviewSettings?.review?.enabled === true) {
+            const armed = await armReviewAutomation(ctx, {
+              projectId: scope0.project.id,
+              projectRoot: scope0.project.path,
+              intervalMs: reviewSettings.review.intervalMs,
+              activity: lifecycle.activity,
+            });
+            if (!armed.ok) {
+              // fail-closed 的登记面：周期任务没武装上，审核就不会按间隔跑。如实记。
+              lifecycle.activity.record("review/arm-failed", {
+                stage: armed.stage,
+                code: armed.error?.code ?? "unknown",
+                message: String(armed.error?.message ?? ""),
+              });
+              ctx.logger?.warn?.("[dsh-ldvh] review automation could not be armed (%s): %s", armed.stage, String(armed.error?.message ?? ""));
+            } else {
+              lifecycle.activity.record("review/armed", {
+                sessionId: armed.sessionId,
+                scheduleId: armed.scheduleId,
+                everySeconds: armed.everySeconds,
+                sessionCreated: armed.sessionCreated,
+                scheduleCreated: armed.scheduleCreated,
+              });
+            }
+          } else {
+            lifecycle.activity.record("review/not-armed", { reason: "disabled by settings" });
           }
         } catch (error) {
           ctx.logger?.warn?.("[dsh-ldvh] activity stamp restore failed: %s", String(error?.message ?? error));

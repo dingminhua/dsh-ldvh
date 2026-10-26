@@ -514,11 +514,21 @@ test("闲时辅助设置面：总开关 + 三个子项 + 四个参数，且总�
   ]) {
     assert.ok(!source.includes(gone), `设置面不得残留已取消的参数 ${gone}`);
   }
-  // **只须一个**：参数表恰好一项（防将来悄悄加回第二个输入框而不改本条）。
+  // **2026-10-26 起恰好两项**：安静时长（形态 1 的空窗）+ 审核间隔（形态 2 的周期）。
+  //
+  // 判据仍是「恰好」而非「至少」：多出第三项就意味着又悄悄加了输入框而本条没更新。
+  // 但新增的必须是**时机数值**（§6.1），不得是 §6.2 的节流约束——那一点由上一条的
+  // gone 列表守住（配额/最小间隔类参数名一个都不许回来）。
   const limitsTable = source.match(/var IDLE_LIMITS = \[([\s\S]*?)\];/);
   assert.ok(limitsTable, "须有参数表");
   const entries = limitsTable[1].match(/\{ key: "/g) ?? [];
-  assert.equal(entries.length, 1, `设置面参数表须恰好一项，实为 ${entries.length} 项`);
+  assert.equal(entries.length, 2, `设置面参数表须恰好两项（安静时长 + 审核间隔），实为 ${entries.length} 项`);
+  for (const key of ["idleSilenceMs", "experienceReviewIntervalMs"]) {
+    assert.ok(limitsTable[1].includes(key), `参数表须含 ${key}`);
+  }
+  // 审核**开关**须独立于捕获开关（Human：「这本来就是两件事……所以要分开设置」）。
+  assert.ok(source.includes("experienceReviewEnabled"), "设置面须含审核开关");
+  assert.ok(source.includes("row.experienceReview"), "设置面须有审核开关文案");
 });
 
 test("未实现的子项须在设置面**当场标出**（不得让开关看起来能跑）", () => {

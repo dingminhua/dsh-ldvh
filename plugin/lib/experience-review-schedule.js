@@ -1,0 +1,331 @@
+// dsh-ldvh — 经验审核的**宿主周期任务适配器**（2026-10-26）。
+//
+// 本文件承接 11 §6.1 形态 2（固定间隔）的**承载与落点**：
+//
+// > **承载**：由宿主自动化任务的周期调度承载；该形态**须**绑定一个所服务的会话作为
+// > 投递落点。**落点解析顺序**：先按**固定标题**查找已存在的专属会话，找到则复用之；
+// > 找不到则**创建一个固定标题的专属会话**并以其为落点。**该创建须发生在该形态所服务
+// > 的管辖项目之内**——不得跨项目创建，且一个管辖项目至多一个专属会话。
+// > **不得并发开两个审核回合**：若投递到达时落点会话已有回合在运行，本次投递
+// > **可跳过或排队**——二者择一由实现侧承接，跳过时须如实记账。
+//
+// ## 为什么单独立一层，不复用「安静期」那套
+//
+// 形态 1 与形态 2 的**承载性质相反**：
+//
+// | | 形态 1（一次延迟） | 形态 2（固定间隔） |
+// |---|---|---|
+// | 触发锚 | 会话活动 + 空窗 | 宿主周期到达 |
+// | 会话没了 | 就该停 | **必须还能跑**（审核不该跟着某个对话的生死走） |
+// | 承载 | 实现侧每会话计时器 | 宿主自动化任务 |
+//
+// 故 §6.1 第 1 段对形态 1 的禁令（不得用宿主定时任务）**不适用于**本形态——规范
+// 原文是「该形态下实现侧不得……」，本次修订把它限定到了形态 1。
+//
+// ## 本适配器的纪律
+//
+// 1. **不自行维护计时器**：周期完全由宿主调度持有。本文件里没有 `setTimeout`/
+//    `setInterval`——有一个源码级测试守着（§6.1「实现侧不得自行维护计时器」对
+//    形态 2 同样成立：这里的「不得自建」不是禁令的重申，而是**没有理由自建**——
+//    宿主已经提供了周期调度）。
+// 2. **原地更新，不删后重建**：间隔变了走 `schedule.update`，任务全程存在。
+// 3. **非法间隔在写入时拒绝**：取 0／负数会让「到点」恒成立。
+// 4. **失败如实登记，不假装已武装**。
+
+/** 专属会话标题前缀。完整标题 = `<前缀> · <projectId>`。 */
+export const REVIEW_SESSION_TITLE_PREFIX = "LDVH 经验审核";
+
+/** 周期任务在宿主任务表中的识别标签（写进 prompt 首行，用于查重）。 */
+export const REVIEW_SCHEDULE_TAG = "dsh-ldvh:experience-review";
+
+/** 周期任务标题（宿主要求非空、≤ 120 字符，且不得从指令派生）。 */
+export const REVIEW_SCHEDULE_TITLE = "LDVH 经验审核周期任务";
+
+/** 专属会话标题：`LDVH 经验审核 · <projectId>`。 */
+export function reviewSessionTitle(projectId) {
+  return `${REVIEW_SESSION_TITLE_PREFIX} · ${projectId}`;
+}
+
+/**
+ * 周期任务的投递内容。
+ *
+ * 措辞刻意与安静期那条**不同**：这条到点时**不判空窗**（§6.1 形态 2 没有二次确认），
+ * 只做审核。首行的标签用于查重（同一会话至多一条本插件周期任务）。
+ */
+function reviewPrompt(projectId) {
+  return [
+    `[${REVIEW_SCHEDULE_TAG}] project=${projectId}`,
+    "",
+    "LDVH 经验审核到点：检查留观缓冲里是否有可以成文的经验候选。",
+    "这是宿主定时投递，**不是**用户的新指令；投递到达不等于已执行（11 §6.1 边界第 1 项）。",
+  ].join("\n");
+}
+
+/**
+ * 取宿主服务；未装配时返回 `undefined`（不抛——可选依赖不得掀翻调用方）。
+ *
+ * **只能走 `ctx.get`**：`schedule` 不在本插件的 `inject` 里（硬注入会让未装配它的
+ * 组合整插件失活），而 cordis 的 Proxy 对「未 inject 且无 provide」的属性访问**直接
+ * 抛错**。这是 2026-10-22 在本宿主上实测踩到的形态，不是预防性顾虑。
+ */
+function serviceOf(ctx, name) {
+  try {
+    return ctx.get(name);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 按固定标题查找专属会话。
+ *
+ * **标题不在 `SessionSummary` 顶层**，而在 `projections.values.title`——这一点若搞错，
+ * 就会永远找不到、然后每次都不停地新建（规范已把「可能产生第二个专属会话」登记为
+ * 已知代价，但那是标题被人工改动的情形，不是我们自己的读取错误）。
+ *
+ * @returns {Promise<{ok:true, sessionId:string|null, candidates:number}|{ok:false,error:object}>}
+ */
+export async function findReviewSession(ctx, { projectId }) {
+  const controller = serviceOf(ctx, "sessionController");
+  if (controller === undefined || typeof controller.list !== "function") {
+    return { ok: false, error: { code: "review_session/service_unavailable", message: "sessionController.list is not wired into this composition" } };
+  }
+  const title = reviewSessionTitle(projectId);
+  let listed;
+  try {
+    // list 需要一个 AbortSignal；不给信号就没有取消能力，故给一个不走超时的控制器。
+    listed = await controller.list({}, new AbortController().signal);
+  } catch (error) {
+    return { ok: false, error: { code: "review_session/list_failed", message: String(error?.message ?? error) } };
+  }
+  const items = Array.isArray(listed?.items) ? listed.items : [];
+  const matching = items.filter((item) => {
+    const itemTitle = item?.projections?.values?.title;
+    return typeof itemTitle === "string" && itemTitle === title;
+  });
+  // **一个项目至多一个**：若有多条同标题（标题被人工改过又改回、或历史遗留），取
+  // 最近活动的一条并如实报出候选数——不静默挑一个假装只有一条。
+  if (matching.length === 0) return { ok: true, sessionId: null, candidates: 0 };
+  const sorted = matching.slice().sort((a, b) => (b?.updatedAt ?? 0) - (a?.updatedAt ?? 0));
+  return { ok: true, sessionId: sorted[0]?.sessionId ?? null, candidates: matching.length };
+}
+
+/**
+ * 确保存在专属会话：先查、找不到则**在该管辖项目内**创建。
+ *
+ * @returns {Promise<{ok:true, sessionId:string, created:boolean, duplicates:number}|{ok:false,error:object}>}
+ */
+export async function ensureReviewSession(ctx, { projectId, projectRoot, activity }) {
+  const found = await findReviewSession(ctx, { projectId });
+  if (!found.ok) return found;
+  if (found.sessionId !== null) {
+    if (found.candidates > 1) {
+      // 如实记录：规范已登记「可能产生第二个专属会话」，要求它**运行痕迹可见**。
+      activity?.record?.("review/session-duplicate", { projectId, candidates: found.candidates });
+    }
+    return { ok: true, sessionId: found.sessionId, created: false, duplicates: found.candidates };
+  }
+  const controller = serviceOf(ctx, "sessionController");
+  if (controller === undefined || typeof controller.create !== "function") {
+    return { ok: false, error: { code: "review_session/service_unavailable", message: "sessionController.create is not wired into this composition" } };
+  }
+  try {
+    // **cwd 是「只在本项目内创建」的机械保证**——创建时指定项目根，会话就落在那里。
+    const created = await controller.create({ cwd: projectRoot });
+    const sessionId = created?.sessionId ?? null;
+    if (sessionId === null) {
+      return { ok: false, error: { code: "review_session/create_no_id", message: "sessionController.create returned no sessionId" } };
+    }
+    // 宿主侧把标题作为投影；我们通过 rename 设置它（创建时没有 title 字段）。
+    if (typeof controller.rename === "function") {
+      try {
+        await controller.rename({ sessionId, title: reviewSessionTitle(projectId) });
+      } catch (error) {
+        // 标题设不上就**无法按固定标题找回**——下一次会再建一个。这是真实缺陷，
+        // 必须如实报出而不是静默继续。
+        return {
+          ok: false,
+          error: {
+            code: "review_session/title_not_set",
+            message: `the review session ${sessionId} was created but its title could not be set (${String(error?.message ?? error)}); without the fixed title the next run cannot find it and will create another`,
+          },
+        };
+      }
+    }
+    return { ok: true, sessionId, created: true, duplicates: 0 };
+  } catch (error) {
+    return { ok: false, error: { code: "review_session/create_failed", message: String(error?.message ?? error) } };
+  }
+}
+
+/** 在指定会话上查找本插件的周期任务（按 prompt 标签识别，不按标题——标题可被改）。 */
+async function findOwnSchedule(schedule, sessionId) {
+  const rows = await schedule.list({ sessionId });
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (typeof row?.prompt === "string" && row.prompt.startsWith(`[${REVIEW_SCHEDULE_TAG}]`)) return row;
+  }
+  return undefined;
+}
+
+/**
+ * 确保周期任务存在且间隔正确。
+ *
+ * **原地更新**：已有任务只改间隔，不删后重建——删建之间有丢失窗口（§6.1 反对）。
+ *
+ * @returns {Promise<{ok:true, scheduleId:string, everySeconds:number, created:boolean}|{ok:false,error:object}>}
+ */
+export async function ensureReviewSchedule(ctx, { projectId, sessionId, intervalMs }) {
+  const schedule = serviceOf(ctx, "schedule");
+  if (schedule === undefined || typeof schedule.create !== "function") {
+    return { ok: false, error: { code: "review_schedule/service_unavailable", message: "schedule is not wired into this composition" } };
+  }
+  // **非法间隔在写入时拒绝**（§6.1）：取 0／负数会让「到点」恒成立。
+  if (!Number.isInteger(intervalMs) || intervalMs <= 0) {
+    return {
+      ok: false,
+      error: {
+        code: "review_schedule/invalid_interval",
+        message: `review interval must be a positive integer of milliseconds (got ${JSON.stringify(intervalMs)}) — 11 §6.1 forbids 0/negative: they would make "due" always true`,
+      },
+    };
+  }
+  const everySeconds = Math.floor(intervalMs / 1000);
+  if (everySeconds < 1) {
+    return {
+      ok: false,
+      error: {
+        code: "review_schedule/interval_too_small",
+        message: `review interval must be at least 1000 ms (got ${intervalMs}) — a period that rounds to zero would make "due" always true`,
+      },
+    };
+  }
+
+  let existing;
+  try {
+    existing = await findOwnSchedule(schedule, sessionId);
+  } catch (error) {
+    // 列举失败时**不上抛也不假定「没有旧任务」**：假定没有就会创建第二条，于是
+    // 同一会话出现两条周期任务、各自投递（§6.1 边界第 2 项：不声称恰好一次，
+    // 但也不自造重复）。故如实失败。
+    return { ok: false, error: { code: "review_schedule/list_failed", message: String(error?.message ?? error) } };
+  }
+
+  if (existing === undefined) {
+    try {
+      const record = await schedule.create(sessionId, {
+        title: REVIEW_SCHEDULE_TITLE,
+        prompt: reviewPrompt(projectId),
+        every_seconds: everySeconds,
+      });
+      const id = record?.id ?? null;
+      if (id === null) {
+        return { ok: false, error: { code: "review_schedule/create_no_id", message: "schedule.create returned no id" } };
+      }
+      // **判别式核对**：宿主应回 `kind: 'every'`。若它静默存成了 `at`，那就是「接受了
+      // 请求但行为不同」——审核只会跑一次而永不重复，而表面一切正常。必须报错。
+      if (record.kind !== undefined && record.kind !== "every") {
+        return {
+          ok: false,
+          error: {
+            code: "review_schedule/kind_not_every",
+            message: `schedule.create returned kind=${JSON.stringify(record.kind)} instead of 'every' — a periodic review stored as a one-shot would never run again`,
+          },
+        };
+      }
+      return { ok: true, scheduleId: id, everySeconds, created: true };
+    } catch (error) {
+      return { ok: false, error: { code: "review_schedule/create_failed", message: String(error?.message ?? error) } };
+    }
+  }
+
+  // 已有任务：间隔相同则不动（避免无谓的冲突），不同则原地改。
+  if (existing.everySeconds === everySeconds) {
+    return { ok: true, scheduleId: existing.id, everySeconds, created: false };
+  }
+  try {
+    const updated = await schedule.update({
+      sessionId,
+      id: existing.id,
+      expected: existing,
+      change: { kind: "every", every_seconds: everySeconds },
+    });
+    if (updated !== null && typeof updated === "object" && updated.updated === false) {
+      return {
+        ok: false,
+        error: {
+          code: "review_schedule/update_not_applied",
+          message: `schedule.update was not applied: ${String(updated.code ?? "unknown")}`,
+        },
+      };
+    }
+    return { ok: true, scheduleId: updated?.id ?? existing.id, everySeconds, created: false };
+  } catch (error) {
+    return { ok: false, error: { code: "review_schedule/update_failed", message: String(error?.message ?? error) } };
+  }
+}
+
+/** 撤掉周期任务（审核关闭时）。删不掉只登记，不抛。 */
+export async function removeReviewSchedule(ctx, { sessionId, scheduleId, activity }) {
+  const schedule = serviceOf(ctx, "schedule");
+  if (schedule === undefined || typeof schedule.delete !== "function") {
+    activity?.record?.("review/schedule-retire-skipped", { reason: "schedule service unavailable" });
+    return { ok: false, error: { code: "review_schedule/service_unavailable", message: "schedule.delete is not wired into this composition" } };
+  }
+  try {
+    const result = await schedule.delete({ sessionId, id: scheduleId });
+    return { ok: true, deleted: result?.deleted === true };
+  } catch (error) {
+    activity?.record?.("review/schedule-retire-failed", { reason: String(error?.message ?? error) });
+    return { ok: false, error: { code: "review_schedule/delete_failed", message: String(error?.message ?? error) } };
+  }
+}
+
+/**
+ * 落点会话是否正在跑回合（§6.1「不得并发开两个审核回合」的判据）。
+ *
+ * **判据是宿主的 `running` 投影**，不是我们自己的记账：宿主知道它有没有在跑驱动，
+ * 而我们的进程内状态在重载后会丢。`SessionSummary.running` 正是这个事实。
+ *
+ * @returns {Promise<boolean>} true = 有回合在跑，本次投递应跳过。
+ */
+export async function isReviewSessionBusy(ctx, { sessionId }) {
+  const controller = serviceOf(ctx, "sessionController");
+  if (controller === undefined || typeof controller.list !== "function") {
+    // 判不了就不放行：宁可跳过本次（下一周期自然会到），也不冒并发开两个审核的风险。
+    return true;
+  }
+  try {
+    const listed = await controller.list({}, new AbortController().signal);
+    const item = (Array.isArray(listed?.items) ? listed.items : []).find((row) => row?.sessionId === sessionId);
+    return item?.running === true;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * 一次完整的「确保已武装」：会话 + 周期任务。
+ *
+ * 这是 lifecycle 唯一需要调用的入口——它把「查会话 / 建会话 / 查任务 / 建任务」
+ * 的顺序与失败处理收在一处，调用方不必知道细节。
+ *
+ * @returns {Promise<{ok:true, sessionId:string, scheduleId:string, sessionCreated:boolean, scheduleCreated:boolean, everySeconds:number}|{ok:false,error:object, stage:string}>}
+ */
+export async function armReviewAutomation(ctx, { projectId, projectRoot, intervalMs, activity }) {
+  const session = await ensureReviewSession(ctx, { projectId, projectRoot, activity });
+  if (!session.ok) return { ...session, stage: "session" };
+  const schedule = await ensureReviewSchedule(ctx, {
+    projectId,
+    sessionId: session.sessionId,
+    intervalMs,
+  });
+  if (!schedule.ok) return { ...schedule, stage: "schedule" };
+  return {
+    ok: true,
+    sessionId: session.sessionId,
+    scheduleId: schedule.scheduleId,
+    sessionCreated: session.created,
+    scheduleCreated: schedule.created,
+    everySeconds: schedule.everySeconds,
+  };
+}

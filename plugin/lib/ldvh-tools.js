@@ -1707,6 +1707,19 @@ export function renderEnvelope(operationKey, value) {
   // Gaps may be structured records (05 §8 traceability), so stringify them
   // rather than interpolating them as [object Object].
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);
+  // **探针结果**（2026-10-26）：它的价值全在逐步的 ok/detail 上，而 `result` 是个
+  // 自由结构。此前本渲染器只认几个固定字段（mechanical_outcome / candidates /
+  // state / issues），于是探针返回 `completed` 而**内容一个字段都不显示**——调用方
+  // 看到「完成」却拿不到任何证据。那比失败更糟：它让「探过了」无法与「没探」区分。
+  if (env.result !== null && typeof env.result === "object" && Array.isArray(env.result.steps)) {
+    for (const step of env.result.steps) {
+      lines.push(`${step.ok === true ? "ok" : "FAILED"}: ${step.name}${step.detail ? ` — ${step.detail}` : ""}`);
+    }
+    lines.push(`verdict: ${env.result.verdict}`);
+    for (const item of env.result.cleanup ?? []) {
+      lines.push(`cleanup: ${item.kind} ${JSON.stringify(item.request ?? item.sessionId)}`);
+    }
+  }
   return text(lines.join("\n"));
 }
 

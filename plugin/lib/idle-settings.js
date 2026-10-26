@@ -200,6 +200,15 @@ export function resolveIdleSettings(config) {
   return {
     enabled: readBool(config?.idleAssistEnabled, true),
     tasks,
+    /**
+     * 经验审核（11 §10.2）的设置。**与 `tasks` 分开**：§8 明写捕获段与审核段
+     * 「不是新增一个任务类型」，故它不进 `AUX_TASK_ORDER`；它是同一职责的第二拍，
+     * 由**独立的固定间隔时机**驱动（Human 2026-10-26：两件事分开设置）。
+     */
+    review: {
+      enabled: readBool(config?.experienceReviewEnabled, false),
+      intervalMs: readPositiveNumber(config?.experienceReviewIntervalMs, REVIEW_DEFAULTS.intervalMs),
+    },
     limits: {
       // 安静时长（11 §6.1）：读取侧回落默认（容忍存量脏数据）。
       //
@@ -336,4 +345,44 @@ export function admitIdleDispatch({ settings, task }) {
   // 配额取消后三者**均无消费方**，故不再接收——保留它们会使调用方误以为仍有
   // 节流在起作用，而「隐形的、不可观察的判据」正是 §6.2 明文禁止的形态。
   return { admit: true, reason: "admitted", evaluations: {} };
+}
+
+/**
+ * 审核的**固定间隔**与**开关**（2026-10-26）。
+ *
+ * ## 为什么它们是两个独立的量
+ *
+ * Human 明确：「这本来就是两件事，一个是对话结束捕获，一个是自动的审核捕获，
+ * 所以要分开设置」。规范层面二者本就分属两种时机形态（§6.1）：
+ *
+ * - **一次延迟**（`silenceMs`）：回合结束 + 空窗 → 捕获段（摩擦发现 + 经验捕获）；
+ * - **固定间隔**（`reviewIntervalMs`）：周期到达 → 审核段（判留观材料能否成文）。
+ *
+ * ## 为什么审核缺省**关**
+ *
+ * 审核段会**创建 draft 事实对象**。缺省打开等于在 Human 尚未知情时就开始往账本里
+ * 写候选——与捕获段缺省关同一理由。
+ *
+ * ## 为什么间隔缺省 60 分钟没有规范依据
+ *
+ * §6.1 明文「延迟时长与间隔的数值由实现侧承接，本规范不内嵌、不为其指定配置载体」。
+ * 60 分钟是实现默认值，**不得**据以主张规范已规定该间隔（§17 条件式要求）。
+ */
+export const REVIEW_DEFAULTS = Object.freeze({
+  /** 审核的固定间隔（毫秒）。须为有限正值——取值属 §6.1 的实现侧承接。 */
+  intervalMs: 3_600_000,
+});
+
+/**
+ * 审核间隔的**写入侧校验**（§6.1 明文：非法取值须在写入时拒绝并提示）。
+ *
+ * 取 0、负数或非数会使「到点」恒成立（等价于取消时机约束），故**不得**静默回落为
+ * 默认值后照常生效。与 `validateSilenceMs` 同一判据、同一理由——两者都是时机数值。
+ */
+export function validateReviewIntervalMs(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return { ok: false, reason: "not-a-finite-number" };
+  if (!Number.isInteger(n)) return { ok: false, reason: "not-an-integer" };
+  if (n <= 0) return { ok: false, reason: "not-positive" };
+  return { ok: true, value: n };
 }

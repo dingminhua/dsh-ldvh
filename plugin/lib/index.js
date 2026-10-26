@@ -201,6 +201,17 @@ export const Config = z.object({
   // 这里用 schemastery 受限子集能表达的最强约束（min/max 圈定合法区间），
   // 精确的档位成员校验由 `resolveInjectionBudget` 在消费点完成并**如实报错**。
   injectionBudgetTier: volatileField(z.number().min(10).max(50).step(10).default(10)),
+
+  // ── 经验审核（11 §10.2 / §6.1 形态 2，2026-10-26）────────────────────
+  //
+  /** 审核开关。缺省**关**：审核段会创建 draft 事实对象，默认打开等于在 Human 尚未
+   *  知情时就开始往账本写候选（与 `experienceCaptureEnabled` 缺省关同一理由）。
+   *  与捕获**分开**——Human：「这本来就是两件事……所以要分开设置」。 */
+  experienceReviewEnabled: volatileField(z.boolean().default(false)),
+  /** 审核的固定间隔（毫秒）——§6.1 形态 2 的周期，与 `idleSilenceMs`（形态 1 的空窗）
+   *  是**两个量**，不得合并。须为正（`.min(1)`）：取 0 使周期恒成立，§6.1 明文要求
+   *  写入时拒绝。默认 60 分钟**无规范依据**（§6.1：数值由实现侧承接）。 */
+  experienceReviewIntervalMs: volatileField(z.number().min(1).default(3_600_000)),
 });
 
 /**

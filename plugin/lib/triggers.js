@@ -61,6 +61,41 @@ function eventTurn(event) {
 }
 
 /**
+ * 本次用户消息是否是**本插件审核周期任务的投递**（11 §6.1 形态 2）。
+ *
+ * ## 为什么必须识别
+ *
+ * 宿主把到期任务渲染成 `[SCHEDULE REMINDER]` 投进专属会话的收件箱，随即开启一个
+ * **新回合**（`turn/start`）。若不识别，这个回合会被算作「会话活动」——而审核投递
+ * 本身**不是**人的活动，把它当活动会让安静期重新起算（形态 1 被审核投递无谓推迟）。
+ *
+ * ## 判据是「宿主框架 + 本插件标签」
+ *
+ * 宿主框架是稳定字面量 `[SCHEDULE REMINDER]`；但用户自己写的消息也可能以它开头，
+ * 故还要求正文带本插件独有标签。两者同时成立才认作本插件投放。
+ *
+ * 与安静期投递的区别：那条的标签是 `dsh-ldvh:session-silence`（本仓现已不用宿主
+ * 承载形态 1，故该标签只用于识别历史残留投递）。
+ */
+const HOST_REMINDER_FRAMING = "[SCHEDULE REMINDER]";
+const REVIEW_DELIVERY_TAG = "dsh-ldvh:experience-review";
+
+function textOfMessageContent(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((block) => block !== null && typeof block === "object" && block.type === "text")
+    .map((block) => (typeof block.text === "string" ? block.text : ""))
+    .join("");
+}
+
+function isReviewDelivery(userMessage) {
+  if (userMessage === null || userMessage === undefined) return false;
+  const text = textOfMessageContent(userMessage.content ?? userMessage);
+  return text.startsWith(HOST_REMINDER_FRAMING) && text.includes(REVIEW_DELIVERY_TAG);
+}
+
+/**
  * Create the turn-level trigger set for one agent.
  * `getScopeState()` reads the lifecycle's current judged state; `turns` is
  * the marker object owned by the AgentLifecycle (single per-agent home —
@@ -160,6 +195,8 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
     // 用途有二——回合开始时清掉计时器（对话进行中不倒计时），以及到期回调内
     // 的末道防线（事件落盘晚于事实时，到期回调仍不得派发）。
     turnInFlight: false,
+    /** 当前回合是否由审核周期任务的投递开启（见 isReviewDelivery）。 */
+    reviewDeliveryTurn: false,
     lastIdleSeen: 0,
     lastCheckpointDispatch: undefined
   };
@@ -331,6 +368,24 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       if (typeof payload?.turn === "number") state.lastTurn = payload.turn;
       // Gate: 未受管辖时不清点，也不排期——受管辖是 11 §4 运行的前提。
       state.lastReflectionGate = governed() ? "open" : "closed";
+
+      // **审核投递开启的回合 → 走审核路径**（11 §6.1 形态 2 / §10.2，2026-10-26）。
+      //
+      // 三条与安静期路径的关键差别：
+      //   ① **不刷新活动时刻**：审核投递不是人的活动，按活动计会把安静期无谓推迟；
+      //   ② **不判空窗**：形态 2 没有二次确认（§6.1），到点即审；
+      //   ③ **不做捕获**：审核段只读留观缓冲，不读实时对话、不产生新的缓冲条目。
+      if (state.reviewDeliveryTurn === true) {
+        state.reviewDeliveryTurn = false; // 一个回合一次
+        activity?.record("review/turn-stopping", { turn: state.lastTurn, gate: state.lastReflectionGate });
+        if (state.lastReflectionGate !== "open") {
+          activity?.record("review/skipped", { reason: "not-governed" });
+          return;
+        }
+        dispatchCheckpoint("experience-review");
+        return;
+      }
+
       if (state.lastReflectionGate === "open") {
         // 受管辖：刷新活动时刻并重置安静期（对话在继续，就不该进入倒计时）。
         touchActivity(nowMs());
@@ -376,6 +431,12 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       // **回合开始 = 暂停计时**（11 §6.1，2026-10-23 纪律，2026-10-24 随载体保留）：
       // 清掉进程内计时器，使对话进行中不存在倒计时。清理是同步的，清完
       // `silenceTimer === null` 可本地回读——不再有「撤掉未生效」的残留窗口。
+      // **审核周期任务的投递到达**（2026-10-26）：在 `user/message` 上识别并标记，
+      // 使该回合的 `turn/stopping` 走审核路径而不是安静期路径。
+      if (session === agent?.session && event?.type === "user/message" && isReviewDelivery(event?.data)) {
+        state.reviewDeliveryTurn = true;
+        activity?.record("review/delivery-arrived", { turn: state.lastTurn });
+      }
       if (session === agent?.session && event?.type === "turn/start") {
         state.turnInFlight = true;
         clearSilenceTimer();

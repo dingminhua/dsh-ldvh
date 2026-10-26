@@ -396,6 +396,10 @@ window.__ModuleLoader__.load({
       // 即它衡量的是「对话停了多久」，而不是「距上次跑完多久」。这句话须自足：
       // Human 不必回读 36 号规范即可判断该填多少。
       "row.idleSilenceMsHint": "指对话停下来后、连续安静多久才允许做一次闲时回顾：只要还有新的对话活动，计时就重新开始；真正停下来满这个时长，才回顾一次。",
+      "row.experienceReview": "自动审核经验",
+      "row.experienceReviewHint": "定期检查留观区里收集的经验材料，判断哪些已经够格写成经验草稿（草稿是否入档仍需你确认）。与「积累经验」各自独立：关掉它只是不再自动审核，已有材料仍留在留观区。审核会单独开一个专属对话来跑，避免多个审核撞在一起。",
+      "row.experienceReviewIntervalMs": "审核间隔（分钟）",
+      "row.experienceReviewIntervalMsHint": "每隔多久自动审核一次留观区。它与上面的「安静时长」是两件事：安静时长管「对话停止多久后收集」，审核间隔管「多久把已收集的材料审一遍」。须大于 0。",
       "row.idleLimitInvalid": "请填入整数；安静时长须大于 0（配额上限填 0 表示不限）。",
       "row.webHint": "关闭时移除 LDVH 页面和 API；开启后自动挂载并检查是否可用。",
       "row.status": "Web 呈现状态",
@@ -479,6 +483,10 @@ window.__ModuleLoader__.load({
       "row.injectionBudgetTierHint": "Size cap for pre-action recall: choose 10/20/30/40/50 (KiB). The tier set itself is a controlled constant (changing it requires a controlled commit); this field only selects. Raising the cap is a Human decision. The guidance surface (jurisdiction verdict + minimal guidance) is fixed and does not share this tier.",
       "row.idleSilenceMs": "Silence duration (minutes)",
       "row.idleSilenceMsHint": "How long the conversation must stay quiet before a single idle review may run: any new activity restarts the count, and one review happens once the silence reaches this duration.",
+      "row.experienceReview": "Auto-review experience",
+      "row.experienceReviewHint": "Periodically examines the material collected in the observation buffer and decides which items are ready to become experience drafts (filing a draft still needs your confirmation). Independent of capture: turning it off stops auto-review only, and collected material stays in the buffer. Reviews run in a dedicated session so two of them never collide.",
+      "row.experienceReviewIntervalMs": "Review interval (minutes)",
+      "row.experienceReviewIntervalMsHint": "How often to review the observation buffer. This is separate from the silence duration above: silence governs when material is captured, the interval governs how often captured material is reviewed. Must be greater than 0.",
       "row.idleLimitInvalid": "Enter an integer; the silence duration must exceed 0 (0 in the cap means unlimited).",
       "row.webHint": "Turning it off removes the LDVH page and API; turning it on mounts them and checks availability automatically.",
       "row.status": "Web presentation status",
@@ -748,7 +756,11 @@ window.__ModuleLoader__.load({
       //
       // 界面用分钟，存储用毫秒。**须为正数**——写入侧另有下界判定（见
       // idleSilenceOk）。
-      { key: "idleSilenceMs", scale: 60000, hintKey: "row.idleSilenceMsHint" }
+      // **两项，均为 §6.1 的时机数值，不是 §6.2 的节流约束**（§6.2 现为空集）：
+      // 前者是形态 1 的空窗（对话停下多久后捕获），后者是形态 2 的周期（多久审核一次）。
+      // 两者是两个量，分开设置（Human 2026-10-26：「这本来就是两件事」）。
+      { key: "idleSilenceMs", scale: 60000, hintKey: "row.idleSilenceMsHint" },
+      { key: "experienceReviewIntervalMs", scale: 60000, hintKey: "row.experienceReviewIntervalMsHint" }
     ];
     /**
      * 各参数的**存储单位**默认值——**必须与服务端
@@ -756,7 +768,8 @@ window.__ModuleLoader__.load({
      * 两处漂移会让「设置页显示 A、实际生效 B」——用户永远看不到真实值。
      */
     var IDLE_DEFAULT_STORED = {
-      idleSilenceMs: 300000
+      idleSilenceMs: 300000,
+      experienceReviewIntervalMs: 3600000
     };
     /**
      * 召回预算的**已登记档位**（K 字节）。
@@ -833,6 +846,9 @@ window.__ModuleLoader__.load({
       var idleAssistState = React.useState(value.idleAssistEnabled !== false);
       var frictionDiscoveryState = React.useState(value.frictionDiscoveryEnabled !== false || value.idleReviewEnabled === true);
       var idleCaptureState = React.useState(value.experienceCaptureEnabled === true);
+      // 经验**审核**开关（2026-10-26）。与捕获分成两个——Human：「一个是对话结束捕获，
+      // 一个是自动的审核捕获，所以要分开设置」。
+      var idleReviewState = React.useState(value.experienceReviewEnabled === true);
       var idleCapacityState = React.useState(value.capacityMaintenanceEnabled === true);
       var idleMemoryState = React.useState(value.memoryHealthEnabled === true);
       // 界面上的各值按它们**各自的显示单位**存放（见 IDLE_LIMITS 的 scale）。
@@ -860,7 +876,10 @@ window.__ModuleLoader__.load({
       }
       // 逐参数判据：安静时长另有**下界**要求（须 > 0，11 §6.1），配额上限的 0 合法。
       function idleLimitOkFor(key, text) {
-        if (key === "idleSilenceMs") return idleSilenceOk(text);
+        // **两个时机数值都须 > 0**（2026-10-26）：审核间隔与安静时长同性质——§6.1
+        // 明文「非法取值须在写入时拒绝」，而 0 分钟会让「到点」恒成立（等价取消时机
+        // 约束）。配额类的 0 合法（表示不限），故不能共用同一条判据。
+        if (key === "idleSilenceMs" || key === "experienceReviewIntervalMs") return idleSilenceOk(text);
         var limit = IDLE_LIMITS.filter(function (l) { return l.key === key; })[0];
         return limit !== undefined && idleLimitOk(text, limit.scale);
       }
@@ -913,6 +932,7 @@ window.__ModuleLoader__.load({
         idleAssistState[1](next.idleAssistEnabled !== false);
         frictionDiscoveryState[1](next.frictionDiscoveryEnabled !== false || next.idleReviewEnabled === true);
         idleCaptureState[1](next.experienceCaptureEnabled === true);
+        idleReviewState[1](next.experienceReviewEnabled === true);
         idleCapacityState[1](next.capacityMaintenanceEnabled === true);
         idleMemoryState[1](next.memoryHealthEnabled === true);
         injectionBudgetState[1](
@@ -1105,6 +1125,9 @@ window.__ModuleLoader__.load({
               { op: "set", path: ["idleAssistEnabled"], value: !!idleAssistState[0] },
               { op: "set", path: ["frictionDiscoveryEnabled"], value: !!frictionDiscoveryState[0] },
               { op: "set", path: ["experienceCaptureEnabled"], value: !!idleCaptureState[0] },
+              // 审核开关独立提交：漏掉这一行，界面上勾了也存不进去，且看不出来
+              // （勾选态来自本地 state，保存后仍显示已勾选，重开才归零）。
+              { op: "set", path: ["experienceReviewEnabled"], value: !!idleReviewState[0] },
               { op: "set", path: ["capacityMaintenanceEnabled"], value: !!idleCapacityState[0] },
               { op: "set", path: ["memoryHealthEnabled"], value: !!idleMemoryState[0] },
               { op: "set", path: ["injectionBudgetTier"], value: Number(injectionBudgetState[0]) }
@@ -1311,6 +1334,8 @@ window.__ModuleLoader__.load({
               [
                 { key: "frictionDiscoveryEnabled", state: frictionDiscoveryState, label: "row.frictionDiscovery", hint: "row.frictionDiscoveryHint", implemented: true },
                 { key: "experienceCaptureEnabled", state: idleCaptureState, label: "row.experienceCapture", hint: "row.experienceCaptureHint", implemented: true },
+                // 经验审核（11 §10.2）：**独立开关**，不是「积累经验」的子项。
+                { key: "experienceReviewEnabled", state: idleReviewState, label: "row.experienceReview", hint: "row.experienceReviewHint", implemented: true },
                 { key: "capacityMaintenanceEnabled", state: idleCapacityState, label: "row.capacityMaintenance", hint: "row.capacityMaintenanceHint", implemented: false },
                 { key: "memoryHealthEnabled", state: idleMemoryState, label: "row.memoryHealth", hint: "row.memoryHealthHint", implemented: false }
               ].map(function (task) {
