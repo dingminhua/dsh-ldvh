@@ -316,3 +316,47 @@ test("provider 不支持 agentOptions → 不硬传，且如实记账（否则�
   assert.ok(recorded, "须如实记「模型未被采纳」——静默忽略会让设置面撒谎");
   assert.equal(recorded.payload.requested, "deepseek/deepseek-chat");
 });
+
+test("推理强度经 agentOptions.reasoningEffort 传递；未指定则不带该键", async () => {
+  const base = await mkdtemp(join(tmpdir(), "review-stage-"));
+  await seedBuffer(base);
+  const subagents = fakeSubagents({ proposals: [{ entry_id: "entry-0", conclusion: "discarded", reason: "不够成文" }] });
+  subagents.getProvider = (name) => ({
+    name,
+    inheritsParentContext: false,
+    capabilities: { outputSchema: true, agentOptions: true },
+  });
+
+  await runReviewStage({
+    subagents,
+    parent: {},
+    scope: governedScope(base),
+    lifecycle: quietLifecycle(),
+    dshHomePath: homeJoiner(base),
+    model: { provider: "deepseek", model: "deepseek-chat", reasoningEffort: "high" },
+  });
+  assert.deepEqual(subagents.calls[0].request.agentOptions, {
+    provider: "deepseek",
+    model: "deepseek-chat",
+    reasoningEffort: "high",
+  });
+
+  // 未指定 effort：**不得**凭空调成某个档位（会改变结果而不易察觉）。
+  const base2 = await mkdtemp(join(tmpdir(), "review-stage-"));
+  await seedBuffer(base2);
+  const subagents2 = fakeSubagents({ proposals: [{ entry_id: "entry-0", conclusion: "discarded", reason: "不够成文" }] });
+  subagents2.getProvider = (name) => ({
+    name,
+    inheritsParentContext: false,
+    capabilities: { outputSchema: true, agentOptions: true },
+  });
+  await runReviewStage({
+    subagents: subagents2,
+    parent: {},
+    scope: governedScope(base2),
+    lifecycle: quietLifecycle(),
+    dshHomePath: homeJoiner(base2),
+    model: { provider: "deepseek", model: "deepseek-chat" },
+  });
+  assert.ok(!("reasoningEffort" in subagents2.calls[0].request.agentOptions), "未指定时不得带 reasoningEffort");
+});

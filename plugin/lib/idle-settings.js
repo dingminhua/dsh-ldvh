@@ -387,12 +387,17 @@ export function readModelSelection(raw) {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
   if (trimmed.length === 0) return null;
-  const slash = trimmed.indexOf("/");
+  // 语法：`provider/model` 或 `provider/model#effort`（2026-10-26 加推理强度）。
+  const hash = trimmed.indexOf("#");
+  const effort = hash >= 0 ? trimmed.slice(hash + 1).trim() : "";
+  const beforeHash = hash >= 0 ? trimmed.slice(0, hash) : trimmed;
+  const slash = beforeHash.indexOf("/");
   if (slash <= 0) return null; // 没有 `/`，或 `/` 在开头（缺 provider）
-  const provider = trimmed.slice(0, slash).trim();
-  const model = trimmed.slice(slash + 1).trim();
+  const provider = beforeHash.slice(0, slash).trim();
+  const model = beforeHash.slice(slash + 1).trim();
   if (provider.length === 0 || model.length === 0) return null;
-  return { provider, model };
+  // effort 可选：没有就不带这个键（而不是给空串——空串会被当成「显式要默认档」）。
+  return effort.length === 0 ? { provider, model } : { provider, model, reasoningEffort: effort };
 }
 
 export const REVIEW_DEFAULTS = Object.freeze({

@@ -857,9 +857,31 @@ test("审核模型用**下拉**选择，不是手打文本框", () => {
     source.includes("row.experienceReviewModelInherit"),
     "须有「跟随默认」选项（空值 = 沿用宿主默认路由）",
   );
-  // 两级联动：provider 与 model 各一个下拉。
+  // **一行三列**（Provider / Model / 推理强度），照 dsh-subagent-default-model 的路由行。
   assert.ok(source.includes("row.experienceReviewProvider"), "须有 provider 级选择");
   assert.ok(source.includes("row.experienceReviewModelName"), "须有 model 级选择");
+  assert.ok(source.includes("row.experienceReviewEffort"), "须有推理强度选择（参考实现三列）");
+  assert.ok(source.includes("ldv-review-route"), "须用三列网格容器");
+  assert.match(source, /ldv-review-route\{[^}]*grid-template-columns:repeat\(3/, "三列布局");
+});
+
+test("**只能选一个模型**：不得有「添加模型」/分配策略/失败切换（与参考实现的有意差异）", () => {
+  // 参考实现支持多组路由 + 分配策略 + 失败切换。本处**刻意不支持**：
+  // 审核是窄判断，多组意味着轮询或切换，而两者都会让「这次审核用了哪个模型」
+  // 变得不确定——恰恰是它最需要可核对的地方。一个模型跑不动就暴露出来，
+  // 不要静默换一个继续跑、让结果来源无从追溯。
+  // **剥掉注释再判**：本实现的说明性注释里就写着「不支持『添加模型』」——直接对
+  // 全文匹配会把那句说明判成违规（与之前 setTimeout 那次同类假失败，实测踩到两次）。
+  // 判据要看的是**实现**，不是提到这个词。
+  const code = source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+  for (const forbidden of ["reviewAddRoute", "reviewStrategy", "reviewFailover", "添加模型"]) {
+    assert.ok(!code.includes(forbidden), `不得出现多模型相关实现：${forbidden}（注释可提及，实现不得有）`);
+  }
+  // 只有一个路由容器，不是列表渲染。
+  const routes = source.match(/className: "ldv-review-route"/g) ?? [];
+  assert.equal(routes.length, 1, `路由行须恰好一个，实为 ${routes.length}`);
 });
 
 test("模型目录异步就绪：须有界重试，且空目录时如实说明（不静默显示为空下拉）", () => {

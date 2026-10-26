@@ -134,6 +134,12 @@ window.__ModuleLoader__.load({
       // 输入框宽度受控：数值型短输入，不占满整行（原 grid 在窄列下会拉伸）。
       ".ldv-idle-limit-input{flex:0 0 auto;width:88px}" +
       ".ldv-idle-limit-hint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#c2c2c2)}" +
+      // 审核模型的一行三列（Provider / Model / 推理强度），形态照
+      // dsh-subagent-default-model 的 .dsm-model-settings-route：标签在框上方、
+      // 三列等宽、底部对齐。**只此一组**——本处不支持多模型/分配策略。
+      ".ldv-review-route{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-items:end;margin:0 0 6px;padding:10px;border:1px solid var(--dsw-alias-border-l2,#36373b);border-radius:10px;background:var(--dsw-alias-bg-layer-3,#202126)}" +
+      ".ldv-review-field{display:flex;flex-direction:column;gap:4px;min-width:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#b8b8b8)}" +
+      ".ldv-review-field select{width:100%;min-width:0}" +
       ".ldv-idle-limit-invalid{font-size:11px;line-height:16px;color:var(--dsw-alias-state-error-primary,#f56c6c)}" +
       ".ldv-idle-pending{display:block;margin-top:6px;color:var(--dsw-alias-state-warning-primary,#e6a23c)}" +
       ".ldv-settings-input[aria-invalid=\"true\"]{border-color:var(--dsw-alias-state-error-primary,#f56c6c)}" +
@@ -406,6 +412,8 @@ window.__ModuleLoader__.load({
       "row.experienceReviewModelName": "模型",
       "row.experienceReviewModelInherit": "跟随默认",
       "row.experienceReviewCatalogEmpty": "模型列表还没读到（宿主尚未报告供应商与模型）。稍等一下；若一直是空的，检查对应的供应商插件是否启用。",
+      "row.experienceReviewEffort": "推理强度",
+      "row.experienceReviewEffortDefault": "默认",
       "row.idleLimitInvalid": "请填入整数；安静时长须大于 0（配额上限填 0 表示不限）。",
       "row.webHint": "关闭时移除 LDVH 页面和 API；开启后自动挂载并检查是否可用。",
       "row.status": "Web 呈现状态",
@@ -499,6 +507,8 @@ window.__ModuleLoader__.load({
       "row.experienceReviewModelName": "Model",
       "row.experienceReviewModelInherit": "Follow default",
       "row.experienceReviewCatalogEmpty": "The model list is not available yet (the host has not reported providers and models). Give it a moment; if it stays empty, check whether the matching provider plugin is enabled.",
+      "row.experienceReviewEffort": "Reasoning effort",
+      "row.experienceReviewEffortDefault": "Default",
       "row.idleLimitInvalid": "Enter an integer; the silence duration must exceed 0 (0 in the cap means unlimited).",
       "row.webHint": "Turning it off removes the LDVH page and API; turning it on mounts them and checks availability automatically.",
       "row.status": "Web presentation status",
@@ -881,14 +891,21 @@ window.__ModuleLoader__.load({
       var reviewSelectedModel = "";
       var reviewProviderChoices = [];
       var reviewModelChoices = [];
+      var reviewEffortChoices = [];
+      var reviewSelectedEffort = "";
       (function () {
         var rawModel = String(idleReviewModelState[0] ?? "").trim();
-        var slash = rawModel.indexOf("/");
+        // 语法：`provider/model` 或 `provider/model#effort`。`#` 之后是推理强度。
+        var hash = rawModel.indexOf("#");
+        var effortPart = hash >= 0 ? rawModel.slice(hash + 1).trim() : "";
+        var beforeHash = hash >= 0 ? rawModel.slice(0, hash) : rawModel;
+        var slash = beforeHash.indexOf("/");
         reviewSelection = slash > 0
-          ? { provider: rawModel.slice(0, slash), model: rawModel.slice(slash + 1) }
+          ? { provider: beforeHash.slice(0, slash), model: beforeHash.slice(slash + 1) }
           : { provider: "", model: "" };
         reviewSelectedProvider = reviewSelection.provider;
         reviewSelectedModel = reviewSelection.model;
+        reviewSelectedEffort = effortPart;
         var providers = reviewCatalog.map(function (group) {
           return { id: group.id, name: group.name || group.id };
         });
@@ -909,6 +926,24 @@ window.__ModuleLoader__.load({
         }
         reviewProviderChoices = providers;
         reviewModelChoices = models;
+        // 推理强度的可选值来自**选中模型自己的** reasoning.efforts——不同模型支持的
+        // 档位不同，混用会选出一个该模型不认的档位。
+        var selectedModelEntry = null;
+        for (var mi = 0; mi < (groupOf && Array.isArray(groupOf.models) ? groupOf.models.length : 0); mi++) {
+          if (groupOf.models[mi].id === reviewSelectedModel) { selectedModelEntry = groupOf.models[mi]; break; }
+        }
+        reviewEffortChoices = (selectedModelEntry && selectedModelEntry.reasoning &&
+          Array.isArray(selectedModelEntry.reasoning.efforts))
+          ? selectedModelEntry.reasoning.efforts.map(function (e2) {
+              return { id: e2.id, name: e2.name || e2.id };
+            })
+          : [];
+        // 已保存的 effort 若不在这组里也补进去，理由同 provider/model：
+        // 否则 select 会落到第一项，看着像设置丢了。
+        if (reviewSelectedEffort !== "" &&
+            !reviewEffortChoices.some(function (c) { return c.id === reviewSelectedEffort; })) {
+          reviewEffortChoices = [{ id: reviewSelectedEffort, name: reviewSelectedEffort }].concat(reviewEffortChoices);
+        }
       })();
 
 
@@ -1496,31 +1531,41 @@ window.__ModuleLoader__.load({
               }),
               // ── 审核执行体的模型（2026-10-26 Human 要求）──────────────────────
               //
-              // **形态照 `dsh-subagent-default-model` 的做法**（Human 指定参考）：
-              // 两级联动下拉（Provider → Model），首项是「跟随默认」的空值。
+              // **形态照 `dsh-subagent-default-model` 的路由行**（Human 指定参考，
+              // 2026-10-26 第二次修订：先前我做成了上下堆叠的两行，参考实现是
+              // **一行三列**——Provider / Model / 推理强度，标签在框上方）：
               //
-              // **为什么不用文本框**（我第一版就是想偷懒用文本框，改掉了）：
-              //   · 用户记不住 `provider/model` 的准确拼写，拼错就是「设了不生效」；
-              //   · 模型目录本来就能从宿主取（`remote.session.modelCatalog()`），
-              //     有现成列表却让人手打，是把可机械消除的错误留给人工；
-              //   · 下拉框还能顺带约束「这个 provider 下真实存在哪些模型」。
+              //   .ldv-review-route { display:grid;
+              //     grid-template-columns: 1fr 1fr 1fr; gap:8px; align-items:end }
               //
-              // **但目录是异步挂载的**（`remote.session` 由 `remote.$mount()` 后才可用），
-              // 单次探测会拿到空目录，表现是「下拉框里只有『跟随默认』一项」。故按
-              // 参考实现的做法**有界重试**（见下方 loadReviewCatalog）。
+              // **只有一组、只能选一个模型**：参考实现支持多组（「添加模型」按钮 +
+              // 分配策略 + 失败切换），本处**刻意不支持**——
+              //   · 审核是一个**窄判断**，不需要「多模型随机分派」或「失败时切换」；
+              //   · 多组意味着要么轮询、要么切换，而两者都会让「这次审核用了哪个
+              //     模型」变得不确定——恰恰是它最需要可核对的地方；
+              //   · 一个模型跑不动就是跑不动，宁可暴露出来（记账里带 model），
+              //     也不要静默换一个继续跑、让结果来源无从追溯。
               //
-              // 存储仍是 `provider/model` 单字符串：设置项只有一个键，不必为一个值
-              // 引入对象结构。
-              React.createElement("div", { className: "ldv-idle-limit" },
-                React.createElement("label", { className: "ldv-idle-limit-row" },
-                  React.createElement("span", { className: "ldv-idle-limit-label" }, t("row.experienceReviewModel")),
+              // **为什么用下拉而不是手打**：用户记不住 `provider/model` 的准确拼写，
+              // 拼错就变成「设了不生效」，而界面看不出异常——错误本可机械消除却留给
+              // 了人工。目录来自 `remote.session.modelCatalog()`。
+              //
+              // **目录是异步挂载的**（`remote.$mount()` 之后才可用），单次探测会拿到
+              // 空目录，表现是「下拉只有『跟随默认』一项」——与「宿主真没有 provider」
+              // 外观相同。故**有界重试**，耗尽后如实提示。
+              //
+              // 存储仍是 `provider/model`（+ 可选 `#effort`）单字符串：一个设置项不
+              // 因为界面有三列就引入对象结构。
+              React.createElement("div", { className: "ldv-review-route" },
+                React.createElement("label", { className: "ldv-review-field" },
+                  React.createElement("span", null, t("row.experienceReviewProvider")),
                   React.createElement("select", {
-                    className: "ldv-settings-input ldv-idle-limit-input",
+                    className: "ldv-settings-input",
                     value: reviewSelectedProvider,
                     "aria-label": t("row.experienceReviewProvider"),
                     onChange: function (e) {
-                      // 换 provider 时清掉 model——旧 model 通常不属于新 provider，
-                      // 留着会变成一个「哪里都选不中」的无效值。
+                      // 换 provider 时清空 model 与 effort——旧 model 通常不属于新
+                      // provider，留着会变成任何选项都匹配不上的无效值。
                       var nextProvider = e.target.value;
                       idleReviewModelState[1](nextProvider === "" ? "" : nextProvider + "/");
                       markDirty();
@@ -1533,15 +1578,20 @@ window.__ModuleLoader__.load({
                     })
                   )
                 ),
-                React.createElement("span", { className: "ldv-idle-limit-hint" }, t("row.experienceReviewModelHint")),
-                reviewSelectedProvider === "" ? null : React.createElement("label", { className: "ldv-idle-limit-row" },
-                  React.createElement("span", { className: "ldv-idle-limit-label" }, t("row.experienceReviewModelName")),
+                React.createElement("label", { className: "ldv-review-field" },
+                  React.createElement("span", null, t("row.experienceReviewModelName")),
                   React.createElement("select", {
-                    className: "ldv-settings-input ldv-idle-limit-input",
+                    className: "ldv-settings-input",
                     value: reviewSelectedModel,
+                    disabled: reviewSelectedProvider === "",
                     "aria-label": t("row.experienceReviewModelName"),
                     onChange: function (e) {
-                      idleReviewModelState[1](reviewSelectedProvider + "/" + e.target.value);
+                      var nextModel = e.target.value;
+                      idleReviewModelState[1](
+                        nextModel === ""
+                          ? (reviewSelectedProvider === "" ? "" : reviewSelectedProvider + "/")
+                          : reviewSelectedProvider + "/" + nextModel,
+                      );
                       markDirty();
                     }
                   },
@@ -1552,11 +1602,35 @@ window.__ModuleLoader__.load({
                     })
                   )
                 ),
-                // 目录还没就绪时**如实说明**，而不是给一个空下拉让人以为没有模型。
-                reviewCatalog.length === 0
-                  ? React.createElement("span", { className: "ldv-idle-limit-hint" }, t("row.experienceReviewCatalogEmpty"))
-                  : null
-              )
+                React.createElement("label", { className: "ldv-review-field" },
+                  React.createElement("span", null, t("row.experienceReviewEffort")),
+                  React.createElement("select", {
+                    className: "ldv-settings-input",
+                    value: reviewSelectedEffort,
+                    // **必须已选 model**：没有 model 时存出 `provider/#high` 会解析成
+                    // model 为空 → 整个设置作废。故禁用，而不是存一个坏值。
+                    disabled: reviewSelectedModel === "" || reviewEffortChoices.length === 0,
+                    "aria-label": t("row.experienceReviewEffort"),
+                    onChange: function (e) {
+                      var nextEffort = e.target.value;
+                      var base = reviewSelectedProvider + "/" + reviewSelectedModel;
+                      idleReviewModelState[1](nextEffort === "" ? base : base + "#" + nextEffort);
+                      markDirty();
+                    }
+                  },
+                    React.createElement("option", { value: "" }, t("row.experienceReviewEffortDefault")),
+                    reviewEffortChoices.map(function (candidate) {
+                      return React.createElement("option", { key: candidate.id, value: candidate.id },
+                        candidate.name || candidate.id);
+                    })
+                  )
+                )
+              ),
+              React.createElement("span", { className: "ldv-idle-limit-hint" }, t("row.experienceReviewModelHint")),
+              // 目录还没就绪时**如实说明**，而不是给一个空下拉让人以为没有模型。
+              reviewCatalog.length === 0
+                ? React.createElement("span", { className: "ldv-idle-limit-hint" }, t("row.experienceReviewCatalogEmpty"))
+                : null
               // **2026-10-14（Human 指示）：本节原另有两句提示词条——
               //   ① 「编辑后需点保存生效。填大于 0 的整数」
               //   ② 「安静时长的数值属实现侧承接（11 §6.1）……不得据此主张规范已规定该时长」

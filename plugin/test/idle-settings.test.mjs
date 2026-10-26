@@ -417,3 +417,28 @@ test("非字符串一律 null（不得因类型意外而静默生效）", () => 
 test("首尾空白被裁掉（粘贴来的值常带空白）", () => {
   assert.deepEqual(readModelSelection("  deepseek/deepseek-chat  "), { provider: "deepseek", model: "deepseek-chat" });
 });
+
+test("推理强度：`provider/model#effort` 解析为第三段，可选", () => {
+  assert.deepEqual(
+    readModelSelection("deepseek/deepseek-chat#high"),
+    { provider: "deepseek", model: "deepseek-chat", reasoningEffort: "high" },
+  );
+  // 不写 effort 时**不带这个键**（而不是空串——空串会被当成「显式要默认档」）。
+  assert.deepEqual(readModelSelection("deepseek/deepseek-chat"), { provider: "deepseek", model: "deepseek-chat" });
+  assert.ok(!("reasoningEffort" in readModelSelection("deepseek/deepseek-chat")));
+});
+
+test("推理强度：空 `#` 视为未指定（不得解析成空串档位）", () => {
+  assert.deepEqual(readModelSelection("deepseek/deepseek-chat#"), { provider: "deepseek", model: "deepseek-chat" });
+});
+
+test("推理强度：effort 里允许再出现 `#`（只按第一个切）", () => {
+  assert.deepEqual(
+    readModelSelection("a/b#c#d"),
+    { provider: "a", model: "b", reasoningEffort: "c#d" },
+  );
+});
+
+test("推理强度：`#` 在 `/` 之前时整体不合法（provider 里不该有 #）", () => {
+  assert.equal(readModelSelection("a#b/c"), null);
+});

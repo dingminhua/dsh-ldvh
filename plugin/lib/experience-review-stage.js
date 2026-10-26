@@ -261,7 +261,14 @@ export async function runReviewStage({
     const supported = picked.value.provider?.capabilities?.agentOptions === true;
     if (supported) {
       agentOptions = { provider: model.provider, model: model.model };
-      modelApplied = `${model.provider}/${model.model}`;
+      // 推理强度：可选（`AgentOptions.reasoningEffort`）。只在用户显式选了才带，
+      // 否则交给模型自身的默认档——凭空调成 high/low 会改变结果而不易察觉。
+      if (typeof model.reasoningEffort === "string" && model.reasoningEffort.length > 0) {
+        agentOptions.reasoningEffort = model.reasoningEffort;
+      }
+      modelApplied = typeof model.reasoningEffort === "string" && model.reasoningEffort.length > 0
+        ? `${model.provider}/${model.model}#${model.reasoningEffort}`
+        : `${model.provider}/${model.model}`;
     } else {
       activity?.record("review/model-unsupported", {
         requested: `${model.provider}/${model.model}`,
