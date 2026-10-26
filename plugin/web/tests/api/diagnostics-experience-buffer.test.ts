@@ -24,7 +24,7 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { buildExperienceBufferReport } from '../../api/services/runtimeDiagnostics.ts';
@@ -266,4 +266,31 @@ test('没有聚合键与阈值：经验侧不得出现 group / promotionReady / 
       `${key} 不得出现在经验侧报告——§12bis 无聚合键、无阈值，凭空给出即编造规范`,
     );
   }
+});
+
+/**
+ * 页签结构：摩擦观察与经验观察是**两个页签**（Human 2026-10-27）。
+ *
+ * 此前两者叠在同一个「摩擦观察缓冲」页签里上下排列：经验区排在摩擦区之后，
+ * 要往下滚动才看得到，等于被摩擦区盖住（Human 从截图发现「没看到经验观察」）。
+ * 抖动点在于「同一个页签」这件事很容易被后来者合并回去——所以钉住结构。
+ */
+test("诊断页把摩擦观察与经验观察拆成两个页签，且摩擦页签不再叫「缓冲」", async () => {
+  const source = await readFile(new URL("../../src/pages/Diagnostics.tsx", import.meta.url), "utf8");
+  const locales = await readFile(new URL("../../src/i18n/locales.ts", import.meta.url), "utf8");
+
+  // ① Tab 联合类型里两者并存。
+  assert.match(source, /type Tab = [^;]*'observations'[^;]*'experience'/, "Tab 类型须同时含 observations 与 experience");
+
+  // ② tabs 列表里各有一项（不是一个页签装两个面板）。
+  assert.match(source, /\{ key: 'observations' as Tab, label: t\('diagnostics\.tab\.observations'\) \}/, "摩擦观察须独立成项");
+  assert.match(source, /\{ key: 'experience' as Tab, label: t\('diagnostics\.tab\.experience'\) \}/, "经验观察须独立成项");
+
+  // ③ 渲染分支里两者各自返回各自的面板——不得在一个分支里并列两个面板。
+  assert.match(source, /tab === 'observations' && observations \? \(\s*<ObservationPanel/, "摩擦页签只渲染摩擦面板");
+  assert.match(source, /tab === 'experience' && experienceBuffer \? \(\s*<ExperienceBufferPanel/, "经验页签只渲染经验面板");
+
+  // ④ 中文文案：摩擦页签改名为「摩擦观察」（去掉「缓冲」二字）。
+  assert.match(locales, /'diagnostics\.tab\.observations': '摩擦观察',/, "摩擦页签须叫「摩擦观察」");
+  assert.match(locales, /'diagnostics\.tab\.experience': '经验观察',/, "新增「经验观察」页签");
 });

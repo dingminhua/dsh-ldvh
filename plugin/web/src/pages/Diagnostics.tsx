@@ -31,7 +31,7 @@ import {
 import { LDVH_ERROR_TEXT_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
 import type { LocaleKey } from '@/i18n/locales';
 
-type Tab = 'gate' | 'idle' | 'observations' | 'cleanup';
+type Tab = 'gate' | 'idle' | 'observations' | 'experience' | 'cleanup';
 
 /** 与 i18n context 的 `t` 同签名（可带插值参数）。 */
 type Translation = (key: LocaleKey, params?: Record<string, string>) => string;
@@ -705,21 +705,18 @@ export default function Diagnostics() {
       setCleanup(null);
       return () => { cancelled = true; };
     }
-    // observations 页签要**两份**报告（摩擦 + 经验）。两载体各自独立读取：一个读失败
-    // 不该让另一个也空白——所以用 allSettled 而不是 all，失败的一份留空并由页面
-    // 如实说明，另一份照常显示。
-    if (tab === 'observations') {
-      Promise.allSettled([fetchFrictionObservationReport(), fetchExperienceBufferReport()])
-        .then(([frictionResult, experienceResult]) => {
-          if (cancelled) return;
-          if (frictionResult.status === 'fulfilled') setObservations(frictionResult.value);
-          else setError(frictionResult.reason instanceof Error ? frictionResult.reason.message : String(frictionResult.reason));
-          if (experienceResult.status === 'fulfilled') setExperienceBuffer(experienceResult.value);
-        })
-        .catch((e: unknown) => {
-          if (cancelled) return;
-          setError(e instanceof Error ? e.message : String(e));
-        });
+    // 摩擦观察与经验观察是**两个载体、两个页签**（Human 2026-10-27：拆开，各自一个）。
+    // 此前两者叠在同一页签里上下排列，经验区要往下滚动才看得到，等于被摩擦区盖住。
+    // 各自独立读取：一个读失败不该让另一个也空白。
+    if (tab === 'observations' || tab === 'experience') {
+      const loadObservations =
+        tab === 'observations'
+          ? fetchFrictionObservationReport().then((value) => setObservations(value))
+          : fetchExperienceBufferReport().then((value) => setExperienceBuffer(value));
+      loadObservations.catch((e: unknown) => {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : String(e));
+      });
       return () => { cancelled = true; };
     }
     const load =
@@ -741,11 +738,12 @@ export default function Diagnostics() {
     };
   }, [tab]);
 
-  const current = tab === 'gate' ? gate : tab === 'idle' ? idle : tab === 'observations' ? observations : (cleanup ?? true);
+  const current = tab === 'gate' ? gate : tab === 'idle' ? idle : tab === 'observations' ? observations : tab === 'experience' ? experienceBuffer : (cleanup ?? true);
   const tabs = useMemo(() => ([
     { key: 'gate' as Tab, label: t('diagnostics.tab.gate') },
     { key: 'idle' as Tab, label: t('diagnostics.tab.idle') },
     { key: 'observations' as Tab, label: t('diagnostics.tab.observations') },
+    { key: 'experience' as Tab, label: t('diagnostics.tab.experience') },
     { key: 'cleanup' as Tab, label: t('diagnostics.tab.cleanup') },
   ]), [t]);
 
@@ -782,10 +780,9 @@ export default function Diagnostics() {
       ) : tab === 'idle' && idle ? (
         <IdlePanel report={idle} t={t} />
       ) : tab === 'observations' && observations ? (
-        <div className="flex flex-col gap-8">
-          <ObservationPanel report={observations} t={t} />
-          {experienceBuffer ? <ExperienceBufferPanel report={experienceBuffer} t={t} /> : null}
-        </div>
+        <ObservationPanel report={observations} t={t} />
+      ) : tab === 'experience' && experienceBuffer ? (
+        <ExperienceBufferPanel report={experienceBuffer} t={t} />
       ) : tab === 'cleanup' ? (
         <CleanupPanel report={cleanup} setReport={setCleanup} t={t} />
       ) : null}
