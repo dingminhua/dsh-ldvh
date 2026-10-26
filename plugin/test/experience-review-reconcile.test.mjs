@@ -448,33 +448,40 @@ test("落点会话被归档后：清掉它上面的孤儿任务，并在新会�
 
 // ── 装载时补跑（2026-10-27 实证缺陷）───────────────────────────────────
 
-test("**装载时须补跑一次协调**：配置在进程启动前就存好时，也要武装起来", () => {
+test("**装载时须补跑一次协调，且等宿主服务就绪后再跑**", () => {
   // 症状：审核开着、配置也存了，重启后一个专属会话都没建、任务数为 0。
-  // 根因：协调只挂在 app-boot/config-reload 与 settings/document-updated 两个**事件**
-  // 上；配置在进程启动**之前**写入 profile，加载时没有任何事件发生，于是协调一次都没跑。
   //
-  // 这个缺陷是把武装从 agent/created 挪到事件订阅时自己造成的：挪的时候盯着
-  // 「改设置要当场生效」，漏了「首次装载也该有一次」。
+  // 两层原因，都要守住：
+  //   ① 协调只挂在 app-boot/config-reload 与 settings/document-updated 两个**事件**上；
+  //      配置在进程启动**之前**写入 profile，加载时没有事件发生，于是协调一次都没跑。
+  //   ② 第一版修复写成 ctx.effect(() => { void reconcile("startup") })——它在 apply
+  //      期间**立刻**执行，那时 workspaceController/schedule/sessionController 还没装配完，
+  //      协调会拿不到服务而静默失败，症状与「没跑过」完全一样，等于修复无效却看不出来。
   //
-  // 判据：index.js 里必须有非事件触发的 reconcileReviewSettings 调用（startup）。
+  // 故判据两条：调用了 startup，**且**它在 ctx.inject 的回调里（等就绪），不是在
+  // apply 当场或事件回调里。
   const source = readFileSync(join(LIB, "..", "lib", "index.js"), "utf8");
   const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-  assert.ok(
-    /reconcileReviewSettings\("startup"\)/.test(code),
-    "装载路径上必须调用一次 reconcileReviewSettings(\"startup\")——只靠事件订阅会让「先存配置、后重启」的场景永远不武装",
-  );
-  // 且该调用不得在事件回调内部（否则仍只在事件发生时跑）。
   const startupIdx = code.indexOf('reconcileReviewSettings("startup")');
+  assert.ok(startupIdx >= 0, "装载路径上必须调用一次 reconcileReviewSettings(\"startup\")");
+
+  // startup 调用之前最近的 inject 必须存在，且两者之间没有别的 ctx.effect/ctx.on 闭合。
   const beforeStartup = code.slice(0, startupIdx);
-  const lastListener = Math.max(
-    beforeStartup.lastIndexOf('ctx.on("app-boot/config-reload"'),
-    beforeStartup.lastIndexOf('ctx.on("settings/document-updated"'),
-  );
-  const lastListenerClose = beforeStartup.indexOf(");", beforeStartup.indexOf("}),", lastListener));
-  assert.ok(
-    startupIdx > lastListenerClose || lastListener < 0,
-    "startup 调用须位于两个事件订阅之外——若嵌在回调里就仍只在事件发生时跑",
-  );
+  const lastInject = beforeStartup.lastIndexOf("ctx.inject(");
+  assert.ok(lastInject >= 0, "startup 协调须经 ctx.inject 触发——否则 apply 期间服务未装配，会静默失败");
+
+  // inject 的服务列表须含协调的三个最小依赖。
+  const injectSeg = code.slice(lastInject, startupIdx);
+  for (const service of ["sessionController", "schedule", "workspaceController"]) {
+    assert.ok(
+      injectSeg.includes(`"${service}"`),
+      `ctx.inject 须等待 ${service}——缺它协调会退化（读不到归档/建不出任务）`,
+    );
+  }
+
+  // 反面：不得写成 apply 当场触发的 ctx.effect。
+  const effectImmediate = new RegExp('ctx\\.effect\\(\\(\\)\\s*=>\\s*\\{\\s*void\\s+reconcileReviewSettings');
+  assert.ok(!effectImmediate.test(code), "不得用 ctx.effect 在 apply 当场触发——那时宿主服务通常还没装配");
 });
 
 const LIB = join(dirname(fileURLToPath(import.meta.url)), "..", "lib");

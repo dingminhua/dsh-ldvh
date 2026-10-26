@@ -566,12 +566,24 @@ export function apply(ctx, config) {
   // `agent/created` 挪到事件订阅时**自己造成的**：挪走时我盯着「改设置要当场生效」，
   // 漏了「首次装载时也该有一次」。
   //
-  // **为什么用 `ctx.effect` + 异步旁路而不是同步 await**：`apply` 是同步的（钩子须在
-  // 同一帧注册完），而协调要读项目注册表、调宿主服务。故 fire-and-forget，失败只
-  // 记日志——装载不得因为审核协调失败而中断。
-  ctx.effect(() => {
+  // **时机：等宿主服务就绪后再跑，不在 `apply` 当场跑**（2026-10-27 第二次修正）。
+  //
+  // 第一版写成 `ctx.effect(() => { void reconcileReviewSettings("startup"); })`——
+  // 它在 `apply` 期间**立刻**执行，那时 `workspaceController` / `schedule` /
+  // `sessionController` 很可能还没装配完（Loader 是异步装配整棵树）。此时协调会拿不到
+  // 服务、静默失败，症状与「没跑过」完全一样——等于修复无效但看不出来。
+  //
+  // `ctx.inject([...])` 是宿主提供的**正确时机**：它等所列服务都可用之后才回调。
+  // 本插件其余需要宿主服务的接线（webServer、connection）都用的这个形态，此处与之一致。
+  //
+  // 为什么只 inject 这三个：它们是协调的最小依赖集——
+  //   · `sessionController`：查/建专属会话；
+  //   · `schedule`：建/改/删周期任务；
+  //   · `workspaceController`：读归档集合（判断落点是否已被用户收起）与解析分组。
+  // 少一个都会让协调退化（比如没有 workspaceController 就读不到归档），故不逐个
+  // 用软取——软取会让「服务没装配」与「服务装了但没数据」混淆。
+  ctx.inject(["sessionController", "schedule", "workspaceController"], () => {
     void reconcileReviewSettings("startup");
-    return () => {};
   });
 
   // Soft web mount (framework doc §4 point 3): the webServer service is NOT a
