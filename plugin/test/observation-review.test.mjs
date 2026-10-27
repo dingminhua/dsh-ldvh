@@ -362,10 +362,13 @@ test("第 2 项：查重未登记 → fail-closed（不得在无对照记录时�
         proposals: [noDedupe],
         sessionSignature: TEST_SIGNATURE,
       });
-      assert.equal(result.ok, false);
-      assert.equal(result.error.code, "observation_review/dedup_not_recorded");
-      assert.equal(result.error.stage, "verify-dedup");
-      assert.equal(result.error.fail_closed.code, "observation_review/dedup_not_recorded");
+      // 2026-10-27 语义变更：单条校验失败**不再整轮拒绝**，只让该条不落地。
+      assert.equal(result.ok, true, JSON.stringify(result.error));
+      assert.equal(result.value.partial, true, "该条未落地 → 整轮须如实标 partial");
+      assert.ok(
+        result.value.unsettled.some((u) => u.code === "observation_review/dedup_not_recorded"),
+        `须记下该条未结算的原因：${JSON.stringify(result.value.unsettled)}`,
+      );
       // 未形成候选：条目仍 pending，不得被顺手结算。
       assert.equal((await readEntry(home, entryId)).status, "pending");
       assert.equal((await listPitfallFiles(factSourceRoot)).length, 2);
@@ -424,9 +427,13 @@ test("第 2 项：compared 里出现**对照集之外**的 uid → 拒绝（可�
         })],
         sessionSignature: TEST_SIGNATURE,
       });
-      assert.equal(result.ok, false, "编造比对对象须被拒");
-      assert.equal(result.error.code, "observation_review/dedup_not_recorded");
-      assert.match(result.error.message, /not in the active\/draft comparison set/);
+      // 2026-10-27：单条校验失败不再整轮拒绝——该条不落地，其余照常，整轮标 partial。
+      assert.equal(result.ok, true, JSON.stringify(result.error));
+      assert.equal(result.value.partial, true, "编造比对对象须使该条不落地");
+      assert.ok(
+        result.value.unsettled.some((u) => u.code === "observation_review/dedup_not_recorded" && /not in the active\/draft comparison set/.test(u.message)),
+        `须记下该条未结算的真实原因：${JSON.stringify(result.value.unsettled)}`,
+      );
       assert.equal((await readEntry(home, entryId)).status, "pending");
     });
   });
@@ -447,9 +454,12 @@ test("第 2 项：对照集非空却 compared 为空 → 拒绝（那不是查�
         })],
         sessionSignature: TEST_SIGNATURE,
       });
-      assert.equal(result.ok, false, "一个都没比不得声称无同机制");
-      assert.equal(result.error.code, "observation_review/dedup_not_recorded");
-      assert.match(result.error.message, /compared is empty/);
+      assert.equal(result.ok, true, JSON.stringify(result.error));
+      assert.equal(result.value.partial, true, "一个都没比 → 该条不得成文");
+      assert.ok(
+        result.value.unsettled.some((u) => u.code === "observation_review/dedup_not_recorded" && /compared is empty/.test(u.message)),
+        `须记下「一个都没比」：${JSON.stringify(result.value.unsettled)}`,
+      );
     });
   });
 });
@@ -475,12 +485,17 @@ test("第 3 项：正文只写 buffer:<id> 而不复制逐字引证 → 拒绝�
         proposals: [newCandidateProposal(entryId, { body })],
         sessionSignature: TEST_SIGNATURE,
       });
-      assert.equal(result.ok, false);
-      assert.equal(result.error.code, "observation_review/body_invalid");
-      assert.equal(result.error.stage, "verify-body");
+      assert.equal(result.ok, true, JSON.stringify(result.error));
+      assert.equal(result.value.partial, true, "正文不合规 → 该条不得成文");
       assert.ok(
-        result.error.message.includes("buffer:<id>") || result.error.message.includes("cannot be pointed back"),
-        `message should name the violated rule: ${result.error.message}`,
+        result.value.unsettled.some((u) => u.code === "observation_review/body_invalid"),
+        `须记下正文不合规：${JSON.stringify(result.value.unsettled)}`,
+      );
+      assert.ok(
+        result.value.unsettled.some(
+          (u) => u.message.includes("buffer:<id>") || u.message.includes("cannot be pointed back"),
+        ),
+        `message should name the violated rule: ${JSON.stringify(result.value.unsettled)}`,
       );
       // 拒绝发生在 createPitfallObject 之前：未建任何对象。
       assert.equal((await listPitfallFiles(factSourceRoot)).length, 0);
@@ -502,8 +517,12 @@ test("第 3 项：正文缺一段 / 含占位符 → 拒绝创建（23 §9.1、1
         proposals: [newCandidateProposal(entryId, { body: missing })],
         sessionSignature: TEST_SIGNATURE,
       });
-      assert.equal(short.ok, false);
-      assert.equal(short.error.code, "observation_review/body_invalid");
+      assert.equal(short.ok, true, JSON.stringify(short.error));
+      assert.equal(short.value.partial, true, "缺一段 → 该条不得成文");
+      assert.ok(
+        short.value.unsettled.some((u) => u.code === "observation_review/body_invalid"),
+        `须记下正文缺段：${JSON.stringify(short.value.unsettled)}`,
+      );
 
       const placeholderBody = goodBody({ symptom: `编辑 config 时出现 ${EVIDENCE_LINE}，待查明。` });
       const withPlaceholder = await reviewPendingEntries({
@@ -514,9 +533,14 @@ test("第 3 项：正文缺一段 / 含占位符 → 拒绝创建（23 §9.1、1
         proposals: [newCandidateProposal(entryId, { body: placeholderBody })],
         sessionSignature: TEST_SIGNATURE,
       });
-      assert.equal(withPlaceholder.ok, false);
-      assert.equal(withPlaceholder.error.code, "observation_review/body_invalid");
-      assert.match(withPlaceholder.error.message, /placeholder/);
+      assert.equal(withPlaceholder.ok, true, JSON.stringify(withPlaceholder.error));
+      assert.equal(withPlaceholder.value.partial, true, "含占位符 → 该条不得成文");
+      assert.ok(
+        withPlaceholder.value.unsettled.some(
+          (u) => u.code === "observation_review/body_invalid" && /placeholder/.test(u.message),
+        ),
+        `须记下占位符：${JSON.stringify(withPlaceholder.value.unsettled)}`,
+      );
     });
   });
 });
@@ -533,10 +557,12 @@ test("第 3 项：缺署名 → signature_unavailable，不写任何对象（03 
         proposals: [newCandidateProposal(entryId)],
         sessionSignature: null,
       });
-      assert.equal(result.ok, false);
-      assert.equal(result.error.code, "observation_review/signature_unavailable");
-      assert.equal(result.error.stage, "signature");
-      assert.match(result.error.message, /REPORT TO HUMAN/);
+      assert.equal(result.ok, true, JSON.stringify(result.error));
+      assert.equal(result.value.partial, true, "缺署名 → 该条不得成文");
+      assert.ok(
+        result.value.unsettled.some((u) => u.code === "observation_review/signature_unavailable" && /REPORT TO HUMAN/.test(u.message)),
+        `须记下缺署名并上报：${JSON.stringify(result.value.unsettled)}`,
+      );
       assert.equal((await listPitfallFiles(factSourceRoot)).length, 0);
       assert.equal((await readEntry(home, entryId)).status, "pending");
     });
@@ -583,8 +609,12 @@ test("第 5 项：discarded 理由与证据毫无逐字关联 → 拒绝（处�
         proposals: [{ entry_id: entryId, insufficient: { reason: "看起来没什么用。" } }],
         sessionSignature: TEST_SIGNATURE,
       });
-      assert.equal(result.ok, false);
-      assert.equal(result.error.code, "observation_review/discard_reason_untraced");
+      assert.equal(result.ok, true, JSON.stringify(result.error));
+      assert.equal(result.value.partial, true, "处置理由不可追溯 → 该条不得结算");
+      assert.ok(
+        result.value.unsettled.some((u) => u.code === "observation_review/discard_reason_untraced"),
+        `须记下理由不可追溯：${JSON.stringify(result.value.unsettled)}`,
+      );
       assert.equal((await readEntry(home, entryId)).status, "pending");
     });
   });
@@ -602,8 +632,12 @@ test("第 5 项：声明不足却没给理由 → 拒绝（不得用缺省代替
         proposals: [{ entry_id: entryId, insufficient: {} }],
         sessionSignature: TEST_SIGNATURE,
       });
-      assert.equal(result.ok, false);
-      assert.equal(result.error.code, "observation_review/discard_reason_missing");
+      assert.equal(result.ok, true, JSON.stringify(result.error));
+      assert.equal(result.value.partial, true, "声明不足却无理由 → 该条不得结算");
+      assert.ok(
+        result.value.unsettled.some((u) => u.code === "observation_review/discard_reason_missing"),
+        `须记下缺理由：${JSON.stringify(result.value.unsettled)}`,
+      );
       assert.equal((await readEntry(home, entryId)).status, "pending");
     });
   });
@@ -670,7 +704,7 @@ test("逐条判定：有的成文、有的不足 → 同一次派发各自落地
   });
 });
 
-test("交出却没给判定 → fail-closed，且**一个条目都不结算**（不得半途而废）", async () => {
+test("交出却没给判定 → **已判定的照常落地、缺判定的留待下次**（2026-10-27：逐条落地）", async () => {
   await withHome(async (home) => {
     await withTemp("observation-review-facts-", async (factSourceRoot) => {
       const first = await appendEntry(home);
@@ -687,13 +721,22 @@ test("交出却没给判定 → fail-closed，且**一个条目都不结算**（
         proposals: [newCandidateProposal(first)],
         sessionSignature: TEST_SIGNATURE,
       });
-      assert.equal(result.ok, false);
-      assert.equal(result.error.code, "observation_review/unjudged_entry");
-      assert.match(result.error.message, new RegExp(second), "拒绝须点名是哪一条没判");
-      // 关键：前置拦在任何写入之前，两条都还没动。
-      assert.equal((await readEntry(home, first)).status, "pending");
-      assert.equal((await readEntry(home, second)).status, "pending");
-      assert.equal((await listPitfallFiles(factSourceRoot)).length, 0);
+      // 2026-10-27：缺判定的条目**不再连累整轮**——已判定的照常落地，缺的那条
+      // 留在 pending 下次重交付，整轮标 partial 并把它记进 unsettled。
+      assert.equal(result.ok, true, JSON.stringify(result.error));
+      assert.equal(result.value.partial, true);
+      assert.ok(
+        result.value.unsettled.some((u) => u.code === "observation_review/unjudged_entry" && new RegExp(second).test(u.message)),
+        `须点名是哪一条没判：${JSON.stringify(result.value.unsettled)}`,
+      );
+      // **2026-10-27 语义反转（本用例的名字与断言都已改）**：旧口径是「缺一条即
+      // 整轮不成立、零写入」。现口径是**判一条落一条、已落的保留**——故这里的正确
+      // 期望正好相反：已判定的第一条**必须**已落地，缺判定的第二条**必须**仍 pending
+      // 并在下次重新交付。这正是 Human 2026-10-27 的要求：
+      // 「一个一个审核，要么草稿要么作废，相同问题不能审核第二次」。
+      assert.equal((await readEntry(home, first)).status, "consumed", "已判定的那条必须已结算（不得因别人没判而作废）");
+      assert.equal((await readEntry(home, second)).status, "pending", "缺判定的那条留待下次，不得被顺手结算");
+      assert.equal((await listPitfallFiles(factSourceRoot)).length, 1, "已判定成文的那一条须真的写成 draft");
     });
   });
 });
@@ -880,9 +923,12 @@ test("材料只有一条通路：提案里的正文段落若不回指缓冲证�
         proposals: [newCandidateProposal(entryId, { body: foreignBody })],
         sessionSignature: TEST_SIGNATURE,
       });
-      assert.equal(result.ok, false);
-      assert.equal(result.error.code, "observation_review/body_invalid");
-      assert.match(result.error.message, /cannot be pointed back/);
+      assert.equal(result.ok, true, JSON.stringify(result.error));
+      assert.equal(result.value.partial, true, "正文不回指缓冲证据 → 该条不得成文");
+      assert.ok(
+        result.value.unsettled.some((u) => u.code === "observation_review/body_invalid" && /cannot be pointed back/.test(u.message)),
+        `须记下正文不回指：${JSON.stringify(result.value.unsettled)}`,
+      );
       assert.equal((await listPitfallFiles(factSourceRoot)).length, 0);
     });
   });
@@ -969,6 +1015,52 @@ test("结算只改 status/consumed_by：条目其余字段逐字保持（§12bis
         assert.deepEqual(after[field], before[field], `字段 ${field} 被改动了——条目只追加、不改写`);
       }
       assert.equal(after.status, "consumed");
+    });
+  });
+});
+
+// ── 同题不二审（2026-10-27 逐条落地后的机械形态）──────────────────────────
+//
+// Human 2026-10-27：「一个一个审核，要么草稿要么作废，相同问题不能审核第二次」。
+// 最后半句的机械形态不是「去重记忆」，而是**状态推进**：审核只读 `status=pending`
+// 的条目，故一旦判成 consumed 或 discarded，该条就不再出现在候选集里，不可能被
+// 二次审核。本用例把这条性质钉住——它比任何去重表都可靠（去重表会漂移，状态不会）。
+test("同题不二审：已结算的条目不再进入下一次候选集（靠状态推进，不靠去重记忆）", async () => {
+  await withHome(async (home) => {
+    await withTemp("observation-review-facts-", async (factSourceRoot) => {
+      const entryId = await appendEntry(home);
+      // `withHome` 传进来的就是 joiner 本身（不是路径），不要二次包装。
+      const dshHomePath = home;
+
+      // 第一次：判为「不足以成文」→ discarded
+      const first = await reviewPendingEntries({
+        dshHomePath,
+        projectId: FIXTURE_PROJECT_ID,
+        factSourceRoot,
+        existingPitfalls: [],
+        // 处置理由须与条目 evidence 有 ≥8 字逐字交集，故直接引证夹具的证据行。
+        proposals: [{ entry_id: entryId, insufficient: { reason: `材料只有这一行报错：${EVIDENCE_LINE}` } }],
+        sessionSignature: TEST_SIGNATURE,
+      });
+      assert.equal(first.ok, true, JSON.stringify(first.error));
+      assert.deepEqual(first.value.discarded, [entryId], "第一次须结算为 discarded");
+
+      // 第二次：不带任何提案，该条不应再被交付
+      const second = await reviewPendingEntries({
+        dshHomePath,
+        projectId: FIXTURE_PROJECT_ID,
+        factSourceRoot,
+        existingPitfalls: [],
+        proposals: [],
+        sessionSignature: TEST_SIGNATURE,
+      });
+      assert.equal(second.ok, true, JSON.stringify(second.error));
+      assert.equal(second.value.discarded.length, 0, "已结算条目不得被再次判定");
+      assert.equal(second.value.formed, null, "已结算条目不得再成文");
+      assert.equal(second.value.unsettled.length, 0, "已结算条目不应出现在 unsettled 里");
+
+      const pendingAfter = await readBufferEntries(dshHomePath, { status: "pending", projectId: FIXTURE_PROJECT_ID });
+      assert.equal(pendingAfter.value.items.length, 0, "结算后该条不再是 pending");
     });
   });
 });

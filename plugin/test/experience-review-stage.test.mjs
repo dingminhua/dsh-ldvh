@@ -332,7 +332,10 @@ test("查重对照集必须从**事实源根**（project.path/ldvh-base）读，
     dshHomePath: homeJoiner(base),
   });
 
-  assert.equal(result.ok, false, "提案为空 → 批内缺判定 → fail-closed（此处只借它的提示词做断言）");
+  // 2026-10-27：提案为空不再整轮 fail-closed——该条记为 unsettled、整轮 partial。
+  // 本用例只借这次派发的**提示词**做断言，故这里只断言「确实派发过」即可。
+  assert.equal(result.ok, true, JSON.stringify(result.error));
+  assert.equal(result.value.partial, true, "提案为空 → 该条未判定，整轮须标 partial");
   assert.equal(subagents.calls.length, 1, "前提：确实派发过一次");
   // ⚠️ 提示词在 `startActivation` 的 **`request.prompt`** 里，且是**分段数组**
   // （`[{type:"text", text}]`）而非字符串。两个坑都踩过：读 `call.prompt` 得到
@@ -485,11 +488,12 @@ test("11 §12ter.1：署名**确实取不到**时仍 fail-closed（不得静默�
     dshHomePath: homeJoiner(base),
   });
 
-  assert.equal(result.ok, false, "取不到署名时不得成功写入无签名的事实对象");
-  assert.equal(
-    result.error.code,
-    "observation_review/signature_unavailable",
-    `须如实判缺署名：${JSON.stringify(result.error)}`,
+  // 2026-10-27 逐条落地：单条缺署名只让该条不落地，不连累整轮。
+  assert.equal(result.ok, true, JSON.stringify(result.error));
+  assert.equal(result.value.partial, true, "取不到署名 → 该条不得成文");
+  assert.ok(
+    result.value.unsettled.some((u) => u.code === "observation_review/signature_unavailable"),
+    `须如实判缺署名：${JSON.stringify(result.value.unsettled)}`,
   );
   // 缓冲未被半截改动：仍 pending。
   const { readBufferEntries } = await import("../lib/observation-buffer.js");
@@ -513,6 +517,10 @@ test("11 §12ter.1：执行体会话里没有 routing 事件时判缺署名（�
     dshHomePath: homeJoiner(base),
   });
 
-  assert.equal(result.ok, false);
-  assert.equal(result.error.code, "observation_review/signature_unavailable");
+  assert.equal(result.ok, true, JSON.stringify(result.error));
+  assert.equal(result.value.partial, true, "无 routing 事件 → 该条不得成文");
+  assert.ok(
+    result.value.unsettled.some((u) => u.code === "observation_review/signature_unavailable"),
+    `须判缺署名：${JSON.stringify(result.value.unsettled)}`,
+  );
 });

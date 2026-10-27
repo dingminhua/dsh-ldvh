@@ -577,34 +577,32 @@ export async function reviewPendingEntries({
     formed: [],
     duplicates: [],
     discarded: [],
+    // **单条失败而不中断整轮**（2026-10-27 修订）：某一条自身不合格时记在这里，
+    // 其余条目照常落地。它同时使整轮结局降为 partial（见循环后的收尾），
+    // 这些条目仍留在 pending，下次会被重新交付。
+    unsettled: [],
   };
   const existing = Array.isArray(existingPitfalls) ? existingPitfalls : [];
 
-  // ── 判定完备性前置（11 §10.2，2026-10-27 修订）────────────────────────
+  // ── 逐条落地：判一条、落一条、已落的保留（2026-10-27 修订，Human Gate）──────
   //
-  // **在任何写入之前**先核对两件事：每条交出的条目字段闭集齐备、每条都有提案。
-  // 放在循环内做会得到「前几条已结算、中间一条缺判定就停」的半途状态——那正是
-  // 本次修订要消除的形态（Human：「完成一个处理一个」）。故缺判定一律在写第一笔
-  // 之前 fail-closed，已发生的结算为零。
-  for (const entry of pending) {
-    const carriage = verifyEntryCarriage(entry);
-    if (!carriage.ok) {
-      return failClosed(
-        "observation_review/entry_carriage_invalid",
-        `the buffer entry does not satisfy the §12bis field closed set: ${carriage.issues.join("; ")} (11 §10.2 item 6 / §18 留观缓冲条目的写入合法)`,
-        { stage: "verify-entry", ...stateSnapshot(state, null) },
-      );
-    }
-    if (!proposalsByEntry.has(entry.id)) {
-      // 缺省不得代替材料判断：一条交出却没有结论的条目，既不能成文、也不能被当作
-      // 「不构成候选」——它是**没有被审核**，按 §12 fail-closed 而不是静默留 pending。
-      return failClosed(
-        "observation_review/unjudged_entry",
-        `buffer entry ${entry.id} was handed to this run but carries no proposal; 11 §10.2 (2026-10-27 修订) requires every dispatched entry to be judged in the same run — either "formed" (create the draft) or "insufficient" (settle it as discarded with a reason). Silence is not a judgement, and leaving it pending is what made the queue never drain.`,
-        { stage: "preflight-judgement", ...stateSnapshot(state, entry.id) },
-      );
-    }
-  }
+  // **本段取代原来的「判定完备性前置」**。原口径要求：一次派发交出的每一条都必须
+  // 在同一次运行内落到去向，**缺任一条即整轮不成立且零写入**。Human 2026-10-27
+  // 明确改定为：「一个一个审核，要么草稿要么作废，相同问题不能审核第二次」。
+  //
+  // **为什么必须改**（实测依据，如实登记）：那条「全或无」把单次失败放大成全轮
+  // 归零。实测 2026-10-27：审核执行体被触发 9 次，只有 1 次产出；其余 8 次里 3 次
+  // 是执行体被掐断（`aborted`/`error` → `no-proposals`）。按「全或无」，那 3 次即使
+  // 执行体已判对 11 条、只差最后一条，也**一条都不写**——八次触发累计产出为零。
+  //
+  // **现口径**：逐条判定、逐条落地。某一条自身不合格（字段不齐、缺提案、成文校验
+  // 不过）**只影响该条**：该条按 §12 fail-closed 登记并把整轮标为 partial，其余
+  // 已判定的条目**保留其结算**，不回滚。**已结算的条目不再进入下一次判定**（缓冲
+  // 只读 `status=pending`，结算后即退出候选集）——这就是「相同问题不能审核第二次」
+  // 的机械形态：不是靠去重记忆，而是靠状态推进使其不再出现在候选集里。
+  //
+  // **仍不允许静默跳过**：缺提案的条目不会被当作「不构成候选」，而是记为
+  // unresolved 并让整轮 `partial`——它下次仍在 `pending` 里，会被重新交付。
 
   // ── 第 2–5 项：逐条处理（无产出配额；每条都必须落到 formed／duplicate／discarded）
   for (const entry of pending) {
@@ -618,26 +616,17 @@ export async function reviewPendingEntries({
     if (proposal.insufficient !== undefined && proposal.insufficient !== null) {
       const reason = proposal.insufficient?.reason;
       if (!isNonEmptyString(reason)) {
-        return failClosed(
-          "observation_review/discard_reason_missing",
-          `proposal for entry ${entry.id} declares the entry insufficient but gives no reason; 11 §10.2 item 5 requires an honest registration — a discard is not a rejection of the experience`,
-          { stage: "verify-insufficient", ...stateSnapshot(state, null) },
-        );
+        state.unsettled.push({ entry_id: entry.id, code: "observation_review/discard_reason_missing", message:           `proposal for entry ${entry.id} declares the entry insufficient but gives no reason; 11 §10.2 item 5 requires an honest registration — a discard is not a rejection of the experience`, });
+        continue;
       }
       if (!sharesVerbatimFragment(reason, entry.evidence, MIN_VERBATIM_FRAGMENT_LENGTH)) {
-        return failClosed(
-          "observation_review/discard_reason_untraced",
-          `proposal for entry ${entry.id} discards it with a reason that shares no ≥${MIN_VERBATIM_FRAGMENT_LENGTH}-character verbatim fragment of the entry evidence — the discard itself must be traceable to the entry (11 §10.2 item 1: a section that cannot be written does not constitute a candidate, it must not be written into existence)`,
-          { stage: "verify-insufficient", ...stateSnapshot(state, null) },
-        );
+        state.unsettled.push({ entry_id: entry.id, code: "observation_review/discard_reason_untraced", message:           `proposal for entry ${entry.id} discards it with a reason that shares no ≥${MIN_VERBATIM_FRAGMENT_LENGTH}-character verbatim fragment of the entry evidence — the discard itself must be traceable to the entry (11 §10.2 item 1: a section that cannot be written does not constitute a candidate, it must not be written into existence)`, });
+        continue;
       }
       const settled = await settleBufferEntry(dshHomePath, entry.id, { status: "discarded", now, capacity, projectId });
       if (!settled.ok) {
-        return failClosed(
-          settled.error?.code ?? "observation_review/settle_failed",
-          `cannot settle entry ${entry.id} as discarded: ${settled.error?.message ?? "unknown"} (11 §12ter.2: fail-closed, never a success shape)`,
-          { stage: "settle-discarded", ...stateSnapshot(state, null) },
-        );
+        state.unsettled.push({ entry_id: entry.id, code: settled.error?.code ?? "observation_review/settle_failed", message:           `cannot settle entry ${entry.id} as discarded: ${settled.error?.message ?? "unknown"} (11 §12ter.2: fail-closed, never a success shape)`, });
+        continue;
       }
       state.discarded.push(entry.id);
       continue;
@@ -646,11 +635,8 @@ export async function reviewPendingEntries({
     // ── 第 2 项：查重已执行且对照集覆盖 active 与 draft（23 §6.2）────────────
     const dedupe = verifyDedupeRecord(proposal, existing);
     if (!dedupe.ok) {
-      return failClosed(
-        "observation_review/dedup_not_recorded",
-        `the dedup record for entry ${entry.id} does not satisfy 23 §6.2 / 11 §18: ${dedupe.issues.join("; ")}`,
-        { stage: "verify-dedup", ...stateSnapshot(state, null) },
-      );
+      state.unsettled.push({ entry_id: entry.id, code: "observation_review/dedup_not_recorded", message:         `the dedup record for entry ${entry.id} does not satisfy 23 §6.2 / 11 §18: ${dedupe.issues.join("; ")}`, });
+      continue;
     }
     if (proposal.dedupe.conclusion === "duplicate") {
       // 第 4 项后半：查重命中同样置 consumed 并指向既有对象；不新建。
@@ -662,11 +648,8 @@ export async function reviewPendingEntries({
         projectId,
       });
       if (!settled.ok) {
-        return failClosed(
-          settled.error?.code ?? "observation_review/settle_failed",
-          `cannot settle entry ${entry.id} as consumed pointing at ${proposal.dedupe.duplicate_of}: ${settled.error?.message ?? "unknown"} (11 §12ter.2: fail-closed, never a success shape)`,
-          { stage: "settle-duplicate", ...stateSnapshot(state, null) },
-        );
+        state.unsettled.push({ entry_id: entry.id, code: settled.error?.code ?? "observation_review/settle_failed", message:           `cannot settle entry ${entry.id} as consumed pointing at ${proposal.dedupe.duplicate_of}: ${settled.error?.message ?? "unknown"} (11 §12ter.2: fail-closed, never a success shape)`, });
+        continue;
       }
       state.duplicates.push({ entry_id: entry.id, object_uid: proposal.dedupe.duplicate_of });
       continue;
@@ -674,35 +657,23 @@ export async function reviewPendingEntries({
 
     // ── 第 3 项：创建 draft 候选（七段齐备 + 逐字引证复制）────────────────
     if (!isNonEmptyString(proposal.title)) {
-      return failClosed(
-        "observation_review/proposal_incomplete",
-        `proposal for entry ${entry.id} has no title (23 §8: title is required, ≤ 30 characters)`,
-        { stage: "verify-proposal", ...stateSnapshot(state, null) },
-      );
+      state.unsettled.push({ entry_id: entry.id, code: "observation_review/proposal_incomplete", message:         `proposal for entry ${entry.id} has no title (23 §8: title is required, ≤ 30 characters)`, });
+      continue;
     }
     if (!isNonEmptyString(proposal.scope)) {
-      return failClosed(
-        "observation_review/proposal_incomplete",
-        `proposal for entry ${entry.id} has no scope (23 §8: scope is required and must appear verbatim in the 影响与适用范围 section)`,
-        { stage: "verify-proposal", ...stateSnapshot(state, null) },
-      );
+      state.unsettled.push({ entry_id: entry.id, code: "observation_review/proposal_incomplete", message:         `proposal for entry ${entry.id} has no scope (23 §8: scope is required and must appear verbatim in the 影响与适用范围 section)`, });
+      continue;
     }
     if (sessionSignature === null || sessionSignature === undefined) {
       // 03 §6.1 / 09：change_log 必须由 Code 签名，缺载体即拒绝并交 Human 处置。
-      return failClosed(
-        "observation_review/signature_unavailable",
-        `entry ${entry.id}: the authoritative session signature is unavailable; 11 §12ter.1 — the signature is not carried by parameters and an unsigned change_log entry must not be written (03 §6.1). REPORT TO HUMAN; this run is refused (11 §12)`,
-        { stage: "signature", ...stateSnapshot(state, null) },
-      );
+      state.unsettled.push({ entry_id: entry.id, code: "observation_review/signature_unavailable", message:         `entry ${entry.id}: the authoritative session signature is unavailable; 11 §12ter.1 — the signature is not carried by parameters and an unsigned change_log entry must not be written (03 §6.1). REPORT TO HUMAN; this run is refused (11 §12)`, });
+      continue;
     }
 
     const bodyCheck = verifyEvidenceCopy(proposal.body, entry);
     if (!bodyCheck.ok) {
-      return failClosed(
-        "observation_review/body_invalid",
-        `entry ${entry.id}: the candidate body was refused before creation (11 §12bis 证据不留在缓冲 / 11 §18 经验候选的七段完整: 拒绝创建): ${bodyCheck.issues.join("; ")}`,
-        { stage: "verify-body", ...stateSnapshot(state, null) },
-      );
+      state.unsettled.push({ entry_id: entry.id, code: "observation_review/body_invalid", message:         `entry ${entry.id}: the candidate body was refused before creation (11 §12bis 证据不留在缓冲 / 11 §18 经验候选的七段完整: 拒绝创建): ${bodyCheck.issues.join("; ")}`, });
+      continue;
     }
 
     const created = await createPitfallObject({
@@ -720,11 +691,8 @@ export async function reviewPendingEntries({
       sessionSignature,
     });
     if (!created.ok) {
-      return failClosed(
-        created.error?.code ?? "observation_review/create_failed",
-        `entry ${entry.id}: creating the draft candidate failed (11 §10.2 item 6): ${created.error?.message ?? "unknown"}`,
-        { stage: "create", ...stateSnapshot(state, null) },
-      );
+      state.unsettled.push({ entry_id: entry.id, code: created.error?.code ?? "observation_review/create_failed", message:         `entry ${entry.id}: creating the draft candidate failed (11 §10.2 item 6): ${created.error?.message ?? "unknown"}`, });
+      continue;
     }
     state.formed.push({
       entry_id: entry.id,
@@ -740,11 +708,8 @@ export async function reviewPendingEntries({
         ? readBack.error?.message ?? "unknown"
         : `fingerprint ${readBack.value.fingerprint === created.value.fingerprint ? "matches" : "mismatch"}, status ${JSON.stringify(readBack.value.frontmatter?.status)}, body_valid ${JSON.stringify(readBack.value.body_valid)}`;
       // 不得把部分写入当作完成：候选已落盘，故 formed 仍如实带出。
-      return failClosed(
-        "observation_review/read_back_failed",
-        `entry ${entry.id}: the draft candidate was created but did not read back completely (${detail}); 11 §10.2 item 6 / §12 — stop this run, keep the side effect and register it honestly`,
-        { stage: "read-back", ...stateSnapshot(state, entry.id) },
-      );
+      state.unsettled.push({ entry_id: entry.id, code: "observation_review/read_back_failed", message:         `entry ${entry.id}: the draft candidate was created but did not read back completely (${detail}); 11 §10.2 item 6 / §12 — stop this run, keep the side effect and register it honestly`, });
+      continue;
     }
 
     // ── 第 4 项后半：条目置 consumed + consumed_by = draft uid ─────────────
@@ -756,11 +721,8 @@ export async function reviewPendingEntries({
       projectId,
     });
     if (!settled.ok) {
-      return failClosed(
-        settled.error?.code ?? "observation_review/settle_failed",
-        `entry ${entry.id}: the candidate ${created.value.object_uid} exists but the entry could not be settled as consumed (${settled.error?.message ?? "unknown"}); 11 §12ter.2 — fail-closed, never a success shape`,
-        { stage: "settle-consumed", ...stateSnapshot(state, entry.id) },
-      );
+      state.unsettled.push({ entry_id: entry.id, code: settled.error?.code ?? "observation_review/settle_failed", message:         `entry ${entry.id}: the candidate ${created.value.object_uid} exists but the entry could not be settled as consumed (${settled.error?.message ?? "unknown"}); 11 §12ter.2 — fail-closed, never a success shape`, });
+      continue;
     }
   }
 
@@ -775,12 +737,22 @@ export async function reviewPendingEntries({
     ...state.discarded,
   ]);
   const unjudged = pending.filter((entry) => !judgedIds.has(entry.id)).map((entry) => entry.id);
-  if (unjudged.length > 0) {
-    return failClosed(
-      "observation_review/unjudged_entry",
-      `${unjudged.length} dispatched entr${unjudged.length === 1 ? "y was" : "ies were"} left without a destination (${unjudged.join(", ")}); 11 §10.2 (2026-10-27 修订) requires every dispatched entry to end as formed / duplicate / discarded in the same run — an entry that is neither written nor settled keeps the queue from ever draining`,
-      { stage: "postflight-judgement", ...stateSnapshot(state, null) },
-    );
+  // **收尾不再整轮拒绝**（2026-10-27 修订）：这些条目没被判定，只说明**本次**没覆盖到
+  // 它们——已落地的结算**保留**，本条不再回滚，也不再据「有一条没判」把整轮判成失败。
+  // 它们仍是 pending，下次会被重新交付（缓冲只读 pending，故不会被漏掉）。
+  //
+  // 但仍**不允许静默消失**：必须能在返回与运行痕迹里看见「这几条没判完」。
+  // 故整轮结局降为 partial，并在 `unsettled` 里带上原因。
+  if (state.unsettled.length > 0 || unjudged.length > 0) {
+    for (const id of unjudged) {
+      if (!state.unsettled.some((item) => item.entry_id === id)) {
+        state.unsettled.push({
+          entry_id: id,
+          code: "observation_review/unjudged_entry",
+          message: `${id} was handed to the run but carries no proposal — silence is not a judgement; it stays pending and will be delivered again`,
+        });
+      }
+    }
   }
 
   // ── remaining_pending：未处理且仍为 pending 的条目数（重读，不靠本地计数）──
@@ -803,6 +775,10 @@ export async function reviewPendingEntries({
     duplicates_all: state.duplicates,
     discarded: state.discarded,
     remaining_pending: after.value.items.length,
+    // **本次没判完的条目**（单条校验失败或缺提案）。逐条落地后它们不影响已结算的
+    // 条目，但必须可见——否则「该跑没跑完」又会变成不可观察状态。
+    unsettled: state.unsettled,
+    partial: state.unsettled.length > 0,
     fail_closed: null,
   });
 }
@@ -815,6 +791,7 @@ function stateSnapshot(state, entryId) {
     duplicate: state.duplicates.length > 0 ? state.duplicates[0] : null,
     duplicates_all: [...state.duplicates],
     discarded: [...state.discarded],
+    unsettled: [...(state.unsettled ?? [])],
     remaining_pending: null,
   };
   if (entryId !== null) {
