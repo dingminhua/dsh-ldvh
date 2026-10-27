@@ -150,6 +150,85 @@ async function waitForGoverned(lifecycle, agentId, timeoutMs = 5_000) {
   throw new Error(`受管辖判定未在 ${timeoutMs}ms 内落定（agent=${agentId}）`);
 }
 
+/**
+ * **唯一能封住「预置活动时刻」变通方式的机械判据**（2026-10-27，独立审核 E4）。
+ *
+ * 审核实测出的漏洞：把恢复逻辑改名（`restoreAnchor`）、**只预置 `lastActivityAt`
+ * 而不武装计时器**、再由 install 调用——全部既有测试仍然全绿。原因是既有用例要么
+ * 断言「有没有计时器」，要么断言「派发时的轮次号」，都不问「装载后收到一次
+ * status idle 会不会立刻派发」。而真实宿主恰恰会在装载/resume 后报 idle，
+ * 此时旧锚点的剩余量为 0，缺陷等效复现。
+ *
+ * 故本用例只问那一件事：**种一个久远的持久化活动时刻 → 装载 → 报 idle → 有无派发**。
+ * 它对应 specs/11 §6.1「不得以变通方式恢复重建」段点名的「预置活动时刻」。
+ *
+ * **本用例已做破坏性验证**（2026-10-27，在临时副本内注入、工作区未改）：把
+ * `restoreAnchorOnly` 加进 triggers、由 install 预置锚点后——本用例**变红**
+ * （派发 `source: silence:timer`）；还原后归绿。首版曾误绿，原因是没等装载侧的
+ * 异步旁路落定就发 idle（锚点还是 null → 走「无从计时」早退），已由下面的 300ms
+ * 等待修正。**已知边界**：若变体连 `silenceTimer` 的初值都修成 `null`（绕开
+ * `!== null` 守卫），本用例抓得到的正是那种形态；若变体不改守卫、只预置锚点，
+ * 则它被 `armSilenceTimer` 自己的 `!== null` 守卫挡住（`state` 复用的
+ * `lifecycle.turns` 本无该键，初值为 `undefined`）——那种情形下缺陷不成立，
+ * 用例因此保持绿是对的，但它依赖的是**另一个**偶然守卫，故此点已单列风险登记。
+ */
+test("11 §6.1：装载后收到 idle **不得**用持久化旧锚点派发（封「预置活动时刻」变通）", async () => {
+  const { ctx, dshHomePath, roots, project, lifecycle } = await setup();
+  const sessionId = `session-stale-anchor-${Date.now()}`;
+  const session = { header: { id: sessionId, cwd: project }, id: sessionId };
+  const agent = { id: "agent-stale-anchor", session, ctx };
+
+  // 种一个「早就该到期」的持久化活动时刻（60 秒前，注入的安静时长只有 50ms）。
+  // 这正是重启前那个已花掉的安静期的形态。
+  const { recordActivity } = await import("../lib/friction-watermark.js");
+  await recordActivity(dshHomePath, {
+    projectRoot: project,
+    sessionId,
+    at: new Date(Date.now() - 60_000).toISOString(),
+  });
+
+  roots.push(agent);
+  await ctx.emit("agent/created", { agent, source: "startup" });
+  await waitForGoverned(lifecycle, agent.id);
+
+  // **必须给装载侧的异步旁路留出落定时间**（2026-10-27 破坏性验证实测）：
+  // 首版在这里立刻发 idle，结果「预置活动时刻」变体仍然全绿——不是用例判据错，
+  // 而是时序错了：装载侧的恢复是 fire-and-forget（中间有 await），idle 先到时
+  // `lastActivityAt` 仍为 null，`onAgentStatus` 于是走「无从计时」早退，锚点根本
+  // 没用上。真实宿主的 idle 也会在装载后若干毫秒才到，故这里等待是**贴合真实
+  // 时序**，不是给缺陷让路。
+  await new Promise((r) => setTimeout(r, 300));
+
+  // 宿主在装载/resume 后报 idle——这是真实宿主的行为，也是变通方式的触发点。
+  await ctx.emit("agent/status", { agent, status: "idle" });
+  await new Promise((r) => setTimeout(r, 800));   // 远大于注入的 50ms 安静时长
+
+  const turns = lifecycle.snapshotOf(agent.id)?.turns;
+  assert.equal(
+    turns?.lastCheckpointDispatch, undefined,
+    "装载后没有结束过任何回合 → 持久化旧锚点不得使检查点被派发（11 §6.1「重启使安静期作废」）",
+  );
+  // 更强的一条：即便某实现把锚点预置进去了，只要**没有回合结束**，就不得存在
+  // 待触发的计时器。`silenceTimer` 可本地回读，故这一条不依赖时序。
+  // 取值口径：`state` 复用了 `lifecycle.turns`，该对象本来没有 `silenceTimer` 键，
+  // 故「从未武装」表现为 `undefined`；被清过则表现为 `null`。两者都等于「没有活
+  // 句柄」，故用宽松判空而不是 `=== null`（写成 `=== null` 会误报真实现）。
+  assert.ok(
+    turns?.silenceTimer == null,
+    `装载后无回合结束 → 不得留下待触发的安静期计时器（实得 ${String(turns?.silenceTimer)}）`,
+  );
+
+  // 反向确证本用例**没被空过**：同一会话只要真有一回合结束，就应当派发。
+  // 缺了这一段，实现若把 turn/end 的武装一并删掉，本用例会假绿。
+  await ctx.emit("session/event", session, { type: "turn/end", data: {} });
+  await new Promise((r) => setTimeout(r, 800));
+  assert.equal(
+    lifecycle.snapshotOf(agent.id)?.turns?.lastCheckpointDispatch?.source,
+    "silence:timer",
+    "有新回合结束就应当起算并派发——否则本用例的「未派发」是空过",
+  );
+});
+
 test("调用方覆盖：驱动检查点后**必须留下运行痕迹**（而非抛错被吞）", async () => {
   const { ctx, dshHomePath, roots, project } = await setup();
 
@@ -427,7 +506,10 @@ test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自
 // 记下原因。本测试走**真实生命周期回调**——不绕过 onSessionCheckpoint 直调下游
 // （D1/D2/D3/D8 全都是这么躲过 1281 条单元测试的）。
 
-test("重启：无回合事件时从宿主会话记录回填轮次，且回填值须一路流到水位", async () => {
+// 用例名按刺激如实写（独立审核 2026-10-27 发现 4）：本用例**会**发一条
+// `turn/end`（用于起算安静期），那不是「没有回合事件」，而是「没有**带轮次号的**
+// 回合事件」——后者才是「重启后尚无回合」这一被测前提的准确形态。
+test("重启：无**带轮次号的**回合事件时从宿主会话记录回填轮次，且回填值须一路流到水位", async () => {
   const { ctx, dshHomePath, roots, project, lifecycle } = await setup();
   const sessionId = `session-restart-${Date.now()}`;
   const session = { header: { id: sessionId, cwd: project }, id: sessionId };

@@ -573,7 +573,12 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           return s?.limits?.silenceMs;
         },
         // 落「最后一次会话活动时刻」。**尽力而为**：写入失败只记日志，不阻塞
-        // 宿主事件流——它服务的是跨热重载的计时连续性，不是正确性前提。
+        // 宿主事件流。**它不再服务「跨热重载的计时连续性」**（2026-10-27 改）——
+        // 装载路径不读回这个值、不据此重建计时（11 §6.1「重启使安静期作废」）。
+        // 现用途只有一处：留作诊断材料，供事后复算「本次是否满足所声明的时机」。
+        // （本条措辞按独立审核 2026-10-27 的发现修正：原文仍写「跨热重载的计时
+        // 连续性」，与新纪律直接矛盾；另据同一发现，仓内当前**没有**生产读取面，
+        // 故不得据本注释主张「已被诊断页消费」。）
         persistActivityAt: async (ms) => {
           const cwd = agent?.session?.header?.cwd;
           const sid = agent?.session?.header?.id;
