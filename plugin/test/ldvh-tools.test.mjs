@@ -1322,3 +1322,124 @@ test("**删除设置字段后，诊断工具不得把 undefined 带进返回值*
     "state 里不得留 intervalMs 空位（哪怕是 null）——留着会让「间隔机制还在」成为表面事实",
   );
 });
+
+// ---------------------------------------------------------------------------
+// precheck-git-commit: 宿主模块陈旧时的三值归类（friction-fbd65401）
+//
+// 这组用例的意义不在 helper（module-freshness.test.mjs 已测判据），而在**接线**：
+// 判据正确但没接上分类逻辑，是 pitfall-967f00c7「helper 正确而没接上」的同类形态。
+// 正向半边要求「模块 mtime 晚于进程启动」，测试无法真的让已加载的模块变旧，故经
+// `deps.detectStaleModules` 注入——该接缝只为测试存在，生产走默认实现。
+// ---------------------------------------------------------------------------
+
+const STALE = { stale: [{ file: "/repo/plugin/lib/commit-validation.js", mtime_ms: 9_999_999_999_999 }], unreadable: [], checked: 2, start_ms: 1 };
+const FRESH = { stale: [], unreadable: [], checked: 2, start_ms: 1 };
+
+/** 一条必然 failed 的候选（trailer 值与权威路由不符 = 正向失败证据）。 */
+const MISMATCHED_MESSAGE = [
+	"chore(code): 新增特性文件",
+	"",
+	"关键变更:",
+	"- create feature.txt with the new line",
+	"- seed README.md test carrier",
+	"",
+	"LDVH-Provider: WRONG-VENDOR",
+	"LDVH-Model: WRONG-MODEL",
+].join("\n");
+
+async function precheckWithStaleness(base, staleness) {
+	const home = join(base, "home");
+	const root = await initRepo(base);
+	await writeSpecsTree(root);
+	await registerProject(dshHome(home), { id: "demo", path: root });
+	await writeFile(join(root, "feature.txt"), "new content\n");
+	await git(root, ["add", "feature.txt"]);
+	const logPath = await writeSessionLog(base, "session.jsonl", [
+		{ type: "model/selection", data: { provider: "deepseek-harness", model: "test" } },
+	]);
+	const { handlers } = makeExec({
+		dshHomePath: dshHome(home),
+		workspaceRoot: base,
+		sessionPersistence: () => stubSessionPersistence(logPath),
+		detectStaleModules: () => staleness,
+	});
+	return handlers["precheck-git-commit"]({ message: MISMATCHED_MESSAGE }, { agent: { session: { header: { cwd: root } } } });
+}
+
+test("precheck-git-commit 在 validator 模块陈旧时把 failed 降为 unverifiable（正向半边）", async () => {
+	await withTemp("ldvh-stale.", async (base) => {
+		const envelope = await precheckWithStaleness(base, STALE);
+		assert.equal(envelope.outcome, "completed");
+		// 同一候选、同一路由：唯一差别是模块陈旧——结论必须由 failed 变 unverifiable。
+		assert.equal(envelope.result.mechanical_outcome, "unverifiable");
+		// 但**问题项不消失**：它们仍是旧代码给出的观察，只是不再被当作结论。
+		assert.ok(envelope.result.issues.some((i) => i.rule.startsWith("validation/signature_provider_mismatch")));
+		// 陈旧须能从返回值读出，而不是只留一句 unverifiable 让人误以为是输入问题。
+		assert.ok(envelope.result.stale_modules, "陈旧时应回传 stale_modules");
+		assert.equal(envelope.result.stale_modules.files.length, 1);
+		assert.equal(typeof envelope.result.stale_modules.process_start_ms, "number");
+		// gaps 按 09 §5.4 承载具体缺口：既含原因，也逐条带出被降级的问题。
+		assert.ok(envelope.gaps.some((g) => g.includes("STALE code") && g.includes("commit-validation.js")));
+		assert.ok(envelope.gaps.some((g) => g.startsWith("validation/signature_provider_mismatch")));
+		// scope 如实登记「结论非现行代码算出」这一未完成项。
+		assert.ok(envelope.scope.not_completed.includes("verdict-computed-by-current-validator-code"));
+	});
+});
+
+test("陈旧时 follow_up 不得指引「去修候选」（friction-fbd65401 的危害本体）", async () => {
+	await withTemp("ldvh-stale.", async (base) => {
+		const envelope = await precheckWithStaleness(base, STALE);
+		// 原实现在非 passed 时一律回「fix the reported issues and re-run precheck」——
+		// 对陈旧结论而言，那等于推着调用方去改候选迎合旧代码（本次实测即据此
+		// 误收窄了检查范围）。故陈旧路径下这句必须不出现。
+		assert.ok(
+			!envelope.follow_up.some((f) => f.includes("fix the reported issues")),
+			`陈旧时不得给出「改候选」式指引：${JSON.stringify(envelope.follow_up)}`,
+		);
+		assert.ok(envelope.follow_up.some((f) => /restart the host|reload the plugin/.test(f)));
+	});
+});
+
+test("反向半边：模块不陈旧时，同样的 failed 不得被降级", async () => {
+	await withTemp("ldvh-stale.", async (base) => {
+		const envelope = await precheckWithStaleness(base, FRESH);
+		assert.equal(envelope.result.mechanical_outcome, "failed", "判据过宽会让所有真 failed 被掩盖，那是比原缺陷更坏的方向");
+		assert.equal(envelope.result.stale_modules, undefined);
+		assert.equal(envelope.gaps.length, 0);
+		assert.ok(envelope.follow_up.some((f) => f.includes("fix the reported issues")));
+	});
+});
+
+test("陈旧不改判 passed：陈旧只说明「不知道」，不得伪装成通过（00 §5.6）", async () => {
+	await withTemp("ldvh-stale.", async (base) => {
+		const home = join(base, "home");
+		const root = await initRepo(base);
+		await writeSpecsTree(root);
+		await registerProject(dshHome(home), { id: "demo", path: root });
+		await writeFile(join(root, "feature.txt"), "new content\n");
+		await git(root, ["add", "feature.txt"]);
+		const logPath = await writeSessionLog(base, "session.jsonl", [
+			{ type: "model/selection", data: { provider: "deepseek-harness", model: "test" } },
+		]);
+		const message = [
+			"chore(code): 新增特性文件",
+			"",
+			"关键变更:",
+			"- create feature.txt with the new line",
+			"- seed README.md test carrier",
+			"",
+			"LDVH-Provider: deepseek-harness",
+			"LDVH-Model: test",
+		].join("\n");
+		const { handlers } = makeExec({
+			dshHomePath: dshHome(home),
+			workspaceRoot: base,
+			sessionPersistence: () => stubSessionPersistence(logPath),
+			detectStaleModules: () => STALE,
+		});
+		const envelope = await handlers["precheck-git-commit"]({ message }, { agent: { session: { header: { cwd: root } } } });
+		// passed 侧不动：Git Gate 每次新起进程会以现行代码再判一次，终闸仍可信。
+		assert.equal(envelope.result.mechanical_outcome, "passed");
+		assert.match(envelope.result.snapshot_identity, /^[0-9a-f]{64}$/);
+	});
+});

@@ -746,7 +746,10 @@ function makeExecute(deps) {
     //
     // **只作用于 failed**：passed 侧不受影响（陈旧代码若判过，Git Gate 会以新代码
     // 再判一次，终闸仍可信）；unverifiable 侧本就已如实声明。
-    const staleness = detectStaleValidatorModules();
+    // 接缝 `deps.detectStaleModules` 只为测试存在：这条分支的正向半边（陈旧→降级）
+    // 要求「模块 mtime 晚于进程启动」，而测试无法真的把已加载的模块改旧；不设接缝
+    // 就只能测 helper，测不到接线（pitfall-967f00c7：helper 正确而没接上）。
+    const staleness = (deps.detectStaleModules ?? detectStaleValidatorModules)();
     const validatorStale = staleness.stale.length > 0;
     let mechanicalOutcome;
     if (hasNonSignatureFailure || !structuralTrailerOk || hasValueMismatch) mechanicalOutcome = "failed";
@@ -774,14 +777,28 @@ function makeExecute(deps) {
     };
     return envelope("precheck-git-commit", "completed", {
       result,
-      scope: { requested: "precheck", completed: ["header", "key-changes", "diff-correspondence", "trailers", "signature-source"], not_completed: route.ok ? [] : ["signature-traceability"] },
+      scope: { requested: "precheck", completed: ["header", "key-changes", "diff-correspondence", "trailers", "signature-source"], not_completed: [
+        ...(route.ok ? [] : ["signature-traceability"]),
+        // 陈旧时如实登记：检查项**跑过但结论无效**，不得读作「已完成」。
+        ...(validatorStale ? ["verdict-computed-by-current-validator-code"] : []),
+      ] },
       sources: [
         { kind: "governed-project", path: governed.project.path },
         ...(route.ok ? [{ kind: "session-routing-record", event_type: route.value.eventType, provider: route.value.provider, model: route.value.model }] : [])
       ],
-      gaps: route.ok ? [] : [`provider/model could not be traced to the authoritative session record: ${route.reason ?? "session identity unavailable"}`],
+      gaps: validatorStale
+        ? [
+            ...issues.map((issue) => `${issue.rule}: ${issue.message}`),
+            `the validator modules below are newer on disk than this host process started, so the verdict above was computed by STALE code and is withheld as unverifiable (09 §5.4): ${staleness.stale.map((entry) => entry.file).join(", ")}`,
+          ]
+        : route.ok ? [] : [`provider/model could not be traced to the authoritative session record: ${route.reason ?? "session identity unavailable"}`],
       verification: { checks: ["header", "key_changes", "diff_correspondence", "trailers", "signature_traceability", "docs_references"], passed: issues.length === 0 },
-      follow_up: mechanicalOutcome === "passed" ? ["commit; then verify the Git Gate stderr snapshot_identity equals this result's snapshot_identity"] : ["fix the reported issues and re-run precheck"]
+      // **陈旧时不得给出「fix the reported issues」这类指引**（friction-fbd65401 的
+      // 危害本体）：那会把人推向「改候选去迎合旧代码的结论」——本次实测即先据此
+      // 误收窄了检查范围。此处只给「刷新模块后重跑」这一条真路径。
+      follow_up: validatorStale
+        ? ["restart the host (or reload the plugin) so the validator loads the on-disk version, then re-run precheck; the Git Gate spawns a fresh process per commit and can be used meanwhile"]
+        : mechanicalOutcome === "passed" ? ["commit; then verify the Git Gate stderr snapshot_identity equals this result's snapshot_identity"] : ["fix the reported issues and re-run precheck"]
     });
   }
 
