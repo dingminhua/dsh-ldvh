@@ -19,6 +19,11 @@
  * ready for the Research writer (research-writer.js).
  */
 
+// 发现单元的解析是正文结构层的东西，由 writer 的单一实现承载（03 §9.2 单一权威：
+// 同一「发现单元」判定不得有两份实现）。research-writer 不 import 本模块，
+// 故此依赖是单向的，不构成循环。
+import { extractFindingUnits } from "./research-writer.js";
+
 // ---------------------------------------------------------------------------
 // §5 入口澄清 (clarification)
 // ---------------------------------------------------------------------------
@@ -110,9 +115,13 @@ export function evaluateConvergence(round, state) {
   const { confirmed = [], gaps = [] } = round;
   const { subQuestions = [], roundNumber = 1, maxRounds = 4, consecutiveNoGainRounds = 0 } = state;
 
-  // Layer 1: sufficient — all sub-questions covered, no blocking high gaps
+  // Layer 1: sufficient — 33 §8.1 第 1 项要求「每个子问题至少有 confirmed 证据
+  // 覆盖且无阻塞该子问题结论的 high 优先级缺口」，两项条件同时满足。
+  // 覆盖判定是三态（见 subQuestionCoverage）：只有 `covered` 才算满足；
+  // `uncovered` 明确不满足；`untagged`（有子问题但无一条带 key）判不了，
+  // 一律不判充分——判不了不等于通过。
   const highGaps = gaps.filter((g) => g.priority === "high");
-  if (confirmed.length > 0 && highGaps.length === 0 && allSubQuestionsCovered(subQuestions, confirmed)) {
+  if (confirmed.length > 0 && highGaps.length === 0 && subQuestionCoverage(subQuestions, confirmed) === "covered") {
     return { stop: true, reason: "sufficient", newNoGainCount: 0 };
   }
 
@@ -135,17 +144,36 @@ export function evaluateConvergence(round, state) {
   return { stop: false, reason: null, newNoGainCount: 0 };
 }
 
-function allSubQuestionsCovered(subQuestions, confirmed) {
-  // Minimal coverage check: at least one confirmed per sub-question key.
-  // Sub-questions may be strings or { key, question } objects.
-  // If no confirmed entry carries a sub_question_key, we fall back to
-  // "at least one confirmed exists" (lenient: the caller hasn't adopted
-  // sub-question tagging yet).
-  if (subQuestions.length === 0) return confirmed.length > 0;
-  const taggedKeys = confirmed.filter((c) => typeof c.sub_question_key === "string" && c.sub_question_key !== "default");
-  if (taggedKeys.length === 0) return confirmed.length > 0;
+/**
+ * 判定「每个子问题是否都有 confirmed 覆盖」（33 §8.1 第 1 项）。
+ *
+ * 返回三态而非布尔值，因为这里真的存在**判不了**的情形：
+ *
+ * - `covered`：每个子问题都有带 key 的 confirmed 覆盖，可以判充分收敛；
+ * - `uncovered`：有子问题明确没有覆盖，不充分；
+ * - `untagged`：**有子问题但没有任何一条 confirmed 带 sub_question_key**——
+ *   此时「覆盖」在字形上无法判定。
+ *
+ * 旧实现把 `untagged` 一律当 `covered`（注释自认 "lenient"），后果是
+ * 「3 个子问题只调研了 1 个、且都没打标签」也会被判 `sufficient` 收敛，
+ * 报告由此带上「充分收敛」的结论而三个子问题实际只碰了一个——这是把
+ * **判不了**冒充成**通过了**，正是 00 §5.6 据实声明禁止的那件事。
+ *
+ * 现在的处置：`untagged` 不再返回 true，而是由调用方如实降级——不判充分，
+ * 继续按轮次推进（达到上限即 round-cap，并据 §8.3 把未覆盖范围记进 gaps）。
+ * 这样既不虚构通过，也不编造失败：报告最终以 round-cap + gap 的形式
+ * 如实说出「这些子问题没被逐条覆盖」。
+ *
+ * @returns {"covered"|"uncovered"|"untagged"}
+ */
+function subQuestionCoverage(subQuestions, confirmed) {
+  if (subQuestions.length === 0) return confirmed.length > 0 ? "covered" : "uncovered";
+  const tagged = confirmed.filter((c) => typeof c.sub_question_key === "string" && c.sub_question_key !== "default");
+  if (tagged.length === 0) return "untagged";
   const covered = new Set(confirmed.map((c) => c.sub_question_key ?? "default"));
-  return subQuestions.every((sq) => covered.has(typeof sq === "string" ? sq : sq.key ?? "default"));
+  return subQuestions.every((sq) => covered.has(typeof sq === "string" ? sq : sq.key ?? "default"))
+    ? "covered"
+    : "uncovered";
 }
 
 // ---------------------------------------------------------------------------
@@ -359,8 +387,32 @@ function normalizeConfirmedEntries(confirmed) {
 const PLACEHOLDER_PATTERNS = [/\{\{[^}]*\}\}/g, /\bTODO\b/g, /\bFIXME\b/g, /\bTBD\b/g, /\[待填\]/g];
 
 /**
- * Check the delivery contract: no unfilled placeholders.
- * Returns { ok, issues }.
+ * 机器可识别的 `UNVERIFIED` 标注标记（33 §13.2）。
+ *
+ * 规范原文：「无法挂载 confirmed 证据的声明须标注 `UNVERIFIED`，并说明其优先级
+ * 与缺口编号」。机械侧能判的只有**标注存在与否**——「优先级是否恰当」「缺口编号
+ * 是否指向真实的 gap」需要读 gaps 语义，属 AI 语义审核范围（§14 效力边界）。
+ */
+const UNVERIFIED_MARKER = /\bUNVERIFIED\b/;
+
+/**
+ * Check the delivery contract (33 §13).
+ *
+ * 规范 §13 的交付表列了三项判据：「无占位符；每项声明挂 evidence；无 UNVERIFIED
+ * 未标注」。旧实现只做了第一项——函数名与注释都只说 placeholder，而工具把这一个
+ * 结果当作整个交付合同结论返回 `ok: true`，于是**「每项声明挂证据」这项从未被检查
+ * 过**：一份通篇没有引文、也没有任何 UNVERIFIED 标注的报告会拿到「交付合同通过」。
+ *
+ * 现在三项都查，且逐项如实归入 issues。第 2、3 项的机械口径是**发现单元**层面
+ * （24 §8 不变量 2 已要求每单元有 溯源：行）：
+ *   - 每项声明挂 evidence → 每个发现单元必须有溯源锚点（无锚点 = 证据悬空）；
+ *   - 无 UNVERIFIED 未标注 → 无锚点的单元必须带 UNVERIFIED 标记，否则是
+ *     「挂不上证据却当成已证实」。
+ *
+ * 判不了的部分如实不判：`UNVERIFIED` 后面的优先级与缺口编号是否合规、正文里
+ * 是否存在 H3 之外的自由段落声明——这些不是字形可判的，留给 AI 语义审核。
+ *
+ * @returns {{ok: boolean, issues: string[]}}
  */
 export function checkDeliveryContract(body) {
   const issues = [];
@@ -369,6 +421,18 @@ export function checkDeliveryContract(body) {
     if (matches) {
       issues.push(`delivery contract: placeholder found: ${matches[0]}`);
     }
+  }
+
+  // §13.2 第 1、2 句：每项声明挂 evidence；挂不上的须标注 UNVERIFIED。
+  // extractFindingUnits 的成员形态是 { title, content, traceRef, traceAnchor, hasTrace }
+  // （正文结构解析的唯一实现在 research-writer.js）。
+  for (const unit of extractFindingUnits(body)) {
+    if (unit.hasTrace) continue;
+    if (UNVERIFIED_MARKER.test(`${unit.title}\n${unit.content ?? ""}`)) continue;
+    issues.push(
+      `delivery contract: finding unit "${unit.title.slice(0, 40)}..." 挂不上证据却未标注 UNVERIFIED`
+        + `（33 §13.2：每项声明须挂 confirmed 证据，否则须标注 UNVERIFIED 并说明优先级与缺口编号）`,
+    );
   }
   return { ok: issues.length === 0, issues };
 }

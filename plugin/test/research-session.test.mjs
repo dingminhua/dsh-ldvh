@@ -51,12 +51,38 @@ test("buildClarificationLogEntry builds a declined entry", () => {
 // ---------------------------------------------------------------------------
 
 test("evaluateConvergence returns sufficient when all covered and no high gaps", () => {
+  // 33 §8.1 第 1 项要求「每个子问题至少有 confirmed 覆盖」，故这条示例必须
+  // 真的覆盖 q1——旧版这里没打 sub_question_key，靠「未标注即视为覆盖」的
+  // 宽松兜底才过。兜底已移除（见下一例），示例随之补上归属标注。
   const result = evaluateConvergence(
-    { confirmed: [{ statement: "s1" }], gaps: [] },
+    { confirmed: [{ statement: "s1", sub_question_key: "q1" }], gaps: [] },
     { subQuestions: ["q1"], roundNumber: 1, maxRounds: 4, consecutiveNoGainRounds: 0 },
   );
   assert.equal(result.stop, true);
   assert.equal(result.reason, "sufficient");
+});
+
+// 33 §8.1：sufficient 要求「每个子问题至少有 confirmed 证据覆盖」。当有子问题
+// 却没有任何一条 confirmed 带 sub_question_key 时，「覆盖」在字形上判不了。
+// 旧实现把这种判不了直接当通过（注释自认 "lenient"），被破坏性验证抓到：
+// 3 个子问题只调研了 1 个、都没打标签，也会判 sufficient——报告于是带着
+// 「充分收敛」的结论交付，而三个子问题实际只碰了一个。判不了 ≠ 通过。
+test("evaluateConvergence: untagged evidence cannot satisfy sufficient (判不了不等于通过，33 §8.1)", () => {
+  const result = evaluateConvergence(
+    { confirmed: [{ statement: "s1" }], gaps: [] },
+    { subQuestions: ["q1", "q2", "q3"], roundNumber: 1, maxRounds: 4, consecutiveNoGainRounds: 0 },
+  );
+  assert.notEqual(result.reason, "sufficient", "未标注子问题归属时不得判充分收敛");
+  assert.equal(result.stop, false, "应继续推进轮次，而不是提前收敛");
+});
+
+test("evaluateConvergence: a genuinely uncovered sub-question blocks sufficient", () => {
+  const result = evaluateConvergence(
+    { confirmed: [{ statement: "s1", sub_question_key: "q1" }], gaps: [] },
+    { subQuestions: ["q1", "q2", "q3"], roundNumber: 1, maxRounds: 4, consecutiveNoGainRounds: 0 },
+  );
+  assert.notEqual(result.reason, "sufficient");
+  assert.equal(result.stop, false);
 });
 
 test("evaluateConvergence returns no-gain after two consecutive zero rounds", () => {
@@ -428,4 +454,46 @@ test("ResearchSession rejects bad findings and keeps good ones", () => {
   ]);
   assert.equal(r.accepted.length, 1);
   assert.equal(r.rejected.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// §13 交付合同（checkDeliveryContract）
+//
+// 33 §13 的交付表列三项判据：「无占位符；每项声明挂 evidence；无 UNVERIFIED
+// 未标注」。旧实现只查占位符，而工具把这一项结果当作整个合同结论返回 ok:true
+// ——「每项声明挂证据」从未被检查过。以下用例锁住后两项。
+// ---------------------------------------------------------------------------
+
+const DELIVERY_BODY = (unitLines) => `## 研究问题
+外部对象是什么？
+
+## 关键发现
+### 某发现单元
+观察事实。
+${unitLines}
+
+## 未证实与缺口
+无。
+`;
+
+test("checkDeliveryContract: an unanchored finding unit without UNVERIFIED fails (33 §13.2)", () => {
+  const r = checkDeliveryContract(DELIVERY_BODY(""));
+  assert.equal(r.ok, false, "挂不上证据又没标 UNVERIFIED 必须判失败");
+  assert.ok(r.issues.some((i) => i.includes("UNVERIFIED")), `issue 须点名 UNVERIFIED:\n${r.issues.join("\n")}`);
+});
+
+test("checkDeliveryContract: an unanchored unit IS allowed when it carries UNVERIFIED (规范给的正道)", () => {
+  const r = checkDeliveryContract(DELIVERY_BODY("UNVERIFIED（优先级 high，缺口 g-1）"));
+  assert.equal(r.ok, true, `标注 UNVERIFIED 后应通过:\n${r.issues.join("\n")}`);
+});
+
+test("checkDeliveryContract: an anchored unit passes without any UNVERIFIED", () => {
+  const r = checkDeliveryContract(DELIVERY_BODY("溯源：https://example.com/x（§3）"));
+  assert.equal(r.ok, true, `有溯源锚点即挂了证据:\n${r.issues.join("\n")}`);
+});
+
+test("checkDeliveryContract: placeholders are still caught (原判据不退化)", () => {
+  const r = checkDeliveryContract(`${DELIVERY_BODY("溯源：https://example.com/x（§3）")}\nTODO 补一段`);
+  assert.equal(r.ok, false);
+  assert.ok(r.issues.some((i) => i.includes("placeholder")));
 });
