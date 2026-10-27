@@ -35,6 +35,7 @@
 import {
   BASELINE_BUDGET_SHARE_DIVISOR,
   BASELINE_YIELD_BELOW_BYTES,
+  INJECTION_EXCLUDED_TYPES,
   recallForAction,
 } from "./source-recall.js";
 
@@ -896,6 +897,12 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
     result = await recallForAction({
       action: userText,
       root: projectRoot,
+      // **声明范围**：这些类型不进自动注入（`31 §10` 2026-10-27 修订）。
+      // 用 `excludeTypes` 而非 `types` 白名单：后者是「本次只看这几类」（被排除者
+      // 进 `excludedByTypeFilter`、算未检查范围），前者是「这些类型不归本路径看」
+      // （其消费入口在主动查）。二者混用会把职责边界报成召回缺陷。
+      // 完整理由见 `INJECTION_EXCLUDED_TYPES` 的定义处注释。
+      excludeTypes: INJECTION_EXCLUDED_TYPES,
       // `limit` 可覆盖（此前硬编码为 3 且不接受入参，测试传 limit=1 被静默忽略，
       // 导致「条数限制」的提示显示 limit=3 与实际调用不符）。
       limit: Number.isInteger(limit) && limit > 0 ? limit : 3,

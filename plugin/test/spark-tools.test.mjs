@@ -1253,3 +1253,111 @@ test("gate: a terminal update that the WRITER must refuse consumes no question (
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// 31 §10（2026-10-27 修订）：Spark 退出自动注入后，「主动查」的可查性即该路径的前提
+// ---------------------------------------------------------------------------
+
+test("list: keyword / priorities / serves narrow the result set (filter before limit)", async () => {
+  await withTemp("spark-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const descriptors = makeDescriptors(makeDeps(home, base));
+    const mkDraft = (title, question, more = {}) => ({
+      ...validFrontmatterDraft(),
+      title,
+      question,
+      summary: `总结：${title}`,
+      change_summary: "收窄夹具",
+      ...more,
+    });
+    const make = async (title, question, more) => {
+      const draft = mkDraft(title, question, more);
+      const out = await run(descriptors, "ldvh_spark_write", {
+        action: "create",
+        dedup_result: DEDUP_OK,
+        frontmatter_draft: draft,
+        body_markdown: validBodyMarkdown(draft),
+      }, repo);
+      assert.equal(out.outcome, "completed", JSON.stringify(out));
+      return out.result.object_uid;
+    };
+
+    const a = await make("召回范围甲", "甲问题怎么收窄？", { priority: "P1", serves: "SG-1" });
+    const b = await make("召回范围乙", "乙问题怎么收窄？", { priority: "P2", serves: "SG-3" });
+    const c = await make("无关方向丙", "丙问题怎么收窄？", { serves: "SG-1" }); // 未分档
+
+    // priorities：未分档者不得被推入任何档位（20 §8）
+    const p1 = await run(descriptors, "ldvh_spark_list", { priorities: ["P1"] }, repo);
+    assert.equal(p1.outcome, "completed", JSON.stringify(p1));
+    assert.deepEqual(p1.result.items.map((i) => i.object_uid), [a]);
+    assert.equal(p1.result.total, 1, "total must be the filtered hit count");
+    assert.deepEqual(p1.result.filters.priorities, ["P1"], "the applied filter must be echoed back");
+
+    const p12 = await run(descriptors, "ldvh_spark_list", { priorities: ["P1", "P2"] }, repo);
+    assert.deepEqual(p12.result.items.map((i) => i.object_uid).sort(), [a, b].sort());
+
+    // serves：逐字匹配，不做前缀/模糊
+    const sg1 = await run(descriptors, "ldvh_spark_list", { serves: "SG-1" }, repo);
+    assert.deepEqual(sg1.result.items.map((i) => i.object_uid).sort(), [a, c].sort());
+
+    // keyword：只搜 title 与 question（20 §6.2 的查重语义输入），大小写不敏感
+    const kw = await run(descriptors, "ldvh_spark_list", { keyword: "无关" }, repo);
+    assert.deepEqual(kw.result.items.map((i) => i.object_uid), [c]);
+    const kwUpper = await run(descriptors, "ldvh_spark_list", { keyword: "召回范围" }, repo);
+    assert.deepEqual(kwUpper.result.items.map((i) => i.object_uid).sort(), [a, b].sort());
+
+    // 组合：三个条件同时生效（AND）
+    const combo = await run(descriptors, "ldvh_spark_list", { keyword: "收窄", serves: "SG-1", priorities: ["P1"] }, repo);
+    assert.deepEqual(combo.result.items.map((i) => i.object_uid), [a]);
+
+    // 过滤后截断：total 须是**过滤后**的命中数，不是全库数
+    const limited = await run(descriptors, "ldvh_spark_list", { keyword: "收窄", limit: 1 }, repo);
+    assert.equal(limited.outcome, "partial", JSON.stringify(limited));
+    assert.equal(limited.result.total, 3, "total must count filtered hits, not the whole collection");
+  });
+});
+
+test("list: narrowing is disclosed in gaps (a filtered empty list is not 'no such direction')", async () => {
+  await withTemp("spark-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const descriptors = makeDescriptors(makeDeps(home, base));
+    const draft = { ...validFrontmatterDraft(), title: "收窄披露甲", question: "收窄是否披露？", summary: "总结：收窄披露甲", change_summary: "x" };
+    const created = await run(descriptors, "ldvh_spark_write", {
+      action: "create",
+      dedup_result: DEDUP_OK,
+      frontmatter_draft: draft,
+      body_markdown: validBodyMarkdown(draft),
+    }, repo);
+    assert.equal(created.outcome, "completed", JSON.stringify(created));
+
+    // 零命中的收窄查询：必须能看出「是筛掉了」而不是「库里没有」。
+    const empty = await run(descriptors, "ldvh_spark_list", { keyword: "根本不存在的词" }, repo);
+    assert.equal(empty.outcome, "completed", JSON.stringify(empty));
+    assert.equal(empty.result.count, 0);
+    assert.ok(
+      empty.gaps.some((g) => g.includes("narrowed by") && g.includes("does not mean no such direction")),
+      `narrowed query must say so in gaps: ${JSON.stringify(empty.gaps)}`,
+    );
+
+    // 未收窄时不出现该披露（否则它变成恒噪音）。
+    const plain = await run(descriptors, "ldvh_spark_list", {}, repo);
+    assert.ok(!plain.gaps.some((g) => g.includes("narrowed by")), JSON.stringify(plain.gaps));
+  });
+});
+
+test("list: malformed narrowing arguments are rejected (fail-closed, never silently ignored)", async () => {
+  await withTemp("spark-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const descriptors = makeDescriptors(makeDeps(home, base));
+
+    // 拼错档位若被静默忽略，调用方会拿到一份「看起来筛过了」的全集。
+    const badPriority = await run(descriptors, "ldvh_spark_list", { priorities: ["P9"] }, repo);
+    assert.notEqual(badPriority.outcome, "completed", JSON.stringify(badPriority));
+
+    const emptyPriority = await run(descriptors, "ldvh_spark_list", { priorities: [] }, repo);
+    assert.notEqual(emptyPriority.outcome, "completed", JSON.stringify(emptyPriority));
+
+    const blankKeyword = await run(descriptors, "ldvh_spark_list", { keyword: "   " }, repo);
+    assert.notEqual(blankKeyword.outcome, "completed", JSON.stringify(blankKeyword));
+  });
+});

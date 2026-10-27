@@ -42,7 +42,7 @@ const OPERATIONS = {
   },
   "spark-list-objects": {
     toolName: "ldvh_spark_list",
-    summary: "Enumerate Spark fact objects (F0/F1 discovery): dedup-relevant projection (title/question/status/serves/refs) for the governed project; open-only by default (specs/03 §8, specs/20 §12)",
+    summary: "Enumerate Spark fact objects (F0/F1 discovery): dedup-relevant projection (title/question/status/serves/refs/priority) for the governed project; open-only by default; narrow with keyword / priorities / serves (specs/03 §8, specs/20 §12 — 主动查询是方向线唯一的入口，见 specs/31 §10)",
     effect: "read"
   },
   "spark-write-object": {
@@ -201,8 +201,13 @@ async function executeListObject(args, exec, deps) {
   }
   const includeTerminal = args?.status === "all";
   const limit = typeof args?.limit === "number" && Number.isInteger(args.limit) && args.limit > 0 ? args.limit : 200;
+  // 收窄参数原样下传（`undefined` → writer 侧 `null`），校验只在 writer 一处：
+  // 两处各写一遍必然漂移，且工具层没有 PRIORITY_VALUES 这份闭集。
+  const keyword = typeof args?.keyword === "string" ? args.keyword : null;
+  const priorities = Array.isArray(args?.priorities) ? args.priorities : null;
+  const serves = typeof args?.serves === "string" ? args.serves : null;
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
-  const listed = await listSparkObjects({ factSourceRoot, includeTerminal, limit });
+  const listed = await listSparkObjects({ factSourceRoot, includeTerminal, limit, keyword, priorities, serves });
   if (!listed.ok) {
     return envelope("spark-list-objects", "unavailable", {
       result: null,
@@ -218,11 +223,29 @@ async function executeListObject(args, exec, deps) {
   if (!value.complete) {
     gaps.push(`projection truncated at limit=${limit} of ${value.total} matching objects — narrow the filter or raise the limit; do not treat this page as the full set (03 §8.1)`);
   }
+  // 过滤结果是「集合被收窄过」这一事实，必须进 gaps 而不是只写在 result 里：
+  // 否则一条**零命中**的收窄查询与「库里真没有这类方向」在信封上无法区分
+  // （`02 §9.2`：禁把零结果当无约束；同理禁把「筛掉了」当「不存在」）。
+  const appliedFilters = [];
+  if (value.filters.keyword !== null) appliedFilters.push(`keyword=${JSON.stringify(value.filters.keyword)}`);
+  if (value.filters.priorities !== null) appliedFilters.push(`priorities=${value.filters.priorities.join("/")}`);
+  if (value.filters.serves !== null) appliedFilters.push(`serves=${value.filters.serves}`);
+  if (appliedFilters.length > 0) {
+    gaps.push(
+      `result is narrowed by ${appliedFilters.join(" · ")} — this is the filtered hit set, not the whole Spark collection; ` +
+        `a zero or short list does not mean no such direction exists elsewhere (re-run without the narrowing to compare)`,
+    );
+  }
   return envelope("spark-list-objects", value.complete ? "completed" : "partial", {
     result: {
       count: value.items.length,
       total: value.complete ? value.items.length : value.total,
       filter: includeTerminal ? "all" : "open",
+      filters: {
+        keyword: value.filters.keyword,
+        priorities: value.filters.priorities,
+        serves: value.filters.serves,
+      },
       items: value.items,
     },
     scope: {
@@ -789,7 +812,10 @@ function parameterSchemaFor(operationKey) {
         type: "object",
         properties: {
           status: { type: "string", enum: ["open", "all"], description: "open = default (ordinary unresolved candidates only, 20 §12); all = include implemented/discarded for historical tracing" },
-          limit: { type: "number", description: "max items returned (default 200; exceeding the cap returns a partial page with the true total — never a silent truncation, 03 §8.1)" }
+          keyword: { type: "string", description: "literal case-insensitive substring over title and question (the two semantic inputs 20 §6.2 names for dedup). Substring only — whether two Sparks are the same question stays a semantic judgement by the AI, never a mechanical verdict (03 §8.2)" },
+          priorities: { type: "array", items: { type: "string", enum: ["P0", "P1", "P2", "P3"] }, description: "keep only Sparks whose declared priority is among these (20 §8). Untiered Sparks are never inferred into a tier, so they do not match any priority filter (20 §8: 排序缺失者排末位、不推定档位)" },
+          serves: { type: "string", description: "keep only Sparks serving this sub-goal anchor verbatim (e.g. SG-1, 20 §8). Empty result means no Spark declares it — not that the anchor is unused" },
+          limit: { type: "number", description: "max items returned (default 200; exceeding the cap returns a partial page with the true total — never a silent truncation, 03 §8.1). The cap applies AFTER filtering, and total is the filtered hit count" }
         },
         additionalProperties: false
       };

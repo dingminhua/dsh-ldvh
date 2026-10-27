@@ -166,6 +166,46 @@ export const REGISTERED_FACT_TYPES = Object.freeze([
 export const REQUIRED_RECALL_TYPES = Object.freeze(["adr", "pitfall"]);
 
 /**
+ * **不进自动注入路径**的事实类型（`31 §10` 2026-10-27 修订）。
+ *
+ * 用途**只是**给注入路径（`recall-injection.js` 的 `buildRecallInjection`）一个
+ * 具名常量，使「哪些类型不进注入」可在一处读到、可被测试钉住；`recallForAction`
+ * 本身**不读它**——直调路径（AI 主动查、诊断脚本）仍可召回这些类型。
+ *
+ * ── 为什么不是 `types` 白名单（重要，别合并成一条路径）───────────────
+ *
+ * 直觉做法是注入时传 `types: ["adr","pitfall","workcase", …]`（正面枚举「要哪些」）。
+ * 不采用，有两条据实的理由：
+ *
+ * 1. **正面枚举会在新增事实类型时静默漏掉它。** 本文件 `REGISTERED_FACT_TYPES`
+ *    的维护注释已写明：新增 20–29 段的事实类型须同步该表。若注入路径再维护一份
+ *    正面白名单，就是**第二份需要同步的清单**（`01 §11.4` 第二规则源风险）——
+ *    新增类型后 `recallForAction` 认得它、注入路径却不给，且这种漏**不出声**。
+ *    反面的排除清单则**失败时偏向多给**：新类型默认进入注入范围，最坏是噪音，
+ *    不是静默缺失。这与 `34 §6.1` 的取向一致（不遍历未被触发的全量，但被触发的
+ *    类型仍应召回）。
+ * 2. **披露语义不同，不能共用同一个字段。** `uncheckedRange.excludedByTypeFilter`
+ *    回答的是「**本次**因调用方收窄而没看什么」，是逐次事实；本常量表达的是
+ *    「这些类型**恒定**不归本路径看」，其消费入口在别处（`31 §10` 的主动查）。
+ *    混用会让披露行把职责边界读成召回缺陷。
+ *
+ * 故正确做法是**让声明范围本身变小**：注入路径声明「除这些类型之外的全部类型」
+ * 都在范围内。本常量表达「哪些类型不在其声明范围内」，实现见 `recallForAction`
+ * 的 `excludeTypes` 参数（`scopedFacts`）。
+ *
+ * ── 依据 ───────────────────────────────────────────────────────────
+ *
+ * Human 决定（2026-10-27）：「Spark 不进召回，AI 主动查即可，不是必须要知道的
+ * 内容，有方便的查询工具即可」。`31 §10` 随之把方向线召回入口改为「由 AI 在
+ * 需要时主动查询」。`34 §15.1` 第 5 项把「**扩大**召回的类型范围」列为 Human
+ * 决定事项——收窄不在其中，故本收窄无须另经 Human Gate。
+ *
+ * 主动查的入口是 `ldvh_spark_list`（`plugin/lib/spark-tools.js`），其
+ * `keyword`／`priorities`／`serves`／`status` 收窄参数见 `31 §10`。
+ */
+export const INJECTION_EXCLUDED_TYPES = Object.freeze(["spark"]);
+
+/**
  * **通用词**：在本语料里高频出现、本身不锁定主题的词（「任何」「规范」「执行」
  * 「测试」「写」「改」…）。它们**不该单独构成命中依据**，但在真正的主题查询里
  * 是必需的组成部分，故不丢、只降级。
@@ -415,47 +455,7 @@ export function statusRank(status) {
  * @param {{fact: object, index: number}} b
  * @returns {number} 负数 / 0 / 正数
  */
-/**
- * **方向讨论**的动作迹象（`31 §10` 消费时机第 1 项：「讨论与规划时：召回相关
- * 未决方向，判断当次讨论是否已有前情」）。
- *
- * **这是同分时的组内重排，不是新增必需类型。** `REQUIRED_RECALL_TYPES` 的语义是
- * 「`03 §6.1` 标准路径点名的必需集」，其值（adr/pitfall）由该条原文固定，
- * 本模块不改它——把 Spark 提为必需类型会扩张一条跨类型强制召回规则，超出
- * `03 §6.1` 已点名的两类，属 `00 §4.2` 的规则扩张，须经规范修订与 Human 决定。
- *
- * 故此处只做一件事：**当动作迹象表明本回合在讨论/规划方向时**，命中的
- * open Spark 在**证据同分**的前提下先于其它非必需类型。三条边界（缺一即越界）：
- *   1. 不改变必需集，ADR/Pitfall 仍在同分时优先（`03 §6.1` 不被削弱）；
- *   2. 不增加返回条数，`limit` 与预算口径完全不变（不烧额外注入预算）；
- *   3. 不清除任何类型——其余类型仍全部保留，只是同分时相对次序变化。
- *
- * **它排在证据强度之后**（`weakHit`→`tier`→`hits` 之后、必需类型同分位之前）：
- * 证据更强的候选永远先看，方向讨论只解决「同样强时谁先」——这与 `compareFactHits`
- * 第二版「证据强度先行」的教训一致，不得拿它做无条件前置。
- *
- * 判据是**确定性词表匹配**（`02 §9` 红线：不得用相似度/AI 输出裁决相关性）。
- * 词表只收「讨论、规划、方向、议题、悬置」这类**指向方向线本身**的词，
- * 不收「改、修、查、推进」这类动作词——「推进工单」不是讨论方向的迹象，
- * 把动作词收进来会让该优先位在无关回合被激活，等于把噪声排到前面。
- */
-export const DIRECTION_DISCUSSION_MARKERS = Object.freeze([
-  "讨论", "规划", "方向", "议题", "悬置", "未决", "火花", "spark", "方向线",
-]);
-
-/**
- * 本回合动作是否带「讨论/规划方向」的迹象（`31 §10` 消费时机第 1 项）。
- *
- * 返回 `true` 时，open Spark 在**证据同分**时获得排序优先——**仅此而已**：
- * 不改变是否召回、不改变条数与预算、不越过证据更强的候选。
- */
-export function isDirectionDiscussion(action) {
-  if (typeof action !== "string" || action === "") return false;
-  const lowered = action.toLowerCase();
-  return DIRECTION_DISCUSSION_MARKERS.some((marker) => lowered.includes(marker));
-}
-
-export function compareFactHits(a, b, { directionDiscussion = false } = {}) {
+export function compareFactHits(a, b) {
   const fa = a?.fact ?? {};
   const fb = b?.fact ?? {};
   const num = (v) => (Number.isFinite(v) ? v : 0);
@@ -465,14 +465,9 @@ export function compareFactHits(a, b, { directionDiscussion = false } = {}) {
     num(fb.hits) - num(fa.hits);
   if (evidence !== 0) return evidence;
   const rank = (f) => (REQUIRED_RECALL_TYPES.includes(f.type) ? 0 : 1);
-  // 方向讨论回合的 open Spark 同分组（`31 §10` 消费时机第 1 项）。
-  // **值取 0.5 而非 0**：必需类型（rank 0）仍须先于它，故它只能在
-  // 「非必需且非 Spark」的 rank 1 之前——不得越过 ADR/Pitfall。
-  const directionRank = (f) =>
-    directionDiscussion && f.type === "spark" && f.status === "open" ? 0.5 : rank(f);
   return (
     statusRank(fa.status) - statusRank(fb.status) ||
-    directionRank(fa) - directionRank(fb) ||
+    rank(fa) - rank(fb) ||
     String(fb.updatedAt ?? "").localeCompare(String(fa.updatedAt ?? "")) ||
     String(fa.path ?? "").localeCompare(String(fb.path ?? "")) ||
     num(a?.index) - num(b?.index)
@@ -1320,6 +1315,9 @@ export function matchCandidate(actionTokens, candidate, corpusStats) {
  * @param {string} input.action       动作描述（即将发生什么）
  * @param {string} [input.scope]      补充范围词（文件/对象/能力，34 §7 必需输入）
  * @param {string[]} [input.types]    只召回这些事实类型（adrs/norms/pitfalls/…）
+ * @param {string[]} [input.excludeTypes] 这些类型**不属本次声明范围**（不形成候选，
+ *   且**不使完整度降级**、不进 `excludedByTypeFilter`——它们不是「本次漏查」，
+ *   而是由另一条路径承接）。注入路径用 `INJECTION_EXCLUDED_TYPES` 传入。
  * @param {string[]} [input.statuses] 默认 `["active"]`；写入前查重可加 `["draft","open"]`
  * @param {boolean} [input.includeSpecs] 是否召回规范源，默认 true
  * @param {number} [input.limit]     每侧最多返回条数，默认 5
@@ -1367,13 +1365,16 @@ export async function recallForAction(input = {}) {
   // ADR/Pitfall 的优先级改由**排序**保证（见 `REQUIRED_RECALL_TYPES`），
   // 而不是靠**过滤**——过滤会漏，排序只是把必需类型提前。
   const types = Array.isArray(input.types) ? input.types : null;
+  // **声明范围之外的常驻排除**（`31 §10`，与 `types` 语义不同，见
+  // `INJECTION_EXCLUDED_TYPES` 的说明）：这些类型**根本不进入本次声明范围**，
+  // 故既不形成候选，也**不使完整度降级**、不进 `excludedByTypeFilter`。
+  // 与 `types` 的关键差别：`types` 是「本次只看这几类」，被排除者属「未检查
+  // 范围」，须逐条披露；本参数是「这些类型不属本路径的职责范围」，其归属由
+  // 另一条路径（主动查）承接，故不构成未检查。
+  const excludedTypes = Array.isArray(input.excludeTypes) ? input.excludeTypes : null;
   const includeSpecs = input.includeSpecs !== false;
 
   const query = `${action} ${input.scope ?? ""}`.trim();
-  // 本回合是否在讨论/规划方向（`31 §10` 消费时机第 1 项）。**只算一次**：
-  // 放进排序比较器会给每次两两比较重算一遍同一个判定（纯浪费，且让
-  // 「同一输入同一结果」的确定性理由变得不显然）。
-  const directionDiscussion = isDirectionDiscussion(action);
   const tokens = tokenize(query);
   if (tokens.length === 0) {
     return {
@@ -1411,9 +1412,18 @@ export async function recallForAction(input = {}) {
     isReadableDir(factsDir),
   ]);
 
+  // **声明范围的边界先落地**（见 `excludedTypes` 的说明）：`scopedFacts` 是
+  // 本次召回的**声明范围**，`facts` 仍是事实源全量（F0 计数用它，因为 F0 描述
+  // 的是事实源整体状况，不是本次范围）。凡「未检查范围」「完整度」「被排除数」
+  // 都必须基于 `scopedFacts`——否则声明范围外的类型会被报成「本次漏查」，
+  // 既让 `recallCompleteness` 恒降级，也让披露行每回合刷恒定噪音。
+  const scopedFacts = excludedTypes === null
+    ? facts
+    : facts.filter((c) => !excludedTypes.includes(c.type));
+
   // 过滤：**已登记类型** + 类型 + 状态。
   // 规范无 status 概念故全量参与。
-  const pool = facts.filter((c) => {
+  const pool = scopedFacts.filter((c) => {
     // **中间产物不进入召回**（02 §9.2）：只保留已登记类型。
     // 未登记类型（留观缓冲、缓存、草稿箱等事实源之外的中间产物）不形成候选卡。
     if (!REGISTERED_FACT_TYPES.includes(c.type)) return false;
@@ -1587,10 +1597,14 @@ export async function recallForAction(input = {}) {
     // **同分时**才让必需类型占先，最后用 `index` 保证确定性。
     // 三者全序，不依赖 sort 稳定性（02 §9 确定性红线）。
     //
-    // **方向讨论回合的加位**（`31 §10` 消费时机第 1 项）：同分时 let open Spark
-    // 先于其它非必需类型——它仍排在 ADR/Pitfall 与更强的证据之后，只在
-    // 「同样强、同样不是必需类型」时改变次序。见 `compareFactHits` 的 directionRank。
-    .sort((a, b) => compareFactHits(a, b, { directionDiscussion }))
+    // **方向讨论加位已撤销**（2026-10-27，`31 §10` 修订）：曾在此让 open Spark 在
+    // 同分时前移半档（`directionRank` / `isDirectionDiscussion`）。Human 决定
+    // 「Spark 不进召回，AI 主动查即可」，`31 §10` 随之改为「方向线不经自动注入，
+    // 由 AI 在需要时主动查询」。加位是**注入面专用**的优化：它只改变注入候选的
+    // 次序，对「主动查」毫无作用，却让规范与实现相反。故连同词表与四条用例一并
+    // 删除（`plugin/test/source-recall.test.mjs`）。主动查的入口在
+    // `ldvh_spark_list`（其 keyword／priorities／serves 收窄参数见 31 §10）。
+    .sort((a, b) => compareFactHits(a, b))
     .map((entry) => entry.fact);
   const specHits = allSpecHits.slice(0, limit);
   const factHits = allFactHits.slice(0, limit);
@@ -1640,7 +1654,7 @@ export async function recallForAction(input = {}) {
     // `recall-spec-drift.test.mjs` 守卫、随 22 状态闭集同步的那份。两处不一致
     // 时基线会静默漂移（第二规则源风险，01 §11.4）。
     const adrActiveStatuses = DEFAULT_STATUSES_BY_TYPE.adr;
-    const active = facts.filter(
+    const active = scopedFacts.filter(
       (fact) => fact.type === "adr" && adrActiveStatuses.includes(fact.status),
     );
     // 确定性排序（`02 §9` 红线）：标题码点序，同标题再按稳定引用兜底。
@@ -1762,7 +1776,7 @@ export async function recallForAction(input = {}) {
   // 同一个值，不得各算各的——同一对象字面量内后续声明的键此时尚未求值，
   // 内联 IIFE 无法被 gaps 引用，故提取为函数级 const。判定口径见 return 处注释。
   const recallCompletenessValue = (() => {
-    const filteredOut = facts.length - pool.length > 0;
+    const filteredOut = scopedFacts.length - pool.length > 0;
     const singleSourceByCaller = includeSpecs === false;
     if (sourceUnreadable && returnedCount === 0) return "unavailable";
     if (truncated || filteredOut || sourceUnreadable || singleSourceByCaller) return "partial";
@@ -1915,7 +1929,7 @@ export async function recallForAction(input = {}) {
       // 不传 types 得到同一个数）——「扫了多少」这个数就失去意义。
       candidatesScanned: specs.length + pool.length,
       // 载入后**未进入匹配**的候选数（被类型/状态/白名单过滤掉的）。
-      candidatesExcluded: facts.length - pool.length,
+      candidatesExcluded: scopedFacts.length - pool.length,
     },
     pagination: {
       limit,
@@ -1979,7 +1993,7 @@ export async function recallForAction(input = {}) {
       // `02 §9.2` 禁把零结果当无约束；同一道理，禁把「不认识」当「不存在」。
       // 具体被挡的条目另见 uncheckedRange.excludedByTypeWhitelist。
       ...(() => {
-        const unknown = facts.filter((fact) => !REGISTERED_FACT_TYPES.includes(fact.type));
+        const unknown = scopedFacts.filter((fact) => !REGISTERED_FACT_TYPES.includes(fact.type));
         if (unknown.length === 0) return [];
         const byType = [...new Set(unknown.map((fact) => fact.type))].sort();
         return [
@@ -2016,7 +2030,11 @@ export async function recallForAction(input = {}) {
         scanned: specs.length + pool.length,
         totalLoaded: specs.length + facts.length,
         // 未参与匹配的（被类型/状态/白名单过滤）——与 uncheckedRange 同源但此处给数。
-        notScanned: facts.length - pool.length,
+        notScanned: scopedFacts.length - pool.length,
+        // **声明范围之外**的类型条数（`excludedTypes`）：它们不属本次职责范围，
+        // 故不算 notScanned（那会把「不归我管」说成「我漏了」），但也不能不报，
+        // 否则 totalLoaded − scanned 会凭空对不上账。
+        notInScope: facts.length - scopedFacts.length,
       },
       // 类型清单：使消费方能知道「有哪些类型存在」，而非只知道「命中了哪些」。
       typesPresent: [...new Set(facts.map((fact) => fact.type))].sort(),
@@ -2048,15 +2066,22 @@ export async function recallForAction(input = {}) {
     // 「没看到」误当成「没有」——正是 `02 §9.2` 要防的「把零结果当无约束」。
     uncheckedRange: {
       // 被过滤掉的事实（按原因分列，读者可判断是否需要放宽）。
-      excludedByTypeFilter: types === null ? [] : facts
+      excludedByTypeFilter: types === null ? [] : scopedFacts
         .filter((fact) => !types.includes(fact.type))
         .map((fact) => ({ type: fact.type, title: fact.title, path: fact.path })),
-      excludedByStatus: facts
+      excludedByStatus: scopedFacts
         .filter((fact) => types === null || types.includes(fact.type))
         .filter((fact) => !statusAllowed(fact.type, fact.status))
         .map((fact) => ({ type: fact.type, status: fact.status, title: fact.title, path: fact.path })),
-      excludedByTypeWhitelist: facts
+      excludedByTypeWhitelist: scopedFacts
         .filter((fact) => !REGISTERED_FACT_TYPES.includes(fact.type))
+        .map((fact) => ({ type: fact.type, title: fact.title, path: fact.path })),
+      // **声明范围之外**（`excludedTypes`）：这些类型不属本路径职责，其消费入口
+      // 在别处（Spark 见 `31 §10` 的 `ldvh_spark_list` 主动查）。**单列一项而不并进
+      // 上面三类**，是因为三者都回答「我漏了什么」，而本项回答「什么不归我看」——
+      // 混为一谈会让读者把职责边界读成召回缺陷。
+      excludedByScope: excludedTypes === null ? [] : facts
+        .filter((fact) => excludedTypes.includes(fact.type))
         .map((fact) => ({ type: fact.type, title: fact.title, path: fact.path })),
       // 整源未载入（N-1：三种情形都算「该源完全没看」，逐类列出）：
       //   · 调用方显式排除规范源（includeSpecs:false）；

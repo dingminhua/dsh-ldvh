@@ -1230,3 +1230,48 @@ test("白名单改为「失败关闭」：未知 kind 须被排除，不得按�
 		"未知 kind 须被排除——黑名单方向会让它冒充用户查询，而那正是本次事故的成因",
 	);
 });
+
+// ---------------------------------------------------------------------------
+// 31 §10（2026-10-27 修订）：Spark 不进自动注入
+// ---------------------------------------------------------------------------
+
+test("31 §10：注入路径须把 Spark 排除在声明范围外（否则规范与实现相反）", async () => {
+	// 这条用例钉的是**接线**，不是 `recallForAction` 的能力：`excludeTypes` 传不传，
+	// 数据层都对；漏传则注入行里照样出现 spark 候选，而 `31 §10` 已改为
+	// 「方向线不经自动注入，由 AI 主动查」。接线漏掉不会报错，只会静默回退到旧行为。
+	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join: joinPath } = await import("node:path");
+	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-injspark-"));
+	const write = async (dir, type, uid, title, status) => {
+		await mkdir(joinPath(project, "ldvh-base", dir), { recursive: true });
+		await writeFile(
+			joinPath(project, "ldvh-base", dir, `${uid}.md`),
+			`---\ntitle: ${title}\nstatus: ${status}\nscope: 适用于注入范围测试\nobject_uid: ${uid}\nfact_type_key: ${type}\n---\n\n# ${title}\n\n## 现象\n\n注入范围测试载体。\n`,
+			"utf8",
+		);
+	};
+	try {
+		await write("sparks", "spark", "44444444-4444-4444-8444-444444444444", "注入范围测试 火花条目", "open");
+		await write("pitfalls", "pitfall", "55555555-5555-4555-8555-555555555555", "注入范围测试 经验条目", "active");
+
+		const built = await buildRecallInjection({
+			userText: "修改 注入范围测试 相关的实现",
+			projectRoot: project,
+			budgetBytes: 40000,
+			limit: 10,
+		});
+		assert.equal(built.inject, true, "前提：本回合应进入注入路径");
+		const types = built.result.facts.map((f) => f.type);
+		assert.ok(!types.includes("spark"), `注入候选不得含 spark，实测：${types.join(",")}`);
+		assert.ok(types.includes("pitfall"), "同批 pitfall 仍须进入注入（排除是定向的）");
+		// 声明范围之外的条目须如实可见（不隐藏边界），但**不得冒充**「被类型过滤」。
+		assert.equal(built.result.uncheckedRange.excludedByTypeFilter.length, 0);
+		assert.ok(
+			built.result.uncheckedRange.excludedByScope.some((f) => f.type === "spark"),
+			"excludedByScope 须如实列出被排除的 spark",
+		);
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+});

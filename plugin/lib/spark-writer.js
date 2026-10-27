@@ -852,15 +852,52 @@ export async function readSparkObject(args) {
  * - Files that fail to parse are reported in `invalid` — never skipped
  *   silently (03 §8.1 F0 includes the invalid/unavailable object list).
  * - A missing sparks directory is a valid empty state, not an error.
+ *
+ * 收窄参数 `keyword` / `priorities` / `serves`（2026-10-27 新增）：
+ *
+ * 为什么加：`31 §10` 2026-10-27 修订后，方向线**不再进入宿主自动注入路径**——
+ * 召回侧不再把未决方向送到对话里（见 `recall-injection.js` 的 `INJECTION_EXCLUDED_TYPES`
+ * 与 `31 §10`「召回入口」段）。取而代之的是「AI 主动查」，因此本查询工具的**可查性**
+ * 就是这条路径成立的前提：只能按状态全量列举时，open 数十条只能整页读出人肉比对，
+ * 实际等于「查不到」。三个参数各自对应 `20 §12` 已登记的消费维度（`priority`、
+ * `serves`）与查重所需的语义输入（`title`/`question`，`20 §6.2`）。
+ *
+ * 边界（刻意不做的）：
+ * - `keyword` 是**字面子串**匹配，不是语义相似度——`03 §8.2` 禁止机械裁决「是否同题」，
+ *   本参数只用来把候选缩小到可读范围，同题与否仍由 AI 在 projection 上判断。
+ * - 不提供排序参数：`created_at` 倒序是查重与续接的自然序（见下方 sort 注释）。
+ * - 过滤与 `limit` 的顺序：先过滤后截断——`total` 始终是**过滤后**的命中总数，
+ *   否则「按 priority 查 P1」会得到「全库前 200 条里的 P1」这种无法解释的结果。
  */
 export async function listSparkObjects(args) {
-  const { factSourceRoot, includeTerminal = false, limit = 200 } = args;
+  const { factSourceRoot, includeTerminal = false, limit = 200, keyword = null, priorities = null, serves = null } = args;
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
     return failure("invalid_request", "factSourceRoot is required");
   }
   if (!Number.isInteger(limit) || limit < 1) {
     return failure("invalid_request", "limit must be a positive integer");
   }
+  // 收窄参数的校验一律 fail-closed：拼错一个档位若被静默忽略，调用方会拿到一份
+  // 「看起来是筛过的」全集，比直接报错危险得多（`02 §9.2` 禁把零结果当无约束）。
+  if (keyword !== null && (typeof keyword !== "string" || keyword.trim().length === 0)) {
+    return failure("invalid_request", "keyword must be a non-empty string when provided");
+  }
+  const needle = keyword === null ? null : keyword.trim().toLowerCase();
+  if (priorities !== null) {
+    if (!Array.isArray(priorities) || priorities.length === 0) {
+      return failure("invalid_request", "priorities must be a non-empty array when provided");
+    }
+    for (const value of priorities) {
+      if (!PRIORITY_VALUES.has(value)) {
+        return failure("invalid_request", `priorities: must be among ${[...PRIORITY_VALUES].join("/")}, got ${JSON.stringify(value)}`);
+      }
+    }
+  }
+  const prioritySet = priorities === null ? null : new Set(priorities);
+  if (serves !== null && (typeof serves !== "string" || serves.trim().length === 0)) {
+    return failure("invalid_request", "serves must be a non-empty string when provided");
+  }
+  const servesNeedle = serves === null ? null : serves.trim();
 
   const typeDir = join(factSourceRoot, SPARK_DIRECTORY);
   let entries;
@@ -868,7 +905,22 @@ export async function listSparkObjects(args) {
     entries = await readdir(typeDir, { withFileTypes: true });
   } catch (error) {
     if (error?.code === "ENOENT") {
-      return success({ items: [], total: 0, complete: true, invalid: [] });
+      // 空态也要回带 filters：调用方按同一形状读取，缺字段会在「目录不存在」
+      // 这条路径上抛 TypeError——而空态恰恰是最常见的首次使用场景。
+      // 形状须与正常返回**逐键一致**：调用方按同一形状读取，缺键会在
+      // 「目录不存在」这条路径上抛 TypeError——而空态恰恰是首次使用的常见场景。
+      return success({
+        items: [],
+        total: 0,
+        complete: true,
+        invalid: [],
+        filters: {
+          status: includeTerminal ? "all" : "open",
+          keyword: needle === null ? null : keyword.trim(),
+          priorities: priorities === null ? null : [...priorities],
+          serves: servesNeedle,
+        },
+      });
     }
     return failure("spark/directory_unavailable", `cannot read sparks directory: ${error.message}`);
   }
@@ -905,6 +957,17 @@ export async function listSparkObjects(args) {
       continue;
     }
     if (!includeTerminal && status !== "open") continue;
+    // 收窄过滤放在**解析 refs 之前**：refs 解析要对每个条目做一次跨类型查找，
+    // 把不相干的候选挡在后面就省掉了这部分开销——这是本函数里唯一的异步步骤。
+    if (prioritySet !== null && !prioritySet.has(frontmatter.priority)) continue;
+    if (servesNeedle !== null && frontmatter.serves !== servesNeedle) continue;
+    if (needle !== null) {
+      // title 与 question 是 20 §6.2 指定的查重语义输入，也正是本工具投影的字段；
+      // keyword 只在二者上做字面匹配，不碰 body（body 是 F3 全文，见 20 §12 分层）。
+      const title = typeof frontmatter.title === "string" ? frontmatter.title : "";
+      const question = typeof frontmatter.question === "string" ? frontmatter.question : "";
+      if (!title.toLowerCase().includes(needle) && !question.toLowerCase().includes(needle)) continue;
+    }
     // refs 目标的类型必须在此解析（见下方注释）：逐条时目标是别的类型，渲染层
     // 无从推断。解析失败的保留裸 uid —— 丢弃会让读者以为没有关联。
     const refsProjection = Array.isArray(frontmatter.refs) && frontmatter.refs.length > 0
@@ -951,7 +1014,21 @@ export async function listSparkObjects(args) {
   items.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
   const complete = items.length <= limit;
   const projected = complete ? items : items.slice(0, limit);
-  return success({ items: projected, total: items.length, complete, invalid });
+  // `filters` 回传被真正施加的条件：调用方（与 Human 读到的卡面）据此知道自己看的是
+  // 全集还是一份筛选结果。`{{none}}` 而非省略——「没筛」本身是要报告的事实
+  // （03 §8.1：不静默收窄，也不静默声称完整）。
+  return success({
+    items: projected,
+    total: items.length,
+    complete,
+    invalid,
+    filters: {
+      status: includeTerminal ? "all" : "open",
+      keyword: keyword === null ? null : keyword.trim(),
+      priorities: priorities === null ? null : [...priorities],
+      serves: servesNeedle,
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ import { join } from "node:path";
 
 import {
 	DEFAULT_STATUSES_BY_TYPE,
+	INJECTION_EXCLUDED_TYPES,
 	REGISTERED_FACT_TYPES,
 	REQUIRED_RECALL_TYPES,
 	HIGH_DF_RATIO,
@@ -29,8 +30,6 @@ import {
 	isWeakToken,
 	statusRank,
 	compareFactHits,
-	isDirectionDiscussion,
-	DIRECTION_DISCUSSION_MARKERS,
 } from "../lib/source-recall.js";
 import { RECALL_RENDER_CHAR_LIMIT, renderCharLimitFor } from "../lib/recall-injection.js";
 
@@ -1941,82 +1940,125 @@ test("渲染字符上限须由字节预算导出，不得固定成 1600（档位
 	assert.equal(renderCharLimitFor(0), RECALL_RENDER_CHAR_LIMIT);
 });
 
+
+// ---------------------------------------------------------------------------
+// 31 §10（2026-10-27 修订）：Spark 不进自动注入路径，改由 AI 主动查
+// ---------------------------------------------------------------------------
+
 /**
- * `31 §10` 消费时机第 1 项：「讨论与规划时：召回相关未决方向，判断当次讨论
- * 是否已有前情」。以下三条用例分别钉住该加位的**三条边界**——它们合起来才是
- * 「只重排、不扩张」的全部含义，任何一条失守都意味着越界。
+ * 构造一个可控事实源：一条 spark + 一条 adr + 一条 pitfall，标题用同一批词。
+ * 用临时项目而非本仓 `ldvh-base/`，因为本仓 spark 条数会随工作漂移，
+ * 断言写死条数必然变成「改数字」的脆弱用例。
  */
-test("方向讨论回合：open Spark 在证据同分时前移（31 §10 消费时机第 1 项）", () => {
-	// 用纯函数直接验证排序键，不依赖语料的偶然命中分布——
-	// 语料会随时间漂移，而这条纪律本身不该随语料改变。
-	const sparkOpen = { fact: { type: "spark", status: "open", weakHit: false, tier: 1, hits: 1 }, index: 0 };
-	const frictionOpen = { fact: { type: "friction", status: "open", weakHit: false, tier: 1, hits: 1 }, index: 1 };
-	const pitfall = { fact: { type: "pitfall", status: "active", weakHit: false, tier: 1, hits: 1 }, index: 2 };
-
-	// 方向讨论回合：Spark 先于同等证据的非必需类型。
-	assert.ok(
-		compareFactHits(sparkOpen, frictionOpen, { directionDiscussion: true }) < 0,
-		"方向讨论回合，同分时 open Spark 应排在 friction 之前",
-	);
-	// 非方向回合：不加位，同分时按 index 原序（sparkOpen.index=0 先于 friction.index=1）。
-	// 与方向回合对比：dir=true 时差值为 -0.5（仅加位造成的半档），dir=false 时
-	// 为 -1（纯 index 原序）——两者不同即证明加位只在方向回合生效。
-	assert.equal(
-		compareFactHits(sparkOpen, frictionOpen, { directionDiscussion: false }),
-		-1,
-		"非方向回合，同分时须按 index 原序（加位未激活）",
-	);
-	assert.equal(
-		compareFactHits(sparkOpen, frictionOpen, { directionDiscussion: true }),
-		-0.5,
-		"方向回合的加位应恰好改变半档，不改变其它排序语义",
-	);
-	// 关键：**仍须排在 ADR/Pitfall 之后**（03 §6.1 的必需集不被削弱）。
-	assert.ok(
-		compareFactHits(sparkOpen, pitfall, { directionDiscussion: true }) > 0,
-		"open Spark 不得越过 ADR/Pitfall——必需集由 03 §6.1 固定",
-	);
-});
-
-test("证据更强的候选永远先于该加位（加位只在同分时生效）", () => {
-	// 这条是 2026-10-27 那次「排序键第一版无条件前置」教训的回归守卫：
-	// 若把方向加位提到证据强度之前，证据更厚的非 Spark 会被压下去。
-	const sparkOpen = { fact: { type: "spark", status: "open", weakHit: false, tier: 1, hits: 1 }, index: 0 };
-	const strongOther = { fact: { type: "friction", status: "open", weakHit: false, tier: 1, hits: 9 }, index: 1 };
-	assert.ok(
-		compareFactHits(sparkOpen, strongOther, { directionDiscussion: true }) > 0,
-		"证据更厚的候选须仍排在 open Spark 之前——加位不得越过 weakHit/tier/hits",
-	);
-});
-
-test("方向判定只管方向词，不收动作词（防无关回合被激活）", () => {
-	// 纯实现动作：不含任何方向词。
-	assert.equal(isDirectionDiscussion("改一下这个按钮颜色"), false);
-	assert.equal(isDirectionDiscussion("修复测试失败"), false);
-	// 「推进工单」含动作词，不得触发——否则该加位会在无关回合被激活。
-	assert.equal(isDirectionDiscussion("推进那个工单到关闭"), false);
-	// 方向词才触发。
-	assert.equal(isDirectionDiscussion("这个方向还悬着"), true);
-	assert.equal(isDirectionDiscussion("讨论一下火花记录"), true);
-	// 词表本身不得含动作词（形态守卫，防后续「顺手加一个」）。
-	for (const verb of ["改", "修", "查", "删除", "推进"]) {
-		assert.equal(
-			DIRECTION_DISCUSSION_MARKERS.includes(verb),
-			false,
-			`词表不得收动作词「${verb}」`,
+async function withSparkFixture(fn) {
+	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join: joinPath } = await import("node:path");
+	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-injscope-"));
+	const write = async (dir, type, uid, title, status) => {
+		await mkdir(joinPath(project, "ldvh-base", dir), { recursive: true });
+		await writeFile(
+			joinPath(project, "ldvh-base", dir, `${uid}.md`),
+			`---\ntitle: ${title}\nstatus: ${status}\nscope: 适用于召回范围测试\nobject_uid: ${uid}\nfact_type_key: ${type}\n---\n\n# ${title}\n\n## 现象\n\n召回范围测试载体。\n`,
+			"utf8",
 		);
+	};
+	try {
+		await write("sparks", "spark", "11111111-1111-4111-8111-111111111111", "召回范围测试 火花条目", "open");
+		await write("adrs", "adr", "22222222-2222-4222-8222-222222222222", "召回范围测试 决策条目", "active");
+		await write("pitfalls", "pitfall", "33333333-3333-4333-8333-333333333333", "召回范围测试 经验条目", "active");
+		return await fn(project);
+	} finally {
+		await rm(project, { recursive: true, force: true });
 	}
+}
+
+test("31 §10：excludeTypes 的类型不形成候选（Spark 不进自动注入）", async () => {
+	await withSparkFixture(async (project) => {
+		const q = { action: "召回范围测试", root: project, limit: 10, budgetBytes: 40000, includeSpecs: false };
+		const before = await recallForAction(q);
+		assert.ok(before.facts.some((f) => f.type === "spark"), "前提：不排除时 spark 是候选");
+
+		const after = await recallForAction({ ...q, excludeTypes: INJECTION_EXCLUDED_TYPES });
+		assert.ok(!after.facts.some((f) => f.type === "spark"), "排除后不得出现 spark 候选");
+		// 其余类型不受影响——排除是**定向**的，不是整体收窄。
+		assert.ok(after.facts.some((f) => f.type === "adr"), "adr 仍须是候选");
+		assert.ok(after.facts.some((f) => f.type === "pitfall"), "pitfall 仍须是候选");
+	});
 });
 
-test("该加位不得扩张必需集，也不得改变条数与预算口径", async () => {
-	// 1) 必需集逐字不变（03 §6.1 标准路径只点名 ADR/Pitfall；
-	//    把 Spark 提为必需类型属 00 §4.2 的规则扩张，不由此处代行）。
-	assert.deepEqual([...REQUIRED_RECALL_TYPES], ["adr", "pitfall"]);
+test("31 §10：excludeTypes 不使完整度降级、不冒充「被类型过滤」", async () => {
+	// 这是 `excludeTypes` 与 `types` 的**语义分界**，也是本设计的存在理由：
+	//   · `types` 是「本次只看这几类」→ 被排除者属**未检查范围**，须逐条披露；
+	//   · `excludeTypes` 是「这些类型不归本路径看」→ 其入口在主动查，不算漏查。
+	// 若二者共用同一字段，注入行会每回合把职责边界报成召回缺陷。
+	await withSparkFixture(async (project) => {
+		const q = { action: "召回范围测试", root: project, limit: 10, budgetBytes: 40000, includeSpecs: false };
 
-	// 2) 同一查询在方向讨论措辞下，返回条数不得多于 limit。
-	const direction = await recallForAction({ action: "讨论这个方向", root: ROOT, limit: 5, budgetBytes: 20000 });
-	assert.ok(direction.facts.length <= 5, "不得超过 limit");
+		const narrowed = await recallForAction({ ...q, types: ["adr", "pitfall"] });
+		assert.ok(
+			narrowed.uncheckedRange.excludedByTypeFilter.some((f) => f.type === "spark"),
+			"types 白名单：被排除者须进 excludedByTypeFilter（本次漏查）",
+		);
 
-	// 3) 命中总数须不小于返回数（02 §9.1 禁止静默截断）。
-	assert.ok(direction.counts.factHits >= direction.facts.length, "命中总数须不小于返回数");
+		const scoped = await recallForAction({ ...q, excludeTypes: INJECTION_EXCLUDED_TYPES });
+		assert.equal(
+			scoped.uncheckedRange.excludedByTypeFilter.length,
+			0,
+			"excludeTypes：不得冒充「被类型过滤」",
+		);
+		assert.ok(
+			scoped.uncheckedRange.excludedByScope.some((f) => f.type === "spark"),
+			"excludeTypes：须在独立的 excludedByScope 里如实列出（不隐藏边界）",
+		);
+		// 完整度：同为「只看 adr/pitfall」，两种参数必须得到不同的取值。
+		assert.equal(
+			scoped.recallCompleteness,
+			narrowed.recallCompleteness,
+			"在其它条件相同时，声明范围收窄不应比运行期收窄更差",
+		);
+	});
+});
+
+test("31 §10：excludedByScope 与 notInScope 计数自洽", async () => {
+	await withSparkFixture(async (project) => {
+		const q = { action: "召回范围测试", root: project, limit: 10, budgetBytes: 40000, includeSpecs: false };
+		const all = await recallForAction(q);
+		const scoped = await recallForAction({ ...q, excludeTypes: INJECTION_EXCLUDED_TYPES });
+		assert.equal(
+			scoped.uncheckedRange.excludedByScope.length,
+			1,
+			"夹具里恰有 1 条 spark 在声明范围之外",
+		);
+		// 「载入的 − 范围内的 = 范围外」必须对得上账，否则 coverage 无法核对。
+		assert.equal(
+			scoped.f0.coverage.totalLoaded - scoped.f0.coverage.scanned - scoped.f0.coverage.notScanned,
+			scoped.uncheckedRange.excludedByScope.length,
+			"totalLoaded − scanned − notScanned 须等于范围外条数",
+		);
+		// 范围外条数不随本次 limit 变化（它是范围事实，不是截断事实）。
+		assert.equal(all.f0.coverage.notInScope, 0, "不传 excludeTypes 时范围外为 0");
+		assert.equal(scoped.f0.coverage.notInScope, 1);
+	});
+});
+
+test("31 §10：excludeTypes 为 null 时行为与不传完全一致（不改变既有调用方）", async () => {
+	await withSparkFixture(async (project) => {
+		const q = { action: "召回范围测试", root: project, limit: 10, budgetBytes: 40000, includeSpecs: false };
+		const a = await recallForAction(q);
+		const b = await recallForAction({ ...q, excludeTypes: null });
+		assert.deepEqual(
+			b.facts.map((f) => f.path),
+			a.facts.map((f) => f.path),
+			"null 与不传须等价",
+		);
+		assert.equal(b.recallCompleteness, a.recallCompleteness);
+	});
+});
+
+test("31 §10：注入路径的声明范围常量只含 spark（收窄不得扩大）", async () => {
+	// 34 §15.1 第 5 项把「**扩大**召回的类型范围」列为 Human 决定事项；
+	// 收窄不在其中。本用例钉住「这里只会变窄」——若有人往名单里加类型，
+	// 那是在扩大而非收窄，须走 Human Gate，用例会红。
+	assert.deepEqual([...INJECTION_EXCLUDED_TYPES], ["spark"]);
 });
