@@ -77,6 +77,8 @@ import {
   listPitfallObjects,
 } from "./pitfall-writer.js";
 import { h2Titles, sectionContent } from "./markdown-structure.js";
+import { open as fsOpen, unlink as fsUnlink, mkdir as fsMkdir, stat as fsStat } from "node:fs/promises";
+import { join as pathJoin, dirname as pathDirname } from "node:path";
 
 // ---------------------------------------------------------------------------
 // 常量（23 §8 的只读投影，见上方「七段常量为何在这里再声明一次」）
@@ -347,6 +349,128 @@ export async function collectExistingPitfalls({ factSourceRoot, limit = 200 } = 
     });
   }
   return success({ items, truncated: !listed.value.complete, invalid: listed.value.invalid });
+}
+
+// ---------------------------------------------------------------------------
+// 单条目认领（2026-10-27，防并发重复成文）
+// ---------------------------------------------------------------------------
+//
+// ## 防的是什么
+//
+// 实测（2026-10-27）：**并发**跑两次审核同一条目，会产出**两个重复的 draft**
+// （两个不同 object_uid，因为 `createPitfallObject` 用 `randomUUID()` 分配身份），
+// 且两次都报 `ok:true`——外面完全看不出来。串行重跑是安全的（结算后条目退出
+// 候选集），只有并发才漏。
+//
+// 根因：`读 pending → 判 formed → 写 draft → 写 settle` 这一步里，「检查状态」与
+// 「推进状态」不在同一个临界区。两方都在对方写 settle 之前读到了 pending。
+//
+// ## 为什么不用「先 settle 再创建」
+//
+// 那会把顺序倒过来：一旦创建失败，条目已被结算成 consumed 却指向一个不存在的
+// 对象，材料就丢了（比重复更糟）。
+//
+// ## 为什么不用「新增 in-flight 状态」
+//
+// 缓冲状态闭集是 `pending/consumed/discarded/evicted`（§12bis），**新增状态要改
+// 规范闭集**；而且 in-flight 是软状态，进程崩溃后会留下永远卡住的条目，需要额外
+// 的租约/超时机制——那等于为一个小口子引入一套新状态机。
+//
+// ## 用什么
+//
+// 用文件系统的**原子排他创建**（`open(path, "wx")`）做认领：以条目 id 命名的
+// 认领文件，谁先建成谁继续，另一方拿 `EEXIST` 即知「这条有人在处理」，跳过。
+// 认领文件是**临时物**，不是事实源、不是缓冲条目、不进入任何闭集；它在创建
+// 成功（或失败）后即删除，崩溃残留由下次认领时按 mtime 过期回收。
+//
+// **边界如实声明**：这是**单机文件系统**级的互斥，覆盖同一台机器上的多个插件
+// 实例/进程；它不覆盖跨机器共享同一 `~/.dsh` 的情形（那种场景没有共享文件系统
+// 语义，需另议）。本项目的实际部署形态是单机单宿主，故该边界够用，但不得据此
+// 声称「任何情况下都不重复」。
+
+/** 认领文件保留时长：超过即视为崩溃残留，可被回收。 */
+const CLAIM_STALE_MS = 10 * 60 * 1000;
+
+function claimPath(dshHomePath, projectId, entryId) {
+  const base = typeof dshHomePath === "function" ? dshHomePath("ldvh", "review-claims") : null;
+  if (base === null) return null;
+  const safeProject = String(projectId).replace(/[^A-Za-z0-9._-]/g, "_");
+  const safeEntry = String(entryId).replace(/[^A-Za-z0-9._-]/g, "_");
+  return pathJoin(base, `${safeProject}--${safeEntry}.claim`);
+}
+
+/**
+ * 尝试认领一条待审条目。
+ *
+ * @returns {Promise<{ok:true, release:Function}|{ok:false, reason:string}>}
+ *   `ok:false` 表示**另一方正在处理该条**（不是错误，跳过即可）。
+ */
+async function claimEntry(dshHomePath, projectId, entryId, now) {
+  const path = claimPath(dshHomePath, projectId, entryId);
+  if (path === null) return { ok: true, release: async () => {} };
+  try {
+    await fsMkdir(pathDirname(path), { recursive: true });
+  } catch {
+    // 建目录失败不致命：下面的 open 会给出真实错误。
+  }
+
+  const writeClaim = async () => {
+    const handle = await fsOpen(path, "wx");
+    try {
+      const atMs = now instanceof Date ? now.getTime() : (typeof now === "number" ? now : Date.parse(String(now)));
+      await handle.writeFile(
+        JSON.stringify({ entry_id: entryId, at: new Date(Number.isFinite(atMs) ? atMs : Date.now()).toISOString() }),
+        "utf8",
+      );
+    } finally {
+      await handle.close();
+    }
+  };
+
+  try {
+    await writeClaim();
+  } catch (error) {
+    if (error?.code !== "EEXIST") {
+      // 非「已存在」的失败：不阻断主流程（认领是尽力而为的护栏，不是正确性前提
+      // 的唯一来源——串行语义仍由状态推进保证），但如实返回不认领。
+      return { ok: false, reason: `claim could not be created: ${String(error?.message ?? error)}` };
+    }
+    // 已存在：看是否陈旧（崩溃残留）
+    let stale = false;
+    try {
+      const info = await fsStat(path);
+      stale = Date.now() - info.mtimeMs > CLAIM_STALE_MS;
+    } catch {
+      stale = false;
+    }
+    if (!stale) {
+      return { ok: false, reason: "another reviewer is already handling this entry" };
+    }
+    // 陈旧：回收后重试一次。删除与重建之间仍有极小竞态，但最坏结果退化为
+    // 「两边都认领成功」——即当前的无护栏情形，不会更糟。
+    try {
+      await fsUnlink(path);
+    } catch {}
+    try {
+      await writeClaim();
+    } catch (again) {
+      return { ok: false, reason: `stale claim could not be reclaimed: ${String(again?.message ?? again)}` };
+    }
+  }
+
+  let released = false;
+  return {
+    ok: true,
+    release: async () => {
+      if (released) return;
+      released = true;
+      try {
+        await fsUnlink(path);
+      } catch {
+        // 已被回收/删除：幂等忽略。
+      }
+    },
+  };
 }
 
 /**
@@ -676,7 +800,38 @@ export async function reviewPendingEntries({
       continue;
     }
 
-    const created = await createPitfallObject({
+    // ── 并发护栏：先认领，再创建（2026-10-27）───────────────────────────
+    // 这一段把「检查状态」与「推进状态」收进同一个临界区：认领不到即说明**另一方
+    // 正在处理这一条**，本方可跳过（该条下次仍在 pending，不会丢）。
+    // 见 claimEntry 的注释：防的是并发双写造成两个重复 draft。
+    // 认领之前**重新核对一次该条是否仍是 pending**：`pending` 是本轮开始时的快照，
+    // 而并发的另一方可能已经在快照之后把它结算掉了。只看快照会给出已过期的判断，
+    // 于是「锁已释放 + 快照仍显示 pending」两者叠加就会重复创建（实测残留 1 例）。
+    const fresh = await readBufferEntries(dshHomePath, { status: "pending", now, capacity, projectId });
+    if (fresh.ok && !fresh.value.items.some((item) => item.id === entry.id)) {
+      state.unsettled.push({
+        entry_id: entry.id,
+        code: "observation_review/already_settled",
+        message: `entry ${entry.id}: another reviewer settled it after this run took its snapshot; skipped so it is not judged twice (11 §10.2 一题一审)`,
+      });
+      continue;
+    }
+    const claim = await claimEntry(dshHomePath, projectId, entry.id, now);
+    if (claim.ok !== true) {
+      state.unsettled.push({
+        entry_id: entry.id,
+        code: "observation_review/entry_claimed_elsewhere",
+        message: `entry ${entry.id}: ${claim.reason}; skipped so this entry is not turned into two duplicate drafts (11 §10.2 一题一审) — it stays pending and will be delivered again`,
+      });
+      continue;
+    }
+
+    // **认领持有到结算完成**（2026-10-27 实测修正）：早先版本在创建成功后立即释放，
+    // 使「创建完 → 结算前」仍是一个窗口，实测仍产出重复 draft（3 条目出了 5 个文件）。
+    // 故认领必须覆盖「创建 + 回读 + 结算」整段，任何路径退出都释放。
+    let created;
+    try {
+      created = await createPitfallObject({
       factSourceRoot,
       // 机械通道初态只能是 draft（11 §10.2 第 3 项 / 23 §13）；创建与入档是同一
       // 决定的 Human 入口在此处不可达，故此处不存在任何 active 分支。
@@ -687,9 +842,9 @@ export async function reviewPendingEntries({
         ...(Array.isArray(proposal.urls) && proposal.urls.length > 0 ? { urls: proposal.urls } : {}),
         change_summary: `闲时辅助经验积累·审核段据缓冲条目 ${entry.id} 形成候选（11 §10.2 第 3 项）`,
       },
-      bodyMarkdown: proposal.body,
-      sessionSignature,
-    });
+        bodyMarkdown: proposal.body,
+        sessionSignature,
+      });
     if (!created.ok) {
       state.unsettled.push({ entry_id: entry.id, code: created.error?.code ?? "observation_review/create_failed", message:         `entry ${entry.id}: creating the draft candidate failed (11 §10.2 item 6): ${created.error?.message ?? "unknown"}`, });
       continue;
@@ -723,6 +878,11 @@ export async function reviewPendingEntries({
     if (!settled.ok) {
       state.unsettled.push({ entry_id: entry.id, code: settled.error?.code ?? "observation_review/settle_failed", message:         `entry ${entry.id}: the candidate ${created.value.object_uid} exists but the entry could not be settled as consumed (${settled.error?.message ?? "unknown"}); 11 §12ter.2 — fail-closed, never a success shape`, });
       continue;
+    }
+    } finally {
+      // 任何出口都释放：成功结算、创建失败、回读不符、结算失败、以及中途抛出。
+      // 认领是临时物，崩溃残留由 claimEntry 按 mtime 过期回收。
+      await claim.release();
     }
   }
 

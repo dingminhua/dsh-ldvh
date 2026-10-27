@@ -1064,3 +1064,74 @@ test("同题不二审：已结算的条目不再进入下一次候选集（靠�
     });
   });
 });
+
+// ── 并发双写不得产生重复 draft（2026-10-27 实测缺陷的守卫）──────────────────
+//
+// ## 缺陷
+//
+// 实测（2026-10-27）：**并发**跑两次审核同一批条目，产出**重复 draft**——
+// 3 个条目出了 5 个文件，其中两个标题各出现两次（`createPitfallObject` 用
+// `randomUUID()` 分配身份，故每次重复都是一个新对象，事后无法自动认出）。
+// 且两次都报 `ok:true`，外面完全看不出来。串行重跑是安全的（结算后条目退出
+// 候选集），**只有并发才漏**。
+//
+// 根因有两层，缺一不可：
+//   ① `读 pending → 判 → 写 draft → 写 settle` 之间没有互斥；
+//   ② `pending` 是**本轮开始时的快照**，并发的另一方可能在快照之后才结算，
+//      于是「锁已释放 + 快照仍显示 pending」叠加，照样重复。
+//
+// 修法：创建前**先重新核对该条是否仍 pending**，再用 `open(...,"wx")` 原子认领，
+// 认领**持有到结算完成**（早先版本在创建成功后就释放，实测仍残留 1 例重复）。
+//
+// ## 为什么必须用并发测
+//
+// 串行跑一万次都不会暴露这个缺陷。只有 `Promise.all` 同时起两路、且共用同一
+// 缓冲载体与同一事实源根，才能压出那个窗口。
+test("并发两次审核同一批条目 → 不得产生重复 draft（3 条目必须恰好 3 个文件）", async () => {
+  await withHome(async (home) => {
+    await withTemp("observation-review-facts-", async (factSourceRoot) => {
+      // 三条各自合法的条目（正文每段都回指 evidence）。
+      const ids = [];
+      for (const n of [1, 2, 3]) {
+        ids.push(await appendEntry(home, {
+          phenomenon: `第 ${n} 处以只读身份写配置失败：${EVIDENCE_LINE}`,
+          candidate_question: `第 ${n} 次的挂载身份是什么？`,
+        }));
+      }
+      const proposals = ids.map((id, index) => newCandidateProposal(id, {
+        title: ["并发守卫证据甲", "并发守卫证据乙", "并发守卫证据丙"][index],
+      }));
+
+      const [first, second] = await Promise.all([
+        reviewPendingEntries({
+          dshHomePath: home, projectId: FIXTURE_PROJECT_ID, factSourceRoot,
+          existingPitfalls: [], proposals, sessionSignature: TEST_SIGNATURE,
+        }),
+        reviewPendingEntries({
+          dshHomePath: home, projectId: FIXTURE_PROJECT_ID, factSourceRoot,
+          existingPitfalls: [], proposals, sessionSignature: TEST_SIGNATURE,
+        }),
+      ]);
+
+      // `listPitfallFiles` 返回的是**对象数组**（含 object_uid/status/title），不是路径
+      // 字符串——第一版对元素调 `.endsWith` 直接抛 TypeError。
+      const files = await listPitfallFiles(factSourceRoot);
+      assert.equal(
+        files.length, 3,
+        `3 个条目必须恰好形成 3 个 draft，实际 ${files.length} 个（多于 3 即重复成文）`,
+      );
+
+      // 两路合计成文数也不得超过条目数——多于说明同一条被写成两遍。
+      const formedTotal =
+        (first.value?.formed_all?.length ?? 0) + (second.value?.formed_all?.length ?? 0);
+      assert.equal(formedTotal, 3, `两路合计成文数应为 3，实际 ${formedTotal}`);
+
+      // 落败的那一路必须如实说出「这条被别人处理了」，而不是静默成功。
+      const skipped = [
+        ...(first.value?.unsettled ?? []),
+        ...(second.value?.unsettled ?? []),
+      ].filter((u) => ["observation_review/entry_claimed_elsewhere", "observation_review/already_settled"].includes(u.code));
+      assert.ok(skipped.length > 0, `被跳过的一路须如实登记原因：${JSON.stringify([first.value?.unsettled, second.value?.unsettled])}`);
+    });
+  });
+});
