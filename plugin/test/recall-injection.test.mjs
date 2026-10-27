@@ -1275,3 +1275,68 @@ test("31 §10：注入路径须把 Spark 排除在声明范围外（否则规范
 		await rm(project, { recursive: true, force: true });
 	}
 });
+
+test("34 §12：注入面须**无条件**披露声明范围（含 complete 与零命中两种情形）", async () => {
+	// **这条钉的是披露，不是接线**（独立审核 B2 / 轻微项 m4：此前只钉了「漏传
+	// excludeTypes 会静默回退」，没有任何一条断言注入文本真的说出了范围变更——
+	// 而「接线对了但注入面不说」正是审核认定的阻断后果链核心）。
+	//
+	// 三种情形都要出声，因为 `complete` 时不打印三态行、零命中时也不打印候选：
+	//   · partial（有候选）→ 三态行 + 声明范围行；
+	//   · complete（无候选但有基线）→ 三态行不打印，声明范围行**仍须打印**；
+	//   · 零命中（specs 与 facts 都空）→ 不得再邀请「扩大检索」，须指向替代入口。
+	// 用直接构造 result 的方式覆盖三种状态：走真实文件系统只能造出其中一种。
+	const { renderRecallRow } = await import("../lib/recall-injection.js");
+	const scope = {
+		types: ["spark"],
+		alternativeEntry: "Spark 方向线不在本路径扫描范围内，由 AI 主动查询取回（`ldvh_spark_list`，见 `31 §10`）",
+	};
+	const mk = (over) => ({
+		specs: [],
+		facts: [],
+		recallCompleteness: "partial",
+		uncheckedRange: {
+			scopeExcluded: scope,
+			sourceNotRead: [],
+			excludedByTypeFilter: [],
+			excludedByStatus: [],
+			excludedByTypeWhitelist: [],
+			excludedByScope: [{ type: "spark", title: "x", path: "p" }],
+		},
+		...over,
+	});
+
+	// ① complete：三态行不打印（既有纪律），但声明范围必须打印。
+	const complete = renderRecallRow(mk({ recallCompleteness: "complete" }));
+	assert.ok(
+		complete.includes("不含 spark"),
+		"complete 时也须披露声明范围——否则范围变更在注入面完全不可见",
+	);
+	assert.ok(complete.includes("ldvh_spark_list"), "披露须给出替代入口，不能只说「不含 spark」");
+	assert.ok(
+		!complete.includes("本次召回完整度"),
+		"complete 时不应打印三态行（既有纪律：稳态安静）",
+	);
+
+	// ② partial：两条都在。
+	const partial = renderRecallRow(mk({ recallCompleteness: "partial" }));
+	assert.ok(partial.includes("不含 spark") && partial.includes("本次召回完整度"));
+
+	// ③ 零命中：不得再说「必要时请自行扩大检索」（本路径结构上取不到 spark），
+	//    且须说出「扩大检索也取不到」与替代入口。
+	const zero = renderRecallRow(mk({ recallCompleteness: "complete" }));
+	assert.ok(zero.includes("未命中候选"));
+	assert.ok(
+		!zero.includes("必要时请自行扩大检索"),
+		"有声明范围时不得邀请扩大检索——那条路径上永远取不到被排除的类型",
+	);
+	assert.ok(zero.includes("ldvh_spark_list"), "零命中时须指向替代入口");
+
+	// ④ 反向：无排除范围时，原「扩大检索」邀请仍须保留（那时它确实成立）。
+	const noScope = renderRecallRow({
+		...mk({ recallCompleteness: "complete" }),
+		uncheckedRange: { ...mk().uncheckedRange, scopeExcluded: null, excludedByScope: [] },
+	});
+	assert.ok(noScope.includes("必要时请自行扩大检索"), "无排除范围时不该删掉这句");
+	assert.ok(!noScope.includes("不含 spark"), "无排除范围时不该凭空出现范围声明");
+});

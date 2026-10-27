@@ -42,7 +42,7 @@ const OPERATIONS = {
   },
   "spark-list-objects": {
     toolName: "ldvh_spark_list",
-    summary: "Enumerate Spark fact objects (F0/F1 discovery): dedup-relevant projection (title/question/status/serves/refs/priority) for the governed project; open-only by default; narrow with keyword / priorities / serves (specs/03 §8, specs/20 §12 — 主动查询是方向线唯一的入口，见 specs/31 §10)",
+    summary: "Enumerate Spark fact objects (F0/F1 discovery): dedup-relevant projection (title/question/status/serves/refs/priority) for the governed project; open-only by default; narrow with keyword / priorities / serves (specs/03 §8, specs/20 §12 — 主动查询是方向线的主要取回路径，见 specs/31 §10；按 object_uid 取单条仍用 ldvh_spark_read)",
     effect: "read"
   },
   "spark-write-object": {
@@ -201,11 +201,16 @@ async function executeListObject(args, exec, deps) {
   }
   const includeTerminal = args?.status === "all";
   const limit = typeof args?.limit === "number" && Number.isInteger(args.limit) && args.limit > 0 ? args.limit : 200;
-  // 收窄参数原样下传（`undefined` → writer 侧 `null`），校验只在 writer 一处：
-  // 两处各写一遍必然漂移，且工具层没有 PRIORITY_VALUES 这份闭集。
-  const keyword = typeof args?.keyword === "string" ? args.keyword : null;
-  const priorities = Array.isArray(args?.priorities) ? args.priorities : null;
-  const serves = typeof args?.serves === "string" ? args.serves : null;
+  // **收窄参数原样下传，不做类型预筛**（独立审核 m1，2026-10-27 修）：原先写
+  // `typeof args?.keyword === "string" ? args.keyword : null`，于是 `keyword: 123`
+  // 或 `priorities: "P1"` 被**静默降级成「不筛」**——调用方以为筛过了，实际拿到
+  // 全集，比直接报错危险得多（`02 §9.2` 禁把零结果当无约束，同理禁把「筛错了」
+  // 当「没筛」）。现在只把 `undefined` 归一成 `null`（未提供），**其余一切值原样
+  // 交给 writer**——那里的 fail-closed 校验会拒掉类型错误，这正是「校验只在
+  // writer 一处」的应有含义。
+  const keyword = args?.keyword === undefined ? null : args.keyword;
+  const priorities = args?.priorities === undefined ? null : args.priorities;
+  const serves = args?.serves === undefined ? null : args.serves;
   const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
   const listed = await listSparkObjects({ factSourceRoot, includeTerminal, limit, keyword, priorities, serves });
   if (!listed.ok) {

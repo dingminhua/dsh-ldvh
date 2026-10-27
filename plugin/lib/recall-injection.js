@@ -460,6 +460,11 @@ export function currentUserText(messages, isOwnMessage) {
 export function renderRecallRow(result) {
   const specs = Array.isArray(result?.specs) ? result.specs : [];
   const facts = Array.isArray(result?.facts) ? result.facts : [];
+  // **声明范围先取出**（独立审核 B2）：零命中行与三态行都要用它，且必须
+  // 在**任何分支**里都可得——故在函数顶部统一解构，不在各分支里重复取。
+  const scopeExcludedInfo = result?.uncheckedRange?.scopeExcluded;
+  const scopeExcludedTypes =
+    scopeExcludedInfo && Array.isArray(scopeExcludedInfo.types) ? scopeExcludedInfo.types : [];
   const lines = [];
   lines.push("【双源召回 · 行动前候选】");
   // **本句是全行唯一的「候选性/未命中」权威声明**（2026-10-25 去冗余）：
@@ -598,7 +603,16 @@ export function renderRecallRow(result) {
     }
   }
   if (specs.length === 0 && facts.length === 0) {
-    lines.push("本次未命中候选。这不证明「无相关约束」——确定性匹配会漏（换个说法就漏），必要时请自行扩大检索。");
+    // **零命中行不得邀请一次结构上做不到的扩大检索**（独立审核 B2 的后果链第 2 环）：
+    // 原文写「必要时请自行扩大检索」，而本路径已把 spark 整类移出声明范围——
+    // 扩大检索**在这条路径上永远取不到方向线**，那句邀请因此是空头承诺，
+    // 且它是零命中时读者唯一能看到的指引。故按**是否真的还能扩大**分岔：
+    // 有排除范围时，必须同时说出「哪些类型不在这条路上」与替代入口；
+    // 无排除范围时，保留原来的扩大检索邀请（那时它确实成立）。
+    const scopeHint = scopeExcludedTypes.length > 0
+      ? `本路径不扫描 ${scopeExcludedTypes.join("、")}，扩大检索也取不到它们——须另行查询（Spark 用 \`ldvh_spark_list\`，见 \`31 §10\`）。`
+      : "必要时请自行扩大检索。";
+    lines.push(`本次未命中候选。这不证明「无相关约束」——确定性匹配会漏（换个说法就漏）。${scopeHint}`);
   }
   // **`02 §9.1`**：截断/partial 必须可观察，且不得声称完整。
   // 除既有「超出预算已裁剪」外，这里把**具体被丢弃的是谁**也说出来——
@@ -697,6 +711,33 @@ export function renderRecallRow(result) {
       // 未丢但可追溯性变弱——读者读到这条截断行时，须当行即知「没列出的不是没有」。
       lines.push(`（受条数上限（limit=${result.budget?.limit ?? "?"}）限制，仅列出前 ${(result.specs?.length ?? 0) + (result.facts?.length ?? 0)} 条；预算尚有余量（实际用 ${usedBytes}/${limitBytes} 字节）。未返回的部分不代表不存在，调大 limit 可看到更多。）`);
     }
+  }
+  // **声明范围须无条件披露**（独立审核 B2，2026-10-27）：本路径用 `excludeTypes`
+  // 把某些事实类型整体移出扫描范围（`INJECTION_EXCLUDED_TYPES`），但**这不是
+  // 「本次没扫到」，而是「结构上不扫」**——两者的读者后果完全不同：
+  //   · 若只按 completeness 报，被排除的类型不影响完整度（它们不在声明范围内），
+  //     `complete` 时整段三态行不打印，读者**看不到任何提示**；
+  //   · 即便打印，三态行只列 excludedByTypeFilter／excludedByStatus／
+  //     excludedByTypeWhitelist 三类，**`excludedByScope` 从不出现**。
+  // 合起来的后果：某个类型被永久移出扫描，注入面却一句不说——`34 §12`
+  // 「取值须与未检查范围逐类对应」在「范围变更」这一维度上失守，且「AI 主动查」
+  // 在运行面上没有任何触发提示，退化为「指望 AI 记得那个工具存在」。
+  // 故本段**独立于 completeness 判定**：只要 `excludeTypes` 生效就出声，
+  // 且把替代入口一并说出（只报「不含 X」等于把读者丢回原点）。
+  const scopeExcluded = scopeExcludedInfo;
+  if (scopeExcluded && Array.isArray(scopeExcluded.types) && scopeExcluded.types.length > 0) {
+    // **本行必须短到能被极小预算档容纳**（这是实测约束，不是风格偏好）：
+    // 固定披露行每回合都出现，每多一字节就从候选里挤掉一字节。实测长句版
+    // （263 字节）在 `budgetBytes=1200` 下把注入顶到 1512（超 312），并连带
+    // 触发「超出预算」归因行（再 +240）——为了说一句「不含 spark」反而把整条
+    // 注入撑破，是本末倒置。故压到 40 字节，只留**不含什么**与**去哪儿取**；
+    // 「依据在哪」由 §10 承载，「未命中不覆盖它们」由相邻行承接：
+    //   · partial/unavailable → 三态行已声明「未命中不构成无相关的证据」；
+    //   · 零命中 → 未命中行按 scopeHint 分岔，明说「扩大检索也取不到」。
+    // 不与那两处重复（`02 §9.1` 去冗余纪律）。
+    const entry = scopeExcluded.types.includes("spark") ? "ldvh_spark_list" : null;
+    const where = entry === null ? "须另行查询" : `查 ${entry}`;
+    lines.push(`（不含 ${scopeExcluded.types.join("、")}；${where}）`);
   }
   // **三态取值与未读取源须在注入面披露**（第六次审核 N-5）：34 §12 要求
   // 「召回范围的完整度须以三态交还」「取值须与未检查范围逐类对应」，而注入

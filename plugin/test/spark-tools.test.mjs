@@ -1345,6 +1345,67 @@ test("list: narrowing is disclosed in gaps (a filtered empty list is not 'no suc
   });
 });
 
+test("list: narrowed hits carry a recomputable hitReason (34 §8.2 第 1 项)", async () => {
+  // **独立审核 M3**：收窄后的返回集不再是「全量枚举」，而是「按字段命中的匹配集」。
+  // `34 §8.2` 第 1 项要求候选「说明它命中了哪个字段、命中了什么词」——否则一个短
+  // 列表与「库里只有这些」在读者眼里无法区分。未收窄时**不得**凭空给 hitReason：
+  // 纯枚举没有「命中」可言，编一个反而让读者以为它是筛出来的。
+  await withTemp("spark-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const descriptors = makeDescriptors(makeDeps(home, base));
+    const mkDraft = (title, question, more = {}) => ({
+      ...validFrontmatterDraft(),
+      title,
+      question,
+      summary: `总结：${title}`,
+      change_summary: "命中依据夹具",
+      ...more,
+    });
+    const make = async (title, question, more) => {
+      const draft = mkDraft(title, question, more);
+      const out = await run(descriptors, "ldvh_spark_write", {
+        action: "create",
+        dedup_result: DEDUP_OK,
+        frontmatter_draft: draft,
+        body_markdown: validBodyMarkdown(draft),
+      }, repo);
+      assert.equal(out.outcome, "completed", JSON.stringify(out));
+    };
+    await make("命中依据甲", "甲的问题里含专名召回器", { priority: "P1", serves: "SG-1" });
+    await make("命中依据乙", "乙的问题里没有那个词", { priority: "P2", serves: "SG-3" });
+
+    // keyword 命中 title：须指出命中的是哪个字段。
+    const byKw = await run(descriptors, "ldvh_spark_list", { keyword: "命中依据甲" }, repo);
+    assert.equal(byKw.result.count, 1);
+    const kwHit = byKw.result.items[0].hitReason;
+    assert.ok(typeof kwHit === "string" && kwHit.includes("keyword"), `须带 keyword 命中依据：${kwHit}`);
+    assert.ok(kwHit.includes("@title"), `须指出命中字段：${kwHit}`);
+
+    // keyword 只命中 question（title 里没有该词）。
+    const byQ = await run(descriptors, "ldvh_spark_list", { keyword: "专名召回器" }, repo);
+    assert.equal(byQ.result.count, 1);
+    assert.ok(byQ.result.items[0].hitReason.includes("@question"), JSON.stringify(byQ.result.items[0]));
+
+    // priorities / serves 各出自己的依据。
+    const byP = await run(descriptors, "ldvh_spark_list", { priorities: ["P1"] }, repo);
+    assert.equal(byP.result.items[0].hitReason, "priority=P1");
+    const byS = await run(descriptors, "ldvh_spark_list", { serves: "SG-3" }, repo);
+    assert.equal(byS.result.items[0].hitReason, "serves=SG-3");
+
+    // 组合时逐项列出（顺序固定：priority → serves → keyword）。
+    const combo = await run(descriptors, "ldvh_spark_list", { keyword: "专名召回器", priorities: ["P1"], serves: "SG-1" }, repo);
+    assert.equal(combo.result.count, 1);
+    const r = combo.result.items[0].hitReason;
+    assert.ok(/priority=P1/.test(r) && /serves=SG-1/.test(r) && /keyword=/.test(r), r);
+
+    // **未收窄时不得有 hitReason**（纯枚举没有「命中」）。
+    const plain = await run(descriptors, "ldvh_spark_list", {}, repo);
+    for (const item of plain.result.items) {
+      assert.equal(item.hitReason, undefined, `未收窄时不得编造命中依据：${JSON.stringify(item)}`);
+    }
+  });
+});
+
 test("list: malformed narrowing arguments are rejected (fail-closed, never silently ignored)", async () => {
   await withTemp("spark-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
@@ -1359,5 +1420,18 @@ test("list: malformed narrowing arguments are rejected (fail-closed, never silen
 
     const blankKeyword = await run(descriptors, "ldvh_spark_list", { keyword: "   " }, repo);
     assert.notEqual(blankKeyword.outcome, "completed", JSON.stringify(blankKeyword));
+
+    // **类型错误同样不得静默降级**（独立审核 m1，2026-10-27 修）：工具层原先写
+    // `typeof === "string" ? … : null`，于是 `keyword: 123`、`priorities: "P1"`
+    // 被转成「不筛」——调用方以为筛过了，实际拿到全集。这类「筛错了当没筛」
+    // 与「把零结果当无约束」是同一类危险（`02 §9.2`）。
+    for (const bad of [{ keyword: 123 }, { priorities: "P1" }, { serves: 42 }]) {
+      const out = await run(descriptors, "ldvh_spark_list", bad, repo);
+      assert.notEqual(
+        out.outcome,
+        "completed",
+        `类型错误的收窄参数必须被拒，不得当作「不筛」：${JSON.stringify(bad)} → ${JSON.stringify(out)}`,
+      );
+    }
   });
 });

@@ -959,15 +959,35 @@ export async function listSparkObjects(args) {
     if (!includeTerminal && status !== "open") continue;
     // 收窄过滤放在**解析 refs 之前**：refs 解析要对每个条目做一次跨类型查找，
     // 把不相干的候选挡在后面就省掉了这部分开销——这是本函数里唯一的异步步骤。
-    if (prioritySet !== null && !prioritySet.has(frontmatter.priority)) continue;
-    if (servesNeedle !== null && frontmatter.serves !== servesNeedle) continue;
+    //
+    // **命中依据逐条记录**（`34 §8.2` 第 1 项「命中依据须可复算」）：一旦按
+    // keyword／priorities／serves 收窄，返回集就不再是「全量枚举」而是「按字段
+    // 命中的匹配集」——那时读者必须能看出**每条为什么在**，否则一个短列表与
+    // 「库里只有这些」无法区分（`02 §9.2` 禁把零结果当无约束的同一道理）。
+    // 未收窄时不产生 `hitReason`：纯枚举没有「命中」可言，编一个反而是假信息。
+    const hitParts = [];
+    if (prioritySet !== null) {
+      if (!prioritySet.has(frontmatter.priority)) continue;
+      hitParts.push(`priority=${frontmatter.priority}`);
+    }
+    if (servesNeedle !== null) {
+      if (frontmatter.serves !== servesNeedle) continue;
+      hitParts.push(`serves=${servesNeedle}`);
+    }
     if (needle !== null) {
       // title 与 question 是 20 §6.2 指定的查重语义输入，也正是本工具投影的字段；
       // keyword 只在二者上做字面匹配，不碰 body（body 是 F3 全文，见 20 §12 分层）。
       const title = typeof frontmatter.title === "string" ? frontmatter.title : "";
       const question = typeof frontmatter.question === "string" ? frontmatter.question : "";
-      if (!title.toLowerCase().includes(needle) && !question.toLowerCase().includes(needle)) continue;
+      const inTitle = title.toLowerCase().includes(needle);
+      const inQuestion = question.toLowerCase().includes(needle);
+      if (!inTitle && !inQuestion) continue;
+      // 说清**命中在哪个字段**——只报「命中了 keyword」不足以复算，读者还要知道
+      // 去哪个字段上核对（`34 §8.2` 要求「命中了哪个字段、什么词」）。
+      const where = inTitle ? (inQuestion ? "title+question" : "title") : "question";
+      hitParts.push(`keyword=${JSON.stringify(keyword.trim())}@${where}`);
     }
+    const hitReason = hitParts.length > 0 ? hitParts.join(" · ") : undefined;
     // refs 目标的类型必须在此解析（见下方注释）：逐条时目标是别的类型，渲染层
     // 无从推断。解析失败的保留裸 uid —— 丢弃会让读者以为没有关联。
     const refsProjection = Array.isArray(frontmatter.refs) && frontmatter.refs.length > 0
@@ -1006,6 +1026,9 @@ export async function listSparkObjects(args) {
       // 的宿主对象不同类）。解析不到的保留裸 uid，绝不猜造类型。
       refs: refsProjection,
       priority: typeof frontmatter.priority === "string" ? frontmatter.priority : undefined,
+      // **命中依据**（`34 §8.2` 第 1 项）：仅在被收窄时出现，未收窄时为 undefined
+      // ——纯枚举没有「命中」可言，凭空给一个反而让读者以为它是筛出来的。
+      hitReason,
       created_at: typeof frontmatter.created_at === "string" ? frontmatter.created_at : "",
     });
   }
