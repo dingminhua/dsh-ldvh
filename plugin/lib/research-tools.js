@@ -714,6 +714,26 @@ function renderEnvelope(operationKey, value) {
   if (result?.file !== undefined) lines.push(`file: ${result.file}`);
   if (result?.stop !== undefined) lines.push(`converged: ${result.stop}${result.reason ? ` (${result.reason})` : ""}`);
   if (result?.round_number !== undefined) lines.push(`round: ${result.round_number}/${result.max_rounds ?? "?"}`);
+  // F1 discovery projection (24 §12 / 03 §8): the render output is the model's
+  // ONLY window on the tool result (03 §9.5), so a list that carries `count`
+  // and `items` in its envelope but prints neither leaves the model with a bare
+  // outcome line and no candidates at all. That was the real state of
+  // ldvh_research_list: the data was in `result`, the tests asserted on
+  // `result.items`, and every test passed while the tool was unusable through
+  // the model surface. Mirrors the spark render (20 §12).
+  if (result?.count !== undefined) lines.push(`count: ${result.count}${result.total !== undefined && result.total !== result.count ? ` (of ${result.total})` : ""}`);
+  if (Array.isArray(result?.items)) {
+    for (const item of result.items) {
+      // Research has no `priority`/`refs` (unlike Spark); the projection contract
+      // for this type is title + status + stopping_reason + created_at, so those
+      // are what render. stopping_reason is the field a reader actually triages
+      // on (sufficient vs round-cap vs no-gain says whether the report closed).
+      const uid = objectRef({ object_uid: item.object_uid, fact_type_key: item.fact_type_key ?? "research" });
+      const stop = item.stopping_reason ? ` [${item.stopping_reason}]` : "";
+      const when = typeof item.created_at === "string" ? ` (${item.created_at.slice(0, 10)})` : "";
+      lines.push(`- ${uid} [${item.status}]${stop} ${item.title}${when}`);
+    }
+  }
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "research")}`);
   if (typeof env.changes !== "undefined" && Array.isArray(env.changes)) { /* result.changes already covered */ }
   for (const gap of env.gaps ?? []) lines.push(`gap: ${typeof gap === "string" ? gap : JSON.stringify(gap)}`);

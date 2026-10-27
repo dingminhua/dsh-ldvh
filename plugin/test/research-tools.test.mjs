@@ -708,3 +708,84 @@ test("session machine: clarification_log is reachable from the tool and reaches 
   assert.equal(bundle.result.clarification_log.length, 1);
   assert.equal(bundle.result.clarification_log[0].answer, "指 DSH 子代理编排");
 });
+
+// ---------------------------------------------------------------------------
+// list 的渲染层（03 §9.5：render 是模型看结果的唯一窗口）
+//
+// 这一段是**真机验收暴露的缺陷**留下的守卫。缺陷形态：list 工具的 envelope
+// 里确实有 count/items（断言 result.items 的测试一直通过），但 renderEnvelope
+// 只打印 outcome 那一行——模型侧看到的是「LDVH research-list-objects: completed」
+// 加一条 gap，一条候选项都没有。测试全绿而工具在模型面上不可用，因为所有断言
+// 都打在 result 上，没有一个打在 render 输出上。
+//
+// 故这里的断言一律针对 **render 的文本输出**。
+// ---------------------------------------------------------------------------
+
+async function seededListFixture(base, count) {
+  const { home, repo } = await governedFixture(base);
+  const handlers = governedHandlers(home, base);
+  for (let i = 0; i < count; i += 1) {
+    const created = await handlers["ldvh_research_write"].execute(
+      {
+        action: "create",
+        frontmatter_draft: {
+          ...validFrontmatterDraft(),
+          title: `候选条目 ${i}（渲染守卫）`,
+        },
+        analysis_body: ANALYSIS_BODY,
+      },
+      exec(repo),
+    );
+    assert.equal(created.outcome, "completed", JSON.stringify(created));
+  }
+  return { home, repo };
+}
+
+test("list render: the model actually sees each candidate, not just the outcome line", async () => {
+  await withTemp("ldvh-rl.", async (base) => {
+    const { home, repo } = await seededListFixture(base, 3);
+    const out = await governedHandlers(home, base)["ldvh_research_list"].execute({}, exec(repo));
+    assert.equal(out.outcome, "completed", JSON.stringify(out));
+    assert.equal(out.result.items.length, 3);
+
+    const raw = require_handlers().createHandlers({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
+    const text = raw["ldvh_research_list"].output.render({}, { envelope: out }).map((b) => b.text).join("\n");
+
+    assert.ok(text.includes(`count: ${out.result.count}`), `render must carry count:\n${text}`);
+    for (const item of out.result.items) {
+      assert.ok(
+        text.includes(item.title),
+        `render must carry candidate title "${item.title}" — an outcome line alone leaves the model blind:\n${text}`,
+      );
+    }
+  });
+});
+
+test("list render: truncation reads as count (of total), never as a silently complete page", async () => {
+  await withTemp("ldvh-rl.", async (base) => {
+    const { home, repo } = await seededListFixture(base, 3);
+    const out = await governedHandlers(home, base)["ldvh_research_list"].execute({ limit: 1 }, exec(repo));
+    assert.equal(out.outcome, "partial", JSON.stringify(out));
+    const raw = require_handlers().createHandlers({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
+    const text = raw["ldvh_research_list"].output.render({ limit: 1 }, { envelope: out }).map((b) => b.text).join("\n");
+    assert.ok(
+      text.includes(`count: 1 (of ${out.result.total})`),
+      `render must show the truncation as count (of total):\n${text}`,
+    );
+  });
+});
+
+test("list render: status and stopping_reason are visible per candidate (24 §12 triage fields)", async () => {
+  await withTemp("ldvh-rl.", async (base) => {
+    const { home, repo } = await seededListFixture(base, 2);
+    const out = await governedHandlers(home, base)["ldvh_research_list"].execute({}, exec(repo));
+    const raw = require_handlers().createHandlers({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
+    const text = raw["ldvh_research_list"].output.render({}, { envelope: out }).map((b) => b.text).join("\n");
+    for (const item of out.result.items) {
+      assert.ok(text.includes(`[${item.status}]`), `render must carry status per item:\n${text}`);
+      if (item.stopping_reason) {
+        assert.ok(text.includes(`[${item.stopping_reason}]`), `render must carry stopping_reason per item:\n${text}`);
+      }
+    }
+  });
+});
