@@ -134,12 +134,6 @@ window.__ModuleLoader__.load({
       // 输入框宽度受控：数值型短输入，不占满整行（原 grid 在窄列下会拉伸）。
       ".ldv-idle-limit-input{flex:0 0 auto;width:88px}" +
       ".ldv-idle-limit-hint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#c2c2c2)}" +
-      // 审核模型的一行三列（Provider / Model / 推理强度），形态照
-      // dsh-subagent-default-model 的 .dsm-model-settings-route：标签在框上方、
-      // 三列等宽、底部对齐。**只此一组**——本处不支持多模型/分配策略。
-      ".ldv-review-route{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-items:end;margin:0 0 6px;padding:10px;border:1px solid var(--dsw-alias-border-l2,#36373b);border-radius:10px;background:var(--dsw-alias-bg-layer-3,#202126)}" +
-      ".ldv-review-field{display:flex;flex-direction:column;gap:4px;min-width:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#b8b8b8)}" +
-      ".ldv-review-field select{width:100%;min-width:0}" +
       ".ldv-idle-limit-invalid{font-size:11px;line-height:16px;color:var(--dsw-alias-state-error-primary,#f56c6c)}" +
       ".ldv-idle-pending{display:block;margin-top:6px;color:var(--dsw-alias-state-warning-primary,#e6a23c)}" +
       ".ldv-settings-input[aria-invalid=\"true\"]{border-color:var(--dsw-alias-state-error-primary,#f56c6c)}" +
@@ -406,14 +400,6 @@ window.__ModuleLoader__.load({
       "row.experienceReviewHint": "定期检查经验观察里收集的材料，一次把当前这一批**逐条判完**：够格的就写成经验草稿，不够格的标记为「不构成经验」并留痕（草稿是否入档仍需你确认）。与「积累经验」各自独立：关掉它只是不再自动审核，已有材料仍留在经验观察里。审核在会话静置时跑，不占用你的对话。",
       "row.experienceReviewIntervalMs": "审核间隔（分钟）",
       "row.experienceReviewIntervalMsHint": "每隔多久自动审核一次留观区。它与上面的「安静时长」是两件事：安静时长管「对话停止多久后收集」，审核间隔管「多久把已收集的材料审一遍」。须大于 0。",
-      "row.experienceReviewModel": "审核模型",
-      "row.experienceReviewModelHint": "自动审核时另派一个子代理来判定，这里指定它用哪个模型，格式为「供应商/模型名」。留空则跟随当前默认模型。建议选一个稳定、便宜的模型——审核做的是窄判断，不需要最强的模型。",
-      "row.experienceReviewProvider": "供应商",
-      "row.experienceReviewModelName": "模型",
-      "row.experienceReviewModelInherit": "跟随默认",
-      "row.experienceReviewCatalogEmpty": "模型列表还没读到（宿主尚未报告供应商与模型）。稍等一下；若一直是空的，检查对应的供应商插件是否启用。",
-      "row.experienceReviewEffort": "推理强度",
-      "row.experienceReviewEffortDefault": "默认",
       "row.idleLimitInvalid": "请填入整数；安静时长须大于 0（配额上限填 0 表示不限）。",
       "row.webHint": "关闭时移除 LDVH 页面和 API；开启后自动挂载并检查是否可用。",
       "row.status": "Web 呈现状态",
@@ -501,14 +487,6 @@ window.__ModuleLoader__.load({
       "row.experienceReviewHint": "Periodically examines the material collected in experience observations and judges the whole batch entry by entry: the ones that qualify become experience drafts, the rest are settled as not constituting experience with a trace (filing a draft still needs your confirmation). Independent of capture: turning it off stops auto-review only, and material stays in experience observations. Reviews run when the conversation goes quiet, so they never occupy your own conversation.",
       "row.experienceReviewIntervalMs": "Review interval (minutes)",
       "row.experienceReviewIntervalMsHint": "How often to review the observation buffer. This is separate from the silence duration above: silence governs when material is captured, the interval governs how often captured material is reviewed. Must be greater than 0.",
-      "row.experienceReviewModel": "Review model",
-      "row.experienceReviewModelHint": "Auto-review spawns a separate subagent to decide, and this sets which model it uses, written as provider/model. Leave blank to follow the current default model. A stable, inexpensive model is usually right here — review is a narrow judgement and does not need the strongest model.",
-      "row.experienceReviewProvider": "Provider",
-      "row.experienceReviewModelName": "Model",
-      "row.experienceReviewModelInherit": "Follow default",
-      "row.experienceReviewCatalogEmpty": "The model list is not available yet (the host has not reported providers and models). Give it a moment; if it stays empty, check whether the matching provider plugin is enabled.",
-      "row.experienceReviewEffort": "Reasoning effort",
-      "row.experienceReviewEffortDefault": "Default",
       "row.idleLimitInvalid": "Enter an integer; the silence duration must exceed 0 (0 in the cap means unlimited).",
       "row.webHint": "Turning it off removes the LDVH page and API; turning it on mounts them and checks availability automatically.",
       "row.status": "Web presentation status",
@@ -871,117 +849,11 @@ window.__ModuleLoader__.load({
       // 经验**审核**开关（2026-10-26）。与捕获分成两个——Human：「一个是对话结束捕获，
       // 一个是自动的审核捕获，所以要分开设置」。
       var idleReviewState = React.useState(value.experienceReviewEnabled === true);
-      // 审核执行体的模型（2026-10-26 Human 要求）。**缺省空串 = 沿用宿主默认路由**。
-      var idleReviewModelState = React.useState(
-        typeof value.experienceReviewModel === "string" ? value.experienceReviewModel : ""
-      );
-      // 模型目录（`[{ id, name, models:[{id,name}] }]`）。**初始为空**，异步加载后填充。
-      // 空目录 ≠ 没有模型：可能只是 `remote.session` 还没挂载完（见下方重试用意）。
-      var reviewCatalogState = React.useState([]);
-      var reviewCatalog = reviewCatalogState[0];
-
-      // 当前保存值拆成 provider / model（空串 = 跟随默认），并算出两组下拉选项。
-      // 每次渲染重算：目录是异步来的，缓存会拿到旧值。
-      //
-      // **已保存但不在目录里的值也要如实显示**：否则下拉会落到第一项（「跟随默认」），
-      // 用户会以为自己的设置丢了；而实际是「设了、但该模型当前不可用」——两件事外观
-      // 相同、处置完全不同，不能让界面把它们混成一个。
-      var reviewSelection = { provider: "", model: "" };
-      var reviewSelectedProvider = "";
-      var reviewSelectedModel = "";
-      var reviewProviderChoices = [];
-      var reviewModelChoices = [];
-      var reviewEffortChoices = [];
-      var reviewSelectedEffort = "";
-      (function () {
-        var rawModel = String(idleReviewModelState[0] ?? "").trim();
-        // 语法：`provider/model` 或 `provider/model#effort`。`#` 之后是推理强度。
-        var hash = rawModel.indexOf("#");
-        var effortPart = hash >= 0 ? rawModel.slice(hash + 1).trim() : "";
-        var beforeHash = hash >= 0 ? rawModel.slice(0, hash) : rawModel;
-        var slash = beforeHash.indexOf("/");
-        reviewSelection = slash > 0
-          ? { provider: beforeHash.slice(0, slash), model: beforeHash.slice(slash + 1) }
-          : { provider: "", model: "" };
-        reviewSelectedProvider = reviewSelection.provider;
-        reviewSelectedModel = reviewSelection.model;
-        reviewSelectedEffort = effortPart;
-        var providers = reviewCatalog.map(function (group) {
-          return { id: group.id, name: group.name || group.id };
-        });
-        if (reviewSelectedProvider !== "" &&
-            !providers.some(function (c) { return c.id === reviewSelectedProvider; })) {
-          providers = [{ id: reviewSelectedProvider, name: reviewSelectedProvider }].concat(providers);
-        }
-        var groupOf = null;
-        for (var gi = 0; gi < reviewCatalog.length; gi++) {
-          if (reviewCatalog[gi].id === reviewSelectedProvider) { groupOf = reviewCatalog[gi]; break; }
-        }
-        var models = (groupOf && Array.isArray(groupOf.models)) ? groupOf.models.map(function (m) {
-          return { id: m.id, name: m.name || m.id };
-        }) : [];
-        if (reviewSelectedModel !== "" &&
-            !models.some(function (c) { return c.id === reviewSelectedModel; })) {
-          models = [{ id: reviewSelectedModel, name: reviewSelectedModel }].concat(models);
-        }
-        reviewProviderChoices = providers;
-        reviewModelChoices = models;
-        // 推理强度的可选值来自**选中模型自己的** reasoning.efforts——不同模型支持的
-        // 档位不同，混用会选出一个该模型不认的档位。
-        var selectedModelEntry = null;
-        for (var mi = 0; mi < (groupOf && Array.isArray(groupOf.models) ? groupOf.models.length : 0); mi++) {
-          if (groupOf.models[mi].id === reviewSelectedModel) { selectedModelEntry = groupOf.models[mi]; break; }
-        }
-        reviewEffortChoices = (selectedModelEntry && selectedModelEntry.reasoning &&
-          Array.isArray(selectedModelEntry.reasoning.efforts))
-          ? selectedModelEntry.reasoning.efforts.map(function (e2) {
-              return { id: e2.id, name: e2.name || e2.id };
-            })
-          : [];
-        // 已保存的 effort 若不在这组里也补进去，理由同 provider/model：
-        // 否则 select 会落到第一项，看着像设置丢了。
-        if (reviewSelectedEffort !== "" &&
-            !reviewEffortChoices.some(function (c) { return c.id === reviewSelectedEffort; })) {
-          reviewEffortChoices = [{ id: reviewSelectedEffort, name: reviewSelectedEffort }].concat(reviewEffortChoices);
-        }
-      })();
-
-
-      React.useEffect(function () {
-        // **有界重试**：`remote.session` 由异步的 `remote.$mount()` 装配，单次探测
-        // 会拿到空目录，表现是「下拉里只有『跟随默认』一项」——那与「宿主确实没有
-        // 任何 provider」外观相同，用户无从分辨。故重试几次，仍是空就如实显示提示。
-        // （做法与 dsh-subagent-default-model 一致：它记载的正是这个窗口。）
-        var cancelled = false;
-        var attempt = 0;
-        var MAX_ATTEMPTS = 4;
-        var DELAY_MS = 250;
-        var probe = function () {
-          // 从 props 取（见 ldvhSettingsProps 的注释：闭包取 ctx 会拿到挂载前的值）。
-          // 每次探测都重读 props——`remote.session` 是异步挂载的，重试正是为了这个
-          // 窗口：第一次探测可能还没有它，几轮之后就有了。
-          var sessionRemote = props.sessionRemote;
-          if (!sessionRemote || typeof sessionRemote.modelCatalog !== "function") return Promise.resolve(null);
-          return Promise.resolve(sessionRemote.modelCatalog()).then(function (response) {
-            if (!response || !response.ok) return null;
-            var groups = (response.value && response.value.groups) || [];
-            return Array.isArray(groups) ? groups : [];
-          }).catch(function () { return null; });
-        };
-        var step = function () {
-          if (cancelled) return;
-          probe().then(function (groups) {
-            if (cancelled) return;
-            if (groups !== null && groups.length > 0) { reviewCatalogState[1](groups); return; }
-            attempt = attempt + 1;
-            if (attempt >= MAX_ATTEMPTS) { if (groups !== null) reviewCatalogState[1](groups); return; }
-            if (typeof setTimeout !== "function") return;
-            setTimeout(step, DELAY_MS);
-          });
-        };
-        step();
-        return function () { cancelled = true; };
-      }, []);
+      // **审核模型设置已整体移除**（2026-10-27 Human 要求）：该设置从未真正生效
+      // ——设置面能填能存，审核执行体却一直按默认路由跑（诊断长期显示
+      // `model: (default route)`）。一个「设了不生效」的选项比没有更糟。随之一并
+      // 移除的还有：模型目录的异步有界重试、provider/model/effort 三组下拉状态。
+      // 审核固定跟随宿主默认路由。
       var idleCapacityState = React.useState(value.capacityMaintenanceEnabled === true);
       var idleMemoryState = React.useState(value.memoryHealthEnabled === true);
       // 界面上的各值按它们**各自的显示单位**存放（见 IDLE_LIMITS 的 scale）。
@@ -1066,7 +938,6 @@ window.__ModuleLoader__.load({
         frictionDiscoveryState[1](next.frictionDiscoveryEnabled !== false || next.idleReviewEnabled === true);
         idleCaptureState[1](next.experienceCaptureEnabled === true);
         idleReviewState[1](next.experienceReviewEnabled === true);
-        idleReviewModelState[1](typeof next.experienceReviewModel === "string" ? next.experienceReviewModel : "");
         idleCapacityState[1](next.capacityMaintenanceEnabled === true);
         idleMemoryState[1](next.memoryHealthEnabled === true);
         injectionBudgetState[1](
@@ -1262,9 +1133,6 @@ window.__ModuleLoader__.load({
               // 审核开关独立提交：漏掉这一行，界面上勾了也存不进去，且看不出来
               // （勾选态来自本地 state，保存后仍显示已勾选，重开才归零）。
               { op: "set", path: ["experienceReviewEnabled"], value: !!idleReviewState[0] },
-              // 模型：**去掉首尾空白后原样提交**。不做归一化（不补 provider 前缀、
-              // 不猜大小写）——猜错了会静默跑另一个模型，而界面看不出区别。
-              { op: "set", path: ["experienceReviewModel"], value: String(idleReviewModelState[0] ?? "").trim() },
               { op: "set", path: ["capacityMaintenanceEnabled"], value: !!idleCapacityState[0] },
               { op: "set", path: ["memoryHealthEnabled"], value: !!idleMemoryState[0] },
               { op: "set", path: ["injectionBudgetTier"], value: Number(injectionBudgetState[0]) }
@@ -1532,105 +1400,15 @@ window.__ModuleLoader__.load({
               // ── 审核执行体的模型（2026-10-26 Human 要求）──────────────────────
               //
               // **形态照 `dsh-subagent-default-model` 的路由行**（Human 指定参考，
-              // 2026-10-26 第二次修订：先前我做成了上下堆叠的两行，参考实现是
-              // **一行三列**——Provider / Model / 推理强度，标签在框上方）：
+                            // **审核模型设置已整体移除**（2026-10-27 Human 要求）。
               //
-              //   .ldv-review-route { display:grid;
-              //     grid-template-columns: 1fr 1fr 1fr; gap:8px; align-items:end }
+              // 该设置从未真正生效：设置面能填、能存，审核执行体却一直按默认路由跑
+              // （诊断长期显示 `model: (default route)`）。**一个「设了不生效」的选项
+              // 比没有更糟**——它让人以为审核用的是自己挑的模型。故整块去掉，审核
+              // 固定跟随宿主默认路由。
               //
-              // **只有一组、只能选一个模型**：参考实现支持多组（「添加模型」按钮 +
-              // 分配策略 + 失败切换），本处**刻意不支持**——
-              //   · 审核是一个**窄判断**，不需要「多模型随机分派」或「失败时切换」；
-              //   · 多组意味着要么轮询、要么切换，而两者都会让「这次审核用了哪个
-              //     模型」变得不确定——恰恰是它最需要可核对的地方；
-              //   · 一个模型跑不动就是跑不动，宁可暴露出来（记账里带 model），
-              //     也不要静默换一个继续跑、让结果来源无从追溯。
-              //
-              // **为什么用下拉而不是手打**：用户记不住 `provider/model` 的准确拼写，
-              // 拼错就变成「设了不生效」，而界面看不出异常——错误本可机械消除却留给
-              // 了人工。目录来自 `remote.session.modelCatalog()`。
-              //
-              // **目录是异步挂载的**（`remote.$mount()` 之后才可用），单次探测会拿到
-              // 空目录，表现是「下拉只有『跟随默认』一项」——与「宿主真没有 provider」
-              // 外观相同。故**有界重试**，耗尽后如实提示。
-              //
-              // 存储仍是 `provider/model`（+ 可选 `#effort`）单字符串：一个设置项不
-              // 因为界面有三列就引入对象结构。
-              React.createElement("div", { className: "ldv-review-route" },
-                React.createElement("label", { className: "ldv-review-field" },
-                  React.createElement("span", null, t("row.experienceReviewProvider")),
-                  React.createElement("select", {
-                    className: "ldv-settings-input",
-                    value: reviewSelectedProvider,
-                    "aria-label": t("row.experienceReviewProvider"),
-                    onChange: function (e) {
-                      // 换 provider 时清空 model 与 effort——旧 model 通常不属于新
-                      // provider，留着会变成任何选项都匹配不上的无效值。
-                      var nextProvider = e.target.value;
-                      idleReviewModelState[1](nextProvider === "" ? "" : nextProvider + "/");
-                      markDirty();
-                    }
-                  },
-                    React.createElement("option", { value: "" }, t("row.experienceReviewModelInherit")),
-                    reviewProviderChoices.map(function (candidate) {
-                      return React.createElement("option", { key: candidate.id, value: candidate.id },
-                        candidate.name + " (" + candidate.id + ")");
-                    })
-                  )
-                ),
-                React.createElement("label", { className: "ldv-review-field" },
-                  React.createElement("span", null, t("row.experienceReviewModelName")),
-                  React.createElement("select", {
-                    className: "ldv-settings-input",
-                    value: reviewSelectedModel,
-                    disabled: reviewSelectedProvider === "",
-                    "aria-label": t("row.experienceReviewModelName"),
-                    onChange: function (e) {
-                      var nextModel = e.target.value;
-                      idleReviewModelState[1](
-                        nextModel === ""
-                          ? (reviewSelectedProvider === "" ? "" : reviewSelectedProvider + "/")
-                          : reviewSelectedProvider + "/" + nextModel,
-                      );
-                      markDirty();
-                    }
-                  },
-                    React.createElement("option", { value: "" }, t("row.experienceReviewModelInherit")),
-                    reviewModelChoices.map(function (candidate) {
-                      return React.createElement("option", { key: candidate.id, value: candidate.id },
-                        candidate.name || candidate.id);
-                    })
-                  )
-                ),
-                React.createElement("label", { className: "ldv-review-field" },
-                  React.createElement("span", null, t("row.experienceReviewEffort")),
-                  React.createElement("select", {
-                    className: "ldv-settings-input",
-                    value: reviewSelectedEffort,
-                    // **必须已选 model**：没有 model 时存出 `provider/#high` 会解析成
-                    // model 为空 → 整个设置作废。故禁用，而不是存一个坏值。
-                    disabled: reviewSelectedModel === "" || reviewEffortChoices.length === 0,
-                    "aria-label": t("row.experienceReviewEffort"),
-                    onChange: function (e) {
-                      var nextEffort = e.target.value;
-                      var base = reviewSelectedProvider + "/" + reviewSelectedModel;
-                      idleReviewModelState[1](nextEffort === "" ? base : base + "#" + nextEffort);
-                      markDirty();
-                    }
-                  },
-                    React.createElement("option", { value: "" }, t("row.experienceReviewEffortDefault")),
-                    reviewEffortChoices.map(function (candidate) {
-                      return React.createElement("option", { key: candidate.id, value: candidate.id },
-                        candidate.name || candidate.id);
-                    })
-                  )
-                )
-              ),
-              React.createElement("span", { className: "ldv-idle-limit-hint" }, t("row.experienceReviewModelHint")),
-              // 目录还没就绪时**如实说明**，而不是给一个空下拉让人以为没有模型。
-              reviewCatalog.length === 0
-                ? React.createElement("span", { className: "ldv-idle-limit-hint" }, t("row.experienceReviewCatalogEmpty"))
-                : null
+              // 原块含：一行三列的 Provider/Model/推理强度下拉、模型目录的异步有界
+              // 重试、以及「目录为空」的如实提示。全部随该设置一并移除。
               // **2026-10-14（Human 指示）：本节原另有两句提示词条——
               //   ① 「编辑后需点保存生效。填大于 0 的整数」
               //   ② 「安静时长的数值属实现侧承接（11 §6.1）……不得据此主张规范已规定该时长」
@@ -2072,18 +1850,13 @@ window.__ModuleLoader__.load({
         ctx.inject(["configForms"], function (formsCtx) {
           var ldvhScope = formsCtx.configForms.get(ldvhEntryIdOf(formsCtx.configForms));
           var rowInjected = function () {
-            // `sessionRemote` 用于取模型目录（审核模型的两级下拉）。**软取**：宿主
-            // 没装配时返回 undefined，设置面照常渲染，只是模型下拉只有「跟随默认」。
-            // 组件里拿不到 `apply` 的 `ctx`，故经 props 下传——闭包里取的会是
-            // `apply` 执行那一刻的值，而 `remote.session` 是异步挂载的，那样可能
-            // 永远拿到 undefined。
-            var sessionRemote;
-            try { sessionRemote = ctx.get ? ctx.get("remote.session") : undefined; } catch (e) { sessionRemote = undefined; }
+            // **`sessionRemote` 已随之移除**（2026-10-27）：它唯一的用途是取模型目录，
+            // 供审核模型的两级下拉；该设置整体移除后，这里不再需要软取
+            // `remote.session`。`directoryPicker` 仍需要——日志清理的目录选择在用。
             return {
               t: t,
               settingsScope: ldvhScope,
               directoryPicker: ctx.get("remote.directoryPicker"),
-              sessionRemote: sessionRemote,
             };
           };
           // 设置卡：与 dsh-connect-workbuddy 同款双注册——plugins.bundle.config

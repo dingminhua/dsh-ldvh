@@ -231,7 +231,6 @@ function structuredOf(result) {
  */
 export async function runReviewStage({
   subagents, parent, scope, lifecycle, taskOutcomes = {}, dshHomePath, sessionPersistence = null,
-  model = null,
 }) {
   const activity = lifecycle?.activity;
   const record = (outcome, extra = {}) => {
@@ -293,35 +292,16 @@ export async function runReviewStage({
     projectId: scope.project.id,
   });
   const controller = new AbortController();
-  // **模型指定**（2026-10-26 Human 要求）：`request.agentOptions` 是宿主给子代理
-  // 指定路由的**唯一**入口（`AgentOptions = { provider?, model?, reasoningEffort?,
-  // maxTokens? }`）。不传则继承主控会话的模型。
+  // **不指定模型**（2026-10-27 Human 要求：去掉「审核模型」设置）。
   //
-  // **只在 provider 明确支持时传**（`capabilities.agentOptions`）：有的 provider
-  // 不认这个字段，硬传会被它忽略或报错——忽略更危险，因为设置面上会显示「已指定
-  // 某模型」而实际仍跑默认。故先查能力，不支持就**如实登记并未生效**。
-  let agentOptions;
-  let modelApplied = null;
-  if (model !== null && model !== undefined) {
-    const supported = picked.value.provider?.capabilities?.agentOptions === true;
-    if (supported) {
-      agentOptions = { provider: model.provider, model: model.model };
-      // 推理强度：可选（`AgentOptions.reasoningEffort`）。只在用户显式选了才带，
-      // 否则交给模型自身的默认档——凭空调成 high/low 会改变结果而不易察觉。
-      if (typeof model.reasoningEffort === "string" && model.reasoningEffort.length > 0) {
-        agentOptions.reasoningEffort = model.reasoningEffort;
-      }
-      modelApplied = typeof model.reasoningEffort === "string" && model.reasoningEffort.length > 0
-        ? `${model.provider}/${model.model}#${model.reasoningEffort}`
-        : `${model.provider}/${model.model}`;
-    } else {
-      activity?.record("review/model-unsupported", {
-        requested: `${model.provider}/${model.model}`,
-        provider: picked.value.name,
-        reason: "provider does not accept agentOptions, so the requested model would be ignored",
-      });
-    }
-  }
+  // 该设置从未真正生效：`experienceReviewModel` 在设置面能填、能存，但审核执行体
+  // 一直按默认路由跑（诊断长期显示 `model: (default route)`）。一个「设了不生效」的
+  // 选项比没有更糟——它会让人以为审核用的是自己挑的模型。故整块去掉，审核固定
+  // 跟随宿主默认路由，不再有「设了却没作用」的可能。
+  //
+  // 若将来真要按模型分流，须先解决「哪个模型产生了这个结果」的可核对性——
+  // 那正是当初只允许单路由、不做多路由/失败切换的理由。
+  const modelApplied = null;
   let activation;
   try {
     activation = await subagents.startActivation({
@@ -331,7 +311,6 @@ export async function runReviewStage({
         prompt: [{ type: "text", text: prompt }],
         parent,
         outputSchema: reviewOutputSchema(),
-        ...(agentOptions === undefined ? {} : { agentOptions }),
       },
       signal: controller.signal,
       delivery: "caller",

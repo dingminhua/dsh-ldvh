@@ -262,34 +262,6 @@ test("输出 schema 要求 proposals，且每条须有 entry_id 与 conclusion",
 
 // ── 审核执行体的模型指定（2026-10-26 Human 要求）─────────────────────────
 
-test("指定模型 → 经 agentOptions 传给执行体（宿主唯一入口）", async () => {
-  const base = await mkdtemp(join(tmpdir(), "review-stage-"));
-  await seedBuffer(base);
-  const subagents = fakeSubagents({ proposals: [{ entry_id: "entry-0", conclusion: "discarded", reason: "不够成文" }] });
-  // 支持 agentOptions 的 provider
-  subagents.getProvider = (name) => ({
-    name,
-    inheritsParentContext: false,
-    capabilities: { outputSchema: true, agentOptions: true },
-  });
-
-  const result = await runReviewStage({
-    subagents,
-    parent: {},
-    scope: governedScope(base),
-    lifecycle: quietLifecycle(),
-    dshHomePath: homeJoiner(base),
-    model: { provider: "deepseek", model: "deepseek-chat" },
-  });
-
-  assert.equal(subagents.calls.length, 1, JSON.stringify(result));
-  assert.deepEqual(
-    subagents.calls[0].request.agentOptions,
-    { provider: "deepseek", model: "deepseek-chat" },
-    "模型须经 request.agentOptions 传递——那是宿主给子代理指定路由的唯一入口",
-  );
-});
-
 test("未指定模型 → 不传 agentOptions（沿用宿主默认路由）", async () => {
   const base = await mkdtemp(join(tmpdir(), "review-stage-"));
   await seedBuffer(base);
@@ -305,74 +277,4 @@ test("未指定模型 → 不传 agentOptions（沿用宿主默认路由）", as
   });
 
   assert.equal(subagents.calls[0].request.agentOptions, undefined, "不指定时**不得**传空 agentOptions");
-});
-
-test("provider 不支持 agentOptions → 不硬传，且如实记账（否则界面显示已指定而实际未生效）", async () => {
-  const base = await mkdtemp(join(tmpdir(), "review-stage-"));
-  await seedBuffer(base);
-  const subagents = fakeSubagents({ proposals: [{ entry_id: "entry-0", conclusion: "discarded", reason: "不够成文" }] });
-  subagents.getProvider = (name) => ({
-    name,
-    inheritsParentContext: false,
-    capabilities: { outputSchema: true, agentOptions: false },
-  });
-  const lifecycle = quietLifecycle();
-
-  await runReviewStage({
-    subagents,
-    parent: {},
-    scope: governedScope(base),
-    lifecycle,
-    dshHomePath: homeJoiner(base),
-    model: { provider: "deepseek", model: "deepseek-chat" },
-  });
-
-  assert.equal(subagents.calls[0].request.agentOptions, undefined, "provider 不认该字段时不得硬传");
-  const recorded = lifecycle.events.find((e) => e.name === "review/model-unsupported");
-  assert.ok(recorded, "须如实记「模型未被采纳」——静默忽略会让设置面撒谎");
-  assert.equal(recorded.payload.requested, "deepseek/deepseek-chat");
-});
-
-test("推理强度经 agentOptions.reasoningEffort 传递；未指定则不带该键", async () => {
-  const base = await mkdtemp(join(tmpdir(), "review-stage-"));
-  await seedBuffer(base);
-  const subagents = fakeSubagents({ proposals: [{ entry_id: "entry-0", conclusion: "discarded", reason: "不够成文" }] });
-  subagents.getProvider = (name) => ({
-    name,
-    inheritsParentContext: false,
-    capabilities: { outputSchema: true, agentOptions: true },
-  });
-
-  await runReviewStage({
-    subagents,
-    parent: {},
-    scope: governedScope(base),
-    lifecycle: quietLifecycle(),
-    dshHomePath: homeJoiner(base),
-    model: { provider: "deepseek", model: "deepseek-chat", reasoningEffort: "high" },
-  });
-  assert.deepEqual(subagents.calls[0].request.agentOptions, {
-    provider: "deepseek",
-    model: "deepseek-chat",
-    reasoningEffort: "high",
-  });
-
-  // 未指定 effort：**不得**凭空调成某个档位（会改变结果而不易察觉）。
-  const base2 = await mkdtemp(join(tmpdir(), "review-stage-"));
-  await seedBuffer(base2);
-  const subagents2 = fakeSubagents({ proposals: [{ entry_id: "entry-0", conclusion: "discarded", reason: "不够成文" }] });
-  subagents2.getProvider = (name) => ({
-    name,
-    inheritsParentContext: false,
-    capabilities: { outputSchema: true, agentOptions: true },
-  });
-  await runReviewStage({
-    subagents: subagents2,
-    parent: {},
-    scope: governedScope(base2),
-    lifecycle: quietLifecycle(),
-    dshHomePath: homeJoiner(base2),
-    model: { provider: "deepseek", model: "deepseek-chat" },
-  });
-  assert.ok(!("reasoningEffort" in subagents2.calls[0].request.agentOptions), "未指定时不得带 reasoningEffort");
 });

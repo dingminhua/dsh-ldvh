@@ -6,7 +6,6 @@
 // 43 分钟内、最短间隔 29 秒）与过紧（真实摩擦永不被观察）。故每条判据都要
 // 有**两侧**断言：该放行的放行、该拦的拦住。
 import { test } from "node:test";
-import { readModelSelection } from "../lib/idle-settings.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
@@ -388,57 +387,8 @@ test("11 §6.2 空集：约束值一律不再被读取（传入即被忽略，�
 });
 
 
-// ── 审核执行体的模型解析（2026-10-26 Human 要求）─────────────────────────
-
-test("模型选择按第一个 / 切分（model 名里可能含 /）", () => {
-  assert.deepEqual(readModelSelection("deepseek/deepseek-chat"), { provider: "deepseek", model: "deepseek-chat" });
-  // 只切第一个斜杠：后面的全归 model。
-  assert.deepEqual(readModelSelection("meta-llama/Llama-3/8b"), { provider: "meta-llama", model: "Llama-3/8b" });
-});
-
-test("空串／全空白 = 不指定（沿用宿主默认路由）", () => {
-  for (const raw of ["", "   ", "\t\n"]) {
-    assert.equal(readModelSelection(raw), null, `取值 ${JSON.stringify(raw)} 应表示「不指定」`);
-  }
-});
-
-test("格式不合法一律解析为 null，不猜、不回落成某个默认模型", () => {
-  for (const raw of ["nope", "/x", "x/", "  /  ", "/"]) {
-    assert.equal(readModelSelection(raw), null, `取值 ${JSON.stringify(raw)} 不合法，须返回 null`);
-  }
-});
-
-test("非字符串一律 null（不得因类型意外而静默生效）", () => {
-  for (const raw of [undefined, null, 42, {}, [], true]) {
-    assert.equal(readModelSelection(raw), null);
-  }
-});
-
-test("首尾空白被裁掉（粘贴来的值常带空白）", () => {
-  assert.deepEqual(readModelSelection("  deepseek/deepseek-chat  "), { provider: "deepseek", model: "deepseek-chat" });
-});
-
-test("推理强度：`provider/model#effort` 解析为第三段，可选", () => {
-  assert.deepEqual(
-    readModelSelection("deepseek/deepseek-chat#high"),
-    { provider: "deepseek", model: "deepseek-chat", reasoningEffort: "high" },
-  );
-  // 不写 effort 时**不带这个键**（而不是空串——空串会被当成「显式要默认档」）。
-  assert.deepEqual(readModelSelection("deepseek/deepseek-chat"), { provider: "deepseek", model: "deepseek-chat" });
-  assert.ok(!("reasoningEffort" in readModelSelection("deepseek/deepseek-chat")));
-});
-
-test("推理强度：空 `#` 视为未指定（不得解析成空串档位）", () => {
-  assert.deepEqual(readModelSelection("deepseek/deepseek-chat#"), { provider: "deepseek", model: "deepseek-chat" });
-});
-
-test("推理强度：effort 里允许再出现 `#`（只按第一个切）", () => {
-  assert.deepEqual(
-    readModelSelection("a/b#c#d"),
-    { provider: "a", model: "b", reasoningEffort: "c#d" },
-  );
-});
-
-test("推理强度：`#` 在 `/` 之前时整体不合法（provider 里不该有 #）", () => {
-  assert.equal(readModelSelection("a#b/c"), null);
-});
+// ── 审核模型解析：已随设置移除 ───────────────────────────────────────
+//
+// `readModelSelection` 与其全部用例已删除（2026-10-27 Human 要求去掉「审核模型」
+// 设置）。该设置从未真正生效——设置面能填能存，审核执行体却一直按默认路由跑。
+// 一个「设了不生效」的选项比没有更糟，故整块移除，审核固定跟随宿主默认路由。

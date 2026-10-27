@@ -212,31 +212,7 @@ export const Config = z.object({
    *  是**两个量**，不得合并。须为正（`.min(1)`）：取 0 使周期恒成立，§6.1 明文要求
    *  写入时拒绝。默认 60 分钟**无规范依据**（§6.1：数值由实现侧承接）。 */
   experienceReviewIntervalMs: volatileField(z.number().min(1).default(3_600_000)),
-  /**
-   * 审核段**派生子代理时使用的模型**（`provider/model`，2026-10-26 Human 要求）。
-   *
-   * ## 为什么需要它
-   *
-   * 审核段是**零上下文派生子代理**（§10.2 第 1 项）。不指定时它继承主控会话的模型
-   * ——而 Human 的主控模型通常是**最强的那个**，用来做「这条材料够不够成文」这种
-   * 窄判断是浪费；更实际的问题是：主控模型在长会话里可能已接近上下文上限，而审核
-   * 执行体需要**稳定可用**。故允许单独指定一个模型。
-   *
-   * ## 为什么是空字符串而不是 undefined
-   *
-   * 空串 = **不指定，沿用宿主默认路由**。这与「显式指定」必须可区分——若用
-   * undefined，`volatile` 字段的重协调会让「用户没设」与「用户设了又被清掉」无法
-   * 分开。空串是明确的「继承默认」。
-   *
-   * ## 格式与校验
-   *
-   * `"<provider>/<model>"`，如 `deepseek/deepseek-chat`。**不在此处枚举合法值**：
-   * 可用模型取决于当前部署的 provider 拓扑（`sessionController.modelCatalog()`），
-   * 写死在 schema 里必然与部署漂移——那会变成「设置了却永远保存不上」。校验在
-   * 消费点做：解析不出 provider/model 就如实失败，不静默回落。
-   */
-  experienceReviewModel: volatileField(z.string().default("")),
-});
+  });
 
 /**
  * 读一个可热改开关的当前值，两代宿主通吃。

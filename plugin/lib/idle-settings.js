@@ -208,8 +208,6 @@ export function resolveIdleSettings(config) {
     review: {
       enabled: readBool(config?.experienceReviewEnabled, false),
       intervalMs: readPositiveNumber(config?.experienceReviewIntervalMs, REVIEW_DEFAULTS.intervalMs),
-      // 审核执行体使用的模型；空串 = 不指定，沿用宿主默认路由（见 index.js 的注释）。
-      model: readModelSelection(config?.experienceReviewModel),
     },
     limits: {
       // 安静时长（11 §6.1）：读取侧回落默认（容忍存量脏数据）。
@@ -370,35 +368,6 @@ export function admitIdleDispatch({ settings, task }) {
  * §6.1 明文「延迟时长与间隔的数值由实现侧承接，本规范不内嵌、不为其指定配置载体」。
  * 60 分钟是实现默认值，**不得**据以主张规范已规定该间隔（§17 条件式要求）。
  */
-/**
- * 解析 `"<provider>/<model>"` 形式的模型选择（2026-10-26）。
- *
- * **解析不出来就返回 null，不猜、不回落**：返回值 null 明确表示「按宿主默认路由」。
- * 若把非法字符串悄悄当作默认，设置面上就会显示一个「已设置」的模型而实际没生效
- * ——那正是本仓反复记载的那类缺陷（设置显示 A、实际生效 B）。
- *
- * 格式判据刻意简单：**按第一个 `/` 切分**。model 名里可能含 `/`（如
- * `meta-llama/Llama-3`），故只切第一个，剩余全部归 model。
- *
- * @param {unknown} raw
- * @returns {{provider:string, model:string}|null}
- */
-export function readModelSelection(raw) {
-  if (typeof raw !== "string") return null;
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) return null;
-  // 语法：`provider/model` 或 `provider/model#effort`（2026-10-26 加推理强度）。
-  const hash = trimmed.indexOf("#");
-  const effort = hash >= 0 ? trimmed.slice(hash + 1).trim() : "";
-  const beforeHash = hash >= 0 ? trimmed.slice(0, hash) : trimmed;
-  const slash = beforeHash.indexOf("/");
-  if (slash <= 0) return null; // 没有 `/`，或 `/` 在开头（缺 provider）
-  const provider = beforeHash.slice(0, slash).trim();
-  const model = beforeHash.slice(slash + 1).trim();
-  if (provider.length === 0 || model.length === 0) return null;
-  // effort 可选：没有就不带这个键（而不是给空串——空串会被当成「显式要默认档」）。
-  return effort.length === 0 ? { provider, model } : { provider, model, reasoningEffort: effort };
-}
 
 export const REVIEW_DEFAULTS = Object.freeze({
   /** 审核的固定间隔（毫秒）。须为有限正值——取值属 §6.1 的实现侧承接。 */

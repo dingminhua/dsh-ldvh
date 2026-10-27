@@ -38,6 +38,7 @@ import { runReviewStage } from "./experience-review-stage.js";
 import { isReviewDue, isReviewRunning, markReviewCompleted, reviewTiming, runReviewExclusive } from "./experience-review-trigger.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { RECALL_SUMMARY, buildRecallInjection } from "./recall-injection.js";
+import { recallLimitForBudget } from "./source-recall.js";
 import { noticeTextFor, noticeSummaryFor } from "./guidance-text.js";
 import { createTurnTriggers } from "./triggers.js";
 import { rearmInFlightWorkcaseGoal } from "./workcase-goals.js";
@@ -58,37 +59,7 @@ import { readLastTurn } from "./session-position.js";
 import { ActivityLog, AgentLifecycle } from "./agent-lifecycle.js";
 import { recordJudgementForGuard } from "./host-seams.js";
 
-// ── 实例级互斥：同一 agent 上只允许一个插件实例的钩子存活（2026-10-27）──────
-//
-// **为什么必须放在模块作用域**：`agents` 是**每个 registry 实例**各一份 Map
-// （见下方 `new Map()`），所以它的 `agents.has(agentId)` 去重只在实例内有效。
-// 而宿主在 profile 重载时（`packages/boot/app-boot/src/index.ts:279`
-// `reconcileProfilePatches`）先 `entry.update()` 再 `await` 旧 fiber 释放——
-// 这中间存在新旧实例**同时存活**的窗口。窗口期内每个实例都 `install()` 一次，
-// 各自挂一套 per-agent 钩子（pre-step 注入 + 静置计时器 + 会话事件）。
-//
-// 实测后果（不是推论）：
-//   · `$DSH_HOME/ldvh/idle-checkpoint-runs.json` 在 2026-10-26T19:33:45.581Z
-//     一秒内有 **3 条 `silence-expiry`**，`quietFor` 分别为 300004／300005／300006
-//     ms——反推武装时刻是 19:28:45.576–.577，即 1 ms 内被武装了三次；同一秒还有
-//     1 条 `friction-discovery:admitted` + 2 条 `throttled(dispatch-in-flight)`，
-//     即三个实例在同时对同一个会话做检查点。
-//   · 另一次：本会话 turn 1 出现 3 条内容完全相同、message id 各不相同的召回注入行。
-//   · 隔离实验（单变量）：修复前的代码在 1／2／3 个实例下分别产生 1／2／3 条注入行，
-//     且 3 实例的落盘顺序与真实日志逐位一致。
-//
-// **为什么是「接管」而不是「拒绝新实例」**：若让新实例直接放弃安装，则旧实例随后
-// 被宿主回收时，这个 agent 就再没人挂钩子——召回与检查点会**永久静默**（这正是
-// `pitfall-9665d624` 那一类「看起来装着、实际不工作」的形态）。故新实例**关闭旧实例
-// 的钩子并接管**：任一时刻只有一个实例在干活，且干活的是最新那一个。
-//
-// 键用 agentId 而非 ctx：ctx 在每个实例里本来就不同，无法作为共享基址。
-const ACTIVE_HOOKS_BY_AGENT = new Map(); // agentId -> { instanceId, dispose, installedAt }
-let registryInstanceSeq = 0;
-
 export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes, hostSeams, getIdleSettings, getInjectionBudget }) {
-  // 本 registry 实例的身份（仅用于互斥台账的可读归因，不参与任何业务判断）。
-  const instanceId = ++registryInstanceSeq;
   // Per-agent lifecycle objects (agent-lifecycle.js): single home for all
   // per-agent state + snapshot() diagnostics. The Map is bookkeeping only;
   // hook cleanup rides the agent fiber.
@@ -395,23 +366,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
     const lifecycle = new AgentLifecycle(agent);
     agents.set(agentId, lifecycle);
 
-    // **实例级互斥（2026-10-27）：代际守卫，不跨实例调 disposer**。见文件头
-    // ACTIVE_HOOKS_BY_AGENT 的说明——重载窗口里新旧实例会同时存活，若各挂一套
-    // 钩子，pre-step 注入会重复、静置计时器会并行派发（实测同一毫秒 3 个
-    // `silence-expiry`）。
-    //
-    // **为什么不「接管时调用旧实例的 dispose」**（第一版做法，实测有缺陷）：
-    // 旧实例的 effect disposer 与它自己的 fiber 绑定，手工调用一次之后，该 fiber
-    // 真正释放时清理仍会再跑一遍——而它清理的正是**共享的 agent ctx 上的监听器**，
-    // 于是把新实例刚装好的钩子一并摘掉。实测形态：B 接管后一切正常，A 被宿主回收
-    // 的一瞬间钩子全死（召回与判定双双归零），比重复注入更糟。
-    //
-    // 现行做法只用**一个共享代际标记**：每个处理器入口先问「现在轮到我吗」，
-    // 不是就原样放行（`next()`）。旧实例的监听器留在原处但立即失效，随它自己的
-    // fiber 释放而消失；新实例成为唯一有效代。任一时刻只有一个实例在干活。
-    const isCurrentGeneration = () => ACTIVE_HOOKS_BY_AGENT.get(agentId)?.instanceId === instanceId;
-
-    const perAgentDisposer = agent.ctx.effect(() => {
+    agent.ctx.effect(() => {
       // Tools at install time (audit A/C): the initial async judgement
       // registers the batch BEFORE the first assemble collects tools, so the
       // first model request already sees them on governed sessions.
@@ -554,12 +509,21 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 归属由 `10 §5.3` 统一，但两块面各自的体量各自由其常量决定）。
           // 未登记档位如实记 warn，不静默回落。
           let recallBudget;
+          // **条数上限随档位走**（2026-10-27 修，Human 指出）：此前只传字节预算、
+          // 不传 `limit`，于是 limit 永久取默认值 3——档位 10 下只列出 6 条、用掉
+          // 13% 的预算，87% 闲置。Human 在设置里选档位，本意就是「按这个体量给
+          // 结果」；不传条数等于让档位设置空转。依据见 `recallLimitForBudget` 注释
+          // （34 §11：条数上限由调用方按当次需要给出，档位即该需要的量化依据）。
+          let recallLimit;
           try {
             const resolved = getInjectionBudget?.();
             if (resolved?.ok === false) {
               agent?.ctx?.logger?.warn?.(`[dsh-ldvh] recall: ${resolved.reason}`);
             }
             if (resolved?.bytes > 0) recallBudget = resolved.bytes;
+            // **条数由字节预算动态导出**（2026-10-27）：不再有档位→条数的静态表，
+            // 预算给多少就按单条实测字节折算多少条（见 recallLimitForBudget）。
+            if (recallBudget !== undefined) recallLimit = recallLimitForBudget(recallBudget);
           } catch (error) {
             agent?.ctx?.logger?.warn?.(`[dsh-ldvh] recall: budget resolve failed: ${String(error?.message ?? error)}`);
           }
@@ -567,6 +531,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             userText,
             projectRoot: projectPath,
             ...(recallBudget === undefined ? {} : { budgetBytes: recallBudget }),
+            ...(recallLimit === undefined ? {} : { limit: recallLimit }),
           });
         },
         recallSummary: () => RECALL_SUMMARY
@@ -683,7 +648,6 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               taskOutcomes: reviewOutcomes,
               dshHomePath,
               // 审核执行体的模型（Human 2026-10-26 要求）：null = 沿用宿主默认路由。
-              model: reviewCfg?.review?.model ?? null,
             });
             try {
               const reviewOutcome = reviewOutcomes["experience-review"];
@@ -738,7 +702,6 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // 审核段的现值（每次检查点现读，故设置改动下一个检查点即生效）。
           const reviewEnabledAtCheckpoint = idleSettingsForPick?.review?.enabled === true;
           const reviewIntervalMsAtCheckpoint = idleSettingsForPick?.review?.intervalMs;
-          const reviewModelAtCheckpoint = idleSettingsForPick?.review?.model ?? null;
           const reviewScopeState = scope;
           const reviewOutcomesForCheckpoint = {};
           const pickedTasks = pickEnabledAuxTasks(idleSettingsForPick);
@@ -1002,7 +965,6 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   lifecycle,
                   taskOutcomes: reviewOutcomesForCheckpoint,
                   dshHomePath,
-                  model: reviewModelAtCheckpoint,
                 }));
                 if (exclusive.skipped) {
                   lifecycle.activity?.record("review/skipped", { reason: exclusive.reason });
@@ -1508,31 +1470,14 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         }
       })();
       const stops = [
-        // 每一处监听器都先过代际守卫（见上 `isCurrentGeneration`）：重载窗口里
-        // 旧实例的钩子仍在 ctx 上，但它已不是「当前代」，必须原样放行而不产出
-        // 任何注入或派发。放行用 `next()` / 空操作，绝不用 `reject`——钩子是
-        // 旁路能力，失效时应当安静退场，不能拦回合。
-        agent.ctx.on("system-prompt/assemble", (assembly, context, next) => (
-          isCurrentGeneration() ? onAssemble(assembly, context, next) : next()
-        )),
-        agent.ctx.on("agent/pre-step", (payload, next) => (
-          isCurrentGeneration() ? onPreStep.handler(payload, next) : next()
-        ), { prepend: true }),
-        agent.ctx.on("agent/turn-stopping", (payload) => {
-          if (!isCurrentGeneration()) return;
-          turnTriggers.onTurnStopping(payload);
-        }),
+        agent.ctx.on("system-prompt/assemble", (assembly, context, next) => onAssemble(assembly, context, next)),
+        agent.ctx.on("agent/pre-step", (payload, next) => onPreStep.handler(payload, next), { prepend: true }),
+        agent.ctx.on("agent/turn-stopping", (payload) => turnTriggers.onTurnStopping(payload)),
         // 11 §6.1（2026-10-14 修订）：`agent/status` 的 `idle` **不再是触发点**，
         // 只负责武装安静期计时——宿主 idle 说明「此刻没有在跑的驱动」，但**不说明
         // 会话已安静多久**。真正的派发由安静期到期时发出。
-        agent.ctx.on("agent/status", (payload) => {
-          if (!isCurrentGeneration()) return;
-          turnTriggers.onAgentStatus(payload);
-        }),
-        agent.ctx.on("session/event", (session, event) => {
-          if (!isCurrentGeneration()) return;
-          turnTriggers.onSessionEvent(session, event);
-        })
+        agent.ctx.on("agent/status", (payload) => turnTriggers.onAgentStatus(payload)),
+        agent.ctx.on("session/event", (session, event) => turnTriggers.onSessionEvent(session, event))
       ];
 
       return () => {
@@ -1549,23 +1494,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         const sessionId = sessionIdOf(agent);
         if (typeof sessionId === "string") sessionScopes.delete(sessionId);
         agents.delete(agentId);
-        // 互斥台账只在**登记的就是自己**时才摘除：重载窗口里旧实例的清理
-        // 可能晚于新实例的接管，若无条件 delete 会把新实例的登记抹掉。
-        const registered = ACTIVE_HOOKS_BY_AGENT.get(agentId);
-        if (registered !== undefined && registered.instanceId === instanceId
-          && registered.dispose === perAgentDisposer) {
-          ACTIVE_HOOKS_BY_AGENT.delete(agentId);
-        }
       };
     }, `dsh-ldvh: agent lifecycle ${agentId}`);
 
-    // 登记本实例为「当前有效」的那一份。放在 effect 注册之后：此时钩子已经装上，
-    // 登记一旦可见就能被后续实例安全接管（接管动作调用的正是这个 dispose）。
-    ACTIVE_HOOKS_BY_AGENT.set(agentId, {
-      instanceId,
-      dispose: perAgentDisposer,
-      installedAt: Date.now(),
-    });
   }
 
   return {
