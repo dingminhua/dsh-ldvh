@@ -25,7 +25,10 @@ import {
   reviseWorkcaseObject,
   rebatchWorkcaseObject,
   computeAuthorizationFingerprint,
+  computeAuditPartitions,
+  auditCoverageFor,
   PRE_AUDIT_ENTRIES_PER_MATTER_MAX,
+  PRE_AUDIT_ROUNDS_MAX,
 } from "../lib/workcase-writer.js";
 import { authoritativeSignature, authoritativeSessionIdentity } from "../lib/signature-channel.js";
 
@@ -230,15 +233,17 @@ test("上限闸：同一候选最多 3 条审核，第 4 条被拒并指明转 H
   });
 });
 
-test("上限闸：计数以 candidate_fingerprint 为界——指纹一变即为新事项、计数归零 (21 §9.2)", async () => {
+test("上限闸：计数按审核事项轮次计——指纹变化不重置，第 4 轮被拒 (21 §9.2，2026-10-27 口径)", async () => {
   await withTemp("wc-audit-", async (root) => {
     await seedGoal(root);
     const uid = await createDraft(root);
-    for (let i = 1; i <= PRE_AUDIT_ENTRIES_PER_MATTER_MAX; i += 1) {
-      const r = await audit(root, uid, { verdict: "needs_revision", summary: `事项甲第 ${i} 次（夹具）` });
+    for (let i = 1; i <= PRE_AUDIT_ROUNDS_MAX; i += 1) {
+      const r = await audit(root, uid, { verdict: "needs_revision", summary: `事项甲第 ${i} 轮（夹具）` });
       assert.ok(r.ok, JSON.stringify(r.error));
     }
-    // 改 plan ⇒ 新指纹 ⇒ 新事项，计数归零，可继续审
+    // 改 plan ⇒ 整体指纹变化。旧口径（以 candidate_fingerprint 为界）会把计数
+    // 归零、允许继续审——这正是 workcase-996e207a 建前审 6 轮却从不触顶的机制。
+    // 新口径下轮次不因修订重置，第 4 轮须被拒。
     const before = await read(root, uid);
     const changed = { ...before.value.frontmatter, plan: [{ step: "新事项步骤", done_criteria: "新事项判据。" }] };
     const edited = await reviseWorkcaseObject({
@@ -254,8 +259,9 @@ test("上限闸：计数以 candidate_fingerprint 为界——指纹一变即为
       sessionSignature: SIG(),
     });
     assert.ok(edited.ok, JSON.stringify(edited.error));
-    const fresh = await audit(root, uid, { summary: "新事项第 1 次审核（夹具）" });
-    assert.ok(fresh.ok, `指纹变化后计数应归零：${JSON.stringify(fresh.error)}`);
+    const fourth = await audit(root, uid, { summary: "第 4 轮审核（夹具）" });
+    assert.ok(!fourth.ok, "指纹变化后轮次不应重置——第 4 轮须被拒");
+    assert.equal(fourth.error.code, "workcase/pre_gate1_audit_round_cap");
   });
 });
 
@@ -355,7 +361,7 @@ test("两轴分立：审核条目的指纹与授权指纹同源（同一函数�
   });
 });
 
-test("重批（open→draft）作废 pre_reviews 与 reviews 两者，要点入 change_log (21 §9.2)", async () => {
+test("重批（open→draft）作废 reviews、保留 pre_reviews 为审核流水（21 §9.2，2026-10-27 口径）", async () => {
   await withTemp("wc-audit-", async (root) => {
     await seedGoal(root);
     const uid = await createDraft(root);
@@ -380,9 +386,13 @@ test("重批（open→draft）作废 pre_reviews 与 reviews 两者，要点入 
     assert.ok(res.ok, JSON.stringify(res.error));
     const back = await read(root, uid);
     assert.equal(back.value.frontmatter.status, "draft");
-    assert.equal(back.value.frontmatter.pre_reviews, undefined,
-      "重批后 pre_reviews 须作废（旧审核针对旧 plan/scope，其指纹必然失配）");
-    assert.equal(back.value.frontmatter.reviews, undefined, "reviews 同样作废");
+    // 2026-10-27 改口径：重批保留审核流水。分区指纹按内容匹配，旧审核不会被
+    // 误用为「当前内容已审」；清零反而会把轮次计数一起丢掉，使「重批后再审
+    // 3 轮」成为绕过上限的新路径。
+    assert.ok(Array.isArray(back.value.frontmatter.pre_reviews)
+      && back.value.frontmatter.pre_reviews.length === 1,
+      "重批后 pre_reviews 保留为历史（未变分区可沿用既有 pass；轮次跨重批累计）");
+    assert.equal(back.value.frontmatter.reviews, undefined, "reviews 随授权失效作废");
   });
 });
 

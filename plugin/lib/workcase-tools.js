@@ -1126,10 +1126,14 @@ async function executeWriteObject(args, exec, deps) {
           follow_up: ["human must ensure the auditing session's authoritative record is readable, then retry"]
         });
       }
+      const coveredPartitionIds = Array.isArray(args?.covered_partitions) ? args.covered_partitions : null;
+      const roundIndex = Number.isInteger(args?.round_index) ? args.round_index : null;
       result = await recordWorkcaseAudit({
         factSourceRoot, objectUid, expectedFingerprint, summary, verdict,
         changeSummary, sessionSignature: sig.value, sessionIdentity: auditorIdentity,
         auditorNote: auditorChildNote === null ? null : `记录自子代理会话 ${auditorChildNote} 的最终产出（Code 捕获）`,
+        coveredPartitionIds,
+        roundIndex,
       });
     } else if (action === "correct") {
       // 终态事实更正（21 §9.2:259 / 03 §9.5 / §10）：**只对 closed 对象**，
@@ -1394,7 +1398,9 @@ function parameterSchemaFor(operationKey) {
     summary: { type: "string", description: "record_review: the review conclusion (≤600 chars), carrying the 02 §16 seven elements (对象/基线/方法/覆盖/未覆盖/发现/保证边界). `at`, provider/model and session_id are stamped by Code — the caller supplies only this text. When reviewer_child_agent_id is given, this MUST match the subagent's captured conclusion verbatim (or be omitted to adopt it)." },
     reviewer_child_agent_id: { type: "string", description: "record_review: relay an ISOLATED SUBAGENT's review — REQUIRED (04 §7.3: 受管辖隔离子代理是独立复核的唯一承载形式). Pass its agent id (from a BACKGROUND subagent spawn — a synchronous spawn's id is reclaimed on return and cannot be relayed). The identity and the conclusion text are then taken from the host's own subagent registry (Code-observed, not settable by the caller), so the implementer can neither forge the reviewer's identity nor substitute its own text. Omitting it is refused: recording your own session's review is 主控自查, not 独立复核 — stop and report to Human (00 §5.7) instead." },
     auditor_child_agent_id: { type: "string", description: "record_audit: relay an ISOLATED SUBAGENT's pre-Gate-1 audit — REQUIRED, same mechanism and same rationale as reviewer_child_agent_id (21 §14「建前审核记录」). Pass a BACKGROUND-spawned audit subagent's agent id; the identity and conclusion text are taken from the host's own subagent registry, so the implementer cannot forge the auditor's identity nor substitute its own conclusion. Omitting it is refused — otherwise a self-written audit would satisfy the coverage gate and the gate would be vacuous. This channel acts on status=draft only (the audit axis targets a candidate that has not yet taken effect)." },
-    verdict: { type: "string", enum: ["pass", "needs_revision"], description: "record_audit: the audit verdict (21 §8 closed set). The Gate 1 coverage gate accepts ONLY \"pass\"; an unknown or missing value fails closed. `candidate_fingerprint` is computed by Code (same function as gate_1.authorization_fingerprint) and cannot be supplied by the caller — otherwise the「which version was audited」criterion would be handed to the party being judged." }
+    verdict: { type: "string", enum: ["pass", "needs_revision"], description: "record_audit: the audit verdict (21 §8 closed set). The Gate 1 coverage gate accepts ONLY \"pass\"; an unknown or missing value fails closed. `candidate_fingerprint` is computed by Code (same function as gate_1.authorization_fingerprint) and cannot be supplied by the caller — otherwise the「which version was audited」criterion would be handed to the party being judged." },
+    covered_partitions: { type: "array", items: { type: "string" }, description: "record_audit: 本次审核**覆盖的分区 id**（21 §9.2 分区口径：`plan` 每步骤 `plan#N` + `scope` 每条目 `scope:<标签>#N`）。省略即覆盖当前全部分区——与改造前的整份审语义一致，旧调用无须改动。分区指纹由 Code 按当前候选计算，调用方只给 id，不能自填指纹。用于增量审核：只审改动分区，未变分区沿用既有 `pass`。未知 id 一律拒绝（fail closed），因为分区 id 随内容变化。" },
+    round_index: { type: "integer", description: "record_audit: 本次审核属于同一审核事项的**第几轮**（1-based）。省略即由 Code 分配新轮（当前最大轮 + 1）；同一轮的多个**分片**并行审核须传同一个值——轮次上限按不同 `round_index` 计数，故分片不占额外轮次（21 §9.2，2026-10-27 口径）。超过上限即返回 `workcase/pre_gate1_audit_round_cap`。" }
   };
   switch (operationKey) {
     case "workcase-read-object":

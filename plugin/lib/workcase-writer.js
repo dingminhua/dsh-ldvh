@@ -410,10 +410,17 @@ export const REVIEW_ENTRIES_MAX = 20;
 
 /**
  * 21 §9.2「审核结论与主控判断不一致时的处置」：**同一次审核事项**最多 3 次。
- * 计数以 `candidate_fingerprint` 为界（同一指纹的 `pre_reviews` 条目数），
- * 指纹一变即为新事项、计数归零。达上限时拒绝第 4 条并转 Human 裁决。
+ *
+ * 2026-10-27 改口径（Human 决定）：计数单位从「同一候选指纹的条目数」改为
+ * 「同一审核事项已用掉的轮次数」（`pre_reviews[].round_index` 的不同值）。
+ * 原口径下每轮修订都改 `plan`/`scope`、指纹归零，上限从未触发——实测
+ * workcase-996e207a 建前审 6 轮、单指纹最高 2 条。新口径不因修订或
+ * `rebatch` 重置；分片并行共享同一 `round_index`，故不占额外轮次。
  */
 export const PRE_AUDIT_ENTRIES_PER_MATTER_MAX = 3;
+
+/** 21 §9.2（2026-10-27）：同一审核事项的轮次上限（与上一条同值，语义不同：一条数轮次，一条数条目）。 */
+export const PRE_AUDIT_ROUNDS_MAX = 3;
 
 /** 03 §7.2 / 21 §8: bounded ordinary content references. */
 export const REFS_ENTRIES_MAX = 10;
@@ -546,6 +553,141 @@ function stableStringify(value) {
 export function computeAuthorizationFingerprint(plan, scope) {
   const canonical = stableStringify({ plan, scope });
   return createHash("sha256").update(canonical, "utf8").digest("hex");
+}
+
+// ---------------------------------------------------------------------------
+// 建前审核的分区（audit partitions）— 21 §9.2/§14/§15.1（增量审核改造）
+// ---------------------------------------------------------------------------
+//
+// 为什么需要分区：改造前覆盖闸要求 `candidate_fingerprint` 等于当前
+// `plan`+`scope` 的**整体**指纹，于是「改一个行号」也会让前一次的 pass
+// 失效、必须整份重审；同时轮次上限按整体指纹计数，每轮修订都换指纹、
+// 计数归零，3 轮上限因此从未生效（实测 workcase-996e207a 建前审 6 轮）。
+//
+// 分区的口径（Human 决定 2026-10-27）：`plan` 每个步骤一个分区，`scope`
+// 每个条目（「做什么」「明确不做什么」「允许的顺带修缮」标签下的每个
+// `- ` 项）一个分区。指纹取**内容**的哈希（不含索引），故增删步骤不会
+// 让其余分区漂移；未变分区可沿用既有 `pass`，只审改动分区。
+
+const SCOPE_LABEL_PATTERN = /^\s*(做什么|明确不做什么|允许的顺带修缮)\s*[：:]\s*$/;
+
+/**
+ * 把 `scope` 文本切成条目级分区。不达标准形态（无标签行或无 `- ` 项）时
+ * 整体作为**一个**分区——宁可多审、不可漏审（fail-closed）。
+ */
+function splitScopePartitions(scope) {
+  const text = typeof scope === "string" ? scope : "";
+  const out = [];
+  const counts = new Map();
+  let kind = null;
+  let item = null;
+
+  const flush = () => {
+    if (item !== null && item.text.trim().length > 0) {
+      const nextCount = (counts.get(kind) ?? 0) + 1;
+      counts.set(kind, nextCount);
+      out.push({ id: `scope:${kind}#${nextCount}`, kind, text: item.text.trim() });
+    }
+    item = null;
+  };
+
+  for (const raw of text.split("\n")) {
+    const label = raw.match(SCOPE_LABEL_PATTERN);
+    if (label) {
+      flush();
+      kind = label[1];
+      continue;
+    }
+    const bullet = raw.match(/^\s*[-*]\s+(.*)$/);
+    if (bullet) {
+      flush();
+      item = { text: bullet[1] };
+      continue;
+    }
+    if (kind !== null && raw.trim().length > 0) {
+      item = item === null ? { text: raw.trim() } : { text: `${item.text}\n${raw.trim()}` };
+    }
+  }
+  flush();
+
+  if (out.length === 0) {
+    const whole = text.trim();
+    if (whole.length > 0) out.push({ id: "scope#1", kind: "scope", text: whole });
+  }
+  return out;
+}
+
+function partitionFingerprint(value) {
+  return createHash("sha256").update(stableStringify(value), "utf8").digest("hex");
+}
+
+/**
+ * 计算候选的审核分区表：`[{id, kind, fingerprint}]`。
+ *
+ * 指纹只覆盖**内容**（plan 项整体 / scope 条目的类别 + 正文），不覆盖索引，
+ * 故「删掉第 2 步」不会使第 3 步的指纹改变——那一步已审过的 `pass` 继续有效。
+ */
+export function computeAuditPartitions(plan, scope) {
+  const partitions = [];
+  const planList = Array.isArray(plan) ? plan : [];
+  planList.forEach((item, index) => {
+    partitions.push({
+      id: `plan#${index + 1}`,
+      kind: "plan",
+      fingerprint: partitionFingerprint(item),
+    });
+  });
+  for (const part of splitScopePartitions(scope)) {
+    partitions.push({
+      id: part.id,
+      kind: part.kind,
+      fingerprint: partitionFingerprint({ kind: part.kind, text: part.text }),
+    });
+  }
+  return partitions;
+}
+
+/**
+ * 覆盖闸的判定：当前每个分区是否都被某条合格（pass + 子代理）条目覆盖。
+ *
+ * 条目分两种形态：
+ *  - **分区形态**（改造后）：读 `covered_partitions[{id, fingerprint}]`，按
+ *    指纹匹配——内容未变的分区可跨轮、跨修订沿用既有 `pass`。
+ *  - **整体形态**（改造前的存量条目，无 `covered_partitions`）：只有其
+ *    `candidate_fingerprint` 等于当前整体指纹时才算覆盖全部分区——即
+ *    旧口径，不做过度声称。
+ *
+ * @returns `{covered: string[], uncovered: string[]}`（id 列表，便于报告）
+ */
+export function auditCoverageFor(plan, scope, entries) {
+  const current = computeAuditPartitions(plan, scope);
+  const currentWhole = computeAuthorizationFingerprint(plan, scope);
+  const coveredFingerprints = new Set();
+  let coveredWhole = false;
+
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (!isPlainObject(entry)) continue;
+    if (entry.verdict !== "pass" || entry.auditor_origin !== "subagent") continue;
+    if (Array.isArray(entry.covered_partitions)) {
+      for (const part of entry.covered_partitions) {
+        if (isPlainObject(part) && typeof part.fingerprint === "string" && FINGERPRINT_PATTERN.test(part.fingerprint)) {
+          coveredFingerprints.add(part.fingerprint);
+        }
+      }
+    } else if (entry.candidate_fingerprint === currentWhole) {
+      coveredWhole = true;
+    }
+  }
+
+  if (coveredWhole) {
+    return { covered: current.map((p) => p.id), uncovered: [] };
+  }
+  const covered = [];
+  const uncovered = [];
+  for (const part of current) {
+    (coveredFingerprints.has(part.fingerprint) ? covered : uncovered).push(part.id);
+  }
+  return { covered, uncovered };
 }
 
 // ---------------------------------------------------------------------------
@@ -897,8 +1039,8 @@ function validatePreReviews(frontmatter, issues) {
       issues.push(`pre_reviews[${i}]: must be an object {at, provider, model, summary, session_id, candidate_fingerprint, verdict} (21 §8)`);
       return;
     }
-    const extra = Object.keys(entry).filter((k) => !["at", "provider", "model", "summary", "session_id", "session_source", "auditor_origin", "candidate_fingerprint", "verdict"].includes(k));
-    if (extra.length > 0) issues.push(`pre_reviews[${i}]: unexpected field(s) ${extra.join(", ")} (only at/provider/model/summary/session_id/session_source/auditor_origin/candidate_fingerprint/verdict)`);
+    const extra = Object.keys(entry).filter((k) => !["at", "provider", "model", "summary", "session_id", "session_source", "auditor_origin", "candidate_fingerprint", "covered_partitions", "round_index", "verdict"].includes(k));
+    if (extra.length > 0) issues.push(`pre_reviews[${i}]: unexpected field(s) ${extra.join(", ")} (only at/provider/model/summary/session_id/session_source/auditor_origin/candidate_fingerprint/covered_partitions/round_index/verdict)`);
     if (typeof entry.at !== "string" || !RFC3339_PATTERN.test(entry.at)) {
       issues.push(`pre_reviews[${i}].at: required RFC3339 (Code-managed)`);
     }
@@ -915,6 +1057,29 @@ function validatePreReviews(frontmatter, issues) {
     // 比对退化为字符串相等而无法发现「写进去的是别的东西」。
     if (typeof entry.candidate_fingerprint !== "string" || !FINGERPRINT_PATTERN.test(entry.candidate_fingerprint)) {
       issues.push(`pre_reviews[${i}].candidate_fingerprint: required 64-hex SHA-256 over the candidate's plan+scope (Code-computed, 21 §8)`);
+    }
+    // `round_index`（2026-10-27 增量审核）：同一审核事项的第几轮。分片并行时
+    // 同一轮的多个分片共享同一个值，故轮次上限按**不同值**计数，而不是按条目数
+    // ——这正是「分片不占轮次」的机械落点（21 §9.2）。
+    if (entry.round_index !== undefined && (!Number.isInteger(entry.round_index) || entry.round_index < 1)) {
+      issues.push(`pre_reviews[${i}].round_index: when present must be a positive integer (Code-assigned; 21 §9.2)`);
+    }
+    // `covered_partitions`（2026-10-27 增量审核）：该次审核覆盖的分区及其
+    // 内容指纹。缺省即整体形态（存量条目），不强制补写。
+    if (entry.covered_partitions !== undefined) {
+      if (!Array.isArray(entry.covered_partitions) || entry.covered_partitions.length === 0) {
+        issues.push(`pre_reviews[${i}].covered_partitions: when present must be a non-empty array of {id, fingerprint} (21 §8)`);
+      } else {
+        entry.covered_partitions.forEach((part, j) => {
+          if (!isPlainObject(part) || typeof part.id !== "string" || part.id.length === 0) {
+            issues.push(`pre_reviews[${i}].covered_partitions[${j}]: must be {id: non-empty string, fingerprint: 64-hex} (21 §8)`);
+            return;
+          }
+          if (typeof part.fingerprint !== "string" || !FINGERPRINT_PATTERN.test(part.fingerprint)) {
+            issues.push(`pre_reviews[${i}].covered_partitions[${j}].fingerprint: required 64-hex SHA-256 of the partition content (Code-computed, 21 §8)`);
+          }
+        });
+      }
     }
     if (entry.verdict !== "pass" && entry.verdict !== "needs_revision") {
       issues.push(`pre_reviews[${i}].verdict: must be "pass" or "needs_revision" (21 §8 闭集; the Gate 1 coverage gate accepts only "pass")`);
@@ -2738,7 +2903,6 @@ export async function approveWorkcaseObject(args) {
       + "情况下生效（21 §9.1：Gate 1 是 Human Gate，其前置把关须可回读）。",
     );
   }
-  const currentPairFingerprint = computeAuthorizationFingerprint(fm.plan, fm.scope);
   // 承载形式门禁（承独立复核 G1，2026-10-16）：与关闭侧的 `review_form_not_subagent`
   // **同规格对齐**。上面的指纹+verdict 判据只证明「有一条针对当前内容的通过结论」，
   // 但它**无法区分**该结论由受管辖隔离子代理产出、还是由实施者自己的 root 会话自记。
@@ -2754,22 +2918,23 @@ export async function approveWorkcaseObject(args) {
   // 的不可自证性仍由 `record_audit` 的唯一回传通道（宿主子代理登记表 + 逐字子串）承担；
   // 越过受控工具面直调 writer 可伪造 `auditor_origin`——该层防护属 09 代码评审与 06
   // 受控提交（同 §14 既有声明）。
-  const coveringAudit = priorPreReviews.find((entry) => (
-    isPlainObject(entry)
-    && entry.candidate_fingerprint === currentPairFingerprint
-    && entry.verdict === "pass"
-    && entry.auditor_origin === "subagent"
-  ));
-  if (coveringAudit === undefined) {
+  // 覆盖闸（2026-10-27 改为**分区覆盖**）：当前候选的每个分区都须被某条合格
+  // 条目覆盖——内容未变的分区可跨轮、跨修订沿用既有 `pass`（这正是「只审修改」
+  // 的机械落点），而不是要求一条整体指纹 `pass` 把每一版内容都重审一遍。
+  // 整体形态的存量条目仍认（其 `candidate_fingerprint` 等于当前整体指纹时覆盖
+  // 全部分区），故改造不使已落盘的历史审核失效。
+  const auditCoverage = auditCoverageFor(fm.plan, fm.scope, priorPreReviews);
+  if (auditCoverage.uncovered.length > 0) {
     return failure(
       "workcase/pre_gate1_audit_not_covering_candidate",
-      "Gate 1 approval refused: 不存在一条 `pre_reviews` 条目，其 `candidate_fingerprint` 等于当前 "
-      + "`plan`+`scope` 的指纹且 `verdict = pass`（21 §14 Gate 1 前置·覆盖闸）。"
-      + "该字段现有 " + String(priorPreReviews.length) + " 条，但无一覆盖**当前**候选内容——"
-      + "最可能的原因是审核之后 `plan`/`scope` 又被改动（审完又改），旧结论不覆盖当前候选。"
-      + "正确处置：对当前内容重做（或按变化幅度增量）建前独立审核，再经 action=record_audit 落盘。"
-      + "注意「同一次审核事项最多 3 次」的计数以 `candidate_fingerprint` 为界——指纹一变即为新事项，"
-      + "计数归零（21 §9.2）。",
+      "Gate 1 approval refused: 当前候选仍有未被 `pass` 覆盖的审核分区——"
+      + `未覆盖的 ${auditCoverage.uncovered.length} 个分区：${auditCoverage.uncovered.join(", ")}`
+      + "（21 §14 Gate 1 前置·覆盖闸；2026-10-27 分区口径）。"
+      + "该字段现有 " + String(priorPreReviews.length) + " 条，但未覆盖上述分区——"
+      + "最可能的原因是这些分区在审核之后被改动（审完又改），或从未被审过。"
+      + "正确处置：只对**未覆盖分区**做增量建前独立审核（可拆多片并行，各片经 action=record_audit "
+      + "携带 `covered_partitions` 落盘），未变分区无须重审。"
+      + "注意「同一次审核事项最多 3 次」按轮次计（`round_index`），不因修订重置（21 §9.2）。",
     );
   }
 
@@ -3153,6 +3318,8 @@ export async function recordWorkcaseAudit(args) {
     factSourceRoot, objectUid, expectedFingerprint, summary, verdict,
     changeSummary = null, sessionSignature = null, sessionIdentity = null,
     auditorNote = null,
+    coveredPartitionIds = null,
+    roundIndex = null,
   } = args;
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
@@ -3205,18 +3372,72 @@ export async function recordWorkcaseAudit(args) {
   const candidateFingerprint = computeAuthorizationFingerprint(fm.plan, fm.scope);
   const existing = Array.isArray(fm.pre_reviews) ? fm.pre_reviews : [];
 
-  // 上限门禁（21 §9.2）：只数**本事项**（同指纹）的条目，不跨事项累加。
-  const sameMatterCount = existing.filter((entry) => (
-    isPlainObject(entry) && entry.candidate_fingerprint === candidateFingerprint
-  )).length;
-  if (sameMatterCount >= PRE_AUDIT_ENTRIES_PER_MATTER_MAX) {
+  // ---- 分区覆盖（2026-10-27 增量审核）------------------------------------
+  // 调用方声明本次审了哪些分区；省略即覆盖全部分区——缺省行为与改造前一致
+  // （整份审），故旧调用不因新增能力而改变语义。分区指纹由 Code 按**当前**
+  // 候选内容计算，调用方只给 id，不能自填指纹。
+  const allPartitions = computeAuditPartitions(fm.plan, fm.scope);
+  let coveredPartitions;
+  if (Array.isArray(coveredPartitionIds) && coveredPartitionIds.length > 0) {
+    const byId = new Map(allPartitions.map((part) => [part.id, part]));
+    const unknown = coveredPartitionIds.filter((id) => !byId.has(id));
+    if (unknown.length > 0) {
+      return failure(
+        "invalid_request",
+        `covered_partitions: unknown partition id(s) ${unknown.map((id) => JSON.stringify(id)).join(", ")} — `
+        + `当前候选的审核分区为 ${allPartitions.map((part) => part.id).join(", ") || "(none)"}`
+        + "（21 §9.2 分区口径：`plan` 每步骤 + `scope` 每条目）。分区随内容变化；请按当前分区重取后再声明覆盖范围。",
+      );
+    }
+    coveredPartitions = allPartitions
+      .filter((part) => coveredPartitionIds.includes(part.id))
+      .map((part) => ({ id: part.id, fingerprint: part.fingerprint }));
+  } else if (Array.isArray(coveredPartitionIds)) {
+    return failure(
+      "invalid_request",
+      "covered_partitions: when supplied it must be a non-empty array of partition ids "
+      + "(omit the field to cover every current partition — the pre-2026-10-27 whole-candidate semantics)",
+    );
+  } else {
+    coveredPartitions = allPartitions.map((part) => ({ id: part.id, fingerprint: part.fingerprint }));
+  }
+
+  // ---- 轮次分配与上限（21 §9.2，2026-10-27 口径）------------------------
+  // 轮次数以 `round_index` 的**不同值**为准：修订换指纹不再重置计数，分片并行
+  // 共享同一 `round_index` 故不占额外轮次。旧条目无该字段者按出现顺序各占一轮
+  // （legacy 兼容——不使存量对象凭空获得额度，也不使它们被追溯拒绝）。
+  const legacyCount = existing.filter((entry) => isPlainObject(entry) && !Number.isInteger(entry.round_index)).length;
+  const seenRounds = existing
+    .filter((entry) => isPlainObject(entry) && Number.isInteger(entry.round_index))
+    .map((entry) => entry.round_index);
+  const usedRounds = new Set([
+    ...seenRounds,
+    ...Array.from({ length: legacyCount }, (_, i) => i + 1),
+  ]);
+  const maxRound = usedRounds.size === 0 ? 0 : Math.max(...usedRounds);
+
+  let assignedRound;
+  if (roundIndex === null || roundIndex === undefined) {
+    assignedRound = maxRound + 1;
+  } else if (!Number.isInteger(roundIndex) || roundIndex < 1) {
+    return failure("invalid_request", "round_index: when supplied must be a positive integer (1-based; 21 §9.2)");
+  } else if (roundIndex > maxRound + 1) {
+    return failure(
+      "invalid_request",
+      `round_index ${roundIndex} skips ahead of the next available round ${maxRound + 1} — rounds are allocated consecutively (21 §9.2)`,
+    );
+  } else {
+    assignedRound = roundIndex;
+  }
+  const isNewRound = !usedRounds.has(assignedRound);
+  const roundsAfter = isNewRound ? usedRounds.size + 1 : usedRounds.size;
+  if (isNewRound && roundsAfter > PRE_AUDIT_ROUNDS_MAX) {
     return failure(
       "workcase/pre_gate1_audit_round_cap",
-      `建前审核已就本候选内容（同一 candidate_fingerprint）记录 ${sameMatterCount} 条，达上限 ${PRE_AUDIT_ENTRIES_PER_MATTER_MAX} —— `
-      + "拒绝第 4 次（21 §9.2「同一次审核事项最多 3 次」；第 4 次不得发起）。对象保持 `draft`，"
-      + "**停止自动循环并提请 Human 裁决**（改方案收敛、改对象承载或放弃建单）。"
-      + "注意计数以 `candidate_fingerprint` 为界：`plan`/`scope` 实质变化即为新事项、计数归零 —— "
-      + "但不得以此为手段绕过上限（那属把内容反复改动以重置计数，须如实登记为异常）。",
+      `建前审核已就本审核事项用掉 ${usedRounds.size} 轮（上限 ${PRE_AUDIT_ROUNDS_MAX}），本次将开启第 ${assignedRound} 轮 —— `
+      + "拒绝（21 §9.2「同一次审核事项最多 3 次」；2026-10-27 口径：按轮次计，不因修订或 rebatch 重置）。"
+      + "分片并行不占额外轮次（同一轮共享 `round_index`）。对象保持 `draft`，"
+      + "**停止自动循环并提请 Human 裁决**（改方案收敛、改对象承载或放弃建单）。",
     );
   }
   if (existing.length >= REVIEW_ENTRIES_MAX) {
@@ -3239,12 +3460,16 @@ export async function recordWorkcaseAudit(args) {
     session_source: identity.source,
     auditor_origin: identity.origin ?? null,
     candidate_fingerprint: candidateFingerprint,
+    covered_partitions: coveredPartitions,
+    round_index: assignedRound,
     verdict,
   }];
   appendChangeLog(
     next, sig,
     (typeof changeSummary === "string" && changeSummary.length > 0 ? changeSummary : "记录一条建前审核结论")
       + ` [pre-gate1 audit recorded by session ${identity.sessionId}; verdict: ${verdict}; `
+      + `round: ${assignedRound}/${PRE_AUDIT_ROUNDS_MAX}; `
+      + `covered: ${coveredPartitions.length}/${allPartitions.length} partition(s); `
       + `candidate_fingerprint: ${candidateFingerprint.slice(0, 12)}…; pre_reviews entries: ${existing.length + 1}`
       + `${typeof auditorNote === "string" && auditorNote.length > 0 ? `; ${auditorNote}` : ""}]`,
   );
@@ -3256,6 +3481,8 @@ export async function recordWorkcaseAudit(args) {
     ...written.value,
     audit_session_id: identity.sessionId,
     candidate_fingerprint: candidateFingerprint,
+    covered_partitions: coveredPartitions,
+    round_index: assignedRound,
     verdict,
   });
 }
@@ -3775,23 +4002,25 @@ export async function rebatchWorkcaseObject(args) {
   // 「draft 不得携带 reviews」的既有不变量（writer:472），又不丢历史。
   const voidedReviews = Array.isArray(fm.reviews) ? fm.reviews.length : 0;
   delete next.reviews;
-  // `pre_reviews` 处置（21 §9.2，2026-10-16 建立）：与 `reviews` **同纪律**——重批使
-  // `plan`/`scope` 实质变化，旧建前审核针对的是**旧候选内容**（其
-  // `candidate_fingerprint` 即旧指纹），故不得延续为当前候选的审核记录。
+  // `pre_reviews` 处置（2026-10-27 改口径；原为「随重批清零」）：
   //
-  // 清零在此处**是必须的，不只是整洁**：留存的旧条目其指纹与重批后的指纹必然失配，
-  // 覆盖闸（approveWorkcaseObject）本就会拒绝批准——清零只是让该状态在字段上直接
-  // 可读，并使「重批后重走 Gate 1 前须重做建前审核」（§14）在机械上不可绕过。
-  // 「该次审核确实发生过」是历史事实，故要点（条数）以语义摘要形式随本次 change_log
-  // 留痕，与 `criteria_checks`/`reviews` 的既有处置范式同形。
-  const voidedPreReviews = Array.isArray(fm.pre_reviews) ? fm.pre_reviews.length : 0;
-  delete next.pre_reviews;
+  // 重批后**保留**审核流水，理由有三：
+  //   ① 分区覆盖的判定是按**内容指纹**匹配的（`auditCoverageFor`），旧条目
+  //      覆盖的旧分区指纹与当前候选天然失配——旧审核不会被误用为「当前内容
+  //      已审」，清不清零不影响覆盖闸的正确性；
+  //   ② 轮次上限按 `round_index` 跨重批累计（21 §9.2，2026-10-27）——清零会
+  //      把计数一起丢掉，使「rebatch 后再审 3 轮」成为绕过上限的新路径；
+  //   ③ 「该次审核确实发生过」是历史事实，保留流水比压缩成一句摘要更可回读。
+  //
+  // 未变分区因此可沿用重批前的 `pass`——这正是增量审核的语义：重批只作废
+  // **受影响范围**的授权与覆盖，不要求把未改动部分重审一遍。
+  const retainedPreReviews = Array.isArray(fm.pre_reviews) ? fm.pre_reviews.length : 0;
   appendChangeLog(
     next,
     sig,
     `${changeSummary} [C2 局部重批 open→draft; attempt ${voidedAttempt ?? "none"} voided, gate_1 dropped`
     + `${voidedReviews > 0 ? `, ${voidedReviews} 条 reviews 随授权失效作废（旧复核针对旧 plan/scope；概要要点见本条语义摘要）` : ""}`
-    + `${voidedPreReviews > 0 ? `, ${voidedPreReviews} 条 pre_reviews 随候选变更作废（旧审核针对旧 plan/scope；重走 Gate 1 前须重做建前审核，21 §14）` : ""}`
+    + `${retainedPreReviews > 0 ? `, ${retainedPreReviews} 条 pre_reviews 保留为历史（分区指纹按内容匹配，未变分区沿用既有 pass；轮次跨重批累计，21 §9.2 2026-10-27）` : ""}`
     + ` — 重新组织后重走 Gate 1]`
     + auditFieldGuardNote(auditGuard.attempted),
   );
