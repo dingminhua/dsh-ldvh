@@ -1355,7 +1355,17 @@ function makeExecute(deps) {
       }
       const settingsOf = typeof deps.getIdleSettings === "function" ? deps.getIdleSettings : () => ({});
       const settings = settingsOf();
-      const state = { enabled: settings.review.enabled, intervalMs: settings.review.intervalMs, model: settings.review.model };
+      // **不再有 model 字段**（2026-10-27 去掉该设置）。此处若仍读 `review.model`
+      // 会拿到 undefined 并带进工具返回值——`undefined` 不是合法 JSON，整个诊断会以
+      // 「value is not lossless JSON」失败，而不是显示一个空模型。删除字段时必须
+      // 同时清掉**读它并放进返回值**的地方，不只是清掉引用。
+      // 全部字段显式兜底为 JSON 合法值：工具返回值必须是 lossless JSON，
+      // 任何 `undefined` 都会让整次调用失败（而不是显示一个空值）——这个失败形态
+      // 很坑：诊断工具本身坏了，看起来却像「被诊断的东西坏了」。
+      const state = {
+        enabled: settings?.review?.enabled === true,
+        intervalMs: typeof settings?.review?.intervalMs === "number" ? settings.review.intervalMs : null,
+      };
       // **形态 2 已改由静置检查点驱动**（2026-10-27）：不再有专属会话、不再有宿主
       // 周期任务。故诊断项随之改变——不再报「会话/任务是否在」，而是报「到点条件是否
       // 成立」与「当前是否正在跑」。旧的三态 verdict（enabled-but-no-session /
@@ -1367,9 +1377,9 @@ function makeExecute(deps) {
           settings: state,
           trigger: "idle-checkpoint",
           running: running.busy,
-          runningReason: running.reason,
+          runningReason: running.reason ?? null,
           due: due.due,
-          dueReason: due.reason,
+          dueReason: due.reason ?? null,
           remainingMs: due.remainingMs ?? null,
           verdict: state.enabled === true
             ? (running.busy ? "enabled-and-running" : (due.due ? "enabled-and-due" : "enabled-waiting-interval"))

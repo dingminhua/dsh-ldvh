@@ -14,6 +14,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdir, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { guidanceTextFor, GUIDANCE_SECTION_NAME, GUIDANCE_SECTION_ORDER } from "../lib/guidance-text.js";
@@ -1277,4 +1278,34 @@ test("precheck-git-commit 拒绝编造的 §7.2 依据引用，放行逐字引�
 		);
 		assert.notEqual(good.result.mechanical_outcome, "failed", JSON.stringify(good.result.issues));
 	});
+});
+
+// ── 工具返回值必须是 lossless JSON（2026-10-27 实测缺陷）─────────────────────
+
+test("**删除设置字段后，诊断工具不得把 undefined 带进返回值**", async () => {
+  // 实测症状（2026-10-27）：去掉「审核模型」设置后，`ldvh_probe_host_automation`
+  // （`reconcile: true`）整次调用失败，报 `value is not lossless JSON`。
+  //
+  // 根因：我把 `review.model` 从设置解析里删了，但诊断仍在读 `settings.review.model`
+  // 并把它放进 `result.settings`——读到 `undefined`。而 `undefined` 不是合法 JSON，
+  // 于是**整个诊断失败**，看起来像「被诊断的机制坏了」，实际是诊断工具自己坏了。
+  //
+  // 这个失败形态特别值得守：删字段时只查「谁引用它」不够，还要查**谁读它并把它
+  // 放进返回值**。故此处直接读源码断言：该处不得再出现 `review.model`，且各字段
+  // 须显式兜底为合法的 JSON 值。
+  const source = readFileSync(new URL("../lib/ldvh-tools.js", import.meta.url), "utf8");
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  assert.equal(
+    /settings\.review\.model/.test(code),
+    false,
+    "诊断不得再读 settings.review.model——该字段已随「审核模型」设置移除，读到的是 undefined，会让整个工具返回非法 JSON",
+  );
+
+  // 三个展示字段都须显式兜底（`?.` + 类型判定或 `?? null`），不得直接裸取。
+  const idx = code.indexOf("const state = {");
+  assert.ok(idx >= 0, "须仍存在 state 构造");
+  const block = code.slice(idx, code.indexOf("};", idx));
+  assert.match(block, /enabled:.*===?\s*true/, "enabled 须显式判真，不裸取");
+  assert.match(block, /intervalMs:.*typeof|intervalMs:.*\?\?|intervalMs:.*\?/, "intervalMs 须兜底为 number 或 null");
 });
