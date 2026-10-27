@@ -35,7 +35,7 @@ Norm 对象存在、处于 active 或正文包含规则条目，均不能单独�
 2. `source-of-truth-traceability`：02 §5 事实源载体与溯源、09 §5 受控提交契约。
 3. `specification-model-foundation`：01 §6 身份块契约、§8 编号登记、§10.1 关系语义与 L0–L4 读取层级。
 
-本文不依赖外部语法或行业标准定义 Norm 语义。既有设计文档（`docs/archive/design-one-direction-one-norm.md`、`docs/archive/survey-software-directions.md`）与边界调研（`docs/archive/research-adr-to-norm-boundary.md`）只作设计输入，不取得规范效力。发生冲突或权威关系无法确认时，按 00 §5.7 暂停受影响范围并完成对齐。
+本文不依赖外部语法或行业标准定义 Norm 语义。既有设计文档（原 `docs/` 目录下的 `archive/design-one-direction-one-norm.md`、`archive/survey-software-directions.md`）与边界调研（原 `docs/` 目录下的 `archive/research-adr-to-norm-boundary.md`）只作设计输入，不取得规范效力；该目录已于 `ec19ba6` 清除，上述内容均可自该提交回取。发生冲突或权威关系无法确认时，按 00 §5.7 暂停受影响范围并完成对齐。
 
 ## 3. 职责边界
 

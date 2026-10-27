@@ -32,7 +32,7 @@ Friction 对象存在、处于 open 或形成账本积累，均不能单独证�
 1. `source-of-truth-traceability`：02 §5 事实源载体与溯源、09 §5 受控提交契约。
 2. `business-system-foundation`：业务系统基础规范 §9.7 摩擦销账中摩擦记录的职责位置（本类型命名依据）。
 
-本文不依赖外部语法或行业标准定义 Friction 语义；行业 friction log 实践与 v4 problem-ledger（`docs/archive/v4-problem-ledger.md`）只作设计输入，不取得规范效力。设计定稿依据记忆系统设计文档 §5.13（Human 批准 2026-09-10）。发生冲突或权威关系无法确认时，按 00 §5.7 暂停受影响范围并完成对齐。
+本文不依赖外部语法或行业标准定义 Friction 语义；行业 friction log 实践与 v4 problem-ledger（原 `docs/` 目录下的 `archive/v4-problem-ledger.md`，该目录已于 `ec19ba6` 清除、其内容可自该提交回取）只作设计输入，不取得规范效力。设计定稿依据记忆系统设计文档 §5.13（Human 批准 2026-09-10）。发生冲突或权威关系无法确认时，按 00 §5.7 暂停受影响范围并完成对齐。
 
 ## 3. 职责边界
 
