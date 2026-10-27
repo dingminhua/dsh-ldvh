@@ -1307,5 +1307,18 @@ test("**删除设置字段后，诊断工具不得把 undefined 带进返回值*
   assert.ok(idx >= 0, "须仍存在 state 构造");
   const block = code.slice(idx, code.indexOf("};", idx));
   assert.match(block, /enabled:.*===?\s*true/, "enabled 须显式判真，不裸取");
-  assert.match(block, /intervalMs:.*typeof|intervalMs:.*\?\?|intervalMs:.*\?/, "intervalMs 须兜底为 number 或 null");
+  // **`intervalMs` 已整体删除**（2026-10-27 二次修订，与 `review.model` 同一处置）：
+  // 审核随静置触发，没有间隔这个量。此处反向钉住——它不得再被读、也不得被放进
+  // 返回值。两条断言合起来才是完整判据：既守「删掉的字段没被继续读」，也守「没有
+  // 以 `intervalMs: null` 的形式留一个空位」（留空位会让读者以为机制还在）。
+  assert.equal(
+    /settings\.review\.intervalMs/.test(code),
+    false,
+    "诊断不得再读 settings.review.intervalMs——审核没有时间间隔这个量了",
+  );
+  assert.equal(
+    /intervalMs\s*:/.test(block),
+    false,
+    "state 里不得留 intervalMs 空位（哪怕是 null）——留着会让「间隔机制还在」成为表面事实",
+  );
 });

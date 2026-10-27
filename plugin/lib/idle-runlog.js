@@ -132,7 +132,7 @@ async function readAll(dshHomePath) {
  *     而成功者已落地时整轮 `stage` 为 `partial`，单一 `action` 只是主项动作——
  *     **真相在 `per_task`**；
  *   - `per_task`（可选，F-2 子项 3）：逐任务结局映射
- *     `{任务键: {outcome: landed|rejected|land-failed|no-signature, action?,
+ *     `{任务键: {outcome: landed|rejected|land-failed, action?,
  *     object_uid?, watermark_advanced?, watermark_turn?}}`——11 §11 留痕前提
  *     「其二」的载体：连续停滞轮次由读取侧比对历次**逐任务**停点得出，不新建
  *     计数器（§11「读出来而非记出来」）；

@@ -35,7 +35,7 @@ import { join } from "node:path";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { registerLdvhTools } from "./ldvh-tools.js";
 import { runReviewStage } from "./experience-review-stage.js";
-import { isReviewDue, isReviewRunning, markReviewCompleted, reviewTiming, runReviewExclusive } from "./experience-review-trigger.js";
+import { isReviewRunning, runReviewExclusive } from "./experience-review-trigger.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { RECALL_SUMMARY, buildRecallInjection } from "./recall-injection.js";
 import { recallLimitForBudget } from "./source-recall.js";
@@ -47,7 +47,7 @@ import { runIdleCheckpoint } from "./idle-checkpoint.js";
 import { createDiscoveryProvider } from "./friction-discovery-provider.js";
 import { landDiscoveryVerdict, residualFromLandingError } from "./friction-landing.js";
 import { landCaptureVerdict, residualFromCaptureError } from "./experience-landing.js";
-import { advanceWatermark, readDispatchState, recordActivity, admitAndRecordDispatch, releaseDispatch } from "./friction-watermark.js";
+import { advanceWatermark, recordActivity, admitAndRecordDispatch, releaseDispatch } from "./friction-watermark.js";
 import { admitIdleDispatch, pickEnabledAuxTasks } from "./idle-settings.js";
 import { recordRun } from "./idle-runlog.js";
 import { appendPendingEntry } from "./pending-queue.js";
@@ -701,7 +701,6 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           const idleSettingsForPick = typeof getIdleSettings === "function" ? getIdleSettings() : undefined;
           // 审核段的现值（每次检查点现读，故设置改动下一个检查点即生效）。
           const reviewEnabledAtCheckpoint = idleSettingsForPick?.review?.enabled === true;
-          const reviewIntervalMsAtCheckpoint = idleSettingsForPick?.review?.intervalMs;
           const reviewScopeState = scope;
           const reviewOutcomesForCheckpoint = {};
           const pickedTasks = pickEnabledAuxTasks(idleSettingsForPick);
@@ -929,30 +928,24 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             }
           }
 
-          // ── 审核段（形态 2，2026-10-27 改由静置驱动）─────────────────────
+          // ── 审核段（2026-10-27 二次修订：随静置触发，无时间间隔）───────────
           //
           // **在捕获段之前跑**，且**独立于捕获**：审核读的是留观缓冲（已落盘的条目），
-          // 不读本次区间材料；捕获段的水位/准入与它无关。放这里是因为审核到期与否
-          // 只取决于「距上次审核多久」，不该被「本轮有没有启用的捕获任务」左右。
+          // 不读本次区间材料；捕获段的水位/准入与它无关。
           //
-          // 到期判据用**进程内记录的上次审核时刻**（`lastReviewAtMs`）。为什么不用
-          // 会话日志或宿主任务记录：那些都要求「有一个落点会话或一条宿主任务」，
-          // 而这正是本次移除的东西。进程内记录在重启后归零 → 首次检查点即到期，
-          // 这与「开启后应尽快审一次」的期望一致，不会造成频繁重跑（跑完就记时）。
+          // **判据只有两个：静置到期（本检查点本身即由静置触发）＋ 当前没有审核在跑。**
+          //
+          // 曾还有第三道闸「距上次审核满 N 分钟」，2026-10-27 由 Human 去掉：
+          // 「==，这个不存在时间了呀，随静置触发」。间隔本是给「每小时往专属会话投一次
+          // 提醒」定频用的，落点会话既已废除，就没有东西需要定频。留着它的实测后果是
+          // **静置到了、审核该跑，却因「距上次只过了 40 分钟」不跑，而界面上看不出来**
+          // ——一个不可见的「应该跑但没跑」状态。故连同 `reviewTiming()` /
+          // `markReviewCompleted()` / `isReviewDue()` 一并删除，不是只把值调小。
           if (reviewEnabledAtCheckpoint) {
             const running = isReviewRunning();
             if (running.busy) {
               lifecycle.activity?.record("review/skipped", { reason: running.reason });
-            } else {
-              const nowMs = Date.now();
-              const due = isReviewDue({
-                lastRunAtMs: reviewTiming().lastCompletedAtMs,
-                intervalMs: reviewIntervalMsAtCheckpoint,
-                nowMs,
-              });
-              if (!due.due) {
-                lifecycle.activity?.record("review/skipped", { reason: due.reason, remainingMs: due.remainingMs ?? null });
-              } else if (reviewScopeState.state !== "governed" || reviewScopeState.project === undefined || reviewScopeState.project === null) {
+            } else if (reviewScopeState.state !== "governed" || reviewScopeState.project === undefined || reviewScopeState.project === null) {
                 lifecycle.activity?.record("review/skipped", { reason: "not-governed" });
               } else {
                 const exclusive = await runReviewExclusive(async () => runReviewStage({
@@ -969,9 +962,6 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 if (exclusive.skipped) {
                   lifecycle.activity?.record("review/skipped", { reason: exclusive.reason });
                 } else {
-                  // **只在真正跑过之后才记时**：失败也记（否则一次失败会让它在每个
-                  // 检查点重试，外观上正是 §8.3 禁止的「自行重试」）。
-                  markReviewCompleted(nowMs);
                   const reviewOutcome = reviewOutcomesForCheckpoint["experience-review"];
                   lifecycle.activity?.record("review/dispatched", {
                     trigger: "idle-checkpoint",
@@ -995,7 +985,6 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   }
                 }
               }
-            }
           }
 
           const checkpoint = await runIdleCheckpoint({
@@ -1110,42 +1099,42 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             const executorSignature = checkpoint.value?.decision?.executorSignature ?? null;
             const signatureFailure = checkpoint.value?.decision?.executorSignatureFailure ?? null;
             const skippedBecause = checkpoint.value?.decision?.skipped ?? null;
-            if (executorSignature === null) {
-              // ⚠️ 曾把 `task` 传成 `tasksForThisCheckpoint`（数组）。`appendPendingEntry`
-              // 的 `task` 契约为**非空字符串**，数组必在参数校验阶段被拒并返回
-              // `{ok:false, code:"pending_queue/invalid_task"}`——而此处又丢弃了返回值，
-              // 于是「缺署名」这条登记**从未真正入队**（实测 2026-10-17T18:11 那次
-              // land-failed/no-signature 在队列里查无此条）。故改为逐任务各记一条：
-              // 既符合契约（字符串），又与下方「逐任务标 outcome」的语义一致。
-              for (const key of tasksForThisCheckpoint) {
-                // §8.3 第 6 项：队列不可用时不得降级登记，也不得当作已登记。
-                // 故返回值必须检查；失败只记录到活动痕迹，绝不伪造成功。
-                const queued = await appendPendingEntry(dshHomePath, {
-                  task: key,
-                  reason: skippedBecause !== null
-                    ? `闭集落地未发生（本次跳过：${skippedBecause}，无判断产出故无执行体可署名）`
-                    : `闭集落地缺少执行体署名：${signatureFailure ?? "执行体未给出署名且未说明原因"}`,
-                  residual: ["账目未写入（缺署名）"],
-                  at: new Date().toISOString(),
-                });
-                if (queued?.ok !== true) {
-                  lifecycle.activity?.record("session/checkpoint/queue-unavailable", {
-                    task: key,
-                    code: queued?.error?.code ?? "pending_queue/unknown",
-                    message: queued?.error?.message ?? "appendPendingEntry returned no result",
-                  });
-                }
-              }
-              lifecycle.activity?.record("session/checkpoint/landed", { action: "no-signature" });
-              landedAction = "no-signature";
-              // 缺签名对**全部待落地任务**同样生效（它发生在逐任务分支之前），故逐一体标。
-              for (const key of tasksForThisCheckpoint) {
-                if (taskOutcomes[key] === undefined) taskOutcomes[key] = { outcome: "no-signature" };
-              }
-            } else {
-              // 署名已取得：**逐任务落地**。每个任务的结论由它自己的落地函数处理
-              // ——不得只落地摩擦而把其它任务的结论留在 `decision` 里（那正是
-              // 缺陷 D2 的形态：结论算完即丢，且不留痕迹）。
+            // ── 署名门槛**按任务分别**（2026-10-27 二次修订，Human 决定）──────────
+            //
+            // **曾经的形态（已废止）**：`executorSignature === null` 就在逐任务分支
+            // **之前**一刀切——全部任务都不落地，还逐任务往待处置队列写一条
+            // 「账目未写入（缺署名）」。这是错的：署名是**事实对象**的 `change_log`
+            // 字段要求（02 §10.5 / 09 §5.1），而本次要做的事里有一半**根本不写事实
+            // 对象**——摩擦观察写的是 §12bis.1 的缓冲条目、经验捕获写的是 §12bis 的
+            // 缓冲条目，二者都是**非事实对象**，`§12bis` 的字段闭集 9 项里没有署名位。
+            // 实测后果（2026-10-27T05:43:21Z）：一次 `empty-window` 跳过派生执行体，
+            // 于是没有署名，两个任务双双记成 `账目未写入（缺署名）`——而实际上**本来
+            // 就没有账目要写**，那是把「不需要署名」误报成了「缺署名失败」。
+            // Human 原话：「捕获阶段就不需要署名了，非事实对象不需要署名」。
+            //
+            // **现形态**：署名只对**会写事实对象的那部分动作**前置。
+            //   · `friction-discovery` 的 `same-obstacle`（补充级更新既有账目）与
+            //     `same-observation-group`/`new-observation` 达阈值后的**晋升**
+            //     ——都写事实源，需要署名；
+            //   · 写摩擦观察条目、写经验缓冲条目——**不需要**，永远照常落地。
+            //
+            // 故这里不再有「全局缺署名分支」：由各落地函数在真正要写事实对象的那一步
+            // 自行要求署名（writer 侧的 `requireAuthoritativeSignature` 是既有的机械
+            // 闸，缺署名会以 `signature_unavailable` 拒绝，落到下面各自的失败分支）。
+            // 本层只负责**把署名原样传下去**，以及**如实登记**取得环节的失败。
+            if (executorSignature === null && skippedBecause === null) {
+              // 有判断产出却取不到署名：这不是「本次跳过」，而是署名的取得环节失败。
+              // 如实登记，但**不阻止**不需要署名的落地。
+              lifecycle.activity?.record("session/checkpoint/signature-unavailable", {
+                tasks: [...tasksForThisCheckpoint],
+                reason: signatureFailure ?? "执行体未给出署名且未说明原因",
+              });
+            }
+            {
+              // **逐任务落地**（与署名是否取得无关）：每个任务的结论由它自己的落地
+              // 函数处理——不得只落地摩擦而把其它任务的结论留在 `decision` 里（那
+              // 正是缺陷 D2 的形态：结论算完即丢，且不留痕迹）。需要署名的动作由各
+              // 落地函数/写入器在真正写事实对象那一步自行要求（见上段）。
               if (verdict != null) {
                 const landed = await landDiscoveryVerdict({
                   factSourceRoot: ledgerRoot,
@@ -1435,40 +1424,33 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
       // agent/session-start 的首次响应。resume / clear / compact 的再次 announce
       // 由 start() 的 agent/created 分发路径 re-prime（见 reprimeAgent）。
       onPreStep.prime();
-      // 恢复持久化的「最后一次活动时刻」（11 §6.1）：热重载后从上次记录的时点
-      // 继续计时，而不是从零开始。取不到即不恢复（此时按「无从计时」处理——
-      // 须等下一次真实活动才武装，见 triggers 的 onAgentStatus）。
+      // ── 装载时**不重建安静期计时**（2026-10-27，Human 决定）──────────────
       //
-      // **不阻塞 install**：本 effect 回调是同步的（注册钩子须在同帧完成），
-      // 故恢复走 promise 旁路；窗口极小（装载到首次活动之间），且即便错过也只
-      // 退化为「等下一次活动」——不影响正确性。
-      void (async () => {
-        try {
-          const sid0 = agent?.session?.header?.id;
-          const cwd0 = agent?.session?.header?.cwd;
-          if (typeof sid0 !== "string" || sid0.length === 0) return;
-          if (typeof cwd0 !== "string" || cwd0.length === 0) return;
-          const scope0 = await resolve(cwd0);
-          if (scope0.state !== "governed" || scope0.project === undefined || scope0.project === null) return;
-          const st0 = await readDispatchState(dshHomePath, { projectRoot: scope0.project.path, sessionId: sid0 });
-          if (st0.ok && typeof st0.value.lastActivityAt === "string" && st0.value.lastActivityAt.length > 0) {
-            turnTriggers.restoreActivityAt(Date.parse(st0.value.lastActivityAt));
-          }
-
-          // ── 经验审核的周期任务**不再在这里武装**（2026-10-26 修正）──────────
-          //
-          // 第一版把武装写在这个位置（`agent/created` 装载路径上），实测出真缺陷：
-          // 改设置**不会**创建 agent，故那段代码在配置变更后根本不重跑——Human 打开
-          // 「自动审核经验」、把间隔改成 2 分钟，配置确实落盘了，但专属会话与周期任务
-          // 一个都没出现。界面上勾了、实际没跑。
-          //
-          // 现在武装由 `index.js` 的 `app-boot/config-reload` 订阅驱动（装载时也会
-          // 经它跑一次）。**2026-10-27：该协调机制已整体移除**（改为静置触发）。留给后来者
-          // 不会因为「在 lifecycle 里找不到武装」而把它加回来。
-        } catch (error) {
-          ctx.logger?.warn?.("[dsh-ldvh] activity stamp restore failed: %s", String(error?.message ?? error));
-        }
-      })();
+      // 此前（2026-10-19 起）这里把持久化的活动时刻读回来，交给
+      // `turnTriggers.restoreActivityAt()` 恢复锚点并**立即重新武装**计时器。
+      // 判据本身没错，但后果是**把已经结束的安静期重新读回内存**：旧锚点的剩余
+      // 量恒为 0，于是每一次插件重载、每一次**重新打开一个旧对话**，都会在同一个
+      // 早已结束的安静期上再触发一次。实测（2026-10-26 23:44 与 10-27 全天）：
+      // 环痕里 quietFor 达 44/46/66/70/153/166 小时，单日派发数十次，而安静时长
+      // 只有 5 分钟；被重新唤醒的全是几小时前、甚至几天前就不动的会话。这与
+      // 11 §6.1「一次触发完成后……不得在同一目标时刻上反复触发」直接冲突。
+      //
+      // 现行为：**计时只有一个起点——回合结束**（triggers 的 `turn/end` /
+      // `turn-stopping` 之后的 idle）。装载路径**不读活动时刻、不建计时器**，
+      // 那段 fire-and-forget 恢复旁路已整体删除。代价如实登记（11 §6.1 不主张
+      // 恰好一次）：重启前已开始、尚未到期的安静期作废，该窗口内一次都不会到期；
+      // 内容不丢（水位不推进，区间并入下一次），只是延后。
+      //
+      // **不要为了「重启后接着计时」把恢复加回来**——缺陷会原样复现，且表面症状
+      // 是「一激活旧对话就冒出静置执行体」，很难归因到装载路径。
+      //
+      // ── 经验审核的武装也**不在这里**（2026-10-26 修正，2026-10-27 再改）──
+      //
+      // 第一版把审核武装写在这个位置（`agent/created` 装载路径上），实测出真缺陷：
+      // 改设置**不会**创建 agent，故那段代码在配置变更后根本不重跑——Human 打开
+      // 「自动审核经验」，配置确实落盘了，但专属会话与周期任务一个都没出现。
+      // 界面上勾了、实际没跑。2026-10-27 起形态 2 改由**静置检查点**驱动，由
+      // `onSessionCheckpoint` 内的审核段当场判定，装载路径与此彻底无关。
       const stops = [
         agent.ctx.on("system-prompt/assemble", (assembly, context, next) => onAssemble(assembly, context, next)),
         agent.ctx.on("agent/pre-step", (payload, next) => onPreStep.handler(payload, next), { prepend: true }),

@@ -25,7 +25,7 @@ import { currentRouteValues } from "./session-signature.js";
 import { authoritativeSignature } from "./signature-channel.js";
 import { BUFFER_STATUSES, bufferRelativePath, readBufferEntries } from "./observation-buffer.js";
 import { probeHostAutomation } from "./host-automation-probe.js";
-import { isReviewDue, isReviewRunning, reviewTiming } from "./experience-review-trigger.js";
+import { isReviewRunning } from "./experience-review-trigger.js";
 import { collectExistingPitfalls, reviewPendingEntries } from "./observation-review.js";
 import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets } from "./commit-validation.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
@@ -1362,33 +1362,33 @@ function makeExecute(deps) {
       // 全部字段显式兜底为 JSON 合法值：工具返回值必须是 lossless JSON，
       // 任何 `undefined` 都会让整次调用失败（而不是显示一个空值）——这个失败形态
       // 很坑：诊断工具本身坏了，看起来却像「被诊断的东西坏了」。
+      // `intervalMs` 已删除（2026-10-27 二次修订）：审核没有时间间隔这个量了。
       const state = {
         enabled: settings?.review?.enabled === true,
-        intervalMs: typeof settings?.review?.intervalMs === "number" ? settings.review.intervalMs : null,
       };
       // **形态 2 已改由静置检查点驱动**（2026-10-27）：不再有专属会话、不再有宿主
-      // 周期任务。故诊断项随之改变——不再报「会话/任务是否在」，而是报「到点条件是否
-      // 成立」与「当前是否正在跑」。旧的三态 verdict（enabled-but-no-session /
+      // 周期任务。故诊断项随之改变——不再报「会话/任务是否在」，而是报「当前是否
+      // 正在跑」。旧的三态 verdict（enabled-but-no-session /
       // enabled-session-but-no-schedule / in-sync）已随机制一并失效。
+      //
+      // **2026-10-27 二次修订：`due` 这一项整体删除**。审核现在随静置触发，判据只有
+      // 「静置到期 + 无审核在跑」——没有时间间隔，也就没有「到点/没到点/还剩多久」
+      // 这三个可报的字段。留着一个恒为 `true` 的 `due` 会让读者以为间隔机制还在。
       const running = isReviewRunning();
-      const due = isReviewDue({ lastRunAtMs: reviewTiming().lastCompletedAtMs, intervalMs: state.intervalMs, nowMs: Date.now() });
       return envelope("probe-host-automation", "completed", {
         result: {
           settings: state,
           trigger: "idle-checkpoint",
           running: running.busy,
           runningReason: running.reason ?? null,
-          due: due.due,
-          dueReason: due.reason ?? null,
-          remainingMs: due.remainingMs ?? null,
           verdict: state.enabled === true
-            ? (running.busy ? "enabled-and-running" : (due.due ? "enabled-and-due" : "enabled-waiting-interval"))
+            ? (running.busy ? "enabled-and-running" : "enabled-idle-waiting-for-silence")
             : "disabled",
         },
-        scope: { requested: "reconcile", completed: ["settings", "trigger", "running", "due"], not_completed: [] },
+        scope: { requested: "reconcile", completed: ["settings", "trigger", "running"], not_completed: [] },
         sources: sources({ kind: "host-services", path: "getIdleSettings / experience-review-trigger", fingerprint: null }),
         gaps: state.enabled === true ? [] : ["review is disabled by settings, so nothing should run — this is not a failure"],
-        verification: { checks: ["settings", "trigger", "running", "due"], passed: true },
+        verification: { checks: ["settings", "trigger", "running"], passed: true },
         follow_up: [],
       });
     }

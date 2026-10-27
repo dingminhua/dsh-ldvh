@@ -206,8 +206,10 @@ export function resolveIdleSettings(config) {
      * 由**独立的固定间隔时机**驱动（Human 2026-10-26：两件事分开设置）。
      */
     review: {
+      // **没有 intervalMs**（2026-10-27 二次修订）：审核随静置触发，不存在时间间隔。
+      // 删掉这个字段而不是「读一个 0 当无间隔」——一个恒为 0 的间隔值会让后来者以为
+      // 「间隔机制还在、只是值很小」，从而在某次调参时重新把它变成真闸门。
       enabled: readBool(config?.experienceReviewEnabled, false),
-      intervalMs: readPositiveNumber(config?.experienceReviewIntervalMs, REVIEW_DEFAULTS.intervalMs),
     },
     limits: {
       // 安静时长（11 §6.1）：读取侧回落默认（容忍存量脏数据）。
@@ -348,42 +350,26 @@ export function admitIdleDispatch({ settings, task }) {
 }
 
 /**
- * 审核的**固定间隔**与**开关**（2026-10-26）。
+ * 审核的**开关**（2026-10-26；2026-10-27 二次修订：去掉间隔）。
  *
- * ## 为什么它们是两个独立的量
+ * ## 为什么开关与捕获分开
  *
  * Human 明确：「这本来就是两件事，一个是对话结束捕获，一个是自动的审核捕获，
- * 所以要分开设置」。规范层面二者本就分属两种时机形态（§6.1）：
- *
- * - **一次延迟**（`silenceMs`）：回合结束 + 空窗 → 捕获段（摩擦发现 + 经验捕获）；
- * - **固定间隔**（`reviewIntervalMs`）：周期到达 → 审核段（判留观材料能否成文）。
+ * 所以要分开设置」。
  *
  * ## 为什么审核缺省**关**
  *
  * 审核段会**创建 draft 事实对象**。缺省打开等于在 Human 尚未知情时就开始往账本里
  * 写候选——与捕获段缺省关同一理由。
  *
- * ## 为什么间隔缺省 60 分钟没有规范依据
+ * ## 为什么这里没有间隔值（2026-10-27 二次修订）
  *
- * §6.1 明文「延迟时长与间隔的数值由实现侧承接，本规范不内嵌、不为其指定配置载体」。
- * 60 分钟是实现默认值，**不得**据以主张规范已规定该间隔（§17 条件式要求）。
- */
-
-export const REVIEW_DEFAULTS = Object.freeze({
-  /** 审核的固定间隔（毫秒）。须为有限正值——取值属 §6.1 的实现侧承接。 */
-  intervalMs: 3_600_000,
-});
-
-/**
- * 审核间隔的**写入侧校验**（§6.1 明文：非法取值须在写入时拒绝并提示）。
+ * 间隔原本是给「每小时往专属会话投一次提醒」定频用的；落点会话已被整体移除
+ * （见 `experience-review-trigger.js`），就没有东西需要定频。Human 2026-10-27：
+ * 「==，这个不存在时间了呀，随静置触发」。故本模块**不再有** `intervalMs`，
+ * `REVIEW_DEFAULTS` 与 `validateReviewIntervalMs` 一并删除——保留一个「恒为 0 的
+ * 间隔」比直接删掉更危险：它看起来像间隔机制还在，某次调参就会把真闸门装回去。
  *
- * 取 0、负数或非数会使「到点」恒成立（等价于取消时机约束），故**不得**静默回落为
- * 默认值后照常生效。与 `validateSilenceMs` 同一判据、同一理由——两者都是时机数值。
+ * 时机的实际判据在 `experience-review-trigger.js`：**静置到期 + 无审核在跑**，
+ * 两个条件，没有第三个。
  */
-export function validateReviewIntervalMs(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return { ok: false, reason: "not-a-finite-number" };
-  if (!Number.isInteger(n)) return { ok: false, reason: "not-an-integer" };
-  if (n <= 0) return { ok: false, reason: "not-positive" };
-  return { ok: true, value: n };
-}

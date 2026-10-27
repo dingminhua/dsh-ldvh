@@ -398,8 +398,6 @@ window.__ModuleLoader__.load({
       "row.idleSilenceMsHint": "指对话停下来后、连续安静多久才允许做一次闲时回顾：只要还有新的对话活动，计时就重新开始；真正停下来满这个时长，才回顾一次。",
       "row.experienceReview": "自动审核经验",
       "row.experienceReviewHint": "定期检查经验观察里收集的材料，一次把当前这一批**逐条判完**：够格的就写成经验草稿，不够格的标记为「不构成经验」并留痕（草稿是否入档仍需你确认）。与「积累经验」各自独立：关掉它只是不再自动审核，已有材料仍留在经验观察里。审核在会话静置时跑，不占用你的对话。",
-      "row.experienceReviewIntervalMs": "审核间隔（分钟）",
-      "row.experienceReviewIntervalMsHint": "每隔多久自动审核一次留观区。它与上面的「安静时长」是两件事：安静时长管「对话停止多久后收集」，审核间隔管「多久把已收集的材料审一遍」。须大于 0。",
       "row.idleLimitInvalid": "请填入整数；安静时长须大于 0（配额上限填 0 表示不限）。",
       "row.webHint": "关闭时移除 LDVH 页面和 API；开启后自动挂载并检查是否可用。",
       "row.status": "Web 呈现状态",
@@ -485,8 +483,6 @@ window.__ModuleLoader__.load({
       "row.idleSilenceMsHint": "How long the conversation must stay quiet before a single idle review may run: any new activity restarts the count, and one review happens once the silence reaches this duration.",
       "row.experienceReview": "Auto-review experience",
       "row.experienceReviewHint": "Periodically examines the material collected in experience observations and judges the whole batch entry by entry: the ones that qualify become experience drafts, the rest are settled as not constituting experience with a trace (filing a draft still needs your confirmation). Independent of capture: turning it off stops auto-review only, and material stays in experience observations. Reviews run when the conversation goes quiet, so they never occupy your own conversation.",
-      "row.experienceReviewIntervalMs": "Review interval (minutes)",
-      "row.experienceReviewIntervalMsHint": "How often to review the observation buffer. This is separate from the silence duration above: silence governs when material is captured, the interval governs how often captured material is reviewed. Must be greater than 0.",
       "row.idleLimitInvalid": "Enter an integer; the silence duration must exceed 0 (0 in the cap means unlimited).",
       "row.webHint": "Turning it off removes the LDVH page and API; turning it on mounts them and checks availability automatically.",
       "row.status": "Web presentation status",
@@ -756,11 +752,10 @@ window.__ModuleLoader__.load({
       //
       // 界面用分钟，存储用毫秒。**须为正数**——写入侧另有下界判定（见
       // idleSilenceOk）。
-      // **两项，均为 §6.1 的时机数值，不是 §6.2 的节流约束**（§6.2 现为空集）：
-      // 前者是形态 1 的空窗（对话停下多久后捕获），后者是形态 2 的周期（多久审核一次）。
-      // 两者是两个量，分开设置（Human 2026-10-26：「这本来就是两件事」）。
-      { key: "idleSilenceMs", scale: 60000, hintKey: "row.idleSilenceMsHint" },
-      { key: "experienceReviewIntervalMs", scale: 60000, hintKey: "row.experienceReviewIntervalMsHint" }
+      // **现只有一项**（2026-10-27 二次修订）：审核的「间隔」已整体删除——审核随
+      // 静置触发，与捕获共用同一个时机，没有第二个数值可配。Human 原话：
+      // 「==，这个不存在时间了呀，随静置触发」。故此处只剩形态 1 的空窗。
+      { key: "idleSilenceMs", scale: 60000, hintKey: "row.idleSilenceMsHint" }
     ];
     /**
      * 各参数的**存储单位**默认值——**必须与服务端
@@ -768,8 +763,7 @@ window.__ModuleLoader__.load({
      * 两处漂移会让「设置页显示 A、实际生效 B」——用户永远看不到真实值。
      */
     var IDLE_DEFAULT_STORED = {
-      idleSilenceMs: 300000,
-      experienceReviewIntervalMs: 3600000
+      idleSilenceMs: 300000
     };
     /**
      * 召回预算的**已登记档位**（K 字节）。
@@ -884,7 +878,7 @@ window.__ModuleLoader__.load({
         // **两个时机数值都须 > 0**（2026-10-26）：审核间隔与安静时长同性质——§6.1
         // 明文「非法取值须在写入时拒绝」，而 0 分钟会让「到点」恒成立（等价取消时机
         // 约束）。配额类的 0 合法（表示不限），故不能共用同一条判据。
-        if (key === "idleSilenceMs" || key === "experienceReviewIntervalMs") return idleSilenceOk(text);
+        if (key === "idleSilenceMs") return idleSilenceOk(text);
         var limit = IDLE_LIMITS.filter(function (l) { return l.key === key; })[0];
         return limit !== undefined && idleLimitOk(text, limit.scale);
       }

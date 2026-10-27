@@ -8,7 +8,8 @@
 //      拒绝**，不得退化为继承父上下文（那等于全量交付，§7.1 明禁）。
 //   ② **审核段不读实时对话**：交给执行体的提示词里**只有**缓冲投影与既有对象投影，
 //      不含区间材料、不含会话正文。这条是结构性的——它拿不到的东西就偷不走。
-//   ③ **一次至多 1 条候选**：配额由 `reviewPendingEntries` 强制，本模块不放大。
+//   ③ **一次派发逐条判定**：批内每条都要有结论（2026-10-27 修订；原「一次至多
+//      1 条候选」的产出配额已废止——它使待审队列永远清不完）。
 //   ④ **无提案不落盘**：执行体没给可解析提案时，条目原样留 pending，不得以「缺省」
 //      代替材料判断（§10.2 第 5 项）。
 //   ⑤ **缓冲为空/不可读时不派发**：空则跳过（不派生执行体），不可读则 fail-closed
@@ -277,4 +278,72 @@ test("未指定模型 → 不传 agentOptions（沿用宿主默认路由）", as
   });
 
   assert.equal(subagents.calls[0].request.agentOptions, undefined, "不指定时**不得**传空 agentOptions");
+});
+
+// ── ⑥ 查重对照集的根 ────────────────────────────────────────────────────
+
+test("查重对照集必须从**事实源根**（project.path/ldvh-base）读，不是项目根", async () => {
+  // ## 这条守的是一个「静默为空」的真缺陷（2026-10-27 实测并修复）
+  //
+  // `collectExistingPitfalls({factSourceRoot})` 把入参当**事实源根**用——它在下面
+  // 直接找 `pitfalls/`。而 `scope.project.path` 是**仓库根**（事实源在其下的
+  // `ldvh-base/`）。写在仓库根上时目录不存在，`listPitfallObjects` 对 ENOENT 返回
+  // `success({items:[]})`——**不报错，只是空**。
+  //
+  // 实测：错根 items=0，正确根 items=40。后果不是慢，而是**查重基线恒为空**：
+  // 审核段把每条都判成「无重复」并成文，§10.2 第 2 项的查重覆盖在结构上不存在，
+  // 而外观一切正常（无报错、无缺口）。这正是「以产物缺席作否定判据」的失效形态。
+  //
+  // 判据做法：在临时目录里铺出**真实的双根布局**（根下 ldvh-base/pitfalls/ 放一条
+  // 真 Pitfall），再用假 subagents 断言派发出去的提示词里**出现了那条对照对象**。
+  // 只断言「函数没报错」抓不到这个缺陷——错根也不报错。
+  const base = await mkdtemp(join(tmpdir(), "review-stage-root-"));
+  await seedBuffer(base);
+  const pitfallDir = join(base, "ldvh-base", "pitfalls");
+  await mkdir(pitfallDir, { recursive: true });
+  const uid = "0b9e2f5a-1c3d-4e8f-9a0b-1c2d3e4f5a6b";
+  await writeFile(join(pitfallDir, `pitfall-${uid}.md`), [
+    "---",
+    `object_uid: ${uid}`,
+    "fact_type_key: pitfall",
+    "title: 对照集里的既有经验",
+    "scope: 适用于本用例",
+    "status: active",
+    'created_at: "2026-10-01T00:00:00.000Z"',
+    "---",
+    "",
+    "# 对照集里的既有经验",
+    "",
+    "## 症状",
+    "对照集探针。",
+    "",
+    "## 影响与适用范围",
+    "适用于本用例",
+    "",
+  ].join("\n"), "utf8");
+
+  const subagents = fakeSubagents({ proposals: [] });
+  const lifecycle = quietLifecycle();
+  const result = await runReviewStage({
+    subagents,
+    parent: {},
+    scope: governedScope(base),
+    lifecycle,
+    dshHomePath: homeJoiner(base),
+  });
+
+  assert.equal(result.ok, false, "提案为空 → 批内缺判定 → fail-closed（此处只借它的提示词做断言）");
+  assert.equal(subagents.calls.length, 1, "前提：确实派发过一次");
+  // ⚠️ 提示词在 `startActivation` 的 **`request.prompt`** 里，且是**分段数组**
+  // （`[{type:"text", text}]`）而非字符串。两个坑都踩过：读 `call.prompt` 得到
+  // undefined，对数组直接 `.includes` 也恒为 false——两者都会让本用例在「代码其实
+  // 是对的」时变红，从而看起来像又一个缺陷。
+  const promptText = (subagents.calls[0].request?.prompt ?? [])
+    .map((part) => (typeof part === "string" ? part : part?.text ?? ""))
+    .join("\n");
+  assert.match(
+    promptText,
+    /对照集里的既有经验/,
+    "提示词必须含既有 Pitfall 的标题——缺它说明对照集是空的，查重覆盖形同虚设",
+  );
 });

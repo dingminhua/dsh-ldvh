@@ -31,10 +31,19 @@
 // 任一步失败都如实返回，**不降级**为「跳过审核」或「只记日志」。原因：审核段是
 // 机械通道的一部分（§10.2 第 3 项创建 draft），静默跳过会让「缓冲里有材料但从不
 // 被审」与「缓冲为空」外观相同。
+import { join } from "node:path";
+
 import { reviewPendingEntries, collectExistingPitfalls } from "./observation-review.js";
 
 /** 一次派发最多交付多少条 pending 条目（防提示词无界增长）。 */
 export const MAX_ENTRIES_PER_REVIEW_DISPATCH = 12;
+
+/** 事实源根 = 管辖项目根下的 `ldvh-base`（与 lifecycle.js 的落地调用同一约定）。 */
+function joinScopeFactSource(projectPath) {
+  // 用 path.join 而非模板拼接：Windows 分隔符与重复斜杠都由它处理，手写正则在
+  // win32 上会产生 `C:\repo/ldvh-base` 这种混合形态。
+  return join(projectPath, "ldvh-base");
+}
 
 function failure(code, message, extra = {}) {
   return { ok: false, error: { code, message, ...extra } };
@@ -249,14 +258,37 @@ export async function runReviewStage({
   }
 
   // ── 1. 取待审条目与对照集 ──────────────────────────────────────────────
+  //
+  // **根必须是 `ldvh-base`，不是项目根**（2026-10-27 修）。`collectExistingPitfalls`
+  // 与 `createPitfallObject` 都把 `factSourceRoot` 当**事实源根**用（在它下面直接找
+  // `pitfalls/`），而 `scope.project.path` 是**仓库根**。写在仓库根上时目录不存在，
+  // `listPitfallObjects` 对 ENOENT 会 `success({items:[]})`——不报错，只是空。
+  //
+  // 实测（2026-10-27）：错根 items=0，正确根 items=40。后果不是「查重变慢」，而是
+  // **查重基线恒为空**：审核段会把每一条都判成「无重复」并成文，§10.2 第 2 项的
+  // 查重覆盖（23 §6.2）在结构上等于不存在——而且它**看起来一切正常**（没有报错、
+  // 没有缺口记录），正是本仓反复登记的那类「以产物缺席作否定判据」的失效形态。
+  // 与 `lifecycle.js` 的两处调用（`join(scope.project.path, "ldvh-base")`）保持一致。
+  const factSourceRoot = joinScopeFactSource(scope.project.path);
   let existing;
   try {
-    existing = await collectExistingPitfalls({ factSourceRoot: scope.project.path });
+    existing = await collectExistingPitfalls({ factSourceRoot });
   } catch (error) {
     record("land-failed", { action: "dedupe-baseline-failed", reason: String(error?.message ?? error) });
     return failure("review_stage/dedupe_baseline_failed", `cannot collect the dedupe baseline: ${String(error?.message ?? error)}`);
   }
-  const pitfalls = Array.isArray(existing?.items) ? existing.items : [];
+  // **读的是 `existing.value.items`，不是 `existing.items`**（2026-10-27 修，第二层缺陷）。
+  //
+  // `collectExistingPitfalls` 与 `listPitfallObjects` 一样返回 `{ok:true, value:{items}}`
+  // ——这是本仓写入/读取模块的统一 envelope。而此处原读 `existing?.items`，恒为
+  // `undefined`，于是 `pitfalls` **恒为空数组**：即便事实源根传对了、40 条 Pitfall
+  // 全都读到了，对照集在派发前仍被这一步清空。查重覆盖因此**两层各失效一次**，
+  // 任何一层单独修好都不会显出效果——这也是它此前没被发现的原因。
+  //
+  // 该读取形状有测试守着（`experience-review-stage.test.mjs` 的「查重对照集必须从
+  // 事实源根读」一例）：断言派发出去的提示词里出现那条既有 Pitfall 的标题，而不是
+  // 断言「函数没报错」——错形状与错根都**不报错**。
+  const pitfalls = Array.isArray(existing?.value?.items) ? existing.value.items : [];
 
   // 派发前先看有没有活可干——没有就不派生执行体（省成本，且「空跑」会留下
   // 一条没有任何判断产出的运行记录，读数时反而像出错）。
@@ -344,7 +376,7 @@ export async function runReviewStage({
   const signature = await resolveSignature(sessionPersistence, activation?.childId);
   const reviewed = await reviewPendingEntries({
     dshHomePath,
-    factSourceRoot: scope.project.path,
+    factSourceRoot,
     existingPitfalls: pitfalls,
     proposals: normalizeProposals(proposals),
     // **本次派发交出的那一批**：批内每条都要判定，批外条目留到下一次派发。

@@ -68,9 +68,22 @@ test("运行痕迹的字段不得引用未定义的标识符（曾把 `at` 写�
 
 test("每个结局分支都须给结局变量赋值（否则痕迹会缺失该结局）", async () => {
   const raw = await readFile(join(LIB, "lifecycle.js"), "utf8");
-  // 落地失败、落地成功、无签名三条分支各自的可分辨痕迹
+  // 落地失败、落地成功两条分支各自的可分辨痕迹
   assert.match(raw, /landedAction = "failed"/, "落地失败须被记录");
   assert.match(raw, /landedAction = landed\.value\.action/, "落地成功须被记录");
-  assert.match(raw, /landedAction = "no-signature"/, "缺签名不落地须被记录");
   assert.match(raw, /advancedTurn = pendingTurn/, "水位推进须被记录");
+  // **`no-signature` 这个结局已删除**（2026-10-27 二次修订）：署名门槛按任务分别，
+  // 缺署名不再阻止「不写事实对象」的落地，因此不再有「整块因缺签名不落地」这一
+  // 结局可记。它改记为活动痕迹 `session/checkpoint/signature-unavailable`——
+  // 那是「有判断产出却取不到署名」的诊断，不是一种落地结局。
+  assert.match(
+    raw,
+    /session\/checkpoint\/signature-unavailable/,
+    "取不到署名仍须留下可回读的诊断痕迹（它不再是落地结局，但仍不得静默）",
+  );
+  assert.equal(
+    /landedAction = "no-signature"/.test(raw),
+    false,
+    "不得再有「整块缺签名不落地」这个结局——署名只对写事实对象的那一步前置",
+  );
 });

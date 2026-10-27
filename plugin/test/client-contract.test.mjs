@@ -514,18 +514,25 @@ test("闲时辅助设置面：总开关 + 三个子项 + 四个参数，且总�
   ]) {
     assert.ok(!source.includes(gone), `设置面不得残留已取消的参数 ${gone}`);
   }
-  // **2026-10-26 起恰好两项**：安静时长（形态 1 的空窗）+ 审核间隔（形态 2 的周期）。
+  // **2026-10-27 二次修订后恰好一项**：只有安静时长（形态 1 的空窗）。
   //
-  // 判据仍是「恰好」而非「至少」：多出第三项就意味着又悄悄加了输入框而本条没更新。
-  // 但新增的必须是**时机数值**（§6.1），不得是 §6.2 的节流约束——那一点由上一条的
-  // gone 列表守住（配额/最小间隔类参数名一个都不许回来）。
+  // 审核的「间隔」已整体删除——审核随静置触发，与捕获共用一个时机，没有第二个
+  // 数值可配（Human：「==，这个不存在时间了呀，随静置触发」）。判据仍是「恰好」
+  // 而非「至少」：多出一项就意味着又悄悄加了输入框而本条没更新。
+  //
+  // 同时**反向钉住**：`experienceReviewIntervalMs` 这个字段名一个字符都不许回来。
+  // 这比「数量检查」更狠——数量为 1 但恰好是它，也是一种回潮，而那种回潮正是本条
+  // 要防的形态（审核间隔是落点会话的遗留物，落点会话已经没有了）。
   const limitsTable = source.match(/var IDLE_LIMITS = \[([\s\S]*?)\];/);
   assert.ok(limitsTable, "须有参数表");
   const entries = limitsTable[1].match(/\{ key: "/g) ?? [];
-  assert.equal(entries.length, 2, `设置面参数表须恰好两项（安静时长 + 审核间隔），实为 ${entries.length} 项`);
-  for (const key of ["idleSilenceMs", "experienceReviewIntervalMs"]) {
-    assert.ok(limitsTable[1].includes(key), `参数表须含 ${key}`);
-  }
+  assert.equal(entries.length, 1, `设置面参数表须恰好一项（安静时长），实为 ${entries.length} 项`);
+  assert.ok(limitsTable[1].includes("idleSilenceMs"), "参数表须含 idleSilenceMs");
+  assert.equal(
+    source.includes("experienceReviewIntervalMs"),
+    false,
+    "审核间隔已整体删除（随静置触发，无间隔可配）；该字段名不得再出现在设置面",
+  );
   // 审核**开关**须独立于捕获开关（Human：「这本来就是两件事……所以要分开设置」）。
   assert.ok(source.includes("experienceReviewEnabled"), "设置面须含审核开关");
   assert.ok(source.includes("row.experienceReview"), "设置面须有审核开关文案");

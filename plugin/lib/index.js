@@ -208,10 +208,10 @@ export const Config = z.object({
    *  知情时就开始往账本写候选（与 `experienceCaptureEnabled` 缺省关同一理由）。
    *  与捕获**分开**——Human：「这本来就是两件事……所以要分开设置」。 */
   experienceReviewEnabled: volatileField(z.boolean().default(false)),
-  /** 审核的固定间隔（毫秒）——§6.1 形态 2 的周期，与 `idleSilenceMs`（形态 1 的空窗）
-   *  是**两个量**，不得合并。须为正（`.min(1)`）：取 0 使周期恒成立，§6.1 明文要求
-   *  写入时拒绝。默认 60 分钟**无规范依据**（§6.1：数值由实现侧承接）。 */
-  experienceReviewIntervalMs: volatileField(z.number().min(1).default(3_600_000)),
+  // **`experienceReviewIntervalMs` 已删除**（2026-10-27 二次修订）。审核随静置触发，
+  // 不存在时间间隔——见 `experience-review-trigger.js` 的模块说明与 Human 的原话
+  // 「==，这个不存在时间了呀，随静置触发」。删掉字段而不是留一个默认 0：留着的字段
+  // 会出现在设置面上、被写进 profile 配置、并被后来者当成「间隔机制还在」。
   });
 
 /**
