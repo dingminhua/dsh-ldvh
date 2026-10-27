@@ -22,6 +22,10 @@ change_log:
     provider: qoder
     model: qfmodel
     summary: 入档（draft → active，23 §16 第 1 项）：按 Human 2026-10-17「验证一次当前待审核的经验，情况属实就转正」的指示，对已复现成立者转正。复现主体为本会话主控与只读取证子代理 921408c8（均未参与候选形成），实际重走「缺 summary 的只读预检被拒并逐字指明字段 → 补齐后 passed」，形成侧 d2c2ccfc turn 10 一手记录吻合；原验证段失实归属已在上一轮勘误更正。机制语义与 scope 未变。
+  - at: 2026-10-27T18:40:02.008Z
+    provider: minmax
+    model: MiniMax-M3.1-Flash
+    summary: 机械化承载盘点登记（2026-10-28）：workcase-tools.js:673 的 create 预检闸与 workcase-precheck-create.test.mjs 用例；状态与 scope 不变（23 §9.3 补充级更新）。
 ---
 
 # 候选入参凭印象拼装致预检缺字段失败
@@ -45,6 +49,9 @@ change_log:
 已观察到：预检拦下缺失字段、补齐后预检通过；同一动作在无此缺口的入参下不会触发该失败。未覆盖：预检未覆盖的字段缺失仍可能直到写入或更晚才暴露，未在本材料中被观察。
 
 **独立复现验证结论（2026-10-17，23 §16.1）**：复现主体为本会话主控（session-39edc51b），未参与本候选形成（候选由 36 §10 机械通道在闲时会话形成，见 change_log 首条）；独立性边界：同一底层模型、不同上下文，未做跨模型验证。复现做法为**实际重走该失败机制的可观察步骤**：① 本会话构造一份缺少 `summary` 字段的 workcase 候选入参，调用只读预检 `ldvh_workcase_precheck_create`——预检拒绝，逐项报出 `gap: summary: required non-empty (21 §8 — 使未读原计划的后续执行者可独立执行)`，与本候选根因段所指遗漏字段同名同判据；② 补上 `summary`（并修正预检同时指出的 scope 行格式）后以同一通道重跑——`mechanical_outcome: passed`。两拦两补的顺序与本会话自验一致，系亲手重走而非仅阅读。③ 一手材料侧（形成会话 session-d2c2ccfc，turn 10，2026-10-17T04:16Z）：seq 883 预检入参确无 `summary`，seq 884 拒绝且 gap 逐字为 `summary: required non-empty (21 §8 …)`，seq 888/889 补齐后即 `passed`——候选的症状段、根因段与解决段均获逐字印证。**本次复现另推翻了候选验证段的一处声称**：候选原文称「随后实际写入与后续流程正常完成」，而形成会话 seq 893/894 显示预检通过后紧接的受控创建**被拒绝**（`gap: 21 §6.3/§14 C1 requires an explicit Human routing decision: Human chose 直接执行`），该次并未落盘，`ldvh-base/workcases/` 内也无对应对象。候选这一句属未经核实的补写。**「预检拦下→补齐通过→随后受控创建落盘 read_back: ok」这条完整链的真实承载在同库另外两个会话**：session-12ddc1ba turn 12（seq 577 拒绝→582 通过→587 创建 completed、read_back: ok，对象 `88f3e568`）与 session-c504cdca turn 3（seq 674 拒绝→679 通过→684 创建 completed，对象 `562f75c1`）；二者首轮被拒报的是书写结构与 lifecycle gate 类缺口，缺必填字段一例仅见 d2c2ccfc。故本条机制成立、且已在真实现场多次复现；不成立的只有原句里那一次「写入正常完成」的归属。本条的验证段已按上述事实改写。未覆盖：本次复现只重走了「缺 `summary`」这一条路径，其余必填字段的缺失形态未逐一构造；「预检未覆盖的字段缺失到写入或更晚才暴露」仍未观察到实例。
+
+
+**机械化承载（2026-10-28 盘点）**：`plugin/lib/workcase-tools.js:673` 的 create 分支（先跑 `precheckWorkcaseCreate` 再取 Human 路由答复）＋ `plugin/test/workcase-precheck-create.test.mjs`（「候选机械不合格时宿主询问入口零调用」等 13 例）已把「先跑同参数形态的只读预检」实现为机械判据：删掉该闸后该例转红；工具参数 schema（`workcase-tools.js:1382` required: [title, summary, scope, plan]）在 handler 前经 DSH 的 `validateJsonSchemaValue` 拒绝缺字段的候选。覆盖边界：只覆盖 WorkCase 的 create 路径——spark/pitfall/adr/norm/friction/research 无只读预检入口，缺字段只能到写入时被同一 validator 拦下；schema 的 required 只管「字段在不在」，「非空」判据仍只在 writer 侧，且 schema-writer-agreement 用例只断言「writer 字段集 ⊆ schema 属性集」，不覆盖必填性。
 
 ## 影响与适用范围
 适用于任何经受控写入通道创建的结构化对象（候选对象、工单对象等）的新建动作；影响限于首次预检多一轮往返，不改变已写入对象的内容。

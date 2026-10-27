@@ -1,8 +1,9 @@
 ---
 title: 身份判定分裂致关联判死
-status: active
+status: discarded
 scope: 适用于「同一身份判定在多层各自维护正则实现」的读写链路：任一层版本位或形态假设漂移，都会让按规范创建的对象在某层被整体拒认，而失败以「数据不可用」的静默降级形式呈现，构建、类型检查与测试均不报错。已验证实例：dsh-ldvh 的 plugin/web，object_uid 判定分散在 api/services、api/routes 与 src 共四处，其中三处取 UUIDv7 形态，与 specs/03 §6.1 的 canonical UUIDv4 冲突。
 trigger_signal: 当 identity 字段的版本形态约定变更（如改用其它 UUID 版本或 ULID）、或对象身份判定被再次复制到新的读取层时重审本经验。
+disposition: 经验废止（23 §16 第 2 项）：规避已由 specs/06 §6（:124/:159）吸收——同一规则必须通过单一职责入口实现、严禁复制副本逻辑；规则由规范源承载，本条仅作来源引用（23 §6.3）。
 object_uid: e8cadde1-5c9f-464b-8d47-2f074fa11cab
 fact_type_key: pitfall
 created_at: 2026-09-13T10:26:18.813Z
@@ -23,6 +24,14 @@ change_log:
     provider: ds41
     model: deepseek-v4.1-flash
     summary: 勘误级更新（23 §9.3，scope 逐字不变）：①「解决」段成功信号的口径由「全仓」收窄为「web 平面」，并加注记如实登记 plugin/lib 侧 8 份同形 v4 副本为有意设计（无漂移，机制条件仍成立）；②「解决」段补「已知的有意例外」一项；③「验证」段补 2026-10-14 复核结论——触发信号未命中、判定未被复制到新读取层（federation.ts 等新增路由无自维护正则）
+  - at: 2026-10-27T18:40:01.994Z
+    provider: minmax
+    model: MiniMax-M3.1-Flash
+    summary: 机械化承载盘点登记（2026-10-28）：fact-identity-uid.test.ts 的 canonicalUid 谓词判据；状态与 scope 不变（23 §9.3 补充级更新）。
+  - at: 2026-10-27T19:03:57.028Z
+    provider: dsh-opencode-go
+    model: deepseek-v4.1-flash
+    summary: 经验废止（active→discarded，23 §16 第 2 项，Human 2026-10-28 指令）：规避第 2 条已由 specs/06 §6（:124/:159）吸收为强制规则（单一职责入口、严禁副本），本条不再独立承担约束；正文补记吸收条款的可回指依据（35 §8.6 第 3 项），状态与 scope 为唯一变更。
 ---
 
 # 身份判定分裂致关联判死
@@ -85,6 +94,8 @@ readerUidPattern.test(uid)   // false —— 关联层按 v7 校验，拒绝
 
 **号位注记（2026-10-14，批次 G 事实更正）**：本文创建时点（2026-09-13）所引的 `specs/03 §6.1`，经 02–10 重构后为现行 `specs/02 §7.1`「公共身份字段」——该节仍逐字载有同一 canonical UUIDv4 判定与不采用 UUIDv7 的理由（其索引与排序收益只在数据库主键场景成立，事实源为文件载体时该收益落空），本节「根因」「解决」「规避」三处已按现行号位更正。另：frontmatter `scope` 字段与其正文镜像「影响与适用范围」节内的同一处时点号位「specs/03 §6.1」为**冻结字段镜像**（Pitfall 勘误要求 `scope` 逐字不变），照录不改，读时以本条注记的现行号位为准。
 
+**已被规范源吸收（2026-10-28，Human 决定废止）**：上述第 2 条（同一判定不得在多层各自实现）已由 `specs/06` §6 承载——`:124`「对应 Code 必须通过单一职责入口实现，严禁复制副本逻辑」、`:159`「同一规则只存在唯一职责入口实现，无副本逻辑」（未满足时合并到单一入口，未修复前不发布；06 §9.1 第 3 项列为必停）。自该条款生效起，本条不再独立承担约束，仅作为该规则的来源引用保留（23 §6.3、35 §8.6 第 3 项）；须合读 02 §7.1 的权威形态。
+
 ## 验证
 
 **已观察**：
@@ -102,6 +113,9 @@ readerUidPattern.test(uid)   // false —— 关联层按 v7 校验，拒绝
 1. 浏览器中的实际呈现未逐页人工核验，仅验证到投影层输出正确；
 2. `friction-writer.js` 的 informs 目标解析退化为文件名拼接（只验文件名不验对象有效性）属另一独立缺口，本次未处理；
 3. 其它字段的判定是否也存在多层复制未做全仓普查。
+
+
+**机械化承载（2026-10-28 盘点）**：`plugin/web/tests/api/fact-identity-uid.test.ts`（5 例，断言 canonicalUid 接受 v4、拒绝 v7 与非规范值，且真实 uid 的关联投影不再降级）已把本条的规避实现为机械判据——权威形态被钉在 `plugin/web/shared/factIdentity.ts` 一份实现上，谓词漂移当场转红（改回 v7 则 5 例中 4 例失败）。覆盖边界：它只锁共享谓词与 factReadingProjection 一条读链，不锁「不得在多层各自实现」——在 `api/services/facts.ts` 另植一份漂移副本时该文件仍全绿（漂移由 `fact-source-metadata.test.ts` 的行为用例偶然捕获）；`plugin/lib` 侧 8 份 writer 副本不在任何用例覆盖内。
 
 ## 影响与适用范围
 

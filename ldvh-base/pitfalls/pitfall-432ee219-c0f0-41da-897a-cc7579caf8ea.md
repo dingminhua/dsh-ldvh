@@ -1,7 +1,8 @@
 ---
 title: 未核对规范原文即下红线强断言致结论反转
-status: draft
+status: discarded
 scope: 适用于就实现行为是否符合规范红线、禁令或既定纪律作出判断的场合；也适用于任何在未取得一手依据时给出「可能违反红线」这类强断言的活动。
+disposition: 候选未入档即被否决（23 §16 第 2 项）：根因被原始留痕反驳——下断言前已 grep 读出 specs/02:262 原文并在正文引用，且已把定性权交回 Human；本条实记「读法未定即定性」。另与 friction-fd9addd5、Pitfall a8f85076 存在查重关系。
 object_uid: 432ee219-c0f0-41da-897a-cc7579caf8ea
 fact_type_key: pitfall
 created_at: 2026-10-27T13:05:31.121Z
@@ -10,6 +11,10 @@ change_log:
     provider: minmax
     model: MiniMax-M3.1-Flash
     summary: 闲时辅助经验积累·审核段据缓冲条目 06d4a0ed-e4d3-4902-a448-15edd439bf68 形成候选（11 §10.2 第 3 项）
+  - at: 2026-10-27T18:21:02.172Z
+    provider: dsh-opencode-go
+    model: deepseek-v4.1-flash
+    summary: 候选未入档即被否决：独立复现验证发现根因段被原始留痕反驳（turn 19 下断言前已 grep 读出 specs/02:262 原文并在正文引用，且已把定性权交回 Human），与 friction-fd9addd5、Pitfall a8f85076 另有查重关系；据 Human 2026-10-28「不入档的应该废弃」执行 draft→discarded。
 ---
 
 # 未核对规范原文即下红线强断言致结论反转

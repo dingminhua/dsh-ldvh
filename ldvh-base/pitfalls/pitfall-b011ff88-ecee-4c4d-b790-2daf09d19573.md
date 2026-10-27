@@ -14,6 +14,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 转正：补入档复核段，记录对 8ca87ab 修复面的机械核对结果
+  - at: 2026-10-27T18:37:42.415Z
+    provider: dsh-opencode-go
+    model: deepseek-v4.1-flash
+    summary: 机械化承载盘点登记（2026-10-28）：workcase-goals.test.mjs:373/397/409 断言 complete/open 相位只走 get+create 且失败不被吞；状态与 scope 不变（23 §9.3 补充级更新）。
 ---
 
 # 相位闭集缺 complete 致错误被吞成成功
@@ -37,6 +41,9 @@ resume 的相位闭集只接受可推进的相位，不含 complete。相位不�
 真实会话日志证实修复跑通：10-19 02:03:58 出现 create rev1 → active，此前该序列只有 complete 与 resume，死结在真实数据上解开；测试 1622 条中 1621 pass / 0 fail / 1 skipped，且该跳过为既有跳过；lint 通过。未覆盖：只观察到一例真实会话样本，未在并发推进或多次重复触发下观察；规范 specs/21 §14 对该状态的条文空白未补（friction-98c0a43d 仍在 observing），即代码面已解、规范面未解。
 
 **入档复核（2026-10-19）**：转正前对修复面做了机械核对——`8ca87ab` 入库 `plugin/lib/workcase-goals.js`（+64）与 `plugin/test/workcase-goals.test.mjs`（+66）共 127 行；当前 `workcase-goals.js:252-259` 存在 complete 独立分支，其注释明写「宿主 resume 的可接受相位闭集是 {active, paused, blocked}，对 complete 必抛」，与本条根因表述一致；该文件在 `8ca87ab` 之后无后续提交、工作区无未提交改动，修复面完整可追溯。本条未重复观察真实会话样本，验证段「未覆盖」项维持原样。
+
+
+**机械化承载（2026-10-28 盘点）**：`plugin/test/workcase-goals.test.mjs:373/397/409` 已把本条的规避实现为机械判据，断言「目标 complete 而对象 open」只发 `get`+`create`（不得落 resume），且重建/resume 失败返回 `ok:false`+`workcase/goals_failed` 而非被吞成 `ok:true`；覆盖边界：只覆盖 `rearmInFlightWorkcaseGoal` 的 complete/open 这一对相位，`lifecycle.js:416,431-440` 对 `ok:false` 的日志消费无用例断言，其它「闭集判定 + 返回值续推」的调用点未纳入判据。
 
 ## 影响与适用范围
 dsh-ldvh 的 LDVH 插件中 workcase 目标相位机（lib/workcase-goals.js 及其 lifecycle 调用方）。同型的「相位闭集未覆盖某状态 + 错误被吞成成功 + 返回值被丢弃」组合在其它以闭集判定合法性、又依赖返回值续推的调用点上同样适用；本次只在该相位机上被实际触发并验证过，其余调用点未观察。

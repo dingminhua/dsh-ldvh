@@ -11,6 +11,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 创建：记录「构建成功但资产基址缺失致页面白屏」的失败机制与机械拦截方式
+  - at: 2026-10-27T18:37:42.409Z
+    provider: dsh-opencode-go
+    model: deepseek-v4.1-flash
+    summary: 机械化承载盘点登记（2026-10-28）：spa-asset-base-contract.test.ts:19 断言构建产物本地引用均以 /ldvh/ 开头；状态与 scope 不变（23 §9.3 补充级更新）。
 ---
 
 # 无基址构建致 SPA 白屏
@@ -69,6 +73,9 @@ change_log:
 1. GitHub Actions 实际运行环境未验证，仅在本地模拟同等步骤；
 2. 其它构建工具的同类基址语义未验证；
 3. 宿主兜底路由策略不同的部署未验证。
+
+
+**机械化承载（2026-10-28 盘点）**：`plugin/web/tests/api/spa-asset-base-contract.test.ts:19`（CI `.github/workflows/ci.yml:96-100` 先 `pnpm build:dsh` 再跑契约测试）已把本条的规避实现为机械判据，断言 `dist/index.html` 中全部本地 `src`/`href` 均以 `/ldvh/` 开头，违规时逐个列出越界引用并打印 `pnpm build:dsh` 修复命令；覆盖边界：产物不存在时静默跳过（由 CI 的「先构建后测试」顺序补偿），只校验入口 HTML 的引用，不校验运行时 `GET /ldvh` 的 200 与 `Content-Type`，也不覆盖 JS 内动态拼接的资源路径。
 
 ## 影响与适用范围
 

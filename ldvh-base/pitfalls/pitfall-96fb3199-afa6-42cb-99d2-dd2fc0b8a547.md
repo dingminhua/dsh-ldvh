@@ -15,6 +15,10 @@ change_log:
     provider: ds41
     model: deepseek-v4.1-flash
     summary: 补充级更新（23 §9.3）：①「解决」段补落点迁移——countAtxHeadings 与同族解析已收敛至 plugin/lib/markdown-structure.js 单一权威（7 个 writer 引用）；②「验证」段补 2026-10-14 复核——触发信号三项均未命中，但本机制在 friction-writer 再次实证（2026-10-12 摩擦账本 24 条中 3 条因重复 H1 中招），并如实区分「读写往返不幂等」为另一直接原因、本条机制为「静默不被发现」之因；据此收窄「何时可信」；机制、根因、规避与 scope 不变
+  - at: 2026-10-27T18:44:57.975Z
+    provider: minmax
+    model: MiniMax-M3.1-Flash
+    summary: 机械化承载盘点登记（2026-10-28）：承载位置为 plugin/lib/markdown-structure.js:74 的 countAtxHeadings 与 spark/pitfall/workcase 三个 writer 的 H1 计数断言及配套用例；状态与 scope 不变（23 §9.3 补充级更新）。
 ---
 
 # 首行比较式校验漏掉多余H1
@@ -89,6 +93,9 @@ change_log:
 **后续复核（2026-10-14，本仓库）**：触发信号的三项均未命中——插入器仍自动生成 H1、解析仍为各 writer 的自实现而非 CommonMark 完整解析器、载体未引入 setext 标题（`markdown-structure.js` 头部如实声明 setext／行内代码／HTML 注释仍未覆盖）。但本机制在同一仓库**再次实证**：`plugin/lib/friction-writer.js` 的 `validateFrictionBodyStructure` 至今仍以「首个非空行是否等于 `# <title>`」实现、**不数 H1 的个数**，而 26 §8.4 第 5 项的精确回读只比对 `count`/`last_at`——两条通道都给绿灯。2026-10-12 定位到真实累积损坏：摩擦账本 24 条中 3 条中招（`3048937d` H1=3、`545cca82` H1=2、`bf73fad4` H1=2）。需如实区分两层原因：**直接原因**是读写往返不幂等（`readFrictionObject().body` 含生成式 H1，调用方直接回传，于是每写一次多一个 H1），属**另一机制**；**它能长期静默不被发现，正是本条机制**——单点比较看不见「后面还有没有第二个标题」。修复取「拒绝 + 指明去处」（`requireBodyWithoutH1` 拒绝自带 H1 的入参、并导出 `stripLeadingH1` 供读-改-写路径先剥再传），而非静默剥离。⇒ 据此收窄本条的「何时可信」：只有当**每个**写入路径的结构校验都以计数而非首行比较实现时才可信，收敛落点必须覆盖全部 writer——这也是 `markdown-structure.js` 存在的理由。
 
 未覆盖：setext 标题形态、行内代码中的 `#`、HTML 注释中的 `#`（代理审核时指出注释内 `#` 亦为误报，本次未处理——因当前载体不含该形态）；CRLF 采取「容忍」而非「改写」策略时的长期一致性未经实测。
+
+
+**机械化承载（2026-10-28 盘点）**：`plugin/lib/markdown-structure.js:74` 的 `countAtxHeadings`（CRLF 归一、≤3 前置空格、井号后空格/tab、跳 fenced block）被 `plugin/lib/spark-writer.js:523-527`、`plugin/lib/pitfall-writer.js:214-218`、`plugin/lib/workcase-writer.js:1399-1402` 用来断言「H1 恰好一个」，用例 `plugin/test/markdown-structure.test.mjs:79-89` 与 `plugin/test/spark-writer.test.mjs:1082-1113`、`plugin/test/pitfall-writer.test.mjs:668-687` 同时列了多余 H1 的连续/中间/末尾/缩进/tab 与三种合法变体，它断言的正是「集合性质用计数而非首行比较」。覆盖边界：`plugin/lib/friction-writer.js:501-514` 只拒「开头」H1、`:529-531` 仍是首个非空行比较（实测正文中/末尾各多一个 `# 额外` 仍 `ok:true`），workcase 虽计数但无逃逸形态用例（把计数降级为首匹配式后 spark/pitfall 各 2 红、workcase 与 friction 0 红）；setext、行内代码、HTML 注释中的 `#` 未覆盖（模块头自认）。
 
 ## 影响与适用范围
 

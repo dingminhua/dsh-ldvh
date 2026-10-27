@@ -1,6 +1,6 @@
 ---
 title: 粗粒度拒绝断言致目标校验零检测
-status: draft
+status: active
 scope: 适用于本插件回归用例中以不区分层的断言去验证某一层形态校验的场景；本例的抢先命中发生在工具层正文形态校验与 writer 层 H1 计数之间。不涉及宿主模块加载或 HMR 行为。
 object_uid: ef04d0a1-1bcb-416d-b308-c6097dfd8a93
 fact_type_key: pitfall
@@ -10,6 +10,10 @@ change_log:
     provider: go
     model: space-bunny
     summary: 闲时辅助经验积累（机械通道）于 2026-10-19T07:33:27.251Z 形成候选
+  - at: 2026-10-27T18:26:05.424Z
+    provider: dsh-opencode-go
+    model: deepseek-v4.1-flash
+    summary: 独立复现验证通过（隔离子代理 762dde2b，同模型/独立上下文）：旧形态下拒绝来自 writer 层 H1 计数（gaps 逐字可核）、把工具层门禁放行后现行用例转红，证明收窄后的断言有检测力。据 Human 2026-10-28「验证属实即入档」逐条验收指示，draft→active 入档。
 ---
 
 # 粗粒度拒绝断言致目标校验零检测
@@ -32,6 +36,8 @@ change_log:
 ## 验证
 已观察：`test/workcase-execute-inherit.test.mjs` 的 7 条测试全部通过；修正前该用例在目标校验未执行的情况下以「被拒绝」满足断言，复核意见与修正后收窄的断言互为对照。
 未覆盖：本次验证只在磁盘代码与测试进程内成立；同一会话中宿主运行实例仍执行旧副本（`plugin_manager` 停用再启用只报 `application: "applied"`、行为不变），故工具层校验在真实调用链上的行为未被覆盖。
+
+独立复现验证（2026-10-28，入档前置）：复现主体为隔离子代理（独立上下文 session 762dde2b-f796-410c-927e-bf89b5712245，未参与本候选形成）；独立性边界为与形成者同一模型（dsh-opencode-go/deepseek-v4.1-flash）、上下文隔离。复现做法：`node --test test/workcase-execute-inherit.test.mjs` 得 7 项全过；在 /tmp 副本把该用例正文改回「整体转义」并把断言写回 `rejected`。观察一：旧形态 outcome=rejected，gaps 为 `body: expected exactly 1 H1 heading, found 2`——拒绝确由 writer 层 H1 计数给出，用例以「被拒绝」通过而工具层形态校验未执行。观察二：在 /tmp 把 `normalizeBodyMarkdown` 改为无条件放行后，现行用例失败并落到 `rejected`，证明修正后的 `invalid_request` 断言确有检测力。观察三：HEAD 用例已采用逐段转义 + 字面量 `\n` 拼接，`:262` 的断言与拒绝层一一对应。复现未覆盖：形成会话（2026-10-19）不在本机会话库，「复核者第 11 轮」原文及宿主实例仍跑旧副本的说法无法核对；真实调用链未覆盖。
 
 ## 影响与适用范围
 适用于本插件回归用例中以不区分层的断言去验证某一层形态校验的场景；本例的抢先命中发生在工具层正文形态校验与 writer 层 H1 计数之间。不涉及宿主模块加载或 HMR 行为。

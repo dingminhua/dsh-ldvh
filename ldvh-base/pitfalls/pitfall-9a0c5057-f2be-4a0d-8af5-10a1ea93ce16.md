@@ -14,6 +14,10 @@ change_log:
     provider: qoder
     model: qfmodel
     summary: 登记独立复现验证结论（23 §16.1 第 3 项）并按 Human 2026-10-17「情况属实就转正」入档（draft→active）：复现者用修复前 writer（64bf2d4）对 HEAD 旁路用例实跑得 6 红、证明门禁确曾被绕；HEAD 全 20 绿 + grep 确认四环保管链落地；据修复提交 4bbc9f6 与第二轮复核记录，把「第二次复核尚未返回」据实收窄为「已返回、五个面堵死」，仍属实的未覆盖项为其他受控写入路径是否还有同类旁路。机制语义与 scope 未变。
+  - at: 2026-10-27T18:44:57.982Z
+    provider: minmax
+    model: MiniMax-M3.1-Flash
+    summary: 机械化承载盘点登记（2026-10-28）：承载位置为 plugin/lib/workcase-writer.js 的 guardAuditField/stripCallerOnlyFields/stampReviewEntries/assertReviewHistoryNotRewritten 四环与 plugin/test/workcase-pre-gate1-audit.test.mjs 旁路用例；状态与 scope 不变（23 §9.3 补充级更新）。
 ---
 
 # 只抄写入函数未抄证据保管链致门禁可绕
@@ -43,6 +47,9 @@ change_log:
 旁路用例 16/16 通过，四条旁路（revise 伪造、create 直写、盖戳条目改写、门禁放行）全部被拦；变异测试临时撤掉结构性剥离后相关用例立刻变红、恢复后全绿，证明测试非空转；plugin 1539/1539、web 483/483、tsc 零错误、`build:dsh` 成功。修复后的第二次独立复核结论尚未返回，未覆盖：该复核可能提出的新增问题、以及未实测的其他受控写入路径是否还有同类旁路。
 
 **独立复现验证结论（2026-10-17，23 §16.1）**：复现主体为本会话主控（session-39edc51b），未参与本候选形成（候选由 36 §10 机械通道形成，见 change_log 首条）；独立性边界：同一底层模型、不同上下文，未做跨模型验证。复现方式为**实际重走该失败机制的可观察步骤**（旁路攻击），结果如下：① **旁路确曾成立**——取修复前 writer（提交 `64bf2d4` 的 `workcase-writer.js`）置于副本 `/tmp/mut`，对 HEAD 现有的 20 条旁路/门禁用例跑 `node --test`，得 `tests 20 / pass 14 / fail 6`，失败的正是「F1 revise 伪造」「F1b create 携带」「F2 改写已盖戳条目」「execute 改写」「G1 自审不满足覆盖闸」「G2 回滚留痕」六条——修复前门禁可绕，与本候选症状逐字吻合；② **修复后成立**——HEAD 同一文件、同一组用例全 20 通过；③ **保管链四环真实存在**——`grep` 确认 `stampReviewEntries`、`assertReviewHistoryNotRewritten`、`guardAuditField`、`stripCallerOnlyFields` 均在 HEAD 落地，`revise`/`execute`/`rebatch` 三处调用 `guardAuditField` 回落落盘值，`create` 携带 `pre_reviews` 被拒；④ **根因真实存在**——修复前 `64bf2d4` 中 `stampReviewEntries`/`assertReviewHistoryNotRewritten` 的调用点仅接在 `reviews` 上（`next.reviews` 两处），未接 `pre_reviews`，即「只抄写入函数与判据、未抄托管与不可改写两环」在代码上成立；⑤ 修复提交 `4bbc9f6` 的消息逐字记载 plugin 1543/1543、web 483/483、tsc 零错误与两轮变异检验，与本候选验证段一致；该消息另记载**修复后的第二轮独立复核已返回「修复有效，无致命缺陷」并独立实测 F1/F1b/F2/execute/rebatch 五个面全部堵死**——即候选验证段中「第二次独立复核结论尚未返回」这一条现已闭合，其未覆盖项已被另一主体补齐。**据此把本条的未覆盖范围据实收窄**：第二次复核已返回且未提出致命缺陷；仍属实、但仍未被复现者实测的是「其他受控写入路径是否还有同类旁路」——本会话只核到 workcase-writer 的 pre_reviews/reviews 两轴。
+
+
+**机械化承载（2026-10-28 盘点）**：`plugin/lib/workcase-writer.js:2344-2356`（`guardAuditField` 结构剥离/回落落盘值）、`:2279`（`stripCallerOnlyFields`）、`:2701`（`stampReviewEntries` 身份盖戳）、`:2794`（`assertReviewHistoryNotRewritten`），用例 `plugin/test/workcase-pre-gate1-audit.test.mjs:429/467/491/531/602`，它断言 `pre_reviews` 的唯一写路径是 `record_audit`、已盖戳结论不可被任何写路径覆写。覆盖边界：四环只落在 workcase-writer 的 `pre_reviews` 这一个字段上——没有检查「新增同形审核字段必须同样接上四环」（无字段登记表或元守卫），其他受控写入路径是否仍有同类旁路未实测（本条 scope 自认），「边界声明与所防攻击面一致」仍是文句而非判据。
 
 ## 影响与适用范围
 
