@@ -659,3 +659,68 @@ test("a short-name (8.3) webRoot does not abort the process when the watched tre
   assert.match(stdout, /MUTATION_SURVIVED/, `子进程应跑完脚本：${stderr}`);
   assert.equal(exit.code, 0, `短名 webRoot 下进程被中止：code=${exit.code} signal=${exit.signal}`);
 });
+
+test("a watch root that cannot be watched does not leak the watchers built before it", async () => {
+  // 回归（friction-92bae156）：`WATCHED_SOURCE_ROOTS` 是 ["api","shared"]，而
+  // 真实工程里两者都存在。但**夹具/裁剪后的 webRoot 常常只有 api/**——原实现
+  // 用 `watchTargets.map((t) => fs.watch(t, ...))` 一次建全部：`fs.watch` 对不
+  // 存在的 shared/ 抛 ENOENT，`map` 整体抛出、`watchers` 从未赋值，而**先建出来
+  // 的 api watcher 再无任何引用**，dispose() 里 `for (const w of watcher)` 关不掉
+  // 它 → 句柄泄漏 → 进程不退出（单跑本文件即挂起，全量回归里表现为超时）。
+  //
+  // 修法是逐个建立、建不起来的根跳过。本用例钉住两件事：
+  //   ① 缺 shared/ 时 api/ 的 watcher 仍然建立（监听面未被削弱）；
+  //   ② 子进程能自然退出（泄漏不再发生）——与上一条同形，超时即失败。
+  const webRoot = await mkdtemp(join(longTempDir(), "ldvh-missing-root-"));
+  await mkdir(join(webRoot, "api"), { recursive: true });
+  await writeFile(join(webRoot, "api", "server.ts"), "// only api/, no shared/\n");
+
+  const script = `
+    import { createWebApiProcess } from ${JSON.stringify(new URL("../lib/web-mount.js", import.meta.url).href)};
+    const manager = createWebApiProcess({
+      webRoot: ${JSON.stringify(webRoot)},
+      port: 46001,
+      env: {},
+      command: {
+        exec: process.execPath,
+        argv: ["-e", "require('http').createServer((q,s)=>{s.end('{}')}).listen(Number(process.env.PORT),'127.0.0.1')"],
+      },
+      readinessPath: "/api/health",
+      readinessTimeoutMs: 10_000,
+      watchSource: true,
+    });
+    await manager.ensureReady();
+    // 给异步 watcher 创建留出时间，再断言监听面。
+    await new Promise((done) => setTimeout(done, 500));
+    console.log("WATCH_TARGETS:" + JSON.stringify(manager.watchTargets()));
+    manager.dispose();
+    console.log("SCRIPT_DONE");
+  `;
+
+  const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+  child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+
+  const watchdog = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* gone */ } }, 25_000);
+  const exit = await new Promise((resolve) => {
+    child.on("exit", (code, signal) => resolve({ code, signal }));
+  });
+  clearTimeout(watchdog);
+
+  assert.match(stdout, /SCRIPT_DONE/, `子进程应跑完脚本：${stderr}`);
+  // ① 监听面不变：两个目标仍被解析并暴露（api 真实存在、shared 只是解析失败）。
+  const targets = JSON.parse((stdout.match(/WATCH_TARGETS:(.*)/) ?? [null, "[]"])[1]);
+  assert.equal(targets.length, 2, `watchTargets 应仍报告两个根：${JSON.stringify(targets)}`);
+  assert.ok(targets.some((t) => t.endsWith("/api")), `api/ 根应仍在监听面内：${JSON.stringify(targets)}`);
+  // ② 无句柄泄漏：进程必须自然退出。
+  assert.equal(
+    exit.code,
+    0,
+    `缺 shared/ 时不应泄漏 watcher 句柄，实际 code=${exit.code} signal=${exit.signal}——` +
+      "map() 整体抛出会让先建好的 watcher 失去引用，dispose() 关不掉",
+  );
+});

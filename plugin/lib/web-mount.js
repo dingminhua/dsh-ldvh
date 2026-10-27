@@ -340,6 +340,43 @@ export function createWebApiProcess(options) {
       /** 取不到指纹时返回 null——调用方按「无法判定」处理，不当作「内容未变」。 */
       const probeFingerprint = async () => fingerprintSourceTree().catch(() => null);
 
+      /**
+       * 每个 watcher 共用的事件处理：去抖 → 取指纹 → 判是否真的变了 → 回收。
+       *
+       * 抽成具名函数（而非就地内联在 `fs.watch` 的实参里）是为了让下面「逐个建立
+       * watcher」的循环保持单行可读——见 friction-92bae156 的说明。
+       */
+      const onWatchEvent = () => {
+        if (disposed) return;
+        if (watchTimer !== null) clearTimeout(watchTimer);
+        // 去抖窗口比原 1s 长：真实改码是「truncate → 写 → 连续多事件」的一串，
+        // 窗口太短会在写入中途取指纹，判成变了却拿的是半截内容。
+        watchTimer = setTimeout(() => {
+          watchTimer = null;
+          if (disposed || spawned === null || exited) return;
+          void (async () => {
+            if (disposed || spawned === null || exited) return;
+            const next = await probeFingerprint();
+            if (next === null) return; // 取不到指纹：不做「内容未变」的乐观判断
+            const previous = sourceFingerprint;
+            if (previous === null || next === previous) { sourceFingerprint = next; return; } // 内容未变（或无基线）
+            // 指纹只在**真的回收了**之后才推进。若先推进再调 recycleChild，而
+            // recycleChild 因节流或正在回收而早退，本次真实改码就被「吃掉」了：
+            // 基线已是新内容，下次事件会判成未变，进程却还跑着旧码。故回收未发生
+            // 时保持旧基线，让后续事件（或本次的重试）仍能看到差异。
+            const recycled = await recycleChild("web source content changed (api/ or shared/)");
+            if (recycled) { sourceFingerprint = next; return; }
+            // 回收被节流或正在回收而早退：**基线不动，本次差异也不能丢**。
+            // 第二次独立复核实测：v2 回收进行中再来 v3，若只是「不推进基线」就
+            // 返回，v3 不会再有 fs 事件来驱动它——进程会一直跑 v2 而磁盘是 v3。
+            // 故把差异挂起，等本轮回收结束后按**当前**内容重新判一次。
+            if (disposed) return;
+            pendingFingerprint = next;
+            void scheduleRecheck();
+          })();
+        }, 1500);
+      };
+
       // 基线在 watcher 建立**之前**取：否则建立与取基线之间发生的写入会落在基线
       // 之后、又没有 watch 事件，真实改码被当成「内容未变」而漏回收。
       sourceFingerprint = await probeFingerprint();
@@ -373,36 +410,24 @@ export function createWebApiProcess(options) {
       });
       watchTargetPath = watchTargets;
       /** 每个根一个 watcher；任一触发都走同一段去抖 + 指纹判据。 */
-      const watchers = watchTargets.map((watchTarget) => fs.watch(watchTarget, { recursive: true }, () => {
-        if (disposed) return;
-        if (watchTimer !== null) clearTimeout(watchTimer);
-        // 去抖窗口比原 1s 长：真实改码是「truncate → 写 → 连续多事件」的一串，
-        // 窗口太短会在写入中途取指纹，判成变了却拿的是半截内容。
-        watchTimer = setTimeout(() => {
-          watchTimer = null;
-          if (disposed || spawned === null || exited) return;
-          void (async () => {
-            if (disposed || spawned === null || exited) return;
-            const next = await probeFingerprint();
-            if (next === null) return; // 取不到指纹：不做「内容未变」的乐观判断
-            const previous = sourceFingerprint;
-            if (previous === null || next === previous) { sourceFingerprint = next; return; } // 内容未变（或无基线）
-            // 指纹只在**真的回收了**之后才推进。若先推进再调 recycleChild，而
-            // recycleChild 因节流或正在回收而早退，本次真实改码就被「吃掉」了：
-            // 基线已是新内容，下次事件会判成未变，进程却还跑着旧码。故回收未发生
-            // 时保持旧基线，让后续事件（或本次的重试）仍能看到差异。
-            const recycled = await recycleChild("web source content changed (api/ or shared/)");
-            if (recycled) { sourceFingerprint = next; return; }
-            // 回收被节流或正在回收而早退：**基线不动，本次差异也不能丢**。
-            // 第二次独立复核实测：v2 回收进行中再来 v3，若只是「不推进基线」就
-            // 返回，v3 不会再有 fs 事件来驱动它——进程会一直跑 v2 而磁盘是 v3。
-            // 故把差异挂起，等本轮回收结束后按**当前**内容重新判一次。
-            if (disposed) return;
-            pendingFingerprint = next;
-            void scheduleRecheck();
-          })();
-        }, 1500);
-      }));
+      //
+      // **逐个建立，单个根失败不拖垮整组**（friction-92bae156，2026-10-28）：
+      // 原实现是 `watchTargets.map((t) => fs.watch(t, ...))`。`map` 是「全部成功
+      // 才返回数组」——任一根不可监听（实测：夹具只建了 `api/`，`shared/` 不存在
+      // 时 `fs.watch` 抛 ENOENT），整个 `map` 抛出、`watchers` 从未被赋值，而
+      // **排在前面的 watcher 已经建出来了且再无任何引用**：下方 `dispose()` 里
+      // `for (const w of watcher)` 关不掉它，句柄永久泄漏，进程（以及单跑该测试
+      // 文件的 runner）无法退出——这正是「web-mount 用例单跑挂起」的根因。
+      //
+      // 故改为逐个建立：建不起来的根**跳过**（该根不可监听，等价于既有「watch
+      // 不可用时静默退化为手动重启」的退化语义，不是错误），已建立的照常进入
+      // `watchers`，`dispose()` 能全部关掉。不改变监听面：根存在时行为逐字不变。
+      const watchers = [];
+      for (const watchTarget of watchTargets) {
+        let w;
+        try { w = fs.watch(watchTarget, { recursive: true }, onWatchEvent); } catch { continue; }
+        watchers.push(w);
+      }
       watchers.forEach((w) => w.on("error", () => { /* watch 不可用时静默退化为手动重启 */ }));
       watcher = watchers;
       // 二次检查：watcher 创建与赋值之间不会让出事件循环，但仍保留此关口，
