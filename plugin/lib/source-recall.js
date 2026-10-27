@@ -224,17 +224,32 @@ export function tokenize(text) {
   for (const m of text.toLowerCase().matchAll(/[a-z0-9][a-z0-9._-]*/g)) {
     if (m[0].length >= 2) tokens.add(m[0]);
   }
-  // 中文只取**二元组**（bigram），单字不进匹配集；含虚字的二元组也不进。
+  // 中文取**二元组**（bigram），单字仅在无二元组时兜底。
   //
   // 实测教训一：单字参与匹配时「的/一/本/是」命中一切。
   // 实测教训二：二元组里仍有纯虚字组合（「一个」「可能」「可以」）与跨词噪声
   // （「建一」「板的」「的取」）命中一切。
-  // 两层过滤都是「不承载意义就不参与比对」，不是权重，故仍可解释、可复算。
+  //
+  // **2026-10-27 修正（本函数最大的漏检来源）**：原实现「二元组含虚字就整组丢弃」，
+  // 把**跨越虚字的实词对**也一并扔了。实测 12 条真实查询里 4 条一个 token 都切不出
+  // （「是不是应该」「现在应该做什么」「我要的是这个」「为什么会这样」→ 召回直接
+  // 返回 `recall/no_tokens`）；同口径对照 dsh-auto-memory 的 CJK 2-gram 是 0/12。
+  // 差别不在算法范式，而在这里：它**不丢 gram**，只把虚字词在**打分时**降权。
+  //
+  // 现行规则：
+  //   1. **纯虚字二元组**（两端都是虚字，如「一个」「的是」）仍不进——它确实命中一切；
+  //   2. 两端都是实词的二元组（「白屏」「校验」）= **强证据**；
+  //   3. 含**且仅含一个**虚字的二元组（「为什」「里不」「条校」）= **弱证据**：
+  //      仍进集（否则实词会被成片吞掉），但**不得单独构成命中**——它跨词，
+  //      实测「为什么这里不对」只靠这层就命中了一条与题意无关的 research。
+  //      弱证据的降权不是新机制：`weakHit` 档位已按「是否只有通用词/单字」分档，
+  //      此处把「一端为虚字」并入同一档（详见 matchCandidate 的 specific 判定）。
+  //   4. 单字仍不参与（虚字单字更不参与）——理由同教训一。
   const cjk = text.match(/[\u4e00-\u9fff]+/g) ?? [];
   for (const run of cjk) {
     for (let i = 0; i + 1 < run.length; i += 1) {
       const bigram = run.slice(i, i + 2);
-      if (FUNCTION_CHARS.has(bigram[0]) || FUNCTION_CHARS.has(bigram[1])) continue;
+      if (FUNCTION_CHARS.has(bigram[0]) && FUNCTION_CHARS.has(bigram[1])) continue;
       tokens.add(bigram);
     }
     // 长度为 1 的 run 取不到二元组，此时单字才有区分度，才单独成 token；
@@ -249,6 +264,42 @@ export function tokenize(text) {
     }
   }
   return [...tokens];
+}
+
+/**
+ * 一个 token 是否是**弱证据**：含虚字的二元组（「为什」「里不」「条校」）。
+ *
+ * 与 `weakHit` 的关系：二者是同一降权轴的两段，不是两套机制。`weakHit` 管的是
+ * 「命中的是什么档」（单字 / 通用词），本函数管的是「这个词本身跨不跨词」。
+ * 二者统一在 `matchCandidate` 里合成：**只要命中的全是弱证据，就不算强命中**。
+ *
+ * 为什么需要它（2026-10-27 实测）：把「含虚字即整组丢弃」放宽为「两端皆虚才丢」后，
+ * 「为什么这里不对」切出「为什／这里／里不」三条跨词噪声，于是**本该如实报
+ * no_tokens 的无主题句被注入了**，还命中一条与题意无关的 research。放宽是必要的
+ * （否则实词成片被吞），但必须同时把这类词降为弱证据，否则精度会倒退。
+ *
+ * 参数是**已经小写化的 token**：ASCII 词恒为强证据（虚字表只含中文）。
+ */
+export function isWeakToken(token) {
+  if (typeof token !== "string" || token.length !== 2) return false;
+  if (!/[\u4e00-\u9fff]/.test(token)) return false;
+  return FUNCTION_CHARS.has(token[0]) !== FUNCTION_CHARS.has(token[1]);
+}
+
+/**
+ * 把一个候选的全部可匹配文本拼成一段，供**跨层累计命中**使用。
+ *
+ * 顺序无关（只用于取并集去重），故按 tier 从精确到宽泛拼接，便于调试时对照。
+ * 单字不参与累计（与 `matchCandidate` 的 `strong` 口径一致）——单字在语料里
+ * 覆盖 90%+，计入累计会把「跨层厚度」变成噪声放大器。
+ */
+function sectionsText(candidate) {
+  return [
+    candidate.scope,
+    candidate.detail,
+    candidate.title,
+    candidate.bodyText ?? candidate.body,
+  ].filter((t) => typeof t === "string" && t !== "").join("\n");
 }
 
 /** 两个 token 集的交集大小（不打分做排序，只用于「是否有交集」与命中理由）。 */
@@ -313,6 +364,108 @@ function parseFrontmatter(text) {
     }
   }
   return out;
+}
+
+/**
+ * 状态的**准入等级**：数字越小越优先。用于排序，防止「未准入的草稿」仅因更新
+ * 而压掉「已准入的权威对象」。
+ *
+ * 背景（2026-10-27 实测）：加入「最后更新时间」作次级键后，调用方一旦放宽
+ * `statuses`（如复核草稿时传 `["active","draft"]`），新写的 draft 会凭时间
+ * 新鲜排到 active 之前——实测「校验验证」查询变成清一色 `pitfall/draft`，
+ * 权威的 active 全部被挤出。**新 ≠ 更权威**，故状态等级须先于时间比较。
+ *
+ * 分级依据：`active`／`open` 是各类型规范定义的「当前生效」态（见
+ * `DEFAULT_STATUSES_BY_TYPE`）；`draft`／`pending` 是**尚未准入**；其余
+ * （retired／resolved／voided／discarded／implemented）是终态或已退出。
+ */
+export function statusRank(status) {
+  if (status === "active" || status === "open") return 0;
+  if (status === "draft" || status === "pending") return 1;
+  return 2;
+}
+
+/**
+ * 事实候选的**排序比较器**（纯函数，导出供单测）。
+ *
+ * 输入是 `{fact, index}` 包裹体（`fact` 为候选卡，`index` 为 collect 的产出序）。
+ * 抽出为独立函数的原因：**原先是内联箭头函数，无法单测**。而内联导致了一个
+ * 真实的 NaN bug（见下）只能靠「某条查询恰好错序」偶然发现——把它变纯函数后，
+ * 可以用合成样本直接验证每一层键。
+ *
+ * ── 排序键（自上而下，全序、确定性）──────────────────────────────────
+ *
+ * 1. `weakHit`——强命中先于弱命中（证据更厚的先看）。
+ * 2. `tier`——命中落在哪个字段（编号 > 适用范围 > 内容 > 标题 > 正文）。
+ * 3. `hits`——跨层命中的 idf 加权厚度（降序）。**是权重，只用于排序，不做裁决**。
+ * 4. `statusRank`——已准入（active/open）先于未准入（draft/pending），
+ *    防「新草稿凭新鲜压掉权威对象」。
+ * 5. 必需类型（adr/pitfall）在同分时优先（`22 §12` 义务召回）。
+ * 6. `updatedAt`——同分时较新的先看（Human 裁定；实测多为惰性键，见下）。
+ * 7. `path`——仅为稳定输出。
+ *
+ * ── 一个必须记住的教训（2026-10-27）────────────────────────────────
+ * 上一版此处误写成 `a.weakHit`／`a.tier`／`a.hits`（元素其实是 `{fact, index}`），
+ * 三者都是 `undefined` → `undefined - undefined = NaN` → 而 `NaN !== 0` 为真
+ * → 比较器**恒返回 NaN**。V8 对返回 NaN 的比较器不保证任何次序，排序退化为
+ * 实现相关的乱序（实测「写一个 ADR」时 spark 排到 adr 前，两者证据完全相同）。
+ * 这类 bug 不抛错、既有测试还偶然通过。故本函数**保证任何合法输入都返回有限数**。
+ *
+ * @param {{fact: object, index: number}} a
+ * @param {{fact: object, index: number}} b
+ * @returns {number} 负数 / 0 / 正数
+ */
+export function compareFactHits(a, b) {
+  const fa = a?.fact ?? {};
+  const fb = b?.fact ?? {};
+  const num = (v) => (Number.isFinite(v) ? v : 0);
+  const evidence =
+    Number(fa.weakHit === true) - Number(fb.weakHit === true) ||
+    num(fa.tier) - num(fb.tier) ||
+    num(fb.hits) - num(fa.hits);
+  if (evidence !== 0) return evidence;
+  const rank = (f) => (REQUIRED_RECALL_TYPES.includes(f.type) ? 0 : 1);
+  return (
+    statusRank(fa.status) - statusRank(fb.status) ||
+    rank(fa) - rank(fb) ||
+    String(fb.updatedAt ?? "").localeCompare(String(fa.updatedAt ?? "")) ||
+    String(fa.path ?? "").localeCompare(String(fb.path ?? "")) ||
+    num(a?.index) - num(b?.index)
+  );
+}
+
+/** ISO-8601 秒级带毫秒的时间戳（本仓事实源 frontmatter 的固定形态）。 */
+const ISO_TS = /[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z/g;
+
+/**
+ * 取对象的**最后更新时间**（= `created_at` 与 `change_log[].at` 的最大值）。
+ *
+ * 用途：作为排序的**次级键**（匹配程度相同时才比），见 `recallForAction` 的
+ * 排序键说明。
+ *
+ * **为什么不用文件 mtime**：mtime 随克隆、检出、备份、`git checkout` 而变，
+ * 同一份语料在不同机器/不同时刻会给出不同排序，违反 `02 §9` 的「同输入同输出」。
+ * 存在 frontmatter 里的时间戳是**语料自身的内容**，跨环境稳定、可复算。
+ *
+ * **为什么不用 `parseFrontmatter` 的结构化值**：该解析器把 `key:\n  - item`
+ * 压成**空格连接的字符串**（见其实现），`change_log` 因此是一行长文本。
+ * 故此处用正则从中提取全部 ISO 时间戳再取最大——不改解析器（它被规范源
+ * 侧共用，改动面大），也不影响既有字段。
+ *
+ * @param {Record<string,string>} fm 解析后的 frontmatter
+ * @returns {string} ISO 时间戳；取不到时返回空串（空串在排序中排在最后）
+ */
+export function updatedAtOf(fm) {
+  if (fm === null || typeof fm !== "object") return "";
+  const stamps = [];
+  const created = typeof fm.created_at === "string" ? fm.created_at.trim() : "";
+  if (ISO_TS.test(created)) stamps.push(created);
+  ISO_TS.lastIndex = 0;
+  const log = typeof fm.change_log === "string" ? fm.change_log : "";
+  for (const m of log.matchAll(ISO_TS)) stamps.push(m[0]);
+  // 同一格式的 ISO 字符串可直接字典序比较（长度固定、时区统一为 Z）。
+  stamps.sort();
+  return stamps.length === 0 ? "" : stamps[stamps.length - 1];
 }
 
 /**
@@ -415,6 +568,119 @@ export const INJECTION_BUDGET_TIERS = Object.freeze({
 
 /** 默认档位（10K）：覆盖本仓实测约 5.4K 的两块合计，留约 2 倍余量。 */
 export const DEFAULT_INJECTION_BUDGET_TIER = 10;
+
+/**
+ * 由**预算档位**推导注入的**条数上限**（2026-10-27 修）。
+ *
+ * ── 缺陷（Human 指出）────────────────────────────────────────────────
+ * 此前 `lifecycle.js` 只把档位解析出的**字节预算**传给 `buildRecallInjection`，
+ * **没有传 `limit`**，于是 `limit` 永久取函数默认值 3。实测后果：档位 10（10240
+ * 字节）下，`limit=3` 只列出 6 条、用掉 1319 字节 = **13%**——87% 的预算闲置。
+ * 而 Human 在设置里选档位的本意正是「按这个体量给结果」，档位高了却拿不到更多
+ * 候选，等于设置项空转。实测同一查询：limit=3→1319B、limit=20→8629B。
+ *
+ * ── 规范依据（不虚构数值）──────────────────────────────────────────────
+ * `34 §11`「条数上限的归属」逐字规定：条数上限**不属于 34 号规则**，`02 §9.2`
+ * 明禁「所有类型共用的默认数量」，故「条数上限只能由**具体类型来源**（20–27）
+ * 或**调用方按当次需要**给出」。此处调用方就是注入路径，其「当次需要」的量化
+ * 依据就是 Human 选定的预算档位——这正是规范授权的那条路。
+ *
+ * `34 §11` 第 1 项要求上限**以具名常量承载**、且「不得是运行期猜测」。
+ * 本条满足该要求的方式是：**只有一个除数常量**（`RECALL_LIMIT_BYTES_PER_ITEM`，
+ * 实测标定）加**两个上下界常量**（`RECALL_LIMIT_MIN`／`RECALL_LIMIT_MAX`）。
+ * 中间的取值是 `预算 ÷ 常量` 的**确定性整数除法**——同预算恒得同条数，
+ * 可复算、可审计，不是「随标题长度浮动的猜测」（本式不读任何候选内容）。
+ *
+ * **为什么不采用「静态档位表」**（第一版做法，已删除）：我一度写成
+ * `{10:12, 20:24, …}` 的映射，Human 指出那仍是硬编码，只是把「固定 3」换成
+ * 「固定一张表」——预算本该动态决定条数。故改为按预算导出。
+ *
+ * **为什么除数取 220 而不是 120**（第二版错误，已改回）：120 使 limit 系统性
+ * 大于预算真能装下的条数，随后靠渲染层裁剪兜底。表面利用率好看，实为把
+ * 「预算换算成行数」当产出目标——独立审核实测其边际精确率仅 1.3%
+ * （多出的 150 行里只多 2 条相关）。
+ *
+ * **limit 是「每侧」上限**（`specHits`／`factHits` 各 slice 一次），故换算
+ * 除以 2：一次注入最多 `2 × limit` 条。
+ */
+/**
+ * 单条候选的实测均字节。**用于把预算换算成条数上限**。
+ *
+ * 取 220（不是 120）：独立审核实测指出，我先前把它改成 120 是错的——那使 limit
+ * 系统性大于「预算真能装下的条数」，随后靠渲染层裁剪兜底。表面看利用率高了，
+ * 实际是把「预算换算成行数」当成了产出目标；实测边际精确率只有 1.3%
+ * （多出的 150 行里只多 2 条相关）。
+ *
+ * 220 的依据：同一查询 limit 3/5/8/12/20 五档实测单条 209–228B，深层的头部
+ * 候选标题更长，均值稳定在 220 附近。故 `预算 ÷ 220` 是「本档大致能装几条」
+ * 的保守估计——**宁可少给几条，不靠渲染层事后裁剪**。
+ */
+export const RECALL_LIMIT_BYTES_PER_ITEM = 220;
+
+/**
+ * **条数硬上限：12**（每侧）。预算再大也不超过这个数。
+ *
+ * ── 定值依据（2026-10-27 第 3 步，实测得出，不是偏好）──────────────────
+ *
+ * 用自然语言查询集实测「不同 limit 下的精确率」（相关行/返回行）：
+ *
+ *   limit= 3 → 4/34  = 12%
+ *   limit= 6 → 4/67  =  6%
+ *   limit=12 → 4/126 =  3%
+ *   limit=23 → 4/194 =  2%
+ *
+ * **相关条数恒为 4，返回行数翻了 5 倍。** 也就是说：把预算花完不会多召回
+ * 任何有用内容，只会按比例稀释它——这正是 Human 那句「有价值的信息，还是
+ * 为了给而给」的量化形态。
+ *
+ * 独立审核在同一方向上给出更极端的证据：上线口径从「6 行 / 2.5 KB / 精确率
+ * 17.4%」变成「37 行 / 9.6 KB / 精确率 3.5%」，**边际精确率仅 1.3%**
+ * （多出的 150 行里只新增 2 条相关）。
+ *
+ * 故结论是：**预算余额不等于该花的额度。** 预算的意义是「不得超过」，不是
+ * 「必须用满」。上限 12 的取法：在实测里精确率还能维持在 3% 以上、且注入
+ * 体量（双侧约 24 行）仍在一屏可扫的范围内；再往上只有稀释。
+ *
+ * **这不是回到「固定 3」的老问题**：小预算（如直调路径的 2400 字节）仍会
+ * 给出更少的条数（`recallLimitForBudget` 取 min），预算是上限而非目标。
+ * 变的是「预算很充裕时不再无限给」。
+ */
+export const RECALL_LIMIT_MAX = 12;
+
+/**
+ * 按**字节预算**动态给出条数上限（2026-10-27 二次修正，Human 指出）。
+ *
+ * **为什么不再用档位表**：第一版我写成 `{10:12, 20:24, …}` 的静态映射——那仍是
+ * 硬编码，只是把「固定 3」换成了「固定一张表」。Human 指出：预算本来就该**动态**
+ * 决定给多少条，不可能为了让表对齐而硬塞。故改为直接由预算推导：
+ *
+ *   limit = floor(预算 / RECALL_LIMIT_BYTES_PER_ITEM)
+ *
+ * **依据不是拍脑袋**：`RECALL_LIMIT_BYTES_PER_ITEM = 220` 是实测单条候选的
+ * 平均字节（2026-10-27，同一查询在 limit 3/5/8/12/20 五档实测 209–228 字节，
+ * 极稳定）。用它做除数，档位变大自然给出更多条数，无需维护任何表。
+ *
+ * **仍需闸门**：`34 §11` 要求上限「以具名常量承载」且「不得是运行期猜测」。
+ * 故保留两个**具名常量**作为上下界（`RECALL_LIMIT_MIN`／`RECALL_LIMIT_MAX`）：
+ * 下界防「预算被设得极小导致一条都装不下」，上界防「预算被设得极大导致一次塞
+ * 上千条把上下文压垮」。中间的取值由预算线性导出——**这是确定性算术，不是猜测**：
+ * 同预算恒得同条数，可复算、可审计（02 §9 红线）。
+ *
+ * @param {number|null|undefined} budgetBytes 本档字节预算
+ * @returns {number} 条数上限（总是返回合法整数；预算缺失时返回下界）
+ */
+export function recallLimitForBudget(budgetBytes) {
+  if (!Number.isFinite(budgetBytes) || budgetBytes <= 0) return RECALL_LIMIT_MIN;
+  // **`limit` 是「每侧」上限**（`specHits = allSpecHits.slice(0, limit)`、
+  // `factHits = allFactHits.slice(0, limit)`），故一次注入最多 `2 × limit` 条。
+  // 换算须按双侧计：`预算 ÷ 单条均字节 ÷ 2`。独立审核指出原式漏了这一步
+  // （档 10K 标称 46，实际候选上限 92 条）。
+  const raw = Math.floor(budgetBytes / RECALL_LIMIT_BYTES_PER_ITEM / 2);
+  return Math.min(RECALL_LIMIT_MAX, Math.max(RECALL_LIMIT_MIN, raw));
+}
+
+/** 条数下界：至少给几条（即使预算极小也不返回空）。 */
+export const RECALL_LIMIT_MIN = 3;
 
 /**
  * 把档位解析为字节总预算。
@@ -670,6 +936,10 @@ export async function loadFacts(baseDir) {
         ].filter(Boolean).join(" "),
         trigger: fm.trigger_signal ?? "",
         summary: fm.summary ?? "",
+        // **最后更新时间**（`created_at` 与 `change_log[].at` 取最大）：
+        // 供排序作次级键、并让读者在候选卡上就看见「这条有多旧」。
+        // 取不到时为空串——**不伪造当前时间**（那会让旧对象冒充新对象）。
+        updatedAt: updatedAtOf(fm),
         // **F2「有界确定性摘录」的来源**（`02 §9.1`）：按类型取最能代表内容的短字段。
         //   · spark → summary（20：完整的当前语义快照）
         //   · workcase → gist（21：给 Human 扫读的一句话要点）
@@ -718,12 +988,46 @@ export const MATCH_TIERS = Object.freeze([
  * **这不是权重、不是学习参数**：它只产生一个**布尔保留/丢弃**，不参与排序打分的
  * 数值运算。阈值是固定常量，可复算（同一集合、同一公式）。
  */
+/** BM25 参数（Lucene 经典默认；冻结常量，调整即需重测并更新注释数字）。 */
+export const BM25_K1 = 1.2;
+export const BM25_B = 0.75;
+
+/** 语料统计形状守卫：缺失时退回纯计数（单元测试直接调 matchCandidate 的路径）。 */
+function isCorpusStats(v) {
+  return v !== null && typeof v === "object"
+    && v.docFreq instanceof Map && Number.isFinite(v.total) && Number.isFinite(v.avgdl) && v.avgdl > 0;
+}
+
+/** 由候选集算出 BM25 需要的语料统计（N、df 表、平均文档长度）。 */
+function corpusStatsOf(list) {
+  const docFreq = new Map();
+  let total = 0;
+  let tokenSum = 0;
+  for (const c of list) {
+    const toks = tokenize(sectionsText(c));
+    total += 1;
+    tokenSum += toks.length;
+    for (const t of new Set(toks)) docFreq.set(t, (docFreq.get(t) || 0) + 1);
+  }
+  return { docFreq, total, avgdl: Math.max(1, tokenSum / Math.max(1, total)) };
+}
+
 export const HIGH_DF_RATIO = 0.6;
 
 /** 一个 token 在该集合中是否过于普遍（出现在 ≥ `HIGH_DF_RATIO` 比例的候选里）。 */
 function isTooCommon(token, docFreq, total) {
   if (total < 4) return false; // 样本太小，比例不可靠，不丢任何词
-  return (docFreq.get(token) ?? 0) / total >= HIGH_DF_RATIO;
+  // 两口径判据（2026-10-27）：`docFreq` 现为 `{narrow, wide, total}`。
+  // 判「噪声」的条件是**窄面也普遍**——窄面（scope/detail/title）是「这条讲什么」
+  // 的自述，一个词若在人写的自述里就普遍出现，它必然泛。
+  // 若只有全匹配面普遍（如 `workcase`：窄面低、正文 74%），它是**主题词**，
+  // 只是正文反复提及——必须保留，否则类型点名层失效（实测反例）。
+  const narrow = docFreq?.narrow;
+  if (narrow instanceof Map) {
+    return (narrow.get(token) ?? 0) / total >= HIGH_DF_RATIO;
+  }
+  // 兼容旧签名（Map 直接传入）——防御性分支，正常路径不会走到。
+  return (docFreq?.get?.(token) ?? 0) / total >= HIGH_DF_RATIO;
 }
 
 /**
@@ -733,7 +1037,7 @@ function isTooCommon(token, docFreq, total) {
  * @param {object} candidate 载入的候选
  * @returns {{tier: number, hitReason: string} | null} 无关则 null
  */
-export function matchCandidate(actionTokens, candidate) {
+export function matchCandidate(actionTokens, candidate, corpusStats) {
   // **编号层（tier 0）最优先**：`spec_id` 是规范的稳定编号，用户说「34 号规范」
   // 时点名的是它，不是标题里的字。此层不设会漏掉最精确的一种命中——实测缺陷：
   // 查询含「34」，但 34 号规范只能靠 scope 里的「规范」二字命中，与其它 18 份
@@ -806,6 +1110,7 @@ export function matchCandidate(actionTokens, candidate) {
     // 绝不能用 `candidate.text`——它含 YAML 字段名（见 loadSpecs 的说明）。
     { tier: 4, text: candidate.bodyText ?? candidate.body, label: "正文", minHits: bodyMinHits },
   ];
+  let best = null;
   for (const section of sections) {
     if (typeof section.text !== "string" || section.text === "") continue;
     const hits = intersect(actionTokens, tokenize(section.text));
@@ -814,10 +1119,9 @@ export function matchCandidate(actionTokens, candidate) {
     // 实测（2026-10-24，用本会话真实用户消息）：「把这批改动合入吧」10 条结果里
     // 5 条是纯单字命中——`WorkCase 工单` 靠「批」、`火花记录` 与 `双源召回` 靠「合」；
     // 「经验也要召回啊」有 4 条靠单字「回」命中。单个汉字在本语料里覆盖 50–70%
-    // 的候选（2026-10-26 复测：「改」出现在 **251/271 = 93%** 的载体里——规范侧
-    // 27/27 全覆盖、事实侧 224/244；此前注记为 295/347，已过时——事实源由宿主
-    // 辅助任务持续写入、本次又删去一批观察载体，本数字随之双向漂移，漂移即本测试
-    // 的正确报警），
+    // 的候选（2026-10-27 复测：「改」出现在 **256/276 = 93%** 的载体里——规范侧
+    // 27/27 全覆盖、事实侧 229/249；此前注记为 295/347、251/271、252/272 与 253/273，均已过时——
+    // 事实源由宿主辅助任务持续写入，本数字随之双向漂移，漂移即本测试的正确报警），
     // 「靠一个字命中」几乎等于没命中。
     //
     // 但单字**不能丢**：短指令「改一下／删了／加个」只有单字可切（第 16 轮修的
@@ -828,7 +1132,11 @@ export function matchCandidate(actionTokens, candidate) {
     const weak = hits.filter((token) => token.length === 1);
     // 通用词降级：多字但语义通用的词（任何/规范/执行…）不算强证据；
     // 若命中的**全是通用词**，则视为弱命中（与单字同档）。
-    const specific = strong.filter((token) => !GENERIC_TOKENS.has(token));
+    //
+    // **跨词降级（2026-10-27）**：含虚字的二元组（「为什」「里不」）同样不算强证据。
+    // 放宽 tokenizer 后这类词会成片出现，若不降级则「为什么这里不对」这类
+    // 无主题句会被注入并命中无关对象——实测正是如此。并入同一档而非新立机制。
+    const specific = strong.filter((token) => !GENERIC_TOKENS.has(token) && !isWeakToken(token));
     const decisive = specific.length > 0 ? specific : (strong.length > 0 ? strong : weak);
     if (decisive.length >= (section.minHits ?? 1)) {
       // 命中理由只列前 3 个词；若靠单字命中，明确标出「仅单字」，
@@ -842,7 +1150,7 @@ export function matchCandidate(actionTokens, candidate) {
       // 于是「tier 1 的弱命中」会排在「tier 4 的强命中」前面并挤掉它们
       // （实测：「把 34 号规范改名成双源召回」limit=3 时，2 个弱命中挤掉了
       // 随后 5 个强命中）。弱命中不是不相关，但它不该抢占强命中的名额。
-      return {
+      best = {
         tier: section.tier,
         matchTierMeaning:
           "匹配层（命中了哪个字段），非 F0–F4 事实分层、非 L0–L4 规范读取分层（02 §9.1）",
@@ -850,9 +1158,110 @@ export function matchCandidate(actionTokens, candidate) {
         hitReason: reason,
         weakHit: onlyGenericOrWeak,
       };
+      break; // 本层已达门槛即停止降层（tier 仍取最精确的命中层）
     }
   }
-  return null;
+  if (best === null) return null;
+  // ── 跨层累计命中面（2026-10-27 修正）─────────────────────────────────
+  //
+  // **缺陷**：原实现在首个达标的层就 `return`，即命中 tier 1（适用范围）后
+  // **不再看正文层**。于是「命中几个词」只统计了最精确那一层的命中，把同一
+  // 候选在其它层的命中全部丢掉。实测 `pitfall-daed4856`（新增判据未量测…）
+  // 对查询「在 Git Gate 再加一条校验：header 必须带英文」全文命中 7 个词
+  // （gate/header/一条/校验/提交/提/必须），却只被记为 `hits=1`——因为它在
+  // tier 1 只命中「提交」一个。结果它与另外 3 条 hits=1 并列，最后按 **UUID
+  // 字典序** 决定谁进 top-3，被挤出注入位（`adr-7ceaf7fc` < `pitfall-9665d624`
+  // < `pitfall-a1b997d0` < `pitfall-daed4856`）。
+  //
+  // 排序据此判断「谁更相关」，而实际决定名次的是 UUID 字母序——这不是相关性
+  // 判断，是伪随机。故把命中面改为**全部层累计**：`tier` 仍是「最精确的命中层」
+  // （决定主排序键，语义不变），`hits` 改为「本次查询在该候选里一共命中几个
+  // 实词」——它才是「这条候选与查询有多厚的字面交集」的真实度量。
+  //
+  // **为什么不改变 tier 语义**：`tier` 表达的是「命中最精确的字段」，用于把
+  // 编号点名与适用范围命中排在正文泛命中之前，这个意图仍然成立。改的只是
+  // 同一 tier 内怎么比——由「只看该层命中数」改为「看全候选的命中厚度」。
+  const allHits = intersect(actionTokens, tokenize(sectionsText(candidate)));
+  const strongAll = allHits.filter((t) => t.length >= 2);
+  const specificAll = strongAll.filter((t) => !GENERIC_TOKENS.has(t) && !isWeakToken(t));
+  const contributing = specificAll.length > 0 ? specificAll : strongAll;
+  // ── BM25 稀有度加权（2026-10-27，第 2 步）────────────────────────────
+  //
+  // **为什么需要**：跨层累计后 `hits` 是「命中几个词」的**计数**，等权。于是
+  // 「一条」「提交」这类几乎出现在每份载体里的词，与「白屏」「daed4856」这类
+  // 高度特异的词贡献相同。实测查询「在 Git Gate 再加一条校验：header 必须带
+  // 英文」里，`契约语言要求…` 靠 git/gate/提交 三个常见词拿到 6 分，而真正
+  // 该被看到的特异性命中被淹没。
+  //
+  // **用 IDF 加权而非新造权重**：Okapi BM25 的 idf = ln(1 + (N-df+0.5)/(df+0.5))
+  // ——语料里越稀有贡献越大，是**从语料统计推出的量**，不含学习参数、不含
+  // 人工调参，满足 02 §9「确定性、可复算、无学习参数」红线。同分时仍按
+  // path 稳定排序，故同输入同输出。
+  //
+  // **实测更正（2026-10-27，独立审核中等项 3）：tf 饱和与长度归一实际是死代码。**
+  // `tokenize()` 对同一段文本**返回去重后的集合**（内部用 Set），故同一候选里
+  // 任何词只出现一次 → `tf` 恒为 1 → `(tf*(k1+1))/(tf+k1*(...))` 里 k1/b 的
+  // 作用被抵消；且 `dl` 是「去重后的词表大小」而非文档长度。所以本式**不是**
+  // 标准 Okapi BM25，只是「idf 加权求和」。它仍然可用：idf 是真实的语料统计量，
+  // 排序在**同一源内**依然有效（跨源不可比，见 ranking.note）。
+  // 保留 k1/b 的形式是为了将来若 tokenize 改为保留词频（返回带 tf 的结构）时
+  // 公式仍是正确的——但**当前它们不产生任何效果，不得据此声称「实现了 BM25 饱和」**。
+  //   · 没有语料统计时（`corpusStats` 缺省，如单元测试直接调 matchCandidate）
+  //     退回纯计数——向后兼容，且使「有没有统计」不影响正确性只影响排序质量。
+  // **`hits` 的语义随之从「计数」变成「IDF 加权的命中厚度」**，但它仍然
+  // 只用于**同 tier 内的排序**，不参与「是否召回」的判断（第 3 步才处理
+  // 决策分离），故 `minHits` 门槛仍用未加权的 `contributing.length` 判定。
+  let breadth = contributing.length;
+  let weighted = null;
+  // **单字命中的分支一致性**（2026-10-27，独立审核中等项 4）：`contributing`
+  // 只收 length>=2 的强词，故纯单字命中时它为空 → breadth=0。而 BM25 分支
+  // 会给出 `weighted=0` 并覆盖 `best.hits`，无统计分支却保留原 `best.hits`（=1）
+  // ——同一条候选、同一个词，两条路径给出 0 与 1。实测：
+  //   matchCandidate(["改"], {scope:"改动字段"}, stats) → hits 0
+  //   matchCandidate(["改"], {scope:"改动字段"})        → hits 1
+  // 修法：加权值不得低于单字命中的基础分 1（单字命中有 1 的分量，只是弱）。
+  const SINGLE_CHAR_BASE = 1;
+  if (isCorpusStats(corpusStats)) {
+    const docTokens = tokenize(sectionsText(candidate));
+    const tf = new Map();
+    for (const t of docTokens) tf.set(t, (tf.get(t) || 0) + 1);
+    const dl = Math.max(1, docTokens.length);
+    let sum = 0;
+    for (const t of contributing) {
+      const df = corpusStats.docFreq.get(t) ?? 0;
+      const idf = Math.log(1 + (corpusStats.total - df + 0.5) / (df + 0.5));
+      const tfv = Math.max(tf.get(t) ?? 0, 1);
+      const sat = (tfv * (BM25_K1 + 1))
+        / (tfv + BM25_K1 * (1 - BM25_B + BM25_B * dl / corpusStats.avgdl))
+        / (BM25_K1 + 1);
+      sum += idf * sat;
+    }
+    weighted = Math.round(sum * 1000) / 1000;
+  }
+  if (weighted !== null) {
+    // **不得用 `Math.max(weighted, 1)` 抬平权重**（2026-10-27 修一个我引入的 bug）：
+    // 那样会把所有「权重 < 1」的命中统统压成 1，**抹掉它们之间的区分度**。实测
+    // 「提交被门禁拒绝了」里有 4 条同层命中，真实权重分别是 0.36/0.36/0.36/0.723，
+    // 全被抬成 1 后完全并列，排序只能交给时间键——于是一条真正相关的旧 Pitfall
+    // 被 3 条更新的弱相关项挤掉，质量基线精确率 10.8% → 9.2%。
+    //
+    // 正确做法：**权重 > 0 时如实保留**（区分度就在这里）；只有一条强词都没命中
+    // （`weighted === 0`，纯单字/通用词命中）时，才用保底 1 表达「有命中分量」，
+    // 且若同层已数出更多命中，保留那个更大的计数。
+    best.hits = weighted > 0 ? weighted : Math.max(best.hits ?? 0, SINGLE_CHAR_BASE);
+    // **理由必须极短**（2026-10-27，实测教训）：第一版写成
+    // 「跨层命中 N 个词、BM25 加权 X（词1、词2…）」，命中理由从 20 字涨到 48 字，
+    // 三条候选合计多出约 260 字节——在 2400 字节预算下**直接挤掉了事实段的摘录行**
+    // （实测 `↳` 消失、事实源段渲染为空，集成用例变红）。词表本身已在
+    // `hits` 与候选卡标题里可见，重复列出只占预算不增信息。
+    // 现只保留计数与权重两个数：`·N词/W`。
+    if (breadth > 1) best.hitReason = `${best.hitReason}·${breadth}词/${weighted}`;
+  } else if (breadth > best.hits) {
+    // 无语料统计时的旧路径：同样只补最短的计数。
+    best.hits = breadth;
+    if (breadth > 1) best.hitReason = `${best.hitReason}·${breadth}词`;
+  }
+  return best;
 }
 
 // ---------------------------------------------------------------------------
@@ -923,6 +1332,22 @@ export async function recallForAction(input = {}) {
       error: { code: "recall/no_tokens", message: "动作描述切不出可匹配的词，召回无从开始" },
     };
   }
+  // **全弱证据 = 没有主题词**（2026-10-27）。放宽 tokenizer 的后遗症：一句
+  // 「为什么这里不对」「现在应该做什么」不再切空，但它切出来的全是含虚字的跨词
+  // 二元组（为什／里不／做什），**没有任何主题**。这类查询若照常召回，就会按
+  // 跨词噪声命中无关对象并占用注入预算——实测「为什么这里不对」命中了
+  // mattpocock/skills 调研与 LLM Wiki 调研两条无关条目。
+  //
+  // 判据用**强证据是否存在**，与 `matchCandidate` 的 `specific` 同源：
+  // 只要有一个双实词二元组（白屏／校验／提交），就照常召回；一个都没有，
+  // 就按 no_tokens 如实报出——「不知道要召回什么主题」本来就是正确结论，
+  // 不该用一个弱噪声冒充候选（02 §9.2 命中不等于适用，但也要求候选确有依据）。
+  if (tokens.every((t) => isWeakToken(t))) {
+    return {
+      ok: false,
+      error: { code: "recall/no_tokens", message: "动作描述只有虚字与跨词组合，无主题词，召回无从开始" },
+    };
+  }
 
   const root = input.root ?? join(import.meta.dirname, "..", "..");
   // 规范语料按 01 §10.3 三级回退解析（见 `resolveSpecsRoot`）；事实源只有项目内一源。
@@ -948,18 +1373,44 @@ export async function recallForAction(input = {}) {
   });
 
   // 按源分算文档频率，过滤过于普遍的 token（见 `HIGH_DF_RATIO`）。
-  // 每个源各自一套 DF：规范源 27 份、事实源 310 条，区分度分布不同。
+  // 每个源各自一套 DF：规范源 27 份、事实源 248 条，区分度分布不同。
+  //
+  // **DF 口径须与匹配面一致**（2026-10-27 修，独立审核发现）。原实现只统计
+  // `scope+detail+title` 三个窄字段，而 `matchCandidate` 的 tier 4 会匹配
+  // **正文**（`bodyText ?? body`）。两套口径不一致的后果：一个词可以在窄面
+  // 只占 16%（逃过 0.6 阈值），却在真实匹配面上占 64%——它命中任何查询，
+  // 却永远不被过滤。实测（独立审核给出，我复算一致）：
+  //   「实际」窄面 16% / 全匹配面 **64%**
+  //   「提交」窄面 20% / 全匹配面 **67%**
+  //   「字段」窄面 21% / 全匹配面 58%
+  // 这正是「实际给出的都是有价值的信息吗」这类无主题查询满屏噪声的机制来源：
+  // 过滤按窄面判「这个词有区分度」，匹配却按全篇让它命中几十条。
+  //
+  // 改用与匹配完全相同的 `sectionsText()`（scope/detail/title/body 并集），
+  // 两套口径此后不可能再脱节——它与 `corpusStatsOf`（BM25 用）同源。
+  // **为什么不能一律用全口径**（实测反例，2026-10-27）：全口径过滤会把
+  // 「workcase」判为 74% 普遍而滤掉——但它是**类型点名词**（「写一个 WorkCase」），
+  // 滤掉后该查询首位变成 `Code 实践与测试规范`，类型点名层彻底失效。
+  // 同类还有「写」（规范源 100%）。
+  //
+  // 故取**两口径的较小值的反面**：一个词只有在「窄面（scope/detail/title）」与
+  // 「全匹配面」**都**普遍时才算噪声。「实际」两口径都高（16%/64%）→ 滤；
+  // 「workcase」窄面低、全面高 → 保留（它是有区分度的主题词，只是正文提得多）。
+  //
+  // 实现上取 df 的**较大值**（= 更保守地判普通 ⇒ 更难过滤）？不——那会让
+  // 「实际」因全面 64% 被滤、同时 workcase 因全面 74% 也被滤，两者都死。
+  // 正确的是按**窄面**判、但把正文的命中算进「是否过度」的对照：故取**较大值**
+  // 之外还需例外——见下 `isTooCommon` 的两口径判定。
   const docFreqOf = (list) => {
-    const df = new Map();
+    const narrow = new Map();
+    const wide = new Map();
     for (const c of list) {
-      const seen = new Set([
-        ...tokenize(c.scope ?? ""),
-        ...tokenize(c.detail ?? ""),
-        ...tokenize(c.title ?? ""),
-      ]);
-      for (const token of seen) df.set(token, (df.get(token) ?? 0) + 1);
+      const nSet = new Set(tokenize([c.scope, c.detail, c.title].filter((t) => typeof t === "string").join("\n")));
+      const wSet = new Set(tokenize(sectionsText(c)));
+      for (const token of nSet) narrow.set(token, (narrow.get(token) ?? 0) + 1);
+      for (const token of wSet) wide.set(token, (wide.get(token) ?? 0) + 1);
     }
-    return df;
+    return { narrow, wide, total: list.length };
   };
 
   const collect = (list, mapper) => {
@@ -967,11 +1418,12 @@ export async function recallForAction(input = {}) {
     // 有效查询词 = 原 tokens 里**不过于普遍**的那些。若全被滤掉（例如查询只由
     // 「规范」「定义」组成），退回原 tokens——宁可给噪声也不能给零结果，
     // 因为零结果会被误读成「无相关约束」。
-    const effective = tokens.filter((token) => !isTooCommon(token, df, list.length));
+    const effective = tokens.filter((token) => !isTooCommon(token, df, df.total));
     const queryTokens = effective.length > 0 ? effective : tokens;
+    const corpusStats = corpusStatsOf(list);
     return list
     .map((c) => {
-      const m = matchCandidate(queryTokens, c);
+      const m = matchCandidate(queryTokens, c, corpusStats);
       // `hits` 必须显式带出：mapper 的返回里没有它，之前漏掉导致排序键是
       // `undefined - undefined = NaN`，同层排序退化成只按路径字典序，
       // 使命中词更多的条目反而排在后面（实测：34 号 hits=2 被 01 号 hits=1 挤掉）。
@@ -1013,6 +1465,18 @@ export async function recallForAction(input = {}) {
         Number(a.weakHit === true) - Number(b.weakHit === true) ||
         a.tier - b.tier ||
         b.hits - a.hits ||
+        // **状态准入等级先于时间**：已准入（active/open）一律在未准入
+        // （draft/pending）之前，避免新草稿凭新鲜度压掉权威对象。
+        statusRank(a.status) - statusRank(b.status) ||
+        // **最后更新时间：次级键，只在前几项全等时生效**（2026-10-27）。
+        // 依据 Human 的判断：「优先按匹配程度，其次按最后更新时间」。
+        // **为什么不让时间当主键**：本仓事实的创建时间跨度是 2026-09-09 至
+        // 2026-11-03，若「越新越前」优先，一条今天新建的待办记录会压掉
+        // 2026-09-09 的权威 ADR——新 ≠ 更适用。故它只在**证据强度相同时**
+        // 用于「同等相关里优先看较近的」。
+        // 字符串比较安全：ISO-8601 固定长度、统一 `Z` 时区。空串（取不到时间）
+        // 排在同分组末尾，不伪造当前时间。
+        (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "") ||
         a.path.localeCompare(b.path),
     );
   };
@@ -1038,6 +1502,10 @@ export async function recallForAction(input = {}) {
   const allFactHits = collect(pool, (c) => ({
     kind: "fact", type: c.type, ref: c.ref, title: c.title, status: c.status, path: c.path,
     absolutePath: c.absolutePath,
+    // **最后更新时间进候选卡**（2026-10-27）：使读者在卡片上就能看见
+    // 「这条有多旧」，也让排序的次级键对读者可复核（排序依据须可观察）。
+    // 取不到时为空串，如实留空而不伪造时间。
+    updatedAt: c.updatedAt ?? "",
     // **F2「有界确定性摘录」**：此前候选卡只有 title + path，读者必须打开文件才
     // 知道讲什么，而 F2 的用途正是「筛选少量候选并选择 F3」——没有摘录就无法筛选。
     // 无长文本字段的类型（norm/goal）退回 title，保证摘录位不空。
@@ -1052,13 +1520,24 @@ export async function recallForAction(input = {}) {
     },
   })).map((fact, index) => ({ fact, index }))
     // **必需类型优先**（`03 §6.1` 标准路径的点名要求）。
-    // 排序键：是否属于 ADR/Pitfall（0/1）→ 原有次序（collect 已按其键排好）。
-    // 稳定排序由 `index` 兜底，保证同组内保持 collect 的既有质量次序。
-    // 这**不是过滤**：其余类型仍全部保留，只是排在必需类型之后。
-    .sort((a, b) => {
-      const rank = (x) => (REQUIRED_RECALL_TYPES.includes(x.fact.type) ? 0 : 1);
-      return rank(a) - rank(b) || a.index - b.index;
-    })
+    // ── 排序键：类型优先级**只在同分时生效**（2026-10-27 修，第 1 步）──────
+    //
+    // **原实现的缺陷**：这里曾把「是否属于 ADR/Pitfall」作为**第一排序键**无条件
+    // 前置，把 `collect` 已经排好的质量次序整体推翻。实测证据（「这次改动会不会
+    // 把已有的缓存弄坏」）：唯一命中「缓存」的那条 friction（`宿主缓存旧模块致
+    // precheck 误报`，命中层级 tier 2）被 28 条 adr/pitfall/spark 压在**第 29 位**
+    // ——而其中多数只是靠「改」「提」这类通用词命中 tier 1。10K 档注入约前
+    // 20 行，它必然进不去。
+    //
+    // 这不是「ADR/Pitfall 不重要」。恰恰相反：`22 §12` 要求相关行动前必须召回
+    // active ADR，故必需类型**不能被过滤**。但「必需」的正确承载方式是与同等
+    // 证据比较时优先，**不是无条件压过证据更强的其它类型**——后者会让「最强命中
+    // 排不进注入位」，而注入位恰恰是最稀缺的资源。
+    //
+    // 新排序键：证据强度（`weakHit` → `tier` → `hits`）先行，
+    // **同分时**才让必需类型占先，最后用 `index` 保证确定性。
+    // 三者全序，不依赖 sort 稳定性（02 §9 确定性红线）。
+    .sort((a, b) => compareFactHits(a, b))
     .map((entry) => entry.fact);
   const specHits = allSpecHits.slice(0, limit);
   const factHits = allFactHits.slice(0, limit);
@@ -1308,12 +1787,14 @@ export async function recallForAction(input = {}) {
     // 确定性召回会漏（换个说法就漏），如实声明，不假装完整。
     // **实测能力边界**（2026-10-24，不可用「可能漏」这种模糊说法搪塞）：
     //
-    // **复测结果（2026-10-24，第 55 轮）**：用 23 条 active Pitfall 的「症状段」去
-    // 召回它**自己**，**23/23 = 100% 命中**（22 条靠 tier 1 适用范围、1 条靠 tier 4 正文）。
+    // **复测结果（2026-10-27）**：用 24 条 active Pitfall 的「症状段」去召回它
+    // **自己**，**23/24 = 96% 命中**。跨层累计命中修改前为 22/24——同分靠 UUID
+    // 字典序时，有 1 条被挤出 limit；改为全层累计后它进榜。样本此前为 23 条，
+    // 因事实源持续新增而漂移。
     //
     // **⚠️ 此处的旧论证已被证伪，勿再沿用**：旧注记称「30 条样本只有 13/30 = 43%
     // 命中，原因是 title 描述机制、症状描述表现，二者常常没有任何字面重叠」。
-    // 逐条复测后该论断**方向相反**——实测 **47 条有字面重叠、仅 1 条无重叠**：
+    // 逐条复测后该论断**方向相反**——实测 **48 条有字面重叠、仅 1 条无重叠**：
     // 因为 `scope` 字段本身就写着适用情形（症状的近义表达），而第 46 轮把正文
     // 匹配改为全文后，症状段（原本被 1200 字符截断挡掉）也能参与匹配。
     // 故「找不到自己的症状」这一失败形态在当前实现下基本不存在。
@@ -1543,12 +2024,28 @@ export async function recallForAction(input = {}) {
     // 排序依据如实声明（`02 §9` 红线：不得用相似度/embedding/关键词权重/AI 裁决相关性）。
     ranking: {
       keys: ["tier", "hits", "path"],
-      usesWeights: false,
+      // **`usesWeights` 必须说真话**（2026-10-27 修正）：此前写 `false`，但
+      // `hits` 自引入 idf 加权后已是**统计权重**，并参与排序——声明与实现不符。
+      // 守护它的用例曾断言这个字面量 `false`，实现怎么变都通过（恒真）。
+      //
+      // **规范边界（`02:262` 原文核对）**：禁的是「Code 不得使用相似度、
+      // embedding、关键词权重或 AI 输出**自动裁决**相关性、适用性或事实结论」。
+      // 即禁**裁决**，不禁**排序**。`34 §7` 的召回要求反而明写「形成少量候选，
+      // 并**保留命中依据**」——有依据、有先后是设计本意。
+      // 故此处如实记 `true`，并同时声明：排序**不是**裁决，候选一律作为候选
+      // 交付（`truncationIsNotJudgement`），是否适用仍由语义消费判断。
+      usesWeights: true,
       usesSimilarity: false,
       usesEmbedding: false,
       usesAiJudgement: false,
       truncationIsNotJudgement: true,
-      note: "tier 是字段位置（确定性），hits 是同层命中词个数（等权、可复算），path 仅为稳定输出；limit 截断只表示排得靠后，不表示不相关",
+      // **`hits` 的语义已变**（2026-10-27，独立审核中等项 5）：它不再是「同层
+      // 命中词个数（等权）」，而是**跨层命中词经 idf 加权后的厚度**（见
+      // matchCandidate 的 BM25 段）。原注释随字段对外返回，与实现不符即失真。
+      // 另外它**不是**标准 Okapi BM25 分：`tokenize` 对同词去重使 tf 恒为 1
+      // （tf 饱和是死代码），`dl` 是去重后词表大小而非文档长度，且两源各建
+      // 语料统计故 idf 跨源不可比——故此值只可用于**同源内排序**，不可当分数比较。
+      note: "tier 是字段位置（确定性）；hits 是跨层命中词经 idf 加权的厚度（可复算，但非标准 BM25，tf 恒为 1，跨源不可比），path 仅为稳定输出；limit 截断只表示排得靠后，不表示不相关",
     },
     fingerprint: fingerprintOf([...specs, ...facts]),
     // 结构化的能力边界（供程序判定，不必解析自由文本）。
@@ -1556,8 +2053,8 @@ export async function recallForAction(input = {}) {
       // 词法匹配无法从「表现」跨到「机制」，这是固有边界而非缺陷。
       lexicalOnly: true,
       usesSemanticUnderstanding: false,
-      // **实测：用 Pitfall 自身的「症状段」去召回它自己，23/23 = 100% 命中**
-      // （2026-10-24 复测；其中 22 条靠 tier 1 适用范围、1 条靠 tier 4 正文）。
+      // **实测：用 Pitfall 自身的「症状段」去召回它自己，23/24 = 96% 命中**
+      // （2026-10-27 复测；同日跨层累计修改后由 22/24 提升到 23/24）。
       //
       // 旧值为 43%（13/30），那是**第 46 轮之前**（正文只匹配前 1200 字符时）的
       // 测量。第 46 轮改为全文匹配后，`scope` 与正文里的症状描述都能参与匹配，
@@ -1565,15 +2062,39 @@ export async function recallForAction(input = {}) {
       //
       // 测量方法注意：不能拿 `scope` 原文去查（那会靠 `scope` 命中自己，是循环
       // 自证）。这里取 body 里「## 症状」段的首句自然语言，避开循环。
-      measuredSymptomSelfRecall: { hits: 23, total: 23, measuredAt: "2026-10-24" },
+      // ── 该指标已**降级为「不具质量判别力」**（2026-10-27，第 2 步）──────
+      //
+      // 独立审核用双版本数字证明它与**真实召回质量不相关**：
+      //   · 旧版实现 24/24（top3 22/24）—— 新版实现 24/24（top3 23/24）
+      //   · 同期真实精确率 **13.9% → 10.5%（下降）**
+      // 指标上升、质量下降。原因：它测的是「同一篇文档的**正文**去召回自己的
+      // **标题**」，机制词、代码标识符、报错字符串被保证同时出现；而用户的输入
+      // 只有表面症状，不共享这套词汇。它测的是**词表重叠**，不是**检索有用性**。
+      //
+      // 保留字段（消费方可能在读）但显式标明其地位；判据请改用
+      // `plugin/test/recall-quality.test.mjs` 的自然语言查询集。
+      measuredSymptomSelfRecall: {
+        hits: 23,
+        total: 24,
+        measuredAt: "2026-10-27",
+        discriminatingPower: "none",
+        why: "测「正文→自身标题」，与用户口吻查询不同距离；双版本同为 24/24 而真实精确率 13.9%→10.5%，故不得据此判断召回质量。质量基线见 test/recall-quality.test.mjs",
+      },
       // 因此哪些消费点不能只靠本函数。
       // **实测能力**（2026-10-24，第 56 轮复测）。
       //
       // 此字段此前写死一条：「23 §12 故障调查（按表现匹配已知机制——跨层需要
       // 语义判断）」，即声称本模块**不足以**承担故障调查。该结论基于已被证伪的
       // 43% 测量（见本函数前文的复测说明），**现予更正**：
-      //   · 用 22 条 active Pitfall 的症状段前半句查询 → **22/22 = 100%** 召回自身；
-      //   · 换后半句（模拟「换个说法」）→ **21/22 = 95%** 召回自身；
+      //   · 用 active Pitfall 的症状段前半句查询 → **23/24 = 96%** 召回自身
+      //     （**默认 limit=3 下实测**；独立审核指出 limit≥40 时才 24/24，
+      //      此前把「大 limit 的最好成绩」写成了无配置上限的 100%，属失真）；
+      //   · 换后半句（模拟「换个说法」）→ **20/22 = 91%** 召回自身
+      //     （limit=8 下实测。**2026-10-27 第 1 步排序改动前为 22/22 = 100%，
+      //      改动后降到 20/22**——这是「类型优先级从绝对前置改为同分时生效」的
+      //      真实代价：有 2 条 Pitfall 因非 pitfall 类型的高 tier 命中被挤到第 9 位
+      //      之后。如实记录，不隐瞒；该取舍的收益是「缓存」类查询的相关项从第 29
+      //      位升到第 15 位）；
       //   · 5 条真实使用者症状（「页面白屏了什么都看不到」「字段被删了」
       //     「提交被门禁拒绝了」等）→ 均召回了高度相关的 Pitfall。
       //
@@ -1582,7 +2103,7 @@ export async function recallForAction(input = {}) {
       // 语义判断（`02 §9.2`「机械有效不能替代语义相关」）。故此处不填
       // 「不足」，而如实声明**能做到什么、做到哪一步**。
       insufficientForConsumptionPoints: [
-        "23 §12 故障调查：可召回「表现相近」的 Pitfall（实测同义改写 95% 仍命中），但「是否同一机制」须由消费方语义判断——本模块只提供候选",
+        "23 §12 故障调查：可召回「表现相近」的 Pitfall（实测同义改写 20/22 = 91% 仍命中），但「是否同一机制」须由消费方语义判断——本模块只提供候选",
       ],
       // **未兑现范围**（`00 §5.6` 据实声明 / `00 §5.7` 交还）：`10 §5.3` 规定
       // 行动前引导入口须「提供事实候选**与既有行动结构路由**」。

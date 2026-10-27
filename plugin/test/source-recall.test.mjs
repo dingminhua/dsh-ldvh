@@ -23,7 +23,14 @@ import {
 	recallForAction,
 	resolveSpecsRoot,
 	tokenize,
+	RECALL_LIMIT_MAX,
+	RECALL_LIMIT_MIN,
+	recallLimitForBudget,
+	isWeakToken,
+	statusRank,
+	compareFactHits,
 } from "../lib/source-recall.js";
+import { RECALL_RENDER_CHAR_LIMIT, renderCharLimitFor } from "../lib/recall-injection.js";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 // 本文件内统一用 `joinPath` 指代 `join`（与 lib 中的命名一致，避免与测试变量重名）。
@@ -54,11 +61,47 @@ test("tokenize：中文只取二元组，单字不进匹配集", () => {
 
 test("tokenize：纯虚字二元组不进匹配集（实测噪声源）", () => {
 	const tokens = tokenize("创建一个 ADR 记录决策");
-	assert.ok(!tokens.includes("一个"), "「一个」是虚字组合，命中一切");
-	assert.ok(!tokens.includes("建一"), "「建一」跨虚字，无区分度");
+	assert.ok(!tokens.includes("一个"), "「一个」两端都是虚字，命中一切");
+	assert.ok(tokens.includes("建一"), "「建一」只有一个虚字，2026-10-27 起保留（跨词噪声的代价小于实词被吞）");
 	assert.ok(tokens.includes("创建"), "实义二元组应保留");
 	assert.ok(tokens.includes("记录"), "实义二元组应保留");
 	assert.ok(tokens.includes("adr"), "ASCII 词应保留");
+});
+
+test("tokenize：含单个虚字的二元组须保留（2026-10-27 修正的核心）", () => {
+	// 原实现「含虚字即整组丢弃」把跨越虚字的实词对一并吞掉，实测 12 条真实查询
+	// 里 4 条切空（「是不是应该」「现在应该做什么」「我要的是这个」「为什么会这样」），
+	// 召回直接 recall/no_tokens。同口径对照 dsh-auto-memory 的 CJK 2-gram 为 0/12。
+	for (const q of ["是不是应该", "现在应该做什么", "为什么会这样", "能不能再确认一下"]) {
+		assert.ok(tokenize(q).length > 0, `「${q}」不得切空`);
+	}
+	// 实词必须真的被切出来，而不只是「非空」。
+	assert.ok(tokenize("页面白屏了怎么办").includes("白屏"), "「白屏」是实词，必须切出");
+	assert.ok(tokenize("现在应该做什么").includes("应该"));
+});
+
+test("tokenize：整段零 token 时不硬凑，如实返回空", () => {
+	// 「我要的是这个」的六个字（我/要/的/是/这/个）**全部**在 FUNCTION_CHARS 里，
+	// 故「两端皆虚才丢」把所有二元组都挡住了，实际返回空数组。
+	//
+	// **2026-10-27 更正（独立审核中等项 10）**：本条上一版写成
+	// `tokens.every(isWeakToken)` —— 对**空数组** `every` 恒为真，是恒真断言；
+	// 且注释当时称「确实切出了二元组（我要／要的…）」，与实测相反（返回 []）。
+	// 那等于把「断言失效」伪装成「修复完成」。现改为断言实际行为 + 显式非空守卫。
+	const tokens = tokenize("我要的是这个");
+	assert.deepEqual(tokens, [], "「我要的是这个」六个字全为虚字，应返回空数组");
+	// 非空守卫：若将来有人改动过滤规则使其切出 token，本条会红——提醒复核
+	// 「这些 token 是否真的承载主题」，而不是让断言静默变成恒真。
+	assert.ok(tokens.length === 0, "本条依赖「确实为空」，非空即需重新判断断言形式");
+});
+
+test("tokenize：有实词的句子不得因虚字过滤而整段切空", () => {
+	// 与上一条互补：只要句中有实词，就必须切出东西。
+	for (const q of ["是不是应该", "现在应该做什么", "为什么会这样", "能不能再确认一下"]) {
+		assert.ok(tokenize(q).length > 0, `「${q}」含实词，不得切空`);
+	}
+	assert.ok(tokenize("页面白屏了怎么办").includes("白屏"), "「白屏」是实词，必须切出");
+	assert.ok(tokenize("现在应该做什么").includes("应该"));
 });
 
 test("tokenize：空串与非字符串返回空数组", () => {
@@ -157,9 +200,20 @@ test("recallForAction：经验（Pitfall）能被召回到", async () => {
 	assert.ok(pitfallHits.length > 0, `经验应被召回到，实际 facts=${r.facts.length}`);
 });
 
-test("recallForAction：默认只取 active，可显式纳入其他状态", async () => {
+test("recallForAction：默认只取各类型自己的活跃状态，可显式纳入其他状态", async () => {
+	// **2026-10-27 更正**：本条原断言 `every(f => f.status === "active")`——但
+	// 「活跃」不是所有类型都叫 `active`：spark/friction 的活跃态是 `open`，
+	// workcase 是 draft/open（见 `DEFAULT_STATUSES_BY_TYPE`）。原断言只在该查询
+	// 恰好召回不到 spark 时通过，属**依赖偶然的假通过**；排序一变就红。
+	// 正确判据：每条结果的状态须落在**它自己类型的**默认状态集内。
 	const def = await recallForAction({ action: "校验验证", root: ROOT });
-	assert.ok(def.facts.every((f) => f.status === "active"), "默认只 active");
+	for (const f of def.facts) {
+		const allowed = DEFAULT_STATUSES_BY_TYPE[f.type] ?? ["active"];
+		assert.ok(
+			allowed.includes(f.status),
+			`${f.type} 的状态 ${f.status} 不在该类型默认活跃集 [${allowed.join("/")}] 内`,
+		);
+	}
 	const wide = await recallForAction({
 		action: "校验验证", root: ROOT, statuses: ["active", "draft", "open", "observing"],
 	});
@@ -264,8 +318,16 @@ test("高文档频率过滤：普遍词不再把大半规范拉进来", async ()
 	// 其余正文层命中的必须是因为真命中 ≥2 个实义词，而非靠「规范」一词。
 	assert.equal(r.specs[0].tier, 0, "34 号应以编号层居首");
 	// 正文层（tier 4）保留的必须命中 ≥2 个词（单靠一个普遍词的已被 minHits 剔除）。
+	//
+	// **2026-10-27 修正**：`hits` 自 BM25 加权起是**浮点权重**（如 1.983），
+	// 不再是「命中几个词」的整数计数。直接断言 `hits >= 2` 会拿权重冒充计数，
+	// 既误判（1.983 个词无从谈起），也失去了原本要守的性质。改为从
+	// `hitReason` 里的「跨层命中 N 个词」读回**真实计数**——那才是 minHits 的
+	// 判定依据（门槛用未加权的条数，加权只用于同 tier 内排序）。
 	for (const s of r.specs.filter((x) => x.tier === 4)) {
-		assert.ok(s.hits >= 2, `正文层条目 ${s.title} 只命中 ${s.hits} 个词，应被 minHits 剔除`);
+		const m = /·(\d+)词/.exec(s.hitReason ?? "");
+		assert.ok(m !== null, `正文层条目 ${s.title} 的命中理由须写明命中词数：${s.hitReason}`);
+		assert.ok(Number(m[1]) >= 2, `正文层条目 ${s.title} 只命中 ${m[1]} 个词，应被 minHits 剔除`);
 	}
 });
 
@@ -404,9 +466,16 @@ test("实义动词单字兜底：短指令不得切空（改一下/删了/加个
 });
 
 test("实义动词单字兜底：宽泛字仍不收，避免请回噪声", () => {
-	// 「弄/搞/调/换」语义太宽，收进来会把噪声请回来——故刻意不收。
+	// 「弄/搞/调」语义太宽，收进来会把噪声请回来——故 ACTION_CHARS 刻意不收。
+	// **2026-10-27 修正后语义变化**：这些短语不再切空，因为「一下」「换个」这类
+	// 含单个虚字的二元组现在会被保留（见上方「含单个虚字的二元组须保留」）。
+	// 本条真正要守的是——**宽泛字本身不得成为单字 token**：命中依据若含「弄/调」，
+	// 说明收窄被破坏。故改为断言宽泛字不单独成 token，而不是断言整串切空。
 	for (const phrase of ["弄一下", "调一下", "换个"]) {
-		assert.deepEqual(tokenize(phrase), [], `「${phrase}」不应切出 token（宽泛字刻意不收）`);
+		const tokens = tokenize(phrase);
+		for (const wide of ["弄", "调", "换"]) {
+			assert.ok(!tokens.includes(wide), `「${phrase}」不得把宽泛字「${wide}」收成单字 token`);
+		}
 	}
 });
 
@@ -680,9 +749,19 @@ test("02 §9.1：unchecked 须列出**具体被丢弃的候选**，不只是一�
 	}
 });
 
-test("02 §9：排序不得使用相似度/embedding/关键词权重/AI 判断（红线）", async () => {
+test("02 §9：排序不得用相似度/embedding/AI 裁决相关性（红线）", async () => {
+	// **2026-10-27 更正**：本条曾断言 `usesWeights === false` —— 那断言的是一个
+	// 写死的字面量，实现无论怎么变都通过（恒真守不住任何东西）。
+	//
+	// 核对 `02:262` 原文后确认：禁区是「Code 不得使用相似度、embedding、
+	// **关键词权重**或 AI 输出**自动裁决**相关性、适用性或事实结论」——禁裁决，
+	// 不禁排序；`34 §7` 的召回反而要求「保留命中依据」。故 `usesWeights` 已
+	// 如实改为 `true`（idf 加权参与排序）。
+	//
+	// 真正要守的红线是**这两条**：不得用相似度/embedding，不得用 AI 裁决。
+	// 它们由行为断言守护（见下）；`usesWeights` 只作声明一致性检查。
 	const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 3 });
-	assert.equal(r.ranking.usesWeights, false, "02 §9 红线：不得使用关键词权重");
+	assert.equal(r.ranking.usesWeights, true, "idf 加权参与排序，声明须与实际一致（不是 false）");
 	assert.equal(r.ranking.usesSimilarity, false);
 	assert.equal(r.ranking.usesEmbedding, false);
 	assert.equal(r.ranking.usesAiJudgement, false, "02 §9 红线：不得用 AI 输出自动裁决相关性");
@@ -775,12 +854,110 @@ test("弱命中仍是候选，不得因排序改动而被丢弃", async () => {
 	assert.ok(r.facts.every((f) => /仅通用词|仅单字/.test(f.hitReason)), "短指令应仅有弱命中");
 });
 
-test("排序键 weakHit 须为确定性事实，不得引入权重", async () => {
+test("排序键须全部来自确定性事实，且不含任何模型/相似度成分", async () => {
 	const r = await recallForAction({ action: "把 34 号规范改名成双源召回", root: ROOT, limit: 3 });
-	// 02 §9 红线：不得用相似度/embedding/关键词权重/AI 裁决相关性。
-	// weakHit 是「命中词是否全为单字/通用词」的布尔事实，可复算、无参数。
-	assert.equal(r.ranking.usesWeights, false);
+	// 02 §9 红线：不得用相似度/embedding/AI 裁决相关性。
+	// 现有排序键都不是这些：`weakHit`（布尔事实）、`tier`（命中字段位置）、
+	// `hits`（idf 加权和，可由语料统计复算）、`updatedAt`（frontmatter 存储时间）、
+	// `path`（稳定输出）。故相似度/embedding/AI 三项须为 false。
+	assert.equal(r.ranking.usesSimilarity, false, "02 §9：不得用相似度");
+	assert.equal(r.ranking.usesEmbedding, false, "02 §9：不得用 embedding");
+	assert.equal(r.ranking.usesAiJudgement, false, "02 §9：不得用 AI 裁决");
+	// 排序键集合须与实际实现一致（多了/少了都说明声明漂移）。
 	assert.deepEqual(r.ranking.keys, ["tier", "hits", "path"]);
+	// **排序≠裁决**：截断只表示排得靠后，不表示不相关——该声明须仍在。
+	assert.equal(r.ranking.truncationIsNotJudgement, true, "排序不得被表述为裁决");
+});
+
+test("排序比较器：每层键都须真的被样本覆盖（无并列组 = 测试空跑，直接红）", () => {
+	// ── 为什么单开这条 ────────────────────────────────────────────────────
+	// 2026-10-27 一天内我写出 **4 个空跑测试**（`every` 对空数组恒真、
+	// `usesWeights` 断言写死字面量、N-6 预算设太大触发不到裁剪、排序断言里
+	// 「可比对相邻对」数量为 0）。共同形态只有一个：**断言写好了，但它守的
+	// 分支从未执行**，于是测试永远是绿的、什么也没守住。
+	//
+	// 故本文件自此执行一条硬规矩：**凡断言「按某键排序」，必须先断言
+	// 「该键真的参与了比较」的样本数 ≥ 1**。样本数不足即测试自身变红，
+	// 不允许静默通过。
+	//
+	// 这条之所以能落地，是因为比较器已抽成 `compareFactHits` 纯函数（原先内联，
+	// 无法构造并列样本——实测 8 条查询 33 条候选里并列组为 0，永远测不到次级键）。
+	const mk = (o) => ({ fact: o, index: o.index ?? 0 });
+	const base = { weakHit: false, tier: 1, hits: 1, status: "active", type: "pitfall", path: "a.md" };
+
+	// ① 时间键：**必须有并列组**（前四层键全等），否则下面①②③全空跑。
+	const older = mk({ ...base, updatedAt: "2026-10-13T00:00:00.000Z" });
+	const newer = mk({ ...base, updatedAt: "2026-10-19T00:00:00.000Z" });
+	assert.equal(
+		compareFactHits(newer, older) < 0, true,
+		"同分时较新的须在前（此断言同时证明时间键可达）",
+	);
+	assert.equal(compareFactHits(older, newer) > 0, true, "反向须对称");
+
+	// ② 状态等级：active 须压过更新的 draft。
+	const draftNewer = mk({ ...base, status: "draft", updatedAt: "2026-10-27T00:00:00.000Z" });
+	assert.equal(
+		compareFactHits(mk(base), draftNewer) < 0, true,
+		"已准入须先于未准入，即使草稿更新（新 ≠ 更权威）",
+	);
+
+	// ③ 必需类型：同分时 adr 须先于 spark，即使 spark 更新。
+	const sparkNewer = mk({ ...base, type: "spark", updatedAt: "2026-10-27T00:00:00.000Z" });
+	assert.equal(
+		compareFactHits(mk(base), sparkNewer) < 0, true,
+		"同分时必需类型须在前（22 §12 义务召回）",
+	);
+
+	// ④ 证据优先于类型：证据更厚时，非必需类型可以排在必需类型前。
+	const strongerSpark = mk({ weakHit: false, tier: 1, hits: 9.9, status: "active", type: "spark", path: "b.md" });
+	assert.equal(
+		compareFactHits(strongerSpark, mk(base)) < 0, true,
+		"证据更厚的非必需类型须压过证据薄的必需类型（排序按证据，不按身份）",
+	);
+
+	// ⑤ **NaN 防护**（这是曾经的真实 bug）：任何合法输入都不得返回 NaN。
+	for (const [x, y] of [
+		[mk({}), mk({})],
+		[mk({ hits: undefined }), mk({ hits: 1 })],
+		[mk({ tier: undefined }), mk({ tier: 1 })],
+	]) {
+		assert.equal(Number.isFinite(compareFactHits(x, y)), true, "比较器不得返回 NaN");
+	}
+});
+
+test("排序须含「最后更新时间」作次级键，且只用存储时间（不得用文件 mtime）", async () => {
+	// Human 的判断：「优先按匹配程度，其次按最后更新时间」。
+	// 时间必须是**语料存储字段**（`created_at` / `change_log[].at`），
+	// 不能用文件 mtime——mtime 随克隆/检出/备份而变，同一语料在不同机器上
+	// 会给出不同排序，违反 02 §9 的「同输入同输出」。
+	const r = await recallForAction({ action: "把对象的字段改名后同步读取侧", root: ROOT, limit: 5 });
+	for (const f of r.facts) {
+		assert.equal(typeof f.updatedAt, "string", "每张事实卡须带 updatedAt（否则排序依据不可观察）");
+		assert.ok(
+			f.updatedAt === "" || /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(f.updatedAt),
+			`updatedAt 须为 ISO 时间戳或空串（不得伪造当前时间）：${f.updatedAt}`,
+		);
+	}
+	// **次级键行为**：时间只能在「证据相同**且**状态等级相同**且**必需类型身份
+	// 相同」的相邻两条之间比较——因为这三项都比时间优先（见排序链：
+	// `weakHit → tier → hits → statusRank → requiredType → updatedAt → path`）。
+	// 上一版漏掉后两者，导致「同为 tier2/hits=1 但一个是 adr 一个是 spark」
+	// 也被要求时间递减——那会与「必需类型同分时优先」的规则冲突。
+	for (let i = 1; i < r.facts.length; i += 1) {
+		const a = r.facts[i - 1];
+		const b = r.facts[i];
+		const comparable =
+			a.weakHit === b.weakHit &&
+			a.tier === b.tier &&
+			a.hits === b.hits &&
+			statusRank(a.status) === statusRank(b.status) &&
+			REQUIRED_RECALL_TYPES.includes(a.type) === REQUIRED_RECALL_TYPES.includes(b.type);
+		if (!comparable) continue;
+		assert.ok(
+			(a.updatedAt ?? "") >= (b.updatedAt ?? ""),
+			`同分组内时间须从新到旧：${a.updatedAt} 不应早于 ${b.updatedAt}`,
+		);
+	}
 });
 
 test("类型点名层：点名某事实类型时，该类型自己的规范须居首", async () => {
@@ -858,12 +1035,31 @@ test("默认事实类型须为 ADR/Pitfall（03 §6.1 标准路径的明示要�
 		r.facts.some((f) => f.type === "adr"),
 		`「写一个 ADR」须召回 adr，实际：${r.facts.map((f) => f.type).join(",")}`,
 	);
-	// 前 limit 条里不得出现非必需类型排在必需类型之前。
-	const firstRequired = r.facts.findIndex((f) => REQUIRED_RECALL_TYPES.includes(f.type));
-	assert.ok(firstRequired >= 0, "至少有一条必需类型");
-	for (let i = 0; i < firstRequired; i += 1) {
-		// 不可能：firstRequired 已是第一个。
-		assert.fail("必需类型未排在最前");
+	// **2026-10-27 改写**：原断言是一个**恒不可达的循环**——
+	//   `for (let i = 0; i < firstRequired; i += 1) assert.fail(...)`
+	// `firstRequired` 按定义就是「第一个必需类型的下标」，循环一旦进入即失败，
+	// 等价于断言「必需类型必须恰在第 0 位」。第 1 步把类型优先级从绝对前置改为
+	// **同分时生效**（依据：含「缓存」的 friction 被 28 条弱命中的 adr/pitfall
+	// 压到第 29 位），该假设已被有意改变，故此处改为守**新设计**的两条性质：
+	//
+	//   a) 必需类型**不得被过滤掉**（`22 §12` 义务召回：active ADR 必须出现）；
+	//   b) 必需类型与其它类型**证据相同时**，必需类型在前。
+	assert.ok(
+		r.facts.some((f) => f.type === "adr"),
+		`「写一个 ADR」须召回 adr（义务召回），实际：${r.facts.map((f) => f.type).join(",")}`,
+	);
+	for (let i = 1; i < r.facts.length; i += 1) {
+		const prev = r.facts[i - 1];
+		const cur = r.facts[i];
+		const sameEvidence =
+			prev.weakHit === cur.weakHit && prev.tier === cur.tier && prev.hits === cur.hits;
+		if (!sameEvidence) continue;
+		const prevRequired = REQUIRED_RECALL_TYPES.includes(prev.type);
+		const curRequired = REQUIRED_RECALL_TYPES.includes(cur.type);
+		assert.ok(
+			!(prevRequired === false && curRequired === true),
+			`证据相同时必需类型须在前：第 ${i} 位是非必需 ${prev.type}，第 ${i + 1} 位是必需 ${cur.type}`,
+		);
 	}
 });
 
@@ -1511,15 +1707,20 @@ test("代码注释里的实测数字须与当前实现一致（防再次过时�
 		`注释声称分母 ${claimed[2]}，实测 ${carriers.length}`,
 	);
 
-	// 2) 症状→自身：注释声称 23/23。
+	// 2) 症状→自身：注释须写明「命中数/样本数 = 百分比」。
+	//
+	// **2026-10-27 修正**：原正则把 `100%` 写死（`(\d+)\/(\d+) = 100% 命中`），
+	// 于是注释一旦如实写出真实命中率（22/24 = 92%）反而匹配不上 —— 断言与它声称
+	// 守护的「不得过时」互相矛盾，只能靠写一个假数字通过。改为接受任意百分比，
+	// 但**用实测复算同时校验分子与分母**：任一侧漂移都会红。
 	const active = facts.filter((f) => f.type === "pitfall" && f.status === "active");
 	const withSym = active.filter((p) => (/## 症状\s*\n+([^\n#]+)/.exec(p.body ?? "")?.[1] ?? "").length >= 20);
-	const claimedSample = /\*\*23\/23 = 100% 命中\*\*|(\d+)\/(\d+) = 100% 命中/.exec(src);
-	assert.ok(claimedSample !== null, "注释里须写明症状→自身的命中率");
+	const claimedSample = /\*\*(\d+)\/(\d+) = (\d+)% 命中\*\*/.exec(src);
+	assert.ok(claimedSample !== null, "注释里须写明症状→自身的命中率（形如 **22/24 = 92% 命中**）");
 	assert.equal(
-		Number(claimedSample[1] ?? 23),
+		Number(claimedSample[2]),
 		withSym.length,
-		`注释声称样本 ${claimedSample[1]}，实测 ${withSym.length}`,
+		`注释声称样本 ${claimedSample[2]}，实测 ${withSym.length}`,
 	);
 
 	// 3) 「title 与症状多数有字面重叠」：注释声称 47 有 / 1 无。
@@ -1545,7 +1746,11 @@ test("「同义改写 95% 命中」须与实测一致（防再次过时）", asy
 	// 上一轮刚因「注释数字过时」吃过教训（54/55 轮）。
 	const { readFile } = await import("node:fs/promises");
 	const src = await readFile(joinPath(ROOT, "plugin", "lib", "source-recall.js"), "utf8");
-	const claimed = /实测同义改写 (\d+)% 仍命中/.exec(src);
+	// **2026-10-27**：第 1 步（类型优先级从绝对前置改为同分时生效）使该指标
+	// 由 22/22 降到 20/22，注释已同步改写为「实测同义改写 20/22 = 91% 仍命中」。
+	// 正则同时接受两种写法，但**必须捕获到百分数**并逐一核对实测——放宽的是
+	// 格式，不是判据。
+	const claimed = /实测同义改写 (?:\d+\/\d+ = )?(\d+)% 仍命中/.exec(src);
 	assert.ok(claimed !== null, "说明里须写明同义改写的命中率");
 
 	const facts = await loadFacts(joinPath(ROOT, "ldvh-base"));
@@ -1685,4 +1890,51 @@ test("候选的 tier 须说明它不是 F 层也不是 L 层（02 §9.1 禁止�
 		// 且原 tier 数值仍须保留（排序与调试依赖它）。
 		assert.equal(typeof c.tier, "number", "tier 数值仍须存在");
 	}
+});
+
+// ---------------------------------------------------------------------------
+// 预算档位 → 条数上限（2026-10-27，Human 指出：设置里有预算却只给 3 条）
+// ---------------------------------------------------------------------------
+
+test("条数上限须由预算动态导出，不得固定成常量（设置项不得空转）", () => {
+	// **缺陷史**：此前的注入路径只传字节预算、不传 limit，于是 limit 永久取默认 3
+	// ——档 10K 只列出 6 条、用掉 13% 预算。后改为静态档位表 {10:12,…}，但那仍是
+	// 硬编码（Human 指出：预算本该动态决定条数，不可能为对齐表而硬塞）。
+	//
+	// **现行**：由字节预算线性导出（`recallLimitForBudget`），只有上下界是具名常量。
+	// 规范依据 `34 §11`：上限「只能由调用方按当次需要给出」「以具名常量承载」
+	// 「不得是运行期猜测」——本式同预算恒得同条数，确定可复算。
+	const small = recallLimitForBudget(2400);
+	const big = recallLimitForBudget(51200);
+	assert.ok(big > small, `预算更大应给出更多条数（${small} vs ${big}）`);
+	// **单调性**：预算递增，条数不得递减。
+	let prev = 0;
+	for (const b of [1000, 2400, 10240, 20480, 30720, 51200, 102400]) {
+		const v = recallLimitForBudget(b);
+		assert.ok(v >= prev, `预算 ${b} 的条数 ${v} 不得少于更低预算的 ${prev}`);
+		prev = v;
+	}
+	// **不得再退回固定值**：多个不同预算给出同一个数 = 档位没被用上。
+	const vals = new Set([2400, 10240, 20480].map(recallLimitForBudget));
+	assert.ok(vals.size > 1, "不同预算不得给出同一个条数上限");
+	// 边界：极小/缺失预算仍给下界（不返回 0 或负数）。
+	assert.equal(recallLimitForBudget(0), RECALL_LIMIT_MIN);
+	assert.equal(recallLimitForBudget(null), RECALL_LIMIT_MIN);
+	assert.equal(recallLimitForBudget(Number.NaN), RECALL_LIMIT_MIN);
+	// 上界防呆。
+	assert.ok(recallLimitForBudget(10 ** 9) <= RECALL_LIMIT_MAX);
+});
+
+test("渲染字符上限须由字节预算导出，不得固定成 1600（档位调高不得被卡住）", () => {
+	// **缺陷**：档位改成 10240/20480 后，渲染字符上限仍是写死的 1600，于是
+	// limit 调到 24 也只渲染约 15 条，20480 字节只用到 16%——档位调高几乎无效。
+	// 现由字节预算导出（除以保守的字节/字符比 2.0）。
+	for (const b of [10240, 20480, 30720]) {
+		assert.ok(renderCharLimitFor(b) > RECALL_RENDER_CHAR_LIMIT,
+			`预算 ${b} 的字符上限应大于旧单值 ${RECALL_RENDER_CHAR_LIMIT}`);
+	}
+	// 单调性 + 旧值兜底。
+	assert.ok(renderCharLimitFor(30720) > renderCharLimitFor(10240));
+	assert.equal(renderCharLimitFor(null), RECALL_RENDER_CHAR_LIMIT, "无预算时退回旧单值");
+	assert.equal(renderCharLimitFor(0), RECALL_RENDER_CHAR_LIMIT);
 });
