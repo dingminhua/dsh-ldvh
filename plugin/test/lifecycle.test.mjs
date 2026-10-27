@@ -1496,3 +1496,101 @@ test("旧召回行仍在时须刷新，且不得覆盖管辖判定行", async ()
 	assert.equal(notice.content[0].text, "【LDVH 管辖判定】governed", "判定行须保持自身内容");
 	assert.equal(recall.content[0].text, "召回内容 v2", "旧召回行须被刷新为最新内容");
 });
+
+test("pre-step: 同一批次已有同内容召回行时不再追加（多实例装载的重复注入）", async () => {
+	// 2026-10-27 实测缺陷：插件装载多个实例时（配置重载 / HMR / profile 重复挂载），
+	// 每个实例各挂一个 pre-step 监听器，同一批次被注入 N 条完全相同的行。
+	// 实测：装 1 个实例 → 1 条；装 3 个 → 3 条；真实会话 ad027a9f 有 9 个回合、
+	// 75bb2718 有 7 个回合出现 2 条，本会话 turn 1 出现 3 条。
+	//
+	// 判据用「内容相同」而不是「有没有我方行」：next() 的返回值已含更内层监听器
+	// 追加的行（本处理器 prepend，是最外层），故最外层能看到其余实例的产物并收口。
+	const RECALL = "双源召回 · dsh-ldvh · 行动前候选";
+	const NOTICE = "本会话受 LDVH 管辖";
+	const mk = (text, summary) => ({
+		id: Math.random().toString(36),
+		role: "user",
+		content: [{ type: "text", text }],
+		source: { kind: "dsh-ldvh", plugin: "dsh-ldvh", form: "notice", summary },
+	});
+	const agent = { id: "a-dup", ctx: { logger: { warn: () => {} } } };
+	const handler = createPreStepHandler(agent, {
+		isGoverned: () => true,
+		channel: undefined,
+		noticeText: () => "【LDVH 管辖判定】governed",
+		noticeSummary: () => NOTICE,
+		recallRow: async () => ({ inject: true, text: "【双源召回】同一内容", digest: "d" }),
+		recallSummary: () => RECALL,
+	});
+	// 模拟已有一个实例先注入了这两行：它们出现在 next() 的返回值里。
+	const innerBatch = [mk("【LDVH 管辖判定】governed", NOTICE), mk("【双源召回】同一内容", RECALL)];
+	const r = await handler.handler({ agent, step: 1, messages: innerBatch }, async () => ({
+		kind: "continue",
+		messages: [...innerBatch],
+	}));
+	const recalls = r.messages.filter((m) => m.source?.summary === RECALL);
+	const notices = r.messages.filter((m) => m.source?.summary === NOTICE);
+	assert.equal(recalls.length, 1, `同内容召回行不得重复，实际 ${recalls.length} 条`);
+	assert.equal(notices.length, 1, `同内容判定行不得重复，实际 ${notices.length} 条`);
+});
+
+test("pre-step: 召回行不得被判定文本覆写（summary 与正文须一致）", async () => {
+	// 2026-10-27 实测缺陷：旧实现用 batch.find(isOwnMessage) 取「第一条我方消息」，
+	// 当批次里只有召回行、没有判定行时，判定分支把这个召回行的正文改写成判定文本，
+	// 而其 source.summary 仍是「双源召回」——标签与正文串位。
+	// 全工作区 65 条召回注入行里 14 条正文其实是管辖判定，即此机制。
+	const RECALL = "双源召回 · dsh-ldvh · 行动前候选";
+	const NOTICE = "本会话受 LDVH 管辖";
+	const recallRow = {
+		id: "r1",
+		role: "user",
+		content: [{ type: "text", text: "【双源召回】候选内容" }],
+		source: { kind: "dsh-ldvh", plugin: "dsh-ldvh", form: "notice", summary: RECALL },
+	};
+	const agent = { id: "a-mis", ctx: { logger: { warn: () => {} } } };
+	// 第二次 recallRow 返回 inject:false —— 这是**生产里该缺陷的真实形态**：
+	// 判定分支先把召回行的正文改写成判定文本，而召回分支那一回合没有内容可刷新
+	// （inject:false）因此不会把它改回来，串位就此留在会话里。
+	// 若两次都 inject:true，召回刷新会把正文再写回去，缺陷被掩盖、用例失去分辨力。
+	let recallCalls = 0;
+	const handler = createPreStepHandler(agent, {
+		isGoverned: () => true,
+		channel: undefined,
+		noticeText: () => "【LDVH 管辖判定】governed",
+		noticeSummary: () => NOTICE,
+		recallRow: async () => {
+			recallCalls += 1;
+			return recallCalls === 1
+				? { inject: true, text: "【双源召回】候选内容", digest: "d" }
+				: { inject: false, reason: "no-hits" };
+		},
+		recallSummary: () => RECALL,
+	});
+	// 批次里只有召回行，没有判定行。
+	//
+	// **必须调两次**：第一次走「判定行尚未注入」分支（会新增一条判定行），
+	// 第二次 digest 未变、走 `else if (noticeReady && inBatch !== undefined)` 的
+	// 原地刷新分支——那才是覆写发生的路径。只调一次测不到该缺陷。
+	await handler.handler({ agent, step: 1, messages: [recallRow] }, async () => ({
+		kind: "continue",
+		messages: [recallRow],
+	}));
+	const r = await handler.handler({ agent, step: 1, messages: [recallRow] }, async () => ({
+		kind: "continue",
+		messages: [recallRow],
+	}));
+	for (const message of r.messages) {
+		if (message.source?.summary === RECALL) {
+			assert.ok(
+				message.content[0].text.startsWith("【双源召回"),
+				`summary 标为召回的行，正文必须是召回内容；实际：${message.content[0].text.slice(0, 40)}`,
+			);
+		}
+		if (message.source?.summary === NOTICE) {
+			assert.ok(
+				message.content[0].text.startsWith("【LDVH 管辖判定"),
+				"summary 标为管辖判定的行，正文必须是判定内容",
+			);
+		}
+	}
+});

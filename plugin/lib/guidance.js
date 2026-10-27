@@ -321,17 +321,48 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
       // a row is lost only when it is neither in this batch NOR recorded from a
       // previous batch (see noteOwnMessages).
       const batch = Array.isArray(decision.messages) ? decision.messages : [];
-      const inBatch = batch.find(isOwnMessage);
+      // **判定行只能认「本行」，不能认「第一条我方消息」**（2026-10-27 修）。
+      //
+      // 实测缺陷：`batch.find(isOwnMessage)` 取的是**批次里第一条我方消息**，
+      // 而当本回合只注入了召回行、判定行尚未注入（或已被裁剪）时，第一条就是
+      // 召回行——于是下面那个「原地刷新」分支把**召回行的正文改写成判定文本**，
+      // 而它的 `source.summary` 仍是「双源召回」，标签与正文串位。
+      // 全工作区 65 条召回注入行里 14 条正文其实是管辖判定，即此机制。
+      //
+      // 判据与 `isRecallMessage` 同源：判定行 = 我方消息中**不是**召回行的那些。
+      const currentRecallLabel = recallLabel() ?? "双源召回 · 行动前候选";
+      const isNoticeMessage = (message) => isOwnMessage(message) && !isRecallMessage(message, currentRecallLabel);
+      const inBatch = batch.find(isNoticeMessage);
       noteOwnMessages(state, batch);
       const everInjected = state.injectedIds !== undefined && state.injectedIds.size > 0;
       const changed = noticeReady && currentNotice !== state.lastDigest;
       const extras = [];
+      // **同批次去重**（2026-10-27 修「同一 step 注入多条相同行」）：插件被装载
+      // 多个实例时（配置重载、HMR、profile 里重复挂载），每个实例各挂一个
+      // pre-step 监听器，于是同一批次被注入 N 条完全相同的行。实测：装 1 个实例
+      // → 1 条；装 3 个 → 3 条；真实会话里 ad027a9f 有 9 个回合、75bb2718 有
+      // 7 个回合出现 2 条，本会话 turn 1 出现 3 条。
+      //
+      // 判据用**内容相同**而不是「有没有我方行」：`next()` 的返回值已含**更内层
+      // 监听器**追加的行（本处理器 prepend，故是最外层），所以最外层能看到其余
+      // 实例的产物并据此收口；而内容不同的行（语料变了）仍照常注入。
+      const alreadyHas = (text, summary) => batch.some((message) => {
+        if (!isOwnMessage(message)) return false;
+        if ((message?.source?.summary ?? null) !== summary) return false;
+        const existing = Array.isArray(message.content)
+          ? message.content.filter((part) => part?.type === "text").map((part) => part.text ?? "").join("")
+          : "";
+        return existing === text;
+      });
+      const noticeSummaryText = (typeof noticeSummary === "function" ? noticeSummary() : noticeSummary) ?? "LDVH 管辖判定";
       if (noticeReady && (!everInjected || changed)) {
         // Row never injected (first turn), or the notice changed: inject one
         // fresh row. A row that is still live in an earlier turn does NOT
         // trigger this branch — that was the duplicate-injection defect.
         state.lastDigest = currentNotice;
-        extras.push(createPluginMessage(currentNotice, (typeof noticeSummary === "function" ? noticeSummary() : noticeSummary) ?? "LDVH 管辖判定"));
+        if (!alreadyHas(currentNotice, noticeSummaryText)) {
+          extras.push(createPluginMessage(currentNotice, noticeSummaryText));
+        }
       } else if (noticeReady && inBatch !== undefined) {
         // Row present and notice unchanged: refresh the text in place so a
         // stale row never lingers after the judgment moved on between turns.
@@ -352,9 +383,23 @@ export function createPreStepHandler(agent, { isGoverned, channel, noticeText, n
         }
         if (recall !== null && recall?.inject === true && typeof recall.text === "string" && recall.text !== "") {
           const label = recallLabel() ?? "双源召回 · 行动前候选";
+          // **同批次去重**（与上方判定行同一纪律、同一 2026-10-27 实测依据）：
+          // 插件装载多个实例时，每个实例的监听器都会走到这里并各追加一条内容
+          // 完全相同的召回行（装 3 个实例 → 3 条）。批次里已有同内容同行标签的
+          // 行就不再追加，但**不**据此跳过刷新：刷新语义仍由下面的 digest 分支管。
+          const recallAlreadyInBatch = batch.some((message) => {
+            if (!isOwnMessage(message)) return false;
+            if ((message?.source?.summary ?? null) !== label) return false;
+            const existing = Array.isArray(message.content)
+              ? message.content.filter((part) => part?.type === "text").map((part) => part.text ?? "").join("")
+              : "";
+            return existing === recall.text;
+          });
           if (recall.digest !== state.lastRecallDigest) {
             state.lastRecallDigest = recall.digest;
-            extras.push(createPluginMessage(recall.text, label));
+            if (!recallAlreadyInBatch) {
+              extras.push(createPluginMessage(recall.text, label));
+            }
           } else {
             // **旧召回行仍在时须刷新内容**（2026-10-24 修）。
             //
