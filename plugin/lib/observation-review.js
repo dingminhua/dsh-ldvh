@@ -350,8 +350,38 @@ export async function collectExistingPitfalls({ factSourceRoot, limit = 200 } = 
 }
 
 /**
- * 机械侧只校验「查重已执行且对照集覆盖全部 active 与 draft」（23 §6.2 + 11 §18
- * 「经验候选的查重已执行」行）。语义结论由调用方给出。
+ * 机械侧只校验「查重已执行、且所记录的比对对象确实取自对照集」（23 §6.2 +
+ * 11 §18「经验候选的查重已执行」行）。语义结论由调用方给出。
+ *
+ * ## 为什么**不**校验「compared 覆盖全部 active 与 draft」（2026-10-27 更正）
+ *
+ * 原实现要求 `dedupe.compared` 枚举**每一个**既有对象的 `object_uid`，缺一个就整条
+ * 拒绝。该要求的初衷是对的（防同一机制重复成对象），但**判据选错了层次**：
+ *
+ *   ① 规范把这一项明确定为 **AI 语义审核**——11 §18 该行的「校验方式」是
+ *      「AI 语义审核」，判定问题是「已对照既有 active 与 draft 的 title 与
+ *      症状／根因**语义比对**」，且**未验证范围**一栏明写「当次查重范围；**不证明**
+ *      同机制确不存在」。故规范要求的是**做过比对并如实记录结论**，不是机械证明
+ *      枚举完备。
+ *   ② 规范正文（23 §6.2）里**没有** `compared` 这个字段，也没有任何「须枚举全部
+ *      object_uid」的表述——这是实现自加的字段与自加的强度。
+ *   ③ 实测后果（2026-10-27）：执行体按提示词「比对了哪些对象」如实给出它**实际
+ *      比对过的 2–4 个**相关对象、结论 `no-duplicate`、提案内容质量合格，却被本
+ *      校验整体拒绝，错误码 `observation_review/dedup_not_recorded`；审核因此**停在
+ *      第一条**，24 条缓冲条目永远轮不到。
+ *   ④ 该形态还有一个更坏的副作用：把「AI 语义判断」伪装成「机械完备性」，让一个
+ *      **本不成立的保证**看起来可被机械关闭——正是 11 §18「不证明」一栏要防的。
+ *
+ * ## 现在校验什么（与规范对齐）
+ *
+ * - `checked === true`：确实做了查重（不得凭省略代替判断）；
+ * - `compared` 是非空数组，且**每一项都必须是本次对照集里真实存在的 object_uid**
+ *   —— 收窄而非放宽：先前既允许写不存在的 uid、也要求写满，两头都不对。写不存在
+ *   的 uid 说明它没真读对照集，必须拒；
+ * - `conclusion` 在闭集内；`duplicate` 时 `duplicate_of` 须指向对照集内的对象。
+ *
+ * **不做的事**：不要求枚举完备。防重复由「AI 语义判断 + Human 复核 + draft 纳入
+ * 范围」共同承担，不由本函数的枚举检查承担。
  */
 function verifyDedupeRecord(proposal, existingPitfalls) {
   const issues = [];
@@ -363,15 +393,23 @@ function verifyDedupeRecord(proposal, existingPitfalls) {
   if (dedupe.checked !== true) {
     issues.push("dedupe: checked must be true — a creation proposal may not assert a candidate without recording the dedup comparison (23 §6.2)");
   }
+  const known = new Set(existingPitfalls.map((p) => p.object_uid));
   if (!Array.isArray(dedupe.compared)) {
-    issues.push("dedupe: compared must be an array of the object_uids that were compared (23 §6.2: both active AND draft are in scope)");
-  } else {
-    const expected = existingPitfalls.map((p) => p.object_uid);
-    const compared = new Set(dedupe.compared);
-    const missing = expected.filter((uid) => !compared.has(uid));
-    if (missing.length > 0) {
+    issues.push("dedupe: compared must be an array of the object_uids that were actually compared (23 §6.2)");
+  } else if (dedupe.compared.length === 0) {
+    // 对照集非空却写「一个都没比」——那不是查重，是空过。
+    if (known.size > 0) {
       issues.push(
-        `dedupe: the comparison set does not cover every active/draft Pitfall — missing ${missing.length} object_uid(s) (23 §6.2: a draft Pitfall is in scope too, otherwise the same mechanism can be written twice as two candidates)`,
+        `dedupe: compared is empty while the comparison set has ${known.size} object(s) — a "no-duplicate" conclusion cannot rest on having compared nothing (23 §6.2: the comparison must actually be performed)`,
+      );
+    }
+  } else {
+    // 收窄：写进 compared 的每个 uid 都必须真实存在于对照集。
+    // 编造 uid 说明它没读对照集，比「没写满」严重——这是可机械判定的那一部分。
+    const fabricated = dedupe.compared.filter((uid) => !known.has(uid));
+    if (fabricated.length > 0) {
+      issues.push(
+        `dedupe: compared cites ${fabricated.length} object_uid(s) that are not in the active/draft comparison set (${fabricated.slice(0, 3).join(", ")}${fabricated.length > 3 ? ", …" : ""}) — the cited objects could not have been compared against this set (23 §6.2)`,
       );
     }
   }
@@ -381,8 +419,8 @@ function verifyDedupeRecord(proposal, existingPitfalls) {
   if (dedupe.conclusion === "duplicate") {
     if (!isNonEmptyString(dedupe.duplicate_of)) {
       issues.push("dedupe: conclusion=duplicate requires duplicate_of = the object_uid of the existing object (11 §10.2 item 4: the entry is settled consumed pointing at the existing object)");
-    } else if (existingPitfalls.length > 0 && !existingPitfalls.some((p) => p.object_uid === dedupe.duplicate_of)) {
-      issues.push(`dedupe: duplicate_of ${JSON.stringify(dedupe.duplicate_of)} is not among the compared active/draft objects`);
+    } else if (existingPitfalls.length > 0 && !known.has(dedupe.duplicate_of)) {
+      issues.push(`dedupe: duplicate_of ${JSON.stringify(dedupe.duplicate_of)} is not among the active/draft comparison set`);
     }
   }
   return { ok: issues.length === 0, issues };

@@ -373,7 +373,18 @@ test("第 2 项：查重未登记 → fail-closed（不得在无对照记录时�
   });
 });
 
-test("第 2 项：对照集未覆盖全部 active 与 draft → 拒绝（23 §6.2 含 draft）", async () => {
+// ── 第 2 项：查重已执行（2026-10-27 判据更正）────────────────────────────
+//
+// 原用例断言「compared 未覆盖全部 active 与 draft → 拒绝」。**该判据已撤销**：
+// 规范把这一项定为 **AI 语义审核**（11 §18 该行「校验方式：AI 语义审核」，且
+// 未验证范围明写「不证明同机制确不存在」），23 §6.2 正文也没有 `compared` 字段、
+// 没有「须枚举全部 object_uid」的表述——那是实现自加的强度。实测后果：执行体如实
+// 给出它真比对过的 2–4 个对象，被整体拒绝，审核停在第一条，24 条缓冲永不清空。
+//
+// 现在校验的是**可机械判定的那一部分**：写过对象是否真取自对照集（不得编造）、
+// 对照集非空时不得「一个都没比」。故原用例改写为下面两条。
+
+test("第 2 项：compared 只列**实际比对过的部分**对象 → 放行（不要求枚举完备，23 §6.2 为语义审核）", async () => {
   await withHome(async (home) => {
     await withTemp("observation-review-facts-", async (factSourceRoot) => {
       const [uid] = await seedExistingPitfalls(factSourceRoot);
@@ -382,16 +393,63 @@ test("第 2 项：对照集未覆盖全部 active 与 draft → 拒绝（23 §6.
         dshHomePath: home,
         projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
+        // 对照集里有 2 个对象，但执行体只比对了其中 1 个并如实记录——这**是**合规的。
         existingPitfalls: [{ object_uid: uid, status: "active" }, { object_uid: "uid-draft-uncompared", status: "draft" }],
         proposals: [newCandidateProposal(entryId, {
           dedupe: { checked: true, compared: [uid], conclusion: "new" },
         })],
         sessionSignature: TEST_SIGNATURE,
       });
-      assert.equal(result.ok, false);
+      assert.equal(
+        result.ok, true,
+        `只比对一部分对象不得被拒（该判据已撤销）：${JSON.stringify(result.error)}`,
+      );
+    });
+  });
+});
+
+test("第 2 项：compared 里出现**对照集之外**的 uid → 拒绝（可机械判定的那一部分：不得编造比对对象）", async () => {
+  await withHome(async (home) => {
+    await withTemp("observation-review-facts-", async (factSourceRoot) => {
+      const [uid] = await seedExistingPitfalls(factSourceRoot);
+      const entryId = await appendEntry(home);
+      const result = await reviewPendingEntries({
+        dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
+        factSourceRoot,
+        existingPitfalls: [{ object_uid: uid, status: "active" }],
+        proposals: [newCandidateProposal(entryId, {
+          // uid-does-not-exist 不在对照集里——说明它没真读对照集。
+          dedupe: { checked: true, compared: [uid, "uid-does-not-exist"], conclusion: "new" },
+        })],
+        sessionSignature: TEST_SIGNATURE,
+      });
+      assert.equal(result.ok, false, "编造比对对象须被拒");
       assert.equal(result.error.code, "observation_review/dedup_not_recorded");
-      assert.match(result.error.message, /does not cover every active\/draft/);
+      assert.match(result.error.message, /not in the active\/draft comparison set/);
       assert.equal((await readEntry(home, entryId)).status, "pending");
+    });
+  });
+});
+
+test("第 2 项：对照集非空却 compared 为空 → 拒绝（那不是查重，是空过）", async () => {
+  await withHome(async (home) => {
+    await withTemp("observation-review-facts-", async (factSourceRoot) => {
+      const [uid] = await seedExistingPitfalls(factSourceRoot);
+      const entryId = await appendEntry(home);
+      const result = await reviewPendingEntries({
+        dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
+        factSourceRoot,
+        existingPitfalls: [{ object_uid: uid, status: "active" }],
+        proposals: [newCandidateProposal(entryId, {
+          dedupe: { checked: true, compared: [], conclusion: "new" },
+        })],
+        sessionSignature: TEST_SIGNATURE,
+      });
+      assert.equal(result.ok, false, "一个都没比不得声称无同机制");
+      assert.equal(result.error.code, "observation_review/dedup_not_recorded");
+      assert.match(result.error.message, /compared is empty/);
     });
   });
 });
