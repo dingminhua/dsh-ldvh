@@ -347,3 +347,172 @@ test("查重对照集必须从**事实源根**（project.path/ldvh-base）读，
     "提示词必须含既有 Pitfall 的标题——缺它说明对照集是空的，查重覆盖形同虚设",
   );
 });
+
+// ── ⑥ 执行体署名：取数通道必须真的能取到（2026-10-27 缺陷复现与守卫）──────
+//
+// ## 为什么补这一组
+//
+// 2026-10-27 实测：审核段在「第一条要成文的条目」处恒被判
+// `observation_review/signature_unavailable`，经验观察缓冲 23 条**全部**停在
+// pending，一条都没被处理过。根因是 `resolveSignature` 写成了
+// `sessionPersistence.read?.(childId)`——而宿主 `sessionPersistence` 服务**没有
+// `read()` 方法**（接口是 `locate(header)` 与 `open(id,"read")` → `handle.read()`）。
+// 可选链恒为 `undefined`，故该函数**从诞生起每次都返回 null**。
+//
+// ## 为什么既有测试没发现
+//
+// 本文件此前**没有任何用例传 `sessionPersistence`**，默认 `null` → 签名恒 null
+// → 所有用例都跑在「取不到签名」那条分支上，而它们恰好都在签名闸之前就返回了
+// （无提案、空缓冲、条数上限…）。缺陷因此长期不可见。
+//
+// 故这一组必须**真的装配一个只有 `locate`/`open` 的 persistence**（与宿主同形），
+// 并让流程走到「创建 draft」那一步——它能取到签名，才能走到那儿。
+
+/** 宿主同形的 persistence 桩：**没有 read()**，只有 locate 与 open。 */
+function fakeSessionPersistence({ events = null, openThrows = null } = {}) {
+  const opened = [];
+  return {
+    opened,
+    locate: () => undefined,
+    open: async (id, access) => {
+      opened.push([id, access]);
+      if (openThrows !== null) throw new Error(openThrows);
+      return {
+        read: async () => ({
+          events: events ?? [
+            { type: "model/selection", seq: 0, data: { provider: "executor-provider", model: "executor-model" } },
+          ],
+        }),
+      };
+    },
+  };
+}
+
+/** 一条能成文的提案（七段齐备、逐字引证命中原条目）。 */
+function formableProposal(entryId = "entry-0") {
+  return {
+    entry_id: entryId,
+    conclusion: "form",
+    title: "夹具经验候选标题",
+    scope: "仅用于验证署名取数通道的测试夹具，不承载真实经验。",
+    body: [
+      "## 症状",
+      "",
+      "夹具现象。",
+      "",
+      "## 触发条件",
+      "",
+      "夹具条件。",
+      "",
+      "## 根因",
+      "",
+      "夹具根因。",
+      "",
+      "## 解决",
+      "",
+      "夹具解决。",
+      "",
+      "## 规避",
+      "",
+      "夹具规避。",
+      "",
+      "## 验证",
+      "",
+      "夹具验证。",
+      "",
+      "## 影响与适用范围",
+      "",
+      "仅用于验证署名取数通道的测试夹具，不承载真实经验。",
+    ].join("\n"),
+    // 查重记录按 23 §6.2 / 11 §18 的字段要求写：checked 是布尔真值、compared 是
+    // **曾比对过的 object_uid 数组**（须覆盖全部 active 与 draft）、conclusion 只认
+    // "new" 或 "duplicate"。夹具里没有既有 Pitfall，故 compared 为空数组即可。
+    dedupe: { checked: true, compared: [], conclusion: "new" },
+  };
+}
+
+test("11 §12ter.1：**只有 locate/open 的 persistence 也能取到执行体署名**（复现 2026-10-27 恒失败缺陷）", async () => {
+  const base = await mkdtemp(join(tmpdir(), "review-stage-"));
+  await seedBuffer(base);
+  const persistence = fakeSessionPersistence();
+  const subagents = fakeSubagents({ proposals: [formableProposal()] });
+
+  // 前提钉子：桩服务**必须**没有 read()——否则本用例测不到真实形态，会假绿。
+  assert.equal(
+    typeof persistence.read,
+    "undefined",
+    "宿主的 sessionPersistence 没有 read()；桩若给了它，本用例就不再代表真实形态",
+  );
+
+  const result = await runReviewStage({
+    subagents,
+    parent: {},
+    sessionPersistence: persistence,
+    scope: governedScope(base),
+    lifecycle: quietLifecycle(),
+    dshHomePath: homeJoiner(base),
+  });
+
+  // ① 必须**真的**去读执行体会话（走 open(id,"read") 这条正规入口）。
+  assert.deepEqual(
+    persistence.opened.map((c) => c[0]), ["child-1"],
+    `须用 childId 打开执行体会话；实际 ${JSON.stringify(persistence.opened)}`,
+  );
+  assert.equal(persistence.opened[0][1], "read", "只允许纯读访问");
+
+  // ② 关键断言：不得再因子虚乌有的「缺署名」而整体失败。
+  //    修复前这里必然 error.code === "observation_review/signature_unavailable"。
+  assert.notEqual(
+    result.ok === true ? null : result.error.code,
+    "observation_review/signature_unavailable",
+    `签名字段明明取得到，不得判「缺署名」：${JSON.stringify(result.ok ? result.value : result.error)}`,
+  );
+});
+
+test("11 §12ter.1：署名**确实取不到**时仍 fail-closed（不得静默成功、不得回落主控路由）", async () => {
+  const base = await mkdtemp(join(tmpdir(), "review-stage-"));
+  await seedBuffer(base);
+  // open 抛错 → 取数通道不可用 → 必须如实判「缺署名」，而不是退化为无签名写入。
+  const persistence = fakeSessionPersistence({ openThrows: "session log is not flushed" });
+  const subagents = fakeSubagents({ proposals: [formableProposal()] });
+
+  const result = await runReviewStage({
+    subagents,
+    parent: {},
+    sessionPersistence: persistence,
+    scope: governedScope(base),
+    lifecycle: quietLifecycle(),
+    dshHomePath: homeJoiner(base),
+  });
+
+  assert.equal(result.ok, false, "取不到署名时不得成功写入无签名的事实对象");
+  assert.equal(
+    result.error.code,
+    "observation_review/signature_unavailable",
+    `须如实判缺署名：${JSON.stringify(result.error)}`,
+  );
+  // 缓冲未被半截改动：仍 pending。
+  const { readBufferEntries } = await import("../lib/observation-buffer.js");
+  const after = await readBufferEntries(homeJoiner(base), { projectId: PROJECT_ID });
+  assert.equal(after.value.items[0].status, "pending", "拒绝写入时条目必须原样留 pending");
+});
+
+test("11 §12ter.1：执行体会话里没有 routing 事件时判缺署名（不得凭 header 猜测）", async () => {
+  const base = await mkdtemp(join(tmpdir(), "review-stage-"));
+  await seedBuffer(base);
+  // 事件里没有 model/selection 或 request/context → 权威路由不可得。
+  const persistence = fakeSessionPersistence({ events: [{ type: "assistant/message", seq: 1, data: {} }] });
+  const subagents = fakeSubagents({ proposals: [formableProposal()] });
+
+  const result = await runReviewStage({
+    subagents,
+    parent: {},
+    sessionPersistence: persistence,
+    scope: governedScope(base),
+    lifecycle: quietLifecycle(),
+    dshHomePath: homeJoiner(base),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "observation_review/signature_unavailable");
+});

@@ -34,6 +34,8 @@
 import { join } from "node:path";
 
 import { reviewPendingEntries, collectExistingPitfalls } from "./observation-review.js";
+import { currentRouteValuesForSession } from "./session-signature.js";
+import { authoritativeSignature } from "./signature-channel.js";
 
 /** 一次派发最多交付多少条 pending 条目（防提示词无界增长）。 */
 export const MAX_ENTRIES_PER_REVIEW_DISPATCH = 12;
@@ -416,21 +418,46 @@ export async function runReviewStage({
 }
 
 /**
- * 取执行体署名（provider/model）。
+ * 取执行体署名（provider/model → 品牌化载体）。
  *
  * **取不到就返回 null，不臆造**：署名进 `draft` 的 `change_log`，编一个比没有更糟。
- * `sessionPersistence` 未装配时直接返回 null 并如实登记。
+ *
+ * ## 2026-10-27 修复：此前恒返回 null
+ *
+ * 原实现写的是 `sessionPersistence.read?.(childId)`。但宿主的 `sessionPersistence`
+ * 服务**没有 `read()` 方法**——它的接口是 `locate(header)` 与 `open(id, "read")`
+ * 两步，事件由 `open()` 返回的 handle 的 `read()` 给出。故可选链恒为 `undefined`，
+ * 本函数**每次**都返回 null，审核段因此在「第一条要成文的条目」处恒被判
+ * `signature_unavailable` 并整体 fail-closed。
+ *
+ * 实测证据（2026-10-27）：环形痕迹里 `experience-review` 只有两次记录，两次都是
+ * 同一条目 651d53aa 的同一失败；经验观察缓冲 23 条**全部**停在 pending，一条都
+ * 没被处理。失败看似偶发（时间上像是某次改动之后），实为恒真缺陷。
+ *
+ * ## 现在的取数通道
+ *
+ * 复用 `currentRouteValuesForSession(persistence, { id })`——它与
+ * `friction-discovery-provider.js` 取**同类**执行体署名走的是同一条通道与同一套
+ * 取值纪律（09 §5.1「当次实际」、零清洗）。不在这里另写一套 open/read：
+ * 那条纪律只应有一处实现，否则两处会出现「同一执行体两个署名」。
+ *
+ * 取不到时仍返回 null（不回落主控路由）——那会把执行体的判断盖上主控的章，
+ * 恰是 2026-10-16 修掉的缺陷形态。
  */
 async function resolveSignature(sessionPersistence, childId) {
   if (sessionPersistence === null || sessionPersistence === undefined) return null;
   if (typeof childId !== "string" || childId.length === 0) return null;
   try {
-    const record = await sessionPersistence.read?.(childId);
-    const provider = record?.header?.provider ?? record?.provider;
-    const model = record?.header?.model ?? record?.model;
-    if (typeof provider === "string" && typeof model === "string") return { provider, model };
-    return null;
+    // 只认会话标识：宿主正规入口 open(id,'read') 自行定位日志；执行体在结算前
+    // 已被 flushFinalState 刷盘，故此刻可读（见 currentRouteValuesForSession 说明）。
+    const route = await currentRouteValuesForSession(sessionPersistence, { id: childId });
+    if (!route.ok) return null;
+    const carrier = authoritativeSignature({ provider: route.value.provider, model: route.value.model });
+    if (carrier === null) return null;
+    return carrier;
   } catch {
+    // 取数通道自身抛错：仍然返回 null（宁可拒写也不臆造），由审核段按其既有
+    // fail-closed 路径如实上报。
     return null;
   }
 }
