@@ -353,6 +353,63 @@ export const HOST_CONTEXT_SOURCE_KINDS = Object.freeze([
 ]);
 
 /**
+ * 只有这个 kind 算「真实用户输入」。
+ *
+ * ── 为什么要从黑名单改成白名单（2026-10-27，实测事故）──────────────────
+ *
+ * 原实现用 `HOST_CONTEXT_SOURCE_KINDS` **排除已知的非用户上下文**，未见过的
+ * kind 一律当用户消息。这个方向**失败时是开放的**：宿主新增一种通知，它就会被
+ * 当成用户查询。
+ *
+ * 实测事故（本会话某一回合）：用户问的是中文「判断一下当前召回机制运作是否
+ * 符合设计」，而注入的命中词是 `model`／`by`／`the`／`changed`／`session`／
+ * `workbuddy`——**一个都不在用户问题里**。定位到 `currentUserText()` 取到的是
+ * 宿主插入的 `[model changed: …]` 通知。
+ *
+ * 枚举本机三日内实际出现过的 `message.source.kind`，共 **11 种**，而名单只覆盖
+ * 5 种——漏掉的 5 种是：
+ *   · `model-selection`（`[model changed: …]`，本次命中源）
+ *   · `tool-jobs`（后台任务通知）
+ *   · `subagent-settled`（子代理结束通知）
+ *   · `plugin:dsh-subagent-default-model`（子代理系统提示词）
+ *   · `user-approval`（审批策略变更通知）
+ * 漏一个就放行一个，而 kind 集合由宿主决定、可随时新增——**黑名单注定追不上**。
+ *
+ * 故改为白名单：`kind === "user"` 才是用户输入。
+ *
+ * ── 为什么不担心「漏取」──────────────────────────────────────────────
+ * 原注释担心：直接调用的测试或旧宿主消息可能不带 `source`，只认 `user` 会把它们
+ * 判成非用户输入、使取词恒为空（把一个静默漏取换成另一个静默漏取）。该顾虑成立，
+ * 故 `isUserInputSource` 对「无 `source` / 无 `kind`」保留**按用户处理**的兜底，
+ * 只对「明确带了非 user 的 kind」排除。实测真实用户消息 67 次全部带
+ * `kind: "user"`，兜底只是兼容面，不是主路径。
+ *
+ * 两种失败形态的取舍也要说清：漏取 → 该回合不召回（`reason: "no-user-text"`，
+ * 可观察、不污染上下文）；误取 → 召回完全跑偏且**每回合都注入错内容**。
+ * 后者危害更大，故宁可 fail closed。
+ */
+export const USER_SOURCE_KIND = "user";
+
+/**
+ * 判定一条消息是否**真实用户输入**。
+ *
+ * @param {unknown} source `message.source`
+ * @returns {boolean}
+ */
+export function isUserInputSource(source) {
+  if (source === null || typeof source !== "object") {
+    // 无 source：旧宿主或直调测试的形态 —— 按用户输入处理（不做静默漏取）。
+    return true;
+  }
+  const kind = source.kind;
+  if (typeof kind !== "string" || kind === "") {
+    // 有 source 但无 kind：同样无法据此排除，保守按用户处理。
+    return true;
+  }
+  return kind === USER_SOURCE_KIND;
+}
+
+/**
  * 从 pre-step 载荷的 messages 里取出**本回合用户消息**文本。
  *
  * 载荷结构由 `10 §5.3` 定义为 `{agent, messages, turn, step, signal}`。
@@ -360,7 +417,8 @@ export const HOST_CONTEXT_SOURCE_KINDS = Object.freeze([
  *
  * 排除两类非用户输入（两者都带 `role: "user"`）：
  *   1. 本插件自己注入的行（否则会拿注入结果当查询）；
- *   2. 宿主装配的上下文行（`HOST_CONTEXT_SOURCE_KINDS`，见上）。
+ *   2. 宿主装配的上下文行——按 `isUserInputSource` 的**白名单**判定
+ *      （只有 `kind === "user"` 接受；无 source 时才兜底按用户处理）。
  *
  * @param {unknown[]} messages
  * @param {(m: object) => boolean} isOwnMessage 判定是否本插件注入的行
@@ -373,8 +431,9 @@ export function currentUserText(messages, isOwnMessage) {
     if (message === null || typeof message !== "object") continue;
     if (message.role !== "user") continue;
     if (typeof isOwnMessage === "function" && isOwnMessage(message)) continue;
-    const kind = message.source?.kind;
-    if (typeof kind === "string" && HOST_CONTEXT_SOURCE_KINDS.includes(kind)) continue;
+    // **白名单判定**（2026-10-27）：见 `USER_SOURCE_KIND` 的实测事故说明。
+    // 黑名单方向失败开放——宿主新增一种通知就会被当成用户查询。
+    if (!isUserInputSource(message.source)) continue;
     const content = message.content;
     if (!Array.isArray(content)) continue;
     const text = content
