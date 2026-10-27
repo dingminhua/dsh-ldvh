@@ -41,8 +41,80 @@ import {
 /** 注入行可见摘要（Human 侧折叠时看到的短标签）。 */
 export const RECALL_SUMMARY = "双源召回 · dsh-ldvh · 行动前候选";
 
-/** 沉默阈值：命中少于这个数就不注入（避免每回合刷空行）。 */
-const MIN_HITS = 1;
+/**
+ * 沉默阈值：**候选条数**少于这个数就不注入（避免每回合刷空行）。
+ *
+ * ── 「排序分」与「是否注入」是两件事（2026-10-27，第 3 步）─────────────
+ *
+ * 这条阈值**只数条数，不看分数**。必须如此，理由有三：
+ *
+ * 1. **排序分是候选集内的相对量**，不具跨回合可比性。本项目 `source-recall.js`
+ *    的 `hits` 自 BM25 引入后是 `Σ idf × 饱和(tf)`——idf 取决于**当次候选集的
+ *    N 与 df**。同一份事实，换个查询集，分数就变；把它当阈值输入等于让「是否
+ *    注入」取决于恰好还有哪些别的候选被选中。
+ * 2. **同分极常见**。实测「在 Git Gate 再加一条校验」里 4 条候选并列在
+ *    tier1/BM25 相近区间，名次由 path 字典序决定。若用分数判「要不要注入」，
+ *    等于让 UUID 字母序决定有没有召回。
+ * 3. **外部项目已实测这条路走不通**：`dsh-auto-memory` 的 `recall-fusion.js`
+ *    文件头明确写「融合分数只用于排序；『是否注入』的决策必须使用**绝对分数**
+ *    与**校准阈值**比较，rank-space 分数本身仍是候选集内的相对量，**不承担
+ *    决策职责**」；其 M7 报告更给出否证——单阈值策略精确率 0（`denseTop=0.834`
+ *    时触发的全是闲聊）。调研 R-f8b248ce F4「回声陷阱」记录了这一点。
+ *
+ * 故本模块的职责切分是**固定**的：
+ *   · `source-recall.js` 产出的 `hits`／排序 → **只决定谁排在前面**；
+ *   · 本模块的决策 → 只看「有没有候选」（条数）+ `34 §6` 三态进入判据（语义）。
+ * 三态 gate 是本项目比外部实现更稳的部分，**不因引入加权而改动**。
+ * 下方 `DECISION_KEYS` 把这条切分声明为可机械校验的事实。
+ */
+export const MIN_HITS = 1;
+
+/**
+ * 注入决策**允许**读取的输入项（闭集）。
+ *
+ * 这不是装饰性常量：`recall-injection.test.mjs` 有一条守卫用例，用**分数注入**
+ * 的方式验证「把排序分改到任意极端，决策结果不变」。若将来有人把 `hits` 或
+ * BM25 分数接进决策路径，该用例不会变红——所以额外把这份清单作为**声明式
+ * 契约**写在这里，使「决策读了什么」可以被人一次性核对（`00 §5.6` 据实声明）。
+ *
+ * 现行决策输入（**只有这两项**）：
+ *   · `candidateCount`——候选条数（`specs.length + facts.length`）；
+ *   · `baselinePresent`——决策基线是否有内容（`22 §12` 义务召回，与词法无关）。
+ *
+ * **2026-10-27 更正**（独立审核轻微项 16）：本清单一度列了 `entryVerdict` 与
+ * `recallAvailability`，但 `decideInjection` 从不读取它们、调用方也不传——
+ * 声明与实现不符。那两个判断发生在**更上游**（`shouldRecall` / `recallForAction`
+ * 的 ok 分支），不在本函数内。清单只列本函数真正读的键，否则「声明式契约」
+ * 就变成装饰。
+ *
+ * **不在清单内**：`hits`、BM25 加权分、tier、path、任何排序键。
+ */
+export const DECISION_KEYS = Object.freeze([
+  "candidateCount",
+  "baselinePresent",
+]);
+
+/**
+ * 是否注入的**纯决策函数**（2026-10-27，第 3 步抽出）。
+ *
+ * 抽出的理由是可测性，不是风格：原先该判断内联在 `buildRecallInjection` 里，
+ * 而整链路运行时基线恒非空（`22 §12` 义务召回几乎总有 active ADR），短路分支
+ * 根本走不到——于是「把排序分接进决策」这种破坏**测不出来**（实测破坏版仍
+ * 65/65 全绿，守卫形同虚设）。抽成纯函数后可独立注入任意候选集与分数。
+ *
+ * **输入严格取自 `DECISION_KEYS`**（candidateCount / baselinePresent / 未来
+ * 若需要的 entryVerdict、recallAvailability）。**不接收任何排序键**——调用点
+ * 也不传，故「用分数决策」在类型层面就做不到，而不是只靠约定。
+ *
+ * @param {{candidateCount:number, baselinePresent:boolean}} input
+ * @returns {boolean} 是否注入
+ */
+export function decideInjection(input) {
+  const count = Number.isFinite(input?.candidateCount) ? input.candidateCount : 0;
+  const baselinePresent = input?.baselinePresent === true;
+  // 有候选 → 注入；无候选但有基线内容 → 仍注入（22 §12 义务召回不得靠词法运气）。
+  return count >= MIN_HITS || baselinePresent;
+}
 
 /**
  * 默认单次注入预算（**字节**，不是字符）。
@@ -101,10 +173,37 @@ export const ADR_BASELINE_BYTE_BUDGET = 600;
  * （那属 `10:261` 的 Human 决定事项），而是给已声明的 2400 预算补上
  * 它在渲染端的对应约束。
  *
- * 定值依据：实测最坏情况 1167 字符（8 类查询 × 4 档 limit 取最大），
- * 取 1600 留约 37% 余量，同时确保不因正常波动而误裁。
+ * ── 2026-10-27 修正：改为**由字节预算动态导出**，不再是单值 1600 ────────
+ *
+ * **缺陷（Human 指出）**：档位已从旧的 2400 字节改成 10240／20480／… 的档位集合，
+ * 但本常量仍是写死的 1600 字符，于是它成了新的天花板——limit 调到 24 也只渲染
+ * 约 15 条，20480 字节只用到 3228（**16%**）。档位调高，效果几乎不变。
+ *
+ * **修法**：字符上限不再独立取值，而由**本档的字节预算**推导——预算里有几字节
+ * 就给几字节对应的字符量。判据用一个**保守的字节/字符比**，而不是假设全中文：
+ * 中文一字 3 字节、ASCII 1 字节，本语料标题与路径以中文为主（实测渲染 1580 字符
+ * = 3281 字节，约 2.08 字节/字符）。取 **BYTES_PER_CHAR_CONSERVATIVE = 2.0**
+ * 略严于实测值，使「汉字为主」的文本不会超出，同时不再无谓砍掉 ASCII 较多的行。
+ *
+ * 这同时消除了一个**单位混用隐患**（本文件早期注释已提过）：`RECALL_BYTE_BUDGET`
+ * 按字节算、`RECALL_RENDER_CHAR_LIMIT` 按字符算，两个「上限」不同义，极易误估。
+ * 现在字符上限只是字节预算的函数，二者永不脱节。
  */
+export const BYTES_PER_CHAR_CONSERVATIVE = 2.0;
+
+/** 旧的单值上限（仅作为**未给字节预算时**的兜底，保持向后兼容）。 */
 export const RECALL_RENDER_CHAR_LIMIT = 1600;
+
+/**
+ * 由字节预算导出渲染字符上限。
+ *
+ * @param {number|null} budgetBytes 本档字节预算；null/非法 → 退回旧单值（兼容直调路径）
+ * @returns {number} 字符上限
+ */
+export function renderCharLimitFor(budgetBytes) {
+  if (!Number.isFinite(budgetBytes) || budgetBytes <= 0) return RECALL_RENDER_CHAR_LIMIT;
+  return Math.floor(budgetBytes / BYTES_PER_CHAR_CONSERVATIVE);
+}
 
 /**
  * 改变状态的动作标记（`34 §6` 进入信号第 1 项：「即将执行会产生副作用或改变
@@ -227,11 +326,41 @@ export function enterFactConsumption(text) {
 }
 
 /**
+ * 宿主装配进 `messages` 批次的**上下文注入行**的 `source.kind` 清单。
+ *
+ * **为什么必须显式排除**（2026-10-27 实测，缺陷根因）：宿主的批次里
+ * `role: "user"` 的不只有真实用户输入——运行时上下文、技能目录、工作区指令、
+ * 时间上下文都由宿主以 `role: "user"` 装入，只以 `source.kind` 区分。
+ * 旧实现「从尾部倒找第一条非本插件的 user 消息」，在**首回合**必然命中
+ * time-context（它排在批次末尾），于是召回查询词变成
+ * 「Time sampled while preparing turn 1, step 1: …」，命中的永远是含
+ * 「turn」字样的那条经验（`pitfall-c4b28410`，命中理由「适用范围命中：turn」）。
+ * 证据：三个会话的首回合召回注入行，与该会话用自己的 time-context 文本
+ * 本地复算的结果**逐字节相同**（3/3）；用真实用户消息复算则不同。
+ *
+ * **判据方向是「排除已知的非用户上下文」而非「只认 kind === user」**：
+ * 直接调用本函数的测试与旧宿主上的消息可能不带 `source`，若只认
+ * `kind === "user"` 会把它们一并判成非用户输入，使取词恒为空——
+ * 那是把一个静默漏取换成另一个静默漏取。排除清单只列出**已实际观察到**
+ * 的宿主上下文 kind；未见过的 kind 仍按用户消息处理（保守取用）。
+ */
+export const HOST_CONTEXT_SOURCE_KINDS = Object.freeze([
+  "time-context",
+  "runtime-context",
+  "skill-catalog",
+  "agent-instructions",
+  "compact-checkpoint",
+]);
+
+/**
  * 从 pre-step 载荷的 messages 里取出**本回合用户消息**文本。
  *
  * 载荷结构由 `10 §5.3` 定义为 `{agent, messages, turn, step, signal}`。
- * `messages` 是本回合装配的批次（不含历史），故末条 user 消息即本回合输入。
- * 我们自己注入的行也带 `role: "user"`，须排除（否则会拿注入结果当查询）。
+ * `messages` 是本回合装配的批次（不含历史），故末条**真实用户**消息即本回合输入。
+ *
+ * 排除两类非用户输入（两者都带 `role: "user"`）：
+ *   1. 本插件自己注入的行（否则会拿注入结果当查询）；
+ *   2. 宿主装配的上下文行（`HOST_CONTEXT_SOURCE_KINDS`，见上）。
  *
  * @param {unknown[]} messages
  * @param {(m: object) => boolean} isOwnMessage 判定是否本插件注入的行
@@ -244,6 +373,8 @@ export function currentUserText(messages, isOwnMessage) {
     if (message === null || typeof message !== "object") continue;
     if (message.role !== "user") continue;
     if (typeof isOwnMessage === "function" && isOwnMessage(message)) continue;
+    const kind = message.source?.kind;
+    if (typeof kind === "string" && HOST_CONTEXT_SOURCE_KINDS.includes(kind)) continue;
     const content = message.content;
     if (!Array.isArray(content)) continue;
     const text = content
@@ -563,9 +694,12 @@ export function renderRecallRow(result) {
   // ——宁可少放一条候选，不得超限后声称未超（`10:241`）。
   const NOTE_RESERVE_CHARS = 120;
   const NOTE_RESERVE_BYTES = 280;
+  // **字符上限由本档字节预算导出**（2026-10-27）：档位抬高时它随之抬高，
+  // 不再把 10240 的预算卡在 1600 字符（≈3200 字节）上。
+  const charLimit = renderCharLimitFor(limitBytes);
   const trimmed = [...lines];
   const joined = () => trimmed.join("\n");
-  const overChars = () => joined().length > RECALL_RENDER_CHAR_LIMIT - NOTE_RESERVE_CHARS;
+  const overChars = () => joined().length > charLimit - NOTE_RESERVE_CHARS;
   const overBytes = () =>
     limitBytes !== null && limitBytes > 0 &&
     Buffer.byteLength(joined(), "utf8") + NOTE_RESERVE_BYTES > limitBytes;
@@ -586,7 +720,7 @@ export function renderRecallRow(result) {
   }
   if (droppedByRender > 0) {
     const reasons = [];
-    if (charTriggered) reasons.push(`字符上限 ${RECALL_RENDER_CHAR_LIMIT}`);
+    if (charTriggered) reasons.push(`字符上限 ${charLimit}`);
     // **观察 A（第八次复核）**：预算内含说明行预留（NOTE_RESERVE_BYTES），
     // 不写明会让读者把「为披露留空间」误读成「超了预算才裁」。
     if (byteTriggered) reasons.push(`字节预算 ${limitBytes}，含披露行预留 ${NOTE_RESERVE_BYTES} 字节`);
@@ -604,7 +738,13 @@ export function renderRecallRow(result) {
     // 超预算带出（固定与披露文本不静默删，见上）；生产常量 2400 与测试矩阵
     // 800–4000 均不触及该残余。
     const compactReasons = [];
-    if (charTriggered) compactReasons.push(`字符上限 ${RECALL_RENDER_CHAR_LIMIT}`);
+    // **须报实际生效的上限**（2026-10-27，独立审核严重项 1）：此处原先写死
+    // `RECALL_RENDER_CHAR_LIMIT`（=1600），而字符上限自本轮起由预算导出
+    // （`renderCharLimitFor`）。实测 `budgetBytes=1200` 时注入文本声称
+    // 「字符上限 1600」，而 `result.render.limitChars` 报 600——**注入行自己
+    // 在说谎**，违反 `02 §9.1`「截断……必须可观察」的据实要求。
+    // 保留一条最小说明：本条与 `renderCharLimitFor` 脱节会让披露失真。
+    if (charTriggered) compactReasons.push(`字符上限 ${renderCharLimitFor(limitBytes)}`);
     if (byteTriggered) compactReasons.push(`字节预算 ${limitBytes}`);
     const compactNote =
       `（渲染层按硬约束（${compactReasons.join("／")}）裁去 ${droppedByRender} 条候选，` +
@@ -710,6 +850,10 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
     return { inject: false, reason: `recall-unavailable:${result?.error?.code ?? "unknown"}` };
   }
   const total = (result.specs?.length ?? 0) + (result.facts?.length ?? 0);
+  // 决策走**纯函数** `decideInjection`（见其定义处）：把「决策读了什么」变成
+  // 可独立注入测试的接口。此前这段逻辑内联在长函数里，只能整链路跑——
+  // 而整链路里基线恒非空，短路分支根本进不去，于是「把分数接进决策」这种
+  // 破坏**测不出来**（实测：破坏版仍 65/65 全绿）。抽出后守卫用例才有分辨力。
   // **零命中短路的例外：决策基线非空时仍须注入**（2026-10-25，Human 决定方案 A）。
   //
   // 旧行为「一条都没命中就不注入」的理由是 `02 §9.2` 要防「无条件注入」——那对
@@ -724,7 +868,7 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
   const baselineHasContent =
     (result?.decisionBaseline?.items?.length ?? 0) > 0 ||
     result?.decisionBaseline?.sourceUnreadable === true;
-  if (total < MIN_HITS && !baselineHasContent) {
+  if (!decideInjection({ candidateCount: total, baselinePresent: baselineHasContent })) {
     // 一条都没命中、且无基线可披露 → 不注入。
     // 不注入不等于「无相关」，故这里只在返回值里说明，不写进上下文。
     return { inject: false, reason: "no-hits" };
@@ -743,7 +887,10 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
   const renderTruncated = droppedMatch !== null;
   result.render = {
     chars: renderChars,
-    limitChars: RECALL_RENDER_CHAR_LIMIT,
+    // **须报实际生效的上限**（2026-10-27）：字符上限已由预算导出，若仍写死
+    // `RECALL_RENDER_CHAR_LIMIT`，这个观察字段就会**说谎**——实测它在档 10K 下
+    // 报 1600，实际生效 5120，调用方据此判断「还能不能多放」必然算错。
+    limitChars: renderCharLimitFor(result?.budget?.limitBytes ?? null),
     truncated: renderTruncated,
     // 裁去的候选条数（未裁为 0）——使「裁了几条」也可编程判定，不必解析中文。
     droppedCandidates: renderTruncated ? Number(droppedMatch[1]) : 0,

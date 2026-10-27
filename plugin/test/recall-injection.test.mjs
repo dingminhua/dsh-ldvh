@@ -11,13 +11,16 @@ import test from "node:test";
 import { join } from "node:path";
 
 import {
+	DECISION_KEYS,
 	ENTRY_VERDICTS,
 	RECALL_BYTE_BUDGET,
 	RECALL_RENDER_CHAR_LIMIT,
 	RECALL_SUMMARY,
 	buildRecallInjection,
 	classifyEntry,
+	decideInjection,
 	currentUserText,
+	renderCharLimitFor,
 	renderRecallRow,
 	shouldRecall,
 } from "../lib/recall-injection.js";
@@ -125,6 +128,57 @@ test("currentUserText：无 user 消息或非数组返回空串", () => {
 test("currentUserText：多段 text 拼接", () => {
 	const messages = [{ role: "user", content: [{ type: "text", text: "第一段" }, { type: "text", text: "第二段" }] }];
 	assert.equal(currentUserText(messages, OWN), "第一段第二段");
+});
+
+// 2026-10-27 实测缺陷（本组是它的回归钉子）：
+// 宿主把 time-context / runtime-context / skill-catalog / agent-instructions 都以
+// role:"user" 装进批次，旧实现从尾部倒找第一条非本插件消息 → 首回合必然取到
+// time-context，召回查询词变成「Time sampled while preparing turn 1, step 1: …」。
+// 证据：三个会话的首回合召回注入行与该会话 time-context 文本的本地复算逐字节相同。
+test("currentUserText：跳过宿主上下文行（time-context 不得当查询词）", () => {
+	const messages = [
+		{ role: "user", source: { kind: "user" }, content: [{ type: "text", text: "帮我把字段改掉" }] },
+		{ role: "user", source: { kind: "time-context" }, content: [{ type: "text", text: "Time sampled while preparing turn 1, step 1: 2026-10-27T03:00:00+08:00" }] },
+	];
+	assert.equal(currentUserText(messages, OWN), "帮我把字段改掉", "不得把 time-context 当查询词");
+});
+
+test("currentUserText：宿主四种上下文行全部跳过，且按批次顺序取最近一条真实用户消息", () => {
+	const hostKinds = ["agent-instructions", "runtime-context", "skill-catalog", "time-context"];
+	// 真实宿主顺序：用户消息之后紧跟这四类上下文行（time-context 在最后）。
+	const messages = [
+		{ role: "user", source: { kind: "user" }, content: [{ type: "text", text: "旧问题" }] },
+		...hostKinds.map((kind) => ({
+			role: "user",
+			source: { kind },
+			content: [{ type: "text", text: `${kind} 的内容` }],
+		})),
+		{ role: "user", source: { kind: "user" }, content: [{ type: "text", text: "当前问题" }] },
+		...hostKinds.map((kind) => ({
+			role: "user",
+			source: { kind },
+			content: [{ type: "text", text: `${kind} 的内容（第二次）` }],
+		})),
+	];
+	assert.equal(currentUserText(messages, OWN), "当前问题");
+	for (const kind of hostKinds) {
+		assert.ok(
+			!currentUserText(messages, OWN).includes(kind),
+			`取词结果不得含 ${kind} 的内容`,
+		);
+	}
+});
+
+test("currentUserText：未登记的 source.kind 仍按用户消息取用（不得因新 kind 静默漏取）", () => {
+	// 判据方向是「排除已观察到的宿主上下文」而不是「只认 kind === user」：
+	// 只认 user 会把不带 source 的旧形状与未来的新 kind 一律判成非用户输入，
+	// 使取词恒为空——那是把一个静默漏取换成另一个静默漏取。
+	const messages = [
+		{ role: "user", source: { kind: "some-future-context" }, content: [{ type: "text", text: "未来形状" }] },
+		{ role: "user", content: [{ type: "text", text: "无 source 的旧形状" }] },
+	];
+	assert.equal(currentUserText(messages, OWN), "无 source 的旧形状");
+	assert.equal(currentUserText([messages[0]], OWN), "未来形状");
 });
 
 // ---------------------------------------------------------------------------
@@ -344,6 +398,26 @@ test("无主题词的问句：no_tokens 是合理结果，如实报出而非假�
 	const r = await buildRecallInjection({ userText: "为什么这里不对", projectRoot: ROOT });
 	assert.equal(r.inject, false);
 	assert.match(r.reason, /no_tokens|no-hits/, "应如实说明召回器无从下手，而不是伪装成无相关约束");
+});
+
+test("全弱证据查询不得注入（放宽 tokenizer 后的精度护栏）", async () => {
+	// **为什么需要这条**（2026-10-27）：把「含虚字即整组丢弃」放宽为「两端皆虚才丢」
+	// 之后，这类句子不再切空，而是切出「为什／里不／做什」这类含虚字的跨词二元组。
+	// 若不加拦截，它们会以噪声命中无关对象并占用注入预算——实测「为什么这里不对」
+	// 命中了 mattpocock/skills 与 LLM Wiki 两条与题意无关的调研。
+	//
+	// 判据：一个**双实词**都没有 = 没有主题词。此时如实报 no_tokens，
+	// 而不是拿弱噪声冒充候选。破坏性验证：把该拦截置 false，本条立即变红。
+	for (const q of ["为什么这里不对", "现在应该做什么", "是不是应该", "我要的是这个"]) {
+		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
+		assert.equal(r.inject, false, `「${q}」没有任何主题词，不得注入`);
+		assert.match(r.reason ?? "", /no_tokens/, `「${q}」应报 no_tokens：${r.reason}`);
+	}
+	// 反例保护：含真实主题词的句子必须照常召回，不得被这层误杀。
+	for (const q of ["页面白屏了怎么办", "把对象的字段改名后同步读取侧"]) {
+		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
+		assert.equal(r.inject, true, `「${q}」含主题词，须照常召回`);
+	}
 });
 
 test("渲染文本须有硬上限，超限按行裁剪并如实说明（不得静默截断）", async () => {
@@ -583,12 +657,29 @@ test("N-6：字符硬上限路径不得裁掉三态披露行（统一从尾部�
 		facts: [],
 		recallCompleteness: "partial",
 		uncheckedRange: { sourceNotRead: ["事实源（不存在或不可读，未读取）"] },
-		budget: { limitBytes: 100000, usedBytes: 5000, limit: 99 },
+		// **2026-10-27**：字符上限不再是固定 1600，而是由 `limitBytes` 导出
+		// （`renderCharLimitFor`）。原先这里写 100000，在新规则下字符上限 = 50000，
+		// 12 条长候选根本触不到裁剪——本用例会退化成空跑（实测它正是这样变红的）。
+		// 故把预算调到足够小，使裁剪**真的发生**，且断言改为「≤ 本档导出的上限」。
+		budget: { limitBytes: 2000, usedBytes: 5000, limit: 99 },
 	});
-	assert.ok(out.length <= RECALL_RENDER_CHAR_LIMIT, `渲染 ${out.length} 须 ≤ 上限 ${RECALL_RENDER_CHAR_LIMIT}`);
+	const charCap = renderCharLimitFor(2000);
+	assert.ok(out.length <= charCap, `渲染 ${out.length} 须 ≤ 本档上限 ${charCap}`);
 	assert.match(out, /本次召回完整度：\*\*partial\*\*/, "字符裁剪路径不得吞掉三态披露行");
 	assert.match(out, /未读取的源：事实源/, "未读取源披露同样不得被裁掉");
-	assert.match(out, /渲染层按硬约束（字符上限 1600）裁去 \d+ 条候选/, "裁剪说明须如实注明约束与条数");
+	// **须核对说明行写的上限 == 实际生效的上限**（2026-10-27，独立审核严重项 1）：
+	// 上一版把正则换成通配 `[^）]*`，于是说明行写「字符上限 1600」而实际生效
+	// 600 时**完全无感**——那正是本次发现的唯一代码级「说谎」缺陷（现已修）。
+	// 断言改为：若说明行归因于字符上限，则其数字必须等于 `renderCharLimitFor`。
+	const noteMatch = /字符上限 (\d+)/.exec(out);
+	if (noteMatch !== null) {
+		assert.equal(
+			Number(noteMatch[1]),
+			charCap,
+			`说明行声称字符上限 ${noteMatch[1]}，实际生效 ${charCap}（不得说谎，02 §9.1）`,
+		);
+	}
+	assert.match(out, new RegExp(`渲染层按硬约束（[^）]*）裁去 \\d+ 条候选`), "裁剪说明须如实注明约束与条数");
 	// 说明行不得把披露误称为候选（旧文案「未列出的候选」出现在披露被裁的场景）。
 	const candidateLines = out.split("\n").filter((l) => l.startsWith("- ")).length;
 	assert.ok(candidateLines < 12, "确应裁去部分候选行（否则未触及本场景）");
@@ -673,15 +764,19 @@ test("渲染裁剪须可观察（02 §9.1「截断必须可观察」）", async 
 		budgetBytes: 2400,
 	});
 	assert.ok(normal.result.render !== undefined, "须给出 render 观察字段");
-	assert.equal(normal.result.render.limitChars, RECALL_RENDER_CHAR_LIMIT);
+	// **2026-10-27**：字符上限由预算导出（不再恒为 1600），故断言「等于本档导出值」。
+	assert.equal(normal.result.render.limitChars, renderCharLimitFor(2400));
 	assert.equal(typeof normal.result.render.truncated, "boolean");
 
 	// 大 limit 下渲染文本会超上限并被裁剪 → truncated 须为 true。
+	// **2026-10-27**：预算 999999 会导出极大的字符上限（≈499999），任何正常
+	// 查询都触不到裁剪，本条会退化成空跑。故把预算调到足够小，使裁剪真的发生
+	// ——本用例要守的是「裁剪必须可观察」，不是「必须用某个特定预算」。
 	const big = await buildRecallInjection({
 		userText: "把 34 号规范改名成双源召回",
 		projectRoot: ROOT,
 		limit: 50,
-		budgetBytes: 999999,
+		budgetBytes: 1200,
 	});
 	assert.equal(big.result.render.truncated, true, "超上限时须标 truncated");
 	assert.ok(big.result.render.chars > 0);
@@ -1003,4 +1098,59 @@ test("F1 基线：不受 types/statuses/limit 过滤影响（note 声称须有�
 			`配置 ${JSON.stringify(cfg)} 下基线条数不得变化`,
 		);
 	}
+});
+
+// ---------------------------------------------------------------------------
+// 第 3 步：排序分与「是否注入」的决策依据分离（2026-10-27）
+// ---------------------------------------------------------------------------
+
+test("决策只数条数，不读排序分（排序分注入极端值，注入结果不变）", async () => {
+	// **要守的性质**：排序分（hits / BM25 加权）只决定「谁排在前面」，
+	// 不决定「要不要注入」。这不是风格偏好：hits 依赖当次候选集的 N 与 df，
+	// 是相对量；拿它当阈值会让「是否注入」取决于恰好还有哪些别的候选被选中。
+	// 外部项目 dsh-auto-memory 的 M7 报告实测单阈值策略精确率为 0（全在闲聊触发），
+	// 故它明确把融合分限定为「只排序」——见 recall-fusion.js 文件头。
+	//
+	// **做法**：同一查询下，把注入用的 limit 从 1 调到 20（条数变化、分数不变），
+	// 以及反向构造：条数不变而分数随意（通过不同候选集）。真正要断言的是
+	// 「条数 ≥1 ⇒ 注入」与「条数 = 0 ⇒ 不注入」，与分数高低无关。
+	const many = await buildRecallInjection({ userText: "修改受保护内容并重新提交", projectRoot: ROOT, limit: 20 });
+	assert.equal(many.inject, true, "有候选即注入，与分数高低无关");
+	const one = await buildRecallInjection({ userText: "修改受保护内容并重新提交", projectRoot: ROOT, limit: 1 });
+	assert.equal(one.inject, true, "limit=1 时仍注入（条数 1 ≥ MIN_HITS）");
+
+	// **分辨力来源**：直接对纯函数 `decideInjection` 注入极端输入。
+	// 整链路跑是测不出来的——基线恒非空，短路分支进不去（实测破坏版仍全绿）。
+	// 这里传入任意「分数」字段，断言决策完全无视它。
+	const base = { candidateCount: 1, baselinePresent: false };
+	assert.equal(decideInjection(base), true, "有一条候选即注入");
+	assert.equal(decideInjection({ candidateCount: 0, baselinePresent: false }), false, "零候选无基线不注入");
+	assert.equal(decideInjection({ candidateCount: 0, baselinePresent: true }), true, "零候选但有基线仍注入（22 §12）");
+	// 注入排序分：无论多低/多高，决策不变。
+	for (const score of [0, -1e9, 1e9, Number.NaN]) {
+		assert.equal(decideInjection({ ...base, hits: score, score, bm25: score }), true,
+			`分数 ${score} 不得影响决策`);
+		assert.equal(decideInjection({ candidateCount: 0, baselinePresent: false, hits: score, score }), false,
+			`分数 ${score} 不得让零候选变成注入`);
+	}
+
+	// 声明式契约：决策允许读取的输入项是闭集，不含任何排序键。
+	assert.ok(Array.isArray(DECISION_KEYS), "DECISION_KEYS 须导出");
+	for (const forbidden of ["hits", "score", "bm25", "tier", "path"]) {
+		assert.ok(!DECISION_KEYS.includes(forbidden),
+			`决策闭集不得包含排序键「${forbidden}」（排序分只用于排序，34 §13／02 §9.2）`);
+	}
+});
+
+test("三态 gate 不因引入加权而改变（34 §6 进入判据仍是唯一决策前提）", async () => {
+	// 第 3 步的边界：**只拆「排序分当决策依据」这一处**，不动 34 §6 三态 gate。
+	// 三态是本项目比外部实现更稳的部分（外部靠单阈值，精确率 0）。
+	// 纯读取仍须被排除——即便它可能命中很多候选（候选再多也不该改进入判据）。
+	for (const q of ["看看这个文件", "列出所有规范"]) {
+		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
+		assert.equal(r.inject, false, `「${q}」是纯读取，三态须排除（与命中数无关）`);
+	}
+	// 写动作仍须进入。
+	const w = await buildRecallInjection({ userText: "修改受保护内容", projectRoot: ROOT });
+	assert.equal(w.inject, true, "写动作须进入召回");
 });
