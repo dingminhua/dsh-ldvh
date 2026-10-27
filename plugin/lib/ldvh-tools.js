@@ -1185,7 +1185,7 @@ function makeExecute(deps) {
   }
 
   /**
-   * 11 §12ter.1 审核段入口：一次运行至多形成 1 条候选。
+   * 11 §12ter.1 审核段入口：一次派发逐条判定，交出的每一条都必须有结论。
    *
    * ## 为什么本操作接收 `proposals`（内容输入，不是策略参数）
    *
@@ -1194,11 +1194,14 @@ function makeExecute(deps) {
    * 产物**，否则「形成的候选」无从产生——本模块是确定性的，它自己写不出七段。
    *
    * 这与 §12ter.1「无其它可调参数」不冲突：该句的射程是**不得用参数改变策略**——
-   * 不得放大产出配额（§10.2 固定「一次运行至多 1 条」，`reviewPendingEntries` 里是
-   * 不可入参改写的常量）、不得改变条目处理顺序、不得跳过 §10.2 六项中的任何一项。
-   * 提案不改变上述任何一件；它还要过 §12bis「证据不留在缓冲」的逐字引证复制校验，
-   * 引证不回指条目者一律拒绝。**缺省提案即不形成候选**：未提交提案的 pending 条目
-   * 原样留在缓冲，不得由缺省代替材料判断（§10.2 第 5 项）。
+   * 不得改变条目处理顺序、不得跳过 §10.2 六项中的任何一项。提案不改变上述任何一件；
+   * 它还要过 §12bis「证据不留在缓冲」的逐字引证复制校验，引证不回指条目者一律拒绝。
+   *
+   * **缺判定不再是「留待下次」（2026-10-27 修订）**：原口径是「未提交提案的条目原样
+   * 留在缓冲、status 仍为 pending」，实测使待审队列永远清不完（Human：「完成一个处理
+   * 一个，否则很容易变成永远结束不了的任务」）。现行口径：本操作本次交出的每一条都必须
+   * 有结论——可成文则建 `draft`、不足则结算为 `discarded`；缺任一条整次调用按 §12
+   * fail-closed，且**拒绝发生在任何写入之前**。
    */
   async function executeObservationBufferReview(args, exec) {
     const entryId = args?.entry_id === undefined ? null : args.entry_id;
@@ -1267,6 +1270,11 @@ function makeExecute(deps) {
       dshHomePath,
       factSourceRoot,
       entryId,
+      // **必须给 projectId**：缓冲按管辖项目分载体（11 §12bis 载体段 2026-10 修订），
+      // 缺了它 `reviewPendingEntries` 会拒绝（否则会拿全体项目的材料在本项目建候选）。
+      // 这里漏传曾使本入口恒以 project_missing 失败——本文件的测试没覆盖到这条调用，
+      // 故在此显式标注，避免再次漏掉。
+      projectId: governed.project.id,
       existingPitfalls: existing.value.items,
       proposals: args?.proposals ?? null,
       sessionSignature
@@ -1290,24 +1298,29 @@ function makeExecute(deps) {
       });
     }
     const value = reviewed.value;
+    const formedAll = Array.isArray(value.formed_all) ? value.formed_all : (value.formed === null ? [] : [value.formed]);
     return envelope("observation-buffer-review", "completed", {
       result: {
         formed: value.formed,
+        formed_all: formedAll,
         duplicate: value.duplicate,
+        duplicates_all: Array.isArray(value.duplicates_all) ? value.duplicates_all : (value.duplicate === null ? [] : [value.duplicate]),
         discarded: value.discarded,
         remaining_pending: value.remaining_pending,
         fail_closed: value.fail_closed
       },
-      scope: { requested: entryId ?? "next", completed: ["read-pending", "dedup", "candidate-formation", "read-back", "settle"], not_completed: [] },
+      scope: { requested: entryId ?? "next", completed: ["read-pending", "judge-every-entry", "dedup", "candidate-formation", "read-back", "settle"], not_completed: [] },
       sources: [
         ...sources({ kind: "observation-buffer", path: bufferRelativePath(governed.project.id).join("/"), fingerprint: null }),
-        ...(value.formed !== null ? sources({ kind: "pitfall-draft", path: value.formed.file ?? value.formed.object_uid, fingerprint: null }) : [])
+        ...formedAll.map((item) => sources({ kind: "pitfall-draft", path: item.file ?? item.object_uid, fingerprint: null })[0])
       ],
       gaps: [],
-      verification: { checks: ["buffer-read", "dedup-record", "evidence-copy", "read-back", "settle"], passed: true },
-      follow_up: value.formed !== null
+      verification: { checks: ["buffer-read", "judgement-completeness", "dedup-record", "evidence-copy", "read-back", "settle"], passed: true },
+      follow_up: formedAll.length > 0
         ? ["draft → active requires the 23 §16 Human Gate with another party's reproduction (11 §10.2); this pass does not and cannot promote it"]
-        : (value.remaining_pending > 0 ? ["pending entries remain; the next run may form at most one more candidate (11 §10.2)"] : [])
+        : (value.remaining_pending > 0
+            ? ["pending entries remain outside this dispatch's delivery range; the next dispatch judges that batch (11 §10.2 — there is no per-run output quota)"]
+            : [])
     });
   }
 
@@ -1687,19 +1700,23 @@ function parameterSchemaFor(operationKey) {
       };
     case "observation-buffer-review":
       // 11 §12ter.1：唯一可调参数是 entry_id（可选，指定优先处理的条目）。
-      // `proposals` 是**内容输入不是策略参数**（见 handler 注释）：它不改变产出
-      // 配额（§10.2 固定「一次运行至多 1 条」，在 reviewPendingEntries 内是不可入参
-      // 改写的常量）、不改变处理顺序、不跳过六项中的任何一项，且提交的正文仍须过
-      // §12bis「证据不留在缓冲」的逐字引证复制校验。没有它，确定性的机械侧无从
-      // 获得审核段的语义判断产物，也就无法形成任何候选——那不是更严格的机械性，
-      // 只是把「审核段」变成「什么都不做」。
+      // `proposals` 是**内容输入不是策略参数**（见 handler 注释）：它不改变处理
+      // 顺序、不跳过六项中的任何一项，且提交的正文仍须过 §12bis「证据不留在缓冲」
+      // 的逐字引证复制校验。没有它，确定性的机械侧无从获得审核段的语义判断产物，
+      // 也就无法形成任何候选——那不是更严格的机械性，只是把「审核段」变成
+      // 「什么都不做」。
+      //
+      // **2026-10-27 修订**：§10.2 的「一次运行至多 1 条候选」配额已废止。现行口径
+      // 是「本次交出的每一条都必须有结论」——缺任一条整次调用 fail-closed 且零写入。
+      // 故这里既不能说 proposals「不能放大配额」（配额已不存在），也不能暗示
+      // 「不给结论就会留到下次」（那正是被废止的形态）。
       return {
         type: "object",
         properties: {
           entry_id: { type: "string", description: "Review this pending buffer entry first (§12ter.1); omit to process in buffer order" },
           proposals: {
             type: "array",
-            description: "Structured review conclusions, one per reviewed entry: entry_id plus either insufficient:{reason} or dedupe:{checked,compared,conclusion,duplicate_of} with title/scope/body. Content input, not a policy parameter: it cannot raise the one-candidate-per-run quota, reorder entries or skip a step.",
+            description: "Structured review conclusions, one per reviewed entry: entry_id plus either insufficient:{reason} or dedupe:{checked,compared,conclusion,duplicate_of} with title/scope/body. Content input, not a policy parameter. Every entry handed to this call MUST carry a conclusion (11 §10.2, 2026-10-27: no per-run output quota — a missing judgement fails the whole pass closed with zero writes), and proposals cannot reorder entries or skip a step.",
             items: { type: "object", additionalProperties: true }
           }
         },

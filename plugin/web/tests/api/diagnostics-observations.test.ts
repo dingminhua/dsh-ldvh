@@ -1,5 +1,5 @@
 /**
- * 摩擦观察缓冲在诊断页的呈现契约（`/api/diagnostics/observations`）。
+ * 摩擦观察在诊断页的呈现契约（`/api/diagnostics/observations`）。
  *
  * ## 这组测试守的是什么
  *

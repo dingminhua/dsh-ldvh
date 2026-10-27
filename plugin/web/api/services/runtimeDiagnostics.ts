@@ -620,11 +620,11 @@ export async function buildExperienceBufferReport(options: {
   const bufferDir = path.join(ldvhHome, 'experience-buffers')
 
   const limits: string[] = [
-    '经验留观区是**非事实对象**的本地运行状态（11 §12bis）：不进事实源、无对象身份，故本页不提供「点击进入详情」。',
+    '经验观察是**非事实对象**的本地运行状态（11 §12bis）：不进事实源、无对象身份，故本页不提供「点击进入详情」。',
     '按规范只呈现现象/时间/来源/状态四项；`evidence` 全文、待审核问题与消费去向不在呈现面内（11 §12bis 读取纪律第 2 条）。',
-    '缓冲按管辖项目分文件（§12bis 载体段 2026-10 修订）；本页汇总全部项目，每个项目一个文件。',
+    '观察材料按管辖项目分文件（§12bis 载体段 2026-10 修订）；本页汇总全部项目，每个项目一个文件。',
     '条目保留期 pending 30 天、终态 90 天，容量 200/项目。保留期**不是审核期限**——它不产生「逾期必须审核」的义务。',
-    '本页只读：不写缓冲、不形成候选。',
+    '本页只读：不写观察载体、不形成候选。',
   ]
 
   let files: string[] = []
@@ -774,11 +774,11 @@ export async function buildFrictionObservationReport(options: {
   const bufferDir = path.join(ldvhHome, 'friction-observations')
 
   const limits: string[] = [
-    '观察缓冲是**非事实对象**的本地运行状态（11 §12bis.1）：不进事实源、无对象身份，故本页不提供「点击进入详情」。',
+    '摩擦观察是**非事实对象**的本地运行状态（11 §12bis.1）：不进事实源、无对象身份，故本页不提供「点击进入详情」。',
     '按规范只呈现现象/时间/来源/状态四项；`evidence` 全文与 `promoted_to` 不在呈现面内（11 §12bis.1 第 2 条）。',
     `阈值 N=${OBSERVATION_THRESHOLD} 固定不可配置；「攒到几分」= 同组 pending 条目数。`,
-    '缓冲按管辖项目分文件；本页汇总全部项目。条目保留期 pending 90 天、终态 90 天，容量 200/项目。',
-    '本页只读：不写缓冲、不改账本。',
+    '观察材料按管辖项目分文件；本页汇总全部项目。条目保留期 pending 90 天、终态 90 天，容量 200/项目。',
+    '本页只读：不写观察载体、不改账本。',
   ]
 
   let files: string[] = []

@@ -43,12 +43,21 @@
  * 本模块机械兜底的是**回指**本身（每段必须逐字含缓冲 evidence 的片段）与 discarded
  * 登记理由也必须带证据。
  *
- * ## 一次运行至多形成 1 条候选（11 §10.2「每次运行上限」）
+ * ## 一次派发逐条判定全部待审条目（11 §10.2，2026-10-27 修订）
  *
- * `MAX_CANDIDATES_PER_RUN = 1` 是模块内的硬常量：**没有任何入参可以改写它**。
- * 查重命中的如实登记与 discarded 处置不计入该配额（规范明示）。配额一旦用尽，
- * 本次运行**停止全部动作**（11 §11 水位纪律：遇第一个无剩余配额可处理的合格对象
- * 即停止）；未处理的条目原样留在缓冲里、status 仍为 pending，**不静默移除**。
+ * 原口径是「一次运行至多形成 1 条候选」，其余条目原样留 `pending` 等下一轮。实测
+ * 后果是**积压永远清不完**：缓冲里 14 条 pending、每轮只结算 1 条，而捕获段每轮
+ * 又可能新增——待审数单调不减，「审完」在实践中不可达（Human 2026-10-27：「完成
+ * 一个处理一个，否则很容易变成永远结束不了的任务」）。
+ *
+ * 现行口径：**一次派发交出的每一条都必须有判定**——有价值则建 `draft`（查重命中
+ * 则记 `consumed` 并指向既有对象），无价值则结算为 `discarded` 并写明带引证的
+ * 理由。**交出却无判定即 fail-closed**（`observation_review/unjudged_entry`），
+ * 且该拒绝发生在**任何写入之前**——不允许「判了几条、剩下的默认留着」的半途状态。
+ *
+ * 交付条数上限仍存在（`experience-review-stage.js` 的 `MAX_ENTRIES_PER_REVIEW_DISPATCH`），
+ * 但它的性质是**防提示词无界增长的一次派发批量**，不是产出配额：超出该批次的条目
+ * 留在缓冲里等下一次派发，**不静默移除**（其 `at` 更早，按 §12bis 的淘汰序仍在）。
  *
  * ## fail-closed（11 §12 / §10.2 第 6 项）
  *
@@ -100,8 +109,12 @@ export const EVIDENCE_COPY_REQUIRED_SECTIONS = Object.freeze(["症状", "触发�
  */
 export const MIN_VERBATIM_FRAGMENT_LENGTH = 8;
 
-/** 11 §10.2「每次运行至多形成 1 条候选」——固定不可调。 */
-export const MAX_CANDIDATES_PER_RUN = 1;
+/**
+ * 审核段一次派发**没有产出配额**（11 §10.2，2026-10-27 修订）：交出的每一条都必须
+ * 有判定。此常量只为兼容既有导入而保留，值恒为 `null`——**任何以它限制产出条数的
+ * 写法都会立刻失效**（而不是悄悄恢复「每轮 1 条」）。
+ */
+export const MAX_CANDIDATES_PER_RUN = null;
 
 /**
  * 23 §9 / 11 §18：以占位符或「待查明」冒充正文者拒绝创建。
@@ -413,17 +426,22 @@ function verifyEntryCarriage(entry) {
  * @param {(...segments:string[])=>string} args.dshHomePath - `observation-buffer.js` 的路径拼装函数。
  * @param {string} args.factSourceRoot - 受管辖事实源根（Pitfall 目录在其下）。
  * @param {string|null} [args.entryId] - §12ter.1 的可选参数：指定优先处理的缓冲条目。
+ * @param {string[]|null} [args.entryIds] - **本次派发交出的那一批**（审核段专用）。给出时
+ *   本轮范围即这一批：批内每一条都须有判定，批外条目原样 pending 等下一次派发。它是
+ *   **交付范围**而不是产出配额——不能改变任何条目的去向，也不能跳过任何一条。
  * @param {object[]} [args.existingPitfalls] - 查重对照集（`collectExistingPitfalls` 的 items）。
- * @param {object[]} [args.proposals] - 调用方（AI）逐条给出的结构化提案。
+ * @param {object[]} [args.proposals] - 调用方（AI）逐条给出的结构化提案；**本次交出的
+ *   每一条都必须有提案**（2026-10-27 修订：缺判定即 fail-closed，不再默认留 pending）。
  * @param {object} [args.proposal] - 单条提案的便捷写法，等价于 `proposals:[proposal]`。
  * @param {*} [args.sessionSignature] - 品牌化署名载体（03 §6.1：change_log 由 Code 签名）。
  * @param {Date|number|string} [args.now]
- * @returns {Promise<{ok:true,value:{formed:null|{entry_id:string,object_uid:string,file:string},duplicate:null|{entry_id:string,object_uid:string},discarded:string[],remaining_pending:number,fail_closed:null}}|{ok:false,error:object}>}
+ * @returns {Promise<{ok:true,value:{formed:null|{entry_id:string,object_uid:string,file:string},formed_all:object[],duplicate:null|{entry_id:string,object_uid:string},duplicates_all:object[],discarded:string[],remaining_pending:number,fail_closed:null}}|{ok:false,error:object}>}
  */
 export async function reviewPendingEntries({
   dshHomePath,
   factSourceRoot,
   entryId = null,
+  entryIds = null,
   existingPitfalls = null,
   proposals = null,
   proposal = null,
@@ -499,20 +517,38 @@ export async function reviewPendingEntries({
       );
     }
     pending = [target];
+  } else if (Array.isArray(entryIds)) {
+    // **本次派发交出的那一批**（见上方「一次派发逐条判定」）：派发侧只把批内条目
+    // 交给执行体，故「必须被判完」的射程也只到这一批。缓冲里更晚的条目不在本轮
+    // 范围内，原样 pending 等下一次派发——这是**交付范围**，不是产出配额：
+    // 它不能改变批内条目的去向，也不能让任何一条被跳过。
+    const wanted = new Set(entryIds);
+    for (const id of wanted) {
+      if (!pending.some((item) => item.id === id)) {
+        return failure(
+          "observation_review/entry_not_found",
+          `batch entry ${JSON.stringify(id)} is not a pending buffer entry of this project (pending entries: ${pending.length})`,
+        );
+      }
+    }
+    // 顺序仍按缓冲顺序（§11：按材料位置顺序处理），不由调用方重排。
+    pending = pending.filter((item) => wanted.has(item.id));
   }
 
   const state = {
-    formed: null,
-    duplicate: null,
+    formed: [],
+    duplicates: [],
     discarded: [],
-    candidates: 0,
   };
   const existing = Array.isArray(existingPitfalls) ? existingPitfalls : [];
 
-  // ── 第 2–5 项：逐条处理。配额用尽即停止全部动作（11 §11 水位纪律）────────
+  // ── 判定完备性前置（11 §10.2，2026-10-27 修订）────────────────────────
+  //
+  // **在任何写入之前**先核对两件事：每条交出的条目字段闭集齐备、每条都有提案。
+  // 放在循环内做会得到「前几条已结算、中间一条缺判定就停」的半途状态——那正是
+  // 本次修订要消除的形态（Human：「完成一个处理一个」）。故缺判定一律在写第一笔
+  // 之前 fail-closed，已发生的结算为零。
   for (const entry of pending) {
-    if (state.candidates >= MAX_CANDIDATES_PER_RUN) break;
-
     const carriage = verifyEntryCarriage(entry);
     if (!carriage.ok) {
       return failClosed(
@@ -521,13 +557,24 @@ export async function reviewPendingEntries({
         { stage: "verify-entry", ...stateSnapshot(state, null) },
       );
     }
+    if (!proposalsByEntry.has(entry.id)) {
+      // 缺省不得代替材料判断：一条交出却没有结论的条目，既不能成文、也不能被当作
+      // 「不构成候选」——它是**没有被审核**，按 §12 fail-closed 而不是静默留 pending。
+      return failClosed(
+        "observation_review/unjudged_entry",
+        `buffer entry ${entry.id} was handed to this run but carries no proposal; 11 §10.2 (2026-10-27 修订) requires every dispatched entry to be judged in the same run — either "formed" (create the draft) or "insufficient" (settle it as discarded with a reason). Silence is not a judgement, and leaving it pending is what made the queue never drain.`,
+        { stage: "preflight-judgement", ...stateSnapshot(state, entry.id) },
+      );
+    }
+  }
+
+  // ── 第 2–5 项：逐条处理（无产出配额；每条都必须落到 formed／duplicate／discarded）
+  for (const entry of pending) {
+    const carriageOk = verifyEntryCarriage(entry).ok;
+    if (!carriageOk) continue; // 前置已拦，这里不可达；保留只为让控制流显式。
 
     const proposal = proposalsByEntry.get(entry.id) ?? null;
-    if (proposal === null) {
-      // 没有提案就没有可据以成文的材料判据：既不建候选、也不把这条判为 discarded
-      // （「不构成候选」是材料判断，不得由缺省代替）。条目原样留在缓冲里等下次运行。
-      break;
-    }
+    if (proposal === null) continue; // 同上，前置已拦。
 
     // ── 第 5 项：条目不足以成文 → discarded（不是否决经验）────────────────
     if (proposal.insufficient !== undefined && proposal.insufficient !== null) {
@@ -583,7 +630,7 @@ export async function reviewPendingEntries({
           { stage: "settle-duplicate", ...stateSnapshot(state, null) },
         );
       }
-      state.duplicate = { entry_id: entry.id, object_uid: proposal.dedupe.duplicate_of };
+      state.duplicates.push({ entry_id: entry.id, object_uid: proposal.dedupe.duplicate_of });
       continue;
     }
 
@@ -641,12 +688,11 @@ export async function reviewPendingEntries({
         { stage: "create", ...stateSnapshot(state, null) },
       );
     }
-    state.candidates += 1;
-    state.formed = {
+    state.formed.push({
       entry_id: entry.id,
       object_uid: created.value.object_uid,
       file: created.value.file,
-    };
+    });
 
     // ── 第 4 项前半：写后精确回读（含状态、字段闭集与正文结构）────────────
     const readBack = await readPitfallObject({ factSourceRoot, objectUid: created.value.object_uid });
@@ -680,6 +726,25 @@ export async function reviewPendingEntries({
     }
   }
 
+  // ── 判定完备性收尾（11 §10.2，2026-10-27 修订）────────────────────────
+  //
+  // 结构上每条都会落到 formed／duplicates／discarded 之一，但**不靠结构侥幸**：
+  // 这里逐条核对「这次交出的每一条是否都有去向」，缺一条即 fail-closed。这条护栏
+  // 在将来有人加 `continue` 分支时仍然生效——积压不再无声复发。
+  const judgedIds = new Set([
+    ...state.formed.map((item) => item.entry_id),
+    ...state.duplicates.map((item) => item.entry_id),
+    ...state.discarded,
+  ]);
+  const unjudged = pending.filter((entry) => !judgedIds.has(entry.id)).map((entry) => entry.id);
+  if (unjudged.length > 0) {
+    return failClosed(
+      "observation_review/unjudged_entry",
+      `${unjudged.length} dispatched entr${unjudged.length === 1 ? "y was" : "ies were"} left without a destination (${unjudged.join(", ")}); 11 §10.2 (2026-10-27 修订) requires every dispatched entry to end as formed / duplicate / discarded in the same run — an entry that is neither written nor settled keeps the queue from ever draining`,
+      { stage: "postflight-judgement", ...stateSnapshot(state, null) },
+    );
+  }
+
   // ── remaining_pending：未处理且仍为 pending 的条目数（重读，不靠本地计数）──
   const after = await readBufferEntries(dshHomePath, { status: "pending", now, capacity, projectId });
   if (!after.ok) {
@@ -691,8 +756,13 @@ export async function reviewPendingEntries({
   }
 
   return success({
-    formed: state.formed,
-    duplicate: state.duplicate,
+    // 兼容字段：既有调用方与呈现面读单值 `formed`／`duplicate`。逐条判定后一次
+    // 派发可能形成多条候选，故单值取**第一条**，完整清单在 `formed_all`／
+    // `duplicates_all`——不把「多条」硬塞进单值字段而丢信息。
+    formed: state.formed.length > 0 ? state.formed[0] : null,
+    formed_all: state.formed,
+    duplicate: state.duplicates.length > 0 ? state.duplicates[0] : null,
+    duplicates_all: state.duplicates,
     discarded: state.discarded,
     remaining_pending: after.value.items.length,
     fail_closed: null,
@@ -702,8 +772,10 @@ export async function reviewPendingEntries({
 /** fail-closed 结果里如实带上「已经发生的结算」。 */
 function stateSnapshot(state, entryId) {
   const snapshot = {
-    formed: state.formed,
-    duplicate: state.duplicate,
+    formed: state.formed.length > 0 ? state.formed[0] : null,
+    formed_all: [...state.formed],
+    duplicate: state.duplicates.length > 0 ? state.duplicates[0] : null,
+    duplicates_all: [...state.duplicates],
     discarded: [...state.discarded],
     remaining_pending: null,
   };

@@ -170,13 +170,15 @@ async function listPitfallFiles(factSourceRoot) {
 // 常量与模块边界
 // ---------------------------------------------------------------------------
 
-test("审核段常量：七段取自 23 §8，配额是模块内不可调常量", () => {
+test("审核段常量：七段取自 23 §8；产出配额已废止（2026-10-27 修订）", () => {
   assert.deepEqual([...REVIEW_REQUIRED_BODY_SECTIONS], ["症状", "触发条件", "根因", "解决", "规避", "验证", "影响与适用范围"]);
   // 11 §12bis「主要是症状/触发条件/验证三段」——引证复制的主承重段。
   assert.deepEqual([...EVIDENCE_COPY_REQUIRED_SECTIONS], ["症状", "触发条件", "验证"]);
   assert.equal(MIN_VERBATIM_FRAGMENT_LENGTH, 8);
-  // 11 §10.2：一次运行至多形成 1 条候选，且「配额不接受调用方放大」（§12ter.1）。
-  assert.equal(MAX_CANDIDATES_PER_RUN, 1);
+  // 11 §10.2（2026-10-27 修订）：一次派发逐条判定全部待审条目，**没有产出配额**。
+  // 常量保留只为兼容导入，值为 null——任何「按它限条数」的写法会立刻失效，而不是
+  // 悄悄恢复「每轮 1 条」（那正是积压永远清不完的根因）。
+  assert.equal(MAX_CANDIDATES_PER_RUN, null);
 });
 
 test("reviewPendingEntries 拒绝非函数形态的 dshHomePath（缓冲句柄不可推测）", async () => {
@@ -202,21 +204,22 @@ test("第 1 项：只处理 pending 条目——已结算条目不再进入审�
         projectId: FIXTURE_PROJECT_ID,
         factSourceRoot,
         existingPitfalls: [],
-        proposals: [],
+        // 2026-10-27 修订：交出的每一条都必须有判定——「没给提案就默认留 pending」
+        // 这个形态已删除（它使待审数永远清不完）。故这里必须给 pending 条目结论。
+        proposals: [{ entry_id: pendingId, insufficient: { reason: `材料只有一句 ${EVIDENCE_LINE}，写不出根因与验证两段。` } }],
         sessionSignature: TEST_SIGNATURE,
       });
       assert.equal(result.ok, true, JSON.stringify(result.error));
-      // 没有提案 → 不形成候选、也不判 discarded（条目原样留 pending）。
       assert.equal(result.value.formed, null);
-      assert.deepEqual(result.value.discarded, []);
-      assert.equal(result.value.remaining_pending, 1);
+      assert.deepEqual(result.value.discarded, [pendingId]);
+      assert.equal(result.value.remaining_pending, 0);
       assert.equal(result.value.fail_closed, null);
 
       const consumed = await readEntry(home, consumedId);
       assert.equal(consumed.status, "consumed");
       assert.equal(consumed.consumed_by, "uid-existing");
       const pending = await readEntry(home, pendingId);
-      assert.equal(pending.status, "pending");
+      assert.equal(pending.status, "discarded");
     });
   });
 });
@@ -549,10 +552,10 @@ test("第 5 项：声明不足却没给理由 → 拒绝（不得用缺省代替
 });
 
 // ---------------------------------------------------------------------------
-// 每次运行上限：至多 1 条候选，其余留 pending（不得静默丢料）
+// 一次派发逐条判定（11 §10.2，2026-10-27 修订：没有产出配额）
 // ---------------------------------------------------------------------------
 
-test("每次运行上限：两条合格条目也至多形成 1 条候选，第二条留 pending", async () => {
+test("逐条判定：两条合格条目**都**形成候选，不留下没人判的 pending", async () => {
   await withHome(async (home) => {
     await withTemp("observation-review-facts-", async (factSourceRoot) => {
       const first = await appendEntry(home);
@@ -569,16 +572,75 @@ test("每次运行上限：两条合格条目也至多形成 1 条候选，第�
         sessionSignature: TEST_SIGNATURE,
       });
       assert.equal(result.ok, true, JSON.stringify(result.error));
+      // 单值字段仍取第一条（兼容既有呈现），完整清单在 formed_all。
       assert.equal(result.value.formed.entry_id, first);
-      assert.equal(result.value.remaining_pending, 1);
-      // 未处理者不是被移除、也不是被判 discarded——它仍 pending 等下次运行。
-      assert.equal((await readEntry(home, second)).status, "pending");
-      assert.equal((await listPitfallFiles(factSourceRoot)).length, 1);
+      assert.deepEqual(result.value.formed_all.map((item) => item.entry_id), [first, second]);
+      assert.equal(result.value.remaining_pending, 0, "一次派发要把交出的条目全部判完");
+      assert.equal((await readEntry(home, first)).status, "consumed");
+      assert.equal((await readEntry(home, second)).status, "consumed");
+      assert.equal((await listPitfallFiles(factSourceRoot)).length, 2);
     });
   });
 });
 
-test("每次运行上限：配额的入参无法放大（传 proposals 数量不改变上限）", async () => {
+test("逐条判定：有的成文、有的不足 → 同一次派发各自落地，不留 pending", async () => {
+  await withHome(async (home) => {
+    await withTemp("observation-review-facts-", async (factSourceRoot) => {
+      const keep = await appendEntry(home);
+      const drop = await appendEntry(home, {
+        phenomenon: "另一处以只读身份写配置同样失败。",
+        candidate_question: "只读挂载是默认值吗？",
+      });
+      const result = await reviewPendingEntries({
+        dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
+        factSourceRoot,
+        existingPitfalls: [],
+        proposals: [
+          newCandidateProposal(keep),
+          { entry_id: drop, insufficient: { reason: `只有一句 ${EVIDENCE_LINE}，构不成完整机制。` } },
+        ],
+        sessionSignature: TEST_SIGNATURE,
+      });
+      assert.equal(result.ok, true, JSON.stringify(result.error));
+      assert.deepEqual(result.value.formed_all.map((item) => item.entry_id), [keep]);
+      assert.deepEqual(result.value.discarded, [drop]);
+      assert.equal(result.value.remaining_pending, 0);
+      assert.equal((await readEntry(home, drop)).status, "discarded");
+      assert.equal((await listPitfallFiles(factSourceRoot)).length, 1, "被弃的条目不建任何对象");
+    });
+  });
+});
+
+test("交出却没给判定 → fail-closed，且**一个条目都不结算**（不得半途而废）", async () => {
+  await withHome(async (home) => {
+    await withTemp("observation-review-facts-", async (factSourceRoot) => {
+      const first = await appendEntry(home);
+      const second = await appendEntry(home, {
+        phenomenon: "另一处以只读身份写配置同样失败。",
+        candidate_question: "只读挂载是默认值吗？",
+      });
+      const result = await reviewPendingEntries({
+        dshHomePath: home,
+        projectId: FIXTURE_PROJECT_ID,
+        factSourceRoot,
+        existingPitfalls: [],
+        // 只给第一条结论：第二条被交出却没有判定。
+        proposals: [newCandidateProposal(first)],
+        sessionSignature: TEST_SIGNATURE,
+      });
+      assert.equal(result.ok, false);
+      assert.equal(result.error.code, "observation_review/unjudged_entry");
+      assert.match(result.error.message, new RegExp(second), "拒绝须点名是哪一条没判");
+      // 关键：前置拦在任何写入之前，两条都还没动。
+      assert.equal((await readEntry(home, first)).status, "pending");
+      assert.equal((await readEntry(home, second)).status, "pending");
+      assert.equal((await listPitfallFiles(factSourceRoot)).length, 0);
+    });
+  });
+});
+
+test("逐条判定不引入新的放大口子：传 maxCandidates/quota/limit 不改变任何行为", async () => {
   await withHome(async (home) => {
     await withTemp("observation-review-facts-", async (factSourceRoot) => {
       const ids = [];
@@ -594,15 +656,16 @@ test("每次运行上限：配额的入参无法放大（传 proposals 数量不
         factSourceRoot,
         existingPitfalls: [],
         proposals: ids.map((id) => newCandidateProposal(id)),
-        // 试图用参数放大配额——模块内没有任何入参能改写 MAX_CANDIDATES_PER_RUN。
-        maxCandidates: 3,
-        quota: 3,
-        limit: 3,
+        // 这三个参数都不在入参闭集里；传了也改变不了任何东西（既不放宽也不限流）。
+        maxCandidates: 1,
+        quota: 1,
+        limit: 1,
         sessionSignature: TEST_SIGNATURE,
       });
       assert.equal(result.ok, true, JSON.stringify(result.error));
-      assert.equal(result.value.remaining_pending, 2);
-      assert.equal((await listPitfallFiles(factSourceRoot)).length, 1);
+      assert.equal(result.value.remaining_pending, 0);
+      assert.equal(result.value.formed_all.length, 3);
+      assert.equal((await listPitfallFiles(factSourceRoot)).length, 3);
     });
   });
 });

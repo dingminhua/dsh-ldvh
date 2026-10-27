@@ -403,7 +403,7 @@ window.__ModuleLoader__.load({
       // Human 不必回读 36 号规范即可判断该填多少。
       "row.idleSilenceMsHint": "指对话停下来后、连续安静多久才允许做一次闲时回顾：只要还有新的对话活动，计时就重新开始；真正停下来满这个时长，才回顾一次。",
       "row.experienceReview": "自动审核经验",
-      "row.experienceReviewHint": "定期检查留观区里收集的经验材料，判断哪些已经够格写成经验草稿（草稿是否入档仍需你确认）。与「积累经验」各自独立：关掉它只是不再自动审核，已有材料仍留在留观区。审核会单独开一个专属对话来跑，避免多个审核撞在一起。",
+      "row.experienceReviewHint": "定期检查经验观察里收集的材料，一次把当前这一批**逐条判完**：够格的就写成经验草稿，不够格的标记为「不构成经验」并留痕（草稿是否入档仍需你确认）。与「积累经验」各自独立：关掉它只是不再自动审核，已有材料仍留在经验观察里。审核在会话静置时跑，不占用你的对话。",
       "row.experienceReviewIntervalMs": "审核间隔（分钟）",
       "row.experienceReviewIntervalMsHint": "每隔多久自动审核一次留观区。它与上面的「安静时长」是两件事：安静时长管「对话停止多久后收集」，审核间隔管「多久把已收集的材料审一遍」。须大于 0。",
       "row.experienceReviewModel": "审核模型",
@@ -498,7 +498,7 @@ window.__ModuleLoader__.load({
       "row.idleSilenceMs": "Silence duration (minutes)",
       "row.idleSilenceMsHint": "How long the conversation must stay quiet before a single idle review may run: any new activity restarts the count, and one review happens once the silence reaches this duration.",
       "row.experienceReview": "Auto-review experience",
-      "row.experienceReviewHint": "Periodically examines the material collected in the observation buffer and decides which items are ready to become experience drafts (filing a draft still needs your confirmation). Independent of capture: turning it off stops auto-review only, and collected material stays in the buffer. Reviews run in a dedicated session so two of them never collide.",
+      "row.experienceReviewHint": "Periodically examines the material collected in experience observations and judges the whole batch entry by entry: the ones that qualify become experience drafts, the rest are settled as not constituting experience with a trace (filing a draft still needs your confirmation). Independent of capture: turning it off stops auto-review only, and material stays in experience observations. Reviews run when the conversation goes quiet, so they never occupy your own conversation.",
       "row.experienceReviewIntervalMs": "Review interval (minutes)",
       "row.experienceReviewIntervalMsHint": "How often to review the observation buffer. This is separate from the silence duration above: silence governs when material is captured, the interval governs how often captured material is reviewed. Must be greater than 0.",
       "row.experienceReviewModel": "Review model",

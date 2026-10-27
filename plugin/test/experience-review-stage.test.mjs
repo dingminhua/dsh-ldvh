@@ -142,18 +142,30 @@ test("提示词只含缓冲投影与对照集：不含会话正文、区间材�
   for (const forbidden of ["区间材料", "水位", "完整消息", "会话正文"]) {
     assert.ok(!prompt.includes(forbidden), `提示词不得要求或提及 ${forbidden}——审核段不读实时对话`);
   }
-  // 一次至多 1 条候选须写进提示词（执行体要知道配额）。
-  assert.match(prompt, /一次至多形成 1 条候选/);
+  // 逐条判定须写进提示词（2026-10-27 修订：没有产出配额，交出的每条都要有结论）。
+  assert.match(prompt, /每一条都必须给出结论/);
+  assert.match(prompt, /不得留下未判的条目/);
+  // 旧的「一次至多 1 条候选」口径必须消失——它正是待审队列永远清不完的根因。
+  assert.ok(
+    !prompt.includes("一次至多形成 1 条候选"),
+    "不得再向执行体下达「每轮 1 条」的口径（2026-10-27 修订已废止该配额）",
+  );
 });
 
-test("派发条数受上限约束（防提示词无界增长）", async () => {
+test("派发条数受上限约束（防提示词无界增长），且批内每一条都被判完", async () => {
   const base = await mkdtemp(join(tmpdir(), "review-stage-"));
-  await seedBuffer(base, MAX_ENTRIES_PER_REVIEW_DISPATCH + 5);
-  // 须给一条「discarded」提案：否则落盘阶段会因「无提案」fail-closed，测试就
-  // 到不了条数断言（第一版就是这么假失败的——断言本身没错，夹具没铺到那一步）。
-  const subagents = fakeSubagents({
-    proposals: [{ entry_id: "entry-0", conclusion: "discarded", reason: "不够成文：引证 0" }],
-  });
+  const total = MAX_ENTRIES_PER_REVIEW_DISPATCH + 5;
+  await seedBuffer(base, total);
+  // 逐条判定：批内**每一条**都要有结论，缺一条整轮 fail-closed。故这里按交付条数
+  // 铺满提案（全判为不足），使测试能走到「条数上限」这个断言而不是死在缺判定上。
+  const proposals = Array.from({ length: MAX_ENTRIES_PER_REVIEW_DISPATCH }, (_, index) => ({
+    entry_id: `entry-${index}`,
+    conclusion: "discarded",
+    // 弃置理由须与条目的 evidence 有 ≥8 字逐字交集（处置本身要可追溯），故这里
+    // 直接引证条目 evidence 里的来源行。
+    reason: `不够成文：材料只有「来源：session-${index} turn ${index}」一行，写不出根因与验证两段。`,
+  }));
+  const subagents = fakeSubagents({ proposals });
   const result = await runReviewStage({
     subagents,
     parent: {},
@@ -165,6 +177,10 @@ test("派发条数受上限约束（防提示词无界增长）", async () => {
   const promptText = subagents.calls[0].request.prompt[0].text;
   const delivered = promptText.match(/### 条目 /g) ?? [];
   assert.equal(delivered.length, MAX_ENTRIES_PER_REVIEW_DISPATCH, "交付条数须受上限约束");
+  // 批内全部结算完，未交付的 5 条留到下一次派发（不静默移除）。
+  assert.equal(result.ok, true, JSON.stringify(result.error));
+  assert.equal(result.value.discarded.length, MAX_ENTRIES_PER_REVIEW_DISPATCH);
+  assert.equal(result.value.remaining_pending, total - MAX_ENTRIES_PER_REVIEW_DISPATCH);
 });
 
 // ── ④ 无提案不落盘 ──────────────────────────────────────────────────────

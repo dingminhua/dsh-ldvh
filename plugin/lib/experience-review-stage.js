@@ -20,8 +20,11 @@
 // 2. **审核段不读实时对话**（§10.2 第 1 项）：本模块交给执行体的**只有缓冲投影与
 //    既有账本投影**，不传区间材料、不传会话正文。这是结构性的——它拿不到的东西
 //    它就偷不走。
-// 3. **一次运行至多 1 条候选**（§10.2）：配额由 `reviewPendingEntries` 强制，本模块
-//    不放大它（不传 quota 类参数，因为该函数不接受）。
+// 3. **一次派发逐条判定**（§10.2，2026-10-27 修订）：交出的每一条都必须有结论——
+//    可成文则建 `draft`，不足则结算为 `discarded`。这条**不在配额上设上限**，因为
+//    「每轮只许写 1 条」正是让待审队列永远清不完的原因（Human：「完成一个处理一个，
+//    否则很容易变成永远结束不了的任务」）。`MAX_ENTRIES_PER_REVIEW_DISPATCH` 只是
+//    一次派发的**交付条数上限**（防提示词无界增长），超出部分留到下一次派发。
 //
 // ## 失败即 fail-closed（§12）
 //
@@ -55,7 +58,12 @@ export function buildReviewPrompt({ entries, existingPitfalls, projectId }) {
   lines.push("留观缓冲里有一批**待审核的经验材料**。逐条判断它是否已构成一条可成文的经验");
   lines.push("（即「某个失败机制 + 它为何发生 + 怎么解决/规避」三条都已可写）。");
   lines.push("");
-  lines.push("**一次至多形成 1 条候选**。其余条目原样留 pending，不要为了「多写几条」而凑。");
+  lines.push("**每一条都必须给出结论**（2026-10-27 修订）：判为可成文就成形为 `draft` 候选，");
+  lines.push("判为不足就写成 `insufficient` 并给出带引证的理由（该条会被结算为 `discarded`，");
+  lines.push("不入事实对象）。");
+  lines.push("");
+  lines.push("**不得留下未判的条目**：交出却没给结论的条目会让这一轮直接 fail-closed，");
+  lines.push("一条都不会落地——「攒着下次再说」是把待审队列变成永远结束不了的任务。");
   lines.push("");
   lines.push("## 待审材料");
   lines.push("");
@@ -96,7 +104,8 @@ export function buildReviewPrompt({ entries, existingPitfalls, projectId }) {
   lines.push("- `duplicate`：与既有对象重复。须给 `dedupe.duplicate_of`（上面清单里的 object_uid）。");
   lines.push("- `discarded`：不足以成文。须给理由，且理由里**带上该条的引证片段**（可追溯的处置）。");
   lines.push("");
-  lines.push("**未给出结论的条目**原样留在缓冲（缺省即不形成候选）——不得以省略代替判断。");
+  lines.push("**每一条待审材料都要有一条结论**。缺任何一条，这一轮整体 fail-closed（一条都不落地）；");
+  lines.push("不得以省略代替判断。");
   return lines.join("\n");
 }
 
@@ -133,6 +142,42 @@ export function reviewOutputSchema() {
     },
     required: ["proposals"],
   };
+}
+
+/**
+ * 把执行体返回的「结论式」提案翻译成 `reviewPendingEntries` 认的**机械形态**。
+ *
+ * ## 为什么必须有这一步（不是可有可无的兼容层）
+ *
+ * 提示词要求执行体给的是**三分结论**（`formed` / `duplicate` / `discarded`）——那是它
+ * 真正做的判断。而 `reviewPendingEntries` 收的是可以逐项机械校验的字段：`insufficient`
+ * （→ discarded）、`dedupe`＋`title/scope/body`（→ 建 draft）。两者形状不同，若不翻译，
+ * 执行体每给一条 `discarded` 都会被当成「查重未登记」而 fail-closed——**逐条判定会
+ * 因此永远落不了地**，而症状看起来像执行体不守 schema（实测过一次）。
+ *
+ * 同时把 `dedupe.conclusion` 的 `no-duplicate` 归一为模块内使用的 `new`：前者是对外
+ * 措辞，后者是 23 §6.2 的闭集值。
+ */
+function normalizeProposals(proposals) {
+  return proposals.map((proposal) => {
+    if (proposal === null || typeof proposal !== "object") return proposal;
+    const conclusion = proposal.conclusion;
+    const dedupe = proposal.dedupe !== null && typeof proposal.dedupe === "object"
+      ? {
+          ...proposal.dedupe,
+          ...(proposal.dedupe.conclusion === "no-duplicate" ? { conclusion: "new" } : {}),
+        }
+      : proposal.dedupe;
+    if (conclusion === "discarded") {
+      // 已经是 insufficient 形态就原样保留（调用方可能直接给了机械形态）。
+      if (proposal.insufficient !== undefined && proposal.insufficient !== null) return proposal;
+      return { entry_id: proposal.entry_id, insufficient: { reason: proposal.reason ?? "" } };
+    }
+    if (conclusion === "formed" || conclusion === "duplicate") {
+      return { ...proposal, ...(dedupe === undefined ? {} : { dedupe }) };
+    }
+    return { ...proposal, ...(dedupe === undefined ? {} : { dedupe }) };
+  });
 }
 
 /** 挑选零上下文 provider；没有就 fail-closed（不得退化为继承父上下文）。 */
@@ -322,7 +367,9 @@ export async function runReviewStage({
     dshHomePath,
     factSourceRoot: scope.project.path,
     existingPitfalls: pitfalls,
-    proposals,
+    proposals: normalizeProposals(proposals),
+    // **本次派发交出的那一批**：批内每条都要判定，批外条目留到下一次派发。
+    entryIds: batch.map((entry) => entry.id),
     sessionSignature: signature,
     projectId: scope.project.id,
   });
@@ -334,11 +381,21 @@ export async function runReviewStage({
     return reviewed;
   }
   const value = reviewed.value;
-  const outcome = value.formed !== null ? "landed" : (value.discarded.length > 0 ? "landed" : "skipped");
+  const formedCount = Array.isArray(value.formed_all) ? value.formed_all.length : (value.formed === null ? 0 : 1);
+  const outcome = formedCount > 0 || value.discarded.length > 0 ? "landed" : "skipped";
   record(outcome, {
-    action: value.formed !== null ? "formed-draft" : (value.discarded.length > 0 ? "discarded-entries" : "no-candidate"),
+    // 一次派发可能同时成文与废弃——动作名按**两者都发生**的形态如实写，不择一。
+    action: formedCount > 0 && value.discarded.length > 0
+      ? "judged-all"
+      : formedCount > 0
+        ? "formed-draft"
+        : value.discarded.length > 0
+          ? "discarded-entries"
+          : "no-entry",
     formed: value.formed,
+    formed_all: value.formed_all,
     duplicate: value.duplicate,
+    duplicates_all: value.duplicates_all,
     discarded: value.discarded,
     remaining_pending: value.remaining_pending,
     // 用了哪个模型：事后核对「设置的那个模型到底有没有生效」全靠这一项。

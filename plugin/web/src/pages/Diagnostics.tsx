@@ -407,16 +407,23 @@ function ObservationPanel({ report, t }: { report: FrictionObservationReport; t:
 }
 
 /**
- * 经验留观区面板（11 §12bis）。
+ * 经验观察面板（11 §12bis）。
  *
- * ## 与摩擦面板（`ObservationPanel`）的三处刻意差异
+ * ## 与摩擦观察面板（`ObservationPanel`）的结构对齐
+ *
+ * 两块是**并列的两类观察载体**（§12bis vs §12bis.1），呈现口径由规范给成同一套：
+ * 只可展示存在与数量 + 现象/时间/来源/状态四项（§12bis 读取纪律第 2 条）。故本面板
+ * 的骨架与摩擦面板一致——四张指标卡、数据边界声明、正常初态说明、条目列表；读者
+ * 不必学两套版式。
+ *
+ * ## 与摩擦侧**必要**的三处差异（不是版式漂移）
  *
  * 1. **没有「攒到几分」**：经验缓冲没有聚合键与阈值（§12bis 闭集 9 项没有 `group`）。
  *    经验不需要攒够次数才成立——给它画一个进度条就是凭空造出一个规范里不存在的判据。
- * 2. **多出「待审核」与「最老一条」**：读者最关心的是「还有多少等着被审、最老的等了
- *    多久」。摩擦侧关心的是「哪组快攒够了」，两边的核心问题不同。
- * 3. **条目列表只四列**（时间/现象/来源/状态）：与摩擦侧同口径，且**不含** `evidence`
- *    （属内容）、不含 `candidate_question`（属判断输入）、不含对象身份。
+ * 2. **多出「待审核」与「最老一条」**：读者最关心「还有多少等着被审、最老的等了多久」。
+ *    摩擦侧关心的是「哪组快攒够了」，两边的核心问题不同。
+ * 3. **条目列表只四列**（时间/现象+来源/状态）：**不含** `evidence`（属内容）、
+ *    不含 `candidate_question`（属判断输入）、不含对象身份。
  *
  * ## 不得做的事（规范红线，不是遗漏）
  *
@@ -426,11 +433,6 @@ function ObservationPanel({ report, t }: { report: FrictionObservationReport; t:
 function ExperienceBufferPanel({ report, t }: { report: ExperienceBufferReport; t: Translation }) {
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h2 className="ldvh-card-title">{t('diagnostics.experience.title')}</h2>
-        <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.experience.subtitle')}</p>
-      </div>
-
       <div className="ldvh-metric-grid">
         <MetricCard
           label={t('diagnostics.experience.entries')}
@@ -440,6 +442,7 @@ function ExperienceBufferPanel({ report, t }: { report: ExperienceBufferReport; 
         <MetricCard
           label={t('diagnostics.experience.pending')}
           value={String(report.pendingCount)}
+          hint={t('diagnostics.experience.pendingHint')}
           tone={report.pendingCount > 0 ? 'warning' : undefined}
         />
         <MetricCard
@@ -448,8 +451,9 @@ function ExperienceBufferPanel({ report, t }: { report: ExperienceBufferReport; 
           hint={report.oldestPendingAt ?? t('diagnostics.experience.oldestNone')}
         />
         <MetricCard
-          label={t('diagnostics.experience.projects').replace('{count}', String(report.totals.projects))}
-          value={String(report.totals.projects)}
+          label={t('diagnostics.experience.discarded')}
+          value={String(report.totals.byStatus.find((row) => row.status === 'discarded')?.count ?? 0)}
+          hint={t('diagnostics.experience.discardedHint')}
         />
       </div>
 

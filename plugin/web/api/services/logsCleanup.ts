@@ -4,7 +4,7 @@
  * ## 这个模块为什么存在
  *
  * 运行账会无界增长：待处置队列是 append-only（实测 341 条 / 125KB），运行痕迹是
- * 环形（50 条），经验留观与摩擦观察各自累积。它们**不是事实源**（11 §12「载体」
+ * 环形（50 条），经验观察与摩擦观察各自累积。它们**不是事实源**（11 §12「载体」
  * 段：位于 DSH home 之下、不进事实源），因此可以按时间清理——但**哪些能清、哪些
  * 绝不能清，是硬边界**，不能因为「都是 jsonl」就一视同仁。
  *
@@ -13,7 +13,7 @@
  * | 类别 | 能否按时间清理 | 为什么 |
  * |---|---|---|
  * | 流水/痕迹（待处置队列、运行痕迹） | ✅ 能 | 它们记录「过去发生了什么」，过期即失去诊断价值 |
- * | 观察材料（经验留观、摩擦观察） | ✅ 能（Human 决定 2026-10-26） | 是待审核素材，过期价值低；但删了就是丢了证据——故默认**不**选、须显式勾选 |
+ * | 观察材料（经验观察、摩擦观察） | ✅ 能（Human 决定 2026-10-26） | 是待审核素材，过期价值低；但删了就是丢了证据——故默认**不**选、须显式勾选 |
  * | **水位** | ❌ **绝不能** | 删水位 = 让机制重新观察已处理内容 → 重复计数、重复入账 |
  *
  * 水位（`friction-discovery-watermarks.json`）不在本模块的可清理清单里，且
@@ -51,15 +51,20 @@ export const LOGGABLE_TARGETS = [
   },
   {
     id: 'experience-buffer',
-    label: '经验留观',
-    relativePath: ['ldvh', 'observation-buffer.jsonl'],
-    kind: 'jsonl' as const,
-    timeField: 'at',
+    label: '经验观察',
+    // **按项目分区的目录**（11 §12bis 载体段 2026-10 修订：`ldvh/experience-buffers/<projectId>.jsonl`）。
+    // 旧填写的是 `ldvh/observation-buffer.jsonl`——那是**已废弃的全局载体**，现行
+    // 生产路径根本不写它。后果不是报错而是**静默失效**：清理页显示 0 条、真删删 0 条，
+    // 而真实的经验观察材料一条也没被清（反过来，如果谁把旧结构件捡回来写，反而会被清掉）。
+    relativePath: ['ldvh', 'experience-buffers'],
+    kind: 'jsonlDir' as const,
+    // 载体是**追加事件日志**：两条路径缺一不可（见 `recordTime` 的说明）。
+    timeField: ['record.at', 'at', 'settled_at'],
     note: '**待审核的经验素材**。清理后这些材料不可恢复（除备份），未审核过的将永久失去。',
   },
   {
     id: 'friction-observations',
-    label: '摩擦观察缓冲',
+    label: '摩擦观察',
     relativePath: ['ldvh', 'friction-observations'],
     kind: 'jsonlDir' as const,
     timeField: 'at',
@@ -135,13 +140,40 @@ export function cutoffFor(retentionDays: number, now: Date = new Date()): Date {
  * 返回 null 表示**判定不了**——此时该条**原样保留**并在 `unparsable` 里计数。
  * 为什么不当作「很旧」删掉：删掉一条读不懂的记录，等于用一个解析失败换来一次
  * 静默的数据损失；保留它至少还能事后人工看。
+ *
+ * `field` 支持**嵌套路径**（`a.b`）与**候选路径数组**，后者按序取第一个可解析者。
+ * 两条都是必需的，不是便利：
+ *
+ * - 经验观察的载体是追加事件日志，条目时间是 `{kind:"entry", record:{at}}`——顶层
+ *   没有 `at`。只认顶层会让每一条都「判定不了」，清理于是在不报错的情况下变成
+ *   空操作（实测形态：显示 0 条、真删删 0 条，而材料一条没少）。
+ * - 同一载体的 `settle`／`remove` 事件没有 `record`（它们带着 `settled_at`／`at`），
+ *   若只给 `record.at`，这些行会被算作「解析失败」——把可清理流水报成不可解析，
+ *   读数时像坏了。
+ *
+ * **按行判定对折叠账本是否安全**：安全，且方向是确定的——`settle`／`remove` 事件
+ * 必然**晚于或同时于**其 `entry` 事件（载体只追加）。故要么两者同侧（同时保留或
+ * 同时删除），要么只剩 `entry` 被保留、`settle` 被删——后者绝不会发生（settle 更
+ * 晚 ⇒ 更新 ⇒ 只可能它被保留）。因此不存在「条目被删、其结算留下」导致**条目复活**
+ * 的路径。
  */
-function recordTime(record: unknown, field: string | null): number | null {
+function recordTime(record: unknown, field: string | readonly string[] | null): number | null {
   if (field === null || typeof record !== 'object' || record === null) return null
-  const raw = (record as Record<string, unknown>)[field]
-  if (typeof raw !== 'string') return null
-  const at = Date.parse(raw)
-  return Number.isFinite(at) ? at : null
+  const paths = typeof field === 'string' ? [field] : field
+  for (const path of paths) {
+    let current: unknown = record
+    for (const segment of path.split('.')) {
+      if (typeof current !== 'object' || current === null) {
+        current = undefined
+        break
+      }
+      current = (current as Record<string, unknown>)[segment]
+    }
+    if (typeof current !== 'string') continue
+    const at = Date.parse(current)
+    if (Number.isFinite(at)) return at
+  }
+  return null
 }
 
 /** 读 JSONL 文件为行数组（保留无法解析的行原文）。 */

@@ -1,5 +1,5 @@
 /**
- * 经验留观区在诊断页的呈现契约（`/api/diagnostics/experience-observations`）。
+ * 经验观察在诊断页的呈现契约（`/api/diagnostics/experience-observations`）。
  *
  * ## 这组测试守的是什么
  *
@@ -8,7 +8,7 @@
  * 进一步限死：`evidence` 是**逐字引证**（属内容），`candidate_question` 是**审核段的
  * 判断输入**，`id`/`consumed_by` 是**对象身份与去向**——三者都不得出现在查阅面。
  *
- * 这些禁令极易在演进中被悄悄放开：只要有人觉得「诊断页给全一点更方便」，留观区就会
+ * 这些禁令极易在演进中被悄悄放开：只要有人觉得「诊断页给全一点更方便」，经验观察就会
  * 变成第二个事实源入口。故用测试钉住：
  *
  *   1. 投影里不得出现 evidence / candidate_question / id / consumed_by；
@@ -271,7 +271,7 @@ test('没有聚合键与阈值：经验侧不得出现 group / promotionReady / 
 /**
  * 页签结构：摩擦观察与经验观察是**两个页签**（Human 2026-10-27）。
  *
- * 此前两者叠在同一个「摩擦观察缓冲」页签里上下排列：经验区排在摩擦区之后，
+ * 此前两者叠在同一个摩擦页签里上下排列：经验区排在摩擦区之后，
  * 要往下滚动才看得到，等于被摩擦区盖住（Human 从截图发现「没看到经验观察」）。
  * 抖动点在于「同一个页签」这件事很容易被后来者合并回去——所以钉住结构。
  */
@@ -290,7 +290,42 @@ test("诊断页把摩擦观察与经验观察拆成两个页签，且摩擦页�
   assert.match(source, /tab === 'observations' && observations \? \(\s*<ObservationPanel/, "摩擦页签只渲染摩擦面板");
   assert.match(source, /tab === 'experience' && experienceBuffer \? \(\s*<ExperienceBufferPanel/, "经验页签只渲染经验面板");
 
-  // ④ 中文文案：摩擦页签改名为「摩擦观察」（去掉「缓冲」二字）。
+  // ④ 中文文案：两个页签都叫「…观察」（去掉「缓冲」二字）。
   assert.match(locales, /'diagnostics\.tab\.observations': '摩擦观察',/, "摩擦页签须叫「摩擦观察」");
-  assert.match(locales, /'diagnostics\.tab\.experience': '经验观察',/, "新增「经验观察」页签");
+  assert.match(locales, /'diagnostics\.tab\.experience': '经验观察',/, "经验页签须叫「经验观察」");
+});
+
+/**
+ * 命名口径：**载体在规范里叫「缓冲」，在页面上叫「观察」**（Human 2026-10-27）。
+ *
+ * 这不是文案洁癖：`缓冲`是 §12bis 的载体术语（字段闭集、容量、保留期都挂在这个词
+ * 上），而用户在诊断页要看的是「我攒了哪些观察」。两套词各有归属，但**呈现面**一律
+ * 用「观察」——页签、面板标题、指标卡、清理目标、正常初态说明都不许再出现「缓冲」。
+ *
+ * 抖动点是「顺手把规范术语抄进界面」：它很容易回潮，而回潮后界面上会重新出现一个
+ * 用户没建立过概念的词。故逐处钉住呈现面文案。
+ */
+test("呈现面一律称「观察」：页签、面板、指标卡与清理目标都不再出现「缓冲」", async () => {
+  const locales = await readFile(new URL("../../src/i18n/locales.ts", import.meta.url), "utf8");
+  const page = await readFile(new URL("../../src/pages/Diagnostics.tsx", import.meta.url), "utf8");
+  const cleanup = await readFile(new URL("../../api/services/logsCleanup.ts", import.meta.url), "utf8");
+
+  // 呈现面文案（locale 键值）里不得有「留观」「观察缓冲」这类载体术语。
+  for (const pattern of [
+    /'diagnostics\.experience\.title': '[^']*留观/,
+    /'diagnostics\.experience\.noBufferDir': '[^']*留观/,
+    /'diagnostics\.observations\.[a-zA-Z]+': '[^']*缓冲/,
+    /'diagnostics\.cleanup\.t\.experienceBuffer': '[^']*留观/,
+    /'diagnostics\.cleanup\.t\.frictionObservations': '[^']*缓冲/,
+  ]) {
+    assert.equal(pattern.test(locales), false, `呈现面文案不得含载体术语：${pattern}`);
+  }
+
+  // 两个页签的面板都走同一套指标网格（结构对齐，读者不必学两套版式）。
+  assert.match(page, /function ObservationPanel[\s\S]*?ldvh-metric-grid/, "摩擦面板须有指标网格");
+  assert.match(page, /function ExperienceBufferPanel[\s\S]*?ldvh-metric-grid/, "经验面板须有指标网格");
+
+  // 清理目标的中文名与页签同口径。
+  assert.match(cleanup, /label: '经验观察',/, "清理目标须叫「经验观察」");
+  assert.match(cleanup, /label: '摩擦观察',/, "清理目标须叫「摩擦观察」");
 });

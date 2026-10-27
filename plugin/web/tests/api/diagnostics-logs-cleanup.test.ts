@@ -151,7 +151,7 @@ test('运行痕迹（ring 形态）按 runs 数组内的 at 清理，且保持 J
   assert.equal(doc.runs[0].stage, 'landed')
 })
 
-test('摩擦观察缓冲按项目文件逐个清理，保留未过期的条目', async () => {
+test('摩擦观察按项目文件逐个清理，保留未过期的条目', async () => {
   const home = await makeHome()
   const dir = path.join(home, 'ldvh', 'friction-observations')
   await mkdir(dir, { recursive: true })
@@ -167,6 +167,47 @@ test('摩擦观察缓冲按项目文件逐个清理，保留未过期的条目',
   const left = (await readFile(file, 'utf8')).split('\n').filter(Boolean)
   assert.equal(left.length, 1, '只保留未过期那条')
   assert.equal(JSON.parse(left[0]).i, 1)
+})
+
+test('经验观察按项目分区目录清理，且时间取追加事件日志里的 record.at', async () => {
+  const home = await makeHome()
+  const dir = path.join(home, 'ldvh', 'experience-buffers')
+  await mkdir(dir, { recursive: true })
+  const file = path.join(dir, 'proj-a.jsonl')
+  // **生产格式**：一行一个事件，条目时间在 `{kind:"entry", record:{at}}` 里。
+  // 夹具若照抄「一行一条完整记录」，测的就不是生产形态——本轮已踩过一次。
+  const lines = [
+    JSON.stringify({ kind: 'entry', record: { id: 'old', at: stamp(10), phenomenon: '旧材料', status: 'pending' } }),
+    JSON.stringify({ kind: 'settle', id: 'old', status: 'discarded', settled_at: stamp(9) }),
+    JSON.stringify({ kind: 'entry', record: { id: 'new', at: stamp(1), phenomenon: '新材料', status: 'pending' } }),
+  ]
+  await writeFile(file, lines.join('\n') + '\n', 'utf8')
+
+  // 先看预览：过期的那条（10 天前）计入删除，且**不得**把 settle 事件算成不可解析。
+  const preview = await planCleanup({ dshHome: home, retentionDays: 3, targetIds: ['experience-buffer'], apply: false })
+  assert.equal(preview.targets[0].removing, 2, '旧 entry 与其 settle 事件都过期')
+  assert.equal(preview.targets[0].keeping, 1)
+  assert.equal(preview.targets[0].unparsable, 0, '时间取嵌套路径后，一条都不该判不出来')
+
+  const applied = await planCleanup({ dshHome: home, retentionDays: 3, targetIds: ['experience-buffer'], apply: true })
+  assert.equal(applied.applied[0].removed, 2)
+  const left = (await readFile(file, 'utf8')).split('\n').filter(Boolean).map((line) => JSON.parse(line))
+  assert.equal(left.length, 1)
+  assert.equal(left[0].record.id, 'new', '只留未过期的那条')
+})
+
+test('经验观察目标指向按项目分区的现行目录，不再指向已废弃的全局载体', async () => {
+  const target = LOGGABLE_TARGETS.find((item) => String(item.id) === 'experience-buffer')
+  assert.ok(target, '经验观察须在可清理清单里')
+  assert.deepEqual(
+    [...(target as { relativePath: readonly string[] }).relativePath],
+    ['ldvh', 'experience-buffers'],
+    '载体是 l d v h/experience-buffers（11 §12bis 载体段 2026-10 修订：按项目分区）',
+  )
+  assert.ok(
+    !(target as { relativePath: readonly string[] }).relativePath.includes('observation-buffer.jsonl'),
+    '不得指向已废弃的全局载体 observation-buffer.jsonl——那会让清理静默变成空操作',
+  )
 })
 
 test('备份文件目标按修改时间清理，且不影响主队列文件', async () => {
