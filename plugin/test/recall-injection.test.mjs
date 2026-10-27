@@ -1289,7 +1289,9 @@ test("34 §12：注入面须**无条件**披露声明范围（含 complete 与�
 	const { renderRecallRow } = await import("../lib/recall-injection.js");
 	const scope = {
 		types: ["spark"],
-		alternativeEntry: "Spark 方向线不在本路径扫描范围内，由 AI 主动查询取回（`ldvh_spark_list`，见 `31 §10`）",
+		// 结构化替代入口（`entryByType`）：渲染层只负责措辞，类型→工具名的映射
+		// 由数据层给，避免两处各写一份（`01 §11.4`）。
+		entryByType: { spark: "ldvh_spark_list" },
 	};
 	const mk = (over) => ({
 		specs: [],
@@ -1306,7 +1308,10 @@ test("34 §12：注入面须**无条件**披露声明范围（含 complete 与�
 		...over,
 	});
 
-	// ① complete：三态行不打印（既有纪律），但声明范围必须打印。
+	// ① complete（零候选）：三态行不打印（既有纪律），但声明范围必须打印。
+	//    注意 `mk` 的 specs/facts 都是空数组——本夹具测的是**披露行的条件**，
+	//    不是「有候选时」的形态；下面 ② 同理。有候选的形态由真实 buildRecallInjection
+	//    用例覆盖（见「注入路径须把 Spark 排除在声明范围外」）。
 	const complete = renderRecallRow(mk({ recallCompleteness: "complete" }));
 	assert.ok(
 		complete.includes("不含 spark"),
@@ -1318,7 +1323,7 @@ test("34 §12：注入面须**无条件**披露声明范围（含 complete 与�
 		"complete 时不应打印三态行（既有纪律：稳态安静）",
 	);
 
-	// ② partial：两条都在。
+	// ② partial（同样零候选，只改 completeness 取值）：两条都在。
 	const partial = renderRecallRow(mk({ recallCompleteness: "partial" }));
 	assert.ok(partial.includes("不含 spark") && partial.includes("本次召回完整度"));
 

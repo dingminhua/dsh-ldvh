@@ -1406,6 +1406,57 @@ test("list: narrowed hits carry a recomputable hitReason (34 §8.2 第 1 项)", 
   });
 });
 
+test("render: hitReason 必须进模型可见文本（只进 envelope 等于没给）", async () => {
+  // **这条钉的是模型可见面**（范围受限复审，2026-10-28 的重大发现）：
+  // `render` 是模型唯一能读到的输出（DSH 把 `output.render` 当作 model-facing
+  // content），而 `result.items[].hitReason` 只在结构化信封里。上一版只断言了
+  // envelope，于是「数据层对了、模型看不见」这种缺陷测试恒绿——`34 §8.2` 第 1 项
+  // 要求的「命中依据可复算」在唯一可见面上落空。
+  await withTemp("spark-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const deps = makeDeps(home, base);
+    const descriptors = makeDescriptors(deps);
+    const draft = {
+      ...validFrontmatterDraft(),
+      title: "渲染命中依据甲",
+      question: "渲染层能否看见命中依据？",
+      summary: "总结：渲染命中依据甲",
+      change_summary: "渲染夹具",
+      priority: "P1",
+    };
+    const created = await run(descriptors, "ldvh_spark_write", {
+      action: "create",
+      dedup_result: DEDUP_OK,
+      frontmatter_draft: draft,
+      body_markdown: validBodyMarkdown(draft),
+    }, repo);
+    assert.equal(created.outcome, "completed", JSON.stringify(created));
+
+    const out = await descriptors["ldvh_spark_list"].execute({ priorities: ["P1"] }, exec(repo));
+    const env = out.envelope ?? out;
+    assert.equal(env.result.items[0].hitReason, "priority=P1", "前提：数据层已带 hitReason");
+
+    // 直接调 render，检查模型可见文本里确有该依据。
+    const blocks = descriptors["ldvh_spark_list"].output.render({}, { envelope: env });
+    const text = Array.isArray(blocks)
+      ? blocks.map((b) => (typeof b === "string" ? b : b?.text ?? "")).join("\n")
+      : String(blocks ?? "");
+    assert.ok(
+      text.includes("priority=P1"),
+      `render 文本须含命中依据，实测：${JSON.stringify(text)}`,
+    );
+
+    // 反向：未收窄时 render 不得出现空括号残留（〔〕）。
+    const plainOut = await descriptors["ldvh_spark_list"].execute({}, exec(repo));
+    const plainEnv = plainOut.envelope ?? plainOut;
+    const plainBlocks = descriptors["ldvh_spark_list"].output.render({}, { envelope: plainEnv });
+    const plainText = Array.isArray(plainBlocks)
+      ? plainBlocks.map((b) => (typeof b === "string" ? b : b?.text ?? "")).join("\n")
+      : String(plainBlocks ?? "");
+    assert.ok(!plainText.includes("〔〕"), "未收窄时不得渲染空的命中依据括号");
+  });
+});
+
 test("list: malformed narrowing arguments are rejected (fail-closed, never silently ignored)", async () => {
   await withTemp("spark-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);

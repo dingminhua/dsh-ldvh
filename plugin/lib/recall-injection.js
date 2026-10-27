@@ -609,8 +609,12 @@ export function renderRecallRow(result) {
     // 且它是零命中时读者唯一能看到的指引。故按**是否真的还能扩大**分岔：
     // 有排除范围时，必须同时说出「哪些类型不在这条路上」与替代入口；
     // 无排除范围时，保留原来的扩大检索邀请（那时它确实成立）。
+    // **替代入口只在这一行说一次**（范围受限复审，2026-10-28）：下方的声明范围行
+    // 也带同一个入口，两行连读会重复约 40 字节，且与本段注释「不与那两处重复」
+    // 自相矛盾。此处因此只说「扩大检索取不到」，把「去哪儿取」留给紧随的声明行
+    // ——它是无条件输出的，零命中时必然就在下一行，读者不会丢失入口。
     const scopeHint = scopeExcludedTypes.length > 0
-      ? `本路径不扫描 ${scopeExcludedTypes.join("、")}，扩大检索也取不到它们——须另行查询（Spark 用 \`ldvh_spark_list\`，见 \`31 §10\`）。`
+      ? `本路径不扫描 ${scopeExcludedTypes.join("、")}，扩大检索也取不到它们——须另行查询（见下一行的入口）。`
       : "必要时请自行扩大检索。";
     lines.push(`本次未命中候选。这不证明「无相关约束」——确定性匹配会漏（换个说法就漏）。${scopeHint}`);
   }
@@ -735,8 +739,14 @@ export function renderRecallRow(result) {
     //   · partial/unavailable → 三态行已声明「未命中不构成无相关的证据」；
     //   · 零命中 → 未命中行按 scopeHint 分岔，明说「扩大检索也取不到」。
     // 不与那两处重复（`02 §9.1` 去冗余纪律）。
-    const entry = scopeExcluded.types.includes("spark") ? "ldvh_spark_list" : null;
-    const where = entry === null ? "须另行查询" : `查 ${entry}`;
+    // **入口名取自数据层**（`entryByType`），渲染层不再自己硬写类型→工具名的映射
+    // ——两处各写一份必然漂移（`01 §11.4`）。数据层没给入口的类型如实说「须另行查询」，
+    // 不猜一个工具名出来。
+    const entryByType = scopeExcluded.entryByType ?? {};
+    const entries = scopeExcluded.types
+      .map((type) => entryByType[type])
+      .filter((name) => typeof name === "string" && name !== "");
+    const where = entries.length > 0 ? `查 ${[...new Set(entries)].join("、")}` : "须另行查询";
     lines.push(`（不含 ${scopeExcluded.types.join("、")}；${where}）`);
   }
   // **三态取值与未读取源须在注入面披露**（第六次审核 N-5）：34 §12 要求

@@ -742,7 +742,14 @@ function renderEnvelope(operationKey, value) {
       // (20 §12). priority was carried by the writer projection but never
       // printed here, so the model could not see the ordering tier the spec
       // promises; missing priority is legal (未分档) and renders as no tag.
-      lines.push(`- ${objectRef(item)} [${item.status}]${item.priority ? ` ${item.priority}` : ""} ${item.title}${item.serves ? ` (${item.serves})` : ""}${Array.isArray(item.refs) && item.refs.length > 0 ? ` → ${item.refs.map((r) => (r !== null && typeof r === "object" ? objectRef(r) || shortUid(r.object_uid) : String(r))).join(", ")}` : ""}`);
+      // **命中依据必须出现在 render 行里**（`34 §8.2` 第 1 项）：`render` 是
+      // 模型唯一能看见的文本面，只把 `hitReason` 放进 `result.items` 等于没给——
+      // 模型读不到它，收窄结果与「库里只有这些」在模型侧仍无法区分。
+      // 实测缺陷（范围受限复审，2026-10-28）：数据层已正确产出 hitReason，
+      // 但本行此前不渲染，而新加的用例只断言了 `result.items[].hitReason`，
+      // 于是「规范承诺每条须带命中依据」在唯一可见面上落空，且测试恒绿。
+      const hit = typeof item.hitReason === "string" && item.hitReason !== "" ? ` 〔${item.hitReason}〕` : "";
+      lines.push(`- ${objectRef(item)} [${item.status}]${item.priority ? ` ${item.priority}` : ""} ${item.title}${item.serves ? ` (${item.serves})` : ""}${hit}${Array.isArray(item.refs) && item.refs.length > 0 ? ` → ${item.refs.map((r) => (r !== null && typeof r === "object" ? objectRef(r) || shortUid(r.object_uid) : String(r))).join(", ")}` : ""}`);
     }
   }
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "spark")}`);
@@ -817,7 +824,7 @@ function parameterSchemaFor(operationKey) {
         type: "object",
         properties: {
           status: { type: "string", enum: ["open", "all"], description: "open = default (ordinary unresolved candidates only, 20 §12); all = include implemented/discarded for historical tracing" },
-          keyword: { type: "string", description: "literal case-insensitive substring over title and question (the two semantic inputs 20 §6.2 names for dedup). Substring only — whether two Sparks are the same question stays a semantic judgement by the AI, never a mechanical verdict (03 §8.2)" },
+          keyword: { type: "string", description: "literal case-insensitive substring over title and question (the two semantic inputs 20 §6.2 names for dedup). Substring only — whether two Sparks are the same question stays a semantic judgement by the AI, never a mechanical verdict (02 §9 第 4 项 / 02:262: Code must not use similarity, embedding or keyword weights to adjudicate relevance)" },
           priorities: { type: "array", items: { type: "string", enum: ["P0", "P1", "P2", "P3"] }, description: "keep only Sparks whose declared priority is among these (20 §8). Untiered Sparks are never inferred into a tier, so they do not match any priority filter (20 §8: 排序缺失者排末位、不推定档位)" },
           serves: { type: "string", description: "keep only Sparks serving this sub-goal anchor verbatim (e.g. SG-1, 20 §8). Empty result means no Spark declares it — not that the anchor is unused" },
           limit: { type: "number", description: "max items returned (default 200; exceeding the cap returns a partial page with the true total — never a silent truncation, 03 §8.1). The cap applies AFTER filtering, and total is the filtered hit count" }
