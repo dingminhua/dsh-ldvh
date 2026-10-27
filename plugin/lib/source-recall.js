@@ -415,7 +415,47 @@ export function statusRank(status) {
  * @param {{fact: object, index: number}} b
  * @returns {number} 负数 / 0 / 正数
  */
-export function compareFactHits(a, b) {
+/**
+ * **方向讨论**的动作迹象（`31 §10` 消费时机第 1 项：「讨论与规划时：召回相关
+ * 未决方向，判断当次讨论是否已有前情」）。
+ *
+ * **这是同分时的组内重排，不是新增必需类型。** `REQUIRED_RECALL_TYPES` 的语义是
+ * 「`03 §6.1` 标准路径点名的必需集」，其值（adr/pitfall）由该条原文固定，
+ * 本模块不改它——把 Spark 提为必需类型会扩张一条跨类型强制召回规则，超出
+ * `03 §6.1` 已点名的两类，属 `00 §4.2` 的规则扩张，须经规范修订与 Human 决定。
+ *
+ * 故此处只做一件事：**当动作迹象表明本回合在讨论/规划方向时**，命中的
+ * open Spark 在**证据同分**的前提下先于其它非必需类型。三条边界（缺一即越界）：
+ *   1. 不改变必需集，ADR/Pitfall 仍在同分时优先（`03 §6.1` 不被削弱）；
+ *   2. 不增加返回条数，`limit` 与预算口径完全不变（不烧额外注入预算）；
+ *   3. 不清除任何类型——其余类型仍全部保留，只是同分时相对次序变化。
+ *
+ * **它排在证据强度之后**（`weakHit`→`tier`→`hits` 之后、必需类型同分位之前）：
+ * 证据更强的候选永远先看，方向讨论只解决「同样强时谁先」——这与 `compareFactHits`
+ * 第二版「证据强度先行」的教训一致，不得拿它做无条件前置。
+ *
+ * 判据是**确定性词表匹配**（`02 §9` 红线：不得用相似度/AI 输出裁决相关性）。
+ * 词表只收「讨论、规划、方向、议题、悬置」这类**指向方向线本身**的词，
+ * 不收「改、修、查、推进」这类动作词——「推进工单」不是讨论方向的迹象，
+ * 把动作词收进来会让该优先位在无关回合被激活，等于把噪声排到前面。
+ */
+export const DIRECTION_DISCUSSION_MARKERS = Object.freeze([
+  "讨论", "规划", "方向", "议题", "悬置", "未决", "火花", "spark", "方向线",
+]);
+
+/**
+ * 本回合动作是否带「讨论/规划方向」的迹象（`31 §10` 消费时机第 1 项）。
+ *
+ * 返回 `true` 时，open Spark 在**证据同分**时获得排序优先——**仅此而已**：
+ * 不改变是否召回、不改变条数与预算、不越过证据更强的候选。
+ */
+export function isDirectionDiscussion(action) {
+  if (typeof action !== "string" || action === "") return false;
+  const lowered = action.toLowerCase();
+  return DIRECTION_DISCUSSION_MARKERS.some((marker) => lowered.includes(marker));
+}
+
+export function compareFactHits(a, b, { directionDiscussion = false } = {}) {
   const fa = a?.fact ?? {};
   const fb = b?.fact ?? {};
   const num = (v) => (Number.isFinite(v) ? v : 0);
@@ -425,9 +465,14 @@ export function compareFactHits(a, b) {
     num(fb.hits) - num(fa.hits);
   if (evidence !== 0) return evidence;
   const rank = (f) => (REQUIRED_RECALL_TYPES.includes(f.type) ? 0 : 1);
+  // 方向讨论回合的 open Spark 同分组（`31 §10` 消费时机第 1 项）。
+  // **值取 0.5 而非 0**：必需类型（rank 0）仍须先于它，故它只能在
+  // 「非必需且非 Spark」的 rank 1 之前——不得越过 ADR/Pitfall。
+  const directionRank = (f) =>
+    directionDiscussion && f.type === "spark" && f.status === "open" ? 0.5 : rank(f);
   return (
     statusRank(fa.status) - statusRank(fb.status) ||
-    rank(fa) - rank(fb) ||
+    directionRank(fa) - directionRank(fb) ||
     String(fb.updatedAt ?? "").localeCompare(String(fa.updatedAt ?? "")) ||
     String(fa.path ?? "").localeCompare(String(fb.path ?? "")) ||
     num(a?.index) - num(b?.index)
@@ -1325,6 +1370,10 @@ export async function recallForAction(input = {}) {
   const includeSpecs = input.includeSpecs !== false;
 
   const query = `${action} ${input.scope ?? ""}`.trim();
+  // 本回合是否在讨论/规划方向（`31 §10` 消费时机第 1 项）。**只算一次**：
+  // 放进排序比较器会给每次两两比较重算一遍同一个判定（纯浪费，且让
+  // 「同一输入同一结果」的确定性理由变得不显然）。
+  const directionDiscussion = isDirectionDiscussion(action);
   const tokens = tokenize(query);
   if (tokens.length === 0) {
     return {
@@ -1537,7 +1586,11 @@ export async function recallForAction(input = {}) {
     // 新排序键：证据强度（`weakHit` → `tier` → `hits`）先行，
     // **同分时**才让必需类型占先，最后用 `index` 保证确定性。
     // 三者全序，不依赖 sort 稳定性（02 §9 确定性红线）。
-    .sort((a, b) => compareFactHits(a, b))
+    //
+    // **方向讨论回合的加位**（`31 §10` 消费时机第 1 项）：同分时 let open Spark
+    // 先于其它非必需类型——它仍排在 ADR/Pitfall 与更强的证据之后，只在
+    // 「同样强、同样不是必需类型」时改变次序。见 `compareFactHits` 的 directionRank。
+    .sort((a, b) => compareFactHits(a, b, { directionDiscussion }))
     .map((entry) => entry.fact);
   const specHits = allSpecHits.slice(0, limit);
   const factHits = allFactHits.slice(0, limit);

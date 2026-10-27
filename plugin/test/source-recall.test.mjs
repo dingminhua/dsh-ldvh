@@ -29,6 +29,8 @@ import {
 	isWeakToken,
 	statusRank,
 	compareFactHits,
+	isDirectionDiscussion,
+	DIRECTION_DISCUSSION_MARKERS,
 } from "../lib/source-recall.js";
 import { RECALL_RENDER_CHAR_LIMIT, renderCharLimitFor } from "../lib/recall-injection.js";
 
@@ -1937,4 +1939,84 @@ test("渲染字符上限须由字节预算导出，不得固定成 1600（档位
 	assert.ok(renderCharLimitFor(30720) > renderCharLimitFor(10240));
 	assert.equal(renderCharLimitFor(null), RECALL_RENDER_CHAR_LIMIT, "无预算时退回旧单值");
 	assert.equal(renderCharLimitFor(0), RECALL_RENDER_CHAR_LIMIT);
+});
+
+/**
+ * `31 §10` 消费时机第 1 项：「讨论与规划时：召回相关未决方向，判断当次讨论
+ * 是否已有前情」。以下三条用例分别钉住该加位的**三条边界**——它们合起来才是
+ * 「只重排、不扩张」的全部含义，任何一条失守都意味着越界。
+ */
+test("方向讨论回合：open Spark 在证据同分时前移（31 §10 消费时机第 1 项）", () => {
+	// 用纯函数直接验证排序键，不依赖语料的偶然命中分布——
+	// 语料会随时间漂移，而这条纪律本身不该随语料改变。
+	const sparkOpen = { fact: { type: "spark", status: "open", weakHit: false, tier: 1, hits: 1 }, index: 0 };
+	const frictionOpen = { fact: { type: "friction", status: "open", weakHit: false, tier: 1, hits: 1 }, index: 1 };
+	const pitfall = { fact: { type: "pitfall", status: "active", weakHit: false, tier: 1, hits: 1 }, index: 2 };
+
+	// 方向讨论回合：Spark 先于同等证据的非必需类型。
+	assert.ok(
+		compareFactHits(sparkOpen, frictionOpen, { directionDiscussion: true }) < 0,
+		"方向讨论回合，同分时 open Spark 应排在 friction 之前",
+	);
+	// 非方向回合：不加位，同分时按 index 原序（sparkOpen.index=0 先于 friction.index=1）。
+	// 与方向回合对比：dir=true 时差值为 -0.5（仅加位造成的半档），dir=false 时
+	// 为 -1（纯 index 原序）——两者不同即证明加位只在方向回合生效。
+	assert.equal(
+		compareFactHits(sparkOpen, frictionOpen, { directionDiscussion: false }),
+		-1,
+		"非方向回合，同分时须按 index 原序（加位未激活）",
+	);
+	assert.equal(
+		compareFactHits(sparkOpen, frictionOpen, { directionDiscussion: true }),
+		-0.5,
+		"方向回合的加位应恰好改变半档，不改变其它排序语义",
+	);
+	// 关键：**仍须排在 ADR/Pitfall 之后**（03 §6.1 的必需集不被削弱）。
+	assert.ok(
+		compareFactHits(sparkOpen, pitfall, { directionDiscussion: true }) > 0,
+		"open Spark 不得越过 ADR/Pitfall——必需集由 03 §6.1 固定",
+	);
+});
+
+test("证据更强的候选永远先于该加位（加位只在同分时生效）", () => {
+	// 这条是 2026-10-27 那次「排序键第一版无条件前置」教训的回归守卫：
+	// 若把方向加位提到证据强度之前，证据更厚的非 Spark 会被压下去。
+	const sparkOpen = { fact: { type: "spark", status: "open", weakHit: false, tier: 1, hits: 1 }, index: 0 };
+	const strongOther = { fact: { type: "friction", status: "open", weakHit: false, tier: 1, hits: 9 }, index: 1 };
+	assert.ok(
+		compareFactHits(sparkOpen, strongOther, { directionDiscussion: true }) > 0,
+		"证据更厚的候选须仍排在 open Spark 之前——加位不得越过 weakHit/tier/hits",
+	);
+});
+
+test("方向判定只管方向词，不收动作词（防无关回合被激活）", () => {
+	// 纯实现动作：不含任何方向词。
+	assert.equal(isDirectionDiscussion("改一下这个按钮颜色"), false);
+	assert.equal(isDirectionDiscussion("修复测试失败"), false);
+	// 「推进工单」含动作词，不得触发——否则该加位会在无关回合被激活。
+	assert.equal(isDirectionDiscussion("推进那个工单到关闭"), false);
+	// 方向词才触发。
+	assert.equal(isDirectionDiscussion("这个方向还悬着"), true);
+	assert.equal(isDirectionDiscussion("讨论一下火花记录"), true);
+	// 词表本身不得含动作词（形态守卫，防后续「顺手加一个」）。
+	for (const verb of ["改", "修", "查", "删除", "推进"]) {
+		assert.equal(
+			DIRECTION_DISCUSSION_MARKERS.includes(verb),
+			false,
+			`词表不得收动作词「${verb}」`,
+		);
+	}
+});
+
+test("该加位不得扩张必需集，也不得改变条数与预算口径", async () => {
+	// 1) 必需集逐字不变（03 §6.1 标准路径只点名 ADR/Pitfall；
+	//    把 Spark 提为必需类型属 00 §4.2 的规则扩张，不由此处代行）。
+	assert.deepEqual([...REQUIRED_RECALL_TYPES], ["adr", "pitfall"]);
+
+	// 2) 同一查询在方向讨论措辞下，返回条数不得多于 limit。
+	const direction = await recallForAction({ action: "讨论这个方向", root: ROOT, limit: 5, budgetBytes: 20000 });
+	assert.ok(direction.facts.length <= 5, "不得超过 limit");
+
+	// 3) 命中总数须不小于返回数（02 §9.1 禁止静默截断）。
+	assert.ok(direction.counts.factHits >= direction.facts.length, "命中总数须不小于返回数");
 });

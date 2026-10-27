@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { Activity, CalendarClock, CircleAlert, CircleCheck, CircleMinus, CirclePlay, Clock3, History, Search } from 'lucide-react';
+import { Activity, ArrowDownWideNarrow, CalendarClock, CircleAlert, CircleCheck, CircleMinus, CirclePlay, Clock3, History, Search } from 'lucide-react';
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import SegmentedControl from '@/components/SegmentedControl';
 import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
@@ -43,7 +43,27 @@ import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS,
 
 type Translate = ReturnType<typeof useI18n>['t'];
 type StatusReason = { label: string; text: string; missing?: boolean };
-type ObjectListSort = 'updated_desc' | 'created_desc';
+type ObjectListSort = 'updated_desc' | 'created_desc' | 'priority_asc';
+
+/**
+ * Spark 处置次序闭集（`20 §8`：`P0`／`P1`／`P2`／`P3`）。
+ *
+ * 与 `api/routes/objects.ts` 的 `SPARK_PRIORITY_ORDER` 同值——排序与筛选必须
+ * 认同一套次序，否则「按 P1 筛出来的」与「按优先级排出来的」会给出不同答案。
+ */
+const SPARK_PRIORITY_SORT_ORDER: readonly string[] = ['P0', 'P1', 'P2', 'P3'];
+
+/**
+ * `priority` 的排序键（`20 §8`/§12「按 `priority` 或时间排序」）。
+ *
+ * **未分档排最后**，且不得被推定为任何档位：`20 §8` 明写「未分档的 Spark 与
+ * 已分档的同等合法……缺失或非法时，排序与筛选按其缺失处理，不得代为推定档位」。
+ * 故缺失/非法一律取越界值，与合法档位分开。
+ */
+function sparkPrioritySortRank(priority: unknown): number {
+  const index = typeof priority === 'string' ? SPARK_PRIORITY_SORT_ORDER.indexOf(priority) : -1;
+  return index === -1 ? SPARK_PRIORITY_SORT_ORDER.length : index;
+}
 
 /** Shared vertical rhythm between a semantic card title and its first body block. */
 const WORKCASE_CARD_TITLE_BODY_GAP_CLASS = 'mt-1.5';
@@ -271,6 +291,16 @@ function WorkCaseCardBodyWithT({ obj }: { obj: ObjectItem }) {
 
 function sortObjectsForList(items: ObjectItem[], sort: ObjectListSort): ObjectItem[] {
   return [...items].sort((a, b) => {
+    // `priority_asc`（`20 §8`/§12「按 `priority` 或时间排序」）：先按处置次序，
+    // 同档再按最后更新倒序——同档内仍要给出「最近动过的在前」这一稳定次序，
+    // 否则同档对象的相对位置会随取数顺序漂移，Human 每次看到的次序都不同。
+    if (sort === 'priority_asc') {
+      const priorityDelta = sparkPrioritySortRank(a.priority) - sparkPrioritySortRank(b.priority);
+      if (priorityDelta !== 0) return priorityDelta;
+      const sameTierTimeDelta = compareRfc3339Timestamps(b.updated, a.updated);
+      if (sameTierTimeDelta !== 0) return sameTierTimeDelta;
+      return b.id.localeCompare(a.id);
+    }
     const timestampDelta = sort === 'created_desc'
       ? compareRfc3339Timestamps(b.created, a.created)
       : compareRfc3339Timestamps(b.updated, a.updated);
@@ -953,7 +983,13 @@ export default function ObjectList() {
     ? priorityParam
     : null;
   const sortParam = searchParams.get('sort');
-  const activeSort: ObjectListSort = sortParam === 'created_desc' ? sortParam : 'updated_desc';
+  // `priority_asc` 只在 spark 生效：`priority` 是 Spark 专有字段（`20 §8`；
+  // `21 §8` WorkCase 闭集无此项），对其它类型提供该排序会让「按优先级排」
+  // 对它们退化成纯时间序，名称与实际不符。
+  const supportsPrioritySort = currentType === 'spark';
+  const activeSort: ObjectListSort = supportsPrioritySort && sortParam === 'priority_asc'
+    ? 'priority_asc'
+    : sortParam === 'created_desc' ? 'created_desc' : 'updated_desc';
   // v5 无 priority 字段：20 §289（v4 priority 不迁入）与 21 §8 字段闭集均无此项，
   // 且 22 §271/23 §252/26 §258 判定 priority 类为无消费方装饰字段（03 §11.3-4
   // 要求字段扩展先说明消费方）。两侧 tab 均不提供优先级过滤。
@@ -1277,6 +1313,11 @@ export default function ObjectList() {
               items={[
                 { value: 'updated_desc', label: t('objectList.sortUpdatedDesc'), icon: <Clock3 size={14} aria-hidden="true" /> },
                 { value: 'created_desc', label: t('objectList.sortCreatedDesc'), icon: <CalendarClock size={14} aria-hidden="true" /> },
+                // `20 §8`/§12「按 `priority` 或时间排序」：仅在 spark 列出该档，
+                // 因为 `priority` 是 Spark 专有字段（21 §8 闭集无此项）。
+                ...supportsPrioritySort
+                  ? [{ value: 'priority_asc' as const, label: t('objectList.sortPriorityAsc'), icon: <ArrowDownWideNarrow size={14} aria-hidden="true" /> }]
+                  : [],
               ]}
             />
           </div>
