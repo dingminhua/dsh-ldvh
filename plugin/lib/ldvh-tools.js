@@ -28,6 +28,8 @@ import { probeHostAutomation } from "./host-automation-probe.js";
 import { isReviewRunning } from "./experience-review-trigger.js";
 import { collectExistingPitfalls, reviewPendingEntries } from "./observation-review.js";
 import { validateMessage, checkKeyChangesAgainstDiff, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER , checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText , isFrictionCarrierPath, checkFrictionCommitTargets } from "./commit-validation.js";
+// friction-fbd65401：长驻宿主进程内的模块陈旧检测（precheck 在陈旧时降为 unverifiable）。
+import { detectStaleValidatorModules } from "./module-freshness.js";
 import { registerSubagentResultTool } from "./subagent-result.js";
 import { registerResearchTools } from "./research-tools.js";
 import { registerSparkTools } from "./spark-tools.js";
@@ -728,13 +730,45 @@ function makeExecute(deps) {
     const structuralTrailerOk = message.includes("LDVH-Provider:") && message.includes("LDVH-Model:") && validateMessage(message).every((issue) => issue.rule !== "validation/signature_trailer_missing");
     const hasValueMismatch = signatureCheck.issues.length > 0;
     const hasNonSignatureFailure = issues.some((issue) => !issue.rule.startsWith("validation/signature_"));
+    // **宿主模块陈旧时不得报 failed**（friction-fbd65401，2026-10-28）。
+    //
+    // 本工具跑在**长驻宿主进程**里，而本仓的主干循环是「就地改 plugin/lib → 立刻
+    // 用同一会话的 precheck 验证」——此时跑的是改动前的旧代码，却以 `failed`（09
+    // §5.4：意为「确认未通过」）的形态回报。实测：同一候选，宿主内 precheck 两次
+    // 报 failed，而 `git-gate-runner.js`（新起进程）报 passed。
+    //
+    // 危害在于**错的方向会诱导人去改候选去迎合**（本次即据此收窄了检查范围）。
+    // 故：当 validator 模块的 mtime 晚于进程启动时刻时，本次结论**不可信**，
+    // 按 09 §5.4 归入 `unverifiable`（「输入不足以完成检查」）而非 `failed`。
+    //
+    // **不反向改判为 passed**：陈旧只说明「不知道」，不说明「候选合规」——那会把
+    // 一个检查缺口伪装成通过（00 §5.6 据实声明）。
+    //
+    // **只作用于 failed**：passed 侧不受影响（陈旧代码若判过，Git Gate 会以新代码
+    // 再判一次，终闸仍可信）；unverifiable 侧本就已如实声明。
+    const staleness = detectStaleValidatorModules();
+    const validatorStale = staleness.stale.length > 0;
     let mechanicalOutcome;
     if (hasNonSignatureFailure || !structuralTrailerOk || hasValueMismatch) mechanicalOutcome = "failed";
     else if (!route.ok) mechanicalOutcome = "unverifiable";
     else mechanicalOutcome = "passed";
+    // 陈旧优先于 failed：旧代码给出的「未通过」不是关于本候选的证据。
+    if (validatorStale && mechanicalOutcome === "failed") mechanicalOutcome = "unverifiable";
     const result = {
       mechanical_outcome: mechanicalOutcome,
       issues,
+      // 陈旧时如实披露，使「为什么不是 failed」可从返回值读出，而不是只留一句
+      // unverifiable 让人误以为是输入问题。
+      ...(validatorStale
+        ? {
+            stale_modules: {
+              reason: "the running host process loaded these validator modules BEFORE their on-disk versions — the verdict would be computed from stale code, so a `failed` result is withheld (09 §5.4 unverifiable)",
+              files: staleness.stale.map((entry) => ({ path: entry.file, mtime_ms: entry.mtime_ms })),
+              process_start_ms: staleness.start_ms,
+              how_to_clear: "restart the host (or reload the plugin), then retry; the Git Gate spawns a fresh process and is unaffected",
+            },
+          }
+        : {}),
       ...(mechanicalOutcome === "passed" ? { snapshot_identity: snapshotIdentity(diff, message), source_fingerprint: SOURCE_FINGERPRINT } : {}),
       signature_source: route.ok ? { provider: route.value.provider, model: route.value.model, event_type: route.value.eventType } : { unavailable_reason: route.reason ?? "session identity unavailable" }
     };
