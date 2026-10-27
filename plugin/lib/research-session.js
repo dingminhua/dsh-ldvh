@@ -102,26 +102,43 @@ function detectMultiMeaningTerms(text) {
  * Evaluate the stopping criteria after a research round.
  *
  * @param {object} round — the completed round's findings
- * @param {Array} round.confirmed — confirmed evidence entries this round
- * @param {Array} round.gaps — open gaps after this round
+ * @param {Array} round.confirmed — confirmed evidence entries **this round**
+ * @param {Array} round.gaps — open gaps after this round (cumulative)
  * @param {object} state — cumulative session state
  * @param {Array} state.subQuestions — the research sub-questions
  * @param {number} state.roundNumber — current round (1-based)
  * @param {number} state.maxRounds — round-cap limit
  * @param {number} state.consecutiveNoGainRounds — running no-gain counter
+ * @param {Array} [state.cumulativeConfirmed] — confirmed evidence accumulated
+ *   across **all** rounds; defaults to `round.confirmed` for single-round callers
  * @returns {object} { stop, reason, newNoGainCount }
  */
 export function evaluateConvergence(round, state) {
   const { confirmed = [], gaps = [] } = round;
-  const { subQuestions = [], roundNumber = 1, maxRounds = 4, consecutiveNoGainRounds = 0 } = state;
+  const {
+    subQuestions = [],
+    roundNumber = 1,
+    maxRounds = 4,
+    consecutiveNoGainRounds = 0,
+    cumulativeConfirmed = confirmed,
+  } = state;
 
   // Layer 1: sufficient — 33 §8.1 第 1 项要求「每个子问题至少有 confirmed 证据
   // 覆盖且无阻塞该子问题结论的 high 优先级缺口」，两项条件同时满足。
   // 覆盖判定是三态（见 subQuestionCoverage）：只有 `covered` 才算满足；
   // `uncovered` 明确不满足；`untagged`（有子问题但无一条带 key）判不了，
   // 一律不判充分——判不了不等于通过。
+  //
+  // 覆盖必须看**累计**证据，不能看本轮。证据在调研过程中只增不减（§9 三态
+  // 入库、§10 引用闭环都以累计库为单位），而「每个子问题至少有一条覆盖」的
+  // 主语是整场调研、不是某一轮。旧实现把本轮 confirmed 传给覆盖判定，后果是
+  // 多子问题调研永远收敛不了：R1 覆盖 q1、R2 覆盖 q2，R2 只拿 [q2] 去比，
+  // q1 依然「未覆盖」，一路走到 round-cap——不是更严格，是判据方向写反了：
+  // 轮次进度被当成了证据量。no-gain 层仍然只看本轮（它的语义就是「这一轮有
+  // 没有新增」），所以两个输入必须分开：confirmed 管 no-gain，cumulativeConfirmed
+  // 管覆盖。
   const highGaps = gaps.filter((g) => g.priority === "high");
-  if (confirmed.length > 0 && highGaps.length === 0 && subQuestionCoverage(subQuestions, confirmed) === "covered") {
+  if (confirmed.length > 0 && highGaps.length === 0 && subQuestionCoverage(subQuestions, cumulativeConfirmed) === "covered") {
     return { stop: true, reason: "sufficient", newNoGainCount: 0 };
   }
 
@@ -283,62 +300,151 @@ export function shapeEvidence(finding) {
 /**
  * Audit the citation loop of a research report body against the evidence.
  *
- * Checks (specs/33 §10.2/§10.3):
- *  1. Every [n] reference in the body has a corresponding confirmed entry
- *  2. Quoted text in the body matches the evidence verbatim
- *  3. No unanchored quotes (must have both source and anchor)
- *  4. No quotes exceeding the evidence entry length
+ * specs/33 §10.3 要求程序化审计四项：编号有对应条目 / 引文逐字一致 / 引用紧邻
+ * 引文 / 无双倍长引用。审计不通过时报告不得交付。
+ *
+ * **两套引用体制，必须分别按各自的形态判**（实测依据：仓库 45 份 Research 对象）
+ *  - §10.2 内联编号体制：`[声明编号] 逐字引文 + 来源 + 锚点`。实测 0 份对象使用；
+ *    正文里出现的 `[0]` `[1]` 全是 `uncertain[0]`、`process.argv[1]` 这类**下标**。
+ *  - 24 §8 溯源锚点体制：`关键发现`段每个发现单元末尾一行 `溯源：<ref>（<锚点>）`。
+ *    实测 45 份对象全部使用这一套。
+ *
+ * 由此得出两条不能想当然的口径：
+ *  1. `[n]` 必须是**引用编号**才算引用。前面紧跟 ASCII 标识符字符或闭合括号的，
+ *     是指标下标，把它当引用会产生「reference [0] has no corresponding evidence
+ *     entry」这种纯属误报的结论。
+ *  2. `「」` 在真实报告里大量用于**强调**（实测 1793 处，无一处紧邻任何引用标记）。
+ *     只有在正文确实启用了 `[n]` 编号体制时，`「」` 才承担「逐字引文」的语义；
+ *     否则一律按强调处理，不参与引用审计。把标点当语义会让每份正常报告都报错。
+ *
+ * 旧实现的两个真缺陷（已修）：
+ *  - 每行只 `match(/「([^」]+)」/)` 取**第一个**引文，同行第二个引文从不进扫描；
+ *  - 编号与引文**彼此独立**校验（编号查范围、引文查「在不在任一条目里」），
+ *    于是「[1] 标的是 A 的引文、引文其实出自 B」可以同时成立而无人发现。
+ *    这不是宽松，是把 §10.3 第 2、3 项当成了两条互不相干的检查。
  *
  * @param {string} body — the report markdown body
  * @param {Array} confirmed — the confirmed evidence entries
  * @returns {object} { ok, issues }
  */
+
+/** 引用编号与其引文之间允许出现的连接字符（§10.2 的 `[n] 逐字引文` 形态）。 */
+const REF_QUOTE_GAP = /^[\s:：、，,。.\-—*_`"'“”「」()（）]*$/;
+/** 连接段最大长度：超过就不算「紧邻」，而是另起一句话。 */
+const REF_QUOTE_MAX_GAP = 24;
+
+/** 24 §8 的溯源锚点行。 */
+const TRACE_LINE = /^溯源：(.+?)（(.+?)）\s*$/;
+
+/**
+ * 取出 text 中的**引用编号**（排除 `uncertain[0]` 这类标识符下标）。
+ * @returns {Array<{num:number,start:number,end:number}>}
+ */
+function citationRefsIn(text) {
+  const out = [];
+  for (const m of text.matchAll(/\[(\d+)\]/g)) {
+    const prev = m.index > 0 ? text[m.index - 1] : "";
+    // 前一个字符是 ASCII 标识符字符或闭合括号 → 是指标下标，不是引用编号。
+    if (/[\w$\])}]/.test(prev)) continue;
+    out.push({ num: parseInt(m[1], 10), start: m.index, end: m.index + m[0].length });
+  }
+  return out;
+}
+
 export function auditCitationLoop(body, confirmed) {
   const issues = [];
   const entries = normalizeConfirmedEntries(confirmed);
 
-  // Build index: statement → entry
-  const index = new Map();
-  entries.forEach((c, i) => index.set(c.statement, { entry: c, num: i + 1 }));
-
-  // Find all [n] references in the body
-  const refs = [...body.matchAll(/\[(\d+)\]/g)];
-  const usedNumbers = new Set();
-
-  for (const match of refs) {
-    const num = parseInt(match[1], 10);
-    usedNumbers.add(num);
-    if (num < 1 || num > entries.length) {
-      issues.push(`citation loop: reference [${num}] has no corresponding evidence entry (1–${entries.length})`);
+  // ---- 体制一：§10.2 内联编号 ----
+  const refs = citationRefsIn(body);
+  const refNumbers = new Set();
+  for (const ref of refs) {
+    refNumbers.add(ref.num);
+    if (ref.num < 1 || ref.num > entries.length) {
+      issues.push(`citation loop: reference [${ref.num}] has no corresponding evidence entry (1–${entries.length})`);
     }
   }
 
-  // Check that every confirmed entry is referenced at least once (informational, not a hard fail)
-  for (const [, { num }] of index) {
-    if (!usedNumbers.has(num)) {
-      // Not an error — unreferenced evidence is allowed (may be context)
-    }
-  }
-
-  // Check verbatim quotes in body: lines containing "「...」" after a [n] reference
-  // This is a light check — full verbatim comparison happens at F4 (source re-read).
-  // When NO entry carries quotes at all (the statement-only caller form), saying
-  // "not found in any evidence entry" would be a false accusation: the quote was
-  // never checkable, not wrong. Report the missing evidence instead, so the audit
-  // stays non-passing (the gate must not go green on unverifiable input) while the
-  // message names the real cause.
+  // 没有任何一条 confirmed 条目带逐字摘录时，「找不到」是**无法核验**而非**写错**。
+  // 审计仍然不通过（门不能对不可核验的输入放行），但结论必须说出真实原因。
   const anyQuotes = entries.some((c) => c.quotes.length > 0);
-  for (const line of body.split("\n")) {
-    const inlineQuote = line.match(/「([^」]+)」/);
-    if (inlineQuote) {
-      const quoteText = inlineQuote[1];
-      if (!anyQuotes) {
-        issues.push(`citation loop: inline quote 「${quoteText.slice(0, 40)}…」 cannot be checked — no confirmed entry carries quote evidence (pass the finalize bundle entries, not bare statements)`);
-        continue;
+
+  // 正文是否真的启用了 `[n]` 编号体制 —— 决定 `「」` 是引文还是强调。
+  const documentUsesRefs = refNumbers.size > 0;
+
+  if (documentUsesRefs) {
+    // 逐行、逐引文扫描（§10.3 第 2 项：每一处引文都要核，不是每行第一处）。
+    for (const line of body.split("\n")) {
+      const quotes = [...line.matchAll(/「([^」]+)」/g)];
+      if (quotes.length === 0) continue;
+      const refsOnLine = citationRefsIn(line);
+
+      for (const q of quotes) {
+        const quoteText = q[1];
+        const label = `inline quote 「${quoteText.slice(0, 40)}${quoteText.length > 40 ? "…" : ""}」`;
+
+        if (!anyQuotes) {
+          issues.push(`citation loop: ${label} cannot be checked — no confirmed entry carries quote evidence (pass the finalize bundle entries, not bare statements)`);
+          continue;
+        }
+
+        const owner = entries.find((c) => c.quotes.some((qq) => qq.text.includes(quoteText)));
+        if (!owner) {
+          issues.push(`citation loop: ${label} not found in any evidence entry`);
+        }
+
+        // (b) 紧邻的引用编号（§10.3 第 3 项 / §10.2 格式）
+        const adjacent = refsOnLine
+          .map((r) => {
+            if (r.end <= q.index) {
+              const gap = line.slice(r.end, q.index);
+              return REF_QUOTE_GAP.test(gap) && gap.length <= REF_QUOTE_MAX_GAP ? { ...r, direction: "before" } : null;
+            }
+            if (r.start >= q.index + q[0].length) {
+              const gap = line.slice(q.index + q[0].length, r.start);
+              return REF_QUOTE_GAP.test(gap) && gap.length <= REF_QUOTE_MAX_GAP ? { ...r, direction: "after" } : null;
+            }
+            return null;
+          })
+          .filter(Boolean);
+
+        if (adjacent.length === 0) {
+          issues.push(`citation loop: ${label} has no adjacent [n] reference — 33 §10.3 第3项要求引用位置紧邻引文，§10.2 的格式是「[声明编号] 逐字引文 + 来源 + 锚点」`);
+          continue;
+        }
+
+        // (c) 归属一致：引文必须出自它**所紧邻的那一个**编号对应的条目
+        const target = adjacent[0];
+        const entry = entries[target.num - 1];
+        if (entry) {
+          if (!entry.quotes.some((qq) => qq.text.includes(quoteText))) {
+            issues.push(`citation loop: ${label} is annotated with [${target.num}] but does not appear in that entry's quote text — 编号与引文不对应`);
+            continue;
+          }
+          // (d) 不得超出条目长度（§10.3 第 4 项）
+          const longest = Math.max(...entry.quotes.map((qq) => qq.text.length), 0);
+          if (quoteText.length > longest) {
+            issues.push(`citation loop: ${label} is longer than the evidence text it cites (${quoteText.length} > ${longest}) — 33 §10.3 第4项禁止长段引用超出证据库条目长度`);
+          }
+        }
       }
-      const found = entries.some((c) => c.quotes.some((q) => q.text.includes(quoteText)));
-      if (!found) {
-        issues.push(`citation loop: inline quote 「${quoteText.slice(0, 40)}…」 not found in any evidence entry`);
+    }
+  }
+
+  // ---- 体制二：24 §8 溯源锚点 ----
+  // 每个发现单元末尾的 `溯源：<ref>（<锚点>）` 就是该单元的引用声明。§10.2 的
+  // 「禁止引用未进入证据库的内容」在这一体制下等价于：溯源 ref 必须是证据库里
+  // 真实出现过的来源。证据库没有来源信息时判不了，如实不判（不得因此放行成
+  // 「通过」以外的结论）。
+  const knownSources = new Set();
+  for (const c of entries) for (const q of c.quotes) if (typeof q.source === "string") knownSources.add(q.source);
+  if (knownSources.size > 0) {
+    for (const line of body.split("\n")) {
+      const m = line.match(TRACE_LINE);
+      if (!m) continue;
+      const ref = m[1].trim();
+      if (!knownSources.has(ref)) {
+        issues.push(`citation loop: 溯源 ref "${ref.slice(0, 60)}" does not resolve to any evidence entry source — 33 §10.2 禁止引用未进入证据库的内容`);
       }
     }
   }
@@ -390,10 +496,21 @@ const PLACEHOLDER_PATTERNS = [/\{\{[^}]*\}\}/g, /\bTODO\b/g, /\bFIXME\b/g, /\bTB
  * 机器可识别的 `UNVERIFIED` 标注标记（33 §13.2）。
  *
  * 规范原文：「无法挂载 confirmed 证据的声明须标注 `UNVERIFIED`，并说明其优先级
- * 与缺口编号」。机械侧能判的只有**标注存在与否**——「优先级是否恰当」「缺口编号
- * 是否指向真实的 gap」需要读 gaps 语义，属 AI 语义审核范围（§14 效力边界）。
+ * 与缺口编号」。三项都是**标注本身的形状**，可以机械判定：
+ *   1. 标注存在；
+ *   2. 标注同时说明了优先级（high/medium/low 或 高/中/低）；
+ *   3. 标注同时给出缺口编号（`缺口编号 G1` 一类，或 `gap-2` / `[G3]`）。
+ *
+ * 机械判不了的是「这个优先级对不对」「这个缺口编号是否真在 gaps 里」——需要读
+ * gaps 语义，属 AI 语义审核范围（§14 效力边界）。但「根本没写」与「写了但指向
+ * 别处」是两件事：前者是漏检，后者才是语义问题。旧实现两项都不查，只要出现
+ * `UNVERIFIED` 六个字母就放行。
  */
 const UNVERIFIED_MARKER = /\bUNVERIFIED\b/;
+/** UNVERIFIED 标注的说明窗：标注之后这么多个字符内须看到优先级与缺口编号。 */
+const UNVERIFIED_ANNOTATION_WINDOW = 160;
+const PRIORITY_TOKEN = /\b(?:high|medium|low)\b|高优先|中优先|低优先|优先级\s*[:：]?\s*(?:高|中|低)/i;
+const GAP_ID_TOKEN = /缺口\s*(?:编号)?\s*[:：#]?\s*(?:[A-Za-z][-_ ]?\d+|\d+|[一二三四五六七八九十]+)|\bgaps?[-_ ]?\d+|\bG\d+\b|\bg-\d+\b/i;
 
 /**
  * Check the delivery contract (33 §13).
@@ -408,8 +525,11 @@ const UNVERIFIED_MARKER = /\bUNVERIFIED\b/;
  *   - 每项声明挂 evidence → 每个发现单元必须有溯源锚点（无锚点 = 证据悬空）；
  *   - 无 UNVERIFIED 未标注 → 无锚点的单元必须带 UNVERIFIED 标记，否则是
  *     「挂不上证据却当成已证实」。
+ *   - 标注本身须带优先级与缺口编号（§13.2 原文的后半句）。只有 `UNVERIFIED`
+ *     六个字母、不说明优先级与缺口编号的，仍是一条不合格标注——规范说的是
+ *     「并说明其优先级与缺口编号」，不是「出现这个词」。
  *
- * 判不了的部分如实不判：`UNVERIFIED` 后面的优先级与缺口编号是否合规、正文里
+ * 判不了的部分如实不判：优先级取值是否恰当、缺口编号是否指向真实 gap、正文里
  * 是否存在 H3 之外的自由段落声明——这些不是字形可判的，留给 AI 语义审核。
  *
  * @returns {{ok: boolean, issues: string[]}}
@@ -428,11 +548,26 @@ export function checkDeliveryContract(body) {
   // （正文结构解析的唯一实现在 research-writer.js）。
   for (const unit of extractFindingUnits(body)) {
     if (unit.hasTrace) continue;
-    if (UNVERIFIED_MARKER.test(`${unit.title}\n${unit.content ?? ""}`)) continue;
-    issues.push(
-      `delivery contract: finding unit "${unit.title.slice(0, 40)}..." 挂不上证据却未标注 UNVERIFIED`
-        + `（33 §13.2：每项声明须挂 confirmed 证据，否则须标注 UNVERIFIED 并说明优先级与缺口编号）`,
-    );
+    const text = `${unit.title}\n${unit.content ?? ""}`;
+    const marker = text.match(UNVERIFIED_MARKER);
+    if (!marker) {
+      issues.push(
+        `delivery contract: finding unit "${unit.title.slice(0, 40)}..." 挂不上证据却未标注 UNVERIFIED`
+          + `（33 §13.2：每项声明须挂 confirmed 证据，否则须标注 UNVERIFIED 并说明优先级与缺口编号）`,
+      );
+      continue;
+    }
+    // §13.2 后半句：标注须说明优先级与缺口编号。
+    const annotation = text.slice(marker.index, marker.index + UNVERIFIED_ANNOTATION_WINDOW);
+    const missing = [];
+    if (!PRIORITY_TOKEN.test(annotation)) missing.push("优先级（high/medium/low 或 高/中/低）");
+    if (!GAP_ID_TOKEN.test(annotation)) missing.push("缺口编号");
+    if (missing.length > 0) {
+      issues.push(
+        `delivery contract: finding unit "${unit.title.slice(0, 40)}..." 的 UNVERIFIED 标注缺 ${missing.join("、")}`
+          + `（33 §13.2 要求标注「并说明其优先级与缺口编号」，仅有标记不算合格标注）`,
+      );
+    }
   }
   return { ok: issues.length === 0, issues };
 }
@@ -522,10 +657,19 @@ export class ResearchSession {
       }
     }
 
-    // Evaluate convergence (§8)
+    // Evaluate convergence (§8).
+    // `confirmed` 是本轮（供 no-gain 层判「这一轮有没有新增」），
+    // `cumulativeConfirmed` 是累计库（供 sufficient 层判子问题覆盖）——
+    // 两者语义不同，不能互相顶替，见 evaluateConvergence 的注释。
     const convergence = evaluateConvergence(
       { confirmed: roundConfirmed, gaps: this.gaps },
-      { subQuestions: this.subQuestions, roundNumber: this.roundNumber, maxRounds: this.maxRounds, consecutiveNoGainRounds: this.consecutiveNoGain },
+      {
+        subQuestions: this.subQuestions,
+        roundNumber: this.roundNumber,
+        maxRounds: this.maxRounds,
+        consecutiveNoGainRounds: this.consecutiveNoGain,
+        cumulativeConfirmed: this.confirmed,
+      },
     );
     this.consecutiveNoGain = convergence.newNoGainCount;
 

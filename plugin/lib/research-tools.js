@@ -326,12 +326,22 @@ function executeAuditCitation(args) {
     return Promise.resolve(invalidRequest("research-session-machine", "confirmed (evidence array from finalize) is required for action=audit-citation", "audit-citation"));
   }
   const audit = auditCitationLoop(body, confirmed);
+  // scope/verification 必须点名**实际**检查过什么。旧值把整个审计写成
+  // `["citation-loop-audit"]` 一个名字，调用方无法从结果看出这道门覆盖了
+  // §10.3 的四项判据，还是只查了编号存在性。
+  const CITATION_CHECKS = [
+    "[n] 编号有对应证据条目（§10.3 第1项）",
+    "每处引文逐字一致，同行不止查首个（§10.3 第2项）",
+    "引用位置紧邻其引文，编号与引文归属一致（§10.3 第3项）",
+    "引文不超出所引条目长度（§10.3 第4项）",
+    "溯源 ref 可回指证据来源（§10.2）",
+  ];
   return Promise.resolve(envelope("research-session-machine", audit.ok ? "completed" : "rejected", {
     result: { ok: audit.ok, issues: audit.issues },
-    scope: { requested: "audit-citation", completed: audit.ok ? ["citation loop"] : [], not_completed: audit.ok ? [] : ["citation loop"] },
+    scope: { requested: "audit-citation", completed: audit.ok ? CITATION_CHECKS : [], not_completed: audit.ok ? [] : CITATION_CHECKS },
     sources: [{ kind: "spec", path: "specs/33-调研吸收系统规范.md", section: "10. 引用闭环" }],
     gaps: audit.issues,
-    verification: { checks: ["citation-loop-audit"], passed: audit.ok },
+    verification: { checks: CITATION_CHECKS, passed: audit.ok },
     follow_up: audit.ok ? [] : ["fix the cited issues; the report must not be delivered while the audit fails (33 §10.3)"]
   }));
 }
@@ -342,12 +352,19 @@ function executeCheckDelivery(args) {
     return Promise.resolve(invalidRequest("research-session-machine", "body (report markdown) is required for action=check-delivery", "check-delivery"));
   }
   const check = checkDeliveryContract(body);
+  // 同上：交付合同有 §13.1 与 §13.2 两组判据，只报 `["placeholder-scan"]`
+  // 会让「已挂证据」与「UNVERIFIED 标注合规」两项的结论无处可读。
+  const DELIVERY_CHECKS = [
+    "无占位符残留（§13.1）",
+    "每个发现单元挂 confirmed 证据，挂不上须标注 UNVERIFIED（§13.2 前半句）",
+    "UNVERIFIED 标注须带优先级与缺口编号（§13.2 后半句）",
+  ];
   return Promise.resolve(envelope("research-session-machine", check.ok ? "completed" : "rejected", {
     result: { ok: check.ok, issues: check.issues },
-    scope: { requested: "check-delivery", completed: check.ok ? ["placeholder scan"] : [], not_completed: check.ok ? [] : ["placeholder scan"] },
+    scope: { requested: "check-delivery", completed: check.ok ? DELIVERY_CHECKS : [], not_completed: check.ok ? [] : DELIVERY_CHECKS },
     sources: [{ kind: "spec", path: "specs/33-调研吸收系统规范.md", section: "13. 交付合同" }],
     gaps: check.issues,
-    verification: { checks: ["placeholder-scan"], passed: check.ok },
+    verification: { checks: DELIVERY_CHECKS, passed: check.ok },
     follow_up: check.ok ? [] : ["fill the placeholders and re-run; fail loud, no half-finished report (33 §13.3)"]
   }));
 }

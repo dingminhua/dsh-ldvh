@@ -204,7 +204,54 @@ test("shapeEvidence rejects unknown state", () => {
 
 test("auditCitationLoop passes when references match", () => {
   const confirmed = [{ statement: "s1", quotes: [{ text: "verbatim text here", anchor: "a", source: "https://x.com" }] }];
-  const body = "The finding is 「verbatim text here」 as stated in [1].";
+  // §10.2 的形态是「[n] 逐字引文」——编号与引文必须紧邻。旧用例把两者隔了半句
+  // 话（"... as stated in [1]."），按 §10.3 第 3 项恰恰是不合格的写法。
+  const body = "The finding is [1]「verbatim text here」, as stated.";
+  const result = auditCitationLoop(body, confirmed);
+  assert.ok(result.ok, JSON.stringify(result.issues));
+});
+
+test("auditCitationLoop requires the [n] to sit next to its quote (§10.3 第3项)", () => {
+  const confirmed = [{ statement: "s1", quotes: [{ text: "verbatim text here", anchor: "a", source: "https://x.com" }] }];
+  // 编号存在、引文逐字存在，但两者被整句无关文字隔开 —— 归属无法判定，不得放行。
+  const body = "The finding is 「verbatim text here」 as stated in [1] after much discussion.";
+  const result = auditCitationLoop(body, confirmed);
+  assert.ok(!result.ok);
+  assert.ok(result.issues.some((i) => i.includes("no adjacent [n] reference")), JSON.stringify(result.issues));
+});
+
+test("auditCitationLoop checks every quote on a line, not just the first (§10.3 第2项)", () => {
+  const confirmed = [{ statement: "s1", quotes: [{ text: "real quote", anchor: "a", source: "https://x.com" }] }];
+  // 同行第二个引文是编造的；旧实现 `line.match(/「([^」]+)」/)` 无 g 标志，只看第一个。
+  const body = "[1]「real quote」 and also 「fabricated sentence」";
+  const result = auditCitationLoop(body, confirmed);
+  assert.ok(!result.ok);
+  assert.ok(result.issues.some((i) => i.includes("fabricated sentence")), JSON.stringify(result.issues));
+});
+
+test("auditCitationLoop ignores 「」 emphasis when the document uses no [n] regime", () => {
+  // 45 份真实报告里 41 份正文含「」，绝大多数是强调用法（「已投递」与「被执行」
+  // 是两件事）。体制一（内联编号）未启用时引号不承担引用语义，只走溯源锚点体制。
+  const confirmed = [{ statement: "s1", quotes: [{ text: "verbatim text here", anchor: "a", source: "https://x.com" }] }];
+  const body = "这里「已投递」与「被执行」是两件事，正文不使用引用编号。";
+  const result = auditCitationLoop(body, confirmed);
+  assert.ok(result.ok, JSON.stringify(result.issues));
+});
+
+test("auditCitationLoop resolves 溯源 refs against the evidence sources (§10.2)", () => {
+  const confirmed = [{ statement: "s1", quotes: [{ text: "q", anchor: "a", source: "https://real.example/doc" }] }];
+  const good = "### 发现一\n正文。\n\n溯源：https://real.example/doc（第 3 节）";
+  assert.ok(auditCitationLoop(good, confirmed).ok);
+  const bad = "### 发现一\n正文。\n\n溯源：https://invented.example/nope（第 3 节）";
+  const result = auditCitationLoop(bad, confirmed);
+  assert.ok(!result.ok);
+  assert.ok(result.issues.some((i) => i.includes("does not resolve")), JSON.stringify(result.issues));
+});
+
+test("auditCitationLoop does not mistake identifier subscripts for reference numbers", () => {
+  const confirmed = [{ statement: "s1" }];
+  // `uncertain[0]` / `gaps[1]` 是指标下标，不是 §10.2 的声明编号。
+  const body = "见 uncertain[0] 与 gaps[1]。";
   const result = auditCitationLoop(body, confirmed);
   assert.ok(result.ok, JSON.stringify(result.issues));
 });
@@ -219,7 +266,8 @@ test("auditCitationLoop flags out-of-range reference", () => {
 
 test("auditCitationLoop flags unanchored inline quote", () => {
   const confirmed = [{ statement: "s1", quotes: [{ text: "different text", anchor: "a", source: "https://x.com" }] }];
-  const body = "Quote 「this is not in evidence」 here.";
+  // 启用 [n] 体制后引号才承担引用语义；此处的引文不在任何条目里。
+  const body = "Quote [1]「this is not in evidence」 here.";
   const result = auditCitationLoop(body, confirmed);
   assert.ok(!result.ok);
   assert.ok(result.issues.some((i) => i.includes("not found in any evidence")));
