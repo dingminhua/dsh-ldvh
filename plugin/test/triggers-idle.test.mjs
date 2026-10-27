@@ -74,7 +74,7 @@ function makeFakeTimers() {
   return api;
 }
 
-function makeTriggers({ governed = true, onSessionCheckpoint, silenceMs = 300_000, seedActivityAt, now, registerDiagnostic } = {}) {
+function makeTriggers({ governed = true, onSessionCheckpoint, silenceMs = 300_000, now, registerDiagnostic } = {}) {
   const dispatches = [];
   const activity = { entries: [], record(kind, payload) { this.entries.push({ kind, payload }); } };
   const persisted = [];
@@ -91,7 +91,6 @@ function makeTriggers({ governed = true, onSessionCheckpoint, silenceMs = 300_00
     registerDiagnostic: registerDiagnostic ?? ((entry) => { diagnostics.push(entry); return Promise.resolve(); }),
     onSessionCheckpoint: onSessionCheckpoint ?? ((info) => { dispatches.push(info); return Promise.resolve(); })
   });
-  if (seedActivityAt !== undefined) triggers.restoreActivityAt(seedActivityAt);
   return { triggers, dispatches, activity, persisted, diagnostics, agent, session: agent.session };
 }
 
@@ -356,10 +355,10 @@ test("11 §6.1：定时器带 unref（不拖住进程退出）", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 持久化与恢复
+// 持久化与「装载不重建计时」（2026-10-27 Human 决定）
 // ---------------------------------------------------------------------------
 
-test("11 §6.1：活动时刻经 `persistActivityAt` 落盘（热重载后计时不失真）", () => {
+test("11 §6.1：活动时刻经 `persistActivityAt` 落盘（供诊断复算时机，不再用于重建计时）", () => {
   const timers = makeFakeTimers();
   try {
     const { triggers, persisted } = makeTriggers();
@@ -369,26 +368,39 @@ test("11 §6.1：活动时刻经 `persistActivityAt` 落盘（热重载后计时
   } finally { timers.restore(); }
 });
 
-test("11 §6.1：`restoreActivityAt` 恢复后可直接计时（无须等新活动）", () => {
+test("11 §6.1：**装载不重建计时**——没有任何接口能把持久化锚点变成待触发计时", () => {
   const timers = makeFakeTimers();
   try {
-    const { triggers, dispatches } = makeTriggers({ seedActivityAt: 1_000_000_000_000 });
-    assert.equal(timers.size(), 1, "恢复锚点后须立即武装");
+    // 语义钉子：`restoreActivityAt` 已删除，且不得以别的名字回来。装载路径
+    // （lifecycle 的 install）也不再调用任何恢复入口。此处断言「不存在该接口」
+    // 与「无活动时武装不了」两条同时成立，使「重启后接着计时」无法悄悄复活。
+    const { triggers, dispatches } = makeTriggers();
+    assert.equal(
+      typeof triggers.restoreActivityAt, "undefined",
+      "装载时恢复锚点的入口须已删除（2026-10-27：重启使安静期作废）"
+    );
+    triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
+    assert.equal(timers.size(), 0, "无活动（未结束过回合）时不得武装");
     timers.fireAll();
-    assert.equal(dispatches.length, 1);
-    assert.equal(dispatches[0].source, "silence:timer");
+    assert.equal(dispatches.length, 0, "重启后没结束过回合 → 不得派发");
   } finally { timers.restore(); }
 });
 
-test("11 §6.1：`restoreActivityAt` 拒绝非法值（不得把未知读成「刚活动过」）", () => {
+test("11 §6.1：重启后**只有新回合结束**才能重新起算并派发", () => {
   const timers = makeFakeTimers();
   try {
-    for (const bad of [NaN, undefined, null, 0, -5, "abc", {}]) {
-      const { triggers } = makeTriggers();
-      triggers.restoreActivityAt(bad);
-      assert.equal(timers.size(), 0, `非法值 ${String(bad)} 不得武装`);
-      triggers.dispose();
-    }
+    const { triggers, dispatches, session } = makeTriggers();
+    // 装载：什么都没有
+    assert.equal(timers.size(), 0);
+    // 新回合结束 → 起算 → 到期 → 派发一次
+    triggers.onSessionEvent(session, { type: "turn/end", data: { turn: 8 } });
+    assert.equal(timers.size(), 1, "新回合结束须重新武装");
+    timers.fireAll();
+    assert.equal(dispatches.length, 1);
+    assert.equal(dispatches[0].source, "silence:timer");
+    // 且同一段安静期仍只触发一次（不因重启语义放宽「至多一次」）
+    triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
+    assert.equal(timers.size(), 0);
   } finally { timers.restore(); }
 });
 
@@ -510,65 +522,44 @@ test("可观测性：诊断旁路自身抛错不得影响派发判定", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 恢复计时（热重载）
+// 剩余量武装与销毁（2026-10-27：装载恢复已删除，本节只留仍有作用的判据）
 // ---------------------------------------------------------------------------
 
-test("恢复计时：久远锚点按**剩余量**武装（延迟接近 0，不白等一个完整安静时长）", () => {
+test("11 §6.1：剩余量武装——idle 晚到时不补等整段安静时长", () => {
   const timers = makeFakeTimers();
   try {
-    const { triggers } = makeTriggers({ seedActivityAt: 1_000_000_000_000 - 290_000 });
+    const { triggers } = makeTriggers();
+    // 活动发生 → 时间过去 290s → 宿主此时才报 idle（宿主只在 status **变化**时发事件）
+    triggers.onTurnStopping({ agent: agentStub(), turn: 1 });
+    timers.advance(290_000);
+    triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
+    assert.equal(timers.size(), 1);
     const armed = [...timers.pending.values()][0];
     assert.ok(armed.ms <= 10_000, `剩余量应接近 10s，实际 ${armed.ms}ms`);
-    triggers.dispose();
   } finally { timers.restore(); }
 });
 
-test("恢复计时：已武装时恢复**更新**的锚点 → 计时器与锚点同源，到期仍会派发", () => {
+test("11 §6.1：重复的 idle 事件不得叠加第二个计时器", () => {
   const timers = makeFakeTimers();
   try {
-    const { triggers, dispatches } = makeTriggers();
+    const { triggers } = makeTriggers();
     triggers.onTurnStopping({ agent: agentStub(), turn: 1 });
     triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
-    timers.advance(1000);
-    triggers.restoreActivityAt(timers.now());
-    assert.equal(timers.size(), 1, "仍只有一个计时器（先清后武装）");
-    timers.fireAll();
-    assert.equal(dispatches.length, 1, "到期仍会派发（不得空转）");
+    triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
+    assert.equal(timers.size(), 1, "已在计时则不得重复武装");
   } finally { timers.restore(); }
 });
 
-test("恢复计时：陈旧锚点不得覆盖更新的锚点（异步旁路的陈旧快照）", () => {
+test("11 §6.1：`dispose()` 之后不得再武装、不得对已销毁对象派发", () => {
   const timers = makeFakeTimers();
   try {
-    const { triggers } = makeTriggers();
-    triggers.onTurnStopping({ agent: agentStub(), turn: 1 });
-    const anchor = triggers.snapshot().lastActivityAt;
-    triggers.restoreActivityAt(anchor - 60_000);
-    assert.equal(triggers.snapshot().lastActivityAt, anchor, "陈旧锚点不得覆盖");
-  } finally { timers.restore(); }
-});
-
-test("恢复计时：超出 Date 可表示范围的值不得抛错，也不得留下半提交状态", () => {
-  const timers = makeFakeTimers();
-  try {
-    const { triggers } = makeTriggers();
-    triggers.onTurnStopping({ agent: agentStub(), turn: 1 });
-    const before = triggers.snapshot();
-    assert.doesNotThrow(() => triggers.restoreActivityAt(9_000_000_000_000_000));
-    assert.equal(triggers.snapshot().lastActivityAt, before.lastActivityAt, "不得半提交");
-  } finally { timers.restore(); }
-});
-
-test("恢复计时：`dispose()` 之后不得再武装、不得对已销毁对象派发", () => {
-  const timers = makeFakeTimers();
-  try {
-    const { triggers, dispatches } = makeTriggers();
+    const { triggers, dispatches, session } = makeTriggers();
     triggers.onTurnStopping({ agent: agentStub(), turn: 1 });
     triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
     triggers.dispose();
     triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
     triggers.onTurnStopping({ agent: agentStub(), turn: 2 });
-    triggers.restoreActivityAt(1_000_000_000_000 + 1000);
+    triggers.onSessionEvent(session, { type: "turn/end", data: { turn: 2 } });
     assert.equal(timers.size(), 0, "销毁是终局");
     timers.fireAll();
     assert.equal(dispatches.length, 0);
@@ -582,9 +573,14 @@ test("恢复计时：`dispose()` 之后不得再武装、不得对已销毁对�
 test("轮次恢复：重启后尚无回合时，回填的轮次随派发上抛（此前必为 undefined）", () => {
   const timers = makeFakeTimers();
   try {
-    const { triggers, dispatches } = makeTriggers({ seedActivityAt: 1_000_000_000_000 });
+    const { triggers, dispatches, agent } = makeTriggers();
     assert.equal(triggers.snapshot().lastTurn, undefined);
     assert.equal(triggers.restoreLastTurn(42), true);
+    // 重启后由**新回合结束**起算（不再由装载恢复起算），到期派发须带上回填值。
+    triggers.onAgentStatus({ agent, status: "idle" });
+    assert.equal(timers.size(), 0, "无活动锚点 → 装载/空闲都不得武装");
+    triggers.onTurnStopping({ agent, turn: 42 });
+    triggers.onAgentStatus({ agent, status: "idle" });
     timers.fireAll();
     assert.equal(dispatches[0].turn, 42, "回填的轮次须随派发上抛");
   } finally { timers.restore(); }

@@ -133,6 +133,23 @@ async function setup({ withSubagents = true, tasks = { "friction-discovery": tru
   return { ctx, lifecycle, home, project, dshHomePath, roots, startsRef: () => starts };
 }
 
+/**
+ * 等「受管辖判定」落定。
+ *
+ * 为什么必须轮询而不是固定等待：`turn/end` 只在 `getScopeState() === "governed"`
+ * 时才起算安静期（11 §6.1 的管辖闸），而该判定发生在 install 的异步旁路里。
+ * 固定等待在全量并发跑测试时不够（实测 2026-10-27：5 条重启用例集体红），
+ * 而把等待时间一味拉大又会让整套测试变慢——按条件轮询既确定又快。
+ */
+async function waitForGoverned(lifecycle, agentId, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (lifecycle.snapshotOf(agentId)?.scopeState === "governed") return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error(`受管辖判定未在 ${timeoutMs}ms 内落定（agent=${agentId}）`);
+}
+
 test("调用方覆盖：驱动检查点后**必须留下运行痕迹**（而非抛错被吞）", async () => {
   const { ctx, dshHomePath, roots, project } = await setup();
 
@@ -478,27 +495,25 @@ test("重启：无回合事件时从宿主会话记录回填轮次，且回填�
     },
   });
 
-  // 「重启」的形态：没有任何 turn-stopping / turn-end 事件，直接恢复活动锚点。
-  // 令锚点足够久远，修复后的 restoreActivityAt 会立刻武装并按剩余量到期。
-  const { recordActivity } = await import("../lib/friction-watermark.js");
-  await recordActivity(dshHomePath, {
-    projectRoot: project,
-    sessionId: agent.session.header.id,
-    at: new Date(Date.now() - 60_000).toISOString(),
-  });
-
+  // 「重启」的形态：装载之后该会话**尚无任何带轮次号的回合事件**。
+  //
+  // **2026-10-27 变更**：装载路径不再恢复活动锚点（重启使安静期作废），故不能
+  // 再靠「种一个久远锚点」让计时器立刻到期。现在计时**只能由回合结束起算**：
+  // 这里发一条 **不带轮次号** 的 `turn/end`——它足以让安静期起算，但**不写**
+  // `lastTurn`，于「重启后尚无回合」这一被测前提仍然成立，回填路径照样被走到。
+  // （带轮次号的 `turn/end` 会直接把 `lastTurn` 填上，回填就不再发生。）
   roots.push(agent);
   await ctx.emit("agent/created", { agent, source: "startup" });
-  // 喂入窗口材料：只有 `assistant/message`（**不是** turn/end）不会写 `lastTurn`，
-  // 故「重启后尚无回合」这一被测前提仍然成立。
-  //
-  // ⚠️ 必须在 `agent/created` 返回后**同帧**发出：事件处理器在 install 里同步注册，
-  // 而启动恢复旁路的武装是异步的（先 await 受管辖判定）。若先等一轮再喂材料，
-  // 恢复锚点会让安静期计时器**立刻**到期并派发——此时累积器还是空的，本次运行
-  // 会被判成 `empty-window`，材料一条都进不去（实测踩过：这正是首版失败的原因）。
+  // 等受管辖判定落定：`turn/end` 只在 `getScopeState() === "governed"` 时起算安静期
+  // （11 §6.1 的管辖闸），而该判定是异步的。装载路径已不建计时器，故此处无需担心
+  // 旧陷阱（「累积器还空着就到期」）。
+  await waitForGoverned(lifecycle, agent.id);
+  // 喂入窗口材料：只有 `assistant/message`（**不是** turn/end）不会写 `lastTurn`。
   await ctx.emit("session/event", session, { type: "user/message", data: { content: [{ type: "text", text: userText }] } });
   await ctx.emit("session/event", session, { type: "assistant/message", data: { turn: 7, message: { content: [{ type: "text", text: assistantText }] } } });
-  await new Promise((r) => setTimeout(r, 1500));   // 受管辖判定 + 武装 + 安静期到期（注入 50ms）
+  // 回合结束（**不带轮次号**）→ 起算安静期（注入 50ms）→ 到期派发。
+  await ctx.emit("session/event", session, { type: "turn/end", data: {} });
+  await new Promise((r) => setTimeout(r, 1500));   // 安静期到期（注入 50ms）+ 落地
 
   // ① 位置确已写回触发器：`lastTurn` 此前必为 undefined，现在须是宿主记录里的最大值。
   //    触发器状态直接住在 `lifecycle.turns` 里（createTurnTriggers 的注入点），
@@ -552,7 +567,7 @@ test("重启：Human 关闭全部子项时不得为读位置而打开会话日�
   // 判定之前，虽然能红，但那是 TDZ 事故而非本纪律——故补一条专属用例：
   // 此处**没有**任何 turn 事件（lastTurn 必为 undefined，回填一定会触发），
   // 唯一可能阻止读取的就是顺序纪律本身。
-  const { ctx, dshHomePath, roots, project, lifecycle } = await setup({
+  const { ctx, roots, project, lifecycle } = await setup({
     tasks: { "friction-discovery": false, "experience-capture": false },
   });
   const sessionId = `session-restart-disabled-${Date.now()}`;
@@ -568,17 +583,12 @@ test("重启：Human 关闭全部子项时不得为读位置而打开会话日�
     },
   });
 
-  const { recordActivity } = await import("../lib/friction-watermark.js");
-  await recordActivity(dshHomePath, {
-    projectRoot: project,
-    sessionId,
-    at: new Date(Date.now() - 60_000).toISOString(),
-  });
-
   roots.push(agent);
   await ctx.emit("agent/created", { agent, source: "startup" });
-  await new Promise((r) => setTimeout(r, 500));
-  await ctx.emit("agent/status", { agent, status: "idle" });
+  await waitForGoverned(lifecycle, agent.id);
+  // **2026-10-27**：安静期只能由回合结束起算（装载不再恢复锚点），故用一条
+  // **不带轮次号**的 `turn/end` 起算——它不写 `lastTurn`，被测前提不变。
+  await ctx.emit("session/event", session, { type: "turn/end", data: {} });
   await new Promise((r) => setTimeout(r, 1200));
 
   // 先证明**检查点真的被派发过**——否则「没读日志」是空过（根本没走到回调）。
@@ -601,17 +611,12 @@ test("重启：宿主记录不可读时维持 fail-closed 并如实记下原因�
     open: async () => { throw new Error("session log is not flushed"); },
   });
 
-  const { recordActivity } = await import("../lib/friction-watermark.js");
-  await recordActivity(dshHomePath, {
-    projectRoot: project,
-    sessionId: agent.session.header.id,
-    at: new Date(Date.now() - 60_000).toISOString(),
-  });
-
   roots.push(agent);
   await ctx.emit("agent/created", { agent, source: "startup" });
-  await new Promise((r) => setTimeout(r, 500));
-  await ctx.emit("agent/status", { agent, status: "idle" });
+  await waitForGoverned(lifecycle, agent.id);
+  // **2026-10-27**：安静期只能由回合结束起算（装载不再恢复锚点），故用一条
+  // **不带轮次号**的 `turn/end` 起算——它不写 `lastTurn`，被测前提不变。
+  await ctx.emit("session/event", agent.session, { type: "turn/end", data: {} });
   await new Promise((r) => setTimeout(r, 1200));
 
   // 读不到就不得报成已恢复：触发器的 lastTurn 必须仍是 undefined（无位置），
