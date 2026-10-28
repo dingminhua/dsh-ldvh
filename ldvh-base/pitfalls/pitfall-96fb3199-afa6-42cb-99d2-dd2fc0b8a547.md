@@ -97,7 +97,19 @@ change_log:
 
 **机械化承载（2026-10-28 盘点）**：`plugin/lib/markdown-structure.js:74` 的 `countAtxHeadings`（CRLF 归一、≤3 前置空格、井号后空格/tab、跳 fenced block）被 `plugin/lib/spark-writer.js:523-527`、`plugin/lib/pitfall-writer.js:214-218`、`plugin/lib/workcase-writer.js:1399-1402` 用来断言「H1 恰好一个」，用例 `plugin/test/markdown-structure.test.mjs:79-89` 与 `plugin/test/spark-writer.test.mjs:1082-1113`、`plugin/test/pitfall-writer.test.mjs:668-687` 同时列了多余 H1 的连续/中间/末尾/缩进/tab 与三种合法变体，它断言的正是「集合性质用计数而非首行比较」。覆盖边界：`plugin/lib/friction-writer.js:501-514` 只拒「开头」H1、`:529-531` 仍是首个非空行比较（实测正文中/末尾各多一个 `# 额外` 仍 `ok:true`），workcase 虽计数但无逃逸形态用例（把计数降级为首匹配式后 spark/pitfall 各 2 红、workcase 与 friction 0 红）；setext、行内代码、HTML 注释中的 `#` 未覆盖（模块头自认）。
 
-## 影响与适用范围
+**规范补写进展（2026-10-28）**：已在 `specs/06` §6 新增「结构校验须按集合性质判定，不得以首行比较替代集合判定」——判定对象是该规则约束的集合（计数/枚举）；以单点比较**替代**集合判定属禁止形态，单点比较本身可保留；等价形态以 01 §2 已登记的 GFM ATX 规则为准（示例清单只作示例）；结构性字面按该规则排除（围栏、行内代码、HTML 块）；计数与内容比较须并存而非互替。§7 补「结构校验的判定对象」验证行，§1 补负担与风险，§2 补 GFM 外部语法声明（01 §7.1.2）。
+
+该处经**三轮代理独立审核**（隔离子代理），**第 3 轮 `pass`，无 blocking**：
+- 第 1 轮 `needs_revision` 1 blocking + 9 non-blocking。审核并纠正了作者两处前提错误：① 作者称「判定单位」为规范源未吸收词，实际 20:166／21:177／23:160 已用该词表示「长度计量单位（UTF-16 码元）」，属同词异义（已改为「判定对象」）；② 作者写「计数式校验尚未建成」，实际 `countAtxHeadings` 已存在且 spark/pitfall/workcase 三个 writer 在用，只有 adr/friction 仍为首行比较（已改为两类对象分述）。
+- 第 2 轮提出新 blocking：F1 把 CommonMark 当判据而 06 §2 未登记该标准（01 §2 登记的却是 GFM）、判据无锚点；F2 前文「不得写首行比较」与后文「可与首行比较并存」字面互斥。两项已修（改引 GFM；禁止对象精确为「以首行比较替代集合判定」）。
+- 第 3 轮确认全部解决并 `pass`；审核另核到 GFM 与 CommonMark 在闭合序列上一致，但 GFM 规范文本写「仅 space」而 cmark-gfm 实现接受 `[ \t]`，属判据的可核边界。
+
+**遗留（非阻断，按 23 §12 未覆盖口径读）**：
+1. **实现尚未满足本条要求 2/3 的形态**（审核实测）：`h2Titles("## T ##")` 得 `["T ##"]`（闭合序列未剥离，三个 writer 的 H1 文本比较亦不剥），故 `# T #` 会被判为「首个标题不符」——正是本条要消灭的误报；`h2Titles("<div>\n## html\n</div>")` 把 HTML 块内的 `## html` 计入；`h2Titles("##")`（GFM 允许的裸空 ATX）未被计数。本条 §7 行的处置列已要求「先修该处的识别再声明完成」，但修复本身未做。
+2. §1 负担登记的两处括注只列两项反向用例，未列 §5 变异三向的第 3 向，也未像同节既有条款那样声明该向适用或不适用。
+3. 把 GFM 作为「全部载体方言」属隐含扩展（01 §6.1 只对规范文件说「Markdown 使用 GFM」），现无冲突但未点明适用范围。
+
+
 
 对 Markdown 正文做结构校验的场合——特别是以「首个匹配项 == 模板」实现标题层级/数量或段落序列校验时的漏检与误报。已验证实例：plugin/lib/spark-writer.js 与 plugin/lib/pitfall-writer.js 的正文结构校验。
 
