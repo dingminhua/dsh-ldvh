@@ -35,7 +35,7 @@ change_log:
 
 本对象已按合并收口，不再以原形态跟踪。原主张「Norm 实现侧全部未建」部分仍真（无 writer、无 tools 受控入口、无 Git Gate 断言），但经机械核实有两处须更正：`ldvh-base/norms/` 目录**已补建**（**2026-09-13 二次更正**：本段原记「已建（空目录）」，经复核**失实**——该目录在 2026-09-13 补建**之前并不存在**；「不存在」与「空目录」在本系统不等价，`factSourceStatus()` 分别判 `incomplete` / `ready`，当时的机械核实把「目录不存在」误记为「目录已建但为空」）、`FACT_DIRECTORIES` 已含 Norm（`governed-projects.js:17`），故 `:287` 的建目录逻辑已包含它。真实剩余为承载层管线缺席，与 21 号 WorkCase 的缺口性质完全相同，故合并为单一承接对象 `c94ea382`「Norm 与 WorkCase 承载层补建」。**上述更正不影响本对象的终态**：合并去向与理由不变。
 
-（来源：docs/fact-norm-design-consolidated.md §0 C11、§8；机械核实 2026-09-13，二次复核 2026-09-13）
+（来源：fact-norm-design-consolidated.md（原 docs 目录，已随 ec19ba6 清除、可自该提交回取） §0 C11、§8；机械核实 2026-09-13，二次复核 2026-09-13）
 
 ## 调查问题
 

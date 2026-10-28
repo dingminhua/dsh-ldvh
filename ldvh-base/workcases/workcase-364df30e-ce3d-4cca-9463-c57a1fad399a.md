@@ -41,7 +41,7 @@ reviews:
     provider: workbuddy
     model: deepseek-v4.1-flash
     implementer_session_id: session-6f1905a4-3761-44b4-b0fd-3a80b6589e31
-    summary: 对象：提交 48d1264（WorkCase 呈现保真与设计语言收敛）。基线：HEAD 前版 6ac30ec 与 specs/21 §8/§9.3/§10.3/§10.4、specs/10 §5.5/§12、docs/01 §1.4 第4条/§1.8.1/§1.10.2。方法：隔离子代理通读全量 diff 与规范原文，做 5 次变异验证并跑 tsc/测试/eslint，逐字节 md5 还原核对。覆盖：三投影函数逐行类型判定与闭集（未放宽）、新增测试判别力（5/5 变异被捕获）、与六类样板的外壳/正文层级/身份头部/复制入口一致性、§12 第7第8条、v4 残留全仓含 dist 搜索。未覆盖：浏览器端真实渲染与视觉核验、Gate 1/2 写入路径与 CLI 侧契约、eslint 逐条同源比对。发现：无阻断、无重要，1 项提示——docs/archive/v4-web-migration-survey.md 仍列已删除文件名，但该目录自述不具规范效力且为 v4 源树冻结盘点，不构成悬挂引用。保证边界：证明投影不再静默丢弃合规字段且未放宽闭集、测试具运行时判别力、设计语言与样板一致；不证明浏览器视觉层与 Human 阅读可用性。
+    summary: 对象：提交 48d1264（WorkCase 呈现保真与设计语言收敛）。基线：HEAD 前版 6ac30ec 与 specs/21 §8/§9.3/§10.3/§10.4、specs/10 §5.5/§12、docs/01 §1.4 第4条/§1.8.1/§1.10.2。方法：隔离子代理通读全量 diff 与规范原文，做 5 次变异验证并跑 tsc/测试/eslint，逐字节 md5 还原核对。覆盖：三投影函数逐行类型判定与闭集（未放宽）、新增测试判别力（5/5 变异被捕获）、与六类样板的外壳/正文层级/身份头部/复制入口一致性、§12 第7第8条、v4 残留全仓含 dist 搜索。未覆盖：浏览器端真实渲染与视觉核验、Gate 1/2 写入路径与 CLI 侧契约、eslint 逐条同源比对。发现：无阻断、无重要，1 项提示——archive/v4-web-migration-survey.md（原 docs 目录，已随 ec19ba6 清除、可自该提交回取） 仍列已删除文件名，但该目录自述不具规范效力且为 v4 源树冻结盘点，不构成悬挂引用。保证边界：证明投影不再静默丢弃合规字段且未放宽闭集、测试具运行时判别力、设计语言与样板一致；不证明浏览器视觉层与 Human 阅读可用性。
   - at: 2026-09-27T03:12:37.255Z
     provider: trae
     model: Doubao-Seed-2.1-Pro
@@ -74,7 +74,7 @@ result:
   residual:
     - 浏览器端真实渲染未核验：证据止于编译、构建产物与契约测试，未做各派生分组详情页的运行期目视核对（视觉层与 Human 阅读可用性未覆盖）。
     - 同型缺陷未普查其余六类：六类阅读布局（ADR/Pitfall/Spark/Research/Friction/Norm）是否存在同类按错误类型判定致字段静默丢弃未在本单普查（scope 明确排除改动它们）。
-    - docs/archive/v4-web-migration-survey.md 仍列举已删除的 workcaseDetailProjection.ts：经复核确认为非悬挂引用（该目录自述不具规范效力，且文档系对 v4 源树的冻结盘点，非当前仓库索引）。
+    - archive/v4-web-migration-survey.md（原 docs 目录，已随 ec19ba6 清除、可自该提交回取） 仍列举已删除的 workcaseDetailProjection.ts：经复核确认为非悬挂引用（该目录自述不具规范效力，且文档系对 v4 源树的冻结盘点，非当前仓库索引）。
     - statusColors.ts 的 executing 键安全性依赖事实而非类型系统：依据是当前仓库无对象以字面 executing 为 status 值，而非类型保证；将来若有类型引入该字面状态，颜色语义会被静默共用。
     - dist 仅本机机械验证：dist/ 为 .gitignore 产物不入库，仅确认 index.html 引用新 hash 且文件存在，未覆盖部署链路。
     - model.ts 的 FIELD_ORDER_BY_TYPE.workcase 实为死代码：WorkCase 详情走专属布局且 FactReadingContent 在通用兜底分支前 return，故该顺序永不被消费；改动价值在清除 v4 词汇，注释已如实标注。
@@ -189,7 +189,7 @@ change_log:
 - 步骤 7 完成：删除零消费者 `shared/workcaseDetailProjection.ts` 与零消费的 `has_execution_section`（连同其专用 helper）、`model.ts` 的 WorkCase 字段序改为 21 §8 闭集；`plugin/web/docs/10` §4.2 由 v4 语义改写为 v5（三态直读、派生分组与五档、判据三态、字段在场性与分组无关）。
 - 步骤 8 完成：新增 `workcase-projection-fidelity.test.ts`（6 项）——不查源码文本，而跑真实管道对全量真实对象断言「实际存在的字段在投影后不消失」；四类缺陷逐条注入后各被捕获（D1 3 项失败、D2 3 项、D3 2 项、D4 2 项）。`workcase-design-language-contract.test.ts` 新增 6 项守卫，其中「身份块不重复」与「四主体共有字段」两项经变异验证可失败。
 - 2026-09-17 执行期外部事件（如实登记，非本单产物）：另一会话在本次执行期间提交 6ac30ec（C2 授权校验与 rebatch 的 Code 托管字段，触及 specs/21 与 plugin/lib/writer），与本单范围不重叠；本单在合并后的 HEAD 上复跑三件套仍全绿。
-- 2026-09-17 独立复核完成（隔离子代理，判定「有条件通过」）：复核者独立做 5 次变异验证（satisfied 改回 string、删 started_at、整删 residual、gate_1 退回 closed-only、删 authorization_fingerprint/scope_snapshot），全部被新增测试捕获；并核实投影未放宽闭集、与六类样板同形、v4 残留无悬挂引用。唯一提示项为 `docs/archive/v4-web-migration-survey.md` 仍列已删除文件名——该目录自述不具规范效力且系 v4 源树的冻结盘点，非当前仓库索引，不影响本单成立（转残留责任跟踪）。
+- 2026-09-17 独立复核完成（隔离子代理，判定「有条件通过」）：复核者独立做 5 次变异验证（satisfied 改回 string、删 started_at、整删 residual、gate_1 退回 closed-only、删 authorization_fingerprint/scope_snapshot），全部被新增测试捕获；并核实投影未放宽闭集、与六类样板同形、v4 残留无悬挂引用。唯一提示项为 `archive/v4-web-migration-survey.md`（原 docs 目录，已随 `ec19ba6` 清除、可自该提交回取） 仍列已删除文件名——该目录自述不具规范效力且系 v4 源树的冻结盘点，非当前仓库索引，不影响本单成立（转残留责任跟踪）。
 - 2026-09-27 关闭准备（后续会话）：本单 2026-09-17 建立的 attempt 与 2026-09-22 记录的复核条目均不带会话身份，关闭侧独立性比对（21 §14 前置条件二）无基准可建。经心跳按存量补齐路径写入 `attempt.session_id` / `session_source`——该值即**当次心跳会话**的身份，机械上成为本次比对所记录的实施者基线；原复核条目身份不可事后追溯（规范明文「未知不等于独立」），故关闭前另记一条带身份的独立复核。
 - 2026-09-27 关闭准备暴露的写路径缺陷（如实登记，本单之外处置）：准备过程中实测 `plugin/lib/workcase-writer.js` 两处缺陷——①`executeWorkcaseObject` 以调用方 payload 的 `reviews` 覆盖落盘值，漏传即静默丢弃既有复核流水；②`stampReviewEntries` 对身份缺席的既有条目取 `storedSessionId ?? 当前写入者身份`，会盖上假的记录者身份。二者均超出本单授权范围（scope 明列「不改 plugin/lib writer/tools」），经 Human 裁定「直接执行」在本单之外修复，并加三条回归测试（`plugin/test/workcase-writer.test.mjs`，逐条变异验证具判别力）；宿主重载后本次心跳即跑在修复后的写器上，历史条目逐字保留。
 - 2026-09-27 独立复核完成（隔离子代理，双基线复核）：复核者通读对象与 48d1264 全量 diff，在 48d1264 提交态（临时 worktree）与当前 HEAD 双基线上复跑——48d1264 时 tsc 退出 0、web 262/262 全绿；HEAD 提交态 367/367 全绿。判定：9 条主张 8 条属实；步骤 8 判据文本只要求「投影无损测试可失败」（成立，satisfied 守卫改回 string 的变异触发 fidelity 5 项失败），但把 `workcaseCheckState.ts` 三态映射改恒 unknown 的变异未被本单新增的两个测试捕获，仅被后续工单建立的 `workcase-lifecycle.test.ts` 捕获——呈现映射判别力缺口如实转 residual（当前已由后续测试补齐）。当前 HEAD tsc 2 错（d7a19a1 引入）与当前工作树 fidelity L547 失败（另一会话未提交的 workcase-63700bd2 正文改动暴露 `parseWorkCaseResultDraft` 段退出条件缺口）均非本单产物，转 residual 与 advice。
@@ -214,7 +214,7 @@ change_log:
     - **接受现状**：本单证据止于编译与契约测试，运行期目视核对不在本单授权范围；该边界已如实登记，就此了结。
   - **同型缺陷未普查其余六类**：本次只修 WorkCase 呈现链。六类阅读布局（ADR/Pitfall/Spark/Research/Friction/Norm）是否存在同类「按错误类型判定致字段静默丢弃」未在本单普查（本单授权范围明确排除改动它们）。
     - **接受现状**：原拟另立工单；该未普查面已另行立为 Spark（议题「六类阅读布局同型守卫未扩面」，其 `refs` 已声明承自本单，见本卡引用区的关联行），本单不再跟踪。
-  - **`docs/archive/v4-web-migration-survey.md` 仍列举已删除的 `workcaseDetailProjection.ts`**：经复核确认为非悬挂引用（该目录自述不具规范效力，且文档系对 v4 源树的冻结盘点，非当前仓库索引）。
+  - **`archive/v4-web-migration-survey.md`（原 docs 目录，已随 `ec19ba6` 清除、可自该提交回取） 仍列举已删除的 `workcaseDetailProjection.ts`**：经复核确认为非悬挂引用（该目录自述不具规范效力，且文档系对 v4 源树的冻结盘点，非当前仓库索引）。
     - **接受现状**：原拟在后续 docs 清理批次顺手更正；经复核该目录自述不具规范效力、文档系 v4 源树的冻结盘点，更正它会破坏其「冻结盘点」的性质，故保持原样、就此了结。
   - **`statusColors.ts` 的 `executing` 键安全性依赖事实而非类型系统**：复核指出该键改色安全的依据是「当前仓库无对象以字面 `executing` 为 status 值」，而非类型保证；若将来有类型引入该字面状态，颜色语义会被静默共用。已如实登记，本次不扩围处置。
     - **接受现状**：该键的成立依据已如实登记为「事实而非类型保证」，本次不扩围；若将来真有类型引入该字面状态，届时按新证据另议，本单就此了结。
