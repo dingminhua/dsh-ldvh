@@ -31,7 +31,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
-import { registerWorkcaseTools, pickReviewSummary } from "../lib/workcase-tools.js";
+import { registerWorkcaseTools, pickReviewSummary, anchorConclusionExcerpt, AUDIT_THREE_LABELS } from "../lib/workcase-tools.js";
 import { createLifecycleRegistry } from "../lib/lifecycle.js";
 import { createSessionScopes } from "../lib/session-scopes.js";
 
@@ -378,9 +378,96 @@ test("record_review: a summary that is NOT a verbatim excerpt of the child's con
       summary: "父会话改写的、看起来更漂亮的结论。",
     }, exec);
     const text = JSON.stringify(result);
-    assert.match(text, /not a verbatim excerpt of the reviewer subagent's captured conclusion/,
+    assert.match(text, /is not an excerpt of the reviewer subagent's captured conclusion/,
       `the parent must not be able to substitute its own text for the reviewer's conclusion, got: ${text.slice(0, 400)}`);
   });
+});
+
+// ---------------------------------------------------------------------------
+// friction-b389a3bd 的比对口径：空白形状不参与判等，非空白字符须连续命中原文，
+// 入账取原文自身的字节区间（21 §14「逐字子串」的字面不破，防代述不受削弱）。
+// ---------------------------------------------------------------------------
+
+test("anchorConclusionExcerpt: 忠实摘录在空白形状差异下可锚定，且入账的是原文字节区间", () => {
+  // 登记表里的原始字节：带缩进与行尾空白——宿主渲染层把这些吃掉，父会话看不出
+  // 也复现不了（2026-10-18 实测「153 条文本含行尾空白」）。旧口径 includes 必拒。
+  const src = "复核结论：\n  对象：workcase-364df30e 的呈现保真修复。   \n  基线：HEAD 前版。\n  发现：三处判据逐项一致。";
+  const visible = "对象：workcase-364df30e 的呈现保真修复。\n基线：HEAD 前版。"; // 渲染可见形态
+  assert.ok(!src.includes(visible), "前提：旧字节口径下这份忠实摘录必然被拒（本账现象）");
+  const a = anchorConclusionExcerpt(src, visible);
+  assert.ok(a !== null, "新口径下同一份忠实摘录必须可锚定");
+  assert.ok(src.includes(a.text), "入账文本必须是原文的字节级子串（逐字子串不变量保持）");
+  assert.equal(src.slice(a.start, a.end), a.text, "区间自洽");
+});
+
+test("anchorConclusionExcerpt: 代述改写、词序倒装被拒；硬换行与缩进被容忍（只放宽空白）", () => {
+  const src = "对象：A。基线：B。方法：C。";
+  assert.equal(anchorConclusionExcerpt(src, "对象：A。基线：C。"), null, "改一个非空白字符即失配");
+  assert.equal(anchorConclusionExcerpt(src, "方法：C。对象：A。"), null, "词序倒装即失配");
+  assert.equal(anchorConclusionExcerpt("空结论。", "   \n\t "), null, "纯空白摘录不构成出处");
+  // 2026-10-19 现场的另一半：硬换行拆开的中文句（渲染层看不出断行位置）旧口径必拒
+  const hard = "发现：三处判据逐项一\n致，无悬挂引用。";
+  const a = anchorConclusionExcerpt(hard, "发现：三处判据逐项一致，无悬挂引用。");
+  assert.ok(a !== null, "原文中间有硬换行时，可见形态的摘录必须可锚定");
+  assert.ok(hard.includes(a.text), "入账仍是原文字节区间");
+  // 不相邻拼接：命中的是覆盖两者及其间原文的完整区间——多出的段落自审计者原文，非代述通道
+  const two = "第一段。   \n\n第二段。";
+  const b = anchorConclusionExcerpt(two, "第一段。第二段。");
+  assert.ok(b !== null, "探针跨过原文中的空行时锚定整段");
+  assert.equal(b.text, two, "入账文本＝原文全段（父会话的字进不去）");
+});
+
+test("anchorConclusionExcerpt: 超限区间不在本函数判拒，由调用方与 writer 的上限报准确原因", () => {
+  const long = "x".repeat(601);
+  const a = anchorConclusionExcerpt(long, long);
+  assert.ok(a !== null, "锚定与长度上限是两件事：误报成「无出处」会掩盖真实原因");
+  assert.equal(a.text.length, 601);
+});
+
+test("record_review: 空白形状差异不再触发摘录拒绝（新口径走到身份闸，旧口径死在摘录闸）", async () => {
+  // 判别用例：同一份输入，旧 includes 口径报「not a verbatim excerpt」，
+  // 新口径摘录锚定成功、失败点后移到测试环境不可得的身份闸（setupRelay 无宿主会话身份）。
+  await withTemp("workcase-relay-f-", async (base) => {
+    const src = "复核结论。\n  对象：workcase-xxx 的修复。   \n  发现：三处判据一致。";
+    const { write, exec } = await setupRelay(base, { agentId: "child-6", sessionId: "s-child-6", conclusion: src });
+    const result = await write.execute({
+      action: "record_review", object_uid: "00000000-0000-4000-8000-000000000000",
+      expected_fingerprint: "0".repeat(64), change_summary: "x",
+      reviewer_child_agent_id: "child-6",
+      summary: "对象：workcase-xxx 的修复。\n发现：三处判据一致。", // 渲染可见形态
+    }, exec);
+    const text = JSON.stringify(result);
+    assert.doesNotMatch(text, /is not an excerpt/,
+      `whitespace-shape differences must not fail the excerpt gate anymore, got: ${text.slice(0, 400)}`);
+    assert.match(text, /identity_unavailable.*could not be read from the DSH session record/s,
+      `the excerpt gate must pass and the flow reach the identity gate (its next step), got: ${text.slice(0, 400)}`);
+  });
+});
+
+test("record_audit: 空白形状差异同样不再触发摘录拒绝（两通道同口径）", async () => {
+  await withTemp("workcase-relay-g-", async (base) => {
+    const src = "审核结论。\n  对象恰当性：符合。   \n  方案可行性：符合。";
+    const { write, exec } = await setupRelay(base, { agentId: "child-7", sessionId: "s-child-7", conclusion: src });
+    const result = await write.execute({
+      action: "record_audit", object_uid: "00000000-0000-4000-8000-000000000000",
+      expected_fingerprint: "0".repeat(64), change_summary: "x",
+      auditor_child_agent_id: "child-7", verdict: "pass",
+      summary: "对象恰当性：符合。\n方案可行性：符合。",
+    }, exec);
+    const text = JSON.stringify(result);
+    assert.doesNotMatch(text, /is not an excerpt/,
+      `the audit channel must share the relaxed gate, got: ${text.slice(0, 400)}`);
+    assert.match(text, /identity_unavailable.*could not be read from the DSH session record/s,
+      `expected the identity gate as the failure point, got: ${text.slice(0, 400)}`);
+  });
+});
+
+test("pickReviewSummary: audit 通道按三维选段，不取过程话首段（friction-7a64bbe2 例② 的 audit 半边）", () => {
+  const processLine = "I've finished the pre-Gate-1 audit. Here's what I found.";
+  const substance = "对象恰当性：符合。方案可行性：符合。scope 清晰度：三处不符已列。";
+  assert.equal(pickReviewSummary(`${processLine}\n\n${substance}`, AUDIT_THREE_LABELS), substance);
+  // 缺省参数仍是复核七要素口径，既有行为不变
+  assert.ok(pickReviewSummary(substance).length > 0);
 });
 
 test("record_review: a LONG conclusion is not silently truncated — a verbatim excerpt is required (21 §8 cap)", async () => {

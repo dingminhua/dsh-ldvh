@@ -54,6 +54,7 @@ import {
   listWorkcaseObjects,
   precheckWorkcaseCreate,
   bodyHasResultSection,
+  REVIEW_SUMMARY_MAX_CHARS,
 } from "./workcase-writer.js";
 import { currentRouteValues, currentSessionIdentity } from "./session-signature.js";
 import { authoritativeSignature, authoritativeSessionIdentity } from "./signature-channel.js";
@@ -540,14 +541,22 @@ const GATE1_REQUEST_KEYS = [
  *   2. 没有段落含要素时，退化为第一个能装进 600 的段落；
  *   3. 一段都装不下 → 返回 null，由调用方 fail-closed 要求显式逐字概要。
  *
+ * `labels` 参数（2026-10-28）：复核轴按 02 §16 七要素选段，审核轴按 21 §8 的三维
+ * （对象恰当性／方案可行性／scope 清晰度）选段。此前 audit 通道未传本函数、只取
+ * 首段，是 friction-7a64bbe2 例② 的同型漏修半边（过程话污染 summary），本次一并
+ * 改走选段逻辑——缺省值保持七要素，既有复核侧行为不变。
+ *
  * 导出供单元测试直接覆盖（该分支在集成路径上被身份校验挡在前面）。
  *
  * @param {string} conclusion 子代理捕获的结论全文
+ * @param {string[]} [labels] 选段时计数的要素标签，缺省为复核七要素
  * @returns {string|null} 可入账的概要；无法自动选取时为 null
  */
-export function pickReviewSummary(conclusion) {
-  const CAP = 600;
-  const SEVEN = ["对象", "基线", "方法", "覆盖", "未覆盖", "发现", "保证边界"];
+export const REVIEW_SEVEN_LABELS = Object.freeze(["对象", "基线", "方法", "覆盖", "未覆盖", "发现", "保证边界"]);
+export const AUDIT_THREE_LABELS = Object.freeze(["对象恰当性", "方案可行性", "scope 清晰度"]);
+
+export function pickReviewSummary(conclusion, labels = REVIEW_SEVEN_LABELS) {
+  const CAP = REVIEW_SUMMARY_MAX_CHARS;
   const text = typeof conclusion === "string" ? conclusion.trim() : "";
   if (text.length === 0) return null;
   const paragraphs = text
@@ -555,10 +564,63 @@ export function pickReviewSummary(conclusion) {
     .map((p) => p.trim())
     .filter((p) => p.length > 0);
   const fits = (p) => p.length <= CAP;
-  const hits = (p) => SEVEN.filter((label) => p.includes(label)).length;
+  const hits = (p) => labels.filter((label) => p.includes(label)).length;
   const withElements = paragraphs.filter((p) => fits(p) && hits(p) > 0);
   if (withElements.length > 0) return withElements.reduce((a, b) => (hits(b) > hits(a) ? b : a));
   return paragraphs.find(fits) ?? null;
+}
+
+/**
+ * 把调用方提交的概要**锚回**子代理结论的原文字节区间（friction-b389a3bd）。
+ *
+ * 阻碍事实：校验方持有的是宿主登记表的**原始字节**，而摘录方唯一能读到的文本经过
+ * 宿主渲染层——行尾空白、缩进与硬换行在那里看不出也复现不了（2026-10-18 实测「153
+ * 条文本含行尾空白」，2026-10-19 现场「带缩进或硬换行就再失败一次」）。原实现要求
+ * `conclusion.includes(summary)`，于是同一份忠实摘录被反复拒绝，调用方最终只能写入
+ * 信息量极低的短串，审核记录退化。
+ *
+ * 口径：**空白（含换行、缩进）在判等中一律忽略**，非空白字符必须按原文顺序连续命中；
+ * 命中后入账的是**原文自身的连续区间**（起止取首个与末个非空白字符）。故 21 §14
+ * 「`summary` 须为子代理捕获结论的**逐字子串**」的字面不破——落盘文本确实是结论的
+ * 字节级子串，父会话依旧改不动任何一个非空白字符（防代述不受削弱，被放宽的只有
+ * 不可复现的空白形状）。
+ *
+ * 不放宽的部分如实声明：标点、用词、字符增删与顺序仍须逐字命中。探针把两处不相邻
+ * 原文拼成一段时命中的是**覆盖两者及其间原文的完整区间**——落盘的多出的一段仍是审计
+ * 者自己的原文（长度由调用方上限兜住），拼不进父会话的字，故不构成代述通道。
+ *
+ * 长度上限**不在本函数判定**（超限区间交由调用方按各自的字段上限报告，以免把
+ * 「装不下」误报成「无出处」）。
+ *
+ * @param {string} conclusion 子代理捕获的结论全文（原文）
+ * @param {string} excerpt 调用方按可见形态截取的概要
+ * @returns {{text: string, start: number, end: number} | null} 原文区间；无法锚定时 null
+ */
+export function anchorConclusionExcerpt(conclusion, excerpt) {
+  if (typeof conclusion !== "string" || typeof excerpt !== "string") return null;
+  const src = stripWhitespaceWithMap(conclusion);
+  const probe = stripWhitespaceWithMap(excerpt);
+  if (src.norm.length === 0 || probe.norm.length === 0) return null;
+  const at = src.norm.indexOf(probe.norm);
+  if (at < 0) return null;
+  const start = src.map[at].start;
+  const end = src.map[at + probe.norm.length - 1].end;
+  return { text: conclusion.slice(start, end), start, end };
+}
+
+/**
+ * 丢弃全部空白字符，并为每个保留字符登记其在原文中的起止索引（`map[i]` 与
+ * `norm[i]` 一一对应）。返回的 norm 用于比对，map 用于把命中位置映回原文区间。
+ */
+function stripWhitespaceWithMap(text) {
+  let norm = "";
+  const map = [];
+  for (let i = 0; i < text.length; i++) {
+    if (/\s/.test(text[i])) continue;
+    norm += text[i];
+    map.push({ start: i, end: i + 1 });
+  }
+  return { norm, map };
 }
 
 function requireString(args, key, action) {
@@ -935,17 +997,25 @@ async function executeWriteObject(args, exec, deps) {
         //
         // 故：调用方只能提供**概要**（≤600），而该概要必须是子代理结论的**逐字子串**
         // ——既保证概要有出处（不被父会话自由改写），又让全文留在 transcript 里，与
-        // §8 分工一致。省略 summary 时取结论首段，若其本身超限则要求调用方指明概要。
+        // §8 分工一致。省略 summary 时按要素选段，选不出则要求调用方指明概要。
+        //
+        // 比对口径（friction-b389a3bd，2026-10-28）：原实现要求 `conclusion.includes(summary)`
+        // 的**字节精确**匹配，但校验方持有的是登记表原始字节、摘录方只能读到经宿主渲染的
+        // 文本（行尾空白与缩进看不出也复现不了），忠实摘录因此被反复拒绝、记录退化。现改为
+        // `anchorConclusionExcerpt`：**空白形状不参与判等**，非空白字符须按原文顺序连续命中，
+        // 入账取**原文自身的字节区间**——21 §14「逐字子串」的字面因此不破，防代述不受削弱。
         const conclusion = child.conclusion.trim();
         if (summary !== null) {
-          if (!conclusion.includes(summary.trim())) {
+          const anchored = anchorConclusionExcerpt(conclusion, summary);
+          if (anchored === null) {
             return invalidRequest("workcase-write-object",
-              "the supplied summary is not a verbatim excerpt of the reviewer subagent's captured conclusion — the "
+              "the supplied summary is not an excerpt of the reviewer subagent's captured conclusion — the "
               + "recorded summary must be traceable to what the reviewer actually produced, not rewritten by the parent "
-              + "session (防「代述」冒充). Pass an exact substring of its conclusion (the full text stays in the "
-              + "transcript, per 21 §8 复核详情不入对象).", "record_review");
+              + "session (防「代述」冒充). Pass a span of its conclusion text verbatim apart from whitespace shape "
+              + "(leading/trailing and in-line whitespace is tolerated; wording, punctuation and order are not). "
+              + "The full text stays in the transcript, per 21 §8 复核详情不入对象.", "record_review");
           }
-          summary = summary.trim();
+          summary = anchored.text;
         } else {
           // **省略 summary 时取哪一段**（friction-7a64bbe2 例②）。
           //
@@ -962,7 +1032,7 @@ async function executeWriteObject(args, exec, deps) {
             return invalidRequest("workcase-write-object",
               "the reviewer subagent's conclusion cannot be recorded automatically: it is longer than the 600-char "
               + "reviews[].summary cap (21 §8) and no single paragraph of it fits. The full text belongs in the "
-              + "transcript (复核详情不入对象); pass `summary` as a verbatim excerpt (≤600 chars) carrying the 02 §16 "
+              + "transcript (复核详情不入对象); pass `summary` as an excerpt (≤600 chars, whitespace shape tolerated) carrying the 02 §16 "
               + "seven elements. Refusing rather than truncating: a silently truncated conclusion would read as complete.",
               "record_review");
           }
@@ -1059,27 +1129,32 @@ async function executeWriteObject(args, exec, deps) {
         // 结论文本以子代理的真实产出为准：调用方只能提供**概要**（≤600），且该概要
         // 必须是子代理结论的**逐字子串**——既保证概要有出处（不被父会话自由改写），
         // 又让全文留在 transcript 里（21 §8「审核详情不入对象」）。
+        // 比对口径同 `record_review`（friction-b389a3bd：空白形状不参与判等、入账取原文
+        // 字节区间）；省略 summary 时的选段口径亦同（friction-7a64bbe2 例② 的 audit 半边，
+        // 按 21 §8 的三维——对象恰当性／方案可行性／scope 清晰度——选段，不按位置取首段）。
         const conclusion = child.conclusion.trim();
         if (summary !== null) {
-          if (!conclusion.includes(summary.trim())) {
+          const anchored = anchorConclusionExcerpt(conclusion, summary);
+          if (anchored === null) {
             return invalidRequest("workcase-write-object",
-              "the supplied summary is not a verbatim excerpt of the auditor subagent's captured conclusion — the "
+              "the supplied summary is not an excerpt of the auditor subagent's captured conclusion — the "
               + "recorded summary must be traceable to what the auditor actually produced, not rewritten by the parent "
-              + "session (防「代述」冒充). Pass an exact substring of its conclusion (the full text stays in the "
-              + "transcript, per 21 §8 审核详情不入对象).", "record_audit");
+              + "session (防「代述」冒充). Pass a span of its conclusion text verbatim apart from whitespace shape "
+              + "(leading/trailing and in-line whitespace is tolerated; wording, punctuation and order are not). "
+              + "The full text stays in the transcript, per 21 §8 审核详情不入对象.", "record_audit");
           }
-          summary = summary.trim();
+          summary = anchored.text;
         } else {
-          const firstParagraph = conclusion.split(/\n\s*\n/)[0].trim();
-          if (firstParagraph.length <= 600) {
-            summary = firstParagraph;
-          } else {
+          const picked = pickReviewSummary(conclusion, AUDIT_THREE_LABELS);
+          if (picked === null) {
             return invalidRequest("workcase-write-object",
-              "the auditor subagent's conclusion is longer than the 600-char pre_reviews[].summary cap (21 §8). The full "
-              + "text belongs in the transcript (审核详情不入对象); pass `summary` as a verbatim excerpt (≤600 chars) of "
+              `the auditor subagent's conclusion cannot be recorded automatically: it is longer than the ${REVIEW_SUMMARY_MAX_CHARS}-char `
+              + "pre_reviews[].summary cap (21 §8) and no single paragraph of it fits. The full "
+              + "text belongs in the transcript (审核详情不入对象); pass `summary` as an excerpt (≤600 chars) of "
               + "it. Refusing rather than truncating: a silently truncated conclusion would read as complete.",
               "record_audit");
           }
+          summary = picked;
         }
         auditorIdentity = authoritativeSessionIdentity({ sessionId: child.sessionId, source: "host", origin: "subagent" });
         if (auditorIdentity === null) {
@@ -1395,7 +1470,7 @@ function parameterSchemaFor(operationKey) {
     adjustment_decision: { type: "string", enum: ["approved", "rejected"], description: "decide_adjustment: Human 对该申请的判定（21 §14）。批准须同时给出 body_markdown_after（**不含 H1**，与 execute/close 同形）；新步骤须出现在正文「## 计划」节（载体内聚）" },
     by: { type: "string", description: "decide_adjustment: 作出决定的人（同 gate_1.approver 的形态，21 §14）。**先决：须同时给出 human_authorization（Human 的授权记录，缺之 fail-closed，与 correct 同规格）**；**注意：`by` 是自报文本**——「谁批的」的可核痕迹来自 Code 托管的决定者会话身份（**在能取得 host 来源身份时**盖戳进 decision.session_id；取不到时该痕迹缺失，返回值的 decider_identity 会显式报 unavailable），规范已如实声明该边界" },
     human_authorization: { type: "string", description: "decide_adjustment: **必填**——Human 的授权记录（谁／何时／覆盖什么），与 correct 的 human_authorization 同规格，缺之 fail-closed。它会被写进 change_log；**它不证明 Human 真的批过**，只让「没有转述的批准」机械上不可发生（21 §14）" },
-    summary: { type: "string", description: "record_review: the review conclusion (≤600 chars), carrying the 02 §16 seven elements (对象/基线/方法/覆盖/未覆盖/发现/保证边界). `at`, provider/model and session_id are stamped by Code — the caller supplies only this text. When reviewer_child_agent_id is given, this MUST match the subagent's captured conclusion verbatim (or be omitted to adopt it)." },
+    summary: { type: "string", description: "record_review / record_audit: the conclusion summary to record (≤600 chars; review carries the 02 §16 seven elements 对象/基线/方法/覆盖/未覆盖/发现/保证边界, audit the 21 §8 three dimensions 对象恰当性／方案可行性／scope 清晰度). `at`, provider/model and session_id are stamped by Code — the caller supplies only this text. When the subagent id is given, this must be a span taken from that subagent's captured conclusion (防「代述」冒充): wording, punctuation and order verbatim, while whitespace shape (trailing spaces, indentation, line breaks) is ignored for matching and the text recorded is the source span itself. Omit it to adopt the conclusion paragraph carrying those elements." },
     reviewer_child_agent_id: { type: "string", description: "record_review: relay an ISOLATED SUBAGENT's review — REQUIRED (04 §7.3: 受管辖隔离子代理是独立复核的唯一承载形式). Pass its agent id (from a BACKGROUND subagent spawn — a synchronous spawn's id is reclaimed on return and cannot be relayed). The identity and the conclusion text are then taken from the host's own subagent registry (Code-observed, not settable by the caller), so the implementer can neither forge the reviewer's identity nor substitute its own text. Omitting it is refused: recording your own session's review is 主控自查, not 独立复核 — stop and report to Human (00 §5.7) instead." },
     auditor_child_agent_id: { type: "string", description: "record_audit: relay an ISOLATED SUBAGENT's pre-Gate-1 audit — REQUIRED, same mechanism and same rationale as reviewer_child_agent_id (21 §14「建前审核记录」). Pass a BACKGROUND-spawned audit subagent's agent id; the identity and conclusion text are taken from the host's own subagent registry, so the implementer cannot forge the auditor's identity nor substitute its own conclusion. Omitting it is refused — otherwise a self-written audit would satisfy the coverage gate and the gate would be vacuous. This channel acts on status=draft only (the audit axis targets a candidate that has not yet taken effect)." },
     verdict: { type: "string", enum: ["pass", "needs_revision"], description: "record_audit: the audit verdict (21 §8 closed set). The Gate 1 coverage gate accepts ONLY \"pass\"; an unknown or missing value fails closed. `candidate_fingerprint` is computed by Code (same function as gate_1.authorization_fingerprint) and cannot be supplied by the caller — otherwise the「which version was audited」criterion would be handed to the party being judged." },
