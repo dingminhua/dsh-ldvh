@@ -1,8 +1,9 @@
 ---
 title: 首行比较式校验漏掉多余H1
-status: active
+status: discarded
 scope: 对 Markdown 正文做结构校验的场合——特别是以「首个匹配项 == 模板」实现标题层级/数量或段落序列校验时的漏检与误报。已验证实例：plugin/lib/spark-writer.js 与 plugin/lib/pitfall-writer.js 的正文结构校验。
 trigger_signal: 当插入器不再自动生成 H1、或仓库改用 CommonMark 完整解析器、或载体格式引入 setext 标题时重审本经验。
+disposition: 规避已由 specs/06 §6「结构校验须按集合性质判定」与 §7「结构校验的判定对象」验证行吸收为强制规则；规则由规范源承载，本条仅作来源引用（23 §6.3、35 §8.6 第 3 项）。
 object_uid: 96fb3199-afa6-42cb-99d2-dd2fc0b8a547
 fact_type_key: pitfall
 created_at: 2026-09-13T07:10:48.819Z
@@ -19,6 +20,10 @@ change_log:
     provider: minmax
     model: MiniMax-M3.1-Flash
     summary: 机械化承载盘点登记（2026-10-28）：承载位置为 plugin/lib/markdown-structure.js:74 的 countAtxHeadings 与 spark/pitfall/workcase 三个 writer 的 H1 计数断言及配套用例；状态与 scope 不变（23 §9.3 补充级更新）。
+  - at: 2026-10-28T03:31:58.168Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 经验废止（active→discarded，23 §16 第 2 项，Human 2026-10-28 指令）：规避已由 specs/06 §6「结构校验须按集合性质判定」与 §7「结构校验的判定对象」吸收；同时修复既有结构缺陷（补回缺失的「影响与适用范围」H2，本对象此前 body_valid=false）。
 ---
 
 # 首行比较式校验漏掉多余H1
@@ -72,6 +77,10 @@ change_log:
 
 ## 规避
 
+**已被规范源吸收（2026-10-28，Human 决定废止）**：本段规避已由 `specs/06` §6「结构校验须按集合性质判定，不得以首行比较替代集合判定」承载（判定对象是该规则约束的集合；以单点比较**替代**集合判定属禁止形态；等价形态按 GFM ATX 规则认定；结构性字面按该规则排除；计数与内容比较须并存而非互替），强制落点为 `06` §7 验证表「结构校验的判定对象」行。自该条款生效起，本条不再独立承担约束，仅作为该规则的来源引用保留（`specs/23` §6.3、`specs/35` §8.6 第 3 项）。**引用时请以条文标题与章节号定位**：`06` 行号随改动漂移，本仓已发生过多起废止对象裸行号失准的情形。
+
+以下为废止前的原始规避记录，保留为历史基线：
+
 **核对条件**（写结构校验时逐条自问）：
 
 1. 被校验对象的合法写法是否**唯一**？存在等价变体（空白、缩进、行尾、大小写）时必须先归一化。
@@ -94,7 +103,6 @@ change_log:
 
 未覆盖：setext 标题形态、行内代码中的 `#`、HTML 注释中的 `#`（代理审核时指出注释内 `#` 亦为误报，本次未处理——因当前载体不含该形态）；CRLF 采取「容忍」而非「改写」策略时的长期一致性未经实测。
 
-
 **机械化承载（2026-10-28 盘点）**：`plugin/lib/markdown-structure.js:74` 的 `countAtxHeadings`（CRLF 归一、≤3 前置空格、井号后空格/tab、跳 fenced block）被 `plugin/lib/spark-writer.js:523-527`、`plugin/lib/pitfall-writer.js:214-218`、`plugin/lib/workcase-writer.js:1399-1402` 用来断言「H1 恰好一个」，用例 `plugin/test/markdown-structure.test.mjs:79-89` 与 `plugin/test/spark-writer.test.mjs:1082-1113`、`plugin/test/pitfall-writer.test.mjs:668-687` 同时列了多余 H1 的连续/中间/末尾/缩进/tab 与三种合法变体，它断言的正是「集合性质用计数而非首行比较」。覆盖边界：`plugin/lib/friction-writer.js:501-514` 只拒「开头」H1、`:529-531` 仍是首个非空行比较（实测正文中/末尾各多一个 `# 额外` 仍 `ok:true`），workcase 虽计数但无逃逸形态用例（把计数降级为首匹配式后 spark/pitfall 各 2 红、workcase 与 friction 0 红）；setext、行内代码、HTML 注释中的 `#` 未覆盖（模块头自认）。
 
 **规范补写进展（2026-10-28）**：已在 `specs/06` §6 新增「结构校验须按集合性质判定，不得以首行比较替代集合判定」——判定对象是该规则约束的集合（计数/枚举）；以单点比较**替代**集合判定属禁止形态，单点比较本身可保留；等价形态以 01 §2 已登记的 GFM ATX 规则为准（示例清单只作示例）；结构性字面按该规则排除（围栏、行内代码、HTML 块）；计数与内容比较须并存而非互替。§7 补「结构校验的判定对象」验证行，§1 补负担与风险，§2 补 GFM 外部语法声明（01 §7.1.2）。
@@ -109,7 +117,7 @@ change_log:
 2. §1 负担登记的两处括注只列两项反向用例，未列 §5 变异三向的第 3 向，也未像同节既有条款那样声明该向适用或不适用。
 3. 把 GFM 作为「全部载体方言」属隐含扩展（01 §6.1 只对规范文件说「Markdown 使用 GFM」），现无冲突但未点明适用范围。
 
-
+## 影响与适用范围
 
 对 Markdown 正文做结构校验的场合——特别是以「首个匹配项 == 模板」实现标题层级/数量或段落序列校验时的漏检与误报。已验证实例：plugin/lib/spark-writer.js 与 plugin/lib/pitfall-writer.js 的正文结构校验。
 

@@ -1,7 +1,8 @@
 ---
 title: 回归用例虚构事实读取形状致复核阻塞
-status: active
+status: discarded
 scope: 适用于 Web 端事实读取（facts.ts 展平返回）相关的契约与回归测试编写，以及任何以嵌套路径断言事实字段的用例；不适用于受控写入的正文结构、残留段解析与 H1 校验场景。
+disposition: 规避已由 specs/06 §5「断言须以被测面的真实形状为准」与 §7「形状断言有效性」验证行吸收为强制规则；规则由规范源承载，本条仅作来源引用（23 §6.3、35 §8.6 第 3 项）。
 object_uid: 8cbde9ed-243f-4c8b-a5de-c9762449559a
 fact_type_key: pitfall
 created_at: 2026-10-20T08:42:17.240Z
@@ -18,6 +19,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充级更新（23 §9.3）：登记 2026-10-28 机械化承载与规范依据盘点结论——机械承载为覆盖不全（fidelity.test.ts:77 已钉住 showObject 展平，破坏性反证做过），规范源未吸收（06:101/:132 均不覆盖 Web 事实读取形状断言），列为需补规范对象；状态与 scope 不变。
+  - at: 2026-10-28T03:31:39.965Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 经验废止（active→discarded，23 §16 第 2 项，Human 2026-10-28 指令）：规避已由 specs/06 §5「断言须以被测面的真实形状为准」与 §7「形状断言有效性」吸收为强制规则；本条不再独立承担约束，仅作来源引用。
 ---
 
 # 回归用例虚构事实读取形状致复核阻塞
@@ -35,6 +40,11 @@ change_log:
 已按 facts.ts 的展平事实重写该批测试的取值路径，使其与读取侧真实返回形状一致；同时按独立复核的其余发现逐项处理（含发现 3 所指的坏对象被静默投影），并在 `plugin/web/tests/api/` 下新增 `friction-attribution-ref-fidelity.test.ts` 与 `friction-attribution-ref-shape.test.ts` 两个针对性测试文件。
 
 ## 规避
+
+**已被规范源吸收（2026-10-28，Human 决定废止）**：本段规避已由 `specs/06` §5「断言须以被测面的真实形状为准」承载（先读该面实现再决定取值路径；否定式断言按两类形状分别取判据；形状判据取自该面实现；检测力按单项变异证明），强制落点为 `06` §7 验证表「形状断言有效性」行。自该条款生效起，本条不再独立承担约束，仅作为该规则的来源引用保留（`specs/23` §6.3、`specs/35` §8.6 第 3 项）。**引用时请以条文标题与章节号定位**：`06` 行号随改动漂移，本仓已发生过多起废止对象裸行号失准的情形。
+
+以下为废止前的原始规避记录，保留为历史基线：
+
 编写断言前先读一次读取侧实现，确认真实返回结构（尤其是展平、嵌套这类形状变换），只对实际存在的路径断言；把对形状的假设先落成一条会失败的最小用例，确认失败原因落在形状而非其它分支后，再补全断言内容。
 
 ## 验证
@@ -42,7 +52,7 @@ change_log:
 
 独立复现验证（2026-10-28，入档前置）：复现主体为隔离子代理（独立上下文 session 762dde2b-f796-410c-927e-bf89b5712245，未参与本候选形成）；独立性边界为与形成者同一模型（dsh-opencode-go/deepseek-v4.1-flash）、上下文隔离。复现做法：以 friction 夹具经 `showObject` 读取，分别取顶层字段与 `data.fact_object`；再单跑两个针对性测试文件。观察一：`data.attribution_ref` 存在，`'fact_object' in data === false`、`data.fact_object === undefined`——按嵌套路径断言的用例必然落空（`facts.ts` 以 `...item.fact_object` 展平返回）。观察二：`friction-attribution-ref-shape.test.ts` 4 项、`friction-attribution-ref-fidelity.test.ts` 2 项均通过，测试内已明确断言 `'fact_object' in data === false`。观察三：两个测试文件由 `3780c0c` 与本修复同时加入，取值路径已改为顶层。复现未覆盖：形成期独立复核报告与失败测试输出无留痕（会话库自 2026-10-20 起才有记录），「7 个发现 + 1 个独立项」逐项及「514 Web 测试通过」基线未能核对；只跑两个文件，全量未跑。
 
-**机械化承载与规范依据盘点（2026-10-28）**：机械承载为**覆盖不全**——`plugin/web/tests/api/friction-attribution-ref-fidelity.test.ts:77` 的 `assert.equal('fact_object' in data, false, 'showObject flattens fact_object into the top level')`（`:75` 注释明说「不存在的 `fact_object` 键会静默让断言变成 no-op」）已把读取面真实形状钉成可执行判据；破坏性反证做过（/tmp 把 `showObject` 改回 `fact_object: { … }` 嵌套后该用例转红，同批 6 项中 1 红；还原后 6/6）。缺的块：全 web 测试里 `'fact_object' in data` 仅此一条，形状判据只有 `showObject × friction`；列表/DTO 面合法保留嵌套（`field-level-local-fact-reader.test.ts:37` 就断言 `item.fact_object`），其它事实类型与其它读取面（二次读取、派生投影）无显式形状断言；且同批 `friction-attribution-ref-shape.test.ts` 的否定式断言在嵌套变异下 4/4 仍绿——字段整体缺席让「X 不在 data 里」空过，与本条要防的「断言落空」同机制。规范源为**未吸收**：`specs/*` 无「断言须以读取侧真实返回形状为准／只对实际存在的路径断言」的强制句；最近的 `06:101`「每个机械规则必须有对应单元或集成测试，覆盖正反向用例、边界条件、异常处理，拒绝零测试实现」只要求存在与正反向，`06:132`「测试应从管辖范围规范当前契约派生」只及管辖范围域，均不含 Web 事实读取。故本条保留并列为**需补规范**的对象——只靠个案，下一处虚构形状仍靠人工复核兜。
+**机械化承载与规范依据盘点（2026-10-28）**：机械承载为**覆盖不全**——`plugin/web/tests/api/friction-attribution-ref-fidelity.test.ts:77` 的 `assert.equal('fact_object' in data, false, 'showObject flattens fact_object into the top level')`（`:75` 注释明说「不存在的 `fact_object` 键会静默让断言变成 no-op」）已把读取面真实形状钉成可执行判据；破坏性反证做过（/tmp 把 `showObject` 改回 `fact_object: { … }` 嵌套后该用例转红，同批 6 项中 1 红；还原后 6/6）。缺的块：全 web 测试里 `'fact_object' in data` 仅此一条，形状判据只有 `showObject × friction`；列表/DTO 面合法保留嵌套（`field-level-local-fact-reader.test.ts:37` 就断言 `item.fact_object`），其它事实类型与其它读取面（二次读取、派生投影）无显式形状断言；且同批 `friction-attribution-ref-shape.test.ts` 的否定式断言在嵌套变异下 4/4 仍绿——字段整体缺席让「X 不在 data 里」空过，与本条要防的「断言落空」同机制。
 
 **规范补写进展与遗留（2026-10-28）**：已按本条缺口的盘点结论，在 `specs/06` §5 新增「断言须以被测面的真实形状为准」（含四个子要求与保证边界）、§1 补该条的负担与风险登记、§7 补「形状断言有效性」验证行。该处经**三轮代理独立审核**（每轮均由未参与形成的隔离子代理执行）：
 - 第 1 轮判 `needs_revision` 5 项，全部修复（含一条我方机理写错：原称「对不存在的路径取值会静默通过」，实测在 `node:assert/strict` 下为显式抛错，只有 `in` 的否定式与 `equal(x, undefined)` 才静默通过）。
@@ -54,4 +64,5 @@ change_log:
 **盘点结论的时效**：（**已被规范源吸收，2026-10-28 补写**：`specs/06` §5 新增「断言须以被测面的真实形状为准」，含「只对实际存在的路径断言」「否定式断言按其形状类别补足判据」「检测力按单项变异判定」等要求，§7 有「形状断言有效性」验证行；上段「规范源为未吸收」的结论已被取代，仅作为当时的盘点记录保留。）
 
 ## 影响与适用范围
+
 适用于 Web 端事实读取（facts.ts 展平返回）相关的契约与回归测试编写，以及任何以嵌套路径断言事实字段的用例；不适用于受控写入的正文结构、残留段解析与 H1 校验场景。
