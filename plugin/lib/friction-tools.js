@@ -510,7 +510,14 @@ function renderEnvelope(operationKey, value) {
   if (result?.count !== undefined) lines.push(`count: ${result.count}${result.total !== undefined && result.total !== result.count ? ` (of ${result.total})` : ""}`);
   if (Array.isArray(result?.items)) {
     for (const item of result.items) {
-      lines.push(`- ${objectRef(item)} [${item.status}] ${item.title}${item.trigger_signal ? ` (信号: ${item.trigger_signal})` : ""}`);
+      // 26 §12 配对反查（2026-10-28）：`paired_with` 必须出现在**模型实际读到的
+      // 那一行**上。规范把它点名为 agent 可达入口，而投影里带该字段、渲染行不印，
+      // 等于入口存在但不可见——「返回所有」在模型侧退化为「看不见任何配对」。
+      // 无配对时不印任何东西（不写「[]」），避免把「无配对」伪装成一个值。
+      const paired = Array.isArray(item?.paired_with) && item.paired_with.length > 0
+        ? ` (配对: ${item.paired_with.join(", ")})`
+        : "";
+      lines.push(`- ${objectRef(item)} [${item.status}] ${item.title}${item.trigger_signal ? ` (信号: ${item.trigger_signal})` : ""}${paired}`);
     }
   }
   if (Array.isArray(result?.changes)) for (const change of result.changes) lines.push(`change: ${change.change} ${objectRefOf(change.object_uid, change.fact_type_key ?? "friction")}`);

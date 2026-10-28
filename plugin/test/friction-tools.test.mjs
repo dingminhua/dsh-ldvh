@@ -923,3 +923,38 @@ test("list tool follow-up states the CURRENT dedup anchor, not title/phenomenon 
     assert.match(followUp, /attribution \+ mechanism pattern/);
   });
 });
+
+test("list output line renders paired_with — the §12 reverse-lookup entry point must be visible to the model", async () => {
+  // 26 §12 names ldvh_friction_list(status=all) as the agent-reachable reverse
+  // lookup. The projection carrying `paired_with` is not enough: the rendered text
+  // is what the model reads. Without this the entry point silently returns nothing.
+  await withTemp("friction-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const pitfallUid = "abcdef01-2345-4678-8abc-def012345678";
+    // a Pitfall carrier so the pairing resolves
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    await mkdir(join(repo, "ldvh-base", "pitfalls"), { recursive: true });
+    await writeFile(
+      join(repo, "ldvh-base", "pitfalls", `pitfall-${pitfallUid}.md`),
+      `---\nobject_uid: ${pitfallUid}\nfact_type_key: pitfall\ntitle: 配对目标\nstatus: active\n---\n\n## 症状\nx\n`,
+      "utf8",
+    );
+    const deps = makeDeps(home, base);
+    const desc = makeDescriptors(deps);
+    const created = await run(desc, "ldvh_friction_write", {
+      action: "create",
+      frontmatter_draft: {
+        ...validFrontmatterDraft(),
+        relations: [{ relation_key: "paired-with", target: { object_uid: pitfallUid } }],
+      },
+      body_markdown: validBodyMarkdown(),
+    }, repo);
+    assert.equal(created.outcome, "completed", `create failed: ${JSON.stringify({ outcome: created.outcome, gaps: created.gaps })}`);
+
+    // render 取的是**未拆封**的 { envelope }（run helper 会拆，故此处直接调 execute）
+    const rawListed = await desc.ldvh_friction_list.execute({ status: "all" }, exec(repo));
+    const blocks = desc.ldvh_friction_list.output.render({ status: "all" }, rawListed);
+    const rendered = (Array.isArray(blocks) ? blocks.map((b) => b.text ?? "").join("\n") : String(blocks));
+    assert.match(rendered, new RegExp(`配对: ${pitfallUid}`), `the pairing must appear in the rendered list line:\n${rendered}`);
+  });
+});
