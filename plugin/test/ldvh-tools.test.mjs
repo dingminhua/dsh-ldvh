@@ -1443,3 +1443,41 @@ test("陈旧不改判 passed：陈旧只说明「不知道」，不得伪装成�
 		assert.match(envelope.result.snapshot_identity, /^[0-9a-f]{64}$/);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// 渲染层：候选清单必须逐条可见（friction-8608a8a6）
+// ---------------------------------------------------------------------------
+
+test("渲染：候选枚举必须逐条列出 responsibility_key，只回计数即失败", () => {
+	const text = (blocks) => blocks.map((b) => b.text ?? "").join("\n");
+	// 三条候选：两条带 title，一条缺 title（渲染不得因此丢条）
+	const value = {
+		envelope: {
+			operation_key: "read-specification-candidates",
+			outcome: "completed",
+			result: {
+				layer: "L0",
+				candidates: [
+					{ responsibility_key: "spec-a", title: "甲规范" },
+					{ responsibility_key: "spec-b", title: "乙规范" },
+					{ responsibility_key: "spec-c" },
+				],
+			},
+		},
+	};
+	const body = text(renderBlocks(value));
+	assert.match(body, /3 candidate\(s\) at L0/, "计数保留");
+	for (const key of ["spec-a", "spec-b", "spec-c"]) {
+		assert.match(body, new RegExp(`- ${key} — `), `逐条清单须含 ${key}`);
+	}
+	assert.match(body, /- spec-a — 甲规范/, "key 与 title 同行可读");
+	assert.match(body, /- spec-c — \(no title\)/, "缺 title 不得导致该条消失");
+});
+
+test("渲染：候选为空时不伪造条目", () => {
+	const body = renderBlocks({
+		envelope: { operation_key: "read-specification-candidates", outcome: "completed", result: { layer: "L0", candidates: [] } },
+	}).map((b) => b.text ?? "").join("\n");
+	assert.match(body, /0 candidate\(s\) at L0/);
+	assert.doesNotMatch(body, /^- [^ ]/m, "零候选不得印出任何条目行");
+});

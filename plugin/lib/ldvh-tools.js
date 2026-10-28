@@ -1828,7 +1828,26 @@ export function renderEnvelope(operationKey, value) {
   const env = value?.envelope ?? {};
   const lines = [`LDVH ${env.operation_key ?? operationKey}: ${env.outcome ?? "unknown"}`];
   if (env.result?.mechanical_outcome !== undefined) lines.push(`mechanical_outcome: ${env.result.mechanical_outcome}`);
-  if (Array.isArray(env.result?.candidates)) lines.push(`${env.result.candidates.length} candidate(s) at ${env.result.layer}`);
+  // 候选**必须逐条列出**，不能只印计数（friction-8608a8a6）。
+  //
+  // 实测（2026-10-28）：主控索取候选清单时，模型可见输出只有「31 candidate(s)
+  // at L0」——逐条条目在渲染层被丢掉。后果不是「少看一点」：清单不可得时主控
+  // 只能改读规范原文自行定位，等于把「枚举」从工具面退回人工兜底；而 01 §10.3
+  // 把本操作定义为按 responsibility_key 取值或全文枚举的入口，只回计数使
+  // 「枚举」语义在模型侧不成立。
+  //
+  // 只印 responsibility_key 与 title：L0 的全部字段即这两项加 spec_id／
+  // canonical_path，而模型下一步几乎总是拿 key 去读 L1–L4；把其余字段一并铺开
+  // 会让三十余条占满预算，反而挤掉真正要看的内容。要更多字段时按 key 取。
+  if (Array.isArray(env.result?.candidates)) {
+    lines.push(`${env.result.candidates.length} candidate(s) at ${env.result.layer}`);
+    for (const candidate of env.result.candidates) {
+      if (candidate === null || typeof candidate !== "object") continue;
+      const key = candidate.responsibility_key ?? "(no key)";
+      const title = candidate.title ?? "(no title)";
+      lines.push(`- ${key} — ${title}`);
+    }
+  }
   if (env.result?.state !== undefined) lines.push(`state: ${env.result.state}`);
   // 机械预检的**失败原因**必须对调用方可读（09 §5.3 的意图是给出问题项，不是只给
   // 一个 failed）。此前本渲染只印 gaps，而预检把问题项放在 `result.issues` 里，
