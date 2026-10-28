@@ -171,7 +171,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
     throw new Error("createDiscoveryProvider requires an AbortSignal (startActivation requires spec.signal, which the host no longer uses for cancellation — see the dispatch site)");
   }
 
-  return async function discover({ threshold, candidates, observationGroups, window: windowRange, tasks: requestedTasks }) {
+  return async function discover({ threshold, candidates, observationGroups, crossTypeCandidates = [], crossTypeGap = null, window: windowRange, tasks: requestedTasks }) {
     // 本次要跑的**全部**任务（有序）。未给出时退回单任务 `idle-review`——保持既有
     // 调用方（测试与诊断路径）无需改造，且它与「只勾选 idle-review」等价。
     //
@@ -333,7 +333,12 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
       // 本层不知道各任务需要什么。若只传其中一组，需要其它前提的任务会**静默**
       // 拿到默认空值，而该失效不影响任何字段的形状，故从输出上看不出异常。
       // 传全量前提使新任务无需改动本层。
-      sections[key] = build({ threshold, candidates, observationGroups: observationGroups ?? [] });
+      sections[key] = build({
+        threshold, candidates, observationGroups: observationGroups ?? [],
+        // 第三层（2026-10-28）：跨类型查重输入。不传它，执行体只能看见 Friction
+        // 两侧，同源 Pitfall 不在其输入里，配对永远建不起来（26 §6.2）。
+        crossTypeCandidates, crossTypeGap,
+      });
     }
     const prompt = buildCompositePrompt({
       tasks: runnable,

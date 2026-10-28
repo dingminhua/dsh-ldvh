@@ -36,6 +36,7 @@ import {
   verifyThresholdAvailable,
   loadDedupCandidates,
   loadObservationDedupCandidates,
+  loadCrossTypeDedupCandidates,
   FRICTION_THRESHOLD_N,
 } from "./friction-discovery.js";
 
@@ -221,6 +222,44 @@ export async function runIdleCheckpoint({
     });
   }
 
+  // §9 第 1 项的**第三层**（2026-10-28）：Pitfall 侧的 `active` + `draft`。
+  //
+  // 26 §6.2／23 §6.2 的查重锚都是「归因落点 + 机制模式」，并各自要求「跨类型同源
+  // 不并入但必须互链」。执行体若只拿到 Friction 两侧，同源的 Pitfall 不在输入里，
+  // `paired-with` 永远建不起来——这是输入缺层，不是执行体判错。
+  //
+  // **处置口径与账本/缓冲两层不同（须写明）**：账本或缓冲不可读 → 直接 fail-closed
+  // （它们的残缺会污染归属判定与计数）；Pitfall 侧不可读 → **登记缺口后继续**，
+  // 因为该层只影响「跨类型同源是否被发现」，不影响本次观察该不该入缓冲。若也
+  // fail-closed，摩擦发现通道会因一个与本次判断无关的读失败而永久停摆
+  // （2026-10-28 复核指出的正是这一形态）。缺口进 residual 与 gaps，且**不得**
+  // 据此主张跨类型重复已排除（11 §9 第 1 项）。
+  const crossTypeInput = await loadCrossTypeDedupCandidates(factSourceRoot);
+  // **交付条数上限（2026-10-28 复核 #3：成本）**：实测 26 条 Pitfall 使提示词从
+  // 4516 涨到 9667 字符（+114%），且随语料线性增长（list 上限 200 时将达 7 倍）。
+  // 11 §7.1 的「有界材料交付」要求交付**有界**，故此处对第三层设独立更紧上限。
+  //
+  // **截断方向不是「取最新 N」（2026-10-28 终审 note 订正）**：list 的排序是
+  // created_at 倒序，直接 slice(0,N) 会使**较老**的 Pitfall 系统性不可见——而跨类型
+  // 同源恰恰最可能命中「早就记下、反复复现」的旧经验，那批正是最先被挤掉的。
+  // 故按**稳定键**（object_uid 字典序）取样：它对 created_at 与写入顺序都无偏，
+  // 语料增长时被挤掉的是随机子集而非某个时间断面，且同一语料每次取样一致
+  // （不会今天看见这条、明天看不见——那会使「已查过」不可复现）。
+  // **仍不静默丢弃**：超出即记入 crossTypeGap（下条），使截断可见。
+  const CROSS_TYPE_DELIVERY_CAP = 40;
+  const crossTypeAll = crossTypeInput.ok ? (crossTypeInput.value.items ?? []) : [];
+  const crossTypeSample = [...crossTypeAll].sort((a, b) =>
+    String(a.object_uid).localeCompare(String(b.object_uid)));
+  const crossTypeItems = crossTypeSample.slice(0, CROSS_TYPE_DELIVERY_CAP);
+  const crossTypeTruncated = crossTypeSample.length > crossTypeItems.length;
+  const crossTypeGap = crossTypeInput.ok
+    ? (Array.isArray(crossTypeInput.value.invalid) && crossTypeInput.value.invalid.length > 0
+        ? `Pitfall 侧存在不可读载体（${crossTypeInput.value.invalid.length} 条），跨类型查重不完整`
+        : (crossTypeInput.value.complete === false || crossTypeTruncated
+            ? `Pitfall 侧候选超过交付上限，跨类型查重不完整（已交付 ${crossTypeItems.length} / ${crossTypeInput.value.total}）`
+            : null))
+    : `Pitfall 侧不可读，跨类型查重本层缺失：${crossTypeInput.error.message}`;
+
   // §8.4「观察范围的切分（水位）」：本次运行只看**自上次成功运行以来**新增的内容。
   // 区间端点取自宿主会话记录的轮次号（`currentTurn`），不是「AI 认为哪些是新的」。
   // **按任务分别读水位**（friction-watermark 的逐任务改造）：本模块当前只编排
@@ -263,10 +302,13 @@ export async function runIdleCheckpoint({
     });
   }
 
-  // **既有 Pitfall 列表不再在此读取**（2026-10-20，11 §10 两段式改造）：查重
-  // 已移入审核段（§10.2 第 2 项），捕获段（§10.1）只判「有没有失败发生过」，
-  // 它的失效方向是漏记而不是重复建档，故不需要既有对象作为前提。在此读取反而
-  // 会把「Pitfall 载体不可读」变成捕获段失败的伪前提，且诱使捕获段去判重复。
+  // **既有 Pitfall 列表的读取口径（2026-10-28 修订，须与 2026-10-20 的口径区分）**：
+  // 2026-10-20 的结论是「**捕获段**（§10.1）不读既有对象」——那条仍然成立，捕获段
+  // 只判「有没有失败发生过」，失效方向是漏记而非重复建档，读既有对象会把
+  // 「Pitfall 不可读」变成它的伪前提。
+  // 但**摩擦发现（§9）是另一件事**：它的查重是**跨类型**的（26 §6.2 要求对照
+  // Pitfall 的 active/draft），故必须读——读侧由 `loadCrossTypeDedupCandidates`
+  // 承担（只读、不写）。两者不矛盾：**同一份 Pitfall 列表，捕获段不读，查重读。**
 
   let decision;
   try {
@@ -281,6 +323,11 @@ export async function runIdleCheckpoint({
         pending_count: g.pending_count,
         phenomenon: g.entries[g.entries.length - 1]?.phenomenon ?? "",
       })),
+      // 第三层（2026-10-28）：Pitfall 侧 `active` + `draft` 的薄投影——跨类型同源
+      // 判定的唯一输入。缺它则 `paired-with` 永远建不起来（26 §6.2／23 §6.2）。
+      crossTypeCandidates: crossTypeItems,
+      // 该层不完整时如实传下去，由提示词与交还一并披露（不得静默按「无同源」处理）。
+      crossTypeGap,
       // 署名**不由本层传入**：执行体做出判断后，由 provider 从执行体自己的会话记录
       // 取得并随返回值上抛（executorSignature）。此前这里透传一个 `sessionSignature`
       // 形参，而 lifecycle 调用时从不传入，故该形参恒为 undefined——形参存在却永远
@@ -343,6 +390,10 @@ export async function runIdleCheckpoint({
     threshold: FRICTION_THRESHOLD_N,
     candidates: candidates.value.candidates.length,
     window: windowRange,
+    // 第三层缺失时**机械承载**，不只在提示词字符串里（2026-10-28 复核 #2：
+    // 原注释称「缺口进 residual 与 gaps」，但成功路径 envelope 无该字段，
+    // 披露全靠执行体照写 reason——那与 11 §17 的条件式要求不符）。
+    ...(crossTypeGap === null ? {} : { residual: [crossTypeGap], cross_type_dedup: "incomplete" }),
     at,
   });
 }

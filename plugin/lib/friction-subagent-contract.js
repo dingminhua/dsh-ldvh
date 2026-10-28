@@ -161,12 +161,29 @@ export function discoveryOutputSchema() {
  *        - 机械前提（阈值、账本候选、观察组）。
  * @returns {string} 该任务的提示词段。
  */
-export function buildDiscoveryPromptSection({ threshold, candidates = [], observationGroups = [] } = {}) {
+export function buildDiscoveryPromptSection({ threshold, candidates = [], observationGroups = [], crossTypeCandidates = [], crossTypeGap = null } = {}) {
   // 账本侧：只有 open 账目（观察态已退出闭集）。
+  //
+  // 2026-10-28：投影**必须带 `attribution`／`attribution_ref`**（11 §7.1 交付
+  // 投影；26 §6.2 查重锚为「归因 + 机制模式」）。此前只给 title/phenomenon，
+  // 而规范要求按归因查重——执行体拿不到归因，只能退回字面比对，"同根源不同
+  // 措辞"的阻碍被判成新阻碍，这正是漏判的机制性来源。缺字段不是执行体的错，
+  // 是投影的错。
   const ledgerList = candidates.length === 0
       ? "（本账本当前没有 open 账目——任何阻碍都还不能与既有账目比对）"
       : candidates
-          .map((c) => `- ${promptObjectRef(c)} [${c.status}]｜现象：${c.phenomenon ?? "（未投影）"}`)
+          .map((c) => {
+            const rootBits = [];
+            if (typeof c.attribution === "string" && c.attribution.trim() !== "") {
+              rootBits.push(`归因：${c.attribution.trim()}`);
+            }
+            const rootRef = typeof c.attribution_ref === "object" && c.attribution_ref !== null
+              ? c.attribution_ref.object_uid
+              : (typeof c.attribution_ref === "string" ? c.attribution_ref : undefined);
+            if (typeof rootRef === "string" && rootRef !== "") rootBits.push(`归因对象：${rootRef}`);
+            const root = rootBits.length > 0 ? rootBits.join("｜") : "归因：未登记（该账目未声明根源落点）";
+            return `- ${promptObjectRef(c)} [${c.status}]｜现象：${c.phenomenon ?? "（未投影）"}｜${root}`;
+          })
           .join("\n");
 
   // 观察侧：缓冲里已有的 pending 组。**这一层必须给出**——否则同一阻碍每次都
@@ -174,8 +191,35 @@ export function buildDiscoveryPromptSection({ threshold, candidates = [], observ
   const groupList = observationGroups.length === 0
       ? "（观察缓冲当前没有待晋升的组——本次若观察到阻碍，只能是 new-observation）"
       : observationGroups
+          // 缓冲条目闭集（11 §12bis.1）**没有 attribution**——观察阶段只记现象与引证，
+          // 归因在晋升为账目时由该次产出的 attribution 写入。故此处不读该字段
+          // （2026-10-28 复核：11 §7.1 初稿曾要求它在缓冲投影里，与闭集冲突，已删）。
           .map((g) => `- \`${g.group}\`｜已有 ${g.pending_count} 次观察｜现象：${g.phenomenon ?? "（未投影）"}`)
           .join("\n");
+
+  // 第三层（2026-10-28）：Pitfall 侧候选。**必须出现在提示词里**——否则「跨类型
+  // 同源」这条判定在执行体看来根本没有可选对象，`paired-with` 永远建不起来。
+  const crossTypeList = crossTypeCandidates.length === 0
+      ? "（Pitfall 侧当前没有 active/draft 对象——本次若与某条经验同源，只能由 Human 入口事后建立配对）"
+      : crossTypeCandidates
+          .map((c) => {
+            // **截断而非全文**（2026-10-28 复核 #3）：本层的用途只是判「是否同源」，
+            // scope 的前 60 字足以定位落点；全文倾倒曾使提示词翻倍（26 条即 +114%），
+            // 且随语料线性增长。需要全文时由 `pitfall-read-object` 精确读取，
+            // 不在本层堆。**截断可见**：尾部标注「…」，不伪装成完整 scope。
+            const scopeText = typeof c.scope === "string" && c.scope.trim() !== "" ? c.scope.trim() : "（未投影）";
+            const scopeShown = scopeText.length > 60 ? `${scopeText.slice(0, 60)}…` : scopeText;
+            const bits = [`- ${promptObjectRef(c)} [${c.status}]`, `适用范围：${scopeShown}`];
+            if (typeof c.trigger_signal === "string" && c.trigger_signal.trim() !== "") {
+              const sig = c.trigger_signal.trim();
+              bits.push(`重审信号：${sig.length > 30 ? `${sig.slice(0, 30)}…` : sig}`);
+            }
+            return bits.join("｜");
+          })
+          .join("\n");
+  const crossTypeNote = typeof crossTypeGap === "string" && crossTypeGap !== ""
+      ? `\n\n**本层不完整（须在 \`reason\` 中如实说明）**：${crossTypeGap}。故本次「未见跨类型同源」**不构成**「跨类型重复已排除」的证据。`
+      : "";
 
   return [
     "**要判断的事情**：本次观察材料中是否出现了**系统性阻碍**；若出现，它归属哪里。",
@@ -194,6 +238,13 @@ export function buildDiscoveryPromptSection({ threshold, candidates = [], observ
     "**因此：你的判断不会直接创建账目。** 观察层只负责把这次观察归到正确的组；"
     + "攒够与否、是否晋升、晋升后的账目长什么样，都由机械层按 N 与组计数决定。"
     + "**你不需要也不得自己数条目数**。",
+    "",
+    "**怎么判「同一阻碍」（26 §6.2 查重锚，2026-10-28 修订）**：看**归因落点与机制模式**"
+    + "是否相同——阻碍的根源落在同一个子系统/规范/流程/对象，且它以同一种方式反复产生。"
+    + "**不要按字面相似判**：现象措辞不同但根源相同的，是同一阻碍（该并入）；现象很像但"
+    + "根源不同的，是两笔不同的阻碍（不得并入）。下方账目清单里给出了每条的归因，正是"
+    + "为了让你按根源比对，而不是按措辞比对。归因未登记的账目只能按现象与机制判断，"
+    + "并在 `reason` 里说明这一点。",
     "",
     "**判定的四态**：",
     "- `same-obstacle`：本次材料与**既有某条 open 账目**是同一阻碍 → 必填 `target_uid`（该账目的 uid）。"
@@ -220,6 +271,12 @@ export function buildDiscoveryPromptSection({ threshold, candidates = [], observ
     "",
     "**观察缓冲中已有的组（观察层查重对象）**：",
     groupList,
+    "",
+    "**Pitfall 侧已有对象（跨类型查重对象——2026-10-28 新增的第三层）**：",
+    "用途：判断本次阻碍是否与某条**既有经验同源**。若同源，它是「同一根源的另一种主张」——"
+    + "**不要**因此放弃记这笔账（阻碍该记照记），但要在 `reason` 里指出同源对象，供主控建立 `paired-with`（26 §11）。"
+    + "判同源仍按**归因落点 + 机制模式**，不按措辞。",
+    crossTypeList + crossTypeNote,
   ].join("\n");
 }
 

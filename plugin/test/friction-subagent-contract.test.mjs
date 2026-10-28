@@ -764,3 +764,56 @@ test("空窗口：材料段**不含**边界标记（空材料不该有边界；�
 // 与 `buildDiscoveryPromptSection({ threshold, candidates, observationGroups })`
 // 在同一组前提下产出**逐字相同**的任务段。
 test.todo("单任务兼容入口须转发 observationGroups（当前恒称缓冲为空，测试与诊断路径受影响）");
+
+// ---------------------------------------------------------------------------
+// 第三层：Pitfall 侧候选进入提示词（11 §9 第 1 项，2026-10-28）
+//
+// 首轮的缺陷是「规范要求三层、实现只交付两层」——执行体看不见同源的 Pitfall，
+// 于是 paired-with 永远建不起来。此用例钉住第三层的渲染。
+// ---------------------------------------------------------------------------
+
+test("discovery prompt renders the cross-type (Pitfall) layer with scope and trigger signal", async () => {
+  const section = buildDiscoveryPromptSection({
+    threshold: 3,
+    candidates: [],
+    observationGroups: [],
+    crossTypeCandidates: [{
+      object_uid: "abcdef01-2345-4678-8abc-def012345678",
+      fact_type_key: "pitfall",
+      title: "期望值与实际值同经归一化致断言恒真",
+      status: "active",
+      scope: "适用于断言期望值由被测代码导出的测试。",
+      trigger_signal: "夹具改造后重审",
+    }],
+  });
+  assert.match(section, /Pitfall 侧已有对象/);
+  assert.match(section, /期望值与实际值同经归一化致断言恒真/);
+  assert.match(section, /适用于断言期望值由被测代码导出的测试/);
+  assert.match(section, /夹具改造后重审/);
+  // 同源不等于放弃记账——提示词必须说清这一点，否则执行体会把跨类型同源当重复而漏记。
+  assert.match(section, /不要\*\*因此放弃记这笔账/);
+});
+
+test("discovery prompt discloses an incomplete cross-type layer and forbids claiming coverage", async () => {
+  const section = buildDiscoveryPromptSection({
+    threshold: 3, candidates: [], observationGroups: [],
+    crossTypeCandidates: [],
+    crossTypeGap: "Pitfall 侧不可读，跨类型查重本层缺失：boom",
+  });
+  assert.match(section, /本层不完整/);
+  assert.match(section, /不构成\*\*「跨类型重复已排除」的证据/);
+});
+
+test("discovery prompt truncates long scope visibly and caps the cross-type layer (cost bound, 11 §7.1)", async () => {
+  const longScope = "适用于".repeat(60) + "结尾标记不应出现";
+  const section = buildDiscoveryPromptSection({
+    threshold: 3, candidates: [], observationGroups: [],
+    crossTypeCandidates: [{
+      object_uid: "abcdef01-2345-4678-8abc-def012345678",
+      title: "长 scope 条目", status: "active", scope: longScope,
+    }],
+  });
+  // Truncation must be visible ("…") and the overflow must not be dumped wholesale.
+  assert.match(section, /适用范围：.{0,80}…/s);
+  assert.doesNotMatch(section, /结尾标记不应出现/);
+});

@@ -39,6 +39,7 @@ import {
   createFrictionObject,
   updateFrictionObject,
 } from "./friction-writer.js";
+import { listPitfallObjects } from "./pitfall-writer.js";
 import {
   appendFrictionObservation,
   readFrictionObservations,
@@ -125,6 +126,46 @@ export async function loadDedupCandidates(factSourceRoot) {
   return success({
     candidates,
     invalid: listed.value.invalid,
+    complete: listed.value.complete,
+    total: listed.value.total,
+  });
+}
+
+/**
+ * 读 **Pitfall 侧**的查重输入（11 §9 第 1 项的**第三层**；2026-10-28 增）。
+ *
+ * 为什么必须交付这一层：26 §6.2 与 23 §6.2 都把查重锚定为「归因落点 + 机制模式」，
+ * 并各自规定「跨类型同源不并入但必须互链」。执行体若只拿到 Friction 侧的两层，
+ * **同源的那个 Pitfall 根本不在它的输入里**——它只能把「同源跨角色」判成两笔无关
+ * 记录，`paired-with` 永远建不起来。这不是执行体判错，是输入缺层的机械后果。
+ *
+ * 只读：返回 `active` 与 `draft` 的薄投影（23 §12 的 F1 投影集 + 判同源所需的
+ * `scope`/`trigger_signal`）。**本函数不写 Pitfall**——11 §9 的机械通道写入权
+ * 只覆盖摩擦观察缓冲与账目，此处仅扩充读侧。
+ *
+ * 返回 `{ ok, value: { items, invalid, complete } }`。**`invalid` 非空时调用方须
+ * 按 §12 fail-closed 之外的口径处理**：Pitfall 侧不可读使第三层缺失，按 11 §9
+ * 该层「不得在缺一层的情况下主张查重完成」——调用方应停止，或在**如实登记未覆盖
+ * 范围**后继续（登记后不得主张跨类型重复已排除）。两种处置由调用方按 §17 选择，
+ * 本函数只保证「缺层是可见的」，不替它选。
+ */
+export async function loadCrossTypeDedupCandidates(factSourceRoot) {
+  const listed = await listPitfallObjects({ factSourceRoot, statusFilter: ["active", "draft"], limit: 200 });
+  if (!listed.ok) return listed;
+  const items = (listed.value.items ?? []).map((item) => ({
+    object_uid: item.object_uid,
+    // **不硬编码类型键**（2026-10-28 复核 note）：投影值须来自载体实际声明。
+    // listPitfallObjects 只扫 pitfalls/ 目录，与 Friction 侧「目录不是类型证据」
+    // 的处理不完全对称；此处把载体里的值原样带出，缺值即如实缺失（不补猜）。
+    fact_type_key: item.fact_type_key,
+    title: item.title,
+    status: item.status,
+    scope: item.scope,
+    trigger_signal: item.trigger_signal,
+  }));
+  return success({
+    items,
+    invalid: listed.value.invalid ?? [],
     complete: listed.value.complete,
     total: listed.value.total,
   });

@@ -55,7 +55,7 @@ const OPERATIONS = {
   "friction-write-object": {
     toolName: "ldvh_friction_write",
     writeShaped: true,
-    summary: "Controlled write of Friction fact objects: create (after Human-confirmed proposal incl. dedup result) and CAS update with change_log; status-preserving updates are supplement-level, transitions per 26 §9.2 (2026-10 修订：闭集为 open/resolved/voided，初态即 open；→resolved needs informs 1..n; →voided no relations + disposition; both terminal。观察不进账本——阈值晋升在 11 §12bis.1 的缓冲侧完成，机械通道不改变既有账目状态) (specs/03 §9.4–§9.5, specs/26 §13)",
+    summary: "Controlled write of Friction fact objects: create (after Human-confirmed proposal incl. dedup result) and CAS update with change_log; status-preserving updates are supplement-level, transitions per 26 §9.2 (2026-10 修订：闭集为 open/resolved/voided，初态即 open；→resolved needs informs 1..n; →voided needs disposition and no informs; both terminal。2026-10-28：relations 闭集扩为 {informs, paired-with}——paired-with 指向同源跨角色的 Pitfall，任何状态可出现，且是配对的建立通道之一。观察不进账本——阈值晋升在 11 §12bis.1 的缓冲侧完成，机械通道不改变既有账目状态) (specs/03 §9.4–§9.5, specs/26 §13)",
     effect: "may_change_state"
   }
 };
@@ -215,7 +215,7 @@ async function executeListObject(args, exec, deps) {
     gaps,
     verification: { checks: ["directory-scan", "frontmatter-parse"], passed: gaps.length === 0 },
     follow_up: [
-      "dedup (26 §6.2) is a semantic comparison over title/phenomenon — performed by the AI on this projection, never by the tool",
+      "dedup (26 §6.2) is a semantic comparison over attribution + mechanism pattern (NOT title/phenomenon literal similarity — that anchor was replaced 2026-10-28) — performed by the AI on this projection, never by the tool. This projection carries attribution/attribution_ref precisely so the anchor is executable; cross-type same-root candidates come from the Pitfall side (11 §9 第 1 项 第三层)",
       "friction-read-object for the F3 full content of any candidate",
     ]
   });
@@ -476,7 +476,7 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
       : code === "friction/status_terminal"
         ? ["resolved Frictions are read-only (26 §9.2); a recurring obstacle goes through a NEW ledger entry referencing this uid"]
         : code === "friction/relations_invalid"
-          ? ["informs 1..n with resolvable ADR/WorkCase targets is required on the resolving transition (26 §11); reactivation carries no relations"]
+          ? ["informs 1..n with resolvable ADR/WorkCase targets is required on the resolving transition (26 §11); paired-with (→ pitfall-<uid> in pitfalls/) is allowed in any state and is NOT a substitute for informs"]
           : ["fix the reported mechanical issues and retry; zero write has occurred"]
   });
 }
@@ -552,7 +552,7 @@ function parameterSchemaFor(operationKey) {
       impact: { type: "string", enum: ["light", "medium", "heavy"], description: "impact rating; consumers anchored in 26 §12 (F1 projection, metric aggregation) and the heavy-bypasses-buffer birth path" },
 
       disposition: { type: "string", description: "why this entry was voided; REQUIRED iff status=voided, forbidden otherwise (26 §8) — the list card renders it so Human can read the reason without opening the detail page. resolved carries no such field: its outcome is already carried by the informs relation" },
-      relations: { type: "array", items: { type: "object", properties: { relation_key: { type: "string", enum: ["informs"] }, target: { type: "object", properties: { object_uid: { type: "string" } }, required: ["object_uid"], additionalProperties: false } }, required: ["relation_key", "target"], additionalProperties: false }, description: "informs 1..n pointing at remedy objects (ADR/WorkCase uids); only on resolved (26 §11)" },
+      relations: { type: "array", items: { type: "object", properties: { relation_key: { type: "string", enum: ["informs", "paired-with"] }, target: { type: "object", properties: { object_uid: { type: "string" } }, required: ["object_uid"], additionalProperties: false } }, required: ["relation_key", "target"], additionalProperties: false }, description: "closed set {informs, paired-with} (26 §11, 2026-10-28). informs 1..n points at remedy objects (ADR/WorkCase uids), appears only on resolved; paired-with points at the same-root cross-role Pitfall and may appear in ANY state (a pair exists whether or not the debt is settled). paired-with resolves in pitfalls/, informs in adrs//workcases/. **Single-sided storage**: the edge lives ONLY here; the Pitfall side does not carry a reverse edge (23 §11 — a mirrored copy would be a second carrier of the same fact that neither side can mechanically verify, and the two could silently diverge). The reverse direction (which debt corresponds to this experience?) is derived by reverse lookup over this field (26 §12 配对反查; ldvh_friction_list exposes paired_with). Do NOT instruct the Pitfall side to write a matching edge — its writer rejects relations outright" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
     required: ["title", "phenomenon", "impact", "occurrence"],

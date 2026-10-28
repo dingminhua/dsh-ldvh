@@ -878,3 +878,48 @@ test("friction-write-object create: unresolvable attribution_ref is a mechanical
     assert.equal(items, null, "no file should be written (zero write)");
   });
 });
+
+// ---------------------------------------------------------------------------
+// relations schema (26 §11 — 2026-10-28)
+// ---------------------------------------------------------------------------
+
+test("write tool schema admits paired-with alongside informs — the tool plane must not lag the writer", async () => {
+  const deps = { dshHomePath: () => "x", workspaceRoot: "/tmp/x", sessionPersistence: () => undefined };
+  const desc = makeDescriptors(deps)["ldvh_friction_write"];
+  assert.ok(desc);
+  // relations lives inside the create branch's frontmatter_draft (the only place
+  // a caller can declare it at creation); update carries it via relations_after.
+  const fmDraft = desc.parameters.properties.frontmatter_draft;
+  const relSchema = fmDraft.properties.relations;
+  assert.ok(relSchema, "frontmatter_draft must expose relations");
+  assert.deepEqual([...relSchema.items.properties.relation_key.enum].sort(), ["informs", "paired-with"]);
+  assert.match(relSchema.description, /paired-with/i);
+  // The writer accepts the key; a tool plane that omits it makes the capability
+  // unreachable (schema/writer agreement — the same guard shape as 06 §6.2).
+});
+
+test("write tool schema describes SINGLE-SIDED pairing — must not instruct the counterpart to mirror (23 §11)", async () => {
+  const deps = { dshHomePath: () => "x", workspaceRoot: "/tmp/x", sessionPersistence: () => undefined };
+  const desc = makeDescriptors(deps)["ldvh_friction_write"];
+  const relDesc = desc.parameters.properties.frontmatter_draft.properties.relations.description;
+  // First-round defect: the description told the model the counterpart must carry a
+  // mirrored edge, while 23 §11 (single-sided) and the Pitfall writer both refuse it.
+  assert.doesNotMatch(relDesc, /mirrored edge/i);
+  assert.doesNotMatch(relDesc, /symmetry is AI review/i);
+  assert.match(relDesc, /single-sided/i);
+  assert.match(relDesc, /does not carry a reverse edge/i);
+});
+
+test("list tool follow-up states the CURRENT dedup anchor, not title/phenomenon (26 §6.2)", async () => {
+  // The follow_up line is where the old anchor lived (it told the model dedup compares
+  // title/phenomenon). That text is read as spec, so a stale anchor re-introduces the
+  // replaced rule. Drive the real handler with an empty fact source to read it.
+  await withTemp("friction-tools.", async (base) => {
+    const { home, repo } = await governedFixture(base);
+    const desc = makeDescriptors(makeDeps(home, base));
+    const env = await run(desc, "ldvh_friction_list", {}, repo);
+    const followUp = (env.follow_up ?? []).join("\n");
+    assert.doesNotMatch(followUp, /comparison over title\/phenomenon/);
+    assert.match(followUp, /attribution \+ mechanism pattern/);
+  });
+});

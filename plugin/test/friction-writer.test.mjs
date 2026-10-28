@@ -28,6 +28,7 @@ import {
   updateFrictionObject,
   correctFrictionObject,
   listFrictionObjects,
+  findFrictionsPairedWith,
   isSingleSentence,
   frictionFileName,
   FRICTION_DIRECTORY,
@@ -2069,5 +2070,337 @@ test("attribution_ref 可解析性只认顶层 object_uid 声明行（缩进 uid
     });
     assert.equal(result.ok, false, "a uid that only appears as an indented relation target must not resolve");
     assert.equal(result.error.code, "friction/attribution_ref_unresolvable");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// paired-with (26 §11 / §9.4 — 2026-10-28)
+//
+// The pairing is the same-root cross-role edge: this Friction names the Pitfall
+// that records the avoidance for the *same* obstacle. It is state-neutral — a
+// pair exists whether the debt is open, settled or voided — and its target
+// resolves in pitfalls/, never in adrs//workcases/.
+// ---------------------------------------------------------------------------
+
+/** Pitfall fixture file written to the fact source root for paired-with resolution. */
+async function createPitfallFixture(factSourceRoot, uid) {
+  const body = [
+    "## 症状\n某类断言恒真。",
+    "## 触发条件\n期望值与被测代码共用同一归一化函数。",
+    "## 根因\n两侧经同一变换后等值判定失去区分力。",
+    "## 解决\n改用独立常量作期望值。",
+    "## 规避\n写断言前先确认期望值不经被测路径导出。",
+    "## 验证\n已观察：回归用例转红后转绿；未覆盖：其它归一化场景。",
+    "## 影响与适用范围\n适用于断言期望值由被测代码导出的测试。",
+  ].join("\n\n");
+  const fm = {
+    object_uid: uid,
+    fact_type_key: "pitfall",
+    title: "期望值与实际值同经归一化致断言恒真",
+    status: "active",
+    scope: "适用于断言期望值由被测代码导出的测试。",
+    created_at: "2026-09-10T12:00:00+08:00",
+    change_log: [{ at: "2026-09-10T12:00:00+08:00", summary: "受控创建" }],
+  };
+  await mkdir(join(factSourceRoot, "pitfalls"), { recursive: true });
+  await writeFile(join(factSourceRoot, "pitfalls", `pitfall-${uid}.md`), `---\n${stringifyYaml(fm)}---\n\n${body}\n`, "utf8");
+}
+
+test("paired-with: 可在 open 期声明（配对是静态事实，不依赖债是否已清，26 §9.1/§11）", async () => {
+  await withTemp("friction-paired.", async (root) => {
+    const pitfallUid = "abcdef01-2345-4678-8abc-def012345678";
+    await createPitfallFixture(root, pitfallUid);
+    const created = await createFrictionObject({
+      factSourceRoot: root,
+      frontmatterDraft: validFrontmatterDraft({
+        relations: [{ relation_key: "paired-with", target: { object_uid: pitfallUid } }],
+      }),
+      bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
+      changeSummary: "入账即配对",
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+    const read = await readFrictionObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+    assert.equal(read.value.frontmatter.status, "open");
+    assert.deepEqual(read.value.frontmatter.relations, [{ relation_key: "paired-with", target: { object_uid: pitfallUid } }]);
+  });
+});
+
+test("paired-with: 目标不在 pitfalls/ → relation_target_unresolvable（按 key 分派目录，26 §11）", async () => {
+  await withTemp("friction-paired.", async (root) => {
+    // an ADR exists at this uid — a pairing must NOT resolve against adrs/
+    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createAdrFixture(root, adrUid);
+    const created = await createFrictionObject({
+      factSourceRoot: root,
+      frontmatterDraft: validFrontmatterDraft({
+        relations: [{ relation_key: "paired-with", target: { object_uid: adrUid } }],
+      }),
+      bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
+      changeSummary: "配对指向 ADR",
+    });
+    assert.equal(created.ok, false);
+    assert.equal(created.error.code, "friction/relation_target_unresolvable");
+  });
+});
+
+test("paired-with: 目标不存在 → 零写拒绝（26 §11）", async () => {
+  await withTemp("friction-paired.", async (root) => {
+    const created = await createFrictionObject({
+      factSourceRoot: root,
+      frontmatterDraft: validFrontmatterDraft({
+        relations: [{ relation_key: "paired-with", target: { object_uid: "ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb" } }],
+      }),
+      bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
+      changeSummary: "配对指向空气",
+    });
+    assert.equal(created.ok, false);
+    assert.equal(created.error.code, "friction/relation_target_unresolvable");
+  });
+});
+
+test("paired-with: 空数组与未知 key 均被拒（闭集 {informs, paired-with}）", async () => {
+  await withTemp("friction-paired.", async (root) => {
+    const empty = await createFrictionObject({
+      factSourceRoot: root,
+      frontmatterDraft: validFrontmatterDraft({ relations: [] }),
+      bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(empty.ok, false);
+    assert.equal(empty.error.code, "friction/relations_invalid");
+
+    const unknown = await createFrictionObject({
+      factSourceRoot: root,
+      frontmatterDraft: validFrontmatterDraft({
+        relations: [{ relation_key: "supersedes", target: { object_uid: "ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb" } }],
+      }),
+      bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(unknown.ok, false);
+    assert.equal(unknown.error.code, "friction/relations_invalid");
+  });
+});
+
+test("paired-with: 销账只带 paired-with 不带 informs → relations_invalid（informs 不可被配对替代，26 §9.1）", async () => {
+  await withTemp("friction-paired.", async (root) => {
+    const pitfallUid = "abcdef01-2345-4678-8abc-def012345678";
+    await createPitfallFixture(root, pitfallUid);
+    const { read: r1 } = await createAndRead(root, {
+      relations: [{ relation_key: "paired-with", target: { object_uid: pitfallUid } }],
+    });
+    const result = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: { ...r1.value.frontmatter, status: "resolved" },
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "只有配对就销账",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "friction/relations_invalid");
+  });
+});
+
+test("paired-with: 销账时 informs 与 paired-with 并存被接受（配对不因销账消失，26 §9.4）", async () => {
+  await withTemp("friction-paired.", async (root) => {
+    const pitfallUid = "abcdef01-2345-4678-8abc-def012345678";
+    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createPitfallFixture(root, pitfallUid);
+    await createAdrFixture(root, adrUid);
+    const { read: r1 } = await createAndRead(root, {
+      relations: [{ relation_key: "paired-with", target: { object_uid: pitfallUid } }],
+    });
+    const result = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        status: "resolved",
+        relations: [
+          { relation_key: "paired-with", target: { object_uid: pitfallUid } },
+          { relation_key: "informs", target: { object_uid: adrUid } },
+        ],
+      },
+      bodyMarkdownAfter: resolvedBodyMarkdown(),
+      changeSummary: "销账并保留配对",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(result.ok, JSON.stringify(result.error));
+  });
+});
+
+test("paired-with: 补充级更新可建立配对（open 期建立通道，26 §9.3）", async () => {
+  await withTemp("friction-paired.", async (root) => {
+    const pitfallUid = "abcdef01-2345-4678-8abc-def012345678";
+    await createPitfallFixture(root, pitfallUid);
+    const { read: r1 } = await createAndRead(root);
+    assert.equal(r1.value.frontmatter.relations, undefined);
+    const result = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        relations: [{ relation_key: "paired-with", target: { object_uid: pitfallUid } }],
+      },
+      // readFrictionObject().body 含生成式 H1；回传前必须剥离，否则每写一次多一个 H1
+      // （26 §8 结构前置；实测该形态曾损坏 3 条真实载体）。
+      bodyMarkdownAfter: r1.value.body.replace(/^#[^\n]*\n+/, ""),
+      changeSummary: "后补配对",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(result.ok, JSON.stringify(result.error));
+    const read = await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid });
+    assert.equal(read.value.frontmatter.relations.length, 1);
+  });
+});
+
+function voidedBodyMarkdown(draft = validFrontmatterDraft()) {
+  return validBodyMarkdown(draft, {
+    disposition: "废弃：归因错误——该现象的实际根源在另一子系统。",
+  });
+}
+
+test("paired-with: 废弃不删除配对边；informs 仍被拒（26 §9.1 voided 行）", async () => {
+  await withTemp("friction-paired.", async (root) => {
+    const pitfallUid = "abcdef01-2345-4678-8abc-def012345678";
+    await createPitfallFixture(root, pitfallUid);
+    const { read: r1 } = await createAndRead(root, {
+      relations: [{ relation_key: "paired-with", target: { object_uid: pitfallUid } }],
+    });
+    const result = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        status: "voided",
+        disposition: "现象描述失真：实际由另一机制引起",
+      },
+      bodyMarkdownAfter: voidedBodyMarkdown(),
+      changeSummary: "废弃并保留配对",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(result.ok, JSON.stringify(result.error));
+    const read = await readFrictionObject({ factSourceRoot: root, objectUid: r1.value.object_uid });
+    assert.equal(read.value.frontmatter.status, "voided");
+    assert.equal(read.value.frontmatter.relations.length, 1, "voiding must keep the pairing edge");
+  });
+});
+
+test("paired-with: 自指被拒（26 §11）", async () => {
+  await withTemp("friction-paired.", async (root) => {
+    const { read: r1 } = await createAndRead(root);
+    const result = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: r1.value.object_uid,
+      expectedFingerprint: r1.value.fingerprint,
+      frontmatterAfter: {
+        ...r1.value.frontmatter,
+        relations: [{ relation_key: "paired-with", target: { object_uid: r1.value.object_uid } }],
+      },
+      bodyMarkdownAfter: r1.value.body.replace(/^#[^\n]*\n+/, ""),
+      changeSummary: "自指配对",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "friction/relations_invalid");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 配对反查 (26 §12 配对反查消费点 — 2026-10-28)
+//
+// 单侧存储下「这条经验对应哪笔债」只能由反查得出。该消费点是 paired-with
+// 免于「无消费方装饰字段」（26 §18 第 1 条）的唯一凭据，故必须有运行期证据。
+// ---------------------------------------------------------------------------
+
+test("findFrictionsPairedWith: 反查命中（含终态——配对不随债清偿消失，26 §9.1）", async () => {
+  await withTemp("friction-paired.", async (root) => {
+    const pitfallUid = "abcdef01-2345-4678-8abc-def012345678";
+    await createPitfallFixture(root, pitfallUid);
+
+    // open 期的账
+    const a = await createFrictionObject({
+      factSourceRoot: root,
+      frontmatterDraft: validFrontmatterDraft({
+        relations: [{ relation_key: "paired-with", target: { object_uid: pitfallUid } }],
+      }),
+      bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(a.ok, JSON.stringify(a.error));
+
+    // 已销账的账同样带着配对边——反查必须命中它
+    const adrUid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await createAdrFixture(root, adrUid);
+    const b = await createAndRead(root, {
+      title: "另一笔同源账",
+      phenomenon: "另一条现象陈述，用于验证反查覆盖终态。",
+      relations: [{ relation_key: "paired-with", target: { object_uid: pitfallUid } }],
+    });
+    const resolved = await updateFrictionObject({
+      factSourceRoot: root,
+      objectUid: b.read.value.object_uid,
+      expectedFingerprint: b.read.value.fingerprint,
+      frontmatterAfter: {
+        ...b.read.value.frontmatter,
+        status: "resolved",
+        relations: [
+          { relation_key: "paired-with", target: { object_uid: pitfallUid } },
+          { relation_key: "informs", target: { object_uid: adrUid } },
+        ],
+      },
+      // 正文须与 frontmatter 的 phenomenon 载体内聚（26 §8）——按本条的 draft 生成
+      bodyMarkdownAfter: resolvedBodyMarkdown({ ...validFrontmatterDraft(), title: "另一笔同源账", phenomenon: "另一条现象陈述，用于验证反查覆盖终态。" }),
+      changeSummary: "销账并保留配对",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(resolved.ok, JSON.stringify(resolved.error));
+
+    const found = await findFrictionsPairedWith({ factSourceRoot: root, targetUid: pitfallUid });
+    assert.ok(found.ok, JSON.stringify(found.error));
+    assert.equal(found.value.total, 2, "both the open and the resolved debt must be reachable by reverse lookup");
+    const statuses = found.value.items.map((i) => i.status).sort();
+    assert.deepEqual(statuses, ["open", "resolved"]);
+  });
+});
+
+test("findFrictionsPairedWith: 无配对时不误命中", async () => {
+  await withTemp("friction-paired.", async (root) => {
+    const pitfallUid = "abcdef01-2345-4678-8abc-def012345678";
+    await createPitfallFixture(root, pitfallUid);
+    await createAndRead(root); // no relations at all
+    const found = await findFrictionsPairedWith({ factSourceRoot: root, targetUid: pitfallUid });
+    assert.ok(found.ok);
+    assert.equal(found.value.total, 0);
+  });
+});
+
+test("paired-with: 目标在 pitfalls/ 但 fact_type_key 不是 pitfall → 拒绝（目录不是类型证据，N4）", async () => {
+  await withTemp("friction-paired.", async (root) => {
+    const wrongUid = "abcdef01-2345-4678-8abc-def012345678";
+    await mkdir(join(root, "pitfalls"), { recursive: true });
+    await writeFile(
+      join(root, "pitfalls", `pitfall-${wrongUid}.md`),
+      `---\nobject_uid: ${wrongUid}\nfact_type_key: spark\ntitle: 放错目录的载体\n---\n\n## 当前理解\nx\n`,
+      "utf8",
+    );
+    const created = await createFrictionObject({
+      factSourceRoot: root,
+      frontmatterDraft: validFrontmatterDraft({
+        relations: [{ relation_key: "paired-with", target: { object_uid: wrongUid } }],
+      }),
+      bodyMarkdown: validBodyMarkdown(),
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(created.ok, false);
+    assert.equal(created.error.code, "friction/relation_target_unresolvable");
   });
 });

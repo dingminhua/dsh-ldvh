@@ -83,11 +83,21 @@ const CORRECT_REMOVABLE_FIELDS = new Set(["serves", "occurrence"]);
  */
 const CORRECT_REMOVABLE_ANCHOR_FIELDS = new Set(["attribution_ref"]);
 
-/** Relation keys allowed for Friction (26 §11 — closed set of exactly one). */
-const FRICTION_RELATION_KEYS = new Set(["informs"]);
+/**
+ * Relation keys allowed for Friction (26 §11 — closed set).
+ *
+ * 2026-10-28: `paired-with` joins `informs`. The pairing names the same-root
+ * cross-role counterpart (a Pitfall), so that "the debt" and "the knowledge"
+ * can be enumerated in both directions (26 §11, 23 §11). It is state-neutral
+ * on the Friction side — a pair exists whether or not the debt is settled.
+ */
+const FRICTION_RELATION_KEYS = new Set(["informs", "paired-with"]);
 
 /** informs targets resolve inside the ADR and WorkCase directories (26 §11). */
 const INFORMS_TARGET_DIRS = ["adrs", "workcases"];
+
+/** paired-with targets resolve inside the Pitfall directory (26 §11 / 23 §11). */
+const PAIRED_WITH_TARGET_DIR = "pitfalls";
 
 /** Title cap (26 §8: ≤ 30 字). */
 const MAX_TITLE_LENGTH = 30;
@@ -360,10 +370,11 @@ export function validateFrictionFrontmatter(frontmatter) {
 /**
  * Validate the relations contract (26 §11 + 02 §8.2).
  *
- * Mechanical scope: key closed set (informs only), status gating (only
- * resolved), cardinality 1..n, minimal entry/target shape, no duplicates,
- * no self-reference. Target resolvability is checked by the create/update
- * flows (they need the fact source root).
+ * Mechanical scope: key closed set ({informs, paired-with}), per-key status
+ * gating (informs only on resolved; paired-with state-neutral), cardinality,
+ * minimal entry/target shape, no duplicates, no self-reference. Target
+ * resolvability is checked by the create/update flows (they need the fact
+ * source root) — and each key resolves against its own directory set.
  */
 export function validateFrictionRelations(frontmatter, selfUid = null) {
   const issues = [];
@@ -378,8 +389,13 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
     return { ok: false, issues };
   }
 
-  // Status gating (26 §11): informs only on resolved frictions
-  if (frontmatter.status !== "resolved") {
+  // Status gating is PER KEY (26 §9.1, 2026-10-28): `informs` is the settling
+  // edge and appears only on resolved; `paired-with` is a static same-root
+  // fact and appears in any state. Gating the whole array on resolved (the
+  // previous shape) would make an `open` debt unable to name its counterpart,
+  // which is exactly when the pairing is established.
+  const hasInforms = relations.some((rel) => rel !== null && typeof rel === "object" && rel.relation_key === "informs");
+  if (hasInforms && frontmatter.status !== "resolved") {
     issues.push(`relations: informs may only appear on status=resolved, got status=${JSON.stringify(frontmatter.status)} (26 §11)`);
   }
 
@@ -397,7 +413,7 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
 
     const key = rel.relation_key;
     if (typeof key !== "string" || !FRICTION_RELATION_KEYS.has(key)) {
-      issues.push(`relations[]: relation_key ${JSON.stringify(key)} not in closed set {informs} (26 §11)`);
+      issues.push(`relations[]: relation_key ${JSON.stringify(key)} not in closed set {informs, paired-with} (26 §11)`);
       continue;
     }
 
@@ -409,11 +425,17 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
     // target 的两种合法形态（02 §8.2）：`{object_uid}` 或 `{commit}`——**互斥**。
     // commit 形态是唯一允许 target 不带 object_uid 的情形：解药本身是一次受控提交、
     // 没有任何对象身份（02 §8.1 commit 形态 / 26 §9.2 commit 例外）。
+    // `paired-with` 指向事实对象，**不采用** commit 例外（26 §11 只字未提）——
+    // 一个 commit 不是「同源跨角色的经验」，用 commit 表达配对等于换掉语义。
     const targetKeys = Object.keys(target);
     const hasUid = typeof target.object_uid === "string";
     const hasCommit = typeof target.commit === "string";
     if (hasUid && hasCommit) {
       issues.push("relations[]: target carries both object_uid and commit — the two forms are mutually exclusive (02 §8.1 commit 形态)");
+      continue;
+    }
+    if (hasCommit && key === "paired-with") {
+      issues.push("relations[]: paired-with target must be an object_uid — the commit exception belongs to informs only (26 §11)");
       continue;
     }
     if (!hasUid && !hasCommit) {
@@ -462,7 +484,7 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
     }
 
     if (selfUid !== null && target.object_uid === selfUid) {
-      issues.push("relations[]: informs target must not be the object itself (26 §11)");
+      issues.push(`relations[]: ${key} target must not be the object itself (26 §11)`);
     }
 
     const dedupe = `${key}::${target.object_uid}`;
@@ -471,6 +493,95 @@ export function validateFrictionRelations(frontmatter, selfUid = null) {
   }
 
   return { ok: issues.length === 0, issues };
+}
+
+/**
+ * Resolve every `relations` target against the fact source (26 §11).
+ *
+ * Target directory is dispatched **by relation_key**, never by a shared set:
+ *   - `informs`     → ADR / WorkCase objects (the remedy);
+ *   - `paired-with` → Pitfall objects (the same-root cross-role counterpart).
+ * Sharing one directory set would let a pairing point at an ADR, which is not
+ * "another role of the same root" by any reading of 26 §11.
+ *
+ * Commit form (02 §8.1) belongs to `informs` only (26 §9.2). A `commit`
+ * appearing in either `target.commit` or `evidence_locator.commit` must resolve
+ * in the repository; with no resolver the check fails closed rather than
+ * passing an unverified carrier.
+ *
+ * Semantic relevance and target status stay in AI/Human judgement — this
+ * function answers only "does it resolve".
+ *
+ * @returns {Promise<{ok: true} | {ok: false, code: string, message: string}>}
+ */
+async function verifyRelationTargetsResolve(factSourceRoot, frontmatter, { gitCommitResolver, selfUid = null } = {}) {
+  for (const rel of frontmatter.relations ?? []) {
+    const target = rel?.target;
+    if (target === null || typeof target !== "object") continue;
+    for (const commitHash of [target?.commit, rel?.evidence_locator?.commit]) {
+      if (typeof commitHash !== "string") continue;
+      if (typeof gitCommitResolver === "function") {
+        if (!(await gitCommitResolver(commitHash))) {
+          return { ok: false, code: "friction/relation_target_unresolvable", message: `commit ${commitHash} does not resolve to an existing commit in this repository (02 §8.1 commit 形态)` };
+        }
+      } else {
+        return { ok: false, code: "friction/relation_target_unresolvable", message: `commit ${commitHash} cannot be verified: this writer has no git commit resolver (fail-closed, 02 §8.1)` };
+      }
+    }
+
+    const targetUid = target?.object_uid;
+    if (typeof targetUid !== "string" || targetUid === selfUid) continue;
+
+    if (rel.relation_key === "paired-with") {
+      let resolvedPaired = false;
+      for (const ext of [".md", ".yaml"]) {
+        try {
+          await access(join(factSourceRoot, PAIRED_WITH_TARGET_DIR, `pitfall-${targetUid}${ext}`));
+          resolvedPaired = true;
+          break;
+        } catch { /* try next ext */ }
+      }
+      if (!resolvedPaired) {
+        return { ok: false, code: "friction/relation_target_unresolvable", message: `paired-with target ${targetUid} does not resolve to an existing Pitfall object in ${PAIRED_WITH_TARGET_DIR}` };
+      }
+      // 2026-10-28（审核 N4）：目录 + 文件名只是**位置**证据，不是类型证据。
+      // 复核 `fact_type_key`，否则一个被误放进 pitfalls/ 的异类型载体也会被当成
+      // 配对目标（该形态与「以打包产物文本检索缺席当作服务不存在」同类：拿间接
+      // 信号当身份判定）。读不出该键时 fail-closed——无法核验即不通过。
+      // **类型键复核必须真的 fail-closed**（2026-10-28 复核 S-2：初版在「读不到」
+      // 与「没有该行」两种情形都放行，注释却声称 fail-closed——注释比代码严是伪保障）。
+      // 目录 + 文件名只是位置证据；类型身份由 `fact_type_key` 承载。
+      const pairedPath = join(factSourceRoot, PAIRED_WITH_TARGET_DIR, `pitfall-${targetUid}.md`);
+      const pairedRaw = await readFile(pairedPath, "utf8").catch(() => null);
+      if (pairedRaw === null) {
+        return { ok: false, code: "friction/relation_target_unresolvable", message: `paired-with target ${targetUid} resolves by filename in ${PAIRED_WITH_TARGET_DIR}/ but its carrier cannot be read, so its type cannot be verified (26 §11 — fail-closed)` };
+      }
+      const keyMatch = pairedRaw.match(/^fact_type_key:[ \t]*["']?([^"'\s]+)["']?[ \t]*$/m);
+      if (keyMatch === null) {
+        return { ok: false, code: "friction/relation_target_unresolvable", message: `paired-with target ${targetUid} carries no readable fact_type_key line — type unverifiable (26 §11 — fail-closed)` };
+      }
+      if (keyMatch[1] !== "pitfall") {
+        return { ok: false, code: "friction/relation_target_unresolvable", message: `paired-with target ${targetUid} resolves in ${PAIRED_WITH_TARGET_DIR}/ but declares fact_type_key ${JSON.stringify(keyMatch[1])}, not "pitfall" (26 §11)` };
+      }
+      continue;
+    }
+
+    let resolvedTarget = false;
+    for (const dir of INFORMS_TARGET_DIRS) {
+      for (const ext of [".md", ".yaml"]) {
+        try {
+          await access(join(factSourceRoot, dir, `${dir === "adrs" ? "adr" : "workcase"}-${targetUid}${ext}`));
+          resolvedTarget = true;
+          break;
+        } catch { /* try next */ }
+      }
+      if (resolvedTarget) break;
+    }
+    if (!resolvedTarget) {
+      return { ok: false, code: "friction/relation_target_unresolvable", message: `informs target ${targetUid} does not resolve to an existing ADR/WorkCase object in ${INFORMS_TARGET_DIRS.join("/")}` };
+    }
+  }
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -649,7 +760,13 @@ function assembleBody(title, bodyMarkdown) {
 // ---------------------------------------------------------------------------
 
 export async function createFrictionObject(args) {
-  const { factSourceRoot, frontmatterDraft, bodyMarkdown, sessionSignature = null } = args;
+  const {
+    factSourceRoot, frontmatterDraft, bodyMarkdown, sessionSignature = null,
+    // 26 §11（2026-10-28）：`paired-with` 可在创建时声明，其目标须可解析。
+    // commit 形态属 informs（创建时被拒），故创建路径通常用不到 resolver；
+    // 仍接收它以保持同一校验函数在两条路径上行为一致。
+    gitCommitResolver = null,
+  } = args;
   // Human requirement 2026-09-12 + 03 §6.1 / 09 机械签名: a change_log entry is
   // signed BY CODE and may not be written unsigned. Without a branded carrier the
   // write is REFUSED; the caller reports it for Human handling (09 requires a
@@ -691,9 +808,15 @@ export async function createFrictionObject(args) {
   }
   const occurrenceShape = validateOccurrenceShape(frontmatter.occurrence);
   if (!occurrenceShape.ok) return occurrenceShape;
-  // 26 §11: informs relations cannot exist at creation (open)
-  if (frontmatter.relations !== undefined) {
-    return failure("friction/frontmatter_invalid", "create must not carry relations (26 §11: informs only attaches to a resolved transition)");
+  // 26 §11 (2026-10-28): `informs` cannot exist at creation — it is written by
+  // the settling transition. `paired-with` MAY be declared at creation: the
+  // same-root counterpart is often known the moment the debt is recorded, and
+  // forcing a second write just to add one edge invites a forgotten pairing.
+  // The key-level gate lives in validateFrictionRelations; only the settling
+  // edge is blocked here.
+  if (Array.isArray(frontmatter.relations)
+      && frontmatter.relations.some((rel) => rel !== null && typeof rel === "object" && rel.relation_key === "informs")) {
+    return failure("friction/frontmatter_invalid", "create must not carry informs relations (26 §11: informs only attaches to a resolved transition)");
   }
   frontmatter.change_log = [{
     at: now,
@@ -713,6 +836,12 @@ export async function createFrictionObject(args) {
   // 26 §8/§11：attribution_ref 出现时核验 object_uid 指向已存在的事实对象（零写拒绝）。
   const attrCheck = await verifyAttributionRefResolves(factSourceRoot, frontmatter);
   if (!attrCheck.ok) return failure(attrCheck.code, attrCheck.message);
+  // 26 §11（2026-10-28）：`paired-with` 可在创建时声明，故此处须核验其目标
+  // 解析（零写拒绝）——与 update 路径共用同一校验函数，不建第二套规则。
+  if (Array.isArray(frontmatter.relations) && frontmatter.relations.length > 0) {
+    const relTargets = await verifyRelationTargetsResolve(factSourceRoot, frontmatter, { gitCommitResolver });
+    if (!relTargets.ok) return failure(relTargets.code, relTargets.message);
+  }
 
   // Body structure + carrier coherence (26 §8, §14.1)
   const body = assembleBody(frontmatter.title, bodyMarkdown);
@@ -855,8 +984,14 @@ export async function updateFrictionObject(args) {
   const isTransition = nextStatus !== prevStatus;
   // 26 §13：闭集校验只施加于目标状态，历史源状态不因闭集收缩而被拒绝。
   if (!isTransition && prevStatus === "open") {
-    if (fm.relations !== undefined) {
-      return failure("friction/relations_invalid", "supplement-level update must not carry relations (26 §11: informs only attaches to a resolved transition)");
+    // 26 §9.3（2026-10-28）：补充级更新是 `paired-with` 的**建立点**——「先有
+    // 账、后来才发现它与某条既有经验同源」是正常路径，故此处只拦销账专用的
+    // `informs`，不拦配对边。整数组拦截会让配对只能靠再走一次流转补，而流转
+    // 属 Human Gate——等于把「记一条配对」升级成一次决定。
+    const supplementInforms = Array.isArray(fm.relations)
+      && fm.relations.some((rel) => rel !== null && typeof rel === "object" && rel.relation_key === "informs");
+    if (supplementInforms) {
+      return failure("friction/relations_invalid", "supplement-level update must not carry informs relations (26 §11: informs only attaches to a resolved transition)");
     }
   }
 
@@ -866,8 +1001,13 @@ export async function updateFrictionObject(args) {
     // 两条流转已随观察态退出闭集而删除——Human 决定「不存在放回」。
     // 合法流转只剩 open→resolved（销账）与 →voided（废弃），二者的护栏在下面。
     if (nextStatus === "resolved") {
-      // open→resolved：informs 1..n 在销账流转写入
-      if (!Array.isArray(fm.relations) || fm.relations.length === 0) {
+      // open→resolved：informs 1..n 在销账流转写入。**必须按 key 计**——
+      // 2026-10-28 起 relations 里有第二种 key，只数数组长度会让「只有 paired-with
+      // 没有 informs」的销账通过，而销账的去向正是由 informs 承载的（26 §9.1）。
+      const informsCount = Array.isArray(fm.relations)
+        ? fm.relations.filter((rel) => rel !== null && typeof rel === "object" && rel.relation_key === "informs").length
+        : 0;
+      if (informsCount === 0) {
         return failure("friction/relations_invalid", "resolving requires 1..n informs relations pointing at the remedy objects (26 §9.2/§11)");
       }
     }
@@ -881,9 +1021,13 @@ export async function updateFrictionObject(args) {
       return failure("friction/frontmatter_invalid", `disposition must appear only on a voided record (26 §8: 出现 ⇔ status=voided); transition into ${nextStatus} must clear it`);
     }
     if (nextStatus === "voided") {
-      // →voided：不得带关系（26 §9.1/§13）
-      if (fm.relations !== undefined && Array.isArray(fm.relations) && fm.relations.length > 0) {
-        return failure("friction/relations_invalid", "voided must not carry relations (26 §9.1)");
+      // →voided：informs 不得出现（26 §9.1/§13）。**paired-with 是例外**：
+      // 废弃不删配对边（26 §9.1 voided 行 / §9.4）——原账记错了，但「曾认为
+      // 二者同源」是历史事实，且配对经验可能正需要据此次废弃被复审。
+      const voidedInforms = Array.isArray(fm.relations)
+        && fm.relations.some((rel) => rel !== null && typeof rel === "object" && rel.relation_key === "informs");
+      if (voidedInforms) {
+        return failure("friction/relations_invalid", "voided must not carry informs relations (26 §9.1)");
       }
     }
   }
@@ -908,43 +1052,10 @@ export async function updateFrictionObject(args) {
   const attrCheck = await verifyAttributionRefResolves(factSourceRoot, fm);
   if (!attrCheck.ok) return failure(attrCheck.code, attrCheck.message);
 
-  // informs targets must resolve to existing ADR/WorkCase objects (26 §11;
-  // ADR 任状态可解析；WorkCase 关闭状态是审核义务，机械只查存在可解析)。
-  // commit 例外（Human 裁定 2026-10-09；26 §9.2/§11）：目标为 commit 时解析走
-  // `git cat-file -e <hash>^{commit}`——**要求该 commit 在本仓真实存在**，否则一样 fail-closed。
-  for (const rel of fm.relations ?? []) {
-    const target = rel?.target;
-    if (target === null || typeof target !== "object") continue;
-    // commit 须在受控仓库真实可解析——两处来源都要查：`target.commit`（02 §8.1
-    // commit 形态，解药本身是一次提交）与 `evidence_locator.commit`（附加在 object_uid
-    // 上的证据定位）。无 resolver 时 fail-closed——无法核验即不通过。
-    for (const commitHash of [target?.commit, rel?.evidence_locator?.commit]) {
-      if (typeof commitHash !== "string") continue;
-      if (typeof gitCommitResolver === "function") {
-        if (!(await gitCommitResolver(commitHash))) {
-          return failure("friction/relation_target_unresolvable", `commit ${commitHash} does not resolve to an existing commit in this repository (02 §8.1 commit 形态)`);
-        }
-      } else {
-        return failure("friction/relation_target_unresolvable", `commit ${commitHash} cannot be verified: this writer has no git commit resolver (fail-closed, 02 §8.1)`);
-      }
-    }
-    const targetUid = target?.object_uid;
-    if (typeof targetUid !== "string" || targetUid === objectUid) continue;
-    let resolvedTarget = false;
-    for (const dir of INFORMS_TARGET_DIRS) {
-      for (const ext of [".md", ".yaml"]) {
-        try {
-          await access(join(factSourceRoot, dir, `${dir === "adrs" ? "adr" : "workcase"}-${targetUid}${ext}`));
-          resolvedTarget = true;
-          break;
-        } catch { /* try next */ }
-      }
-      if (resolvedTarget) break;
-    }
-    if (!resolvedTarget) {
-      return failure("friction/relation_target_unresolvable", `informs target ${targetUid} does not resolve to an existing ADR/WorkCase object in ${INFORMS_TARGET_DIRS.join("/")}`);
-    }
-  }
+  // 26 §11：关系目标解析——两条路径（create / update）共用同一校验函数，
+  // 不建第二套规则（09 §5.5 同一 validator 的同一纪律）。
+  const relTargets = await verifyRelationTargetsResolve(factSourceRoot, fm, { gitCommitResolver, selfUid: objectUid });
+  if (!relTargets.ok) return failure(relTargets.code, relTargets.message);
 
   // Body structure + carrier coherence on the updated object
   const body = assembleBody(fm.title, bodyMarkdownAfter);
@@ -1025,10 +1136,15 @@ export async function correctFrictionObject(args) {
     );
   }
   if (fm.status === "voided") {
-    // voided 支：relations 必须为空（informs 校验不适用，26 §13）
+    // voided 支（26 §13 + 2026-10-28）：`informs` 不得出现（废弃的账无解药）；
+    // **`paired-with` 可保留**——废弃不删配对边（26 §9.1 voided 行 / §9.4）。
+    // 原口径「relations 必须为空」写于闭集只有一个 key 时，现按 key 判定。
     const rel = fm.relations;
-    if (rel !== undefined && (!Array.isArray(rel) || rel.length > 0)) {
-      return failure("friction/relations_invalid", "voided correct branch: relations must be absent or empty (26 §13)");
+    if (rel !== undefined && !Array.isArray(rel)) {
+      return failure("friction/relations_invalid", "voided correct branch: relations must be absent or an array (26 §13)");
+    }
+    if (Array.isArray(rel) && rel.some((r) => r !== null && typeof r === "object" && r.relation_key === "informs")) {
+      return failure("friction/relations_invalid", "voided correct branch: informs must be absent on a voided record (26 §9.1)");
     }
   }
 
@@ -1127,9 +1243,11 @@ export async function correctFrictionObject(args) {
       return failure("friction/relations_invalid", "relationsAfter must be an array when provided (26 §13)");
     }
     if (fm.status === "voided") {
-      // 26 §13 voided 支：relations 必须为空（informs 校验不适用）
-      if (relationsAfter.length > 0) {
-        return failure("friction/relations_invalid", `voided correct branch: relations must be empty (26 §13); got ${relationsAfter.length}`);
+      // 26 §13 voided 支 + 2026-10-28：`informs` 不得出现；`paired-with` 可保留
+      // （26 §9.1 voided 行 / §9.4：废弃不删配对边）。
+      const voidedInforms = relationsAfter.filter((r) => r !== null && typeof r === "object" && r.relation_key === "informs").length;
+      if (voidedInforms > 0) {
+        return failure("friction/relations_invalid", `voided correct branch: informs must be absent (26 §9.1); got ${voidedInforms}`);
       }
     } else {
       // resolved 必有 informs（26 §11）；更正后仍须满足。
@@ -1150,35 +1268,11 @@ export async function correctFrictionObject(args) {
   const attrCheck = await verifyAttributionRefResolves(factSourceRoot, next);
   if (!attrCheck.ok) return failure(attrCheck.code, attrCheck.message);
 
-  // 关系目标解析（含 commit locator），与 update 路径同口径。
-  for (const rel of next.relations ?? []) {
-    // commit 两处来源都查：target.commit（解药形态）与 evidence_locator.commit（附加定位）
-    for (const commitHash of [rel?.target?.commit, rel?.evidence_locator?.commit]) {
-      if (typeof commitHash !== "string") continue;
-      if (typeof gitCommitResolver !== "function") {
-        return failure("friction/relation_target_unresolvable", `commit ${commitHash} cannot be verified: this writer has no git commit resolver (fail-closed, 02 §8.1)`);
-      }
-      if (!(await gitCommitResolver(commitHash))) {
-        return failure("friction/relation_target_unresolvable", `commit ${commitHash} does not resolve to an existing commit in this repository (02 §8.1 commit 形态)`);
-      }
-    }
-    const targetUid = rel?.target?.object_uid;
-    if (typeof targetUid !== "string" || targetUid === objectUid) continue;
-    let resolvedTarget = false;
-    for (const dir of INFORMS_TARGET_DIRS) {
-      for (const ext of [".md", ".yaml"]) {
-        try {
-          await access(join(factSourceRoot, dir, `${dir === "adrs" ? "adr" : "workcase"}-${targetUid}${ext}`));
-          resolvedTarget = true;
-          break;
-        } catch { /* try next */ }
-      }
-      if (resolvedTarget) break;
-    }
-    if (!resolvedTarget) {
-      return failure("friction/relation_target_unresolvable", `informs target ${targetUid} does not resolve to an existing ADR/WorkCase object in ${INFORMS_TARGET_DIRS.join("/")}`);
-    }
-  }
+  // 关系目标解析（含 commit locator），与 update / create 路径共用同一函数——
+  // 三处各抄一份会在改动 key 闭集或目标目录时漂移（2026-10-28 新增 paired-with
+  // 时即有此风险：只改一处会让 correct 接受一个其它入口拒绝的配对）。
+  const relTargetsCorrect = await verifyRelationTargetsResolve(factSourceRoot, next, { gitCommitResolver, selfUid: objectUid });
+  if (!relTargetsCorrect.ok) return failure(relTargetsCorrect.code, relTargetsCorrect.message);
 
   // 正文结构 + 载体内聚（26 §13；resolved 的处置段必在）。
   const body = assembleBody(next.title, bodyMarkdownAfter);
@@ -1326,6 +1420,15 @@ export async function listFrictionObjects(args) {
       // 废弃理由（列表卡终态框直读，不必进详情页）。二者都在 F1 投影内。
       occurrence: frontmatter.occurrence && typeof frontmatter.occurrence === "object" ? frontmatter.occurrence : undefined,
       disposition: typeof frontmatter.disposition === "string" ? frontmatter.disposition : undefined,
+      // 26 §11/§12（2026-10-28）：配对目标的薄投影。**这是 `paired-with` 的机械
+      // 反查入口**——反向投影由反查本字段得出，Pitfall 侧不写反向边（02 §8.2
+      // 不变量 4）。缺了它，配对就是无消费方的装饰字段（26 §18 第 1 条）。
+      paired_with: Array.isArray(frontmatter.relations)
+        ? frontmatter.relations
+            .filter((rel) => rel !== null && typeof rel === "object" && rel.relation_key === "paired-with")
+            .map((rel) => (typeof rel.target?.object_uid === "string" ? rel.target.object_uid : null))
+            .filter((uid) => typeof uid === "string")
+        : [],
       created_at: typeof frontmatter.created_at === "string" ? frontmatter.created_at : "",
     });
   }
@@ -1348,3 +1451,49 @@ export { STATUSES as STATUSES_EXPORT_FOR_TEST };
 // 断言）：26 §13 只允许补填「新进入闭集」的字段，当前唯一实例是 occurrence。
 export { CORRECT_ADDABLE_FIELDS as CORRECT_ADDABLE_FIELDS_FOR_TEST };
 export { CORRECT_REMOVABLE_FIELDS as CORRECT_REMOVABLE_FIELDS_FOR_TEST };
+
+/**
+ * Reverse lookup: which Friction debts pair with this Pitfall? (26 §11/§12)
+ *
+ * This is the **mechanical reverse projection** the single-sided storage design
+ * depends on: `paired-with` lives only on the Friction side, so "which debt does
+ * this piece of knowledge correspond to?" is answered by scanning carriers, not
+ * by a stored back-edge (02 §8.2 invariant 4 — reverse indexes are Code/Web
+ * derived and never written back into objects).
+ *
+ * Without a real reader the relation would be a consumer-less decorative field
+ * (26 §18 item 1). The §9.4 conversion obligation is a judgement duty; this
+ * function is the retrieval half that makes the pair actually findable.
+ *
+ * Read-only. Returns every carrier (any status — a pair outlives the debt being
+ * settled or voided, 26 §9.1) whose `paired-with` names this uid.
+ *
+ * @returns {Promise<{ok:true, value:{items:Array}} | {ok:false, error:{code:string,message:string}}>}
+ */
+export async function findFrictionsPairedWith(args) {
+  const { factSourceRoot, targetUid } = args;
+  if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
+    return failure("invalid_request", "factSourceRoot is required");
+  }
+  if (typeof targetUid !== "string" || !UUID_PATTERN.test(targetUid)) {
+    return failure("invalid_request", `targetUid must be a canonical UUID (02 §8.2), got ${JSON.stringify(targetUid)}`);
+  }
+  // includeResolved: a pairing survives resolve/void, so every status is a hit.
+  const listed = await listFrictionObjects({ factSourceRoot, includeResolved: true, limit: 200 });
+  if (!listed.ok) return listed;
+  const wanted = targetUid.toLowerCase();
+  const items = listed.value.items.filter((item) =>
+    Array.isArray(item.paired_with) && item.paired_with.some((uid) => uid.toLowerCase() === wanted));
+  // **完整度必须透传**（2026-10-28 复核 S-1）：26 §12 承诺「返回所有」，而 list 通道
+  // 有 limit。若在此静默截断，调用方会把「没查完」当成「没有配对」——23 §9.4 的
+  // 「取不到时按无配对处理」正好会踩这个坑。与 list 通道的 gaps 纪律同一口径。
+  const complete = listed.value.complete !== false;
+  return success({
+    items,
+    total: items.length,
+    invalid: listed.value.invalid,
+    complete,
+    scanned: listed.value.items.length,
+    ledger_total: listed.value.total,
+  });
+}
