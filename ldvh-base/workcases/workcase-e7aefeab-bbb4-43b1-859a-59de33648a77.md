@@ -106,7 +106,7 @@ attempt:
   attempt_id: 1
   started_at: 2026-10-28T17:55:42.116Z
   controller: deepseek-v4.1-flash 主控
-  heartbeat_at: 2026-10-28T18:59:30.220Z
+  heartbeat_at: 2026-10-28T19:31:02.323Z
   session_id: session-bb9396be-ceb2-46d6-b21a-52bb5bb300a0
   session_source: host
 reviews:
@@ -149,6 +149,10 @@ change_log:
     provider: workbuddy-global
     model: deepseek-v4.1-flash
     summary: "记录关闭前独立复核结论（pass，覆盖步骤 1–4 已执行结果） [review recorded by session e5d5e670-4e7b-4297-9bfc-95778ae510a6; reviews entries: 1; 记录自子代理会话 e5d5e670-4e7b-4297-9bfc-95778ae510a6 的最终产出（Code 捕获）]"
+  - at: 2026-10-28T19:31:02.323Z
+    provider: workbuddy-global
+    model: deepseek-v4.1-flash
+    summary: 写入关闭提案（## 结果 节）：逐条判据核对、已证实、未证实与残留、残留处置建议 [attempt 1 heartbeat refreshed]
 ---
 
 # 摩擦新增 accepted 终态（不可清偿）
@@ -286,5 +290,30 @@ accepted 的 disposition 段必答「复审触发」（宿主版本升级、依�
 
 ### 未完成与残留
 - `friction-68e6f33e` 的 count 递增是机械通道在本次会话期间的真实落地，不属本单改动，未纳入提交范围。
-- 规范修订的受控提交（09 precheck + Git Gate）尚未进行；Gate 2 关闭尚未提请。
+- 受控提交已完成（`ad6cd1b`，09 precheck `passed`，Git Gate 双闸通过）；Gate 2 关闭待 Human 批准。
+
+## 结果
+
+### 逐条判据核对
+
+1. **修订 26——达成。** 26 §8 `status` 闭集为 `open/resolved/voided/accepted`；§9.1 新增 accepted 行、§9.2 新增 `open → accepted`（Human Gate）并写明三类成立条件与判据权威在 36 §9.4；§9.3 终态列表含 accepted；§9.4 表态「open→accepted 不触发配对复审」；§12 迭代决策排除 accepted、dogfood 度量加已接受成本单列、攒账查重对象扩为 open+accepted、默认召回排除 accepted 且钉死投影取数通道；§13 `correct` 适用三终态且机械校验分三支（含 accepted 支）、新增处置段与 disposition 同步规则；§14.1/§15 状态-关系不变量、处置段条件、终态去向条件、终态完整性（拆结构项/内容项）均含 accepted；§16 第 2 项含 `open→accepted`；§14.2 写明不新增字段、不产生补填、906dae15 不迁移，并披露「voided 不参与查重 → 该存量仍会被再报告」。全文已无「三值」表述（`grep` 核验）。
+2. **修订 36——达成。** §4.1 两条出路改三条；§4.2 写明不可清偿仍适用本规范；§7.5 区分已定决策冲突的「价值冲突」与「途径关闭」两形态；§8.2 第 6 项命中 accepted 静默；§9.4 接受三类判据（消除途径不存在／不在可动范围／授权不能动）+ 复审触发 + 与废弃区别 + 不触发配对复审 + 机械效果 + 禁止事项；§14 新增接受判据验证行；§15 第 2 项含接受；§16 必停第 2/6 项含接受；§17 第 8 条禁止以 accepted 收容「不值得修」。
+3. **修订 11——达成。** §7.1 账本侧投影扩为 `open`+`accepted`（唯一权威在此），并写明 accepted 只用于命中静默判定；§9 第 1 项新增「命中 accepted 时的处置」——不写缓冲、不晋升、不补充计数，命中事实在 §15 交还 `residual` 登记，不得改状态或重开；§9 第 4 项仍只作用于 open；§15 交还要素 4 含命中登记；§19.1 登记本轮归口（第 4 项并触及第 3 项）。
+4. **实现与测试——达成。** `friction-writer.js` 四值闭集、处置段/终态守卫、correct 三支；`friction-discovery.js` 查重候选 open+accepted；`friction-landing.js` 命中 accepted 返回 `action:"silent"` 并带 residual；`friction-tools.js` enum 含 accepted；`lifecycle.js` residual 入待处置队列；Web 呈现（词条/过滤/徽标/终态卡/关联行）与 `frictionLedger.acceptedCount` 单列计数（API + 类型 + UI + 契约测试）。
+
+### 已证实
+- 代码层「命中 accepted 不写缓冲、不晋升、不计数」为真：`friction-landing.js` 先读目标账目判 `status === "accepted"` 即返回 silent（不进入 `supplementOccurrence`、不写缓冲、不晋升），`friction-writer.js` 终态守卫对 accepted 亦拒绝补充级更新（`friction/status_terminal`），双层拦截。
+- 测试：`node --test` 六个 friction 相关文件 294 项 0 失败；`plugin/web` 套件 552 项 552 通过 0 失败；`tsc -b` 通过；改动文件 eslint 无告警。
+- 受控提交：`ad6cd1b`，09 precheck `passed`，Git Gate pre-commit 与 commit-msg 均通过。
+
+### 未证实与残留
+- 语义查重与「不可清偿」分类判断属语义判断，机械层不判其正确性。
+- accepted 的复审触发无机械检测：环境变化不会自动被发现，依赖 Human 或召回时看到处置段信号；该边界已在 26 §9.2 与 36 §9.4 登记为自觉约束。
+- node 全量套件 2453 项中 8 项失败，均为既有基线漂移（4 项 HEAD 即失败；4 项由工作树未跟踪 spark 与 `friction-68e6f33e` 的机械通道补充观察造成，移开后与 HEAD 一致），与本单改动无关。
+- **26 §10 的 Human 复审例外超出本单原 scope 的条款枚举**，已如实登记并待 Human 追认或撤回。
+- **老丁的原始案例 `906dae15` 仍为 voided，仍会被重新报告**——本轮只对新增流转生效；要让该案例也不再报告，须 Human 另案决定是否开一次性 `voided → accepted` 改判通道。
+
+### 残留处置建议
+- 26 §10 例外：请 Human 追认（推荐，否则 accepted 复审路径自锁）或指示撤回。
+- `906dae15`：请 Human 决定是否另案开 `voided → accepted` 改判通道；本单不擅自推进。
 
