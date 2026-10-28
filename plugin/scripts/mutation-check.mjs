@@ -19,6 +19,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { classifyTestRun, RUN_TERMINAL } from "../lib/test-run-report.js";
 
 const run = promisify(execFile);
 const PLUGIN = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -80,16 +81,21 @@ const MUTATIONS = [
 	[LIB, "默认档退回旧常量（数值偏小未解决）", "export const DEFAULT_INJECTION_BUDGET_TIER = 10;", "export const DEFAULT_INJECTION_BUDGET_TIER = 2;"],
 ];
 
-async function failCount() {
-	let out = "";
+/**
+ * 跑一次变异体下的测试套件，按 `specs/06` §5 的三态归类（单一入口见
+ * `lib/test-run-report.js`）。
+ *
+ * **此处曾返回 `m ? Number(m[1]) : 0`**——取不到计数就并入 0，于是「被测文件
+ * 不存在、测试根本没跑」被读成「跑了且零失败」，本脚本随即报「存活」，
+ * 把「该行为缺守护」与「这次没测」混成同一结论（pitfall-fa36d461 的原始失效点）。
+ */
+async function classifyRun() {
 	try {
 		const r = await run("node", ["--test", ...TESTS], { cwd: PLUGIN, maxBuffer: 64 * 1024 * 1024 });
-		out = (r.stdout ?? "") + (r.stderr ?? "");
+		return classifyTestRun({ stdout: r.stdout, stderr: r.stderr });
 	} catch (e) {
-		out = (e.stdout ?? "") + (e.stderr ?? "");
+		return classifyTestRun({ stdout: e.stdout, stderr: e.stderr, error: e });
 	}
-	const m = /^ℹ fail (\d+)/m.exec(out);
-	return m ? Number(m[1]) : 0;
 }
 
 const originals = new Map();
@@ -110,8 +116,16 @@ try {
 		}
 		await writeFile(file, base, "utf8"); // 复位，防上一项污染
 		await writeFile(file, base.replace(from, to), "utf8");
-		const failed = await failCount();
-		rows.push([name, failed > 0 ? "被抓住" : "**存活**", failed]);
+		const runReport = await classifyRun();
+		// 三态分开记账：**不可用终态不得读作「存活」**——前者是「这次没测出结论」，
+		// 后者是「测了，该行为缺守护」。合并会让一次运行故障伪装成守护健全（或反之）。
+		if (runReport.terminal === RUN_TERMINAL.NOT_RUN) {
+			rows.push([name, "**未运行**", 0, runReport.evidence]);
+		} else if (runReport.terminal === RUN_TERMINAL.COUNT_UNAVAILABLE) {
+			rows.push([name, "**计数不可得**", 0, runReport.evidence]);
+		} else {
+			rows.push([name, runReport.failed > 0 ? "被抓住" : "**存活**", runReport.failed, runReport.evidence]);
+		}
 	}
 } finally {
 	for (const [file, text] of originals) await writeFile(file, text, "utf8");
@@ -123,8 +137,9 @@ try {
 
 const survived = rows.filter(([, s]) => s === "**存活**");
 const staleAnchor = rows.filter(([, s]) => s === "**锚点失效**");
+const notRun = rows.filter(([, s]) => s === "**未运行**" || s === "**计数不可得**");
 const caught = rows.filter(([, s]) => s === "被抓住");
-for (const [n, s, f] of rows) console.log(`  ${s.padEnd(6)} ${n}${f ? `  (${f} 处失败)` : ""}`);
+for (const [n, s, f, ev] of rows) console.log(`  ${s.padEnd(8)} ${n}${f ? `  (${f} 处失败)` : ""}${ev ? `  ← ${ev}` : ""}`);
 console.log(`\n${caught.length}/${rows.length} 被抓住`);
 if (survived.length > 0) {
 	console.log("\n存活项需人工看：可能是该行为由别处承担，也可能是缺守护。");
@@ -132,5 +147,13 @@ if (survived.length > 0) {
 }
 if (staleAnchor.length > 0) {
 	console.log("\n锚点失效项：源码已改写而变异锚点未同步——该行为当前**无变异级守护**，须更新锚点。");
+	process.exitCode = 1;
+}
+if (notRun.length > 0) {
+	// 06 §5 第 3 项：该终态须使**整批结论不可用**，不得以「存活／被抓住」收尾。
+	console.log(
+		`\n${notRun.length} 项**无可用判定**（未运行或计数不可得）：本次整批结论不可用，` +
+			`不得据以声称「已全部被抓住」或「存在 N 项存活」。先查运行环境再重跑。`,
+	);
 	process.exitCode = 1;
 }

@@ -18,6 +18,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { classifyTestRun, RUN_TERMINAL } from "../lib/test-run-report.js";
 
 const run = promisify(execFile);
 const PLUGIN = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -29,20 +30,37 @@ const SPARK = join(SPECS, "20-Spark-火花.md");
 const ADR = join(SPECS, "22-ADR-决策.md");
 const PITFALL = join(SPECS, "23-Pitfall-踩坑经验.md");
 
-/** 跑漂移检查，返回失败数。 */
-async function driftFailures() {
-	let out = "";
+/**
+ * 跑漂移检查，按 `specs/06` §5 的三态归类（单一入口见 `lib/test-run-report.js`）。
+ *
+ * **此处曾返回 `m ? Number(m[1]) : 0`**——与 `mutation-check.mjs` 是同一段判定
+ * 被复制的第二份（违 06 §6 单一实现原则），且同样把「测试根本没跑」并入
+ * 「零失败」，于是本脚本会报「被抓住」而实际上一次断言都没执行
+ * （pitfall-fa36d461 的原始失效点之一）。
+ */
+async function classifyDriftRun() {
 	try {
 		const r = await run("node", ["--test", "test/recall-spec-drift.test.mjs"], {
 			cwd: PLUGIN,
 			maxBuffer: 64 * 1024 * 1024,
 		});
-		out = (r.stdout ?? "") + (r.stderr ?? "");
+		return classifyTestRun({ stdout: r.stdout, stderr: r.stderr });
 	} catch (e) {
-		out = (e.stdout ?? "") + (e.stderr ?? "");
+		return classifyTestRun({ stdout: e.stdout, stderr: e.stderr, error: e });
 	}
-	const m = /^ℹ fail (\d+)/m.exec(out);
-	return m ? Number(m[1]) : 0;
+}
+
+/**
+ * 把三态映射成本脚本的判定词。
+ *
+ * 不可用终态**不得**落成「被抓住」——那会把「这次没测」读成「漂移被发现了」，
+ * 使一项从未执行的检查看起来在守护。
+ */
+async function driftVerdict(label) {
+	const r = await classifyDriftRun();
+	if (r.terminal === RUN_TERMINAL.NOT_RUN) return ["**未运行**", label, r.evidence];
+	if (r.terminal === RUN_TERMINAL.COUNT_UNAVAILABLE) return ["**计数不可得**", label, r.evidence];
+	return [r.failed > 0 ? "被抓住" : "**未报警**", label, r.evidence];
 }
 
 const backups = new Map();
@@ -66,7 +84,7 @@ try {
 	await backup(PITFALL);
 	await writeFile(ADR, (await readFile(ADR, "utf8")).replaceAll("trigger_signal", "trigger_sig"), "utf8");
 	await writeFile(PITFALL, (await readFile(PITFALL, "utf8")).replaceAll("trigger_signal", "trigger_sig"), "utf8");
-	results.push(["② 修改规范：frontmatter 字段改名", (await driftFailures()) > 0 ? "被抓住" : "**未报警**", "改动 22/23 的 trigger_signal"]);
+	results.push(["② 修改规范：frontmatter 字段改名", ...(await driftVerdict("改动 22/23 的 trigger_signal"))]);
 	await restoreAll();
 
 	// —— 变动 3：新增事实类型规范 ——
@@ -78,13 +96,13 @@ try {
 		"---\nldvh_spec:\n  spec_key: \"t98\"\n  spec_id: \"98\"\n  spec_kind: \"spec\"\n  title: \"测试新类型\"\n  canonical_path: \"specs/98-TestNewType.md\"\n  scope: \"测试\"\n---\n# 测试新类型\n\n## 1. 身份与载体\n\n| 字段 | 值 |\n| --- | --- |\n| `fact_type_key` | `testnewthing` |\n",
 		"utf8",
 	);
-	results.push(["③ 新增事实类型规范", (await driftFailures()) > 0 ? "被抓住" : "**未报警**", "新增 specs/98-…"]);
+	results.push(["③ 新增事实类型规范", ...(await driftVerdict("新增 specs/98-…"))]);
 	await rm(NEW_SPEC, { force: true });
 
 	// —— 变动 4：修改某类型的状态闭集 ——
 	await backup(SPARK);
 	await writeFile(SPARK, (await readFile(SPARK, "utf8")).replace("默认候选只包含 open Spark", "默认候选只包含 pending Spark"), "utf8");
-	results.push(["④ 修改事实类型：状态闭集变更", (await driftFailures()) > 0 ? "被抓住" : "**未报警**", "Spark 的 open→pending"]);
+	results.push(["④ 修改事实类型：状态闭集变更", ...(await driftVerdict("Spark 的 open→pending"))]);
 	await restoreAll();
 
 	// —— 变动 5：新增未知类型的事实目录 ——
@@ -106,8 +124,18 @@ try {
 }
 
 for (const [name, verdict, detail] of results) {
-	console.log(`  ${verdict.padEnd(8)} ${name}\n             ${detail}`);
+	console.log(`  ${verdict.padEnd(10)} ${name}\n             ${detail}`);
 }
 const missed = results.filter(([, v]) => v === "**未报警**");
-console.log(`\n${results.length - missed.length}/${results.length} 种变动能感知到`);
+const unusable = results.filter(([, v]) => v === "**未运行**" || v === "**计数不可得**");
+console.log(`\n${results.length - missed.length - unusable.length}/${results.length} 种变动能感知到`);
 if (missed.length > 0) process.exitCode = 1;
+if (unusable.length > 0) {
+	// 06 §5 第 3 项：该终态须使**整批结论不可用**——不得把它算进「能感知到」的分子，
+	// 也不得以「X/Y 种能感知到」收尾而隐去这次没测出结论的那几项。
+	console.log(
+		`\n${unusable.length} 项**无可用判定**（未运行或计数不可得）：本次整批结论不可用，` +
+			`不得据以声称「漂移检查有效」或「全部未报警」。先查运行环境再重跑。`,
+	);
+	process.exitCode = 1;
+}
