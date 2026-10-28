@@ -81,7 +81,7 @@
  * `complete` 置 false（读者据此知道「看到的不等于全部」），但读本身仍返回可用结果。
  */
 
-import { readFile, mkdir, appendFile, writeFile, rename } from "node:fs/promises";
+import { readFile, mkdir, appendFile, writeFile, rename, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -713,13 +713,50 @@ function parseCarrierText(text) {
 }
 
 /** 读取载体并解析。ENOENT = 合法初态（空集合），不是失败。 */
-async function readBufferRecords(dshHomePath, projectId) {
-  const path = bufferEntryPath(dshHomePath, projectId);
+/**
+ * 回溯 `start` 及其祖先，返回第一个「存在但不是目录」的路径；都不是则 null。
+ *
+ * 用途见 readBufferRecords 的 ENOENT 分支：Windows 用 ENOENT 表达「祖先里有普通
+ * 文件」，而那条错误与「文件不存在」同码，只能靠向上探查区分。
+ */
+async function firstNonDirectoryAncestor(start) {
+  let cursor = start;
+  for (;;) {
+    try {
+      const info = await stat(cursor);
+      return info.isDirectory() ? null : cursor;
+    } catch (error) {
+      if (error?.code !== "ENOENT") return null; // 其他错误交由调用方原样上报
+    }
+    const parent = dirname(cursor);
+    if (parent === cursor) return null;
+    cursor = parent;
+  }
+}
+
+async function readBufferRecords(dshHomePath, projectId) {  const path = bufferEntryPath(dshHomePath, projectId);
   let text;
   try {
     text = await readFile(path, "utf8");
   } catch (error) {
     if (error?.code === "ENOENT") {
+      // **ENOENT 不等于「载体不存在」**（2026-10-28 修，§12bis 写入纪律第 4 条）。
+      //
+      // Windows 在「某个祖先路径是普通文件」时对 `readFile` 报 **ENOENT**（实测：
+      // `readFile(<file>/sub/a.jsonl)` → ENOENT，而非 POSIX 的 ENOTDIR）。若直接
+      // 据此返回 `carrier: "absent"` + `ok: true`，就把「载体不可读」伪装成
+      // 「还没有数据」——正是 §12bis 禁止的成功形状。
+      //
+      // 但不能只看直接父目录：`<root>/ldvh/experience-buffers/x.jsonl` 的父目录
+      // 同样不存在（写入在更上层就被那个文件挡住了），父目录查询也报 ENOENT。
+      // 故回溯**最深的已存在祖先**：它存在却不是目录 ⇒ 载体不可读。
+      const blocked = await firstNonDirectoryAncestor(dirname(path));
+      if (blocked !== null) {
+        return failure(
+          "observation_buffer/unreadable",
+          `cannot read the observation buffer: ${blocked} is not a directory`,
+        );
+      }
       return success({ lines: [], records: [], invalid: [], carrier: "absent" });
     }
     return failure(

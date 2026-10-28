@@ -48,7 +48,15 @@ function gitUsable() {
 /** 索引中存在的路径集合（相对仓库根）。`ls-files -z` 避免路径含空格时被拆开。 */
 function trackedPaths() {
   const raw = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8" });
-  return new Set(raw.split("\0").filter(Boolean));
+  // **统一成正斜杠**：git 输出恒为 `/`，而 `path.resolve` 在 Windows 上产出
+  // `\`。不归一会使 `tracked.has(targetRel)` 对每个文件都判 false——实测
+  // 84 个 plugin/lib 文件全被误报为「不在索引中」（纯 Windows 缺陷，POSIX 无感）。
+  return new Set(raw.split("\0").filter(Boolean).map(toPosix));
+}
+
+/** 把任意平台路径分隔符归一为正斜杠（索引键的唯一形态）。 */
+function toPosix(p) {
+  return p.replace(/\\/g, "/");
 }
 
 /**
@@ -85,7 +93,7 @@ test("已跟踪的源文件不得 import 未纳入版本控制的文件", (t) =>
     for (const spec of relativeSpecifiers(source)) {
       const target = resolve(dirname(absPath), spec);
       if (!existsSync(target)) continue; // 真·路径不存在，运行时会报，不归这条管
-      const targetRel = target.slice(repoRoot.length + 1);
+      const targetRel = toPosix(target.slice(repoRoot.length + 1));
       if (!tracked.has(targetRel)) {
         offenders.push(`${relPath} → ${spec}（${targetRel} 不在索引中）`);
       }

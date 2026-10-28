@@ -28,6 +28,7 @@ import { existsSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import zlib from 'node:zlib'
 
 const execFileAsync = promisify(execFile)
 
@@ -42,7 +43,17 @@ const execFileAsync = promisify(execFile)
  */
 export function sessionDirNameFor(workspaceRoot: string): string {
   const absolute = path.resolve(workspaceRoot)
-  return `--${absolute.replace(/[/.]/g, '-')}--`.replace(/-{3,}/g, '--')
+  // 分隔符换成 `-`、**盘符冒号直接删除**，再用 `--` 包裹；连续 `-` 折叠。
+  //
+  // **Windows 实测（2026-10-28，`~/.dsh/sessions/` 真实目录名逐个核对）**：
+  // `D:\DshProject\dsh-ldvh` → `--D-DshProject-dsh-ldvh--`（存在）；
+  // `D:\MinMax\ld-gpu-solver` → `--D-MinMax-ld-gpu-solver--`（存在）；
+  // `C:\Users\Administrator\WorkBuddy\...` → `--C-Users-Administrator-WorkBuddy-...--`（存在）。
+  // 冒号若换成短横会得到 `--D--DshProject...`（多一个短横、目录不存在）。
+  // 原实现只替换 `/` 与 `.`，反斜杠与冒号原样保留 → `--D:\DshProject\dsh-ldvh--`，
+  // `existsSync` 恒落空，页面把「读不到会话」显示成「没有数据」。
+  // 下划线、空格等字符不替换（实测 `--D-DshProject-GTOpen_ld5090_private--`）。
+  return `--${absolute.replace(/[\\/]/g, '-').replace(/:/g, '')}--`.replace(/-{3,}/g, '--')
 }
 
 /** dsh 用户配置根：插件与 Web 子进程共用 `~/.dsh` 约定。 */
@@ -239,6 +250,16 @@ function extractToolOutcomes(raw: string, sessionId: string): ToolCallOutcome[] 
 }
 
 async function zstdAvailable(): Promise<boolean> {
+  // **优先看 Node 内置 zstd，CLI 只是回退**（2026-10-28 修）。
+  //
+  // 原实现只探测系统 `zstd` 命令行：本机未装 CLI，于是 `hasZstd` 为 false，
+  // 整段会话扫描被 `hasZstd &&` 跳过——诊断页把「能读的日志」显示成
+  // 「没有数据」，而 Node ≥22.15 自带的 `zlib.zstdDecompressSync` 明明可用。
+  // 这与「打包产物文本检索缺席被当作服务不存在」是同一类误判：
+  // 用一条探针的缺席推断能力不存在。
+  if (typeof (zlib as typeof zlib & { zstdDecompressSync?: unknown }).zstdDecompressSync === 'function') {
+    return true
+  }
   try {
     await execFileAsync('zstd', ['--version'], { timeout: 5_000 })
     return true
@@ -248,6 +269,14 @@ async function zstdAvailable(): Promise<boolean> {
 }
 
 async function decompress(filePath: string): Promise<string> {
+  // **优先用 Node 内置 zstd，CLI 只作回退**：与 zstdAvailable 同一取舍，
+  // 否则「探测可用」与「实际怎么解」会分叉（本机无 CLI 时前者为真、后者抛错）。
+  const native = (zlib as typeof zlib & {
+    zstdDecompressSync?: (input: Buffer) => Buffer
+  }).zstdDecompressSync
+  if (typeof native === 'function') {
+    return native(await readFile(filePath)).toString('utf8')
+  }
   // `-dc` 解压到 stdout；`--no-progress` 避免把进度写进 stderr 干扰诊断。
   const { stdout } = await execFileAsync('zstd', ['-dc', '--no-progress', filePath], {
     timeout: 60_000,

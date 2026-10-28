@@ -133,3 +133,37 @@ test("createZstdDecompressSync only decompresses the first frame, leaving traili
 	const out = fn(combined);
 	assert.equal(out.toString("utf8"), "first\n");
 });
+
+// ---------------------------------------------------------------------------
+// 帧数扩展下的输出量（2026-10-28 回归守卫）
+// ---------------------------------------------------------------------------
+
+test("多帧解压的输出量与帧数线性，不得重复拼接（Node 版本无关）", async () => {
+	// 症状：每帧文本各不相同、帧数一多，旧实现把剩余字节反复重解，
+	// 输出量随帧数平方增长——真实会话日志 2.34MB 解出 5.6GB。
+	// 本用例只看**总量与顺序**，不依赖 zlib 是否停在帧边界：
+	// 若实现再次退化为「喂剩余全部」，这里的长度会立刻超出期望。
+	const parts = [];
+	const frames = [];
+	for (let i = 0; i < 12; i += 1) {
+		const text = `event-${String(i).padStart(2, "0")}\n`;
+		parts.push(text);
+		frames.push(zstdCompressSync(Buffer.from(text)));
+	}
+	const expected = parts.join("");
+	const out = await decompressZstdStream(Buffer.concat(frames));
+	assert.equal(out.toString("utf8"), expected);
+	// 二次断言：不得出现任何重复片段（旧实现的最短症状）。
+	assert.equal(out.length, Buffer.byteLength(expected));
+});
+
+test("首帧之后带真实帧、且中间夹伪魔数，仍逐帧只解一次", async () => {
+	// 组合两个已知陷阱：伪魔数 + 多帧。旧实现在伪魔数分支里会把从伪魔数起的
+	// 剩余字节整段再解，造成 D 帧内容重复。
+	const frameA = zstdCompressSync(Buffer.from("AAA "));
+	const frameB = zstdCompressSync(Buffer.from("BBB "));
+	const frameC = zstdCompressSync(Buffer.from("CCC"));
+	const noise = Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0x01, 0x02, 0x03, 0x04]);
+	const out = await decompressZstdStream(Buffer.concat([frameA, noise, frameB, frameC]));
+	assert.equal(out.toString("utf8"), "AAA BBB CCC");
+});

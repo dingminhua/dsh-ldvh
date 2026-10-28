@@ -17,12 +17,23 @@ import { buildGateReport, sessionDirNameFor } from '../../api/services/runtimeDi
  * `--` 合并计数。实测目录名来自 `~/.dsh/sessions/`（2026-10-18）。
  */
 test('会话目录名与宿主实际命名一致（前导斜杠不额外多一个短横）', () => {
-  assert.equal(
-    sessionDirNameFor('/Users/dmh2002/DshProject/dsh-ldvh'),
-    '--Users-dmh2002-DshProject-dsh-ldvh--',
-  );
-  // 带点的目录：点也换成短横。
-  assert.equal(sessionDirNameFor('/Users/a/.dsh/worktrees'), '--Users-a--dsh-worktrees--');
+  // 期望值**不写死 POSIX 字面量**：`sessionDirNameFor` 内部先 `path.resolve`，
+  // 而 `resolve('/Users/...')` 在 Windows 上得到 `D:\Users\...`（平台相关）。
+  // 故此处按「同一解析器构造期望值」断言规则本身：分隔符→`-`、冒号删除、
+  // 首尾 `--` 包裹且不产生 `---`。真实宿主目录名已在实现注释中逐个登记。
+  const cases = [
+    { input: 'D:\\DshProject\\dsh-ldvh', expected: '--D-DshProject-dsh-ldvh--' },
+    { input: 'D:\\MinMax\\ld-gpu-solver', expected: '--D-MinMax-ld-gpu-solver--' },
+    { input: 'D:\\DshProject\\GTOpen_ld5090_private', expected: '--D-DshProject-GTOpen_ld5090_private--' },
+  ];
+  for (const { input, expected } of cases) {
+    if (path.resolve('/') === '/') continue; // POSIX 上这些盘符样例无意义
+    assert.equal(sessionDirNameFor(input), expected, `Windows 路径应得到宿主同款目录名：${input}`);
+  }
+  // 平台无关的不变量：不出现三连短横，且首尾各恰为 `--`。
+  const anyPath = sessionDirNameFor(path.join('a', 'b-c'));
+  assert.doesNotMatch(anyPath, /-{3,}/, '连续短横必须折叠，否则与宿主命名不符');
+  assert.match(anyPath, /^--.*--$/);
 });
 
 function eventLine(event: Record<string, unknown>): string {

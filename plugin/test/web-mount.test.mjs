@@ -571,7 +571,12 @@ test("watcher resolves the watch target before fs.watch (cross-platform half of 
     //
     // 监听面是 `WATCHED_SOURCE_ROOTS` 的每一根（api/ 与 shared/）——API 子进程
     // import 了 shared/ 下的模块，只盯 api/ 会让共享模块的改动不触发回收。
-    const expectTargets = ["api", "shared"].map((root) => realpathSync(join(realDir, root)));
+    // **期望值必须用 `.native`**：产品侧 `web-mount.js` 建 watcher 前用
+    // `realpathSync.native` 展开短名（8.3），而 `realpathSync` 非 native 在
+    // Windows 上保留 `ADMINI~1` 形态。两者不一致时断言恒红，却与「watcher 挂到
+    // link 还是 real」这一待判事实无关——实测本机 tmpdir 即短名，正是此情形。
+    // 仍**不**对两侧统一做 realpath 归一：那会抹平待判事实（见上）。
+    const expectTargets = ["api", "shared"].map((root) => realpathSync.native(join(realDir, root)));
     assert.deepEqual(
       targets,
       expectTargets,
@@ -715,7 +720,10 @@ test("a watch root that cannot be watched does not leak the watchers built befor
   // ① 监听面不变：两个目标仍被解析并暴露（api 真实存在、shared 只是解析失败）。
   const targets = JSON.parse((stdout.match(/WATCH_TARGETS:(.*)/) ?? [null, "[]"])[1]);
   assert.equal(targets.length, 2, `watchTargets 应仍报告两个根：${JSON.stringify(targets)}`);
-  assert.ok(targets.some((t) => t.endsWith("/api")), `api/ 根应仍在监听面内：${JSON.stringify(targets)}`);
+  // 判据按**路径尾部**比对，不写死分隔符：Windows 上 `watchTargets()` 返回反斜杠
+  // 路径，用 `endsWith("/api")` 会恒为 false——那是断言自身的平台假设，不是泄漏。
+  const tail = (p) => p.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop();
+  assert.ok(targets.some((t) => tail(t) === "api"), `api/ 根应仍在监听面内：${JSON.stringify(targets)}`);
   // ② 无句柄泄漏：进程必须自然退出。
   assert.equal(
     exit.code,
