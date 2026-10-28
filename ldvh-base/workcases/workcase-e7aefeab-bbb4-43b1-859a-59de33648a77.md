@@ -2,7 +2,7 @@
 fact_type_key: workcase
 object_uid: e7aefeab-bbb4-43b1-859a-59de33648a77
 title: 摩擦新增 accepted 终态（不可清偿）
-status: open
+status: closed
 gist: 给 Friction 账本增加「不可清偿」终态 accepted，并打通查重抑制、度量与呈现；要 Human 决定是否按此形态落规范。
 serves: SG-1
 summary: |-
@@ -102,13 +102,6 @@ gate_1:
     - 不迁移 v4 存量，不重开 906dae15
     - 不把 accepted 做成第二个留观态或可逆状态
     - 不新增 11 §9 自动动作闭集之外的机械写入
-attempt:
-  attempt_id: 1
-  started_at: 2026-10-28T17:55:42.116Z
-  controller: deepseek-v4.1-flash 主控
-  heartbeat_at: 2026-10-28T19:31:02.323Z
-  session_id: session-bb9396be-ceb2-46d6-b21a-52bb5bb300a0
-  session_source: host
 reviews:
   - at: 2026-10-28T19:22:42.400Z
     provider: workbuddy-global
@@ -119,6 +112,24 @@ reviews:
     implementer_session_source: host
     reviewer_origin: subagent
     summary: 四项发现均已闭合，复跑证据：`plugin/web` 套件 551/551 通过、`tsc -b` 退出码 0、六个 friction 相关 node 测试文件 227 项 0 失败。
+result:
+  achieved_scope: 四条计划步骤全部达成：26/36/11 三份规范落 accepted 终态（四值闭集、三类判据、open→accepted Human Gate、correct 三支、终态完整性拆结构/内容项、存量处置与后果披露、Human 复审例外）；01/03 同步；实现层 writer/discovery/landing/contract/tools/lifecycle 与 Web 呈现、度量单列全部落地；受控提交 ad6cd1b 与 67a744b 均过 09 precheck 与 Git Gate 双闸。
+  criteria_checks:
+    - evidence: 26 §8 status 闭集 open/resolved/voided/accepted；§9.1 含 accepted 行；§9.2 含 open→accepted（Human Gate）与三类成立条件（判据权威指向 36 §9.4）；§9.4 表态不触发配对复审；§13 correct 适用三终态且分三支；§14.1/§15 含 accepted 且拆结构项/内容项；§16 第 2 项含 open→accepted；§14.2 写明不新增字段、不补填、906dae15 不迁移并披露后果。grep 核验全文无「三值」残留。
+      satisfied: true
+    - evidence: 36 §4.1 三条出路；§9.4 接受三类判据（消除途径不存在／不在可动范围／授权不能动）+ 复审触发 + 与废弃区别；§17 第 8 条明禁「不值得修」入 accepted；§7.5 区分价值冲突与途径关闭两形态。
+      satisfied: true
+    - evidence: 11 §7.1 投影扩为 open+accepted 并写明仅用于命中静默；§9 第 1 项新增命中 accepted 时不写缓冲、不晋升、不补充计数，命中事实在 §15 交还 residual 登记；§9 第 4 项仍只作用于 open；未新增闭集外机械写入。
+      satisfied: true
+    - evidence: writer 四值闭集与 correct 三支；discovery 查重候选 open+accepted；landing 命中 accepted 返回 action:"silent" 并带 residual（先读账判定，writer 终态守卫二次拦截）；tools enum 含 accepted；Web 呈现与 frictionLedger.acceptedCount（API+类型+UI+契约测试）。测试：node friction 六文件 294 项 0 失败；Web 552 项 0 失败；tsc 通过；eslint 无告警。全量 8 项失败经对照 HEAD 与事实源漂移确认为既有基线。
+      satisfied: true
+  residual:
+    - 906dae15 仍为 voided、仍会被重新报告；Human 已决定另案开一次性 voided→accepted 改判通道，不属本单 scope
+    - accepted 的复审触发无机械检测，属自觉约束（已在 26 §9.2 与 36 §9.4 登记）
+    - 语义查重与「不可清偿」分类判断属语义判断，机械层不判其正确性
+    - node 全量套件 8 项失败为既有基线漂移，与本单改动无关
+    - friction-68e6f33e 的 count 递增系机械通道在会话期间的真实落地，不属本单改动
+outcome: completed
 created_at: 2026-10-28T17:42:03.600Z
 change_log:
   - at: 2026-10-28T17:42:03.600Z
@@ -153,6 +164,10 @@ change_log:
     provider: workbuddy-global
     model: deepseek-v4.1-flash
     summary: 写入关闭提案（## 结果 节）：逐条判据核对、已证实、未证实与残留、残留处置建议 [attempt 1 heartbeat refreshed]
+  - at: 2026-10-28T19:41:49.841Z
+    provider: workbuddy-global
+    model: deepseek-v4.1-flash
+    summary: Gate 2 批准关闭：计划步骤 1–4 全部达成，outcome=completed；残留 906dae15 改判通道另案跟进 [gate_2 closed with outcome=completed; attempt 1 retracted]
 ---
 
 # 摩擦新增 accepted 终态（不可清偿）
@@ -307,13 +322,23 @@ accepted 的 disposition 段必答「复审触发」（宿主版本升级、依�
 - 受控提交：`ad6cd1b`，09 precheck `passed`，Git Gate pre-commit 与 commit-msg 均通过。
 
 ### 未证实与残留
-- 语义查重与「不可清偿」分类判断属语义判断，机械层不判其正确性。
-- accepted 的复审触发无机械检测：环境变化不会自动被发现，依赖 Human 或召回时看到处置段信号；该边界已在 26 §9.2 与 36 §9.4 登记为自觉约束。
-- node 全量套件 2453 项中 8 项失败，均为既有基线漂移（4 项 HEAD 即失败；4 项由工作树未跟踪 spark 与 `friction-68e6f33e` 的机械通道补充观察造成，移开后与 HEAD 一致），与本单改动无关。
-- **26 §10 的 Human 复审例外超出本单原 scope 的条款枚举**，已如实登记并待 Human 追认或撤回。
-- **老丁的原始案例 `906dae15` 仍为 voided，仍会被重新报告**——本轮只对新增流转生效；要让该案例也不再报告，须 Human 另案决定是否开一次性 `voided → accepted` 改判通道。
 
-### 残留处置建议
-- 26 §10 例外：请 Human 追认（推荐，否则 accepted 复审路径自锁）或指示撤回。
-- `906dae15`：请 Human 决定是否另案开 `voided → accepted` 改判通道；本单不擅自推进。
+- residual:
+  - 906dae15 仍为 voided、仍会被重新报告；Human 已决定另案开一次性 voided→accepted 改判通道，不属本单 scope
+    - **接受现状**：该改判通道的规范修订与实现（新增受控操作与 26 §9.2 对应流转）留待 Human 另立工单，本单不擅自推进、不改该账目状态
+  - accepted 的复审触发无机械检测，属自觉约束（已在 26 §9.2 与 36 §9.4 登记）
+    - **接受现状**：该边界已如实登记，环境变化依赖 Human 或召回时读处置段信号，不以机械检测冒充
+  - 语义查重与「不可清偿」分类判断属语义判断，机械层不判其正确性
+    - **接受现状**：语义判断留 AI 审核与 Human 阅读，机械层只保证结构完整
+  - node 全量套件 8 项失败为既有基线漂移，与本单改动无关
+    - **接受现状**：经对照 HEAD 与事实源漂移确认，未在本单处理，留待既有基线维护
+  - friction-68e6f33e 的 count 递增系机械通道在会话期间的真实落地，不属本单改动
+    - **接受现状**：未纳入本单提交范围，属机械通道正常运行产物
+
+**26 §10 的 Human 复审例外超出本单原 scope 的条款枚举**，已如实登记；**Human 已在 Gate 2 追认**（见文末裁定记录）。
+
+### Gate 2 裁定记录（2026-10-29）
+- **26 §10 的 Human 复审例外：Human 追认**——保留「阈值硬前置只约束机械晋升、Human 入口不经阈值判定」；其射程不限于 accepted 复审，这一点已被明确接受。
+- **`906dae15`：Human 决定另案开一次性 `voided → accepted` 改判通道**，不属本单 scope。
+- **Gate 2：Human 已批准关闭**（outcome=completed）。
 
