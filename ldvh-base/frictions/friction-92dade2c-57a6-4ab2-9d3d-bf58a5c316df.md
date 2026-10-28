@@ -1,8 +1,15 @@
 ---
 title: 清空 docs/ 后存量引用失效
-status: open
+status: resolved
 phenomenon: 清空 docs/ 后 specs 与 README 中留存的 docs/ 路径引用指向已不存在的文件，引用方与被引用方脱钩，按路径无法回查。
 impact: light
+relations:
+  - relation_key: informs
+    target:
+      commit: c2594f1879a1ce066be0b72046ba8c91184bee2e
+  - relation_key: informs
+    target:
+      commit: bb7d533c527259c184a545da700fa3ecd3486e17
 object_uid: 92dade2c-57a6-4ab2-9d3d-bf58a5c316df
 fact_type_key: friction
 created_at: 2026-10-12T11:49:42.978Z
@@ -31,10 +38,18 @@ change_log:
     provider: qoder
     model: qfmodel
     summary: 补充级更新（phenomenon 逐字未改、status 保持 open、不计数）：登记 c2594f1 已清尽「现象」句所述 specs+README 侧 8 处，但按 ec19ba6^ 的 docs 树逐路径重测，事实源仍有 29 类路径/79 处真死引用（sparks 56、workcases 13、researches 5、adrs 4、norms 1），须与 68 类外部项目路径引证区分——阻碍本体未消除故保持 open；并更正原列实现注释 6 处现状（4 处已消失、commit-validation.js 属规则自身示例路径而非失效引用）。另登记显式承载 occurrence 以清除已退出闭集的历史子件 human_return_at（值逐字未变）
+  - at: 2026-10-27T19:36:22.552Z
+    provider: minmax
+    model: MiniMax-M3.1-Flash
+    summary: 补充观察：count 3 → 4（11 §9 第 2 项）
+  - at: 2026-10-28T05:45:00.000Z
+    provider: xiaomi-token-plan-cn
+    model: mimo-v2.6-flash
+    summary: 状态流转 open→resolved：解药为 c2594f1（specs/README 侧 8 处）＋ bb7d533（事实源侧 33 类真死引用清剿、32 份载体），以门禁同源函数全库复扫正文残留 0，本账「按路径无法回查」的阻碍本体消除；change_log 历史留痕 4 处与 68 类外部引证如实划界保留
 occurrence:
-  count: 3
+  count: 4
   first_at: 2026-10-12T12:05:00.000Z
-  last_at: 2026-10-19T04:16:02.618Z
+  last_at: 2026-10-27T19:35:56.422Z
 ---
 
 # 清空 docs/ 后存量引用失效
@@ -61,3 +76,22 @@ occurrence:
 据此，本账剩余待处置项收敛为**事实源 29 类路径/79 处**这一项；其效力语义与规范侧同源（多为来源指针与设计输入），失效面仍是可回查性而非效力，且同样可由 `ec19ba6^` 回取原文。是否逐类改指、以及是否把「事实对象的来源指针须可回查」升为一条机械校验（那会新增门禁，须 Human 决定并走规范修订流程），均待处置，本笔不预设。
 
 载体侧留痕（2026-10-28 本次更新）：本载体 `occurrence` 内含 2026-10 闭集收缩后已退出的历史子件 `human_return_at: null`，受控更新整份继承时被 §8 闭集校验拦下。本次以显式 `occurrence` 承载 `count: 3 / first_at / last_at` 三件，值与原载体逐字相同（仅不再携带该 null 子件），非改值、非计数。本笔为补充级更新：phenomenon 逐字未改、status 保持 open。
+
+补充观察（2026-10-27T19:35:56.422Z）：材料 turn 2 中助手明说「读完这本账（`friction-92dade2c`，open，light，count 3）」，随后核出事实源（`ldvh-base`）侧仍存真死引用约 19 类路径，并自行判定与账内 2026-10-28 登记的 29 类/79 处「同一量级（差异来自提取口径，不另立新账）」。这正是既有 open 账目 friction-92dade2c「清空 docs/ 后存量引用失效」所描述的同一阻碍：specs/README 侧已清尽而事实源侧死引用仍在，本轮只是该阻碍的同一量级复核，非新阻碍，故归入该 open 账目（机械层对其计数 +1），无需另起观察组。
+
+## 处置
+解药为两笔 commit（解药走直提路径、无对应 ADR/WorkCase 事实对象，依 02 §8.1 commit 形态承载 informs）：
+
+1. `c2594f1879a1ce066be0b72046ba8c91184bee2e`（fix: 清尽规范载体里指向已删除 docs 文件的 8 处存量死引用，2026-10-28）——清掉本账「现象」句所述范围（specs 与 README 侧 8 处），改为「原位于 docs 目录、已随 `ec19ba6` 清除、可自该提交回取」形态。
+2. `bb7d533c527259c184a545da700fa3ecd3486e17`（chore(facts): 清剿事实源 33 类真死 docs 引用，2026-10-28）——清掉本账 2026-10-28 范围重测收敛出的存量主体：按「曾在 `ec19ba6^` 的 docs 树内、现不存在」逐路径比对，ldvh-base 正文侧 33 类路径（含 2 处目录级悬挂）在 32 份载体内的全部出现改写为可回取形态。
+
+核验（2026-10-28）：① 以门禁同源函数 `extractDocsReferences`（`plugin/lib/commit-validation.js`）对 ldvh-base 全库逐行复扫，正文/前置区真死引用残留 **0**；② 32 份被改载体逐份经受控读取校验（readSpark/Workcase/Adr/Friction/Research/NormObject 六类 reader）全部通过，无载体结构破坏；③ Spark/WorkCase 的 summary 与正文对应节同步改写，逐字对应关系保持。
+
+边界（如实声明，销账不消除的固有损失与划界）：
+1. **change_log 历史留痕 4 处保留**（spark-b8cd2268 两处、workcase-435183c2 一处、workcase-4af2b871 一处）：change_log 是当时的记录，改写它即伪造历史；其残留不触 09 §5.3 门禁（该项只拦新增），按历史引文读、可自 `ec19ba6^` 回取。
+2. **68 类外部项目路径引证未动**（Debian bug-mgmt 系列、DSH 上游文档等）：它们从未存在于本仓 docs 树，属被引述对象的地址而非悬空引用，清剿会毁掉调研引证可追溯性——本账处置面始终按「是否曾在 `ec19ba6^` 的 docs 树内」判定，不按 `docs/` 字面计数。
+3. **编号简写形态（`01`／`10`／`02`／`07`／`12` 共 71 处，以「docs 前缀 + 两位编号」书写，此处不复述其完整 token 以免本段自身触发 09 §5.3 第 5 项）经查非死引用**：它们指 `plugin/web/docs/` 下的活文档（01-全局设计约束、10-Web 设计语言基线等），从未在被删的顶层 docs 树内，属书写简写，不在本账口径；其书写规范性（是否应写全 `plugin/web/docs/` 前缀）是另一议题，未处置。
+4. **「事实对象的来源指针须可回查」未升为机械校验**：本账 2026-10-28 重测段提出的这一方向属新增门禁，须 Human 决定并走规范修订流程，本销账不含它——本次清理是存量处置，存量清完后新增侧由 09 §5.3 第 5 项继续兜底，但「事实对象引用外部历史材料时的可回查性」无专门机械门禁，此缺口如实留白。
+5. 本账两次「约 19 类」与「29 类」的数量差为提取口径差异（是否计入目录级、非 backtick 包裹形态等），非漏清——最终清剿以门禁同源函数复扫的残留 0 为准。
+
+载体侧留痕（2026-10-28 本次流转）：本载体 `occurrence` 已在前次补充级更新中显式承载三件、清除已退出闭集的 `human_return_at` 子件；本次流转不改 `occurrence` 任何值。
