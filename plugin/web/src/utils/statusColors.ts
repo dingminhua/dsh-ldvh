@@ -50,6 +50,9 @@ export const STATUS_COLORS: Record<string, { light: string; dark: string }> = {
   fact_conflict: { light: '#ea580c', dark: '#fb923c' },
   // 26 §9：Friction voided（已废弃）——中性灰，与 resolved（已销账）同族但更淡；
   // 不用红：红已由 discarded/rejected/suspended 承载「被否决」语义。
+  // 注意：全局 `accepted` 键已被 WorkCase 派生分组占用（正向绿），**不得复用**；
+  // friction 的 accepted（已接受、不可清偿）由 StatusBadge 显式走中性灰——
+  // 它是「记对了但修不了」，既非达成也非否决。
   voided: { light: '#9ca3af', dark: '#6b7280' },
   // 25 §7：Goal achieved（全部 sub-goal 达成的收官判定）——正向达成绿色。
   achieved: { light: '#059669', dark: '#00d4aa' },

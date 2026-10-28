@@ -2,7 +2,7 @@
 //
 // Every case is derived from specs/26 (the single authority):
 //   §6 查重与攒账, §8 字段契约与正文三段（处置段条件出现）,
-//   §9 状态机（**三值闭集 open/resolved/voided**；resolved/voided 终态；
+//   §9 状态机（**四值闭集 open/resolved/voided/accepted**；三个终态；
 //      informs 只在销账流转写入。观察态 observing 已于 2026-10 退出闭集——
 //      观察材料改由 11 §12bis.1 的摩擦观察缓冲承载（非事实对象），不进事实源；
 //      `observing → open`（阈值）与 `open → observing`（放回留观）两条流转一并删除）,
@@ -525,9 +525,9 @@ test("create: a forged plain sessionSignature is REFUSED — no unsigned change_
 // create 反向 (26 §8/§9/§11/§13/§14.1)
 // ---------------------------------------------------------------------------
 
-test("create: 非 open 的初态一律被拒（26 §9 三值闭集——观察态 observing 已退出）", async () => {
+test("create: 非 open 的初态一律被拒（26 §9 四值闭集——观察态 observing 已退出）", async () => {
   // 2026-10 修订（Human 决定）：状态闭集由四值（observing/open/resolved/voided）
-  // 收缩为三值（open/resolved/voided），创建初态随之由 observing 改为 open。
+  // 闭集为四值（open/resolved/voided/accepted），创建初态随之由 observing 改为 open。
   // 故「非 observing 的初态该被拒」这条判据整体反向：**非 open 的初态**才该被拒，
   // 且 observing 自身现在也是闭集外取值。
   await withTemp("friction-writer.", async (root) => {
@@ -737,7 +737,7 @@ test("create: empty H2 section rejected (26 §8 body must carry content)", async
 // State machine transitions (26 §9.2 重点)
 // ---------------------------------------------------------------------------
 
-test("state machine: 阈值晋升流转已随观察态删除——创建即为 open，观察材料不进事实源（26 §9 三值闭集 / 11 §12bis.1 观察缓冲）", async () => {
+test("state machine: 阈值晋升流转已随观察态删除——创建即为 open，观察材料不进事实源（26 §9 四值闭集 / 11 §12bis.1 观察缓冲）", async () => {
   // 2026-10 修订：`observing → open`（阈值晋升）随观察态退出闭集而删除。原用例
   // 断言「晋升后 status=open」，现在**创建初态就是 open**，账本里不再存在
   // 「observing 前态」这一段。观察材料改由 11 §12bis.1 的摩擦观察缓冲承载

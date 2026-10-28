@@ -49,6 +49,7 @@ import {
   MAX_CREATES_PER_RUN,
   FRICTION_THRESHOLD_N,
 } from "./friction-discovery.js";
+import { readFrictionObject } from "./friction-writer.js";
 
 function success(value) {
   return { ok: true, value };
@@ -164,7 +165,29 @@ export async function landDiscoveryVerdict({
     // ——它来自子代理的 reason（已校验非空），而不是本模块自造。
     //
     // **本项不再触发任何状态流转**（2026-10 修订）：账目的状态推进只有 Human Gate
-    // （销账/废弃）。观察累积到阈值这件事发生在缓冲侧，与既有账目无关。
+    // （销账/废弃/接受）。观察累积到阈值这件事发生在缓冲侧，与既有账目无关。
+    //
+    // **命中 accepted 时静默（2026-10 新增）**：`accepted` 是「已记录、不再报告」
+    // 的终态，命中它**不写缓冲、不晋升、不补充计数**（11 §9 第 1 项 / 36 §8.2 第 6 项）。
+    // 命中事实须在交还 `residual` 中登记，使复审有入口、不构成无痕抑制（11 §15）。
+    const hit = await readFrictionObject({ factSourceRoot, objectUid: verdict.target_uid });
+    if (!hit.ok) {
+      // 账目读不出来即无法判定命中哪一态——归入 supplement 阶段（与补充级更新
+      // 同一阶段：二者都是「对既有账目做第 4 项」这条路径上的失败），并保留诊断。
+      return failure(hit.error?.code ?? "friction/read_failed", `11 §9 第 4 项（命中账目读取）失败：${hit.error?.message ?? "unknown"}`, {
+        stage: "supplement",
+        cause: hit.error,
+      });
+    }
+    if (hit.value.frontmatter.status === "accepted") {
+      return success({
+        action: "silent",
+        object_uid: verdict.target_uid,
+        promoted: false,
+        status: "accepted",
+        residual: [`命中已接受账目 ${verdict.target_uid}：本次观察与它同源，按「记录一次、不再报告」静默（不写缓冲、不晋升、不补充计数；26 §9.1 / 11 §9 第 1 项）`],
+      });
+    }
     const supplemented = await supplementOccurrence({
       factSourceRoot,
       objectUid: verdict.target_uid,

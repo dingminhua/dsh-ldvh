@@ -845,3 +845,31 @@ test('摩擦条目的 canonical_path 指向 frictions 目录而非 pitfalls 回�
   assert.match(fn, /throw new Error/, '② 未知类型失败而非回落');
   assert.doesNotMatch(fn, /type === 'workcase' \? 'workcases' : 'pitfalls'/, '③ 不得保留二元回落');
 })
+
+// ── 26 §12 / §18 第 7 条：accepted 的「度量单列」消费点（2026-10 新增）──────────
+//
+// accepted（已接受、不可清偿）不是待决定事项——它「记录一次、不再报告」。
+// 但 26 §18 第 7 条把它列为 accepted 的**必备消费方**之一：必须有「已接受成本」
+// 的单列计数，且**不进解决率分母、不进 open 待修数**。本测试钉住三件事：
+// ① API 侧单独一次遍历统计 accepted（不改变 inbox 的字面 `raw.status !== 'open'` 判定）；
+// ② 该计数进入响应体的 `frictionLedger.acceptedCount`；
+// ③ 客户端类型声明该键，且 UI 摘要把它作为独立观测量呈现（不混进 inbox 计数）。
+
+test('accepted 的度量单列：API 计数、响应体承载、客户端类型与呈现（26 §12 / §18 第 7 条）', () => {
+  const route = readFileSync(path.resolve(repositoryRoot, 'api/routes/cognition.ts'), 'utf8')
+  const api = readFileSync(path.resolve(repositoryRoot, 'src/utils/api.ts'), 'utf8')
+  const page = readFileSync(path.resolve(repositoryRoot, 'src/pages/CognitionCenter.tsx'), 'utf8')
+  const locales = readFileSync(path.resolve(repositoryRoot, 'src/i18n/locales.ts'), 'utf8')
+
+  // ① 统计是**独立一次遍历**，且 inbox 的收录判定保持字面不变。
+  assert.match(route, /if \(raw\.status === 'accepted'\) acceptedFrictionCount \+= 1/, '① accepted 单独计数');
+  assert.match(route, /if \(raw\.status !== 'open'\) continue/, '① inbox 仍只收 open（字面判定）');
+  // ② 响应体承载。
+  assert.match(route, /frictionLedger: \{ acceptedCount: acceptedFrictionCount \}/, '② 响应体 frictionLedger.acceptedCount');
+  // ③ 客户端类型 + 呈现 + 词条。
+  assert.match(api, /frictionLedger\?: \{ acceptedCount: number \}/, '③ 客户端类型声明');
+  assert.match(page, /data\.frictionLedger\.acceptedCount/, '③ UI 读取该计数');
+  assert.match(locales, /'cognition\.frictionLedger\.accepted'/, '③ 中英词条存在');
+  // 反例：该计数不得被并进 inbox 计数（否则「已接受」会被读成待办）。
+  assert.doesNotMatch(page, /counts\.friction_repair \+= data\.frictionLedger/, '④ 不得混入 inbox 计数');
+})

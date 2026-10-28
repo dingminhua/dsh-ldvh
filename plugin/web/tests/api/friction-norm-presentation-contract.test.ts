@@ -71,7 +71,7 @@ test('both types carry icons, colors, type labels, and status closures', () => {
   // 类型词表（中英）与状态闭集词表（26 §9 / 27 §9）。
   assert.match(locales, /friction: \{ zh: '摩擦', en: 'Friction' \}/);
   assert.match(locales, /norm: \{ zh: '规范', en: 'Norm' \}/);
-  assert.match(locales, /friction: \{\s*\n\s*\/\/ 26 §9 状态闭集三值[\s\S]*?open: \{ zh: '待修', en: 'Open' \},[\s\S]*?resolved: \{ zh: '已销账', en: 'Resolved' \},[\s\S]*?voided: \{ zh: '已废弃', en: 'Voided' \},/);
+  assert.match(locales, /friction: \{\s*\n\s*\/\/ 26 §9 状态闭集四值[\s\S]*?open: \{ zh: '待修', en: 'Open' \},[\s\S]*?resolved: \{ zh: '已销账', en: 'Resolved' \},[\s\S]*?voided: \{ zh: '已废弃', en: 'Voided' \},[\s\S]*?accepted: \{ zh: '已接受', en: 'Accepted' \},/);
   // 26 §9（2026-10 修订，Human 决定：观察不进事实源）：闭集由四值收缩为三值，
   // `observing`（留观）已退出——观察材料改由 11 §12bis.1 的摩擦观察缓冲承载，
   // 非事实对象。故状态词表里不得再有留观词条。
@@ -99,7 +99,7 @@ test('friction list cards defer reading content to the detail page (Human 裁定
     objectList.indexOf('export function FrictionCardContent'),
     objectList.indexOf('/** 27 号 §10 F1 投影要素的列表承载'),
   );
-  assert.match(cardBody, /if \(obj\.status === 'voided'\) return <FrictionTerminalCardContent/, '终态走说明框');
+  assert.match(cardBody, /if \(obj\.status === 'voided' \|\| obj\.status === 'accepted'\) return <FrictionTerminalCardContent/, '终态走说明框');
   assert.match(cardBody, /return null;/, '非终态卡体留空——只由卡头与标题托承载');
   assert.doesNotMatch(cardBody, /obj\.phenomenon/, '现象全文不再上卡面');
   assert.doesNotMatch(cardBody, /obj\.attribution/, '归因不再上卡面');
@@ -164,7 +164,7 @@ test('identity copy and association rows treat both types as first-class facts',
   // 复制走对象引用（@对象 引用），不是路径复制。
   assert.match(identityActions, /objectType === 'friction' \|\| objectType === 'norm'/);
   // 关联行状态映射：friction open 是活账（pending），resolved/voided 属终态（closed）。
-  assert.match(objectList, /targetType === 'friction'[\s\S]*?association\.status === 'open'\) return 'pending';[\s\S]*?association\.status === 'resolved' \|\| association\.status === 'voided'\) return 'closed';/);
+  assert.match(objectList, /targetType === 'friction'[\s\S]*?association\.status === 'open'\) return 'pending';[\s\S]*?association\.status === 'resolved' \|\| association\.status === 'voided' \|\| association\.status === 'accepted'\) return 'closed';/);
   // 26 §9（2026-10 修订）：闭集三值后，observing 不再是任何合法状态，关联行
   // 映射里也不得保留它（否则闭集外的值会被映射成活账）。
   assert.doesNotMatch(objectList, /association\.status === 'observing'/,
@@ -189,7 +189,7 @@ test('resolved 走达成绿而 voided 走收敛灰（Human 定案 2026-11）', (
   // 26 §9（2026-10 修订）：闭集三值后不留观状态色，过滤项只列三值。
   assert.doesNotMatch(statusColors, /observing:/, '留观状态色随闭集收缩一并退出');
   assert.doesNotMatch(statusFilter, /'observing'/, '过滤项不再列留观');
-  assert.match(statusFilter, /friction: \['open', 'resolved', 'voided'\],/);
+  assert.match(statusFilter, /friction: \['open', 'resolved', 'voided', 'accepted'\],/);
   assert.match(statusFilter, /norm: \['active', 'retired'\],/);
 });
 

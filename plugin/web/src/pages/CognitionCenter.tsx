@@ -11,7 +11,7 @@
  * - 模块级降级：issues 就地显示实际不可用范围与原因，其它内容正常呈现（02 §5.2）。
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { AlertCircle, ChevronDown, ChevronUp, CirclePlay, GitFork, HeartPulse, History, Inbox } from 'lucide-react';
+import { AlertCircle, ChevronDown, ChevronUp, CirclePlay, HeartPulse, History, Inbox } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
 import GoalSection from '@/components/GoalSection';
 import ObjectReferenceCopyButton from '@/components/ObjectReferenceCopyButton';
@@ -109,6 +109,11 @@ function buildModuleSummary(data: CognitionData, locale: string, t: Translate): 
     .filter((kind) => counts[kind] > 0)
     .map((kind) => `${t(INBOX_KIND_LABEL_KEYS[kind])} ${counts[kind]}`);
   lines.push(`total: ${data.inbox.total}${countParts.length > 0 ? ` (${countParts.join(', ')})` : ''}`);
+  // 26 §12：已接受成本单列——**不进** inbox 计数（accepted 不是待决定事项），
+  // 只作独立观测量随摘要呈现，避免把「记录一次、不再报告」读成待办。
+  if (data.frictionLedger && data.frictionLedger.acceptedCount > 0) {
+    lines.push(t('cognition.frictionLedger.accepted', { count: String(data.frictionLedger.acceptedCount) }));
+  }
   for (const item of data.inbox.items) {
     lines.push(`- ${formatHumanObjectReference(item.type, getLocalizedObjectTitle(item, locale, item.id), locale)} · ${t(INBOX_KIND_LABEL_KEYS[item.inboxKind])}`);
   }

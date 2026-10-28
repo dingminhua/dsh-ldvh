@@ -34,11 +34,11 @@ const FALLBACK_STATUSES_BY_TYPE: Record<string, string[]> = {
   // 20 §9 状态闭集：open（待处理）→ implemented（落实/交接）/ discarded（废弃/合并/拆分）。
   spark: ['open', 'implemented', 'discarded'],
   research: ['active', 'retired'],
-  // 26 §9 状态闭集三值（2026-10 修订，Human 决定：观察不进事实源）：
-  // open（待修）→ resolved（已销账）/ voided（已废弃）。
+  // 26 §9 状态闭集四值（2026-10 修订，Human 决定：观察不进事实源；2026-10 新增 accepted）：
+  // open（待修）→ resolved（已销账）/ voided（已废弃）/ accepted（已接受、不可清偿）。
   // 原第四值 `observing`（留观）已退出闭集——「已看见但尚未攒够」的观察改由
   // 11 §12bis.1 的摩擦观察缓冲承载（非事实对象），故本过滤项不再列它。
-  friction: ['open', 'resolved', 'voided'],
+  friction: ['open', 'resolved', 'voided', 'accepted'],
   // 27 号 §9 状态闭集：active（生效中）→ retired（已退役，终态）。
   norm: ['active', 'retired'],
 };

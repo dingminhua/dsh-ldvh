@@ -49,13 +49,13 @@ const OPERATIONS = {
   },
   "friction-list-objects": {
     toolName: "ldvh_friction_list",
-    summary: "Enumerate Friction fact objects (F0/F1 discovery): ledger projection (title/phenomenon/status/impact/attribution/attribution_ref/occurrence) for the governed project; open by default (2026-10 修订：观察材料已移出事实源，改由 11 §12bis.1 的摩擦观察缓冲承载——账本无 observing 状态), resolved/voided only with status=all (specs/03 §8, specs/26 §12)",
+    summary: "Enumerate Friction fact objects (F0/F1 discovery): ledger projection (title/phenomenon/status/impact/attribution/attribution_ref/occurrence) for the governed project; open by default (2026-10 修订：观察材料已移出事实源，改由 11 §12bis.1 的摩擦观察缓冲承载——账本无 observing 状态), resolved/voided/accepted only with status=all (specs/03 §8, specs/26 §12)",
     effect: "read"
   },
   "friction-write-object": {
     toolName: "ldvh_friction_write",
     writeShaped: true,
-    summary: "Controlled write of Friction fact objects: create (after Human-confirmed proposal incl. dedup result) and CAS update with change_log; status-preserving updates are supplement-level, transitions per 26 §9.2 (2026-10 修订：闭集为 open/resolved/voided，初态即 open；→resolved needs informs 1..n; →voided needs disposition and no informs; both terminal。2026-10-28：relations 闭集扩为 {informs, paired-with}——paired-with 指向同源跨角色的 Pitfall，任何状态可出现，且是配对的建立通道之一。观察不进账本——阈值晋升在 11 §12bis.1 的缓冲侧完成，机械通道不改变既有账目状态) (specs/03 §9.4–§9.5, specs/26 §13)",
+    summary: "Controlled write of Friction fact objects: create (after Human-confirmed proposal incl. dedup result) and CAS update with change_log; status-preserving updates are supplement-level, transitions per 26 §9.2 (2026-10 修订：闭集为 open/resolved/voided/accepted，初态即 open；→resolved needs informs 1..n; →voided needs disposition and no informs; →accepted needs disposition (non-empty), no informs, and a 处置 section (the 复审触发 inside it is an AI/Human semantic requirement — Code only checks the section is present and disposition is non-empty, 26 §15 内容项); all three terminal。2026-10-28：relations 闭集扩为 {informs, paired-with}——paired-with 指向同源跨角色的 Pitfall，任何状态可出现，且是配对的建立通道之一。观察不进账本——阈值晋升在 11 §12bis.1 的缓冲侧完成，机械通道不改变既有账目状态) (specs/03 §9.4–§9.5, specs/26 §13)",
     effect: "may_change_state"
   }
 };
@@ -536,7 +536,7 @@ function parameterSchemaFor(operationKey) {
     description: "AI-supplied type fields; Code assigns object_uid/fact_type_key/created_at/change_log and generates the H1 from title",
     properties: {
       title: { type: "string", description: "≤ 30 characters; obstacle short title for locating and Human scanning" },
-      status: { type: "string", enum: ["open", "resolved", "voided"], description: "create must be open (26 §9 2026-10 修订：观察态已退出闭集，账目初态即待修态); transitions: →resolved (informs 1..n), →voided (no relations, requires disposition); resolved & voided terminal & read-only. 机械通道不改变任何既有账目的状态——阈值晋升只发生在观察缓冲侧 (11 §12bis.1)" },
+      status: { type: "string", enum: ["open", "resolved", "voided", "accepted"], description: "create must be open (26 §9 2026-10 修订：观察态已退出闭集，账目初态即待修态); transitions: →resolved (informs 1..n), →voided (no relations, requires disposition), →accepted (no informs, requires non-empty disposition and a 处置 section; the 复审触发 inside it is AI/Human-verified, not machine-checked — 26 §15 内容项); resolved/voided/accepted terminal & read-only. 机械通道不改变任何既有账目的状态——阈值晋升只发生在观察缓冲侧 (11 §12bis.1)" },
       phenomenon: { type: "string", description: "single-sentence phenomenon statement (non-conclusion, e.g. 「CI 平均 8 分钟」 not 「CI 太慢」); must appear verbatim in the 现象 body section" },
       attribution: { type: "string", description: "which subsystem/spec/process the obstacle roots in; free text — the root is often a spec/tool/process with no object identity; omit when not yet attributable (backfill via supplement update)" },
       // 26 §8/§11（2026-10 订正）：规范形态是对象 { object_uid }（锚点型，与
@@ -579,7 +579,7 @@ function parameterSchemaFor(operationKey) {
       return {
         type: "object",
         properties: {
-          status: { type: "string", enum: ["open", "all"], description: "open = default (open 待修账目; 26 §12 2026-10 修订：观察态已退出闭集，账本里不再有 observing); all = include resolved/voided for historical tracing" },
+          status: { type: "string", enum: ["open", "all"], description: "open = default (open 待修账目; 26 §12 2026-10 修订：观察态已退出闭集，账本里不再有 observing); all = include resolved/voided/accepted for historical tracing" },
           limit: { type: "number", description: "max items returned (default 200; exceeding the cap returns a partial page with the true total — never a silent truncation, 03 §8.1)" }
         },
         additionalProperties: false

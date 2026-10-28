@@ -51,9 +51,9 @@
 
 据实声明的边界：本改动**只增加呈现**，不改变任何流转。`open → resolved` 仍需 `informs 1..n` 且由受控写入承载。本页展示 open 账目不等于提出修复方案，也不构成对摩擦的记录或处置。
 
-### 0.4 2026-10 摩擦状态闭集收缩为三值（Human 决定：观察不进事实源）
+### 0.4 2026-10 摩擦状态闭集收缩为三值、后扩为四值（Human 决定：观察不进事实源；2026-10 新增 accepted）
 
-26 号 §9 的状态闭集**由四值收缩为三值**：原第四值 `observing`（留观）**已退出闭集**——「已看见但尚未攒够」的观察不再作为事实对象存在，改由 11 §12bis.1 的**摩擦观察缓冲**承载（非事实对象、按管辖项目分载体、有容量上限与保留期、唯一消费者是摩擦发现的晋升判定）。本类型只承载**已达阈值**的待修阻碍账，故其**初态即 `open`**。
+26 号 §9 的状态闭集**由四值收缩为三值**（后于 2026-10 扩为四值 `open`/`resolved`/`voided`/`accepted`）：原第四值 `observing`（留观）**已退出闭集**——「已看见但尚未攒够」的观察不再作为事实对象存在，改由 11 §12bis.1 的**摩擦观察缓冲**承载（非事实对象、按管辖项目分载体、有容量上限与保留期、唯一消费者是摩擦发现的晋升判定）。本类型只承载**已达阈值**的待修阻碍账，故其**初态即 `open`**。
 
 对本页的可观察影响（全部是呈现面同步，不新增功能）：
 
@@ -61,7 +61,7 @@
 |---|---|
 | 变更对象 | 摩擦状态闭集（状态词表、状态色、状态过滤项、关联行状态映射）与 `occurrence` 的呈现语义 |
 | 变更前 | 四值 `observing` / `open` / `resolved` / `voided`；`occurrence.count` 是「机械通道唯一的自主流转判据」（阈值 `count ≥ 3` 与放回留观护栏 `human_return_at`） |
-| 变更后 | 三值 `open` / `resolved` / `voided`；`occurrence.count` 只是**频次的机械权威源**（26 §8），**不再是任何状态流转的阈值判据**——阈值判定在观察缓冲侧，既有账目的状态变更全部属 Human Gate（26 §9.2） |
+| 变更后 | 三值 `open` / `resolved` / `voided`（2026-10 再扩为四值，加 `accepted`）；`occurrence.count` 只是**频次的机械权威源**（26 §8），**不再是任何状态流转的阈值判据**——阈值判定在观察缓冲侧，既有账目的状态变更全部属 Human Gate（26 §9.2） |
 | 作用范围 | `src/components/ObjectStatusFilter.tsx`、`src/utils/statusColors.ts`、`src/utils/listStatus.ts`、`src/i18n/locales.ts`、`src/pages/ObjectList.tsx`、`src/pages/CognitionCenter.tsx`、`src/components/FrictionOccurrenceBadge.tsx`、`src/utils/api.ts`、`api/routes/cognition.ts`、`api/services/factFieldContract.ts` 及对应契约测试 |
 | Human 决定 | 2026-10 Human 决定：「摩擦的留观，也要改成经验的留观，不再做为事实对象出现，而只是保留在本地」「open 的都是累积到达 3 次观察到的」「不存在放回去的说法」 |
 | 验收依据 | 本文 §4.1 的收录口径、§10 验收标准，以及 `web/tests/api/friction-norm-presentation-contract.test.ts`、`web/tests/api/cognition-inbox-contract.test.ts` 的状态闭集断言 |
@@ -122,7 +122,7 @@
 | 待确认经验 | Pitfall `status = draft` | 与对象列表共享普通 Pitfall Card；正文显示可读的 `symptoms`、`trigger_conditions`、`resolution`、`avoidance`、`validation_summary`、`applicability` |
 | 待修摩擦 | Friction `status = open` | 与对象列表共享普通 Friction Card；卡体留空（与列表卡一致），身份与状态由卡头托承载：类型、`impact`（轻/中/重）、`occurrence` 重复观察、修改次数；标题即现象单句的浓缩，现象全文与入账依据住详情页 |
 
-- 待修摩擦的收录口径（26 §12「Web 账本呈现」，Human 2026-10-19 决定）：**只收 `open`**。26 §9 的状态闭集为三值 `open` / `resolved` / `voided`（2026-10 修订：原第四值 `observing` 已退出闭集，「已看见但尚未攒够」的观察改由 11 §12bis.1 的摩擦观察缓冲承载——非事实对象、不进事实源、不参与 F0–F4 召回，故账本里本就没有「攒熟中的活账」可铺）；`resolved` / `voided` 是终态，同样不进默认候选。不呈现「攒熟进度」，以免把观察噪声读成待修规模。
+- 待修摩擦的收录口径（26 §12「Web 账本呈现」，Human 2026-10-19 决定）：**只收 `open`**。26 §9 的状态闭集为四值 `open` / `resolved` / `voided` / `accepted`（2026-10 修订：原第四值 `observing` 已退出闭集；`accepted` 为「已接受、不可清偿」，记录一次即不再报告，「已看见但尚未攒够」的观察改由 11 §12bis.1 的摩擦观察缓冲承载——非事实对象、不进事实源、不参与 F0–F4 召回，故账本里本就没有「攒熟中的活账」可铺）；`resolved` / `voided` 是终态，同样不进默认候选。不呈现「攒熟进度」，以免把观察噪声读成待修规模。
 - 待修摩擦卡头的 `occurrence` 重复观察 chip 呈现**频次事实**（26 §8 的机械权威源），**不**呈现阈值进度（如 `1/3`）：阈值 N 固定在观察缓冲侧（11 §12bis.1），其权威源是规范而非界面；`count` 也不再是任何状态流转的判据。
 - 待修摩擦不是 Human Gate：本页不新增任何授权动作，流转由 26 §9 的 Human Gate 与补充级更新承载。其 `inboxKind` 取 `friction_repair`，模块摘要标签为「待修摩擦」而非「待确认」——避免 Human 在页面上寻找一个不存在的批准按钮。
 - `impact` 与 `occurrence` 由服务端**平铺到条目根**（`CognitionFrictionInboxItem`），不要求客户端翻 `card`：卡头徽标读对象根字段，只投影进 `card` 会让徽标在聚焦页静默消失（近期动态投影当初即踩此坑）。

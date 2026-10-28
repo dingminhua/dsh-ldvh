@@ -103,12 +103,19 @@ export function stripLeadingH1(body) {
 // ---------------------------------------------------------------------------
 
 /**
- * 读取 `open` 账本，作为**语义查重**的账本侧输入（§9 第 1 项；2026-10 修订后
- * 只有 `open`——`observing` 已退出 26 §9 的闭集）。
+ * 读取 `open` 与 `accepted` 账本，作为**语义查重**的账本侧输入（§9 第 1 项；
+ * 2026-10 修订后 `observing` 已退出 26 §9 的闭集；2026-10 新增 `accepted`）。
  *
- * 只读，不改动。终态（resolved/voided）不在候选内——26 §12 明确 voided
- * 「不参与查重范围」。**缓冲侧的查重输入见 `loadObservationDedupCandidates`**——
- * 两层都要查（§9 第 1 项），只查本函数构成漏查重。
+ * 只读，不改动。`resolved` 与 `voided` 不在候选内——26 §12 明确 voided
+ * 「不参与查重范围」（记错了，同类现象若真实存在应重新入账）。**`accepted` 相反：
+ * 必须参与查重、命中即静默**（26 §9.1 accepted 行 / 36 §8.2 第 6 项）——它是
+ * 「已记录、不再报告」的结论；若把 `accepted` 排除在查重之外，同一阻碍会被反复
+ * 重新入账，「记录一次、不再报告」就不成立。调用方须按 `status` 区分二者：
+ * 命中 `open` 走补充级更新/并入组；命中 `accepted` 则不写缓冲、不晋升、不计数，
+ * 并在交还 `residual` 中登记命中事实（11 §9 第 1 项 / §15）。
+ *
+ * **缓冲侧的查重输入见 `loadObservationDedupCandidates`**——两层都要查（§9 第 1 项），
+ * 只查本函数构成漏查重。
  *
  * 返回 `{ ok, value: { candidates: [...], invalid: [...] } }`。**`invalid` 非空
  * 时必须按 §8.3 处理**：读不出的账目意味着查重输入不完整，而「查重不可靠」会
@@ -116,13 +123,14 @@ export function stripLeadingH1(body) {
  * 不完整的账本上做判断。
  */
 export async function loadDedupCandidates(factSourceRoot) {
-  const listed = await listFrictionObjects({ factSourceRoot, includeResolved: false, limit: 200 });
+  const listed = await listFrictionObjects({ factSourceRoot, includeResolved: true, limit: 200 });
   if (!listed.ok) return listed;
-  // 2026-10 修订（Human 决定：观察不进事实源）：账本侧查重对象**只有 `open`**
-  // ——`observing` 已退出 26 §9 的闭集。**但本函数不是查重的全部**：11 §9 第 1 项
+  // 2026-10：账本侧查重对象 = `open` + `accepted`（`observing` 已退出 26 §9 的闭集）。
+  // `accepted` 的投影**只用于命中静默判定**，不参与晋升——命中时该次观察不写缓冲、
+  // 不晋升、不补充计数（11 §9 第 1 项）。**本函数不是查重的全部**：11 §9 第 1 项
   // 要求同时读观察缓冲（`loadObservationDedupCandidates`），只查账本会把同一阻碍
   // 在缓冲里拆成互不相干的条目，使聚合永远到不了 N。
-  const candidates = listed.value.items.filter((item) => item.status === "open");
+  const candidates = listed.value.items.filter((item) => item.status === "open" || item.status === "accepted");
   return success({
     candidates,
     invalid: listed.value.invalid,

@@ -1,4 +1,4 @@
-// 26 §9/§12 三值状态闭集的受控行为契约（2026-11 修订：观察态退出闭集）。
+// 26 §9/§12 四值状态闭集的受控行为契约（2026-11 观察态退出闭集；2026-10 新增 accepted）。
 //
 // 为什么独立成文件：本文件只钉住「状态闭集收缩」这一件事的行为契约，用自带的
 // 最小脚手架（withTemp + mkdtemp），不依赖 writer/tools 那两个测试文件的夹具。
@@ -7,12 +7,12 @@
 // （2026-11 补注：那两个文件曾停留在 `serves` 字段时代，现已随本次修订一并更新。）
 //
 // 本文件原职责是「四值闭集（observing/open/resolved/voided）」，2026-11 修订后
-// 改为「三值闭集 + 观察态确实不在账本里」。核心不是把断言改个名字，而是要证明
+// 改为「三值闭集 + 观察态确实不在账本里」，2026-10 再扩为「四值闭集（含 accepted）」。核心不是把断言改个名字，而是要证明
 // **闭集真的收缩了**：observing 在创建入口、流转入口、读取/召回入口三处都被拒，
 // 而观察材料改由 `friction-observation-buffer.js`（11 §12bis.1，非事实对象）承载。
 //
 // 覆盖：
-//   1. 状态闭集三值 open/resolved/voided；observing 与 deferred 均已退出（26 §9）
+//   1. 状态闭集四值 open/resolved/voided/accepted；observing 与 deferred 均已退出（26 §9）
 //   2. 创建初态为 open，且 occurrence 必带（26 §8/§9）
 //   3. observing 写不进账本：创建/流转被拒（写入侧）、载体被拒收（读取侧）
 //   4. 默认召回只含 open；includeResolved 展开 resolved/voided（26 §12）
@@ -79,14 +79,14 @@ function body(d, { disposition = null } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// §9 状态闭集：三值
+// §9 状态闭集：四值
 // ---------------------------------------------------------------------------
 
-test("26 §9：状态闭集为三值，observing 与 deferred 均已退出", () => {
+test("26 §9：状态闭集为四值（含 accepted），observing 与 deferred 均已退出", () => {
   assert.deepEqual(
     [...STATUSES_EXPORT_FOR_TEST].sort(),
-    ["open", "resolved", "voided"],
-    "closed set must be open/resolved/voided — 观察态已于 2026-11 退出闭集",
+    ["accepted", "open", "resolved", "voided"],
+    "closed set must be open/resolved/voided/accepted — 观察态已于 2026-11 退出闭集，accepted 于 2026-10 进入",
   );
   assert.ok(
     !STATUSES_EXPORT_FOR_TEST.has("observing"),
@@ -297,6 +297,90 @@ test("26 §9.2：voided 为终态——停止计数且不可重开", async () =>
     });
     assert.ok(!reopen.ok, "26 §9.2：resolved/voided 为终态，不得重开或继续计数");
     assert.equal(reopen.error?.code, "friction/status_terminal", "拒绝理由须是终态只读");
+  });
+});
+
+test("26 §9.2：accepted 为终态——需 disposition 与处置段，informs 不得出现，且不可重开", async () => {
+  await withTemp("friction-four-state.", async (root) => {
+    const d = draft({ title: "不可清偿的摩擦" });
+    const created = await createFrictionObject({
+      factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: body(d), sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+
+    // ① 缺 disposition 的接受流转被拒（26 §8：出现 ⇔ status ∈ {voided, accepted}）。
+    const noDisposition = await updateFrictionObject({
+      factSourceRoot: root, objectUid: created.value.object_uid,
+      expectedFingerprint: created.value.fingerprint,
+      frontmatterAfter: { ...d, status: "accepted" },
+      bodyMarkdownAfter: body(d, { disposition: "消除途径不存在（测试）" }),
+      changeSummary: "试接受但不带 disposition（应被拒）", sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!noDisposition.ok, "accepted 必须带 disposition（26 §8）");
+
+    // ② 缺处置段的接受流转被拒（26 §8：处置段条件出现）。
+    const noSection = await updateFrictionObject({
+      factSourceRoot: root, objectUid: created.value.object_uid,
+      expectedFingerprint: created.value.fingerprint,
+      frontmatterAfter: { ...d, status: "accepted", disposition: "消除途径不存在（测试）" },
+      bodyMarkdownAfter: body(d),
+      changeSummary: "试接受但不写处置段（应被拒）", sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!noSection.ok, "accepted 必须有处置段（26 §8）");
+
+    // ③ 合法接受：disposition + 处置段（含复审触发）。
+    const disposition = "消除途径不存在：宿主不提供热重载，本仓无法消除该中断（测试）。复审触发：宿主版本升级时重审。";
+    const accepted = await updateFrictionObject({
+      factSourceRoot: root, objectUid: created.value.object_uid,
+      expectedFingerprint: created.value.fingerprint,
+      frontmatterAfter: { ...d, status: "accepted", disposition },
+      bodyMarkdownAfter: body(d, { disposition }),
+      changeSummary: "接受为不可清偿（测试）", sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(accepted.ok, JSON.stringify(accepted.error));
+
+    // ④ 终态只读：不得重开、不得继续计数。
+    const reopen = await updateFrictionObject({
+      factSourceRoot: root, objectUid: created.value.object_uid,
+      expectedFingerprint: accepted.value.fingerprint,
+      frontmatterAfter: {
+        ...d, status: "open",
+        occurrence: { count: 2, first_at: d.occurrence.first_at, last_at: "2026-11-02T00:00:00.000Z" },
+      },
+      bodyMarkdownAfter: body(d),
+      changeSummary: "试重开 accepted（应被拒）", sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!reopen.ok, "26 §9.2：accepted 为终态，不得重开");
+    assert.equal(reopen.error?.code, "friction/status_terminal", "拒绝理由须是终态只读");
+  });
+});
+
+test("26 §12：accepted 不进默认召回，仅 includeResolved 时展开（但仍参与查重）", async () => {
+  await withTemp("friction-four-state.", async (root) => {
+    const d = draft({ title: "已接受的摩擦（默认不召回）" });
+    const created = await createFrictionObject({
+      factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: body(d), sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+    const disposition = "不在本项目可动范围：宿主侧机制（测试）。复审触发：依赖变更时重审。";
+    const accepted = await updateFrictionObject({
+      factSourceRoot: root, objectUid: created.value.object_uid,
+      expectedFingerprint: created.value.fingerprint,
+      frontmatterAfter: { ...d, status: "accepted", disposition },
+      bodyMarkdownAfter: body(d, { disposition }),
+      changeSummary: "接受（测试）", sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(accepted.ok, JSON.stringify(accepted.error));
+
+    const def = await listFrictionObjects({ factSourceRoot: root });
+    assert.ok(def.ok);
+    assert.equal(def.value.items.length, 0, "26 §12：accepted 不进默认候选");
+
+    const all = await listFrictionObjects({ factSourceRoot: root, includeResolved: true });
+    assert.ok(all.ok);
+    assert.equal(all.value.items.length, 1);
+    assert.equal(all.value.items[0].status, "accepted");
+    assert.equal(all.value.items[0].disposition, disposition, "终态去向须在投影中可读（列表卡直读）");
   });
 });
 

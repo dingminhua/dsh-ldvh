@@ -22,7 +22,7 @@
  *
  * **本 schema 不保证判断正确**：它只管字段名、枚举、必填性与类型。把
  * `verdict` 填成 `same-obstacle` 而实际是另一件阻碍，schema 一律放行——那是
- * 语义误判，属 §8.4 第 2 项「反向护栏」登记的已知失效面（处置为按 26 §17 第 6
+ * 语义误判，属 §8.4 第 2 项「反向护栏」登记的已知失效面（处置为按 26 §17 第 7
  * 项撤销误判递增）。**不得据本 schema 的通过主张判断内容可靠。**
  */
 
@@ -36,7 +36,7 @@
  *
  * | 态 | 含义 | 落地动作（§9） |
  * |---|---|---|
- * | `same-obstacle` | 与**既有 open 账目**同一阻碍 | 第 4 项：对既有账目补充级更新 |
+ * | `same-obstacle` | 与**既有 open 或 accepted 账目**同一阻碍 | 第 4 项：命中 `open` 时补充级更新；命中 `accepted` 时静默（11 §9 第 1 项） |
  * | `same-observation-group` | 与**缓冲中某个 pending 组**同一阻碍 | 第 2 项：追加进该组；若达 N 则第 3 项晋升 |
  * | `new-observation` | 账本与缓冲都没有的**新阻碍**（构成一次观察） | 第 2 项：开一个新组（count 1，留在缓冲） |
  * | `no-discovery` | 本次材料没有构成系统性阻碍的现象 | 无动作 |
@@ -67,12 +67,12 @@ export function discoveryOutputSchema() {
         type: "string",
         enum: [...VERDICTS],
         description:
-          "四态之一：same-obstacle=与既有 open 账目是同一阻碍；same-observation-group=与缓冲中某个 pending 观察组是同一阻碍；new-observation=账本与缓冲都没有的新阻碍；no-discovery=本次新增内容中没有构成系统性阻碍的现象。",
+          "四态之一：same-obstacle=与既有 open 或 accepted 账目是同一阻碍（命中 accepted 时机械层静默，你仍须报此态并给出 target_uid）；same-observation-group=与缓冲中某个 pending 观察组是同一阻碍；new-observation=账本与缓冲都没有的新阻碍；no-discovery=本次新增内容中没有构成系统性阻碍的现象。",
       },
       target_uid: {
         type: "string",
         description:
-          "verdict=same-obstacle 时必填：被命中的既有 open 账目 object_uid（UUIDv4）。其余三态填空字符串。",
+          "verdict=same-obstacle 时必填：被命中的既有 open 或 accepted 账目 object_uid（UUIDv4）。其余三态填空字符串。",
       },
       group: {
         type: "string",
@@ -170,7 +170,7 @@ export function buildDiscoveryPromptSection({ threshold, candidates = [], observ
   // 措辞"的阻碍被判成新阻碍，这正是漏判的机制性来源。缺字段不是执行体的错，
   // 是投影的错。
   const ledgerList = candidates.length === 0
-      ? "（本账本当前没有 open 账目——任何阻碍都还不能与既有账目比对）"
+      ? "（本账本当前没有 open 或 accepted 账目——任何阻碍都还不能与既有账目比对）"
       : candidates
           .map((c) => {
             const rootBits = [];
@@ -230,7 +230,9 @@ export function buildDiscoveryPromptSection({ threshold, candidates = [], observ
     + "评级——那些是必须外送 Human 的判断项（§9）。",
     "",
     "**两层结构（这是本次任务的形状，请务必理解）**：",
-    "- **账本层**：`open` 账目是**已经攒够、待修的阻碍**。它们已是事实对象。",
+    "- **账本层**：`open` 账目是**已经攒够、待修的阻碍**；`accepted` 账目是**已确认不可清偿、"
+    + "记录一次即不再报告**的阻碍（它是终态，但仍参与查重——命中它意味着这件事已经记过了）。"
+    + "两者都是事实对象。",
     "- **观察层**：观察缓冲里的组是**还没攒够的证据**，**不是账目**。同一阻碍的每次出现"
     + "各自一条，按 `group` 聚合；当某组的待晋升条目达到 N=" + String(threshold)
     + " 条时，机械层会把它们**晋升为一条新的 `open` 账目**。",
@@ -247,8 +249,10 @@ export function buildDiscoveryPromptSection({ threshold, candidates = [], observ
     + "并在 `reason` 里说明这一点。",
     "",
     "**判定的四态**：",
-    "- `same-obstacle`：本次材料与**既有某条 open 账目**是同一阻碍 → 必填 `target_uid`（该账目的 uid）。"
-    + "机械层会对那条账目做补充级更新（计数 +1）。",
+    "- `same-obstacle`：本次材料与**既有某条 open 或 accepted 账目**是同一阻碍 → 必填 `target_uid`（该账目的 uid）。"
+    + "命中 `open` 时机械层对那条账目做补充级更新（计数 +1）；**命中 `accepted` 时机械层静默**"
+    + "（不写缓冲、不晋升、不计数——该阻碍已按「不可清偿」记录过，不再报告），"
+    + "但你必须照样报 `same-obstacle` 并给出 `target_uid`，不要因为它是终态就改判 `no-discovery`。",
     "- `same-observation-group`：本次材料与**观察缓冲中某个已有组**是同一阻碍 → 必填 `group`"
     + "（从下方组清单里原样复制组键）。",
     "- `new-observation`：本次材料构成一个**账本与缓冲都没有**的阻碍 → 必填 `group`"
@@ -266,7 +270,7 @@ export function buildDiscoveryPromptSection({ threshold, candidates = [], observ
     + "`phenomenon`、`basis`、`attribution`、`impact`、`quote`、`reason`。"
     + "各态的必填字段见上；`quote` 与 `reason` 在材料非空时都必填。逐条说明见输出 schema。",
     "",
-    "**本账本的 open 账目（账本层查重对象）**：",
+    "**本账本的 open 与 accepted 账目（账本层查重对象）**：",
     ledgerList,
     "",
     "**观察缓冲中已有的组（观察层查重对象）**：",

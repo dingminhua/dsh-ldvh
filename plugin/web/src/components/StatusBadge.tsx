@@ -22,6 +22,9 @@ export default function StatusBadge({ status, statusLabel, objectType = '', size
     // 是收敛而非警示。已销账**不在其列**：它是达成，走配色表的正向绿（Human
     // 定案 2026-11「已消账的icon应该是绿色的」；与下方 spark implemented 同例）。
     || (objectType === 'friction' && status === 'voided')
+    // 26 §9：accepted（已接受、不可清偿）是「记对了但修不了」，属收敛而非警示，
+    // 用中性灰；它不是废弃，语义由 status label 区分。
+    || (objectType === 'friction' && status === 'accepted')
     || (objectType === 'norm' && status === 'retired')
     ? '#6b7280'
     // 20 §9：spark implemented（落实/交接）走正向达成绿（Human 定案

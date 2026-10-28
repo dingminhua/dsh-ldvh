@@ -190,7 +190,7 @@ test("prompt: 明确要求只判断区间内内容，且不得默默扩大范围
 
 test("prompt: 空候选时如实说明（避免子代理误报 same-obstacle）", () => {
   const prompt = buildDiscoveryPrompt({ threshold: 3, candidates: [], window: { items: [] } });
-  assert.match(prompt, /本账本当前没有 open 账目/, "空候选须如实说明账本侧无可比对对象");
+  assert.match(prompt, /本账本当前没有 open 或 accepted 账目/, "空候选须如实说明账本侧无可比对对象");
   assert.match(prompt, /还不能与既有账目比对/, "须说明「本次不能与账本比对」，而非留白");
 });
 

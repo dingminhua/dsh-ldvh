@@ -1182,6 +1182,18 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   landedAction = landed.value.action;
                   landedUid = landed.value.object_uid;
                   landedPromoted = landed.value.promoted;
+                  // 2026-10：命中 `accepted` 时落地侧返回 `action: "silent"` 并带
+                  // `residual`——那是「本次观察与某笔已接受账目同源、已按记录一次不再
+                  // 报告处理」的登记（11 §9 第 1 项 / §15）。它必须进待处置队列，
+                  // 否则「静默」就变成无痕抑制（11 §11 无损保证）。
+                  if (Array.isArray(landed.value.residual) && landed.value.residual.length > 0) {
+                    await appendPendingEntry(dshHomePath, {
+                      task: "friction-discovery",
+                      reason: "本次观察命中已接受（accepted）账目，已按「记录一次、不再报告」静默",
+                      residual: landed.value.residual,
+                      at: new Date().toISOString(),
+                    });
+                  }
                   taskOutcomes["friction-discovery"] = {
                     outcome: "landed", action: landed.value.action, object_uid: landed.value.object_uid,
                   };

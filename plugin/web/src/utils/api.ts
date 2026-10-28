@@ -484,7 +484,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 /** 认知中心待决类型（v5）：两个 WorkCase Human Gate，加 Pitfall draft 审核，
  * 加 Friction `open` 待修（Human 2026-10-19 决定：只收 open；
- * 2026-10 修订后 26 §9 闭集只剩 open/resolved/voided，已无第四态可收）。 */
+ * 2026-10 修订后 26 §9 闭集为 open/resolved/voided/accepted，但待决只收 open——
+ * accepted 是已接受、不再报告，不进待决；resolved/voided 亦不进）。 */
 export type CognitionInboxKind = 'plan_confirmation' | 'closure_confirmation' | 'pitfall_confirmation' | 'friction_repair';
 
 /**
@@ -699,6 +700,9 @@ export interface CognitionData {
   };
   /** Spark 列表不可读取时整体省略，并通过 issues 就地说明。 */
   sparkHealth?: CognitionSparkHealth;
+  /** 26 §12 dogfood 度量消费点（2026-10 新增 accepted）：已接受成本单列计数。
+   * 不进 inbox（accepted 不是待决定事项），也不进解决率分母（26 §12）。 */
+  frictionLedger?: { acceptedCount: number };
   issues?: CognitionIssue[];
 }
 

@@ -17,7 +17,6 @@ import { listObjects, type ObjectType } from '../services/facts.js'
 import { canonicalUid } from '../../shared/factIdentity.js'
 import {
   WORKCASE_V5_STATUSES,
-  deriveWorkCaseV5View,
   type WorkCaseV5View,
   type WorkCaseV5Group,
 } from '../../shared/workcaseLifecycle.js'
@@ -692,22 +691,32 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     // 26 §12「Web 账本呈现」消费点：open 账目进入聚焦的待决定事项（Human 2026-10-19
     // 决定：只收 `open`）。
     //
-    // 为什么只收 `open`（2026-10 修订后的口径）：26 §9 的状态闭集**只有三值**
-    // ——`open`（待修）/ `resolved`（已销账）/ `voided`（已废弃）。原第四值
+    // 为什么只收 `open`（2026-10 修订后的口径）：26 §9 的状态闭集为**四值**
+    // ——`open`（待修）/ `resolved`（已销账）/ `voided`（已废弃）/
+    // `accepted`（已接受、不可清偿）；但待决定事项**只收 `open`**——accepted 是
+    // 「记录一次、不再报告」，resolved/voided 亦属终态。原第四值
     // `observing`（留观）**已退出闭集**：「已看见但尚未攒够」的观察不再作为
     // 事实对象存在，改由 11 §12bis.1 的摩擦观察缓冲承载（非事实对象、不进
     // 事实源、不参与 F0–F4 召回）——故本分支**不再有「攒熟中的活账」可铺**，
     // 只剩「已攒够、确实待修」的账目才是待决定事项。
     //
     // `resolved`/`voided` 是终态，26 §12 明写不进默认候选（`voided` 还额外
-    // 不参与查重、度量与迭代决策输入）。故本分支只认 `open` 一个值，
-    // **不做**任何「攒熟进度」推断。
+    // 不参与查重、度量与迭代决策输入）。`accepted` 同为终态、不进待决定事项，
+    // 但**须单列计数**（26 §12 dogfood 度量：已接受成本，不进解决率分母；
+    // 26 §18 第 7 条把它列为 accepted 的必备消费方之一）。
+    let acceptedFrictionCount = 0
     if (!frictionResult.ok || !('data' in frictionResult)) {
       const message = frictionResult.ok ? 'Friction 列表读取失败' : (frictionResult as { error: string }).error
       issues.push({ section: 'inbox', code: 'friction_list_unavailable', message })
     } else {
       const data = frictionResult.data as { items: Array<Record<string, unknown>>; collection_issues?: Array<Record<string, unknown>> }
       for (const issue of Array.isArray(data.collection_issues) ? data.collection_issues : []) issues.push(toIssue(issue))
+      // 26 §12：accepted 单列计数（已接受成本），不进待决定事项、不进解决率分母。
+      // **单独一次遍历**：待决定事项的收录判定必须保持字面 `raw.status !== 'open'`
+      // （下方契约测试钉住该形态，防止「顺手多带一个状态」的口径漂移）。
+      for (const raw of data.items) {
+        if (raw.status === 'accepted') acceptedFrictionCount += 1
+      }
       for (const raw of data.items) {
         if (raw.status !== 'open') continue
         const object_id = String(raw.object_id ?? '')
@@ -892,6 +901,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       generatedAt,
       scope: { governedProjectId: project.id },
       inbox: { items, total: items.length },
+      // 26 §12 dogfood 度量消费点（2026-10 新增 accepted）：已接受成本单列计数。
+      // 它**不进** inbox（accepted 不是待决定事项），也**不进**解决率分母
+      // （26 §12：accepted 不进解决率分母、不计入 open 待修数）。
+      frictionLedger: { acceptedCount: acceptedFrictionCount },
       activeWorkCases: { items: activeWorkCaseItems, total: activeWorkCaseItems.length },
       recentActivity: {
         window: recentWindow,

@@ -18,11 +18,12 @@
  *                 to the CAS baseline (攒账计数/现象补充/归因后补；变了就
  *                 拒绝——状态变化走流转).
  *               * state transitions (Human-gated): open→resolved (销账) /
- *                 →voided (废弃)。2026-10 修订：observing 退出闭集，
- *                 阈值晋升改由 friction-observation-buffer 侧完成（11 §12bis.1）
- *                 / →voided follow §9.2; resolved requires 1..n informs
- *                 relations with resolvable targets; resolved & voided are
- *                 terminal & read-only.
+ *                 →voided (废弃) / →accepted (接受不可清偿)。2026-10 修订：
+ *                 observing 退出闭集，阈值晋升改由 friction-observation-buffer
+ *                 侧完成（11 §12bis.1）。/ →voided / →accepted follow §9.2;
+ *                 resolved requires 1..n informs relations with resolvable
+ *                 targets; resolved, voided & accepted are terminal &
+ *                 read-only.
  *
  * Carrier coherence (26 §8): frontmatter phenomenon is the single
  * authoritative text — the 现象 body section must contain it verbatim.
@@ -50,13 +51,14 @@ const FRICTION_TYPE_KEY = "friction";
 /** Directory under the fact-source root that carries Friction objects. */
 export const FRICTION_DIRECTORY = "frictions";
 
-/** Fixed body H2 sections (26 §8); 处置 is conditional on resolved/voided. */
+/** Fixed body H2 sections (26 §8); 处置 is conditional on resolved/voided/accepted. */
 const BODY_H2_REQUIRED = ["现象", "入账依据"];
 const BODY_H2_DISPOSITION = "处置";
 
-// 26 §9（2026-10 修订，Human 决定：观察不进事实源）：状态闭集三值。
+// 26 §9（2026-10 修订，Human 决定：观察不进事实源）：状态闭集四值。
 // `observing` 已退出——观察材料由 11 §12bis.1 的摩擦观察缓冲承载（非事实对象）。
-const STATUSES = new Set(["open", "resolved", "voided"]);
+// `accepted`（2026-10 新增）：阻碍真实但不可清偿，记录一次、不再报告；是终态。
+const STATUSES = new Set(["open", "resolved", "voided", "accepted"]);
 const IMPACT_VALUES = new Set(["light", "medium", "heavy"]);
 
 // 26 §13：`correct` 的补填通道只接受**新进入闭集**的字段。闭集扩张时在此登记
@@ -628,12 +630,12 @@ function requireBodyWithoutH1(bodyMarkdown, fieldName) {
 /**
  * Validate the assembled body structure. The body passed here is the full
  * file body starting with the generated `# ${title}` H1 (26 §8).
- * 处置 section presence ⇔ status resolved/voided (26 §8 conditional).
+ * 处置 section presence ⇔ status resolved/voided/accepted (26 §8 conditional).
  * Returns { ok, issues }.
  */
 export function validateFrictionBodyStructure(body, title, status) {
   const issues = [];
-  const expectDisposition = status === "resolved" || status === "voided";
+  const expectDisposition = status === "resolved" || status === "voided" || status === "accepted";
   const expectedH2 = [...BODY_H2_REQUIRED];
   if (expectDisposition) expectedH2.push(BODY_H2_DISPOSITION);
 
@@ -662,10 +664,10 @@ export function validateFrictionBodyStructure(body, title, status) {
     if (content.length === 0) issues.push(`body: section "${secTitle}" is empty`);
   }
 
-  // 处置 H2 presence ⇔ resolved/voided (26 §8 conditional)
+  // 处置 H2 presence ⇔ resolved/voided/accepted (26 §8 conditional)
   const hasDispositionH2 = h2.includes(BODY_H2_DISPOSITION);
   if (hasDispositionH2 !== expectDisposition) {
-    issues.push(`body: "## 处置" section presence (${hasDispositionH2}) must match status resolved/voided (${expectDisposition}) — 26 §8 条件出现`);
+    issues.push(`body: "## 处置" section presence (${hasDispositionH2}) must match status resolved/voided/accepted (${expectDisposition}) — 26 §8 条件出现`);
   }
 
   return { ok: issues.length === 0, issues };
@@ -791,14 +793,14 @@ export async function createFrictionObject(args) {
   frontmatter.object_uid = uid;
   frontmatter.fact_type_key = FRICTION_TYPE_KEY;
   frontmatter.created_at = now;
-  // 26 §9（2026-10 修订）：初态 open — create must never enter resolved/voided.
+  // 26 §9（2026-10 修订）：初态 open — create must never enter resolved/voided/accepted.
   if (frontmatter.status !== undefined && frontmatter.status !== "open") {
-    return failure("friction/initial_state_violation", `create must initialise as status=open; got ${JSON.stringify(frontmatter.status)} (26 §9 — 观察态已退出闭集；销账/废弃是流转，不是初态)`);
+    return failure("friction/initial_state_violation", `create must initialise as status=open; got ${JSON.stringify(frontmatter.status)} (26 §9 — 观察态已退出闭集；销账/废弃/接受是流转，不是初态)`);
   }
   frontmatter.status = "open";
   // 26 §8：disposition 是终态伴随字段——创建必为 open，故一律不得带。
   if (frontmatter.disposition !== undefined) {
-    return failure("friction/frontmatter_invalid", "create must not carry disposition (26 §8: 出现 ⇔ status ∈ {resolved, voided}；初态为 open)");
+    return failure("friction/frontmatter_invalid", "create must not carry disposition (26 §8: 出现 ⇔ status ∈ {resolved, voided, accepted}；初态为 open)");
   }
   // 26 §8（2026-10 修订）：occurrence 必填，形状 { count, first_at, last_at }
   // ——`human_return_at` 随 `open → observing` 流转一并删除。
@@ -948,10 +950,10 @@ export async function updateFrictionObject(args) {
     return failure("friction/cas_conflict", `fingerprint mismatch: expected ${expectedFingerprint}, actual ${current.value.fingerprint}`);
   }
 
-  // 26 §9.2: resolved 与 voided 均为终态（终态不重开；销错/记错的账按 05 事实更正修正）。
-  // voided 于 2026-11 进入闭集——此前本守卫只判 resolved，新终态漏网（本单修正）。
+  // 26 §9.2: resolved、voided 与 accepted 均为终态（终态不重开；销错/记错/接受错的账按 05 事实更正修正）。
+  // voided 于 2026-11 进入闭集、accepted 于 2026-10 进入闭集——新终态均须在此拦截。
   const prevStatus = current.value.frontmatter.status;
-  if (prevStatus === "resolved" || prevStatus === "voided") {
+  if (prevStatus === "resolved" || prevStatus === "voided" || prevStatus === "accepted") {
     return failure("friction/status_terminal", `status=${prevStatus} is terminal and the object is read-only (26 §9.2); a recurring obstacle goes through a NEW ledger entry referencing this uid`);
   }
 
@@ -976,7 +978,7 @@ export async function updateFrictionObject(args) {
 
   const nextStatus = fm.status;
   if (nextStatus === undefined || !STATUSES.has(nextStatus)) {
-    return failure("friction/status_transition_invalid", `target status ${JSON.stringify(nextStatus)} is not in the closed set (open/resolved/voided, 26 §9)`);
+    return failure("friction/status_transition_invalid", `target status ${JSON.stringify(nextStatus)} is not in the closed set (open/resolved/voided/accepted, 26 §9)`);
   }
 
   // 26 §9.3 补充边界：status 保持不变的更新是补充级（攒账计数/现象补充/
@@ -999,7 +1001,7 @@ export async function updateFrictionObject(args) {
   if (isTransition) {
     // 2026-10 修订：`observing → open`（阈值）与 `open → observing`（放回留观）
     // 两条流转已随观察态退出闭集而删除——Human 决定「不存在放回」。
-    // 合法流转只剩 open→resolved（销账）与 →voided（废弃），二者的护栏在下面。
+    // 合法流转为 open→resolved（销账）、→voided（废弃）、→accepted（接受不可清偿），护栏在下面。
     if (nextStatus === "resolved") {
       // open→resolved：informs 1..n 在销账流转写入。**必须按 key 计**——
       // 2026-10-28 起 relations 里有第二种 key，只数数组长度会让「只有 paired-with
@@ -1011,23 +1013,22 @@ export async function updateFrictionObject(args) {
         return failure("friction/relations_invalid", "resolving requires 1..n informs relations pointing at the remedy objects (26 §9.2/§11)");
       }
     }
-    // 26 §8：disposition 出现 ⇔ status=voided——废弃须带，其余状态须清。
+    // 26 §8：disposition 出现 ⇔ status ∈ {voided, accepted}——终态须带，其余状态须清。
     // resolved 不设该字段：其去向已由 informs 机械承载，另设会造出第二个来源。
-    if (nextStatus === "voided") {
+    if (nextStatus === "voided" || nextStatus === "accepted") {
       if (typeof fm.disposition !== "string" || fm.disposition.trim().length === 0) {
-        return failure("friction/frontmatter_invalid", "transition into voided must carry a non-empty disposition (26 §8: 废弃去向说明) — 列表卡据此呈现废弃理由");
+        return failure("friction/frontmatter_invalid", `transition into ${nextStatus} must carry a non-empty disposition (26 §8: 终态去向说明) — 列表卡据此呈现废弃/接受理由`);
       }
     } else if (fm.disposition !== undefined) {
-      return failure("friction/frontmatter_invalid", `disposition must appear only on a voided record (26 §8: 出现 ⇔ status=voided); transition into ${nextStatus} must clear it`);
+      return failure("friction/frontmatter_invalid", `disposition must appear only on voided/accepted records (26 §8: 出现 ⇔ status ∈ {voided, accepted}); transition into ${nextStatus} must clear it`);
     }
-    if (nextStatus === "voided") {
-      // →voided：informs 不得出现（26 §9.1/§13）。**paired-with 是例外**：
-      // 废弃不删配对边（26 §9.1 voided 行 / §9.4）——原账记错了，但「曾认为
-      // 二者同源」是历史事实，且配对经验可能正需要据此次废弃被复审。
-      const voidedInforms = Array.isArray(fm.relations)
+    if (nextStatus === "voided" || nextStatus === "accepted") {
+      // →voided / →accepted：informs 不得出现（26 §9.1/§13）。**paired-with 是例外**：
+      // 废弃/接受不删配对边（26 §9.1 行 / §9.4）——接受时债未清偿，规避经验仍需要。
+      const terminalInforms = Array.isArray(fm.relations)
         && fm.relations.some((rel) => rel !== null && typeof rel === "object" && rel.relation_key === "informs");
-      if (voidedInforms) {
-        return failure("friction/relations_invalid", "voided must not carry informs relations (26 §9.1)");
+      if (terminalInforms) {
+        return failure("friction/relations_invalid", `${nextStatus} must not carry informs relations (26 §9.1)`);
       }
     }
   }
@@ -1128,23 +1129,22 @@ export async function correctFrictionObject(args) {
     return failure("friction/cas_conflict", `fingerprint mismatch: expected ${expectedFingerprint}, actual ${current.value.fingerprint}`);
   }
   const fm = current.value.frontmatter;
-  // 26 §13：correct 适用于 resolved 与 voided 两个终态，分两支校验。
-  if (fm.status !== "resolved" && fm.status !== "voided") {
+  // 26 §13：correct 适用于 resolved、voided 与 accepted 三个终态，分支校验。
+  if (fm.status !== "resolved" && fm.status !== "voided" && fm.status !== "accepted") {
     return failure(
       "friction/correction_requires_terminal",
-      `terminal fact correction applies to a RESOLVED or VOIDED record only (26 §13: 适用于 resolved 与 voided 两个终态); got status=${JSON.stringify(fm.status)} — open 内容修正走补充级更新或状态流转，本入口不得承载（否则等于把更正伪装成状态转换，02 §10.5）`,
+      `terminal fact correction applies to a RESOLVED, VOIDED or ACCEPTED record only (26 §13: 适用于 resolved/voided/accepted 三个终态); got status=${JSON.stringify(fm.status)} — open 内容修正走补充级更新或状态流转，本入口不得承载（否则等于把更正伪装成状态转换，02 §10.5）`,
     );
   }
-  if (fm.status === "voided") {
-    // voided 支（26 §13 + 2026-10-28）：`informs` 不得出现（废弃的账无解药）；
-    // **`paired-with` 可保留**——废弃不删配对边（26 §9.1 voided 行 / §9.4）。
-    // 原口径「relations 必须为空」写于闭集只有一个 key 时，现按 key 判定。
+  if (fm.status === "voided" || fm.status === "accepted") {
+    // voided/accepted 支（26 §13 + 2026-10-28）：`informs` 不得出现（终态的账无解药）；
+    // **`paired-with` 可保留**——废弃/接受不删配对边（26 §9.1 行 / §9.4）。
     const rel = fm.relations;
     if (rel !== undefined && !Array.isArray(rel)) {
-      return failure("friction/relations_invalid", "voided correct branch: relations must be absent or an array (26 §13)");
+      return failure("friction/relations_invalid", `${fm.status} correct branch: relations must be absent or an array (26 §13)`);
     }
     if (Array.isArray(rel) && rel.some((r) => r !== null && typeof r === "object" && r.relation_key === "informs")) {
-      return failure("friction/relations_invalid", "voided correct branch: informs must be absent on a voided record (26 §9.1)");
+      return failure("friction/relations_invalid", `${fm.status} correct branch: informs must be absent on a terminal record (26 §9.1)`);
     }
   }
 
@@ -1220,9 +1220,9 @@ export async function correctFrictionObject(args) {
       }
       // ③ 值的形状须满足 §8 的契约（object 且含 count/first_at/last_at）。
       if (field === "disposition") {
-        // §8：该字段只属于 voided。补填到非 voided 对象一律拒绝。
-        if (next.status !== "voided") {
-          return failure("friction/frontmatter_invalid", `disposition may only be filled on a voided record (26 §8: 出现 ⇔ status=voided); got status=${JSON.stringify(next.status)}`);
+        // §8：该字段只属于 voided 或 accepted。补填到其余状态一律拒绝。
+        if (next.status !== "voided" && next.status !== "accepted") {
+          return failure("friction/frontmatter_invalid", `disposition may only be filled on a voided or accepted record (26 §8: 出现 ⇔ status ∈ {voided, accepted}); got status=${JSON.stringify(next.status)}`);
         }
         if (typeof value !== "string" || value.trim().length === 0) {
           return failure("friction/frontmatter_invalid", "disposition must be a non-empty string (26 §8: 一句话废弃去向)");
@@ -1242,12 +1242,12 @@ export async function correctFrictionObject(args) {
     if (!Array.isArray(relationsAfter)) {
       return failure("friction/relations_invalid", "relationsAfter must be an array when provided (26 §13)");
     }
-    if (fm.status === "voided") {
-      // 26 §13 voided 支 + 2026-10-28：`informs` 不得出现；`paired-with` 可保留
-      // （26 §9.1 voided 行 / §9.4：废弃不删配对边）。
-      const voidedInforms = relationsAfter.filter((r) => r !== null && typeof r === "object" && r.relation_key === "informs").length;
-      if (voidedInforms > 0) {
-        return failure("friction/relations_invalid", `voided correct branch: informs must be absent (26 §9.1); got ${voidedInforms}`);
+    if (fm.status === "voided" || fm.status === "accepted") {
+      // 26 §13 voided/accepted 支 + 2026-10-28：`informs` 不得出现；`paired-with` 可保留
+      // （26 §9.1 行 / §9.4：废弃/接受不删配对边）。
+      const terminalInforms = relationsAfter.filter((r) => r !== null && typeof r === "object" && r.relation_key === "informs").length;
+      if (terminalInforms > 0) {
+        return failure("friction/relations_invalid", `${fm.status} correct branch: informs must be absent (26 §9.1); got ${terminalInforms}`);
       }
     } else {
       // resolved 必有 informs（26 §11）；更正后仍须满足。
@@ -1398,10 +1398,10 @@ export async function listFrictionObjects(args) {
       continue;
     }
     // 26 §12（2026-10 修订）：默认候选只含 open——观察态已退出闭集，账本里不存在
-    // 「攒够待修的候选源」这一状态；resolved 与 voided 为终态，仅在「精确引用/
+    // 「攒够待修的候选源」这一状态；resolved、voided 与 accepted 为终态，仅在「精确引用/
     // 历史追溯」时展开。参数名 includeResolved 沿用历史命名，其实际语义是
-    // 「包含全部终态」（resolved + voided）——两个终态一并由此开关控制。
-    if (!includeResolved && (status === "resolved" || status === "voided")) continue;
+    // 「包含全部终态」（resolved + voided + accepted）——三个终态一并由此开关控制。
+    if (!includeResolved && (status === "resolved" || status === "voided" || status === "accepted")) continue;
     items.push({
       object_uid: uid,
       // 02 §9.3（候选条款）：类型短名进投影，使渲染层能直接给出「类型短名 + 短标识」
@@ -1416,8 +1416,8 @@ export async function listFrictionObjects(args) {
       // （workcase-54d4d176）。裸 string 为存量兼容，归一为对象形态后投影。
       attribution_ref: normalizeAttributionRef(frontmatter.attribution_ref),
       // 26 §8 两条 UI 消费字段：occurrence 是「该阻碍被观察到多少次」的直接依据
-      // （晋升时由同源条目数写入，此后作补充级记账），disposition 是 voided 的
-      // 废弃理由（列表卡终态框直读，不必进详情页）。二者都在 F1 投影内。
+      // （晋升时由同源条目数写入，此后作补充级记账），disposition 是 voided/accepted
+      // 的终态去向（列表卡终态框直读，不必进详情页）。二者都在 F1 投影内。
       occurrence: frontmatter.occurrence && typeof frontmatter.occurrence === "object" ? frontmatter.occurrence : undefined,
       disposition: typeof frontmatter.disposition === "string" ? frontmatter.disposition : undefined,
       // 26 §11/§12（2026-10-28）：配对目标的薄投影。**这是 `paired-with` 的机械
@@ -1466,7 +1466,7 @@ export { CORRECT_REMOVABLE_FIELDS as CORRECT_REMOVABLE_FIELDS_FOR_TEST };
  * function is the retrieval half that makes the pair actually findable.
  *
  * Read-only. Returns every carrier (any status — a pair outlives the debt being
- * settled or voided, 26 §9.1) whose `paired-with` names this uid.
+ * settled, voided or accepted, 26 §9.1) whose `paired-with` names this uid.
  *
  * @returns {Promise<{ok:true, value:{items:Array}} | {ok:false, error:{code:string,message:string}}>}
  */

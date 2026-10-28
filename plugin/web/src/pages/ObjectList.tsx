@@ -681,11 +681,12 @@ function getFactAssociationState(association: FactCardAssociation): FactAssociat
     if (association.group === 'pending_gate1' || association.group === 'awaiting_gate2') return 'pending';
     if (association.group === 'executing') return 'progressing';
   }
-  // 26 §9：friction 关联目标——open 是活账（待修），resolved 已销、voided 已废弃，
-  // 两者均属终态族。（2026-10 修订：原第四值 observing 已退出闭集。）
+  // 26 §9：friction 关联目标——open 是活账（待修），resolved 已销、voided 已废弃、
+  // accepted 已接受（不可清偿），后三者均属终态族。（2026-10 修订：原第四值
+  // observing 已退出闭集。）
   if (targetType === 'friction') {
     if (association.status === 'open') return 'pending';
-    if (association.status === 'resolved' || association.status === 'voided') return 'closed';
+    if (association.status === 'resolved' || association.status === 'voided' || association.status === 'accepted') return 'closed';
   }
   // 27 号 §9：norm 关联目标——retired 已退役（历史档案），active 生效中（下方默认）。
   if (association.status === 'retired') return 'discarded';
@@ -868,9 +869,10 @@ export function ResearchCardContent({ obj }: { obj: ObjectItem }) {
 /** 26 §12 F1 投影要素的列表承载：phenomenon（现象单句）+ impact（影响评级
  * 闭集，非装饰字段）+ attribution（归因，条件出现）。卡片正文段复用 pitfall
  * 活跃决策块的 amber 表面语法，但语义归账本（待修的账）。 */
-/** 26 §8/§9.1：voided 的终态卡——照 Spark 的终态形态（TerminalFactPanel），
- * 读 `disposition`（废弃去向说明）呈现。该字段于 2026-11 进入 §8 闭集，正是
- * 为了让列表卡能直接读到废弃理由，而不必进详情页读正文「处置」段。 */
+/** 26 §8/§9.1：voided / accepted 的终态卡——照 Spark 的终态形态（TerminalFactPanel），
+ * 读 `disposition`（终态去向说明）呈现。该字段于 2026-11 进入 §8 闭集、2026-10 扩为
+ * 「voided 的废弃理由或 accepted 的不可清偿理由」，正是为了让列表卡能直接读到去向，
+ * 而不必进详情页读正文「处置」段。 */
 function FrictionTerminalCardContent({ obj }: { obj: ObjectItem }) {
   const { t } = useI18n();
   const reason = typeof obj.disposition === 'string' && obj.disposition.trim()
@@ -881,19 +883,19 @@ function FrictionTerminalCardContent({ obj }: { obj: ObjectItem }) {
 }
 
 export function FrictionCardContent({ obj }: { obj: ObjectItem }) {
-  // 26 §9 三态的卡体分工（Human 裁定 2026-11「card 只显示标题」）：
+  // 26 §9 四态的卡体分工（Human 裁定 2026-11「card 只显示标题」）：
   //
-  // - `voided`：终态理由由 `disposition`（§8 条件必填）承载，走终态说明框——
-  //   与 Spark 的 discarded（`SparkTerminalCardContent`）、Pitfall 的 discarded、
-  //   Norm 的 retired **同一形态**（`TerminalFactPanel`），Human 在列表页即可读到
-  //   废弃理由，不必进详情页。
+  // - `voided` / `accepted`：终态理由由 `disposition`（§8 条件必填）承载，走终态
+  //   说明框——与 Spark 的 discarded（`SparkTerminalCardContent`）、Pitfall 的
+  //   discarded、Norm 的 retired **同一形态**（`TerminalFactPanel`），Human 在列表页
+  //   即可读到废弃理由或不可清偿理由，不必进详情页。
   // - `open` / `resolved`：**卡体留空**，只由卡头（类型标签 +
   //   轻/中重影响标签 + 修改次数）与标题托（`ldvh-card-title`）承载身份与状态。
   //   这与 Spark 活跃卡的「克制」同例（`SparkCardContent`：open 时返回 null）
   //   ——标题已是现象单句的浓缩，再复述一遍现象全文与归因是重复而非信息。
   //   现象全文、入账依据、处置段住详情页阅读布局；resolved 的解药由
   //   `FactAssociationsCardContent` 的关系行呈现。
-  if (obj.status === 'voided') return <FrictionTerminalCardContent obj={obj} />;
+  if (obj.status === 'voided' || obj.status === 'accepted') return <FrictionTerminalCardContent obj={obj} />;
   return null;
 }
 

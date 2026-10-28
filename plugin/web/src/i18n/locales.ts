@@ -103,8 +103,9 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     retired: { zh: '已废弃', en: 'Retired' },
   },
   friction: {
-    // 26 §9 状态闭集三值（2026-10 修订，Human 决定：观察不进事实源）：
-    // open（待修）/ resolved（已销账，informs 指向解药）/ voided（已废弃）。
+    // 26 §9 状态闭集四值（2026-10 修订，Human 决定：观察不进事实源；2026-10 新增 accepted）：
+    // open（待修）/ resolved（已销账，informs 指向解药）/ voided（已废弃）/
+    // accepted（已接受——阻碍真实但不可清偿，记录一次即不再报告）。
     // 原第四值 `observing`（留观）已退出闭集——观察材料改由 11 §12bis.1 的
     // 摩擦观察缓冲承载（非事实对象、不进事实源），故此处不再有留观词条。
     open: { zh: '待修', en: 'Open' },
@@ -112,6 +113,9 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     // 与其余事实对象（Pitfall/Spark 的 discarded、ADR/Research 的 retired）统一
     // 用「已废弃」，Human 扫读不必记忆类型专属词（2026-11 Human 裁定）。
     voided: { zh: '已废弃', en: 'Voided' },
+    // accepted 是「记对了但清偿不了」，与 voided（记错了）是不同结论，故不复用
+    // 「已废弃」；用「已接受」标明它是 Human 的接受决定，不是废弃。
+    accepted: { zh: '已接受', en: 'Accepted' },
   },
   norm: {
     // 27 号 §9 状态闭集：active（生效中）/ retired（已退役，终态不重开）。
@@ -548,8 +552,9 @@ export function getFieldLabel(fieldKey: string, locale: string, type?: string): 
 /** 类型专属的字段标签覆盖表（先命中者优先于通用表）。仅在**同名字段语义不同**
  * 时登记——否则徒增第二处来源（10 §5.5 单一来源）。 */
 export const TYPE_FIELD_LABEL_LOCALES: Record<string, Record<string, { zh: string; en: string }>> = {
-  // 26 §8：摩擦的 disposition 专述**为何废弃**（仅 voided），与 spark 的终态
-  // 去向（20 §8）同名字段不同语义——Human 裁定中文为「去向说明」。
+  // 26 §8：摩擦的 disposition 专述**终态去向**（voided 的废弃理由或 accepted 的
+  // 不可清偿理由），与 spark 的终态去向（20 §8）同名字段不同语义——Human 裁定
+  // 中文为「去向说明」。
   friction: {
     disposition: { zh: '去向说明', en: 'Disposition' },
     occurrence: { zh: '重复观察', en: 'Occurrence' },
@@ -863,7 +868,8 @@ export function getObjectStatusHint(type: string, status: string, locale: string
     }
   }
   // 26 §9：账目语义限定——open 是待修的账（参与攒账与度量），resolved 由
-  // informs 指向解药，voided 是记错了的账目（不参与查重、度量与迭代决策输入）。
+  // informs 指向解药，voided 是记错了的账目（不参与查重、度量与迭代决策输入），
+  // accepted 是记对了但不可清偿的账（参与查重、命中静默；不参与 open 计数与解决率）。
   // （2026-10 修订：原第四值 observing 已退出闭集，观察材料改由 11 §12bis.1 的
   // 摩擦观察缓冲承载，非事实对象，故此处不再有留观的语义限定文案。）
   if (type === 'friction') {
@@ -881,6 +887,11 @@ export function getObjectStatusHint(type: string, status: string, locale: string
       return locale === 'en'
         ? 'Misfiled entry: kept for traceability, but out of dedup, metrics and decision inputs'
         : '已废弃：载体保留可追溯，但不参与查重、度量与迭代决策输入';
+    }
+    if (status === 'accepted') {
+      return locale === 'en'
+        ? 'Accepted as unpayable: real obstacle with no elimination path; recorded once and no longer reported'
+        : '已接受（不可清偿）：阻碍真实但消除途径不存在或不在可动范围；记录一次，不再重复报告';
     }
   }
   // 27 号 §9：active 是当前生效规则（同 ADR active 语义限定）；retired 终态不重开。
@@ -1139,6 +1150,8 @@ export const UI_LOCALES = {
     'cognition.inbox.collapse': '收起',
     'cognition.inbox.expandSection': '展开待决定事项',
     'cognition.inbox.collapseSection': '收起待决定事项',
+    // 26 §12：已接受成本单列计数（accepted 不进待决定事项，只作度量观测量）。
+    'cognition.frictionLedger.accepted': '已接受（不可清偿）{count} 笔',
     'cognition.inbox.unavailable': '本模块部分数据不可用',
     'cognition.active.title': '推进中事项',
     'cognition.active.empty': '当前没有推进中的工单',
@@ -1948,6 +1961,7 @@ export const UI_LOCALES = {
     'cognition.inbox.collapse': 'Collapse',
     'cognition.inbox.expandSection': 'Expand pending decisions',
     'cognition.inbox.collapseSection': 'Collapse pending decisions',
+    'cognition.frictionLedger.accepted': '{count} accepted as unpayable',
     'cognition.inbox.unavailable': 'Some data for this module is unavailable',
     'cognition.active.title': 'Work in Progress',
     'cognition.active.empty': 'No WorkCase is currently in progress',
