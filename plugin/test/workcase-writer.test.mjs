@@ -4868,3 +4868,90 @@ test("checklist e2e: 核对条目形态不合在关闭入口被拒且零写入�
     assert.ok(accepted.ok, `登记形态须放行：${JSON.stringify(accepted.error)}`);
   });
 });
+
+test("independence: 缺实施者基准的存量条目不得被后续写入盖上当前实施者（friction-6ce193a2 残留半边）", async () => {
+  // 同函数在 session_id / session_source / implementer_session_source 三处都已是
+  // 「既有条目缺失即缺失」，唯独 implementer_session_id 原写作 `?? implementerSessionId`。
+  // 本用例镜像 2026-09-27 那条 session_id 用例，把同一纪律钉到这一侧。
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    const filePath = join(root, "workcases", `workcase-${appr.uid}.md`);
+    const rawText = await readFile(filePath, "utf8");
+    // 注入一条「有复核者身份与来源、但没有当时实施者基准」的存量条目
+    // （本锚点之前写入的形态；经写入器写入的条目必然带该字段，故只能在文件层构造）。
+    const injected = [
+      "reviews:",
+      "  - at: 2026-09-18T00:00:00.000Z",
+      "    provider: workbuddy",
+      "    model: deepseek-v4.1-flash",
+      "    summary: 缺实施者基准的存量条目",
+      "    session_id: session-OLD-reviewer",
+      "    session_source: host",
+      "",
+    ].join("\n");
+    await writeFile(filePath, rawText.replace(/^change_log:/m, `${injected}change_log:`), "utf8");
+
+    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    assert.equal(before.value.frontmatter.reviews[0].implementer_session_id, undefined, "前置：该条目确实没有实施者基准");
+
+    // 由实施者本人做一次心跳：不得把「当前在任的实施者」盖到这条历史条目上。
+    const res = await executeWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      expectedFingerprint: before.value.fingerprint,
+      frontmatterAfter: { ...before.value.frontmatter },
+      bodyMarkdownAfter: bodyWithoutH1(before.value.body),
+      changeSummary: "宿主心跳（不得给缺基准的既有条目盖当前实施者）",
+      sessionSignature: SIG(),
+      sessionIdentity: IMPLEMENTER(),
+    });
+    assert.ok(res.ok, JSON.stringify(res.error));
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    assert.equal(
+      after.value.frontmatter.reviews[0].implementer_session_id,
+      undefined,
+      "缺实施者基准的既有条目不得被盖上当前实施者——那会写入一条假事实（该条目的 at/署名仍是历史值）",
+    );
+    assert.equal(after.value.frontmatter.reviews[0].implementer_session_source, undefined, "来源同侧不得被补齐");
+  });
+});
+
+test("independence: 上述洗白路径被关闭门禁拒绝（正向——不洗白即不可采信）", async () => {
+  // 这一条是上一条的**后果侧**：若不洗白，该条目就因两端身份不齐而不计入独立判据，
+  // close 必须以 unverifiable 拒绝——把「修法的意义」钉成可观察行为，而非只断字段为空。
+  // 反向对照：若恢复 `?? implementerSessionId`，该条目会被盖上 session-implementer-test
+  // （≠ session-OLD-reviewer）且来源为 host，于是被当作独立证据、close 得 ok=true。
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    const filePath = join(root, "workcases", `workcase-${appr.uid}.md`);
+    const rawText = await readFile(filePath, "utf8");
+    const injected = [
+      "reviews:",
+      "  - at: 2026-09-18T00:00:00.000Z",
+      "    provider: workbuddy",
+      "    model: deepseek-v4.1-flash",
+      "    summary: 缺实施者基准的存量条目",
+      "    session_id: session-OLD-reviewer",
+      "    session_source: host",
+      "",
+    ].join("\n");
+    await writeFile(filePath, rawText.replace(/^change_log:/m, `${injected}change_log:`), "utf8");
+
+    const before = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    const res = await closeWithProposal({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      expectedFingerprint: before.value.fingerprint,
+      outcome: "completed",
+      result: completedResult(before.value.frontmatter.plan.length),
+      changeSummary: "以未洗白的历史条目尝试关闭",
+      bodyMarkdownAfter: bodyWithoutH1(before.value.body),
+      sessionSignature: SIG(),
+      sessionIdentity: IMPLEMENTER(),
+    });
+    assert.ok(!res.ok, "两端身份不齐的条目不得被当作独立证据放行");
+    assert.equal(res.error.code, "workcase/review_independence_unverifiable");
+  });
+});

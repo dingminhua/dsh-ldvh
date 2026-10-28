@@ -2731,11 +2731,22 @@ function stampReviewEntries(reviews, sig, identity = null, baselineReviews = nul
     // 同样按索引继承：已记录条目的当时基准不得被后续 attempt 轮换改写，否则
     // 「先自查、再 takeover、然后关闭」就能把自查当成独立证据（独立复核实测发现，
     // 2026-09-19）。
+    //
+    // **且不作继承性补齐**（friction-6ce193a2 的残留半边，2026-10-28 修）：本函数在
+    // `session_id`／`session_source`／`implementer_session_source` 三处都已写成
+    // 「既有条目保留原值、缺失即缺失」（各自理由见上下段），唯独这里原写作
+    // `storedImplementer ?? implementerSessionId`。后果不是难看，而是**关闭判据可被
+    // 绕回**：`comparable` 要求 `session_id !== implementer_session_id` 才计入独立，
+    // 于是一条当初没记下实施者的历史条目，在 takeover/reallocate 换过 attempt 之后再被
+    // 写一次，就会被盖上**新的**实施者身份——该条目随即满足「记录者 ≠ 实施者」而被当作
+    // 独立证据，正是 2026-09-19 把判据收紧为「逐条与其当时的实施者比对」所要挡的那件事，
+    // 从另一侧绕了回来。
+    // 缺失即不计入（fail-closed），与「未知不等于独立」同纪律。
     const storedImplementer = isPlainObject(stored) && typeof stored.implementer_session_id === "string"
       && stored.implementer_session_id.length > 0
       ? stored.implementer_session_id
       : null;
-    const effectiveImplementer = storedImplementer ?? implementerSessionId;
+    const effectiveImplementer = isExistingEntry ? storedImplementer : implementerSessionId;
     // 来源**不作继承性补齐**（本单实测发现并修正，2026-09-19）：
     // 若对既有条目用当前写入者的来源去填补它缺失的来源，则任何一条**没有来源**的
     // 旧条目（或经旧路径写入、或直接改文件注入的条目）都会被随后一次宿主写入「洗白」
