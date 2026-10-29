@@ -43,6 +43,43 @@ import {
 export const RECALL_SUMMARY = "双源召回 · dsh-ldvh · 行动前候选";
 
 /**
+ * 把候选卡的结构字段渲染成行内短标签（2026-10-29）。
+ *
+ * 形态：` · serves=SG-1 / priority=P2 / impact=heavy`
+ * 无字段时返回空串（**不输出空标签**，否则每行都多一段噪声）。
+ *
+ * **口径与 `source-recall.js` 的 `estimateLineBytes` 逐字一致**——那里按
+ * ` · ` + `key=value` + ` / ` 分隔估算字节。两处不同步会导致「预算算少了、
+ * 实际注入超了」，直接违反 `10:241` 的「注入内容未超 LDVH 侧常量预算」。
+ * 若将来改本函数的形态，必须同步改那处估算（反之亦然）。
+ *
+ * 字段顺序固定（不随对象变化），使同一批候选的渲染可复算、可 diff。
+ *
+ * @param {object|null|undefined} structural 候选卡上的 `structural`
+ * @returns {string} 形如 ` · k=v / k=v`；无内容时为空串
+ */
+export function renderStructuralTag(structural) {
+  if (structural === null || typeof structural !== "object") return "";
+  const parts = [];
+  // 固定顺序：先归属（serves）、再档位（priority/impact）、再标识（directionKey）、
+  // 再计数（occurrenceCount）、最后边（relationKeys）。见 `structuralCardOf`。
+  for (const [key, value] of Object.entries(structural)) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === "boolean") {
+      // `gate1`：只在**已批准**时显示。未批准时显示 `gate1=false` 是无信息量的
+      // 噪声（绝大多数工单候选都未批准，会让每一行都多 12 字节）；而「没显示」
+      // 与「未批准」在这条渲染约定里同义，且**对象侧仍是结构事实**（调用方
+      // 可从 `structural.gate1` 读到 false），不构成静默丢失。
+      if (value === true) parts.push(`${key}=已批准`);
+      continue;
+    }
+    parts.push(Array.isArray(value) ? `${key}=${value.join("|")}` : `${key}=${value}`);
+  }
+  return parts.length === 0 ? "" : ` · ${parts.join(" / ")}`;
+}
+
+
+/**
  * 沉默阈值：**候选条数**少于这个数就不注入（避免每回合刷空行）。
  *
  * ── 「排序分」与「是否注入」是两件事（2026-10-27，第 3 步）─────────────
@@ -596,10 +633,19 @@ export function renderRecallRow(result) {
       // 数据层有 excerpt 而渲染层不显示，读者依然无法筛选——F2 的分层意义就丢了。
       // 摘录取数据层的 `excerpt`（已是有界确定性截断），此处不再二次加工。
       const excerpt = typeof fact.excerpt === "string" && fact.excerpt !== "" ? `\n  ↳ ${fact.excerpt}` : "";
-      // 同规范卡：**命中理由前置**，路径后置（理由才是读者判断的依据）。
-      // 注意「摘录另起一行」——若把路径拼在摘录之后，它会跟到换行后的末尾，
-      // 与摘录挤在同一行（实测缺陷：路径出现在摘录行尾，读者看不出归属）。
-      lines.push(`- [${fact.type}${status}] ${fact.title} — ${fact.hitReason}（${fact.path}）${excerpt}`);
+      // **结构字段必须出现在渲染行里**（2026-10-29）——与摘录同一条理由：
+      // 数据层带了而渲染层不显示，读者依然看不出「这对象处在什么状态、归哪个
+      // 子目标、多严重」，F2「筛选少量候选并选择 F3」的分层意义就丢了
+      // （`pitfall-b878f526` 记录的同型缺陷：渲染层输出行缺字段致模型侧不可见）。
+      //
+      // 位置：**紧跟标题、在命中理由之前**——这几个值是对象的固有属性，
+      // 比「为什么被召回」更常用于一票否决（「这条工单还没过 Gate 1，别当它已批准」）。
+      // 形态保持**极短**：`· key=value / key=value`，与 `estimateLineBytes`
+      // 的估算口径逐字一致（改这里必须同步改那里，否则预算会算漏）。
+      const structural = renderStructuralTag(fact.structural);
+      lines.push(
+        `- [${fact.type}${status}] ${fact.title}${structural} — ${fact.hitReason}（${fact.path}）${excerpt}`,
+      );
     }
   }
   if (specs.length === 0 && facts.length === 0) {

@@ -58,6 +58,10 @@
 
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+// **结构化 frontmatter 解析**（2026-10-29）：`yaml` 已是本插件直接依赖
+// （writer 侧已用），此处不新增依赖。理由见 `parseObjectFrontmatter` 的注释——
+// 旧行式解析把块标量与嵌套结构读坏了，使结构维度对召回完全不可见。
+import { parse as parseYaml } from "yaml";
 
 // ---------------------------------------------------------------------------
 // 分词：中文二元组 + ASCII 词，零依赖
@@ -391,7 +395,32 @@ async function isReadableDir(dir) {
   }
 }
 
-/** 解析 markdown 顶层 frontmatter（`key: value` 与 `key:\n  - item` 两种）。 */
+/**
+ * 旧的**行式** frontmatter 解析器（保留：规范源仍用它）。
+ *
+ * ── 为什么不整体替换它（2026-10-29）──────────────────────────────────
+ *
+ * 它有三个已实测的缺陷，全部来自「把 YAML 当 key: value 逐行读」：
+ *
+ * 1. **块标量被读成字面量**：`summary: |` 之下多行正文被压成字符串 `"|"` 或 `"|-"`。
+ *    全库 46 条对象的 summary 因此对召回**完全不可见**（真实内容平均 1099 字），
+ *    候选卡上的「有界确定性摘录」也一度显示成 `↳ |-`。同理 24 条 WorkCase 的
+ *    `scope` 变成 `"|-"`，使其**整个 tier 1（适用范围层）不可命中**。
+ * 2. **嵌套结构被压平**：`relations: [{relation_key, target:{object_uid}}]` 读成
+ *    `"relation_key: informs"`（target 整段丢失）；`occurrence` 读成空串；
+ *    `plan` 的步骤键值互相粘连。49 条带关系的对象因此对召回零贡献。
+ * 3. **多行值被空格拼接**：`key:\n  - a\n  - b` → `"a b"`，行边界消失，
+ *    无法再分辨「是一个值还是两个值」。
+ *
+ * 但**规范源不能换**（见 `loadSpecs`）：它的 frontmatter 是嵌套在 `ldvh_spec:`
+ * 下的，本函数靠「取第一层 key + 再按缩进抓一次」两段式取到所需字段，且规则
+ * 文本本身没有依赖块标量与嵌套数组。换成 YAML 会改变 `pick()` 的行为面，
+ * 而规范源侧的漂移由 `recall-spec-drift.test.mjs` 守护——不在本次改动范围内。
+ *
+ * 故：**事实源走 YAML（`parseObjectFrontmatter`），规范源保持本函数**。
+ * 这不是「两套并存」的债，而是两块语料的形状不同：事实源有闭集 schema 与嵌套
+ * 结构，规范源只有扁平的 `ldvh_spec` 块。
+ */
 function parseFrontmatter(text) {
   const m = /^---\n([\s\S]*?)\n---/.exec(text);
   if (m === null) return {};
@@ -406,6 +435,73 @@ function parseFrontmatter(text) {
     }
   }
   return out;
+}
+
+/**
+ * 事实对象的**结构化** frontmatter 解析（YAML，`02 §7` 的公共身份字段 +
+ * 20–27 各类型的闭集字段）。
+ *
+ * ── 为什么必须结构化（2026-10-29 实测，见 `parseFrontmatter` 注释）────────
+ *
+ * 事实源的字段不是「一段文本」，而是**分类承载**：`impact` 是闭集
+ * `light/medium/heavy`（26 §8），`priority` 是闭集 `P0–P3`（20 §8），
+ * `serves` 是 SG-n 锚点（20 §6 / 21 §8），`direction_key` 是方向键（27 §8），
+ * `relations` 是 `{relation_key, target:{object_uid}}` 的边（03 §7.2），
+ * `occurrence` 是 `{count, first_at, last_at}`（26 §8）。这些**只有解析成结构
+ * 才能被判断**——读成字符串后，「heavy 的未决摩擦」与「正文里恰好出现 heavy」
+ * 无法区分，而这正是本模块此前对结构维度完全失明的机制来源。
+ *
+ * ── 依赖与失败姿态 ─────────────────────────────────────────────────
+ *
+ * `yaml`（^2.8.1）**已是本插件的直接依赖**（`plugin/package.json`，writer 侧
+ * `adr-writer` / `friction-writer` / `goal-writer` 早已在用 `parseYaml`），
+ * 故此处不引入新依赖、不引入第二规则源。
+ *
+ * 解析失败**不抛出、不静默**：退回旧的行式解析器并如实置 `__yamlError`，
+ * 使调用方能披露「该对象的字段未被结构化读取」。理由：一个载体格式损坏
+ * 不应让整个召回不可用（那会使「零命中」冒充「无相关」，`34 §12` 最危险
+ * 的误读）；但也不能假装读到了（`02 §9.2` 不得把零结果当无约束）。
+ *
+ * @param {string} text 载体全文
+ * @returns {{data: object, yamlError: string|null}} `data` 恒为对象
+ */
+function parseObjectFrontmatter(text) {
+  const m = /^---\n([\s\S]*?)\n---/.exec(text);
+  if (m === null) return { data: {}, yamlError: null };
+  let data;
+  try {
+    data = parseYaml(m[1]);
+  } catch (error) {
+    return {
+      data: parseFrontmatter(text),
+      yamlError: error instanceof Error ? error.message : String(error),
+    };
+  }
+  if (data === null || typeof data !== "object" || Array.isArray(data)) {
+    // 合法 YAML 但形状不是映射（如整块是一个数组或标量）——按失败处理，
+    // 不把它当空对象，否则「读不出」会伪装成「没有字段」。
+    return {
+      data: parseFrontmatter(text),
+      yamlError: `frontmatter 不是映射（得到 ${Array.isArray(data) ? "array" : typeof data}）`,
+    };
+  }
+  return { data, yamlError: null };
+}
+
+/**
+ * 取一个可能为多行的**文本字段**的字符串值。
+ *
+ * 为什么要这个 helper 而不是 `String(x ?? "")`：
+ *   · 旧行式解析器给出的可能是 `"|"` / `"|-"` 字面量（块标量未被解析）——
+ *     那是**解析残留**，不是内容，绝不能进匹配面或候选卡摘录；
+ *   · YAML 已解析时给的是真实多行字符串。
+ * 两者都要归一成一个可匹配、可摘录的串，且**块标量残留一律视为无内容**。
+ */
+function textField(value) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (/^[|>][-+0-9]*$/.test(trimmed)) return "";
+  return trimmed;
 }
 
 /**
@@ -760,6 +856,47 @@ function excerptOf(text) {
 }
 
 /**
+ * 候选卡上的**类型专属结构字段**（`02 §9.1` F2 的投影要素）。
+ *
+ * 只取**短、闭集、可直接判断**的字段——长文本一律不进（`summary`/`gist`/
+ * `phenomenon` 已由 `excerpt` 承载，重复带会吃掉注入预算，而预算是最稀缺资源）。
+ *
+ * 逐项依据：
+ *   · `serves`——20 §12 / 21 §13：「F1 投影含 serves」；
+ *   · `priority`——20 §12：「F1 投影含 priority」，Web 列表按它筛选排序；
+ *   · `impact`——26 §12：「F1 投影含 impact」，度量按状态×影响聚合；
+ *   · `directionKey`——27 §209：「F1 枚举 active Norm（direction_key + title + status）」；
+ *   · `occurrenceCount`——26 §8：重复观察的证据量，回答「这笔账攒了几次」；
+ *   · `relationKeys`——03 §7.2：该对象声明了哪些边（不展开目标，展开属 F3/F4）；
+ *   · `gate1`——21 §8：工单是否已过 Gate 1（`open` 与「待批准」的区别就在这）。
+ *
+ * **不带的**：`attribution`（长自由文本，判读属 F3）、`attributionRef`（已有
+ * `structural` 命中理由覆盖）、`relationTargets`/`refTargets`（关系导航是独立
+ * 只读方向，见 24 §244；塞进每张卡会让预算被 uuid 吃光）。
+ *
+ * @returns {object|null} 没有任何可带字段时返回 `null`（卡上不出现空壳）
+ */
+function structuralCardOf(candidate) {
+  const s = candidate?.structural;
+  if (s === null || typeof s !== "object") return null;
+  const out = {};
+  if (typeof s.serves === "string" && s.serves !== "") out.serves = s.serves;
+  if (typeof s.priority === "string" && s.priority !== "") out.priority = s.priority;
+  if (typeof s.impact === "string" && s.impact !== "") out.impact = s.impact;
+  if (typeof s.directionKey === "string" && s.directionKey !== "") out.directionKey = s.directionKey;
+  if (Number.isInteger(s.occurrenceCount)) out.occurrenceCount = s.occurrenceCount;
+  if (Array.isArray(s.relationKeys) && s.relationKeys.length > 0) {
+    out.relationKeys = [...new Set(s.relationKeys)];
+  }
+  // 工单侧：`gate_1` 是否存在决定「是否已过 Gate 1」，是 21 §14 的关键状态。
+  if (candidate.type === "workcase") {
+    out.gate1 = typeof candidate.gate1ApprovedAt === "string" && candidate.gate1ApprovedAt !== "";
+  }
+  return Object.keys(out).length === 0 ? null : out;
+}
+
+
+/**
  * 单个载体的**内容指纹**（FNV-1a over 全文）。
  *
  * 与集合指纹的区别：集合指纹回答「还是不是同一批候选」，**不覆盖内容**；
@@ -924,7 +1061,12 @@ export async function loadFacts(baseDir) {
       .filter((f) => f.endsWith(".md")).sort();
     for (const file of files) {
       const text = await readFile(join(baseDir, dir, file), "utf8");
-      const fm = parseFrontmatter(text);
+      // **结构化解析**（2026-10-29）：见 `parseObjectFrontmatter` 的注释。
+      // `fm` 的形态由此从「全部是字符串」变为「按 YAML 类型」——标量仍是字符串，
+      // 但 `relations`/`urls`/`change_log` 是数组、`occurrence` 是对象。
+      // 下文所有取字段的地方因此都必须走 `textField()` 收文本，
+      // 不能让「数组/对象」直接拼进匹配面（那会拼出 "[object Object]"）。
+      const { data: fm, yamlError } = parseObjectFrontmatter(text);
       // 正文（去掉 frontmatter）**全文参与匹配**。
       //
       // **原为前 1200 字截断，2026-10-24 改为全文**，实测依据：
@@ -944,16 +1086,64 @@ export async function loadFacts(baseDir) {
       // **全文**保留，仅供内容指纹使用——指纹必须覆盖完整载体，
       // 否则载体后半部分的变化对指纹不可见（见 `contentFingerprintOf` 的说明）。
       const fullText = text;
+      // **结构维度**（2026-10-29 新增）：这些字段此前**读都没读**，故结构维度
+      // 对召回完全不可见。每个都在规范里被定为闭集或锚点，即「只有解析成结构
+      // 才有意义」的那一类：
+      //   · `serves`——SG-n 子目标锚点（20 §6 / 21 §8），F1 投影字段；
+      //   · `priority`——P0–P3 闭集（20 §8），Human 侧处置次序；
+      //   · `impact`——light/medium/heavy 闭集（26 §8）；
+      //   · `direction_key`——Norm 方向键（27 §8），本身即唯一性键；
+      //   · `relations`——`{relation_key, target:{object_uid}}` 边（03 §7.2）；
+      //   · `refs`——关联引用型字段（03 §7.2 / 20 §8）；
+      //   · `occurrence`——`{count, first_at, last_at}`（26 §8）；
+      //   · `attribution`／`attribution_ref`——归因聚合键（26 §8/§11）。
+      // 只归一成**可比较的原语**，不做语义判断（那是 34 §8.1 第 2 项的事）。
+      const relations = Array.isArray(fm.relations) ? fm.relations : [];
+      const relationKeys = [];
+      const relationTargets = [];
+      for (const rel of relations) {
+        if (rel === null || typeof rel !== "object") continue;
+        const key = textField(rel.relation_key);
+        if (key !== "") relationKeys.push(key);
+        // 目标三种承载形态（03 §7.2）：`object_uid` 对象型、`{commit}` 证据型、
+        // 裸字符串（存量兼容）。全部归一成字符串，供「按目标反查」使用。
+        const target = rel.target;
+        if (target !== null && typeof target === "object") {
+          const uid = textField(target.object_uid);
+          const commit = textField(target.commit);
+          if (uid !== "") relationTargets.push(uid);
+          if (commit !== "") relationTargets.push(commit);
+        } else if (typeof target === "string" && target.trim() !== "") {
+          relationTargets.push(target.trim());
+        }
+      }
+      const refs = Array.isArray(fm.refs) ? fm.refs : [];
+      const refTargets = refs
+        .map((r) => (r !== null && typeof r === "object" ? textField(r.object_uid) : textField(r)))
+        .filter((r) => r !== "");
+      const occurrence = fm.occurrence !== null && typeof fm.occurrence === "object"
+        ? fm.occurrence : null;
+      // `gate_1`（21 §8/§14）：Gate 1 批准后由 Code 盖戳，`approved_at` 存在
+      // 即「已过 Gate 1 授权」。这是工单「open 且在办」与「open 但待批」的
+      // 分界，卡上必须能看见（此前完全未读，读者无法从候选卡区分）。
+      const gate1ApprovedAt = fm.gate_1 !== null && typeof fm.gate_1 === "object"
+        ? textField(fm.gate_1.approved_at) : "";
+      // **结构化摘录源**：块标量残留一律视为无内容（`textField` 的判据），
+      // 否则候选卡会显示 `↳ |-`（2026-10-29 前实测 46 条如此）。
+      const excerptSource =
+        textField(fm.summary) || textField(fm.gist) || textField(fm.decision)
+        || textField(fm.phenomenon) || textField(fm.research_question)
+        || textField(fm.scope) || textField(fm.scope_boundary) || "";
       out.push({
         source: "fact",
         // 类型名直接取 frontmatter 的 fact_type_key（权威），不从目录名猜单复数——
         // 「researches→research」这类英文变形易错（曾得 "researche"/"workca"）。
-        type: fm.fact_type_key || dir.replace(/s$/, ""),
+        type: textField(fm.fact_type_key) || dir.replace(/s$/, ""),
         dir,
-        ref: fm.object_uid || file.replace(/\.md$/, ""),
-        title: fm.title ?? "",
-        status: fm.status ?? "",
-        scope: fm.scope ?? fm.scope_boundary ?? "",
+        ref: textField(fm.object_uid) || file.replace(/\.md$/, ""),
+        title: textField(fm.title),
+        status: textField(fm.status),
+        scope: textField(fm.scope) || textField(fm.scope_boundary),
         // 类型相关的可匹配字段，逐类拼在一起。
         detail: [
           fm.decision, fm.phenomenon, fm.question, fm.research_question,
@@ -970,14 +1160,41 @@ export async function loadFacts(baseDir) {
           fm.trigger_signal,
           // **`summary` 必须进匹配面**（2026-10-24 修，第 48 轮曾误以为已加、实际未生效）。
           //
-          // 全库 94 条事实带 summary。各类型都把它当核心内容：
+          // 各类型都把它当核心内容：
           //   · `20`：「**完整的当前语义快照**……使未读原聊天的后续执行者可独立理解」；
           //   · `21`：「要做什么的完整语义快照」。
           // 即它是最该被召回的那段话——记了却不参与匹配，等于白记。
+          //
+          // **2026-10-29 补**：此前该字段对 46 条对象恒为空（块标量被读成 `"|-"`），
+          // 即这条注释描述的效果对三分之一语料从未生效。现由 YAML 解析兑现。
           fm.summary,
-        ].filter(Boolean).join(" "),
-        trigger: fm.trigger_signal ?? "",
-        summary: fm.summary ?? "",
+        ].map((v) => textField(v)).filter((v) => v !== "").join(" "),
+        trigger: textField(fm.trigger_signal),
+        summary: textField(fm.summary),
+        // ── 结构维度（供 `matchCandidate` 的结构命中层与候选卡使用）──────
+        structural: {
+          serves: textField(fm.serves),
+          priority: textField(fm.priority),
+          impact: textField(fm.impact),
+          directionKey: textField(fm.direction_key),
+          disposition: textField(fm.disposition),
+          outcome: textField(fm.outcome),
+          stoppingReason: textField(fm.stopping_reason),
+          attribution: textField(fm.attribution),
+          attributionRef: textField(
+            fm.attribution_ref !== null && typeof fm.attribution_ref === "object"
+              ? fm.attribution_ref.object_uid : fm.attribution_ref,
+          ),
+          occurrenceCount: occurrence !== null && Number.isInteger(occurrence.count)
+            ? occurrence.count : null,
+          relationKeys,
+          relationTargets,
+          refTargets,
+        },
+        // 载体自身可读性：YAML 解析失败时如实带出，由调用方披露（不静默）。
+        yamlError,
+        // Gate 1 批准时刻（空串=未过 Gate 1），见 `structuralCardOf`。
+        gate1ApprovedAt,
         // **最后更新时间**（`created_at` 与 `change_log[].at` 取最大）：
         // 供排序作次级键、并让读者在候选卡上就看见「这条有多旧」。
         // 取不到时为空串——**不伪造当前时间**（那会让旧对象冒充新对象）。
@@ -990,9 +1207,7 @@ export async function loadFacts(baseDir) {
         //   · research → research_question
         //   · pitfall → scope（23：六要素住正文，frontmatter 只有 scope/trigger_signal）
         //   · norm/goal → 无长文本字段，退回 title（不在此处，见卡片层兜底）
-        excerptSource:
-          fm.summary ?? fm.gist ?? fm.decision ?? fm.phenomenon
-          ?? fm.research_question ?? fm.scope ?? fm.scope_boundary ?? "",
+        excerptSource,
         path: `ldvh-base/${dir}/${file}`,
         absolutePath: join(baseDir, dir, file),
         body,
@@ -1015,6 +1230,125 @@ export const MATCH_TIERS = Object.freeze([
   { tier: 3, field: "title", label: "标题命中" },
   { tier: 4, field: "body", label: "正文片段命中" },
 ]);
+
+/**
+ * **结构命中层**（2026-10-29 新增）：按 frontmatter 的**结构化字段值**命中。
+ *
+ * ── 为什么必须有这一层 ──────────────────────────────────────────────
+ *
+ * 本模块此前只做文本匹配，所有结构字段（serves/priority/impact/relations/
+ * direction_key）要么没读、要么被拼进 `detail` 当一段等权文本。后果是
+ * **查询里的结构化指称无法工作**（2026-10-29 实测，改动前）：
+ *
+ *   · 贴完整 `object_uid` → **0 命中**（`02 §9.1` F2 明列「稳定引用」为命中维度）；
+ *   · 查 `P0`/`P1` → **0 命中**（库内 15 条 P1）；
+ *   · 查 `heavy` → 只回 1 条，且是正文恰好含该词的别条（库内 10 条 heavy 全是终态）；
+ *   · 查 `serves=SG-1` → 3 条，其中 1 条 serves 是 SG-2（靠正文蹭上），
+ *     而真正声明 SG-1 的有 47 条；
+ *   · 按 `relation_key` 值查 → 0 命中（49 条对象带 relations）。
+ *
+ * 这些**不是新能力**：`02 §9.1` F2 的原文是「按类型、状态、稳定引用、关系、
+ * locator 或类型允许字段命中的候选卡」；20 §12／21 §13／24 §244／26 §12／27 §9
+ * 也各自写明了本类型的命中维度。条文已写、实现未落。
+ *
+ * ── 为什么它不违反「不得用关键词权重裁决相关性」（02 §9 红线）──────────
+ *
+ * 本层判据是**整词相等**（`SG-1` 与 `SG-1`、`P1` 与 `P1`、uid 与 uid），
+ * 不是相似度、不是 embedding、不是加权分数。它与既有 tier 0（规范编号整词命中）
+ * 同一形态、同一条红线下的同一个豁免：**相等的判定是可复算的确定性事实**。
+ * 排序上它取 `tier: 0`——最精确层，与「用户点名了某个编号」同级。
+ *
+ * ── 为什么字段间不分高下 ────────────────────────────────────────────
+ *
+ * 一个 token 命中 `serves` 与命中 `impact` 都是「命中了一个结构化字段」，
+ * 再在它们之间排序就需要人为权重——那才真正越线。故同层并列，命中理由里
+ * **逐一写明命中了哪个字段**，由读者判断该命中有多强。
+ *
+ * ── 与候选卡的关系 ─────────────────────────────────────────────────
+ *
+ * 结构命中**只**产生候选（`34 §8.1` 第 1 项），**不**产生适用结论
+ * （`34 §13`「召回的命中不等于适用」）。命中 `impact=heavy` 只说明这条的
+ * 影响评级是 heavy，不说明它对应你这次要改的东西。
+ */
+
+/**
+ * **纯指称查询**的实义词上限（2026-10-29）。
+ *
+ * 查询里的实义词（长度≥2、非虚词、非通用词）不超过这个数时，视为
+ * 「整句就是一个标识」（`SG-1`、`P1`、一个 uid、`heavy`）——此时结构命中
+ * 是查询的**主题**，可取最高层。
+ *
+ * 取值 1 的依据（实测）：纯指称查询恒为 1 个实义词；带主题的查询实测 5–7
+ * （「召回排序的改进 P1」= 5，「把 SG-1 相关的召回排序改进」= 7）。
+ * 留到 2 是为了容忍「uid 后面跟一个修饰词」这类短查询，不必精确卡在 1。
+ *
+ * **超过该值时结构命中降为 `STRUCTURAL_DEFERRED_TIER`**——它仍构成候选，
+ * 只是不抢占排序优势。这个区分修的是初版的一个真实回归：夹带结构值时
+ * 无关对象会压掉真正相关的条目（实测 4 条探针里 2 条目标被挤出 top3）。
+ */
+export const STRUCTURAL_BARE_QUERY_MAX_TOKENS = 2;
+
+/**
+ * 结构命中在**带主题的查询**里所取的层号。
+ *
+ * 取 5——比正文层（4）更低，即「结构值只是顺带出现，不构成任何排序优势」。
+ * 为什么不是不返回：它确实是一个确定性命中（该对象的 priority 真是 P1），
+ * 把它整个丢掉会让「为什么这条没出现」缺少解释（`34 §12` 的未检查范围
+ * 要求逐类对应）。故保留候选、让出席位、并在命中理由里写明「不占优先位」。
+ */
+export const STRUCTURAL_DEFERRED_TIER = 5;
+
+export const STRUCTURAL_MATCH_FIELDS = Object.freeze([
+  "object_uid",
+  "serves",
+  "priority",
+  "impact",
+  "direction_key",
+  "disposition",
+  "outcome",
+  "relation_key",
+  "relation_target",
+  "refs_target",
+]);
+
+/**
+ * 判定一个候选的**结构字段**是否被查询 token 整词点名。
+ *
+ * @param {string[]} actionTokens 已小写化的查询 token
+ * @param {object} candidate 载入的候选（`structural` 由 `loadFacts` 提供）
+ * @returns {{field: string, value: string}[]} 命中的 (字段, 值) 对；空数组=未命中
+ */
+export function structuralHits(actionTokens, candidate) {
+  const s = candidate?.structural;
+  if (s === null || typeof s !== "object") return [];
+  const tokens = new Set(actionTokens);
+  const hits = [];
+  const add = (field, value) => {
+    if (typeof value !== "string" || value === "") return;
+    // 整词相等（小写比较）。**不认子串**：`p1` 不应命中 `p10`，`sg-1` 不应命中 `sg-10`。
+    if (tokens.has(value.toLowerCase())) hits.push({ field, value });
+  };
+  // `object_uid`：`02 §9.1` F2 明列的「稳定引用」——贴一条 uid 是最精确的指称。
+  add("object_uid", candidate.ref);
+  add("serves", s.serves);
+  add("priority", s.priority);
+  add("impact", s.impact);
+  add("direction_key", s.directionKey);
+  add("disposition", s.disposition);
+  add("outcome", s.outcome);
+  // 关系边：key 与 target 都算（「哪些对象声明了 informs」「指向 X 的边有哪些」）。
+  for (const key of s.relationKeys ?? []) add("relation_key", key);
+  for (const target of s.relationTargets ?? []) add("relation_target", target);
+  for (const target of s.refTargets ?? []) add("refs_target", target);
+  // **同一个字段多个值只报一次**（如三条 relations 都是 informs）。
+  const seen = new Set();
+  return hits.filter((h) => {
+    const k = `${h.field}\u0000${h.value}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
 
 /**
  * 计算某个候选集合内各 token 的**文档频率**（出现该 token 的候选数）。
@@ -1085,9 +1419,64 @@ export function matchCandidate(actionTokens, candidate, corpusStats) {
   // 查询含「34」，但 34 号规范只能靠 scope 里的「规范」二字命中，与其它 18 份
   // 规范同层同分，被路径字典序挤到后面。
   // 只认**整词相等**（不认子串），避免「3」命中「34」、「1」命中「10」。
+  // **结构命中与它同级**（2026-10-29）：二者都是「用户点名了一个标识」，
+  // 只是规范侧点的是 spec_id、事实侧点的是 uid/serves/priority/…。
+  // 规范侧没有 `structural`，故此处的 `?? []` 合法——不是把缺失当空，而是
+  // 「这一侧没有这一类字段」。
+  const structural = structuralHits(actionTokens, candidate);
   const specId = candidate.specId;
   if (typeof specId === "string" && specId !== "" && actionTokens.includes(specId)) {
     return { tier: 0, hits: 1, hitReason: `规范编号命中：${specId}` };
+  }
+  // **结构命中**：整词等于某个结构化字段值。与编号同级（tier 0）。
+  //
+  // 命中理由**逐字段写明**（`命中依据须可复算`，34 §8.2），且**只在理由里出现
+  // 命中的字段名与值**——不写「相关」「匹配度高」这类结论（那是适用判断）。
+  // `hits` 取命中字段数：同一查询同时点名 `serves=SG-1` 与 `impact=heavy` 时
+  // 比只点名一个的更具体，这是可复算的计数，不是权重。
+  if (structural.length > 0) {
+    const shown = structural
+      .slice(0, 3)
+      .map((h) => `${h.field}=${h.value}`)
+      .join("、");
+    // ── **结构命中能否占据最高层，取决于它是不是查询的主题** ─────────────
+    //
+    // **这是修一个我自己引入的回归**（2026-10-29，实测发现）：
+    // 初版无条件返回 `tier: 0`，于是查询里**夹带**一个结构值时，那批
+    // 「恰好 priority=P1 / serves=SG-1」的对象会以最精确层压过真正相关的条目。
+    // 实测 4 条探针里 2 条目标被挤出 top3（改动前它们都正常）：
+    //   · 「召回排序的改进 P1」→ 目标（讲召回排序的那条 spark）不在 top3，
+    //     前三名全是 priority=P1 的无关项；
+    //   · 「把 SG-1 相关的召回排序改进」→ 同上，前三名全是 serves=SG-1。
+    //
+    // 根因不是「结构值不该优先」，而是**没区分两种查询**：
+    //   (a) **纯指称查询**——整句就是一个标识（`SG-1`、`P1`、一个 uid），
+    //       用户要的就是「那个对象」，此时结构值即主题，取最高层正确；
+    //   (b) **带主题的查询**——句子里有真正实义词（召回/排序/改进），
+    //       结构值只是**限定词**，此时它不该压过主题证据。
+    //
+    // 判据用**实义词个数**（与 `matchCandidate` 的 `specific` 同源口径：
+    // 长度 ≥2、非虚词、非通用词）。纯指称查询恒为 1（标识本身）；
+    // 带主题的查询实测 5–7。故取宽松阈值 2——只有 ≤1 个实义词才算
+    // 「整句就是一个标识」。
+    //
+    // **为什么用计数而不用权重**：计数是可复算的确定性事实，不引入 `02 §9`
+    // 明禁的「关键词权重」。阈值是固定常量，同一查询恒得同一结论。
+    const subjectTokens = actionTokens.filter(
+      (t) => t.length >= 2 && !isWeakToken(t) && !GENERIC_TOKENS.has(t),
+    );
+    const isBareReference = subjectTokens.length <= STRUCTURAL_BARE_QUERY_MAX_TOKENS;
+    return {
+      // 纯指称 → 最高层（它就是主题）；带主题 → 让位到最末层（不占排序优势，
+      // 但仍**构成候选**并在理由里标出——它不是被丢弃，只是不抢先）。
+      tier: isBareReference ? 0 : STRUCTURAL_DEFERRED_TIER,
+      hits: structural.length,
+      hitReason: isBareReference
+        ? `结构命中：${shown}${structural.length > 3 ? " 等" : ""}`
+        // 带主题时必须说明它**为什么没有优先**，否则读者会以为这是普通文本命中。
+        : `结构命中（查询有其它主题词，不占优先位）：${shown}${structural.length > 3 ? " 等" : ""}`,
+      structuralFields: [...new Set(structural.map((h) => h.field))],
+    };
   }
 
   // **类型点名层（tier 0.5）**：用户说「写一个 WorkCase」「记一条 Spark」时，
@@ -1376,6 +1765,51 @@ export async function recallForAction(input = {}) {
   // 另一条路径（主动查）承接，故不构成未检查。
   const excludedTypes = Array.isArray(input.excludeTypes) ? input.excludeTypes : null;
   const includeSpecs = input.includeSpecs !== false;
+  // ── **结构化收窄（facet）**（2026-10-29 新增）────────────────────────
+  //
+  // 与 `types`/`statuses` 同一族的**确定性过滤**，补的是「按结构化字段值收窄」
+  // 这条缺口。它的必要性由规范写明：`02 §9.1` F2 的定义就是「按类型、状态、
+  // **稳定引用、关系、locator 或类型允许字段**命中的候选卡」；`20 §12` 要求
+  // F2 可按 `serves`/`refs`/`priority` 命中；`26 §12` 要求「F1 枚举 + status
+  // 过滤」取 `accepted`（其 F1 投影**含 impact/attribution**）。
+  //
+  // ── 语义边界（重要，勿读成「按相关度筛选」）────────────────────────
+  //
+  // facet 是**硬过滤**，与 `types` 同等性质：不满足者**不形成候选**，且**必使
+  // 完整度降级**（进 `excludedByTypeFilter` 同族的披露，见下方 unchecked 计算）
+  // ——因为它缩小了本次的声明范围，「没返回」不代表「不存在」（34 §12）。
+  // 这与「排序靠后」是两件不同的事：排序不改声明范围，facet 改。
+  //
+  // ── 为什么是单值而非数组 ──────────────────────────────────────────
+  //
+  // 每个 facet 取**单值**（如 `impact: "heavy"`），不取数组。理由：这些是闭集
+  // 或锚点，多值收窄等价于「不筛」（`impact ∈ {light,medium,heavy}` 命中全部
+  // open 摩擦），反而让调用方误以为筛过了。需要多值时由调用方分多次调用，
+  // 每次的完整度如实各自承载——这比一个「看似筛过其实没筛」的参数诚实。
+  const facet = (name) => {
+    const v = input[name];
+    if (typeof v !== "string") return null;
+    const t = v.trim();
+    return t === "" ? null : t;
+  };
+  // `objectUid` 走 `ref` 整词相等（`02 §9.1` F2 的「稳定引用」）。
+  const facetUid = facet("objectUid");
+  const facetServes = facet("serves");
+  const facetPriority = facet("priority");
+  const facetImpact = facet("impact");
+  const facetDirectionKey = facet("directionKey");
+  const facetRelationKey = facet("relationKey");
+  const facetAttributionRef = facet("attributionRef");
+  // 命中的 facet 清单（供披露与测试核对「到底筛了什么」）。
+  const appliedFacets = Object.entries({
+    objectUid: facetUid,
+    serves: facetServes,
+    priority: facetPriority,
+    impact: facetImpact,
+    directionKey: facetDirectionKey,
+    relationKey: facetRelationKey,
+    attributionRef: facetAttributionRef,
+  }).filter(([, v]) => v !== null);
 
   const query = `${action} ${input.scope ?? ""}`.trim();
   const tokens = tokenize(query);
@@ -1424,14 +1858,38 @@ export async function recallForAction(input = {}) {
     ? facts
     : facts.filter((c) => !excludedTypes.includes(c.type));
 
-  // 过滤：**已登记类型** + 类型 + 状态。
+  // 过滤：**已登记类型** + 类型 + 状态 + **结构化 facet**。
   // 规范无 status 概念故全量参与。
+  //
+  // facet 与类型/状态过滤**同层**（都是缩小声明范围的确定性条件），不是排序。
+  // 取值比较一律**不区分大小写**（闭集值在语料里有 `heavy` 全小写、`P1` 大写、
+  // `SG-1` 大写三种形态；调用方不该被要求精确记形态），但**必须是整值相等**，
+  // 不做前缀/子串匹配（`P1` 不得命中 `P10`）。
+  const sameText = (a, b) => typeof a === "string" && typeof b === "string"
+    && a.toLowerCase() === b.toLowerCase();
   const pool = scopedFacts.filter((c) => {
     // **中间产物不进入召回**（02 §9.2）：只保留已登记类型。
     // 未登记类型（留观缓冲、缓存、草稿箱等事实源之外的中间产物）不形成候选卡。
     if (!REGISTERED_FACT_TYPES.includes(c.type)) return false;
     if (types !== null && !types.includes(c.type)) return false;
-    return statusAllowed(c.type, c.status);
+    if (!statusAllowed(c.type, c.status)) return false;
+    // ── 结构化 facet（缺字段者**不匹配**，不是「不受该 facet 约束」）──────
+    // 这一点必须明确：`serves: "SG-1"` 时，**没声明 serves 的对象不进候选**。
+    // 直觉上「没声明这条约束，所以它不该被筛掉」是错的——facet 问的是
+    // 「哪些对象声明了 X」，未声明者不是答案。若想让它们也进来，那就不该用
+    // facet 收窄，而该用结构命中（把 `SG-1` 直接写进 `action`）。
+    if (facetUid !== null && !sameText(c.ref, facetUid)) return false;
+    if (facetServes !== null && !sameText(c.structural?.serves, facetServes)) return false;
+    if (facetPriority !== null && !sameText(c.structural?.priority, facetPriority)) return false;
+    if (facetImpact !== null && !sameText(c.structural?.impact, facetImpact)) return false;
+    if (facetDirectionKey !== null && !sameText(c.structural?.directionKey, facetDirectionKey)) return false;
+    if (facetAttributionRef !== null && !sameText(c.structural?.attributionRef, facetAttributionRef)) return false;
+    // 关系键：**存在任一关系边的 key 等于该值**即算（38 条 friction 各自带不同 key）。
+    if (facetRelationKey !== null) {
+      const keys = c.structural?.relationKeys ?? [];
+      if (!keys.some((k) => sameText(k, facetRelationKey))) return false;
+    }
+    return true;
   });
 
   // 按源分算文档频率，过滤过于普遍的 token（见 `HIGH_DF_RATIO`）。
@@ -1572,6 +2030,17 @@ export async function recallForAction(input = {}) {
     // 知道讲什么，而 F2 的用途正是「筛选少量候选并选择 F3」——没有摘录就无法筛选。
     // 无长文本字段的类型（norm/goal）退回 title，保证摘录位不空。
     excerpt: excerptOf(c.excerptSource) || c.title,
+    // **F2 标注：这张卡带哪些结构化字段**（2026-10-29）。
+    //
+    // `02 §9.1` F2 的用途是「筛选少量候选并**选择 F3**」。此前卡面只有
+    // title + 命中理由 + 路径 + 摘录，与「普通记忆召回」无异，读者看不出
+    // 这对象**处在什么状态、归哪个子目标、多严重**——而这些恰是各类型规范
+    // 说 F2 该带的信息：20 §12 的 F1 投影含 priority/serves；26 §12 的
+    // F1 投影含 impact/attribution。
+    //
+    // 只带**有值的**字段（缺省不写空壳），且**不带长文本**
+    // （`summary`/`gist` 已由 `excerpt` 承载，重复带上会吃掉预算）。
+    ...(structuralCardOf(c) === null ? {} : { structural: structuralCardOf(c) }),
     // 同规范卡：每张事实卡也带来源与内容指纹（02 §9.2）。
     // 事实源只有项目内一源，故 tier 恒为 "project"。
     source: {
@@ -1705,8 +2174,23 @@ export async function recallForAction(input = {}) {
     const reason = typeof item.hitReason === "string" ? item.hitReason : "";
     const path = typeof item.path === "string" ? item.path : "";
     const excerpt = typeof item.excerpt === "string" ? item.excerpt : "";
+    // **结构字段的渲染量须计入**（2026-10-29）：`structural` 进卡后渲染层会在
+    // 同一行追加形如 ` · serves=SG-1 / priority=P2 / impact=heavy` 的尾巴。
+    // 不计的话预算会按「没有这批字段」来分配，实际注入超出 `10:241` 的核对项。
+    //
+    // 口径与渲染层保持一致：键名 + `=` + 值 + 分隔符（` / `）与行首 ` · `。
+    // 这里是**估算**，取偏保守的字节数（UTF-8 下中文键值 3 字节/字）。
+    let structuralBytes = 0;
+    if (item.structural !== null && typeof item.structural === "object") {
+      const parts = [];
+      for (const [key, value] of Object.entries(item.structural)) {
+        if (value === null || value === undefined) continue;
+        parts.push(Array.isArray(value) ? `${key}=${value.join("|")}` : `${key}=${value}`);
+      }
+      if (parts.length > 0) structuralBytes = Buffer.byteLength(` · ${parts.join(" / ")}`, "utf8");
+    }
     // 前缀（`- [type/status] `）、分隔符与本行换行的粗略常量，取 8 字节。
-    return Buffer.byteLength(`${title}${reason}${path}${excerpt}`, "utf8") + 8;
+    return Buffer.byteLength(`${title}${reason}${path}${excerpt}`, "utf8") + structuralBytes + 8;
   };
   const fits = (item) => {
     const size = estimateLineBytes(item);
@@ -2076,6 +2560,46 @@ export async function recallForAction(input = {}) {
         .filter((fact) => types === null || types.includes(fact.type))
         .filter((fact) => !statusAllowed(fact.type, fact.status))
         .map((fact) => ({ type: fact.type, status: fact.status, title: fact.title, path: fact.path })),
+      // **被结构化 facet 筛掉的**（2026-10-29）：与上面两类同性质——它们不是
+      // 「排得靠后」，而是**从未进入候选池**。列入本清单是 `34 §12` 的硬要求：
+      // 「取值须与下段的未检查范围逐类对应，不得只给取值不给清单」。
+      //
+      // 不列这一项的后果是具体的：`impact: "heavy"` 筛完命中 0 条时，读者会
+      // 把「没有 heavy 的 open 账目」读成「没有 heavy 摩擦」——而实际是 10 条
+      // heavy 全部处于 resolved（26 §12：resolved 不进 F2 默认候选），另有
+      // 若干因状态被 `excludedByStatus` 排除。两类原因必须分开呈现，否则
+      // 读者会归错因。
+      excludedByFacet: appliedFacets.length === 0 ? [] : scopedFacts
+        .filter((fact) => REGISTERED_FACT_TYPES.includes(fact.type))
+        .filter((fact) => types === null || types.includes(fact.type))
+        .filter((fact) => statusAllowed(fact.type, fact.status))
+        .filter((fact) => !pool.includes(fact))
+        .map((fact) => ({
+          type: fact.type,
+          status: fact.status,
+          title: fact.title,
+          path: fact.path,
+          // 该对象在本 facet 上的**实际取值**，让读者看见「差在哪」而不是
+          // 只知道「它被筛掉了」。缺字段时如实写 null（不是空串——空串会被
+          // 读成「有字段但值为空」，二者在判断上不同）。
+          values: Object.fromEntries(appliedFacets.map(([name]) => {
+            if (name === "objectUid") return [name, fact.ref ?? null];
+            if (name === "relationKey") {
+              return [name, (fact.structural?.relationKeys ?? []).length > 0
+                ? fact.structural.relationKeys : null];
+            }
+            const key = {
+              serves: "serves", priority: "priority", impact: "impact",
+              directionKey: "directionKey", attributionRef: "attributionRef",
+            }[name];
+            const v = key === undefined ? undefined : fact.structural?.[key];
+            return [name, typeof v === "string" && v !== "" ? v : null];
+          })),
+        })),
+      // 本次**实际生效的 facet 清单**（空数组=未收窄）。显式给出而不只给被筛条目
+      // 的原因与 `scopeExcluded` 相同：条数回答「这次有几条没进来」，清单回答
+      // 「这次问了什么条件」——后者是读者复核「我筛对了吗」的唯一依据。
+      appliedFacets: Object.fromEntries(appliedFacets),
       excludedByTypeWhitelist: scopedFacts
         .filter((fact) => !REGISTERED_FACT_TYPES.includes(fact.type))
         .map((fact) => ({ type: fact.type, title: fact.title, path: fact.path })),
