@@ -504,6 +504,11 @@ function bufferEntry({ minutesAgo, group, index }) {
     phenomenon: "重建索引后必须手工重跑一次依赖安装。",
     evidence: `同一份依赖在 8 分钟内被重装 5 次，耗时 4 分 12 秒。—— 来源：sess-2026-11-02-ci turn-00${index}`,
     group,
+    // 2026-10-30：审核层跨运行晋升所需的承载（§12bis.1 字段闭集）。
+    title: "依赖安装被重复执行",
+    basis: "重复出现；归因：索引重建流程未复用已安装依赖；修了会改善。",
+    attribution: "索引重建流程",
+    impact: "medium",
     at: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
   };
 }

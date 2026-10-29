@@ -75,6 +75,11 @@ async function seedObservation(base, { group = "ci-slow", phenomenon = "CI 平�
     phenomenon,
     evidence: evidence ?? "CI 耗时 8m02s（构建日志第 12 行）",
     group,
+    // 2026-10-30：晋升搬到审核层后，这四项随条目落进缓冲（§12bis.1 字段闭集）。
+    title: "CI 慢",
+    basis: "重复出现；归因：CI 配置未缓存依赖层；修了会改善。",
+    attribution: "CI 配置未缓存依赖层",
+    impact: "medium",
     ...(at ? { observationAt: at } : {}),
   });
   assert.ok(result.ok, JSON.stringify(result.error));
@@ -209,6 +214,10 @@ test("§9 第 2 项：group 缺失即拒——没有聚合键，阈值永远算�
       phenomenon: "某现象",
       evidence: "某逐字引证片段",
       group: "",
+      title: "某标题",
+      basis: "某入账依据",
+      attribution: "某归因",
+      impact: "light",
     });
     assert.equal(r.ok, false);
     assert.equal(r.error.code, "invalid_request");
@@ -226,6 +235,10 @@ test("§9 第 2 项：观察按管辖项目分区，跨项目不混装（02 §6.
       phenomenon: "他项目的现象",
       evidence: "他项目的逐字引证",
       group: "ci-slow",
+      title: "他项目的标题",
+      basis: "他项目的入账依据",
+      attribution: "他项目的归因",
+      impact: "light",
     });
     assert.ok(other.ok, JSON.stringify(other.error));
     assert.equal(other.value.group_pending_count, 1, "another project's identically-named group is a different group");

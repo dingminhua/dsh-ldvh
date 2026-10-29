@@ -305,6 +305,44 @@ export async function runReviewStage({
   // 断言「函数没报错」——错形状与错根都**不报错**。
   const pitfalls = Array.isArray(existing?.value?.items) ? existing.value.items : [];
 
+  // ── 1bis. 摩擦缓冲的升级（2026-10-30 职责重划：§9 第 3／4 项移入 §10.2）────
+  //
+  // **必须在经验审核之前、且不受经验缓冲是否为空的影响**：摩擦晋升是纯机械的
+  // （阈值固定内嵌，标题/依据/归因/影响已随观察条目落进缓冲），不需要派生执行体；
+  // 而经验审核需要。若把晋升放在「经验缓冲非空」之后，一个只在摩擦侧有活的运行
+  // 会永远晋升不了——那正是「发现层只写缓冲、审核层做全部升级」这条分工的断点。
+  //
+  // 失败即 fail-closed 并登记，不降级跳过（§12）。但**不阻断经验审核**：两者处理
+  // 的是不同缓冲，一件失败不应使另一件也停摆；失败已如实登记，读数时可见。
+  let frictionPromotion = null;
+  try {
+    const { runFrictionReviewPromotion } = await import("./friction-review-promotion.js");
+    frictionPromotion = await runFrictionReviewPromotion({
+      factSourceRoot,
+      dshHomePath,
+      projectId: scope.project.id,
+      sessionSignature: await resolveSignature(sessionPersistence, null),
+    });
+  } catch (error) {
+    frictionPromotion = failure("review_stage/friction_promotion_threw", String(error?.message ?? error));
+  }
+  if (frictionPromotion?.ok) {
+    const promotedCount = frictionPromotion.value.promotions.length;
+    const supplementedCount = frictionPromotion.value.supplemented.length;
+    if (promotedCount > 0 || supplementedCount > 0) {
+      activity?.record("review/friction-promotion", {
+        promoted: frictionPromotion.value.promotions,
+        supplemented: frictionPromotion.value.supplemented,
+        skipped: frictionPromotion.value.skipped,
+      });
+    }
+  } else {
+    record("land-failed", {
+      action: frictionPromotion?.error?.code ?? "friction-promotion-failed",
+      reason: frictionPromotion?.error?.message ?? "unknown",
+    });
+  }
+
   // 派发前先看有没有活可干——没有就不派生执行体（省成本，且「空跑」会留下
   // 一条没有任何判断产出的运行记录，读数时反而像出错）。
   const { readBufferEntries } = await import("./observation-buffer.js");
@@ -316,8 +354,16 @@ export async function runReviewStage({
   }
   const pending = peek.value.items;
   if (pending.length === 0) {
-    record("skipped", { action: "empty-buffer", pending: 0 });
-    return { ok: true, value: { outcome: "skipped", formed: null, pending: 0 } };
+    // 经验缓冲为空**不等于本次没干活**：摩擦晋升可能已经落了一笔账目。
+    const promoted = frictionPromotion?.ok ? frictionPromotion.value.promotions.length : 0;
+    const supplemented = frictionPromotion?.ok ? frictionPromotion.value.supplemented.length : 0;
+    record(promoted > 0 || supplemented > 0 ? "landed" : "skipped", {
+      action: promoted > 0 ? "friction-promoted" : supplemented > 0 ? "friction-supplemented" : "empty-buffer",
+      pending: 0,
+      friction_promoted: promoted,
+      friction_supplemented: supplemented,
+    });
+    return { ok: true, value: { outcome: "skipped", formed: null, pending: 0, frictionPromotion: frictionPromotion?.value ?? null } };
   }
 
   // ── 2. 挑 provider（零上下文）────────────────────────────────────────

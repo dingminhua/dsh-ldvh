@@ -117,7 +117,13 @@ export async function runIdleCheckpoint({
   const { runnable: registeredRunnable, unimplemented } = splitRunnableTasks(requested);
   // 本模块实际**编排**（构造执行体并落地）的任务：见上方说明——登记为已实现、
   // 但本层尚未编排其执行体与落地路径的任务，不得算作本次已跑。
-  const ORCHESTRATED = ["friction-discovery"];
+  //
+  // **2026-10-30：`experience-capture` 接入**。此前它登记为已实现、也作为搭车任务
+  // 被派发（`tasks: [...requested]` 全量传 provider），但 `ORCHESTRATED` 只列了
+  // `friction-discovery`——于是「只开经验捕获（摩擦关）」时会被过滤成
+  // `not-implemented`，而它的落地路径其实早已存在（`lifecycle.js` 的 capture 分支）。
+  // 两层重构后两者同属发现层、同一个开关、同一次派发，故一并编排。
+  const ORCHESTRATED = ["friction-discovery", "experience-capture"];
   const runnable = registeredRunnable.filter((key) => ORCHESTRATED.includes(key));
   const notOrchestrated = registeredRunnable.filter((key) => !ORCHESTRATED.includes(key));
   if (runnable.length === 0) {
@@ -262,22 +268,47 @@ export async function runIdleCheckpoint({
 
   // §8.4「观察范围的切分（水位）」：本次运行只看**自上次成功运行以来**新增的内容。
   // 区间端点取自宿主会话记录的轮次号（`currentTurn`），不是「AI 认为哪些是新的」。
-  // **按任务分别读水位**（friction-watermark 的逐任务改造）：本模块当前只编排
-  // 摩擦发现（见下方 runnable 过滤），故传入 taskId。多任务落地时，各任务须各自
-  // 传自己的键——共用一条会使「一件成功、一件失败」互相牵连（重复落地）。
-  const watermark = await readWatermark(dshHomePath, {
-    projectRoot: projectRoot ?? factSourceRoot,
-    sessionId,
-    task: taskId,
-  });
-  if (!watermark.ok) {
-    return recordAndFail(dshHomePath, {
-      task: taskId,
-      reason: `水位不可读，无法界定本次观察区间：${watermark.error.message}`,
-      residual: [],
-      at,
+  //
+  // **2026-10-30：按任务分别读水位，取最早的作为窗口下界**。
+  //
+  // 此前只读 `requested[0]` 的水位（注释自陈「多任务落地时各任务须各自传自己的键」），
+  // 于是第二个任务（`experience-capture`）的窗口取自摩擦的水位，而它自己的键
+  // **只写不读**——它没看过的内容会被直接越过并永久丢失。
+  //
+  // 两个任务共用**一份材料窗口**（同一次派发的提示词只有一段材料），但各有自己的
+  // 水位。下界的唯一安全选择是**取两者中最早的那个**：
+  //   - 取较晚的 → 较晚者之前的材料永远不被较早者看到（漏看，不可恢复）；
+  //   - 取最早的 → 某个任务可能重复看到它已处理过的内容。重复的代价是它可能重复
+  //     写一条同现象观察（审核层按 group 去重、达阈值才建账），漏看则**永久丢失**。
+  // 故取最早者，并把「本次窗口因迁就另一个任务而回退」如实记进痕迹。
+  const watermarkReads = [];
+  for (const key of runnable) {
+    const read = await readWatermark(dshHomePath, {
+      projectRoot: projectRoot ?? factSourceRoot,
+      sessionId,
+      task: key,
     });
+    if (!read.ok) {
+      return recordAndFail(dshHomePath, {
+        task: taskId,
+        reason: `水位不可读（任务 ${key}），无法界定本次观察区间：${read.error.message}`,
+        residual: [],
+        at,
+      });
+    }
+    watermarkReads.push({ task: key, watermark: read.value });
   }
+  // 取 earliest：`lastTurn` 最小者。`describeWindow` 只看 `lastTurn` 一个字段，
+  // 故把最早那条原样交给它，其余任务的水位另行记进痕迹。
+  const earliest = watermarkReads.reduce(
+    (acc, item) => (acc === null || (item.watermark?.lastTurn ?? -1) < (acc.watermark?.lastTurn ?? -1) ? item : acc),
+    null,
+  );
+  const watermarkLagging = watermarkReads.filter((item) => item.task !== earliest?.task).map((item) => ({
+    task: item.task,
+    lastTurn: item.watermark?.lastTurn ?? null,
+  }));
+  const watermark = { ok: true, value: earliest.watermark };
   const windowRange = describeWindow(watermark.value, currentTurn);
 
   // 语义查重属子代理职责（§8.4 第 1 项是登记为 gap 的语义判断）。无提供者时
@@ -385,11 +416,17 @@ export async function runIdleCheckpoint({
     outcome: decision?.outcome ?? "reported",
     decision,
     // 调用方在**落地成功后**据此推进水位（本层已判定其可推进）。
+    // **逐任务推进**：两个任务共用一份窗口，但各有自己的水位键——全部推到本次
+    // 窗口的终点，否则落后者的键永远停在旧值、下次又取它当窗口下界（无限回退）。
+    pending_watermark_turns: Object.fromEntries(runnable.map((key) => [key, pendingWatermarkTurn])),
     pending_watermark_turn: pendingWatermarkTurn,
     watermark_advanced: false,
     threshold: FRICTION_THRESHOLD_N,
     candidates: candidates.value.candidates.length,
     window: windowRange,
+    // 本次窗口为迁就较早的水位而回退时，如实登记（否则「重复看到已处理内容」
+    // 在痕迹里看不出原因）。
+    ...(watermarkLagging.length === 0 ? {} : { window_lagging_tasks: watermarkLagging }),
     // 第三层缺失时**机械承载**，不只在提示词字符串里（2026-10-28 复核 #2：
     // 原注释称「缺口进 residual 与 gaps」，但成功路径 envelope 无该字段，
     // 披露全靠执行体照写 reason——那与 11 §17 的条件式要求不符）。

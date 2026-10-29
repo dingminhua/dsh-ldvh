@@ -43,12 +43,10 @@
  */
 
 import {
-  supplementOccurrence,
   recordObservation,
-  promoteReadyGroup,
-  MAX_CREATES_PER_RUN,
   FRICTION_THRESHOLD_N,
 } from "./friction-discovery.js";
+import { FRICTION_OBSERVATION_MAX_PHENOMENON_LENGTH } from "./friction-observation-buffer.js";
 import { readFrictionObject } from "./friction-writer.js";
 
 function success(value) {
@@ -160,16 +158,17 @@ export async function landDiscoveryVerdict({
   }
 
   if (verdict.verdict === "same-obstacle") {
-    // 第 4 项：对既有 open 账目做补充级更新（计数与现象段扩展须在同一次更新内，
-    // 由 supplementOccurrence 内部保证）。observation 用本次观察的人类可读描述
-    // ——它来自子代理的 reason（已校验非空），而不是本模块自造。
+    // **2026-10-30 职责重划（Human 决定）**：发现层只写缓冲、不写事实源。
+    // 对既有 open 账目的补充级更新（§9 第 4 项）因此**不再在此执行**——它改为
+    // 把这次观察连同 `target_uid` 写进缓冲，由审核层在下一次运行时执行补充。
     //
-    // **本项不再触发任何状态流转**（2026-10 修订）：账目的状态推进只有 Human Gate
-    // （销账/废弃/接受）。观察累积到阈值这件事发生在缓冲侧，与既有账目无关。
-    //
-    // **命中 accepted 时静默（2026-10 新增）**：`accepted` 是「已记录、不再报告」
-    // 的终态，命中它**不写缓冲、不晋升、不补充计数**（11 §9 第 1 项 / 36 §8.2 第 6 项）。
+    // **命中 accepted 时静默**：`accepted` 是「已记录、不再报告」的终态，命中它
+    // **不写缓冲、不晋升、不补充计数**（11 §9 第 1 项 / 36 §8.2 第 6 项）。
     // 命中事实须在交还 `residual` 中登记，使复审有入口、不构成无痕抑制（11 §15）。
+    //
+    // 该抑制**必须留在发现层**：若改为由审核层抑制，发现层就会先把观察写进缓冲，
+    // 审核层再把它抹掉——抹除本身不留痕，正是「无痕抑制」的形态。故此处保留这次
+    // 只读判定与 residual 登记，它不写事实源，不违反新边界。
     const hit = await readFrictionObject({ factSourceRoot, objectUid: verdict.target_uid });
     if (!hit.ok) {
       // 账目读不出来即无法判定命中哪一态——归入 supplement 阶段（与补充级更新
@@ -188,27 +187,61 @@ export async function landDiscoveryVerdict({
         residual: [`命中已接受账目 ${verdict.target_uid}：本次观察与它同源，按「记录一次、不再报告」静默（不写缓冲、不晋升、不补充计数；26 §9.1 / 11 §9 第 1 项）`],
       });
     }
-    const supplemented = await supplementOccurrence({
-      factSourceRoot,
-      objectUid: verdict.target_uid,
-      observation: verdict.reason,
-      observationAt: at,
-      sessionSignature,
-    });
-    if (!supplemented.ok) {
-      return failure(supplemented.error?.code ?? "friction/supplement_failed", `11 §9 第 4 项（补充级更新）失败：${supplemented.error?.message ?? "unknown"}`, {
-        stage: "supplement",
-        cause: supplemented.error,
+    if (hit.value.frontmatter.status !== "open") {
+      // 既非 accepted 也非 open（resolved / voided）：不得对终态做补充级更新。
+      // 如实登记为未处理，交由审核层按既有账目去重规则处置。
+      return success({
+        action: "silent",
+        object_uid: verdict.target_uid,
+        promoted: false,
+        status: hit.value.frontmatter.status ?? null,
+        residual: [`命中账目 ${verdict.target_uid} 的状态为 ${hit.value.frontmatter.status}，非 open，按 §9 第 4 项不得做补充级更新；本次观察未入缓冲（11 §9 第 1 项）`],
       });
     }
-
+    // open：写入缓冲并带上 target_uid，由审核层执行补充级更新。
+    //
+    // `same-obstacle` 态的 verdict 按 schema **不填** `phenomenon`/`title`/`basis`/
+    // `attribution`（那四项只在「新起或沿用组」两态必填）。补充级更新不需要新建
+    // 账目，故也不需要它们；但缓冲条目的闭集要求它们非空，故此处用该态确实携带的
+    // 内容补齐：`reason` 是「如何从引证得出该判定」的解释，作为现象描述最贴近；
+    // 标题沿用被补充账目的标题；basis/attribution 沿用既有账目的对应字段（补充级
+    // 更新不改变归因，改归因是语义决定，不属机械通道）。
+    //
+    // `group` 在此态不参与聚合（该阻碍已有账目），用 target_uid 作占位键以满足
+    // 缓冲条目的必填约束——它不会被阈值逻辑消费（审核层按 target_uid 走补充路径）。
+    const target = hit.value.frontmatter;
+    const recordedForSupplement = await recordObservation({
+      dshHomePath,
+      projectId,
+      session: typeof session === "string" && session.length > 0 ? session : "unknown",
+      anchor,
+      phenomenon: typeof verdict.reason === "string" && verdict.reason.trim().length > 0
+        ? verdict.reason.trim().slice(0, FRICTION_OBSERVATION_MAX_PHENOMENON_LENGTH)
+        : "（补充级更新：子代理未给出可读描述）",
+      evidence: `${verdict.quote}\n（来源：${anchor}）`,
+      group: verdict.target_uid,
+      target_uid: verdict.target_uid,
+      title: typeof target.title === "string" && target.title.length > 0 ? target.title : "（沿用既有账目标题）",
+      basis: typeof target.basis === "string" && target.basis.length > 0 ? target.basis : "（沿用既有账目入账依据）",
+      attribution: typeof target.attribution === "string" && target.attribution.length > 0
+        ? target.attribution
+        : "（沿用既有账目归因）",
+      impact: ["light", "medium", "heavy"].includes(target.impact) ? target.impact : "light",
+      observationAt: at,
+    });
+    if (!recordedForSupplement.ok) {
+      return failure(recordedForSupplement.error?.code ?? "friction/record_observation_failed", `11 §9 第 4 项（写待补充观察）失败：${recordedForSupplement.error?.message ?? "unknown"}`, {
+        stage: "supplement",
+        cause: recordedForSupplement.error,
+      });
+    }
     return success({
-      action: "supplement",
+      action: "supplement-pending",
       object_uid: verdict.target_uid,
-      count: supplemented.value?.count_after ?? null,
-      count_before: supplemented.value?.count_before ?? null,
+      entry_id: recordedForSupplement.value?.entry_id ?? null,
       promoted: false,
-      status: supplemented.value?.status ?? null,
+      status: "open",
+      residual: [`本次观察与既有 open 账目 ${verdict.target_uid} 同源，已写入缓冲待审核层执行补充级更新（§9 第 4 项已移入 §10.2）`],
     });
   }
 
@@ -234,6 +267,12 @@ export async function landDiscoveryVerdict({
       // evidence 必须是来源材料的逐字片段，reason 是解释，不能冒充引证。
       evidence: `${verdict.quote}\n（来源：${anchor}）`,
       group: verdict.group,
+      // 2026-10-30：晋升所需的四项随条目落进缓冲，使审核层在下一次运行时能
+      // 完成晋升（此前它们只在本次 verdict 里，跨运行即丢失）。
+      title: verdict.title,
+      basis: verdict.basis,
+      attribution: verdict.attribution,
+      impact: verdict.impact,
       observationAt: at,
     });
     if (!recorded.ok) {
@@ -243,42 +282,18 @@ export async function landDiscoveryVerdict({
       });
     }
 
-    // 第 3 项：该组是否已达阈值、需要晋升。**只有达阈值才晋升**；
-    // 未达即正常留在缓冲（不是失败）。
-    let promotion = null;
-    if (recorded.value?.promotion_ready === true) {
-      if (MAX_CREATES_PER_RUN !== 1) {
-        return failure("friction/create_cap_changed", `§9「每次运行上限」假定至多 1 条；现有界为 ${MAX_CREATES_PER_RUN}，落地逻辑须相应调整`);
-      }
-      const promoted = await promoteReadyGroup({
-        factSourceRoot,
-        dshHomePath,
-        projectId,
-        group: verdict.group,
-        title: verdict.title,
-        impact: verdict.impact,
-        basis: verdict.basis,
-        attribution: verdict.attribution,
-        sessionSignature,
-      });
-      if (!promoted.ok) {
-        return failure(promoted.error?.code ?? "friction/promote_failed", `11 §9 第 3 项（阈值晋升）失败：${promoted.error?.message ?? "unknown"}`, {
-          stage: "promote",
-          cause: promoted.error,
-        });
-      }
-      promotion = promoted.value;
-    }
-
+    // **2026-10-30 职责重划（Human 决定）**：晋升（§9 第 3 项）已移入 §10.2，
+    // 由审核层在下一次运行时执行。发现层只写缓冲、不写事实源——故此处不再调用
+    // `promoteReadyGroup`。这样两层不会同时写事实源（重复建账）。
     return success({
       action: "observe",
-      object_uid: promotion?.object_uid ?? null,
+      object_uid: null,
       entry_id: recorded.value?.entry_id ?? null,
       group: verdict.group,
       group_pending_count: recorded.value?.group_pending_count ?? null,
       threshold: FRICTION_THRESHOLD_N,
       promotion_ready: recorded.value?.promotion_ready === true,
-      promoted: promotion?.promoted === true,
+      promoted: false,
       evicted_pending: recorded.value?.evicted_pending ?? [],
     });
   }

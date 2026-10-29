@@ -177,58 +177,65 @@ test("same-observation-group：并入既有组，第二条仍不达阈值", asyn
   });
 });
 
-test("same-observation-group：第三条达 N，同一次运行内晋升为 open 账目", async () => {
+test("same-observation-group：第三条达 N，发现层**不**晋升（晋升已移入审核层 §10.2）", async () => {
   await withLedger(async (ctx) => {
     await land(ctx, observationVerdict("new-observation"));
     await land(ctx, observationVerdict("same-observation-group"));
     const third = await land(ctx, observationVerdict("same-observation-group"));
 
     assert.ok(third.ok, JSON.stringify(third.error));
-    assert.equal(third.value.promotion_ready, true);
-    assert.equal(third.value.promoted, true, "the third observation promotes the group");
-    assert.ok(third.value.object_uid, "a ledger entry is created on promotion");
+    assert.equal(third.value.promotion_ready, true, "the group is ready — the buffer count reached N");
+    assert.equal(third.value.promoted, false, "2026-10-30: discovery no longer writes the fact source");
+    assert.equal(third.value.object_uid, null, "no ledger entry is created by the discovery layer");
 
-    const fm = (await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: third.value.object_uid })).value.frontmatter;
-    assert.equal(fm.status, "open", "promoted entries are born open");
-    assert.equal(fm.occurrence.count, 3, "count is the group's real observation count");
-    assert.equal(fm.title, "CI 慢");
-    assert.equal(fm.attribution, "串行化任务编排");
+    // 三条都在缓冲里、且都带晋升所需的承载字段，审核层下一次运行即可建账。
+    const pending = await readFrictionObservations(ctx.dshHomePath, PROJECT, { status: "pending" });
+    assert.equal(pending.value.total, 3, "all three observations stay pending for the review layer");
+    for (const entry of pending.value.items) {
+      assert.equal(entry.title, "CI 慢");
+      assert.equal(entry.attribution, "串行化任务编排");
+      assert.ok(entry.basis.length > 0, "basis is carried into the buffer");
+      assert.ok(["light", "medium", "heavy"].includes(entry.impact), "impact is carried into the buffer");
+    }
   });
 });
 
-test("same-observation-group：晋升后该组条目结算为 promoted（不再 pending）", async () => {
+test("same-observation-group：条目保持 pending（晋升由审核层结算，发现层不结算）", async () => {
   await withLedger(async (ctx) => {
     await land(ctx, observationVerdict("new-observation"));
     await land(ctx, observationVerdict("same-observation-group"));
     await land(ctx, observationVerdict("same-observation-group"));
 
     const pending = await readFrictionObservations(ctx.dshHomePath, PROJECT, { status: "pending" });
-    assert.equal(pending.value.total, 0, "all entries consumed by the promotion");
+    assert.equal(pending.value.total, 3, "the review layer settles these, not the discovery layer");
     const promoted = await readFrictionObservations(ctx.dshHomePath, PROJECT, { status: "promoted" });
-    assert.equal(promoted.value.total, 3);
+    assert.equal(promoted.value.total, 0, "nothing is promoted during the discovery run");
   });
 });
 
-test("same-obstacle：补充级更新使 count 递增 1、last_at 更新、status 不变（第 4 项）", async () => {
+test("same-obstacle：发现层**不**做补充级更新，改为写入缓冲待审核层执行（第 4 项已移入 §10.2）", async () => {
   await withLedger(async (ctx) => {
     const uid = await seedOpen(ctx.factSourceRoot, { count: 1 });
     const before = await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: uid });
 
     const r = await land(ctx, sameObstacleVerdict(uid), { observationAt: "2026-11-02T00:00:00.000Z" });
     assert.ok(r.ok, JSON.stringify(r.error));
-    assert.equal(r.value.action, "supplement");
-    assert.equal(r.value.count, 2);
-    assert.equal(r.value.status, "open", "supplement must not change status");
+    assert.equal(r.value.action, "supplement-pending", "the supplement is queued for the review layer");
+    assert.equal(r.value.object_uid, uid);
 
+    // 账目**未**被改动：count 与 last_at 都还是原值。
     const after = await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: uid });
-    assert.equal(after.value.frontmatter.occurrence.count, 2);
-    assert.equal(after.value.frontmatter.occurrence.last_at, "2026-11-02T00:00:00.000Z");
-    assert.ok(after.value.body.includes("本次区间内再次出现同一现象"), "the phenomenon section records this sighting");
+    assert.equal(after.value.frontmatter.occurrence.count, 1, "discovery no longer touches the ledger");
     assert.equal(
-      after.value.frontmatter.occurrence.first_at,
-      before.value.frontmatter.occurrence.first_at,
-      "first_at is immutable evidence",
+      after.value.frontmatter.occurrence.last_at,
+      before.value.frontmatter.occurrence.last_at,
+      "last_at is untouched",
     );
+
+    // 观察进了缓冲，且带 target_uid 指向该账目。
+    const pending = await readFrictionObservations(ctx.dshHomePath, PROJECT, { status: "pending" });
+    assert.equal(pending.value.total, 1);
+    assert.equal(pending.value.items[0].target_uid, uid, "target_uid tells the review layer which entry to supplement");
   });
 });
 
@@ -237,13 +244,14 @@ test("same-obstacle：**不触发任何状态流转**（账目状态推进只有
     const uid = await seedOpen(ctx.factSourceRoot, { count: 5 });
     const r = await land(ctx, sameObstacleVerdict(uid), { observationAt: "2026-11-03T00:00:00.000Z" });
     assert.ok(r.ok, JSON.stringify(r.error));
-    assert.equal(r.value.count, 6);
     assert.equal(r.value.promoted, false, "count never drives status any more");
     assert.equal(r.value.status, "open");
+    const after = await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: uid });
+    assert.equal(after.value.frontmatter.occurrence.count, 5, "the ledger is not written by discovery");
   });
 });
 
-test("不做存量遍历：只动本次涉及的那条账目", async () => {
+test("不做存量遍历：只动本次涉及的那条账目（发现层不改任何账目）", async () => {
   await withLedger(async (ctx) => {
     const a = await seedOpen(ctx.factSourceRoot, { count: 1 });
     const b = await seedOpen(ctx.factSourceRoot, { count: 5 });
@@ -253,7 +261,7 @@ test("不做存量遍历：只动本次涉及的那条账目", async () => {
 
     const aAfter = (await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: a })).value.frontmatter;
     const bAfter = (await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: b })).value.frontmatter;
-    assert.equal(aAfter.occurrence.count, 2, "the targeted entry is updated");
+    assert.equal(aAfter.occurrence.count, 1, "discovery does not write the targeted entry either");
     assert.equal(bAfter.occurrence.count, 5, "an unrelated entry is untouched");
   });
 });
@@ -286,9 +294,16 @@ test("终态账目（voided）不得被补充计数（26 §9.3 计数冻结）",
     });
     assert.ok(voided.ok, JSON.stringify(voided.error));
 
+    // 2026-10-30：终态账目既不得被补充计数，也不得入缓冲（无补充动作可排）。
+    // 处置为「静默 + residual 登记」，而非失败——失败会让整次运行被判无效。
     const r = await land(ctx, sameObstacleVerdict(uid), { observationAt: "2026-11-04T00:00:00.000Z" });
-    assert.equal(r.ok, false);
-    assert.equal(r.error.stage, "supplement");
+    assert.ok(r.ok, JSON.stringify(r.error));
+    assert.equal(r.value.action, "silent");
+    assert.equal(r.value.status, "voided");
+    assert.ok(Array.isArray(r.value.residual) && r.value.residual.length > 0, "the hit is registered for review");
+
+    const pending = await readFrictionObservations(ctx.dshHomePath, PROJECT, { status: "pending" });
+    assert.equal(pending.value.total, 0, "no observation is buffered for a terminal entry");
   });
 });
 

@@ -134,33 +134,59 @@ export const Config = z.object({
   //     ——**§6.2 现为空集，故本 schema 亦无任何节流配置键**。
   /** 闲时辅助总开关：关闭后不再派发任何辅助任务（含摩擦发现）。 */
   idleAssistEnabled: volatileField(z.boolean().default(true)),
-  /** 闲时评审（反思摩擦，11 §9）：已实现，缺省开。 */
-  // 摩擦发现（11 §9）。**曾用名 `idleReviewEnabled`**——旧键仍须能被读到，见下。
-  frictionDiscoveryEnabled: volatileField(z.boolean().default(true)),
   /**
-   * @deprecated 摩擦发现开关的**旧键**，仅为存量配置回落而保留。
+   * 闲置捕获（11 §9 摩擦发现 + §10.1 经验捕获）：**两层重构后合并为一个开关**
+   * （2026-10-30 Human 决定）。
    *
-   * **为什么不得只保留新键**：`frictionDiscoveryEnabled` 带 `default(true)`，宿主
-   * 解析配置时会**把 true 填进 config**——于是 `resolveIdleSettings` 里的
-   * `新键 ?? 旧键` 回落**永远不会走到旧键**，Human 曾明确关闭摩擦的设定会静默
-   * 退回 true（行为突变，且从设置面上看不出为什么它又开着了）。
+   * 原来摩擦发现与经验捕获是两个独立键。合并的理由：两者同属**发现层**——都只写
+   * 缓冲、都不写事实源、都在同一次派发里一起跑（见 `idle-checkpoint.js` 的
+   * `ORCHESTRATED`）。拆成两个开关会让「只开一个」产生半套材料：摩擦开了经验关，
+   * 派发仍在跑但有一半产出被丢弃，而痕迹里看不出为什么。
    *
-   * 故回落必须在**能区分「用户设过」与「默认填的」**的层面做：`idle-settings.js`
-   * 读的是本插件 Cordis Config 的**原始字段**（见该处的 `?? config?.idleReviewEnabled`
-   * 与读取顺序说明）——本键保留在 schema 里，使旧配置项不被判为未知字段。
-   *
-   * 本键**不出现在设置面**（`client.js` 只渲染新键）；它会在 Human 下次保存设置
-   * 时被新键取代，此后即可移除。
+   * **缺省开**：摩擦发现是既有行为，改成缺省关会使升级即静默停用（行为突变）。
    */
+  idleCaptureEnabled: volatileField(z.boolean().default(true)),
+  /**
+   * 闲置审核（11 §10.2 经验审核 + 摩擦缓冲升级）：**合并为一个开关**
+   * （2026-10-30 Human 决定）。
+   *
+   * 合并的理由同捕获：两者同属**审核层**——都在同一次审核派发里处理两个缓冲、
+   * 都由「同一项目同一时间至多一个」的互斥保护。
+   *
+   * **缺省关**：审核会写事实源（晋升 Friction、形成 Pitfall draft），是新增能力；
+   * 默认打开会在 Human 尚未知情时就开始建账。缺省关更诚实。
+   */
+  auxReviewEnabled: volatileField(z.boolean().default(false)),
+  /**
+   * @deprecated 已被 `idleCaptureEnabled` 取代（2026-10-30 配置面合并）。
+   *
+   * **保留在 schema 里的唯一理由**：使存量配置项不被判为未知字段。它**不出现在
+   * 设置面**，读侧按 `idleCaptureEnabled ?? 旧键们` 回落（见 `idle-settings.js`）。
+   *
+   * 注意：本键**没有** `default()`——这是刻意的。带默认值的键会被宿主填进 config，
+   * 使回落逻辑永远走不到旧键，「Human 曾显式关掉」的设定会静默退回默认值
+   * （该失效形态本仓已踩过，见 `idle-settings.js` 的注释）。
+   */
+  frictionDiscoveryEnabled: volatileField(z.boolean()),
+  /** @deprecated 见 `frictionDiscoveryEnabled`（同属捕获层，已被 `idleCaptureEnabled` 取代）。 */
+  experienceCaptureEnabled: volatileField(z.boolean()),
+  /**
+   * @deprecated 已被 `auxReviewEnabled` 取代（2026-10-30 配置面合并）。
+   * 保留仅为使存量配置项不被判为未知字段；无 default，理由同上。
+   */
+  experienceReviewEnabled: volatileField(z.boolean()),
+  /** @deprecated 已被 `auxReviewEnabled` 取代。保留仅为兼容存量配置。 */
   idleReviewEnabled: volatileField(z.boolean()),
-  // 积累经验（11 §10）：**已实现**，但缺省**关**。与摩擦（缺省开）不同：摩擦是
-  // 既有行为，改成缺省关会使升级即静默停用（行为突变）；本任务是**新增**能力，
-  // 默认打开会在 Human 尚未知情时就开始写 Pitfall 候选。缺省关更诚实。
-  experienceCaptureEnabled: volatileField(z.boolean().default(false)),
-  /** 容量维护（32 §10.4）：**尚未实现**，缺省关（打开也只会如实报 not-implemented）。 */
-  capacityMaintenanceEnabled: volatileField(z.boolean().default(false)),
-  /** 记忆健康体检（32 §10.5）：**尚未实现**，缺省关（同上）。 */
-  memoryHealthEnabled: volatileField(z.boolean().default(false)),
+  /**
+   * @deprecated 已不再是独立开关（2026-10-30 配置面合并）。
+   *
+   * 容量维护与记忆健康体检在 §8 里仍是**登记在册但未实现**的职责，故不再有独立
+   * 开关；§8.5「已启用但未实现须如实登记」由 `aux-task-registry` 的
+   * `unimplemented` 投影继续承载（它们仍在登记表里，只是不由配置面开关控制）。
+   */
+  capacityMaintenanceEnabled: volatileField(z.boolean()),
+  /** @deprecated 见 `capacityMaintenanceEnabled`。 */
+  memoryHealthEnabled: volatileField(z.boolean()),
   /**
    * 安静时长（毫秒）——11 §6.1 进入契约的判据：**距最后一次会话活动**持续不短于
    * 该时长，才算「会话确已空闲」并可派发。
@@ -202,16 +228,10 @@ export const Config = z.object({
   // 精确的档位成员校验由 `resolveInjectionBudget` 在消费点完成并**如实报错**。
   injectionBudgetTier: volatileField(z.number().min(10).max(50).step(10).default(10)),
 
-  // ── 经验审核（11 §10.2 / §6.1 形态 2，2026-10-26）────────────────────
-  //
-  /** 审核开关。缺省**关**：审核段会创建 draft 事实对象，默认打开等于在 Human 尚未
-   *  知情时就开始往账本写候选（与 `experienceCaptureEnabled` 缺省关同一理由）。
-   *  与捕获**分开**——Human：「这本来就是两件事……所以要分开设置」。 */
-  experienceReviewEnabled: volatileField(z.boolean().default(false)),
-  // **`experienceReviewIntervalMs` 已删除**（2026-10-27 二次修订）。审核随静置触发，
-  // 不存在时间间隔——见 `experience-review-trigger.js` 的模块说明与 Human 的原话
-  // 「==，这个不存在时间了呀，随静置触发」。删掉字段而不是留一个默认 0：留着的字段
-  // 会出现在设置面上、被写进 profile 配置、并被后来者当成「间隔机制还在」。
+  // ── 经验审核的开关已并入 `auxReviewEnabled`（2026-10-30 配置面合并）────
+  // 该键本身作为 deprecated 保留在 schema 前部（仅为兼容存量配置），此处不再重复
+  // 声明。`experienceReviewIntervalMs` 已于 2026-10-27 删除（审核随静置触发，
+  // 不存在时间间隔）。
   });
 
 /**

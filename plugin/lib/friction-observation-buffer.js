@@ -90,7 +90,18 @@ export const FRICTION_OBSERVATION_SETTLED_TTL_DAYS = 90;
 /** 晋升阈值 N（§9「阈值 N」段：固定内嵌为 3，不可配置）。 */
 export const FRICTION_OBSERVATION_THRESHOLD_N = 3;
 
-/** §12bis.1 的字段闭集（10 项）。 */
+/**
+ * §12bis.1 的字段闭集。
+ *
+ * **2026-10-30 新增 `title`/`basis`/`attribution`/`impact` 四项（Human 决定）**：
+ * 晋升从发现层搬到审核层后，晋升所需的这四项必须由缓冲承载——它们原本只存在于
+ * 发现层当次运行的结构化 `verdict` 里，审核层在下一次运行时已无从取得，跨运行
+ * 晋升会因缺字段而无法建账（`promoteReadyGroup` 缺 `title`/`basis` 即失败）。
+ *
+ * 这四项在 `same-observation-group` / `new-observation` 两态必填（由子代理的
+ * verdict 产出）；`same-obstacle` 与 `no-discovery` 两态不写缓冲，故不涉及。
+ * 存量条目已在 2026-10-30 一并清零（Human 决定），不存在缺字段的历史条目。
+ */
 export const FRICTION_OBSERVATION_FIELDS = Object.freeze([
   "id",
   "at",
@@ -100,11 +111,19 @@ export const FRICTION_OBSERVATION_FIELDS = Object.freeze([
   "phenomenon",
   "evidence",
   "group",
+  "target_uid",
+  "title",
+  "basis",
+  "attribution",
+  "impact",
   "status",
   "promoted_to",
 ]);
 
-/** 实现侧附加记账字段（不在 §12bis.1 的 10 项闭集内）：保留期计算所需。 */
+/** `impact` 闭集（26 §8 的评级闭集，与 Friction 事实对象同口径）。 */
+export const FRICTION_OBSERVATION_IMPACTS = Object.freeze(["light", "medium", "heavy"]);
+
+/** 实现侧附加记账字段（不在 §12bis.1 的闭集内）：保留期计算所需。 */
 export const FRICTION_OBSERVATION_SETTLED_AT_FIELD = "settled_at";
 
 /** `phenomenon` 长度上限——「一句话」的机械上限。 */
@@ -134,9 +153,14 @@ const APPEND_INPUT_FIELDS = new Set([
   "phenomenon",
   "evidence",
   "group",
+  "target_uid",
+  "title",
+  "basis",
+  "attribution",
+  "impact",
 ]);
 
-/** 存量条目允许出现的字段（10 项闭集 + 实现侧附加记账字段）。 */
+/** 存量条目允许出现的字段（§12bis.1 闭集 + 实现侧附加记账字段）。 */
 const STORED_FIELDS = new Set([
   ...FRICTION_OBSERVATION_FIELDS,
   FRICTION_OBSERVATION_SETTLED_AT_FIELD,
@@ -272,13 +296,19 @@ function validateAppendInput(input, projectId) {
       );
     }
   }
-  for (const field of ["session", "anchor", "phenomenon", "evidence", "group"]) {
+  for (const field of ["session", "anchor", "phenomenon", "evidence", "group", "title", "basis", "attribution"]) {
     if (!isNonEmptyString(input[field])) {
       return failure(
         `friction_observation/missing_${field}`,
-        `${field} is required and must be a non-empty string (§12bis.1 字段闭集)`,
+        `${field} is required and must be a non-empty string (§12bis.1 字段闭集；title/basis/attribution 是审核层跨运行晋升所需的承载，缺任一项晋升即无法建账)`,
       );
     }
+  }
+  if (!FRICTION_OBSERVATION_IMPACTS.includes(input.impact)) {
+    return failure(
+      "friction_observation/invalid_impact",
+      `impact must be one of ${FRICTION_OBSERVATION_IMPACTS.join(", ")} (§12bis.1 字段闭集)`,
+    );
   }
   // project：入参若给了，须与载体分区一致（条目层与载体层自洽）。
   if (input.project !== undefined && input.project !== null) {
@@ -339,13 +369,19 @@ function validateAppendInput(input, projectId) {
     // **逐字保留**：`evidence` 是来源材料的逐字片段，连 trim 都可能改写它。
     evidence: input.evidence,
     group: input.group.trim(),
+    // 2026-10-30：审核层跨运行晋升所需的承载（§12bis.1 字段闭集）。
+    target_uid: isNonEmptyString(input.target_uid) ? input.target_uid.trim() : null,
+    title: input.title.trim(),
+    basis: input.basis.trim(),
+    attribution: input.attribution.trim(),
+    impact: input.impact,
     status: "pending",
     promoted_to: null,
   });
 }
 
 /** 存量条目校验：闭集之外的字段即越界，单列进 `invalid` 而非静默接受。 */
-function validateStoredEntry(record) {
+export function validateStoredEntry(record) {
   if (typeof record !== "object" || record === null || Array.isArray(record)) {
     return "entry is not an object";
   }
@@ -355,6 +391,15 @@ function validateStoredEntry(record) {
     }
   }
   for (const field of FRICTION_OBSERVATION_FIELDS) {
+    // `target_uid` 是**可空**字段：只有 `same-obstacle` 态的观察带它（指向要补充的
+    // 既有账目），其余态为 null。其余字段一律必须存在。
+    if (field === "target_uid") {
+      if (!(field in record)) return `missing field "${field}"`;
+      if (record[field] !== null && !isNonEmptyString(record[field])) {
+        return `field "target_uid" must be null or a non-empty string`;
+      }
+      continue;
+    }
     if (!(field in record)) {
       return `missing field "${field}"`;
     }

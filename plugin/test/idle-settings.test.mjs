@@ -64,7 +64,7 @@ test("resolveIdleSettings：无配置时给出默认值（总开关与已实现�
   assert.deepEqual(s.limits, IDLE_DEFAULTS, "参数回落默认值");
 });
 
-test("resolveIdleSettings：显式配置覆盖默认，且三个子项各自独立", () => {
+test("resolveIdleSettings：显式配置覆盖默认；2026-10-30 起两层各一个开关，同层任务同生同灭", () => {
   const s = resolveIdleSettings({
     idleAssistEnabled: false,
     frictionDiscoveryEnabled: false,
@@ -73,11 +73,29 @@ test("resolveIdleSettings：显式配置覆盖默认，且三个子项各自独�
     idleSilenceMs: 900_000,
   });
   assert.equal(s.enabled, false);
+  // 旧键 frictionDiscoveryEnabled=false 生效（关闭优先），且**同层两个任务一起关**。
   assert.equal(s.tasks["friction-discovery"], false);
-  assert.equal(s.tasks["capacity-maintenance"], true);
+  assert.equal(s.tasks["experience-capture"], false, "发现层两任务同生同灭（合并为一个开关）");
+  // 未实现的职责不再由配置面开关控制——恒为 false，§8.5 的可见性由登记表承载。
+  assert.equal(s.tasks["capacity-maintenance"], false, "不再有独立开关；恒报未启用");
   assert.equal(s.tasks["memory-health"], false);
   // 2026-10-14 二次修订：limits 现只含安静时长一项——配额两键随 §6.2 收为空集而删除。
   assert.deepEqual(s.limits, { silenceMs: 900_000 });
+});
+
+test("配置面合并：同层两任务由同一个新键控制，不能只开一个", () => {
+  const both = resolveIdleSettings({ idleCaptureEnabled: true });
+  assert.equal(both.tasks["friction-discovery"], true);
+  assert.equal(both.tasks["experience-capture"], true, "捕获层是一个开关，不能产生半套材料");
+
+  const neither = resolveIdleSettings({ idleCaptureEnabled: false });
+  assert.equal(neither.tasks["friction-discovery"], false);
+  assert.equal(neither.tasks["experience-capture"], false);
+
+  // 审核层是另一个开关，与捕获层互不影响。
+  const reviewOnly = resolveIdleSettings({ idleCaptureEnabled: false, auxReviewEnabled: true });
+  assert.equal(reviewOnly.review.enabled, true, "审核层独立于捕获层");
+  assert.equal(reviewOnly.tasks["friction-discovery"], false);
 });
 
 
@@ -201,8 +219,12 @@ test("pickEnabledAuxTasks：**勾选几个就跑几件**——不是挑一个（
   const one = pickEnabledAuxTasks({ enabled: true, tasks: { "friction-discovery": true } });
   assert.deepEqual(one.tasks, ["friction-discovery"], "只勾一个就只做一件");
 
-  const two = pickEnabledAuxTasks({ enabled: true, tasks: { "friction-discovery": true, "memory-health": true } });
-  assert.deepEqual(two.tasks, ["friction-discovery", "memory-health"], "勾两个就做两件");
+  // 2026-10-30：派发面只剩两个任务（容量维护/记忆健康移出），故「勾两个」用它俩。
+  const two = pickEnabledAuxTasks({ enabled: true, tasks: { "friction-discovery": true, "experience-capture": true } });
+  assert.deepEqual(two.tasks, ["friction-discovery", "experience-capture"], "勾两个就做两件");
+  // 已移出派发面的任务即使被勾上也不得进入派发清单（它们没有执行体）。
+  const stale = pickEnabledAuxTasks({ enabled: true, tasks: { "friction-discovery": true, "memory-health": true } });
+  assert.deepEqual(stale.tasks, ["friction-discovery"], "未实现的任务不得被派发");
 });
 
 test("pickEnabledAuxTasks：顺序取**规范叙述次序**，不取设置对象的枚举次序", () => {
@@ -284,20 +306,25 @@ test("任务清单只有**一处**定义——模块间不得各持一份（实�
 test("配置改名：旧键被显式设过时以旧键为准（默认值不得架空回落）", () => {
   // 用**原始对象**直接调 resolveIdleSettings——它就是判据侧的入口，且这里要验的
   // 正是「默认值已被填进 config」这一形态（用已解析的 Config 反而掩盖该陷阱）。
-  const off = resolveIdleSettings({ frictionDiscoveryEnabled: true, idleReviewEnabled: false });
+  //
+  // 2026-10-30：合并为两层开关后，旧键的语义是「合并前它管的那一半是否被显式关掉」。
+  const off = resolveIdleSettings({ idleCaptureEnabled: true, frictionDiscoveryEnabled: false });
   assert.equal(
     off.tasks["friction-discovery"], false,
     "旧键 false（Human 曾明确关闭）必须生效——若回落写成 `新 ?? 旧`，新键的 default(true) 会架空它",
   );
-  const on = resolveIdleSettings({ idleReviewEnabled: true });
-  assert.equal(on.tasks["friction-discovery"], true, "旧键 true 亦须生效");
+  const on = resolveIdleSettings({ experienceCaptureEnabled: true });
+  assert.equal(on.tasks["experience-capture"], true, "旧键 true 亦须生效");
+  // 审核层的旧键同理。
+  const reviewOff = resolveIdleSettings({ auxReviewEnabled: true, experienceReviewEnabled: false });
+  assert.equal(reviewOff.review.enabled, false, "审核层旧键 false 同样不得被新键默认值架空");
 });
 
 test("配置改名：未设旧键时用新键（含其缺省）", () => {
   assert.equal(resolveIdleSettings(undefined).tasks["friction-discovery"], true, "两者都未设 → 缺省开");
   assert.equal(resolveIdleSettings({}).tasks["friction-discovery"], true, "配置对象为空 → 缺省开");
   assert.equal(
-    resolveIdleSettings({ frictionDiscoveryEnabled: false }).tasks["friction-discovery"], false,
+    resolveIdleSettings({ idleCaptureEnabled: false }).tasks["friction-discovery"], false,
     "只设了新键 → 以新键为准",
   );
 });

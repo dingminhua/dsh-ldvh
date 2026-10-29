@@ -40,8 +40,29 @@ import { buildDiscoveryPromptSection, discoveryOutputSchema, validateDiscoveryVe
 import { buildCapturePromptSection, captureOutputSchema, validateCaptureVerdict } from "./experience-capture-contract.js";
 
 
-/** 闲时辅助的全部任务，顺序即拼接顺序与痕迹记录顺序（规范叙述次序）。 */
-export const AUX_TASK_ORDER = Object.freeze(["friction-discovery", "experience-capture", "capacity-maintenance", "memory-health"]);
+/**
+ * 闲时辅助的全部任务，顺序即拼接顺序与痕迹记录顺序（规范叙述次序）。
+ *
+ * **2026-10-30 收窄为两个**（Human 决定：配置面合并为「闲置捕获 / 闲置审核」两项）：
+ * `capacity-maintenance` 与 `memory-health` 移出本表。
+ *
+ * 移出的理由不是「它们不再是 §8 的职责」——§8 仍登记着它们，只是**未实现**。
+ * 移出的理由是：本表是**派发面**（能被配置开关选中、被拼进复合提示词的任务），
+ * 而这两个任务没有执行体、没有提示词段、没有落地路径。让它们留在派发面里，唯一
+ * 效果是 `splitRunnableTasks` 把它们报成 `unimplemented` 而其余任务照常跑——那正是
+ * §8.5 要的「如实登记」，但该登记现已由 `UNIMPLEMENTED_AUX_TASKS` 独立承载（见下），
+ * 不必依赖它们占着派发位。
+ */
+export const AUX_TASK_ORDER = Object.freeze(["friction-discovery", "experience-capture"]);
+
+/**
+ * §8 登记在册、但**尚未实现**的职责（2026-10-30）。
+ *
+ * 它们**不在** `AUX_TASK_ORDER`（不进派发面），但必须可见——§8.5 明文「不得主张
+ * 空闲维护已运行」，反向也要求「未实现的职责不得从登记里消失」。诊断面与痕迹
+ * 通过本常量把它们如实报为未实现，而不是让它们悄悄不出现。
+ */
+export const UNIMPLEMENTED_AUX_TASKS = Object.freeze(["capacity-maintenance", "memory-health"]);
 
 /**
  * `friction-discovery`（摩擦发现）的登记项。

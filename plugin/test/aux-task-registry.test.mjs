@@ -20,6 +20,7 @@ import assert from "node:assert/strict";
 import {
   AUX_TASK_ORDER,
   AUX_TASK_REGISTRY,
+  UNIMPLEMENTED_AUX_TASKS,
   buildCompositePrompt,
   compositeOutputSchema,
   compositePropertyName,
@@ -36,12 +37,24 @@ import {
 // 登记表
 // ---------------------------------------------------------------------------
 
-test("登记表：四个任务在册，顺序即 AUX_TASK_ORDER（规范叙述次序）", () => {
-  // 顺序取自 11 §8 的叙述次序「反思摩擦、积累经验、记忆维护」，容量维护随其后。
-  assert.deepEqual([...AUX_TASK_ORDER], ["friction-discovery", "experience-capture", "capacity-maintenance", "memory-health"]);
+test("登记表：派发面是两个任务，顺序即 AUX_TASK_ORDER（规范叙述次序）", () => {
+  // 2026-10-30 收窄：容量维护与记忆健康移出**派发面**（它们没有执行体/提示词段/
+  // 落地路径），改由 UNIMPLEMENTED_AUX_TASKS 承载「登记在册但未实现」的可见性。
+  assert.deepEqual([...AUX_TASK_ORDER], ["friction-discovery", "experience-capture"]);
   for (const key of AUX_TASK_ORDER) {
     assert.ok(AUX_TASK_REGISTRY[key] !== undefined, `${key} 须在登记表内`);
     assert.equal(AUX_TASK_REGISTRY[key].key, key, "登记项的 key 须与键一致（防错位）");
+  }
+});
+
+test("§8.5：未实现的职责不得从登记里消失——移出派发面后仍须可见", () => {
+  // 反向约束：把两个未实现任务移出 AUX_TASK_ORDER 时，最容易犯的错是让它们
+  // 干脆不出现，于是「§8 登记了记忆维护」这件事在系统里再也看不到。
+  assert.deepEqual([...UNIMPLEMENTED_AUX_TASKS], ["capacity-maintenance", "memory-health"]);
+  for (const key of UNIMPLEMENTED_AUX_TASKS) {
+    assert.ok(AUX_TASK_REGISTRY[key] !== undefined, `${key} 仍须在登记表内（只是不进派发面）`);
+    assert.equal(AUX_TASK_REGISTRY[key].implemented, false, `${key} 的 implemented 须如实为 false`);
+    assert.ok(!AUX_TASK_ORDER.includes(key), `${key} 不得同时出现在派发面`);
   }
 });
 
@@ -65,7 +78,9 @@ test("登记表：现状如实——idle-review 与 experience-capture 已实现
 });
 
 test("splitRunnableTasks：两半都返回，且合起来等于输入（不得静默丢弃未实现者）", () => {
-  const all = [...AUX_TASK_ORDER];
+  // 2026-10-30：AUX_TASK_ORDER 只含已实现任务，故这里显式把「派发面 + 未实现」
+  // 合起来作为输入——正是配置面可能给出的清单（旧配置里仍可能勾着未实现项）。
+  const all = [...AUX_TASK_ORDER, ...UNIMPLEMENTED_AUX_TASKS];
   const { runnable, unimplemented } = splitRunnableTasks(all);
   assert.deepEqual(runnable, ["friction-discovery", "experience-capture"]);
   assert.deepEqual(unimplemented, ["capacity-maintenance", "memory-health"]);

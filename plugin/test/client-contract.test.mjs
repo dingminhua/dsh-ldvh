@@ -487,16 +487,23 @@ test("settings footer carries the 鼓励一下 cheer link (family-wide pattern)"
 // 闲时辅助设置面（04 §8.1 / 32 §10；形态参照 dsh-mnemon 的 idleReview）
 // ---------------------------------------------------------------------------
 
-test("闲时辅助设置面：总开关 + 三个子项 + 四个参数，且总开关关闭时不渲染子项", () => {
-  // 五个开关须各自成 state（而非一个数组）——它们绑定到不同的 Config 字段，
+test("闲时辅助设置面：总开关 + **两个**子项 + 一个参数，且总开关关闭时不渲染子项", () => {
+  // 2026-10-30 配置面合并（Human 决定）：六个开关 → 两个（闲置捕获 / 闲置审核）。
+  // 各开关须各自成 state（而非一个数组）——它们绑定到不同的 Config 字段，
   // 且 dsh-mnemon 的形态是「总开关关掉就整块不展开」。
   for (const field of [
     "idleAssistEnabled",
-    "frictionDiscoveryEnabled",
+    "idleCaptureEnabled",
+    "auxReviewEnabled",
+  ]) {
+    assert.ok(source.includes(field), `设置面须含开关字段 ${field}`);
+  }
+  // 旧键不得再作为**设置面控件**出现（它们只保留在 schema 里供读存量配置）。
+  for (const gone of [
     "capacityMaintenanceEnabled",
     "memoryHealthEnabled",
   ]) {
-    assert.ok(source.includes(field), `设置面须含开关字段 ${field}`);
+    assert.ok(!source.includes(gone), `设置面不得残留已合并的开关 ${gone}`);
   }
   // 子项在总开关关闭时**不渲染**（与 dsh-mnemon 同形：未启用时不给无意义的选项）。
   assert.match(
@@ -533,19 +540,23 @@ test("闲时辅助设置面：总开关 + 三个子项 + 四个参数，且总�
     false,
     "审核间隔已整体删除（随静置触发，无间隔可配）；该字段名不得再出现在设置面",
   );
-  // 审核**开关**须独立于捕获开关（Human：「这本来就是两件事……所以要分开设置」）。
-  assert.ok(source.includes("experienceReviewEnabled"), "设置面须含审核开关");
-  assert.ok(source.includes("row.experienceReview"), "设置面须有审核开关文案");
+  // 审核**开关**与捕获开关分开（两层各一个）。
+  assert.ok(source.includes("auxReviewEnabled"), "设置面须含审核开关");
+  assert.ok(source.includes("row.auxReview"), "设置面须有审核开关文案");
 });
 
-test("未实现的子项须在设置面**当场标出**（不得让开关看起来能跑）", () => {
-  // capacity-maintenance 与 memory-health 的服务端实现状态是 not-implemented。
-  // 开关打开后它们仍会如实回报，但设置面上不标出就是**在界面上说假话**。
-  assert.match(source, /implemented: false/, "两个未实现子项须标记 implemented: false");
-  assert.match(source, /implemented: true/, "已实现的子项须标记 implemented: true");
-  assert.match(source, /t\("row\.notImplemented"\)/, "未实现子项须渲染「尚未实现」徽标");
-  // 徽标文案须说明「仍会如实报 not-implemented」，而不只是贴一个标签。
-  assert.match(source, /not-implemented/, "未实现说明须点名 not-implemented 这一实际回报");
+test("§8.5：未实现的职责移出设置面后仍须在登记里可见", async () => {
+  // 2026-10-30：容量维护与记忆健康不再有设置面开关（它们没有执行体可开关）。
+  // 但 §8.5「不得主张已运行」的反向要求是「未实现的职责不得从登记里消失」——
+  // 故它们必须由登记表的 UNIMPLEMENTED_AUX_TASKS 承载，而不是干脆不出现。
+  const { UNIMPLEMENTED_AUX_TASKS, AUX_TASK_REGISTRY, AUX_TASK_ORDER } =
+    await import("../lib/aux-task-registry.js");
+  assert.deepEqual([...UNIMPLEMENTED_AUX_TASKS], ["capacity-maintenance", "memory-health"]);
+  for (const key of UNIMPLEMENTED_AUX_TASKS) {
+    assert.ok(AUX_TASK_REGISTRY[key] !== undefined, `${key} 仍须在登记表内`);
+    assert.equal(AUX_TASK_REGISTRY[key].implemented, false, `${key} 须如实标为未实现`);
+    assert.ok(!AUX_TASK_ORDER.includes(key), `${key} 不得进派发面`);
+  }
 });
 
 test("数值参数的默认值与服务端**同源**：不得在两处各写一套", async () => {

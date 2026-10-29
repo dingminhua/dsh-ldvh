@@ -377,15 +377,11 @@ window.__ModuleLoader__.load({
       "row.mountSidebarTab": "加入到侧边栏",
       "row.mountHint": "保存后刷新页面生效；关闭 Web 呈现总开关时，两项投放均不生效。",
       "row.idleAssist": "闲时辅助",
-      "row.idleAssistHint": "会话空闲时由宜主派发辅助任务（反思摩擦、容量维护、记忆健康）。关闭后不再派发任何辅助任务。",
-      "row.frictionDiscovery": "反思摩擦",
-      "row.frictionDiscoveryHint": "把实际工作流中反复出现的阻碍记入摩擦账本（已实现）。",
-      "row.experienceCapture": "积累经验",
-      "row.experienceCaptureHint": "把已经解决并验证的失败机制做成经验候选，入档前需人工确认（已实现）。",
-      "row.capacityMaintenance": "容量维护",
-      "row.capacityMaintenanceHint": "记忆满时只整理不新增（压缩、归档、淘汰、合并）。",
-      "row.memoryHealth": "记忆健康体检",
-      "row.memoryHealthHint": "周期性检查记忆失效模式与冷热分布。",
+      "row.idleAssistHint": "会话空闲时由宜主派发辅助任务。关闭后不再派发任何辅助任务。",
+      "row.idleCapture": "闲置捕获",
+      "row.idleCaptureHint": "会话静置时派发一次发现：把反复出现的阻碍与已解决的失败机制**只写进观察缓冲**，不直接改账本（已实现）。摩擦与经验同属这一层，一起跑——只开一半会产生半套材料，所以合并为一个开关。",
+      "row.auxReview": "闲置审核",
+      "row.auxReviewHint": "静置时派发一次审核：把缓冲里的材料**升级为事实对象**——摩擦观察攒够 3 次就建成摩擦账目，经验观察够格的写成经验草稿（草稿是否入档仍需你确认）。同一项目同一时间至多一个审核在跑。与「闲置捕获」相互独立：关掉它只是不再自动升级，材料仍留在缓冲里。",
       "row.notImplemented": "尚未实现",
       "row.notImplementedHint": "后端能力尚未实现：开启后宜主仍会如实回报 not-implemented，不会假装已跑。",
       "row.idleLimits": "调度参数",
@@ -396,8 +392,6 @@ window.__ModuleLoader__.load({
       // 即它衡量的是「对话停了多久」，而不是「距上次跑完多久」。这句话须自足：
       // Human 不必回读 36 号规范即可判断该填多少。
       "row.idleSilenceMsHint": "指对话停下来后、连续安静多久才允许做一次闲时回顾：只要还有新的对话活动，计时就重新开始；真正停下来满这个时长，才回顾一次。",
-      "row.experienceReview": "自动审核经验",
-      "row.experienceReviewHint": "定期检查经验观察里收集的材料，一次把当前这一批**逐条判完**：够格的就写成经验草稿，不够格的标记为「不构成经验」并留痕（草稿是否入档仍需你确认）。与「积累经验」各自独立：关掉它只是不再自动审核，已有材料仍留在经验观察里。审核在会话静置时跑，不占用你的对话。",
       "row.idleLimitInvalid": "请填入整数；安静时长须大于 0（配额上限填 0 表示不限）。",
       "row.webHint": "关闭时移除 LDVH 页面和 API；开启后自动挂载并检查是否可用。",
       "row.status": "Web 呈现状态",
@@ -468,12 +462,10 @@ window.__ModuleLoader__.load({
       "row.idleAssistHint": "Dispatches auxiliary tasks while the session is idle (friction review, capacity maintenance, memory health). Turning this off stops every auxiliary task.",
       "row.frictionDiscovery": "Friction discovery",
       "row.frictionDiscoveryHint": "Records recurring obstacles from the real workflow into the friction ledger (implemented).",
-      "row.experienceCapture": "Experience capture",
-      "row.experienceCaptureHint": "Turns already-resolved and verified failure mechanisms into experience candidates; filing requires human confirmation (implemented).",
-      "row.capacityMaintenance": "Capacity maintenance",
-      "row.capacityMaintenanceHint": "When memory is full, only rearranges: compression, archiving, eviction, merging.",
-      "row.memoryHealth": "Memory health check",
-      "row.memoryHealthHint": "Periodically checks memory failure modes and hot/cold distribution.",
+      "row.idleCapture": "Idle capture",
+      "row.idleCaptureHint": "When the conversation goes quiet, runs one discovery pass that writes recurring obstacles and resolved failure mechanisms into the observation buffers only, never into the ledger (implemented). Friction and experience belong to this same layer and run together — enabling only half would produce half the material, so they share one switch.",
+      "row.auxReview": "Idle review",
+      "row.auxReviewHint": "When the conversation goes quiet, runs one review pass that promotes buffered material into fact objects: friction observations reaching 3 sightings become ledger entries, qualifying experience observations become experience drafts (filing a draft still needs your confirmation). At most one review runs per project at a time. Independent of capture: turning it off stops auto-promotion only, and material stays buffered.",
       "row.notImplemented": "Not implemented",
       "row.notImplementedHint": "The backend capability does not exist yet: enabling it still reports not-implemented rather than pretending to run.",
       "row.idleLimits": "Dispatch limits",
@@ -481,8 +473,6 @@ window.__ModuleLoader__.load({
       "row.injectionBudgetTierHint": "Size cap for pre-action recall: choose 10/20/30/40/50 (KiB). The tier set itself is a controlled constant (changing it requires a controlled commit); this field only selects. Raising the cap is a Human decision. The guidance surface (jurisdiction verdict + minimal guidance) is fixed and does not share this tier.",
       "row.idleSilenceMs": "Silence duration (minutes)",
       "row.idleSilenceMsHint": "How long the conversation must stay quiet before a single idle review may run: any new activity restarts the count, and one review happens once the silence reaches this duration.",
-      "row.experienceReview": "Auto-review experience",
-      "row.experienceReviewHint": "Periodically examines the material collected in experience observations and judges the whole batch entry by entry: the ones that qualify become experience drafts, the rest are settled as not constituting experience with a trace (filing a draft still needs your confirmation). Independent of capture: turning it off stops auto-review only, and material stays in experience observations. Reviews run when the conversation goes quiet, so they never occupy your own conversation.",
       "row.idleLimitInvalid": "Enter an integer; the silence duration must exceed 0 (0 in the cap means unlimited).",
       "row.webHint": "Turning it off removes the LDVH page and API; turning it on mounts them and checks availability automatically.",
       "row.status": "Web presentation status",
@@ -838,18 +828,27 @@ window.__ModuleLoader__.load({
       // 闲时辅助（形态参照 dsh-mnemon 的 idleReview 设置面：总开关 + 启用后才展开子项）。
       // 数值参数在客户端用**字符串**存放，使空串与非法输入可被辨认（数字类型无法表达「用户把它删空了」）。
       var idleAssistState = React.useState(value.idleAssistEnabled !== false);
-      var frictionDiscoveryState = React.useState(value.frictionDiscoveryEnabled !== false || value.idleReviewEnabled === true);
-      var idleCaptureState = React.useState(value.experienceCaptureEnabled === true);
-      // 经验**审核**开关（2026-10-26）。与捕获分成两个——Human：「一个是对话结束捕获，
-      // 一个是自动的审核捕获，所以要分开设置」。
-      var idleReviewState = React.useState(value.experienceReviewEnabled === true);
+      // **2026-10-30 配置面合并为两项**（Human 决定）：闲置捕获（发现层）与闲置审核
+      // （审核层）。原先是六个开关（摩擦发现/经验捕获/经验审核/容量维护/记忆健康），
+      // 合并理由见 index.js 的 schema 注释：同层任务在同一次派发里一起跑，拆开只会
+      // 产生「半套材料」而痕迹里看不出原因。
+      //
+      // 读侧仍兼容旧键：旧键任一被显式设置过即生效（与服务端 resolveIdleSettings
+      // 同一判据），使升级后 Human 此前的选择不会静默丢失。
+      var idleCaptureState = React.useState(
+        (value.frictionDiscoveryEnabled !== undefined || value.experienceCaptureEnabled !== undefined)
+          ? (value.frictionDiscoveryEnabled !== false && value.experienceCaptureEnabled !== false)
+          : value.idleCaptureEnabled !== false
+      );
+      var idleReviewState = React.useState(
+        (value.experienceReviewEnabled !== undefined || value.idleReviewEnabled !== undefined)
+          ? (value.experienceReviewEnabled === true || value.idleReviewEnabled === true)
+          : value.auxReviewEnabled === true
+      );
       // **审核模型设置已整体移除**（2026-10-27 Human 要求）：该设置从未真正生效
       // ——设置面能填能存，审核执行体却一直按默认路由跑（诊断长期显示
-      // `model: (default route)`）。一个「设了不生效」的选项比没有更糟。随之一并
-      // 移除的还有：模型目录的异步有界重试、provider/model/effort 三组下拉状态。
+      // `model: (default route)`）。一个「设了不生效」的选项比没有更糟。
       // 审核固定跟随宿主默认路由。
-      var idleCapacityState = React.useState(value.capacityMaintenanceEnabled === true);
-      var idleMemoryState = React.useState(value.memoryHealthEnabled === true);
       // 界面上的各值按它们**各自的显示单位**存放（见 IDLE_LIMITS 的 scale）。
       // 缺省值用**存储单位**给出，再过同一条换算——而不在这里另写一份「分钟数」，
       // 否则改默认值时会漏改一处。
@@ -929,11 +928,16 @@ window.__ModuleLoader__.load({
         convTabState[1](next.showInConversationTab !== false);
         sidebarTabState[1](next.showInSidebarTab !== false);
         idleAssistState[1](next.idleAssistEnabled !== false);
-        frictionDiscoveryState[1](next.frictionDiscoveryEnabled !== false || next.idleReviewEnabled === true);
-        idleCaptureState[1](next.experienceCaptureEnabled === true);
-        idleReviewState[1](next.experienceReviewEnabled === true);
-        idleCapacityState[1](next.capacityMaintenanceEnabled === true);
-        idleMemoryState[1](next.memoryHealthEnabled === true);
+        idleCaptureState[1](
+          (next.frictionDiscoveryEnabled !== undefined || next.experienceCaptureEnabled !== undefined)
+            ? (next.frictionDiscoveryEnabled !== false && next.experienceCaptureEnabled !== false)
+            : next.idleCaptureEnabled !== false
+        );
+        idleReviewState[1](
+          (next.experienceReviewEnabled !== undefined || next.idleReviewEnabled !== undefined)
+            ? (next.experienceReviewEnabled === true || next.idleReviewEnabled === true)
+            : next.auxReviewEnabled === true
+        );
         injectionBudgetState[1](
           injectionBudgetTierOk(next.injectionBudgetTier) ? Number(next.injectionBudgetTier) : INJECTION_BUDGET_TIER_DEFAULT
         );
@@ -1122,13 +1126,13 @@ window.__ModuleLoader__.load({
               { op: "set", path: ["showInConversationTab"], value: !!convTabState[0] },
               { op: "set", path: ["showInSidebarTab"], value: !!sidebarTabState[0] },
               { op: "set", path: ["idleAssistEnabled"], value: !!idleAssistState[0] },
-              { op: "set", path: ["frictionDiscoveryEnabled"], value: !!frictionDiscoveryState[0] },
-              { op: "set", path: ["experienceCaptureEnabled"], value: !!idleCaptureState[0] },
+              // 2026-10-30：六个开关合并为两个，保存时只写新键。
+              // 旧键不再写入——它们保留在 schema 里仅为读取存量配置；继续写会使
+              // 「旧键是否被显式设置过」这个迁移判据永远为真，新键反而被架空。
+              { op: "set", path: ["idleCaptureEnabled"], value: !!idleCaptureState[0] },
               // 审核开关独立提交：漏掉这一行，界面上勾了也存不进去，且看不出来
               // （勾选态来自本地 state，保存后仍显示已勾选，重开才归零）。
-              { op: "set", path: ["experienceReviewEnabled"], value: !!idleReviewState[0] },
-              { op: "set", path: ["capacityMaintenanceEnabled"], value: !!idleCapacityState[0] },
-              { op: "set", path: ["memoryHealthEnabled"], value: !!idleMemoryState[0] },
+              { op: "set", path: ["auxReviewEnabled"], value: !!idleReviewState[0] },
               { op: "set", path: ["injectionBudgetTier"], value: Number(injectionBudgetState[0]) }
             ];
             // 参数各自按 scale 换算回**存储单位**（分钟 × 60000 = 毫秒）。
@@ -1330,13 +1334,16 @@ window.__ModuleLoader__.load({
           // 选项）。
           idleAssistState[0] ? React.createElement("div", { className: "ldv-web-panel-body" },
             React.createElement("div", { className: "ldv-idle-tasks" },
+              // **2026-10-30 合并为两项**（Human 决定）：闲置捕获（发现层：摩擦发现 +
+              // 经验捕获，只写缓冲）与闲置审核（审核层：经验审核 + 摩擦缓冲升级，
+              // 把缓冲升级为事实对象）。同层任务合并的理由见 index.js 的 schema 注释。
+              //
+              // 容量维护与记忆健康体检不再出现在设置面：它们在 §8 里仍是登记在册但
+              // **未实现**的职责，没有执行体可开关。§8.5「已启用但未实现须如实登记」
+              // 由登记表的 `UNIMPLEMENTED_AUX_TASKS` 承载，不由设置面承载。
               [
-                { key: "frictionDiscoveryEnabled", state: frictionDiscoveryState, label: "row.frictionDiscovery", hint: "row.frictionDiscoveryHint", implemented: true },
-                { key: "experienceCaptureEnabled", state: idleCaptureState, label: "row.experienceCapture", hint: "row.experienceCaptureHint", implemented: true },
-                // 经验审核（11 §10.2）：**独立开关**，不是「积累经验」的子项。
-                { key: "experienceReviewEnabled", state: idleReviewState, label: "row.experienceReview", hint: "row.experienceReviewHint", implemented: true },
-                { key: "capacityMaintenanceEnabled", state: idleCapacityState, label: "row.capacityMaintenance", hint: "row.capacityMaintenanceHint", implemented: false },
-                { key: "memoryHealthEnabled", state: idleMemoryState, label: "row.memoryHealth", hint: "row.memoryHealthHint", implemented: false }
+                { key: "idleCaptureEnabled", state: idleCaptureState, label: "row.idleCapture", hint: "row.idleCaptureHint", implemented: true },
+                { key: "auxReviewEnabled", state: idleReviewState, label: "row.auxReview", hint: "row.auxReviewHint", implemented: true }
               ].map(function (task) {
                 return React.createElement("label", { key: task.key, className: "ldv-check" },
                   React.createElement("input", {

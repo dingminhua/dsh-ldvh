@@ -96,22 +96,36 @@ export function readPositiveNumber(value, fallback) {
 }
 
 /** 布尔字段的读取。缺省一律按 `fallback` 处理（与 index.js 的 readSwitch 同语义）。 */
-/**
- * 取字段的**原始值**（`undefined` 表示「用户没设过」）。
- *
- * `volatileField` 字段是只有 `get()` 的引用（宿主 0.1.7 的热改语义），故判「是否
- * 被设置过」必须先取值再比 `undefined`——直接拿引用做 `??` 判断**恒为真**，
- * 那正是「默认值架空回落」的形态。
- */
-function readValue(value) {
-  if (value !== null && typeof value === "object" && typeof value.get === "function") return value.get();
-  return value;
-}
 
 export function readBool(value, fallback) {
   const raw = value !== null && typeof value === "object" && typeof value.get === "function" ? value.get() : value;
   if (raw === undefined || raw === null) return fallback;
   return raw !== false;
+}
+
+/**
+ * 从一组**旧配置键**里取出「用户显式设置过」的那一半（2026-10-30 配置面合并）。
+ *
+ * 返回值语义：
+ * - `undefined` —— 这些旧键都**未被显式设置过**（全部 `undefined`），调用方应改用
+ *   新键（含其 schema 默认值）；
+ * - `true`/`false` —— 至少一个旧键被显式设置过。多个并存时**关闭优先**：只要其中
+ *   有一个是 `false`，就返回 `false`。
+ *
+ * 为什么关闭优先：合并前两个键各管一半，用户关掉其中任一半说明他不想让那一半跑；
+ * 合并后不再分开关，保守取「关」比擅自打开更诚实（本仓纪律：不得让已表达的意图
+ * 静默失效）。
+ *
+ * 为什么必须传**原始字段**而不是解析后的值：新键带 `default()`，宿主会把默认值填进
+ * config，使「显式设置」与「默认填充」不可区分——这正是本文件反复警告的失效形态。
+ * 旧键在 schema 里**无** default，故它们的 `undefined` 才真表示「没设置过」。
+ */
+function pickLegacyBoolean(candidates) {
+  const seen = candidates
+    .map((value) => (value !== null && typeof value === "object" && typeof value.get === "function" ? value.get() : value))
+    .filter((value) => value !== undefined && value !== null);
+  if (seen.length === 0) return undefined;
+  return seen.every((value) => value !== false);
 }
 
 /**
@@ -169,47 +183,67 @@ export function validateSilenceMs(value) {
  * @returns {{enabled: boolean, tasks: Record<string, boolean>, limits: typeof IDLE_DEFAULTS}} 解析后的设置。
  */
 export function resolveIdleSettings(config) {
+  // ── 2026-10-30 配置面合并（Human 决定）────────────────────────────────
+  //
+  // 六个开关合并为两个：`idleCaptureEnabled`（发现层：摩擦发现 + 经验捕获）与
+  // `auxReviewEnabled`（审核层：经验审核 + 摩擦缓冲升级）。理由是两层重构后同层
+  // 任务在同一次派发里一起跑，拆开只会产生「半套材料」而痕迹里看不出原因。
+  //
+  // **迁移必须能区分「用户显式设过」与「默认值填进来的」**。这正是本文件此前反复
+  // 警告的失效形态：带 `default()` 的键会被宿主填进 config，`新 ?? 旧` 的右支成
+  // 死代码，Human 曾明确关闭的设定会静默退回默认值。故：
+  //   - 新键（`idleCaptureEnabled`/`auxReviewEnabled`）**有** default；
+  //   - 旧键（`frictionDiscoveryEnabled`/`experienceCaptureEnabled`/
+  //     `experienceReviewEnabled`/`idleReviewEnabled`）在 schema 里**无** default。
+  // 判据因此是「旧键是否被显式设置过」：设过就以它为准（迁移期尊重原意），否则
+  // 用新键（含其默认值）。
+  //
+  // 多个旧键并存时（历史迁移留下的）按「任一被显式设置过即生效，且**关闭优先**」
+  // 处理——若用户曾关掉其中任一半，说明他不想让那一半跑；合并后不再分开关，保守
+  // 取「关」比擅自打开更诚实。
+  const captureLegacy = pickLegacyBoolean([
+    config?.frictionDiscoveryEnabled,
+    config?.experienceCaptureEnabled,
+  ]);
+  const reviewLegacy = pickLegacyBoolean([
+    config?.experienceReviewEnabled,
+    config?.idleReviewEnabled,
+  ]);
+
+  const captureEnabled = captureLegacy === undefined
+    ? readBool(config?.idleCaptureEnabled, true)
+    : captureLegacy;
+  const reviewEnabled = reviewLegacy === undefined
+    ? readBool(config?.auxReviewEnabled, false)
+    : reviewLegacy;
+
   const tasks = {
-    // 反思摩擦（friction-discovery）：已实现，缺省开（与现状一致）。
-    //
-    // **配置项改名的存量迁移**：本项原名 `idleReviewEnabled`，随任务键一并改为
-    // `frictionDiscoveryEnabled`（原名沿用了已被否定的「空闲评审」一词）。
-    // 这里**先读新键、读不到再读旧键**——只读新键会使既有配置静默失效：`volatileField`
-    // 对未知键不报错，于是 Human 曾**明确关闭**摩擦的设定会悄悄退回缺省值 true
-    // （行为突变，且从设置面上看不出为什么它又开着了）。
-    // **回落顺序不能写成 `新 ?? 旧`**（实测陷阱）：新键在 Config schema 里带
-    // `default(true)`，宿主解析配置时会**把 true 填进 config**，故新键永远不是
-    // `undefined`——`??` 的右支成了死代码，Human 曾**明确关闭**摩擦的设定会静默
-    // 退回 true（行为突变，且从设置面上看不出为什么它又开着了）。
-    // 正确判据是「**旧键是否被显式设置过**」：设置过就以它为准（迁移期尊重用户
-    // 原意），否则用新键（含其默认值）。
-    "friction-discovery": readBool(
-      readValue(config?.idleReviewEnabled) === undefined
-        ? config?.frictionDiscoveryEnabled
-        : config?.idleReviewEnabled,
-      true,
-    ),
-    // 积累经验（experience-capture，11 §10）：已实现，缺省**关**（理由见 index.js
-    // 的 schema 注释：新增能力不应在 Human 尚未知情时就开始写候选）。
-    "experience-capture": readBool(config?.experienceCaptureEnabled, false),
-    // 容量维护：**未实现**，缺省关（打开也只会如实报 not-implemented）。
-    "capacity-maintenance": readBool(config?.capacityMaintenanceEnabled, false),
-    // 记忆健康：**未实现**，缺省关（同上）。
-    "memory-health": readBool(config?.memoryHealthEnabled, false),
+    // 发现层的两个任务**同生同灭**：它们同属捕获层，由 `idleCaptureEnabled` 一个
+    // 开关控制。分开读会让「合并后的开关」在任务层失效。
+    "friction-discovery": captureEnabled,
+    // 积累经验（experience-capture，11 §10）：与摩擦发现同属发现层。
+    "experience-capture": captureEnabled,
+    // 容量维护与记忆健康体检：**未实现**（§8 登记在册的占位职责）。它们不再有
+    // 独立开关——§8.5「已启用但未实现须如实登记」由 `aux-task-registry` 的
+    // `unimplemented` 投影承载，不由配置面控制。
+    "capacity-maintenance": false,
+    "memory-health": false,
   };
   return {
     enabled: readBool(config?.idleAssistEnabled, true),
     tasks,
     /**
      * 经验审核（11 §10.2）的设置。**与 `tasks` 分开**：§8 明写捕获段与审核段
-     * 「不是新增一个任务类型」，故它不进 `AUX_TASK_ORDER`；它是同一职责的第二拍，
-     * 由**独立的固定间隔时机**驱动（Human 2026-10-26：两件事分开设置）。
+     * 「不是新增一个任务类型」，故它不进 `AUX_TASK_ORDER`；它是同一职责的第二拍。
+     *
+     * 2026-10-30 起它与摩擦缓冲升级共用 `auxReviewEnabled` 一个开关——两者同属
+     * 审核层，在同一次审核派发里处理两个缓冲。
      */
     review: {
       // **没有 intervalMs**（2026-10-27 二次修订）：审核随静置触发，不存在时间间隔。
       // 删掉这个字段而不是「读一个 0 当无间隔」——一个恒为 0 的间隔值会让后来者以为
       // 「间隔机制还在、只是值很小」，从而在某次调参时重新把它变成真闸门。
-      enabled: readBool(config?.experienceReviewEnabled, false),
+      enabled: reviewEnabled,
     },
     limits: {
       // 安静时长（11 §6.1）：读取侧回落默认（容忍存量脏数据）。

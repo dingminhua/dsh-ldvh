@@ -1432,7 +1432,10 @@ function makeExecute(deps) {
       // **2026-10-27 二次修订：`due` 这一项整体删除**。审核现在随静置触发，判据只有
       // 「静置到期 + 无审核在跑」——没有时间间隔，也就没有「到点/没到点/还剩多久」
       // 这三个可报的字段。留着一个恒为 `true` 的 `due` 会让读者以为间隔机制还在。
-      const running = isReviewRunning();
+      // **2026-10-30：互斥改为项目级跨进程文件锁**，故查询也须按项目问。
+      // 这里已解析出 `governedScope`，用它给出 projectId——否则诊断报的是「本进程
+      // 有没有在跑」，而真实判据是「这个项目有没有在跑」（跨进程）。
+      const running = await isReviewRunning(dshHomePath, governedScope.project.id);
       return envelope("probe-host-automation", "completed", {
         result: {
           settings: state,

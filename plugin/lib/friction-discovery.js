@@ -370,6 +370,11 @@ export async function recordObservation({
   phenomenon,
   evidence,
   group,
+  target_uid,
+  title,
+  basis,
+  attribution,
+  impact,
   observationAt,
 }) {
   if (!isNonEmptyString(phenomenon)) {
@@ -384,6 +389,19 @@ export async function recordObservation({
       "group is required — it is the aggregation key the semantic dedup step decided; without it the threshold can never be computed (11 §9 第 3 项)",
     );
   }
+  // 2026-10-30：晋升搬到审核层后，晋升所需的四项必须随条目落进缓冲——它们只在
+  // 本次运行的 verdict 里存在，审核层下一次运行时已无从取得（§12bis.1 字段闭集）。
+  for (const [field, value] of [["title", title], ["basis", basis], ["attribution", attribution]]) {
+    if (!isNonEmptyString(value)) {
+      return failure(
+        "invalid_request",
+        `${field} is required — it is carried into the buffer so the review layer can promote this entry in a later run (§12bis.1)`,
+      );
+    }
+  }
+  if (!["light", "medium", "heavy"].includes(impact)) {
+    return failure("invalid_request", 'impact is required and must be one of light, medium, heavy (§12bis.1)');
+  }
   return appendFrictionObservation(dshHomePath, {
     project: projectId,
     session,
@@ -391,6 +409,11 @@ export async function recordObservation({
     phenomenon,
     evidence,
     group,
+    title,
+    basis,
+    attribution,
+    impact,
+    ...(isNonEmptyString(target_uid) ? { target_uid } : {}),
     ...(isNonEmptyString(observationAt) ? { at: observationAt } : {}),
   });
 }

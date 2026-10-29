@@ -35,7 +35,7 @@ import { join } from "node:path";
 import { resolveGovernanceScope } from "./governance-scope.js";
 import { registerLdvhTools } from "./ldvh-tools.js";
 import { runReviewStage } from "./experience-review-stage.js";
-import { isReviewRunning, runReviewExclusive } from "./experience-review-trigger.js";
+import { runReviewExclusive } from "./experience-review-trigger.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { RECALL_SUMMARY, buildRecallInjection } from "./recall-injection.js";
 import { recallLimitForBudget } from "./source-recall.js";
@@ -947,13 +947,19 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           // ——一个不可见的「应该跑但没跑」状态。故连同 `reviewTiming()` /
           // `markReviewCompleted()` / `isReviewDue()` 一并删除，不是只把值调小。
           if (reviewEnabledAtCheckpoint) {
-            const running = isReviewRunning();
-            if (running.busy) {
-              lifecycle.activity?.record("review/skipped", { reason: running.reason });
-            } else if (reviewScopeState.state !== "governed" || reviewScopeState.project === undefined || reviewScopeState.project === null) {
+            // **2026-10-30：互斥改为项目级跨进程文件锁**（11 §6.1「一个项目同一
+            // 时间只允许有一个在工作」）。原先的进程内布尔只能挡住本进程，两个宿主
+            // 进程同时静置会各自看到「空闲」并并发派发。
+            //
+            // 锁需要 projectId，故先判管辖：未管辖时没有项目可锁，直接跳过。
+            if (reviewScopeState.state !== "governed" || reviewScopeState.project === undefined || reviewScopeState.project === null) {
                 lifecycle.activity?.record("review/skipped", { reason: "not-governed" });
               } else {
-                const exclusive = await runReviewExclusive(async () => runReviewStage({
+                const exclusive = await runReviewExclusive({
+                  dshHomePath,
+                  projectId: reviewScopeState.project.id,
+                  sessionId: reviewScopeState.project.path ?? null,
+                  fn: async () => runReviewStage({
                   subagents: (() => {
                     try { return agent?.ctx?.get?.("subagents") ?? null; } catch { return null; }
                   })(),
@@ -963,7 +969,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   lifecycle,
                   taskOutcomes: reviewOutcomesForCheckpoint,
                   dshHomePath,
-                }));
+                  }),
+                });
                 if (exclusive.skipped) {
                   lifecycle.activity?.record("review/skipped", { reason: exclusive.reason });
                 } else {
