@@ -1539,8 +1539,38 @@ test("须给出 F0 层：类型/状态计数使「有多少在等」不依赖查
 	assert.ok(r.f0.coverage !== undefined, "须给出 coverage");
 
 	// 关键：draft 的计数必须可读——这是「有多少候选在等」的唯一可靠来源。
-	const draftCount = r.f0.countsByTypeStatus.pitfall?.draft ?? 0;
-	assert.ok(draftCount > 0, `应能直接读出 draft 数量（实测全库有 16 条），实际 ${draftCount}`);
+	//
+	// **2026-10-30 改写**：原断言写死 `pitfall.draft > 0`，理由是「实测全库有 16 条
+	// draft Pitfall」。该前提已不成立——全库 draft 现存 1 条且是 workcase，Pitfall
+	// 侧 0 条 draft（29 active / 32 discarded）。断言随语料清零而失效，但**判据不能
+	// 跟着丢掉**：本用例守的是「F0 能直接读出 draft 数」，不是「此刻恰好有 draft」。
+	//
+	// 改为**动态取全库真实 draft 总数**再比对：语料里有没有 draft 都不影响本判据，
+	// 而 F0 少报或多报仍会红。
+	const { loadFacts: loadFactsForDraft } = await import("../lib/source-recall.js");
+	const allFacts = await loadFactsForDraft(joinPath(ROOT, "ldvh-base"));
+	const draftByType = {};
+	for (const f of allFacts) {
+		if (f.status !== "draft") continue;
+		draftByType[f.type] = (draftByType[f.type] ?? 0) + 1;
+	}
+	const draftTotal = Object.values(draftByType).reduce((a, b) => a + b, 0);
+	for (const [type, count] of Object.entries(draftByType)) {
+		assert.equal(
+			r.f0.countsByTypeStatus[type]?.draft ?? 0,
+			count,
+			`F0 须如实报出 ${type} 的 draft 数（全库实为 ${count} 条）`,
+		);
+	}
+	// 反向：F0 不得凭空报出语料里没有的 draft。
+	for (const [type, byStatus] of Object.entries(r.f0.countsByTypeStatus)) {
+		assert.equal(
+			byStatus.draft ?? 0,
+			draftByType[type] ?? 0,
+			`F0 报了 ${type} 的 draft=${byStatus.draft ?? 0}，但全库只有 ${draftByType[type] ?? 0} 条`,
+		);
+	}
+	assert.equal(typeof draftTotal, "number", "全库 draft 总数须可算（即使为 0）");
 
 	// 计数必须覆盖**全量**，不受本次 types/statuses 过滤影响——
 	// 否则「有多少在等」会被查询策略扭曲。
