@@ -1609,12 +1609,164 @@ window.__ModuleLoader__.load({
       if (event.source === window) return;
       var data = event.data;
       if (data && typeof data === "object" && data.type === "ldvh:navigate" && typeof data.pathname === "string") {
-        if (data.pathname.indexOf("/ldvh") === 0) ldvhFrameLocation = ldvhWebOrigin + data.pathname;
+        if (data.pathname.indexOf("/ldvh") === 0) {
+          ldvhFrameLocation = ldvhWebOrigin + data.pathname;
+          // 路径归属随消息报上来（Web 侧自己知道当前选中的项目）：缺字段时记
+          // null，即「归属未知」——下一次判定按跨项目处理、落回首页，宁可少
+          // 沿用一次深链，也不要把人带进别的项目里的死路。
+          ldvhFrameProjectId = typeof data.projectId === "string" && data.projectId.length > 0 ? data.projectId : null;
+        }
       }
     });
 
+    // ── 会话跟随（07 §7，Human 裁定 2026-10-29）──────────────────────────
+    //
+    // 诉求：多项目并行时「当前会话是哪个项目，打开的就是哪个项目」，不再手切。
+    //
+    // **判据来自既有唯一职责，不在客户端另解析路径**：/ldvh/state/governance
+    // 以 sessionId 答出该会话所属管辖项目（管辖判定见 08 §5；该端点 always-on，
+    // 不受 Web 呈现开关影响）。客户端只消费它给出的 project.id。
+    //
+    // **只在项目变化时换页**：同项目切换会话时 src 逐字不变（返回同一 state
+    // 对象，React 短路重渲染），iframe 不重载，用户正在阅读的详情不丢——这是
+    // Human 裁定的第二条，也是本段复杂度的来源。
+    //
+    // **失败一律不猜**：会话标识缺失、端点不可达、state 非 governed（含
+    // unknown / not_governed / unavailable）都回 null，地址不带项目参数，
+    // Web 侧沿用自身既有选择链（localStorage + defaultProjectId）。
+    //
+    // **跨项目不沿用记忆路径**：`ldvhFrameLocation` 记的是页面内深链接，而对象
+    // 引用是项目内的——带着 A 项目的详情路径开 B 项目只会得到「对象不存在」，
+    // 那不是跟随而是把人带进死路。故记忆路径的**归属**由 Web 侧随 postMessage
+    // 报上来（见 RouteMemoryReporter），只在归属与当前会话项目一致时沿用，
+    // 换了项目就落回该项目首页。
+    var LDVH_PROJECT_PARAM = "ldvhProject";
+    var LDVH_HOME_PATH = "/ldvh/";
+    /** 记忆路径所属项目 id；null = 不知道归属（此时只在换项目时回首页）。 */
+    var ldvhFrameProjectId = null;
+
+    /** 管辖判定的单次询问：非 governed、应答畸形、传输失败一律回 null（不猜）。 */
+    function askGovernanceProject(query) {
+      return fetch("/ldvh/state/governance?" + query, { method: "GET", cache: "no-store" })
+        .then(function (response) { return response.ok ? response.json() : null; })
+        .then(function (body) {
+          if (!body || body.state !== "governed") return null;
+          var project = body.project;
+          if (!project || typeof project.id !== "string" || project.id.length === 0) return null;
+          return project.id;
+        })
+        .catch(function () { return null; });
+    }
+
+    /**
+     * 当前会话所属管辖项目 id；两条询问都判不出即 null。
+     *
+     * **为什么问两次**：判定入口有两种输入形态（sessionId / cwd），而侧栏给的
+     * 会话标识与判定表所记的会话标识须落在同一 id 空间才有答案——不一致时端点
+     * 如实回 `unknown`（这是它的 fail-closed 设计，不猜）。只问 sessionId 的话，
+     * 口径一错整条跟随就静默失效：页面照样开，项目照样不对，也不报任何错，
+     * 正是 Human 抱怨的「会乱」。故 sessionId 判不出时，改用同一判定职责问 cwd。
+     *
+     * 两次询问都是**同一个管辖判定职责**（08 §5），客户端始终不自行解析路径、
+     * 不读登记载体、不推断管辖状态。
+     */
+    function resolveSessionProject(sessionId, cwd) {
+      var sessionQuery = typeof sessionId === "string" && sessionId.length > 0
+        ? "sessionId=" + encodeURIComponent(sessionId)
+        : "";
+      var cwdQuery = typeof cwd === "string" && cwd.length > 0
+        ? "cwd=" + encodeURIComponent(cwd)
+        : "";
+      if (sessionQuery === "") {
+        // 只有 cwd 可用（对话视图只给 sessionId，侧栏两者都可能给）。
+        return cwdQuery === "" ? Promise.resolve(null) : askGovernanceProject(cwdQuery);
+      }
+      return askGovernanceProject(sessionQuery).then(function (bySession) {
+        if (bySession !== null) return bySession;
+        return cwdQuery === "" ? null : askGovernanceProject(cwdQuery);
+      });
+    }
+
+    /** 把项目参数拼进 iframe 地址，保留路径与其余查询；null 项目即原样返回。 */
+    function withProjectParam(location, projectId) {
+      if (!projectId) return location;
+      var hashIndex = location.indexOf("#");
+      var hash = hashIndex >= 0 ? location.slice(hashIndex) : "";
+      var base = hashIndex >= 0 ? location.slice(0, hashIndex) : location;
+      var queryIndex = base.indexOf("?");
+      var path = queryIndex >= 0 ? base.slice(0, queryIndex) : base;
+      var query = queryIndex >= 0 ? base.slice(queryIndex + 1) : "";
+      // 同名参数整对替换：追加两份会让 Web 侧读到陈旧的前一个值。
+      var kept = query.length === 0 ? [] : query.split("&").filter(function (pair) {
+        return pair.split("=")[0] !== LDVH_PROJECT_PARAM;
+      });
+      kept.push(LDVH_PROJECT_PARAM + "=" + encodeURIComponent(projectId));
+      return path + "?" + kept.join("&") + hash;
+    }
+
+    /**
+     * 拼一次地址：记忆路径属于本项目就沿用（保住用户停留的深链接），否则回首页。
+     *
+     * 只在**判定回话那一刻**调用，结果存进 state 供后续渲染直读。不能在 render
+     * 里现拼：`ldvhFrameLocation` 会被 Web 侧的 postMessage 随时改写（用户页内
+     * 导航），现拼等于「页内导航后一旦有无关重渲染，src 就变了」，React 见 src
+     * 变化即重载文档——正是「停在详情页时被莫名弹走」。存下字符串后，同项目
+     * 切换会话返回原 state，React 不动 iframe 属性。
+     */
+    function composeFollowedLocation(projectId) {
+      if (projectId === null) return ldvhFrameLocation;
+      if (ldvhFrameProjectId === projectId) return withProjectParam(ldvhFrameLocation, projectId);
+      // 记忆路径属于别的项目：带着它开新项目只会落到「对象不存在」的死路。
+      return withProjectParam(ldvhWebOrigin + LDVH_HOME_PATH, projectId);
+    }
+
+    /**
+     * 当前会话的项目跟随地址。
+     *
+     * 返回 `{ following, src }`：`following` 为 false 表示判定尚未回话（首帧不
+     * 渲染 iframe，避免先以无项目地址加载、回话后再整页重载——每开一次都白闪
+     * 一次，正是本段要消掉的抖动）。
+     */
+    function useFollowedFrameLocation(sessionId, cwd) {
+      // null = 判定未回话；否则 { projectId, src }。
+      //
+      // **state 里只记 project.id，不记 sessionId**：判据是「项目变没变」，不是
+      // 「会话变没变」。把 sessionId 也拿来比较会在同项目切会话时重算 src——
+      // 而此刻 `ldvhFrameLocation` 已被页内导航的 postMessage 改写，重算出的
+      // 字符串与旧 prop 不同，React 遂更新 src 属性、iframe 重新载入文档，
+      // 正是 Human 裁定第二条明令禁止的换页。只比项目 id 时同项目返回原对象，
+      // prop 逐字不变，页面原地保留。
+      var frameState = React.useState(null);
+      React.useEffect(function () {
+        var cancelled = false;
+        resolveSessionProject(sessionId, cwd).then(function (projectId) {
+          if (cancelled) return;
+          frameState[1](function (previous) {
+            // 同项目（含两次都判不出）返回同一对象：src 逐字不变，React 不动
+            // iframe 属性，页面不重载——Human 裁定的「仅项目变化才换页」。
+            if (previous !== null && previous.projectId === projectId) return previous;
+            // **判不出项目时不改指**（§8「跟随判据不可得」行的「保持当前呈现」）：
+            // 已呈现某项目后切到一个判不出归属的会话，若按 null 重拼地址就会**丢掉
+            // 项目参数**——iframe 随之重载，Web 回落到自身选择链（记忆里的项目），
+            // 结果呈现的可能是第三个项目。那不是「跟随不生效」，是被一次判不出把人
+            // 从当前项目带走。故沿用原 src：跟随不生效，呈现不动。
+            if (previous !== null && projectId === null) return previous;
+            return { projectId: projectId, src: composeFollowedLocation(projectId) };
+          });
+        });
+        return function () { cancelled = true; };
+      }, [sessionId, cwd]);
+      var resolved = frameState[0];
+      if (resolved === null) return { following: false, src: ldvhFrameLocation };
+      return { following: true, src: resolved.src };
+    }
+
     function LdvhSidebarTab(props) {
       var t = props.t;
+      var sessionScope = props.scope;
+      var sessionId = sessionScope && typeof sessionScope.sessionId === "string" ? sessionScope.sessionId : "";
+      var sessionCwd = sessionScope && typeof sessionScope.cwd === "string" ? sessionScope.cwd : "";
+      var followed = useFollowedFrameLocation(sessionId, sessionCwd);
       var viewState = React.useState({ checking: true, ready: false, failed: false });
       React.useEffect(function () {
         var cancelled = false;
@@ -1632,7 +1784,7 @@ window.__ModuleLoader__.load({
       }
       var state = viewState[0];
       var body = null;
-      if (state.checking) {
+      if (state.checking || !followed.following) {
         body = React.createElement("div", { className: "ldv-view-state" },
           React.createElement("p", null, t("view.loading"))
         );
@@ -1644,7 +1796,7 @@ window.__ModuleLoader__.load({
       } else {
         body = React.createElement("iframe", {
           className: "ldv-view-frame",
-          src: ldvhFrameLocation,
+          src: followed.src,
           title: t("sidebar.title")
         });
       }
@@ -1653,6 +1805,8 @@ window.__ModuleLoader__.load({
 
     function LdvhConversationView(props) {
       var t = props.t;
+      var sessionId = typeof props.sessionId === "string" ? props.sessionId : "";
+      var followed = useFollowedFrameLocation(sessionId);
       var viewState = React.useState({ checking: true, ready: false, failed: false });
       React.useEffect(function () {
         var cancelled = false;
@@ -1670,7 +1824,7 @@ window.__ModuleLoader__.load({
       }
       var state = viewState[0];
       var body = null;
-      if (state.checking) {
+      if (state.checking || !followed.following) {
         body = React.createElement("div", { className: "ldv-view-state" },
           React.createElement("p", null, t("view.loading"))
         );
@@ -1682,7 +1836,7 @@ window.__ModuleLoader__.load({
       } else {
         body = React.createElement("iframe", {
           className: "ldv-view-frame",
-          src: ldvhFrameLocation,
+          src: followed.src,
           title: t("view.label")
         });
       }

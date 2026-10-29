@@ -76,15 +76,25 @@ test('the governed project switcher lives beside the brand in global navigation'
   const app = fs.readFileSync(path.resolve('src/App.tsx'), 'utf8');
   const sidebar = fs.readFileSync(path.resolve('src/components/Sidebar.tsx'), 'utf8');
 
-  assert.match(app, /<ProjectScopeProvider>\s*<AppRoutes \/>\s*<\/ProjectScopeProvider>/);
+  // Provider 仍包住整棵路由树（切换器是全局导航的一部分，不是某页私产）。
+  assert.match(app, /<ProjectScopeProvider>[\s\S]*<AppRoutes \/>[\s\S]*<\/ProjectScopeProvider>/);
+  // 位置记忆上报必须落在 Provider **之内**：它要把当选项目作为路径归属一起报上去，
+  // 挂在外面读不到 useProjectScope，宿主只能盲沿用旧项目的深链接。
+  assert.match(app, /<ProjectScopeProvider>[\s\S]*<RouteMemoryReporter \/>[\s\S]*<AppRoutes \/>/);
   assert.match(sidebar, /<BrandMark \/>[\s\S]*<ProjectSwitcher collapsed=\{isCollapsed\} \/>/);
 });
 
 test('global project selection uses the configured default when no valid Human selection remains', () => {
   const context = fs.readFileSync(path.resolve('src/utils/projectContext.tsx'), 'utf8');
+  const scope = fs.readFileSync(path.resolve('src/utils/projectSessionScope.ts'), 'utf8');
 
+  // 回退链的语义由 projectSessionScope 承载（无 DOM 的纯函数），Provider 负责把
+  // 登记载体的默认项目喂进去——两处都在才算接上，缺一处即链路断开。
   assert.match(context, /result\.defaultProjectId/);
-  assert.match(context, /nextProjects\.some\(\(project\) => project\.id === current\)/);
+  assert.match(context, /resolveInitialProjectId\(/);
+  assert.match(scope, /input\.currentProjectId !== '' && registered\.has\(input\.currentProjectId\)/);
+  assert.match(scope, /input\.defaultProjectId && registered\.has\(input\.defaultProjectId\)/);
+  // 逐态判定（命中/未命中/无参数）的行为覆盖见 project-session-scope.test.ts。
 });
 
 test('project switcher changes worktree scope and only refreshes its worktree list on demand', () => {
