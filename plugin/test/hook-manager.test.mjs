@@ -10,7 +10,7 @@
 // removed in withTemp(). No test modifies plugin/lib or any real repository.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { lstat, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -515,5 +515,39 @@ test("installed Hook reports outdated once HOOK_BUNDLE_VERSION moves (propagatio
 		assert.equal(install.value.hookBundleVersion, HOOK_BUNDLE_VERSION);
 		const refreshed = await readFile(join(root, ".git", "hooks", "commit-msg"), "utf8");
 		assert.doesNotMatch(refreshed, /exec node /);
+	});
+});
+test("a content-matching Hook without the executable bit is outdated, not managed", async () => {
+	// **本形态只在类 Unix 存在，win32 上早退**（2026-10-30 第三轮复审 N-A）：
+	// NTFS 不设执行位——`chmod` 在 Windows 上只切换只读属性、`lstat().mode`
+	// 也不含 0o111 位，`X_OK` 在那里退化为「存在即真」。故 `chmod(0o644)` 后
+	// 判 `outdated` 与「重装后 mode & 0o111 !== 0」两条断言在 win32 上必红，
+	// 而 plugin/README.md 明写声明的支持平台含 Windows，并登记了「依赖 POSIX
+	// 权限语义的断言在 win32 上早退」这一既有约定。不早退就是给支持平台塞一条
+	// 必红用例。
+	if (process.platform === "win32") return;
+	// **「字节匹配」不等于「门禁存在」**（2026-10-30 复审 I3/N5）：git 对没有
+	// 执行位的 Hook **直接忽略**。修复前 inspectOneHook 只比对 marker 摘要与
+	// 版本，一个 0644 的 Hook 被判成 managed——于是 hook-repair 见 managed 就
+	// continue、永不修复，而项目实际毫无门禁，且所有用例照样绿。
+	await withTemp("ldvh-hm.", async (base) => {
+		const root = await initRepo(base);
+		assert.equal((await installHook({ projectRoot: root, runnerPath, workspaceRoot: base })).value.state, "managed");
+		const hookPath = join(root, ".git", "hooks", "commit-msg");
+		await chmod(hookPath, 0o644);
+		// 判据：内容未变、只是不可执行 → 必须是可修复态（outdated），不是 managed。
+		const after = await inspectHook(root);
+		assert.equal(after.state, "outdated");
+		assert.match(after.detail, /not executable/);
+		// 修复（重装）须把它恢复成 managed——证明该状态确实可修复。
+		//
+		// **这里不再单独断言「重装后带执行位」**（2026-10-30 第四轮复审 N-I）：本轮
+		// 给 `inspectOneHook` 加了执行位检查后，`managed` **本身就已蕴含可执行**
+		// （不可执行会被判 outdated）。实测把重装改成 `chmod(temp, 0o644)`，
+		// `installHook` 会在自己的校验里失败（`.value` 为 undefined）、红落在上一行，
+		// 那条物理位断言永远等不到自己的红——它被状态断言蕴含，属零检测力断言，
+		// 按本节 §5「零检测力断言不得保留」删除。若要单独守护「重装置位」这一实现
+		// 细节，须另造一条不经 `installHook` 校验路径的用例，不在本用例内混写。
+		assert.equal((await installHook({ projectRoot: root, runnerPath, workspaceRoot: base })).value.state, "managed");
 	});
 });

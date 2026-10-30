@@ -49,11 +49,17 @@ const RULES = [
 /**
  * 「失败即抛出」的辅助函数——调用它们**本身即断言**：失败会抛，用例转红。
  *
- * 与之相对的是 `gitOk`（**不抛**，返回 `{ok:false}`），它供「预期失败」的路径
- * 使用；用 `gitOk` 做「必须成功」的步骤会把失败静默吞掉——本仓已修掉一处
- * （plugin/test/hook-repair.test.mjs），故此处只认会抛的 `git`。
+ * 与之相对的是 `gitOk` 与 `runNode`（**都不抛**，返回 `{ok:false}`），它们供
+ * 「预期失败」的路径使用；用它们做「必须成功」的步骤会把失败静默吞掉——本仓
+ * 已修掉一处（plugin/test/hook-repair.test.mjs 原用 `gitOk`）。故此处只认会抛的
+ * `git`。
+ *
+ * `runNode` 曾误列于此（2026-10-30 独立复审 I1 指出）：它的实现是 try/catch 后
+ * 返回 `{ok:false}`（plugin/test/helpers.mjs），**不抛错**。把它当「失败即抛出」
+ * 会让「只调 `runNode`、从不看 `.ok`」的用例被漏报——而这正是本文件要检出的形态，
+ * 属「声称识别了而其实没有」。已移除。
  */
-const THROWING_HELPERS = ["git", "runNode"];
+const THROWING_HELPERS = ["git"];
 
 function findBlocksWithoutAssertions(text) {
   const lines = text.split("\n");
@@ -72,7 +78,17 @@ function findBlocksWithoutAssertions(text) {
   }
   const starts = [];
   for (let i = 0; i < lines.length; i += 1) {
-    if (/^test\(/m.test(lines[i])) starts.push(i);
+    // 块起点：`test(`（缩进允许）。
+    //
+    // **已知局限**（2026-10-30 第三轮复审 N-F）：多行模板/字符串字面量内部若
+    // 恰好在行首出现 `test("...")` 字样，仍会被当作块起点、报出一条**候选**。
+    // 试过按真实结构屏蔽字面量与注释来消除它，但本仓文件里的**正则字面量**
+    // 会与字符串定界符混淆（正则里的引号被当成串的起点），屏蔽后状态机错位、
+    // 把真实用例块也吞掉——实测 client-contract.test.mjs 从第 548 行起整段
+    // 漏报、块数 2465→2430。那种**漏报**比这里的误报严重得多，故撤回该做法。
+    // 保留此误报面：它只产出「候选」（`no-assert?`），明示须人工确认；且本仓
+    // 当前 2465 处 `^\s*test(` 全部是真实用例注册，该形态未出现。
+    if (/^\s*test\(/.test(lines[i])) starts.push(i);
   }
   const out = [];
   for (let k = 0; k < starts.length; k += 1) {
@@ -96,7 +112,7 @@ function findBlocksWithoutAssertions(text) {
       if (hasAssert) break;
     }
     if (hasAssert) continue;
-    const name = (/^test\(\s*["'`]([^"'`]{0,70})/.exec(lines[from]) ?? [])[1] ?? "(匿名)";
+    const name = (/^\s*test\(\s*["'`]([^"'`]{0,70})/.exec(lines[from]) ?? [])[1] ?? "(匿名)";
     out.push({ line: from + 1, name, snippet: lines[from].trim().slice(0, 110) });
   }
   return out;
@@ -105,8 +121,10 @@ function findBlocksWithoutAssertions(text) {
 async function scan() {
   const files = (await readdir(TEST_DIR)).filter((f) => f.endsWith(".mjs"));
   const findings = [];
+  const stats = { files: 0, blocks: 0 };
   for (const f of files) {
     const text = await readFile(join(TEST_DIR, f), "utf8");
+    stats.files += 1;
     const lines = text.split("\n");
     for (const rule of RULES) {
       rule.re.lastIndex = 0;
@@ -128,7 +146,9 @@ async function scan() {
       }
     }
     // 形态 3：块内没有任何断言的用例。
-    for (const b of findBlocksWithoutAssertions(text)) {
+    const blocks = findBlocksWithoutAssertions(text);
+    stats.blocks += countTestBlocks(text);
+    for (const b of blocks) {
       findings.push({
         file: f,
         line: b.line,
@@ -139,18 +159,56 @@ async function scan() {
       });
     }
   }
-  return findings;
+  return { findings, stats };
 }
 
-const findings = await scan();
-if (process.argv.includes("--json")) {
-  console.log(JSON.stringify({ findings, count: findings.length }, null, 2));
+/**
+ * 数一遍本文件里有多少个用例块（块起点：`test(` 开头的行，**允许缩进**）。
+ *
+ * 存在的理由是让输出能区分「扫过且没有」与「根本没识别到任何用例块」——
+ * 后者说明扫描前提不成立，此时「0 个候选」不构成任何结论。
+ *
+ * 2026-10-30 复审 I2 指出：原实现只认**列 0** 的 `test(`，而本仓实测有 9 处
+ * 缩进 `test(`（governed-projects.test.mjs 5 处、retired-params.test.mjs:72、
+ * schema-writer-agreement.test.mjs:202、workcase-plan-gate.test.mjs:49/76），
+ * 它们从不成为块边界、被并进前一个列 0 块的窗口，自身有无断言**不被检查**；
+ * 覆盖计数也只数列 0，无法暴露这处漏扫。已改为允许缩进。
+ *
+ * 仍不覆盖：`describe(...)` 内的子测试若由别的始发形式组织、以及经变量间接
+ * 注册的用例。该局限随输出一并披露。
+ */
+function countTestBlocks(text) {
+  let n = 0;
+  for (const line of text.split("\n")) {
+    if (/^\s*test\(/.test(line)) n += 1;
+  }
+  return n;
+}
+
+const { findings, stats } = await scan();
+// **零块守卫必须在任何输出分支之前**（2026-10-30 复审 N2）：
+// 原来它排在 `--json` 分支之后，于是机器可读模式恰恰绕过了这个守卫——
+// 而 CI/门禁消费的正是机器可读模式，等于把「没识别到用例块」输出成
+// `count: 0` 加 exit 0，正是 I2 声称要避免的那种「把未覆盖说成未发现」。
+if (stats.blocks === 0) {
+  const message = `扫描了 ${stats.files} 个测试文件，但**未识别到任何用例块**——`
+    + "本次结果不构成任何结论（不是「未发现零检测力断言」）。";
+  console.error(message);
+  if (process.argv.includes("--json")) {
+    console.log(JSON.stringify({ error: "no test blocks", findings: [], count: null, stats }, null, 2));
+  }
+  process.exitCode = 1;
+} else if (process.argv.includes("--json")) {
+  console.log(JSON.stringify({ findings, count: findings.length, stats }, null, 2));
 } else if (findings.length === 0) {
   console.log(
-    "未发现可机械识别的零检测力断言（形态 5「答案指向可被废止或改名之事实对象」需人读判定，见 specs/06 §5）",
+    `扫描 ${stats.files} 个文件 / ${stats.blocks} 个用例块：未发现可机械识别的零检测力断言`
+    + `（形态 5「答案指向可被废止或改名之事实对象」需人读判定，见 specs/06 §5）。`
+    + "注意：「未发现」只说明未命中可机械识别的形态，不证明不存在零检测力断言；"
+    + "describe 内的子测试与经变量间接注册的用例不在扫描范围内。",
   );
 } else {
-  console.log(`发现 ${findings.length} 处待判项：\n`);
+  console.log(`扫描 ${stats.files} 个文件 / ${stats.blocks} 个用例块，发现 ${findings.length} 处待判项：\n`);
   for (const f of findings) {
     console.log(`  ${f.file}:${f.line}  [${f.rule}]  ${f.note}`);
     console.log(`    ${f.snippet}`);

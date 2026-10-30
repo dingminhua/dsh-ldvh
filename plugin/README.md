@@ -69,7 +69,7 @@ Windows 上如实登记的当前限制：
 
 - `ldvh_register_governed_project`（AI 登记入口）在 Windows 返回 `registration_permission_unverified`：本实现尚无 ACL 核验器，而 `specs/07` §5.6 要求 ACL 无法核验时高风险写入 fail-closed。设置页「安装」（Human 明确操作）不受影响。
 - **登记载体所在的 DSH 用户配置根**不得置于网络文件系统或跨 PID namespace 的共享卷（含 UNC 共享）：登记载体的锁接管以 PID 判定持有者，官方不支持跨宿主共享同一文件。事实源 `ldvh-base/` 不经该锁包（各 fact writer 自带无锁原子替换），故该约束的对象是配置根而非项目目录。详见 [CHANGELOG.md](CHANGELOG.md) 的 Known 段。
-- CI 的两个 job 均运行在 Ubuntu，**win32 分支不经 CI 执行**；全套测试中共 4 处断言在 win32 上早退（`plugin/test/` 3 处依赖 POSIX 权限语义，`plugin/web/tests/` 1 处依赖可执行位），即 win32 路径与这些断言在 Windows 上均未被执行。故 win32 路径目前只有代码层实现，没有自动化验证背书。
+- CI 的两个 job 均运行在 Ubuntu，**win32 分支不经 CI 执行**；全套测试中共 5 处断言在 win32 上早退（`plugin/test/` 4 处依赖 POSIX 权限语义，`plugin/web/tests/` 1 处依赖可执行位），即 win32 路径与这些断言在 Windows 上均未被执行。故 win32 路径目前只有代码层实现，没有自动化验证背书。
 - 未验证风险：Git Bash/MSYS `sh` 在目标 Windows 环境的可发现性；NTFS 文件占用导致原子替换失败时的错误呈现；UNC 与 junction 的真实行为。
 
 「支持 Windows」声明的是纳入的平台范围；真机验收完成前，不得据此认为 Windows 已验收通过。

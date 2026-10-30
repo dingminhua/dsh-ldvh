@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { chmod, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { access, chmod, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -235,22 +236,51 @@ async function inspectOneHook(identity, spec) {
   const parsed = parseManagedHook(content);
   if (!parsed.owned) return { name: spec.name, hookPath, state: "conflict", detail: `an unmanaged ${spec.name} Hook already exists`, hookBundleVersion: null };
   if (!parsed.valid) return { name: spec.name, hookPath, state: "conflict", detail: "the LDVH Hook marker digest does not match its body", hookBundleVersion: parsed.version };
+  // **内容匹配还不够：Hook 必须可执行才真的会被 git 调用**（2026-10-30 复审
+  // I3/N5）。此前这里只比对 marker 摘要与版本，一个 0644 的 Hook 会被判成
+  // `managed`——而 git 对无执行位的 Hook **直接忽略**，于是「卫生状态」是假的：
+  // 门禁实际不存在，且 hook-repair 见 `managed` 就 continue，永不修复。
+  // 现把「内容匹配但不可执行」归入 `outdated`（可修复集内），交给修复重装。
+  if (!(await isExecutable(hookPath))) {
+    return { name: spec.name, hookPath, state: "outdated", detail: "LDVH Git Hook is not executable (git will ignore it)", hookBundleVersion: parsed.version };
+  }
   return parsed.version === HOOK_BUNDLE_VERSION
     ? { name: spec.name, hookPath, state: "managed", detail: "LDVH Git Hook is current", hookBundleVersion: parsed.version }
     : { name: spec.name, hookPath, state: "outdated", detail: `LDVH Git Hook ${parsed.version ?? "unknown"} requires update`, hookBundleVersion: parsed.version };
 }
 
 /**
+ * 该 Hook 文件是否带执行位。
+ *
+ * 判据取 `access(X_OK)` 而非 `stat().mode & 0o111`：`X_OK` 与实际调用语义一致
+ * （把权限位与当前用户/组一并考虑）。Windows 不设执行位、`X_OK` 在那里恒真，
+ * 故不需要单独分支——本判据的失效形态（内容对但不可执行）只在类 Unix 存在。
+ */
+async function isExecutable(hookPath) {
+  try {
+    await access(hookPath, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Severity order used for the rollup: the FIRST state present wins, so the
  * rollup reports the worst thing found rather than the last thing inspected.
  *
- * "managed" is last because it is the only healthy state. `absent` outranks
- * `outdated`: an outdated Hook still blocks (its body runs, just an older
- * version of it), while a missing one means that half of the gate does not
- * exist — reporting `outdated` for a project whose pre-commit is entirely
- * missing would understate the gap. `conflict` stays first for the original
- * reason: a foreign Hook is never overwritten, and the caller must see it
- * before anything proposes a repair.
+ * "managed" is last because it is the only healthy state. `conflict` stays
+ * first for the original reason: a foreign Hook is never overwritten, and the
+ * caller must see it before anything proposes a repair.
+ *
+ * **`outdated` 现在有两种语义**（2026-10-30 第三轮复审 N-B）：版本落后，与
+ * **内容匹配但没有执行位**（git 会直接忽略它，门禁实际不存在）。后者的严重度
+ * 与 `absent` 同级、甚至更高——所以「`absent` 优先于 `outdated`」这条排序理由
+ * 不再对第二种语义成立。保留该顺序的理由改为工程上的：两者**同属可修复集**
+ * （`REPAIRABLE`），处置完全一致（重装），rollup 只决定**先报哪一个**，不影响
+ * 是否会修。若要严格按严重度排序，应把「不可执行」单列一个状态——那会扩大
+ * **状态闭集**（现定义于 specs/10 §6 的安装事务）并牵动 specs/07 §6.5 要求的
+ * 可修复／不可修复呈现区分，故不在此处做。
  */
 const HOOK_STATE_SEVERITY = Object.freeze(["conflict", "unavailable", "absent", "outdated", "managed"]);
 

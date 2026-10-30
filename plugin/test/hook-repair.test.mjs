@@ -185,9 +185,22 @@ test("a repaired Hook set passes the real Git Gate for its stage", async () => {
     // 而 git 本身**不构成断言**，除非失败被抛出。
     await git(repo, ["commit", "-qm", "base"]);
     await repairHooksOnStartup({ dshHomePath: dshHome(home), runnerPath, workspaceRoot: pluginRoot });
-    // The pre-commit Hook this repair installed must refuse an empty Index and
-    // accept a real one — asserted end-to-end through git itself, not through
-    // inspectHook, because "managed" only means the bytes match.
+    // **先断言修复确实发生了**（2026-10-30 复审 I3）：本用例的其余部分只证明
+    // 「一次 commit 能通过」——而**没装 Hook 的仓库提交更容易通过**，所以单靠
+    // 后面那条 commit，绿也可以是「根本没装 Hook」。须先钉住 Hook 已就位。
+    assert.equal((await inspectHook(repo, { hookName: "pre-commit" })).state, "managed");
+    assert.equal((await inspectHook(repo, { hookName: "commit-msg" })).state, "managed");
+    // The pre-commit Hook this repair installed must accept a real Index —
+    // asserted end-to-end through git itself, not only through inspectHook,
+    // because "managed" only means the bytes match.
+    //
+    // **它「拒绝空 Index」的行为不在本用例断言**（2026-10-30 复审 I4/N5）：那条
+    // 有两处覆盖，都不在本用例——(a) 安装 preflight 每次都会把渲染后的 pre-commit
+    // Hook 以空 Index 实跑一遍、exit 0 即抛错（plugin/lib/hook-manager.js 的
+    // preflight 段），本用例的绿也依赖它通过；(b) index_empty 的共享检查见
+    // plugin/test/git-gate-runner.test.mjs:124（那条走 commit-msg 入口，与
+    // pre-commit 共用 runSharedChecks）。旧注释把两件事写在一句里、又指向了错
+    // 入口，读者容易把未断言的那半当作本用例已有的证据（06 §6「源码注释是待验证线索」）。
     await writeFile(join(repo, "second.txt"), "x\n");
     await git(repo, ["add", "second.txt"]);
     const message = ["chore(test): 冒烟", "", "关键变更:", "- add second.txt", "", "LDVH-Provider: test-provider", "LDVH-Model: test-model", ""].join("\n");

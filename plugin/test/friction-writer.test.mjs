@@ -369,6 +369,13 @@ test("correct: 补填 occurrence 带 human_return_at 被拒（26 §8 成员闭�
     const after = await readFrictionObject({ factSourceRoot: root, objectUid: uid });
     assert.equal(after.value.frontmatter.occurrence, undefined, "被拒的补填不得写入 occurrence");
   });
+});
+// **上面这个 `});` 是必须的**（2026-10-30 修，commit e22e882 引入）：该提交在
+// 这里插入「correct 第三类删除许可」一批用例时漏掉了 `test(...)` 的闭合，于是
+// 下面 3 条用例在**词法上被吞进本用例的函数体**、变成了嵌套 `test()`——它们在
+// 父用例跑到 `withTemp` 已删掉临时目录之后才注册：Node 22 判
+// `cancelledByParent`（3 条全红），Node 25 宽容通过，故长期只在 Node 22 显形。
+// 这类「用例被静默嵌套」不会让父用例转红，只能靠跨版本运行或结构核对发现。
 
 // ---------------------------------------------------------------------------
 // correct 的第三类删除许可：目标已退役的锚点字段（26 §13，2026-10 扩围）
@@ -497,7 +504,6 @@ test("correct 第三类：非锚点型字段仍不得经此通道删除（许可
     assert.ok(!attempt.ok, "第三类许可不得被扩张成「可删任意字段」");
     assert.equal(attempt.error.code, "friction/correction_removal_not_permitted");
   });
-});
 });
 
 // ---------------------------------------------------------------------------
