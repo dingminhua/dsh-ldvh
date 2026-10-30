@@ -170,6 +170,62 @@ export const REGISTERED_FACT_TYPES = Object.freeze([
 export const REQUIRED_RECALL_TYPES = Object.freeze(["adr", "pitfall"]);
 
 /**
+ * **类型等级表**（2026-10-30 实现层产品取舍，排序的**末位判据**）。
+ *
+ * ── 授权状态：如实降级，不主张裁定已成立 ─────────────────────────────
+ *
+ * 本表的方向来自 2026-10-30 的一次对话（Human 要求「ADR / Norm / Pitfall /
+ * friction 按这个次序、其他排后面」）。但截至本注释写就时，**该方向在规范源与
+ * 事实源中均无稳定承载**——specs/ 全库无「类型等级」概念，`ldvh-base/adrs/`
+ * 无对应 ADR，`02 §9.2` 反而明禁「建立所有类型共用的……相关性分数」。
+ *
+ * 按 `00 §4.4`「仅存在于对话中的决定不产生复用效力」，本表**不得**以
+ * 「Human 已裁定」的形态存在。故此处只主张**实现层的产品取舍**：它可读、可改、
+ * 可被后续 ADR 取代；在 ADR 落地之前，任何「这是 Human 定的规范」的说法都不成立。
+ * 该降级是 Human 2026-10-30 的直接指示（选项 B：保留改动、降级表述）。
+ *
+ * 故此处是**固定次序的具名常量**，不是打分、不是权重：
+ *
+ *   0 ADR       —— 法定决策，`22 §12` 要求行动前义务召回核对；
+ *   1 Norm      —— 事实规范（方向级规则），`27 §9` 的当前生效集；
+ *   2 Pitfall   —— 经验，`23 §12`「什么会出错、怎么识别、怎么规避」；
+ *   3 Friction  —— 待修账目，`26 §12` 的 open 集；
+ *   4 其它       —— spark／research／workcase／goal：**仍参与召回**，只是排在四类之后。
+ *
+ * ── 它在排序里的位置：末位判据，不是前置判据 ────────────────────────
+ *
+ * 第一键仍是「强命中先于弱命中」（`weakHit`）。原因是我第一版把类型放在最前，
+ * 实测立刻出一个严重问题：查询「召回排序怎么改」返回 6 条 ADR，**全部靠「回」
+ * 这个单字弱命中**，把真正讲召回排序的 Pitfall（命中「召回、回排、排序」3 词、
+ * 权重 4.057）挤到第 7 位。那正是本文件 `compareFactHits` 顶部记的同类教训：
+ * 「把类型当绝对前置会推翻已排好的质量次序」。
+ *
+ * 正确判据是——**类型回答「同等证据下先看哪一类」，不回答「证据多薄都要先看」**。
+ *
+ * ── 为什么不违反 `02 §9` 的「不得用关键词权重裁决相关性」──────────────
+ *
+ * 本表与查询词无关、与命中词无关，同一类型恒得同一等级。它表达的是「这一类
+ * 对象在本项目里该不该先被看到」这一**产品次序**，而「有多相关」仍由
+ * tier／hits 在同等级内判定。数值本身不参与任何运算（不乘权重、不求和）。
+ *
+ * ── 这是实现层的产品取舍，不是规范条文 ────────────────────────────
+ *
+ * 没有任何一条规范规定「ADR 必须排在 Norm 前面」这类跨类型次序——`02 §9.2`
+ * 反而明禁「建立所有类型共用的……相关性分数」。故本表**不宣称规范效力**，
+ * 也不主张授权已落地：它是实现层对「什么该先被看到」的产品取舍，登记在此
+ * 以便可查、可改、可被后续 ADR 取代。
+ */
+export const RECALL_TYPE_TIERS = Object.freeze({
+  adr: 0,
+  norm: 1,
+  pitfall: 2,
+  friction: 3,
+});
+
+/** 未登记等级的其它类型（spark／research／workcase／goal）的兜底等级。 */
+export const RECALL_TYPE_TIER_OTHER = 4;
+
+/**
  * **不进自动注入路径**的事实类型（`31 §10` 2026-10-27 修订）。
  *
  * 用途**只是**给注入路径（`recall-injection.js` 的 `buildRecallInjection`）一个
@@ -557,11 +613,51 @@ export function compareFactHits(a, b) {
   const fa = a?.fact ?? {};
   const fb = b?.fact ?? {};
   const num = (v) => (Number.isFinite(v) ? v : 0);
+  // ── 排序键（自上而下）────────────────────────────────────────────────
+  //
+  // 1. `weakHit`——强命中先于弱命中。**仍是第一键**：弱命中（只靠单字/通用词）
+  //    即便类型等级最高也不该抢名额。实测反例见 `RECALL_TYPE_TIERS` 的注释
+  //    （6 条 ADR 靠「回」字压掉真正相关的 Pitfall）。
+  // 2. `tier`——命中落在哪个字段（编号 > 适用范围 > 内容 > 标题 > 正文）。
+  // 3. `hits`——跨层命中的 idf 加权厚度（降序）。只用于排序，不做裁决。
+  // 4. **`typeRank`**——**证据完全相同时**才看类型次序：ADR > Norm > Pitfall
+  //    > Friction > 其它。位置见下方第三次修正的说明：它排在证据之后，
+  //    不参与「有多相关」的判定。
+  // 5. `statusRank`——已准入先于未准入。
+  // 6. 必需类型（adr/pitfall）在同分时优先（`22 §12` 义务召回）——保留为
+  //    第 6 键，因为它与第 2 键语义不同：第 2 键是跨类型次序，本键是
+  //    「同等级内的义务召回兜底」。
+  // 7. `updatedAt`——同分时较新的先看。
+  // 8. `path`——仅为稳定输出。
+  //
+  // ── 类型等级的位置：证据之后（2026-10-30 第三次修正）──────────────────
+  //
+  // 第一版放最前 → 6 条 ADR 靠单字「回」压掉强命中 Pitfall（灾难）。
+  // 第二版放 weakHit 之后、tier 之前 → 仍错：同为强命中时类型压过证据。实测
+  // 「同义改写召回自身」由 25/28 = 89% 掉到 **23/28 = 82%**，5 条 Pitfall 被
+  // adr/norm/friction 挤出 top8（实测样本：工单scope起草、长标识符转写、
+  // Git Gate 双向覆盖、插件重建清空登记表、Electron asar 头偏移）。
+  //
+  // 现行（第三版）：**先比证据（tier → hits），证据完全相同时才看类型等级**。
+  // 回到这条函数顶部那句教训——「类型回答『同等证据下先看哪一类』，
+  // 不回答『证据薄也要先看』」。`tier` 与 `hits` 才是证据。
+  //
+  // **代价如实记录**：在该次序下，`写一个 ADR` 的 adr 无法靠 typeRank 胜出
+  // （spark 靠「适用范围」层、adr 靠「内容」层，证据不同层）。该查询的胜出
+  // 由 `matchCandidate` 的类型点名层承担，**不在本函数**。这属已知边界：
+  // 若将来要 adr 在「点名类型」查询里稳定居首，正确做法是让类型点名对事实
+  // 生效（tier 0.5），而不是把 typeRank 提回证据之前。
+  const typeRank = (f) => RECALL_TYPE_TIERS[f.type] ?? RECALL_TYPE_TIER_OTHER;
+  const byEvidence = Number(fa.weakHit === true) - Number(fb.weakHit === true);
+  if (byEvidence !== 0) return byEvidence;
   const evidence =
-    Number(fa.weakHit === true) - Number(fb.weakHit === true) ||
     num(fa.tier) - num(fb.tier) ||
     num(fb.hits) - num(fa.hits);
   if (evidence !== 0) return evidence;
+  // **同命中层、同命中厚度**时才看类型——这是 typeRank 的实际适用面，
+  // 也是它唯一能起作用的位置：证据不等时它完全不参与。
+  const byType = typeRank(fa) - typeRank(fb);
+  if (byType !== 0) return byType;
   const rank = (f) => (REQUIRED_RECALL_TYPES.includes(f.type) ? 0 : 1);
   return (
     statusRank(fa.status) - statusRank(fb.status) ||

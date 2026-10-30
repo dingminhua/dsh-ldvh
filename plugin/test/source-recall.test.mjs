@@ -120,7 +120,21 @@ test("tokenize：空串与非字符串返回空数组", () => {
 
 test("loadSpecs：载入规范源，字段与标题行可取", async () => {
 	const specs = await loadSpecs(join(ROOT, "specs"));
-	assert.ok(specs.length >= 20, `规范源应有二十余份，实际 ${specs.length}`);
+	// **2026-10-30 改写**：原断言为 `specs.length >= 20`（「规范源应有二十余份」）。
+	// 它把一个**规模快照**当成了契约——规范增删、拆分合并都会让它红，而载入器
+	// 可能完全正常；反过来，目录读漏一半但仍有 20 份时它也不会红。
+	//
+	// 本用例真正要守的是「载入器没有静默返回空或半截」。这可以**自一致地**判：
+	// 读到的条数必须等于盘上实际载体数。自一致判据的分辨力不降反升——目录读错、
+	// 过滤过狠、解析中途静默跳过都会让两侧不等；而语料正常增减不影响它。
+	const { readdir } = await import("node:fs/promises");
+	const onDisk = (await readdir(join(ROOT, "specs"))).filter((f) => f.endsWith(".md"));
+	assert.equal(
+		specs.length,
+		onDisk.length,
+		`载入条数须等于盘上载体数（盘上 ${onDisk.length} 份），实际 ${specs.length}`,
+	);
+	assert.ok(specs.length > 0, "规范源不得为空（否则后续断言全部失去前提）");
 	const first = specs[0];
 	assert.equal(first.source, "spec");
 	assert.ok(typeof first.ref === "string" && first.ref !== "");
@@ -131,11 +145,40 @@ test("loadSpecs：载入规范源，字段与标题行可取", async () => {
 
 test("loadFacts：载入事实源，类型名取 fact_type_key（不从目录猜单复数）", async () => {
 	const facts = await loadFacts(join(ROOT, "ldvh-base"));
-	assert.ok(facts.length >= 200, `事实源应有数百个对象，实际 ${facts.length}`);
+	// **2026-10-30 改写**：原断言为 `facts.length >= 200`（「应有数百个对象」）。
+	// 两重问题：(a) 与上一条同型——规模阈值会在语料缩水时红，坏的不是代码；
+	// (b) 更实质的是它**守不住它想守的东西**：本用例真正要防的是「从目录名猜
+	// 单复数」与「目录没读全」，而 200 这个数量级对两者都不敏感（目录读漏一个
+	// 仍有 200+ 条）。
+	//
+	// 改为两段自一致判据：条数等于盘上 `.md` 载体数；每个对象的 `type` 都在
+	// `REGISTERED_FACT_TYPES` 闭集内（目录名猜法会产出 `researche`/`workca`
+	// 这类不在闭集里的值）。
+	const { readdir } = await import("node:fs/promises");
+	const base = join(ROOT, "ldvh-base");
+	const dirs = (await readdir(base, { withFileTypes: true }))
+		.filter((d) => d.isDirectory())
+		.map((d) => d.name);
+	let onDisk = 0;
+	for (const d of dirs) {
+		onDisk += (await readdir(join(base, d))).filter((f) => f.endsWith(".md")).length;
+	}
+	assert.equal(
+		facts.length,
+		onDisk,
+		`载入条数须等于盘上载体数（盘上 ${onDisk} 份），实际 ${facts.length}`,
+	);
+	assert.ok(facts.length > 0, "事实源不得为空（否则后续断言全部失去前提）");
 	const types = new Set(facts.map((f) => f.type));
 	// 七类，单数形；曾因从目录名猜单复数得 "researche"/"workca"。
 	for (const expected of ["adr", "friction", "norm", "pitfall", "research", "spark", "workcase"]) {
 		assert.ok(types.has(expected), `应含类型 ${expected}，实际 ${[...types].join(",")}`);
+	}
+	for (const t of types) {
+		assert.ok(
+			REGISTERED_FACT_TYPES.includes(t),
+			`类型 ${t} 不在已登记闭集内——目录名猜单复数会产生这类值`,
+		);
 	}
 	assert.ok(!types.has("researche"), "不得把 researches 猜成 researche");
 	assert.ok(!types.has("workca"), "不得把 workcases 猜成 workca");
@@ -602,6 +645,15 @@ test("通用词不得单独构成命中依据（真实 friction 实测：15% 命
 		root: ROOT,
 		limit: 3,
 		budgetBytes: 20000,
+		// **2026-10-30 补上**：本条此前不传 `excludeTypes`，于是按「直调路径」语义
+		// 扫描全部类型，spark 也参与排序——而 `31 §10`（2026-10-27 修订）已让 spark
+		// **退出自动注入**，真实注入路径（`buildRecallInjection`）会传
+		// `excludeTypes: INJECTION_EXCLUDED_TYPES`。不传的后果不是「更宽松」而是
+		// **测的是另一条路径**：spark 占掉名额，目标 Pitfall 被挤出 limit=3，本用例
+		// 因此转红而实现并无退化（实测：传与不传，目标分别在第 3 位与第 4 位）。
+		//
+		// 留在这里的语义是「注入路径不得漏掉真相关项」，故必须与注入路径同参。
+		excludeTypes: INJECTION_EXCLUDED_TYPES,
 	});
 	// 真相关的那条必须命中，且靠的是实义词「子代/代理」而非通用词。
 	const relevant = r.facts.find((f) => f.title.includes("插件重建清空子代理登记表"));
@@ -911,12 +963,44 @@ test("排序比较器：每层键都须真的被样本覆盖（无并列组 = �
 		"同分时必需类型须在前（22 §12 义务召回）",
 	);
 
-	// ④ 证据优先于类型：证据更厚时，非必需类型可以排在必需类型前。
-	const strongerSpark = mk({ weakHit: false, tier: 1, hits: 9.9, status: "active", type: "spark", path: "b.md" });
+	// ④ **类型等级键**（2026-10-30 重写本条）。
+	//
+	// 原断言是「证据更厚的非必需类型须压过证据薄的必需类型（排序按证据，不按
+	// 身份）」。2026-10-30 的一次对话要求「ADR / Norm / Pitfall / friction 就是
+	// 这样的排序」并明确「只动排序不动范围」，即**同等证据下按类型次序**——本
+	// 断言随之改写，否则它守的是已被推翻的规则。
+	//
+	// **授权状态如实登记**：该方向在规范源与事实源中均无稳定承载（specs/ 无此
+	// 概念、ldvh-base/adrs/ 无对应 ADR、02 §9.2 明禁跨类型共用的相关性分数），
+	// 故按 00 §4.4「仅存在于对话中的决定不产生复用效力」，它只是**实现层的产品
+	// 取舍**，不是已成立的裁定。本断言守的是该取舍当前的形态，不为其主张规范效力。
+	//
+	// **但这条测试的核心价值必须保留**：它守的是「每个排序键都真的被样本覆盖」，
+	// 不是某个具体偏好。故改写为双向两条：
+	//   · 同为强命中时，类型等级高者在前（证明 typeRank 键可达）；
+	//   · 弱命中的高等级类型**不得**压过强命中的低等级类型（证明 weakHit 仍
+	//     先于 typeRank——这正是我第一版把类型放最前时踩的坑）。
+	const sameEvidenceSpark = mk({ weakHit: false, tier: 1, hits: 1, status: "active", type: "spark", path: "b.md" });
 	assert.equal(
-		compareFactHits(strongerSpark, mk(base)) < 0, true,
-		"证据更厚的非必需类型须压过证据薄的必需类型（排序按证据，不按身份）",
+		compareFactHits(mk(base), sameEvidenceSpark) < 0, true,
+		"同等证据下 pitfall 须先于 spark（typeRank 键可达，实现层次序）",
 	);
+	const weakAdr = mk({ weakHit: true, tier: 1, hits: 99, status: "active", type: "adr", path: "c.md" });
+	const strongPitfall = mk({ weakHit: false, tier: 4, hits: 1, status: "active", type: "pitfall", path: "d.md" });
+	assert.equal(
+		compareFactHits(strongPitfall, weakAdr) < 0, true,
+		"弱命中的 adr 不得压过强命中的 pitfall（weakHit 必须先于 typeRank）",
+	);
+	// 类型次序本身：adr < norm < pitfall < friction < 其它。
+	const order = ["adr", "norm", "pitfall", "friction", "spark"];
+	for (let i = 0; i + 1 < order.length; i += 1) {
+		const hi = mk({ ...base, type: order[i] });
+		const lo = mk({ ...base, type: order[i + 1] });
+		assert.equal(
+			compareFactHits(hi, lo) < 0, true,
+			`类型次序须为 adr < norm < pitfall < friction < 其它（${order[i]} 应前于 ${order[i + 1]}）`,
+		);
+	}
 
 	// ⑤ **NaN 防护**（这是曾经的真实 bug）：任何合法输入都不得返回 NaN。
 	for (const [x, y] of [
@@ -1032,7 +1116,20 @@ test("默认事实类型须为 ADR/Pitfall（03 §6.1 标准路径的明示要�
 	assert.deepEqual([...REQUIRED_RECALL_TYPES], ["adr", "pitfall"]);
 
 	// 关键：ADR/Pitfall 必须**排在最前**，不能被 research 等无关类型挤掉。
-	const r = await recallForAction({ action: "写一个 ADR", root: ROOT, limit: 3, budgetBytes: 24000 });
+	//
+	// **2026-10-30 补上 `excludeTypes`**：本条守的是「注入路径里 ADR/Pitfall 不被
+	// 无关类型挤掉」，而注入路径（`buildRecallInjection`）会传
+	// `excludeTypes: INJECTION_EXCLUDED_TYPES`——`31 §10`（2026-10-27 修订）已让
+	// spark 退出自动注入。此前不传，测的就不是注入路径：spark 占满 limit=3，
+	// 一条 adr 都进不来（实测无参时为 `spark,friction,spark`，加参后
+	// `friction,adr,adr`）。这是**测试与实现路径失配**，不是实现退化。
+	const r = await recallForAction({
+		action: "写一个 ADR",
+		root: ROOT,
+		limit: 3,
+		budgetBytes: 24000,
+		excludeTypes: INJECTION_EXCLUDED_TYPES,
+	});
 	assert.ok(r.facts.length > 0, "应召回到事实");
 	assert.ok(
 		r.facts.some((f) => f.type === "adr"),
@@ -1886,22 +1983,66 @@ test("事实正文层也须剥离 frontmatter（object_uid 判据）", async () 
 	//
 	// 为什么之前没被抓到：`fact_type_key` 这类字段名虽然只写在 frontmatter，
 	// 但它的**值**（`pitfall`／`adr` 等）在正文里大量出现，故「剥离失效」不改变
-	// 命中数（实测破坏前后都是 99 条）。必须选一个「字段名本身在正文极少出现」
-	// 的判据。
+	// 命中数（实测破坏前后都是 99 条）。
 	//
-	// `object_uid`：正文仅 22 篇提及、全文 310 篇出现。剥离有效时应显著少于
-	// 全文数；若剥离失效，命中数会跳到 310。
-	const r = await recallForAction({
-		action: "object_uid",
-		root: ROOT,
-		limit: 400,
-		budgetBytes: 40_000_000,
-		includeSpecs: false,
-	});
-	assert.ok(
-		r.facts.length < 100,
-		`object_uid 命中不得接近全文数（310）——若接近说明事实正文层未剥离 frontmatter；实际 ${r.facts.length}`,
-	);
+	// **2026-10-30 改为夹具**：原判据是「`object_uid` 正文仅 22 篇提及、全文 310
+	// 篇出现，故命中数应 < 100」。它当时有分辨力，但依赖三个**会漂移的统计特征**：
+	// 正文提及篇数、全文总数、以及「100」这个中间阈值。语料一变就可能两头都错——
+	// 正文提及涨过 100 时误报破坏，剥离真的失效而正文提及偏少时漏报。
+	//
+	// 剥离是否生效，本质上是**载入器的行为**，不需要统计推断：造两条夹具即可
+	// ——一条把 `object_uid` 只写在 frontmatter，一条在正文里真提到它。剥离生效
+	// 时前者不命中、后者命中；剥离失效时两条都命中。这个判据是**构造性**的，
+	// 不随语料变化，且保留了原有的变异分辨力（把 `const body = text` 破坏回放
+	// 进来，第一条断言必转红）。
+	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const tmp = await mkdtemp(join(tmpdir(), "recall-strip-"));
+	try {
+		const pitfallDir = join(tmp, "ldvh-base", "pitfalls");
+		await mkdir(pitfallDir, { recursive: true });
+		const fm = (uid, title) => [
+			"---",
+			`title: ${title}`,
+			"status: active",
+			"scope: 夹具，用于验证 frontmatter 是否被剥离",
+			`object_uid: ${uid}`,
+			"fact_type_key: pitfall",
+			"---",
+			"",
+		].join("\n");
+		// 甲：`object_uid` 只出现在 frontmatter，正文完全不提。
+		await writeFile(
+			join(pitfallDir, `pitfall-${"11111111-1111-4111-8111-111111111111"}.md`),
+			`${fm("11111111-1111-4111-8111-111111111111", "夹具甲：正文不提字段名")}\n## 症状\n\n正文里没有任何字段名。\n`,
+		);
+		// 乙：正文真提到 `object_uid`（对照组，证明剥离不是「把所有内容都丢了」）。
+		await writeFile(
+			join(pitfallDir, `pitfall-${"22222222-2222-4222-8222-222222222222"}.md`),
+			`${fm("22222222-2222-4222-8222-222222222222", "夹具乙：正文真提到字段名")}\n## 症状\n\n正文确实写着 object_uid 这个词。\n`,
+		);
+
+		const r = await recallForAction({
+			action: "object_uid",
+			root: tmp,
+			limit: 100,
+			budgetBytes: 4_000_000,
+			includeSpecs: false,
+		});
+		assert.equal(r.ok, true, "夹具召回须成功");
+		const titles = r.facts.map((f) => f.title);
+		assert.ok(
+			!titles.some((t) => t.includes("夹具甲")),
+			`只在 frontmatter 出现的 object_uid 不得命中（实际命中：${titles.join("、")}）——`
+			+ "命中说明事实正文层未剥离 frontmatter",
+		);
+		assert.ok(
+			titles.some((t) => t.includes("夹具乙")),
+			"正文真提到 object_uid 的夹具须命中（否则说明剥离把正文也丢了）",
+		);
+	} finally {
+		await rm(tmp, { recursive: true, force: true });
+	}
 });
 
 test("候选的 tier 须说明它不是 F 层也不是 L 层（02 §9.1 禁止混用）", async () => {
@@ -2093,6 +2234,35 @@ test("31 §10：注入路径的声明范围常量只含 spark（收窄不得扩�
 	// 收窄不在其中。本用例钉住「这里只会变窄」——若有人往名单里加类型，
 	// 那是在扩大而非收窄，须走 Human Gate，用例会红。
 	assert.deepEqual([...INJECTION_EXCLUDED_TYPES], ["spark"]);
+});
+
+test("召回路径的用例须与它们所测的路径同参（`excludeTypes` 不得漏传）", async () => {
+	// **为什么需要这一条**（2026-10-30）：`31 §10`（2026-10-27 修订）让 spark 退出
+	// 自动注入后，注入路径（`buildRecallInjection`）会传
+	// `excludeTypes: INJECTION_EXCLUDED_TYPES`，而**直调** `recallForAction` 不传。
+	// 两条路径的候选集合因此不同——同一句查询，不传时 spark 参与排序并可能占掉
+	// limit 名额，传时不会。
+	//
+	// 于是「不传」不叫「更宽松」，叫**测了另一条路径**。实测代价：本文件有两条
+	// 用例（「写一个 ADR 须召回 adr」「子代理登记表须被召回」）因漏传而转红，
+	// 而实现并无退化——目标项分别从第 3 位掉到第 4 位、从 limit 内掉出。
+	//
+	// 本用例是**行为断言**而非源码文本断言：它实际跑一次注入路径，检查注入行
+	// 里不出现 spark 候选。若将来有人把接线改回不传，注入行会出现 spark，转红。
+	// 判据取自 `31 §10` 的「spark 不进自动注入」，不是「当前实现这么写」。
+	const { buildRecallInjection } = await import("../lib/recall-injection.js");
+	await withSparkFixture(async (project) => {
+		const r = await buildRecallInjection({
+			userText: "召回范围测试 测试范围 范围测试",
+			projectRoot: project,
+		});
+		assert.equal(r.inject, true, "前提：夹具须能产出注入行");
+		const injectedFacts = r.result?.facts ?? [];
+		assert.ok(
+			!injectedFacts.some((f) => f.type === "spark"),
+			`注入路径不得让 spark 占掉候选名额（31 §10）——实际：${injectedFacts.map((f) => f.type).join(",")}`,
+		);
+	});
 });
 
 // ---------------------------------------------------------------------------
