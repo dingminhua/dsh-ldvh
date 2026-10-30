@@ -40,7 +40,15 @@ test('Spark list carries three filters (priority/serves/lifecycle); WorkCase has
   const list = source('src/pages/ObjectList.tsx')
   const route = source('api/routes/objects.ts')
 
-  assert.match(list, /objectList\.lifecycleFilter/)
+  // 呈现取舍（实现层，2026-10-29）：筛选组的**可见文字标签一律不显示**——「生命周期」
+  // 「服务子目标」「优先级」这类组名对读 tab 的人是冗余噪声，tab 本身即自解释。
+  // 故列表页不再渲染该标签；i18n 词条保留，仅作各筛选组件的 `aria-label`（无障碍
+  // 语义不随视觉精简一起丢）。断言随之从「含标签」翻为「不含可见标签」。
+  //
+  // **授权状态如实登记**：该方向来自当次对话，但截至本注释写就时在规范源与事实源
+  // 中均无稳定承载（specs/ 与 ldvh-base/adrs/ 均查无此项）。按 00 §4.4「仅存在于
+  // 对话中的决定不产生复用效力」，此处只主张**实现层的呈现取舍**，不主张裁定已成立。
+  assert.doesNotMatch(list, /objectList\.lifecycleFilter/)
   // 20 §8（2026-09-13 Human 裁定）：Spark 有 priority，列表提供三联过滤
   // （priority + serves + 生命周期）。WorkCase 维持无此字段（21 §160 闭集）。
   assert.match(list, /ObjectPriorityFilter/)

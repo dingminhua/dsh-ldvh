@@ -47,7 +47,6 @@ export default function ServesSgFilter({
 
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5" aria-label={t('objectList.servesSgFilter')}>
-      <span className="ldvh-meta shrink-0 text-ldvh-text-secondary">{t('objectList.servesSgFilter')}</span>
       <div className="ldvh-tab-list" role="group" aria-label={t('objectList.servesSgFilter')}>
         {options.map((option) => (
           <button

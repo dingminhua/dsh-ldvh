@@ -1282,7 +1282,6 @@ export default function ObjectList() {
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1.5">
             {currentType === 'workcase' ? (
               <>
-                <span className="ldvh-meta shrink-0 text-ldvh-text-secondary">{t('objectList.lifecycleFilter')}</span>
                 <WorkCaseProgressFilter
                   activeGroup={activeLifecycle}
                   onChange={handleLifecycleChange}
@@ -1294,7 +1293,6 @@ export default function ObjectList() {
               </>
             ) : (
               <>
-                {currentType === 'spark' || currentType === 'research' || currentType === 'friction' || currentType === 'norm' ? <span className="ldvh-meta shrink-0 text-ldvh-text-secondary">{t('objectList.lifecycleFilter')}</span> : null}
                 <ObjectStatusFilter
                   type={currentType}
                   activeStatus={activeStatus}
