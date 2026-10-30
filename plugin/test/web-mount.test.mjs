@@ -190,13 +190,38 @@ test("proxy handler answers 502 when the upstream target is dead", async () => {
  * 子进程命令用「把 pid 写到 pidFile」的小 http 服务替身：这样测试能断言
  * 「pid 变了 / 没变」，而不只是「端口通不通」。
  */
-async function makeWatchFixture() {
+/**
+ * Timing knobs, scaled down from production.
+ *
+ * Every one of these is a duration the manager waits out at runtime, and the
+ * tests used to sit through the shipped values: `test/web-mount.test.mjs` spent
+ * ~18s in fixed `setTimeout` calls waiting for debounces and recycle windows to
+ * elapse. The knobs are now injectable (defaults unchanged), so the tests scale
+ * them and assert the same INVARIANTS at the same RELATIVE distances.
+ *
+ * The ratios are what the tests depend on, not the absolute numbers: the
+ * mid-recycle race needs the child's start-up to outlast the debounce window,
+ * and the throttle test needs a second write to land inside the throttle. Those
+ * relationships are preserved (see the individual tests).
+ */
+const FAST = Object.freeze({
+  debounceMs: 150,
+  recycleThrottleMs: 60,
+  recheckBaseMs: 40,
+  recheckMaxMs: 400,
+  hardKillMs: 300,
+  rewarmDelayMs: 40,
+});
+
+async function makeWatchFixture(overrides = {}) {
   const root = await mkdtemp(join(longTempDir(), "ldvh-recycle-"));
   const pidFile = join(root, "child.pid");
   await mkdir(join(root, "api"), { recursive: true });
   await writeFile(join(root, "api", "server.ts"), "// v1\n");
   const port = 33000 + Math.floor(Math.random() * 15000);
   const manager = createWebApiProcess({
+    ...FAST,
+    ...overrides,
     webRoot: root,
     port,
     env: {},
@@ -224,8 +249,11 @@ test("source recycle self-heals the child without any incoming request", async (
     // 真实改码（内容变）→ 应触发回收并自愈
     await writeFile(join(root, "api", "server.ts"), "// v1 edited\n");
     let secondPid = firstPid;
-    for (let i = 0; i < 40; i += 1) {
-      await new Promise((done) => setTimeout(done, 500));
+    // Poll at 100ms rather than 500ms: the debounce here is debounceMs (150), so
+    // the recycle completes in well under a second. Polling coarser than the
+    // thing being watched was most of this test's cost, not the behavior.
+    for (let i = 0; i < 100; i += 1) {
+      await new Promise((done) => setTimeout(done, 100));
       if (!manager.isRunning()) continue;
       secondPid = await readPid();
       if (secondPid !== firstPid) break;
@@ -250,14 +278,17 @@ test("mtime-only touch keeps the child pid unchanged, real content change replac
     // ① 只改 mtime，内容一字不动
     const future = new Date(Date.now() + 5000);
     await utimes(target, future, future);
-    await new Promise((done) => setTimeout(done, 3000));
+    // Long enough that a fingerprint change WOULD have recycled (debounceMs is
+    // 150 here, and a recycle completes in ~100ms), so "no recycle" is a real
+    // observation rather than "not yet".
+    await new Promise((done) => setTimeout(done, 900));
     assert.equal(manager.isRunning(), true, "child must survive an mtime-only touch");
     assert.equal(await readPid(), firstPid, "an mtime-only touch must NOT recycle the child");
     // ② 内容真变
     await writeFile(target, "// v2 changed\n");
     let secondPid = firstPid;
-    for (let i = 0; i < 30; i += 1) {
-      await new Promise((done) => setTimeout(done, 500));
+    for (let i = 0; i < 100; i += 1) {
+      await new Promise((done) => setTimeout(done, 100));
       if (!manager.isRunning()) continue;
       secondPid = await readPid();
       if (secondPid !== firstPid) break;
@@ -273,7 +304,12 @@ test("unexpected child exit re-warms without any incoming request", async () => 
   // exit 回调里 re-warm 的守卫是 `if (disposed || spawned !== null) return;`，
   // 而 spawned 只在 recycleChild 内清空，意外退出时仍指向已死进程，定时器必然
   // 早退。热刷新路径的自愈成立，崩溃路径从未生效。本用例钉住崩溃路径。
-  const { root, manager, readPid, port } = await makeWatchFixture();
+  //
+  // rewarmDelayMs 此处**放宽到 400ms**（其余仍按 FAST）：本用例要观察的正是
+  // 「进程先被判定为已死、随后才自愈」这个中间态。若重拉推迟得太短，轮询会在
+  // 察觉之前就看到新进程，那条「必须观察到已消失」的断言便无从判定——而它
+  // 不是可有可无的：没有它，一个从不处理 exit 的实现在这里也能蒙混过关。
+  const { root, manager, readPid, port } = await makeWatchFixture({ rewarmDelayMs: 400 });
   try {
     await manager.ensureReady();
     const firstPid = await readPid();
@@ -282,15 +318,15 @@ test("unexpected child exit re-warms without any incoming request", async () => 
     // 模拟崩溃：从外部 SIGKILL，不经 dispose、不经回收路径。
     process.kill(firstPid, "SIGKILL");
     // exit 事件是异步送达的：先等它被观察到，再谈重拉。
-    for (let i = 0; i < 40 && manager.isRunning(); i += 1) {
-      await new Promise((done) => setTimeout(done, 100));
+    for (let i = 0; i < 100 && manager.isRunning(); i += 1) {
+      await new Promise((done) => setTimeout(done, 50));
     }
     assert.equal(manager.isRunning(), false, "the child must be observed as gone after the kill");
 
     // 不发任何请求，等它自己回来。
     let secondPid = firstPid;
-    for (let i = 0; i < 40; i += 1) {
-      await new Promise((done) => setTimeout(done, 250));
+    for (let i = 0; i < 100; i += 1) {
+      await new Promise((done) => setTimeout(done, 100));
       if (!manager.isRunning()) continue;
       secondPid = await readPid();
       if (secondPid !== firstPid) break;
@@ -316,18 +352,20 @@ test("a real content change is not swallowed by the recycle throttle", async () 
     const target = join(root, "api", "server.ts");
 
     await writeFile(target, "// v2\n");
-    await new Promise((done) => setTimeout(done, 300));
-    // 第二次改码发生在第一次回收的节流窗口内（去抖 1.5s 后才判指纹，节流 500ms）。
+    await new Promise((done) => setTimeout(done, 60));
+    // 第二次改码落在第一次的去抖窗口内（去抖 debounceMs=150，此处 60ms）；
+    // 两者被同一轮去抖合并消费，正是本用例要辨的情形。
     await writeFile(target, "// v3\n");
 
     let lastPid = firstPid;
-    for (let i = 0; i < 60; i += 1) {
-      await new Promise((done) => setTimeout(done, 500));
+    for (let i = 0; i < 100; i += 1) {
+      await new Promise((done) => setTimeout(done, 100));
       if (!manager.isRunning()) continue;
       lastPid = await readPid();
       if (lastPid !== firstPid) {
         // 换过一次之后再等一轮，确认第二次改码也被消费（基线未被提前吃掉）。
-        await new Promise((done) => setTimeout(done, 3500));
+        // 等待须长于一次完整去抖+回收，否则「第二次也被消费」无从判定。
+        await new Promise((done) => setTimeout(done, 700));
         if (manager.isRunning()) lastPid = await readPid();
         break;
       }
@@ -344,6 +382,13 @@ test("a change landing during an in-flight recycle is not lost", async () => {
   // 修法只是「回收没发生就不推进基线」，但 v3 此后不会再有 fs 事件来驱动它——
   // 实测（复核者在 /tmp 用慢启动子进程复现）进程会一直跑 v2 而磁盘是 v3。
   // 本用例用慢启动子进程放大这个窗口，并直接断言**最终跑的是 v3**。
+  //
+  // 时间参数全部按 FAST 缩放，但**相对距离不变**——竞态的条件是「子进程启动
+  // 耗时 > 去抖窗口」，故 childStartMs 必须显著大于 debounceMs。这里
+  // 400 > 150（生产为 3000 > 1500，同样是 2.67 倍）。缩放不改变竞态是否出现，
+  // 只改变它持续多久。
+  const DEBOUNCE = 150;
+  const CHILD_START = 400;
   const root = await mkdtemp(join(longTempDir(), "ldvh-recheck-"));
   const bootFile = join(root, "booted");
   const pidFile = join(root, "child.pid");
@@ -353,22 +398,20 @@ test("a change landing during an in-flight recycle is not lost", async () => {
   // 子进程启动时把自己读到的源码内容写进 bootFile：于是「进程跑的是哪一版」
   // 可被外部直接读出，不必靠 pid 推断。
   const manager = createWebApiProcess({
+    ...FAST,
+    debounceMs: DEBOUNCE,
     webRoot: root,
     port: 33000 + Math.floor(Math.random() * 15000),
     env: {},
     command: {
       exec: process.execPath,
       // 子进程在 **spawn 时刻**就把读到的源码内容写进 bootFile（真实子进程加载
-      // 模块也是在启动时读盘），然后**延迟 3s** 才 listen。
+      // 模块也是在启动时读盘），然后延迟 CHILD_START 才 listen。
       // 两个设计各有用处：bootFile 令「进程跑的是哪一版」可被外部直读；
-      // 3s 延迟把「回收进行中」的窗口拉长到超过去抖窗口 1.5s，竞态才真会出现。
-      argv: ["-e", `const fs=require('fs');fs.writeFileSync(${JSON.stringify(pidFile)},String(process.pid));let boot='';try{boot=fs.readFileSync(${JSON.stringify(target)},'utf8')}catch{}fs.writeFileSync(${JSON.stringify(bootFile)},boot);setTimeout(()=>{require('http').createServer((q,s)=>{s.setHeader('content-type','application/json');s.end('{"ok":true}')}).listen(Number(process.env.PORT),'127.0.0.1')},3000)`],
+      // 该延迟把「回收进行中」的窗口拉长到超过去抖窗口，竞态才真会出现。
+      argv: ["-e", `const fs=require('fs');fs.writeFileSync(${JSON.stringify(pidFile)},String(process.pid));let boot='';try{boot=fs.readFileSync(${JSON.stringify(target)},'utf8')}catch{}fs.writeFileSync(${JSON.stringify(bootFile)},boot);setTimeout(()=>{require('http').createServer((q,s)=>{s.setHeader('content-type','application/json');s.end('{"ok":true}')}).listen(Number(process.env.PORT),'127.0.0.1')},${CHILD_START})`],
     },
     readinessPath: "/api/health",
-    // 慢启动 3s：让「回收进行中」的时间窗**长于去抖窗口 1.5s**。这是复现该竞态
-    // 的必要条件——若回收在下一个去抖窗口到期前就结束，v3 写入自己产生的新
-    // fs 事件会把它正常消费掉，竞态根本不出现（初版用例就栽在这里：它恒过，
-    // 因为它压根没进过竞态窗口）。
     readinessTimeoutMs: 20_000,
     watchSource: true,
   });
@@ -377,17 +420,32 @@ test("a change landing during an in-flight recycle is not lost", async () => {
     await manager.ensureReady();
     assert.equal(await readBoot(), "// v1");
 
-    // v2 → 触发回收（去抖 1.5s 后开始 kill + 重启，重启本身要 3s）
+    // v2 → 触发回收（去抖 DEBOUNCE 后开始 kill + 重启，重启本身要 CHILD_START）
     await writeFile(target, "// v2\n");
-    // v3 落在「回收进行中」：此刻 recycling 为 true，v3 自己的去抖窗口会在
-    // t≈3.5s 触发，而那轮回收要到 t≈4.5s 才结束——回收早退，v3 被吞。
-    await new Promise((done) => setTimeout(done, 2500));
+
+    // v3 必须落在**回收进行中**，且晚于新子进程读盘——这两个条件合起来才是
+    // 该竞态的成立条件，不能用「等一个固定毫秒数」去凑。
+    //
+    // 初版按 DEBOUNCE + 常数 去等，结果与子进程读盘的时机重叠：子进程可能
+    // 先读到 v3，于是「最终跑 v3」不靠 recheck 也成立——用例仍然绿，但它已
+    // 不再守护 pendingFingerprint（实测：把挂起差异那两行删掉，本用例照样通过，
+    // 而在未缩放的版本上同一变异转红）。这正是 06 §5 的恒真式。
+    //
+    // 故改为观察 bootFile：等新子进程确实启动并读到 v2 之后，再写 v3。此刻它
+    // 尚未 listen（CHILD_START 延迟仍在），回收必然还在进行中。
+    let bootedNow = "";
+    for (let i = 0; i < 200; i += 1) {
+      await new Promise((done) => setTimeout(done, 20));
+      try { bootedNow = await readBoot(); } catch { continue; }
+      if (bootedNow === "// v2") break;
+    }
+    assert.equal(bootedNow, "// v2", "the replacement child must have booted on v2 before v3 lands");
     await writeFile(target, "// v3\n");
 
     // 不发任何请求，等它自己收敛到 v3。
     let booted = "";
-    for (let i = 0; i < 80; i += 1) {
-      await new Promise((done) => setTimeout(done, 500));
+    for (let i = 0; i < 150; i += 1) {
+      await new Promise((done) => setTimeout(done, 100));
       try { booted = await readBoot(); } catch { continue; }
       if (booted === "// v3") break;
     }
@@ -412,7 +470,7 @@ test("dispose still refuses to resurrect the child after an unexpected exit", as
   // and which of the two kills produced it is immaterial. On POSIX SIGTERM is
   // asynchronous, so the pid is normally still resolvable here.
   try { process.kill(firstPid, "SIGKILL"); } catch (error) { if (error?.code !== "ESRCH") throw error; }
-  await new Promise((done) => setTimeout(done, 1500));
+  await new Promise((done) => setTimeout(done, 400));
   assert.equal(manager.isRunning(), false);
   assert.equal(await manager.ensureReady(), null, "a disposed manager must never resurrect its child");
 });

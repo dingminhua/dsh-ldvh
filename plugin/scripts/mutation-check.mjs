@@ -29,6 +29,7 @@ const GUID = join(PLUGIN, "lib", "guidance.js");
 const LIFE = join(PLUGIN, "lib", "lifecycle.js");
 const HM = join(PLUGIN, "lib", "hook-manager.js");
 const GGR = join(PLUGIN, "lib", "git-gate-runner.js");
+const WM = join(PLUGIN, "lib", "web-mount.js");
 const TESTS = [
 	"test/source-recall.test.mjs",
 	"test/recall-injection.test.mjs",
@@ -42,6 +43,12 @@ const TESTS = [
 	"test/lifecycle.test.mjs",
 	// 2026-10-31：preflight 并行化与 git 只读查询去重的守护在这里。
 	"test/preflight-cost.test.mjs",
+	// 2026-10-31：web-mount 的等待时长改为可注入之后，这些用例守护的是
+	// **同一批不变量**（mtime 不进指纹、回收后自愈、in-flight 改动不被吞），
+	// 只是把绝对时长按比例缩放。它们必须进变异检查——否则「缩放到用例不再
+	// 守任何东西」这件事不会有任何东西发现（实测踩过：改写后的 in-flight
+	// 用例对 pendingFingerprint 变异失去检测力）。
+	"test/web-mount.test.mjs",
 ];
 
 const MUTATIONS = [
@@ -124,6 +131,23 @@ const MUTATIONS = [
 	//    （耗时阈值属 Human Gate：06 §9.1 第 5 项 / 34 §17 第 9 项）。
 	[HM, "preflight 少跑一次探针（有效消息不验）", "      const allowed = invokeHook(hook, [valid], identity.projectRoot, { ...hookEnv, LDVH_PREFLIGHT_INDEX: preflightIndex });", "      const allowed = Promise.resolve({ code: 0, stdout: \"\", stderr: \"\" });"],
 	[GGR, "git 只读查询不去重（一次门禁内重复 spawn）", "  const memo = GIT_READ_CACHE.get(cacheKey);", "  const memo = undefined;"],
+	// —— web-mount 热刷新（2026-10-31 加）——
+	//
+	// 这组的来历是本轮的一次真实失误：把等待时长做成可注入参数后，我按比例缩减
+	// 了用例里的 sleep，其中 in-flight 竞态用例的检测力**悄悄归零**——把
+	// pendingFingerprint 那两行删掉它照样绿（未缩放的版本上同一变异转红）。
+	// 成因是改写后「等常数毫秒」与子进程读盘的时机重叠，子进程直接读到 v3，
+	// 于是「最终跑 v3」不依赖 recheck 也成立。已改为观察 bootFile 再写 v3。
+	// 这三条变异即该缺口的守门人。
+	//
+	// ① mtime 混进内容指纹 → 「mtime-only touch」必须转红（原实现的缺陷形态）。
+	[WM, "内容指纹混入 mtime（一次 touch 就回收）", "          hash.update(`${file}\\0${content.length}\\0`);", "          hash.update(`${file}\\0${content.length}\\0${(await fs.promises.stat(file)).mtimeMs}\\0`);"],
+	// ② 回收后不重拉（自愈失效，原缺陷）→ 「source recycle self-heals」必须转红。
+	[WM, "回收后不自愈（kill 完不重拉）", "      await ensureReady();\n      if (logger) logger.info(\"[dsh-ldvh web-api] replacement child ready on port %s\", port);", "      if (logger) logger.info(\"[dsh-ldvh web-api] replacement child ready on port %s\", port);"],
+	// ③ 不记录挂起的差异 → 「a change landing during an in-flight recycle」
+	//    必须转红。这条最容易被「缩放后仍然绿」掩盖，也正是 ② 抓不住的那一类：
+	//    ② 守「回收后有没有重拉」，③ 守「回收期间落的改动有没有被记住」。
+	[WM, "回收期间的改动不挂起（in-flight 差异被吞）", "            pendingFingerprint = next;\n            void scheduleRecheck();", "            void 0;"],
 ];
 
 /**

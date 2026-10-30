@@ -193,6 +193,26 @@ export function createWebApiProcess(options) {
     readinessPath = "/api/health",
     readinessTimeoutMs = 30_000,
     watchSource = true,
+    // Timing knobs. Every default is the shipped value, so production behavior is
+    // byte-identical; tests scale them down instead of sleeping through the real
+    // window. Measured: `test/web-mount.test.mjs` spent 18s in fixed `setTimeout`
+    // calls that were simply waiting these out.
+    //
+    // They are options rather than constants for a second reason: the debounce
+    // window is load-bearing (too short reads a half-written file), so a test
+    // that needs to observe the debounce must be able to widen it, and a test
+    // that is not about the debounce must be able to narrow it. Hard-coding it
+    // forced both to use the production value.
+    debounceMs = 1500,
+    recycleThrottleMs = 500,
+    recheckBaseMs = 250,
+    recheckMaxMs = 5000,
+    hardKillMs = 3000,
+    // The delay before re-warming after an unexpected exit. Not a settling
+    // period for its own sake: it exists so a recycle that is already underway
+    // (or a request) can claim the slot first, and the guard inside rechecks
+    // `spawned !== null`.
+    rewarmDelayMs = 250,
   } = options ?? {};
   let spawned = null;
   let exited = true;
@@ -236,12 +256,12 @@ export function createWebApiProcess(options) {
   async function recycleChild(reason) {
     const proc = spawned;
     if (proc === null || exited || disposed || recycling) return false;
-    if (lastRecycle !== null && Date.now() - lastRecycle < 500) return false;
+    if (lastRecycle !== null && Date.now() - lastRecycle < recycleThrottleMs) return false;
     lastRecycle = Date.now();
     recycling = true;
     if (logger) logger.info("[dsh-ldvh web-api] %s, recycling child and warming a replacement up", reason);
     try { proc.kill("SIGTERM"); } catch { /* best effort */ }
-    const hard = setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* best effort */ } }, 3000);
+    const hard = setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* best effort */ } }, hardKillMs);
     hard.unref?.();
     // 等这一轮**真正退出**再拉新的：固定 sleep 不能证明端口已释放，提前 spawn
     // 会与尚未退出的旧进程抢同一个回环端口，落在 EADDRINUSE 上。
@@ -273,7 +293,7 @@ export function createWebApiProcess(options) {
    * 期间落 v3，若不主动重判，进程会一直跑 v2 而磁盘是 v3。
    * 指数退避到 5s 封顶：回收本身要等旧进程退出（最多 5s）+ 启动，总时长有界。
    */
-  let recheckDelayMs = 250;
+  let recheckDelayMs = recheckBaseMs;
   async function runRecheck() {
     recheckTimer = null;
     if (disposed || pendingFingerprint === null) return;
@@ -287,11 +307,11 @@ export function createWebApiProcess(options) {
     pendingFingerprint = null;
     if (seen === sourceFingerprint) return; // 磁盘已回到基线内容：无事可做
     const recycled = await recycleChild("web source content changed (api/ or shared/, requeued)");
-    if (recycled) { sourceFingerprint = seen; recheckDelayMs = 250; return; }
+    if (recycled) { sourceFingerprint = seen; recheckDelayMs = recheckBaseMs; return; }
     // 仍没能回收（又进了节流/回收窗口）：差异重新挂起，退避后重试。
     if (disposed) return;
     pendingFingerprint = seen;
-    recheckDelayMs = Math.min(recheckDelayMs * 2, 5000);
+    recheckDelayMs = Math.min(recheckDelayMs * 2, recheckMaxMs);
     recheckTimer = setTimeout(() => { void runRecheck(); }, recheckDelayMs);
     recheckTimer.unref?.();
   }
@@ -374,7 +394,7 @@ export function createWebApiProcess(options) {
             pendingFingerprint = next;
             void scheduleRecheck();
           })();
-        }, 1500);
+        }, debounceMs);
       };
 
       // 基线在 watcher 建立**之前**取：否则建立与取基线之间发生的写入会落在基线
@@ -495,7 +515,7 @@ export function createWebApiProcess(options) {
           ensureReady().catch((error) => {
             if (logger) logger.warn("[dsh-ldvh web-api] re-warm after unexpected exit failed: %s", error?.message ?? error);
           });
-        }, 200).unref?.();
+        }, rewarmDelayMs).unref?.();
       });
       proc.stdout.on("data", (chunk) => { const text = String(chunk).trim(); if (text && logger) logger.info("[dsh-ldvh web-api] %s", text); });
       proc.stderr.on("data", (chunk) => { const text = String(chunk).trim(); if (text && logger) logger.warn("[dsh-ldvh web-api] %s", text); });
@@ -561,7 +581,7 @@ export function createWebApiProcess(options) {
       if (spawned !== null && !exited) {
         const proc = spawned;
         try { proc.kill("SIGTERM"); } catch { /* best effort */ }
-        setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* best effort */ } }, 3000).unref?.();
+        setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* best effort */ } }, hardKillMs).unref?.();
       }
       spawned = null;
       exited = true;
