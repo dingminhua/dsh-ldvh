@@ -67,8 +67,8 @@
     }
   },
   "dependencies": {
-    "@deepseek-ai/dsh-atomic-write": "^0.2.1-rc.3",
-    "@deepseek-ai/dsh-home-paths": "^0.2.1-rc.3",
+    "@deepseek-ai/dsh-atomic-write": "^0.2.1-rc.5",
+    "@deepseek-ai/dsh-home-paths": "^0.2.1-rc.5",
     "yaml": "^2.8.1"
   },
   "peerDependencies": {
@@ -87,10 +87,10 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "~4.0.5",
-    "@deepseek-ai/dsh-llm": "0.2.1-rc.3",
-    "@deepseek-ai/dsh-sandbox": "0.2.1-rc.3",
-    "@deepseek-ai/dsh-scope": "0.2.1-rc.3",
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-sandbox": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-scope": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.5",
     "@deepseek-ai/schemastery": "^3.18.4",
     "@eslint/js": "^10.0.1",
     "eslint": "^10.10.0",

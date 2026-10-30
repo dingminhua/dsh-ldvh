@@ -73,6 +73,24 @@ async function withLockHome(fn) {
   return fn({ root, home });
 }
 
+/**
+ * 等到 `check()` 为真，或等到 `timeoutMs` 用尽。
+ *
+ * 2026-10-30：本文件原先用固定的 `setTimeout(10)` 等「另一把锁已落下」。
+ * 那是**按固定时长武装的等待**：拿锁要落一个锁文件（`open(path,'wx')`），
+ * 在机器繁忙或全量并行测试抢 IO 时 10ms 排不上队，于是断言看到 `false`
+ * ——失败的却是**等待策略**，不是互斥语义。改为轮询真实状态、给足上界：
+ * 判据从「过了多久」变成「状态是否已到」。
+ */
+async function waitUntil(check, { timeoutMs = 2000, stepMs = 5 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await check()) return true;
+    await new Promise((resolve) => setTimeout(resolve, stepMs));
+  }
+  return check();
+}
+
 test("互斥：空闲时不忙，跑完之后恢复空闲", async () => {
   await withLockHome(async ({ home }) => {
     assert.equal((await isReviewRunning(home, "proj")).busy, false, "初态须空闲");
@@ -94,9 +112,8 @@ test("互斥：**并发第二枪被跳过**，不排队、不并发执行", asyn
         return "A";
       },
     });
-    // 等第一枪确实进入执行体，再发第二枪。
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    assert.equal(aStarted, true, "前提：第一枪已在执行");
+    // 等第一枪确实进入执行体（轮询真实状态，不按固定时长猜），再发第二枪。
+    assert.equal(await waitUntil(async () => aStarted), true, "前提：第一枪已在执行");
     const second = await runReviewExclusive({ dshHomePath: home, projectId: "proj", sessionId: "s2", fn: async () => "B" });
 
     assert.equal(second.skipped, true, "第二次必须被跳过");
@@ -124,7 +141,7 @@ test("互斥是**项目级**：另一个项目不受本项目持锁影响（11 �
       dshHomePath: home, projectId: "proj-a", sessionId: "s",
       fn: async () => { await aRunning; return "A"; },
     });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitUntil(async () => (await isReviewRunning(home, "proj-a")).busy);
 
     assert.equal((await isReviewRunning(home, "proj-a")).busy, true, "A 项目在跑");
     assert.equal((await isReviewRunning(home, "proj-b")).busy, false, "B 项目不受影响——互斥按项目分区");
