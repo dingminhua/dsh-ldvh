@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { compositePropertyName } from "../lib/aux-task-registry.js";
 
 /** 极小的事件总线桩：只实现本路径用到的 on/emit。 */
 function fakeCtx() {
@@ -341,13 +342,14 @@ test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自
       result: Promise.resolve({
         stopReason: "completed",
         structured: {
-          "friction-discovery": {
+          // 属性名按宿主校验用的键（snake_case）；任务键仍是 kebab-case。
+          [compositePropertyName("friction-discovery")]: {
             verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "",
             impact: "light", quote: materialText.slice(0, 20), reason: "本次没有系统性阻碍",
           },
           // 经验侧失败靠引证不在材料内（11 §10.1 两段式后只剩这一个高频失败点：
           // 判定态与缓冲字段都合法，唯独 quote 不是材料里的原文）。
-          "experience-capture": {
+          [compositePropertyName("experience-capture")]: {
             verdict: "no-failure", phenomenon: "", evidence: "", source: "",
             candidate_question: "",
             quote: "这段引证根本不在材料里面呀", reason: "无命中",
@@ -534,7 +536,7 @@ test("重启：无**带轮次号的**回合事件时从宿主会话记录回填�
       result: Promise.resolve({
         stopReason: "completed",
         structured: {
-          "friction-discovery": {
+          [compositePropertyName("friction-discovery")]: {
             verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "",
             impact: "light", quote: "缓存条目未失效导致的重复解析失败", reason: "本次没有系统性阻碍",
           },

@@ -8,6 +8,7 @@ import {
   selectZeroContextProvider,
   createDiscoveryProvider,
 } from "../lib/friction-discovery-provider.js";
+import { compositePropertyName } from "../lib/aux-task-registry.js";
 import { resolveAuthoritativeSignature } from "../lib/signature-channel.js";
 
 // 子代理的「一份结论」——注意它现在由**复合对象**承载：每个任务占一个顶层字段
@@ -24,9 +25,15 @@ const VERDICT_SLICE = {
   reason: "本次区间内没有反复出现的阻碍。",
 };
 
-/** 把一份任务结论包成宿主提交的复合对象（单任务：名空间为 idle-review）。 */
+/**
+ * 把一份任务结论包成宿主提交的复合对象（单任务：命名空间为该任务）。
+ *
+ * 属性名经 `compositePropertyName` 映射得出，不在用例里手写——宿主按 snake_case
+ * 校验提交参数，手写的 kebab 键会被判为「未声明属性」（见 06 §5 与本仓 2026-10-30
+ * 修复的说明）。
+ */
 function composed(slice = VERDICT_SLICE) {
-  return { "friction-discovery": slice };
+  return { [compositePropertyName("friction-discovery")]: slice };
 }
 
 const VERDICT_SCHEMA_OK = composed();
@@ -665,9 +672,9 @@ test("F-1：一件失败一件成功时，`watermarkTurn` 仍须给出（否则�
         stopReason: "completed",
         structured: {
           // 摩擦成功
-          "friction-discovery": VERDICT_SLICE,
+          [compositePropertyName("friction-discovery")]: VERDICT_SLICE,
           // 经验失败：引证不在窗口内（真实高频失败：引证核对按材料正文做字符串比对）
-          "experience-capture": { ...CAPTURE_SLICE_OK, quote: "这段引证根本不在材料里面呀" },
+          [compositePropertyName("experience-capture")]: { ...CAPTURE_SLICE_OK, quote: "这段引证根本不在材料里面呀" },
         },
       }),
     }),
@@ -704,7 +711,10 @@ test("F-1：全成功时同样给出 watermarkTurn（回归：新条件不得反
       dispose: async () => {},
       result: Promise.resolve({
         stopReason: "completed",
-        structured: { "friction-discovery": VERDICT_SLICE, "experience-capture": CAPTURE_SLICE_OK },
+        structured: {
+          [compositePropertyName("friction-discovery")]: VERDICT_SLICE,
+          [compositePropertyName("experience-capture")]: CAPTURE_SLICE_OK,
+        },
       }),
     }),
   });

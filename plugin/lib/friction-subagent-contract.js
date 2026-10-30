@@ -357,7 +357,7 @@ export function buildSharedPromptSection({ window: windowRange, taskCount = 1 } 
     "",
     "## 产出方式",
     "用结构化输出工具提交你的结论。**不要用纯文本作答**——只有工具提交算数。",
-    "你的输出是一个对象，**每个事项占一个自己的顶层字段**（字段名见各事项段）。",
+    "你的输出是一个对象，**每个事项占一个自己的顶层字段**（**字段名以各事项段标题里给出的为准**——那是宿主校验时使用的键名，不要用事项名去猜）。",
     "字段必须符合给定 schema：三态各自的必填字段见字段说明；不合规的对象**交不出来**（宿主在提交层拦截）。",
     "`quote` 必须是材料中的**逐字原文**（≥8 个字，且连 `**`／反引号等 Markdown 标记一并复制）；`reason` 说明你如何由该引证得出结论。",
   ].join("\n");
@@ -379,7 +379,21 @@ export function buildDiscoveryPrompt({ threshold, candidates = [], window: windo
   // 一个任务段」，两行即可，故在此内联——正文仍来自上面两个函数，不另起一份。
   const shared = buildSharedPromptSection({ window: windowRange, taskCount: 1 });
   const section = buildDiscoveryPromptSection({ threshold, candidates });
-  return [shared, "", "## 本次要做的一件事", "", "### 事项 1／1：friction-discovery", section].join("\n");
+  // **顶层字段名须显式给出**（2026-10-30 修）：标题里的任务标识是 kebab-case
+  // （`friction-discovery`），而输出对象的顶层属性名是 snake_case
+  // （`friction_discovery`）。宿主按 snake_case 校验参数，kebab 键会被判为
+  // 「未声明属性」而拒绝提交——子代理照抄标题即中招。故标题里明写属性名。
+  //
+  // 字面量写死不引 `compositePropertyName`：本文件被 `aux-task-registry.js`
+  // 导入，反向 import 会造成循环依赖（见上方注释所述的同一顾虑）。
+  return [
+    shared,
+    "",
+    "## 本次要做的一件事",
+    "",
+    "### 事项 1／1：friction-discovery（**你的输出里，它的顶层字段名是 `friction_discovery`**）",
+    section,
+  ].join("\n");
 }
 
 /**

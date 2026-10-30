@@ -33,6 +33,26 @@ import {
   buildSharedPromptSection,
 } from "../lib/friction-subagent-contract.js";
 
+/**
+ * 按**任务键**构造子代理提交的结构化对象。
+ *
+ * 属性名一律经 `compositePropertyName` 映射得出——**不在用例里手写属性名**。
+ * 理由：属性名若由用例写死，它就成了一份与实现无关的第二份约定；实现改了映射
+ * 而用例没改，用例会在**与被测行为无关**的地方红（或更糟：继续绿而实际已经
+ * 错配）。经映射构造则用例与实现同源，映射一旦错，用例立刻以「提交交不出来」
+ * 的形态暴露。
+ *
+ * 键的形状与真实提交一致：宿主按 snake_case 传参，故 `friction-discovery`
+ * 任务的结果落在 `friction_discovery` 下。
+ */
+function structuredOf(byTaskKey) {
+  const out = {};
+  for (const [taskKey, value] of Object.entries(byTaskKey)) {
+    out[compositePropertyName(taskKey)] = value;
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // 登记表
 // ---------------------------------------------------------------------------
@@ -186,19 +206,43 @@ test("拼接：N=1 的复合结果与单任务入口**逐字相同**（两条路
 
 test("复合 schema：每个任务占一个**顶层字段**，required 列全（缺件在提交层即被拦）", () => {
   const schema = compositeOutputSchema(["friction-discovery"]);
-  assert.deepEqual(schema.required, ["friction-discovery"], "全部任务键都须 required");
+  assert.deepEqual(schema.required, ["friction_discovery"], "全部任务键都须 required");
   assert.equal(schema.additionalProperties, false, "顶层不得有额外字段");
-  assert.ok(schema.properties["friction-discovery"] !== undefined);
+  assert.ok(schema.properties["friction_discovery"] !== undefined);
+});
+
+test("复合 schema：属性名须是标识符安全形式（宿主按 snake_case 传递参数）", () => {
+  // **2026-10-30 新增（实测缺陷的回归守卫）**：原实现把任务键原样当属性名
+  // （`friction-discovery`），而宿主在参数传递环节把属性名规范化为 snake_case，
+  // 于是**同一份 schema 下发用 kebab、校验用 snake**，子代理按 schema 提交必被拒：
+  //   `value.friction-discovery is not a declared property`
+  // 实测后果：friction-discovery 与 experience-capture 两个辅助任务的结论
+  // **恒无法回传**（会话日志 e00fa45a，2026-10-30）。
+  //
+  // 本用例把「属性名不含连字符」钉成机械判据。任务键仍是 kebab-case
+  // （内部标识，用于配置与日志），只有 schema 属性名是 snake_case。
+  const schema = compositeOutputSchema(["friction-discovery", "experience-capture"]);
+  for (const name of Object.keys(schema.properties)) {
+    assert.match(name, /^[a-z][a-z0-9_]*$/, `属性名 ${name} 须是标识符安全形式`);
+    assert.ok(!name.includes("-"), `属性名 ${name} 不得含连字符（宿主按 snake_case 传参）`);
+  }
+  // 映射须是单射：两个任务键不得映射到同一属性名，否则命名空间退化为平铺。
+  assert.notEqual(
+    compositePropertyName("friction-discovery"),
+    compositePropertyName("experience-capture"),
+  );
+  // 任务键本身不受影响——它仍是内部标识，不得因修属性名而被改掉。
+  assert.equal(compositePropertyName("friction-discovery"), "friction_discovery");
+  assert.deepEqual([...AUX_TASK_ORDER], ["friction-discovery", "experience-capture"]);
 });
 
 test("复合 schema：命名空间使两个任务的同名字段不互相覆盖（平铺会静默覆盖）", () => {
   // 平铺设计的致命处：两个任务都用 `reason` 时后者覆盖前者，而 schema 无法表达
   // 「这两个 reason 属于不同任务」——覆盖是静默的，只有命名空间能机械地防住。
-  assert.equal(compositePropertyName("friction-discovery"), "friction-discovery");
   assert.notEqual(compositePropertyName("a"), compositePropertyName("b"));
   // 每个任务片的字段被完整包在自己的键下：顶层只应有任务键，没有任务内部字段。
   const schema = compositeOutputSchema(["friction-discovery"]);
-  const inner = schema.properties["friction-discovery"];
+  const inner = schema.properties["friction_discovery"];
   assert.ok(Array.isArray(inner.required) && inner.required.includes("verdict"), "任务片自带其 required");
   assert.ok(!("verdict" in schema.properties), "任务内部字段不得泄漏到顶层");
 });
@@ -222,11 +266,11 @@ test("逐任务校验：**某件失败不掀掉其余件**——已成功者仍�
   // 这是「一次做多件」最关键的一条：§8.4 的闭集动作按任务分别成立，`friction-discovery`
   // 的引证不成立不该影响另一件已经得出的结论。整体失败会使一次可用的运行被整条
   // 丢弃——那正是本设计最该避免的损失。
-  const structured = {
+  const structured = structuredOf({
     "friction-discovery": { verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "", impact: "light", quote: "这是一段足够长的材料原文内容", reason: "无" },
     // 第二件故意不合法（此处借 friction-discovery 的校验器：same-obstacle 却缺 target_uid）
     broken: { verdict: "same-obstacle", target_uid: "" },
-  };
+  });
   const registry = {
     "friction-discovery": AUX_TASK_REGISTRY["friction-discovery"],
     broken: { key: "broken", implemented: true, validate: () => ({ ok: false, error: { code: "x", message: "broken on purpose" } }) },
@@ -254,7 +298,7 @@ test("逐任务校验：结论整体缺失时也须为该任务产出一条失�
 test("逐任务校验：某任务的校验器抛错**不得**掀掉其它任务（异常按该任务失败收口）", () => {
   const boom = { key: "boom", implemented: true, validate: () => { throw new Error("validator exploded"); } };
   const out = validateCompositeOutput(
-    { boom: {}, "friction-discovery": { verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "", impact: "light", quote: "足够的材料原文内容", reason: "无" } },
+    structuredOf({ boom: {}, "friction-discovery": { verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "", impact: "light", quote: "足够的材料原文内容", reason: "无" } }),
     { tasks: ["boom", "friction-discovery"], registry: { boom, "friction-discovery": AUX_TASK_REGISTRY["friction-discovery"] }, contexts: { boom: {}, "friction-discovery": { candidates: [], windowText: "足够的材料原文内容" } } },
   );
   assert.equal(out.results.boom.ok, false);
@@ -320,9 +364,17 @@ const GOOD_VERDICT = {
   impact: "light", quote: "这是一段足够长的材料内容原文。", reason: "本次无系统性阻碍。",
 };
 
-async function runWithTwoTasks(structured) {
+/**
+ * 跑一次两任务派发，返回 provider 的产出与派发请求。
+ *
+ * 入参 `byTaskKey` 是**按任务键**给出的两份结论（不是提交形态的扁平对象）——
+ * 由本函数经 `structuredOf` 映射成提交形态。这样调用点不必知道属性名，
+ * 而提交形态仍与真实提交一致。
+ */
+async function runWithTwoTasks(byTaskKey) {
   const { createDiscoveryProvider } = await import("../lib/friction-discovery-provider.js");
   const registry = { ...AUX_TASK_REGISTRY, "capacity-maintenance": fakeSecondTask() };
+  const structured = structuredOf(byTaskKey);
   let captured = null;
   const subagents = {
     list: () => ["spawn"],
@@ -355,9 +407,24 @@ test("N=2 拼接：**一份**提示词含**两个**任务段，公共段只出�
   const text = captured.prompt[0].text;
   assert.match(text, /本次要做的 2 件事/, "须显式声明要做两件");
   assert.deepEqual(
-    text.match(/### 事项 \d+／\d+：\S+/g),
+    // 标题形如「### 事项 1／2：friction-discovery（**…顶层字段名是 `friction_discovery`**）」
+    // ——只取到任务标识为止，故正则用「：」后接非中文括号的一段。
+    text.match(/### 事项 \d+／\d+：[^\s（]+/g),
     ["### 事项 1／2：friction-discovery", "### 事项 2／2：capacity-maintenance"],
     "两个任务段须各占一段，顺序与输入一致",
+  );
+  // **属性名须写在标题里**（2026-10-30 修）：任务标识是 kebab-case，而宿主按
+  // snake_case 校验提交参数——子代理若照抄标题里的任务标识就交不出来。故标题
+  // 须明写顶层字段名，让子代理不必推断。
+  assert.match(
+    text,
+    /顶层字段名是 `friction_discovery`/,
+    "任务段标题须给出宿主校验所用的顶层字段名（snake_case）",
+  );
+  assert.match(
+    text,
+    /顶层字段名是 `capacity_maintenance`/,
+    "每个任务段都须给出自己的顶层字段名",
   );
   assert.equal((text.match(/## 本次观察材料/g) || []).length, 1, "公共材料段**只出现一次**（不随任务数重复）");
   assert.equal((text.match(/# 你只能依据本次材料判断/g) || []).length, 1, "边界规则也只出现一次");
@@ -368,7 +435,8 @@ test("N=2 复合 schema：两个任务各占一个顶层字段，required 列全
     "friction-discovery": GOOD_VERDICT,
     "capacity-maintenance": { entries: "无" },
   });
-  assert.deepEqual(captured.outputSchema.required, ["friction-discovery", "capacity-maintenance"]);
+  // required 列的是**提交形态的属性名**（snake_case）——它就是宿主校验时用的键。
+  assert.deepEqual(captured.outputSchema.required, ["friction_discovery", "capacity_maintenance"]);
   assert.equal(captured.outputSchema.additionalProperties, false);
   // 两任务的字段名不同、互不覆盖——平铺设计会在这里静默覆盖。
   assert.ok(!("entries" in captured.outputSchema.properties), "任务内部字段不得泄漏到顶层");
@@ -421,7 +489,7 @@ test("N=2 逐任务校验：某任务的校验器**抛错**不掀掉另一件（
     getProvider: () => ({ inheritsParentContext: false, capabilities: { outputSchema: true } }),
     startActivation: async () => ({
       childId: "session-executor",
-      result: Promise.resolve({ stopReason: "completed", structured: { "friction-discovery": GOOD_VERDICT, "capacity-maintenance": { entries: "x" } } }),
+      result: Promise.resolve({ stopReason: "completed", structured: structuredOf({ "friction-discovery": GOOD_VERDICT, "capacity-maintenance": { entries: "x" } }) }),
       dispose: async () => {},
     }),
   };

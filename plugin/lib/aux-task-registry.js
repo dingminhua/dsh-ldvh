@@ -86,9 +86,30 @@ const EXPERIENCE_CAPTURE_KEY = "experience-capture";
  * 顶层。理由：平铺会使两个任务都用 `reason` 之类的通用名时互相覆盖，而覆盖是
  * **静默**的（schema 无法表达「这两个 reason 属于不同任务」）；命名空间使归属
  * 由结构本身承载，且新增任务不改动既有任务的字段。
+ *
+ * ── 属性名必须是标识符安全形式（2026-10-30 修）────────────────────
+ *
+ * 原实现直接返回任务键（kebab-case，如 `friction-discovery`）。这导致
+ * **schema 下发的键与宿主校验的键不是同一个**：宿主在参数传递环节把属性名
+ * 规范化为 snake_case，于是子代理按 schema 提交 `friction-discovery` 时，
+ * 宿主收到的是 `friction_discovery`，校验以
+ * `value.friction-discovery is not a declared property` 拒绝。
+ *
+ * 实测证据（会话日志 e00fa45a，2026-10-30）：请求头下发的 schema 属性名为
+ * `friction-discovery`（kebab），而 tool/call 的 arguments 键为
+ * `friction_discovery`（snake）——**同一份 schema，两种键形**，任何子代理
+ * 都无法完成提交。该缺陷使 friction-discovery 与 experience-capture 两个
+ * 辅助任务的结论**恒无法回传**。
+ *
+ * 修法：属性名统一为 snake_case（标识符安全形式），与宿主的规范化规则一致。
+ * **任务键本身仍是 kebab-case**（它是内部标识，广泛用于配置、日志与提示词
+ * 分段），本函数只负责「任务键 → schema 属性名」这一个映射。
+ *
+ * 映射须是**单射**：两个任务键不得映射到同一属性名，否则命名空间退化为平铺，
+ * 回到上面那条「静默覆盖」的老问题——故下方断言不同键映射出不同属性名。
  */
 export function compositePropertyName(taskKey) {
-  return taskKey;
+  return taskKey.replace(/-/g, "_");
 }
 
 /**
@@ -150,7 +171,15 @@ export function buildCompositePrompt({ tasks = [], sections = {}, shared = "" } 
       throw new Error(`no prompt section registered for task "${taskKey}" (登记不完整，不得静默跳过)`);
     }
     parts.push("");
-    parts.push(`### 事项 ${index + 1}／${list.length}：${taskKey}`);
+    // **标题须同时给出属性名**（2026-10-30 修）：标题里的任务键是 kebab-case
+    // （`friction-discovery`），而输出对象的**顶层属性名**是 snake_case
+    // （`friction_discovery`）——两者分叉后，子代理若照抄标题里的键就会交不出来
+    // （宿主按 snake_case 校验，kebab 键被判为未声明属性）。
+    // 故标题明写「顶层字段名」，让子代理不必推断。
+    parts.push(
+      `### 事项 ${index + 1}／${list.length}：${taskKey}`
+      + `（**你的输出里，它的顶层字段名是 \`${compositePropertyName(taskKey)}\`**）`,
+    );
     parts.push(section);
   });
 
