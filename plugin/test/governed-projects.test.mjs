@@ -531,6 +531,44 @@ test("unregisterProject rejects an id/path that is not registered", async () => 
 	});
 
 	// ---------------------------------------------------------------------------
+	// unregisterProject: a refusal must not destroy anything
+	// ---------------------------------------------------------------------------
+
+	test("unregisterProject leaves the Hook installed when it refuses", async () => {
+		// 缺陷形态（2026-10-31 实测）：refused 调用把项目的 Git Gate 先删了。
+		// 三条拒绝（指纹过期、未登记、缺 nextDefaultProjectId）都在**读登记文档**
+		// 就能判定，却被排在删 Hook 之后——于是调用方看到「拒绝」，项目却已经
+		// 失去门禁，而它仍在册、仍被报告为受管辖。后果不是理论上的：修好之前，
+		// 该项目的非法提交（缺关键变更节）会直接通过。
+		//
+		// 判据取 Hook 的 observable 状态，不取调用顺序：把删 Hook 挪回校验之前，
+		// 本用例必须转红。
+		await withTemp("ldvh-gp.", async (base) => {
+			const rootA = await initRepo(base, { name: "a" });
+			const rootB = await initRepo(base, { name: "b" });
+			const home = join(base, "home");
+			const dsh = dshHome(home);
+			await installProject(dsh, { id: "beta", path: rootB }, { runnerPath, workspaceRoot: base });
+			await installProject(dsh, { id: "alpha", path: rootA }, { runnerPath, workspaceRoot: base });
+			const fingerprint = (await readGovernedProjects(dsh)).value.fingerprint;
+
+			// 三条拒绝路径各走一遍，每条之后 Hook 都必须还在
+			const refusals = [
+				["conflict", { id: "beta", path: rootB, expectedFingerprint: "stale" + fingerprint }],
+				["not_registered", { id: "ghost", path: rootB }],
+				["default_required", { id: "beta", path: rootB }],
+			];
+			for (const [code, request] of refusals) {
+				const refused = await unregisterProject(dsh, request);
+				assert.equal(refused.ok, false, code + " must be refused");
+				assert.equal(refused.error.code, code);
+				assert.equal((await inspectCandidate(rootB)).value.hook.state, "managed", code + ": a refused call must leave the Hook installed");
+				assert.equal((await readGovernedProjects(dsh)).value.projects.length, 2, code + ": the registration must be unchanged");
+			}
+		});
+	});
+
+	// ---------------------------------------------------------------------------
 	// ensureRegistrationCarrier
 	// ---------------------------------------------------------------------------
 

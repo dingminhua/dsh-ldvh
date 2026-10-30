@@ -385,10 +385,32 @@ export async function uninstallHook(candidate) {
   return removeManagedHook(candidate);
 }
 
+/**
+ * Remove a project's registration and its managed Hook.
+ *
+ * **Order matters: every refusal is decided BEFORE anything is destroyed.**
+ *
+ * The Hook removal used to run first, outside the lock. A refused call then
+ * returned `ok: false` having already deleted the project's Git Gate — the
+ * project stayed registered, stayed reported as governed, and silently stopped
+ * passing through the gate (measured: an illegal commit that the pre-commit
+ * Hook is supposed to block went straight through afterwards). The caller had
+ * no way to see it: the tool layer reports a refusal with `completed: []`.
+ *
+ * The three refusals — stale `expectedFingerprint`, `not_registered`, and
+ * `default_required` — are all decidable from the registration document alone,
+ * so they need no Hook access. Reading them first makes refusal side-effect
+ * free by construction rather than by a compensating rollback: a rollback would
+ * have to restore a Hook whose bytes it had just deleted, and it would run on
+ * the failure path where it is least likely to be tested.
+ *
+ * The Hook removal therefore sits between the last refusal and the write. If it
+ * fails, the registration is untouched and the Hook is still there (a partial
+ * `removeManagedHook` can only leave the Hook present, never half-written), so
+ * the observable state still matches "refused".
+ */
 export async function unregisterProject(dshHomePath, input) {
   const identity = await resolveGitRoot(input.path);
-  const removedHook = await removeManagedHook(identity.projectRoot);
-  if (!removedHook.ok) return removedHook;
   const filename = registrationPath(dshHomePath);
   return withFileLock(filename, async () => {
     const current = await readRegistration(dshHomePath);
@@ -404,6 +426,10 @@ export async function unregisterProject(dshHomePath, input) {
       else return failure("default_required", "removing the default project requires nextDefaultProjectId");
     }
     const next = validateDocument({ ...current.document, projects, default_project_id: defaultProjectId });
+    // Every refusal has already returned; destroying anything from here on is
+    // only reachable on the success path.
+    const removedHook = await removeManagedHook(identity.projectRoot);
+    if (!removedHook.ok) return removedHook;
     await writeFileAtomic(filename, stringifyYaml(next), { mode: 0o600, dirMode: 0o700 });
     return success({ registration: await readRegistration(dshHomePath), hook: removedHook.value, factSourcePreserved: join(identity.projectRoot, "ldvh-base") });
   });
