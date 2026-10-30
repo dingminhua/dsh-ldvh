@@ -14,13 +14,21 @@ import { tmpdir } from "node:os";
 
 import {
 	DEFAULT_STATUSES_BY_TYPE,
+	INJECTION_EXCLUDED_TYPES,
 	REGISTERED_FACT_TYPES,
 	recallForAction,
 } from "../lib/source-recall.js";
 import { buildRecallInjection, renderRecallRow } from "../lib/recall-injection.js";
 
 const ROOT = join(import.meta.dirname, "..", "..");
-const q = (o) => recallForAction({ root: ROOT, ...o });
+// **默认按注入路径的声明范围调用**（2026-10-30）：`q` 是「模拟一次注入会看到什么」
+// 的简写，而注入路径（`buildRecallInjection`）恒传
+// `excludeTypes: INJECTION_EXCLUDED_TYPES`——`31 §10`（2026-10-27 修订）已让 spark
+// 退出自动注入。此前 `q` 不传，于是它与注入路径扫的是不同的候选集合：
+// spark 参与排序并占掉 limit 名额，「写一个 ADR」limit=3 时一条 adr 都进不来
+// （实测裸调用 `spark,friction,spark`，加参 `friction,adr,adr`）——用例转红而
+// 实现无退化。需要**直调路径**语义的用例须显式覆盖 `excludeTypes: undefined`。
+const q = (o) => recallForAction({ root: ROOT, excludeTypes: INJECTION_EXCLUDED_TYPES, ...o });
 
 test("集成：历轮修复须同时成立（跨文件交互不得互相破坏）", async () => {
 	// 第 16 轮：短指令仍能召回（单字兜底路径）。
