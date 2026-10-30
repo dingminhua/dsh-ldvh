@@ -439,12 +439,17 @@ test("unregisterProject removes the managed Hook, keeps the fact source, and dro
 
 test("unregisterProject refuses to remove the default without a next default", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
+		// registerProject, not installProject: this case is about the registration
+		// document's default-project rule and asserts nothing about Hooks. A full
+		// install would spend two preflights (~2.8s) proving a fact this test never
+		// reads. The Hook-bearing path is covered by the 「removes the managed Hook」
+		// case and by installProject's own cases.
 		const rootA = await initRepo(base, { name: "a" });
 		const rootB = await initRepo(base, { name: "b" });
 		const home = join(base, "home");
 		const dsh = dshHome(home);
-		await installProject(dsh, { id: "beta", path: rootB }, { runnerPath, workspaceRoot: base });
-		await installProject(dsh, { id: "alpha", path: rootA }, { runnerPath, workspaceRoot: base });
+		await registerProject(dsh, { id: "beta", path: rootB });
+		await registerProject(dsh, { id: "alpha", path: rootA });
 
 		const result = await unregisterProject(dsh, { id: "beta", path: rootB });
 		assert.equal(result.ok, false);
@@ -457,12 +462,14 @@ test("unregisterProject refuses to remove the default without a next default", a
 
 test("unregisterProject switches the default when a valid next default is supplied", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
+		// registerProject: default switching is registration-document semantics and
+		// no assertion here touches a Hook.
 		const rootA = await initRepo(base, { name: "a" });
 		const rootB = await initRepo(base, { name: "b" });
 		const home = join(base, "home");
 		const dsh = dshHome(home);
-		await installProject(dsh, { id: "beta", path: rootB }, { runnerPath, workspaceRoot: base });
-		await installProject(dsh, { id: "alpha", path: rootA }, { runnerPath, workspaceRoot: base });
+		await registerProject(dsh, { id: "beta", path: rootB });
+		await registerProject(dsh, { id: "alpha", path: rootA });
 
 		const result = await unregisterProject(dsh, { id: "beta", path: rootB, nextDefaultProjectId: "alpha" });
 		assert.equal(result.ok, true, JSON.stringify(result.error ?? result));
@@ -475,10 +482,11 @@ test("unregisterProject switches the default when a valid next default is suppli
 
 test("unregisterProject clears the default when the only project is removed", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
+		// registerProject: this case is about the empty-default rule.
 		const root = await initRepo(base);
 		const home = join(base, "home");
 		const dsh = dshHome(home);
-		await installProject(dsh, { id: "solo", path: root }, { runnerPath, workspaceRoot: base });
+		await registerProject(dsh, { id: "solo", path: root });
 
 		const result = await unregisterProject(dsh, { id: "solo", path: root });
 		assert.equal(result.ok, true, JSON.stringify(result.error ?? result));
@@ -490,10 +498,11 @@ test("unregisterProject clears the default when the only project is removed", as
 
 test("unregisterProject rejects an id/path that is not registered", async () => {
 	await withTemp("ldvh-gp.", async (base) => {
+		// registerProject: the case is about the "not registered" refusal.
 		const root = await initRepo(base);
 		const home = join(base, "home");
 		const dsh = dshHome(home);
-		await installProject(dsh, { id: "beta", path: root }, { runnerPath, workspaceRoot: base });
+		await registerProject(dsh, { id: "beta", path: root });
 
 		const result = await unregisterProject(dsh, { id: "ghost", path: root });
 		assert.equal(result.ok, false);
@@ -505,13 +514,14 @@ test("unregisterProject rejects an id/path that is not registered", async () => 
 
 	test("unregisterProject detects a stale expected fingerprint", async () => {
 		await withTemp("ldvh-gp.", async (base) => {
+			// registerProject: the case is about the fingerprint CAS, not Hooks.
 			const rootA = await initRepo(base, { name: "a" });
 			const rootB = await initRepo(base, { name: "b" });
 			const home = join(base, "home");
 			const dsh = dshHome(home);
-			await installProject(dsh, { id: "beta", path: rootB }, { runnerPath, workspaceRoot: base });
+			await registerProject(dsh, { id: "beta", path: rootB });
 			const fingerprint = (await readGovernedProjects(dsh)).value.fingerprint;
-			await installProject(dsh, { id: "alpha", path: rootA }, { runnerPath, workspaceRoot: base });
+			await registerProject(dsh, { id: "alpha", path: rootA });
 
 			const result = await unregisterProject(dsh, { id: "beta", path: rootB, expectedFingerprint: fingerprint });
 			assert.equal(result.ok, false);
