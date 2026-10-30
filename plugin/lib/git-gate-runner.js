@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { access, readFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
+import { createHash } from "node:crypto";
 import { isAbsolute, join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -13,7 +14,31 @@ function valueAfter(args, flag) {
   return index >= 0 && index + 1 < args.length ? args[index + 1] : void 0;
 }
 
+/**
+ * Per-run memo for READ-ONLY git queries.
+ *
+ * WHY: one gate run asks the same question several times. `ls-files --cached
+ * -z` is issued by `runSharedChecks` (the empty-Index check), by the friction
+ * scan, and by `candidateTreePaths` — three spawns per run for one answer, and
+ * each spawn costs ~18ms. Measured on a full `installHook` (4 gate runs): 12
+ * spawns of that one command out of 60 total.
+ *
+ * SAFETY: only read-only queries are memoized, and the map is cleared at the
+ * start of every run (`runSharedChecks`), so nothing survives into a state
+ * where the Index or HEAD could have moved. Writes (`hash-object -w`,
+ * `update-index`, `read-tree`) never go through here — they are issued by
+ * `hook-manager.js` with its own `runGit`.
+ */
+let GIT_READ_CACHE = new Map();
+
+function gitReadCacheKey(worktree, args, indexFile) {
+  return `${worktree}\0${indexFile ?? ""}\0${args.join("\0")}`;
+}
+
 async function git(worktree, args, indexFile) {
+  const cacheKey = gitReadCacheKey(worktree, args, indexFile);
+  const memo = GIT_READ_CACHE.get(cacheKey);
+  if (memo !== undefined) return memo;
   const env = cleanGitEnvironment(indexFile === void 0 ? {} : { GIT_INDEX_FILE: indexFile });
   // maxBuffer must hold the WHOLE staged diff: a bulk commit (e.g. deleting a
   // large directory) legitimately produces a multi-megabyte diff, and hitting
@@ -23,6 +48,7 @@ async function git(worktree, args, indexFile) {
   // precheck entrypoint, whose limit is 8MB; 09 §5.1 requires both entries of
   // the same check to agree. Kept identical to ldvh-tools.js's precheck bound.
   const result = await execFileAsync("git", ["-C", worktree, ...args], { env, encoding: "utf8", timeout: 10000, maxBuffer: 8 * 1024 * 1024 });
+  GIT_READ_CACHE.set(cacheKey, result.stdout);
   return result.stdout;
 }
 
@@ -326,6 +352,10 @@ async function changedPathStatuses(worktree, indexFile) {
  * run different check lists.
  */
 async function runSharedChecks(root, indexFile, message) {
+  // Drop the read memo first: this is the only entry point into the checks, so
+  // a fresh Map per run guarantees no answer outlives the Index/HEAD state it
+  // was read from.
+  GIT_READ_CACHE = new Map();
   const issues = [];
   // "Empty Index" means it HOLDS NO ENTRIES, not "the diff renders as zero
   // bytes": measuring the rendered diff misses an index whose entries are all
@@ -548,11 +578,109 @@ async function resolveEslint(workspaceRoot) {
  * fixes: real lint findings say which file and line to change, while a broken
  * config or a missing binary means the tool itself must be repaired.
  */
+/**
+ * 内容寻址的「lint 已通过」缓存（2026-10-30 加）。
+ *
+ * WHY：`installHook` 的 preflight 会真的跑一遍全仓 eslint 来证明 Hook 能挡住
+ * 提交（这是它存在的意义，不能省）。但每次安装都重跑一遍：单次约 3s，而测试
+ * 里有 41 处安装，实测占全套 150s 中的约 120s。
+ *
+ * SAFETY——这份缓存直接支撑「装上去的 Hook 确实挡住了坏提交」这一断言，所以：
+ *  1. **只缓存通过**。失败一律重跑：失败要给出当次真实的行号与原因，缓存它既
+ *     无用又会掩盖修复后的结果。
+ *  2. **键覆盖整个 lint 面**：每个受检文件的内容、eslint 配置、eslint 版本、
+ *     依赖锁。任一处变化即换键。用内容哈希而非 mtime/size——mtime 在 checkout
+ *     与并行写入下不可靠，而这个判定一旦出错就等于装了个没验过的 Hook。
+ *  3. **缓存不可用即重跑**（读不到、写不进、JSON 坏了都当未命中），fail-closed
+ *     的方向是「多跑一次 lint」，不是「跳过 lint」。
+ */
+const LINT_CACHE_SCHEMA = 1;
+const LINT_SURFACE_DIRS = ["lib", "test", "scripts"];
+const LINT_SURFACE_EXTENSIONS = [".js", ".mjs", ".cjs"];
+
+async function hashFile(path) {
+  const content = await readFile(path);
+  return createHash("sha256").update(content).digest("hex");
+}
+
+/** 收集 lint 面内的全部文件（相对 workspaceRoot，已排序）。fixtures 不在面内。 */
+async function collectLintSurface(workspaceRoot, dir, acc) {
+  let entries;
+  try {
+    entries = await readdir(join(workspaceRoot, dir), { withFileTypes: true });
+  } catch {
+    return acc;
+  }
+  for (const entry of entries) {
+    const rel = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === "node_modules" || entry.name === "fixtures") continue;
+      await collectLintSurface(workspaceRoot, rel, acc);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    if (!LINT_SURFACE_EXTENSIONS.some((ext) => entry.name.endsWith(ext))) continue;
+    acc.push(rel);
+  }
+  return acc;
+}
+
+async function lintCacheKey(workspaceRoot, eslint) {
+  const hash = createHash("sha256");
+  hash.update(`schema:${LINT_CACHE_SCHEMA}\0`);
+  hash.update(`eslint:${eslint}\0`);
+  // eslint 版本与依赖锁：依赖换了，规则的实际含义就可能变。
+  for (const meta of [join("node_modules", "eslint", "package.json"), "package-lock.json", "eslint.config.js"]) {
+    try {
+      hash.update(`${meta}\0${await hashFile(join(workspaceRoot, meta))}\0`);
+    } catch {
+      hash.update(`${meta}\0missing\0`);
+    }
+  }
+  const files = [];
+  for (const dir of LINT_SURFACE_DIRS) await collectLintSurface(workspaceRoot, dir, files);
+  files.sort();
+  for (const rel of files) {
+    try {
+      hash.update(`${rel}\0${await hashFile(join(workspaceRoot, rel))}\0`);
+    } catch {
+      hash.update(`${rel}\0unreadable\0`);
+    }
+  }
+  return hash.digest("hex");
+}
+
+function lintCachePath(workspaceRoot, key) {
+  return join(workspaceRoot, "node_modules", ".cache", "ldvh-lint", `${key}.json`);
+}
+
+async function readLintCache(workspaceRoot, key) {
+  try {
+    const raw = await readFile(lintCachePath(workspaceRoot, key), "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed?.key === key && parsed?.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+async function writeLintCache(workspaceRoot, key) {
+  try {
+    const path = lintCachePath(workspaceRoot, key);
+    await mkdir(join(workspaceRoot, "node_modules", ".cache", "ldvh-lint"), { recursive: true });
+    await writeFile(path, JSON.stringify({ key, ok: true, at: new Date().toISOString() }), "utf8");
+  } catch {
+    // 写不进缓存不影响正确性——下次重跑而已。
+  }
+}
+
 async function checkLint(workspaceRoot) {
   const eslint = await resolveEslint(workspaceRoot);
   if (eslint === null) {
     return { ok: false, issues: [newFinding("validation/lint_failed", `eslint is not installed in ${workspaceRoot}/node_modules — run npm ci there before committing (the gate refuses rather than skipping lint)`, null)] };
   }
+  const cacheKey = await lintCacheKey(workspaceRoot, eslint);
+  if (await readLintCache(workspaceRoot, cacheKey)) return { ok: true, issues: [], cached: true };
   let code = 0;
   let stdout = "";
   let stderr = "";
@@ -567,7 +695,10 @@ async function checkLint(workspaceRoot) {
     stdout = error?.stdout ?? "";
     stderr = error?.stderr ?? "";
   }
-  if (code === 0) return { ok: true, issues: [] };
+  if (code === 0) {
+    await writeLintCache(workspaceRoot, cacheKey);
+    return { ok: true, issues: [] };
+  }
   const report = `${stdout}${stderr}`.trim();
   // eslint's "tool failed" exit path leads with this banner; a plain lint
   // failure prints per-file findings instead. The distinction only changes the

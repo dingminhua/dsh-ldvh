@@ -24,6 +24,7 @@ import {
 	recallForAction,
 	resolveSpecsRoot,
 	tokenize,
+	tokenSetOf,
 	RECALL_LIMIT_MAX,
 	RECALL_LIMIT_MIN,
 	recallLimitForBudget,
@@ -2695,4 +2696,283 @@ test("结构命中：实义词阈值是固定常量（02 §9 不得引入权重�
 	assert.equal(STRUCTURAL_DEFERRED_TIER, 5);
 	// 让位层必须**低于正文层**（4），否则「让位」名不副实。
 	assert.ok(STRUCTURAL_DEFERRED_TIER > MATCH_TIERS[MATCH_TIERS.length - 1].tier);
+});
+
+// ---------------------------------------------------------------------------
+// 语料 token 缓存（2026-10-31 加）——缓存不改变结果的守卫
+// ---------------------------------------------------------------------------
+
+test("tokenize 是段内的：拼接串的 token 集等于各段 token 集之并", () => {
+	// **缓存正确性的地基**：`tokenSetOf` 用各 section 的 token 之并充当
+	// 「窄面 / 全匹配面」的 token 集——前提是 `tokenize` 不跨段产生二元组。
+	//
+	// 若这条不成立，缓存就会让匹配面与原实现**不同**（跨段二元组泄漏），
+	// 表现为召回结果悄悄改变。故必须由用例守住。
+	//
+	// 反例素材：中文二元组跨拼接处会泄漏——「白屏」+「测试」拼成
+	// 「白屏\n测试」时，段内取不到「屏测」这种跨段二元组，但若实现改成
+	// 先拼后切就会多出它。本用例的断言方向正是「拼接 = 分段之并」。
+	const cases = [
+		["白屏", "测试"],
+		["召回", "排序改进"],
+		["创建一个 ADR 记录决策", "提交校验"],
+		["pre-commit", "白屏"],
+		["改一下", "删了"],
+		["", "只有一段"],
+		["只有一段", ""],
+		["", ""],
+	];
+	for (const [a, b] of cases) {
+		const joined = tokenize(`${a}\n${b}`).sort();
+		const union = [...new Set([...tokenize(a), ...tokenize(b)])].sort();
+		assert.deepEqual(
+			joined, union,
+			`tokenize 须是段内的：「${a}」+「${b}」的拼接 token 集须等于分段之并`,
+		);
+	}
+});
+
+test("语料缓存：同一份语料二次加载须复用同一解析产物（缓存确实生效）", async () => {
+	// **本条替换掉一条零检测力断言**（`06 §5`，2026-10-31）。
+	//
+	// 原断言是「同一份语料两次召回须逐字节一致」。实做变异：把 `TOKEN_CACHE`
+	// 的读取改成恒不命中（等价于**缓存完全不存在**）→ **132 条用例全绿**。
+	// 即那条断言在「缓存被整个删掉」这一实现改变下不会转红，属 `06 §5` 形态 1
+	// 的恒真式：无缓存时两次召回本来也一致，它的通过不反映缓存是否正确。
+	//
+	// 改为守**缓存确实生效**这一实现性质。判据取**对象同一性**而非耗时：
+	// 耗时随语料规模漂移，会落入 `06 §5` 形态 5 的防漂移豁免（须标注基线提交
+	// 且按 §7 ③ 同步期望值）；而「第二次加载是否返回同一个解析产物对象」
+	// 是确定值，与语料规模、机器快慢都无关。
+	//
+	// 哪种实现改变会让它转红：删掉 `cachedCorpus` 的命中分支、或让
+	// `PARSED_CORPUS_CACHE` 不再复用（每次 parse 出新对象）→ 两次加载得到
+	// 不同对象 → 转红。**这正是本次优化被回退时的形态**。
+	const specsFirst = await loadSpecs(joinPath(ROOT, "specs"));
+	const specsSecond = await loadSpecs(joinPath(ROOT, "specs"));
+	assert.equal(
+		specsSecond, specsFirst,
+		"同一份规范语料二次加载须复用同一解析产物——否则缓存未生效（性能优化已退化）",
+	);
+	const factsFirst = await loadFacts(joinPath(ROOT, "ldvh-base"));
+	const factsSecond = await loadFacts(joinPath(ROOT, "ldvh-base"));
+	assert.equal(
+		factsSecond, factsFirst,
+		"同一份事实语料二次加载须复用同一解析产物——否则缓存未生效（性能优化已退化）",
+	);
+	// 缓存复用**不得**让结果变成「共享可变状态」：元素对象可以同一（只读约定），
+	// 但两次的条目数必须与各自加载一致——防「复用了错误的旧语料」。
+	assert.equal(specsSecond.length, specsFirst.length, "复用后条目数须一致");
+	assert.equal(factsSecond.length, factsFirst.length, "复用后条目数须一致");
+});
+
+test("语料缓存：语料内容改变后须读到新内容（不得返回陈旧解析）", async () => {
+	// **缓存最危险的失效形态**：语料改了而缓存仍返回旧解析——
+	// 那会让召回给出**过期的**候选，比慢更糟。
+	//
+	// 判据：改动载体内容 → 后续召回必须反映新内容。
+	// 用临时项目做（不碰真实语料），且**先跑一次**以建立缓存基线。
+	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join: joinPath } = await import("node:path");
+
+	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-cache-"));
+	const factsDir = joinPath(project, "ldvh-base", "pitfalls");
+	try {
+		await mkdir(factsDir, { recursive: true });
+		const carrier = joinPath(factsDir, "pitfall-11111111-1111-4111-8111-111111111111.md");
+		const write = async (marker) => writeFile(carrier, [
+			"---",
+			"object_uid: 11111111-1111-4111-8111-111111111111",
+			"fact_type_key: pitfall",
+			"title: 缓存陈旧性用例",
+			"status: active",
+			"scope: 用于验证语料缓存的失效行为",
+			"---",
+			"",
+			`# 用例`,
+			"",
+			`标记词：${marker}`,
+			"",
+		].join("\n"), "utf8");
+
+		await write("甲乙丙标记");
+		// 第一次召回：建立缓存。
+		const before = await recallForAction({
+			action: "甲乙丙标记", root: project, limit: 5, includeSpecs: false,
+		});
+		assert.ok(
+			before.facts.some((f) => f.ref === "11111111-1111-4111-8111-111111111111"),
+			"首次召回须命中该载体（建立缓存基线）",
+		);
+
+		// **改动语料内容**（同一路径、同一文件名）。
+		await write("丁戊己标记");
+
+		// 改动后，旧标记词**不应**再被召回——若仍召回，说明读到了陈旧解析。
+		const afterOld = await recallForAction({
+			action: "甲乙丙标记", root: project, limit: 5, includeSpecs: false,
+		});
+		assert.ok(
+			!afterOld.facts.some((f) => f.ref === "11111111-1111-4111-8111-111111111111"),
+			"语料内容改动后，旧内容不得再被召回（缓存不得返回陈旧解析）",
+		);
+
+		// 新标记词**必须**被召回——这才是「读到了新内容」的正面判据。
+		const afterNew = await recallForAction({
+			action: "丁戊己标记", root: project, limit: 5, includeSpecs: false,
+		});
+		assert.ok(
+			afterNew.facts.some((f) => f.ref === "11111111-1111-4111-8111-111111111111"),
+			"语料内容改动后，新内容须被召回（缓存须按内容换键）",
+		);
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+});
+
+test("语料缓存：新增载体后须被纳入（不得因缓存漏掉新文件）", async () => {
+	// 缓存键是「全部载体内容的哈希」——新增载体必然换键。
+	// 若实现改成只按已知文件列表算键，新增文件就会**静默消失**。
+	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join: joinPath } = await import("node:path");
+
+	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-cache2-"));
+	const factsDir = joinPath(project, "ldvh-base", "pitfalls");
+	try {
+		await mkdir(factsDir, { recursive: true });
+		const write = async (uid, title) => writeFile(joinPath(factsDir, `pitfall-${uid}.md`), [
+			"---",
+			`object_uid: ${uid}`,
+			"fact_type_key: pitfall",
+			`title: ${title}`,
+			"status: active",
+			"scope: 用于验证新增载体是否被纳入缓存",
+			"---",
+			"",
+			"# 用例",
+			"",
+		].join("\n"), "utf8");
+
+		await write("22222222-2222-4222-8222-222222222222", "首个载体");
+		const before = await recallForAction({
+			action: "首个载体", root: project, limit: 5, includeSpecs: false,
+		});
+		assert.ok(
+			before.facts.some((f) => f.ref === "22222222-2222-4222-8222-222222222222"),
+			"首次召回须命中首个载体",
+		);
+
+		await write("33333333-3333-4333-8333-333333333333", "新增载体");
+		const after = await recallForAction({
+			action: "新增载体", root: project, limit: 5, includeSpecs: false,
+		});
+		assert.ok(
+			after.facts.some((f) => f.ref === "33333333-3333-4333-8333-333333333333"),
+			"新增载体须被纳入（缓存键须覆盖新增文件）",
+		);
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+});
+
+test("语料缓存：删除载体后须从候选中消失", async () => {
+	// 缓存键含「全部载体内容」——载体被删后哈希必变（文件不在列表里）。
+	// 若实现漏掉这一形态，被删的载体会继续出现在候选里。
+	//
+	// **必须保留至少一个其它载体**（2026-10-31 由变异检查发现）：
+	// 本用例初版只放 1 个载体、删到 0 个——而 `cachedCorpus` 有
+	// `if (files.length === 0) return parse(files)` 的短路，从 1 删到 0
+	// **根本不进缓存键**。实做变异（把指纹固定成常量）时该用例仍然全绿，
+	// 即它对「删除」这一形态**零检测力**（`06 §5` 形态 1）。
+	// 改为 2 个载体删 1 个：文件列表非空，缓存键必须变。
+	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join: joinPath } = await import("node:path");
+
+	const project = await mkdtemp(joinPath(tmpdir(), "ldvh-cache3-"));
+	const factsDir = joinPath(project, "ldvh-base", "pitfalls");
+	try {
+		await mkdir(factsDir, { recursive: true });
+		const doomed = joinPath(factsDir, "pitfall-44444444-4444-4444-8444-444444444444.md");
+		const keeper = joinPath(factsDir, "pitfall-55555555-5555-4555-8555-555555555555.md");
+		const carrierText = (uid, title) => [
+			"---",
+			`object_uid: ${uid}`,
+			"fact_type_key: pitfall",
+			`title: ${title}`,
+			"status: active",
+			"scope: 用于验证删除后是否从候选消失",
+			"---",
+			"",
+			"# 用例",
+			"",
+		].join("\n");
+		await writeFile(doomed, carrierText("44444444-4444-4444-8444-444444444444", "待删除载体"), "utf8");
+		// 保留者的标题刻意与查询**不相干**：确保「删除后消失」不是因为
+		// 剩下那份把它挤掉了，而是它真的不在语料里。
+		await writeFile(keeper, carrierText("55555555-5555-4555-8555-555555555555", "保留载体"), "utf8");
+
+		const before = await recallForAction({
+			action: "待删除载体", root: project, limit: 5, includeSpecs: false,
+		});
+		assert.ok(
+			before.facts.some((f) => f.ref === "44444444-4444-4444-8444-444444444444"),
+			"删除前须能召回该载体",
+		);
+
+		await rm(doomed, { force: true });
+
+		const after = await recallForAction({
+			action: "待删除载体", root: project, limit: 5, includeSpecs: false,
+		});
+		assert.ok(
+			!after.facts.some((f) => f.ref === "44444444-4444-4444-8444-444444444444"),
+			"载体删除后不得继续出现在候选里（缓存键须覆盖删除）",
+		);
+		// 删除**不得**连坐其它载体：缓存换键失败还可能表现为「整个语料被替换」。
+		assert.equal(
+			after.counts.candidatesScanned, 1,
+			"删除 1 份后语料应剩 1 份（缓存换键不得吞掉其余载体）",
+		);
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+});
+
+test("语料缓存：事实源只取类型子目录，顶层文件不得混入（goal.md 不是候选）", async () => {
+	// 边界：事实源按**类型子目录**组织，顶层文件（`goal.md` 是 Goal 单例
+	// 载体，不属于任何事实类型）从不进入语料。
+	// 若实现改成递归扫全部文件，顶层文件会进来并产出一条「类型名为空」的
+	// 伪候选——实测那会让载入数从 274 变 275。
+	const facts = await loadFacts(joinPath(ROOT, "ldvh-base"));
+	const topLevel = facts.filter((f) => typeof f.dir !== "string" || f.dir === "");
+	assert.equal(
+		topLevel.length, 0,
+		`顶层文件不得进入事实语料（实得 ${topLevel.length} 条）`,
+	);
+	// 正向判据：类型子目录里的载体须被取到。
+	assert.ok(
+		facts.every((f) => typeof f.dir === "string" && f.dir !== ""),
+		"每条事实候选都须带类型子目录名",
+	);
+});
+
+test("token 集缓存：同一候选二次取用须复用同一结果（不重复切词）", () => {
+	// **本条守的是「不重复切词」这一实现性质**，与上一条（语料级解析复用）
+	// 同属「同类问题不复发」的防护层：本次优化的根因是「同一份正文在一次召回里
+	// 被 tokenize 切 6 遍」，若将来有人新增一条不经 `tokenSetOf` 的取词路径，
+	// 成本会悄悄回到优化前。
+	//
+	// 判据取**对象同一性**（确定性），不取耗时：耗时随语料规模与机器负载漂移，
+	// 会落入 `06 §5` 形态 5 的防漂移豁免，须标注基线提交并同步期望值。
+	// 哪种实现改变会让它转红：删掉 `TOKEN_CACHE` 的命中分支（每次重算）→
+	// 两次取用得到不同对象 → 转红。
+	const candidate = { scope: "召回排序", detail: "适用范围", title: "缓存", bodyText: "正文内容" };
+	const first = tokenSetOf(candidate);
+	const second = tokenSetOf(candidate);
+	assert.equal(second, first, "同一候选二次取用须复用同一 token 集——否则缓存未生效（性能优化已退化）");
+	// 防「缓存了一个空结果」也算通过：token 集须确实切出了词。
+	assert.ok(first.wide.has("召回"), "宽面 token 集须含 scope 中的词（防缓存空结果冒充命中）");
 });

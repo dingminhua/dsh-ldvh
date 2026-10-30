@@ -56,6 +56,7 @@
 // - **预算硬约束**（`fd133f0d` A3，以 Anthropic 注意力预算为一手依据）：返回内容
 //   有字节上限，超了如实标 `truncated`，不静默截断后仍宣称完整。
 
+import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 // **结构化 frontmatter 解析**（2026-10-29）：`yaml` 已是本插件直接依赖
@@ -388,25 +389,228 @@ export function isWeakToken(token) {
   return FUNCTION_CHARS.has(token[0]) !== FUNCTION_CHARS.has(token[1]);
 }
 
+// ---------------------------------------------------------------------------
+// 语料 token 缓存（2026-10-31 加）
+// ---------------------------------------------------------------------------
+
 /**
- * 把一个候选的全部可匹配文本拼成一段，供**跨层累计命中**使用。
+ * **语料的 token 化结果缓存**（进程内，2026-10-31 加）。
  *
- * 顺序无关（只用于取并集去重），故按 tier 从精确到宽泛拼接，便于调试时对照。
- * 单字不参与累计（与 `matchCandidate` 的 `strong` 口径一致）——单字在语料里
- * 覆盖 90%+，计入累计会把「跨层厚度」变成噪声放大器。
+ * ── WHY ──────────────────────────────────────────────────────────────
+ * 实测（本仓，2026-10-31）：`recallForAction` 单次调用 **760ms**，其中
+ * `tokenize` 占 CPU **44%**、`docFreqOf` 7.4%、`corpusStatsOf` 5.8%。
+ * 根因是**同一份语料被反复重算**：
+ *   · `loadFacts`/`loadSpecs` 每次调用都重读盘 + 重解析 YAML（274 文件 = 78ms
+ *     读 + 155ms 解析）；
+ *   · `corpusStatsOf` 与 `docFreqOf` 各自对**每份**候选调一次 `tokenize`；
+ *   · `matchCandidate` 内部又对 4 个 section 各调一次 `tokenize`。
+ * 即同一份正文一次召回里被切了 **6 遍**，而语料在两次召回之间并不变。
+ *
+ * 测试侧的代价直接可见：`test/source-recall.test.mjs` 单文件 **87s**、
+ * `test/recall-injection.test.mjs` **62s**，二者合计占全量套件（117s）的大半，
+ * 而它们只是在反复算同一份语料的 token。
+ *
+ * ── 缓存的是什么 ─────────────────────────────────────────────────────
+ * **只缓存「派生计算」，不缓存「权威内容」**：
+ *   · 缓存内容：分词结果、文档频率表、BM25 语料统计。
+ *   · **不缓存**：语料正文本身（`text`/`body`/`fullText`）——它每次都从盘上重读。
+ * 故本缓存**不建立任何持久索引**（`34 §17` 第 1 项、`02 §16` 第 3 项禁的是
+ * 持久搜索索引；本缓存是进程内、随进程消亡、不落盘、不跨会话复用）。
+ *
+ * ── 失效判据：内容哈希，不是 mtime ─────────────────────────────────────
+ * 键 = **语料全部载体内容的 SHA-256**。任一载体被改（增/删/改）即换键。
+ * 用内容哈希而非 mtime/size 的理由与 `git-gate-runner.js` 的 lint 缓存同源：
+ * mtime 在 checkout 与并行写入下不可靠，而本缓存一旦陈旧就会给出**过期的召回
+ * 结果**——那比慢更糟。
+ *
+ * 代价：每次召回须读一遍全部载体算哈希。实测 306 个文件**并行读 18ms +
+ * 哈希 10ms = 28ms**，相对 760ms 可忽略。
+ *
+ * ── 安全边界 ─────────────────────────────────────────────────────────
+ * 1. **只缓存派生值**，权威内容每次重读（见上）。
+ * 2. **缓存对象不得被调用方改写**：本模块产出的候选对象全程只读（已核：
+ *    `lib/` 内无任何一处改写候选字段；各 writer 改写的是它们自己的
+ *    frontmatter 对象，不是本模块的产物）。
+ * 3. **按目录路径分键**：不同项目、不同语料来源（`01 §10.3` 三级回退）各有
+ *    自己的键，不会互相串用。
+ * 4. **不可用即重算**：任何一步失败（读不到、哈希失败、目录消失）都退回
+ *    「本次现算」——fail-closed 的方向是「多算一次」，不是「跳过」。
  */
-function sectionsText(candidate) {
-  return [
-    candidate.scope,
-    candidate.detail,
-    candidate.title,
-    candidate.bodyText ?? candidate.body,
-  ].filter((t) => typeof t === "string" && t !== "").join("\n");
+
+/**
+ * 一个候选的**分词结果**（按 section 切分）。
+ *
+ * 形状：`{ scope, detail, title, body, narrow, wide }`
+ *   · `scope`/`detail`/`title`/`body`——各 section 的 token 数组；
+ *   · `narrow`——窄面（scope+detail+title）的 token **Set**；
+ *   · `wide`——全匹配面（scope+detail+title+body）的 token **Set**。
+ *
+ * **为什么窄面/宽面可由各 section 的 token 求并**：`tokenize` 是
+ * **段内**的——它按「连续中文 run」取二元组，不跨段拼接处产生二元组。
+ * 实测（2026-10-31，全语料 602 组对照）`tokenize(A+"\n"+B)` 与
+ * `tokenize(A) ∪ tokenize(B)` **零差异**，故段内 token 之并即拼接串的 token。
+ * 该等价性由 `test/source-recall.test.mjs` 的「tokenize 段内性」用例守住。
+ */
+const TOKEN_CACHE = new WeakMap();
+
+/**
+ * 取一个候选的分词结果，必要时计算并记住。
+ *
+ * 用 WeakMap 挂在**候选对象**上而非用「路径 → token」的全局表：候选对象
+ * 本身每次召回都重新构造（正文每次重读），故 WeakMap 不会跨召回命中——
+ * **这只省掉同一次召回内部的重复切词，不跨召回复用**。
+ *
+ * 跨召回的复用由下面的 `CORPUS_CACHE` 承担（它缓存的是**语料级的 df/BM25
+ * 统计**，以及语料级的 token 汇总）。
+ */
+export function tokenSetOf(candidate) {
+  let entry = TOKEN_CACHE.get(candidate);
+  if (entry !== undefined) return entry;
+  const scope = typeof candidate.scope === "string" ? candidate.scope : "";
+  const detail = typeof candidate.detail === "string" ? candidate.detail : "";
+  const title = typeof candidate.title === "string" ? candidate.title : "";
+  const bodyText = candidate.bodyText ?? candidate.body;
+  const body = typeof bodyText === "string" ? bodyText : "";
+  const scopeTokens = tokenize(scope);
+  const detailTokens = tokenize(detail);
+  const titleTokens = tokenize(title);
+  const bodyTokens = tokenize(body);
+  const narrow = new Set([...scopeTokens, ...detailTokens, ...titleTokens]);
+  const wide = new Set([...narrow, ...bodyTokens]);
+  entry = {
+    scope: scopeTokens,
+    detail: detailTokens,
+    title: titleTokens,
+    body: bodyTokens,
+    narrow,
+    wide,
+    // **各 section 的 Set 形态**：`intersect` 要的是「查表」而非「数组扫描」，
+    // 而正文 section 的 token 动辄数千个——每次重建 Set 是可观的开销
+    // （实测 intersect 占优化后 CPU 的 9.1%）。
+    scopeSet: new Set(scopeTokens),
+    detailSet: new Set(detailTokens),
+    titleSet: new Set(titleTokens),
+    bodySet: new Set(bodyTokens),
+  };
+  TOKEN_CACHE.set(candidate, entry);
+  return entry;
 }
 
-/** 两个 token 集的交集大小（不打分做排序，只用于「是否有交集」与命中理由）。 */
+/**
+ * 语料的**内容指纹**：全部载体内容的 SHA-256。
+ *
+ * 取**内容**而非 mtime/size：见本节开头的说明。任一载体增删改即换键。
+ * 读取失败即抛——上层据此退回「现算」。
+ */
+async function corpusFingerprintOf(files) {
+  const hash = createHash("sha256");
+  // 排序后哈希：保证键与 readdir 的返回顺序无关（同一份语料恒得同一键）。
+  const sorted = [...files].sort();
+  for (const file of sorted) {
+    const content = await readFile(file);
+    hash.update(`${file}\0`);
+    hash.update(content);
+    hash.update("\0");
+  }
+  return hash.digest("hex");
+}
+
+/**
+ * **已解析语料的缓存**：`<dir> → <fingerprint> → 解析结果`。
+ *
+ * 键含**内容指纹**，故语料一改即自动换键，不存在陈旧读。
+ * 命中的收益：不重做 YAML 解析（实测 274 个事实文件解析 155ms）。
+ *
+ * **为什么可以共享解析结果对象**：本模块产出的候选对象全程只读——已核
+ * `lib/` 内无任何一处改写候选字段（各 writer 改写的是它们各自的
+ * frontmatter 对象，不是本模块的产物）；测试侧亦无改写。
+ * 故共享对象不会带来跨调用污染。
+ */
+const PARSED_CORPUS_CACHE = new Map();
+
+/**
+ * 读一个语料目录的全部 `.md` 文件，返回 `[{ dir, name, text }]`。
+ *
+ * `dir` 是**相对语料根的子目录路径**（顶层文件为 `""`），`name` 是文件名。
+ * 事实源用它取类型目录名（`adrs`/`frictions`/…），规范源不用（`dir` 恒为 `""`）。
+ *
+ * **并行读**：实测 274 个文件串行读 78ms、并行读 18ms。
+ */
+async function readCorpusFiles(dir, { recursive, skipTopLevelFiles }) {
+  const out = [];
+  const walk = async (current, rel) => {
+    const entries = await readdirOrEmpty(current, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (!recursive) continue;
+        await walk(full, rel === "" ? entry.name : `${rel}/${entry.name}`);
+        continue;
+      }
+      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+      // **顶层文件不属于「按类型子目录组织」的语料**（事实源的 `goal.md` 是
+      // Goal 单例载体，不是某一事实类型的对象）。原实现只扫子目录，故顶层
+      // 文件从不进入语料——这里显式保持该边界，否则会凭空多出一条「类型名为
+      // 空」的伪候选（实测多出 1 条：274 → 275）。
+      if (rel === "" && skipTopLevelFiles) continue;
+      out.push({ dir: rel, name: entry.name, path: full });
+    }
+  };
+  await walk(dir, "");
+  // **排序口径**：先按子目录、再按文件名——与原实现（先排目录、再排目录内文件）
+  // 完全一致，故载入顺序与既有行为逐字相同。
+  out.sort((a, b) => (a.dir < b.dir ? -1 : a.dir > b.dir ? 1 : a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const texts = await Promise.all(out.map((entry) => readFile(entry.path, "utf8")));
+  return out.map((entry, index) => ({ ...entry, text: texts[index] }));
+}
+
+/**
+ * 取一个语料目录的解析结果，必要时解析并缓存。
+ *
+ * @param {string} dir 语料目录
+ * @param {boolean} recursive 是否递归子目录（事实源为 true，规范源为 false）
+ * @param {(files: Array<{path: string, name: string, text: string}>) => any} parse 解析器
+ * @returns {Promise<any>} 解析结果（同一份语料恒得同一对象）
+ */
+async function cachedCorpus(dir, recursive, parse, { skipTopLevelFiles = false } = {}) {
+  const files = await readCorpusFiles(dir, { recursive, skipTopLevelFiles });
+  if (files.length === 0) return parse(files);
+  let fingerprint;
+  try {
+    fingerprint = await corpusFingerprintOf(files.map((entry) => entry.path));
+  } catch {
+    // **读不到即现算**：fail-closed 的方向是「多算一次」，不是「跳过」。
+    return parse(files);
+  }
+  const byFingerprint = PARSED_CORPUS_CACHE.get(dir);
+  if (byFingerprint !== undefined && byFingerprint.get(fingerprint) !== undefined) {
+    return byFingerprint.get(fingerprint);
+  }
+  const parsed = parse(files);
+  if (byFingerprint === undefined) {
+    PARSED_CORPUS_CACHE.set(dir, new Map([[fingerprint, parsed]]));
+  } else {
+    byFingerprint.set(fingerprint, parsed);
+    // 只留当次指纹一份：陈旧版本留着既占内存，又可能在下次误用。
+    // （指纹进键，命中仍须完全一致，故保留旧版也不会读到陈旧内容——
+    //   这里只是不让 Map 无限增长。）
+    if (byFingerprint.size > 4) {
+      const oldest = byFingerprint.keys().next().value;
+      if (oldest !== fingerprint) byFingerprint.delete(oldest);
+    }
+  }
+  return parsed;
+}
+
+/**
+ * 两个 token 集的交集大小（不打分做排序，只用于「是否有交集」与命中理由）。
+ *
+ * **`b` 已是 Set 时不复制**——它可能是数千 token 的正文集，复制一次的成本
+ * 与匹配本身同阶（实测 intersect 曾占优化后 CPU 的 9.1%）。
+ * 语义不变：`intersect` 只取交集**成员**，不关心 `b` 的顺序。
+ */
 function intersect(a, b) {
-  const set = new Set(b);
+  const set = b instanceof Set ? b : new Set(b);
   return a.filter((t) => set.has(t));
 }
 
@@ -624,11 +828,26 @@ export function compareFactHits(a, b) {
   //    > Friction > 其它。位置见下方第三次修正的说明：它排在证据之后，
   //    不参与「有多相关」的判定。
   // 5. `statusRank`——已准入先于未准入。
-  // 6. 必需类型（adr/pitfall）在同分时优先（`22 §12` 义务召回）——保留为
-  //    第 6 键，因为它与第 2 键语义不同：第 2 键是跨类型次序，本键是
-  //    「同等级内的义务召回兜底」。
-  // 7. `updatedAt`——同分时较新的先看。
-  // 8. `path`——仅为稳定输出。
+  // 6. `updatedAt`——同分时较新的先看。
+  // 7. `path`——仅为稳定输出。
+  //
+  // ── 「必需类型优先」由 `typeRank` 承担，此处**不再有第二份实现** ────────
+  //
+  // 此前此处还有一个 `rank = (f) => (REQUIRED_RECALL_TYPES.includes(f.type) ? 0 : 1)`
+  // 作为「同等级内的义务召回兜底」。**它是死代码**（2026-10-31 由变异检查发现）：
+  // `typeRank` 的分组是 adr=0／norm=1／pitfall=2／friction=3／其它=4，
+  // 而必需类型恒为 adr 与 pitfall（`REQUIRED_RECALL_TYPES`），二者各自独占
+  // 一个等级——**不存在「同 typeRank 但必需性不同」的类型对**（穷举全部类型
+  // 对，零命中）。故 `rank` 永远在 `typeRank` 分出胜负之后才被读到，
+  // 且读到时必为 0，**永不改变任何次序**。
+  //
+  // 保留它有两个害处：① 它是「同一规则的两份实现」（违 `06 §6` 单一实现）；
+  // ② 它让人误以为「必需类型优先」是**独立于** `typeRank` 的第二条机制，
+  // 改动其一不会想到另一处。故删除——`typeRank` 已完整承担该语义。
+  //
+  // **删除不等于该语义消失**：`22 §12` 的义务召回由两处保证——
+  // `REQUIRED_RECALL_TYPES` 的**不召回即违约**（见 `DEFAULT_STATUSES_BY_TYPE`
+  // 与 `recallForAction` 的类型默认），以及 `typeRank` 的**同分时优先**。
   //
   // ── 类型等级的位置：证据之后（2026-10-30 第三次修正）──────────────────
   //
@@ -658,10 +877,8 @@ export function compareFactHits(a, b) {
   // 也是它唯一能起作用的位置：证据不等时它完全不参与。
   const byType = typeRank(fa) - typeRank(fb);
   if (byType !== 0) return byType;
-  const rank = (f) => (REQUIRED_RECALL_TYPES.includes(f.type) ? 0 : 1);
   return (
     statusRank(fa.status) - statusRank(fb.status) ||
-    rank(fa) - rank(fb) ||
     String(fb.updatedAt ?? "").localeCompare(String(fa.updatedAt ?? "")) ||
     String(fa.path ?? "").localeCompare(String(fb.path ?? "")) ||
     num(a?.index) - num(b?.index)
@@ -1019,6 +1236,30 @@ function contentFingerprintOf(text) {
 }
 
 /**
+ * 内容指纹的**按对象缓存**（2026-10-31 加）。
+ *
+ * 指纹是逐字符的 FNV-1a，语料全文 2.1M 字符——每次召回重算全部载体的指纹
+ * 实测占 CPU 10.5%（它是「语料级统计缓存」的签名来源）。
+ *
+ * 用 WeakMap 按**载体对象**缓存：解析结果按内容指纹缓存后，同一份语料在多次
+ * 召回之间是**同一批对象**（见 `cachedCorpus`），故指纹可跨召回复用；
+ * 语料一改则解析结果换新对象，缓存自然失效。
+ */
+const CONTENT_FINGERPRINT_CACHE = new WeakMap();
+
+/** 取内容指纹，必要时计算并记住（按载体对象）。 */
+function contentFingerprintOfCached(text, owner) {
+  if (owner !== undefined && owner !== null && typeof owner === "object") {
+    const hit = CONTENT_FINGERPRINT_CACHE.get(owner);
+    if (hit !== undefined) return hit;
+    const computed = contentFingerprintOf(text);
+    CONTENT_FINGERPRINT_CACHE.set(owner, computed);
+    return computed;
+  }
+  return contentFingerprintOf(text);
+}
+
+/**
  * 候选集合的确定性指纹（对排序后的路径做 FNV-1a 摘要）。
  *
  * **只覆盖「集合成员」，不覆盖内容**——它回答「还是不是同一批候选」，
@@ -1091,11 +1332,12 @@ export async function loadSpecs(specsDir) {
   // 实测：缺失 `specs/` 的受辖项目（新建项目、语料尚未建立）会让每次召回都抛
   // `ENOENT ... scandir .../specs`。上层虽有 try/catch 只记日志，但那意味着
   // **这类项目每回合都在报错**——而「还没有语料」是正常状态，不是错误。
-  const files = await readdirOrEmpty(specsDir);
-  const markdown = files.filter((f) => f.endsWith(".md")).sort();
+  //
+  // **缓存**：解析结果按「目录 + 语料内容指纹」缓存（见「语料 token 缓存」节）。
+  // 正文**每次都从盘上重读**（缓存的是解析产物），且语料一改即换键。
+  return cachedCorpus(specsDir, false, (files) => {
   const out = [];
-  for (const file of markdown) {
-    const text = await readFile(join(specsDir, file), "utf8");
+  for (const { name: file, text } of files) {
     const fm = parseFrontmatter(text);
     // 嵌套在 ldvh_spec 下，本仓用两空格缩进；直接按行再抽一次。
     const block = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? "";
@@ -1136,6 +1378,7 @@ export async function loadSpecs(specsDir) {
     });
   }
   return out;
+  });
 }
 
 /**
@@ -1149,15 +1392,12 @@ export async function loadSpecs(specsDir) {
  */
 export async function loadFacts(baseDir) {
   // 同 loadSpecs：事实源目录不存在时返回空数组，不抛 ENOENT。
-  const entries = await readdirOrEmpty(baseDir, { withFileTypes: true });
-  const dirs = entries.filter((d) => d.isDirectory()).map((d) => d.name).sort();
+  //
+  // **缓存**：解析结果按「目录 + 语料内容指纹」缓存（见「语料 token 缓存」节）。
+  // 正文**每次都从盘上重读**（缓存的是解析产物），且语料一改即换键。
+  return cachedCorpus(baseDir, true, (files) => {
   const out = [];
-  for (const dir of dirs) {
-    const files = (await readdirOrEmpty(join(baseDir, dir)))
-      .filter((f) => f.endsWith(".md")).sort();
-    for (const file of files) {
-      const text = await readFile(join(baseDir, dir, file), "utf8");
-      // **结构化解析**（2026-10-29）：见 `parseObjectFrontmatter` 的注释。
+  for (const { dir, name: file, text } of files) {      // **结构化解析**（2026-10-29）：见 `parseObjectFrontmatter` 的注释。
       // `fm` 的形态由此从「全部是字符串」变为「按 YAML 类型」——标量仍是字符串，
       // 但 `relations`/`urls`/`change_log` 是数组、`occurrence` 是对象。
       // 下文所有取字段的地方因此都必须走 `textField()` 收文本，
@@ -1309,9 +1549,9 @@ export async function loadFacts(baseDir) {
         body,
         fullText,
       });
-    }
   }
   return out;
+  }, { skipTopLevelFiles: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -1470,21 +1710,111 @@ function isCorpusStats(v) {
     && v.docFreq instanceof Map && Number.isFinite(v.total) && Number.isFinite(v.avgdl) && v.avgdl > 0;
 }
 
-/** 由候选集算出 BM25 需要的语料统计（N、df 表、平均文档长度）。 */
+/**
+ * 由候选集算出 BM25 需要的语料统计（N、df 表、平均文档长度）。
+ *
+ * **token 来源**：`tokenSetOf(c).wide`（缓存的段内 token 之并），
+ * 与「窄面 = scope+detail+title、全匹配面 = 再加 body」的口径一致——
+ * 见「语料 token 缓存」节里关于 `tokenize` 段内性的实测（602 组对照零差异）。
+ */
 function corpusStatsOf(list) {
   const docFreq = new Map();
   let total = 0;
   let tokenSum = 0;
   for (const c of list) {
-    const toks = tokenize(sectionsText(c));
+    const toks = tokenSetOf(c).wide;
     total += 1;
-    tokenSum += toks.length;
-    for (const t of new Set(toks)) docFreq.set(t, (docFreq.get(t) || 0) + 1);
+    tokenSum += toks.size;
+    for (const t of toks) docFreq.set(t, (docFreq.get(t) || 0) + 1);
   }
   return { docFreq, total, avgdl: Math.max(1, tokenSum / Math.max(1, total)) };
 }
 
 export const HIGH_DF_RATIO = 0.6;
+
+/**
+ * 由候选集算出**两口径**的文档频率表（窄面 / 全匹配面）。
+ *
+ * **窄面**（scope+detail+title）——判「这个词在**这条讲什么**的自述里是否普遍」；
+ * **全匹配面**（scope+detail+title+body）——判「它在真实匹配面上是否普遍」。
+ * 两者都普遍才算噪声（见 `isTooCommon`）。
+ *
+ * token 取自 `tokenSetOf(c)`（缓存的段内 token 之并）——口径与上面两行
+ * 声明的段集合一致，见「语料 token 缓存」节里 `tokenize` 段内性的实测。
+ */
+function docFreqOfImpl(list) {
+  const narrow = new Map();
+  const wide = new Map();
+  for (const c of list) {
+    const tokens = tokenSetOf(c);
+    for (const token of tokens.narrow) narrow.set(token, (narrow.get(token) ?? 0) + 1);
+    for (const token of tokens.wide) wide.set(token, (wide.get(token) ?? 0) + 1);
+  }
+  return { narrow, wide, total: list.length };
+}
+
+/**
+ * **语料级统计的跨调用缓存**（2026-10-31 加，模块作用域）。
+ *
+ * `docFreqOf` 与 `corpusStatsOf` 的输入只依赖 list 的**成员**，而成员在语料
+ * 未变时是同一批对象（解析结果按内容指纹缓存，见 `cachedCorpus`）。
+ *
+ * **缓存键用「成员签名」而非 list 身份**：调用方传给 `collect` 的 list 是
+ * **过滤后**的数组（每次调用都是新数组，身份不稳定），故用
+ * 「成员路径 + 内容指纹」的连接串作键——同一批成员恒得同一键。
+ * 签名只遍历成员一次（274 次取值），比重算 df（274 × 数百 token 的
+ * Map 更新）便宜两个数量级。
+ *
+ * 内容指纹进键 → 内容变化必然换键（语料一改，解析结果换新对象，成员指纹
+ * 随之变化）。故**不存在陈旧读**。
+ *
+ * **为什么放模块作用域**：放在 `recallForAction` 内部则每次调用都重建缓存，
+ * 一次调用内的两次 `collect`（规范侧 + 事实侧）能命中，但**跨调用不命中**——
+ * 而测试与运行时的主要成本正是跨调用的重复计算。
+ */
+const CORPUS_DF_CACHE = new Map();
+const CORPUS_STATS_CACHE = new Map();
+
+/**
+ * **成员签名：路径 + 内容指纹。内容一变，签名必变。**
+ *
+ * 成员指纹已按对象缓存（`contentFingerprintOfCached`），故签名只做拼接。
+ *
+ * 签名本身也缓存：以「首个成员对象 + 长度」为键——同一批成员的首成员必是
+ * 同一对象（语料未变则解析结果未变、成员对象未换），长度相同即同批。
+ * 语料一变 → 解析结果换新对象 → 首成员换了 → 缓存不命中 → 重算签名。
+ */
+const SIGNATURE_CACHE = new WeakMap();
+
+function memberSignatureOf(list) {
+  const first = list.length === 0 ? null : list[0];
+  if (first === null) return "";
+  const cached = SIGNATURE_CACHE.get(first);
+  if (cached !== undefined && cached.size === list.length) return cached.value;
+  const value = list
+    .map((c) => `${c.path}\0${contentFingerprintOfCached(c.fullText ?? c.text ?? "", c).value}`)
+    .join("\0");
+  SIGNATURE_CACHE.set(first, { size: list.length, value });
+  return value;
+}
+
+function cachedDocFreqOf(list) {
+  const key = memberSignatureOf(list);
+  const hit = CORPUS_DF_CACHE.get(key);
+  if (hit !== undefined) return hit;
+  const computed = docFreqOfImpl(list);
+  CORPUS_DF_CACHE.set(key, computed);
+  return computed;
+}
+
+function cachedCorpusStatsOf(list) {
+  const key = memberSignatureOf(list);
+  const hit = CORPUS_STATS_CACHE.get(key);
+  if (hit !== undefined) return hit;
+  const computed = corpusStatsOf(list);
+  CORPUS_STATS_CACHE.set(key, computed);
+  return computed;
+}
 
 /** 一个 token 在该集合中是否过于普遍（出现在 ≥ `HIGH_DF_RATIO` 比例的候选里）。 */
 function isTooCommon(token, docFreq, total) {
@@ -1625,22 +1955,25 @@ export function matchCandidate(actionTokens, candidate, corpusStats) {
   const singleStrongToken =
     actionTokens.length === 1 && !GENERIC_TOKENS.has(actionTokens[0]);
   const bodyMinHits = singleStrongToken ? 1 : 2;
+  // **各 section 的 token 取自缓存**（`tokenSetOf`）——口径与
+  // `tokenize(section.text)` 完全一致，见「语料 token 缓存」节的实测。
+  const cachedTokens = tokenSetOf(candidate);
   const sections = [
-    { tier: 1, text: candidate.scope, label: "适用范围", minHits: 1 },
-    { tier: 2, text: candidate.detail, label: "内容", minHits: 1 },
-    { tier: 3, text: candidate.title, label: "标题", minHits: 1 },
+    { tier: 1, text: candidate.scope, tokens: cachedTokens.scopeSet, label: "适用范围", minHits: 1 },
+    { tier: 2, text: candidate.detail, tokens: cachedTokens.detailSet, label: "内容", minHits: 1 },
+    { tier: 3, text: candidate.title, tokens: cachedTokens.titleSet, label: "标题", minHits: 1 },
     // 规范载入的是 `text`（全文）、事实载入的是 `body`（前 1200 字截断）。
     // 曾只读 `body`，导致**规范正文这一层从未参与匹配**——缺陷：查询
     // 「改 guidance-text.js 的引导文本」一条规范都命中不了，因为该文件名只
     // 出现在 00/10 的正文里，不在它们的 scope/positioning/title 里。
     // 规范用 `bodyText`（剥离 frontmatter），事实用 `body`（前 1200 字）。
     // 绝不能用 `candidate.text`——它含 YAML 字段名（见 loadSpecs 的说明）。
-    { tier: 4, text: candidate.bodyText ?? candidate.body, label: "正文", minHits: bodyMinHits },
+    { tier: 4, text: candidate.bodyText ?? candidate.body, tokens: cachedTokens.bodySet, label: "正文", minHits: bodyMinHits },
   ];
   let best = null;
   for (const section of sections) {
     if (typeof section.text !== "string" || section.text === "") continue;
-    const hits = intersect(actionTokens, tokenize(section.text));
+    const hits = intersect(actionTokens, section.tokens);
     // **单字只作辅助，不单独构成命中依据。**
     //
     // 实测（2026-10-24，用本会话真实用户消息）：「把这批改动合入吧」10 条结果里
@@ -1709,7 +2042,7 @@ export function matchCandidate(actionTokens, candidate, corpusStats) {
   // **为什么不改变 tier 语义**：`tier` 表达的是「命中最精确的字段」，用于把
   // 编号点名与适用范围命中排在正文泛命中之前，这个意图仍然成立。改的只是
   // 同一 tier 内怎么比——由「只看该层命中数」改为「看全候选的命中厚度」。
-  const allHits = intersect(actionTokens, tokenize(sectionsText(candidate)));
+  const allHits = intersect(actionTokens, tokenSetOf(candidate).wide);
   const strongAll = allHits.filter((t) => t.length >= 2);
   const specificAll = strongAll.filter((t) => !GENERIC_TOKENS.has(t) && !isWeakToken(t));
   const contributing = specificAll.length > 0 ? specificAll : strongAll;
@@ -1750,7 +2083,7 @@ export function matchCandidate(actionTokens, candidate, corpusStats) {
   // 修法：加权值不得低于单字命中的基础分 1（单字命中有 1 的分量，只是弱）。
   const SINGLE_CHAR_BASE = 1;
   if (isCorpusStats(corpusStats)) {
-    const docTokens = tokenize(sectionsText(candidate));
+    const docTokens = [...tokenSetOf(candidate).wide];
     const tf = new Map();
     for (const t of docTokens) tf.set(t, (tf.get(t) || 0) + 1);
     const dl = Math.max(1, docTokens.length);
@@ -1850,8 +2183,10 @@ export async function recallForAction(input = {}) {
   // 但被触发的类型仍应召回。曾把默认收窄为 `["adr","pitfall"]`，结果
   // 「加个」这类短指令因只能搜这两类而召回不到东西（实测 inject 由 true 变 false）。
   //
-  // ADR/Pitfall 的优先级改由**排序**保证（见 `REQUIRED_RECALL_TYPES`），
-  // 而不是靠**过滤**——过滤会漏，排序只是把必需类型提前。
+  // ADR/Pitfall 的优先级改由**排序**保证（`typeRank`：adr=0／pitfall=2，
+  // 见 `RECALL_TYPE_TIERS`），而不是靠**过滤**——过滤会漏，排序只是把必需类型提前。
+  // （`REQUIRED_RECALL_TYPES` 仍是该性质的**声明**，但它已无排序消费点：
+  //   原先据此计算的 `rank` 是死代码，2026-10-31 由变异检查发现并删除。）
   const types = Array.isArray(input.types) ? input.types : null;
   // **声明范围之外的常驻排除**（`31 §10`，与 `types` 语义不同，见
   // `INJECTION_EXCLUDED_TYPES` 的说明）：这些类型**根本不进入本次声明范围**，
@@ -2002,7 +2337,7 @@ export async function recallForAction(input = {}) {
   // 这正是「实际给出的都是有价值的信息吗」这类无主题查询满屏噪声的机制来源：
   // 过滤按窄面判「这个词有区分度」，匹配却按全篇让它命中几十条。
   //
-  // 改用与匹配完全相同的 `sectionsText()`（scope/detail/title/body 并集），
+  // 改用与匹配完全相同的口径（scope/detail/title/body 并集），
   // 两套口径此后不可能再脱节——它与 `corpusStatsOf`（BM25 用）同源。
   // **为什么不能一律用全口径**（实测反例，2026-10-27）：全口径过滤会把
   // 「workcase」判为 74% 普遍而滤掉——但它是**类型点名词**（「写一个 WorkCase」），
@@ -2017,26 +2352,14 @@ export async function recallForAction(input = {}) {
   // 「实际」因全面 64% 被滤、同时 workcase 因全面 74% 也被滤，两者都死。
   // 正确的是按**窄面**判、但把正文的命中算进「是否过度」的对照：故取**较大值**
   // 之外还需例外——见下 `isTooCommon` 的两口径判定。
-  const docFreqOf = (list) => {
-    const narrow = new Map();
-    const wide = new Map();
-    for (const c of list) {
-      const nSet = new Set(tokenize([c.scope, c.detail, c.title].filter((t) => typeof t === "string").join("\n")));
-      const wSet = new Set(tokenize(sectionsText(c)));
-      for (const token of nSet) narrow.set(token, (narrow.get(token) ?? 0) + 1);
-      for (const token of wSet) wide.set(token, (wide.get(token) ?? 0) + 1);
-    }
-    return { narrow, wide, total: list.length };
-  };
-
   const collect = (list, mapper) => {
-    const df = docFreqOf(list);
+    const df = cachedDocFreqOf(list);
     // 有效查询词 = 原 tokens 里**不过于普遍**的那些。若全被滤掉（例如查询只由
     // 「规范」「定义」组成），退回原 tokens——宁可给噪声也不能给零结果，
     // 因为零结果会被误读成「无相关约束」。
     const effective = tokens.filter((token) => !isTooCommon(token, df, df.total));
     const queryTokens = effective.length > 0 ? effective : tokens;
-    const corpusStats = corpusStatsOf(list);
+    const corpusStats = cachedCorpusStatsOf(list);
     return list
     .map((c) => {
       const m = matchCandidate(queryTokens, c, corpusStats);
@@ -2112,7 +2435,7 @@ export async function recallForAction(input = {}) {
     source: {
       tier: specsSource === null ? null : specsSource.tier,
       // 内容指纹：该载体全文的确定性摘要，供过期检查（与集合指纹不同，它盖内容）。
-      contentFingerprint: contentFingerprintOf(c.text),
+      contentFingerprint: contentFingerprintOfCached(c.text, c),
     },
   }));
   const allFactHits = collect(pool, (c) => ({
@@ -2143,7 +2466,7 @@ export async function recallForAction(input = {}) {
       tier: "project",
       // 用**全文**算指纹：用截断后的 body 会让载体后半部分的变化对指纹不可见
       // （实测某 ADR 真实 3796 字符，body 只 1200——后 2596 字符的内容变化查不出）。
-      contentFingerprint: contentFingerprintOf(c.fullText ?? c.body ?? ""),
+      contentFingerprint: contentFingerprintOfCached(c.fullText ?? c.body ?? "", c),
     },
   })).map((fact, index) => ({ fact, index }))
     // **必需类型优先**（`03 §6.1` 标准路径的点名要求）。

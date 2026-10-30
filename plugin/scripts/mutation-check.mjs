@@ -27,6 +27,8 @@ const LIB = join(PLUGIN, "lib", "source-recall.js");
 const INJ = join(PLUGIN, "lib", "recall-injection.js");
 const GUID = join(PLUGIN, "lib", "guidance.js");
 const LIFE = join(PLUGIN, "lib", "lifecycle.js");
+const HM = join(PLUGIN, "lib", "hook-manager.js");
+const GGR = join(PLUGIN, "lib", "git-gate-runner.js");
 const TESTS = [
 	"test/source-recall.test.mjs",
 	"test/recall-injection.test.mjs",
@@ -38,12 +40,17 @@ const TESTS = [
 	// 只覆盖了旧代码，新功能的变异根本不会被发现。
 	"test/injection-budget.test.mjs",
 	"test/lifecycle.test.mjs",
+	// 2026-10-31：preflight 并行化与 git 只读查询去重的守护在这里。
+	"test/preflight-cost.test.mjs",
 ];
 
 const MUTATIONS = [
 	[LIB, "弱命中不排后", "Number(a.weakHit === true) - Number(b.weakHit === true) ||", "0 ||"],
 	[LIB, "中间产物白名单失效", "if (!REGISTERED_FACT_TYPES.includes(c.type)) return false;", ""],
-	[LIB, "ADR/Pitfall 不优先", "const rank = (x) => (REQUIRED_RECALL_TYPES.includes(x.fact.type) ? 0 : 1);", "const rank = () => 0;"],
+	// 「必需类型优先」由 `typeRank` 承担（`rank` 死代码已删——见 compareFactHits 注释）。
+	// 故本变异改钉**真正生效的那一级**：把 ADR 降为末位，
+	// 「ADR/Pitfall 优先」的性质必须转红。
+	[LIB, "ADR/Pitfall 不优先（typeRank 降级）", "  adr: 0,\n  norm: 1,\n  pitfall: 2,\n  friction: 3,", "  adr: 4,\n  norm: 1,\n  pitfall: 2,\n  friction: 3,"],
 	[LIB, "按类型默认状态失效", 'const allowed = explicitStatuses ?? DEFAULT_STATUSES_BY_TYPE[type] ?? ["active"];', 'const allowed = ["active"];'],
 	[LIB, "F2 摘录为空", "excerpt: excerptOf(c.excerptSource) || c.title,", 'excerpt: "",'],
 	[LIB, "F0 层缺失", "      countsByTypeStatus: facts.reduce((acc, fact) => {", "      countsByTypeStatusX: facts.reduce((acc, fact) => {"],
@@ -68,7 +75,7 @@ const MUTATIONS = [
 	// 钉住本功能的**核心不变量**：基线必须无条件交付，不得被词法命中条件挡住。
 	// 若把 baselineHasContent 恒为 false，就退回到「法定决策靠词面运气」——
 	// 实测「每次回复先称呼老丁」在无关消息上零召回，正是该缺陷的现场。
-	[INJ, "零命中时基线被短路（退回词面运气）", "  if (total < MIN_HITS && !baselineHasContent) {", "  if (total < MIN_HITS) {"],
+	[INJ, "零命中时基线被短路（退回词面运气）", "  if (!decideInjection({ candidateCount: total, baselinePresent: baselineHasContent })) {", "  if (!decideInjection({ candidateCount: total, baselinePresent: false })) {"],
 		// **对准真实不变量**（第四十次审核 M-2）：数据层不为基线预留预算，
 	// 于是预算按「只有候选」分配、实际注入时基线再挤进来——这正是
 	// 「预留量须与实际基线段字节相符」用例要防的错配（欠预留会让注入超预算）。
@@ -79,6 +86,44 @@ const MUTATIONS = [
 	[LIB, "档位表被改成无上限（任意数可填）", "  10: 10 * 1024,", "  10: Number.MAX_SAFE_INTEGER,"],
 	[LIB, "未登记档位静默回落（不报错）", "    return {\n      ok: false,", "    return {\n      ok: true,"],
 	[LIB, "默认档退回旧常量（数值偏小未解决）", "export const DEFAULT_INJECTION_BUDGET_TIER = 10;", "export const DEFAULT_INJECTION_BUDGET_TIER = 2;"],
+	// —— 语料 token 缓存（2026-10-31 加）——
+	//
+	// 这组变异守护的是**缓存的正确性**：缓存必须既不改变结果、也不返回陈旧读。
+	// 每条对应一个「缓存写错了会怎样」的具体失效形态——
+	// 若某条存活，说明该失效形态**当前无守护**（不是「没关系」）。
+	//
+	// ① 缓存键不含内容（语料改了仍命中旧解析）→ 「语料内容改变后须读到新内容」
+	//    用例必须转红。
+	[LIB, "语料缓存键不含内容（改动后仍返陈旧解析）", "    fingerprint = await corpusFingerprintOf(files.map((entry) => entry.path));", "    fingerprint = \"fixed-key\";"],
+	// ② 缓存不按新增文件换键 → 「新增载体后须被纳入」必须转红。
+	[LIB, "语料缓存键不含新增文件", "  const sorted = [...files].sort();", "  const sorted = [...files].slice(0, 1).sort();"],
+	// ③ token 缓存退化为「每次重算」不应被抓住（那是性能问题不是正确性问题）——
+	//    故**不做**该方向的变异；此处改钉「段内性」这条地基：
+	//    若 tokenize 变成跨段拼接（把窄面/宽面并集算错），段内性用例必须转红。
+	[LIB, "tokenize 跨段拼接（段内性失效）", "  const cjk = text.match(/[\\u4e00-\\u9fff]+/g) ?? [];", "  const cjk = [text];"],
+	// ④ 窄面 token 集漏掉 body（口径错）→ 段内性与 df 口径用例须转红。
+	[LIB, "窄面 token 集混入 body", "  const narrow = new Set([...scopeTokens, ...detailTokens, ...titleTokens]);", "  const narrow = new Set([...scopeTokens, ...detailTokens, ...titleTokens, ...bodyTokens]);"],
+	// ⑤ 顶层文件混入事实语料 → 「事实源只取类型子目录」用例必须转红。
+	[LIB, "事实源混入顶层文件（goal.md 进入语料）", "      if (rel === \"\" && skipTopLevelFiles) continue;", "      if (false) continue;"],
+	// ⑥ 语料解析不复用（每次 parse 出新对象）→ 「二次加载须复用同一解析产物」
+	//    必须转红。这是**本次性能优化被回退**的直接形态。
+	//
+	//    注意它与 ①（缓存键不含内容）守的是**不同性质**：① 守正确性
+	//    （不得返回陈旧解析），⑥ 守复用性（不得退化为每次重算）。
+	//    一条断言同时抓不住两者——实测 ① 恒定键下 ⑥ 的用例仍绿、⑥ 下 ① 的用例仍绿。
+	[LIB, "语料解析不复用（每次重新 parse）", "  const byFingerprint = PARSED_CORPUS_CACHE.get(dir);", "  const byFingerprint = undefined;"],
+	// ⑦ token 集不复用（每次重新切词）→ 「同一候选二次取用须复用同一结果」
+	//    必须转红。这是「同一份正文被切 6 遍」这一原始根因回潮的形态。
+	[LIB, "token 集不复用（每次重新切词）", "  let entry = TOKEN_CACHE.get(candidate);", "  let entry = undefined;"],
+	// —— preflight 成本优化（2026-10-31 加）——
+	//
+	// 这两条守的不是「快不快」，而是**优化不得退化成少证明**：
+	// ① 把四次探针减成三次（「有效消息反正会过，跳过它」）必须转红；
+	// ② 把 git 只读查询的 memo 关掉（回到一次门禁内重复三次 ls-files）
+	//    必须转红。两者的判据都是确定性的调用计数，不是耗时阈值
+	//    （耗时阈值属 Human Gate：06 §9.1 第 5 项 / 34 §17 第 9 项）。
+	[HM, "preflight 少跑一次探针（有效消息不验）", "      const allowed = invokeHook(hook, [valid], identity.projectRoot, { ...hookEnv, LDVH_PREFLIGHT_INDEX: preflightIndex });", "      const allowed = Promise.resolve({ code: 0, stdout: \"\", stderr: \"\" });"],
+	[GGR, "git 只读查询不去重（一次门禁内重复 spawn）", "  const memo = GIT_READ_CACHE.get(cacheKey);", "  const memo = undefined;"],
 ];
 
 /**

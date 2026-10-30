@@ -52,7 +52,9 @@
     "build:web": "cd web && pnpm build:dsh",
     "lint": "eslint .",
     "prepack": "node scripts/specs-bundle.mjs copy",
-    "postpack": "node scripts/specs-bundle.mjs clean"
+    "postpack": "node scripts/specs-bundle.mjs clean",
+    "test:affected": "node scripts/affected-tests.mjs --run",
+    "test:affected:plan": "node scripts/affected-tests.mjs"
   },
   "dsh": {
     "bundle": {
@@ -93,6 +95,7 @@
     "@deepseek-ai/dsh-tools": "0.2.1-rc.5",
     "@deepseek-ai/schemastery": "^3.18.4",
     "@eslint/js": "^10.0.1",
+    "acorn": "^8.18.0",
     "eslint": "^10.10.0",
     "globals": "^17.12.0"
   }
