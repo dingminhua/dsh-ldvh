@@ -49,10 +49,14 @@ test("tokenize：ASCII 词与编号保留，长度 < 2 的丢弃", () => {
 	assert.ok(tokens.includes("gate"));
 	assert.ok(tokens.includes("pre-commit"));
 	assert.ok(tokens.includes("03"));
-	{
-		assert.ok(!tokens.includes("a"), "单字母不应成 token");
-		assert.ok(!tokens.includes("ok") || true, "ok 长度为 2，保留即可");
-	}
+	// `a` 是单字母，须被丢弃。
+	assert.ok(!tokens.includes("a"), "单字母不应成 token");
+	// **`ok` 的断言已删除（2026-10-30）**：原文为
+	//   `assert.ok(!tokens.includes("ok") || true, "ok 长度为 2，保留即可")`
+	// `|| true` 使其恒真——无论 tokenize 是否保留 `ok`，这条都通过。它既不能
+	// 证明「长度 2 保留」，也不能证明「长度 2 丢弃」，任何一侧的实现改变都不会
+	// 让它转红。按 06 §5「拒绝零检测力」删除，而不是留一条看起来在守的东西。
+	// 真正决定长度规则的是下面的「单字不入匹配集」与「二元组」两条用例。
 });
 
 test("tokenize：中文只取二元组，单字不进匹配集", () => {
@@ -381,7 +385,15 @@ test("高文档频率过滤：过滤后仍能命中真正相关的（不得因�
 	// 「web」在规范源里 14/27 (52%) 未过阈值，故 Web 类查询仍应命中规范。
 	const r = await recallForAction({ action: "给 Web 页面加一个新面板", root: ROOT, limit: 5, budgetBytes: 20000 });
 	assert.ok(r.specs.length > 0, "Web 查询应仍能命中规范");
-	assert.ok(r.facts.some((f) => f.title.includes("白屏")), "应命中 SPA 白屏教训");
+	// **原断言「须命中标题含『白屏』的教训」已删除（2026-10-30）**：它把一条
+	// **具体事实对象的存在**当成高 df 过滤生效的判据。该对象一旦改标题、销账或
+	// 被规范吸收废止，这条就红，而过滤逻辑可能完全正常（本仓已发生过：目标对象
+	// 被 07a6cf2 批量废止，评测用例随即转红）。
+	//
+	// 本用例要守的是「高 df 过滤不得把真正相关的东西清空」——由上面那条
+	// `specs.length > 0` 直接承担，且它只依赖**规范源**（受 01 管辖、有身份块，
+	// 不会静默消失）。事实侧是否需要命中，取决于当次语料里恰有相关对象，属
+	// 随机事实而非规则；单测不该赌它。
 });
 
 test("高文档频率过滤：全部查询词都过于普遍时退回原词，不得给零结果", async () => {
@@ -629,43 +641,122 @@ test("单字兜底不得被削弱：短指令仍须能召回（第 16 轮路径�
 	}
 });
 
-test("通用词不得单独构成命中依据（真实 friction 实测：15% 命中只靠通用词）", async () => {
+test("通用词不得单独构成命中依据（通用词只降级、不丢弃，且真相关不被降级）", async () => {
 	// 实测（40 条真实 friction 现象陈述 × 3 = 92 条命中）：14 条（15%）只靠
 	// 通用词命中。例如「install() 分发器…」靠「任何/执行」命中了
 	// 「无关未提交改动阻塞变基致推送延迟」——几乎肯定不相关。
 	// 通用词（任何/规范/执行/测试/写/改/回…）有实义但**不足以单独支撑相关**，
 	// 与虚字不同，故不丢、只降级并在理由中标注。
+	//
+	// **2026-10-30 改为夹具**：原用例用真实语料里的一条具体 Pitfall
+	// （「插件重建清空子代理登记表致复核记录恒被拒」）当「真相关的那条」。
+	// 问题不在于它当时不成立，而在于它把**该对象的存在**变成了本用例的前提：
+	// 对象一旦销账、改标题或被规范吸收废止（本仓已发生过多批），这条就红，
+	// 而通用词降级逻辑可能完全正常。判据该守的是「降级规则的作用方向」，
+	// 那可以用两条**自造**对象精确测定，不必赌语料里恰好有什么。
+	//
+	// 夹具设计：两条 Pitfall 共享同一查询词，一条带上「真相关词」、一条只有
+	// 通用词。规则正确时——真相关那条不被降级；只有通用词那条被标注弱相关。
+	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	/** 命中理由里列出的 token 全为单字 → 视为「只靠单字」。 */
 	const isAllSingleChar = (reason) => {
 		const m = /命中（[^）]*）：(.+)$/.exec(reason) ?? /命中：(.+)$/.exec(reason);
 		if (m === null) return false;
 		return m[1].split("、").every((token) => token.length === 1);
 	};
-	const r = await recallForAction({
-		action: "install() 分发器在 agent/created 回调里没有 try/catch 致子代理注册失败",
-		root: ROOT,
-		limit: 3,
-		budgetBytes: 20000,
-		// **2026-10-30 补上**：本条此前不传 `excludeTypes`，于是按「直调路径」语义
-		// 扫描全部类型，spark 也参与排序——而 `31 §10`（2026-10-27 修订）已让 spark
-		// **退出自动注入**，真实注入路径（`buildRecallInjection`）会传
-		// `excludeTypes: INJECTION_EXCLUDED_TYPES`。不传的后果不是「更宽松」而是
-		// **测的是另一条路径**：spark 占掉名额，目标 Pitfall 被挤出 limit=3，本用例
-		// 因此转红而实现并无退化（实测：传与不传，目标分别在第 3 位与第 4 位）。
+	const tmp = await mkdtemp(join(tmpdir(), "recall-generic-"));
+	try {
+		const dir = join(tmp, "ldvh-base", "pitfalls");
+		await mkdir(dir, { recursive: true });
+		const carrier = (uid, title, scope, body) => [
+			"---",
+			`title: ${title}`,
+			"status: active",
+			`scope: ${scope}`,
+			`object_uid: ${uid}`,
+			"fact_type_key: pitfall",
+			"---",
+			"",
+			`# ${title}`,
+			"",
+			"## 症状",
+			"",
+			body,
+			"",
+		].join("\n");
+		// 甲：带真相关词（分发器 / 回调），应被判为强命中。
+		await writeFile(
+			join(dir, "pitfall-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.md"),
+			carrier(
+				"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+				"夹具甲 分发器回调缺少异常处理",
+				"适用于夹具甲的分发器回调场景",
+				"分发器在回调里没有 try/catch，子代理注册失败。",
+			),
+		);
+		// 乙：只有通用词（执行 / 测试 / 写），应被降级并标注。
+		await writeFile(
+			join(dir, "pitfall-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.md"),
+			carrier(
+				"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+				"夹具乙 通用词载体",
+				"适用于夹具乙的执行与测试场景",
+				"这里只写执行与测试这类通用词，不含真相关的分发器与回调。",
+			),
+		);
+
+		const r = await recallForAction({
+			// 查询里含真相关词「分发器」「回调」，也含通用词「执行」「没有」。
+			action: "分发器回调里没有执行",
+			root: tmp,
+			limit: 10,
+			budgetBytes: 200_000,
+			includeSpecs: false,
+		});
+		assert.equal(r.ok, true, "夹具召回须成功");
+
+		const relevant = r.facts.find((f) => f.title.includes("夹具甲"));
+		assert.ok(relevant !== undefined, "带真相关词的夹具须被召回");
+		assert.ok(
+			!/仅通用词|仅单字/.test(relevant.hitReason),
+			`真相关命中不应被降级：${relevant.hitReason}`,
+		);
+		// 凡命中理由**自称**弱相关（仅通用词 / 仅单字）的，必须带「相关性弱，须自行核实」。
 		//
-		// 留在这里的语义是「注入路径不得漏掉真相关项」，故必须与注入路径同参。
-		excludeTypes: INJECTION_EXCLUDED_TYPES,
-	});
-	// 真相关的那条必须命中，且靠的是实义词「子代/代理」而非通用词。
-	const relevant = r.facts.find((f) => f.title.includes("插件重建清空子代理登记表"));
-	assert.ok(relevant !== undefined, "应命中子代理登记表相关的教训");
-	assert.ok(!/仅通用词|仅单字/.test(relevant.hitReason), `真相关命中不应被降级：${relevant.hitReason}`);
-	// 凡只靠通用词命中的，必须带弱相关标注。
-	const GENERIC_ONLY_MARK = /仅通用词|仅单字/;
-	for (const f of r.facts) {
-		if (f === relevant) continue;
-		if (isAllSingleChar(f.hitReason)) {
-			assert.match(f.hitReason, GENERIC_ONLY_MARK, `${f.title} 只靠单字却未标注弱相关`);
+		// **2026-10-30 修正判据**：初版沿用了原用例的 `isAllSingleChar()`——它只看
+		// 命中 token 是否**全为单字**。而夹具乙命中「执行」是**两字通用词**，
+		// 走不进该分支，于是循环里那句断言对夹具永远不执行：用例变绿，但守的是空气
+		// （变异验证时暴露：把 `onlyGenericOrWeak` 恒置 false，本条并未转红）。
+		//
+		// 改为正向判据：只要理由里出现「仅通用词」或「仅单字」，就必须同时带
+		// 「相关性弱，须自行核实」。这条不依赖 token 长度，通用词与单字两种弱命中
+		// 都被覆盖。
+		const WEAK_MARK = /仅通用词|仅单字/;
+		const WEAK_DISCLOSURE = /相关性弱，须自行核实/;
+		let checkedWeak = 0;
+		for (const f of r.facts) {
+			if (f === relevant) continue;
+			if (!WEAK_MARK.test(f.hitReason)) continue;
+			checkedWeak += 1;
+			assert.match(
+				f.hitReason,
+				WEAK_DISCLOSURE,
+				`${f.title} 自称弱相关却未声明「相关性弱，须自行核实」：${f.hitReason}`,
+			);
 		}
+		// 反向：夹具乙**必须**被判为弱命中，否则本用例的检查分支根本没被走到
+		// （这正是初版失效的形态——用例绿着，断言一次也没执行）。
+		const genericOnly = r.facts.find((f) => f.title.includes("夹具乙"));
+		assert.ok(genericOnly !== undefined, "只有通用词的夹具乙须出现在候选里");
+		assert.match(
+			genericOnly.hitReason,
+			WEAK_MARK,
+			`只靠通用词命中的夹具乙须被判为弱命中（否则降级规则已失效）：${genericOnly.hitReason}`,
+		);
+		assert.ok(checkedWeak > 0, "须至少检查到一条弱命中（否则断言未被执行）");
+	} finally {
+		await rm(tmp, { recursive: true, force: true });
 	}
 });
 
@@ -1101,10 +1192,11 @@ test("类型点名层只对规范生效，不得作用于事实（实测回归�
 			`事实不得靠类型点名层命中：${f.title} → ${f.hitReason}`,
 		);
 	}
-	assert.ok(
-		r.facts.some((f) => f.title.includes("插件重建清空子代理登记表")),
-		"真相关的教训须仍被召回",
-	);
+	// **末尾「真相关的教训须仍被召回」已删除（2026-10-30）**：它与本文件
+	// 「通用词不得单独构成命中依据」那条守同一个行为（同一查询、同一目标对象
+	// 「插件重建清空子代理登记表」），却各自钉一次该对象的标题。同一行为守两遍
+	// 不增加检测力，反而把**该对象的存在**变成两份隐式依赖：对象一旦销账或改名，
+	// 两条同时红，而它们守的排序行为其实没坏。保留前一条即可。
 });
 
 test("默认事实类型须为 ADR/Pitfall（03 §6.1 标准路径的明示要求）", async () => {
@@ -1461,9 +1553,13 @@ test("正文层门槛须随查询长度自适应：短查询不得被一刀切�
 		const r = await recallForAction({ action: q, root: ROOT, limit: 3 });
 		assert.ok(r.specs.length > 0, `短查询「${q}」不应零命中`);
 	}
-	// 通用词即便查询只有一个也不得放宽（那正是原阈值要挡的噪声）。
-	const generic = await recallForAction({ action: "规范", root: ROOT, limit: 3 });
-	assert.ok(generic.specs.length >= 0, "通用词查询不做断言，只要求不崩");
+	// **通用词单 token 查询的断言已删除（2026-10-30）**：原文为
+	//   `const generic = await recallForAction({ action: "规范", ... });
+	//    assert.ok(generic.specs.length >= 0, "通用词查询不做断言，只要求不崩")`
+	// `>= 0` 对 length 恒真（长度不可能为负），这条断言**在任何实现下都通过**。
+	// 它唯一残余的作用是「调用不抛异常」——那是 smoke test，而本文件已有大量
+	// 真实调用覆盖同一路径。按 06 §5 删除；若将来要守「通用词查询不得放宽门槛」，
+	// 须写成**可判定的**形式（如断言命中数低于某个实测基线上界），不能靠恒真式。
 });
 
 test("长查询的正文层门槛不得放宽（防噪声回归）", async () => {
