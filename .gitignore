@@ -35,5 +35,8 @@ __pycache__/
 # Local / untracked scratch
 *.local
 
+# 调研抓取的网页快照（rsch/）：外部页面的本地存件，非项目内容，不入库
+rsch/
+
 # DSH runtime scratch (vision-router artifacts, not project content)
 .dsh-vision-router/
