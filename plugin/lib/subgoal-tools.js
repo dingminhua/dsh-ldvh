@@ -30,6 +30,7 @@
 
 import {
   createSubGoalObject,
+  precheckSubGoalCreate,
   readSubGoalObject,
   updateSubGoalObject,
   listSubGoalObjects,
@@ -51,6 +52,11 @@ const OPERATIONS = {
   "subgoal-list-objects": {
     toolName: "ldvh_subgoal_list",
     summary: "Enumerate SubGoal fact objects (F0/F1 discovery): anchor/title/status/criterion projection for the governed project; active-only by default; ordered by numeric anchor so SG-1, SG-2… read in order (specs/28 §12.4)",
+    effect: "read"
+  },
+  "subgoal-precheck-create": {
+    toolName: "ldvh_subgoal_precheck_create",
+    summary: "只读机械预检一份 SubGoal 创建候选：对候选 frontmatter_draft 与 body_markdown 跑**与受控创建完全相同的校验器**，返回 passed/failed/unverifiable、逐条 issues 与候选内容指纹；不落盘、不分配标识（specs/28 §13 提请前机械预检；与 workcase-precheck-create 同形——同一 validator 的两个入口）",
     effect: "read"
   },
   "subgoal-write-object": {
@@ -281,6 +287,62 @@ async function executeListObject(args, exec, deps) {
   });
 }
 
+async function executePrecheckCreate(args, exec, deps) {
+  const governed = await governedProject(deps.dshHomePath, exec);
+  if (!governed.ok) {
+    return envelope("subgoal-precheck-create", "unavailable", {
+      result: { mechanical_outcome: "unverifiable" },
+      scope: { requested: "precheck", completed: [], not_completed: ["precheck"] },
+      sources: [],
+      gaps: [`governance state is ${governed.scope.state}: the precheck contract serves governed projects only`],
+      verification: { checks: ["governance-scope"], passed: false },
+      follow_up: []
+    });
+  }
+  const draft = args?.frontmatter_draft;
+  const bodyMarkdown = args?.body_markdown;
+  if (typeof draft !== "object" || draft === null || typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
+    return invalidRequest("subgoal-precheck-create", "frontmatter_draft (object) and body_markdown are required for a create precheck", "precheck");
+  }
+  const factSourceRoot = join(governed.project.path, FACT_SOURCE_ROOT_DIR);
+  const evaluated = await precheckSubGoalCreate({ factSourceRoot, frontmatterDraft: draft, bodyMarkdown });
+  if (!evaluated.ok) {
+    return envelope("subgoal-precheck-create", "unavailable", {
+      result: { mechanical_outcome: "unverifiable" },
+      scope: { requested: "precheck", completed: [], not_completed: ["precheck"] },
+      sources: [{ kind: "fact-object", path: join(factSourceRoot, "subgoals") }],
+      gaps: [`${evaluated.error.code}: ${evaluated.error.message}`],
+      verification: { checks: ["precheck"], passed: false },
+      follow_up: []
+    });
+  }
+  const value = evaluated.value;
+  return envelope(
+    "subgoal-precheck-create",
+    // 05 §8: a mechanically FAILED candidate is a completed execution that
+    // reports a verdict — not a rejected request. `rejected` would tell the
+    // caller the tool refused to run it, which is a different fact.
+    value.mechanical_outcome === "unverifiable" ? "partial" : "completed",
+    {
+      result: value,
+      scope: {
+        requested: "precheck",
+        completed: ["precheck"],
+        not_completed: value.mechanical_outcome === "passed" ? [] : ["candidate has not passed the mechanical checks"],
+      },
+      sources: [{ kind: "fact-object", path: join(factSourceRoot, "subgoals") }],
+      gaps: [
+        ...(value.error_code ? [`${value.error_code}: ${value.error_message}`] : []),
+        ...(value.issues ?? []),
+      ],
+      verification: { checks: ["precheck", "candidate-fingerprint"], passed: value.mechanical_outcome === "passed" },
+      follow_up: value.mechanical_outcome === "passed"
+        ? ["pass the returned candidate_fingerprint to ldvh_subgoal_write(action=create) as expected_candidate_fingerprint — the write refuses when the content changes in between"]
+        : ["fix the reported issues and re-run the precheck; do not retry the write hoping for a different verdict (02 §10.1)"],
+    },
+  );
+}
+
 async function executeWriteObject(args, exec, deps) {
   const action = args?.action;
   if (action !== "create" && action !== "update") {
@@ -323,6 +385,9 @@ async function executeWriteObject(args, exec, deps) {
       frontmatterDraft: draft,
       bodyMarkdown,
       sessionSignature: sig.value,
+      expectedCandidateFingerprint: typeof args?.expected_candidate_fingerprint === "string"
+        ? args.expected_candidate_fingerprint
+        : null,
     });
     if (!created.ok) {
       return writeRejected("subgoal-write-object", created, factSourceRoot, "create");
@@ -532,6 +597,17 @@ function parameterSchemaFor(operationKey) {
       additionalProperties: false
     };
   }
+  if (operationKey === "subgoal-precheck-create") {
+    return {
+      type: "object",
+      properties: {
+        frontmatter_draft: { ...subgoalFrontmatter, description: "the candidate's AI-supplied type fields (exactly what create would receive)" },
+        body_markdown: { type: "string", description: "the candidate's body markdown starting with '## 达成条件' (exactly what create would receive)" },
+      },
+      required: ["frontmatter_draft", "body_markdown"],
+      additionalProperties: false
+    };
+  }
   if (operationKey === "subgoal-list-objects") {
     return {
       type: "object",
@@ -553,7 +629,8 @@ function parameterSchemaFor(operationKey) {
       frontmatter_after: subgoalFrontmatterAfter,
       frontmatter_removals: { type: "array", items: { type: "string" }, description: FRONTMATTER_REMOVALS_DESCRIPTION },
       body_markdown_after: { type: "string", description: "update: the complete target body markdown (same shape as body_markdown, INCLUDING the H1 line — pass back what a precise read returned)" },
-      change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry; for active→achieved it must state the evidence basis (28 §9.2)" }
+      change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry; for active→achieved it must state the evidence basis (28 §9.2)" },
+      expected_candidate_fingerprint: { type: "string", description: "create: the candidate_fingerprint returned by ldvh_subgoal_precheck_create for THIS candidate content. When supplied, the write refuses if the content changed in between — so a precheck verdict never silently carries over to a different candidate (28 §13). Omit only when the candidate was not prechecked, and record that as an unfulfilled scope (02 §10.1)" }
     },
     required: ["action"],
     additionalProperties: false
@@ -597,6 +674,7 @@ export function toolDescriptorFor(operationKey, operation, handler) {
  */
 export function makeExecute(deps) {
   const handlers = {
+    "subgoal-precheck-create": (args, exec) => executePrecheckCreate(args, exec, deps),
     "subgoal-read-object": (args, exec) => executeReadObject(args, exec, deps),
     "subgoal-list-objects": (args, exec) => executeListObject(args, exec, deps),
     "subgoal-write-object": (args, exec) => executeWriteObject(args, exec, deps),

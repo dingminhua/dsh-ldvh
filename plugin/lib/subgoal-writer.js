@@ -56,6 +56,14 @@ const SUBGOAL_TYPE_KEY = "subgoal";
 /** Directory under the fact-source root that carries SubGoal objects (28 §7). */
 export const SUBGOAL_DIRECTORY = "subgoals";
 
+/**
+ * A syntactically valid UUID that never represents a real object: it exists only
+ * so the closed-set validator (which requires a canonical `object_uid`) can run
+ * on a precheck candidate without minting an identity (28 §13 不生成对象标识).
+ * Never returned to a caller, never written.
+ */
+const PRECHECK_PLACEHOLDER_UID = "00000000-0000-4000-8000-000000000000";
+
 /** Fixed body H2 sections (28 §8) — both required and non-empty. */
 const BODY_H2_REQUIRED = ["达成条件", "对齐说明"];
 
@@ -401,22 +409,75 @@ export async function resolveParentGoal(factSourceRoot) {
 // Create (specs/02 §10 + specs/28 §13)
 // ---------------------------------------------------------------------------
 
-export async function createSubGoalObject(args) {
-  const { factSourceRoot, frontmatterDraft, bodyMarkdown, sessionSignature = null } = args;
-  const sig = requireAuthoritativeSignature(sessionSignature);
-  if (!sig.ok) return failure(sig.code, sig.message);
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const keys = Object.keys(value).sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+/**
+ * Fingerprint of the CREATE candidate content (28 §13 双入口一致性).
+ *
+ * Covers exactly what the caller supplies and what ends up in the object: the
+ * draft (minus Code-stamped fields) and the body. It deliberately excludes
+ * `object_uid`/`created_at`/`change_log` — those are Code-generated and never a
+ * caller decision, so including them would make two identical candidates
+ * fingerprint differently and the comparison would be worthless.
+ *
+ * What the comparison proves: the two calls submitted the same candidate. What
+ * it does NOT prove: the object was not later modified, nor that the content is
+ * appropriate (28 §15 — that stays with Human judgement).
+ */
+export function computeSubGoalCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown) {
+  const { change_summary: _summary, ...draftFields } = frontmatterDraft ?? {};
+  const candidate = {
+    frontmatter_draft: draftFields,
+    body_markdown: typeof bodyMarkdown === "string" ? bodyMarkdown : null,
+  };
+  return createHash("sha256").update(stableStringify(candidate), "utf8").digest("hex");
+}
+
+/**
+ * One evaluation of a CREATE candidate: normalised assembly + every mechanical
+ * check, returning the exact `frontmatter`/`body` that would be written, or the
+ * SAME failures the write path produces.
+ *
+ * Both entries (28 §13 双入口一致性) call this:
+ *   - `precheckSubGoalCreate` passes `signature: null` and generates no uid;
+ *   - `createSubGoalObject` passes the authoritative signature and a uid.
+ *
+ * Only the Code-stamped trio differs, and none of it is caller content — so a
+ * candidate cannot get two different verdicts from the two entries. Two separate
+ * rule sets would let a candidate pass one and fail the other while both claim
+ * compliance, which is precisely what §13 forbids.
+ */
+async function evaluateCreateCandidate({ factSourceRoot, frontmatterDraft, bodyMarkdown, signature = null, objectUid = null }) {
   if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
     return failure("invalid_request", "factSourceRoot is required");
   }
   if (typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
     return failure("invalid_request", "bodyMarkdown is required (the markdown body starting with '## 达成条件'; the H1 is generated from title)");
   }
+  if (frontmatterDraft === null || typeof frontmatterDraft !== "object" || Array.isArray(frontmatterDraft)) {
+    return failure("invalid_request", "frontmatterDraft must be an object");
+  }
 
-  const uid = randomUUID();
   const now = new Date().toISOString();
   const { change_summary: _stripped, ...draftFields } = frontmatterDraft;
   const frontmatter = { ...draftFields };
-  frontmatter.object_uid = uid;
+  // `object_uid` is a REQUIRED field of this closed set (02 §7.1), so the
+  // evaluator cannot run without one. On the write path it is the real minted
+  // identity. On the precheck path nothing is written and no identity may be
+  // handed back (28 §13: 不生成对象标识), so a fixed placeholder is supplied to
+  // satisfy the check and is DISCARED — a fresh UUID would also work but would
+  // make the precheck mint an identifier, which §13 explicitly forbids.
+  //
+  // The placeholder cannot create a false pass: it never reaches disk, and it is
+  // excluded from the candidate fingerprint (Code-stamped field).
+  frontmatter.object_uid = objectUid ?? PRECHECK_PLACEHOLDER_UID;
   frontmatter.fact_type_key = SUBGOAL_TYPE_KEY;
   frontmatter.created_at = now;
 
@@ -431,7 +492,7 @@ export async function createSubGoalObject(args) {
   }
   frontmatter.change_log = [{
     at: now,
-    ...sig.signature,
+    ...(signature ?? {}),
     summary: frontmatterDraft.change_summary ?? "受控创建 SubGoal 对象",
   }];
 
@@ -445,7 +506,7 @@ export async function createSubGoalObject(args) {
   if (!parent.ok) return parent;
 
   // 28 §6.2 layer 1 — before any write.
-  const exclusivity = await checkAnchorExclusive(factSourceRoot, frontmatter.anchor, uid);
+  const exclusivity = await checkAnchorExclusive(factSourceRoot, frontmatter.anchor, objectUid);
   if (!exclusivity.ok) return exclusivity;
 
   const body = assembleBody(frontmatter.title, bodyMarkdown);
@@ -458,6 +519,96 @@ export async function createSubGoalObject(args) {
     return failure("subgoal/coherence_invalid", "carrier coherence failed", { issues: coherenceCheck.issues });
   }
 
+  return success({ frontmatter, body });
+}
+
+/**
+ * Read-only mechanical precheck of a CREATE candidate (28 §13 提请前机械预检).
+ *
+ * Runs the SAME evaluator the write path runs, so the verdict cannot disagree
+ * with the write. Writes nothing, mints no `object_uid`, adds no `change_log`
+ * entry. Returns the candidate fingerprint the caller passes back to
+ * `ldvh_subgoal_write` as `expected_candidate_fingerprint` — that is what makes
+ * "the Human approved THIS content" mechanically checkable rather than assumed.
+ */
+export async function precheckSubGoalCreate({ factSourceRoot, frontmatterDraft, bodyMarkdown }) {
+  if (typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
+    return success({
+      mechanical_outcome: "unverifiable",
+      candidate_fingerprint: computeSubGoalCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown),
+      issues: ["body_markdown is required (starting with '## 达成条件'; the H1 is generated from title)"],
+      issue_groups: [],
+    });
+  }
+  const evaluated = await evaluateCreateCandidate({ factSourceRoot, frontmatterDraft, bodyMarkdown, signature: null, objectUid: null });
+  const candidateFingerprint = computeSubGoalCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown);
+  if (!evaluated.ok) {
+    const code = evaluated.error.code;
+    const issues = evaluated.error.details?.issues;
+    // `invalid_request` is "the check could not be completed", not "the candidate
+    // has a fixable defect" — kept as its own outcome so a blocked environment
+    // cannot be misread as a formatting hint (same split as WorkCase 21 §14).
+    return success({
+      mechanical_outcome: code === "invalid_request" ? "unverifiable" : "failed",
+      candidate_fingerprint: candidateFingerprint,
+      error_code: code,
+      error_message: evaluated.error.message,
+      issues: Array.isArray(issues) ? issues : [],
+      issue_groups: Array.isArray(issues) ? [{ code, issues }] : [],
+    });
+  }
+  return success({
+    mechanical_outcome: "passed",
+    candidate_fingerprint: candidateFingerprint,
+    issues: [],
+    issue_groups: [],
+    object_uid: null,
+  });
+}
+
+/**
+ * @param {object} args
+ * @param {string|null} [args.expectedCandidateFingerprint] the fingerprint the
+ *   precheck returned for THIS content. When supplied, the write refuses if the
+ *   content changed in between (28 §13: 提请与写入之间候选内容发生变化时写入一律拒绝).
+ */
+export async function createSubGoalObject(args) {
+  const { factSourceRoot, frontmatterDraft, bodyMarkdown, sessionSignature = null, expectedCandidateFingerprint = null } = args;
+  const sig = requireAuthoritativeSignature(sessionSignature);
+  if (!sig.ok) return failure(sig.code, sig.message);
+  if (typeof factSourceRoot !== "string" || factSourceRoot.length === 0) {
+    return failure("invalid_request", "factSourceRoot is required");
+  }
+  if (typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
+    return failure("invalid_request", "bodyMarkdown is required (the markdown body starting with '## 达成条件'; the H1 is generated from title)");
+  }
+
+  const uid = randomUUID();
+  const evaluated = await evaluateCreateCandidate({
+    factSourceRoot,
+    frontmatterDraft,
+    bodyMarkdown,
+    signature: sig.signature,
+    objectUid: uid,
+  });
+  if (!evaluated.ok) return evaluated;
+
+  // 28 §13: the precheck verdict belongs to the content it was run against. When
+  // the caller supplies that fingerprint, a change in between is refused rather
+  // than silently accepted — otherwise "Human approved it" would attach to a
+  // different object than the one that lands.
+  if (typeof expectedCandidateFingerprint === "string" && expectedCandidateFingerprint.length > 0) {
+    const actual = computeSubGoalCreateCandidateFingerprint(frontmatterDraft, bodyMarkdown);
+    if (actual !== expectedCandidateFingerprint) {
+      return failure(
+        "subgoal/candidate_changed",
+        "the candidate content changed between precheck and write; the precheck verdict does not carry over (28 §13) — re-run the precheck on the current content",
+        { expected_candidate_fingerprint: expectedCandidateFingerprint, actual_candidate_fingerprint: actual },
+      );
+    }
+  }
+
+  const { frontmatter, body } = evaluated.value;
   const typeDir = join(factSourceRoot, SUBGOAL_DIRECTORY);
   await mkdir(typeDir, { recursive: true });
   const filePath = objectFilePath(factSourceRoot, uid);

@@ -15,9 +15,11 @@ import { mkdir, readFile, writeFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	SUBGOAL_DIRECTORY,
+	computeSubGoalCreateCandidateFingerprint,
 	createSubGoalObject,
 	listResolvableAnchors,
 	listSubGoalObjects,
+	precheckSubGoalCreate,
 	readSubGoalObject,
 	resolveSubGoalAnchor,
 	updateSubGoalObject,
@@ -517,6 +519,178 @@ test("the created entry carries the authoritative signature (02 §7.1)", async (
 });
 
 // ---------------------------------------------------------------------------
+// create precheck (28 §13 提请前机械预检 + 双入口一致性)
+// ---------------------------------------------------------------------------
+
+test("precheck: a valid candidate passes and yields a fingerprint, writing NOTHING (28 §13)", async () => {
+	await withTemp("subgoal-precheck.", async (base) => {
+		const root = await freshRoot(base);
+		const d = draft();
+		const r = await precheckSubGoalCreate({ factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: validBody(d) });
+		assert.equal(r.ok, true, JSON.stringify(r.error));
+		assert.equal(r.value.mechanical_outcome, "passed");
+		assert.match(r.value.candidate_fingerprint, /^[0-9a-f]{64}$/);
+		// Read-only: no carrier appeared, and no identifier was minted (28 §13:
+		// 不落盘、不生成对象标识).
+		const entries = await readdir(join(root, SUBGOAL_DIRECTORY)).catch(() => []);
+		assert.deepEqual(entries, []);
+		assert.equal(r.value.object_uid, null);
+	});
+});
+
+test("precheck: an invalid candidate reports issues instead of writing (28 §13)", async () => {
+	await withTemp("subgoal-precheck.", async (base) => {
+		const root = await freshRoot(base);
+		const d = draft({ criterion_kind: "vibes" });
+		const r = await precheckSubGoalCreate({ factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: validBody(d) });
+		assert.equal(r.ok, true, JSON.stringify(r.error));
+		assert.equal(r.value.mechanical_outcome, "failed");
+		assert.equal(r.value.error_code, "subgoal/frontmatter_invalid");
+		assert.ok(r.value.issues.length > 0, JSON.stringify(r.value));
+	});
+});
+
+test("precheck: an unresolved parent goal is 'failed', not 'unverifiable' (28 §14.1)", async () => {
+	await withTemp("subgoal-precheck.", async (base) => {
+		const root = join(base, "ldvh-base");
+		await mkdir(root, { recursive: true });
+		const d = draft();
+		const r = await precheckSubGoalCreate({ factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: validBody(d) });
+		assert.equal(r.value.mechanical_outcome, "failed");
+		assert.equal(r.value.error_code, "subgoal/parent_goal_unresolvable");
+	});
+});
+
+test("precheck: a body it cannot evaluate at all is 'unverifiable', not 'failed'", async () => {
+	await withTemp("subgoal-precheck.", async (base) => {
+		const root = await freshRoot(base);
+		const d = draft();
+		const r = await precheckSubGoalCreate({ factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: "" });
+		assert.equal(r.value.mechanical_outcome, "unverifiable");
+	});
+});
+
+test("双入口一致性: precheck and create reach the SAME verdict on the same candidate (28 §13)", async () => {
+	await withTemp("subgoal-precheck.", async (base) => {
+		const root = await freshRoot(base);
+		// A candidate that must FAIL both entries: the anchor is already taken.
+		const taken = await createOne(root);
+		assert.equal(taken.result.ok, true, JSON.stringify(taken.result.error));
+
+		const d = draft(); // same anchor SG-1 as the existing object
+		const pre = await precheckSubGoalCreate({ factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: validBody(d) });
+		const write = await createSubGoalObject({
+			factSourceRoot: root,
+			frontmatterDraft: d,
+			bodyMarkdown: validBody(d),
+			sessionSignature: SIG,
+		});
+		assert.equal(pre.value.mechanical_outcome, "failed");
+		assert.equal(write.ok, false);
+		// Same code on both sides — two rule sets would let them disagree while
+		// both claiming compliance, which is exactly what §13 forbids.
+		assert.equal(pre.value.error_code, write.error.code);
+		assert.equal(pre.value.error_code, "subgoal/anchor_already_exists");
+	});
+});
+
+test("双入口一致性: a passing candidate passes BOTH entries", async () => {
+	await withTemp("subgoal-precheck.", async (base) => {
+		const root = await freshRoot(base);
+		const d = draft();
+		const pre = await precheckSubGoalCreate({ factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: validBody(d) });
+		assert.equal(pre.value.mechanical_outcome, "passed", JSON.stringify(pre.value));
+		const write = await createSubGoalObject({
+			factSourceRoot: root,
+			frontmatterDraft: d,
+			bodyMarkdown: validBody(d),
+			sessionSignature: SIG,
+			expectedCandidateFingerprint: pre.value.candidate_fingerprint,
+		});
+		assert.equal(write.ok, true, JSON.stringify(write.error));
+	});
+});
+
+test("候选指纹: excludes Code-stamped fields so two identical candidates agree", () => {
+	const d = draft();
+	const body = validBody(d);
+	const a = computeSubGoalCreateCandidateFingerprint(d, body);
+	const b = computeSubGoalCreateCandidateFingerprint(d, body);
+	assert.equal(a, b);
+	// The create-time `change_summary` flows into change_log (a Code-stamped
+	// field), so it must not move the candidate fingerprint.
+	const withSummary = { ...d, change_summary: "另一个理由" };
+	assert.equal(computeSubGoalCreateCandidateFingerprint(withSummary, body), a);
+	// A real content change DOES move it.
+	assert.notEqual(computeSubGoalCreateCandidateFingerprint({ ...d, criterion: "换一条判据。" }, body), a);
+	assert.notEqual(computeSubGoalCreateCandidateFingerprint(d, `${body}\n补一句。`), a);
+});
+
+test("write refuses when the candidate changed after the precheck (28 §13)", async () => {
+	await withTemp("subgoal-precheck.", async (base) => {
+		const root = await freshRoot(base);
+		const d = draft();
+		const pre = await precheckSubGoalCreate({ factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: validBody(d) });
+		assert.equal(pre.value.mechanical_outcome, "passed");
+
+		// Same anchor, but the criterion text changed between the two calls.
+		const changed = { ...d, criterion: "另一条完全不同的判据。" };
+		const write = await createSubGoalObject({
+			factSourceRoot: root,
+			frontmatterDraft: changed,
+			bodyMarkdown: validBody(changed),
+			sessionSignature: SIG,
+			expectedCandidateFingerprint: pre.value.candidate_fingerprint,
+		});
+		assert.equal(write.ok, false);
+		assert.equal(write.error.code, "subgoal/candidate_changed");
+		// Nothing written by the refusal.
+		const entries = await readdir(join(root, SUBGOAL_DIRECTORY)).catch(() => []);
+		assert.deepEqual(entries, []);
+	});
+});
+
+test("a create without a precheck fingerprint is still allowed (the gap must then be disclosed)", async () => {
+	await withTemp("subgoal-precheck.", async (base) => {
+		const root = await freshRoot(base);
+		const d = draft();
+		// 02 §10.1: the precheck obligation is real, but the WRITE must not invent
+		// a verification it never ran. Omitting the fingerprint is permitted; the
+		// caller then reports the missing precheck as unfulfilled scope.
+		const write = await createSubGoalObject({
+			factSourceRoot: root,
+			frontmatterDraft: d,
+			bodyMarkdown: validBody(d),
+			sessionSignature: SIG,
+		});
+		assert.equal(write.ok, true, JSON.stringify(write.error));
+	});
+});
+
+test("守卫：预检的占位 object_uid 绝不会落盘（28 §13 不生成对象标识）", async () => {
+	await withTemp("subgoal-placeholder.", async (base) => {
+		const root = await freshRoot(base);
+		const d = draft();
+		const pre = await precheckSubGoalCreate({ factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: validBody(d) });
+		assert.equal(pre.value.mechanical_outcome, "passed");
+		assert.equal(pre.value.object_uid, null);
+
+		const write = await createSubGoalObject({
+			factSourceRoot: root,
+			frontmatterDraft: d,
+			bodyMarkdown: validBody(d),
+			sessionSignature: SIG,
+		});
+		assert.equal(write.ok, true, JSON.stringify(write.error));
+		// The real uid must be the object's own, never the placeholder the
+		// precheck used to satisfy the closed-set check.
+		assert.notEqual(write.value.object_uid, "00000000-0000-4000-8000-000000000000");
+		const raw = await readFile(write.value.file, "utf8");
+		assert.doesNotMatch(raw, /00000000-0000-4000-8000-000000000000/);
+	});
+});
+
+// ---------------------------------------------------------------------------
 // tools layer (subgoal-tools.js)
 // ---------------------------------------------------------------------------
 
@@ -577,6 +751,93 @@ test("subgoal tools: read/list/write lifecycle through the real handlers", async
 		}, ctx);
 		assert.equal(dup.outcome, "rejected");
 		assert.ok(dup.gaps.some((g) => /anchor SG-1/.test(g)), JSON.stringify(dup.gaps));
+	});
+});
+
+test("subgoal tools: 预检工具只读运行，交还指纹与结论，不写盘", async () => {
+	const { makeExecute } = await import("../lib/subgoal-tools.js");
+	const { initRepo, git, sessionPersistenceWithRoutingLog } = await import("./helpers.mjs");
+	await withTemp("subgoal-tools-precheck.", async (base) => {
+		const repo = await initRepo(base, { name: "repo" });
+		await git(repo, ["commit", "-qm", "init"]);
+		const root = join(repo, "ldvh-base");
+		await mkdir(root, { recursive: true });
+		await writeFile(join(root, "goal.md"), [
+			"---", "goal_key: project-goal", "title: T", "status: active",
+			"created_at: 2026-01-01T00:00:00.000Z",
+			"change_log:", "  - at: 2026-01-01T00:00:00.000Z", "    summary: 存量", "---",
+			"", "# 项目目标", "", "## 目标陈述", "", "夹具。", "",
+		].join("\n"), "utf8");
+		const home = join(base, "home");
+		await mkdir(join(home, "ldvh"), { recursive: true });
+		await writeFile(join(home, "ldvh", "governed-projects.yaml"), [
+			"schema_version: 1", "governance_instance_name: T", "product_description: T",
+			"projects:", "  - id: p", `    path: ${repo}`, "default_project_id: p", "",
+		].join("\n"), "utf8");
+
+		const { handlers } = makeExecute({
+			dshHomePath: (...p) => join(home, ...p),
+			sessionPersistence: sessionPersistenceWithRoutingLog(base),
+		});
+		const ctx = { agent: { session: { header: { cwd: repo } } } };
+
+		const d = draft();
+		const pre = await handlers["subgoal-precheck-create"]({
+			frontmatter_draft: d,
+			body_markdown: validBody(d),
+		}, ctx);
+		assert.equal(pre.outcome, "completed", JSON.stringify(pre.gaps));
+		assert.equal(pre.result.mechanical_outcome, "passed");
+		assert.match(pre.result.candidate_fingerprint, /^[0-9a-f]{64}$/);
+		// Read-only: the list is still empty.
+		const listed = await handlers["subgoal-list-objects"]({}, ctx);
+		assert.equal(listed.result.count, 0);
+		// follow_up names the next step, so the caller does not invent one.
+		assert.ok((pre.follow_up ?? []).some((f) => /expected_candidate_fingerprint/.test(f)), JSON.stringify(pre.follow_up));
+
+		// Then the write honours the fingerprint it produced.
+		const created = await handlers["subgoal-write-object"]({
+			action: "create",
+			frontmatter_draft: d,
+			body_markdown: validBody(d),
+			expected_candidate_fingerprint: pre.result.candidate_fingerprint,
+		}, ctx);
+		assert.equal(created.outcome, "completed", JSON.stringify(created.gaps));
+	});
+});
+
+test("subgoal tools: 预检失败时 outcome 仍是 completed（工具跑了，候选没过）", async () => {
+	const { makeExecute } = await import("../lib/subgoal-tools.js");
+	const { initRepo, git, sessionPersistenceWithRoutingLog } = await import("./helpers.mjs");
+	await withTemp("subgoal-tools-precheck2.", async (base) => {
+		const repo = await initRepo(base, { name: "repo" });
+		await git(repo, ["commit", "-qm", "init"]);
+		const root = join(repo, "ldvh-base");
+		await mkdir(root, { recursive: true });
+		const home = join(base, "home");
+		await mkdir(join(home, "ldvh"), { recursive: true });
+		await writeFile(join(home, "ldvh", "governed-projects.yaml"), [
+			"schema_version: 1", "governance_instance_name: T", "product_description: T",
+			"projects:", "  - id: p", `    path: ${repo}`, "default_project_id: p", "",
+		].join("\n"), "utf8");
+		const { handlers } = makeExecute({
+			dshHomePath: (...p) => join(home, ...p),
+			sessionPersistence: sessionPersistenceWithRoutingLog(base),
+		});
+		const ctx = { agent: { session: { header: { cwd: repo } } } };
+
+		const d = draft();
+		// No goal.md ⇒ parent_goal unresolvable ⇒ mechanical failure.
+		const pre = await handlers["subgoal-precheck-create"]({
+			frontmatter_draft: d,
+			body_markdown: validBody(d),
+		}, ctx);
+		// The tool RAN and reported a verdict; `rejected` would wrongly say the
+		// tool refused to run (05 §8 outcome semantics).
+		assert.equal(pre.outcome, "completed");
+		assert.equal(pre.result.mechanical_outcome, "failed");
+		assert.equal(pre.result.error_code, "subgoal/parent_goal_unresolvable");
+		assert.equal(pre.verification.passed, false);
 	});
 });
 
