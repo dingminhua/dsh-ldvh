@@ -186,6 +186,94 @@ test("派发条数受上限约束（防提示词无界增长），且批内每�
 
 // ── ④ 无提案不落盘 ──────────────────────────────────────────────────────
 
+// ── ⑦ 归档血缘守卫（2026-10-31 实测根因）─────────────────────────────
+//
+// 宿主的 ArchivedSessionGate 无条件挂在 agent/pre-step，归档血缘下的执行体
+// 必然 blocked（实测 78f975c2：10 个事件、19 毫秒、0 条 assistant 消息）。
+// 那种派发**必然白跑**，还会把外层锁拖到过期。这里钉住「不派发」与
+// 「探不到时照常派发但记账」两条。
+
+test("归档血缘下**不派发执行体**，并如实记 skipped/archived-lineage", async () => {
+  const base = await mkdtemp(join(tmpdir(), "review-stage-"));
+  await seedBuffer(base);
+  const subagents = fakeSubagents({ proposals: [] });
+  const lifecycle = quietLifecycle();
+
+  const result = await runReviewStage({
+    subagents,
+    parent: { session: { header: { id: "session-child" } } },
+    scope: governedScope(base),
+    lifecycle,
+    dshHomePath: homeJoiner(base),
+    workspaceRegistry: { archivedSessionIds: ["session-parent"] },
+    sessions: {
+      get: (id) => (id === "session-child"
+        ? { header: { id: "session-child", origin: "subagent", parentSession: "session-parent" } }
+        : { header: { id, origin: "root" } }),
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.value.skipped, true);
+  assert.equal(result.value.reason, "archived-lineage");
+  assert.equal(subagents.calls.length, 0, "归档血缘下不得派发任何执行体");
+  const rec = lifecycle.events.find((e) => e.name === "review/stage");
+  assert.equal(rec.payload.outcome, "skipped");
+  assert.equal(rec.payload.action, "archived-lineage");
+});
+
+test("**探不到归档集合时照常派发**，只记 lineage-unchecked（不得据此永久停摆）", async () => {
+  const base = await mkdtemp(join(tmpdir(), "review-stage-"));
+  await seedBuffer(base);
+  const subagents = fakeSubagents({ proposals: [] });
+  const lifecycle = quietLifecycle();
+
+  const result = await runReviewStage({
+    subagents,
+    parent: { session: { header: { id: "session-child" } } },
+    scope: governedScope(base),
+    lifecycle,
+    dshHomePath: homeJoiner(base),
+    // 服务缺失 → 判不出来
+    workspaceRegistry: null,
+    sessions: null,
+  });
+
+  assert.equal(subagents.calls.length, 1, "探不到时必须照常派发");
+  assert.equal(result.ok, true);
+  const unchecked = lifecycle.events.find((e) => e.name === "review/lineage-unchecked");
+  assert.ok(unchecked !== undefined, "探不到须如实记账");
+  assert.equal(unchecked.payload.reason, "archive-set-unavailable");
+});
+
+test("执行体被拒（refusal）**不记成 no-proposals**——两者根因不同", async () => {
+  const base = await mkdtemp(join(tmpdir(), "review-stage-"));
+  await seedBuffer(base);
+  const subagents = {
+    list: () => ["spawn"],
+    getProvider: (name) => ({ name, inheritsParentContext: false, capabilities: { outputSchema: true } }),
+    startActivation: async () => ({
+      childId: "child-1",
+      result: Promise.resolve({ stopReason: "refusal", structured: null }),
+    }),
+  };
+  const lifecycle = quietLifecycle();
+
+  const result = await runReviewStage({
+    subagents,
+    parent: {},
+    scope: governedScope(base),
+    lifecycle,
+    dshHomePath: homeJoiner(base),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "review_stage/executor_not_run");
+  assert.equal(result.error.stopReason, "refusal");
+  const rec = lifecycle.events.find((e) => e.name === "review/stage");
+  assert.equal(rec.payload.action, "executor-not-run");
+});
+
 test("执行体没给可解析提案 → 不落盘，条目原样留 pending（缺省不得代替判断）", async () => {
   const base = await mkdtemp(join(tmpdir(), "review-stage-"));
   await seedBuffer(base);
