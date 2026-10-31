@@ -1909,104 +1909,174 @@ test("M-21：一源不可读但另一源有非截断命中时，须报 partial �
 	// 触发的用例；如实登记为验证缺口，不以一个不区分新旧的伪用例冒充覆盖。
 });
 
+// ---------------------------------------------------------------------------
+// 固定夹具语料（2026-11-01，老丁 m00559 任务）
+//
+// **为什么需要它**：本文件此前有三条用例把「注释里写的实测数字」与**项目真实语料**
+// 动态比对（「改」的覆盖率、title×症状重叠数、同义改写自召回率）。真实语料由宿主
+// 辅助任务与并行会话持续写入——每进一条摩擦账目或坑，这些计数就变，用例随即变红，
+// 而实现可能完全没动。这类红不是缺陷信号，是**断言前提选错了对象**。
+//
+// 老丁的约束（m00559）：「断言前提随语料漂移须显式改为不依赖语料的固定夹具，并在
+// 注释说明原因」。故改为：夹具语料固定不变 → 计数确定 → 注释里写的数字必须等于
+// **夹具**实测值，仍能守住「注释不得过时」，且不再随项目语料漂移。真实语料的规模
+// 与历史值保留在源码注释里作散文（带日期），**不再进入任何断言**。
+//
+// 夹具设计要点（每项都在注释里被断言引用，改动须同步改源码注释）：
+//   · 甲/乙 含「改」，丙–辛 不含 → 覆盖率 2/8，有区分度（不是全 0 也不是全中）；
+//   · 甲–戊 症状 ≥40 字（计入同义改写样本），己 症状 10 字（两项都不计），
+//     庚/辛 症状 20–39 字（计入重叠、不计入同义改写）→ 三段阈值都被覆盖；
+//   · 辛 的 title（「版本号比较」）与症状**无 ≥2 字共享词** → 提供 1 条「无重叠」
+//     样本，使「有重叠/无重叠」两侧都有非零值（否则断言失去分辨力）。
+// ---------------------------------------------------------------------------
+const FIXTURE_PITFALLS = [
+	["11111111-1111-4111-8111-111111111111", "夹具甲 分发器改名后回调丢失", "分发器改名后回调注册表仍按旧名索引，回调被静默丢弃；上游只看到超时，日志里没有任何异常记录，排查需要半天时间"],
+	["22222222-2222-4222-8222-222222222222", "夹具乙 缓存键改动漏掉租户维度", "缓存键改动只拼了用户标识而漏掉租户维度，多租户下同一用户标识在不同租户间读到彼此缓存内容；实测串号只在压测时出现"],
+	["33333333-3333-4333-8333-333333333333", "夹具丙 装饰器顺序致初始化乱序", "装饰器顺序决定了依赖注入的时点，模块加载阶段读到的配置对象还是空壳，实际取到的永远是默认值；测试环境看不出问题"],
+	["44444444-4444-4444-8444-444444444444", "夹具丁 重试策略叠加导致请求放大", "重试策略两层各自独立计数，外层三次内层三次共九次实际请求，服务端在故障恢复瞬间被放大流量压垮；客户端日志只记录最外层一次"],
+	["55555555-5555-4555-8555-555555555555", "夹具戊 门禁状态判断放宽过界", "门禁状态判断把草稿态当成通过，门禁脚本本身返回成功码，调用方看不出问题"],
+	["66666666-6666-4666-8666-666666666666", "夹具己 日志字段截断", "日志字段被截断成空串"],
+	["77777777-7777-4777-8777-777777777777", "夹具庚 静默失败", "上游超时之后没有任何错误码返回，调用方以为这批请求都已成功落库，直到对账日才发现缺口"],
+	["88888888-8888-4888-8888-888888888888", "夹具辛 版本号比较", "两端各自解析之后再比对大小，补零的位数不同导致判断相反，现象是升级后被判定为需要升级"],
+];
+
+/** 在临时目录搭出固定夹具语料，交给回调；结束时清理。 */
+async function withFixtureCorpus(fn) {
+	const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const root = await mkdtemp(joinPath(tmpdir(), "recall-comment-fixture-"));
+	try {
+		const dir = joinPath(root, "ldvh-base", "pitfalls");
+		await mkdir(dir, { recursive: true });
+		for (const [uid, title, symptom] of FIXTURE_PITFALLS) {
+			await writeFile(
+				joinPath(dir, `pitfall-${uid}.md`),
+				[
+					"---",
+					`title: ${title}`,
+					"status: active",
+					`scope: 适用于${title}的夹具场景`,
+					`object_uid: ${uid}`,
+					"fact_type_key: pitfall",
+					"---",
+					"",
+					`# ${title}`,
+					"",
+					"## 症状",
+					"",
+					symptom,
+					"",
+				].join("\n"),
+				"utf8",
+			);
+		}
+		const facts = await loadFacts(joinPath(root, "ldvh-base"));
+		return await fn(root, facts);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+}
+
+/** 取 Pitfall 的「症状」段首句（与源码注释里的测量方法一致）。 */
+const symptomOf = (p) => /## 症状\s*\n+([^\n#]+)/.exec(p.body ?? "")?.[1] ?? "";
+
 test("代码注释里的实测数字须与当前实现一致（防再次过时）", async () => {
 	// 第 54/55 轮教训：注释里「实测 X%」这类数字有出处、有样本，最容易被信任而
 	// 从不复核。实测第 54 轮发现 43% 已变 100%、第 55 轮发现「改」覆盖 231/337
 	// 已变 285/337、以及「title 与症状常常没有字面重叠」已被证伪（47:1 反例）。
 	// 本用例把关键数字与「当前实现」动态比对，使它们不能悄悄过时。
-	const specs = await loadSpecs(joinPath(ROOT, "specs"));
-	const facts = await loadFacts(joinPath(ROOT, "ldvh-base"));
-
-	// 1) 「改」的覆盖率：**读出注释里声称的数字**，再与实测比对——
-	// 只断言实测值等于某个常量是不够的：注释改错了它照样通过（这是本用例
-	// 第一版的缺陷，破坏性验证时暴露）。
+	//
+	// **2026-11-01 前提改为固定夹具**（老丁 m00559）：原先与项目真实语料比对，
+	// 而真实语料持续增长 → 计数每变一次用例就红一次，红的是语料不是实现。
+	// 现改为与 `FIXTURE_PITFALLS` 的固定计数比对（夹具说明见其定义处）。
 	const { readFile } = await import("node:fs/promises");
 	const src = await readFile(joinPath(ROOT, "plugin", "lib", "source-recall.js"), "utf8");
-	const claimed = /「改」出现在 \*\*(\d+)\/(\d+)/.exec(src);
-	assert.ok(claimed !== null, "注释里须写明「改」的覆盖率");
-	const carriers = [...specs.map((s) => s.text ?? ""), ...facts.map((f) => f.fullText ?? "")];
-	const gai = carriers.filter((t) => t.includes("改")).length;
-	assert.equal(
-		Number(claimed[1]),
-		gai,
-		`注释声称 ${claimed[1]}，实测 ${gai}`,
-	);
-	assert.equal(
-		Number(claimed[2]),
-		carriers.length,
-		`注释声称分母 ${claimed[2]}，实测 ${carriers.length}`,
-	);
+	await withFixtureCorpus(async (_root, facts) => {
+		// 1) 「改」的覆盖率：**读出注释里声称的数字**，再与夹具实测比对——
+		// 只断言实测值等于某个常量是不够的：注释改错了它照样通过（这是本用例
+		// 第一版的缺陷，破坏性验证时暴露）。
+		const claimed = /「改」出现在 \*\*(\d+)\/(\d+)/.exec(src);
+		assert.ok(claimed !== null, "注释里须写明「改」的覆盖率");
+		const carriers = facts.map((f) => f.fullText ?? "");
+		const gai = carriers.filter((t) => t.includes("改")).length;
+		assert.equal(Number(claimed[1]), gai, `注释声称 ${claimed[1]}，夹具实测 ${gai}`);
+		assert.equal(Number(claimed[2]), carriers.length, `注释声称分母 ${claimed[2]}，夹具实测 ${carriers.length}`);
 
-	// 2) 症状→自身：注释须写明「命中数/样本数 = 百分比」。
-	//
-	// **2026-10-27 修正**：原正则把 `100%` 写死（`(\d+)\/(\d+) = 100% 命中`），
-	// 于是注释一旦如实写出真实命中率（22/24 = 92%）反而匹配不上 —— 断言与它声称
-	// 守护的「不得过时」互相矛盾，只能靠写一个假数字通过。改为接受任意百分比，
-	// 但**用实测复算同时校验分子与分母**：任一侧漂移都会红。
-	const active = facts.filter((f) => f.type === "pitfall" && f.status === "active");
-	const withSym = active.filter((p) => (/## 症状\s*\n+([^\n#]+)/.exec(p.body ?? "")?.[1] ?? "").length >= 20);
-	const claimedSample = /\*\*(\d+)\/(\d+) = (\d+)% 命中\*\*/.exec(src);
-	assert.ok(claimedSample !== null, "注释里须写明症状→自身的命中率（形如 **22/24 = 92% 命中**）");
-	assert.equal(
-		Number(claimedSample[2]),
-		withSym.length,
-		`注释声称样本 ${claimedSample[2]}，实测 ${withSym.length}`,
-	);
+		// 2) 症状→自身：注释须写明「命中数/样本数 = 百分比」。
+		//
+		// **2026-10-27 修正**：原正则把 `100%` 写死，于是注释一旦如实写出真实
+		// 命中率反而匹配不上——断言与它声称守护的「不得过时」互相矛盾。改为接受
+		// 任意百分比，但**用实测复算同时校验分子与分母**：任一侧漂移都会红。
+		const active = facts.filter((f) => f.type === "pitfall" && f.status === "active");
+		const withSym = active.filter((p) => symptomOf(p).length >= 20);
+		let selfHit = 0;
+		for (const p of withSym) {
+			const r = await recallForAction({
+				action: symptomOf(p).slice(0, 60),
+				root: _root,
+				limit: 10,
+				budgetBytes: 400000,
+				includeSpecs: false,
+			});
+			if (r.facts.some((f) => f.ref === p.ref)) selfHit += 1;
+		}
+		const claimedSample = /\*\*(\d+)\/(\d+) = (\d+)% 命中\*\*/.exec(src);
+		assert.ok(claimedSample !== null, "注释里须写明症状→自身的命中率（形如 **7/7 = 100% 命中**）");
+		assert.equal(Number(claimedSample[1]), selfHit, `注释声称分子 ${claimedSample[1]}，夹具实测 ${selfHit}`);
+		assert.equal(Number(claimedSample[2]), withSym.length, `注释声称样本 ${claimedSample[2]}，夹具实测 ${withSym.length}`);
 
-	// 3) 「title 与症状多数有字面重叠」：注释声称 47 有 / 1 无。
-	let overlap = 0;
-	let noOverlap = 0;
-	for (const p of facts.filter((f) => f.type === "pitfall")) {
-		const sym = /## 症状\s*\n+([^\n#]+)/.exec(p.body ?? "")?.[1] ?? "";
-		if (sym.length < 20) continue;
-		const tTok = new Set(tokenize(p.title));
-		const shared = tokenize(sym).filter((t) => t.length >= 2 && tTok.has(t));
-		if (shared.length > 0) overlap += 1;
-		else noOverlap += 1;
-	}
-	const claimedOverlap = /实测 \*\*(\d+) 条有字面重叠、仅 (\d+) 条无重叠\*\*/.exec(src);
-	assert.ok(claimedOverlap !== null, "注释里须写明 title 与症状的重叠实测");
-	assert.equal(Number(claimedOverlap[1]), overlap, `注释声称 ${claimedOverlap[1]} 条有重叠，实测 ${overlap}`);
-	assert.equal(Number(claimedOverlap[2]), noOverlap, `注释声称 ${claimedOverlap[2]} 条无重叠，实测 ${noOverlap}`);
+		// 3) 「title 与症状是否有字面重叠」：两侧都须有非零样本（否则断言无分辨力）。
+		let overlap = 0;
+		let noOverlap = 0;
+		for (const p of facts.filter((f) => f.type === "pitfall")) {
+			const sym = symptomOf(p);
+			if (sym.length < 20) continue;
+			const tTok = new Set(tokenize(p.title));
+			const shared = tokenize(sym).filter((t) => t.length >= 2 && tTok.has(t));
+			if (shared.length > 0) overlap += 1;
+			else noOverlap += 1;
+		}
+		assert.ok(overlap > 0 && noOverlap > 0, `夹具须同时提供有重叠与无重叠样本，实测 ${overlap}/${noOverlap}`);
+		const claimedOverlap = /实测 \*\*(\d+) 条有字面重叠、仅 (\d+) 条无重叠\*\*/.exec(src);
+		assert.ok(claimedOverlap !== null, "注释里须写明 title 与症状的重叠实测");
+		assert.equal(Number(claimedOverlap[1]), overlap, `注释声称 ${claimedOverlap[1]} 条有重叠，夹具实测 ${overlap}`);
+		assert.equal(Number(claimedOverlap[2]), noOverlap, `注释声称 ${claimedOverlap[2]} 条无重叠，夹具实测 ${noOverlap}`);
+	});
 });
 
 test("「同义改写 95% 命中」须与实测一致（防再次过时）", async () => {
-	// 第 56 轮结论：把症状段的**后半句**当查询（模拟「换个说法」），仍能召回自身
-	// 21/22 = 95%。该数字写进了 limitations 的说明里，故须受本用例守护——
-	// 上一轮刚因「注释数字过时」吃过教训（54/55 轮）。
+	// 第 56 轮结论：把症状段的**后半句**当查询（模拟「换个说法」），仍能召回自身。
+	// 该数字写进了源码注释，故须受本用例守护——上一轮刚因「注释数字过时」吃过教训。
+	//
+	// **2026-11-01 前提改为固定夹具**（老丁 m00559）：原用项目真实语料，样本随语料
+	// 增长（22 → 23 → 28）而漂移，比率下降部分是稀释而非能力退化——用例红的是语料
+	// 变化，不是实现退化。现改与固定夹具比对。
 	const { readFile } = await import("node:fs/promises");
 	const src = await readFile(joinPath(ROOT, "plugin", "lib", "source-recall.js"), "utf8");
-	// **2026-10-27**：第 1 步（类型优先级从绝对前置改为同分时生效）使该指标
-	// 由 22/22 降到 20/22，注释已同步改写为「实测同义改写 20/22 = 91% 仍命中」。
 	// 正则同时接受两种写法，但**必须捕获到百分数**并逐一核对实测——放宽的是
 	// 格式，不是判据。
 	const claimed = /实测同义改写 (?:\d+\/\d+ = )?(\d+)% 仍命中/.exec(src);
-	assert.ok(claimed !== null, "说明里须写明同义改写的命中率");
-
-	const facts = await loadFacts(joinPath(ROOT, "ldvh-base"));
-	const active = facts.filter((f) => f.type === "pitfall" && f.status === "active");
-	let hit = 0;
-	let total = 0;
-	for (const p of active) {
-		const sym = /## 症状\s*\n+([^\n#]+)/.exec(p.body ?? "")?.[1] ?? "";
-		if (sym.length < 40) continue;
-		total += 1;
-		const tail = sym.slice(Math.floor(sym.length / 2));
-		const r = await recallForAction({
-			action: tail,
-			root: ROOT,
-			limit: 8,
-			budgetBytes: 400000,
-			includeSpecs: false,
-		});
-		if (r.facts.some((f) => f.ref === p.ref)) hit += 1;
-	}
-	const actual = Math.round((100 * hit) / total);
-	assert.equal(
-		Number(claimed[1]),
-		actual,
-		`说明声称 ${claimed[1]}%，实测 ${hit}/${total} = ${actual}%`,
-	);
+	assert.ok(claimed !== null, "注释里须写明同义改写的命中率");
+	await withFixtureCorpus(async (root, facts) => {
+		const active = facts.filter((f) => f.type === "pitfall" && f.status === "active");
+		let hit = 0;
+		let total = 0;
+		for (const p of active) {
+			const sym = symptomOf(p);
+			if (sym.length < 40) continue;
+			total += 1;
+			const r = await recallForAction({
+				action: sym.slice(Math.floor(sym.length / 2)),
+				root,
+				limit: 8,
+				budgetBytes: 400000,
+				includeSpecs: false,
+			});
+			if (r.facts.some((f) => f.ref === p.ref)) hit += 1;
+		}
+		const actual = Math.round((100 * hit) / total);
+		assert.equal(Number(claimed[1]), actual, `注释声称 ${claimed[1]}%，夹具实测 ${hit}/${total} = ${actual}%`);
+	});
 });
 
 test("须给出结构化 gaps（01 §10.3 明禁「以已披露代替」）", async () => {

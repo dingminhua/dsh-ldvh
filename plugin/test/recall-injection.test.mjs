@@ -846,31 +846,92 @@ test("数据侧实测值须与当前实现一致（症状→自身召回）", as
 	assert.equal(declared.hits, hit, "声明的 hits 须与实际命中数一致");
 });
 
-test("命中理由须排在路径之前（路径对人零信息量，却是读者最先读到的）", async () => {
+test("命中理由须排在路径之前（路径对人零信息量，却是读者最先读到的）", () => {
 	// 实测缺陷（2026-10-24）：单条规范卡 114 字符里路径占 67（59%），且路径排在
 	// 命中理由之前——读者须先读完 `ldvh-base/pitfalls/pitfall-86f03312-…md`
 	// 才看到「这条为什么相关」。而路径里是 UUID，对人零信息量。
 	// 规范（02 §9.1 F2）要求的是「候选卡、命中依据、有界确定性摘录」，本无路径义务。
 	// 修正后顺序：标题 → **命中理由** → 摘录 → 路径（路径仍保留供打开文件）。
-	const r = await buildRecallInjection({
-		userText: "把 34 号规范改名",
-		projectRoot: ROOT,
-		limit: 2,
+	//
+	// **前提改固定夹具**（2026-11-01，老丁 m00559 任务）：本用例原用真实语料
+	// `buildRecallInjection({userText:"把 34 号规范改名", limit:2})`，其能否产出
+	// 事实卡取决于当回合语料里恰好有什么、名额如何分配——事实源每增一条即可能
+	// 翻转（本次缺陷正是这样暴露的：两张 ADR 事实卡被渲染层裁光）。按老丁要求，
+	// 断言前提不得随语料漂移，故改用 `renderRecallRow` 的合成输入：夹具里**同时**
+	// 有规范卡与事实卡且**强制触发裁剪**，于是「裁剪后仍各留 ≥1 张」与「理由在
+	// 路径前」两件事都变成可判定的固定前提。真实语料的端到端复现见本次修复的
+	// 验收第②条（复现命令输出「- [」行 ≥1），它属交付验收、不属本用例前提。
+	// 理由长度须足以把总量顶过本档字符上限（2400 档 → 1200 字符，预留说明行
+	// 120 字符故实际比较的是 1080），否则裁剪根本不发生、本用例退化成空跑。
+	// 实测标定（2026-11-01）：200 个 R 时总量 1010 > 1080−（裁剪后）= 触发裁剪，
+	// 且裁完仍各留 1 张规范卡与 1 张事实卡；150 个 R 则完全不触发。
+	const longReason = "正文命中：".concat("R".repeat(200));
+	const out = renderRecallRow({
+		ok: true,
+		specs: [
+			{ title: "夹具规范甲", path: "specs/90-fixture-a.md", hitReason: longReason },
+			{ title: "夹具规范乙", path: "specs/91-fixture-b.md", hitReason: longReason },
+		],
+		facts: [
+			{
+				type: "adr",
+				status: "active",
+				title: "夹具决策重复项",
+				hitReason: longReason,
+				path: "ldvh-base/adrs/adr-dupe.md",
+				excerpt: "夹具摘录甲",
+			},
+			{
+				type: "adr",
+				status: "active",
+				title: "夹具决策保留项",
+				hitReason: longReason,
+				path: "ldvh-base/adrs/adr-keep.md",
+				excerpt: "夹具摘录乙",
+			},
+		],
+		// 基线项与**第一张**事实卡同 path：裁剪第一级（基线重复行优先删）会先删
+		// 掉它，第二张（非重复）则受软保底保护——这正是本次修复要守的路径。
+		// 若两张都设成重复项，①级会把事实卡全删光，本用例就会在错误的前提下
+		// 「通过」（标定时踩过：初版两张皆重复，裁剪后 facts=0）。
+		decisionBaseline: {
+			items: [
+				{
+					title: "夹具决策重复项",
+					status: "active",
+					ref: "adr-dupe",
+					path: "ldvh-base/adrs/adr-dupe.md",
+				},
+			],
+		},
+		// 2400 字节触发字节裁剪（字符上限 = 1200，减去说明行预留 120 后比较 1080）。
+		budget: { limitBytes: 2400, usedBytes: 5000, limit: 2 },
 	});
-	assert.equal(r.inject, true);
 
-	const specLine = r.text.split("\n").find((l) => l.startsWith("- ") && l.includes("—"));
-	assert.ok(specLine !== undefined, "应有规范卡行");
-	const reasonAt = specLine.indexOf("— ");
-	const pathAt = specLine.indexOf("（specs/");
-	assert.ok(reasonAt > 0 && pathAt > 0, "行内须同时有命中理由与路径");
-	assert.ok(reasonAt < pathAt, `命中理由须在路径之前：理由@${reasonAt} 路径@${pathAt}`);
+	// 前提：裁剪确实发生（否则本用例又退化成空跑）。
+	assert.match(out, /裁去 \d+ 条候选/, "夹具须真的触发渲染层裁剪");
+	// 缺陷本体：裁剪不得把事实卡裁光（本次修复的软保底），也不得把规范卡裁光。
+	const factLines = out.split("\n").filter((l) => l.startsWith("- ["));
+	assert.ok(factLines.length >= 1, `裁剪后应仍有事实卡行，实际 ${factLines.length}`);
+	// 注意：事实卡也以「- 」开头（`- [adr/active] …`），故规范卡须额外排除
+	// 「- [」前缀——否则下面的规范卡断言会拿事实卡当规范卡比对（夹具里两类
+	// 并存，这个歧义第一次变得可见）。
+	const specLines = out.split("\n").filter((l) => l.startsWith("- ") && !l.startsWith("- [") && l.includes("—"));
+	assert.ok(specLines.length >= 1, `裁剪后应仍有规范卡行，实际 ${specLines.length}`);
 
-	const factLine = r.text.split("\n").find((l) => l.startsWith("- ["));
-	assert.ok(factLine !== undefined, "应有事实卡行");
-	const fReasonAt = factLine.indexOf("— ");
-	const fPathAt = factLine.indexOf("（ldvh-base/");
-	assert.ok(fReasonAt < fPathAt, `事实卡的理由也须在路径之前：理由@${fReasonAt} 路径@${fPathAt}`);
+	// 本用例原守的性质：理由排在路径之前。
+	for (const line of specLines) {
+		const reasonAt = line.indexOf("— ");
+		const pathAt = line.indexOf("（specs/");
+		assert.ok(reasonAt > 0 && pathAt > 0, `规范卡行内须同时有命中理由与路径：${line}`);
+		assert.ok(reasonAt < pathAt, `规范卡命中理由须在路径之前：理由@${reasonAt} 路径@${pathAt}`);
+	}
+	for (const line of factLines) {
+		const fReasonAt = line.indexOf("— ");
+		const fPathAt = line.indexOf("（ldvh-base/");
+		assert.ok(fReasonAt > 0 && fPathAt > 0, `事实卡行内须同时有命中理由与路径：${line}`);
+		assert.ok(fReasonAt < fPathAt, `事实卡的理由也须在路径之前：理由@${fReasonAt} 路径@${fPathAt}`);
+	}
 });
 
 test("规范侧有命中却返回 0 时，归因须指向预算而非条数（原只查事实侧）", async () => {
