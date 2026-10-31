@@ -176,7 +176,13 @@ test('目标页子目标行可下钻到对象详情，legacy 行不可（28 §14
 
   // 有 object_uid 才可点——legacy 行没有可下钻的对象，点进去是 404。
   assert.match(goalSection, /sg\.object_uid \? 'cursor-pointer/, '仅带 object_uid 的行可点');
-  assert.match(goalSection, /navigate\(`\/objects\/subgoal\/\$\{sg\.object_uid\}`\)/, '应下钻到 subgoal 详情路由');
+  // 详情路由的 id 段是 `subgoal-<uid>`（带类型前缀，与列表 obj.id 同形）；
+  // 只给裸 uid 会 404，故断言前缀在位。
+  assert.match(
+    goalSection,
+    /navigate\(`\/objects\/subgoal\/subgoal-\$\{sg\.object_uid\}`\)/,
+    '应下钻到 subgoal 详情路由（带类型前缀）',
+  );
   assert.match(goalSection, /sg\.legacy &&/, 'legacy 行仍须显式标出');
 });
 

@@ -155,8 +155,10 @@ export default function GoalSection() {
                     // 有 object_uid 的行可点进对象详情；legacy 行（旧段遗留、
                     // 尚无对象）不可点——它没有可下钻的详情页。
                     className={`flex min-w-0 items-start gap-2 py-2 ${sg.object_uid ? 'cursor-pointer rounded-md transition-colors hover:bg-ldvh-bg/60' : ''}`}
+                    // 详情路由的 id 段是带类型前缀的 `subgoal-<uid>`（与列表页
+                    // `obj.id` 同形，同 workcase 惯例）——只给裸 uid 会 404。
                     onClick={sg.object_uid
-                      ? () => navigate(`/objects/subgoal/${sg.object_uid}`)
+                      ? () => navigate(`/objects/subgoal/subgoal-${sg.object_uid}`)
                       : undefined}
                   >
                     <span className="ldvh-chip ldvh-chip-sm shrink-0 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent">
