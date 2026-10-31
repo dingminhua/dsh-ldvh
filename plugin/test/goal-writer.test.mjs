@@ -18,6 +18,7 @@ import {
 	createGoalObject,
 	goalFilePath,
 	parseSubGoals,
+	hasLegacySubGoalSection,
 	readGoalAnchors,
 	readGoalObject,
 	splitBodySections,
@@ -27,17 +28,44 @@ import {
 	validateGoalFrontmatter,
 } from "../lib/goal-writer.js";
 import { authoritativeSignature } from "../lib/signature-channel.js";
-import { withTemp } from "./helpers.mjs";
+import { seedSubGoals, withTemp } from "./helpers.mjs";
 
 const SIG = authoritativeSignature({ provider: "test-provider", model: "test-model" });
 
-const validBody = (subGoals = "SG-1 第一条判据\nSG-2 第二条判据") =>
+// 25 §7 (2026-11): goal.md carries 目标陈述 only — sub-goals are SubGoal
+// objects now (28). The legacy `## 子目标` section survives only as a
+// one-way migration state, so the default fixture no longer uses it.
+const validBody = () =>
+	`## 目标陈述\n\n这是一个项目目标陈述，说明为什么与要实现什么。\n`;
+
+/** A carrier still in the pre-migration shape (legacy section present). */
+const legacyBody = (subGoals = "SG-1 第一条判据\nSG-2 第二条判据") =>
 	`## 目标陈述\n\n这是一个项目目标陈述，说明为什么与要实现什么。\n\n## 子目标\n\n${subGoals}\n`;
 
 async function freshRoot(base) {
 	const root = join(base, "ldvh-base");
 	await mkdir(root, { recursive: true });
 	return root;
+}
+
+/**
+ * Write a carrier in the PRE-2026-11 shape (goal.md still carrying a
+ * `## 子目标` section), bypassing the writer.
+ *
+ * Direct write is deliberate: the creation entry now refuses this shape, so the
+ * migration path can only be exercised against a carrier that already exists.
+ */
+async function writeLegacyGoal(root) {
+	const fm = [
+		"goal_key: project-goal",
+		"title: T",
+		"status: active",
+		"created_at: 2026-01-01T00:00:00.000Z",
+		"change_log:",
+		"  - at: 2026-01-01T00:00:00.000Z",
+		"    summary: 存量初始化",
+	].join("\n");
+	await writeFile(join(root, "goal.md"), `---\n${fm}\n---\n\n# 项目目标\n\n${legacyBody()}`, "utf8");
 }
 
 // ---------------------------------------------------------------------------
@@ -123,10 +151,10 @@ test("create refuses the multi-instance fields 25 declares not adopted", async (
 // body contract (25 §6)
 // ---------------------------------------------------------------------------
 
-test("body must be exactly 目标陈述 then 子目标 — 方法与规划 is not accepted (25 §6)", async () => {
+test("body must be exactly 目标陈述 — 方法与规划 is not accepted (25 §7)", async () => {
 	await withTemp("goal.", async (base) => {
 		const root = await freshRoot(base);
-		const withRemoved = "## 目标陈述\n\nx。\n\n## 方法与规划\n\n这不是合法区块。\n\n## 子目标\n\nSG-1 判据\n";
+		const withRemoved = "## 目标陈述\n\nx。\n\n## 方法与规划\n\n这不是合法区块。\n";
 		const r = await createGoalObject({
 			factSourceRoot: root,
 			frontmatterDraft: { title: "T", change_summary: "x" },
@@ -145,17 +173,19 @@ test("a statement-only goal is a legal intermediate state (25 §7)", async () =>
 		const r = await createGoalObject({
 			factSourceRoot: root,
 			frontmatterDraft: { title: "T", change_summary: "init" },
-			bodyMarkdown: "## 目标陈述\n\n只有陈述，子目标待精化。\n\n## 子目标\n\n",
+			bodyMarkdown: "## 目标陈述\n\n只有陈述，子目标待精化。\n",
 			sessionSignature: SIG,
 		});
 		assert.equal(r.ok, true, JSON.stringify(r.error));
 		const read = await readGoalObject({ factSourceRoot: root });
+		// 28 §8.1: sub-goals are derived by `parent_goal` reverse lookup, not
+		// stored on this carrier. None seeded ⇒ the derived set is empty.
 		assert.deepEqual(read.value.sub_goals, []);
 	});
 });
 
 test("body structure validation requires a non-empty 目标陈述", () => {
-	const body = "# 项目目标\n\n## 目标陈述\n\n\n## 子目标\n\n";
+	const body = "# 项目目标\n\n## 目标陈述\n\n";
 	const r = validateGoalBodyStructure(body);
 	assert.equal(r.ok, false);
 	assert.ok(r.issues.some((i) => /目标陈述 section must be present and non-empty/.test(i)));
@@ -172,27 +202,85 @@ test("parseSubGoals reads SG-n entries and flags malformed lines", () => {
 	assert.equal(parsed[2].malformed, true);
 });
 
-test("anchor stability: deleting an existing SG-n is refused (25 §12)", async () => {
+test("legacy 子目标 section: dropping it is refused while an anchor is unmigrated (25 §7 2026-11)", async () => {
 	await withTemp("goal.", async (base) => {
 		const root = await freshRoot(base);
-		await createGoalObject({
+		// Seed the pre-migration shape by writing the carrier directly: the
+		// creation entry already refuses a legacy section (see below).
+		await writeLegacyGoal(root);
+		const cur = await readGoalObject({ factSourceRoot: root });
+		assert.equal(cur.value.body_valid, true, JSON.stringify(cur.value.body_issues));
+		assert.equal(hasLegacySubGoalSection(cur.value.body), true);
+
+		// No SubGoal carriers exist ⇒ dropping the section would orphan every
+		// downstream `serves` pointing at these anchors.
+		const r = await updateGoalObject({
 			factSourceRoot: root,
-			frontmatterDraft: { title: "T", change_summary: "init" },
-			bodyMarkdown: validBody(),
+			expectedFingerprint: cur.value.fingerprint,
+			frontmatterAfter: { ...cur.value.frontmatter },
+			bodyMarkdownAfter: "## 目标陈述\n\n这是一个项目目标陈述，说明为什么与要实现什么。\n",
+			changeSummary: "删掉子目标段",
 			sessionSignature: SIG,
 		});
+		assert.equal(r.ok, false);
+		assert.equal(r.error.code, "goal/legacy_subgoal_unmigrated");
+		assert.deepEqual(r.error.details.unresolved_anchors, ["SG-1", "SG-2"]);
+	});
+});
+
+test("legacy 子目标 section: editable content is refused — no drift through the goal carrier (25 §7)", async () => {
+	await withTemp("goal.", async (base) => {
+		const root = await freshRoot(base);
+		await writeLegacyGoal(root);
 		const cur = await readGoalObject({ factSourceRoot: root });
 		const r = await updateGoalObject({
 			factSourceRoot: root,
 			expectedFingerprint: cur.value.fingerprint,
 			frontmatterAfter: { ...cur.value.frontmatter },
-			bodyMarkdownAfter: "## 目标陈述\n\n这是一个项目目标陈述。\n\n## 子目标\n\nSG-1 第一条判据\n",
-			changeSummary: "删掉了 SG-2",
+			bodyMarkdownAfter: legacyBody("SG-1 第一条判据\nSG-2 第二条判据\nSG-3 新加的"),
+			changeSummary: "在 goal.md 里加一条子目标",
 			sessionSignature: SIG,
 		});
 		assert.equal(r.ok, false);
-		assert.equal(r.error.code, "goal/anchor_instability");
-		assert.ok(r.error.details.issues.some((i) => /SG-2 disappeared/.test(i)));
+		assert.equal(r.error.code, "goal/legacy_subgoal_immutable");
+		assert.deepEqual(r.error.details.existing_anchors, ["SG-1", "SG-2"]);
+		assert.deepEqual(r.error.details.attempted_anchors, ["SG-1", "SG-2", "SG-3"]);
+	});
+});
+
+test("legacy 子目标 section: dropping it succeeds once every anchor migrated (25 §7 → 28)", async () => {
+	await withTemp("goal.", async (base) => {
+		const root = await freshRoot(base);
+		await writeLegacyGoal(root);
+		await seedSubGoals(root, ["SG-1", "SG-2"]);
+		const cur = await readGoalObject({ factSourceRoot: root });
+		const r = await updateGoalObject({
+			factSourceRoot: root,
+			expectedFingerprint: cur.value.fingerprint,
+			frontmatterAfter: { ...cur.value.frontmatter },
+			bodyMarkdownAfter: "## 目标陈述\n\n这是一个项目目标陈述，说明为什么与要实现什么。\n",
+			changeSummary: "子目标已迁入 SubGoal 载体，删除旧段",
+			sessionSignature: SIG,
+		});
+		assert.equal(r.ok, true, JSON.stringify(r.error));
+		assert.equal(r.value.legacy_subgoal_section, false);
+		const after = await readGoalObject({ factSourceRoot: root });
+		assert.equal(hasLegacySubGoalSection(after.value.body), false);
+		assert.equal(after.value.body_valid, true);
+	});
+});
+
+test("create refuses a NEW carrier carrying the legacy 子目标 section (25 §7 2026-11)", async () => {
+	await withTemp("goal.", async (base) => {
+		const root = await freshRoot(base);
+		const r = await createGoalObject({
+			factSourceRoot: root,
+			frontmatterDraft: { title: "T", change_summary: "init" },
+			bodyMarkdown: legacyBody(),
+			sessionSignature: SIG,
+		});
+		assert.equal(r.ok, false);
+		assert.equal(r.error.code, "goal/legacy_subgoal_reintroduced");
 	});
 });
 
@@ -207,7 +295,7 @@ test("anchor stability: rewriting or reordering SG-n is refused; adding is allow
 	assert.equal(added.ok, true, JSON.stringify(added.issues));
 });
 
-test("update adds an anchor through the real writer and reports revised anchors", async () => {
+test("readGoalAnchors resolves anchors from SubGoal carriers, not from goal.md (28 §12.3)", async () => {
 	await withTemp("goal.", async (base) => {
 		const root = await freshRoot(base);
 		await createGoalObject({
@@ -216,19 +304,20 @@ test("update adds an anchor through the real writer and reports revised anchors"
 			bodyMarkdown: validBody(),
 			sessionSignature: SIG,
 		});
-		const cur = await readGoalObject({ factSourceRoot: root });
-		const r = await updateGoalObject({
-			factSourceRoot: root,
-			expectedFingerprint: cur.value.fingerprint,
-			frontmatterAfter: { ...cur.value.frontmatter },
-			bodyMarkdownAfter: validBody("SG-1 第一条判据\nSG-2 第二条判据\nSG-3 第三条判据"),
-			changeSummary: "补入 SG-3：第三条判据已可判定",
-			sessionSignature: SIG,
-		});
-		assert.equal(r.ok, true, JSON.stringify(r.error));
-		assert.deepEqual(r.value.revised_anchors, ["SG-1", "SG-2"]);
+		// No sub-goals yet ⇒ no resolvable anchors.
+		const empty = await readGoalAnchors({ factSourceRoot: root });
+		assert.equal(empty.ok, true, JSON.stringify(empty.error));
+		assert.deepEqual(empty.value.anchors, []);
+
+		// Adding a SubGoal object makes its anchor resolvable WITHOUT touching goal.md.
+		await seedSubGoals(root, ["SG-1", "SG-2"]);
 		const anchors = await readGoalAnchors({ factSourceRoot: root });
-		assert.deepEqual(anchors.value.anchors, ["SG-1", "SG-2", "SG-3"]);
+		assert.deepEqual(anchors.value.anchors, ["SG-1", "SG-2"]);
+
+		// A retired sub-goal is not a valid `serves` target, so it drops out.
+		await seedSubGoals(root, ["SG-3"], { status: "retired", indexOffset: 10 });
+		const retiredOnly = await readGoalAnchors({ factSourceRoot: root });
+		assert.deepEqual(retiredOnly.value.anchors, ["SG-1", "SG-2"]);
 	});
 });
 
@@ -480,15 +569,10 @@ test("REGRESSION: a duplicated H1 is a mechanical failure, not 'valid'", () => {
 	assert.ok(r.issues.some((i) => /exactly one H1/.test(i)), JSON.stringify(r.issues));
 });
 
-test("REGRESSION: a malformed anchor cannot escape the stability check (25 §12)", async () => {
+test("REGRESSION: a malformed anchor cannot escape the legacy-section guard (25 §7)", async () => {
 	await withTemp("goal-anchor.", async (base) => {
 		const root = await freshRoot(base);
-		await createGoalObject({
-			factSourceRoot: root,
-			frontmatterDraft: { title: "T", change_summary: "init" },
-			bodyMarkdown: validBody("SG-1 一\nSG-2 二\n"),
-			sessionSignature: SIG,
-		});
+		await writeLegacyGoal(root);
 		const cur = await readGoalObject({ factSourceRoot: root });
 		// Each malformed shape must be REFUSED with a precise code — otherwise
 		// the anchor stops parsing (anchor: null), becomes invisible to the
@@ -508,7 +592,7 @@ test("REGRESSION: a malformed anchor cannot escape the stability check (25 §12)
 			});
 			assert.equal(r.ok, false, `${label} must be refused`);
 			assert.ok(
-				["goal/anchor_unparsable", "goal/anchor_instability"].includes(r.error.code),
+				["goal/legacy_subgoal_unparsable", "goal/legacy_subgoal_immutable"].includes(r.error.code),
 				`${label}: unexpected code ${r.error.code}`
 			);
 		}

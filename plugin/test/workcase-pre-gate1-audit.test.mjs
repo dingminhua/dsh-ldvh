@@ -15,7 +15,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { withTemp } from "./helpers.mjs";
+import { seedSubGoals, withTemp } from "./helpers.mjs";
 import {
   createWorkcaseObject,
   readWorkcaseObject,
@@ -64,11 +64,10 @@ async function seedGoal(factSourceRoot) {
     "",
     "夹具。",
     "",
-    "## 子目标",
-    "",
-    "SG-1 夹具子目标。",
-    "",
   ].join("\n"), "utf8");
+  // 25 §7 (2026-11): sub-goals live in SubGoal objects. This fixture uses
+  // goal_key=fixture-goal, so the carrier must carry the same parent_goal.
+  await seedSubGoals(factSourceRoot, ["SG-1"], { parentGoal: "fixture-goal" });
 }
 
 // 正文自 H2 起（21 §8）：H1 由 assembleBody 从 title 生成，调用方不得自带。

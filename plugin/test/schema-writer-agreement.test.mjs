@@ -36,6 +36,7 @@ import { VALID_FM_KEYS as PITFALL_FM_KEYS } from "../lib/pitfall-writer.js";
 import { VALID_FM_KEYS as FRICTION_FM_KEYS } from "../lib/friction-writer.js";
 import { VALID_FM_KEYS as NORM_FM_KEYS } from "../lib/norm-writer.js";
 import { VALID_FM_KEYS as WORKCASE_FM_KEYS } from "../lib/workcase-writer.js";
+import { VALID_FM_KEYS as SUBGOAL_FM_KEYS } from "../lib/subgoal-writer.js";
 
 const LIB = join(dirname(fileURLToPath(import.meta.url)), "..", "lib");
 
@@ -97,6 +98,12 @@ const TYPES = [
 		writerKeys: WORKCASE_FM_KEYS,
 		load: () => import("../lib/workcase-tools.js"),
 		operationKey: "workcase-write-object",
+	},
+	{
+		name: "subgoal",
+		writerKeys: SUBGOAL_FM_KEYS,
+		load: () => import("../lib/subgoal-tools.js"),
+		operationKey: "subgoal-write-object",
 	},
 ];
 

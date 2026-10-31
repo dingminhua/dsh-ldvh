@@ -13,7 +13,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as sparkToolsModule from "../lib/spark-tools.js";
 import { registerProject } from "../lib/governed-projects.js";
-import { initRepo, sessionPersistenceWithRoutingLog, withTemp } from "./helpers.mjs";
+import { initRepo, seedSubGoals, sessionPersistenceWithRoutingLog, withTemp } from "./helpers.mjs";
 
 const dshHome = (home) => (...segments) => join(home, ...segments);
 
@@ -92,14 +92,12 @@ created_at: 2026-09-09T12:00:00+08:00
 ## 目标陈述
 
 测试。
-
-## 子目标
-
-SG-1 第一条子目标。
-SG-2 第二条子目标。
-SG-3 第三条子目标。
-SG-4 第四条子目标。
 `;
+
+// 25 §7 (2026-11): the SG-n anchors live in SubGoal objects, not in goal.md.
+async function seedAnchors(base) {
+  await seedSubGoals(base, ["SG-1", "SG-2", "SG-3", "SG-4"]);
+}
 
 function validFrontmatterDraft(overrides = {}) {
   return {
@@ -126,6 +124,7 @@ async function governedFixture(base) {
   const repo = await initRepo(base);
   await mkdir(join(repo, "ldvh-base", "sparks"), { recursive: true });
   await writeFile(join(repo, "ldvh-base", "goal.md"), GOAL_MD_FIXTURE, "utf8");
+  await seedAnchors(join(repo, "ldvh-base"));
   await registerProject(dshHome(home), { id: "demo", path: repo });
   return { home, repo };
 }
@@ -554,6 +553,7 @@ test("list: missing sparks directory is a valid empty state (completed, count 0)
     const repo = await initRepo(base);
     await mkdir(join(repo, "ldvh-base"), { recursive: true });
     await writeFile(join(repo, "ldvh-base", "goal.md"), GOAL_MD_FIXTURE, "utf8");
+    await seedAnchors(join(repo, "ldvh-base"));
     await registerProject(dshHome(home), { id: "demo", path: repo });
     const descriptors = makeDescriptors(makeDeps(home, base));
 

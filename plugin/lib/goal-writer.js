@@ -36,6 +36,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
+import { listResolvableAnchors, resolveSubGoalAnchor } from "./subgoal-writer.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
 
 // ---------------------------------------------------------------------------
@@ -55,7 +56,15 @@ const STATUSES = new Set(["active", "achieved"]);
 const MAX_TITLE_LENGTH = 40;
 
 /** Fixed body H2 sections, in order (25 §6). */
-const BODY_H2 = ["目标陈述", "子目标"];
+/**
+ * 正文固定 H2（25 §7，2026-11 修订）：目标陈述为唯一必需段。
+ *
+ * `子目标` 已移出本载体——子目标改由 SubGoal 事实对象承载（28 号）。存量
+ * goal.md 可能仍带该段：它被**容忍读取**（否则迁移前的载体全部拒绝），但
+ * 被视为**待迁移**状态并由 VALID 之外的检查报告，不得成为长期形态。
+ */
+const BODY_H2 = ["目标陈述"];
+const LEGACY_BODY_H2 = ["目标陈述", "子目标"];
 
 /** sub-goal anchor pattern (25 §6: SG-n, frozen, never renumbered). */
 const SG_ANCHOR_PATTERN = /^SG-[1-9]\d*$/;
@@ -273,34 +282,40 @@ export function validateGoalFrontmatter(frontmatter) {
  * non-empty except 子目标 which may legitimately be empty at creation
  * (25 §7: sub-goal 空缺是合法中间态).
  */
-export function validateGoalBodyStructure(body, { allowEmptySubGoals = true } = {}) {
+export function validateGoalBodyStructure(body) {
   const issues = [];
   if (!/^# 项目目标\s*$/m.test(body)) {
-    issues.push("body: must contain the H1 \"# 项目目标\" (25 §6)");
+    issues.push("body: must contain the H1 \"# 项目目标\" (25 §7)");
   }
-  // Exactly ONE H1 (25 §6 shows a single top-level heading). A duplicated H1 is
+  // Exactly ONE H1 (25 §7 shows a single top-level heading). A duplicated H1 is
   // what a non-idempotent read→update round trip produces; it must be a
   // mechanical failure, not silently "valid".
   const h1Count = (body.match(/^#\s+\S/gm) ?? []).length;
   if (h1Count > 1) {
-    issues.push(`body: must contain exactly one H1, found ${h1Count} (25 §6)`);
+    issues.push(`body: must contain exactly one H1, found ${h1Count} (25 §7)`);
   }
   const sections = splitBodySections(body);
   const headings = sections.map((s) => s.heading);
-  if (headings.length !== BODY_H2.length || headings.some((h, i) => h !== BODY_H2[i])) {
-    issues.push(`body: H2 sections must be exactly ${BODY_H2.map((h) => `"${h}"`).join(" then ")} in order, got ${JSON.stringify(headings)} (25 §6; 方法与规划 已移除)`);
+  const isCurrent = headings.length === BODY_H2.length && headings.every((h, i) => h === BODY_H2[i]);
+  const isLegacy = headings.length === LEGACY_BODY_H2.length && headings.every((h, i) => h === LEGACY_BODY_H2[i]);
+  if (!isCurrent && !isLegacy) {
+    issues.push(`body: H2 sections must be exactly ${BODY_H2.map((h) => `"${h}"`).join(" then ")}, got ${JSON.stringify(headings)} (25 §7; 方法与规划 已移除；子目标 已移出本载体，见 28 号)`);
   }
   const target = sections.find((s) => s.heading === "目标陈述");
   if (target === undefined || target.text.length === 0) {
-    issues.push("body: 目标陈述 section must be present and non-empty (25 §11 创建检查)");
-  }
-  const subs = sections.find((s) => s.heading === "子目标");
-  if (subs === undefined) {
-    issues.push("body: 子目标 section must be present (25 §6)");
-  } else if (!allowEmptySubGoals && subs.text.length === 0) {
-    issues.push("body: 子目标 section must be non-empty");
+    issues.push("body: 目标陈述 section must be present and non-empty (25 §12 创建检查)");
   }
   return { ok: issues.length === 0, issues };
+}
+
+/**
+ * 存量载体是否仍带已移出的 `子目标` 段（25 §7，2026-11）。
+ *
+ * 这是**待迁移**信号，不是写入拒绝：迁移前的载体必须仍可读（否则一处规范
+ * 修订会让全部既有项目失读）。它由调用方在交还中报告，不得静默。
+ */
+export function hasLegacySubGoalSection(body) {
+  return splitBodySections(body).some((s) => s.heading === "子目标");
 }
 
 /**
@@ -426,6 +441,13 @@ export async function createGoalObject(args) {
     return failure("goal/frontmatter_invalid", "frontmatter failed mechanical checks", { issues: fmCheck.issues });
   }
   const body = assembleBody(frontmatter.title, bodyMarkdown);
+  // 25 §7 (2026-11): a NEW goal carrier must not carry the legacy 子目标 section.
+  if (hasLegacySubGoalSection(body)) {
+    return failure(
+      "goal/legacy_subgoal_reintroduced",
+      "goal.md no longer carries a 子目标 section (25 §7, 2026-11): sub-goals are SubGoal objects (28). Create them under ldvh-base/subgoals/ and reference this goal via parent_goal",
+    );
+  }
   const bodyCheck = validateGoalBodyStructure(body);
   if (!bodyCheck.ok) {
     return failure("goal/body_invalid", "body failed structure checks", { issues: bodyCheck.issues });
@@ -494,28 +516,66 @@ export async function updateGoalObject(args) {
     return failure("goal/status_transition_invalid", `target status ${JSON.stringify(nextStatus)} is not in the closed set (active/achieved, 25 §7)`);
   }
 
-  // sub-goal anchor stability (25 §11/§12) — compare BEFORE writing.
+  // 25 §7（2026-11）：`子目标` 段已移出本载体，子目标由 28 号对象承载。
   //
-  // Malformed anchors must NOT be filtered away silently: an anchor that fails
-  // to parse is invisible to the comparison, so deleting it would be accepted.
-  // Refuse while either side carries an anchor-shaped line that does not canon-
-  // parse; the caller must fix the text (25 §12 requires 修改后重走受控更新).
-  const prevParsed = current.value.sub_goals;
+  // 存量载体若仍带该段，本入口**不得**做「锚点稳定性比对」——那会把子目标
+  // 的增删继续当成 goal 更新的一部分，等于承认两处均可承载子目标。改为：
+  // ① 只允许**删除该段**走向新形态（一个方向的迁移），② 删除前必须确认该段
+  // 里的每个锚点都已在 SubGoal 载体中可解析，否则删段会让引用断链。
   const nextBody = assembleBody(fm.title, bodyMarkdownAfter);
-  const nextParsed = parseSubGoals(splitBodySections(nextBody).find((s) => s.heading === "子目标")?.text ?? "");
-  const badAnchors = [
-    ...prevParsed.filter((s) => s.anchor === null && s.reason !== undefined).map((s) => `existing: ${s.reason}`),
-    ...nextParsed.filter((s) => s.anchor === null && s.reason !== undefined).map((s) => `target: ${s.reason}`),
-    ...nextParsed.filter((s) => s.anchor !== null && s.malformed).map((s) => `target: ${s.reason ?? `anchor ${s.anchor} is not canonical`}`),
-  ];
-  if (badAnchors.length > 0) {
-    return failure("goal/anchor_unparsable", "sub-goal anchors could not be parsed; refusing so an anchor cannot silently escape the stability check (25 §11/§12)", { issues: badAnchors });
-  }
-  const prevAnchors = prevParsed.filter((s) => s.anchor !== null).map((s) => s.anchor);
-  const nextAnchors = nextParsed.filter((s) => s.anchor !== null).map((s) => s.anchor);
-  const stability = validateAnchorStability(prevAnchors, nextAnchors);
-  if (!stability.ok) {
-    return failure("goal/anchor_instability", "sub-goal anchor stability violated (25 §11/§12)", { issues: stability.issues });
+  const prevLegacy = current.value.sub_goals.filter((s) => s.anchor !== null);
+  const nextHasLegacy = hasLegacySubGoalSection(nextBody);
+  const prevHasLegacy = hasLegacySubGoalSection(current.value.body);
+
+  if (prevHasLegacy && nextHasLegacy) {
+    // Still carrying the legacy section: refuse to let it DRIFT (editing anchors
+    // through the goal carrier is exactly the second-authority path 25 §7 forbids).
+    const nextParsed = parseSubGoals(splitBodySections(nextBody).find((s) => s.heading === "子目标")?.text ?? "");
+    // A malformed anchor line does not parse into an anchor and would therefore
+    // be INVISIBLE to the equality check below — editing `SG-2 x` into `SG-2: x`
+    // would look like "no change" while actually destroying the anchor. Refuse
+    // any anchor-shaped line that does not canon-parse (the same discipline the
+    // pre-2026-11 stability check applied).
+    const badAnchors = nextParsed
+      .filter((s) => (s.anchor === null && s.reason !== undefined) || (s.anchor !== null && s.malformed))
+      .map((s) => s.reason ?? `anchor ${s.anchor} is not canonical`);
+    if (badAnchors.length > 0) {
+      return failure("goal/legacy_subgoal_unparsable", "the legacy 子目标 section carries an anchor that does not parse; refusing so an anchor cannot silently disappear from a frozen record (25 §7)", { issues: badAnchors });
+    }
+    const nextAnchors = nextParsed.filter((s) => s.anchor !== null).map((s) => s.anchor);
+    const prevAnchors = prevLegacy.map((s) => s.anchor);
+    const changed = prevAnchors.length !== nextAnchors.length
+      || prevAnchors.some((a, i) => a !== nextAnchors[i]);
+    if (changed) {
+      return failure(
+        "goal/legacy_subgoal_immutable",
+        "the legacy 子目标 section in goal.md cannot be edited any more (25 §7, 2026-11): sub-goals are SubGoal objects now (28). Migrate each anchor to ldvh-base/subgoals/ first, then delete this section in one update — do not add, renumber or rewrite entries here",
+        { existing_anchors: prevAnchors, attempted_anchors: nextAnchors },
+      );
+    }
+  } else if (prevHasLegacy && !nextHasLegacy) {
+    // One-way migration: removing the section is allowed ONLY once every anchor
+    // it carried resolves in the SubGoal carrier. Otherwise the deletion would
+    // silently orphan every downstream `serves` that points at these anchors.
+    if (prevLegacy.length > 0) {
+      const unresolved = [];
+      for (const entry of prevLegacy) {
+        const resolved = await resolveSubGoalAnchor(factSourceRoot, entry.anchor);
+        if (!resolved.ok) unresolved.push(entry.anchor);
+      }
+      if (unresolved.length > 0) {
+        return failure(
+          "goal/legacy_subgoal_unmigrated",
+          "refusing to drop the 子目标 section: these anchors do not yet resolve to SubGoal objects, so deleting them would orphan downstream serves references (25 §7 / 28 §14.2). Migrate them first",
+          { unresolved_anchors: unresolved },
+        );
+      }
+    }
+  } else if (!prevHasLegacy && nextHasLegacy) {
+    return failure(
+      "goal/legacy_subgoal_reintroduced",
+      "the 子目标 section was removed from goal.md (25 §7, 2026-11) and may not be reintroduced: sub-goals are SubGoal objects (28). Create them under ldvh-base/subgoals/ instead",
+    );
   }
 
   const prevLog = Array.isArray(current.value.frontmatter.change_log) ? current.value.frontmatter.change_log : [];
@@ -545,10 +605,10 @@ export async function updateGoalObject(args) {
   return success({
     file: filePath,
     fingerprint: fileFingerprint(content),
-    // 25 §11: the goal revision cascade is a MARK, not an action taken here;
-    // reporting the affected anchors lets the caller run the cascade scan
-    // without Goal storing any downstream state.
-    revised_anchors: nextAnchors.filter((a) => prevAnchors.includes(a)),
+    // 25 §12: the goal revision cascade is a MARK, not an action taken here.
+    // Sub-goals no longer live on this carrier, so the cascade starts from the
+    // `parent_goal` reverse lookup (28 §12.1) — not from a section on disk.
+    legacy_subgoal_section: hasLegacySubGoalSection(nextBody),
   });
 }
 
@@ -556,8 +616,12 @@ export async function updateGoalObject(args) {
 export async function readGoalAnchors({ factSourceRoot }) {
   const goal = await readGoalObject({ factSourceRoot });
   if (!goal.ok) return goal;
+  // 28 §12.3（2026-11）：锚点已不在本载体，改由 SubGoal 载体反查解析。
+  // 只有 `active`／`achieved` 是可解析目标——`retired` 不代表任何有效锚。
+  const listed = await listResolvableAnchors(factSourceRoot);
+  if (!listed.ok) return failure(listed.error.code, listed.error.message);
   return success({
-    anchors: goal.value.sub_goals.filter((s) => s.anchor !== null && SG_ANCHOR_PATTERN.test(s.anchor)).map((s) => s.anchor),
+    anchors: listed.value.anchors,
     status: goal.value.frontmatter.status,
     file: goal.value.file,
   });

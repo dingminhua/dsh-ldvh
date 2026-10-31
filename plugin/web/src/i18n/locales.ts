@@ -938,6 +938,8 @@ export const UI_LOCALES = {
     'nav.norms': '规范',
 
     'goalDetail.openDetail': '查看目标详情',
+    'goalDetail.subGoals': '子目标',
+    'goalDetail.subGoalLegacy': '该行仍来自 goal.md 已移出的子目标段——属于待迁移，不构成第二条权威（28 §14.2）',
     'goalDetail.missingTitle': '项目目标尚未创建',
     'goalDetail.missingBody': 'goal.md 不存在——Goal 事实对象尚未创建（项目初始化前的合法状态）。创建走 AI 受控写入路径，Web 是纯呈现层。',
     'nav.changes': '变更',
@@ -1750,6 +1752,8 @@ export const UI_LOCALES = {
     'nav.norms': 'Norms',
 
     'goalDetail.openDetail': 'Open goal detail',
+    'goalDetail.subGoals': 'Sub-goals',
+    'goalDetail.subGoalLegacy': 'This row still comes from the migrated-away sub-goal section in goal.md — it is pending migration, not a second authority (28 §14.2)',
     'goalDetail.missingTitle': 'The project goal has not been created yet',
     'goalDetail.missingBody': 'goal.md does not exist — the Goal fact object has not been created (a legal state before project initialization). Creation goes through the AI controlled-write path; the Web is a pure presentation layer.',
     'nav.changes': 'Changes',

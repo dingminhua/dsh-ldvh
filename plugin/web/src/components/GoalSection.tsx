@@ -27,7 +27,24 @@ function toggleOnKeyboard(event: KeyboardEvent<HTMLDivElement>, toggle: () => vo
 export default function GoalSection() {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const [goal, setGoal] = useState<{ title: string; status: string; statement: string; sub_goals: { id: string; text: string }[] } | null>(null);
+  // Sub-goals are SubGoal OBJECTS now (28), not lines in goal.md: the projection
+  // carries identity (`object_uid`), lifecycle (`status`) and the criterion kind,
+  // so the list can show where each sub-goal stands without a drill-down. Rows
+  // still recovered from the migrated-away section are flagged `legacy` so they
+  // never read as a second authority (28 §14.2).
+  const [goal, setGoal] = useState<{
+    title: string;
+    status: string;
+    statement: string;
+    sub_goals: {
+      id: string;
+      text: string;
+      status?: string;
+      criterion_kind?: string;
+      object_uid?: string;
+      legacy?: boolean;
+    }[];
+  } | null>(null);
   const [goalMissing, setGoalMissing] = useState(false);
   const [goalError, setGoalError] = useState<string | null>(null);
   const [goalExpanded, setGoalExpanded] = useState(true);
@@ -137,6 +154,29 @@ export default function GoalSection() {
                       {sg.id}
                     </span>
                     <span className="ldvh-caption min-w-0 flex-1">{sg.text}</span>
+                    {/* 28 §9 状态 + §10.2 判据类型：让「走到哪里算成」在列表层就可读，
+                        而不必逐条下钻。状态缺失（存量 legacy 行）时不渲染空 chip。 */}
+                    {sg.status && sg.status !== 'active' && (
+                      <span
+                        className={`ldvh-chip ldvh-chip-sm shrink-0 ${
+                          sg.status === 'achieved'
+                            ? 'border-ldvh-accent/40 bg-ldvh-accent/10 text-ldvh-accent'
+                            : 'border-ldvh-border bg-transparent text-ldvh-text-secondary'
+                        }`}
+                        title={sg.criterion_kind ? `${t('goalDetail.subGoals')} · ${sg.criterion_kind}` : undefined}
+                      >
+                        {sg.status}
+                      </span>
+                    )}
+                    {/* 迁移中的旧段行：显式标出，不与会话中的对象行混为一谈（25 §7 / 28 §14.2）。 */}
+                    {sg.legacy && (
+                      <span
+                        className="ldvh-chip ldvh-chip-sm shrink-0 border-ldvh-border bg-transparent text-ldvh-text-secondary"
+                        title={t('goalDetail.subGoalLegacy')}
+                      >
+                        legacy
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>

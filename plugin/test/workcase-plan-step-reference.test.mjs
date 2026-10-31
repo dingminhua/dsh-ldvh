@@ -29,7 +29,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
-import { withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
+import { seedSubGoals, withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
 import { registerWorkcaseTools } from "../lib/workcase-tools.js";
 import { createWorkcaseObject, readWorkcaseObject, recordWorkcaseAudit } from "../lib/workcase-writer.js";
 import { authoritativeSignature, authoritativeSessionIdentity } from "../lib/signature-channel.js";
@@ -89,8 +89,9 @@ async function writeCarrier(home, projectPath) {
 
 async function seedGoal(root, anchors = ["SG-1", "SG-2"]) {
   const fm = ["goal_key: project-goal", "title: 测试目标", "status: active", "created_at: 2026-09-15T00:00:00.000Z", "change_log:", "  - at: 2026-09-15T00:00:00.000Z", "    summary: 测试初始化"].join("\n");
-  const lines = anchors.map((a) => `${a} 测试子目标 ${a}`);
-  await writeFile(join(root, "goal.md"), `---\n${fm}\n---\n\n# 项目目标\n\n## 目标陈述\n\n测试目标陈述。\n\n## 子目标\n\n${lines.join("\n")}\n`, "utf8");
+  // 25 §7 (2026-11): sub-goals live in SubGoal objects, not in goal.md.
+  await writeFile(join(root, "goal.md"), `---\n${fm}\n---\n\n# 项目目标\n\n## 目标陈述\n\n测试目标陈述。\n`, "utf8");
+  await seedSubGoals(root, anchors);
 }
 
 // Beware: a plan step named after a lifecycle gate (受控提交 / 独立复核 / Gate 批准)

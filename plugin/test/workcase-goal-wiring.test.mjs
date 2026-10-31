@@ -16,7 +16,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
-import { withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
+import { seedSubGoals, withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
 import { registerWorkcaseTools } from "../lib/workcase-tools.js";
 import { createWorkcaseObject, readWorkcaseObject, recordWorkcaseAudit } from "../lib/workcase-writer.js";
 import { authoritativeSignature, authoritativeSessionIdentity } from "../lib/signature-channel.js";
@@ -132,11 +132,9 @@ async function surface(base, goals) {
     "",
     "夹具。",
     "",
-    "## 子目标",
-    "",
-    "SG-1 夹具子目标。",
-    "",
   ].join("\n"));
+  // 25 §7 (2026-11): sub-goals live in SubGoal objects, not in goal.md.
+  await seedSubGoals(factSourceRoot, ["SG-1"]);
   const created = await createWorkcaseObject({
     factSourceRoot,
     frontmatterDraft: { ...DRAFT, serves: "SG-1", change_summary: "初始落盘" },

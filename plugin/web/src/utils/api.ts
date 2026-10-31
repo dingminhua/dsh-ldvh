@@ -723,7 +723,18 @@ export interface CognitionGoalData {
     title: string;
     status: string;
     statement: string;
-    sub_goals: { id: string; text: string }[];
+    sub_goals: {
+      id: string;
+      text: string;
+      /** SubGoal status (28 §9). Absent on rows recovered from the legacy section. */
+      status?: string;
+      /** SubGoal criterion_kind (28 §10.2). Absent on legacy rows. */
+      criterion_kind?: string;
+      /** SubGoal object_uid — the stable identity for drill-down. */
+      object_uid?: string;
+      /** True when the row still comes from the migrated-away `## 子目标` section. */
+      legacy?: boolean;
+    }[];
     created_at?: string;
     change_log?: unknown;
     canonical_path?: string;

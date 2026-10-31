@@ -39,6 +39,7 @@ import { registerWorkcaseTools } from "./workcase-tools.js";
 import { registerFrictionTools } from "./friction-tools.js";
 import { registerNormTools } from "./norm-tools.js";
 import { registerGoalTools } from "./goal-tools.js";
+import { registerSubGoalTools } from "./subgoal-tools.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -1674,6 +1675,10 @@ export function registerLdvhTools(ctx, deps) {
   disposers.push(registerNormTools(ctx, deps));
   // Goal mechanical layer (specs/25 writer) — singleton type, same surface.
   disposers.push(registerGoalTools(ctx, deps));
+  // SubGoal mechanical layer (specs/28 writer) — the goal-layer anchors that
+  // downstream `serves` resolves against; carries anchor uniqueness (28 §6.2)
+  // and `parent_goal` resolution (28 §14.1) before any write.
+  disposers.push(registerSubGoalTools(ctx, deps));
   return () => {
     for (const dispose of disposers) {
       try { dispose(); } catch { /* already removed */ }

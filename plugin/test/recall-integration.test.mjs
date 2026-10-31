@@ -58,7 +58,8 @@ test("集成：历轮修复须同时成立（跨文件交互不得互相破坏�
 	assert.ok(adr.facts.some((f) => f.type === "adr"), "须召回 adr");
 
 	// 第 31 轮：中间产物白名单。
-	assert.equal(REGISTERED_FACT_TYPES.length, 8, "白名单须为 8 个已登记类型");
+	// 28 §12.4 (2026-11): `subgoal` joined the registry, so the count moved 8 → 9.
+	assert.equal(REGISTERED_FACT_TYPES.length, 9, "白名单须为 9 个已登记类型（含 subgoal）");
 
 	// 第 33 轮：candidatesScanned 非恒量。
 	const narrow = await q({ action: "把 34 号规范改名", limit: 3, types: ["adr"] });

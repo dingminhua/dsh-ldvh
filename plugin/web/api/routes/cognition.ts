@@ -32,7 +32,7 @@ import { normalizeSignature } from '../../shared/signature.js'
 import { ProjectScopeError, requestProject } from '../services/requestScope.js'
 import { compareTimestamps, getRelativeTime, parseTimestamp } from '../services/time.js'
 import { getTypeColor } from '../services/typeColors.js'
-import { readFile } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import yaml from 'js-yaml'
 
@@ -965,7 +965,101 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
  * 不缓存、不回写、不建索引（25 §10 消费点直读）。该路由不承载 Goal 类型的
  * 创建/更新/翻转等受控操作（那些走 AI 受控写入路径）。
  */
-type GoalSubGoal = { id: string; text: string }
+type GoalSubGoal = {
+  id: string
+  text: string
+  /** SubGoal `status` (28 §9: active/achieved/retired). Absent on legacy-only rows. */
+  status?: string
+  /** SubGoal `criterion_kind` (28 §10.2). Absent on legacy-only rows. */
+  criterion_kind?: string
+  /** SubGoal `object_uid` — the stable identity the Web drill-down needs. */
+  object_uid?: string
+  /**
+   * True when this row was recovered from the migrated-away `## 子目标` section
+   * instead of a SubGoal carrier. 25 §7 makes that shape a one-way migration
+   * state, so surfacing it is how the gap stays visible rather than silent.
+   */
+  legacy?: boolean
+}
+
+/**
+ * Anchors still carried by the migrated-away `## 子目标` section, in file order.
+ *
+ * Read-only compatibility: a carrier mid-migration must not lose its displayed
+ * sub-goals, but these entries are NOT the authority any more (28 §14.2 makes
+ * the SubGoal object the authority). The caller marks them `legacy: true` so the
+ * UI can show "not yet migrated" instead of presenting two equal sources.
+ */
+function legacySubGoalAnchors(body: string): Array<{ anchor: string; text: string }> {
+  const sectionMatch = /^##\s*子目标\s*$/m.exec(body)
+  if (!sectionMatch) return []
+  const rest = body.slice(sectionMatch.index + sectionMatch[0].length)
+  const nextH2 = /^##\s/m.exec(rest)
+  const section = nextH2 ? rest.slice(0, nextH2.index) : rest
+  const out: Array<{ anchor: string; text: string }> = []
+  const sgRe = /^\s*(?:[-*+]\s+)?(SG-\d+)[:：]?\s+(.+)$/
+  for (const line of section.split('\n')) {
+    const match = sgRe.exec(line)
+    if (match) out.push({ anchor: match[1].trim(), text: match[2].trim() })
+  }
+  return out
+}
+
+/**
+ * Derive the sub-goal projection by reverse lookup over `subgoals/` (28 §8.1).
+ *
+ * This is a READ-TIME DERIVATION, not stored state: 28 §8.1 forbids keeping a
+ * copy of the sub-goal list on the goal carrier, because a copy can diverge from
+ * the objects it claims to summarise. Anchors still sitting in the legacy
+ * section are appended with `legacy: true` ONLY when no SubGoal object already
+ * carries them — a migrated anchor must never appear twice.
+ */
+async function readSubGoalProjection(
+  project: { path: string },
+  legacy: Array<{ anchor: string; text: string }>,
+): Promise<GoalSubGoal[]> {
+  const dir = path.join(project.path, 'ldvh-base', 'subgoals')
+  const rows: GoalSubGoal[] = []
+  let entries: string[] = []
+  try {
+    entries = await readdir(dir)
+  } catch {
+    entries = []
+  }
+  for (const name of entries) {
+    if (!name.endsWith('.md')) continue
+    try {
+      const raw = await readFile(path.join(dir, name), 'utf-8')
+      const parsed = parseCarrierFrontmatter(raw)
+      if (parsed === null) continue
+      const anchor = typeof parsed.anchor === 'string' ? parsed.anchor : ''
+      if (!/^SG-\d+$/.test(anchor)) continue
+      rows.push({
+        id: anchor,
+        // The short title is what a scanning reader needs; the full criterion is
+        // the drill-down's job, so the list stays scannable.
+        text: typeof parsed.title === 'string' && parsed.title.trim() !== ''
+          ? parsed.title.trim()
+          : (typeof parsed.criterion === 'string' ? parsed.criterion.trim() : ''),
+        status: typeof parsed.status === 'string' ? parsed.status : undefined,
+        criterion_kind: typeof parsed.criterion_kind === 'string' ? parsed.criterion_kind : undefined,
+        object_uid: typeof parsed.object_uid === 'string' ? parsed.object_uid : undefined,
+      })
+    } catch {
+      // An unreadable carrier is reported by the CLI read path; the Web
+      // projection must not fabricate a row for it.
+      continue
+    }
+  }
+  const known = new Set(rows.map((row) => row.id))
+  for (const entry of legacy) {
+    if (known.has(entry.anchor)) continue
+    rows.push({ id: entry.anchor, text: entry.text, legacy: true })
+  }
+  // Numeric anchor order so the list reads SG-1, SG-2, … rather than by filename.
+  rows.sort((a, b) => Number(a.id.replace(/^SG-/, '')) - Number(b.id.replace(/^SG-/, '')))
+  return rows
+}
 
 /** 25 号 Goal 的必填字段闭集（§6 frontmatter 全必填）——呈现层轻校验，
  * 只报告 missing，不做类型系统级契约（Goal 不走 FACT_FIELD_CONTRACT 单例豁免）。 */
@@ -1022,13 +1116,13 @@ async function readGoalRecord(project: { path: string }): Promise<GoalRecord> {
     statement = (nextH2 ? stmtSection.slice(0, nextH2.index) : stmtSection).trim()
   }
 
-  // 子目标解析：正文里 `SG-n …` 行（目标陈述段与子目标段都按原文抽取，避免臆造进度）。
-  const subGoals: GoalSubGoal[] = []
-  const sgRe = /^\s*(SG-\d+)[:：]?\s+(.+)$/
-  for (const line of body.split('\n')) {
-    const match = sgRe.exec(line)
-    if (match) subGoals.push({ id: match[1].trim(), text: match[2].trim() })
-  }
+  // 子目标解析（25 §7 2026-11 修订）：子目标已移出 goal.md，改由 SubGoal 事实
+  // 对象承载（28 号）。此处的派生视图按 `parent_goal` 反查 subgoals/ 目录。
+  //
+  // 存量兼容：迁移前的 goal.md 可能仍带 `## 子目标` 段。它只作为**待迁移**来源
+  // 被读出并标记（legacy_subgoal_section），不参与 sub_goals 的权威集合——
+  // 否则同一批锚点会有两处来源，而两处可分叉。
+  const subGoals: GoalSubGoal[] = await readSubGoalProjection(project, legacySubGoalAnchors(body))
 
   // 呈现层轻校验：必填闭集 missing + goal_key 固定值 identity（25 §6/§10）。
   const fieldIssues: Array<{ path: string; reason: 'missing' | 'identity_mismatch'; expected: string; raw_value?: unknown }> = []
@@ -1050,6 +1144,20 @@ async function readGoalRecord(project: { path: string }): Promise<GoalRecord> {
     subGoals,
     fieldIssues,
     issues: [],
+  }
+}
+
+/** Parse a carrier's YAML frontmatter; null when absent or unparseable. */
+function parseCarrierFrontmatter(raw: string): Record<string, unknown> | null {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(raw)
+  if (match === null) return null
+  try {
+    const value = yaml.load(match[1])
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null
+  } catch {
+    return null
   }
 }
 

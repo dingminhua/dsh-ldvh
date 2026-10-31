@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { testSignature, withTemp } from "./helpers.mjs";
+import { seedSubGoals, testSignature, withTemp } from "./helpers.mjs";
 
 // 03 §6.1 / 09: every write carries the authoritative signature. Domain-rule
 // tests supply a branded test carrier; the signature gate has its own cases.
@@ -36,8 +36,8 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 // Fixtures
 // ---------------------------------------------------------------------------
 
-// goal.md fixture: 20 §13 / 25 §6 — serves must match an SG-n anchor in
-// the ## 子目标 section.
+// goal.md fixture: 25 §7 (2026-11) — the carrier holds 目标陈述 only; the
+// SG-n anchors `serves` resolves against live in SubGoal objects (28 §12.3).
 const GOAL_MD_FIXTURE = `---
 goal_key: project-goal
 title: 测试目标
@@ -50,14 +50,12 @@ created_at: 2026-09-09T12:00:00+08:00
 ## 目标陈述
 
 测试。
-
-## 子目标
-
-SG-1 第一条子目标。
-SG-2 第二条子目标。
-SG-3 第三条子目标。
-SG-4 第四条子目标。
 `;
+
+/** Seed the four SG-n anchors as SubGoal objects under the same fact source. */
+async function seedGoalAnchorObjects(root) {
+	await seedSubGoals(root, ["SG-1", "SG-2", "SG-3", "SG-4"]);
+}
 
 function validFrontmatterDraft(overrides = {}) {
   return {
@@ -307,6 +305,7 @@ test("create: serves declared but goal.md missing rejected (20 §17.1 stop condi
 test("create: serves=SG-99 not present in goal.md rejected (20 §13)", async () => {
   await withTemp("spark-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
+    await seedGoalAnchorObjects(root);
     const result = await createSparkObject({
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-99" },
@@ -1008,9 +1007,10 @@ test("split: A discarded+split-into→B,C (both open) succeeds (20 §9.3 拆分)
 // goal.md anchors (20 §13 / 25 §6)
 // ---------------------------------------------------------------------------
 
-test("readGoalAnchors parses SG-n anchors from the ## 子目标 section", async () => {
+test("readGoalAnchors resolves SG-n anchors from SubGoal objects (28 §12.3)", async () => {
   await withTemp("spark-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
+    await seedGoalAnchorObjects(root);
     const anchors = await readGoalAnchors(root);
     assert.equal(anchors.ok, true, anchors.reason);
     assert.deepEqual([...anchors.anchors].sort(), ["SG-1", "SG-2", "SG-3", "SG-4"]);
@@ -1020,6 +1020,7 @@ test("readGoalAnchors parses SG-n anchors from the ## 子目标 section", async 
 test("create with serves matching a goal.md anchor succeeds (20 §13)", async () => {
   await withTemp("spark-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
+    await seedGoalAnchorObjects(root);
     const result = await createSparkObject({
       factSourceRoot: root,
       frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-1" },

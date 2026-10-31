@@ -95,7 +95,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature, resolveAuthoritativeSessionIdentity } from "./signature-channel.js";
 import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
-import { readGoalAnchors as readGoalAnchorsFromGoal } from "./goal-writer.js";
+import { resolveSubGoalAnchor } from "./subgoal-writer.js";
 import { resolveRefsTargets } from "./spark-writer.js";
 
 // ---------------------------------------------------------------------------
@@ -2208,12 +2208,13 @@ async function writeValidated(factSourceRoot, frontmatter, body, baseline = null
 
 async function resolveServes(factSourceRoot, serves) {
   if (serves === undefined) return null;
-  const goal = await readGoalAnchorsFromGoal({ factSourceRoot });
-  if (!goal.ok) {
-    return failure("workcase/serves_unresolvable", `serves declared (${serves}) but goal.md is not readable: ${goal.error?.message ?? "unknown"} (21 §10.1: Gate 1 无法受理 without an anchor — fail closed)`);
-  }
-  if (!goal.value.anchors.includes(serves)) {
-    return failure("workcase/serves_unresolvable", `serves ${serves} does not match any SG-n in goal.md 子目标 (available: ${goal.value.anchors.join(", ") || "none"})`);
+  // 28 §12.3: the anchor must resolve to a SubGoal object in status
+  // active|achieved. A retired anchor is not a legal target for a NEW
+  // declaration; an unresolvable anchor fails closed (21 §10.1: Gate 1 无法受理
+  // without an anchor).
+  const resolved = await resolveSubGoalAnchor(factSourceRoot, serves);
+  if (!resolved.ok) {
+    return failure("workcase/serves_unresolvable", `${resolved.error?.message ?? `serves ${serves} cannot be resolved`} (21 §10.1: Gate 1 无法受理 without an anchor — fail closed)`);
   }
   return null;
 }

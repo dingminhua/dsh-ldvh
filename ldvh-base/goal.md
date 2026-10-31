@@ -20,6 +20,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 修正文重复 H1：写入器的 read→update 往返非幂等，导致 94a51bf 补记署名时把「# 项目目标」写入两次；本次修复写入器（装配前去重）并校正本文件
+  - at: 2026-10-31T18:17:55.254Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 子目标移出本载体（28 号 2026-11 修订）：SG-1..4 已逐字迁入 ldvh-base/subgoals/ 并逐条回读，故删除已移出的子目标段；此后子目标增改不经 goal.md
 ---
 
 # 项目目标
@@ -27,10 +31,3 @@ change_log:
 ## 目标陈述
 
 建成一个深度绑定 DSH 的 AI 协作治理框架，让长程 Vibe Coding 稳定、可控、高效，并通过构建、测试、迭代，使 LDVH 成为可被外部长程项目验证的治理载体。
-
-## 子目标
-
-SG-1 LDVH v5 规范体系（00–26）全部成为当前规则源成员且彼此互咬有效。
-SG-2 七类型事实对象（20–26）在真实工作流中完成一轮出生→消费→关闭。
-SG-3 LDVH 插件能力面完成 dogfood 闭环，日常使用无需人工补救。
-SG-4 LDVH 之外，真实长程项目（非自举）在 LDVH 治理下从概念走到交付（端到端使用验证——用真实项目跑通来证明框架有效）。

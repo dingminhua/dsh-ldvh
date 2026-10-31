@@ -47,7 +47,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
-import { readGoalAnchors as readGoalAnchorsFromGoal } from "./goal-writer.js";
+import { listResolvableAnchors, resolveSubGoalAnchor } from "./subgoal-writer.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/20 §7, §8, §9, §11)
@@ -389,22 +389,24 @@ function relationTargetUids(frontmatter, selfUid) {
 }
 
 // ---------------------------------------------------------------------------
-// goal.md anchor reading (20 §13: serves 必须匹配 goal.md 存在的 SG-n)
+// SubGoal anchor reading (28 §12.3: serves 必须解析到 status ∈ {active, achieved})
 // ---------------------------------------------------------------------------
 
 /**
- * Read the SG-n anchors from the governed project's goal.md (## 子目标
- * section). Returns { ok, anchors:Set } or { ok:false, reason } when
- * goal.md is missing/unreadable (20 §17.1: declaring serves with no
- * resolvable goal.md is a stop condition → reject at the flow level).
+ * Read the `SG-n` anchors that are valid `serves` targets in the governed
+ * project.
+ *
+ * Returns { ok, anchors:Set } or { ok:false, reason }.
+ *
+ * 2026-11 迁移：锚点来源由 goal.md 的子目标节改为 SubGoal 事实载体
+ * (ldvh-base/subgoals/)，单点权威在 subgoal-writer.js 的 resolveSubGoalAnchor
+ * / listResolvableAnchors —— 本函数只是给 spark 流程取「可用的锚点集合」。
+ * 解析规则见 28 §12.3：active 与 achieved 可用，retired 不是新声明的合法目标。
  */
 export async function readGoalAnchors(factSourceRoot) {
-  // Single authority for goal.md parsing (25 §6/§12): delegate to the Goal
-  // writer rather than re-implementing the 子目标 scan here. Two copies used to
-  // exist (spark + friction) and could drift from the type's own contract.
-  const goal = await readGoalAnchorsFromGoal({ factSourceRoot });
-  if (!goal.ok) return { ok: false, reason: goal.error?.message ?? "cannot read goal.md" };
-  return { ok: true, anchors: new Set(goal.value.anchors) };
+  const listed = await listResolvableAnchors(factSourceRoot);
+  if (!listed.ok) return { ok: false, reason: listed.error?.message ?? "cannot read subgoal carriers" };
+  return { ok: true, anchors: new Set(listed.value.anchors) };
 }
 
 /**
@@ -717,14 +719,12 @@ export async function createSparkObject(args) {
     return failure("spark/relations_invalid", "relations failed mechanical checks", { issues: relCheck.issues });
   }
 
-  // serves resolution (20 §13): declared → must match a goal.md SG-n
+  // serves resolution (20 §13 + 28 §12.3): declared → must resolve to a
+  // SubGoal object in status active|achieved.
   if (frontmatter.serves !== undefined) {
-    const goal = await readGoalAnchors(factSourceRoot);
-    if (!goal.ok) {
-      return failure("spark/serves_unresolvable", `serves declared (${frontmatter.serves}) but goal.md is not readable: ${goal.reason} (20 §17.1)`);
-    }
-    if (!goal.anchors.has(frontmatter.serves)) {
-      return failure("spark/serves_unresolvable", `serves ${frontmatter.serves} does not match any SG-n in goal.md 子目标 (available: ${[...goal.anchors].join(", ") || "none"})`);
+    const resolved = await resolveSubGoalAnchor(factSourceRoot, frontmatter.serves);
+    if (!resolved.ok) {
+      return failure("spark/serves_unresolvable", resolved.error?.message ?? `serves ${frontmatter.serves} cannot be resolved (28 §12.3)`);
     }
   }
 
@@ -1153,14 +1153,11 @@ export async function updateSparkObject(args) {
     return failure("spark/relations_invalid", "updated relations failed mechanical checks", { issues: relCheck.issues });
   }
 
-  // serves resolution on the updated object (20 §13)
+  // serves resolution on the updated object (20 §13 + 28 §12.3)
   if (fm.serves !== undefined) {
-    const goal = await readGoalAnchors(factSourceRoot);
-    if (!goal.ok) {
-      return failure("spark/serves_unresolvable", `serves declared (${fm.serves}) but goal.md is not readable: ${goal.reason} (20 §17.1)`);
-    }
-    if (!goal.anchors.has(fm.serves)) {
-      return failure("spark/serves_unresolvable", `serves ${fm.serves} does not match any SG-n in goal.md 子目标 (available: ${[...goal.anchors].join(", ") || "none"})`);
+    const resolved = await resolveSubGoalAnchor(factSourceRoot, fm.serves);
+    if (!resolved.ok) {
+      return failure("spark/serves_unresolvable", resolved.error?.message ?? `serves ${fm.serves} cannot be resolved (28 §12.3)`);
     }
   }
 

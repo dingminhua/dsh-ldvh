@@ -23,9 +23,11 @@
 
 import {
   createGoalObject,
+  hasLegacySubGoalSection,
   readGoalObject,
   updateGoalObject,
 } from "./goal-writer.js";
+import { listSubGoalObjects } from "./subgoal-writer.js";
 import { currentRouteValues } from "./session-signature.js";
 import { FRONTMATTER_AFTER_DESCRIPTION, FRONTMATTER_REMOVALS_DESCRIPTION } from "./after-integrity.js";
 import { authoritativeSignature } from "./signature-channel.js";
@@ -104,11 +106,28 @@ export function makeExecute(deps) {
         follow_up: read.error.code === "goal/not_initialised" ? ["run the project init conversation to create the goal"] : []
       });
     }
+    // 28 §8.1：拆解与落实情况不存储为字段，一律由机械反查派生。子目标清单
+    // 按 `parent_goal` 反查 SubGoal 载体得到；空集既可能是「还没拆解」也可能
+    // 是「拆了但下游没声明」，两种情形机械层不可区分，故显式标注。
+    const derived = await listSubGoalObjects({ factSourceRoot: `${governed.path}/ldvh-base`, status: "all" });
+    const derivedItems = derived.ok ? derived.items : [];
+    const derivedGaps = derived.ok
+      ? []
+      : [`subgoal-derivation: ${derived.error.code}: ${derived.error.message}`];
     return envelope("goal-read-object", "completed", {
       result: {
         status: read.value.frontmatter.status,
         title: read.value.frontmatter.title,
-        sub_goals: read.value.sub_goals,
+        sub_goals: derivedItems.map((item) => ({
+          object_uid: item.object_uid,
+          anchor: item.anchor,
+          title: item.title,
+          status: item.status,
+          criterion: item.criterion,
+          criterion_kind: item.criterion_kind,
+        })),
+        sub_goals_unresolved: derivedItems.length === 0,
+        legacy_subgoal_section: hasLegacySubGoalSection(read.value.body),
         frontmatter: read.value.frontmatter,
         body: read.value.body,
         body_valid: read.value.body_valid,
@@ -118,7 +137,16 @@ export function makeExecute(deps) {
       },
       scope: { requested: "goal", completed: ["goal"], not_completed: [] },
       sources: [{ kind: "fact-object", path: read.value.file, content_fingerprint: read.value.fingerprint }],
-      gaps: read.value.body_issues,
+      gaps: [
+        ...read.value.body_issues,
+        ...derivedGaps,
+        ...(derivedItems.length === 0
+          ? ["subgoal-empty: 本项目尚无任何子目标对象——既可能未精化，也可能下游未声明；两种情形机械层不可区分（28 §8.1）"]
+          : []),
+        ...(hasLegacySubGoalSection(read.value.body)
+          ? ["goal/legacy_subgoal_section: goal.md 仍带已移出的子目标段，须迁移到 SubGoal 载体后再删除（25 §7）"]
+          : []),
+      ],
       verification: { checks: ["carrier-present", "frontmatter-closed-set", "body-structure", "sub-goal-parse"], passed: read.value.body_valid },
       follow_up: ["goal-write-object action=update with the observed fingerprint when a revision is needed"]
     });

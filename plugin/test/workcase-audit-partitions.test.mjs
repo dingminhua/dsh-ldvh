@@ -11,7 +11,7 @@
 //   ④ 分片不占额外轮次——轮次按不同 `round_index` 计数（单门 3 次）。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { withTemp } from "./helpers.mjs";
+import { seedSubGoals, withTemp } from "./helpers.mjs";
 import {
   createWorkcaseObject,
   readWorkcaseObject,
@@ -55,13 +55,12 @@ async function seedGoal(root) {
       "",
       "夹具。",
       "",
-      "## 子目标",
-      "",
-      "SG-1 夹具子目标。",
-      "",
     ].join("\n"),
     "utf8",
   );
+  // 25 §7 (2026-11): sub-goals live in SubGoal objects. This fixture uses
+  // goal_key=fixture-goal, so the carrier must carry the same parent_goal.
+  await seedSubGoals(root, ["SG-1"], { parentGoal: "fixture-goal" });
 }
 
 function draftBody(draft) {

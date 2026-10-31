@@ -181,3 +181,52 @@ export function sessionPersistenceWithRoutingLog(base, { provider = "test-provid
 		},
 	});
 }
+
+/**
+ * Seed `ldvh-base/subgoals/` with SubGoal carriers for the given anchors.
+ *
+ * 25 §7 (2026-11) moved sub-goals out of goal.md into SubGoal fact objects
+ * (28). Tests that need `serves: SG-n` to resolve must now seed these carriers
+ * instead of writing a `## 子目标` section into goal.md.
+ *
+ * `factSourceRoot` is the directory that holds goal.md and the typed
+ * subdirectories (i.e. the parent of ldvh-base/, as the writers see it).
+ */
+export async function seedSubGoals(factSourceRoot, anchors = ["SG-1", "SG-2"], { status = "active", parentGoal = "project-goal", indexOffset = 0 } = {}) {
+	await mkdir(join(factSourceRoot, "subgoals"), { recursive: true });
+	for (const [i, anchor] of anchors.entries()) {
+		// `indexOffset` keeps uids distinct across successive calls — otherwise a
+		// second call would overwrite the first call's carriers at the same path.
+		const n = i + 1 + indexOffset;
+		const uid = `${String(n).padStart(8, "0")}-1111-4111-8111-${String(n).padStart(12, "0")}`;
+		const fm = [
+			"title: 测试子目标 " + anchor,
+			"status: " + status,
+			"anchor: " + anchor,
+			"parent_goal: " + parentGoal,
+			"criterion: 测试子目标 " + anchor + " 的达成判据",
+			"criterion_kind: closure-records",
+			"alignment: 服务于测试目标陈述",
+			...(status === "retired" ? ["disposition: 测试作废"] : []),
+			"object_uid: " + uid,
+			"fact_type_key: subgoal",
+			"created_at: 2026-09-15T00:00:00.000Z",
+			"change_log:",
+			"  - at: 2026-09-15T00:00:00.000Z",
+			"    summary: 测试夹具",
+		].join("\n");
+		const body = [
+			"# 测试子目标 " + anchor,
+			"",
+			"## 达成条件",
+			"",
+			"测试子目标 " + anchor + " 的达成判据",
+			"",
+			"## 对齐说明",
+			"",
+			"服务于测试目标陈述",
+			"",
+		].join("\n");
+		await writeFile(join(factSourceRoot, "subgoals", `subgoal-${uid}.md`), `---\n${fm}\n---\n\n${body}`, "utf8");
+	}
+}
