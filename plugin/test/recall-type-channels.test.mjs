@@ -1,5 +1,6 @@
-// tests for 类型通道召回（2026-10-31）——②类型点名 / ③触发信号标注 /
-// ④核心语义字段 / ⑤关系展开 / ⑥注入分节名额。
+// tests for 类型通道召回（2026-10-31）——②类型点名 / ④核心语义字段 /
+// ⑤关系展开 / ⑥注入分节名额。（设计③触发信号标注层经探针实测 0/65 不达标，
+// 按拍板④暂缓未交付；trigger_signal 留在 detail 匹配面的行为仍由本文件守护。）
 //
 // 权威：specs/02 §12.4「机器可读召回判据表（格式契约）」、specs/34 §12
 // （截断须标明来源）、specs/31 §10（spark 不进自动注入）、specs/10 §9.1
@@ -173,20 +174,18 @@ test("② 类型点名：中文别名右侧须是边界（「火花乙」不点�
 	});
 });
 
-test("③ 触发信号：tier2 命中且字面重合时**只做展示标注**，不改 tier/hits", async () => {
+test("③ 触发信号标注层暂缓：trigger_signal 仍在 detail 匹配面，但不做展示标注", async () => {
 	await withProject({}, async (project) => {
 		// `幂等` 单独成句会被判为弱 token（`等` 是功能字），故带一个实义词。
 		const r = await recallForAction({ ...QUERY, action: "幂等键 接口", root: project });
 		const pitfall = r.facts.find((fact) => fact.ref === PIT_UID);
-		assert.ok(pitfall !== undefined, "前提：触发信号参与 detail 匹配");
+		assert.ok(pitfall !== undefined, "前提：触发信号参与 detail 匹配（23 §8）");
 		assert.equal(pitfall.tier, 2, "触发信号在 detail 命中面，属 tier2");
-		assert.match(pitfall.hitReason, /触发信号字面重合：幂等/);
-		// 展示标注不得改写排序输入：hits 仍由既有匹配算法给出（这里不钉具体数，
-		// 只钉「tier 未被标注抬高」）。
-		assert.equal(pitfall.tier, 2, "标注不得改变 tier");
-		// 非 tier2 的命中不得带该标注（唯一路径写死）。
+		// 设计③「触发信号字面重合」标注层经真实评测集探针实测 0/65 行触发
+		// （2026-10-31），按拍板④「按实测命中率决定做不做」暂缓：命中依据
+		// 不得出现该标注。若将来恢复该层，本断言反向。
 		for (const fact of r.facts) {
-			if (fact.tier !== 2) assert.doesNotMatch(fact.hitReason, /触发信号字面重合/);
+			assert.doesNotMatch(fact.hitReason, /触发信号字面重合/);
 		}
 	});
 });

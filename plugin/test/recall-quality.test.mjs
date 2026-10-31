@@ -64,10 +64,13 @@ export const QUALITY_CASES = [
   { q: "插件重新加载以后子代理的记录都没了", want: ["插件重建清空子代理登记表致复核记录恒被拒"], jaccard: 0.06 },
   { q: "热重载的时候好像同时装了两份", want: ["重载窗口多实例致钩子重复且互相摘除"], jaccard: 0.05 },
   { q: "这次改动会不会把已有的缓存弄坏", want: [], jaccard: 0.0,
-    // 已知缺陷（未修）：本仓确有一条 friction 的标题含「缓存」，但它因
-    // `REQUIRED_RECALL_TYPES` 被无条件后置而排不进注入位。此处 want 暂留空，
-    // 待第 1 步修完再回填——**故意如此**，使该用例在修复前后给出可对比的信号。
-    known_gap: "REQUIRED_RECALL_TYPES 把 adr/pitfall 无条件前置，含「缓存」的 friction 排不进前 N" },
+    // 2026-10-31 探针更正：本仓含「缓存」的 friction（friction-fbd65401
+    // 「宿主缓存旧模块致 precheck 误报」）标题确实对题，但它 **status: resolved**
+    // ——26 §12 默认候选只含 open，resolved 仅精确引用/追溯可达（「不进默认候选
+    // ≠不可交付」）。此前归因「REQUIRED_RECALL_TYPES 无条件前置」不成立：
+    // typeRank 族已删（cf0e768）后它依然不出现，且按规则**本就不该**出现。
+    // 故 want 留空是正确期望、非遗留缺口；本用例继续守护这条边界。
+    known_gap: "已澄清：目标 friction 已 resolved，按 26 §12 不进默认候选——want 留空是正确期望" },
 
   // ── 无明确主题：不该召回（元讨论 / 寒暄 / 短指令）────────────────────
   { q: "实际给出的都是有价值的信息吗？还是为了给而给的？", want: [], jaccard: 0.0 },

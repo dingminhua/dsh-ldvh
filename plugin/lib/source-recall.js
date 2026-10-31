@@ -1486,8 +1486,10 @@ export async function loadFacts(baseDir, options = {}) {
         // 依据（2026-10-31）：压平会让 A 类型的字段词命中 B 类型的候选（例如
         // `decision` 对 friction 也生效），字段结构没有进入路由与触发。
         //
-        // `trigger_signal` **恒在**匹配面（`23 §8`「重新审视信号」）：它既是
-        // 字段语义的一部分，也是候选④「触发信号字面重合」标注的唯一来源。
+        // `trigger_signal` **恒在**匹配面（`23 §8`「重新审视信号」）：它是字段
+        // 语义的一部分。设计 ③「触发信号字面重合」标注层经真实评测集探针实测
+        // 0/65 行触发（2026-10-31），按拍板④「按实测命中率决定做不做」**暂缓**，
+        // 未随本次交付；`trigger_signal` 留在匹配面的行为不受影响。
         // 判据不可用的类型连它也一并停用——整个字段语义通道关闭。
         detail: criteriaEntry === null ? "" : [
           ...criteriaEntry.values.coreFields.map((field) => coreFieldTextOf(fm, field)),
@@ -2294,27 +2296,6 @@ export function selectFactsBySection(hits, plan = {}) {
 }
 
 /**
- * 候选③的**触发信号字面重合**标注（纯展示，2026-10-31）。
- *
- * 契约（设计 ③）：**只在 tier 2（类型正文命中）时**标注——这是唯一路径，写死。
- * 命中依据追加 `·触发信号字面重合：<trigger_signal 原文片段>`，其中「字面重合」
- * 只做 `tokenize(trigger_signal)` 与 `tokenize(query)` 的**集合相交**，
- * 不加权、不计分、不新增排序键、不改 tier/hits。`trigger_signal` 本身已在
- * detail 匹配面里（见 `loadFacts`），本函数不改变它是否命中，只让读者看见
- * 「这次命中恰好也落在重新审视信号上」。
- *
- * **措辞纪律**：不得写成「触发成立／应当重审」——那是对适用性的裁决，
- * 属 AI 消费工作（02 §9.2），不是召回器能下的结论。
- */
-function triggerSignalAnnotation(candidate, match, queryTokens) {
-  if (match.tier !== 2) return "";
-  const trigger = typeof candidate.trigger === "string" ? candidate.trigger.trim() : "";
-  if (trigger === "") return "";
-  if (intersect(tokenize(trigger), queryTokens).length === 0) return "";
-  return `·触发信号字面重合：${excerptOf(trigger)}`;
-}
-
-/**
  * 判据表不可用时的披露语（02 §12.4 fail-closed 的「如实报告」一半）。
  *
  * 契约要求：缺表/缺版本/列不符/机械值非法/必填缺失 → 停用该类型的机器判据、
@@ -2661,7 +2642,7 @@ export async function recallForAction(input = {}) {
         matchTierMeaning:
           "匹配层（命中了哪个字段），非 F0–F4 事实分层、非 L0–L4 规范读取分层（02 §9.1）",
         hits: m.hits,
-        hitReason: m.hitReason + triggerSignalAnnotation(c, m, tokens),
+        hitReason: m.hitReason,
         weakHit: m.weakHit === true,
         // 供关系展开（F4）识别「精确引用路径」：结构字段命中的具体字段名，
         // 以及该结构命中是否为纯指称（否则不展开）。
