@@ -380,14 +380,21 @@ async function executeWriteObject(args, exec, deps) {
     if (typeof draft !== "object" || draft === null || typeof bodyMarkdown !== "string" || bodyMarkdown.length === 0) {
       return invalidRequest("subgoal-write-object", "frontmatter_draft (object) and body_markdown (markdown starting with '## 达成条件') are required for action=create", "create");
     }
+    // 02 §10.1: this channel HAS a read-only precheck entry, so a create ought to
+    // arrive carrying the fingerprint that precheck produced. A create without it
+    // is still executed (the write must not invent a verification it never ran),
+    // but the fact that no precheck covers it is disclosed as unfulfilled scope —
+    // an unregistered gap here would read as "prechecked" afterwards.
+    const expectedFingerprint = typeof args?.expected_candidate_fingerprint === "string"
+      && args.expected_candidate_fingerprint.length > 0
+      ? args.expected_candidate_fingerprint
+      : null;
     const created = await createSubGoalObject({
       factSourceRoot,
       frontmatterDraft: draft,
       bodyMarkdown,
       sessionSignature: sig.value,
-      expectedCandidateFingerprint: typeof args?.expected_candidate_fingerprint === "string"
-        ? args.expected_candidate_fingerprint
-        : null,
+      expectedCandidateFingerprint: expectedFingerprint,
     });
     if (!created.ok) {
       return writeRejected("subgoal-write-object", created, factSourceRoot, "create");
@@ -399,11 +406,23 @@ async function executeWriteObject(args, exec, deps) {
         object_uid: created.value.object_uid,
         file: created.value.file,
         fingerprint: created.value.fingerprint,
+        precheck_fingerprint_bound: expectedFingerprint !== null,
         read_back: readBack.ok ? "ok" : `failed: ${readBack.error.message}`,
       },
-      scope: { requested: "create", completed: ["create", "read-back"], not_completed: [] },
+      scope: {
+        requested: "create",
+        completed: ["create", "read-back"],
+        not_completed: expectedFingerprint === null
+          ? ["precheck (no candidate fingerprint supplied — this create was NOT covered by ldvh_subgoal_precheck_create, 02 §10.1)"]
+          : [],
+      },
       sources: [{ kind: "fact-object", path: created.value.file, content_fingerprint: created.value.fingerprint }],
-      gaps: readBack.ok ? [] : [readBack.error.message],
+      gaps: [
+        ...(readBack.ok ? [] : [readBack.error.message]),
+        ...(expectedFingerprint === null
+          ? ["precheck-not-run: 本次创建未携带候选指纹，因此没有经受控预检覆盖——入参仍按类型规范核对，但预检这一环未兑现（02 §10.1）；该事实不得在事后被读作「已预检」"]
+          : []),
+      ],
       verification: { checks: ["frontmatter-closed-set", "anchor-uniqueness", "parent-goal-resolvable", "body-skeleton", "write-read-back"], passed: readBack.ok },
       follow_up: [
         "whether this sub-goal really serves the goal statement, and whether the criterion is truly decidable, are AI/Human semantic judgements (28 §15) — this write only proves the shape",

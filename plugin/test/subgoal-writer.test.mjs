@@ -795,7 +795,8 @@ test("subgoal tools: 预检工具只读运行，交还指纹与结论，不写�
 		// follow_up names the next step, so the caller does not invent one.
 		assert.ok((pre.follow_up ?? []).some((f) => /expected_candidate_fingerprint/.test(f)), JSON.stringify(pre.follow_up));
 
-		// Then the write honours the fingerprint it produced.
+		// Then the write honours the fingerprint it produced, and reports that the
+		// precheck gate was met (02 §10.1).
 		const created = await handlers["subgoal-write-object"]({
 			action: "create",
 			frontmatter_draft: d,
@@ -803,6 +804,50 @@ test("subgoal tools: 预检工具只读运行，交还指纹与结论，不写�
 			expected_candidate_fingerprint: pre.result.candidate_fingerprint,
 		}, ctx);
 		assert.equal(created.outcome, "completed", JSON.stringify(created.gaps));
+		assert.equal(created.result.precheck_fingerprint_bound, true);
+		assert.deepEqual(created.scope.not_completed, []);
+		assert.ok(!(created.gaps ?? []).some((g) => /precheck-not-run/.test(g)), JSON.stringify(created.gaps));
+	});
+});
+
+test("subgoal tools: 未带指纹的创建**照常执行**，但把「未预检」如实登记为未兑现范围（02 §10.1）", async () => {
+	const { makeExecute } = await import("../lib/subgoal-tools.js");
+	const { initRepo, git, sessionPersistenceWithRoutingLog } = await import("./helpers.mjs");
+	await withTemp("subgoal-tools-noprecheck.", async (base) => {
+		const repo = await initRepo(base, { name: "repo" });
+		await git(repo, ["commit", "-qm", "init"]);
+		const root = join(repo, "ldvh-base");
+		await mkdir(root, { recursive: true });
+		await writeFile(join(root, "goal.md"), [
+			"---", "goal_key: project-goal", "title: T", "status: active",
+			"created_at: 2026-01-01T00:00:00.000Z",
+			"change_log:", "  - at: 2026-01-01T00:00:00.000Z", "    summary: 存量", "---",
+			"", "# 项目目标", "", "## 目标陈述", "", "夹具。", "",
+		].join("\n"), "utf8");
+		const home = join(base, "home");
+		await mkdir(join(home, "ldvh"), { recursive: true });
+		await writeFile(join(home, "ldvh", "governed-projects.yaml"), [
+			"schema_version: 1", "governance_instance_name: T", "product_description: T",
+			"projects:", "  - id: p", `    path: ${repo}`, "default_project_id: p", "",
+		].join("\n"), "utf8");
+		const { handlers } = makeExecute({
+			dshHomePath: (...p) => join(home, ...p),
+			sessionPersistence: sessionPersistenceWithRoutingLog(base),
+		});
+		const ctx = { agent: { session: { header: { cwd: repo } } } };
+
+		const d = draft();
+		const created = await handlers["subgoal-write-object"]({
+			action: "create",
+			frontmatter_draft: d,
+			body_markdown: validBody(d),
+		}, ctx);
+		// The write is NOT blocked — 02 §10.1 forbids inventing an obligation the
+		// caller never met, but requires the gap to be visible.
+		assert.equal(created.outcome, "completed", JSON.stringify(created.gaps));
+		assert.equal(created.result.precheck_fingerprint_bound, false);
+		assert.ok(created.scope.not_completed.some((x) => /precheck/.test(x)), JSON.stringify(created.scope));
+		assert.ok(created.gaps.some((g) => /precheck-not-run/.test(g)), JSON.stringify(created.gaps));
 	});
 });
 
