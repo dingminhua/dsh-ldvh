@@ -279,10 +279,17 @@ export async function runReviewStage({
   // 留最后一次），故残余若只随某一次 `record` 传出，会被后续的 `landed`/`skipped`
   // 覆盖掉——那等于静默跳过（§12）。这里让它随**每一次** record 带出。
   let promotionResidual = [];
+  // 摩擦署名的取数原因（2026-10-31）。它必须随 record 带出：`activity.record` 只进
+  // 内存环形缓冲（ActivityLog 上限 200 条、重启即失），而这里的诊断要能**事后**从
+  // `idle-checkpoint-runs.json` 读到——否则又是一轮「只能靠猜」。
+  let frictionSignatureReason = null;
   const record = (outcome, extra = {}) => {
-    const value = promotionResidual.length > 0
-      ? { outcome, ...extra, friction_residual: promotionResidual }
-      : { outcome, ...extra };
+    const value = {
+      outcome,
+      ...extra,
+      ...promotionResidual.length > 0 ? { friction_residual: promotionResidual } : {},
+      ...frictionSignatureReason !== null ? { friction_signature: frictionSignatureReason } : {},
+    };
     taskOutcomes["experience-review"] = value;
     activity?.record("review/stage", value);
     return value;
@@ -339,6 +346,10 @@ export async function runReviewStage({
   // 失败即 fail-closed 并登记，不降级跳过（§12）。但**不阻断经验审核**：两者处理
   // 的是不同缓冲，一件失败不应使另一件也停摆；失败已如实登记，读数时可见。
   let frictionPromotion = null;
+  const frictionSignature = await resolveSignatureDetailed(
+    sessionPersistence,
+    parent?.session?.header?.id ?? null,
+  );
   try {
     const { runFrictionReviewPromotion } = await import("./friction-review-promotion.js");
     frictionPromotion = await runFrictionReviewPromotion({
@@ -356,8 +367,18 @@ export async function runReviewStage({
       // 行动由主控最终负责），执行体那时还没被派生，它也没有参与任何摩擦判断。
       // 09 §5.1 要的是「当次实际做出这个判断的那一方」的 provider/model——摩擦晋升
       // 由主控触发、在宿主进程内完成，主控会话记录就是它的权威出处。
-      sessionSignature: await resolveSignature(sessionPersistence, parent?.session?.header?.id ?? null),
+      sessionSignature: frictionSignature.ok ? frictionSignature.value : null,
     });
+    // 署名取不到时把**具体原因**记下来（不是只留一个 signature_unavailable）。
+    // 2026-10-31：正是缺这一步，使「服务缺失／id 为空／open 抛错／无 routing 事件」
+    // 四种原因混成一个 null，排查只能靠猜——实测为此连猜两轮都没定位。
+    if (!frictionSignature.ok) {
+      frictionSignatureReason = frictionSignature.reason;
+      activity?.record("review/friction-signature-unavailable", {
+        reason: frictionSignature.reason,
+        sessionId: parent?.session?.header?.id ?? null,
+      });
+    }
   } catch (error) {
     frictionPromotion = failure("review_stage/friction_promotion_threw", String(error?.message ?? error));
   }
@@ -609,19 +630,44 @@ export async function runReviewStage({
  * 方的章。调用方必须显式指明取谁的会话（见上「两处用途」）。
  */
 async function resolveSignature(sessionPersistence, childId) {
-  if (sessionPersistence === null || sessionPersistence === undefined) return null;
-  if (typeof childId !== "string" || childId.length === 0) return null;
+  const out = await resolveSignatureDetailed(sessionPersistence, childId);
+  return out.ok ? out.value : null;
+}
+
+/**
+ * 带原因的署名取数（2026-10-31）。
+ *
+ * **为什么要把原因带出来**：`resolveSignature` 取不到时只返回 null，调用方看到的
+ * 一律是 `signature_unavailable`。但「没有 persistence 服务」「会话 id 为空」
+ * 「宿主 open 抛错」「日志里没有 routing 事件」「有值但品牌化失败」是五件不同的事，
+ * 混成一个 null 使排查只能靠猜——实测为此连猜了两轮都没定位。
+ *
+ * 原因**只进活动记录与返回值**，不进任何事实对象：它是诊断，不是结论。
+ *
+ * @returns {{ok: true, value: string} | {ok: false, reason: string}}
+ */
+export async function resolveSignatureDetailed(sessionPersistence, childId) {
+  if (sessionPersistence === null || sessionPersistence === undefined) {
+    return { ok: false, reason: "sessionPersistence-unavailable" };
+  }
+  if (typeof childId !== "string" || childId.length === 0) {
+    return { ok: false, reason: "session-id-empty" };
+  }
   try {
     // 只认会话标识：宿主正规入口 open(id,'read') 自行定位日志；执行体在结算前
     // 已被 flushFinalState 刷盘，故此刻可读（见 currentRouteValuesForSession 说明）。
     const route = await currentRouteValuesForSession(sessionPersistence, { id: childId });
-    if (!route.ok) return null;
+    if (!route.ok) return { ok: false, reason: `route-unavailable:${route.reason ?? "unknown"}` };
     const carrier = authoritativeSignature({ provider: route.value.provider, model: route.value.model });
-    if (carrier === null) return null;
-    return carrier;
-  } catch {
-    // 取数通道自身抛错：仍然返回 null（宁可拒写也不臆造），由审核段按其既有
-    // fail-closed 路径如实上报。
-    return null;
+    if (carrier === null) {
+      return {
+        ok: false,
+        reason: `unbrandable:provider=${String(route.value.provider)}:model=${String(route.value.model)}`,
+      };
+    }
+    return { ok: true, value: carrier };
+  } catch (error) {
+    // 取数通道自身抛错：仍然拒绝（宁可拒写也不臆造），但把原因带出去。
+    return { ok: false, reason: `threw:${String(error?.message ?? error)}` };
   }
 }
