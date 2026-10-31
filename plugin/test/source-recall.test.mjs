@@ -1048,51 +1048,47 @@ test("排序比较器：每层键都须真的被样本覆盖（无并列组 = �
 		"已准入须先于未准入，即使草稿更新（新 ≠ 更权威）",
 	);
 
-	// ③ 必需类型：同分时 adr 须先于 spark，即使 spark 更新。
+	// ③ **没有类型轴**（2026-10-31，Human 裁定删除 typeRank 族）。
+	// 类型不是排序键：证据（weakHit/tier/hits/status）与时间全等时，
+	// adr 与 spark 必须比较为 0；谁在前只由 `path` 稳定兜底。
 	const sparkNewer = mk({ ...base, type: "spark", updatedAt: "2026-10-27T00:00:00.000Z" });
 	assert.equal(
-		compareFactHits(mk(base), sparkNewer) < 0, true,
-		"同分时必需类型须在前（22 §12 义务召回）",
+		compareFactHits(mk(base), sparkNewer) > 0, true,
+		"类型不再是排序键：同证据、更新者（spark）须在前（时间键生效）",
+	);
+	const sameEvidenceAdr = mk({ ...base, type: "adr" });
+	assert.equal(
+		compareFactHits(mk(base), sameEvidenceAdr), 0,
+		"同证据、同时间、同路径的 pitfall 与 adr 必须并列（无类型轴）",
 	);
 
-	// ④ **类型等级键**（2026-10-30 重写本条）。
+	// ④ **类型等级键已删除**（2026-10-31，Human 裁定）。
 	//
-	// 原断言是「证据更厚的非必需类型须压过证据薄的必需类型（排序按证据，不按
-	// 身份）」。2026-10-30 的一次对话要求「ADR / Norm / Pitfall / friction 就是
-	// 这样的排序」并明确「只动排序不动范围」，即**同等证据下按类型次序**——本
-	// 断言随之改写，否则它守的是已被推翻的规则。
-	//
-	// **授权状态如实登记**：该方向在规范源与事实源中均无稳定承载（specs/ 无此
-	// 概念、ldvh-base/adrs/ 无对应 ADR、02 §9.2 明禁跨类型共用的相关性分数），
-	// 故按 00 §4.4「仅存在于对话中的决定不产生复用效力」，它只是**实现层的产品
-	// 取舍**，不是已成立的裁定。本断言守的是该取舍当前的形态，不为其主张规范效力。
-	//
-	// **但这条测试的核心价值必须保留**：它守的是「每个排序键都真的被样本覆盖」，
-	// 不是某个具体偏好。故改写为双向两条：
-	//   · 同为强命中时，类型等级高者在前（证明 typeRank 键可达）；
-	//   · 弱命中的高等级类型**不得**压过强命中的低等级类型（证明 weakHit 仍
-	//     先于 typeRank——这正是我第一版把类型放最前时踩的坑）。
-	const sameEvidenceSpark = mk({ weakHit: false, tier: 1, hits: 1, status: "active", type: "spark", path: "b.md" });
+	// 原断言守的是「同等证据下按类型次序（adr < norm < pitfall < friction < 其它）」，
+	// 而该次序在规范源与事实源中均无承载（02 §9.2 明禁跨类型共用的相关性分数），
+	// 2026-10-31 由 Human 裁定连同 `RECALL_TYPE_TIERS` / `RECALL_TYPE_TIER_OTHER`
+	// 一并删除。本条随之改写为**新行为的双向断言**，而不是删掉：
+	//   · 同等证据下类型不再产生名次（比较为 0）；
+	//   · 证据强的一律在前——弱命中的 adr 不得压过强命中的 pitfall
+	//     （`weakHit` 仍是第一键，且这是**证据**不是身份）。
+	// 这样「每个排序键都被样本覆盖」的核心价值仍在（时间/状态/证据三键都有
+	// 并列组），只是不再有一条不存在的类型键假装被覆盖。
+	const sameEvidenceSpark = mk({ weakHit: false, tier: 1, hits: 1, status: "active", type: "spark", path: "a.md" });
 	assert.equal(
-		compareFactHits(mk(base), sameEvidenceSpark) < 0, true,
-		"同等证据下 pitfall 须先于 spark（typeRank 键可达，实现层次序）",
+		compareFactHits(mk(base), sameEvidenceSpark), 0,
+		"同等证据下 pitfall 与 spark 必须并列（类型轴已删除，不得复活）",
 	);
 	const weakAdr = mk({ weakHit: true, tier: 1, hits: 99, status: "active", type: "adr", path: "c.md" });
 	const strongPitfall = mk({ weakHit: false, tier: 4, hits: 1, status: "active", type: "pitfall", path: "d.md" });
 	assert.equal(
 		compareFactHits(strongPitfall, weakAdr) < 0, true,
-		"弱命中的 adr 不得压过强命中的 pitfall（weakHit 必须先于 typeRank）",
+		"弱命中的 adr 不得压过强命中的 pitfall（证据先于身份）",
 	);
-	// 类型次序本身：adr < norm < pitfall < friction < 其它。
-	const order = ["adr", "norm", "pitfall", "friction", "spark"];
-	for (let i = 0; i + 1 < order.length; i += 1) {
-		const hi = mk({ ...base, type: order[i] });
-		const lo = mk({ ...base, type: order[i + 1] });
-		assert.equal(
-			compareFactHits(hi, lo) < 0, true,
-			`类型次序须为 adr < norm < pitfall < friction < 其它（${order[i]} 应前于 ${order[i + 1]}）`,
-		);
-	}
+	const strongSpark = mk({ weakHit: false, tier: 4, hits: 1, status: "active", type: "spark", path: "e.md" });
+	assert.equal(
+		compareFactHits(strongSpark, weakAdr) < 0, true,
+		"证据相同时不再有类型轴：强命中的 spark 同样压过弱命中的 adr",
+	);
 
 	// ⑤ **NaN 防护**（这是曾经的真实 bug）：任何合法输入都不得返回 NaN。
 	for (const [x, y] of [
@@ -1228,15 +1224,15 @@ test("默认事实类型须为 ADR/Pitfall（03 §6.1 标准路径的明示要�
 		r.facts.some((f) => f.type === "adr"),
 		`「写一个 ADR」须召回 adr，实际：${r.facts.map((f) => f.type).join(",")}`,
 	);
-	// **2026-10-27 改写**：原断言是一个**恒不可达的循环**——
-	//   `for (let i = 0; i < firstRequired; i += 1) assert.fail(...)`
-	// `firstRequired` 按定义就是「第一个必需类型的下标」，循环一旦进入即失败，
-	// 等价于断言「必需类型必须恰在第 0 位」。第 1 步把类型优先级从绝对前置改为
-	// **同分时生效**（依据：含「缓存」的 friction 被 28 条弱命中的 adr/pitfall
-	// 压到第 29 位），该假设已被有意改变，故此处改为守**新设计**的两条性质：
+	// **2026-10-31 改写（类型轴已删除）**：本条此前守「证据相同时必需类型在前」，
+	// 而该性质由 `typeRank` 提供；`typeRank` 族按 Human 裁定删除后，**类型不再是
+	// 排序键**，「必需类型同分在前」既无实现也无规范依据（02 §9.2 明禁跨类型共用
+	// 的相关性分数）。保留它只会变成一条靠当前语料路径顺序碰巧通过的假断言。
 	//
+	// 故改守新设计**真实成立**的性质：
 	//   a) 必需类型**不得被过滤掉**（`22 §12` 义务召回：active ADR 必须出现）；
-	//   b) 必需类型与其它类型**证据相同时**，必需类型在前。
+	//   b) 证据并列时，名次只由状态／更新时间／路径决定——不得由类型决定。
+	//     机械判据：并列相邻项的（状态序, updatedAt, path）必须非降。
 	assert.ok(
 		r.facts.some((f) => f.type === "adr"),
 		`「写一个 ADR」须召回 adr（义务召回），实际：${r.facts.map((f) => f.type).join(",")}`,
@@ -1247,11 +1243,18 @@ test("默认事实类型须为 ADR/Pitfall（03 §6.1 标准路径的明示要�
 		const sameEvidence =
 			prev.weakHit === cur.weakHit && prev.tier === cur.tier && prev.hits === cur.hits;
 		if (!sameEvidence) continue;
-		const prevRequired = REQUIRED_RECALL_TYPES.includes(prev.type);
-		const curRequired = REQUIRED_RECALL_TYPES.includes(cur.type);
+		const prevStatus = statusRank(prev.status);
+		const curStatus = statusRank(cur.status);
+		const prevAt = String(prev.updatedAt ?? "");
+		const curAt = String(cur.updatedAt ?? "");
+		// 状态序非降；状态相同则更新时间不升（新者在前）；再相同则路径不降。
+		const ordered =
+			prevStatus < curStatus ||
+			(prevStatus === curStatus &&
+				(prevAt > curAt || (prevAt === curAt && String(prev.path ?? "") <= String(cur.path ?? ""))));
 		assert.ok(
-			!(prevRequired === false && curRequired === true),
-			`证据相同时必需类型须在前：第 ${i} 位是非必需 ${prev.type}，第 ${i + 1} 位是必需 ${cur.type}`,
+			ordered,
+			`证据并列时名次须由状态/时间/路径决定（不得由类型决定）：第 ${i} 位 ${prev.type}/${prev.path}，第 ${i + 1} 位 ${cur.type}/${cur.path}`,
 		);
 	}
 });

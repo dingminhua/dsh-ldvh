@@ -175,6 +175,51 @@ export function decideInjection(input) {
 export const RECALL_BYTE_BUDGET = 2400;
 
 /**
+ * 事实候选的**分节次序与类型名额**（⑥，2026-10-31）。
+ *
+ * **单一来源**：注入分节、名额裁剪、披露文案都读这一组常量；改这里一处即生效。
+ * 变更走受控提交；**改动属 specs/10 §9.1 第 2 项 Human Gate**。
+ *
+ * 次序依据（34 §12 交付口径）：ADR > Norm > Pitfall > Friction 是必须先看见的
+ * 四类，research 与 workcase 兜底在其后。spark/goal 不进注入：spark 见
+ * `INJECTION_EXCLUDED_TYPES`（31 §10），goal 是单例直读、本就不进候选。
+ *
+ * **名额不扩大任何预算**：总名额等于既有注入条数上限（3），字节预算
+ * `RECALL_BYTE_BUDGET` 不变。分节只是**交付组织**，不是新的排序键。
+ */
+export const FACT_SECTION_ORDER = Object.freeze([
+  "adr", "norm", "pitfall", "friction", "research", "workcase",
+]);
+
+/** 分节标题里的类型标签（只用于渲染，不参与判定）。 */
+export const FACT_SECTION_LABELS = Object.freeze({
+  adr: "ADR（决策）",
+  norm: "Norm（事实规范）",
+  pitfall: "Pitfall（踩坑经验）",
+  friction: "Friction（摩擦账本）",
+  research: "Research（调研报告）",
+  workcase: "WorkCase（工单）",
+});
+
+/**
+ * 每类型的**交付名额**。只在注入路径生效（`factSelection`），默认召回路径不受影响。
+ *
+ * 名额之和（8）大于总名额（3）：类型名额的作用是「同一类型最多占几席」，总名额
+ * 再从分节次序末尾向前裁——这样一类事实不能挤掉其它类的可见性。
+ */
+export const QUOTA_BY_TYPE = Object.freeze({
+  adr: 2,
+  norm: 1,
+  pitfall: 2,
+  friction: 1,
+  research: 1,
+  workcase: 1,
+});
+
+/** 单次注入交付的事实候选总名额（= 既有注入 limit 默认值，未扩大）。 */
+export const FACT_QUOTA_TOTAL = 3;
+
+/**
  * **决策基线（F1）段的字节上限**。
  *
  * 与 `RECALL_BYTE_BUDGET` 的关系：这是**既有注入面预算内部的子分配**，
@@ -626,28 +671,85 @@ export function renderRecallRow(result) {
     }
   }
   if (facts.length > 0) {
-    lines.push("事实源：");
+    // ── ⑥ 按类型分节呈现（2026-10-31）────────────────────────────────
+    //
+    // 次序与名额来自 `FACT_SECTION_ORDER`／`QUOTA_BY_TYPE`（单一来源，变更属
+    // `10 §9.1` 第 2 项 Human Gate）。**只改交付组织**：每节内部的候选次序
+    // 仍是召回层按证据排好的次序，本节不重排。
+    //
+    // 分节只在**同类聚齐**时合并表头；节内逐条渲染逻辑与原先逐字相同。
+    const labelOf = (type) => FACT_SECTION_LABELS[type] ?? (type === "" ? "未标注类型" : type);
+    const sectionOf = new Map();
     for (const fact of facts) {
-      const status = typeof fact.status === "string" && fact.status !== "" ? `/${fact.status}` : "";
-      // **摘录必须出现在渲染行里**（`02 §9.1` F2「有界确定性摘录」）。
-      // 数据层有 excerpt 而渲染层不显示，读者依然无法筛选——F2 的分层意义就丢了。
-      // 摘录取数据层的 `excerpt`（已是有界确定性截断），此处不再二次加工。
-      const excerpt = typeof fact.excerpt === "string" && fact.excerpt !== "" ? `\n  ↳ ${fact.excerpt}` : "";
-      // **结构字段必须出现在渲染行里**（2026-10-29）——与摘录同一条理由：
-      // 数据层带了而渲染层不显示，读者依然看不出「这对象处在什么状态、归哪个
-      // 子目标、多严重」，F2「筛选少量候选并选择 F3」的分层意义就丢了
-      // （`pitfall-b878f526` 记录的同型缺陷：渲染层输出行缺字段致模型侧不可见）。
-      //
-      // 位置：**紧跟标题、在命中理由之前**——这几个值是对象的固有属性，
-      // 比「为什么被召回」更常用于一票否决（「这条工单还没过 Gate 1，别当它已批准」）。
-      // 形态保持**极短**：`· key=value / key=value`，与 `estimateLineBytes`
-      // 的估算口径逐字一致（改这里必须同步改那里，否则预算会算漏）。
-      const structural = renderStructuralTag(fact.structural);
+      const type = typeof fact?.type === "string" ? fact.type : "";
+      if (!sectionOf.has(type)) sectionOf.set(type, []);
+      sectionOf.get(type).push(fact);
+    }
+    const orderedTypes = [
+      ...FACT_SECTION_ORDER.filter((type) => sectionOf.has(type)),
+      // 次序之外的类型**不静默丢**：附在末尾并原样标出类型名。
+      ...[...sectionOf.keys()].filter((type) => !FACT_SECTION_ORDER.includes(type)),
+    ];
+    // **单节时用短表头**：分数段表头的收益只在「多类并存」时存在；只有一类时
+    // `事实源：` 与 `事实源 · ADR（决策）：` 信息量相同，却多占 18 字节预算
+    // （实测预算 1200 的情形正因此超 7 字节）。多节才逐节标注类型。
+    const singleSection = orderedTypes.length === 1;
+    for (const type of orderedTypes) {
+      lines.push(singleSection ? "事实源：" : `事实源 · ${labelOf(type)}：`);
+      for (const fact of sectionOf.get(type)) {
+        const status = typeof fact.status === "string" && fact.status !== "" ? `/${fact.status}` : "";
+        // **摘录必须出现在渲染行里**（`02 §9.1` F2「有界确定性摘录」）。
+        // 数据层有 excerpt 而渲染层不显示，读者依然无法筛选——F2 的分层意义就丢了。
+        // 摘录取数据层的 `excerpt`（已是有界确定性截断），此处不再二次加工。
+        const excerpt = typeof fact.excerpt === "string" && fact.excerpt !== "" ? `\n  ↳ ${fact.excerpt}` : "";
+        // **结构字段必须出现在渲染行里**（2026-10-29）——与摘录同一条理由：
+        // 数据层带了而渲染层不显示，读者依然看不出「这对象处在什么状态、归哪个
+        // 子目标、多严重」，F2「筛选少量候选并选择 F3」的分层意义就丢了
+        // （`pitfall-b878f526` 记录的同型缺陷：渲染层输出行缺字段致模型侧不可见）。
+        //
+        // 位置：**紧跟标题、在命中理由之前**——这几个值是对象的固有属性，
+        // 比「为什么被召回」更常用于一票否决（「这条工单还没过 Gate 1，别当它已批准」）。
+        // 形态保持**极短**：`· key=value / key=value`，与 `estimateLineBytes`
+        // 的估算口径逐字一致（改这里必须同步改那里，否则预算会算漏）。
+        const structural = renderStructuralTag(fact.structural);
+        lines.push(
+          `- [${fact.type}${status}] ${fact.title}${structural} — ${fact.hitReason}（${fact.path}）${excerpt}`,
+        );
+      }
+    }
+    // **名额裁剪须标明来源与被裁类型**（34 §12「标明截断来源」，不得静默）。
+    const droppedByQuota = result?.sectioning?.droppedByQuota ?? [];
+    const droppedByTotal = result?.sectioning?.droppedByTotal ?? [];
+    if (droppedByQuota.length > 0 || droppedByTotal.length > 0) {
+      const describe = (list) => list
+        .map((entry) => `${entry.type} ${entry.count}`)
+        .join("、");
+      const parts = [];
+      if (droppedByTotal.length > 0) parts.push(`总名额 ${result?.sectioning?.total ?? "?"} 条裁去 ${describe(droppedByTotal)}`);
+      if (droppedByQuota.length > 0) parts.push(`类型名额裁去 ${describe(droppedByQuota)}`);
+      // **短到能被预算容纳**：披露是义务，但冗长披露会挤掉候选并反过来逼出
+      // 「渲染层裁剪」的二次披露。类型名用 key（分节表头已给出中文名）。
       lines.push(
-        `- [${fact.type}${status}] ${fact.title}${structural} — ${fact.hitReason}（${fact.path}）${excerpt}`,
+        `（分节名额省略：${parts.join("；")}。次序为交付组织，非相关性排序；被省略者仍可另行查询。）`,
       );
     }
   }
+  // ── ⑤ 关系展开派生条目（单独归类，不占名额）──────────────────────────
+  //
+  // 只在精确引用路径产生（见 `recallForAction` 的 `relationExpansionsOf`），
+  // **不进上面的候选分节、不进 F2 计数**。目标不可解析者保留并标明原因——
+  // 那是「这条边存在但读不到目标」，不是「没有这条边」。
+  const relationExpansions = Array.isArray(result?.relationExpansions) ? result.relationExpansions : [];
+  if (relationExpansions.length > 0) {
+    lines.push("关系展开（精确引用派生；不占候选名额）：");
+    for (const item of relationExpansions) {
+      const target = item.resolved === false
+        ? `${item.ref}（未解析${typeof item.unresolvedReason === "string" ? `：${item.unresolvedReason}` : ""}）`
+        : `[${item.type}] ${item.title}（${item.path}）`;
+      lines.push(`- ${item.hitReason} → ${target}`);
+    }
+  }
+
   if (specs.length === 0 && facts.length === 0) {
     // **零命中行不得邀请一次结构上做不到的扩大检索**（独立审核 B2 的后果链第 2 环）：
     // 原文写「必要时请自行扩大检索」，而本路径已把 spark 整类移出声明范围——
@@ -875,6 +977,23 @@ export function renderRecallRow(result) {
     trimmed.splice(idx, 1);
     droppedByRender += 1;
   }
+  // **零事实交付时名额披露随之省略**（2026-10-31）：名额说的是「本可交付的
+  // 几条被名额挡下」，当渲染层已把事实候选**全部**裁掉时，读者手上没有任何
+  // 可比较的交付对象，这一行只剩噪声，且会把固定披露顶破极小预算（实测
+  // 1200 字节下多出 159 字节）。数据层仍以 `result.sectioning` 如实记录被裁
+  // 类型与条数，交付内容本身没有静默丢失；这里省的是**冗余的重复披露**。
+  const renderedFactRows = () => trimmed.filter((line) => line.startsWith("- [")).length;
+  if (renderedFactRows() === 0) {
+    const quotaLine = trimmed.findIndex((line) => line.startsWith("（分节名额省略："));
+    if (quotaLine !== -1) trimmed.splice(quotaLine, 1);
+  }
+  // **空表头须随内容一起消失**（2026-10-31）：候选行被裁光后仍留
+  // `事实源：`／`事实源 · X：` 表头，既白占预算又会让读者以为「这一类为空」。
+  for (let i = trimmed.length - 1; i >= 0; i -= 1) {
+    if (!/^事实源(?: · .+)?：$/.test(trimmed[i])) continue;
+    if (trimmed[i + 1] !== undefined && trimmed[i + 1].startsWith("- ")) continue;
+    trimmed.splice(i, 1);
+  }
   if (droppedByRender > 0) {
     const reasons = [];
     if (charTriggered) reasons.push(`字符上限 ${charLimit}`);
@@ -989,6 +1108,8 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
   if (!shouldRecall(userText)) {
     return { inject: false, reason: "excluded-by-34-6" };
   }
+  // 显式 `limit` 视为调用方的总名额（既有行为）；未给则用分节常量。
+  const totalQuota = Number.isInteger(limit) && limit > 0 ? limit : FACT_QUOTA_TOTAL;
   let result;
   try {
     result = await recallForAction({
@@ -1002,7 +1123,13 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
       excludeTypes: INJECTION_EXCLUDED_TYPES,
       // `limit` 可覆盖（此前硬编码为 3 且不接受入参，测试传 limit=1 被静默忽略，
       // 导致「条数限制」的提示显示 limit=3 与实际调用不符）。
-      limit: Number.isInteger(limit) && limit > 0 ? limit : 3,
+      limit: totalQuota,
+      // ⑥ 分节次序与名额（具名常量，单一来源；变更属 10 §9.1 第 2 项 Human Gate）。
+      factSelection: {
+        order: FACT_SECTION_ORDER,
+        quotaByType: QUOTA_BY_TYPE,
+        total: totalQuota,
+      },
       budgetBytes: Number.isInteger(budgetBytes) ? budgetBytes : RECALL_BYTE_BUDGET,
     });
   } catch (error) {

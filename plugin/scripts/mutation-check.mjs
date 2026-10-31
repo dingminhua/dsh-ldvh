@@ -54,10 +54,11 @@ const TESTS = [
 const MUTATIONS = [
 	[LIB, "弱命中不排后", "Number(a.weakHit === true) - Number(b.weakHit === true) ||", "0 ||"],
 	[LIB, "中间产物白名单失效", "if (!REGISTERED_FACT_TYPES.includes(c.type)) return false;", ""],
-	// 「必需类型优先」由 `typeRank` 承担（`rank` 死代码已删——见 compareFactHits 注释）。
-	// 故本变异改钉**真正生效的那一级**：把 ADR 降为末位，
-	// 「ADR/Pitfall 优先」的性质必须转红。
-	[LIB, "ADR/Pitfall 不优先（typeRank 降级）", "  adr: 0,\n  norm: 1,\n  pitfall: 2,\n  friction: 3,", "  adr: 4,\n  norm: 1,\n  pitfall: 2,\n  friction: 3,"],
+	// **类型轴已删**（2026-10-31 Human 裁定，见 `compareFactHits` 注释）：
+	// 原「ADR/Pitfall 优先（typeRank 降级）」锚点随常量一起删除，改钉**删除后的
+	// 替代不变量**——候选名次只由证据决定，tier 必须先于 hits。若把 hits 提到
+	// tier 之前，「结构命中先于正文命中」的性质必须转红。
+	[LIB, "证据次序失效（hits 压过 tier）", "    num(fa.tier) - num(fb.tier) ||\n    num(fb.hits) - num(fa.hits);", "    num(fb.hits) - num(fa.hits) ||\n    num(fa.tier) - num(fb.tier);"],
 	[LIB, "按类型默认状态失效", 'const allowed = explicitStatuses ?? DEFAULT_STATUSES_BY_TYPE[type] ?? ["active"];', 'const allowed = ["active"];'],
 	[LIB, "F2 摘录为空", "excerpt: excerptOf(c.excerptSource) || c.title,", 'excerpt: "",'],
 	[LIB, "F0 层缺失", "      countsByTypeStatus: facts.reduce((acc, fact) => {", "      countsByTypeStatusX: facts.reduce((acc, fact) => {"],

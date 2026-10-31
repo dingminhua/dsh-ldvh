@@ -58,11 +58,14 @@
 
 import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 // **结构化 frontmatter 解析**（2026-10-29）：`yaml` 已是本插件直接依赖
 // （writer 侧已用），此处不新增依赖。理由见 `parseObjectFrontmatter` 的注释——
 // 旧行式解析把块标量与嵌套结构读坏了，使结构维度对召回完全不可见。
 import { parse as parseYaml } from "yaml";
+// **机器可读召回判据表**（02 §12.4）：类型通道（类型点名／核心语义字段／
+// 关系展开）的唯一输入。解析失败的类型一律停用机器判据，不回落默认值。
+import { loadRecallCriteria, typeKeyDerivedWords } from "./recall-criteria.js";
 
 // ---------------------------------------------------------------------------
 // 分词：中文二元组 + ASCII 词，零依赖
@@ -171,60 +174,24 @@ export const REGISTERED_FACT_TYPES = Object.freeze([
 export const REQUIRED_RECALL_TYPES = Object.freeze(["adr", "pitfall"]);
 
 /**
- * **类型等级表**（2026-10-30 实现层产品取舍，排序的**末位判据**）。
+ * **类型不参与排序**（2026-10-31 Human 裁定删除类型等级表）。
  *
- * ── 授权状态：如实降级，不主张裁定已成立 ─────────────────────────────
+ * 历史：本文件曾导出 `RECALL_TYPE_TIERS`（ADR=0／Norm=1／Pitfall=2／Friction=3）
+ * 与 `RECALL_TYPE_TIER_OTHER`，作为 `compareFactHits` 的末位键——「证据完全
+ * 相同时才看类型」。该机制有三重问题，Human 已裁定删除：
  *
- * 本表的方向来自 2026-10-30 的一次对话（Human 要求「ADR / Norm / Pitfall /
- * friction 按这个次序、其他排后面」）。但截至本注释写就时，**该方向在规范源与
- * 事实源中均无稳定承载**——specs/ 全库无「类型等级」概念，`ldvh-base/adrs/`
- * 无对应 ADR，`02 §9.2` 反而明禁「建立所有类型共用的……相关性分数」。
+ *   1. **无规范承载**：specs/ 全库没有「类型等级」概念，`02 §9.2` 反而明禁
+ *      「建立所有类型共用的相关性分数」；
+ *   2. **与义务召回的实现重复**：`REQUIRED_RECALL_TYPES` 已是声明，而该表让
+ *      ADR/Pitfall 同分时优先，属同一规则的第二个实现；
+ *   3. **收益不抵成本**：实测其唯一可见效果是「写一个 ADR」等点名查询的次序，
+ *      而那个场景的正确做法是**类型点名层**（见 `matchCandidate`），不是排序轴。
  *
- * 按 `00 §4.4`「仅存在于对话中的决定不产生复用效力」，本表**不得**以
- * 「Human 已裁定」的形态存在。故此处只主张**实现层的产品取舍**：它可读、可改、
- * 可被后续 ADR 取代；在 ADR 落地之前，任何「这是 Human 定的规范」的说法都不成立。
- * 该降级是 Human 2026-10-30 的直接指示（选项 B：保留改动、降级表述）。
- *
- * 故此处是**固定次序的具名常量**，不是打分、不是权重：
- *
- *   0 ADR       —— 法定决策，`22 §12` 要求行动前义务召回核对；
- *   1 Norm      —— 事实规范（方向级规则），`27 §9` 的当前生效集；
- *   2 Pitfall   —— 经验，`23 §12`「什么会出错、怎么识别、怎么规避」；
- *   3 Friction  —— 待修账目，`26 §12` 的 open 集；
- *   4 其它       —— spark／research／workcase／goal：**仍参与召回**，只是排在四类之后。
- *
- * ── 它在排序里的位置：末位判据，不是前置判据 ────────────────────────
- *
- * 第一键仍是「强命中先于弱命中」（`weakHit`）。原因是我第一版把类型放在最前，
- * 实测立刻出一个严重问题：查询「召回排序怎么改」返回 6 条 ADR，**全部靠「回」
- * 这个单字弱命中**，把真正讲召回排序的 Pitfall（命中「召回、回排、排序」3 词、
- * 权重 4.057）挤到第 7 位。那正是本文件 `compareFactHits` 顶部记的同类教训：
- * 「把类型当绝对前置会推翻已排好的质量次序」。
- *
- * 正确判据是——**类型回答「同等证据下先看哪一类」，不回答「证据多薄都要先看」**。
- *
- * ── 为什么不违反 `02 §9` 的「不得用关键词权重裁决相关性」──────────────
- *
- * 本表与查询词无关、与命中词无关，同一类型恒得同一等级。它表达的是「这一类
- * 对象在本项目里该不该先被看到」这一**产品次序**，而「有多相关」仍由
- * tier／hits 在同等级内判定。数值本身不参与任何运算（不乘权重、不求和）。
- *
- * ── 这是实现层的产品取舍，不是规范条文 ────────────────────────────
- *
- * 没有任何一条规范规定「ADR 必须排在 Norm 前面」这类跨类型次序——`02 §9.2`
- * 反而明禁「建立所有类型共用的……相关性分数」。故本表**不宣称规范效力**，
- * 也不主张授权已落地：它是实现层对「什么该先被看到」的产品取舍，登记在此
- * 以便可查、可改、可被后续 ADR 取代。
+ * 删除后的口径：**证据相同时不再有类型轴**——`tier`/`hits`/`weakHit` 全等时
+ * 直接落到状态、时间与路径。`REQUIRED_RECALL_TYPES` 保留为**声明性常量**
+ * （`03 §6.1` 点名要求「完成所需的 ADR/Pitfall 召回」），**无任何排序消费点**；
+ * 其义务由「默认候选状态集 + 不被过滤」与类型点名层承担。
  */
-export const RECALL_TYPE_TIERS = Object.freeze({
-  adr: 0,
-  norm: 1,
-  pitfall: 2,
-  friction: 3,
-});
-
-/** 未登记等级的其它类型（spark／research／workcase／goal）的兜底等级。 */
-export const RECALL_TYPE_TIER_OTHER = 4;
 
 /**
  * **不进自动注入路径**的事实类型（`31 §10` 2026-10-27 修订）。
@@ -570,9 +537,10 @@ async function readCorpusFiles(dir, { recursive, skipTopLevelFiles }) {
  * @param {string} dir 语料目录
  * @param {boolean} recursive 是否递归子目录（事实源为 true，规范源为 false）
  * @param {(files: Array<{path: string, name: string, text: string}>) => any} parse 解析器
+ * @param {{skipTopLevelFiles?: boolean, cacheSalt?: string}} [options] 缓存盐进键
  * @returns {Promise<any>} 解析结果（同一份语料恒得同一对象）
  */
-async function cachedCorpus(dir, recursive, parse, { skipTopLevelFiles = false } = {}) {
+async function cachedCorpus(dir, recursive, parse, { skipTopLevelFiles = false, cacheSalt = "" } = {}) {
   const files = await readCorpusFiles(dir, { recursive, skipTopLevelFiles });
   if (files.length === 0) return parse(files);
   let fingerprint;
@@ -582,21 +550,26 @@ async function cachedCorpus(dir, recursive, parse, { skipTopLevelFiles = false }
     // **读不到即现算**：fail-closed 的方向是「多算一次」，不是「跳过」。
     return parse(files);
   }
+  // **缓存盐**（2026-10-31）：事实源的解析结果现在依赖 `specs/` 的判据表
+  // （`detail` 只由「核心语义字段」构成，02 §12.4）。只用事实源指纹做键时，
+  // 改判据表不会让事实缓存失效，`detail` 会永久停在旧字段集上——那是「规范
+  // 改了、代码看着也对、行为却没变」的静默漂移。故把判据表指纹并入键。
+  const cacheKey = `${fingerprint}\u0000${cacheSalt}`;
   const byFingerprint = PARSED_CORPUS_CACHE.get(dir);
-  if (byFingerprint !== undefined && byFingerprint.get(fingerprint) !== undefined) {
-    return byFingerprint.get(fingerprint);
+  if (byFingerprint !== undefined && byFingerprint.get(cacheKey) !== undefined) {
+    return byFingerprint.get(cacheKey);
   }
   const parsed = parse(files);
   if (byFingerprint === undefined) {
-    PARSED_CORPUS_CACHE.set(dir, new Map([[fingerprint, parsed]]));
+    PARSED_CORPUS_CACHE.set(dir, new Map([[cacheKey, parsed]]));
   } else {
-    byFingerprint.set(fingerprint, parsed);
+    byFingerprint.set(cacheKey, parsed);
     // 只留当次指纹一份：陈旧版本留着既占内存，又可能在下次误用。
     // （指纹进键，命中仍须完全一致，故保留旧版也不会读到陈旧内容——
     //   这里只是不让 Map 无限增长。）
     if (byFingerprint.size > 4) {
       const oldest = byFingerprint.keys().next().value;
-      if (oldest !== fingerprint) byFingerprint.delete(oldest);
+      if (oldest !== cacheKey) byFingerprint.delete(oldest);
     }
   }
   return parsed;
@@ -798,9 +771,11 @@ export function statusRank(status) {
  * 3. `hits`——跨层命中的 idf 加权厚度（降序）。**是权重，只用于排序，不做裁决**。
  * 4. `statusRank`——已准入（active/open）先于未准入（draft/pending），
  *    防「新草稿凭新鲜压掉权威对象」。
- * 5. 必需类型（adr/pitfall）在同分时优先（`22 §12` 义务召回）。
- * 6. `updatedAt`——同分时较新的先看（Human 裁定；实测多为惰性键，见下）。
- * 7. `path`——仅为稳定输出。
+ * 5. `updatedAt`——同分时较新的先看（Human 裁定；实测多为惰性键，见下）。
+ * 6. `path`——仅为稳定输出。
+ *
+ * **没有类型轴**（2026-10-31 Human 裁定删除 `typeRank` 族）：证据相同即同序，
+ * 类型不参与比较。
  *
  * ── 一个必须记住的教训（2026-10-27）────────────────────────────────
  * 上一版此处误写成 `a.weakHit`／`a.tier`／`a.hits`（元素其实是 `{fact, index}`），
@@ -824,59 +799,27 @@ export function compareFactHits(a, b) {
   //    （6 条 ADR 靠「回」字压掉真正相关的 Pitfall）。
   // 2. `tier`——命中落在哪个字段（编号 > 适用范围 > 内容 > 标题 > 正文）。
   // 3. `hits`——跨层命中的 idf 加权厚度（降序）。只用于排序，不做裁决。
-  // 4. **`typeRank`**——**证据完全相同时**才看类型次序：ADR > Norm > Pitfall
-  //    > Friction > 其它。位置见下方第三次修正的说明：它排在证据之后，
-  //    不参与「有多相关」的判定。
-  // 5. `statusRank`——已准入先于未准入。
-  // 6. `updatedAt`——同分时较新的先看。
-  // 7. `path`——仅为稳定输出。
+  // 4. `statusRank`——已准入先于未准入。
+  // 5. `updatedAt`——同分时较新的先看。
+  // 6. `path`——仅为稳定输出。
   //
-  // ── 「必需类型优先」由 `typeRank` 承担，此处**不再有第二份实现** ────────
+  // ── 「必需类型优先」不再是排序键（2026-10-31 Human 裁定）─────────────
   //
-  // 此前此处还有一个 `rank = (f) => (REQUIRED_RECALL_TYPES.includes(f.type) ? 0 : 1)`
-  // 作为「同等级内的义务召回兜底」。**它是死代码**（2026-10-31 由变异检查发现）：
-  // `typeRank` 的分组是 adr=0／norm=1／pitfall=2／friction=3／其它=4，
-  // 而必需类型恒为 adr 与 pitfall（`REQUIRED_RECALL_TYPES`），二者各自独占
-  // 一个等级——**不存在「同 typeRank 但必需性不同」的类型对**（穷举全部类型
-  // 对，零命中）。故 `rank` 永远在 `typeRank` 分出胜负之后才被读到，
-  // 且读到时必为 0，**永不改变任何次序**。
+  // 本函数曾以 `typeRank`（ADR > Norm > Pitfall > Friction > 其它）作末位键，
+  // 并在此处记有一条死代码教训。Human 已裁定删除该族常量（理由见文件头
+  // `RECALL_TYPE_TIERS` 删除处的注释）：类型不是证据，**证据相同时不再有类型轴**。
+  // `REQUIRED_RECALL_TYPES` 仍是声明性常量，但**无排序消费点**——`22 §12` 的
+  // 义务召回由「默认候选状态集 + 不被过滤」与 `matchCandidate` 的类型点名层承担。
   //
-  // 保留它有两个害处：① 它是「同一规则的两份实现」（违 `06 §6` 单一实现）；
-  // ② 它让人误以为「必需类型优先」是**独立于** `typeRank` 的第二条机制，
-  // 改动其一不会想到另一处。故删除——`typeRank` 已完整承担该语义。
-  //
-  // **删除不等于该语义消失**：`22 §12` 的义务召回由两处保证——
-  // `REQUIRED_RECALL_TYPES` 的**不召回即违约**（见 `DEFAULT_STATUSES_BY_TYPE`
-  // 与 `recallForAction` 的类型默认），以及 `typeRank` 的**同分时优先**。
-  //
-  // ── 类型等级的位置：证据之后（2026-10-30 第三次修正）──────────────────
-  //
-  // 第一版放最前 → 6 条 ADR 靠单字「回」压掉强命中 Pitfall（灾难）。
-  // 第二版放 weakHit 之后、tier 之前 → 仍错：同为强命中时类型压过证据。实测
-  // 「同义改写召回自身」由 25/28 = 89% 掉到 **23/28 = 82%**，5 条 Pitfall 被
-  // adr/norm/friction 挤出 top8（实测样本：工单scope起草、长标识符转写、
-  // Git Gate 双向覆盖、插件重建清空登记表、Electron asar 头偏移）。
-  //
-  // 现行（第三版）：**先比证据（tier → hits），证据完全相同时才看类型等级**。
-  // 回到这条函数顶部那句教训——「类型回答『同等证据下先看哪一类』，
-  // 不回答『证据薄也要先看』」。`tier` 与 `hits` 才是证据。
-  //
-  // **代价如实记录**：在该次序下，`写一个 ADR` 的 adr 无法靠 typeRank 胜出
-  // （spark 靠「适用范围」层、adr 靠「内容」层，证据不同层）。该查询的胜出
-  // 由 `matchCandidate` 的类型点名层承担，**不在本函数**。这属已知边界：
-  // 若将来要 adr 在「点名类型」查询里稳定居首，正确做法是让类型点名对事实
-  // 生效（tier 0.5），而不是把 typeRank 提回证据之前。
-  const typeRank = (f) => RECALL_TYPE_TIERS[f.type] ?? RECALL_TYPE_TIER_OTHER;
+  // 曾经另一个候选实现是 `rank = (f) => REQUIRED_RECALL_TYPES.includes(f.type) ? 0 : 1`；
+  // 它当年就已证明是死代码，删除 `typeRank` 后**不得**把它捡回来充当替代——
+  // 那只是把同一条类型轴换个名字。
   const byEvidence = Number(fa.weakHit === true) - Number(fb.weakHit === true);
   if (byEvidence !== 0) return byEvidence;
   const evidence =
     num(fa.tier) - num(fb.tier) ||
     num(fb.hits) - num(fa.hits);
   if (evidence !== 0) return evidence;
-  // **同命中层、同命中厚度**时才看类型——这是 typeRank 的实际适用面，
-  // 也是它唯一能起作用的位置：证据不等时它完全不参与。
-  const byType = typeRank(fa) - typeRank(fb);
-  if (byType !== 0) return byType;
   return (
     statusRank(fa.status) - statusRank(fb.status) ||
     String(fb.updatedAt ?? "").localeCompare(String(fa.updatedAt ?? "")) ||
@@ -1390,11 +1333,42 @@ export async function loadSpecs(specsDir) {
  *
  * **现读现解析**，不建持久索引。
  */
-export async function loadFacts(baseDir) {
+/**
+ * 读某一事实类型的**机器判据表**（02 §12.4）。
+ *
+ * 供 `loadFacts` 在未显式传入判据时自解析：临时语料目录没有 `specs/`，
+ * `resolveSpecsRoot` 会按「项目 → 源码仓 → 包内副本」回退，取不到即 `null`。
+ * 取不到 = 判据不可用（`null`），调用方据此**停用机器判据并如实披露**，
+ * 不回落任何默认字段集。
+ */
+async function resolveRecallCriteriaForFacts(baseDir) {
+  const specsSource = await resolveSpecsRoot(dirname(baseDir));
+  if (specsSource === null) return null;
+  return loadRecallCriteria(specsSource.dir);
+}
+
+/** 核心语义字段取文本：`scope` 允许退回 `scope_boundary`（20 §8 的存量写法）。 */
+function coreFieldTextOf(fm, field) {
+  if (fm === null || typeof fm !== "object") return "";
+  const direct = textField(fm[field]);
+  if (direct !== "") return direct;
+  if (field === "scope") return textField(fm.scope_boundary);
+  return "";
+}
+
+export async function loadFacts(baseDir, options = {}) {
   // 同 loadSpecs：事实源目录不存在时返回空数组，不抛 ENOENT。
   //
-  // **缓存**：解析结果按「目录 + 语料内容指纹」缓存（见「语料 token 缓存」节）。
-  // 正文**每次都从盘上重读**（缓存的是解析产物），且语料一改即换键。
+  // **缓存**：解析结果按「目录 + 语料内容指纹 + 判据表指纹」缓存（见「语料
+  // token 缓存」节）。正文**每次都从盘上重读**（缓存的是解析产物），语料或
+  // 判据表一改即换键。
+  //
+  // **判据表**（02 §12.4）：`detail` 不再把 10 个字段压平统一匹配，而是**按
+  // 类型取「核心语义字段」行**（见下方 `detail` 构造）。判据表缺失/非法时，
+  // 该类型的机器判据整体停用：`detail` 置空（字段语义通道关闭）、`typeNames`
+  // 为空（类型点名通道关闭），并把错误挂在对象上供调用方披露——**不猜字段**。
+  let criteria = options.criteria;
+  if (criteria === undefined) criteria = await resolveRecallCriteriaForFacts(baseDir);
   return cachedCorpus(baseDir, true, (files) => {
   const out = [];
   for (const { dir, name: file, text } of files) {      // **结构化解析**（2026-10-29）：见 `parseObjectFrontmatter` 的注释。
@@ -1437,6 +1411,11 @@ export async function loadFacts(baseDir) {
       const relations = Array.isArray(fm.relations) ? fm.relations : [];
       const relationKeys = [];
       const relationTargets = [];
+      // **成对保留**（2026-10-31）：关系展开（F4）需要知道「哪条边的目标是谁」，
+      // 而原有的 `relationKeys`/`relationTargets` 是两个平行数组，配对信息已丢。
+      // 这里只存**对象型目标**（`object_uid` / 裸字符串）：证据型 `{commit}`
+      // 无法解析成对象，不进入展开候选（它会由「目标不可解析」如实报出）。
+      const relationEdges = [];
       for (const rel of relations) {
         if (rel === null || typeof rel !== "object") continue;
         const key = textField(rel.relation_key);
@@ -1447,10 +1426,14 @@ export async function loadFacts(baseDir) {
         if (target !== null && typeof target === "object") {
           const uid = textField(target.object_uid);
           const commit = textField(target.commit);
-          if (uid !== "") relationTargets.push(uid);
+          if (uid !== "") {
+            relationTargets.push(uid);
+            if (key !== "") relationEdges.push({ relationKey: key, targetUid: uid });
+          }
           if (commit !== "") relationTargets.push(commit);
         } else if (typeof target === "string" && target.trim() !== "") {
           relationTargets.push(target.trim());
+          if (key !== "") relationEdges.push({ relationKey: key, targetUid: target.trim() });
         }
       }
       const refs = Array.isArray(fm.refs) ? fm.refs : [];
@@ -1470,41 +1453,50 @@ export async function loadFacts(baseDir) {
         textField(fm.summary) || textField(fm.gist) || textField(fm.decision)
         || textField(fm.phenomenon) || textField(fm.research_question)
         || textField(fm.scope) || textField(fm.scope_boundary) || "";
+      // 类型名直接取 frontmatter 的 fact_type_key（权威），不从目录名猜单复数——
+      // 「researches→research」这类英文变形易错（曾得 "researche"/"workca"）。
+      const type = textField(fm.fact_type_key) || dir.replace(/s$/, "");
+      // ── 机器判据（02 §12.4）────────────────────────────────────────────
+      // `criteriaEntry` 为 `null` 表示该类型的判据表**不可用**（缺表/非法/类型
+      // 未登记）：按 partial 口径停用机器判据，而不是猜一套默认字段。
+      const criteriaEntry = criteria?.byType?.get(type) ?? null;
+      const criteriaErrors = criteriaEntry === null
+        ? (criteria?.errors ?? [])
+          .filter((error) => error.type === type)
+          .map((error) => error.message ?? error.code ?? "判据表不可用")
+        : [];
+      // **类型点名闭集**（②）：`fact_type_key` 派生词（单数/复数，大小写不敏感
+      // 整词）∪ 判据表「类型词别名」白名单。**不含任何开放词表**——历史回归
+      // 正是开放词表（`agent` 让 4 条调研冲顶）。判据不可用时集合为空，
+      // 该类型不走类型点名通道。
+      const typeNames = criteriaEntry === null ? [] : [...new Set([
+        ...typeKeyDerivedWords(type).map((word) => word.toLowerCase()),
+        ...criteriaEntry.values.typeAliases.map((word) => word.toLowerCase()),
+      ])];
       out.push({
         source: "fact",
-        // 类型名直接取 frontmatter 的 fact_type_key（权威），不从目录名猜单复数——
-        // 「researches→research」这类英文变形易错（曾得 "researche"/"workca"）。
-        type: textField(fm.fact_type_key) || dir.replace(/s$/, ""),
+        type,
         dir,
         ref: textField(fm.object_uid) || file.replace(/\.md$/, ""),
         title: textField(fm.title),
         status: textField(fm.status),
         scope: textField(fm.scope) || textField(fm.scope_boundary),
-        // 类型相关的可匹配字段，逐类拼在一起。
-        detail: [
-          fm.decision, fm.phenomenon, fm.question, fm.research_question,
-          fm.gist, fm.intent, fm.direction_key, fm.research_purpose,
-          // **`trigger_signal` 必须进匹配面**（2026-10-24 修）。
-          //
-          // 此前它被单独读进 `trigger` 字段、**从未参与任何匹配层**——读进变量
-          // 却不用，等于「重新审视信号」对召回不可见。
-          //
-          // `23 §8` 对它 的定义是「**重新审视信号**：存在真实重审前提时写
-          // （依赖版本变更、环境迁移等）」。这恰是召回最该用的一种输入：用户说
-          // 「升级了依赖」「换环境了」时，应当召回那些标了该信号的 Pitfall，
-          // 否则「何时该重看这条经验」这条信息就白记了。
-          fm.trigger_signal,
-          // **`summary` 必须进匹配面**（2026-10-24 修，第 48 轮曾误以为已加、实际未生效）。
-          //
-          // 各类型都把它当核心内容：
-          //   · `20`：「**完整的当前语义快照**……使未读原聊天的后续执行者可独立理解」；
-          //   · `21`：「要做什么的完整语义快照」。
-          // 即它是最该被召回的那段话——记了却不参与匹配，等于白记。
-          //
-          // **2026-10-29 补**：此前该字段对 46 条对象恒为空（块标量被读成 `"|-"`），
-          // 即这条注释描述的效果对三分之一语料从未生效。现由 YAML 解析兑现。
-          fm.summary,
-        ].map((v) => textField(v)).filter((v) => v !== "").join(" "),
+        // ── 核心语义字段（02 §12.4「核心语义字段」行）────────────────────
+        // 逐类型取判据表列出的 frontmatter 字段，**不再把全部类型字段压平**。
+        // 依据（2026-10-31）：压平会让 A 类型的字段词命中 B 类型的候选（例如
+        // `decision` 对 friction 也生效），字段结构没有进入路由与触发。
+        //
+        // `trigger_signal` **恒在**匹配面（`23 §8`「重新审视信号」）：它既是
+        // 字段语义的一部分，也是候选④「触发信号字面重合」标注的唯一来源。
+        // 判据不可用的类型连它也一并停用——整个字段语义通道关闭。
+        detail: criteriaEntry === null ? "" : [
+          ...criteriaEntry.values.coreFields.map((field) => coreFieldTextOf(fm, field)),
+          textField(fm.trigger_signal),
+        ].filter((value) => value !== "").join(" "),
+        // 供 `matchCandidate` 的类型点名通道与 `recallForAction` 的披露使用。
+        typeNames,
+        machineCriteria: criteriaEntry === null ? "disabled" : "ok",
+        criteriaError: criteriaErrors,
         trigger: textField(fm.trigger_signal),
         summary: textField(fm.summary),
         // ── 结构维度（供 `matchCandidate` 的结构命中层与候选卡使用）──────
@@ -1525,6 +1517,7 @@ export async function loadFacts(baseDir) {
             ? occurrence.count : null,
           relationKeys,
           relationTargets,
+          relationEdges,
           refTargets,
         },
         // 载体自身可读性：YAML 解析失败时如实带出，由调用方披露（不静默）。
@@ -1551,7 +1544,10 @@ export async function loadFacts(baseDir) {
       });
   }
   return out;
-  }, { skipTopLevelFiles: true });
+  }, {
+    skipTopLevelFiles: true,
+    cacheSalt: criteria === null ? "criteria-unavailable" : `criteria:${criteria.fingerprint}`,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1839,7 +1835,44 @@ function isTooCommon(token, docFreq, total) {
  * @param {object} candidate 载入的候选
  * @returns {{tier: number, hitReason: string} | null} 无关则 null
  */
-export function matchCandidate(actionTokens, candidate, corpusStats) {
+const CJK_CHAR = /[\u3400-\u9fff]/;
+
+/**
+ * **类型点名闭集判据**（②，2026-10-31）。
+ *
+ * 类型词集合 = `fact_type_key` 派生词（单数/复数，ASCII 大小写不敏感整词）
+ * ∪ 判据表「类型词别名」白名单（02 §12.4）。返回命中的词，未命中返回 `null`。
+ *
+ * 两条**字面**规则：
+ *   · ASCII 词：与查询 token **整词相等**（`adr` 不得命中 `adrenal`）；
+ *   · 中文别名：查询原文**含完整别名**，且别名右侧**不紧接汉字**。
+ *     右侧边界是必需的——「火花乙」里的「火花」是一个更长的对象名，把它读成
+ *     「点名类型 spark」会让该类型全部对象同层并列，真正点名的那条被字典序挤掉。
+ *     只做字面包含，不做分词近似（`alias.includes(token)` 会让「规范」二字
+ *     点名 norm 类型，等于把开放词表请回来）。
+ */
+function closedSetTypeNameOf(candidate, actionTokens, queryText) {
+  const names = candidate.typeNames;
+  if (!Array.isArray(names) || names.length === 0) return null;
+  for (const token of actionTokens) {
+    const lower = token.toLowerCase();
+    if (lower === "") continue;
+    if (CJK_CHAR.test(lower)) continue; // 中文别名走原文边界判定
+    if (names.includes(lower)) return { name: lower, hit: token };
+  }
+  for (const name of names) {
+    if (!CJK_CHAR.test(name)) continue;
+    let index = queryText.indexOf(name);
+    while (index !== -1) {
+      const next = queryText[index + name.length] ?? "";
+      if (!CJK_CHAR.test(next)) return { name, hit: name };
+      index = queryText.indexOf(name, index + 1);
+    }
+  }
+  return null;
+}
+
+export function matchCandidate(actionTokens, candidate, corpusStats, queryText = "") {
   // **编号层（tier 0）最优先**：`spec_id` 是规范的稳定编号，用户说「34 号规范」
   // 时点名的是它，不是标题里的字。此层不设会漏掉最精确的一种命中——实测缺陷：
   // 查询含「34」，但 34 号规范只能靠 scope 里的「规范」二字命中，与其它 18 份
@@ -1902,7 +1935,54 @@ export function matchCandidate(actionTokens, candidate, corpusStats) {
         // 带主题时必须说明它**为什么没有优先**，否则读者会以为这是普通文本命中。
         : `结构命中（查询有其它主题词，不占优先位）：${shown}${structural.length > 3 ? " 等" : ""}`,
       structuralFields: [...new Set(structural.map((h) => h.field))],
+      // 供 `recallForAction` 判定「精确引用路径」：只有**纯指称**命中结构字段
+      // 才触发关系展开（F4）；带主题的查询不展开（见 `recallForAction`）。
+      bareReference: isBareReference,
     };
+  }
+
+  // **事实侧类型点名（闭集，2026-10-31）**：让类型点名对**事实对象**生效。
+  //
+  // 类型词集合 = `fact_type_key` 派生词（`adr`/`adrs` 等，大小写不敏感整词）
+  // ∪ 判据表「类型词别名」白名单（`22 §12.4`）。**禁止开放词表**——开放词表
+  // 正是历史回归根因：查询里的 `agent` 让 4 条调研文档以「类型点名」冲顶，
+  // 与「点名某个类型」毫无关系。闭集成员由判据表逐类型登记，可穷举、可审计。
+  //
+  // 裸指称口径与 `structuralHits` **完全同构**（实义词 ≤ 阈值）：纯指称查询
+  // 给 tier 0.5（与规范侧类型点名同层），带主题的查询降到 `STRUCTURAL_DEFERRED_TIER`，
+  // 只在没有更强证据时构成候选。不发明新的打分。
+  let namingFallback = null;
+  if (candidate.source === "fact") {
+    const named = closedSetTypeNameOf(candidate, actionTokens, queryText);
+    if (named !== null) {
+      // 裸指称口径与 `structuralHits` 同源（长度 ≥2、非虚字、非通用词），
+      // 但要**扣掉组成类型词本身的 token**：多字中文别名（决策记录→决策/策记/
+      // 记录）会让整串点名被算成 3 个实义词，从而永远进不了裸指称档。
+      const namingSubjectTokens = actionTokens.filter(
+        (t) => t.length >= 2 && !isWeakToken(t) && !GENERIC_TOKENS.has(t)
+          && !named.name.includes(t),
+      );
+      const namingBare = namingSubjectTokens.length <= STRUCTURAL_BARE_QUERY_MAX_TOKENS;
+      if (namingBare) {
+        return {
+          tier: 0.5,
+          hits: 1,
+          hitReason: `类型点名命中：${named.hit}`,
+          typeNamed: true,
+          bareReference: true,
+        };
+      }
+      // 带主题的查询**不抢先**：先按普通证据匹配（更具体的命中应当胜出），
+      // 只有一层都不命中时才以「降级层」构成候选——与结构命中的
+      // `STRUCTURAL_DEFERRED_TIER` 同口径，不是新的打分。
+      namingFallback = {
+        tier: STRUCTURAL_DEFERRED_TIER,
+        hits: 1,
+        hitReason: `类型点名命中（查询有其它主题词，不占优先位）：${named.hit}`,
+        typeNamed: true,
+        bareReference: false,
+      };
+    }
   }
 
   // **类型点名层（tier 0.5）**：用户说「写一个 WorkCase」「记一条 Spark」时，
@@ -1918,10 +1998,12 @@ export function matchCandidate(actionTokens, candidate, corpusStats) {
   // 与查询 token 做**大小写无关的整词比较**（不认子串，避免 `adr` 命中 `adrenal`）。
   // 这是确定性事实（标题里有没有这个词），无权重、无 AI 判断。
   //
-  // **只对规范生效，不对事实生效**（2026-10-24 修）：类型点名是为了找到「该类型的
-  // 定义规范」，事实对象没有这个角色。实测回归——查询「install() 分发器在
-  // agent/created 回调里…」含 token `agent`，事实侧 4 条 Agent 调研文档因此以
-  // `类型点名命中：agent` 冲到最前，把「插件重建清空子代理登记表」挤出 limit。
+  // **事实侧另走闭集**（2026-10-31 修，见上）：本段仍只对规范生效，因为规范
+  // 的类型名来自标题（`WorkCase 工单`），而事实的类型名只能来自判据表登记的
+  // 闭集。历史回归的教训必须留在原处：2026-10-24 曾把标题词匹配直接套到事实，
+  // 查询「install() 分发器在 agent/created 回调里…」的 token `agent` 让 4 条
+  // Agent 调研文档以 `类型点名命中：agent` 冲顶，把真正相关的 Pitfall 挤出
+  // limit。事实侧永远**不得**从标题/正文自由取词作类型名。
   if (candidate.source === "spec" && typeof candidate.title === "string") {
     // **注意尾部连字符**：`Spark-火花`、`ADR-决策` 这类标题里，贪婪匹配会把
     // 分隔用的 `-` 吞进词里（实测 `Pitfall-踩坑经验` 得到 `pitfall-`，
@@ -1979,7 +2061,7 @@ export function matchCandidate(actionTokens, candidate, corpusStats) {
     // 实测（2026-10-24，用本会话真实用户消息）：「把这批改动合入吧」10 条结果里
     // 5 条是纯单字命中——`WorkCase 工单` 靠「批」、`火花记录` 与 `双源召回` 靠「合」；
     // 「经验也要召回啊」有 4 条靠单字「回」命中。单个汉字在本语料里覆盖 50–70%
-    // 的候选（2026-10-30 复测：「改」出现在 **282/301 = 94%** 的载体里——规范侧
+    // 的候选（2026-10-30 复测：「改」出现在 **283/302 = 94%** 的载体里——规范侧
     // 27/27 全覆盖、事实侧 255/274；此前注记为 295/347、251/271、252/272、253/273、
     // 263/284、265/286、265/287 与 281/300，均已过时——事实源由宿主辅助任务与并行
     // 会话持续写入，本数字随之双向漂移，漂移即本测试的正确报警），
@@ -2022,7 +2104,7 @@ export function matchCandidate(actionTokens, candidate, corpusStats) {
       break; // 本层已达门槛即停止降层（tier 仍取最精确的命中层）
     }
   }
-  if (best === null) return null;
+  if (best === null) return namingFallback;
   // ── 跨层累计命中面（2026-10-27 修正）─────────────────────────────────
   //
   // **缺陷**：原实现在首个达标的层就 `return`，即命中 tier 1（适用范围）后
@@ -2152,6 +2234,188 @@ export function matchCandidate(actionTokens, candidate, corpusStats) {
  * **召回的命中不等于适用。** 本函数只给候选与命中理由，不给「这条适用于本次行动」
  * 的结论。调用方须另行判定适用——那属 34 §8.1 第 2、3 项。
  */
+/**
+ * **按类型分节 + 类型名额**选取候选（⑥，2026-10-31）。
+ *
+ * 纯函数，次序与名额由调用方以**具名常量**传入（注入面的常量在
+ * `recall-injection.js`，变更属 `10 §9.1` 第 2 项 Human Gate）。
+ *
+ * 语义（不是排序）：`hits` 进来时已按证据排好，本函数**不改名次**，只做
+ * 「按类型分组、每类取前 N 条、总名额从次序末尾向前裁」。因此它不会给
+ * 任何类型加分——类型只决定「交付时先看哪一节、每节最多几条」。
+ *
+ * @param {Array<object>} hits 已排序的候选卡
+ * @param {{order?: string[], quotaByType?: Record<string, number>, total?: number}} plan
+ * @returns {{selected: object[], groups: Array<{type: string, items: object[]}>,
+ *   droppedByQuota: Array<{type: string, count: number}>,
+ *   droppedByTotal: Array<{type: string, count: number}>, unassigned: number}}
+ */
+export function selectFactsBySection(hits, plan = {}) {
+  const order = Array.isArray(plan.order) ? plan.order : [];
+  const quotaByType = plan.quotaByType ?? {};
+  const total = Number.isInteger(plan.total) && plan.total >= 0 ? plan.total : Number.POSITIVE_INFINITY;
+  const byType = new Map();
+  for (const hit of hits) {
+    const type = typeof hit?.type === "string" ? hit.type : "";
+    if (!byType.has(type)) byType.set(type, []);
+    byType.get(type).push(hit);
+  }
+  const droppedByQuota = [];
+  const quotaGroups = [];
+  for (const type of order) {
+    const all = byType.get(type) ?? [];
+    byType.delete(type);
+    if (all.length === 0) continue;
+    const quota = Number.isInteger(quotaByType[type]) ? quotaByType[type] : 0;
+    const kept = quota > 0 ? all.slice(0, quota) : [];
+    if (all.length > kept.length) droppedByQuota.push({ type, count: all.length - kept.length });
+    if (kept.length > 0) quotaGroups.push({ type, items: kept });
+  }
+  // 分节次序之外的类型**不静默吞掉**：如实计数，由调用方披露（本仓已登记类型
+  // 都在 order 内，出现其它类型即说明常量与类型名录漂移）。
+  let unassigned = 0;
+  for (const rest of byType.values()) unassigned += rest.length;
+  const droppedByTotal = [];
+  const groups = [];
+  const selected = [];
+  let remaining = total;
+  for (const group of quotaGroups) {
+    const take = Math.max(0, Math.min(group.items.length, remaining));
+    // 总名额从次序**末尾**开始裁：前面的类型是 Human 排序里更该被看见的，
+    // 先削后面的节。等价于「前面的节优先占满总名额」。
+    if (take < group.items.length) droppedByTotal.push({ type: group.type, count: group.items.length - take });
+    if (take > 0) {
+      groups.push({ type: group.type, items: group.items.slice(0, take) });
+      selected.push(...group.items.slice(0, take));
+    }
+    remaining -= take;
+  }
+  return { selected, groups, droppedByQuota, droppedByTotal, unassigned };
+}
+
+/**
+ * 候选③的**触发信号字面重合**标注（纯展示，2026-10-31）。
+ *
+ * 契约（设计 ③）：**只在 tier 2（类型正文命中）时**标注——这是唯一路径，写死。
+ * 命中依据追加 `·触发信号字面重合：<trigger_signal 原文片段>`，其中「字面重合」
+ * 只做 `tokenize(trigger_signal)` 与 `tokenize(query)` 的**集合相交**，
+ * 不加权、不计分、不新增排序键、不改 tier/hits。`trigger_signal` 本身已在
+ * detail 匹配面里（见 `loadFacts`），本函数不改变它是否命中，只让读者看见
+ * 「这次命中恰好也落在重新审视信号上」。
+ *
+ * **措辞纪律**：不得写成「触发成立／应当重审」——那是对适用性的裁决，
+ * 属 AI 消费工作（02 §9.2），不是召回器能下的结论。
+ */
+function triggerSignalAnnotation(candidate, match, queryTokens) {
+  if (match.tier !== 2) return "";
+  const trigger = typeof candidate.trigger === "string" ? candidate.trigger.trim() : "";
+  if (trigger === "") return "";
+  if (intersect(tokenize(trigger), queryTokens).length === 0) return "";
+  return `·触发信号字面重合：${excerptOf(trigger)}`;
+}
+
+/**
+ * 判据表不可用时的披露语（02 §12.4 fail-closed 的「如实报告」一半）。
+ *
+ * 契约要求：缺表/缺版本/列不符/机械值非法/必填缺失 → 停用该类型的机器判据、
+ * 按 partial 口径交还并**说明缺什么**。此处把结构化错误逐条转成 gaps 行，
+ * 同时覆盖「判据表本身没错、但该类型在表里没有条目」的第二种不可用形态。
+ */
+function criteriaGapsOf(criteria, facts) {
+  const gaps = [];
+  if (criteria === null) {
+    gaps.push("判据表不可用：未找到任何规范源，全部事实类型的机器判据已停用（类型点名／核心语义字段／关系展开不生效）");
+    return gaps;
+  }
+  for (const error of criteria.errors) {
+    gaps.push(`判据表不可用（${error.type ?? "未知类型"}／规范 ${error.specId ?? "?"}）：${error.code}：${error.message}`);
+  }
+  const disabled = [...new Set(facts.filter((fact) => fact.machineCriteria === "disabled").map((fact) => fact.type))].sort();
+  for (const type of disabled) {
+    if (criteria.errors.some((error) => error.type === type)) continue;
+    gaps.push(`判据表不可用（${type}）：该类型无可用条目，机器判据已停用`);
+  }
+  return gaps;
+}
+
+/** 关系展开的条数上限（具名常量，防单条查询把注入预算吃光）。 */
+const RELATION_EXPANSION_MAX = 6;
+
+/**
+ * ⑤ 关系展开（F4 派生，2026-10-31）。
+ *
+ * 只在**精确引用路径**生效：查询是纯指称，且命中了某对象的
+ * `object_uid`/`SG-n`/`spec_id`/`direction_key`（既有 tier 0 结构命中）。
+ * 默认候选路径不展开——二者不该扩展同一批默认候选状态范围。
+ *
+ * 边集只认**判据表「关系展开」行登记过的 `relation_key`**，且对象上必须
+ * **实际存在**这条边；目标类型必须在该行登记的 `targets` 里。派生条目：
+ *   · 单独归类（`relationExpansions`），**不进 F2 候选计数、不占类型名额**；
+ *   · 命中依据 `关系展开：<源对象标识>+<relation_key>`；
+ *   · 目标不可解析（语料里找不到该 uid）或类型不符时**如实报告**，
+ *     以 `resolved: false` + `unresolvedReason` 保留在派生集合里，不静默丢弃。
+ *
+ * @returns {{items: object[], dropped: number}}
+ */
+function relationExpansionsOf(hitCards, pool, scopedFacts, criteria) {
+  const poolByRef = new Map(pool.map((fact) => [fact.ref, fact]));
+  const scopeByRef = new Map(scopedFacts.map((fact) => [fact.ref, fact]));
+  const items = [];
+  const seen = new Set();
+  let dropped = 0;
+  for (const card of hitCards) {
+    if (card.tier !== 0 || card.bareReference !== true) continue;
+    if (!Array.isArray(card.structuralFields) || card.structuralFields.length === 0) continue;
+    const source = poolByRef.get(card.ref);
+    if (source === undefined) continue;
+    const entry = criteria?.byType?.get(source.type) ?? null;
+    if (entry === null) continue;
+    if (entry.values.notApplicable["关系展开"]) continue;
+    const edges = new Map(entry.values.relations.map((rel) => [rel.relationKey, rel.targets]));
+    if (edges.size === 0) continue;
+    const actual = Array.isArray(source.structural?.relationEdges)
+      ? source.structural.relationEdges : [];
+    for (const edge of actual) {
+      const targets = edges.get(edge.relationKey);
+      if (targets === undefined) continue;
+      const target = scopeByRef.get(edge.targetUid) ?? null;
+      let unresolvedReason = "";
+      if (target === null) unresolvedReason = `目标不可解析：${edge.targetUid}`;
+      else if (!targets.includes(target.type)) {
+        unresolvedReason = `目标类型不在判据表：${target.type}（期望 ${targets.join("|")}）`;
+      }
+      const dedupeKey = `${target === null ? edge.targetUid : target.ref}\u0000${edge.relationKey}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+      if (items.length >= RELATION_EXPANSION_MAX) {
+        dropped += 1;
+        continue;
+      }
+      items.push({
+        kind: "relation",
+        type: target === null ? "" : target.type,
+        ref: target === null ? edge.targetUid : target.ref,
+        title: target === null ? "" : target.title,
+        status: target === null ? "" : target.status,
+        path: target === null ? "" : target.path,
+        excerpt: target === null ? "" : (excerptOf(target.excerptSource) || target.title),
+        updatedAt: target === null ? "" : (target.updatedAt ?? ""),
+        resolved: unresolvedReason === "",
+        ...(unresolvedReason === "" ? {} : { unresolvedReason }),
+        derivedFrom: {
+          sourceRef: source.ref,
+          sourceTitle: source.title,
+          relationKey: edge.relationKey,
+        },
+        hitReason: unresolvedReason === ""
+          ? `关系展开：${source.ref}+${edge.relationKey}`
+          : `关系展开：${source.ref}+${edge.relationKey}（${unresolvedReason}）`,
+      });
+    }
+  }
+  return { items, dropped };
+}
+
 export async function recallForAction(input = {}) {
   const action = typeof input.action === "string" ? input.action.trim() : "";
   if (action === "") {
@@ -2183,10 +2447,10 @@ export async function recallForAction(input = {}) {
   // 但被触发的类型仍应召回。曾把默认收窄为 `["adr","pitfall"]`，结果
   // 「加个」这类短指令因只能搜这两类而召回不到东西（实测 inject 由 true 变 false）。
   //
-  // ADR/Pitfall 的优先级改由**排序**保证（`typeRank`：adr=0／pitfall=2，
-  // 见 `RECALL_TYPE_TIERS`），而不是靠**过滤**——过滤会漏，排序只是把必需类型提前。
-  // （`REQUIRED_RECALL_TYPES` 仍是该性质的**声明**，但它已无排序消费点：
-  //   原先据此计算的 `rank` 是死代码，2026-10-31 由变异检查发现并删除。）
+  // ADR/Pitfall 的优先级**不靠过滤**（过滤会漏），也**不靠排序类型轴**（2026-10-31
+  // Human 已裁定删除 `typeRank` 族）：它们由默认候选状态集保证「不被过滤」，
+  // 由类型点名层保证「点名时居首」。`REQUIRED_RECALL_TYPES` 保留为**声明性常量**，
+  // **无排序消费点**。
   const types = Array.isArray(input.types) ? input.types : null;
   // **声明范围之外的常驻排除**（`31 §10`，与 `types` 语义不同，见
   // `INJECTION_EXCLUDED_TYPES` 的说明）：这些类型**根本不进入本次声明范围**，
@@ -2270,10 +2534,18 @@ export async function recallForAction(input = {}) {
   const root = input.root ?? join(import.meta.dirname, "..", "..");
   // 规范语料按 01 §10.3 三级回退解析（见 `resolveSpecsRoot`）；事实源只有项目内一源。
   const specsSource = includeSpecs ? await resolveSpecsRoot(root) : null;
+  // **判据表与规范源同源**（02 §12.4）：判定事实类型的「核心语义字段／类型词／
+  // 关系展开」只认规范源里那张表。解析失败的类型在下方按 partial 披露，
+  // 且该类型停用机器判据（`loadFacts` 内已置空 detail/typeNames）。
+  // 判据表**不随 includeSpecs 关闭**：`includeSpecs:false` 只是「不把规范当候选」，
+  // 事实的类型通道仍须按规范里的判据表工作，否则关掉规范候选会顺带停用全部
+  // 事实的机器判据（实测：`includeSpecs:false` 时 criteria 曾为 null）。
+  const criteriaSource = specsSource ?? (await resolveSpecsRoot(root));
+  const criteria = criteriaSource === null ? null : await loadRecallCriteria(criteriaSource.dir);
   const factsDir = join(root, "ldvh-base");
   const [specs, facts, factsReadable] = await Promise.all([
     specsSource === null ? [] : loadSpecs(specsSource.dir),
-    loadFacts(factsDir),
+    loadFacts(factsDir, { criteria }),
     // **可读性与「有无对象」分开跟踪**（34 §12 三态判定的前提，M-21）：
     // 规范侧的可读性由三级回退是否解析成功承载（specsSource !== null）；
     // 事实侧没有回退链，须显式探测目录是否存在且可读。
@@ -2288,6 +2560,11 @@ export async function recallForAction(input = {}) {
   const scopedFacts = excludedTypes === null
     ? facts
     : facts.filter((c) => !excludedTypes.includes(c.type));
+  // 机器判据被停用的类型（判据表缺失/非法）：随结果披露，且不参与类型点名、
+  // 字段语义与关系展开（02 §12.4 fail-closed）。
+  const disabledCriteriaTypes = [...new Set(
+    scopedFacts.filter((fact) => fact.machineCriteria === "disabled").map((fact) => fact.type),
+  )].sort();
 
   // 过滤：**已登记类型** + 类型 + 状态 + **结构化 facet**。
   // 规范无 status 概念故全量参与。
@@ -2362,7 +2639,7 @@ export async function recallForAction(input = {}) {
     const corpusStats = cachedCorpusStatsOf(list);
     return list
     .map((c) => {
-      const m = matchCandidate(queryTokens, c, corpusStats);
+      const m = matchCandidate(queryTokens, c, corpusStats, query);
       // `hits` 必须显式带出：mapper 的返回里没有它，之前漏掉导致排序键是
       // `undefined - undefined = NaN`，同层排序退化成只按路径字典序，
       // 使命中词更多的条目反而排在后面（实测：34 号 hits=2 被 01 号 hits=1 挤掉）。
@@ -2384,8 +2661,12 @@ export async function recallForAction(input = {}) {
         matchTierMeaning:
           "匹配层（命中了哪个字段），非 F0–F4 事实分层、非 L0–L4 规范读取分层（02 §9.1）",
         hits: m.hits,
-        hitReason: m.hitReason,
+        hitReason: m.hitReason + triggerSignalAnnotation(c, m, tokens),
         weakHit: m.weakHit === true,
+        // 供关系展开（F4）识别「精确引用路径」：结构字段命中的具体字段名，
+        // 以及该结构命中是否为纯指称（否则不展开）。
+        ...(m.structuralFields === undefined ? {} : { structuralFields: m.structuralFields }),
+        ...(m.bareReference === true ? { bareReference: true } : {}),
       };
     })
     .filter(Boolean)
@@ -2497,8 +2778,29 @@ export async function recallForAction(input = {}) {
     // `ldvh_spark_list`（其 keyword／priorities／serves 收窄参数见 31 §10）。
     .sort((a, b) => compareFactHits(a, b))
     .map((entry) => entry.fact);
+  // ⑤ 关系展开：只从**精确引用**命中出发（见 `relationExpansionsOf` 的契约）。
+  // 派生条目单独归类，**不进 `facts`、不进 F2 计数**，也不占注入类型名额。
+  const relationExpansion = relationExpansionsOf(allFactHits, pool, scopedFacts, criteria);
+  // ⑥ 按类型分节 + 名额（**仅注入路径显式传入** `factSelection` 时生效）。
+  // 默认路径（CLI／诊断／质量门禁）不传，候选仍按证据次序交付——类型不是排序键。
+  const factSelection = input.factSelection ?? null;
+  let selectedFactHits = allFactHits;
+  let sectioning = null;
+  if (factSelection !== null) {
+    const plan = selectFactsBySection(allFactHits, factSelection);
+    selectedFactHits = plan.selected;
+    sectioning = {
+      order: Array.isArray(factSelection.order) ? [...factSelection.order] : [],
+      total: Number.isInteger(factSelection.total) ? factSelection.total : null,
+      kept: plan.selected.length,
+      droppedByQuota: plan.droppedByQuota,
+      droppedByTotal: plan.droppedByTotal,
+      unassigned: plan.unassigned,
+      note: "分节与名额是交付次序，不是排序键：候选名次仍只由证据（weakHit/tier/hits/status/updatedAt/path）决定",
+    };
+  }
   const specHits = allSpecHits.slice(0, limit);
-  const factHits = allFactHits.slice(0, limit);
+  const factHits = selectedFactHits.slice(0, limit);
 
   // 预算：按返回内容的 UTF-8 字节数裁剪，超了如实标 truncated（fd133f0d A3）。
   //
@@ -2767,7 +3069,7 @@ export async function recallForAction(input = {}) {
     //
     // **⚠️ 此处的旧论证已被证伪，勿再沿用**：旧注记称「30 条样本只有 13/30 = 43%
     // 命中，原因是 title 描述机制、症状描述表现，二者常常没有任何字面重叠」。
-    // 逐条复测后该论断**方向相反**——实测 **61 条有字面重叠、仅 1 条无重叠**：
+    // 逐条复测后该论断**方向相反**——实测 **62 条有字面重叠、仅 1 条无重叠**：
     // 因为 `scope` 字段本身就写着适用情形（症状的近义表达），而第 46 轮把正文
     // 匹配改为全文后，症状段（原本被 1200 字符截断挡掉）也能参与匹配。
     // 故「找不到自己的症状」这一失败形态在当前实现下基本不存在。
@@ -2823,6 +3125,39 @@ export async function recallForAction(input = {}) {
     // 判定（不能在此引用同级的 `uncheckedRange`——同一对象字面量里后续声明的键
     // 此时尚未求值，会 ReferenceError；故只用前面已算好的量）。
     recallCompleteness: recallCompletenessValue,
+    // ── ⑥ 注入分节与名额（仅 `factSelection` 路径）────────────────────
+    //
+    // 34 §12「标明截断来源」：按名额裁掉的候选必须能说清「裁了哪一类、几条」，
+    // 不能只留下「候选变少了」的观感。
+    sectioning,
+    // ── ⑤ 关系展开（F4 派生，单独归类）────────────────────────────────
+    //
+    // 不回填进 `facts`：派生条目不是「按查询整个走了一遍候选池」的结果，
+    // 若混进去会污染 F2 计数与类型名额（设计明确要求单独归类）。
+    relationExpansions: relationExpansion.items,
+    relationExpansion: {
+      count: relationExpansion.items.length,
+      dropped: relationExpansion.dropped,
+      max: RELATION_EXPANSION_MAX,
+      note: "由精确引用命中对象的判据表关系边派生；不进 F2 候选计数、不占类型名额；目标不可解析者保留并标注",
+    },
+    // ── 判据表状态（02 §12.4）────────────────────────────────────────
+    //
+    // fail-closed 的可见面：调用方必须能看见「哪些类型的机器判据被停用、为什么」，
+    // 而不是只从行为上察觉候选变少。
+    criteria: {
+      ok: criteria !== null && criteria.errors.length === 0,
+      version: criteria === null ? null : criteria.version,
+      errors: (criteria?.errors ?? []).map((error) => ({
+        type: error.type ?? null,
+        specId: error.specId ?? null,
+        file: error.file ?? null,
+        code: error.code,
+        message: error.message,
+      })),
+      disabledTypes: disabledCriteriaTypes,
+      note: "判据表不可用的类型已停用类型点名／核心语义字段／关系展开，按 partial 口径披露",
+    },
     counts: {
       // 命中总数（**截断前**）与返回数（截断后）都给出，差额即被丢弃数。
       specHits: allSpecHits.length,
@@ -2859,6 +3194,7 @@ export async function recallForAction(input = {}) {
     // 本仓库既有约定见 `adr-tools.js`（多处 `gaps: [...]`），本模块此前未跟上。
     // 逐项检查四类必披露内容是否承载，缺者入 gaps：
     gaps: [
+      ...criteriaGapsOf(criteria, scopedFacts),
       // ① 来源视图：三级回退全失败时无来源可披露。
       ...(includeSpecs && specsSource === null
         ? ["来源视图缺失：规范源三级回退（01 §10.3）均无可用语料"]
