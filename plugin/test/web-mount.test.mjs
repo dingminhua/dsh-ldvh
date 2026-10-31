@@ -213,6 +213,34 @@ const FAST = Object.freeze({
   rewarmDelayMs: 40,
 });
 
+/**
+ * Wait until the loopback address actually serves, or fail.
+ *
+ * WHY NOT A SINGLE fetch: the child writes its pid file the moment it is
+ * spawned, then binds the port an instant later. A test that reads the new pid
+ * and immediately fetches races that gap — it fails with ECONNREFUSED whenever
+ * the machine is loaded, and it failed exactly that way in practice (two cases,
+ * under 8 busy loops). The invariant these tests guard is "the address the
+ * iframe uses serves again", not "it serves within zero milliseconds of the
+ * new pid appearing", so the wait is for the bind, and the assertion is still
+ * that it must serve.
+ *
+ * Bounded on purpose: a child that never serves still fails this helper. It
+ * does not turn the assertion into a tautology.
+ */
+async function waitForServing(url, { attempts = 100, intervalMs = 50 } = {}) {
+  let lastError = null;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await fetch(url);
+    } catch (error) {
+      lastError = error;
+      await new Promise((done) => setTimeout(done, intervalMs));
+    }
+  }
+  throw lastError ?? new Error(`no response from ${url}`);
+}
+
 async function makeWatchFixture(overrides = {}) {
   const root = await mkdtemp(join(longTempDir(), "ldvh-recycle-"));
   const pidFile = join(root, "child.pid");
@@ -261,7 +289,10 @@ test("source recycle self-heals the child without any incoming request", async (
     assert.notEqual(secondPid, firstPid, "a content change must recycle the child");
     assert.equal(manager.isRunning(), true, "replacement must be running again — no request was ever sent");
     // 自愈的落点是「iframe 那个地址恢复 200」，不是仅进程活着。
-    const response = await fetch(`http://127.0.0.1:${port}/api/health`);
+    // 用有界轮询而非单次 fetch：新 pid 出现在文件里时端口尚未 bind，单次
+    // fetch 在负载下必现 ECONNREFUSED（实测两条用例同时红）。轮询守的仍是
+    // 「最终必须服务」——永不 bind 的实现照样红。
+    const response = await waitForServing(`http://127.0.0.1:${port}/api/health`);
     assert.equal(response.status, 200, "the loopback address the iframe uses must serve again");
   } finally {
     manager.dispose();
@@ -332,7 +363,8 @@ test("unexpected child exit re-warms without any incoming request", async () => 
       if (secondPid !== firstPid) break;
     }
     assert.notEqual(secondPid, firstPid, "an unexpectedly killed child must be re-warmed with a new pid");
-    const response = await fetch(`http://127.0.0.1:${port}/api/health`);
+    // 同上：新 pid 出现 ≠ 端口已 bind，用有界轮询吸收这个窗口。
+    const response = await waitForServing(`http://127.0.0.1:${port}/api/health`);
     assert.equal(response.status, 200, "the loopback address must serve again after a crash");
     void root;
   } finally {
