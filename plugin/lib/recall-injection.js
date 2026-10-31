@@ -966,13 +966,47 @@ export function renderRecallRow(result) {
   // 归因记录**裁剪期间实际生效的约束**（裁完再判会把「因 A 裁到 B 也满足」误报成 B）。
   let charTriggered = false;
   let byteTriggered = false;
+  // **裁剪次序（2026-11-01，老丁 m00559 任务「事实卡被渲染层裁光」修复）**：
+  // 旧循环从尾部裁「- 」行，事实卡排在候选区末尾故最先死——实测 2400 预算下
+  // 2 张 ADR 事实卡全是决策基线重复行、强命中候选被名额挤出，尾删连裁 2 张后
+  // 零事实交付（测试「应有事实卡行」红）。改三级优先：
+  // ① 基线重复行优先删（其对象已在【决策基线】段逐条列出，信息不丢）；
+  // ② 其余「- 」候选行仍从尾部删（N-6 纪律不变，披露行仍永不裁剪）；
+  // ③ 软保底：事实卡（「- [」行）只剩最后 1 张时退出①②候选池，仅当已无
+  //    其他候选行可删时才删——2400 复现留 1 张事实卡，800 极小预算仍能收进
+  //    硬顶（N-7「实际 X 字节不得超预算 800」不放宽，故保底必须可让位）。
+  const trimBaselineItems = Array.isArray(result?.decisionBaseline?.items)
+    ? result.decisionBaseline.items
+    : [];
+  const baselineDupKeys = [];
+  for (const item of trimBaselineItems) {
+    if (typeof item?.path === "string" && item.path !== "") baselineDupKeys.push(item.path);
+    if (typeof item?.ref === "string" && item.ref !== "") baselineDupKeys.push(item.ref);
+  }
+  const isBaselineDupRow = (row) => baselineDupKeys.some((key) => row.includes(key));
+  const findDeletable = () => {
+    const factIdx = [];
+    for (let i = 0; i < trimmed.length; i += 1) {
+      if (trimmed[i].startsWith("- [")) factIdx.push(i);
+    }
+    const protectedIdx = factIdx.length === 1 ? factIdx[0] : -1;
+    // ① 基线重复行（尾部优先），跳过受保底行
+    for (let i = trimmed.length - 1; i >= 0; i -= 1) {
+      if (i === protectedIdx) continue;
+      if (trimmed[i].startsWith("- ") && isBaselineDupRow(trimmed[i])) return i;
+    }
+    // ② 其余候选行（尾部优先），跳过受保底行
+    for (let i = trimmed.length - 1; i >= 0; i -= 1) {
+      if (i === protectedIdx) continue;
+      if (trimmed[i].startsWith("- ")) return i;
+    }
+    // ③ 最后手段：受保底的最后 1 张事实卡（仅当已无其他候选行）
+    return protectedIdx;
+  };
   while (overChars() || overBytes()) {
     if (overChars()) charTriggered = true;
     if (overBytes()) byteTriggered = true;
-    let idx = -1;
-    for (let i = trimmed.length - 1; i >= 0; i -= 1) {
-      if (trimmed[i].startsWith("- ")) { idx = i; break; }
-    }
+    const idx = findDeletable();
     if (idx === -1) break; // 已无候选行可裁；固定与披露文本如实带出，不静默删
     trimmed.splice(idx, 1);
     droppedByRender += 1;
