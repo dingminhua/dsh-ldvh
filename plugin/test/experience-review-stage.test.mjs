@@ -522,6 +522,76 @@ function formableProposal(entryId = "entry-0") {
   };
 }
 
+/** 造 3 条同组摩擦观察（达 §12bis.1 阈值），用于验证晋升路径。 */
+async function seedFrictionBuffer(base, count = 3) {
+  const dir = join(base, "ldvh", "friction-observations");
+  await mkdir(dir, { recursive: true });
+  const lines = [];
+  for (let index = 0; index < count; index += 1) {
+    lines.push(JSON.stringify({
+      id: `friction-entry-${index}`,
+      at: `2026-10-26T0${index}:00:00.000Z`,
+      project: PROJECT_ID,
+      session: `session-${index}`,
+      anchor: `turn ${index}`,
+      phenomenon: `第 ${index} 次观察到的同一阻碍。`,
+      evidence: `逐字引证 ${index}`,
+      group: "fixture-group",
+      target_uid: null,
+      title: "夹具摩擦标题",
+      basis: "夹具归因依据。",
+      attribution: "夹具归属。",
+      impact: "medium",
+      status: "pending",
+      promoted_to: null,
+    }));
+  }
+  await writeFile(join(dir, `${PROJECT_ID}.jsonl`), `${lines.join("\n")}\n`, "utf8");
+}
+
+// ── ⑧ 摩擦晋升的署名取主控（2026-10-31 实测缺陷）────────────────────
+//
+// 原实现传的是 `resolveSignature(sessionPersistence, null)`，而该函数在 id 为空时
+// **恒返回 null**。于是每一次摩擦晋升/补充都以 `signature_unavailable` 被拒——
+// 实测运行记录里 `friction_residual` 三条全是这个码，界面上「5/3 可晋升」永远不动。
+// 摩擦晋升发生在**派发执行体之前**，那时 childId 还不存在；它由主控触发、在宿主
+// 进程内完成，故取主控会话署名（11 §4 主控最终负责、09 §5.1 取当次实际判断方）。
+
+test("摩擦晋升**取主控会话署名**，不是执行体、也不是 null", async () => {
+  const base = await mkdtemp(join(tmpdir(), "review-stage-"));
+  await seedFrictionBuffer(base);
+  const persistence = fakeSessionPersistence({
+    events: [
+      { type: "model/selection", seq: 0, data: { provider: "controller-provider", model: "controller-model" } },
+    ],
+  });
+  const subagents = fakeSubagents({ proposals: [] });
+  const lifecycle = quietLifecycle();
+
+  const result = await runReviewStage({
+    subagents,
+    // 主控会话：署名必须从这里取
+    parent: { session: { header: { id: "session-controller" } } },
+    sessionPersistence: persistence,
+    scope: governedScope(base),
+    lifecycle,
+    dshHomePath: homeJoiner(base),
+  });
+
+  // 前提钉子：open 收到的必须是主控会话 id——若实现又退回 null 或改用 childId，本条红。
+  const openedIds = persistence.opened.map(([id]) => id);
+  assert.ok(
+    openedIds.includes("session-controller"),
+    `署名须按主控会话 id 取，实际打开的会话：${JSON.stringify(openedIds)}`,
+  );
+  // 摩擦晋升成功（不是 signature_unavailable）
+  const rec = lifecycle.events.find((e) => e.name === "review/stage");
+  const residual = rec?.payload?.friction_residual ?? [];
+  const signatureFailures = residual.filter((r) => r.code === "signature_unavailable");
+  assert.deepEqual(signatureFailures, [], "摩擦晋升不得再因缺署名被拒");
+  assert.ok(result.ok);
+});
+
 test("11 §12ter.1：**只有 locate/open 的 persistence 也能取到执行体署名**（复现 2026-10-27 恒失败缺陷）", async () => {
   const base = await mkdtemp(join(tmpdir(), "review-stage-"));
   await seedBuffer(base);

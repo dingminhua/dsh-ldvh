@@ -345,7 +345,18 @@ export async function runReviewStage({
       factSourceRoot,
       dshHomePath,
       projectId: scope.project.id,
-      sessionSignature: await resolveSignature(sessionPersistence, null),
+      // **署名取主控会话，不取执行体**（2026-10-31 修，实测缺陷）。
+      //
+      // 摩擦晋升在本函数**派发执行体之前**执行，此刻 `activation.childId` 还不存在，
+      // 原实现写的是 `resolveSignature(sessionPersistence, null)`——而该函数在
+      // `childId` 为空时**恒返回 null**。于是每一次摩擦晋升/补充都以
+      // `signature_unavailable` 被拒，界面上「5/3 可晋升」永远不动。
+      //
+      // 为什么取主控是对的：这次晋升的**发起者与责任主体**是主控（11 §4：主控发起的
+      // 行动由主控最终负责），执行体那时还没被派生，它也没有参与任何摩擦判断。
+      // 09 §5.1 要的是「当次实际做出这个判断的那一方」的 provider/model——摩擦晋升
+      // 由主控触发、在宿主进程内完成，主控会话记录就是它的权威出处。
+      sessionSignature: await resolveSignature(sessionPersistence, parent?.session?.header?.id ?? null),
     });
   } catch (error) {
     frictionPromotion = failure("review_stage/friction_promotion_threw", String(error?.message ?? error));
@@ -559,9 +570,21 @@ export async function runReviewStage({
 }
 
 /**
- * 取执行体署名（provider/model → 品牌化载体）。
+ * 取**某个会话**的署名（provider/model → 品牌化载体）。
  *
- * **取不到就返回 null，不臆造**：署名进 `draft` 的 `change_log`，编一个比没有更糟。
+ * **取不到就返回 null，不臆造**：署名进 `change_log`，编一个比没有更糟。
+ *
+ * ## 两处用途，主体不同（2026-10-31 补）
+ *
+ *   - 经验审核的落盘（`:519`）：取**执行体**（`activation.childId`）。那份判断是
+ *     执行体做的，盖主控的章就是把别人的判断记成自己的（2026-10-16 修掉的缺陷）。
+ *   - 摩擦晋升与补充（`:348`）：取**主控**（`parent.session.header.id`）。它发生在
+ *     派发执行体之前，执行体还没被派生、也没参与任何摩擦判断；这次晋升由主控触发、
+ *     在宿主进程内完成，主控会话记录就是它的权威出处（11 §4 主控最终负责）。
+ *
+ * 两处的共同纪律是「取**当次实际做出这个判断的那一方**」（09 §5.1）。原实现在摩擦
+ * 晋升处传的是 `null`——而本函数在 id 为空时恒返回 null，于是每一次晋升都以
+ * `signature_unavailable` 被拒，界面上「5/3 可晋升」永远不动。
  *
  * ## 2026-10-27 修复：此前恒返回 null
  *
@@ -582,8 +605,8 @@ export async function runReviewStage({
  * 取值纪律（09 §5.1「当次实际」、零清洗）。不在这里另写一套 open/read：
  * 那条纪律只应有一处实现，否则两处会出现「同一执行体两个署名」。
  *
- * 取不到时仍返回 null（不回落主控路由）——那会把执行体的判断盖上主控的章，
- * 恰是 2026-10-16 修掉的缺陷形态。
+ * 取不到时仍返回 null，**不隐式回落**到某个默认会话——那会把一方的判断盖上另一
+ * 方的章。调用方必须显式指明取谁的会话（见上「两处用途」）。
  */
 async function resolveSignature(sessionPersistence, childId) {
   if (sessionPersistence === null || sessionPersistence === undefined) return null;
