@@ -24,7 +24,11 @@
  *
  * - **不改变任何既有账目的状态**（26 §9：状态推进只有 Human Gate）。
  * - 补充级更新（§9 第 4 项）作用于 `target_uid` 非空的缓冲条目，只增计数与现象段。
- * - 任一环节失败即 fail-closed 并如实登记，不降级、不跳过（§12）。
+ * - **单条失败不阻断其余**（2026-10-31 修）：补充与晋升各自把失败记进 `residual`，
+ *   继续处理后面的条目／组，由调用方如实登记。缓冲不可读、就绪组不可读这两类
+ *   **整批性**失败仍 fail-closed（那时「其余」也无从谈起）。
+ *   此前的「任一失败即整函数返回」造成过实测的队首阻塞：4 条待补充条目指向的账目
+ *   带着已删除字段，使 9 条达阈值条目在界面上显示「可晋升」却永远晋升不了。
  */
 
 import {
@@ -100,13 +104,25 @@ export async function runFrictionReviewPromotion({
       sessionSignature,
     });
     if (!result.ok) {
-      // 补充失败不得静默跳过：该条目会一直留在缓冲里被反复重试，且计数永远不增。
-      // 按 §12 fail-closed 上抛，由调用方登记并停止。
-      return failure(
-        result.error?.code ?? "review_promotion/supplement_failed",
-        `supplementing ${entry.target_uid} failed: ${result.error?.message ?? "unknown"}; the entry stays pending and would be retried next run`,
-        { stage: "supplement", entry_id: entry.id, cause: result.error },
-      );
+      // **补充失败不阻断晋升**（2026-10-31 修，实测缺陷）。
+      //
+      // 原实现在此 `return failure`，于是「一条补充失败」会让整个函数返回——
+      // 而晋升（下一节）**根本执行不到**。实测后果：缓冲里 `over-escalation-to-
+      // human-arbitration`(5 条) 与 `corpus-coupled-test-assertions`(4 条) 早已达阈值、
+      // 界面上一直显示「可晋升」，却永远不晋升；原因是 10 条待补充条目里有 4 条指向
+      // 的既有账目带着 2026-10 已删除的 `human_return_at` 字段，校验一拒即整函数返回。
+      //
+      // 两件事本无依赖：补充作用于 `target_uid` 非空的条目，晋升作用于整组
+      // `target_uid` 为空的条目（实测两组零重叠）。故补充失败记入 `residual` 并**继续**，
+      // 由调用方如实登记（§12：不静默跳过）。该条目仍留在缓冲里，下次运行重试。
+      residual.push({
+        stage: "supplement",
+        entry_id: entry.id,
+        target_uid: entry.target_uid,
+        code: result.error?.code ?? "review_promotion/supplement_failed",
+        message: result.error?.message ?? "unknown",
+      });
+      continue;
     }
     supplemented.push({ entry_id: entry.id, target_uid: entry.target_uid, count: result.value?.count_after ?? null });
   }
@@ -158,11 +174,17 @@ export async function runFrictionReviewPromotion({
       sessionSignature,
     });
     if (!promoted.ok) {
-      return failure(
-        promoted.error?.code ?? "review_promotion/promote_failed",
-        `promoting group ${group.group} failed: ${promoted.error?.message ?? "unknown"}`,
-        { stage: "promote", group: group.group, cause: promoted.error },
-      );
+      // 同一类问题的另一半（2026-10-31）：晋升失败也不得让**后续组**永远轮不到。
+      // `MAX_CREATES_PER_REVIEW_RUN` 是 1，故迭代顺序里第一组若持续失败，第二组
+      // 在旧实现下永远执行不到——与补充阶段堵住晋升是同一个「队首阻塞」形态。
+      // 记入 `residual` 并继续，由调用方如实登记。
+      residual.push({
+        stage: "promote",
+        group: group.group,
+        code: promoted.error?.code ?? "review_promotion/promote_failed",
+        message: promoted.error?.message ?? "unknown",
+      });
+      continue;
     }
     if (promoted.value?.promoted === true) {
       promotions.push({

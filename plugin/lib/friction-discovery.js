@@ -284,7 +284,22 @@ export async function supplementOccurrence({
 
   const frontmatterAfter = {
     ...fm,
-    occurrence: { ...occurrence, count: occurrence.count + 1, last_at: now },
+    // **新 occurrence 只取闭集三件，不 spread 旧对象**（2026-10-31 修，实测缺陷）。
+    //
+    // 原实现是 `{ ...occurrence, count: +1, last_at: now }`——把旧载体**原样继承**。
+    // 于是 2026-10 从 §8 闭集删掉的 `human_return_at` 只要还在存量账目里，就会被
+    // 一路带进下一次写入，`validateOccurrenceShape` 当场拒绝。实测后果不是「这条
+    // 补充失败」那么轻：审核层的补充阶段对 10 条待补充条目逐条调用本函数，4 条指向
+    // 带该字段的账目 → 全部失败 → 旧实现在此整函数返回 → **9 条已达阈值的组永远
+    // 晋升不了**（界面上一直显示「可晋升」，却永远不动）。
+    //
+    // 修法：写入侧只承载闭集成员，闭集外的一律不继承。这与 §8「成员闭集，不多不少」
+    // 是同一件事——校验在写入侧拒绝，写入侧本就不该把被拒的字段带进新载体。
+    occurrence: {
+      count: occurrence.count + 1,
+      first_at: occurrence.first_at,
+      last_at: now,
+    },
     // status 逐字保持——补充级更新不改变状态（§8.4 第 2 项）。
     status,
   };

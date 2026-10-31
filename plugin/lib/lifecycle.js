@@ -36,6 +36,7 @@ import { resolveGovernanceScope } from "./governance-scope.js";
 import { registerLdvhTools } from "./ldvh-tools.js";
 import { runReviewStage } from "./experience-review-stage.js";
 import { runReviewExclusive } from "./experience-review-trigger.js";
+import { resolveArchiveServices } from "./archived-lineage.js";
 import { createAssembleHandler, createPreStepHandler } from "./guidance.js";
 import { RECALL_SUMMARY, buildRecallInjection } from "./recall-injection.js";
 import { recallLimitForBudget } from "./source-recall.js";
@@ -648,6 +649,8 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               })(),
               parent: agent,
               sessionPersistence: ctx.get("sessionPersistence") ?? null,
+              // 归档血缘守卫所需（2026-10-31），与静置检查点路径同一口径。
+              ...resolveArchiveServices(ctx),
               scope: reviewScope,
               lifecycle,
               taskOutcomes: reviewOutcomes,
@@ -965,6 +968,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   })(),
                   parent: agent,
                   sessionPersistence: ctx.get("sessionPersistence") ?? null,
+                  // 归档血缘守卫所需（2026-10-31）：宿主的 ArchivedSessionGate 无条件
+                  // 挂在 agent/pre-step，归档血缘下的执行体必然 blocked。
+                  ...resolveArchiveServices(ctx),
                   scope: reviewScopeState,
                   lifecycle,
                   taskOutcomes: reviewOutcomesForCheckpoint,

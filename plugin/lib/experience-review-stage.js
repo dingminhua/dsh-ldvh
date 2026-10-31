@@ -36,9 +36,25 @@ import { join } from "node:path";
 import { reviewPendingEntries, collectExistingPitfalls } from "./observation-review.js";
 import { currentRouteValuesForSession } from "./session-signature.js";
 import { authoritativeSignature } from "./signature-channel.js";
+import { isUnderArchivedLineage } from "./archived-lineage.js";
 
 /** 一次派发最多交付多少条 pending 条目（防提示词无界增长）。 */
 export const MAX_ENTRIES_PER_REVIEW_DISPATCH = 12;
+
+/**
+ * 执行体结算的等待上限（毫秒）。
+ *
+ * **为什么需要它**（2026-10-31，C 的第二半）：外层 `runReviewExclusive` 的 `finally`
+ * 要等 `fn()` 返回才释放文件锁，而 `fn()` 里 `await activation.result` 会一直等到
+ * 执行体结算。实测有一次执行体被宿主的归档门禁 `blocked`（`stopReason: refusal`），
+ * 结算仍要等宿主自己收口——锁就被一个「必然失败」的派发占着，下一次静置撞锁跳过，
+ * 界面上看起来是「审核正在运行」。
+ *
+ * 超时**不假装成功**：抛出的错误如实走 `executor-error` 分支，锁随即释放，下一次
+ * 静置可以重试。取值 10 分钟——正常审核实测在 1 分钟内完成（12 条条目、单次派发），
+ * 留足一个数量级的余量，又不至于让锁被占用到 `LOCK_STALE_MS`（30 分钟）过期。
+ */
+export const EXECUTOR_SETTLEMENT_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** 事实源根 = 管辖项目根下的 `ldvh-base`（与 lifecycle.js 的落地调用同一约定）。 */
 function joinScopeFactSource(projectPath) {
@@ -255,10 +271,18 @@ function structuredOf(result) {
  */
 export async function runReviewStage({
   subagents, parent, scope, lifecycle, taskOutcomes = {}, dshHomePath, sessionPersistence = null,
+  workspaceRegistry = null, sessions = null,
 }) {
   const activity = lifecycle?.activity;
+  // **跨阶段保留的残余失败**（2026-10-31）：摩擦晋升的单条失败不再让整函数返回，
+  // 它记进 `residual` 由本段如实登记。而 `record()` 是**覆盖**语义（同一键写多次只
+  // 留最后一次），故残余若只随某一次 `record` 传出，会被后续的 `landed`/`skipped`
+  // 覆盖掉——那等于静默跳过（§12）。这里让它随**每一次** record 带出。
+  let promotionResidual = [];
   const record = (outcome, extra = {}) => {
-    const value = { outcome, ...extra };
+    const value = promotionResidual.length > 0
+      ? { outcome, ...extra, friction_residual: promotionResidual }
+      : { outcome, ...extra };
     taskOutcomes["experience-review"] = value;
     activity?.record("review/stage", value);
     return value;
@@ -329,6 +353,7 @@ export async function runReviewStage({
   if (frictionPromotion?.ok) {
     const promotedCount = frictionPromotion.value.promotions.length;
     const supplementedCount = frictionPromotion.value.supplemented.length;
+    const residual = Array.isArray(frictionPromotion.value.residual) ? frictionPromotion.value.residual : [];
     if (promotedCount > 0 || supplementedCount > 0) {
       activity?.record("review/friction-promotion", {
         promoted: frictionPromotion.value.promotions,
@@ -336,6 +361,11 @@ export async function runReviewStage({
         skipped: frictionPromotion.value.skipped,
       });
     }
+    // **单条失败不再整函数返回**（2026-10-31），故它出现在 `ok:true` 的 `residual` 里。
+    // §12 要求如实登记——不登记即静默跳过。这条记录同时是界面上「可晋升却一直没
+    // 晋升」的第一手诊断依据。用 `promotionResidual` 而非此处直接 `record`：后者的
+    // 覆盖语义会让它被随后的 `landed`/`skipped` 抹掉。
+    promotionResidual = residual;
   } else {
     record("land-failed", {
       action: frictionPromotion?.error?.code ?? "friction-promotion-failed",
@@ -374,6 +404,34 @@ export async function runReviewStage({
   }
 
   // ── 3. 派生执行体 ───────────────────────────────────────────────────
+  //
+  // **派发前先判归档血缘**（2026-10-31，实测根因）。宿主的 `ArchivedSessionGate`
+  // 无条件挂载在 `agent/pre-step`，只要父会话在归档集合里，执行体每一步都被 reject、
+  // 19 毫秒内 `turn/end {kind:"blocked"}`、一条 assistant 消息都没有，`stopReason`
+  // 被映射为 `refusal`。那种派发**必然白跑**，且把外层锁拖到过期（`finally` 要等
+  // `activation.result` 结算），于是下一次静置撞锁跳过——「审核从没成功」被伪装成
+  // 「审核正在运行」。
+  //
+  // 探测不到（服务缺失、会话头读不到）时**不阻断**：把「探不到」当「被归档」会让
+  // 审核永久停摆，那是另一种不可见失效。探测失败按未归档处理并把原因登记下来。
+  const lineage = isUnderArchivedLineage({
+    workspaceRegistry,
+    sessions,
+    sessionId: parent?.session?.header?.id ?? null,
+  });
+  if (lineage.checked && lineage.archived) {
+    record("skipped", {
+      action: "archived-lineage",
+      reason: "the parent session is under the host's archived-session gate (agent/pre-step rejects every step of an archived lineage), so a dispatched executor would be blocked without producing any judgement",
+      via: lineage.via,
+    });
+    return { ok: true, value: { skipped: true, reason: "archived-lineage", dispatched: false, friction_promoted: 0, friction_supplemented: 0 } };
+  }
+  if (!lineage.checked) {
+    // 如实登记「这次没判出来」，但照常派发。
+    activity?.record("review/lineage-unchecked", { reason: lineage.reason });
+  }
+
   const batch = pending.slice(0, MAX_ENTRIES_PER_REVIEW_DISPATCH);
   const prompt = buildReviewPrompt({
     entries: batch,
@@ -414,22 +472,46 @@ export async function runReviewStage({
   }
 
   let result;
+  let timer;
   try {
-    result = await activation?.result;
+    // **结算等待有上限**（见 `EXECUTOR_SETTLEMENT_TIMEOUT_MS` 的说明）。超时不静默：
+    // 走 `executor-error` 如实登记，锁随 `fn()` 返回而释放，下一次静置可重试。
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`the review executor did not settle within ${EXECUTOR_SETTLEMENT_TIMEOUT_MS} ms`)),
+        EXECUTOR_SETTLEMENT_TIMEOUT_MS,
+      );
+    });
+    result = await Promise.race([activation?.result, timeout]);
   } catch (error) {
     record("land-failed", { action: "executor-error", reason: String(error?.message ?? error) });
     return failure("review_stage/executor_error", `the review executor failed: ${String(error?.message ?? error)}`);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 
   // ── 4. 取结构化提案 ─────────────────────────────────────────────────
   const structured = structuredOf(result);
   const proposals = Array.isArray(structured?.proposals) ? structured.proposals : null;
   if (proposals === null) {
+    // **先分辨「执行体被拒」与「执行体没给提案」**（2026-10-31）。两者都落到「没有
+    // 提案」，但根因完全不同：前者是宿主门禁/中止把它拦在外面（`stopReason` 为
+    // `refusal`/`aborted`/`max-tokens`），后者是它跑完了却没按契约产出。混在一起
+    // 记成 `no-proposals` 会让「审核从来没跑起来」看起来像「审核跑了但没结论」。
+    const stopReason = result?.stopReason ?? null;
+    if (stopReason === "refusal" || stopReason === "aborted" || stopReason === "max-tokens") {
+      record("land-failed", { action: "executor-not-run", stopReason });
+      return failure(
+        "review_stage/executor_not_run",
+        `the review executor produced no output at all (stopReason=${JSON.stringify(stopReason)}); nothing was written and every entry stays pending`,
+        { stopReason },
+      );
+    }
     // 执行体没给可解析的提案就**不落盘**——缺省不得代替材料判断（§10.2 第 5 项）。
-    record("land-failed", { action: "no-proposals", stopReason: result?.stopReason ?? null });
+    record("land-failed", { action: "no-proposals", stopReason });
     return failure(
       "review_stage/no_proposals",
-      `the review executor returned no structured proposals (stopReason=${JSON.stringify(result?.stopReason ?? null)}); nothing was written and every entry stays pending`,
+      `the review executor returned no structured proposals (stopReason=${JSON.stringify(stopReason)}); nothing was written and every entry stays pending`,
     );
   }
 
