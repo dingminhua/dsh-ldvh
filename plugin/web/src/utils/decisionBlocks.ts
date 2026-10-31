@@ -5,6 +5,7 @@
  * - Pitfall 决策字段块（琥珀·卡面）——ObjectList
  * - Friction 现象块（琥珀·卡面）——ObjectList
  * - Norm 方向键块（紫·卡面 truncate / 详情面 break-all）——ObjectList + FactReadingLayouts
+ * - SubGoal 锚点块（黄绿·卡面 / 详情面）——ObjectList + FactReadingLayouts（2026-11 加入，见下注）
  *
  * 刻意不并入的左色条远亲（透明度与语义不同，属「状态通知」子族）：
  * - CognitionCenter 模块不可用红通知（border-red-400/25 + bg-red-500/5 + px-2.5 py-2）
@@ -15,20 +16,39 @@
  * 是否统一由 Human 裁决，收敛时不动视觉。
  */
 
-/** 卡面壳：色相同系染色 + 同色相 2px 左条。 */
-export const DECISION_CARD_SHELL_CLASS: Record<'amber' | 'violet', string> = {
+/**
+ * 卡面壳：色相同系染色 + 同色相 2px 左条。
+ *
+ * `lime` 是 2026-11 为 28 号 SubGoal 加入的第三色相。加它的理由不是「新类型
+ * 就该新颜色」，而是现有两色都已被占用且语义冲突：`amber` 在 Pitfall 与
+ * Friction 上表示「需要处置的条目」，`violet` 在 Norm 上表示「成体系的规则」；
+ * 子目标既非待处置也非规则体系，它是目标层的下级锚点——借用任一色都会让读者
+ * 把子目标误读成那两类之一。lime 与 Goal 的 emerald 同属绿族而不等值，读作
+ * 「同一目标层的下一级」。
+ *
+ * **加入成本已付**：`structure-single-source-contract` 的
+ * `DECISION_SHELL_SEGMENTS` / `DECISION_TITLE_HUE_CLASS` 均按色相逐条登记，
+ * 新增色相必须同步该守卫（否则守卫只验证旧两色、新色相可自由漂移）。
+ */
+export const DECISION_CARD_SHELL_CLASS: Record<'amber' | 'violet' | 'lime', string> = {
   amber: 'min-w-0 rounded-md border border-amber-400/20 border-l-2 border-l-amber-400/70 bg-amber-500/[0.025] px-3.5 py-3',
   violet: 'min-w-0 rounded-md border border-violet-400/20 border-l-2 border-l-violet-400/70 bg-violet-500/[0.025] px-3.5 py-3',
+  lime: 'min-w-0 rounded-md border border-lime-400/20 border-l-2 border-l-lime-400/70 bg-lime-500/[0.025] px-3.5 py-3',
 };
 
 /** 详情面壳（Norm 方向键）：中性壳 + 类型色左条——详情面不整面染色（卡/详情面分岔，与 specs/10:300 密度分岔同源）。 */
 export const DECISION_DETAIL_NEUTRAL_SHELL_CLASS =
   'min-w-0 rounded-md border border-ldvh-border/80 border-l-2 border-l-violet-400/70 bg-ldvh-bg/65 px-3.5 py-3';
 
+/** 详情面壳（SubGoal 锚点）：中性壳 + 黄绿左条——同上分岔纪律，只换类型色。 */
+export const DECISION_DETAIL_LIME_SHELL_CLASS =
+  'min-w-0 rounded-md border border-ldvh-border/80 border-l-2 border-l-lime-400/70 bg-ldvh-bg/65 px-3.5 py-3';
+
 /** 标题色相（使用处补 ldvh-card-decision-title 与布局位如 min-w-0）。 */
-export const DECISION_TITLE_HUE_CLASS: Record<'amber' | 'violet', string> = {
+export const DECISION_TITLE_HUE_CLASS: Record<'amber' | 'violet' | 'lime', string> = {
   amber: 'text-amber-700/85 dark:text-amber-200/85',
   violet: 'text-violet-700/85 dark:text-violet-200/85',
+  lime: 'text-lime-700/85 dark:text-lime-200/85',
 };
 
 /** 琥珀正文色相（配 ldvh-card-decision-body；深字低饱和——同色相纪律 docs/01 §1.4 行311）。 */

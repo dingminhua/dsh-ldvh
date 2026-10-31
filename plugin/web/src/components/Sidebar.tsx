@@ -34,6 +34,9 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
   { to: '/objects/pitfall', labelKey: 'nav.pitfalls', icon: OBJECT_TYPE_ICONS.pitfall },
   { to: '/objects/friction', labelKey: 'nav.frictions', icon: OBJECT_TYPE_ICONS.friction },
   { to: '/objects/norm', labelKey: 'nav.norms', icon: OBJECT_TYPE_ICONS.norm },
+  // 28 号 SubGoal：子目标。排在目标层邻居位（规范之后、项目文件之前）——
+  // 它不是「又一类对象」，而是目标的分级视图，故紧邻规范、远离工具类入口。
+  { to: '/objects/subgoal', labelKey: 'nav.subgoals', icon: OBJECT_TYPE_ICONS.subgoal },
   { to: '/project-files', labelKey: 'nav.projectFiles', icon: FolderTree },
   { to: '/changes', labelKey: 'nav.changes', icon: GitPullRequestArrow },
   { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog },
@@ -55,6 +58,7 @@ const FEDERATION_NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon; di
   { to: '/federation/objects/pitfall', labelKey: 'nav.pitfalls', icon: OBJECT_TYPE_ICONS.pitfall },
   { to: '/federation/objects/friction', labelKey: 'nav.frictions', icon: OBJECT_TYPE_ICONS.friction },
   { to: '/federation/objects/norm', labelKey: 'nav.norms', icon: OBJECT_TYPE_ICONS.norm },
+  { to: '/federation/objects/subgoal', labelKey: 'nav.subgoals', icon: OBJECT_TYPE_ICONS.subgoal },
   { to: '/project-files', labelKey: 'nav.projectFiles', icon: FolderTree, disabled: true },
   { to: '/changes', labelKey: 'nav.changes', icon: GitPullRequestArrow, disabled: true },
   { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog, disabled: true },

@@ -5,7 +5,7 @@
  * entry retains its 05.Att.01 field_key and is mechanically reconciled with
  * 05.Att.01, the type bindings, and 08.Att.01 by fact-field-contract.test.ts.
  */
-export const FACT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm'] as const
+export const FACT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal'] as const
 
 export type FactType = (typeof FACT_TYPES)[number]
 export type FieldExpectation = 'string' | 'number' | 'array' | 'object'
@@ -240,6 +240,24 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     retired_at: field('retired-at', 'string', false),
     report_body: field('norm-body', 'string', false),
   },
+  // v5 SubGoal（28 号规范）：子目标的字段闭集。anchor（SG-n）是**业务键**而非
+  // 对象身份——它在面向上人的所有呈现里保持可读，但引用目标一律用 object_uid
+  // （28 §7）。criterion / criterion_kind / alignment 是该类型存在的理由：
+  // 没有可判定的达成条件，子目标就退化成一句待办（28 §18 红线 3）。
+  // 本类型不设 urls（§11：判据与对齐住正文，不接外部证据链）与 relations
+  // （§11：层级只允许两层，上下游都由 anchor 与 serves 反查派生，不建第二边）。
+  subgoal: {
+    ...common,
+    anchor: field('subgoal-anchor', 'string', true),
+    parent_goal: field('subgoal-parent-goal', 'string', true),
+    criterion: field('subgoal-criterion', 'string', true),
+    criterion_kind: field('subgoal-criterion-kind', 'string', true),
+    alignment: field('subgoal-alignment', 'string', true),
+    disposition: field('subgoal-disposition', 'string', false),
+    // 正文两块（§8：达成条件/对齐说明）由读取层统一以 report_body 投影，
+    // 分节在阅读布局里按 H2 解析（同 27 号 norm 形态），不登记为独立字段。
+    report_body: field('subgoal-body', 'string', false),
+  },
 }
 
 /**
@@ -259,6 +277,8 @@ export const FACT_LIST_FIELD_NAMES: Record<Exclude<FactType, 'workcase'>, readon
   // norm（27 号）：正文以 report_body 承载（读取层统一投影），列表投影不
   // 携带全文（同其余 markdown 类型纪律）。
   norm: Object.keys(FACT_FIELD_CONTRACT.norm).filter((field) => field !== 'report_body'),
+  // subgoal（28 号）：正文两段只属详情阅读面，列表不携带全文（同其余 markdown 类型纪律）。
+  subgoal: Object.keys(FACT_FIELD_CONTRACT.subgoal).filter((field) => field !== 'report_body'),
 }
 
 /**
@@ -278,6 +298,9 @@ export const FACT_TERMINAL_STATUSES: Record<FactType, readonly string[]> = {
   friction: ['resolved', 'voided'],
   // 27 号 §9：active/retired 两态，retired 为终态（不重开）。
   norm: ['retired'],
+  // 28 号 §9：active/achieved/retired 三态，achieved 与 retired 均为终态（不重开；
+  // 目标改了要新建子目标并换号，不得复活旧号）。
+  subgoal: ['achieved', 'retired'],
 }
 
 /**
@@ -292,4 +315,5 @@ export const FACT_TYPE_DIR_NAMES: Record<FactType, string> = {
   research: 'researches',
   friction: 'frictions',
   norm: 'norms',
+  subgoal: 'subgoals',
 }

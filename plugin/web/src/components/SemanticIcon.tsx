@@ -7,6 +7,7 @@ import {
   FileSignature,
   Lightbulb,
   Link2,
+  Milestone,
   Ruler,
   Shovel,
   Snail,
@@ -65,6 +66,9 @@ export const OBJECT_TYPE_ICONS: Record<string, SemanticIconComponent> = {
   // 与认知中心目标区同图标语义）。单例三免（无 tab 无 card），详情经
   // /goal 直读路由承载。
   goal: Target,
+  // 28 号 SubGoal：子目标——目标层的下级锚点（Milestone＝路标：同一个方向上
+  // 的下一个可判定站点；与 goal 的靶心区分开——靶心是整件事，路标是走到哪算成）。
+  subgoal: Milestone,
   change: GitCommit,
   // commit 形态关系的目标图标（02 §8.1）：解药是一次受控提交。狐狸＝侧栏那只，
   // 实心填充，与 change 的线框 GitCommit 区分开——读者一眼知道这是提交而非工单。

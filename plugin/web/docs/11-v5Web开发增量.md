@@ -47,6 +47,8 @@
 | 研究/调研列表 | `/objects/research` | F1 投影字段；活跃卡克制 |
 | 研究/调研详情 | `/objects/research/:id` | 24 号薄索引阅读布局、YAML 源节点 |
 | 决策/火花/经验列表 | `/objects/{adr,spark,workcase}` | 保留 v4 语言 |
+| 子目标列表 | `/objects/subgoal` | 28 号 F1：锚点 + 判据类型 + 达成条件一句；默认只列 active |
+| 子目标详情 | `/objects/subgoal/:id` | 28 号阅读布局：锚点块 → 达成条件 → 对齐说明 → 名下工作（serves 反查派生）→ 修订史 |
 | 联邦聚焦 | `/federation` | 跨项目聚合、项目统计、跨项目火花 |
 | 联邦对象 | `/federation/objects/:type` | 跨项目对象列表、项目源 chip |
 | 项目文件 | `/project-files` | 保留 v4 语言 |
@@ -59,6 +61,44 @@
 - `docs/01` 与 `docs/10` 上位引用与术语仍残留 v4 痕迹（specs/05、08、21 路径与 study 词汇）——新文档 11 为 v5 权威基线，01/10 仅作 v4 迁移基线对照。
 - WorkCase 规范 v5 尚未建立；WorkCase 卡片契约以 `specs/10` 与本文为准。
 - ~~联邦视图的 `ProjectFilterChips` 仍使用手造 tab 变体（未改用 `ldvh-tab-list`）——本次审计保留，列入后续收敛。~~ **已收敛（2026-10-05）**：`FederationObjects` 的 `ProjectFilterChips` 改用 `ldvh-tab-list` / `ldvh-tab-button-*` / `ldvh-tab-count` 家族，项目色点保留在按钮内承载项目识别；同时清掉 `ProjectSwitcher`（4 处）与 `Federation`（1 处）手写 `rounded-full … px-1.5 py-0.5` 药丸，统一为新增的 `ldvh-pill` 语义 token。
+
+## 4bis. SubGoal（28 号）Web 接入（2026-11）
+
+子目标从 goal.md 的一行文本变为独立事实对象后，Web 侧按「新事实类型完整接入」的
+既有流程接入（同 26 号 friction、27 号 norm 那一轮，见 `web/tests/api/friction-norm-presentation-contract.test.ts`）。
+
+**接入面（22 处）**：后端类型面（`facts.ts` / `localFactReader.ts` /
+`factFieldContract.ts` / `pytools.ts` / `federation.ts` / `typeColors.ts`）、
+列表（`ObjectList.tsx` 的 `SubGoalCardContent` + 状态筛选闭集 + 默认 active）、
+详情（`FactReadingLayouts.tsx` 的 `SubGoalReadingLayout` + `model.ts` 字段序 +
+`ObjectDetail.tsx` 分派）、导航与图标（`Sidebar.tsx` / `SemanticIcon.tsx` /
+`categoryColors.ts` / `statusColors` / `StatusBadge`）、i18n（类型名、状态三态、
+`criterion_kind` 三值、七条阅读区标题）、目标页下钻（`GoalSection.tsx`），
+以及近期动态取数（`cognition.ts`）。
+
+**新增第三色相 `lime`**：`decisionBlocks.ts` 原为 `Record<'amber' | 'violet'>`。
+加色相不是「新类型就该新颜色」——amber 在 Pitfall/Friction 上表示「待处置」、
+violet 在 Norm 上表示「规则体系」，子目标既非待处置也非规则，借用任一色都会
+被误读成那两类。lime 与 Goal 的 emerald 同属绿族不等值，读作「同一目标层的下一级」。
+**代价已付**：`structure-single-source-contract` 的
+`DECISION_SHELL_SEGMENTS` / `DECISION_TITLE_HUE_CLASS` / `border-l-*` 白名单
+三处同步登记（白名单 6 → 10 处）。
+
+**两条语义边界落在呈现层**（这两条不是文案偏好，是类型存在的理由）：
+
+1. **空集是歧义，不是 0%**（28 §8.1）：名下无 `serves` 指向时，卡片与详情都必须
+   标注「未声明或未拆解」，并说明「真的没拆解」与「拆了但没人写 serves」在机械层
+   不可区分。呈现层不得渲染任何进度值。
+2. **达成不由工单推出**（28 §18 红线 3）：`achieved` 的说明只陈述「判据已由证据
+   满足」，并显式否认「名下工作都关闭了」。状态提示（`getObjectStatusHint`）与
+   终态卡片（`objectList.subGoalAchievedNote`）两处都写了这句否认。
+
+这两条各有一条契约断言钉住（`web/tests/api/subgoal-presentation-contract.test.ts`
+的「名下工作为空时…」与「达成态不得由…推出」两项）。
+
+**已知边界**：`serving_work` 由 `facts.ts` 在详情读取时反查 spark + workcase 全量
+（各 `limit 2000`）派生，**不落盘**（28 §8.1 禁存下游状态）。反查失败的类型记入
+`serving_unreadable` 单列，不并入空集——「读不到」不得被读成「没有」。
 
 ## 5. 设计语言横切审计（2026-10-05）
 

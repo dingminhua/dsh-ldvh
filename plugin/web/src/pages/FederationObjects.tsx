@@ -28,7 +28,7 @@ import { getTypeLabel } from '@/i18n/locales';
 import { projectColorVar, resolvedProjectColorKey } from '@/shared/projectColors';
 import { LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TITLE_CLASS } from '@/utils/semanticColors';
 
-const OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm'] as const;
+const OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal'] as const;
 
 /** 项目筛选 chips：全部 + 每项目一枚（色点 + 名称 + 计数），单选。
  *

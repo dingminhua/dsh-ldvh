@@ -943,6 +943,76 @@ export function NormCardContent({ obj }: { obj: ObjectItem }) {
   );
 }
 
+/**
+ * 28 号 §12 F1 投影的列表承载：子目标卡。
+ *
+ * 三件事必须在卡片层就能读出来，否则每一条都要下钻才知道自己看的是什么：
+ *   ① 锚点（SG-n）——它是下游 serves 的引用键，也是人扫读时的定位物
+ *   ② 判据类型——它决定「这条子目标要靠什么材料才算达成」，比标题更能区分条目
+ *   ③ 达成条件的一句话——**不是**标题重复，标题只有 40 字且不承载完整判据（§8）
+ *
+ * achieved / retired 走终态面板：达成与作废都是「这条已经不动了」，用统一的
+ * 终态语言呈现，读者不必在活跃列表里逐条分辨。achieved 的说明只陈述状态本身，
+ * 不写「名下工作都完成了」——那正是本类型最主要的误读（§18 红线 3）。
+ */
+function SubGoalTerminalCardContent({ obj }: { obj: ObjectItem }) {
+  const { t } = useI18n();
+  const disposition = typeof obj.disposition === 'string' && obj.disposition.trim()
+    ? obj.disposition.trim()
+    : '';
+  if (obj.status === 'achieved') {
+    // achieved 走 implemented 档（emerald 正向）：达成是正结果，不是收敛。
+    // retired 走 retired 档（中性灰）：作废是收敛。
+    return <TerminalFactPanel tone="implemented" content={t('objectList.subGoalAchievedNote')} />;
+  }
+  return (
+    <TerminalFactPanel
+      tone="retired"
+      content={formatReasonText(disposition || t('objectList.dispositionMissing'))}
+    />
+  );
+}
+
+export function SubGoalCardContent({ obj }: { obj: ObjectItem }) {
+  const { t, locale } = useI18n();
+  if (obj.status === 'achieved' || obj.status === 'retired') {
+    return <SubGoalTerminalCardContent obj={obj} />;
+  }
+  const anchor = typeof obj.anchor === 'string' ? obj.anchor.trim() : '';
+  const criterionKind = typeof obj.criterion_kind === 'string' ? obj.criterion_kind.trim() : '';
+  const criterion = typeof obj.criterion === 'string' ? obj.criterion.trim() : '';
+  const kindLabel = criterionKind
+    ? getFieldValueLabel('criterion_kind', criterionKind, locale) || criterionKind
+    : '';
+
+  return (
+    <section className={DECISION_CARD_SHELL_CLASS.lime}>
+      <div className="flex min-w-0 items-center gap-2">
+        <h3 className={`ldvh-card-decision-title min-w-0 ${DECISION_TITLE_HUE_CLASS.lime}`}>
+          {getFieldLabel('subgoal_anchor', locale)}
+        </h3>
+        <span className={`ldvh-chip-sm min-w-0 shrink-0 ${DECISION_VIOLET_CODE_CHIP_HUE_CLASS}`}>
+          {anchor || t('objectDetail.subGoalAnchorMissing')}
+        </span>
+        {kindLabel && (
+          <span
+            className="ldvh-chip-sm min-w-0 shrink-0 border-ldvh-border bg-transparent text-ldvh-text-secondary"
+            title={getFieldLabel('subgoal_criterion_kind', locale)}
+          >
+            {kindLabel}
+          </span>
+        )}
+      </div>
+      {/* 达成条件：卡片层给一句话；判据全文与判定材料在详情页（§15 详情消费）。 */}
+      {criterion && (
+        <p className={`ldvh-caption ${WORKCASE_CARD_TITLE_BODY_GAP_CLASS} text-ldvh-text-secondary/80`}>
+          {criterion}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export default function ObjectList() {
   const { type } = useParams<{ type: string }>();
   const navigate = useNavigate();
@@ -1235,6 +1305,14 @@ export default function ObjectList() {
       return (
         <ObjectCardFrame key={obj.id} obj={obj} locale={locale} onOpen={openObject} showNonActiveReason={false}>
           <NormCardContent obj={obj} />
+        </ObjectCardFrame>
+      );
+    }
+
+    if (currentType === 'subgoal') {
+      return (
+        <ObjectCardFrame key={obj.id} obj={obj} locale={locale} onOpen={openObject} showNonActiveReason={false}>
+          <SubGoalCardContent obj={obj} />
         </ObjectCardFrame>
       );
     }

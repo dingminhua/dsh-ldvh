@@ -6,7 +6,7 @@ export const CURRENT_COMMIT_TYPES = [
 
 export const CURRENT_COMMIT_SCOPES = [
   'specs', 'docs', 'rules', 'runtime', 'code', 'web', 'tests', 'config',
-  'workcase', 'adr', 'spark', 'research', 'pitfall', 'friction', 'norm',
+  'workcase', 'adr', 'spark', 'research', 'pitfall', 'friction', 'norm', 'subgoal',
 ] as const;
 
 export function getCommitTypeLabel(type: string | undefined, locale: string) {

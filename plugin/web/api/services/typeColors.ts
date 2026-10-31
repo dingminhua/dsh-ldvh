@@ -11,6 +11,8 @@ export const TYPE_COLORS: Record<string, string> = {
   friction: '#f97316',   // orange —— 与前端 CATEGORY_COLORS.friction 一致（26 号摩擦账本）
   norm: '#8b5cf6',       // violet —— 与前端 CATEGORY_COLORS.norm 一致（27 号事实规范）
   goal: '#10b981',       // emerald —— 与前端 CATEGORY_COLORS.goal 一致（25 号项目目标，近期动态行用后端色）
+  subgoal: '#84cc16',    // lime —— 与前端 CATEGORY_COLORS.subgoal 一致（28 号子目标：目标层的下级锚点，
+                         //         取绿色族以表明与 goal 同属目标层、又浅一档以示从属）
   study: '#06b6d4',      // cyan（v4 遗留词汇，归档兼容）
   default: '#6b7280',   // gray
 }

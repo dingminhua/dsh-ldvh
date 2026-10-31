@@ -149,7 +149,16 @@ export default function GoalSection() {
             <div className="mt-3">
               <ul className="divide-y divide-ldvh-border/70">
                 {goal.sub_goals.map((sg) => (
-                  <li key={sg.id} className="flex min-w-0 items-start gap-2 py-2">
+                  <li
+                    key={sg.id}
+                    // 28 号 §1 的 V1（从目标下钻到子目标、再下钻到名下工作）：
+                    // 有 object_uid 的行可点进对象详情；legacy 行（旧段遗留、
+                    // 尚无对象）不可点——它没有可下钻的详情页。
+                    className={`flex min-w-0 items-start gap-2 py-2 ${sg.object_uid ? 'cursor-pointer rounded-md transition-colors hover:bg-ldvh-bg/60' : ''}`}
+                    onClick={sg.object_uid
+                      ? () => navigate(`/objects/subgoal/${sg.object_uid}`)
+                      : undefined}
+                  >
                     <span className="ldvh-chip ldvh-chip-sm shrink-0 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent">
                       {sg.id}
                     </span>

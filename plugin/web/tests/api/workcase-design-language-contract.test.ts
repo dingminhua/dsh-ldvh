@@ -92,16 +92,20 @@ test('every ldvh-* utility class used by WorkCase surfaces is defined in index.c
   );
 });
 
-test('WorkCase detail shell matches the other six reading layouts', () => {
+test('WorkCase detail shell matches the other reading layouts', () => {
   const layout = readSource('web/src/pages/object-detail/WorkCaseReadingLayout.tsx');
   const factLayouts = readSource('web/src/pages/object-detail/FactReadingLayouts.tsx');
 
-  // 其余六类阅读布局的统一外壳（ADR/Pitfall/Spark/Friction/Norm/Goal 共 6 处）。
+  // 其余各类阅读布局的统一外壳（ADR/Pitfall/Spark/Friction/Norm/Goal/SubGoal 共 7 处）。
+  //
+  // 这条断言守的是「新布局不得自造外壳」——每新增一个阅读布局就该 +1，且必须用
+  // 同一串类。它**不是**在守「恰好 7 个布局」；数字变化时同步复核即可，复核要点是
+  // 新增处确实用了这一串而不是另起一套间距/外边距。
   assert.match(layout, /<div className="mb-6 flex flex-col gap-5">/);
   assert.equal(
     (factLayouts.match(/<div className="mb-6 flex flex-col gap-5">/g) ?? []).length,
-    6,
-    '六类阅读布局的外壳数量变化时需同步复核本断言',
+    7,
+    '阅读布局的外壳数量变化时需同步复核本断言',
   );
   // 曾导致无样式的自造网格壳已清除。
   assert.doesNotMatch(layout, /ldvh-reading-grid|ldvh-reading-main/);

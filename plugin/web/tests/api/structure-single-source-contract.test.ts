@@ -72,7 +72,11 @@ async function collectSourceFiles(dir: string): Promise<string[]> {
 const DECISION_SHELL_SEGMENTS: Array<[string, string[]]> = [
   ['DECISION_CARD_SHELL_CLASS.amber', ['border-amber-400/20', 'bg-amber-500/[0.025]', 'px-3.5 py-3']],
   ['DECISION_CARD_SHELL_CLASS.violet', ['border-violet-400/20', 'bg-violet-500/[0.025]', 'px-3.5 py-3']],
+  // 28 号 SubGoal 的第三色相（2026-11 加入）。按色相逐条登记的理由见
+  // decisionBlocks.ts 的模块注释：不登记则守卫只验证旧两色，新色相可自由漂移。
+  ['DECISION_CARD_SHELL_CLASS.lime', ['border-lime-400/20', 'bg-lime-500/[0.025]', 'px-3.5 py-3']],
   ['DECISION_DETAIL_NEUTRAL_SHELL_CLASS', ['border-ldvh-border/80', 'bg-ldvh-bg/65', 'px-3.5 py-3']],
+  ['DECISION_DETAIL_LIME_SHELL_CLASS', ['border-ldvh-border/80', 'bg-ldvh-bg/65', 'px-3.5 py-3']],
 ];
 
 /** 壳的四边 border：须有裸 `border` 类（不被 `border-l-`/`border-r-` 等单边类冒充）。 */
@@ -81,6 +85,7 @@ const BARE_BORDER = /(?:^|[\s:'"])border(?:[\s'"]|$)/;
 const DECISION_ATOMS: Array<[string, string]> = [
   ['DECISION_TITLE_HUE_CLASS.amber', 'text-amber-700/85 dark:text-amber-200/85'],
   ['DECISION_TITLE_HUE_CLASS.violet', 'text-violet-700/85 dark:text-violet-200/85'],
+  ['DECISION_TITLE_HUE_CLASS.lime', 'text-lime-700/85 dark:text-lime-200/85'],
   ['DECISION_AMBER_BODY_HUE_CLASS', 'text-amber-950/70 dark:text-amber-100/75'],
   ['DECISION_VIOLET_CODE_CHIP_HUE_CLASS', 'border-violet-400/35 bg-violet-500/10 font-mono text-violet-700 dark:text-violet-300'],
 ];
@@ -213,7 +218,9 @@ test('border-l-* 只允许语义左条两族：领域归属决策块与项目识
   // 此处刻意用「处数」而非「含 border-l-2 即可」——后者漏掉左色相段，
   // 而左色相段本身也是左侧边框的表达，须一并纳管。
   const allowed = new Map<string, number>([
-    ['utils/decisionBlocks.ts', 6], // amber / violet / neutral 三个壳各两段
+    // amber / violet / lime 三个卡面壳 + 两个详情面壳（neutral / lime），各两段
+    //（`border-l-2` 定粗度 + `border-l-{色相}` 定色）= 5 × 2 = 10。
+    ['utils/decisionBlocks.ts', 10],
     ['components/ProjectSwitcher.tsx', 1], // 项目行色条（色值走 inline style，无左色相类）
     ['pages/Federation.tsx', 1], // 项目卡色条（同上）
   ]);

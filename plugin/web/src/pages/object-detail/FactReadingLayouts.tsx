@@ -7,6 +7,7 @@ import type { StructuredTextIssue } from '@/shared/workcaseTextStructure';
 import { getFieldLabel, getFieldValueLabel, getObjectStatusLocale } from '@/i18n/locales';
 import { normalizeSignature } from '../../../shared/signature';
 import { FactAssociationsSection } from '@/pages/object-detail/FactAssociationsSection';
+import { ObjectTypeIcon } from '@/components/SemanticIcon';
 import { sortRelatedContentEntries, type RelatedContentEntry } from '@/pages/object-detail/model';
 import {
   fieldIssue,
@@ -20,7 +21,7 @@ import {
   type ReadingNodeState,
 } from '@/pages/ObjectDetail';
 import { LDVH_SUCCESS_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
-import { DECISION_DETAIL_NEUTRAL_SHELL_CLASS, DECISION_TITLE_HUE_CLASS, DECISION_VIOLET_CODE_CHIP_HUE_CLASS } from '@/utils/decisionBlocks';
+import { DECISION_DETAIL_LIME_SHELL_CLASS, DECISION_DETAIL_NEUTRAL_SHELL_CLASS, DECISION_TITLE_HUE_CLASS, DECISION_VIOLET_CODE_CHIP_HUE_CLASS } from '@/utils/decisionBlocks';
 
 /**
  * `scope` / `summary` 的**书写结构**问题就地显示（`21 §8`）。
@@ -866,6 +867,214 @@ function NormTerminalReadingNode({ obj, locale }: { obj: Record<string, unknown>
   );
 }
 
+type ServingWorkRow = {
+  object_uid?: string;
+  type: string;
+  id: string;
+  title: string;
+  status: string;
+};
+
+function parseSubGoalBodySections(body: string): Array<{ title: string; body: string }> {
+  const sections: Array<{ title: string; body: string[] }> = [];
+  let current: { title: string; body: string[] } | null = null;
+  for (const line of body.split('\n')) {
+    const heading = line.match(/^##\s+(.+?)\s*$/);
+    if (heading) {
+      current = { title: heading[1].trim(), body: [] };
+      sections.push(current);
+      continue;
+    }
+    current?.body.push(line);
+  }
+  return sections
+    .map((section) => ({ title: section.title, body: section.body.join('\n').trim() }))
+    .filter((section) => section.title.length > 0 && section.body.length > 0);
+}
+
+/**
+ * v5 SubGoal 阅读布局（28 号 §8/§10/§12）。
+ *
+ * 三段结构，次序就是读者要回答的三个问题：
+ *   ① 这是哪一条子目标（anchor 业务键 + 短标题 + 判据类型）
+ *   ② 走到哪算达成、凭什么判（criterion 全文 + criterion_kind 的判法说明）
+ *   ③ 它凭什么属于这个项目目标（alignment）
+ * 之后是名下的工作（由 `serves` 反查派生）与修订史。
+ *
+ * **名下的工作不是「进度」**：0 条不等于 0%，它是「未声明或未拆解」，这两种
+ * 情形机械层不可区分（28 §8.1），故空集时显式标注歧义而不是画一个 0。
+ * 同理 3 条已完成的工作也不推出「子目标已达成」——达成由判据判定（§18 红线 3）。
+ */
+export function SubGoalReadingLayout({
+  obj,
+  locale,
+}: {
+  obj: Record<string, unknown>;
+  locale: string;
+}) {
+  const { t } = useI18n();
+  const [servingState, setServingState] = useState<ReadingNodeState>('expanded');
+
+  const anchor = typeof obj.anchor === 'string' ? obj.anchor.trim() : '';
+  const criterionKind = typeof obj.criterion_kind === 'string' ? obj.criterion_kind.trim() : '';
+  const criterion = typeof obj.criterion === 'string' ? obj.criterion.trim() : '';
+  const alignment = typeof obj.alignment === 'string' ? obj.alignment.trim() : '';
+  const parentGoal = typeof obj.parent_goal === 'string' ? obj.parent_goal.trim() : '';
+
+  const bodySections = parseSubGoalBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
+  const sectionOf = (title: string) => bodySections.find((section) => section.title === title)?.body ?? '';
+
+  const servingWork = Array.isArray(obj.serving_work)
+    ? obj.serving_work.flatMap((entry): ServingWorkRow[] => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+        const record = entry as Record<string, unknown>;
+        if (typeof record.type !== 'string' || typeof record.id !== 'string') return [];
+        return [{
+          object_uid: typeof record.object_uid === 'string' ? record.object_uid : undefined,
+          type: record.type,
+          id: record.id,
+          title: typeof record.title === 'string' ? record.title : record.id,
+          status: typeof record.status === 'string' ? record.status : '',
+        }];
+      })
+    : [];
+  const servingUnreadable = Array.isArray(obj.serving_unreadable)
+    ? obj.serving_unreadable.filter((entry): entry is string => typeof entry === 'string')
+    : [];
+
+  const kindLabel = criterionKind
+    ? getFieldValueLabel('criterion_kind', criterionKind, locale) || criterionKind
+    : '';
+  // 判据类型不是装饰标签：它告诉读者这条判据要用什么材料才能判定。闭集外的
+  // 值不猜含义，直接如实显示原值（28 §18 红线：不以类推定替代）。
+  // 显式三分支而非模板串：`t()` 的键是字面量联合类型，模板串会让拼错的键
+  // 逃过类型检查、在运行时静默显示原始 key。
+  const kindHint = criterionKind === 'metric'
+    ? t('objectDetail.subGoalKindHint.metric')
+    : criterionKind === 'closure-records'
+      ? t('objectDetail.subGoalKindHint.closure-records')
+      : criterionKind === 'executable-check'
+        ? t('objectDetail.subGoalKindHint.executable-check')
+        : '';
+
+  return (
+    <div className="mb-6 flex flex-col gap-5">
+      <section className={DECISION_DETAIL_LIME_SHELL_CLASS}>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <h3 className={`ldvh-card-decision-title min-w-0 ${DECISION_TITLE_HUE_CLASS.lime}`}>
+            {getFieldLabel('subgoal_anchor', locale)}
+          </h3>
+          <span className={`ldvh-chip-sm min-w-0 shrink-0 ${LDVH_SUCCESS_CHIP_HUE_CLASS}`}>
+            {anchor || t('objectDetail.subGoalAnchorMissing')}
+          </span>
+          {kindLabel && (
+            <span
+              className="ldvh-chip-sm min-w-0 shrink-0 border-ldvh-border bg-transparent text-ldvh-text-secondary"
+              title={kindHint || undefined}
+            >
+              {kindLabel}
+            </span>
+          )}
+        </div>
+        {/* 上游：这条子目标服务的项目目标键。悬空时如实标注，不替读者猜一个目标。 */}
+        {parentGoal && (
+          <p className="ldvh-meta mt-2 text-ldvh-text-secondary/80">
+            {getFieldLabel('subgoal_parent_goal', locale)}：<code className="ldvh-chip-sm">{parentGoal}</code>
+          </p>
+        )}
+        {kindHint && (
+          <p className="ldvh-meta mt-1 text-ldvh-text-secondary/70">{kindHint}</p>
+        )}
+      </section>
+
+      <AdrProseNode
+        title={getFieldLabel('subgoal_criterion', locale)}
+        value={criterion}
+        locale={locale}
+      />
+      <AdrProseNode
+        title={getFieldLabel('subgoal_alignment', locale)}
+        value={alignment}
+        locale={locale}
+      />
+
+      {/* 正文展开：frontmatter 是唯一权威文本，正文只展开（28 §8 不变量 1）。 */}
+      {sectionOf('达成条件') && (
+        <AdrProseNode title={t('objectDetail.subGoalCriterionDetail')} value={sectionOf('达成条件')} locale={locale} />
+      )}
+      {sectionOf('对齐说明') && (
+        <AdrProseNode title={t('objectDetail.subGoalAlignmentDetail')} value={sectionOf('对齐说明')} locale={locale} />
+      )}
+
+      <ReadingNodeSection
+        title={t('objectDetail.subGoalServingWork')}
+        state={servingState}
+        locale={locale}
+        headerMeta={<span className="ldvh-meta-muted">{servingWork.length}</span>}
+        onToggle={() => setServingState((current) => getReadingNodeNextState(current))}
+      >
+        {servingWork.length === 0 ? (
+          // 28 §8.1：空集歧义必须显式标注。它不是「进度 0%」——真的还没拆解，
+          // 与拆解了却没人写 serves，在机械层长得一模一样。
+          <p className={`ldvh-meta rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-3 py-2 ${LDVH_WARN_TITLE_CLASS}`}>
+            {t('objectDetail.subGoalServingEmpty')}
+          </p>
+        ) : (
+          <ul className="divide-y divide-ldvh-border/70">
+            {servingWork.map((row) => (
+              <li key={`${row.type}-${row.id}`} className="flex min-w-0 items-center gap-2 py-2 first:pt-0 last:pb-0">
+                <ObjectTypeIcon type={row.type} size={12} />
+                <a
+                  href={row.object_uid ? `#/objects/${row.type}/${row.object_uid}` : undefined}
+                  className="ldvh-caption min-w-0 flex-1 truncate hover:underline"
+                >
+                  {row.title}
+                </a>
+                {row.status && (
+                  <span className="ldvh-chip-sm shrink-0 border-ldvh-border bg-transparent text-ldvh-text-secondary">
+                    {getObjectStatusLocale(row.type, row.status, locale)}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {servingUnreadable.length > 0 && (
+          // 读不到不等于没有（00 §5.6）：无法枚举的类型单列，绝不并进空集。
+          <p className={`ldvh-meta mt-2 rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-3 py-2 ${LDVH_WARN_TITLE_CLASS}`}>
+            {t('objectDetail.subGoalServingUnreadable')}：{servingUnreadable.join('；')}
+          </p>
+        )}
+      </ReadingNodeSection>
+
+      <SubGoalTerminalReadingNode obj={obj} locale={locale} />
+      <ChangeLogReadingNode
+        value={obj.change_log}
+        issue={fieldIssue(obj, 'change_log')}
+        locale={locale}
+      />
+    </div>
+  );
+}
+
+/** 28 号 §9/§11 终态去向：retired 的 disposition（原位作废的去向与理由）。
+ * achieved 不在此列——它不是「退出」，是判据被满足，语义由状态徽标承载。 */
+function SubGoalTerminalReadingNode({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
+  const { t } = useI18n();
+  const isRetired = obj.status === 'retired';
+  if (!isRetired) return null;
+  const disposition = typeof obj.disposition === 'string' && obj.disposition.trim()
+    ? obj.disposition.trim()
+    : '';
+  return (
+    <AdrProseNode
+      title={getFieldLabel('subgoal_disposition', locale) || t('objectList.dispositionMissing')}
+      value={disposition || t('objectList.dispositionMissing')}
+      locale={locale}
+    />
+  );
+}
+
 /** v5 Goal 阅读布局（25 号 §6）：单例冻结锚的详情阅读面——目标陈述（冻结区，
  * 为什么 + 要实现什么）→ 子目标（SG-n 可判定的达成条件）→ 修订史（change_log
  * 是 HV5 演进链第一环，复用共享流水节点）。Goal 无 relations/urls（25 §5
@@ -877,6 +1086,7 @@ export function GoalReadingLayout({
   obj: Record<string, unknown>;
   locale: string;
 }) {
+  const { t } = useI18n();
   const [subGoalsState, setSubGoalsState] = useState<ReadingNodeState>('expanded');
   const statement = typeof obj.statement === 'string' && obj.statement.trim()
     ? obj.statement.trim()
@@ -887,7 +1097,12 @@ export function GoalReadingLayout({
         const record = entry as Record<string, unknown>;
         if (typeof record.id !== 'string' || !record.id.trim()) return [];
         if (typeof record.text !== 'string' || !record.text.trim()) return [];
-        return [{ id: record.id.trim(), text: record.text.trim() }];
+        return [{
+          id: record.id.trim(),
+          text: record.text.trim(),
+          object_uid: typeof record.object_uid === 'string' ? record.object_uid : undefined,
+          legacy: record.legacy === true,
+        }];
       })
     : [];
 
@@ -912,6 +1127,16 @@ export function GoalReadingLayout({
                   {subGoal.id}
                 </span>
                 <span className="ldvh-caption min-w-0 flex-1">{subGoal.text}</span>
+                {/* 迁移中的旧段行：显式标出，不与会话中的对象行混为一谈
+                    （25 §7 / 28 §14.2）。它也没有可下钻的对象。 */}
+                {subGoal.legacy && (
+                  <span
+                    className="ldvh-chip ldvh-chip-sm shrink-0 border-ldvh-border bg-transparent text-ldvh-text-secondary"
+                    title={t('goalDetail.subGoalLegacy')}
+                  >
+                    legacy
+                  </span>
+                )}
               </li>
             ))}
           </ul>

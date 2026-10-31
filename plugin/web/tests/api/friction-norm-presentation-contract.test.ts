@@ -20,12 +20,35 @@ test('friction and norm stay in the active backend type list and detail id patte
   const facts = read('api/services/facts.ts');
   const reader = read('api/services/localFactReader.ts');
 
-  assert.match(facts, /ACTIVE_OBJECT_TYPES = \['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm'\]/);
-  // 详情路由的 id 前缀模式覆盖七类（norm 可经 /api/objects/norm/:id 读取）。
-  assert.match(facts, /OBJECT_ID_PATTERN = \/\^\(workcase\|adr\|pitfall\|spark\|research\|friction\|norm\)-/);
-  // norm 是 markdown 载体（frontmatter + 正文）且文件名编码 UUID（同 friction）。
-  assert.match(reader, /type === 'pitfall' \|\| type === 'friction' \|\| type === 'norm'\s*\n\s*\? '\(\?:\[0-9a-f\]\{8\}-/);
-  assert.match(reader, /FACT_OBJECT_ID_PATTERN = \/\^\(workcase\|adr\|pitfall\|spark\|research\|friction\|norm\)-/);
+  // 本测试守的是「friction 与 norm **仍在**类型面里」，不是「类型面恰好只有这七类」。
+  // 早先的写法把整个数组字面量锁进正则，于是每加一个类型（28 号 subgoal）这条
+  // 就红一次——红的是「列表变长了」，不是「friction/norm 掉了」，与测试意图无关。
+  // 改为包含式：逐一断言成员存在，列表可增长。
+  const activeTypes = /ACTIVE_OBJECT_TYPES = \[([^\]]+)\]/.exec(facts);
+  assert.ok(activeTypes, 'facts.ts 应导出 ACTIVE_OBJECT_TYPES');
+  const activeMembers = [...activeTypes[1].matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
+  for (const type of ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm']) {
+    assert.ok(activeMembers.includes(type), `ACTIVE_OBJECT_TYPES 应含 ${type}（当前：${activeMembers.join(', ')}）`);
+  }
+  // 详情路由的 id 前缀模式须覆盖 friction 与 norm（可经 /api/objects/<type>/:id 读取）。
+  const idPattern = /OBJECT_ID_PATTERN = \/\^\(([^)]+)\)-/.exec(facts);
+  assert.ok(idPattern, 'facts.ts 应定义 OBJECT_ID_PATTERN');
+  for (const type of ['friction', 'norm']) {
+    assert.ok(idPattern[1].split('|').includes(type), `OBJECT_ID_PATTERN 应覆盖 ${type}`);
+  }
+  // norm 与 friction 都是 markdown 载体且文件名编码 UUID。判断集合已收敛为
+  // MARKDOWN_CARRIER_TYPES——断言成员而非内联比较串，理由同上。
+  const carrierSet = /MARKDOWN_CARRIER_TYPES[^=]*= new Set<[^>]+>\(\[([^\]]+)\]\)/.exec(reader);
+  assert.ok(carrierSet, 'localFactReader 应定义 MARKDOWN_CARRIER_TYPES');
+  const carrierMembers = [...carrierSet[1].matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
+  for (const type of ['friction', 'norm']) {
+    assert.ok(carrierMembers.includes(type), `MARKDOWN_CARRIER_TYPES 应含 ${type}`);
+  }
+  const readerIdPattern = /FACT_OBJECT_ID_PATTERN = \/\^\(([^)]+)\)-/.exec(reader);
+  assert.ok(readerIdPattern, 'localFactReader 应定义 FACT_OBJECT_ID_PATTERN');
+  for (const type of ['friction', 'norm']) {
+    assert.ok(readerIdPattern[1].split('|').includes(type), `FACT_OBJECT_ID_PATTERN 应覆盖 ${type}`);
+  }
 });
 
 test('norm carries its markdown body as report_body like every v5 markdown type', async () => {
@@ -84,8 +107,14 @@ test('list defaults filter friction to open and norm to active', () => {
   const listStatus = read('src/utils/listStatus.ts');
   // 26 §12：friction 默认候选只含 open（闭集收缩后已无「攒够待修的候选源」状态）——单选 tab 默认 open。
   assert.match(listStatus, /if \(type === 'friction'\) return 'open';/);
-  // 27 §10：norm 默认候选只含 active。
-  assert.match(listStatus, /new Set\(\['adr', 'pitfall', 'research', 'norm'\]\)/);
+  // 27 §10：norm 默认候选只含 active——它属于 DEFAULT_ACTIVE_TYPES 集合的成员。
+  // 同样改为包含式：集合后续加入 subgoal（28 §9）不应令本断言失效。
+  const activeDefaults = /DEFAULT_ACTIVE_TYPES = new Set\(\[([^\]]+)\]\)/.exec(listStatus);
+  assert.ok(activeDefaults, 'listStatus 应定义 DEFAULT_ACTIVE_TYPES');
+  const defaultMembers = [...activeDefaults[1].matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
+  for (const type of ['adr', 'pitfall', 'research', 'norm']) {
+    assert.ok(defaultMembers.includes(type), `DEFAULT_ACTIVE_TYPES 应含 ${type}`);
+  }
 });
 
 test('friction list cards defer reading content to the detail page (Human 裁定 2026-11)', () => {

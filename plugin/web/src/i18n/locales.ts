@@ -128,6 +128,14 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     active: { zh: '生效中', en: 'Active' },
     achieved: { zh: '已达成', en: 'Achieved' },
   },
+  subgoal: {
+    // 28 号 §9 状态闭集：active（推进中）→ achieved（已达成）/ retired（已作废）。
+    // 后两者均为终态且不重开；「已达成」与 Goal 的 achieved 同词，但判定主体
+    // 不同（子目标是逐条判据，Goal 是全量收官），故两处都保留而不合并。
+    active: { zh: '推进中', en: 'Active' },
+    achieved: { zh: '已达成', en: 'Achieved' },
+    retired: { zh: '已作废', en: 'Retired' },
+  },
 };
 
 export function getObjectStatusLocale(type: string, status: string, locale: string): string {
@@ -209,6 +217,7 @@ export const TYPE_DESCRIPTION_LOCALES: Record<string, { zh: string; en: string }
   friction: { zh: '摩擦账本——应该修但还没修的系统性阻碍（26 §1）', en: 'An improvement ledger: systemic obstacles that should be fixed but are not yet (26)' },
   norm: { zh: '事实规范——一个工程方向的成体系规则体系（27 §1）', en: 'A fact-carried norm: the systematic rule system of one engineering direction' },
   goal: { zh: '项目目标——单例冻结锚：目标陈述 + sub-goal 子目标（25 §1）', en: 'The project goal: a singleton frozen anchor of statement and sub-goals' },
+  subgoal: { zh: '子目标——围绕项目目标展开的下级锚点：冻结的 SG-n、可判定的达成条件与对齐说明（28 §1）', en: 'A sub-goal: a subordinate anchor under the project goal, carrying a frozen SG-n, a decidable criterion, and its alignment statement' },
   change: { zh: '提交', en: 'Commit' },
 };
 
@@ -235,6 +244,7 @@ export const TYPE_LOCALES: Record<string, { zh: string; en: string }> = {
   friction: { zh: '摩擦', en: 'Friction' },
   norm: { zh: '规范', en: 'Norm' },
   goal: { zh: '目标', en: 'Goal' },
+  subgoal: { zh: '子目标', en: 'Sub-goal' },
   change: { zh: '提交', en: 'Commit' },
 };
 
@@ -511,6 +521,14 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   // 与子目标（SG-n 可判定的达成条件，冻结区）。
   goal_statement: { zh: '目标陈述', en: 'Goal Statement' },
   goal_sub_goals: { zh: '子目标', en: 'Sub-goals' },
+  // v5 SubGoal（28 号）阅读布局与卡片标题：anchor 是业务键（不是对象身份，
+  // §7），criterion/criterion_kind/alignment 是本类型存在的理由（§8）。
+  subgoal_anchor: { zh: '锚点', en: 'Anchor' },
+  subgoal_parent_goal: { zh: '服务目标', en: 'Parent Goal' },
+  subgoal_criterion: { zh: '达成条件', en: 'Criterion' },
+  subgoal_criterion_kind: { zh: '判据类型', en: 'Criterion Kind' },
+  subgoal_alignment: { zh: '对齐说明', en: 'Alignment' },
+  subgoal_disposition: { zh: '作废去向', en: 'Disposition' },
   category: { zh: '分类', en: 'Category' },
   priority: { zh: '优先级', en: 'Priority' },
   assignee: { zh: '执行者', en: 'Assignee' },
@@ -563,6 +581,15 @@ export const TYPE_FIELD_LABEL_LOCALES: Record<string, Record<string, { zh: strin
 
 /** 字段枚举值中英映射 */
 export const FIELD_VALUE_LOCALES: Record<string, Record<string, { zh: string; en: string }>> = {
+  // 28 §10.2 判据类型闭集：材料形态决定判据怎么判——指标（存在一个可回读的
+  // 数值并与阈值比较）、闭环记录（需要若干条可回指的记录同时在场）、可执行
+  // 校验（跑一次命令或脚本，看退出码或输出）。不映射则界面直出 metric /
+  // closure-records / executable-check 这类 raw 值（docs/01 §1.3）。
+  criterion_kind: {
+    metric: { zh: '指标', en: 'Metric' },
+    'closure-records': { zh: '闭环记录', en: 'Closure records' },
+    'executable-check': { zh: '可执行校验', en: 'Executable check' },
+  },
   read_status: {
     readable: { zh: '可读取', en: 'Readable' },
     unreadable: { zh: '无法读取', en: 'Unreadable' },
@@ -907,6 +934,26 @@ export function getObjectStatusHint(type: string, status: string, locale: string
         : '已退役：保留为只读历史档案，不重开';
     }
   }
+  // 28 号 §9：子目标三态语义限定。achieved 的证据是**判据材料**，不是
+  // 「名下工单都关了」——后者是本类型最主要的误读（28 §18 红线 3），
+  // 故提示层显式否定它。
+  if (type === 'subgoal') {
+    if (status === 'active') {
+      return locale === 'en'
+        ? 'In progress: its criterion has not yet been satisfied by evidence'
+        : '推进中：判据尚未被证据满足';
+    }
+    if (status === 'achieved') {
+      return locale === 'en'
+        ? 'Criterion satisfied by evidence — not implied by closing its work cases'
+        : '判据已由证据满足——不由名下工单关闭推出';
+    }
+    if (status === 'retired') {
+      return locale === 'en'
+        ? 'Retired and not reopened; its SG number is never reused'
+        : '已作废且不重开；锚点编号不复用';
+    }
+  }
   // 25 号 §7：active 是项目存续期常态；achieved 是全部 sub-goal 达成后的
   // Human 终局判定——冻结为历史档案。
   if (type === 'goal') {
@@ -936,10 +983,21 @@ export const UI_LOCALES = {
     'nav.studies': '调研',
     'nav.frictions': '摩擦',
     'nav.norms': '规范',
+    'nav.subgoals': '子目标',
 
     'goalDetail.openDetail': '查看目标详情',
     'goalDetail.subGoals': '子目标',
     'goalDetail.subGoalLegacy': '该行仍来自 goal.md 已移出的子目标段——属于待迁移，不构成第二条权威（28 §14.2）',
+    'objectList.subGoalAchievedNote': '该子目标的达成条件已由证据满足——由判据判定，不由名下工作全部关闭推出（28 §18 红线 3）。',
+    'objectDetail.subGoalAnchorMissing': '锚点缺失',
+    'objectDetail.subGoalCriterionDetail': '达成条件（展开）',
+    'objectDetail.subGoalAlignmentDetail': '对齐说明（展开）',
+    'objectDetail.subGoalServingWork': '名下的工作',
+    'objectDetail.subGoalServingEmpty': '未声明或未拆解——名下没有任何 serves 指向本条子目标。这两种情形在机械层不可区分：可能真的还没拆解，也可能拆解了但下游没写 serves（28 §8.1）。这不是进度 0%。',
+    'objectDetail.subGoalServingUnreadable': '以下类型读不到，不能当作「名下没有工作」',
+    'objectDetail.subGoalKindHint.metric': '判法：存在一个可回读的数值，与阈值比较即知是否达成',
+    'objectDetail.subGoalKindHint.closure-records': '判法：需要若干条可回指的记录同时在场，缺一条即未达成',
+    'objectDetail.subGoalKindHint.executable-check': '判法：跑一次命令或脚本，按退出码或输出判定',
     'goalDetail.missingTitle': '项目目标尚未创建',
     'goalDetail.missingBody': 'goal.md 不存在——Goal 事实对象尚未创建（项目初始化前的合法状态）。创建走 AI 受控写入路径，Web 是纯呈现层。',
     'nav.changes': '变更',
@@ -1750,10 +1808,21 @@ export const UI_LOCALES = {
     'nav.studies': 'Research',
     'nav.frictions': 'Frictions',
     'nav.norms': 'Norms',
+    'nav.subgoals': 'Sub-goals',
 
     'goalDetail.openDetail': 'Open goal detail',
     'goalDetail.subGoals': 'Sub-goals',
     'goalDetail.subGoalLegacy': 'This row still comes from the migrated-away sub-goal section in goal.md — it is pending migration, not a second authority (28 §14.2)',
+    'objectList.subGoalAchievedNote': 'This sub-goal\'s criterion has been satisfied by evidence — judged by the criterion itself, not inferred from all its work being closed (28 §18 red line 3).',
+    'objectDetail.subGoalAnchorMissing': 'Anchor missing',
+    'objectDetail.subGoalCriterionDetail': 'Criterion (expanded)',
+    'objectDetail.subGoalAlignmentDetail': 'Alignment (expanded)',
+    'objectDetail.subGoalServingWork': 'Work serving this sub-goal',
+    'objectDetail.subGoalServingEmpty': 'Not declared or not decomposed — no serves points at this sub-goal. These two cases are indistinguishable mechanically: it may genuinely not be decomposed yet, or it may be decomposed with no downstream serves declared (28 §8.1). This is not "0% progress".',
+    'objectDetail.subGoalServingUnreadable': 'Unreadable types — must not be read as "no work serving it"',
+    'objectDetail.subGoalKindHint.metric': 'How it is judged: a readable numeric value compared against a threshold',
+    'objectDetail.subGoalKindHint.closure-records': 'How it is judged: several traceable records must all be present; one missing means not achieved',
+    'objectDetail.subGoalKindHint.executable-check': 'How it is judged: run a command or script and read its exit code or output',
     'goalDetail.missingTitle': 'The project goal has not been created yet',
     'goalDetail.missingBody': 'goal.md does not exist — the Goal fact object has not been created (a legal state before project initialization). Creation goes through the AI controlled-write path; the Web is a pure presentation layer.',
     'nav.changes': 'Changes',

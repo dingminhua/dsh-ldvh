@@ -18,7 +18,7 @@ import { getGitCommit } from './git.js'
 
 // 27 号 §7：norm 事实规范与既有六类同路径（ldvh-base/norms/，localFactReader
 // 已登记载体与目录）——纳入列表/详情/关联解析的活跃类型面。
-export const ACTIVE_OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm'] as const
+export const ACTIVE_OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal'] as const
 export const OBJECT_TYPES = ACTIVE_OBJECT_TYPES
 export type ObjectType = (typeof OBJECT_TYPES)[number]
 
@@ -788,6 +788,64 @@ export function projectCurrentWorkCaseCard(
   return projectCurrentWorkCaseCardShape(fact, view)
 }
 
+/**
+ * 28 §8.1：子目标名下工作的**读取时派生**（不是存储状态）。
+ *
+ * 子目标不存「拆解进度」字段，进度由下游 `serves` 反查得到。这里读 spark 与
+ * workcase 两类全量，把 `serves === anchor` 的对象收成一行一行的工作清单。
+ *
+ * **空集必须可区分地呈现**：名下没有任何 `serves` 的子目标，其拆解进度表现为
+ * 空集——但空集既可能是「还没拆解」，也可能是「拆解了但没声明 serves」，
+ * 这两种情形在机械层不可区分（28 §8.1）。故调用方必须同时拿到 `serving_empty`
+ * 与一句显式的歧义说明，不得把 0 条折算成「进度 0%」。
+ *
+ * 读取失败**不得**当作空集：无法枚举某类型时该类型记为 unreadable 并列出，
+ * 否则「读不到」会被读者读成「没有」（00 §5.6）。
+ */
+async function deriveServingWork(
+  scope: LocalFactScope,
+  anchor: string,
+): Promise<{
+  items: Array<{ object_uid?: string; type: string; id: string; title: string; status: string; href: string }>
+  unreadable: string[]
+}> {
+  const types = ['workcase', 'spark'] as const
+  const items: Array<{ object_uid?: string; type: string; id: string; title: string; status: string; href: string }> = []
+  const unreadable: string[] = []
+  for (const type of types) {
+    let listed
+    try {
+      listed = await listLocalFacts(type, scope)
+    } catch {
+      unreadable.push(`${type}: read failed`)
+      continue
+    }
+    if (listed.status !== 'complete') {
+      unreadable.push(`${type}: ${listed.issues[0]?.message ?? 'unavailable'}`)
+      continue
+    }
+    for (const item of listed.items) {
+      if (item.read_status !== 'readable' || item.fact_object === null) {
+        unreadable.push(`${type}: ${item.object_ref.object_id} unreadable`)
+        continue
+      }
+      const serves = item.fact_object.serves
+      const anchors = Array.isArray(serves) ? serves : typeof serves === 'string' ? [serves] : []
+      if (!anchors.some((value) => value === anchor)) continue
+      const uid = typeof item.fact_object.object_uid === 'string' ? item.fact_object.object_uid : undefined
+      items.push({
+        object_uid: uid,
+        type,
+        id: uid ?? item.object_ref.object_id,
+        title: typeof item.fact_object.title === 'string' ? item.fact_object.title : item.object_ref.object_id,
+        status: typeof item.fact_object.status === 'string' ? item.fact_object.status : '',
+        href: `#/objects/${type}/${uid ?? item.object_ref.object_id}`,
+      })
+    }
+  }
+  return { items, unreadable }
+}
+
 export async function listObjects(type: ObjectType, _baseDir?: string, status?: string, scope?: LocalFactScope): Promise<WebFactResult | WebFactError> {
   try {
     const resolvedScope = await readingScope(scope)
@@ -819,7 +877,7 @@ export async function listObjects(type: ObjectType, _baseDir?: string, status?: 
   }
 }
 
-const OBJECT_ID_PATTERN = /^(workcase|adr|pitfall|spark|research|friction|norm)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
+const OBJECT_ID_PATTERN = /^(workcase|adr|pitfall|spark|research|friction|norm|subgoal)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
 
 export async function showObject(id: string, scope?: LocalFactScope): Promise<WebFactResult | WebFactError> {
   const match = OBJECT_ID_PATTERN.exec(id)
@@ -876,6 +934,18 @@ export async function showObject(id: string, scope?: LocalFactScope): Promise<We
       // 「当前我看到的都要规范化，可检查，确保之后都要保持一样」）。
       const structuredTextIssues = validateWorkcaseStructuredText(item.fact_object)
       if (structuredTextIssues.length > 0) data.structured_text_issues = structuredTextIssues
+    }
+    if (type === 'subgoal') {
+      // 28 §8.1：拆解与落实情况不存字段，由 serves 反查派生。空集与读取失败
+      // 分列两个键——前者是「未声明或未拆解」的歧义，后者是「读不到」，
+      // 都不许被折算成一个进度值。
+      const anchor = typeof item.fact_object.anchor === 'string' ? item.fact_object.anchor : ''
+      if (anchor) {
+        const derived = await deriveServingWork(resolvedScope, anchor)
+        data.serving_work = derived.items
+        if (derived.items.length === 0) data.serving_empty = true
+        if (derived.unreadable.length > 0) data.serving_unreadable = derived.unreadable
+      }
     }
     const response = { ...result('show', id, data), summary: { id, type, ...(typeof data.status === 'string' ? { status: data.status } : {}) } }
     response.issues = [...item.issues, ...item.field_issues]

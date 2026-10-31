@@ -22,6 +22,8 @@ export const FACT_TYPE_DIRS = {
   // v5 Norm（27 号 §7）：事实规范落 ldvh-base/norms/（目录名 = 类型短名复数，
   // 与既有五类同惯例）。注意不与仓库根 specs/（元规范）混同。
   norm: 'norms',
+  // v5 SubGoal（28 号 §7）：子目标落 ldvh-base/subgoals/。
+  subgoal: 'subgoals',
 } as const
 
 export const FACT_TYPE_CARRIERS = {
@@ -39,6 +41,8 @@ export const FACT_TYPE_CARRIERS = {
   friction: '.md',
   // v5 Norm（27 号 §7）：同上，frontmatter（机器权威）+ markdown 正文。
   norm: '.md',
+  // v5 SubGoal（28 号 §8）：同上，frontmatter + 正文两块固定 H2。
+  subgoal: '.md',
 } as const
 
 export type LocalFactType = FactType
@@ -162,10 +166,23 @@ function expectedFileName(type: LocalFactType, objectId: string): string {
   return `${objectId}${FACT_TYPE_CARRIERS[type]}`
 }
 
+/**
+ * v5 markdown 载体类型（frontmatter 机器权威 + 正文）。
+ *
+ * 这四处判断原先各写一遍 `type === 'workcase' || ... || type === 'norm'`，
+ * 新增一类就要在四处同时补——漏一处的后果不是报错，而是该类型被当成 YAML
+ * 载体读取并静默读空。收敛为一个集合，使「加一类」只有一处要改。
+ *
+ * 20 §7 / 21 §7 / 22 §7 / 23 §7 / 24 §7 / 26 §7 / 27 §7 / 28 §8。
+ */
+const MARKDOWN_CARRIER_TYPES: ReadonlySet<LocalFactType> = new Set<LocalFactType>([
+  'workcase', 'research', 'spark', 'adr', 'pitfall', 'friction', 'norm', 'subgoal',
+])
+
 function carrierFor(type: LocalFactType): LocalFactCarrier {
   // v5 markdown 载体类型：frontmatter（机器权威）+ 正文（20 §7 / 21 §7 / 22 §7 /
   // 23 §7 / 24 §7 / 26 §7 / 27 §7，正文经 extra 通道投影为 report_body）。
-  return type === 'workcase' || type === 'research' || type === 'spark' || type === 'adr' || type === 'pitfall' || type === 'friction' || type === 'norm' ? 'markdown' : 'yaml'
+  return MARKDOWN_CARRIER_TYPES.has(type) ? 'markdown' : 'yaml'
 }
 
 function metadataFor(scope: LocalFactScope, type: LocalFactType, objectId: string): LocalFactMetadata {
@@ -183,7 +200,7 @@ function isExpectedCarrierName(type: LocalFactType, fileName: string): boolean {
   // v5 markdown 载体类型（workcase/spark/research/adr/pitfall/friction/norm）：object_uid
   // 为 UUIDv4（21 §7 / 20 §7 / 22 §7 / 23 §7 / 24 §7 / 26 §7 / 27 §7，文件名编码 UID）；
   // 纯序号/ULID25 段保留兼容读取。其余类型维持 v4 形态（纯序号或 ULID25）。
-  const idSegment = type === 'workcase' || type === 'research' || type === 'spark' || type === 'adr' || type === 'pitfall' || type === 'friction' || type === 'norm'
+  const idSegment = MARKDOWN_CARRIER_TYPES.has(type)
     ? '(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})'
     : '(?:\\d{4,}|[0-7][0-9A-HJKMNP-TV-Z]{25})'
   return new RegExp(`^${type}-${idSegment}${extension}$`).test(fileName)
@@ -472,7 +489,7 @@ export async function listLocalFacts(type: LocalFactType, scope: LocalFactScope)
   const carriers = entries.filter((entry) => entry.isFile() && looksLikeFactCarrier(entry.name))
   const fileNames = carriers.filter((entry) => isExpectedCarrierName(type, entry.name)).map((entry) => entry.name).sort((left, right) => left.localeCompare(right))
   // 21 §7：v5 markdown 类型（workcase/spark/research/adr/pitfall/friction/norm）文件名编码 UID；其余类型维持 NNNN/ULID。
-  const v5UidCarrier = type === 'workcase' || type === 'research' || type === 'spark' || type === 'adr' || type === 'pitfall' || type === 'friction' || type === 'norm'
+  const v5UidCarrier = MARKDOWN_CARRIER_TYPES.has(type)
   const issues = carriers.filter((entry) => !isExpectedCarrierName(type, entry.name)).map((entry) => ({
     code: 'unexpected_fact_carrier' as const,
     message: v5UidCarrier
@@ -488,7 +505,7 @@ export async function listLocalFacts(type: LocalFactType, scope: LocalFactScope)
 // v5 markdown 载体类型（spark/research/adr/pitfall/friction/norm）对象 ID 为
 // UUID（writer randomUUID 带 8-4-4-4-12 连字符段，22 §7 与 20/24/26/27 同形态）；
 // 其余类型保留 v4 形态（纯序号或 ULID25）。
-const FACT_OBJECT_ID_PATTERN = /^(workcase|adr|pitfall|spark|research|friction|norm)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
+const FACT_OBJECT_ID_PATTERN = /^(workcase|adr|pitfall|spark|research|friction|norm|subgoal)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
 
 export async function readLocalFact(type: LocalFactType, objectId: string, scope: LocalFactScope): Promise<{ status: 'ok'; item: LocalFactItem } | { status: 'not_found' | 'type_not_integrated'; metadata: LocalFactMetadata; issues: LocalFactIssue[] }> {
   const metadata = metadataFor(scope, type, objectId)

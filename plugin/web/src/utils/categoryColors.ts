@@ -13,6 +13,7 @@ export const CATEGORY_COLORS: Record<string, string> = {
   friction: '#f97316',   // orange — 26 号摩擦账本
   norm: '#8b5cf6',       // violet — 27 号事实规范（与 ADR 的 purple 色相族相邻但不同值）
   goal: '#10b981',       // emerald — 25 号项目目标（achieved 达成=正向绿色语义）
+  subgoal: '#84cc16',    // lime — 28 号子目标（目标层下级锚点：green 族相邻 goal 以示从属，值不同以免混读）
   external_research: '#0ea5e9', // sky — Study 报告类型，与研究(teal)区分
   internal_audit: '#8b5cf6',   // violet — Study 报告类型
   technical_assessment: '#f59e0b', // amber — Study 报告类型

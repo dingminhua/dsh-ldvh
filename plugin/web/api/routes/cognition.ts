@@ -586,7 +586,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const project = await requestProject(req)
     const factScope = { worktreeLocator: project.path, governedProjectId: project.id }
 
-    const [workCaseResult, pitfallResult, adrResult, sparkResult, studyResult, frictionResult, normResult] = await Promise.all([
+    const [workCaseResult, pitfallResult, adrResult, sparkResult, studyResult, frictionResult, normResult, subGoalResult] = await Promise.all([
       listObjects('workcase', undefined, undefined, factScope),
       listObjects('pitfall', undefined, undefined, factScope),
       listObjects('adr', undefined, undefined, factScope),
@@ -597,6 +597,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       // 动态怎么没有摩擦的改动」）。二者与上面五类在动态里是同一等比对象。
       listObjects('friction', undefined, undefined, factScope),
       listObjects('norm', undefined, undefined, factScope),
+      // 28 号 SubGoal 同样是活跃事实类型，有 change_log 流水，进近期动态。
+      listObjects('subgoal', undefined, undefined, factScope),
     ])
     const issues: CognitionIssue[] = []
     let sparkHealth: ReturnType<typeof buildSparkHealth> | undefined
@@ -753,6 +755,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       ['research', studyResult],
       ['friction', frictionResult],
       ['norm', normResult],
+      ['subgoal', subGoalResult],
     ]
     for (const [type, source] of recentSources) {
       if (!source.ok || !('data' in source)) {

@@ -91,6 +91,14 @@ const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
     'direction_key', 'report_body',
     'retirement_reason', 'retired_at', 'change_log',
   ],
+  // v5 SubGoal（28 号规范）：阅读布局按字段契约序消费（anchor → parent_goal →
+  // criterion + criterion_kind → alignment），正文 report_body 由布局按 H2
+  // 两段（达成条件／对齐说明）分节呈现——此处只做 ContentField 兜底排序。
+  // subgoal 不使用 relations/refs（§11：层级由 anchor 与 serves 反查派生）。
+  subgoal: [
+    'anchor', 'parent_goal', 'criterion', 'criterion_kind', 'alignment',
+    'report_body', 'disposition', 'change_log',
+  ],
   // v5 Spark（20 号规范）：阅读布局按字段契约序消费（question → scope_boundary
   // → intent → summary → 演变 → 终态 disposition），正文 report_body 由布局按
   // H2 分节呈现——此处只做 ContentField 兜底排序。

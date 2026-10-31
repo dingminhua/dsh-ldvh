@@ -146,6 +146,13 @@ export interface ObjectItem {
   };
   /** Norm-specific（27 §8：direction_key 必填；retirement_reason/retired_at 终态条件） */
   direction_key?: string;
+  /** SubGoal-specific（28 §8：anchor 业务键必填；criterion/criterion_kind/alignment
+   *  是该类型存在的理由；disposition 仅 retired 出现）。 */
+  anchor?: string;
+  parent_goal?: string;
+  criterion?: string;
+  criterion_kind?: string;
+  alignment?: string;
   /** Spark-specific（20 §8：v5 字段闭集） */
   evolution?: Array<Record<string, unknown>>;
   question?: string;
