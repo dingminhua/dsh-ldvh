@@ -154,6 +154,16 @@ export interface ObjectItem {
   criterion?: string;
   criterion_kind?: string;
   alignment?: string;
+  /**
+   * SubGoal 名下工作的**读取时派生**投影（28 §8.1：不落盘、不是存储状态）。
+   * `facts.ts` 的单次全场反查结果按子目标 uid 归组后同时附到列表项与详情上——
+   * 列表卡因此不必逐条再取一次详情（同一判据不重算 N 遍）。
+   */
+  serving_work?: ServingWorkItem[];
+  /** 名下没有任何 `serves` 指向本条子目标。空集是**歧义**，不是进度 0（28 §8.1）。 */
+  serving_empty?: boolean;
+  /** 反查时读不到的类型与原因；「读不到」不得并入空集（00 §5.6）。 */
+  serving_unreadable?: string[];
   /** Spark-specific（20 §8：v5 字段闭集） */
   evolution?: Array<Record<string, unknown>>;
   question?: string;
@@ -266,6 +276,24 @@ export interface UrlItem {
   ref: string;
   title?: string;
   summary?: string;
+}
+
+/**
+ * 子目标「名下的工作」一行（28 §8.1 反查派生，不落盘）。
+ *
+ * `group` 仅 workcase 有——它是 21 号的**派生分组**，由服务端 `deriveWorkCaseV5View`
+ * 单点算出后随行搬运；呈现层据此判「推进中／待处理」，**不重算**（09 §5）。
+ */
+export interface ServingWorkItem {
+  object_uid?: string;
+  type: string;
+  id: string;
+  title: string;
+  status: string;
+  group?: WorkCaseV5Group;
+  /** 目标所属项目——联邦视图里它与卡片所在项目可能不同，统一关联行据此判可否打开。 */
+  governed_project_id?: string;
+  href?: string;
 }
 
 export interface ObjectStatusOption {

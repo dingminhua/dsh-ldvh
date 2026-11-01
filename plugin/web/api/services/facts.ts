@@ -805,15 +805,38 @@ export function projectCurrentWorkCaseCard(
  * 读取失败**不得**当作空集：无法枚举某类型时该类型记为 unreadable 并列出，
  * 否则「读不到」会被读者读成「没有」（00 §5.6）。
  */
-async function deriveServingWork(
-  scope: LocalFactScope,
-  subGoalUid: string,
-): Promise<{
-  items: Array<{ object_uid?: string; type: string; id: string; title: string; status: string; href: string }>
+type ServingWorkRow = {
+  object_uid?: string
+  type: string
+  id: string
+  title: string
+  status: string
+  /** 目标对象所属项目：联邦视图里卡片的当前项目与对象所属项目可能不同，
+   *  统一关联行要据此判「能否在本项目的面板里打开」。 */
+  governed_project_id: string
+  /** 21 号派生分组（仅 workcase）：卡片关联行的行末状态图标按它判 pending/progressing。
+   *  由 `deriveWorkCaseV5View` **单点派生**后搬运，不在呈现层重算（09 §5 一致性纪律）。 */
+  group?: string
+  href: string
+}
+
+/**
+ * 全场反查一次，得到「子目标 uid → 名下工作行」的索引。
+ *
+ * 为什么要有索引形态（2026-11-02）：列表页要为**每一条**子目标卡呈现名下工作。
+ * 逐条调用单子目标版本会让 spark/workcase 两类被扫描 N 次（N = 子目标数），
+ * 而反查口径完全相同——同一份判据算 N 遍。故在此单点扫描、按 uid 归组，列表与
+ * 详情共用同一份结果与同一套判据。
+ *
+ * 读取失败**不得**当作空集（00 §5.6）：无法枚举某类型时该类型记入 `unreadable`
+ * 并列出，否则「读不到」会被读者读成「没有」。
+ */
+async function deriveServingWorkIndex(scope: LocalFactScope): Promise<{
+  bySubGoal: Map<string, ServingWorkRow[]>
   unreadable: string[]
 }> {
   const types = ['workcase', 'spark'] as const
-  const items: Array<{ object_uid?: string; type: string; id: string; title: string; status: string; href: string }> = []
+  const bySubGoal = new Map<string, ServingWorkRow[]>()
   const unreadable: string[] = []
   for (const type of types) {
     let listed
@@ -834,19 +857,43 @@ async function deriveServingWork(
       }
       const serves = item.fact_object.serves
       const targets = Array.isArray(serves) ? serves : typeof serves === 'string' ? [serves] : []
-      if (!targets.some((value) => value === subGoalUid)) continue
+      if (targets.length === 0) continue
       const uid = typeof item.fact_object.object_uid === 'string' ? item.fact_object.object_uid : undefined
-      items.push({
-        object_uid: uid,
-        type,
-        id: uid ?? item.object_ref.object_id,
-        title: typeof item.fact_object.title === 'string' ? item.fact_object.title : item.object_ref.object_id,
-        status: typeof item.fact_object.status === 'string' ? item.fact_object.status : '',
-        href: `#/objects/${type}/${uid ?? item.object_ref.object_id}`,
-      })
+      const status = typeof item.fact_object.status === 'string' ? item.fact_object.status : ''
+      const view = type === 'workcase'
+        ? deriveWorkCaseV5View(
+          item.fact_object.status,
+          item.fact_object.outcome,
+          item.fact_object.report_body,
+          item.source_content_fingerprint,
+        )
+        : null
+      for (const target of targets) {
+        if (typeof target !== 'string' || target.length === 0) continue
+        const rows = bySubGoal.get(target) ?? []
+        rows.push({
+          object_uid: uid,
+          type,
+          id: uid ?? item.object_ref.object_id,
+          title: typeof item.fact_object.title === 'string' ? item.fact_object.title : item.object_ref.object_id,
+          status,
+          governed_project_id: item.object_ref.governed_project_id,
+          ...(view?.group ? { group: view.group } : {}),
+          href: `#/objects/${type}/${uid ?? item.object_ref.object_id}`,
+        })
+        bySubGoal.set(target, rows)
+      }
     }
   }
-  return { items, unreadable }
+  return { bySubGoal, unreadable }
+}
+
+async function deriveServingWork(
+  scope: LocalFactScope,
+  subGoalUid: string,
+): Promise<{ items: ServingWorkRow[]; unreadable: string[] }> {
+  const index = await deriveServingWorkIndex(scope)
+  return { items: index.bySubGoal.get(subGoalUid) ?? [], unreadable: index.unreadable }
 }
 
 export async function listObjects(type: ObjectType, _baseDir?: string, status?: string, scope?: LocalFactScope): Promise<WebFactResult | WebFactError> {
@@ -859,8 +906,24 @@ export async function listObjects(type: ObjectType, _baseDir?: string, status?: 
     // WorkCase cards. They remain separate from outgoing factRefs and formal
     // factAssociations; no persisted lifecycle index is introduced.
     const refSourceIndex = await currentProjectFactRefSources(resolvedScope)
+    // 28 §8.1 的派生在列表层同样成立，且必须与详情同源：子目标卡的「名下工作」
+    // 不是新增字段，而是同一次反查的投影。索引只建一次——逐条建索引会让 spark 与
+    // workcase 被扫描 N 次（N = 子目标数），而判据完全相同。
+    const servingWork = type === 'subgoal' ? await deriveServingWorkIndex(resolvedScope) : null
     const projectedItems = await Promise.all(
-      listed.items.map((item) => projectListItemWithAssociations(type, item, resolvedScope, uidTargets, refSourceIndex)),
+      listed.items.map(async (item) => {
+        const projected = await projectListItemWithAssociations(type, item, resolvedScope, uidTargets, refSourceIndex)
+        if (servingWork === null) return projected
+        const subGoalUid = typeof item.fact_object?.object_uid === 'string' ? item.fact_object.object_uid : ''
+        if (!subGoalUid) return projected
+        const derived = servingWork.bySubGoal.get(subGoalUid) ?? []
+        return {
+          ...projected,
+          serving_work: derived,
+          ...(derived.length === 0 ? { serving_empty: true } : {}),
+          ...(servingWork.unreadable.length > 0 ? { serving_unreadable: servingWork.unreadable } : {}),
+        }
+      }),
     )
     const items = projectedItems.filter((item) => !status || item.status === status)
     const response = result('list', type, { items, coverage_status: 'complete', collection_issues: listed.issues })

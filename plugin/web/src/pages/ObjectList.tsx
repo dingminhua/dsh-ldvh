@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { Activity, ArrowDownWideNarrow, CalendarClock, CircleAlert, CircleCheck, CircleMinus, CirclePlay, Clock3, History, Search } from 'lucide-react';
+import { Activity, ArrowDownWideNarrow, CalendarClock, ChevronDown, ChevronUp, CircleAlert, CircleCheck, CircleMinus, CirclePlay, Clock3, History, Search } from 'lucide-react';
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import SegmentedControl from '@/components/SegmentedControl';
 import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
@@ -22,7 +22,7 @@ import WorkCaseExecFlow from '@/components/WorkCaseExecFlow';
 import WorkCaseResultDraft from '@/components/WorkCaseResultDraft';
 import WorkCaseClosedSummary from '@/components/WorkCaseClosedSummary';
 import WorkCaseClosedStatusBadge from '@/components/WorkCaseClosedStatusBadge';
-import { fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type FactRefSource, type ObjectItem, type ObjectStatusOption, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
+import { fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type FactRefSource, type ObjectItem, type ObjectStatusOption, type ServingWorkItem, type WorkCaseLifecycleOption, type WorkCaseListGroup, type WorkCaseV5Group } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
 import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusDisplayLabel, getObjectStatusLocale, getTypeDescription, getTypeLabel } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
@@ -37,7 +37,7 @@ import { stripCardMarkdown as formatReasonText } from '@/utils/cardText';
 import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { compareRfc3339Timestamps } from '@/shared/timestamp';
-import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS } from '@/utils/semanticColors';
+import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
 
 type Translate = ReturnType<typeof useI18n>['t'];
 type StatusReason = { label: string; text: string; missing?: boolean };
@@ -977,11 +977,213 @@ function SubGoalTerminalCardContent({ obj }: { obj: ObjectItem }) {
   );
 }
 
-export function SubGoalCardContent({ obj }: { obj: ObjectItem }) {
+/**
+ * 子目标卡「名下的工作」区内，**每个类型层**默认先展的条数（Human 决定 2026-11-02：
+ * 「每个类型最多展现 3 个，其他的要可以收起展开」）。
+ *
+ * **这是扫读预算，不是呈现收窄**：超出部分不是不呈现，而是先收起、可一键展开；
+ * 展开后的条目、次序与折叠时逐条相同——只改变可见条数，不改变内容。故本常量
+ * 不得被用作 `slice` 之外的任何语义（如「只取前 N 条就够」的筛选口径）。
+ */
+export const SUB_GOAL_ASSOCIATION_PREVIEW_LIMIT = 3;
+
+/**
+ * 类型分层的**固定次序**：工单在前、火花在后。
+ *
+ * 为什么定序而不按条目数排：类型层是**稳定的读法**（读者知道先看工单的落实情况、
+ * 再看火花），按数量排会让同一屏在不同对象间换次序，读者每次都要重新定位。剩余的
+ * 类型（契约上只会出现 workcase/spark 两类，见 `facts.ts` 的 `deriveServingWork`）
+ * 追加在登记次序之后，不因未登记而消失。
+ */
+const SUB_GOAL_SERVING_TYPE_ORDER: readonly string[] = ['workcase', 'spark'];
+
+type ServingWorkGroup = { type: string; rows: FactCardAssociation[] };
+
+/**
+ * 把「名下的工作」按类型分层，层内按**关联状态**排序（活跃 → 推进中 → 待处理 →
+ * 已关闭 → 已废弃，`FACT_ASSOCIATION_STATE_RANK` 单点给出）。
+ *
+ * 层内排序与卡片关联区的排序**同一条判据**：两处都是「指向另一个对象的行」，
+ * 一处按状态排、一处按文件名排会让同一条工作在两个呈现面上顺序不同。
+ */
+function groupServingWorkByType(rows: ServingWorkItem[]): ServingWorkGroup[] {
+  const byType = new Map<string, FactCardAssociation[]>();
+  rows.forEach((row) => {
+    const association = servingWorkToAssociation(row);
+    const bucket = byType.get(row.type) ?? [];
+    bucket.push(association);
+    byType.set(row.type, bucket);
+  });
+  return [...byType.entries()]
+    .map(([type, associations]) => ({
+      type,
+      rows: associations
+        .map((association, index) => ({ association, index }))
+        .sort((left, right) => {
+          const rankDelta = getFactAssociationStateRank(left.association) - getFactAssociationStateRank(right.association);
+          return rankDelta !== 0 ? rankDelta : left.index - right.index;
+        })
+        .map(({ association }) => association),
+    }))
+    .sort((left, right) => {
+      const leftRank = SUB_GOAL_SERVING_TYPE_ORDER.indexOf(left.type);
+      const rightRank = SUB_GOAL_SERVING_TYPE_ORDER.indexOf(right.type);
+      const leftKey = leftRank === -1 ? SUB_GOAL_SERVING_TYPE_ORDER.length : leftRank;
+      const rightKey = rightRank === -1 ? SUB_GOAL_SERVING_TYPE_ORDER.length : rightRank;
+      return leftKey !== rightKey ? leftKey - rightKey : left.type.localeCompare(right.type);
+    });
+}
+
+/**
+ * 名下工作行 → 统一关联行的入参形状（只做**字段搬运**，行式仍由
+ * `FactAssociationCardRow` 单点给出）。
+ *
+ * 理由与 `refSourceToAssociation` 同：`10 §5.5`「同类信息只有一处行式」——凡呈现
+ * 「引用／关联某个事实对象」的行，一律复用统一关联行，不得自建第二套。此处若为
+ * 「名下的工作」另写一套行（自己的图标尺寸、自己的状态写法），就会出现同一张卡上
+ * 两种「指向对象」的形态。
+ */
+export function servingWorkToAssociation(row: ServingWorkItem): FactCardAssociation {
+  return {
+    // 行来自已精确读取的下游对象（`facts.ts` 反查时只收可读项），故恒为可用。
+    // 项目取**行自己的**归属（而不是卡片当前项目）：联邦视图里两者可以不同，
+    // 用当前项目会把跨项目的行伪装成本项目对象（那是伪造定位，不是呈现选择）。
+    available: true,
+    resolvedTarget: {
+      governedProjectId: row.governed_project_id ?? '',
+      factTypeKey: row.type,
+      objectId: row.id,
+    },
+    title: row.title,
+    status: row.status,
+    // workcase 的派生分组随行搬运（21 号，服务端单点派生）——行末状态图标据此判
+    // 「推进中／待处理」，呈现层不重算。
+    ...(row.group ? { group: row.group as WorkCaseV5Group } : {}),
+  };
+}
+
+/**
+ * 子目标卡的**关联区**（Human 决定 2026-11-02：「当前的子目标的 card，需要学习
+ * spark 的 card 可以挂载关联对象，关联的对象按 spark 和 workcase 分层，每个类型
+ * 最多展现 3 个，其他的要可以收起展开」）。
+ *
+ * 数据是 28 §8.1 的**读取时派生**（`serves` 反查），不是本对象存储的字段——故这
+ * 一块不是「子目标的第二事实源」，它只是同一次反查的呈现。服务端已把索引算好
+ * 随列表项送达，卡面不再逐条请求详情（同一判据不重算 N 遍）。
+ *
+ * 三条约束与既有卡面语言对齐：
+ *  ① 区域形态沿用 `FACT_ASSOCIATION_ROWS_ZONE_CLASS`（顶部分割线 + 行间分割线，
+ *    无块边框、无底色）——与 Spark 引用区同一处来源；
+ *  ② 行式沿用 `FactAssociationCardRow`（类型图标 + 标题 + 行末状态图标，可点开
+ *    扩展阅读）——不得自建第二套；
+ *  ③ 空集是**歧义**不是进度 0（28 §8.1），读不到是**第三态**不得并入空集（00 §5.6）。
+ *
+ * **与 `docs/03` §3.2「不设类型分组标题」的关系（如实登记）**：那条约束的是
+ * **正式 `relations` 关联区**——那里的行由类型图标自描述，分组标题不增加信息。
+ * 本区是**两个不同类型簇并列**（工单与火花），且每簇各有自己的展示预算（先 3 条），
+ * 没有层名读者就分不清「这 3 条是工单的 3 条」还是「两类一共 3 条」。故本区设层名，
+ * 并只写**类型名 + 计数**（不写「关联」「工作」一类概括词，避免冒领方向语义）。
+ */
+function SubGoalServingWorkCardZone({ obj }: { obj: ObjectItem }) {
   const { t, locale } = useI18n();
-  if (obj.status === 'achieved' || obj.status === 'retired') {
-    return <SubGoalTerminalCardContent obj={obj} />;
+  const [expandedTypes, setExpandedTypes] = useState<ReadonlySet<string>>(() => new Set());
+  const rows: ServingWorkItem[] = Array.isArray(obj.serving_work) ? obj.serving_work : [];
+  const unreadable = Array.isArray(obj.serving_unreadable) ? obj.serving_unreadable : [];
+  const groups = groupServingWorkByType(rows);
+  const isEmpty = groups.length === 0;
+  if (isEmpty && unreadable.length === 0) {
+    // 28 §8.1：空集必须显式标注歧义。它不是「进度 0%」——真的还没拆解，与拆解了
+    // 却没人写 serves，在机械层长得一模一样。所以这里既不画 0 也不画进度条。
+    return (
+      <section onClick={(event) => event.stopPropagation()} className={FACT_ASSOCIATION_ROWS_ZONE_CLASS}>
+        <p className={`ldvh-meta rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-2 py-1.5 ${LDVH_WARN_TITLE_CLASS}`}>
+          {t('objectList.subGoalServingEmpty')}
+        </p>
+      </section>
+    );
   }
+  return (
+    <section onClick={(event) => event.stopPropagation()} className={`${FACT_ASSOCIATION_ROWS_ZONE_CLASS} flex flex-col gap-1.5`}>
+      {groups.map((group) => {
+        const expanded = expandedTypes.has(group.type);
+        const hidden = Math.max(0, group.rows.length - SUB_GOAL_ASSOCIATION_PREVIEW_LIMIT);
+        const visible = expanded ? group.rows : group.rows.slice(0, SUB_GOAL_ASSOCIATION_PREVIEW_LIMIT);
+        return (
+          <div key={group.type} data-subgoal-serving-type={group.type}>
+            {/* 层名 = 类型名 + 计数。计数用 `ldvh-meta-muted`（同卡底更新时间的弱层级），
+                不另造徽标——它不承载状态判断，只是「这一层有几条」的规模提示。 */}
+            <div className="flex min-w-0 items-center gap-1.5 px-1.5 pb-0.5">
+              <ObjectTypeIcon type={group.type} size={12} className="shrink-0" style={{ color: CATEGORY_COLORS[group.type] || CATEGORY_COLORS.other }} />
+              <span className="ldvh-meta min-w-0 truncate text-ldvh-text-secondary/85">{getTypeLabel(group.type, locale)}</span>
+              <span className="ldvh-meta-muted shrink-0">{group.rows.length}</span>
+            </div>
+            <div className={FACT_ASSOCIATION_ROWS_LIST_CLASS}>
+              {visible.map((association, index) => (
+                <FactAssociationCardRow
+                  key={`${group.type}:${factCardAssociationKey(association, index)}:${index}`}
+                  association={association}
+                  locale={locale}
+                  unavailableLabel={t('objectList.associationUnavailable')}
+                />
+              ))}
+            </div>
+            {/* 展开/收起：只改可见条数，不改条目本身（折叠时不丢弃、不排序、不合并）。 */}
+            {(hidden > 0 || expanded) && (
+              <button
+                type="button"
+                aria-expanded={expanded}
+                onClick={() => setExpandedTypes((current) => {
+                  const next = new Set(current);
+                  if (next.has(group.type)) next.delete(group.type);
+                  else next.add(group.type);
+                  return next;
+                })}
+                className="mt-0.5 flex w-full min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-left ldvh-meta text-ldvh-text-secondary/85 transition-colors hover:bg-ldvh-border/25 hover:text-ldvh-accent"
+              >
+                {expanded
+                  ? <ChevronUp size={12} aria-hidden="true" className="shrink-0" />
+                  : <ChevronDown size={12} aria-hidden="true" className="shrink-0" />}
+                <span className="min-w-0 truncate">
+                  {expanded
+                    ? t('objectList.subGoalServingCollapse')
+                    : t('objectList.subGoalServingExpand', { count: String(hidden) })}
+                </span>
+              </button>
+            )}
+          </div>
+        );
+      })}
+      {unreadable.length > 0 && (
+        // 读不到不等于没有（00 §5.6）：无法枚举的类型单列，绝不并进空集。
+        <p className={`ldvh-meta rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-2 py-1.5 ${LDVH_WARN_TITLE_CLASS}`}>
+          {t('objectList.subGoalServingUnreadable')}：{unreadable.join('；')}
+        </p>
+      )}
+    </section>
+  );
+}
+
+export function SubGoalCardContent({ obj }: { obj: ObjectItem }) {
+  // 关联区与卡体**并列**、挂在卡级，不进 lime 判据框（Human 2026-11-02「学习 spark
+  // 的 card」）：Spark 的关联行由 `ObjectCardFrame` 在 `children` 之后以顶部分割线
+  // 承载，是卡级区域；把它塞进判据框会让「判据」与「名下工作」看起来同属一个判断。
+  //
+  // **不按状态分支**（同 Spark 的 2026-09-16 裁定）：达成/作废的子目标名下工作仍是
+  // 可核对的历史——「这件工作曾服务于那条已达成的子目标」是事实（28 §12.3 第 4 条）。
+  const body = obj.status === 'achieved' || obj.status === 'retired'
+    ? <SubGoalTerminalCardContent obj={obj} />
+    : <SubGoalActiveCardBody obj={obj} />;
+  return (
+    <>
+      {body}
+      <SubGoalServingWorkCardZone obj={obj} />
+    </>
+  );
+}
+
+/** 活跃子目标的判据框（次序 / 判据类型 / 达成条件一句话）。 */
+function SubGoalActiveCardBody({ obj }: { obj: ObjectItem }) {
+  const { t, locale } = useI18n();
   const order = typeof obj.order === 'number' ? obj.order : null;
   const criterionKind = typeof obj.criterion_kind === 'string' ? obj.criterion_kind.trim() : '';
   const criterion = typeof obj.criterion === 'string' ? obj.criterion.trim() : '';

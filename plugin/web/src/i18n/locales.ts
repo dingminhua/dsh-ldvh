@@ -994,6 +994,15 @@ export const UI_LOCALES = {
     'objectList.subGoalAchievedNote': '该子目标的达成条件已由证据满足——由判据判定，不由名下工作全部关闭推出（28 §18 红线 3）。',
     'objectList.subGoalOrderLabel': '次序',
     'objectList.subGoalOrderAbsent': '未定次序',
+    // 子目标卡的关联区（28 §8.1 名下工作派生）：按类型分层、每层先展固定条数。
+    //
+    // 「每层先展 N 条」是**扫读预算**，不是收窄：超出部分必须可展开，且展开后
+    // 条目与折叠时逐条相同、次序相同——只改变可见条数，不改变内容。
+    'objectList.subGoalServingWork': '名下的工作',
+    'objectList.subGoalServingEmpty': '未声明或未拆解——名下没有任何 serves 指向本条子目标（28 §8.1；这不是进度 0%）',
+    'objectList.subGoalServingUnreadable': '读不到，不能当作「没有」',
+    'objectList.subGoalServingExpand': '展开其余 {count} 条',
+    'objectList.subGoalServingCollapse': '收起',
     'objectDetail.subGoalOrderAbsent': '未定次序（28 §8：order 可缺失，缺省排在有序者之后，不补隐式编号）',
     'objectDetail.subGoalCriterionDetail': '达成条件（展开）',
     'objectDetail.subGoalAlignmentDetail': '对齐说明（展开）',
@@ -1820,6 +1829,11 @@ export const UI_LOCALES = {
     'objectList.subGoalAchievedNote': 'This sub-goal\'s criterion has been satisfied by evidence — judged by the criterion itself, not inferred from all its work being closed (28 §18 red line 3).',
     'objectList.subGoalOrderLabel': 'Order',
     'objectList.subGoalOrderAbsent': 'No order',
+    'objectList.subGoalServingWork': 'Work serving this sub-goal',
+    'objectList.subGoalServingEmpty': 'Not declared or not decomposed — no serves points at this sub-goal (28 §8.1; this is not 0% progress)',
+    'objectList.subGoalServingUnreadable': 'Unreadable — must not be read as "none"',
+    'objectList.subGoalServingExpand': 'Show the remaining {count}',
+    'objectList.subGoalServingCollapse': 'Collapse',
     'objectDetail.subGoalOrderAbsent': 'No order (28 §8: `order` may be absent; an unordered sub-goal sorts after ordered ones and is never given an implicit number)',
     'objectDetail.subGoalCriterionDetail': 'Criterion (expanded)',
     'objectDetail.subGoalAlignmentDetail': 'Alignment (expanded)',
