@@ -16,7 +16,13 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { classifyTestRun, isUsableForVerdict, RUN_TERMINAL } from "../lib/test-run-report.js";
+import {
+	classifyTestRun,
+	isUsableForVerdict,
+	observedTestCount,
+	reconcileTestCount,
+	RUN_TERMINAL,
+} from "../lib/test-run-report.js";
 
 const PLUGIN = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -121,4 +127,73 @@ test("报告块标记只认本次运行的汇总行，不靠退出码", async ()
 	assert.match(src, /\^ℹ \(tests\|pass\|fail\) \\d\+\$/m, "报告标记须为「ℹ tests/pass/fail N」的显式多行匹配");
 	// 反向：实现里不得出现以退出码判「是否运行」的分支。
 	assert.ok(!/exitCode|signal\s*===\s*null\s*&&/.test(src), "不得以退出码充当运行发生与否的证据");
+});
+
+// ---------------------------------------------------------------------------
+// 条数对账（observedTestCount / reconcileTestCount）
+//
+// 来源：2026-11-02 实测 —— `--test-force-exit` 在同一测试文件的多个 runner
+// 并存时可能让文件执行到一半就退出，而汇总块完全自洽（tests 62 / pass 62 /
+// fail 0）、退出码也是 0。24 次并发里 3 次截断（91 条的 commit-validation
+// 出现过 42/83/85 条）。本组用例锁住三件事：
+//   ① 取不到条数与「零条」必须可区分（与 06 §5 同一纪律）；
+//   ② 声明数只能当下限，落在声明数与基线之间的截断要靠基线拦；
+//   ③ 基线不得因一次截断而下移（否则一次截断就把后续所有截断合法化）。
+// ---------------------------------------------------------------------------
+
+test("observedTestCount 取出汇总行里的条数，取不到时给 null 而不是 0", () => {
+	assert.equal(observedTestCount({ stdout: PASS_OUTPUT }), 1);
+	assert.equal(observedTestCount({ stdout: FAIL_OUTPUT }), 3);
+	// 「取不到」与「零条」是两种结果：这里必须是 null
+	assert.equal(observedTestCount({ stdout: "" }), null);
+	assert.equal(observedTestCount({ stdout: "▶ a\nℹ pass 1\n" }), null);
+	// stderr 合并后同样可读（node 的启动期错误写在 stderr）
+	assert.equal(observedTestCount({ stdout: "ℹ tests 7\n" }), 7);
+});
+
+test("reconcileTestCount：低于声明数即判不完整（截断的第一道闸）", () => {
+	const r = reconcileTestCount({ observed: 2606, declared: 2615, baseline: 2639 });
+	assert.equal(r.ok, false);
+	assert.match(r.verdict, /低于声明数/);
+	assert.match(r.evidence, /2606/);
+	assert.match(r.evidence, /2615/);
+});
+
+test("reconcileTestCount：声明数是**不完备的下限**，故落在其上的截断须由基线拦", () => {
+	// 实测形态：声明 2615、全绿 2639，截断落在两者之间（如 2606 高于声明数？不，
+	// 2606 < 2615；用 2620 表示真正只在基线区间里的截断）。
+	const inBaselineOnlyZone = reconcileTestCount({ observed: 2620, declared: 2615, baseline: 2639 });
+	assert.equal(inBaselineOnlyZone.ok, false, "2620 高于声明数但低于基线，必须被拦");
+	assert.match(inBaselineOnlyZone.verdict, /低于上次全绿基线/);
+	assert.match(inBaselineOnlyZone.evidence, /2620/);
+	assert.match(inBaselineOnlyZone.evidence, /2639/);
+});
+
+test("reconcileTestCount：恰好等于基线或更高即通过（不得因相等而误报）", () => {
+	assert.equal(reconcileTestCount({ observed: 2639, declared: 2615, baseline: 2639 }).ok, true);
+	assert.equal(reconcileTestCount({ observed: 2700, declared: 2615, baseline: 2639 }).ok, true);
+});
+
+test("reconcileTestCount：没有基线时只靠声明数（首次运行不得被误判）", () => {
+	assert.equal(reconcileTestCount({ observed: 2639, declared: 2615, baseline: null }).ok, true);
+	const truncated = reconcileTestCount({ observed: 2606, declared: 2615, baseline: null });
+	assert.equal(truncated.ok, false, "无基线时仍须拦住低于声明数的截断");
+});
+
+test("reconcileTestCount：条数不可得一律判失败——不得当作通过也不得当作零失败", () => {
+	const r = reconcileTestCount({ observed: null, declared: 2615, baseline: 2639 });
+	assert.equal(r.ok, false);
+	assert.match(r.verdict, /不可得/);
+});
+
+test("守卫实现只有一份：判定逻辑在 lib/test-run-report.js，脚本不另持副本", async () => {
+	const script = await readFile(join(PLUGIN, "scripts/run-tests.mjs"), "utf8");
+	// 脚本须调用共享实现，而不是自己写一套比较逻辑
+	assert.match(script, /reconcileTestCount/, "脚本须调用 reconcileTestCount");
+	assert.match(script, /observedTestCount/, "脚本须调用 observedTestCount");
+	// 反向：脚本里不得再出现独立的条数比较分支（那是第二份判定的形态）
+	assert.ok(
+		!/observedTests\s*<\s*baseline/.test(script),
+		"脚本不得自行比较 observedTests 与 baseline——判定须只在 lib 内实现一次",
+	);
 });

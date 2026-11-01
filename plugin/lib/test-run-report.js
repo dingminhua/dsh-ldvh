@@ -90,3 +90,63 @@ export function classifyTestRun({ stdout = "", stderr = "", error = null } = {})
 export function isUsableForVerdict(classified) {
 	return classified.terminal === RUN_TERMINAL.REPORTED;
 }
+
+/**
+ * 从一次运行的输出里取出实际执行的用例条数（`ℹ tests N`）。
+ *
+ * 与 `classifyTestRun` 的分工：那个函数回答「**运行发生过吗**」，本函数回答
+ * 「**跑了多少条**」。两者缺一不可——`--test-force-exit` 的截断同时满足
+ * 「运行发生过」（有完整汇总块）与「零失败」（`fail 0`），只有条数才能揭穿它。
+ *
+ * @returns {number|null} 取不到时为 null（调用方须按「不可得」处理，不得当 0）
+ */
+export function observedTestCount({ stdout = "", stderr = "" } = {}) {
+	const m = /^ℹ tests (\d+)$/m.exec(`${stdout ?? ""}${stderr ?? ""}`);
+	return m === null ? null : Number(m[1]);
+}
+
+/**
+ * 对账「本次跑了多少条」与「上一次全绿跑了多少条」。
+ *
+ * 2026-11-02 实测的来源：`--test-force-exit` 在**同一测试文件的多个 runner
+ * 并存**时可能让文件执行到一半就退出，而汇总块完全自洽（`tests 62 / pass 62
+ * / fail 0 / cancelled 0`）、**退出码 0**。实测 24 次里 3 次截断：91 条的
+ * `commit-validation.test.mjs` 出现过 42/83/85 条。`npm test` 单进程跑不会触发，
+ * 但它一旦触发就是静默丢用例，且没有任何机械信号能区分「少跑了」与「本来就少」。
+ *
+ * 判据取**两次大小的比较**而不是等值：`declared` 是源码里 `test(` 的声明数，
+ * 它是**不完备的下限**（循环生成的用例不计入，实测声明 2615 / 实际 2639），
+ * 所以 `declared` 只能拦住「跌破下限」的截断；落在 `declared` 与 `baseline`
+ * 之间的截断只有 `baseline` 能拦住。二者都必须有。
+ *
+ * @param {{ observed: number|null, declared: number|null, baseline: number|null }} input
+ * @returns {{ ok: boolean, verdict: string, evidence: string }}
+ */
+export function reconcileTestCount({ observed, declared, baseline }) {
+	if (observed === null || observed === undefined) {
+		return {
+			ok: false,
+			verdict: "条数不可得（不得读作零失败）",
+			evidence: "输出中不存在「ℹ tests N」行",
+		};
+	}
+	if (declared !== null && declared !== undefined && observed < declared) {
+		return {
+			ok: false,
+			verdict: `低于声明数，${declared - observed} 条从未运行`,
+			evidence: `本次 ${observed} 条，源码声明 ${declared} 条`,
+		};
+	}
+	if (baseline !== null && baseline !== undefined && observed < baseline) {
+		return {
+			ok: false,
+			verdict: `低于上次全绿基线，${baseline - observed} 条消失`,
+			evidence: `本次 ${observed} 条，上次全绿 ${baseline} 条（删减须经评审，不随单次运行下移）`,
+		};
+	}
+	return {
+		ok: true,
+		verdict: "条数对账通过",
+		evidence: `本次 ${observed} 条${baseline !== null && baseline !== undefined ? `，基线 ${baseline} 条` : "（无基线，本次为首次）"}`,
+	};
+}
