@@ -359,3 +359,53 @@ test("真实形状回归：单轮 25 条消息、其中含空消息，须全部�
   assert.ok(a.includes("第 1 步"), "须含最早的消息");
   assert.ok(a.includes("第 22 步"), "须含最后一条有文本的消息");
 });
+
+// ---------------------------------------------------------------------------
+// 默认单轮上限 20000（11 §7.1「单轮字符上限」段，workcase-5be20d60）
+//
+// 这三条锁的是**默认值本身**的行为，而不是「参数传得对不对」——上面已有的
+// 截断用例都显式传 `maxCharsPerTurn: 10`，只证明机制形状，不证明线上取值。
+// 2026-11-02 之前该默认值是 2000，实测使 78.8% 的轮次被砍（P50 3278 字），
+// 而 §7.1 又要求执行体「逐字引证」——被砍掉的原文不可能被引证。
+// ---------------------------------------------------------------------------
+
+/** 造一个恰好 n 个字符的确定性文本（内容与长度都可断言）。 */
+function blockOfLength(n) {
+  return "x".repeat(n);
+}
+
+test("默认上限 20000：超过 2000 字的回复完整保留、不标记截断（旧值 2000 会砍掉）", () => {
+  // 3278 是实测的 P50 单轮字符数——超过 2000 是常态，不是极端情形。
+  const text = blockOfLength(3278);
+  const acc = createWindowAccumulator();
+  acc.observe(null, assistantEvent(1, [{ type: "text", text }]));
+  const w = acc.windowFrom(null);
+  assert.equal(w.items[0].assistant.length, 3278, "P50 长度的回复必须逐字完整保留");
+  assert.equal(w.items[0].truncated, false, "未超上限不得标记截断");
+  assert.equal(w.truncated, false, "窗口级同样不得标记");
+});
+
+test("默认上限 20000：接近上限（15772 字，实测最大单轮）仍完整保留", () => {
+  const text = blockOfLength(15772);
+  const acc = createWindowAccumulator();
+  acc.observe(null, assistantEvent(1, [{ type: "text", text }]));
+  const w = acc.windowFrom(null);
+  assert.equal(w.items[0].assistant.length, 15772, "实测最大值必须完整保留");
+  assert.equal(w.items[0].truncated, false);
+});
+
+test("默认上限 20000：恰在上限处不截断，超一字符即截断并如实标记", () => {
+  // 边界两侧各测一次：20000 是**包含**的（与 §7.1「前 20000 字」一致）。
+  const atLimit = createWindowAccumulator();
+  atLimit.observe(null, assistantEvent(1, [{ type: "text", text: blockOfLength(20000) }]));
+  const at = atLimit.windowFrom(null);
+  assert.equal(at.items[0].assistant.length, 20000, "恰好 20000 字完整保留");
+  assert.equal(at.items[0].truncated, false, "恰在上限不得标记截断");
+
+  const overLimit = createWindowAccumulator();
+  overLimit.observe(null, assistantEvent(1, [{ type: "text", text: blockOfLength(20001) }]));
+  const over = overLimit.windowFrom(null);
+  assert.equal(over.items[0].assistant.length, 20000, "超出时取前 20000 字");
+  assert.equal(over.items[0].truncated, true, "超出 20000 时须如实标记 truncated");
+  assert.equal(over.truncated, true, "窗口级也须标记，供调用方如实登记");
+});
