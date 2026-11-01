@@ -983,15 +983,24 @@ test("projectLayer on an attachment omits spec-only fields at L2", () => {
 // Real-corpus self-consistency
 // ---------------------------------------------------------------------------
 
-test("parseSpecDocument parses every real specs/01..10 and the three attachments without error", async () => {
-	const expected = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"];
-	for (const id of expected) {
-		const allFiles = await readdir(specsRoot);
-		const match = allFiles.find((name) => new RegExp(`^${id}-[^/]+\\.md$`).test(name));
-		assert.ok(match, `expected to find specs/${id}-*.md on disk`);
-		const text = await readFile(join(specsRoot, match), "utf8");
-		const result = parseSpecDocument(text, `specs/${match}`);
-		assert.equal(result.ok, true, `specs/${match} failed: ${result.error?.code} ${result.error?.message}`);
+// **2026-11-02：这里原先写死 `["01".."10"]`，20–29 十份事实类型规范从不被校验。**
+// 后果实测：28 号与 29 号的正文骨架示例块里各写了一行 `# 子目标` / `# 开发日志`，
+// 被 splitIdentityBlock 当成第二个 H1，两份规范**完全无法被读取入口列为候选**，
+// 而本用例照样全绿。写死号段是错的目标：本用例守的是「specs/ 下每一份现行
+// 规范都必须可解析」，与「当时有哪几份」无关。改为扫全目录——新增规范自动纳入，
+// 不需要人工改数字（同类教训见 friction-943940d6：写死规模的断言随语料增长转红）。
+test("parseSpecDocument parses EVERY current carrier under specs/ (no fixed id list)", async () => {
+	const allFiles = (await readdir(specsRoot)).filter((name) => /^[0-9]{2,}-[^/]+\.md$/.test(name));
+	assert.ok(allFiles.length >= 20, `expected the current corpus, found only ${allFiles.length} carriers`);
+	for (const name of allFiles) {
+		const text = await readFile(join(specsRoot, name), "utf8");
+		const result = parseSpecDocument(text, `specs/${name}`);
+		assert.equal(
+			result.ok,
+			true,
+			`specs/${name} failed: ${result.error?.code} ${result.error?.message} — ` +
+				"a carrier that cannot be parsed is invisible to every read entry point",
+		);
 	}
 	const attachments = (await readdir(join(specsRoot, "attachments"))).filter((name) => /\.md$/.test(name));
 	assert.ok(attachments.length >= 3, `expected at least 3 attachments, found ${attachments.length}`);
@@ -1000,6 +1009,51 @@ test("parseSpecDocument parses every real specs/01..10 and the three attachments
 		const result = parseSpecDocument(text, `specs/attachments/${name}`);
 		assert.equal(result.ok, true, `attachment ${name} failed: ${result.error?.code} ${result.error?.message}`);
 	}
+});
+
+// 围栏内的 `#`/`##` 行按 GFM 是字面文本，不得被当成标题。
+// 这一类缺陷有两个真实实例，都由本文件的三处逐行匹配造成：
+//   · 28/29 的示例块 `# 子目标` / `# 开发日志` → 误判为第二个 H1，整份规范读不到；
+//   · 26 号 §8 示例块的 `## 现象`/`## 入账依据`/`## 处置` → L3 读取被静默截断 9 行。
+// 下面两组断言把这两条分别钉住，且都针对**行为**而不是针对文件名。
+test("fenced pseudo-headings never count as the identity H1", () => {
+	const text = "---\nx: 1\n---\n\n# 真正的标题\n\n正文\n\n```\n# 示例里的标题\n## 示例里的二级\n```\n\n后文\n";
+	const result = splitIdentityBlock(text);
+	assert.equal(result.ok, true, result.error?.message);
+	assert.equal(result.value.h1, "真正的标题");
+	// 围栏内的 `##` 行同样不是标题——否则 extractHeadings 会把它当成一节
+	assert.deepEqual(
+		extractHeadings(text).map((h) => h.text),
+		[],
+		"fenced ## lines must not be extracted as headings",
+	);
+});
+
+test("fenced pseudo-headings neither appear in headings nor truncate an L3 slice", () => {
+	// §8 的示例块里有 `## 伪标题`，其后还有真正属于 §8 的正文。
+	const text = [
+		"## 8. 契约",
+		"",
+		"正文 A",
+		"",
+		"```",
+		"## 伪标题",
+		"```",
+		"",
+		"正文 B",
+		"",
+		"## 9. 下一节",
+		"",
+		"正文 C",
+	].join("\n");
+	const headings = extractHeadings(text);
+	assert.deepEqual(headings.map((h) => h.text), ["8. 契约", "9. 下一节"], "fenced ## 不得被当作标题");
+	const slice = resolveHeadingPath(text, "8. 契约");
+	assert.equal(slice.ok, true, slice.error?.message);
+	// §8 必须一直延伸到 §9 之前（第 10 行），不能被示例块里的伪标题切在第 5 行
+	assert.equal(slice.value.endLine, 10);
+	const served = text.split("\n").slice(slice.value.startLine - 1, slice.value.endLine);
+	assert.ok(served.some((line) => line === "正文 B"), "§8 的正文 B 必须在读取结果中（截断会静默丢掉它）");
 });
 
 test("parseSpecDocument parses the real specs/00 after the code_consumption contract fix", async () => {

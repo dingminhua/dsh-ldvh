@@ -53,6 +53,54 @@ function isNonEmptyString(value) {
  * second identity block and is not rejected. Returns the H1 text, the yaml
  * block text and the 1-based line where the block opens.
  */
+/**
+ * Mark the lines that GFM renders as a fenced code block.
+ *
+ * **Why this exists**（2026-11-02 实测）：本文件的三处遍历都曾在**围栏内**的
+ * 字面行上匹配标题。GFM 明文规定围栏内的内容按字面文本渲染，`#` 开头的行
+ * 在那里**不是标题**；把示例块里的行当标题会带来两类失真，且都实测发生过：
+ *
+ *   · 误判为第二个 H1 → 整份规范 `identity/h1_missing`，读不到。
+ *     实例：28 号与 29 号在正文骨架示例块里写了 `# 子目标` / `# 开发日志`，
+ *     两份规范**完全无法被 `ldvh_read_specification_candidates` 列为候选**。
+ *   · 误判为「下一个同级标题」→ L3 精确读取被**静默截断**。
+ *     实例：26 号 §8 的示例块里有 `## 现象` / `## 入账依据` / `## 处置` 三行，
+ *     解析器据此把 §8 的 endLine 定在示例块之前，读取结果**少了 9 行**，
+ *     其中包括整段「字段间不变量」——而调用方看不出少了东西。
+ *
+ * 围栏本身用 CommonMark 的规则识别：行首至多 3 个空格，`或 ~ 至少连续 3 个；
+ * 闭合围栏须同字符、长度不短于开启围栏，且其后只允许空格。未闭合的围栏
+ * 延续到文末（CommonMark 的同一规则），因此文末的围栏不会把后续真实标题吞掉
+ * ——若真出现未闭合围栏，那是载体本身的缺陷，不是本函数要静默修复的东西。
+ *
+ * 返回值是**与输入行一一对应**的布尔数组，调用方按同一索引判断。
+ */
+function fencedLineMask(lines) {
+  const mask = new Array(lines.length).fill(false);
+  let open = null; // { marker: "`" | "~", length: number }
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (open === null) {
+      // 开启围栏：反引号围栏的 info string 不得再含反引号（CommonMark），
+      // 否则该行是普通文字。这条差异会让 ```foo``` 这类行不被误判为围栏。
+      if (match !== null && !(match[1][0] === "`" && match[2].includes("`"))) {
+        open = { marker: match[1][0], length: match[1].length };
+        mask[index] = true;
+      }
+      continue;
+    }
+    mask[index] = true; // 围栏内的每一行都按字面渲染，包括看似闭合的行
+    if (match === null) continue;
+    const marker = match[1][0];
+    if (marker !== open.marker) continue;
+    if (match[1].length < open.length) continue;
+    if (match[2].trim() !== "") continue; // 闭合围栏之后只允许空格
+    open = null;
+  }
+  return mask;
+}
+
 export function splitIdentityBlock(markdownText) {
   const lines = markdownText.split("\n");
   if (lines[0] !== "---") return reject("identity/fence_missing", "frontmatter fence must open at line 1");
@@ -61,9 +109,10 @@ export function splitIdentityBlock(markdownText) {
   const yamlText = lines.slice(1, closeIndex).join("\n");
   const afterFence = closeIndex + 1;
   if (lines[afterFence] !== "") return reject("identity/block_position", "frontmatter close must be followed by exactly one blank line before the H1");
-  const h1Index = lines.findIndex((line, i) => i > afterFence && /^# \S/.test(line));
+  const fenced = fencedLineMask(lines);
+  const h1Index = lines.findIndex((line, i) => i > afterFence && !fenced[i] && /^# \S/.test(line));
   if (h1Index === -1) return reject("identity/h1_missing", "the file must contain exactly one H1 after the frontmatter");
-  const h1Count = lines.filter((line) => /^# /.test(line)).length;
+  const h1Count = lines.filter((line, i) => !fenced[i] && /^# /.test(line)).length;
   if (h1Count > 1) return reject("identity/h1_missing", "the file must contain exactly one H1");
   const h1 = lines[h1Index].slice(2).trim();
   return { ok: true, value: { h1, yamlText, yamlLine: 1, totalLines: lines.length } };
@@ -235,7 +284,10 @@ export function parseSpecDocument(markdownText, actualPath) {
 export function extractHeadings(markdownText) {
   const headings = [];
   const lines = markdownText.split("\n");
+  // 围栏内的行按 GFM 是字面文本，不是标题——见 fencedLineMask 的说明。
+  const fenced = fencedLineMask(lines);
   for (let index = 0; index < lines.length; index += 1) {
+    if (fenced[index]) continue;
     const match = lines[index].match(/^(##|###) (.*)$/);
     if (match === null) continue;
     headings.push({ level: match[1].length, text: match[2].trim(), line: index + 1 });
