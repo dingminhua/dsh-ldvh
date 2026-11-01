@@ -138,6 +138,10 @@ export const DEFAULT_STATUSES_BY_TYPE = Object.freeze({
   // **`subgoal` 于 2026-11 新增**（28 §12.4）：默认候选只含 `active`；
   // achieved/retired 仅在精确引用、历史追溯或达成证据汇总时展开。
   subgoal: ["active"],
+  // **`devlog` 于 2026-11 新增**（29 §12.4）：默认候选只含 `active`；
+  // absorbed/superseded/dropped 三终态不承重，仅在精确引用、历史追溯或
+  // 承接核对时展开——它们进入默认候选会稀释当次候选面。
+  devlog: ["active"],
 });
 
 /**
@@ -158,7 +162,7 @@ export const DEFAULT_STATUSES_BY_TYPE = Object.freeze({
  * 召回不到——故 `source-recall.test.mjs` 有一条用例直接比对 specs 目录与本表。
  */
 export const REGISTERED_FACT_TYPES = Object.freeze([
-  "spark", "workcase", "adr", "pitfall", "research", "goal", "friction", "norm", "subgoal",
+  "spark", "workcase", "adr", "pitfall", "research", "goal", "friction", "norm", "subgoal", "devlog",
 ]);
 
 /**

@@ -11,7 +11,18 @@
  * 该对象属于一个它并不属于的类型——那比缺少类型更坏。
  */
 
-/** 类型短名的值域（02 §7.1 的 `fact_type_key` 值；此处只用于校验，不用于生成）。 */
+/**
+ * 类型短名的值域（02 §7.1 的 `fact_type_key` 值；此处只用于校验，不用于生成）。
+ *
+ * **本清单必须与 `source-recall.js` 的 `REGISTERED_FACT_TYPES` 逐项相等**——两处
+ * 是同一事实（「哪些事实类型已登记」）的两个消费面：召回侧用它决定扫哪些目录，
+ * 渲染侧用它决定要不要加类型前缀。二者**已经漂移过**：`subgoal` 在 2026-11-01
+ * 成为 28 号类型时只同步了召回侧，本清单漏改，后果是所有子目标对象经
+ * `objectRef()` 渲染成裸 8 位十六进制（读者认不出这是子目标），且没有用例报错。
+ *
+ * 修法不是「记得下次别忘」：`plugin/test/fact-type-registry-agreement.test.mjs`
+ * 断言两集合相等，新增类型而不同步任一侧即转红。
+ */
 const FACT_TYPE_KEYS = new Set([
   "spark",
   "workcase",
@@ -21,7 +32,12 @@ const FACT_TYPE_KEYS = new Set([
   "research",
   "norm",
   "goal",
+  "subgoal",
+  "devlog",
 ]);
+
+/** 供「两份清单须相等」的机械用例读取；业务调用方不得用它生成指称。 */
+export const __FACT_TYPE_KEYS_FOR_TEST = FACT_TYPE_KEYS;
 
 /** 短标识：`object_uid` 的前 8 位（小写十六进制）。 */
 export function shortUid(objectUid) {

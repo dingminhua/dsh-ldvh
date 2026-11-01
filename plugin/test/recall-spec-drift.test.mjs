@@ -54,6 +54,7 @@ const TYPE_SPEC_FILES = Object.freeze({
 	friction: "26-Friction-摩擦账本.md",
 	norm: "27-Norm-事实规范.md",
 	subgoal: "28-SubGoal-子目标.md",
+	devlog: "29-DevLog-开发日志.md",
 });
 
 async function readSpec(name) {
@@ -104,17 +105,21 @@ test("②③ 事实类型白名单须覆盖 20–27 全部类型规范（新增�
 	for (const file of allMd) {
 		const text = await readSpec(file);
 		if (text === null) continue;
-		// **判据须再精确一层**（2026-10-24 实测）：只用 `parent_spec` 会把
-		// 30–33（业务系统规范，如「目标规划系统规范」）误判成事实类型规范——
-		// 它们同样 `parent_spec: business-system-foundation`。
+		// **判据第四次修订（2026-11-01，实测驱动）**：此前用「正文表格里
+		// `| \`fact_type_key\` | \`spark\` |` 形态」判定，实际漏掉了 24、25、28
+		// ——把 24/25/28/29 判成「非类型规范」，于是「新增类型即失败」这条用例
+		// **对它们完全不生效**（29 号加入时该用例照样全绿，是这个漏洞的直接证据）。
 		//
-		// 事实类型规范的**真正特征**是：正文里定义该类型的 `fact_type_key` 取值
-		// （实测 20–27 各有若干处，30–33 为 0）。用它区分。
-		// **第三层精化**（2026-10-24）：02 号也提 `fact_type_key`（它是公共字段的
-		// 汇总表），30–33 也偶有引用。真正区分「某一类型规范」的是：它在表格里
-		// **声明了自己的具体短名**，形如 `` | `fact_type_key` | ... | `spark` | ``。
-		// 故用「反引号包裹的小写短名 + 该行同时提及 fact_type_key」判定。
-		const declaresOwnKey = /`fact_type_key`[^\n]*\|\s*`[a-z][a-z0-9-]*`\s*\|/.test(text);
+		// 漏判的形态各异：
+		//   · 24 号的短名不在表格里，而是正文句 `` `fact_type_key` 固定为 `research`。``
+		//   · 28/29 号写成 `` | `fact_type_key` | `subgoal`（值域登记见 02 §7.1） | ``
+		//     ——短名后还有括号说明，不满足「短名即该 cell 全部内容」。
+		//
+		// 改用 **`spec_key` 命名约定**：`02 §7.1` 明文登记「规范身份键 `spec_key`
+		// （`<type>-fact-type` 形态）是规范文档层标识」。该约定是规范侧登记的，
+		// 不是本用例自造的启发式；实测 20–29 全部命中，00–11 与 30–36 全部不命中。
+		const specKeyMatch = /spec_key:\s*"([^"]+)"/.exec(text);
+		const declaresOwnKey = specKeyMatch !== null && /-fact-type$/.test(specKeyMatch[1]);
 		const isTypeSpec = /spec_kind:\s*"spec"/.test(text) && declaresOwnKey;
 		if (isTypeSpec) typeSpecFiles.push(file);
 	}

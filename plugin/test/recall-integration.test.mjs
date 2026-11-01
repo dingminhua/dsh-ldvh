@@ -58,8 +58,20 @@ test("集成：历轮修复须同时成立（跨文件交互不得互相破坏�
 	assert.ok(adr.facts.some((f) => f.type === "adr"), "须召回 adr");
 
 	// 第 31 轮：中间产物白名单。
-	// 28 §12.4 (2026-11): `subgoal` joined the registry, so the count moved 8 → 9.
-	assert.equal(REGISTERED_FACT_TYPES.length, 9, "白名单须为 9 个已登记类型（含 subgoal）");
+	// **2026-11-01 改为不写死条数**（第 6 次同类转红，friction-943940d6）：
+	// 原先此处断言 `REGISTERED_FACT_TYPES.length === 9`（此前 8），每当新增一个
+	// 事实类型——一次**完全正常的登记动作**——它就会转红，而被测代码并无退化。
+	// 把「有几个类型」当作断言对象是错的目标：该用例守的是**中间产物不进候选**，
+	// 与类型总数无关。改守真正的行为：白名单每类都能在默认状态表里被认到——
+	// 新增类型时该断言**自动跟随**，不再需要人工改数字。
+	assert.ok(REGISTERED_FACT_TYPES.length >= 8, "白名单须覆盖至少 8 个已登记类型");
+	for (const t of REGISTERED_FACT_TYPES) {
+		if (t === "goal") continue; // Goal 是单例，不使用多例状态机（25 §7）
+		assert.ok(
+			Array.isArray(DEFAULT_STATUSES_BY_TYPE[t]) && DEFAULT_STATUSES_BY_TYPE[t].length > 0,
+			`白名单类型「${t}」缺默认候选状态定义——该类型将默认零召回`,
+		);
+	}
 
 	// 第 33 轮：candidatesScanned 非恒量。
 	const narrow = await q({ action: "把 34 号规范改名", limit: 3, types: ["adr"] });
