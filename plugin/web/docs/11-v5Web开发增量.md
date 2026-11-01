@@ -504,6 +504,14 @@ Playwright 实拍（真实 API、真实数据路径）：侧栏次序实测为 �
 已被推翻 0 / 不再承重 0 / 全部 2；详情面确认时间轴节点两个时间并列、serves 行、
 空集歧义提示、压缩形态说明、承接边 `6c43770`；控制台零错误。
 
+**已知边界（一条既有投影口径，本轮未改）**：对象目录**不存在**时，读取层报
+`type_not_integrated`（「该事实类型尚未接入」）。这对 devlog 现在是一句不准确的话——
+类型确实已接入，只是本项目还没有任何一条 DevLog，目录因此还没被 writer 建出来
+（`devlog-writer.js` 落盘时才 `mkdir`）。同一句话对任何「已接入但尚无对象」的类型都
+成立，是**全类型共有的口径**而非 devlog 特有；改它要动 `localFactReader.directoryStatus`
+与 `fact-source-metadata.test.ts` 的既有断言，属独立议题，故本轮如实登记不动。
+实拍看到的就是这句提示 + 四枚终态筛选各 0 条。
+
 **未覆盖（如实登记）**：① `ldvh-base/devlogs/` 在本项目当前是空目录（0 个真实对象），
 实拍用的是两条**临时夹具**（一 active、一 absorbed），截图后已删除——`git status` 确认
 不残留；② 暗色模式实拍只覆盖列表页，两个详情页未拍暗色；③ `superseded` / `dropped`
