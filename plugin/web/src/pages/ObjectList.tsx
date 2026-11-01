@@ -11,6 +11,7 @@ import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
 import FrictionImpactBadge from '@/components/FrictionImpactBadge';
 import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
+import SubGoalOrderBadge from '@/components/SubGoalOrderBadge';
 import SummaryText from '@/components/SummaryText';
 import { ObjectTypeIcon, OBJECT_TYPE_ICONS } from '@/components/SemanticIcon';
 
@@ -383,6 +384,14 @@ export function ObjectCardFrame({
               那是写入次数，这是被观察次数。刻意用**不同图标**（Eye vs History）区分，
               不复用同一枚，免得读者把二者当同一个量。 */}
           {obj.type === 'friction' && <FrictionOccurrenceBadge value={obj.occurrence} />}
+          {/* 28 §8 `order`（显示次序）进卡头，位置在修改次数之前（Human 定案 2026-11-02
+              「次序放到上面，样式对齐其他的 icon」）。理由与规格见 SubGoalOrderBadge。
+
+              排在 friction 那两枚之后**不是**疏忽：那两枚只在 friction 卡上渲染，故子目标
+              卡的可见序列仍是 类型 → 优先级 → 次序 → 修改次数；而把本行放进 PriorityIcon
+              与 FrictionImpactBadge 之间，会撑开那条「影响紧跟优先级」的既有契约所依赖的
+              源码邻接，让一个为摩擦力设的守卫为了无关的原因变红。 */}
+          {obj.type === 'subgoal' && <SubGoalOrderBadge value={obj.order} />}
           <span
             className="ldvh-chip-sm gap-1 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent"
             title={t('cognition.recent.activityCount', { count: String(activityCount) })}
@@ -1183,10 +1192,14 @@ export function SubGoalCardContent({ obj }: { obj: ObjectItem }) {
   );
 }
 
-/** 活跃子目标的判据框（次序 / 判据类型 / 达成条件一句话）。 */
+/** 活跃子目标的判据框（判据类型 / 达成条件一句话）。
+ *
+ * **次序已移到卡头**（Human 定案 2026-11-02「次序放到上面，样式对齐其他的 icon」）：
+ * 本框只回答「这一条怎么算达成」，`order` 回答的是「这一条排第几」——后者是跨条比较的
+ * 扫读要素，属卡头那排 chip 的层级。此前把次序做成框内的小标题行，等于让判据框同时
+ * 承担一个与判据无关的量。 */
 function SubGoalActiveCardBody({ obj }: { obj: ObjectItem }) {
-  const { t, locale } = useI18n();
-  const order = typeof obj.order === 'number' ? obj.order : null;
+  const { locale } = useI18n();
   const criterionKind = typeof obj.criterion_kind === 'string' ? obj.criterion_kind.trim() : '';
   const criterion = typeof obj.criterion === 'string' ? obj.criterion.trim() : '';
   const kindLabel = criterionKind
@@ -1195,31 +1208,22 @@ function SubGoalActiveCardBody({ obj }: { obj: ObjectItem }) {
 
   return (
     <section className={DECISION_CARD_SHELL_CLASS.lime}>
-      <div className="flex min-w-0 items-center gap-2">
-        <h3 className={`ldvh-card-decision-title min-w-0 ${DECISION_TITLE_HUE_CLASS.lime}`}>
-          {t('objectList.subGoalOrderLabel')}
-        </h3>
-        {order !== null ? (
-          <span className={`ldvh-chip-sm min-w-0 shrink-0 ${DECISION_VIOLET_CODE_CHIP_HUE_CLASS}`}>
-            {order}
-          </span>
-        ) : (
+      {kindLabel && (
+        <div className="flex min-w-0 items-center gap-2">
+          {/* 判据类型是一枚**字段值 chip**（不是小标题）：它回答「这条靠什么材料判定」，
+              与紧随其后的达成条件正文是同一件事的两半。故标题写成字段名
+              （`subgoal_criterion_kind`＝「判据类型」），不再另造「次序」式的小标题行。 */}
+          <h3 className={`ldvh-card-decision-title min-w-0 ${DECISION_TITLE_HUE_CLASS.lime}`}>
+            {getFieldLabel('subgoal_criterion_kind', locale)}
+          </h3>
           <span className="ldvh-chip-sm min-w-0 shrink-0 border-ldvh-border bg-transparent text-ldvh-text-secondary">
-            {t('objectList.subGoalOrderAbsent')}
-          </span>
-        )}
-        {kindLabel && (
-          <span
-            className="ldvh-chip-sm min-w-0 shrink-0 border-ldvh-border bg-transparent text-ldvh-text-secondary"
-            title={getFieldLabel('subgoal_criterion_kind', locale)}
-          >
             {kindLabel}
           </span>
-        )}
-      </div>
+        </div>
+      )}
       {/* 达成条件：卡片层给一句话；判据全文与判定材料在详情页（§15 详情消费）。 */}
       {criterion && (
-        <p className={`ldvh-caption ${WORKCASE_CARD_TITLE_BODY_GAP_CLASS} text-ldvh-text-secondary/80`}>
+        <p className={`ldvh-caption ${kindLabel ? WORKCASE_CARD_TITLE_BODY_GAP_CLASS : ''} text-ldvh-text-secondary/80`}>
           {criterion}
         </p>
       )}

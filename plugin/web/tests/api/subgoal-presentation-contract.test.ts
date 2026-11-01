@@ -354,3 +354,38 @@ test('联邦列表的类型短名由路由补上（卡片类型 chip 不得空�
   // 查询上下文本身已确定类型，从载体字段再推一次只是多一处可能与读取层分歧的判定。
   assert.doesNotMatch(mapBlock, /type:\s*item\./, '联邦路由不得从载体字段反推类型');
 });
+
+test('次序呈现在卡头，与其余卡头 chip 同规格（Human 定案 2026-11-02）', () => {
+  const objectList = read('src/pages/ObjectList.tsx');
+  const badge = read('src/components/SubGoalOrderBadge.tsx');
+
+  // `order` 是**跨条比较**的扫读要素（这一条排第几），与「优先级」同级；判据框只
+  // 回答「这一条自己怎么算达成」。此前把次序做成判据框内的小标题行，等于让判据框
+  // 同时承担一个与判据无关的量——Human 因此指认「次序放到上面」。
+  const head = objectList.slice(
+    objectList.indexOf('<PriorityIcon source={obj}'),
+    objectList.indexOf("title={t('cognition.recent.activityCount'"),
+  );
+  assert.ok(head.length > 0, '应能定位到卡头 chip 区');
+  assert.match(head, /obj\.type === 'subgoal' && <SubGoalOrderBadge value=\{obj\.order\} \/>/,
+    '次序 chip 须在卡头，且在类型/优先级之后、修改次数之前');
+
+  // 判据框不得再自己渲染次序（否则同一个字段在卡上出现两处，且两处样式会分叉）。
+  const body = objectList.slice(
+    objectList.indexOf('function SubGoalActiveCardBody'),
+    objectList.indexOf('export default function ObjectList()'),
+  );
+  assert.ok(body.length > 0, '应能定位到判据框源码段');
+  assert.doesNotMatch(body, /obj\.order/, '判据框不得再读 order');
+  assert.doesNotMatch(body, /subGoalOrderLabel/, '判据框不得再渲染「次序」小标题');
+
+  // 样式不是新发明一套：走卡头那排 chip 的同一规格（`ldvh-chip-sm` + 12px 图标 +
+  // 与修改次数 chip 同色相），否则「样式对齐其他的 icon」只对了一半。
+  assert.match(badge, /ldvh-chip-sm shrink-0 gap-1 border-ldvh-accent\/25 bg-ldvh-accent\/5 text-ldvh-accent/,
+    '次序 chip 须复刻卡头 chip 的规格');
+  assert.match(badge, /<ListOrdered size=\{12\} aria-hidden="true" \/>/, '图标 12px，与 occurrence/修改次数同尺寸');
+  // 28 §8：`order` 可缺失。缺失时保留图标、值渲染成 `·`（同 GoalSection 约定），
+  // 且**不得补隐式编号**——`·` 不是 0、不是上一条 +1。
+  assert.match(badge, /Number\.isInteger\(value\) && value > 0/, '闭集外取值按缺失处置');
+  assert.match(badge, /'·'/, '缺失渲染为占位符而非隐藏');
+});
