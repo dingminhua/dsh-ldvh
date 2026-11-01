@@ -7,7 +7,7 @@ impact: medium
 relations:
   - relation_key: informs
     target:
-      commit: 8c3c50922bf078e65f2e5be685ff7ab586a7ba94
+      commit: 400487178ddad44e398f240bbb213f79cd933edb
 object_uid: be0b9def-8e73-45ea-b15e-42765cc6ec45
 fact_type_key: friction
 created_at: 2026-10-28T09:28:11.806Z
@@ -16,6 +16,10 @@ change_log:
     provider: minmax
     model: MiniMax-M3.1-Flash
     summary: 摩擦发现阈值晋升（观察缓冲同源条目 3 条 ≥ 3，11 §9 第 3 项）
+  - at: 2026-11-01T23:08:31.081Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 事实更正（非状态转换）——修正 informs 锚点：8c3c5092（变基前原始 SHA，本仓不可解析）→ 4004871（内容等价、主题逐字相同的现存提交），解除 Git Gate 的 friction_commit_unresolvable 阻塞。终态判定未变：status/title/phenomenon/impact/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：无；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）于 2026-11-02 本会话明确授权：「授权你处理」——针对 dev 分支 Git Gate 因三处悬空 commit 锚点阻塞全部提交一事，授权修正 resolved 摩擦载体中的悬空 relations.commit 引用。
 occurrence:
   count: 3
   first_at: 2026-10-27T14:08:45.075Z
@@ -44,12 +48,16 @@ occurrence:
 本账三次观察正是这条误判的现场（先据 HEAD 断言「与本单无关」，改以开工前基线比对后
 该结论被推翻）。与实现无关，故不宜以改代码处置。
 
-解药 `8c3c50922bf078e65f2e5be685ff7ab586a7ba94`：在 06 §7「验证与证据边界」表新增
+解药 `400487178ddad44e398f240bbb213f79cd933edb`：在 06 §7「验证与证据边界」表新增
 「基线归因的比对锚点」一行，把三条判据立为可核对项——① 锚点取本次改动之前的提交，
 不得以 HEAD 作锚；② 两侧各给**红的集合**（用例名逐条），只比条数会把「一红一绿互换」
 读成「无变化」；③ 语料/被测文本被改写时，守卫的**期望值**须与实测同步，因为「期望值
 未同步造成的红」与「实现退化造成的红」不可由一次运行区分。同笔把 §2 的「八行逐项核对」
 清单同步为九行——新增一行而清单不随，正是 ab1c713c 那类漏修的现成入口。
+
+锚点更正（2026-11-02）：本节原引的 `8c3c50922bf078e65f2e5be685ff7ab586a7ba94` 是
+本轮变基前的原始 SHA，已不在仓库中；内容等价的现存提交为
+`400487178ddad44e398f240bbb213f79cd933edb`（主题逐字相同）。`informs` 锚点已同步更正。
 
 核验：本条解药落地后立即按其自身判据走了一遍，并给出可复核的结论——与开工前基线
 `2d6c306` 做用例名集合差分，工作树相对基线新增红仅 1 条「默认事实类型须为 ADR/Pitfall」，
@@ -68,3 +76,6 @@ adr 仍在前三位，叠上那三个未跟踪文件后才掉出），与本方�
 
 载体侧留痕（2026-10-28 本次流转）：本载体原无 `human_return_at`；`count`／`first_at`／
 `last_at` 三件逐字保留未改。
+
+锚点更正留痕（2026-11-02）：`relations` 的 `informs.target.commit` 由不可解析的
+`8c3c5092…` 更正为 `4004871…`；正文其余内容与 occurrence 三件逐字未改。

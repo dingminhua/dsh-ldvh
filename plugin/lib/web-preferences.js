@@ -103,7 +103,7 @@ export async function updateProjectColor(dshHomePath, projectId, color) {
   if (colors.size === 0) {
     await rm(filePath, { force: true });
   } else {
-    const temporaryPath = join(dirname(filePath), `.${basename(filePath)}.${randomUUID()}.tmp`);
+    const temporaryPath = join(dirname(filePath), `.${await basename(filePath)}.${randomUUID()}.tmp`);
     await writeFile(temporaryPath, serializeYaml(colors), "utf8");
     const { rename } = await import("node:fs/promises");
     await rename(temporaryPath, filePath);
@@ -111,7 +111,19 @@ export async function updateProjectColor(dshHomePath, projectId, color) {
   return readGovernedProjectsWithColors(dshHomePath);
 }
 
-function basename(filePath) {
-  const parts = filePath.split("/");
-  return parts[parts.length - 1] || filePath;
+/**
+ * 取路径最后一段。
+ *
+ * **必须按平台分隔符切分**（2026-11-02 修）。原实现只 `split("/")`：Windows 上
+ * `dshHomePath()` 产出的是 `C:\Users\...\web-preferences.yaml`，按 `/` 切分得不到
+ * 任何分段，函数原样返回**整条路径**，于是临时文件名变成
+ * `.<整条路径>.uuid.tmp`——其中含盘符冒号与反斜杠，`writeFile` 直接抛 ENOENT，
+ * 插件侧改项目颜色（`POST /ldvh/api/governed-projects/color`）整条路径不可用。
+ *
+ * 交由 `node:path` 的 `basename` 判定，天然兼容 `\` 与 `/` 两种分隔符；POSIX 上
+ * 行为与原来一致（`a/b/c.yaml` → `c.yaml`）。
+ */
+async function basename(filePath) {
+  const { basename: pathBasename } = await import("node:path");
+  return pathBasename(filePath);
 }
