@@ -13,6 +13,7 @@ import FrictionImpactBadge from '@/components/FrictionImpactBadge';
 import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
 import SubGoalOrderBadge from '@/components/SubGoalOrderBadge';
 import DevLogOccurredBadge from '@/components/DevLogOccurredBadge';
+import ServingSparkProgressBar from '@/components/ServingSparkProgressBar';
 import SummaryText from '@/components/SummaryText';
 import { ObjectTypeIcon, OBJECT_TYPE_ICONS } from '@/components/SemanticIcon';
 
@@ -1165,6 +1166,11 @@ function SubGoalServingWorkCardZone({ obj }: { obj: ObjectItem }) {
   const [expandedTypes, setExpandedTypes] = useState<ReadonlySet<string>>(() => new Set());
   const rows: ServingWorkItem[] = Array.isArray(obj.serving_work) ? obj.serving_work : [];
   const unreadable = Array.isArray(obj.serving_unreadable) ? obj.serving_unreadable : [];
+  // 比值必须读**原始行**而不是 `group.rows`：`groupServingWorkByType` 已把
+  // `ServingWorkItem` 投影成 `FactCardAssociation`（那是关联行需要的形状），
+  // `status` 在这一步被换成了关联状态轴。拿投影后的行去数火花，会得到 0 条火花、
+  // 于是每一张卡都显示「名下没有火花」——实测正是如此（2026-11-02）。
+  const sparkRows = rows.filter((row) => row.type === 'spark');
   const groups = groupServingWorkByType(rows);
   const isEmpty = groups.length === 0;
   if (isEmpty && unreadable.length === 0) {
@@ -1227,6 +1233,30 @@ function SubGoalServingWorkCardZone({ obj }: { obj: ObjectItem }) {
                     : t('objectList.subGoalServingExpand', { count: String(hidden) })}
                 </span>
               </button>
+            )}
+            {/* 火花落实比值（Human 定案 2026-11-02）：分母＝名下 spark 的「待处理 +
+                已落实」，分子＝已落实。只挂在 spark 这一组下——它是**火花**的落实进度，
+                与工单的进展分组是两个轴（21 号那套由行末状态图标各自表达）。
+
+                为什么放在行列表**之后**而不是之前：它是对上面那些行的汇总，读者先看到
+                有哪几条，再看到「其中多少已落实」才有意义；摆在前面等于先给结论再给材料。
+
+                展开/收起**不改变**它：分母始终是全部 spark，不是可见的那 3 条。按可见
+                条数算会让「展开」这个动作本身改变进度值——那是一个由交互制造出来的假象。 */}
+            {group.type === 'spark' && (
+              <div className="mt-1">
+                <ServingSparkProgressBar
+                  rows={sparkRows}
+                  unreadable={unreadable}
+                  progressLabel={t('objectList.subGoalSparkProgress')}
+                  emptyLabel={t('objectList.subGoalSparkProgressEmpty')}
+                  allDiscardedLabel={t('objectList.subGoalSparkProgressAllDiscarded')}
+                  unavailableLabel={t('objectList.subGoalSparkProgressUnavailable')}
+                  unknownStatusLabel={(count) => t('objectList.subGoalSparkProgressUnknown', { count: String(count) })}
+                  openLabel={getObjectStatusLocale('spark', 'open', locale)}
+                  implementedLabel={getObjectStatusLocale('spark', 'implemented', locale)}
+                />
+              </div>
             )}
           </div>
         );

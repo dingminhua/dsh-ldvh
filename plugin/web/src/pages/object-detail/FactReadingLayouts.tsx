@@ -5,6 +5,7 @@ import { formatDateTime } from '@/utils/dateFormat';
 import { useI18n } from '@/i18n/context';
 import type { StructuredTextIssue } from '@/shared/workcaseTextStructure';
 import { getFieldLabel, getFieldValueLabel, getObjectStatusLocale } from '@/i18n/locales';
+import ServingSparkProgressBar from '@/components/ServingSparkProgressBar';
 import { normalizeSignature } from '../../../shared/signature';
 import { FactAssociationsSection } from '@/pages/object-detail/FactAssociationsSection';
 import { ObjectTypeIcon } from '@/components/SemanticIcon';
@@ -1039,6 +1040,35 @@ export function SubGoalReadingLayout({
         headerMeta={<span className="ldvh-meta-muted">{servingWork.length}</span>}
         onToggle={() => setServingState((current) => getReadingNodeNextState(current))}
       >
+        {/* 火花落实比值（Human 定案 2026-11-02），口径与卡面**同一处派生**：
+            `utils/servingSparkProgress.ts` 单点算，卡与详情共用，不在两处各算一遍。
+
+            **位置与卡面刻意相反**：卡面在行列表之后（先看有哪几条，再看其中多少已落实，
+            代价只有 3 行）；这里在行列表**之前**——详情面的清单不折叠（实测一条子目标
+            可到 48 行），把汇总放在末尾等于让它出现在没人会滚到的地方，那就不叫「先材料
+            后结论」，叫「结论不可达」。同一份派生、两种排布，都是为了「结论与材料同屏」。
+
+            空集时不画：上面那句空集歧义提示已经说清，同一件事说两遍会让读者以为其中
+            一条是新信息。
+
+            这里读的是 `obj.serving_work` 的**原始行**（带 `status`），不是下面渲染用的
+            `servingWork` 投影——那一层把 `status` 换成了关联状态轴，拿它去数火花会
+            得到 0 条（卡面第一版正是这么错的，2026-11-02 实测发现）。 */}
+        {servingWork.length > 0 && (
+          <div className="mb-2">
+            <ServingSparkProgressBar
+              rows={Array.isArray(obj.serving_work) ? obj.serving_work : []}
+              unreadable={servingUnreadable}
+              progressLabel={t('objectList.subGoalSparkProgress')}
+              emptyLabel={t('objectList.subGoalSparkProgressEmpty')}
+              allDiscardedLabel={t('objectList.subGoalSparkProgressAllDiscarded')}
+              unavailableLabel={t('objectList.subGoalSparkProgressUnavailable')}
+              unknownStatusLabel={(count) => t('objectList.subGoalSparkProgressUnknown', { count: String(count) })}
+              openLabel={getObjectStatusLocale('spark', 'open', locale)}
+              implementedLabel={getObjectStatusLocale('spark', 'implemented', locale)}
+            />
+          </div>
+        )}
         {servingWork.length === 0 ? (
           // 28 §8.1：空集歧义必须显式标注。它不是「进度 0%」——真的还没拆解，
           // 与拆解了却没人写 serves，在机械层长得一模一样。

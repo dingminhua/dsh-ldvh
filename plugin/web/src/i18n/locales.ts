@@ -1041,6 +1041,13 @@ export const UI_LOCALES = {
     'objectList.subGoalServingUnreadable': '读不到，不能当作「没有」',
     'objectList.subGoalServingExpand': '展开其余 {count} 条',
     'objectList.subGoalServingCollapse': '收起',
+    // 28 号子目标卡的「火花落实」比值（Human 定案 2026-11-02）。四句「算不出」的各
+    // 自原因见 utils/servingSparkProgress.ts——它们下一步动作不同，不能合成一句「暂无」。
+    'objectList.subGoalSparkProgress': '火花落实',
+    'objectList.subGoalSparkProgressEmpty': '名下没有火花——分母为空，不是 0%',
+    'objectList.subGoalSparkProgressAllDiscarded': '名下火花均已废弃，不再计入分母（已废弃＝被合并或拆分，不代表这件事少了一件）',
+    'objectList.subGoalSparkProgressUnavailable': '火花读取失败，无法算出这个比值——读不到不等于没有（00 §5.6）',
+    'objectList.subGoalSparkProgressUnknown': '{count} 条火花状态在闭集外，未计入分母',
     // 29 号 DevLog 列表卡与详情面的界面词条。
     'objectList.devlogNoTopic': '未声明或不属于任何子目标——serves 缺失时主题表现为空集，它既可能是「确实不属于」也可能是「未声明」，机械层不可区分（29 §8.1）',
     'objectList.devlogCompressedBody': '已被承接，正文压缩为「结论与边界」与「去向」两段（29 §9.1）',
@@ -1882,6 +1889,11 @@ export const UI_LOCALES = {
     'objectList.subGoalServingUnreadable': 'Unreadable — must not be read as "none"',
     'objectList.subGoalServingExpand': 'Show the remaining {count}',
     'objectList.subGoalServingCollapse': 'Collapse',
+    'objectList.subGoalSparkProgress': 'Sparks implemented',
+    'objectList.subGoalSparkProgressEmpty': 'No sparks serving this sub-goal — the denominator is empty, not 0%',
+    'objectList.subGoalSparkProgressAllDiscarded': 'All serving sparks are discarded and excluded from the denominator (discarded means merged or split, not that the work went away)',
+    'objectList.subGoalSparkProgressUnavailable': 'Sparks could not be read, so this ratio cannot be computed — unreadable is not the same as none (00 §5.6)',
+    'objectList.subGoalSparkProgressUnknown': '{count} spark(s) have a status outside the closed set and are excluded',
     'objectList.devlogNoTopic': 'Not declared or belonging to no sub-goal — an absent `serves` shows as an empty topic. Two cases are indistinguishable mechanically: it may genuinely belong to none, or it may be undeclared (29 §8.1).',
     'objectList.devlogCompressedBody': 'Absorbed — the body is compressed to the two sections "Conclusion & Boundary" and "Destination" (29 §9.1)',
     'objectList.devlogConclusionMissing': 'Current conclusion missing — 29 §8 requires a non-empty `summary` appearing verbatim in the "Conclusion & Boundary" section',
