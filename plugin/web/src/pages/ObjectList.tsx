@@ -1110,13 +1110,15 @@ function SubGoalServingWorkCardZone({ obj }: { obj: ObjectItem }) {
         const visible = expanded ? group.rows : group.rows.slice(0, SUB_GOAL_ASSOCIATION_PREVIEW_LIMIT);
         return (
           <div key={group.type} data-subgoal-serving-type={group.type}>
-            {/* 层名 = 类型名 + 计数。计数用 `ldvh-meta-muted`（同卡底更新时间的弱层级），
-                不另造徽标——它不承载状态判断，只是「这一层有几条」的规模提示。 */}
-            <div className="flex min-w-0 items-center gap-1.5 px-1.5 pb-0.5">
-              <ObjectTypeIcon type={group.type} size={12} className="shrink-0" style={{ color: CATEGORY_COLORS[group.type] || CATEGORY_COLORS.other }} />
-              <span className="ldvh-meta min-w-0 truncate text-ldvh-text-secondary/85">{getTypeLabel(group.type, locale)}</span>
-              <span className="ldvh-meta-muted shrink-0">{group.rows.length}</span>
-            </div>
+            {/* **不设层名**（Human 定案 2026-11-02：圈出的「火花 2」「工单 25」两行去掉）。
+                理由与 `docs/03` §3.2 那条既有纪律同源：行本身**自描述**——行首的类型图标
+                已经说出这是什么类型的对象，再写一遍类型名是同一信息的第二次呈现；计数则
+                由展开按钮的「其余 N 条」与可见行数共同给出，也不需要单独一枚数字。
+
+                此前我在本处加过「类型图标 + 类型名 + 计数」的层名，并为它写了「两类并列
+                需要层名」的理由。那是**给违规找理由**：`docs/03` §3.2 明文「不设类型分组
+                标题」，而该条约束的正是这类行区域。分组仍按类型分成各自的块（各自有
+                `divide-y` 与各自的展开按钮），只是不再给块起名。 */}
             <div className={FACT_ASSOCIATION_ROWS_LIST_CLASS}>
               {visible.map((association, index) => (
                 <FactAssociationCardRow

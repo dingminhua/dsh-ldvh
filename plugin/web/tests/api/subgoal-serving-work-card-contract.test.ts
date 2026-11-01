@@ -234,9 +234,16 @@ test('卡面：按类型分层、每层先展固定条数、其余可展开（Hu
   assert.match(source, /FACT_ASSOCIATION_ROWS_LIST_CLASS/);
   assert.doesNotMatch(source, /function SubGoalServingWorkRow/, '不得自建第二套关联行');
 
-  // 层名带类型图标与计数（分层须可读，否则读者分不清「3 条」是谁的 3 条）。
-  assert.match(source, /data-subgoal-serving-type=\{group\.type\}/);
-  assert.match(source, /getTypeLabel\(group\.type, locale\)/);
+  // **不设层名**（Human 定案 2026-11-02 圈掉「火花 2」「工单 25」两行）：行由行首类型
+  // 图标自描述，再写一遍类型名是同一信息的第二次呈现。分组仍在（各有 divide-y 与各自
+  // 展开按钮），只是不给块起名——`docs/03` §3.2「不设类型分组标题」由此保持成立。
+  assert.match(source, /data-subgoal-serving-type=\{group\.type\}/, '分组承载仍须存在');
+  const zoneSource = source.slice(
+    source.indexOf('function SubGoalServingWorkCardZone'),
+    source.indexOf('export function SubGoalCardContent'),
+  );
+  assert.doesNotMatch(zoneSource, /getTypeLabel\(group\.type/, '本区不得再渲染类型名（层名已撤）');
+  assert.doesNotMatch(zoneSource, /<ObjectTypeIcon type=\{group\.type\}/, '本区不得再渲染层名的类型图标');
 
   // 三条语义边界：空集歧义、读不到单列、达成不由工单推出（28 §8.1 / §18 红线 3）。
   assert.match(source, /objectList\.subGoalServingEmpty/);
