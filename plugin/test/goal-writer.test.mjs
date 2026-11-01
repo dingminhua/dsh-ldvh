@@ -528,6 +528,69 @@ test("goal tools: read/write lifecycle through the real tool handlers", async ()
 	});
 });
 
+test("goal tools: goal-read-object derives sub-goals from SubGoal carriers, never crashing on them", async () => {
+	// 回归（真缺陷，长期未发现）：`derive` 分支直取 `derived.items`，而
+	// `listSubGoalObjects` 返回的是 `success({ value: { items } })` 信封——`items`
+	// 恒为 `undefined`，`derivedItems.map(...)` 必抛
+	// `Cannot read properties of undefined (reading 'map')`。
+	//
+	// 之所以长期没被发现：本项目当时没有任何一条用例在**存在子目标**的项目上调
+	// `goal-read-object`——上面那条 lifecycle 用例只覆盖「goal.md 不存在」。空项目
+	// 走的是 `derived.ok && value.items.length === 0` 之外的分支吗？不是：空项目同样
+	// 会 map 一个空数组，所以只要 `value` 读对就没事；真正的分界是「有没有子目标」，
+	// 而旧代码连空项目也会抛（`undefined.map`）。因此这条用例必须以**有子目标**
+	// 的项目为夹具，否则复现不到。
+	const { makeExecute } = await import("../lib/goal-tools.js");
+	const { initRepo, git } = await import("./helpers.mjs");
+	await withTemp("goal-tools-subgoals.", async (base) => {
+		const repo = await initRepo(base, { name: "repo" });
+		await git(repo, ["commit", "-qm", "init"]);
+		const factRoot = join(repo, "ldvh-base");
+		await mkdir(factRoot, { recursive: true });
+		await writeFile(join(factRoot, "goal.md"), [
+			"---",
+			"goal_key: project-goal",
+			"title: 夹具项目目标",
+			"status: active",
+			"created_at: 2026-01-01T00:00:00.000Z",
+			"change_log:",
+			"  - at: 2026-01-01T00:00:00.000Z",
+			"    summary: 存量",
+			"---",
+			"",
+			"# 项目目标",
+			"",
+			"## 目标陈述",
+			"",
+			"夹具目标陈述。",
+			"",
+		].join("\n"), "utf8");
+		await seedSubGoals(factRoot, ["SG-1", "SG-2"]);
+
+		const home = join(base, "home");
+		await mkdir(join(home, "ldvh"), { recursive: true });
+		await writeFile(join(home, "ldvh", "governed-projects.yaml"), [
+			"schema_version: 1", "governance_instance_name: T", "product_description: T",
+			"projects:", "  - id: p", `    path: ${repo}`, "default_project_id: p", "",
+		].join("\n"));
+		const { handlers } = makeExecute({ dshHomePath: (...p) => join(home, ...p) });
+		const ctx = { agent: { session: { header: { cwd: repo } } } };
+
+		const read = await handlers["goal-read-object"]({}, ctx);
+		// 不得抛异常：old code throws before this line even returns.
+		assert.equal(read.outcome, "completed", JSON.stringify(read.gaps));
+		assert.equal(read.result.sub_goals.length, 2, JSON.stringify(read.result.sub_goals));
+		assert.equal(read.result.sub_goals_unresolved, false);
+		for (const sg of read.result.sub_goals) {
+			assert.equal(typeof sg.object_uid, "string");
+			assert.equal(typeof sg.title, "string");
+			assert.equal(typeof sg.order, "number");
+			// 28 §7：`anchor` 随 SG-n 废止而退场，不得以 undefined 键冒充「有编号但缺失」。
+			assert.equal("anchor" in sg, false);
+		}
+	});
+});
+
 test("goal tools: an invalid action is an invalid_request, not a write", async () => {
 	const { makeExecute } = await import("../lib/goal-tools.js");
 	const { handlers } = makeExecute({ dshHomePath: () => "/tmp/none" });

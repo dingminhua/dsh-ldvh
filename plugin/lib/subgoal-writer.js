@@ -921,17 +921,25 @@ export async function listSubGoalObjects(args) {
       criterion_kind: fm.criterion_kind,
       alignment: fm.alignment,
       disposition: fm.disposition,
+      // `compareByDisplayOrder` 的第二排序键（28 §8：`order` 相等或缺省时按创建
+      // 时间先后）。此前未投影该字段，比较器只能落到 uid 兜底——次序仍稳定，但
+      // 丢了「先建的排前面」这层语义。
+      created_at: fm.created_at,
       file: entry.name,
     });
   }
 
-  // Stable reading order: by numeric anchor, then uid (a human scans SG-1, SG-2…).
-  items.sort((a, b) => {
-    const na = Number(String(a.anchor ?? "").replace(/^SG-/, ""));
-    const nb = Number(String(b.anchor ?? "").replace(/^SG-/, ""));
-    if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb;
-    return String(a.anchor ?? "").localeCompare(String(b.anchor ?? ""));
-  });
+  // Display order (28 §8): `order` ascending when present, then `created_at`,
+  // then uid — **never** a business number (28 §7 已废止 `SG-n`).
+  //
+  // 此前这里按 `anchor` 的数字段排序，而 2026-11-01 的 `a59496c` 已把 `anchor`
+  // 从载体和本函数的投影里一并删除——排序键恒为 `undefined`，于是整张列表退化成
+  // 「`undefined` 互相比较 → 稳定排序保持 readdir 的目录次序」。实测本项目读出的
+  // order 序列为 `2,4,1,3`（应为 `1,2,3,4`）：**列表次序从此是文件系统次序伪装成
+  // 的次序**，且因 `limit` 在排序之后切片，截断时被丢掉的也是随机的条目。
+  // 同一排序在 `listResolvableSubGoals`（经 `compareByDisplayOrder`）里是正确的，
+  // 这里改为复用同一比较器，使两处不再分叉。
+  items.sort(compareByDisplayOrder);
 
   const total = items.length;
   return success({ total, items: items.slice(0, limit), unreadable });

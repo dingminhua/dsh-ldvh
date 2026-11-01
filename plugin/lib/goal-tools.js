@@ -110,7 +110,12 @@ export function makeExecute(deps) {
     // 按 `parent_goal` 反查 SubGoal 载体得到；空集既可能是「还没拆解」也可能
     // 是「拆了但下游没声明」，两种情形机械层不可区分，故显式标注。
     const derived = await listSubGoalObjects({ factSourceRoot: `${governed.path}/ldvh-base`, status: "all" });
-    const derivedItems = derived.ok ? derived.items : [];
+    // `listSubGoalObjects` 返回的是 `success({ total, items, unreadable })` 信封，
+    // 列表在 `derived.value.items` 而不在 `derived.items`。此处曾直取 `derived.items`
+    // （得 `undefined`），使本工具在**任何已有子目标的项目**上抛
+    // `Cannot read properties of undefined (reading 'map')`——空项目不触发，
+    // 故长期未被发现。读 `value` 后 `ok` 已保证 `value` 存在，无需再兜 undefined。
+    const derivedItems = derived.ok ? derived.value.items : [];
     const derivedGaps = derived.ok
       ? []
       : [`subgoal-derivation: ${derived.error.code}: ${derived.error.message}`];
@@ -118,10 +123,13 @@ export function makeExecute(deps) {
       result: {
         status: read.value.frontmatter.status,
         title: read.value.frontmatter.title,
+        // 28 §7 已废止 `SG-n` 业务编号（2026-11-01），故此处不再投影 `anchor`：
+        // 该字段在载体与列表投影里都已不存在，继续投影只会给出恒为 `undefined`
+        // 的键——读起来像「有编号但缺失」，而事实是「本类型没有编号」。
         sub_goals: derivedItems.map((item) => ({
           object_uid: item.object_uid,
-          anchor: item.anchor,
           title: item.title,
+          order: item.order,
           status: item.status,
           criterion: item.criterion,
           criterion_kind: item.criterion_kind,

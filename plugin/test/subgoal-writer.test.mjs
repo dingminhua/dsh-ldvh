@@ -467,6 +467,46 @@ test("listResolvableSubGoals sorts by order, then created_at — never by identi
 // listing (28 §12.4)
 // ---------------------------------------------------------------------------
 
+test("listSubGoalObjects sorts by display order too — it must not fall back to directory order (28 §8)", async () => {
+	await withTemp("subgoal.", async (base) => {
+		const root = await freshRoot(base);
+		// 乱序创建：目录次序与 `order` 次序刻意不同，这样「按 readdir 顺序返回」
+		// 与「按 order 返回」能区分开。
+		for (const [title, order] of [["第三条", 30], ["第一条", 10], ["第二条", 20]]) {
+			const made = await createOne(root, { title, order });
+			assert.equal(made.result.ok, true, JSON.stringify(made.result.error));
+		}
+		const listed = await listSubGoalObjects({ factSourceRoot: root, status: "all" });
+		assert.equal(listed.ok, true);
+		// 回归：`a59496c` 删掉了 `anchor`，而此处排序仍按 `anchor` 的数字段——
+		// 键恒为 undefined，整张列表退化成文件系统次序。实测本项目读出 2,4,1,3。
+		assert.deepEqual(listed.value.items.map((i) => i.order), [10, 20, 30]);
+		assert.deepEqual(listed.value.items.map((i) => i.title), ["第一条", "第二条", "第三条"]);
+		// 与 listResolvableSubGoals 同一次序——两处排序不得分叉。
+		const resolvable = await listResolvableSubGoals(root);
+		assert.deepEqual(
+			listed.value.items.map((i) => i.object_uid),
+			resolvable.value.items.map((i) => i.object_uid),
+		);
+	});
+});
+
+test("listSubGoalObjects does not project a business number — `anchor` is gone (28 §7)", async () => {
+	await withTemp("subgoal.", async (base) => {
+		const root = await freshRoot(base);
+		await createOne(root);
+		const listed = await listSubGoalObjects({ factSourceRoot: root, status: "all" });
+		assert.equal(listed.ok, true);
+		assert.equal(
+			"anchor" in listed.value.items[0],
+			false,
+			"`anchor` 已随 SG-n 废止（a59496c）删除，重新投影会让读者以为「有编号但缺失」",
+		);
+		// `created_at` 是 compareByDisplayOrder 的第二排序键，缺了就只剩 uid 兜底。
+		assert.equal(typeof listed.value.items[0].created_at, "string");
+	});
+});
+
 test("list defaults to active only; status=all includes both terminals (28 §12.4)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
