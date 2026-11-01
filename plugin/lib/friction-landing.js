@@ -162,13 +162,23 @@ export async function landDiscoveryVerdict({
     // 对既有 open 账目的补充级更新（§9 第 4 项）因此**不再在此执行**——它改为
     // 把这次观察连同 `target_uid` 写进缓冲，由审核层在下一次运行时执行补充。
     //
-    // **命中 accepted 时静默**：`accepted` 是「已记录、不再报告」的终态，命中它
-    // **不写缓冲、不晋升、不补充计数**（11 §9 第 1 项 / 36 §8.2 第 6 项）。
-    // 命中事实须在交还 `residual` 中登记，使复审有入口、不构成无痕抑制（11 §15）。
+    // **命中 accepted：不报告、不新建账目，但计数递增**（2026-11-02，Human 裁决
+    // 原文「此类问题就不要重复记录和报告了，但是可以增加被观察到的次数」，
+    // 规范承载见 26 §9.3 计数豁免）。
     //
-    // 该抑制**必须留在发现层**：若改为由审核层抑制，发现层就会先把观察写进缓冲，
-    // 审核层再把它抹掉——抹除本身不留痕，正是「无痕抑制」的形态。故此处保留这次
-    // 只读判定与 residual 登记，它不写事实源，不违反新边界。
+    // 三件事分开落地，缺一即走偏：
+    //   ① **不重复记录**——不得新建账目、不得新建观察组（查重命中即静默）；
+    //   ② **不报告**——命中事实只进 `residual` 供诊断，不进行动前召回、不进度量；
+    //   ③ **但计数递增**——这一项仍须写事实源，而发现层自 2026-10-30 起**只写
+    //      缓冲、不写事实源**（Human 决定）。两条约束如何同时满足：本层把这次
+    //      观察以 `target_uid` 写进缓冲，由审核层在 §9 第 4 项路径上执行计数
+    //      ——与 `open` 账目的补充级更新**走同一条通道**，区别只在
+    //      `supplementOccurrence` 内部的状态闸（它接受 accepted，且只增计数不扩展
+    //      现象段）。故此处不能像早先那样直接 `return silent`。
+    //
+    // 早先的实现直接返回 `action: "silent"`、**完全不写缓冲也不计数**，与上述裁决
+    // 相反；那次的理由是「抹除本身不留痕，正是无痕抑制」，但该理由只反对「写进
+    // 缓冲再抹掉」，不反对「写进缓冲由审核层消费」——后者正是 `open` 走的路径。
     const hit = await readFrictionObject({ factSourceRoot, objectUid: verdict.target_uid });
     if (!hit.ok) {
       // 账目读不出来即无法判定命中哪一态——归入 supplement 阶段（与补充级更新
@@ -178,16 +188,7 @@ export async function landDiscoveryVerdict({
         cause: hit.error,
       });
     }
-    if (hit.value.frontmatter.status === "accepted") {
-      return success({
-        action: "silent",
-        object_uid: verdict.target_uid,
-        promoted: false,
-        status: "accepted",
-        residual: [`命中已接受账目 ${verdict.target_uid}：本次观察与它同源，按「记录一次、不再报告」静默（不写缓冲、不晋升、不补充计数；26 §9.1 / 11 §9 第 1 项）`],
-      });
-    }
-    if (hit.value.frontmatter.status !== "open") {
+    if (hit.value.frontmatter.status !== "open" && hit.value.frontmatter.status !== "accepted") {
       // 既非 accepted 也非 open（resolved / voided）：不得对终态做补充级更新。
       // 如实登记为未处理，交由审核层按既有账目去重规则处置。
       return success({
@@ -240,8 +241,12 @@ export async function landDiscoveryVerdict({
       object_uid: verdict.target_uid,
       entry_id: recordedForSupplement.value?.entry_id ?? null,
       promoted: false,
-      status: "open",
-      residual: [`本次观察与既有 open 账目 ${verdict.target_uid} 同源，已写入缓冲待审核层执行补充级更新（§9 第 4 项已移入 §10.2）`],
+      status: hit.value.frontmatter.status,
+      residual: hit.value.frontmatter.status === "accepted"
+        // accepted 的措辞须与 open 分开：对 `accepted` 而言「待补充」不是「待扩写
+        // 现象」，而是「只增计数」——否则读 residual 的人会以为正文会长出新内容。
+        ? [`本次观察命中已接受账目 ${verdict.target_uid}，已写入缓冲待审核层**只递增计数**（不扩展现象段；26 §9.3 计数豁免 2026-11-02）`]
+        : [`本次观察与既有 open 账目 ${verdict.target_uid} 同源，已写入缓冲待审核层执行补充级更新（§9 第 4 项已移入 §10.2）`],
     });
   }
 

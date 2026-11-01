@@ -269,9 +269,18 @@ export async function supplementOccurrence({
   if (!current.ok) return current;
   const fm = current.value.frontmatter;
   const status = fm.status;
-  // 2026-10 修订：只有 `open` 可做补充级更新（`observing` 已不在闭集内）。
-  if (status !== "open") {
-    return failure("friction/status_terminal", `status=${status} is not open; occurrence counting only applies to an existing open ledger entry (26 §9.3: 仅非终态 open 时可执行). A new obstacle goes through the observation buffer instead (11 §12bis.1).`);
+  // 状态闸（2026-11-02 修订）：`open` 走完整补充级更新；`accepted` 只走**计数**
+  // （26 §9.3 计数豁免）；`resolved`/`voided` 仍拒绝。
+  //
+  // 为什么 `accepted` 是例外（Human 2026-11-02 裁决原文：「此类问题就不要重复记录
+  // 和报告了，但是可以增加被观察到的次数」）：`accepted` 的语义正是「阻碍真实、
+  // 消除途径不存在或不在本项目可动范围」，故该阻碍**会继续发生**；不计数等于让
+  // 账本声称「这类事只发生过一次」。三件事分开：不新建账目、不报告、但计数递增。
+  // 其现象段**仍然冻结**——它与 `open` 的差别在于账不再供判断用，只供度量用
+  // （「已接受成本」计数），故只增数字不增叙述，避免账本膨胀。
+  const countOnly = status === "accepted";
+  if (status !== "open" && !countOnly) {
+    return failure("friction/status_terminal", `status=${status} is neither open nor accepted; occurrence counting applies to an open ledger entry (full supplement) or an accepted one (count only, 26 §9.3 计数豁免). A new obstacle goes through the observation buffer instead (11 §12bis.1).`);
   }
   const occurrence = fm.occurrence;
   if (typeof occurrence !== "object" || occurrence === null || !Number.isInteger(occurrence.count)) {
@@ -297,10 +306,16 @@ export async function supplementOccurrence({
   //   545cca82 H1=2、bf73fad4 H1=2，其余 21 条为 1——只有被本路径写过的才中招）。
   // 修法取 `workcase-writer.js` 的既有范式（同一读-写不对称，该类型早已按此处置）。
   const evidenceText = isNonEmptyString(evidence) ? evidence.trim() : null;
-  const addition = evidenceText === null
-    ? `补充观察（${now}）：${observation.trim()}`
-    : `补充观察（${now}）：${observation.trim()}\n逐字引证：${evidenceText}`;
-  const nextBody = `${stripLeadingH1(current.value.body)}\n\n${addition}`;
+  // `accepted` 只增计数、**不扩展现象段**（26 §9.3 计数豁免第 4 项）：账不再供
+  // 判断用，只供度量用，故只增数字不增叙述，避免账本无限膨胀。正文按原样回写
+  // （`bodyMarkdownAfter` 是必填项，不能省）。
+  const addition = countOnly
+    ? null
+    : evidenceText === null
+      ? `补充观察（${now}）：${observation.trim()}`
+      : `补充观察（${now}）：${observation.trim()}\n逐字引证：${evidenceText}`;
+  const baseBody = stripLeadingH1(current.value.body);
+  const nextBody = addition === null ? baseBody : `${baseBody}\n\n${addition}`;
 
   const frontmatterAfter = {
     ...fm,

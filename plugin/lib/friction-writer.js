@@ -952,9 +952,58 @@ export async function updateFrictionObject(args) {
 
   // 26 §9.2: resolved、voided 与 accepted 均为终态（终态不重开；销错/记错/接受错的账按 05 事实更正修正）。
   // voided 于 2026-11 进入闭集、accepted 于 2026-10 进入闭集——新终态均须在此拦截。
+  //
+  // **`accepted` 的计数豁免（2026-11-02，Human 决定 —— 26 §9.3）**：`accepted`
+  // 仍不可「重开」（状态不得变化、正文不得改写），但**允许 `occurrence` 递增**。
+  // Human 原文：「此类问题就不要重复记录和报告了，但是可以增加被观察到的次数」。
+  // 该例外只开在 `accepted` 上，且只对 `occurrence` 一个字段——`resolved` /
+  // `voided` 照旧完全只读（一个已不再复现、一个是记错的账，计数都没有对象）。
+  //
+  // 闸的判据用「提议值与磁盘基线的差异字段集」而不是「调用方声称要写什么」：
+  // 后者可被伪造（声称只改计数却顺手改别的），差异集是调用方无法自证的。
   const prevStatus = current.value.frontmatter.status;
-  if (prevStatus === "resolved" || prevStatus === "voided" || prevStatus === "accepted") {
-    return failure("friction/status_terminal", `status=${prevStatus} is terminal and the object is read-only (26 §9.2); a recurring obstacle goes through a NEW ledger entry referencing this uid`);
+  const isTerminal = prevStatus === "resolved" || prevStatus === "voided" || prevStatus === "accepted";
+  if (isTerminal) {
+    const terminalMessage = `status=${prevStatus} is terminal and the object is read-only (26 §9.2); a recurring obstacle goes through a NEW ledger entry referencing this uid`;
+    if (prevStatus !== "accepted") return failure("friction/status_terminal", terminalMessage);
+    if (
+      frontmatterAfter === null
+      || typeof frontmatterAfter !== "object"
+      || (Object.prototype.hasOwnProperty.call(frontmatterAfter, "status")
+        && frontmatterAfter.status !== "accepted")
+    ) {
+      return failure("friction/status_terminal", terminalMessage);
+    }
+    const baseline = current.value.frontmatter;
+    const changedKeys = Object.keys(frontmatterAfter).filter((key) => {
+      // Code 托管字段不参与差异判定（它们由写入侧重写，不是调用意图）
+      if (key === "object_uid" || key === "fact_type_key" || key === "created_at" || key === "change_log") return false;
+      const next = frontmatterAfter[key];
+      if (next === undefined) return false;
+      return JSON.stringify(next) !== JSON.stringify(baseline[key]);
+    });
+    const outsideOccurrence = changedKeys.filter((key) => key !== "occurrence");
+    if (outsideOccurrence.length > 0) {
+      return failure(
+        "friction/status_terminal",
+        `status=accepted allows ONLY occurrence counting (26 §9.3 计数豁免 2026-11-02); this write also changes: ${outsideOccurrence.join(", ")}`,
+      );
+    }
+    if (typeof bodyMarkdownAfter === "string" && bodyMarkdownAfter.length > 0) {
+      // accepted 的正文（含现象段与处置段）必须逐字冻结——只增数字不增叙述。
+      //
+      // 剥离生成的 H1 后逐字比对。**不 import `friction-discovery.js` 的
+      // `stripLeadingH1`**：该模块已 import 本模块，反向引用会成环（ESM 下会拿到
+      // 未初始化的绑定）。此处内联同一正则并注明同源；两处判据一致由用例守
+      // （test/friction-writer.test.mjs 的「H1 剥离口径两处一致」）。
+      const bodyWithoutH1 = current.value.body.replace(/^\s*#\s+.*(\n+|$)/, "").replace(/^\s+/, "");
+      if (bodyMarkdownAfter !== bodyWithoutH1) {
+        return failure(
+          "friction/status_terminal",
+          "status=accepted freezes the body verbatim (26 §9.3 计数豁免第 4 项：只增数字不增叙述)",
+        );
+      }
+    }
   }
 
   // Build updated frontmatter; strip the call-only param

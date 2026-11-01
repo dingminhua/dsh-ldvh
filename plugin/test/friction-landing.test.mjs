@@ -308,10 +308,15 @@ test("终态账目（voided）不得被补充计数（26 §9.3 计数冻结）",
 });
 
 // ---------------------------------------------------------------------------
-// accepted 命中静默（2026-10 新增）
+// accepted 命中：不报告，但计数递增（2026-11-02 修订）
+//
+// 口径变更依据：Human 裁决原文「此类问题就不要重复记录和报告了，但是可以增加被
+// 观察到的次数」，规范承载见 26 §9.3 计数豁免。早先本组用例断言「完全不计数」，
+// 与裁决相反 —— 那次实现直接把命中判成 `silent` 且不写缓冲，于是计数永远停在
+// 接受时刻的值，账本声称「这类事只发生过一次」，与事实不符。
 // ---------------------------------------------------------------------------
 
-test("命中 accepted：不写缓冲、不晋升、不计数，且在 residual 登记命中事实（11 §9 第 1 项 / §15）", async () => {
+test("命中 accepted：不新建账目、不晋升、不报告，但计数经审核层递增（26 §9.3 计数豁免）", async () => {
   await withLedger(async (ctx) => {
     const uid = await seedOpen(ctx.factSourceRoot, { count: 1 });
     const read = await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: uid });
@@ -332,20 +337,90 @@ test("命中 accepted：不写缓冲、不晋升、不计数，且在 residual �
 
     const r = await land(ctx, sameObstacleVerdict(uid), { observationAt: "2026-11-04T00:00:00.000Z" });
     assert.ok(r.ok, JSON.stringify(r.error));
-    assert.equal(r.value.action, "silent", "命中 accepted 的动作是静默，不是补充级更新");
-    assert.equal(r.value.promoted, false, "不得晋升");
+    // ① 不报告、不晋升：命中 accepted 绝不新建账目。
+    assert.equal(r.value.promoted, false, "不得晋升（不新建账目）");
+    assert.match(String(r.value.action), /supplement-pending/, "计数的执行交给审核层（发现层不写事实源）");
     assert.ok(Array.isArray(r.value.residual) && r.value.residual.length > 0, "命中事实须在 residual 登记（不得无痕抑制）");
     assert.match(r.value.residual.join("\n"), new RegExp(uid), "residual 须点名命中的已接受账目");
 
-    // 计数冻结：accepted 的 occurrence 不因命中而递增。
-    const after = await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: uid });
-    assert.equal(after.value.frontmatter.occurrence.count, acceptedCount, "26 §9.3：终态计数冻结");
-    assert.equal(after.value.frontmatter.status, "accepted", "26 §9.2：终态不重开");
+    // ② 发现层本身不写事实源：此刻计数还没动（与 open 走同一条通道）。
+    const mid = await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: uid });
+    assert.equal(mid.value.frontmatter.occurrence.count, acceptedCount, "发现层不改事实源（26 §9.3 / 11 §9 第 4 项移入审核层）");
 
-    // 不写缓冲：观察缓冲里不得留下该次观察的条目。
+    // ③ 但观察已入缓冲、带 target_uid，等待审核层消费。
     const buf = await readFrictionObservations(ctx.dshHomePath, PROJECT, { status: "pending" });
     assert.ok(buf.ok);
-    assert.equal(buf.value.items.length, 0, "命中 accepted 不得写观察缓冲");
+    assert.equal(buf.value.items.length, 1, "命中 accepted 须写一条带 target_uid 的缓冲条目");
+    assert.equal(buf.value.items[0].target_uid, uid, "缓冲条目须指向被命中的账目");
+  });
+});
+
+test("审核层执行 accepted 计数：count 递增、现象段不扩展、状态不变（26 §9.3 计数豁免 2026-11-02）", async () => {
+  await withLedger(async (ctx) => {
+    const uid = await seedOpen(ctx.factSourceRoot, { count: 2 });
+    const read = await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: uid });
+    const { updateFrictionObject } = await import("../lib/friction-writer.js");
+    const disposition = "消除途径不存在：依赖不提供该钩子（测试）。复审触发：依赖升级时重审。";
+    const accepted = await updateFrictionObject({
+      factSourceRoot: ctx.factSourceRoot,
+      objectUid: uid,
+      expectedFingerprint: read.value.fingerprint,
+      frontmatterAfter: { ...read.value.frontmatter, status: "accepted", disposition },
+      bodyMarkdownAfter: `${stripLeadingH1(read.value.body)}\n\n## 处置\n${disposition}`,
+      changeSummary: "测试：接受为不可清偿",
+      sessionSignature: SIG,
+    });
+    assert.ok(accepted.ok, JSON.stringify(accepted.error));
+    const before = await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: uid });
+    const bodyBefore = before.value.body;
+
+    // 审核层的补充路径就是这个函数（friction-landing 把活交给它）。
+    const { supplementOccurrence } = await import("../lib/friction-discovery.js");
+    const sup = await supplementOccurrence({
+      factSourceRoot: ctx.factSourceRoot,
+      objectUid: uid,
+      observation: "又一次看到同一阻碍",
+      observationAt: "2026-11-05T00:00:00.000Z",
+      sessionSignature: SIG,
+    });
+    assert.ok(sup.ok, JSON.stringify(sup.error));
+    assert.equal(sup.value.count_after, before.value.frontmatter.occurrence.count + 1, "accepted 的 count 必须递增");
+    assert.equal(sup.value.status, "accepted", "状态不变（计数不是流转）");
+
+    const after = await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: uid });
+    assert.equal(after.value.frontmatter.status, "accepted", "26 §9.2：终态不重开");
+    assert.equal(after.value.frontmatter.occurrence.count, before.value.frontmatter.occurrence.count + 1);
+    // ③ 只增数字不增叙述
+    assert.equal(after.value.body, bodyBefore, "accepted 的现象段必须冻结（只增数字不增叙述）");
+  });
+});
+
+test("resolved / voided 的计数仍然冻结——豁免只给 accepted（26 §9.3）", async () => {
+  await withLedger(async (ctx) => {
+    const uid = await seedOpen(ctx.factSourceRoot, { count: 1 });
+    const { supplementOccurrence } = await import("../lib/friction-discovery.js");
+    const read = await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: uid });
+    const { updateFrictionObject } = await import("../lib/friction-writer.js");
+    const voided = await updateFrictionObject({
+      factSourceRoot: ctx.factSourceRoot,
+      objectUid: uid,
+      expectedFingerprint: read.value.fingerprint,
+      frontmatterAfter: { ...read.value.frontmatter, status: "voided", disposition: "归因错误：不是系统性阻碍（测试）。" },
+      bodyMarkdownAfter: `${stripLeadingH1(read.value.body)}\n\n## 处置\n归因错误：不是系统性阻碍（测试）。`,
+      changeSummary: "测试：废弃",
+      sessionSignature: SIG,
+    });
+    assert.ok(voided.ok, JSON.stringify(voided.error));
+
+    const sup = await supplementOccurrence({
+      factSourceRoot: ctx.factSourceRoot,
+      objectUid: uid,
+      observation: "又一次看到",
+      observationAt: "2026-11-05T00:00:00.000Z",
+      sessionSignature: SIG,
+    });
+    assert.equal(sup.ok, false, "voided 不得做计数递增");
+    assert.equal(sup.error.code, "friction/status_terminal");
   });
 });
 
@@ -532,4 +607,78 @@ test("residualFromLandingError：明细过多须**显式标注截断**，不得�
 test("residualFromLandingError：明细里的空串/空白项须剔除，不得占位", () => {
   const error = { code: "x", message: "outer", cause: { details: { issues: ["real issue", "", "   ", null] } } };
   assert.deepEqual(residualFromLandingError(error), ["real issue"]);
+});
+
+test("accepted 的豁免只给计数：同一次写入顺带改别的字段或改正文一律被拒（26 §9.3）", async () => {
+  await withLedger(async (ctx) => {
+    const uid = await seedOpen(ctx.factSourceRoot, { count: 1 });
+    const read = await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: uid });
+    const { updateFrictionObject } = await import("../lib/friction-writer.js");
+    const disposition = "消除途径不存在（测试）。复审触发：依赖升级时重审。";
+    const accepted = await updateFrictionObject({
+      factSourceRoot: ctx.factSourceRoot,
+      objectUid: uid,
+      expectedFingerprint: read.value.fingerprint,
+      frontmatterAfter: { ...read.value.frontmatter, status: "accepted", disposition },
+      bodyMarkdownAfter: `${stripLeadingH1(read.value.body)}\n\n## 处置\n${disposition}`,
+      changeSummary: "测试：接受为不可清偿",
+      sessionSignature: SIG,
+    });
+    assert.ok(accepted.ok, JSON.stringify(accepted.error));
+    const base = await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: uid });
+    const fm = base.value.frontmatter;
+    const frozenBody = stripLeadingH1(base.value.body);
+
+    // ① 计数 + 顺手改 impact —— 必须被拒
+    const smuggleImpact = await updateFrictionObject({
+      factSourceRoot: ctx.factSourceRoot,
+      objectUid: uid,
+      expectedFingerprint: base.value.fingerprint,
+      frontmatterAfter: {
+        ...fm,
+        occurrence: { ...fm.occurrence, count: fm.occurrence.count + 1, last_at: "2026-11-06T00:00:00.000Z" },
+        impact: fm.impact === "light" ? "heavy" : "light",
+      },
+      bodyMarkdownAfter: frozenBody,
+      changeSummary: "试探：计数同时改 impact",
+      sessionSignature: SIG,
+    });
+    assert.equal(smuggleImpact.ok, false, "accepted 下只允许 occurrence 变化");
+    assert.equal(smuggleImpact.error.code, "friction/status_terminal");
+    assert.match(smuggleImpact.error.message, /impact/);
+
+    // ② 计数 + 改正文 —— 必须被拒
+    const smuggleBody = await updateFrictionObject({
+      factSourceRoot: ctx.factSourceRoot,
+      objectUid: uid,
+      expectedFingerprint: base.value.fingerprint,
+      frontmatterAfter: {
+        ...fm,
+        occurrence: { ...fm.occurrence, count: fm.occurrence.count + 1, last_at: "2026-11-06T00:00:00.000Z" },
+      },
+      bodyMarkdownAfter: `${frozenBody}\n\n多写一段不该有的内容`,
+      changeSummary: "试探：计数同时扩写现象段",
+      sessionSignature: SIG,
+    });
+    assert.equal(smuggleBody.ok, false, "accepted 的正文必须逐字冻结");
+    assert.equal(smuggleBody.error.code, "friction/status_terminal");
+
+    // ③ 只改计数 —— 放行
+    const legitimate = await updateFrictionObject({
+      factSourceRoot: ctx.factSourceRoot,
+      objectUid: uid,
+      expectedFingerprint: base.value.fingerprint,
+      frontmatterAfter: {
+        ...fm,
+        occurrence: { ...fm.occurrence, count: fm.occurrence.count + 1, last_at: "2026-11-06T00:00:00.000Z" },
+      },
+      bodyMarkdownAfter: frozenBody,
+      changeSummary: "补充观察：count 递增（26 §9.3 计数豁免）",
+      sessionSignature: SIG,
+    });
+    assert.ok(legitimate.ok, JSON.stringify(legitimate.error));
+    const after = await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: uid });
+    assert.equal(after.value.frontmatter.occurrence.count, fm.occurrence.count + 1);
+    assert.equal(after.value.frontmatter.status, "accepted", "计数不是流转");
+  });
 });
