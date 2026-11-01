@@ -51,6 +51,55 @@ plan:
     done_criteria: friction-window.js 的 MAX_CHARS_PER_TURN 为 20000；clamp 逻辑与取前缀行为不变；有测试证明超过 2000 字的回复完整保留、15000 字以上的轮次完整保留、超过 20000 字时 truncated 为 true 且内容为前 20000 字
   - step: 修订 11 §19.1：登记本轮归口，并更正该节内残留的旧结论表述
     done_criteria: §19.1 写明本轮触及的具体项——机械校验范围与 fail-closed 处置（第 3 项）；给出 Human 决定的引用与理由；且该节内不再出现「实测范围内与全文逐字节相同」这一已被推翻的表述
+pre_reviews:
+  - at: 2026-11-01T19:24:37.578Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: |-
+      ```dsh-ui
+      {"title":"第三轮审核 · 三维结论","items":[{"type":"table","columns":["维度","结论","证据"],"rows":[["对象恰当性","符合","单一工单，聚焦两条必改+新增问题，未越界重审" ],["方案可行性","符合","85712d6 提交、规范正文、常量 20000、用例全绿四处实证" ],["scope 清晰度","符合","四项做什么与三步 plan 对应；883a3cb 偏离已如实登记" ]]},{"type":"callout","tone":"success","content":"verdict: pass —— 两条必改已落地，无新问题，建议按 specs/21 §14 进入下一阶段。"}]}
+      ```
+    session_id: 8a45e653-ae03-4851-b1b2-227904fd5b17
+    session_source: host
+    auditor_origin: subagent
+    candidate_fingerprint: 0772375ece74f4d639af18744bc7f6d6bf5a429e2363b3671640504edaadfaff
+    covered_partitions:
+      - id: plan#1
+        fingerprint: 303f18f20ce72faa684de0ab2474b6b5aab2a50d9825b56c6d2eda8c2a46a655
+      - id: plan#2
+        fingerprint: daf8ec5d2fc31da676fd46708aad0e9d5b79cf79147f5c349947e12d12d6a828
+      - id: plan#3
+        fingerprint: a58b6ebec747e57d318566ff9b029382a9a9d01fd95681105d484e8db92d7557
+      - id: scope:做什么#1
+        fingerprint: d055c4be7cca4fdbefd385d20c17e324636501a3e5e4a4eb40c46cc0fce1f90a
+      - id: scope:做什么#2
+        fingerprint: 9f2507612ff58f9b3a54f27d7c4d7b61fb4c2fa509a308c905adfdc247cf7327
+      - id: scope:做什么#3
+        fingerprint: 8ac56156d7e96eaf4ce06f11ffb1348b3620fbcda27427f686c6aa43d11e138b
+      - id: scope:做什么#4
+        fingerprint: 67929124ce36d223ddb877283155f69b26ba085f9979d9edfb6e1bd890ca3142
+      - id: scope:明确不做什么#1
+        fingerprint: caa8222f2524b247018860ecc18d2f4f161c6b7026f2d0417db131e000205089
+      - id: scope:明确不做什么#2
+        fingerprint: 8b6f1da2018306b0e7a48cc7850f514fd68c06e362f199eac8b61fb47e95edbe
+      - id: scope:明确不做什么#3
+        fingerprint: 215954619724cf5b54fbdb6625dff60021f27dcca35716c2dd1df04338c832cb
+      - id: scope:明确不做什么#4
+        fingerprint: ba1629f155ddf78f013ef161e7cdd0194d47f9713c2d894f4081fba3ed695061
+      - id: scope:明确不做什么#5
+        fingerprint: 07fc7ae175cfa12b02d1d090dad5e3a53b57e843d7962560c191fe347502a6a5
+      - id: scope:明确不做什么#6
+        fingerprint: 769ae6a2d9e4b4e17604a352ae8543d00f6df549fd98fd431acdd5e9fc1e979d
+      - id: scope:明确不做什么#7
+        fingerprint: c3b6c90f70b0a5ae320d0160457390eea99c13e60949f11c3f3d64f3c371e54e
+      - id: scope:明确不做什么#8
+        fingerprint: 589fb8ca5e49bd11933122fa0c95f1e2ee6a0f226277c5a28c7de54a50e33dad
+      - id: scope:明确不做什么#9
+        fingerprint: b4356232a4216f059799f2e071c8e1f33e35d32ce94c9006dd89bf78f4394a8e
+      - id: scope:明确不做什么#10
+        fingerprint: 550420a5b3b146cd4aac0b1b71e572107d615f56f60f003394f96644a0ac7509
+    round_index: 1
+    verdict: pass
 created_at: 2026-10-29T07:49:57.414Z
 change_log:
   - at: 2026-10-29T07:49:57.414Z
@@ -97,6 +146,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 按第二轮建前审核 needs_revision 落地两条必改：①补登记 §19.1 旧结论残留已由 85712d6 更正并写入摘要与第 3 步判据；②把「§19.1 归口（归第 4 项）」改为「属 2026-10-30 同一 Human 决定的实现面内容、无独立归口条目」
+  - at: 2026-11-01T19:24:37.578Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: "登记本工单经 record_audit 通道的第一条审核节点（pass）。据实声明：此前另有两轮独立审核（f6d58081 判 pass 附三处应修；e8f4fb3f 判 needs_revision 附两条必改），均发生在本通道启用之前、其候选内容也已被后续修订取代，故不回填为节点——回填会让 Code 按当前候选算出的分区指纹错误绑定到旧候选上。两轮结论已完整并入工单正文的修订动机。 [pre-gate1 audit recorded by session 8a45e653-ae03-4851-b1b2-227904fd5b17; verdict: pass; round: 1/3; covered: 17/17 partition(s); candidate_fingerprint: 0772375ece74…; pre_reviews entries: 1; 记录自子代理会话 8a45e653-ae03-4851-b1b2-227904fd5b17 的最终产出（Code 捕获）]"
 ---
 
 # 摩擦材料单轮上限 2000 提到 20000
