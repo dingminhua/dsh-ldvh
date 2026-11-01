@@ -20,6 +20,7 @@ import {
   PitfallCardContent,
   SparkCardContent,
   ResearchCardContent,
+  SubGoalCardContent,
 } from '@/pages/ObjectList';
 import { fetchFederationObjects, type FederationObjectItem, type FederationProjectOption } from '@/utils/api';
 import { useProjectScope } from '@/utils/projectContext';
@@ -135,6 +136,7 @@ export default function FederationObjects() {
     if (currentType === 'research') return <ResearchCardContent obj={item} />;
     if (currentType === 'friction') return <FrictionCardContent obj={item} />;
     if (currentType === 'norm') return <NormCardContent obj={item} />;
+    if (currentType === 'subgoal') return <SubGoalCardContent obj={item} />;
     if (currentType === 'workcase') {
       // WorkCase 联邦卡不复制单项目列表的阶段卡片投影（依赖当前项目的投影服务），
       // 卡体首行同样渲染 gist（10 §5.5「卡面与详情的字段分工」适用于全部卡面，

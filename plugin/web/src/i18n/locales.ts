@@ -217,7 +217,7 @@ export const TYPE_DESCRIPTION_LOCALES: Record<string, { zh: string; en: string }
   friction: { zh: '摩擦账本——应该修但还没修的系统性阻碍（26 §1）', en: 'An improvement ledger: systemic obstacles that should be fixed but are not yet (26)' },
   norm: { zh: '事实规范——一个工程方向的成体系规则体系（27 §1）', en: 'A fact-carried norm: the systematic rule system of one engineering direction' },
   goal: { zh: '项目目标——单例冻结锚：目标陈述 + sub-goal 子目标（25 §1）', en: 'The project goal: a singleton frozen anchor of statement and sub-goals' },
-  subgoal: { zh: '子目标——围绕项目目标展开的下级锚点：冻结的 SG-n、可判定的达成条件与对齐说明（28 §1）', en: 'A sub-goal: a subordinate anchor under the project goal, carrying a frozen SG-n, a decidable criterion, and its alignment statement' },
+  subgoal: { zh: '子目标——围绕项目目标展开的下级事实对象：稳定身份、可选次序、可判定的达成条件与对齐说明（28 §1）', en: 'A sub-goal: a subordinate fact object under the project goal, carrying a stable identity, an optional display order, a decidable criterion, and its alignment statement' },
   change: { zh: '提交', en: 'Commit' },
 };
 
@@ -518,12 +518,13 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   norm_constraints: { zh: '约束与反模式', en: 'Constraints & Anti-patterns' },
   norm_compliance: { zh: '验证与遵从性检查', en: 'Verification & Compliance' },
   // v5 Goal（25 号）详情阅读布局标题：目标陈述（冻结区——为什么 + 要实现什么）
-  // 与子目标（SG-n 可判定的达成条件，冻结区）。
+  // 与子目标（28 号对象，按 parent_goal 反查派生，不在本载体存储）。
   goal_statement: { zh: '目标陈述', en: 'Goal Statement' },
   goal_sub_goals: { zh: '子目标', en: 'Sub-goals' },
-  // v5 SubGoal（28 号）阅读布局与卡片标题：anchor 是业务键（不是对象身份，
-  // §7），criterion/criterion_kind/alignment 是本类型存在的理由（§8）。
-  subgoal_anchor: { zh: '锚点', en: 'Anchor' },
+  // v5 SubGoal（28 号）阅读布局与卡片标题：身份由 object_uid 承担、显示次序由
+  // 可选 `order` 承担（§7，2026-11-01 废止 SG-n），criterion/criterion_kind/
+  // alignment 是本类型存在的理由（§8）。
+  subgoal_order: { zh: '次序', en: 'Order' },
   subgoal_parent_goal: { zh: '服务目标', en: 'Parent Goal' },
   subgoal_criterion: { zh: '达成条件', en: 'Criterion' },
   subgoal_criterion_kind: { zh: '判据类型', en: 'Criterion Kind' },
@@ -989,7 +990,9 @@ export const UI_LOCALES = {
     'goalDetail.subGoals': '子目标',
     'goalDetail.subGoalLegacy': '该行仍来自 goal.md 已移出的子目标段——属于待迁移，不构成第二条权威（28 §14.2）',
     'objectList.subGoalAchievedNote': '该子目标的达成条件已由证据满足——由判据判定，不由名下工作全部关闭推出（28 §18 红线 3）。',
-    'objectDetail.subGoalAnchorMissing': '锚点缺失',
+    'objectList.subGoalOrderLabel': '次序',
+    'objectList.subGoalOrderAbsent': '未定次序',
+    'objectDetail.subGoalOrderAbsent': '未定次序（28 §8：order 可缺失，缺省排在有序者之后，不补隐式编号）',
     'objectDetail.subGoalCriterionDetail': '达成条件（展开）',
     'objectDetail.subGoalAlignmentDetail': '对齐说明（展开）',
     'objectDetail.subGoalServingWork': '名下的工作',
@@ -1785,7 +1788,7 @@ export const UI_LOCALES = {
     'help.step.2.title': '围绕目标展开调研',
     'help.step.2.body': '要求 AI 围绕项目目标展开相关调研，收集事实、评估方案，形成调研报告（Research）。',
     'help.step.3.title': '讨论得出分解目标',
-    'help.step.3.body': '拿到调研结果后，使用讨论模块与 AI 进行讨论，将项目目标分解为更小的子目标（SG-n）。',
+    'help.step.3.body': '拿到调研结果后，使用讨论模块与 AI 进行讨论，将项目目标分解为更小的子目标（各自带可判定的达成条件与对齐说明）。',
     'help.step.4.title': '再次调研分解目标',
     'help.step.4.body': '针对分解出的子目标，再次进行针对性调研，确认每个子目标的可行路径与依据。',
     'help.step.5.title': '讨论出可行动的工单',
@@ -1814,7 +1817,9 @@ export const UI_LOCALES = {
     'goalDetail.subGoals': 'Sub-goals',
     'goalDetail.subGoalLegacy': 'This row still comes from the migrated-away sub-goal section in goal.md — it is pending migration, not a second authority (28 §14.2)',
     'objectList.subGoalAchievedNote': 'This sub-goal\'s criterion has been satisfied by evidence — judged by the criterion itself, not inferred from all its work being closed (28 §18 red line 3).',
-    'objectDetail.subGoalAnchorMissing': 'Anchor missing',
+    'objectList.subGoalOrderLabel': 'Order',
+    'objectList.subGoalOrderAbsent': 'No order',
+    'objectDetail.subGoalOrderAbsent': 'No order (28 §8: `order` may be absent; an unordered sub-goal sorts after ordered ones and is never given an implicit number)',
     'objectDetail.subGoalCriterionDetail': 'Criterion (expanded)',
     'objectDetail.subGoalAlignmentDetail': 'Alignment (expanded)',
     'objectDetail.subGoalServingWork': 'Work serving this sub-goal',
@@ -2591,7 +2596,7 @@ export const UI_LOCALES = {
     'help.step.2.title': 'Research around the goal',
     'help.step.2.body': 'Ask the AI to research the project goal: gather facts, evaluate approaches, and produce a research report (Research).',
     'help.step.3.title': 'Discuss and break down the goal',
-    'help.step.3.body': 'With the research results in hand, discuss with the AI to break the project goal into smaller sub-goals (SG-n).',
+    'help.step.3.body': 'With the research results in hand, discuss with the AI to break the project goal into smaller sub-goals, each carrying a decidable criterion and its alignment statement.',
     'help.step.4.title': 'Research the sub-goals again',
     'help.step.4.body': 'Run targeted research on the broken-down sub-goals to confirm the feasible path and evidence for each.',
     'help.step.5.title': 'Discuss actionable WorkCases',

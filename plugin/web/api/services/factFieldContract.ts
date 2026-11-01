@@ -245,10 +245,12 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
   // （28 §7）。criterion / criterion_kind / alignment 是该类型存在的理由：
   // 没有可判定的达成条件，子目标就退化成一句待办（28 §18 红线 3）。
   // 本类型不设 urls（§11：判据与对齐住正文，不接外部证据链）与 relations
-  // （§11：层级只允许两层，上下游都由 anchor 与 serves 反查派生，不建第二边）。
+  // （§11：层级只允许两层，上下游都由 parent_goal 与 serves 反查派生，不建第二边）。
+  // 2026-11-01：`anchor`（SG-n）已废止（28 §7）——身份由 object_uid 承担，
+  // 显示次序由可选的 `order` 承担，二者不可互相替代。
   subgoal: {
     ...common,
-    anchor: field('subgoal-anchor', 'string', true),
+    order: field('subgoal-order', 'number', false),
     parent_goal: field('subgoal-parent-goal', 'string', true),
     criterion: field('subgoal-criterion', 'string', true),
     criterion_kind: field('subgoal-criterion-kind', 'string', true),

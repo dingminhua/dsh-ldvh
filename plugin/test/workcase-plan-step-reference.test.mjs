@@ -29,7 +29,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
-import { seedSubGoals, withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
+import { seedSubGoals, subGoalUid, withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
 import { registerWorkcaseTools } from "../lib/workcase-tools.js";
 import { createWorkcaseObject, readWorkcaseObject, recordWorkcaseAudit } from "../lib/workcase-writer.js";
 import { authoritativeSignature, authoritativeSessionIdentity } from "../lib/signature-channel.js";
@@ -107,7 +107,7 @@ function validDraft(overrides = {}) {
   return {
     title: "实现 X 的最小承载",
     gist: "为 X 建立最小承载，使后续工作可复用。",
-    serves: "SG-1",
+    serves: subGoalUid(1),
     summary: "为 X 建立最小实现并通过测试，使后续工作可复用。",
     scope: "做什么：\n- 实现 X 的 writer 与测试\n\n明确不做什么：\n- 不改 Web 呈现",
     plan: PLAN,

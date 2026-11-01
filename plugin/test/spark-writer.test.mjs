@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { seedSubGoals, testSignature, withTemp } from "./helpers.mjs";
+import { seedSubGoals, subGoalUid, testSignature, withTemp, UNKNOWN_SUBGOAL_UID } from "./helpers.mjs";
 
 // 03 §6.1 / 09: every write carries the authoritative signature. Domain-rule
 // tests supply a branded test carrier; the signature gate has its own cases.
@@ -21,7 +21,7 @@ import {
   readSparkObject,
   updateSparkObject,
   isSingleSentence,
-  readGoalAnchors,
+  readServableSubGoals,
   sparkFileName,
   SPARK_DIRECTORY,
   validateSparkBodyStructure,
@@ -293,7 +293,7 @@ test("create: serves declared but goal.md missing rejected (20 §17.1 stop condi
     // no goal.md in root
     const result = await createSparkObject({
       factSourceRoot: root,
-      frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-1" },
+      frontmatterDraft: { ...validFrontmatterDraft(), serves: subGoalUid(1) },
       bodyMarkdown: validBodyMarkdown(),
       sessionSignature: TEST_SIGNATURE,
     });
@@ -308,7 +308,7 @@ test("create: serves=SG-99 not present in goal.md rejected (20 §13)", async () 
     await seedGoalAnchorObjects(root);
     const result = await createSparkObject({
       factSourceRoot: root,
-      frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-99" },
+      frontmatterDraft: { ...validFrontmatterDraft(), serves: UNKNOWN_SUBGOAL_UID },
       bodyMarkdown: validBodyMarkdown(),
       sessionSignature: TEST_SIGNATURE,
     });
@@ -1007,29 +1007,32 @@ test("split: A discarded+split-into→B,C (both open) succeeds (20 §9.3 拆分)
 // goal.md anchors (20 §13 / 25 §6)
 // ---------------------------------------------------------------------------
 
-test("readGoalAnchors resolves SG-n anchors from SubGoal objects (28 §12.3)", async () => {
+test("readServableSubGoals returns SubGoal objects, not SG-n strings (28 §12.3)", async () => {
   await withTemp("spark-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
     await seedGoalAnchorObjects(root);
-    const anchors = await readGoalAnchors(root);
-    assert.equal(anchors.ok, true, anchors.reason);
-    assert.deepEqual([...anchors.anchors].sort(), ["SG-1", "SG-2", "SG-3", "SG-4"]);
+    const listed = await readServableSubGoals(root);
+    assert.equal(listed.ok, true, listed.reason);
+    // The shape itself is the guarantee: callers receive objects with an
+    // object_uid, so a human-readable label cannot be mistaken for the identity.
+    assert.deepEqual(listed.subGoals.map((g) => g.object_uid), [subGoalUid(1), subGoalUid(2), subGoalUid(3), subGoalUid(4)]);
+    assert.deepEqual(listed.subGoals.map((g) => g.order), [1, 2, 3, 4]);
   });
 });
 
-test("create with serves matching a goal.md anchor succeeds (20 §13)", async () => {
+test("create with serves resolving to a SubGoal object succeeds (20 §13)", async () => {
   await withTemp("spark-writer.", async (root) => {
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
     await seedGoalAnchorObjects(root);
     const result = await createSparkObject({
       factSourceRoot: root,
-      frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-1" },
+      frontmatterDraft: { ...validFrontmatterDraft(), serves: subGoalUid(1) },
       bodyMarkdown: validBodyMarkdown(),
       sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(result.ok, JSON.stringify(result.error));
     const read = await readSparkObject({ factSourceRoot: root, objectUid: result.value.object_uid });
-    assert.equal(read.value.frontmatter.serves, "SG-1");
+    assert.equal(read.value.frontmatter.serves, subGoalUid(1));
   });
 });
 

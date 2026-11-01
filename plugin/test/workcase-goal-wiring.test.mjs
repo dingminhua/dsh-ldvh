@@ -16,7 +16,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
-import { seedSubGoals, withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
+import { seedSubGoals, subGoalUid, withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
 import { registerWorkcaseTools } from "../lib/workcase-tools.js";
 import { createWorkcaseObject, readWorkcaseObject, recordWorkcaseAudit } from "../lib/workcase-writer.js";
 import { authoritativeSignature, authoritativeSessionIdentity } from "../lib/signature-channel.js";
@@ -137,7 +137,7 @@ async function surface(base, goals) {
   await seedSubGoals(factSourceRoot, ["SG-1"]);
   const created = await createWorkcaseObject({
     factSourceRoot,
-    frontmatterDraft: { ...DRAFT, serves: "SG-1", change_summary: "初始落盘" },
+    frontmatterDraft: { ...DRAFT, serves: subGoalUid(1), change_summary: "初始落盘" },
     bodyMarkdown: `## 摘要\n${DRAFT.summary}\n\n## 授权范围\n${DRAFT.scope}\n\n## 计划\n1. ${DRAFT.plan[0].step}\n   完成判据：${DRAFT.plan[0].done_criteria}\n`,
     sessionSignature: SIG(),
   });

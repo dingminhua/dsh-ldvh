@@ -4,7 +4,7 @@ object_uid: 8d2ba256-eff5-4972-a4ae-f6c40b27180b
 title: C2 授权校验与 rebatch×reviews 处置
 status: closed
 gist: 补上 C2 授权钉扎在实现层的缺口，并修正 rebatch 对 reviews 与 change_log 的处置，使授权失效可被机械检测。
-serves: SG-3
+serves: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
 summary: |-
   补上 WorkCase 授权钉扎（C2）在实现层的缺口与 `rebatch` 对 Code 托管字段的处置缺陷，使「授权指纹失效」被机械检测、且重批（rebatch）对 `reviews`/`change_log` 的处置自洽。本单合并三处经对抗审核与起草者亲验确认的既有缺陷（均先于 E4 存在，由 E4 暴露）：缺口 A（C2 授权校验在实现中不存在）：21:281 要求指纹不一致即授权失效，但 `authorization_fingerprint` 在实现中仅被计算（`:923`）与形状校验（`:278`），从无比对；`rebatch` 全文无 fingerprint 校验；后果是 `open --rebatch--> draft --cancel--> closed` 可绕过关闭门禁。
 

@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { testSignature, withTemp } from "./helpers.mjs";
+import { subGoalUid, testSignature, withTemp } from "./helpers.mjs";
 
 // 03 §6.1 / 09: every write carries the authoritative signature. Domain-rule
 // tests supply a branded test carrier; the signature gate has its own cases.
@@ -216,7 +216,7 @@ test("create: serves 已退出闭集，带该字段一律被机械拒绝（26 §
     await writeFile(join(root, "goal.md"), GOAL_MD_FIXTURE, "utf8");
     const result = await createFrictionObject({
       factSourceRoot: root,
-      frontmatterDraft: { ...validFrontmatterDraft(), serves: "SG-3" },
+      frontmatterDraft: { ...validFrontmatterDraft(), serves: subGoalUid(3) },
       bodyMarkdown: validBodyMarkdown(validFrontmatterDraft()),
       sessionSignature: authoritativeSignature({ provider: "p", model: "m" }),
     });

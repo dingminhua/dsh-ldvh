@@ -4,7 +4,7 @@ object_uid: ccc2b91c-bfdb-4191-8fd0-63f1483a173e
 title: WorkCase 承接回指的机械承载
 status: closed
 gist: 为 WorkCase 开放 refs 字段并机械承接回指，使工单关闭后新建的承接对象能机械指向来源工单，让「建议是否已有后续行动」可反查；同时消除 specs/03 与 21 号关于 refs 采用面的矛盾。
-serves: SG-3
+serves: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
 summary: |-
   为 WorkCase 开放 `refs` 字段（03 §7.2 关联引用型），并把 21 §9.2 已有的「新建对象说明接替的旧对象」从散文要求升级为可机械反查的引用；同时消除 `specs/03` 与 21 号关于 refs 采用面的矛盾。目标是让 WorkCase 关闭后的「建议是否已有后续行动」可被机械反查，而不是只靠人读承接对象的 summary。
 

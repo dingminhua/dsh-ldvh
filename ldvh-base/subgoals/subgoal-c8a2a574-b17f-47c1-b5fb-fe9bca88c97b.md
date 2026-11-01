@@ -1,7 +1,6 @@
 ---
 title: 插件能力面 dogfood 闭环
 status: active
-anchor: SG-3
 parent_goal: project-goal
 criterion: LDVH 插件能力面完成 dogfood 闭环，日常使用无需人工补救。
 criterion_kind: executable-check
@@ -18,6 +17,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 迁移收尾：标题改为可扫读的短标签（原为判据截断文本，不可读）
+  - at: 2026-11-01T05:36:03.687Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 迁移：废止业务编号 SG-n，改以 order=3 承载显示次序（28 §7/§8，2026-11-01 定案）
+order: 3
 ---
 
 # 插件能力面 dogfood 闭环

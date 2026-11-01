@@ -11,7 +11,7 @@
 //   ④ 分片不占额外轮次——轮次按不同 `round_index` 计数（单门 3 次）。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { seedSubGoals, withTemp } from "./helpers.mjs";
+import { seedSubGoals, subGoalUid, withTemp } from "./helpers.mjs";
 import {
   createWorkcaseObject,
   readWorkcaseObject,
@@ -31,7 +31,7 @@ const IMPLEMENTER = () => authoritativeSessionIdentity({ sessionId: "session-imp
 const DRAFT = {
   title: "分区增量审核测试工单",
   gist: "夹具：钉住分区增量覆盖与分片并行。",
-  serves: "SG-1",
+  serves: subGoalUid(1),
   summary: "夹具候选。",
   scope: "做什么：\n- 夹具项甲。\n- 夹具项乙。\n\n明确不做什么：\n- 无。",
   plan: [{ step: "夹具步骤一", done_criteria: "判据一可判定。" }],

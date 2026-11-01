@@ -192,19 +192,40 @@ export function sessionPersistenceWithRoutingLog(base, { provider = "test-provid
  * `factSourceRoot` is the directory that holds goal.md and the typed
  * subdirectories (i.e. the parent of ldvh-base/, as the writers see it).
  */
+/** Deterministic fixture uid for the n-th seeded SubGoal (1-based). */
+export function subGoalUid(n) {
+	return `${String(n).padStart(8, "0")}-1111-4111-8111-${String(n).padStart(12, "0")}`;
+}
+
+/** A uuid that NO seeded SubGoal ever occupies (for "unresolvable serves" cases). */
+export const UNKNOWN_SUBGOAL_UID = "00000099-9999-4999-8999-999999999999";
+
+/**
+ * Seed `ldvh-base/subgoals/` with SubGoal carriers.
+ *
+ * `anchors` keeps its old call shape (`["SG-1","SG-2"]`) but is now only a
+ * FIXTURE LABEL: `SG-n` is no longer a field (28 §7 废止业务编号, 2026-11-01),
+ * so it lands in `title` and the returned uid map. `serves` in a fixture must
+ * use `subGoalUid(n)` — the anchors are not identities any more.
+ *
+ * Returns `{ [label]: uid }` so a caller can wire `serves` without hard-coding
+ * the uuid scheme.
+ */
 export async function seedSubGoals(factSourceRoot, anchors = ["SG-1", "SG-2"], { status = "active", parentGoal = "project-goal", indexOffset = 0 } = {}) {
 	await mkdir(join(factSourceRoot, "subgoals"), { recursive: true });
-	for (const [i, anchor] of anchors.entries()) {
+	const byLabel = {};
+	for (const [i, label] of anchors.entries()) {
 		// `indexOffset` keeps uids distinct across successive calls — otherwise a
 		// second call would overwrite the first call's carriers at the same path.
 		const n = i + 1 + indexOffset;
-		const uid = `${String(n).padStart(8, "0")}-1111-4111-8111-${String(n).padStart(12, "0")}`;
+		const uid = subGoalUid(n);
+		byLabel[label] = uid;
 		const fm = [
-			"title: 测试子目标 " + anchor,
+			"title: 测试子目标 " + label,
+			"order: " + n,
 			"status: " + status,
-			"anchor: " + anchor,
 			"parent_goal: " + parentGoal,
-			"criterion: 测试子目标 " + anchor + " 的达成判据",
+			"criterion: 测试子目标 " + label + " 的达成判据",
 			"criterion_kind: closure-records",
 			"alignment: 服务于测试目标陈述",
 			...(status === "retired" ? ["disposition: 测试作废"] : []),
@@ -216,11 +237,11 @@ export async function seedSubGoals(factSourceRoot, anchors = ["SG-1", "SG-2"], {
 			"    summary: 测试夹具",
 		].join("\n");
 		const body = [
-			"# 测试子目标 " + anchor,
+			"# 测试子目标 " + label,
 			"",
 			"## 达成条件",
 			"",
-			"测试子目标 " + anchor + " 的达成判据",
+			"测试子目标 " + label + " 的达成判据",
 			"",
 			"## 对齐说明",
 			"",
@@ -229,4 +250,5 @@ export async function seedSubGoals(factSourceRoot, anchors = ["SG-1", "SG-2"], {
 		].join("\n");
 		await writeFile(join(factSourceRoot, "subgoals", `subgoal-${uid}.md`), `---\n${fm}\n---\n\n${body}`, "utf8");
 	}
+	return byLabel;
 }

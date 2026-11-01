@@ -4,7 +4,7 @@ object_uid: 18fcee2c-339d-4349-bc2d-ad80b9cbbf1e
 title: spark 非终态卡关联呈现
 status: closed
 gist: 让 spark 卡片的 open 状态也呈现关联信息，与最终态卡一致。
-serves: SG-3
+serves: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
 summary: 让 spark 卡片的非最终状态（open）也呈现关联信息，学习最终态卡的做法。现状核实（2026-09-16）：卡片框架 ObjectCardFrame 内无条件渲染 FactAssociationsCardContent（消费 obj.factAssociations），而 SparkCardContent 对 open 状态返回 null；实际缺口定位（relations 关联、refs 引用或非终态被状态分支屏蔽）是本单第一步。
 scope: 做什么：核实并定位非终态 spark 卡关联呈现的实际缺口（数据层 factAssociations/factRefs 是否为空、渲染层是否被状态分支屏蔽），按最终态卡的做法对齐非终态呈现；同步契约测试；重建 Web 产物 dist；受控提交。明确不做什么：不改后端关联投影语义（03 §7.2 relations/refs 分工纪律不动）；不改其它类型卡片的关联呈现；不改详情页关联阅读节点；不为 spark 单独发明新的关联呈现形态（复用现有组件路径）。
 plan:

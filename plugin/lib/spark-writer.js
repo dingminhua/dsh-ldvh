@@ -47,7 +47,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { requireAuthoritativeSignature } from "./signature-channel.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
 import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
-import { listResolvableAnchors, resolveSubGoalAnchor } from "./subgoal-writer.js";
+import { listResolvableSubGoals, resolveSubGoal } from "./subgoal-writer.js";
 
 // ---------------------------------------------------------------------------
 // Constants (specs/20 §7, §8, §9, §11)
@@ -66,9 +66,6 @@ const STATUSES = new Set(["open", "implemented", "discarded"]);
 
 /** Relation keys allowed for Spark (20 §11 — closed set of exactly two). */
 const SPARK_RELATION_KEYS = new Set(["merged-into", "split-into"]);
-
-/** serves anchor shape (25 §6: SG-n, frozen, never renumbered). */
-const SG_ANCHOR_PATTERN = /^SG-[1-9]\d*$/;
 
 /**
  * refs entry cap (20 §8). Bounds the F1 card projection — the field exists so
@@ -111,7 +108,10 @@ const MAX_TITLE_LENGTH = 30;
 /** Terminal-reason cap (20 §8/§9.1: disposition ≤ 200 字符). */
 const MAX_DISPOSITION_LENGTH = 200;
 
-/** UUID format check (03 §6.1 canonical UUIDv4, version nibble 4). */
+/** UUID format check (03 §6.1 canonical UUIDv4, version nibble 4). Since
+ *  2026-11-01 it also guards `serves`: that field carries a SubGoal
+ *  `object_uid` instead of an `SG-n` anchor (28 §12.3), so one pattern covers
+ *  both the object identity and the reference to it. */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // ---------------------------------------------------------------------------
@@ -183,11 +183,12 @@ export function validateSparkFrontmatter(frontmatter) {
     }
   }
 
-  // serves shape; goal.md resolution happens in the create/update flows
-  // (needs the fact source root; 20 §13: 若声明，匹配 goal.md 存在的 SG-n).
+  // serves shape; target resolution happens in the create/update flows (needs
+  // the fact source root). 20 §13: 若声明，须解析到存在的 SubGoal 对象。
+  // 2026-11-01：取值由 `SG-n` 改为 SubGoal 的 `object_uid`（28 §12.3）。
   if (frontmatter.serves !== undefined) {
-    if (typeof frontmatter.serves !== "string" || !SG_ANCHOR_PATTERN.test(frontmatter.serves)) {
-      issues.push(`serves: must match SG-n (e.g. SG-4), got ${JSON.stringify(frontmatter.serves)}`);
+    if (typeof frontmatter.serves !== "string" || !UUID_PATTERN.test(frontmatter.serves)) {
+      issues.push(`serves: must be a SubGoal object_uid (canonical UUIDv4, 28 §12.3), got ${JSON.stringify(frontmatter.serves)}`);
     }
   }
 
@@ -393,20 +394,20 @@ function relationTargetUids(frontmatter, selfUid) {
 // ---------------------------------------------------------------------------
 
 /**
- * Read the `SG-n` anchors that are valid `serves` targets in the governed
- * project.
+ * Read the SubGoals that are valid `serves` targets in the governed project.
  *
- * Returns { ok, anchors:Set } or { ok:false, reason }.
+ * Returns { ok, subGoals:[{object_uid,title,order,status}] } or { ok:false, reason }.
  *
- * 2026-11 迁移：锚点来源由 goal.md 的子目标节改为 SubGoal 事实载体
- * (ldvh-base/subgoals/)，单点权威在 subgoal-writer.js 的 resolveSubGoalAnchor
- * / listResolvableAnchors —— 本函数只是给 spark 流程取「可用的锚点集合」。
- * 解析规则见 28 §12.3：active 与 achieved 可用，retired 不是新声明的合法目标。
+ * 2026-11-01: renamed from `readGoalAnchors` and retargeted — there are no
+ * anchors any more, `serves` carries an `object_uid` (28 §12.3). The return
+ * shape is deliberately a list of OBJECTS, not a Set of strings: a caller that
+ * wants "does this serve target exist" reads `object_uid`, and there is no way
+ * to keep treating a human-readable label as the identity.
  */
-export async function readGoalAnchors(factSourceRoot) {
-  const listed = await listResolvableAnchors(factSourceRoot);
+export async function readServableSubGoals(factSourceRoot) {
+  const listed = await listResolvableSubGoals(factSourceRoot);
   if (!listed.ok) return { ok: false, reason: listed.error?.message ?? "cannot read subgoal carriers" };
-  return { ok: true, anchors: new Set(listed.value.anchors) };
+  return { ok: true, subGoals: listed.value.items };
 }
 
 /**
@@ -722,7 +723,7 @@ export async function createSparkObject(args) {
   // serves resolution (20 §13 + 28 §12.3): declared → must resolve to a
   // SubGoal object in status active|achieved.
   if (frontmatter.serves !== undefined) {
-    const resolved = await resolveSubGoalAnchor(factSourceRoot, frontmatter.serves);
+    const resolved = await resolveSubGoal(factSourceRoot, frontmatter.serves);
     if (!resolved.ok) {
       return failure("spark/serves_unresolvable", resolved.error?.message ?? `serves ${frontmatter.serves} cannot be resolved (28 §12.3)`);
     }
@@ -1155,7 +1156,7 @@ export async function updateSparkObject(args) {
 
   // serves resolution on the updated object (20 §13 + 28 §12.3)
   if (fm.serves !== undefined) {
-    const resolved = await resolveSubGoalAnchor(factSourceRoot, fm.serves);
+    const resolved = await resolveSubGoal(factSourceRoot, fm.serves);
     if (!resolved.ok) {
       return failure("spark/serves_unresolvable", resolved.error?.message ?? `serves ${fm.serves} cannot be resolved (28 §12.3)`);
     }

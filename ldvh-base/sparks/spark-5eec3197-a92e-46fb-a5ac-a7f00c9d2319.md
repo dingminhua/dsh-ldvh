@@ -20,7 +20,7 @@ summary: |-
   **证据不足以在两者间取舍**：本次只测到「重复存在」这一事实，未测「哪种削法更符合消费方需求」。`specs/20 §12` 的消费点表要求 Spark 讨论消费 `question + scope_boundary + summary` 三字段，说明三字段本身有召回收据；但该表未规定它们的**长度分布**，故无法据此判定「`summary` 多大算大」。
 
   **来源**：本议题由 2026-09-20 的载体结构讨论产出（四隔离视角 + 主控复测）；相关先例为 `spark-71930c4a`（LDVH 体系结构性未完善，其缺口一即本族的内聚暴露顺序问题）。
-serves: SG-1
+serves: befe1735-1187-4d60-ba53-e55eb0cb7de2
 priority: P2
 object_uid: 5eec3197-a92e-46fb-a5ac-a7f00c9d2319
 fact_type_key: spark

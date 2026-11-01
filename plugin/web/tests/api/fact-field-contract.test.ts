@@ -28,7 +28,7 @@ const COMMON_FIELDS = [
 const COMMON_FIELD_EXEMPTIONS: Record<string, readonly string[]> = {
   spark: ['urls'],
   // 28 §11：子目标不采用 urls（判据与对齐住正文，不接外部证据链）与 relations
-  //（层级只两层，上下游由 anchor 与 serves 反查派生，不建第二边）。
+  //（层级只两层，上下游由 parent_goal 与 serves 反查派生，不建第二边）。
   subgoal: ['urls', 'relations'],
   // 21 §8：WorkCase 不采用 urls——证据是当次执行的观察与回读，长期外部资料归 22/24。
   workcase: ['urls'],
@@ -50,9 +50,10 @@ const TYPE_REQUIRED_FIELDS: Record<string, readonly string[]> = {
   friction: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'phenomenon', 'impact'],
   // 27 号 §8：direction_key 必填（retirement_reason/retired_at 条件，retired 时必填）。
   norm: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'direction_key'],
-  // 28 号 §8：anchor/parent_goal/criterion/criterion_kind/alignment 全必填——
+  // 28 号 §8：parent_goal/criterion/criterion_kind/alignment 全必填（2026-11-01
+  // 起 anchor 废止，order 为可选显示次序，故两者都不在必填面）——
   // 缺任一项，子目标就不再是「可判定 + 已声明对齐」的对象，退化成一句待办。
-  subgoal: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'anchor', 'parent_goal', 'criterion', 'criterion_kind', 'alignment'],
+  subgoal: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'parent_goal', 'criterion', 'criterion_kind', 'alignment'],
 };
 
 test('field contract is internally consistent for every fact type', () => {

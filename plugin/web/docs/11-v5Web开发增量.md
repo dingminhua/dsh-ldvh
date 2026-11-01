@@ -47,8 +47,8 @@
 | 研究/调研列表 | `/objects/research` | F1 投影字段；活跃卡克制 |
 | 研究/调研详情 | `/objects/research/:id` | 24 号薄索引阅读布局、YAML 源节点 |
 | 决策/火花/经验列表 | `/objects/{adr,spark,workcase}` | 保留 v4 语言 |
-| 子目标列表 | `/objects/subgoal` | 28 号 F1：锚点 + 判据类型 + 达成条件一句；默认只列 active |
-| 子目标详情 | `/objects/subgoal/:id` | 28 号阅读布局：锚点块 → 达成条件 → 对齐说明 → 名下工作（serves 反查派生）→ 修订史 |
+| 子目标列表 | `/objects/subgoal` | 28 号 F1：次序 + 判据类型 + 达成条件一句；默认只列 active |
+| 子目标详情 | `/objects/subgoal/:id` | 28 号阅读布局：次序块 → 达成条件 → 对齐说明 → 名下工作（serves 反查派生）→ 修订史 |
 | 联邦聚焦 | `/federation` | 跨项目聚合、项目统计、跨项目火花 |
 | 联邦对象 | `/federation/objects/:type` | 跨项目对象列表、项目源 chip |
 | 项目文件 | `/project-files` | 保留 v4 语言 |
@@ -99,6 +99,30 @@ violet 在 Norm 上表示「规则体系」，子目标既非待处置也非规�
 **已知边界**：`serving_work` 由 `facts.ts` 在详情读取时反查 spark + workcase 全量
 （各 `limit 2000`）派生，**不落盘**（28 §8.1 禁存下游状态）。反查失败的类型记入
 `serving_unreadable` 单列，不并入空集——「读不到」不得被读成「没有」。
+
+## 4ter. 身份与次序分离（2026-11-01，废止 SG-n）
+
+`serves` 从 `SG-n` 业务编号改为 `object_uid`（与 `refs` 同口径），`anchor` 字段
+整体退场，显示次序改由可选 `order` 承担（28 §7/§8）。Web 侧的对账：
+
+- **`serves` 的 uid 必须先解析成子目标再上屏**。`ServesSgBadge` / `ServesSgFilter`
+  经 `hooks/useSubGoals.ts` 的 `useSubGoalIndex()` 取 uid → 子目标表的映射；表源自
+  `/api/cognition/goal` 的 `sub_goals` 投影，而该投影本身由 `subgoals/*.md` 反查
+  派生（28 §8.1 禁止在 goal.md 存副本）——**没有第二份数据**。
+  解析不到时如实回落 uid，不显示空白或「未知」（那会让一条真实引用看起来像坏了）。
+- **卡头 chip 显示 `order` 而不是标题**：标题最长 40 字（28 §8），实测塞进卡头会
+  挤掉同一行的状态徽标与修改次数。`order` 正是为显示而设的字段，语义也与它接手的
+  `SG-n` 一致——第几条子目标；完整标题留在 `title` 悬停里。`order` 缺失是合法
+  状态，此时才回落截断的标题。
+- **目标区（聚焦页与 `/goal` 详情）同理**：原先直接把 `sg.id` 渲染成 chip，改存
+  uid 后那一格会出现四串十六进制，现改渲染 `order`。
+- **`order` 不承担身份**：可缺失、可重复、可不连续（28 §8），故契约里是
+  `field('subgoal-order', 'number', false)`；排序由 `compareSubGoalDisplayOrder`
+  给出（order 升 → created_at → uid），legacy 行一律排对象行之后。
+- **联邦卡的类型 chip 顺带修复**：`listObjects` 的投影只带 `fact_type_key`，
+  单项目列表路由经 `normalizeItem` 补 `type`，联邦路由没有那道归一化，导致八类
+  对象的联邦卡类型 chip 一直是空白。现由 `federation.ts` 按查询上下文写回
+  `type: objectType`（虽非本轮引入，但在核对联邦子目标卡时暴露）。
 
 ## 5. 设计语言横切审计（2026-10-05）
 

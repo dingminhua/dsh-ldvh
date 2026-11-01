@@ -1,7 +1,8 @@
 /**
  * 目标区（Goal Section）——聚焦页的第一个模块。
  *
- * 承载 Goal(25) 真实投影：目标陈述 + 子目标 SG-n 列表。
+ * 承载 Goal(25) 真实投影：目标陈述 + 子目标列表（28 号对象，按 `parent_goal`
+ * 反查派生——不在 goal.md 内存副本，28 §8.1）。
  * 样式与交互对齐原聚焦页其它模块（ldvh-panel/ldvh-border + 区头 ldvh-section-title
  * + 可点击折叠 + 列表 divide-y），带复制提示词按钮（一句话触发 AI 对话——方法论由
  * 30 号行动模板承载，提示词只是触发器）。
@@ -42,6 +43,8 @@ export default function GoalSection() {
       status?: string;
       criterion_kind?: string;
       object_uid?: string;
+      /** 28 §8：可选显示次序（缺失合法，不承担身份）。 */
+      order?: number;
       legacy?: boolean;
     }[];
   } | null>(null);
@@ -161,8 +164,11 @@ export default function GoalSection() {
                       ? () => navigate(`/objects/subgoal/subgoal-${sg.object_uid}`)
                       : undefined}
                   >
+                    {/* 显示次序，不是身份：`sg.id` 是 `object_uid`（28 §7 废止 SG-n
+                        后它就是身份），把它渲染成 chip 会让目标区出现四串十六进制。
+                        `order` 缺失是合法状态（§8），此时回落序号型空位而不是 uid。 */}
                     <span className="ldvh-chip ldvh-chip-sm shrink-0 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent">
-                      {sg.id}
+                      {typeof sg.order === 'number' ? sg.order : '·'}
                     </span>
                     <span className="ldvh-caption min-w-0 flex-1">{sg.text}</span>
                     {/* 28 §9 状态 + §10.2 判据类型：让「走到哪里算成」在列表层就可读，

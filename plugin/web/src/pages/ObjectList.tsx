@@ -947,7 +947,8 @@ export function NormCardContent({ obj }: { obj: ObjectItem }) {
  * 28 号 §12 F1 投影的列表承载：子目标卡。
  *
  * 三件事必须在卡片层就能读出来，否则每一条都要下钻才知道自己看的是什么：
- *   ① 锚点（SG-n）——它是下游 serves 的引用键，也是人扫读时的定位物
+ *   ① 显示次序（`order`）——**不是身份**（2026-11-01 废止 SG-n 业务编号，28 §7）。
+ *      它只回答「这一条在列表里排第几」，可缺失、可调整、不参与任何引用。
  *   ② 判据类型——它决定「这条子目标要靠什么材料才算达成」，比标题更能区分条目
  *   ③ 达成条件的一句话——**不是**标题重复，标题只有 40 字且不承载完整判据（§8）
  *
@@ -978,7 +979,7 @@ export function SubGoalCardContent({ obj }: { obj: ObjectItem }) {
   if (obj.status === 'achieved' || obj.status === 'retired') {
     return <SubGoalTerminalCardContent obj={obj} />;
   }
-  const anchor = typeof obj.anchor === 'string' ? obj.anchor.trim() : '';
+  const order = typeof obj.order === 'number' ? obj.order : null;
   const criterionKind = typeof obj.criterion_kind === 'string' ? obj.criterion_kind.trim() : '';
   const criterion = typeof obj.criterion === 'string' ? obj.criterion.trim() : '';
   const kindLabel = criterionKind
@@ -989,11 +990,17 @@ export function SubGoalCardContent({ obj }: { obj: ObjectItem }) {
     <section className={DECISION_CARD_SHELL_CLASS.lime}>
       <div className="flex min-w-0 items-center gap-2">
         <h3 className={`ldvh-card-decision-title min-w-0 ${DECISION_TITLE_HUE_CLASS.lime}`}>
-          {getFieldLabel('subgoal_anchor', locale)}
+          {t('objectList.subGoalOrderLabel')}
         </h3>
-        <span className={`ldvh-chip-sm min-w-0 shrink-0 ${DECISION_VIOLET_CODE_CHIP_HUE_CLASS}`}>
-          {anchor || t('objectDetail.subGoalAnchorMissing')}
-        </span>
+        {order !== null ? (
+          <span className={`ldvh-chip-sm min-w-0 shrink-0 ${DECISION_VIOLET_CODE_CHIP_HUE_CLASS}`}>
+            {order}
+          </span>
+        ) : (
+          <span className="ldvh-chip-sm min-w-0 shrink-0 border-ldvh-border bg-transparent text-ldvh-text-secondary">
+            {t('objectList.subGoalOrderAbsent')}
+          </span>
+        )}
         {kindLabel && (
           <span
             className="ldvh-chip-sm min-w-0 shrink-0 border-ldvh-border bg-transparent text-ldvh-text-secondary"

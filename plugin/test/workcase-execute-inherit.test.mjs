@@ -17,7 +17,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
-import { seedSubGoals, withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
+import { seedSubGoals, subGoalUid, withTemp, sessionPersistenceWithRoutingLog } from "./helpers.mjs";
 import { registerWorkcaseTools, normalizeBodyMarkdown } from "../lib/workcase-tools.js";
 import { createWorkcaseObject, readWorkcaseObject, recordWorkcaseAudit } from "../lib/workcase-writer.js";
 import { authoritativeSignature, authoritativeSessionIdentity } from "../lib/signature-channel.js";
@@ -40,7 +40,7 @@ function draft() {
   return {
     title: "C2 继承基线",
     gist: "验证 open 期只更新正文（省略 plan/scope）不被误判为 C2 失效。",
-    serves: "SG-1",
+    serves: subGoalUid(1),
     summary: "执行期记账：确认正文可更新，且 plan/scope 的显式改动仍被拒绝。",
     scope: SCOPE,
     plan: PLAN,

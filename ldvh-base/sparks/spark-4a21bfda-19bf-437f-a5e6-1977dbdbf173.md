@@ -5,7 +5,7 @@ question: "`parseWorkCaseResultDraft` 的 advice 段退出条件应如何收严�
 scope_boundary: 给出「退出条件应满足什么、现有实现为何不满足、改后对存量与新增正文各有什么影响」的可执行结论即可停；不在本议题内落实现改动，也不在本议题内决定纳入哪次行动。
 intent: 已定位的实现缺陷（含可复现失败信号与已知后果），且当前会影响 web 用例与投影口径。收敛为 Spark 以便跨行动修复：先定退出条件的判据，再决定落实现与影响面。
 summary: "`workcase-364df30e`（WorkCase 呈现保真与设计语言收敛）的残留与去向里记着一处已定位的实现缺陷：`parseWorkCaseResultDraft` 的 `advice` 段退出条件不严——在 `advice` 模式下遇到后续顶层 bullet 时未退出，会把本不属于该段的条目吞为建议条目。载体原话：『修 `parseWorkCaseResultDraft` 的 advice 段退出条件——advice 模式下遇到后续顶层 bullet 应退出，不得吞为建议条目（2026-09-27 双基线复核发现，当前由 workcase-63700bd2 的未提交正文改动暴露为 fidelity L547 失败）。』后果是投影失真：去向条目数被少算/多算，直接影响关闭卡的「去向分区」呈现与条数口径。"
-serves: SG-3
+serves: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
 object_uid: 4a21bfda-19bf-437f-a5e6-1977dbdbf173
 fact_type_key: spark
 created_at: 2026-10-01T18:24:53.227Z

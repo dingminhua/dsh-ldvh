@@ -15,7 +15,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { seedSubGoals, withTemp } from "./helpers.mjs";
+import { seedSubGoals, subGoalUid, withTemp } from "./helpers.mjs";
 import {
   createWorkcaseObject,
   readWorkcaseObject,
@@ -41,7 +41,7 @@ const IMPLEMENTER = () => IDENTITY("session-implementer-test");
 const DRAFT = {
   title: "建前审核门禁测试工单",
   gist: "夹具：钉住建前审核的对象承载与三道机械门禁。",
-  serves: "SG-1",
+  serves: subGoalUid(1),
   summary: "夹具候选。",
   scope: "做什么：\n- 夹具项。\n\n明确不做什么：\n- 无。",
   plan: [{ step: "夹具步骤", done_criteria: "夹具判据可判定。" }],

@@ -4,7 +4,7 @@ object_uid: e7aefeab-bbb4-43b1-859a-59de33648a77
 title: 摩擦新增 accepted 终态（不可清偿）
 status: closed
 gist: 给 Friction 账本增加「不可清偿」终态 accepted，并打通查重抑制、度量与呈现；要 Human 决定是否按此形态落规范。
-serves: SG-1
+serves: befe1735-1187-4d60-ba53-e55eb0cb7de2
 summary: |-
   为 Friction 账本增加第四终态 accepted（已接受、不可清偿）。语义边界：只收「消除途径不存在／不在本项目可动范围／授权上不能动」，不收「代价不值得修」（后者保持 open，36 §9.3 现行纪律不变）；与已定决策冲突的阻碍（如已定「不做此项改造」）属决策约束而非权衡，入 accepted 时须在处置段写明冲突的 ADR。accepted 与 voided 的关键机械差异：voided 不参与查重（记错了，同类现象该重新入账），accepted 必须参与查重且命中静默。
 

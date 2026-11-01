@@ -13,7 +13,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as sparkToolsModule from "../lib/spark-tools.js";
 import { registerProject } from "../lib/governed-projects.js";
-import { initRepo, seedSubGoals, sessionPersistenceWithRoutingLog, withTemp } from "./helpers.mjs";
+import { initRepo, seedSubGoals, subGoalUid, sessionPersistenceWithRoutingLog, withTemp, UNKNOWN_SUBGOAL_UID } from "./helpers.mjs";
 
 const dshHome = (home) => (...segments) => join(home, ...segments);
 
@@ -242,13 +242,13 @@ test("create: optional fields (priority/serves) succeed through the tool plane a
 
     const draft = validFrontmatterDraft({
       priority: "P1",
-      serves: "SG-1",
+      serves: subGoalUid(1),
     });
 
     // Guard the premise: this call only means something if the optional
     // fields are actually present in the arguments we hand the tool plane.
     assert.equal(draft.priority, "P1");
-    assert.equal(draft.serves, "SG-1");
+    assert.equal(draft.serves, subGoalUid(1));
 
     const created = await run(descriptors, "ldvh_spark_write", {
       action: "create",
@@ -264,13 +264,13 @@ test("create: optional fields (priority/serves) succeed through the tool plane a
     // `serves` is projected to the top level; `priority` lives in frontmatter.
     const readBack = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
     assert.equal(readBack.outcome, "completed", JSON.stringify(readBack));
-    assert.equal(readBack.result.serves, "SG-1", JSON.stringify(readBack.result));
+    assert.equal(readBack.result.serves, subGoalUid(1), JSON.stringify(readBack.result));
     assert.equal(readBack.result.frontmatter.priority, "P1", JSON.stringify(readBack.result.frontmatter));
 
     // ...and onto disk, not merely into the in-memory envelope.
     const raw = await readFile(join(repo, "ldvh-base", "sparks", `spark-${uid}.md`), "utf8");
     assert.ok(raw.includes("priority: P1"), raw.slice(0, 400));
-    assert.ok(raw.includes("serves: SG-1"), raw.slice(0, 400));
+    assert.ok(raw.includes(`serves: ${subGoalUid(1)}`), raw.slice(0, 400));
   });
 });
 
@@ -286,7 +286,7 @@ test("create: optional-field calls are NOT rejected by tool-plane argument valid
   );
   const violations = validateJsonSchemaValue(desc.parameters, {
     action: "create",
-    frontmatter_draft: validFrontmatterDraft({ priority: "P1", serves: "SG-1" }),
+    frontmatter_draft: validFrontmatterDraft({ priority: "P1", serves: subGoalUid(1) }),
     body_markdown: validBodyMarkdown(),
   }, "args");
   assert.deepEqual(violations, [], JSON.stringify(violations));
@@ -418,7 +418,7 @@ test("update: CAS normal flow completed with new fingerprint; CAS conflict rejec
 // serves resolution through the tool (20 §13/§17.1 wiring)
 // ---------------------------------------------------------------------------
 
-test("create: serves resolution flows through the tool (SG-1 ok, SG-99 rejected)", async () => {
+test("create: serves resolution flows through the tool (known uid ok, unknown uid rejected)", async () => {
   await withTemp("spark-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
@@ -426,7 +426,7 @@ test("create: serves resolution flows through the tool (SG-1 ok, SG-99 rejected)
     const ok = await run(descriptors, "ldvh_spark_write", {
       action: "create",
       dedup_result: DEDUP_OK,
-      frontmatter_draft: { ...validFrontmatterDraft(), serves: "SG-1" },
+      frontmatter_draft: { ...validFrontmatterDraft(), serves: subGoalUid(1) },
       body_markdown: validBodyMarkdown(),
     }, repo);
     assert.equal(ok.outcome, "completed", JSON.stringify(ok));
@@ -434,13 +434,13 @@ test("create: serves resolution flows through the tool (SG-1 ok, SG-99 rejected)
     const bad = await run(descriptors, "ldvh_spark_write", {
       action: "create",
       dedup_result: DEDUP_OK,
-      frontmatter_draft: { ...validFrontmatterDraft(), serves: "SG-99" },
+      frontmatter_draft: { ...validFrontmatterDraft(), serves: UNKNOWN_SUBGOAL_UID },
       body_markdown: validBodyMarkdown(),
     }, repo);
     assert.equal(bad.outcome, "rejected");
     assert.ok(bad.gaps.some((g) => g.includes("serves_unresolvable")));
     const files = await readdir(join(repo, "ldvh-base", "sparks"));
-    assert.equal(files.length, 1); // only the SG-1 object landed
+    assert.equal(files.length, 1); // only the valid-uid object landed
   });
 });
 
@@ -483,7 +483,7 @@ test("render: spark read output carries the FULL 64-char fingerprint and semanti
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
 
-    const draft = { ...validFrontmatterDraft(), serves: "SG-1" };
+    const draft = { ...validFrontmatterDraft(), serves: subGoalUid(1) };
     const created = await run(descriptors, "ldvh_spark_write", {
       action: "create",
       dedup_result: DEDUP_OK,
@@ -503,7 +503,7 @@ test("render: spark read output carries the FULL 64-char fingerprint and semanti
     assert.ok(text.includes(`fingerprint: ${fp}`), `render must carry the complete fingerprint:\n${text}`);
     assert.ok(text.includes(`title: ${draft.title}`), `render must carry the title:\n${text}`);
     assert.ok(text.includes("status: open"), `render must carry the status:\n${text}`);
-    assert.ok(text.includes("serves: SG-1"), `render must carry serves:\n${text}`);
+    assert.ok(text.includes(`serves: ${subGoalUid(1)}`), `render must carry serves:\n${text}`);
     assert.ok(text.includes(`question: ${draft.question}`), `render must carry the question:\n${text}`);
     assert.ok(text.includes("body_valid: true"), `render must carry body_valid:\n${text}`);
     assert.ok(!text.includes("…"), "render must not truncate with an ellipsis");
@@ -514,7 +514,7 @@ test("render: spell/default descriptor uses the same envelope rendering with no 
   await withTemp("spark-tools.", async (base) => {
     const { home, repo } = await governedFixture(base);
     const descriptors = makeDescriptors(makeDeps(home, base));
-    const draft = { ...validFrontmatterDraft(), serves: "SG-2" };
+    const draft = { ...validFrontmatterDraft(), serves: subGoalUid(2) };
     const created = await run(descriptors, "ldvh_spark_write", {
       action: "create",
       dedup_result: DEDUP_OK,
@@ -588,8 +588,8 @@ test("list: open-only by default, status=all includes terminal; projection carri
     const open1 = await run(descriptors, "ldvh_spark_write", {
       action: "create",
       dedup_result: DEDUP_OK,
-      frontmatter_draft: mkDraft("悬置甲（工具清单）", "问题甲如何进入清单投影？", { serves: "SG-1" }),
-      body_markdown: validBodyMarkdown(mkDraft("悬置甲（工具清单）", "问题甲如何进入清单投影？", { serves: "SG-1" })),
+      frontmatter_draft: mkDraft("悬置甲（工具清单）", "问题甲如何进入清单投影？", { serves: subGoalUid(1) }),
+      body_markdown: validBodyMarkdown(mkDraft("悬置甲（工具清单）", "问题甲如何进入清单投影？", { serves: subGoalUid(1) })),
     }, repo);
     assert.equal(open1.outcome, "completed", JSON.stringify(open1));
 
@@ -641,7 +641,7 @@ test("list: open-only by default, status=all includes terminal; projection carri
       assert.ok(item.question.length > 0, "item must project question");
     }
     const withSg = openOnly.result.items.find((i) => i.object_uid === open1.result.object_uid);
-    assert.equal(withSg.serves, "SG-1", "serves must be projected when declared");
+    assert.equal(withSg.serves, subGoalUid(1), "serves must be projected when declared");
     assert.equal(openOnly.result.items.find((i) => i.object_uid === terminal.result.object_uid), undefined, "terminal spark must not appear in open-only list");
 
     // status=all: all three
@@ -810,21 +810,21 @@ test("update: adding serves works for an existing SG and is rejected (zero-write
     assert.equal(read1.outcome, "completed");
     assert.equal(read1.result.serves, undefined, "fixture created without serves");
 
-    // SG-1 exists in goal.md → update succeeds
+    // A real SubGoal object exists → update succeeds
     const updated = await run(descriptors, "ldvh_spark_write", {
       action: "update",
       object_uid: uid,
       expected_fingerprint: read1.result.fingerprint,
-      frontmatter_after: { ...read1.result.frontmatter, serves: "SG-1" },
+      frontmatter_after: { ...read1.result.frontmatter, serves: subGoalUid(1) },
       body_markdown_after: validBodyMarkdown(draft),
-      change_summary: "补充子目标归属 SG-1",
+      change_summary: "补充子目标归属",
     }, repo);
     assert.equal(updated.outcome, "completed", JSON.stringify(updated));
     assert.ok(updated.verification.checks.includes("serves-resolution"));
     const read2 = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
-    assert.equal(read2.result.serves, "SG-1");
+    assert.equal(read2.result.serves, subGoalUid(1));
 
-    // second object: SG-99 does not exist in goal.md → rejected with zero writes
+    // second object: an unknown uid → rejected with zero writes
     const draft2 = { ...validFrontmatterDraft(), title: "另一悬置（错误SG）", question: "伪造子目标归属是否被拒绝？", summary: "总结：错误SG" };
     const created2 = await run(descriptors, "ldvh_spark_write", {
       action: "create",
@@ -841,9 +841,9 @@ test("update: adding serves works for an existing SG and is rejected (zero-write
       action: "update",
       object_uid: uid2,
       expected_fingerprint: read2b.result.fingerprint,
-      frontmatter_after: { ...read2b.result.frontmatter, serves: "SG-99" },
+      frontmatter_after: { ...read2b.result.frontmatter, serves: UNKNOWN_SUBGOAL_UID },
       body_markdown_after: validBodyMarkdown(draft2),
-      change_summary: "伪造 SG-99",
+      change_summary: "伪造指向",
     }, repo);
     assert.equal(rejected.outcome, "rejected", JSON.stringify(rejected));
     assert.ok(rejected.gaps.some((g) => g.includes("serves_unresolvable")), JSON.stringify(rejected.gaps));
@@ -945,7 +945,7 @@ test("gate: the 呈报内容 reaches the answerer (dedup + question + scope + se
     const { repo } = await governedFixture(base);
     const seam = consentingSeam();
     const descriptors = makeDescriptors(makeDeps(join(base, "home"), base, { hostSeams: seam }));
-    const draft = { ...validFrontmatterDraft(), serves: "SG-1" };
+    const draft = { ...validFrontmatterDraft(), serves: subGoalUid(1) };
     const out = await run(descriptors, "ldvh_spark_write", {
       action: "create",
       dedup_result: DEDUP_OK,
@@ -958,7 +958,7 @@ test("gate: the 呈报内容 reaches the answerer (dedup + question + scope + se
     assert.ok(reported.includes(DEDUP_OK), `report must carry the dedup conclusion: ${reported}`);
     assert.ok(reported.includes(draft.question), `report must carry the question: ${reported}`);
     assert.ok(reported.includes(draft.scope_boundary), `report must carry the scope_boundary: ${reported}`);
-    assert.ok(reported.includes("SG-1"), `report must carry serves: ${reported}`);
+    assert.ok(reported.includes(subGoalUid(1)), `report must carry serves: ${reported}`);
     assert.equal(seam.calls[0].action, "create");
   });
 });
@@ -1235,7 +1235,7 @@ test("gate: a terminal update that the WRITER must refuse consumes no question (
     const cases = [
       ["illegal relation_key", (fm) => ({ ...fm, status: "discarded", disposition: "不再跟踪。", relations: [{ relation_key: "related-to", target: { object_uid: uid } }] })],
       ["disposition over 200 chars", (fm) => ({ ...fm, status: "implemented", disposition: "长".repeat(240) })],
-      ["unresolvable serves", (fm) => ({ ...fm, status: "implemented", disposition: "已落实。", serves: "SG-99" })],
+      ["unresolvable serves", (fm) => ({ ...fm, status: "implemented", disposition: "已落实。", serves: UNKNOWN_SUBGOAL_UID })],
     ];
     for (const [name, mutate] of cases) {
       const read = await run(descriptors, "ldvh_spark_read", { object_uid: uid }, repo);
@@ -1282,9 +1282,9 @@ test("list: keyword / priorities / serves narrow the result set (filter before l
       return out.result.object_uid;
     };
 
-    const a = await make("召回范围甲", "甲问题怎么收窄？", { priority: "P1", serves: "SG-1" });
-    const b = await make("召回范围乙", "乙问题怎么收窄？", { priority: "P2", serves: "SG-3" });
-    const c = await make("无关方向丙", "丙问题怎么收窄？", { serves: "SG-1" }); // 未分档
+    const a = await make("召回范围甲", "甲问题怎么收窄？", { priority: "P1", serves: subGoalUid(1) });
+    const b = await make("召回范围乙", "乙问题怎么收窄？", { priority: "P2", serves: subGoalUid(3) });
+    const c = await make("无关方向丙", "丙问题怎么收窄？", { serves: subGoalUid(1) }); // 未分档
 
     // priorities：未分档者不得被推入任何档位（20 §8）
     const p1 = await run(descriptors, "ldvh_spark_list", { priorities: ["P1"] }, repo);
@@ -1297,7 +1297,7 @@ test("list: keyword / priorities / serves narrow the result set (filter before l
     assert.deepEqual(p12.result.items.map((i) => i.object_uid).sort(), [a, b].sort());
 
     // serves：逐字匹配，不做前缀/模糊
-    const sg1 = await run(descriptors, "ldvh_spark_list", { serves: "SG-1" }, repo);
+    const sg1 = await run(descriptors, "ldvh_spark_list", { serves: subGoalUid(1) }, repo);
     assert.deepEqual(sg1.result.items.map((i) => i.object_uid).sort(), [a, c].sort());
 
     // keyword：只搜 title 与 question（20 §6.2 的查重语义输入），大小写不敏感
@@ -1307,7 +1307,7 @@ test("list: keyword / priorities / serves narrow the result set (filter before l
     assert.deepEqual(kwUpper.result.items.map((i) => i.object_uid).sort(), [a, b].sort());
 
     // 组合：三个条件同时生效（AND）
-    const combo = await run(descriptors, "ldvh_spark_list", { keyword: "收窄", serves: "SG-1", priorities: ["P1"] }, repo);
+    const combo = await run(descriptors, "ldvh_spark_list", { keyword: "收窄", serves: subGoalUid(1), priorities: ["P1"] }, repo);
     assert.deepEqual(combo.result.items.map((i) => i.object_uid), [a]);
 
     // 过滤后截断：total 须是**过滤后**的命中数，不是全库数
@@ -1371,8 +1371,8 @@ test("list: narrowed hits carry a recomputable hitReason (34 §8.2 第 1 项)", 
       }, repo);
       assert.equal(out.outcome, "completed", JSON.stringify(out));
     };
-    await make("命中依据甲", "甲的问题里含专名召回器", { priority: "P1", serves: "SG-1" });
-    await make("命中依据乙", "乙的问题里没有那个词", { priority: "P2", serves: "SG-3" });
+    await make("命中依据甲", "甲的问题里含专名召回器", { priority: "P1", serves: subGoalUid(1) });
+    await make("命中依据乙", "乙的问题里没有那个词", { priority: "P2", serves: subGoalUid(3) });
 
     // keyword 命中 title：须指出命中的是哪个字段。
     const byKw = await run(descriptors, "ldvh_spark_list", { keyword: "命中依据甲" }, repo);
@@ -1389,14 +1389,14 @@ test("list: narrowed hits carry a recomputable hitReason (34 §8.2 第 1 项)", 
     // priorities / serves 各出自己的依据。
     const byP = await run(descriptors, "ldvh_spark_list", { priorities: ["P1"] }, repo);
     assert.equal(byP.result.items[0].hitReason, "priority=P1");
-    const byS = await run(descriptors, "ldvh_spark_list", { serves: "SG-3" }, repo);
-    assert.equal(byS.result.items[0].hitReason, "serves=SG-3");
+    const byS = await run(descriptors, "ldvh_spark_list", { serves: subGoalUid(3) }, repo);
+    assert.equal(byS.result.items[0].hitReason, `serves=${subGoalUid(3)}`);
 
     // 组合时逐项列出（顺序固定：priority → serves → keyword）。
-    const combo = await run(descriptors, "ldvh_spark_list", { keyword: "专名召回器", priorities: ["P1"], serves: "SG-1" }, repo);
+    const combo = await run(descriptors, "ldvh_spark_list", { keyword: "专名召回器", priorities: ["P1"], serves: subGoalUid(1) }, repo);
     assert.equal(combo.result.count, 1);
     const r = combo.result.items[0].hitReason;
-    assert.ok(/priority=P1/.test(r) && /serves=SG-1/.test(r) && /keyword=/.test(r), r);
+    assert.ok(/priority=P1/.test(r) && r.includes(`serves=${subGoalUid(1)}`) && /keyword=/.test(r), r);
 
     // **未收窄时不得有 hitReason**（纯枚举没有「命中」）。
     const plain = await run(descriptors, "ldvh_spark_list", {}, repo);

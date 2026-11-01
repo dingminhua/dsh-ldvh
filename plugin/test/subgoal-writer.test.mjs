@@ -1,7 +1,7 @@
 // Tests for plugin/lib/subgoal-writer.js — the SubGoal fact-type writer.
 //
 // Authority: specs/28 §7 (identity/carrier), §8 (field contract + fixed body
-// H2), §9 (status closure + anchor freeze), §13 (controlled operations), §14.1
+// H2), §9 (status closure + object_uid identity), §13 (controlled operations), §14.1
 // (type-specific mechanical checks), plus the shared 02 §10 contract and the
 // Human requirement that every change_log entry is mechanically signed.
 //
@@ -17,11 +17,11 @@ import {
 	SUBGOAL_DIRECTORY,
 	computeSubGoalCreateCandidateFingerprint,
 	createSubGoalObject,
-	listResolvableAnchors,
+	listResolvableSubGoals,
 	listSubGoalObjects,
 	precheckSubGoalCreate,
 	readSubGoalObject,
-	resolveSubGoalAnchor,
+	resolveSubGoal,
 	updateSubGoalObject,
 	validateCarrierCoherence,
 	validateSubGoalBodyStructure,
@@ -38,7 +38,7 @@ const validBody = (draft) =>
 function draft(overrides = {}) {
 	return {
 		title: "验收材料成为可回读证据",
-		anchor: "SG-1",
+		order: 1,
 		parent_goal: "project-goal",
 		criterion: "该类型的验证表每一行都能机械判定，且实跑结果与表内声明一致。",
 		criterion_kind: "executable-check",
@@ -95,7 +95,7 @@ test("carrier lives under subgoals/ and carries the type key (28 §7)", async ()
 		assert.equal(result.value.file, join(root, SUBGOAL_DIRECTORY, `subgoal-${result.value.object_uid}.md`));
 		const raw = await readFile(result.value.file, "utf8");
 		assert.match(raw, /fact_type_key: subgoal/);
-		assert.match(raw, /anchor: SG-1/);
+		assert.match(raw, /order: 1/);
 		assert.match(raw, /parent_goal: project-goal/);
 	});
 });
@@ -136,26 +136,59 @@ test("create refuses a parent_goal that is not the singleton key (28 §8)", asyn
 });
 
 // ---------------------------------------------------------------------------
-// anchor uniqueness (28 §6.2)
+// identity & order (28 §7/§8, 2026-11-01)
 // ---------------------------------------------------------------------------
 
-test("a second object cannot take an anchor that an ACTIVE object holds (28 §6.2)", async () => {
+test("two sub-goals may share the same order — it is display-only, not an identity (28 §8)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
-		const first = await createOne(root);
-		assert.equal(first.result.ok, true, JSON.stringify(first.result.error));
+		const a = await createOne(root);
+		assert.equal(a.result.ok, true, JSON.stringify(a.result.error));
 
-		const dup = await createOne(root);
-		assert.equal(dup.result.ok, false);
-		assert.equal(dup.result.error.code, "subgoal/anchor_already_exists");
-		// The occupant is reported, not just the code.
-		assert.ok(Array.isArray(dup.result.error.details?.conflicts));
-		assert.equal(dup.result.error.details.conflicts.length, 1);
-		assert.equal(dup.result.error.details.conflicts[0].object_uid, first.result.value.object_uid);
+		// Same `order`, different object. This MUST succeed: the old model refused
+		// a duplicate anchor here, which is exactly the coupling that was removed —
+		// order carries no reference duty, so it cannot be unique.
+		const b = await createOne(root, { title: "第二条子目标" });
+		assert.equal(b.result.ok, true, JSON.stringify(b.result.error));
+		assert.notEqual(a.result.value.object_uid, b.result.value.object_uid);
 	});
 });
 
-test("a RETIRED anchor is still occupied — numbers are never recycled (28 §9.2)", async () => {
+test("order may be omitted entirely — a missing order is a legal state (28 §8)", async () => {
+	await withTemp("subgoal.", async (base) => {
+		const root = await freshRoot(base);
+		const d = draft();
+		delete d.order;
+		const r = await createSubGoalObject({
+			factSourceRoot: root,
+			frontmatterDraft: d,
+			bodyMarkdown: validBody(d),
+			sessionSignature: SIG,
+		});
+		assert.equal(r.ok, true, JSON.stringify(r.error));
+		const raw = await readFile(r.value.file, "utf8");
+		assert.ok(!/^order:/m.test(raw), "a missing order must not be fabricated into the carrier");
+	});
+});
+
+test("order must be a positive integer when present (28 §8)", async () => {
+	await withTemp("subgoal.", async (base) => {
+		const root = await freshRoot(base);
+		for (const order of [0, -1, 1.5, "1"]) {
+			const d = draft({ order });
+			const r = await createSubGoalObject({
+				factSourceRoot: root,
+				frontmatterDraft: d,
+				bodyMarkdown: validBody(d),
+				sessionSignature: SIG,
+			});
+			assert.equal(r.ok, false, `order=${JSON.stringify(order)} must be refused`);
+			assert.equal(r.error.code, "subgoal/frontmatter_invalid", `${JSON.stringify(order)}: ${r.error.code}`);
+		}
+	});
+});
+
+test("a RETIRED object keeps its uid but is no longer a serves target (28 §9.2/§12.3)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const first = await createOne(root);
@@ -166,16 +199,17 @@ test("a RETIRED anchor is still occupied — numbers are never recycled (28 §9.
 			factSourceRoot: root,
 			objectUid: created.object_uid,
 			expectedFingerprint: read.value.fingerprint,
-			frontmatterAfter: { status: "retired", disposition: "并入 SG-9，判据不再独立成立" },
+			frontmatterAfter: { status: "retired", disposition: "判据不再独立成立" },
 			bodyMarkdownAfter: read.value.body,
 			changeSummary: "判据失效，退役",
 			sessionSignature: SIG,
 		});
 		assert.equal(retired.ok, true, JSON.stringify(retired.error));
 
-		const reuse = await createOne(root);
-		assert.equal(reuse.result.ok, false);
-		assert.equal(reuse.result.error.code, "subgoal/anchor_already_exists");
+		// The uid still resolves to the object, but not as a NEW serves target.
+		const after = await resolveSubGoal(root, created.object_uid);
+		assert.equal(after.ok, false);
+		assert.equal(after.error.code, "subgoal/serves_unresolvable");
 	});
 });
 
@@ -249,25 +283,28 @@ test("retired requires a disposition (28 §8/§9.3)", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// anchor immutability (28 §9.3)
+// identity immutability vs order mutability (28 §8, 2026-11-01)
 // ---------------------------------------------------------------------------
 
-test("an anchor cannot be renamed in place — a new sub-goal is a new SG-n (28 §9.3)", async () => {
+test("order can be changed in place — supplement-level update (28 §8/§9.3)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
-		const created = (await createOne(root)).result.value;
+		const created = (await createOne(root, { order: 1 })).result.value;
 		const read = await readSubGoalObject({ factSourceRoot: root, objectUid: created.object_uid });
 		const r = await updateSubGoalObject({
 			factSourceRoot: root,
 			objectUid: created.object_uid,
 			expectedFingerprint: read.value.fingerprint,
-			frontmatterAfter: { anchor: "SG-2" },
+			frontmatterAfter: { order: 7 },
 			bodyMarkdownAfter: read.value.body,
-			changeSummary: "改号",
+			changeSummary: "调整显示次序",
 			sessionSignature: SIG,
 		});
-		assert.equal(r.ok, false);
-		assert.equal(r.error.code, "subgoal/anchor_immutable");
+		assert.equal(r.ok, true, JSON.stringify(r.error));
+		assert.equal(r.value.transition, "supplement");
+		const after = await readSubGoalObject({ factSourceRoot: root, objectUid: created.object_uid });
+		assert.equal(after.value.frontmatter.order, 7);
+		assert.equal(after.value.frontmatter.object_uid, created.object_uid);
 	});
 });
 
@@ -307,7 +344,7 @@ test("a third status value is not in the closure (28 §9)", () => {
 		object_uid: "00000000-0000-4000-8000-000000000000",
 		fact_type_key: "subgoal",
 		title: "T",
-		anchor: "SG-1",
+		order: 1,
 		parent_goal: "project-goal",
 		status: "abandoned",
 		criterion: "某判据。",
@@ -335,20 +372,19 @@ test("criterion_kind is a closed set — an unknown kind is refused (28 §10.2)"
 	});
 });
 
-test("a non-canonical anchor (SG-0 / SG-x) is refused (28 §7)", async () => {
+test("a retired-era `anchor` key is no longer part of the closed set (28 §8, 2026-11-01)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
-		for (const anchor of ["SG-0", "SG-x", "sg-1", "1"]) {
-			const d = draft({ anchor });
-			const r = await createSubGoalObject({
-				factSourceRoot: root,
-				frontmatterDraft: d,
-				bodyMarkdown: validBody(d),
-				sessionSignature: SIG,
-			});
-			assert.equal(r.ok, false, `${anchor} must be refused`);
-			assert.equal(r.error.code, "subgoal/frontmatter_invalid", `${anchor}: ${r.error.code}`);
-		}
+		const d = draft({ anchor: "SG-1" });
+		const r = await createSubGoalObject({
+			factSourceRoot: root,
+			frontmatterDraft: d,
+			bodyMarkdown: validBody(d),
+			sessionSignature: SIG,
+		});
+		assert.equal(r.ok, false);
+		assert.equal(r.error.code, "subgoal/frontmatter_invalid");
+		assert.ok(r.error.details.issues.some((i) => /anchor/.test(i)), JSON.stringify(r.error.details));
 	});
 });
 
@@ -356,16 +392,16 @@ test("a non-canonical anchor (SG-0 / SG-x) is refused (28 §7)", async () => {
 // serves resolution (28 §12.3)
 // ---------------------------------------------------------------------------
 
-test("resolveSubGoalAnchor: active and achieved resolve; retired does not (28 §12.3)", async () => {
+test("resolveSubGoal: active and achieved resolve; retired does not (28 §12.3)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const a = (await createOne(root)).result.value;
-		const b = (await createOne(root, { anchor: "SG-2" })).result.value;
+		const b = (await createOne(root, { title: "第二条子目标" })).result.value;
 
-		const active = await resolveSubGoalAnchor(root, "SG-1");
+		const active = await resolveSubGoal(root, a.object_uid);
 		assert.equal(active.ok, true, JSON.stringify(active.error));
 
-		// Achieve SG-2 → still a valid `serves` target.
+		// Achieve b → still a valid `serves` target.
 		const readB = await readSubGoalObject({ factSourceRoot: root, objectUid: b.object_uid });
 		await updateSubGoalObject({
 			factSourceRoot: root,
@@ -376,42 +412,54 @@ test("resolveSubGoalAnchor: active and achieved resolve; retired does not (28 §
 			changeSummary: "达成：证据已回读",
 			sessionSignature: SIG,
 		});
-		const achieved = await resolveSubGoalAnchor(root, "SG-2");
+		const achieved = await resolveSubGoal(root, b.object_uid);
 		assert.equal(achieved.ok, true, JSON.stringify(achieved.error));
 
-		// Retire SG-1 → no longer resolvable.
+		// Retire a → no longer resolvable as a NEW serves target.
 		const readA = await readSubGoalObject({ factSourceRoot: root, objectUid: a.object_uid });
 		await updateSubGoalObject({
 			factSourceRoot: root,
 			objectUid: a.object_uid,
 			expectedFingerprint: readA.value.fingerprint,
-			frontmatterAfter: { status: "retired", disposition: "并入 SG-2" },
+			frontmatterAfter: { status: "retired", disposition: "判据不再独立成立" },
 			bodyMarkdownAfter: readA.value.body,
 			changeSummary: "退役",
 			sessionSignature: SIG,
 		});
-		const retired = await resolveSubGoalAnchor(root, "SG-1");
+		const retired = await resolveSubGoal(root, a.object_uid);
 		assert.equal(retired.ok, false);
 		assert.equal(retired.error.code, "subgoal/serves_unresolvable");
 
-		// Unknown anchor is a distinct refusal.
-		const unknown = await resolveSubGoalAnchor(root, "SG-99");
+		// An unknown uid is a distinct refusal.
+		const unknown = await resolveSubGoal(root, "00000099-9999-4999-8999-999999999999");
 		assert.equal(unknown.ok, false);
 		assert.equal(unknown.error.code, "subgoal/serves_unresolvable");
 	});
 });
 
-test("listResolvableAnchors returns numeric order, not directory order (28 §12.3)", async () => {
+test("resolveSubGoal refuses a non-uuid value — the anchor form is gone (28 §12.3)", async () => {
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
-		// Created out of order on purpose: directory order would be SG-10, SG-2, SG-3.
-		for (const anchor of ["SG-10", "SG-2", "SG-3"]) {
-			const made = await createOne(root, { anchor });
+		await createOne(root);
+		const r = await resolveSubGoal(root, "SG-1");
+		assert.equal(r.ok, false);
+		assert.equal(r.error.code, "subgoal/serves_shape_invalid");
+	});
+});
+
+test("listResolvableSubGoals sorts by order, then created_at — never by identifier (28 §8)", async () => {
+	await withTemp("subgoal.", async (base) => {
+		const root = await freshRoot(base);
+		// Created OUT of display order on purpose: a naive directory or uuid sort
+		// would produce a different sequence than the declared order.
+		for (const [title, order] of [["第三条", 30], ["第一条", 10], ["第二条", 20]]) {
+			const made = await createOne(root, { title, order });
 			assert.equal(made.result.ok, true, JSON.stringify(made.result.error));
 		}
-		const listed = await listResolvableAnchors(root);
+		const listed = await listResolvableSubGoals(root);
 		assert.equal(listed.ok, true);
-		assert.deepEqual(listed.value.anchors, ["SG-2", "SG-3", "SG-10"]);
+		assert.deepEqual(listed.value.items.map((i) => i.title), ["第一条", "第二条", "第三条"]);
+		assert.deepEqual(listed.value.items.map((i) => i.order), [10, 20, 30]);
 	});
 });
 
@@ -423,24 +471,24 @@ test("list defaults to active only; status=all includes both terminals (28 §12.
 	await withTemp("subgoal.", async (base) => {
 		const root = await freshRoot(base);
 		const keep = (await createOne(root)).result.value;
-		const gone = (await createOne(root, { anchor: "SG-2" })).result.value;
+		const gone = (await createOne(root, { title: "将被退役的子目标" })).result.value;
 
 		const readGone = await readSubGoalObject({ factSourceRoot: root, objectUid: gone.object_uid });
 		await updateSubGoalObject({
 			factSourceRoot: root,
 			objectUid: gone.object_uid,
 			expectedFingerprint: readGone.value.fingerprint,
-			frontmatterAfter: { status: "retired", disposition: "并入 SG-1" },
+			frontmatterAfter: { status: "retired", disposition: "判据不再独立成立" },
 			bodyMarkdownAfter: readGone.value.body,
 			changeSummary: "退役",
 			sessionSignature: SIG,
 		});
 
 		const activeOnly = await listSubGoalObjects({ factSourceRoot: root, status: "active" });
-		assert.deepEqual(activeOnly.value.items.map((i) => i.anchor), ["SG-1"]);
+		assert.deepEqual(activeOnly.value.items.map((i) => i.title), ["验收材料成为可回读证据"]);
 
 		const all = await listSubGoalObjects({ factSourceRoot: root, status: "all" });
-		assert.deepEqual(all.value.items.map((i) => i.anchor).sort(), ["SG-1", "SG-2"]);
+		assert.deepEqual(all.value.items.map((i) => i.status).sort(), ["active", "retired"]);
 		assert.ok(keep.object_uid);
 	});
 });
@@ -573,24 +621,24 @@ test("precheck: a body it cannot evaluate at all is 'unverifiable', not 'failed'
 test("双入口一致性: precheck and create reach the SAME verdict on the same candidate (28 §13)", async () => {
 	await withTemp("subgoal-precheck.", async (base) => {
 		const root = await freshRoot(base);
-		// A candidate that must FAIL both entries: the anchor is already taken.
-		const taken = await createOne(root);
-		assert.equal(taken.result.ok, true, JSON.stringify(taken.result.error));
 
-		const d = draft(); // same anchor SG-1 as the existing object
-		const pre = await precheckSubGoalCreate({ factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: validBody(d) });
+		// A candidate that must FAIL both entries on a candidate-level rule.
+		// (2026-11-01: this used to drive an "anchor already taken" collision —
+		// that rule is gone with the anchor, so the shared failing rule is now a
+		// content-level one: `order` out of range. Two rule sets would let them
+		// disagree while both claiming compliance, which is what §13 forbids.)
+		const bad = draft({ order: 0 });
+		const pre = await precheckSubGoalCreate({ factSourceRoot: root, frontmatterDraft: bad, bodyMarkdown: validBody(bad) });
 		const write = await createSubGoalObject({
 			factSourceRoot: root,
-			frontmatterDraft: d,
-			bodyMarkdown: validBody(d),
+			frontmatterDraft: bad,
+			bodyMarkdown: validBody(bad),
 			sessionSignature: SIG,
 		});
 		assert.equal(pre.value.mechanical_outcome, "failed");
 		assert.equal(write.ok, false);
-		// Same code on both sides — two rule sets would let them disagree while
-		// both claiming compliance, which is exactly what §13 forbids.
 		assert.equal(pre.value.error_code, write.error.code);
-		assert.equal(pre.value.error_code, "subgoal/anchor_already_exists");
+		assert.equal(pre.value.error_code, "subgoal/frontmatter_invalid");
 	});
 });
 
@@ -633,7 +681,7 @@ test("write refuses when the candidate changed after the precheck (28 §13)", as
 		const pre = await precheckSubGoalCreate({ factSourceRoot: root, frontmatterDraft: d, bodyMarkdown: validBody(d) });
 		assert.equal(pre.value.mechanical_outcome, "passed");
 
-		// Same anchor, but the criterion text changed between the two calls.
+		// The criterion text changed between the two calls.
 		const changed = { ...d, criterion: "另一条完全不同的判据。" };
 		const write = await createSubGoalObject({
 			factSourceRoot: root,
@@ -738,19 +786,20 @@ test("subgoal tools: read/list/write lifecycle through the real handlers", async
 		// Read carries the derived serving set AND flags its emptiness (28 §8.1).
 		const read = await handlers["subgoal-read-object"]({ object_uid: created.result.object_uid }, ctx);
 		assert.equal(read.outcome, "completed", JSON.stringify(read.gaps));
-		assert.equal(read.result.anchor, "SG-1");
+		assert.equal(read.result.order, 1);
 		assert.deepEqual(read.result.serving_objects, []);
 		assert.equal(read.result.serving_objects_unresolved, true);
 		assert.ok(read.gaps.some((g) => /serving-empty/.test(g)), JSON.stringify(read.gaps));
 
-		// A duplicate anchor is a rejection that names the occupant.
+		// The retired `anchor` key is refused as a closed-set violation, and the
+		// gap names the offending field rather than a generic rejection.
 		const dup = await handlers["subgoal-write-object"]({
 			action: "create",
-			frontmatter_draft: d,
+			frontmatter_draft: { ...d, anchor: "SG-1" },
 			body_markdown: validBody(d),
 		}, ctx);
 		assert.equal(dup.outcome, "rejected");
-		assert.ok(dup.gaps.some((g) => /anchor SG-1/.test(g)), JSON.stringify(dup.gaps));
+		assert.ok(dup.gaps.some((g) => /anchor/.test(g)), JSON.stringify(dup.gaps));
 	});
 });
 

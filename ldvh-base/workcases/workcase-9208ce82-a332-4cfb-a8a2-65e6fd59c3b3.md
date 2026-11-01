@@ -4,7 +4,7 @@ object_uid: 9208ce82-a332-4cfb-a8a2-65e6fd59c3b3
 title: goal 路由补 yaml_source 投影
 status: closed
 gist: 给 GET /api/cognition/goal 补 yaml_source 投影（读取层早已解析出 goal.md frontmatter 原文），使 goal 详情页的 YAML 节点显示原文而不是重建兜底——这是详情页 YAML 呈现推广之后唯一残留的例外。
-serves: SG-3
+serves: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
 summary: |-
   事实对象详情页底部的 YAML 源节点已推广到全部类型（workcase-63700bd2，已关闭）。唯一例外是 goal：它不走事实对象读取层，而走 GET /api/cognition/goal 独立直读路由，该路由的响应不投影 yaml_source，于是前端落到 reconstructFactYaml 重建兜底——Human 在 goal 详情页看到的是重建 YAML 而非 goal.md 原文。
 

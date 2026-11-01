@@ -7,13 +7,13 @@
 //   - subgoal-read-object  (effect: read)             — precise F3 read by
 //     object_uid: frontmatter, body, mechanical issues and fingerprint.
 //   - subgoal-list-objects (effect: read)             — F0/F1 discovery:
-//     anchor/title/status/criterion projection, active-only by default
+//     order/title/status/criterion projection, active-only by default
 //     (28 §12.4: achieved/retired stay out of ordinary candidates).
 //   - subgoal-write-object (effect: may_change_state) — controlled create
 //     (after Human-confirmed proposal incl. dedup result) and CAS update with
-//     change_log: active→active is 补充级更新 with `anchor` held frozen
+//     change_log: active→active is 补充级更新 with `object_uid` held fixed
 //     (28 §9.2 锚点冻结), active→achieved and active→retired are the two
-//     terminal transitions. Carries anchor uniqueness (28 §6.2 layer 1) and
+//     terminal transitions. Carries identity uniqueness (28 §17 第 5 项) and
 //     `parent_goal` resolution (28 §14.1) before any write.
 //
 // Authorities: specs/05 §6 (operation declaration + common envelope), §9.3
@@ -26,7 +26,7 @@
 // WHAT THIS LAYER DOES NOT DO (28 §18 red line 9, specs/00 §5.6): it does not
 // judge whether a sub-goal actually serves the goal statement. That is a
 // semantic judgement. The tool guarantees only that the `alignment` statement
-// EXISTS and that the anchor resolves — never that it is true.
+// EXISTS and that the reference resolves — never that it is true.
 
 import {
   createSubGoalObject,
@@ -35,7 +35,7 @@ import {
   updateSubGoalObject,
   listSubGoalObjects,
 } from "./subgoal-writer.js";
-import { objectRef, objectRefOf } from "./object-reference.js";
+import { objectRefOf } from "./object-reference.js";
 import { currentRouteValues } from "./session-signature.js";
 import { FRONTMATTER_AFTER_DESCRIPTION, FRONTMATTER_REMOVALS_DESCRIPTION } from "./after-integrity.js";
 import { authoritativeSignature } from "./signature-channel.js";
@@ -51,7 +51,7 @@ const OPERATIONS = {
   },
   "subgoal-list-objects": {
     toolName: "ldvh_subgoal_list",
-    summary: "Enumerate SubGoal fact objects (F0/F1 discovery): anchor/title/status/criterion projection for the governed project; active-only by default; ordered by numeric anchor so SG-1, SG-2… read in order (specs/28 §12.4)",
+    summary: "Enumerate SubGoal fact objects (F0/F1 discovery): order/title/status/criterion projection for the governed project; active-only by default; ordered by the optional `order` field, then created_at — never by identifier (specs/28 §12.4)",
     effect: "read"
   },
   "subgoal-precheck-create": {
@@ -62,7 +62,7 @@ const OPERATIONS = {
   "subgoal-write-object": {
     toolName: "ldvh_subgoal_write",
     writeShaped: true,
-    summary: "Controlled write of SubGoal fact objects: create (after Human-confirmed proposal incl. dedup result; requires a free SG-n anchor and a resolvable parent goal) and CAS update with change_log; active→active keeps the anchor frozen (28 §9.2), active→achieved and active→retired are terminal (specs/02 §10, specs/28 §13)",
+    summary: "Controlled write of SubGoal fact objects: create (after Human-confirmed proposal incl. dedup result; requires a resolvable parent goal) and CAS update with change_log; `order` is freely adjustable, `object_uid` is not (28 §8), active→achieved and active→retired are terminal (specs/02 §10, specs/28 §13)",
     effect: "may_change_state"
   }
 };
@@ -144,7 +144,7 @@ async function executeReadObject(args, exec, deps) {
   // 28 §8.1: 拆解与落实情况一律由 `serves` 反查派生，不在本对象上存储副本。
   // 空集既可能是「还没拆解」也可能是「拆了但下游没声明」——机械层不可区分，
   // 故如实标注，不以 0% 之类的类推定替代。
-  const servesLookup = await deriveServingObjects(factSourceRoot, fm.anchor);
+  const servesLookup = await deriveServingObjects(factSourceRoot, value.object_uid);
 
   return envelope("subgoal-read-object", "completed", {
     result: {
@@ -152,7 +152,7 @@ async function executeReadObject(args, exec, deps) {
       file: value.file,
       fingerprint: value.fingerprint,
       title: typeof fm.title === "string" ? fm.title : undefined,
-      anchor: fm.anchor,
+      order: typeof fm.order === "number" ? fm.order : undefined,
       parent_goal: fm.parent_goal,
       status: fm.status,
       criterion: fm.criterion,
@@ -188,15 +188,15 @@ async function executeReadObject(args, exec, deps) {
 }
 
 /**
- * Reverse lookup for 28 §8.1: which objects declare `serves: <anchor>`.
+ * Reverse lookup for 28 §8.1: which objects declare `serves: <object_uid>`.
  *
  * This is a DERIVATION, not stored state. A failure to scan is reported as a
  * gap rather than presented as "no work serves this sub-goal" — the two are
  * different claims and conflating them would turn an unread fact source into
  * a false statement of fact.
  */
-async function deriveServingObjects(factSourceRoot, anchor) {
-  if (typeof anchor !== "string" || anchor.length === 0) return { items: [], gaps: [] };
+async function deriveServingObjects(factSourceRoot, objectUid) {
+  if (typeof objectUid !== "string" || objectUid.length === 0) return { items: [], gaps: [] };
   try {
     // Use each type's OWN list projection (their fields and status filters are
     // type authority, 20 §13 / 21 §13) rather than a bespoke directory scan:
@@ -211,7 +211,7 @@ async function deriveServingObjects(factSourceRoot, anchor) {
       gaps.push(`serves-lookup(workcase): ${workcases.error?.code ?? "unknown"}: ${workcases.error?.message ?? ""}`);
     } else {
       for (const item of workcases.value.items ?? []) {
-        if (item?.serves === anchor) {
+        if (item?.serves === objectUid) {
           items.push({ fact_type_key: "workcase", object_uid: item.object_uid, title: item.title, status: item.status });
         }
       }
@@ -225,7 +225,7 @@ async function deriveServingObjects(factSourceRoot, anchor) {
       gaps.push(`serves-lookup(spark): ${sparks.error?.code ?? "unknown"}: ${sparks.error?.message ?? ""}`);
     } else {
       for (const item of sparks.value.items ?? []) {
-        if (item?.serves === anchor) {
+        if (item?.serves === objectUid) {
           items.push({ fact_type_key: "spark", object_uid: item.object_uid, title: item.title, status: item.status });
         }
       }
@@ -423,7 +423,7 @@ async function executeWriteObject(args, exec, deps) {
           ? ["precheck-not-run: 本次创建未携带候选指纹，因此没有经受控预检覆盖——入参仍按类型规范核对，但预检这一环未兑现（02 §10.1）；该事实不得在事后被读作「已预检」"]
           : []),
       ],
-      verification: { checks: ["frontmatter-closed-set", "anchor-uniqueness", "parent-goal-resolvable", "body-skeleton", "write-read-back"], passed: readBack.ok },
+      verification: { checks: ["frontmatter-closed-set", "identity-uniqueness", "parent-goal-resolvable", "body-skeleton", "write-read-back"], passed: readBack.ok },
       follow_up: [
         "whether this sub-goal really serves the goal statement, and whether the criterion is truly decidable, are AI/Human semantic judgements (28 §15) — this write only proves the shape",
         "subgoal-write-object action=update with the read-back fingerprint for further controlled change",
@@ -472,29 +472,32 @@ async function executeWriteObject(args, exec, deps) {
     scope: { requested: "update", completed: ["update", "read-back"], not_completed: [] },
     sources: [{ kind: "fact-object", path: updated.value.file, content_fingerprint: updated.value.fingerprint }],
     gaps: readBack.ok ? [] : [readBack.error.message],
-    verification: { checks: ["cas-fingerprint", "transition-legality", "anchor-frozen", "closed-set", "body-skeleton", "write-read-back"], passed: readBack.ok },
+    verification: { checks: ["cas-fingerprint", "transition-legality", "identity-frozen", "closed-set", "body-skeleton", "write-read-back"], passed: readBack.ok },
     follow_up: updated.value.transition === "achieve"
-      ? "achieved is terminal (28 §9.2): the file is read-only afterwards; if the criterion later proves wrong, create a NEW SG-n rather than reopening this one"
+      ? "achieved is terminal (28 §9.2): the file is read-only afterwards; if the criterion later proves wrong, create a NEW sub-goal rather than reopening this one"
       : updated.value.transition === "retire"
-        ? "retired is terminal (28 §9.2): the SG-n is NOT recycled — a new sub-goal needs a new anchor; existing serves references keep their value and go through the local re-batch path (21 §10.3)"
-        : "28 §9.3: an anchor change attempt is refused, not silently ignored — a new sub-goal is a NEW SG-n, never a renumbered one",
+        ? "retired is terminal (28 §9.2): existing serves references keep their value and go through the local re-batch path (21 §10.3); a new sub-goal is a new object, never a revival of this one"
+        : "28 §8: `order` is display-only and may be changed freely; `object_uid` is the identity and cannot change",
   });
 }
 
 /**
  * Map a writer failure onto the 05 §8 envelope.
  *
- * Anchor conflicts carry a STRUCTURED payload (`{anchor, conflicts}`); the
+ * Identity duplication carries a STRUCTURED payload (`{conflicts}`); the
  * occupants must be RENDERED rather than dropped, otherwise the caller learns
- * only that the anchor is taken but not by whom.
+ * only that the uid is duplicated but not where.
+ *
+ * 2026-11-01: this used to render "anchor already taken" conflicts. Anchors are
+ * gone; the only identity invariant left is one `object_uid` ↔ one carrier, and
+ * a violation means the fact source itself is inconsistent (28 §17 第 5 项).
  */
-export function renderAnchorConflictGaps(details) {
+export function renderIdentityConflictGaps(details) {
   const conflicts = Array.isArray(details?.conflicts) ? details.conflicts : [];
   if (conflicts.length === 0) return [];
-  const anchor = typeof details.anchor === "string" ? details.anchor : "(未提供)";
   return [
-    `anchor ${anchor} 已被 ${conflicts.length} 条 SubGoal 占用（28 §6.2：锚点唯一，且 retired 之后编号不复用）——新子目标须用新的 SG-n`,
-    ...conflicts.map((entry) => `占用者：${entry?.title ?? "(无标题)"}｜object=${objectRef({ object_uid: entry?.object_uid, fact_type_key: entry?.fact_type_key ?? "subgoal" }) || "(未知)"}｜status=${entry?.status ?? "(未知)"}｜文件=${entry?.file ?? "(未知)"}`)
+    `同一对象身份出现在 ${conflicts.length} 条载体上（28 §17 第 5 项：两处权威）——先消除重复载体再继续写入`,
+    ...conflicts.map((entry) => `占用者：${entry?.title ?? "(无标题)"}｜文件=${entry?.file ?? "(未知)"}｜status=${entry?.status ?? "(未知)"}`)
   ];
 }
 
@@ -504,7 +507,7 @@ export function writeRejected(operationKey, result, factSourceRoot, action) {
     || code.startsWith("subgoal/body")
     || code.startsWith("subgoal/coherence")
     || code.startsWith("subgoal/fingerprint")
-    || code.startsWith("subgoal/anchor_")
+    || code.startsWith("subgoal/identity_")
     || code.startsWith("subgoal/parent_goal")
     || code.startsWith("subgoal/serves_")
     || code === "subgoal/transition_invalid"
@@ -525,14 +528,11 @@ export function writeRejected(operationKey, result, factSourceRoot, action) {
     gaps: [
       `${code}: ${result.error.message}`,
       ...(Array.isArray(details) ? details : []),
-      ...renderAnchorConflictGaps(result.error.details),
-      ...(Array.isArray(result.error.details?.unresolved_anchors)
-        ? [`未迁移锚点：${result.error.details.unresolved_anchors.join("、")}`]
-        : []),
+      ...renderIdentityConflictGaps(result.error.details),
     ],
     verification: { checks: ["mechanical-checks"], passed: false },
-    follow_up: code === "subgoal/anchor_already_exists"
-      ? ["choose a NEW SG-n; retired anchors are never recycled (28 §9.2)"]
+    follow_up: code === "subgoal/identity_duplicated"
+      ? ["two carriers claim the same object_uid — resolve the duplication by hand; the writer will not guess which one is authoritative (28 §17 第 5 项)"]
       : code === "subgoal/parent_goal_unresolvable"
         ? ["the project goal carrier must exist and carry goal_key=project-goal before any sub-goal can be written (28 §14.1)"]
         : [],
@@ -591,7 +591,7 @@ function parameterSchemaFor(operationKey) {
     description: "AI-supplied type fields; Code assigns object_uid/fact_type_key/created_at/change_log and generates the H1 from title",
     properties: {
       title: { type: "string", description: "≤ 40 characters; sub-goal short title for locating and Human scanning (28 §8)" },
-      anchor: { type: "string", description: "`SG-<positive integer>` business anchor; frozen for the object's whole life and NEVER recycled after retirement (28 §8/§9.2). A new sub-goal needs a new number" },
+      order: { type: "integer", description: "optional display order (28 §8): positive integer, may be omitted, need not be unique or contiguous; it carries NO reference duty, so it may be changed freely at any time" },
       parent_goal: { type: "string", enum: ["project-goal"], description: "the goal key this sub-goal serves; must match the goal carrier's goal_key (28 §8)" },
       status: { type: "string", enum: ["active", "achieved", "retired"], description: "create must be active (28 §9.2 — the only legal initial state); update may transition active→achieved or active→retired, both terminal and read-only afterwards" },
       criterion: { type: "string", description: "the decidable achievement condition — one sentence stating WHAT MATERIAL must appear for this sub-goal to count as achieved (28 §8/§10.2). 'Complete workcase X' / 'close N workcases' is NOT a criterion (28 §6.3)" },
@@ -600,7 +600,7 @@ function parameterSchemaFor(operationKey) {
       disposition: { type: "string", description: "terminal destination & reason; required iff status=retired, forbidden otherwise (28 §8)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
-    required: ["title", "anchor", "parent_goal", "criterion", "criterion_kind", "alignment"],
+    required: ["title", "parent_goal", "criterion", "criterion_kind", "alignment"],
     additionalProperties: false
   };
   const subgoalFrontmatterAfter = (() => {

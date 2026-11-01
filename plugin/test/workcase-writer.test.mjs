@@ -16,7 +16,7 @@ import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
-import { seedSubGoals, testSignature, withTemp } from "./helpers.mjs";
+import { seedSubGoals, subGoalUid, testSignature, withTemp, UNKNOWN_SUBGOAL_UID } from "./helpers.mjs";
 
 // 03 §6.1 / 09: every write carries the authoritative signature.
 const TEST_SIGNATURE = testSignature();
@@ -83,7 +83,7 @@ function validDraft(overrides = {}) {
     title: "实现 X 的最小承载",
     // 21 §8: gist（要点）—— draft/open 必填、≤ 200 字符、给 Human 扫读的一句话。
     gist: "为 X 建立最小承载，使后续工作可复用。",
-    serves: "SG-1",
+    serves: subGoalUid(1),
     summary: "为 X 建立最小实现并通过测试，使后续工作可复用。",
     scope: "做什么：\n- 实现 X 的 writer 与测试\n\n明确不做什么：\n- 不改 Web 呈现\n- 不动规范条文",
     plan: [
@@ -317,7 +317,7 @@ test("create: valid draft lands at workcases/workcase-<uid>.md with Code identit
     assert.match(created.value.object_uid, UUID_PATTERN);
     assert.equal(read.value.frontmatter.status, "draft");
     assert.equal(read.value.frontmatter.fact_type_key, "workcase");
-    assert.equal(read.value.frontmatter.serves, "SG-1");
+    assert.equal(read.value.frontmatter.serves, subGoalUid(1));
     assert.equal(created.value.read_back, "ok");
     assert.equal(read.value.mechanical_issues.length, 0);
   });
@@ -481,12 +481,12 @@ test("gist: absent on a CLOSED object is NOT rejected — 终态只读、无入�
   });
 });
 
-test("create: rejects serves that matches no goal.md SG-n (21 §10.1 fail-closed)", async () => {  await withTemp("workcase-writer.", async (root) => {
+test("create: rejects serves that resolves to no SubGoal object (21 §10.1 fail-closed)", async () => {  await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const bad = await createWorkcaseObject({
       factSourceRoot: root,
-      frontmatterDraft: validDraft({ serves: "SG-9" }),
-      bodyMarkdown: draftBody(validDraft({ serves: "SG-9" })),
+      frontmatterDraft: validDraft({ serves: UNKNOWN_SUBGOAL_UID }),
+      bodyMarkdown: draftBody(validDraft({ serves: UNKNOWN_SUBGOAL_UID })),
       sessionSignature: SIG(),
     });
     assert.ok(!bad.ok);

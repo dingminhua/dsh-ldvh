@@ -5,7 +5,7 @@ question: "`ldvh-base/norms/` 实现侧（目录、FACT_DIRECTORIES、writer、G
 scope_boundary: Norm 可受控创建、可召回、Git Gate 覆盖时停止。
 intent: 保留理由（已失效）——原判断「规范已定稿但承载层全空，Norm 无法出生」的规范侧与目录侧经核实已就位（目录已建、FACT_DIRECTORIES 已含），剩余仅为 writer 与校验管线；该剩余与 21 号 WorkCase 缺口性质完全相同，故合并为单一对象承载，不再以本形态独立跟踪。
 summary: 本对象已按合并收口，不再以原形态跟踪。原主张「Norm 实现侧全部未建」部分仍真（无 writer、无 tools 受控入口、无 Git Gate 断言），但经机械核实有两处须更正：`ldvh-base/norms/` 目录**已补建**（**2026-09-13 二次更正**：本段原记「已建（空目录）」，经复核**失实**——该目录在 2026-09-13 补建**之前并不存在**；「不存在」与「空目录」在本系统不等价，`factSourceStatus()` 分别判 `incomplete` / `ready`，当时的机械核实把「目录不存在」误记为「目录已建但为空」）、`FACT_DIRECTORIES` 已含 Norm（`governed-projects.js:17`），故 `:287` 的建目录逻辑已包含它。真实剩余为承载层管线缺席，与 21 号 WorkCase 的缺口性质完全相同，故合并为单一承接对象 `c94ea382`「Norm 与 WorkCase 承载层补建」。**上述更正不影响本对象的终态**：合并去向与理由不变。
-serves: SG-1
+serves: befe1735-1187-4d60-ba53-e55eb0cb7de2
 disposition: 合并：Norm 承载层剩余（writer／受控入口／Git Gate 断言）与 WorkCase 缺口同型，合并至 c94ea382「Norm 与 WorkCase 承载层补建」。
 relations:
   - relation_key: merged-into

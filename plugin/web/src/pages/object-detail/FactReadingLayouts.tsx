@@ -896,7 +896,7 @@ function parseSubGoalBodySections(body: string): Array<{ title: string; body: st
  * v5 SubGoal 阅读布局（28 号 §8/§10/§12）。
  *
  * 三段结构，次序就是读者要回答的三个问题：
- *   ① 这是哪一条子目标（anchor 业务键 + 短标题 + 判据类型）
+ *   ① 这是哪一条子目标（显示次序 + 短标题 + 判据类型）
  *   ② 走到哪算达成、凭什么判（criterion 全文 + criterion_kind 的判法说明）
  *   ③ 它凭什么属于这个项目目标（alignment）
  * 之后是名下的工作（由 `serves` 反查派生）与修订史。
@@ -915,7 +915,11 @@ export function SubGoalReadingLayout({
   const { t } = useI18n();
   const [servingState, setServingState] = useState<ReadingNodeState>('expanded');
 
-  const anchor = typeof obj.anchor === 'string' ? obj.anchor.trim() : '';
+  // 显示次序不是身份（28 §7）：身份是 object_uid，读者在这一屏不需要看到它——
+  // 它在 URL 里、在引用里、在任何需要精确定位的地方，而不是阅读面。
+  // `order` 缺失是合法状态（可缺失、可不唯一、可不连续），缺失时如实标注「未定次序」，
+  // 不补一个隐式编号——那会让读者以为它是连续的。
+  const order = typeof obj.order === 'number' ? obj.order : null;
   const criterionKind = typeof obj.criterion_kind === 'string' ? obj.criterion_kind.trim() : '';
   const criterion = typeof obj.criterion === 'string' ? obj.criterion.trim() : '';
   const alignment = typeof obj.alignment === 'string' ? obj.alignment.trim() : '';
@@ -962,10 +966,10 @@ export function SubGoalReadingLayout({
       <section className={DECISION_DETAIL_LIME_SHELL_CLASS}>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <h3 className={`ldvh-card-decision-title min-w-0 ${DECISION_TITLE_HUE_CLASS.lime}`}>
-            {getFieldLabel('subgoal_anchor', locale)}
+            {getFieldLabel('subgoal_order', locale)}
           </h3>
           <span className={`ldvh-chip-sm min-w-0 shrink-0 ${LDVH_SUCCESS_CHIP_HUE_CLASS}`}>
-            {anchor || t('objectDetail.subGoalAnchorMissing')}
+            {order !== null ? String(order) : t('objectDetail.subGoalOrderAbsent')}
           </span>
           {kindLabel && (
             <span
@@ -991,7 +995,7 @@ export function SubGoalReadingLayout({
           正文对应段），所以正文段永远以字段原文开头、再补判定材料与理由。
 
           因此**不能**把字段与正文段各渲染一次——那会让同一段话在页面上出现两遍
-          （实测：SG-1 的达成条件与对齐说明整段重复）。惯例同 27 号 NormReadingLayout：
+          （实测：同一条子目标的达成条件与对齐说明整段重复出现过两遍）。惯例同 27 号 NormReadingLayout：
           只渲染正文分节，字段是机器权威、不单独上屏。
 
           正文缺失时才回落显示字段——那是载体不合规的形态，字段仍是唯一权威文本，
@@ -1093,9 +1097,9 @@ function SubGoalTerminalReadingNode({ obj, locale }: { obj: Record<string, unkno
 }
 
 /** v5 Goal 阅读布局（25 号 §6）：单例冻结锚的详情阅读面——目标陈述（冻结区，
- * 为什么 + 要实现什么）→ 子目标（SG-n 可判定的达成条件）→ 修订史（change_log
- * 是 HV5 演进链第一环，复用共享流水节点）。Goal 无 relations/urls（25 §5
- * 链顶无上游；路径即身份）。 */
+ * 为什么 + 要实现什么）→ 子目标（28 号对象，按 `parent_goal` 反查派生，各带可
+ * 判定的达成条件）→ 修订史（change_log 是 HV5 演进链第一环，复用共享流水节点）。
+ * Goal 无 relations/urls（25 §5 链顶无上游；路径即身份）。 */
 export function GoalReadingLayout({
   obj,
   locale,
@@ -1117,6 +1121,9 @@ export function GoalReadingLayout({
         return [{
           id: record.id.trim(),
           text: record.text.trim(),
+          // 28 §8：显示次序由可选 `order` 承担，身份由 `object_uid` 承担。
+          // 这一屏给读者看的是次序，不是 identity（`id` 就是 uid）。
+          order: typeof record.order === 'number' ? record.order : undefined,
           object_uid: typeof record.object_uid === 'string' ? record.object_uid : undefined,
           legacy: record.legacy === true,
         }];
@@ -1127,8 +1134,9 @@ export function GoalReadingLayout({
     <div className="mb-6 flex flex-col gap-5">
       {/* 目标陈述（冻结区）：一段话，写给未来会话与新读者。 */}
       <AdrProseNode title={getFieldLabel('goal_statement', locale)} value={statement} locale={locale} />
-      {/* 子目标（冻结区）：SG-n 锚点 + 可判定的达成条件——与认知中心目标区
-          同渲染语法（chip + 文本行），冻结永不换号（25 §4）。 */}
+      {/* 子目标：按 `parent_goal` 反查派生（28 §8.1，不在本载体存储）——
+          与认知中心目标区同渲染语法（chip + 文本行）。次序取 `order`，
+          缺失即「未定次序」；身份是 object_uid，读者在这一屏不需要它。 */}
       {subGoals.length > 0 && (
         <ReadingNodeSection
           title={getFieldLabel('goal_sub_goals', locale)}
@@ -1141,7 +1149,7 @@ export function GoalReadingLayout({
             {subGoals.map((subGoal) => (
               <li key={subGoal.id} className="flex min-w-0 items-start gap-2 py-2 first:pt-0 last:pb-0">
                 <span className={`ldvh-chip ldvh-chip-sm shrink-0 ${LDVH_SUCCESS_CHIP_HUE_CLASS}`}>
-                  {subGoal.id}
+                  {typeof subGoal.order === 'number' ? subGoal.order : '·'}
                 </span>
                 <span className="ldvh-caption min-w-0 flex-1">{subGoal.text}</span>
                 {/* 迁移中的旧段行：显式标出，不与会话中的对象行混为一谈

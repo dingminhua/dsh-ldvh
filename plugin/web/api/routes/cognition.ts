@@ -143,7 +143,7 @@ interface RecentActivityBuildItem {
   status?: string
   group?: WorkCaseV5Group
   priority?: string
-  /** Spark 的 goal.md 子目标锚点（20 §6 serves），条件出现。 */
+  /** Spark 的 serves（子目标 `object_uid`，20 §6 + 28 §12.3），条件出现。 */
   serves?: string
   /** 26 §8 impact（轻/中/重），条件出现——摩擦的近期动态行据此显示影响标签。 */
   impact?: string
@@ -185,7 +185,7 @@ interface SparkHealthBuildItem {
   title_en?: string
   title_zh?: string
   priority?: string
-  /** 20 §6 serves（SG-n 子目标锚点），健康度行与卡头同标签序。 */
+  /** 20 §6 serves（子目标 `object_uid`，28 §12.3），健康度行与卡头同标签序。 */
   serves?: string
   /** 20 §8 refs（关联事实对象引用），与卡头同标签序。 */
   refs?: Array<{ object_uid: string; title?: string; type?: string }>
@@ -548,8 +548,8 @@ export function buildSparkHealth(
       ...(typeof raw.title_en === 'string' ? { title_en: raw.title_en } : {}),
       ...(typeof raw.title_zh === 'string' ? { title_zh: raw.title_zh } : {}),
       ...(priority ? { priority } : {}),
-      // 20 §6 serves（SG-n 子目标锚点）：健康度行与卡头同标签序（Human 定案
-      // 2026-09-13：类型 → 优先级 → SG → 修改次数）。
+      // 20 §6 serves（子目标 object_uid）：健康度行与卡头同标签序（Human 定案
+      // 2026-09-13：类型 → 优先级 → 子目标 → 修改次数）。
       ...(typeof raw.serves === 'string' && raw.serves.trim() ? { serves: raw.serves } : {}),
       updated_at: updatedAt,
       ...(signature ? { signature } : {}),
@@ -962,7 +962,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
  * GET /api/cognition/goal — Web「当前目标」投影的机械来源读取（specs/25 直读消费点）。
  *
  * 读取被管辖项目 worktree 下的单例 goal.md，投影字段覆盖两档消费：窄字段
- * （目标陈述 + 子目标 SG-n 清单）与详情阅读面（created_at + change_log 修订史 +
+ * （目标陈述 + 子目标清单——后者由 `subgoals/*.md` 反查派生，不在本载体存储，
+ * 28 §8.1）与详情阅读面（created_at + change_log 修订史 +
  * 读取层元数据——canonical_path/carrier/read_status 供前端 getFactReadMeta 消费）。
  * 此处不做任何 AI 判断或派生——只把 goal.md 原文里的结构化字段搬给前端；服务端
  * 不缓存、不回写、不建索引（25 §10 消费点直读）。该路由不承载 Goal 类型的
@@ -975,8 +976,14 @@ type GoalSubGoal = {
   status?: string
   /** SubGoal `criterion_kind` (28 §10.2). Absent on legacy-only rows. */
   criterion_kind?: string
-  /** SubGoal `object_uid` — the stable identity the Web drill-down needs. */
+  /** SubGoal `object_uid` — the stable identity the Web drill-down needs.
+   *  Since 2026-11-01 this is ALSO what `id` carries on object rows (28 §7): the
+   *  human-readable `SG-n` label is gone, so `id` is no longer a display string. */
   object_uid?: string
+  /** SubGoal `order` (28 §8): optional display order. Absent = sorts last. */
+  order?: number
+  /** SubGoal `created_at`: the tiebreak when `order` is absent or equal. */
+  created_at?: string
   /**
    * True when this row was recovered from the migrated-away `## 子目标` section
    * instead of a SubGoal carrier. 25 §7 makes that shape a one-way migration
@@ -1013,9 +1020,14 @@ function legacySubGoalAnchors(body: string): Array<{ anchor: string; text: strin
  *
  * This is a READ-TIME DERIVATION, not stored state: 28 §8.1 forbids keeping a
  * copy of the sub-goal list on the goal carrier, because a copy can diverge from
- * the objects it claims to summarise. Anchors still sitting in the legacy
- * section are appended with `legacy: true` ONLY when no SubGoal object already
- * carries them — a migrated anchor must never appear twice.
+ * the objects it claims to summarise.
+ *
+ * 2026-11-01: `id` is now the `object_uid`, not an `SG-n` anchor (28 §7 废止业务
+ * 编号). Ordering comes from the optional `order` field with `created_at` as the
+ * tiebreak — never from the identifier, which carries no order meaning at all.
+ * Legacy inline entries (still `SG-n` text on the carrier) keep their literal
+ * label as `id` and are appended AFTER the objects, flagged `legacy: true`: they
+ * are unmigrated text, not objects, so they have no uid to be identified by.
  */
 async function readSubGoalProjection(
   project: { path: string },
@@ -1035,10 +1047,12 @@ async function readSubGoalProjection(
       const raw = await readFile(path.join(dir, name), 'utf-8')
       const parsed = parseCarrierFrontmatter(raw)
       if (parsed === null) continue
-      const anchor = typeof parsed.anchor === 'string' ? parsed.anchor : ''
-      if (!/^SG-\d+$/.test(anchor)) continue
+      const objectUid = typeof parsed.object_uid === 'string' ? parsed.object_uid.trim() : ''
+      if (objectUid === '') continue
       rows.push({
-        id: anchor,
+        id: objectUid,
+        order: typeof parsed.order === 'number' ? parsed.order : undefined,
+        created_at: typeof parsed.created_at === 'string' ? parsed.created_at : undefined,
         // The short title is what a scanning reader needs; the full criterion is
         // the drill-down's job, so the list stays scannable.
         text: typeof parsed.title === 'string' && parsed.title.trim() !== ''
@@ -1046,7 +1060,7 @@ async function readSubGoalProjection(
           : (typeof parsed.criterion === 'string' ? parsed.criterion.trim() : ''),
         status: typeof parsed.status === 'string' ? parsed.status : undefined,
         criterion_kind: typeof parsed.criterion_kind === 'string' ? parsed.criterion_kind : undefined,
-        object_uid: typeof parsed.object_uid === 'string' ? parsed.object_uid : undefined,
+        object_uid: objectUid,
       })
     } catch {
       // An unreadable carrier is reported by the CLI read path; the Web
@@ -1054,14 +1068,26 @@ async function readSubGoalProjection(
       continue
     }
   }
-  const known = new Set(rows.map((row) => row.id))
+  // Display order (28 §8): `order` ascending when present, then `created_at`.
+  // A sub-goal without `order` sorts after every ordered one — it is a legal
+  // state, not an error, and it must never be given an implicit number.
+  rows.sort(compareSubGoalDisplayOrder)
+  // Legacy entries follow the objects, keeping their literal carrier order.
   for (const entry of legacy) {
-    if (known.has(entry.anchor)) continue
     rows.push({ id: entry.anchor, text: entry.text, legacy: true })
   }
-  // Numeric anchor order so the list reads SG-1, SG-2, … rather than by filename.
-  rows.sort((a, b) => Number(a.id.replace(/^SG-/, '')) - Number(b.id.replace(/^SG-/, '')))
   return rows
+}
+
+/** 28 §8 display order: `order` asc, then `created_at`, then uid — never the id. */
+function compareSubGoalDisplayOrder(a: GoalSubGoal, b: GoalSubGoal): number {
+  const ao = typeof a.order === 'number' ? a.order : Number.POSITIVE_INFINITY
+  const bo = typeof b.order === 'number' ? b.order : Number.POSITIVE_INFINITY
+  if (ao !== bo) return ao - bo
+  const ac = a.created_at ?? ''
+  const bc = b.created_at ?? ''
+  if (ac !== bc) return ac < bc ? -1 : 1
+  return a.id.localeCompare(b.id)
 }
 
 /** 25 号 Goal 的必填字段闭集（§6 frontmatter 全必填）——呈现层轻校验，

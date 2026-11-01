@@ -4,7 +4,7 @@ object_uid: 8f4742f5-4c3b-44d8-8f4e-c2d6a1ca1f8f
 title: Spark 授权门禁与 20 号一致性修复
 status: closed
 gist: 为 Spark 的创建与终态转换补宿主询问门禁，使 Human 确认可机械取得；同时修正 20 号规范中失效的交叉引用与未登记的消费点声明。需要你决定规范候选文本与是否连带处置无授权的沉默阈值。
-serves: SG-1
+serves: befe1735-1187-4d60-ba53-e55eb0cb7de2
 summary: |-
   本工单承接 Human 2026-09-25 的三项决定：为 Spark 补机械授权门禁、存量 45 个对象不后补凭据、其余问题按 00 价值处置。
 

@@ -1313,7 +1313,7 @@ function writeRejected(operationKey, failureResult, factSourceRoot) {
         : code === "workcase/transition_invalid"
           ? ["check the current status against the transition table (draft→open→closed, rebatch open→draft, cancel draft→closed); closed is read-only (21 §9.2)"]
           : code === "workcase/serves_unresolvable"
-            ? ["goal.md is missing or the SG-n does not exist — Gate 1 is fail-closed without a resolvable anchor (21 §10.1); omit serves or fix the anchor"]
+            ? ["goal.md is missing or the SubGoal object_uid does not resolve — Gate 1 is fail-closed without a resolvable target (21 §10.1); omit serves or fix the reference"]
             : ["fix the reported mechanical issues and retry; zero write has occurred"];
   return envelope(operationKey, outcome, {
     result: null,
@@ -1373,7 +1373,7 @@ function parameterSchemaFor(operationKey) {
       title: { type: "string", description: "工单短标题，≤ 30 字；不承载完成判据或结果结论" },
       status: { type: "string", enum: ["draft", "open", "closed"], description: "create must be draft; transitions are stamped by approve/close/rebatch/cancel (21 §9)" },
       gist: { type: "string", description: "给 Human 扫读的一句话要点（21 §8）：这份工单要做什么、要 Human 决定什么。draft/open 时必填、closed 时条件；≤ 200 字符；纯文本——不得以编号引用（如「承 workcase-xxxx 的 residual」）、Markdown 标记或归因链开头，须自足可读；无正文承载。它服务 Human 分诊（卡面即提请面），与 summary（AI 接续快照，可长、可含编号与 Markdown）分工不重叠" },
-      serves: { type: "string", description: "服务的 sub-goal 锚点，值形如 SG-3；必须匹配 goal.md 中存在的 SG-n；不是 relations 条目（21 §8）" },
+      serves: { type: "string", description: "所服务 SubGoal 的 object_uid（canonical UUIDv4，28 §12.3）；须解析到 active/achieved 的 SubGoal 对象；不是 relations 条目（21 §8）" },
       summary: { type: "string", description: "要做什么的当前语义快照（AI 向，不设长度上限）；使未读原计划的后续执行者可独立执行；必须逐字出现在「摘要」正文节。**书写格式（21 §8，机械校验）**：超过 200 字符时须用空行分块，且**首块之外**的每块首行须是 **H3 标题行**（如 `### 现状核实` / `### 处置方向` / `### 边界`），标题行独占一行、内容另起。首块可为总述、不要求标题。标题名由你按内容定，规则只要求「有块级标题、看得出这一块在讲什么」；200 字符以内不强制分块。**只认 H3**：`**加粗**` 与 `标签：` 不再被接受——实测二者在渲染层与正文同处一个段落（单个换行不产生新段落），读者看不出层次" },
       scope: { type: "string", description: "授权范围与边界：必须同时回答「做什么」与「明确不做什么」；是越权拒绝的比对基准；必须逐字出现在「授权范围」正文节。**书写格式（21 §8，机械校验）**：「做什么：」与「明确不做什么：」必须**各自独占一行**并各带内容（不得写成 `做什么：A；B。明确不做什么：C。` 这类行内串联）；两者下的具体条目用 `- ` 列表逐条列出。该骨架不受长度豁免——任何长度都须两段分明；超过 200 字符时另须用空行分块，且**首块之外**的每块首行须是 H3 标题行，或本字段语义必需的 `做什么：`／`明确不做什么：` 两标签行（**只认这两类**；`**加粗**` 与其它任意 `XX：` 不构成块首——实测它们在渲染层与正文同处一个段落，读者看不出层次）" },
       plan: {

@@ -4,7 +4,7 @@ object_uid: 4af2b871-49d2-4534-818a-beb61a6eeac9
 title: Web 工单呈现三态重建
 status: closed
 gist: 把 Web 的 WorkCase 呈现从 v4 八值状态机重建为三态直读，改五档筛选、重建认知中心收件箱，并清除 v4 残留。
-serves: SG-3
+serves: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
 summary: |-
   按 21 号定稿语义重建 Web 的 WorkCase 呈现链（2026-09-15 Human 裁决「登记+三态重建」的实施单）：投影器从 v4 状态机（open/blocked/closed+phase 八值）改为 21 号三态直读（draft/open/closed + gate_1/attempt/result/outcome 字段）；状态筛选改五档（待批准执行/执行中/待批准关闭/已关闭/全部）；认知中心收件箱按三态重建并与筛选器共用「待批准关闭」派生判据；详情与卡片读 v5 字段；
 

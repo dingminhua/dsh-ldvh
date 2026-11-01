@@ -5,7 +5,7 @@ question: writer 对既有 `reviews` 条目补记写入者身份的行为，应�
 scope_boundary: 给出「补记发生在哪些入口与条件下、影响哪些既有条目、应改为保留原身份还是拒绝写入、对存量已被补记的条目如何处置」的可执行结论即可停；不在本议题内落实现改动，也不在本议题内决定纳入哪次行动。
 intent: 复核身份是关闭侧独立性判定的机械基准，被补记即失真且机械层不可辨。收敛为 Spark 以便跨行动处置（含存量已被补记的条目如何如实登记）。
 summary: "`workcase-4af2b871` 的残留与去向里记着一处实现层缺陷：writer 在受控写入时会给既有的 `reviews` 条目补记写入者身份（本会话的 `session_id` 与 `implementer_session_id`），造成复核条目的身份错误归属——那些条目本是更早的会话产出的，被补记后会读成由本次写入者复核。载体原话：「本对象 reviews[0]（2026-09-18 由 workbuddy-global 记录）在 2026-09-27 的两次受控写入中被 writer 按「既有条目缺失时补记」的路径补上了本会话的 session_id 与 implementer_session_id」；去向原话：「writer 对既有 reviews 条目补记写入者身份的行为属实现层缺陷（会造成复核条目身份的错误归属），另立工单处置。」要紧之处：`reviews[].session_id` 与 `implementer_session_id` 是关闭侧独立性比对的基准（21 §10.4／§14 要求至少一条复核与实施者可比对且不同会话），补记即污染该基准，而机械层无法区分原产出身份与补记身份。"
-serves: SG-3
+serves: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
 object_uid: a687da1f-9ecf-43c6-b7ac-4c7d45a7e8df
 fact_type_key: spark
 created_at: 2026-10-01T18:35:47.566Z

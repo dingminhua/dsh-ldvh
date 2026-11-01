@@ -64,13 +64,13 @@ test('subgoal 字段契约：五个必填判据字段齐全，且不采用 urls/
   assert.ok(contract, 'FACT_FIELD_CONTRACT 应登记 subgoal');
 
   // 28 §8：这五项缺任一，子目标就不再是「可判定 + 已声明对齐」的对象。
-  for (const required of ['anchor', 'parent_goal', 'criterion', 'criterion_kind', 'alignment']) {
+  for (const required of ['parent_goal', 'criterion', 'criterion_kind', 'alignment']) {
     assert.equal(contract[required]?.required, true, `${required} 必须是必填字段（28 §8）`);
   }
   // disposition 只在 retired 出现——条件字段，不得登记为必填。
   assert.equal(contract.disposition?.required, false, 'disposition 是条件字段');
 
-  // 28 §11：不采用 urls（判据与对齐住正文）与 relations（层级由 anchor+serves
+  // 28 §11：不采用 urls（判据与对齐住正文）与 relations（层级由 parent_goal+serves
   // 派生）。它们经 `...common` 进入契约表（全类型同形，spark 亦然），故此处断言
   // 的是**它们永远不会出现**：既不可能是必填，也不进列表投影的可达面。
   // 「必填面排除」由 tests/api/fact-field-contract.test.ts 的
@@ -249,4 +249,85 @@ test('近期动态覆盖 subgoal（加入 OBJECT_TYPES 时不得遗漏）', () =
 
   assert.match(cognition, /listObjects\('subgoal'/, '应拉取 subgoal 列表供近期动态');
   assert.match(cognition, /\['subgoal', subGoalResult\]/, '近期动态取数范围应含 subgoal');
+});
+
+test('serves 的 object_uid 在呈现前被解析成子目标标题', () => {
+  const badge = read('src/components/ServesSgBadge.tsx');
+  const filter = read('src/components/ServesSgFilter.tsx');
+  const hook = read('src/hooks/useSubGoals.ts');
+
+  // 28 §12.3：serves 存 object_uid。直接把值当 chip 文案就是把身份当标签——
+  // 读者会看到一串十六进制。解析表来自 /cognition/goal 的 sub_goals 投影
+  // （本身由 subgoals/*.md 反查派生，不是第二权威）。
+  assert.match(hook, /export function useSubGoalIndex/, '应提供 uid → 子目标标题的解析入口');
+  assert.match(hook, /data\.goal\?\.sub_goals/, '解析表应取自 goal 的子目标投影');
+  assert.match(badge, /useSubGoalIndex\(\)/, 'chip 应经解析表取标题');
+  assert.match(badge, /const ref = index\.get\(uid\)/, 'chip 应按 uid 查标题');
+  // 解析不到时如实回落 uid：显示空白或「未知」会让一条真实引用看起来像坏了。
+  assert.match(badge, /if \(!ref\) return \{ text: uid, title: uid, resolved: false \}/,
+    '解析不到应回落原值，不得伪造标题');
+  // 卡头 chip 显示 `order` 而不是完整标题：标题最长 40 字（28 §8），塞进卡头
+  // 会挤掉同一行的状态徽标与修改次数。`order` 正是为显示而设的字段，语义也
+  // 与它接手的 SG-n 一致——第几条子目标。完整标题留在 title 悬停里。
+  assert.match(badge, /if \(typeof ref\.order === 'number'\) return \{ text: String\(ref\.order\), title: ref\.title \|\| uid, resolved: true \}/,
+    'order 存在时应显示 order');
+  assert.match(badge, /if \(ref\.title\) return \{ text: ref\.title, title: ref\.title, resolved: true \}/,
+    'order 缺失时才回落标题（28 §8：order 可缺失）');
+
+  // 筛选 tab 的标签同样是标题；uid 只作 key 与查询参数（onChange(option.id)）。
+  assert.match(filter, /onChange\(option\.id\)/, '筛选值仍应是 uid（查询参数与匹配依据）');
+  assert.doesNotMatch(filter, /<span className="font-mono">\{option\.id\}<\/span>/,
+    'uid 不得作为可见 tab 标签');
+  assert.match(filter, /option\.text \|\| option\.id/, '标题缺失时回落 uid，不显示空按钮');
+});
+
+test('order 取代 anchor：呈现面不得再读 anchor 字段', () => {
+  const objectList = read('src/pages/ObjectList.tsx');
+  const layouts = read('src/pages/object-detail/FactReadingLayouts.tsx');
+  const model = read('src/pages/object-detail/model.ts');
+  const api = read('src/utils/api.ts');
+  const contract = read('api/services/factFieldContract.ts');
+
+  // 28 §7（2026-11-01）：anchor（SG-n）已废止——身份由 object_uid 承担、
+  // 显示次序由可选 `order` 承担。呈现面若仍读 anchor，读到的是 undefined。
+  assert.doesNotMatch(objectList, /obj\.anchor/, '列表卡不得再读 anchor');
+  assert.doesNotMatch(layouts, /obj\.anchor/, '详情阅读布局不得再读 anchor');
+  assert.match(objectList, /obj\.order/, '列表卡应读 order');
+  assert.match(layouts, /obj\.order/, '详情阅读布局应读 order');
+  assert.match(api, /order\?: number;/, 'ObjectItem 应声明 order');
+  assert.doesNotMatch(api, /\n {2}anchor\?: string;/, 'ObjectItem 不得再声明 anchor');
+  assert.match(model, /subgoal: \[\s*\n\s*'order'/, 'subgoal 字段序应以 order 起头');
+  assert.match(contract, /order: field\('subgoal-order', 'number', false\)/, '契约里 order 应为可选数值');
+  // 缺失合法、可重复、可不连续——故必填表里不能有它。
+  assert.doesNotMatch(contract, /order: field\('subgoal-order', 'number', true\)/,
+    'order 不得改为必填（28 §8：可缺失）');
+});
+
+test('联邦对象列表不得让 subgoal 卡片落到空内容', () => {
+  const federationObjects = read('src/pages/FederationObjects.tsx');
+
+  // renderContent 的每条分支对应一类卡体；缺 subgoal 分支时该类型在联邦视图里
+  // 渲染成空卡——对象在、类型在、唯独没有内容。
+  assert.match(federationObjects, /if \(currentType === 'subgoal'\) return <SubGoalCardContent obj=\{item\} \/>;/,
+    '联邦卡体应分派 SubGoalCardContent');
+  assert.match(federationObjects, /SubGoalCardContent,?\n\} from '@\/pages\/ObjectList';/,
+    '应从 ObjectList 导入 SubGoalCardContent');
+});
+
+test('联邦列表的类型短名由路由补上（卡片类型 chip 不得空白）', () => {
+  const federation = read('api/routes/federation.ts');
+
+  // `listObjects` 的投影只带 `fact_type_key`（03 §6.1 载体值域），而卡片的类型
+  // chip 读 `obj.type`。单项目列表路由经 `normalizeItem` 补过一次，联邦路由直接
+  // 消费 `listObjects` 输出、没有那道归一化——八类对象的联邦卡类型 chip 曾全是
+  // 空白（对象在、类型在、唯独卡面没有字）。
+  // 断在 map 回调内部：`res.json({ ok: true, type: objectType, ... })` 里也有同样的
+  // 字面量，只对全文 match 会让「把 map 里的那行删掉」照样通过（负向验证实测过）。
+  const mapStart = federation.indexOf('return listing.items.map');
+  assert.ok(mapStart > 0, '应能定位联邦列表的 map 回调');
+  const mapBlock = federation.slice(mapStart, federation.indexOf('.flat()', mapStart));
+  assert.match(mapBlock, /type: objectType,/, '联邦路由应在 map 回调里写回 type');
+  // 不得写成 `type: item.fact_type_key` 或 `type: item.type` 这类反推/透传：
+  // 查询上下文本身已确定类型，从载体字段再推一次只是多一处可能与读取层分歧的判定。
+  assert.doesNotMatch(mapBlock, /type:\s*item\./, '联邦路由不得从载体字段反推类型');
 });

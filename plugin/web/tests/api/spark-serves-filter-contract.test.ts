@@ -22,8 +22,12 @@ test('serves filter component follows the shared tab filter grammar', () => {
   assert.match(component, /interface ServesSgFilterOption \{\s*\n\s*id: string;\s*\n\s*text: string;\s*\n\}/);
   // tab 形态与 ObjectStatusFilter 同语法（ldvh-tab-button + ldvh-tab-list）。
   assert.match(component, /ldvh-tab-button \$\{active \? 'ldvh-tab-button-active' : 'ldvh-tab-button-idle'\}/);
-  // SG id 以 mono 呈现，title 携带子目标全文（扫读定位 + 完整判定条件悬停可见）。
-  assert.match(component, /<span className="font-mono">\{option\.id\}<\/span>/);
+  // 选项标签是子目标标题，不是 uid（2026-11-01：serves 改存 object_uid 后，
+  // 把 uid 当 tab 标签就是让读者按一串十六进制筛对象；uid 只作 key 与查询参数）。
+  // 标题最长 40 字（28 §8），按行宽截断，全文留在 title 悬停里。
+  assert.match(component, /<span className="max-w-\[12rem\] truncate">\{option\.text \|\| option\.id\}<\/span>/);
+  assert.doesNotMatch(component, /<span className="font-mono">\{option\.id\}<\/span>/,
+    'uid 不得作为可见标签——它是查询参数与匹配依据，不是文案');
   assert.match(component, /title=\{option\.text\}/);
   // 「全部」选项 + 总数；计数覆盖降级（unavailable → —，partial → n+）。
   assert.match(component, /onChange\(null\)/);

@@ -18,7 +18,7 @@ summary: |-
   **边界**：不含 Goal 类型语义/字段契约/状态翻转（25 号已定）与蓝图呈现形态（归「蓝图功能的最终形态」Spark）。
 
   （来源：specs/25-Goal-项目目标.md §3.2/§10/§11、specs/03、实读确认全仓无初始化流程规范）
-serves: SG-1
+serves: befe1735-1187-4d60-ba53-e55eb0cb7de2
 priority: P2
 object_uid: e78da658-3bd3-41c9-bb4d-7e4db8562cc8
 fact_type_key: spark

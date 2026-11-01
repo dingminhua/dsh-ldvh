@@ -19,7 +19,7 @@ summary: |-
 evolution:
   - at: 2026-09-28
     summary: Human 裁决「A 收缩为二词」后，本对象由「提案待裁」转为「已落地」：去向改为二词闭集、指向由 refs 改为 relations.routed-to、新增四档机械门禁与 CREATE-FIRST 次序，落为 21 §7/§8/§9.1/§10.2/§12/§13/§14/§15.1/§15.3/§15.4/§16 修订及实现与呈现层同步（commit 3a32e63）。同时更正本对象两处事实瑕疵：v2 第 9 条「用 refs 绕过 open 约束」的设计已被否弃；裂缝①的「open Spark 2916e3d5」限定词更正为其真实状态 discarded。
-serves: SG-1
+serves: befe1735-1187-4d60-ba53-e55eb0cb7de2
 disposition: 已实现：残留与去向机制按 Human 裁决（2026-09-28「A 收缩为二词」）落地——去向闭集二词、routed-to 承载指向、四档机械门禁，见 commit 3a32e63（21 §7/§8/§9.1/§10.2/§12/§13/§14/§15.1/§15.3/§15.4/§16 与实现、呈现层）；存量 22 份不溯及。
 object_uid: ce1db936-2ddc-4ed1-b059-f95def66e8ca
 fact_type_key: spark

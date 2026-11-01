@@ -19,7 +19,7 @@ import {
 	goalFilePath,
 	parseSubGoals,
 	hasLegacySubGoalSection,
-	readGoalAnchors,
+	readServableSubGoals,
 	readGoalObject,
 	splitBodySections,
 	updateGoalObject,
@@ -28,7 +28,7 @@ import {
 	validateGoalFrontmatter,
 } from "../lib/goal-writer.js";
 import { authoritativeSignature } from "../lib/signature-channel.js";
-import { seedSubGoals, withTemp } from "./helpers.mjs";
+import { seedSubGoals, subGoalUid, withTemp } from "./helpers.mjs";
 
 const SIG = authoritativeSignature({ provider: "test-provider", model: "test-model" });
 
@@ -202,7 +202,7 @@ test("parseSubGoals reads SG-n entries and flags malformed lines", () => {
 	assert.equal(parsed[2].malformed, true);
 });
 
-test("legacy 子目标 section: dropping it is refused while an anchor is unmigrated (25 §7 2026-11)", async () => {
+test("legacy 子目标 section: dropping it now SUCCEEDS and reports what it dropped (25 §7 2026-11)", async () => {
 	await withTemp("goal.", async (base) => {
 		const root = await freshRoot(base);
 		// Seed the pre-migration shape by writing the carrier directly: the
@@ -212,8 +212,11 @@ test("legacy 子目标 section: dropping it is refused while an anchor is unmigr
 		assert.equal(cur.value.body_valid, true, JSON.stringify(cur.value.body_issues));
 		assert.equal(hasLegacySubGoalSection(cur.value.body), true);
 
-		// No SubGoal carriers exist ⇒ dropping the section would orphan every
-		// downstream `serves` pointing at these anchors.
+		// 2026-11-01: this used to be REFUSED unless every SG-n had already been
+		// migrated to a SubGoal object. That precondition died with the anchor —
+		// `serves` no longer points at SG-n, so dropping the section cannot
+		// orphan anything. The mechanical layer can no longer prove migration,
+		// so it does the only honest thing: drop, and hand the text back.
 		const r = await updateGoalObject({
 			factSourceRoot: root,
 			expectedFingerprint: cur.value.fingerprint,
@@ -222,9 +225,10 @@ test("legacy 子目标 section: dropping it is refused while an anchor is unmigr
 			changeSummary: "删掉子目标段",
 			sessionSignature: SIG,
 		});
-		assert.equal(r.ok, false);
-		assert.equal(r.error.code, "goal/legacy_subgoal_unmigrated");
-		assert.deepEqual(r.error.details.unresolved_anchors, ["SG-1", "SG-2"]);
+		assert.equal(r.ok, true, JSON.stringify(r.error));
+		assert.deepEqual(r.value.legacy_sub_goals_dropped, ["SG-1 第一条判据", "SG-2 第二条判据"]);
+		const after = await readGoalObject({ factSourceRoot: root });
+		assert.equal(hasLegacySubGoalSection(after.value.body), false);
 	});
 });
 
@@ -295,7 +299,7 @@ test("anchor stability: rewriting or reordering SG-n is refused; adding is allow
 	assert.equal(added.ok, true, JSON.stringify(added.issues));
 });
 
-test("readGoalAnchors resolves anchors from SubGoal carriers, not from goal.md (28 §12.3)", async () => {
+test("readServableSubGoals resolves sub-goals from SubGoal carriers, not from goal.md (28 §12.3)", async () => {
 	await withTemp("goal.", async (base) => {
 		const root = await freshRoot(base);
 		await createGoalObject({
@@ -305,19 +309,19 @@ test("readGoalAnchors resolves anchors from SubGoal carriers, not from goal.md (
 			sessionSignature: SIG,
 		});
 		// No sub-goals yet ⇒ no resolvable anchors.
-		const empty = await readGoalAnchors({ factSourceRoot: root });
+		const empty = await readServableSubGoals({ factSourceRoot: root });
 		assert.equal(empty.ok, true, JSON.stringify(empty.error));
-		assert.deepEqual(empty.value.anchors, []);
+		assert.deepEqual(empty.value.sub_goals, []);
 
-		// Adding a SubGoal object makes its anchor resolvable WITHOUT touching goal.md.
+		// Adding a SubGoal object makes it servable WITHOUT touching goal.md.
 		await seedSubGoals(root, ["SG-1", "SG-2"]);
-		const anchors = await readGoalAnchors({ factSourceRoot: root });
-		assert.deepEqual(anchors.value.anchors, ["SG-1", "SG-2"]);
+		const listed = await readServableSubGoals({ factSourceRoot: root });
+		assert.deepEqual(listed.value.sub_goals.map((g) => g.object_uid), [subGoalUid(1), subGoalUid(2)]);
 
 		// A retired sub-goal is not a valid `serves` target, so it drops out.
 		await seedSubGoals(root, ["SG-3"], { status: "retired", indexOffset: 10 });
-		const retiredOnly = await readGoalAnchors({ factSourceRoot: root });
-		assert.deepEqual(retiredOnly.value.anchors, ["SG-1", "SG-2"]);
+		const retiredOnly = await readServableSubGoals({ factSourceRoot: root });
+		assert.deepEqual(retiredOnly.value.sub_goals.map((g) => g.object_uid), [subGoalUid(1), subGoalUid(2)]);
 	});
 });
 
@@ -469,14 +473,17 @@ test("splitBodySections returns the H2 sections in order", () => {
 	assert.equal(s[0].text, "aaa");
 });
 
-test("readGoalAnchors reports the real repo goal (integration)", async () => {
+test("readServableSubGoals reports the real repo sub-goals (integration)", async () => {
 	// The repository's own goal.md must parse under this writer's contract —
 	// otherwise the writer and the live carrier disagree.
 	const root = fileURLToPath(new URL("../../ldvh-base", import.meta.url));
-	const r = await readGoalAnchors({ factSourceRoot: root });
+	const r = await readServableSubGoals({ factSourceRoot: root });
 	assert.equal(r.ok, true, JSON.stringify(r.error));
 	assert.equal(r.value.status, "active");
-	assert.deepEqual(r.value.anchors, ["SG-1", "SG-2", "SG-3", "SG-4"]);
+	// The live repo carries four sub-goals; the assertion is on COUNT and ORDER
+	// (1..4) rather than on uids, because uids are Code-minted identities.
+	assert.equal(r.value.sub_goals.length, 4);
+	assert.deepEqual(r.value.sub_goals.map((g) => g.order), [1, 2, 3, 4]);
 });
 
 // ---------------------------------------------------------------------------

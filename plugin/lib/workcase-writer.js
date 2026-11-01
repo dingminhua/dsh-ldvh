@@ -95,7 +95,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature, resolveAuthoritativeSessionIdentity } from "./signature-channel.js";
 import { h2Titles, countAtxHeadings, sectionContent } from "./markdown-structure.js";
-import { resolveSubGoalAnchor } from "./subgoal-writer.js";
+import { resolveSubGoal } from "./subgoal-writer.js";
 import { resolveRefsTargets } from "./spark-writer.js";
 
 // ---------------------------------------------------------------------------
@@ -381,7 +381,6 @@ const PITFALL_DIRECTORY = "pitfalls";
 const SPARK_DIRECTORY = "sparks";
 
 const OBJECT_UID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const SG_ANCHOR_PATTERN = /^SG-\d+$/;
 const RFC3339_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 const FINGERPRINT_PATTERN = /^[0-9a-f]{64}$/;
 
@@ -1207,9 +1206,11 @@ export function validateWorkcaseFrontmatter(frontmatter, baselinePlan = null, ba
   validateStructuredWriting(frontmatter, issues, baselineSummary, baselineScope);
   validatePlanShape(frontmatter, issues, baselinePlan);
 
+  // 2026-11-01：`serves` 由 SG-n 锚点改为 SubGoal 的 `object_uid`（28 §12.3），
+  // 与 `refs` 同口径——全模型只剩一种对象引用形状。
   if (frontmatter.serves !== undefined) {
-    if (typeof frontmatter.serves !== "string" || !SG_ANCHOR_PATTERN.test(frontmatter.serves)) {
-      issues.push(`serves: must match SG-n (e.g. SG-3), got ${JSON.stringify(frontmatter.serves)}`);
+    if (typeof frontmatter.serves !== "string" || !OBJECT_UID_PATTERN.test(frontmatter.serves)) {
+      issues.push(`serves: must be a SubGoal object_uid (canonical UUIDv4, 28 §12.3), got ${JSON.stringify(frontmatter.serves)}`);
     }
   }
 
@@ -2208,13 +2209,13 @@ async function writeValidated(factSourceRoot, frontmatter, body, baseline = null
 
 async function resolveServes(factSourceRoot, serves) {
   if (serves === undefined) return null;
-  // 28 §12.3: the anchor must resolve to a SubGoal object in status
-  // active|achieved. A retired anchor is not a legal target for a NEW
-  // declaration; an unresolvable anchor fails closed (21 §10.1: Gate 1 无法受理
-  // without an anchor).
-  const resolved = await resolveSubGoalAnchor(factSourceRoot, serves);
+  // 28 §12.3: the uid must resolve to a SubGoal object in status
+  // active|achieved. A retired sub-goal is not a legal target for a NEW
+  // declaration; an unresolvable uid fails closed (21 §10.1: Gate 1 无法受理
+  // without a target).
+  const resolved = await resolveSubGoal(factSourceRoot, serves);
   if (!resolved.ok) {
-    return failure("workcase/serves_unresolvable", `${resolved.error?.message ?? `serves ${serves} cannot be resolved`} (21 §10.1: Gate 1 无法受理 without an anchor — fail closed)`);
+    return failure("workcase/serves_unresolvable", `${resolved.error?.message ?? `serves ${serves} cannot be resolved`} (21 §10.1: Gate 1 无法受理 without a target — fail closed)`);
   }
   return null;
 }

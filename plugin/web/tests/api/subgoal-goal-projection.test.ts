@@ -13,11 +13,11 @@ import { after, before, test } from 'node:test'
  * 子目标已移出 goal.md，改由 SubGoal 事实对象承载。该路由的 sub_goals 因此从
  * 「在正文里正则抽 SG-n 行」变成「按 subgoals/ 目录反查」——两处必须一起验：
  *
- *   1) 行为契约：SubGoal 载体在场 ⇒ 投影带上 anchor/title/status/criterion_kind/
- *      object_uid；goal.md 里写不写 SG-n 行都不影响结果（正文明文不再是来源）。
- *   2) 迁移态契约：goal.md 仍有 `## 子目标` 段时，行被标 legacy:true；
- *      且**一旦该锚点已有 SubGoal 对象，就不得再出现第二行**——否则同一批锚点
- *      会有两处来源，二者可分叉（28 §14.2 禁止）。
+ *   1) 行为契约：SubGoal 载体在场 ⇒ 投影带上 title/status/criterion_kind/
+ *      object_uid，且 `id` 就是 object_uid（2026-11-01 废止 SG-n 业务编号，
+ *      28 §7：编号不再承担身份，故投影的 id 也不能是编号）。
+ *   2) 迁移态契约：goal.md 仍有 `## 子目标` 段时，行被标 legacy:true 并排在
+ *      对象行之后——它们是尚未迁移的文本，没有 uid，故只保留字面标签。
  */
 
 const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ldvh-subgoal-projection-'))
@@ -48,13 +48,13 @@ change_log:
 `
 fs.writeFileSync(path.join(projectRoot, 'ldvh-base', 'goal.md'), GOAL)
 
-/** A SubGoal carrier for SG-1, deliberately NOT written into goal.md. */
+/** A SubGoal object, deliberately NOT written into goal.md. */
 fs.writeFileSync(
   path.join(projectRoot, 'ldvh-base', 'subgoals', 'subgoal-11111111-1111-4111-8111-111111111111.md'),
   `---
 title: 规范体系成为当前规则源
 status: achieved
-anchor: SG-1
+order: 1
 parent_goal: project-goal
 criterion: 全部规范成为当前规则源成员且彼此互咬有效。
 criterion_kind: executable-check
@@ -124,16 +124,21 @@ test('sub_goals 来自 SubGoal 载体，且带 anchor/status/criterion_kind/obje
   assert.equal(payload.ok, true)
   const rows = payload.goal?.sub_goals ?? []
 
-  const sg1 = rows.find((row) => row.id === 'SG-1')
-  assert.ok(sg1, `SG-1 必须在投影里，实际：${JSON.stringify(rows)}`)
+  // Identity is the uid, NOT the retired SG-n label (28 §7, 2026-11-01).
+  const obj = rows.find((row) => row.id === '11111111-1111-4111-8111-111111111111')
+  assert.ok(obj, `对象行必须在投影里，实际：${JSON.stringify(rows)}`)
   // 文本取容器里的短标题，而不是 goal.md 旧段的行文——这是「来源已切换」的判别位。
-  assert.equal(sg1.text, '规范体系成为当前规则源')
-  assert.equal(sg1.status, 'achieved')
-  assert.equal(sg1.criterion_kind, 'executable-check')
-  assert.equal(sg1.object_uid, '11111111-1111-4111-8111-111111111111')
-  // 已由对象承载 ⇒ 不得再被旧段补一行（同锚点两处来源会分叉）。
-  assert.equal(rows.filter((row) => row.id === 'SG-1').length, 1)
-  assert.notEqual(sg1.legacy, true)
+  assert.equal(obj.text, '规范体系成为当前规则源')
+  assert.equal(obj.status, 'achieved')
+  assert.equal(obj.criterion_kind, 'executable-check')
+  assert.equal(obj.object_uid, '11111111-1111-4111-8111-111111111111')
+  assert.notEqual(obj.legacy, true)
+  // Both inherited labels survive as legacy rows (SG-1 is now an object too, but
+  // the carrier text is still there) — the important part is that NO legacy row
+  // claims a uid, and they sit after the object rows.
+  const legacyRows = rows.filter((row) => row.legacy === true)
+  assert.deepEqual(legacyRows.map((row) => row.id), ['SG-1', 'SG-9'])
+  for (const row of legacyRows) assert.equal(row.object_uid, undefined)
 })
 
 test('旧段里尚未迁移的锚点仍显示，但被标 legacy 而不是当成对象', async () => {
@@ -147,12 +152,22 @@ test('旧段里尚未迁移的锚点仍显示，但被标 legacy 而不是当成
   assert.equal(sg9.object_uid, undefined)
 })
 
-test('投影按数字锚点排序，不按目录序', async () => {
+test('对象行按 order 排序，legacy 行排在对象之后', async () => {
   const response = await fetch(`${baseUrl}/api/cognition/goal`)
   const payload = await response.json() as { goal?: { sub_goals?: Array<Record<string, unknown>> } }
-  const ids = (payload.goal?.sub_goals ?? []).map((row) => String(row.id))
-  const nums = ids.map((id) => Number(id.replace(/^SG-/, '')))
-  assert.deepEqual(nums, [...nums].sort((a, b) => a - b), `锚点须按编号排序，实际：${ids.join(',')}`)
+  const rows = payload.goal?.sub_goals ?? []
+  // Object rows precede legacy rows: a legacy entry is not an object, so it can
+  // never interleave with them by any order value.
+  const firstLegacy = rows.findIndex((row) => row.legacy === true)
+  if (firstLegacy >= 0) {
+    assert.ok(
+      rows.slice(firstLegacy).every((row) => row.legacy === true),
+      `legacy 行必须全部排在对象行之后，实际：${JSON.stringify(rows)}`,
+    )
+  }
+  const objOrders = rows.filter((row) => row.legacy !== true).map((row) => row.order)
+  const known = objOrders.filter((o): o is number => typeof o === 'number')
+  assert.deepEqual(known, [...known].sort((a, b) => a - b), `对象行须按 order 升序，实际：${JSON.stringify(objOrders)}`)
 })
 
 test('源码契约：路由从 subgoals 目录反查，不再用正则抽正文 SG-n 行', () => {
@@ -163,12 +178,12 @@ test('源码契约：路由从 subgoals 目录反查，不再用正则抽正文 
   assert.doesNotMatch(cognition, /const sgRe = \/\^\\s\*\(SG-\\d\+\)/)
 })
 
-test('前端类型面声明了 status/criterion_kind/object_uid/legacy', () => {
+test('前端类型面声明了 status/criterion_kind/object_uid/order/legacy', () => {
   const api = fs.readFileSync(path.resolve('src/utils/api.ts'), 'utf8')
   const start = api.indexOf('export interface CognitionGoalData {')
   assert.ok(start >= 0)
   const block = api.slice(start, api.indexOf('\n}', start))
-  for (const field of ['status?: string', 'criterion_kind?: string', 'object_uid?: string', 'legacy?: boolean']) {
+  for (const field of ['status?: string', 'criterion_kind?: string', 'object_uid?: string', 'order?: number', 'legacy?: boolean']) {
     assert.match(block, new RegExp(field.replace(/[?]/g, '\\?')), `CognitionGoalData 须声明 ${field}`)
   }
 })

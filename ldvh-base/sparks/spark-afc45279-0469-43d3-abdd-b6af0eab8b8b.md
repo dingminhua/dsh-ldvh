@@ -5,7 +5,7 @@ question: docs/ 过程文档引用了已不存在或从未存在的对象时，�
 scope_boundary: 完成一次 docs/（根 + archive）失效引用的真实扫描并得出规模，且就「是否成体系、应走何种承载、发现机制可机械化到何种程度」形成结论并交 Human 裁定后停止。不含 docs/ 物理重组、不含既有 A–G 分类表重裁、不含 specs/ 内部引用一致性、不含归档动作执行。
 intent: 保留理由——docs/ 已有成熟治理（法律地位、A–G 分类、三轮归档），但分类轴只覆盖「效力」不覆盖「时效」，导致引用落空（指向已消失或从未存在的对象）只能靠人工事后发现；本轮工作即撞到三处实例。后续方向——先做一次真实扫描得出规模，再据规模判「立规范」还是「补惯例」，允许以「不成体系」为落点。
 summary: docs/ 过程文档治理已成熟：法律地位已定论（01 §9.1 候选路径不含 docs/、01 §4 明文排除；00 §3.2 未经受控写入不成为稳定事实），分类表以「效力」为轴（A review-* 43 份为 01 §12 规范效力溯源证据必须保留、B/C 唯一记录、E 类 15 份唯一建议归档），三轮归档全部 git mv 零删除。**缺口：分类轴无「时效」维**——只答「该不该留」，未答「引用对象是否仍存在」。本轮撞到三处：① RELEASING.md 要求核对「Python 核心」但仓库已无 .py；② 同文件要求核对 plugin/screenshots.json 但该文件不存在；③ ldvh-plugin-implementation-plan.md 引用 docs/dsh-current-version-and-market-gap.md 但该文已归档。归档处理「已被取代」，本缺口处理「引用落空」，现行机制只能人工事后发现。外部实践（AI-first 项目拆 docs 路由、RFC→ADR、控制 spec 长度）多在「怎么组织」层，LDVH 已到「效力归属」层，但未覆盖引用时效性。
-serves: SG-1
+serves: befe1735-1187-4d60-ba53-e55eb0cb7de2
 priority: P2
 object_uid: afc45279-0469-43d3-abdd-b6af0eab8b8b
 fact_type_key: spark

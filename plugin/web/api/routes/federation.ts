@@ -95,6 +95,14 @@ router.get('/objects', async (req: Request, res: Response): Promise<void> => {
       if (listing.error) issues.push(`${project.name || project.id}: ${listing.error}`)
       return listing.items.map((item): Record<string, unknown> => ({
         ...item,
+        // 类型短名必须由本层补上：`listObjects` 的投影只带 `fact_type_key`
+        // （03 §6.1 载体值域），而卡片的类型 chip 读的是 `obj.type`。
+        // 单项目列表路由经 `normalizeItem` 补过一次，联邦路由直接消费
+        // `listObjects` 的输出，没有那道归一化——此前八类对象的联邦卡
+        // 类型 chip 全是空白（对象在、类型在、唯独卡面没有字）。
+        // 这里是类型已知的上下文（按 objectType 查询），直接写回该值，
+        // 不从 `fact_type_key` 反推，也不做形状猜测。
+        type: objectType,
         federationProject: {
           id: project.id,
           name: project.name || project.id,

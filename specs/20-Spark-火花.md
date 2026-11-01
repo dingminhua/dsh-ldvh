@@ -32,7 +32,7 @@ Spark 不承接 HV1、HV2；对象存在、数量或终态也不证明 HV4 或�
 1. `source-of-truth-traceability`：09 §5 受控提交契约、02 §5 事实源载体与溯源。
 2. `dsh-environment-integration`：10 §5.5 交互面（`ctx.userQuestions.ask` 作为 Human Gate 决策提请的宿主承载入口——§16 的创建与终态转换两项确认按该入口取得）。
 3. `code-engineering-practices`：06 §5 守卫测试的证据边界与「被区分对象在形式上是否可分」判据（§16 大改项据此判为弱约束）、§6 弱约束的判断依据由实现提供（§13 更新条与 §16 的判据交还义务）。
-4. `goal-fact-type`：25 §7 sub-goal（SG-n）锚点语义、§12 修订级联的 Spark 豁免。
+4. `goal-fact-type`：25 §7 子目标归属语义、§12 修订级联的 Spark 豁免；`subgoal-fact-type`：28 §12.3 `serves` 的解析口径。
 
 本文的结构父规范是 `fact-model-foundation`（02），按 01 §10.1 同一目标不得同时作为 `basis` 和结构父规范，故 02 不列入 `basis`；02 §7.1 公共身份字段、§7.2 载体与权威位置、§8.2 公共关系形状、§9.1 召回分层、§10 受控读写、§11 事实变更与生命周期、§12 类型规范共同结构是本文 §5–§15 的结构依据，与 21–27 各同段类型规范同形态。
 
@@ -128,7 +128,7 @@ frontmatter 闭集：
 | `intent` | string | 必填 | 保留理由与后续方向 | 为什么值得保留；后续需要判断的方向 |
 | `summary` | string | 必填 | 完整的当前语义快照 | 正文「当前理解」段逐字包含；当前已确认判断、边界、候选方向、未决事项；使未读原聊天的后续执行者可独立理解；只承载当前仍适用的理解，不复制创建原因或过程日志 |
 | `evolution` | array | 条件 | 关键语义转折流水 | 只在问题焦点、边界、判断方向或承接方向发生实质变化时追加；每项 `{at, summary}`；当前仍适用的内容必须先进入 `summary`，`evolution` 只说明变化与影响（上限 20 项） |
-| `serves` | string | 条件 | 服务的子目标锚点 `SG-n` | 须解析到 `status ∈ {active, achieved}` 的 SubGoal 对象（28 §12.3）；轻量归属引用，不参与 goal 修订级联（25 §12 豁免）；不存在时省略 |
+| `serves` | string | 条件 | 所服务的 SubGoal 对象 `object_uid` | 须解析到 `status ∈ {active, achieved}` 的 SubGoal 对象（28 §12.3）；轻量归属引用，不参与 goal 修订级联（25 §12 豁免）；不存在时省略 |
 | `refs` | array | 条件 | 关联的事实对象引用 | 按 02 §8.2 关联引用型形态承载：目标为事实对象 `object_uid`（任意类型；**不校验目标状态**——关联是历史事实，目标关闭不使该条失效）；机械侧只校验形状与目标可解析（存在、可读、同项目），失败零写入拒绝；**上限 10 项**；用于 F1 卡片投影（§12），使 Human 在列表即可看到本议题与哪些对象相关；**非价值声明**（02 §16 第 9 条）；不存在时省略 |
 | `priority` | string | 条件 | 悬置排序档位 | 闭集 `P0`/`P1`/`P2`/`P3`；**AI 综合判断出初值，Human 可按情况调整**；`open` 时存在、终态省略；承载「悬置中的处置次序」，**非对象价值声明**（§9.1）；允许暂缺（未分档），不因缺失拒绝创建或更新 |
 | `status` | string | 必填 | `open` / `implemented` / `discarded` | 初态 `open` |
@@ -335,7 +335,7 @@ frontmatter 闭集：
 | 载体内聚 | 创建与更新时 | `question`/`scope_boundary`/`summary` 在正文对应段逐字出现 | frontmatter 与正文对照 | 机械（逐字比对） | 索引与主体一致性 | 拒绝；补齐后重走 |
 | question 可读性 | 创建时 | question 单句，语义清晰 | Human 确认记录 | AI 初审+Human 终审 | 问题可被调研吸收系统采纳 | 拒绝创建；要求澄清 |
 | scope_boundary 完整 | 创建时 | 何时停止调查边界明确 | Human 确认 | 机械字段检查 | 调查范围边界 | 拒绝；要求补充 |
-| serves 有效 | 创建时 | serves 解析到 `status ∈ {active, achieved}` 的 SubGoal 对象 | SubGoal 全集回读（28 §12.3） | 机械（锚点匹配 + 状态过滤） | 锚点解析成功 | 拒绝；或省略 serves 并说明 |
+| serves 有效 | 创建时 | serves 解析到 `status ∈ {active, achieved}` 的 SubGoal 对象 | 按 `object_uid` 精确读取（28 §12.3） | 机械（目标解析 + 状态过滤） | 引用解析成功 | 拒绝；或省略 serves 并说明 |
 | refs 目标可解析 | 创建、更新时 | 每项为本项目内存在、可读的事实对象 `object_uid`；条目数与形状合规 | 目标对象回读（存在/同项目/可读） | 机械（形状 + 目标解析） | 当次引用目标解析范围；**不证明语义相关、目标当前适用或关联有价值** | 拒绝写入；修正引用后重走 |
 | 查重已执行 | 创建时 | 创建提案含查重结论 | 提案记录 | AI 语义审核 | 当次查重范围 | 补查重后重走创建 |
 | 状态转换合法 | 变更时 | open→implemented/discarded 逻辑一致 | 处置依据 + Human 确认 | 审核 + 机械 | 转换合法性 | 反向转换报错 |
@@ -394,7 +394,7 @@ Human 决定只证明决定及其作用范围，不替代问题语义审核、�
 
 本文不新增根停止类型。领域触发与最小影响范围：
 
-1. 创建时声明了 serves 但该锚点无法解析到有效 SubGoal 对象（悬置无锚可引；未声明 serves 时不停止——25 §11 读操作与 Spark 探索不拦）；
+1. 创建时声明了 serves 但该 `object_uid` 无法解析到有效 SubGoal 对象（悬置无目标可引；未声明 serves 时不停止——25 §11 读操作与 Spark 探索不拦）；
 2. question 为空或不可读；
 3. scope_boundary 缺失；
 4. 创建未经 Human 确认，或未经 Human 确认进入终态（implemented/discarded）——

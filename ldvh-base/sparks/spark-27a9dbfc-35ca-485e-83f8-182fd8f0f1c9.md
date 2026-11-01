@@ -5,7 +5,7 @@ question: WorkCase 事实类型的承载层应如何建成，attempt 令牌缺�
 scope_boundary: WorkCase 可完成出生→Gate 1→执行→Gate 2 一轮，且 attempt 的宿主实现归属已定案时停止。不含 Norm 承载层（另有独立对象承载）；不含 21 号自身的规范修订——若定案路径选择修订 21（如降级 attempt），该修订本身另走 Human Gate，不在本对象的执行范围内。
 intent: 保留理由——21 号规范已定稿且字段契约完整，但 WorkCase 承载层零实现，且 `attempt` 被 §10.4 推给 10/06 而创建时点实测该两份规范对该词零命中；§9.1 又把 `attempt` 定为 `open` 状态的必要条件，故 WorkCase 能创建却永远走不出 draft，SG-2 因之推不动。与 Norm 拆开的理由——这条的真实卡点在**规范间接缝**而非实现量，合并承载会把「待定案」误呈现为「待补写」。后续方向——先定案 attempt 归属（补 10/06 定义，或改 21 §9.1 降级该字段，二者均需 Human Gate），再实现承载层，最后以真实一轮验证。
 summary: 21 号规范已定稿；`FACT_DIRECTORIES`（`plugin/lib/governed-projects.js:17`）已含 `workcases`；Web 侧已接入（`factFieldContract.ts`、`localFactReader.ts` 与 WorkCase 相关组件）。真实缺口为整套承载层：无 `plugin/lib/workcase-writer.js`、无 `ldvh_workcase_*` 受控入口、Git Gate 未覆盖 `workcases/` 断言；目录 `ldvh-base/workcases/` 于 2026-09-13 由 Human 裁定补建（此前并不存在）。**核心约束是跨规范接缝**：21 §9.1 规定 `open` 状态必填 `attempt`，而 §10.4 第 4 项声明 attempt 宿主实现应由 10/06 承接且未落地前「依赖 attempt 的部分不成立」、§15.2 记其替代保障为「无」；`review-21-workcase.md`（原 docs 目录，已随 `ec19ba6` 清除、可自该提交回取） 已核实（2026-09-13 时点）当时 08/09 对该词零命中。故当前形态下 WorkCase 能出生但走不出 draft。
-serves: SG-1
+serves: befe1735-1187-4d60-ba53-e55eb0cb7de2
 priority: P1
 object_uid: 27a9dbfc-35ca-485e-83f8-182fd8f0f1c9
 fact_type_key: spark

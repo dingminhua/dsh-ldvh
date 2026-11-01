@@ -4,7 +4,7 @@ object_uid: 364df30e-ce3d-4cca-9463-c57a1fad399a
 title: WorkCase 呈现保真与设计语言收敛
 status: closed
 gist: 修 WorkCase 呈现的字段类型守卫缺陷，统一前后端字段契约与派生分组配色，使详情阅读结构与已登记设计语言一致。
-serves: SG-3
+serves: c8a2a574-b17f-47c1-b5fb-fe9bca88c97b
 summary: |-
   ### 完善 WorkCase 各类呈现表现
   修服务端投影的字段类型守卫缺陷（Date/boolean/array 被字符串守卫拦下，致 closed 逐条核对退化为「未记录」、残留责任节点消失、Gate 1 批准时间与 attempt 心跳丢失），统一前后端字段契约，补齐派生分组的本地化与语义色，

@@ -8,7 +8,7 @@
  *             (ldvh-base/subgoals/subgoal-<uid>.md) with YAML frontmatter +
  *             markdown body. Code assigns object_uid + created_at and
  *             generates the H1 from title; creation validates the type-specific
- *             mechanical checks (closed set, anchor shape + global uniqueness,
+ *             mechanical checks (closed set, order shape,
  *             criterion_kind closed set, parent_goal resolution, carrier
  *             coherence).
  *  - read:    returns frontmatter + body + file-level content fingerprint
@@ -76,8 +76,8 @@ export const CRITERION_KINDS = new Set(["metric", "closure-records", "executable
 /** Title cap (28 §8: ≤ 40 字; same UTF-16 code-unit counting as 20 §9.1). */
 const MAX_TITLE_LENGTH = 40;
 
-/** `anchor` shape (28 §8: SG-n, frozen, never renumbered or recycled). */
-const SG_ANCHOR_PATTERN = /^SG-[1-9]\d*$/;
+/** `order` lower bound (28 §8: 可选正整数；不要求唯一、不要求连续). */
+const MIN_ORDER = 1;
 
 /** `parent_goal` fixed value (28 §8: must match the goal carrier's goal_key). */
 const PARENT_GOAL_KEY = "project-goal";
@@ -87,7 +87,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 
 /** Closed set of frontmatter keys (28 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
-  "object_uid", "fact_type_key", "title", "anchor", "parent_goal",
+  "object_uid", "fact_type_key", "title", "order", "parent_goal",
   "status", "criterion", "criterion_kind", "alignment", "disposition",
   "created_at", "change_log",
 ]);
@@ -97,9 +97,15 @@ const VALID_FM_KEYS = new Set([
  *
  * 口径：白名单 = 该类型 §8 的**条件字段**中**非「终态伴随」**者。
  * `disposition` 是终态伴随即 retired 专属，在 update 路径不可达（终态只读），
- * 故不列——本类型没有可在非终态对象上合法删除的条件字段，白名单为空。
+ * 故不列。
+ *
+ * `anchor` 单列（2026-11-01 迁移通道）：它是**唯一**允许显式删除的字段，且删除
+ * 是单向的——废止的业务编号不再写回。之所以必须给删除通道，是因为旧载体的
+ * frontmatter 里还留着它，而它已不在 `VALID_FM_KEYS` 内：没有删除通道，
+ * 这些对象就永远无法通过受控更新（02 §10.5 的「省略即保留」会让它每次都被继承）。
+ * 新对象不得带 `anchor`（闭集已排除），故本通道只服务于存量迁移。
  */
-export const SUBGOAL_REMOVABLE_FIELDS = new Set([]);
+export const SUBGOAL_REMOVABLE_FIELDS = new Set(["anchor"]);
 
 // ---------------------------------------------------------------------------
 // Result helpers
@@ -151,9 +157,13 @@ export function validateSubGoalFrontmatter(frontmatter) {
     issues.push(`title: must be ≤ ${MAX_TITLE_LENGTH} characters (28 §8, same counting as 20 §9.1)`);
   }
 
-  // anchor: shape + freeze is checked separately (needs the baseline object).
-  if (typeof frontmatter.anchor !== "string" || !SG_ANCHOR_PATTERN.test(frontmatter.anchor)) {
-    issues.push(`anchor: must match SG-<positive integer> (28 §8), got ${JSON.stringify(frontmatter.anchor)}`);
+  // order (28 §8, 2026-11-01): optional, positive integer, no uniqueness and no
+  // contiguity requirement — it carries DISPLAY ORDER ONLY and never a
+  // reference. A missing order is legal: it sorts after the ordered objects.
+  if (frontmatter.order !== undefined) {
+    if (typeof frontmatter.order !== "number" || !Number.isInteger(frontmatter.order) || frontmatter.order < MIN_ORDER) {
+      issues.push(`order: must be a positive integer when present (28 §8 — 显示次序不承担引用职责，可缺失), got ${JSON.stringify(frontmatter.order)}`);
+    }
   }
 
   if (frontmatter.parent_goal !== PARENT_GOAL_KEY) {
@@ -323,17 +333,17 @@ function splitFrontmatter(raw) {
 // ---------------------------------------------------------------------------
 
 /**
- * Scan ldvh-base/subgoals/ and return every object's {uid, anchor, status, title}.
+ * Scan ldvh-base/subgoals/ and return every object's index entry
+ * {uid, order, status, title}.
  *
- * ALL statuses are scanned, not just active: 28 §9.2 freezes an anchor for the
- * object's whole life and forbids recycling it after `retired`, so a retired
- * anchor still occupies its number.
+ * ALL statuses are scanned, not just active: a `retired` object still holds its
+ * `object_uid`, and `serves` history points at it.
  *
  * Unparseable carriers are reported (not silently skipped): a carrier whose
- * frontmatter cannot be read cannot be proven conflict-free, so the anchor
- * cannot be granted.
+ * frontmatter cannot be read cannot be proven absent, so an index built from
+ * this scan is incomplete and callers must fail closed rather than guess.
  */
-export async function listSubGoalAnchors(factSourceRoot) {
+export async function listSubGoalIndex(factSourceRoot) {
   const dir = join(factSourceRoot, SUBGOAL_DIRECTORY);
   let entries;
   try {
@@ -352,35 +362,37 @@ export async function listSubGoalAnchors(factSourceRoot) {
       unreadable.push({ file: entry.name, reason: parsed.reason });
       continue;
     }
-    if (typeof parsed.frontmatter.anchor === "string") {
-      items.push({
-        file: entry.name,
-        object_uid: parsed.frontmatter.object_uid ?? null,
-        anchor: parsed.frontmatter.anchor,
-        status: parsed.frontmatter.status ?? null,
-        title: typeof parsed.frontmatter.title === "string" ? parsed.frontmatter.title : null,
-      });
-    }
+    items.push({
+      file: entry.name,
+      object_uid: typeof parsed.frontmatter.object_uid === "string" ? parsed.frontmatter.object_uid : null,
+      order: typeof parsed.frontmatter.order === "number" ? parsed.frontmatter.order : null,
+      status: parsed.frontmatter.status ?? null,
+      title: typeof parsed.frontmatter.title === "string" ? parsed.frontmatter.title : null,
+    });
   }
   return { ok: true, items, unreadable };
 }
 
 /**
- * Refuse when another object (ANY status) already carries `anchor` (28 §6.2).
- * `retired` occupies its number permanently, so recycling is refused too.
+ * Refuse when another carrier already claims the same `object_uid` (28 §17 第 5
+ * 项: 同一身份出现在两条载体上即两处权威).
+ *
+ * There is no business-key collision to check any more: 2026-11-01 废止了 `SG-n`,
+ * `order` is display-only and explicitly non-unique (28 §8), so the ONLY identity
+ * invariant left is that an `object_uid` maps to exactly one carrier.
  */
-async function checkAnchorExclusive(factSourceRoot, anchor, selfUid) {
-  const listed = await listSubGoalAnchors(factSourceRoot);
+async function checkUidExclusive(factSourceRoot, objectUid) {
+  const listed = await listSubGoalIndex(factSourceRoot);
   if (!listed.ok) {
-    return failure("subgoal/scan_failed", `cannot scan ${SUBGOAL_DIRECTORY}/ for the anchor uniqueness pre-check: ${listed.reason}`);
+    return failure("subgoal/scan_failed", `cannot scan ${SUBGOAL_DIRECTORY}/ for the identity uniqueness pre-check: ${listed.reason}`);
   }
   if (listed.unreadable.length > 0) {
-    // Fail closed: an unreadable carrier might be the one holding this anchor.
-    return failure("subgoal/anchor_unverifiable", `cannot prove anchor "${anchor}" is free: ${listed.unreadable.length} carrier(s) under ${SUBGOAL_DIRECTORY}/ cannot be parsed (28 §6.2)`, { unreadable: listed.unreadable });
+    // Fail closed: an unreadable carrier might be the one holding this uid.
+    return failure("subgoal/identity_unverifiable", `cannot prove object_uid "${objectUid}" is unique: ${listed.unreadable.length} carrier(s) under ${SUBGOAL_DIRECTORY}/ cannot be parsed (28 §17 第 5 项)`, { unreadable: listed.unreadable });
   }
-  const conflicts = listed.items.filter((entry) => entry.anchor === anchor && entry.object_uid !== selfUid);
-  if (conflicts.length > 0) {
-    return failure("subgoal/anchor_already_exists", `anchor "${anchor}" is already taken (28 §6.2: 锚点唯一，且 retired 之后编号不复用); a new sub-goal needs a new SG-n`, { anchor, conflicts });
+  const conflicts = listed.items.filter((entry) => entry.object_uid === objectUid);
+  if (conflicts.length > 1) {
+    return failure("subgoal/identity_duplicated", `object_uid "${objectUid}" appears on ${conflicts.length} carriers — 两处权威 (28 §17 第 5 项)`, { conflicts });
   }
   return success({ items: listed.items });
 }
@@ -506,7 +518,7 @@ async function evaluateCreateCandidate({ factSourceRoot, frontmatterDraft, bodyM
   if (!parent.ok) return parent;
 
   // 28 §6.2 layer 1 — before any write.
-  const exclusivity = await checkAnchorExclusive(factSourceRoot, frontmatter.anchor, objectUid);
+  const exclusivity = await checkUidExclusive(factSourceRoot, objectUid);
   if (!exclusivity.ok) return exclusivity;
 
   const body = assembleBody(frontmatter.title, bodyMarkdown);
@@ -723,9 +735,9 @@ export async function updateSubGoalObject(args) {
   next.object_uid = before.object_uid;
   next.fact_type_key = SUBGOAL_TYPE_KEY;
   next.created_at = before.created_at;
-  // 28 §9.2 锚点冻结：anchor is immutable for the object's whole life. A new
-  // anchor is a NEW object, never an in-place rewrite.
-  next.anchor = before.anchor;
+  // 28 §8 (2026-11-01): `order` is display-only and freely adjustable — it is
+  // NOT an identity, so it may change in place. `object_uid` (already forced
+  // above) is the only immutable identity.
 
   const targetStatus = next.status ?? before.status;
   if (!STATUSES.has(targetStatus)) {
@@ -736,11 +748,6 @@ export async function updateSubGoalObject(args) {
   let transition = "supplement";
   if (before.status === "active" && targetStatus === "active") {
     transition = "supplement";
-    // 28 §9.3: an anchor change attempt is refused explicitly rather than
-    // silently ignored, so the caller learns the value was not applied.
-    if (frontmatterAfter?.anchor !== undefined && frontmatterAfter.anchor !== before.anchor) {
-      return failure("subgoal/anchor_immutable", `anchor cannot change in place (28 §9.2 锚点冻结): a new sub-goal is a NEW SG-n, not a renumbered one`, { before: before.anchor, after: frontmatterAfter.anchor });
-    }
   } else if (before.status === "active" && targetStatus === "achieved") {
     transition = "achieve";
     // 28 §9.2: achieved is a Human Gate outcome backed by an evidence list.
@@ -772,7 +779,7 @@ export async function updateSubGoalObject(args) {
 
   // Anchor uniqueness still holds on update: nothing else may have taken it,
   // and we must not have granted a second object the same number.
-  const exclusivity = await checkAnchorExclusive(factSourceRoot, next.anchor, objectUid);
+  const exclusivity = await checkUidExclusive(factSourceRoot, objectUid);
   if (!exclusivity.ok) return exclusivity;
 
   // `bodyMarkdownAfter` is the COMPLETE target body as returned by a precise
@@ -798,57 +805,76 @@ export async function updateSubGoalObject(args) {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve an `SG-n` anchor to a valid SubGoal object (28 §12.3).
+ * Resolve an `object_uid` to a valid SubGoal object (28 §12.3, 2026-11-01).
  *
  * Contract:
  *   - `active` and `achieved` are valid targets (`achieved` still resolves:
  *     "this work served that goal" is a historical fact).
  *   - `retired` is NOT a valid target for a NEW `serves` declaration; existing
  *     declarations keep their value and go through the local re-batch path.
- *   - An unresolvable anchor fails closed (21 §10.1: Gate 1 cannot accept
- *     without an anchor).
+ *   - An unresolvable uid fails closed (21 §10.1: Gate 1 cannot accept
+ *     without a target).
+ *
+ * Historical note: this function used to take an `SG-n` business anchor. That
+ * form is gone (28 §7): `serves` is now an ordinary object reference, the same
+ * shape `refs` uses, so there is one reference rule in the model instead of two.
  *
  * Returns { ok:true, object_uid, status, title } or { ok:false, ... }.
  */
-export async function resolveSubGoalAnchor(factSourceRoot, anchor) {
-  if (typeof anchor !== "string" || !SG_ANCHOR_PATTERN.test(anchor)) {
-    return failure("subgoal/anchor_shape_invalid", `serves must be an SG-n anchor, got ${JSON.stringify(anchor)}`);
+export async function resolveSubGoal(factSourceRoot, objectUid) {
+  if (typeof objectUid !== "string" || !UUID_PATTERN.test(objectUid)) {
+    return failure("subgoal/serves_shape_invalid", `serves must be a SubGoal object_uid (canonical UUIDv4, 28 §12.3), got ${JSON.stringify(objectUid)}`);
   }
-  const listed = await listSubGoalAnchors(factSourceRoot);
+  const listed = await listSubGoalIndex(factSourceRoot);
   if (!listed.ok) {
-    return failure("subgoal/scan_failed", `cannot scan ${SUBGOAL_DIRECTORY}/ to resolve ${anchor}: ${listed.reason}`);
+    return failure("subgoal/scan_failed", `cannot scan ${SUBGOAL_DIRECTORY}/ to resolve ${objectUid}: ${listed.reason}`);
   }
   if (listed.unreadable.length > 0) {
-    return failure("subgoal/anchor_unverifiable", `cannot resolve ${anchor}: ${listed.unreadable.length} carrier(s) under ${SUBGOAL_DIRECTORY}/ cannot be parsed (28 §12.3)`, { unreadable: listed.unreadable });
+    return failure("subgoal/identity_unverifiable", `cannot resolve ${objectUid}: ${listed.unreadable.length} carrier(s) under ${SUBGOAL_DIRECTORY}/ cannot be parsed (28 §12.3)`, { unreadable: listed.unreadable });
   }
-  const matches = listed.items.filter((entry) => entry.anchor === anchor);
+  const matches = listed.items.filter((entry) => entry.object_uid === objectUid);
   if (matches.length === 0) {
-    return failure("subgoal/serves_unresolvable", `serves ${anchor} does not resolve to any SubGoal object under ${SUBGOAL_DIRECTORY}/ (28 §12.3)`, { available: listed.items.map((e) => e.anchor) });
+    return failure("subgoal/serves_unresolvable", `serves ${objectUid} does not resolve to any SubGoal object under ${SUBGOAL_DIRECTORY}/ (28 §12.3)`, { available: listed.items.map((e) => e.object_uid) });
   }
   if (matches.length > 1) {
-    return failure("subgoal/anchor_ambiguous", `anchor ${anchor} resolves to ${matches.length} SubGoal objects — 两处权威 (28 §17 第 5 项)`, { matches });
+    return failure("subgoal/identity_duplicated", `object_uid ${objectUid} resolves to ${matches.length} SubGoal objects — 两处权威 (28 §17 第 5 项)`, { matches });
   }
   const target = matches[0];
   if (target.status === "retired") {
-    return failure("subgoal/serves_unresolvable", `serves ${anchor} resolves to a retired SubGoal; a retired anchor is not a valid target for a NEW serves declaration (28 §12.3 第 3 条; 既有声明保留原值走局部重批)`, { status: target.status });
+    return failure("subgoal/serves_unresolvable", `serves ${objectUid} resolves to a retired SubGoal; a retired sub-goal is not a valid target for a NEW serves declaration (28 §12.3 第 3 条; 既有声明保留原值走局部重批)`, { status: target.status });
   }
-  return success({ object_uid: target.object_uid, status: target.status, title: target.title, file: target.file });
+  return success({ object_uid: target.object_uid, status: target.status, title: target.title, order: target.order, file: target.file });
 }
 
 /**
- * Enumerate all `SG-n` anchors that are valid `serves` targets
- * (`active` ∪ `achieved`), for callers that render "available anchors".
+ * Sort key for display order (28 §8): `order` ascending when present, then
+ * `created_at` — never the identifier, and never directory order.
+ *
+ * Missing `order` sorts after every ordered object (legal state, not an error).
  */
-export async function listResolvableAnchors(factSourceRoot) {
-  const listed = await listSubGoalAnchors(factSourceRoot);
+export function compareByDisplayOrder(a, b) {
+  const ao = typeof a.order === "number" ? a.order : Number.POSITIVE_INFINITY;
+  const bo = typeof b.order === "number" ? b.order : Number.POSITIVE_INFINITY;
+  if (ao !== bo) return ao - bo;
+  const ac = typeof a.created_at === "string" ? a.created_at : "";
+  const bc = typeof b.created_at === "string" ? b.created_at : "";
+  if (ac !== bc) return ac < bc ? -1 : 1;
+  return String(a.object_uid ?? "").localeCompare(String(b.object_uid ?? ""));
+}
+
+/**
+ * Enumerate the SubGoals that are valid `serves` targets
+ * (`active` ∪ `achieved`), in display order, for callers that render
+ * "which sub-goal does this serve?" choices.
+ */
+export async function listResolvableSubGoals(factSourceRoot) {
+  const listed = await listSubGoalIndex(factSourceRoot);
   if (!listed.ok) return failure("subgoal/scan_failed", listed.reason);
-  const anchors = listed.items
+  const items = listed.items
     .filter((entry) => entry.status === "active" || entry.status === "achieved")
-    .map((entry) => entry.anchor)
-    // Numeric anchor order (SG-1, SG-2, … SG-10) so callers that render
-    // "available anchors" see the human reading order, not directory order.
-    .sort((a, b) => Number(a.replace(/^SG-/, "")) - Number(b.replace(/^SG-/, "")));
-  return success({ anchors, unreadable: listed.unreadable });
+    .sort(compareByDisplayOrder)
+    .map((entry) => ({ object_uid: entry.object_uid, title: entry.title, order: entry.order, status: entry.status }));
+  return success({ items, unreadable: listed.unreadable });
 }
 
 // ---------------------------------------------------------------------------
@@ -888,7 +914,7 @@ export async function listSubGoalObjects(args) {
       object_uid: fm.object_uid,
       fact_type_key: fm.fact_type_key,
       title: fm.title,
-      anchor: fm.anchor,
+      order: fm.order,
       parent_goal: fm.parent_goal,
       status: fm.status,
       criterion: fm.criterion,
@@ -911,4 +937,4 @@ export async function listSubGoalObjects(args) {
   return success({ total, items: items.slice(0, limit), unreadable });
 }
 
-export { SUBGOAL_TYPE_KEY, BODY_H2_REQUIRED, STATUSES, MAX_TITLE_LENGTH, VALID_FM_KEYS, SG_ANCHOR_PATTERN, PARENT_GOAL_KEY };
+export { SUBGOAL_TYPE_KEY, BODY_H2_REQUIRED, STATUSES, MAX_TITLE_LENGTH, VALID_FM_KEYS, PARENT_GOAL_KEY };

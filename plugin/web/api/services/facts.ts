@@ -792,7 +792,10 @@ export function projectCurrentWorkCaseCard(
  * 28 §8.1：子目标名下工作的**读取时派生**（不是存储状态）。
  *
  * 子目标不存「拆解进度」字段，进度由下游 `serves` 反查得到。这里读 spark 与
- * workcase 两类全量，把 `serves === anchor` 的对象收成一行一行的工作清单。
+ * workcase 两类全量，把 `serves === subGoalUid` 的对象收成一行一行的工作清单。
+ *
+ * 2026-11-01：匹配键由 `SG-n` 改为 SubGoal 的 `object_uid`（28 §12.3 废止锚点
+ * 形态）。两侧都是 uuid，故这是**精确相等**判断，不存在「标签写错一半」的模糊面。
  *
  * **空集必须可区分地呈现**：名下没有任何 `serves` 的子目标，其拆解进度表现为
  * 空集——但空集既可能是「还没拆解」，也可能是「拆解了但没声明 serves」，
@@ -804,7 +807,7 @@ export function projectCurrentWorkCaseCard(
  */
 async function deriveServingWork(
   scope: LocalFactScope,
-  anchor: string,
+  subGoalUid: string,
 ): Promise<{
   items: Array<{ object_uid?: string; type: string; id: string; title: string; status: string; href: string }>
   unreadable: string[]
@@ -830,8 +833,8 @@ async function deriveServingWork(
         continue
       }
       const serves = item.fact_object.serves
-      const anchors = Array.isArray(serves) ? serves : typeof serves === 'string' ? [serves] : []
-      if (!anchors.some((value) => value === anchor)) continue
+      const targets = Array.isArray(serves) ? serves : typeof serves === 'string' ? [serves] : []
+      if (!targets.some((value) => value === subGoalUid)) continue
       const uid = typeof item.fact_object.object_uid === 'string' ? item.fact_object.object_uid : undefined
       items.push({
         object_uid: uid,
@@ -939,9 +942,9 @@ export async function showObject(id: string, scope?: LocalFactScope): Promise<We
       // 28 §8.1：拆解与落实情况不存字段，由 serves 反查派生。空集与读取失败
       // 分列两个键——前者是「未声明或未拆解」的歧义，后者是「读不到」，
       // 都不许被折算成一个进度值。
-      const anchor = typeof item.fact_object.anchor === 'string' ? item.fact_object.anchor : ''
-      if (anchor) {
-        const derived = await deriveServingWork(resolvedScope, anchor)
+      const subGoalUid = typeof item.fact_object.object_uid === 'string' ? item.fact_object.object_uid : ''
+      if (subGoalUid) {
+        const derived = await deriveServingWork(resolvedScope, subGoalUid)
         data.serving_work = derived.items
         if (derived.items.length === 0) data.serving_empty = true
         if (derived.unreadable.length > 0) data.serving_unreadable = derived.unreadable

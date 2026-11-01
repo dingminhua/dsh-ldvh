@@ -624,7 +624,7 @@ export function ObjectIdentityHeader({
   const titleFontSize = 18;
   const titleIconSize = Math.round(titleFontSize * 1.15);
   const activityCount = Array.isArray(source.change_log) ? source.change_log.length : 0;
-  // serves 已标签化到类型徽标后（20 §6 SG-n 锚点），不再进 footer 元信息行。
+  // serves 已标签化到类型徽标后（20 §6 子目标引用），不再进 footer 元信息行。
   const remainingAuxiliaryMetaEntries = auxiliaryMetaEntries.filter(([key]) => key !== 'priority' && key !== 'serves');
   const hasFooterMeta = showDefaultDates
     || remainingAuxiliaryMetaEntries.length > 0

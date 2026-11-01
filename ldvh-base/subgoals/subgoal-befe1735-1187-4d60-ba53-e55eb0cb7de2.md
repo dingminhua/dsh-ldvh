@@ -1,7 +1,6 @@
 ---
 title: 规范体系成为当前规则源并互咬有效
 status: active
-anchor: SG-1
 parent_goal: project-goal
 criterion: LDVH v5 规范体系（00–26）全部成为当前规则源成员且彼此互咬有效。
 criterion_kind: executable-check
@@ -18,6 +17,11 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 迁移收尾：标题改为可扫读的短标签（原为判据截断文本，不可读）
+  - at: 2026-11-01T05:36:03.672Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 迁移：废止业务编号 SG-n，改以 order=1 承载显示次序（28 §7/§8，2026-11-01 定案）
+order: 1
 ---
 
 # 规范体系成为当前规则源并互咬有效

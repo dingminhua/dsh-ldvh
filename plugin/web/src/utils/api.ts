@@ -146,9 +146,10 @@ export interface ObjectItem {
   };
   /** Norm-specific（27 §8：direction_key 必填；retirement_reason/retired_at 终态条件） */
   direction_key?: string;
-  /** SubGoal-specific（28 §8：anchor 业务键必填；criterion/criterion_kind/alignment
-   *  是该类型存在的理由；disposition 仅 retired 出现）。 */
-  anchor?: string;
+  /** SubGoal-specific（28 §8：身份由 object_uid 承担、显示次序由可选 `order`
+   *  承担，二者不可互相替代；criterion/criterion_kind/alignment 是该类型存在
+   *  的理由；disposition 仅 retired 出现）。 */
+  order?: number;
   parent_goal?: string;
   criterion?: string;
   criterion_kind?: string;
@@ -737,8 +738,13 @@ export interface CognitionGoalData {
       status?: string;
       /** SubGoal criterion_kind (28 §10.2). Absent on legacy rows. */
       criterion_kind?: string;
-      /** SubGoal object_uid — the stable identity for drill-down. */
+      /** SubGoal object_uid — the stable identity for drill-down. Since 2026-11-01
+       *  `id` carries this same uid on object rows (28 §7 废止 SG-n 业务编号). */
       object_uid?: string;
+      /** SubGoal `order` (28 §8): optional display order; absent sorts last. */
+      order?: number;
+      /** SubGoal `created_at`: the tiebreak when `order` is absent or equal. */
+      created_at?: string;
       /** True when the row still comes from the migrated-away `## 子目标` section. */
       legacy?: boolean;
     }[];

@@ -36,7 +36,7 @@ import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { requireAuthoritativeSignature } from "./signature-channel.js";
-import { listResolvableAnchors, resolveSubGoalAnchor } from "./subgoal-writer.js";
+import { listResolvableSubGoals } from "./subgoal-writer.js";
 import { buildUpdateFrontmatter } from "./after-integrity.js";
 
 // ---------------------------------------------------------------------------
@@ -524,6 +524,8 @@ export async function updateGoalObject(args) {
   // 里的每个锚点都已在 SubGoal 载体中可解析，否则删段会让引用断链。
   const nextBody = assembleBody(fm.title, bodyMarkdownAfter);
   const prevLegacy = current.value.sub_goals.filter((s) => s.anchor !== null);
+  /** 25 §7：被删除的存量条目文本——供 Human 核对它们已迁入 SubGoal 载体。 */
+  let droppedLegacy = [];
   const nextHasLegacy = hasLegacySubGoalSection(nextBody);
   const prevHasLegacy = hasLegacySubGoalSection(current.value.body);
 
@@ -554,23 +556,15 @@ export async function updateGoalObject(args) {
       );
     }
   } else if (prevHasLegacy && !nextHasLegacy) {
-    // One-way migration: removing the section is allowed ONLY once every anchor
-    // it carried resolves in the SubGoal carrier. Otherwise the deletion would
-    // silently orphan every downstream `serves` that points at these anchors.
-    if (prevLegacy.length > 0) {
-      const unresolved = [];
-      for (const entry of prevLegacy) {
-        const resolved = await resolveSubGoalAnchor(factSourceRoot, entry.anchor);
-        if (!resolved.ok) unresolved.push(entry.anchor);
-      }
-      if (unresolved.length > 0) {
-        return failure(
-          "goal/legacy_subgoal_unmigrated",
-          "refusing to drop the 子目标 section: these anchors do not yet resolve to SubGoal objects, so deleting them would orphan downstream serves references (25 §7 / 28 §14.2). Migrate them first",
-          { unresolved_anchors: unresolved },
-        );
-      }
-    }
+    // One-way migration: removing the section is allowed.
+    //
+    // What used to be checked here: every SG-n in the section must resolve to a
+    // SubGoal object, otherwise deleting it would orphan downstream `serves`.
+    // That check no longer exists — 2026-11-01 废止了 SG-n 与 `serves` 的锚点形态，
+    // `serves` 改用 `object_uid`，所以旧锚点**不再有下游引用可断**。机械层因此
+    // 无法（也不应假装能）判断这些条目是否已经迁入 SubGoal：如实登记被丢弃的
+    // 条目文本，交给 Human 核对（00 §5.6）。
+    droppedLegacy = prevLegacy.map((s) => `${s.anchor ?? "?"} ${s.text ?? ""}`.trim());
   } else if (!prevHasLegacy && nextHasLegacy) {
     return failure(
       "goal/legacy_subgoal_reintroduced",
@@ -609,19 +603,26 @@ export async function updateGoalObject(args) {
     // Sub-goals no longer live on this carrier, so the cascade starts from the
     // `parent_goal` reverse lookup (28 §12.1) — not from a section on disk.
     legacy_subgoal_section: hasLegacySubGoalSection(nextBody),
+    // 25 §7：删除存量子目标段时，如实交还被丢弃的条目文本。机械层无法证明它们
+    // 已迁入 SubGoal 载体（SG-n 已废止，没有任何可解析的映射），故不判断、只登记。
+    legacy_sub_goals_dropped: droppedLegacy,
   });
 }
 
-/** Anchor list of a goal, for the cascade scan (25 §11). */
-export async function readGoalAnchors({ factSourceRoot }) {
+/**
+ * SubGoal references that a goal can be served by, for downstream writers.
+ *
+ * Renamed from `readGoalAnchors` on 2026-11-01: there are no anchors any more.
+ * The return shape carries `object_uid` targets (28 §12.3), not `SG-n` strings,
+ * so a caller cannot accidentally keep treating a display label as an identity.
+ */
+export async function readServableSubGoals({ factSourceRoot }) {
   const goal = await readGoalObject({ factSourceRoot });
   if (!goal.ok) return goal;
-  // 28 §12.3（2026-11）：锚点已不在本载体，改由 SubGoal 载体反查解析。
-  // 只有 `active`／`achieved` 是可解析目标——`retired` 不代表任何有效锚。
-  const listed = await listResolvableAnchors(factSourceRoot);
+  const listed = await listResolvableSubGoals(factSourceRoot);
   if (!listed.ok) return failure(listed.error.code, listed.error.message);
   return success({
-    anchors: listed.value.anchors,
+    sub_goals: listed.value.items,
     status: goal.value.frontmatter.status,
     file: goal.value.file,
   });
