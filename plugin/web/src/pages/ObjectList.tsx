@@ -12,6 +12,7 @@ import PriorityIcon from '@/components/PriorityIcon';
 import FrictionImpactBadge from '@/components/FrictionImpactBadge';
 import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
 import SubGoalOrderBadge from '@/components/SubGoalOrderBadge';
+import DevLogOccurredBadge from '@/components/DevLogOccurredBadge';
 import SummaryText from '@/components/SummaryText';
 import { ObjectTypeIcon, OBJECT_TYPE_ICONS } from '@/components/SemanticIcon';
 
@@ -392,6 +393,11 @@ export function ObjectCardFrame({
               与 FrictionImpactBadge 之间，会撑开那条「影响紧跟优先级」的既有契约所依赖的
               源码邻接，让一个为摩擦力设的守卫为了无关的原因变红。 */}
           {obj.type === 'subgoal' && <SubGoalOrderBadge value={obj.order} />}
+          {/* 29 §10.4 `occurred_at`（该条日志所记工作的**发生时间**）进卡头，位置同在
+              修改次数之前。为什么是它而不是 `created_at`：本列表的排序与回查轴就是
+              发生时间（29 §12.1「时间线回查」），`created_at` 由详情身份区与
+              `change_log` 承载。两者不同轴，不能合成一枚——理由见 DevLogOccurredBadge。 */}
+          {obj.type === 'devlog' && <DevLogOccurredBadge value={obj.occurred_at} />}
           <span
             className="ldvh-chip-sm gap-1 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent"
             title={t('cognition.recent.activityCount', { count: String(activityCount) })}
@@ -956,6 +962,67 @@ export function NormCardContent({ obj }: { obj: ObjectItem }) {
 }
 
 /**
+ * 29 号 §8 `summary`（当前语义快照）的卡面承载：DevLog 卡。
+ *
+ * ## 为什么卡面要放 `summary`（与 Spark/Pitfall 的「克制」不同例）
+ *
+ * `title` 在 29 号是**明令不承载结论**的短标题（§8：「不承载结论」）——它只回答
+ * 「这条日志大致关于什么」。而本类型的**存在理由**就是那条结论：读者打开列表是要
+ * 找回「这件事当时得出什么」。若卡面只剩标题，每条都要下钻才知道说的是哪句话，
+ * 而列表恰恰是「扫一遍找到我要找的那条」的地方。故卡面必须给出 `summary`。
+ *
+ * 这与 Spark 的克制不矛盾：Spark 卡之所以留空，是因为它的 `question` 与 `summary`
+ * 都住详情、且标题已足够区分；DevLog 的 `title` 被规范明文排除在结论之外，故没有
+ * 同一条退路。
+ *
+ * ## 只放 `summary`，不放正文五段
+ *
+ * 正文五块（背景/做法/实测/结论与边界/去向）是**详情阅读面**的事——它们合起来是一篇
+ * 短报告的体量。卡面放摘要 + 正文也放，等于同一段话出现两遍（29 §8 不变量 1 规定
+ * `summary` 必须逐字出现在「结论与边界」段，故它本来就在那里）。
+ *
+ * ## 终态不换成「理由框」（与其余类型的形态差异，理由在此）
+ *
+ * 其余类型的终态卡读 `disposition` 或 `retirement_reason` 呈现退出理由；DevLog 的
+ * 三个终态里只有 `dropped` 带 `disposition`，`absorbed` / `superseded` 的「去向」
+ * 写在 `relations` 的承接/推翻边上，由 `FactAssociationsCardContent` 的关系行呈现
+ * ——那已经是卡级区域（`ObjectCardFrame` 在 children 之后渲染）。故卡体对终态**不做
+ * 特殊分支**，`summary` 照常显示：结论不因终态而消失（§9.1「结论本身永不随压缩
+ * 消失」），它仍是读者要读的那句话。
+ */
+export function DevLogCardContent({ obj }: { obj: ObjectItem }) {
+  const { t } = useI18n();
+  const summary = typeof obj.summary === 'string' ? obj.summary.trim() : '';
+
+  // `summary` 是 29 §8 的必填字段。真的为空时**不画空框**（同子目标判据面的
+  // 处置）：空框会让读者以为框里本该有内容而读取失败，实际是载体不合规——详情页
+  // 的字段问题区会如实报出。此处给一句显式的缺失说明，因为卡面没有别处能承载
+  // 这条结论，静默返回 null 会让这张卡看起来「没有可读内容」。
+  if (!summary) {
+    return (
+      <p className={`ldvh-card-decision-body min-w-0 break-words text-ldvh-text-secondary/80`}>
+        {t('objectList.devlogConclusionMissing')}
+      </p>
+    );
+  }
+
+  return (
+    <section className={WORKCASE_CRITERIA_SURFACE_CLASS} onClick={(event) => event.stopPropagation()}>
+      <div className={`ldvh-card-decision-body min-w-0 break-words ${WORKCASE_CRITERIA_BODY_HUE_CLASS}`}>
+        <SummaryText
+          value={summary}
+          // 卡面是扫读窗口：`summary` 是「当前语义快照」，它随边界认识演化会长成
+          // 一段话。超长时按段落折叠并给展开入口（同 SummaryText 的其余消费点），
+          // 不截断到无法判断「这条结论还成不成立」——那是本类型最怕的失真。
+          collapseThreshold={420}
+          className="[&_p]:my-0"
+        />
+      </div>
+    </section>
+  );
+}
+
+/**
  * 28 号 §12 F1 投影的列表承载：子目标卡。
  *
  * 三件事必须在卡片层就能读出来，否则每一条都要下钻才知道自己看的是什么：
@@ -1486,6 +1553,14 @@ export default function ObjectList() {
       return (
         <ObjectCardFrame key={obj.id} obj={obj} locale={locale} onOpen={openObject} showNonActiveReason={false}>
           <SubGoalCardContent obj={obj} />
+        </ObjectCardFrame>
+      );
+    }
+
+    if (currentType === 'devlog') {
+      return (
+        <ObjectCardFrame key={obj.id} obj={obj} locale={locale} onOpen={openObject} showNonActiveReason={false}>
+          <DevLogCardContent obj={obj} />
         </ObjectCardFrame>
       );
     }

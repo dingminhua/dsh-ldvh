@@ -1174,3 +1174,178 @@ export function GoalReadingLayout({
     </div>
   );
 }
+
+/** 29 §8 正文五块固定 H2（active 形态）；absorbed 是压缩形态（仅两段，§9.1）。 */
+const DEVLOG_BODY_SECTION_ORDER = [
+  '结论与边界', '去向', '背景', '做法', '实测',
+] as const;
+
+function parseDevLogBodySections(body: string): Array<{ title: string; body: string }> {
+  const sections: Array<{ title: string; body: string[] }> = [];
+  let current: { title: string; body: string[] } | null = null;
+  for (const line of body.split('\n')) {
+    const heading = line.match(/^##\s+(.+?)\s*$/);
+    if (heading) {
+      current = { title: heading[1].trim(), body: [] };
+      sections.push(current);
+      continue;
+    }
+    current?.body.push(line);
+  }
+  return sections
+    .map((section) => ({ title: section.title, body: section.body.join('\n').trim() }))
+    .filter((section) => section.title.length > 0)
+    .sort((a, b) => {
+      const aIndex = DEVLOG_BODY_SECTION_ORDER.indexOf(a.title as (typeof DEVLOG_BODY_SECTION_ORDER)[number]);
+      const bIndex = DEVLOG_BODY_SECTION_ORDER.indexOf(b.title as (typeof DEVLOG_BODY_SECTION_ORDER)[number]);
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return 0;
+    });
+}
+
+/**
+ * v5 DevLog 阅读布局（29 号 §8/§9/§10/§11/§12）。
+ *
+ * ## 为什么节序是「结论与边界 → 去向 → 背景 → 做法 → 实测」而不是规范列出的次序
+ *
+ * 29 §8 把正文骨架列作「背景 / 做法 / 实测 / 结论与边界 / 去向」——那是**书写**
+ * 次序（先讲为什么做、再讲怎么做、测到什么，最后收出结论与去向）。本布局是**阅读**
+ * 次序，两者不是同一件事：读者打开一条已收敛的日志，最想先知道的是「结论是什么、
+ * 它现在归到哪去了」，而不是重读一遍当年的做法。故 `summary`（结论与边界）与「去向」
+ * 前置，背景/做法/实测作为**依据**排在后面。
+ *
+ * 这**不是**对规范的改动：字段与正文骨架都没动，H2 标题逐字照读；只改呈现次序。
+ * `summary` 仍必须逐字出现在「结论与边界」段（§8 不变量 1），本布局把它按该段原文
+ * 呈现，不做二次加工。
+ *
+ * ## 终态不谈「退出理由」，只有 `dropped` 例外
+ *
+ * `absorbed` / `superseded` 的去向在 `relations` 的承接/推翻边上（§11），由
+ * `FactAssociationsSection` 的关联行呈现——那里能点开承接物，比一句文字更有用。
+ * `dropped` 没有可指向的承接物（§9.1 的分界线正在此），它的理由只能写在
+ * `disposition` 里，故只有这一档另起一个节点。
+ *
+ * ## 压缩形态要**说明**，不能静默少三段
+ *
+ * `absorbed` 的正文只剩两段（§9.1）。读者若不知道这条规则，会把「没有背景/做法/
+ * 实测」读成「这篇文章写残了」。故压缩态显式给一句说明，并把「实测数字不再随对象
+ * 可读」这个已知缺口如实写出来（§9.1 已登记该缺口，不掩盖）。
+ */
+export function DevLogReadingLayout({
+  obj,
+  locale,
+}: {
+  obj: Record<string, unknown>;
+  locale: string;
+}) {
+  const { t } = useI18n();
+  const status = typeof obj.status === 'string' ? obj.status : '';
+  const isAbsorbed = status === 'absorbed';
+  const isDropped = status === 'dropped';
+
+  const bodySections = parseDevLogBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
+  const sectionOf = (title: string) => bodySections.find((section) => section.title === title)?.body ?? '';
+
+  const summary = typeof obj.summary === 'string' ? obj.summary.trim() : '';
+  const occurredAt = typeof obj.occurred_at === 'string' && obj.occurred_at.trim()
+    ? formatDateTime(obj.occurred_at.trim())
+    : '';
+  const createdAt = typeof obj.created_at === 'string' && obj.created_at.trim()
+    ? formatDateTime(obj.created_at.trim())
+    : '';
+  const disposition = typeof obj.disposition === 'string' ? obj.disposition.trim() : '';
+
+  // 正文段优先，字段兜底：`summary` 是机器权威、正文「结论与边界」是它的展开
+  // （§8 不变量 1 要求逐字包含）。正文缺失时回落字段——那是载体不合规的形态，
+  // 不能因为正文没写就让读者看不到那条结论。
+  const conclusion = sectionOf('结论与边界') || summary;
+  const destination = sectionOf('去向');
+  const background = sectionOf('背景');
+  const approach = sectionOf('做法');
+  const measurements = sectionOf('实测');
+
+  return (
+    <div className="mb-6 flex flex-col gap-5">
+      {/* 时间轴：发生时间与条目形成时间**分开**呈现（§10.4）。
+          合成一枚会让「这件工作是什么时候做的」与「这条结论形成多久了」两个问题
+          共用一个数字，而二者在存量并入时常常相差很远。 */}
+      <section className={DECISION_DETAIL_NEUTRAL_SHELL_CLASS}>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <h3 className={`ldvh-card-decision-title min-w-0 ${DECISION_TITLE_HUE_CLASS.lime}`}>
+            {getFieldLabel('devlog_occurred_at', locale)}
+          </h3>
+          <span className={`ldvh-chip-sm min-w-0 shrink-0 ${LDVH_SUCCESS_CHIP_HUE_CLASS}`}>
+            {occurredAt || t('objectList.devlogOccurredAbsent')}
+          </span>
+          {createdAt && (
+            <span className="ldvh-meta min-w-0 text-ldvh-text-secondary/80">
+              {getFieldLabel('devlog_created_at', locale)}：{createdAt}
+            </span>
+          )}
+        </div>
+        {/* 29 §8.1：serves 缺失时主题表现为空集，它是**歧义**不是「无」——
+            呈现面必须显式标注，不得静默不显示（那会让读者以为这条没有主题轴这回事）。 */}
+        {typeof obj.serves === 'string' && obj.serves.trim() ? (
+          <p className="ldvh-meta mt-2 text-ldvh-text-secondary/80">
+            {getFieldLabel('serves', locale)}：<code className="ldvh-chip-sm">{obj.serves.trim()}</code>
+          </p>
+        ) : (
+          <p className={`ldvh-meta mt-2 rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-3 py-2 ${LDVH_WARN_TITLE_CLASS}`}>
+            {t('objectList.devlogNoTopic')}
+          </p>
+        )}
+      </section>
+
+      {/* 结论（`summary` 的展开）——本类型存在的理由，排在正文之前。 */}
+      <AdrProseNode
+        title={getFieldLabel('devlog_conclusion', locale)}
+        value={conclusion}
+        locale={locale}
+        issue={conclusion ? undefined : fieldIssue(obj, 'summary')}
+      />
+
+      {isAbsorbed && (
+        // 压缩形态显式说明（§9.1）：少三段是规则不是残缺；实测数字不再随对象
+        // 可读是已知缺口，不掩盖。
+        <p className={`ldvh-meta rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-3 py-2 ${LDVH_WARN_TITLE_CLASS}`}>
+          {t('objectList.devlogCompressedBody')}
+        </p>
+      )}
+
+      {/* 去向：仅 `dropped` 有 `disposition`（无可指向承接物的那一档）。
+          absorbed/superseded 的去向在承接/推翻边上，由关联区呈现。 */}
+      {isDropped && (
+        <AdrProseNode
+          title={getFieldLabel('devlog_disposition', locale)}
+          value={disposition}
+          locale={locale}
+          issue={disposition ? undefined : fieldIssue(obj, 'disposition')}
+        />
+      )}
+
+      {/* 正文「去向」段：未承接时说明为何仍承重（§8 对 active 的要求）。 */}
+      <AdrProseNode
+        title={getFieldLabel('devlog_destination', locale)}
+        value={destination}
+        locale={locale}
+      />
+
+      {/* 依据三段：书写次序（背景 → 做法 → 实测）原样保留，它们是读者核对结论
+          可信度的材料，不重新排序——重排会让人以为这是另一条骨架。 */}
+      <AdrProseNode title={getFieldLabel('devlog_background', locale)} value={background} locale={locale} />
+      <AdrProseNode title={getFieldLabel('devlog_approach', locale)} value={approach} locale={locale} />
+      <AdrProseNode title={getFieldLabel('devlog_measurements', locale)} value={measurements} locale={locale} />
+
+      {/* `absorbed-into`（可指向 commit 形态）与 `superseded-by` 两条边在此呈现，
+          是「结论现在在哪」的唯一可点入口（§11）。 */}
+      <FactAssociationsSection obj={obj} locale={locale} />
+      <ChangeLogReadingNode
+        value={obj.change_log}
+        issue={fieldIssue(obj, 'change_log')}
+        locale={locale}
+      />
+    </div>
+  );
+}

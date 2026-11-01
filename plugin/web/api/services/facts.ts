@@ -18,7 +18,13 @@ import { getGitCommit } from './git.js'
 
 // 27 号 §7：norm 事实规范与既有六类同路径（ldvh-base/norms/，localFactReader
 // 已登记载体与目录）——纳入列表/详情/关联解析的活跃类型面。
-export const ACTIVE_OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal'] as const
+//
+// 29 号 §7（2026-11-02 接入）：devlog（开发日志）落 ldvh-base/devlogs/，是第九个
+// 活跃事实类型。列表次序上它排在全部事实对象之后（Human 定案：「放在所有事实
+// 对象的最后」）——那属**导航次序**，由 Sidebar 的 NAV_ITEMS 承担，不靠本数组的
+// 位置表达（本数组是类型值域，不是呈现次序；靠位置表达次序会让「加一类」
+// 无意中改变既有类型的排位）。
+export const ACTIVE_OBJECT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog'] as const
 export const OBJECT_TYPES = ACTIVE_OBJECT_TYPES
 export type ObjectType = (typeof OBJECT_TYPES)[number]
 
@@ -943,7 +949,7 @@ export async function listObjects(type: ObjectType, _baseDir?: string, status?: 
   }
 }
 
-const OBJECT_ID_PATTERN = /^(workcase|adr|pitfall|spark|research|friction|norm|subgoal)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
+const OBJECT_ID_PATTERN = /^(workcase|adr|pitfall|spark|research|friction|norm|subgoal|devlog)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
 
 export async function showObject(id: string, scope?: LocalFactScope): Promise<WebFactResult | WebFactError> {
   const match = OBJECT_ID_PATTERN.exec(id)

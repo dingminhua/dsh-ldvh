@@ -24,6 +24,9 @@ export const FACT_TYPE_DIRS = {
   norm: 'norms',
   // v5 SubGoal（28 号 §7）：子目标落 ldvh-base/subgoals/。
   subgoal: 'subgoals',
+  // v5 DevLog（29 号 §7）：开发日志落 ldvh-base/devlogs/（与
+  // plugin/lib/devlog-writer.js 的 DEVLOG_DIRECTORY 一致）。
+  devlog: 'devlogs',
 } as const
 
 export const FACT_TYPE_CARRIERS = {
@@ -43,6 +46,9 @@ export const FACT_TYPE_CARRIERS = {
   norm: '.md',
   // v5 SubGoal（28 号 §8）：同上，frontmatter + 正文两块固定 H2。
   subgoal: '.md',
+  // v5 DevLog（29 号 §8）：同上，frontmatter + 正文五块固定 H2
+  //（absorbed 为压缩形态，仅两段）。
+  devlog: '.md',
 } as const
 
 export type LocalFactType = FactType
@@ -173,10 +179,10 @@ function expectedFileName(type: LocalFactType, objectId: string): string {
  * 新增一类就要在四处同时补——漏一处的后果不是报错，而是该类型被当成 YAML
  * 载体读取并静默读空。收敛为一个集合，使「加一类」只有一处要改。
  *
- * 20 §7 / 21 §7 / 22 §7 / 23 §7 / 24 §7 / 26 §7 / 27 §7 / 28 §8。
+ * 20 §7 / 21 §7 / 22 §7 / 23 §7 / 24 §7 / 26 §7 / 27 §7 / 28 §8 / 29 §8。
  */
 const MARKDOWN_CARRIER_TYPES: ReadonlySet<LocalFactType> = new Set<LocalFactType>([
-  'workcase', 'research', 'spark', 'adr', 'pitfall', 'friction', 'norm', 'subgoal',
+  'workcase', 'research', 'spark', 'adr', 'pitfall', 'friction', 'norm', 'subgoal', 'devlog',
 ])
 
 function carrierFor(type: LocalFactType): LocalFactCarrier {
@@ -502,10 +508,10 @@ export async function listLocalFacts(type: LocalFactType, scope: LocalFactScope)
   return list
 }
 
-// v5 markdown 载体类型（spark/research/adr/pitfall/friction/norm）对象 ID 为
-// UUID（writer randomUUID 带 8-4-4-4-12 连字符段，22 §7 与 20/24/26/27 同形态）；
-// 其余类型保留 v4 形态（纯序号或 ULID25）。
-const FACT_OBJECT_ID_PATTERN = /^(workcase|adr|pitfall|spark|research|friction|norm|subgoal)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
+// v5 markdown 载体类型（spark/research/adr/pitfall/friction/norm/subgoal/devlog）
+// 对象 ID 为 UUID（writer randomUUID 带 8-4-4-4-12 连字符段，22 §7 与
+// 20/24/26/27/28/29 同形态）；其余类型保留 v4 形态（纯序号或 ULID25）。
+const FACT_OBJECT_ID_PATTERN = /^(workcase|adr|pitfall|spark|research|friction|norm|subgoal|devlog)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
 
 export async function readLocalFact(type: LocalFactType, objectId: string, scope: LocalFactScope): Promise<{ status: 'ok'; item: LocalFactItem } | { status: 'not_found' | 'type_not_integrated'; metadata: LocalFactMetadata; issues: LocalFactIssue[] }> {
   const metadata = metadataFor(scope, type, objectId)

@@ -5,7 +5,7 @@
  * entry retains its 05.Att.01 field_key and is mechanically reconciled with
  * 05.Att.01, the type bindings, and 08.Att.01 by fact-field-contract.test.ts.
  */
-export const FACT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal'] as const
+export const FACT_TYPES = ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog'] as const
 
 export type FactType = (typeof FACT_TYPES)[number]
 export type FieldExpectation = 'string' | 'number' | 'array' | 'object'
@@ -260,6 +260,32 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     // 分节在阅读布局里按 H2 解析（同 27 号 norm 形态），不登记为独立字段。
     report_body: field('subgoal-body', 'string', false),
   },
+  // v5 DevLog（29 号规范，2026-11-02 接入）：开发日志的字段闭集——一条已收敛的
+  // 过程性结论。occurred_at 是**该工作发生的时间**（§10.4：不得用 created_at
+  // 冒充，二者必须分开呈现）；summary 是**当前语义快照**（结论本身 + 当前适用
+  // 边界 + 已确认不成立的情形，§9.3 允许细化档演化）；两者都必填。
+  //
+  // `serves` 可选（§8）：无主题指针时呈现面须显式标注为「未声明或不属于任何
+  // 子目标」——空集是歧义而非「无」（§8.1，与 28 §8.1 同一纪律）。
+  // `disposition` 仅 dropped 时必填（§8 不变量 3），契约登记为可选——契约只有
+  // required 二值，无法表达按状态条件必填；机械保证由 writer 承担（同 friction
+  // 的 occurrence/disposition 与 spark 的 disposition 先例）。
+  // 本类型不采用 urls（§8：条目源自内部过程，不调查外部世界）与 refs（§11：
+  // 与工单的连接由**工单侧** refs 单向声明，条目侧不复制反向边）——故不展开
+  // common 的 urls。relations 闭集仅 absorbed-into / superseded-by 两条终态边（§11）。
+  // 正文五块固定 H2（背景/做法/实测/结论与边界/去向）由 report_body 承载；
+  // absorbed 为压缩形态（仅「结论与边界」+「去向」两段，§9.1）。
+  devlog: {
+    // common minus urls：29 §8 明文不采用 urls。
+    ...(({ urls: _omitDevLogUrls, ...rest }) => rest)(common),
+    occurred_at: field('devlog-occurred-at', 'string', true),
+    summary: field('devlog-summary', 'string', true),
+    serves: field('devlog-serves', 'string', false),
+    disposition: field('devlog-disposition', 'string', false),
+    // 正文承载（29 §8 固定 H2），由阅读布局按 H2 分节解析呈现；不登记会被
+    // 判为 unconsumed_field，且必须从列表投影排除。
+    report_body: field('devlog-report-body', 'string', false),
+  },
 }
 
 /**
@@ -281,6 +307,8 @@ export const FACT_LIST_FIELD_NAMES: Record<Exclude<FactType, 'workcase'>, readon
   norm: Object.keys(FACT_FIELD_CONTRACT.norm).filter((field) => field !== 'report_body'),
   // subgoal（28 号）：正文两段只属详情阅读面，列表不携带全文（同其余 markdown 类型纪律）。
   subgoal: Object.keys(FACT_FIELD_CONTRACT.subgoal).filter((field) => field !== 'report_body'),
+  // devlog（29 号）：正文五段只属详情阅读面，列表不携带全文（同其余 markdown 类型纪律）。
+  devlog: Object.keys(FACT_FIELD_CONTRACT.devlog).filter((field) => field !== 'report_body'),
 }
 
 /**
@@ -303,6 +331,9 @@ export const FACT_TERMINAL_STATUSES: Record<FactType, readonly string[]> = {
   // 28 号 §9：active/achieved/retired 三态，achieved 与 retired 均为终态（不重开；
   // 目标改了要新建子目标并换号，不得复活旧号）。
   subgoal: ['achieved', 'retired'],
+  // 29 号 §9.2：active → absorbed / superseded / dropped，三个终态均不可重开
+  //（结论若重新承重，以新条目新建并在正文说明——「曾经退出过」的历史不被抹去）。
+  devlog: ['absorbed', 'superseded', 'dropped'],
 }
 
 /**
@@ -318,4 +349,5 @@ export const FACT_TYPE_DIR_NAMES: Record<FactType, string> = {
   friction: 'frictions',
   norm: 'norms',
   subgoal: 'subgoals',
+  devlog: 'devlogs',
 }

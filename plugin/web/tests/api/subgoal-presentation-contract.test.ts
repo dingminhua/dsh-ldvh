@@ -333,7 +333,10 @@ test('联邦对象列表不得让 subgoal 卡片落到空内容', () => {
   // 渲染成空卡——对象在、类型在、唯独没有内容。
   assert.match(federationObjects, /if \(currentType === 'subgoal'\) return <SubGoalCardContent obj=\{item\} \/>;/,
     '联邦卡体应分派 SubGoalCardContent');
-  assert.match(federationObjects, /SubGoalCardContent,?\n\} from '@\/pages\/ObjectList';/,
+  // 导入断言写成「SubGoalCardContent 在导入列表里」而不是「它是列表最后一项」：
+  // 后者会在任何新类型追加到导入列表时误报（2026-11-02 加 devlog 时就撞了一次）。
+  // 本守卫要的是「联邦视图真的拿到了这个卡体」，不是「它排在末尾」。
+  assert.match(federationObjects, /SubGoalCardContent,[\s\S]*?\} from '@\/pages\/ObjectList';/,
     '应从 ObjectList 导入 SubGoalCardContent');
 });
 

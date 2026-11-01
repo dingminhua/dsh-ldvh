@@ -8,6 +8,7 @@ import {
   Lightbulb,
   Link2,
   Milestone,
+  NotebookPen,
   Ruler,
   Shovel,
   Snail,
@@ -69,6 +70,10 @@ export const OBJECT_TYPE_ICONS: Record<string, SemanticIconComponent> = {
   // 28 号 SubGoal：子目标——目标层的下级锚点（Milestone＝路标：同一个方向上
   // 的下一个可判定站点；与 goal 的靶心区分开——靶心是整件事，路标是走到哪算成）。
   subgoal: Milestone,
+  // 29 号 DevLog：开发日志——一次已收敛的过程性工作的结论条目（笔记本＋笔＝
+  // 「这件事当时得出什么」被写下来的那一下）。与 norm 的 Ruler（度量）、
+  // research 的放大镜式检索、pitfall 的 Lightbulb（醒悟）都不撞形。
+  devlog: NotebookPen,
   change: GitCommit,
   // commit 形态关系的目标图标（02 §8.1）：解药是一次受控提交。狐狸＝侧栏那只，
   // 实心填充，与 change 的线框 GitCommit 区分开——读者一眼知道这是提交而非工单。

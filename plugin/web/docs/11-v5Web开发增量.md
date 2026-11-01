@@ -47,8 +47,10 @@
 | 研究/调研列表 | `/objects/research` | F1 投影字段；活跃卡克制 |
 | 研究/调研详情 | `/objects/research/:id` | 24 号薄索引阅读布局、YAML 源节点 |
 | 决策/火花/经验列表 | `/objects/{adr,spark,workcase}` | 保留 v4 语言 |
-| 子目标列表 | `/objects/subgoal` | 28 号 F1：卡头 chip（类型 → 优先级 → **次序** → 修改次数）＋判据类型 + 达成条件一句 + 名下工作区；默认只列 active |
+| 子目标列表 | `/objects/subgoal` | 28 号 F1：卡头 chip（类型 → 优先级 → **次序** → 修改次数）＋判据面一句 `criterion`＋名下工作区；默认只列 active |
 | 子目标详情 | `/objects/subgoal/:id` | 28 号阅读布局：次序块 → 达成条件 → 对齐说明 → 名下工作（serves 反查派生）→ 修订史（卡头次序 chip 与详情序次块同源 `order`） |
+| 开发日志列表 | `/objects/devlog` | 29 号 F1：卡头 chip（类型 → **发生时间** → 修改次数）＋ `summary` 一句（折叠阈值 420）；默认只列 active，三枚终态各自成筛选项 |
+| 开发日志详情 | `/objects/devlog/:id` | 29 号阅读布局：时间轴（发生时间 / 条目形成时间分开）→ 结论与边界 → 去向 → 背景 → 做法 → 实测 → 承接边 → 修订史 |
 | 联邦聚焦 | `/federation` | 跨项目聚合、项目统计、跨项目火花 |
 | 联邦对象 | `/federation/objects/:type` | 跨项目对象列表、项目源 chip |
 | 项目文件 | `/project-files` | 保留 v4 语言 |
@@ -404,3 +406,106 @@ dark:text-blue-100/75`）并让 `WorkCaseCriteriaList` 自身改用它——此�
 只剩一句正文、四边同宽 1px、radius 8px，控制台零错误。
 **未覆盖（如实登记）**：暗色模式实拍；`criterion` 为空的降级态实拍（现存四个子目标都
 带判据，未造空夹具）。
+
+## 4octies. DevLog（29 号）Web 接入（2026-11-02）
+
+DevLog 是第 9 个事实类型。Human 要求：「新增了 devlog 的事实对象，也要参考一致的设计
+语言进行新增，**放在所有事实对象的最后**」。接入沿用既有流程（同 26 friction、
+27 norm、28 subgoal 那三轮），形态面按各类型的相邻先例逐一对照，不自造第二套。
+
+### 接入面（21 处）
+
+后端类型面 7 处：`facts.ts` 的 `ACTIVE_OBJECT_TYPES` 与 `OBJECT_ID_PATTERN`、
+`localFactReader.ts` 的三张登记表（目录 `devlogs` / 载体 `.md` / markdown 类型）、
+`factFieldContract.ts`（字段契约 + 列表字段 + 终态闭集 + 目录名）、`pytools.ts`、
+`federation.ts`、`typeColors.ts`、`cognition.ts`（近期动态并入 `recentSources`）。
+
+前端类型面 10 处：`categoryColors.ts`、`SemanticIcon.tsx`（`NotebookPen`）、
+`Sidebar.tsx` 两处导航、`listStatus.ts` 默认 active、`ObjectStatusFilter.tsx`
+（三枚终态筛选 + `FALLBACK_STATUSES_BY_TYPE`）、`ObjectIdentityActions.tsx` 两处
+状态提示链、`fieldFormats.ts`、`commitLabels.ts`、`FederationObjects.tsx`、
+`utils/api.ts` 的 `ObjectItem`。
+
+呈现 4 处：`ObjectList.tsx` 卡体与卡头、`DevLogOccurredBadge.tsx`、
+`FactReadingLayouts.tsx` 的 `DevLogReadingLayout`、`ObjectDetail.tsx` 分派 +
+`model.ts` 字段序。
+
+### 次序：末位，且两处导航同序
+
+`NAV_ITEMS` 与 `FEDERATION_NAV_ITEMS` 都把 devlog 放在 `nav.norms` 之后、
+`/project-files` 之前——**它是对象族最后一项，其后不再有任何 `/objects/` 入口**。
+两处同改的理由与 §4quinquies 相同：同一入口在两个作用域里换位置，读者会以为
+联邦视图里少了一类。契约断言直接断言「devlog 之后不得再有对象族入口」，而不是只
+断言「在 norm 之后」——后者在新类型追加到末尾时会静默失效（新类型正好排在 norm 之后，
+devlog 的不再末位就没被任何断言看见）。
+
+### 卡面只读 `summary`，不读标题
+
+29 §8 明文 **`title` 不承载结论**（它是 ≤40 字的定位短标题），结论住在 `summary`
+（「当前语义快照」：结论本身 + 当前适用边界 + 已确认不成立的情形）。因此卡体的
+正文是 `summary`，用 `SummaryText`（`collapseThreshold=420`）折叠——**不复用
+WorkCase 判据面常量的取舍**：判据面是「一句判据」的容器，长结论需要的是折叠阈值，
+两者共用同一蓝面而非同一组件。
+
+卡头多一枚 `occurred_at` chip（`DevLogOccurredBadge`），排在修改次数之前。
+**为什么不与「修改次数」合成「什么时候」**：`occurred_at` 是**这件事发生的时间**，
+`created_at` 是**条目形成的时间**，29 §10.4 要求分开呈现——合成一枚会让两个不同
+问题共用一个数字。与 `SubGoalOrderBadge` 同一形态（`ldvh-chip-sm` + 12px 图标 +
+accent 色相 + 缺失给 `·`），不新造规格。
+
+### 详情：阅读次序 ≠ 书写次序
+
+`DEVLOG_BODY_SECTION_ORDER = ['结论与边界', '去向', '背景', '做法', '实测']`。
+载体里的书写次序是 29 §8 那五段（背景 → 做法 → 实测 → 结论与边界 → 去向），
+**阅读次序把结论提到最前**：读者打开一条 DevLog 要的是结论，而背景/做法/实测是
+依据。这不是「重新排列正文」——解析器按 H2 标题取值，次序只影响渲染顺序。
+
+三处显式标注（都不是可选文案）：
+
+1. **时间轴节点**同时给 `occurred_at` 与 `created_at`，各带自己的标签；
+2. **空集歧义**（29 §8.1）：无 `serves` 时标注「未声明或不属于任何子目标」，并说明
+   「确实不属于」与「未声明」在机械层不可区分——**不得写成「无主题」**，那会把歧义
+   压成一个确定结论；
+3. **压缩形态**（29 §9.1）：`absorbed` 条目正文只剩两段，渲染时显式说明「已被承接，
+   正文压缩为『结论与边界』与『去向』两段」——不静默少三段，否则读者会以为内容丢了。
+
+承接边（`absorbed-into` 的 commit 形态）走既有 `FactAssociationsSection`：`facts.ts`
+的 `projectFactCardAssociations` 早已支持 `{commit}` 形态目标（读提交标题、`available:
+true`、短哈希），**不新写解析**。实拍确认 absorbed 条目关联区显示 `6c43770`。
+
+### 类型色：`#ca21a0`（magenta，色相 315°）
+
+取既有八类色相之间的**最大空隙**，而不是就近取一个「看起来属于同一族」的色：
+最近邻（`#a855f7` 紫，色相 276°）相距 44°，既有一切类型色两两距离 ≥20°。
+**不用中性灰**：灰在 LDVH 里已属「终态/废弃」语义族（`slate` 弱化），拿它当类型色
+会让活跃条目读起来像已废弃。对比度：浅底 `#f8f9fb` 4.71:1、暗底 `#0a0a0f` 3.98:1，
+均过 WCAG AA 正文阈值。
+
+**断言的作用域刻意收窄到「事实类型那九类」**：`CATEGORY_COLORS` 里还混着 conventional
+commit 的 scope 色（`feat` 与 `workcase` 同值 `#3b82f6`、`ci` 粉 `#ec4899` 与 magenta
+相距仅 15°）——它们不同屏竞争同一个判断，把它们算进来会得到一条与实际阅读无关的约束。
+这条边界写在测试注释里，避免后来者以为「全域色相都 ≥20°」。
+
+### 验证
+
+新建 `web/tests/api/devlog-presentation-contract.test.ts`（7 项）：类型面登记、字段级直读
+（含 absorbed 正文只剩两段这条机械可核形态）、图标与类型色（含色相距离）、侧栏末位、
+卡面读 `summary` 与卡头次序、详情阅读次序与两时间分开、空集与压缩文案把话说完整。夹具 UID 用 `4444…`/`5555…`/`6666…`
+便于辨识，不进事实源。
+
+全量 web 用例 **586 全绿**（起点 579 + 7）；plugin `npm test` **2711 tests / 2709 pass /
+0 fail / 1 skip**；`tsc -b` 通过；`npm run lint` 仅剩 HEAD 上既有的 1 error
+（`facts.ts` 的 `currentProjectProjectionIndexes` 未使用）+ 1 warning（`ObjectList.tsx`
+react-refresh）——已用 `git stash` 对比确认非本轮引入。dist 重建。
+
+Playwright 实拍（真实 API、真实数据路径）：侧栏次序实测为 聚焦/子目标/火花/工单/调研/
+决策/经验/摩擦/规范/**开发日志**/目录/变更/提交/帮助/诊断；列表卡 chip 实测
+`["开发日志", "2026-11-02 10:30", "1", "承重中"]`；状态筛选实测 承重中 1 / 已被承接 1 /
+已被推翻 0 / 不再承重 0 / 全部 2；详情面确认时间轴节点两个时间并列、serves 行、
+空集歧义提示、压缩形态说明、承接边 `6c43770`；控制台零错误。
+
+**未覆盖（如实登记）**：① `ldvh-base/devlogs/` 在本项目当前是空目录（0 个真实对象），
+实拍用的是两条**临时夹具**（一 active、一 absorbed），截图后已删除——`git status` 确认
+不残留；② 暗色模式实拍只覆盖列表页，两个详情页未拍暗色；③ `superseded` / `dropped`
+两个终态的卡面与详情未造夹具实拍，其分支按 `absorbed` 的同一形态实现（`dropped` 多一个
+`disposition` 节点）；④ 联邦视图下 devlog 列表未实拍（分派与导航已加，仅静态断言覆盖）。

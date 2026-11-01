@@ -13,6 +13,14 @@ export const TYPE_COLORS: Record<string, string> = {
   goal: '#10b981',       // emerald —— 与前端 CATEGORY_COLORS.goal 一致（25 号项目目标，近期动态行用后端色）
   subgoal: '#84cc16',    // lime —— 与前端 CATEGORY_COLORS.subgoal 一致（28 号子目标：目标层的下级锚点，
                          //         取绿色族以表明与 goal 同属目标层、又浅一档以示从属）
+  devlog: '#ca21a0',     // magenta —— 与前端 CATEGORY_COLORS.devlog 一致（29 号开发日志）。
+                         //         色相 315°：取 adr 的紫（271°）与 pitfall 的红（0°）之间
+                         //         最大的空隙，与最近类型色相距离 44°（既有一切类型色相距离
+                         //         均 ≥20°；此处刻意取更宽的间隔）。**不用中性灰**——灰已被
+                         //         终态/收敛状态族占用（closed/voided/已废弃），类型色借灰
+                         //         会把「这是什么类型」与「它处于什么状态」混成同一信号。
+                         //         对比度按本仓库真实底色：浅 #f8f9fb 上 4.71:1、暗 #0a0a0f
+                         //         上 3.98:1，两模式均过非正文文本 3:1 可读线。
   study: '#06b6d4',      // cyan（v4 遗留词汇，归档兼容）
   default: '#6b7280',   // gray
 }

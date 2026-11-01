@@ -22,6 +22,13 @@ const STATUS_FILTER_ORDER = [
   'resolved',
   // 26 §9：Friction 已废弃（记错了的账目）——排在 resolved 后，属终态族。
   'voided',
+  // 29 §9：DevLog 的三个终态。「已被承接」（absorbed）排在「被推翻」
+  // （superseded）与「不再承重」（dropped）之前：它是三种退出里唯一的
+  // **正向**结局（结论还在，只是搬到承接物那里去了），与 achieved/resolved
+  // 属同一族；后两者是结论失去地位，排在更后。
+  'absorbed',
+  'superseded',
+  'dropped',
   'discarded',
   'archived',
   'retired',
@@ -47,6 +54,10 @@ const FALLBACK_STATUSES_BY_TYPE: Record<string, string[]> = {
   norm: ['active', 'retired'],
   // 28 号 §9 状态闭集：active（推进中）→ achieved（已达成，终态）/ retired（已作废，终态）。
   subgoal: ['active', 'achieved', 'retired'],
+  // 29 号 §9 状态闭集：active（结论仍承重）→ absorbed（已被承接，正文压缩）/
+  // superseded（被推翻，全文保留）/ dropped（不再承重且无可指向承接物，全文保留）。
+  // 三个终态均不可重开。
+  devlog: ['active', 'absorbed', 'superseded', 'dropped'],
 };
 
 interface ObjectStatusFilterProps {

@@ -136,6 +136,19 @@ const OBJECT_STATUS_LOCALES: Record<string, Record<string, { zh: string; en: str
     achieved: { zh: '已达成', en: 'Achieved' },
     retired: { zh: '已作废', en: 'Retired' },
   },
+  devlog: {
+    // 29 号 §9 状态闭集：active（结论仍承重）→ absorbed（已被承接，正文压缩为
+    // 两段）/ superseded（被推翻，全文保留）/ dropped（不再承重且无可指向承接物，
+    // 全文保留）。三个终态均不可重开。
+    //
+    // 「已被承接」与「被推翻」**必须不同词**：前者是结论还在、只是搬到承接物
+    // 那里（正向），后者是结论失去地位（负向）。两处都经 `change_log` 与正文
+    // 形态可核，合并成一个「已收起」会把这条关键区分抹掉。
+    active: { zh: '承重中', en: 'Active' },
+    absorbed: { zh: '已被承接', en: 'Absorbed' },
+    superseded: { zh: '已被推翻', en: 'Superseded' },
+    dropped: { zh: '不再承重', en: 'Dropped' },
+  },
 };
 
 export function getObjectStatusLocale(type: string, status: string, locale: string): string {
@@ -218,6 +231,7 @@ export const TYPE_DESCRIPTION_LOCALES: Record<string, { zh: string; en: string }
   norm: { zh: '事实规范——一个工程方向的成体系规则体系（27 §1）', en: 'A fact-carried norm: the systematic rule system of one engineering direction' },
   goal: { zh: '项目目标——单例冻结锚：目标陈述 + sub-goal 子目标（25 §1）', en: 'The project goal: a singleton frozen anchor of statement and sub-goals' },
   subgoal: { zh: '子目标——围绕项目目标展开的下级事实对象：稳定身份、可选次序、可判定的达成条件与对齐说明（28 §1）', en: 'A sub-goal: a subordinate fact object under the project goal, carrying a stable identity, an optional display order, a decidable criterion, and its alignment statement' },
+  devlog: { zh: '开发日志——一次已收敛过程性工作的结论条目：做了什么、实测到什么、在什么条件下成立（29 §1）', en: 'A development log: the conclusion of one converged piece of procedural work — what was done, what was measured, and under which conditions it holds' },
   change: { zh: '提交', en: 'Commit' },
 };
 
@@ -245,6 +259,7 @@ export const TYPE_LOCALES: Record<string, { zh: string; en: string }> = {
   norm: { zh: '规范', en: 'Norm' },
   goal: { zh: '目标', en: 'Goal' },
   subgoal: { zh: '子目标', en: 'Sub-goal' },
+  devlog: { zh: '开发日志', en: 'DevLog' },
   change: { zh: '提交', en: 'Commit' },
 };
 
@@ -532,6 +547,20 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   subgoal_criterion_kind: { zh: '判据类型', en: 'Criterion Kind' },
   subgoal_alignment: { zh: '对齐说明', en: 'Alignment' },
   subgoal_disposition: { zh: '作废去向', en: 'Disposition' },
+  // v5 DevLog（29 号 §8）阅读节点与卡片标题。occurred_at 与 created_at 必须
+  // 分开呈现（§10.4：前者是「做这件事的时间」，后者是「条目形成的时间」），
+  // 二者同词会让读者把一条很久以前的工作读成刚存的条目——故 29 号专名
+  // 「发生时间」，不复用通用的 created_at 标签。正文五段固定 H2 也在此登记
+  // （29 §8 的骨架即本类型的阅读节序）。
+  devlog_occurred_at: { zh: '发生时间', en: 'Occurred At' },
+  devlog_created_at: { zh: '条目形成时间', en: 'Recorded At' },
+  devlog_summary: { zh: '当前结论', en: 'Current Conclusion' },
+  devlog_disposition: { zh: '退出理由', en: 'Disposition' },
+  devlog_background: { zh: '背景', en: 'Background' },
+  devlog_approach: { zh: '做法', en: 'Approach' },
+  devlog_measurements: { zh: '实测', en: 'Measurements' },
+  devlog_conclusion: { zh: '结论与边界', en: 'Conclusion & Boundary' },
+  devlog_destination: { zh: '去向', en: 'Destination' },
   category: { zh: '分类', en: 'Category' },
   priority: { zh: '优先级', en: 'Priority' },
   assignee: { zh: '执行者', en: 'Assignee' },
@@ -987,6 +1016,7 @@ export const UI_LOCALES = {
     'nav.frictions': '摩擦',
     'nav.norms': '规范',
     'nav.subgoals': '子目标',
+    'nav.devlogs': '开发日志',
 
     'goalDetail.openDetail': '查看目标详情',
     'goalDetail.subGoals': '子目标',
@@ -1003,6 +1033,12 @@ export const UI_LOCALES = {
     'objectList.subGoalServingUnreadable': '读不到，不能当作「没有」',
     'objectList.subGoalServingExpand': '展开其余 {count} 条',
     'objectList.subGoalServingCollapse': '收起',
+    // 29 号 DevLog 列表卡与详情面的界面词条。
+    'objectList.devlogNoTopic': '未声明或不属于任何子目标——serves 缺失时主题表现为空集，它既可能是「确实不属于」也可能是「未声明」，机械层不可区分（29 §8.1）',
+    'objectList.devlogCompressedBody': '已被承接，正文压缩为「结论与边界」与「去向」两段（29 §9.1）',
+    'objectList.devlogConclusionMissing': '当前结论缺失——29 §8 要求 summary 非空且逐字出现在「结论与边界」段',
+    'objectList.devlogOccurredLabel': '发生时间——这件工作是什么时候做的（29 §10.4；与条目形成时间 created_at 是两回事）',
+    'objectList.devlogOccurredAbsent': '发生时间缺失——29 §8 把它列为必填字段，缺失即载体不合规',
     'objectDetail.subGoalOrderAbsent': '未定次序（28 §8：order 可缺失，缺省排在有序者之后，不补隐式编号）',
     'objectDetail.subGoalCriterionDetail': '达成条件（展开）',
     'objectDetail.subGoalAlignmentDetail': '对齐说明（展开）',
@@ -1822,6 +1858,7 @@ export const UI_LOCALES = {
     'nav.frictions': 'Frictions',
     'nav.norms': 'Norms',
     'nav.subgoals': 'Sub-goals',
+    'nav.devlogs': 'DevLogs',
 
     'goalDetail.openDetail': 'Open goal detail',
     'goalDetail.subGoals': 'Sub-goals',
@@ -1834,6 +1871,11 @@ export const UI_LOCALES = {
     'objectList.subGoalServingUnreadable': 'Unreadable — must not be read as "none"',
     'objectList.subGoalServingExpand': 'Show the remaining {count}',
     'objectList.subGoalServingCollapse': 'Collapse',
+    'objectList.devlogNoTopic': 'Not declared or belonging to no sub-goal — an absent `serves` shows as an empty topic. Two cases are indistinguishable mechanically: it may genuinely belong to none, or it may be undeclared (29 §8.1).',
+    'objectList.devlogCompressedBody': 'Absorbed — the body is compressed to the two sections "Conclusion & Boundary" and "Destination" (29 §9.1)',
+    'objectList.devlogConclusionMissing': 'Current conclusion missing — 29 §8 requires a non-empty `summary` appearing verbatim in the "Conclusion & Boundary" section',
+    'objectList.devlogOccurredLabel': 'Occurred at — when the work was actually done (29 §10.4; distinct from the record formation time `created_at`)',
+    'objectList.devlogOccurredAbsent': 'Occurred-at missing — 29 §8 lists this field as required; its absence means the carrier is non-conforming',
     'objectDetail.subGoalOrderAbsent': 'No order (28 §8: `order` may be absent; an unordered sub-goal sorts after ordered ones and is never given an implicit number)',
     'objectDetail.subGoalCriterionDetail': 'Criterion (expanded)',
     'objectDetail.subGoalAlignmentDetail': 'Alignment (expanded)',

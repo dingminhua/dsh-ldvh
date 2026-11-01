@@ -30,6 +30,10 @@ const COMMON_FIELD_EXEMPTIONS: Record<string, readonly string[]> = {
   // 28 §11：子目标不采用 urls（判据与对齐住正文，不接外部证据链）与 relations
   //（层级只两层，上下游由 parent_goal 与 serves 反查派生，不建第二边）。
   subgoal: ['urls', 'relations'],
+  // 29 §8 / §11：DevLog 不采用 urls（条目源自内部过程，不调查外部世界）与
+  // refs（与工单的连接由**工单侧** refs 单向声明，条目侧不复制反向边）。
+  // relations 仍采用（absorbed-into / superseded-by 两条终态边）。
+  devlog: ['urls', 'refs'],
   // 21 §8：WorkCase 不采用 urls——证据是当次执行的观察与回读，长期外部资料归 22/24。
   workcase: ['urls'],
 };
@@ -54,10 +58,14 @@ const TYPE_REQUIRED_FIELDS: Record<string, readonly string[]> = {
   // 起 anchor 废止，order 为可选显示次序，故两者都不在必填面）——
   // 缺任一项，子目标就不再是「可判定 + 已声明对齐」的对象，退化成一句待办。
   subgoal: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'parent_goal', 'criterion', 'criterion_kind', 'alignment'],
+  // 29 §8：occurred_at 与 summary 必填（serves/disposition 条件出现）。
+  // occurred_at 是「该工作发生的时间」，与 created_at 不同轴（§10.4）——它缺失
+  // 时间线索即失真，故与 summary 同为必填面。
+  devlog: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'occurred_at', 'summary'],
 };
 
 test('field contract is internally consistent for every fact type', () => {
-  assert.deepEqual(FACT_TYPES, ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal']);
+  assert.deepEqual(FACT_TYPES, ['workcase', 'adr', 'pitfall', 'spark', 'research', 'friction', 'norm', 'subgoal', 'devlog']);
 
   for (const type of FACT_TYPES) {
     const contract = FACT_FIELD_CONTRACT[type];

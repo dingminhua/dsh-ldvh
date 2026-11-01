@@ -110,6 +110,15 @@ const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
     'order', 'parent_goal', 'criterion', 'criterion_kind', 'alignment',
     'report_body', 'disposition', 'change_log',
   ],
+  // v5 DevLog（29 号规范）：阅读布局按**阅读次序**消费（occurred_at + created_at
+  // 时间轴 → summary 结论 → 去向 → 背景/做法/实测 → relations → change_log），
+  // 正文 report_body 由布局按 H2 分节呈现——此处只做 ContentField 兜底排序。
+  // 29 §10.4 要求两个时间分开呈现，故 `occurred_at` 与 `created_at` 并列入表，
+  // 不互相替代。29 §11 不采用 refs（条目与工单的连接由工单侧单向声明）。
+  devlog: [
+    'occurred_at', 'created_at', 'summary', 'serves', 'disposition', 'report_body',
+    'change_log', 'relations',
+  ],
   // v5 Spark（20 号规范）：阅读布局按字段契约序消费（question → scope_boundary
   // → intent → summary → 演变 → 终态 disposition），正文 report_body 由布局按
   // H2 分节呈现——此处只做 ContentField 兜底排序。

@@ -586,7 +586,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const project = await requestProject(req)
     const factScope = { worktreeLocator: project.path, governedProjectId: project.id }
 
-    const [workCaseResult, pitfallResult, adrResult, sparkResult, studyResult, frictionResult, normResult, subGoalResult] = await Promise.all([
+    const [workCaseResult, pitfallResult, adrResult, sparkResult, studyResult, frictionResult, normResult, subGoalResult, devLogResult] = await Promise.all([
       listObjects('workcase', undefined, undefined, factScope),
       listObjects('pitfall', undefined, undefined, factScope),
       listObjects('adr', undefined, undefined, factScope),
@@ -599,6 +599,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       listObjects('norm', undefined, undefined, factScope),
       // 28 号 SubGoal 同样是活跃事实类型，有 change_log 流水，进近期动态。
       listObjects('subgoal', undefined, undefined, factScope),
+      // 29 号 DevLog 同例（2026-11-02 接入）：它有 change_log 流水，且
+      // `occurred_at` 与 `created_at` 分离——近期动态取的是 change_log 的 `at`
+      // （写入时刻），这是本页既有口径，不为新类型重算时间轴。
+      listObjects('devlog', undefined, undefined, factScope),
     ])
     const issues: CognitionIssue[] = []
     let sparkHealth: ReturnType<typeof buildSparkHealth> | undefined
@@ -756,6 +760,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       ['friction', frictionResult],
       ['norm', normResult],
       ['subgoal', subGoalResult],
+      ['devlog', devLogResult],
     ]
     for (const [type, source] of recentSources) {
       if (!source.ok || !('data' in source)) {
