@@ -409,3 +409,17 @@ test("默认上限 20000：恰在上限处不截断，超一字符即截断并�
   assert.equal(over.items[0].truncated, true, "超出 20000 时须如实标记 truncated");
   assert.equal(over.truncated, true, "窗口级也须标记，供调用方如实登记");
 });
+
+test("默认上限 20000 不是零损失：超长单轮仍被砍且如实标记（防「等价于全文」的旧结论复发）", () => {
+  // 2026-11-02 重测发现：语料变化后确有单轮超过 20000（实测最大 28048 字），
+  // 上限 20000 下仍损失 0.21%，不是 0。旧结论「与完全删除上限逐字节相同」曾
+  // 同时写在代码注释与 §7.1，两处均已更正；本条用例守住这个事实——
+  // **断言的是「会损失」而不是「不会损失」**，方向与直觉相反，故意如此。
+  const overlong = 28048; // 实测最大单轮（2026-11-02，645 会话 / 1331 轮）
+  const acc = createWindowAccumulator();
+  acc.observe(null, assistantEvent(1, [{ type: "text", text: blockOfLength(overlong) }]));
+  const w = acc.windowFrom(null);
+  assert.equal(w.items[0].assistant.length, 20000, "超过 20000 的单轮只能保留前 20000 字");
+  assert.ok(w.items[0].assistant.length < overlong, "**确实发生了损失**——不得声称上限 20000 等价于全文");
+  assert.equal(w.items[0].truncated, true, "损失必须如实标记，不得静默");
+});
