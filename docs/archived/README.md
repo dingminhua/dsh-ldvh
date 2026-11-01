@@ -9,3 +9,4 @@
 | 文件 | 来源 | 归档原因 |
 |---|---|---|
 | `acceptance-experience-accumulation-2026-10-23.md` | 分支 `acceptance/experience-accumulation`（自 `dev@ee11fc1`），2026-10-26 删除该分支前取出 | 该轮修复的现场证据（1813→1856 例、37 条全 pending 的实测等）；分支的**实现**已被在 `dev` 基线上重做的版本取代，但**证据**不可再生 |
+| `research-hy-memory-2026-10-31.md` | `071` 轮 Hy-Memory 调研的工作区交付件（2026-10-31 生成，2026-11-02 归档） | 其中含**逐条代码行号引用与 17 条外部 URL** 的原始取证记录（如 `models/memory.py:121-129`、`_read_once` 的 `:1110–:3624`、本地 pytest 1448 passed / 7 failed 的原始输出）。这些指向外部仓库具体位置的观测**无法由本仓实现"已被覆盖"来再生**——外部仓库一旦演进，同一行号即不再可回查。其结论已由 `ldvh-base/researches/research-1883e8b4-19ba-4b45-8945-acd21d56af9b.md` 正式承载（该对象为权威） |
