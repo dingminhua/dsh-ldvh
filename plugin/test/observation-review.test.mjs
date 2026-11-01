@@ -1135,3 +1135,312 @@ test("并发两次审核同一批条目 → 不得产生重复 draft（3 条目�
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// 转写入口（11 §10.2 第 5 项、§9 第 2 项「审核层转写」段，2026-11-01 B 方案）
+//
+// 守的是**带隙被补上**：一条「出了错、还没修」的材料被判 discarded 时，材料不该
+// 就此消失——它要搬到摩擦观察缓冲去继续攒阈值。而「该不该转」是语义判断，由提案
+// 中的 `transfer` 承载；机械侧只校验形状与幂等。
+// ---------------------------------------------------------------------------
+
+import {
+  readFrictionObservations,
+} from "../lib/friction-observation-buffer.js";
+
+/** 一条「机制已清楚、只是还没解决」的 discarded 提案。 */
+function transferProposal(entryId, overrides = {}) {
+  return {
+    entry_id: entryId,
+    insufficient: {
+      reason: `材料说清了失败现象「${EVIDENCE_LINE}」，但没有任何修复动作或验证记录——它还没解决，不是没看懂。`,
+    },
+    transfer: {
+      title: "hook 以只读身份写配置必失败",
+      basis: "同一现象反复出现；归因：插件 hook 以只读挂载身份运行；修了会改善。",
+      attribution: "插件 hook 运行身份",
+      impact: "medium",
+      group: "readonly-hook-write-failure",
+    },
+    ...overrides,
+  };
+}
+
+test("转写：discarded 且带 transfer 时，材料落到摩擦观察缓冲，discarded 结算不变", async () => {
+  await withTemp("observation-transfer.", async (root) => {
+    const home = (...segments) => join(root, "dsh-home", ...segments);
+    const factSourceRoot = join(root, "fact-source");
+    const entryId = await appendEntry(home);
+
+    const reviewed = await reviewPendingEntries({
+      dshHomePath: home,
+      factSourceRoot,
+      entryIds: [entryId],
+      proposals: [transferProposal(entryId)],
+      sessionSignature: TEST_SIGNATURE,
+      projectId: FIXTURE_PROJECT_ID,
+    });
+    assert.ok(reviewed.ok, JSON.stringify(reviewed.error));
+
+    // **discarded 的结算不变**：转写不是晋升，它仍然不是 Pitfall 候选。
+    assert.deepEqual(reviewed.value.discarded, [entryId]);
+    assert.equal(reviewed.value.formed, null);
+
+    // 材料搬到了摩擦缓冲，且证据逐字未走样。
+    const friction = await readFrictionObservations(home, FIXTURE_PROJECT_ID);
+    assert.ok(friction.ok, JSON.stringify(friction.error));
+    assert.equal(friction.value.items.length, 1);
+    const item = friction.value.items[0];
+    assert.equal(item.evidence, EVIDENCE);
+    assert.equal(item.group, "readonly-hook-write-failure");
+    assert.equal(item.status, "pending");
+    assert.equal(item.impact, "medium");
+
+    assert.equal(reviewed.value.transferred.length, 1);
+    assert.equal(reviewed.value.transferred[0].entry_id, entryId);
+    assert.deepEqual(reviewed.value.transfer_failed, []);
+  });
+});
+
+test("转写：不给 transfer 就不转——机械侧不代替执行体判「该不该转」", async () => {
+  await withTemp("observation-transfer.", async (root) => {
+    const home = (...segments) => join(root, "dsh-home", ...segments);
+    const factSourceRoot = join(root, "fact-source");
+    const entryId = await appendEntry(home);
+
+    const reviewed = await reviewPendingEntries({
+      dshHomePath: home,
+      factSourceRoot,
+      entryIds: [entryId],
+      proposals: [{
+        entry_id: entryId,
+        insufficient: { reason: `材料里只有 ${EVIDENCE_LINE}，没有失败机制可写。` },
+      }],
+      sessionSignature: TEST_SIGNATURE,
+      projectId: FIXTURE_PROJECT_ID,
+    });
+    assert.ok(reviewed.ok, JSON.stringify(reviewed.error));
+    assert.deepEqual(reviewed.value.discarded, [entryId]);
+    assert.deepEqual(reviewed.value.transferred, []);
+
+    const friction = await readFrictionObservations(home, FIXTURE_PROJECT_ID);
+    assert.ok(friction.ok);
+    assert.equal(friction.value.items.length, 0, "no transfer must be written without an explicit transfer proposal");
+  });
+});
+
+test("转写：transfer 字段不全时计入 transfer_failed，但 discarded 结算不回滚", async () => {
+  await withTemp("observation-transfer.", async (root) => {
+    const home = (...segments) => join(root, "dsh-home", ...segments);
+    const factSourceRoot = join(root, "fact-source");
+    const entryId = await appendEntry(home);
+
+    const bad = transferProposal(entryId);
+    delete bad.transfer.attribution; // 归因是 §18 明写的必填（不得写「暂缺」）。
+
+    const reviewed = await reviewPendingEntries({
+      dshHomePath: home,
+      factSourceRoot,
+      entryIds: [entryId],
+      proposals: [bad],
+      sessionSignature: TEST_SIGNATURE,
+      projectId: FIXTURE_PROJECT_ID,
+    });
+    assert.ok(reviewed.ok, JSON.stringify(reviewed.error));
+
+    // discarded 结算照旧（它确实没成为候选，这是对的）。
+    assert.deepEqual(reviewed.value.discarded, [entryId]);
+    // 但「想转没转成」必须可见——否则又是一处静默（§17）。
+    assert.deepEqual(reviewed.value.transferred, []);
+    assert.equal(reviewed.value.transfer_failed.length, 1);
+    assert.equal(reviewed.value.transfer_failed[0].entry_id, entryId);
+    assert.equal(reviewed.value.transfer_failed[0].code, "friction_transfer/proposal_incomplete");
+
+    const friction = await readFrictionObservations(home, FIXTURE_PROJECT_ID);
+    assert.ok(friction.ok);
+    assert.equal(friction.value.items.length, 0);
+  });
+});
+
+test("转写失败**登记进 §12 待处置队列**——只进本轮返回体则下一拍没人看得见", async () => {
+  // 2026-11-01 审核 F6 用这一例钉住登记载体。转写失败时经验条目**已经**结算成
+  // discarded（结算在前、转写在后），结算不可回滚——材料只剩一条「本该搬到摩擦侧
+  // 却没搬成」的欠账。它必须在**下一次运行仍可见**，而返回体只在当拍有效。
+  await withTemp("observation-transfer.", async (root) => {
+    const home = (...segments) => join(root, "dsh-home", ...segments);
+    const factSourceRoot = join(root, "fact-source");
+    const entryId = await appendEntry(home);
+
+    const bad = transferProposal(entryId);
+    delete bad.transfer.attribution;
+
+    const reviewed = await reviewPendingEntries({
+      dshHomePath: home,
+      factSourceRoot,
+      entryIds: [entryId],
+      proposals: [bad],
+      sessionSignature: TEST_SIGNATURE,
+      projectId: FIXTURE_PROJECT_ID,
+    });
+    assert.ok(reviewed.ok, JSON.stringify(reviewed.error));
+    assert.equal(reviewed.value.transfer_failed.length, 1);
+
+    // 队列里必须有一条，且带残留范围（§8.3 第 2 条：「保留已发生的副作用并如实登记」）。
+    const { readPendingQueue } = await import("../lib/pending-queue.js");
+    const queue = await readPendingQueue(home);
+    assert.ok(queue.ok, JSON.stringify(queue.error));
+    const registered = queue.value.items.filter((item) => item.task === "experience-review");
+    assert.equal(registered.length, 1, "转写失败必须落队列，不得只在返回体里");
+    assert.match(registered[0].reason, /转写未完成/);
+    assert.match(registered[0].reason, /friction_transfer\/proposal_incomplete/);
+    assert.ok(
+      registered[0].residual.some((line) => line.includes(entryId)),
+      "残留范围须点名该条目",
+    );
+    // 返回体里也带出队列登记的 id，使当拍可核。
+    assert.equal(reviewed.value.transfer_failed[0].pending_entry_id, registered[0].entry_id);
+  });
+});
+
+test("fail-closed 出口带出 transferred / transfer_failed 两个键（形状契约）", async () => {
+  // 2026-11-01 审核 F5：`failClosed()` 的 partial 早先只有四个具名键，于是
+  // `stateSnapshot` 里的 transferred / transfer_failed 被整个丢弃，`ldvh-tools.js`
+  // 的 unavailable 分支读到恒为空——一次已经写进摩擦缓冲的转写在失败返回里消失。
+  //
+  // **这一例只钉「键在不在」，不钉「值有没有传过来」——如实声明它的射程**
+  // （2026-11-01 第二轮审核 N4 指出上一版把射程说大了）：
+  // `failClosed` 的三处调用里，只有 `recount-pending` 发生在结算之后；另外两处
+  // （`read-pending`、`buffer_read_incomplete`）都在任何写入之前，transferred 必然为空。
+  // 而 `recount-pending` 的失败条件是「缓冲在运行中途变得不可读」，单线程测试里
+  // 无法在不魔改实现的前提下构造（路径固定、`readBufferEntries` 是静态 import，
+  // 不可注入）。故**「值经 stateSnapshot 展开传入 failClosed」这条链路没有回归守卫**，
+  // 只由 `observation-review.js` 里 `{ stage: "recount-pending", ...stateSnapshot(state, null) }`
+  // 这一行与本例的键形状共同保障。不得据本例主张「F5 已被测试钉住」。
+  //
+  // 本例如实只覆盖：两个键**存在且为数组** —— 它能抓住「键被整个删掉」
+  // （这正是最初缺陷的一半），抓不住「值被置空」。
+  await withTemp("observation-failclosed-", async (root) => {
+    const base = join(root, "dsh-home");
+    await mkdir(base, { recursive: true });
+    // 在 <base>/ldvh 处放普通文件 → 其下路径必 ENOTDIR，读不出来。
+    await writeFile(join(base, "ldvh"), "not a directory\n", "utf8");
+    const home = (...segments) => join(base, ...segments);
+    const result = await reviewPendingEntries({
+      dshHomePath: home,
+      projectId: FIXTURE_PROJECT_ID,
+      factSourceRoot: join(root, "ldvh-base"),
+      existingPitfalls: [],
+      proposals: [],
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error.fail_closed.code, "observation_buffer/unreadable");
+    // **两个键必须在场**——即使是空数组。缺席即「副作用不可见」。
+    assert.ok(Array.isArray(result.error.partial.transferred), "partial.transferred must be present");
+    assert.ok(Array.isArray(result.error.partial.transfer_failed), "partial.transfer_failed must be present");
+  });
+});
+
+test("fail-closed 出口**真的带出**已发生的转写失败——钉值，不只钉键（N4 补）", async () => {
+  // 上一例只钉「键在不在」。本例把它钉死到**值**上，覆盖第二轮审核 N4 指出的空白。
+  //
+  // 构造手法：用一个**会观察调用序列**的 `dshHomePath` joiner——
+  //   · 它先正常返回路径；
+  //   · 一旦被问 `ldvh/pending-queue.jsonl`（这只在 `registerTransferFailure` 里发生，
+  //     即「转写已失败并已登记」这一刻）就**上膛**；
+  //   · 上膛之后任何对 `experience-buffers/<project>.jsonl` 的请求返回 ENOTDIR 路径，
+  //     使 `recount-pending` 的重读失败。
+  // 于是必然走到 `failClosed(..., { stage: "recount-pending", ...stateSnapshot(...) })`
+  // ——那是**唯一一处**在转写已发生之后才 fail-closed 的调用点。若 `failClosed`
+  // 仍把这两个值丢掉，`partial.transfer_failed` 会是空数组，本条断言即红。
+  await withTemp("observation-failclosed-value-", async (root) => {
+    const base = join(root, "dsh-home");
+    await mkdir(base, { recursive: true });
+    // 一个普通文件当「坏目录」：其下任何路径必 ENOTDIR。
+    await writeFile(join(base, "broken"), "not a directory\n", "utf8");
+
+    let armed = false;
+    const home = (...segments) => {
+      const joined = [...segments];
+      if (joined.includes("pending-queue.jsonl")) {
+        armed = true;
+        return join(base, ...joined);
+      }
+      if (armed && joined.includes("experience-buffers")) {
+        return join(base, "broken", ...joined);
+      }
+      return join(base, ...joined);
+    };
+
+    const entryId = await appendEntry(home);
+    // 转写提案缺 attribution → 必然进 transfer_failed（§18 明写的必填）。
+    const bad = transferProposal(entryId);
+    delete bad.transfer.attribution;
+
+    const reviewed = await reviewPendingEntries({
+      dshHomePath: home,
+      factSourceRoot: join(root, "fact-source"),
+      entryIds: [entryId],
+      proposals: [bad],
+      sessionSignature: TEST_SIGNATURE,
+      projectId: FIXTURE_PROJECT_ID,
+    });
+
+    // 前置事实：确实走到了 recount-pending 才失败（不是别的 fail-closed）。
+    assert.equal(reviewed.ok, false);
+    assert.equal(reviewed.error.stage, "recount-pending", `expected recount-pending, got ${reviewed.error.stage}/${reviewed.error.code}`);
+
+    // **值必须传过来**：一条真实的转写失败。
+    const failed = reviewed.error.partial.transfer_failed;
+    assert.equal(failed.length, 1, "transfer_failed 的值不得被 failClosed 丢弃");
+    assert.equal(failed[0].entry_id, entryId);
+    assert.equal(failed[0].code, "friction_transfer/proposal_incomplete");
+    // 已结算的事实同样带出（discarded 早于转写发生）。
+    assert.deepEqual(reviewed.error.partial.discarded, [entryId]);
+    // 队列登记也做了（它在 recount 之前）。
+    assert.ok(typeof failed[0].pending_entry_id === "string", "登记成功时须带出队列 id");
+  });
+});
+
+test("转写：同一证据已由发现层记过时跳过，不重复计数", async () => {
+  await withTemp("observation-transfer.", async (root) => {
+    const home = (...segments) => join(root, "dsh-home", ...segments);
+    const factSourceRoot = join(root, "fact-source");
+    const entryId = await appendEntry(home);
+
+    // 发现层先记过一次（同一条逐字证据）。
+    const { appendFrictionObservation } = await import("../lib/friction-observation-buffer.js");
+    const first = await appendFrictionObservation(home, {
+      project: FIXTURE_PROJECT_ID,
+      session: "sess-2026-03-01-abc",
+      anchor: "turn 14..14",
+      phenomenon: "编辑 config 时插件在 hook 阶段以只读身份写文件而失败。",
+      evidence: EVIDENCE,
+      group: "readonly-hook-write-failure",
+      title: "hook 以只读身份写配置必失败",
+      basis: "发现层记。",
+      attribution: "插件 hook 运行身份",
+      impact: "medium",
+    });
+    assert.ok(first.ok, JSON.stringify(first.error));
+
+    const reviewed = await reviewPendingEntries({
+      dshHomePath: home,
+      factSourceRoot,
+      entryIds: [entryId],
+      proposals: [transferProposal(entryId)],
+      sessionSignature: TEST_SIGNATURE,
+      projectId: FIXTURE_PROJECT_ID,
+    });
+    assert.ok(reviewed.ok, JSON.stringify(reviewed.error));
+
+    assert.equal(reviewed.value.transferred.length, 1);
+    assert.equal(reviewed.value.transferred[0].skipped, "already-recorded");
+    assert.equal(reviewed.value.transferred[0].existing_id, first.value.entry_id);
+
+    const friction = await readFrictionObservations(home, FIXTURE_PROJECT_ID);
+    assert.ok(friction.ok);
+    assert.equal(friction.value.items.length, 1, "the duplicate must not be appended a second time");
+  });
+});
+

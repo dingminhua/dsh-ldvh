@@ -37,6 +37,7 @@ import { reviewPendingEntries, collectExistingPitfalls } from "./observation-rev
 import { currentRouteValuesForSession } from "./session-signature.js";
 import { authoritativeSignature } from "./signature-channel.js";
 import { isUnderArchivedLineage } from "./archived-lineage.js";
+import { FRICTION_OBSERVATION_THRESHOLD_N } from "./friction-observation-buffer.js";
 
 /** 一次派发最多交付多少条 pending 条目（防提示词无界增长）。 */
 export const MAX_ENTRIES_PER_REVIEW_DISPATCH = 12;
@@ -74,7 +75,7 @@ function failure(code, message, extra = {}) {
  * 之外的原文。`evidence` **必须**交付（审核段要据它判「够不够成文」，且 draft 正文
  * 须复制逐字引证——§12bis「证据不留在缓冲」）。
  */
-export function buildReviewPrompt({ entries, existingPitfalls, projectId }) {
+export function buildReviewPrompt({ entries, existingPitfalls, projectId, frictionGroups = [], frictionLedger = [], frictionProjectionGap = null }) {
   const lines = [];
   lines.push("# 经验审核（11 §10.2）");
   lines.push("");
@@ -111,6 +112,59 @@ export function buildReviewPrompt({ entries, existingPitfalls, projectId }) {
       lines.push("");
     }
   }
+  lines.push("## 摩擦侧对照集（转写必用，11 §9 第 1 项 / §10.2 第 5 项）");
+  lines.push("");
+  lines.push("判 `transfer` 时，`group` 要尽量并入既有组（否则同一阻碍会在缓冲里被拆成两条");
+  lines.push("互不相干的记录，永远攒不到阈值）。下面两层投影与经验对照集**同一次机械交付**。");
+  lines.push("");
+  if (frictionProjectionGap !== null) {
+    // **交付面缺口必须让执行体知道**（2026-11-01 审核 N7 修）：否则「投影缺失」与
+    // 「确实没有组」在它那侧外观相同，它会安心新起 group 键——正是要防的形态。
+    lines.push(`> **提示：本次摩擦侧投影不完整**（${frictionProjectionGap}）。下面列出的组与账目`);
+    lines.push("> **可能不是全部**。此时**仍应给出 `transfer`**（材料不该因此消失），但请把");
+    lines.push("> 「投影不完整、group 归属无法比对」如实写进该条的结论理由里。");
+    lines.push("");
+  }
+  lines.push("### 摩擦观察缓冲里已有的组（`group` ｜ 条数 ｜ 状态 ｜ 现象）");
+  lines.push("");
+  lines.push("**这里列的是全部 pending 组，含只有 1~2 条、还没攒够阈值的组。**");
+  lines.push("它们正是最该被并入的对象：同一条阻碍若各起新组，谁也不到阈值，永远不成账。");
+  lines.push("");
+  lines.push("`状态` 三种：`已达阈值`（本轮即可晋升为账目）、`未达阈值`（普通聚合组，");
+  lines.push("并入即可让它接近阈值）、`待补充`（该组的条目都指向同一笔既有账目，不会晋升——");
+  lines.push("若要并入它，须同时给 `transfer.target_uid` 指向那笔账目）。");
+  lines.push("");
+  if (frictionGroups.length === 0) {
+    lines.push("（当前缓冲里没有任何 pending 组）");
+  } else {
+    for (const g of frictionGroups) {
+      const mark = g.kind === "supplement"
+        ? `待补充（目标账目 ${g.target_uid ?? "?"}）`
+        : (g.at_threshold === true ? "已达阈值" : "未达阈值")
+          // 混合组：状态说聚合面向，另注一句待补充面向，避免「2 条聚合／1 条待补充 ｜
+          // 未达阈值」被读成「这三条都不够」。第 16 条。
+          + (g.supplement_count > 0 && g.target_uid !== null
+            ? `（其中 ${g.supplement_count} 条待补充指向 ${g.target_uid}）`
+            : "");
+      // **条数要说得清是哪种条数**（自查 P1）：`pending_count` 只数聚合条目，
+      // 待补充条目另计。混合组直接印一个裸数字会让执行体误读「2 条」的含义。
+      const counts = g.supplement_count > 0
+        ? `${g.pending_count} 条聚合／${g.supplement_count} 条待补充`
+        : `${g.pending_count} 条`;
+      lines.push(`- \`${g.group}\` ｜ ${counts} ｜ ${mark} ｜ ${g.phenomenon}`);
+    }
+  }
+  lines.push("");
+  lines.push("### 既有摩擦账目（`object_uid` ｜ 状态 ｜ 归因 ｜ 归因锚点 ｜ 标题 ｜ 现象）");
+  lines.push("");
+  if (frictionLedger.length === 0) {
+    lines.push("（当前没有任何 open 或 accepted 的摩擦账目）");
+  } else {
+    for (const f of frictionLedger) {
+      lines.push(`- ${f.object_uid} ｜ ${f.status} ｜ ${f.attribution || "（无）"} ｜ ${f.attribution_ref ?? "（无）"} ｜ ${f.title} ｜ ${f.phenomenon || "（无）"}`);
+    }
+  }
+  lines.push("");
   lines.push("## 既有对照集（查重必用，23 §6.2）");
   lines.push("");
   if (existingPitfalls.length === 0) {
@@ -144,6 +198,29 @@ export function buildReviewPrompt({ entries, existingPitfalls, projectId }) {
   lines.push("- `duplicate`：与既有对象重复。须给 `dedupe.duplicate_of`（上面清单里的 object_uid）。");
   lines.push("- `discarded`：不足以成文。须给理由，且理由里**带上该条的引证片段**（可追溯的处置）。");
   lines.push("");
+  lines.push("  **其中一类 `discarded` 还要给出 `transfer`**（11 §10.2 第 5 项，2026-11-01 新增）：");
+  lines.push("  如果这条材料**已能说清「有一个失败发生过」且「它的机制是什么」，唯独写不出「解决」");
+  lines.push("  「验证」两段**（也就是**还没修好，而不是没看懂**），它不该就此消失——请同时给出一个");
+  lines.push("  `transfer` 对象，把材料搬到摩擦观察缓冲去继续攒阈值。字段：");
+  lines.push("");
+  lines.push("  - `title`：≤ 30 字，这笔阻碍的短标题（晋升成账目时用它）；");
+  lines.push("  - `basis`：入账依据段落，回答「为什么这构成系统性阻碍」；");
+  lines.push("  - `attribution`：归因落点——根在哪个子系统／规范／流程；**不得写「暂缺」**；");
+  lines.push("  - `impact`：`light` / `medium` / `heavy`；");
+  lines.push("  - `group`：聚合键。属于上面「摩擦观察缓冲里已有的组」清单里某一组的，**原样填那个 `group`**");
+  lines.push("    （它会并入该组继续计数）；不属于任何一组的，另起一个稳定的 kebab-case 键");
+  lines.push("    （今后同一阻碍的观察都用它）——**优先并入已列出的组**，尤其那些标「未达阈值」的：");
+  lines.push("    同一条阻碍各起新组就永远攒不到阈值，这正是本入口要解决的问题；");
+  lines.push("  - `target_uid`（可选）：若这条复现的是清单里某笔**已存在的 open 账目**，填它的");
+  lines.push("    `object_uid`，则该条走「补充级更新」而不是攒新组。**若并入的是标「待补充」的组，");
+  lines.push("    必须同时给 `target_uid`**（该组的组键就是那笔账目的 uid，只给 `group` 不给");
+  lines.push("    `target_uid` 会落成一条永不晋升的孤立条目）。");
+  lines.push("");
+  lines.push("  **只有「机制已清楚、只是还没解决」才转**。材料连「失败是否真的发生」都不足");
+  lines.push("  （纯噪音、单次卡顿、未收敛的调试过程）**不要转**——那会把噪音塞进摩擦缓冲，");
+  lines.push("  占容量，还可能凑出不该有的账目。**已能写成完整候选的也不要转**（那不是 `discarded`）。");
+  lines.push("  不转时不给 `transfer`，只给理由即可。");
+  lines.push("");
   lines.push("**每一条待审材料都要有一条结论**。缺任何一条，这一轮整体 fail-closed（一条都不落地）；");
   lines.push("不得以省略代替判断。");
   return lines.join("\n");
@@ -165,6 +242,18 @@ export function reviewOutputSchema() {
             scope: { type: "string" },
             body: { type: "string" },
             reason: { type: "string" },
+            transfer: {
+              type: "object",
+              properties: {
+                title: { type: "string" },
+                basis: { type: "string" },
+                attribution: { type: "string" },
+                impact: { type: "string", enum: ["light", "medium", "heavy"] },
+                group: { type: "string" },
+                target_uid: { type: "string" },
+              },
+              required: ["title", "basis", "attribution", "impact", "group"],
+            },
             dedupe: {
               type: "object",
               properties: {
@@ -209,9 +298,17 @@ function normalizeProposals(proposals) {
         }
       : proposal.dedupe;
     if (conclusion === "discarded") {
+      // **`transfer` 必须跟着走**（2026-11-01 B 方案）：它是 `discarded` 之外的**第二件事**
+      // ——把材料搬到摩擦观察缓冲继续攒阈值。`insufficient` 只承载「不成候选」这个判定，
+      // 丢掉 transfer 等于让「出了错、还没修」的材料照旧在 90 天后被删。
+      const transfer = proposal.transfer !== null && typeof proposal.transfer === "object"
+        ? { transfer: proposal.transfer }
+        : {};
       // 已经是 insufficient 形态就原样保留（调用方可能直接给了机械形态）。
-      if (proposal.insufficient !== undefined && proposal.insufficient !== null) return proposal;
-      return { entry_id: proposal.entry_id, insufficient: { reason: proposal.reason ?? "" } };
+      if (proposal.insufficient !== undefined && proposal.insufficient !== null) {
+        return { ...proposal, ...transfer };
+      }
+      return { entry_id: proposal.entry_id, insufficient: { reason: proposal.reason ?? "" }, ...transfer };
     }
     if (conclusion === "formed" || conclusion === "duplicate") {
       return { ...proposal, ...(dedupe === undefined ? {} : { dedupe }) };
@@ -405,6 +502,157 @@ export async function runReviewStage({
     });
   }
 
+  // ── 1ter. 摩擦侧投影（转写要用；2026-11-01 B 方案）─────────────────────
+  //
+  // 审核段判 `transfer` 时必须知道「摩擦缓冲里已有哪些组」「账本里已有哪些 open /
+  // accepted 账目」，否则它给的 `group` 会是新键而不是并入既有组——同一阻碍就在
+  // 缓冲里被拆成两条互不相干的记录，永远攒不到阈值（11 §7.1「审核段执行体的交付面」）。
+  //
+  // **两层投影都只读、只用于 `group` 归属与查重**，不产生对摩擦账本的任何写入。
+  // 取不到时**不阻断**：转写的 `group` 少了参照，最坏结果是新起一组（不是写错账），
+  // 而经验审核本身与摩擦侧无关。故失败如实登记后继续，投影退化为空。
+  let frictionGroups = [];
+  let frictionLedger = [];
+  // **投影不可得要能被看见**（2026-11-01 审核 N7 修）：早先只记 activity 事件（内存
+  // 环形缓冲，重启即失），执行体照常派发并拿到空列表——「交付面缺失」与「确实没有组」
+  // 在它那侧不可区分，于是它会新起 group 键，正是本次要防的形态。故把缺失原因带进
+  // 提示词与返回体两处。
+  // **缺口用数组收集，不用单个字符串**（2026-11-01 第三轮审核第 15 条）：三条读取
+  // 路径（缓冲组 / 账本 / 截断）可能同时出问题，last-wins 会只留最后一条，前面那些
+  // 恰好是更需要被看见的（比如缓冲读失败）。对外仍以 `" | "` 拼成一条字符串返回，
+  // 保持既有消费面不变。
+  const frictionProjectionGaps = [];
+  // 本次账本/缓冲的**读取范围**（交还第 2 项）。与 `frictionProjectionGap` 分开：
+  // 前者是「读到了多少」（总是有值），后者是「哪里没读全」（仅在异常时非 null）——
+  // 二者若合并，正常运行时「读到了多少」就没处放。
+  const frictionProjectionScope = { groups_total: null, open_total: null, all_total: null, ledger_limit_starved: false };
+  try {
+    // **交付全量 pending 组，不是「已达阈值的组」**（2026-11-01 审核 F1 修）。
+    //
+    // 早先交付的是 `readPromotionReadyGroups(...).ready`——那里面只有 `pending_count >= N`
+    // 的组（`friction-observation-buffer.js` 的 ready 过滤）。可转写最该做的事恰恰是
+    // **并入一个还没攒够的组**：转写的整个理由就是「同一阻碍被两条尺子拆开、谁也不
+    // 到阈值」，若只把已达阈值的组给执行体看，它就永远看不见那些 count=1/2 的组，
+    // 只能给新 `group` 键——于是每个转写都新起一组，谁也不再合并，改动主张落空。
+    //
+    // 故读 `loadObservationDedupCandidates` 的 `by_group`（与发现层 §7.1(b) 同源的
+    // 全量 pending 组投影），并另附 `at_threshold` 标记让执行体知道哪些已可晋升。
+    const { loadObservationDedupCandidates } = await import("./friction-discovery.js");
+    const groups = await loadObservationDedupCandidates(dshHomePath, scope.project.id);
+    if (groups.ok) {
+      frictionProjectionScope.groups_total = groups.value.by_group.length;
+      frictionGroups = groups.value.by_group.map((group) => {
+        // **区分「待补充组」与「聚合组」**（自查补，2026-11-01）：`by_group` 把带
+        // `target_uid` 的待补充条目也算成一个组（它的 `group` 键是被命中账目的
+        // `object_uid` 占位）。这类组**永远不会晋升**——审核层按 `target_uid` 走 §9
+        // 第 4 项的补充路径，`readPromotionReadyGroups` 已显式跳过它们。若投影里不
+        // 区分，`at_threshold` 会对它们算出一个错误信号（比如「2 条、未达」），
+        // 而执行体据以并入的将是一个不存在「攒够即成账」语义的键。
+        const supplements = group.entries.filter((entry) => (
+          typeof entry.target_uid === "string" && entry.target_uid.length > 0
+        ));
+        const aggregates = group.entries.filter((entry) => (
+          !(typeof entry.target_uid === "string" && entry.target_uid.length > 0)
+        ));
+        return {
+          group: group.group,
+          // **`pending_count` 与 `at_threshold` 用同一个分母**（2026-11-01 审核 N6 修）：
+          // 早先前者含待补充条目、后者只数聚合条目，混合组会印「5 条｜已达阈值」而
+          // 真实聚合条目数不是 5。现在两者都按聚合条目计。
+          pending_count: aggregates.length,
+          supplement_count: supplements.length,
+          // 该组最近一条的现象——给执行体一个「已有组是讲什么」的可读摘要。
+          phenomenon: group.entries[group.entries.length - 1]?.phenomenon ?? "",
+          // `aggregate` = 按 group 攒阈值的普通组；`supplement` = 全部条目都指向
+          // 同一笔既有账目（不会晋升，只会被补充级更新）。
+          kind: aggregates.length === 0 ? "supplement" : "aggregate",
+          // **混合组也要带出待补充条目的目标账目**（2026-11-01 第三轮审核第 16 条）：
+          // 早先只在「全部是待补充条目」时给 target_uid，混合组则丢掉——执行体看不出
+          // 该组里那些复观指向哪笔账，只能看到状态标记。取最近一条待补充条目的目标。
+          target_uid: supplements.length > 0
+            ? (supplements[supplements.length - 1]?.target_uid ?? null)
+            : null,
+          // 只有聚合组才有「达阈值即可晋升」这个语义。
+          at_threshold: aggregates.length > 0
+            && aggregates.length >= FRICTION_OBSERVATION_THRESHOLD_N,
+        };
+      });
+      // **缓冲侧的不完整要进缺口**（第四轮审核 F4）：`complete=false` 表示有一批该淘汰的
+      // 条目因登记失败仍在缓冲里，`eviction_registration_error` 表示登记写了但回写失败。
+      // 两者都让「下面列出的组」不等于全部，执行体必须知道。
+      if (groups.value.complete === false) {
+        frictionProjectionGaps.push("groups: buffer read reported complete=false");
+      }
+      if (groups.value.eviction_registration_error) {
+        const evictionError = groups.value.eviction_registration_error;
+        frictionProjectionGaps.push(
+          `groups: eviction registration ${evictionError.code ?? "unknown"}`,
+        );
+        activity?.record("review/friction-eviction-unregistered", {
+          layer: "groups",
+          code: evictionError.code ?? "unknown",
+        });
+      }
+    } else {
+      frictionProjectionGaps.push(`groups: ${groups.error?.code ?? "unknown"}`);
+      activity?.record("review/friction-projection-unavailable", { layer: "groups", reason: groups.error?.code ?? "unknown" });
+    }
+    const { listFrictionObjects } = await import("./friction-writer.js");
+    // `includeResolved: false` 即「只取 open」——accepted 也要，故另取一次再合并。
+    // 26 §12：默认候选只含 open；accepted 用于「命中静默」判定，两层都要看得见。
+    const opened = await listFrictionObjects({ factSourceRoot, limit: 200 });
+    const accepted = await listFrictionObjects({ factSourceRoot, includeResolved: true, limit: 200 });
+    // **账本侧读失败与截断都必须报出来**（2026-11-01 审核 N7/N9 修）：失败时静默按
+    // 空账本继续，执行体就会以为「没有任何既有账目」并新起组；截断时它看到的是一份
+    // 不完整的对照集，判「是不是同一笔账」会漏。两者都写进同一个缺口字段。
+    if (!opened.ok || !accepted.ok) {
+      frictionProjectionGaps.push(`ledger: ${(opened.ok ? accepted : opened).error?.code ?? "unknown"}`);
+      activity?.record("review/friction-projection-unavailable", {
+        layer: "ledger",
+        reason: (opened.ok ? accepted : opened).error?.code ?? "unknown",
+      });
+    } else if (opened.value.complete === false || accepted.value.complete === false) {
+      frictionProjectionGaps.push(`ledger: truncated at limit=200 (open=${opened.value.total}, all=${accepted.value.total})`);
+      frictionProjectionScope.ledger_limit_starved = true;
+      activity?.record("review/friction-projection-truncated", {
+        layer: "ledger",
+        open_total: opened.value.total,
+        all_total: accepted.value.total,
+      });
+    }
+    // **账本读取范围是交还第 2 项「读取到的账目范围」的直接来源**（2026-11-01
+    // 第三轮审核第 12 条）：只在提示词里说「可能不是全部」不够——Human 面看不到
+    // 本次究竟读到了多少，就无法判断「未证实范围」有多大。
+    if (opened.ok) frictionProjectionScope.open_total = opened.value.total ?? null;
+    if (accepted.ok) frictionProjectionScope.all_total = accepted.value.total ?? null;
+    const merged = new Map();
+    for (const item of [...(opened.ok ? opened.value.items : []), ...(accepted.ok ? accepted.value.items : [])]) {
+      if (item.status === "open" || item.status === "accepted") merged.set(item.object_uid, item);
+    }
+    frictionLedger = [...merged.values()].map((item) => ({
+      object_uid: item.object_uid,
+      status: item.status,
+      attribution: item.attribution ?? "",
+      // §7.1(b) 的账本侧投影含 `attribution_ref`（26 §6.2 的查重锚是「归因 + 机制
+      // 模式」；缺锚点则按根源查重在机制上不可执行）。转写要判「是不是同一笔账的
+      // 同源复观」，这个锚就是判据面之一（2026-11-01 审核 F1 修）。
+      attribution_ref: item.attribution_ref?.object_uid ?? null,
+      title: item.title ?? "",
+      // **`phenomenon` 也在 §7.1 的交付面里**（2026-11-01 审核 N1 修）：判「同一笔账
+      // 的同源复观」要靠现象句，只给提炼过的标题判不出来。取不到时留空并在提示词
+      // 行里显式打「（无）」，使「该账目没有现象段」与「投影漏了这个字段」可区分。
+      phenomenon: item.phenomenon ?? "",
+    }));
+  } catch (error) {
+    frictionProjectionGaps.push(`threw: ${String(error?.message ?? error)}`);
+    activity?.record("review/friction-projection-threw", { reason: String(error?.message ?? error) });
+  }
+
+  // **多因并列成一条对外字符串**（供提示词与返回体共用，见上面收集处的理由）。
+  const frictionProjectionGap = frictionProjectionGaps.length === 0
+    ? null
+    : frictionProjectionGaps.join(" | ");
+
   // 派发前先看有没有活可干——没有就不派生执行体（省成本，且「空跑」会留下
   // 一条没有任何判断产出的运行记录，读数时反而像出错）。
   const { readBufferEntries } = await import("./observation-buffer.js");
@@ -425,7 +673,17 @@ export async function runReviewStage({
       friction_promoted: promoted,
       friction_supplemented: supplemented,
     });
-    return { ok: true, value: { outcome: "skipped", formed: null, pending: 0, frictionPromotion: frictionPromotion?.value ?? null } };
+    return {
+      ok: true,
+      value: {
+        outcome: "skipped",
+        formed: null,
+        pending: 0,
+        frictionPromotion: frictionPromotion?.value ?? null,
+        friction_projection_gap: frictionProjectionGap,
+        friction_projection_scope: frictionProjectionScope,
+      },
+    };
   }
 
   // ── 2. 挑 provider（零上下文）────────────────────────────────────────
@@ -457,7 +715,18 @@ export async function runReviewStage({
       reason: "the parent session is under the host's archived-session gate (agent/pre-step rejects every step of an archived lineage), so a dispatched executor would be blocked without producing any judgement",
       via: lineage.via,
     });
-    return { ok: true, value: { skipped: true, reason: "archived-lineage", dispatched: false, friction_promoted: 0, friction_supplemented: 0 } };
+    return {
+      ok: true,
+      value: {
+        skipped: true,
+        reason: "archived-lineage",
+        dispatched: false,
+        friction_promoted: 0,
+        friction_supplemented: 0,
+        friction_projection_gap: frictionProjectionGap,
+        friction_projection_scope: frictionProjectionScope,
+      },
+    };
   }
   if (!lineage.checked) {
     // 如实登记「这次没判出来」，但照常派发。
@@ -473,6 +742,9 @@ export async function runReviewStage({
       status: item.status,
     })),
     projectId: scope.project.id,
+    frictionGroups,
+    frictionLedger,
+    frictionProjectionGap,
   });
   const controller = new AbortController();
   // **不指定模型**（2026-10-27 Human 要求：去掉「审核模型」设置）。
@@ -583,11 +855,26 @@ export async function runReviewStage({
     duplicate: value.duplicate,
     duplicates_all: value.duplicates_all,
     discarded: value.discarded,
+    // 转写的两条并行账（11 §10.2 第 5 项，2026-11-01 B 方案）：已转（含幂等跳过）
+    // 与想转没转成。它们都**不影响** discarded 的结算，但都必须可见（§17）。
+    transferred: value.transferred,
+    transfer_failed: value.transfer_failed,
     remaining_pending: value.remaining_pending,
     // 用了哪个模型：事后核对「设置的那个模型到底有没有生效」全靠这一项。
     model: modelApplied,
   });
-  return { ok: true, value };
+  // **投影缺口与读取范围随返回体带出**（2026-11-01 第三轮审核第 12 条）：只在提示词
+  // 里声明缺口是不够的——那次声明只对执行体可见，Human 面看到的是「一切正常」。
+  // 11 §15 的交还第 2 项（读取到的账目范围）与第 4 项（未证实范围）在宿主辅助任务
+  // 里没有别的承载者，故必须搭这条返回体出去。
+  return {
+    ok: true,
+    value: {
+      ...value,
+      friction_projection_gap: frictionProjectionGap,
+      friction_projection_scope: frictionProjectionScope,
+    },
+  };
 }
 
 /**

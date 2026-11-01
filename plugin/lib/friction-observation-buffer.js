@@ -53,14 +53,24 @@
  * 90 天整条移除（落盘）。惰性回写失败不使整次读失败——失败进入 `invalid` 并把
  * `complete` 置 false，读本身仍返回可用结果。
  *
- * **淘汰须登记**（§20.1 第 11 项）：本模块在淘汰 `pending` 条目时，把被淘汰组的
- * `group`／已有条目数／被淘汰条目 id 一并放进返回值的 `evicted_pending`，**调用方**须
- * 据此写待处置队列登记。本模块不自己写队列（那是 §12 的载体，职责分离）。
+ * **淘汰须登记，且登记在淘汰之前**（§20.1 第 11 项、§18 表「摩擦观察条目到期淘汰的
+ * 登记」行）：该行把失败处置定为「**不得淘汰**；该次淘汰无效并如实报告」——即登记
+ * 与淘汰的**先后**是硬要求，登记不成立时淘汰必须整体不发生。这个先后只有把两者放在
+ * 同一处才能保证，故**本模块自己写待处置队列**，不委托调用方。
+ *
+ * **这是一处实现缺陷的修复记录（2026-11-01，如实登记）**：此前本模块把被淘汰条目放进
+ * 返回值的 `evicted_pending` 就结束，注释写「调用方须据此登记」，而**全仓没有任何调用方
+ * 登记过**（`friction-landing.js` 只把它塞进返回值，`experience-review-stage.js` 与
+ * `friction-review-promotion.js` 都不读它）。于是保留期淘汰一直是**静默**的，直接违反
+ * §20.1 第 11 项与 §18 该行。根因是「职责分离」被当成了免责：把义务写进注释、没有
+ * 任何一方真做，等于没有义务。登记挪进本模块后，`evicted_pending` 仍随返回值带出，
+ * 但它的性质从「需要别人处理的待办」变为「已经处理完的事实回执」。
  */
 
 import { readFile, mkdir, appendFile, writeFile, rename } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
+import { appendPendingEntry, readPendingQueue, resolvePendingEntry } from "./pending-queue.js";
 
 /** DSH home 下摩擦观察缓冲的目录（**不在事实源内**，与经验缓冲分开）。 */
 export const FRICTION_OBSERVATION_DIR = Object.freeze(["ldvh", "friction-observations"]);
@@ -207,6 +217,117 @@ function failure(code, message) {
 
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
+ * 淘汰登记的幂等键前缀（2026-11-01 第四轮审核 F1 修）。
+ *
+ * 保留期淘汰是**读时惰性结算**：同一批超期条目在每次读取时都会被重新判定为「该淘汰」。
+ * 若上一次登记写进了队列、而载体回写失败（只读挂载、权限、崩溃窗口），下次读取就会
+ * 再次进入登记——届时队列里那条登记还没被销账，于是同一事实被重复登记、且永远不销账。
+ *
+ * 故登记前先按这个键查未完成项去重。键由「原因类 + 被淘汰条目 id 全集（排序）」构成：
+ * 同一批条目重复判定时键相同，不同批次（哪怕原因相同）键不同。
+ */
+const EVICTION_KEY_PREFIX = "登记键：";
+
+function evictionRegistrationKey(ids, reason) {
+  return `${EVICTION_KEY_PREFIX}${reason}|${[...ids].sort().join(",")}`;
+}
+
+/**
+ * 把一批「即将被淘汰的 `pending` 条目」登记进待处置队列（§20.1 第 11 项 / §18 该行）。
+ *
+ * **必须在淘汰落盘之前调用，且必须整体成功**：§18 的失败处置是「不得淘汰；该次淘汰
+ * 无效并如实报告」。故本函数返回失败时，调用方**不得**继续淘汰——半登记半淘汰会让
+ * 「已淘汰但无登记」这种最坏形态恰好发生在登记失败时。
+ *
+ * 登记粒度是**组**而不是条目：一条被淘汰的观察单独看没有意义，有意义的是一句
+ * 「这一组攒到 N 条就差一步，但它超期了」。同组的多条同时到期时合并成一条登记。
+ *
+ * @param {(...parts: string[]) => string} dshHomePath - DSH home 路径拼接器
+ * @param {Array<{id:string, group:string, pending_count_at_eviction:number, threshold:number}>} evicted
+ * @param {string} reason - 触发原因（保留期到期 / 容量淘汰），写进登记正文
+ * @returns {Promise<{ok:true, value:{registered:string[]}} | {ok:false, error:object}>}
+ */
+async function registerEvictedPending(dshHomePath, evicted, reason) {
+  if (!Array.isArray(evicted) || evicted.length === 0) {
+    return success({ registered: [], reused: [] });
+  }
+
+  // 按组归并：同组多条只登记一次，但要把被淘汰的条目 id 全列出来。
+  const byGroup = new Map();
+  for (const item of evicted) {
+    const key = typeof item.group === "string" && item.group.length > 0 ? item.group : "(无 group)";
+    if (!byGroup.has(key)) byGroup.set(key, { ids: [], count: item.pending_count_at_eviction, threshold: item.threshold });
+    const bucket = byGroup.get(key);
+    bucket.ids.push(item.id);
+    // 同组多条时取**淘汰前**的最大计数（几条同时淘汰时，任一条的 count 都是同一批量）。
+    bucket.count = Math.max(bucket.count, item.pending_count_at_eviction);
+  }
+
+  // **登记前查重（第四轮审核 F1）**：读不到队列就不能确认「这条淘汰事实是否已登记过」，
+  // 也就无法保证不重复登记——按 §18 同一失败处置 fail-closed，拒绝淘汰。
+  const existing = await readPendingQueue(dshHomePath);
+  if (!existing.ok) {
+    return failure(
+      "friction_observation/eviction_unregistered",
+      `refusing to evict: the pending queue cannot be read to check for an existing registration `
+      + `(${existing.error?.code ?? "unknown"}: ${existing.error?.message ?? "unknown"}). `
+      + `§18 该行的失败处置是「不得淘汰」——the eviction was aborted in full, no entry was removed.`,
+    );
+  }
+  const liveKeys = new Map();
+  for (const item of existing.value.items) {
+    for (const line of item.residual) {
+      if (typeof line === "string" && line.startsWith(EVICTION_KEY_PREFIX)) {
+        liveKeys.set(line, item.entry_id);
+      }
+    }
+  }
+
+  const registered = [];
+  const reused = [];
+  for (const [group, bucket] of byGroup) {
+    // **措辞须随实情变化（2026-11-01 自查修正）**：不能一律说「未达阈值即被淘汰」。
+    // 容量淘汰可能只淘汰同组的一部分条目，其余仍在攒——此时「未达阈值」这句是假的；
+    // 而「淘汰前已达阈值」是更严重的情形（该组本可晋升，却先被容量清掉了），
+    // 说明审核层的晋升节奏跟不上写入节奏，必须单独说出来而不是含糊带过。
+    const survivors = Math.max(0, bucket.count - bucket.ids.length);
+    const head = bucket.count >= bucket.threshold
+      ? `组 ${group} 淘汰前已达晋升阈值（${bucket.count}/${bucket.threshold}）却仍未晋升就被淘汰`
+      : `组 ${group} 未达晋升阈值（${bucket.count}/${bucket.threshold}）即被淘汰，距成立为待修账目只差 ${bucket.threshold - bucket.count} 次观察`;
+    const key = evictionRegistrationKey(bucket.ids, reason);
+    if (liveKeys.has(key)) {
+      // 同一条淘汰事实已登记且尚未销账——不重复登记，沿用既有那条（回写失败时它同样要被销账）。
+      reused.push(liveKeys.get(key));
+      continue;
+    }
+    const queued = await appendPendingEntry(dshHomePath, {
+      task: "friction-discovery",
+      reason: `摩擦观察条目的淘汰：${head}（本次${reason}，淘汰 ${bucket.ids.length} 条，剩 ${survivors} 条）`,
+      residual: [
+        head,
+        `被淘汰条目 id：${bucket.ids.join("、")}`,
+        survivors > 0
+          ? `该组仍有 ${survivors} 条 pending 条目在攒，仍可正常晋升；被淘汰的 ${bucket.ids.length} 条不再计入聚合`
+          : "该组已无 pending 条目，聚合归零；若该阻碍再次出现将从 0 重新攒起",
+        "如认为该组仍需跟踪，须由主控或 Human 核查后决定是否以 Human 入口重新入账（26 §10 的 Human 入口不受阈值硬前置约束）",
+        key,
+      ],
+      at: new Date().toISOString(),
+    });
+    if (!queued.ok) {
+      return failure(
+        "friction_observation/eviction_unregistered",
+        `refusing to evict: the §20.1 第 11 项 registration could not be written to the pending queue `
+        + `(${queued.error?.code ?? "unknown"}: ${queued.error?.message ?? "unknown"}). `
+        + `§18 该行的失败处置是「不得淘汰」——the eviction was aborted in full, no entry was removed.`,
+      );
+    }
+    registered.push(queued.value?.entry_id ?? null);
+  }
+  return success({ registered, reused });
 }
 
 /**
@@ -495,8 +616,8 @@ async function rewriteCarrier(dshHomePath, projectId, lines) {
  * 容量整理：在管条目数超过容量时，按 `at` 最旧优先淘汰。
  *
  * 被淘汰的 `pending` 条目**记录其未晋升事实**（§20.1 第 11 项）：其 `group`、该组
- * 当时已有条目数、以及被淘汰条目 id 一并进入返回值的 `evicted_pending`，**由调用方**
- * 写待处置队列登记。本模块不自行写队列（载体职责分离）。
+ * 当时已有条目数、以及被淘汰条目 id 一并进入返回值的 `evicted_pending`。登记**由本模块
+ * 自己写**（见 `registerEvictedPending`），且先于落盘；登记失败时整批淘汰放弃。
  */
 async function enforceCapacity(dshHomePath, projectId, capacity, { excludeId = null, now = new Date() } = {}) {
   const read = await readCarrierRecords(dshHomePath, projectId);
@@ -538,13 +659,46 @@ async function enforceCapacity(dshHomePath, projectId, capacity, { excludeId = n
     });
   }
 
+  // §18「不得淘汰」：登记必须**先于**落盘，且失败即整体放弃。
+  const registered = await registerEvictedPending(dshHomePath, evictedPending, "因容量上限被淘汰");
+  if (!registered.ok) return registered;
+
   const nextLines = lines.map((line, index) => {
     if (!replacements.has(index)) return line;
     return JSON.stringify(replacements.get(index));
   });
   const rewritten = await rewriteCarrier(dshHomePath, projectId, nextLines);
-  if (!rewritten.ok) return rewritten;
-  return success({ evicted_pending: evictedPending });
+  if (!rewritten.ok) {
+    // **登记已写、载体却没改**（第四轮审核 F1 的容量路径同形）：登记描述的是「已淘汰」，
+    // 而条目其实还在——假记录。销账并写明未生效，下一轮可重新登记。
+    const pendingIds = [...(registered.value.registered ?? []), ...(registered.value.reused ?? [])]
+      .filter((value) => typeof value === "string" && value.length > 0);
+    const unresolved = [];
+    for (const registrationId of pendingIds) {
+      const resolved = await resolvePendingEntry(dshHomePath, registrationId, {
+        note: "登记未生效：载体回写失败，被淘汰条目仍在缓冲中，下次写入会重新判定",
+      });
+      if (!resolved.ok && resolved.error?.code !== "pending_queue/already_resolved") {
+        unresolved.push(`${registrationId}: ${resolved.error?.code ?? "unknown"}`);
+      }
+    }
+    return failure(
+      "friction_observation/eviction_writeback_failed",
+      `the §20.1 第 11 项 registration was written but the carrier rewrite failed `
+      + `(${rewritten.error?.code ?? "unknown"}: ${rewritten.error?.message ?? "unknown"}); `
+      + `no entry was evicted, so ${pendingIds.length} registration(s) were resolved with a `
+      + `"did not take effect" note`
+      + (unresolved.length === 0
+        ? ". The observation itself WAS written and is in the carrier — do not write it again."
+        : `; however ${unresolved.length} registration(s) could not be resolved: ${unresolved.join("; ")}. `
+          + "The observation itself WAS written and is in the carrier — do not write it again."),
+    );
+  }
+  return success({
+    evicted_pending: evictedPending,
+    eviction_registrations: registered.value.registered,
+    eviction_registrations_reused: registered.value.reused ?? [],
+  });
 }
 
 /**
@@ -587,7 +741,31 @@ export async function appendFrictionObservation(dshHomePath, entry = {}, options
     excludeId: record.id,
     now: options?.now ?? new Date(),
   });
-  if (!evicted.ok) return evicted;
+  if (!evicted.ok) {
+    // **观察已经落盘了，失败的是淘汰**（2026-11-01 第四轮审核 F2 修）。
+    //
+    // 原实现直接把 `enforceCapacity` 的失败原样返回，而那条错误的文本是
+    // 「the eviction was aborted in full, no entry was removed」——它只说淘汰没做，
+    // 一个字的没提本次观察已经写进载体。调用方据此按 §12 fail-closed 处理，水位不推进，
+    // 同一区间会被重放；而发现层写入路径**没有**转写路径那样的证据幂等闸，
+    // 重放 N−1 次就能把一条真实观察凑到阈值、建出一笔本不该成立的账目。
+    //
+    // 故在这里重写错误：明说「观察已写入（id …），仅淘汰未执行」，让调用方能据
+    // `written: true` 自行决定推进水位或至少不重复写入。
+    return {
+      ok: false,
+      error: {
+        code: evicted.error?.code ?? "friction_observation/eviction_failed",
+        message: `the observation was written (id ${record.id}, group ${record.group}) but the `
+          + `capacity eviction did not run: ${evicted.error?.message ?? "unknown"}. `
+          + `The entry IS in the carrier — do not write it again. §11 水位是否推进由调用方按 `
+          + `§12 决定，但重放会重复计入同一现象。`,
+        written: true,
+        entry_id: record.id,
+        evicted_code: evicted.error?.code ?? "unknown",
+      },
+    };
+  }
 
   // 精确回读（§18「摩擦观察条目的写入合法」行）。
   const readBack = await readCarrierRecords(dshHomePath, projectId);
@@ -624,6 +802,8 @@ export async function appendFrictionObservation(dshHomePath, entry = {}, options
     group_pending_count: sameGroup.length,
     promotion_ready: sameGroup.length >= FRICTION_OBSERVATION_THRESHOLD_N,
     evicted_pending: evicted.value.evicted_pending,
+    // 容量淘汰的登记回执（§20.1 第 11 项）。空数组 = 本次没有条目被淘汰。
+    eviction_registrations: evicted.value.eviction_registrations ?? [],
   });
 }
 
@@ -704,6 +884,29 @@ export async function readFrictionObservations(dshHomePath, projectId, options =
     }
   }
 
+  // §20.1 第 11 项 / §18「不得淘汰」：保留期淘汰 `pending` 条目**必须先登记**。
+  // 登记失败时**整体放弃本次淘汰**（不改写载体），读仍返回未结算视图并把
+  // `complete` 置 false——读者须知道「有一批该淘汰的条目因登记失败而仍在」。
+  let evictionRegistrations = [];
+  let evictionReusedRegistrations = [];
+  let evictionRegistrationFailed = null;
+  if (evictedPending.length > 0) {
+    const registered = await registerEvictedPending(dshHomePath, evictedPending, "因保留期到期被淘汰");
+    if (!registered.ok) {
+      evictionRegistrationFailed = {
+        code: registered.error?.code ?? "friction_observation/eviction_unregistered",
+        message: registered.error?.message ?? "unknown",
+      };
+      // 放弃本次淘汰：撤掉待结算集合，使载体保持原样。
+      settledByIndex.clear();
+      evictedPending.length = 0;
+    } else {
+      evictionRegistrations = registered.value.registered;
+      // 查重命中而沿用的既有登记也要纳入「回写失败时须销账」的集合（第四轮审核 F1）。
+      evictionReusedRegistrations = registered.value.reused ?? [];
+    }
+  }
+
   // 惰性回写：失败不使整次读失败，但 complete 置 false（读者须知道「不完整」）。
   let complete = true;
   if (settledByIndex.size > 0 || removedIndexes.size > 0) {
@@ -719,7 +922,37 @@ export async function readFrictionObservations(dshHomePath, projectId, options =
       nextLines.push(replacement ? JSON.stringify(replacement) : lines[index]);
     }
     const rewritten = await rewriteCarrier(dshHomePath, id, nextLines);
-    if (!rewritten.ok) complete = false;
+    if (!rewritten.ok) {
+      complete = false;
+      // **登记已写、载体却没改**（第四轮审核 F1）：队列里那条「该组已被淘汰」的登记此刻
+      // 描述的是一个**没有发生**的事实，而下一轮读取会再次判定同一批条目该淘汰、再次
+      // 进入登记。若不处置，队列会长期挂着假记录且每次重读都追加一条。
+      //
+      // 处置：把本批登记**销账**并写明「未生效」。销账后下一轮可重新登记（此时是真的
+      // 要淘汰了），既不重复也不失真。销账本身失败必须说出来——否则又变回无痕。
+      const pendingIds = [...evictionRegistrations, ...evictionReusedRegistrations].filter(
+        (value) => typeof value === "string" && value.length > 0,
+      );
+      const unresolved = [];
+      for (const registrationId of pendingIds) {
+        const resolved = await resolvePendingEntry(dshHomePath, registrationId, {
+          note: "登记未生效：载体回写失败，被淘汰条目仍在缓冲中，下次读取会重新判定",
+        });
+        if (!resolved.ok && resolved.error?.code !== "pending_queue/already_resolved") {
+          unresolved.push(`${registrationId}: ${resolved.error?.code ?? "unknown"}`);
+        }
+      }
+      evictionRegistrationFailed = {
+        code: "friction_observation/eviction_writeback_failed",
+        message: `the §20.1 第 11 项 registration was written but the carrier rewrite failed `
+          + `(${rewritten.error?.code ?? "unknown"}: ${rewritten.error?.message ?? "unknown"}); `
+          + `the entries were NOT evicted, so ${pendingIds.length} registration(s) were resolved with a `
+          + `"did not take effect" note`
+          + (unresolved.length === 0
+            ? "."
+            : `; however ${unresolved.length} registration(s) could not be resolved: ${unresolved.join("; ")}`),
+      };
+    }
   }
 
   // 结算后的有效视图（写盘成功与否都按结算后语义返回，避免读者看到过期 pending）。
@@ -752,9 +985,14 @@ export async function readFrictionObservations(dshHomePath, projectId, options =
     live_total: liveTotal,
     capacity: resolvedCapacity.value,
     invalid,
-    complete,
+    // 登记失败也是「不完整」：该淘汰的条目仍在，读者不能据此认为保留期已生效。
+    complete: complete && evictionRegistrationFailed === null,
     carrier,
     evicted_pending: evictedPending,
+    eviction_registrations: evictionRegistrations,
+    // 非空即「本批该淘汰的条目因 §20.1 第 11 项登记失败而未被淘汰」——
+    // 这是一个须被读者看见的失败，不得静默。
+    eviction_registration_error: evictionRegistrationFailed,
   });
 }
 
@@ -763,6 +1001,16 @@ export async function readFrictionObservations(dshHomePath, projectId, options =
  *
  * **只做相等比较**——不判断两个 `group` 是否指向同一阻碍（那是语义判断，
  * §18「阈值晋升」行的可证明范围已声明）。
+ *
+ * **`target_uid` 非空的条目不计入晋升组（2026-11-01 修，潜伏缺陷）**：
+ * 这类条目是 §9 第 4 项的「待补充」观察——它们指向一笔**已存在**的 `open` 账目，
+ * 由审核层按 `target_uid` 走补充路径，不该再参与「攒够 N 条就建一笔新账」的聚合。
+ * 原实现不看该字段，于是同一阻碍的 3 次补充观察会让 `group` 凑满阈值、**另建一笔
+ * 重复账目**（`same-obstacle` 态的 `group` 取被命中账目的 `object_uid` 作占位键，
+ * 那笔账目的 3 次复观正好凑成一组）。
+ *
+ * 该缺陷此前未触发，只是因为存量 `target_uid` 全为 null（扩字段是 2026-10-30 的事，
+ * 且补充成功后条目即被移除，很少累积）。闸门在数据上没被踩到，不等于逻辑成立。
  *
  * @returns {Promise<{ok:true,value:{ready:Array<{group:string,pending_count:number,entries:Array}>}}|{ok:false,error:object}>}
  */
@@ -774,6 +1022,8 @@ export async function readPromotionReadyGroups(dshHomePath, projectId, options =
   if (!read.ok) return read;
   const groups = new Map();
   for (const record of read.value.items) {
+    // 待补充条目走 §9 第 4 项，不参与第 3 项的阈值聚合（见函数头）。
+    if (typeof record.target_uid === "string" && record.target_uid.length > 0) continue;
     if (!groups.has(record.group)) groups.set(record.group, []);
     groups.get(record.group).push(record);
   }

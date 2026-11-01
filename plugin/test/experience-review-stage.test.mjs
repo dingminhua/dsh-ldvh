@@ -682,3 +682,340 @@ test("11 §12ter.1：执行体会话里没有 routing 事件时判缺署名（�
     `须判缺署名：${JSON.stringify(result.value.unsettled)}`,
   );
 });
+
+// ── ⑨ 摩擦侧投影与转写去向（2026-11-01 B 方案）──────────────────────────
+
+test("提示词交付摩擦侧两层投影：待晋升组与既有账目——否则 group 会新起而不是并入", () => {
+  const prompt = buildReviewPrompt({
+    entries: [{
+      id: "entry-1",
+      phenomenon: "现象。",
+      anchor: "turn 3",
+      session: "session-x",
+      candidate_question: "这是什么机制？",
+      evidence: "逐字引证片段",
+    }],
+    existingPitfalls: [],
+    projectId: PROJECT_ID,
+    frictionGroups: [{
+      group: "concurrent-test-temp-dir-interference",
+      pending_count: 2,
+      phenomenon: "并发跑测试出现两条失败。",
+    }],
+    frictionLedger: [{
+      object_uid: "friction-uid-1",
+      status: "open",
+      attribution: "测试夹具",
+      attribution_ref: null,
+      title: "并发测试共享临时端口",
+      // **`phenomenon` 是 §7.1 交付面的必列项**（2026-11-01 审核 N1）：判「同一笔账
+      // 的同源复观」要靠现象句，只给提炼过的标题判不出来。
+      phenomenon: "并发执行回归测试时出现两条失败，单独运行同一测试时全部通过。",
+    }],
+  });
+
+  // 组的聚合键、已攒条数与现象都必须交付——执行体据它决定并入哪一组。
+  assert.match(prompt, /concurrent-test-temp-dir-interference/);
+  assert.match(prompt, /2 条/);
+  // 账目投影：uid 与归因都要，否则 target_uid 与「同源复观」的判据面不存在。
+  assert.match(prompt, /friction-uid-1/);
+  assert.match(prompt, /测试夹具/);
+  // **现象句必须出现在账目行里**（N1）：断言到行，不只断到「提示词含该串」。
+  const ledgerLine = prompt.split("\n").find((line) => line.startsWith("- friction-uid-1"));
+  assert.ok(ledgerLine !== undefined, "账目行必须存在");
+  assert.match(ledgerLine, /并发执行回归测试时出现两条失败/, "账目行须带现象句，否则执行体只能靠标题判同源");
+  // 转写的字段要求必须写进提示词（否则执行体给不出五项，转写恒失败）。
+  for (const field of ["title", "basis", "attribution", "impact", "group"]) {
+    assert.ok(prompt.includes(field), `提示词须列明 transfer 的 ${field}`);
+  }
+  // 「不要转」的反面判据也必须写清——否则噪音会被塞进摩擦缓冲。
+  assert.match(prompt, /不要转/);
+});
+
+test("摩擦侧投影交付**全部** pending 组，含未达阈值的 1~2 条组——那正是要并入的对象", async () => {
+  // 2026-11-01 审核 F1 用这一例钉住交付面。早先交付的是
+  // `readPromotionReadyGroups().ready`，只有 `pending_count >= 3` 的组才在里面，
+  // 于是「只有 1~2 条、还没攒够」的组对执行体**完全不可见**——而转写的整个理由
+  // 就是「同一阻碍被两条尺子拆开、谁也不到阈值」。看不见它们，执行体只能新起
+  // group 键，每个转写都新起一组，提案的核心主张在实现上落空。
+  const base = await mkdtemp(join(tmpdir(), "review-stage-groups-"));
+  await seedBuffer(base, 1);
+
+  // 在摩擦缓冲里铺两组：一组 2 条（未达阈值）、一组 3 条（已达阈值）。
+  const { appendFrictionObservation } = await import("../lib/friction-observation-buffer.js");
+  const home = homeJoiner(base);
+  for (let i = 0; i < 2; i += 1) {
+    const appended = await appendFrictionObservation(home, {
+      project: PROJECT_ID,
+      session: "s-1",
+      anchor: `turn ${i}`,
+      phenomenon: `未达阈值的组第 ${i + 1} 次观察`,
+      evidence: `未达标组引证 ${i}\n来源：turn ${i}`,
+      group: "under-threshold-group",
+      title: "未达阈值组的标题",
+      basis: "未达阈值组的依据",
+      attribution: "测试夹具",
+      impact: "medium",
+    });
+    assert.ok(appended.ok, JSON.stringify(appended.error));
+  }
+  for (let i = 0; i < 3; i += 1) {
+    const appended = await appendFrictionObservation(home, {
+      project: PROJECT_ID,
+      session: "s-2",
+      anchor: `turn ${10 + i}`,
+      phenomenon: `已达阈值的组第 ${i + 1} 次观察`,
+      evidence: `已达标组引证 ${i}\n来源：turn ${10 + i}`,
+      group: "at-threshold-group",
+      title: "已达阈值组的标题",
+      basis: "已达阈值组的依据",
+      attribution: "测试夹具",
+      impact: "medium",
+    });
+    assert.ok(appended.ok, JSON.stringify(appended.error));
+  }
+
+  const subagents = fakeSubagents({
+    proposals: [{
+      entry_id: "entry-0",
+      conclusion: "discarded",
+      reason: "材料只有「来源：session-0 turn 0」，写不出解决与验证两段。",
+    }],
+  });
+  const result = await runReviewStage({
+    subagents,
+    parent: {},
+    scope: governedScope(base),
+    lifecycle: quietLifecycle(),
+    dshHomePath: home,
+  });
+  assert.ok(result.ok, JSON.stringify(result.error));
+
+  const promptText = (subagents.calls[0].request?.prompt ?? [])
+    .map((part) => part?.text ?? "")
+    .join("\n");
+  // **未达阈值组必须出现**——这是本用例的全部意义。
+  assert.match(promptText, /under-threshold-group/, "未达阈值的组也须交付，否则执行体只能新起 group 键");
+  assert.match(promptText, /2 条/);
+  assert.match(promptText, /未达/);
+  // 已达阈值组同样在，且标出可达状态。
+  assert.match(promptText, /at-threshold-group/);
+  assert.match(promptText, /已达/);
+});
+
+test("摩擦侧投影区分**待补充组**与**聚合组**——待补充组不会晋升，误标会引导执行体并入不存在的语义", async () => {
+  // `by_group` 把带 `target_uid` 的待补充条目也归成一组（`group` 是被命中账目的
+  // uid 占位）。这类组**永远不会晋升**（`readPromotionReadyGroups` 已显式跳过），
+  // 若投影对它们算 `at_threshold`，执行体会看到一个「2 条、未达阈值、攒够即可」的
+  // 假信号，而那个键根本没有「攒够即成账」的语义。
+  const base = await mkdtemp(join(tmpdir(), "review-stage-supplement-"));
+  await seedBuffer(base, 1);
+
+  const { appendFrictionObservation } = await import("../lib/friction-observation-buffer.js");
+  const home = homeJoiner(base);
+  const TARGET = "22222222-2222-4222-8222-222222222222";
+  for (let i = 0; i < 2; i += 1) {
+    const appended = await appendFrictionObservation(home, {
+      project: PROJECT_ID,
+      session: "s-3",
+      anchor: `turn ${30 + i}`,
+      phenomenon: `待补充观察第 ${i + 1} 次`,
+      evidence: `待补充引证 ${i}\n来源：turn ${30 + i}`,
+      group: TARGET,
+      target_uid: TARGET,
+      title: "待补充组的标题",
+      basis: "待补充组的依据",
+      attribution: "测试夹具",
+      impact: "medium",
+    });
+    assert.ok(appended.ok, JSON.stringify(appended.error));
+  }
+
+  const subagents = fakeSubagents({
+    proposals: [{
+      entry_id: "entry-0",
+      conclusion: "discarded",
+      reason: "材料只有「来源：session-0 turn 0」，写不出解决与验证两段。",
+    }],
+  });
+  const result = await runReviewStage({
+    subagents,
+    parent: {},
+    scope: governedScope(base),
+    lifecycle: quietLifecycle(),
+    dshHomePath: home,
+  });
+  assert.ok(result.ok, JSON.stringify(result.error));
+
+  const promptText = (subagents.calls[0].request?.prompt ?? [])
+    .map((part) => part?.text ?? "")
+    .join("\n");
+
+  // **断言必须是组行本身**（2026-11-01 审核 N3 修）。
+  //
+  // 早先这三条是空断言：`/待补充/` 命中的是段首的状态图例（那段里就有「待补充」
+  // 一词）、`includes(TARGET)` 命中的是组键自己（该组的 group 键就是 TARGET）、
+  // `doesNotMatch(/未达阈值[^\n]*.../)` 永不匹配（组行印的是第 2 次观察，且
+  // `[^\n]*` 跨不过图例段）。结果是把 `supplements` 恒置空（kind 恒 aggregate）
+  // 的实现变异**照样全绿**——测试钉不住它声称要钉的东西。
+  const groupLine = promptText
+    .split("\n")
+    .find((line) => line.startsWith(`- \`${TARGET}\``));
+  assert.ok(groupLine !== undefined, `待补充组必须出现在组清单里，实际提示词没有该行：${promptText.slice(0, 400)}`);
+  // 聚合条目数为 0、待补充条目 2 条 → 必须标「待补充」并带出目标账目。
+  // 条数须分别标明（自查 P1）：裸数字会让执行体误读「2 条」指哪一类。
+  assert.match(groupLine, /｜ 0 条聚合／2 条待补充 ｜/);
+  assert.match(groupLine, new RegExp(`待补充（目标账目 ${TARGET}）`));
+  // **不能**标成「未达阈值」——那会给执行体一个「攒够即可晋升」的假信号，
+  // 而这个键永远不会晋升（条目走 §9 第 4 项的补充路径）。
+  assert.doesNotMatch(groupLine, /未达阈值/);
+  assert.doesNotMatch(groupLine, /已达阈值/);
+});
+
+test("账本侧投影真的带出 phenomenon——从 `listFrictionObjects` 到提示词的全链路", async () => {
+  // 上一例直接调 `buildReviewPrompt`，绕过了投影映射（`item.phenomenon` 那一行），
+  // 故把映射改成恒空也**照样绿**（2026-11-01 自查复核发现）。本例走 `runReviewStage`
+  // 全链路：磁盘上真建一笔账目 → `listFrictionObjects` 投影 → 提示词，
+  // 任何一环丢字段都会红。
+  const base = await mkdtemp(join(tmpdir(), "review-stage-ledger-"));
+  await seedBuffer(base, 1);
+
+  const { createFrictionObject } = await import("../lib/friction-writer.js");
+  const { testSignature } = await import("./helpers.mjs");
+  const created = await createFrictionObject({
+    factSourceRoot: join(base, "ldvh-base"),
+    frontmatterDraft: {
+      title: "并发测试共享临时端口",
+      phenomenon: "并发执行回归测试时出现两条失败，单独运行同一测试时全部通过。",
+      impact: "medium",
+      occurrence: { count: 3, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" },
+      attribution: "测试夹具",
+      change_summary: "测试：账本侧投影",
+    },
+    bodyMarkdown: "## 现象\n并发执行回归测试时出现两条失败，单独运行同一测试时全部通过。\n\n## 入账依据\n重复出现；修了会改善。",
+    sessionSignature: testSignature(),
+  });
+  assert.ok(created.ok, JSON.stringify(created.error));
+
+  const subagents = fakeSubagents({
+    proposals: [{
+      entry_id: "entry-0",
+      conclusion: "discarded",
+      reason: "材料只有「来源：session-0 turn 0」，写不出解决与验证两段。",
+    }],
+  });
+  const result = await runReviewStage({
+    subagents,
+    parent: {},
+    scope: governedScope(base),
+    lifecycle: quietLifecycle(),
+    dshHomePath: homeJoiner(base),
+  });
+  assert.ok(result.ok, JSON.stringify(result.error));
+
+  const promptText = (subagents.calls[0].request?.prompt ?? [])
+    .map((part) => part?.text ?? "")
+    .join("\n");
+  const ledgerLine = promptText
+    .split("\n")
+    .find((line) => line.startsWith(`- ${created.value.object_uid}`));
+  assert.ok(ledgerLine !== undefined, "账目行必须存在");
+  assert.match(
+    ledgerLine,
+    /并发执行回归测试时出现两条失败/,
+    "账目行须带 phenomenon 句——§7.1 明列它，否则执行体只能靠标题判同源复观",
+  );
+});
+
+test("投影不可得时**在提示词里如实声明缺口**——否则「缺失」与「确实没有」外观相同", async () => {
+  // 2026-11-01 审核 N7：投影读取失败早先只记 activity 事件（内存环形缓冲、重启即失），
+  // 执行体照常派发、拿到空组列表。它无法区分「缓冲里真的没有组」与「投影没拿到」，
+  // 于是安心新起 group 键——正是 F1 要防的形态。
+  //
+  // 构造：把 `ldvh/experience-buffers` 换成普通文件，使 `loadObservationDedupCandidates`
+  // 读缓冲时 ENOTDIR。
+  const base = await mkdtemp(join(tmpdir(), "review-stage-gap-"));
+  await seedBuffer(base, 1);
+  const home = homeJoiner(base);
+  // 先把待审条目取出来（feed 之后缓冲已不可读，改用已读到的快照驱动提示词不现实），
+  // 故改在「缓冲可读、账本不可读」上构造：把 ldvh-base 换成一个普通文件。
+  await writeFile(join(base, "ldvh-base"), "not a directory\n", "utf8");
+
+  const subagents = fakeSubagents({
+    proposals: [{
+      entry_id: "entry-0",
+      conclusion: "discarded",
+      reason: "材料只有「来源：session-0 turn 0」，写不出解决与验证两段。",
+    }],
+  });
+  const result = await runReviewStage({
+    subagents,
+    parent: {},
+    scope: governedScope(base),
+    lifecycle: quietLifecycle(),
+    dshHomePath: home,
+  });
+  assert.ok(result.ok, JSON.stringify(result.error));
+
+  const promptText = (subagents.calls[0].request?.prompt ?? [])
+    .map((part) => part?.text ?? "")
+    .join("\n");
+  // 缺口声明必须出现在提示词里，并指出去向（仍要给 transfer，但把不确定写进理由）。
+  assert.match(promptText, /本次摩擦侧投影不完整/);
+  assert.match(promptText, /可能不是全部/);
+
+  // **返回体也必须带出缺口**（2026-11-01 第三轮审核第 12 条）：只在提示词里说
+  // 「可能不是全部」不够——那次声明只对执行体可见，Human 读到的是「一切正常」。
+  // 11 §15 的交还第 2 项（读取到的账目范围）与第 4 项（未证实范围）没有别的承载者。
+  assert.ok(
+    typeof result.value.friction_projection_gap === "string",
+    "投影缺口必须随返回体带出，否则 Human 面不可见",
+  );
+  assert.match(result.value.friction_projection_gap, /ledger/);
+  // 读取范围也要有值——它是「读到了多少」 vs 「哪里没读全」的另一半。
+  assert.ok(
+    result.value.friction_projection_scope !== null
+    && typeof result.value.friction_projection_scope === "object",
+    "账本读取范围必须随返回体带出（交还第 2 项）",
+  );
+});
+
+test("转写：执行体的 discarded 提案带 transfer 时，机械侧把它带进落盘", async () => {
+  const base = await mkdtemp(join(tmpdir(), "review-stage-transfer-"));
+  await seedBuffer(base, 1);
+  // `seedBuffer` 不返回值：条目 id 由它按下标固定为 `entry-<index>`（见其定义）。
+  const entry = {
+    id: "entry-0",
+    evidence: "逐字引证 0\n来源：session-0 turn 0",
+  };
+  const subagents = fakeSubagents({
+    proposals: [{
+      entry_id: entry.id,
+      conclusion: "discarded",
+      // 弃置理由须与 evidence 有 ≥8 字逐字交集（§10.2 第 5 项：处置可追溯）。
+      // 弃置理由须与 evidence 有 ≥8 字逐字交集（§10.2 第 5 项：处置可追溯）。
+      reason: "材料只有「来源：session-0 turn 0」，写不出解决与验证两段。",
+      transfer: {
+        title: "并发测试共享临时端口",
+        basis: "同一现象反复出现；归因：夹具共用固定端口。",
+        attribution: "测试夹具",
+        impact: "medium",
+        group: "concurrent-test-temp-dir-interference",
+      },
+    }],
+  });
+  const result = await runReviewStage({
+    subagents,
+    parent: {},
+    scope: governedScope(base),
+    lifecycle: quietLifecycle(),
+    dshHomePath: homeJoiner(base),
+  });
+  assert.ok(result.ok, JSON.stringify(result.error));
+  assert.deepEqual(result.value.discarded, [entry.id]);
+  // **转写发生了**：这是「出了错、还没修」的材料不再消失的机械凭据。
+  assert.equal(result.value.transferred.length, 1);
+  assert.equal(result.value.transferred[0].entry_id, entry.id);
+  assert.equal(result.value.transferred[0].group, "concurrent-test-temp-dir-interference");
+  assert.deepEqual(result.value.transfer_failed, []);
+});

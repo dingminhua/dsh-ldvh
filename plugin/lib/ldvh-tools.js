@@ -1346,12 +1346,34 @@ function makeExecute(deps) {
           formed: partial.formed ?? null,
           duplicate: partial.duplicate ?? null,
           discarded: partial.discarded ?? [],
+          transferred: partial.transferred ?? [],
+          transfer_failed: partial.transfer_failed ?? [],
           remaining_pending: partial.remaining_pending ?? null,
           fail_closed: reviewed.error?.fail_closed ?? { code: reviewed.error?.code ?? null, message: reviewed.error?.message ?? null, stage: reviewed.error?.stage ?? null }
         },
-        scope: { requested: entryId ?? "next", completed: [], not_completed: ["review-pass"] },
+        // **已发生的转写在失败分支同样要进 scope 与 gaps**（2026-11-01 第三轮审核第 13 条）：
+        // 早先该分支一律 `completed: []`，于是「转写成功了一条、随后 recount 失败」时
+        // 那条已落地的摩擦缓冲条目在 Human 面完全无痕。其余 unavailable 分支保持
+        // `completed: []` 是因为它们都发生在任何写入之前——本分支不同，它是唯一
+        // **在副作用之后**才失败的分支。
+        scope: {
+          requested: entryId ?? "next",
+          completed: (partial.transferred ?? []).length > 0 ? ["friction-transfer"] : [],
+          not_completed: [
+            "review-pass",
+            ...((partial.transfer_failed ?? []).length > 0 ? ["friction-transfer"] : []),
+          ],
+        },
         sources: sources({ kind: "observation-buffer", path: bufferRelativePath(governed.project.id).join("/"), fingerprint: null }),
-        gaps: [`${reviewed.error?.code ?? "observation_review/failed"}: ${reviewed.error?.message ?? "unknown"}`],
+        gaps: [
+          `${reviewed.error?.code ?? "observation_review/failed"}: ${reviewed.error?.message ?? "unknown"}`,
+          ...((partial.transferred ?? []).length > 0
+            ? [`${partial.transferred.length} transfer(s) already landed in the friction observation buffer before this failure; they are NOT rolled back (11 §10.2 item 5)`]
+            : []),
+          ...((partial.transfer_failed ?? []).length > 0
+            ? [`${partial.transfer_failed.length} transfer(s) failed and were registered in the §12 pending queue`]
+            : []),
+        ],
         verification: { checks: ["review-pass"], passed: false },
         follow_up: ["resolve the reported fail-closed condition, then retry; the settlement already made is reported above and must not be treated as success"]
       });
@@ -1365,16 +1387,56 @@ function makeExecute(deps) {
         duplicate: value.duplicate,
         duplicates_all: Array.isArray(value.duplicates_all) ? value.duplicates_all : (value.duplicate === null ? [] : [value.duplicate]),
         discarded: value.discarded,
+        transferred: value.transferred ?? [],
+        transfer_failed: value.transfer_failed ?? [],
         remaining_pending: value.remaining_pending,
         fail_closed: value.fail_closed
       },
-      scope: { requested: entryId ?? "next", completed: ["read-pending", "judge-every-entry", "dedup", "candidate-formation", "read-back", "settle"], not_completed: [] },
+      scope: {
+        requested: entryId ?? "next",
+        completed: [
+          "read-pending", "judge-every-entry", "dedup", "candidate-formation", "read-back", "settle",
+          // 转写是结算之后的独立一步：成功进 completed，失败进 not_completed，
+          // **两步必居其一**（§18 的「转写条目的合法性」是机械校验，它跑过就要记账）。
+          ...(Array.isArray(value.transferred) && value.transferred.length > 0 ? ["friction-transfer"] : []),
+        ],
+        not_completed: Array.isArray(value.transfer_failed) && value.transfer_failed.length > 0
+          ? ["friction-transfer"]
+          : [],
+      },
       sources: [
         ...sources({ kind: "observation-buffer", path: bufferRelativePath(governed.project.id).join("/"), fingerprint: null }),
         ...formedAll.map((item) => sources({ kind: "pitfall-draft", path: item.file ?? item.object_uid, fingerprint: null })[0])
       ],
-      gaps: [],
-      verification: { checks: ["buffer-read", "judgement-completeness", "dedup-record", "evidence-copy", "read-back", "settle"], passed: true },
+      // **投影缺口与账本读取范围进 gaps**（2026-11-01 第三轮审核第 12 条）：
+      // 只在提示词里对执行体说「可能不是全部」不够——Human 读的是这条返回体。
+      gaps: [
+        ...(value.friction_projection_gap === null || value.friction_projection_gap === undefined
+          ? []
+          : [`friction projection incomplete: ${value.friction_projection_gap} (11 §7.1 — the review executor saw a possibly partial friction-side projection; group attribution and dedup were judged against it)`]),
+        ...(value.friction_projection_scope?.ledger_limit_starved === true
+          ? [`friction ledger truncated at limit=200 (open=${value.friction_projection_scope.open_total ?? "?"}, all=${value.friction_projection_scope.all_total ?? "?"}); entries beyond the limit were not in the review's comparison set (11 §15 交还第 2 项)`]
+          : []),
+        ...(Array.isArray(value.transfer_failed) && value.transfer_failed.length > 0
+          ? [`${value.transfer_failed.length} transfer(s) failed and were registered in the §12 pending queue: ${value.transfer_failed.map((item) => item.code).join(", ")}`]
+          : []),
+      ],
+      // **§18 的「转写条目的合法性」是机械校验，跑过就要在 checks 里有位**
+      // （2026-11-01 审核 N8 修）：只有本轮真发生了转写（成功或失败）才列该项——
+      // 没转写时列为空与「校验未执行」是两件事，不该混。失败时 passed 为 false：
+      // 那是真的有一条没转成，§17 要求它可见。
+      verification: {
+        checks: [
+          "buffer-read", "judgement-completeness", "dedup-record", "evidence-copy", "read-back", "settle",
+          ...(
+            (Array.isArray(value.transferred) && value.transferred.length > 0)
+            || (Array.isArray(value.transfer_failed) && value.transfer_failed.length > 0)
+              ? ["friction-transfer-legality"]
+              : []
+          ),
+        ],
+        passed: !(Array.isArray(value.transfer_failed) && value.transfer_failed.length > 0),
+      },
       follow_up: formedAll.length > 0
         ? ["draft → active requires the 23 §16 Human Gate with another party's reproduction (11 §10.2); this pass does not and cannot promote it"]
         : (value.remaining_pending > 0
@@ -1792,7 +1854,7 @@ function parameterSchemaFor(operationKey) {
           entry_id: { type: "string", description: "Review this pending buffer entry first (§12ter.1); omit to process in buffer order" },
           proposals: {
             type: "array",
-            description: "Structured review conclusions, one per reviewed entry: entry_id plus either insufficient:{reason} or dedupe:{checked,compared,conclusion,duplicate_of} with title/scope/body. Content input, not a policy parameter. Every entry handed to this call MUST carry a conclusion (11 §10.2, 2026-10-27: no per-run output quota — a missing judgement fails the whole pass closed with zero writes), and proposals cannot reorder entries or skip a step.",
+            description: "Structured review conclusions, one per reviewed entry: entry_id plus either insufficient:{reason} (optionally + transfer:{title,basis,attribution,impact,group,target_uid} to carry an unresolved failure into the friction observation buffer) or dedupe:{checked,compared,conclusion,duplicate_of} with title/scope/body. Content input, not a policy parameter. Every entry handed to this call MUST carry a conclusion (11 §10.2, 2026-10-27: no per-run output quota — a missing judgement fails the whole pass closed with zero writes), and proposals cannot reorder entries or skip a step.",
             items: { type: "object", additionalProperties: true }
           }
         },
