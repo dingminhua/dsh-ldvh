@@ -129,6 +129,29 @@ test('subgoal 有列表卡与详情阅读布局，且二者都按锚点定位', 
   assert.match(detail, /SubGoalReadingLayout/, '详情页应 import SubGoalReadingLayout');
 });
 
+test('正文是字段的展开，不得与字段各渲染一次（否则整段重复）', () => {
+  const layouts = read('src/pages/object-detail/FactReadingLayouts.tsx');
+
+  // 28 §8 不变量 1 要求字段逐字出现在正文对应段——于是正文段永远以字段原文开头。
+  // 若布局把字段与正文段各渲染一次，同一段话在页面上出现两遍（实测已发生）。
+  // 正确形态同 27 号 NormReadingLayout：只渲染正文分节，字段仅在正文缺失时回落。
+  const subGoalLayout = layouts.slice(
+    layouts.indexOf('export function SubGoalReadingLayout'),
+    layouts.indexOf('function SubGoalTerminalReadingNode'),
+  );
+  assert.ok(subGoalLayout.length > 0, '应能定位 SubGoalReadingLayout 源码段');
+
+  // 正文分节优先：两个正文段标题都要作为条件分支出现。
+  assert.match(subGoalLayout, /sectionOf\('达成条件'\)/, '达成条件须按正文分节渲染');
+  assert.match(subGoalLayout, /sectionOf\('对齐说明'\)/, '对齐说明须按正文分节渲染');
+
+  // 字段回落只能出现在正文缺失分支里，不得作为另一个独立段落并列渲染。
+  const criterionFieldUses = (subGoalLayout.match(/value=\{criterion\}/g) ?? []).length;
+  const alignmentFieldUses = (subGoalLayout.match(/value=\{alignment\}/g) ?? []).length;
+  assert.ok(criterionFieldUses <= 1, `criterion 字段最多渲染一次（当前 ${criterionFieldUses} 处）`);
+  assert.ok(alignmentFieldUses <= 1, `alignment 字段最多渲染一次（当前 ${alignmentFieldUses} 处）`);
+});
+
 test('名下工作为空时标注「未声明或未拆解」的歧义，绝不折算为进度（28 §8.1）', () => {
   const layouts = read('src/pages/object-detail/FactReadingLayouts.tsx');
   const locales = read('src/i18n/locales.ts');

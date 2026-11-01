@@ -987,24 +987,41 @@ export function SubGoalReadingLayout({
         )}
       </section>
 
-      <AdrProseNode
-        title={getFieldLabel('subgoal_criterion', locale)}
-        value={criterion}
-        locale={locale}
-      />
-      <AdrProseNode
-        title={getFieldLabel('subgoal_alignment', locale)}
-        value={alignment}
-        locale={locale}
-      />
+      {/* 正文两块是 frontmatter 的**展开**（28 §8 不变量 1：字段必须逐字出现在
+          正文对应段），所以正文段永远以字段原文开头、再补判定材料与理由。
 
-      {/* 正文展开：frontmatter 是唯一权威文本，正文只展开（28 §8 不变量 1）。 */}
-      {sectionOf('达成条件') && (
-        <AdrProseNode title={t('objectDetail.subGoalCriterionDetail')} value={sectionOf('达成条件')} locale={locale} />
-      )}
-      {sectionOf('对齐说明') && (
-        <AdrProseNode title={t('objectDetail.subGoalAlignmentDetail')} value={sectionOf('对齐说明')} locale={locale} />
-      )}
+          因此**不能**把字段与正文段各渲染一次——那会让同一段话在页面上出现两遍
+          （实测：SG-1 的达成条件与对齐说明整段重复）。惯例同 27 号 NormReadingLayout：
+          只渲染正文分节，字段是机器权威、不单独上屏。
+
+          正文缺失时才回落显示字段——那是载体不合规的形态，字段仍是唯一权威文本，
+          不能因为正文没写就让读者看不到判据。 */}
+      {sectionOf('达成条件') ? (
+        <AdrProseNode
+          title={getFieldLabel('subgoal_criterion', locale)}
+          value={sectionOf('达成条件')}
+          locale={locale}
+        />
+      ) : criterion ? (
+        <AdrProseNode
+          title={getFieldLabel('subgoal_criterion', locale)}
+          value={criterion}
+          locale={locale}
+        />
+      ) : null}
+      {sectionOf('对齐说明') ? (
+        <AdrProseNode
+          title={getFieldLabel('subgoal_alignment', locale)}
+          value={sectionOf('对齐说明')}
+          locale={locale}
+        />
+      ) : alignment ? (
+        <AdrProseNode
+          title={getFieldLabel('subgoal_alignment', locale)}
+          value={alignment}
+          locale={locale}
+        />
+      ) : null}
 
       <ReadingNodeSection
         title={t('objectDetail.subGoalServingWork')}
