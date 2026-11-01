@@ -16,6 +16,7 @@ import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
 import FrictionImpactBadge from '@/components/FrictionImpactBadge';
 import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
+import SubGoalOrderBadge from '@/components/SubGoalOrderBadge';
 import { hasUnavailableIndependentSubagentReview } from '@/shared/workcaseCapability';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
@@ -664,6 +665,17 @@ export function ObjectIdentityHeader({
             {/* 26 §8 occurrence：与列表卡卡头、聚焦页**同位置同序**（类型 → 优先级 →
                 影响 → 重复观察 → 修改次数）——经同一个共享组件渲染，三处不得各自手写。 */}
             {objectType === 'friction' && <FrictionOccurrenceBadge value={source.occurrence} />}
+            {/* 28 §8 `order`（显示次序）：与列表卡头**同一枚组件、同一位置**——Human
+                2026-11-02「详细页面里也要有顺序的那个 icon」。
+
+                为什么必须在这里补：`order` 此前只住在阅读面顶部的锚点块里，而那个块
+                本轮已收窄为「判法」一项（Human 同一句「这个地方只保留判法即可」）。
+                次序若不同时上移到身份头，这个字段就在详情面上彻底消失了——它不是装饰，
+                28 §8 把它列为可调整的显示次序，读者要在详情里确认「这条排第几」。
+
+                经 `SubGoalOrderBadge` 渲染而非手写 chip：卡头与详情头两处若各写一份，
+                缺失态（`·` + tooltip）与样式规格会分叉。 */}
+            {objectType === 'subgoal' && <SubGoalOrderBadge value={source.order} />}
             {extraBadges}
             {showActivityCount && (
               <span

@@ -76,9 +76,13 @@ const DECISION_SHELL_SEGMENTS: Array<[string, string[]]> = [
   // workcase 的，左侧的线条不要加粗」）：子目标卡面改用 `WORKCASE_SURFACE_GEOMETRY_CLASS`
   // 的四边同宽形态，左色条既撤，该壳就不再属于本家族。故此处不再登记
   // `DECISION_CARD_SHELL_CLASS.lime`——登记一个已不存在的壳会让本守卫永远取不到声明行。
-  // 详情面壳与标题色相**保留登记**：子目标详情锚点块仍在用，本次定案不涉及其作用域。
+  //
+  // **同日稍晚，`DECISION_DETAIL_LIME_SHELL_CLASS` 也删除**（Human 定案「这个地方只
+  // 保留判法即可」）：子目标详情面顶部那个黄绿锚点块整体撤除，它失去最后一个消费方。
+  // 至此子目标在**卡面与详情面都不使用左色条**，先前的「卡面跟判据面板、详情面留
+  // 类型锚点」分岔已收敛。标题色相 `lime` 仍登记——DevLog 时间轴节点用它作标题色，
+  // 那是色相而不是壳。
   ['DECISION_DETAIL_NEUTRAL_SHELL_CLASS', ['border-ldvh-border/80', 'bg-ldvh-bg/65', 'px-3.5 py-3']],
-  ['DECISION_DETAIL_LIME_SHELL_CLASS', ['border-ldvh-border/80', 'bg-ldvh-bg/65', 'px-3.5 py-3']],
 ];
 
 /** 壳的四边 border：须有裸 `border` 类（不被 `border-l-`/`border-r-` 等单边类冒充）。 */
@@ -222,11 +226,13 @@ test('border-l-* 只允许语义左条两族：领域归属决策块与项目识
     // amber / violet 两个卡面壳 + 两个详情面壳（neutral / lime），各两段
     //（`border-l-2` 定粗度 + `border-l-{色相}` 定色）= 4 × 2 = 8。
     //
-    // **2026-11-02 由 10 降至 8**：子目标**卡面**壳 `DECISION_CARD_SHELL_CLASS.lime`
-    // 已删除（Human 定案「左侧的线条不要加粗」→ 改用判据面四边同宽形态），其 2 段随之
-    // 消失。`DECISION_DETAIL_LIME_SHELL_CLASS`（详情面）仍在用，故不是 6。处数下调是
-    // 收紧而非放宽：卡面上再出现任何左粗线都会立刻越过 8。
-    ['utils/decisionBlocks.ts', 8],
+    // **2026-11-02 由 10 → 8 → 6（两轮）**：
+    // ① 子目标**卡面**壳 `DECISION_CARD_SHELL_CLASS.lime` 删除（Human 定案「左侧的
+    //    线条不要加粗」→ 改用判据面四边同宽形态），10 → 8；
+    // ② 子目标**详情面**壳 `DECISION_DETAIL_LIME_SHELL_CLASS` 删除（Human 定案「这个
+    //    地方只保留判法即可」→ 锚点块整体撤除），8 → 6。
+    // 每次下调都是**收紧而非放宽**：这两处若复活左粗线，处数会立刻越过 6。
+    ['utils/decisionBlocks.ts', 6],
     ['components/ProjectSwitcher.tsx', 1], // 项目行色条（色值走 inline style，无左色相类）
     ['pages/Federation.tsx', 1], // 项目卡色条（同上）
   ]);

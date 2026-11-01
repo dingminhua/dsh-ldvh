@@ -307,6 +307,7 @@ test('serves 不参与 Web 呈现：解析组件与筛选组件都已撤除', ()
 test('order 取代 anchor：呈现面不得再读 anchor 字段', () => {
   const objectList = read('src/pages/ObjectList.tsx');
   const layouts = read('src/pages/object-detail/FactReadingLayouts.tsx');
+  const detail = read('src/pages/ObjectDetail.tsx');
   const model = read('src/pages/object-detail/model.ts');
   const api = read('src/utils/api.ts');
   const contract = read('api/services/factFieldContract.ts');
@@ -316,7 +317,14 @@ test('order 取代 anchor：呈现面不得再读 anchor 字段', () => {
   assert.doesNotMatch(objectList, /obj\.anchor/, '列表卡不得再读 anchor');
   assert.doesNotMatch(layouts, /obj\.anchor/, '详情阅读布局不得再读 anchor');
   assert.match(objectList, /obj\.order/, '列表卡应读 order');
-  assert.match(layouts, /obj\.order/, '详情阅读布局应读 order');
+  // **2026-11-02（Human 定案）**：`order` 在详情页由**身份头**呈现，不在阅读布局里。
+  // 断言随之改指 `ObjectDetail.tsx`——Human 那句「详细页面里也要有顺序的那个 icon」
+  // 要的是与列表卡卡头同一枚 chip，而阅读布局顶部的锚点块已被定案收窄为「只保留判法」。
+  // 若继续断言布局读 order，守卫就会逼着一处与定案相反的呈现复活。
+  assert.match(detail, /objectType === 'subgoal' && <SubGoalOrderBadge value=\{source\.order\} \/>/,
+    '详情身份头应经同一枚 SubGoalOrderBadge 读 order');
+  assert.doesNotMatch(layouts, /obj\.order/,
+    '阅读布局不得再读 order（次序在身份头，只留一处呈现）');
   assert.match(api, /order\?: number;/, 'ObjectItem 应声明 order');
   assert.doesNotMatch(api, /\n {2}anchor\?: string;/, 'ObjectItem 不得再声明 anchor');
   assert.match(model, /subgoal: \[\s*\n\s*'order'/, 'subgoal 字段序应以 order 起头');
@@ -403,4 +411,60 @@ test('次序呈现在卡头，与其余卡头 chip 同规格（Human 定案 2026
   // 且**不得补隐式编号**——`·` 不是 0、不是上一条 +1。
   assert.match(badge, /Number\.isInteger\(value\) && value > 0/, '闭集外取值按缺失处置');
   assert.match(badge, /'·'/, '缺失渲染为占位符而非隐藏');
+});
+
+test('详情身份头有次序 icon，阅读面只留判法（Human 定案 2026-11-02）', () => {
+  const detail = read('src/pages/ObjectDetail.tsx');
+  const layouts = read('src/pages/object-detail/FactReadingLayouts.tsx');
+  const model = read('src/pages/object-detail/model.ts');
+  const badge = read('src/components/SubGoalOrderBadge.tsx');
+
+  // Human：「详细页面里也要有顺序的那个 icon」——详情身份头必须挂**同一枚**组件，
+  // 不是另写一枚 chip（两处各写一份，缺失态与样式规格会分叉）。
+  assert.match(detail, /import SubGoalOrderBadge from '@\/components\/SubGoalOrderBadge'/,
+    '详情页应引用共享的次序 chip');
+  assert.match(detail, /objectType === 'subgoal' && <SubGoalOrderBadge value=\{source\.order\} \/>/,
+    '详情身份头应挂次序 chip');
+  // 位置与列表卡卡头同序：类型 → 优先级 → 次序 → 修改次数。两端都靠这段邻接
+  // 断言「次序在修改次数之前」，否则把次序挪到状态徽标旁不会被任何守卫看见。
+  const head = detail.slice(
+    detail.indexOf('<PriorityIcon source={source}'),
+    detail.indexOf('title={t(\'cognition.recent.activityCount\''),
+  );
+  assert.ok(head.length > 0, '应能定位详情身份头的 chip 区');
+  assert.match(head, /SubGoalOrderBadge/, '次序 chip 应在修改次数之前');
+
+  // 阅读面顶部那块「次序 / 判据类型 / 服务目标 / 判法」的锚点块整体撤除。
+  const layout = layouts.slice(
+    layouts.indexOf('export function SubGoalReadingLayout'),
+    layouts.indexOf('function SubGoalTerminalReadingNode'),
+  );
+  assert.ok(layout.length > 0, '应能定位 SubGoalReadingLayout 源码段');
+  assert.doesNotMatch(layout, /DECISION_DETAIL_LIME_SHELL_CLASS/,
+    '阅读面不得再用黄绿详情锚点块（该块已撤）');
+  assert.doesNotMatch(layout, /obj\.order/, '阅读面不得再读 order');
+  assert.doesNotMatch(layout, /obj\.parent_goal/, '阅读面不得再读 parent_goal（已改由元信息行呈现）');
+
+  // 「这个地方只保留判法即可，样式和达成条件一样，放到名下工作上面」：
+  assert.match(layout, /title=\{getFieldLabel\('subgoal_kind_hint'/,
+    '判法须自成阅读节点，标题取「判法」词条');
+  // 样式与达成条件一样：两者都经 AdrProseNode 渲染（ReadingNodeSection + 正文 markdown）。
+  assert.match(layout, /<AdrProseNode[\s\S]{0,200}?value=\{kindHint\}/,
+    '判法须与达成条件同一正文节点承载（样式一致）');
+  // 位置在「名下的工作」**之前**。
+  const hintIndex = layout.indexOf('value={kindHint}');
+  const servingIndex = layout.indexOf("t('objectDetail.subGoalServingWork')");
+  assert.ok(hintIndex > 0 && servingIndex > 0, '判法节点与名下工作区都应存在');
+  assert.ok(hintIndex < servingIndex, '判法须排在名下的工作之前');
+
+  // 判据类型的**词**不上屏：闭集名只留在词表里（供筛选/校验），不再有一枚 chip。
+  assert.doesNotMatch(layout, /getFieldValueLabel\('criterion_kind'/,
+    '阅读面不得再把判据类型的词拼上屏');
+  assert.doesNotMatch(layout, /kindLabel/, '判据类型的 chip 已撤');
+
+  // 归属事实不丢：`parent_goal` 改由身份头辅助元信息呈现（该表同时把它从兜底
+  // 字段区排除——不登记就会以「parent_goal: project-goal」的裸字段冒出来）。
+  assert.match(model, /subgoal: \['parent_goal'\]/, 'parent_goal 须登记为辅助元信息');
+  // 共享 chip 仍是单一来源（两处消费不得各自手写）。
+  assert.match(badge, /<ListOrdered size=\{12\}/, '次序 chip 图标规格不变');
 });

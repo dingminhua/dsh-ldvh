@@ -542,9 +542,17 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   // 可选 `order` 承担（§7，2026-11-01 废止 SG-n），criterion/criterion_kind/
   // alignment 是本类型存在的理由（§8）。
   subgoal_order: { zh: '次序', en: 'Order' },
-  subgoal_parent_goal: { zh: '服务目标', en: 'Parent Goal' },
+  // 裸键而非 subgoal_parent_goal：该字段经**身份头辅助元信息**呈现，而那张表按
+  // frontmatter 键名取标签（`getFieldLabel(key, locale, objectType)`）。写成
+  // subgoal_ 前缀时它命不中，标签会退化成 `parent goal`（下划线换成空格）——
+  // 2026-11-02 实拍正是如此。没有其它类型用 parent_goal，故裸键不会歧义。
+  parent_goal: { zh: '服务目标', en: 'Parent Goal' },
   subgoal_criterion: { zh: '达成条件', en: 'Criterion' },
   subgoal_criterion_kind: { zh: '判据类型', en: 'Criterion Kind' },
+  // Human 2026-11-02：「这个地方只保留判法即可」——详情面不再显示判据类型的
+  // **词**，只显示它的判法。判法自成一个阅读节点，标题即「判法」，故上面三条
+  // 判法说明文案不再自带「判法：」前缀（否则同一行出现两次同名）。
+  subgoal_kind_hint: { zh: '判法', en: 'How it is judged' },
   subgoal_alignment: { zh: '对齐说明', en: 'Alignment' },
   subgoal_disposition: { zh: '作废去向', en: 'Disposition' },
   // v5 DevLog（29 号 §8）阅读节点与卡片标题。occurred_at 与 created_at 必须
@@ -1039,15 +1047,18 @@ export const UI_LOCALES = {
     'objectList.devlogConclusionMissing': '当前结论缺失——29 §8 要求 summary 非空且逐字出现在「结论与边界」段',
     'objectList.devlogOccurredLabel': '发生时间——这件工作是什么时候做的（29 §10.4；与条目形成时间 created_at 是两回事）',
     'objectList.devlogOccurredAbsent': '发生时间缺失——29 §8 把它列为必填字段，缺失即载体不合规',
-    'objectDetail.subGoalOrderAbsent': '未定次序（28 §8：order 可缺失，缺省排在有序者之后，不补隐式编号）',
+    // `objectDetail.subGoalOrderAbsent` 已删除（2026-11-02 晚）：它唯一的消费方是
+    // 子目标详情面顶部那个锚点块，该块已随「只保留判法」整体撤除。缺失态文案改由
+    // `objectList.subGoalOrderAbsent` 承担——卡头与身份头用的是同一枚
+    // `SubGoalOrderBadge`，本来就不该有第二份。留着两个同名键，改一处就会漏另一处。
     'objectDetail.subGoalCriterionDetail': '达成条件（展开）',
     'objectDetail.subGoalAlignmentDetail': '对齐说明（展开）',
     'objectDetail.subGoalServingWork': '名下的工作',
     'objectDetail.subGoalServingEmpty': '未声明或未拆解——名下没有任何 serves 指向本条子目标。这两种情形在机械层不可区分：可能真的还没拆解，也可能拆解了但下游没写 serves（28 §8.1）。这不是进度 0%。',
     'objectDetail.subGoalServingUnreadable': '以下类型读不到，不能当作「名下没有工作」',
-    'objectDetail.subGoalKindHint.metric': '判法：存在一个可回读的数值，与阈值比较即知是否达成',
-    'objectDetail.subGoalKindHint.closure-records': '判法：需要若干条可回指的记录同时在场，缺一条即未达成',
-    'objectDetail.subGoalKindHint.executable-check': '判法：跑一次命令或脚本，按退出码或输出判定',
+    'objectDetail.subGoalKindHint.metric': '存在一个可回读的数值，与阈值比较即知是否达成',
+    'objectDetail.subGoalKindHint.closure-records': '需要若干条可回指的记录同时在场，缺一条即未达成',
+    'objectDetail.subGoalKindHint.executable-check': '跑一次命令或脚本，按退出码或输出判定',
     'goalDetail.missingTitle': '项目目标尚未创建',
     'goalDetail.missingBody': 'goal.md 不存在——Goal 事实对象尚未创建（项目初始化前的合法状态）。创建走 AI 受控写入路径，Web 是纯呈现层。',
     'nav.changes': '变更',
@@ -1876,15 +1887,14 @@ export const UI_LOCALES = {
     'objectList.devlogConclusionMissing': 'Current conclusion missing — 29 §8 requires a non-empty `summary` appearing verbatim in the "Conclusion & Boundary" section',
     'objectList.devlogOccurredLabel': 'Occurred at — when the work was actually done (29 §10.4; distinct from the record formation time `created_at`)',
     'objectList.devlogOccurredAbsent': 'Occurred-at missing — 29 §8 lists this field as required; its absence means the carrier is non-conforming',
-    'objectDetail.subGoalOrderAbsent': 'No order (28 §8: `order` may be absent; an unordered sub-goal sorts after ordered ones and is never given an implicit number)',
     'objectDetail.subGoalCriterionDetail': 'Criterion (expanded)',
     'objectDetail.subGoalAlignmentDetail': 'Alignment (expanded)',
     'objectDetail.subGoalServingWork': 'Work serving this sub-goal',
     'objectDetail.subGoalServingEmpty': 'Not declared or not decomposed — no serves points at this sub-goal. These two cases are indistinguishable mechanically: it may genuinely not be decomposed yet, or it may be decomposed with no downstream serves declared (28 §8.1). This is not "0% progress".',
     'objectDetail.subGoalServingUnreadable': 'Unreadable types — must not be read as "no work serving it"',
-    'objectDetail.subGoalKindHint.metric': 'How it is judged: a readable numeric value compared against a threshold',
-    'objectDetail.subGoalKindHint.closure-records': 'How it is judged: several traceable records must all be present; one missing means not achieved',
-    'objectDetail.subGoalKindHint.executable-check': 'How it is judged: run a command or script and read its exit code or output',
+    'objectDetail.subGoalKindHint.metric': 'A readable numeric value compared against a threshold',
+    'objectDetail.subGoalKindHint.closure-records': 'Several traceable records must all be present; one missing means not achieved',
+    'objectDetail.subGoalKindHint.executable-check': 'Run a command or script and read its exit code or output',
     'goalDetail.missingTitle': 'The project goal has not been created yet',
     'goalDetail.missingBody': 'goal.md does not exist — the Goal fact object has not been created (a legal state before project initialization). Creation goes through the AI controlled-write path; the Web is a pure presentation layer.',
     'nav.changes': 'Changes',

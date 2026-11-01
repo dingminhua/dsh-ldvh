@@ -21,7 +21,7 @@ import {
   type ReadingNodeState,
 } from '@/pages/ObjectDetail';
 import { LDVH_SUCCESS_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
-import { DECISION_DETAIL_LIME_SHELL_CLASS, DECISION_DETAIL_NEUTRAL_SHELL_CLASS, DECISION_TITLE_HUE_CLASS, DECISION_VIOLET_CODE_CHIP_HUE_CLASS } from '@/utils/decisionBlocks';
+import { DECISION_DETAIL_NEUTRAL_SHELL_CLASS, DECISION_TITLE_HUE_CLASS, DECISION_VIOLET_CODE_CHIP_HUE_CLASS } from '@/utils/decisionBlocks';
 
 /**
  * `scope` / `summary` 的**书写结构**问题就地显示（`21 §8`）。
@@ -896,10 +896,18 @@ function parseSubGoalBodySections(body: string): Array<{ title: string; body: st
  * v5 SubGoal 阅读布局（28 号 §8/§10/§12）。
  *
  * 三段结构，次序就是读者要回答的三个问题：
- *   ① 这是哪一条子目标（显示次序 + 短标题 + 判据类型）
- *   ② 走到哪算达成、凭什么判（criterion 全文 + criterion_kind 的判法说明）
- *   ③ 它凭什么属于这个项目目标（alignment）
+ *   ① 走到哪算达成（`criterion` 全文，正文段优先、字段兜底）
+ *   ② 凭什么判（`criterion_kind` 对应的判法说明——Human 2026-11-02「只保留判法即可」）
+ *   ③ 它凭什么属于这个项目目标（`alignment`）
  * 之后是名下的工作（由 `serves` 反查派生）与修订史。
+ *
+ * **次序与判据类型不再住这一屏的顶部锚点块**（Human 定案 2026-11-02）：
+ * - `order` 移到**身份头**（与列表卡卡头同一枚 `SubGoalOrderBadge`）——它是跨条比较的
+ *   扫读要素，与「优先级」同级（见 §4sexies）；
+ * - `criterion_kind` 的**词**（「闭环记录」等）退出呈现，只留它的**判法说明**，且这条
+ *   说明用与「达成条件」相同的正文节点承载、紧挨在达成条件之后、排在名下的工作之前。
+ *   理由：读者要的是「这条怎么判」，不是「它属于哪个分类」——把闭集名摆在最上面，
+ *   读者先看到的是一个分类标签，而答案在下面那行说明里。
  *
  * **名下的工作不是「进度」**：0 条不等于 0%，它是「未声明或未拆解」，这两种
  * 情形机械层不可区分（28 §8.1），故空集时显式标注歧义而不是画一个 0。
@@ -917,13 +925,14 @@ export function SubGoalReadingLayout({
 
   // 显示次序不是身份（28 §7）：身份是 object_uid，读者在这一屏不需要看到它——
   // 它在 URL 里、在引用里、在任何需要精确定位的地方，而不是阅读面。
-  // `order` 缺失是合法状态（可缺失、可不唯一、可不连续），缺失时如实标注「未定次序」，
-  // 不补一个隐式编号——那会让读者以为它是连续的。
-  const order = typeof obj.order === 'number' ? obj.order : null;
+  // `order` 不再在本屏消费：它已移到身份头（`ObjectDetail` 的 ObjectIdentityHeader，
+   // 经同一枚 `SubGoalOrderBadge`）。此处不留一个「读了不用」的变量——留着会让后来者
+   // 以为这一屏仍在呈现次序，改动两处之一就够。
   const criterionKind = typeof obj.criterion_kind === 'string' ? obj.criterion_kind.trim() : '';
   const criterion = typeof obj.criterion === 'string' ? obj.criterion.trim() : '';
   const alignment = typeof obj.alignment === 'string' ? obj.alignment.trim() : '';
-  const parentGoal = typeof obj.parent_goal === 'string' ? obj.parent_goal.trim() : '';
+  // `parent_goal` 不再在本屏消费：它已登记为身份头辅助元信息
+  // （`AUXILIARY_META_KEYS_BY_TYPE.subgoal`）。同上，不留「读了不用」的变量。
 
   const bodySections = parseSubGoalBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
   const sectionOf = (title: string) => bodySections.find((section) => section.title === title)?.body ?? '';
@@ -946,11 +955,9 @@ export function SubGoalReadingLayout({
     ? obj.serving_unreadable.filter((entry): entry is string => typeof entry === 'string')
     : [];
 
-  const kindLabel = criterionKind
-    ? getFieldValueLabel('criterion_kind', criterionKind, locale) || criterionKind
-    : '';
-  // 判据类型不是装饰标签：它告诉读者这条判据要用什么材料才能判定。闭集外的
-  // 值不猜含义，直接如实显示原值（28 §18 红线：不以类推定替代）。
+  // 判法说明：`criterion_kind` 的**词**不上屏（Human 2026-11-02「只保留判法即可」），
+  // 只留它对应的判法。闭集外的值没有判法可给——不猜含义、不用分类名冒充说明
+  // （28 §18 红线：不以类推定替代），此时整节点不渲染。
   // 显式三分支而非模板串：`t()` 的键是字面量联合类型，模板串会让拼错的键
   // 逃过类型检查、在运行时静默显示原始 key。
   const kindHint = criterionKind === 'metric'
@@ -963,33 +970,13 @@ export function SubGoalReadingLayout({
 
   return (
     <div className="mb-6 flex flex-col gap-5">
-      <section className={DECISION_DETAIL_LIME_SHELL_CLASS}>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <h3 className={`ldvh-card-decision-title min-w-0 ${DECISION_TITLE_HUE_CLASS.lime}`}>
-            {getFieldLabel('subgoal_order', locale)}
-          </h3>
-          <span className={`ldvh-chip-sm min-w-0 shrink-0 ${LDVH_SUCCESS_CHIP_HUE_CLASS}`}>
-            {order !== null ? String(order) : t('objectDetail.subGoalOrderAbsent')}
-          </span>
-          {kindLabel && (
-            <span
-              className="ldvh-chip-sm min-w-0 shrink-0 border-ldvh-border bg-transparent text-ldvh-text-secondary"
-              title={kindHint || undefined}
-            >
-              {kindLabel}
-            </span>
-          )}
-        </div>
-        {/* 上游：这条子目标服务的项目目标键。悬空时如实标注，不替读者猜一个目标。 */}
-        {parentGoal && (
-          <p className="ldvh-meta mt-2 text-ldvh-text-secondary/80">
-            {getFieldLabel('subgoal_parent_goal', locale)}：<code className="ldvh-chip-sm">{parentGoal}</code>
-          </p>
-        )}
-        {kindHint && (
-          <p className="ldvh-meta mt-1 text-ldvh-text-secondary/70">{kindHint}</p>
-        )}
-      </section>
+      {/* 顶部锚点块已撤（Human 定案 2026-11-02「只保留判法即可」）。它此前同时装着
+          次序、判据类型的词、服务目标与判法四样东西，而其中只有判法回答了读者打开
+          这一屏的问题：这条怎么判。其余三样各有归属——
+            · 次序 → 身份头（与列表卡卡头同一枚 SubGoalOrderBadge，见 §4sexies）；
+            · 判据类型的词 → 不上屏，只留它的判法（分类名不是答案，答案在判法里）；
+            · 服务目标 → 身份头辅助元信息（`AUXILIARY_META_KEYS_BY_TYPE.subgoal`），
+              它是「这条属于哪个目标」的归属事实，不是阅读叙事的一段。 */}
 
       {/* 正文两块是 frontmatter 的**展开**（28 §8 不变量 1：字段必须逐字出现在
           正文对应段），所以正文段永远以字段原文开头、再补判定材料与理由。
@@ -1026,6 +1013,24 @@ export function SubGoalReadingLayout({
           locale={locale}
         />
       ) : null}
+
+      {/* 判法：`criterion_kind` 的判法说明，用与「达成条件」同一个正文节点渲染
+          （Human 2026-11-02「只保留判法即可，样式和达成条件一样，放到名下工作上面」）。
+
+          位置在名下的工作**正上方**而不是紧跟达成条件：它回答的是「这些工作按什么
+          算齐了」，与紧接着要列出的名下工作同属一个判断动作——读者读完判法，下一眼
+          就是「那条判法对着哪些工作看」。夹在达成条件与对齐说明之间则会把「凭什么归属
+          这个目标」推到判法之后，打断归属叙事的连贯。
+
+          闭集外的 `criterion_kind` 没有判法可给：不渲染本节点，也不退而显示分类名
+          （28 §18 红线：不以类推定替代）。不合法本身由字段问题区如实报出。 */}
+      {kindHint && (
+        <AdrProseNode
+          title={getFieldLabel('subgoal_kind_hint', locale)}
+          value={kindHint}
+          locale={locale}
+        />
+      )}
 
       <ReadingNodeSection
         title={t('objectDetail.subGoalServingWork')}

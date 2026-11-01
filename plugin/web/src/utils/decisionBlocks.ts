@@ -5,8 +5,7 @@
  * - Pitfall 决策字段块（琥珀·卡面）——ObjectList
  * - Friction 现象块（琥珀·卡面）——ObjectList
  * - Norm 方向键块（紫·卡面 truncate / 详情面 break-all）——ObjectList + FactReadingLayouts
- * - SubGoal 锚点块（黄绿·**仅详情面**）——FactReadingLayouts
- *   （2026-11 加入；**卡面已于 2026-11-02 退出本家族**，见 `DECISION_CARD_SHELL_CLASS` 注）
+ * - ~~SubGoal 锚点块（黄绿·仅详情面）~~ ——**2026-11-02 整体退出本家族**（见下）
  *
  * 刻意不并入的左色条远亲（透明度与语义不同，属「状态通知」子族）：
  * - CognitionCenter 模块不可用红通知（border-red-400/25 + bg-red-500/5 + px-2.5 py-2）
@@ -16,11 +15,15 @@
  * Human 定案（specs/10:298）的关系：该定案作用域为判据面板，决策块保留左条强调。
  * 是否统一由 Human 裁决，收敛时不动视觉。
  *
- * **2026-11-02 更新：子目标卡面已并入判据面板那一侧**（Human 定案「样式对齐
- * workcase 的，左侧的线条不要加粗」）——它改用 `WORKCASE_SURFACE_GEOMETRY_CLASS`
- * 的四边同宽形态，故退出本家族。本家族现在只覆盖**卡面 amber/violet** 与
- * **详情面 neutral/lime** 四条壳；「决策块是否整体并入判据面板」这一争议对其余
- * 四条仍未裁决，本文件的立场仍是「收敛时不动视觉」。
+ * **2026-11-02 更新（两轮，子目标整体退出）**：
+ * ① 卡面并入判据面板那一侧（Human 定案「样式对齐 workcase 的，左侧的线条不要
+ *    加粗」）——改用 `WORKCASE_SURFACE_GEOMETRY_CLASS` 的四边同宽形态；
+ * ② 详情面顶部锚点块撤除（Human 定案「这个地方只保留判法即可」）——次序移到身份头，
+ *    判据类型的词不上屏，只留判法，且判法改用与「达成条件」同一个正文节点。
+ * 两轮之后**子目标在卡面与详情面都不再使用左色条**。
+ *
+ * 本家族现在只覆盖**卡面 amber/violet** 与**详情面 neutral** 三条壳；「决策块是否
+ * 整体并入判据面板」这一争议对其余三条仍未裁决，本文件的立场仍是「收敛时不动视觉」。
  */
 
 /**
@@ -41,10 +44,9 @@
  * 「对齐 WorkCase」——四边同宽 1px、无左粗线、无染色底，直接复用
  * `WORKCASE_SURFACE_GEOMETRY_CLASS`。左色条一旦撤掉，这枚壳就不再属于本家族
  * （本家族的定义特征正是左色条），留着它只是一个没人消费的死常量，故整条删除。
- * **`DECISION_TITLE_HUE_CLASS.lime` 保留**：子目标**详情面**锚点块仍在用，
- * 该处不在本次定案范围内。子目标因此成为「卡面不用左色条、详情面仍用」的唯一
- * 类型——这是分岔而非漂移：卡面是扫读窗口，跟着判据面板的既定形态走；详情面是
- * 阅读面，保留类型色锚点。
+ * **`DECISION_TITLE_HUE_CLASS.lime` 仍保留**：子目标**详情面**的时间轴式锚点已撤，
+ * 但 `DevLogReadingLayout` 的时间轴节点用 `lime` 作标题色相（那是 29 号在其量轴
+ * 上的独立用法，与左色条家族无关）。故色相原子保留、壳删除——色相不是壳的附属品。
  */
 export const DECISION_CARD_SHELL_CLASS: Record<'amber' | 'violet', string> = {
   amber: 'min-w-0 rounded-md border border-amber-400/20 border-l-2 border-l-amber-400/70 bg-amber-500/[0.025] px-3.5 py-3',
@@ -54,10 +56,6 @@ export const DECISION_CARD_SHELL_CLASS: Record<'amber' | 'violet', string> = {
 /** 详情面壳（Norm 方向键）：中性壳 + 类型色左条——详情面不整面染色（卡/详情面分岔，与 specs/10:300 密度分岔同源）。 */
 export const DECISION_DETAIL_NEUTRAL_SHELL_CLASS =
   'min-w-0 rounded-md border border-ldvh-border/80 border-l-2 border-l-violet-400/70 bg-ldvh-bg/65 px-3.5 py-3';
-
-/** 详情面壳（SubGoal 锚点）：中性壳 + 黄绿左条——同上分岔纪律，只换类型色。 */
-export const DECISION_DETAIL_LIME_SHELL_CLASS =
-  'min-w-0 rounded-md border border-ldvh-border/80 border-l-2 border-l-lime-400/70 bg-ldvh-bg/65 px-3.5 py-3';
 
 /** 标题色相（使用处补 ldvh-card-decision-title 与布局位如 min-w-0）。 */
 export const DECISION_TITLE_HUE_CLASS: Record<'amber' | 'violet' | 'lime', string> = {
