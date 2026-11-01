@@ -354,7 +354,9 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   research_question: { zh: '研究问题', en: 'Research Question' },
   research_purpose: { zh: '调研目的', en: 'Research Purpose' },
   // 20 §8：Spark 悬置问题字段——question（单句待答）/scope_boundary（何时停止）/
-  // serves（goal.md 子目标锚点）/current_understanding（summary 正文节的展示名）。
+  // current_understanding（summary 正文节的展示名）。`serves` 在此保留标签只为
+  // 字段语义登记（28 §12.3：它的值是 SubGoal 的 object_uid，不是 SG-n）；
+  // 它已无呈现面（2026-11-01 撤除），不再有组件读本条目。
   question: { zh: '调查问题', en: 'Question' },
   scope_boundary: { zh: '调查边界', en: 'Investigation Boundary' },
   serves: { zh: '服务子目标', en: 'Serves Sub-goal' },
@@ -1287,7 +1289,6 @@ export const UI_LOCALES = {
     'objectList.lifecycleFilter': '生命周期',
     'objectList.progressGroupFilter': '进展分组',
     'objectList.priorityFilter': '优先级',
-    'objectList.servesSgFilter': '服务子目标',
     'objectList.sort': '排序',
     'objectList.sortUpdatedDesc': '最后更新 ↓',
     'objectList.sortCreatedDesc': '创建时间 ↓',
@@ -2109,7 +2110,6 @@ export const UI_LOCALES = {
     'objectList.lifecycleFilter': 'Lifecycle',
     'objectList.progressGroupFilter': 'Progress group',
     'objectList.priorityFilter': 'Priority',
-    'objectList.servesSgFilter': 'Serves sub-goal',
     'objectList.sort': 'Sort',
     'objectList.sortUpdatedDesc': 'Last updated ↓',
     'objectList.sortCreatedDesc': 'Created ↓',

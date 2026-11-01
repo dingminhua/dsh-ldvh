@@ -38,8 +38,18 @@ export const META_KEYS = [
 
 export const COMMON_AUXILIARY_META_KEYS = ['priority'];
 export const AUXILIARY_META_KEYS_BY_TYPE: Record<string, string[]> = {
-  // 20 §8：serves（SG-n 轻量锚点）在元信息行呈现；priority 已随 v5 移除。
-  spark: ['serves'],
+  // priority 已随 v5 移除。
+  //
+  // `serves` 曾登记在本表的 spark 行（20 §8：子目标锚点在元信息行呈现）。
+  // 2026-11-01（Human 定案）随「serves 不再参与 Web 呈现」一并出列：本表是
+  // **呈现登记**——列在这里 = 以辅助元信息形态呈现、并同时从兜底字段区排除；
+  // 撤掉呈现就不该继续留着它，否则「不呈现」这个决定没有落点。
+  //
+  // 出列后 `serves` 落回 `getObjectDetailContentEntries` 的兜底字段区。它不会
+  // 因此冒出来：spark 与 workcase 的详情都走专属阅读布局（`SparkReadingLayout`
+  // / `WorkCaseReadingLayout`），两者都不消费 `extraEntries`。**字段仍在对象上**，
+  // 只是没有任何面板渲染它——这正是本次要的形态。
+  spark: [],
   pitfall: [],
   // 26 §8（2026-11）：impact 由**身份头部标签区**呈现（见 ObjectDetail 的
   // ObjectCardFrame 内 FrictionImpactBadge），与列表卡卡头同形——不是元信息行

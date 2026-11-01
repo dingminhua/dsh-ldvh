@@ -557,10 +557,10 @@ function ReviewSummaryBody({ summary }: { summary: string }) {
  * 携带的 summary/scope（缺陷 D11）——分组只应改变**强调**，不应改变
  * **在场字段集**。
  *
- * `serves` 不在本段：它是身份类锚点，由详情头的 ServesSgBadge 承载
- * （标签序 Human 定案 2026-09-13：类型 → 优先级 → SG → 修改次数），四个派生
- * 主体共用同一详情头，故「不因分组消失」对它同样成立。正文不再重复呈现同一
- * 信息。详见段内注释。
+ * `serves` 不在本段：它曾是身份类锚点、由详情头的子目标徽章承载（标签序
+ * Human 定案 2026-09-13）。**2026-11-01 起该徽章与正文都不再呈现它**——`serves`
+ * 整体退出 Web 呈现（见 `plugin/web/docs/11` §4quater），故此处既不是「换一处
+ * 呈现」，也无需再论证「在场于何处」。字段仍在对象上，四个非呈现消费方照旧。
  *
  * 10 §5.5 的字段分工在此落位：`gist` 与 `summary` **都**出现在详情，但形态不同——
  * `gist` 是 21 §8 定义的**纯文本**要点（≤200 字符、无 Markdown 标记），故按纯文本
@@ -599,18 +599,18 @@ function ResponsibilityNodes({
           structuredIssues={structuredIssues}
         />
       ) : null}
-      {/* `serves` 不在正文重复呈现：它在详情头已由 ServesSgBadge 呈现
-          （ObjectDetail.tsx 的标签序：类型 → 优先级 → SG → 修改次数，Human
-          定案 2026-09-13），正文再列一次是同一信息的第二处出现。标题栏承载
-          身份类锚点、正文承载内容类字段，分工不重叠。
+      {/* `serves` 不在此渲染——2026-11-01（Human 定案）起它整体退出 Web 呈现
+          （`plugin/web/docs/11` §4quater）：详情头的徽章已撤除，正文也不列。
 
-          这**不削弱** 10 §4.2「已存在字段不能因分组而消失」：`serves` 是
-          身份锚点，四个派生主体共用同一个详情头，故四个分组下它都在场；
-          本轮改的只是「在场于何处」，不是「是否在场」。
+          因此这里不再需要论证「标题栏承载身份锚点、正文承载内容类字段」那条
+          分工——它原先的前提是「徽章在头部呈现它」。
+
+          10 §4.2「已存在字段不能因分组而消失」不因此被削弱：`serves` 已不是
+          任何呈现面的在场字段，四个派生分组共用同一份呈现集，一致性照旧。
 
           字段异常的可见性也不受影响：`serves` 形状不符时由详情页的
           FieldIssuesSection（10 §5.3 的来源回指面）按 path 报告，该面板
-          独立于本节点；此前正文节点的 fieldIssue 是同一问题的第二处出口。 */}
+          独立于本节点。 */}
       <ProseNode
         title={t('objectDetail.workcaseScope')}
         value={typeof obj.scope === 'string' ? obj.scope : ''}

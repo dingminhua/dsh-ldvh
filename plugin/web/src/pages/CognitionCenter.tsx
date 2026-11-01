@@ -16,7 +16,6 @@ import PageHeader from '@/components/PageHeader';
 import GoalSection from '@/components/GoalSection';
 import ObjectReferenceCopyButton from '@/components/ObjectReferenceCopyButton';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
-import ServesSgBadge from '@/components/ServesSgBadge';
 import FrictionImpactBadge from '@/components/FrictionImpactBadge';
 import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
 import {
@@ -381,13 +380,14 @@ function RecentActivityRow({ item }: { item: CognitionRecentActivityItem }) {
           {getTypeLabel(item.type, locale)}
         </span>
         {/* Human 2026-09-10 定案：近期动态行不显示研究问题——该行是动态摘要不是
-            F1 卡（24 §12 的 research_question 卡片摘要投影归对象列表卡片承载）。 */}
+            F1 卡（24 §12 的 research_question 卡片摘要投影归对象列表卡片承载）。
+            2026-11-01（Human 定案）：`serves` 子目标 chip 已撤除（原先紧跟
+            PriorityIcon），与列表卡头、详情头同步。 */}
         <PriorityIcon source={item} type={item.type} locale={locale} size="xs" />
-        <ServesSgBadge value={item.serves} locale={locale} />
         {/* 26 §8 impact（轻/中/重）：与列表卡卡头、详情身份头**同序同形**（类型 →
-            优先级 → SG → 影响 → 修改次数），经同一个共享组件渲染。
+            优先级 → 影响 → 修改次数），经同一个共享组件渲染。
             Human 2026-11：「聚焦里依然没有重中轻的标签」——此前本行只挂了
-            PriorityIcon 与 ServesSgBadge，且 API 侧未投影 impact。 */}
+            PriorityIcon，且 API 侧未投影 impact。 */}
         {item.type === 'friction' && <FrictionImpactBadge value={item.impact} locale={locale} />}
         {/* 26 §8 occurrence：同上（三处同序同形，共享组件）。 */}
         {item.type === 'friction' && <FrictionOccurrenceBadge value={item.occurrence} />}
@@ -474,7 +474,6 @@ function SparkHealthRow({ item }: { item: CognitionSparkHealthItem }) {
           {getTypeLabel(item.type, locale)}
         </span>
         <PriorityIcon source={item} type="spark" locale={locale} size="xs" />
-        <ServesSgBadge value={item.serves} locale={locale} />
         <ActivityCountBadge count={item.activityCount} label={t('cognition.recent.activityCount', { count: String(item.activityCount) })} />
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           <StatusBadge status="open" statusLabel={getObjectStatusLocale('spark', 'open', locale)} objectType="spark" size="xs" variant="compact" />

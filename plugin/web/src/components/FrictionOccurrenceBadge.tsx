@@ -2,7 +2,7 @@ import { Eye } from 'lucide-react';
 import { useI18n } from '@/i18n/context';
 
 /**
- * 26 §8 `occurrence.count`（重复观察次数）的卡头标签：类型 → 优先级 → SG →
+ * 26 §8 `occurrence.count`（重复观察次数）的卡头标签：类型 → 优先级 →
  * **影响** → **重复观察** → 修改次数 序列中的一枚裸 chip（无字段名前缀）。
  *
  * ## 它为什么必须存在（消费方缺失的补足）

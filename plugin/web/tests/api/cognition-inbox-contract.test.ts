@@ -772,10 +772,12 @@ test('近期动态行对摩擦显示影响标签（轻/中/重），与卡头同
     cognition.indexOf('function RecentActivityUsageBars'),
   )
 
-  // 与列表卡卡头、详情身份头**同序**：类型 → 优先级 → SG → 影响 → 修改次数。
-  assert.match(row, /<PriorityIcon source=\{item\} type=\{item\.type\}[\s\S]{0,200}?<ServesSgBadge value=\{item\.serves\}[\s\S]{0,400}?<FrictionImpactBadge value=\{item\.impact\}/,
-    '影响紧跟 SG，在修改次数之前')
+  // 与列表卡卡头、详情身份头**同序**：类型 → 优先级 → 影响 → 修改次数。
+  // （`serves` chip 已于 2026-11-01 从三处撤除，故判据改为「影响紧跟优先级」。）
+  assert.match(row, /<PriorityIcon source=\{item\} type=\{item\.type\}[\s\S]{0,400}?<FrictionImpactBadge value=\{item\.impact\}/,
+    '影响紧跟优先级，在修改次数之前')
   assert.match(row, /item\.type === 'friction' && <FrictionImpactBadge/, '按类型分派');
+  assert.doesNotMatch(row, /ServesSgBadge/, 'serves chip 不得回到近期动态行（2026-11-01 撤除）');
   // 经共享组件渲染——不自行拼 chip（否则会与卡头形态漂移）。
   assert.doesNotMatch(row, /FRICTION_IMPACT_CHIP_CLASS/, '不手写 chip');
 })

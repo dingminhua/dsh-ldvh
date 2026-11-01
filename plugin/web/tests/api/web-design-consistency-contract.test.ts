@@ -226,9 +226,15 @@ test('detail identity header keeps status immediately before its copy control', 
     identityHeader.indexOf('<div className="flex min-w-0 flex-wrap items-center gap-x-3'),
   );
 
-  // Human 定案 2026-09-13：标签序与列表卡头一致——类型 → 优先级 → SG →
-  // 修改次数（extraBadges 随后；状态与复制控件保持行尾）。
-  assert.match(identityRow, /<PriorityIcon[\s\S]*<ServesSgBadge[\s\S]*\{extraBadges\}[\s\S]*className="ml-auto shrink-0"[\s\S]*<ObjectIdentityActions/);
+  // Human 定案 2026-09-13：标签序与列表卡头一致——类型 → 优先级 → 修改次数
+  //（extraBadges 随后；状态与复制控件保持行尾）。
+  //
+  // 2026-11-01（Human 定案）：`serves` 子目标 chip 已从卡头撤除，故此处不再
+  // 要求它在 `PriorityIcon` 与 `extraBadges` 之间；顺序判据收缩为「优先级 →
+  // extraBadges → 状态/复制」三段，仍钉住**块序**，只是删掉了中间那一环。
+  assert.match(identityRow, /<PriorityIcon[\s\S]*\{extraBadges\}[\s\S]*className="ml-auto shrink-0"[\s\S]*<ObjectIdentityActions/);
+  assert.doesNotMatch(identityRow, /<ServesSgBadge/,
+    'serves chip 不得回到详情头——2026-11-01 已撤除其 Web 呈现（`serves` 字段本身保留）');
   const identityActions = read('src/components/ObjectIdentityActions.tsx');
   // 2026-09-30 修订：新增「只替换、不叠加」的 `statusBadge` 口后，状态徽标的分支变为
   // `{statusBadge ?? (status && (…))}`；断言随之更新，仍钉住**块序**：前导徽标 → 状态 → actionBadges。

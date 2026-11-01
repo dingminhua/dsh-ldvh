@@ -14,7 +14,6 @@ import CopyPathButton from '@/components/CopyPathButton';
 import ObjectReferenceCopyButton from '@/components/ObjectReferenceCopyButton';
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
-import ServesSgBadge from '@/components/ServesSgBadge';
 import FrictionImpactBadge from '@/components/FrictionImpactBadge';
 import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
 import { hasUnavailableIndependentSubagentReview } from '@/shared/workcaseCapability';
@@ -624,8 +623,11 @@ export function ObjectIdentityHeader({
   const titleFontSize = 18;
   const titleIconSize = Math.round(titleFontSize * 1.15);
   const activityCount = Array.isArray(source.change_log) ? source.change_log.length : 0;
-  // serves 已标签化到类型徽标后（20 §6 子目标引用），不再进 footer 元信息行。
-  const remainingAuxiliaryMetaEntries = auxiliaryMetaEntries.filter(([key]) => key !== 'priority' && key !== 'serves');
+  // priority 不在 footer 元信息行呈现（它由 PriorityIcon 以图标形态承载）。
+  // `serves` 曾在此一并被滤掉（当时它由卡头的子目标徽章承载）；2026-11-01 撤除
+  // serves 的 Web 呈现后它已不在 `AUXILIARY_META_KEYS_BY_TYPE` 里，故这里不再
+  // 需要它——留着会让后来者以为它仍在被特殊处理。
+  const remainingAuxiliaryMetaEntries = auxiliaryMetaEntries.filter(([key]) => key !== 'priority');
   const hasFooterMeta = showDefaultDates
     || remainingAuxiliaryMetaEntries.length > 0
     || customMetaEntries.length > 0;
@@ -649,14 +651,15 @@ export function ObjectIdentityHeader({
               </span>
             )}
             {/* Human 定案 2026-09-13：标签序与列表卡头一致——类型 → 优先级 →
-                SG → 修改次数（详情/面板/卡片/近期动态/健康度统一）。 */}
+                修改次数（详情/面板/卡片/近期动态/健康度统一）。
+                2026-11-01（Human 定案）：`serves` 子目标 chip 已从此处撤除，
+                与列表卡头同步；`serves` 字段本身保留（四处非呈现消费方）。 */}
             <PriorityIcon source={source} type={objectType} locale={locale} size="xs" />
-            <ServesSgBadge value={source.serves} locale={locale} />
             {/* 26 §8 impact（轻/中/重）：与列表卡卡头**同位置同序**（类型 → 优先级
-                → SG → 影响 → 修改次数）——Human 2026-11：「详情里表现的方式要和
+                → 影响 → 修改次数）——Human 2026-11：「详情里表现的方式要和
                 card 一致」。经共享组件渲染，三处不得各自手写 chip。 */}
             {objectType === 'friction' && <FrictionImpactBadge value={source.impact} locale={locale} />}
-            {/* 26 §8 occurrence：与列表卡卡头、聚焦页**同位置同序**（类型 → 优先级 → SG →
+            {/* 26 §8 occurrence：与列表卡卡头、聚焦页**同位置同序**（类型 → 优先级 →
                 影响 → 重复观察 → 修改次数）——经同一个共享组件渲染，三处不得各自手写。 */}
             {objectType === 'friction' && <FrictionOccurrenceBadge value={source.occurrence} />}
             {extraBadges}

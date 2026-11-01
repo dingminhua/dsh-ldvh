@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { Activity, ArrowDownWideNarrow, CalendarClock, CircleAlert, CircleCheck, CircleMinus, CirclePlay, Clock3, History, Search } from 'lucide-react';
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
@@ -6,11 +6,9 @@ import SegmentedControl from '@/components/SegmentedControl';
 import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
 import ObjectStatusFilter from '@/components/ObjectStatusFilter';
 import WorkCaseProgressFilter from '@/components/WorkCaseProgressFilter';
-import ServesSgFilter from '@/components/ServesSgFilter';
 import ObjectPriorityFilter from '@/components/ObjectPriorityFilter';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
-import ServesSgBadge from '@/components/ServesSgBadge';
 import FrictionImpactBadge from '@/components/FrictionImpactBadge';
 import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
 import SummaryText from '@/components/SummaryText';
@@ -24,7 +22,7 @@ import WorkCaseExecFlow from '@/components/WorkCaseExecFlow';
 import WorkCaseResultDraft from '@/components/WorkCaseResultDraft';
 import WorkCaseClosedSummary from '@/components/WorkCaseClosedSummary';
 import WorkCaseClosedStatusBadge from '@/components/WorkCaseClosedStatusBadge';
-import { fetchCognitionGoal, fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type FactRefSource, type ObjectItem, type ObjectStatusOption, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
+import { fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type FactRefSource, type ObjectItem, type ObjectStatusOption, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
 import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusDisplayLabel, getObjectStatusLocale, getTypeDescription, getTypeLabel } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
@@ -356,20 +354,25 @@ export function ObjectCardFrame({
           >
             {getTypeLabel(obj.type, locale)}
           </span>
-          {/* Human 定案：卡头标签序 = 类型 → 优先级 → SG → 修改次数；不设关联
+          {/* Human 定案：卡头标签序 = 类型 → 优先级 → 修改次数；不设关联
               chip（条件字段有值才显示，20 §8 priority 仅 open 时出现）。
 
-              Human 复定 2026-09-16：卡头就是这四项，关联对象不进卡头。此前
+              Human 复定 2026-09-16：卡头就是这几项，关联对象不进卡头。此前
               3e0cbcc 撤 chip 时写作「依据 10 §5.1 字段级直读不渲染关联关系、
               10 §5.2 卡片网格不承载关联对象」——经核对，10 §5.2 从未包含该
               禁止条文（其首条要点明列「关联计数」），§5.1 只约束第一层字段级
               直读、与第二层卡片网格互不替代（10 §5 首段：四层互不替代）。故
-              此处改记为**呈现取舍**：卡头保持身份/优先级/SG/修改次数的稳定
-              扫描序，关联对象由卡体 FactAssociationsCardContent 承载。 */}
+              此处改记为**呈现取舍**：卡头保持身份/优先级/修改次数的稳定扫描
+              序，关联对象由卡体 FactAssociationsCardContent 承载。
+
+              **2026-11-01（Human 定案）：`serves` 子目标 chip 已从卡头撤除**
+              （原位置就在 PriorityIcon 之后）。子目标是承载体，spark 与工单挂
+              到它上面只是归属引用——「这条属于哪个子目标」由子目标详情页正向
+              回答，卡头不再承担。`serves` 字段本身保留（25 §9 / 21 §10.3 /
+              子目标反查 / 召回四处消费）。 */}
           <PriorityIcon source={obj} type={obj.type} locale={locale} size="xs" />
-          <ServesSgBadge value={obj.serves} locale={locale} />
           {/* 26 §8 impact（轻/中/重）：Human 裁定 2026-11——影响评级是扫读要素，
-              进卡头标签区（类型 → 优先级 → SG → **影响** → 修改次数）。经共享组件
+              进卡头标签区（类型 → 优先级 → **影响** → 修改次数）。经共享组件
               渲染：详情页身份头部用同一个组件，两处不得各自手写 chip。 */}
           {obj.type === 'friction' && <FrictionImpactBadge value={obj.impact} locale={locale} />}
           {/* 26 §8 occurrence（重复观察次数）：**频次的机械权威源**——§8 明写正文现象段
@@ -1035,10 +1038,6 @@ export default function ObjectList() {
   const [coverageProblems, setCoverageProblems] = useState<FactListProblem[]>([]);
   const [objectSearch, setObjectSearch] = useState('');
   const [isObjectSearchOpen, setIsObjectSearchOpen] = useState(false);
-  // serves_sg 第二层筛选（20 §6 serves / 21 §8）——spark 与 workcase 共用：
-  // 选项源跟随当前 goal 的子目标（25 号 sub_goals——SG 数量与变化以 goal 为准，
-  // Human 定案 2026-09-13）。
-  const [servesSgOptions, setServesSgOptions] = useState<Array<{ id: string; text: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { t, locale } = useI18n();
@@ -1053,7 +1052,6 @@ export default function ObjectList() {
   const activeLifecycle = currentType === 'workcase' && isWorkCaseListGroup(lifecycleParam)
     ? lifecycleParam
     : null;
-  const servesParam = searchParams.get('serves');
   // Spark 三联过滤之三：priority（20 §8，仅 spark 生效；闭集 P0–P3）。
   const priorityParam = searchParams.get('priority');
   const supportsPriorityNavigation = currentType === 'spark';
@@ -1072,50 +1070,22 @@ export default function ObjectList() {
   // v5 无 priority 字段：20 §289（v4 priority 不迁入）与 21 §8 字段闭集均无此项，
   // 且 22 §271/23 §252/26 §258 判定 priority 类为无消费方装饰字段（03 §11.3-4
   // 要求字段扩展先说明消费方）。两侧 tab 均不提供优先级过滤。
-  // serves 筛选在 spark 与 workcase 生效（21 §8 与 20 §6 各自为其类型唯一权威），
-  // 且仅当选项（goal 子目标）包含该值时激活。
-  const supportsServesSgNavigation = currentType === 'spark' || currentType === 'workcase';
-  const activeServesSg = supportsServesSgNavigation && servesSgOptions.some((option) => option.id === servesParam)
-    ? servesParam
-    : null;
 
   useEffect(() => {
     const removesLegacyCategory = currentType === 'spark' && searchParams.has('category');
     const removesWorkCaseStatus = currentType === 'workcase' && searchParams.has('status');
     const removesForeignProgress = currentType !== 'workcase' && searchParams.has('progress');
-    const removesForeignServes = currentType !== 'spark' && currentType !== 'workcase' && searchParams.has('serves');
-    if (!removesLegacyCategory && !removesWorkCaseStatus && !removesForeignProgress && !removesForeignServes) return;
+    // 2026-11-01：`serves` 筛选已从 Web 撤除（见下方撤除说明），旧链接里的
+    // `?serves=<uid>` 一律清掉——留着会让 URL 看起来仍在生效。
+    const removesRetiredServes = searchParams.has('serves');
+    if (!removesLegacyCategory && !removesWorkCaseStatus && !removesForeignProgress && !removesRetiredServes) return;
     const nextParams = new URLSearchParams(searchParams);
     if (removesLegacyCategory) nextParams.delete('category');
     if (removesWorkCaseStatus) nextParams.delete('status');
     if (removesForeignProgress) nextParams.delete('progress');
-    if (removesForeignServes) nextParams.delete('serves');
+    if (removesRetiredServes) nextParams.delete('serves');
     setSearchParams(nextParams, { replace: true });
   }, [currentType, searchParams, setSearchParams]);
-
-  // serves 选项源：跟随当前 goal 的子目标（25 号）——goal 未创建是合法状态，
-  // 静默保持空选项（筛选层不渲染）。spark 与 workcase 共用同一选项源与组件。
-  useEffect(() => {
-    if (currentType !== 'spark' && currentType !== 'workcase') {
-      setServesSgOptions([]);
-      return;
-    }
-    let cancelled = false;
-    fetchCognitionGoal()
-      .then((data) => {
-        if (cancelled) return;
-        const subGoals = Array.isArray(data.goal?.sub_goals) ? data.goal.sub_goals : [];
-        setServesSgOptions(subGoals
-          .filter((sg): sg is { id: string; text: string } => Boolean(sg && typeof sg.id === 'string' && sg.id.trim() && typeof sg.text === 'string'))
-          .map((sg) => ({ id: sg.id.trim(), text: sg.text })));
-      })
-      .catch(() => {
-        if (!cancelled) setServesSgOptions([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [currentType]);
 
   useEffect(() => {
     setLoading(true);
@@ -1155,30 +1125,27 @@ export default function ObjectList() {
 
   const sortedItems = sortObjectsForList(items, activeSort);
   const normalizedObjectSearch = objectSearch.trim().toLowerCase();
-  let filteredItems = normalizedObjectSearch
+  const filteredItems = normalizedObjectSearch
     ? sortedItems.filter((item) => {
       const title = getLocalizedObjectTitle(item, locale).toLowerCase();
       const objectId = item.id.toLowerCase();
       return title.includes(normalizedObjectSearch) || objectId.includes(normalizedObjectSearch);
     })
     : sortedItems;
-  // 第二层筛选：serves（20 §6 子目标锚点，1e21a1f D-9 统一定名）——按当前
-  // goal 子目标过滤（前端应用，items 已按状态/lifecycle 过滤，计数与过滤同口径）。
-  // 与 workcase lifecycle 五档筛选叠加：lifecycle 由 fetchObjects 服务端先行过滤，
-  // serves 在此客户端二次过滤；两维度并存、顺序固定（先 lifecycle 后 serves），
-  // URL 参数 lifecycle 与 serves 各自独立共存。
-  if (activeServesSg) {
-    filteredItems = filteredItems.filter((item) => item.serves === activeServesSg);
-  }
-  // SG 计数：当前状态/lifecycle 过滤后的对象池按 serves 聚合（反映当前过滤器，不是全量）。
-  const servesSgCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const item of sortedItems) {
-      const sg = typeof item.serves === 'string' && item.serves.trim() ? item.serves.trim() : null;
-      if (sg) counts.set(sg, (counts.get(sg) ?? 0) + 1);
-    }
-    return counts;
-  }, [sortedItems]);
+
+  // 2026-11-01（Human 定案）：**`serves` 不再在 Web 上呈现或筛选**。
+  //
+  // 原先这里有两块：一处客户端的 serves 二次筛选 + 一处按 serves 聚合的计数
+  // （配一行筛选 tab）。撤除的理由不是「不好用」，而是**方向错
+  // 了**：子目标才是承载体，spark 与工单挂到子目标上只是归属引用；「这个子目
+  // 标下面有哪些工作」由子目标详情页的「名下的工作」正向回答（`deriveServingWork`
+  // 反查），不需要让 Human 在每个列表页先选一个子目标再看被过滤的池子。
+  //
+  // 撤除同时省掉一个真实成本：这段筛选每次进列表页都 `fetchCognitionGoal()`
+  // 拉整份目标投影，只为换一行四个 tab。
+  //
+  // **字段本身不动**——`serves` 有四个非呈现消费方（25 §9 达成判定、21 §10.3
+  // 局部重批、子目标详情反查、召回 F1/F2）。撤的是呈现，不是引用。
 
   const handleStatusChange = (status: string | null) => {
     const nextParams = new URLSearchParams(searchParams);
@@ -1198,16 +1165,6 @@ export default function ObjectList() {
     const nextParams = new URLSearchParams(searchParams);
     if (priority) nextParams.set('priority', priority);
     else nextParams.delete('priority');
-    setSearchParams(nextParams);
-  };
-
-  const handleServesSgChange = (servesSg: string | null) => {
-    const nextParams = new URLSearchParams(searchParams);
-    if (servesSg) {
-      nextParams.set('serves', servesSg);
-    } else {
-      nextParams.delete('serves');
-    }
     setSearchParams(nextParams);
   };
 
@@ -1347,22 +1304,8 @@ export default function ObjectList() {
             />
           </div>
         )}
-        {/* serves_sg 子目标锚点第二层筛选（20 §6 / 21 §8）——spark 与 workcase
-            共用；选项源跟随当前 goal 的子目标动态生成（Human 定案 2026-09-13），
-            计数同当前状态过滤。 */}
-        {supportsServesSgNavigation && servesSgOptions.length > 0 && (
-          <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <ServesSgFilter
-              activeServesSg={activeServesSg}
-              onChange={handleServesSgChange}
-              options={servesSgOptions}
-              counts={servesSgCounts}
-              total={sortedItems.length}
-              loading={loading}
-              coverageStatus={coverageStatus}
-            />
-          </div>
-        )}
+        {/* 2026-11-01（Human 定案）：子目标筛选条已撤除——`serves` 不再参与
+            Web 呈现与筛选。子目标名下的工作由子目标详情页正向回答。 */}
         <div className="relative flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1.5">
             {currentType === 'workcase' ? (

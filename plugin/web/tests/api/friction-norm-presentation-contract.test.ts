@@ -239,11 +239,12 @@ test('friction impact 在三处同形呈现（Human 裁定 2026-11）', () => {
   assert.doesNotMatch(badge, /Target|History/, '无图标——与 SG/活动数两枚 chip 的形态一致');
   assert.match(semanticColors, /FRICTION_IMPACT_CHIP_CLASS: Record<string, string> = \{\s*light:/);
 
-  // ① 列表卡卡头：类型 → 优先级 → SG → 影响 → 修改次数
-  assert.match(objectList, /ServesSgBadge value=\{obj\.serves\}[\s\S]{0,400}?FrictionImpactBadge value=\{obj\.impact\}/,
-    '① 影响紧跟 SG，在活动数之前');
+  // ① 列表卡卡头：类型 → 优先级 → 影响 → 修改次数（`serves` chip 已于
+  // 2026-11-01 撤除，故判据改为「影响紧跟优先级」）。
+  assert.match(objectList, /<PriorityIcon[\s\S]{0,400}?FrictionImpactBadge value=\{obj\.impact\}/,
+    '① 影响紧跟优先级，在活动数之前');
   // ② 详情页身份头部：同位置同序
-  assert.match(objectDetail, /ServesSgBadge value=\{source\.serves\}[\s\S]{0,400}?FrictionImpactBadge value=\{source\.impact\}/,
+  assert.match(objectDetail, /<PriorityIcon[\s\S]{0,400}?FrictionImpactBadge value=\{source\.impact\}/,
     '② 详情头与卡头同序');
   // 三处都不自行拼 chip：ObjectList 与 ObjectDetail 不再直接引用配色常量。
   assert.doesNotMatch(objectList, /FRICTION_IMPACT_CHIP_CLASS/, '① 不手写 chip');

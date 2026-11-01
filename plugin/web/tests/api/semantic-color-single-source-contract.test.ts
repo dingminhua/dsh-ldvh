@@ -21,9 +21,10 @@ import test from 'node:test';
  * - 文件内一次性映射（状态图标 map、Friction 决策面板、布尔对偶等）。
  *
  * 范围外登记（2026-10-04 逐处实测后确认，非漏网——勿机械「清干净」）：
- * - 色相不在四族内：ServesSgBadge（violet chip）、CommitPushStatusBadge
- *   （violet/rose 状态图标）。四族横切色只覆盖错误/警告/信息/达成；violet、
- *   rose 属别的语义，硬并入会造出语义错误的单源。
+ * - 色相不在四族内：CommitPushStatusBadge（violet/rose 状态图标）。四族横切色
+ *   只覆盖错误/警告/信息/达成；violet、rose 属别的语义，硬并入会造出语义错误的
+ *   单源。（原登记中的 ServesSgBadge 已随 2026-11-01 撤除 serves 呈现而删除，
+ *   文件不复存在，故不再需要这条豁免。）
  * - 装饰性图标取色：GoalDetail 的 `text-amber-500`、FactAssociationsSection 的
  *   `text-amber-400`（lucide icon 色，非面/非文字语义色）。
  * - 弱注记档：FieldReadNotes 的 `UNPARSED_NOTE_TEXT_CLASS`（600 档，刻意弱于

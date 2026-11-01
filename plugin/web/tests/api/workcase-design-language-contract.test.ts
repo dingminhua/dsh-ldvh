@@ -223,8 +223,8 @@ test('all four lifecycle bodies render the shared responsibility nodes (field pr
   // docs/10 §4.2：条件字段可随事实是否形成而省略，但**已存在字段不能因对象处于
   // 某个派生分组而消失**；分组只改变强调，不改变在场字段集。四个主体共用
   // ResponsibilityNodes，故 summary/scope 在 closed 详情同样在场。
-  // （`serves` 不在本节点内：它是身份锚点，由四个分组共用的详情头
-  //  ServesSgBadge 承载，同样满足「不因分组消失」。）
+  // （`serves` 不在本节点内——它已整体退出 Web 呈现（2026-11-01 定案），
+  //  故「不因分组消失」对它不再是需要论证的事项。）
   //
   // 2026-09-24（Human：「详情页面需要有统一的设计语言」）：**本判据由「四个主体各接一次」
   // 升级为「结构上不存在分组分支」**——四套 body 已合并为单一 `WorkCaseBody`，固定序列
@@ -249,25 +249,28 @@ test('all four lifecycle bodies render the shared responsibility nodes (field pr
   );
 });
 
-test('serves is presented once — in the detail head, never repeated in the body', () => {
+test('serves is not presented anywhere in WorkCase — neither head nor body', () => {
   const layout = readSource('web/src/pages/object-detail/WorkCaseReadingLayout.tsx');
   const detail = readSource('web/src/pages/ObjectDetail.tsx');
 
-  // Human 定案 2026-09-13：详情头标签序为 类型 → 优先级 → SG → 修改次数，
-  // 故 `serves` 的身份锚点由头部 ServesSgBadge 承载（四个派生分组共用同一头，
-  // 「不因分组消失」对它成立）。
-  assert.match(
+  // 2026-11-01（Human 定案）：`serves` 不再参与 Web 呈现——详情头的徽章已撤除
+  // （原先它承担「四个派生分组共用同一头，故不因分组消失」那一条）。本测试随
+  // 之反转：原先是「头必须承载、正文不得重复」，现在是「两处都不得出现」。
+  //
+  // **撤的是呈现，不是字段**：`serves` 仍有四个非呈现消费方（25 §9 达成判定、
+  // 21 §10.3 局部重批、子目标详情反查、召回 F1/F2）。
+  assert.doesNotMatch(
     detail,
-    /<PriorityIcon[\s\S]*?<ServesSgBadge value=\{source\.serves\}/,
-    '详情头必须承载 serves 徽章——正文不再重复它是以此为前提的',
+    /<ServesSgBadge/,
+    'serves 徽章不得出现在详情头——2026-11-01 已撤除其 Web 呈现',
   );
 
-  // 正文段不得再渲染第二处 serves：同一信息两处出现会让 Human 无法判断
-  // 哪个是权威呈现面，且新增字段时容易只更新一处。
+  // 正文段同样不得渲染 serves：撤除呈现的决定不能只落在头部，正文若还渲染它，
+  // 撤除就是半截的（同一信息换一处出现，比两处出现更难发现）。
   assert.doesNotMatch(
     layout,
     /workcaseServes/,
-    'serves 不得在 WorkCase 正文段重复呈现（它在详情头已呈现；若确需改回正文，先撤本守卫并说明理由）',
+    'serves 不得在 WorkCase 正文段呈现（2026-11-01 起全撤；若确需恢复，先撤本守卫并说明理由）',
   );
 });
 

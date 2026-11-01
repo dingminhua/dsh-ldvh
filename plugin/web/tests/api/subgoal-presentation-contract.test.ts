@@ -251,34 +251,57 @@ test('近期动态覆盖 subgoal（加入 OBJECT_TYPES 时不得遗漏）', () =
   assert.match(cognition, /\['subgoal', subGoalResult\]/, '近期动态取数范围应含 subgoal');
 });
 
-test('serves 的 object_uid 在呈现前被解析成子目标标题', () => {
-  const badge = read('src/components/ServesSgBadge.tsx');
-  const filter = read('src/components/ServesSgFilter.tsx');
-  const hook = read('src/hooks/useSubGoals.ts');
+test('serves 不参与 Web 呈现：解析组件与筛选组件都已撤除', () => {
+  const objectList = read('src/pages/ObjectList.tsx');
+  const objectDetail = read('src/pages/ObjectDetail.tsx');
+  const cognition = read('src/pages/CognitionCenter.tsx');
+  const model = read('src/pages/object-detail/model.ts');
 
-  // 28 §12.3：serves 存 object_uid。直接把值当 chip 文案就是把身份当标签——
-  // 读者会看到一串十六进制。解析表来自 /cognition/goal 的 sub_goals 投影
-  // （本身由 subgoals/*.md 反查派生，不是第二权威）。
-  assert.match(hook, /export function useSubGoalIndex/, '应提供 uid → 子目标标题的解析入口');
-  assert.match(hook, /data\.goal\?\.sub_goals/, '解析表应取自 goal 的子目标投影');
-  assert.match(badge, /useSubGoalIndex\(\)/, 'chip 应经解析表取标题');
-  assert.match(badge, /const ref = index\.get\(uid\)/, 'chip 应按 uid 查标题');
-  // 解析不到时如实回落 uid：显示空白或「未知」会让一条真实引用看起来像坏了。
-  assert.match(badge, /if \(!ref\) return \{ text: uid, title: uid, resolved: false \}/,
-    '解析不到应回落原值，不得伪造标题');
-  // 卡头 chip 显示 `order` 而不是完整标题：标题最长 40 字（28 §8），塞进卡头
-  // 会挤掉同一行的状态徽标与修改次数。`order` 正是为显示而设的字段，语义也
-  // 与它接手的 SG-n 一致——第几条子目标。完整标题留在 title 悬停里。
-  assert.match(badge, /if \(typeof ref\.order === 'number'\) return \{ text: String\(ref\.order\), title: ref\.title \|\| uid, resolved: true \}/,
-    'order 存在时应显示 order');
-  assert.match(badge, /if \(ref\.title\) return \{ text: ref\.title, title: ref\.title, resolved: true \}/,
-    'order 缺失时才回落标题（28 §8：order 可缺失）');
+  // 2026-11-01（Human 定案）：**`serves` 不再在 Web 上呈现或筛选**。
+  //
+  // 方向在这里：子目标是承载体，spark 与工单挂上去只是归属引用。「这个子目标
+  // 下面有哪些工作」由子目标详情页的「名下的工作」正向回答（`deriveServingWork`
+  // 反查），不该让 Human 在每个列表页先选一个子目标再看被过滤的池子。
+  //
+  // 上一版这里断言 `ServesSgBadge` / `ServesSgFilter` / `useSubGoals` 三个文件
+  // 的解析细节——即「uid 如何解析成标题」。撤除呈现后**没有 uid 要解析了**，
+  // 故断言随之反转：三个文件都不应存在，四个呈现点都不得回归。
+  //
+  // **撤的是呈现，不是字段**：`serves` 仍有四个非呈现消费方（25 §9 达成判定、
+  // 21 §10.3 局部重批、子目标详情反查、召回 F1/F2）。
+  for (const removed of [
+    'src/components/ServesSgBadge.tsx',
+    'src/components/ServesSgFilter.tsx',
+    'src/hooks/useSubGoals.ts',
+  ]) {
+    assert.equal(
+      fs.existsSync(path.resolve(removed)),
+      false,
+      `${removed} 应已撤除——serves 不再参与 Web 呈现（2026-11-01 定案）`,
+    );
+  }
 
-  // 筛选 tab 的标签同样是标题；uid 只作 key 与查询参数（onChange(option.id)）。
-  assert.match(filter, /onChange\(option\.id\)/, '筛选值仍应是 uid（查询参数与匹配依据）');
-  assert.doesNotMatch(filter, /<span className="font-mono">\{option\.id\}<\/span>/,
-    'uid 不得作为可见 tab 标签');
-  assert.match(filter, /option\.text \|\| option\.id/, '标题缺失时回落 uid，不显示空按钮');
+  // 四个呈现点：列表卡头、详情头、近期动态行、健康度行。
+  assert.doesNotMatch(objectList, /ServesSgBadge|ServesSgFilter|servesSg/,
+    '列表页不得回归 serves 呈现或筛选');
+  assert.doesNotMatch(objectDetail, /ServesSgBadge/, '详情头不得回归 serves 徽章');
+  assert.doesNotMatch(cognition, /ServesSgBadge/, '认知中心不得回归 serves 徽章');
+
+  // 旧链接里的 `?serves=<uid>` 必须被清掉——留着会让 URL 看起来仍在生效。
+  assert.match(objectList, /if \(removesRetiredServes\) nextParams\.delete\('serves'\);/,
+    '退役的 serves 查询参数应被清理');
+
+  // 辅助元信息表里不得再有 spark 的 serves 登记（那是「在元信息行呈现」的登记；
+  // 撤掉呈现就不该留着它，否则「不呈现」这个决定没有落点）。
+  //
+  // 判据限定在**对象字面量内**：表上方的注释会反复说明「serves 曾在此」，对全文
+  // 匹配会被注释判成失败。这与联邦 `type: objectType` 那条守卫同一教训。
+  const auxTable = model.slice(
+    model.indexOf('AUXILIARY_META_KEYS_BY_TYPE'),
+    model.indexOf('};', model.indexOf('AUXILIARY_META_KEYS_BY_TYPE')),
+  );
+  assert.match(auxTable, /spark: \[\]/, 'spark 辅助元信息不得再有 serves');
+  assert.doesNotMatch(auxTable, /'serves'/, 'serves 不得留在 spark 辅助元信息表');
 });
 
 test('order 取代 anchor：呈现面不得再读 anchor 字段', () => {

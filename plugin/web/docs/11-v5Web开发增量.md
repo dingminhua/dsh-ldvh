@@ -105,7 +105,9 @@ violet 在 Norm 上表示「规则体系」，子目标既非待处置也非规�
 `serves` 从 `SG-n` 业务编号改为 `object_uid`（与 `refs` 同口径），`anchor` 字段
 整体退场，显示次序改由可选 `order` 承担（28 §7/§8）。Web 侧的对账：
 
-- **`serves` 的 uid 必须先解析成子目标再上屏**。`ServesSgBadge` / `ServesSgFilter`
+- **`serves` 的 uid 必须先解析成子目标再上屏**。（**2026-11-01 晚已作废**——见下节
+  4quater，`serves` 整体退出 Web 呈现，本条的解析链路随之删除。保留此条只为记录
+  当时的形态与理由，不作为现行约定。）`ServesSgBadge` / `ServesSgFilter`
   经 `hooks/useSubGoals.ts` 的 `useSubGoalIndex()` 取 uid → 子目标表的映射；表源自
   `/api/cognition/goal` 的 `sub_goals` 投影，而该投影本身由 `subgoals/*.md` 反查
   派生（28 §8.1 禁止在 goal.md 存副本）——**没有第二份数据**。
@@ -113,7 +115,8 @@ violet 在 Norm 上表示「规则体系」，子目标既非待处置也非规�
 - **卡头 chip 显示 `order` 而不是标题**：标题最长 40 字（28 §8），实测塞进卡头会
   挤掉同一行的状态徽标与修改次数。`order` 正是为显示而设的字段，语义也与它接手的
   `SG-n` 一致——第几条子目标；完整标题留在 `title` 悬停里。`order` 缺失是合法
-  状态，此时才回落截断的标题。
+  状态，此时才回落截断的标题。（**卡头那一处已随 4quater 撤除**；子目标详情与
+  目标区的 `order` 呈现不受影响。）
 - **目标区（聚焦页与 `/goal` 详情）同理**：原先直接把 `sg.id` 渲染成 chip，改存
   uid 后那一格会出现四串十六进制，现改渲染 `order`。
 - **`order` 不承担身份**：可缺失、可重复、可不连续（28 §8），故契约里是
@@ -123,6 +126,47 @@ violet 在 Norm 上表示「规则体系」，子目标既非待处置也非规�
   单项目列表路由经 `normalizeItem` 补 `type`，联邦路由没有那道归一化，导致八类
   对象的联邦卡类型 chip 一直是空白。现由 `federation.ts` 按查询上下文写回
   `type: objectType`（虽非本轮引入，但在核对联邦子目标卡时暴露）。
+
+## 4quater. `serves` 退出 Web 呈现与筛选（2026-11-01，Human 定案）
+
+**决定**：`serves` 不再在 Web 上呈现或筛选。上一节建立的整条「uid → 子目标标题」
+解析链路随之删除。**撤的是呈现，不是字段**——`serves` 仍是 Spark 与 WorkCase 的
+归属引用字段，四个非呈现消费方照旧（25 §9 达成判定、21 §10.3 局部重批、子目标
+详情反查、召回 F1/F2）。
+
+**撤除清单（四个呈现点 + 一个筛选条）**：
+
+| 位置 | 原形态 | 现状 |
+|---|---|---|
+| 列表卡头（`ObjectList.tsx`） | `ServesSgBadge` 紧跟 `PriorityIcon` | 已删 |
+| 详情身份头（`ObjectDetail.tsx`） | 同上，四处呈现点之一 | 已删 |
+| 认知中心近期动态行 | 同上 | 已删 |
+| 认知中心健康度行 | 同上 | 已删 |
+| 列表筛选条（`ServesSgFilter`） | 一行 tab，选项来自整份目标投影 | 已删；`?serves=` 旧链接参数一并清理 |
+
+**整文件删除**：`src/components/ServesSgBadge.tsx`、`src/components/ServesSgFilter.tsx`、
+`src/hooks/useSubGoals.ts`（其 `normalizeServesList` 只服务于上述徽章）。
+
+**辅助元信息表出列**：`AUXILIARY_META_KEYS_BY_TYPE` 的 `spark: ['serves']` 改为
+`spark: []`。该表是**呈现登记**——列在这里 = 以辅助元信息形态呈现、并同时从兜底
+字段区排除；撤掉呈现就不该继续留着它，否则「不呈现」这个决定没有落点。出列后
+`serves` 落回 `getObjectDetailContentEntries` 的兜底字段区，但不会因此冒出来：
+spark 与 workcase 的详情都走专属阅读布局，两者都不消费 `extraEntries`。
+
+**为什么是方向而不是取舍**：子目标（28 号）才是承载体，Spark 与 WorkCase 挂到
+子目标上只是归属引用。「这个子目标名下有哪些工作」由子目标详情页的「名下的工作」
+正向回答（`deriveServingWork` 反查）。在每个下游列表页先选一个子目标、再看被过滤
+的对象池，是把「从目标看工作」倒推成「从工作找目标」。撤除同时去掉一个真实成本：
+该筛选每次进列表页都要 `fetchCognitionGoal()` 拉整份目标投影，只为换一行选项。
+
+**规范侧同步**：`specs/20` §13 消费点表两行（「Web 列表筛选与排序」「认知中心 Spark
+健康度」）去掉 `serves` 并附决定登记；`specs/28` §12.1 补「呈现方向单向」段，
+说明反向不设呈现面。`specs/07` 自始未就 `serves` 的呈现作出规定，无需改动。
+
+**守卫**：`tests/api/subgoal-presentation-contract.test.ts` 的
+「serves 不参与 Web 呈现」一条——三个文件必须不存在、四个呈现点不得回归、
+`?serves=` 参数必须被清理、辅助元信息表不得再登记。**已做负向验证**：把徽章加回
+详情头，该守卫与另两条（详情头块序、WorkCase 呈现）同时报错。
 
 ## 5. 设计语言横切审计（2026-10-05）
 
