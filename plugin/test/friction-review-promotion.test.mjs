@@ -14,6 +14,7 @@ import { withTemp, testSignature } from "./helpers.mjs";
 import {
   appendFrictionObservation,
   readFrictionObservations,
+  readPromotionReadyGroups,
   FRICTION_OBSERVATION_THRESHOLD_N,
 } from "../lib/friction-observation-buffer.js";
 import { runFrictionReviewPromotion } from "../lib/friction-review-promotion.js";
@@ -173,9 +174,47 @@ test("补充级更新：target_uid 非空的条目补进既有 open 账目，计
     assert.equal(after.value.frontmatter.status, "open", "supplementing never changes status");
     assert.ok(after.value.body.includes("又一次重装（第 4 次）"), "the phenomenon section records this sighting");
 
+    // **逐字引证必须一并进账目**（2026-11-01 修，02 §6.1 第 3 条）。
+    //
+    // 补充成功后该缓冲条目会被整条移除，若正文只留一句现象描述，这次观察引了什么
+    // 原文就再也查不回来。`entry()` 造的 evidence 是「……第 N 行（逐字引证）」，
+    // 这里断言它原样进了正文——注意第 9 条 index=9，所以是「第 9 行」。
+    assert.ok(
+      after.value.body.includes("依赖重装记录第 9 行（逐字引证）"),
+      "the verbatim evidence of this sighting must be carried into the ledger body — "
+      + "the buffer entry is removed once supplemented, so the body is the only remaining carrier",
+    );
+
     // 补充过的条目必须被结算掉，否则下次运行会重复补充（计数虚增）。
     const pending = await readFrictionObservations(h, PROJECT, { status: "pending" });
     assert.equal(pending.value.total, 0, "a supplemented entry is settled out of pending");
+  });
+});
+
+test("带 target_uid 的待补充条目不计入晋升组——否则同一阻碍会被建第二笔账", async () => {
+  await withTemp("friction-review-promotion.", async (root) => {
+    const h = home(root);
+    const uid = "11111111-2222-3333-4444-555555555555";
+
+    // 三条都指向同一笔既有账目（发现层在 same-obstacle 态写入的形态：
+    // group 取被命中账目的 object_uid 作占位键，target_uid 同值）。
+    for (let i = 1; i <= FRICTION_OBSERVATION_THRESHOLD_N; i += 1) {
+      const appended = await appendFrictionObservation(h, {
+        ...entry({ group: uid, index: i }),
+        target_uid: uid,
+      });
+      assert.ok(appended.ok, JSON.stringify(appended.error));
+    }
+
+    const ready = await readPromotionReadyGroups(h, PROJECT);
+    assert.ok(ready.ok, JSON.stringify(ready.error));
+    assert.deepEqual(
+      ready.value.ready,
+      [],
+      "three supplement-pending sightings of one obstacle must NOT reach the promotion threshold — "
+      + "they are §9 item 4 (supplement an existing ledger entry), not §9 item 3 (create a new one). "
+      + "Counting them here would create a duplicate ledger entry for an obstacle already on the books.",
+    );
   });
 });
 

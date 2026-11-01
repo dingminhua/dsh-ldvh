@@ -76,6 +76,7 @@ import {
   readPitfallObject,
   listPitfallObjects,
 } from "./pitfall-writer.js";
+import { transferDiscardedEntryToFriction } from "./friction-transfer.js";
 import { h2Titles, sectionContent } from "./markdown-structure.js";
 import { open as fsOpen, unlink as fsUnlink, mkdir as fsMkdir, stat as fsStat } from "node:fs/promises";
 import { join as pathJoin, dirname as pathDirname } from "node:path";
@@ -160,12 +161,60 @@ function isPlainObject(value) {
  * 失败时它必须带着**精确原因**而不是一个布尔。故失败路径一律带
  * `{ fail_closed: { code, message, stage, ... }, ...已发生的结算 }`。
  */
-function failClosed(code, message, { stage, formed = null, duplicate = null, discarded = [], remaining_pending = null } = {}) {
+function failClosed(code, message, {
+  stage,
+  formed = null,
+  duplicate = null,
+  discarded = [],
+  remaining_pending = null,
+  // **已发生的转写必须随失败形状一起带出**（2026-11-01 审核 F5 修）。
+  //
+  // 早先 `partial` 只有四个具名键，`stateSnapshot` 里的 `transferred` /
+  // `transfer_failed` 被整个丢弃——于是 `ldvh-tools.js` 的 unavailable 分支读到
+  // 恒为空的数组，一次**已经写进摩擦缓冲**的转写在失败返回里完全不可见。这违反
+  // §17「都必须可见」：副作用发生了而调用方读不到，等于静默。
+  transferred = [],
+  transfer_failed = [],
+} = {}) {
   return failure(code, message, {
     stage,
-    partial: { formed, duplicate, discarded, remaining_pending },
+    partial: { formed, duplicate, discarded, remaining_pending, transferred, transfer_failed },
     fail_closed: { code, message, stage },
   });
+}
+
+/**
+ * 把一次**未能完成的转写**登记进待处置队列（§12；11 §18「转写条目的合法性」行）。
+ *
+ * **为什么必须落队列而不是只进本轮返回体**（2026-11-01 审核 F6 修）：转写失败时
+ * 经验条目**已经**结算成 `discarded` 了（结算在前、转写在后，见本文件 discarded
+ * 分支）。结算不可回滚，材料就此只剩一条「本该搬到摩擦侧却没搬成」的欠账——它必须
+ * 在**下一次运行仍可见**，否则下一拍谁也不知道漏了什么。返回体只在当拍有效。
+ *
+ * **登记失败不得吞掉**：队列不可用时把原因追加进同一条 `transfer_failed` 项，
+ * 使「连登记都没做成」这件事本身可见（而不是变成静默）。
+ */
+async function registerTransferFailure(dshHomePath, failureItem, now) {
+  try {
+    const { appendPendingEntry } = await import("./pending-queue.js");
+    const queued = await appendPendingEntry(dshHomePath, {
+      task: "experience-review",
+      reason: `转写未完成（${failureItem.code}）：${failureItem.message}`,
+      residual: [
+        `经验缓冲条目 ${failureItem.entry_id} 已结算为 discarded，其材料未能转写到摩擦观察缓冲`,
+      ],
+      at: now instanceof Date ? now.toISOString() : undefined,
+    });
+    if (!queued.ok) {
+      failureItem.unregistered = queued.error?.code ?? "pending_queue/unavailable";
+      failureItem.unregistered_message = queued.error?.message ?? "unknown";
+    } else {
+      failureItem.pending_entry_id = queued.value.entry_id;
+    }
+  } catch (error) {
+    failureItem.unregistered = "pending_queue/threw";
+    failureItem.unregistered_message = String(error?.message ?? error);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -701,6 +750,13 @@ export async function reviewPendingEntries({
     formed: [],
     duplicates: [],
     discarded: [],
+    // **转写**（11 §10.2 第 5 项，2026-11-01 B 方案）：被判 discarded 且判明「机制已清楚、
+    // 只是还没解决」的条目，材料搬到摩擦观察缓冲继续攒阈值。它不改变该条的结算状态
+    // ——`discarded` 照旧进 `state.discarded`，这里是**另一件事**的记账。
+    transferred: [],
+    // 想转但转不成的（字段不全、写入失败、回读不符）。它们**不阻断**该条的 discarded
+    // 结算（结算已发生且是对的），但必须可见——否则「该转没转」又是一处静默。
+    transfer_failed: [],
     // **单条失败而不中断整轮**（2026-10-27 修订）：某一条自身不合格时记在这里，
     // 其余条目照常落地。它同时使整轮结局降为 partial（见循环后的收尾），
     // 这些条目仍留在 pending，下次会被重新交付。
@@ -753,6 +809,98 @@ export async function reviewPendingEntries({
         continue;
       }
       state.discarded.push(entry.id);
+
+      // ── 转写（11 §10.2 第 5 项，2026-11-01 B 方案）───────────────────────
+      //
+      // **在结算之后做**：转写的头一道闸是「来源条目确已 discarded」，先结算才使它
+      // 成立。**转写失败不回滚 discarded 结算**——结算本身是对的（它确实没成为候选），
+      // 转写是另一件事；失败如实登记在 `transfer_failed`，不静默。
+      //
+      // **不给 `transfer` 就不转**：判断是执行体的（机制是否已清楚、是否只是还没
+      // 解决）。本模块不代判，也不提供「凡 discarded 都转」的默认行为——那会把噪音
+      // 塞进摩擦缓冲，占容量、可能凑出不该有的账目。
+      const transfer = proposal.transfer !== null && typeof proposal.transfer === "object"
+        ? proposal.transfer
+        : null;
+      if (transfer !== null) {
+        // **来源状态取 `settleBufferEntry` 的写后回读结果，不取本轮快照、也不另读一遍**
+        // （2026-11-01 自查修）。
+        //
+        // 早先写的是 `current ?? { ...entry, status: "discarded" }`——那在本轮快照上
+        // **臆造**了一个当下状态：`entry` 是运行开始时的快照，并发方可能已把它结算成
+        // 别的终态，此时「它现在是 discarded」已经不真。而转写的头一道闸正是「来源确
+        // 已 discarded」，在未核实的来源上造一条摩擦条目即等于该闸失效。
+        //
+        // `settleBufferEntry` 在自己的 return 里**已经做过一次精确回读**（它返回的是
+        // 结算后的整份缓冲视图，回读不符会直接 fail），故那条记录就是权威的当下状态。
+        // 取它既省一次读，也消除了「两次读之间被并发方改掉」的窗口。
+        const settledRecord = Array.isArray(settled.value?.items)
+          ? settled.value.items.find((item) => item.id === entry.id)
+          : undefined;
+        if (settledRecord === undefined) {
+          // 回读里没有该条：缓冲视图与结算结果自相矛盾，状态不可核实 → 不转写。
+          // 失败**登记进待处置队列**（§18 该行要求「如实登记」；§12 的登记载体就是
+          // 队列——只塞进本轮返回体的话，下一拍就没人看得见，见 2026-11-01 审核 F6）。
+          const failureItem = {
+            entry_id: entry.id,
+            code: "friction_transfer/source_unverifiable",
+            message: `entry ${entry.id}: the post-settlement read-back does not contain it, so its current status is unknown — refusing to transfer on an unverified source (11 §18「转写条目的合法性」)`,
+          };
+          state.transfer_failed.push(failureItem);
+          await registerTransferFailure(dshHomePath, failureItem, now);
+          continue;
+        }
+        const current = settledRecord;
+        const moved = await transferDiscardedEntryToFriction({
+          dshHomePath,
+          projectId,
+          entry: current,
+          transfer,
+          now,
+        });
+        if (!moved.ok && moved.error?.written === true) {
+          // **写已生效，只是淘汰没跑**（2026-11-01 第五轮审核发现 ①）。
+          //
+          // 这条不是「转写失败」：材料已经在摩擦缓冲里。若仍走 `registerTransferFailure`，
+          // 队列里会写上「材料未能转写到摩擦观察缓冲」——一个与事实相反的假记录。故：
+          // 计入 `transferred`（写确实发生了），另把淘汰侧的问题单列进 `transfer_failed`
+          // 并写明「材料已落地」，不做「未转写」的登记。
+          const landed = {
+            entry_id: entry.id,
+            friction_entry_id: moved.error.entry_id ?? null,
+            group: transfer.group,
+            eviction_pending: true,
+            message: moved.error?.message ?? "unknown",
+          };
+          state.transferred.push(landed);
+          state.transfer_failed.push({
+            entry_id: entry.id,
+            code: moved.error?.code ?? "friction_transfer/appended_with_eviction_pending",
+            message: moved.error?.message ?? "unknown",
+            landed: true,
+            landed_entry_id: moved.error.entry_id ?? null,
+          });
+        } else if (!moved.ok) {
+          const failureItem = {
+            entry_id: entry.id,
+            code: moved.error?.code ?? "friction_transfer/failed",
+            message: moved.error?.message ?? "unknown",
+          };
+          state.transfer_failed.push(failureItem);
+          await registerTransferFailure(dshHomePath, failureItem, now);
+        } else if (moved.value.written === true) {
+          state.transferred.push({ entry_id: entry.id, friction_entry_id: moved.value.entry_id, group: transfer.group });
+        } else {
+          // 幂等跳过：该观察已在摩擦缓冲里（任何状态），正是期望的结果。
+          state.transferred.push({
+            entry_id: entry.id,
+            skipped: moved.value.reason,
+            existing_id: moved.value.existing_id,
+            existing_status: moved.value.existing_status,
+            existing_group: moved.value.existing_group,
+          });
+        }
+      }
       continue;
     }
 
@@ -934,6 +1082,10 @@ export async function reviewPendingEntries({
     duplicate: state.duplicates.length > 0 ? state.duplicates[0] : null,
     duplicates_all: state.duplicates,
     discarded: state.discarded,
+    // 转写的两条并行账：已转（含幂等跳过）与想转没转成。二者都不影响 discarded 的
+    // 结算，但都必须可见（§17）。
+    transferred: state.transferred,
+    transfer_failed: state.transfer_failed,
     remaining_pending: after.value.items.length,
     // **本次没判完的条目**（单条校验失败或缺提案）。逐条落地后它们不影响已结算的
     // 条目，但必须可见——否则「该跑没跑完」又会变成不可观察状态。
@@ -951,6 +1103,8 @@ function stateSnapshot(state, entryId) {
     duplicate: state.duplicates.length > 0 ? state.duplicates[0] : null,
     duplicates_all: [...state.duplicates],
     discarded: [...state.discarded],
+    transferred: [...(state.transferred ?? [])],
+    transfer_failed: [...(state.transfer_failed ?? [])],
     unsettled: [...(state.unsettled ?? [])],
     remaining_pending: null,
   };

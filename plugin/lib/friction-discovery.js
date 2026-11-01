@@ -207,6 +207,11 @@ export async function loadObservationDedupCandidates(dshHomePath, projectId, opt
     complete: read.value.complete,
     total: read.value.total,
     evicted_pending: read.value.evicted_pending,
+    // **淘汰侧的两种「不完整」必须能传出去**（2026-11-01 第四轮审核 F4 修）：
+    // `complete=false` 与 `eviction_registration_error` 此前只在缓冲模块的返回体里，
+    // 全仓无消费方——于是「一批该淘汰的条目因登记失败仍在」或「淘汰登记写了但回写失败」
+    // 这两种状态，在账本/审核/交还面上完全不可见，§19.1 记的「不会无声」只在模块 API 层成立。
+    eviction_registration_error: read.value.eviction_registration_error ?? null,
   });
 }
 
@@ -240,12 +245,19 @@ function groupEntries(entries) {
  *
  * `observation` 是要追加到现象段的一次观察描述（人类可读）。它**不是**判断该
  * 观察是否属于同一阻碍——那个判断由子代理做出后传进来。
+ *
+ * `evidence` 是该次观察的**逐字引证片段**（可选，但审核层路径必须提供）。2026-11-01
+ * 新增参数：审核层的补充路径成功后会**把缓冲条目整条移除**，若账目正文只记一句现象
+ * 描述，该次观察引了什么原文就再也查不回来——这违反 02 §6.1 第 3 条「权威对象的证据
+ * 必须自足」（11 §12bis.1 第 3 条对该条只要求晋升路径，2026-11-01 起扩到补充路径）。
+ * 未提供时退回只写现象，正文将缺引证——这是降级路径，不是默认路径。
  */
 export async function supplementOccurrence({
   factSourceRoot,
   objectUid,
   observation,
   observationAt,
+  evidence,
   sessionSignature,
 }) {
   if (!isNonEmptyString(objectUid)) return failure("invalid_request", "objectUid is required");
@@ -270,6 +282,10 @@ export async function supplementOccurrence({
   // 现象段扩展：追加本次观察来源。26 §8 要求 occurrence 载体内聚——正文现象段
   // 须含首次观察来源；此处扩展的是重复观察的记录，保留既有内容不动。
   //
+  // **2026-11-01：追加内容必须含逐字引证**（与晋升路径同一条纪律，见函数头）。
+  // 只写 `补充观察（时间）：<一句话>` 会使该次观察的原文在缓冲条目被移除后永久丢失。
+  // 有 `evidence` 时按「现象 + 来源 + 引证」三段写；无则退回旧形态并如实标降级。
+  //
   // **读-写契约的不对称**（实测缺陷，2026-10-12 修）：
   //   `readFrictionObject().body` 是**整份文件正文，含生成的 `# <title>` H1**；
   //   而 `updateFrictionObject({bodyMarkdownAfter})` 要的是**不含 H1 的 markdown**
@@ -280,7 +296,11 @@ export async function supplementOccurrence({
   //   回读也只比对 `count`/`last_at`。真实账本已有 3 条中招（3048937d H1=3、
   //   545cca82 H1=2、bf73fad4 H1=2，其余 21 条为 1——只有被本路径写过的才中招）。
   // 修法取 `workcase-writer.js` 的既有范式（同一读-写不对称，该类型早已按此处置）。
-  const nextBody = `${stripLeadingH1(current.value.body)}\n\n补充观察（${now}）：${observation.trim()}`;
+  const evidenceText = isNonEmptyString(evidence) ? evidence.trim() : null;
+  const addition = evidenceText === null
+    ? `补充观察（${now}）：${observation.trim()}`
+    : `补充观察（${now}）：${observation.trim()}\n逐字引证：${evidenceText}`;
+  const nextBody = `${stripLeadingH1(current.value.body)}\n\n${addition}`;
 
   const frontmatterAfter = {
     ...fm,

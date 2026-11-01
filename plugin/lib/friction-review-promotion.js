@@ -100,6 +100,16 @@ export async function runFrictionReviewPromotion({
       // 现象段里记的必须是**这一次**看到了什么——用该条目的 phenomenon（发现层
       // 已按 `same-obstacle` 态的语义填好），不是整个组的聚合描述。
       observation: entry.phenomenon,
+      // **逐字引证必须一并写入账目**（2026-11-01 修，证据链缺陷）。
+      //
+      // 原实现只传 observation，于是账目正文只多一句「补充观察（时间）：<现象>」；
+      // 而本函数随后会把该缓冲条目**整条移除**（见下方 `settleSupplementedEntries`）
+      // ——这条观察引了什么原文就再也查不回来。02 §6.1 第 3 条要求权威对象的证据自足；
+      // 11 §12bis.1 第 3 条自 2026-11-01 起把该要求从晋升路径扩到补充路径。
+      //
+      // 条目的 `evidence` 字段是「逐字片段 + 来源引用」的合成串（见 `recordObservation`），
+      // 原样传入即可——它就是发现层写进缓冲的那份，不需要二次加工。
+      evidence: typeof entry.evidence === "string" && entry.evidence.length > 0 ? entry.evidence : null,
       observationAt: entry.at,
       sessionSignature,
     });

@@ -1408,6 +1408,11 @@ export async function listFrictionObjects(args) {
       // 的指称形态，而不必在渲染点硬编码类型短名（那会形成第二权威）。
       fact_type_key: typeof frontmatter.fact_type_key === "string" ? frontmatter.fact_type_key : "",
       title: typeof frontmatter.title === "string" ? frontmatter.title : "",
+      // **`phenomenon` 必须进投影**（2026-11-01 审核 N1 修）：11 §7.1 的账本侧交付面
+      // 明列它，理由是「同一笔账的同源复观」要靠**现象句**判断，只给标题则执行体
+      // 看到的是一句提炼过的短标题，判不出这次观察是否在讲同一件事。字段一直在
+      // frontmatter 里（本函数作用域内），此前只是没被投影出来。
+      phenomenon: typeof frontmatter.phenomenon === "string" ? frontmatter.phenomenon : "",
       status,
       impact: typeof frontmatter.impact === "string" ? frontmatter.impact : "",
       attribution: typeof frontmatter.attribution === "string" ? frontmatter.attribution : undefined,
