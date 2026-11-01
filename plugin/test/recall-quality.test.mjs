@@ -35,6 +35,7 @@ import test from "node:test";
 import { join } from "node:path";
 
 import { recallForAction, INJECTION_EXCLUDED_TYPES } from "../lib/source-recall.js";
+import { skipWithoutCorpus } from "./helpers.mjs";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 
@@ -172,7 +173,8 @@ const BASELINE = {
   limit3: { lines: 65, relevant: 6, hits: 6, topicCases: 8, quietClean: 1 },
 };
 
-test("质量基线（limit=3）：精确率与命中数不得低于记录值", async () => {
+test("质量基线（limit=3）：精确率与命中数不得低于记录值", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
   const s = await runSuite(3);
   // 先打印可读摘要，失败时便于定位（node:test 会带上 stdout）。
   const detail = s.rows

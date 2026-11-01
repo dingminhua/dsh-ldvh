@@ -29,6 +29,7 @@ import {
 } from "../lib/goal-writer.js";
 import { authoritativeSignature } from "../lib/signature-channel.js";
 import { seedSubGoals, subGoalUid, withTemp } from "./helpers.mjs";
+import { skipWithoutCorpus } from "./helpers.mjs";
 
 const SIG = authoritativeSignature({ provider: "test-provider", model: "test-model" });
 
@@ -473,7 +474,8 @@ test("splitBodySections returns the H2 sections in order", () => {
 	assert.equal(s[0].text, "aaa");
 });
 
-test("readServableSubGoals reports the real repo sub-goals (integration)", async () => {
+test("readServableSubGoals reports the real repo sub-goals (integration)", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// The repository's own goal.md must parse under this writer's contract —
 	// otherwise the writer and the live carrier disagree.
 	const root = fileURLToPath(new URL("../../ldvh-base", import.meta.url));

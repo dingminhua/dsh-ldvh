@@ -5,7 +5,7 @@
 // ever writes outside its own temporary area.
 import { execFile } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -251,4 +251,67 @@ export async function seedSubGoals(factSourceRoot, anchors = ["SG-1", "SG-2"], {
 		await writeFile(join(factSourceRoot, "subgoals", `subgoal-${uid}.md`), `---\n${fm}\n---\n\n${body}`, "utf8");
 	}
 	return byLabel;
+}
+
+// ---------------------------------------------------------------------------
+// 仓库自带语料（`ldvh-base/` + `specs/`）的存在性守卫
+//
+// 一批召回/注入用例把**本仓库自己的事实源与规范源**当作被测语料：它们断言「真实
+// 语料里能召回某条教训」「注入行的实测百分比与当前语料一致」等。这类断言的被测
+// 对象是仓库内容，不是代码——因此语料缺席时它们必然红，而红的不是代码缺陷。
+//
+// 语料为什么可能缺席：`main` 是发布线，按 adr-62d3e2d8 其树**不含事实对象**，故
+// 从 `main` 单独取树（或任何只包含发布产物的检出）里没有 `ldvh-base/`。
+//
+// 处理纪律（两半缺一不可）：
+//   1. 语料缺席 ⇒ 相关用例**如实 skip**，并在跳过消息里点名缺的是哪一侧。不得
+//      改断言去迁就（那会把「语料在不在」变成静默变化）。
+//   2. 语料缺席这件事本身**必须有一条反向用例守住**（见 `corpus.test.mjs`）：
+//      在 `dev` 这类承载语料的树上，语料缺失即报错。否则第 1 条就成了「谁也
+//      不知道语料还在不在」的掩护——语料被误删时全绿。
+// ---------------------------------------------------------------------------
+
+/** 仓库根（`plugin/test` 上溯两级）。与既有用例里的 `ROOT` 同值。 */
+export const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+
+/**
+ * 返回缺失的语料目录名（`ldvh-base` / `specs` 的子集）；空数组表示语料齐备。
+ *
+ * 检查的是**目录是否存在且含 `.md` 载体**，不是「目录存在」——一个空目录同样
+ * 无法支撑任何「真实语料能召回 X」的断言。
+ */
+export async function missingCorpus(root = repoRoot) {
+	const missing = [];
+	for (const rel of ["ldvh-base", "specs"]) {
+		const dir = join(root, rel);
+		let names = [];
+		try {
+			names = await readdir(dir);
+		} catch {
+			missing.push(rel);
+			continue;
+		}
+		if (!names.some((n) => n.endsWith(".md"))) missing.push(rel);
+	}
+	return missing;
+}
+
+/**
+ * `missingCorpus` 的布尔便捷形式——供 `t.skip()` 的判定使用。
+ */
+export async function hasCorpus(root = repoRoot) {
+	return (await missingCorpus(root)).length === 0;
+}
+
+/**
+ * 语料缺席时 `t.skip()` 并返回 `true`（调用方据此提前 `return`）。
+ *
+ * 用法：`if (await skipWithoutCorpus(t)) return;`
+ */
+export async function skipWithoutCorpus(t, root = repoRoot) {
+	const missing = await missingCorpus(root);
+	if (missing.length === 0) return false;
+	t.skip(`仓库自带语料缺席（缺 ${missing.join(" / ")}）：本用例的被测对象是仓库内容而非代码，` +
+		`语料不在的检出任（如 main 发布线，adr-62d3e2d8）不应判为代码缺陷`);
+	return true;
 }

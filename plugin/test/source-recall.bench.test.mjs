@@ -21,6 +21,7 @@ import test from "node:test";
 import { join } from "node:path";
 
 import { recallForAction } from "../lib/source-recall.js";
+import { skipWithoutCorpus } from "./helpers.mjs";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 
@@ -144,7 +145,8 @@ test("基准：纯读取不触发召回（34 §6 排除条件）", async () => {
 	}
 });
 
-test("基准：事实源侧必须能召回真实踩过的教训（不是只有规范）", async () => {
+test("基准：事实源侧必须能召回真实踩过的教训（不是只有规范）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 这三条是本项目真实发生过的事故，应在相应查询下被召回。
 	const cases = [
 		{ q: "Web 页面白屏了", want: "白屏" },

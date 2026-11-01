@@ -35,6 +35,7 @@ import {
 	compareFactHits,
 } from "../lib/source-recall.js";
 import { RECALL_RENDER_CHAR_LIMIT, renderCharLimitFor } from "../lib/recall-injection.js";
+import { skipWithoutCorpus } from "./helpers.mjs";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 // 本文件内统一用 `joinPath` 指代 `join`（与 lib 中的命名一致，避免与测试变量重名）。
@@ -148,7 +149,8 @@ test("loadSpecs：载入规范源，字段与标题行可取", async () => {
 	assert.ok(first.path.startsWith("specs/"));
 });
 
-test("loadFacts：载入事实源，类型名取 fact_type_key（不从目录猜单复数）", async () => {
+test("loadFacts：载入事实源，类型名取 fact_type_key（不从目录猜单复数）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	const facts = await loadFacts(join(ROOT, "ldvh-base"));
 	// **2026-10-30 改写**：原断言为 `facts.length >= 200`（「应有数百个对象」）。
 	// 两重问题：(a) 与上一条同型——规模阈值会在语料缩水时红，坏的不是代码；
@@ -245,7 +247,8 @@ test("recallForAction：返回 specs 与 facts，且不声称适用（34 §13）
 	assert.match(r.coverage, /may miss/);
 });
 
-test("recallForAction：经验（Pitfall）能被召回到", async () => {
+test("recallForAction：经验（Pitfall）能被召回到", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	const r = await recallForAction({ action: "验证手段在骗我，校验假定与语义不对应", root: ROOT });
 	const pitfallHits = r.facts.filter((f) => f.type === "pitfall");
 	assert.ok(pitfallHits.length > 0, `经验应被召回到，实际 facts=${r.facts.length}`);
@@ -300,7 +303,8 @@ test("recallForAction：预算超限时如实标 truncated，不静默", async (
 	}
 });
 
-test("recallForAction：includeSpecs=false 时不回规范源", async () => {
+test("recallForAction：includeSpecs=false 时不回规范源", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	const r = await recallForAction({
 		action: "校验验证", root: ROOT, includeSpecs: false,
 	});
@@ -961,7 +965,8 @@ test("limitations 须如实披露词法匹配的固有边界", async () => {
 	);
 });
 
-test("能力边界须在渲染行里让读者看见（未命中不代表没有同类教训）", async () => {
+test("能力边界须在渲染行里让读者看见（未命中不代表没有同类教训）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	const { renderRecallRow } = await import("../lib/recall-injection.js");
 	const r = await recallForAction({ action: "页面白屏了", root: ROOT, limit: 2 });
 	const row = renderRecallRow(r);
@@ -994,7 +999,8 @@ test("弱命中不得抢占强命中的名额（实测：limit=3 时 2 弱命中
 	assert.ok(all.specs.some(weak), "弱命中仍须保留在候选中，只是排后");
 });
 
-test("弱命中仍是候选，不得因排序改动而被丢弃", async () => {
+test("弱命中仍是候选，不得因排序改动而被丢弃", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	const r = await recallForAction({ action: "改一下", root: ROOT, limit: 5, budgetBytes: 40000 });
 	// 「改一下」只有单字，命中必然都是弱命中——它们必须仍然出现。
 	assert.ok(r.facts.length > 0, "短指令的弱命中不得被丢弃");
@@ -1196,7 +1202,8 @@ test("类型点名层只对规范生效，不得作用于事实（实测回归�
 	// 两条同时红，而它们守的排序行为其实没坏。保留前一条即可。
 });
 
-test("默认事实类型须为 ADR/Pitfall（03 §6.1 标准路径的明示要求）", async () => {
+test("默认事实类型须为 ADR/Pitfall（03 §6.1 标准路径的明示要求）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 03 §6.1 标准路径逐字：「完成适用来源要求的行动前事实预检；召回时机成立时，
 	// 按相应来源完成所需的 **ADR/Pitfall 召回**」。
 	// 此前默认召回全部类型，实测「写一个 ADR」limit=3 时两条事实**全是 research**，
@@ -1389,7 +1396,8 @@ test("02 §9.2：每张候选卡须带来源与内容指纹", async () => {
 	}
 });
 
-test("02 §9.2：内容指纹须覆盖**全文**，不得只盖截断后的片段", async () => {
+test("02 §9.2：内容指纹须覆盖**全文**，不得只盖截断后的片段", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 实测缺陷：事实卡指纹原用 `body`（正文前 1200 字截断）计算。某 ADR 真实
 	// 3796 字符，body 只 1200——后 2596 字符的内容变化对指纹完全不可见，
 	// 而指纹声明 coversContent: true，属**过度声明**。
@@ -1439,7 +1447,8 @@ test("uncheckedRange 的分类须与 candidatesExcluded 自洽", async () => {
 	assert.equal(sum, r.counts.candidatesExcluded, "三类之和须等于被排除总数");
 });
 
-test("candidatesScanned 须反映**实际参与匹配**的候选数（防御性：曾恒为常量）", async () => {
+test("candidatesScanned 须反映**实际参与匹配**的候选数（防御性：曾恒为常量）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 实测缺陷：曾写作 `specs.length + facts.length`，其中 facts 是**过滤前**全量，
 	// 于是无论 types 怎么过滤它恒为 337。现应为 specs.length + pool.length。
 	const wide = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
@@ -1456,7 +1465,8 @@ test("candidatesScanned 须反映**实际参与匹配**的候选数（防御性�
 	assert.ok(narrow.counts.candidatesExcluded > wide.counts.candidatesExcluded, "被排除数应增加");
 });
 
-test("includeSpecs:false 时须把「规范源未读」列入未检查范围", async () => {
+test("includeSpecs:false 时须把「规范源未读」列入未检查范围", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 控制组：默认读规范源 → 该列为空（不得声称未读）。
 	const withSpecs = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 3 });
 	assert.deepEqual(withSpecs.uncheckedRange.sourceNotRead, [], "读规范源时不得声称未读");
@@ -1491,7 +1501,8 @@ test("保底不得按源各自触发（曾致总用量超预算）", async () =>
 	}
 });
 
-test("双源须各得份额：不得让规范占满预算致事实恒为 0", async () => {
+test("双源须各得份额：不得让规范占满预算致事实恒为 0", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 实测缺陷：规范先占满预算（3 条 ≈2073 字节，预算 2400），而单条事实最小
 	// 需 451 字节——剩 327 不够，事实**永远为 0 条**。可「双源召回」本意是两源
 	// 都要有；只有规范没有事实等于退化成单源。
@@ -1631,7 +1642,8 @@ test("正文层仍须能命中真正写在正文里的术语", async () => {
 	);
 });
 
-test("事实正文须全文参与匹配：不得截断掉「规避/验证」等后半段章节", async () => {
+test("事实正文须全文参与匹配：不得截断掉「规避/验证」等后半段章节", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 实测缺陷（2026-10-24）：事实正文原只匹配前 1200 字符。抽查 50 条，
 	// **56% 的正文超过 1200 字符**；某条 Pitfall 正文 4707 字符，而
 	// 「解决」「规避」「验证」「影响与适用范围」四节全在 1200 之后——
@@ -1660,7 +1672,8 @@ test("事实正文须全文参与匹配：不得截断掉「规避/验证」等�
 	);
 });
 
-test("trigger_signal 须参与匹配（不得读进变量却不用）", async () => {
+test("trigger_signal 须参与匹配（不得读进变量却不用）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 2026-10-24 修：trigger_signal 原被单独读进 `trigger` 字段，
 	// 但**从未参与任何匹配层**——等于「重新审视信号」对召回不可见。
 	//
@@ -1680,7 +1693,8 @@ test("trigger_signal 须参与匹配（不得读进变量却不用）", async ()
 	}
 });
 
-test("默认候选状态须按类型取，不得统一写死 active（20–27 各自规定）", async () => {
+test("默认候选状态须按类型取，不得统一写死 active（20–27 各自规定）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 实测缺陷（2026-10-24）：默认状态原写死 ["active"]，而多数类型**没有**
 	// active 这个状态——结果它们默认一条都召回不到：
 	//   Spark 默认是 open（34 条不可见）、WorkCase 是 draft+open（36 条全不可见）、
@@ -1785,7 +1799,8 @@ test("须给出 F0 层：类型/状态计数使「有多少在等」不依赖查
 	);
 });
 
-test("F2 须给出「有界确定性摘录」，否则候选无法筛选", async () => {
+test("F2 须给出「有界确定性摘录」，否则候选无法筛选", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// `02 §9.1` 对 F2 的定义含「候选卡、命中依据和**有界确定性摘录**」，
 	// 用途是「筛选少量候选并**选择 F3**」。只给 title + path，读者无法筛选，
 	// 只能逐个打开全文——F2 就失去了分层意义。
@@ -2215,7 +2230,8 @@ test("事实正文层也须剥离 frontmatter（object_uid 判据）", async () 
 	}
 });
 
-test("候选的 tier 须说明它不是 F 层也不是 L 层（02 §9.1 禁止混用）", async () => {
+test("候选的 tier 须说明它不是 F 层也不是 L 层（02 §9.1 禁止混用）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 实测缺陷（2026-10-24，第 68 轮）：本文件里 `tier` 一词有**三种**含义——
 	// 语料回退来源（project/source-repo/package）、匹配层（数值 0–4）、
 	// 以及候选对象上的暴露值（等于匹配层）。
@@ -2805,7 +2821,8 @@ test("tokenize 是段内的：拼接串的 token 集等于各段 token 集之并
 	}
 });
 
-test("语料缓存：同一份语料二次加载须复用同一解析产物（缓存确实生效）", async () => {
+test("语料缓存：同一份语料二次加载须复用同一解析产物（缓存确实生效）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// **本条替换掉一条零检测力断言**（`06 §5`，2026-10-31）。
 	//
 	// 原断言是「同一份语料两次召回须逐字节一致」。实做变异：把 `TOKEN_CACHE`

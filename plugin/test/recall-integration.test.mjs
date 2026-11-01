@@ -19,6 +19,7 @@ import {
 	recallForAction,
 } from "../lib/source-recall.js";
 import { buildRecallInjection, renderRecallRow } from "../lib/recall-injection.js";
+import { skipWithoutCorpus } from "./helpers.mjs";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 // **默认按注入路径的声明范围调用**（2026-10-30）：`q` 是「模拟一次注入会看到什么」
@@ -30,7 +31,8 @@ const ROOT = join(import.meta.dirname, "..", "..");
 // 实现无退化。需要**直调路径**语义的用例须显式覆盖 `excludeTypes: undefined`。
 const q = (o) => recallForAction({ root: ROOT, excludeTypes: INJECTION_EXCLUDED_TYPES, ...o });
 
-test("集成：历轮修复须同时成立（跨文件交互不得互相破坏）", async () => {
+test("集成：历轮修复须同时成立（跨文件交互不得互相破坏）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 第 16 轮：短指令仍能召回（单字兜底路径）。
 	for (const t of ["改一下", "删了", "加个"]) {
 		const r = await buildRecallInjection({ userText: t, projectRoot: ROOT });

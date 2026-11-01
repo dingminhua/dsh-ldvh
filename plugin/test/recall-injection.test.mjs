@@ -26,6 +26,7 @@ import {
 	shouldRecall,
 } from "../lib/recall-injection.js";
 import { recallForAction, RECALL_DIRECT_BYTE_BUDGET } from "../lib/source-recall.js";
+import { skipWithoutCorpus } from "./helpers.mjs";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 
@@ -598,7 +599,8 @@ test("M-20：注入路径与直调路径的两个预算常量不得互相代入�
 	assert.equal(RECALL_BYTE_BUDGET, 2400, "注入路径预算锚定 2400（10 §5.3 引导面预算）");
 });
 
-test("渲染行须显示候选摘录（数据层有而渲染不显示 = 读者仍看不到）", async () => {
+test("渲染行须显示候选摘录（数据层有而渲染不显示 = 读者仍看不到）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// `02 §9.1` F2 要求「有界确定性摘录」。数据层加了 excerpt 但渲染层不显示时，
 	// 读者依然只能看到 title + path，F2 的分层意义丢失。
 	const r = await buildRecallInjection({
@@ -695,7 +697,8 @@ test("N-6：字符硬上限路径不得裁掉三态披露行（统一从尾部�
 	assert.ok(candidateLines > 0, "候选行不应被裁光（只裁到满足上限为止）");
 });
 
-test("N-7：字节兜底裁剪须反映到 result.render.truncated 与 droppedCandidates", async () => {
+test("N-7：字节兜底裁剪须反映到 result.render.truncated 与 droppedCandidates", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 第七次复审 N-7：旧 renderTruncated 正则只认字符上限文案，字节兜底裁剪
 	// 被漏报成 truncated:false（文本已裁、字段说未裁——机器可读面撒谎）。
 	// 统一裁剪后说明行为「渲染层按硬约束…裁去 N 条候选」，字段由它派生。
@@ -721,7 +724,8 @@ test("N-7：字节兜底裁剪须反映到 result.render.truncated 与 droppedCa
 	);
 });
 
-test("N-8：三态披露行须含「被过滤」类别且按非零类别分列（34 §12 逐类清单）", async () => {
+test("N-8：三态披露行须含「被过滤」类别且按非零类别分列（34 §12 逐类清单）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 第七次复审 N-8：34 §12「未检查范围须逐类列出：哪些来源未读取、哪些候选
 	// 被类型／状态过滤挡掉、哪些因预算或条数未返回」——第三类由截断归因行承载，
 	// 第一类由 N-5 的未读取源承载，第二类此前在注入面缺失（数据层有
@@ -793,7 +797,8 @@ test("渲染裁剪须可观察（02 §9.1「截断必须可观察」）", async 
 	assert.equal(typeof big.result.truncated, "boolean", "数据侧截断字段须独立存在");
 });
 
-test("渲染行不得宣称过时的实测百分比（旧值 43% 已与现状 100% 相差巨大）", async () => {
+test("渲染行不得宣称过时的实测百分比（旧值 43% 已与现状 100% 相差巨大）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 实测缺陷（2026-10-24）：渲染行每回合都宣称「用 Pitfall 症状召回自身仅 43%
 	// （13/30）」。那是**第 46 轮之前**（正文只匹配前 1200 字符时）的测量；
 	// 改为全文匹配后复测为 **23/23 = 100%**（22 条靠 tier 1、1 条靠 tier 4）。
@@ -812,7 +817,8 @@ test("渲染行不得宣称过时的实测百分比（旧值 43% 已与现状 10
 	assert.match(r.text, /未命中不代表没有同类教训/, "结构性边界须保留");
 });
 
-test("数据侧实测值须与当前实现一致（症状→自身召回）", async () => {
+test("数据侧实测值须与当前实现一致（症状→自身召回）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	const { recallForAction } = await import("../lib/source-recall.js");
 	const { loadFacts } = await import("../lib/source-recall.js");
 	const facts = await loadFacts(join(ROOT, "ldvh-base"));
@@ -1013,7 +1019,8 @@ test("注入文本的实际字节数不得超预算（10:241「未超 LDVH 侧�
 // 就取决于当回合用词——实测「每次回复先称呼老丁」在「改成异步的」上零召回。
 // ---------------------------------------------------------------------------
 
-test("F1 基线：法定决策不得靠词面运气——零词法命中时基线仍须出现", async () => {
+test("F1 基线：法定决策不得靠词面运气——零词法命中时基线仍须出现", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 这条用例钉住方案 A 的全部意义所在：**词法候选为 0 时基线仍须交付**。
 	// 而它是法定效力决定，违背它视同违背规范源（22 §1）。若基线随词法命中
 	// 一起缺席，义务召回悬空。
@@ -1045,7 +1052,8 @@ test("F1 基线：法定决策不得靠词面运气——零词法命中时基�
 	assert.match(r.text, /^· /m, "基线行用 `· ` 前缀（与候选 `- ` 区分，不被裁剪）");
 });
 
-test("F1 基线：常驻不等于适用——须带「不证明适用」声明（02 §9.2／34 §13）", async () => {
+test("F1 基线：常驻不等于适用——须带「不证明适用」声明（02 §9.2／34 §13）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 3 });
 	assert.equal(r.inject, true);
 	assert.match(r.text, /基线只保证「看得见」，\*\*不证明适用\*\*/, "须显式否定适用性");
@@ -1085,7 +1093,8 @@ test("F1 基线：超出字节上限时须如实计数披露，不得静默截�
 	assert.match(row, /\*\*未列出不代表不存在\*\*/, "须否定「未列出=不存在」");
 });
 
-test("F1 基线：基线字节已从候选预算中扣除（不得挤占后仍声称未超预算）", async () => {
+test("F1 基线：基线字节已从候选预算中扣除（不得挤占后仍声称未超预算）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 若基线不预留，预算按「只有候选」分配，实际注入时基线再挤进来——
 	// 表现为候选被多裁且裁剪原因归错。本用例钉住：总字节仍 ≤ 预算，
 	// 且数据层如实给出基线预留量。
@@ -1104,7 +1113,8 @@ test("F1 基线：同一事实集两次调用须逐字节一致（确定性排�
 	assert.deepEqual(titlesA, titlesB, "基线顺序须确定（不引入相似度/权重）");
 });
 
-test("F1 基线：预留量须与实际基线段字节相符（不得欠预留）", async () => {
+test("F1 基线：预留量须与实际基线段字节相符（不得欠预留）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 第四十次审核 Minor-2：数据层预留 400 字节、渲染层实际输出 473 字节，
 	// 欠预留 73 字节——正是「预算按 A 算、交付按 B 算」。本用例钉住两者相符。
 	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 99, budgetBytes: 2400 });
@@ -1139,7 +1149,8 @@ test("F1 基线：retired ADR 不入基线（合成 retired 才具分辨力）",
 	assert.ok(!row.includes("已退役决策"), "retired 不得出现");
 });
 
-test("F1 基线：极小预算下让位须在数据层可观察（不得只剩注释）", async () => {
+test("F1 基线：极小预算下让位须在数据层可观察（不得只剩注释）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	// 第四十次审核 Minor-3：让位在注入文本与数据层均无可观察痕迹。
 	// 现数据层给出 reservedBytes=0 且 items 仍非空——「有基线但未展开」可机械判定。
 	const r = await buildRecallInjection({ userText: "把 34 号规范改名成双源召回", projectRoot: ROOT, limit: 3, budgetBytes: 900 });
@@ -1149,7 +1160,8 @@ test("F1 基线：极小预算下让位须在数据层可观察（不得只剩�
 	assert.ok(!/^【决策基线/m.test(r.text), "注入面不得出现基线段");
 });
 
-test("F1 基线：不受 types/statuses/limit 过滤影响（note 声称须有用例守住）", async () => {
+test("F1 基线：不受 types/statuses/limit 过滤影响（note 声称须有用例守住）", async (t) => {
+	if (await skipWithoutCorpus(t)) return;
 	const configs = [
 		{ types: ["pitfall"] },
 		{ statuses: ["retired"] },
