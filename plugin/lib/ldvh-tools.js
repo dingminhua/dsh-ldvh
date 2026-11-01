@@ -40,6 +40,7 @@ import { registerFrictionTools } from "./friction-tools.js";
 import { registerNormTools } from "./norm-tools.js";
 import { registerGoalTools } from "./goal-tools.js";
 import { registerSubGoalTools } from "./subgoal-tools.js";
+import { registerDevLogTools } from "./devlog-tools.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -1741,6 +1742,11 @@ export function registerLdvhTools(ctx, deps) {
   // downstream `serves` resolves against; carries anchor uniqueness (28 §6.2)
   // and `parent_goal` resolution (28 §14.1) before any write.
   disposers.push(registerSubGoalTools(ctx, deps));
+  // DevLog mechanical layer (specs/29 writer) — the process-knowledge conclusion
+  // entries: five fixed H2 sections, `summary` as a live semantic snapshot
+  // (29 §9.3 细化/替换 分档), serve-or-empty topic, and three terminal states
+  // whose `absorbed` form is COMPRESSED.
+  disposers.push(registerDevLogTools(ctx, deps));
   return () => {
     for (const dispose of disposers) {
       try { dispose(); } catch { /* already removed */ }
