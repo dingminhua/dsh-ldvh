@@ -217,6 +217,20 @@ test('导航与图标：subgoal 有项目态与联邦态入口，图标色相独
 
   assert.match(sidebar, /'\/objects\/subgoal'/, '项目态导航应有 subgoal 入口');
   assert.match(sidebar, /'\/federation\/objects\/subgoal'/, '联邦态导航应有 subgoal 入口');
+
+  // 位置：紧接「聚焦」（Human 定案 2026-11-01「子目标放在聚焦后」）。
+  // 项目态与联邦态两个数组都要满足，否则两处导航次序会分叉。
+  const navBlock = sidebar.slice(sidebar.indexOf('const NAV_ITEMS'), sidebar.indexOf('const FEDERATION_NAV_ITEMS'));
+  const fedBlock = sidebar.slice(sidebar.indexOf('const FEDERATION_NAV_ITEMS'));
+  for (const [name, block, prefix] of [['项目态', navBlock, '/objects/subgoal'], ['联邦态', fedBlock, '/federation/objects/subgoal']] as const) {
+    const first = block.indexOf("labelKey: 'nav.cognition'");
+    const at = block.indexOf(prefix);
+    assert.ok(first >= 0 && at > first, `${name}导航应有 subgoal 且排在聚焦之后`);
+    // 聚焦与子目标之间除空白与注释外不得夹其它入口。
+    const between = block.slice(first, at);
+    const otherEntries = between.match(/\{ to:/g) ?? [];
+    assert.equal(otherEntries.length, 1, `${name}导航中 subgoal 应紧接聚焦（中间不得夹其它入口）`);
+  }
   assert.match(icons, /subgoal: Milestone/, '应登记 subgoal 图标');
   // 前后端色值必须一致（typeColors 注释也要求对齐）。
   const front = /subgoal: '(#[0-9a-f]{6})'/.exec(categoryColors);
