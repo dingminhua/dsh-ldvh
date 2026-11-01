@@ -5,7 +5,8 @@
  * - Pitfall 决策字段块（琥珀·卡面）——ObjectList
  * - Friction 现象块（琥珀·卡面）——ObjectList
  * - Norm 方向键块（紫·卡面 truncate / 详情面 break-all）——ObjectList + FactReadingLayouts
- * - SubGoal 锚点块（黄绿·卡面 / 详情面）——ObjectList + FactReadingLayouts（2026-11 加入，见下注）
+ * - SubGoal 锚点块（黄绿·**仅详情面**）——FactReadingLayouts
+ *   （2026-11 加入；**卡面已于 2026-11-02 退出本家族**，见 `DECISION_CARD_SHELL_CLASS` 注）
  *
  * 刻意不并入的左色条远亲（透明度与语义不同，属「状态通知」子族）：
  * - CognitionCenter 模块不可用红通知（border-red-400/25 + bg-red-500/5 + px-2.5 py-2）
@@ -14,6 +15,12 @@
  * 本家族为纯代码层约定（docs/ 无左色条/决策块锚点）；与判据面板「四边同为 1px」
  * Human 定案（specs/10:298）的关系：该定案作用域为判据面板，决策块保留左条强调。
  * 是否统一由 Human 裁决，收敛时不动视觉。
+ *
+ * **2026-11-02 更新：子目标卡面已并入判据面板那一侧**（Human 定案「样式对齐
+ * workcase 的，左侧的线条不要加粗」）——它改用 `WORKCASE_SURFACE_GEOMETRY_CLASS`
+ * 的四边同宽形态，故退出本家族。本家族现在只覆盖**卡面 amber/violet** 与
+ * **详情面 neutral/lime** 四条壳；「决策块是否整体并入判据面板」这一争议对其余
+ * 四条仍未裁决，本文件的立场仍是「收敛时不动视觉」。
  */
 
 /**
@@ -29,11 +36,19 @@
  * **加入成本已付**：`structure-single-source-contract` 的
  * `DECISION_SHELL_SEGMENTS` / `DECISION_TITLE_HUE_CLASS` 均按色相逐条登记，
  * 新增色相必须同步该守卫（否则守卫只验证旧两色、新色相可自由漂移）。
+ *
+ * **`lime` 已退出本常量（2026-11-02，Human 定案）**：子目标**卡面**的判据框改为
+ * 「对齐 WorkCase」——四边同宽 1px、无左粗线、无染色底，直接复用
+ * `WORKCASE_SURFACE_GEOMETRY_CLASS`。左色条一旦撤掉，这枚壳就不再属于本家族
+ * （本家族的定义特征正是左色条），留着它只是一个没人消费的死常量，故整条删除。
+ * **`DECISION_TITLE_HUE_CLASS.lime` 保留**：子目标**详情面**锚点块仍在用，
+ * 该处不在本次定案范围内。子目标因此成为「卡面不用左色条、详情面仍用」的唯一
+ * 类型——这是分岔而非漂移：卡面是扫读窗口，跟着判据面板的既定形态走；详情面是
+ * 阅读面，保留类型色锚点。
  */
-export const DECISION_CARD_SHELL_CLASS: Record<'amber' | 'violet' | 'lime', string> = {
+export const DECISION_CARD_SHELL_CLASS: Record<'amber' | 'violet', string> = {
   amber: 'min-w-0 rounded-md border border-amber-400/20 border-l-2 border-l-amber-400/70 bg-amber-500/[0.025] px-3.5 py-3',
   violet: 'min-w-0 rounded-md border border-violet-400/20 border-l-2 border-l-violet-400/70 bg-violet-500/[0.025] px-3.5 py-3',
-  lime: 'min-w-0 rounded-md border border-lime-400/20 border-l-2 border-l-lime-400/70 bg-lime-500/[0.025] px-3.5 py-3',
 };
 
 /** 详情面壳（Norm 方向键）：中性壳 + 类型色左条——详情面不整面染色（卡/详情面分岔，与 specs/10:300 密度分岔同源）。 */

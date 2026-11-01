@@ -51,6 +51,16 @@ export const WORKCASE_CRITERIA_SURFACE_CLASS =
   `${WORKCASE_SURFACE_GEOMETRY_CLASS} border-blue-400/20 bg-blue-500/[0.025] dark:bg-blue-950/20`;
 
 /**
+ * 判据面的**正文字相**（蓝面配蓝灰正文，`docs/04:80`「蓝色标准与预期」）。
+ *
+ * 为什么导出：子目标卡的判据面（`ObjectList` 的 `SubGoalActiveCardBody`）2026-11-02
+ * 起与本面板**共用同一个承载面**（Human 定案「样式对齐 workcase 的，左侧的线条不要
+ * 加粗」）。面同源而正文各写一份字面量，就等于把「蓝面上的字该多深」这个问题拆成
+ * 两处答案——下一次调档只会改到其中一处。故面与正文色在此成对登记，消费方只引用。
+ */
+export const WORKCASE_CRITERIA_BODY_HUE_CLASS = 'text-blue-900/70 dark:text-blue-100/75';
+
+/**
  * **琥珀**承载面（`docs/04:82`：「"关闭提案"使用**琥珀色提案色调**」）。
  *
  * 为什么单列一个常量而不复用蓝面（Human 裁定 2026-09-24「先做一处试点」）：
@@ -176,7 +186,7 @@ export function WorkCaseCriteriaList({
                 className={`${bodyClass} ${
                   tone === 'residual'
                     ? 'text-amber-900/85 dark:text-amber-100/80'
-                    : 'text-blue-900/70 dark:text-blue-100/75'
+                    : WORKCASE_CRITERIA_BODY_HUE_CLASS
                 }`}
               />
             )}

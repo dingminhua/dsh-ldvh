@@ -378,6 +378,18 @@ test('次序呈现在卡头，与其余卡头 chip 同规格（Human 定案 2026
   assert.ok(body.length > 0, '应能定位到判据框源码段');
   assert.doesNotMatch(body, /obj\.order/, '判据框不得再读 order');
   assert.doesNotMatch(body, /subGoalOrderLabel/, '判据框不得再渲染「次序」小标题');
+  // 判据类型（「闭环记录」等）同样退出卡面（Human 定案 2026-11-02「次序 闭环记录
+  // 都不用显示」）——它是判定口径，住详情页判据锚点，卡面只回答「算什么」。
+  assert.doesNotMatch(body, /criterion_kind/, '判据框不得再读 criterion_kind');
+  assert.doesNotMatch(body, /subgoal_criterion_kind/, '判据框不得再渲染「判据类型」标题');
+
+  // 形态对齐 WorkCase 判据面（同一次定案「样式对齐 workcase 的，左侧的线条不要
+  // 加粗」）：面与正文色都取自该面板的登记，**不得**再用决策块壳（左色条家族）。
+  assert.match(body, /WORKCASE_CRITERIA_SURFACE_CLASS/, '判据框须复用 WorkCase 判据面常量');
+  assert.match(body, /WORKCASE_CRITERIA_BODY_HUE_CLASS/, '正文色须取自同一处登记（面与正文成对）');
+  assert.doesNotMatch(body, /DECISION_CARD_SHELL_CLASS/,
+    '判据框不得再用决策块壳（该类带左侧 2px 粗线，Human 明确不要）');
+  assert.doesNotMatch(body, /border-l-2/, '判据框不得出现左侧粗线');
 
   // 样式不是新发明一套：走卡头那排 chip 的同一规格（`ldvh-chip-sm` + 12px 图标 +
   // 与修改次数 chip 同色相），否则「样式对齐其他的 icon」只对了一半。

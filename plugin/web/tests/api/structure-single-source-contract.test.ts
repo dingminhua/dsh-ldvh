@@ -72,9 +72,11 @@ async function collectSourceFiles(dir: string): Promise<string[]> {
 const DECISION_SHELL_SEGMENTS: Array<[string, string[]]> = [
   ['DECISION_CARD_SHELL_CLASS.amber', ['border-amber-400/20', 'bg-amber-500/[0.025]', 'px-3.5 py-3']],
   ['DECISION_CARD_SHELL_CLASS.violet', ['border-violet-400/20', 'bg-violet-500/[0.025]', 'px-3.5 py-3']],
-  // 28 号 SubGoal 的第三色相（2026-11 加入）。按色相逐条登记的理由见
-  // decisionBlocks.ts 的模块注释：不登记则守卫只验证旧两色，新色相可自由漂移。
-  ['DECISION_CARD_SHELL_CLASS.lime', ['border-lime-400/20', 'bg-lime-500/[0.025]', 'px-3.5 py-3']],
+  // 28 号 SubGoal 的第三色相**卡面壳已于 2026-11-02 删除**（Human 定案「样式对齐
+  // workcase 的，左侧的线条不要加粗」）：子目标卡面改用 `WORKCASE_SURFACE_GEOMETRY_CLASS`
+  // 的四边同宽形态，左色条既撤，该壳就不再属于本家族。故此处不再登记
+  // `DECISION_CARD_SHELL_CLASS.lime`——登记一个已不存在的壳会让本守卫永远取不到声明行。
+  // 详情面壳与标题色相**保留登记**：子目标详情锚点块仍在用，本次定案不涉及其作用域。
   ['DECISION_DETAIL_NEUTRAL_SHELL_CLASS', ['border-ldvh-border/80', 'bg-ldvh-bg/65', 'px-3.5 py-3']],
   ['DECISION_DETAIL_LIME_SHELL_CLASS', ['border-ldvh-border/80', 'bg-ldvh-bg/65', 'px-3.5 py-3']],
 ];
@@ -214,13 +216,17 @@ test('border-l-* 只允许语义左条两族：领域归属决策块与项目识
   // 白名单按「允许出现的类名处数」而非「文件是否存在」断言：同文件内再插入一条
   // 非语义左色条（例如让导航选中态的 `border-l-4` 复活）同样会红。
   //
-  // decisionBlocks 的 6 处 = 3 个壳 × 2 段（`border-l-2` 定粗度 + `border-l-{色相}` 定色）。
   // 此处刻意用「处数」而非「含 border-l-2 即可」——后者漏掉左色相段，
   // 而左色相段本身也是左侧边框的表达，须一并纳管。
   const allowed = new Map<string, number>([
-    // amber / violet / lime 三个卡面壳 + 两个详情面壳（neutral / lime），各两段
-    //（`border-l-2` 定粗度 + `border-l-{色相}` 定色）= 5 × 2 = 10。
-    ['utils/decisionBlocks.ts', 10],
+    // amber / violet 两个卡面壳 + 两个详情面壳（neutral / lime），各两段
+    //（`border-l-2` 定粗度 + `border-l-{色相}` 定色）= 4 × 2 = 8。
+    //
+    // **2026-11-02 由 10 降至 8**：子目标**卡面**壳 `DECISION_CARD_SHELL_CLASS.lime`
+    // 已删除（Human 定案「左侧的线条不要加粗」→ 改用判据面四边同宽形态），其 2 段随之
+    // 消失。`DECISION_DETAIL_LIME_SHELL_CLASS`（详情面）仍在用，故不是 6。处数下调是
+    // 收紧而非放宽：卡面上再出现任何左粗线都会立刻越过 8。
+    ['utils/decisionBlocks.ts', 8],
     ['components/ProjectSwitcher.tsx', 1], // 项目行色条（色值走 inline style，无左色相类）
     ['pages/Federation.tsx', 1], // 项目卡色条（同上）
   ]);

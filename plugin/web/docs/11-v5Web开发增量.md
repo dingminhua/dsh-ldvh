@@ -84,6 +84,12 @@ violet 在 Norm 上表示「规则体系」，子目标既非待处置也非规�
 `DECISION_SHELL_SEGMENTS` / `DECISION_TITLE_HUE_CLASS` / `border-l-*` 白名单
 三处同步登记（白名单 6 → 10 处）。
 
+> **2026-11-02 追记：卡面那一半已撤回**（见 §4septies）。子目标**卡面**改判据面
+> 形态后，`DECISION_CARD_SHELL_CLASS.lime` 连同白名单 2 处一并消失（10 → 8）。
+> `DECISION_TITLE_HUE_CLASS.lime` 与 `DECISION_DETAIL_LIME_SHELL_CLASS` 仍在用——
+> **详情面**锚点块不在该次定案范围内。故本段「新增第三色相」仍成立，只是作用域
+> 从「卡面 + 详情面」收窄为「仅详情面」。
+
 **两条语义边界落在呈现层**（这两条不是文案偏好，是类型存在的理由）：
 
 1. **空集是歧义，不是 0%**（28 §8.1）：名下无 `serves` 指向时，卡片与详情都必须
@@ -344,3 +350,57 @@ friction 两枚 chip 之后：那两枚只在 friction 卡上渲染，故子目�
 全量 web 用例 578 → 579 全绿、`tsc -b` 通过、dist 重建；Playwright 实拍确认卡头 chip 序列
 为 子目标 / 4 / 3 / 推进中 / 闭环记录、判据框只剩「判据类型 + 达成条件」、控制台零错误。
 **未覆盖（如实登记）**：缺失态的实拍（现存四个子目标都带 `order`，未造缺失夹具）。
+
+## 4septies. 子目标判据面并入 WorkCase 判据面（2026-11-02，Human 定案）
+
+Human 定案 2026-11-02（附截图裁切子目标卡判据框：「次序 4 | 闭环记录」chip 行 + 正文）：
+「这里的样式对齐 workcase 的，左侧的线条不要加粗，此外 次序 闭环记录都不用显示」。
+
+### 形态：复用判据面常量，不自造第二套
+
+判据框的类串从 `DECISION_CARD_SHELL_CLASS.lime`（`rounded-md` + 左 2px 粗线 + 整面
+黄绿淡染 + `px-3.5 py-3`）换成 **`WORKCASE_CRITERIA_SURFACE_CLASS`**（`rounded-lg` +
+四边同宽 1px + 蓝面 + `px-3 py-2`）。实测计算样式：四边皆 `1px`、`radius 8px`、
+`padding 8px 12px`——与 WorkCase 卡面计划清单逐项相同。
+
+**为什么不新写一个「子目标判据面」常量**：判据与 WorkCase 的「计划与判据」是同一
+语义（`docs/04:80`「蓝色标准与预期」）——都是「要出现什么材料才算成立」。两侧同一
+语义配两种底色，读者会以为它们不是一回事。另造常量只是把「两套视觉」写得更整齐。
+
+**正文色也成对复用**：新增 `WORKCASE_CRITERIA_BODY_HUE_CLASS`（`text-blue-900/70
+dark:text-blue-100/75`）并让 `WorkCaseCriteriaList` 自身改用它——此前它是组件内的
+字面量。面同源而正文各写一份，等于把「蓝面上的字该多深」拆成两处答案。
+
+### 框内只剩一句判据
+
+- **`order` 不显示**：上一次定案（§4sexies）已把它移到卡头，本轮不动卡头。
+- **`criterion_kind`（「闭环记录」）不显示**：它是**判定口径**（用什么材料判），
+  卡面只回答「算什么」。两者并排时读者看到的是「两行标签 + 一句正文」，扫读成本
+  高于信息量。它住详情页判据锚点（`SubGoalReadingLayout` 的 `kindLabel` + `kindHint`），
+  28 §8 要求该字段必填，故不会因卡面不显示而在载体里消失。
+- **不画圆点**：WorkCase 判据面的圆点是「并列条目之间的分隔记号」（恒定 ≥1 条且常
+  多条）。本框恒为一句，孤零零一枚圆点会被读成「一个只写了一句的清单」。
+- **正文用 `ldvh-card-decision-body`（12px）而非 `ldvh-caption`（12px 次要色）**：
+  判据是这张卡的主要阅读对象，不是辅助信息；用次要色会让它看起来比标题更可忽略。
+
+### 连带后果：lime 卡面壳退场
+
+`DECISION_CARD_SHELL_CLASS` 从 `Record<'amber' | 'violet' | 'lime'>` 收窄为
+`Record<'amber' | 'violet'>`——该家族的定义特征就是左色条，卡面既撤左条，这枚壳
+就不再属于本家族，留着只是一个无人消费的死常量。两处守卫同步：
+`DECISION_SHELL_SEGMENTS` 删去该行、`border-l-*` 白名单 **10 → 8**（仍保留两个详情面壳）。
+
+**详情面不动**（如实登记为本次未覆盖项）：`SubGoalReadingLayout` 的锚点块仍是
+`DECISION_DETAIL_LIME_SHELL_CLASS` + 次序 chip + 判据类型 chip。Human 附的是**卡面**
+截图，详情面未被指认；且详情面是阅读面，类型色锚点在那里有定位作用。子目标因此成为
+「卡面不用左色条、详情面仍用」的唯一类型——这是分岔（卡面跟判据面板、详情面留类型
+锚点），不是漂移；若 Human 要统一，改 `FactReadingLayouts` 一处即可。
+
+### 验证
+
+`subgoal-presentation-contract.test.ts` 的次序测试扩为：判据框不得读 `criterion_kind`、
+不得用 `DECISION_CARD_SHELL_CLASS`、不得出现 `border-l-2`，且必须引用判据面与正文色
+两个常量。全量 web 用例 579 全绿、`tsc -b` 通过、dist 重建；Playwright 实拍确认判据框
+只剩一句正文、四边同宽 1px、radius 8px，控制台零错误。
+**未覆盖（如实登记）**：暗色模式实拍；`criterion` 为空的降级态实拍（现存四个子目标都
+带判据，未造空夹具）。

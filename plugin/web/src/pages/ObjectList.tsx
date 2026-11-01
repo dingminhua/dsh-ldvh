@@ -16,7 +16,7 @@ import SummaryText from '@/components/SummaryText';
 import { ObjectTypeIcon, OBJECT_TYPE_ICONS } from '@/components/SemanticIcon';
 
 const CommitRelationIcon = OBJECT_TYPE_ICONS.commit;
-import { WorkCaseCriteriaList, WORKCASE_CRITERIA_SURFACE_CLASS } from '@/components/WorkCaseCriteriaList';
+import { WorkCaseCriteriaList, WORKCASE_CRITERIA_BODY_HUE_CLASS, WORKCASE_CRITERIA_SURFACE_CLASS } from '@/components/WorkCaseCriteriaList';
 import WorkCaseGistLine from '@/components/WorkCaseGistLine';
 // 变更流水（卡片主体）：标记与归属口径来自 shared 单点，组件不自行判断。
 import WorkCaseExecFlow from '@/components/WorkCaseExecFlow';
@@ -1192,41 +1192,42 @@ export function SubGoalCardContent({ obj }: { obj: ObjectItem }) {
   );
 }
 
-/** 活跃子目标的判据框（判据类型 / 达成条件一句话）。
+/** 活跃子目标的判据面（只说一件事：这一条怎么算达成）。
  *
- * **次序已移到卡头**（Human 定案 2026-11-02「次序放到上面，样式对齐其他的 icon」）：
- * 本框只回答「这一条怎么算达成」，`order` 回答的是「这一条排第几」——后者是跨条比较的
- * 扫读要素，属卡头那排 chip 的层级。此前把次序做成框内的小标题行，等于让判据框同时
- * 承担一个与判据无关的量。 */
+ * **形态对齐 WorkCase 判据面**（Human 定案 2026-11-02：「这里的样式对齐 workcase 的，
+ * 左侧的线条不要加粗」）：直接复用 `WORKCASE_CRITERIA_SURFACE_CLASS` —— 四边同宽
+ * 1px、`rounded-lg`、`px-3 py-2`，**没有左侧 2px 粗线、不整面染类型色**。故本框
+ * 2026-11-02 起退出 `DECISION_CARD_SHELL_CLASS` 家族（该家族的定义特征正是左色条）。
+ *
+ * 为什么是蓝面而不是保留黄绿淡染：判据与 WorkCase 的「计划与判据」是**同一语义**
+ * （`docs/04:80`「蓝色标准与预期」）——都是「要出现什么材料才算成立」。两侧同一
+ * 语义却两种底色，读者会以为它们不是一回事。类型识别已由卡头那枚类型 chip 承担
+ * （`docs/01 §1.4` 第 5 条：类型色用于识别「这是什么对象」，不用于装饰正文块）。
+ *
+ * **框内只剩一句话**（Human 定案 2026-11-02「次序 闭环记录都不用显示」）：
+ * - `order` 已在卡头（同一次定案「次序放到上面」）：它是跨条比较的扫读要素。
+ * - `criterion_kind`（「闭环记录」等）不再上卡面：它是**判定口径**，回答「用什么材料
+ *   判」；卡面只回答「算什么」。两者在卡面上并排时，读者看到的是两行标签加一句正文，
+ *   扫读成本高于信息量。判定口径与其说明住详情页判据锚点（`SubGoalReadingLayout`）。
+ *   28 §8 要求该字段必填，故它不会因为卡面不显示而在载体里消失。 */
 function SubGoalActiveCardBody({ obj }: { obj: ObjectItem }) {
-  const { locale } = useI18n();
-  const criterionKind = typeof obj.criterion_kind === 'string' ? obj.criterion_kind.trim() : '';
   const criterion = typeof obj.criterion === 'string' ? obj.criterion.trim() : '';
-  const kindLabel = criterionKind
-    ? getFieldValueLabel('criterion_kind', criterionKind, locale) || criterionKind
-    : '';
+  // `criterion` 是 28 §8 的必填字段。真的为空时**不画一个空框**——空框会让读者以为
+  // 框里本该有东西而读取失败，而实际是载体不合规；详情页的字段问题区会如实报出。
+  if (!criterion) return null;
 
   return (
-    <section className={DECISION_CARD_SHELL_CLASS.lime}>
-      {kindLabel && (
-        <div className="flex min-w-0 items-center gap-2">
-          {/* 判据类型是一枚**字段值 chip**（不是小标题）：它回答「这条靠什么材料判定」，
-              与紧随其后的达成条件正文是同一件事的两半。故标题写成字段名
-              （`subgoal_criterion_kind`＝「判据类型」），不再另造「次序」式的小标题行。 */}
-          <h3 className={`ldvh-card-decision-title min-w-0 ${DECISION_TITLE_HUE_CLASS.lime}`}>
-            {getFieldLabel('subgoal_criterion_kind', locale)}
-          </h3>
-          <span className="ldvh-chip-sm min-w-0 shrink-0 border-ldvh-border bg-transparent text-ldvh-text-secondary">
-            {kindLabel}
-          </span>
-        </div>
-      )}
-      {/* 达成条件：卡片层给一句话；判据全文与判定材料在详情页（§15 详情消费）。 */}
-      {criterion && (
-        <p className={`ldvh-caption ${kindLabel ? WORKCASE_CARD_TITLE_BODY_GAP_CLASS : ''} text-ldvh-text-secondary/80`}>
-          {criterion}
-        </p>
-      )}
+    <section className={WORKCASE_CRITERIA_SURFACE_CLASS}>
+      {/* 12px 扫读档（`ldvh-card-decision-body`）与蓝面正文色，两者都取自 WorkCase
+          判据面的同一处登记：面同源而正文各写一份字面量，就是把「蓝面上的字该多深」
+          拆成两处答案，下一次调档只会改到其中一处。
+
+          **不画圆点**：WorkCase 判据面的圆点是「并列条目之间的分隔记号」（它的清单
+          恒定 ≥1 条且常有多条）。本框恒为**一句**判据，孤零零一枚圆点会被读成「一个
+          只写了一句的清单」。 */}
+      <p className={`ldvh-card-decision-body min-w-0 break-words ${WORKCASE_CRITERIA_BODY_HUE_CLASS}`}>
+        {criterion}
+      </p>
     </section>
   );
 }
