@@ -90,9 +90,25 @@ function SubGoalRow({ subGoal, onOpen }: { subGoal: SubGoalRowData; onOpen: () =
           **不整行换行**（`flex-wrap` 关掉）：整行换行会把进度组与展开按钮甩到标题
           下一行，四条子目标于是错成两种行高，扫读时「哪条走得远」对不上。改为
           **标题在自己的格子里换行**（`min-w-0 flex-1 break-words`），右边两格固定
-          宽度不动——窗口再窄，窄掉的是标题，不是标尺。 */}
+          宽度不动——窗口再窄，窄掉的是标题，不是标尺。
+
+          **行内的垂直基准是标题那一条线**（Human 2026-11-03 定案）：行内每一件
+          东西——次序 chip、状态 chip、进度组的数字、展开按钮的文字——都落在标题
+          的光心上。为此：
+          - 数字的行盒与标题同高（`leading-6`）；此前 `leading-4` 使数字的光心
+            比标题高 4px，两条基线错开；
+          - chip 外裹 24px 盒子（`h-6`），使它 18px 的盒心落在标题线上；
+          - 展开按钮内边距取 `py-0.5`，其 20px 内容盒居中后正落在标题线上。
+
+          行仍取 `items-start`（不 `items-center`）：标题换行时，各项须对齐标题的
+          **首行**，而不是整块居中到两行中间。 */}
       <div className="flex min-w-0 items-start gap-x-2 gap-y-1">
-        <SubGoalOrderBadge value={subGoal.order} />
+        {/* 次序 chip：外裹一枚 **24px 高**的盒子（`h-6`），使它自己的 18px 盒心
+            落在标题那条线上。裸放时它 18px、顶对齐，比标题的光心高 3px——三枚小
+            元素各偏一点，整行读起来就是「没对齐」（Human 2026-11-03）。 */}
+        <span className="flex h-6 shrink-0 items-center">
+          <SubGoalOrderBadge value={subGoal.order} />
+        </span>
         {/* 标题可点下钻（28 号 §1 的 V1：从目标下钻到子目标）。整行**不**可点——
             行内还有展开按钮，整行可点会让「展开」与「进详情」抢同一个点击。 */}
         <button
@@ -107,21 +123,26 @@ function SubGoalRow({ subGoal, onOpen }: { subGoal: SubGoalRowData; onOpen: () =
             （`criterion_kind`）是判定口径，不上呈现面（Human 2026-11-02「只保留判法
             即可」）。 */}
         {subGoal.status && subGoal.status !== 'active' && (
-          <StatusBadge
-            status={subGoal.status}
-            statusLabel={getObjectStatusLocale('subgoal', subGoal.status, locale)}
-            objectType="subgoal"
-            size="xs"
-            variant="compact"
-          />
+          // 同样裹 24px 盒子：状态 chip 与次序 chip 落在标题的同一条线上。
+          <span className="flex h-6 shrink-0 items-center">
+            <StatusBadge
+              status={subGoal.status}
+              statusLabel={getObjectStatusLocale('subgoal', subGoal.status, locale)}
+              objectType="subgoal"
+              size="xs"
+              variant="compact"
+            />
+          </span>
         )}
         {/* 迁移中的旧段行：显式标出，不与会话中的对象行混为一谈（25 §7 / 28 §14.2）。 */}
         {subGoal.legacy && (
-          <span
-            className="ldvh-chip-sm shrink-0 border-ldvh-border bg-transparent text-ldvh-text-secondary"
-            title={t('goalDetail.subGoalLegacy')}
-          >
-            legacy
+          <span className="flex h-6 shrink-0 items-center">
+            <span
+              className="ldvh-chip-sm shrink-0 border-ldvh-border bg-transparent text-ldvh-text-secondary"
+              title={t('goalDetail.subGoalLegacy')}
+            >
+              legacy
+            </span>
           </span>
         )}
         {/* 进度组（**收起态与展开态都常显**）：**数字在上、条在下**——竖排只占一行
@@ -161,12 +182,17 @@ function SubGoalRow({ subGoal, onOpen }: { subGoal: SubGoalRowData; onOpen: () =
           </div>
         )}
         {/* 展开/收起按钮：与子目标卡内「展开其余 N 条」同一枚形态（`SubGoalDisclosureButton`），
-            但这里的语义是「展开本行的判据与对齐说明」。 */}
+            但这里的语义是「展开本行的判据与名下工作」。
+
+            `py-0.5`：按钮内容盒（`ldvh-meta` 的 20px 行盒）居中后，光心正落在标题
+            那条线上；`py-1` 时内容盒低 2px，按钮文字比标题低半行——同一行里两处文字
+            错开半行，是最容易被眼睛抓住的那种不齐。按钮仍有 24px 高（≥ WCAG 2.2
+            的 24×24 最小目标尺寸）。 */}
         <button
           type="button"
           aria-expanded={expanded}
           onClick={() => setExpanded((current) => !current)}
-          className="flex min-w-0 shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-left ldvh-meta text-ldvh-text-secondary/85 transition-colors hover:bg-ldvh-border/25 hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
+          className="flex min-w-0 shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-left ldvh-meta text-ldvh-text-secondary/85 transition-colors hover:bg-ldvh-border/25 hover:text-ldvh-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
         >
           {expanded
             ? <ChevronUp size={12} aria-hidden="true" className="shrink-0" />

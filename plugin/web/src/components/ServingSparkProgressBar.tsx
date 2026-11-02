@@ -244,7 +244,7 @@ function InlineBar({
     // 说明「这里算不出」。下方**不画条**（分母为 0 时一条空条就是假的 0%）。
     return (
       <div className="flex w-24 shrink-0 flex-col items-center gap-1">
-        <span className={`ldvh-meta w-full min-w-0 truncate text-center ${tone}`} title={title}>
+        <span className={`ldvh-meta w-full min-w-0 truncate text-center leading-6 ${tone}`} title={title}>
           {text}
         </span>
       </div>
@@ -262,7 +262,12 @@ function InlineBar({
       <span
         // 数字**弱而小**（次级色 + 11px）：它是这一行的附属数字，不是主角——
         // 主角是标题。字号落到 11px 后标题拿到更多宽度，条也收短到 96px。
-        className="w-full min-w-0 shrink-0 truncate text-center font-mono text-[11px] leading-4 text-ldvh-text-secondary"
+        //
+        // `leading-6`：**行盒与子目标标题的行盒同高**（标题 `ldvh-body` = 14px/24px），
+        // 数字的光心才落在标题的那条水平线上。`leading-4`（16px）时数字的光心比
+        // 标题高 4px——两条基线错开，扫读时「这个数说的是哪一条」要靠位置去猜
+        // （Human 2026-11-03：「这里没垂直居中」）。
+        className="w-full min-w-0 shrink-0 truncate text-center font-mono text-[11px] leading-6 text-ldvh-text-secondary"
         title={`${progressLabel} ${implemented} / ${denominator}`}
       >
         {implemented} / {denominator}
@@ -272,14 +277,18 @@ function InlineBar({
           // 固定宽度（不是吃满剩余）：目标区整行宽达 2000px，把条拉满会让 9/30
           // 看起来像「几乎走完」，而 0/1 又变成一条细缝——比值反而更难读。
           // 固定 96px（`w-24`）让四条子目标仍共用同一把尺子。
-          className="flex h-1 w-full shrink-0 overflow-hidden rounded-full bg-ldvh-border/70"
+          //
+          // `-mt-1`：数字行盒由 16px 变 24px 后，条若顺延会被推到数字下方 10px，
+          // 中间浮着一段空白。此处收回 4px——条仍挂在数字下方（离数字墨迹约 6px），
+          // 整组高度不变（28px），行高不因这次对齐而长一截。
+          className="-mt-1 flex h-1 w-full shrink-0 overflow-hidden rounded-full bg-ldvh-border/70"
           role="img"
           aria-label={`${progressLabel} ${implemented} / ${denominator}`}
         >
           <div className="h-full shrink-0 bg-ldvh-accent/85" style={{ width: `${ratioPct}%` }} />
         </div>
       ) : (
-        <span className="h-1 w-full shrink-0" aria-hidden="true" />
+        <span className="-mt-1 h-1 w-full shrink-0" aria-hidden="true" />
       )}
       {unknownStatus > 0 && (
         <span

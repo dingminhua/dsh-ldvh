@@ -289,7 +289,7 @@ test('目标区行内进度组：数字弱而小、居中，条更短；展开�
   //
   // 比值是这一行的**附属信息**，主角是子目标标题。此前数字取主色 12px，视觉权重
   // 与标题相仿；收弱、收小、居中之后，读者先读标题再读分数。
-  assert.match(inlineSource, /font-mono text-\[11px\] leading-4 text-ldvh-text-secondary/,
+  assert.match(inlineSource, /font-mono text-\[11px\] leading-6 text-ldvh-text-secondary/,
     '行内数字须取次级色 + 11px（弱而小）');
   assert.doesNotMatch(inlineSource, /text-ldvh-text-primary/, '行内数字不得取主色（那是标题的权重）');
   assert.match(inlineSource, /text-center/, '行内数字须在条上方居中');
@@ -333,4 +333,44 @@ test('目标区行内进度组：数字弱而小、居中，条更短；展开�
   );
   assert.match(goalSection, /flex min-w-0 items-start gap-x-2 gap-y-1/, '标题行须顶对齐且不换行');
   assert.match(goalSection, /ldvh-body min-w-0 flex-1 break-words/, '标题须可换行');
+});
+
+test('目标区行内垂直基准＝标题那一条线（2026-11-03 定案）', () => {
+  const goalSection = read('src/components/GoalSection.tsx');
+  const bar = read('src/components/ServingSparkProgressBar.tsx');
+  const inlineSource = bar.slice(bar.indexOf('function InlineBar'));
+
+  // ## 数字的行盒与标题的行盒同高
+  //
+  // 标题是 `ldvh-body`（14px/24px）；数字此前取 `leading-4`（16px），光心比标题
+  // 高 4px——同一条行里两条基线错开，扫读时「这个数说的是哪一条」要靠位置去猜
+  // （Human 2026-11-03：「这里没垂直居中」）。
+  assert.match(inlineSource, /text-\[11px\] leading-6 text-ldvh-text-secondary/,
+    '行内数字的行盒须与标题同高（leading-6）');
+  // 短词分支（「空集」「已处置」「读不到」）占的是数字那一格，须同样落在标题线上。
+  assert.match(inlineSource, /text-center leading-6 \$\{tone\}/, '行内短词须与标题同高且居中');
+  // 数字行盒变高后，条若顺延会被推离数字 10px，中间浮一段空白：收回 4px，
+  // 整组高度（28px）与行高不变。
+  assert.match(inlineSource, /-mt-1 flex h-1 w-full/, '行内条须上提，不因数字变高而拉长整组');
+
+  // ## chip 外裹 24px 盒子
+  //
+  // `ldvh-chip-sm` 是 18px 高的盒子。裸放时它顶对齐于 24px 的标题行盒，盒心比
+  // 标题光心高 3px——次序 chip、状态 chip 各偏一点，整行读起来就是「没对齐」。
+  const chipBoxes = goalSection.match(/<span className="flex h-6 shrink-0 items-center">/g) ?? [];
+  assert.ok(chipBoxes.length >= 3, '次序 chip、状态 chip、legacy chip 须各自裹一枚 24px 盒子');
+  assert.match(goalSection, /<span className="flex h-6 shrink-0 items-center">\s*<SubGoalOrderBadge/,
+    '次序 chip 须在 24px 盒子里');
+
+  // ## 展开按钮的文字落在标题线上
+  //
+  // 按钮内容盒是 `ldvh-meta` 的 20px 行盒；`py-1` 时内容盒低 2px，按钮文字比
+  // 标题低半行——同一行里两处文字错开半行，是最容易被眼睛抓住的那种不齐。
+  assert.match(goalSection, /px-1\.5 py-0\.5/, '展开按钮内边距须取 py-0.5（按钮文字落在标题线上）');
+  assert.doesNotMatch(goalSection, /px-1\.5 py-1\b/, '展开按钮不得取 py-1（会低半行）');
+
+  // ## 行仍取 items-start（不 items-center）
+  //
+  // 标题换行时，各项须对齐标题的**首行**，而不是整块居中到两行中间。
+  assert.match(goalSection, /flex min-w-0 items-start gap-x-2 gap-y-1/, '行须顶对齐（对齐标题首行）');
 });
