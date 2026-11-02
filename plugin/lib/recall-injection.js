@@ -36,6 +36,8 @@ import {
   BASELINE_BUDGET_SHARE_DIVISOR,
   BASELINE_YIELD_BELOW_BYTES,
   INJECTION_EXCLUDED_TYPES,
+  RECALL_LIMIT_MAX,
+  RENDER_FIXED_OVERHEAD_BYTES,
   recallForAction,
 } from "./source-recall.js";
 
@@ -815,8 +817,11 @@ export function renderRecallRow(result) {
     // 已用 474，**只剩 6 字节**，确实是预算放不下。
     //
     // 故此处同样扣除渲染开销，并用与数据侧一致的「行字节」估算下一条。
-    const RENDER_OVERHEAD_BYTES = 720;
-    const remaining = limitBytes - RENDER_OVERHEAD_BYTES - usedBytes;
+    // **复用数据层的具名常量**（2026-11 修）：此处原自带一份
+    // `const RENDER_OVERHEAD_BYTES = 720;`，而 `source-recall.js` 已导出同值常量
+    // 并注明「共 4 处…现统一从此处取」。两处各自维护同一个数值，任一处改动都会
+    // 让「放不下」的归因判据与实际预算口径脱节——正是本单要修的那类失真。
+    const remaining = limitBytes - RENDER_FIXED_OVERHEAD_BYTES - usedBytes;
     const estimateLineBytes = (item) => {
       const title = typeof item?.title === "string" ? item.title : "";
       const reason = typeof item?.hitReason === "string" ? item.hitReason : "";
@@ -851,17 +856,45 @@ export function renderRecallRow(result) {
       remaining < Math.max(nextSize, 200);
     if (result.overBudget === true) {
       // 保底导致超额：必须说清「预算极小、只给了保底项」。
-      lines.push(`（预算极小（上限 ${limitBytes} 字节）已超额，仅保底给出首项（实际 ${usedBytes} 字节）。**未列出的部分不代表不存在**，需要时请扩大检索。）`);
+      lines.push(`（预算极小（上限 ${limitBytes} 字节）已超额，仅保底首项（候选行 ${usedBytes} 字节）。**未列出的部分不代表不存在**，需要时请扩大检索。）`);
     } else if (blockedByBudget) {
       // 真实原因是预算：可能用量百分比不高，但已放不下下一条。
       // 确实是被预算挡住了（用量贴近上限）。
-      lines.push(`（受预算限制已裁剪：上限 ${limitBytes} 字节，实际用 ${usedBytes} 字节。未列出的部分不代表不存在。）`);
+      lines.push(`（受预算限制已裁剪：上限 ${limitBytes} 字节，数据层估算用 ${usedBytes} 字节。未列出的部分不代表不存在。）`);
     } else {
       // 预算还很宽松 —— 说明是 **limit（条数）** 挡住的，如实说 limit。
-      // **`34 §11` 第 2 项三要素须同行**（第四十一次审核 Minor-2/3）：截断来源、
-      // 实际用量与「未返回的部分不代表不存在」。此前末者被移到三态行承接，要素
-      // 未丢但可追溯性变弱——读者读到这条截断行时，须当行即知「没列出的不是没有」。
-      lines.push(`（受条数上限（limit=${result.budget?.limit ?? "?"}）限制，仅列出前 ${(result.specs?.length ?? 0) + (result.facts?.length ?? 0)} 条；预算尚有余量（实际用 ${usedBytes}/${limitBytes} 字节）。未返回的部分不代表不存在，调大 limit 可看到更多。）`);
+      //
+      // ── **本行只陈述数据层自己的事实与数字**（2026-11 修）─────────────
+      //
+      // 原文本写「仅列出前 ${specs.length + facts.length} 条」，把**两侧已列出
+      // 条数之和**当成「受 limit 限制的前 N 条」。三处失真（实测）：
+      //   · `limit` 是**每侧**上限（`source-recall.js` 对 specs/facts 各
+      //     `slice(0, limit)`），两侧合计可达 2×limit，N 与 limit 没有可比性；
+      //   · 默认档实测 limit=3 时该行写「仅列出前 5 条」，档位 10 实测 limit=12
+      //     时写「仅列出前 20 条」——**N > limit**，自相矛盾；
+      //   · 紧接着的渲染层说明又报「裁去 3 条、现列出 2 条」，同一次注入出现
+      //     两个来源、三个条数，读者无法判断真实用量。
+      //
+      // 归因判据（本行遵守）：**每条说明只陈述自己来源的事实与数字，不得把
+      // 另一层裁剪的结果算进自己的口径**。故这里只给：每侧上限、各源命中与
+      // 列出条数、数据层自己的候选行估算——不宣称「最终交付就是这样」，
+      // 渲染层的裁剪由紧随其后的那一行自己报。
+      const specHitsN = result.counts?.specHits ?? 0;
+      const factHitsN = result.counts?.factHits ?? 0;
+      const specShownN = result.specs?.length ?? 0;
+      const factShownN = result.facts?.length ?? 0;
+      const limitN = result.budget?.limit;
+      // **已达上限时不得再建议「调大 limit」**（实测默认档 limit 已 = 上限 12，
+      // 原文本仍在劝读者调大，是给不存在的操作指路）。
+      const atCeiling = Number.isInteger(limitN) && limitN >= RECALL_LIMIT_MAX;
+      const moreHint = atCeiling
+        ? `每侧 ${RECALL_LIMIT_MAX} 已是本实现的条数上限（RECALL_LIMIT_MAX），要更全请缩小动作范围或分次查询。`
+        : `调大 limit 可看到更多（当前每侧 ${limitN ?? "?"}）。`;
+      lines.push(
+        `（受条数上限（每侧 limit=${limitN ?? "?"}）限制：规范源命中 ${specHitsN} 条、列出 ${specShownN} 条；`
+        + `事实源命中 ${factHitsN} 条、列出 ${factShownN} 条。数据层预算尚有余量（候选行估算 ${usedBytes}/${limitBytes} 字节）。`
+        + `未返回的部分不代表不存在；${moreHint}）`,
+      );
     }
   }
   // **声明范围须无条件披露**（独立审核 B2，2026-10-27）：本路径用 `excludeTypes`
@@ -1034,12 +1067,21 @@ export function renderRecallRow(result) {
     // **观察 A（第八次复核）**：预算内含说明行预留（NOTE_RESERVE_BYTES），
     // 不写明会让读者把「为披露留空间」误读成「超了预算才裁」。
     if (byteTriggered) reasons.push(`字节预算 ${limitBytes}，含披露行预留 ${NOTE_RESERVE_BYTES} 字节`);
-    // **最终条数须如实**：上方「仅列出前 N 条」说明行取的是数据层条数，
-    // 渲染层再裁后该 N 已过时——本行给出实际列出的条数，使两行合读不矛盾。
+    // ── **本行只陈述渲染层自己的事实与数字**（2026-11 修）─────────────────
+    //
+    // 归因判据：每条说明只陈述自己来源的事实与数字，不得把另一层裁剪的结果
+    // 算进自己的口径。故本行只给「渲染层裁掉几条 / 渲染后剩下几条」，
+    // **不复述数据层每侧上限、不替数据层解释为什么它返回了那些条**——
+    // 那是前一行的事。两行合读才是全貌：
+    //   数据层：规范命中 X 列 s、事实命中 Y 列 f（受每侧 limit）
+    //   渲染层：再从已列出的 s+f 里裁去 M，剩 K
+    // 且 `K + M` 必然等于 `s + f`（可机械核对；`finalCount` 口径与
+    // `renderRecallRow` 的 `- ` 行一致，与数据层两侧条数之和同源）。
     const finalCount = trimmed.filter((l) => l.startsWith("- ")).length;
     const fullNote =
-      `（**渲染层按硬约束（${reasons.join("／")}）裁去 ${droppedByRender} 条候选**，现列出 ${finalCount} 条；` +
-      `未列出的不代表不存在，需更多请调大 limit 或缩小动作范围。）`;
+      `（**渲染层按硬约束（${reasons.join("／")}）裁去 ${droppedByRender} 条候选**；` +
+      `现列出 ${finalCount} 条（渲染层自己的口径）。` +
+      `未列出的不代表不存在，需更多请缩小动作范围。）`;
     // **地板情形的紧凑说明行**（第八次复核观察 C 的明示取舍之机械承载）：
     // 候选行裁光后固定声明+披露行仍可能顶破预算（实测 800 字节下 807）——
     // 预留机制管不到「零候选」地板。此时改用紧凑说明行：保留 `02 §9.1` 强制

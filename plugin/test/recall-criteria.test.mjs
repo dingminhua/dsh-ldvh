@@ -239,14 +239,14 @@ test("loadRecallCriteria：跨类型别名冲突使冲突类型停用并报错",
 });
 
 // ---------------------------------------------------------------------------
-// 真实规范快照：specs/20–27 八张表
+// 真实规范快照：specs/20–29 十张表（02 §12.4 的适用面是 20–29 段，见 02:498）
 // ---------------------------------------------------------------------------
 
-test("快照：真实 specs/20–27 八张判据表全部可解析，七项齐备", async () => {
+test("快照：真实 specs/20–29 十张判据表全部可解析，七项齐备", async () => {
 	const result = await loadRecallCriteria(join(ROOT, "specs"));
 	assert.equal(result.ok, true, JSON.stringify(result.errors, null, 2));
 	assert.equal(result.unreadable, false);
-	assert.equal(result.byType.size, 8, `期望 8 个事实类型，实得 ${result.byType.size}`);
+	assert.equal(result.byType.size, 10, `期望 10 个事实类型，实得 ${result.byType.size}`);
 	for (const [specId, typeKey] of Object.entries(FACT_TYPE_BY_SPEC_ID)) {
 		assert.ok(result.byType.has(typeKey), `spec ${specId}（${typeKey}）的判据表未解析成功`);
 	}
@@ -270,6 +270,9 @@ test("快照：各类型别名集合恰为规范所载（25 goal 为「不采用
 	assert.deepEqual(aliasesOf("research"), new Set(["调研报告"]));
 	assert.deepEqual(aliasesOf("friction"), new Set(["摩擦账本", "摩擦"]));
 	assert.deepEqual(aliasesOf("norm"), new Set(["事实规范"]));
+	// 28/29：补上映射前这两张表根本没被读入，别名通道对它们完全失效。
+	assert.deepEqual(aliasesOf("subgoal"), new Set(["子目标"]));
+	assert.deepEqual(aliasesOf("devlog"), new Set(["开发日志"]));
 
 	const goal = result.byType.get("goal");
 	assert.ok(goal !== undefined);
@@ -294,7 +297,7 @@ test("快照：别名集合不含主题词，且与类型键派生词、相互�
 	}
 });
 
-test("快照：20–27 的默认候选状态与核心语义字段与规范机械值一致", async () => {
+test("快照：20–29 的默认候选状态与核心语义字段与规范机械值一致", async () => {
 	const result = await loadRecallCriteria(join(ROOT, "specs"));
 	const valuesOf = (type) => result.byType.get(type).values;
 	assert.deepEqual(valuesOf("spark").defaultStatuses, ["open"]);
@@ -311,4 +314,13 @@ test("快照：20–27 的默认候选状态与核心语义字段与规范机械
 	assert.deepEqual(valuesOf("friction").relations.find((r) => r.relationKey === "informs").targets, ["adr", "workcase"]);
 	assert.deepEqual(valuesOf("norm").coreFields, ["direction_key", "title"]);
 	assert.equal(valuesOf("norm").notApplicable["关系展开"], true);
+	// 28/29：本轮补上映射后才被读入（此前 FACT_TYPE_BY_SPEC_ID 缺这两项，
+	// 它们的判据表连同别名通道一起从未生效）。
+	assert.deepEqual(valuesOf("subgoal").defaultStatuses, ["active"]);
+	assert.deepEqual(valuesOf("subgoal").coreFields, ["title", "criterion"]);
+	assert.equal(valuesOf("subgoal").notApplicable["关系展开"], true);
+	assert.deepEqual(valuesOf("devlog").defaultStatuses, ["active"]);
+	assert.deepEqual(valuesOf("devlog").coreFields, ["title", "summary"]);
+	assert.deepEqual(valuesOf("devlog").relations.find((r) => r.relationKey === "absorbed-into").targets, ["adr", "workcase", "norm", "pitfall"]);
+	assert.deepEqual(valuesOf("devlog").relations.find((r) => r.relationKey === "superseded-by").targets, ["devlog"]);
 });

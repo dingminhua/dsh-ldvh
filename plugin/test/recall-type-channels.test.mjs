@@ -296,3 +296,123 @@ test("⑥ 渲染：按类型分节、名额披露具名来源；关系展开单�
 	assert.match(text, /关系展开（精确引用派生；不占候选名额）：/, "派生条目须单独归类");
 	assert.ok(text.indexOf("关系展开（精确引用派生") > text.indexOf(FACT_SECTION_LABELS.pitfall), "派生组在事实分节之后");
 });
+
+// ---------------------------------------------------------------------------
+// 默认候选状态：**从判据表读，不读硬编码表**（02 §12.4，2026-11）
+//
+// 此前 `DEFAULT_STATUSES_BY_TYPE` 是唯一取值来源，判据表那一列（解析成品
+// `values.defaultStatuses`）除测试外**无任何消费点**——规范说一套、代码判一套。
+// 下列用例把四种形态都钉住：table（正常读表）、non-candidate（表标「不采用」）、
+// fallback（表里没这个类型）、disabled（表有但解析失败）。
+// ---------------------------------------------------------------------------
+
+import { recallStatusPolicyOf, DEFAULT_STATUSES_FALLBACK } from "../lib/source-recall.js";
+
+test("默认候选状态取自判据表：机械值改了，候选池跟着改（不读硬编码表）", async () => {
+	// 同一条事实（status: active），判据表一处写 active、一处写 open。
+	// 若实现仍读硬编码表，两次结果会相同；正确实现下 open 那次须召回不到。
+	const build = async (statuses) => {
+		const project = await mkdtemp(join(tmpdir(), "ldvh-statuspolicy-"));
+		const write = async (rel, text) => {
+			const abs = join(project, rel);
+			await mkdir(join(abs, ".."), { recursive: true });
+			await writeFile(abs, text, "utf8");
+		};
+		await write("specs/23-Pitfall-踩坑经验.md",
+			`---\nldvh_spec:\n  spec_id: "23"\n---\n\n# 规范\n\n${criteriaTable({
+				defaultStatuses: statuses, coreFields: "title, scope", aliases: "踩坑经验", relations: "不采用",
+			})}`);
+		await write(`ldvh-base/pitfalls/${PIT_UID}.md`,
+			`---\ntitle: 接口重复提交\nstatus: active\nobject_uid: ${PIT_UID}\nfact_type_key: pitfall\nscope: 接口层\n---\n\n正文\n`);
+		return project;
+	};
+	const activeProject = await build("active");
+	const openProject = await build("open");
+	try {
+		const asActive = await recallForAction({ ...QUERY, action: "接口重复提交", root: activeProject });
+		assert.ok(asActive.facts.some((f) => f.ref === PIT_UID), "判据表写 active 时该对象是候选");
+		const asOpen = await recallForAction({ ...QUERY, action: "接口重复提交", root: openProject });
+		assert.ok(!asOpen.facts.some((f) => f.ref === PIT_UID), "判据表写 open 时 active 对象不得成为候选（证明读的是表）");
+		assert.ok(
+			asOpen.uncheckedRange.excludedByStatus.some((f) => f.ref === undefined && f.path.includes(PIT_UID)),
+			"被状态筛掉者须进未检查范围（34 §12）",
+		);
+	} finally {
+		await rm(activeProject, { recursive: true, force: true });
+		await rm(openProject, { recursive: true, force: true });
+	}
+});
+
+test("默认候选状态「不采用」：该类型没有候选概念，不进候选池、也不回落 active", async () => {
+	const project = await mkdtemp(join(tmpdir(), "ldvh-noncandidate-"));
+	const write = async (rel, text) => {
+		const abs = join(project, rel);
+		await mkdir(join(abs, ".."), { recursive: true });
+		await writeFile(abs, text, "utf8");
+	};
+	try {
+		await write("specs/23-Pitfall-踩坑经验.md",
+			`---\nldvh_spec:\n  spec_id: "23"\n---\n\n# 规范\n\n${criteriaTable({
+				defaultStatuses: "不采用", coreFields: "title, scope", aliases: "踩坑经验", relations: "不采用",
+			})}`);
+		await write(`ldvh-base/pitfalls/${PIT_UID}.md`,
+			`---\ntitle: 接口重复提交\nstatus: active\nobject_uid: ${PIT_UID}\nfact_type_key: pitfall\nscope: 接口层\n---\n\n正文\n`);
+		const r = await recallForAction({ ...QUERY, action: "接口重复提交", root: project });
+		assert.ok(!r.facts.some((f) => f.ref === PIT_UID), "「不采用」的类型不得成为候选（绝不回落 active）");
+		assert.ok(r.criteria.nonCandidateTypes.includes("pitfall"), "「不采用」类型须在 criteria.nonCandidateTypes 里可见");
+		assert.ok(
+			r.uncheckedRange.excludedByNonCandidate.some((f) => f.path.includes(PIT_UID)),
+			"「不采用」类型被挡下者须单列披露，不得混进 excludedByStatus（放宽状态对它无效）",
+		);
+		assert.ok(
+			!r.uncheckedRange.excludedByStatus.some((f) => f.path.includes(PIT_UID)),
+			"不得同时出现在 excludedByStatus 里（两种原因不同，混列会误导读者去放宽状态）",
+		);
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+});
+
+test("判据表里没有该类型条目：回落具名兜底，并在 criteria.fallbackTypes 与 gaps 两处可见", async () => {
+	const project = await mkdtemp(join(tmpdir(), "ldvh-fallbackstatus-"));
+	const write = async (rel, text) => {
+		const abs = join(project, rel);
+		await mkdir(join(abs, ".."), { recursive: true });
+		await writeFile(abs, text, "utf8");
+	};
+	try {
+		// 只给 adr 的判据表；pitfall 在表里**没有条目**（不是表坏了）。
+		await write("specs/22-ADR-决策.md",
+			`---\nldvh_spec:\n  spec_id: "22"\n---\n\n# 规范\n\n${criteriaTable({
+				defaultStatuses: "active", coreFields: "decision, scope", aliases: "决策记录", relations: "不适用",
+			})}`);
+		await write(`ldvh-base/pitfalls/${PIT_UID}.md`,
+			`---\ntitle: 接口重复提交\nstatus: active\nobject_uid: ${PIT_UID}\nfact_type_key: pitfall\nscope: 接口层\n---\n\n正文\n`);
+		const r = await recallForAction({ ...QUERY, action: "接口重复提交", root: project });
+		// 回落是**允许**的（02 §12.4 禁的是静默回落），但必须可见。
+		assert.ok(r.criteria.fallbackTypes.includes("pitfall"), "回落类型须在 criteria.fallbackTypes 里可见");
+		assert.ok(
+			r.gaps.some((gap) => gap.includes("判据表未登记该类型（pitfall）")),
+			"回落须进 gaps 逐类点明（34 §12 未检查范围）",
+		);
+		assert.ok(
+			r.gaps.some((gap) => gap.includes("不是判据表损坏")),
+			"归因须准：这是「该类型还没规范」，不是「判据表坏了」",
+		);
+		assert.ok(!r.criteria.disabledTypes.includes("pitfall"), "「表里没条目」不等于「表坏了」，不得报成停用");
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+});
+
+test("判据表有该类型但解析失败：仍 fail-closed（不把回落当补救），回落与停用不得混淆", async () => {
+	await withProject({ brokenPitfallTable: true }, async (project) => {
+		const r = await recallForAction({ ...QUERY, action: "接口重复提交", root: project });
+		assert.ok(r.criteria.disabledTypes.includes("pitfall"), "表坏了须报停用");
+		assert.ok(!r.criteria.fallbackTypes.includes("pitfall"), "表坏了不得被报成「回落兜底」（那是把故障伪装成正常）");
+		assert.ok(
+			!r.gaps.some((gap) => gap.includes("判据表未登记该类型（pitfall）")),
+			"表坏了不得披露成「没有该类型条目」（归因不能反）",
+		);
+	});
+});

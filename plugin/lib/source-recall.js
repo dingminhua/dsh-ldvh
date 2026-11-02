@@ -145,6 +145,55 @@ export const DEFAULT_STATUSES_BY_TYPE = Object.freeze({
 });
 
 /**
+ * **兜底默认候选状态**（具名常量，2026-11）。
+ *
+ * `DEFAULT_STATUSES_BY_TYPE` 是「判据表里没有该类型条目」时使用的**显式兜底值**
+ * ——它不再是唯一取值来源：取值优先从判据表读（`02 §12.4`「Code 依本契约确定性
+ * 读取执行，不从规范自然语言正文抽取判据」）。
+ *
+ * 为什么仍要保留它：判据表可以缺席（`criteria === null`，如项目内既无自著规范、
+ * 三级回退也全失败），也可能某类型还没有规范。此时若没有具名兜底，就只能写死
+ * 字面量或让召回整体失效。**但兜底必须是可见的**——`02 §12.4` 禁的是「静默回落
+ * 默认值」，不是「不许兜底」；回落的类型逐条登记在 `criteria.fallbackTypes`
+ * 与 `gaps` 两处。
+ */
+export const DEFAULT_STATUSES_FALLBACK = Object.freeze(["active"]);
+
+/**
+ * 某类型的**默认候选状态取值策略**（`02 §12.4`）。
+ *
+ * 返回四形态之一：
+ *   · `table`         —— 判据表给出了机械值，直接用（正常路径）；
+ *   · `non-candidate` —— 判据表把「默认候选状态」标为「不采用」，该类型**没有候选
+ *                        概念**（目前只有 Goal 单例，`specs/25-Goal-项目目标.md`），
+ *                        故不进候选池，也**绝不回落**成 active；
+ *   · `fallback`      —— 判据表里**没有该类型条目**（该类型还没规范），回落具名兜底；
+ *   · `disabled`      —— 判据表里有该类型但**解析失败**（缺表/版本不符/机械值非法）：
+ *                        维持 `02 §12.4` 的 fail-closed 路径——停用该类型的机器判据
+ *                        并如实报错，**不把回落当作它的补救**（回落会让「表坏了」
+ *                        看起来像「表没写」，把故障伪装成正常）。
+ *
+ * 取值比较沿用既有语义：整值相等、不区分大小写（见 `statusAllowed` 调用方注释）。
+ */
+export function recallStatusPolicyOf(criteria, type) {
+  const entry = criteria?.byType?.get(type) ?? null;
+  if (entry !== null) {
+    if (entry.values?.notApplicable?.["默认候选状态"] === true) {
+      return { kind: "non-candidate", statuses: [] };
+    }
+    const fromTable = entry.values?.defaultStatuses;
+    if (Array.isArray(fromTable) && fromTable.length > 0) {
+      return { kind: "table", statuses: fromTable };
+    }
+  }
+  const parseFailed = (criteria?.errors ?? []).some((error) => error.type === type);
+  return {
+    kind: parseFailed ? "disabled" : "fallback",
+    statuses: DEFAULT_STATUSES_BY_TYPE[type] ?? DEFAULT_STATUSES_FALLBACK,
+  };
+}
+
+/**
  * **已登记事实类型的白名单**（`02 §9.2`「中间产物不进入召回」的落实）。
  *
  * > 中间产物不进入召回：事实源之外的中间产物（如 11 §12bis 的留观缓冲）
@@ -1468,6 +1517,13 @@ export async function loadFacts(baseDir, options = {}) {
           .filter((error) => error.type === type)
           .map((error) => error.message ?? error.code ?? "判据表不可用")
         : [];
+      // **「表坏了」与「表里没写这个类型」必须分开**（2026-11）。两者都导致
+      // 该类型的类型点名／核心语义字段／关系展开不可用（`detail` 空、`typeNames`
+      // 空），但原因与处置不同：前者是判据表解析失败，须如实报错并停用；
+      // 后者是**该类型还没有规范**，须回落具名兜底并在披露里说明不是表损坏。
+      // 混成一个 `disabled` 会让读者把「没写」读成「坏了」（反之亦然）。
+      const criteriaBroken = criteriaEntry === null
+        && (criteria?.errors ?? []).some((error) => error.type === type);
       // **类型点名闭集**（②）：`fact_type_key` 派生词（单数/复数，大小写不敏感
       // 整词）∪ 判据表「类型词别名」白名单。**不含任何开放词表**——历史回归
       // 正是开放词表（`agent` 让 4 条调研冲顶）。判据不可用时集合为空，
@@ -1500,7 +1556,10 @@ export async function loadFacts(baseDir, options = {}) {
         ].filter((value) => value !== "").join(" "),
         // 供 `matchCandidate` 的类型点名通道与 `recallForAction` 的披露使用。
         typeNames,
-        machineCriteria: criteriaEntry === null ? "disabled" : "ok",
+        // `machineCriteria` 三态：`ok`（表可用）／`disabled`（**表坏了**，须如实
+        // 报错并停用）／`missing`（**表里没有该类型条目**，该类型还没规范：
+        // 同样停用机器判据，但归因不同、披露语不同，且默认候选状态回落兜底）。
+        machineCriteria: criteriaEntry !== null ? "ok" : (criteriaBroken ? "disabled" : "missing"),
         criteriaError: criteriaErrors,
         trigger: textField(fm.trigger_signal),
         summary: textField(fm.summary),
@@ -1672,6 +1731,25 @@ export const STRUCTURAL_MATCH_FIELDS = Object.freeze([
  * （`02 §9.1` F2 只要求候选**可筛选**，不要求候选唯一）。
  */
 export const SHORT_REF_LENGTH = 8;
+
+/**
+ * **短形态命中时附在命中理由末尾的碰撞边界声明**（`34 §8.2`）。
+ *
+ * 规范要求（逐字）：「实现接受短形态时须同时声明其已知边界：短形态存在前缀
+ * 碰撞的可能，碰撞时同一次查询会一并命中多个对象——这属于「候选可筛选」而非
+ * 「候选唯一」…实现不得据短形态命中声称该指称无歧义。」
+ *
+ * `34 §14` 把「候选卡的命中理由原文」列为该条的**可接受依据**——所以声明必须
+ * 落在**命中理由里**，只写在源码注释里不算兑现（此前正是这种状态：注释里有、
+ * 候选卡上没有）。
+ *
+ * 措辞同时点明三件事：①短形态是**被接受的一种书写形态**（不是残缺或错误）；
+ * ②可能存在前缀碰撞；③碰撞时是「可筛选」而非「唯一」——即读者不得据此断言
+ * 指代无歧义。
+ */
+export const SHORT_FORM_COLLISION_CAVEAT =
+  "｜短形态边界：短标识与「类型短名+短标识」只是被接受的书写形态，存在前缀碰撞可能；" +
+  "碰撞时同一次查询会一并命中多个对象，属候选可筛选而非指称唯一，不得据此断言该指称无歧义";
 
 /** 完整 `object_uid` 的形态判据——只用于判断「该候选能否提供短形态」，不做合法性校验。 */
 // 大小写不敏感：`02 §7.1` 规定的是 canonical UUIDv4 小写文本，但**本判据只决定
@@ -1988,19 +2066,42 @@ export function matchCandidate(actionTokens, candidate, corpusStats, queryText =
       (t) => t.length >= 2 && !isWeakToken(t) && !GENERIC_TOKENS.has(t),
     );
     const isBareReference = subjectTokens.length <= STRUCTURAL_BARE_QUERY_MAX_TOKENS;
+    // ── **短形态的前缀碰撞边界声明**（`34 §8.2`，2026-11）───────────────
+    //
+    // 规范原文：「实现接受短形态时须同时声明其已知边界：短形态存在前缀碰撞的
+    // 可能，碰撞时同一次查询会一并命中多个对象——这属于「候选可筛选」而非
+    // 「候选唯一」…实现不得据短形态命中声称该指称无歧义。」
+    //
+    // 判据是「**短形态是否落在该候选被接受的书写形态集合里**」，而**不是**
+    // 「短形态是否出现在命中理由的展示前三项里」——后者不可判定：`shown` 只取
+    // `structural.slice(0, 3)`，短形态排在第四位以后就不展示，声明随之消失，
+    // 于是同一次命中「披露与否」取决于字段顺序这种无关因素。实测语料里
+    // 「类型短名+8 位」出现 726 次、去重 186 个对象，同时命中多个结构字段的
+    // 候选并不罕见，这个差异是可观察的。
+    //
+    // 声明挂在理由末尾而非某个字段后面：它是**整个命中依据的性质**（短形态
+    // 不唯一），不是某一个字段的性质。
+    const hasShortForm = structural.some(
+      (h) => h.form === "短标识" || h.form === "类型短名+短标识",
+    );
+    const shortFormCaveat = hasShortForm ? SHORT_FORM_COLLISION_CAVEAT : "";
     return {
       // 纯指称 → 最高层（它就是主题）；带主题 → 让位到最末层（不占排序优势，
       // 但仍**构成候选**并在理由里标出——它不是被丢弃，只是不抢先）。
       tier: isBareReference ? 0 : STRUCTURAL_DEFERRED_TIER,
       hits: structural.length,
-      hitReason: isBareReference
+      hitReason: (isBareReference
         ? `结构命中：${shown}${structural.length > 3 ? " 等" : ""}`
         // 带主题时必须说明它**为什么没有优先**，否则读者会以为这是普通文本命中。
-        : `结构命中（查询有其它主题词，不占优先位）：${shown}${structural.length > 3 ? " 等" : ""}`,
+        : `结构命中（查询有其它主题词，不占优先位）：${shown}${structural.length > 3 ? " 等" : ""}`)
+        + shortFormCaveat,
       structuralFields: [...new Set(structural.map((h) => h.field))],
       // 供 `recallForAction` 判定「精确引用路径」：只有**纯指称**命中结构字段
       // 才触发关系展开（F4）；带主题的查询不展开（见 `recallForAction`）。
       bareReference: isBareReference,
+      // 短形态命中（供调用方与测试判定「这一条是否走了会被前缀碰撞影响的形态」，
+      // 不必回头解析 hitReason 的文案）。
+      shortForm: hasShortForm,
     };
   }
 
@@ -2366,8 +2467,13 @@ export function selectFactsBySection(hits, plan = {}) {
  * 判据表不可用时的披露语（02 §12.4 fail-closed 的「如实报告」一半）。
  *
  * 契约要求：缺表/缺版本/列不符/机械值非法/必填缺失 → 停用该类型的机器判据、
- * 按 partial 口径交还并**说明缺什么**。此处把结构化错误逐条转成 gaps 行，
- * 同时覆盖「判据表本身没错、但该类型在表里没有条目」的第二种不可用形态。
+ * 按 partial 口径交还并**说明缺什么**。此处把结构化错误逐条转成 gaps 行。
+ *
+ * **归因须准**（2026-11 修）：这里此前把「该类型在表里没有条目」也写成
+ * 「判据表不可用（type）：该类型无可用条目」——读起来像**判据表坏了**，实际是
+ * **该类型还没有规范**。两种情形处置不同（前者 fail-closed 停用并报错，后者按
+ * 具名兜底继续并在 `criteria.fallbackTypes` 登记），披露语必须分开，否则读者
+ * 无法判断该去修表还是去补规范。
  */
 function criteriaGapsOf(criteria, facts) {
   const gaps = [];
@@ -2378,10 +2484,16 @@ function criteriaGapsOf(criteria, facts) {
   for (const error of criteria.errors) {
     gaps.push(`判据表不可用（${error.type ?? "未知类型"}／规范 ${error.specId ?? "?"}）：${error.code}：${error.message}`);
   }
-  const disabled = [...new Set(facts.filter((fact) => fact.machineCriteria === "disabled").map((fact) => fact.type))].sort();
-  for (const type of disabled) {
-    if (criteria.errors.some((error) => error.type === type)) continue;
-    gaps.push(`判据表不可用（${type}）：该类型无可用条目，机器判据已停用`);
+  const registered = [...new Set(
+    facts.filter((fact) => REGISTERED_FACT_TYPES.includes(fact.type)).map((fact) => fact.type),
+  )].sort();
+  for (const type of registered) {
+    const policy = recallStatusPolicyOf(criteria, type);
+    // 解析失败者已由上面的 error 循环逐条点名，不再重复。
+    if (policy.kind === "disabled") continue;
+    if (policy.kind === "fallback") {
+      gaps.push(`判据表未登记该类型（${type}）：默认候选状态回落具名兜底 ${policy.statuses.join("/")}，类型点名／核心语义字段／关系展开不生效（该类型尚无判据表条目，不是判据表损坏）`);
+    }
   }
   return gaps;
 }
@@ -2481,15 +2593,12 @@ export async function recallForAction(input = {}) {
   const limit = Number.isInteger(input.limit) && input.limit > 0 ? input.limit : 5;
   const budgetBytes = Number.isInteger(input.budgetBytes) && input.budgetBytes > 0
     ? input.budgetBytes : RECALL_DIRECT_BYTE_BUDGET;
-  // 显式传入优先；否则**按类型取各自的默认候选状态集**
-  // （统一写死 `active` 会让多数类型零召回，见 `DEFAULT_STATUSES_BY_TYPE`）。
+  // 显式传入优先；否则**按类型取各自的默认候选状态集**（取自判据表，
+  // 见下方 criteria 就绪后的 `statusAllowed`）。
   const explicitStatuses = Array.isArray(input.statuses) && input.statuses.length > 0
     ? input.statuses : null;
-  // `statuses` 保留为一个**判定函数**的语义位：实际按每个候选的类型查表。
-  const statusAllowed = (type, status) => {
-    const allowed = explicitStatuses ?? DEFAULT_STATUSES_BY_TYPE[type] ?? ["active"];
-    return allowed.includes(status);
-  };
+  // `statusAllowed` 的**定义在 criteria 就绪之后**（见下方）：默认候选状态是
+  // `02 §12.4` 的机械项，须从判据表读，不能在这里读硬编码表。
   // 事实类型过滤。**默认不限定类型**——`03 §6.1` 快通道那条写的是「不遍历
   // **未被当前目标和来源规则触发的**全量规则或事实」，即：不该全量遍历，
   // 但被触发的类型仍应召回。曾把默认收窄为 `["adr","pitfall"]`，结果
@@ -2588,6 +2697,26 @@ export async function recallForAction(input = {}) {
   // 事实的机器判据（实测：`includeSpecs:false` 时 criteria 曾为 null）。
   const criteriaSource = specsSource ?? (await resolveSpecsRoot(root));
   const criteria = criteriaSource === null ? null : await loadRecallCriteria(criteriaSource.dir);
+  // ── **默认候选状态取自判据表**（`02 §12.4`，2026-11 修）──────────────
+  //
+  // 此前这里读硬编码的 `DEFAULT_STATUSES_BY_TYPE`，而判据表里那一列（解析成品
+  // `values.defaultStatuses`）**除测试外无任何消费点**——规范说一套、代码判一套
+  // （`01 §11.4` 禁的第二规则源）。现在取值走 `recallStatusPolicyOf`：
+  // 判据表给了机械值就用它；标「不采用」的类型不进候选池；表里没有该类型条目
+  // 才回落具名兜底；表里有但解析失败仍走 fail-closed（停用机器判据、如实报错）。
+  //
+  // 回落与「不采用」都是**可见的**：分别记在 `criteria.fallbackTypes` 与
+  // `criteria.nonCandidateTypes`，回落另在 `gaps` 里逐类型点明（34 §12 未检查范围）。
+  const statusPolicy = (type) => recallStatusPolicyOf(criteria, type);
+  // `statuses` 保留为一个**判定函数**的语义位：实际按每个候选的类型查判据表。
+  // 显式传入者优先（调用方的显式收窄覆盖默认取值）。
+  const statusAllowed = (type, status) => {
+    if (explicitStatuses !== null) return explicitStatuses.includes(status);
+    const policy = statusPolicy(type);
+    // `non-candidate`：该类型没有候选概念（判据表标「不采用」），一律不进候选池。
+    if (policy.kind === "non-candidate") return false;
+    return policy.statuses.includes(status);
+  };
   const factsDir = join(root, "ldvh-base");
   const [specs, facts, factsReadable] = await Promise.all([
     specsSource === null ? [] : loadSpecs(specsSource.dir),
@@ -2611,6 +2740,28 @@ export async function recallForAction(input = {}) {
   const disabledCriteriaTypes = [...new Set(
     scopedFacts.filter((fact) => fact.machineCriteria === "disabled").map((fact) => fact.type),
   )].sort();
+  // ── 默认候选状态的两种**可见例外**（02 §12.4，2026-11）──────────────────
+  //
+  // `fallbackStatusTypes`：判据表里**没有该类型条目**，故回落具名兜底常量。
+  //   它与 `disabledTypes` 是不同的事：前者是「该类型还没规范」，后者是
+  //   「有规范但表坏了/解析不了」。混成一类会让读者把「没写」读成「坏了」，
+  //   也会把「坏了」当「没写」悄悄放过——所以两者各自成列。
+  // `nonCandidateTypes`：判据表把「默认候选状态」标为「不采用」的类型（目前
+  //   只有 Goal 单例），**没有候选概念**，不进候选池、也绝不回落成 active。
+  //   它取自判据表本身而非语料，故即使语料里没有该类型对象也照样披露。
+  const statusPolicyOfType = (type) => statusPolicy(type);
+  // 判据表整体缺席（无任何规范源）时不逐类型报「未登记」——那时缺的是**全部
+  // 判据表**，已由 `criteriaGapsOf` 的第一条与 `criteria.ok:false` 承载；
+  // 逐类型刷一遍只会把「没有规范源」淹没在 10 行噪音里。
+  const fallbackStatusTypes = criteria === null ? [] : [...new Set(
+    scopedFacts
+      .filter((fact) => REGISTERED_FACT_TYPES.includes(fact.type))
+      .filter((fact) => statusPolicyOfType(fact.type).kind === "fallback")
+      .map((fact) => fact.type),
+  )].sort();
+  const nonCandidateTypes = [...(criteria?.byType?.keys() ?? [])]
+    .filter((type) => statusPolicyOfType(type).kind === "non-candidate")
+    .sort();
 
   // 过滤：**已登记类型** + 类型 + 状态 + **结构化 facet**。
   // 规范无 status 概念故全量参与。
@@ -2712,6 +2863,10 @@ export async function recallForAction(input = {}) {
         // 以及该结构命中是否为纯指称（否则不展开）。
         ...(m.structuralFields === undefined ? {} : { structuralFields: m.structuralFields }),
         ...(m.bareReference === true ? { bareReference: true } : {}),
+        // 短形态命中（`34 §8.2`）：候选卡上标明「这一条的命中依据走了会被前缀
+        // 碰撞影响的形态」，调用方不必回头解析 hitReason 文案。声明本身已在
+        // hitReason 里（§14 的可接受依据是「命中理由原文」）。
+        ...(m.shortForm === true ? { shortForm: true } : {}),
       };
     })
     .filter(Boolean)
@@ -3204,6 +3359,12 @@ export async function recallForAction(input = {}) {
         message: error.message,
       })),
       disabledTypes: disabledCriteriaTypes,
+      // 判据表里没有该类型条目 ⇒ 已回落具名兜底（`DEFAULT_STATUSES_FALLBACK`
+      // 或 `DEFAULT_STATUSES_BY_TYPE` 的登记值）。回落**必须可见**：`02 §12.4`
+      // 禁的是「静默回落默认值」，不是「不许兜底」。
+      fallbackTypes: fallbackStatusTypes,
+      // 判据表标「默认候选状态＝不采用」的类型（无候选概念，不进候选池）。
+      nonCandidateTypes,
       note: "判据表不可用的类型已停用类型点名／核心语义字段／关系展开，按 partial 口径披露",
     },
     counts: {
@@ -3361,8 +3522,18 @@ export async function recallForAction(input = {}) {
         .map((fact) => ({ type: fact.type, title: fact.title, path: fact.path })),
       excludedByStatus: scopedFacts
         .filter((fact) => types === null || types.includes(fact.type))
+        // 判据表标「不采用」的类型单列（`excludedByNonCandidate`）：它们不是
+        // 「状态不在默认集里」，而是**没有候选概念**。混入本列会让读者去放宽
+        // 状态，而放宽状态对它们无效。
+        .filter((fact) => statusPolicyOfType(fact.type).kind !== "non-candidate")
         .filter((fact) => !statusAllowed(fact.type, fact.status))
         .map((fact) => ({ type: fact.type, status: fact.status, title: fact.title, path: fact.path })),
+      // **没有候选概念的类型**（判据表「默认候选状态＝不采用」，目前只有 Goal
+      // 单例）：不进候选池，也绝不回落成 active。单列而非并入状态过滤，理由见上。
+      excludedByNonCandidate: scopedFacts
+        .filter((fact) => types === null || types.includes(fact.type))
+        .filter((fact) => statusPolicyOfType(fact.type).kind === "non-candidate")
+        .map((fact) => ({ type: fact.type, title: fact.title, path: fact.path })),
       // **被结构化 facet 筛掉的**（2026-10-29）：与上面两类同性质——它们不是
       // 「排得靠后」，而是**从未进入候选池**。列入本清单是 `34 §12` 的硬要求：
       // 「取值须与下段的未检查范围逐类对应，不得只给取值不给清单」。

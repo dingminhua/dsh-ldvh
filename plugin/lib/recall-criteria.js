@@ -72,6 +72,8 @@ export const FACT_TYPE_BY_SPEC_ID = Object.freeze({
   "25": "goal",
   "26": "friction",
   "27": "norm",
+  "28": "subgoal",
+  "29": "devlog",
 });
 
 /** 全部已登记事实类型键（用于「别名不得与类型键派生词冲突」的校验）。 */

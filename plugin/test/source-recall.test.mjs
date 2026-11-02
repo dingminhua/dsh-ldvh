@@ -3148,3 +3148,71 @@ test("token 集缓存：同一候选二次取用须复用同一结果（不重�
 	// 防「缓存了一个空结果」也算通过：token 集须确实切出了词。
 	assert.ok(first.wide.has("召回"), "宽面 token 集须含 scope 中的词（防缓存空结果冒充命中）");
 });
+
+test("结构命中：接受短形态时须同时声明前缀碰撞边界（34 §8.2、§14 可接受依据＝命中理由原文）", async () => {
+	// 规范原文：「实现接受短形态时须同时声明其已知边界：短形态存在前缀碰撞的
+	// 可能…属于「候选可筛选」而非「候选唯一」…不得据短形态声称该指称无歧义。」
+	//
+	// 判据是「**短形态落在该候选被接受的书写形态集合里**」，不是「短形态是否
+	// 出现在命中理由展示的前三项」——后者不可判定：`shown` 只取前三个结构字段，
+	// 短形态排在第四位以后就不展示，声明会随之消失。
+	//
+	// 本用例构造「结构命中超过三项、且短形态不在展示前三项」的候选，正是要
+	// 证明声明与展示位置**解耦**。
+	const UID = "22222222-2222-4222-8222-222222222222";
+	await withStructuralFixture(async (project) => {
+		const q = (action) => recallForAction({
+			action, root: project, limit: 5, budgetBytes: 400000, includeSpecs: false,
+		});
+		// ① 短标识：须带声明。
+		const short = await q("22222222");
+		const shortHit = short.facts.find((f) => f.ref === UID);
+		assert.ok(shortHit !== undefined, "短标识须命中");
+		assert.match(shortHit.hitReason, /短形态边界/, "短标识命中须带前缀碰撞边界声明");
+		assert.match(shortHit.hitReason, /前缀碰撞/, "声明须点明碰撞可能");
+		assert.match(shortHit.hitReason, /候选可筛选/, "声明须写明这是可筛选而非唯一");
+		assert.match(shortHit.hitReason, /不得据此断言该指称无歧义/, "声明须给出读者义务");
+		assert.equal(shortHit.shortForm, true, "候选卡须能机械判定「走了短形态」");
+
+		// ② 类型短名+短标识：同样须带声明。
+		const typed = await q("spark-22222222");
+		const typedHit = typed.facts.find((f) => f.ref === UID);
+		assert.ok(typedHit !== undefined, "类型短名+短标识须命中");
+		assert.match(typedHit.hitReason, /短形态边界/, "类型短名+短标识也须带声明");
+
+		// ③ 完整标识：**不带**声明（完整 uid 无前缀碰撞问题，多贴一句是噪声）。
+		const full = await q(UID);
+		const fullHit = full.facts.find((f) => f.ref === UID);
+		assert.ok(fullHit !== undefined, "完整标识须命中");
+		assert.ok(!/短形态边界/.test(fullHit.hitReason), `完整标识不得带短形态声明。实际：${fullHit.hitReason}`);
+		assert.notEqual(fullHit.shortForm, true, "完整标识不得标 shortForm");
+
+		// ④ 闭集字段（serves 等）命中：无形态之分，也不得带短形态声明。
+		const closed = await q("SG-2");
+		const closedHit = closed.facts.find((f) => f.ref === UID);
+		assert.ok(closedHit !== undefined, "SG-2 须命中");
+		assert.ok(!/短形态边界/.test(closedHit.hitReason), "闭集字段命中不得带短形态声明");
+	});
+});
+
+test("结构命中：声明与「命中理由被截断」解耦（展示位不足时仍须声明）", async () => {
+	// 理由的 `shown` 只取前三个结构命中项，超出部分压成「等」。若声明是拼在
+	// 「展示出来的那几项」后面，截断时它就会被一起丢掉——那是把披露义务绑在
+	// 一个无关的展示细节上。本用例让查询命中 4 项结构证据（短标识 + 类型短名短
+	// 标识 + serves + priority），证明理由进入「等」压缩形态时声明依然在。
+	const UID = "11111111-1111-4111-8111-111111111111";
+	await withStructuralFixture(async (project) => {
+		const r = await recallForAction({
+			action: "11111111 spark-11111111 SG-1 P0",
+			root: project, limit: 5, budgetBytes: 400000, includeSpecs: false,
+		});
+		const hit = r.facts.find((f) => f.ref === UID);
+		assert.ok(hit !== undefined, "多形态 + 闭集字段同时点名须命中");
+		assert.ok(hit.hits >= 4, `本用例须命中 ≥4 项结构证据（否则理由不会截断）。实际 hits=${hit.hits}`);
+		assert.match(hit.hitReason, /等/, `理由须进入截断形态（否则本用例没有证明力）。实际：${hit.hitReason}`);
+		assert.match(
+			hit.hitReason, /短形态边界/,
+			`理由被截断时短形态声明仍须存在。实际：${hit.hitReason}`,
+		);
+	});
+});

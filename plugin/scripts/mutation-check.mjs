@@ -59,7 +59,16 @@ const MUTATIONS = [
 	// 替代不变量**——候选名次只由证据决定，tier 必须先于 hits。若把 hits 提到
 	// tier 之前，「结构命中先于正文命中」的性质必须转红。
 	[LIB, "证据次序失效（hits 压过 tier）", "    num(fa.tier) - num(fb.tier) ||\n    num(fb.hits) - num(fa.hits);", "    num(fb.hits) - num(fa.hits) ||\n    num(fa.tier) - num(fb.tier);"],
-	[LIB, "按类型默认状态失效", 'const allowed = explicitStatuses ?? DEFAULT_STATUSES_BY_TYPE[type] ?? ["active"];', 'const allowed = ["active"];'],
+	// **锚点随 2026-11 的「默认候选状态改读判据表」更新**（02 §12.4）：
+	// 原锚点在 `statusAllowed` 的硬编码表取值行上，该行已改为经
+	// `recallStatusPolicyOf` 取判据表值。变异改为**把策略恒判成候选**——
+	// 于是标「不采用」的类型（Goal 单例）会被当普通候选放进池里，
+	// 该不变量当前由 `recall-type-channels.test.mjs` 的「不采用」用例守护。
+	[LIB, "按类型默认状态失效", '    if (policy.kind === "non-candidate") return false;', '    if (false) return false;'],
+	// **回落路径不得被静默**（02 §12.4 禁「静默回落」）：把 fallback 判成 table，
+	// 兜底就变成「看起来像正常读表」，`criteria.fallbackTypes` 与 gaps 两处披露
+	// 同时消失。守护用例：`recall-type-channels.test.mjs` 的 fallback 用例。
+	[LIB, "兜底回落被静默（冒充正常读表）", '  return {\n    kind: parseFailed ? "disabled" : "fallback",', '  return {\n    kind: "table",'],
 	[LIB, "F2 摘录为空", "excerpt: excerptOf(c.excerptSource) || c.title,", 'excerpt: "",'],
 	[LIB, "F0 层缺失", "      countsByTypeStatus: facts.reduce((acc, fact) => {", "      countsByTypeStatusX: facts.reduce((acc, fact) => {"],
 	[LIB, "gaps 缺失", "    gaps: [", "    gapsX: ["],

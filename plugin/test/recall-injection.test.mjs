@@ -25,7 +25,7 @@ import {
 	renderRecallRow,
 	shouldRecall,
 } from "../lib/recall-injection.js";
-import { recallForAction, RECALL_DIRECT_BYTE_BUDGET } from "../lib/source-recall.js";
+import { recallForAction, RECALL_DIRECT_BYTE_BUDGET, RECALL_LIMIT_MAX } from "../lib/source-recall.js";
 import { skipWithoutCorpus } from "./helpers.mjs";
 
 const ROOT = join(import.meta.dirname, "..", "..");
@@ -1417,4 +1417,121 @@ test("34 §12：注入面须**无条件**披露声明范围（含 complete 与�
 	});
 	assert.ok(noScope.includes("必要时请自行扩大检索"), "无排除范围时不该删掉这句");
 	assert.ok(!noScope.includes("不含 spark"), "无排除范围时不该凭空出现范围声明");
+});
+
+// ---------------------------------------------------------------------------
+// 截断说明的归因：**每类来源只陈述自己的事实与数字**（34 §11 第 2 项、§12）
+//
+// 修的是三处实测失真：
+//   ① 条数行把「两侧已列出条数之和」写成「受 limit 限制的前 N 条」，而 limit
+//      是**每侧**上限——默认档实测 limit=3 却写「仅列出前 5 条」、档位 10 实测
+//      limit=12 却写「仅列出前 20 条」（N > limit，自相矛盾）；
+//   ② 紧接的渲染层行又报「裁去 3 条、现列出 2 条」，同一次注入三个条数；
+//   ③ limit 已达 RECALL_LIMIT_MAX 时仍在劝读者「调大 limit」——给不存在的操作指路。
+// ---------------------------------------------------------------------------
+
+/** 取注入文本里的截断说明行（按首词分类，便于逐类核对）。 */
+function truncationNotes(text) {
+	const out = [];
+	for (const line of text.split("\n")) {
+		if (/^（(本次为|受预算|受条数|预算极小|渲染层|\*\*渲染层)/.test(line)) out.push(line);
+	}
+	return out;
+}
+
+test("截断归因：条数行只报数据层自己的口径（每侧 limit、各源命中与列出）", async () => {
+	const r = await buildRecallInjection({
+		userText: "把 34 号规范改名成双源召回",
+		projectRoot: ROOT,
+		limit: 3,
+		budgetBytes: 40000,
+	});
+	assert.equal(r.inject, true);
+	const line = truncationNotes(r.text).find((l) => l.includes("受条数上限"));
+	assert.ok(line !== undefined, "条数受限须有说明行");
+
+	// ① **必须说「每侧」**：limit 是每侧上限，两侧合计可达 2×limit。
+	assert.match(line, /每侧 limit=3/, `须写明 limit 是每侧上限，实际：${line}`);
+
+	// ② **不得再出现「仅列出前 N 条」这种把两侧之和当成 limit 阈内条数的说法**。
+	assert.ok(
+		!/仅列出前/.test(line),
+		`不得把两侧已列出条数之和写成「受 limit 限制的前 N 条」，实际：${line}`,
+	);
+
+	// ③ 数字须与数据层自洽：各源列出条数 ≤ 每侧上限，且须逐个点名。
+	const shownSpecs = r.result.specs.length;
+	const shownFacts = r.result.facts.length;
+	assert.ok(shownSpecs <= 3 && shownFacts <= 3, "每侧列出条数不得超过每侧上限");
+	assert.match(line, new RegExp(`规范源命中 \\d+ 条、列出 ${shownSpecs} 条`), `规范侧条数与结果不符：${line}`);
+	assert.match(line, new RegExp(`事实源命中 \\d+ 条、列出 ${shownFacts} 条`), `事实侧条数与结果不符：${line}`);
+
+	// ④ limit 未达上限时才允许建议调大。
+	assert.match(line, /调大 limit 可看到更多/, "limit 未达上限时给出可执行的下一步");
+});
+
+test("截断归因：limit 已达 RECALL_LIMIT_MAX 时不得再劝「调大 limit」", async () => {
+	const r = await buildRecallInjection({
+		userText: "把 34 号规范改名成双源召回",
+		projectRoot: ROOT,
+		limit: RECALL_LIMIT_MAX,
+		budgetBytes: 40000,
+	});
+	const line = truncationNotes(r.text).find((l) => l.includes("受条数上限"));
+	assert.ok(line !== undefined, "须有条数说明行");
+	assert.ok(
+		!/调大 limit/.test(line),
+		`已达上限时不得建议调大（那是给不存在的操作指路）。实际：${line}`,
+	);
+	assert.match(line, /已是本实现的条数上限/, "须说明为何不能再调");
+});
+
+test("截断归因：渲染层行只报渲染层的数字，且 K + M 等于数据层列出条数（可核对）", async () => {
+	// 这一条是**可判定等式**，不是措辞检查：渲染层裁去 M 条、渲染后剩 K 条，
+	// 那么 K + M 必须等于数据层两侧列出条数之和（同一批候选，只是又被裁了一刀）。
+	const r = await buildRecallInjection({
+		userText: "把 34 号规范改名成双源召回",
+		projectRoot: ROOT,
+		limit: 3,
+		budgetBytes: 2400,
+	});
+	const notes = truncationNotes(r.text);
+	const renderLine = notes.find((l) => l.includes("渲染层按硬约束"));
+	if (renderLine === undefined) return; // 未触发渲染层裁剪则本断言不适用
+
+	const m = /裁去 (\d+) 条候选/.exec(renderLine);
+	const k = /现列出 (\d+) 条/.exec(renderLine);
+	assert.ok(m !== null && k !== null, `渲染层行须同时给出裁去数与剩余数。实际：${renderLine}`);
+	const listed = r.result.specs.length + r.result.facts.length;
+	assert.equal(
+		Number(k[1]) + Number(m[1]), listed,
+		`渲染层剩余 ${k[1]} + 裁去 ${m[1]} 须等于数据层列出 ${listed}（否则两行口径不一致）`,
+	);
+
+	// 渲染层行**不得复述数据层的每侧上限**：那是另一层的事实，混进来正是
+	// 「两个来源、三个条数」的成因。
+	assert.ok(
+		!/每侧 limit/.test(renderLine),
+		`渲染层行不得复述数据层每侧上限。实际：${renderLine}`,
+	);
+});
+
+test("截断归因：同一次注入里每类来源最多一条说明，且互不冒充", async () => {
+	const r = await buildRecallInjection({
+		userText: "把 34 号规范改名成双源召回",
+		projectRoot: ROOT,
+		limit: 3,
+		budgetBytes: 2400,
+	});
+	const notes = truncationNotes(r.text);
+	// 既有判据（本单未改）：四种「截断来源」首词合计 ≤ 1 条——那是**数据层**
+	// 的口径，渲染层行不在其中（它由渲染层自己负责，见下）。
+	const dataLayer = notes.filter((l) => /^（(本次为|受预算|受条数|预算极小)/.test(l));
+	assert.ok(dataLayer.length <= 1, `数据层截断说明不得重复，实际 ${dataLayer.length} 条：${dataLayer.join(" | ")}`);
+	const renderLayer = notes.filter((l) => /^（\*\*?渲染层/.test(l));
+	assert.ok(renderLayer.length <= 1, `渲染层截断说明不得重复，实际 ${renderLayer.length} 条：${renderLayer.join(" | ")}`);
+	// 两类不得互相冒充：数据层行不陈述渲染层裁掉的条数，渲染层行不陈述数据层每侧上限。
+	for (const line of dataLayer) {
+		assert.ok(!/渲染层/.test(line), `数据层行不得陈述渲染层的事。实际：${line}`);
+	}
 });
