@@ -1402,6 +1402,16 @@ Human 原话（m00809）：「摩擦取消 中 轻 重 这种分级制度」—�
 的卡面用例；无例外故第 6/7 列写 `无`）。**如实声明**（`docs/13` §2）：该行全绿只
 证明三腿都在，不证明卡面真的没呈现——它买到的是「这条收窄不会被静默拆掉」。
 
+**撤除后 `occurred_at` 的承载现状（据实登记，不粉饰）**：撤掉这枚 chip 之后，
+`occurred_at` 在 **Web 面已无任何呈现**——它仍是必填字段（29 §8）、仍是工具侧
+`ldvh_devlog_list` 的**排序轴**（`devlog-writer.js` 的 `listDevLogObjects` 按
+`occurred_at` 倒序），但 Web 的 `/objects/devlog` 列表页**本来就不按它排序**
+（`ObjectListSort` 只有 `updated_desc | created_desc | 'priority_asc'` 三档，
+本轮之前就如此），近期动态取的是 change_log 的 `at` 而非对象的 `occurred_at`
+（`cognition.ts:596` 注释自述）。所以 29 §12.1「时间线回查」这个消费点目前**只有
+工具侧承载**；Web 若要成为真正的回查入口，需要给 devlog 列表加一档
+`occurred_at` 排序——**那是呈现扩展，属 Human 决定，本轮未擅自做**。
+
 ### 二、`refs` 采用面扩展到 `devlog`（「关联事实对象的处理参考 spark」的落点）
 
 **Human 定案**：「开发日志应该会有关联的事实对象，关联事实对象的处理参考 spark」。
