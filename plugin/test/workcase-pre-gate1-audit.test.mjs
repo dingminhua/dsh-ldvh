@@ -269,6 +269,37 @@ test("上限闸：计数按审核事项轮次计——指纹变化不重置，�
   });
 });
 
+// 拒绝文案的可发现性（2026-11-03，承 8552a6f 之后的实测归因）。
+//
+// 为什么单列一条：出口写进规范但不出现在系统实际拦人的地方，等于没有出口。实测全库
+// `round_index` 复用 0 例，而 workcase-7ec9833d 的 residual 逐字写着「该通道当时未被
+// 知晓」——它的审核者第 3 轮已判「建议按上述订正后再入 Gate 1」，pass 就在手边。
+// 所以这里钉的不是行为，是**文案**：`round_cap` 与覆盖闸的拒绝文本必须自己说出那条路。
+// 文案被后人简化掉时，这条测试变红——否则下一次同样的事只会重演一遍。
+test("拒绝文案的可发现性：round_cap 与覆盖闸的拒绝文本须自行指出复用轮号的出口 (21 §9.2 条末段)", async () => {
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const uid = await createDraft(root);
+    for (let i = 1; i <= PRE_AUDIT_ROUNDS_MAX; i += 1) {
+      assert.ok((await audit(root, uid, { verdict: "needs_revision", summary: `第 ${i} 轮（夹具）` })).ok);
+    }
+    // round_cap 的拒绝文案
+    const capped = await audit(root, uid, { summary: "试图开第 4 轮（夹具）" });
+    assert.ok(!capped.ok);
+    assert.equal(capped.error.code, "workcase/pre_gate1_audit_round_cap");
+    const capMsg = String(capped.error.message || "");
+    assert.match(capMsg, /复用既有轮号/, "round_cap 拒绝文案须指出复用轮号的出口，实际：" + capMsg);
+    assert.match(capMsg, /round_index/, "round_cap 拒绝文案须给出可操作的参数名");
+
+    // 覆盖闸的拒绝文案（零 pass 条目时）
+    const blocked = await approve(root, uid);
+    assert.ok(!blocked.ok);
+    assert.equal(blocked.error.code, "workcase/pre_gate1_audit_not_covering_candidate");
+    const coverMsg = String(blocked.error.message || "");
+    assert.match(coverMsg, /复用既有轮号/, "覆盖闸拒绝文案须指出复用轮号的出口，实际：" + coverMsg);
+  });
+});
+
 // 上限闸的**出口**（21 §9.2 条末段，2026-11-03 Human 决定）。
 //
 // 为什么必须钉住这一条：上限闸只拒绝**开启新轮**，复用既有 `round_index` 是规范
