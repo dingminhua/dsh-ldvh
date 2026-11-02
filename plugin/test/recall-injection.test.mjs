@@ -8,6 +8,8 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
@@ -253,10 +255,20 @@ test("buildRecallInjection：无项目路径不注入", async () => {
 	assert.equal(r.reason, "no-project");
 });
 
-test("buildRecallInjection：命中 34 §6 排除条件时不注入", async () => {
+test("buildRecallInjection：命中 34 §6 排除条件时不进入词法召回，但基线仍可见", async () => {
+	// **行为已于 2026-11-03 变更**（Human 裁决「ADR 必须每次都在」）：`34 §6`
+	// 排除的是**词法候选**，不是 F1 决策基线——`22 §12` 的义务召回不依赖词法命中。
+	// 旧行为让整行注入一起消失，实测「看看这个文件」这类回合里 2 条 active ADR
+	// 一条都看不见，法定效力决策的可见性又绑回了当回合用词。
+	// 归因仍须可分辨：`baselineOnlyCause` 明确写明这是 §6 排除，不是召回失败。
 	const r = await buildRecallInjection({ userText: "看看这个文件", projectRoot: ROOT });
-	assert.equal(r.inject, false);
-	assert.equal(r.reason, "excluded-by-34-6");
+	assert.equal(r.inject, true, "基线仍须注入（22 §12 义务召回）");
+	assert.equal(r.result?.baselineOnly, true, "须标记为「只带基线」");
+	assert.equal(r.result?.baselineOnlyCause, "excluded-by-34-6", "归因须写明是 34 §6 排除");
+	assert.deepEqual(r.result?.specs, [], "不得带入词法候选（规范源）");
+	assert.deepEqual(r.result?.facts, [], "不得带入词法候选（事实源）");
+	assert.match(r.text, /本轮无词法候选/, "须如实说明本回合没有做词法召回");
+	assert.match(r.text, /决策基线/, "基线须可见");
 });
 
 test("buildRecallInjection：有命中时注入，且带回 digest 供去重", async () => {
@@ -378,9 +390,11 @@ test("归因不得混同：取不到用户消息 ≠ 34 §6 排除", async () =>
 		assert.equal(r.inject, false);
 		assert.equal(r.reason, "no-user-text", `「${String(userText)}」应报输入缺失，不是 §6 排除`);
 	}
-	// 取到了但不满足进入条件，才是 §6 排除。
+	// 取到了但不满足进入条件，才是 §6 排除（2026-11-03 起表现为「只带基线」，
+	// 归因落在 `baselineOnlyCause` —— 输入缺失仍报 no-user-text，两者不混同）。
 	const r2 = await buildRecallInjection({ userText: "看看这个文件里有什么", projectRoot: ROOT });
-	assert.equal(r2.reason, "excluded-by-34-6");
+	assert.equal(r2.result?.baselineOnlyCause, "excluded-by-34-6");
+	assert.notEqual(r2.result?.baselineOnlyCause, "recall/no_tokens", "两种归因不得混同");
 });
 
 test("诊断问句不得判为纯读取（34 §6 排除条件只挡「只为取信息」的动作）", async () => {
@@ -406,8 +420,10 @@ test("无主题词的问句：no_tokens 是合理结果，如实报出而非假�
 	// 「为什么这里不对」全是虚字 + 「不对」，没有任何**主题词**——不知道要召回
 	// 什么主题，no_tokens 是正确行为。这里断言「如实报出」，不是断言「必须召回」。
 	const r = await buildRecallInjection({ userText: "为什么这里不对", projectRoot: ROOT });
-	assert.equal(r.inject, false);
-	assert.match(r.reason, /no_tokens|no-hits/, "应如实说明召回器无从下手，而不是伪装成无相关约束");
+	// 2026-11-03 起：词法层报 no_tokens，但基线仍须可见；归因不因注入而丢失。
+	assert.equal(r.result?.baselineOnlyCause, "recall/no_tokens", "应如实说明召回器无从下手");
+	assert.deepEqual(r.result?.facts, [], "no_tokens 时不得带入词法候选");
+	assert.match(r.text, /本轮无词法候选/, "须如实说明本回合没有词法候选");
 });
 
 test("全弱证据查询不得注入（放宽 tokenizer 后的精度护栏）", async () => {
@@ -420,8 +436,11 @@ test("全弱证据查询不得注入（放宽 tokenizer 后的精度护栏）", 
 	// 而不是拿弱噪声冒充候选。破坏性验证：把该拦截置 false，本条立即变红。
 	for (const q of ["为什么这里不对", "现在应该做什么", "是不是应该", "我要的是这个"]) {
 		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
-		assert.equal(r.inject, false, `「${q}」没有任何主题词，不得注入`);
-		assert.match(r.reason ?? "", /no_tokens/, `「${q}」应报 no_tokens：${r.reason}`);
+		// **不得注入任何词法候选**（这才是本条的护栏）；基线不在护栏范围内——
+		// 它属 22 §12 义务召回，与「有没有主题词」无关（2026-11-03 变更）。
+		assert.deepEqual(r.result?.facts, [], `「${q}」不得注入词法候选（事实源）`);
+		assert.deepEqual(r.result?.specs, [], `「${q}」不得注入词法候选（规范源）`);
+		assert.equal(r.result?.baselineOnlyCause, "recall/no_tokens", `「${q}」应报 no_tokens 归因`);
 	}
 	// 反例保护：含真实主题词的句子必须照常召回，不得被这层误杀。
 	for (const q of ["页面白屏了怎么办", "把对象的字段改名后同步读取侧"]) {
@@ -1230,7 +1249,10 @@ test("三态 gate 不因引入加权而改变（34 §6 进入判据仍是唯一�
 	// 纯读取仍须被排除——即便它可能命中很多候选（候选再多也不该改进入判据）。
 	for (const q of ["看看这个文件", "列出所有规范"]) {
 		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
-		assert.equal(r.inject, false, `「${q}」是纯读取，三态须排除（与命中数无关）`);
+		// 三态 gate 仍排除**词法候选**（与命中数无关）；基线不参与该 gate。
+		assert.deepEqual(r.result?.facts ?? [], [], `「${q}」是纯读取，不得在事实侧给候选`);
+		assert.deepEqual(r.result?.specs ?? [], [], `「${q}」是纯读取，不得在规范侧给候选`);
+		assert.equal(r.result?.baselineOnlyCause, "excluded-by-34-6", `「${q}」归因须为 §6 排除`);
 	}
 	// 写动作仍须进入。
 	const w = await buildRecallInjection({ userText: "修改受保护内容", projectRoot: ROOT });
@@ -1533,5 +1555,81 @@ test("截断归因：同一次注入里每类来源最多一条说明，且互�
 	// 两类不得互相冒充：数据层行不陈述渲染层裁掉的条数，渲染层行不陈述数据层每侧上限。
 	for (const line of dataLayer) {
 		assert.ok(!/渲染层/.test(line), `数据层行不得陈述渲染层的事。实际：${line}`);
+	}
+});
+
+// ---------------------------------------------------------------------------
+// F1 决策基线：即使词法层不产出候选，也须每次可见（22 §12 义务召回）
+// ---------------------------------------------------------------------------
+
+test("22 §12：极小预算下基线让位须留下可见痕迹（不得静默）", async () => {
+	// **旧缺陷**（2026-11-03 修）：预算 < BASELINE_YIELD_BELOW_BYTES(1200) 时
+	// 基线整段让位，且**什么都不说**——模型侧只看到「候选没列出」，完全不知道
+	// 还有 2 条 active ADR 属义务披露。数据层虽有 decisionBaseline.items，
+	// 但那只对调用方可见，模型侧不可见。
+	//
+	// 修法：不新增行（新增必超预算），把痕迹**并入**既有截断披露行，
+	// 并改用紧凑措辞使净字节不高于原行。
+	for (const budgetBytes of [600, 800, 1000, 1100, 1199]) {
+		const r = await buildRecallInjection({
+			userText: "修改受保护内容并重新提交",
+			projectRoot: ROOT,
+			budgetBytes,
+		});
+		assert.equal(r.inject, true, `预算 ${budgetBytes}：仍须注入`);
+		const items = r.result?.decisionBaseline?.items ?? [];
+		assert.ok(items.length > 0, `预算 ${budgetBytes}：数据层须仍承载基线（让位不等于丢弃）`);
+		assert.match(
+			r.text,
+			/基线 \d+ 条未展开/,
+			`预算 ${budgetBytes}：必须留下「基线存在但未展开」的痕迹，不得静默。实际文本：${r.text}`,
+		);
+		assert.match(r.text, /22 §12/, "痕迹须回指义务召回依据");
+	}
+});
+
+test("22 §12：纯读取回合仍须带出决策基线（基线不依赖词法命中）", async () => {
+	for (const q of ["看看这个文件", "列出所有规范", "列一下目录", "查询一下"]) {
+		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
+		assert.equal(r.inject, true, `「${q}」：基线须可见`);
+		assert.equal(r.result?.baselineOnly, true, `「${q}」：须标记为只带基线`);
+		assert.ok((r.result?.decisionBaseline?.items?.length ?? 0) > 0, `「${q}」：基线条目须在数据层`);
+		assert.match(r.text, /决策基线/, `「${q}」：基线须进渲染文本`);
+	}
+});
+
+test("22 §12：no_tokens 回合仍须带出决策基线", async () => {
+	for (const q of ["是不是应该", "为什么这里不对", "怎么办", "下一步"]) {
+		const r = await buildRecallInjection({ userText: q, projectRoot: ROOT });
+		assert.equal(r.inject, true, `「${q}」：基线须可见`);
+		assert.equal(r.result?.baselineOnlyCause, "recall/no_tokens", `「${q}」：归因须为 no_tokens`);
+		assert.match(r.text, /决策基线/, `「${q}」：基线须进渲染文本`);
+	}
+});
+
+test("22 §12：无可披露基线时不注入（只带基线的路径不得变成无条件注入）", async () => {
+	// 边界：临时项目只有空的 ldvh-base（无 adr 载体）⇒ 基线为空 ⇒ 纯读取回合
+	// 不得注入任何东西。否则「每次必带基线」会退化成「每次必注入一行空壳」。
+	const project = await mkdtemp(join(tmpdir(), "ldvh-baselineonly-"));
+	try {
+		await mkdir(join(project, "ldvh-base", "adrs"), { recursive: true });
+		const r = await buildRecallInjection({ userText: "看看这个文件", projectRoot: project });
+		assert.equal(r.inject, false, "无 active ADR 可披露时不得注入");
+		assert.equal(r.reason, "no-hits");
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+});
+
+test("22 §12：事实源不可读时基线路径须如实披露，而不是静默留空", async () => {
+	const project = await mkdtemp(join(tmpdir(), "ldvh-baselineunreadable-"));
+	try {
+		// 故意不建 ldvh-base：目录不存在 ⇒ 事实源不可读。
+		const r = await buildRecallInjection({ userText: "看看这个文件", projectRoot: project });
+		assert.equal(r.inject, true, "不可读也须披露（读不到 ≠ 没有）");
+		assert.match(r.text, /不可读|未取得/, "须如实说明未取得基线");
+		assert.match(r.text, /不表示本项目没有 ADR/, "须区分「读不到」与「没有」");
+	} finally {
+		await rm(project, { recursive: true, force: true });
 	}
 });

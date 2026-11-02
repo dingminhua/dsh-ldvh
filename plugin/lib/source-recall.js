@@ -2576,6 +2576,61 @@ function relationExpansionsOf(hitCards, pool, scopedFacts, criteria) {
   return { items, dropped };
 }
 
+/**
+ * 只枚举 F1 决策基线（active ADR），不跑任何词法匹配。
+ *
+ * **为什么需要单独一个入口**（2026-11-03）：`22 §12` 的义务召回要求「相关行动
+ * 开始前，AI 必须召回并核对相关 active ADR」，其可见性**不得**取决于本回合是否
+ * 走词法召回。而 `recallForAction` 会在两处整体短路：
+ *   · 动作描述切不出主题词 → `recall/no_tokens`（如「是不是应该」「怎么办」）；
+ *   · 判为纯读取/纯查询 → 调用方 `buildRecallInjection` 在调用前就返回。
+ * 这两条短路都是 `34 §6` 的**词法候选**排除条件，针对的是「本次有哪些相关候选」，
+ * 与 F1 基线「当前决策全貌」无关。短路时连基线一起吞掉，等于把义务召回重新绑回
+ * 当回合用词——正是方案 A（Human 2026-10-25）要消除的缺陷。
+ *
+ * **边界**：只读事实源，不读规范源、不建索引、不写任何东西；返回结构与
+ * `recallForAction` 的 `decisionBaseline` 同形，故渲染层无需第二套逻辑。
+ *
+ * @param {{root?: string}} [input]
+ */
+export async function baselineOnlyForAction(input = {}) {
+  const root = input.root ?? join(import.meta.dirname, "..", "..");
+  const factsDir = join(root, "ldvh-base");
+  const factsReadable = await isReadableDir(factsDir);
+  // 事实源不可读时不抛错：与 `recallForAction` 同口径，把「读不到」如实标进
+  // `sourceUnreadable`，绝不返回空 items 让读者读成「本项目没有 ADR」。
+  const facts = factsReadable ? await loadFacts(factsDir) : [];
+  // **不受任何过滤影响**（22 §12／02 §9.1 F1）：不传 types/statuses/limit，只按
+  // ADR 的默认候选状态取 active——与 `recallForAction` 内的枚举同源同序，两处若
+  // 不一致会出现「有词命中时基线 3 条、无词命中时基线 2 条」的漂移。
+  const adrActiveStatuses = DEFAULT_STATUSES_BY_TYPE.adr;
+  const active = facts.filter(
+    (fact) => fact.type === "adr" && adrActiveStatuses.includes(fact.status),
+  );
+  // 确定性排序：标题码点序，同标题再按稳定引用兜底（02 §9 红线，无权重）。
+  active.sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0) || (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0));
+  const items = active.map((fact) => ({
+    title: fact.title,
+    status: fact.status,
+    ref: fact.ref,
+    path: fact.path,
+  }));
+  return {
+    ok: true,
+    decisionBaseline: {
+      items,
+      sourceUnreadable: !factsReadable,
+      pagination: { hasCursor: false, howToGetAll: "本字段即全量 active ADR（不按 limit 截断）；逐条全文用 ldvh_adr_read" },
+      note: "F1 枚举：不受本次 limit／types／预算影响；retired 不入基线（22 §12）",
+      // 本路径不跑词法召回，故没有候选区与基线争预算，预留恒为 0。
+      reservedBytes: 0,
+    },
+    // 明示「本结果不证明适用」（34 §13），与 recallForAction 同口径。
+    provesApplicability: false,
+    gaps: factsReadable ? [] : ["事实源不可读：项目内 ldvh-base/ 不存在或不可读，该源未检查"],
+  };
+}
+
 export async function recallForAction(input = {}) {
   const action = typeof input.action === "string" ? input.action.trim() : "";
   if (action === "") {

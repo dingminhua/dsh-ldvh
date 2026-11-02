@@ -38,6 +38,7 @@ import {
   INJECTION_EXCLUDED_TYPES,
   RECALL_LIMIT_MAX,
   RENDER_FIXED_OVERHEAD_BYTES,
+  baselineOnlyForAction,
   recallForAction,
 } from "./source-recall.js";
 
@@ -532,6 +533,66 @@ export function currentUserText(messages, isOwnMessage) {
 }
 
 /**
+ * 只渲染**决策基线**那一行（词法候选不参与时用）。
+ *
+ * **为什么需要它**（2026-11-03，Human 裁决）：`22 §12` 的义务召回是「相关行动
+ * 开始前，AI 必须召回并核对相关 active ADR」。而 `34 §6` 的排除条件（纯读取、
+ * 纯查询）与 `recall/no_tokens`（切不出主题词）都在**词法候选**这一层短路。
+ * 两者本不是同一件事：前者问「本次有哪些相关候选」，后者是「当前决策全貌」。
+ * 旧实现让后者随前者一起消失，实测后果——
+ *   · 「继续」「看了看这个文件」「召回」→ 整行不注入，2 条 active ADR 一条不可见；
+ *   · 「是不是应该」「怎么办」→ `no_tokens` 短路，同上。
+ * 即法定效力决策的可见性重新取决于当回合用词，正是方案 A 要消除的缺陷。
+ *
+ * **边界**：本函数只渲染基线，不渲染候选、不声称适用（34 §13），并把
+ * 「为什么没有候选」如实写在行里，避免读者把「只看到基线」误读成「查过了没相关」。
+ *
+ * @param {{baseline: object|null, why: string, limitBytes?: number|null}} input
+ * @returns {string}
+ */
+export function renderBaselineOnlyRow({ baseline, why, limitBytes = null } = {}) {
+  const items = Array.isArray(baseline?.items) ? baseline.items : [];
+  const lines = [];
+  lines.push("【双源召回 · 行动前候选】");
+  // **候选区缺席的原因必须写清**：否则读者会把「只有基线」读成「已查过、无相关」。
+  // 34 §6 排除与 no_tokens 是两种不同归因，分别措辞（归因不得混同）。
+  lines.push(`（本轮无词法候选：${why}。以下仅为**决策基线**——它属 22 §12 义务召回，不受该条件影响。）`);
+  if (items.length === 0) {
+    if (baseline?.sourceUnreadable === true) {
+      lines.push("（决策基线：事实源不可读，基线未取得——**不表示本项目没有 ADR**（34 §12）。）");
+    } else {
+      lines.push("（决策基线：本项目当前无 active ADR。）");
+    }
+    return lines.join("\n");
+  }
+  lines.push("【决策基线 · active ADR（22 §12 义务披露）】");
+  let usedBytes = 0;
+  // 与完整路径同一缩放口径：基线最多占注入预算的 1/3。
+  const scaledCap = typeof limitBytes === "number" && limitBytes > 0
+    ? Math.floor(limitBytes / BASELINE_BUDGET_SHARE_DIVISOR)
+    : ADR_BASELINE_BYTE_BUDGET;
+  const effectiveCap = Math.min(ADR_BASELINE_BYTE_BUDGET, scaledCap);
+  let shown = 0;
+  let omitted = 0;
+  for (const item of items) {
+    const line = `· ${item.title}${item.status ? `［${item.status}］` : ""}`;
+    const lineBytes = Buffer.byteLength(line, "utf8") + 1;
+    if (shown > 0 && usedBytes + lineBytes > effectiveCap) {
+      omitted += 1;
+      continue;
+    }
+    lines.push(line);
+    usedBytes += lineBytes;
+    shown += 1;
+  }
+  if (omitted > 0) {
+    lines.push(`（基线按字节上限 ${effectiveCap} 列出前 ${shown} 条，另有 ${omitted} 条未列出；**未列出不代表不存在**，用 ldvh_adr_list 取全量。）`);
+  }
+  lines.push("（基线只保证「看得见」，**不证明适用**。）");
+  return lines.join("\n");
+}
+
+/**
  * 渲染注入行文本（模型侧看到的就是这段）。
  *
  * 措辞纪律：**只说候选，不说适用**。`02 §9.2` 与 `34 §13` 都明文召回命中不等于
@@ -578,6 +639,30 @@ export function renderRecallRow(result) {
   // 自身有独立字节上限并如实披露截断。
   const baseline = result?.decisionBaseline;
   const baselineItems = Array.isArray(baseline?.items) ? baseline.items : [];
+  // **极小预算下基线让位的痕迹**（2026-11-03 修）：不新增行，只**并入**既有的
+  // 截断行或三态行——新增独立行会顶破极小预算（实测 800 下 +95 字节即超）。
+  // 该痕迹此前完全缺失：预算 < 1200 时模型侧看不到任何「基线存在」的字样。
+  const baselineBudgetLimit =
+    typeof result?.budget?.limitBytes === "number" ? result.budget.limitBytes : null;
+  const baselineYielded = baselineItems.length > 0
+    && baselineBudgetLimit !== null && baselineBudgetLimit > 0
+    && baselineBudgetLimit < BASELINE_YIELD_BELOW_BYTES;
+  // **痕迹措辞按预算宽度分两档**（2026-11-03）：极小预算下不能只是「在长句后
+  // 追加一句」——实测那样反而把 800 档从 797 顶到 878。故让位时整行改用紧凑
+  // 措辞（省掉「未列出的部分不代表不存在」等与本行重复的复述，那句已由第 2 行
+  // 的权威声明承载），净字节仍低于原行。
+  const baselineYieldSuffix = baselineYielded
+    ? baselineItems.length > 0
+      ? `；基线 ${baselineItems.length} 条未展开（22 §12，ldvh_adr_list）`
+      : ""
+    : "";
+  let baselineYieldNoteEmitted = false;
+  // 把痕迹并进「本条披露行」的收尾括号里；只并一次（先到先得：截断行优先）。
+  const withBaselineYieldNote = (text) => {
+    if (baselineYieldSuffix === "" || baselineYieldNoteEmitted) return text;
+    baselineYieldNoteEmitted = true;
+    return text.endsWith("）") ? `${text.slice(0, -1)}；${baselineYieldSuffix}）` : `${text}；${baselineYieldSuffix}`;
+  };
   if (baselineItems.length > 0 || baseline?.sourceUnreadable === true) {
     // **极小预算的退化形态先判**：此时整段压成一行（段头、计数、入口、适用性
     // 否定都在这一行里），故不得再输出独立段头与独立声明——否则又超回去。
@@ -586,14 +671,18 @@ export function renderRecallRow(result) {
     const totalBudgetTooSmall = baselineLimitBytes !== null && baselineLimitBytes > 0
       && baselineLimitBytes < BASELINE_YIELD_BELOW_BYTES;
     if (totalBudgetTooSmall && baselineItems.length > 0) {
-      // **极小预算下基线整体让位（如实登记，非静默）**：预算 < 1200 时固定声明
-      // （约 720 字节）加三态/截断披露行已顶满，实测 800 预算下加任何基线痕迹
-      // 都会超（单行形态 898、并入披露行 870，均 > 800）。故此时不输出基线文本，
-      // 改由**数据层**如实承载：`decisionBaseline.items` 与 `reservedBytes` 仍在
-      // 返回值里，调用方与测试可机械观察「基线存在但未在注入面展开」。
+      // **极小预算下基线整体让位，但痕迹必须留在既有披露行里**（2026-11-03 修）。
+      //
+      // 预算 < 1200 时固定声明（约 720 字节）加三态/截断披露行已顶满，实测 800
+      // 预算下**新增任何一行**都会超（单行形态 898、并入披露行 870，均 > 800）。
+      // 旧实现因此在这里什么都不输出——后果是读者在极小预算下只看到「候选没列
+      // 出」，完全不知道还有 2 条 active ADR 属义务披露（`22 §12`）。数据层虽
+      // 仍有 `decisionBaseline.items`，但那只有调用方能看见，**模型侧不可见**。
+      //
+      // 修法：不新增行，而是把这条痕迹**并入**紧随其后的截断/三态披露行
+      // （见下方 `baselineYieldSuffix`）。字节预算不变，披露义务不丢。
       // 取舍理由：`10:241`「注入内容未超 LDVH 侧常量预算」是硬核对项；
-      // 极小额预算下让基线让位，是「预算可守」优先于「小预算下也逐条列全」。
-      // 生产常量 2400 与测试矩阵 1200–4000 均不受影响（基线正常展开）。
+      // 极小预算下「让基线让位但如实说它存在」优于「逐条列全但超预算」。
     } else {
     lines.push(`【决策基线 · active ADR（22 §12 义务披露）】`);
     if (baseline?.sourceUnreadable === true && baselineItems.length === 0) {
@@ -856,11 +945,26 @@ export function renderRecallRow(result) {
       remaining < Math.max(nextSize, 200);
     if (result.overBudget === true) {
       // 保底导致超额：必须说清「预算极小、只给了保底项」。
-      lines.push(`（预算极小（上限 ${limitBytes} 字节）已超额，仅保底首项（候选行 ${usedBytes} 字节）。**未列出的部分不代表不存在**，需要时请扩大检索。）`);
+      //
+      // **极小预算下改用紧凑整行**（2026-11-03）：基线让位的痕迹若只是「在长句
+      // 末尾追加一句」，实测会把 800 档从 797 顶到 878（超预算 78）。故让位时把
+      // 重复的复述（「**未列出的部分不代表不存在**，需要时请扩大检索」）压成
+      // 「未列出不代表不存在」并把痕迹并进同一句——净字节仍低于原行。
+      if (baselineYielded) {
+        baselineYieldNoteEmitted = true;
+        lines.push(`（预算极小（上限 ${limitBytes} 字节）：保底首项（候选行 ${usedBytes} 字节）${baselineYieldSuffix}。未列出不代表不存在。）`);
+      } else {
+        lines.push(`（预算极小（上限 ${limitBytes} 字节）已超额，仅保底首项（候选行 ${usedBytes} 字节）。**未列出的部分不代表不存在**，需要时请扩大检索。）`);
+      }
     } else if (blockedByBudget) {
       // 真实原因是预算：可能用量百分比不高，但已放不下下一条。
       // 确实是被预算挡住了（用量贴近上限）。
-      lines.push(`（受预算限制已裁剪：上限 ${limitBytes} 字节，数据层估算用 ${usedBytes} 字节。未列出的部分不代表不存在。）`);
+      if (baselineYielded) {
+        baselineYieldNoteEmitted = true;
+        lines.push(`（受预算限制已裁剪：上限 ${limitBytes} 字节、数据层估算用 ${usedBytes} 字节${baselineYieldSuffix}。未列出不代表不存在。）`);
+      } else {
+        lines.push(`（受预算限制已裁剪：上限 ${limitBytes} 字节，数据层估算用 ${usedBytes} 字节。未列出的部分不代表不存在。）`);
+      }
     } else {
       // 预算还很宽松 —— 说明是 **limit（条数）** 挡住的，如实说 limit。
       //
@@ -890,11 +994,11 @@ export function renderRecallRow(result) {
       const moreHint = atCeiling
         ? `每侧 ${RECALL_LIMIT_MAX} 已是本实现的条数上限（RECALL_LIMIT_MAX），要更全请缩小动作范围或分次查询。`
         : `调大 limit 可看到更多（当前每侧 ${limitN ?? "?"}）。`;
-      lines.push(
+      lines.push(withBaselineYieldNote(
         `（受条数上限（每侧 limit=${limitN ?? "?"}）限制：规范源命中 ${specHitsN} 条、列出 ${specShownN} 条；`
         + `事实源命中 ${factHitsN} 条、列出 ${factShownN} 条。数据层预算尚有余量（候选行估算 ${usedBytes}/${limitBytes} 字节）。`
         + `未返回的部分不代表不存在；${moreHint}）`,
-      );
+      ));
     }
   }
   // **声明范围须无条件披露**（独立审核 B2，2026-10-27）：本路径用 `excludeTypes`
@@ -959,14 +1063,14 @@ export function renderRecallRow(result) {
       filterParts.push(`${ur.excludedByTypeWhitelist.length} 条未登记类型不参与`);
     }
     const filteredNote = filterParts.length > 0 ? `；另 ${filterParts.join("、")}` : "";
-    lines.push(
+    lines.push(withBaselineYieldNote(
       `（本次召回完整度：**${completeness}**${notRead.length > 0 ? `；未读取的源：${notRead.join("；")}` : ""}${filteredNote}。` +
         (completeness === "unavailable"
           // 语义声明已由第 2 行统一承载；此处只报**本态特有的处置约束**。
           ? "**「未命中」不构成「无相关」的证据**（34 §12），不得据此按零命中路径继续（§16.1 第 7 项）。"
           : "未取得的部分不代表不存在；「未命中」不构成「无相关」的证据（34 §12）。") +
         "）",
-    );
+    ));
   }
   // **两道渲染层硬约束，最终文本须同时满足**（2026-10-25，N-5 引出重构；
   // N-6/N-7 修正裁剪方向）：
@@ -1182,7 +1286,12 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
     return { inject: false, reason: "no-user-text" };
   }
   if (!shouldRecall(userText)) {
-    return { inject: false, reason: "excluded-by-34-6" };
+    return baselineOnlyInjection({
+      projectRoot,
+      cause: "excluded-by-34-6",
+      why: "本回合判为纯读取／纯查询，按 34 §6 不进入词法候选召回",
+      limitBytes: Number.isInteger(budgetBytes) ? budgetBytes : RECALL_BYTE_BUDGET,
+    });
   }
   // 显式 `limit` 视为调用方的总名额（既有行为）；未给则用分节常量。
   const totalQuota = Number.isInteger(limit) && limit > 0 ? limit : FACT_QUOTA_TOTAL;
@@ -1213,7 +1322,20 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
     return { inject: false, reason: `recall-failed:${error instanceof Error ? error.message : String(error)}` };
   }
   if (result?.ok !== true) {
-    return { inject: false, reason: `recall-unavailable:${result?.error?.code ?? "unknown"}` };
+    // **`recall/no_tokens` 与 `recall/action_required` 仍然只落基线**（2026-11-03）：
+    // 前者是「切不出主题词」（如「是不是应该」「怎么办」），后者理论上不可达
+    // （上游已挡空串）。两者都是**词法候选**层无从下手，而 F1 基线不依赖词法，
+    // 故此时仍须让 2 条 active ADR 可见——否则义务召回又绑回当回合用词。
+    const code = result?.error?.code;
+    if (code === "recall/no_tokens") {
+      return baselineOnlyInjection({
+        projectRoot,
+        cause: "recall/no_tokens",
+        why: "本回合切不出可匹配的主题词，按 34 §6 不进入词法候选召回",
+        limitBytes: Number.isInteger(budgetBytes) ? budgetBytes : RECALL_BYTE_BUDGET,
+      });
+    }
+    return { inject: false, reason: `recall-unavailable:${code ?? "unknown"}` };
   }
   const total = (result.specs?.length ?? 0) + (result.facts?.length ?? 0);
   // 决策走**纯函数** `decideInjection`（见其定义处）：把「决策读了什么」变成
@@ -1264,6 +1386,71 @@ export async function buildRecallInjection({ userText, projectRoot, budgetBytes,
     // result.truncated / partial / unchecked 承载，两者是不同的事。
     note: renderTruncated
       ? "渲染文本触硬约束（字符上限／字节预算）已按行裁去部分候选行；固定声明与披露行未裁；候选数据本身未因此减少，调大 limit 未必能显示更多，需先缩短标题/命中理由或提高上限（后者属 Human 决定事项，10:261）"
+      : "渲染文本未触硬约束",
+  };
+  return { inject: true, text, digest: text, result };
+}
+
+/**
+ * 只注入**决策基线**（词法候选被 `34 §6` 排除条件或 `no_tokens` 短路时）。
+ *
+ * **为什么单独走一条路径**（2026-11-03，Human 裁决）：`22 §12` 的义务召回是
+ * 「相关行动开始前，AI 必须召回并核对相关 active ADR」，它属 `02 §9.1` F1
+ * （枚举指定对象集合），**不依赖词法命中**。而 `34 §6` 的排除条件与
+ * `recall/no_tokens` 都在词法候选这一层——旧实现让整行注入一起消失，
+ * 实测「继续」「看看这个文件」「召回」「怎么办」这些回合里 2 条 active ADR
+ * 一条都看不见，法定效力决策的可见性又绑回了当回合用词。
+ *
+ * **代价与取舍**：这些回合会多注入约 5 行（约 350 字节）。它不构成
+ * `02 §9.2` 禁止的「无条件全量注入」：注入的**不是候选**，是 F1 基线，
+ * 且 `34 §6` 的词法候选排除条件依然生效（行里如实写明「本轮无词法候选」及其原因）。
+ *
+ * **失败不拦回合**：与主路径同纪律，召回失败只记日志并如实标注原因。
+ *
+ * @param {{projectRoot: string, why: string, limitBytes?: number|null}} input
+ */
+async function baselineOnlyInjection({ projectRoot, why, cause, limitBytes = null }) {
+  let baseline;
+  try {
+    baseline = await baselineOnlyForAction({ root: projectRoot });
+  } catch (error) {
+    return { inject: false, reason: `recall-failed:${error instanceof Error ? error.message : String(error)}` };
+  }
+  const data = baseline?.decisionBaseline ?? null;
+  const hasContent = (data?.items?.length ?? 0) > 0 || data?.sourceUnreadable === true;
+  // 无基线可披露 → 不进（与主路径同判据：不注入不等于「无相关」）。
+  if (!hasContent) return { inject: false, reason: "no-hits" };
+  const text = renderBaselineOnlyRow({ baseline: data, why, limitBytes });
+  // 渲染侧硬约束同样适用：极小预算下基线行也须守住字节预算。
+  // 此处只做**如实标注**，不再裁剪——基线是义务披露，裁掉等于回到旧缺陷。
+  const bytes = Buffer.byteLength(text, "utf8");
+  const overBudget = typeof limitBytes === "number" && limitBytes > 0 && bytes > limitBytes;
+  const result = {
+    ok: true,
+    decisionBaseline: data,
+    specs: [],
+    facts: [],
+    provesApplicability: false,
+    // **明示本次没有走词法召回**：调用方与测试据此分辨「只带基线」与「有候选」。
+    baselineOnly: true,
+    // **归因不得混同**（2026-11-03）：`34 §6` 排除（纯读取／纯查询）与
+    // `recall/no_tokens`（切不出主题词）是两种不同判定，处置与排查方向都不同；
+    // 两者都走「只带基线」这条路径，故归因必须由独立字段承载，不能靠文本措辞。
+    baselineOnlyCause: cause ?? null,
+    baselineOnlyReason: why,
+    budget: { limitBytes, usedBytes: 0, limit: 0 },
+    gaps: [
+      ...(baseline?.gaps ?? []),
+      `本轮未做词法候选召回（${why}）；决策基线不受该条件影响（22 §12）。`,
+    ],
+  };
+  result.render = {
+    chars: text.length,
+    limitChars: renderCharLimitFor(limitBytes),
+    truncated: false,
+    droppedCandidates: 0,
+    note: overBudget
+      ? "基线行超出当次字节预算（基线属 22 §12 义务披露，不裁剪，如实带出）"
       : "渲染文本未触硬约束",
   };
   return { inject: true, text, digest: text, result };
