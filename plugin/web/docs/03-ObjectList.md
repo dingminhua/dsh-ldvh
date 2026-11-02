@@ -153,7 +153,20 @@ Spark 列表页保持只读；Web 不提供 Spark 创建、直接捕获、写入
 
 - 加载态：居中旋转动画。
 - 错误态：`common.loadFailed` + 错误信息。
-- 空态：`objectList.noObjects`，不得拼 raw 中文句子。
+- 空态**分两句**（Human 定案 2026-11-02），判据是 `statusTotal`（服务端按**未应用状态
+  筛选**的池子计数）而非 `items.length`：
+  - `statusTotal === 0` → `objectList.noObjects`（「还没有{type}对象」）：这个类型本来就
+    没有任何对象，下一步是去建；
+  - 否则 → `objectList.noObjectsUnderFilter`（「当前筛选条件下没有{type}对象」）：对象有，
+    是状态筛选/搜索把它们挡掉了，下一步是放宽筛选。
+
+  用 `items.length` 判会把「筛选后为空」误报成「本来没有」。`{type}` 必须经
+  `getTypeLabel(type, locale)` 本地化——不得直塞原始类型键（`norm` / `devlog` 之类），
+  那会在中文界面里露出英文键名。两句都不得拼 raw 中文句子。
+- **「该事实类型尚未接入」不再作为空态出现**：对象目录缺失已按零对象处理（判据与实测
+  见 [`11-v5Web开发增量.md`](./11-v5Web开发增量.md) §4duodecies）。`type_not_integrated`
+  这个覆盖状态仍在前端契约里（三个筛选器按它显示 `—`、覆盖警示条按它工作），只是后台
+  不再因「目录不存在」产出它。
 
 ### 3.8 五个基准模块中的对象列表基线
 

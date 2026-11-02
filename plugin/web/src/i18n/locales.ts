@@ -1337,7 +1337,17 @@ export const UI_LOCALES = {
     'cognition.sparkHealth.copyModuleSummary': '复制模块摘要',
     'cognition.sparkHealth.copiedModuleSummary': '已复制模块摘要',
 
-    'objectList.noObjects': '未找到 {type} 对象',
+    // 空态分两句（Human 定案 2026-11-02）：此前只有一句「未找到 {type} 对象」，且 {type}
+    // 传的是**原始类型键**（norm / devlog），于是中文界面里会冒出英文键名。两句的分工是
+    // **读者的问题不同**，不是措辞偏好：
+    // · `noObjects` —— 这个类型**本来就没有**任何对象（目录都没建过也算），下一步是去建；
+    // · `noObjectsUnderFilter` —— 对象**有**，只是当前筛选没命中，下一步是放宽筛选。
+    // 而 `typeNotIntegrated` 不再作为空态文案出现：目录缺失已按零对象处理（见
+    // `api/services/localFactReader.ts` 的 `emptyTypeDirectory`）；该键仍保留，因为
+    // `coverage_status=type_not_integrated` 这条前端契约还在（三个筛选器的 `—` 计数与
+    // 上方覆盖警示条按它工作），只是后台已不会因「目录不存在」产出它。
+    'objectList.noObjects': '还没有{type}对象',
+    'objectList.noObjectsUnderFilter': '当前筛选条件下没有{type}对象',
     'objectList.searchLabel': '搜索对象',
     'objectList.searchPlaceholder': '搜索标题或完整对象 ID',
     'objectList.searchNoResults': '未找到匹配的对象',
@@ -2172,7 +2182,8 @@ export const UI_LOCALES = {
     'cognition.sparkHealth.copyModuleSummary': 'Copy module summary',
     'cognition.sparkHealth.copiedModuleSummary': 'Module summary copied',
 
-    'objectList.noObjects': 'No {type} found',
+    'objectList.noObjects': 'No {type} objects yet',
+    'objectList.noObjectsUnderFilter': 'No {type} objects under the current filter',
     'objectList.searchLabel': 'Search objects',
     'objectList.searchPlaceholder': 'Search title or full object ID',
     'objectList.searchNoResults': 'No matching objects found',

@@ -61,6 +61,20 @@ async function readingScope(scope?: LocalFactScope): Promise<LocalFactScope> {
   return { worktreeLocator: project.path, governedProjectId: project.id }
 }
 
+/**
+ * 「该类型尚未接入」的列表结果。
+ *
+ * **2026-11-02（Human 定案）起，本函数不再由「对象目录不存在」触发**——那条判定在
+ * 读取层已改为按零对象处理（口径与实测证据见 `localFactReader.ts` 的
+ * `emptyTypeDirectory` 注释）。此处保留本函数与 `coverage_status: 'type_not_integrated'`
+ * 这个投影值，因为它是**前端契约的一部分**（`FactCoverageStatus` 有该成员、三个筛选器
+ * 按它显示 `—`、列表页有专门的分支与文案），且未来若出现「有目录契约但无读取支持」
+ * 的类型，它才是正确答案。
+ *
+ * 现在唯一的触发点是 `listed.status !== 'complete'`：读取层只在**真的**判定该类型无法
+ * 列举时才会给出这个状态。当前九类全部接入，故它在运行期不出现——这不是「没测过」，
+ * 而是「判据已不可能成立」。
+ */
 function notIntegrated(type: ObjectType, message: string): WebFactResult {
   const issue = { code: 'type_not_integrated', message }
   const response = result('list', type, { items: [], coverage_status: 'type_not_integrated', collection_issues: [issue] })
@@ -906,7 +920,9 @@ export async function listObjects(type: ObjectType, _baseDir?: string, status?: 
   try {
     const resolvedScope = await readingScope(scope)
     const listed = await listLocalFacts(type, resolvedScope)
-    if (listed.status !== 'complete') return notIntegrated(type, listed.issues[0]?.message ?? `类型 ${type} 尚无对象目录`)
+    // 目录缺失已在上游按零对象处理（见 `localFactReader.emptyTypeDirectory`），故此分支
+    // 只在读取层真的报「无法列举」时才命中，不再等价于「目录不存在」。
+    if (listed.status !== 'complete') return notIntegrated(type, listed.issues[0]?.message ?? `类型 ${type} 无法列举`)
     const uidTargets = await currentProjectUidTargets(resolvedScope)
     // Reverse ordinary refs are derived once per read and only attached to
     // WorkCase cards. They remain separate from outgoing factRefs and formal

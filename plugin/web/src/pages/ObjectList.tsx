@@ -1761,8 +1761,17 @@ export default function ObjectList() {
           {t(currentType === 'workcase' ? 'objectList.workcaseObjectProblemsEmpty' : 'objectList.objectProblemsEmpty')}
         </div>
       ) : filteredItems.length === 0 ? (
+        // 空态分两句（Human 定案 2026-11-02）：读者看到空屏时问的是两个不同的问题——
+        // 「这个类型本来就没有东西」还是「我筛得太窄」。此前一律答「未找到 {type} 对象」，
+        // 既没区分，`{type}` 又传的是**原始类型键**（norm / devlog），中文界面里冒出英文键。
+        //
+        // 判据用 `statusTotal`（服务端按**未应用状态筛选**的池子计数）：它为 0 才说明该
+        // 类型一条对象都没有；大于 0 而当前列表为空，只能是筛选/搜索把它们挡掉了。
+        // 不用 `items.length`——那正是被筛过的结果，用它判会把「筛选后为空」误报成「本来没有」。
         <div className="ldvh-body-muted py-20 text-center">
-          {t('objectList.noObjects', { type: currentType })}
+          {statusTotal === 0
+            ? t('objectList.noObjects', { type: getTypeLabel(currentType, locale) })
+            : t('objectList.noObjectsUnderFilter', { type: getTypeLabel(currentType, locale) })}
         </div>
       ) : (
         <div className="ldvh-section-grid">

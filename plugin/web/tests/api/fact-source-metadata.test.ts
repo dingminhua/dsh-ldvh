@@ -189,10 +189,20 @@ test('list responses keep per-object read failures and collection coverage in th
     assert.deepEqual((candidate?.read_issues as Array<Record<string, unknown>>).map((issue) => issue.code), ['frontmatter_unclosed']);
     assert.deepEqual(listed.issues.map((issue) => issue.code), ['frontmatter_unclosed']);
 
-    const notIntegrated = await listObjects('research', undefined, undefined, scope);
-    if (!notIntegrated.ok) throw new Error(notIntegrated.error);
-    assert.equal(notIntegrated.data.coverage_status, 'type_not_integrated');
-    assert.deepEqual((notIntegrated.data.collection_issues as Array<Record<string, unknown>>).map((issue) => issue.code), ['type_not_integrated']);
+    // 2026-11-02（Human 定案）：**对象目录不存在 = 零对象**，不再是「类型未接入」。
+    //
+    // 旧断言在此处要求 `coverage_status === 'type_not_integrated'`——它把「目录没建」
+    // 这个实现细节钉成了契约。实测反证：临时 mkdir 一个空目录，同一请求立刻变
+    // `complete` + `items: []`；也就是说这条断言守的不是类型接入，而是**目录存在性**。
+    // 判据见 `api/services/localFactReader.ts` 的 `emptyTypeDirectory` 注释。
+    //
+    // 本用例的 research 目录根本没建，故正确结果就是「完整的空列表」：没有覆盖问题，
+    // 也没有把「零对象」误报成阻塞级结论。
+    const emptyType = await listObjects('research', undefined, undefined, scope);
+    if (!emptyType.ok) throw new Error(emptyType.error);
+    assert.equal(emptyType.data.coverage_status, 'complete', '目录缺失按零对象处理，不再报 type_not_integrated');
+    assert.deepEqual(emptyType.data.items, []);
+    assert.deepEqual(emptyType.data.collection_issues, []);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

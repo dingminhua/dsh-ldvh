@@ -532,6 +532,11 @@ Playwright 实拍（真实 API、真实数据路径）：侧栏次序实测为 �
 与 `fact-source-metadata.test.ts` 的既有断言，属独立议题，故本轮如实登记不动。
 实拍看到的就是这句提示 + 四枚终态筛选各 0 条。
 
+> **2026-11-02 晚追记：这条边界已由 Human 定案修掉**。Human 就这两屏的问法是「都是
+> 没有数据，为什么显示不一样」——于是它不再是「独立议题」，而成了要当场修的口径。
+> 改动：`directoryStatus` 改为按零对象处理、`readLocalFact` 的精确读取改报 `not_found`、
+> 空态文案分两句并本地化类型名。见 §4duodecies。
+
 **未覆盖（如实登记）**：① `ldvh-base/devlogs/` 在本项目当前是空目录（0 个真实对象），
 实拍用的是两条**临时夹具**（一 active、一 absorbed），截图后已删除——`git status` 确认
 不残留；② 暗色模式实拍只覆盖列表页，两个详情页未拍暗色；③ `superseded` / `dropped`
@@ -819,3 +824,97 @@ fail-closed 报 `direction_collision`）由 CLI 承载（`plugin/lib/norm-tools.
 `facts/norm_direction_collision`）。**已核查：Web 投影层没有该诊断**（`plugin/web/` 全树
 除本文档外无 `direction_collision` 命中）。这是本轮之前就存在的边界、不是撤方向键造成的，
 但撤除让它在界面上更难被察觉，故记在此。
+
+## 4duodecies. 空事实类型：目录缺失不再等于「类型未接入」（2026-11-02，Human 定案）
+
+Human 附两屏截图并问：「都是没有数据，为什么显示不一样？」
+
+- **开发日志**（本仓 0 条 DevLog，`ldvh-base/devlogs/` 尚未被 writer 建出）→ 琥珀警示
+  「该事实类型尚未接入」+ 正文空态**同一句话**（两遍）；
+- **规范 · 已退役筛选**（2 条 active 规范在，但都不匹配该筛选）→「未找到 norm 对象」。
+
+### 判据根本不是「有没有数据」
+
+查下来是 `api/services/localFactReader.ts` 的 `directoryStatus`：
+
+```ts
+function directoryStatus(scope, type) {
+  if (existsSync(baseDirOf(scope, type))) return null
+  return { status: 'type_not_integrated', items: [], issues: [...] }
+}
+```
+
+**实测反证**：临时 `mkdir ldvh-base/devlogs`（空目录）后，同一个请求立刻从
+`coverage_status: type_not_integrated` 变成 `complete` + `items: []` + `issues: []`。
+也就是说这条警示的**唯一**判据是目录在不在——一个由写入器按需 `mkdir` 的实现细节。
+
+两句话都不准确，且错的方向相反：
+
+| 位置 | 原话 | 错在哪 |
+|---|---|---|
+| 目录缺失（devlog） | 「该事实类型尚未接入」 | 类型**早已完整接入**（后端类型面、导航、卡体、详情布局、词表都在），只是零对象——这是**假话** |
+| 目录在但筛选为空（norm） | 「未找到 norm 对象」 | 把「筛选没命中」说成「这个类型没有对象」——对真未接入的类型是**漏报**；且 `{type}` 传的是原始键，中文界面里冒出 `norm` |
+
+### 新口径：目录缺失 = 零对象
+
+`localFactReader.ts` 新增 `emptyTypeDirectory()`：目录缺失时返回
+`{ status: 'complete', items: [], issues: [] }`。三条理由按强度排列：
+
+1. 「未接入」是关于**代码**的断言（这个类型在读取/投影/呈现层有没有支持），目录存在性
+   只能回答关于**数据**的问题。用数据事实报代码事实，两个都答错。
+2. 类型接入是**编译期事实**：`LocalFactType` 成员、`FACT_TYPE_DIRS` / `FACT_TYPE_CARRIERS`
+   的登记都在源码里，缺登记根本进不了这个函数。故 `type_not_integrated` 在运行期**不可能**
+   是正确的答案。
+3. 目录由写入器按需创建，是**可恢复的瞬时状态**，报成阻塞级结论等于要求 Human 先手动
+   建目录才能看到「还没有对象」这句真话。
+
+**撤的是判定，不是状态值**：`LocalFactList.status` 的 `'type_not_integrated'` 成员保留，
+`facts.ts` 的 `notIntegrated()` 也保留（前端契约 `FactCoverageStatus` 有该成员、三个筛选器
+按它显示 `—`、列表页有覆盖警示分支）。未来若真出现「有目录契约但无读取支持」的类型，
+它才是正确答案。
+
+`readLocalFact` 同步收窄：目录缺失时的精确读取返回 `not_found`（不再
+`type_not_integrated`），并照样带回 `canonical_path`——读者据此能看出目录还没建过。
+
+### 空态文案分两句，类型名本地化
+
+`ObjectList.tsx` 的兜底空态此前一律 `t('objectList.noObjects', { type: currentType })`。
+现在按 `statusTotal`（服务端按**未应用状态筛选**的池子计数）分两句：
+
+- `statusTotal === 0` → 「还没有{type}对象」——这个类型本来就没有，下一步是去建；
+- 否则 → 「当前筛选条件下没有{type}对象」——对象有，是筛选挡掉了，下一步是放宽筛选。
+
+**为什么不用 `items.length` 判**：那正是被筛过的结果，用它判会把「筛选后为空」误报成
+「本来没有」——正是本次要修的两句话之一。
+
+`{type}` 一律经 `getTypeLabel(currentType, locale)`：此前直塞 `currentType`，中文界面里
+露出 `norm` / `devlog` 这类原始键。
+
+### 已知边界（如实登记）
+
+- **空目录与目录缺失在 Web 上给出同一句话**。这是有意的：对读者而言两者是同一件事，
+  区分它们只会把实现细节再泄漏一次。
+- 目录缺失时，「这个类型有过对象、后来目录被删了」与「从未有过对象」仍不可区分。后者是
+  正常路径，前者是载体被误删——两者在读取层都无法判定（没有目录就没有证据），故不冒充
+  能区分。
+
+### 验证
+
+新建 `tests/api/empty-fact-type-presentation.test.ts`（6 项）：目录缺失报 complete / 缺失与
+空目录结果逐字段相等 / 精确读取返回 not_found 且带回 canonical_path / 列表投影无 issue /
+两句文案存在且可区分 / 空态分支用 `statusTotal` 且走 `getTypeLabel`。
+
+改 `tests/api/fact-source-metadata.test.ts` 的既有断言（原要求
+`coverage_status === 'type_not_integrated'`），改为断言 `complete` + 空列表 + 无 issue，
+并在注释里记明「旧断言把目录存在性钉成了契约」。
+
+全量 web 用例 595 → **601 全绿**；`tsc -b` 通过；`npm run lint` 仅剩 HEAD 上既有的 1 error
+（`facts.ts` 的 `currentProjectProjectionIndexes` 未使用，非本轮引入）+ 1 warning。
+
+实拍与接口实测：`GET /ldvh/api/objects/devlog` 现返回 `coverage_status: complete`、
+`items: []`、`issues: []`（改动前为 `type_not_integrated` + 一条 issue）；页面顶部不再出现
+琥珀覆盖警示，空态只剩一句。
+
+**未覆盖（如实登记）**：① 「目录在但为空」的真实对象类型未实拍——本仓九类目录里唯一
+可能为空的 devlogs 目录本身不存在，故实拍只覆盖「目录缺失」这一侧；该侧与新口径是新
+一致的那侧，空目录侧由上面「逐字段相等」的断言承担。② 英文界面只验证了词条存在，未实拍。

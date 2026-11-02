@@ -476,14 +476,53 @@ async function readItemFile(scope: LocalFactScope, type: LocalFactType, fileName
   return readable(metadata, sourceContentFingerprint, projectFields(type, objectId, parsed, {}), content)
 }
 
-function directoryStatus(scope: LocalFactScope, type: LocalFactType): LocalFactList | null {
-  if (existsSync(baseDirOf(scope, type))) return null
-  return { status: 'type_not_integrated', items: [], issues: [{ code: 'read_failed', message: `该类型尚未接入：缺少正式对象目录 ${path.posix.join('ldvh-base', FACT_TYPE_DIRS[type])}` }] }
+/**
+ * 对象目录**缺失**时的读取结果。
+ *
+ * ## 2026-11-02（Human 定案）：目录缺失不再等于「类型未接入」
+ *
+ * 旧口径：目录不存在⇒ `status: 'type_not_integrated'`，Web 上显示「该事实类型尚未接入」。
+ * 那条口径把一个**实现细节**（写入器首次落盘才 `mkdir`，见 `plugin/lib/devlog-writer.js`
+ * 的 `DEVLOG_DIRECTORY` 落在写入路径上）泄漏成了读者面前的**结论**。同一件事——本项目
+ * 还没有这一类型的任何对象——在界面上因此有两种说法：
+ *
+ * - `ldvh-base/devlogs/` 不存在（类型已完整接入、只是零对象）→「该事实类型尚未接入」；
+ * - `ldvh-base/norms/` 存在但筛选后为空 →「未找到 norm 对象」。
+ *
+ * 实测证据：临时 `mkdir ldvh-base/devlogs` 后同一个请求的 `coverage_status` 立刻从
+ * `type_not_integrated` 变成 `complete`、`items: []`——判据是**目录在不在**，不是有没有数据。
+ *
+ * 现口径：**目录缺失 = 零对象**（`status: 'complete'`, `items: []`, `issues: []`）。
+ * 理由有三条，按强度排列：
+ *
+ * 1. 「未接入」是一个**关于代码**的断言（这个类型在读取层/投影层/呈现层有没有支持），
+ *    而目录存在性只能回答**关于数据**的问题（这个项目有没有落过这个类型的对象）。
+ *    用一个数据事实去报告一个代码事实，两个都答错了：对已接入的类型是假话，对真未接入的
+ *    类型又是漏报（它同时也可能一条数据都没有）。
+ * 2. 类型接入是**编译期事实**：`LocalFactType` 的成员、`FACT_TYPE_DIRS` / `FACT_TYPE_CARRIERS`
+ *    的登记都在源码里，缺登记根本进不了本函数。故本函数已不可能看到「未接入」的类型——
+ *    这个状态在运行期永远不会是**正确**答案。
+ * 3. 目录由写入器按需创建，是**可恢复的瞬时状态**，不是配置错误。把它报成阻塞级结论，
+ *    等于要求 Human 每次都先手动建目录才能看到「还没有对象」这句真话。
+ *
+ * **撤的是这条判定，不是这个状态值**：`LocalFactList.status` 的 `'type_not_integrated'`
+ * 成员保留（下游 `facts.ts` / 前端 `FactCoverageStatus` 仍消费它，且未来真出现「有目录
+ * 契约但无读取支持」的类型时它就是正确答案），只是本函数不再产出它。
+ *
+ * 附带后果（如实登记）：目录不存在时，**空目录**与**目录缺失**在 Web 上给出同一句话。
+ * 这是有意的——对读者而言两者是同一件事，区分它们只会把实现细节再泄漏一次。
+ */
+function emptyTypeDirectory(): LocalFactList {
+  return { status: 'complete', items: [], issues: [] }
+}
+
+/** 目录是否存在；不存在时按零对象处理（见上方 `emptyTypeDirectory` 的口径说明）。 */
+function directoryMissing(scope: LocalFactScope, type: LocalFactType): boolean {
+  return !existsSync(baseDirOf(scope, type))
 }
 
 export async function listLocalFacts(type: LocalFactType, scope: LocalFactScope): Promise<LocalFactList> {
-  const missing = directoryStatus(scope, type)
-  if (missing) return missing
+  if (directoryMissing(scope, type)) return emptyTypeDirectory()
   const dir = baseDirOf(scope, type)
   const key = cacheKeyOf(scope, type)
   const signature = await carrierSignature(dir)
@@ -513,10 +552,11 @@ export async function listLocalFacts(type: LocalFactType, scope: LocalFactScope)
 // 20/24/26/27/28/29 同形态）；其余类型保留 v4 形态（纯序号或 ULID25）。
 const FACT_OBJECT_ID_PATTERN = /^(workcase|adr|pitfall|spark|research|friction|norm|subgoal|devlog)-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[0-7][0-9A-HJKMNP-TV-Z]{25})$/
 
-export async function readLocalFact(type: LocalFactType, objectId: string, scope: LocalFactScope): Promise<{ status: 'ok'; item: LocalFactItem } | { status: 'not_found' | 'type_not_integrated'; metadata: LocalFactMetadata; issues: LocalFactIssue[] }> {
+export async function readLocalFact(type: LocalFactType, objectId: string, scope: LocalFactScope): Promise<{ status: 'ok'; item: LocalFactItem } | { status: 'not_found'; metadata: LocalFactMetadata; issues: LocalFactIssue[] }> {
   const metadata = metadataFor(scope, type, objectId)
-  const missing = directoryStatus(scope, type)
-  if (missing) return { status: 'type_not_integrated', metadata, issues: missing.issues }
+  // 目录缺失不再单独报「类型未接入」（口径见 `emptyTypeDirectory` 上方）：精确读取一个
+  // 目录不存在的类型的某个 id，正确答案就是「没有这个对象」——`not_found` 已经把
+  // `canonical_path` 一并带回，读者据此能看出目录还没建过。
   if (!FACT_OBJECT_ID_PATTERN.test(objectId)) {
     return { status: 'not_found', metadata, issues: [{ code: 'read_failed', message: `未找到预期事实对象 ${objectId}`, path: metadata.canonical_path }] }
   }
