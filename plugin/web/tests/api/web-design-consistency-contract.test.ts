@@ -360,6 +360,41 @@ test('对象卡框单源：列表卡、近期动态行与 Spark 健康度行共�
   assert.doesNotMatch(cognitionCenter, /divide-y divide-ldvh-border\/70"/, '有卡框后不得再用分隔线代替卡间距');
 });
 
+/**
+ * Spark 健康度「池结构比例条」区块只保留**上**边框，下边框不得存在。
+ *
+ * **为什么**：该区块的下边框紧贴第一张 Spark 卡的上边框，两条线叠在一起读成
+ * 「框外的框」——卡本来就有自己的框，再在外面加一条线就把卡读成了「被包着的卡」。
+ * Human 2026-11-03 截图指认的正是这一条线。上边框保留：它承担的是
+ * 「池结构区块 vs 模块标题栏」的分节，不属于「框外的框」。
+ *
+ * **保证边界（如实登记）**：本守卫是**类名级**的——它证明池结构区块不再带下边框，
+ * 不证明渲染后相邻两框之间确实只隔一条线（那由实页像素复核兜）。
+ */
+test('Spark 健康度池结构区块只保留上边框：下边框与首卡上边框叠成「框外的框」', () => {
+  const cognitionCenter = read('src/pages/CognitionCenter.tsx');
+
+  const poolBlock = cognitionCenter.slice(
+    cognitionCenter.indexOf('{sparkHealth && sparkHealth.total > 0 && ('),
+    cognitionCenter.indexOf('visibleSparkItems.map'),
+  );
+  assert.ok(poolBlock.length > 0, '须能定位到池结构比例条区块');
+
+  // 上边框保留：与模块标题栏分节。
+  assert.match(
+    poolBlock,
+    /className="border-t border-ldvh-border\/70 py-4"/,
+    '池结构区块须保留上边框（与模块标题栏分节）',
+  );
+  // 下边框去掉：它与第一张 Spark 卡的上边框叠成两条线。
+  assert.doesNotMatch(poolBlock, /border-y/, '池结构区块不得再带下边框（border-y）');
+  assert.doesNotMatch(
+    cognitionCenter,
+    /border-y border-ldvh-border\/70/,
+    '聚焦页不得再出现 border-y 的池结构区块',
+  );
+});
+
 test('WorkCase semantic blocks keep the compact 14/13px by 22px hierarchy', () => {
   const styles = read('src/index.css');
   const layout = read('src/pages/object-detail/WorkCaseReadingLayout.tsx');

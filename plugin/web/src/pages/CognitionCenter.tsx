@@ -935,7 +935,10 @@ export default function CognitionCenter({ embedded = false }: { embedded?: boole
           <div id="cognition-spark-health-content">
             <ModuleIssuesNotice issues={sparkHealthIssues} t={t} unavailableKey="cognition.sparkHealth.unavailable" />
             {sparkHealth && sparkHealth.total > 0 && (
-              <div className="border-y border-ldvh-border/70 py-4">
+              /* 池结构比例条区块只保留**上**边框（与模块标题栏分隔），下边框去掉——
+                 它紧贴第一张 Spark 卡的顶部框，两条线叠在一起读成「框外的框」。
+                 Human 2026-11-03：「这里有条分割线，要去掉」。 */
+              <div className="border-t border-ldvh-border/70 py-4">
                 <div className="flex h-7 w-full overflow-hidden rounded-md bg-rose-500/80">
                   {sparkHealth.terminalTotal > 0 && (
                     <div
