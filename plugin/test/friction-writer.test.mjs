@@ -97,7 +97,6 @@ function validFrontmatterDraft(overrides = {}) {
   return {
     title: "CI 构建缓慢",
     phenomenon: "CI 每次构建平均需要 8 分钟，其中 5 分钟花在重复依赖安装上。",
-    impact: "heavy",
     // 26 §8 必填：创建时初值 count=1、first_at=last_at。
     // 成员闭集 = { count, first_at, last_at }——`human_return_at` 已随
     // `open → observing`（放回留观）流转一并删除（2026-10 修订），多带即拒
@@ -197,7 +196,6 @@ test("create: 合法草稿落盘于 frictions/friction-<uid>.md，Code 指派身
 
     // precise read-back round-trip (26 §13 创建后精确回读)
     assert.equal(read.value.frontmatter.phenomenon, draft.phenomenon);
-    assert.equal(read.value.frontmatter.impact, draft.impact);
     assert.equal(read.value.body_valid, true);
     assert.equal(read.value.fingerprint, created.value.fingerprint);
     assert.deepEqual(read.value.body_issues, []);
@@ -334,7 +332,7 @@ test("correct: 补填 occurrence 带 human_return_at 被拒（26 §8 成员闭�
     await writeFile(
       join(root, FRICTION_DIRECTORY, frictionFileName(uid)),
       `---\nobject_uid: ${uid}\nfact_type_key: friction\ntitle: 存量作废载体\nstatus: voided\n` +
-        `phenomenon: "${phenomenon}"\nimpact: light\ndisposition: "${disposition}"\n` +
+        `phenomenon: "${phenomenon}"\ndisposition: "${disposition}"\n` +
         `created_at: "2026-01-01T00:00:00.000Z"\nchange_log: []\n` +
         `---\n\n# 存量作废载体\n\n## 现象\n${phenomenon}\n\n## 入账依据\n依据。\n\n## 处置\n${disposition}\n`,
       "utf8",
@@ -390,7 +388,7 @@ async function seedResolvedWithAnchor(root, { anchorUid, informsUid }) {
   await writeFile(
     join(root, FRICTION_DIRECTORY, frictionFileName(uid)),
     `---\nobject_uid: ${uid}\nfact_type_key: friction\ntitle: ${title}\nstatus: resolved\n` +
-      `phenomenon: "${phenomenon}"\nimpact: medium\n` +
+      `phenomenon: "${phenomenon}"\n` +
       `relations:\n  - relation_key: informs\n    target:\n      object_uid: ${informsUid}\n` +
       `attribution_ref:\n  object_uid: ${anchorUid}\n` +
       `occurrence:\n  count: 3\n  first_at: "2026-10-01T00:00:00.000Z"\n  last_at: "2026-10-05T00:00:00.000Z"\n` +
@@ -495,10 +493,10 @@ test("correct 第三类：非锚点型字段仍不得经此通道删除（许可
       objectUid: uid,
       expectedFingerprint: current.value.fingerprint,
       bodyMarkdownAfter: body,
-      // impact 是闭集内的普通字段——既未退出闭集，也不是锚点型。
-      frontmatterRemovals: ["impact"],
+      // title 是闭集内的普通字段——既未退出闭集，也不是锚点型。
+      frontmatterRemovals: ["title"],
       humanAuthorization: "Human 于 2026-10 授权（测试：越界删除）",
-      changeSummary: "试图删除闭集内的普通字段",
+      changeSummary: "试图删除闭集内的普通字段（title）",
       sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!attempt.ok, "第三类许可不得被扩张成「可删任意字段」");
@@ -642,17 +640,18 @@ test("create: phenomenon with double terminals rejected (26 §8 single-sentence)
   });
 });
 
-test("create: impact outside closed set rejected (26 §8 impact 闭集)", async () => {
+test("create: 闭集外字段被拒（26 §8）", async () => {
   await withTemp("friction-writer.", async (root) => {
+    // 2026-11-02：impact 已退出闭集，本用例改用仍不在闭集内的字段名验证同一条纪律。
     const result = await createFrictionObject({
       factSourceRoot: root,
-      frontmatterDraft: { ...validFrontmatterDraft(), impact: "critical" },
+      frontmatterDraft: { ...validFrontmatterDraft(), severity: "critical" },
       bodyMarkdown: validBodyMarkdown(),
       sessionSignature: TEST_SIGNATURE,
     });
     assert.ok(!result.ok);
     assert.equal(result.error.code, "friction/frontmatter_invalid");
-    assert.ok(result.error.details.issues.some((i) => i.includes("impact")), JSON.stringify(result.error.details.issues));
+    assert.ok(result.error.details.issues.some((i) => i.includes("severity")), JSON.stringify(result.error.details.issues));
   });
 });
 
@@ -1099,7 +1098,7 @@ test("correct: resolved 账可改正文与 relations，终态判定逐字不变�
     assert.equal(after.frontmatter.status, "resolved", "correct 不使终态重开");
     assert.equal(after.frontmatter.relations[0].target.commit, "a".repeat(40));
     // 终态判定与内容字段逐字不变
-    for (const key of ["title", "phenomenon", "impact", "serves", "attribution", "created_at"]) {
+    for (const key of ["title", "phenomenon", "serves", "attribution", "created_at"]) {
       assert.deepEqual(after.frontmatter[key], before.frontmatter[key], `${key} must be byte-identical across a correction`);
     }
     // change_log 恰好追加一条
@@ -1692,7 +1691,7 @@ test("list: empty frictions directory is a valid empty state (26 §12)", async (
   });
 });
 
-test("list: 2 live（open）+ 1 resolved——默认召回 2 条，includeResolved 召回 3 条；投影带 uid/title/status/impact/attribution/occurrence（26 §12）", async () => {
+test("list: 2 live（open）+ 1 resolved——默认召回 2 条，includeResolved 召回 3 条；投影带 uid/title/status/attribution/occurrence（26 §12）", async () => {
   // 2026-10 修订：三值闭集下**活账只有 open 一值**（observing 已退出闭集，
   // 观察材料在 11 §12bis.1 的缓冲侧）。故默认召回覆盖的是 open，
   // resolved（与 voided）作为终态只在 includeResolved 时展开。
@@ -1745,7 +1744,6 @@ test("list: 2 live（open）+ 1 resolved——默认召回 2 条，includeResolv
       assert.match(item.object_uid, UUID_PATTERN);
       assert.ok(typeof item.title === "string" && item.title.length > 0, "item must project title");
       assert.equal(typeof item.status, "string");
-      assert.ok(typeof item.impact === "string" && item.impact.length > 0, "item must project impact");
     }
     const statuses = listed.value.items.map((i) => i.status).sort();
     assert.deepEqual(statuses, ["open", "open"], "默认召回只覆盖 open（26 §12：三值闭集下活账仅 open 一值）");
@@ -1814,7 +1812,6 @@ test("list: bad carrier with invalid status lands in invalid (26 §12)", async (
       title: "坏状态",
       status: "nonexistent",
       phenomenon: "现象。",
-      impact: "light",
       created_at: "2026-09-10T12:00:00+08:00",
       change_log: [],
     };
@@ -1844,7 +1841,6 @@ function validStoredFrontmatter(overrides = {}) {
     title: "CI 构建缓慢",
     status: "open",
     phenomenon: "CI 每次构建平均需要 8 分钟，其中 5 分钟花在重复依赖安装上。",
-    impact: "heavy",
     created_at: "2026-09-10T12:00:00+08:00",
     occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" },
     change_log: [{ at: "2026-09-10T12:00:00+08:00", summary: "受控创建" }],
@@ -2060,7 +2056,7 @@ test("attribution_ref 可解析性只认顶层 object_uid 声明行（缩进 uid
     await writeFile(
       join(root, FRICTION_DIRECTORY, `friction-${hostUid}.md`),
       `---\nobject_uid: ${hostUid}\nfact_type_key: friction\ntitle: host carrier\nstatus: open\n` +
-        `created_at: "2026-01-01T00:00:00.000Z"\nimpact: light\nphenomenon: "host"\n` +
+        `created_at: "2026-01-01T00:00:00.000Z"\nphenomenon: "host"\n` +
         `relations:\n  - relation_key: informs\n    target:\n      object_uid: ${ghostUid}\n` +
         `occurrence:\n  count: 1\n  first_at: "2026-01-01T00:00:00.000Z"\n  last_at: "2026-01-01T00:00:00.000Z"\n` +
         `change_log: []\n---\n\n## 现象\n\nfixture\n`,

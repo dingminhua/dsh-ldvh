@@ -48,9 +48,9 @@
 | 研究/调研详情 | `/objects/research/:id` | 24 号薄索引阅读布局、YAML 源节点 |
 | 决策/火花/经验列表 | `/objects/{adr,spark,workcase}` | 保留 v4 语言 |
 | 子目标列表 | `/objects/subgoal` | 28 号 F1：卡头 chip（类型 → 优先级 → **次序** → 修改次数）＋判据面一句 `criterion`＋名下工作区；默认只列 active |
-| 子目标详情 | `/objects/subgoal/:id` | 28 号阅读布局：身份头 chip（类型 → 优先级 → **次序** → 修改次数，次序与列表卡卡头同一枚组件）＋ 达成条件 → 对齐说明 → **判法** → 名下工作（serves 反查派生）→ 修订史；`parent_goal` 落身份头元信息行 |
+| 子目标详情 | `/objects/subgoal/:id` | 28 号阅读布局：身份头 chip（类型 → 优先级 → **次序** → 修改次数，次序与列表卡卡头同一枚组件）＋ 达成条件 → 对齐说明 → **判法** → 名下工作（serves 反查派生）→ 修订史；`parent_goal` **不呈现**（2026-11-02 定案，见 §4quindecies） |
 | 开发日志列表 | `/objects/devlog` | 29 号 F1：卡头 chip（类型 → **发生时间** → 修改次数）＋ `summary` 一句（折叠阈值 420）；默认只列 active，三枚终态各自成筛选项 |
-| 开发日志详情 | `/objects/devlog/:id` | 29 号阅读布局：时间轴（发生时间 / 条目形成时间分开）→ 结论与边界 → 去向 → 背景 → 做法 → 实测 → 承接边 → 修订史 |
+| 开发日志详情 | `/objects/devlog/:id` | 29 号阅读布局：~~时间轴（发生时间 / 条目形成时间分开）→~~ 结论与边界 → 去向 → 背景 → 做法 → 实测 → 承接边 → 修订史（时间轴节点 2026-11-02 撤除，§4sexdecies） |
 | 联邦聚焦 | `/federation` | 跨项目聚合、项目统计、跨项目火花 |
 | 联邦对象 | `/federation/objects/:type` | 跨项目对象列表、项目源 chip |
 | 项目文件 | `/project-files` | 保留 v4 语言 |
@@ -95,10 +95,17 @@ violet 在 Norm 上表示「规则体系」，子目标既非待处置也非规�
 > **同日稍晚再追记：详情面那一半也已撤回**（见 §4novies）。Human 定案「这个地方只保留
 > 判法即可」，锚点块整体撤除，`DECISION_DETAIL_LIME_SHELL_CLASS` 失去最后一个消费方
 > 并删除。**至此 lime 作为「壳的色相」已完全退出**，只剩
-> `DECISION_TITLE_HUE_CLASS.lime` 这一枚**色相原子**——它现在的唯一消费方是
+> `DECISION_TITLE_HUE_CLASS.lime` 这一枚**色相原子**——它当时的唯一消费方是
 > `DevLogReadingLayout` 的时间轴标题，与「子目标该是什么颜色」已无关系。本段关于
 > 「子目标不该借用 amber/violet」的论理仍然有效且未被推翻，但它所记录的那次加色相
 > 作为**视觉决策**已被两轮 Human 定案整体回收：子目标在两个面上都不再用 lime 壳。
+>
+> **又被下一轮推翻（2026-11-02 更晚，见 §4sexdecies）**：上面那句「只剩
+> `DECISION_TITLE_HUE_CLASS.lime` 这一枚色相原子」也已不成立——DevLog 详情的时间轴
+> 节点整块撤除后，`lime` 键随之从 `DECISION_TITLE_HUE_CLASS` 删除，色相表收窄为
+> `Record<'amber', string>`。**本族至此只剩卡面琥珀一条**，三枚色相与两枚详情面壳
+> 全部退出。下方「本段论理仍然有效」仅指子目标为何不该取 amber/violet 的论理，不再是
+> 「lime 仍在别处活着」的凭据。
 
 **两条语义边界落在呈现层**（这两条不是文案偏好，是类型存在的理由）：
 
@@ -450,6 +457,10 @@ DevLog 是第 9 个事实类型。Human 要求：「新增了 devlog 的事实�
 `FactReadingLayouts.tsx` 的 `DevLogReadingLayout`、`ObjectDetail.tsx` 分派 +
 `model.ts` 字段序。
 
+> **2026-11-02 二次定案**：`DevLogOccurredBadge.tsx` 已整文件退场（卡头 chip 撤除，
+> 它无第二个消费方）。上条「呈现 4 处」因此少一处——按本文档的记录纪律，这里
+> **加追记而不删原文**。
+
 ### 次序：末位，且两处导航同序
 
 `NAV_ITEMS` 与 `FEDERATION_NAV_ITEMS` 都把 devlog 放在 `nav.norms` 之后、
@@ -467,11 +478,32 @@ devlog 的不再末位就没被任何断言看见）。
 WorkCase 判据面常量的取舍**：判据面是「一句判据」的容器，长结论需要的是折叠阈值，
 两者共用同一蓝面而非同一组件。
 
-卡头多一枚 `occurred_at` chip（`DevLogOccurredBadge`），排在修改次数之前。
-**为什么不与「修改次数」合成「什么时候」**：`occurred_at` 是**这件事发生的时间**，
-`created_at` 是**条目形成的时间**，29 §10.4 要求分开呈现——合成一枚会让两个不同
-问题共用一个数字。与 `SubGoalOrderBadge` 同一形态（`ldvh-chip-sm` + 12px 图标 +
-accent 色相 + 缺失给 `·`），不新造规格。
+~~卡头多一枚 `occurred_at` chip（`DevLogOccurredBadge`），排在修改次数之前。~~
+**2026-11-02 二次定案：卡头那枚 chip 撤除**（Human 定案「圈出来的部分不用显示」）。
+`occurred_at` 是**这件事发生的时间**、`created_at` 是**条目形成的时间**，29 §10.4
+要求的始终只是二者的**语义分工**（不得用 `created_at` 冒充发生时间）——**从未要求
+「卡头必须给 occurred_at」**。撤除的理由：它是排序轴与回查轴（29 §12.1「时间线
+回查」由按 `occurred_at` 排序的条目清单承担），不是逐卡必显的身份信息；条目在自己的
+卡面上重复给出它已经记下的时间，没有新增任何可读信息。`DevLogOccurredBadge`
+随该决定一并退场（它只有一个消费方，留着就是无人消费的壳）。29 §10.4 已同步订正。
+
+> **2026-11-02 追记（§4sexdecies）**：本节初稿把 29 §10.4 读成了「要求分开呈现」，
+> 并据此在详情页做了一条同时给两个时间的**时间轴节点**。**该措辞是本文档自述，
+> 不是规范原文**：`grep 分开呈现|两个时间` 在 specs/29 为 **0 命中**，§10.4 只要求
+> 语义分工。更关键的是它在呈现层站不住——**两个时间各有别的承载位**：`occurred_at`
+> 由本节的卡头 chip 承担（列表是时间线回查入口，29 §12.1），`created_at` 由
+> change_log 首条与详情底部 YAML 原文承担（身份头渲染的 `updatedAt` 是 change_log
+> **末条**，从来不是 created_at）。故详情页那处并排呈现已整块撤除。
+> **本节关于「卡头必须给 occurred_at」的全部论理不受影响**——被撤的只是详情页那次
+> 重复呈现，卡头那枚 chip 仍在本节所述的唯一位置上。
+>
+> **2026-11-02 二次定案补记**：上面那句「卡头那枚 chip 仍在本节所述的唯一位置上」
+> **已被推翻**——那枚 chip 也在同日撤除（Human 定案）。原文「两个时间各有别的承载位」
+> 仍然成立，只是 `occurred_at` 的承载位从「卡头 chip」改为「按 `occurred_at` 排序的
+> 条目清单」（29 §12.1）；29 §10.4 已据此订正。**教训**：`occurred_at` 的语义分工
+> 要求（§10.4）与它在呈现面上的落点（§13.1）是两件事——前者是规范要求，后者由
+> §13.1 与 07 号决定；把落点写进「要求」的论理里，等于给自己埋一个将来要推翻的
+> 前提。
 
 ### 详情：阅读次序 ≠ 书写次序
 
@@ -482,12 +514,21 @@ accent 色相 + 缺失给 `·`），不新造规格。
 
 三处显式标注（都不是可选文案）：
 
-1. **时间轴节点**同时给 `occurred_at` 与 `created_at`，各带自己的标签；
+1. ~~**时间轴节点**同时给 `occurred_at` 与 `created_at`，各带自己的标签~~ ——
+   **2026-11-02 撤除**（§4sexdecies）；
 2. **空集歧义**（29 §8.1）：无 `serves` 时标注「未声明或不属于任何子目标」，并说明
    「确实不属于」与「未声明」在机械层不可区分——**不得写成「无主题」**，那会把歧义
    压成一个确定结论；
 3. **压缩形态**（29 §9.1）：`absorbed` 条目正文只剩两段，渲染时显式说明「已被承接，
    正文压缩为『结论与边界』与『去向』两段」——不静默少三段，否则读者会以为内容丢了。
+
+> **2026-11-02 后第 1、2 项均已撤除**（§4sexdecies），只剩第 3 项。
+> 第 1 项是那次撤除的主体。第 2 项不是独立需求，而是挂在同一节点下方的 `serves`
+> 空集提示；撤它的判据与 `serves` 2026-11-01 出列（§4quater）同源——该字段自那时起
+> 在 DevLog 的任何呈现面都不再出现，于是「它的值缺失」也只能从**它缺席**推得；为一个
+> 已不在屏上的字段写一句「它没填」，是把读者没在问的问题答了一遍。**29 §8.1 那条
+> 「须由呈现面显式提示」的义务已在规范侧一并修订**，故此处的撤除是规范同步而非违规。
+> 第 3 项（压缩形态）不受影响——它标注的是**正文少了两段**，与 `serves` 无关。
 
 承接边（`absorbed-into` 的 commit 形态）走既有 `FactAssociationsSection`：`facts.ts`
 的 `projectFactCardAssociations` 早已支持 `{commit}` 形态目标（读提交标题、`available:
@@ -521,8 +562,11 @@ react-refresh）——已用 `git stash` 对比确认非本轮引入。dist 重�
 Playwright 实拍（真实 API、真实数据路径）：侧栏次序实测为 聚焦/子目标/火花/工单/调研/
 决策/经验/摩擦/规范/**开发日志**/目录/变更/提交/帮助/诊断；列表卡 chip 实测
 `["开发日志", "2026-11-02 10:30", "1", "承重中"]`；状态筛选实测 承重中 1 / 已被承接 1 /
-已被推翻 0 / 不再承重 0 / 全部 2；详情面确认时间轴节点两个时间并列、serves 行、
-空集歧义提示、压缩形态说明、承接边 `6c43770`；控制台零错误。
+已被推翻 0 / 不再承重 0 / 全部 2；详情面确认压缩形态说明、承接边 `6c43770`；控制台零错误。
+
+> **2026-11-02 追记**：本段实拍当时记的「详情面确认时间轴节点两个时间并列、serves 行、
+> 空集歧义提示」三项**均已随 §4sexdecies 撤除**——那是本轮定案前的实测记录，如实留在
+> 此处作为该形态曾经上屏的凭据，不再代表现状。
 
 **已知边界（一条既有投影口径，本轮未改）**：对象目录**不存在**时，读取层报
 `type_not_integrated`（「该事实类型尚未接入」）。这对 devlog 现在是一句不准确的话——
@@ -588,22 +632,24 @@ tooltip）与「只接受正整数」的闭集处置就会分叉。
 原锚点块同时装着四样：次序、判据类型的词、服务目标、判法。前两样如上处置，后两样：
 
 - **判法** → 独立节点（见上）。
-- **服务目标（`parent_goal`）** → 身份头**辅助元信息行**（`AUXILIARY_META_KEYS_BY_TYPE.
-  subgoal = ['parent_goal']`）。它是「这条属于哪个目标」的**归属事实**，与 `created_at`
-  同级，不是「这条怎么算达成」的一段论证。登记进该表还有第二个作用：**同时从兜底字段区
-  排除**——不登记的话它会以裸字段「parent_goal: project-goal」冒出来。
+- **服务目标（`parent_goal`）** → 当时移入身份头**辅助元信息行**（`AUXILIARY_META_KEYS_BY_TYPE.
+  subgoal = ['parent_goal']`）。**该处置已被下一轮定案推翻**：2026-11-02 稍后 Human 圈出
+  那一行截图，要求「圈出来的不用显示」——它现在**在任何一屏都不呈现**，见 §4quindecies。
 - 落地时踩了一次：该行标签显示为英文 `parent goal`（下划线换空格）。原因是
   `FIELD_LABEL_LOCALES` 里只有 `subgoal_parent_goal`，而元信息行按**frontmatter 键名**
   取标签（`getFieldLabel(key, locale, objectType)`），前缀命不中。修法是把词条改成裸键
   `parent_goal`——没有其它类型用这个字段名，裸键不歧义。**这是元信息行与阅读节点的差异**：
-  阅读节点自己给标题（可以是任意词条），元信息行的标题由字段键推导。
+  阅读节点自己给标题（可以是任意词条），元信息行的标题由字段键推导。（该词条随后随整行
+  撤除一并删除，见 §4quindecies。）
 
 ### 连带后果：`DECISION_DETAIL_LIME_SHELL_CLASS` 退场
 
 锚点块是这枚壳的**最后一个消费方**。它撤除后该常量无人读取，同轮删除；
 `DECISION_SHELL_SEGMENTS` 删去其登记行、`border-l-*` 白名单 **8 → 6**。
-`DECISION_TITLE_HUE_CLASS.lime` **保留**（`DevLogReadingLayout` 的时间轴节点用它作标题色相
-——那是色相，不是壳；壳的定义特征是左色条）。
+`DECISION_TITLE_HUE_CLASS.lime` 当时**保留**（`DevLogReadingLayout` 的时间轴节点用它作标题色相
+——那是色相，不是壳；壳的定义特征是左色条）。**该保留已在同日更晚被推翻**：DevLog 详情
+时间轴节点整块撤除（§4sexdecies），`lime` 键随之删除，色相表只剩 `amber`。这里的判据表述
+「色相 ≠ 壳」仍然正确，只是那枚色相自己的消费方也没了。
 
 至此子目标在**卡面与详情面都不使用左色条**，§4septies 里登记的「卡面跟判据面板、详情面
 留类型锚点」这条分岔已经收敛，不再有「唯一分岔类型」。
@@ -615,7 +661,8 @@ tooltip）与「只接受正整数」的闭集处置就会分叉。
 
 `subgoal-presentation-contract` 新增一项（详情身份头有次序 icon、且与修改次数同序；布局
 不得再用黄绿锚点块、不得读 `order` / `parent_goal`、不得再拼判据类型的词；判法须经
-`AdrProseNode` 且排在「名下的工作」之前；`parent_goal` 须登记为辅助元信息）；
+`AdrProseNode` 且排在「名下的工作」之前；`parent_goal` 须登记为辅助元信息——**这一条
+已被 §4quindecies 反向改写为「不得再登记」**）；
 「order 取代 anchor」一条改指身份头；`structure-single-source-contract` 删去 lime 详情壳
 登记、白名单 8 → 6。
 
@@ -624,7 +671,8 @@ warning；vite build + gzip-dist 重建。
 
 Playwright 实拍三个子目标（`closure-records`/order 4/名下 2 条、`executable-check`/order 1/
 名下 48 条、`closure-records`/order 2/名下 1 条）：身份头 chip 序列实测 `["子目标","4","3",
-"推进中"]`（次序在修改次数之前），辅助元信息行显示「服务目标 project-goal」为中文标签，
+"推进中"]`（次序在修改次数之前），辅助元信息行当时显示「服务目标 project-goal」（该行已于
+§4quindecies 撤除），
 阅读节点序列实测 `["达成条件","对齐说明","判法","名下的工作","修改流水","YAML 数据"]`，
 判法与达成条件同形；暗色模式已实拍；控制台零错误。
 
@@ -776,11 +824,13 @@ Human 定案 2026-11-02（附两图：图一是规范列表卡，图二是该卡
 |---|---|---|
 | `DECISION_CARD_SHELL_CLASS.lime` | 子目标卡面改判据面形态（§4septies） | 白名单 10 → 8 |
 | `DECISION_DETAIL_LIME_SHELL_CLASS` | 子目标详情锚点块撤除（§4novies） | 8 → 6 |
-| `DECISION_CARD_SHELL_CLASS.violet` | 本节点（活跃规范卡体撤空） | 6 → **4** |
+| `DECISION_CARD_SHELL_CLASS.violet` | 本节点（活跃规范卡体撤空） | 6 → 4 |
 | `DECISION_TITLE_HUE_CLASS.violet` | 方向键标题的两处消费方皆撤 | 色相表剩 amber / lime |
 | `DECISION_VIOLET_CODE_CHIP_HUE_CLASS` | 方向键那枚 code chip 撤除 | 整条删除 |
 | `TYPE_DESCRIPTION_LOCALES` + `getTypeDescription` | 唯一上屏点（规范卡类型说明行）撤除 | 11 条词条全表删除 |
 | `objectList.normDirectionKeyMissing` | 详情缺失提示撤除 | 中英各一 |
+| `DECISION_DETAIL_NEUTRAL_SHELL_CLASS` | **同日第四轮**：DevLog 详情时间轴节点撤除（§4sexdecies） | 白名单 4 → 2，仅余卡面琥珀 |
+| `DECISION_TITLE_HUE_CLASS.lime` | 同上（时间轴标题是其唯一消费方） | 色相表收窄为 `Record<'amber', string>` |
 
 `DECISION_CARD_SHELL_CLASS` 现为 `Record<'amber', string>`——**保留 `Record` 形态不降为
 裸字符串**：调用处写 `…CLASS.amber`，语义是「取该色相的卡面壳」，改形会牵动消费方，且
@@ -792,12 +842,21 @@ Human 定案 2026-11-02（附两图：图一是规范列表卡，图二是该卡
 
 ### 已知不一致：如实登记，不擅自择一
 
-`DECISION_DETAIL_NEUTRAL_SHELL_CLASS` 的左条是 `border-l-violet-400/70`（紫），而它现存
+`DECISION_DETAIL_NEUTRAL_SHELL_CLASS` 的左条是 `border-l-violet-400/70`（紫），而它当时
 唯一消费方 `DevLogReadingLayout` 的时间轴节点把**标题**写成 `DECISION_TITLE_HUE_CLASS.lime`
 （黄绿）——同一块里左条与标题不同色相；而 DevLog 的类型色是 `#ca21a0`（magenta），两者
 都不等于 lime。本次**不动它**：改左条色相是未被请求的视觉变更。正确修法任选其一——
 把左条并进与本块标题同一色相，或让该块改用四边同宽壳（它已不含「领域归属」语义，本不该
 留在本家族）——两者都需 Human 裁决，故只登记。
+
+> **2026-11-02 收尾（§4sexdecies）**：这处争议**已被撤除消解，不必再裁决**。Human 定案
+> 「圈出来的部分不用显示」，该块整块删除，`DECISION_DETAIL_NEUTRAL_SHELL_CLASS` 随之
+> 失去最后一个消费方并删除。上面两个「正确修法」都失去了对象——左条不存在了，也没有
+> 哪个块还需要「改用四边同宽壳」。**这是登记式处置的一种正当结局**：登记时说的是「需
+> Human 裁决」，而 Human 的裁决是「此块不必存在」，于是争议连同载体一起退场。
+> 该常量原位留下了踪迹注释（含这条争议的去向），理由与 `DECISION_VIOLET_CODE_CHIP_HUE_CLASS`
+> 相同——它的名字出现在旧守卫登记与 `docs/01` §1.10 第 7 条的家族讨论里，从旧注释追来
+> 的读者应当能查到它去了哪里。
 
 ### 验证
 
@@ -997,3 +1056,314 @@ subgoal 4.87 / 8.07、devlog 8.68 / 6.20。**最低是 spark 的 4.77:1**，全�
 - **与 `docs/01` §1.6 的关系**：该条要求「标题、正文与背景同色相」，本模块只覆盖**正文
   与背景**；这两张卡的卡体无彩色标题（子目标判据框只剩一句、DevLog 卡体只有 summary），
   故不涉及。
+
+## 4quaterdecies. 目标区挂子目标进度条（2026-11-02，Human 定案）
+
+Human 定案 2026-11-02：「当前聚焦的目标块的 sg，都要附带一个进度条，样式你看如何呈现，
+进度条的构成才看 sg 的进度条」。
+
+### 构成：不新造算法，就是 §4decies 那一个
+
+「进度条的构成才看 sg 的进度条」——即**目标区不另立口径**。分子分母仍是
+`open`（待处理）+ `implemented`（已落实）为分母、`implemented` 为分子，仍由
+`utils/servingSparkProgress.ts` 的 `summarizeServingSparkProgress` 单点算出，
+仍由 `components/ServingSparkProgressBar.tsx` 渲染。目标区只是多了一个**形态**。
+
+故本页与卡片、详情面的数值**不可能不一致**——三处调同一个纯函数，且目标区那条的
+输入也是原始 `serving_work` 行（不是 `groupServingWorkByType` 的关联投影：那一层已把
+`status` 换成关联状态轴，数出来恒为 0 条，§4decies 已记过一次实拍翻车）。
+
+### 形态：`variant="inline"`，条 + 分数同排
+
+新增一个 `variant` 参数，两档：`block`（默认，卡片与详情面用）与 `inline`（目标区用）。
+
+| 形态 | 内容 | 为什么 |
+|---|---|---|
+| `block` | 标题 + 分数 + 两档明细 + 条（`h-1.5`） | 卡片与详情面有足够高度，明细能帮读者对账 |
+| `inline` | 条（`h-1`）+ 分数，无标题、无明细 | 目标区一行只有 20px，塞进明细会把子目标标题挤成两行 |
+
+**条用固定宽度**（`w-32`，128px），不吃满剩余宽度。这一条是实拍改的：第一版用
+`flex-1` 吃满整行，1440px 视口下条长近 2000px——`9 / 30` 的条看起来像「几乎走完」，
+`0 / 1` 的条则成了一条看不见的细缝，比值反而更难读。固定宽度让四条子目标仍共用
+同一把尺子（这才是「可比」的来源），而分数就落在条尾旁边，读起来是一个整体。
+
+**三种「算不出」在行内只给短词**（未拆解／已处置／读不到），完整那句挂在 `title` 上。
+理由与 `docs/01`「状态不得只由颜色承载」同向：短词本身是文字，颜色只加强。而**不读
+工具提示的人也不会看到一个假的 0%**——因为这三种情形下这里根本没有条。
+
+### 位置：子目标标题行**之下**，与标题同左缘内缩
+
+进度条挂在每一行子目标的下方（`mt-1.5 pl-7` 对齐标题文字左缘，跳过 18px 的次序 chip）。
+不放在标题行右侧：右侧已经被状态 chip 与 legacy chip 占着，再塞一条 100px 的条会把
+子目标标题压成两三个字一行。
+
+**legacy 行不画条**：它没有 `object_uid`，也就没有可反查的身份。给它画一条空条等于把
+「还没有对象」说成「没有火花」——这两种情形下一步动作完全不同。
+
+### 服务端：`/api/cognition/goal` 的 `sub_goals` 现在带 `serving_work`
+
+此前该投影只带身份/次序/判据类型，不带名下工作，目标区因此拿不到比值。现补
+`serving_work` 与 `serving_unreadable`，来源是 `facts.ts` 新导出的
+`deriveServingWorkIndexForScope`——**与子目标列表卡、详情面同一次反查**。
+
+为什么不改让前端另打一次 `/api/objects/subgoal`：两处各读一次会在两次读取之间出现
+不一致（一个对象刚被改、另一处还读到旧值），而读者看到的会是一条自相矛盾的卡。
+单点反查是唯一能保证「分子分母出自同一次读取」的做法。
+
+### 验证
+
+`goal-detail-presentation-contract.test.ts` 新增 5 项：目标无摘要字段、每行子目标挂条、
+三处共用同一派生、行内短词与 title 配套、两形态同源。`goal-writer.test.mjs` 新增 4 项：
+200/201 字符边界、超限拒绝且不截断、首尾空白不计入而段内换行计入、本仓存量 87 字仍合规。
+
+全量 web 611 全绿、plugin 2723 全绿（1 skip / 1 todo 为既有）、`tsc -b` 通过、
+`npm run lint` 仅剩 HEAD 上既有的 1 个 error（`facts.ts` 的
+`currentProjectProjectionIndexes` 未使用，非本次引入）。
+
+**未覆盖（如实登记）**：① 目标区进度条的**浏览器实拍**未做——本仓四条子目标中
+1429afe8 名下只有 1 条 open、01978a8b 只有 1 条 open，`0 / 1` 的条几乎不可见，形态
+需在真实数据上目视确认；② 行内短词在窄栏（侧栏展开、移动端）的换行表现未实拍；
+③ 无障碍走查未做（`role="img"` + `aria-label` 已给，未用读屏验证）。
+
+## 4quindecies. 子目标详情撤除「服务目标」元信息行（2026-11-02，Human 定案）
+
+Human 定案 2026-11-02（附截图，蓝框圈出子目标详情身份头底部那行「服务目标 | project-goal」）：
+「圈出来的不用显示」。
+
+这是 §4novies 那轮处置的**反向修正**，不是新决定：`parent_goal` 此前住在阅读面顶部锚点块里，
+§4novies 把锚点块收窄为「只留判法」时，顺手把它挪到了身份头辅助元信息行——理由是「归属
+事实不能因为收窄而消失」。那一轮保住了字段的可见性，但没有回答一个更前面的问题：**它值不值得
+占一行**。
+
+### 为什么撤
+
+单例项目里 `parent_goal` 恒为 `project-goal` 一个值（28 §8 的闭集只有这一个成员），四次出现
+四次相同，**不携带任何可分辨的信息**。读者打开一条子目标要回答的是「这条怎么算达成」，
+而不是「它属于哪个目标」——后者由「它是子目标」这一事实本身已经回答了。这与 `serves`
+2026-11-01 出列（§4sexies）、`anchor` 2026-11-01 废止是同一条纪律：28 §18 第 1 条禁装饰字段。
+
+归属关系没有因此丢失：`parent_goal` 字段仍在对象上，是 28 §8.1 反查派生的输入，**目标区的
+子目标列表就是它的可见形态**——读者要看归属，去聚焦页看目标块，那里四条子目标按次序排列
+在陈述之下。字段在、关系在、呈现撤了，这三件事互不矛盾。
+
+### 改了什么
+
+- `AUXILIARY_META_KEYS_BY_TYPE.subgoal`：`['parent_goal']` → `[]`。
+- `FIELD_LABEL_LOCALES.parent_goal` 词条删除。它此前的存在理由就是「元信息行按 frontmatter
+  键名取标签」，行撤了词条就失去唯一消费方；留着等于「不呈现」这个决定没有落点（同 `serves`
+  与 `anchor` 出列时）。删前已确认全仓无 `getFieldLabel('parent_goal', …)` 调用。
+- 布局与 model 的注释同步改写：原文写的是「已登记为身份头辅助元信息」，留着会让后来者
+  以为它仍在呈现。
+
+**出列后会落到兜底字段区吗**——会，但不会冒出来：subgoal 详情走 `SubGoalReadingLayout`，
+该布局不消费 `extraEntries`（与 `serves` 出列时同一处境，model.ts 里那段注释已记此事）。
+
+### 守卫改向
+
+`subgoal-presentation-contract` 里原有一条断言 `subgoal: ['parent_goal']`（「归属事实不丢」），
+它是上一轮定案的守卫。本轮**改向而不是删除**：改为断言 `parent_goal` **不得**再出现在
+`AUXILIARY_META_KEYS_BY_TYPE.subgoal` 的对象字面量内，且不得回到旧态。
+
+改向时踩了一次：第一版取 `auxTable` 后直接 `indexOf('subgoal:')`，而 `auxTable` 的切片
+终点是**表里第一个** `};`——`subgoal` 是表里最后一个键，其字面量恰好在那个终点之前，
+能取到；但这个写法脆。改成先按 `subgoal:` 定位、再取它之后第一个 `};`，并显式注释
+「判据限定在对象字面量内」——表上方那段注释会反复解释「parent_goal 为何撤除」，对全文
+匹配会被注释判成失败（与联邦 `type: objectType` 那条守卫同一教训，§4novies 已记）。
+
+### 验证
+
+全量 web 用例 **611 全绿**；`tsc -b` 通过；`npm run build:dsh` 重建成功。
+Playwright 实拍 `subgoal-befe1735`（order 1、名下 42 条火花）：身份头 innerText 实测
+`["子目标","1","3","推进中","规范体系成为当前规则源并互咬有效","2026-11-01 13:36","deepseek-v4.1-flash","workbuddy"]`
+——「服务目标」与「project-goal」均已消失；`document.body.innerText` 全文检索
+`服务目标` / `project-goal` / `parent goal` 三者**均为 false**；控制台零错误。
+
+**未覆盖（如实登记）**：① 右侧扩展阅读面板里的子目标详情未单独实拍——它复用同一枚
+`ObjectIdentityHeader` 与同一份 `getAuxiliaryMetaEntries`，但仅静态复用关系成立；
+② 暗色模式未单独实拍（本次只删了一个文本节点，不涉及配色）；
+③ 英文界面下的同一行未实拍（词条已整体删除，中英两版同时消失）。
+
+## 4sexdecies. DevLog 详情撤除时间轴节点（2026-11-02，Human 定案）
+
+Human 定案 2026-11-02（附截图，蓝框圈住 DevLog 详情「结论与边界」之上的**一整块**）：
+「圈出来的部分不用显示」。
+
+框里是两件事，住在**同一个 `<section>`** 里（`DevLogReadingLayout`）：
+
+1. 一行**时间轴**：`发生时间 [chip]` + `条目形成时间: …`；
+2. 其下一个**琥珀提示框**：`未声明或不属于任何子目标——serves 缺失时主题表现为空集…`
+   （`objectList.devlogNoTopic`，29 §8.1 的「显式提示」义务）。
+
+### 为什么撤：不是「太啰嗦」，是两件事都站不住
+
+**时间轴那一行**：本文档 §4octies 当初把它读成「29 §10.4 要求分开呈现两个时间」，
+并据此在详情页做了一次并排呈现。**这句措辞是文档自述，规范里没有**——
+`grep 分开呈现|两个时间` 在 `specs/29` 为 **0 命中**，§10.4 实际只要求两时间**语义
+分工**、不得用 `created_at` 冒充 `occurred_at`（§14.1 与 §15 亦无「两时间分列」验证
+行）。而真正的问题是：**两个时间各有别的承载位，详情页这次并排是第三处重复**——
+`occurred_at` 由列表卡头的 `DevLogOccurredBadge` 承担（列表是时间线回查入口，29
+§12.1），`created_at` 由 change_log 首条与详情底部 YAML 原文承担。**详情页身份头从未
+渲染过 `created_at`**：`ObjectIdentityHeader` 的 `showDefaultDates` 渲染的是
+`getObjectUpdatedAt(obj)`＝change_log **末条**时间（`ObjectDetail.tsx:731`）。故该行
+不是「补上身份头没给的时间」，而是**把两个字段各再印一遍**。
+
+**琥珀提示框**：它是 `serves` 的**空集提示**，不是独立需求。而 `serves` 自 2026-11-01
+已退出 DevLog 的全部呈现面（§4quater 同源纪律）：字段既不在屏上，读者就无从问「它填了
+吗」；一句「它没填」是把**读者没在问的问题**答了一遍。此处区分要写清：**撤的是呈现，
+不是字段**——`serves` 仍在对象上，仍是 29 §8.2 主题反查的输入，只是不再有呈现面与筛选面。
+
+### 规范同步（必做，不是可选项）
+
+`specs/29` 里那条「须由呈现面显式提示」的义务与本次撤除直接冲突，故同轮修订：
+
+- **§8.1**：原文要求无 `serves` 时「须由呈现面显式提示」，改为如实登记该呈现已于
+  2026-11-02 撤除，并写明理由（字段已无呈现面，「缺失」只能从缺席推得）；
+- **§10.4**：把「两个时间各有承载位」写清（occurred_at → 列表卡头；created_at →
+  change_log 与 YAML 原文），避免下一位读者再从本文档的旧措辞里读出「必须并排」；
+- **§12.1 / §14.1 / §15**：撤除已无落点的呈现条目与验证行。
+
+**为什么必须连着改规范**：UI 删了而规范仍写着「须显式提示」，下一个人读规范会把它
+当成**未实现的欠账**再加回来。规范是事实源，呈现被裁掉而规范不动，等于留了一条
+指向空处的义务。
+
+### 改了什么
+
+- `plugin/web/src/pages/object-detail/FactReadingLayouts.tsx`：删 `occurredAt`/`createdAt`
+  两个变量与整个时间轴 `<section>`，详情页首屏直接以「结论与边界」开始；同时删除
+  `from '@/utils/decisionBlocks'` 导入——**该文件至此已无任何 decisionBlocks 消费方**。
+- `plugin/web/src/pages/object-detail/model.ts`：`FIELD_ORDER_BY_TYPE.devlog` 由
+  `['occurred_at','created_at','summary','disposition','report_body','change_log','relations']`
+  改为 `['summary','disposition','report_body','change_log','relations']`。改这张表是因为
+  它本身是一份「该字段有呈现面」的声明；`occurred_at`/`created_at` 仍各自有呈现面（卡头、
+  change_log、YAML），只是不在这个兜底字段区里——故出表不等于字段无处可看。
+- `plugin/web/src/i18n/locales.ts`：删 `devlog_occurred_at`/`devlog_created_at` 字段词条
+  与 zh/en 两条 `objectList.devlogNoTopic`（唯一消费方均已消失）。**`objectList.devlogOccurredLabel`
+  与 `...Absent` 保留**——它们服务卡头徽章，不是这处撤除的对象。
+- `plugin/web/src/utils/decisionBlocks.ts`：删 `DECISION_DETAIL_NEUTRAL_SHELL_CLASS`
+  （该块是它最后一个消费方），`DECISION_TITLE_HUE_CLASS` 由 `Record<'amber'|'lime', string>`
+  收窄为 `Record<'amber', string>`。详见下节。
+
+### 连带退场：第四轮「内容撤则壳撤」
+
+- **白名单 4 → 2**（`structure-single-source-contract`）：该块外壳的两段左条
+  （`border-l-2` + `border-l-violet-400/70`）随之离场，本族至此只剩卡面琥珀一条壳。
+- **`DECISION_TITLE_HUE_CLASS` 收窄为 `Record<'amber', string>`**：`lime` 的唯一消费方
+  是那个时间轴标题，随块撤除。**这不是「统一色相」**——三枚色相 amber/violet/lime 的
+  四次退出，每次都是被它承载的内容带走的。
+- **顺带消解一处已登记的争议**：该壳的左条是 violet、而标题取 lime，同一块里两个色相
+  （§4undecies 曾如实登记「需 Human 裁决，故只登记不擅自择一」）。Human 的裁决是
+  「此块不必存在」，于是两个「正确修法」都失去对象——**登记式处置的正当结局之一**。
+  常量原位留下踪迹注释，理由与 `DECISION_VIOLET_CODE_CHIP_HUE_CLASS` 相同：它的名字
+  出现在旧守卫登记与 `docs/01` §1.10 第 7 条里，从旧注释追来的人应当能查到去向。
+
+### 守卫改向（不是删除）
+
+- `devlog-presentation-contract`：原两条 test 断言「详情分开呈现两时间」与「空集文案
+  把话说完整」。**改向**为 `assert.doesNotMatch`——`devlog_occurred_at`、
+  `devlog_created_at`、`objectList.devlogNoTopic`、`DECISION_DETAIL_NEUTRAL_SHELL_CLASS`、
+  `from '@/utils/decisionBlocks'` 在布局里均不得再出现；同时断言 model 的 devlog 表
+  不含 `occurred_at`/`created_at`。**保留了阅读次序断言**（结论→去向→背景→做法→实测）
+  与压缩形态断言——它们不属本次撤除范围。
+- `structure-single-source-contract`：「决策块常量被原消费方使用（防假单源）」中
+  `factLayouts` 的断言由 `assert.ok(...includes('DECISION_DETAIL_NEUTRAL_SHELL_CLASS'))`
+  改为 `assert.doesNotMatch(factLayouts, /from '@\/utils\/decisionBlocks'/)`；两个登记表
+  删去该壳与 `lime` 原子（**不登记已不存在的常量**，登记会让守卫永远取不到值）。
+
+改向时沿用 §4quindecies 的教训：**判据要限定在对象字面量内**。`FIELD_ORDER_BY_TYPE`
+上方那段注释会反复解释本次撤除，对全文匹配 `occurred_at` 会被注释判成失败；故就地
+`model.slice(indexOf('devlog: ['), indexOf(']', …))` 后再断言。
+
+### 验证
+
+**2026-11-02 实测（本轮，规范同步与实拍同轮完成）**：
+
+- `cd plugin/web && npx tsx --test tests/api/*.test.ts` → **611 pass / 0 fail**（与撤除前
+  基线同数：两条 DevLog 守卫是**改向**不是删除，故总数不变）。
+- `cd plugin/web && npx tsc -b` → 通过（exit 0）。
+- `cd plugin/web && npx eslint .` → 只剩 HEAD 既有 1 error（`api/services/facts.ts:309`
+  `currentProjectProjectionIndexes` 未使用）+ 1 warning（`src/pages/ObjectList.tsx:1141`
+  react-refresh），**本轮未新增任何 lint 问题**（撤除还减少了 decisionBlocks 的一处消费）。
+- `cd plugin/web && npm run build:dsh` → 构建成功（`2807 modules transformed`，
+  `dist/assets/index-BwHPnV-f.js` 1904.65 kB / gzip 498.07 kB）。
+- `cd plugin && node --test test/*.mjs` → **2725 pass / 1 skip / 1 todo / 0 fail**。
+- **Playwright 实拍（真实 API、真实数据，两个 DevLog 对象都查）**：详情页全文检索
+  `发生时间` / `条目形成时间` / `未声明或不属于任何子目标` **均 false**，
+  `结论与边界` true——首屏直接以结论开始，时间轴节点确已消失；控制台零错误。
+  列表卡头仍给出 occurred_at（`/2026-\d\d-\d\d \d\d:\d\d/` true），即 §10.4 订正后
+  「两个时间各有承载位」的实据。截图：`scratch.local/devlog-detail-light.png`、
+  `devlog-detail-dark.png`、`devlog-detail-narrow.png`（420px）、`devlog-list.png`
+  （`scratch.local` 被 `.gitignore` 的 `*.local` 忽略）。
+
+## 4septdecies. 摩擦分级制度整体退役（2026-11-02，Human 定案）
+
+Human 原话（m00809）：「摩擦取消 中 轻 重 这种分级制度」——撤的是**制度本身**，
+不是某处显示。规范侧已落盘（`specs/26` §8 字段表 / §12 消费点 / §14.2 存量处置、
+`specs/36` §8.3、`specs/11` §12bis.1），Code 侧已全链清除，本节只记 **Web 呈现面**
+的处置与判据。
+
+### 为什么撤（呈现侧的理由）
+
+规范声称的两类消费方**在 Code 中从未实现**：①「按状态×影响聚合」的度量（全仓无按
+`impact` 的 count/group/aggregate）；② heavy 跳过攒熟的「重大即显」通道（只存在于规范
+文本与 tool description 字符串）。实际活消费方只有三处展示 + 召回 structural facet +
+观察缓冲晋升的字段传递。一个只有展示消费方的闭集分级，其判定标准（现象严重到什么程度
+算「中」）**不可机械核对**、判据不可复现——产出的是「看起来可聚合、实际无法比较」的
+数字。故 26 §18 红线 1 恢复无例外。
+
+### Web 呈现面的处置（内容撤则壳撤）
+
+| 位置 | 处置 |
+|---|---|
+| `src/components/FrictionImpactBadge.tsx` | **整文件删除**（该字段呈现的唯一来源组件） |
+| `src/utils/semanticColors.ts` | 删 `FRICTION_IMPACT_CHIP_CLASS`（轻/中/重三档色相表） |
+| `src/utils/fieldFormats.ts` | `SUMMARY_TEXT_FIELDS` 去 `impact` |
+| `src/utils/api.ts` | 三处类型面（ObjectItem / CognitionInboxItemBase / 近期动态项）去 `impact` |
+| `src/pages/ObjectList.tsx` | 删卡头 chip 调用（列表卡卡头：类型 → 优先级 → 重复观察 → 修改次数） |
+| `src/pages/ObjectDetail.tsx` | 删身份头 chip 调用（同序同形） |
+| `src/pages/CognitionCenter.tsx` | 删近期动态行 chip 调用（同序同形） |
+| `src/pages/object-detail/model.ts` | `FIELD_ORDER_BY_TYPE.friction` 去 `impact`；`AUXILIARY_META_KEYS_BY_TYPE.friction` 仍为 `[]` |
+| `src/pages/object-detail/FactReadingLayouts.tsx` | 阅读布局从未列它（Human 2026-11 已裁定），本轮只把注释改为追记 |
+| `src/i18n/locales.ts` | 删 `FIELD_LABEL_LOCALES.impact` 与 `FIELD_VALUE_LOCALES.impact`（轻/中/重闭集） |
+| `api/routes/cognition.ts` | 删 `projectFrictionImpact` 与两段投影（build / recentItems） |
+| `api/services/factFieldContract.ts` | 删 `friction-impact` 登记（该字段曾是必填面） |
+
+**为什么词条与配色表也要删**：留着「词条在、字段不在、唯独代码还读它」正是本仓反复
+纠正的漂移形态——`FIELD_VALUE_LOCALES.impact` 的轻/中/重闭集值一旦留下，就等于邀请
+下一个人把分级接回去。
+
+### 守卫改向（不是删除）
+
+- `tests/api/friction-norm-presentation-contract.test.ts`：原「friction impact 在三处同形
+  呈现（Human 裁定 2026-11）」**改向**为「26 §8 impact 分级已整体退役：呈现面不得再有其
+  消费方」——保留位置与编号体例，判据反向（原钉「三处同形」，现钉「三处皆无」）：
+  组件文件不存在、三处页面不引用、配色表无该表、类型面无该字段、路由不投影、词条无闭集值。
+- `tests/api/cognition-inbox-contract.test.ts`：三条用例改向为 `occurrence` 单字段
+  （近期动态行顺序、API 链路不丢字段、收件项平铺到条目根），并加一条
+  `doesNotMatch(FrictionImpactBadge|FRICTION_IMPACT_CHIP_CLASS)` 防退役项回流。
+- `tests/api/fact-field-contract.test.ts`：friction 必填面去 `impact`（余 `phenomenon`）。
+- `tests/api/fact-association-commit.test.ts`、`friction-attribution-ref-fidelity.test.ts`、
+  `friction-attribution-ref-shape.test.ts`：三个 YAML 夹具去 `impact` 行——留着就是闭集违规。
+
+**判据口径**：判「代码里有没有 X」一律经 `codeOnly`（剥注释）——注释里说明「该字段为何
+被撤销」是正当的，把它当消费方会误报。这是本仓既有纪律（`friction-norm-presentation-contract`
+自带的 `codeOnly` 说明段）。
+
+### 连带退场的事实源存量
+
+68 份 friction 载体的 `impact` 字段已经受控写入清除（open 25 走受控更新 `frontmatter_removals`、
+终态 43 走 `correct` 的 `frontmatter_removals`，见 26 §14.2）。Web 侧的 `localFactReader`
+按 26 §8 闭集读 frontmatter，字段一旦留在载体上就会是闭集违规——故「呈现面撤除」与
+「存量清除」必须同批完成，否则页面直接读不出该类型。
+
+### 验证
+
+**2026-11-02 实测**：
+
+- `cd plugin/web && npx tsx --test tests/api/*.test.ts` → **611 pass / 0 fail**（与撤除前
+  基线同数：守卫全部**改向**不是删除，故总数不变）。
+- `cd plugin/web && npx tsc -b` → 通过（exit 0）。
+- `cd plugin/web && npx eslint .` → 只剩 HEAD 既有 1 error（`api/services/facts.ts:309`
+  `currentProjectProjectionIndexes` 未使用）+ 1 warning（`src/pages/ObjectList.tsx`
+  react-refresh），**本轮未新增任何 lint 问题**。
+- `grep -rn "impact" -i src api` → 只剩有意保留的历史注记与英文普通词
+  （`scope_of_impact` 是 Pitfall 字段、`impact & applicability` 是英文散文），零字段残留。

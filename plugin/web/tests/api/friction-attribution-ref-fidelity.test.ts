@@ -33,7 +33,6 @@ object_uid: ${FRICTION_UID}
 fact_type_key: friction
 title: Fixture friction with an attribution anchor
 status: open
-impact: medium
 phenomenon: "fixture phenomenon"
 attribution_ref:
 ${attributionRefYaml}

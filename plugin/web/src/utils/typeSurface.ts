@@ -28,7 +28,7 @@ import { getCategoryColor } from './categoryColors.ts';
  *
  * ## 为什么用 `color-mix()` 而不是再写一张 9 类 × 2 模式的 Tailwind 色表
  *
- * 备选方案是照 `FRICTION_IMPACT_CHIP_CLASS` 那样登记 `{类型: 'border-x-400/25
+ * 备选方案是照原 `FRICTION_IMPACT_CHIP_CLASS`（2026-11-02 随摩擦分级制度删除）那样登记 `{类型: 'border-x-400/25
  * bg-x-500/5 text-x-900/70 dark:text-x-100/75'}`。否决理由有两条，都不是口味问题：
  *
  * 1. **Tailwind 的色相板与类型色不是同一套值**。类型色是 hex（`devlog` = `#ca21a0`，

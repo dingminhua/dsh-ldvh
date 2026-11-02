@@ -2,7 +2,6 @@
 title: 附件审核在长跨度改动前反复自我纠错后方能查明范围
 status: open
 phenomenon: 手工逐条比较式比对在行增删后反复失败，需多次自查修正才逼近真相
-impact: light
 object_uid: dc0e89b7-bdcc-4dc2-b845-970a637bb495
 fact_type_key: friction
 created_at: 2026-10-13T06:01:33.926Z
@@ -23,11 +22,14 @@ change_log:
     provider: dsh-opencode-go
     model: minimax-m3.1-flash-free
     summary: 阈值流转 observing → open（count 3 ≥ 3，36 §9 第 4 项）
+  - at: 2026-11-02T09:02:37.826Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 撤销影响评级（26 §8 2026-11-02）：删除 impact 字段——分级制度经 Human 裁定取消，本对象为 open 存量，经受控更新显式删除，其余字段与正文逐字继承。另显式承载 occurrence 的 count／first_at／last_at 三件，值与原载逐字相同（仅不再携带 2026-10 已退出闭集的历史子件 human_return_at），非改值、非计数。
 occurrence:
   count: 3
   first_at: 2026-10-13T05:58:00.744Z
   last_at: 2026-10-21T15:50:11.002Z
-  human_return_at: null
 ---
 
 # 附件审核在长跨度改动前反复自我纠错后方能查明范围

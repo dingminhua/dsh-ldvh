@@ -14,7 +14,6 @@ import CopyPathButton from '@/components/CopyPathButton';
 import ObjectReferenceCopyButton from '@/components/ObjectReferenceCopyButton';
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
-import FrictionImpactBadge from '@/components/FrictionImpactBadge';
 import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
 import SubGoalOrderBadge from '@/components/SubGoalOrderBadge';
 import { hasUnavailableIndependentSubagentReview } from '@/shared/workcaseCapability';
@@ -658,12 +657,10 @@ export function ObjectIdentityHeader({
                 2026-11-01（Human 定案）：`serves` 子目标 chip 已从此处撤除，
                 与列表卡头同步；`serves` 字段本身保留（四处非呈现消费方）。 */}
             <PriorityIcon source={source} type={objectType} locale={locale} size="xs" />
-            {/* 26 §8 impact（轻/中/重）：与列表卡卡头**同位置同序**（类型 → 优先级
-                → 影响 → 修改次数）——Human 2026-11：「详情里表现的方式要和
-                card 一致」。经共享组件渲染，三处不得各自手写 chip。 */}
-            {objectType === 'friction' && <FrictionImpactBadge value={source.impact} locale={locale} />}
             {/* 26 §8 occurrence：与列表卡卡头、聚焦页**同位置同序**（类型 → 优先级 →
-                影响 → 重复观察 → 修改次数）——经同一个共享组件渲染，三处不得各自手写。 */}
+                重复观察 → 修改次数）——经同一个共享组件渲染，三处不得各自手写。
+                （原此处紧随优先级的 impact 轻/中/重 chip 已于 2026-11-02 随摩擦
+                分级制度撤销，26 §8。） */}
             {objectType === 'friction' && <FrictionOccurrenceBadge value={source.occurrence} />}
             {/* 28 §8 `order`（显示次序）：与列表卡头**同一枚组件、同一位置**——Human
                 2026-11-02「详细页面里也要有顺序的那个 icon」。

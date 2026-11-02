@@ -75,7 +75,7 @@
 |---|---|---|
 | HV1 | 决策提请清晰可决 | 待决定事项汇集当前 Human Gate、draft Pitfall 与 open Friction，复用同源 Card、次级阅读和模块摘要呈现决定对象、依据、处理入口及可见缺口；页面不补造选项或结论 |
 | HV2 | 授权执行受控可续 | 推进中事项呈现 WorkCase 的当前推进位置、阻塞和接续入口；对已获批对象，完整授权基线与边界仍进入同源次级阅读核查，页面不把推进状态解释为新增授权 |
-| HV3 | 入档闭环节点可验 | 待决定事项呈现当前 Human Gate 与 open Friction（含 `impact` 评级与重复观察次数），Spark 健康度呈现状态分布和静默 open 条目；被展示对象可进入同源阅读核查。页面不提供完整生命周期日志或全部终态明细，对象存在或计数不等于闭环完成 |
+| HV3 | 入档闭环节点可验 | 待决定事项呈现当前 Human Gate 与 open Friction（含重复观察次数），Spark 健康度呈现状态分布和静默 open 条目；被展示对象可进入同源阅读核查。页面不提供完整生命周期日志或全部终态明细，对象存在或计数不等于闭环完成 |
 | HV4 | 积累效用直观可见 | **尚未完整承接**；近期热点只能显示哪些对象在事实流水中活跃及其正式关系，不能证明积累被实际使用或复用、产生可观察效用 |
 | HV5 | 项目演进脉络可循 | 近期动态与近期热点关系提供明确时间窗口内的事实流水和一跳正式关系材料；本页不串联长期意图、关键决定、重要工作和结果，不声明完整 HV5 已成立 |
 
@@ -94,6 +94,7 @@
 
 ```text
 页面标题：聚焦 / Focus + 页面说明
+模块零 目标（全宽，置顶——目标陈述 + 子目标行及其进度条）
 模块一 待决定事项（全宽主面板，置顶）
 推进中事项（全宽主面板，紧随待决定事项）
 模块四 Spark 健康度 + 模块二 近期动态（宽容器并列；窄容器单列；健康度优先）
@@ -108,6 +109,21 @@
 
 ## 4. 模块规格
 
+### 4.0 模块零 目标区（HV5 长期意图的可见锚）
+
+回答：**这个项目到底要做什么？我走到哪一步了？**
+
+Human 2026-11-02 定案两条，本区据此承载：
+
+1. **目标只有一条陈述，没有摘要字段**（25 §7）。聚焦页与 `/goal` 详情页渲染的是**同一句话**——不是短版与长版的关系。一旦并存两个长度，两者必然分叉，而分叉时没有机械判据说哪版才是目标。
+2. **每条子目标都附带一个进度条**（构成见 §4decies，形态见 `docs/11` §4quaterdecies）。
+
+- **目标陈述**：`## 目标陈述` 段的原文，≤ 200 字符（25 §7 机械校验）。陈述之外不另设概要、副标题或「一句话版」；`title` 是 frontmatter 短标题（≤ 40 字），只用于列表与导航识别，不进入本区正文。
+- **子目标行**：次序 chip（`order`，缺失回落 `·`）+ 标题 + 状态 chip（非 active 时才显示）+ legacy chip（仅迁移遗留行）。点行下钻到子目标详情。
+- **进度条**：每行下方一条，分子＝已落实火花、分母＝待处理＋已落实（28 §8.1 允许的派生，不落盘）。三种「算不出」各给短词（未拆解／已处置／读不到）而不是画空条——空集不是 0%。
+- **legacy 行不画条**：它没有 `object_uid`，也就没有可反查的身份；给它画空条等于把「还没有对象」说成「没有火花」。
+- **区头**：标题「目标」+ 展开/收起 + `/goal` 详情入口（单例三免，详情走直读路由而非 tab/card）。
+
 ### 4.1 模块一 待决定事项（HV1 决策提请清晰可决）
 
 回答 Human 的问题：**现在有哪些事在等我决定？每个决定需要看什么？**
@@ -120,12 +136,12 @@
 | 待确认关闭 | WorkCase resolved `current_snapshot_projection.handoff_narrative_key = gate2_waiting` 且 `blocking_overlay = false` | 与对象列表相同的关闭确认 Card：`goal`、`closure_proposal` 与实际 contributed Pitfall |
 | 阻塞待处置 | WorkCase resolved `progress_group = plan_confirmation / closure_confirmation` 且 `blocking_overlay = true` | 显示完整 `blocking_summary` 与当前确认位置；不显示 Gate waiting、批准计划或确认关闭入口 |
 | 待确认经验 | Pitfall `status = draft` | 与对象列表共享普通 Pitfall Card；正文显示可读的 `symptoms`、`trigger_conditions`、`resolution`、`avoidance`、`validation_summary`、`applicability` |
-| 待修摩擦 | Friction `status = open` | 与对象列表共享普通 Friction Card；卡体留空（与列表卡一致），身份与状态由卡头托承载：类型、`impact`（轻/中/重）、`occurrence` 重复观察、修改次数；标题即现象单句的浓缩，现象全文与入账依据住详情页 |
+| 待修摩擦 | Friction `status = open` | 与对象列表共享普通 Friction Card；卡体留空（与列表卡一致），身份与状态由卡头托承载：类型、`occurrence` 重复观察、修改次数；标题即现象单句的浓缩，现象全文与入账依据住详情页（原卡头的 `impact` 轻/中/重 chip 已于 2026-11-02 随 26 §8 撤销分级制度移除） |
 
 - 待修摩擦的收录口径（26 §12「Web 账本呈现」，Human 2026-10-19 决定）：**只收 `open`**。26 §9 的状态闭集为四值 `open` / `resolved` / `voided` / `accepted`（2026-10 修订：原第四值 `observing` 已退出闭集；`accepted` 为「已接受、不可清偿」，记录一次即不再报告，「已看见但尚未攒够」的观察改由 11 §12bis.1 的摩擦观察缓冲承载——非事实对象、不进事实源、不参与 F0–F4 召回，故账本里本就没有「攒熟中的活账」可铺）；`resolved` / `voided` 是终态，同样不进默认候选。不呈现「攒熟进度」，以免把观察噪声读成待修规模。
 - 待修摩擦卡头的 `occurrence` 重复观察 chip 呈现**频次事实**（26 §8 的机械权威源），**不**呈现阈值进度（如 `1/3`）：阈值 N 固定在观察缓冲侧（11 §12bis.1），其权威源是规范而非界面；`count` 也不再是任何状态流转的判据。
 - 待修摩擦不是 Human Gate：本页不新增任何授权动作，流转由 26 §9 的 Human Gate 与补充级更新承载。其 `inboxKind` 取 `friction_repair`，模块摘要标签为「待修摩擦」而非「待确认」——避免 Human 在页面上寻找一个不存在的批准按钮。
-- `impact` 与 `occurrence` 由服务端**平铺到条目根**（`CognitionFrictionInboxItem`），不要求客户端翻 `card`：卡头徽标读对象根字段，只投影进 `card` 会让徽标在聚焦页静默消失（近期动态投影当初即踩此坑）。
+- `occurrence` 由服务端**平铺到条目根**（`CognitionFrictionInboxItem`），不要求客户端翻 `card`：卡头徽标读对象根字段，只投影进 `card` 会让徽标在聚焦页静默消失（近期动态投影当初即踩此坑）。
 
 - 排序：有合法 `priority` 的 WorkCase（P0→P3）→ 无优先级条目（含 Pitfall draft 与 Friction open，后者 26 §8 闭集无 `priority` 字段）→ `updated_at` 正序（等待最久在前）。排序是派生展示规则，不表达语义重要性结论。
 - 待决类型是 UI 枚举：resolved WorkCase 先由 `progress_group` 确定性归入既有两个行动模块；plan/closure group 进入待决定事项，progressing 进入推进中事项。未阻塞的实际 Gate 类型继续只由两个 handoff key 证明；`blocking_overlay=true` 的 Human-position 改用 `blocked_resolution`，保留在待决定事项但不是 Human Gate。Pitfall 只由类型专属 `draft` 映射为待确认。
@@ -276,8 +292,7 @@ type CognitionInboxItem =
       type: 'friction';
       status: 'open';                       // 来源状态直读，不派生展示态
       inboxKind: 'friction_repair';
-      impact?: string;                      // 26 §8，平铺到条目根供卡头徽标消费
-      occurrence?: Record<string, unknown>; // 26 §8，同上
+      occurrence?: Record<string, unknown>; // 26 §8，平铺到条目根供卡头徽标消费
     });
 
 interface CognitionRecentActivityItem {

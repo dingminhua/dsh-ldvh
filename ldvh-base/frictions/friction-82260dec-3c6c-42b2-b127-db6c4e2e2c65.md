@@ -3,7 +3,6 @@ title: 独立复核身份被盖戳为实施会话
 status: resolved
 phenomenon: 实施会话自录复核时 Code 盖戳其身份致关闭门禁判非独立，隔离子代理同步跑完后登记表回收致回传通道取回失败。
 attribution: 21 号规范与 workcase 写工具的 payload 语义与身份承载之间：record_review 从调用方会话记录托管 session_id（实施者自录即盖戳为实施会话），且隔离子代理登记表在同步完成后即回收、agent_id 不可事后回传；此前工具描述与规范均未声明「调用方即实施者时必然产生非独立条目」与「须后台派生」两个后果
-impact: heavy
 relations:
   - relation_key: informs
     target:
@@ -36,6 +35,10 @@ change_log:
     provider: ds41
     model: deepseek-v4.1-flash
     summary: 销账（Human 2026-10-14 授权）：本账自设的「受控提交完成」条件已成立——6386b2c 落地工具侧 fail-closed＋04 §7.3／21 §14 唯一化与「派生须后台」；两个触发面各有机械承载。如实声明两点不主张：未取得 01 §12 独立审核的机械痕迹；关闭侧覆盖缺口仍在（由 Spark 6e2a4d67 承载，21 §14 已登记为机械保证范围边界）
+  - at: 2026-11-02T09:02:02.208Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 事实更正（非状态转换）——删除 impact 字段（26 §14.2 2026-11-02 存量处置）：影响评级分级制度经 Human 裁定取消，本对象为终态存量，经受控更正显式删除，正文与终态判定逐字不变。。终态判定未变：status/title/phenomenon/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：impact；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）2026-11-02 会话指令「摩擦取消 中 轻 重 这种分级制度」，经 26 §8 撤销 impact 字段、§14.2 登记存量处置口径；本条授权仅覆盖删除该 frontmatter 字段，正文与终态判定逐字不变。
 occurrence:
   count: 1
   first_at: 2026-10-09T14:48:06.434Z

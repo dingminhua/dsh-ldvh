@@ -14,9 +14,11 @@
  * ## 本模块是机械的
  *
  * 晋升本身**不需要语义判断**：阈值是固定内嵌的 N（11 §9），「哪一组达阈值」由
- * `readPromotionReadyGroups` 按 group 计数机械算出，标题/依据/归因/影响早已随
+ * `readPromotionReadyGroups` 按 group 计数机械算出，标题/依据/归因早已随
  * 观察条目落进缓冲（§12bis.1 字段闭集，2026-10-30 扩展）。故本模块不派生执行体、
  * 不消耗模型调用——它只是把缓冲里已经成立的结论落成事实对象。
+ * （**2026-11-02 订正**：原列含 `impact`，该字段已随 26 §8 的字段删除撤销——
+ * Human 定案「摩擦取消 中 轻 重 这种分级制度」。）
  *
  * 需要语义判断的部分（「这条经验是不是新的」）仍在审核段的子代理里。
  *
@@ -169,8 +171,8 @@ export async function runFrictionReviewPromotion({
       skipped.push({ group: group.group, reason: "per-run-create-cap", pending_count: group.entries.length });
       continue;
     }
-    // 晋升所需的四项取自该组的**最近一条**观察——发现层写入时，同一组每条都带
-    // 这四个字段（它们由子代理在判定「沿用该组」时一并给出），故取任意一条等价。
+    // 晋升所需的几项取自该组的**最近一条**观察——发现层写入时，同一组每条都带
+    // 这几项（它们由子代理在判定「沿用该组」时一并给出），故取任意一条等价。
     const latest = group.entries[group.entries.length - 1];
     const promoted = await promoteReadyGroup({
       factSourceRoot,
@@ -178,7 +180,6 @@ export async function runFrictionReviewPromotion({
       projectId,
       group: group.group,
       title: latest.title,
-      impact: latest.impact,
       basis: latest.basis,
       attribution: latest.attribution,
       sessionSignature,

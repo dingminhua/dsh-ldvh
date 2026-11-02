@@ -2,7 +2,6 @@
 title: 材料按长度上限截断致观察范围残缺
 status: open
 phenomenon: 主控会话输出经长度上限截断后才交付给空闲辅助执行体，本次材料在第 39 条 Spark 陈述中途断开（「56a5ed45 / 15006」后无下文），尾部条目全部缺席。
-impact: medium
 object_uid: 16b28b88-85dc-4fa0-94e5-122dbe5acede
 fact_type_key: friction
 created_at: 2026-10-18T07:04:13.252Z
@@ -23,11 +22,14 @@ change_log:
     provider: dsh-opencode-go
     model: minimax-m3.1-flash-free
     summary: 阈值流转 observing → open（count 3 ≥ 3，36 §9 第 4 项）
+  - at: 2026-11-02T09:02:37.803Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 撤销影响评级（26 §8 2026-11-02）：删除 impact 字段——分级制度经 Human 裁定取消，本对象为 open 存量，经受控更新显式删除，其余字段与正文逐字继承。另显式承载 occurrence 的 count／first_at／last_at 三件，值与原载逐字相同（仅不再携带 2026-10 已退出闭集的历史子件 human_return_at），非改值、非计数。
 occurrence:
   count: 3
   first_at: 2026-10-18T06:59:16.421Z
   last_at: 2026-10-21T15:12:17.594Z
-  human_return_at: null
 ---
 
 # 材料按长度上限截断致观察范围残缺

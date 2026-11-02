@@ -3,7 +3,6 @@ title: 受管辖但非 LDVH 项目缺 specs/ 致悬空假定
 status: resolved
 phenomenon: 安装事务只创建 ldvh-base/ 与 Git hook，从不创建 specs/，而 governed 引导与读取工具假定项目内有 specs/，于是非 LDVH 仓库的受管辖项目报出 specs/ directory not found in the governed project。
 attribution: plugin/lib/ldvh-tools.js scanSpecCandidates（specs/01 §10.3 读取入口假定）与 specs/10 §6 安装事务步骤集
-impact: heavy
 relations:
   - relation_key: informs
     target:
@@ -27,6 +26,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 事实更正（非状态转换）——更正 informs 与处置段所载 commit 标识：不可解析的 1f1b276/8b9005b 改为真实提交 4c134dc/da78fc2（26 §13 终态事实更正）。终态判定未变：status/title/phenomenon/impact/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：无；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human 于 2026-10-19 会话中在「修复范围」选项中选择「同时更正这条账目的 hash」（经 ask_user_question 答选，选项 id=fix_scope）：授权将 friction-ed844630 中不可解析的两个 commit 标识更正为真实解药提交 4c134dc 与 da78fc2。
+  - at: 2026-11-02T09:02:02.779Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 事实更正（非状态转换）——删除 impact 字段（26 §14.2 2026-11-02 存量处置）：影响评级分级制度经 Human 裁定取消，本对象为终态存量，经受控更正显式删除，正文与终态判定逐字不变。。终态判定未变：status/title/phenomenon/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：impact；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）2026-11-02 会话指令「摩擦取消 中 轻 重 这种分级制度」，经 26 §8 撤销 impact 字段、§14.2 登记存量处置口径；本条授权仅覆盖删除该 frontmatter 字段，正文与终态判定逐字不变。
 occurrence:
   count: 1
   first_at: 2026-10-17T05:02:17.901Z

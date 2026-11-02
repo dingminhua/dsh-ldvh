@@ -45,7 +45,7 @@ export const RECALL_SUMMARY = "双源召回 · dsh-ldvh · 行动前候选";
 /**
  * 把候选卡的结构字段渲染成行内短标签（2026-10-29）。
  *
- * 形态：` · serves=SG-1 / priority=P2 / impact=heavy`
+ * 形态：` · serves=SG-1 / priority=P2 / directionKey=release-gate`
  * 无字段时返回空串（**不输出空标签**，否则每行都多一段噪声）。
  *
  * **口径与 `source-recall.js` 的 `estimateLineBytes` 逐字一致**——那里按
@@ -61,7 +61,7 @@ export const RECALL_SUMMARY = "双源召回 · dsh-ldvh · 行动前候选";
 export function renderStructuralTag(structural) {
   if (structural === null || typeof structural !== "object") return "";
   const parts = [];
-  // 固定顺序：先归属（serves）、再档位（priority/impact）、再标识（directionKey）、
+  // 固定顺序：先归属（serves）、再档位（priority）、再标识（directionKey）、
   // 再计数（occurrenceCount）、最后边（relationKeys）。见 `structuralCardOf`。
   for (const [key, value] of Object.entries(structural)) {
     if (value === null || value === undefined) continue;

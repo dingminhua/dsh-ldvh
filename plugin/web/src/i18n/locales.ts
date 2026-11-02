@@ -516,7 +516,8 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   alternatives: { zh: '备选与理由', en: 'Alternatives & Rationale' },
   decision_consequences: { zh: '后果', en: 'Consequences' },
   evidence: { zh: '证据', en: 'Evidence' },
-  impact: { zh: '影响范围', en: 'Impact' },
+  // 26 §8 的 friction `impact`（轻/中/重影响评级）已于 2026-11-02 撤销分级制度，
+  // 词条随之删除——留着「词条在、字段不在」正是本仓反复纠正的漂移形态。
   // v5 Friction（26 号）阅读布局标题。
   phenomenon: { zh: '现象', en: 'Phenomenon' },
   attribution: { zh: '归因', en: 'Attribution' },
@@ -538,11 +539,11 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   // 可选 `order` 承担（§7，2026-11-01 废止 SG-n），criterion/criterion_kind/
   // alignment 是本类型存在的理由（§8）。
   subgoal_order: { zh: '次序', en: 'Order' },
-  // 裸键而非 subgoal_parent_goal：该字段经**身份头辅助元信息**呈现，而那张表按
-  // frontmatter 键名取标签（`getFieldLabel(key, locale, objectType)`）。写成
-  // subgoal_ 前缀时它命不中，标签会退化成 `parent goal`（下划线换成空格）——
-  // 2026-11-02 实拍正是如此。没有其它类型用 parent_goal，故裸键不会歧义。
-  parent_goal: { zh: '服务目标', en: 'Parent Goal' },
+  // `parent_goal` 的词条已撤（2026-11-02 Human 定案「圈出来的不用显示」）。它曾以
+  // 裸键登记（而非 subgoal_ 前缀）——因为身份头辅助元信息行按 **frontmatter 键名**
+  // 取标签，前缀命不中就会退化成 `parent goal`。现在那一行整体撤除，词条失去唯一
+  // 消费方；留着它等于「不呈现」这个决定没有落点（与 `serves` 2026-11-01 出列、
+  // `anchor` 2026-11-01 废止时同一条纪律）。字段本身仍在对象上，只是没有面板渲染。
   subgoal_criterion: { zh: '达成条件', en: 'Criterion' },
   subgoal_criterion_kind: { zh: '判据类型', en: 'Criterion Kind' },
   // Human 2026-11-02：「这个地方只保留判法即可」——详情面不再显示判据类型的
@@ -551,13 +552,17 @@ unresolved_materials: { zh: '未解析材料', en: 'Unresolved Materials' },
   subgoal_kind_hint: { zh: '判法', en: 'How it is judged' },
   subgoal_alignment: { zh: '对齐说明', en: 'Alignment' },
   subgoal_disposition: { zh: '作废去向', en: 'Disposition' },
-  // v5 DevLog（29 号 §8）阅读节点与卡片标题。occurred_at 与 created_at 必须
-  // 分开呈现（§10.4：前者是「做这件事的时间」，后者是「条目形成的时间」），
-  // 二者同词会让读者把一条很久以前的工作读成刚存的条目——故 29 号专名
-  // 「发生时间」，不复用通用的 created_at 标签。正文五段固定 H2 也在此登记
+  // v5 DevLog（29 号 §8）阅读节点与卡片标题。正文五段固定 H2 也在此登记
   // （29 §8 的骨架即本类型的阅读节序）。
-  devlog_occurred_at: { zh: '发生时间', en: 'Occurred At' },
-  devlog_created_at: { zh: '条目形成时间', en: 'Recorded At' },
+  // `occurred_at` 与 `created_at` 的**语义分工仍然成立**（§10.4：前者是「做这件事
+  // 的时间」，后者是「条目形成的时间」，不得互相冒充），但二者的**并排呈现**已于
+  // 2026-11-02 撤除——详见下方删除说明。
+  // `devlog_occurred_at` / `devlog_created_at` 两个字段标签**已删除**（2026-11-02，
+  // Human 定案「圈出来的部分不用显示」）：它们唯一的消费方是详情页的时间轴节点，
+  // 该节点整块撤除后无消费方。列表卡头那枚 `occurred_at` 徽章也于同日撤除
+  // （`objectList.devlogOccurredLabel` / `...Absent` 随之无消费方，见下），故
+  // `occurred_at` 现在**没有任何单卡呈现面**——它的回查职责由**按 `occurred_at`
+  // 排序的条目清单**承担（29 §12.1「时间线回查」）。
   devlog_summary: { zh: '当前结论', en: 'Current Conclusion' },
   devlog_disposition: { zh: '退出理由', en: 'Disposition' },
   devlog_background: { zh: '背景', en: 'Background' },
@@ -685,12 +690,6 @@ export const FIELD_VALUE_LOCALES: Record<string, Record<string, { zh: string; en
     high: { zh: '高', en: 'High' },
     medium: { zh: '中', en: 'Medium' },
     low: { zh: '低', en: 'Low' },
-  },
-  // 26 §8：friction impact 闭集——light/medium/heavy（非装饰字段，度量按状态×影响聚合）。
-  impact: {
-    light: { zh: '轻', en: 'Light' },
-    medium: { zh: '中', en: 'Medium' },
-    heavy: { zh: '重', en: 'Heavy' },
   },
   stopping_reason: {
     sufficient: { zh: '证据充分收敛', en: 'Sufficient' },
@@ -1044,12 +1043,26 @@ export const UI_LOCALES = {
     'objectList.subGoalSparkProgressAllDiscarded': '名下火花均已废弃，不再计入分母（已废弃＝被合并或拆分，不代表这件事少了一件）',
     'objectList.subGoalSparkProgressUnavailable': '火花读取失败，无法算出这个比值——读不到不等于没有（00 §5.6）',
     'objectList.subGoalSparkProgressUnknown': '{count} 条火花状态在闭集外，未计入分母',
+    // 聚焦页目标区的**行内**短词（Human 定案 2026-11-02「目标块的 sg 都要附带进度条」）。
+    // 行内只有 20px 高，长句会把子目标标题挤成两行；完整理由仍由上面四条承载并挂
+    // title。短词必须与完整说明**同时**给出——只给短词会让「读不到」看起来像状态。
+    'focusV2.subGoalProgressEmpty': '未拆解',
+    'focusV2.subGoalProgressAllDiscarded': '已处置',
+    'focusV2.subGoalProgressUnavailable': '读不到',
+    // 行内形态不渲染两档明细，但组件接口要求这两个标签（块形态才显示它们）。
+    // 单独登记而不是复用 progressLabel：复用会让块形态的明细退化成「火花落实 9」
+    // 这种读者读不出「这是哪一档」的句子。
+    'objectList.subGoalSparkProgressOpen': '待处理',
+    'objectList.subGoalSparkProgressImplemented': '已落实',
     // 29 号 DevLog 列表卡与详情面的界面词条。
-    'objectList.devlogNoTopic': '未声明或不属于任何子目标——serves 缺失时主题表现为空集，它既可能是「确实不属于」也可能是「未声明」，机械层不可区分（29 §8.1）',
+    // `objectList.devlogNoTopic` **已删除**（2026-11-02，Human 定案「圈出来的部分
+    // 不用显示」）：空集提示与两时间行同住详情页的一个 `<section>`，整块撤除。
+    // 撤除的依据不是「这句话不好」，而是 `serves` 自 2026-11-01 起已不在本类型任何
+    // 呈现面出现（29 §12.1），空集提示只是该字段缺席的推断而非条目内容；规范 29
+    // §8.1/§14.1 已同步修订（不再要求呈现面标注）。**29 号字段 `serves` 本身未撤销**，
+    // 它的非呈现消费方（召回精确引用、承接核对）照旧。
     'objectList.devlogCompressedBody': '已被承接，正文压缩为「结论与边界」与「去向」两段（29 §9.1）',
     'objectList.devlogConclusionMissing': '当前结论缺失——29 §8 要求 summary 非空且逐字出现在「结论与边界」段',
-    'objectList.devlogOccurredLabel': '发生时间——这件工作是什么时候做的（29 §10.4；与条目形成时间 created_at 是两回事）',
-    'objectList.devlogOccurredAbsent': '发生时间缺失——29 §8 把它列为必填字段，缺失即载体不合规',
     // `objectDetail.subGoalOrderAbsent` 已删除（2026-11-02 晚）：它唯一的消费方是
     // 子目标详情面顶部那个锚点块，该块已随「只保留判法」整体撤除。缺失态文案改由
     // `objectList.subGoalOrderAbsent` 承担——卡头与身份头用的是同一枚
@@ -1258,6 +1271,7 @@ export const UI_LOCALES = {
     'language.chinese': '中文',
 
     'focusV2.goalTitle': '目标',
+    'focusV2.goalSectionHint': '目标陈述与子目标——点标题看完整详情',
     'focusV2.hintCreateGoal': '在对话中与AI沟通创建并分解目标',
     'focusV2.hintCreateExample': '比如说：我要创建目标',
     'focusV2.collapseSection': '收起目标',
@@ -1899,11 +1913,13 @@ export const UI_LOCALES = {
     'objectList.subGoalSparkProgressAllDiscarded': 'All serving sparks are discarded and excluded from the denominator (discarded means merged or split, not that the work went away)',
     'objectList.subGoalSparkProgressUnavailable': 'Sparks could not be read, so this ratio cannot be computed — unreadable is not the same as none (00 §5.6)',
     'objectList.subGoalSparkProgressUnknown': '{count} spark(s) have a status outside the closed set and are excluded',
-    'objectList.devlogNoTopic': 'Not declared or belonging to no sub-goal — an absent `serves` shows as an empty topic. Two cases are indistinguishable mechanically: it may genuinely belong to none, or it may be undeclared (29 §8.1).',
+    'focusV2.subGoalProgressEmpty': 'Not broken down',
+    'focusV2.subGoalProgressAllDiscarded': 'All settled',
+    'focusV2.subGoalProgressUnavailable': 'Unreadable',
+    'objectList.subGoalSparkProgressOpen': 'Pending',
+    'objectList.subGoalSparkProgressImplemented': 'Implemented',
     'objectList.devlogCompressedBody': 'Absorbed — the body is compressed to the two sections "Conclusion & Boundary" and "Destination" (29 §9.1)',
     'objectList.devlogConclusionMissing': 'Current conclusion missing — 29 §8 requires a non-empty `summary` appearing verbatim in the "Conclusion & Boundary" section',
-    'objectList.devlogOccurredLabel': 'Occurred at — when the work was actually done (29 §10.4; distinct from the record formation time `created_at`)',
-    'objectList.devlogOccurredAbsent': 'Occurred-at missing — 29 §8 lists this field as required; its absence means the carrier is non-conforming',
     'objectDetail.subGoalCriterionDetail': 'Criterion (expanded)',
     'objectDetail.subGoalAlignmentDetail': 'Alignment (expanded)',
     'objectDetail.subGoalServingWork': 'Work serving this sub-goal',
@@ -2107,6 +2123,7 @@ export const UI_LOCALES = {
     'language.chinese': '中文',
 
     'focusV2.goalTitle': 'Goal',
+    'focusV2.goalSectionHint': 'Goal statement and sub-goals — click the title for the full detail',
     'focusV2.hintCreateGoal': 'Discuss with AI in the conversation to create and decompose the goal',
     'focusV2.hintCreateExample': 'e.g., "I want to create a goal"',
     'focusV2.collapseSection': 'Collapse goal',

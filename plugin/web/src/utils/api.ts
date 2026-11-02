@@ -121,10 +121,10 @@ export interface ObjectItem {
   trigger_signal?: string;
   retirement_reason?: string;
   retired_at?: string;
-  /** Friction-specific（26 §8：phenomenon/impact 必填；attribution 条件） */
+  /** Friction-specific（26 §8：phenomenon 必填；attribution 条件。
+   *  原 impact（轻/中/重影响评级）已于 2026-11-02 随分级制度撤销，见 26 §8） */
   phenomenon?: string;
   attribution?: string;
-  impact?: string;
   /** 26 §8 `occurrence`：重复观察的证据载体，**频次的机械权威源**。
    *
    * （2026-10 修订，Human 决定：观察不进事实源）`count` 记录「该阻碍被独立
@@ -586,11 +586,10 @@ interface CognitionInboxItemBase {
   unparsed_structures?: UnparsedStructure[];
   read_issues?: Array<Record<string, unknown>>;
   /**
-   * 26 §8 Friction 的 `impact` / `occurrence`：**平铺在条目根上**，与列表卡给
+   * 26 §8 Friction 的 `occurrence`：**平铺在条目根上**，与列表卡给
    * `ObjectCardFrame` 的输入同形（卡头徽标读对象根，不翻 card）。服务端显式投影，
-   * 见 `cognition.ts` 的 `projectFrictionImpact` / `projectFrictionOccurrence`。
+   * 见 `cognition.ts` 的 `projectFrictionOccurrence`。
    */
-  impact?: string;
   occurrence?: Record<string, unknown>;
 }
 
@@ -650,12 +649,10 @@ export interface CognitionRecentActivityItem {
   priority?: string;
   /** Spark 的 goal.md 子目标锚点（20 §6 serves），条件出现。 */
   serves?: string;
-  /** 26 §8 impact（轻/中/重），条件出现——摩擦的近期动态行据此显示影响标签，
-   * 与列表卡卡头、详情头同形（Human 2026-11：「聚焦里依然没有重中轻的标签」）。 */
-  impact?: string;
   /** 26 §8 `occurrence`（重复观察次数 = **频次的机械权威源**），条件出现——
-   * 与 `impact` 同规格：摩擦的近期动态行同序同形显示它（Human 2026-11 的
-   * 「聚焦里依然没有重中轻的标签」在同一处暴露了 occurrence 的同类缺口）。
+   * 摩擦的近期动态行显示它（Human 2026-11 的「聚焦里依然没有重中轻的标签」
+   * 在同一处暴露了 occurrence 的同类缺口：字段在事实源与列表投影里都有、
+   * 却不进聚焦页。同处显示的 impact 评级已于 2026-11-02 撤销。）
    *
    * 条件出现而非必填：§8 对「闭集收缩改判而来的 `voided`」有必填豁免（§14.2）。
    * 形状依 §8：`{ count, first_at, last_at }`（`human_return_at` 已随
@@ -781,6 +778,11 @@ export interface CognitionGoalData {
       order?: number;
       /** SubGoal `created_at`: the tiebreak when `order` is absent or equal. */
       created_at?: string;
+      /** 名下工作行（`serves` 反查，28 §8.1 的派生）。聚焦页每条子目标的火花
+       *  落实比值就取它——与子目标列表卡、详情面同一次反查、同一套口径。 */
+      serving_work?: ServingWorkItem[];
+      /** 反查时读不到的类型；「读不到」不得并入空集（00 §5.6）。 */
+      serving_unreadable?: string[];
       /** True when the row still comes from the migrated-away `## 子目标` section. */
       legacy?: boolean;
     }[];

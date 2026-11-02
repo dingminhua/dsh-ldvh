@@ -53,7 +53,6 @@ async function seedOpen(base, { count = 1, title = "重复出现的阻碍" } = {
     frontmatterDraft: {
       title,
       phenomenon: "CI 在无缓存时平均耗时 8 分钟。",
-      impact: "medium",
       attribution: "CI 配置未缓存依赖层",
       occurrence: { count, first_at: "2026-10-01T00:00:00.000Z", last_at: "2026-10-01T00:00:00.000Z" },
       change_summary: "测试：造一条 open 账目",
@@ -79,7 +78,6 @@ async function seedObservation(base, { group = "ci-slow", phenomenon = "CI 平�
     title: "CI 慢",
     basis: "重复出现；归因：CI 配置未缓存依赖层；修了会改善。",
     attribution: "CI 配置未缓存依赖层",
-    impact: "medium",
     ...(at ? { observationAt: at } : {}),
   });
   assert.ok(result.ok, JSON.stringify(result.error));
@@ -94,7 +92,6 @@ async function promote(base, group = "ci-slow", extra = {}) {
     projectId: PROJECT,
     group,
     title: "CI 慢",
-    impact: "medium",
     basis: "重复出现三次；归因：构建未缓存依赖；修了会改善。",
     attribution: "构建流水线",
     sessionSignature: TEST_SIGNATURE,
@@ -217,7 +214,6 @@ test("§9 第 2 项：group 缺失即拒——没有聚合键，阈值永远算�
       title: "某标题",
       basis: "某入账依据",
       attribution: "某归因",
-      impact: "light",
     });
     assert.equal(r.ok, false);
     assert.equal(r.error.code, "invalid_request");
@@ -238,7 +234,6 @@ test("§9 第 2 项：观察按管辖项目分区，跨项目不混装（02 §6.
       title: "他项目的标题",
       basis: "他项目的入账依据",
       attribution: "他项目的归因",
-      impact: "light",
     });
     assert.ok(other.ok, JSON.stringify(other.error));
     assert.equal(other.value.group_pending_count, 1, "another project's identically-named group is a different group");

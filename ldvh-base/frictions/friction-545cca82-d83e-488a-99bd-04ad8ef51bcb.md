@@ -2,7 +2,6 @@
 title: 测试全绿信号无法担保路径被走过
 status: resolved
 phenomenon: 全套 1283 条测试全绿、且经三次独立复核通过，但 lifecycle.js 的落地路径上仍有一行每次运行都抛 ReferenceError 的代码。
-impact: heavy
 relations:
   - relation_key: informs
     target:
@@ -39,6 +38,10 @@ change_log:
     provider: glm
     model: glm-5.3
     summary: 销账（Human 2026-10-15 授权，A 批）：D8 修复与调用方接线护栏随工单 59b4899d 落地，此后机制真宿主多次全链路实跑留有实物；套件 1452/1452 全绿，静态护栏＋生产实物合成对调用方路径的担保
+  - at: 2026-11-02T08:59:56.171Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 事实更正（非状态转换）——删除 impact 字段（26 §14.2 2026-11-02 存量处置）：影响评级分级制度经 Human 裁定取消，本对象为终态存量，经受控更正显式删除，正文与终态判定逐字不变。。终态判定未变：status/title/phenomenon/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：impact；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）2026-11-02 会话指令「摩擦取消 中 轻 重 这种分级制度」，经 26 §8 撤销 impact 字段、§14.2 登记存量处置口径；本条授权仅覆盖删除该 frontmatter 字段，正文与终态判定逐字不变。
 occurrence:
   count: 4
   first_at: 2026-10-10T21:04:17.494Z

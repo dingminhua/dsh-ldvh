@@ -3,7 +3,6 @@ title: 全量并行测试出现噪声性失败
 status: open
 phenomenon: 同一批用例单独运行全部通过，全量并行运行出现 5 条失败，重跑后失败集回到基线（2594 通过 / 5 失败）。
 attribution: 测试运行器的并发隔离面：并行执行时多个用例共享同一临时目录/共享状态，单跑与并发跑走不同的路径，落在测试基础设施而非单点代码缺陷。
-impact: medium
 object_uid: 07ef92cf-1577-40af-aecf-69d06273fd92
 fact_type_key: friction
 created_at: 2026-11-01T04:43:42.641Z
@@ -12,6 +11,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 摩擦发现阈值晋升（观察缓冲同源条目 3 条 ≥ 3，11 §9 第 3 项）
+  - at: 2026-11-02T08:59:56.129Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 撤销影响评级（26 §8 2026-11-02）：删除 impact 字段——分级制度经 Human 裁定取消，本对象为 open 存量，经受控更新显式删除，其余字段与正文逐字继承。
 occurrence:
   count: 3
   first_at: 2026-10-29T23:10:53.070Z

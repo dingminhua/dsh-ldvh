@@ -765,33 +765,37 @@ test('近期动态覆盖全部活跃事实类型（26/27 号加入 OBJECT_TYPES 
   }
 })
 
-test('近期动态行对摩擦显示影响标签（轻/中/重），与卡头同序同形', () => {
+test('近期动态行对摩擦显示重复观察标签，紧跟优先级、在修改次数之前', () => {
   const cognition = readFileSync(path.resolve(repositoryRoot, 'src/pages/CognitionCenter.tsx'), 'utf8')
   const row = cognition.slice(
     cognition.indexOf('function RecentActivityRow'),
     cognition.indexOf('function RecentActivityUsageBars'),
   )
 
-  // 与列表卡卡头、详情身份头**同序**：类型 → 优先级 → 影响 → 修改次数。
-  // （`serves` chip 已于 2026-11-01 从三处撤除，故判据改为「影响紧跟优先级」。）
-  assert.match(row, /<PriorityIcon source=\{item\} type=\{item\.type\}[\s\S]{0,400}?<FrictionImpactBadge value=\{item\.impact\}/,
-    '影响紧跟优先级，在修改次数之前')
-  assert.match(row, /item\.type === 'friction' && <FrictionImpactBadge/, '按类型分派');
+  // 与列表卡卡头、详情身份头**同序**：类型 → 优先级 → 重复观察 → 修改次数。
+  // （`serves` chip 已于 2026-11-01 从三处撤除；impact 轻/中/重 chip 已于
+  // 2026-11-02 随 26 §8 撤销分级制度撤除，故判据改为「重复观察紧跟优先级」。）
+  assert.match(row, /<PriorityIcon source=\{item\} type=\{item\.type\}[\s\S]{0,400}?<FrictionOccurrenceBadge value=\{item\.occurrence\}/,
+    '重复观察紧跟优先级，在修改次数之前')
+  assert.match(row, /item\.type === 'friction' && <FrictionOccurrenceBadge/, '按类型分派');
   assert.doesNotMatch(row, /ServesSgBadge/, 'serves chip 不得回到近期动态行（2026-11-01 撤除）');
   // 经共享组件渲染——不自行拼 chip（否则会与卡头形态漂移）。
-  assert.doesNotMatch(row, /FRICTION_IMPACT_CHIP_CLASS/, '不手写 chip');
+  assert.doesNotMatch(row, /FrictionImpactBadge|FRICTION_IMPACT_CHIP_CLASS/,
+    '退役的 impact 徽标不得回到近期动态行（26 §8，2026-11-02）');
 })
 
-test('近期动态投影携带 friction 的 impact（API 链路不丢字段）', () => {
+test('近期动态投影携带 friction 的 occurrence（API 链路不丢字段）', () => {
   const cognition = readFileSync(path.resolve(repositoryRoot, 'api/routes/cognition.ts'), 'utf8')
   const api = readFileSync(path.resolve(repositoryRoot, 'src/utils/api.ts'), 'utf8')
 
   // 三处缺一不可：BuildItem 结构 → 从原始对象取 → 投影给前端。
-  // 此前三处都没有 impact，故前端即便想渲染也无值可渲染（Human 2026-11 实测）。
-  assert.match(cognition, /serves\?: string[\s\S]{0,200}?impact\?: string/, '① BuildItem 结构声明 impact')
-  assert.match(cognition, /type === 'friction' && typeof raw\.impact === 'string' && raw\.impact\.trim\(\)/, '② 从原始对象取 impact')
-  assert.match(cognition, /build\.impact !== undefined \? \{ impact: build\.impact \}/, '③ 投影给前端')
-  assert.match(api, /impact\?: string/, '④ 前端类型声明 impact')
+  // 此前三处都没有该字段，故前端即便想渲染也无值可渲染（Human 2026-11 实测）。
+  // 声明序判据：serves 之后、refs 之前必须有 occurrence（两段之间的注释块较长，
+  // 故窗口放宽——但不得越过 refs，否则字段序漂移不会被抓到）。
+  assert.match(cognition, /serves\?: string[\s\S]{0,1200}?occurrence\?: \{[\s\S]{0,200}?refs\?:/, '① BuildItem 结构声明 occurrence')
+  assert.match(cognition, /type === 'friction' && typeof raw\.occurrence === 'object'/, '② 从原始对象取 occurrence')
+  assert.match(cognition, /build\.occurrence !== undefined \? \{ occurrence: build\.occurrence \}/, '③ 投影给前端')
+  assert.match(api, /occurrence\?: Record<string, unknown>;/, '④ 前端类型声明 occurrence')
 })
 
 // ── 26 §12「Web 账本呈现」：open 摩擦进待决定事项（Human 2026-10-19 决定）─────────
@@ -801,7 +805,7 @@ test('近期动态投影携带 friction 的 impact（API 链路不丢字段）',
 // ① 收录口径恰为 `open`（2026-10 修订后闭集只剩三值 open/resolved/voided：
 //    `observing` 已退出 26 §9 闭集，观察材料改由 11 §12bis.1 的摩擦观察缓冲
 //    承载、非事实对象，故账本里本就没有「攒熟中的活账」可铺）；
-// ② 条目复用列表卡形态（impact/occurrence 平铺到条目根，卡头徽标才读得到）；
+// ② 条目复用列表卡形态（occurrence 平铺到条目根，卡头徽标才读得到）；
 // ③ 不新增独立标签组件——`inboxKind` 只用于模块摘要计数。
 
 test('待决定事项收录 open 摩擦：闭集外取值与终态一律不进（26 §12）', () => {
@@ -820,18 +824,19 @@ test('待决定事项收录 open 摩擦：闭集外取值与终态一律不进�
   assert.match(route, /code: 'friction_list_unavailable'/, 'friction 读取失败须进 issues');
 })
 
-test('摩擦收件项把 impact/occurrence 平铺到条目根（卡头徽标读对象根）', () => {
+test('摩擦收件项把 occurrence 平铺到条目根（卡头徽标读对象根）', () => {
   const route = readFileSync(path.resolve(repositoryRoot, 'api/routes/cognition.ts'), 'utf8')
   const api = readFileSync(path.resolve(repositoryRoot, 'src/utils/api.ts'), 'utf8')
   const page = readFileSync(path.resolve(repositoryRoot, 'src/pages/CognitionCenter.tsx'), 'utf8')
 
   // 服务端：投影函数存在且被 entry 层调用。
-  assert.match(route, /function projectFrictionImpact/, '① 影响投影函数');
+  // （原①「影响投影函数」projectFrictionImpact 随 26 §8 撤销分级制度于
+  //  2026-11-02 删除；本用例判据改为 occurrence 单字段平铺。）
   assert.match(route, /function projectFrictionOccurrence/, '② 重复观察投影函数');
-  assert.match(route, /projectFrictionImpact\(build\.projection\), projectFrictionOccurrence\(build\.projection\)/,
+  assert.match(route, /Object\.assign\(entry, projectFrictionOccurrence\(build\.projection\)\)/,
     '③ entry 层显式平铺（不依赖客户端翻 card）');
-  // 客户端类型：条目根上声明两字段。
-  assert.match(api, /impact\?: string;[\s\S]{0,200}?occurrence\?: Record<string, unknown>;/, '④ 前端条目类型声明');
+  // 客户端类型：条目根上声明该字段。
+  assert.match(api, /occurrence\?: Record<string, unknown>;/, '④ 前端条目类型声明');
   // 呈现：摩擦分支走**列表卡同一组件**，不另写聚焦专属卡体。
   assert.match(page, /if \(item\.type === 'friction'\) return <FrictionCardContent obj=\{toObjectCard\(item\)\} \/>;/,
     '⑤ 复用 FrictionCardContent');

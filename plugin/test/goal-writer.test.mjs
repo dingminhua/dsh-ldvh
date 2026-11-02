@@ -193,6 +193,62 @@ test("body structure validation requires a non-empty 目标陈述", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 目标陈述长度上限（25 §7，2026-11-02 Human 决定：≤ 200 字符硬上限）
+// ---------------------------------------------------------------------------
+
+test("目标陈述 200 字符通过、201 字符拒绝（25 §7 硬上限）", () => {
+	const at = (n) => `# 项目目标\n\n## 目标陈述\n\n${"字".repeat(n)}\n`;
+	assert.equal(validateGoalBodyStructure(at(200)).ok, true, "恰好 200 字符须通过");
+
+	const over = validateGoalBodyStructure(at(201));
+	assert.equal(over.ok, false, "201 字符须拒绝");
+	assert.ok(
+		over.issues.some((i) => /must be ≤ 200 characters/.test(i)),
+		JSON.stringify(over.issues),
+	);
+});
+
+test("超限拒绝写入，且不得截断后写入（25 §7 拒绝纪律）", async () => {
+	await withTemp("goal.", async (base) => {
+		const root = await freshRoot(base);
+		const long = "这是一条超过上限的目标陈述。".repeat(20);
+		assert.ok(long.length > 200, "夹具须真的超限");
+		const r = await createGoalObject({
+			factSourceRoot: root,
+			frontmatterDraft: { title: "T", change_summary: "x" },
+			bodyMarkdown: `## 目标陈述\n\n${long}\n`,
+			sessionSignature: SIG,
+		});
+		assert.equal(r.ok, false, "超限必须被拒绝");
+		assert.equal(r.error.code, "goal/body_invalid");
+		// 拒绝而不是截断：文件不应被创建，读者不该读到一条被悄悄砍过的陈述。
+		await assert.rejects(() => readFile(join(root, "goal.md"), "utf8"));
+	});
+});
+
+test("上限按去除首尾空白后的正文段计，段内换行照常计入", () => {
+	// 换行排版不得成为绕过上限的手段：段内换行与空白都计入长度。
+	const padded = `# 项目目标\n\n## 目标陈述\n\n\n\n${"字".repeat(200)}\n\n\n`;
+	assert.equal(validateGoalBodyStructure(padded).ok, true, "首尾空白不计入");
+
+	const withNewline = `# 项目目标\n\n## 目标陈述\n\n${"字".repeat(199)}\n${"字".repeat(2)}\n`;
+	assert.equal(validateGoalBodyStructure(withNewline).ok, false, "段内换行不豁免长度");
+});
+
+test("存量 87 字陈述仍合规（上限不追溯改写既有内容）", async () => {
+	// Human 2026-11-02：现有 87 字不需要改。这条防的是「新上限一上线就把本仓
+	// 自己的 goal.md 判成不合规」——那会让受控读取与近期动态一起失读。
+	const raw = await readFile(
+		join(fileURLToPath(new URL("../../", import.meta.url)), "ldvh-base", "goal.md"),
+		"utf8",
+	);
+	const m = /^##\s*目标陈述\s*$/m.exec(raw);
+	assert.ok(m !== null, "本仓 goal.md 须含 目标陈述 段");
+	const section = raw.slice(m.index + m[0].length).split(/^##\s/m)[0].trim();
+	assert.ok(section.length > 0 && section.length <= 200, `本仓陈述长度 ${section.length} 须 ≤ 200`);
+});
+
+// ---------------------------------------------------------------------------
 // sub-goal anchors (25 §11 §12)
 // ---------------------------------------------------------------------------
 

@@ -227,7 +227,6 @@ export async function landDiscoveryVerdict({
       attribution: typeof target.attribution === "string" && target.attribution.length > 0
         ? target.attribution
         : "（沿用既有账目归因）",
-      impact: ["light", "medium", "heavy"].includes(target.impact) ? target.impact : "light",
       observationAt: at,
     });
     if (!recordedForSupplement.ok) {
@@ -272,12 +271,12 @@ export async function landDiscoveryVerdict({
       // evidence 必须是来源材料的逐字片段，reason 是解释，不能冒充引证。
       evidence: `${verdict.quote}\n（来源：${anchor}）`,
       group: verdict.group,
-      // 2026-10-30：晋升所需的四项随条目落进缓冲，使审核层在下一次运行时能
+      // 2026-10-30：晋升所需的几项随条目落进缓冲，使审核层在下一次运行时能
       // 完成晋升（此前它们只在本次 verdict 里，跨运行即丢失）。
+      // 2026-11-02：原并列的 `impact` 已随 26 §8 的字段删除撤销。
       title: verdict.title,
       basis: verdict.basis,
       attribution: verdict.attribution,
-      impact: verdict.impact,
       observationAt: at,
     });
     if (!recorded.ok) {

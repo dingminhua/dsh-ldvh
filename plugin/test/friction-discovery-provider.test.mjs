@@ -20,7 +20,6 @@ const VERDICT_SLICE = {
   title: "",
   phenomenon: "",
   basis: "",
-  impact: "light",
   quote: "这是一段足够长的材料内容原文。",
   reason: "本次区间内没有反复出现的阻碍。",
 };

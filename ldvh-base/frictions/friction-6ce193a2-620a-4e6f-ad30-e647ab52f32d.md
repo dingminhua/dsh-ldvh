@@ -2,7 +2,6 @@
 title: 受控写入补记身份致复核归属失真
 status: resolved
 phenomenon: 受控写入器在既有 reviews 条目缺失身份字段时，以本次写入会话的 session_id/implementer_session_id 补记，使复核条目被归属为补记者所有
-impact: medium
 relations:
   - relation_key: informs
     target:
@@ -35,6 +34,10 @@ change_log:
     provider: xiaomi-token-plan-cn
     model: mimo-v2.6-flash
     summary: 状态流转 open→resolved：解药为 commit b7d8f54（stampReviewEntries 第四处补记通道对齐「缺失即缺失」纪律：既有条目缺实施者基准即不计入，fail-closed），现象所指四处身份字段补记已全部封死；破坏性对照实测：正向用例翻红有分辨力，反向用例的分辨力止于独立性判据层（洗白使其通过该判据、关闭被下一道门禁拦下），测试注释「close 即 ok=true」的自述未获实测证实，实测口径记于处置段
+  - at: 2026-11-02T09:02:02.035Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 事实更正（非状态转换）——删除 impact 字段（26 §14.2 2026-11-02 存量处置）：影响评级分级制度经 Human 裁定取消，本对象为终态存量，经受控更正显式删除，正文与终态判定逐字不变。。终态判定未变：status/title/phenomenon/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：impact；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）2026-11-02 会话指令「摩擦取消 中 轻 重 这种分级制度」，经 26 §8 撤销 impact 字段、§14.2 登记存量处置口径；本条授权仅覆盖删除该 frontmatter 字段，正文与终态判定逐字不变。
 occurrence:
   count: 4
   first_at: 2026-10-19T16:33:31.449Z

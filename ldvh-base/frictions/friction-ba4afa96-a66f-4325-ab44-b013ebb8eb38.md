@@ -1,9 +1,8 @@
 ---
 title: 自拟规范外判据致过度删除
 status: resolved
-attribution: 主控在修复流程中自拟规范外的区分判据与违规类并据此批量删除，判据与类别均未经规范原文核对
 phenomenon: 主控为判定「哪类表述该删」自行拟出一条无来源的区分判据，据此批量删除，把由来源自身命名的结构字号（载于 00 的 H2 标题与根决定清单的计数，如「四种价值交付方式」「七项」）误当「本表自算的名册规模报告」删掉；同一判据在同一批内对结构同类的字号给出互斥结果——「三层防线」按「来源命名」留下，而「四种」「七项」同样载于来源标题却被判为「名册规模」删除，判据正文无任何子判据可区分三者
-impact: medium
+attribution: 主控在修复流程中自拟规范外的区分判据与违规类并据此批量删除，判据与类别均未经规范原文核对
 relations:
   - relation_key: informs
     target:
@@ -32,6 +31,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: Human 批准销账：open → resolved，informs 以 commit 例外指向 80666e0（其「依据」行即引本账目，落地了本条自登的收口方向）
+  - at: 2026-11-02T09:02:02.601Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 事实更正（非状态转换）——删除 impact 字段（26 §14.2 2026-11-02 存量处置）：影响评级分级制度经 Human 裁定取消，本对象为终态存量，经受控更正显式删除，正文与终态判定逐字不变。。终态判定未变：status/title/phenomenon/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：impact；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）2026-11-02 会话指令「摩擦取消 中 轻 重 这种分级制度」，经 26 §8 撤销 impact 字段、§14.2 登记存量处置口径；本条授权仅覆盖删除该 frontmatter 字段，正文与终态判定逐字不变。
 occurrence:
   count: 3
   first_at: 2026-10-13T07:41:07.000Z

@@ -2,7 +2,6 @@
 title: 助手回复正文混入默认提示残片
 status: open
 phenomenon: 助手本轮回复的正文中出现了与任务无关的默认提示文本行「You are a helpful assistant.」，位置在两段中文正文之间。
-impact: medium
 object_uid: 9f07a3f5-9cd1-4db1-a233-f11f84b93d4f
 fact_type_key: friction
 created_at: 2026-10-21T16:10:40.060Z
@@ -51,11 +50,14 @@ change_log:
     provider: dsh-opencode-go
     model: minimax-m3.1-flash-free
     summary: 补充观察：count 9 → 10（11 §9 第 2 项）
+  - at: 2026-11-02T09:02:37.820Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 撤销影响评级（26 §8 2026-11-02）：删除 impact 字段——分级制度经 Human 裁定取消，本对象为 open 存量，经受控更新显式删除，其余字段与正文逐字继承。另显式承载 occurrence 的 count／first_at／last_at 三件，值与原载逐字相同（仅不再携带 2026-10 已退出闭集的历史子件 human_return_at），非改值、非计数。
 occurrence:
   count: 10
   first_at: 2026-10-21T16:09:26.654Z
   last_at: 2026-10-21T19:41:43.523Z
-  human_return_at: null
 ---
 
 # 助手回复正文混入默认提示残片

@@ -253,7 +253,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
       });
       return {
         outcome: "no-discovery",
-        verdict: { verdict: "no-discovery", quote: "", reason: `本次没有已实现的任务可跑（未实现：${unimplemented.join(", ") || "无"}）`, impact: "light" },
+        verdict: { verdict: "no-discovery", quote: "", reason: `本次没有已实现的任务可跑（未实现：${unimplemented.join(", ") || "无"}）` },
         unobserved,
         watermarkTurn: Number.isInteger(windowRange?.to) ? windowRange.to : undefined,
         skipped: "no-runnable-task",
@@ -286,7 +286,7 @@ export function createDiscoveryProvider({ subagents, parent, signal, onRun, prov
       // 读 `verdict.verdict`），不是笔误，照它写。
       return {
         outcome: "no-discovery",
-        verdict: { verdict: "no-discovery", quote: "", reason: "本次区间无任何新增内容（11 §11：观察对象=自上次运行以来新增的会话内容），故未派生执行体", impact: "light" },
+        verdict: { verdict: "no-discovery", quote: "", reason: "本次区间无任何新增内容（11 §11：观察对象=自上次运行以来新增的会话内容），故未派生执行体" },
         unobserved: null,
         // 与正常路径一致：水位推进到本次区间终点。**这不是「凭空推进」**——
         // 区间内确实没有内容可丢，推进语义与「子代理看了空材料报 no-discovery」

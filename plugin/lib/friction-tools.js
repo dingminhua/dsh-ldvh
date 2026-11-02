@@ -7,7 +7,7 @@
 //   - friction-read-object  (effect: read)             — precise F3 read by
 //     object_uid: frontmatter, body, mechanical issues and fingerprint.
 //   - friction-list-objects (effect: read)             — F0/F1 discovery:
-//     ledger-relevant projection (title/phenomenon/status/impact/attribution),
+//     ledger-relevant projection (title/phenomenon/status/attribution),
 //     open by default (26 §12 2026-10 修订：观察态已退出闭集; resolved stays out of ordinary
 //     candidates until historical tracing).
 //   - friction-write-object (effect: may_change_state) — controlled create
@@ -49,7 +49,7 @@ const OPERATIONS = {
   },
   "friction-list-objects": {
     toolName: "ldvh_friction_list",
-    summary: "Enumerate Friction fact objects (F0/F1 discovery): ledger projection (title/phenomenon/status/impact/attribution/attribution_ref/occurrence) for the governed project; open by default (2026-10 修订：观察材料已移出事实源，改由 11 §12bis.1 的摩擦观察缓冲承载——账本无 observing 状态), resolved/voided/accepted only with status=all (specs/03 §8, specs/26 §12)",
+    summary: "Enumerate Friction fact objects (F0/F1 discovery): ledger projection (title/phenomenon/status/attribution/attribution_ref/occurrence) for the governed project; open by default (2026-10 修订：观察材料已移出事实源，改由 11 §12bis.1 的摩擦观察缓冲承载——账本无 observing 状态), resolved/voided/accepted only with status=all (specs/03 §8, specs/26 §12)",
     effect: "read"
   },
   "friction-write-object": {
@@ -152,7 +152,6 @@ async function executeReadObject(args, exec, deps) {
       // （锚点型）。原 `typeof === 'string'` 判定把真实载体的对象形态静默丢弃
       // （workcase-54d4d176）。裸 string 为存量兼容，归一为对象形态后投影。
       attribution_ref: normalizeAttributionRef(fm.attribution_ref),
-      impact: typeof fm.impact === "string" ? fm.impact : undefined,
       occurrence: fm.occurrence && typeof fm.occurrence === "object" ? fm.occurrence : undefined,
       disposition: typeof fm.disposition === "string" ? fm.disposition : undefined,
       body_valid: value.body_valid,
@@ -556,13 +555,12 @@ function parameterSchemaFor(operationKey) {
         description: "precise reference to an existing same-project fact object_uid for the root, as the OBJECT form { object_uid: \"<uuid>\" } (26 §8/§11 锚点型, 2026-10 订正 — the same carrier shape as relations.target); a bare uuid string is accepted for legacy carriers only. Optional — when present Code verifies object_uid resolves (26 §8); enables mechanical aggregation by attribution"
       },
       occurrence: { type: "object", properties: { count: { type: "integer" }, first_at: { type: "string" }, last_at: { type: "string" } }, required: ["count", "first_at", "last_at"], additionalProperties: false, description: "REQUIRED on create. count = the number of independent sightings CONFIRMED WHEN THE ENTRY CAME INTO BEING (from the observation group size at promotion time; 1 for a Human-entered entry). It is NOT a threshold input any more — the threshold lives in the observation buffer (11 §9 第 3 项 / §12bis.1). first_at/last_at = earliest/latest sighting time. Frozen once resolved/voided. 例外: voided 且来源为闭集收缩改判者可缺 (26 §14.2). 2026-10 修订已删除 human_return_at：放回留观流转取消，机械通道不再按 count 改任何既有账目状态" },
-      impact: { type: "string", enum: ["light", "medium", "heavy"], description: "impact rating; consumers anchored in 26 §12 (F1 projection, metric aggregation) and the heavy-bypasses-buffer birth path" },
 
       disposition: { type: "string", description: "why this entry was voided; REQUIRED iff status=voided, forbidden otherwise (26 §8) — the list card renders it so Human can read the reason without opening the detail page. resolved carries no such field: its outcome is already carried by the informs relation" },
       relations: { type: "array", items: { type: "object", properties: { relation_key: { type: "string", enum: ["informs", "paired-with"] }, target: { type: "object", properties: { object_uid: { type: "string" } }, required: ["object_uid"], additionalProperties: false } }, required: ["relation_key", "target"], additionalProperties: false }, description: "closed set {informs, paired-with} (26 §11, 2026-10-28). informs 1..n points at remedy objects (ADR/WorkCase uids), appears only on resolved; paired-with points at the same-root cross-role Pitfall and may appear in ANY state (a pair exists whether or not the debt is settled). paired-with resolves in pitfalls/, informs in adrs//workcases/. **Single-sided storage**: the edge lives ONLY here; the Pitfall side does not carry a reverse edge (23 §11 — a mirrored copy would be a second carrier of the same fact that neither side can mechanically verify, and the two could silently diverge). The reverse direction (which debt corresponds to this experience?) is derived by reverse lookup over this field (26 §12 配对反查; ldvh_friction_list exposes paired_with). Do NOT instruct the Pitfall side to write a matching edge — its writer rejects relations outright" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
-    required: ["title", "phenomenon", "impact", "occurrence"],
+    required: ["title", "phenomenon", "occurrence"],
     additionalProperties: false
   };
   switch (operationKey) {

@@ -104,8 +104,122 @@ test('secondary reading panel resolves the singleton via the direct-read route',
   assert.doesNotMatch(goalDetail, /status=\{headerStatus\}/);
 });
 
-test('cognition goal section exposes the detail entry', () => {
+test('cognition goal section exposes the detail entry through the title (2026-11-02 Human 定案)', () => {
   const goalSection = read('src/components/GoalSection.tsx');
   assert.match(goalSection, /navigate\('\/goal'\)/);
   assert.match(goalSection, /t\('goalDetail\.openDetail'\)/);
+  // 2026-11-02（Human 定案）：区头右侧那枚 `Maximize2` 详情图标撤除，详情入口
+  // 改由**标题本身**承担。守卫改向：断言「图标按钮不在了」+「标题仍能进详情」。
+  // 只看 import 行——文件头的说明注释里仍会提到这枚图标的历史（那是记录，不是
+  // 渲染面），按源码全文断言会把注释误判成活代码。
+  assert.doesNotMatch(
+    goalSection,
+    /from 'lucide-react';[^\n]*Maximize2|import \{[^}]*Maximize2/,
+    'Maximize2 详情图标已于 2026-11-02 撤除（Human 定案「这个图标去掉」）',
+  );
+  assert.doesNotMatch(
+    goalSection,
+    /<Maximize2/,
+    'Maximize2 详情图标已于 2026-11-02 撤除（Human 定案「这个图标去掉」）',
+  );
+  // 标题可点：标题内的可点元素带 role="link"，且点它时不冒泡（区头整行的点击
+  // 是折叠，二者不同义）。
+  assert.match(goalSection, /role="link"/);
+  assert.match(goalSection, /navigate\('\/goal'\)/);
+  assert.match(goalSection, /event\.stopPropagation\(\)/);
+});
+
+// ---------------------------------------------------------------------------
+// 目标陈述是唯一内容字段 + 聚焦页子目标进度条（2026-11-02 Human 决定）
+// ---------------------------------------------------------------------------
+
+test('目标只有一条陈述，没有摘要字段（2026-11-02 Human 决定）', () => {
+  const locales = read('src/i18n/locales.ts');
+  const api = read('src/utils/api.ts');
+  const cognition = read('api/routes/cognition.ts');
+
+  // 25 §7：本类型只有一个内容字段。概要/摘要型字段一个都不许有——一旦并存
+  // 「短版」与「长版」，两者必然分叉，而分叉时没有机械判据说哪版才是目标。
+  assert.doesNotMatch(api, /goalSummary|goal_summary|statementSummary/, 'goal 不得有摘要型字段');
+  assert.doesNotMatch(cognition, /goalSummary|goal_summary/, '服务端投影不得造摘要字段');
+  assert.doesNotMatch(locales, /goalSummary|goal_summary/, 'i18n 不得登记摘要字段标签');
+  // 陈述仍是唯一的内容投影，且聚焦页与详情页读的是同一个字段。
+  assert.match(api, /statement: string;/, 'CognitionGoalData 仍以 statement 为唯一内容字段');
+  assert.match(cognition, /statement: record\.statement,/);
+});
+
+test('聚焦页每条子目标都挂火花落实进度条（2026-11-02 Human 决定）', () => {
+  const goalSection = read('src/components/GoalSection.tsx');
+
+  // Human 原话：「当前聚焦的目标块的 sg，都要附带一个进度条」。故进度条是
+  // **每一行**的组成部分，不是某一行的特例。
+  assert.match(goalSection, /<ServingSparkProgressBar/, '目标区须挂进度条组件');
+  assert.match(goalSection, /variant="inline"/, '目标区用行内形态（块形态会把标题挤成两行）');
+  // 输入必须是原始 serving_work 行：关联投影的 status 已被换成关联状态轴，
+  // 数出来恒为 0 条（2026-11-02 已在卡片上踩过一次）。
+  assert.match(goalSection, /rows=\{sg\.serving_work \?\? \[\]\}/, '须读原始 serving_work 行');
+  assert.doesNotMatch(goalSection, /groupServingWorkByType/, '不得把关联投影当作比值输入');
+
+  // legacy 行不画条：它没有 object_uid，也就没有可反查的身份。给它画空条
+  // 等于把「还没有对象」说成「没有火花」。
+  assert.match(goalSection, /\{sg\.object_uid && \(/, 'legacy 行须排除在进度条之外');
+});
+
+test('聚焦页与详情页共用同一份比值派生（不可能算出两个数）', () => {
+  const bar = read('src/components/ServingSparkProgressBar.tsx');
+  const util = read('src/utils/servingSparkProgress.ts');
+  const goalSection = read('src/components/GoalSection.tsx');
+  const layouts = read('src/pages/object-detail/FactReadingLayouts.tsx');
+  const list = read('src/pages/ObjectList.tsx');
+
+  // 单点派生：三处消费面都经同一组件、同一纯函数。
+  assert.match(bar, /summarizeServingSparkProgress/);
+  assert.match(goalSection, /<ServingSparkProgressBar/);
+  assert.match(list, /<ServingSparkProgressBar/);
+  assert.match(layouts, /<ServingSparkProgressBar/);
+  assert.match(util, /denominator: open \+ implemented/, '分母口径在此单点定义');
+
+  // 行内形态不得自己算分子分母——它只是展示密度不同，判据必须同源。
+  const inlineSource = bar.slice(bar.indexOf('function InlineBar'));
+  assert.doesNotMatch(inlineSource, /filter\(/, '行内形态不得自己筛行');
+  assert.doesNotMatch(inlineSource, /summarizeServingSparkProgress/, '行内形态接收已算好的 progress，不重算');
+});
+
+test('行内进度条：三种「算不出」给短词，完整理由挂 title（不画空条）', async () => {
+  const { UI_LOCALES } = await import('../../src/i18n/locales.ts');
+  const zh = UI_LOCALES.zh;
+  const en = UI_LOCALES.en;
+  const bar = read('src/components/ServingSparkProgressBar.tsx');
+
+  // 短词必须存在且是短词——长句会把子目标标题挤成两行。
+  assert.ok(zh['focusV2.subGoalProgressEmpty'].length <= 6, '空集短词须短');
+  assert.ok(zh['focusV2.subGoalProgressAllDiscarded'].length <= 6, '全废弃短词须短');
+  assert.ok(zh['focusV2.subGoalProgressUnavailable'].length <= 6, '读不到短词须短');
+  assert.equal(zh['focusV2.subGoalProgressEmpty'], '未拆解');
+  assert.equal(zh['focusV2.subGoalProgressAllDiscarded'], '已处置');
+  assert.equal(zh['focusV2.subGoalProgressUnavailable'], '读不到');
+  assert.ok(en['focusV2.subGoalProgressEmpty'].length > 0);
+  assert.ok(en['focusV2.subGoalProgressUnavailable'].length > 0);
+
+  // 完整说明仍须存在（挂在 title 上）：短词若没有配套说明，「读不到」会被
+  // 读成一个状态而不是一个读取故障（00 §5.6）。
+  assert.match(String(zh['objectList.subGoalSparkProgressUnavailable']), /读不到不等于没有/);
+
+  // 分母为 0 时不画条：行内形态也必须守住这条（0/0 不是 0%）。
+  assert.match(bar, /denominator > 0 \? \(/, '分母为 0 时不渲染条');
+  assert.match(bar, /aria-hidden="true"/, '无条时占位不参与读屏');
+});
+
+test('聚焦页子目标进度条与卡片、详情共用同一口径的两种形态', () => {
+  const bar = read('src/components/ServingSparkProgressBar.tsx');
+
+  // variant 只有两档，且默认仍是块形态——新增形态不得改动既有两处消费面。
+  assert.match(bar, /variant\?: 'block' \| 'inline'/);
+  assert.match(bar, /variant = 'block'/);
+  // 两种形态共用同一次 summarize 调用（数值不可能不一致）。
+  assert.match(bar, /const progress: ServingSparkProgress = summarizeServingSparkProgress\(rows, unreadable\);/);
+  // 行内形态的条用**固定宽度**而非吃满剩余：目标区整行宽达 2000px，拉满会让
+  // 9/30 看起来像「几乎走完」。固定宽度让四条仍共用同一把尺子，分数落在条尾旁边。
+  assert.match(bar, /flex h-1 w-32 shrink-0 overflow-hidden rounded-full/, '行内条须固定宽度');
+  assert.doesNotMatch(bar.slice(bar.indexOf('function InlineBar')), /flex-1/, '行内条不得吃满剩余宽度');
 });

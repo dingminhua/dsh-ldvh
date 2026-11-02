@@ -51,20 +51,26 @@ export const AUXILIARY_META_KEYS_BY_TYPE: Record<string, string[]> = {
   // 只是没有任何面板渲染它——这正是本次要的形态。
   spark: [],
   pitfall: [],
-  // 26 §8（2026-11）：impact 由**身份头部标签区**呈现（见 ObjectDetail 的
-  // ObjectCardFrame 内 FrictionImpactBadge），与列表卡卡头同形——不是元信息行
-  // 的「字段名: 值」形态（Human 指出两者不一致后纠正）。
-  // serves 已于 2026-10 从 26 §8 删除（§12 四个消费点无一使用，§18 第 1 条禁装饰
-  // 字段），故不再列出——此前本行残留引用属闭集收缩后的漂移。
+  // 26 §8：friction 无元信息行辅助字段——phenomenon/attribution/occurrence 等
+  // 由身份头部标签区与阅读布局消费。impact（轻/中/重影响评级）已于 2026-11-02
+  // 随分级制度撤销（26 §8 字段表），serves 早于 2026-10 删除（§12 四个消费点无一
+  // 使用，§18 第 1 条禁装饰字段）。
   friction: [],
-  // 28 §8（2026-11-02）：`parent_goal` 由身份头辅助元信息呈现。它此前住在子目标
-  // 详情面顶部的锚点块里，而那一段本轮已收窄为「只保留判法」（Human 定案）——
-  // 归属事实若不同时登记到元信息行，这个字段就在详情面上消失了。
+  // 28 §8：`parent_goal` **不再呈现**（Human 定案 2026-11-02，附截图圈出身份头
+  // 底部的「服务目标 project-goal」——「圈出来的不用显示」）。
   //
-  // 为什么放元信息行而不是留在阅读叙事里：「这条子目标属于哪个目标」是**归属事实**，
-  // 与 created_at 同级，不是「这条怎么算达成」的一段论证。它在这里也不承担下钻——
-  // 目标详情走 `/goal`（25 §6 单例路径即身份），不经由这个键导航。
-  subgoal: ['parent_goal'],
+  // 它此前住在子目标详情面顶部的锚点块里，本轮先被移到身份头辅助元信息行，
+  // 现在整行撤除。理由与 `serves` 2026-11-01 出列同源：读者打开一条子目标，
+  // 要回答的是「这条怎么算达成」；「它属于哪个目标」在单例项目里恒为
+  // `project-goal` 一个值，四次出现四次相同，不携带可分辨的信息（28 §18 第 1 条
+  // 禁装饰字段）。归属关系本身没有丢——它由 `parent_goal` 字段与 28 §8.1 的
+  // 反查派生承载，目标区的子目标列表就是它的可见形态。
+  //
+  // 撤呈现就必须同时从本表出列：留在表里等于「登记为已呈现」，而它已不呈现。
+  // 出列后它会落回 `getObjectDetailContentEntries` 的兜底字段区——但不会因此
+  // 冒出来，因为 subgoal 详情走专属阅读布局 `SubGoalReadingLayout`，它不消费
+  // `extraEntries`（与 `serves` 出列时的处境完全相同）。
+  subgoal: [],
 };
 
 const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
@@ -94,11 +100,11 @@ const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
     'disposition', 'change_log', 'urls',
   ],
   // v5 Friction（26 号规范）：阅读布局按字段契约序消费（phenomenon →
-  // attribution → impact → serves → 终态 relations），正文 report_body 由
+  // attribution → occurrence → 终态 relations），正文 report_body 由
   // 布局按 H2 三段（现象/入账依据+条件处置）分节呈现——此处只做 ContentField
-  // 兜底排序。
+  // 兜底排序。（impact 已于 2026-11-02 随分级制度撤销，26 §8。）
   friction: [
-    'phenomenon', 'attribution', 'impact', 'occurrence', 'disposition', 'report_body',
+    'phenomenon', 'attribution', 'occurrence', 'disposition', 'report_body',
     'change_log', 'relations',
   ],
   // v5 Norm（27 号规范）：阅读布局按字段契约序消费（direction_key → 终态
@@ -118,13 +124,23 @@ const FIELD_ORDER_BY_TYPE: Record<string, string[]> = {
     'order', 'parent_goal', 'criterion', 'criterion_kind', 'alignment',
     'report_body', 'disposition', 'change_log',
   ],
-  // v5 DevLog（29 号规范）：阅读布局按**阅读次序**消费（occurred_at + created_at
-  // 时间轴 → summary 结论 → 去向 → 背景/做法/实测 → relations → change_log），
-  // 正文 report_body 由布局按 H2 分节呈现——此处只做 ContentField 兜底排序。
-  // 29 §10.4 要求两个时间分开呈现，故 `occurred_at` 与 `created_at` 并列入表，
-  // 不互相替代。29 §11 不采用 refs（条目与工单的连接由工单侧单向声明）。
+  // v5 DevLog（29 号规范）：阅读布局按**阅读次序**消费（summary 结论 → 去向 →
+  // 背景/做法/实测 → relations → change_log），正文 report_body 由布局按 H2 分节
+  // 呈现——此处只做 ContentField 兜底排序。
+  // `occurred_at` / `created_at` **曾并列入表**（理由：29 §10.4 要求两个时间分开
+  // 呈现）。2026-11-02 Human 定案「圈出来的部分不用显示」撤除详情页时间轴节点后，
+  // 两字段的语义分工不变（§10.4 仍要求不得用 `created_at` 冒充发生时间），但**不再
+  // 在详情页重复呈现**：2026-11-02 二次定案把列表卡头的 `occurred_at` 徽章也撤了
+  // （29 §10.4 同步订正），`occurred_at` 现由**按 `occurred_at` 排序的条目清单**
+  // 承担回查职责（29 §12.1「时间线回查」），`created_at` 走 change_log 首条与底部
+  // YAML 原文。故二者**不再列入本表**——留着会让人以为详情页仍在显式渲染它们
+  // （本表是兜底字段区的排序，DevLogReadingLayout 不消费它，但表的成员本身就是一份
+  // 「该字段有呈现面」的声明）。
+  // `refs` 于 2026-11-02 经 Human 决定并入 02 §8.2 采用面（29 §8/§11/§12.3bis）：
+  // 内容关联由**列表卡关联区**承载（与 Spark 卡同一承载方式），详情页不另设一行——
+  // 同一关联在两处各画一遍没有新信息。
   devlog: [
-    'occurred_at', 'created_at', 'summary', 'serves', 'disposition', 'report_body',
+    'summary', 'disposition', 'report_body',
     'change_log', 'relations',
   ],
   // v5 Spark（20 号规范）：阅读布局按字段契约序消费（question → scope_boundary

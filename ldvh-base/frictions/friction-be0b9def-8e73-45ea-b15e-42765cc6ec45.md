@@ -3,7 +3,6 @@ title: 召回基线红归因比错锚点致结论被推翻
 status: resolved
 phenomenon: 上一轮仅以 HEAD 为锚得出的「召回 8 条红与本单无关」结论证据不足，本轮改以开工前基线比对（2 红→8 红）后该结论被推翻。
 attribution: 召回 bench 守卫用例与其基线归因流程：语料被改写后守卫断言的期望值未与实测同步，而归因所选比对锚点（HEAD）未排除当日改动本身，致「与本单无关」的结论不成立。
-impact: medium
 relations:
   - relation_key: informs
     target:
@@ -20,6 +19,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 事实更正（非状态转换）——修正 informs 锚点：8c3c5092（变基前原始 SHA，本仓不可解析）→ 4004871（内容等价、主题逐字相同的现存提交），解除 Git Gate 的 friction_commit_unresolvable 阻塞。终态判定未变：status/title/phenomenon/impact/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：无；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）于 2026-11-02 本会话明确授权：「授权你处理」——针对 dev 分支 Git Gate 因三处悬空 commit 锚点阻塞全部提交一事，授权修正 resolved 摩擦载体中的悬空 relations.commit 引用。
+  - at: 2026-11-02T09:02:02.622Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 事实更正（非状态转换）——删除 impact 字段（26 §14.2 2026-11-02 存量处置）：影响评级分级制度经 Human 裁定取消，本对象为终态存量，经受控更正显式删除，正文与终态判定逐字不变。。终态判定未变：status/title/phenomenon/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：impact；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）2026-11-02 会话指令「摩擦取消 中 轻 重 这种分级制度」，经 26 §8 撤销 impact 字段、§14.2 登记存量处置口径；本条授权仅覆盖删除该 frontmatter 字段，正文与终态判定逐字不变。
 occurrence:
   count: 3
   first_at: 2026-10-27T14:08:45.075Z

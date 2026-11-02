@@ -32,6 +32,8 @@ export default function ServingSparkProgressBar({
   unknownStatusLabel,
   openLabel,
   implementedLabel,
+  variant = 'block',
+  inlineLabels,
 }: {
   rows: readonly ServingWorkItem[];
   unreadable?: readonly string[];
@@ -42,8 +44,43 @@ export default function ServingSparkProgressBar({
   unknownStatusLabel: (count: number) => string;
   openLabel: string;
   implementedLabel: string;
+  /**
+   * 呈现形态（2026-11-02 新增 `inline`）：
+   * - `block`（默认）：卡片与详情面的完整形态——标题 + 分数 + 两档明细 + 条。
+   * - `inline`：聚焦页目标区**行内**形态——条 + 分数同排，无标题、无两档明细。
+   *
+   * 两种形态共用同一个 `summarizeServingSparkProgress`，因此**数值不可能不一致**；
+   * 差别只在展示密度。目标区一行只有 20px 高，塞进两档明细会把子目标标题挤成
+   * 两行——那反而让「哪几条子目标」这件事更难扫。
+   */
+  variant?: 'block' | 'inline';
+  /**
+   * `inline` 专用的**短词**（未拆解／已处置／读不到）与它们各自的完整说明。
+   *
+   * 短词是行内唯一可容纳的形态；完整说明挂 `title`，鼠标停上去仍读得到。二者
+   * 必须同时给出——只给短词会让「读不到」看起来像一个状态而不是一个读取故障。
+   */
+  inlineLabels?: {
+    empty: string;
+    allDiscarded: string;
+    unavailable: string;
+    emptyTitle: string;
+    allDiscardedTitle: string;
+    unavailableTitle: string;
+  };
 }) {
   const progress: ServingSparkProgress = summarizeServingSparkProgress(rows, unreadable);
+
+  if (variant === 'inline' && inlineLabels !== undefined) {
+    return (
+      <InlineBar
+        progress={progress}
+        progressLabel={progressLabel}
+        unknownStatusLabel={unknownStatusLabel}
+        labels={inlineLabels}
+      />
+    );
+  }
 
   if (progress.kind === 'unavailable') {
     return (
@@ -111,5 +148,88 @@ function Notice({
     <p className={`ldvh-meta min-w-0 break-words ${className}`} title={title}>
       {children}
     </p>
+  );
+}
+
+/**
+ * 聚焦页目标区的**行内**形态（2026-11-02）：条占满行宽、分数落在右端。
+ *
+ * ## 为什么条必须等宽
+ *
+ * 目标区一屏并列四到八条子目标。读者在这一屏要比的是「哪条走得远、哪条没动」——
+ * 那只有在**同一把尺子**上才成立。故条一律占满该行剩余宽度（`flex-1`），不按
+ * 分子分母各自缩放，也不给某条更宽的位置。宽度随容器走、四条一起变，仍可比。
+ *
+ * ## 为什么三种「算不出」在这里只给短词
+ *
+ * 行内只有 20px 高，完整那句（「名下没有火花——分母为空，不是 0%」）会把子目标
+ * 标题挤成两行，反而让「哪几条子目标」更难扫。故行内只留短词（未拆解／已处置／
+ * 读不到），完整理由挂在 `title` 上——鼠标停上去仍读得到，而**不读工具提示的人
+ * 也不会看到一个假的 0%**，因为这里根本没有条。
+ *
+ * 这条与 `docs/01`「状态不得只由颜色承载」同向：短词本身是文字，颜色只是加强。
+ */
+function InlineBar({
+  progress,
+  progressLabel,
+  unknownStatusLabel,
+  labels,
+}: {
+  progress: ServingSparkProgress;
+  progressLabel: string;
+  unknownStatusLabel: (count: number) => string;
+  labels: {
+    empty: string;
+    allDiscarded: string;
+    unavailable: string;
+    emptyTitle: string;
+    allDiscardedTitle: string;
+    unavailableTitle: string;
+  };
+}) {
+  if (progress.kind !== 'ratio') {
+    const [text, title, tone] = progress.kind === 'empty'
+      ? [labels.empty, labels.emptyTitle, 'text-ldvh-text-secondary/70']
+      : progress.kind === 'allDiscarded'
+        ? [labels.allDiscarded, labels.allDiscardedTitle, 'text-ldvh-text-secondary/70']
+        : [labels.unavailable, labels.unavailableTitle, 'text-amber-700 dark:text-amber-300'];
+    return (
+      <p className={`ldvh-meta min-w-0 ${tone}`} title={title}>
+        {text}
+      </p>
+    );
+  }
+
+  const { implemented, denominator, unknownStatus } = progress;
+  // 分母为 0 时不画条（0/0 不是 0%）——与块形态同一纪律，只差展示密度。
+  const ratioPct = denominator > 0 ? Math.round((implemented / denominator) * 100) : 0;
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      {denominator > 0 ? (
+        <div
+          // 固定宽度（不是吃满剩余）：目标区整行宽达 2000px，把条拉满会让 9/30
+          // 看起来像「几乎走完」，而 0/1 又变成一条细缝——比值反而更难读。
+          // 固定 128px 让四条子目标仍共用同一把尺子，且分数就落在条尾旁边。
+          className="flex h-1 w-32 shrink-0 overflow-hidden rounded-full bg-ldvh-border/70"
+          role="img"
+          aria-label={`${progressLabel} ${implemented} / ${denominator}`}
+        >
+          <div className="h-full shrink-0 bg-ldvh-accent/85" style={{ width: `${ratioPct}%` }} />
+        </div>
+      ) : (
+        <span className="w-32 shrink-0" aria-hidden="true" />
+      )}
+      <span className="ldvh-meta shrink-0 font-mono text-ldvh-text-primary">
+        {implemented} / {denominator}
+      </span>
+      {unknownStatus > 0 && (
+        <span
+          className="ldvh-meta shrink-0 text-amber-700 dark:text-amber-300"
+          title={unknownStatusLabel(unknownStatus)}
+        >
+          +{unknownStatus}
+        </span>
+      )}
+    </div>
   );
 }

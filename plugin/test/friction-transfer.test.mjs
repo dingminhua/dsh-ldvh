@@ -57,7 +57,6 @@ function transfer(overrides = {}) {
     title: "并发测试共享临时端口与目录",
     basis: "同一现象反复出现；归因：测试夹具共用固定端口与临时目录；修了会改善。",
     attribution: "测试夹具",
-    impact: "medium",
     group: "concurrent-test-temp-dir-interference",
     ...overrides,
   };
@@ -87,7 +86,6 @@ test("转写：discarded 条目的材料落到摩擦观察缓冲，且证据逐�
     assert.equal(item.session, entry.session);
     assert.equal(item.anchor, entry.anchor);
     assert.equal(item.group, "concurrent-test-temp-dir-interference");
-    assert.equal(item.impact, "medium");
     assert.equal(item.status, "pending");
     assert.equal(item.target_uid, null);
   });
@@ -127,7 +125,6 @@ test("转写：同一证据已在摩擦缓冲里即跳过——否则同一现�
       title: "并发测试共享临时端口与目录",
       basis: "发现层已记。",
       attribution: "测试夹具",
-      impact: "medium",
     });
     assert.ok(first.ok, JSON.stringify(first.error));
 
@@ -172,7 +169,6 @@ test("转写：已在账目里的观察（promoted）同样跳过——晋升后
         title: "并发测试共享临时端口与目录",
         basis: "发现层已记。",
         attribution: "测试夹具",
-        impact: "medium",
       });
       assert.ok(appended.ok, JSON.stringify(appended.error));
       ids.push(appended.value.entry_id);
@@ -217,7 +213,6 @@ test("转写：发现层已记过的观察（来源行形态不同）同样跳�
       title: "并发测试共享临时端口与目录",
       basis: "发现层已记。",
       attribution: "测试夹具",
-      impact: "medium",
     });
     assert.ok(discoveryForm.ok, JSON.stringify(discoveryForm.error));
 
@@ -266,20 +261,6 @@ test("转写：五项语义字段缺一即拒——机械侧不代填 group 与�
     const read = await readFrictionObservations(h, PROJECT);
     assert.ok(read.ok);
     assert.equal(read.value.items.length, 0);
-  });
-});
-
-test("转写：impact 必须在闭集内", async () => {
-  await withTemp("friction-transfer.", async (root) => {
-    const h = home(root);
-    const moved = await transferDiscardedEntryToFriction({
-      dshHomePath: h,
-      projectId: PROJECT,
-      entry: discardedEntry(),
-      transfer: transfer({ impact: "critical" }),
-    });
-    assert.equal(moved.ok, false);
-    assert.equal(moved.error.code, "friction_transfer/invalid_impact");
   });
 });
 
@@ -344,7 +325,6 @@ async function appendAgedObservation(home, { id, group, daysAgo, now }) {
     title: "保留期淘汰测试",
     basis: "入账依据（测试用）",
     attribution: "friction-observation-buffer.js 的保留期淘汰路径",
-    impact: "medium",
     at,
   });
   assert.equal(appended.ok, true, `append failed: ${JSON.stringify(appended.error)}`);
@@ -394,13 +374,13 @@ test("容量淘汰同样先登记（§20.1 第 11 项不区分淘汰原因）", 
       project: PROJECT, session: "s-1", anchor: "turn 1",
       phenomenon: "第一条", evidence: "证据一\n（来源：turn 1）",
       group: "capacity-group", title: "容量淘汰", basis: "依据", attribution: "缓冲容量",
-      impact: "light", at: new Date(now.getTime() - 3600_000).toISOString(),
+      at: new Date(now.getTime() - 3600_000).toISOString(),
     }, { capacity: 1, now });
     const second = await appendFrictionObservation(dshHome, {
       project: PROJECT, session: "s-2", anchor: "turn 2",
       phenomenon: "第二条", evidence: "证据二\n（来源：turn 2）",
       group: "capacity-group", title: "容量淘汰", basis: "依据", attribution: "缓冲容量",
-      impact: "light", at: now.toISOString(),
+      at: now.toISOString(),
     }, { capacity: 1, now });
 
     assert.equal(second.ok, true, JSON.stringify(second.error));
@@ -426,7 +406,7 @@ test("**已达阈值却被容量淘汰**时，登记不得说成「未达阈值�
       phenomenon: `第 ${n} 次观察到同一阻碍`,
       evidence: `证据 ${n}\n（来源：turn ${n}）`,
       group: "hot-group", title: "已达阈值却遭淘汰", basis: "依据",
-      attribution: "缓冲容量", impact: "medium",
+      attribution: "缓冲容量",
       at: new Date(now.getTime() - (10 - n) * 60_000).toISOString(),
     });
     // 前两条正常写入（容量 2 之内）。
@@ -495,7 +475,7 @@ test("容量路径：登记已写但载体回写失败时**销账**，不留「�
       project: PROJECT, session: "s-1", anchor: "turn 1",
       phenomenon: "第一条", evidence: "证据一\n（来源：turn 1）",
       group: "wb-group", title: "回写失败", basis: "依据", attribution: "测试",
-      impact: "light", at: new Date(now.getTime() - 3600_000).toISOString(),
+      at: new Date(now.getTime() - 3600_000).toISOString(),
     }, { capacity: 1, now });
 
     // 让**载体目录不可写**（改名走不动），但 `ldvh` 仍可写、队列仍可追加。
@@ -508,7 +488,7 @@ test("容量路径：登记已写但载体回写失败时**销账**，不留「�
         project: PROJECT, session: "s-2", anchor: "turn 2",
         phenomenon: "第二条", evidence: "证据二\n（来源：turn 2）",
         group: "wb-group", title: "回写失败", basis: "依据", attribution: "测试",
-        impact: "light", at: now.toISOString(),
+        at: now.toISOString(),
       }, { capacity: 1, now });
     } finally {
       await chmod(carrierDir, 0o700);
@@ -583,7 +563,7 @@ test("容量路径：登记失败即整体放弃淘汰——载体条目数不�
       project: PROJECT, session: "s-1", anchor: "turn 1",
       phenomenon: "第一条", evidence: "证据一\n（来源：turn 1）",
       group: "cap-abort", title: "容量中止", basis: "依据", attribution: "测试",
-      impact: "light", at: new Date(now.getTime() - 3600_000).toISOString(),
+      at: new Date(now.getTime() - 3600_000).toISOString(),
     }, { capacity: 1, now });
 
     // 队列不可写（做成目录），容量 1 使第二条触发淘汰。
@@ -594,7 +574,7 @@ test("容量路径：登记失败即整体放弃淘汰——载体条目数不�
       project: PROJECT, session: "s-2", anchor: "turn 2",
       phenomenon: "第二条", evidence: "证据二\n（来源：turn 2）",
       group: "cap-abort", title: "容量中止", basis: "依据", attribution: "测试",
-      impact: "light", at: now.toISOString(),
+      at: now.toISOString(),
     }, { capacity: 1, now });
 
     assert.equal(second.ok, false, "登记失败须使写入报失败");
@@ -658,7 +638,7 @@ test("转写时容量淘汰失败：报「已落地、淘汰未生效」，不�
         project: PROJECT, session: `s-${i}`, anchor: `turn ${i}`,
         phenomenon: `填充条目 ${i}`, evidence: `填充证据 ${i}\n（来源：turn ${i}）`,
         group: `fill-${i}`, title: "填充", basis: "依据", attribution: "测试",
-        impact: "light", at: new Date(now.getTime() - (300 - i) * 60_000).toISOString(),
+        at: new Date(now.getTime() - (300 - i) * 60_000).toISOString(),
       }, { now });
       assert.equal(r.ok, true, `fill ${i}: ${JSON.stringify(r.error)}`);
     }
@@ -678,7 +658,7 @@ test("转写时容量淘汰失败：报「已落地、淘汰未生效」，不�
           phenomenon: "转写的现象", evidence: "转写证据\n来源：session x turn 1",
           session: "session-x", anchor: "turn 1",
         },
-        transfer: { title: "转写标题", basis: "依据", attribution: "归因", impact: "medium", group: "tx-group" },
+        transfer: { title: "转写标题", basis: "依据", attribution: "归因", group: "tx-group" },
         now: new Date(now.getTime() + 60_000),
       });
     } finally {

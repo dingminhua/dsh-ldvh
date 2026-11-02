@@ -3,7 +3,6 @@ title: 摩擦与经验两侧失败处置接缝漏失
 status: open
 phenomenon: 同一场未修复的失败在摩擦侧因未达 N=3 不被收下、在经验侧因写不出「解决」「验证」两段被判 discarded，两侧都不留痕
 attribution: specs/11 §8 与 §9/§10.2 的接缝：摩擦发现层与经验捕获审核层对同一失败的失败处置方向相反（未达 N=3 不收 / 缺解决与验证段判 discarded），两段之间只声明「产出不同对象，互不替代」，未定义失败在接缝处的分区与去向
-impact: medium
 object_uid: 532bb43f-6abc-47d6-89d3-efce0b2f0fab
 fact_type_key: friction
 created_at: 2026-10-31T18:44:43.924Z
@@ -16,6 +15,10 @@ change_log:
     provider: workbuddy-global
     model: deepseek-v4.1-flash
     summary: 补充观察：count 3 → 4（11 §9 第 2 项）
+  - at: 2026-11-02T08:59:56.169Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 撤销影响评级（26 §8 2026-11-02）：删除 impact 字段——分级制度经 Human 裁定取消，本对象为 open 存量，经受控更新显式删除，其余字段与正文逐字继承。
 occurrence:
   count: 4
   first_at: 2026-10-31T17:25:13.281Z

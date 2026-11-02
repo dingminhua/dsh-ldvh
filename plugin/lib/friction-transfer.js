@@ -21,9 +21,11 @@
  *
  * - **「这条该不该转」是语义判断**（机制是否已清楚、是否真的只是没解决），由审核段
  *   执行体给出 `transfer` 提案，本模块只做机械校验；
- * - `group`（聚合键）、`title`/`basis`/`attribution`/`impact`（晋升后账目的正文与评级
- *   来源）也由执行体给出。**机械侧不代填**：`group` 代填等于替执行体做了同源判定，
- *   那四项代填等于把「未解决的失败」直接写成账目。
+ * - `group`（聚合键）、`title`/`basis`/`attribution`（晋升后账目的标题与正文来源）
+ *   也由执行体给出。**机械侧不代填**：`group` 代填等于替执行体做了同源判定，
+ *   那几项代填等于把「未解决的失败」直接写成账目。
+ *   （**2026-11-02 订正**：原列含 `impact`；该字段已随 26 §8 的字段删除撤销——
+ *   Human 定案「摩擦取消 中 轻 重 这种分级制度」。）
  *
  * ## 三道机械闸（§18「转写条目的合法性」行）
  *
@@ -44,7 +46,6 @@
 import {
   appendFrictionObservation,
   readFrictionObservations,
-  FRICTION_OBSERVATION_IMPACTS,
 } from "./friction-observation-buffer.js";
 
 function success(value) {
@@ -59,12 +60,12 @@ function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-/** 转写提案必须给出的五项（都属语义判断，机械侧不代填）。 */
+/** 转写提案必须给出的项（都属语义判断，机械侧不代填）。
+ * 2026-11-02：原五项含 `impact`，该字段已随 26 §8 的字段删除撤销。 */
 export const TRANSFER_REQUIRED_FIELDS = Object.freeze([
   "title",
   "basis",
   "attribution",
-  "impact",
   "group",
 ]);
 
@@ -126,17 +127,10 @@ export function validateTransferProposal(transfer) {
       );
     }
   }
-  if (!FRICTION_OBSERVATION_IMPACTS.includes(transfer.impact)) {
-    return failure(
-      "friction_transfer/invalid_impact",
-      `impact must be one of ${JSON.stringify([...FRICTION_OBSERVATION_IMPACTS])} (got ${JSON.stringify(transfer.impact)})`,
-    );
-  }
   return success({
     title: transfer.title.trim(),
     basis: transfer.basis.trim(),
     attribution: transfer.attribution.trim(),
-    impact: transfer.impact,
     group: transfer.group.trim(),
     // 可选的目标账目：转写时若判明它属于某笔**已存在**的 open 账目的同源复观，
     // 带上 target_uid 即走 §9 第 4 项的补充路径（审核层下一拍处理），而不是攒新组。
@@ -248,7 +242,6 @@ export async function transferDiscardedEntryToFriction({
     title: proposal.value.title,
     basis: proposal.value.basis,
     attribution: proposal.value.attribution,
-    impact: proposal.value.impact,
     ...(proposal.value.target_uid === null ? {} : { target_uid: proposal.value.target_uid }),
   }, { now });
   if (!appended.ok) {

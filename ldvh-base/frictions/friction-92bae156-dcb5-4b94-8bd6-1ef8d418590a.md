@@ -3,7 +3,6 @@ title: web-mount 用例挂起致定向验证受阻
 status: resolved
 phenomenon: 全量回归 2385 例中 test/web-mount.test.mjs 的 unexpected child exit re-warms 一例失败，该文件单跑时挂起不退出。
 attribution: test/web-mount.test.mjs 的 `unexpected child exit re-warms` 用例把宿主子进程退出与重拉计时写成断言，测试夹具未满足该前提，导致该文件既在全量回归中失败又在单跑时挂起。
-impact: medium
 relations:
   - relation_key: informs
     target:
@@ -20,6 +19,10 @@ change_log:
     provider: qoder
     model: qfmodel
     summary: 状态流转 open→resolved：解药为 commit 0afe13a（逐个建立 watcher，缺根不再泄漏 FSWatcher 句柄），原用例不改即 15/15 通过且进程自然退出，回归用例经破坏性验证确认具分辨力；偶发 ECONNREFUSED 属独立 readiness 竞态，已在处置段如实划出边界
+  - at: 2026-11-02T09:02:02.254Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 事实更正（非状态转换）——删除 impact 字段（26 §14.2 2026-11-02 存量处置）：影响评级分级制度经 Human 裁定取消，本对象为终态存量，经受控更正显式删除，正文与终态判定逐字不变。。终态判定未变：status/title/phenomenon/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：impact；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）2026-11-02 会话指令「摩擦取消 中 轻 重 这种分级制度」，经 26 §8 撤销 impact 字段、§14.2 登记存量处置口径；本条授权仅覆盖删除该 frontmatter 字段，正文与终态判定逐字不变。
 occurrence:
   count: 3
   first_at: 2026-10-26T10:39:34.498Z

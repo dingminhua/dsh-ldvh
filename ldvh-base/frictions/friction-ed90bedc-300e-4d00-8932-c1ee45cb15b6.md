@@ -2,7 +2,6 @@
 title: 委派子代理并发同步反复零产出致主控全量重做
 status: open
 phenomenon: 在本轮 04→36 迁移中，为多份规范并发输出的子代理（四路/三路机械同步）均未完成写入：工作树只出现主控自身改动，第一、二、三路子代理全部失败退出或零改动，主控被迫改为自己逐文件脚本化替换并核对全部同步。
-impact: medium
 object_uid: ed90bedc-300e-4d00-8932-c1ee45cb15b6
 fact_type_key: friction
 created_at: 2026-10-12T14:00:13.602Z
@@ -31,6 +30,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 补充观察：count 4 → 5（11 §9 第 2 项）
+  - at: 2026-11-02T08:59:56.257Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 撤销影响评级（26 §8 2026-11-02）：删除 impact 字段——分级制度经 Human 裁定取消，本对象为 open 存量，经受控更新显式删除，其余字段与正文逐字继承。
 occurrence:
   count: 5
   first_at: 2026-10-12T13:59:26.319Z

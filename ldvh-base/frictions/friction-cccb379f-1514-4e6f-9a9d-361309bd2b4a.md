@@ -3,7 +3,6 @@ title: direction 冲突拒绝零信息量
 status: resolved
 phenomenon: 事实规范创建被 ERR_DIRECTION_ALREADY_EXISTS 拒绝后，错误不携带「哪个 direction_key 已被谁占用」，AI 在同一会话内反复重建同一 direction_key 并再次被拒。
 attribution: 规范写工具的错误通道设计：27 §6.2 把去重定为 AI 对 direction_key/title 的语义比较、机制只检查 direction_key 是否已存在，该分工合理但代价未被承接——ERR_DIRECTION_ALREADY_EXISTS 只报告冲突事实，不回传占用方身份（object_uid/title/status），也不给出应改用什么；AI 因此在拒绝中得不到任何新信息，只能原样重试
-impact: medium
 relations:
   - relation_key: informs
     target:
@@ -32,6 +31,10 @@ change_log:
     provider: ds41
     model: deepseek-v4.1-flash
     summary: 销账（Human 2026-10-14 授权）：拒绝通道补占用者身份（title/status）并由工具层渲染进 gaps（14223fc），旧写法的整体落空已由「以真实载荷断言两半」的测试锁死；判据扩扫确认非 issues 载荷全仓仅此一处
+  - at: 2026-11-02T09:02:02.695Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 事实更正（非状态转换）——删除 impact 字段（26 §14.2 2026-11-02 存量处置）：影响评级分级制度经 Human 裁定取消，本对象为终态存量，经受控更正显式删除，正文与终态判定逐字不变。。终态判定未变：status/title/phenomenon/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：impact；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）2026-11-02 会话指令「摩擦取消 中 轻 重 这种分级制度」，经 26 §8 撤销 impact 字段、§14.2 登记存量处置口径；本条授权仅覆盖删除该 frontmatter 字段，正文与终态判定逐字不变。
 occurrence:
   count: 1
   first_at: 2026-10-09T14:48:42.804Z

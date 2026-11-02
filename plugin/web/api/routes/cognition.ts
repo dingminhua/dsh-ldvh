@@ -13,7 +13,7 @@
  */
 
 import { Router, type Request, type Response } from 'express'
-import { listObjects, type ObjectType } from '../services/facts.js'
+import { listObjects, deriveServingWorkIndexForScope, type ObjectType } from '../services/facts.js'
 import { canonicalUid } from '../../shared/factIdentity.js'
 import {
   WORKCASE_V5_STATUSES,
@@ -145,14 +145,12 @@ interface RecentActivityBuildItem {
   priority?: string
   /** Spark 的 serves（子目标 `object_uid`，20 §6 + 28 §12.3），条件出现。 */
   serves?: string
-  /** 26 §8 impact（轻/中/重），条件出现——摩擦的近期动态行据此显示影响标签。 */
-  impact?: string
   /** 26 §8 `occurrence`（重复观察次数 = **频次的机械权威源**），条件出现。
    *
-   * 与 `impact` 同规格：摩擦的近期动态行**同序同形**显示它（类型 → 优先级 →
-   * SG → 影响 → 重复观察 → 修改次数）。此前本路由只投影 `impact` 而未投影
-   * `occurrence`，致该字段虽在事实源与列表投影里都有、却不进聚焦页——与
-   * 「词条在、数据在、唯独没有消费方」是同一类缺口（Human 2026-11 发现）。
+   * 摩擦的近期动态行显示它（类型 → 优先级 → SG → 重复观察 → 修改次数）。此前本
+   * 路由只投影原 `impact` 而未投影 `occurrence`，致该字段虽在事实源与列表投影里
+   * 都有、却不进聚焦页——与「词条在、数据在、唯独没有消费方」是同一类缺口
+   * （Human 2026-11 发现）。impact 分级已于 2026-11-02 随 26 §8 撤销。
    *
    * 条件出现而非必填：§8 对「闭集收缩改判而来的 `voided`」有必填豁免（§14.2），
    * 届时合法缺席——呈现层据此不渲染，不补零。
@@ -247,20 +245,17 @@ function deriveInboxKind(view: WorkCaseV5View): InboxKind | null {
 }
 
 /**
- * 26 §8 Friction `impact`（影响评级闭集）与 `occurrence`（重复观察证据）在收件项上的
- * 平铺投影。
+ * 26 §8 Friction `occurrence`（重复观察证据）在收件项上的平铺投影。
  *
- * **为什么必须平铺**：卡头徽标（`FrictionImpactBadge` / `FrictionOccurrenceBadge`）在
- * `ObjectCardFrame` 里读的是**对象根**上的 `obj.impact` / `obj.occurrence`。列表卡传入的
- * 是完整 `ObjectItem`，而收件项走 `toObjectCard` 平铺——`impact` 只落在 `card` 里时，
- * 徽标在聚焦页静默消失（近期动态投影当初正是踩了这条：`recentItems` 逐字段重建时丢掉
- * `impact`，界面上就是「聚焦里没有重中轻的标签」）。故此处与 workcase 的 `pre_audit_passed`
- * 同法：在 build → entry 这一层显式平铺，不依赖客户端翻 `card`。
+ * **为什么必须平铺**：卡头徽标（`FrictionOccurrenceBadge`）在 `ObjectCardFrame` 里读的是
+ * **对象根**上的 `obj.occurrence`。列表卡传入的是完整 `ObjectItem`，而收件项走
+ * `toObjectCard` 平铺——`occurrence` 只落在 `card` 里时，徽标在聚焦页静默消失（近期动态
+ * 投影当初正是踩了这条：`recentItems` 逐字段重建时丢掉当时唯一的摩擦 chip，界面上就是
+ * 「聚焦里没有那个标签」）。故此处与 workcase 的 `pre_audit_passed` 同法：在 build →
+ * entry 这一层显式平铺，不依赖客户端翻 `card`。
+ *
+ * （原同处的 `projectFrictionImpact` 已随 26 §8 撤销 impact 分级于 2026-11-02 删除。）
  */
-function projectFrictionImpact(raw: Record<string, unknown>): { impact?: string } {
-  return typeof raw.impact === 'string' && raw.impact.trim() ? { impact: raw.impact } : {}
-}
-
 function projectFrictionOccurrence(raw: Record<string, unknown>): { occurrence?: Record<string, unknown> } {
   return typeof raw.occurrence === 'object' && raw.occurrence !== null
     ? { occurrence: raw.occurrence as Record<string, unknown> }
@@ -379,9 +374,7 @@ function buildRecentActivityItem(
     ...(type === 'workcase' ? { group } : { status }),
     ...(priorityRank(raw.priority) < 4 && typeof raw.priority === 'string' ? { priority: raw.priority } : {}),
     ...(type === 'spark' && typeof raw.serves === 'string' && raw.serves.trim() ? { serves: raw.serves } : {}),
-    // 26 §8 impact：摩擦的近期动态行与列表卡卡头、详情头同形显示轻/中/重。
-    ...(type === 'friction' && typeof raw.impact === 'string' && raw.impact.trim() ? { impact: raw.impact } : {}),
-    // 26 §8 occurrence：同上同序（重复观察次数紧随影响标签）。只透传事实源里
+    // 26 §8 occurrence：与列表卡卡头、详情头同形（重复观察紧随优先级）。只透传事实源里
     // 已有的形状，**不构造、不补零**——`voided` 的 §14.2 豁免形态据此原样缺席。
     ...(type === 'friction' && typeof raw.occurrence === 'object' && raw.occurrence !== null
       ? { occurrence: raw.occurrence as { count?: number; first_at?: string; last_at?: string } }
@@ -830,9 +823,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         // Friction（26 §8）：`status` 是来源状态的直读值（本分支只收 `open`），
         // 与 Pitfall 的 `draft` 同法平铺——否则 entry 上没有 status，客户端
         // `toObjectCard` 会把 `undefined` 当状态传给状态徽标。
-        // `impact`/`occurrence` 见 projectFriction* 的注释：卡头徽标读对象根。
+        // `occurrence` 见 projectFrictionOccurrence 的注释：卡头徽标读对象根。
         entry.status = String(build.projection.status ?? '')
-        Object.assign(entry, projectFrictionImpact(build.projection), projectFrictionOccurrence(build.projection))
+        Object.assign(entry, projectFrictionOccurrence(build.projection))
       }
       // refs（03 §7.2 / 20 §8）：关联对象 chip，与卡头标签序一致
       // （类型 → 优先级 → SG → refs → 修改次数）。
@@ -891,10 +884,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       typeColor: getTypeColor(build.type),
       ...(build.priority !== undefined ? { priority: build.priority } : {}),
       ...(build.serves !== undefined ? { serves: build.serves } : {}),
-      ...(build.impact !== undefined ? { impact: build.impact } : {}),
       // 26 §8 occurrence：第二层映射（build → recentItems）此前遗漏它——
       // 上层 buildRecentActivityItem 已投影，此处逐字段重建时丢掉，故客户端
-      // 收不到。与 impact 同序（重复观察紧随影响标签）。
+      // 收不到。与卡头同序（重复观察紧随优先级）。
       ...(build.occurrence !== undefined ? { occurrence: build.occurrence } : {}),
       ...(build.refs !== undefined ? { refs: build.refs } : {}),
       ...(build.type === 'workcase' && build.group !== undefined
@@ -989,6 +981,26 @@ type GoalSubGoal = {
   order?: number
   /** SubGoal `created_at`: the tiebreak when `order` is absent or equal. */
   created_at?: string
+  /**
+   * 名下工作行（`serves` 反查，28 §8.1 的派生，不落盘）。
+   *
+   * 聚焦页目标区的每条子目标都要挂火花落实比值，分子分母就是这些行——与子目标
+   * 列表卡、详情面**同一次反查、同一套口径**。此前该投影不带它，聚焦页因此
+   * 拿不到比值，只能不下条；补在这里而不是让前端另打一次子目标列表，是因为
+   * 两处各读一次会在两次读取之间出现不一致（见 `deriveServingWorkIndexForScope`）。
+   */
+  serving_work?: Array<{
+    object_uid?: string
+    type: string
+    id: string
+    title: string
+    status: string
+    governed_project_id: string
+    group?: string
+    href: string
+  }>
+  /** 反查时读不到的类型与原因；「读不到」不得并入空集（00 §5.6）。 */
+  serving_unreadable?: string[]
   /**
    * True when this row was recovered from the migrated-away `## 子目标` section
    * instead of a SubGoal carrier. 25 §7 makes that shape a one-way migration
@@ -1209,6 +1221,22 @@ router.get('/goal', async (req: Request, res: Response): Promise<void> => {
       return
     }
     const meta = record.raw
+    const factScope = { worktreeLocator: project.path, governedProjectId: project.id }
+    // 28 §8.1 的派生在聚焦页目标区同样成立：每条子目标的火花落实比值取自
+    // `serves` 反查，与子目标列表卡、详情面**同一次反查、同一套口径**
+    //（`deriveServingWorkIndexForScope` 是单点实现）。反查失败的类型单列进
+    // `serving_unreadable`，绝不并进空集——「读不到」不是「没有」（00 §5.6）。
+    const servingIndex = await deriveServingWorkIndexForScope(factScope)
+    const subGoalsWithServing = record.subGoals.map((sg) => {
+      // legacy 行没有 object_uid，也就没有可反查的身份：不给它编一个空集。
+      if (typeof sg.object_uid !== 'string' || sg.object_uid === '') return sg
+      const derived = servingIndex.bySubGoal.get(sg.object_uid) ?? []
+      return {
+        ...sg,
+        serving_work: derived,
+        ...(servingIndex.unreadable.length > 0 ? { serving_unreadable: servingIndex.unreadable } : {}),
+      }
+    })
     res.json({
       ok: true,
       goal: {
@@ -1216,7 +1244,7 @@ router.get('/goal', async (req: Request, res: Response): Promise<void> => {
         title: typeof meta.title === 'string' ? meta.title : '',
         status: typeof meta.status === 'string' ? meta.status : 'active',
         statement: record.statement,
-        sub_goals: record.subGoals,
+        sub_goals: subGoalsWithServing,
         // 详情阅读面投影（25 §6 修订史是 HV5 演进链第一环）：
         created_at: typeof meta.created_at === 'string' ? meta.created_at : undefined,
         change_log: Array.isArray(meta.change_log) ? meta.change_log : [],

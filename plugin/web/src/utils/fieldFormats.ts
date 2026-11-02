@@ -6,7 +6,7 @@ export const SUMMARY_TEXT_FIELDS = [
   'governance_scope', 'notes',
   'user_intent', 'conclusion', 'report_body',
   'reason',
-  'scope', 'impact', 'summary', 'details', 'outcome', 'next_steps',
+  'scope', 'summary', 'details', 'outcome', 'next_steps',
   'lessons', 'background', 'motivation',
 ];
 

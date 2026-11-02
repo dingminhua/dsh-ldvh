@@ -24,7 +24,6 @@ object_uid: ${FRICTION_UID}
 fact_type_key: friction
 title: Fixture friction
 status: resolved
-impact: light
 phenomenon: "fixture phenomenon"
 relations:
   - relation_key: informs

@@ -2,7 +2,6 @@
 title: Git Gate 误把代码/测试当载体致自身无法提交
 status: resolved
 phenomenon: Git Gate 的守门范围误把任意非 docs 文件（含代码与测试）当规范/事实载体，使验证规则的测试自身触发规则，改动无法通过自有守门；代理通过将范围收窄到 spec/fact 载体修复
-impact: medium
 relations:
   - relation_key: informs
     target:
@@ -19,6 +18,10 @@ change_log:
     provider: ds41
     model: deepseek-v4.1-flash
     summary: 销账（Human 2026-10-14 授权）：守门范围已按条文收窄为规范与事实载体，代码/测试不再被当载体；解药为直提路径修复 a43883f，依 02 §8.1 commit 形态承载 informs
+  - at: 2026-11-02T09:02:02.398Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 事实更正（非状态转换）——删除 impact 字段（26 §14.2 2026-11-02 存量处置）：影响评级分级制度经 Human 裁定取消，本对象为终态存量，经受控更正显式删除，正文与终态判定逐字不变。。终态判定未变：status/title/phenomenon/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：impact；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）2026-11-02 会话指令「摩擦取消 中 轻 重 这种分级制度」，经 26 §8 撤销 impact 字段、§14.2 登记存量处置口径；本条授权仅覆盖删除该 frontmatter 字段，正文与终态判定逐字不变。
 occurrence:
   count: 1
   first_at: 2026-10-12T12:11:08.519Z

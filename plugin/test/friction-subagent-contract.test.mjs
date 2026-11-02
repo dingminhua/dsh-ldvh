@@ -72,7 +72,6 @@ function verdict(overrides = {}) {
     phenomenon: "",
     basis: "",
     attribution: "",
-    impact: "light",
     quote: "",
     reason: "本次区间内没有出现反复出现的阻碍。",
     ...overrides,
@@ -91,7 +90,6 @@ function observationVerdict(overrides = {}) {
     phenomenon: "CI 平均 8 分钟。",
     basis: "可归因于依赖安装未缓存，修了构建会更快。",
     attribution: "CI 配置未开依赖缓存（CI 配置文件）。",
-    impact: "medium",
     quote: "某段材料原文内容。",
     ...overrides,
   });
@@ -153,10 +151,6 @@ test("schema: 观察层新增的两个字段都在 schema 里——group 与 att
   assert.equal(s.properties.attribution.type, "string");
   assert.ok(s.required.includes("group"), "group 须在 required 内（不适用者交空串）");
   assert.ok(s.required.includes("attribution"), "attribution 须在 required 内（不适用者交空串）");
-});
-
-test("schema: impact 的枚举闭集为 light/medium/heavy（26 §8 影响评级）", () => {
-  assert.deepEqual(discoveryOutputSchema().properties.impact.enum, ["light", "medium", "heavy"]);
 });
 
 // ---------------------------------------------------------------------------
@@ -481,15 +475,6 @@ test("validate: 同一个组键在两态的判定相反（反证：成员关系�
   assert.equal(asSame.error.code, "discovery/group_unknown");
 });
 
-test("validate: new-observation 的 impact 必须在闭集内", () => {
-  const r = validateDiscoveryVerdict(
-    observationVerdict({ verdict: "new-observation", impact: "critical" }),
-    { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS },
-  );
-  assert.ok(!r.ok);
-  assert.equal(r.error.code, "discovery/impact_out_of_set");
-});
-
 test("validate: new-observation 的 title 超 30 字被拒（26 §8）", () => {
   const r = validateDiscoveryVerdict(
     observationVerdict({ verdict: "new-observation", title: "x".repeat(31) }),
@@ -499,14 +484,8 @@ test("validate: new-observation 的 title 超 30 字被拒（26 §8）", () => {
   assert.equal(r.error.code, "discovery/title_too_long");
 });
 
-test("validate: same-observation-group 的 impact 与 title 约束与 new-observation 同（两态共用一组必填字段）", () => {
+test("validate: same-observation-group 的 title 约束与 new-observation 同（两态共用一组必填字段）", () => {
   const opts = { candidates: CANDIDATES, observationGroups: OBSERVATION_GROUPS };
-  const badImpact = validateDiscoveryVerdict(
-    observationVerdict({ verdict: "same-observation-group", group: "ci-slow-build", impact: "critical" }),
-    opts,
-  );
-  assert.ok(!badImpact.ok);
-  assert.equal(badImpact.error.code, "discovery/impact_out_of_set");
 
   const longTitle = validateDiscoveryVerdict(
     observationVerdict({ verdict: "same-observation-group", group: "ci-slow-build", title: "x".repeat(31) }),

@@ -43,7 +43,6 @@ function entry({ group, index, title = "依赖被重复安装", attribution = "�
     title,
     basis: "重复出现；归因：索引重建未复用已装依赖；修了会改善。",
     attribution,
-    impact: "medium",
     at: new Date(Date.now() - (10 - index) * 60_000).toISOString(),
   };
 }
@@ -140,7 +139,6 @@ test("补充级更新：target_uid 非空的条目补进既有 open 账目，计
       frontmatterDraft: {
         title: "依赖被重复安装",
         phenomenon: "同一份依赖被重装 3 次",
-        impact: "medium",
         occurrence: { count: 3, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" },
         attribution: "索引重建流程",
         change_summary: "测试：既有账目",
@@ -228,7 +226,6 @@ test("补充与晋升同批：两者都完成，互不吞掉", async () => {
       frontmatterDraft: {
         title: "既有账目",
         phenomenon: "现象 A",
-        impact: "light",
         occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" },
         change_summary: "测试",
       },

@@ -2,7 +2,6 @@
 title: 闭集流转路径 28 次运行零执行，正确性无证据
 status: voided
 phenomenon: 闭集第 4 项（`observing → open` 流转）在 28 次真实运行中执行 0 次，该路径的正确性至今没有任何证据；若该路径有缺陷，账本会静默退化为只增不改的追加日志而无人察觉。
-impact: heavy
 object_uid: bca0e5eb-33de-40e2-a102-8a61b5a03bdb
 fact_type_key: friction
 created_at: 2026-10-11T05:53:07.633Z
@@ -15,6 +14,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: Human 批准废弃（本质非系统性阻碍）：observing → voided。事实前提「零执行」已被实测 9 次推翻，入账三条件第三项「修了会更好」自始不成立——该改善无需修复即由机制自身完成
+  - at: 2026-11-02T08:59:56.237Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 事实更正（非状态转换）——删除 impact 字段（26 §14.2 2026-11-02 存量处置）：影响评级分级制度经 Human 裁定取消，本对象为终态存量，经受控更正显式删除，正文与终态判定逐字不变。。终态判定未变：status/title/phenomenon/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：impact；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）2026-11-02 会话指令「摩擦取消 中 轻 重 这种分级制度」，经 26 §8 撤销 impact 字段、§14.2 登记存量处置口径；本条授权仅覆盖删除该 frontmatter 字段，正文与终态判定逐字不变。
 disposition: 废弃：判为「根本不是系统性阻碍」，非解药缺失。其事实前提（该流转零执行）已被实测 9 次执行推翻，且入账三条件之「修了会更好」自始不成立——所期改善无需任何修复即由机制自身完成，本条不指向任何解药对象。
 occurrence:
   count: 1

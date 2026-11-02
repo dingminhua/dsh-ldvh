@@ -22,9 +22,6 @@ import {
   type ReadingNodeState,
 } from '@/pages/ObjectDetail';
 import { LDVH_SUCCESS_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
-// `DECISION_VIOLET_CODE_CHIP_HUE_CLASS` 已随 Norm 方向键节点退场（2026-11-02）——
-// 它是方向键那枚 code chip 的色相，chip 撤除后无消费方，故不再导入。
-import { DECISION_DETAIL_NEUTRAL_SHELL_CLASS, DECISION_TITLE_HUE_CLASS } from '@/utils/decisionBlocks';
 
 /**
  * `scope` / `summary` 的**书写结构**问题就地显示（`21 §8`）。
@@ -695,10 +692,9 @@ function parseFrictionBodySections(body: string): FrictionBodySection[] {
  * 优先、frontmatter 字段兜底；节序跟随字段契约（现象 → 归因 → 入账依据 →
  * 处置 → resolved 的 informs 解药）。
  *
- * **impact 不在本布局**（Human 裁定 2026-11）：影响评级是扫读要素，由详情页
- * 元信息行以 chip 呈现（见 ObjectDetail 的 getAuxiliaryMetaEntries 与
- * MetaValueChip），与列表卡卡头同色相。此处若再列一遍，同一字段会在同页出现
- * 两次（一次带色 chip、一次纯文本），属重复而非信息。 */
+ * （2026-11-02 注：原由 Human 裁定 2026-11「impact 不在本布局、改由卡头 chip
+ * 呈现」的 impact 分级字段，已随 26 §8 撤销该制度而整体移除——本布局从未列它，
+ * 故此处无需改动；保留这条注以免读者去旧文档找 chip 的出处。） */
 export function FrictionReadingLayout({
   obj,
   relatedEntries,
@@ -922,8 +918,10 @@ export function SubGoalReadingLayout({
   const criterionKind = typeof obj.criterion_kind === 'string' ? obj.criterion_kind.trim() : '';
   const criterion = typeof obj.criterion === 'string' ? obj.criterion.trim() : '';
   const alignment = typeof obj.alignment === 'string' ? obj.alignment.trim() : '';
-  // `parent_goal` 不再在本屏消费：它已登记为身份头辅助元信息
-  // （`AUXILIARY_META_KEYS_BY_TYPE.subgoal`）。同上，不留「读了不用」的变量。
+  // `parent_goal` 不再在本屏消费，也**不再在任何一屏呈现**（Human 定案 2026-11-02，
+  // 截图圈出身份头底部的「服务目标 project-goal」：「圈出来的不用显示」）。它上一轮
+  // 从本屏移到身份头辅助元信息行，这一轮连那一行一起撤除——故
+  // `AUXILIARY_META_KEYS_BY_TYPE.subgoal` 现为空表。同上，不留「读了不用」的变量。
 
   const bodySections = parseSubGoalBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
   const sectionOf = (title: string) => bodySections.find((section) => section.title === title)?.body ?? '';
@@ -1274,12 +1272,6 @@ export function DevLogReadingLayout({
   const sectionOf = (title: string) => bodySections.find((section) => section.title === title)?.body ?? '';
 
   const summary = typeof obj.summary === 'string' ? obj.summary.trim() : '';
-  const occurredAt = typeof obj.occurred_at === 'string' && obj.occurred_at.trim()
-    ? formatDateTime(obj.occurred_at.trim())
-    : '';
-  const createdAt = typeof obj.created_at === 'string' && obj.created_at.trim()
-    ? formatDateTime(obj.created_at.trim())
-    : '';
   const disposition = typeof obj.disposition === 'string' ? obj.disposition.trim() : '';
 
   // 正文段优先，字段兜底：`summary` 是机器权威、正文「结论与边界」是它的展开
@@ -1293,36 +1285,23 @@ export function DevLogReadingLayout({
 
   return (
     <div className="mb-6 flex flex-col gap-5">
-      {/* 时间轴：发生时间与条目形成时间**分开**呈现（§10.4）。
-          合成一枚会让「这件工作是什么时候做的」与「这条结论形成多久了」两个问题
-          共用一个数字，而二者在存量并入时常常相差很远。 */}
-      <section className={DECISION_DETAIL_NEUTRAL_SHELL_CLASS}>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <h3 className={`ldvh-card-decision-title min-w-0 ${DECISION_TITLE_HUE_CLASS.lime}`}>
-            {getFieldLabel('devlog_occurred_at', locale)}
-          </h3>
-          <span className={`ldvh-chip-sm min-w-0 shrink-0 ${LDVH_SUCCESS_CHIP_HUE_CLASS}`}>
-            {occurredAt || t('objectList.devlogOccurredAbsent')}
-          </span>
-          {createdAt && (
-            <span className="ldvh-meta min-w-0 text-ldvh-text-secondary/80">
-              {getFieldLabel('devlog_created_at', locale)}：{createdAt}
-            </span>
-          )}
-        </div>
-        {/* 29 §8.1：serves 缺失时主题表现为空集，它是**歧义**不是「无」——
-            呈现面必须显式标注，不得静默不显示（那会让读者以为这条没有主题轴这回事）。 */}
-        {typeof obj.serves === 'string' && obj.serves.trim() ? (
-          <p className="ldvh-meta mt-2 text-ldvh-text-secondary/80">
-            {getFieldLabel('serves', locale)}：<code className="ldvh-chip-sm">{obj.serves.trim()}</code>
-          </p>
-        ) : (
-          <p className={`ldvh-meta mt-2 rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-3 py-2 ${LDVH_WARN_TITLE_CLASS}`}>
-            {t('objectList.devlogNoTopic')}
-          </p>
-        )}
-      </section>
+      {/* 时间轴节点与主题空集提示已于 2026-11-02 撤除（Human 定案「圈出来的部分
+          不用显示」）——两件事同住一个 `<section>`，整块移除：
 
+          1. **两个时间**（`occurred_at` / `created_at`）：29 §10.4 当初要求分开
+             呈现，理由是二者在存量并入时常相差很远。撤除后二者的区别仍由**字段
+             权威**承担——`occurred_at` 由**按 `occurred_at` 排序的条目清单**承担
+             回查职责（时间线回查入口，§12.1；列表卡头的那枚徽章已于 2026-11-02
+             二次定案撤除，§10.4 同步订正），`created_at` 走 `change_log` 首条与底部
+             YAML 原文。
+             规范 29 §10.4/§14.1 已同步修订为「不在详情页重复呈现」。
+          2. **无 `serves` 的空集提示**：29 §8.1 曾要求呈现面显式标注歧义。撤除的
+             依据是：`serves` 自 2026-11-01 起已不在本类型任何呈现面出现
+             （§12.1「不设呈现面与筛选面」），而无 `serves` 的提示只是该字段缺席
+             的推断，不是条目内容——留着它等于用一个被撤销呈现面的字段反推出一个
+             常驻告警。规范 29 §8.1/§14.1 已同步修订。
+
+          详情页首屏因此直接从「结论」开始——本类型存在的理由。 */}
       {/* 结论（`summary` 的展开）——本类型存在的理由，排在正文之前。 */}
       <AdrProseNode
         title={getFieldLabel('devlog_conclusion', locale)}

@@ -138,8 +138,8 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     // 判为 unconsumed_field，且必须从列表投影排除。
     report_body: field('pitfall-report-body', 'string', false),
   },
-  // v5 Friction（26 号规范）：改进账本的字段闭集——phenomenon/impact/occurrence
-  // 必填（现象单句 + 影响闭集 light/medium/heavy + 重复出现的证据载体）；
+  // v5 Friction（26 号规范）：改进账本的字段闭集——phenomenon/occurrence
+  // 必填（现象单句 + 重复出现的证据载体）；
   // attribution 条件后补、attribution_ref 条件（指向归因对象的 object_uid）、
   // relations 仅 resolved 时的 informs。本类型不设 serves（2026-10 删除：
   // 26 §12 无消费方，归属信息已由 attribution 承载）。
@@ -157,7 +157,6 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
       requiredKeys: ['object_uid'],
       nonEmptyKeys: ['object_uid'],
     }),
-    impact: field('friction-impact', 'string', true),
     // occurrence（§8 必填）与 disposition（§8 条件必填）在契约里都登记为**可选**：
     // 契约只有 required 二值，无法表达「按状态条件必填」，而二者恰都是条件字段
     // ——disposition 仅 voided 时必有；occurrence 对「闭集收缩改判而来的 voided」
@@ -270,9 +269,12 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
   // `disposition` 仅 dropped 时必填（§8 不变量 3），契约登记为可选——契约只有
   // required 二值，无法表达按状态条件必填；机械保证由 writer 承担（同 friction
   // 的 occurrence/disposition 与 spark 的 disposition 先例）。
-  // 本类型不采用 urls（§8：条目源自内部过程，不调查外部世界）与 refs（§11：
-  // 与工单的连接由**工单侧** refs 单向声明，条目侧不复制反向边）——故不展开
+  // 本类型不采用 urls（§8：条目源自内部过程，不调查外部世界）——故不展开
   // common 的 urls。relations 闭集仅 absorbed-into / superseded-by 两条终态边（§11）。
+  // `refs` 于 2026-11-02 经 Human 决定并入 02 §8.2 的采用面（29 §8/§11/§12.3bis）：
+  // 条目侧登记自己与哪些事实对象有**内容关联**（结论的依据来源、输入对象、相关
+  // 事项）。它与工单侧指向条目的 refs 是**两侧各自声明**、互不复制反向边；
+  // 生命周期关系仍走 relations。目标状态不校验（关联是历史事实）。
   // 正文五块固定 H2（背景/做法/实测/结论与边界/去向）由 report_body 承载；
   // absorbed 为压缩形态（仅「结论与边界」+「去向」两段，§9.1）。
   devlog: {
@@ -281,6 +283,7 @@ export const FACT_FIELD_CONTRACT: Record<FactType, FactFieldContract> = {
     occurred_at: field('devlog-occurred-at', 'string', true),
     summary: field('devlog-summary', 'string', true),
     serves: field('devlog-serves', 'string', false),
+    refs: field('devlog-refs', 'array', false),
     disposition: field('devlog-disposition', 'string', false),
     // 正文承载（29 §8 固定 H2），由阅读布局按 H2 分节解析呈现；不登记会被
     // 判为 unconsumed_field，且必须从列表投影排除。

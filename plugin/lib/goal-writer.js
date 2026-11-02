@@ -55,6 +55,19 @@ const STATUSES = new Set(["active", "achieved"]);
 /** Title cap (25 §6: ≤ 40 字). */
 const MAX_TITLE_LENGTH = 40;
 
+/**
+ * 目标陈述上限（25 §7，2026-11-02 Human 决定）：≤ 200 字符。
+ *
+ * 判定单位与 21 §8 的 `gist` 一致——UTF-16 码元，实现按 `.length`。上限是
+ * **意图上限**而非排版上限：它把「怎么做」「做到哪算成」挤出本载体，因为那
+ * 两件事各有下游对象承载（21 WorkCase / 28 SubGoal）。超限一律拒绝写入，
+ * **不得截断后写入**（截断会静默丢掉作者写下的判断，而读者无从知道丢了）。
+ *
+ * 计数对象是去除首尾空白后的正文段：段内换行与空白照常计入，否则「用换行
+ * 排版」就能绕过上限。
+ */
+export const MAX_STATEMENT_LENGTH = 200;
+
 /** Fixed body H2 sections, in order (25 §6). */
 /**
  * 正文固定 H2（25 §7，2026-11 修订）：目标陈述为唯一必需段。
@@ -304,6 +317,15 @@ export function validateGoalBodyStructure(body) {
   const target = sections.find((s) => s.heading === "目标陈述");
   if (target === undefined || target.text.length === 0) {
     issues.push("body: 目标陈述 section must be present and non-empty (25 §12 创建检查)");
+  } else if (target.text.length > MAX_STATEMENT_LENGTH) {
+    // 25 §7 (2026-11-02): ≤ 200 字符。超限拒绝而不是截断——截断会静默丢掉
+    // 作者写下的判断，而读者无从知道丢了什么；拒绝则把「该挪走哪些细节」
+    // 这个决定还给作者。
+    issues.push(
+      `body: 目标陈述 must be ≤ ${MAX_STATEMENT_LENGTH} characters (25 §7), got ${target.text.length} — `
+      + "move implementation detail / acceptance criteria to the downstream object that owns it "
+      + "(WorkCase plan, SubGoal criterion) instead of truncating",
+    );
   }
   return { ok: issues.length === 0, issues };
 }

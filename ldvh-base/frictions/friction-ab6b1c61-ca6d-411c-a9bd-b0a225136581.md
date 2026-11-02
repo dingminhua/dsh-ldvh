@@ -2,7 +2,6 @@
 title: 程序只认规范未登记的一种写法致过半工单核对读不出
 status: resolved
 phenomenon: 全库有「结果」节的工单中，核对条目解析为 0 条者过半，仅因解析器只接受未在规范中登记的「- criteria_checks:」入口与「步骤 N」前缀
-impact: heavy
 relations:
   - relation_key: informs
     target:
@@ -36,6 +35,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 事实更正（非状态转换）——更正：如实登记本次销账引入的 occurrence 回退（count 被陈旧值 2→1 覆盖，受控更新与 correct 皆无法修复；经核实无功能后果），并记下「frontmatter_after 只提交确需改动的字段」的纪律。终态判定未变：status/title/phenomenon/impact/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：无；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human 2026-10-15 指示「按你建议推进」（授权本次销账推进）；本条为如实登记同次销账写入引入的 occurrence 回退，属该推进范围内的事实更正
+  - at: 2026-11-02T09:02:02.475Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 事实更正（非状态转换）——删除 impact 字段（26 §14.2 2026-11-02 存量处置）：影响评级分级制度经 Human 裁定取消，本对象为终态存量，经受控更正显式删除，正文与终态判定逐字不变。。终态判定未变：status/title/phenomenon/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：impact；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）2026-11-02 会话指令「摩擦取消 中 轻 重 这种分级制度」，经 26 §8 撤销 impact 字段、§14.2 登记存量处置口径；本条授权仅覆盖删除该 frontmatter 字段，正文与终态判定逐字不变。
 occurrence:
   count: 1
   first_at: 2026-10-15T06:12:23.879Z

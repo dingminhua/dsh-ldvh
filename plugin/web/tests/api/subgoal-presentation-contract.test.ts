@@ -450,7 +450,7 @@ test('详情身份头有次序 icon，阅读面只留判法（Human 定案 2026-
   assert.doesNotMatch(layout, /DECISION_DETAIL_LIME_SHELL_CLASS/,
     '阅读面不得再用黄绿详情锚点块（该块已撤）');
   assert.doesNotMatch(layout, /obj\.order/, '阅读面不得再读 order');
-  assert.doesNotMatch(layout, /obj\.parent_goal/, '阅读面不得再读 parent_goal（已改由元信息行呈现）');
+  assert.doesNotMatch(layout, /obj\.parent_goal/, '阅读面不得再读 parent_goal（该字段已整行撤除呈现）');
 
   // 「这个地方只保留判法即可，样式和达成条件一样，放到名下工作上面」：
   assert.match(layout, /title=\{getFieldLabel\('subgoal_kind_hint'/,
@@ -469,9 +469,28 @@ test('详情身份头有次序 icon，阅读面只留判法（Human 定案 2026-
     '阅读面不得再把判据类型的词拼上屏');
   assert.doesNotMatch(layout, /kindLabel/, '判据类型的 chip 已撤');
 
-  // 归属事实不丢：`parent_goal` 改由身份头辅助元信息呈现（该表同时把它从兜底
-  // 字段区排除——不登记就会以「parent_goal: project-goal」的裸字段冒出来）。
-  assert.match(model, /subgoal: \['parent_goal'\]/, 'parent_goal 须登记为辅助元信息');
+  // `parent_goal` 整行撤除呈现（Human 定案 2026-11-02，截图圈出身份头底部的
+  // 「服务目标 project-goal」——「圈出来的不用显示」）。
+  //
+  // 它此前登记在辅助元信息表里，正是那句定案要撤掉的那一行。故这里断言的是
+  // **不得再登记**：表是「呈现登记」，留着它等于说「这个字段在元信息行呈现」，
+  // 而它已不呈现。归属关系不靠这一行存活——`parent_goal` 字段仍在对象上，
+  // 目标区的子目标列表就是它的可见形态（28 §8.1 反查派生）。
+  //
+  // 出列后它会落回兜底字段区，但不会冒出来：subgoal 详情走 `SubGoalReadingLayout`，
+  // 该布局不消费 `extraEntries`（与 `serves` 2026-11-01 出列时同一处境）。
+  // 判据限定在**对象字面量内**：表上方的注释会反复解释「parent_goal 为何撤除」，
+  // 对全文匹配会被注释判成失败（与联邦 `type: objectType` 那条守卫同一教训）。
+  const auxTableLocal = model.slice(
+    model.indexOf('AUXILIARY_META_KEYS_BY_TYPE'),
+    model.indexOf('};', model.indexOf('AUXILIARY_META_KEYS_BY_TYPE')),
+  );
+  const subgoalAux = auxTableLocal.slice(
+    auxTableLocal.indexOf('subgoal:'),
+    auxTableLocal.indexOf('};', auxTableLocal.indexOf('subgoal:')),
+  );
+  assert.doesNotMatch(subgoalAux, /parent_goal/, 'parent_goal 不得再登记为辅助元信息（呈现已撤）');
+  assert.doesNotMatch(model, /subgoal: \['parent_goal'\]/, '辅助元信息表不得回到「呈现 parent_goal」的旧态');
   // 共享 chip 仍是单一来源（两处消费不得各自手写）。
   assert.match(badge, /<ListOrdered size=\{12\}/, '次序 chip 图标规格不变');
 });

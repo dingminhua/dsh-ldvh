@@ -1860,7 +1860,7 @@ function parameterSchemaFor(operationKey) {
           entry_id: { type: "string", description: "Review this pending buffer entry first (§12ter.1); omit to process in buffer order" },
           proposals: {
             type: "array",
-            description: "Structured review conclusions, one per reviewed entry: entry_id plus either insufficient:{reason} (optionally + transfer:{title,basis,attribution,impact,group,target_uid} to carry an unresolved failure into the friction observation buffer) or dedupe:{checked,compared,conclusion,duplicate_of} with title/scope/body. Content input, not a policy parameter. Every entry handed to this call MUST carry a conclusion (11 §10.2, 2026-10-27: no per-run output quota — a missing judgement fails the whole pass closed with zero writes), and proposals cannot reorder entries or skip a step.",
+            description: "Structured review conclusions, one per reviewed entry: entry_id plus either insufficient:{reason} (optionally + transfer:{title,basis,attribution,group,target_uid} to carry an unresolved failure into the friction observation buffer) or dedupe:{checked,compared,conclusion,duplicate_of} with title/scope/body. Content input, not a policy parameter. Every entry handed to this call MUST carry a conclusion (11 §10.2, 2026-10-27: no per-run output quota — a missing judgement fails the whole pass closed with zero writes), and proposals cannot reorder entries or skip a step.",
             items: { type: "object", additionalProperties: true }
           }
         },

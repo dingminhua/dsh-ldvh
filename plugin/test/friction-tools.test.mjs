@@ -56,7 +56,6 @@ function validFrontmatterDraft(overrides = {}) {
   return {
     title: "CI 构建缓慢",
     phenomenon: "CI 每次构建平均需要 8 分钟，其中 5 分钟花在重复依赖安装上。",
-    impact: "heavy",
     // 26 §8 必填（d925ad6 起）：创建时 count=1、first_at=last_at。
     occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" },
     change_summary: "受控创建（工具测试）",
@@ -434,7 +433,7 @@ test("friction-write-object create: zero write on frontmatter validation failure
     const desc = makeDescriptors(deps);
     await writeFile(join(repo, "ldvh-base", "goal.md"), GOAL_MD_FIXTURE, "utf8");
 
-    const env = await run(desc, "ldvh_friction_write", { action: "create", frontmatter_draft: { title: "t", impact: "light", phenomenon: "现象。" }, body_markdown: "## 现象\n无" }, repo);
+    const env = await run(desc, "ldvh_friction_write", { action: "create", frontmatter_draft: { title: "t", phenomenon: "现象。" }, body_markdown: "## 现象\n无" }, repo);
     assert.equal(env.outcome, "rejected");
     assert.equal(env.result, null);
     const items = await readFile(join(repo, "ldvh-base", "frictions"), "utf8").catch(() => null);
@@ -450,7 +449,7 @@ test("friction-write-object create: mechanical rejection preserves follow_up hin
     const desc = makeDescriptors(deps);
     await writeFile(join(repo, "ldvh-base", "goal.md"), GOAL_MD_FIXTURE, "utf8");
 
-    const env = await run(desc, "ldvh_friction_write", { action: "create", frontmatter_draft: { title: "t", impact: "light", phenomenon: "现象。" }, body_markdown: "## 现象\n无" }, repo);
+    const env = await run(desc, "ldvh_friction_write", { action: "create", frontmatter_draft: { title: "t", phenomenon: "现象。" }, body_markdown: "## 现象\n无" }, repo);
     assert.equal(env.outcome, "rejected");
     assert.deepEqual(env.scope.completed, []);
     assert.ok(env.follow_up.length > 0, "rejected envelope must carry follow_up guidance");
@@ -752,7 +751,6 @@ test("toolDescriptor.execute: unexpected exception → execution_error envelope 
       title: "坏",
       status: "open",
       phenomenon: "无符号。",
-      impact: "heavy",
       created_at: "2026-09-10T12:00:00+08:00",
       change_log: [],
     };
@@ -806,14 +804,17 @@ test("tool schema: friction-write-object create requires action+frontmatter_draf
     const desc = byName["ldvh_friction_write"];
     assert.ok(desc);
 
-    const missingTitle = validateJsonSchemaValue(desc.parameters, { action: "create", frontmatter_draft: { phenomenon: "只有现象", impact: "light" } }, "args");
+    const missingTitle = validateJsonSchemaValue(desc.parameters, { action: "create", frontmatter_draft: { phenomenon: "只有现象" } }, "args");
     assert.ok(missingTitle.length > 0, "title is required in frontmatter_draft");
     assert.ok(missingTitle.some((v) => v.includes("title")), JSON.stringify(missingTitle));
 
-    const invalidImpact = validateJsonSchemaValue(desc.parameters, { action: "create", frontmatter_draft: { title: "t", phenomenon: "p", impact: "critical" } }, "args");
-    assert.ok(invalidImpact.length > 0, "impact must be light/medium/heavy");
+    // 2026-11-02：impact 已退出 26 §8 闭集——工具面 schema 不再收该字段。
+    // 原用例断言「impact 必须落在 light/medium/heavy」，现改向钉住「impact 根本不被接受」，
+    // 防的是有人把分级悄悄加回 schema。
+    const retiredImpact = validateJsonSchemaValue(desc.parameters, { action: "create", frontmatter_draft: { title: "t", phenomenon: "p", occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" }, change_summary: "x", impact: "heavy" } }, "args");
+    assert.ok(retiredImpact.length > 0, "impact 已退出闭集，frontmatter_draft 不得再接受它（26 §8 2026-11-02）");
 
-    const unknownFm = validateJsonSchemaValue(desc.parameters, { action: "create", frontmatter_draft: { title: "t", phenomenon: "p", impact: "light", custom: 1 } }, "args");
+    const unknownFm = validateJsonSchemaValue(desc.parameters, { action: "create", frontmatter_draft: { title: "t", phenomenon: "p", custom: 1 } }, "args");
     assert.ok(unknownFm.length > 0, "frontmatter_draft has a closed set");
   });
 });
@@ -825,7 +826,7 @@ test("tool schema: friction-write-object write action accepts expected_fingerpri
     const desc = byName["ldvh_friction_write"];
     assert.ok(desc);
 
-    const ok = validateJsonSchemaValue(desc.parameters, { action: "update", object_uid: "a", expected_fingerprint: "x", frontmatter_after: { title: "t", phenomenon: "p", impact: "light" }, body_markdown_after: "m", change_summary: "x" }, "args");
+    const ok = validateJsonSchemaValue(desc.parameters, { action: "update", object_uid: "a", expected_fingerprint: "x", frontmatter_after: { title: "t", phenomenon: "p" }, body_markdown_after: "m", change_summary: "x" }, "args");
     assert.equal(ok.length, 0, "update with fingerprint should pass schema validation: " + JSON.stringify(ok));
   });
 });

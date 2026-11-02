@@ -541,7 +541,6 @@ async function seedFrictionBuffer(base, count = 3) {
       title: "夹具摩擦标题",
       basis: "夹具归因依据。",
       attribution: "夹具归属。",
-      impact: "medium",
       status: "pending",
       promoted_to: null,
     }));
@@ -725,7 +724,7 @@ test("提示词交付摩擦侧两层投影：待晋升组与既有账目——�
   assert.ok(ledgerLine !== undefined, "账目行必须存在");
   assert.match(ledgerLine, /并发执行回归测试时出现两条失败/, "账目行须带现象句，否则执行体只能靠标题判同源");
   // 转写的字段要求必须写进提示词（否则执行体给不出五项，转写恒失败）。
-  for (const field of ["title", "basis", "attribution", "impact", "group"]) {
+  for (const field of ["title", "basis", "attribution", "group"]) {
     assert.ok(prompt.includes(field), `提示词须列明 transfer 的 ${field}`);
   }
   // 「不要转」的反面判据也必须写清——否则噪音会被塞进摩擦缓冲。
@@ -755,7 +754,6 @@ test("摩擦侧投影交付**全部** pending 组，含未达阈值的 1~2 条�
       title: "未达阈值组的标题",
       basis: "未达阈值组的依据",
       attribution: "测试夹具",
-      impact: "medium",
     });
     assert.ok(appended.ok, JSON.stringify(appended.error));
   }
@@ -770,7 +768,6 @@ test("摩擦侧投影交付**全部** pending 组，含未达阈值的 1~2 条�
       title: "已达阈值组的标题",
       basis: "已达阈值组的依据",
       attribution: "测试夹具",
-      impact: "medium",
     });
     assert.ok(appended.ok, JSON.stringify(appended.error));
   }
@@ -826,7 +823,6 @@ test("摩擦侧投影区分**待补充组**与**聚合组**——待补充组不
       title: "待补充组的标题",
       basis: "待补充组的依据",
       attribution: "测试夹具",
-      impact: "medium",
     });
     assert.ok(appended.ok, JSON.stringify(appended.error));
   }
@@ -887,7 +883,6 @@ test("账本侧投影真的带出 phenomenon——从 `listFrictionObjects` 到�
     frontmatterDraft: {
       title: "并发测试共享临时端口",
       phenomenon: "并发执行回归测试时出现两条失败，单独运行同一测试时全部通过。",
-      impact: "medium",
       occurrence: { count: 3, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" },
       attribution: "测试夹具",
       change_summary: "测试：账本侧投影",
@@ -999,7 +994,6 @@ test("转写：执行体的 discarded 提案带 transfer 时，机械侧把它�
         title: "并发测试共享临时端口",
         basis: "同一现象反复出现；归因：夹具共用固定端口。",
         attribution: "测试夹具",
-        impact: "medium",
         group: "concurrent-test-temp-dir-interference",
       },
     }],

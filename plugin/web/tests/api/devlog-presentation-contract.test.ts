@@ -163,9 +163,11 @@ test('devlog 是第九个活跃事实类型，字段面与载体目录均已登�
   assert.equal(FACT_TYPE_DIR_NAMES.devlog, 'devlogs', 'FACT_TYPE_DIR_NAMES 应登记 devlog → devlogs');
 
   // 字段闭集（29 §8）：occurred_at / summary 必填，serves / disposition 条件出现，
-  // 正文 report_body 由读取层承载。不采用 urls 与 refs（§8 / §11）。
+  // 正文 report_body 由读取层承载。不采用 urls（§8）。
+  // `refs` 于 2026-11-02 经 Human 决定并入 02 §8.2 采用面（29 §8/§11/§12.3bis）：
+  // 条目侧登记自己与哪些事实对象有内容关联——两侧各自声明、互不复制反向边。
   const contract = FACT_FIELD_CONTRACT.devlog;
-  for (const field of ['occurred_at', 'summary', 'serves', 'disposition', 'relations']) {
+  for (const field of ['occurred_at', 'summary', 'serves', 'disposition', 'relations', 'refs']) {
     assert.ok(field in contract, `devlog 契约应登记 ${field}`);
   }
   assert.equal(contract.occurred_at.required, true, 'occurred_at 必填（29 §8）');
@@ -173,7 +175,8 @@ test('devlog 是第九个活跃事实类型，字段面与载体目录均已登�
   assert.equal(contract.serves.required, false, 'serves 可选（29 §8）');
   assert.equal(contract.disposition.required, false, 'disposition 仅 dropped 必填（§8 不变量 3）');
   assert.equal('urls' in contract, false, '29 §8 明文不采用 urls');
-  assert.equal('refs' in contract, false, '29 §11 不采用 refs（工单侧单向声明）');
+  assert.equal(contract.refs.required, false, 'refs 可选（29 §8：没有关联时省略，空数组会伪造条件字段）');
+  assert.equal(contract.refs.expected, 'array', 'refs 是 {object_uid} 数组（02 §8.2 关联引用型形态）');
 
   // 列表投影不携带正文（同其余 markdown 类型纪律）。
   assert.ok(!FACT_LIST_FIELD_NAMES.devlog.includes('report_body'), '列表不得携带 report_body');
@@ -308,25 +311,36 @@ test('卡面读 summary 而非标题（29 §8 明文 title 不承载结论）', 
   assert.match(card, /<SummaryText/, '长结论按既有组件折叠，不自造截断');
   assert.doesNotMatch(card, /obj\.report_body/, '卡面不得读正文（正文属详情）');
 
-  // 卡头：occurred_at 那枚 chip 只在 devlog 卡上渲染，且排在修改次数之前。
-  assert.match(objectList, /obj\.type === 'devlog' && <DevLogOccurredBadge value=\{obj\.occurred_at\} \/>/);
+  // 卡头：occurred_at 那枚 chip 已于 2026-11-02 二次定案撤除（Human 定案）。
+  // 29 §10.4 同步订正：`occurred_at` 的回查职责由**按 `occurred_at` 排序的条目
+  // 清单**承担（§12.1「时间线回查」），单个条目不必在自己的卡面上重复给出它
+  // 已经记下的时间。守卫改向：断言「不再出现」而非「出现且排位正确」。
+  assert.doesNotMatch(
+    objectList,
+    /DevLogOccurredBadge|obj\.type === 'devlog' && <DevLogOccurredBadge/,
+    'devlog 卡头不得再出现 occurred_at 时间 chip（29 §10.4，2026-11-02 二次定案）',
+  );
+  assert.equal(
+    fs.existsSync(path.resolve('src/components/DevLogOccurredBadge.tsx')),
+    false,
+    '徽章组件随其唯一消费方一起退场，不留无人消费的壳',
+  );
   // 卡头段的右界取到「修改次数」那枚 chip 之后：只切到它的 `title=` 属性会把
   // 它自己排除在段外，`historyChip` 于是恒为 -1，断言变成一句永真的废话。
   const head = objectList.slice(
     objectList.indexOf('<PriorityIcon source={obj}'),
     objectList.indexOf('obj.sourceBranch &&'),
   );
-  const devlogChip = head.indexOf('DevLogOccurredBadge');
   const historyChip = head.indexOf("title={t('cognition.recent.activityCount'");
-  assert.ok(devlogChip > 0, 'devlog 卡头须有发生时间 chip');
-  assert.ok(devlogChip < historyChip, '发生时间 chip 应排在修改次数之前');
+  assert.ok(historyChip > 0, '卡头段应能定位到修改次数 chip');
+  assert.doesNotMatch(head, /occurred_at/, '卡头段不得再读 occurred_at');
 
   // 列表分派与联邦分派都要有，否则该类型在任一视图里落成空卡。
   assert.match(objectList, /currentType === 'devlog'[\s\S]{0,200}<DevLogCardContent/);
   assert.match(read('src/pages/FederationObjects.tsx'), /currentType === 'devlog'\) return <DevLogCardContent/);
 });
 
-test('详情按阅读次序分节，且发生时间与条目形成时间分开呈现（29 §10.4）', () => {
+test('详情按阅读次序分节，且不再并排呈现两个时间（2026-11-02 定案）', () => {
   const layouts = read('src/pages/object-detail/FactReadingLayouts.tsx');
   const layout = layouts.slice(layouts.indexOf('export function DevLogReadingLayout'));
   assert.ok(layout.length > 0, '应存在 DevLogReadingLayout');
@@ -350,33 +364,65 @@ test('详情按阅读次序分节，且发生时间与条目形成时间分开�
   assert.ok(destinationIndex < backgroundIndex, '去向应排在背景之前（阅读次序，非书写次序）');
   assert.ok(backgroundIndex < approachIndex && approachIndex < measurementsIndex, '依据三段保持书写次序');
 
-  // 两个时间分开呈现，且各有自己的标签（合成一枚会让两个问题共用一个数字）。
-  assert.match(layout, /devlog_occurred_at/);
-  assert.match(layout, /devlog_created_at/);
-  assert.match(layout, /formatDateTime\(/, '时间须经统一格式化');
+  // **2026-11-02 Human 定案「圈出来的部分不用显示」**：详情页的「时间轴节点」
+  // 整块撤除，此守卫随之**改向**（不是删除）——从「断言两时间并排呈现」改为
+  // 「断言并排呈现不得回归」，与 `parent_goal` 撤呈现的处置同一纪律：撤呈现必须
+  // 留下挡回潮的守卫，否则下一次改动可以无声地把它加回来。
+  //
+  // 撤除的**不是**字段：29 §10.4 的语义分工仍成立（不得用 `created_at` 冒充
+  // 发生时间），`occurred_at` 仍在**列表卡头**呈现（`DevLogOccurredBadge`，见本
+  // 文件上一条 test），`created_at` 仍由 change_log 条目与底部 YAML 原文承载。
+  assert.doesNotMatch(layout, /devlog_occurred_at/, '字段标签词条已删除，布局不得再取用');
+  assert.doesNotMatch(layout, /devlog_created_at/, '字段标签词条已删除，布局不得再取用');
+  assert.doesNotMatch(layout, /objectList\.devlogNoTopic/, '空集提示已删除，布局不得再取用');
+  // 整块撤除后 `DECISION_DETAIL_NEUTRAL_SHELL_CLASS` 与 `DECISION_TITLE_HUE_CLASS.lime`
+  // 双双失去最后消费方，故该文件**不得再导入** decisionBlocks（否则是留着的死壳）。
+  assert.doesNotMatch(layout, /DECISION_DETAIL_NEUTRAL_SHELL_CLASS/);
+  assert.doesNotMatch(layout, /DECISION_TITLE_HUE_CLASS/);
+  assert.doesNotMatch(
+    layouts,
+    /from '@\/utils\/decisionBlocks'/,
+    'FactReadingLayouts 已无 decisionBlocks 消费方，不得保留导入',
+  );
 
-  // 空集歧义显式标注（29 §8.1，同 28 §8.1 纪律）。
-  assert.match(layout, /objectList\.devlogNoTopic/);
-  // 压缩形态显式说明，不静默少三段（§9.1）。
+  // 压缩形态显式说明，不静默少三段（§9.1）——仍须保留。
   assert.match(layout, /objectList\.devlogCompressedBody/);
   // 承接/推翻边经关联区呈现（§11）——不自建第二套解析。
   assert.match(layout, /<FactAssociationsSection/, '承接边须经既有关系区呈现');
 
-  // 详情分派与字段兜底排序都要有。
+  // 详情分派仍要走专属布局。
   assert.match(read('src/pages/ObjectDetail.tsx'), /objType === 'devlog'[\s\S]{0,120}<DevLogReadingLayout/);
-  assert.match(read('src/pages/object-detail/model.ts'), /devlog: \[[\s\S]{0,200}'occurred_at', 'created_at'/);
+  // 兜底字段排序表**不得**再把两个时间登记为「有呈现面」的字段。
+  const model = read('src/pages/object-detail/model.ts');
+  const devlogStart = model.indexOf('devlog: [');
+  const devlogTable = model.slice(devlogStart, model.indexOf(']', devlogStart));
+  assert.ok(devlogStart > 0 && devlogTable.length > 0, '应存在 devlog 兜底排序表');
+  assert.doesNotMatch(devlogTable, /'occurred_at'/, 'occurred_at 不再登记（详情不呈现，卡头另走徽章）');
+  assert.doesNotMatch(devlogTable, /'created_at'/, 'created_at 不再登记（由 change_log 与 YAML 原文承载）');
 });
 
-test('空集与压缩形态的文案把话说完整（不靠读者猜规则）', async () => {
+test('压缩形态的文案把话说完整，已撤除的空集文案不得回归', async () => {
   const { UI_LOCALES } = await import('../../src/i18n/locales.ts');
-  // 29 §8.1：空集是歧义——文案必须点明「两种情形机械不可区分」，不得写成「无主题」。
-  const noTopicZh = UI_LOCALES.zh['objectList.devlogNoTopic'];
-  const noTopicEn = UI_LOCALES.en['objectList.devlogNoTopic'];
-  assert.match(noTopicZh, /空集/);
-  assert.match(noTopicZh, /不可区分/);
-  assert.match(noTopicEn, /empty/);
-  assert.match(noTopicEn, /indistinguishable/);
   // §9.1：压缩说明必须点出「两段」这个具体形态。
   assert.match(UI_LOCALES.zh['objectList.devlogCompressedBody'], /结论与边界/);
   assert.match(UI_LOCALES.zh['objectList.devlogCompressedBody'], /去向/);
+  // 2026-11-02 定案：空集提示与两时间行整块撤除，其词条不得回潮。
+  // 撤除依据见 29 §8.1/§14.1 的同步修订——不是「文案不好」，而是 `serves` 自
+  // 2026-11-01 起已不在本类型任何呈现面出现（§12.1），空集提示成了对一个不呈现
+  // 字段的推断。**`serves` 字段本身未撤销**，非呈现消费方照旧。
+  // 2026-11-02 二次定案：列表卡头的 occurred_at 徽章也撤除，其两条文案随之
+  // 无消费方——`occurred_at` 的回查职责改由**按 `occurred_at` 排序的条目清单**
+  // 承担（29 §12.1「时间线回查」），词条不得回潮。
+  for (const key of [
+    'objectList.devlogNoTopic',
+    'devlog_occurred_at',
+    'devlog_created_at',
+    'objectList.devlogOccurredLabel',
+    'objectList.devlogOccurredAbsent',
+  ]) {
+    assert.ok(
+      !(key in UI_LOCALES.zh) && !(key in UI_LOCALES.en),
+      `${key} 已随详情时间轴块与卡头徽章的撤除而删除，不得回潮`,
+    );
+  }
 });

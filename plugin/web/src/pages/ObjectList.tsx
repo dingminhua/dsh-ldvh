@@ -9,10 +9,8 @@ import WorkCaseProgressFilter from '@/components/WorkCaseProgressFilter';
 import ObjectPriorityFilter from '@/components/ObjectPriorityFilter';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
-import FrictionImpactBadge from '@/components/FrictionImpactBadge';
 import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
 import SubGoalOrderBadge from '@/components/SubGoalOrderBadge';
-import DevLogOccurredBadge from '@/components/DevLogOccurredBadge';
 import ServingSparkProgressBar from '@/components/ServingSparkProgressBar';
 import SummaryText from '@/components/SummaryText';
 import { ObjectTypeIcon, OBJECT_TYPE_ICONS } from '@/components/SemanticIcon';
@@ -374,10 +372,6 @@ export function ObjectCardFrame({
               回答，卡头不再承担。`serves` 字段本身保留（25 §9 / 21 §10.3 /
               子目标反查 / 召回四处消费）。 */}
           <PriorityIcon source={obj} type={obj.type} locale={locale} size="xs" />
-          {/* 26 §8 impact（轻/中/重）：Human 裁定 2026-11——影响评级是扫读要素，
-              进卡头标签区（类型 → 优先级 → **影响** → 修改次数）。经共享组件
-              渲染：详情页身份头部用同一个组件，两处不得各自手写 chip。 */}
-          {obj.type === 'friction' && <FrictionImpactBadge value={obj.impact} locale={locale} />}
           {/* 26 §8 occurrence（重复观察次数）：**频次的机械权威源**——§8 明写正文现象段
               只是人类可读投影，「二者不一致时以本字段为准」。故它必须可见，否则 Human
               读不到阈值判据（36 §9 的 `count ≥ 3` 自动流转就读它）。
@@ -389,16 +383,12 @@ export function ObjectCardFrame({
           {/* 28 §8 `order`（显示次序）进卡头，位置在修改次数之前（Human 定案 2026-11-02
               「次序放到上面，样式对齐其他的 icon」）。理由与规格见 SubGoalOrderBadge。
 
-              排在 friction 那两枚之后**不是**疏忽：那两枚只在 friction 卡上渲染，故子目标
+              排在 friction 那枚之后**不是**疏忽：那枚只在 friction 卡上渲染，故子目标
               卡的可见序列仍是 类型 → 优先级 → 次序 → 修改次数；而把本行放进 PriorityIcon
-              与 FrictionImpactBadge 之间，会撑开那条「影响紧跟优先级」的既有契约所依赖的
-              源码邻接，让一个为摩擦力设的守卫为了无关的原因变红。 */}
+              与 FrictionOccurrenceBadge 之间，会撑开「重复观察紧跟优先级」这条既有契约
+              所依赖的源码邻接，让一个为摩擦力设的守卫为了无关的原因变红。
+              （2026-11-02 注：原夹在其间的 impact chip 已随摩擦分级制度撤销，26 §8。） */}
           {obj.type === 'subgoal' && <SubGoalOrderBadge value={obj.order} />}
-          {/* 29 §10.4 `occurred_at`（该条日志所记工作的**发生时间**）进卡头，位置同在
-              修改次数之前。为什么是它而不是 `created_at`：本列表的排序与回查轴就是
-              发生时间（29 §12.1「时间线回查」），`created_at` 由详情身份区与
-              `change_log` 承载。两者不同轴，不能合成一枚——理由见 DevLogOccurredBadge。 */}
-          {obj.type === 'devlog' && <DevLogOccurredBadge value={obj.occurred_at} />}
           <span
             className="ldvh-chip-sm gap-1 border-ldvh-accent/25 bg-ldvh-accent/5 text-ldvh-accent"
             title={t('cognition.recent.activityCount', { count: String(activityCount) })}
@@ -885,8 +875,8 @@ export function ResearchCardContent({ obj }: { obj: ObjectItem }) {
   return null;
 }
 
-/** 26 §12 F1 投影要素的列表承载：phenomenon（现象单句）+ impact（影响评级
- * 闭集，非装饰字段）+ attribution（归因，条件出现）。卡片正文段复用 pitfall
+/** 26 §12 F1 投影要素的列表承载：phenomenon（现象单句）+ attribution（归因，
+ * 条件出现）。卡片正文段复用 pitfall
  * 活跃决策块的 amber 表面语法，但语义归账本（待修的账）。 */
 /** 26 §8/§9.1：voided / accepted 的终态卡——照 Spark 的终态形态（TerminalFactPanel），
  * 读 `disposition`（终态去向说明）呈现。该字段于 2026-11 进入 §8 闭集、2026-10 扩为
@@ -908,8 +898,9 @@ export function FrictionCardContent({ obj }: { obj: ObjectItem }) {
   //   说明框——与 Spark 的 discarded（`SparkTerminalCardContent`）、Pitfall 的
   //   discarded、Norm 的 retired **同一形态**（`TerminalFactPanel`），Human 在列表页
   //   即可读到废弃理由或不可清偿理由，不必进详情页。
-  // - `open` / `resolved`：**卡体留空**，只由卡头（类型标签 +
-  //   轻/中重影响标签 + 修改次数）与标题托（`ldvh-card-title`）承载身份与状态。
+  // - `open` / `resolved`：**卡体留空**，只由卡头（类型标签 + 重复观察 +
+  //   修改次数）与标题托（`ldvh-card-title`）承载身份与状态。
+  //   （原卡头的轻/中重影响标签随 26 §8 撤销分级制度于 2026-11-02 移除。）
   //   这与 Spark 活跃卡的「克制」同例（`SparkCardContent`：open 时返回 null）
   //   ——标题已是现象单句的浓缩，再复述一遍现象全文与归因是重复而非信息。
   //   现象全文、入账依据、处置段住详情页阅读布局；resolved 的解药由

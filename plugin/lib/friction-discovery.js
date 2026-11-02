@@ -424,7 +424,6 @@ export async function recordObservation({
   title,
   basis,
   attribution,
-  impact,
   observationAt,
 }) {
   if (!isNonEmptyString(phenomenon)) {
@@ -439,8 +438,9 @@ export async function recordObservation({
       "group is required — it is the aggregation key the semantic dedup step decided; without it the threshold can never be computed (11 §9 第 3 项)",
     );
   }
-  // 2026-10-30：晋升搬到审核层后，晋升所需的四项必须随条目落进缓冲——它们只在
+  // 2026-10-30：晋升搬到审核层后，晋升所需的几项必须随条目落进缓冲——它们只在
   // 本次运行的 verdict 里存在，审核层下一次运行时已无从取得（§12bis.1 字段闭集）。
+  // 2026-11-02：原并列的 `impact` 已随 26 §8 的字段删除撤销。
   for (const [field, value] of [["title", title], ["basis", basis], ["attribution", attribution]]) {
     if (!isNonEmptyString(value)) {
       return failure(
@@ -448,9 +448,6 @@ export async function recordObservation({
         `${field} is required — it is carried into the buffer so the review layer can promote this entry in a later run (§12bis.1)`,
       );
     }
-  }
-  if (!["light", "medium", "heavy"].includes(impact)) {
-    return failure("invalid_request", 'impact is required and must be one of light, medium, heavy (§12bis.1)');
   }
   return appendFrictionObservation(dshHomePath, {
     project: projectId,
@@ -462,7 +459,6 @@ export async function recordObservation({
     title,
     basis,
     attribution,
-    impact,
     ...(isNonEmptyString(target_uid) ? { target_uid } : {}),
     ...(isNonEmptyString(observationAt) ? { at: observationAt } : {}),
   });
@@ -508,7 +504,6 @@ export async function promoteReadyGroup({
   projectId,
   group,
   title,
-  impact,
   basis,
   attribution,
   sessionSignature,
@@ -552,7 +547,6 @@ export async function promoteReadyGroup({
   const frontmatterDraft = {
     title: title.trim(),
     phenomenon: phenomenon.trim(),
-    impact,
     // 26 §8：occurrence 必填；count 取该组真实条目数（不是 1——账目成立的判据正是
     // 「观察到了这么多次」），first_at/last_at 取该组最早与最近观察时间。
     occurrence: { count, first_at: firstAt, last_at: lastAt },

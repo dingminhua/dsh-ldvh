@@ -3,7 +3,6 @@ title: 按点名逐行修复致同类残留反复漏报
 status: open
 phenomenon: 修一条被点名的违规表述时只改该行，未按判据在同一载体内扫描同类表述，致同批判定的其余同类残留须由下一轮审核再发现
 attribution: 主控的修复范围划定方式与类别界线（以审核点名项为清单、按类扫描但类别界线自拟未核）
-impact: medium
 object_uid: ab1c713c-adfe-4293-957a-ac64c446c386
 fact_type_key: friction
 created_at: 2026-10-13T06:39:51.837Z
@@ -72,6 +71,10 @@ change_log:
     provider: minmax
     model: MiniMax-M3.1-Flash
     summary: 补充观察：count 12 → 13（11 §9 第 2 项）
+  - at: 2026-11-02T08:59:56.222Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 撤销影响评级（26 §8 2026-11-02）：删除 impact 字段——分级制度经 Human 裁定取消，本对象为 open 存量，经受控更新显式删除，其余字段与正文逐字继承。
 occurrence:
   count: 13
   first_at: 2026-10-13T06:39:51.837Z

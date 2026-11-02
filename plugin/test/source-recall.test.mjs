@@ -2455,7 +2455,7 @@ test("召回路径的用例须与它们所测的路径同参（`excludeTypes` �
 // 结构维度（2026-10-29）：解析、命中、facet、卡面
 //
 // 这一组用例守的是「类型与字段真的被用上了」——在此之前，结构字段
-// （serves/priority/impact/relations/object_uid）对召回**完全不可见**：
+// （serves/priority/relations/object_uid）对召回**完全不可见**：
 // 贴完整 uid 得 0 命中、查 P1 得 0 命中、relationship 边读都读不出来。
 // 全部用例都只用**确定性相等**做断言，不含任何质量/相关度判断
 // （34 §13：召回的命中不等于适用）。
@@ -2501,7 +2501,6 @@ status: open
 object_uid: 33333333-3333-4333-8333-333333333333
 fact_type_key: friction
 phenomenon: 摩擦甲的现象是结构测试
-impact: heavy
 relations:
   - relation_key: informs
     target:
@@ -2516,7 +2515,6 @@ status: open
 object_uid: 44444444-4444-4444-8444-444444444444
 fact_type_key: friction
 phenomenon: 摩擦乙的现象是结构测试
-impact: light
 occurrence:
   count: 1
   first_at: 2026-10-01T00:00:00.000Z
@@ -2576,7 +2574,6 @@ test("结构化解析：relations / occurrence 须解析成结构，不得压成
 			"关系目标须可读（旧解析器只留下 `relation_key: informs`，target 整段丢失）",
 		);
 		assert.equal(friction.structural.occurrenceCount, 5, "occurrence.count 须可读（旧解析器读成空串）");
-		assert.equal(friction.structural.impact, "heavy", "impact 闭集值须可读");
 	});
 });
 
@@ -2643,7 +2640,7 @@ test("结构命中：短指称不认前缀之外的形态（7 位、9 位、错�
 	});
 });
 
-test("结构命中：serves / priority / impact / direction_key / relation_key 均须可命中", async () => {
+test("结构命中：serves / priority / direction_key / relation_key 均须可命中", async () => {
 	await withStructuralFixture(async (project) => {
 		const q = (action) => recallForAction({
 			action, root: project, limit: 5, budgetBytes: 400000, includeSpecs: false,
@@ -2662,12 +2659,6 @@ test("结构命中：serves / priority / impact / direction_key / relation_key �
 			p0.facts.filter((f) => f.type === "spark").map((f) => f.ref),
 			["11111111-1111-4111-8111-111111111111"],
 			"P0 只应命中 priority=P0 的那条",
-		);
-		// impact
-		const heavy = await q("heavy");
-		assert.ok(
-			heavy.facts.some((f) => f.ref === "33333333-3333-4333-8333-333333333333"),
-			"impact=heavy 须被命中",
 		);
 		// relation_key
 		const informs = await q("informs");
@@ -2737,42 +2728,45 @@ test("结构命中：不认子串（SG-1 不得命中 SG-10，P1 不得命中 P1
 		return matchCandidate(tokens, cand) !== null;
 	};
 	const base = {
-		serves: "SG-10", priority: "P10", impact: "leather", directionKey: "release-gate-v2",
+		serves: "SG-10", priority: "P10", directionKey: "release-gate-v2",
 		disposition: "", outcome: "", relationKeys: [], relationTargets: [], refTargets: [],
 	};
 	assert.equal(hits(tokenize("SG-1"), base), false, "SG-1 不得命中 SG-10");
 	assert.equal(hits(tokenize("P1"), base), false, "P1 不得命中 P10");
-	assert.equal(hits(tokenize("heavy"), base), false, "heavy 不得命中 leather");
 	assert.equal(hits(tokenize("release-gate"), base), false, "release-gate 不得命中 release-gate-v2");
 	// 反向对照：整值相等时必须命中（否则上面的断言可能因「整层失效」而假通过）。
 	assert.equal(hits(tokenize("SG-10"), base), true, "SG-10 须命中 SG-10");
 	assert.equal(hits(tokenize("P10"), base), true, "P10 须命中 P10");
 });
 
-test("facet：impact 收窄须改变候选池，且被筛掉者进未检查范围（34 §12 逐类披露）", async () => {
+// 2026-11-02：本用例原用 `impact: "heavy"` 做收窄（摩擦 impact 分级制度已于
+// 26 §8 撤销，facet 也随之消失）。改用 spark 的 `priority`——夹具里两条火花
+// 分别是 P0/P1，与原来「两条对象只差一个闭集字段」的形状一致，断言的仍是
+// 同一件事：facet 收窄改变候选池，且被筛掉者带实际取值进未检查范围。
+test("facet：priority 收窄须改变候选池，且被筛掉者进未检查范围（34 §12 逐类披露）", async () => {
 	await withStructuralFixture(async (project) => {
 		const all = await recallForAction({
-			action: "摩擦 现象", root: project, limit: 10, budgetBytes: 400000, includeSpecs: false,
-			types: ["friction"],
+			action: "火花 问题", root: project, limit: 10, budgetBytes: 400000, includeSpecs: false,
+			types: ["spark"],
 		});
-		assert.equal(all.facts.length, 2, "不设 facet 时两条摩擦都应在池内");
-		const onlyHeavy = await recallForAction({
-			action: "摩擦 现象", root: project, limit: 10, budgetBytes: 400000, includeSpecs: false,
-			types: ["friction"], impact: "heavy",
+		assert.equal(all.facts.length, 2, "不设 facet 时两条火花都应在池内");
+		const onlyP0 = await recallForAction({
+			action: "火花 问题", root: project, limit: 10, budgetBytes: 400000, includeSpecs: false,
+			types: ["spark"], priority: "P0",
 		});
 		assert.deepEqual(
-			onlyHeavy.facts.map((f) => f.ref),
-			["33333333-3333-4333-8333-333333333333"],
-			"impact=heavy 只应留下 heavy 那条",
+			onlyP0.facts.map((f) => f.ref),
+			["11111111-1111-4111-8111-111111111111"],
+			"priority=P0 只应留下 P0 那条",
 		);
 		// 被筛掉者**必须**出现在未检查范围里，且带它在 facet 上的实际取值——
 		// 否则读者会把「筛完没结果」读成「不存在」（34 §12 最危险的误读）。
-		const excluded = onlyHeavy.uncheckedRange.excludedByFacet;
+		const excluded = onlyP0.uncheckedRange.excludedByFacet;
 		assert.equal(excluded.length, 1, "另一条须进未检查范围");
-		assert.equal(excluded[0].ref ?? excluded[0].title, "结构测试 摩擦乙");
-		assert.deepEqual(excluded[0].values, { impact: "light" }, "须给出该对象在 facet 上的实际取值");
+		assert.equal(excluded[0].ref ?? excluded[0].title, "结构测试 火花乙");
+		assert.deepEqual(excluded[0].values, { priority: "P1" }, "须给出该对象在 facet 上的实际取值");
 		// 生效的 facet 清单须可回读。
-		assert.deepEqual(onlyHeavy.uncheckedRange.appliedFacets, { impact: "heavy" });
+		assert.deepEqual(onlyP0.uncheckedRange.appliedFacets, { priority: "P0" });
 	});
 });
 
@@ -2799,7 +2793,6 @@ test("候选卡：须带类型专属结构字段（F2 投影，02 §9.1）", asy
 			types: ["friction"],
 		});
 		const heavy = r.facts.find((f) => f.ref === "33333333-3333-4333-8333-333333333333");
-		assert.equal(heavy.structural.impact, "heavy", "卡上须带 impact（26 §12 的 F1 投影）");
 		assert.equal(heavy.structural.occurrenceCount, 5, "卡上须带 occurrence.count");
 		assert.deepEqual(heavy.structural.relationKeys, ["informs"], "卡上须带声明的边");
 		// 没有结构字段的对象不得出现空壳（否则每张卡都多一个 `structural: {}`）。
@@ -2822,7 +2815,7 @@ test("facet 与 types/statuses 同为硬过滤：不得被读成「排序靠后�
 		// 二者语义完全不同（见 uncheckedRange 的注释），混淆会让读者归错因。
 		const r = await recallForAction({
 			action: "摩擦 现象", root: project, limit: 10, budgetBytes: 400000, includeSpecs: false,
-			types: ["friction"], impact: "heavy",
+			types: ["friction"], relationKey: "informs",
 		});
 		const inUnchecked = (r.unchecked?.facts ?? []).some(
 			(f) => f.ref === "44444444-4444-4444-8444-444444444444",

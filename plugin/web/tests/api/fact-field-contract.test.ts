@@ -50,8 +50,9 @@ const TYPE_REQUIRED_FIELDS: Record<string, readonly string[]> = {
   // disposition/relations 条件出现）。
   spark: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'question', 'scope_boundary', 'intent', 'summary'],
   research: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'research_question', 'research_purpose'],
-  // 26 §8：phenomenon/impact 必填（attribution/relations 条件）。
-  friction: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'phenomenon', 'impact'],
+  // 26 §8：phenomenon 必填（attribution/relations 条件；原 impact 必填面随
+  // 2026-11-02 撤销分级制度一并退出，26 §8 字段表）。
+  friction: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'phenomenon'],
   // 27 号 §8：direction_key 必填（retirement_reason/retired_at 条件，retired 时必填）。
   norm: ['object_id', 'fact_type_key', 'title', 'status', 'created_at', 'direction_key'],
   // 28 号 §8：parent_goal/criterion/criterion_kind/alignment 全必填（2026-11-01

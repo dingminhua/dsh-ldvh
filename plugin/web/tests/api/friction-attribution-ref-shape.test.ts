@@ -29,7 +29,6 @@ object_uid: ${FRICTION_UID}
 fact_type_key: friction
 title: Shape fixture
 status: open
-impact: light
 phenomenon: "fixture phenomenon"
 attribution_ref:
 ${refYaml}

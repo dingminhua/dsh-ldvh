@@ -908,6 +908,21 @@ async function deriveServingWorkIndex(scope: LocalFactScope): Promise<{
   return { bySubGoal, unreadable }
 }
 
+/**
+ * 导出给 `/api/cognition/goal` 用：聚焦页目标区要**逐条**子目标挂火花落实比值，
+ * 而那条路由不走 `listObjects('subgoal')`（它读的是 goal.md 单例 + subgoals/ 反查）。
+ *
+ * 为什么仍从这里取而不是在 cognition.ts 里再扫一遍：反查口径只有一份——分子分母
+ * 必须是「同一次 serves 反查的结果」，两处各扫一次就会在两次读取之间出现不一致
+ * （一个对象刚被改、另一处还读到旧值），而读者看到的是一条自相矛盾的卡。
+ */
+export async function deriveServingWorkIndexForScope(scope: LocalFactScope): Promise<{
+  bySubGoal: Map<string, ServingWorkRow[]>
+  unreadable: string[]
+}> {
+  return deriveServingWorkIndex(scope)
+}
+
 async function deriveServingWork(
   scope: LocalFactScope,
   subGoalUid: string,

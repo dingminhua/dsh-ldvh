@@ -3,7 +3,6 @@ title: 提交钩子依赖 PATH 中的 node
 status: resolved
 phenomenon: "Git Gate 提交钩子以裸 `exec node` 调用校验器，当会话 shell 的 PATH 不含 node 时提交被以 `exec: node: not found`（exit 1）拒绝，阻断者为 shell 而非校验器。"
 attribution: .git/hooks/commit-msg:18 的裸 `exec node` 与 09 §5.5 Git Gate「机械守护终闸、提交前不可绕过」的语义之间存在缺口：钩子未使用绝对路径或候选路径探测，故校验器不可执行时提交被拒的原因无法与校验不通过区分。2026-10-09 补记：修复后该环境依赖转移到独立复核会话的验证命令面（prompt 内人工 export PATH），无机械保障承载。
-impact: medium
 relations:
   - relation_key: informs
     target:
@@ -48,6 +47,10 @@ change_log:
     provider: ds41
     model: deepseek-v4.1-flash
     summary: 销账（Human 2026-10-14 授权）：钩子自行解析解释器＋解释器不可用标记＋preflight 拒装已使「阻断即校验结论」成立，现象不可复现；解药为直提路径修复 2827baf，依 26 §9.2 commit 例外／02 §8.1 commit 形态承载 informs（原「无解药对象故无法销账」的结论早于该形态，历史段落逐字保留）
+  - at: 2026-11-02T09:02:02.011Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 事实更正（非状态转换）——删除 impact 字段（26 §14.2 2026-11-02 存量处置）：影响评级分级制度经 Human 裁定取消，本对象为终态存量，经受控更正显式删除，正文与终态判定逐字不变。。终态判定未变：status/title/phenomenon/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：impact；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）2026-11-02 会话指令「摩擦取消 中 轻 重 这种分级制度」，经 26 §8 撤销 impact 字段、§14.2 登记存量处置口径；本条授权仅覆盖删除该 frontmatter 字段，正文与终态判定逐字不变。
 occurrence:
   count: 1
   first_at: 2026-09-28T02:59:31.277Z

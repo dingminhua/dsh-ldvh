@@ -683,8 +683,7 @@ function parseFrontmatter(text) {
  *
  * ── 为什么必须结构化（2026-10-29 实测，见 `parseFrontmatter` 注释）────────
  *
- * 事实源的字段不是「一段文本」，而是**分类承载**：`impact` 是闭集
- * `light/medium/heavy`（26 §8），`priority` 是闭集 `P0–P3`（20 §8），
+ * 事实源的字段不是「一段文本」，而是**分类承载**：`priority` 是闭集 `P0–P3`（20 §8），
  * `serves` 是 SG-n 锚点（20 §6 / 21 §8），`direction_key` 是方向键（27 §8），
  * `relations` 是 `{relation_key, target:{object_uid}}` 的边（03 §7.2），
  * `occurrence` 是 `{count, first_at, last_at}`（26 §8）。这些**只有解析成结构
@@ -1127,7 +1126,6 @@ function excerptOf(text) {
  * 逐项依据：
  *   · `serves`——20 §12 / 21 §13：「F1 投影含 serves」；
  *   · `priority`——20 §12：「F1 投影含 priority」，Web 列表按它筛选排序；
- *   · `impact`——26 §12：「F1 投影含 impact」，度量按状态×影响聚合；
  *   · `directionKey`——27 §209：「F1 枚举 active Norm（direction_key + title + status）」；
  *   · `occurrenceCount`——26 §8：重复观察的证据量，回答「这笔账攒了几次」；
  *   · `relationKeys`——03 §7.2：该对象声明了哪些边（不展开目标，展开属 F3/F4）；
@@ -1145,7 +1143,6 @@ function structuralCardOf(candidate) {
   const out = {};
   if (typeof s.serves === "string" && s.serves !== "") out.serves = s.serves;
   if (typeof s.priority === "string" && s.priority !== "") out.priority = s.priority;
-  if (typeof s.impact === "string" && s.impact !== "") out.impact = s.impact;
   if (typeof s.directionKey === "string" && s.directionKey !== "") out.directionKey = s.directionKey;
   if (Number.isInteger(s.occurrenceCount)) out.occurrenceCount = s.occurrenceCount;
   if (Array.isArray(s.relationKeys) && s.relationKeys.length > 0) {
@@ -1408,7 +1405,6 @@ export async function loadFacts(baseDir, options = {}) {
       // 才有意义」的那一类：
       //   · `serves`——SG-n 子目标锚点（20 §6 / 21 §8），F1 投影字段；
       //   · `priority`——P0–P3 闭集（20 §8），Human 侧处置次序；
-      //   · `impact`——light/medium/heavy 闭集（26 §8）；
       //   · `direction_key`——Norm 方向键（27 §8），本身即唯一性键；
       //   · `relations`——`{relation_key, target:{object_uid}}` 边（03 §7.2）；
       //   · `refs`——关联引用型字段（03 §7.2 / 20 §8）；
@@ -1512,7 +1508,6 @@ export async function loadFacts(baseDir, options = {}) {
         structural: {
           serves: textField(fm.serves),
           priority: textField(fm.priority),
-          impact: textField(fm.impact),
           directionKey: textField(fm.direction_key),
           disposition: textField(fm.disposition),
           outcome: textField(fm.outcome),
@@ -1577,13 +1572,14 @@ export const MATCH_TIERS = Object.freeze([
  *
  * ── 为什么必须有这一层 ──────────────────────────────────────────────
  *
- * 本模块此前只做文本匹配，所有结构字段（serves/priority/impact/relations/
+ * 本模块此前只做文本匹配，所有结构字段（serves/priority/relations/
  * direction_key）要么没读、要么被拼进 `detail` 当一段等权文本。后果是
  * **查询里的结构化指称无法工作**（2026-10-29 实测，改动前）：
  *
  *   · 贴完整 `object_uid` → **0 命中**（`02 §9.1` F2 明列「稳定引用」为命中维度）；
  *   · 查 `P0`/`P1` → **0 命中**（库内 15 条 P1）；
- *   · 查 `heavy` → 只回 1 条，且是正文恰好含该词的别条（库内 10 条 heavy 全是终态）；
+ *   · 查 `heavy` → 只回 1 条，且是正文恰好含该词的别条（库内 10 条 heavy 全是终态；
+ *     `impact` 字段已于 2026-11-02 撤销，此行留作当时的实测记录）；
  *   · 查 `serves=SG-1` → 3 条，其中 1 条 serves 是 SG-2（靠正文蹭上），
  *     而真正声明 SG-1 的有 47 条；
  *   · 按 `relation_key` 值查 → 0 命中（49 条对象带 relations）。
@@ -1601,15 +1597,15 @@ export const MATCH_TIERS = Object.freeze([
  *
  * ── 为什么字段间不分高下 ────────────────────────────────────────────
  *
- * 一个 token 命中 `serves` 与命中 `impact` 都是「命中了一个结构化字段」，
+ * 一个 token 命中 `serves` 与命中 `priority` 都是「命中了一个结构化字段」，
  * 再在它们之间排序就需要人为权重——那才真正越线。故同层并列，命中理由里
  * **逐一写明命中了哪个字段**，由读者判断该命中有多强。
  *
  * ── 与候选卡的关系 ─────────────────────────────────────────────────
  *
  * 结构命中**只**产生候选（`34 §8.1` 第 1 项），**不**产生适用结论
- * （`34 §13`「召回的命中不等于适用」）。命中 `impact=heavy` 只说明这条的
- * 影响评级是 heavy，不说明它对应你这次要改的东西。
+ * （`34 §13`「召回的命中不等于适用」）。命中 `priority=P1` 只说明这条的
+ * 档位是 P1，不说明它对应你这次要改的东西。
  */
 
 /**
@@ -1643,7 +1639,6 @@ export const STRUCTURAL_MATCH_FIELDS = Object.freeze([
   "object_uid",
   "serves",
   "priority",
-  "impact",
   "direction_key",
   "disposition",
   "outcome",
@@ -1728,7 +1723,6 @@ export function structuralHits(actionTokens, candidate) {
   }
   add("serves", s.serves);
   add("priority", s.priority);
-  add("impact", s.impact);
   add("direction_key", s.directionKey);
   add("disposition", s.disposition);
   add("outcome", s.outcome);
@@ -1955,13 +1949,13 @@ export function matchCandidate(actionTokens, candidate, corpusStats, queryText =
   //
   // 命中理由**逐字段写明**（`命中依据须可复算`，34 §8.2），且**只在理由里出现
   // 命中的字段名与值**——不写「相关」「匹配度高」这类结论（那是适用判断）。
-  // `hits` 取命中字段数：同一查询同时点名 `serves=SG-1` 与 `impact=heavy` 时
+  // `hits` 取命中字段数：同一查询同时点名 `serves=SG-1` 与 `priority=P1` 时
   // 比只点名一个的更具体，这是可复算的计数，不是权重。
   if (structural.length > 0) {
     const shown = structural
       .slice(0, 3)
       // 有 `form` 时括号内标注形态（`34 §8.2`「须写明命中的是哪一种形态」）。
-      // 无 `form` 的字段（serves／priority／impact 等闭集值）只有一种形态，
+      // 无 `form` 的字段（serves／priority 等闭集值）只有一种形态，
       // 不标注——标注一个恒定的「唯一形态」是噪声。
       .map((h) => (h.form === undefined
         ? `${h.field}=${h.value}`
@@ -2520,7 +2514,7 @@ export async function recallForAction(input = {}) {
   // 这条缺口。它的必要性由规范写明：`02 §9.1` F2 的定义就是「按类型、状态、
   // **稳定引用、关系、locator 或类型允许字段**命中的候选卡」；`20 §12` 要求
   // F2 可按 `serves`/`refs`/`priority` 命中；`26 §12` 要求「F1 枚举 + status
-  // 过滤」取 `accepted`（其 F1 投影**含 impact/attribution**）。
+  // 过滤」取 `accepted`（其 F1 投影**含 attribution**）。
   //
   // ── 语义边界（重要，勿读成「按相关度筛选」）────────────────────────
   //
@@ -2531,9 +2525,9 @@ export async function recallForAction(input = {}) {
   //
   // ── 为什么是单值而非数组 ──────────────────────────────────────────
   //
-  // 每个 facet 取**单值**（如 `impact: "heavy"`），不取数组。理由：这些是闭集
-  // 或锚点，多值收窄等价于「不筛」（`impact ∈ {light,medium,heavy}` 命中全部
-  // open 摩擦），反而让调用方误以为筛过了。需要多值时由调用方分多次调用，
+  // 每个 facet 取**单值**（如 `priority: "P1"`），不取数组。理由：这些是闭集
+  // 或锚点，多值收窄等价于「不筛」（`priority ∈ {P0,P1,P2,P3}` 命中全部带档位
+  // 的火花），反而让调用方误以为筛过了。需要多值时由调用方分多次调用，
   // 每次的完整度如实各自承载——这比一个「看似筛过其实没筛」的参数诚实。
   const facet = (name) => {
     const v = input[name];
@@ -2545,7 +2539,6 @@ export async function recallForAction(input = {}) {
   const facetUid = facet("objectUid");
   const facetServes = facet("serves");
   const facetPriority = facet("priority");
-  const facetImpact = facet("impact");
   const facetDirectionKey = facet("directionKey");
   const facetRelationKey = facet("relationKey");
   const facetAttributionRef = facet("attributionRef");
@@ -2554,7 +2547,6 @@ export async function recallForAction(input = {}) {
     objectUid: facetUid,
     serves: facetServes,
     priority: facetPriority,
-    impact: facetImpact,
     directionKey: facetDirectionKey,
     relationKey: facetRelationKey,
     attributionRef: facetAttributionRef,
@@ -2643,7 +2635,6 @@ export async function recallForAction(input = {}) {
     if (facetUid !== null && !sameText(c.ref, facetUid)) return false;
     if (facetServes !== null && !sameText(c.structural?.serves, facetServes)) return false;
     if (facetPriority !== null && !sameText(c.structural?.priority, facetPriority)) return false;
-    if (facetImpact !== null && !sameText(c.structural?.impact, facetImpact)) return false;
     if (facetDirectionKey !== null && !sameText(c.structural?.directionKey, facetDirectionKey)) return false;
     if (facetAttributionRef !== null && !sameText(c.structural?.attributionRef, facetAttributionRef)) return false;
     // 关系键：**存在任一关系边的 key 等于该值**即算（38 条 friction 各自带不同 key）。
@@ -2790,7 +2781,7 @@ export async function recallForAction(input = {}) {
     // title + 命中理由 + 路径 + 摘录，与「普通记忆召回」无异，读者看不出
     // 这对象**处在什么状态、归哪个子目标、多严重**——而这些恰是各类型规范
     // 说 F2 该带的信息：20 §12 的 F1 投影含 priority/serves；26 §12 的
-    // F1 投影含 impact/attribution。
+    // F1 投影含 attribution。
     //
     // 只带**有值的**字段（缺省不写空壳），且**不带长文本**
     // （`summary`/`gist` 已由 `excerpt` 承载，重复带上会吃掉预算）。
@@ -2950,7 +2941,7 @@ export async function recallForAction(input = {}) {
     const path = typeof item.path === "string" ? item.path : "";
     const excerpt = typeof item.excerpt === "string" ? item.excerpt : "";
     // **结构字段的渲染量须计入**（2026-10-29）：`structural` 进卡后渲染层会在
-    // 同一行追加形如 ` · serves=SG-1 / priority=P2 / impact=heavy` 的尾巴。
+    // 同一行追加形如 ` · serves=SG-1 / priority=P2 / directionKey=release-gate` 的尾巴。
     // 不计的话预算会按「没有这批字段」来分配，实际注入超出 `10:241` 的核对项。
     //
     // 口径与渲染层保持一致：键名 + `=` + 值 + 分隔符（` / `）与行首 ` · `。
@@ -3376,11 +3367,11 @@ export async function recallForAction(input = {}) {
       // 「排得靠后」，而是**从未进入候选池**。列入本清单是 `34 §12` 的硬要求：
       // 「取值须与下段的未检查范围逐类对应，不得只给取值不给清单」。
       //
-      // 不列这一项的后果是具体的：`impact: "heavy"` 筛完命中 0 条时，读者会
-      // 把「没有 heavy 的 open 账目」读成「没有 heavy 摩擦」——而实际是 10 条
-      // heavy 全部处于 resolved（26 §12：resolved 不进 F2 默认候选），另有
-      // 若干因状态被 `excludedByStatus` 排除。两类原因必须分开呈现，否则
-      // 读者会归错因。
+      // 不列这一项的后果是具体的：按某个闭集字段收窄后命中 0 条时，读者会把
+      // 「没有该取值的 open 条目」读成「没有该取值的条目」——而实际是其余条目
+      // 处于终态（各类型规范：终态不进 F2 默认候选），被 `excludedByStatus`
+      // 排除；另有可能因类型不在本次范围内被 `excludedByTypeFilter` 排除。
+      // 各类原因必须分开呈现，否则读者会归错因。
       excludedByFacet: appliedFacets.length === 0 ? [] : scopedFacts
         .filter((fact) => REGISTERED_FACT_TYPES.includes(fact.type))
         .filter((fact) => types === null || types.includes(fact.type))
@@ -3401,7 +3392,7 @@ export async function recallForAction(input = {}) {
                 ? fact.structural.relationKeys : null];
             }
             const key = {
-              serves: "serves", priority: "priority", impact: "impact",
+              serves: "serves", priority: "priority",
               directionKey: "directionKey", attributionRef: "attributionRef",
             }[name];
             const v = key === undefined ? undefined : fact.structural?.[key];
@@ -3516,12 +3507,14 @@ export async function recallForAction(input = {}) {
       // 与检索有用性不同距离——两者数字相近极易混淆，故在此显式区分
       // （范围受限复审，2026-10-28 指出注释与字段值看似矛盾，实为两个指标）。
       measuredSymptomSelfRecall: {
-        // 2026-10-30 复测：active Pitfall 增至 29 条（原 25 条），症状段→自身
-        // 29/29 = 100%（原 24/25 = 96%）。分母随语料增长，判据见
-        // `test/recall-injection.test.mjs` 的同名用例（它动态复算并与此处比对）。
-        hits: 29,
-        total: 29,
-        measuredAt: "2026-10-30",
+        // 2026-11-02 复测：active Pitfall 增至 42 条（原 29 条；其中 13 条为
+        // 当日按 Human 决定入档的候选），症状段→自身 **41/42 = 98%**——新增的
+        // 一条未命中是 689d5c26（破坏性 mv 以 glob 作目标），其症状首句里的
+        // 可检索词被同族条目稀释，10 条名额内排不进自己。分母随语料增长，
+        // 判据见 `test/recall-injection.test.mjs` 的同名用例（它动态复算并与此处比对）。
+        hits: 41,
+        total: 42,
+        measuredAt: "2026-11-02",
         discriminatingPower: "none",
         why: "测「正文→自身标题」，与用户口吻查询不同距离；双版本同为 24/24 而真实精确率 13.9%→10.5%，故不得据此判断召回质量。质量基线见 test/recall-quality.test.mjs",
       },

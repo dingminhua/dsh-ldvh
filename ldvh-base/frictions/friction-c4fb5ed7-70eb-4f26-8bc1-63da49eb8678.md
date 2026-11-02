@@ -2,7 +2,6 @@
 title: 规范源 00 正文内部口径不一致与术语缺口
 status: resolved
 phenomenon: 本次主控对 specs/00 的全量交叉核对在单次运行中一次性发现 5 处规范内部问题，其中至少含 2 处明确的『口径不一致』（构成项重复计数、§3.4 目标规划与蓝图跟踪同用 Goal 使『自身』失范）与 2 处『覆盖缺口/术语缺口』（独立审核执行体来源未声明、工作包『复核』未映射到既定检查机制），这些自相矛盾与未声明关系都发生在作为规范源的 00 正文内。
-impact: light
 relations:
   - relation_key: informs
     target:
@@ -35,6 +34,10 @@ change_log:
     provider: workbuddy-global
     model: deepseek-v4.1-flash
     summary: 销账（Human 2026-10-15 授权，C 条）：00 正文点名的 5 处已由 94ae4a9 一次性消解并逐处回读在位；跨文档术语/定义类因载体不符明示不属本账担保范围；载体尾部 }} 残留按类扫描确认孤例并经明示修复
+  - at: 2026-11-02T09:02:02.670Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 事实更正（非状态转换）——删除 impact 字段（26 §14.2 2026-11-02 存量处置）：影响评级分级制度经 Human 裁定取消，本对象为终态存量，经受控更正显式删除，正文与终态判定逐字不变。。终态判定未变：status/title/phenomenon/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：impact；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）2026-11-02 会话指令「摩擦取消 中 轻 重 这种分级制度」，经 26 §8 撤销 impact 字段、§14.2 登记存量处置口径；本条授权仅覆盖删除该 frontmatter 字段，正文与终态判定逐字不变。
 occurrence:
   count: 4
   first_at: 2026-10-12T12:19:45.644Z

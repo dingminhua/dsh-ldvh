@@ -50,7 +50,7 @@ const VALID_FM_KEYS_BY_TYPE = {
   ]),
   friction: new Set([
     "object_uid", "fact_type_key", "title", "created_at", "status",
-    "phenomenon", "attribution", "attribution_ref", "impact", "relations",
+    "phenomenon", "attribution", "attribution_ref", "relations",
     "occurrence", "disposition", "change_log",
   ]),
   adr: new Set([
@@ -87,10 +87,22 @@ const REMOVABLE_BY_TYPE = {
   goal: GOAL_REMOVABLE_FIELDS,
 };
 
+/**
+ * 已退出类型闭集、但仍须可删的字段（存量迁移通道）。
+ *
+ * 2026-11-02 起 `REMOVABLE ⊆ VALID_FM_KEYS` 这条不变式**按设计不再成立**：字段的自
+ * 退役路径就是把「闭集内」→「闭集外、白名单内」。理由（26 §14.2）：闭集收缩后存量
+ * 载体仍带着该字段，若把它一并赶出白名单，存量就无法经受控通道清除，全部成为闭集
+ * 违规。首次执行是 2026-10 的 `serves`，第二次是 2026-11-02 的 `impact`。
+ */
+const RETIRED_FROM_CLOSED_SET_BY_TYPE = {
+  friction: ["serves", "impact"],
+};
+
 /** 各类型的必填字段（白名单不得包含它们）。 */
 const REQUIRED_BY_TYPE = {
   spark: ["object_uid", "fact_type_key", "title", "created_at", "status", "question", "scope_boundary", "intent", "summary"],
-  friction: ["object_uid", "fact_type_key", "title", "created_at", "status", "phenomenon", "impact", "occurrence"],
+  friction: ["object_uid", "fact_type_key", "title", "created_at", "status", "phenomenon", "occurrence"],
   adr: ["object_uid", "fact_type_key", "title", "created_at", "status", "decision", "scope"],
   pitfall: ["object_uid", "fact_type_key", "title", "created_at", "status", "scope"],
   research: ["object_uid", "fact_type_key", "title", "created_at", "status", "research_question", "research_purpose", "stopping_reason"],
@@ -116,7 +128,6 @@ test("after-inherit: 未携带的字段从磁盘基线继承，不被静默删�
     phenomenon: "CI 平均 8 分钟",
     attribution: "CI 子系统",     // 条件字段
     attribution_ref: { object_uid: "22222222-2222-4222-8222-222222222222" },
-    impact: "medium",
     occurrence: { count: 1, first_at: "2026-01-01T00:00:00.000Z", last_at: "2026-01-01T00:00:00.000Z" },
     change_log: [{ at: "2026-01-01T00:00:00.000Z", summary: "首建" }],
   };
@@ -136,7 +147,6 @@ test("after-inherit: 未携带的字段从磁盘基线继承，不被静默删�
   assert.equal(fm.title, "新标题", "声明的字段被覆盖");
   // 这就是本单的核心回归：旧实现下这些字段会被静默删除
   assert.equal(fm.phenomenon, "CI 平均 8 分钟", "必填字段 phenomenon 应继承");
-  assert.equal(fm.impact, "medium", "必填字段 impact 应继承");
   assert.equal(fm.attribution, "CI 子系统", "条件字段 attribution 应继承");
   assert.deepEqual(fm.attribution_ref, { object_uid: "22222222-2222-4222-8222-222222222222" }, "条件字段 attribution_ref 应继承");
   assert.deepEqual(fm.occurrence, baseline.occurrence, "嵌套对象应继承");
@@ -154,7 +164,7 @@ test("after-inherit: frontmatter_removals 声明的字段被删除，未声明�
     object_uid: "33333333-3333-4333-8333-333333333333",
     fact_type_key: "friction",
     title: "t", created_at: "2026-01-01T00:00:00.000Z", status: "open",
-    phenomenon: "p", impact: "light",
+    phenomenon: "p",
     occurrence: { count: 1, first_at: "2026-01-01T00:00:00.000Z", last_at: "2026-01-01T00:00:00.000Z" },
     attribution: "某子系统",
     attribution_ref: { object_uid: "44444444-4444-4444-8444-444444444444" },
@@ -307,7 +317,7 @@ test("after-inherit: Code 托管字段不接受调用方覆盖", () => {
     object_uid: "77777777-7777-4777-8777-777777777777",
     fact_type_key: "friction",
     title: "t", created_at: "2026-01-01T00:00:00.000Z", status: "open",
-    phenomenon: "p", impact: "light",
+    phenomenon: "p",
     occurrence: { count: 1, first_at: "2026-01-01T00:00:00.000Z", last_at: "2026-01-01T00:00:00.000Z" },
     change_log: [{ at: "2026-01-01T00:00:00.000Z", summary: "原条目" }],
   };
@@ -340,7 +350,7 @@ test("after-inherit: 同一键既覆盖又删除的声明自相矛盾，被拒",
   const baseline = {
     object_uid: "88888888-8888-4888-8888-888888888888",
     fact_type_key: "friction", title: "t", created_at: "2026-01-01T00:00:00.000Z",
-    status: "open", phenomenon: "p", impact: "light",
+    status: "open", phenomenon: "p",
     occurrence: { count: 1, first_at: "2026-01-01T00:00:00.000Z", last_at: "2026-01-01T00:00:00.000Z" },
     attribution: "x",
   };
@@ -359,13 +369,20 @@ test("after-inherit: 同一键既覆盖又删除的声明自相矛盾，被拒",
 });
 
 // ---------------------------------------------------------------------------
-// 组 8：白名单自检（REMOVABLE ⊆ VALID；不含必填；不含终态伴随；描述为三向口径）
+// 组 8：白名单自检（REMOVABLE ⊆ VALID ∪ 已退出闭集；不含必填；不含终态伴随；描述为三向口径）
+//
+// 2026-11-02 起「REMOVABLE ⊆ VALID」按设计不再成立——字段退役正是「出闭集、留白名单」
+// 这一步（见 RETIRED_FROM_CLOSED_SET_BY_TYPE 的说明）。
 // ---------------------------------------------------------------------------
-test("after-inherit: 白名单自检——⊆ VALID_FM_KEYS、不含必填与终态伴随字段", () => {
+test("after-inherit: 白名单自检——⊆ VALID ∪ 已退出闭集、不含必填与终态伴随字段", () => {
   for (const [type, removable] of Object.entries(REMOVABLE_BY_TYPE)) {
     const valid = VALID_FM_KEYS_BY_TYPE[type];
     for (const key of removable) {
-      assert.ok(valid.has(key), `${type}: 白名单字段 ${key} 必须是本类型的合法字段（⊆ VALID_FM_KEYS）`);
+      const retired = RETIRED_FROM_CLOSED_SET_BY_TYPE[type] ?? [];
+      assert.ok(
+        valid.has(key) || retired.includes(key),
+        `${type}: 白名单字段 ${key} 必须在 VALID_FM_KEYS 内，或属本类型的「已退出闭集但仍可删」集合`,
+      );
       assert.equal(REQUIRED_BY_TYPE[type].includes(key), false, `${type}: 白名单不得包含必填字段 ${key}`);
       assert.equal(TERMINAL_COMPANION_FIELDS.has(key), false, `${type}: 白名单不得包含终态伴随字段 ${key}`);
       assert.equal(CODE_MANAGED_FIELDS.has(key), false, `${type}: 白名单不得包含托管字段 ${key}`);
@@ -376,6 +393,14 @@ test("after-inherit: 白名单自检——⊆ VALID_FM_KEYS、不含必填与终
   assert.equal(NORM_REMOVABLE_FIELDS.size, 0, "norm 白名单应为空");
   assert.equal(GOAL_REMOVABLE_FIELDS.size, 0, "goal 白名单应为空");
   assert.deepEqual([...SPARK_REMOVABLE_FIELDS].sort(), ["priority", "refs", "serves"], "spark 白名单应为 priority/refs/serves");
+
+  // 已退出闭集但仍须可删（26 §14.2 存量迁移通道）：friction 的 serves（2026-10）与 impact（2026-11-02）
+  assert.deepEqual(
+    [...FRICTION_REMOVABLE_FIELDS].sort(),
+    ["attribution", "attribution_ref", "impact"],
+    "friction 白名单应为 attribution/attribution_ref/impact（impact 已退出闭集但仍在白名单）",
+  );
+  assert.equal(VALID_FM_KEYS_BY_TYPE.friction.has("impact"), false, "impact 已退出 friction 闭集，不得再出现在 VALID_FM_KEYS");
 
   // 白名单含非本类型字段 → 必被 VALID 校验捕获（以 spark 字段混入 friction 为例）
   const built = buildUpdateFrontmatter({
@@ -405,7 +430,6 @@ test("after-inherit e2e: 经 friction writer 更新时漏传 attribution 不再�
       frontmatterDraft: {
         title: "局部改动时以记忆或截断输出为数据源",
         phenomenon: "改一处代码要连着改三处同类调用",
-        impact: "medium",
         attribution: "主控会话",
         occurrence: { count: 1, first_at: "2026-10-16T00:00:00.000Z", last_at: "2026-10-16T00:00:00.000Z" },
       },
@@ -449,7 +473,6 @@ test("after-inherit e2e: 越界删除被拒且零写入", async () => {
       frontmatterDraft: {
         title: "越界删除测试",
         phenomenon: "现象一句话",
-        impact: "light",
         occurrence: { count: 1, first_at: "2026-10-16T00:00:00.000Z", last_at: "2026-10-16T00:00:00.000Z" },
       },
       bodyMarkdown: "## 现象\n现象一句话。\n\n## 入账依据\n实测。\n",

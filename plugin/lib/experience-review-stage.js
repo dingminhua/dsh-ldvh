@@ -206,7 +206,6 @@ export function buildReviewPrompt({ entries, existingPitfalls, projectId, fricti
   lines.push("  - `title`：≤ 30 字，这笔阻碍的短标题（晋升成账目时用它）；");
   lines.push("  - `basis`：入账依据段落，回答「为什么这构成系统性阻碍」；");
   lines.push("  - `attribution`：归因落点——根在哪个子系统／规范／流程；**不得写「暂缺」**；");
-  lines.push("  - `impact`：`light` / `medium` / `heavy`；");
   lines.push("  - `group`：聚合键。属于上面「摩擦观察缓冲里已有的组」清单里某一组的，**原样填那个 `group`**");
   lines.push("    （它会并入该组继续计数）；不属于任何一组的，另起一个稳定的 kebab-case 键");
   lines.push("    （今后同一阻碍的观察都用它）——**优先并入已列出的组**，尤其那些标「未达阈值」的：");
@@ -248,11 +247,10 @@ export function reviewOutputSchema() {
                 title: { type: "string" },
                 basis: { type: "string" },
                 attribution: { type: "string" },
-                impact: { type: "string", enum: ["light", "medium", "heavy"] },
                 group: { type: "string" },
                 target_uid: { type: "string" },
               },
-              required: ["title", "basis", "attribution", "impact", "group"],
+              required: ["title", "basis", "attribution", "group"],
             },
             dedupe: {
               type: "object",

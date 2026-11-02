@@ -3,7 +3,6 @@ title: open 工单无法写入结果节
 status: resolved
 phenomenon: "status=open 的 WorkCase 无法写入 ## 结果 正文节，导致 awaiting_gate2 状态不可达"
 attribution: 21 §8 正文字段契约与 plugin/lib/workcase-writer.js 的 validateWorkcaseBodyStructure 期望集合/过滤逻辑不一致（长度比对把「结果」计入实际却不计入期望）；呈现侧消费点为 plugin/web/shared/workcaseLifecycle.ts 的 deriveWorkCaseV5View
-impact: heavy
 relations:
   - relation_key: informs
     target:
@@ -44,6 +43,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 事实更正（非状态转换）——结构修正：收敛重复的生成式 H1（2 → 1）——读写契约不对称导致补充级更新每次叠加一个 H1（2026-10-12 修）. 不改 count、不改状态、不改语义内容。终态判定未变：status/title/phenomenon/impact/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：无；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human 2026-10-12 指示「修复吧」（本会话）：授权修正 3 条被重复 H1 损坏的账目结构
+  - at: 2026-11-02T09:02:02.649Z
+    provider: qoder-global
+    model: qfmodel
+    summary: 事实更正（非状态转换）——删除 impact 字段（26 §14.2 2026-11-02 存量处置）：影响评级分级制度经 Human 裁定取消，本对象为终态存量，经受控更正显式删除，正文与终态判定逐字不变。。终态判定未变：status/title/phenomenon/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：impact；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）2026-11-02 会话指令「摩擦取消 中 轻 重 这种分级制度」，经 26 §8 撤销 impact 字段、§14.2 登记存量处置口径；本条授权仅覆盖删除该 frontmatter 字段，正文与终态判定逐字不变。
 occurrence:
   count: 1
   first_at: 2026-09-16T03:57:06.500Z

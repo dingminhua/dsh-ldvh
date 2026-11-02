@@ -1159,7 +1159,6 @@ function transferProposal(entryId, overrides = {}) {
       title: "hook 以只读身份写配置必失败",
       basis: "同一现象反复出现；归因：插件 hook 以只读挂载身份运行；修了会改善。",
       attribution: "插件 hook 运行身份",
-      impact: "medium",
       group: "readonly-hook-write-failure",
     },
     ...overrides,
@@ -1194,7 +1193,6 @@ test("转写：discarded 且带 transfer 时，材料落到摩擦观察缓冲，
     assert.equal(item.evidence, EVIDENCE);
     assert.equal(item.group, "readonly-hook-write-failure");
     assert.equal(item.status, "pending");
-    assert.equal(item.impact, "medium");
 
     assert.equal(reviewed.value.transferred.length, 1);
     assert.equal(reviewed.value.transferred[0].entry_id, entryId);
@@ -1420,7 +1418,6 @@ test("转写：同一证据已由发现层记过时跳过，不重复计数", as
       title: "hook 以只读身份写配置必失败",
       basis: "发现层记。",
       attribution: "插件 hook 运行身份",
-      impact: "medium",
     });
     assert.ok(first.ok, JSON.stringify(first.error));
 

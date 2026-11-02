@@ -97,7 +97,7 @@ async function setup({ withSubagents = true, tasks = { "friction-discovery": tru
         childId: "run-1",
         result: Promise.resolve({
           stopReason: "completed",
-          structured: { verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "", impact: "light", quote: "", reason: "无" },
+          structured: { verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "", quote: "", reason: "无" },
         }),
         dispose: async () => {},
       };
@@ -345,7 +345,7 @@ test("F-1：一件成功一件失败时，成功者仍落地并**只推进它自
           // 属性名按宿主校验用的键（snake_case）；任务键仍是 kebab-case。
           [compositePropertyName("friction-discovery")]: {
             verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "",
-            impact: "light", quote: materialText.slice(0, 20), reason: "本次没有系统性阻碍",
+            quote: materialText.slice(0, 20), reason: "本次没有系统性阻碍",
           },
           // 经验侧失败靠引证不在材料内（11 §10.1 两段式后只剩这一个高频失败点：
           // 判定态与缓冲字段都合法，唯独 quote 不是材料里的原文）。
@@ -538,7 +538,7 @@ test("重启：无**带轮次号的**回合事件时从宿主会话记录回填�
         structured: {
           [compositePropertyName("friction-discovery")]: {
             verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "",
-            impact: "light", quote: "缓存条目未失效导致的重复解析失败", reason: "本次没有系统性阻碍",
+            quote: "缓存条目未失效导致的重复解析失败", reason: "本次没有系统性阻碍",
           },
         },
       }),

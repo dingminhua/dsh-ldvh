@@ -61,7 +61,6 @@ function draft(overrides = {}) {
   return {
     title: "CI 构建缓慢",
     phenomenon: "CI 每次构建平均需要 8 分钟，其中 5 分钟花在重复依赖安装上。",
-    impact: "heavy",
     occurrence: { count: 1, first_at: "2026-11-01T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" },
     change_summary: "受控创建（测试）",
     ...overrides,
@@ -396,8 +395,8 @@ test("26 §13：补填与删除通道都只接受登记过的字段", () => {
   );
   assert.deepEqual(
     [...CORRECT_REMOVABLE_FIELDS_FOR_TEST].sort(),
-    ["occurrence", "serves"],
-    "可删两类：已退出闭集者（serves）、存在即违反 §8 条件约束者（occurrence——§14.2 豁免的 voided 对象携带它即违规）",
+    ["impact", "occurrence", "serves"],
+    "可删两类：已退出闭集者（serves 于 2026-10、impact 于 2026-11-02）、存在即违反 §8 条件约束者（occurrence——§14.2 豁免的 voided 对象携带它即违规）。impact 入本通道是 68 份存量终态对象的清除前提（26 §14.2）。",
   );
   // human_return_at 是 occurrence 的成员字段而非顶层字段——它随「放回留观」删除后
   // 只剩 count/first_at/last_at 三个成员；此处钉住「没有任何以它命名的顶层字段通道」。
@@ -508,7 +507,6 @@ function bufferEntry({ minutesAgo, group, index }) {
     title: "依赖安装被重复执行",
     basis: "重复出现；归因：索引重建流程未复用已安装依赖；修了会改善。",
     attribution: "索引重建流程",
-    impact: "medium",
     at: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
   };
 }
@@ -578,8 +576,7 @@ test("11 §12bis.1 / 26 §9：观察缓冲 3 条同 group 达阈值就绪，晋�
       frontmatterDraft: {
         title: "CI 重复依赖安装",
         phenomenon,
-        impact: "heavy",
-        occurrence: { count: entries.length, first_at: entries[0].at, last_at: entries[entries.length - 1].at },
+            occurrence: { count: entries.length, first_at: entries[0].at, last_at: entries[entries.length - 1].at },
         change_summary: "缓冲达阈值晋升为 open 账目（测试）",
       },
       bodyMarkdown: promotedBody,

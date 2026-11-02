@@ -104,11 +104,13 @@ export const FRICTION_OBSERVATION_THRESHOLD_N = 3;
  * §12bis.1 的字段闭集。
  *
  * **2026-10-30 新增 `title`/`basis`/`attribution`/`impact` 四项（Human 决定）**：
- * 晋升从发现层搬到审核层后，晋升所需的这四项必须由缓冲承载——它们原本只存在于
+ * 晋升从发现层搬到审核层后，晋升所需的这几项必须由缓冲承载——它们原本只存在于
  * 发现层当次运行的结构化 `verdict` 里，审核层在下一次运行时已无从取得，跨运行
  * 晋升会因缺字段而无法建账（`promoteReadyGroup` 缺 `title`/`basis` 即失败）。
+ * （原为四项，含 `impact`；**2026-11-02 该字段随 26 §8 的字段删除一并撤销**——
+ * Human 定案「摩擦取消 中 轻 重 这种分级制度」，闭集 15 → 14 项。）
  *
- * 这四项在 `same-observation-group` / `new-observation` 两态必填（由子代理的
+ * 这几项在 `same-observation-group` / `new-observation` 两态必填（由子代理的
  * verdict 产出）；`same-obstacle` 与 `no-discovery` 两态不写缓冲，故不涉及。
  * 存量条目已在 2026-10-30 一并清零（Human 决定），不存在缺字段的历史条目。
  */
@@ -125,13 +127,9 @@ export const FRICTION_OBSERVATION_FIELDS = Object.freeze([
   "title",
   "basis",
   "attribution",
-  "impact",
   "status",
   "promoted_to",
 ]);
-
-/** `impact` 闭集（26 §8 的评级闭集，与 Friction 事实对象同口径）。 */
-export const FRICTION_OBSERVATION_IMPACTS = Object.freeze(["light", "medium", "heavy"]);
 
 /** 实现侧附加记账字段（不在 §12bis.1 的闭集内）：保留期计算所需。 */
 export const FRICTION_OBSERVATION_SETTLED_AT_FIELD = "settled_at";
@@ -167,7 +165,6 @@ const APPEND_INPUT_FIELDS = new Set([
   "title",
   "basis",
   "attribution",
-  "impact",
 ]);
 
 /** 存量条目允许出现的字段（§12bis.1 闭集 + 实现侧附加记账字段）。 */
@@ -425,12 +422,6 @@ function validateAppendInput(input, projectId) {
       );
     }
   }
-  if (!FRICTION_OBSERVATION_IMPACTS.includes(input.impact)) {
-    return failure(
-      "friction_observation/invalid_impact",
-      `impact must be one of ${FRICTION_OBSERVATION_IMPACTS.join(", ")} (§12bis.1 字段闭集)`,
-    );
-  }
   // project：入参若给了，须与载体分区一致（条目层与载体层自洽）。
   if (input.project !== undefined && input.project !== null) {
     if (input.project.trim() !== projectId) {
@@ -495,7 +486,6 @@ function validateAppendInput(input, projectId) {
     title: input.title.trim(),
     basis: input.basis.trim(),
     attribution: input.attribution.trim(),
-    impact: input.impact,
     status: "pending",
     promoted_to: null,
   });

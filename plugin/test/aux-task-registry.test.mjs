@@ -267,7 +267,7 @@ test("逐任务校验：**某件失败不掀掉其余件**——已成功者仍�
   // 的引证不成立不该影响另一件已经得出的结论。整体失败会使一次可用的运行被整条
   // 丢弃——那正是本设计最该避免的损失。
   const structured = structuredOf({
-    "friction-discovery": { verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "", impact: "light", quote: "这是一段足够长的材料原文内容", reason: "无" },
+    "friction-discovery": { verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "", quote: "这是一段足够长的材料原文内容", reason: "无" },
     // 第二件故意不合法（此处借 friction-discovery 的校验器：same-obstacle 却缺 target_uid）
     broken: { verdict: "same-obstacle", target_uid: "" },
   });
@@ -298,7 +298,7 @@ test("逐任务校验：结论整体缺失时也须为该任务产出一条失�
 test("逐任务校验：某任务的校验器抛错**不得**掀掉其它任务（异常按该任务失败收口）", () => {
   const boom = { key: "boom", implemented: true, validate: () => { throw new Error("validator exploded"); } };
   const out = validateCompositeOutput(
-    structuredOf({ boom: {}, "friction-discovery": { verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "", impact: "light", quote: "足够的材料原文内容", reason: "无" } }),
+    structuredOf({ boom: {}, "friction-discovery": { verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "", quote: "足够的材料原文内容", reason: "无" } }),
     { tasks: ["boom", "friction-discovery"], registry: { boom, "friction-discovery": AUX_TASK_REGISTRY["friction-discovery"] }, contexts: { boom: {}, "friction-discovery": { candidates: [], windowText: "足够的材料原文内容" } } },
   );
   assert.equal(out.results.boom.ok, false);
@@ -361,7 +361,7 @@ function fakeSecondTask({ validate } = {}) {
 
 const GOOD_VERDICT = {
   verdict: "no-discovery", target_uid: "", title: "", phenomenon: "", basis: "",
-  impact: "light", quote: "这是一段足够长的材料内容原文。", reason: "本次无系统性阻碍。",
+  quote: "这是一段足够长的材料内容原文。", reason: "本次无系统性阻碍。",
 };
 
 /**

@@ -99,12 +99,6 @@ export function discoveryOutputSchema() {
         description:
           "同上两态必填：**归因陈述**——该阻碍的根源落在哪个子系统/规范/流程（如「plugin/lib/lifecycle.js 的返回值丢弃」或「11 §9 的闭集措辞」）。摩擦的根源常是规范/工具/流程本身而无对象身份，故这是自由文本。**不得省略、不得写「暂缺」**：省略会使晋升出的账目缺归因（本机制此前的实现缺陷，95/97 条机械入账缺该字段）。其余两态填空字符串。",
       },
-      impact: {
-        type: "string",
-        enum: ["light", "medium", "heavy"],
-        description:
-          "同上两态必填：影响评级。其余两态填 \"light\"（占位，落地侧按 verdict 忽略）。",
-      },
       quote: {
         type: "string",
         description:
@@ -116,7 +110,7 @@ export function discoveryOutputSchema() {
           "必填：判定理由——说明你如何从该引证得出该 verdict。",
       },
     },
-    required: ["verdict", "target_uid", "group", "title", "phenomenon", "basis", "attribution", "impact", "quote", "reason"],
+    required: ["verdict", "target_uid", "group", "title", "phenomenon", "basis", "attribution", "quote", "reason"],
     additionalProperties: false,
   };
 }
@@ -257,17 +251,16 @@ export function buildDiscoveryPromptSection({ threshold, candidates = [], observ
     + "（从下方组清单里原样复制组键）。",
     "- `new-observation`：本次材料构成一个**账本与缓冲都没有**的阻碍 → 必填 `group`"
     + "（你为它起一个稳定键，小写 kebab-case，此后同一阻碍都用它）。",
-    "- `no-discovery`：本次材料中**没有**构成系统性阻碍的现象 → 其余字段填空字符串"
-    + "（`impact` 填 \"light\" 占位）。",
+    "- `no-discovery`：本次材料中**没有**构成系统性阻碍的现象 → 其余字段填空字符串。",
     "",
-    "**关于 `title`/`phenomenon`/`basis`/`attribution`/`impact`**：`same-observation-group`"
+    "**关于 `title`/`phenomenon`/`basis`/`attribution`**：`same-observation-group`"
     + " 与 `new-observation` **两态都要填齐**。原因很实际——**你这一条可能正好是该组攒够"
     + " N 条的那一条**，届时它会被立即晋升为账目，标题、现象、入账依据与归因就取自你这份"
     + "产出。缺任何一项都会使晋升失败。`attribution` 是**必填**（该阻碍的根源落在哪个"
     + "子系统/规范/流程），不得写「暂缺」。",
     "",
     "**你要输出的字段**：`verdict`（上述四态之一）、`target_uid`、`group`、`title`、"
-    + "`phenomenon`、`basis`、`attribution`、`impact`、`quote`、`reason`。"
+    + "`phenomenon`、`basis`、`attribution`、`quote`、`reason`。"
     + "各态的必填字段见上；`quote` 与 `reason` 在材料非空时都必填。逐条说明见输出 schema。",
     "",
     "**本账本的 open 与 accepted 账目（账本层查重对象）**：",
@@ -419,7 +412,6 @@ export function validateDiscoveryVerdict(structured, { candidates = [], observat
     phenomenon,
     basis,
     attribution,
-    impact,
     quote,
     reason,
   } = structured;
@@ -497,14 +489,11 @@ export function validateDiscoveryVerdict(structured, { candidates = [], observat
         return failure(`discovery/${field}_missing`, `verdict=${verdict} requires a non-empty ${field}`);
       }
     }
-    if (!["light", "medium", "heavy"].includes(impact)) {
-      return failure("discovery/impact_out_of_set", `verdict=${verdict} requires impact in light/medium/heavy (got ${JSON.stringify(impact)})`);
-    }
     if (title.trim().length > 30) {
       return failure("discovery/title_too_long", `title must be ≤ 30 characters (got ${title.trim().length}) — 26 §8`);
     }
   }
 
 
-  return { ok: true, value: { verdict, target_uid: targetUid?.trim?.() ?? "", group: group?.trim?.() ?? "", title: title?.trim?.() ?? "", phenomenon: phenomenon?.trim?.() ?? "", basis: basis?.trim?.() ?? "", attribution: attribution?.trim?.() ?? "", impact, quote: typeof quote === "string" ? quote : "", reason: reason.trim() } };
+  return { ok: true, value: { verdict, target_uid: targetUid?.trim?.() ?? "", group: group?.trim?.() ?? "", title: title?.trim?.() ?? "", phenomenon: phenomenon?.trim?.() ?? "", basis: basis?.trim?.() ?? "", attribution: attribution?.trim?.() ?? "", quote: typeof quote === "string" ? quote : "", reason: reason.trim() } };
 }

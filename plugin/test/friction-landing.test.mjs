@@ -51,7 +51,6 @@ async function seedOpen(factSourceRoot, { count = 1, attribution = "串行化任
     frontmatterDraft: {
       title: "CI 慢",
       phenomenon: "CI 平均 8 分钟。",
-      impact: "medium",
       attribution,
       occurrence: { count, first_at: "2026-10-01T00:00:00.000Z", last_at: "2026-10-01T00:00:00.000Z" },
       change_summary: "测试：造一条 open 账目",
@@ -73,7 +72,6 @@ function observationVerdict(verdict, overrides = {}) {
     phenomenon: "CI 平均 8 分钟。",
     basis: "可归因于串行化任务编排；修了会更好。",
     attribution: "串行化任务编排",
-    impact: "medium",
     quote: "CI 平均 8 分钟——本次材料里的原文引证片段",
     reason: "本次区间内观察到 CI 反复超时。",
     ...overrides,
@@ -89,7 +87,6 @@ function sameObstacleVerdict(uid, overrides = {}) {
     phenomenon: "",
     basis: "",
     attribution: "",
-    impact: "light",
     quote: "本次区间内再次出现同一现象——原文引证片段",
     reason: "本次区间内再次出现同一现象。",
     ...overrides,
@@ -121,7 +118,7 @@ test("no-discovery：不动作、不创建、不推进（闭集里没有对应�
   await withLedger(async (ctx) => {
     const r = await land(ctx, {
       verdict: "no-discovery", target_uid: "", group: "", title: "", phenomenon: "",
-      basis: "", attribution: "", impact: "light", quote: "", reason: "本次没有可记的现象。",
+      basis: "", attribution: "", quote: "", reason: "本次没有可记的现象。",
     });
     assert.ok(r.ok, JSON.stringify(r.error));
     assert.equal(r.value.action, "none");
@@ -195,7 +192,6 @@ test("same-observation-group：第三条达 N，发现层**不**晋升（晋升�
       assert.equal(entry.title, "CI 慢");
       assert.equal(entry.attribution, "串行化任务编排");
       assert.ok(entry.basis.length > 0, "basis is carried into the buffer");
-      assert.ok(["light", "medium", "heavy"].includes(entry.impact), "impact is carried into the buffer");
     }
   });
 });
@@ -496,7 +492,7 @@ test("观察层缺 dshHomePath / projectId / anchor 时拒绝（缓冲无法定�
 
 test("未知 verdict 被拒（本模块只执行闭集，不解释语义）", async () => {
   await withLedger(async (ctx) => {
-    const r = await land(ctx, { verdict: "maybe-an-obstacle", target_uid: "", group: "", title: "", phenomenon: "", basis: "", attribution: "", impact: "light", quote: "", reason: "x" });
+    const r = await land(ctx, { verdict: "maybe-an-obstacle", target_uid: "", group: "", title: "", phenomenon: "", basis: "", attribution: "", quote: "", reason: "x" });
     assert.equal(r.ok, false);
     assert.equal(r.error.code, "friction/verdict_out_of_set");
   });
@@ -629,23 +625,24 @@ test("accepted 的豁免只给计数：同一次写入顺带改别的字段或�
     const fm = base.value.frontmatter;
     const frozenBody = stripLeadingH1(base.value.body);
 
-    // ① 计数 + 顺手改 impact —— 必须被拒
-    const smuggleImpact = await updateFrictionObject({
+    // ① 计数 + 顺手改归因 —— 必须被拒。豁免只开 occurrence 一个字段，越界者
+    // 由差异集拦下（判据是「提议值与磁盘基线的差异字段集」，调用方无法自证）。
+    const smuggleAttribution = await updateFrictionObject({
       factSourceRoot: ctx.factSourceRoot,
       objectUid: uid,
       expectedFingerprint: base.value.fingerprint,
       frontmatterAfter: {
         ...fm,
         occurrence: { ...fm.occurrence, count: fm.occurrence.count + 1, last_at: "2026-11-06T00:00:00.000Z" },
-        impact: fm.impact === "light" ? "heavy" : "light",
+        attribution: "试探：越界改动归因",
       },
       bodyMarkdownAfter: frozenBody,
-      changeSummary: "试探：计数同时改 impact",
+      changeSummary: "试探：计数同时改 attribution",
       sessionSignature: SIG,
     });
-    assert.equal(smuggleImpact.ok, false, "accepted 下只允许 occurrence 变化");
-    assert.equal(smuggleImpact.error.code, "friction/status_terminal");
-    assert.match(smuggleImpact.error.message, /impact/);
+    assert.equal(smuggleAttribution.ok, false, "accepted 下只允许 occurrence 变化");
+    assert.equal(smuggleAttribution.error.code, "friction/status_terminal");
+    assert.match(smuggleAttribution.error.message, /attribution/);
 
     // ② 计数 + 改正文 —— 必须被拒
     const smuggleBody = await updateFrictionObject({

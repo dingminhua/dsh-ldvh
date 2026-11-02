@@ -133,12 +133,11 @@ test('friction list cards defer reading content to the detail page (Human 裁定
   assert.doesNotMatch(cardBody, /obj\.phenomenon/, '现象全文不再上卡面');
   assert.doesNotMatch(cardBody, /obj\.attribution/, '归因不再上卡面');
 
-  // 26 §8 impact（轻/中/重）的三处同形呈现由下方独立测试覆盖；此处只断言
   // serves 不再被 26 §8 引用（该字段 2026-10 已删除，残留引用属闭集收缩后漂移）。
   const detailModel = read('src/pages/object-detail/model.ts');
   assert.doesNotMatch(detailModel, /friction: \['serves'\]/, 'serves 已从 26 §8 删除，不得残留引用');
 
-  // impact 不在正文布局重复呈现（同页两次属重复而非信息）。
+  // 正文布局不列 impact——该字段整体已于 2026-11-02 撤销（见下方退役守卫）。
   const readingLayouts = read('src/pages/object-detail/FactReadingLayouts.tsx');
   const frictionLayout = readingLayouts.slice(
     readingLayouts.indexOf('export function FrictionReadingLayout'),
@@ -255,44 +254,45 @@ test('resolved 走达成绿而 voided 走收敛灰（Human 定案 2026-11）', (
   assert.match(statusFilter, /norm: \['active', 'retired'\],/);
 });
 
-test('friction impact 在三处同形呈现（Human 裁定 2026-11）', () => {
+test('26 §8 impact 分级已整体退役：呈现面不得再有其消费方（Human 定案 2026-11-02）', () => {
+  // Human 定案（m00809）「摩擦取消 中 轻 重 这种分级制度」——撤的是制度本身，
+  // 不是某处显示。26 §8 的字段表已删该字段，§18 第 1 条恢复「无例外」，
+  // 68 份存量已经受控写入清除。故呈现面必须**一个消费方都不留**：留着「词条在、
+  // 数据不在、唯独代码还读它」正是本仓反复纠正的漂移形态。
+  // 本条由原「friction impact 在三处同形呈现」改向而来——保留位置与编号体例，
+  // 判据反向（原测试钉「三处同形」，现钉「三处皆无」）。
   const objectList = read('src/pages/ObjectList.tsx');
   const objectDetail = read('src/pages/ObjectDetail.tsx');
   const cognition = read('src/pages/CognitionCenter.tsx');
   const detailModel = read('src/pages/object-detail/model.ts');
-  const badge = read('src/components/FrictionImpactBadge.tsx');
   const semanticColors = read('src/utils/semanticColors.ts');
-
-  // 共享组件是 impact 呈现的**单一来源**——三处都引用它，不得各自手写 chip。
-  // Human 2026-11 指出「详情里表现的方式要和 card 一致」：此前详情页错放在
-  // footer 元信息行（「字段名: 值」形态），与 card 的裸 chip 不同形。
-  assert.match(badge, /export default function FrictionImpactBadge/);
-  assert.match(badge, /ldvh-chip-sm/, '与邻居 chip 同尺寸类');
-  assert.match(badge, /FRICTION_IMPACT_CHIP_CLASS/, '取共享配色表');
-  assert.doesNotMatch(badge, /Target|History/, '无图标——与 SG/活动数两枚 chip 的形态一致');
-  assert.match(semanticColors, /FRICTION_IMPACT_CHIP_CLASS: Record<string, string> = \{\s*light:/);
-
-  // ① 列表卡卡头：类型 → 优先级 → 影响 → 修改次数（`serves` chip 已于
-  // 2026-11-01 撤除，故判据改为「影响紧跟优先级」）。
-  assert.match(objectList, /<PriorityIcon[\s\S]{0,400}?FrictionImpactBadge value=\{obj\.impact\}/,
-    '① 影响紧跟优先级，在活动数之前');
-  // ② 详情页身份头部：同位置同序
-  assert.match(objectDetail, /<PriorityIcon[\s\S]{0,400}?FrictionImpactBadge value=\{source\.impact\}/,
-    '② 详情头与卡头同序');
-  // 三处都不自行拼 chip：ObjectList 与 ObjectDetail 不再直接引用配色常量。
-  assert.doesNotMatch(objectList, /FRICTION_IMPACT_CHIP_CLASS/, '① 不手写 chip');
-  assert.doesNotMatch(objectDetail, /FRICTION_IMPACT_CHIP_CLASS/, '② 不手写 chip');
-  // 聚焦页复用 ObjectCardFrame，故自动获得同一枚 chip。
-  assert.match(cognition, /<ObjectCardFrame/, '③ 聚焦页复用卡片框架');
-
-  // 元信息行不再承载 impact（那是 footer 的「字段名: 值」形态，与 card 不同形）。
-  assert.match(detailModel, /friction: \[\]/, 'impact 不在元信息行');
-
-  // 26 §8 闭集值本地化：轻/中/重（不是 light/medium/heavy 直出）。
   const locales = read('src/i18n/locales.ts');
-  assert.match(locales, /light: \{ zh: '轻', en: 'Light' \}/);
-  assert.match(locales, /medium: \{ zh: '中', en: 'Medium' \}/);
-  assert.match(locales, /heavy: \{ zh: '重', en: 'Heavy' \}/);
+  const api = read('src/utils/api.ts');
+  const route = read('api/routes/cognition.ts');
+  const contract = read('api/services/factFieldContract.ts');
+
+  // 组件与配色表文件已删除（fs 层：不存在即不得被 import）。判「代码里有没有 X」
+  // 一律经 codeOnly，注释中的历史注记不参与。
+  assert.ok(!fs.existsSync(path.resolve('src/components/FrictionImpactBadge.tsx')),
+    'FrictionImpactBadge.tsx 须随分级制度一并删除');
+  for (const [name, src] of [['ObjectList', objectList], ['ObjectDetail', objectDetail], ['CognitionCenter', cognition]] as const) {
+    assert.doesNotMatch(codeOnly(src), /FrictionImpactBadge/, `${name} 不得再引用 impact 徽标组件`);
+  }
+  assert.doesNotMatch(codeOnly(semanticColors), /FRICTION_IMPACT_CHIP_CLASS/, '配色表不得留 impact 色相表');
+
+  // 数据面：字段声明与投影全清。**只看代码**（见 codeOnly 的说明）——注释里
+  // 说明「该字段为何被撤销」是正当的，把它当消费方会误报。
+  assert.doesNotMatch(codeOnly(api), /\bimpact\?: string/, '前端类型不得再声明 impact');
+  assert.doesNotMatch(codeOnly(route), /projectFrictionImpact|build\.impact|raw\.impact/, '路由不得再投影 impact');
+  assert.doesNotMatch(codeOnly(contract), /friction-impact/, '字段契约不得再登记 friction-impact');
+
+  // 词条面：轻/中/重闭集值与字段标签都不得残留。
+  assert.doesNotMatch(codeOnly(locales), /impact: \{\s*light:/, 'FIELD_VALUE_LOCALES 的轻/中/重闭集须删');
+  // 只看代码面：注释里说明「该字段为何被撤销」是正当的（见 codeOnly 的说明）。
+  assert.doesNotMatch(codeOnly(locales), /^ {2}impact: \{/, 'FIELD_LABEL_LOCALES 的 impact 词条须删');
+
+  // 元信息行仍为空数组——friction 无辅助元信息字段。
+  assert.match(detailModel, /friction: \[\]/, '元信息行不含任何 friction 字段');
 });
 
 test('同名字段按类型分派词条：disposition 在 spark 与 friction 语义不同', () => {
@@ -334,7 +334,7 @@ test('26 §8 occurrence 在**三处**卡头都被渲染（词条存在不等于�
   const detail = read('src/pages/ObjectDetail.tsx');
   const cognition = read('src/pages/CognitionCenter.tsx');
 
-  // 三处调用点（列表卡 / 详情身份头 / 聚焦页），与 FrictionImpactBadge 同规格。
+  // 三处调用点（列表卡 / 详情身份头 / 聚焦页）——chip 的通用规格见其文件头。
   assert.match(list, /obj\.type === 'friction' && <FrictionOccurrenceBadge value=\{obj\.occurrence\} \/>/);
   assert.match(detail, /objectType === 'friction' && <FrictionOccurrenceBadge value=\{source\.occurrence\} \/>/);
   assert.match(cognition, /item\.type === 'friction' && <FrictionOccurrenceBadge value=\{item\.occurrence\} \/>/);
@@ -384,7 +384,7 @@ test('26 §8 occurrence chip 只呈现事实值，不呈现阈值进度（N 的�
   // （首次运行时即此误报）。
   assert.doesNotMatch(badgeCode, /\}\s*\/\s*N?\s*3/, '不得在卡面呈现 `{count}/3` 这类阈值进度');
   assert.doesNotMatch(badgeCode, /FRICTION_THRESHOLD|THRESHOLD_N|threshold/i, '不得在卡面引入阈值常量（N 的权威源是规范）');
-  // 闭集外的取值不渲染（同 impact badge 对闭集外取值的处置）。
+  // 闭集外的取值不渲染（原 impact badge 对闭集外取值即如此处置）。
   assert.match(badge, /!Number\.isInteger\(count\) \|\| count < 1\) return null/);
 });
 
@@ -438,7 +438,7 @@ test('26 §8 occurrence 在 /api/cognition 的两段投影里都携带（漏一�
   // 只看**代码**（见 codeOnly 的说明）：注释里说明「该字段为何被删除」是正当的。
   assert.doesNotMatch(codeOnly(src), /human_return_at/, 'human_return_at 已随放回留观流转删除（26 §9.2）');
 
-  // 对照：impact 是既有正确形态，两段都在——occurrence 须与之同规格。
-  assert.match(src, /raw\.impact/, 'impact 第一段仍在');
-  assert.match(src, /build\.impact !== undefined \? \{ impact: build\.impact \}/, 'impact 第二段仍在');
+  // 对照面曾是 impact（2026-11-02 随 26 §8 撤销分级制度删除）——两段投影的
+  // 判据本身不变，故此处改为直接钉 occurrence 两段都在（上面两条断言即判据）。
+  assert.doesNotMatch(src, /raw\.impact|build\.impact/, 'impact 不得回到任一段投影');
 });

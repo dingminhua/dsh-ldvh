@@ -9,8 +9,8 @@
  *             + markdown body. Code assigns object_uid + created_at and
  *             generates the H1 from title; creation validates the
  *             type-specific mechanical checks (closed sets, phenomenon
- *             single-sentence, impact closure, fixed H2 sections incl.
- *             conditional 处置, carrier coherence).
+ *             single-sentence, fixed H2 sections incl. conditional 处置,
+ *             carrier coherence).
  *  - read:    returns frontmatter + body + file-level content
  *             fingerprint (SHA-256).
  *  - update:  CAS — two guarded lanes (26 §9):
@@ -28,9 +28,11 @@
  * Carrier coherence (26 §8): frontmatter phenomenon is the single
  * authoritative text — the 现象 body section must contain it verbatim.
  *
- * Red lines honoured (26 §18): no urls field, no decorative fields beyond
- * the impact closure (its consumers are anchored in §12), three body
- * sections only (ledger-light).
+ * Red lines honoured (26 §18): no urls field, no decorative fields at all
+ * (the `impact` exception was removed on 2026-11-02 — its two claimed
+ * consumers §12 aggregation and the heavy-bypasses-buffer "重大即显" path
+ * were never implemented in Code, so the anchor lived only inside the spec
+ * text), three body sections only (ledger-light).
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -59,7 +61,8 @@ const BODY_H2_DISPOSITION = "处置";
 // `observing` 已退出——观察材料由 11 §12bis.1 的摩擦观察缓冲承载（非事实对象）。
 // `accepted`（2026-10 新增）：阻碍真实但不可清偿，记录一次、不再报告；是终态。
 const STATUSES = new Set(["open", "resolved", "voided", "accepted"]);
-const IMPACT_VALUES = new Set(["light", "medium", "heavy"]);
+// 2026-11-02（Human 定案「摩擦取消 中 轻 重 这种分级制度」）：`impact` 字段连
+// 同其闭集常量一并撤销，理由见 26 §8 与 §18 第 1 条（该条由此恢复无例外）。
 
 // 26 §13：`correct` 的补填通道只接受**新进入闭集**的字段。闭集扩张时在此登记
 // （首个用例：occurrence——§8 于 2026-11 新增必填）。不在此集合内的字段一律拒绝：
@@ -68,7 +71,8 @@ const CORRECT_ADDABLE_FIELDS = new Set(["occurrence", "disposition"]);
 
 // 26 §13：`correct` 的删除通道只接受两类字段——已退出闭集者，或存在即违反 §8
 // 条件约束者。闭集收缩或条件约束建立时在此登记。
-const CORRECT_REMOVABLE_FIELDS = new Set(["serves", "occurrence"]);
+// `impact`（2026-11-02 加入）：存量终态对象（resolved/voided）走本通道清除该字段。
+const CORRECT_REMOVABLE_FIELDS = new Set(["serves", "occurrence", "impact"]);
 
 /**
  * 第三类删除许可（26 §13，2026-10 扩围）：**目标已退役的锚点字段**。
@@ -112,7 +116,7 @@ const COMMIT_PATTERN = /^[0-9a-f]{40}$/i;
 /** Closed set of frontmatter keys (26 §8: unknown fields are rejected). */
 const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "created_at", "status",
-  "phenomenon", "attribution", "attribution_ref", "impact", "relations",
+  "phenomenon", "attribution", "attribution_ref", "relations",
   "occurrence", "disposition", "change_log",
 ]);
 
@@ -168,8 +172,12 @@ function validateOccurrenceShape(occurrence) {
  * 口径：白名单 = 该类型 §8 的**条件字段**中**非「终态伴随」**者。
  * 终态伴随字段（disposition/relations/retirement_reason/retired_at）在 update 路径不可达
  * （终态只读），故不列。
+ *
+ * `impact`（2026-11-02 加入）：该字段已退出 §8 闭集（26 §8 删除行），存量 open 对象
+ * 须经受控更新的 `frontmatter_removals` 清除它；终态对象走 `correct`，其清除白名单
+ * 见 CORRECT_REMOVABLE_FIELDS。同一纪律的第二次执行（首次是 2026-10 的 `serves`）。
  */
-export const FRICTION_REMOVABLE_FIELDS = new Set(["attribution", "attribution_ref"]);
+export const FRICTION_REMOVABLE_FIELDS = new Set(["attribution", "attribution_ref", "impact"]);
 
 // ---------------------------------------------------------------------------
 // Result helpers
@@ -320,10 +328,6 @@ export function validateFrictionFrontmatter(frontmatter) {
 
   if (!STATUSES.has(frontmatter.status)) {
     issues.push(`status: must be one of ${[...STATUSES].join("/")}`);
-  }
-
-  if (!IMPACT_VALUES.has(frontmatter.impact)) {
-    issues.push(`impact: must be one of ${[...IMPACT_VALUES].join("/")} (26 §8)`);
   }
 
   // occurrence (26 §8, 2026-10 修订)：形状与**成员闭集**。此处是 create 与 update
@@ -709,12 +713,12 @@ function buildFileContent(frontmatter, body) {
 
 /**
  * 展示层输出序（同 spark/adr/pitfall writer 约定）：语义块在前
- * （标题/状态/现象/归因/影响/信号归属/处置），引用与身份居后，
+ * （标题/状态/现象/归因/信号归属/处置），引用与身份居后，
  * change_log 沉底。只重排键序，不新增、不删除、不改值。
  */
 const FRONTMATTER_FIELD_ORDER = [
   "title", "status",
-  "phenomenon", "attribution", "impact",
+  "phenomenon", "attribution",
   "relations",
   "object_uid", "fact_type_key", "created_at",
   "change_log",
@@ -1134,7 +1138,7 @@ export async function updateFrictionObject(args) {
  *
  * 可改范围：**正文（含处置段）与 relations**——恰是销账时写错的两处（02:386 事实
  * 更正与关系变更是不同动作，本入口覆盖两者）。逐字不变：status/title/phenomenon/
- * impact/attribution/created_at/change_log（Code 追加一条）。
+ * attribution/created_at/change_log（Code 追加一条）。
  *
  * 与 WorkCase 的 correct 的关键差异：那里 `next` 是落盘对象的克隆、调用方**完全
  * 无法触及任何 frontmatter 字段**（只改正文）；这里 relations 是销账动作写入的产物，
@@ -1376,7 +1380,7 @@ export async function correctFrictionObject(args) {
   next.change_log = [...(fm.change_log ?? []), {
     at: new Date().toISOString(),
     ...sig.signature,
-    summary: `事实更正（非状态转换）——${changeSummary}。终态判定未变：status/title/phenomenon/impact/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：${removedFields.length > 0 ? removedFields.join("、") : "无"}；② 2026-11 起可补填新进入类型闭集的字段，本次补填：${addedFields.length > 0 ? addedFields.join("、") : "无"}），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：${humanAuthorization.trim()}`,
+    summary: `事实更正（非状态转换）——${changeSummary}。终态判定未变：status/title/phenomenon/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：${removedFields.length > 0 ? removedFields.join("、") : "无"}；② 2026-11 起可补填新进入类型闭集的字段，本次补填：${addedFields.length > 0 ? addedFields.join("、") : "无"}），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：${humanAuthorization.trim()}`,
   }];
   const filePath = objectFilePath(factSourceRoot, objectUid);
   const content = buildFileContent(next, body);
@@ -1463,7 +1467,6 @@ export async function listFrictionObjects(args) {
       // frontmatter 里（本函数作用域内），此前只是没被投影出来。
       phenomenon: typeof frontmatter.phenomenon === "string" ? frontmatter.phenomenon : "",
       status,
-      impact: typeof frontmatter.impact === "string" ? frontmatter.impact : "",
       attribution: typeof frontmatter.attribution === "string" ? frontmatter.attribution : undefined,
       // 26 §8/§11（2026-10 订正）：attribution_ref 是对象形态 { object_uid }
       // （锚点型）。原 `typeof === 'string'` 判定把真实载体的对象形态静默丢弃

@@ -16,7 +16,6 @@ import PageHeader from '@/components/PageHeader';
 import GoalSection from '@/components/GoalSection';
 import ObjectReferenceCopyButton from '@/components/ObjectReferenceCopyButton';
 import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
-import FrictionImpactBadge from '@/components/FrictionImpactBadge';
 import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
 import {
   FrictionCardContent,
@@ -384,12 +383,10 @@ function RecentActivityRow({ item }: { item: CognitionRecentActivityItem }) {
             2026-11-01（Human 定案）：`serves` 子目标 chip 已撤除（原先紧跟
             PriorityIcon），与列表卡头、详情头同步。 */}
         <PriorityIcon source={item} type={item.type} locale={locale} size="xs" />
-        {/* 26 §8 impact（轻/中/重）：与列表卡卡头、详情身份头**同序同形**（类型 →
-            优先级 → 影响 → 修改次数），经同一个共享组件渲染。
-            Human 2026-11：「聚焦里依然没有重中轻的标签」——此前本行只挂了
-            PriorityIcon，且 API 侧未投影 impact。 */}
-        {item.type === 'friction' && <FrictionImpactBadge value={item.impact} locale={locale} />}
-        {/* 26 §8 occurrence：同上（三处同序同形，共享组件）。 */}
+        {/* 26 §8 occurrence：与列表卡卡头、详情身份头**同序同形**（三处共享组件）。
+            （原此处的 impact 轻/中/重 chip 已于 2026-11-02 随摩擦分级制度撤销，
+            26 §8；Human 当年「聚焦里依然没有重中轻的标签」所暴露的同类缺口由
+            occurrence 承接——该缺口形态的教训保留在此。） */}
         {item.type === 'friction' && <FrictionOccurrenceBadge value={item.occurrence} />}
         <ActivityCountBadge count={item.activityCount} label={t('cognition.recent.activityCount', { count: String(item.activityCount) })} />
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
