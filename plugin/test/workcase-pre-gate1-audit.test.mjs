@@ -5,7 +5,10 @@
 //   ① 时序闸（approve）：上一次落盘的 draft 须已带 pre_reviews —— 审核不得与批准同批写入；
 //   ② 覆盖闸（approve）：须存在一条 candidate_fingerprint == 当前 plan+scope 指纹
 //      且 verdict == pass 的条目 —— 「审完又改」的旧结论不覆盖当前候选；
-//   ③ 上限闸（record_audit）：同一次审核事项（同一指纹）最多 3 条，第 4 条拒绝。
+//   ③ 上限闸（record_audit）：按 `round_index` 的不同值计轮次（2026-10-27 口径，
+//      不因修订或 rebatch 重置），**开启第 4 轮**被拒；复用既有轮号不受此限——那是
+//      达上限后的同轮定向复审出口（§9.2 条末段，2026-11-03 登记）。出口本身也须被
+//      钉住：只测「第 4 轮被拒」的套件会把合法出口与旁路混为一谈。
 //
 // 为什么需要这组测试：修订前只有 Approve 的「第五要素非空」形式校验，故「审没审」
 // 「审的是哪一版」「审到第几次」三者都不可机械核验（实测：workcase-c36b0208 的审核
@@ -96,7 +99,7 @@ async function read(root, uid) {
 }
 
 /** 记录一条建前审核；返回 writer 结果供断言。 */
-async function audit(root, uid, { verdict = "pass", summary = AUDIT_SUMMARY, identity = AUDITOR() } = {}) {
+async function audit(root, uid, { verdict = "pass", summary = AUDIT_SUMMARY, identity = AUDITOR(), roundIndex = null, coveredPartitionIds = null } = {}) {
   const cur = await read(root, uid);
   return await recordWorkcaseAudit({
     factSourceRoot: root,
@@ -104,6 +107,8 @@ async function audit(root, uid, { verdict = "pass", summary = AUDIT_SUMMARY, ide
     expectedFingerprint: cur.value.fingerprint,
     summary,
     verdict,
+    coveredPartitionIds,
+    roundIndex,
     changeSummary: "记录一条建前审核结论",
     sessionSignature: SIG(),
     sessionIdentity: identity,
@@ -261,6 +266,113 @@ test("上限闸：计数按审核事项轮次计——指纹变化不重置，�
     const fourth = await audit(root, uid, { summary: "第 4 轮审核（夹具）" });
     assert.ok(!fourth.ok, "指纹变化后轮次不应重置——第 4 轮须被拒");
     assert.equal(fourth.error.code, "workcase/pre_gate1_audit_round_cap");
+  });
+});
+
+// 上限闸的**出口**（21 §9.2 条末段，2026-11-03 Human 决定）。
+//
+// 为什么必须钉住这一条：上限闸只拒绝**开启新轮**，复用既有 `round_index` 是规范
+// 写明的合法通道——三轮用尽后若审核者已就当前候选判定通过，可复用既有轮号补记
+// `pass` 并进 Gate 1。实测 workcase-7ec9833d 第 3 轮审核者自陈「三维已全符合、
+// 仅剩两处文案订正」，本可复用该轮记 pass 直接过闸，实际因无人知晓该路径而以
+// cancelled 收场。只钉「第 4 轮被拒」而不钉「复用轮号放行」的套件，会把合法出口
+// 与旁路混为一谈，也无法阻止将来把两者一起收紧。
+
+test("上限闸的出口：三轮用尽后可复用既有轮号补记 pass 并过覆盖闸 (21 §9.2 条末段，2026-11-03)", async () => {
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const uid = await createDraft(root);
+    for (let i = 1; i <= PRE_AUDIT_ROUNDS_MAX; i += 1) {
+      assert.ok((await audit(root, uid, { verdict: "needs_revision", summary: `第 ${i} 轮：未通过（夹具）` })).ok);
+    }
+    // 开新轮仍被拒——出口不是「取消上限」
+    const blocked = await audit(root, uid, { verdict: "pass", summary: "试图开第 4 轮（应被拒）" });
+    assert.ok(!blocked.ok, "开新轮仍须被拒绝");
+    assert.equal(blocked.error.code, "workcase/pre_gate1_audit_round_cap");
+
+    // 复用既有轮号补记 pass：放行，且是该轮定向复审的承载
+    const reused = await audit(root, uid, { verdict: "pass", summary: "复用第 3 轮：复审后判定通过（夹具）", roundIndex: PRE_AUDIT_ROUNDS_MAX });
+    assert.ok(reused.ok, "复用既有轮号补记 pass 须被放行：" + JSON.stringify(reused.error));
+    const after = await read(root, uid);
+    const last = after.value.frontmatter.pre_reviews.at(-1);
+    assert.equal(last.round_index, PRE_AUDIT_ROUNDS_MAX);
+    assert.equal(last.verdict, "pass");
+    // 轮次计数不因复用得以上涨——上限仍是「不同 round_index 值个数」
+    assert.equal(new Set(after.value.frontmatter.pre_reviews.map((e) => e.round_index)).size, PRE_AUDIT_ROUNDS_MAX);
+
+    // 覆盖闸因这条 pass 而满足，Gate 1 可过
+    const coverage = auditCoverageFor(after.value.frontmatter.plan, after.value.frontmatter.scope, after.value.frontmatter.pre_reviews);
+    assert.deepEqual(coverage.uncovered, [], "复用轮号的 pass 须提供完整覆盖：" + JSON.stringify(coverage));
+    const ok = await approve(root, uid);
+    assert.ok(ok.ok, "覆盖闸满足后应放行 Gate 1：" + JSON.stringify(ok.error));
+  });
+});
+
+test("上限闸的出口：复用轮号的 pass 仍受覆盖闸约束——只覆盖部分分区时其余仍须重审 (21 §9.2/§15.1)", async () => {
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const uid = await createDraft(root);
+    for (let i = 1; i <= PRE_AUDIT_ROUNDS_MAX; i += 1) {
+      assert.ok((await audit(root, uid, { verdict: "needs_revision", summary: `第 ${i} 轮：未通过（夹具）` })).ok);
+    }
+    const cur = await read(root, uid);
+    const partitions = computeAuditPartitions(cur.value.frontmatter.plan, cur.value.frontmatter.scope);
+    const onlyPlan = partitions.filter((p) => p.kind === "plan").map((p) => p.id);
+    // 只声明 plan 分区：复用轮号放行，但覆盖闸须如实报出未覆盖的 scope 分区
+    const reused = await audit(root, uid, { verdict: "pass", summary: "复用第 3 轮：只复审了 plan（夹具）", roundIndex: PRE_AUDIT_ROUNDS_MAX, coveredPartitionIds: onlyPlan });
+    assert.ok(reused.ok, JSON.stringify(reused.error));
+    const after = await read(root, uid);
+    const coverage = auditCoverageFor(after.value.frontmatter.plan, after.value.frontmatter.scope, after.value.frontmatter.pre_reviews);
+    assert.ok(coverage.uncovered.length > 0, "未声明覆盖的 scope 分区须仍被视为未覆盖");
+    const blocked = await approve(root, uid);
+    assert.ok(!blocked.ok, "覆盖不全时仍须拒绝批准");
+    assert.equal(blocked.error.code, "workcase/pre_gate1_audit_not_covering_candidate");
+  });
+});
+
+// 本条钉住本次修订的**真实场景**：修订（改 plan/scope）之后复用既有轮号补记 pass。
+// 与上一条的区别：上一条的候选内容全程不变，只验证「覆盖不全要拦」；本条必须有内容
+// 变更，否则「按当前候选的指纹匹配」这一层根本没被触发——而它正是复用通道的全部风险
+// 所在（拿旧候选的 pass 覆盖新候选）。
+test("上限闸的出口：修订后复用既有轮号——旧 pass 不覆盖新内容，须就当前候选重新判定 (21 §9.2/§15.1)", async () => {
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const uid = await createDraft(root);
+    for (let i = 1; i <= PRE_AUDIT_ROUNDS_MAX; i += 1) {
+      assert.ok((await audit(root, uid, { verdict: "needs_revision", summary: `第 ${i} 轮：未通过（夹具）` })).ok);
+    }
+    // 修订：改掉一个 plan 步骤，使该分区指纹变化
+    const before = await read(root, uid);
+    const plan = before.value.frontmatter.plan.map((p, i) => (i === 0 ? { ...p, step: p.step + "（第 3 轮订正后）" } : p));
+    const revised = await reviseWorkcaseObject({
+      factSourceRoot: root,
+      objectUid: uid,
+      expectedFingerprint: before.value.fingerprint,
+      bodyMarkdownAfter: draftBody({ ...before.value.frontmatter, plan, scope: before.value.frontmatter.scope }),
+      plan,
+      changeSummary: "按第 3 轮意见订正 plan 首步骤",
+      sessionSignature: SIG(),
+      sessionIdentity: AUDITOR(),
+    });
+    assert.ok(revised.ok, JSON.stringify(revised.error));
+
+    // 变更后：计划分区 fingerprint 已变，无任何条目覆盖它
+    const mid = await read(root, uid);
+    const staleCoverage = auditCoverageFor(mid.value.frontmatter.plan, mid.value.frontmatter.scope, mid.value.frontmatter.pre_reviews);
+    assert.ok(staleCoverage.uncovered.length > 0, "修订后旧 pass 不得覆盖新内容");
+    const blockedBeforeReaudit = await approve(root, uid);
+    assert.ok(!blockedBeforeReaudit.ok, "未就当前候选重新审核时不得批准");
+    assert.equal(blockedBeforeReaudit.error.code, "workcase/pre_gate1_audit_not_covering_candidate");
+
+    // 就当前候选复用既有轮号补记 pass：覆盖闸满足，轮次计数不变
+    const reaudited = await audit(root, uid, { verdict: "pass", summary: "复用第 3 轮：就订正后的当前候选复审通过（夹具）", roundIndex: PRE_AUDIT_ROUNDS_MAX });
+    assert.ok(reaudited.ok, JSON.stringify(reaudited.error));
+    const after = await read(root, uid);
+    assert.equal(new Set(after.value.frontmatter.pre_reviews.map((e) => e.round_index)).size, PRE_AUDIT_ROUNDS_MAX, "复用不增加轮次计数");
+    const coverage = auditCoverageFor(after.value.frontmatter.plan, after.value.frontmatter.scope, after.value.frontmatter.pre_reviews);
+    assert.deepEqual(coverage.uncovered, [], JSON.stringify(coverage));
+    const ok = await approve(root, uid);
+    assert.ok(ok.ok, "就当前候选复审后应放行 Gate 1：" + JSON.stringify(ok.error));
   });
 });
 
