@@ -2593,6 +2593,56 @@ test("结构命中：贴完整 object_uid 须命中该条（02 §9.1 F2 的「�
 	});
 });
 
+test("结构命中：短指称「类型短名-前8位」与裸前8位都须命中（语料实际写法）", async () => {
+	// 依据（实测）：本仓语料里「类型短名 + 前 8 位」出现 726 次、去重 186 个对象，
+	// 是人和 AI 实际写出来的指称形态。改造前结构层只认完整 36 位，于是这种
+	// 最常用的写法恰好查不到——`adr-62d3e2d8` 与裸 `62d3e2d8` 均 0 命中。
+	await withStructuralFixture(async (project) => {
+		const q = (action) => recallForAction({
+			action, root: project, limit: 5, budgetBytes: 400000, includeSpecs: false,
+		});
+		const FRICTION = "33333333-3333-4333-8333-333333333333";
+		for (const [form, label] of [
+			["friction-33333333", "类型短名 + 前 8 位"],
+			["33333333", "裸前 8 位"],
+			[FRICTION, "完整 36 位"],
+		]) {
+			const r = await q(form);
+			assert.ok(
+				r.facts.some((f) => f.ref === FRICTION),
+				`${label}（${form}）须命中该条`,
+			);
+		}
+	});
+});
+
+test("结构命中：短指称不认前缀之外的形态（7 位、9 位、错误类型前缀均不命中）", async () => {
+	// 这一档**只把 object_uid 的可接受书写形态从 1 种扩到 3 种**，
+	// 不改变「整值相等」的比较方式：`3333333`（7 位）与 `333333333`（9 位）
+	// 都不是合法形态，错误类型前缀不应借用别的类型的短指称。
+	await withStructuralFixture(async (project) => {
+		const q = (action) => recallForAction({
+			action, root: project, limit: 5, budgetBytes: 400000, includeSpecs: false,
+		});
+		const FRICTION = "33333333-3333-4333-8333-333333333333";
+		// **反向对照**：先证明结构层确实在工作。否则下面的 `!some(...)` 断言
+		// 会因为「整层返回空」而假通过——那是这类否定式用例最常见的说谎方式
+		// （本会话已发生过一次：用例标题写 absorbed、实际只测了 dropped）。
+		const positive = await q("friction-33333333");
+		assert.ok(
+			positive.facts.some((f) => f.ref === FRICTION),
+			"对照：正确的短指称须命中。此项失败说明结构层整体失效，下面的否定断言无意义",
+		);
+		for (const bad of ["3333333", "333333333", "spark-33333333"]) {
+			const r = await q(bad);
+			assert.ok(
+				!r.facts.some((f) => f.ref === FRICTION),
+				`${bad} 不得命中——短指称只认恰好 8 位，且类型前缀须与该对象类型一致`,
+			);
+		}
+	});
+});
+
 test("结构命中：serves / priority / impact / direction_key / relation_key 均须可命中", async () => {
 	await withStructuralFixture(async (project) => {
 		const q = (action) => recallForAction({
@@ -2637,6 +2687,45 @@ test("结构命中：命中理由须写明命中的字段与值（34 §8.2 命�
 		assert.ok(hit !== undefined, "须命中");
 		assert.match(hit.hitReason, /结构命中：/, "理由须标明这是结构命中");
 		assert.match(hit.hitReason, /serves=SG-1/, "理由须写明命中了哪个字段、什么值");
+	});
+});
+
+test("结构命中：命中理由须写明命中的是哪一种书写形态（34 §8.2 披露义务）", async () => {
+	// **为什么这条不能只靠「读者自己去比对」**：`34 §8.2` 要求理由本身写明形态，
+	// 使读者**不依赖别处比对**即可判断精确度。若理由只给形态串（`object_uid=adr-62d3e2d8`），
+	// 读者要拿卡片上的完整 ref 算长度、再反推这是短标识——义务就有了隐含前提。
+	const UID = "11111111-1111-4111-8111-111111111111";
+	await withStructuralFixture(async (project) => {
+		const q = (action) => recallForAction({
+			action, root: project, limit: 5, budgetBytes: 400000, includeSpecs: false,
+		});
+		const cases = [
+			[UID, "完整标识"],
+			["11111111", "短标识"],
+			["spark-11111111", "类型短名+短标识"],
+		];
+		for (const [query, form] of cases) {
+			const r = await q(query);
+			const hit = r.facts.find((f) => f.ref === UID);
+			assert.ok(hit !== undefined, `${query} 须命中`);
+			assert.ok(
+				hit.hitReason.includes(`（${form}）`),
+				`${query} 的理由须写明形态「${form}」，实际：${hit.hitReason}`,
+			);
+			// 形态之后不得再紧跟别的括号说明——避免相邻括号被读成嵌套。
+			assert.match(
+				hit.hitReason, /（(完整标识|短标识|类型短名\+短标识)）/,
+				"形态标注须用可识别的固定词，且不得与值里的括号混淆",
+			);
+		}
+		// 反向：闭集值字段只有一种形态，不该被标注（标一个恒定「唯一形态」是噪声）。
+		const closed = await q("SG-1");
+		const closedHit = closed.facts.find((f) => f.ref === UID);
+		assert.ok(closedHit !== undefined, "SG-1 须命中");
+		assert.ok(
+			!/serves=SG-1（/.test(closedHit.hitReason),
+			`serves 是闭集值，无「形态」之分，不得标注。实际：${closedHit.hitReason}`,
+		);
 	});
 });
 

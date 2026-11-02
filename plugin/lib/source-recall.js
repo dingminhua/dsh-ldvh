@@ -1653,6 +1653,41 @@ export const STRUCTURAL_MATCH_FIELDS = Object.freeze([
 ]);
 
 /**
+ * `object_uid` **短指称**的标识长度（2026-11-02）。
+ *
+ * 取 `object_uid` 的前 8 位。**为什么要补这一档（实测）**：本仓语料里
+ * 「类型短名 + 前 8 位」这一形态出现 **726 次、去重 186 个对象**
+ * （friction 236、workcase 165、spark 124、research 101、pitfall 86、
+ * adr 7、norm 6、goal 1）——这是人和 AI 实际写出来的指称形态。
+ * 而改造前的结构层**只认完整 36 位 uid**，于是最常用的那种写法恰好查不到：
+ * `adr-62d3e2d8` 与裸 `62d3e2d8` 均 0 命中，只有
+ * `62d3e2d8-7202-4e13-902e-788ec4bca9ed` 才行。
+ *
+ * **为什么不是「子串匹配」**：只认**整词恰好等于**「8 位十六进制」或
+ * 「类型短名-8 位十六进制」这两种写法。`SG-1` 不命中 `SG-10` 的判据
+ * （整值相等）在字段值上原样保留；这一档只把 `object_uid` **这一个字段**的
+ * 可接受书写形态从 1 种扩到 3 种，不改变比较方式，也不扩到任何其它字段。
+ *
+ * **已知边界（如实声明，不主张零风险）**：裸 8 位形态无机械能力区分
+ * 「指代对象」与「恰好长得像某对象前缀的其它十六进制串」（如 Git 短提交号）。
+ * 实测本仓语料出现的裸 8 位值 288 个，其中 155 个不是任何对象 uid 的前缀
+ * （4 个是 Git 提交号、151 个是历史标识或编号），且当前**零前缀碰撞**——
+ * 但那是语料现状，不是结构性保证。碰撞真发生时，两个对象会被同一次查询
+ * 一并命中，并各自在命中理由里写明命中的是哪种写法，读者可据完整 uid 分辨
+ * （`02 §9.1` F2 只要求候选**可筛选**，不要求候选唯一）。
+ */
+export const SHORT_REF_LENGTH = 8;
+
+/** 完整 `object_uid` 的形态判据——只用于判断「该候选能否提供短形态」，不做合法性校验。 */
+// 大小写不敏感：`02 §7.1` 规定的是 canonical UUIDv4 小写文本，但**本判据只决定
+// 「能否派生短形态」**，不承担合法性校验（合法性由各类型 writer 的 uid 校验负责）。
+// 若这里也严格到只认小写，一个大小写异常的旧对象会「完整 uid 能命中、短形态却
+// 派生不出」——同一对象两种写法的支持面不一致，那才是更难解释的状态。
+// **故意不校验版本位 4**：仓库存在 v4 遗留对象，它们同样需要短形态命中；
+// 本判据的用途是字符串派生，不是 UUID 版本验证。
+const FULL_UID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
  * 判定一个候选的**结构字段**是否被查询 token 整词点名。
  *
  * @param {string[]} actionTokens 已小写化的查询 token
@@ -1664,13 +1699,33 @@ export function structuralHits(actionTokens, candidate) {
   if (s === null || typeof s !== "object") return [];
   const tokens = new Set(actionTokens);
   const hits = [];
-  const add = (field, value) => {
+  // `form` 只在「同一字段有多种被接受的书写形态」时给出（目前仅 `object_uid`）。
+  // 它进命中理由（`34 §8.2`「须写明命中的是哪一种形态」）——**不依赖读者拿卡片上
+  // 的完整 ref 去和理由里的串做长度比对**来反推形态，那样义务就有了隐含前提。
+  const add = (field, value, form) => {
     if (typeof value !== "string" || value === "") return;
     // 整词相等（小写比较）。**不认子串**：`p1` 不应命中 `p10`，`sg-1` 不应命中 `sg-10`。
-    if (tokens.has(value.toLowerCase())) hits.push({ field, value });
+    if (tokens.has(value.toLowerCase())) {
+      if (form === undefined) hits.push({ field, value });
+      else hits.push({ field, value, form });
+    }
   };
   // `object_uid`：`02 §9.1` F2 明列的「稳定引用」——贴一条 uid 是最精确的指称。
-  add("object_uid", candidate.ref);
+  //
+  // **三种书写形态都认**（2026-11-02，见 `SHORT_REF_LENGTH` 的实测依据）：
+  // 完整 36 位、前 8 位、`类型短名-前8位`。三者都是**整词相等**——差别不在此
+  // 而在于「被接受的书写形态」有三种，见 `34 §8.2` 对这两种性质的区分。
+  const ref = candidate.ref;
+  add("object_uid", ref, "完整标识");
+  if (typeof ref === "string" && FULL_UID_PATTERN.test(ref)) {
+    const short = ref.slice(0, SHORT_REF_LENGTH).toLowerCase();
+    add("object_uid", short, "短标识");
+    // 类型短名取自候选自身的 `type`（`fact_type_key` 派生），不在本函数里
+    // 重新推导类型——那是判据表的事，这里只拼字符串。
+    if (typeof candidate.type === "string" && candidate.type !== "") {
+      add("object_uid", `${candidate.type}-${short}`, "类型短名+短标识");
+    }
+  }
   add("serves", s.serves);
   add("priority", s.priority);
   add("impact", s.impact);
@@ -1905,7 +1960,12 @@ export function matchCandidate(actionTokens, candidate, corpusStats, queryText =
   if (structural.length > 0) {
     const shown = structural
       .slice(0, 3)
-      .map((h) => `${h.field}=${h.value}`)
+      // 有 `form` 时括号内标注形态（`34 §8.2`「须写明命中的是哪一种形态」）。
+      // 无 `form` 的字段（serves／priority／impact 等闭集值）只有一种形态，
+      // 不标注——标注一个恒定的「唯一形态」是噪声。
+      .map((h) => (h.form === undefined
+        ? `${h.field}=${h.value}`
+        : `${h.field}=${h.value}（${h.form}）`))
       .join("、");
     // ── **结构命中能否占据最高层，取决于它是不是查询的主题** ─────────────
     //
