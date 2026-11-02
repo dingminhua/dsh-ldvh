@@ -50,6 +50,10 @@ change_log:
     provider: minmax
     model: MiniMax-M3.1-Flash
     summary: 补记 2026-10-24 实测：宿主已到 0.2.1-rc.3（基线经 Human 决定推进），0.2.1-rc.2→rc.3 服务端零契约变更且客户端槽位纯新增，0.2.0-rc.2→0.2.1-rc.3 的比对缺口已补上并把 ctx.invariants 的移除定位到提交 f028f25667（首个缺失该缝的发布 tag 为 0.2.1-alpha.1），两个宿主库依赖的版本分叉已对齐
+  - at: 2026-11-01T23:39:15.893Z
+    provider: workbuddy-global
+    model: deepseek-v4.1-flash
+    summary: 补入 2026-11-02 只读重核节：四要件逐项核为 1/4——① 基线登记点已成立且已追平实测（norm a1b559a6 第 75 行登记 0.2.1-rc.5，与本机 CFBundleShortVersionString 一致，change_log 记 rc.1→rc.5 四步推进与逐次差分结论，故「登记值已被实测推翻」已不成立）；② 差分人工可取但无机械通道（plugin/scripts 8 个脚本无宿主契约差分器）；③ 三态机械判据未落（host-seams snapshot 是运行时软探测，对「上游新增方法」无感）；④ 落地时机点无规范条文（specs/10 §8 与 specs/06 均无上游比对行）。summary 未改
 refs:
   - object_uid: 25a34e54-fa56-45e7-92a9-85eb222aee97
 ---
@@ -92,6 +96,22 @@ refs:
 - 未决：机制落点是 spec 10 新增条款、还是 CLI 侧确定性检查（spec 05 helper-service-contract）由 Human 决定。
 
 （来源：本地仓 /Users/dmh2002/DshProject/deepseek-harness 的 tag dsh-v0.2.0-rc.2 / dsh-v0.2.1-rc.2；宿主 asar 实测；plugin/lib 实测；普查原条目 B-04）
+
+### 2026-11-02 重核（只读）：四要件 1/4，基线登记点已建并在用
+
+> 本节给出**当前**证据；上文是记录时点叙述，未改写。
+
+`scope_boundary` 四要件逐项核：
+
+**①「宿主基线有唯一权威登记点」——已成立，且已追平实测**。`ldvh-base/norms/norm-a1b559a6-6c13-494b-974a-a9368686bc7b.md` 第 75 行登记「DSH Desktop `0.2.1-rc.5`（`/Applications/DeepSeek Harness.app`）」；本机实测 `CFBundleShortVersionString` 亦为 **0.2.1-rc.5**，登记值与实测一致。该 norm 的 change_log 逐次记录了 0.2.0-rc.1 → rc.2 → 0.2.1-rc.3 → rc.5 四步推进，每次均注明「四项实证重新独立取得」并附契约差分结论（第 48 条记 rc.3→rc.5：「服务端仅两处非消费面变更、客户端槽位键 103→103 全等、reasoning.body 新增 rawText 但本插件未注册该槽位」）。**即上文所记「norm 登记值已被实测推翻」已不再成立**——2026-10-24 与 2026-10-30 两次 Human 决定的推进已把它追平。故「登记点分散」的问题也已收敛：norm 为权威，CHANGELOG 与 package.json 为派生。
+
+**②「契约面差分可取数」——人工可取，无机械通道**。差分结论确实被逐次取得并写入 change_log，但取得方式是人读上游仓库 tag 与 asar 清单；`plugin/scripts/` 下 8 个脚本（`affected-tests`／`backfill-spark-priority`／`bench-tests`／`drift-check`／`mutation-check`／`run-tests`／`specs-bundle`／`test-lint`）**没有一个是宿主契约差分器**。`drift-check.mjs` 是「召回-源一致性检查」（制造源变动验证召回模块能否感知），对象是 `specs/` 与 `ldvh-base/`，不是上游契约面。
+
+**③「差动能机械落到破坏／降级／无关三态」——未落**。现有 `plugin/lib/host-seams.js` 的 `snapshot()` 是**运行时软探测**（装载期看缝在不在），它回答「此刻这缝可用吗」，不回答「相对登记基线，哪些契约面变了、变的是否破坏」。二者判据不同：软探测对「上游新增了方法」无感（不影响可用性），而三态判定要能报出「新增」并归入「无关」。故上文所记「只有软探测」在 2026-11-02 仍成立。
+
+**④「落地时机点被规范写明」——未落**。`specs/10` §8 验证表现 11 行，全为本仓内部一致性（新增的一行是「宿主缝消费」），无一行比对上游版本差异；`specs/06`（Code 实践与测试规范）全文无「宿主版本／上游／契约快照」条款。
+
+**故本条的完成度是 1/4**：登记点已建且已在使用中追平两次，差分靠人工、三态无机械判据、时机点无规范条文。上文「靠人工事后补」的诊断在**结果**层面已被两次及时推进部分证伪（两次都赶在破坏发生前吸收），但在**机制**层面未被推翻——那两次推进靠的是 Human 决定与人工核对，不是机制触发。剩余工作的性质因此收敛为：**把已经稳定运行的人工流程机械化**，而不是「建立一个还没有的流程」。
 
 ## 调查问题
 
