@@ -536,6 +536,10 @@ true`、短哈希），**不新写解析**。实拍确认 absorbed 条目关联�
 
 ### 类型色：`#ca21a0`（magenta，色相 315°）
 
+> **2026-11-03 改判（见 §4vicies）**：本节记录的 magenta 取值已由 Human 定案改为冷色系
+> 青绿 `#2c9e43`（色相 132°）。下文是当时的定案原文，作为历史留存——「取最大空隙」与
+> 「不用中性灰」这两条**方法**仍然成立，改的只是候选带的选择（冷色带里不含 magenta）。
+
 取既有八类色相之间的**最大空隙**，而不是就近取一个「看起来属于同一族」的色：
 最近邻（`#a855f7` 紫，色相 276°）相距 44°，既有一切类型色两两距离 ≥20°。
 **不用中性灰**：灰在 LDVH 里已属「终态/废弃」语义族（`slate` 弱化），拿它当类型色
@@ -844,8 +848,8 @@ Human 定案 2026-11-02（附两图：图一是规范列表卡，图二是该卡
 
 `DECISION_DETAIL_NEUTRAL_SHELL_CLASS` 的左条是 `border-l-violet-400/70`（紫），而它当时
 唯一消费方 `DevLogReadingLayout` 的时间轴节点把**标题**写成 `DECISION_TITLE_HUE_CLASS.lime`
-（黄绿）——同一块里左条与标题不同色相；而 DevLog 的类型色是 `#ca21a0`（magenta），两者
-都不等于 lime。本次**不动它**：改左条色相是未被请求的视觉变更。正确修法任选其一——
+（黄绿）——同一块里左条与标题不同色相；而 DevLog 的类型色是 `#ca21a0`（magenta；
+2026-11-03 已改判为青绿 `#2c9e43`，见 §4vicies），两者都不等于 lime。本次**不动它**：改左条色相是未被请求的视觉变更。正确修法任选其一——
 把左条并进与本块标题同一色相，或让该块改用四边同宽壳（它已不含「领域归属」语义，本不该
 留在本家族）——两者都需 Human 裁决，故只登记。
 
@@ -983,7 +987,8 @@ function directoryStatus(scope, type) {
 Human 附两张截图，圈出两张卡的卡体主块，说：「圈出来的要和类型的颜色对上，也就是同一个色系的」。
 
 - **子目标卡**：卡头类型 chip 与次序 icon 是 lime `#84cc16`，被圈的主块是**蓝面**；
-- **开发日志卡**：卡头类型 chip 是 magenta `#ca21a0`，被圈的主块**同样是蓝面**。
+- **开发日志卡**：卡头类型 chip 是 magenta `#ca21a0`（当时取值；2026-11-03 改判为青绿
+  `#2c9e43`），被圈的主块**同样是蓝面**。
 
 ### 那个蓝是 WorkCase 自己的类型色，不是「判据面通用色」
 
@@ -1009,6 +1014,8 @@ Human 附两张截图，圈出两张卡的卡体主块，说：「圈出来的�
 1. **Tailwind 色相板与类型色不是同一套值**。类型色是 hex（`devlog` = `#ca21a0`，色相
    315°），最近的 Tailwind 色是 `fuchsia`（292°）或 `pink`（330°）——用类名就得二选一，
    两者都偏离 15° 以上，而卡头 chip 用的是精确 hex，并排会读出**两种紫红**。
+   （2026-11-03 类型色改判为青绿 `#2c9e43`／132°，最近的 Tailwind 色变成 `green`／142°，
+   相差 10°——**结论不变**：仍是两套值，仍不能靠类名表达。）
 2. **正文档位需要「该色相更深但低饱和」**（`docs/01` §1.6）。9 类 × 明暗 = 18 条手调
    字面量，下一次调档只会改到其中一部分——正是本仓反复出现的「两处各写一套」病。
 
@@ -1536,7 +1543,27 @@ import 行内不得出现 `CircleHelp`。**坑（本轮第二次踩同一处）*
 `/CircleHelp/`，被注释里「为什么撤掉外圈」的历史记述判红——撤除类反向断言**只查代码位**
 （import 行、`Icon:` 引用），注释里的说明是正当的（同 §4octodecies 的 `Maximize2` 坑）。
 
+**第三次定案（2026-11-03，Human 复用后）：改回带圈的问号。** User said (m00517)：
+「问号图标改回待圆圈的问号」（附图为关联行末的裸问号，蓝框圈住其中一枚）。
+
+**判读**：本次撤的是**裸问号**这一形态，不是上一轮「用问号不用进度环」的判读——问号隐喻
+与「等一个决定」的对应关系继续成立，被推翻的只是「外圈多余」这一条审美判断。Human 看过
+首版带圈形态时判「外圈多余」，看过裸问号实机后改判「改回带圈的」：行末那一列图标里
+其余四族（`Activity`／`CirclePlay`／`CircleCheck`／`CircleMinus`）**全是带形心的圆**，
+裸问号孤零零一个字形不成族，读者会先把它读成正文里的标点，再才读成状态。
+
+**落点**：`ObjectList.tsx` 的 `pending` 改回 lucide 原生 `CircleHelp`，lucide import 行补回
+`CircleHelp`；`SemanticIcon.tsx` 的本地封装 `QuestionMarkIcon` **整段删除**——它只为这一个
+族存在，形态撤回后即成无人引用的死图形（§09 §4.1 的表随之回到「五族全部 lucide 原生」）。
+
+**守卫改向**：`spark-reading-contract.test.ts` 的四条相应反转——正向断言
+`pending: { Icon: CircleHelp, … }` 与 lucide import 行内**必须**出现 `CircleHelp`；反向断言
+自绘 path `M12 12V3a9 9 0 0 1 9 9` 与 `Icon: QuestionMarkIcon` 都不得再出现。反向断言仍
+只查代码位（import 行与 `Icon:` 引用），注释里的历史记述不判红——上一轮踩过的坑继续有效。
+
 ### 验证
+
+（前两行为当时的实测记录，形态已随后续定案撤销，留作历史。）
 
 - **首版（带圈）实测**：`lucide-circle-help` 出现 8 次、自绘 path `M12 12V3a9` 已不在页面、
   同页 `circle-check` 6 / `circle-minus` 1 / `activity` 2，零控制台错误
@@ -1546,3 +1573,59 @@ import 行内不得出现 `CircleHelp`。**坑（本轮第二次踩同一处）*
   `/ldvh/objects/subgoal`：`lucide-circle-help` **0 次**，8 个 `title="待处理"` 的 span 内
   svg 均为 `viewBox="0 0 24 24"` + **2 条 path + 0 个 circle**（即无外圈）、渲染框 15×15、
   零控制台错误（截图 `scratch.local/ui-bare-q.png`）。
+- **第三次定案后（改回带圈）实测**：`npx tsc -b` 通过；`npx tsx --test tests/api/*.test.ts` →
+  **611 pass / 0 fail**；`npx eslint` 无新增；`npm run build:dsh` 重建后访问
+  `/ldvh/objects/subgoal`：`lucide-circle-help` 复活、自绘 path 归零、`QuestionMarkIcon`
+  已不在任何文件中被引用，零控制台错误。
+
+## 4vicies. DevLog 类型色改冷色系（2026-11-03，Human 定案）
+
+User said (m00001)：「当前开发日志的颜色要改成冷色系的」。改的是 **DevLog 的类型色**
+（`#ca21a0` magenta / 315° → **`#2c9e43` 青绿 / 132°**），不是状态色、不是卡面配色方案。
+`categoryColors.ts`（前端）与 `api/services/typeColors.ts`（后端，联邦/认知视图消费）两处
+同值，`devlog-presentation-contract` 逐字断言这条「前后端同值」。
+
+### 为什么最终落在绿色带，而不是看起来更「冷」的青/蓝
+
+冷色带里对**九类事实类型**都留足 20° 间隔的空隙只有三处，其中两处一放上去就撞状态色：
+
+- **青色带（≈195°）**：距状态天蓝 `#0284c7`（200°，`executing` / `progressing` /
+  `closure_preparing` / `plan_revising` 四态用色）仅约 5°。蓝色家族的 WorkCase 卡上
+  同时出现「类型 chip」与「状态徽章」，两者同色相等于让读者以为类型和状态是同一件事。
+- **靛蓝带（≈238°）**：距 `independent_reviewing` 的靛蓝 `#818cf8`（235°）仅约 3°；且
+  `docs` 的 conventional-commit scope 色已是 `#6366f1` 靛蓝。
+- **绿色带（104°–140°）**：这是唯一同时满足「距九类事实类型 ≥20°」「距状态绿
+  `#059669`（161°）≥20°」「距状态天蓝 ≥20°」的冷色窗口。取值 `#2c9e43`（132°）——
+  距最近类型色 goal（160°）28°、距状态绿 29°。
+
+**为什么不用更「冷」的 teal（140°–150°）**：goal 是 `#10b981` emerald（160°），
+往 teal 挪每一步都在靠近它；色相 ≈146° 时距离掉到 14°，撞破契约的 20° 阈值。
+
+### 三档对比度都复算过（`type-surface-contract` 兜住正文档）
+
+| 档位 | 浅色主题 | 暗色主题 | 判据 |
+|---|---|---|---|
+| 卡内正文（oklab 混色 58%） | **7.00:1** | **6.96:1** | ≥4.5（12px 正文，不放宽到 3:1） |
+| 类型 chip 贴页底 `--ldvh-bg` | 3.28:1 | 5.72:1 | 非正文 3:1 可读线 |
+| 旧 magenta（对照） | 4.71:1 | 3.98:1 | — |
+
+正文档由 `type-surface-contract` 逐类逐主题机械复算（本次改动后仍 **12 pass / 0 fail**）。
+chip 档**不是**族内不变量：既有九类里 spark 浅色仅 1.82:1、subgoal 1.88:1，故不设阈值，
+此处只如实登记。
+
+### 跟着改的叙述（不是顺手改文案，是防止文档说反）
+
+- `docs/11` §4octies「类型色：`#ca21a0`」整节加改判横幅，保留原文作为历史；
+- 同文 §4undecies 与 §4terdecies（卡体染本类型色）里提到 magenta 的三处，标注
+  「当时取值」并指向本节；
+- `src/utils/typeSurface.ts` 与 `tests/api/type-surface-contract.test.ts` 的由来记述：
+  保留「当时 magenta」的事实，同时点明现值——那两段论证的是**为什么用
+  `color-mix()` 而不是 Tailwind 类名**，理由不随 hex 变（仍是两套值：132° vs
+  `green` 142°，差 10°）；
+- `docs/03` §DevLog 卡那段直接写现值 `#2c9e43`（它讲的是**当前**渲染口径）。
+
+### 验证
+
+`npx tsx --test tests/api/type-surface-contract.test.ts tests/api/devlog-presentation-contract.test.ts`
+→ **12 pass / 0 fail**（含「前后端同值」「九类色相两两 ≥20°」「九类 × 两主题正文 ≥4.5:1」）。
+`api/services/typeColors.ts` 的注释里同步登记了实测值，避免下一个人只信注释、不复算。

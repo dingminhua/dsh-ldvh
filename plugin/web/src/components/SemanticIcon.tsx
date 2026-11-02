@@ -49,37 +49,6 @@ function FileSearchCornerIcon({ size = 16, className, strokeWidth = 2, ...props 
   );
 }
 
-/** 裸问号（无外圈）。关联行末「待处理（等一个决定）」族用（Human 定案 2026-11-02：
- * 「有没有单个问号的，不要有外部的圆圈」）。lucide 0.511 没有无外圈的问号形态
- * （CircleHelp/BadgeHelp/FileQuestion 全部带圈或徽框），故按 §8 先例在集中映射处
- * 包一层本地图形——禁的是**页面内联自绘**，不是集中封装本身（research 的
- * FileSearchCornerIcon 同款）。path 取自 lucide circle-help 的问号部分并**放大 1.9 倍**
- * （绕字形中心 (12,13)）：原字形只占 24 视框的 8/24（它是设计来装进 r=10 的圆里的），
- * 直接摘出来在 15px 下会是个小点，与同排带圈的四个图标视觉重量失衡。放大后字形跨
- * 5.4–20.6，描边宽度不变（strokeWidth 2 → 15px 下 1.25px，与 lucide 同权重）。 */
-export function QuestionMarkIcon({ size = 16, className, strokeWidth = 2, ...props }: LucideProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-      {...props}
-    >
-      <path d="M6.8 5.4a5.7 5.7 0 0 1 11.1 1.9c0 3.6-5.7 5.7-5.7 5.7" />
-      <path d="M12 20.6h.01" />
-    </svg>
-  );
-}
-
-
 // eslint-disable-next-line react-refresh/only-export-components -- Sidebar 等 3 处消费；契约测试按本文件路径读取该常量，拆文件即打断共置断言。
 export const OBJECT_TYPE_ICONS: Record<string, SemanticIconComponent> = {
   workcase: Shovel,

@@ -19,7 +19,8 @@ function read(relativePath: string): Promise<string> {
  *
  * - 子目标卡：卡头类型 chip 与次序 icon 是 lime `#84cc16`，被圈的主块却是**蓝面**
  *   （`WORKCASE_CRITERIA_SURFACE_CLASS`）；
- * - 开发日志卡：卡头类型 chip 是 magenta `#ca21a0`，被圈的主块**同样是蓝面**。
+ * - 开发日志卡：卡头类型 chip 是 magenta `#ca21a0`（该类型色 2026-11-03 已改为青绿
+ *   `#2c9e43`，这里留的是定案当时的事实），被圈的主块**同样是蓝面**。
  *
  * 同一个蓝被贴到两个不同类型上，说明当时被当成「判据面通用色」的其实是 **WorkCase
  * 自己的类型色**。起因可查：2026-11-02 早先的定案是「子目标判据框样式对齐 workcase

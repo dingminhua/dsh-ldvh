@@ -75,18 +75,19 @@ test('every fact list card shows exact-read formal associations in a minimal sec
   assert.match(source, /association\.status === 'discarded'\) return 'discarded'/);
   assert.match(source, /association\.status === 'retired'\) return 'discarded'/);
   assert.match(source, /discarded: \{ Icon: CircleMinus, className: 'text-slate-400\/70 dark:text-slate-500\/70' \}/);
-  // 待确认族用**裸问号**（Human 2026-11-02：「待确认应该用问号图标」→「有没有单个
-  // 问号的，不要有外部的圆圈」）——此前是自绘的四分填充圆，读起来像进度环：未开始的
-  // 条目被画成已完成 25%，隐喻是错的；短暂用过的带圈 CircleHelp 外圈也多余（行首已有
-  // 类型图标，行末再套一个圆是多余的框）。图形集中在 SemanticIcon.QuestionMarkIcon
-  // （lucide 0.511 无裸问号形态）——禁的是页面内联自绘，不是集中封装本身（09 §8）。
-  assert.match(source, /pending: \{ Icon: QuestionMarkIcon, className: 'text-amber-500 dark:text-amber-400' \}/);
-  assert.match(source, /QuestionMarkIcon \} from '@\/components\/SemanticIcon'/);
+  // 待确认族用**带圈问号 CircleHelp**（Human 2026-11-02：「待确认应该用问号图标」；
+  // 2026-11-03 再定案：「问号图标改回待圆圈的问号」）——此前是自绘的四分填充圆，
+  // 读起来像进度环：未开始的条目被画成已完成 25%，隐喻是错的。2026-11-02 曾二次定案
+  // 撤掉外圈改用本地裸问号 QuestionMarkIcon，2026-11-03 Human 判「改回带圈的」，
+  // 该本地图形已随之删除：裸问号与同排其余四族的圆形图标不成族，一眼看不出这是
+  // 「状态」而不是正文里的问号。故现在断言指向 lucide 原生 CircleHelp。
+  assert.match(source, /pending: \{ Icon: CircleHelp, className: 'text-amber-500 dark:text-amber-400' \}/);
   assert.doesNotMatch(source, /M12 12V3a9 9 0 0 1 9 9/);
-  // 带圈形态不得回到**代码**里（只查 import 行与 Icon 引用——注释里说明「为什么撤掉
+  // 撤除形态不得回到**代码**里（只查 import 行与 Icon 引用——注释里说明「为什么曾撤掉
   // 外圈」时必须点名旧图形，全文断言会把正当的历史记述判成失败，同 §4octodecies 的坑）。
-  assert.doesNotMatch(source.split('\n').find(l => l.startsWith('import') && l.includes('lucide-react')) ?? '', /CircleHelp/);
-  assert.doesNotMatch(source, /Icon: CircleHelp/);
+  // 两条：自绘四分圆 path 不得复活；已删除的 QuestionMarkIcon 不得再被引用。
+  assert.match(source.split('\n').find(l => l.startsWith('import') && l.includes('lucide-react')) ?? '', /CircleHelp/);
+  assert.doesNotMatch(source, /Icon: QuestionMarkIcon/);
   assert.match(source, /const isDiscarded = associationState === 'discarded'/);
   assert.match(source, /isDiscarded \? 'text-slate-400\/70 dark:text-slate-500\/70'/);
   assert.match(source, /isDiscarded \? 'text-slate-400\/65 dark:text-slate-500\/60'/);

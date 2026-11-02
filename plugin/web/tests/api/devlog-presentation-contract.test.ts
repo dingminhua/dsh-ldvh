@@ -238,8 +238,8 @@ test('devlog 有独立的图标与类型色，前后端同值，且不与既有�
   // 图标：NotebookPen——「已做过的事的记录」，不是「待处理」也不是「责任」。
   assert.match(icons, /devlog: NotebookPen,/);
   // 类型色两侧同值（漂移会让同一条日志在列表与联邦视图里换色）。
-  assert.match(colors, /devlog: '#ca21a0'/);
-  assert.match(typeColors, /devlog: '#ca21a0'/);
+  assert.match(colors, /devlog: '#2c9e43'/);
+  assert.match(typeColors, /devlog: '#2c9e43'/);
 
   // 不与既有**事实类型**撞色：色相距离是「读者能否靠颜色分辨类型」的机械代理。
   // 作用域刻意只取事实类型九类——`CATEGORY_COLORS` 里还混着 conventional commit
