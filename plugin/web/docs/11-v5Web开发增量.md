@@ -1367,3 +1367,120 @@ Human 原话（m00809）：「摩擦取消 中 轻 重 这种分级制度」—�
   react-refresh），**本轮未新增任何 lint 问题**。
 - `grep -rn "impact" -i src api` → 只剩有意保留的历史注记与英文普通词
   （`scope_of_impact` 是 Pitfall 字段、`impact & applicability` 是英文散文），零字段残留。
+
+## 4octodecies. DevLog 卡头撤时间徽章 + `refs` 采用面扩展 + 目标区头改版（2026-11-02，Human 定案）
+
+三条同批提交（Human 在同一轮里连着提的三项：m02151 卡头、m02388 区头、m02390 图标）。
+
+### 一、DevLog 卡头不再呈现 `occurred_at`
+
+**Human 定案**：「圈出来的部分不用显示」——圈的是列表卡头那枚 `2026-10-27 14:35` 时间 chip。
+
+**为什么撤得掉而不违反规范**：上一轮（§4sexdecies）撤详情页时间轴节点时，本文把
+`occurred_at` 的承载位写成「**列表卡头的时间徽章**」，并在 §4sexdecies 里留下一句
+「本节关于『卡头必须给 occurred_at』的全部论理不受影响」。**那句论理现在被推翻了**，
+而它当初就不该写成那样——回 `specs/29` 逐字核对：§10.4 要求的**仅是语义分工**
+（两字段含义不可互换、不可相互冒充），并明文写了「呈现面在何处给哪一个，由 §13.1
+与 07 号决定，本节不指定其位置」。**「卡头必须给 occurred_at」这句话在规范里从来
+不存在**，它是本文自述。§12.1 的「时间线回查」也只要求「按 `occurred_at` 排序的
+条目清单」，没有要求单卡呈现它。
+
+**教训（记进 §4sexdecies 的追记里）**：语义分工要求与呈现落点是两件事——把落点写进
+「要求」的论理里，等于给自己埋一个将来要推翻的前提。
+
+**处置**：`ObjectList.tsx` 卡头行删 `{obj.type === 'devlog' && <DevLogOccurredBadge …/>}`；
+`DevLogOccurredBadge.tsx` **整文件退场**（它只有一个消费方，留着就是无人消费的壳——
+同 §4septdecies 撤 `FrictionImpactBadge.tsx` 的判据）；locales 删
+`objectList.devlogOccurredLabel` / `devlogOccurredAbsent` 中英各一条；
+`model.ts` / `FactReadingLayouts.tsx` / `decisionBlocks.ts` 三处「occurred_at 走卡头徽章」
+的注释同步订正（它们是注释不是呈现面，但留着会误导后人）。`occurred_at` 字段本身
+**照旧必填**（29 §8），只是不再有单卡呈现面。
+
+已按 `docs/13` §4 的判据在登记表**新增一行**（三腿：锚句取 29 §10.4 的
+「列表卡头的 `occurred_at` 时间徽章亦于同日**撤除**（Human 定案）」、判据入口
+`ObjectList.tsx → ObjectCardFrame`、守卫 `devlog-presentation-contract.test.ts`
+的卡面用例；无例外故第 6/7 列写 `无`）。**如实声明**（`docs/13` §2）：该行全绿只
+证明三腿都在，不证明卡面真的没呈现——它买到的是「这条收窄不会被静默拆掉」。
+
+### 二、`refs` 采用面扩展到 `devlog`（「关联事实对象的处理参考 spark」的落点）
+
+**Human 定案**：「开发日志应该会有关联的事实对象，关联事实对象的处理参考 spark」。
+
+**为什么这不是一句 UI 改动**：`refs` 在 02 §7.1 是**类型条件字段**，采用面明文只有
+`spark` 与 `workcase`；29 §8/§11 更明文「**不采用 `refs`**——与工单的连接由工单侧
+`refs` 单向声明」。而 02 §8.2 写着「**采用面扩展须经 Human 决定并同步修订各相关类型
+来源**」。所以「参考 spark」= 采用面扩展，不是加个渲染分支。经 ask_user_question
+取得裁定：**扩采用面，devlog 采用 refs 并补存量**。
+
+**规范层**：02 §7.1 refs 行采用面改三成员、§8.2 采用范围段补 devlog 的理由；
+specs/29 十处（§8 字段表新增 refs 行、§8 表后「不采用」段只留 urls、§8 不变量新增
+第 6 条「refs 只载内容关联」、§11 末段整段改写、§12.1 新增 refs 呈现面、新增
+§12.3bis 解析口径、§12.4、§14.1、§15、§17 第 6bis）。
+
+**分工没有变**：`refs` 载**内容关联**（依据／输入／相关），生命周期关系仍走
+`relations`（29 §11 那两条终态边），外部资料走 `urls`（本类型不采用），载体内部锚点
+走 `serves`。与工单侧指向条目的 `refs` 是**两侧各自声明**、互不复制反向边（02 §8.2
+第 4 条：反向索引是派生物，不建第二权威）。
+
+**Code 层**：`plugin/lib/devlog-writer.js`——`VALID_FM_KEYS` 加 `refs`、
+`MAX_REFS_ENTRIES = 10`、`DEVLOG_REMOVABLE_FIELDS` 由 `{serves}` 扩为 `{serves, refs}`
+（二者都是可选引用；没有删除通道，02 §10.5「省略即保留」会让它一旦写入就永久撤不掉）、
+形状校验块（文案逐字照 20 §8，含「空数组会伪造一个条件字段 03 §6.1」）、新增
+`validateRefsTargets`（失败码 `devlog/refs_unresolvable`；**不校验目标状态**——关联是
+历史事实，目标关闭不使该条失效；解析失败**零写入拒绝**，不降级为空数组）、
+`FRONTMATTER_FIELD_ORDER` 与 `listDevLogIndex` 投影带 refs、create/update 两路各加一次
+目标解析。`devlog-tools.js` 的 read/list 投影、write schema、`frontmatter_removals`
+描述同步。
+
+**Web 层零改动**：`facts.ts` 的 `projectFactRefs` **本来就不按类型门**，
+`ObjectCardFrame` 本来就在 children 之后统一渲染 `<FactAssociationsCardContent
+associations refs />`——所以 devlog 一旦有 refs，关联行自动出现，形态与 Spark 卡
+**完全一致**。这正是「参考 spark」的字面兑现：不是复制一套渲染，而是让本类型进入
+那条已经存在的共用通道。`factFieldContract.ts` devlog 段加
+`refs: field('devlog-refs','array',false)`；`localFactReader.ts` 的
+`RECORD_ARRAY_FIELDS` **不登记** refs（spark/workcase 同样未登记——成员级校验归
+writer，Web 侧只做投影）。
+
+**存量**：`plugin/scripts/migrate-devlog-add-refs.mjs`（新增，未跟踪）逐条走受控更新，
+每条的 `change_log` 摘要里写明**判定依据**（该条正文的哪一段），不凭印象配对。
+8 份中 **7 份写入成功、1 份如实跳过**：`d5187ddf` 的承接物是规范正文（`specs/11 §6.1`）
+与一个明文登记「未落档」的 Pitfall，**无可解析的事实对象 uid**——按 29 §8「不存在时
+省略」不写，写空数组会伪造条件字段。304ec293 一条挂了七个 Pitfall（其「去向」段
+登记的 §4.1–§4.5 七处承接，根因与该条实测逐条对应）。
+
+### 三、目标区头：撤 `Maximize2`，详情入口移进标题
+
+**Human 定案**：「这个图标去掉」+「这个部分设计的好看一点」。
+
+**去掉图标会让 `/goal` 成死页**：`navigate('/goal')` 全仓原本**只有这一处**，侧栏
+`NAV_ITEMS` 与 `FEDERATION_NAV_ITEMS` 都没有 `/goal` 项（25 号 Goal 是单例，不占七类
+事实对象的 tab/card）。故撤图标必须同时补入口，经裁定取**标题可点**：`<h3>` 内包一个
+`role="link"` 的 `<span>`，`onClick`/`onKeyDown`(Enter/Space) → `stopPropagation` +
+`navigate('/goal')`。区头整行仍是折叠按钮，标题是行内的**嵌套链接**——两个动作不同义，
+故必须 `stopPropagation`。
+
+**为什么是标题而不是别的**：标题就是那份单例对象的名字，点名字看它的详情，不需要
+额外学一层图标语义；而 `Maximize2` 与折叠箭头同为 `ldvh-icon-button` 摆在右侧，
+读起来像「两个都是开关」，是易错形态。
+
+**美化**：三处都只加视觉层次、不引入新信息——① 图标加**底托**
+（`h-7 w-7 rounded-md border border-ldvh-accent/25 bg-ldvh-accent/10`，与 `Help.tsx`
+的既有范式同规格）；② 标题后跟子目标计数（`ldvh-meta`，与模块四 Spark 池健康的
+计数同一形态）；③ 标题下方一行副标题（`ldvh-caption`，新词条
+`focusV2.goalSectionHint`「目标陈述与子目标——点标题看完整详情」——它同时是**入口的
+可发现性说明**，因为图标撤了）。右侧只剩折叠按钮。
+
+**守卫**：`goal-detail-presentation-contract.test.ts` 的用例改名
+「exposes the detail entry through the title」并加两条反向断言（不得再 import
+`Maximize2`、不得再出现 `<Maximize2`）。**坑（`docs/12` §3 的误报方向）**：第一版用
+`/Maximize2/` 全文断言，被文件头注释里「为什么撤掉这枚图标」的历史记述判成失败——
+撤除类守卫**只查 import 行与 JSX 元素**，注释里的说明是正当的。
+
+### 验证
+
+- `cd plugin && node --test test/*.mjs` → **2729 tests / 2727 pass / 0 fail / 1 skip / 1 todo**。
+- `cd plugin/web && npx tsc -b` 通过；`npx tsx --test tests/api/*.test.ts` → **611 pass / 0 fail**；
+  `npx eslint .` → 只剩 HEAD 既有 1 error + 1 warning，**本轮未新增**。
+- `npx tsx --test tests/api/presentation-narrowing-registry.test.ts` → 5 pass（新增行三腿齐备）。
+- 事实源：`grep -c "^refs:" ldvh-base/devlogs/*.md` → 7 份各 1、`d5187ddf` 为 0；
+  `listDevLogObjects({status:'all'})` 8 items，refs 投影逐条正确。
