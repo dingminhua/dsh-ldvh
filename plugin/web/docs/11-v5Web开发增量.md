@@ -91,6 +91,14 @@ violet 在 Norm 上表示「规则体系」，子目标既非待处置也非规�
 > `DECISION_TITLE_HUE_CLASS.lime` 与 `DECISION_DETAIL_LIME_SHELL_CLASS` 仍在用——
 > **详情面**锚点块不在该次定案范围内。故本段「新增第三色相」仍成立，只是作用域
 > 从「卡面 + 详情面」收窄为「仅详情面」。
+>
+> **同日稍晚再追记：详情面那一半也已撤回**（见 §4novies）。Human 定案「这个地方只保留
+> 判法即可」，锚点块整体撤除，`DECISION_DETAIL_LIME_SHELL_CLASS` 失去最后一个消费方
+> 并删除。**至此 lime 作为「壳的色相」已完全退出**，只剩
+> `DECISION_TITLE_HUE_CLASS.lime` 这一枚**色相原子**——它现在的唯一消费方是
+> `DevLogReadingLayout` 的时间轴标题，与「子目标该是什么颜色」已无关系。本段关于
+> 「子目标不该借用 amber/violet」的论理仍然有效且未被推翻，但它所记录的那次加色相
+> 作为**视觉决策**已被两轮 Human 定案整体回收：子目标在两个面上都不再用 lime 壳。
 
 **两条语义边界落在呈现层**（这两条不是文案偏好，是类型存在的理由）：
 
@@ -396,6 +404,9 @@ dark:text-blue-100/75`）并让 `WorkCaseCriteriaList` 自身改用它——此�
 `Record<'amber' | 'violet'>`——该家族的定义特征就是左色条，卡面既撤左条，这枚壳
 就不再属于本家族，留着只是一个无人消费的死常量。两处守卫同步：
 `DECISION_SHELL_SEGMENTS` 删去该行、`border-l-*` 白名单 **10 → 8**（仍保留两个详情面壳）。
+
+> **2026-11-02 深夜追记：`violet` 随后也退出，该常量现为 `Record<'amber'>`。** 活跃规范卡
+> 的方向键块撤除后这枚壳失去最后一个消费方，白名单 8 → 6 → 4。见 §4undecies。
 
 **详情面不动**（如实登记为本次未覆盖项）：`SubGoalReadingLayout` 的锚点块仍是
 `DECISION_DETAIL_LIME_SHELL_CLASS` + 次序 chip + 判据类型 chip。Human 附的是**卡面**
@@ -710,3 +721,101 @@ Playwright 实拍真实数据：四张子目标卡分别显示 `0 / 1`、`5 / 13
 但渲染形态未目视确认；② 比值条未做无障碍走查（`role="img"` 与 `aria-label` 已给，
 未用读屏验证）。暗色模式已实拍：两段条与两档明细在暗底下均清晰，「已落实」段用
 `bg-ldvh-accent/85`（该 token 浅暗两套值），底槽 `bg-ldvh-border/70` 也随主题。
+
+## 4undecies. 规范卡与规范详情撤除方向键呈现（2026-11-02，Human 定案）
+
+Human 定案 2026-11-02（附两图：图一是规范列表卡，图二是该卡详情的首块）：「规范 card，
+框出来的不需要显示，图二是详细内容，框出来的也不需要显示」。框内分别是**卡面的方向键块
+（含类型说明行）**与**详情面的方向键节点**。
+
+### 两侧撤的是同一件事
+
+两侧的块都以「`direction_key` 是 27 §8 的机器可验证方向标识」为由置顶呈现。这个理由
+**不成立**：方向键是**唯一性公式与索引的作用域**（27 §11 三层机械承载），不是读者在
+列表里挑条目、或在详情里判断「这份规范管哪个方向」的依据。后者由标题与正文首段「方向
+定位与适用范围」的散文回答——那是一句人话，`local-dev-workflow` 不是。
+
+### 卡面：卡体撤空，回到 ADR 同形
+
+活跃规范卡此后**不承载任何卡体内容**，只剩卡头（类型 / 标题 / 状态 / 修改次数）与标题。
+`NormCardContent` 与 `AdrCardContent` 同形：活跃态返回 `null`，只留终态卡。这不是漏写
+卡体——本类型的正文是四段成体系长文（方向定位与适用范围／核心规则体系／约束与反模式／
+验证与遵从性检查），列表格子里读不成体系，它住在详情页阅读布局。
+
+### 类型说明行：同一壳里的第二处类型定义
+
+原卡面方向键块下方还有一行 `getTypeDescription('norm')`＝「事实规范——一个工程方向的
+成体系规则体系（27 §1）」。它撤除的**理由与方向键不同**，须分开记：
+
+- 它是**类型定义的复述**。卡头 chip 已写「规范」，把同一结论再用一句话重说，属
+  `docs/10` §5.5「同类信息只有一处行式」的违规。
+- 它能存活至今，是因为与方向键同处一个壳里，被当作「这个块的说明」而非「类型的说明」。
+  **壳一撤，它的真实身份就露出来了**——这类「寄居在合规块里的第二处来源」，仅在拆壳
+  时才会显形，故记在此处供后人对照。
+
+### 详情面：整节点删除，缺失提示一并删除
+
+`NormReadingLayout` 的第一个节点（`DECISION_DETAIL_NEUTRAL_SHELL_CLASS` + 方向键标题 +
+`DECISION_VIOLET_CODE_CHIP_HUE_CLASS` 的等宽 chip）整块删除，布局直接从正文首段开始。
+**缺失提示 `objectList.normDirectionKeyMissing`（「方向键缺失」）也删除**：缺
+`direction_key` 属**载体不合规**，读取层已按字段契约为它产出 `field_issues`（`missing`），
+由 `FieldIssuesSection` 如实报出；页面另写一句提示是同一事实的第二处呈现，且它把
+「字段缺失」伪装成了「这条规律值得单独说一句」。
+
+### 连带退场（内容撤则壳撤，一条纪律管三处）
+
+同一天三次撤壳，判据相同——**壳比内容活得久，是本仓反复出现的形态**（内容被判定不该
+上屏后，壳常以「它是家族成员」为由单独留存）：
+
+| 撤除 | 触发 | 结果 |
+|---|---|---|
+| `DECISION_CARD_SHELL_CLASS.lime` | 子目标卡面改判据面形态（§4septies） | 白名单 10 → 8 |
+| `DECISION_DETAIL_LIME_SHELL_CLASS` | 子目标详情锚点块撤除（§4novies） | 8 → 6 |
+| `DECISION_CARD_SHELL_CLASS.violet` | 本节点（活跃规范卡体撤空） | 6 → **4** |
+| `DECISION_TITLE_HUE_CLASS.violet` | 方向键标题的两处消费方皆撤 | 色相表剩 amber / lime |
+| `DECISION_VIOLET_CODE_CHIP_HUE_CLASS` | 方向键那枚 code chip 撤除 | 整条删除 |
+| `TYPE_DESCRIPTION_LOCALES` + `getTypeDescription` | 唯一上屏点（规范卡类型说明行）撤除 | 11 条词条全表删除 |
+| `objectList.normDirectionKeyMissing` | 详情缺失提示撤除 | 中英各一 |
+
+`DECISION_CARD_SHELL_CLASS` 现为 `Record<'amber', string>`——**保留 `Record` 形态不降为
+裸字符串**：调用处写 `…CLASS.amber`，语义是「取该色相的卡面壳」，改形会牵动消费方，且
+下一枚色相回来时又要重写。键集是证据（当前只有一个领域用左色条卡面），不是待膨胀的白名单。
+
+`TYPE_DESCRIPTION_LOCALES` 的删除另有一条值得记的账：全表 11 条里**只有 `norm` 一条曾
+真正上屏**，其余 10 条自 v4 平移以来一直是死的。撤掉呈现却留着词表，「不呈现」这个决定
+就没有落点（同 §4quater 的辅助元信息表出列理由）。
+
+### 已知不一致：如实登记，不擅自择一
+
+`DECISION_DETAIL_NEUTRAL_SHELL_CLASS` 的左条是 `border-l-violet-400/70`（紫），而它现存
+唯一消费方 `DevLogReadingLayout` 的时间轴节点把**标题**写成 `DECISION_TITLE_HUE_CLASS.lime`
+（黄绿）——同一块里左条与标题不同色相；而 DevLog 的类型色是 `#ca21a0`（magenta），两者
+都不等于 lime。本次**不动它**：改左条色相是未被请求的视觉变更。正确修法任选其一——
+把左条并进与本块标题同一色相，或让该块改用四边同宽壳（它已不含「领域归属」语义，本不该
+留在本家族）——两者都需 Human 裁决，故只登记。
+
+### 验证
+
+- 守卫反转（正向断言会让「加回来」永不红）：`friction-norm-presentation-contract` 的
+  「norm list cards…」与「object detail routes norm…」两项，均改为**断言撤除结果**
+  （卡体 `doesNotMatch(/direction_key/)`、布局 `doesNotMatch(/direction_key/)` 与
+  `doesNotMatch(/normDirectionKeyMissing/)`），并各留一条正向断言钉住替代形态（卡体
+  「return null」、布局首节点是正文首段）。
+- `structure-single-source-contract`：`DECISION_SHELL_SEGMENTS` 删 violet 行、
+  `DECISION_ATOMS` 删 violet 与 violet chip 两行、防假单源不再要求 ObjectList 引用
+  violet 壳、`border-l-*` 白名单 6 → 4。
+- 全量 web 用例 595 全绿；`tsc -b` 通过；`npm run lint` 仅剩 HEAD 上既有的 1 error
+  （`facts.ts` 的 `currentProjectProjectionIndexes` 未使用，非本轮引入）+ 1 warning。
+- 实拍（浅色 + 暗色）：规范列表卡卡头 `["规范","10","生效中"]`、卡体无方向键块、无类型
+  说明行；详情页首节点直接是「方向定位与适用范围」，无方向键节点、无缺失提示；控制台零
+  错误。
+
+**未覆盖（如实登记）**：① **`direction_key` 缺失态的实拍未做**——现存两份规范都带方向
+键，未造不合规夹具；该态的行为由读取层 `field_issues` 承担，本轮只删了页面侧的第二处
+提示，未验证 `FieldIssuesSection` 对该字段的实际渲染形态。② 方向键被撤后，**「同一方向
+是否已有 active 规范」在 Web 上不再有直接的肉眼入口**——27 §11 的第三层（消费端
+fail-closed 报 `direction_collision`）由 CLI 承载（`plugin/lib/norm-tools.js` 的
+`ldvh_norm_list`），第二层由 Git Gate 承载（`plugin/lib/commit-validation.js` 的
+`facts/norm_direction_collision`）。**已核查：Web 投影层没有该诊断**（`plugin/web/` 全树
+除本文档外无 `direction_collision` 命中）。这是本轮之前就存在的边界、不是撤方向键造成的，
+但撤除让它在界面上更难被察觉，故记在此。

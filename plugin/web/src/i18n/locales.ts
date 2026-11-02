@@ -221,25 +221,21 @@ export function getObjectStatusDisplayLabel(
   return getObjectStatusLocale(type, status, locale);
 }
 
-export const TYPE_DESCRIPTION_LOCALES: Record<string, { zh: string; en: string }> = {
-  workcase: { zh: '工单——需要持续保存当前计划、推进状态、质量关口与关闭判断的工作责任（21 §1）', en: 'A work responsibility that preserves its current plan, progress, quality gates, and closure decision' },
-  adr: { zh: '决策记录', en: 'Architecture Decision Record' },
-  pitfall: { zh: '可复用经验', en: 'Reusable pitfalls' },
-  spark: { zh: '悬置问题——尚未形成确定承接位置的信息需求、发现、问题或缺口（20 §5）', en: 'A suspended question: an information need, finding, problem, or gap without a definitive carrying position yet' },
-  research: { zh: '调研', en: 'Research' },
-  friction: { zh: '摩擦账本——应该修但还没修的系统性阻碍（26 §1）', en: 'An improvement ledger: systemic obstacles that should be fixed but are not yet (26)' },
-  norm: { zh: '事实规范——一个工程方向的成体系规则体系（27 §1）', en: 'A fact-carried norm: the systematic rule system of one engineering direction' },
-  goal: { zh: '项目目标——单例冻结锚：目标陈述 + sub-goal 子目标（25 §1）', en: 'The project goal: a singleton frozen anchor of statement and sub-goals' },
-  subgoal: { zh: '子目标——围绕项目目标展开的下级事实对象：稳定身份、可选次序、可判定的达成条件与对齐说明（28 §1）', en: 'A sub-goal: a subordinate fact object under the project goal, carrying a stable identity, an optional display order, a decidable criterion, and its alignment statement' },
-  devlog: { zh: '开发日志——一次已收敛过程性工作的结论条目：做了什么、实测到什么、在什么条件下成立（29 §1）', en: 'A development log: the conclusion of one converged piece of procedural work — what was done, what was measured, and under which conditions it holds' },
-  change: { zh: '提交', en: 'Commit' },
-};
-
-export function getTypeDescription(type: string, locale: string): string {
-  const entry = TYPE_DESCRIPTION_LOCALES[type];
-  if (!entry) return '';
-  return locale === 'en' ? entry.en : entry.zh;
-}
+// `TYPE_DESCRIPTION_LOCALES` / `getTypeDescription` 已删除（2026-11-02）。
+//
+// 它们是**类型定义的复述**表（「工单——需要持续保存…（21 §1）」「事实规范——一个工程
+// 方向的成体系规则体系（27 §1）」……），迁自 v4。全部 11 条里，**只有 `norm` 一条曾
+// 真正上屏**——规范卡卡体的类型说明行。那一行随方向键块一并撤除后，本表再无消费方，
+// 即「11 条里 10 条自始是死的、最后 1 条也死了」。
+//
+// 不保留的理由就是呈现收窄的落点纪律（`docs/11` §4quater）：撤掉呈现却留着词表，
+// 「不呈现」这个决定就没有落点，下一轮读者会把它当成「本该呈现、只是暂时没接上」。
+// 类型定义本身仍在各规范 §1 与 `TYPE_LOCALES` 的类型名里，不因删表而丢失。
+//
+// `objectList.normDirectionKeyMissing`（「方向键缺失 / Direction key missing」）随
+// 详情面方向键节点一并删除：缺 `direction_key` 属**载体不合规**，读取层已按字段契约
+// 产出 `field_issues`（`missing`）并由 `FieldIssuesSection` 如实报出，页面另写一句
+// 提示是同一事实的第二处呈现。
 
 // ============================================================
 // 对象类型 / 字段名 / 字段枚举值 中英映射（显式 mapping 表）
@@ -1554,7 +1550,6 @@ export const UI_LOCALES = {
     'objectList.workcaseCriteriaCount': '{count} 项',
     'objectList.workcaseFieldMissing': '未记录',
     'objectList.frictionPhenomenonMissing': '现象缺失',
-    'objectList.normDirectionKeyMissing': '方向键缺失',
     'objectList.workcaseGateFieldMalformed': '结构不完整或不合法',
     'objectList.workcaseAuthorizedActionCount': '{count} 项允许动作',
     'objectList.workcaseProhibitedActionCount': '{count} 项禁止项',
@@ -2379,7 +2374,6 @@ export const UI_LOCALES = {
     'objectList.workcaseCriteriaCount': '{count} criteria',
     'objectList.workcaseFieldMissing': 'Not recorded',
     'objectList.frictionPhenomenonMissing': 'Phenomenon missing',
-    'objectList.normDirectionKeyMissing': 'Direction key missing',
     'objectList.workcaseGateFieldMalformed': 'Incomplete or malformed structure',
     'objectList.workcaseAuthorizedActionCount': '{count} authorized actions',
     'objectList.workcaseProhibitedActionCount': '{count} prohibitions',

@@ -22,7 +22,9 @@ import {
   type ReadingNodeState,
 } from '@/pages/ObjectDetail';
 import { LDVH_SUCCESS_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
-import { DECISION_DETAIL_NEUTRAL_SHELL_CLASS, DECISION_TITLE_HUE_CLASS, DECISION_VIOLET_CODE_CHIP_HUE_CLASS } from '@/utils/decisionBlocks';
+// `DECISION_VIOLET_CODE_CHIP_HUE_CLASS` 已随 Norm 方向键节点退场（2026-11-02）——
+// 它是方向键那枚 code chip 的色相，chip 撤除后无消费方，故不再导入。
+import { DECISION_DETAIL_NEUTRAL_SHELL_CLASS, DECISION_TITLE_HUE_CLASS } from '@/utils/decisionBlocks';
 
 /**
  * `scope` / `summary` 的**书写结构**问题就地显示（`21 §8`）。
@@ -780,10 +782,20 @@ function parseNormBodySections(body: string): NormBodySection[] {
     });
 }
 
-/** v5 Norm 阅读布局（27 号 §8）：direction_key（机器方向标识）以方向键节点
- * 呈现；正文固定 H2 四段分节呈现（核心规则体系可含 H3 子节，直接渲染
- * markdown）；节序跟随字段契约，终态退出去向（retirement_reason +
- * retired_at）在末位。norm 不使用 relations（27 §9），无 FactAssociations。 */
+/** v5 Norm 阅读布局（27 号 §8）：正文固定 H2 四段分节呈现（核心规则体系可含 H3
+ * 子节，直接渲染 markdown）；节序跟随字段契约，终态退出去向（retirement_reason +
+ * retired_at）在末位。norm 不使用 relations（27 §9），无 FactAssociations。
+ *
+ * **`direction_key` 不上屏（Human 定案 2026-11-02）**：曾以「方向键节点」置顶呈现，
+ * 连同缺失时的琥珀提示一起删除。理由与卡面同一件事：它是**唯一性公式与索引的机器
+ * 作用域**，不是读者判断「这份规范管哪个方向」的依据——后者由标题与「方向定位与
+ * 适用范围」节的散文回答。而缺方向键属**载体不合规**，读取层会按字段契约为它产出
+ * `field_issues`（`missing`），由 `FieldIssuesSection` 如实报出；页面另写一句提示
+ * 是同一事实的第二处呈现，且它把「字段缺失」伪装成了「该规律值得单独说一句」。
+ *
+ * 因此本布局的输入只剩 `report_body` / 终态两字段 / 流水——`direction_key` 既不被
+ * 读取也不被消费。它仍留在 `model.ts` 的兜底字段序里，是因为该序只在走 `ContentField`
+ * 兜底时才生效，而 norm 与其余各类型一样从不消费 `extraEntries`。 */
 export function NormReadingLayout({
   obj,
   locale,
@@ -791,13 +803,9 @@ export function NormReadingLayout({
   obj: Record<string, unknown>;
   locale: string;
 }) {
-  const { t } = useI18n();
   const bodySections = parseNormBodySections(typeof obj.report_body === 'string' ? obj.report_body : '');
   const sectionOf = (title: string) => bodySections.find((section) => section.title === title);
 
-  const directionKey = typeof obj.direction_key === 'string' && obj.direction_key.trim()
-    ? obj.direction_key.trim()
-    : '';
   const positioning = sectionOf('方向定位与适用范围')?.body ?? '';
   const rules = sectionOf('核心规则体系')?.body ?? '';
   const constraints = sectionOf('约束与反模式')?.body ?? '';
@@ -805,24 +813,6 @@ export function NormReadingLayout({
 
   return (
     <div className="mb-6 flex flex-col gap-5">
-      {/* 方向键是 norm 的机器身份（唯一性校验/索引/跨规范检索），与标题的
-          人类可读定位互补——以专节置顶呈现，缺失时如实标注。 */}
-      {directionKey ? (
-        <section className={DECISION_DETAIL_NEUTRAL_SHELL_CLASS}>
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h3 className={`ldvh-card-decision-title min-w-0 ${DECISION_TITLE_HUE_CLASS.violet}`}>
-              {getFieldLabel('direction_key', locale)}
-            </h3>
-            <code className={`ldvh-chip-sm min-w-0 shrink-0 break-all ${DECISION_VIOLET_CODE_CHIP_HUE_CLASS}`}>
-              {directionKey}
-            </code>
-          </div>
-        </section>
-      ) : (
-        <p className={`ldvh-meta rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-3 py-2 ${LDVH_WARN_TITLE_CLASS}`}>
-          {t('objectList.normDirectionKeyMissing')}
-        </p>
-      )}
       <AdrProseNode title={getFieldLabel('norm_positioning', locale)} value={positioning} locale={locale} />
       <AdrProseNode title={getFieldLabel('norm_rules', locale)} value={rules} locale={locale} />
       <AdrProseNode title={getFieldLabel('norm_constraints', locale)} value={constraints} locale={locale} />

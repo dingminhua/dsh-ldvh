@@ -126,6 +126,25 @@ DevLog（29 号）是**已发生工作的结论条目**：它记录「这件事�
 - 与子目标卡一样，正式 `relations` 走 §3.2 的统一关联区（承接边 `absorbed-into`
   的 commit 形态已在关联侧支持）。
 
+### 3.5ter 规范卡片
+
+Norm（27 号）是**一个工程方向的成体系规则体系**：四段固定正文（方向定位与适用范围／
+核心规则体系／约束与反模式／验证与遵从性检查）构成一个方向的长效规范。
+
+- **活跃规范卡不承载任何卡体内容**（Human 定案 2026-11-02）：只剩卡头（类型 / 标题 /
+  状态 / 修改次数）与标题。与 ADR 卡同形——`NormCardContent` 活跃态返回 `null`，只有
+  retired 才有卡体（退出理由 `retirement_reason`，闭集同 22 号形态，走 `TerminalFactPanel`）。
+- **撤除的两样东西及各自理由**（不是同一条）：① 方向键块（`direction_key` + 紫壳 chip）
+  ——方向键是唯一性公式与索引的**机器作用域**，不是列表里挑选条目的依据，标题与正文首段
+  才是「这份规范管哪个方向」的答案；② 类型说明行（「事实规范——一个工程方向的成体系
+  规则体系（27 §1）」）——它是**类型定义的复述**，卡头 chip 已写「规范」，重说一遍违反
+  `docs/10` §5.5「同类信息只有一处行式」。后者能存活至今只因它与方向键同处一壳，被误当
+  作「这个块的说明」。
+- 由此 `DECISION_CARD_SHELL_CLASS.violet`、`DECISION_TITLE_HUE_CLASS.violet`、
+  `DECISION_VIOLET_CODE_CHIP_HUE_CLASS`、`TYPE_DESCRIPTION_LOCALES` 全部退场（详见
+  [`11-v5Web开发增量.md`](./11-v5Web开发增量.md) §4undecies）。
+- 状态筛选只认 `active / retired`；`retired` 卡为中性灰并显示退出理由。
+
 ### 3.6 Spark 创建边界
 
 Spark 列表页保持只读；Web 不提供 Spark 创建、直接捕获、写入或由表单生成 Spark 的入口。Spark 的对象化、既有对象查重和受控创建只由 AI 按 20 与 31 的规则调用 Helper 完成；Web 只呈现当前事实源中的结果。

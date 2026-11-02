@@ -162,12 +162,27 @@ test('norm list cards carry direction_key and retired terminal reason', () => {
   const objectList = read('src/pages/ObjectList.tsx');
 
   assert.match(objectList, /export function NormCardContent/);
-  // 27 §8：direction_key 是机器方向标识（唯一性公式的作用域）。
-  assert.match(objectList, /obj\.direction_key/);
   // 27 §11：retired 终态原因由 retirement_reason 承载（闭集同 22 号形态）。
   assert.match(objectList, /function NormTerminalCardContent[\s\S]*?obj\.retirement_reason/);
   assert.match(objectList, /<TerminalFactPanel tone="retired" content=\{formatReasonText\(reason\)\}/);
   assert.match(objectList, /currentType === 'norm'[\s\S]*?showNonActiveReason=\{false\}[\s\S]*?NormCardContent/);
+
+  // 2026-11-02（Human 定案「框出来的不需要显示」）：活跃规范卡的卡体撤空——方向键块
+  // 与类型说明行都不再上屏。**这不是「暂时没接上」**，是决定：卡面只剩卡头（类型/
+  // 标题/状态/修改次数），正文四段住详情页阅读布局。
+  // 故本断言从「卡体含 obj.direction_key」反转为「卡体不得读 direction_key」——
+  // 保留原正向断言会让「把它加回来」这件事永远不红。
+  const normCard = objectList.slice(
+    objectList.indexOf('export function NormCardContent'),
+    objectList.indexOf('/**\n * 29 号 §8 `summary`'),
+  );
+  assert.ok(normCard.length > 0, 'NormCardContent 段应可定位');
+  assert.doesNotMatch(normCard, /direction_key/, '活跃规范卡体不得再读 direction_key');
+  assert.doesNotMatch(normCard, /DECISION_CARD_SHELL_CLASS/, '活跃规范卡体不再使用决策块壳');
+  assert.doesNotMatch(normCard, /TYPE_DESCRIPTION|getTypeDescription/, '类型说明行已撤，不得回归');
+  // 活跃态与 ADR 同形：返回 null，只留终态卡。写死 null 而不是「空 fragment」——
+  // 空 fragment 会让「本类型卡体就该为空」这个决定在读代码时看不出来。
+  assert.match(normCard, /if \(obj\.status === 'retired'\) return <NormTerminalCardContent obj=\{obj\} \/>;\s*\n\s*return null;/);
 });
 
 test('object detail routes norm through a dedicated reading layout', () => {
@@ -183,7 +198,25 @@ test('object detail routes norm through a dedicated reading layout', () => {
   assert.match(layouts, /function NormTerminalReadingNode/);
   assert.match(layouts, /getObjectStatusLocale\('norm', 'retired', locale\)/);
   // 兜底排序：norm 的 ContentField 顺序注册（direction_key → 正文 → 终态 → change_log）。
+  // **direction_key 仍在表内但已不上屏**：该表只在走 ContentField 兜底时才生效，而 norm
+  // 与其余各类型一样从不消费 `extraEntries`（见 FactReadingContent 的类型分派）。
+  // 保留它在此是为了让「字段存在」与「字段上屏」两件事不混为一谈——撤呈现不改字段。
   assert.match(model, /norm: \[\s*\n\s*'direction_key', 'report_body',\s*\n\s*'retirement_reason', 'retired_at', 'change_log',/);
+
+  // 2026-11-02（Human 定案「框出来的也不需要显示」）：详情面的方向键节点与缺失提示
+  // 一并撤除。同卡面一样，这里**反向断言**——正向断言「布局读 direction_key」会让
+  // 加回来这件事永不被发现。
+  const normLayout = layouts.slice(
+    layouts.indexOf('export function NormReadingLayout'),
+    layouts.indexOf('function NormTerminalReadingNode'),
+  );
+  assert.ok(normLayout.length > 0, 'NormReadingLayout 段应可定位');
+  assert.doesNotMatch(normLayout, /direction_key/, 'NormReadingLayout 不得再读 direction_key');
+  assert.doesNotMatch(normLayout, /normDirectionKeyMissing/, '方向键缺失提示已撤，不得回归');
+  assert.doesNotMatch(normLayout, /DECISION_DETAIL_NEUTRAL_SHELL_CLASS/, '方向键节点壳已撤，布局不再使用详情面决策壳');
+  assert.doesNotMatch(normLayout, /DECISION_TITLE_HUE_CLASS\.violet/, 'violet 标题色相已随方向键退场，不得在 norm 布局回归');
+  // 正常路径的第一个节点就是正文首段「方向定位与适用范围」——方向键撤除后不得留空位。
+  assert.match(normLayout, /return \(\s*\n\s*<div className="mb-6 flex flex-col gap-5">\s*\n\s*<AdrProseNode title=\{getFieldLabel\('norm_positioning'/);
 });
 
 test('identity copy and association rows treat both types as first-class facts', () => {

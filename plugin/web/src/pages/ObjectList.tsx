@@ -27,13 +27,12 @@ import WorkCaseClosedSummary from '@/components/WorkCaseClosedSummary';
 import WorkCaseClosedStatusBadge from '@/components/WorkCaseClosedStatusBadge';
 import { fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type FactRefSource, type ObjectItem, type ObjectStatusOption, type ServingWorkItem, type WorkCaseLifecycleOption, type WorkCaseListGroup, type WorkCaseV5Group } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
-import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusDisplayLabel, getObjectStatusLocale, getTypeDescription, getTypeLabel } from '@/i18n/locales';
+import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusDisplayLabel, getObjectStatusLocale, getTypeLabel } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
 import {
   DECISION_AMBER_BODY_HUE_CLASS,
   DECISION_CARD_SHELL_CLASS,
   DECISION_TITLE_HUE_CLASS,
-  DECISION_VIOLET_CODE_CHIP_HUE_CLASS,
 } from '@/utils/decisionBlocks';
 import { ALL_STATUS_PARAM, getEffectiveListStatus, writeListStatusParam } from '@/utils/listStatus';
 import { stripCardMarkdown as formatReasonText } from '@/utils/cardText';
@@ -918,9 +917,8 @@ export function FrictionCardContent({ obj }: { obj: ObjectItem }) {
   return null;
 }
 
-/** 27 号 §10 F1 投影要素的列表承载：direction_key（方向键——同一 direction_key
- * 至多一个 active Norm，是机器可验证的方向标识）。retired 终态原因由
- * retirement_reason 承载（闭集同 22 号形态）。 */
+/** 27 号 §9/§11 的终态承载：retired 的退出理由由 `retirement_reason` 承担
+ *（闭集同 22 号形态）。活跃态不出卡体——见下方 `NormCardContent` 的撤除记录。 */
 function NormTerminalCardContent({ obj }: { obj: ObjectItem }) {
   const { t, locale } = useI18n();
   const rawReason = typeof obj.retirement_reason === 'string' && obj.retirement_reason.trim()
@@ -935,31 +933,33 @@ function NormTerminalCardContent({ obj }: { obj: ObjectItem }) {
   );
 }
 
+/**
+ * 活跃规范卡：**卡头即全部，卡体不承载任何内容**（Human 定案 2026-11-02）。
+ *
+ * 撤掉的是两样东西，撤除理由不同，须分开记：
+ *
+ * ① **方向键块**（`direction_key` + 紫壳 chip）。它此前以「27 §8 专属字段、机器
+ *    可验证的方向标识」为由置顶。但卡头已由 `ObjectTypeIcon` + 类型名 + 标题承担
+ *    「这是什么对象的什么方向规范」，方向键短串在卡面上**不增加扫读判别力**——
+ *    它是唯一性与索引的机器作用域，不是读者在列表里挑选条目的依据。读者要判断
+ *    「这份规范管哪」，得到的是标题与正文四段，不是 kebab-case 串。
+ * ② **类型说明行**（`getTypeDescription('norm')` =「事实规范——一个工程方向的成体系
+ *    规则体系（27 §1）」）。它是**类型定义的复述**：卡头 chip 已写「规范」，把同一
+ *    结论再用一句话重说一遍，属 `docs/10` §5.5「同类信息只有一处行式」的违规——
+ *    而它当初能存活，是因为它与 ① 同处一个壳里，被当作「这个块的说明」而非「类型的
+ *    说明」。壳一撤，它的真实身份（第二处类型定义）就露出来了。
+ *
+ * 撤后本组件与 `AdrCardContent` 同形：活跃态返回 `null`，只剩终态卡。这不是「忘了
+ * 写卡体」，而是本类型的正文四段（方向定位/核心规则体系/约束与反模式/验证与遵从性
+ * 检查）本来就是**成体系的长文**，列表格子里读不成体系——它住在详情页阅读布局。
+ *
+ * 连带退场（不留死常量，见 `utils/decisionBlocks.ts`）：`DECISION_CARD_SHELL_CLASS.violet`、
+ * `DECISION_TITLE_HUE_CLASS.violet`、`DECISION_VIOLET_CODE_CHIP_HUE_CLASS`、
+ * `getTypeDescription` 及其 `TYPE_DESCRIPTION_LOCALES` 词表、`objectList.normDirectionKeyMissing`。
+ */
 export function NormCardContent({ obj }: { obj: ObjectItem }) {
-  const { locale } = useI18n();
   if (obj.status === 'retired') return <NormTerminalCardContent obj={obj} />;
-  // 活跃规范卡片承载 direction_key（27 §8 专属字段：管哪个方向）——正文四段
-  //（方向定位/核心规则体系/约束与反模式/验证与遵从性检查）住详情页阅读布局。
-  const directionKey = typeof obj.direction_key === 'string' && obj.direction_key.trim()
-    ? obj.direction_key.trim()
-    : '';
-  if (!directionKey) return null;
-
-  return (
-    <section className={DECISION_CARD_SHELL_CLASS.violet}>
-      <div className="flex min-w-0 items-center gap-2">
-        <h3 className={`ldvh-card-decision-title min-w-0 ${DECISION_TITLE_HUE_CLASS.violet}`}>
-          {getFieldLabel('direction_key', locale)}
-        </h3>
-        <code className={`ldvh-chip-sm min-w-0 shrink-0 truncate ${DECISION_VIOLET_CODE_CHIP_HUE_CLASS}`}>
-          {directionKey}
-        </code>
-      </div>
-      <p className={`ldvh-caption ${WORKCASE_CARD_TITLE_BODY_GAP_CLASS} text-ldvh-text-secondary/80`}>
-        {getTypeDescription(obj.type, locale)}
-      </p>
-    </section>
-  );
+  return null;
 }
 
 /**

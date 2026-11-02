@@ -67,21 +67,20 @@ async function collectSourceFiles(dir: string): Promise<string[]> {
  *      两段）会令断言失配而报错——即断言本身在禁止正确的修法。
  *   故此处必须分段、且不假定段间顺序。）
  *
- *  声明形态：`DECISION_CARD_SHELL_CLASS` 是 `Record<'amber'|'violet', string>`
- *  （两个 hue 各一行），`DECISION_DETAIL_NEUTRAL_SHELL_CLASS` 是单串。 */
+ *  声明形态：`DECISION_CARD_SHELL_CLASS` 是 `Record<'amber', string>`
+ *  （**2026-11-02 起只剩一个色相**），`DECISION_DETAIL_NEUTRAL_SHELL_CLASS` 是单串。 */
 const DECISION_SHELL_SEGMENTS: Array<[string, string[]]> = [
   ['DECISION_CARD_SHELL_CLASS.amber', ['border-amber-400/20', 'bg-amber-500/[0.025]', 'px-3.5 py-3']],
-  ['DECISION_CARD_SHELL_CLASS.violet', ['border-violet-400/20', 'bg-violet-500/[0.025]', 'px-3.5 py-3']],
-  // 28 号 SubGoal 的第三色相**卡面壳已于 2026-11-02 删除**（Human 定案「样式对齐
-  // workcase 的，左侧的线条不要加粗」）：子目标卡面改用 `WORKCASE_SURFACE_GEOMETRY_CLASS`
-  // 的四边同宽形态，左色条既撤，该壳就不再属于本家族。故此处不再登记
-  // `DECISION_CARD_SHELL_CLASS.lime`——登记一个已不存在的壳会让本守卫永远取不到声明行。
+  // **`violet` 卡面壳已于 2026-11-02 删除**（Human 定案「框出来的不需要显示」）：活跃规范
+  // 卡的卡体撤空（方向键块 + 类型说明行），这枚壳失去最后一个消费方。同一天更早先删了
+  // `lime`（子目标卡面改判据面形态，见 docs/11 §4septies），再后删了
+  // `DECISION_DETAIL_LIME_SHELL_CLASS`（子目标详情锚点块撤除，见 §4novies）。
+  // 三次都不是「统一色相」的审美收敛，而是同一条纪律：**内容撤则壳撤**，不留无人消费的壳。
+  // 故此处只登记 amber 一条。
   //
-  // **同日稍晚，`DECISION_DETAIL_LIME_SHELL_CLASS` 也删除**（Human 定案「这个地方只
-  // 保留判法即可」）：子目标详情面顶部那个黄绿锚点块整体撤除，它失去最后一个消费方。
-  // 至此子目标在**卡面与详情面都不使用左色条**，先前的「卡面跟判据面板、详情面留
-  // 类型锚点」分岔已收敛。标题色相 `lime` 仍登记——DevLog 时间轴节点用它作标题色，
-  // 那是色相而不是壳。
+  // 详情面壳仍是单串、仍登记：它的消费方（DevLog 时间轴节点）还在，只是它自身的左条
+  // 色相（violet）与标题色相（lime）不一致——那是**待 Human 裁决**的已知项，已如实
+  // 登记在 `decisionBlocks.ts` 注释里，不由本守卫自动判定。
   ['DECISION_DETAIL_NEUTRAL_SHELL_CLASS', ['border-ldvh-border/80', 'bg-ldvh-bg/65', 'px-3.5 py-3']],
 ];
 
@@ -90,10 +89,11 @@ const BARE_BORDER = /(?:^|[\s:'"])border(?:[\s'"]|$)/;
 
 const DECISION_ATOMS: Array<[string, string]> = [
   ['DECISION_TITLE_HUE_CLASS.amber', 'text-amber-700/85 dark:text-amber-200/85'],
-  ['DECISION_TITLE_HUE_CLASS.violet', 'text-violet-700/85 dark:text-violet-200/85'],
+  // `DECISION_TITLE_HUE_CLASS.violet` 与 `DECISION_VIOLET_CODE_CHIP_HUE_CLASS` 已随 Norm
+  // 方向键节点撤除而删除（2026-11-02）。二者**不登记**——登记一个已不存在的原子会让本
+  // 守卫永远取不到值。`lime` 仍登记：DevLog 时间轴标题在用（色相原子，非壳）。
   ['DECISION_TITLE_HUE_CLASS.lime', 'text-lime-700/85 dark:text-lime-200/85'],
   ['DECISION_AMBER_BODY_HUE_CLASS', 'text-amber-950/70 dark:text-amber-100/75'],
-  ['DECISION_VIOLET_CODE_CHIP_HUE_CLASS', 'border-violet-400/35 bg-violet-500/10 font-mono text-violet-700 dark:text-violet-300'],
 ];
 
 test('decisionBlocks 导出决策块壳与色相原子，且值为 canonical 定案', async () => {
@@ -127,12 +127,13 @@ test('decisionBlocks 导出决策块壳与色相原子，且值为 canonical 定
 test('决策块常量被原消费方使用（防假单源）', async () => {
   const objectList = await readFile(path.join(srcRoot, 'pages', 'ObjectList.tsx'), 'utf8');
   const factLayouts = await readFile(path.join(srcRoot, 'pages', 'object-detail', 'FactReadingLayouts.tsx'), 'utf8');
-  // ObjectList：琥珀卡面（Pitfall 决策字段 + Friction 现象）与紫卡面（Norm 方向键）。
+  // ObjectList：琥珀卡面（Pitfall 决策字段 + Friction 现象）。**violet 卡面已撤**
+  //（活跃规范卡不承载卡体内容），故不再断言它为消费者——否则这条会要求把一个
+  // 已经不存在的壳留在代码里。
   assert.ok(objectList.includes('DECISION_CARD_SHELL_CLASS.amber'), 'ObjectList 应引用 DECISION_CARD_SHELL_CLASS.amber（Pitfall/Friction 卡面）');
-  assert.ok(objectList.includes('DECISION_CARD_SHELL_CLASS.violet'), 'ObjectList 应引用 DECISION_CARD_SHELL_CLASS.violet（Norm 卡面）');
   assert.ok(objectList.includes('DECISION_AMBER_BODY_HUE_CLASS'), 'ObjectList 应引用 DECISION_AMBER_BODY_HUE_CLASS');
-  // FactReadingLayouts：紫详情面（Norm 方向键）。
-  assert.ok(factLayouts.includes('DECISION_DETAIL_NEUTRAL_SHELL_CLASS'), 'FactReadingLayouts 应引用 DECISION_DETAIL_NEUTRAL_SHELL_CLASS（Norm 详情面）');
+  // FactReadingLayouts：中性详情面壳现由 DevLog 时间轴节点消费（原为 Norm 方向键节点）。
+  assert.ok(factLayouts.includes('DECISION_DETAIL_NEUTRAL_SHELL_CLASS'), 'FactReadingLayouts 应引用 DECISION_DETAIL_NEUTRAL_SHELL_CLASS（DevLog 时间轴节点）');
 });
 
 test('批次 C 收敛掉的决策块整串字面量不得回潮（src 内禁写，decisionBlocks.ts 自身豁免）', async () => {
@@ -223,16 +224,17 @@ test('border-l-* 只允许语义左条两族：领域归属决策块与项目识
   // 此处刻意用「处数」而非「含 border-l-2 即可」——后者漏掉左色相段，
   // 而左色相段本身也是左侧边框的表达，须一并纳管。
   const allowed = new Map<string, number>([
-    // amber / violet 两个卡面壳 + 两个详情面壳（neutral / lime），各两段
-    //（`border-l-2` 定粗度 + `border-l-{色相}` 定色）= 4 × 2 = 8。
+    // 现存两条壳各两段（`border-l-2` 定粗度 + `border-l-{色相}` 定色）= 2 × 2 = 4。
     //
-    // **2026-11-02 由 10 → 8 → 6（两轮）**：
+    // **2026-11-02 由 10 → 8 → 6 → 4（三次退出）**：
     // ① 子目标**卡面**壳 `DECISION_CARD_SHELL_CLASS.lime` 删除（Human 定案「左侧的
     //    线条不要加粗」→ 改用判据面四边同宽形态），10 → 8；
     // ② 子目标**详情面**壳 `DECISION_DETAIL_LIME_SHELL_CLASS` 删除（Human 定案「这个
-    //    地方只保留判法即可」→ 锚点块整体撤除），8 → 6。
-    // 每次下调都是**收紧而非放宽**：这两处若复活左粗线，处数会立刻越过 6。
-    ['utils/decisionBlocks.ts', 6],
+    //    地方只保留判法即可」→ 锚点块整体撤除），8 → 6；
+    // ③ 规范**卡面**壳 `DECISION_CARD_SHELL_CLASS.violet` 删除（Human 定案「框出来的
+    //    不需要显示」→ 活跃规范卡体撤空，壳失去最后一个消费方），6 → 4。
+    // 每次下调都是**收紧而非放宽**：任一处若复活左粗线，处数会立刻越过 4。
+    ['utils/decisionBlocks.ts', 4],
     ['components/ProjectSwitcher.tsx', 1], // 项目行色条（色值走 inline style，无左色相类）
     ['pages/Federation.tsx', 1], // 项目卡色条（同上）
   ]);
