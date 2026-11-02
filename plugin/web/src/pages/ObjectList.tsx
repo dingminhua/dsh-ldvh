@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { Activity, ArrowDownWideNarrow, CalendarClock, ChevronDown, ChevronUp, CircleAlert, CircleCheck, CircleHelp, CircleMinus, CirclePlay, Clock3, History, Search } from 'lucide-react';
+import { Activity, ArrowDownWideNarrow, CalendarClock, ChevronDown, ChevronUp, CircleAlert, CircleCheck, CircleMinus, CirclePlay, Clock3, History, Search } from 'lucide-react';
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import SegmentedControl from '@/components/SegmentedControl';
 import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
@@ -13,7 +13,7 @@ import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
 import SubGoalOrderBadge from '@/components/SubGoalOrderBadge';
 import ServingSparkProgressBar from '@/components/ServingSparkProgressBar';
 import SummaryText from '@/components/SummaryText';
-import { ObjectTypeIcon, OBJECT_TYPE_ICONS } from '@/components/SemanticIcon';
+import { ObjectTypeIcon, OBJECT_TYPE_ICONS, QuestionMarkIcon } from '@/components/SemanticIcon';
 
 const CommitRelationIcon = OBJECT_TYPE_ICONS.commit;
 import { WorkCaseCriteriaList, WORKCASE_CRITERIA_SURFACE_CLASS, WORKCASE_SURFACE_GEOMETRY_CLASS } from '@/components/WorkCaseCriteriaList';
@@ -709,11 +709,12 @@ function getFactAssociationStateRank(association: FactCardAssociation): number {
 
 function FactAssociationStateIcon({ state, tooltip }: { state: FactAssociationState; tooltip: string }) {
   const presentation = {
-    // 待确认族（Pitfall draft、WorkCase 方案/关闭待确认、Spark open、Friction open）用问号：
-    // 这一族的共同点是「等一个决定」，不是「进度走到一半」。此前用自绘的四分填充圆，
-    // 读起来像进度环——未开始的条目被画成已完成 25%，是错的隐喻（09 §8：页面不得自行
-    // 散落图标选择，此处改用 lucide 原生 CircleHelp）。
-    pending: { Icon: CircleHelp, className: 'text-amber-500 dark:text-amber-400' },
+    // 待确认族（Pitfall draft、WorkCase 方案/关闭待确认、Spark open、Friction open）用
+    // **裸问号**：这一族的共同点是「等一个决定」，不是「进度走到一半」——此前是自绘的
+    // 四分填充圆（读起来像进度环，未开始的条目被画成已完成 25%），随后短暂用过带外圈的
+    // CircleHelp，Human 定案 2026-11-02 撤掉外圈（行首已有类型图标，行末再套一个圆是
+    // 多余的框）。图形集中在 SemanticIcon 的 QuestionMarkIcon（lucide 无裸问号形态）。
+    pending: { Icon: QuestionMarkIcon, className: 'text-amber-500 dark:text-amber-400' },
     closed: { Icon: CircleCheck, className: 'text-emerald-500 dark:text-emerald-400' },
     discarded: { Icon: CircleMinus, className: 'text-slate-400/70 dark:text-slate-500/70' },
     progressing: { Icon: CirclePlay, className: 'text-sky-500 dark:text-sky-400' },

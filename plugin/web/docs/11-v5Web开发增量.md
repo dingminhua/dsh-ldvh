@@ -1510,22 +1510,39 @@ User said (m04384)：「待确认应该用问号图标」（附图为子目标�
 **顺带收敛的一处纪律问题**：这是全仓**唯一**一处自绘状态图形，绕过了 `docs/09` §8 的
 集中映射原则（页面不得自行散落图标选择）——所以它既不在 §4 的工作项状态表里，也不在
 任何图标检索路径上，改名换库时无人能找到它。现按 §4 的体例新增 §4.1，把五族行末图标
-（`Activity` / `CirclePlay` / `CircleHelp` / `CircleCheck` / `CircleMinus`）集中登记，
+（`Activity` / `CirclePlay` / 待处理族的问号 / `CircleCheck` / `CircleMinus`）集中登记，
 并在 `docs/03` §3 那句「使用待处理图标」处补上具体图标名与指针。
 
 **未改的部分**：tooltip 文案仍是 `objectList.associationState.pending`「待处理」——
 用户要的是图形，不是这一族的命名；且 Friction 活账确实不是「待确认」。排序档
 （活跃 → 推进中 → 待处理 → 已关闭 → 已废弃）与琥珀状态色不变。
 
-**守卫**：`spark-reading-contract.test.ts` 加两条——正向断言
-`pending: { Icon: CircleHelp, … }`，反向断言那段自绘 path `M12 12V3a9 9 0 0 1 9 9`
-不得再出现（反向断言防的是「将来又有人自绘一个进度类图形」，不是防某一行代码）。
+**二次定案（同日，Human 看了首版截图后）**：「有没有单个问号的，不要有外部的圆圈」——
+`CircleHelp` 是**带外圈**的问号；行首的类型图标已经圈着一个形状，行末再套一圈是多余的框。
+lucide 0.511 **没有裸问号形态**（`CircleHelp`／`BadgeHelp`／`FileQuestion` 全部带圈或徽框），
+故按 §8 既有先例（research 的 `FileSearchCornerIcon`）在集中映射处 `SemanticIcon.tsx`
+新增 `QuestionMarkIcon`。**禁的是页面内联自绘，不是集中封装本身**——首版那句「不自绘 svg」
+若照字面执行会走进死路：lucide 没有这个图形，要么带圈、要么回页面内联。正确读法是
+「图形进集中映射，不进页面」。
+
+字形不是照抄 lucide 的问号 path：那截 path 只占 24 视框的 8/24（它是设计来装进 r=10 的
+圆里的），直接摘出来在 15px 下是个小点，与同排带圈的四个图标视觉重量失衡。故绕字形中心
+(12,13) 放大 1.9 倍（放大后跨 5.4–20.6），`strokeWidth` 保持 2（15px 下 1.25px，与 lucide 同权重）。
+
+**守卫**：`spark-reading-contract.test.ts` 加四条——正向断言
+`pending: { Icon: QuestionMarkIcon, … }` 与「import 自 `@/components/SemanticIcon`」；
+反向断言自绘 path `M12 12V3a9 9 0 0 1 9 9` 不得再出现、`Icon: CircleHelp` 与 lucide
+import 行内不得出现 `CircleHelp`。**坑（本轮第二次踩同一处）**：第一版反向断言写成全文
+`/CircleHelp/`，被注释里「为什么撤掉外圈」的历史记述判红——撤除类反向断言**只查代码位**
+（import 行、`Icon:` 引用），注释里的说明是正当的（同 §4octodecies 的 `Maximize2` 坑）。
 
 ### 验证
 
-- `npx tsc -b` 通过；`npx tsx --test tests/api/*.test.ts` → **611 pass / 0 fail**；
-  `npx eslint .` → 只剩 HEAD 既有 1 error + 1 warning，本轮未新增。
-- `npm run build:dsh` 重建后 GUI 实测（`/ldvh/objects/subgoal`，Playwright，脚本写完即删）：
-  `lucide-circle-help` 出现 8 次、自绘 path `M12 12V3a9` 已不在页面、
-  同页 `circle-check` 6 / `circle-minus` 1 / `activity` 2，控制台零错误。
-  截图 `scratch.local/ui-pending-icon.png`。
+- **首版（带圈）实测**：`lucide-circle-help` 出现 8 次、自绘 path `M12 12V3a9` 已不在页面、
+  同页 `circle-check` 6 / `circle-minus` 1 / `activity` 2，零控制台错误
+  （截图 `scratch.local/ui-pending-icon.png`）——这一版被 Human 判「外圈多余」。
+- **二次定案后（裸问号）实测**：`npx tsc -b` 通过；`npx tsx --test tests/api/*.test.ts` →
+  **611 pass / 0 fail**；`npx eslint` 无新增；`npm run build:dsh` 重建后访问
+  `/ldvh/objects/subgoal`：`lucide-circle-help` **0 次**，8 个 `title="待处理"` 的 span 内
+  svg 均为 `viewBox="0 0 24 24"` + **2 条 path + 0 个 circle**（即无外圈）、渲染框 15×15、
+  零控制台错误（截图 `scratch.local/ui-bare-q.png`）。
