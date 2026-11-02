@@ -18,8 +18,13 @@
  *             absorbed/superseded/dropped are read-only afterwards
  *             (29 §9.2 三个终态均不可重开).
  *
- * Red lines honoured (29 §18): no `urls`, no `refs`, no resolvable pointer to a
+ * Red lines honoured (29 §18): no `urls`, no resolvable pointer to a
  * plain-document path (§10.2 载体自足), no merge edge, no business number.
+ *
+ * `refs` was adopted on 2026-11-02 (29 §8/§11/§12.3bis; the adopting-surface
+ * decision is Human's, per 02 §8.2 采用面扩展): the entry declares which fact
+ * objects its conclusion is based on / related to. It is a REFERENCE carrier,
+ * not a lifecycle relation — 承接/推翻 stay in `relations` (29 §11).
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -83,8 +88,16 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 /** Closed set of frontmatter keys (29 §8: unknown fields are rejected). */
 export const VALID_FM_KEYS = new Set([
   "object_uid", "fact_type_key", "title", "status", "occurred_at", "summary",
-  "serves", "disposition", "relations", "created_at", "change_log",
+  "serves", "refs", "disposition", "relations", "created_at", "change_log",
 ]);
+
+/**
+ * refs entry cap (29 §8: 上限 10 项). Same number and same reason as 20 §8:
+ * the field exists so a Human can scan "what is this entry related to" on the
+ * list card; an unbounded list would defeat its own purpose (02 §16 第 9 条:
+ * 关联数量不构成价值声明).
+ */
+const MAX_REFS_ENTRIES = 10;
 
 /**
  * 可经 frontmatter_removals 删除的字段（specs/02 §10.5 实现对齐）。
@@ -93,11 +106,11 @@ export const VALID_FM_KEYS = new Set([
  * `dropped` 专属、`relations` 是终态伴随，二者在 update 路径不可达（终态
  * 只读，而 active 期两者都必须缺席），故都不列。
  *
- * `serves` 是唯一可显式删除的字段：它是可选归属引用，条目在创建时可能尚无
- * 对应子目标，子目标后来建立或条目确认不属于任何子目标时都需要「撤销声明」。
+ * `serves` 与 `refs` 是可显式删除的字段：二者都是可选引用，条目在创建时
+ * 可能尚无对应子目标／关联对象，后来建立或确认无关时都需要「撤销声明」。
  * 没有删除通道，02 §10.5 的「省略即保留」会让它一旦写入就永久无法撤回。
  */
-export const DEVLOG_REMOVABLE_FIELDS = new Set(["serves"]);
+export const DEVLOG_REMOVABLE_FIELDS = new Set(["serves", "refs"]);
 
 // ---------------------------------------------------------------------------
 // Result helpers
@@ -178,6 +191,41 @@ export function validateDevLogFrontmatter(frontmatter) {
   if (frontmatter.serves !== undefined) {
     if (typeof frontmatter.serves !== "string" || !UUID_PATTERN.test(frontmatter.serves)) {
       issues.push(`serves: must be a SubGoal object_uid (canonical UUIDv4, 29 §8), got ${JSON.stringify(frontmatter.serves)}`);
+    }
+  }
+
+  // refs (29 §8 / §12.3bis): optional association references (02 §8.2 关联引用型
+  // 形态). Shape is checked here; target resolution is the caller's job
+  // (resolveDevLogRefsTargets) because it needs the fact-source index.
+  if (frontmatter.refs !== undefined) {
+    if (!Array.isArray(frontmatter.refs)) {
+      issues.push("refs: must be an array of {object_uid}");
+    } else if (frontmatter.refs.length === 0) {
+      issues.push("refs: must be omitted when there is no association — an empty array fabricates a conditional field (03 §6.1)");
+    } else {
+      if (frontmatter.refs.length > MAX_REFS_ENTRIES) {
+        issues.push(`refs: exceeds the ${MAX_REFS_ENTRIES}-entry cap (29 §8)`);
+      }
+      const seenTargets = new Set();
+      for (const entry of frontmatter.refs) {
+        if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+          issues.push("refs[]: members must be objects of shape {object_uid}");
+          continue;
+        }
+        const extra = Object.keys(entry).filter((k) => k !== "object_uid");
+        if (extra.length > 0) {
+          issues.push(`refs[]: entry carries fields beyond object_uid (${extra.join(", ")}) — 03 §7.2 keeps target title/explanation out of the carrier`);
+        }
+        const target = entry.object_uid;
+        if (typeof target !== "string" || !UUID_PATTERN.test(target)) {
+          issues.push(`refs[].object_uid: must be a canonical UUIDv4 object_uid, got ${JSON.stringify(target)}`);
+          continue;
+        }
+        if (seenTargets.has(target)) {
+          issues.push(`refs[]: duplicate target ${target} (03 §7.2 invariant 3 — no synonymous duplicates)`);
+        }
+        seenTargets.add(target);
+      }
     }
   }
 
@@ -419,7 +467,7 @@ function buildFileContent(frontmatter, body) {
  * semantic block, then relations, then identity, then the flow log.
  */
 const FRONTMATTER_FIELD_ORDER = [
-  "title", "status", "occurred_at", "summary", "serves", "disposition",
+  "title", "status", "occurred_at", "summary", "serves", "refs", "disposition",
   "relations", "object_uid", "fact_type_key", "created_at", "change_log",
 ];
 
@@ -512,6 +560,7 @@ export async function listDevLogIndex(factSourceRoot) {
       occurred_at: fm.occurred_at,
       summary: fm.summary,
       serves: fm.serves,
+      refs: fm.refs,
       disposition: fm.disposition,
       relations: fm.relations,
       created_at: fm.created_at,
@@ -664,6 +713,36 @@ async function validateRelationTargets({ factSourceRoot, frontmatter, gitCommitR
   return success({ ok: true });
 }
 
+/**
+ * Resolve every `refs` target (29 §8 / §12.3bis; 02 §8.2).
+ *
+ * The target must EXIST and be READABLE in this project. Its STATUS is never
+ * checked: an association is a historical fact, and the target closing does not
+ * invalidate it (same reading as 20 §8). A missing target fails closed — the
+ * entry is NOT silently degraded to an empty array (02 §8.2 机械校验边界).
+ */
+async function validateRefsTargets({ factSourceRoot, frontmatter }) {
+  const refs = Array.isArray(frontmatter.refs) ? frontmatter.refs : [];
+  if (refs.length === 0) return success({ ok: true });
+
+  const missing = [];
+  for (const entry of refs) {
+    const uid = typeof entry === "string" ? entry : entry?.object_uid;
+    if (typeof uid !== "string") continue;
+    const located = await locateFactObject(factSourceRoot, uid);
+    if (!located.ok) missing.push(uid);
+  }
+
+  if (missing.length > 0) {
+    return failure(
+      "devlog/refs_unresolvable",
+      `refs target(s) not resolvable in this project: ${missing.join(", ")} (02 §8.2 — targets must be existing, readable, same-project fact objects; 29 §12.3bis)`,
+      { missing },
+    );
+  }
+  return success({ ok: true });
+}
+
 // ---------------------------------------------------------------------------
 // Create (specs/29 §13 + specs/02 §10)
 // ---------------------------------------------------------------------------
@@ -743,6 +822,12 @@ async function evaluateCreateCandidate({
   // kept for the shared path so the two entries stay identical).
   if (frontmatter.relations !== undefined) {
     const targets = await validateRelationTargets({ factSourceRoot, frontmatter, gitCommitResolver });
+    if (!targets.ok) return targets;
+  }
+
+  // refs targets (29 §8 / §12.3bis): must exist and be readable in this project.
+  if (frontmatter.refs !== undefined) {
+    const targets = await validateRefsTargets({ factSourceRoot, frontmatter });
     if (!targets.ok) return targets;
   }
 
@@ -1016,6 +1101,12 @@ export async function updateDevLogObject(args) {
   // Relation targets must resolve before anything lands (02 §8.2 第 5 条).
   if (next.relations !== undefined) {
     const targets = await validateRelationTargets({ factSourceRoot, frontmatter: next, gitCommitResolver });
+    if (!targets.ok) return targets;
+  }
+
+  // refs targets must resolve too (29 §12.3bis / 02 §8.2 机械校验边界).
+  if (next.refs !== undefined) {
+    const targets = await validateRefsTargets({ factSourceRoot, frontmatter: next });
     if (!targets.ok) return targets;
   }
 

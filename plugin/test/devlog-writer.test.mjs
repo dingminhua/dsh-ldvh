@@ -512,10 +512,14 @@ test("disposition appears iff status=dropped (29 §8 不变量 3)", () => {
 	assert.equal(droppedWithout.ok, false);
 });
 
-test("only `serves` is removable — the topic pointer is the one drawn-back declaration (29 §8)", () => {
-	assert.deepEqual([...DEVLOG_REMOVABLE_FIELDS], ["serves"]);
+test("the removable fields are the two optional references — `serves` (topic) and `refs` (associations) (29 §8)", () => {
+	// 2026-11-02: `refs` joined the removable set together with `serves` — both
+	// are OPTIONAL reference fields, and 02 §10.5's "省略即保留" would otherwise
+	// make either one永久 un-withdrawable once written.
+	assert.deepEqual([...DEVLOG_REMOVABLE_FIELDS].sort(), ["refs", "serves"]);
 	assert.equal(DEVLOG_REMOVABLE_FIELDS.has("summary"), false);
 	assert.equal(DEVLOG_REMOVABLE_FIELDS.has("disposition"), false);
+	assert.equal(DEVLOG_REMOVABLE_FIELDS.has("relations"), false);
 });
 
 test("serves may be withdrawn via frontmatter_removals (29 §8.1 空集是合法状态)", async () => {
@@ -704,5 +708,123 @@ test("an existing carrier with trailing-space headings still parses (no false re
 		await writeFile(created.file, raw.replace("## 背景", "## 背景  "));
 		const read = await readDevLogObject({ factSourceRoot: root, objectUid: created.object_uid });
 		assert.equal(read.value.body_valid, true, read.value.mechanical_issues.join("; "));
+	});
+});
+
+// ---------------------------------------------------------------------------
+// refs (29 §8 / §12.3bis; adopting-surface decision 2026-11-02, 02 §8.2)
+// ---------------------------------------------------------------------------
+
+test("refs shape is checked: {object_uid} members only, capped at 10, no duplicates (29 §8)", () => {
+	const base = {
+		object_uid: "11111111-1111-4111-8111-111111111111",
+		fact_type_key: "devlog",
+		title: TITLE,
+		status: "active",
+		occurred_at: "2026-01-01T00:00:00.000Z",
+		summary: SUMMARY,
+		created_at: "2026-01-02T00:00:00.000Z",
+		change_log: [{ at: "2026-01-02T00:00:00.000Z", provider: "p", model: "m", summary: "x" }],
+	};
+	const one = { object_uid: "22222222-2222-4222-8222-222222222222" };
+	const good = validateDevLogFrontmatter({ ...base, refs: [one] });
+	assert.equal(good.ok, true, good.issues.join("; "));
+
+	const notArray = validateDevLogFrontmatter({ ...base, refs: "x" });
+	assert.equal(notArray.ok, false);
+	assert.ok(notArray.issues.some((i) => i.startsWith("refs: must be an array")));
+
+	const empty = validateDevLogFrontmatter({ ...base, refs: [] });
+	assert.equal(empty.ok, false);
+	assert.ok(empty.issues.some((i) => i.includes("must be omitted when there is no association")));
+
+	const tooMany = validateDevLogFrontmatter({
+		...base,
+		refs: Array.from({ length: 11 }, (_, i) => ({ object_uid: `0000000${i}-0000-4000-8000-000000000000` })),
+	});
+	assert.equal(tooMany.ok, false);
+	assert.ok(tooMany.issues.some((i) => i.includes("exceeds the 10-entry cap")));
+
+	const dup = validateDevLogFrontmatter({ ...base, refs: [one, one] });
+	assert.equal(dup.ok, false);
+	assert.ok(dup.issues.some((i) => i.includes("duplicate target")));
+
+	const extraKey = validateDevLogFrontmatter({ ...base, refs: [{ ...one, title: "不该在载体里" }] });
+	assert.equal(extraKey.ok, false);
+	assert.ok(extraKey.issues.some((i) => i.includes("carries fields beyond object_uid")));
+
+	const badUid = validateDevLogFrontmatter({ ...base, refs: [{ object_uid: "not-a-uuid" }] });
+	assert.equal(badUid.ok, false);
+	assert.ok(badUid.issues.some((i) => i.includes("canonical UUIDv4")));
+});
+
+test("create rejects a refs target that does not exist in this project (02 §8.2 fail closed)", async () => {
+	await withTemp("ldvh-devlog-", async (base) => {
+		const root = await freshRoot(base);
+		const created = await createDevLogObject({
+			factSourceRoot: root,
+			frontmatterDraft: draft({ refs: [{ object_uid: "33333333-3333-4333-8333-333333333333" }] }),
+			bodyMarkdown: bodyFor(),
+			sessionSignature: SIG,
+		});
+		assert.equal(created.ok, false);
+		assert.equal(created.error.code, "devlog/refs_unresolvable");
+		assert.equal(created.error.details.missing.length, 1);
+	});
+});
+
+test("create accepts a refs target that exists (29 §12.3bis)", async () => {
+	await withTemp("ldvh-devlog-", async (base) => {
+		const root = await freshRoot(base);
+		const target = await createOne(root, { title: "被引用的另一条" });
+		const created = await createDevLogObject({
+			factSourceRoot: root,
+			frontmatterDraft: draft({ refs: [{ object_uid: target.object_uid }] }),
+			bodyMarkdown: bodyFor(),
+			sessionSignature: SIG,
+		});
+		assert.equal(created.ok, true, created.ok ? "" : `${created.error.code}: ${created.error.message}`);
+		const read = await readDevLogObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+		assert.deepEqual(read.value.frontmatter.refs, [{ object_uid: target.object_uid }]);
+	});
+});
+
+test("refs may be withdrawn via frontmatter_removals (02 §10.5 省略即保留的对称通道)", async () => {
+	await withTemp("ldvh-devlog-", async (base) => {
+		const root = await freshRoot(base);
+		const target = await createOne(root, { title: "被引用的另一条" });
+		const created = await createDevLogObject({
+			factSourceRoot: root,
+			frontmatterDraft: draft({ refs: [{ object_uid: target.object_uid }] }),
+			bodyMarkdown: bodyFor(),
+			sessionSignature: SIG,
+		});
+		assert.equal(created.ok, true);
+		const before = await readDevLogObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+		const updated = await updateDevLogObject({
+			factSourceRoot: root,
+			objectUid: created.value.object_uid,
+			expectedFingerprint: before.value.fingerprint,
+			frontmatterAfter: {},
+			frontmatterRemovals: ["refs"],
+			bodyMarkdownAfter: `# ${TITLE}\n\n${bodyFor()}`,
+			changeSummary: "撤回关联声明（refs 撤销）",
+			sessionSignature: SIG,
+		});
+		assert.equal(updated.ok, true, updated.ok ? "" : `${updated.error.code}: ${updated.error.message}`);
+		const after = await readDevLogObject({ factSourceRoot: root, objectUid: created.value.object_uid });
+		assert.equal(after.value.frontmatter.refs, undefined);
+	});
+});
+
+test("the index projection carries refs so the list card can render associations (29 §12.1)", async () => {
+	await withTemp("ldvh-devlog-", async (base) => {
+		const root = await freshRoot(base);
+		const target = await createOne(root, { title: "被引用的另一条" });
+		await createOne(root, { title: "引用者", refs: [{ object_uid: target.object_uid }] });
+		const listed = await listDevLogObjects({ factSourceRoot: root, status: "all" });
+		assert.equal(listed.ok, true);
+		const holder = listed.value.items.find((i) => i.title === "引用者");
+		assert.deepEqual(holder.refs, [{ object_uid: target.object_uid }]);
 	});
 });

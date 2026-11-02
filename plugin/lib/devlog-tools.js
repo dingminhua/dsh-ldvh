@@ -182,6 +182,7 @@ async function executeReadObject(args, exec, deps) {
       created_at: fm.created_at,
       summary: fm.summary,
       serves: typeof fm.serves === "string" ? fm.serves : undefined,
+      refs: fm.refs ?? undefined,
       disposition: typeof fm.disposition === "string" ? fm.disposition : undefined,
       relations: fm.relations ?? undefined,
       body_valid: value.body_valid,
@@ -246,6 +247,7 @@ async function executeListObject(args, exec, deps) {
         occurred_at: item.occurred_at,
         summary: item.summary,
         serves: item.serves,
+        refs: item.refs,
       })),
     },
     scope: { requested: "list", completed: ["list"], not_completed: [] },
@@ -473,6 +475,7 @@ export function writeRejected(operationKey, result, factSourceRoot, action) {
     || code.startsWith("devlog/fingerprint")
     || code.startsWith("devlog/identity_")
     || code.startsWith("devlog/serves_")
+    || code.startsWith("devlog/refs_")
     || code.startsWith("devlog/absorbed_into_")
     || code.startsWith("devlog/superseded_by_")
     || code.startsWith("devlog/target_")
@@ -571,6 +574,7 @@ function parameterSchemaFor(operationKey) {
       occurred_at: { type: "string", description: "RFC3339 — WHEN THE WORK HAPPENED, not when the entry was written (29 §10.4). Required; must not be later than created_at. Using the recording time here is a defect the mechanical layer cannot detect (29 §15)" },
       summary: { type: "string", description: "当前语义快照 (29 §8/§9.3): the conclusion itself + its current applicability boundary + confirmed non-holds. Must appear VERBATIM in the 结论与边界 body section (carrier coherence). A 细化档 update (boundary/number refinement, conclusion unchanged) is a supplement-level write; a 替换档 one (loosening/tightening/replacing the conclusion) additionally needs Human confirmation — Code does NOT judge which one it is (29 §15)" },
       serves: { type: "string", description: "optional SubGoal object_uid (canonical UUIDv4); must resolve to an active|achieved SubGoal (28 §12.3). Omit when not applicable — an entry without serves has an empty topic and the presentation layer must say so (29 §8.1)" },
+      refs: { type: "array", items: { type: "object" }, description: "关联的事实对象引用（29 §8 / §12.3bis；采用面扩展经 Human 决定，02 §8.2）: array of {object_uid} — 目标须为同项目存在且可读的事实对象（**不校验目标状态**——关联是历史事实），上限 10 项，禁重复、禁携带目标标题或关系解释；**只载内容关联**，生命周期关系走 relations、外部资料走 urls、载体内部锚点走 serves；解析失败零写入拒绝，不得降级为空数组；不存在时省略（空数组会伪造一个条件字段）" },
       disposition: { type: "string", description: "terminal destination & reason; required iff status=dropped, forbidden otherwise (29 §8)" },
       relations: { type: "array", items: { type: "object" }, description: "closed set {absorbed-into, superseded-by}, BOTH terminal-only (29 §11). absorbed-into (cardinality 1, iff status=absorbed) → ADR/WorkCase/Norm/Pitfall object_uid or {commit} form; superseded-by (cardinality 1, iff status=superseded) → DevLog object_uid ONLY (a commit cannot answer 「新结论在哪里」)" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
@@ -621,7 +625,7 @@ function parameterSchemaFor(operationKey) {
       object_uid: { type: "string", description: "update: target object" },
       expected_fingerprint: { type: "string", description: "update: CAS baseline fingerprint from your last precise read" },
       frontmatter_after: devlogFrontmatterAfter,
-      frontmatter_removals: { type: "array", items: { type: "string" }, description: `${FRONTMATTER_REMOVALS_DESCRIPTION} For DevLog the only removable field is \`serves\` (29 §8 optional topic pointer).` },
+      frontmatter_removals: { type: "array", items: { type: "string" }, description: `${FRONTMATTER_REMOVALS_DESCRIPTION} For DevLog the removable fields are \`serves\` (29 §8 optional topic pointer) and \`refs\` (29 §8 optional association references).` },
       body_markdown_after: { type: "string", description: "update: the complete target body markdown (same shape as body_markdown, INCLUDING the H1 line — pass back what a precise read returned). For status=absorbed the body must carry ONLY 结论与边界 + 去向 (29 §9.1 压缩形态)" },
       change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry. For a 细化档 summary update it must state what was refined; for a 替换档 one it must state the replacement reason (29 §9.3)" },
       expected_candidate_fingerprint: { type: "string", description: "create: the candidate_fingerprint returned by ldvh_devlog_precheck_create for THIS candidate content. When supplied, the write refuses if the content changed in between — so a precheck verdict never silently carries over to a different candidate (29 §13). Omit only when the candidate was not prechecked, and record that as an unfulfilled scope (02 §10.1)" }

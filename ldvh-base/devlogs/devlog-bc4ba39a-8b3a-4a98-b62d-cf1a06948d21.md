@@ -3,6 +3,9 @@ title: 建前审核分区覆盖与轮次上限落盘
 status: active
 occurred_at: 2026-10-27T21:54:47+08:00
 summary: 21 号建前审核的分区增量覆盖、轮次上限与 rebatch 保留流水三处口径已随提交 9391fb7 与规范同批落盘，候选文档自述的「未并入 specs/21」在落档时已过期；附带登记一条只在实现侧、不在规范正文的边界——未知分区 id 一律拒绝，specs/21 正文对它零命中。
+refs:
+  - object_uid: 996e207a-3ca2-494b-bcbe-3f00d7c0c3b7
+  - object_uid: c36b0208-cdcf-423d-94e1-e1c735562897
 object_uid: bc4ba39a-8b3a-4a98-b62d-cf1a06948d21
 fact_type_key: devlog
 created_at: 2026-11-02T08:35:00.846Z
@@ -15,6 +18,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 更正去向：本条保持 active 不转 absorbed（29 §9.1 — 实测数字不被承接物承载，压缩会使 996e207a 6轮/4条等测量不可读）
+  - at: 2026-11-02T11:48:30.104Z
+    provider: qoder-global
+    model: mmodel
+    summary: 登记内容关联 refs（29 §8 / §11 / §12.3bis，2026-11-02 Human 裁定扩采用面）：条目侧登记自己与哪些事实对象有内容关联——正文「实测」段逐条对照这两张工单的审计条数与结论。正文与状态判定逐字不变。
 ---
 
 # 建前审核分区覆盖与轮次上限落盘
