@@ -1494,3 +1494,38 @@ writer，Web 侧只做投影）。
 - `npx tsx --test tests/api/presentation-narrowing-registry.test.ts` → 5 pass（新增行三腿齐备）。
 - 事实源：`grep -c "^refs:" ldvh-base/devlogs/*.md` → 7 份各 1、`d5187ddf` 为 0；
   `listDevLogObjects({status:'all'})` 8 items，refs 投影逐条正确。
+
+## 4novemdecies. 关联行末「待处理」图标改用问号（2026-11-02，Human 定案）
+
+User said (m04384)：「待确认应该用问号图标」（附图为子目标卡「名下的工作」区右侧一列
+琥珀色**四分填充圆**，蓝框圈住其中三枚）。
+
+**判读**：撤的是那枚自绘图形，不是这一族状态。`FactAssociationStateIcon` 的五族里
+`pending`（Pitfall draft、WorkCase 方案/关闭待确认、Spark open、Friction 活账）此前
+用一段手写 `svg`（圆 + 填充右上四分之一），视觉上是一个**进度环**——读者会把它读成
+「这条已经走了 25%」。但这四类的共同点从来不是进度，而是**等一个决定**：draft 在等
+准入、pending_gate1 在等放行、awaiting_gate2 在等关闭裁决、Friction open 是没人认领的
+活账。所以隐喻本身就是错的，改成 `CircleHelp`（问号）后隐喻与语义对齐。
+
+**顺带收敛的一处纪律问题**：这是全仓**唯一**一处自绘状态图形，绕过了 `docs/09` §8 的
+集中映射原则（页面不得自行散落图标选择）——所以它既不在 §4 的工作项状态表里，也不在
+任何图标检索路径上，改名换库时无人能找到它。现按 §4 的体例新增 §4.1，把五族行末图标
+（`Activity` / `CirclePlay` / `CircleHelp` / `CircleCheck` / `CircleMinus`）集中登记，
+并在 `docs/03` §3 那句「使用待处理图标」处补上具体图标名与指针。
+
+**未改的部分**：tooltip 文案仍是 `objectList.associationState.pending`「待处理」——
+用户要的是图形，不是这一族的命名；且 Friction 活账确实不是「待确认」。排序档
+（活跃 → 推进中 → 待处理 → 已关闭 → 已废弃）与琥珀状态色不变。
+
+**守卫**：`spark-reading-contract.test.ts` 加两条——正向断言
+`pending: { Icon: CircleHelp, … }`，反向断言那段自绘 path `M12 12V3a9 9 0 0 1 9 9`
+不得再出现（反向断言防的是「将来又有人自绘一个进度类图形」，不是防某一行代码）。
+
+### 验证
+
+- `npx tsc -b` 通过；`npx tsx --test tests/api/*.test.ts` → **611 pass / 0 fail**；
+  `npx eslint .` → 只剩 HEAD 既有 1 error + 1 warning，本轮未新增。
+- `npm run build:dsh` 重建后 GUI 实测（`/ldvh/objects/subgoal`，Playwright，脚本写完即删）：
+  `lucide-circle-help` 出现 8 次、自绘 path `M12 12V3a9` 已不在页面、
+  同页 `circle-check` 6 / `circle-minus` 1 / `activity` 2，控制台零错误。
+  截图 `scratch.local/ui-pending-icon.png`。

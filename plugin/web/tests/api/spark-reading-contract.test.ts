@@ -75,6 +75,11 @@ test('every fact list card shows exact-read formal associations in a minimal sec
   assert.match(source, /association\.status === 'discarded'\) return 'discarded'/);
   assert.match(source, /association\.status === 'retired'\) return 'discarded'/);
   assert.match(source, /discarded: \{ Icon: CircleMinus, className: 'text-slate-400\/70 dark:text-slate-500\/70' \}/);
+  // 待确认族用问号（Human 2026-11-02：「待确认应该用问号图标」）——此前是自绘的四分
+  // 填充圆，读起来像进度环：未开始的条目被画成已完成 25%，隐喻是错的。状态图标
+  // 一律用 lucide 原生（09 §8：页面不得自行散落图标选择），不再自绘 svg。
+  assert.match(source, /pending: \{ Icon: CircleHelp, className: 'text-amber-500 dark:text-amber-400' \}/);
+  assert.doesNotMatch(source, /M12 12V3a9 9 0 0 1 9 9/);
   assert.match(source, /const isDiscarded = associationState === 'discarded'/);
   assert.match(source, /isDiscarded \? 'text-slate-400\/70 dark:text-slate-500\/70'/);
   assert.match(source, /isDiscarded \? 'text-slate-400\/65 dark:text-slate-500\/60'/);

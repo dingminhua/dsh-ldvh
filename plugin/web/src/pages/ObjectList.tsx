@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { Activity, ArrowDownWideNarrow, CalendarClock, ChevronDown, ChevronUp, CircleAlert, CircleCheck, CircleMinus, CirclePlay, Clock3, History, Search } from 'lucide-react';
+import { Activity, ArrowDownWideNarrow, CalendarClock, ChevronDown, ChevronUp, CircleAlert, CircleCheck, CircleHelp, CircleMinus, CirclePlay, Clock3, History, Search } from 'lucide-react';
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import SegmentedControl from '@/components/SegmentedControl';
 import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
@@ -708,17 +708,12 @@ function getFactAssociationStateRank(association: FactCardAssociation): number {
 }
 
 function FactAssociationStateIcon({ state, tooltip }: { state: FactAssociationState; tooltip: string }) {
-  if (state === 'pending') {
-    return (
-      <span title={tooltip} aria-label={tooltip} className="shrink-0 text-amber-500 dark:text-amber-400">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 12V3a9 9 0 0 1 9 9Z" fill="currentColor" stroke="none" />
-        </svg>
-      </span>
-    );
-  }
   const presentation = {
+    // 待确认族（Pitfall draft、WorkCase 方案/关闭待确认、Spark open、Friction open）用问号：
+    // 这一族的共同点是「等一个决定」，不是「进度走到一半」。此前用自绘的四分填充圆，
+    // 读起来像进度环——未开始的条目被画成已完成 25%，是错的隐喻（09 §8：页面不得自行
+    // 散落图标选择，此处改用 lucide 原生 CircleHelp）。
+    pending: { Icon: CircleHelp, className: 'text-amber-500 dark:text-amber-400' },
     closed: { Icon: CircleCheck, className: 'text-emerald-500 dark:text-emerald-400' },
     discarded: { Icon: CircleMinus, className: 'text-slate-400/70 dark:text-slate-500/70' },
     progressing: { Icon: CirclePlay, className: 'text-sky-500 dark:text-sky-400' },
