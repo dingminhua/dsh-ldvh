@@ -162,6 +162,14 @@ export function createTurnTriggers(agent, { getScopeState, turns, activity, log,
       Promise.resolve(registerDiagnostic({
         stage,
         reason,
+        // **会话位置标识**（2026-11-03 补）：此前 trace 只写 stage/reason/turn/at，
+        // 运行记录里没有会话标识，于是「同一时点出现两份 dispatching」无法归因到
+        // 具体会话——是同一会话装了两套触发器，还是两个会话各自到期？前者违
+        // 11 §6.1「不得在同一目标时刻上反复触发」，后者是正常并发，两者在痕迹上
+        // 完全同形（实测 2026-11-02 的 50 条记录即卡在这里）。补上 agent_id 后该
+        // 歧义可事后分辨。**它是诊断材料，不参与任何判定**（§6.1 的判据仍只有
+        // 静置到期与无同类检查在执行两项）。
+        session: typeof agentId === "string" && agentId.length > 0 ? agentId : null,
         turn: state.lastTurn,
         at: new Date().toISOString(),
         ...extra,

@@ -54,7 +54,7 @@ function fakeCtx() {
  * 调派发——那会把「判据没生效」测成通过。
  */
 
-async function setup({ withSubagents = true, tasks = { "friction-discovery": true, "experience-capture": false } } = {}) {
+async function setup({ withSubagents = true, tasks = { "friction-discovery": true, "experience-capture": false }, seedPendingQueue = null } = {}) {
   const { createLifecycleRegistry } = await import("../lib/lifecycle.js");
 
   const home = await mkdtemp(join(tmpdir(), "ldvh-lc-"));
@@ -129,6 +129,15 @@ async function setup({ withSubagents = true, tasks = { "friction-discovery": tru
       install: () => () => {},
     },
   });
+  // 11 §12 第 4 条「会话启动时的队列清点」：须在 start() **之前**落好载体，
+  // 否则清点读到的是空队列（absent 也是合法初态，但那样测不出「读到几条」）。
+  if (Array.isArray(seedPendingQueue)) {
+    await writeFile(
+      join(home, "ldvh", "pending-queue.jsonl"),
+      seedPendingQueue.map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+      "utf8",
+    );
+  }
   lifecycle.start();
 
   return { ctx, lifecycle, home, project, dshHomePath, roots, startsRef: () => starts };
@@ -720,4 +729,145 @@ test("重启：宿主记录不可读时维持 fail-closed 并如实记下原因�
     queue.value.items.some((item) => /currentTurn .* is required/.test(item.reason)),
     `fail-closed 停止须入待处置队列，实测：${JSON.stringify(queue.value.items)}`,
   );
+});
+
+// ---------------------------------------------------------------------------
+// 11 §6.1：插件级卸载须清掉已装 agent 的安静期计时器（2026-11-03 补）
+//
+// 缺口：per-agent disposer 已会 `turnTriggers.dispose()`，但那条路径只在**该 agent
+// 的 fiber** 卸载时触发。插件 fiber 卸载（`start()` 返回的清理函数）此前只
+// disposeCreated/disposeSubagentEnd、清 children 并删 `agents` 表项，**不枚举已装
+// agent 的计时器**。后果：插件重载后旧计时器仍在进程里跑，到期仍会派发——这正是
+// 「装载不重建计时」想消除的那类重复触发，只是入口换成了「旧对象没死透」。
+//
+// 本用例只问一件事：**装一个 agent、武装计时器、走插件级卸载、之后还会不会派发**。
+// ---------------------------------------------------------------------------
+
+test("11 §6.1：插件级卸载须清掉已装 agent 的计时器（卸载后不得再派发）", async () => {
+  const { ctx, lifecycle, roots, project } = await setup();
+  const stopLifecycle = lifecycle.start();
+  try {
+    const sessionId = `session-plugin-unload-${Date.now()}`;
+    const session = { header: { id: sessionId, cwd: project }, id: sessionId };
+    const agent = { id: "agent-plugin-unload", session, ctx };
+
+    roots.push(agent);
+    await ctx.emit("agent/created", { agent, source: "startup" });
+    await waitForGoverned(lifecycle, agent.id);
+    // 装载侧异步旁路（含受管辖判定）须落定后再起算安静期
+    await new Promise((r) => setTimeout(r, 300));
+
+    // 起算安静期：turn/end → 武装计时器（注入的安静时长是 50ms）
+    ctx.emit("session/event", session, { type: "turn/end", turn: 7 });
+    ctx.emit("agent/status", { agent, status: "idle" });
+
+    // 插件级卸载（宿主重载插件时走这条路，**不动 agent 自己的 fiber**）
+    stopLifecycle();
+
+    // 卸载记录须可回读（否则「清了几台」无从核查）
+    const cleared = lifecycle.registryActivitySnapshot().filter((e) => e.hook === "timers/cleared");
+    assert.equal(cleared.length, 1, "插件级卸载须落一条 timers/cleared 痕迹");
+    assert.ok(
+      cleared[0].detail.disposed.includes(agent.id),
+      `已装 agent 的计时器须在清理名单里，实测：${JSON.stringify(cleared[0].detail)}`,
+    );
+
+    // 等过安静时长：若计时器没被清掉，这里就会派发
+    const before = quietDispatchCount(lifecycle);
+    await new Promise((r) => setTimeout(r, 250));
+    assert.equal(
+      quietDispatchCount(lifecycle),
+      before,
+      "插件级卸载后不得再有静置派发（旧计时器必须已清）",
+    );
+  } finally {
+    try { stopLifecycle(); } catch { /* 幂等 */ }
+  }
+});
+
+/** 读运行记录里由静置计时器发出的派发条数。 */
+function quietDispatchCount(lifecycle) {
+  const snap = lifecycle.snapshots();
+  let count = 0;
+  for (const s of snap) {
+    for (const entry of s.activity ?? []) {
+      if (entry.hook === "session/checkpoint" && entry.detail?.source === "silence:timer") count += 1;
+    }
+  }
+  return count;
+}
+
+// ── 11 §12 第 4 条：会话启动时的队列清点 ─────────────────────────────────────
+//
+// 为什么这条判据必须存在：`countPendingEntries` 早就写好（pending-queue.js:215，
+// 注释自称「会话启动时的队列清点」），但**在生产路径上零调用**——只有测试引用
+// 过它。后果不是报错而是静默：§12 第 5 条「核查前受影响对象不得被当作稳定事实
+// 消费」缺少执行时点，新会话开局时没人知道有多少条未核查登记，也就不会有人去
+// 核查（实测 2026-11-02：269 条登记的 resolved_at 全空）。
+//
+// 这条用例钉的是「调用真的发生且结果可回读」，不是「函数存在」。
+test("11 §12 第 4 条：会话启动时须清点待处置队列，且条目数可从运行痕迹回读", async () => {
+  const seeded = [
+    {
+      entry_id: "11111111-1111-4111-8111-111111111111",
+      at: "2026-11-01T00:00:00.000Z",
+      task: "friction-discovery",
+      reason: "第一条未核查登记",
+      residual: [],
+      resolved_at: null,
+    },
+    {
+      entry_id: "22222222-2222-4222-8222-222222222222",
+      at: "2026-11-01T01:00:00.000Z",
+      task: "experience-capture",
+      reason: "第二条未核查登记",
+      residual: [],
+      resolved_at: null,
+    },
+    {
+      // 已核查的那条**不得**计入「未核查」——否则清点会把积压量报大，
+      // 而这条判据的全部价值就在于那个数字可信。
+      entry_id: "33333333-3333-4333-8333-333333333333",
+      at: "2026-11-01T02:00:00.000Z",
+      task: "friction-discovery",
+      reason: "已核查登记",
+      residual: [],
+      resolved_at: "2026-11-01T03:00:00.000Z",
+    },
+  ];
+
+  const { lifecycle, dshHomePath } = await setup({ seedPendingQueue: seeded });
+  try {
+    // 清点是 start() 里的异步旁路（不阻断启动），故须轮询等它落盘，
+    // 不能假定 start() 返回时已完成。
+    const { readRuns } = await import("../lib/idle-runlog.js");
+    const deadline = Date.now() + 5_000;
+    let inventory = null;
+    while (Date.now() < deadline) {
+      const runs = await readRuns(dshHomePath);
+      if (runs.ok) {
+        inventory = runs.value.runs.find((entry) => entry.task === "startup-inventory");
+        if (inventory !== null && inventory !== undefined) break;
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    assert.ok(
+      inventory !== null && inventory !== undefined,
+      "会话启动后必须留下 startup-inventory 运行痕迹——否则 §12 第 4 条的「会话启动时的队列清点」在生产路径上仍是零调用",
+    );
+    assert.equal(inventory.stage, "landed", `清点须记为成功落地，实测 stage=${JSON.stringify(inventory.stage)} reason=${JSON.stringify(inventory.reason)}`);
+    assert.equal(
+      inventory.unresolved,
+      2,
+      `未核查条数须只数 resolved_at 为空者（种子 3 条中 1 条已核查），实测 ${JSON.stringify(inventory.unresolved)}`,
+    );
+    assert.equal(inventory.invalid, 0, `不可读行数须如实报 0，实测 ${JSON.stringify(inventory.invalid)}`);
+    assert.equal(inventory.carrier, "present", `载体存在时须报 present，实测 ${JSON.stringify(inventory.carrier)}`);
+    // 数字之外还要能被"读到"：reason 里须载明条数，使只看 reason 的读者
+    // （Web 诊断页、grep 运行日志的人）也能知道积压量。
+    assert.match(String(inventory.reason ?? ""), /未核查 2 条/, `reason 须载明未核查条数，实测 ${JSON.stringify(inventory.reason)}`);
+  } finally {
+    try { lifecycle.stop?.(); } catch { /* 桩无 stop 时忽略 */ }
+  }
 });

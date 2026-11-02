@@ -46,12 +46,12 @@ import { rearmInFlightWorkcaseGoal } from "./workcase-goals.js";
 import { readWorkcaseObject, bodyHasResultSection } from "./workcase-writer.js";
 import { runIdleCheckpoint } from "./idle-checkpoint.js";
 import { createDiscoveryProvider } from "./friction-discovery-provider.js";
-import { landDiscoveryVerdict, residualFromLandingError } from "./friction-landing.js";
+import { landDiscoveryVerdict, pendingReasonFromLanding, residualFromLandingError } from "./friction-landing.js";
 import { landCaptureVerdict, residualFromCaptureError } from "./experience-landing.js";
 import { advanceWatermark, recordActivity, admitAndRecordDispatch, releaseDispatch } from "./friction-watermark.js";
 import { admitIdleDispatch, pickEnabledAuxTasks } from "./idle-settings.js";
 import { recordRun } from "./idle-runlog.js";
-import { appendPendingEntry } from "./pending-queue.js";
+import { appendPendingEntry, countPendingEntries } from "./pending-queue.js";
 import { adoptFinishedChild, createChildInstaller } from "./child.js";
 import { resolveChildFromSessionRecord } from "./child-session-record.js";
 // 11 §11「切分依据只能是宿主会话记录中的位置」：重启后从记录里取回最后轮次号
@@ -65,6 +65,18 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
   // per-agent state + snapshot() diagnostics. The Map is bookkeeping only;
   // hook cleanup rides the agent fiber.
   const agents = new Map();
+  // 已装 agent 的静置计时器登记（11 §6.1，2026-11-02 补）。
+  //
+  // 为什么需要第二张表：`agent.ctx.effect` 的 disposer **只在该 agent 自己的
+  // fiber 卸载时**触发；插件 fiber 卸载（重载、升级、禁用插件）走的是下面
+  // `start()` 返回的插件级 disposer，它此前只清 `children` 与 `agents` 两张表，
+  // **不枚举已装 agent 的计时器**。后果是插件重载后旧计时器仍在跑：它们在旧
+  // agent 对象上到期、照样调 `onSessionCheckpoint` 派发，与新装的计时器形成
+  // 同一会话上两套触发器——运行痕迹里表现为同一时点两份 `silence-expiry
+  // dispatching`（实测 2026-11-02 有 3 个时点成对出现），且第二路被派发占用闸
+  // 挡住后记成 `throttled dispatch-in-flight`，把「双触发器」误报成「上一次派发
+  // 未收尾」。本表就是让插件级卸载能把它们一并清掉。
+  const agentTimers = new Map();
   // Subagent lifecycles: agentId -> { dispose, record } (child.js mechanism).
   // Only LIVE children: the entry is removed when the child's fiber disposes.
   const children = new Map();
@@ -1199,10 +1211,18 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                   // `residual`——那是「本次观察与某笔已接受账目同源、已按记录一次不再
                   // 报告处理」的登记（11 §9 第 1 项 / §15）。它必须进待处置队列，
                   // 否则「静默」就变成无痕抑制（11 §11 无损保证）。
+                  //
+                  // **reason 由落地结果派生，不再写死**（2026-11-02 修复）：此前的
+                  // 硬编码把**每一条**带 residual 的落地都登记成「命中已接受（accepted）
+                  // 账目…静默」。实测 37 条该 reason 的登记里，residual 指向
+                  // `supplement-pending`（open 补充）的 37 条、指向 accepted 的 **0 条**
+                  // ——即整批登记把「待审核层执行补充级更新」谎报成了「静默」。读队列的
+                  // 人据此会以为大量观察已被静默，实际是大量补充级更新在排队。
+                  // 派生函数见 friction-landing.js `pendingReasonFromLanding`。
                   if (Array.isArray(landed.value.residual) && landed.value.residual.length > 0) {
                     await appendPendingEntry(dshHomePath, {
                       task: "friction-discovery",
-                      reason: "本次观察命中已接受（accepted）账目，已按「记录一次、不再报告」静默",
+                      reason: pendingReasonFromLanding(landed.value),
                       residual: landed.value.residual,
                       at: new Date().toISOString(),
                     });
@@ -1449,6 +1469,9 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           lifecycle.activity?.record("session/checkpoint", { source, tasks: [...tasksForThisCheckpoint] });
         }
       });
+      // 登记到插件级清单（见 agentTimers 的说明）：per-agent disposer 与插件级
+      // disposer 各自都会清，两处都做是为了「哪条路径先到都能收口」。
+      agentTimers.set(agentId, turnTriggers);
       // Prime the pre-step channel at install：install 本身发生在 agent/created
       // （= session 的 startup 语义），这一次 prime 取代旧实现里对
       // agent/session-start 的首次响应。resume / clear / compact 的再次 announce
@@ -1499,6 +1522,7 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
         // 清安静期计时器（11 §6.1）：会话结束/插件卸载时不得留下仍在计时的
         // 定时器——它会拖住进程退出，或在对象已销毁后仍尝试派发。
         try { turnTriggers.dispose(); } catch { /* 已失效 */ }
+        if (agentTimers.get(agentId) === turnTriggers) agentTimers.delete(agentId);
         if (lifecycle.toolsDisposer !== null) {
           try { lifecycle.toolsDisposer(); } catch { /* already removed */ }
           lifecycle.toolsDisposer = null;
@@ -1594,6 +1618,40 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           registryActivity.record("root/adopt", { agentId: adopted ?? null });
         }
       }
+      // ── 会话启动时的队列清点（11 §12 第 4 条，2026-11-02 补）────────────
+      //
+      // §12 第 4 条把「会话启动时的队列清点」列为待处置队列的**三个读取者之一**，
+      // 与「下一个接管的主控」「Human 查阅入口」并列。此前只有后两者落地：Human
+      // 查阅入口由 Web 诊断页的 IdlePanel 承载，而清点这一端**在生产路径上零调用**
+      // ——`countPendingEntries` 写好后只有测试引用过。后果是第 5 条「核查前受影响
+      // 对象不得被当作稳定事实消费」缺少执行时点：新会话开局时没人知道有多少条
+      // 未核查的登记，也就不会有人去核查（实测 269 条登记的 resolved_at 全空）。
+      //
+      // 清点**只报数、不改动**（函数名即契约）：结果写进运行痕迹，使「哪次启动、
+      // 清点到多少条」可回读。载体不可用或读失败**不阻断启动**——§12 第 6 条要求
+      // 载体不可用时 fail-closed，但那条约束的是「辅助任务不得在失去队列的情况下
+      // 继续运行」，不是「插件不得装载」；此处如实记一条读失败痕迹即可。
+      void countPendingEntries(dshHomePath).then(async (counted) => {
+        if (!counted.ok) {
+          await recordRun(dshHomePath, {
+            task: "startup-inventory", tasks: ["startup-inventory"], stage: "land-failed",
+            reason: `队列清点失败：${counted.error?.message ?? "unknown"}`,
+            at: new Date().toISOString()
+          });
+          return;
+        }
+        await recordRun(dshHomePath, {
+          task: "startup-inventory", tasks: ["startup-inventory"], stage: "landed",
+          reason: `会话启动时的队列清点（11 §12 第 4 条）：未核查 ${counted.value.unresolved} 条` +
+            `（不可读行 ${counted.value.invalid} 条；载体 ${counted.value.carrier}）`,
+          unresolved: counted.value.unresolved,
+          invalid: counted.value.invalid,
+          carrier: counted.value.carrier,
+          at: new Date().toISOString()
+        });
+      }).catch((error) => {
+        ctx.logger.warn("[dsh-ldvh] startup queue inventory failed: %s", String(error?.message ?? error));
+      });
       return () => {
         try { disposeCreated(); } catch { /* already removed */ }
         try { disposeSubagentEnd(); } catch { /* already removed */ }
@@ -1612,6 +1670,26 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
           clearedRetired,
           at: new Date().toISOString()
         });
+        // 插件级卸载须清掉**已装 agent 的静置计时器**（11 §6.1，2026-11-02 补）。
+        // 单靠上面 agent.ctx.effect 的 disposer 不够：那只在该 agent 自己的 fiber
+        // 卸载时跑；插件重载时 agent 对象还活着，旧计时器会继续到期并派发，与新装
+        // 的计时器形成同一会话两套触发器。逐个 dispose 并把名单记进痕迹，使
+        // 「卸载时清了哪些」可回读；单个失败只记痕迹、不阻断其余清理。
+        const disposedTimers = [];
+        for (const [timerAgentId, triggers] of agentTimers) {
+          try {
+            triggers.dispose();
+            disposedTimers.push(timerAgentId);
+          } catch (error) {
+            registryActivity.record("timers/dispose-failed", {
+              agentId: timerAgentId,
+              message: String(error?.message ?? error),
+              at: new Date().toISOString()
+            });
+          }
+        }
+        registryActivity.record("timers/cleared", { disposed: disposedTimers, at: new Date().toISOString() });
+        agentTimers.clear();
         for (const agentId of [...agents.keys()]) agents.delete(agentId);
       };
     },

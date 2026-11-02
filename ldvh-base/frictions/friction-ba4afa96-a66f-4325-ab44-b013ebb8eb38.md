@@ -35,10 +35,13 @@ change_log:
     provider: qoder-global
     model: qfmodel
     summary: 事实更正（非状态转换）——删除 impact 字段（26 §14.2 2026-11-02 存量处置）：影响评级分级制度经 Human 裁定取消，本对象为终态存量，经受控更正显式删除，正文与终态判定逐字不变。。终态判定未变：status/title/phenomenon/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：impact；② 2026-11 起可补填新进入类型闭集的字段，本次补填：无），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）2026-11-02 会话指令「摩擦取消 中 轻 重 这种分级制度」，经 26 §8 撤销 impact 字段、§14.2 登记存量处置口径；本条授权仅覆盖删除该 frontmatter 字段，正文与终态判定逐字不变。
+  - at: 2026-11-02T19:21:42.119Z
+    provider: qoder
+    model: dfmodel
+    summary: 事实更正（非状态转换）——清除 occurrence 内的已退出子件 human_return_at（26 §8 闭集收缩存量处置）：该子件随 2026-10「放回留观」流转退出闭集，终态对象经受控更正显式删除 occurrence 并以同值回填 count／first_at／last_at 三项——非改值、非计数，正文与终态判定逐字不变。（该子件原值为 null，无信息损失。）。终态判定未变：status/title/phenomenon/attribution/created_at 逐字继承落盘对象，本入口不接收 frontmatter 值（两处例外，均为「字段之有无」而非「字段之值」：① 2026-10 起可显式删除已退出类型闭集的字段，本次删除：occurrence；② 2026-11 起可补填新进入类型闭集的字段，本次补填：occurrence），不得改值；其余可改范围为正文与 relations（26 §13）。经 Human 授权：Human（老丁）2026-11-03 会话内明确授权：「两处存量数据迁移是否现在授权？」选择「授权两处迁移，先备份」，授权范围含「23 份终态账目删 occurrence.human_return_at（走 correct，三值不变）」。依据：该子件已于 2026-10 随「放回留观」流转退出 26 §8 闭集（validateOccurrenceShape 只认 count/first_at/last_at），终态对象无法经受控更新触及，correct 的 removals+additions 是唯一受控清除途径。本条授权仅覆盖删除该嵌套子件并原值回填三值，正文与终态判定逐字不变。
 occurrence:
   count: 3
   first_at: 2026-10-13T07:41:07.000Z
-  human_return_at: null
   last_at: 2026-10-13T08:18:32.044Z
 ---
 

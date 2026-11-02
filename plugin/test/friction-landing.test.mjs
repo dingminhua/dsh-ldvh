@@ -19,6 +19,7 @@ import assert from "node:assert/strict";
 import {
 	MAX_RESIDUAL_ISSUES,
 	landDiscoveryVerdict,
+	pendingReasonFromLanding,
 	residualFromLandingError
 } from "../lib/friction-landing.js";
 import { readFrictionObject, listFrictionObjects, createFrictionObject } from "../lib/friction-writer.js";
@@ -678,4 +679,97 @@ test("accepted 的豁免只给计数：同一次写入顺带改别的字段或�
     assert.equal(after.value.frontmatter.occurrence.count, fm.occurrence.count + 1);
     assert.equal(after.value.frontmatter.status, "accepted", "计数不是流转");
   });
+});
+
+// ---------------------------------------------------------------------------
+// 待处置登记的 reason 必须由落地结果派生（2026-11-03 修复）
+//
+// 回归对象：`lifecycle.js` 曾对所有带 residual 的落地结果写死一句
+// 「本次观察命中已接受（accepted）账目，已按「记录一次、不再报告」静默」。
+// 而落地侧有**两条**路径都带 residual：`silent`（终态、真正未入缓冲）与
+// `supplement-pending`（open 或 accepted、**已写入缓冲**）。实测队列里 37 条该
+// reason 的登记，residual 37/37 指向 open 补充路径、0 条指向 accepted —— 即全部
+// 被错标成「静默」。reason 是 §12 核查与 §15 交还的判据，写死即失实。
+//
+// 本组用例守住三件事：
+//   ① 两条主分支的 reason **互不相同**（同一句话不可能同时描述「静默」与「待补充」）；
+//   ② reason 点名被命中的账目 uid（不得是「某批不明对象」）；
+//   ③ 未知/旧形态不冒充任何一种已知结局。
+// ---------------------------------------------------------------------------
+
+test("pendingReasonFromLanding：silent 与 supplement-pending 两条分支的 reason 互不相同", async () => {
+  await withLedger(async (ctx) => {
+    // open 命中 → supplement-pending
+    const openUid = await seedOpen(ctx.factSourceRoot, { count: 1 });
+    const openLanded = await land(ctx, sameObstacleVerdict(openUid), { observationAt: "2026-11-05T00:00:00.000Z" });
+    assert.ok(openLanded.ok, JSON.stringify(openLanded.error));
+    assert.equal(openLanded.value.action, "supplement-pending");
+
+    // voided 命中 → silent
+    const voidedUid = await seedOpen(ctx.factSourceRoot, { count: 1 });
+    const read = await readFrictionObject({ factSourceRoot: ctx.factSourceRoot, objectUid: voidedUid });
+    const { updateFrictionObject } = await import("../lib/friction-writer.js");
+    const voided = await updateFrictionObject({
+      factSourceRoot: ctx.factSourceRoot,
+      objectUid: voidedUid,
+      expectedFingerprint: read.value.fingerprint,
+      frontmatterAfter: { ...read.value.frontmatter, status: "voided", disposition: "现象描述失真（测试）" },
+      bodyMarkdownAfter: `${stripLeadingH1(read.value.body)}\n\n## 处置\n测试：账目记错，废弃。`,
+      changeSummary: "测试：废弃",
+      sessionSignature: SIG,
+    });
+    assert.ok(voided.ok, JSON.stringify(voided.error));
+    const voidedLanded = await land(ctx, sameObstacleVerdict(voidedUid), { observationAt: "2026-11-05T00:00:01.000Z" });
+    assert.ok(voidedLanded.ok, JSON.stringify(voidedLanded.error));
+    assert.equal(voidedLanded.value.action, "silent");
+
+    const openReason = pendingReasonFromLanding(openLanded.value);
+    const silentReason = pendingReasonFromLanding(voidedLanded.value);
+    assert.notEqual(openReason, silentReason, "两条分支不得共用同一句 reason");
+    assert.ok(openReason.trim().length > 0, "reason 非空（appendPendingEntry 要求）");
+    assert.ok(silentReason.trim().length > 0, "reason 非空（appendPendingEntry 要求）");
+    // ② 点名命中的账目 uid，读队列的人才能核查。
+    assert.match(openReason, new RegExp(openUid), "reason 须点名命中的账目");
+    assert.match(silentReason, new RegExp(voidedUid), "reason 须点名命中的账目");
+    // ③ 语义不得互相冒充：silent 说「未入缓冲」，supplement 说「已写入缓冲」。
+    assert.match(silentReason, /未入缓冲/, "终态命中须如实说明未入缓冲");
+    assert.doesNotMatch(openReason, /未入缓冲/, "已入缓冲的路径不得声称未入缓冲");
+    assert.match(openReason, /已写入缓冲/, "补充路径须如实说明已写入缓冲");
+  });
+});
+
+test("pendingReasonFromLanding：accepted 与 open 的补充路径措辞分开（不误称扩写正文）", () => {
+  const accepted = pendingReasonFromLanding({
+    action: "supplement-pending",
+    object_uid: "11111111-2222-3333-4444-555555555555",
+    status: "accepted",
+  });
+  const open = pendingReasonFromLanding({
+    action: "supplement-pending",
+    object_uid: "11111111-2222-3333-4444-555555555555",
+    status: "open",
+  });
+  assert.notEqual(accepted, open, "accepted 只增计数，open 走补充级更新，措辞须分开");
+  assert.match(accepted, /只递增计数/, "accepted 须说明只增计数（26 §9.3）");
+  assert.doesNotMatch(accepted, /补充级更新/, "accepted 不得被读成要扩写正文");
+  assert.match(open, /补充级更新/, "open 须说明走补充级更新（11 §9 第 4 项）");
+});
+
+test("pendingReasonFromLanding：未知动作不冒充静默（中性登记）", () => {
+  const unknown = pendingReasonFromLanding({ action: "some-future-action", object_uid: null });
+  assert.ok(unknown.trim().length > 0);
+  assert.doesNotMatch(unknown, /静默/, "未知动作不得被写成静默");
+  assert.doesNotMatch(unknown, /已写入缓冲/, "未知动作不得声称已写入缓冲");
+  assert.match(unknown, /不可判定/, "须如实说明动作类别不可判定");
+
+  const legacy = pendingReasonFromLanding({});
+  assert.ok(legacy.trim().length > 0, "空结果也必须给出非空 reason");
+  assert.doesNotMatch(legacy, /静默/, "legacy 形态不得冒充静默");
+});
+
+test("pendingReasonFromLanding：observe 分支说明留待审核层结算", () => {
+  const reason = pendingReasonFromLanding({ action: "observe", group: "ci-slow", object_uid: null });
+  assert.match(reason, /ci-slow/, "须带上 group 便于按组核查");
+  assert.match(reason, /审核层/, "观察未晋升，去向是审核层");
+  assert.doesNotMatch(reason, /静默/);
 });

@@ -115,6 +115,55 @@ export function residualFromLandingError(error) {
 }
 
 /**
+ * 由**落地结果本身**派生待处置登记的 `reason`（11 §12 第 2 条 + §15）。
+ *
+ * ## 为什么必须派生而不能写死（2026-11-03 修复）
+ *
+ * 调用方 `lifecycle.js` 此前对所有带 `residual` 的落地结果只写一句硬编码 reason：
+ * 「本次观察命中已接受（accepted）账目，已按「记录一次、不再报告」静默」。但落地侧
+ * 有**两条**路径都带 `residual`：
+ *
+ *   - `action: "silent"` 且命中终态（resolved/voided/……）——真正的「未入缓冲」；
+ *   - `action: "supplement-pending"`——命中 open **或** accepted，观察**已写入缓冲**，
+ *     等审核层消费（两者措辞不同，但都不是「静默」）。
+ *
+ * 实测后果：队列里 37 条该 reason 的登记，residual **37/37 全部指向 open 补充路径、
+ * 0 条指向 accepted**——即全部被错标成「静默」。读队列的人会以为大量命中已接受账目，
+ * 实际是大量补充级更新待办；按 §15 交还时据此汇报即是失实。
+ *
+ * 故 reason 必须按 `action` 与命中状态分流，且**保留账目 uid**——否则登记读起来像
+ * 「静默了一批不明对象」。`action` 缺失（旧形态）时退到中性措辞而非冒充已知结局。
+ *
+ * @param {{ action?: string, object_uid?: string|null, status?: string|null, residual?: string[], group?: string }} landed
+ * @returns {string} 非空 reason（`appendPendingEntry` 要求非空）
+ */
+export function pendingReasonFromLanding(landed) {
+  const action = typeof landed?.action === "string" ? landed.action : "";
+  const uid = typeof landed?.object_uid === "string" && landed.object_uid.length > 0 ? landed.object_uid : null;
+  const status = typeof landed?.status === "string" && landed.status.length > 0 ? landed.status : null;
+  const target = uid === null ? "某账目" : `账目 ${uid}`;
+
+  if (action === "supplement-pending") {
+    // accepted 与 open 都是「已入缓冲待审核层」，但消费方式不同，措辞须分开——
+    // 否则读 residual 的人会以为 accepted 的正文会长出新内容（见落地区的同名注释）。
+    return status === "accepted"
+      ? `本次观察命中已接受（accepted）${target}，已写入缓冲待审核层只递增计数（26 §9.3 计数豁免；非静默）`
+      : `本次观察与既有 open ${target} 同源，已写入缓冲待审核层执行补充级更新（11 §9 第 4 项；非静默）`;
+  }
+  if (action === "silent") {
+    // 真正的「未入缓冲」：命中的是终态，按 §9 第 4 项不得做补充级更新。
+    return `本次观察命中终态${target}（状态 ${status ?? "未知"}），按 11 §9 第 4 项不得补充、未入缓冲，已登记以便复审`;
+  }
+  if (action === "observe") {
+    const group = typeof landed?.group === "string" ? landed.group : "未知";
+    return `本次观察已作为新观察写入缓冲（group ${group}），未达晋升阈值，留待审核层结算`;
+  }
+  // 旧形态或未知动作：中性措辞。**不冒充任何一种已知结局**——把未知当静默正是
+  // 本次修复要消除的失实来源。
+  return `落地返回了残留登记但动作类别不可判定（action=${JSON.stringify(action || null)}），如实登记以便核查`;
+}
+
+/**
  * 把一个已通过落地校验的 verdict 写成账目（§8.4 第 2–4 项）。
  *
  * 参数：

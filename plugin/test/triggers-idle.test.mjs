@@ -640,3 +640,61 @@ test("可观测性：日志调用抛错不得影响控制流，且不得逃逸�
     assert.equal(persistedOnce, true, "日志抛错不影响活动落盘");
   } finally { timers.restore(); }
 });
+
+// ---------------------------------------------------------------------------
+// 诊断痕迹须携带会话标识（2026-11-03 补）
+//
+// 回归对象：`trace()` 此前只写 stage/reason/turn/at，运行记录里没有会话标识。
+// 后果实测：2026-11-02 的 50 条记录里出现「同一时点两份 silence-expiry:dispatching」，
+// 但无法判定是**同一会话装了两套触发器**（违 11 §6.1「不得在同一目标时刻上反复
+// 触发」），还是**两个会话各自到期**（正常并发）——两者在痕迹上完全同形。
+// 补上会话标识后该歧义可事后分辨。
+//
+// 注意：它只是**诊断材料**，不参与任何判定（§6.1 的判据仍只有两项）。
+// ---------------------------------------------------------------------------
+
+test("可观测性：诊断痕迹须携带会话标识（否则同日两份 dispatching 无法归因）", async () => {
+  const timers = makeFakeTimers();
+  try {
+    const { triggers, diagnostics } = makeTriggers();
+    triggers.onTurnStopping({ agent: agentStub(), turn: 4 });
+    triggers.onAgentStatus({ agent: agentStub(), status: "idle" });
+    timers.fireAll();
+    await settle();
+    assert.ok(diagnostics.length > 0, "须落至少一条诊断痕迹");
+    for (const entry of diagnostics) {
+      assert.equal(entry.session, "agent-1", "每条痕迹都须带会话标识（不得只在部分分支带）");
+    }
+  } finally { timers.restore(); }
+});
+
+test("可观测性：两个会话各自到期时，痕迹可凭会话标识分辨（不再是同形记录）", async () => {
+  const timers = makeFakeTimers();
+  try {
+    const dispatches = [];
+    const diagnostics = [];
+    const mk = (id) => createTurnTriggers(agentStub(id), {
+      getScopeState: () => "governed",
+      turns: undefined,
+      activity: { entries: [], record() {} },
+      log: { info() {}, warn() {} },
+      readSilenceMs: () => 300_000,
+      now: globalThis.__ldvhTestClock,
+      persistActivityAt: () => Promise.resolve(),
+      registerDiagnostic: (entry) => { diagnostics.push(entry); return Promise.resolve(); },
+      onSessionCheckpoint: (info) => { dispatches.push({ id, ...info }); return Promise.resolve(); },
+    });
+    const a = mk("session-a");
+    const b = mk("session-b");
+    a.onTurnStopping({ agent: agentStub("session-a"), turn: 1 });
+    a.onAgentStatus({ agent: agentStub("session-a"), status: "idle" });
+    b.onTurnStopping({ agent: agentStub("session-b"), turn: 1 });
+    b.onAgentStatus({ agent: agentStub("session-b"), status: "idle" });
+    timers.fireAll();
+    await settle();
+    const dispatching = diagnostics.filter((d) => d.stage === "silence-expiry" && d.reason === "dispatching");
+    assert.equal(dispatching.length, 2, "两个会话各自到期");
+    const sessions = dispatching.map((d) => d.session).sort();
+    assert.deepEqual(sessions, ["session-a", "session-b"], "两条痕迹须分别点名各自会话（这正是修复前做不到的）");
+  } finally { timers.restore(); }
+});
