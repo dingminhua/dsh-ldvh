@@ -18,7 +18,7 @@ import SummaryText from '@/components/SummaryText';
 import { ObjectTypeIcon, OBJECT_TYPE_ICONS } from '@/components/SemanticIcon';
 
 const CommitRelationIcon = OBJECT_TYPE_ICONS.commit;
-import { WorkCaseCriteriaList, WORKCASE_CRITERIA_BODY_HUE_CLASS, WORKCASE_CRITERIA_SURFACE_CLASS } from '@/components/WorkCaseCriteriaList';
+import { WorkCaseCriteriaList, WORKCASE_CRITERIA_SURFACE_CLASS, WORKCASE_SURFACE_GEOMETRY_CLASS } from '@/components/WorkCaseCriteriaList';
 import WorkCaseGistLine from '@/components/WorkCaseGistLine';
 // 变更流水（卡片主体）：标记与归属口径来自 shared 单点，组件不自行判断。
 import WorkCaseExecFlow from '@/components/WorkCaseExecFlow';
@@ -40,6 +40,7 @@ import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { compareRfc3339Timestamps } from '@/shared/timestamp';
 import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
+import { getTypeSurfaceTint } from '@/utils/typeSurface';
 
 type Translate = ReturnType<typeof useI18n>['t'];
 type StatusReason = { label: string; text: string; missing?: boolean };
@@ -982,6 +983,15 @@ export function NormCardContent({ obj }: { obj: ObjectItem }) {
  * 短报告的体量。卡面放摘要 + 正文也放，等于同一段话出现两遍（29 §8 不变量 1 规定
  * `summary` 必须逐字出现在「结论与边界」段，故它本来就在那里）。
  *
+ * ## 承载面染本类型的色（Human 定案 2026-11-02：「要和类型的颜色对上」）
+ *
+ * 这个块起初复用 `WORKCASE_CRITERIA_SURFACE_CLASS` 的**整面**（含蓝）——那是 2026-11-02
+ * 早先「对齐 workcase」时照抄的结果，但蓝是 WorkCase 自己的类型色。DevLog 的类型色是
+ * magenta `#ca21a0`，卡头那枚「开发日志」chip 是品红、块却是蓝的，同一张卡上两个色相
+ * 各说各话。现在几何仍取 `WORKCASE_SURFACE_GEOMETRY_CLASS`（四边同宽 1px、8px 圆角、
+ * 8/12 内距），**色相改由 `getTypeSurfaceTint(obj.type)` 从类型色单一来源计算**。
+ * 由此本块与卡头 chip、侧栏图标天然同源，不再需要第二张色表。
+ *
  * ## 终态不换成「理由框」（与其余类型的形态差异，理由在此）
  *
  * 其余类型的终态卡读 `disposition` 或 `retirement_reason` 呈现退出理由；DevLog 的
@@ -1007,18 +1017,26 @@ export function DevLogCardContent({ obj }: { obj: ObjectItem }) {
     );
   }
 
+  const tint = getTypeSurfaceTint(obj.type);
   return (
-    <section className={WORKCASE_CRITERIA_SURFACE_CLASS} onClick={(event) => event.stopPropagation()}>
-      <div className={`ldvh-card-decision-body min-w-0 break-words ${WORKCASE_CRITERIA_BODY_HUE_CLASS}`}>
-        <SummaryText
-          value={summary}
-          // 卡面是扫读窗口：`summary` 是「当前语义快照」，它随边界认识演化会长成
-          // 一段话。超长时按段落折叠并给展开入口（同 SummaryText 的其余消费点），
-          // 不截断到无法判断「这条结论还成不成立」——那是本类型最怕的失真。
-          collapseThreshold={420}
-          className="[&_p]:my-0"
-        />
-      </div>
+    <section
+      className={WORKCASE_SURFACE_GEOMETRY_CLASS}
+      style={tint.surface}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <SummaryText
+        value={summary}
+        // 卡面是扫读窗口：`summary` 是「当前语义快照」，它随边界认识演化会长成
+        // 一段话。超长时按段落折叠并给展开入口（同 SummaryText 的其余消费点），
+        // 不截断到无法判断「这条结论还成不成立」——那是本类型最怕的失真。
+        collapseThreshold={420}
+        // 正文色必须经 `bodyStyle` 传到 `.ldvh-inline-markdown` 上，**不能**只给
+        // 外层元素设 `style.color`：Markdown 渲染出的 `<p>` 由 `github-markdown-css`
+        // 着色（`--fgColor-default`），**不继承**外层 color。2026-11-02 实测外层已
+        // 生效、块内正文仍是近黑——「色相面与正文分家」正是那次实拍发现的。
+        bodyStyle={tint.body}
+        className="ldvh-card-decision-body [&_p]:my-0"
+      />
     </section>
   );
 }
@@ -1291,15 +1309,17 @@ export function SubGoalCardContent({ obj }: { obj: ObjectItem }) {
 
 /** 活跃子目标的判据面（只说一件事：这一条怎么算达成）。
  *
- * **形态对齐 WorkCase 判据面**（Human 定案 2026-11-02：「这里的样式对齐 workcase 的，
- * 左侧的线条不要加粗」）：直接复用 `WORKCASE_CRITERIA_SURFACE_CLASS` —— 四边同宽
- * 1px、`rounded-lg`、`px-3 py-2`，**没有左侧 2px 粗线、不整面染类型色**。故本框
- * 2026-11-02 起退出 `DECISION_CARD_SHELL_CLASS` 家族（该家族的定义特征正是左色条）。
+ * **几何对齐 WorkCase 判据面**（Human 定案 2026-11-02：「这里的样式对齐 workcase 的，
+ * 左侧的线条不要加粗」）：复用 `WORKCASE_SURFACE_GEOMETRY_CLASS` —— 四边同宽 1px、
+ * `rounded-lg`、`px-3 py-2`，**没有左侧 2px 粗线**。故本框 2026-11-02 起退出
+ * `DECISION_CARD_SHELL_CLASS` 家族（该家族的定义特征正是左色条）。
  *
- * 为什么是蓝面而不是保留黄绿淡染：判据与 WorkCase 的「计划与判据」是**同一语义**
- * （`docs/04:80`「蓝色标准与预期」）——都是「要出现什么材料才算成立」。两侧同一
- * 语义却两种底色，读者会以为它们不是一回事。类型识别已由卡头那枚类型 chip 承担
- * （`docs/01 §1.4` 第 5 条：类型色用于识别「这是什么对象」，不用于装饰正文块）。
+ * **色相取本类型色，不取 WorkCase 的蓝**（Human 定案 2026-11-02：「圈出来的要和类型的
+ * 颜色对上，也就是同一个色系的」）。本框曾整面复用 `WORKCASE_CRITERIA_SURFACE_CLASS`，
+ * 那是把「对齐 workcase 的样式」读成了「用 workcase 的颜色」——蓝是 WorkCase 自己的
+ * 类型色，子目标的类型色是 lime `#84cc16`。卡头 chip 说 lime、块说蓝，同一张卡上两个
+ * 色相各说各话。现在几何仍与 WorkCase 同源，色相改由 `getTypeSurfaceTint(obj.type)`
+ * 从类型色算得（同一个函数也服务 DevLog 卡与后续同形块）。
  *
  * **框内只剩一句话**（Human 定案 2026-11-02「次序 闭环记录都不用显示」）：
  * - `order` 已在卡头（同一次定案「次序放到上面」）：它是跨条比较的扫读要素。
@@ -1313,16 +1333,20 @@ function SubGoalActiveCardBody({ obj }: { obj: ObjectItem }) {
   // 框里本该有东西而读取失败，而实际是载体不合规；详情页的字段问题区会如实报出。
   if (!criterion) return null;
 
+  const tint = getTypeSurfaceTint(obj.type);
   return (
-    <section className={WORKCASE_CRITERIA_SURFACE_CLASS}>
-      {/* 12px 扫读档（`ldvh-card-decision-body`）与蓝面正文色，两者都取自 WorkCase
-          判据面的同一处登记：面同源而正文各写一份字面量，就是把「蓝面上的字该多深」
-          拆成两处答案，下一次调档只会改到其中一处。
+    <section className={WORKCASE_SURFACE_GEOMETRY_CLASS} style={tint.surface}>
+      {/* 12px 扫读档（`ldvh-card-decision-body`）+ 本类型色的正文档。面与正文必须成对
+          取自 `getTypeSurfaceTint`：只贴面会让正文沿用中性近黑，色相面与正文分家
+          （`docs/01` §1.6 要求标题/正文/背景同色相）。
 
           **不画圆点**：WorkCase 判据面的圆点是「并列条目之间的分隔记号」（它的清单
           恒定 ≥1 条且常有多条）。本框恒为**一句**判据，孤零零一枚圆点会被读成「一个
           只写了一句的清单」。 */}
-      <p className={`ldvh-card-decision-body min-w-0 break-words ${WORKCASE_CRITERIA_BODY_HUE_CLASS}`}>
+      <p
+        className="ldvh-card-decision-body min-w-0 break-words"
+        style={tint.body}
+      >
         {criterion}
       </p>
     </section>

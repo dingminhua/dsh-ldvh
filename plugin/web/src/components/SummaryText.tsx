@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, type CSSProperties } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -9,6 +9,16 @@ interface SummaryTextProps {
   collapseThreshold?: number;
   previewLines?: number;
   className?: string;
+  /**
+   * 正文色（CSS 属性，不是类串）。
+   *
+   * 为什么需要：Markdown 渲染出来的 `<p>` 由 `github-markdown-css` 着色
+   * （`--fgColor-default`），**不继承**外层元素的 `color`。故「给外层上类型色」对
+   * SummaryText 无效——2026-11-02 实测：外层 `style={{ color }}` 生效，块内正文仍是
+   * 近黑，色相面与正文分家。故本组件必须显式把色传到 `.ldvh-inline-markdown` 上，
+   * 由它经继承传给 `<p>`。
+   */
+  bodyStyle?: CSSProperties;
 }
 
 const COLLAPSE_THRESHOLD = 150;
@@ -74,6 +84,7 @@ export default function SummaryText({
   collapseThreshold = COLLAPSE_THRESHOLD,
   previewLines,
   className,
+  bodyStyle,
 }: SummaryTextProps) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
@@ -87,7 +98,7 @@ export default function SummaryText({
 
   return (
     <div>
-      <div className={`ldvh-inline-markdown max-w-none ${className ?? ''}`}>
+      <div className={`ldvh-inline-markdown max-w-none ${className ?? ''}`} style={bodyStyle}>
         <Markdown remarkPlugins={[remarkGfm]}>
           {needsTruncation && !expanded ? displayText + '…' : value}
         </Markdown>

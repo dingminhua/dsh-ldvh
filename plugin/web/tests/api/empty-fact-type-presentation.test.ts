@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -98,14 +98,26 @@ test('空态文案分两句，且类型名经 getTypeLabel 本地化（不露原
   const en = UI_LOCALES.en;
 
   // 两句都必须存在且语义不同，中英各一。
-  for (const locale of [zh, en]) {
-    assert.ok(locale['objectList.noObjects'], 'noObjects 必须存在');
-    assert.ok(locale['objectList.noObjectsUnderFilter'], 'noObjectsUnderFilter 必须存在');
-    assert.ok(
-      locale['objectList.noObjects'] !== locale['objectList.noObjectsUnderFilter'],
-      '两句必须可区分——相同就退回了原来那一句',
-    );
-  }
+  //
+  // 比较前收成 `string`：词表是 `as const` 的，两个字面量在类型层已确定互不相等，
+  // 直接比较会被 TS 判成「无重叠因而很可能写错了」。这里要验的恰是**值**不同，
+  // 而值一旦被改成同一句，类型也会跟着变——故对 `string` 断言才验得动。
+  const noObjectsZh: string = zh['objectList.noObjects'];
+  const noObjectsUnderFilterZh: string = zh['objectList.noObjectsUnderFilter'];
+  const noObjectsEn: string = en['objectList.noObjects'];
+  const noObjectsUnderFilterEn: string = en['objectList.noObjectsUnderFilter'];
+  assert.ok(noObjectsZh, 'noObjects 必须存在');
+  assert.ok(noObjectsUnderFilterZh, 'noObjectsUnderFilter 必须存在');
+  assert.notEqual(
+    noObjectsZh,
+    noObjectsUnderFilterZh,
+    '两句必须可区分——相同就退回了原来那一句',
+  );
+  assert.notEqual(
+    noObjectsEn,
+    noObjectsUnderFilterEn,
+    '两句必须可区分（en）——相同就退回了原来那一句',
+  );
   // 中文两句都必须带 {type} 占位（否则「还没有对象」不带类型，读者不知道在说哪类）。
   assert.match(zh['objectList.noObjects'], /\{type\}/);
   assert.match(zh['objectList.noObjectsUnderFilter'], /\{type\}/);

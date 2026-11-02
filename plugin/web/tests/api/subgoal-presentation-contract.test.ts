@@ -394,10 +394,17 @@ test('次序呈现在卡头，与其余卡头 chip 同规格（Human 定案 2026
   assert.doesNotMatch(body, /criterion_kind/, '判据框不得再读 criterion_kind');
   assert.doesNotMatch(body, /subgoal_criterion_kind/, '判据框不得再渲染「判据类型」标题');
 
-  // 形态对齐 WorkCase 判据面（同一次定案「样式对齐 workcase 的，左侧的线条不要
-  // 加粗」）：面与正文色都取自该面板的登记，**不得**再用决策块壳（左色条家族）。
-  assert.match(body, /WORKCASE_CRITERIA_SURFACE_CLASS/, '判据框须复用 WorkCase 判据面常量');
-  assert.match(body, /WORKCASE_CRITERIA_BODY_HUE_CLASS/, '正文色须取自同一处登记（面与正文成对）');
+  // 几何对齐 WorkCase 判据面（同一次定案「样式对齐 workcase 的，左侧的线条不要
+  // 加粗」），但**色相取本类型色**（Human 同日晚定案「圈出来的要和类型的颜色对上，
+  // 也就是同一个色系的」）。故：几何单源复用、色相不得复用 WorkCase 的蓝面，
+  // 也不得再用决策块壳（左色条家族）。
+  assert.match(body, /WORKCASE_SURFACE_GEOMETRY_CLASS/, '判据框几何须复用 WorkCase 判据面的几何单源');
+  assert.match(body, /getTypeSurfaceTint\(obj\.type\)/, '判据框色相须由类型色单一来源算得');
+  assert.match(body, /style=\{tint\.surface\}/, '承载面的色相须贴在面上');
+  assert.match(body, /style=\{tint\.body\}/, '正文色须同源取用（面与正文成对，不得各写一份）');
+  assert.doesNotMatch(body, /WORKCASE_CRITERIA_SURFACE_CLASS/,
+    '判据框不得再整面复用 WorkCase 判据面——那会把 WorkCase 的类型色（蓝）当成这一类面的通用色');
+  assert.doesNotMatch(body, /WORKCASE_CRITERIA_BODY_HUE_CLASS/, '正文色不得再取 WorkCase 的蓝灰档');
   assert.doesNotMatch(body, /DECISION_CARD_SHELL_CLASS/,
     '判据框不得再用决策块壳（该类带左侧 2px 粗线，Human 明确不要）');
   assert.doesNotMatch(body, /border-l-2/, '判据框不得出现左侧粗线');
