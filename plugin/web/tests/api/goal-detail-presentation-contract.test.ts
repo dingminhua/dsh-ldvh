@@ -248,20 +248,29 @@ test('聚焦页子目标进度条与卡片、详情共用同一口径的两种�
   assert.match(bar, /flex w-24 shrink-0 flex-col items-center gap-1/, '行内组须定宽竖排且居中');
   assert.doesNotMatch(bar.slice(bar.indexOf('function InlineBar')), /flex-1/, '行内条不得吃满剩余宽度');
 
-  // ## 块形态的说明行：居中且弱化（Human 2026-11-03 定案）
+  // ## 块形态的说明行：居中、弱化，且**不给两档明细**（Human 2026-11-03 定案）
   //
   // 子目标卡／详情页那一行「火花落实 9 / 30 · 已落实 9 · 待处理 21」是**这一块的
   // 注解**，不是这一块的标题。此前它左对齐贴边、且分数取主色（近黑），读起来像卡上
-  // 的一个独立小标题。故两处同改：居中（浮在满宽条的正上方）+ 弱化（分数改次级色，
-  // 指标名与两档明细再降一档）。
+  // 的一个独立小标题。故三处同改：居中（浮在满宽条的正上方）+ 分数弱化 + **两档明细
+  // 整段撤除**——「已落实 9 · 待处理 21」是分数的算术展开（加起来就是分母），不是
+  // 新信息，是同一件事的第二种说法（`docs/10` §5.5「同类信息只有一处」）。
   const blockSource = bar.slice(
-    bar.indexOf('const { implemented, denominator, open, unknownStatus } = progress;'),
+    bar.indexOf('const { implemented, denominator, unknownStatus } = progress;'),
     bar.indexOf('function InlineBar'),
   );
   assert.match(blockSource, /flex min-w-0 items-baseline justify-center gap-2 text-center/, '块形态说明行须居中');
   assert.doesNotMatch(blockSource, /text-ldvh-text-primary/, '块形态的分数不得取主色（须弱化为次级色）');
+  // 两档明细不得再出现：口径名 + 分数就是这一行的全部。
+  assert.doesNotMatch(blockSource, /implementedLabel|openLabel/, '块形态不得给两档明细');
+  assert.doesNotMatch(blockSource, /\{open\}/, '块形态不得渲染待处理计数');
+  // 分数再弱一档（次级色的七成）：它是这一块的注解，不是这一块的主角。
+  assert.match(blockSource, /font-mono text-ldvh-text-secondary\/70/, '块形态的分数须弱化为次级色的七成');
   // 口径不因弱化而丢失：完整说法仍在条的 aria-label 上。
   assert.match(blockSource, /aria-label=\{`\$\{progressLabel\} \$\{implemented\} \/ \$\{denominator\}`\}/, '完整口径名仍在 aria-label');
+  // 两档明细的传参 prop 一并撤除：留一个无人传的 prop，等于让读模型替读者做了个
+  // 没人兑现的承诺。
+  assert.doesNotMatch(bar, /openLabel|implementedLabel/, '进度条组件不得再声明两档明细的 prop');
 });
 
 test('目标区行内进度组：数字弱而小、居中，条更短；展开区＝判据面 + 名下的工作（2026-11-03 定案）', () => {

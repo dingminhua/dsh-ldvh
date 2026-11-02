@@ -167,8 +167,6 @@ function SubGoalRow({ subGoal, onOpen }: { subGoal: SubGoalRowData; onOpen: () =
               allDiscardedLabel={t('objectList.subGoalSparkProgressAllDiscarded')}
               unavailableLabel={t('objectList.subGoalSparkProgressUnavailable')}
               unknownStatusLabel={(count) => t('objectList.subGoalSparkProgressUnknown', { count: String(count) })}
-              openLabel={getObjectStatusLocale('spark', 'open', locale)}
-              implementedLabel={getObjectStatusLocale('spark', 'implemented', locale)}
               variant="inline"
               inlineLabels={{
                 empty: t('focusV2.subGoalProgressEmpty'),

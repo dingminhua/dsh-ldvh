@@ -30,8 +30,6 @@ export default function ServingSparkProgressBar({
   allDiscardedLabel,
   unavailableLabel,
   unknownStatusLabel,
-  openLabel,
-  implementedLabel,
   variant = 'block',
   inlineLabels,
 }: {
@@ -42,20 +40,18 @@ export default function ServingSparkProgressBar({
   allDiscardedLabel: string;
   unavailableLabel: string;
   unknownStatusLabel: (count: number) => string;
-  openLabel: string;
-  implementedLabel: string;
   /**
    * 呈现形态（2026-11-02 新增 `inline`）：
-   * - `block`（默认）：卡片与详情面的完整形态——标题 + 分数 + 两档明细 + 条。
-   * - `inline`：聚焦页目标区**行内**形态——**数字在上、条在下**，无标题、无两档明细
-   *   （Human 2026-11-03 定案）。
+   * - `block`（默认）：卡片与详情面的完整形态——口径名 + 分数 + 条。
+   * - `inline`：聚焦页目标区**行内**形态——**数字在上、条在下**，无口径名（Human 2026-11-03 定案）。
    *
    * 两种形态共用同一个 `summarizeServingSparkProgress`，因此**数值不可能不一致**；
    * 差别只在展示密度。
    *
-   * 行内形态为什么砍掉指标名与两档明细：那一组横排会占掉子目标标题的宽度——
-   * 窗口一窄，标题就被挤成一列字。指标名的完整说法仍在 `title` 与 `aria-label`
-   * 上（「火花落实 9 / 30」），口径不丢；两档明细仍可在子目标卡与详情页读到。
+   * 两种形态为什么都只给**分数**（不给两档明细）：「已落实 9 · 待处理 21」是分数
+   * 的**算术展开**——两者加起来就是分母，读者自己对账即可，不必由界面再说一遍。
+   * 界面上多写的这一段不是新信息，是同一件事的第二种说法（`docs/10` §5.5「同类
+   * 信息只有一处」）；而它恰恰是这一块里最抢眼的一段文字。
    */
   variant?: 'block' | 'inline';
   /**
@@ -100,34 +96,31 @@ export default function ServingSparkProgressBar({
     return <Notice className="text-ldvh-text-secondary" title={allDiscardedLabel}>{allDiscardedLabel}</Notice>;
   }
 
-  const { implemented, denominator, open, unknownStatus } = progress;
+  const { implemented, denominator, unknownStatus } = progress;
   // 分母为 0 时不画条（0/0 不是 0%）——只留一句说明与那行未计入的计数。
   const ratioPct = denominator > 0 ? Math.round((implemented / denominator) * 100) : 0;
 
   return (
     <section className="flex min-w-0 flex-col gap-1">
-      {/* 说明行**居中且弱化**（Human 2026-11-03 定案）：指标名 + 分数 + 两档明细是
-          「这一块的注解」，不是这一块的标题。此前它左对齐贴边、且分数取主色（近黑），
-          读起来像卡上的一个独立小标题——与它实际承担的角色（给下面那条条配一句
-          说明）不匹配。
+      {/* 说明行**居中且弱化**（Human 2026-11-03 定案）：这一行是「这一块的注解」，
+          不是这一块的标题。此前它左对齐贴边、且分数取主色（近黑），读起来像卡上的
+          一个独立小标题——与它实际承担的角色（给下面那条条配一句说明）不匹配。
 
           故两处同改：**居中**（`justify-center` + `text-center`）——注解浮在满宽条的
-          正上方，不再与上面的正文左缘咬合；**弱化**——分数由主色改为次级色，指标名
-          与两档明细再降一档。
+          正上方，不再与上面的正文左缘咬合；**弱化**——分数不取主色。
+
+          **两档明细整段撤除**（Human 2026-11-03 圈出后去掉）：「已落实 9 · 待处理 21」
+          是分数的算术展开——加起来就是分母，读者自己对账即可。界面上多写的这一段
+          不是新信息，是同一件事的第二种说法（`docs/10` §5.5「同类信息只有一处」），
+          而它恰是这一块里最抢眼的一段文字。
 
           口径没有因此丢失：完整说法仍在 `title` 与条的 `aria-label`（「火花落实
           9 / 30」）上；数字仍逐字可读、可与名下火花逐条核对。 */}
       <div className="flex min-w-0 items-baseline justify-center gap-2 text-center">
         <span className="ldvh-meta shrink-0 text-ldvh-text-secondary/60">{progressLabel}</span>
-        <span className="ldvh-meta min-w-0 shrink-0 font-mono text-ldvh-text-secondary">
+        <span className="ldvh-meta min-w-0 shrink-0 font-mono text-ldvh-text-secondary/70">
           {implemented} / {denominator}
         </span>
-        {/* 两档明细只在分母非空时给：它们加起来等于分母，读者可以自己对账。 */}
-        {denominator > 0 && (
-          <span className="ldvh-meta min-w-0 truncate text-ldvh-text-secondary/60">
-            {implementedLabel} {implemented} · {openLabel} {open}
-          </span>
-        )}
       </div>
       {denominator > 0 && (
         // 两段条：已落实（右侧实心）+ 待处理（左侧浅底）。不用单色填充，
@@ -172,7 +165,7 @@ function Notice({
  *
  * ## 为什么竖排
  *
- * 横排那一组（指标名 + 条 + 分数 + 两档明细）会占掉子目标标题的宽度——窗口一窄，
+ * 横排那一组（口径名 + 条 + 分数 + 两档明细）会占掉子目标标题的宽度——窗口一窄，
  * 标题就被挤成一列字，甚至把进度组整个挤到下一行。故竖排：只占一行宽（96px），
  * 标题在自己的格子里换行，两列互不挤占。
  *

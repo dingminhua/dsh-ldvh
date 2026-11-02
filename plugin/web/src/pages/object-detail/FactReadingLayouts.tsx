@@ -1052,8 +1052,6 @@ export function SubGoalReadingLayout({
               allDiscardedLabel={t('objectList.subGoalSparkProgressAllDiscarded')}
               unavailableLabel={t('objectList.subGoalSparkProgressUnavailable')}
               unknownStatusLabel={(count) => t('objectList.subGoalSparkProgressUnknown', { count: String(count) })}
-              openLabel={getObjectStatusLocale('spark', 'open', locale)}
-              implementedLabel={getObjectStatusLocale('spark', 'implemented', locale)}
             />
           </div>
         )}
