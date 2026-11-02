@@ -823,7 +823,7 @@ export function NormReadingLayout({
   );
 }
 
-/** 27 号 §9/§11 终态去向：retired 的 reason（本地化闭集，同 22 号形态：
+/** 27 号 §9/§11 终态去向：retired 的 reason（本地化闭集，按 27 号自己的三值：
  * superseded/outdated/out-of-scope）+ 退役时间。retired 终态不重开。 */
 function NormTerminalReadingNode({ obj, locale }: { obj: Record<string, unknown>; locale: string }) {
   const { t } = useI18n();

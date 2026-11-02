@@ -1,9 +1,11 @@
 ---
 title: v4 存量零迁移
-status: active
+status: retired
 decision: v4 仓库的全部事实对象（103 Spark、152 WorkCase 等）不迁入 v5，v4 保留为只读历史归档。
 scope: 适用于 v4→v5 的版本迁移决策记录：v4 事实对象、规范与仓库的处置边界；不适用于其他版本或跨项目迁移。
 trigger_signal: 当 v5 需要以 v4 历史实例数据支撑回溯分析（而非 Git 历史回查可满足）时重审本决策。
+retirement_reason: outdated
+retired_at: 2026-11-02T18:41:35.512Z
 object_uid: 1aad60bc-a2bf-410f-bf0f-da178dc617cc
 fact_type_key: adr
 created_at: 2026-09-09T18:26:30.886Z
@@ -12,6 +14,10 @@ change_log:
     provider: zzztoken-glm
     model: glm-5.3
     summary: 初次创建：v4 存量零迁移决策落档（Human 2026-09-09 拍板，经会话提案确认后受控创建）——首例 ADR 出生
+  - at: 2026-11-02T18:41:35.512Z
+    provider: qoder
+    model: dfmodel
+    summary: 前提已变化：本决策的适用前提是「v4→v5 正在迁移、需要就存量是否搬迁作一次性判定」，而该迁移早已完结且 v4 只保留历史归档——specs/22-ADR-决策.md §14.2 已明文记载「v4 仓库的 2 个 ADR 实例按『v4 存量不迁移』（Human 2026-09-09 决定）保留在 v4 历史归档」，v5 侧无待处置存量。此后不会再出现同类迁移场景，该决策不再有可适用的对象；撤下它不改变任何现行行为，v4 归档的处置状态仍由 22 §14.2 与 specs/23、specs/26 的文字记载承担。
 ---
 
 # v4 存量零迁移

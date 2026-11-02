@@ -309,7 +309,7 @@ async function executeWriteObject(args, exec, deps) {
     return invalidRequest("adr-write-object", "frontmatter_after (object) and body_markdown_after (markdown) are required for action=update", "update");
   }
   if (typeof changeSummary !== "string" || changeSummary.length === 0) {
-    return invalidRequest("adr-write-object", "change_summary (one short semantic summary for the change_log) is required for action=update", "update");
+    return invalidRequest("adr-write-object", "change_summary is required for action=update (the change_log summary; for a retirement it carries the 22 §10 evidence statement)", "update");
   }
   const updated = await updateAdrObject({
     factSourceRoot,
@@ -447,8 +447,8 @@ function parameterSchemaFor(operationKey) {
       scope: { type: "string", description: "applicability statement; must appear verbatim in the 适用范围 body section" },
       trigger_signal: { type: "string", description: "when to revisit this decision (e.g. 「当 X 出现时重审」); omit when no real signal exists (03 §6.1 — no placeholder fabrications)" },
       urls: { type: "array", items: { type: "object", properties: { ref: { type: "string" }, title: { type: "string" }, summary: { type: "string" } }, required: ["ref"], additionalProperties: false }, description: "external evidence supporting the decision; when non-empty the body must carry a 证据 section" },
-      relations: { type: "array", items: relationEntry, description: "relation target of the retirement; each key has cardinality 1 and must match the reason: superseded→superseded-by (target resolves to an ADR), absorbed→absorbed-into (target resolves to a Norm); only on retired, forbidden on active/outdated/out-of-scope (22 §9.1, §11)" },
-      retirement_reason: { type: "string", enum: ["superseded", "absorbed", "outdated", "out-of-scope"], description: "required iff status=retired, forbidden while active (22 §9.2); superseded/absorbed each require the matching relation key" },
+      relations: { type: "array", items: relationEntry, description: "relation target of the retirement; each key has cardinality 1 and must match the reason: superseded→superseded-by (target resolves to an ADR), absorbed→absorbed-into (target resolves to a Norm); only on retired, forbidden on active/outdated/out-of-scope/abolished (22 §9.1, §11)" },
+      retirement_reason: { type: "string", enum: ["superseded", "absorbed", "outdated", "out-of-scope", "abolished"], description: "required iff status=retired, forbidden while active (22 §9.2); superseded/absorbed each require the matching relation key; abolished = Human abolished the record (no successor/absorbing norm, no premise changed) — the effects it already produced are retained; only when the retirement statement can name how the constraint continues to be honoured (22 §10); if no such carrier exists, use superseded/absorbed/outdated/out-of-scope instead" },
       change_summary: { type: "string", description: "one-line summary for the initial change_log entry" }
     },
     required: ["title", "decision", "scope"],
@@ -485,7 +485,7 @@ function parameterSchemaFor(operationKey) {
           frontmatter_after: (() => { const { required: _r, ...rest } = adrFrontmatter; return { ...rest, description: FRONTMATTER_AFTER_DESCRIPTION }; })(),
           frontmatter_removals: { type: "array", items: { type: "string" }, description: FRONTMATTER_REMOVALS_DESCRIPTION },
           body_markdown_after: { type: "string", description: "update: the complete target body markdown (same shape as body_markdown)" },
-          change_summary: { type: "string", description: "update: one short semantic summary for the change_log entry" }
+          change_summary: { type: "string", description: "update: the semantic summary for the change_log entry. For a retirement it carries the 22 §10 evidence statement and may run to several sentences; for other updates one or two sentences suffice. It remains a summary — never a copy of the object body." }
         },
         required: ["action"],
         additionalProperties: false

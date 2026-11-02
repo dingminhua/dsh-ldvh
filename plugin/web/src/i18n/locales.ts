@@ -696,11 +696,14 @@ export const FIELD_VALUE_LOCALES: Record<string, Record<string, { zh: string; en
     'no-gain': { zh: '零增益收敛', en: 'No Gain' },
     'round-cap': { zh: '轮次上限收敛', en: 'Round Cap' },
   },
-  // 24 §8 退出原因闭集（与 plugin/lib/research-writer.js RETIREMENT_REASONS 同源）。
+  // 24 §8 退出原因闭集（与 plugin/lib/research-writer.js RETIREMENT_REASONS 同源；ADR 复用本表，另含 absorbed / abolished —
+  // 见 22 §9.2，二者在 Research 侧不可出现）。abolished 是「记录不再保留、已产生的影响保留」，与「内容作废」不同形。
   retirement_reason: {
     outdated: { zh: '已过时', en: 'Outdated' },
     superseded: { zh: '已被取代', en: 'Superseded' },
     'out-of-scope': { zh: '超出范围', en: 'Out of Scope' },
+    absorbed: { zh: '已被规范承接', en: 'Absorbed' },
+    abolished: { zh: '记录已移除', en: 'Abolished' },
     rejected: { zh: '已否决', en: 'Rejected' },
   },
   signer_type: {

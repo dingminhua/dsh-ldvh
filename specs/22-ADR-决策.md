@@ -121,7 +121,7 @@ frontmatter 闭集（分析性长文本一律住正文，frontmatter 只留薄�
 | `trigger_signal` | string | 条件 | 重新审视信号 | 存在真实重审前提时写（如「当 X 出现时重审本决策」：版本发布、SG-4 落地、依赖变更）；无真实信号时省略（02 §7.1 条件字段——不得以占位文本伪造）；供遵守预检消费 |
 | `urls` | array | 条件 | 支撑决策的外部 HTTP(S) 证据 | 出现时非空；`urls` 非空 ⇒ 正文「证据」段必填 |
 | `relations` | array | 条件 | `superseded-by` / `absorbed-into`（见 §9、§11） | 仅终态 `superseded`（`superseded-by`）或 `absorbed`（`absorbed-into`）时可出现 |
-| `retirement_reason` | string | 条件 | 终态原因 | 闭集：`superseded` / `absorbed` / `outdated` / `out-of-scope`；retired 必填、active 禁现 |
+| `retirement_reason` | string | 条件 | 终态原因 | 闭集：`superseded` / `absorbed` / `outdated` / `out-of-scope` / `abolished`；retired 必填、active 禁现 |
 | `retired_at` | RFC3339 | 条件 | Code 填写 | retired 必填、active 禁现 |
 | `created_at` | RFC3339 | 必填 | Code 填写 | AI 不得填写 |
 | `change_log` | array | 条件 | 变更流水 | 首修后必有；每次恰好一条 |
@@ -143,14 +143,14 @@ frontmatter 闭集（分析性长文本一律住正文，frontmatter 只留薄�
 
 ## 9. 状态与生命周期
 
-状态闭集两值：`active`（决策现行有效）→ `retired`（决策不再适用）。无第三个状态——决策被替代、过时或范围失效都是 retired 的原因差异，由 `retirement_reason` 承载。
+状态闭集两值：`active`（决策现行有效）→ `retired`（决策不再作为现行依据）。无第三个状态——决策被替代、被规范承接、过时、范围失效或被废除都是 retired 的原因差异，由 `retirement_reason` 承载。
 
 ### 9.1 状态语义与成立条件
 
 | `status` | 语义 | 必须成立 |
 |---|---|---|
 | `active` | 决策现行有效，参与装配与预检 | `retirement_reason`、`retired_at`、`relations` 均不得出现 |
-| `retired` | 决策不再适用；保留为历史基线，不进入普通未处置候选 | `retirement_reason` 与 `retired_at` 必填；`retirement_reason=superseded` 时 `relations` 必含恰好一条 `superseded-by`；`retirement_reason=absorbed` 时 `relations` 必含恰好一条 `absorbed-into`；`outdated` / `out-of-scope` 时 `relations` 禁止出现 |
+| `retired` | 决策不再作为现行依据；保留为历史基线，不进入普通未处置候选。**`abolished` 时退出的只是「这条记录留在决策基线里」这件事**：该决策作出时所依据的前提没有变化，当时的适用范围判断也未被推翻（这是历史判断，**不表示退休后仍作为现行依据被检索或消费**），其内容所生的既有约束由 §10 所指明的承载继续承担，不因本对象退休而宣告自始无效 | `retirement_reason` 与 `retired_at` 必填；`retirement_reason=superseded` 时 `relations` 必含恰好一条 `superseded-by`；`retirement_reason=absorbed` 时 `relations` 必含恰好一条 `absorbed-into`；`outdated` / `out-of-scope` / `abolished` 时 `relations` 禁止出现 |
 
 ### 9.2 状态转换
 
@@ -159,9 +159,14 @@ frontmatter 闭集（分析性长文本一律住正文，frontmatter 只留薄�
 - `superseded`：被新决策替代——必须带 `superseded-by` 关系指向替代它的 ADR（该新 ADR 须已存在可解析）；
 - `absorbed`：决策内容已被某方向的 Norm 完整承接——必须带 `absorbed-into` 关系指向承接它的 Norm（该 Norm 须已存在可解析）；本 ADR 退出约束、转为历史依据，其规则不再由本对象承担；
 - `outdated`：环境或前提变化使决策失效（无单一替代者）；
-- `out-of-scope`：决策的适用范围整体不再属于本项目。
+- `out-of-scope`：决策的适用范围整体不再属于本项目；
+- `abolished`：Human 决定不再保留这条决策记录——既没有被新决策替代，内容也没有被某方向 Norm 承接，使它失效的前提变化同样没有发生，被废除的只是「把这条记录留在决策基线里」这件事本身；本对象退出装配与预检消费，**其已产生的影响保留**：既有规范条文、实现行为与事实源中既有对象对它的引用都不因本对象的退休而改变。既有引用若只作溯源或沿革（说明某对象源自该决策、或记载其历史影响），**不构成 §17 第 6 项所称「引用 retired 决策为现行依据」**；但任何仍以本对象的 decision/scope 条文作为现行规则来源的引用，**不因 `retirement_reason=abolished` 而豁免**——该现行依据必须落在 §10 指明的承载上并改指该承载，否则按 §17 第 6 项处理。
 
-`superseded` 与 `absorbed` 的区别是**去向的性质**而非有无去向：前者被另一条决策推翻（决策→决策），后者被规则体系成熟吸收（决策→规范）。两者都要求恰好一个可解析的去向，因此「退休必带去向」在两种情形下都由关系键承载，`outdated` / `out-of-scope` 因无单一去向而禁止带关系。
+`superseded` 与 `absorbed` 的区别是**去向的性质**而非有无去向：前者被另一条决策推翻（决策→决策），后者被规则体系成熟吸收（决策→规范）。两者都要求恰好一个可解析的去向，因此「退休必带去向」在两种情形下都由关系键承载，`outdated` / `out-of-scope` / `abolished` 因无单一去向而禁止带关系。
+
+`abolished` 与 `outdated`、`out-of-scope` 的区别是**没有任何前提或边界发生变化**：该决策作出时所依据的前提没有变化，当时的适用范围判断也未被推翻（与 §9.1 同一口径的历史判断），故它既不指向承接对象，也不说明某个前提变了；它只指明「Human 不再保留这条记录」这一决定本身及其作用范围。
+
+`abolished` 的适用边界（否定式判据）：**不得用它撤下仍在独立承担约束、且没有其它承载继续承担该约束的决策**。是否「另有承载」以 §10 的据实说明为准；说明中列不出任何继续承担该约束的既有承载时，该决策不属于 `abolished` 的适用对象——其内容仍须由某条 active 决策或某方向 Norm 承担（走 `superseded` / `absorbed`），确实已随前提变化而失效的走 `outdated`，适用范围已整体移出项目的走 `out-of-scope`。本条界线不新增机械门禁：`abolished` 与这三者的分界只能由 Human 决定与 AI 据实说明判定，机械层只校验闭集、字段与关系形态。
 
 终态不重开。决策要再变更时创建新 ADR；错误的终态记录按 05 的事实更正规则修正，不伪装成状态转换。决策语义的任何实质修订 = 新 ADR + 旧 ADR retired（superseded）——ADR 不原地改写决策（决策记录的可信度依赖「当时的决定不被事后篡改」）。**决策向规范的迁移不是实质修订**：`absorbed` 要求 decision 与 scope 逐字不变，改变的是承载其约束力的对象，不是决定本身；一旦迁移时决策内容也要变，仍走新 ADR + 旧 ADR retired（superseded）。
 
@@ -175,7 +180,7 @@ frontmatter 闭集（分析性长文本一律住正文，frontmatter 只留薄�
 
 决策来源是 Human 决定本身（主控方案收敛的分流结果、直接裁定的记录），不适用外部证据锚定决策的「正确性」——证据支撑决策，不证明决策。`urls` 的来源回指语义（可回读、可追溯、只承载长期消费价值的外部 HTTP(S) 资料）遵循 02 §8.1 的公共边界，本文不另建第二套来源规则；内部证据以 Research 对象 uid 在正文「证据」段引用（自然语言交代「哪个调研的什么结论支撑了本决策」），不建立结构化关系（02 §8.2 第 4 条：反向引用由 Research 侧 informs 关系承载，ADR 不复制）。
 
-`retired` 的 `retirement_reason` 必须能据实说明废止/替代的依据：superseded 指明替代者与变化实质；absorbed 指明承接它的 Norm 方向与被承接的内容范围；outdated/out-of-scope 说明哪个前提变化了。证据以自然语言描述，不得用路径、命令或日志位置代替说明。
+`retired` 的 `retirement_reason` 必须能据实说明废止/替代的依据：superseded 指明替代者与变化实质；absorbed 指明承接它的 Norm 方向与被承接的内容范围；outdated/out-of-scope 说明哪个前提变化了；abolished 指明 Human 在什么作用范围内决定不再保留该记录，以及已产生的影响由哪些既有承载继续承担。**「既有承载」的判定对象是「该约束是否仍被遵守」，不是「它是否已被写成某条规范」**：既有规范条文的相应表述、被既有校验/测试或宿主机制固定的实现行为、仍在生效的制度安排，都是合法的承载——它们须**可被持续核对或持续执行**，仅「此刻恰好在遵守」而没有任何持续机制的行动不单独构成承载；说明只需让读者能核对该约束靠什么继续兑现、下一次改动为什么不会让它无声消失，不要求逐项列出文件、函数或命令。反过来，**列不出任何继续承担该约束的承载时，该决策不属于 `abolished`**（§9.2 的否定式判据）。证据以自然语言描述，不得用路径、命令或日志位置代替说明。
 
 ## 11. 关系契约
 
@@ -220,7 +225,7 @@ frontmatter 闭集（分析性长文本一律住正文，frontmatter 只留薄�
 
 - **创建**：AI 产出提案对象（含查重结论与完整四要素），Human 确认后经受控创建入口落盘——典型入口是主控方案收敛的分流（04 §6.1；已定决策→ADR），Human 直接裁定后记录是第二入口。机械校验：字段闭集合法、decision 单句、title ≤ 30 字、urls 形状、载体结构（H2 固定序 + urls 非空时「证据」段必在）、载体内聚（decision/scope 逐字）。创建后精确回读。
 - **勘误级更新**：02 §10.5 受控更新；CAS 以完整文件为单位；每次恰好一条 change_log（注明勘误性质）；decision/scope 逐字段不变（机械比对，变了拒绝——走替代路径）。
-- **终态流转（retired）**：Human Gate；AI 先精确读取 F3，核对 retirement_reason 与证据；superseded 时校验替代者 ADR 存在可解析，absorbed 时校验承接它的 Norm 存在可解析；Code 检查闭集、字段、关系、CAS 与回读。
+- **终态流转（retired）**：Human Gate；AI 先精确读取 F3，核对 retirement_reason 与证据；superseded 时校验替代者 ADR 存在可解析，absorbed 时校验承接它的 Norm 存在可解析；**outdated / out-of-scope / abolished 无去向要求**——不得带 relations，且理由须据实可述（§10）并在说明中交代前提变化或被废除记录的影响承载；Code 检查闭集、字段、关系、CAS 与回读。**§10 的据实说明落在本次流转的 `change_log.summary` 上**：Code 原样保留；该流水仍是一条语义摘要（不复制完整正文或完整 diff，02 §7.1 的公共字段语义不变），篇幅随据实交代承载所需，不设一句话上限。
 - **删除**：不存在删除操作。retired ADR 随 `ldvh-base/adrs/` 保留为历史基线。
 
 ## 14. 类型特有验证与类型退出
@@ -231,8 +236,8 @@ frontmatter 闭集（分析性长文本一律住正文，frontmatter 只留薄�
 - 载体内聚：decision/scope 在正文对应段逐字出现（frontmatter 是唯一权威文本，正文只展开）；
 - 证据段条件：`urls` 非空 ⇒ 正文「证据」段存在（二元可判定：frontmatter 数组长度 > 0 与 H2 存在性）；
 - 勘误边界：更新的 decision/scope 与 CAS 基线逐字段一致（防语义变更伪装勘误）；正文其余段的语义不变性是 AI 审核义务（§9.3），不在机械层；
-- 终态完整性：retired 必有 reason + retired_at；superseded 必有且恰有一条 superseded-by 且目标可解析，absorbed 必有且恰有一条 absorbed-into 且目标可解析；
-- 状态-关系不变量：active 不得带终态字段与关系；`outdated` / `out-of-scope` 的 retired 不得带关系；每一条关系键都须与其理由对应（superseded→superseded-by、absorbed→absorbed-into），交叉错配拒绝。
+- 终态完整性：retired 必有 reason + retired_at；superseded 必有且恰有一条 superseded-by 且目标可解析，absorbed 必有且恰有一条 absorbed-into 且目标可解析；`outdated` / `out-of-scope` / `abolished` 无去向要求——不得带关系，理由的据实性由 §10 承担（语义判断，不在机械层）；
+- 状态-关系不变量：active 不得带终态字段与关系；`outdated` / `out-of-scope` / `abolished` 的 retired 不得带关系；每一条关系键都须与其理由对应（superseded→superseded-by、absorbed→absorbed-into），交叉错配拒绝。
 
 ### 14.2 存量对象迁移
 
@@ -250,7 +255,7 @@ frontmatter 闭集（分析性长文本一律住正文，frontmatter 只留薄�
 | 载体内聚 | 创建与更新时 | decision/scope 在正文对应段逐字出现 | frontmatter 与正文对照 | 机械（逐字比对） | 索引与主体一致性 | 拒绝；补齐后重走 |
 | 勘误边界 | 更新时 | decision/scope 与 CAS 基线逐字段一致 | 更新前后 frontmatter 对照 | 机械（字段比对） | 当次更新的勘误性质 | 拒绝；语义变更走替代路径 |
 | 查重已执行 | 创建时 | 创建提案含查重结论 | 提案记录 | AI 语义审核 | 当次查重范围 | 补查重后重走创建 |
-| 终态完整性 | 终态流转时 | reason/retired_at 与对应关系键齐备且目标可解析 | 对象全文与目标读取结果 | 机械（字段+关系校验） | 当次终态机械范围 | 拒绝流转；补齐后重走 |
+| 终态完整性 | 终态流转时 | reason/retired_at 齐备；superseded / absorbed 时对应关系键齐备且目标可解析；outdated / out-of-scope / abolished 时不带关系 | 对象全文与目标读取结果 | 机械（字段+关系校验） | 当次终态机械范围 | 拒绝流转；补齐后重走 |
 | 决策语义质量 | 创建与终态时 | decision 可判定、备选与理由据实、scope 边界明确 | Human 确认记录 | AI 语义审核 + Human 终审 | 当次决策记录质量 | 拒绝或退回修订 |
 
 机械结果与语义判断互不替代。本章不能单独证明决策正确、适用或被遵守——这些由消费点的真实使用核对；未实现与不可用范围保留为 gaps。
@@ -274,9 +279,9 @@ Human 决定只证明决定及其作用范围，不替代查重判断、载体�
 1. 创建时发现同主题 active ADR 已存在（重复决策谱系风险）——未完成查重结论前不创建；
 2. decision 为空或不可读、scope 缺失；
 3. 准备以更新改写 decision/scope 语义（勘误边界违例）；
-4. 终态流转存在 retirement_reason/目标缺口，或 superseded-by / absorbed-into 目标不可解析；
+4. 终态流转存在 retirement_reason 缺口，或 superseded / absorbed 的去向缺口（不带对应关系键），或 superseded-by / absorbed-into 目标不可解析；
 5. AI 未经 Human 确认直接创建或流转（授权缺失）；
-6. 装配/预检消费时 ADR 状态与引用不一致（引用了 retired 决策为现行依据）。
+6. 装配/预检消费时 ADR 状态与引用不一致（引用了 retired 决策为现行依据；仅溯源或沿革性引用除外，见 §9.2）。
 
 暂停期间只允许不越过停止边界的证据补取、引用修复、授权补走与条件核实。恢复须与触发原因逐项对应；同一停止条件恢复后再次触发的，按 00 §5.7 的恢复与再次触发进入 Human Gate。
 

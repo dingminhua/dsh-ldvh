@@ -40,6 +40,7 @@ import { VALID_FM_KEYS as SUBGOAL_FM_KEYS } from "../lib/subgoal-writer.js";
 import { VALID_FM_KEYS as DEVLOG_FM_KEYS } from "../lib/devlog-writer.js";
 
 const LIB = join(dirname(fileURLToPath(import.meta.url)), "..", "lib");
+const SPECS = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "specs");
 
 /** Fields Code assigns; AI must not supply them, so tool schemas omit them. */
 const CODE_ASSIGNED = new Set([
@@ -454,3 +455,141 @@ test("schema/writer agreement: every writer disables YAML folding (lineWidth: 0 
 			+ ` (Human feedback 2026-09-06, ef08d9e)`,
 	);
 });
+
+// ---------------------------------------------------------------------------
+// Retirement-reason closed set: writer ⇄ tool plane
+// ---------------------------------------------------------------------------
+//
+// The same defect class as the field-set guard above, one level down. Each
+// writer validates `retirement_reason` against a Set; its tools restate that Set
+// as a JSON Schema `enum`. Drift in either direction is silent:
+//
+//   - added to the writer only → the model can never pick it (the argument is
+//     rejected by the tool plane before the writer's check is reachable), which
+//     is exactly how `abolished` would have been born dead;
+//   - left in the enum only → the tool plane advertises a transition the writer
+//     refuses, and the failure surfaces as an unexplained rejection.
+//
+// 22 §9.2 / 27 §8.1 / 24 §8 each define ONE closed set, so the two carriers must
+// agree exactly — no subset is a legal state.
+
+/** Read a writer's retirement-reason closed set straight from source when unexported. */
+async function retirementSetFromSource(fileName) {
+	const source = await readFile(join(LIB, fileName), "utf8");
+	const match = source.match(/RETIREMENT_REASONS = new Set\(\[([\s\S]*?)\]\)/);
+	if (match === null) throw new Error(`no RETIREMENT_REASONS closed set found in ${fileName}`);
+	return [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort();
+}
+
+/**
+ * Read the closed set as the SPEC declares it, so the guard covers all three
+ * carriers instead of only the two code-side ones. Without this the test names
+ * `22 §9.2` while asserting nothing about that text: renaming or dropping a
+ * value in the spec would leave both code carriers silently agreeing with each
+ * other and disagreeing with the authority.
+ *
+ * The declared row differs in shape across types (Research uses a wider table),
+ * so tokens are filtered by shape — a reason value is a lowercase kebab token —
+ * rather than by position.
+ */
+async function retirementSetFromSpec(specFile) {
+	const source = await readFile(join(SPECS, specFile), "utf8");
+	// The frontmatter field-table row that declares retirement_reason. ONLY this
+	// row is parsed here: 22 §9.2 additionally restates the closed set as one
+	// bullet per value (covered by retirementSetFromBullets below), and 24 §9 /
+	// 27 §9 restate theirs in prose that this parser does not cover — a value
+	// changed only in those paragraphs would not be caught here.
+	const row = source
+		.split("\n")
+		.find((line) => /^\|\s*`retirement[-_]reason`/.test(line) && line.includes("闭集"));
+	if (row === undefined) throw new Error(`no retirement_reason 闭集 row found in ${specFile}`);
+	// Only the 闭集 clause declares values; the rest of the row carries stage
+	// labels and other backticked field names.
+	const clause = row.slice(row.indexOf("闭集"));
+	const values = [...clause.matchAll(/`([^`]+)`/g)]
+		.map((m) => m[1])
+		.filter((token) => /^[a-z]+(?:-[a-z]+)*$/.test(token));
+	if (values.length === 0) throw new Error(`the 闭集 clause in ${specFile} declares no values`);
+	return values.sort();
+}
+
+/**
+ * The second spec-side carrier: 22 §9.2 lists the closed set a second time as
+ * one bullet per reason (`- \`superseded\`：…`), introduced by the sentence
+ * 「正常转换只有 `active → retired`…理由闭集：」. The field-table row above and
+ * these bullets are two independent declarations of the same set, so a value
+ * added to one and not the other leaves the authority self-contradictory.
+ * Only the first bullet run after the 理由闭集 line is read; anything that is
+ * not a `- \`value\`：` bullet (blank lines aside) ends the run.
+ */
+async function retirementSetFromBullets(specFile) {
+	const source = await readFile(join(SPECS, specFile), "utf8");
+	const lines = source.split("\n");
+	const start = lines.findIndex((line) => line.includes("理由闭集"));
+	if (start === -1) throw new Error(`no 理由闭集 paragraph in ${specFile}`);
+	const values = [];
+	for (const line of lines.slice(start + 1)) {
+		if (line.trim() === "") continue;
+		const match = /^- `([^`]+)`：/.exec(line);
+		if (!match) break;
+		values.push(match[1]);
+	}
+	if (values.length === 0) throw new Error(`no per-value bullets under 理由闭集 in ${specFile}`);
+	return values.sort();
+}
+
+const RETIREMENT_OWNERS = [
+	{ name: "adr", spec: "22 §9.2", specFile: "22-ADR-决策.md", loadWriter: () => import("../lib/adr-writer.js"), loadTools: () => import("../lib/adr-tools.js"), operationKey: "adr-write-object" },
+	{ name: "norm", spec: "27 §8.1", specFile: "27-Norm-事实规范.md", loadWriter: () => import("../lib/norm-writer.js"), loadTools: () => import("../lib/norm-tools.js"), operationKey: "norm-write-object" },
+	{ name: "research", spec: "24 §8", specFile: "24-Research-调研报告.md", source: "research-writer.js", loadTools: () => import("../lib/research-tools.js"), operationKey: "research-write-object" },
+];
+
+for (const owner of RETIREMENT_OWNERS) {
+	test(`schema/writer agreement: ${owner.name} retirement_reason enum matches the writer's closed set (${owner.spec})`, async () => {
+		const writerReasons = owner.source
+			? await retirementSetFromSource(owner.source)
+			: [...(await owner.loadWriter()).RETIREMENT_REASONS].sort();
+
+		const module = await owner.loadTools();
+		const operation = module.OPERATIONS[owner.operationKey];
+		assert.ok(operation, `${owner.name}: operation ${owner.operationKey} is not declared`);
+		const descriptor = module.toolDescriptorFor(owner.operationKey, operation, () => {});
+		const { schema } = frontmatterSchema(descriptor);
+		const declared = schema.properties?.retirement_reason;
+		assert.ok(declared, `${owner.name}: frontmatter schema declares no retirement_reason property`);
+		assert.ok(Array.isArray(declared.enum), `${owner.name}: retirement_reason must be a closed enum, not ${JSON.stringify(declared)}`);
+
+		assert.deepEqual(
+			[...declared.enum].sort(),
+			writerReasons,
+			`${owner.name}: the tool enum and the writer's closed set disagree — a value present on one side only is either unpickable by the model or promised-and-refused`,
+		);
+
+		// The retired-only gate is the other half of the contract: a value the
+		// enum offers must be refused while the object is still active.
+		assert.match(
+			declared.description ?? "",
+			/retired/,
+			`${owner.name}: retirement_reason description must state its status binding (${owner.spec})`,
+		);
+
+		// Third carrier: the spec text itself. The test name cites a spec section,
+		// so the spec's declared closed set must be the one the code implements.
+		assert.deepEqual(
+			await retirementSetFromSpec(owner.specFile),
+			writerReasons,
+			`${owner.name}: the spec (${owner.spec}) declares a different closed set than the writer — the authority and its implementation drifted apart`,
+		);
+
+		// Fourth carrier (adr only): 22 §9.2 restates the same set as one bullet
+		// per value, so the spec can contradict itself even when the field table
+		// still agrees with the code.
+		if (owner.name === "adr") {
+			assert.deepEqual(
+				await retirementSetFromBullets(owner.specFile),
+				writerReasons,
+				"adr: the 22 §9.2 per-value bullets declare a different closed set than the writer — the spec contradicts its own field table",
+			);
+		}
+	});
+}

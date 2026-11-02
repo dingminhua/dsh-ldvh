@@ -55,14 +55,14 @@ const BODY_H2_REQUIRED = ["决策背景", "决定", "备选与理由", "后果",
 const BODY_H2_EVIDENCE = "证据";
 
 const STATUSES = new Set(["active", "retired"]);
-const RETIREMENT_REASONS = new Set(["superseded", "absorbed", "outdated", "out-of-scope"]);
+const RETIREMENT_REASONS = new Set(["superseded", "absorbed", "outdated", "out-of-scope", "abolished"]);
 
 /** Relation keys allowed for ADR (22 §11 — closed set of two, mutually exclusive). */
 const ADR_RELATION_KEYS = new Set(["superseded-by", "absorbed-into"]);
 
 /**
  * 理由 → 关系键 的唯一对应（22 §9.1/§9.2：理由决定去向键，二者一一配对）。
- * outdated / out-of-scope 无单一去向，故不出现。
+ * outdated / out-of-scope / abolished 无单一去向，故不出现。
  */
 const REASON_TO_RELATION_KEY = new Map([
   ["superseded", "superseded-by"],
@@ -822,4 +822,9 @@ export async function listAdrObjects(args) {
 // Exported for the schema/writer agreement guard (test/schema-writer-agreement.test.mjs):
 // the tool-plane JSON Schema must admit every field this closed set accepts, and a
 // field added here without a matching schema entry is unreachable via the tools.
-export { VALID_FM_KEYS };
+//
+// RETIREMENT_REASONS is exported for the same defect class one level down: the tool
+// plane restates this closed set as a JSON Schema `enum`, so a value added here
+// without the enum is unpickable by the model, and a stale enum advertises a value
+// the writer rejects (22 §9.2 — the closed set must have a single source).
+export { VALID_FM_KEYS, RETIREMENT_REASONS };

@@ -1,9 +1,11 @@
 ---
 title: 规划由 goal.md authored 区承载
-status: active
+status: retired
 decision: 项目级推进计划不建独立事实类型，由 goal.md 的 authored 区承载。
 scope: 适用于项目级「推进计划」的承载形态：下一步做什么、为何改向写在何处、由谁维护、受何种门禁约束；不适用于 goal.md 冻结区内容、工单内部 plan 步骤与规范源规则本身的承载。
 trigger_signal: 当 25/09/07 规范修订批次把本决策完整承接进规范源时，重审本 ADR 的存续。
+retirement_reason: outdated
+retired_at: 2026-11-02T18:41:35.510Z
 object_uid: ffcd7cff-659c-411e-9822-7ac6e6a37c5c
 fact_type_key: adr
 created_at: 2026-09-28T02:48:00.327Z
@@ -16,6 +18,10 @@ change_log:
     provider: workbuddy
     model: deepseek-v4.1-flash
     summary: 批次 G 旧号位更正：备选与理由「specs/03 §5.2」→「specs/02 §6.2」、后果「specs/10 的蓝图区块」→「specs/07 的蓝图区块」、trigger_signal「25/06/10」→「25/09/07」并加号位注记（decision/scope 逐字不变）
+  - at: 2026-11-02T18:41:35.510Z
+    provider: qoder
+    model: dfmodel
+    summary: 前提已变化：本决策以「goal.md 保留方法与规划两区、项目级推进计划放在 authored 区」为前提，而 2026-09-10 Human 决定简化 goal.md，方法与规划两区已被移除（specs/25-Goal-项目目标.md 明记「方法与规划两区已移除」），authored 区从未开放，原规划内容改由锚点文档建设顺序承载。本决策自陈的硬顺序依赖（Git Gate 冻结区分类器须先于 authored 区上线）在机械层始终未落地，故它从未可执行，现在更无可执行的载体。撤下该记录不改变任何现行行为：goal.md 仍只承载目标陈述，子目标已迁入 ldvh-base/subgoals/。
 ---
 
 # 规划由 goal.md authored 区承载

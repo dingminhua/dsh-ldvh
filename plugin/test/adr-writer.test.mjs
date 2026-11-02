@@ -509,6 +509,49 @@ test("update: active→retired (reason=outdated) succeeds with Code-assigned ret
   });
 });
 
+test("update: active→retired (reason=abolished) succeeds without any relation (22 §9.2 废除记录、影响保留)", async () => {
+  await withTemp("adr-writer.", async (root) => {
+    const { draft, read } = await createAndRead(root);
+    const updated = await updateAdrObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: read.value.fingerprint,
+      frontmatterAfter: { ...read.value.frontmatter, status: "retired", retirement_reason: "abolished" },
+      bodyMarkdownAfter: validBodyMarkdown(draft),
+      changeSummary: "Human 决定不再保留该决策记录，已产生的影响保留",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(updated.ok, JSON.stringify(updated.error));
+
+    const read2 = await readAdrObject({ factSourceRoot: root, objectUid: read.value.object_uid });
+    assert.equal(read2.value.frontmatter.status, "retired");
+    assert.equal(read2.value.frontmatter.retirement_reason, "abolished");
+    assert.equal(read2.value.frontmatter.relations, undefined, "abolished carries no relation (22 §9.1)");
+  });
+});
+
+test("update: reason=abolished with relations rejected (22 §9.1 abolished forbids relations)", async () => {
+  await withTemp("adr-writer.", async (root) => {
+    const { draft, read } = await createAndRead(root);
+    const result = await updateAdrObject({
+      factSourceRoot: root,
+      objectUid: read.value.object_uid,
+      expectedFingerprint: read.value.fingerprint,
+      frontmatterAfter: {
+        ...read.value.frontmatter,
+        status: "retired",
+        retirement_reason: "abolished",
+        relations: [{ relation_key: "superseded-by", target: { object_uid: "3f2504e0-4f89-41d3-9a0c-0305e82c3301" } }],
+      },
+      bodyMarkdownAfter: validBodyMarkdown(draft),
+      changeSummary: "试图为 abolished 附去向键",
+      sessionSignature: TEST_SIGNATURE,
+    });
+    assert.ok(!result.ok);
+    assert.equal(result.error.code, "adr/relations_invalid");
+  });
+});
+
 test("update: retired_at supplied by the caller is rejected (22 §8 Code-assigned, AI must not supply)", async () => {
   await withTemp("adr-writer.", async (root) => {
     const { draft, read } = await createAndRead(root);

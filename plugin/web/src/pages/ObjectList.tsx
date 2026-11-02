@@ -828,8 +828,8 @@ export function PitfallCardContent({ obj }: { obj: ObjectItem }) {
 
 function AdrTerminalCardContent({ obj }: { obj: ObjectItem }) {
   const { t, locale } = useI18n();
-  // 22 §9：ADR 终态原因由 retirement_reason 承载（闭集 superseded/outdated/
-  // out-of-scope）；v4 disposition_summary 已不属 ADR 字段闭集。
+  // 22 §9：ADR 终态原因由 retirement_reason 承载（闭集 superseded/absorbed/
+  // outdated/out-of-scope/abolished）；v4 disposition_summary 已不属 ADR 字段闭集。
   const rawReason = typeof obj.retirement_reason === 'string' && obj.retirement_reason.trim()
     ? obj.retirement_reason.trim()
     : '';
