@@ -306,6 +306,60 @@ test('聚焦页对象标题必须落在标题带内：ldvh-card-title 与 title 
   );
 });
 
+/**
+ * 对象卡框只有一个定义，且三处呈现面**共用它**——Human 2026-11-03 定案：「这里的
+ * 样式要和待决定事项一样，要有个外框，近期动态也一样」。
+ *
+ * ## 为什么设这条守卫
+ *
+ * 此前聚焦页的「近期动态」与「Spark 健康度」两处**没有外框**：它们只有标题那一行
+ * 套着标题带（`ldvh-object-title-tray`），于是同页里「待决定事项」读起来是整块有框
+ * 的卡，另两个模块读起来像无框的流水账——标题带被当成了卡的外框，读者得自己把元
+ * 信息行与时间戳行归到标题那条上去。
+ *
+ * 修法不是各处另抄一段类名（抄三份必分叉），而是把卡框抽成 `.ldvh-object-card-frame`
+ * 一处定义，三处呈现面共用：对象列表卡（`ObjectCardFrame`）、聚焦页近期动态行、
+ * 聚焦页 Spark 健康度行。
+ *
+ * **保证边界（如实登记）**：本守卫是**类名级**的——它证明三处引用的是同一个类，
+ * 不证明那个类渲染出来真的成框（改 `.ldvh-object-card-frame` 的 `@apply` 内容不会
+ * 被它捕获；那由「卡框须含边框」那条断言兜）。
+ */
+test('对象卡框单源：列表卡、近期动态行与 Spark 健康度行共用 ldvh-object-card-frame', () => {
+  const styles = read('src/index.css');
+  const objectList = read('src/pages/ObjectList.tsx');
+  const cognitionCenter = read('src/pages/CognitionCenter.tsx');
+
+  // 卡框须真带边框与圆角——「有外框」是这次定案的本体。
+  assert.match(
+    styles,
+    /\.ldvh-object-card-frame\s*\{[^}]*rounded-lg border border-ldvh-border/,
+    '对象卡框须带边框与圆角（否则「有个外框」不成立）',
+  );
+  assert.match(styles, /\.ldvh-object-card-frame\s*\{[^}]*bg-ldvh-panel/, '对象卡框须有底色');
+
+  // 三处呈现面共用同一个类。
+  assert.match(objectList, /className="ldvh-object-card-frame"/, '对象列表卡须用共享卡框类');
+  const recentRow = cognitionCenter.slice(
+    cognitionCenter.indexOf('function RecentActivityRow'),
+    cognitionCenter.indexOf('function RecentActivityUsageBars'),
+  );
+  const sparkRow = cognitionCenter.slice(
+    cognitionCenter.indexOf('function SparkHealthRow'),
+    cognitionCenter.indexOf('function openOnKeyboard'),
+  );
+  assert.match(recentRow, /<li className="ldvh-object-card-frame">/, '近期动态行须用共享卡框类');
+  assert.match(sparkRow, /<li className="ldvh-object-card-frame">/, 'Spark 健康度行须用共享卡框类');
+
+  // 标题带**保留**在卡框之内（`docs/01` §1.10 统一要求第 4 条）：卡框圈整条记录，
+  // 标题带圈标题本身，两层是不同的东西，不能因为加了外框就把标题带撤掉。
+  assert.match(recentRow, /ldvh-object-title-tray ldvh-object-title-tray-compact/);
+  assert.match(sparkRow, /ldvh-object-title-tray ldvh-object-title-tray-compact/);
+
+  // 卡之间用间距，不再用分隔线：有外框之后那条线是「框外的框」。
+  assert.doesNotMatch(cognitionCenter, /divide-y divide-ldvh-border\/70"/, '有卡框后不得再用分隔线代替卡间距');
+});
+
 test('WorkCase semantic blocks keep the compact 14/13px by 22px hierarchy', () => {
   const styles = read('src/index.css');
   const layout = read('src/pages/object-detail/WorkCaseReadingLayout.tsx');

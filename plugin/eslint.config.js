@@ -18,7 +18,18 @@ import globals from "globals";
 
 export default [
   {
-    ignores: ["node_modules/**", "web/**", "test/fixtures/**", "eslint.config.js"],
+    // `lib-old/` 是 v4 归档目录（从不被 git 跟踪），只作旧实现对照用，不是插件
+    // 源码面的一部分。它落在 `plugin/` 下时会被 `eslint .` 扫到，按当前规则报出
+    // 一批**旧代码对新规则**的 error——那不是待修的缺陷，是归档物的本来面目。
+    //
+    // 它一旦留在 lint 面内，后果不只 noisy：`installHook` 的 preflight 会真跑一遍
+    // 全仓 eslint（09 §5.1 靠它证明 Hook 确实拦得住坏提交），于是归档目录的
+    // 一批旧 error 会把**所有**安装／hook 生命周期测试与每一次受控提交一起挡住
+    // ——守卫本身没错，但被与它无关的归档物触发。
+    //
+    // 故把归档目录排除出 lint 面（与 `node_modules/**`、`web/**` 同类处理）：
+    // 数据一个字节不动，只是「归档物不参与源码 lint」。
+    ignores: ["node_modules/**", "web/**", "lib-old/**", "test/fixtures/**", "eslint.config.js"],
   },
   js.configs.recommended,
   {

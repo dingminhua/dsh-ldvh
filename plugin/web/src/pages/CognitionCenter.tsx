@@ -369,7 +369,7 @@ function RecentActivityRow({ item }: { item: CognitionRecentActivityItem }) {
   const typeColor = CATEGORY_COLORS[item.type] || CATEGORY_COLORS.other;
   const open = () => openPanel({ type: 'object', title, objectType: item.type, objectId: item.id });
   return (
-    <li className="min-w-0 py-3">
+    <li className="ldvh-object-card-frame">
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
         <span className="ldvh-caption shrink-0 text-ldvh-text-secondary">{item.relativeTime}</span>
         <span
@@ -401,13 +401,13 @@ function RecentActivityRow({ item }: { item: CognitionRecentActivityItem }) {
         tabIndex={0}
         onClick={open}
         onKeyDown={(event) => openOnKeyboard(event, open)}
-        className="group ldvh-object-title-tray ldvh-object-title-tray-compact mt-1.5 -mx-1 flex min-w-0 cursor-pointer items-center gap-1.5 px-2.5 text-left transition-colors hover:bg-ldvh-border/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
+        className="group ldvh-object-title-tray ldvh-object-title-tray-compact -mx-1 flex min-w-0 cursor-pointer items-center gap-1.5 px-2.5 text-left transition-colors hover:bg-ldvh-border/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
       >
         <ObjectTypeIcon type={item.type} size={15} className="shrink-0" style={{ color: item.typeColor }} />
         <h4 className="ldvh-card-title min-w-0 flex-1 whitespace-normal break-words group-hover:text-ldvh-accent">{title}</h4>
       </div>
       <RecentActivityReadNotes item={item} locale={locale} />
-      <div className="mt-2 flex min-w-0 items-center justify-end text-right opacity-70">
+      <div className="flex min-w-0 items-center justify-end text-right opacity-70">
         <ObjectUpdatedMeta source={{}} updatedAt={item.occurredAt} signature={item.signature} />
       </div>
     </li>
@@ -459,7 +459,7 @@ function SparkHealthRow({ item }: { item: CognitionSparkHealthItem }) {
   const unparsed = item.unparsed_structures ?? [];
   const showReadNotes = item.read_status !== 'readable' || fieldIssues.length > 0 || unparsed.length > 0;
   return (
-    <li className="min-w-0 py-3">
+    <li className="ldvh-object-card-frame">
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
         <span className="ldvh-caption shrink-0 text-amber-700/85 dark:text-amber-300/85">
           {t('cognition.sparkHealth.silentDays', { days: String(item.silentDays) })}
@@ -482,13 +482,13 @@ function SparkHealthRow({ item }: { item: CognitionSparkHealthItem }) {
         tabIndex={0}
         onClick={open}
         onKeyDown={(event) => openOnKeyboard(event, open)}
-        className="group ldvh-object-title-tray ldvh-object-title-tray-compact mt-1.5 -mx-1 flex min-w-0 cursor-pointer items-center gap-1.5 px-2.5 text-left transition-colors hover:bg-ldvh-border/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
+        className="group ldvh-object-title-tray ldvh-object-title-tray-compact -mx-1 flex min-w-0 cursor-pointer items-center gap-1.5 px-2.5 text-left transition-colors hover:bg-ldvh-border/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50"
       >
         <ObjectTypeIcon type="spark" size={15} className="shrink-0" style={{ color: item.typeColor }} />
         <h4 className="ldvh-card-title min-w-0 flex-1 whitespace-normal break-words group-hover:text-ldvh-accent">{title}</h4>
       </div>
       {showReadNotes && <FieldReadNotes source={item} locale={locale} />}
-      <div className="mt-2 flex min-w-0 items-center justify-end text-right opacity-70">
+      <div className="flex min-w-0 items-center justify-end text-right opacity-70">
         <ObjectUpdatedMeta source={{}} updatedAt={item.updatedAt} signature={item.signature} />
       </div>
     </li>
@@ -822,10 +822,11 @@ export default function CognitionCenter({ embedded = false }: { embedded?: boole
             {recentLoading && <p role="status" className="mb-3 ldvh-caption text-ldvh-text-secondary/70">{t('cognition.recent.loading')}</p>}
             {recentError && <p role="status" className={`mb-3 ldvh-caption ${LDVH_ERROR_TEXT_CLASS}`}>{recentError}</p>}
             <ModuleIssuesNotice issues={recentIssues} t={t} />
+            {/* 卡片之间用间距，不再用分隔线：有外框之后，那条线是「框外的框」。 */}
             {recentItems.length === 0 ? (
               recentIssues.length === 0 && <p className="ldvh-body-muted">{t('cognition.recent.empty')}</p>
             ) : (
-              <ul className="divide-y divide-ldvh-border/70">
+              <ul className="flex min-w-0 flex-col gap-3">
                 {visibleRecentItems.map((item) => (
                   <RecentActivityRow key={`${item.type}-${item.id}`} item={item} />
                 ))}
@@ -961,10 +962,11 @@ export default function CognitionCenter({ embedded = false }: { embedded?: boole
               </div>
             )}
 
+            {/* 卡片之间用间距，不再用分隔线：有外框之后，那条线是「框外的框」。 */}
             {sparkHealth && filteredSparkItems.length === 0 ? (
               sparkHealthIssues.length === 0 && <p className="ldvh-body-muted">{t('cognition.sparkHealth.empty')}</p>
             ) : (
-              <ul className="divide-y divide-ldvh-border/70">
+              <ul className="flex min-w-0 flex-col gap-3">
                 {visibleSparkItems.map((item) => <SparkHealthRow key={item.id} item={item} />)}
               </ul>
             )}

@@ -50,6 +50,21 @@
     @apply min-h-9 py-1.5;
   }
 
+  /* 对象卡框：列表卡、聚焦页待决定事项卡、聚焦页近期动态行与 Spark 健康度行**共用**
+   * 同一个外框（Human 2026-11-03 定案：「这里的样式要和待决定事项一样，要有个外框」）。
+   *
+   * 此前后两者没有外框——它们只有标题那一行套着 `ldvh-object-title-tray`（标题带），
+   * 于是同页里「待决定事项」是整块有框的卡，而「近期动态」「Spark 健康度」读起来像
+   * 一张无框的流水账：标题带被当成了卡的外框，读者要自己把元信息行与时间戳行归到
+   * 标题那条上去。
+   *
+   * 标题带**保留**：它是 `docs/01` §1.10「统一要求」第 4 条（对象标题必须落在标题带
+   * 内）与 §1.8.1 的组件契约，与卡框是两层不同的东西——卡框圈住**整条记录**，
+   * 标题带圈住**标题本身**。两者并存正是对象列表卡的既有形态。 */
+  .ldvh-object-card-frame {
+    @apply flex min-w-0 flex-col gap-2 rounded-lg border border-ldvh-border bg-ldvh-panel p-3 text-left;
+  }
+
   .ldvh-card-title-prominent {
     @apply text-base font-semibold leading-6 text-ldvh-text-primary;
   }

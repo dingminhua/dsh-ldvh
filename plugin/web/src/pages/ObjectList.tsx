@@ -351,7 +351,7 @@ export function ObjectCardFrame({
   const nonActiveReason = getNonActiveReason(obj, t);
   return (
     <div
-      className="flex min-w-0 flex-col gap-2 rounded-lg border border-ldvh-border bg-ldvh-panel p-3 text-left"
+      className="ldvh-object-card-frame"
     >
       <div className="flex min-w-0 items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
