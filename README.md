@@ -4,7 +4,7 @@
 
 ## v5 定位
 
-- **取代 v4**：v5 是新规则与实现源；v4（`ld-vibe-harness-v4`）整体降级为只读历史档案，不再新建事实、不再作为规则源。
+- **取代 v4**：v5 是新规则与实现源；v4（`ld-vibe-harness-v4`）归档已于 2026-11-03 删除，不再作为只读历史档案存在。v4 的未入库内容（未推送提交与未提交调研）已备份至 `scratch.local/v4-archive-backup-20261103/`（`scratch.local` 不入版本库）。
 - **DSH 原生插件分发**：以 DeepSeek Harness（DSH）原生插件形态分发（`dsh plugin add ldvh`），同时保持开源。
 - **开源**：MIT License（见 [LICENSE](LICENSE)），**与 DSH 本体同协议**；可进入 DSH 插件市场，接受开源公共契约。
 

@@ -11,9 +11,8 @@ const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ldvh-settings-works
 const firstProject = path.join(workspaceRoot, 'first')
 const secondProject = path.join(workspaceRoot, 'second')
 const firstLinkedWorktree = path.join(workspaceRoot, 'first-linked')
-const configPath = path.join(workspaceRoot, 'LDVH-GOVERNED-PROJECTS.yaml')
-// v4 迁移适配：仓库根可用 LDVH_SPEC_ROOT 覆盖（夹具自身会覆写 LDVH_ROOT 指向临时项目，故用独立变量）。
-const repositoryRoot = process.env.LDVH_SPEC_ROOT || path.resolve(import.meta.dirname, '../../..')
+// v5 登记模式的载体路径：夹具自带沙箱配置，不读写用户的 ~/.dsh 登记载体。
+const configPath = path.join(workspaceRoot, 'governed-projects.yaml')
 
 fs.mkdirSync(firstProject, { recursive: true })
 fs.mkdirSync(secondProject, { recursive: true })
@@ -37,8 +36,9 @@ fs.writeFileSync(configPath, [
 
 process.env.LDVH_ROOT = firstProject
 process.env.LDVH_WORKSPACE_ROOT = workspaceRoot
-process.env.LDVH_HELPER_EXECUTABLE = path.join(repositoryRoot, 'ldvh')
 process.env.LDVH_WEB_WORKTREE_LOCATOR = firstProject
+// v5 登记模式：治理验证走 Node git 解析，零 Python Helper 依赖。
+process.env.LDVH_GOVERNED_PROJECTS_CONFIG = configPath
 
 let server: Server
 let baseUrl = ''

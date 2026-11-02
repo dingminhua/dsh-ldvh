@@ -24,15 +24,15 @@ pnpm run build
 
 # 契约测试（41 文件 212 用例）
 # Node 25 下用 node --import tsx --test（tsx --test 静默不输出）。
-# API 依赖 v4 Python Helper（LDVH_ROOT/ldvh）与工作区配置，当前指向 v4 归档：
-LDVH_ROOT=<v4 归档绝对路径> \
-LDVH_WORKSPACE_ROOT=<v4 工作区（含 LDVH-GOVERNED-PROJECTS.yaml）> \
-LDVH_SPEC_ROOT=<v4 归档绝对路径> \
+# 治理范围走 v5 登记模式：LDVH_GOVERNED_PROJECTS_CONFIG 指向 v5 登记载体，
+# Node 侧 git 解析，全程不依赖 v4 Python Helper：
+LDVH_GOVERNED_PROJECTS_CONFIG=~/.dsh/ldvh/governed-projects.yaml \
+LDVH_SPEC_ROOT=<仓库根> \
 node --import tsx --test tests/api/*.test.ts
 
-# 写测试（settings）需沙箱工作区防污染归档：
-cp <v4 工作区>/LDVH-GOVERNED-PROJECTS.yaml /tmp/sandbox/ && \
-LDVH_SPEC_ROOT=<v4 归档> LDVH_WORKSPACE_ROOT=/tmp/sandbox \
+# 写测试（settings）需沙箱工作区防污染真实登记载体：
+cp ~/.dsh/ldvh/governed-projects.yaml /tmp/sandbox/ && \
+LDVH_SPEC_ROOT=<仓库根> LDVH_WORKSPACE_ROOT=/tmp/sandbox \
 node --import tsx --test tests/api/settings.test.ts
 ```
 
@@ -56,7 +56,7 @@ node --import tsx --test tests/api/settings.test.ts
 > 返回的 `index.html` 引用的 hash 与 `dist/` 一致为准，或直接在插件页面上复验。
 
 - **DSH 挂载（/ldvh）= v5 登记模式**：Web API 子进程经 `LDVH_GOVERNED_PROJECTS_CONFIG` 直读 v5 登记载体（`~/.dsh/ldvh/governed-projects.yaml`，插件安装事务拥有）；治理验证为 Express 侧 Node git 解析（与插件 resolveGitRoot 同语义），**不依赖 v4 Python Helper**。已知边界：v5 调研对象在 `ldvh-base/researches/`（research 读取引擎属后续接线），study 类型列表在 v5 项目上为空是如实呈现；Settings 页对登记载体的写入沿用 v4 轻写入语义（CAS + 原子改名），与插件安装事务并存——07 语义的最终归位属后续。
-- **独立开发（restart.sh）= v4 归档模式**：环境变量指向 v4 归档，用于查看 v4 历史数据（152 WC / 103 Spark），行为与迁移前一致。
+- **独立开发（restart.sh）= v5 登记模式（2026-11-03 起）**：restart.sh 与插件挂载同源，经 `LDVH_GOVERNED_PROJECTS_CONFIG` 读 v5 登记载体（`~/.dsh/ldvh/governed-projects.yaml`），治理验证为 Express 侧 Node git 解析，**零 Python Helper 依赖**。v4 归档模式（环境变量指向 `ld-vibe-harness-v4`）已随 v4 归档删除而移除；此前该模式用于查看 v4 历史数据（152 WC / 103 Spark），该数据源不再可读。
 
 ## 已知状态（2026-09-08 迁移验证）
 
