@@ -150,19 +150,34 @@ test('目标只有一条陈述，没有摘要字段（2026-11-02 Human 决定）
 
 test('聚焦页每条子目标都挂火花落实进度条（2026-11-02 Human 决定）', () => {
   const goalSection = read('src/components/GoalSection.tsx');
+  const parts = read('src/components/SubGoalCardParts.tsx');
+  const bar = read('src/components/ServingSparkProgressBar.tsx');
 
   // Human 原话：「当前聚焦的目标块的 sg，都要附带一个进度条」。故进度条是
   // **每一行**的组成部分，不是某一行的特例。
+  //
+  // 2026-11-03 改版：目标区的每条子目标**常显**一个可数比值（`9 / 30`）+ 两档明细
+  // + 等宽条，展开时**额外**给出达成条件、对齐说明与名下工作行。
+  //
+  // 呈现与子目标卡**同一组件**（`ServingSparkProgressBar` 的行内形态）：口径是
+  // 单点派生（`utils/servingSparkProgress.ts`），呈现也不该有两份。
   assert.match(goalSection, /<ServingSparkProgressBar/, '目标区须挂进度条组件');
-  assert.match(goalSection, /variant="inline"/, '目标区用行内形态（块形态会把标题挤成两行）');
-  // 输入必须是原始 serving_work 行：关联投影的 status 已被换成关联状态轴，
-  // 数出来恒为 0 条（2026-11-02 已在卡片上踩过一次）。
-  assert.match(goalSection, /rows=\{sg\.serving_work \?\? \[\]\}/, '须读原始 serving_work 行');
+  assert.match(goalSection, /variant="inline"/, '目标区用行内形态');
+  assert.match(goalSection, /subGoal\.serving_work \?\? \[\]/, '须读原始 serving_work 行');
   assert.doesNotMatch(goalSection, /groupServingWorkByType/, '不得把关联投影当作比值输入');
+  // 比值不得在目标区里另算一份——行内形态自己不算，它接收已算好的派生。
+  assert.doesNotMatch(goalSection, /summarizeServingSparkProgress/, '目标区不得自算比值');
+
+  // 名下工作区（列表卡与详情页共用的那个实现）仍挂同一个进度条组件。
+  assert.match(parts, /<ServingSparkProgressBar/, '名下工作区须挂进度条组件');
+  assert.match(parts, /progressVariant\?: 'block' \| 'inline'/, '进度条形态须可切换');
+  assert.match(parts, /variant=\{progressVariant\}/, '形态须传给进度条组件');
+  assert.match(bar, /summarizeServingSparkProgress/, '比值由组件内部单点派生');
 
   // legacy 行不画条：它没有 object_uid，也就没有可反查的身份。给它画空条
   // 等于把「还没有对象」说成「没有火花」。
-  assert.match(goalSection, /\{sg\.object_uid && \(/, 'legacy 行须排除在进度条之外');
+  assert.match(goalSection, /const hasObject = Boolean\(subGoal\.object_uid\)/, 'legacy 行须排除在进度条之外');
+  assert.match(goalSection, /\{hasObject && \(/, '进度条只对有对象的行给出');
 });
 
 test('聚焦页与详情页共用同一份比值派生（不可能算出两个数）', () => {
@@ -172,10 +187,18 @@ test('聚焦页与详情页共用同一份比值派生（不可能算出两个�
   const layouts = read('src/pages/object-detail/FactReadingLayouts.tsx');
   const list = read('src/pages/ObjectList.tsx');
 
-  // 单点派生：三处消费面都经同一组件、同一纯函数。
+  // 单点派生：各处消费面都经同一组件、同一纯函数。
+  // 2026-11-03：聚焦页目标区改为复用子目标卡的关联区实现与同一个进度条组件，
+  // 故它的比值经 `ServingSparkProgressBar` 挂载（不再直接在 GoalSection 里算）——
+  // 派生仍是同一份。
+  const parts = read('src/components/SubGoalCardParts.tsx');
   assert.match(bar, /summarizeServingSparkProgress/);
-  assert.match(goalSection, /<ServingSparkProgressBar/);
-  assert.match(list, /<ServingSparkProgressBar/);
+  assert.match(goalSection, /<ServingSparkProgressBar/, '聚焦页须经同一个进度条组件取派生');
+  assert.doesNotMatch(goalSection, /summarizeServingSparkProgress/, '聚焦页不得自算一份派生');
+  assert.match(parts, /<ServingSparkProgressBar/);
+  // 2026-11-03：列表卡的关联区实现下沉到共享组件，故进度条经共享组件挂载；
+  // 列表卡仍须**调用**它（单点纪律）。
+  assert.match(list, /<SubGoalServingWorkZone/, '列表卡须调用共享的关联区实现');
   assert.match(layouts, /<ServingSparkProgressBar/);
   assert.match(util, /denominator: open \+ implemented/, '分母口径在此单点定义');
 
@@ -220,6 +243,94 @@ test('聚焦页子目标进度条与卡片、详情共用同一口径的两种�
   assert.match(bar, /const progress: ServingSparkProgress = summarizeServingSparkProgress\(rows, unreadable\);/);
   // 行内形态的条用**固定宽度**而非吃满剩余：目标区整行宽达 2000px，拉满会让
   // 9/30 看起来像「几乎走完」。固定宽度让四条仍共用同一把尺子，分数落在条尾旁边。
-  assert.match(bar, /flex h-1 w-32 shrink-0 overflow-hidden rounded-full/, '行内条须固定宽度');
+  // 行内形态竖排（数字在上、条在下），条宽由外层定死（`w-24`），条自身取满。
+  assert.match(bar, /flex h-1 w-full shrink-0 overflow-hidden rounded-full/, '行内条须铺满固定宽度');
+  assert.match(bar, /flex w-24 shrink-0 flex-col items-center gap-1/, '行内组须定宽竖排且居中');
   assert.doesNotMatch(bar.slice(bar.indexOf('function InlineBar')), /flex-1/, '行内条不得吃满剩余宽度');
+
+  // ## 块形态的说明行：居中且弱化（Human 2026-11-03 定案）
+  //
+  // 子目标卡／详情页那一行「火花落实 9 / 30 · 已落实 9 · 待处理 21」是**这一块的
+  // 注解**，不是这一块的标题。此前它左对齐贴边、且分数取主色（近黑），读起来像卡上
+  // 的一个独立小标题。故两处同改：居中（浮在满宽条的正上方）+ 弱化（分数改次级色，
+  // 指标名与两档明细再降一档）。
+  const blockSource = bar.slice(
+    bar.indexOf('const { implemented, denominator, open, unknownStatus } = progress;'),
+    bar.indexOf('function InlineBar'),
+  );
+  assert.match(blockSource, /flex min-w-0 items-baseline justify-center gap-2 text-center/, '块形态说明行须居中');
+  assert.doesNotMatch(blockSource, /text-ldvh-text-primary/, '块形态的分数不得取主色（须弱化为次级色）');
+  // 口径不因弱化而丢失：完整说法仍在条的 aria-label 上。
+  assert.match(blockSource, /aria-label=\{`\$\{progressLabel\} \$\{implemented\} \/ \$\{denominator\}`\}/, '完整口径名仍在 aria-label');
+});
+
+test('目标区行内进度组：数字弱而小、居中，条更短；展开区＝判据面 + 名下的工作（2026-11-03 定案）', () => {
+  const goalSection = read('src/components/GoalSection.tsx');
+  const bar = read('src/components/ServingSparkProgressBar.tsx');
+  const inlineSource = bar.slice(bar.indexOf('function InlineBar'));
+
+  // ## 比值常显
+  //
+  // 比值是这一行的**标题级数字**：读者扫目标区问的是「哪条走得远、哪条没动」。
+  // 若它随展开收起，它就会在展开时从标题行跳进别的区块，「行 ↔ 比值」的对应断掉。
+  assert.doesNotMatch(goalSection, /!expanded &&/, '进度组不得随展开收起');
+  assert.match(goalSection, /\{hasObject && \(/, '进度组常显，仅对有对象的行给出');
+
+  // ## 行内形态：数字在上、条在下，无指标名、无两档明细
+  //
+  // 横排那一组会占掉子目标标题的宽度——窗口一窄，标题就被挤成一列字。
+  assert.match(inlineSource, /flex w-24 shrink-0 flex-col items-center gap-1/, '行内形态须竖排且居中');
+  assert.doesNotMatch(inlineSource, /implementedLabel|openLabel/, '行内形态不给两档明细');
+  assert.doesNotMatch(inlineSource, /metricLabel/, '行内形态不给指标名');
+  // 口径名仍在 title / aria-label 上——去掉屏幕上的指标名，不等于丢掉口径。
+  assert.match(inlineSource, /aria-label=\{`\$\{progressLabel\} \$\{implemented\} \/ \$\{denominator\}`\}/, '完整口径名仍在 aria-label');
+
+  // ## 数字弱而小、居中（Human 2026-11-03 定案）
+  //
+  // 比值是这一行的**附属信息**，主角是子目标标题。此前数字取主色 12px，视觉权重
+  // 与标题相仿；收弱、收小、居中之后，读者先读标题再读分数。
+  assert.match(inlineSource, /font-mono text-\[11px\] leading-4 text-ldvh-text-secondary/,
+    '行内数字须取次级色 + 11px（弱而小）');
+  assert.doesNotMatch(inlineSource, /text-ldvh-text-primary/, '行内数字不得取主色（那是标题的权重）');
+  assert.match(inlineSource, /text-center/, '行内数字须在条上方居中');
+
+  // ## 三种「算不出」在行内也各有短词
+  //
+  // 收起态若什么都不给，读者会把它读成「这条没有进度信息」——那也是一句假话。
+  // 短词落在**数字该在的那一格**：那一列是四条共用的标尺。
+  assert.match(inlineSource, /labels\.empty, labels\.emptyTitle/, '空集短词');
+  assert.match(inlineSource, /labels\.allDiscarded, labels\.allDiscardedTitle/, '全废弃短词');
+  assert.match(inlineSource, /labels\.unavailable, labels\.unavailableTitle/, '读不到短词');
+  // 分母为 0 时不画条——空集不是 0%。
+  assert.match(inlineSource, /denominator > 0 \? \(/, '分母为 0 时不渲染条');
+
+  // ## 展开区＝判据面 + 名下的工作（与子目标卡同形）
+  //
+  // Human 2026-11-03 定案：展开后就是子目标卡那两块（判据面 + 名下工作关联行）。
+  // 两块都与子目标卡同源（`components/SubGoalCardParts`），各写一份必分叉。
+  assert.match(goalSection, /<SubGoalCriterionSurface/, '展开区保留判据面');
+  assert.match(goalSection, /<SubGoalServingWorkZone/, '展开区保留名下的工作');
+  // 展开区不重复给进度：比值常显在标题行上，同一条子目标不出现第二个比值
+  // （`docs/10` §5.5「同类信息只有一处」）。
+  assert.match(goalSection, /showProgress=\{false\}/, '展开区不得重复给进度组');
+
+  // ## 展开区不有小标题、不给对齐说明（Human 圈出后去掉）
+  //
+  // 判据面自带类型色，「达成条件」小标题是复述；对齐说明是**理由**不是判定，
+  // 它留在子目标详情页读。
+  assert.doesNotMatch(goalSection, /subGoalCriterionLabel/, '展开区不得有「达成条件」小标题');
+  assert.doesNotMatch(goalSection, /subGoalAlignmentLabel/, '展开区不得有「对齐说明」小标题');
+  assert.doesNotMatch(goalSection, /SubGoalAlignmentNote/, '展开区不得给对齐说明正文');
+  assert.doesNotMatch(goalSection, /alignment/, '聚焦页不消费 alignment（投影也不传它）');
+
+  // ## 标题在自己的格子里换行
+  //
+  // 整行换行会把进度组与展开按钮甩到标题下一行，四条子目标于是错成两种行高。
+  assert.doesNotMatch(
+    goalSection,
+    /className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"/,
+    '子目标行不得整行换行',
+  );
+  assert.match(goalSection, /flex min-w-0 items-start gap-x-2 gap-y-1/, '标题行须顶对齐且不换行');
+  assert.match(goalSection, /ldvh-body min-w-0 flex-1 break-words/, '标题须可换行');
 });

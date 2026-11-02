@@ -383,7 +383,8 @@ test('已关闭卡：「转入 Spark」项就地渲染为目标关联行（10 §
   assert.match(code, /<FactAssociationCardRow/, '目标行须用统一关联行（不得自建第二套）');
   assert.doesNotMatch(code, /WorkCaseRoutedToRow/, '自建目标行不得回归');
 
-  const sharedRow = readSource('web/src/pages/ObjectList.tsx');
+  // 2026-11-03：共享关联行移至 `components/FactAssociationRows.tsx`。
+  const sharedRow = readSource('web/src/components/FactAssociationRows.tsx');
   assert.match(sharedRow, /export function FactAssociationCardRow/, '统一关联行须单点给出');
   assert.match(sharedRow, /<ObjectTypeIcon/, '统一行须有类型图标');
   assert.match(sharedRow, /getLocalizedObjectTitle/, '统一行须有标题');

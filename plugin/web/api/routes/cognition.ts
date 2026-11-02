@@ -973,6 +973,21 @@ type GoalSubGoal = {
   status?: string
   /** SubGoal `criterion_kind` (28 §10.2). Absent on legacy-only rows. */
   criterion_kind?: string
+  /**
+   * SubGoal `criterion` (28 §8): 「出现哪类材料即说明达成」。
+   *
+   * 这是子目标**唯一回答「怎么才算达成」**的字段（`title` 只是短标签，不承载
+   * 完整判据）。聚焦页目标区此前拿不到它——投影只传 `text`（短标题），判据被整段
+   * 丢掉，于是该区只答得出「有几条子目标、走没走」，答不出「这条要怎么才算达成」。
+   * 子目标卡（`SubGoalCardContent`）的判据框正是直接读这一字段，故两处现读同一
+   * 权威文本。
+   *
+   * **本投影不传 `alignment`**（28 §8 的对齐理由）：聚焦页目标区不呈现它
+   * （Human 2026-11-03 圈出「对齐说明」整段去掉），详情页读的是子目标对象本身
+   * （`FactReadingLayouts`）。留一个无人读的字段，等于让读模型替读者做了个没人
+   * 兑现的承诺。
+   */
+  criterion?: string
   /** SubGoal `object_uid` — the stable identity the Web drill-down needs.
    *  Since 2026-11-01 this is ALSO what `id` carries on object rows (28 §7): the
    *  human-readable `SG-n` label is gone, so `id` is no longer a display string. */
@@ -1077,6 +1092,12 @@ async function readSubGoalProjection(
           : (typeof parsed.criterion === 'string' ? parsed.criterion.trim() : ''),
         status: typeof parsed.status === 'string' ? parsed.status : undefined,
         criterion_kind: typeof parsed.criterion_kind === 'string' ? parsed.criterion_kind : undefined,
+        // 判据原样传出（28 §8 的必填字段），供聚焦页在收起态之外承载。
+        // 缺失时不以空串占位——空串会让前端以为「有值但读出来是空的」，与
+        // 「字段根本不在」这两件事在机械层不同（02 §7.1 未知字段不得以占位代替判断）。
+        criterion: typeof parsed.criterion === 'string' && parsed.criterion.trim() !== ''
+          ? parsed.criterion.trim()
+          : undefined,
         object_uid: objectUid,
       })
     } catch {

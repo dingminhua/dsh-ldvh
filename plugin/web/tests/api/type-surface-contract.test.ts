@@ -58,12 +58,18 @@ test('类型色语义面有单一来源，色相取自类型色而非另立色�
 });
 
 test('两张卡的卡体主块都按本类型色上色，且面与正文成对', async () => {
+  // 2026-11-03：子目标卡的判据面渲染下沉到 `components/SubGoalCardParts.tsx`
+  // （与聚焦页目标区同源），色相断言读那里。DevLog 卡体仍在 ObjectList 里。
   const objectList = await read('src/pages/ObjectList.tsx');
+  const subGoalParts = await read('src/components/SubGoalCardParts.tsx');
 
   // ① DevLog 卡体（`summary` 承载块）
+  // 上界取 SubGoalCardContent（子目标卡的入口）——DevLog 卡体止于此。
+  // 取到文件末尾会把子目标卡那段的注释一并纳入，令
+  // 「DevLog 不得复用蓝面」的断言误判（子目标段的注释里提到过那个常量名）。
   const devlogCard = objectList.slice(
     objectList.indexOf('export function DevLogCardContent'),
-    objectList.indexOf('const SUB_GOAL_ASSOCIATION_PREVIEW_LIMIT'),
+    objectList.indexOf('export function SubGoalCardContent'),
   );
   assert.ok(devlogCard.length > 0, '应能定位 DevLogCardContent');
   assert.match(devlogCard, /getTypeSurfaceTint\(obj\.type\)/, 'DevLog 卡体须按本类型色上色');
@@ -76,13 +82,13 @@ test('两张卡的卡体主块都按本类型色上色，且面与正文成对',
   assert.doesNotMatch(devlogCard, /WORKCASE_CRITERIA_SURFACE_CLASS/,
     'DevLog 卡体不得再整面复用 WorkCase 判据面（蓝是 WorkCase 的类型色）');
 
-  // ② 子目标判据面
-  const subGoalCard = objectList.slice(
-    objectList.indexOf('function SubGoalActiveCardBody'),
-    objectList.indexOf('export default function ObjectList()'),
+  // ② 子目标判据面（渲染在共享组件里；列表卡调用它）
+  const subGoalCard = subGoalParts.slice(
+    subGoalParts.indexOf('export function SubGoalCriterionSurface'),
+    subGoalParts.indexOf('export function SubGoalDisclosureButton'),
   );
-  assert.ok(subGoalCard.length > 0, '应能定位 SubGoalActiveCardBody');
-  assert.match(subGoalCard, /getTypeSurfaceTint\(obj\.type\)/, '子目标判据面须按本类型色上色');
+  assert.ok(subGoalCard.length > 0, '应能定位 SubGoalCriterionSurface');
+  assert.match(subGoalCard, /getTypeSurfaceTint\(type\)/, '子目标判据面须按本类型色上色');
   assert.match(subGoalCard, /style=\{tint\.surface\}/);
   assert.match(subGoalCard, /style=\{tint\.body\}/);
   assert.doesNotMatch(subGoalCard, /WORKCASE_CRITERIA_SURFACE_CLASS/,

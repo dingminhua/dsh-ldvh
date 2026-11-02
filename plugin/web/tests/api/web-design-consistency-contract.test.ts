@@ -13,7 +13,9 @@ test('compact width only changes the shell navigation and secondary reading plac
   const copyButton = read('src/components/CopyPathButton.tsx');
   const readingPanel = read('src/components/ReadingPanel.tsx');
   const cognitionCenter = read('src/pages/CognitionCenter.tsx');
-  const objectList = read('src/pages/ObjectList.tsx');
+  // 2026-11-03：关联行实现下沉到共享组件，故紧凑元数据的断言读两处。
+  const objectList = read('src/pages/ObjectList.tsx')
+    + read('src/components/FactAssociationRows.tsx');
 
   // Compact 断点：**复算**两处是否同值，而不是钉死字面数字（Human 2026-10-16：640 → 1024）。
   //
@@ -169,7 +171,11 @@ test('object list cards use the compact metadata shared by reading surfaces', ()
   assert.match(cardFrame, /items-center gap-1\.5[\s\S]{0,220}<ObjectTypeIcon type=\{obj\.type\} size=\{14\} className="shrink-0"/);
   assert.match(cardFrame, /ldvh-object-title-tray ldvh-object-title-tray-compact/);
   assert.match(cardFrame, /<h2 className="ldvh-card-title min-w-0 flex-1 whitespace-normal break-words">/);
-  assert.match(objectList, /isDiscarded \? 'text-slate-400\/65 dark:text-slate-500\/60' : 'text-ldvh-text-secondary\/95 group-hover:text-ldvh-accent'/);
+  // 2026-11-03：关联行的画法在 `components/FactAssociationRows.tsx`（共享模块）。
+  assert.match(
+    read('src/components/FactAssociationRows.tsx'),
+    /isDiscarded \? 'text-slate-400\/65 dark:text-slate-500\/60' : 'text-ldvh-text-secondary\/95 group-hover:text-ldvh-accent'/,
+  );
   assert.match(cardFrame, /mt-1 flex min-w-0 items-center justify-end(?: pt-0\.5)? text-right opacity-70[\s\S]{0,80}<ObjectUpdatedMeta/);
   assert.match(objectList, /const \[objectSearch, setObjectSearch\] = useState\(''\)/);
   assert.match(objectList, /getLocalizedObjectTitle\(item, locale\)\.toLowerCase\(\)[\s\S]{0,280}objectId\.includes\(normalizedObjectSearch\)/);

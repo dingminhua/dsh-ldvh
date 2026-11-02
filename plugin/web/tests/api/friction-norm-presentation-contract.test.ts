@@ -220,7 +220,10 @@ test('object detail routes norm through a dedicated reading layout', () => {
 
 test('identity copy and association rows treat both types as first-class facts', () => {
   const identityActions = read('src/components/ObjectIdentityActions.tsx');
-  const objectList = read('src/pages/ObjectList.tsx');
+  // 2026-11-03：关联行的状态映射随关联行实现下沉到
+  // `components/FactAssociationRows.tsx`（聚焦页目标区复用同一套关联行，
+  // 而从页面模块里挖会形成页面→组件→页面的循环依赖）。
+  const objectList = read('src/components/FactAssociationRows.tsx');
 
   // 复制走对象引用（@对象 引用），不是路径复制。
   assert.match(identityActions, /objectType === 'friction' \|\| objectType === 'norm'/);

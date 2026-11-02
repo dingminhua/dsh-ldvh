@@ -1052,9 +1052,16 @@ export const UI_LOCALES = {
     'focusV2.subGoalProgressEmpty': '未拆解',
     'focusV2.subGoalProgressAllDiscarded': '已处置',
     'focusV2.subGoalProgressUnavailable': '读不到',
-    // 行内形态不渲染两档明细，但组件接口要求这两个标签（块形态才显示它们）。
-    // 单独登记而不是复用 progressLabel：复用会让块形态的明细退化成「火花落实 9」
-    // 这种读者读不出「这是哪一档」的句子。
+    // 聚焦页目标区的子目标行（2026-11-03 改版）：除标题外默认收起，点击展开。
+    //
+    // 「展开」只写一个词：展开后是**判据面 + 名下的工作**两块，与子目标卡同形，
+    // 不再另加小标题——「达成条件」「对齐说明」两个小标题已撤（Human 2026-11-03
+    // 圈出）：判据面自带类型色，小标题是复述；对齐说明是理由不是判定，留在详情页读。
+    'focusV2.subGoalExpand': '展开',
+    'focusV2.subGoalCollapse': '收起',
+    // 进度摘要的两档标签**不在此处登记**：它们由 `getObjectStatusLocale('spark', …)`
+    // 给出（待处理／已落实），与子目标卡、详情页同源。单独登记一份会在两处漂移——
+    // 「已落实」在本仓库是跨类型的状态词，不该有第二个出处。
     'objectList.subGoalSparkProgressOpen': '待处理',
     'objectList.subGoalSparkProgressImplemented': '已落实',
     // 29 号 DevLog 列表卡与详情面的界面词条。
@@ -1274,7 +1281,6 @@ export const UI_LOCALES = {
     'language.chinese': '中文',
 
     'focusV2.goalTitle': '目标',
-    'focusV2.goalSectionHint': '目标陈述与子目标——点标题看完整详情',
     'focusV2.hintCreateGoal': '在对话中与AI沟通创建并分解目标',
     'focusV2.hintCreateExample': '比如说：我要创建目标',
     'focusV2.collapseSection': '收起目标',
@@ -1919,6 +1925,11 @@ export const UI_LOCALES = {
     'focusV2.subGoalProgressEmpty': 'Not broken down',
     'focusV2.subGoalProgressAllDiscarded': 'All settled',
     'focusV2.subGoalProgressUnavailable': 'Unreadable',
+    // 聚焦页目标区的子目标行（2026-11-03 改版）：除标题外默认收起，点击展开。
+    // 展开区是判据面 + 名下的工作两块（与子目标卡同形），不再有小标题——
+    // 见中文侧同条注释。
+    'focusV2.subGoalExpand': 'Expand',
+    'focusV2.subGoalCollapse': 'Collapse',
     'objectList.subGoalSparkProgressOpen': 'Pending',
     'objectList.subGoalSparkProgressImplemented': 'Implemented',
     'objectList.devlogCompressedBody': 'Absorbed — the body is compressed to the two sections "Conclusion & Boundary" and "Destination" (29 §9.1)',
@@ -2126,7 +2137,6 @@ export const UI_LOCALES = {
     'language.chinese': '中文',
 
     'focusV2.goalTitle': 'Goal',
-    'focusV2.goalSectionHint': 'Goal statement and sub-goals — click the title for the full detail',
     'focusV2.hintCreateGoal': 'Discuss with AI in the conversation to create and decompose the goal',
     'focusV2.hintCreateExample': 'e.g., "I want to create a goal"',
     'focusV2.collapseSection': 'Collapse goal',

@@ -21,7 +21,12 @@ test('Spark association UI reads relations and refs as two separate sets', () =>
 });
 
 test('every fact list card shows exact-read formal associations in a minimal secondary-reading row', () => {
-  const source = fs.readFileSync(path.resolve('src/pages/ObjectList.tsx'), 'utf8');
+  // 2026-11-03：关联行组件移至 `components/FactAssociationRows.tsx`；关联区
+  // 内容（FactAssociationsCardContent）仍在 ObjectList。两处都要读——断言分别
+  // 钉住「关联区在卡上」与「行式单点」。
+  const listSource = fs.readFileSync(path.resolve('src/pages/ObjectList.tsx'), 'utf8');
+  const source = listSource
+    + fs.readFileSync(path.resolve('src/components/FactAssociationRows.tsx'), 'utf8');
 
   assert.match(source, /function FactAssociationsCardContent/);
   assert.match(source, /associations=\{obj\.factAssociations\}/);
@@ -86,7 +91,12 @@ test('every fact list card shows exact-read formal associations in a minimal sec
   // 撤除形态不得回到**代码**里（只查 import 行与 Icon 引用——注释里说明「为什么曾撤掉
   // 外圈」时必须点名旧图形，全文断言会把正当的历史记述判成失败，同 §4octodecies 的坑）。
   // 两条：自绘四分圆 path 不得复活；已删除的 QuestionMarkIcon 不得再被引用。
-  assert.match(source.split('\n').find(l => l.startsWith('import') && l.includes('lucide-react')) ?? '', /CircleHelp/);
+  assert.match(
+    fs.readFileSync(path.resolve('src/components/FactAssociationRows.tsx'), 'utf8')
+      .split('\n').find(l => l.startsWith('import') && l.includes('lucide-react')) ?? '',
+    /CircleHelp/,
+    '关联行实现须从 lucide 引入 CircleHelp',
+  );
   assert.doesNotMatch(source, /Icon: QuestionMarkIcon/);
   assert.match(source, /const isDiscarded = associationState === 'discarded'/);
   assert.match(source, /isDiscarded \? 'text-slate-400\/70 dark:text-slate-500\/70'/);

@@ -197,8 +197,12 @@ test('达成态不得由「名下工作全部关闭」推出（28 §18 红线 3�
 test('目标页子目标行可下钻到对象详情，legacy 行不可（28 §14.2）', () => {
   const goalSection = read('src/components/GoalSection.tsx');
 
-  // 有 object_uid 才可点——legacy 行没有可下钻的对象，点进去是 404。
-  assert.match(goalSection, /sg\.object_uid \? 'cursor-pointer/, '仅带 object_uid 的行可点');
+  // 2026-11-03 改版：行拆成 `SubGoalRow` 组件后，可点性由「有 object_uid」决定
+  // ——标题按钮在 `hasObject` 为假时禁用（legacy 行没有可下钻的对象，点进去是 404）。
+  // 整行**不**可点：行内还有展开按钮，整行可点会让「展开」与「进详情」抢同一个点击。
+  assert.match(goalSection, /const hasObject = Boolean\(subGoal\.object_uid\)/, '仅带 object_uid 的行可点');
+  assert.match(goalSection, /disabled=\{!hasObject\}/, 'legacy 行须不可下钻');
+  assert.match(goalSection, /hasObject \? 'cursor-pointer hover:text-ldvh-accent' : 'cursor-default'/, '仅带 object_uid 的行显可点');
   // 详情路由的 id 段是 `subgoal-<uid>`（带类型前缀，与列表 obj.id 同形）；
   // 只给裸 uid 会 404，故断言前缀在位。
   assert.match(
@@ -206,7 +210,7 @@ test('目标页子目标行可下钻到对象详情，legacy 行不可（28 §14
     /navigate\(`\/objects\/subgoal\/subgoal-\$\{sg\.object_uid\}`\)/,
     '应下钻到 subgoal 详情路由（带类型前缀）',
   );
-  assert.match(goalSection, /sg\.legacy &&/, 'legacy 行仍须显式标出');
+  assert.match(goalSection, /subGoal\.legacy &&/, 'legacy 行仍须显式标出');
 });
 
 test('导航与图标：subgoal 有项目态与联邦态入口，图标色相独立', () => {
@@ -382,12 +386,16 @@ test('次序呈现在卡头，与其余卡头 chip 同规格（Human 定案 2026
     '次序 chip 须在卡头，且在类型/优先级之后、修改次数之前');
 
   // 判据框不得再自己渲染次序（否则同一个字段在卡上出现两处，且两处样式会分叉）。
-  const body = objectList.slice(
-    objectList.indexOf('function SubGoalActiveCardBody'),
-    objectList.indexOf('export default function ObjectList()'),
+  //
+  // 2026-11-03：判据框的**渲染**下沉到 `components/SubGoalCardParts.tsx`
+  // （聚焦页目标区与子目标卡同源），故这段断言读共享组件的实现段。
+  const parts = read('src/components/SubGoalCardParts.tsx');
+  const body = parts.slice(
+    parts.indexOf('export function SubGoalCriterionSurface'),
+    parts.indexOf('export function SubGoalDisclosureButton'),
   );
   assert.ok(body.length > 0, '应能定位到判据框源码段');
-  assert.doesNotMatch(body, /obj\.order/, '判据框不得再读 order');
+  assert.doesNotMatch(body, /order/, '判据框不得再读 order');
   assert.doesNotMatch(body, /subGoalOrderLabel/, '判据框不得再渲染「次序」小标题');
   // 判据类型（「闭环记录」等）同样退出卡面（Human 定案 2026-11-02「次序 闭环记录
   // 都不用显示」）——它是判定口径，住详情页判据锚点，卡面只回答「算什么」。
@@ -399,7 +407,7 @@ test('次序呈现在卡头，与其余卡头 chip 同规格（Human 定案 2026
   // 也就是同一个色系的」）。故：几何单源复用、色相不得复用 WorkCase 的蓝面，
   // 也不得再用决策块壳（左色条家族）。
   assert.match(body, /WORKCASE_SURFACE_GEOMETRY_CLASS/, '判据框几何须复用 WorkCase 判据面的几何单源');
-  assert.match(body, /getTypeSurfaceTint\(obj\.type\)/, '判据框色相须由类型色单一来源算得');
+  assert.match(body, /getTypeSurfaceTint\(type\)/, '判据框色相须由类型色单一来源算得');
   assert.match(body, /style=\{tint\.surface\}/, '承载面的色相须贴在面上');
   assert.match(body, /style=\{tint\.body\}/, '正文色须同源取用（面与正文成对，不得各写一份）');
   assert.doesNotMatch(body, /WORKCASE_CRITERIA_SURFACE_CLASS/,

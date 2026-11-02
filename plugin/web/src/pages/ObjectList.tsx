@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { Activity, ArrowDownWideNarrow, CalendarClock, ChevronDown, ChevronUp, CircleAlert, CircleCheck, CircleHelp, CircleMinus, CirclePlay, Clock3, History, Search } from 'lucide-react';
+import { ArrowDownWideNarrow, CalendarClock, CircleAlert, Clock3, History, Search } from 'lucide-react';
 import ObjectIdentityActions from '@/components/ObjectIdentityActions';
 import SegmentedControl from '@/components/SegmentedControl';
 import WorkCaseCapabilityStatusBadge from '@/components/WorkCaseCapabilityStatusBadge';
@@ -11,11 +11,18 @@ import ObjectUpdatedMeta from '@/components/ObjectUpdatedMeta';
 import PriorityIcon from '@/components/PriorityIcon';
 import FrictionOccurrenceBadge from '@/components/FrictionOccurrenceBadge';
 import SubGoalOrderBadge from '@/components/SubGoalOrderBadge';
-import ServingSparkProgressBar from '@/components/ServingSparkProgressBar';
+import { SubGoalCriterionSurface, SubGoalServingWorkZone } from '@/components/SubGoalCardParts';
 import SummaryText from '@/components/SummaryText';
-import { ObjectTypeIcon, OBJECT_TYPE_ICONS } from '@/components/SemanticIcon';
+import { ObjectTypeIcon } from '@/components/SemanticIcon';
+import {
+  dedupeFactCardAssociations,
+  FactAssociationCardRow,
+  factCardAssociationKey,
+  getFactAssociationStateRank,
+  FACT_ASSOCIATION_ROWS_LIST_CLASS,
+  FACT_ASSOCIATION_ROWS_ZONE_CLASS,
+} from '@/components/FactAssociationRows';
 
-const CommitRelationIcon = OBJECT_TYPE_ICONS.commit;
 import { WorkCaseCriteriaList, WORKCASE_CRITERIA_SURFACE_CLASS, WORKCASE_SURFACE_GEOMETRY_CLASS } from '@/components/WorkCaseCriteriaList';
 import WorkCaseGistLine from '@/components/WorkCaseGistLine';
 // 变更流水（卡片主体）：标记与归属口径来自 shared 单点，组件不自行判断。
@@ -23,7 +30,7 @@ import WorkCaseExecFlow from '@/components/WorkCaseExecFlow';
 import WorkCaseResultDraft from '@/components/WorkCaseResultDraft';
 import WorkCaseClosedSummary from '@/components/WorkCaseClosedSummary';
 import WorkCaseClosedStatusBadge from '@/components/WorkCaseClosedStatusBadge';
-import { fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type FactRefSource, type ObjectItem, type ObjectStatusOption, type ServingWorkItem, type WorkCaseLifecycleOption, type WorkCaseListGroup, type WorkCaseV5Group } from '@/utils/api';
+import { fetchObjects, type FactCardAssociation, type FactCoverageStatus, type FactListProblem, type ObjectItem, type ObjectStatusOption, type ServingWorkItem, type WorkCaseLifecycleOption, type WorkCaseListGroup } from '@/utils/api';
 import { useI18n } from '@/i18n/context';
 import { getFieldLabel, getFieldValueLabel, getLocalizedObjectTitle, getObjectStatusDisplayLabel, getObjectStatusLocale, getTypeLabel } from '@/i18n/locales';
 import { CATEGORY_COLORS } from '@/utils/categoryColors';
@@ -34,10 +41,9 @@ import {
 } from '@/utils/decisionBlocks';
 import { ALL_STATUS_PARAM, getEffectiveListStatus, writeListStatusParam } from '@/utils/listStatus';
 import { stripCardMarkdown as formatReasonText } from '@/utils/cardText';
-import { usePanel } from '@/utils/panelContext';
 import { useProjectScope } from '@/utils/projectContext';
 import { compareRfc3339Timestamps } from '@/shared/timestamp';
-import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS, LDVH_WARN_SURFACE_CLASS, LDVH_WARN_TITLE_CLASS } from '@/utils/semanticColors';
+import { LDVH_ERROR_BODY_CLASS, LDVH_ERROR_SURFACE_CLASS, LDVH_ERROR_TEXT_CLASS, LDVH_ERROR_TITLE_CLASS, LDVH_INFO_CHIP_HUE_CLASS, LDVH_WARN_CHIP_HUE_CLASS } from '@/utils/semanticColors';
 import { getTypeSurfaceTint } from '@/utils/typeSurface';
 
 type Translate = ReturnType<typeof useI18n>['t'];
@@ -528,10 +534,8 @@ function SparkTerminalCardContent({ obj }: { obj: ObjectItem }) {
  * 一处另一处必然漂移——与行式收敛到 `FactAssociationCardRow` 是同一条纪律，故区域
  * 类名同样单点给出。
  */
-export const FACT_ASSOCIATION_ROWS_ZONE_CLASS = 'min-w-0 border-t border-ldvh-border/60 pt-1.5';
 
 /** 引用行的行间分割（与区域常量配套：不用 gap，间距由行的 padding 提供）。 */
-export const FACT_ASSOCIATION_ROWS_LIST_CLASS = 'divide-y divide-ldvh-border/45';
 
 function FactAssociationsCardContent({ associations, refs }: { associations?: FactCardAssociation[]; refs?: FactCardAssociation[] }) {
   const { t, locale } = useI18n();
@@ -561,195 +565,6 @@ function FactAssociationsCardContent({ associations, refs }: { associations?: Fa
   );
 }
 
-function associationLocator(association: FactCardAssociation) {
-  if (association.resolvedTarget) return association.resolvedTarget;
-  // commit 目标（02 §8.1）不是对象 locator——没有 factTypeKey/objectId 可开面板。
-  if (association.target && 'commit' in association.target) return null;
-  return association.target && !('objectUid' in association.target) ? association.target : null;
-}
-
-/**
- * 卡片关联行的 React key。commit 目标（02 §8.1）与对象目标分属不同命名空间，
- * 不能用同一套字段拼 key——否则 commit 行会退化成 'unavailable:unknown:0'。
- */
-function factCardAssociationKey(association: FactCardAssociation, index: number): string {
-  const target = association.target;
-  if (!target) return `unavailable:${index}`;
-  if ('commit' in target) return `commit:${target.commit}`;
-  if ('objectUid' in target) return `uid:${target.objectUid}`;
-  return `${target.governedProjectId}:${target.factTypeKey}:${target.objectId}`;
-}
-
-function dedupeFactCardAssociations<T extends { association: FactCardAssociation; source: string }>(rows: T[]): T[] {
-  const seenTargets = new Set<string>();
-  return rows.filter((row) => {
-    const target = row.association.target;
-    if (!target) return true;
-    const targetKey = 'commit' in target
-      ? `commit\u0000${target.commit}`
-      : 'objectUid' in target
-        ? `uid\u0000${target.objectUid}`
-        : `${target.governedProjectId}\u0000${target.factTypeKey}\u0000${target.objectId}`;
-    // 去重按来源分组隔离（03 §7.2）：同一目标同时被 relations 与 refs 指向时
-    // 是两条不同语义的记录，必须各留一条。此隔离由 source 显式承载——不得
-    // 依赖 refs 投影当前恰好没有 target 字段这一偶然事实（独立复核 2026-09-16
-    // 发现 1：一旦 refs 补上 target，跨组去重会静默丢弃 refs 条目）。
-    const scopedKey = `${row.source}\u0000${targetKey}`;
-    if (seenTargets.has(scopedKey)) return false;
-    seenTargets.add(scopedKey);
-    return true;
-  });
-}
-
-export function FactAssociationCardRow({ association, locale, unavailableLabel }: { association: FactCardAssociation; locale: string; unavailableLabel: string }) {
-  const { t } = useI18n();
-  const commitHash = association.available && association.target && 'commit' in association.target
-    ? association.target.commit
-    : null;
-  // commit 目标呈现「这次提交做了什么」——服务端已读出提交标题（08 §5：定位符
-  // 不当内容呈现）。标题缺失（提交不可达等）时退回短 hash，仍不落到
-  // unavailableLabel——提交存在就是可用关联。
-  const commitTitle = commitHash
-    ? ((typeof association.title === 'string' && association.title.trim()) || commitHash.slice(0, 7))
-    : null;
-  const title = commitTitle
-    ?? (association.available ? getLocalizedObjectTitle(association, locale) : unavailableLabel);
-  const legacyTarget = associationLocator(association);
-  const typeColor = legacyTarget ? (CATEGORY_COLORS[legacyTarget.factTypeKey] || CATEGORY_COLORS.other) : CATEGORY_COLORS.other;
-  const { openPanel } = usePanel();
-  const navigate = useNavigate();
-  // commit 目标可点（跳提交详情页）；对象目标仍走面板打开。二者互斥——commit 无
-  // 对象 locator，不能落进面板路径（canOpen 为 false 就静默不可点）。
-  const canOpen = Boolean(association.available && (legacyTarget || commitHash));
-  const associationState = getFactAssociationState(association);
-  const isDiscarded = associationState === 'discarded';
-  const associationStateTooltip = associationState === null ? null : {
-    pending: t('objectList.associationState.pending'),
-    closed: t('objectList.associationState.closed'),
-    discarded: t('objectList.associationState.discarded'),
-    progressing: t('objectList.associationState.progressing'),
-    active: t('objectList.associationState.active'),
-  }[associationState];
-  const open = () => {
-    if (!canOpen) return;
-    if (commitHash) { navigate(`/changelog/${commitHash}`); return; }
-    if (!legacyTarget) return;
-    openPanel({ type: 'object', title, objectType: legacyTarget.factTypeKey, objectId: legacyTarget.objectId });
-  };
-  return (
-    <div
-      role={canOpen ? 'button' : undefined}
-      tabIndex={canOpen ? 0 : -1}
-      onClick={open}
-      onKeyDown={(event) => {
-        if (!canOpen || (event.key !== 'Enter' && event.key !== ' ')) return;
-        event.preventDefault();
-        open();
-      }}
-      className={`group flex min-w-0 items-center gap-2 rounded-md px-1.5 py-2 text-left transition-colors ${isDiscarded ? 'text-slate-400/70 dark:text-slate-500/70' : ''} ${canOpen ? (isDiscarded ? 'cursor-pointer hover:bg-slate-500/5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-400/30' : 'cursor-pointer hover:bg-ldvh-border/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ldvh-accent/50') : 'cursor-default'}`}
-    >
-      {commitHash
-        ? <CommitRelationIcon size={13} className={`shrink-0 ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : 'text-ldvh-text-secondary'}`} />
-        : <ObjectTypeIcon type={legacyTarget?.factTypeKey} size={13} className={`shrink-0 ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : ''}`} style={isDiscarded ? undefined : { color: typeColor }} />}
-      {/* 标题行只显示标题（hash 由 title 属性承担，不占正文位） */}
-      <span
-        title={commitHash ?? undefined}
-        className={`ldvh-meta-primary min-w-0 flex-1 whitespace-normal break-words ${isDiscarded ? 'text-slate-400/65 dark:text-slate-500/60' : 'text-ldvh-text-secondary/95 group-hover:text-ldvh-accent'}`}
-      >{title}</span>
-      {associationState !== null && associationStateTooltip !== null && <FactAssociationStateIcon state={associationState} tooltip={associationStateTooltip} />}
-    </div>
-  );
-}
-
-type FactAssociationState = 'pending' | 'closed' | 'discarded' | 'progressing' | 'active';
-
-const FACT_ASSOCIATION_STATE_RANK: Record<FactAssociationState, number> = {
-  active: 0,
-  progressing: 1,
-  pending: 2,
-  closed: 3,
-  discarded: 4,
-};
-
-function getFactAssociationState(association: FactCardAssociation): FactAssociationState | null {
-  if (!association.available || !association.status) return null;
-  const targetType = associationLocator(association)?.factTypeKey;
-  if (targetType === 'spark') {
-    if (association.status === 'open') return 'pending';
-    if (association.status === 'discarded') return 'discarded';
-    if (association.status === 'implemented') return 'closed';
-  }
-  if (targetType === 'pitfall') {
-    if (association.status === 'draft') return 'pending';
-    if (association.status === 'discarded') return 'discarded';
-  }
-  if (targetType === 'workcase') {
-    // 21 号三态：closed（含 cancelled——outcome 四值是徽标层，不是组）；
-    // 派生 group 判待办（pending_gate1/awaiting_gate2 → pending；executing → progressing）。
-    if (association.status === 'closed') return 'closed';
-    if (association.group === 'pending_gate1' || association.group === 'awaiting_gate2') return 'pending';
-    if (association.group === 'executing') return 'progressing';
-  }
-  // 26 §9：friction 关联目标——open 是活账（待修），resolved 已销、voided 已废弃、
-  // accepted 已接受（不可清偿），后三者均属终态族。（2026-10 修订：原第四值
-  // observing 已退出闭集。）
-  if (targetType === 'friction') {
-    if (association.status === 'open') return 'pending';
-    if (association.status === 'resolved' || association.status === 'voided' || association.status === 'accepted') return 'closed';
-  }
-  // 27 号 §9：norm 关联目标——retired 已退役（历史档案），active 生效中（下方默认）。
-  if (association.status === 'retired') return 'discarded';
-  return 'active';
-}
-
-function getFactAssociationStateRank(association: FactCardAssociation): number {
-  const state = getFactAssociationState(association);
-  return state === null ? Number.MAX_SAFE_INTEGER : FACT_ASSOCIATION_STATE_RANK[state];
-}
-
-function FactAssociationStateIcon({ state, tooltip }: { state: FactAssociationState; tooltip: string }) {
-  const presentation = {
-    // 待确认族（Pitfall draft、WorkCase 方案/关闭待确认、Spark open、Friction open）用
-    // **带圈问号 CircleHelp**：这一族的共同点是「等一个决定」，不是「进度走到一半」——
-    // 此前是自绘的四分填充圆（读起来像进度环，未开始的条目被画成已完成 25%，隐喻错）。
-    // 2026-11-02 曾二次定案撤掉外圈改用裸问号，2026-11-03 Human 改回带圈形态（裸问号
-    // 与同排其余四族的圆形图标不成族，一眼看不出这是「状态」而不是正文里的问号）。
-    pending: { Icon: CircleHelp, className: 'text-amber-500 dark:text-amber-400' },
-    closed: { Icon: CircleCheck, className: 'text-emerald-500 dark:text-emerald-400' },
-    discarded: { Icon: CircleMinus, className: 'text-slate-400/70 dark:text-slate-500/70' },
-    progressing: { Icon: CirclePlay, className: 'text-sky-500 dark:text-sky-400' },
-    active: { Icon: Activity, className: 'text-ldvh-accent' },
-  }[state];
-  const { Icon } = presentation;
-  return (
-    <span title={tooltip} aria-label={tooltip} className={`shrink-0 ${presentation.className}`}>
-      <Icon size={15} aria-hidden="true" />
-    </span>
-  );
-}
-
-/** 反向引用（`factRefSources`：**谁声明引用了本单**）→ 统一关联行的入参形状。
- *
- * 为什么要适配而不是另写一套行式（Human 2026-09-30：「这里的引用样式学习一下 spark 的
- * 引用方案」）：Spark 的引用行由 `FactAssociationCardRow` 单点给出（类型图标 13px +
- * 标题撑满 + 行末状态图标）；已关闭卡此前自建 `WorkCaseRefSourceRow`（无类型图标、
- * 状态写成文字），于是**同一类信息出现两套行式**——正是本仓反复出现的"两处各写一套"
- * 病。反向引用与关联的形状本就同构（`resolvedTarget`/`title`/`available`/`status`），
- * 故此处只做**字段搬运**，行式仍由统一行给出。
- *
- * 注意二者**不是同一批数据**、也不互相替代（`api/services/facts.ts` 的登记）：
- * `factRefs` 是**外向**（本单引用了谁），`factRefSources` 是**反向**（谁引用了本单）。 */
-// eslint-disable-next-line react-refresh/only-export-components
-export function refSourceToAssociation(source: FactRefSource): FactCardAssociation {
-  return {
-    available: source.available,
-    resolvedTarget: source.resolvedTarget,
-    title: source.title,
-    title_en: source.title_en,
-    title_zh: source.title_zh,
-    status: source.status,
-  };
-}
 
 export function SparkCardContent({ obj }: { obj: ObjectItem }) {
   // 活跃（open）卡片保持克制：question/scope_boundary/summary 在详情阅读布局
@@ -1060,90 +875,6 @@ function SubGoalTerminalCardContent({ obj }: { obj: ObjectItem }) {
   );
 }
 
-/**
- * 子目标卡「名下的工作」区内，**每个类型层**默认先展的条数（Human 决定 2026-11-02：
- * 「每个类型最多展现 3 个，其他的要可以收起展开」）。
- *
- * **这是扫读预算，不是呈现收窄**：超出部分不是不呈现，而是先收起、可一键展开；
- * 展开后的条目、次序与折叠时逐条相同——只改变可见条数，不改变内容。故本常量
- * 不得被用作 `slice` 之外的任何语义（如「只取前 N 条就够」的筛选口径）。
- */
-export const SUB_GOAL_ASSOCIATION_PREVIEW_LIMIT = 3;
-
-/**
- * 类型分层的**固定次序**：工单在前、火花在后。
- *
- * 为什么定序而不按条目数排：类型层是**稳定的读法**（读者知道先看工单的落实情况、
- * 再看火花），按数量排会让同一屏在不同对象间换次序，读者每次都要重新定位。剩余的
- * 类型（契约上只会出现 workcase/spark 两类，见 `facts.ts` 的 `deriveServingWork`）
- * 追加在登记次序之后，不因未登记而消失。
- */
-const SUB_GOAL_SERVING_TYPE_ORDER: readonly string[] = ['workcase', 'spark'];
-
-type ServingWorkGroup = { type: string; rows: FactCardAssociation[] };
-
-/**
- * 把「名下的工作」按类型分层，层内按**关联状态**排序（活跃 → 推进中 → 待处理 →
- * 已关闭 → 已废弃，`FACT_ASSOCIATION_STATE_RANK` 单点给出）。
- *
- * 层内排序与卡片关联区的排序**同一条判据**：两处都是「指向另一个对象的行」，
- * 一处按状态排、一处按文件名排会让同一条工作在两个呈现面上顺序不同。
- */
-function groupServingWorkByType(rows: ServingWorkItem[]): ServingWorkGroup[] {
-  const byType = new Map<string, FactCardAssociation[]>();
-  rows.forEach((row) => {
-    const association = servingWorkToAssociation(row);
-    const bucket = byType.get(row.type) ?? [];
-    bucket.push(association);
-    byType.set(row.type, bucket);
-  });
-  return [...byType.entries()]
-    .map(([type, associations]) => ({
-      type,
-      rows: associations
-        .map((association, index) => ({ association, index }))
-        .sort((left, right) => {
-          const rankDelta = getFactAssociationStateRank(left.association) - getFactAssociationStateRank(right.association);
-          return rankDelta !== 0 ? rankDelta : left.index - right.index;
-        })
-        .map(({ association }) => association),
-    }))
-    .sort((left, right) => {
-      const leftRank = SUB_GOAL_SERVING_TYPE_ORDER.indexOf(left.type);
-      const rightRank = SUB_GOAL_SERVING_TYPE_ORDER.indexOf(right.type);
-      const leftKey = leftRank === -1 ? SUB_GOAL_SERVING_TYPE_ORDER.length : leftRank;
-      const rightKey = rightRank === -1 ? SUB_GOAL_SERVING_TYPE_ORDER.length : rightRank;
-      return leftKey !== rightKey ? leftKey - rightKey : left.type.localeCompare(right.type);
-    });
-}
-
-/**
- * 名下工作行 → 统一关联行的入参形状（只做**字段搬运**，行式仍由
- * `FactAssociationCardRow` 单点给出）。
- *
- * 理由与 `refSourceToAssociation` 同：`10 §5.5`「同类信息只有一处行式」——凡呈现
- * 「引用／关联某个事实对象」的行，一律复用统一关联行，不得自建第二套。此处若为
- * 「名下的工作」另写一套行（自己的图标尺寸、自己的状态写法），就会出现同一张卡上
- * 两种「指向对象」的形态。
- */
-export function servingWorkToAssociation(row: ServingWorkItem): FactCardAssociation {
-  return {
-    // 行来自已精确读取的下游对象（`facts.ts` 反查时只收可读项），故恒为可用。
-    // 项目取**行自己的**归属（而不是卡片当前项目）：联邦视图里两者可以不同，
-    // 用当前项目会把跨项目的行伪装成本项目对象（那是伪造定位，不是呈现选择）。
-    available: true,
-    resolvedTarget: {
-      governedProjectId: row.governed_project_id ?? '',
-      factTypeKey: row.type,
-      objectId: row.id,
-    },
-    title: row.title,
-    status: row.status,
-    // workcase 的派生分组随行搬运（21 号，服务端单点派生）——行末状态图标据此判
-    // 「推进中／待处理」，呈现层不重算。
-    ...(row.group ? { group: row.group as WorkCaseV5Group } : {}),
-  };
-}
 
 /**
  * 子目标卡的**关联区**（Human 决定 2026-11-02：「当前的子目标的 card，需要学习
@@ -1168,113 +899,22 @@ export function servingWorkToAssociation(row: ServingWorkItem): FactCardAssociat
  * 并只写**类型名 + 计数**（不写「关联」「工作」一类概括词，避免冒领方向语义）。
  */
 function SubGoalServingWorkCardZone({ obj }: { obj: ObjectItem }) {
-  const { t, locale } = useI18n();
-  const [expandedTypes, setExpandedTypes] = useState<ReadonlySet<string>>(() => new Set());
+  // 2026-11-03：名下工作区的**渲染**下沉到 `components/SubGoalCardParts`，与聚焦页
+  // 目标区同源（两处读同一批字段，各写一份必分叉）。此处只保留调用与本区域的规格
+  // 归属。
+  //
+  // 规格要点（随实现下沉，理由留在组件处）：
+  // - **不设层名**（Human 定案 2026-11-02：圈出的「火花 2」「工单 25」两行去掉）：
+  //   行本身**自描述**——行首的类型图标已经说出这是什么类型的对象，再写一遍类型名
+  //   是同一信息的第二次呈现；计数由「其余 N 条」与可见行数共同给出。此前我曾在此
+  //   加过「类型图标 + 类型名 + 计数」的层名并为它写了理由，那是**给违规找理由**——
+  //   `docs/03` §3.2 明文「不设类型分组标题」。
+  // - **空集必须显式标注歧义**（28 §8.1）：真的还没拆解，与拆解了却没人写 serves，
+  //   在机械层长得一模一样。故既不画 0 也不画进度条。
+  // - **读不到不等于没有**（00 §5.6）：无法枚举的类型单列，绝不并进空集。
   const rows: ServingWorkItem[] = Array.isArray(obj.serving_work) ? obj.serving_work : [];
   const unreadable = Array.isArray(obj.serving_unreadable) ? obj.serving_unreadable : [];
-  // 比值必须读**原始行**而不是 `group.rows`：`groupServingWorkByType` 已把
-  // `ServingWorkItem` 投影成 `FactCardAssociation`（那是关联行需要的形状），
-  // `status` 在这一步被换成了关联状态轴。拿投影后的行去数火花，会得到 0 条火花、
-  // 于是每一张卡都显示「名下没有火花」——实测正是如此（2026-11-02）。
-  const sparkRows = rows.filter((row) => row.type === 'spark');
-  const groups = groupServingWorkByType(rows);
-  const isEmpty = groups.length === 0;
-  if (isEmpty && unreadable.length === 0) {
-    // 28 §8.1：空集必须显式标注歧义。它不是「进度 0%」——真的还没拆解，与拆解了
-    // 却没人写 serves，在机械层长得一模一样。所以这里既不画 0 也不画进度条。
-    return (
-      <section onClick={(event) => event.stopPropagation()} className={FACT_ASSOCIATION_ROWS_ZONE_CLASS}>
-        <p className={`ldvh-meta rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-2 py-1.5 ${LDVH_WARN_TITLE_CLASS}`}>
-          {t('objectList.subGoalServingEmpty')}
-        </p>
-      </section>
-    );
-  }
-  return (
-    <section onClick={(event) => event.stopPropagation()} className={`${FACT_ASSOCIATION_ROWS_ZONE_CLASS} flex flex-col gap-1.5`}>
-      {groups.map((group) => {
-        const expanded = expandedTypes.has(group.type);
-        const hidden = Math.max(0, group.rows.length - SUB_GOAL_ASSOCIATION_PREVIEW_LIMIT);
-        const visible = expanded ? group.rows : group.rows.slice(0, SUB_GOAL_ASSOCIATION_PREVIEW_LIMIT);
-        return (
-          <div key={group.type} data-subgoal-serving-type={group.type}>
-            {/* **不设层名**（Human 定案 2026-11-02：圈出的「火花 2」「工单 25」两行去掉）。
-                理由与 `docs/03` §3.2 那条既有纪律同源：行本身**自描述**——行首的类型图标
-                已经说出这是什么类型的对象，再写一遍类型名是同一信息的第二次呈现；计数则
-                由展开按钮的「其余 N 条」与可见行数共同给出，也不需要单独一枚数字。
-
-                此前我在本处加过「类型图标 + 类型名 + 计数」的层名，并为它写了「两类并列
-                需要层名」的理由。那是**给违规找理由**：`docs/03` §3.2 明文「不设类型分组
-                标题」，而该条约束的正是这类行区域。分组仍按类型分成各自的块（各自有
-                `divide-y` 与各自的展开按钮），只是不再给块起名。 */}
-            <div className={FACT_ASSOCIATION_ROWS_LIST_CLASS}>
-              {visible.map((association, index) => (
-                <FactAssociationCardRow
-                  key={`${group.type}:${factCardAssociationKey(association, index)}:${index}`}
-                  association={association}
-                  locale={locale}
-                  unavailableLabel={t('objectList.associationUnavailable')}
-                />
-              ))}
-            </div>
-            {/* 展开/收起：只改可见条数，不改条目本身（折叠时不丢弃、不排序、不合并）。 */}
-            {(hidden > 0 || expanded) && (
-              <button
-                type="button"
-                aria-expanded={expanded}
-                onClick={() => setExpandedTypes((current) => {
-                  const next = new Set(current);
-                  if (next.has(group.type)) next.delete(group.type);
-                  else next.add(group.type);
-                  return next;
-                })}
-                className="mt-0.5 flex w-full min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-left ldvh-meta text-ldvh-text-secondary/85 transition-colors hover:bg-ldvh-border/25 hover:text-ldvh-accent"
-              >
-                {expanded
-                  ? <ChevronUp size={12} aria-hidden="true" className="shrink-0" />
-                  : <ChevronDown size={12} aria-hidden="true" className="shrink-0" />}
-                <span className="min-w-0 truncate">
-                  {expanded
-                    ? t('objectList.subGoalServingCollapse')
-                    : t('objectList.subGoalServingExpand', { count: String(hidden) })}
-                </span>
-              </button>
-            )}
-            {/* 火花落实比值（Human 定案 2026-11-02）：分母＝名下 spark 的「待处理 +
-                已落实」，分子＝已落实。只挂在 spark 这一组下——它是**火花**的落实进度，
-                与工单的进展分组是两个轴（21 号那套由行末状态图标各自表达）。
-
-                为什么放在行列表**之后**而不是之前：它是对上面那些行的汇总，读者先看到
-                有哪几条，再看到「其中多少已落实」才有意义；摆在前面等于先给结论再给材料。
-
-                展开/收起**不改变**它：分母始终是全部 spark，不是可见的那 3 条。按可见
-                条数算会让「展开」这个动作本身改变进度值——那是一个由交互制造出来的假象。 */}
-            {group.type === 'spark' && (
-              <div className="mt-1">
-                <ServingSparkProgressBar
-                  rows={sparkRows}
-                  unreadable={unreadable}
-                  progressLabel={t('objectList.subGoalSparkProgress')}
-                  emptyLabel={t('objectList.subGoalSparkProgressEmpty')}
-                  allDiscardedLabel={t('objectList.subGoalSparkProgressAllDiscarded')}
-                  unavailableLabel={t('objectList.subGoalSparkProgressUnavailable')}
-                  unknownStatusLabel={(count) => t('objectList.subGoalSparkProgressUnknown', { count: String(count) })}
-                  openLabel={getObjectStatusLocale('spark', 'open', locale)}
-                  implementedLabel={getObjectStatusLocale('spark', 'implemented', locale)}
-                />
-              </div>
-            )}
-          </div>
-        );
-      })}
-      {unreadable.length > 0 && (
-        // 读不到不等于没有（00 §5.6）：无法枚举的类型单列，绝不并进空集。
-        <p className={`ldvh-meta rounded-md border ${LDVH_WARN_SURFACE_CLASS} px-2 py-1.5 ${LDVH_WARN_TITLE_CLASS}`}>
-          {t('objectList.subGoalServingUnreadable')}：{unreadable.join('；')}
-        </p>
-      )}
-    </section>
-  );
+  return <SubGoalServingWorkZone rows={rows} unreadable={unreadable} />;
 }
 
 export function SubGoalCardContent({ obj }: { obj: ObjectItem }) {
@@ -1284,6 +924,10 @@ export function SubGoalCardContent({ obj }: { obj: ObjectItem }) {
   //
   // **不按状态分支**（同 Spark 的 2026-09-16 裁定）：达成/作废的子目标名下工作仍是
   // 可核对的历史——「这件工作曾服务于那条已达成的子目标」是事实（28 §12.3 第 4 条）。
+  //
+  // 判据面与名下工作区改为复用 `components/SubGoalCardParts`（2026-11-03）——聚焦页
+  // 目标区与本卡读的是同一批字段，若各写一份，「判据长什么样」「空集歧义怎么提示」
+  // 会分叉，而分叉时没有机械判据说哪边才是对的。
   const body = obj.status === 'achieved' || obj.status === 'retired'
     ? <SubGoalTerminalCardContent obj={obj} />
     : <SubGoalActiveCardBody obj={obj} />;
@@ -1314,31 +958,17 @@ export function SubGoalCardContent({ obj }: { obj: ObjectItem }) {
  * - `criterion_kind`（「闭环记录」等）不再上卡面：它是**判定口径**，回答「用什么材料
  *   判」；卡面只回答「算什么」。两者在卡面上并排时，读者看到的是两行标签加一句正文，
  *   扫读成本高于信息量。判定口径与其说明住详情页判据锚点（`SubGoalReadingLayout`）。
- *   28 §8 要求该字段必填，故它不会因为卡面不显示而在载体里消失。 */
+ *   28 §8 要求该字段必填，故它不会因为卡面不显示而在载体里消失。
+ *
+ * 2026-11-03：判据面的**渲染**下沉到 `components/SubGoalCardParts`（与聚焦页目标区
+ * 同源）；此处保留本函数是为了留住上面那段规格说明的归属。 */
 function SubGoalActiveCardBody({ obj }: { obj: ObjectItem }) {
   const criterion = typeof obj.criterion === 'string' ? obj.criterion.trim() : '';
   // `criterion` 是 28 §8 的必填字段。真的为空时**不画一个空框**——空框会让读者以为
   // 框里本该有东西而读取失败，而实际是载体不合规；详情页的字段问题区会如实报出。
   if (!criterion) return null;
 
-  const tint = getTypeSurfaceTint(obj.type);
-  return (
-    <section className={WORKCASE_SURFACE_GEOMETRY_CLASS} style={tint.surface}>
-      {/* 12px 扫读档（`ldvh-card-decision-body`）+ 本类型色的正文档。面与正文必须成对
-          取自 `getTypeSurfaceTint`：只贴面会让正文沿用中性近黑，色相面与正文分家
-          （`docs/01` §1.6 要求标题/正文/背景同色相）。
-
-          **不画圆点**：WorkCase 判据面的圆点是「并列条目之间的分隔记号」（它的清单
-          恒定 ≥1 条且常有多条）。本框恒为**一句**判据，孤零零一枚圆点会被读成「一个
-          只写了一句的清单」。 */}
-      <p
-        className="ldvh-card-decision-body min-w-0 break-words"
-        style={tint.body}
-      >
-        {criterion}
-      </p>
-    </section>
-  );
+  return <SubGoalCriterionSurface criterion={criterion} type={obj.type} />;
 }
 
 export default function ObjectList() {

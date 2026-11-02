@@ -111,7 +111,10 @@ test('已落实不因下游完成而虚增：分子只数 implemented（20 §9�
 });
 
 test('卡面与详情面共用同一次派生，且比值不随展开条数变化', () => {
-  const list = read('src/pages/ObjectList.tsx');
+  // 2026-11-03：子目标卡的关联区实现下沉到共享组件，故比值与分层预算的断言
+  // 读那里；列表卡仍须调用它。
+  const list = read('src/components/SubGoalCardParts.tsx')
+    + read('src/components/FactAssociationRows.tsx');
   const layouts = read('src/pages/object-detail/FactReadingLayouts.tsx');
   const bar = read('src/components/ServingSparkProgressBar.tsx');
   const util = read('src/utils/servingSparkProgress.ts');

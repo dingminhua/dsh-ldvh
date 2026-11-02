@@ -7,7 +7,7 @@ import {
   FACT_ASSOCIATION_ROWS_ZONE_CLASS,
   FactAssociationCardRow,
   refSourceToAssociation,
-} from '@/pages/ObjectList';
+} from '@/components/FactAssociationRows';
 import {
   WORKCASE_DIRECTION_BLOCK_BASE_CLASS,
   WORKCASE_DIRECTION_BLOCK_BG_CLASS,
