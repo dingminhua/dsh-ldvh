@@ -1,12 +1,18 @@
 import type { ComponentType } from 'react';
 import {
+  Activity,
   FileText,
   ClipboardList,
   GitCommit,
   Github,
+  GitPullRequestArrow,
   FileSignature,
+  FolderTree,
+  Globe2,
+  LayoutDashboard,
   Lightbulb,
   Link2,
+  MapPinned,
   Milestone,
   NotebookPen,
   Ruler,
@@ -90,6 +96,32 @@ const COLLECTION_ICONS: Record<string, SemanticIconComponent> = {
   docs: FileText,
   related: Link2,
   progress: Workflow,
+};
+
+/**
+ * 导航入口图标（09 §8「图标映射集中在 SemanticIcon.tsx，页面不得自行散落图标选择」）。
+ *
+ * 对象类入口继续取 `OBJECT_TYPE_ICONS`（同一类型在导航、列表、详情、引用处同一图标，
+ * 09 §2 第 1 条）；此处只登记**不指向事实对象**的入口——它们没有对象身份可继承，
+ * 过去由 `Sidebar` 各自直接 import lucide，帮助页若要照抄就得再散一份，故收进单源。
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- 与 OBJECT_TYPE_ICONS 同理：Sidebar 与帮助页共同消费，拆文件即打断共置断言。
+export const NAV_ICONS: Record<string, SemanticIconComponent> = {
+  // 聚焦=仪表盘（认知中心入口，Human 定案 2026-07-30 换回 LayoutDashboard）。
+  cognition: LayoutDashboard,
+  // 目录=文件树（项目文件树入口）。
+  projectFiles: FolderTree,
+  // 变更=拉取请求箭头（工作树未提交改动入口）。
+  changes: GitPullRequestArrow,
+  // 提交=GitHub 剪影（与 changelog 同一图形：它是提交记录入口，不是工作对象）。
+  changelog: GitHubSilhouetteIcon,
+  // 帮助=带钉地图（导览/漫游指南；Human 终选 2026-09-12，历经
+  // CircleHelp→MapPinned→单独问号→回到 MapPinned）。
+  help: MapPinned,
+  // 诊断=活动指示（运行时诊断入口，Human 定案 2026-10-18）。
+  diagnostics: Activity,
+  // 全部项目=地球（联邦聚合视图入口，由项目切换器进入）。
+  federation: Globe2,
 };
 
 type SemanticIconProps = Omit<LucideProps, 'ref'> & {

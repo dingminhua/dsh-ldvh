@@ -2,12 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useState } from 'react';
 import type { ElementType } from 'react';
 import {
-  LayoutDashboard,
   Globe,
-  FolderTree,
-  GitPullRequestArrow,
-  MapPinned,
-  Activity,
   Sun,
   Moon,
   Monitor,
@@ -19,14 +14,14 @@ import {
 import { useI18n } from '@/i18n/context';
 import { useTheme } from '@/hooks/useTheme';
 import { getLanguageSwitchKey, getOppositeLanguageNameKey, getOppositeLocale, type LocaleKey } from '@/i18n/locales';
-import { OBJECT_TYPE_ICONS } from '@/components/SemanticIcon';
+import { NAV_ICONS, OBJECT_TYPE_ICONS } from '@/components/SemanticIcon';
 import ProjectSwitcher from '@/components/ProjectSwitcher';
 import ldvhPluginIcon from '@/assets/ldvh-plugin-icon.png';
 
 type NavIcon = ElementType<LucideProps>;
 
 const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
-  { to: '/', labelKey: 'nav.cognition', icon: LayoutDashboard },
+  { to: '/', labelKey: 'nav.cognition', icon: NAV_ICONS.cognition },
   // 28 号 SubGoal：子目标紧接「聚焦」（Human 定案 2026-11-01「子目标放在聚焦后」）。
   // 位置上它是目标层的第二级——聚焦页顶部就是目标区，点进来第一条就是子目标，
   // 故不再与其余七类平铺在对象族里。
@@ -44,14 +39,14 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
   // 经验、摩擦、规范），DevLog 是「已经收敛、仍可回查的过程结论」——它是回查
   // 入口而非行动入口，故收在对象族末尾、目录/变更/提交这些工具页之前。
   { to: '/objects/devlog', labelKey: 'nav.devlogs', icon: OBJECT_TYPE_ICONS.devlog },
-  { to: '/project-files', labelKey: 'nav.projectFiles', icon: FolderTree },
-  { to: '/changes', labelKey: 'nav.changes', icon: GitPullRequestArrow },
+  { to: '/project-files', labelKey: 'nav.projectFiles', icon: NAV_ICONS.projectFiles },
+  { to: '/changes', labelKey: 'nav.changes', icon: NAV_ICONS.changes },
   { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog },
   // 帮助=带钉地图（导览/漫游指南；Human 定案 2026-09-12 终选——历经
   // CircleHelp→MapPinned→单独问号→回到 MapPinned）。
-  { to: '/help', labelKey: 'nav.help', icon: MapPinned },
+  { to: '/help', labelKey: 'nav.help', icon: NAV_ICONS.help },
   // 运行时诊断（2026-10-18 Human 定案）：末位入口，只读观察机制本身。
-  { to: '/diagnostics', labelKey: 'nav.diagnostics', icon: Activity },
+  { to: '/diagnostics', labelKey: 'nav.diagnostics', icon: NAV_ICONS.diagnostics },
 ];
 
 /** 联邦作用域导航（全部管辖计划 Step 4）：
@@ -59,7 +54,7 @@ const NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon }[] = [
  * devlog 同样收在对象族末位）；目录/变更/提交是
  * 单项目专属页，联邦态灰显。 */
 const FEDERATION_NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon; disabled?: boolean }[] = [
-  { to: '/federation', labelKey: 'nav.cognition', icon: LayoutDashboard },
+  { to: '/federation', labelKey: 'nav.cognition', icon: NAV_ICONS.cognition },
   { to: '/federation/objects/subgoal', labelKey: 'nav.subgoals', icon: OBJECT_TYPE_ICONS.subgoal },
   { to: '/federation/objects/spark', labelKey: 'nav.sparks', icon: OBJECT_TYPE_ICONS.spark },
   { to: '/federation/objects/workcase', labelKey: 'nav.workcases', icon: OBJECT_TYPE_ICONS.workcase },
@@ -69,12 +64,12 @@ const FEDERATION_NAV_ITEMS: { to: string; labelKey: LocaleKey; icon: NavIcon; di
   { to: '/federation/objects/friction', labelKey: 'nav.frictions', icon: OBJECT_TYPE_ICONS.friction },
   { to: '/federation/objects/norm', labelKey: 'nav.norms', icon: OBJECT_TYPE_ICONS.norm },
   { to: '/federation/objects/devlog', labelKey: 'nav.devlogs', icon: OBJECT_TYPE_ICONS.devlog },
-  { to: '/project-files', labelKey: 'nav.projectFiles', icon: FolderTree, disabled: true },
-  { to: '/changes', labelKey: 'nav.changes', icon: GitPullRequestArrow, disabled: true },
+  { to: '/project-files', labelKey: 'nav.projectFiles', icon: NAV_ICONS.projectFiles, disabled: true },
+  { to: '/changes', labelKey: 'nav.changes', icon: NAV_ICONS.changes, disabled: true },
   { to: '/changelog', labelKey: 'nav.changelog', icon: OBJECT_TYPE_ICONS.changelog, disabled: true },
-  { to: '/help', labelKey: 'nav.help', icon: MapPinned },
+  { to: '/help', labelKey: 'nav.help', icon: NAV_ICONS.help },
   // 诊断数据是「本机这次运行」的账，跨项目聚合会把不同机器的运行混成一页——联邦态灰显。
-  { to: '/diagnostics', labelKey: 'nav.diagnostics', icon: Activity, disabled: true },
+  { to: '/diagnostics', labelKey: 'nav.diagnostics', icon: NAV_ICONS.diagnostics, disabled: true },
 ];
 
 function getNavItemLabel(item: (typeof NAV_ITEMS)[number], t: (key: LocaleKey) => string): string {
