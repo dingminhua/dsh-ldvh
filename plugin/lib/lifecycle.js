@@ -75,6 +75,34 @@ import { readLastTurn } from "./session-position.js";
 import { ActivityLog, AgentLifecycle } from "./agent-lifecycle.js";
 import { recordJudgementForGuard } from "./host-seams.js";
 
+
+/** pitfall 正文的七段（与 `plugin/lib/pitfall-writer.js` 的 `BODY_H2_REQUIRED` 同源）。 */
+const PITFALL_BODY_SECTIONS = Object.freeze(["症状", "触发条件", "根因", "解决", "规避", "验证", "影响与适用范围"]);
+
+/**
+ * 核对本次运行**产出的**经验对象是否七段齐备（§18「经验对象的七段完整」）。
+ *
+ * 只看本次真的形成过的对象：没有形成对象时该行不适用，记 pass 并写明原因——
+ * 「不适用」与「没核对」在 §18 上是两件事（前者无对象可核，后者有对象却没去核）。
+ *
+ * @returns {[string, string]} `[verdict, evidence]`
+ */
+function sevenSectionVerdict(reviewOutcome) {
+  const formedList = Array.isArray(reviewOutcome.formed_all)
+    ? reviewOutcome.formed_all
+    : (reviewOutcome.formed === null || reviewOutcome.formed === undefined ? [] : [reviewOutcome.formed]);
+  if (formedList.length === 0) return ["pass", "本轮未形成经验对象，该行不适用"];
+
+  const broken = [];
+  for (const item of formedList) {
+    const body = typeof item?.body === "string" ? item.body : "";
+    const missing = PITFALL_BODY_SECTIONS.filter((name) => !body.includes("## " + name));
+    if (missing.length > 0) broken.push((item?.title ?? "(无标题)") + " 缺 " + missing.join("／"));
+  }
+  if (broken.length > 0) return ["fail", broken.join("；")];
+  return ["pass", formedList.length + " 个对象七段齐备"];
+}
+
 /**
  * 把一次审核运行的结局整理成 §18 逐行核对结论（11 §18「运行完成」）。
  *
@@ -117,6 +145,7 @@ function verifyReviewRun(reviewOutcome) {
       outcome === "land-failed" && /buffer|unreadable/i.test(String(reviewOutcome.action ?? ""))
         ? ["fail", `outcome=${outcome} action=${reviewOutcome.action ?? "null"}`]
         : ["pass", `outcome=${outcome} action=${reviewOutcome.action ?? "null"}`]],
+    ["经验对象的七段完整", sevenSectionVerdict(reviewOutcome)],
   ]);
 
   // **按 §18 全表逐行产出**（机械行 + 已声明不可判行）：没有采集点的行显式落
