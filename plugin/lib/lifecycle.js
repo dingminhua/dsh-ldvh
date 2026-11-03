@@ -200,7 +200,7 @@ function probeStructuralFactsWith(targets, names = DISCRETION_NAMES) {
  * 取不到时返回 null：调用方据此把两行记为「本轮无延迟形态计时，该行不适用」，
  * 而**不是**填 pass 说「核对通过」。两者必须分清。
  */
-async function readTimerEvidence(dshHomePath, sessionId) {
+export async function readTimerEvidence(dshHomePath, sessionId) {
   if (typeof sessionId !== "string" || sessionId.length === 0) return null;
   try {
     const read = await readRuns(dshHomePath, { limit: 200 });

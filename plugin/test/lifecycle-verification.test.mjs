@@ -363,3 +363,44 @@ test("探针：函数缺失时记为 missing（交由判定侧判 fail，不得�
   const { probeFunctionForDiscretion } = await import("../lib/lifecycle.js");
   assert.deepEqual(probeFunctionForDiscretion(undefined), ["given::missing"]);
 });
+
+// ---------------------------------------------------------------------------
+// 证据时间窗（第五轮复核指出无时间窗；我修了但当时没加护栏——自查变异 1 全绿）
+// ---------------------------------------------------------------------------
+
+test("证据时间窗：旧的 dispatching 记录不得被当成本轮证据复用", async () => {
+  const { readTimerEvidence } = await import("../lib/lifecycle.js");
+  const { recordRun } = await import("../lib/idle-runlog.js");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  const home = await mkdtemp(join(tmpdir(), "ldvh-timer-window-"));
+  // `dshHomePath` 是**拼接路径的函数**（不是目录字符串）：runlog 用它定位载体。
+  const homePath = (...seg) => join(home, ...seg);
+  try {
+    const sid = "session-window-test";
+    // 一条 10 小时前的到期记录：远超 30 分钟窗口
+    const old = new Date(Date.now() - 10 * 3600 * 1000).toISOString();
+    await recordRun(homePath, {
+      at: old, task: "diagnostic", tasks: ["diagnostic"],
+      stage: "silence-expiry", reason: "dispatching", session: sid,
+      quietFor: 600000, idleMs: 300000,
+    });
+    const stale = await readTimerEvidence(homePath, sid);
+    assert.equal(stale, null,
+      "10 小时前的记录不得被当成本轮证据——若这里非 null，说明时间窗失效（旧的 dispatching 会让每次运行永久 pass）");
+
+    // 一条刚发生的记录：应被采纳
+    await recordRun(homePath, {
+      at: new Date().toISOString(), task: "diagnostic", tasks: ["diagnostic"],
+      stage: "silence-expiry", reason: "dispatching", session: sid,
+      quietFor: 600000, idleMs: 300000, turnInFlightObserved: false, confirmNoOtherTimer: true,
+    });
+    const fresh = await readTimerEvidence(homePath, sid);
+    assert.notEqual(fresh, null, "本轮的记录必须被采纳");
+    assert.equal(fresh.reason, "dispatching");
+  } finally {
+    await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }).catch(() => {});
+  }
+});
