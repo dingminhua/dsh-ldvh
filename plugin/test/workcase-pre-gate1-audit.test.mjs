@@ -18,6 +18,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { stringify as stringifyYaml } from "yaml";
 import { seedSubGoals, subGoalUid, withTemp } from "./helpers.mjs";
 import {
   createWorkcaseObject,
@@ -30,10 +31,11 @@ import {
   computeAuthorizationFingerprint,
   computeAuditPartitions,
   auditCoverageFor,
-  PRE_AUDIT_ENTRIES_PER_MATTER_MAX,
+  workcaseFileName,
   PRE_AUDIT_ROUNDS_MAX,
 } from "../lib/workcase-writer.js";
 import { authoritativeSignature, authoritativeSessionIdentity } from "../lib/signature-channel.js";
+import { normalizeCoveredPartitionsArg, normalizeRoundIndexArg } from "../lib/workcase-tools.js";
 
 const SIG = () => authoritativeSignature({ provider: "test-provider", model: "test-model" });
 const IDENTITY = (sessionId, origin = null) => authoritativeSessionIdentity({ sessionId, source: "host", origin });
@@ -216,23 +218,23 @@ test("覆盖闸：verdict=needs_revision 的结论不满足覆盖闸（21 §8 �
 });
 
 // ---------------------------------------------------------------------------
-// 门禁三·上限闸（record_audit）—— 21 §9.2「同一次审核事项最多 3 次」
+// 门禁三·上限闸（record_audit）—— 21 §9.2「同一次审核事项最多 3 轮」
 // ---------------------------------------------------------------------------
 
-test("上限闸：同一候选最多 3 条审核，第 4 条被拒并指明转 Human 裁决 (21 §9.2)", async () => {
+test("上限闸：第 4 轮被拒并指明转 Human 裁决（计数按轮次，不按条数）(21 §9.2)", async () => {
   await withTemp("wc-audit-", async (root) => {
     await seedGoal(root);
     const uid = await createDraft(root);
-    for (let i = 1; i <= PRE_AUDIT_ENTRIES_PER_MATTER_MAX; i += 1) {
-      const r = await audit(root, uid, { verdict: "needs_revision", summary: `第 ${i} 次审核：未通过（夹具）` });
-      assert.ok(r.ok, `第 ${i} 条应被接受：${JSON.stringify(r.error)}`);
+    for (let i = 1; i <= PRE_AUDIT_ROUNDS_MAX; i += 1) {
+      const r = await audit(root, uid, { verdict: "needs_revision", summary: `第 ${i} 轮：未通过（夹具）` });
+      assert.ok(r.ok, `第 ${i} 轮应被接受：${JSON.stringify(r.error)}`);
     }
-    const over = await audit(root, uid, { verdict: "needs_revision", summary: "第 4 次审核（应被拒）" });
-    assert.ok(!over.ok, "第 4 条必须被拒绝");
+    const over = await audit(root, uid, { verdict: "needs_revision", summary: "第 4 轮（应被拒）" });
+    assert.ok(!over.ok, "第 4 轮必须被拒绝");
     assert.equal(over.error.code, "workcase/pre_gate1_audit_round_cap");
     // 零写入：条数仍为 3，状态仍为 draft
     const after = await read(root, uid);
-    assert.equal(after.value.frontmatter.pre_reviews.length, PRE_AUDIT_ENTRIES_PER_MATTER_MAX);
+    assert.equal(after.value.frontmatter.pre_reviews.length, PRE_AUDIT_ROUNDS_MAX);
     assert.equal(after.value.frontmatter.status, "draft");
   });
 });
@@ -297,6 +299,27 @@ test("拒绝文案的可发现性：round_cap 与覆盖闸的拒绝文本须自�
     assert.equal(blocked.error.code, "workcase/pre_gate1_audit_not_covering_candidate");
     const coverMsg = String(blocked.error.message || "");
     assert.match(coverMsg, /复用既有轮号/, "覆盖闸拒绝文案须指出复用轮号的出口，实际：" + coverMsg);
+  });
+});
+
+// `round_index` 的取值闭集（2026-11-03 复审发现）。
+//
+// 受控工具面原来用 `Number.isInteger(args?.round_index) ? args.round_index : null` 分流，
+// 非整数（如 2.5）会被**静默归一为「省略」**、按新轮处理——非法值拿到一个合法结果，
+// 而 21 §8 写的是「正整数」。工具面已改为只把「未提供」归一为 null、其余原样透传，
+// 由 writer 判正整数。本条钉住 writer 侧的拒绝，防它再次被上游吞掉。
+test("round_index 取值闭集：非整数被拒，不静默归一为省略 (21 §8「正整数」)", async () => {
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const uid = await createDraft(root);
+    for (const bad of [2.5, 0, -1]) {
+      const r = await audit(root, uid, { summary: `非法 round_index ${bad}（夹具）`, roundIndex: bad });
+      assert.ok(!r.ok, `round_index=${bad} 必须被拒绝`);
+      assert.equal(r.error.code, "invalid_request", `round_index=${bad} 应得 invalid_request`);
+    }
+    // 零写入
+    const after = await read(root, uid);
+    assert.equal(after.value.frontmatter.pre_reviews, undefined, "拒绝须为零写入");
   });
 });
 
@@ -441,9 +464,16 @@ test("审核通道：shell 来源身份被拒（该通道读可被调用方设�
       sessionIdentity: forged,
     });
     assert.ok(!res.ok, "shell 来源身份不得作为审核凭据");
-    assert.ok(
-      res.error.code === "workcase/audit_identity_untrusted" || res.error.code === "workcase/audit_identity_unavailable",
-      `期望 shell 身份被拒（untrusted 或 unavailable），实得 ${res.error.code}`,
+    // **只断言实际可达的那个码**。`hostSessionIdentity`（lib/workcase-writer.js:2652）
+    // 把所有非 `source="host"` 的身份一律解析为 null，故 writer 里
+    // `identity.source === "shell"` 的分支（:3246、:3376）在本实现下**不可达**，
+    // `workcase/audit_identity_untrusted` 与 `workcase/review_identity_untrusted`
+    // 目前是无出口的失败码。此处接受两个码会让该用例对 shell 分支零判别力——
+    // 实测证明走的是 unavailable。
+    assert.equal(
+      res.error.code,
+      "workcase/audit_identity_unavailable",
+      `shell 身份在上游已被归一为「无身份」，故只应得 unavailable，实得 ${res.error.code}`,
     );
     const after = await read(root, uid);
     assert.equal(after.value.frontmatter.pre_reviews, undefined, "拒绝须为零写入");
@@ -791,5 +821,141 @@ test("G2b：未改动 pre_reviews 的正常写回不产生留痕噪音", async (
     const lastEntry = after.value.frontmatter.change_log.at(-1);
     assert.doesNotMatch(lastEntry.summary, /回落/,
       "原样带上的 pre_reviews 不应被记为「回落」——否则正常写回全被打上伪造嫌疑");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A（2026-11-03 第三轮复审）：`covered_partitions` 的**非数组形态**一律拒绝
+// ---------------------------------------------------------------------------
+// 原实现用 `Array.isArray` 分流：数组走校验、非数组落到 `else` 取全部分区。于是
+// 「更畸形的入参」（字符串／数字）拿到「更宽松的结果」（覆盖全部分区、可通过覆盖闸），
+// 而更接近正确的空数组反被拒。审核者写错一个括号就得到自己从未声明的全分区覆盖，
+// 且落盘记录上看不出来——与 21 §15.1「不静默忽略、不降级」直接冲突。
+
+test("A：covered_partitions 传字符串被拒，不静默当作「省略」而展开成全部分区 (21 §8/§15.1)", async () => {
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const uid = await createDraft(root);
+    const r = await audit(root, uid, { coveredPartitionIds: "plan#1" });
+    assert.ok(!r.ok, "字符串形态必须被拒绝，不得被当作省略");
+    assert.equal(r.error.code, "invalid_request");
+    assert.match(r.error.message, /covered_partitions/);
+    const after = await read(root, uid);
+    assert.equal(after.value.frontmatter.pre_reviews, undefined, "拒绝须为零写入");
+  });
+});
+
+test("A：covered_partitions 传数字被拒（同上，非数组既非省略也非声明）(21 §8/§15.1)", async () => {
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const uid = await createDraft(root);
+    const r = await audit(root, uid, { coveredPartitionIds: 42 });
+    assert.ok(!r.ok, "数字形态必须被拒绝");
+    assert.equal(r.error.code, "invalid_request");
+    const after = await read(root, uid);
+    assert.equal(after.value.frontmatter.pre_reviews, undefined, "拒绝须为零写入");
+  });
+});
+
+test("A：covered_partitions 传空数组被拒（无覆盖不等于覆盖全部分区）(21 §8)", async () => {
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const uid = await createDraft(root);
+    const r = await audit(root, uid, { coveredPartitionIds: [] });
+    assert.ok(!r.ok, "空数组必须被拒绝");
+    assert.equal(r.error.code, "invalid_request");
+    const after = await read(root, uid);
+    assert.equal(after.value.frontmatter.pre_reviews, undefined, "拒绝须为零写入");
+  });
+});
+
+test("A：covered_partitions 显式 null 与「省略」同义，落盘为全部分区 (21 §8:147)", async () => {
+  // R1：规范把显式 `null` 归入「省略」而非「非数组值」。此例钉住该语义——若有人把
+  // null 改成拒绝，或把「省略」改成不展开全部分区，这条会红。
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const uid = await createDraft(root);
+    const r = await audit(root, uid, { coveredPartitionIds: null });
+    assert.ok(r.ok, `显式 null 应被接受（与省略同义）：${JSON.stringify(r.error)}`);
+    const after = await read(root, uid);
+    const partitions = computeAuditPartitions(DRAFT.plan, DRAFT.scope);
+    const stored = after.value.frontmatter.pre_reviews[0].covered_partitions;
+    assert.equal(stored.length, partitions.length, "null 与省略同义，须落盘为全部分区");
+    assert.deepEqual(
+      stored.map((p) => p.id).sort(),
+      partitions.map((p) => p.id).sort(),
+      "落盘的分区 id 须是当前候选的全部分区",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 工具面入参归一（21 §8:147）—— 此前无任何测试，回退成 fail-open 时套件仍全绿
+// ---------------------------------------------------------------------------
+// 第四轮独立复审 M3 变异实测：把 workcase-tools.js 的归一化改回
+// `Array.isArray(v) ? v : null`，A 组三条用例**全部仍绿**——因为 A 组直调 writer，
+// 绕过了工具面那一行。它因此是「未被钉住的承重行」：回退即恢复原始 fail-open。
+// 抽出 normalizeCoveredPartitionsArg / normalizeRoundIndexArg 两个纯函数后在此钉住。
+
+test("工具面归一：covered_partitions 只把「未提供」归为 null，其余形态原样透传 (21 §8:147)", () => {
+  assert.equal(normalizeCoveredPartitionsArg(undefined), null, "undefined 是「未提供」");
+  assert.equal(normalizeCoveredPartitionsArg(null), null, "显式 null 与省略同义");
+  // 以下五种都不是「未提供」：必须原样透传给 writer，由它拒绝。
+  // 若这里改回 Array.isArray 分流，字符串/数字/对象会被静默变成 null → 全分区覆盖。
+  assert.equal(normalizeCoveredPartitionsArg("plan#1"), "plan#1", "字符串须原样透传，不得归一为 null");
+  assert.equal(normalizeCoveredPartitionsArg(42), 42, "数字须原样透传");
+  const obj = { id: "plan#1" };
+  assert.equal(normalizeCoveredPartitionsArg(obj), obj, "对象须原样透传");
+  assert.deepEqual(normalizeCoveredPartitionsArg([]), [], "空数组须原样透传，由 writer 拒绝");
+  const arr = ["plan#1"];
+  assert.equal(normalizeCoveredPartitionsArg(arr), arr, "合法数组原样透传");
+});
+
+test("工具面归一：round_index 只把「未提供」归为 null，非整数原样透传 (21 §8:147「正整数」)", () => {
+  assert.equal(normalizeRoundIndexArg(undefined), null);
+  assert.equal(normalizeRoundIndexArg(null), null);
+  // 2.5 若被归一为 null 就会「按新轮处理」——让一个非法值拿到合法结果。
+  assert.equal(normalizeRoundIndexArg(2.5), 2.5, "非整数须原样透传，由 writer 判正整数并拒绝");
+  assert.equal(normalizeRoundIndexArg(0), 0, "0 须原样透传（writer 判 >= 1）");
+  assert.equal(normalizeRoundIndexArg(-1), -1, "负数须原样透传");
+  assert.equal(normalizeRoundIndexArg(3), 3, "合法正整数原样透传");
+});
+
+// ---------------------------------------------------------------------------
+// 存量条目的轮次补记（21 §9.2「存量条目的补记」）—— 此前全仓零测试
+// ---------------------------------------------------------------------------
+// 2026-10-27 之前落盘的条目可能不含 `round_index`。规范要求「按落盘顺序依次计为
+// 第 1、2、…轮」，即它们**已消耗**同等数目轮次，不因口径改换而免计。若这条补记
+// 被拿掉，存量对象会凭空重获 3 轮额度——这正是 F1 阻断所指的相反读法。
+test("存量补记：无 round_index 的存量条目各占一轮，耗尽后开启新轮被拒 (21 §9.2 补记)", async () => {
+  await withTemp("wc-audit-", async (root) => {
+    await seedGoal(root);
+    const uid = await createDraft(root);
+    const cur = await read(root, uid);
+    const fm = cur.value.frontmatter;
+    const whole = computeAuthorizationFingerprint(fm.plan, fm.scope);
+    // 模拟 2026-10-27 之前落盘的三条：不含 `round_index` 字段。
+    fm.pre_reviews = [1, 2, 3].map((i) => ({
+      at: `2026-10-2${i}T00:00:00.000Z`,
+      provider: "test-provider",
+      model: "test-model",
+      summary: `存量第 ${i} 条（无 round_index，夹具）`,
+      session_id: "session-auditor-test",
+      session_source: "host",
+      auditor_origin: "subagent",
+      candidate_fingerprint: whole,
+      verdict: "needs_revision",
+    }));
+    await writeFile(join(root, "workcases", workcaseFileName(uid)),
+      `---\n${stringifyYaml(fm, { lineWidth: 0 })}---\n\n${cur.value.body}\n`, "utf8");
+
+    // 补记口径成立时：3 条存量已占满 3 轮，开启第 4 轮必须被拒。
+    const over = await audit(root, uid, { verdict: "needs_revision", summary: "第 4 轮（应被拒）" });
+    assert.ok(!over.ok, "3 条存量各占一轮，第 4 轮必须被拒（若补记失效，此轮会被放行）");
+    assert.equal(over.error.code, "workcase/pre_gate1_audit_round_cap");
+
+    // 反向对照：复用既有轮号仍可记录（补记占满额度不等于通道封闭）。
+    const reuse = await audit(root, uid, { verdict: "pass", summary: "复用第 1 轮", roundIndex: 1 });
+    assert.ok(reuse.ok, `复用既有轮号应被放行：${JSON.stringify(reuse.error)}`);
   });
 });

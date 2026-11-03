@@ -106,6 +106,33 @@ function envelope(operationKey, outcome, fields) {
 }
 
 /**
+ * 工具面入参归一：`covered_partitions` 只把「未提供」（`undefined` / 显式 `null`）归一为 null，
+ * **其余形态原样透传**，由 writer 判非空数组并拒绝（21 §8:147）。
+ *
+ * 为什么必须原样透传（2026-11-03 第四轮独立复审 R3）：原实现用
+ * `Array.isArray(v) ? v : null` 分流，会把 `"plan#1"`、`42`、`{}` 静默当「省略」，
+ * 于是一处写错括号就落盘成**全部分区覆盖**——审核者得到自己从未声明的覆盖，
+ * 且落盘上看不出来（fail-open）。这与「空数组即拒绝」自相矛盾：更畸形的入参反而被接受。
+ *
+ * 导出为纯函数是为了**可被单测钉住**：该行位于工具面，A 组用例直调 writer 时绕过它，
+ * 回退成 fail-open 后整套测试仍全绿（M3 变异实测），故它必须有自己的测试。
+ */
+export function normalizeCoveredPartitionsArg(raw) {
+  return raw === undefined || raw === null ? null : raw;
+}
+
+/**
+ * 工具面入参归一：`round_index` 只把「未提供」（`undefined` / 显式 `null`）归一为 null，
+ * **显式提供的非整数原样透传**，由 writer 判「正整数」并拒绝（21 §8:147）。
+ *
+ * 原实现用 `Number.isInteger(v) ? v : null` 分流，会把 `2.5` 静默当「省略」→ 按新轮处理，
+ * 等于让一个非法值拿到了合法结果（21 §8 写的是「正整数」）。
+ */
+export function normalizeRoundIndexArg(raw) {
+  return raw === undefined || raw === null ? null : raw;
+}
+
+/**
  * 正文通道的**换行归一**（2026-10-19 建立，承 workcase-996e207a 三度落盘失败）。
  *
  * ## 为什么需要它
@@ -1201,8 +1228,8 @@ async function executeWriteObject(args, exec, deps) {
           follow_up: ["human must ensure the auditing session's authoritative record is readable, then retry"]
         });
       }
-      const coveredPartitionIds = Array.isArray(args?.covered_partitions) ? args.covered_partitions : null;
-      const roundIndex = Number.isInteger(args?.round_index) ? args.round_index : null;
+      const coveredPartitionIds = normalizeCoveredPartitionsArg(args?.covered_partitions);
+      const roundIndex = normalizeRoundIndexArg(args?.round_index);
       result = await recordWorkcaseAudit({
         factSourceRoot, objectUid, expectedFingerprint, summary, verdict,
         changeSummary, sessionSignature: sig.value, sessionIdentity: auditorIdentity,
@@ -1394,7 +1421,7 @@ function parameterSchemaFor(operationKey) {
       result: { type: "object", description: "[Code-stamped on close] {criteria_checks[], achieved_scope, residual[]} — drafts live in the body 结果 section while open" },
       reviews: {
         type: "array",
-        description: "复核节点概要流水（21 §8）：每次独立复核后追加一项。at 与 provider/model 由 Code 从会话记录托管，AI 不得自填；summary 为结构化概要，每项 ≤ 600 字符、至少含 02 §16 判据七要素（对象/基线/方法/覆盖/未覆盖/发现/保证边界）；复核详情不入对象；条数上限 20，达上限 fail-closed 拒绝新增",
+        description: "复核节点概要流水（21 §8）：每次独立复核后追加一项。at 与 provider/model 由 Code 从会话记录托管，AI 不得自填；summary 为结构化概要，整体 ≤ 600 字符（按总长判定，不是每维各 600）、至少含 02 §16 判据七要素（对象/基线/方法/覆盖/未覆盖/发现/保证边界）；复核详情不入对象；条数上限 20，达上限 fail-closed 拒绝新增",
         items: {
           type: "object",
           properties: {
@@ -1409,7 +1436,7 @@ function parameterSchemaFor(operationKey) {
       },
       pre_reviews: {
         type: "array",
-        description: "建前独立审核的节点概要流水（**审核轴**，21 §8，2026-10-16 建立）：与 reviews 的复核轴分立互不替代。draft 期可行（Gate 1 提请前须至少一条覆盖当前候选）；open/closed 期保留为历史。正常写入通道是 action=record_audit（经 auditor_child_agent_id 回传），本字段在此声明以便整对象 carried write 不被工具面拒绝；at/署名/session_id/auditor_origin/candidate_fingerprint 均由 Code 托管，AI 不得自填。条数上限 20；同一次审核事项（同一 candidate_fingerprint）最多 3 条",
+        description: "建前独立审核的节点概要流水（**审核轴**，21 §8，2026-10-16 建立）：与 reviews 的复核轴分立互不替代。draft 期可行（Gate 1 提请前须至少一条覆盖当前候选）；open/closed 期保留为历史。正常写入通道是 action=record_audit（经 auditor_child_agent_id 回传），本字段在此声明以便整对象 carried write 不被工具面拒绝；at/署名/session_id/auditor_origin/candidate_fingerprint 均由 Code 托管，AI 不得自填。条数上限 20；同一次审核事项**最多 3 轮**（按 `pre_reviews` 中不同 `round_index` 的个数计，含存量条目按落盘顺序折算的轮次；不因 plan/scope 修订或 rebatch 重置，21 §9.2 2026-10-27 口径）——**非「同一 candidate_fingerprint 最多 3 条」**",
         items: {
           type: "object",
           properties: {
@@ -1474,8 +1501,8 @@ function parameterSchemaFor(operationKey) {
     reviewer_child_agent_id: { type: "string", description: "record_review: relay an ISOLATED SUBAGENT's review — REQUIRED (04 §7.3: 受管辖隔离子代理是独立复核的唯一承载形式). Pass its agent id (from a BACKGROUND subagent spawn — a synchronous spawn's id is reclaimed on return and cannot be relayed). The identity and the conclusion text are then taken from the host's own subagent registry (Code-observed, not settable by the caller), so the implementer can neither forge the reviewer's identity nor substitute its own text. Omitting it is refused: recording your own session's review is 主控自查, not 独立复核 — stop and report to Human (00 §5.7) instead." },
     auditor_child_agent_id: { type: "string", description: "record_audit: relay an ISOLATED SUBAGENT's pre-Gate-1 audit — REQUIRED, same mechanism and same rationale as reviewer_child_agent_id (21 §14「建前审核记录」). Pass a BACKGROUND-spawned audit subagent's agent id; the identity and conclusion text are taken from the host's own subagent registry, so the implementer cannot forge the auditor's identity nor substitute its own conclusion. Omitting it is refused — otherwise a self-written audit would satisfy the coverage gate and the gate would be vacuous. This channel acts on status=draft only (the audit axis targets a candidate that has not yet taken effect)." },
     verdict: { type: "string", enum: ["pass", "needs_revision"], description: "record_audit: the audit verdict (21 §8 closed set). The Gate 1 coverage gate accepts ONLY \"pass\"; an unknown or missing value fails closed. `candidate_fingerprint` is computed by Code (same function as gate_1.authorization_fingerprint) and cannot be supplied by the caller — otherwise the「which version was audited」criterion would be handed to the party being judged." },
-    covered_partitions: { type: "array", items: { type: "string" }, description: "record_audit: 本次审核**覆盖的分区 id**（21 §9.2 分区口径：`plan` 每步骤 `plan#N` + `scope` 每条目 `scope:<标签>#N`）。省略即覆盖当前全部分区——与改造前的整份审语义一致，旧调用无须改动。分区指纹由 Code 按当前候选计算，调用方只给 id，不能自填指纹。用于增量审核：只审改动分区，未变分区沿用既有 `pass`。未知 id 一律拒绝（fail closed），因为分区 id 随内容变化。" },
-    round_index: { type: "integer", description: "record_audit: 本次审核属于同一审核事项的**第几轮**（1-based）。省略即由 Code 分配新轮（当前最大轮 + 1）；同一轮的多个**分片**并行审核须传同一个值——轮次上限按不同 `round_index` 计数，故分片不占额外轮次（21 §9.2，2026-10-27 口径）。超过上限即返回 `workcase/pre_gate1_audit_round_cap`。**复用既有轮号不受该上限限制**：三轮用尽后若已就**当前候选**判定通过，可传既有轮号（如 `round_index: 3`）追加一条 `verdict: \"pass\"` 条目——这是规范写明的**达上限后的同轮定向复审出口**（21 §9.2 条末段，2026-11-03 登记），其覆盖闸判定与任何 pass 条目同规格；复用时**须在 `covered_partitions` 声明本次实际审核的分区**，且所据内容须为当前候选（未变分区沿用既有 pass，改动的分区须重审）。Code 不区分「同一轮的分片」与「修订后的定向复审」，该区分属审核者的语义责任（21 §16 边界）。" }
+    covered_partitions: { type: "array", items: { type: "string" }, description: "record_audit: 本次审核**覆盖的分区 id**（21 §9.2 分区口径：`plan` 每步骤 `plan#N` + `scope` 每条目 `scope:<标签>#N`）。省略或传显式 `null` 即覆盖当前全部分区——与改造前的整份审语义一致，旧调用无须改动；**空数组与除 `null` 外的非数组值一律拒绝**（`invalid_request`），不静默当作省略。分区指纹由 Code 按当前候选计算，调用方只给 id，不能自填指纹。用于增量审核：只审改动分区，未变分区沿用既有 `pass`。未知 id 一律拒绝（fail closed），因为分区 id 随内容变化。" },
+    round_index: { type: "integer", description: "record_audit: 本次审核属于同一审核事项的**第几轮**（1-based）。省略即由 Code 分配新轮（当前最大轮 + 1）；同一轮的多个**分片**并行审核须传同一个值——轮次上限按不同 `round_index` 计数，故分片不占额外轮次（21 §9.2，2026-10-27 口径）。超过上限即返回 `workcase/pre_gate1_audit_round_cap`。**复用既有轮号不受该上限限制**：三轮用尽后若已就**当前候选**判定通过，可传既有轮号（如 `round_index: 3`）追加一条 `verdict: \"pass\"` 条目——这是规范写明的**达上限后的同轮定向复审出口**（21 §9.2 条末段，2026-11-03 登记），其覆盖闸判定与任何 pass 条目同规格；复用时**应在 `covered_partitions` 声明本次实际审核的分区（语义义务，非机械门禁——省略即全部分区，机械层不拦截）**，且所据内容须为当前候选（未变分区沿用既有 pass，改动的分区须重审）。Code 不区分「同一轮的分片」与「修订后的定向复审」，该区分属审核者的语义责任（21 §16 边界）。" }
   };
   switch (operationKey) {
     case "workcase-read-object":

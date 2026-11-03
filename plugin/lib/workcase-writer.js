@@ -408,17 +408,20 @@ export const REVIEW_SUMMARY_MAX_CHARS = 600;
 export const REVIEW_ENTRIES_MAX = 20;
 
 /**
- * 21 §9.2「审核结论与主控判断不一致时的处置」：**同一次审核事项**最多 3 次。
+ * 21 §9.2「审核结论与主控判断不一致时的处置」：**同一次审核事项**最多 3 **轮**。
  *
  * 2026-10-27 改口径（Human 决定）：计数单位从「同一候选指纹的条目数」改为
  * 「同一审核事项已用掉的轮次数」（`pre_reviews[].round_index` 的不同值）。
  * 原口径下每轮修订都改 `plan`/`scope`、指纹归零，上限从未触发——实测
  * workcase-996e207a 建前审 6 轮、单指纹最高 2 条。新口径不因修订或
  * `rebatch` 重置；分片并行共享同一 `round_index`，故不占额外轮次。
+ *
+ * **本常量只约束「开启新轮」**。复用既有 `round_index` 不构成新轮、不触发本上限
+ * （Human 决定 2026-11-03：该通道是达上限后的同轮定向复审出口，21 §9.2 条末段）。
+ * 因此重审次数的**事实上界不是本常量**，而是 `REVIEW_ENTRIES_MAX`（20 条）。
  */
-export const PRE_AUDIT_ENTRIES_PER_MATTER_MAX = 3;
 
-/** 21 §9.2（2026-10-27）：同一审核事项的轮次上限（与上一条同值，语义不同：一条数轮次，一条数条目）。 */
+/** 21 §9.2（2026-10-27）：同一审核事项的**轮次**上限——只拒绝开启新轮；复用既有轮号不受限。 */
 export const PRE_AUDIT_ROUNDS_MAX = 3;
 
 /** 03 §7.2 / 21 §8: bounded ordinary content references. */
@@ -2947,7 +2950,7 @@ export async function approveWorkcaseObject(args) {
       + "最可能的原因是这些分区在审核之后被改动（审完又改），或从未被审过。"
       + "正确处置：只对**未覆盖分区**做增量建前独立审核（可拆多片并行，各片经 action=record_audit "
       + "携带 `covered_partitions` 落盘），未变分区无须重审。"
-      + "注意「同一次审核事项最多 3 次」按轮次计（`round_index`），不因修订重置（21 §9.2）。"
+      + "注意「同一次审核事项最多 3 轮」按轮次计（`round_index`），不因修订重置（21 §9.2）。"
       + "若该候选已被审核者判定通过、只是轮次已用尽，可按该条末段**复用既有轮号**补记 pass（2026-11-03 登记）。",
     );
   }
@@ -3426,14 +3429,21 @@ export async function recordWorkcaseAudit(args) {
     coveredPartitions = allPartitions
       .filter((part) => coveredPartitionIds.includes(part.id))
       .map((part) => ({ id: part.id, fingerprint: part.fingerprint }));
-  } else if (Array.isArray(coveredPartitionIds)) {
+  } else if (coveredPartitionIds === null || coveredPartitionIds === undefined) {
+    // 只有「确实未提供」才取全部分区（2026-10-27 前的整体形态语义）。
+    coveredPartitions = allPartitions.map((part) => ({ id: part.id, fingerprint: part.fingerprint }));
+  } else {
+    // **任何其它形态一律拒绝**：空数组、非数组（字符串/数字/对象）。
+    // 2026-11-03 复审发现：原实现把「非数组」落到 else 取全部分区，而空数组反而被拒——
+    // 更畸形的入参拿到更宽松的结果（fail-open），审核者写错一个括号就得到自己从未
+    // 声明的全分区覆盖，且落盘上看不出来。与 21 §15.1「不静默忽略、不降级」直接冲突。
     return failure(
       "invalid_request",
       "covered_partitions: when supplied it must be a non-empty array of partition ids "
-      + "(omit the field to cover every current partition — the pre-2026-10-27 whole-candidate semantics)",
+      + `(got ${Array.isArray(coveredPartitionIds) ? "an empty array" : JSON.stringify(coveredPartitionIds)}; `
+      + "omit the field entirely to cover every current partition — the pre-2026-10-27 whole-candidate semantics). "
+      + `当前候选的审核分区为 ${allPartitions.map((part) => part.id).join(", ") || "(none)"}（21 §9.2 分区口径）。`,
     );
-  } else {
-    coveredPartitions = allPartitions.map((part) => ({ id: part.id, fingerprint: part.fingerprint }));
   }
 
   // ---- 轮次分配与上限（21 §9.2，2026-10-27 口径）------------------------
@@ -3469,13 +3479,13 @@ export async function recordWorkcaseAudit(args) {
     return failure(
       "workcase/pre_gate1_audit_round_cap",
       `建前审核已就本审核事项用掉 ${usedRounds.size} 轮（上限 ${PRE_AUDIT_ROUNDS_MAX}），本次将开启第 ${assignedRound} 轮 —— `
-      + "拒绝（21 §9.2「同一次审核事项最多 3 次」；2026-10-27 口径：按轮次计，不因修订或 rebatch 重置）。"
+      + "拒绝（21 §9.2「同一次审核事项最多 3 轮」；2026-10-27 口径：按轮次计，不因修订或 rebatch 重置）。"
       + "分片并行不占额外轮次（同一轮共享 `round_index`）。对象保持 `draft`，"
       + "**停止自动循环并提请 Human 裁决**（改方案收敛、改对象承载或放弃建单）。"
       + "**本轮拒绝只否「开启新轮」，不否「复用既有轮号」**：若审核者已就**当前候选**判定通过，"
       + "可传既有轮号（如 `round_index: 3`）追加一条 `verdict=pass` 条目，覆盖闸判定与任何 pass 条目同规格——"
       + "这是 21 §9.2 条末段写明的**达上限后的同轮定向复审出口**（2026-11-03 登记），"
-      + "复用时须在 `covered_partitions` 声明本次实审分区，且所据内容须为当前候选。",
+      + "复用时**应**在 `covered_partitions` 声明本次实审分区（语义义务，非机械门禁——省略即全部分区），且所据内容须为当前候选。",
     );
   }
   if (existing.length >= REVIEW_ENTRIES_MAX) {
