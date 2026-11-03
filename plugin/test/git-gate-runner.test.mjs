@@ -6,9 +6,9 @@
 // repositories that are cleaned up in withTemp().
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { git, gitOk, initRepo, runNode, runnerPath, VALID_COMMIT_MESSAGE, withTemp } from "./helpers.mjs";
+import { git, gitOk, initRepo, pluginRoot, runNode, runnerPath, VALID_COMMIT_MESSAGE, withTemp } from "./helpers.mjs";
 
 function runnerArgs({ workspaceRoot, worktree, messageFile }) {
 	return [
@@ -18,6 +18,54 @@ function runnerArgs({ workspaceRoot, worktree, messageFile }) {
 		"--worktree", worktree,
 		"--message-file", messageFile,
 	];
+}
+
+/**
+ * pre-commit 入口的参数（09 §5.3 第 6 项 / pre-commit 入口）。
+ *
+ * git 调用 pre-commit 时不传任何参数，提交消息此刻尚不存在，所以这条入口
+ * 没有 --message-file。
+ */
+function preCommitArgs({ workspaceRoot, worktree }) {
+	return [
+		runnerPath,
+		"git-pre-commit",
+		"--workspace-root", workspaceRoot,
+		"--worktree", worktree,
+	];
+}
+
+/**
+ * 一个自足的 lint 面（pre-commit 入口用）。
+ *
+ * pre-commit 会对 lint 面跑一遍全量 eslint，所以这个面的内容必须与被测
+ * 行为无关：若把 lint 面指向插件根，任何人正在编辑的插件文件一旦有 lint
+ * 错误，本组用例就会因为一个无关理由变红。故此建一个最小 lint 面：自己的
+ * eslint.config.js、一个必定干净的 lib 文件，以及指向插件已装 eslint 的
+ * 符号链接（runner 只要求 <root>/node_modules/eslint/bin/eslint.js 存在）。
+ */
+async function lintWorkspace(base) {
+	const root = join(base, "lint-workspace");
+	await mkdir(join(root, "lib"), { recursive: true });
+	await mkdir(join(root, "node_modules"), { recursive: true });
+	await writeFile(join(root, "eslint.config.js"), "export default [];\n");
+	await writeFile(join(root, "lib", "placeholder.js"), "export const lintSurfacePlaceholder = true;\n");
+	try {
+		// Windows 上建目录链接不需要管理员权限，普通符号链接需要，故分平台取型。
+		await symlink(join(pluginRoot, "node_modules", "eslint"), join(root, "node_modules", "eslint"), process.platform === "win32" ? "junction" : "dir");
+	} catch {
+		// 建不了链接就退回插件根作为 lint 面：功能正常，但会连带扫描整个插件。
+		return pluginRoot;
+	}
+	return root;
+}
+
+/**
+ * pre-commit 的环境：lint 面指向自足工作区（见 lintWorkspace），其余环境
+ * 继承（git 需要 PATH 与 HOME）。
+ */
+function preCommitEnv(lintRoot) {
+	return { ...process.env, LDVH_WORKSPACE_ROOT: lintRoot };
 }
 
 test("rejects an unsupported runner command", async () => {
@@ -404,5 +452,65 @@ test("no declaration means no check (narrow by design)", async () => {
 
 		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
 		assert.equal(result.code, 0, result.stderr);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pre-commit 入口的承重声明检查（09 §5.3 第 6 项 / pre-commit 入口）
+//
+// 来历：mainPreCommit 曾以两个参数调用 runSharedChecks，承重声明检查的
+// 豁免集由消息构造，空消息下豁免集恒空 ⇒ pre-commit 拒绝任何删除/削削
+// 承重声明的提交（假拒绝），而同一提交走 commit-msg 却能通过——09 §5.3
+// 第 6 项写明的唯一放行条件在 pre-commit 结构上不可达。
+//
+// 这三条用例守住修复后的边界：pre-commit 显式跳过消息形状的检查（消息
+// 此刻不存在），commit-msg 一刻也不放松。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 一个已提交承重声明、候选里整条声明被删除的仓库（09 §5.3 第 6 项）。 */
+async function declarationRemovalRepo(base) {
+	const root = await committedDeclarationRepo(base);
+	await writeFile(join(root, "specs", "01-test.md"), declarationFile("已完成").replace(MARKER, ""));
+	await gitOk(root, ["add", "-A"]);
+	return root;
+}
+
+test("pre-commit 不因删除承重声明而拒绝（09 §5.3 第 6 项 / pre-commit 入口）", async () => {
+	await withTemp("ldvh-ggr-precommit.", async (base) => {
+		const root = await declarationRemovalRepo(base);
+		const lintRoot = await lintWorkspace(base);
+
+		const result = await runNode(
+			preCommitArgs({ workspaceRoot: base, worktree: root }),
+			{ env: preCommitEnv(lintRoot) }
+		);
+		assert.equal(result.code, 0, result.stderr);
+		assert.match(result.stderr, /LDVH Git Gate \(pre-commit\) passed/);
+	});
+});
+
+test("同一条删声明的提交走 commit-msg 仍被拒（09 §5.3 第 6 项 / commit-msg 入口不放宽）", async () => {
+	await withTemp("ldvh-ggr-precommit-msg.", async (base) => {
+		const root = await declarationRemovalRepo(base);
+		const messageFile = join(root, "msg.txt");
+		// 消息里没有任何可解析的引用 ⇒ 豁免集为空 ⇒ 承重声明检查必须拒绝。
+		await writeFile(messageFile, declarationMessage("specs/01-test.md: 移除对齐行（无独立复核引用）"));
+
+		const result = await runNode(runnerArgs({ workspaceRoot: base, worktree: root, messageFile }));
+		assert.equal(result.code, 1, result.stderr);
+		assert.match(result.stderr, /validation\/load_bearing_declaration_removed/);
+	});
+});
+
+test("pre-commit 不再因豁免集为空而误报删声明（09 §5.3 第 6 项 / pre-commit 入口 / 规则名不出现）", async () => {
+	await withTemp("ldvh-ggr-precommit-rule.", async (base) => {
+		const root = await declarationRemovalRepo(base);
+		const lintRoot = await lintWorkspace(base);
+
+		const result = await runNode(
+			preCommitArgs({ workspaceRoot: base, worktree: root }),
+			{ env: preCommitEnv(lintRoot) }
+		);
+		assert.doesNotMatch(result.stderr, /validation\/load_bearing_declaration_removed/);
 	});
 });

@@ -350,8 +350,35 @@ async function changedPathStatuses(worktree, indexFile) {
  * check at the commit seam (rather than in the writer) is that EVERY write path
  * passes through it, and that guarantee evaporates the moment the two Hooks
  * run different check lists.
+ *
+ * `message` is `null` at the pre-commit entrypoint, and that is a POSITION, not
+ * a missing argument: git invokes pre-commit with no arguments, so the message
+ * does not exist yet at that point in the commit's life. The three message-shaped
+ * checks below are therefore SKIPPED there, explicitly — see `hasMessage`. They
+ * are not skipped because someone forgot to pass the value; they are skipped
+ * because there is no value to pass.
+ *
+ * MEASURED FAILURE THIS FIXES (2026-11-03): mainPreCommit used to call this with
+ * two arguments. Every check above read `message ?? ""`, so nothing crashed and
+ * nothing looked wrong — but the load-bearing exemption set is built from
+ * `collectDeclarationReferenceTokens(message ?? "")`, which returns `[]` for an
+ * empty message, so the exemption set was ALWAYS empty. Result: pre-commit
+ * refused EVERY commit that removed or stripped a declaration, no matter what
+ * reference the message carried, while commit-msg accepted the very same commit.
+ * 09 §5.3 item 6's only stated release condition was structurally unreachable at
+ * the earlier Hook. Both directions of that seam were wrong at once, in
+ * opposite senses: the declaration check was a false REFUSAL, and the docs
+ * reference check below was a false PASS (its carrier list is derived from the
+ * message, so an empty message scanned zero carriers). The empty string was
+ * doing double duty as "no message available" and "a message that says nothing".
  */
 async function runSharedChecks(root, indexFile, message) {
+  // A `null` message means the entrypoint has no message to offer. An empty
+  // string is a message that happens to be empty — it must still reach the
+  // checks, because "the message failed to say what it had to say" is a
+  // verdict only the checks can reach. Collapsing the two is what produced the
+  // false refusal described above.
+  const hasMessage = typeof message === "string";
   // Drop the read memo first: this is the only entry point into the checks, so
   // a fresh Map per run guarantees no answer outlives the Index/HEAD state it
   // was read from.
@@ -432,11 +459,22 @@ async function runSharedChecks(root, indexFile, message) {
   // this commit adds or modifies must not reference a docs/ path that does not
   // exist. Only NEW dangling references block — pre-existing ones are cleaned
   // up gradually per the Human's instruction and must not stop commits.
-  const changedCarriers = await collectChangedCarriers(root, message ?? "", diff, indexFile);
-  if (changedCarriers.length > 0) {
-    const candidatePaths = await candidateTreePaths(root, indexFile);
-    const docsRefs = checkDocsReferences(changedCarriers, { exists: (p) => candidatePaths.has(p) });
-    if (!docsRefs.ok) issues.push(...docsRefs.issues);
+  //
+  // SKIPPED at pre-commit (no message ⇒ no carrier list). `collectChangedCarriers`
+  // derives its paths from `checkKeyChangesAgainstDiff(message, diff)`, which
+  // returns no `changedPaths` at all when the message has no usable 关键变更
+  // section — so with a null message this block scanned zero carriers and
+  // passed. That was a fail-OPEN accident (see the header). It stays skipped
+  // here by DECISION, not by accident: wiring this check onto the message-free
+  // path list would EXTEND a rule into a Hook that never enforced it, which is
+  // a 00 §4.2 decision for the Human, not a repair. commit-msg still runs it.
+  if (hasMessage) {
+    const changedCarriers = await collectChangedCarriers(root, message, diff, indexFile);
+    if (changedCarriers.length > 0) {
+      const candidatePaths = await candidateTreePaths(root, indexFile);
+      const docsRefs = checkDocsReferences(changedCarriers, { exists: (p) => candidatePaths.has(p) });
+      if (!docsRefs.ok) issues.push(...docsRefs.issues);
+    }
   }
 
   // 01 §7 末段 + 09 §5.3 item 6 (Human 2026-10-15): a load-bearing declaration
@@ -444,20 +482,29 @@ async function runSharedChecks(root, indexFile, message) {
   // commit carrying a resolvable independent-review reference. The rule exists
   // because a declaration was once withdrawn on the strength of "the examples I
   // named are done" while six further residues were still present.
+  //
+  // SKIPPED at pre-commit, and this skip is the whole point of the fix: the
+  // check cannot form its exemption set without a message, and running it
+  // anyway refuses everything. commit-msg runs it a moment later, so a
+  // declaration removal is still blocked unless the message earns the release.
   const declarations = await collectLoadBearingDeclarations(root, correspondence.changedPaths ?? [], indexFile);
-  if (declarations.carriers.length > 0 || declarations.unreadable.length > 0) {
+  if (hasMessage && (declarations.carriers.length > 0 || declarations.unreadable.length > 0)) {
     const resolvable = new Set();
-    for (const token of collectDeclarationReferenceTokens(message ?? "")) {
+    for (const token of collectDeclarationReferenceTokens(message)) {
       if (await referenceResolvable(root, indexFile, token, declarations.knownPaths)) resolvable.add(token);
     }
-    const outcome = checkLoadBearingDeclarations(declarations.carriers, { message: message ?? "", resolvable, unreadable: declarations.unreadable });
+    const outcome = checkLoadBearingDeclarations(declarations.carriers, { message, resolvable, unreadable: declarations.unreadable });
     if (!outcome.ok) issues.push(...outcome.issues);
   }
 
   // 09 §5.3 item 7 (Human 决定 2026-10-15): 以「§7.2 违规」为由删除规范内容时，消息
   // 须携带逐字引用 §7.2 原文的声明，且该引用须在当次 §7.2 文本中逐字存在。来历见
   // commit-validation.js 的说明；强度边界为「只在自愿申报时生效」。
-  if (collectRemovalBasisDeclarations(message ?? "").length > 0) {
+  //
+  // SKIPPED at pre-commit: the trigger IS a message declaration, so with no
+  // message there is nothing to declare and nothing to verify. Narrow by
+  // design (only self-declared bases are checked), so this skip loses nothing.
+  if (hasMessage && collectRemovalBasisDeclarations(message).length > 0) {
     // HEAD 与候选两版并集：本次提交可能正是要删掉被引的那句（那样它不在候选里），
     // 而本项抓的是**编造判据**——两版都没有即引用不成立。
     const sections = [];
@@ -470,7 +517,7 @@ async function runSharedChecks(root, indexFile, message) {
     } catch {
       sections.push(null); // fail-closed: a declared basis that cannot be verified blocks
     }
-    const basis = checkRemovalBasisDeclarations({ message: message ?? "", sectionTexts: sections });
+    const basis = checkRemovalBasisDeclarations({ message, sectionTexts: sections });
     if (!basis.ok) issues.push(...basis.issues);
   }
 
@@ -525,6 +572,13 @@ async function runCommitMsgChecks(argv) {
  * (key-change correspondence, load-bearing declarations, removal basis) is
  * absent here — not forgotten, structurally unavailable. commit-msg runs the
  * full list a moment later.
+ *
+ * `null` (not `""`) is what says so, and the difference is load-bearing: it is
+ * the argument through which `runSharedChecks` decides to SKIP the message-shaped
+ * checks rather than run them against a message that does not exist. Passing an
+ * empty string instead does not "skip" them — it runs them on a message that
+ * cannot carry anything, which turned the load-bearing check into an unconditional
+ * refusal (see `runSharedChecks`).
  */
 async function mainPreCommit(argv) {
   const workspaceRoot = valueAfter(argv, "--workspace-root");
@@ -532,7 +586,7 @@ async function mainPreCommit(argv) {
   const indexFile = valueAfter(argv, "--index-file");
   if (![workspaceRoot, worktree].every((value) => typeof value === "string" && isAbsolute(value))) throw new Error("workspace-root and worktree must be absolute paths");
   const root = resolve(worktree);
-  const issues = [...(await runSharedChecks(root, indexFile)).issues];
+  const issues = [...(await runSharedChecks(root, indexFile, null)).issues];
   // The lint surface is the PLUGIN's workspace (where eslint.config.js and
   // node_modules live), not the governed project — the same split commit-msg
   // already makes by receiving --workspace-root separately from --worktree.
