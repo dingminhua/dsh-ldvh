@@ -3812,6 +3812,7 @@ export async function closeWorkcaseObject(args) {
   const {
     factSourceRoot, objectUid, expectedFingerprint,
     outcome, result, changeSummary, bodyMarkdownAfter, sessionSignature = null,
+    humanAuthorization = null,
   } = args;
   const sig = requireAuthoritativeSignature(sessionSignature);
   if (!sig.ok) return failure(sig.code, sig.message);
@@ -3849,6 +3850,41 @@ export async function closeWorkcaseObject(args) {
       + "close: hold the workcase open and hand back to Human (21 §18). "
       + "The 结果 body section or a conversational statement does not substitute for a reviews entry.",
     );
+  }
+
+  // **Gate 2 前置条件五（2026-11-04 补，Human 指出）：复核已达 §9.1 上限时，
+  // 关闭须带 Human 授权记录，不得由 AI 自行推进终态。**
+  //
+  // 为什么需要这一闸：§9.1 明写「3 次后仍不一致时**停止自动循环并提请 Human 裁决**，
+  // 不得发起第 4 次」，且「达上限时对象保持 `open`」。但此前 `close` **不要求任何
+  // Human 授权参数**——于是 AI 在复核达上限后可以径自调用 `close` 把对象推到终态，
+  // 「提请 Human 裁决」这一步在机械上根本没有落点。
+  //
+  // 实测（`workcase-6588d816`，2026-11-04）：三轮回核后我未等 Human 裁决即直接
+  // `close`，且当时连复核上限本身都没被机械拦（那是同日另一处修复）。两个缺口叠加，
+  // 使「达上限 ⇒ 交 Human」在实现上完全落空。
+  //
+  // **为什么挂在「已达上限」这一个条件下**（而不是要求所有 close 都带授权）：
+  // 未达上限的关闭是常规路径，§9.1 并未要求 Human 逐单裁决；只有**达上限**这一
+  // 状态才把「须 Human 裁决」写成明文要求。把授权要求扩到所有关闭会为一个规范
+  // 未要求的场合加门禁，那是另一种偏差。
+  //
+  // **本闸的保证边界（不得作过度声明）**：它与 `decide_adjustment` 的
+  // `humanAuthorization` 同规格——它是**调用方提供的自报文本**，其存在与内容
+  // **不构成 Human 真的授权过的证明**（工具面无法证明调用者是 Human）。
+  // 它保证的是「没有转述的批准时，达上限的关闭在机械上不可发生」，
+  // 而不是「授权不可伪造」。
+  const reviewRounds = Array.isArray(fm.reviews) ? fm.reviews.length : 0;
+  if (reviewRounds >= REVIEW_ROUNDS_MAX) {
+    if (typeof humanAuthorization !== "string" || humanAuthorization.trim().length === 0) {
+      return failure(
+        "workcase/review_round_cap_human_required",
+        `本单已记录 ${reviewRounds} 次独立复核（21 §9.1 上限 ${REVIEW_ROUNDS_MAX}）——达上限后关闭须带 Human 授权记录，`
+        + "不得由 AI 自行推进终态。请先在对话中取得 Human 的明确裁决，再把该裁决作为 `humanAuthorization` 传入"
+        + "（谁／何时／覆盖什么）。§9.1：「3 次后仍不一致，停止自动循环并提请 Human 裁决」。"
+        + "**本字段是自报文本，不构成 Human 真的批准过的证明**——它只保证没有转述的批准时该关闭机械上不可发生。",
+      );
+    }
   }
 
   // Gate 2 前置条件之三（21 §14 增量审批，Human 裁定 2026-09-30）：

@@ -5026,7 +5026,11 @@ test("record_review: 拒绝第 4 次（21 §9.1 同一次复核事项最多 3 �
   });
 });
 
-test("record_review: 达上限后仍可 close（该上限只拦复核，不拦关闭）", async () => {
+// **2026-11-04 修正**：本用例原先断言「达上限后仍可 close」，那反映了一个**错误认知**——
+// 当时我以为「复核上限只拦复核、不拦关闭」，于是达 3 次后可以径自关闭。
+// Human 指出：规范里「审核通过」进入的是 Gate 2（交 Human 裁决），不是自动关闭。
+// `close` 现在在复核达上限时**要求 Human 授权记录**，故本用例改为验证该要求。
+test("record_review: 达上限后 close 须带 Human 授权（不是「可径自关闭」）", async () => {
   await withTemp("workcase-writer.", async (root) => {
     await seedGoal(root);
     const appr = await approved(root);
@@ -5044,7 +5048,84 @@ test("record_review: 达上限后仍可 close（该上限只拦复核，不拦�
       bodyMarkdownAfter: stripH1(fm.value.body) + "\n\n## 结果\n\n- 达成：测试用。\n\n### 残留去向\n\n- residual:\n  - 测试用残留（partial 必须有非空残留，21 §9.3）\n    - **接受现状**：测试用去向。",
       changeSummary: "达 3 次复核上限后按 Human 裁决关闭",
       sessionSignature: SIG(),
+      humanAuthorization: "Human 2026-11-04 指令「这个 wc 先进入 Gate 2」（自报文本，不构成批准证明）",
     });
-    assert.ok(closed.ok, `达上限不应阻塞关闭：${JSON.stringify(closed.error)}`);
+    assert.ok(closed.ok, `达上限且已带 Human 授权，应允许关闭：${JSON.stringify(closed.error)}`);
+  });
+});
+
+test("close: 复核已达 3 次上限时，缺 Human 授权 → 拒绝（不得由 AI 推进终态）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    await recordReviewTimes(root, appr.uid, 3);
+    const fm = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    const closed = await closeWithProposal({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      outcome: "partial",
+      result: {
+        achieved_scope: "测试用",
+        criteria_checks: fm.value.frontmatter.plan.map(() => ({ satisfied: true, evidence: "测试用证据" })),
+        residual: ["测试用残留"],
+      },
+      bodyMarkdownAfter: stripH1(fm.value.body) + "\n\n## 结果\n\n- 达成：测试用。\n\n### 残留去向\n\n- residual:\n  - 测试用残留\n    - **接受现状**：测试用去向。",
+      changeSummary: "达上限但未给 Human 授权，应被拒",
+      sessionSignature: SIG(),
+      // 故意不传 humanAuthorization
+    });
+    assert.ok(!closed.ok, "达上限后无 Human 授权必须拒绝关闭");
+    assert.equal(closed.error.code, "workcase/review_round_cap_human_required");
+    assert.match(closed.error.message, /Human/, "拒绝文案须指向 Human 裁决");
+    const after = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    assert.equal(after.value.frontmatter.status, "open", "被拒后对象保持 open");
+  });
+});
+
+test("close: 复核已达 3 次上限时，带 Human 授权 → 允许关闭", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    await recordReviewTimes(root, appr.uid, 3);
+    const fm = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    const closed = await closeWithProposal({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      outcome: "partial",
+      result: {
+        achieved_scope: "测试用",
+        criteria_checks: fm.value.frontmatter.plan.map(() => ({ satisfied: true, evidence: "测试用证据" })),
+        residual: ["测试用残留"],
+      },
+      bodyMarkdownAfter: stripH1(fm.value.body) + "\n\n## 结果\n\n- 达成：测试用。\n\n### 残留去向\n\n- residual:\n  - 测试用残留\n    - **接受现状**：测试用去向。",
+      changeSummary: "达上限并给出 Human 授权，允许关闭",
+      sessionSignature: SIG(),
+      humanAuthorization: "Human 2026-11-04 明确指令「这个 wc 先进入 Gate 2」——本记录为自报文本，不构成批准证明",
+    });
+    assert.ok(closed.ok, `带授权应允许关闭：${JSON.stringify(closed.error)}`);
+  });
+});
+
+test("close: 未达上限（仅 1 次复核）不要求 Human 授权（常规路径不误伤）", async () => {
+  await withTemp("workcase-writer.", async (root) => {
+    await seedGoal(root);
+    const appr = await approved(root);
+    await recordReviewTimes(root, appr.uid, 1);
+    const fm = await readWorkcaseObject({ factSourceRoot: root, objectUid: appr.uid });
+    const closed = await closeWithProposal({
+      factSourceRoot: root,
+      objectUid: appr.uid,
+      outcome: "partial",
+      result: {
+        achieved_scope: "测试用",
+        criteria_checks: fm.value.frontmatter.plan.map(() => ({ satisfied: true, evidence: "测试用证据" })),
+        residual: ["测试用残留"],
+      },
+      bodyMarkdownAfter: stripH1(fm.value.body) + "\n\n## 结果\n\n- 达成：测试用。\n\n### 残留去向\n\n- residual:\n  - 测试用残留\n    - **接受现状**：测试用去向。",
+      changeSummary: "未达上限的常规关闭",
+      sessionSignature: SIG(),
+      // 不传 humanAuthorization——未达上限不该要求
+    });
+    assert.ok(closed.ok, `未达上限不应要求授权：${JSON.stringify(closed.error)}`);
   });
 });
