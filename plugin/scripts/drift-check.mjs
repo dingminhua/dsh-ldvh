@@ -19,6 +19,7 @@ import { promisify } from "node:util";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { classifyTestRun, RUN_TERMINAL } from "../lib/test-run-report.js";
+import { decideMutationRestore } from "../lib/concurrent-write-guard.js";
 
 const run = promisify(execFile);
 const PLUGIN = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -63,12 +64,49 @@ async function driftVerdict(label) {
 	return [r.failed > 0 ? "被抓住" : "**未报警**", label, r.evidence];
 }
 
+// ---------------------------------------------------------------------------
+// 在途改动守卫（2026-11-04，与 mutation-check 同一判据、同一模块）
+//
+// 本脚本会**真的改写 specs/ 与 ldvh-base/ 下的载体**，跑完再按备份还原。这与
+// `mutation-check.mjs` 是同一形态的风险面（friction-68e6f33e）：本仓 dev 是
+// 多代理共享的同一工作树，运行期间他人在这些载体上的改动会被无条件还原覆盖。
+//
+// 判据与还原方式完全复用 `lib/concurrent-write-guard.js`：只在「磁盘内容仍是
+// 我们最后写下的那一版」时写回备份；期间被他人改过的一律保留其版本并大声报告。
+// 不在此另写一份——两份实现分叉正是本类缺陷的来源。
+// ---------------------------------------------------------------------------
 const backups = new Map();
+/** 我们最后一次写下的内容（按路径）。用于判定磁盘上这一版是否还是我们的。 */
+const writtenByUs = new Map();
+const concurrentTouched = new Set();
+
 async function backup(path) {
 	if (!backups.has(path)) backups.set(path, await readFile(path, "utf8"));
 }
+
+/** 写一个受守卫的载体：先判归属，再写，并记下自己写的这一版。 */
+async function writeGuarded(path, text) {
+	const current = await readFile(path, "utf8").catch(() => null);
+	const last = writtenByUs.get(path) ?? backups.get(path) ?? null;
+	if (!decideMutationRestore({ currentContent: current, lastWrittenContent: last }).ok) {
+		concurrentTouched.add(path);
+		throw new Error(`${path} 在本次运行期间被其它会话改写——不覆盖他人改动`);
+	}
+	await writeFile(path, text, "utf8");
+	writtenByUs.set(path, text);
+}
+
 async function restoreAll() {
-	for (const [path, text] of backups) await writeFile(path, text, "utf8");
+	for (const [path, text] of backups) {
+		const current = await readFile(path, "utf8").catch(() => null);
+		if (!decideMutationRestore({ currentContent: current, lastWrittenContent: writtenByUs.get(path) ?? text }).ok) {
+			console.error(`!! 未还原：${path} 在本次运行期间被其它会话改写——保留磁盘上的版本，请人工核对`);
+			concurrentTouched.add(path);
+			continue;
+		}
+		await writeFile(path, text, "utf8");
+		writtenByUs.set(path, text);
+	}
 }
 
 const results = [];
@@ -82,26 +120,37 @@ try {
 	// —— 变动 2：修改规范内容（字段改名）——
 	await backup(ADR);
 	await backup(PITFALL);
-	await writeFile(ADR, (await readFile(ADR, "utf8")).replaceAll("trigger_signal", "trigger_sig"), "utf8");
-	await writeFile(PITFALL, (await readFile(PITFALL, "utf8")).replaceAll("trigger_signal", "trigger_sig"), "utf8");
+	await writeGuarded(ADR, (await readFile(ADR, "utf8")).replaceAll("trigger_signal", "trigger_sig"));
+	await writeGuarded(PITFALL, (await readFile(PITFALL, "utf8")).replaceAll("trigger_signal", "trigger_sig"));
 	results.push(["② 修改规范：frontmatter 字段改名", ...(await driftVerdict("改动 22/23 的 trigger_signal"))]);
 	await restoreAll();
 
 	// —— 变动 3：新增事实类型规范 ——
+	//
+	// **新建文件同样要判归属**：若该路径已存在，说明有人已经在用它（并行会话、
+	// 或上一次异常退出的残留），此时既不得覆盖、也不得在收尾 `rm` 掉别人的文件。
+	// 判据同 writeGuarded：不存在才允许创建。存在即记为在途改动并跳过本项——
+	// 跳过是**不可用**，不是「未报警」。
 	const NEW_SPEC = join(SPECS, "98-TestNewType.md");
-	await writeFile(
-		NEW_SPEC,
-		// 须写成**真实类型规范的形态**：在表格里声明自己的 `fact_type_key` 短名。
-		// 只写一段普通正文的话，漂移检查判据会（正确地）不把它当类型规范。
-		"---\nldvh_spec:\n  spec_key: \"t98\"\n  spec_id: \"98\"\n  spec_kind: \"spec\"\n  title: \"测试新类型\"\n  canonical_path: \"specs/98-TestNewType.md\"\n  scope: \"测试\"\n---\n# 测试新类型\n\n## 1. 身份与载体\n\n| 字段 | 值 |\n| --- | --- |\n| `fact_type_key` | `testnewthing` |\n",
-		"utf8",
-	);
-	results.push(["③ 新增事实类型规范", ...(await driftVerdict("新增 specs/98-…"))]);
-	await rm(NEW_SPEC, { force: true });
+	const newSpecExists = (await readFile(NEW_SPEC, "utf8").catch(() => null)) !== null;
+	if (newSpecExists) {
+		concurrentTouched.add(NEW_SPEC);
+		results.push(["③ 新增事实类型规范", "**在途改动**", `跳过：${NEW_SPEC} 已存在，不覆盖他人文件`]);
+	} else {
+		await writeFile(
+			NEW_SPEC,
+			// 须写成**真实类型规范的形态**：在表格里声明自己的 `fact_type_key` 短名。
+			// 只写一段普通正文的话，漂移检查判据会（正确地）不把它当类型规范。
+			"---\nldvh_spec:\n  spec_key: \"t98\"\n  spec_id: \"98\"\n  spec_kind: \"spec\"\n  title: \"测试新类型\"\n  canonical_path: \"specs/98-TestNewType.md\"\n  scope: \"测试\"\n---\n# 测试新类型\n\n## 1. 身份与载体\n\n| 字段 | 值 |\n| --- | --- |\n| `fact_type_key` | `testnewthing` |\n",
+			"utf8",
+		);
+		results.push(["③ 新增事实类型规范", ...(await driftVerdict("新增 specs/98-…"))]);
+		await rm(NEW_SPEC, { force: true });
+	}
 
 	// —— 变动 4：修改某类型的状态闭集 ——
 	await backup(SPARK);
-	await writeFile(SPARK, (await readFile(SPARK, "utf8")).replace("默认候选只包含 open Spark", "默认候选只包含 pending Spark"), "utf8");
+	await writeGuarded(SPARK, (await readFile(SPARK, "utf8")).replace("默认候选只包含 open Spark", "默认候选只包含 pending Spark"));
 	results.push(["④ 修改事实类型：状态闭集变更", ...(await driftVerdict("Spark 的 open→pending"))]);
 	await restoreAll();
 
@@ -128,8 +177,17 @@ for (const [name, verdict, detail] of results) {
 }
 const missed = results.filter(([, v]) => v === "**未报警**");
 const unusable = results.filter(([, v]) => v === "**未运行**" || v === "**计数不可得**");
-console.log(`\n${results.length - missed.length - unusable.length}/${results.length} 种变动能感知到`);
+const inFlight = results.filter(([, v]) => v === "**在途改动**");
+console.log(`\n${results.length - missed.length - unusable.length - inFlight.length}/${results.length} 种变动能感知到`);
 if (missed.length > 0) process.exitCode = 1;
+if (concurrentTouched.size > 0) {
+	// 在途改动 = 本次无法判定（不覆盖、不裁决），与「未运行」同属不可用终态。
+	console.log(
+		`\n${concurrentTouched.size} 个路径在本次运行期间被其它会话占用（${[...concurrentTouched].join("、")}）：` +
+			`涉及它们的变动记为**在途改动**、不覆盖不裁决。等并行会话的改动落定后重跑。`,
+	);
+	process.exitCode = 1;
+}
 if (unusable.length > 0) {
 	// 06 §5 第 3 项：该终态须使**整批结论不可用**——不得把它算进「能感知到」的分子，
 	// 也不得以「X/Y 种能感知到」收尾而隐去这次没测出结论的那几项。

@@ -20,6 +20,7 @@ import { promisify } from "node:util";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { classifyTestRun, RUN_TERMINAL } from "../lib/test-run-report.js";
+import { decideMutationWrite, decideMutationRestore } from "../lib/concurrent-write-guard.js";
 
 const run = promisify(execFile);
 const PLUGIN = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -31,6 +32,7 @@ const HM = join(PLUGIN, "lib", "hook-manager.js");
 const GGR = join(PLUGIN, "lib", "git-gate-runner.js");
 const WM = join(PLUGIN, "lib", "web-mount.js");
 const GB = join(PLUGIN, "lib", "guidance-budget.js");
+const CWG = join(PLUGIN, "lib", "concurrent-write-guard.js");
 const TESTS = [
 	"test/source-recall.test.mjs",
 	"test/recall-injection.test.mjs",
@@ -54,6 +56,10 @@ const TESTS = [
 	// 预算判据**不在**本清单里，故「超预算不拒绝」「预警带恒真」这类破坏
 	// 从来不会被本脚本发现。
 	"test/guidance-budget.test.mjs",
+	// 2026-11-04：在途改动守卫（friction-68e6f33e／451c4a7d 的处置）。该模块守护的
+	// 是 mutation-check **自身**不得覆盖并行会话的在途改动；若它不在清单里，
+	// 「判据恒返回允许」这类破坏永远不会被发现——而那正是本账目的原始失效形态。
+	"test/concurrent-write-guard.test.mjs",
 ];
 
 const MUTATIONS = [
@@ -182,6 +188,16 @@ const MUTATIONS = [
 	[LIB, "L0 只枚举 ADR（事实规范与经验两段缺失）", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\", \"norm\", \"pitfall\"]);", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\"]);"],
 	[LIB, "L0 装填次序颠倒（经验先于事实规范）", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\", \"norm\", \"pitfall\"]);", "export const L0_SEGMENT_ORDER = Object.freeze([\"adr\", \"pitfall\", \"norm\"]);"],
 	[INJ, "L0 让位不留痕迹（静默消失）", "    if ((!hasBaseline && !hasL0) || yieldNoteEmitted) return text;", "    if ((!hasBaseline && !hasL0) || yieldNoteEmitted) return text;\n    if (hasL0) return text;"],
+	// —— 在途改动守卫（2026-11-04 加，friction-68e6f33e／451c4a7d 的处置）——
+	//
+	// 这组守的是「判据不得恒真」——两个方向的恒真都对应一种真实的覆盖形态：
+	// ① 恒允许写 → 他人改动被无条件覆盖（回到原缺陷）；
+	// ② 恒拒绝写 → 首次接触被误判为冲突，整个脚本一跑就全是在途改动
+	//    （守卫变成停机装置）。正向用例（首次接触须允许）专门守 ②。
+	[CWG, "在途判定恒允许（他人改动被覆盖）", "  if (current !== last) {", "  if (false) {"],
+	[CWG, "首次接触被判为冲突（守卫变成停机装置）", "  if (last === null) return { ok: true, ownsWrite: true };", "  if (last === null) return { ok: false, code: \"concurrent-write/detected\", reason: \"x\" };"],
+	[CWG, "文件消失与内容被改写混同", "  if (current === null) {", "  if (false) {"],
+	[CWG, "还原侧另立一份实现（两侧口径分叉）", "export const decideMutationRestore = decideMutationWrite;", "export const decideMutationRestore = (x) => ({ ok: true, ownsWrite: true, ...x });"],
 ];
 
 /**
@@ -201,13 +217,79 @@ async function classifyRun() {
 	}
 }
 
-const originals = new Map();
-for (const file of new Set(MUTATIONS.map(([f]) => f))) originals.set(file, await readFile(file, "utf8"));
+// ---------------------------------------------------------------------------
+// 在途改动守卫（2026-11-04，处置 friction-68e6f33e / friction-451c4a7d）
+//
+// ## 缺陷：快照 + 无条件还原 = 静默丢弃他人在途改动
+//
+// 本脚本对每个受变异文件在**启动时**读一次快照（`originals`），每施加一条变异前
+// 先写回这份快照「复位」，全部跑完再无条件按快照还原。三个阶段都假定「磁盘上的
+// 这份文件自本脚本启动起只由本脚本改动」——而本仓 dev 是多代理共享的同一工作树，
+// 并行会话（或用户本人）会在运行期间编辑同一批源码。
+//
+// 实测后果（friction-68e6f33e，count 15；friction-451c4a7d，count 6）：
+// - 运行期间他人在 `lifecycle.js` 的改动被下一轮「复位」直接抹掉，且无任何提示；
+// - 他人在 `source-recall.js` / `recall-injection.js` 的在途改动使 4 条召回用例
+//   转红，而失败被读成「本次改动的回归」；
+// - 结束时的无条件还原把**整个运行期间**落盘的他人改动一并回滚。
+//
+// ## 修法：把「还原」从「按快照覆盖」改为「条件还原」
+//
+// 1. **施加变异前**读一次**基线**（不是启动时那份）：该文件只有在「此刻内容 ==
+//    我们上次写下的内容」时才允许覆盖。否则说明磁盘上的版本已不是我们的，
+//    本文件整组变异记为**不可用（在途改动）**并跳过——不覆盖、不裁决。
+// 2. **还原时**同样比对「磁盘内容 == 我们最后一次写下的内容」，只还原自己的。
+//    若期间他人改过，保留他人版本并如实报告，绝不回滚。
+// 3. 不 import 任何 git 库、不跑 `git status`：判据是内容比对，比「脏/不脏」更精确
+//    ——未跟踪文件的旁支改动不会被误判成「有人在改我这份」。
+//
+// **边界（如实声明）**：本守卫只防「本脚本覆盖他人改动」。它不能防「他人在两次
+// 检查之间的毫秒级竞态」（读与写之间仍有一个窗口，只是从整轮缩到一个 writeFile），
+// 也不检测他人改动是否使某条变异「碰巧被抓住」——那种情形下变异仍然有效，
+// 只是归因不再唯一，属运行环境事实，机械层不判。
+// ---------------------------------------------------------------------------
+
+const mutatedFiles = [...new Set(MUTATIONS.map(([f]) => f))];
+
+/** 运行前各文件的原文（首次接触时读取）——还原目标，也是每条变异的施加基底。 */
+const baselineOf = new Map();
+
+/** 我们最后一次写下的内容（按文件）。用于判断「磁盘上的这一版是否还是我们的」。 */
+const writtenByUs = new Map();
+
+/** 读文件当前内容；不存在时返回 null（新建文件不属本脚本的写入面）。 */
+async function currentContentOf(file) {
+	try {
+		return await readFile(file, "utf8");
+	} catch (e) {
+		if (e?.code === "ENOENT") return null;
+		throw e;
+	}
+}
 
 const rows = [];
+const concurrentTouched = new Set();
 try {
 	for (const [file, name, from, to] of MUTATIONS) {
-		const base = originals.get(file);
+		const current = await currentContentOf(file);
+		const last = writtenByUs.get(file);
+		// 首次接触该文件：此刻磁盘上的内容就是基线（可能带着他人未提交的改动——
+		// 那正是运行前的真实状态，必须原样还原回去）。
+		if (last === undefined) {
+			baselineOf.set(file, current);
+		} else if (!decideMutationWrite({ currentContent: current, lastWrittenContent: last }).ok) {
+			// 之后每次接触，磁盘内容必须仍是**我们上次写下的**。不是了 ⇒ 有人在
+			// 本次运行期间改过这份文件。此时既不覆盖也不裁决，把该文件余下的变异
+			// 全部记为不可用——「测了但没有可用判定」不得读成「存活」。
+			concurrentTouched.add(file);
+			rows.push([name, "**在途改动**", 0, `跳过：${file} 在本次运行期间被其它会话改写，不覆盖、不裁决`]);
+			continue;
+		}
+		const base = baselineOf.get(file);
+		if (base === null) {
+			rows.push([name, "**未运行**", 0, `跳过：${file} 不存在`]);
+			continue;
+		}
 		if (!base.includes(from)) {
 			// **锚点失效必须判失败**（2026-10-25，第八次复核 N-9）：此前把
 			// 「锚点未找到」记为一种普通行、既不施加变异、也不影响退出码，
@@ -217,8 +299,9 @@ try {
 			rows.push([name, "**锚点失效**", 0]);
 			continue;
 		}
-		await writeFile(file, base, "utf8"); // 复位，防上一项污染
-		await writeFile(file, base.replace(from, to), "utf8");
+		const mutated = base.replace(from, to);
+		await writeFile(file, mutated, "utf8");
+		writtenByUs.set(file, mutated);
 		const runReport = await classifyRun();
 		// 三态分开记账：**不可用终态不得读作「存活」**——前者是「这次没测出结论」，
 		// 后者是「测了，该行为缺守护」。合并会让一次运行故障伪装成守护健全（或反之）。
@@ -231,10 +314,22 @@ try {
 		}
 	}
 } finally {
-	for (const [file, text] of originals) await writeFile(file, text, "utf8");
-	// 还原后必须核验：若这里报错，说明脚本把源码改坏了。
-	for (const [file, text] of originals) {
-		if ((await readFile(file, "utf8")) !== text) console.error(`!! 还原失败：${file}`);
+	// **条件还原**：只在「磁盘内容仍是我们最后写下的那一版」时写回基线。
+	// 期间被他人改写过的文件一律不动——回滚他人的在途改动是本脚本此前的
+	// 缺陷形态（friction-68e6f33e 的原始观察之一），宁可留下变异内容并大声
+	// 报告，也不静默覆盖别人的工作。
+	for (const file of mutatedFiles) {
+		const ours = writtenByUs.get(file);
+		if (ours === undefined) continue; // 从未写过（全部跳过或全部锚点失效）
+		const now = await currentContentOf(file);
+		if (!decideMutationRestore({ currentContent: now, lastWrittenContent: ours }).ok) {
+			console.error(`!! 未还原：${file} 在本次运行期间被其它会话改写——保留磁盘上的版本，请人工核对（本脚本不覆盖他人改动）`);
+			concurrentTouched.add(file);
+			continue;
+		}
+		const baseline = baselineOf.get(file);
+		await writeFile(file, baseline, "utf8");
+		if ((await currentContentOf(file)) !== baseline) console.error(`!! 还原失败：${file}`);
 	}
 }
 
@@ -257,6 +352,16 @@ if (notRun.length > 0) {
 	console.log(
 		`\n${notRun.length} 项**无可用判定**（未运行或计数不可得）：本次整批结论不可用，` +
 			`不得据以声称「已全部被抓住」或「存在 N 项存活」。先查运行环境再重跑。`,
+	);
+	process.exitCode = 1;
+}
+if (concurrentTouched.size > 0) {
+	// 在途改动不是「缺陷」也不是「已守护」，是**本次结论对这些文件不可用**。
+	// 与「未运行／计数不可得」同属不可用终态（06 §5 第 3 项）：不得把跳过读成
+	// 「存活」，也不得据以声称这些行为已全部被抓住。
+	console.log(
+		`\n${concurrentTouched.size} 个文件在本次运行期间被其它会话改写（${[...concurrentTouched].join("、")}）：` +
+			`涉及它们的变异记为**在途改动**、不覆盖不裁决。等并行会话的改动落定后重跑。`,
 	);
 	process.exitCode = 1;
 }
