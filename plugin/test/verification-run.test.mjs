@@ -16,6 +16,7 @@ import {
   readVerificationRowIds,
   verifyRun,
   DEFERRED_ROWS,
+  DEFERRED_STRICT,
 } from "../lib/verification-run.js";
 
 const REPO_ROOT = new URL("../..", import.meta.url).pathname;
@@ -99,7 +100,13 @@ test("派发准入以 not-checkable 声明且带理由（防止默认填 pass）
 
 /** 造一份「全部可核对行 pass、不可判行已声明」的齐备输入。 */
 function completeRows() {
-  const rows = MECHANICAL_ROWS.map((id) => ({ id, verdict: "pass", evidence: `${id} 的证据` }));
+  // 已知缺口行（deferred）必须报 not-checkable —— 它们按定义「本轮没采集到证据」，
+  // 填 pass 会被门禁当「默认通过」拦下（2026-11-03 第三次复核修）。
+  const rows = MECHANICAL_ROWS.map((id) => ({
+    id,
+    verdict: DEFERRED_ROWS[id] ? "not-checkable" : "pass",
+    evidence: DEFERRED_ROWS[id] ?? `${id} 的证据`,
+  }));
   for (const id of Object.keys(NOT_CHECKABLE_ROWS)) {
     rows.push({ id, verdict: "not-checkable", evidence: NOT_CHECKABLE_ROWS[id] });
   }
@@ -152,7 +159,7 @@ test("(e) 把已声明为不可判的行填成 pass → 阻断（这就是「默
   assert.equal(r.stage, "blocked");
   assert.deepEqual(r.misreported, ["派发准入"]);
   const recorded = r.rows.find((x) => x.id === "派发准入");
-  assert.match(String(recorded.reason), /not-checkable/);
+  assert.match(String(recorded.reason), /unverifiable|not-checkable/);
 });
 
 test("(e2) 派发准入完全缺席 → 阻断（缺席既非 pass 也非声明）", () => {
@@ -274,4 +281,40 @@ test("未声明的 not-checkable 仍阻断（已知缺口清单不是万能免�
   const r = verifyRun({ rows });
   assert.equal(r.stage, "blocked");
   assert.deepEqual(r.undeclared, ["趁隙冒充的行"]);
+});
+
+// ---------------------------------------------------------------------------
+// 严格缺口 vs 条件式行：两类「不可核对」的拦截规则不同
+// ---------------------------------------------------------------------------
+
+test("严格缺口行填 pass → 阻断（本轮确实没证据，填 pass 即谎报）", () => {
+  const rows = completeRows().map((r) => (r.id === "水位推进" ? { ...r, verdict: "pass" } : r));
+  const r = verifyRun({ rows });
+  assert.equal(r.stage, "blocked");
+  assert.deepEqual(r.misreported, ["水位推进"]);
+});
+
+test("条件式行填 pass → 不阻断（条件出现时本就该给真结论）", () => {
+  // 「延迟的取消」等四行是条件式：有证据时应能给出 pass，不得被一并拦下。
+  const rows = completeRows().map((r) => (r.id === "延迟的取消" ? { ...r, verdict: "pass" } : r));
+  const r = verifyRun({ rows });
+  assert.equal(r.stage, "landed", `fail=${JSON.stringify(r.fail)} misreported=${JSON.stringify(r.misreported)}`);
+});
+
+test("两类缺口在表内必须可区分：严格缺口带标记，条件式不带", () => {
+  const strict = Object.entries(DEFERRED_ROWS).filter(([, v]) => String(v).startsWith(DEFERRED_STRICT));
+  const conditional = Object.entries(DEFERRED_ROWS).filter(([, v]) => !String(v).startsWith(DEFERRED_STRICT));
+  assert.ok(strict.length > 0, "必须存在严格缺口行");
+  assert.ok(conditional.length > 0, "必须存在条件式行");
+  for (const [id] of conditional) {
+    assert.ok(["延迟的取消", "二次确认空闲", "路径约定落实", "无主控预检落实"].includes(id),
+      `${id} 不在条件式四行之内，却未标严格缺口——检查是否漏标`);
+  }
+});
+
+test("未知 id 填 pass → 阻断（闭集外的新行必须同步进模块，不得静默通过）", () => {
+  const rows = [...completeRows(), { id: "某个未来才有的行", verdict: "pass" }];
+  const r = verifyRun({ rows });
+  assert.equal(r.stage, "blocked");
+  assert.deepEqual(r.unknown, ["某个未来才有的行"]);
 });

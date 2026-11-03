@@ -99,14 +99,26 @@ import { recordJudgementForGuard } from "./host-seams.js";
 function readConfigSnapshot(getIdleSettings) {
   try {
     const s = typeof getIdleSettings === "function" ? getIdleSettings() : undefined;
-    return {
-      riskLayer: 2,                       // §14 第 1 条直接规定，不由设置面改
-      fastPath: false,                    // 同上：本任务不设快通道
-      precheckSource: "configured",       // §14 第 2 条：预检事先配置，无临时裁量路径
-      semanticGapsDeclared: true,         // §19.1 与 §17 的 gap 披露已随交还带出
+    if (s === undefined || s === null) return null;
+    // **只登记真正从设置面读到的值**（2026-11-03 自查修正）。
+    //
+    // 第一版这里写了 riskLayer:2 / fastPath:false / precheckSource:"configured"
+    // / semanticGapsDeclared:true——四个**硬编码常量**。那样构造出的"证据"
+    // 永远为真，两行永远判 pass，等于伪造采集点：看起来补上了，实际不可证伪。
+    // 这比没有采集点更糟，因为它会让人相信已经核过了。
+    //
+    // 实测 `idle-settings.js:248` 的 limits 只有 silenceMs 一项，根本不存在
+    // riskLayer / fastPath / precheckSource 这些配置载体——闲时任务没有"调用方
+    // 声明风险层"这一动作（那是 precheck-record.js 给有主控会话用的）。
+    //
+    // 故如实登记为 null：调用方据此把两行记 not-checkable 并写明"本任务无该
+    // 配置载体"，而不是拿常量冒充已核对。
+    const snapshot = {
       silenceMs: s?.limits?.silenceMs ?? null,
       at: new Date().toISOString(),
     };
+    // 未取得任何能支撑这两行的配置载体 → 返回 null（＝条件不成立，非"核对通过"）
+    return snapshot;
   } catch {
     return null;
   }
@@ -141,9 +153,6 @@ async function readTimerEvidence(dshHomePath, sessionId) {
 }
 
 /** 本轮无延迟形态计时时，两行的「不适用」说明（条件未出现，不是没实现）。 */
-/** 配置两行在本轮无快照时的理由（条件式不适用）。 */
-const CONFIG_NOT_APPLICABLE = "配置行：核对依据是运行开始时落下的配置快照；本轮无快照则条件未出现，记 not-checkable 而非 pass";
-
 const TIMER_NOT_APPLICABLE = "本轮无延迟形态计时（静置未到期），该行的条件未出现；这不是「已核对通过」，也不是「未实现」";
 
 /**
@@ -205,62 +214,84 @@ export function verifyReviewRun(reviewOutcome, timerEvidence = null, configSnaps
     // not-governed / dispatching），并作为 `task:"diagnostic"` 记录写进同一份
     // runlog。此处按**会话**把它们取回来，作为这两行的证据——不是重新判断，
     // 而是把已经发生的判定搬进本次运行的逐行结论。
+    // **延迟的取消 / 二次确认空闲**（2026-11-03 第三次复核修正）。
+    //
+    // 第三轮复核指出三处实质缺陷，全部成立：
+    //   ① 无 fail 路径——任何 reason 都记 pass，等于不可证伪；
+    //   ② 无时间窗——从 limit:200 里取最后一条同会话记录，一次到期后永远 pass；
+    //   ③ §18 对本行的可接受依据是「清理后的本地回读（句柄为空）」，而
+    //      silence-expiry 诊断里**没有句柄回读**这项证据，`disposed` 反而更像异常现场。
+    //
+    // 故这两行**不具备真证据**：诊断记录能证明「当时做过判定」，不能证明「清理后
+    // 句柄为空」。如实记 not-checkable 并写明缺哪项证据——不再把它映射成 pass。
+    // 只有当诊断记录带 `handleCleared` 这一字段（将来真的采集到回读结果）时才判 pass。
     ["延迟的取消", (() => {
-      if (timerEvidence === null) {
-        // **不得记 pass**：没有计时发生不等于「清理已验证过」。记 not-checkable
-        // 并在缺口表里给出「本轮无延迟形态计时」这一不适用理由——它是缺口，
-        // 只是缺口的成因是「条件未出现」而非「没实现」。
-        return ["not-checkable", TIMER_NOT_APPLICABLE];
+      if (timerEvidence === null) return ["not-checkable", TIMER_NOT_APPLICABLE];
+      // 唯一可判的情形：诊断记录真的带回了「清理后句柄为空」的回读结果。
+      if (timerEvidence.handleCleared === true) {
+        return ["pass", "诊断记录带回清理后回读：句柄为空"];
       }
-      // 「回合进行中拒绝派发」是硬约束的**生效**，不是失败；「清理不可回读」才是。
-      const reason = String(timerEvidence.reason ?? "");
-      if (reason === "turn-in-flight") {
-        return ["pass", `回合进行中拒绝派发（硬约束生效，turn=${timerEvidence.turn ?? "?"}）`];
+      if (timerEvidence.handleCleared === false) {
+        return ["fail", "诊断记录带回清理后回读：句柄非空（清理未生效）"];
       }
-      return ["pass", `计时到期判定：${reason || "(无 reason)"}`];
+      return ["not-checkable", `诊断记录（${timerEvidence.reason ?? "?"}）未带回「清理后句柄为空」的回读结果；§18 该行的可接受依据正是该回读，本痕迹无法判定`];
     })()],
     ["二次确认空闲", (() => {
-      if (timerEvidence === null) {
-        return ["not-checkable", TIMER_NOT_APPLICABLE];
+      if (timerEvidence === null) return ["not-checkable", TIMER_NOT_APPLICABLE];
+      // 该行需要「三项确认」的证据：无进行中回合 + 已足安静时长 + 无其他待触发计时。
+      const r = timerEvidence.reason;
+      if (r === "dispatching" && timerEvidence.confirmedAt !== undefined) {
+        return ["pass", `到期后三项确认通过并派发（confirmedAt=${timerEvidence.confirmedAt}）`];
       }
-      const reason = String(timerEvidence.reason ?? "");
-      // 到期后派发前须确认「无进行中回合」。观察到 dispatching 即说明三项确认通过。
-      if (reason === "dispatching") {
-        return ["pass", `到期后确认空闲并派发（quietFor 已满足）`];
+      if (r === "turn-in-flight") {
+        // 这一条是硬约束**生效**的实证：当时确有回合在进行，故未派发。
+        return ["pass", "到期时发现回合进行中，未派发（硬约束生效）"];
       }
-      if (reason === "turn-in-flight" || reason === "not-quiet-enough") {
-        return ["pass", `未确认空闲故不派发（${reason}）——确认机制生效`];
-      }
-      return ["pass", `判定：${reason || "(无 reason)"}`];
+      return ["not-checkable", `诊断记录（${r ?? "?"}）未带回三项确认的完整证据；无法判定空闲确认是否成立`];
     })()],
-    ["路径约定落实", (() => {
-      if (configSnapshot === null) return ["not-checkable", CONFIG_NOT_APPLICABLE];
-      const layer = configSnapshot.riskLayer;
-      if (layer !== 2) {
-        return ["fail", `§14 第 1 条规定本任务为标准路径（第 2 层），快照取值 riskLayer=${JSON.stringify(layer)}`];
-      }
-      if (configSnapshot.fastPath === true) {
-        return ["fail", "快照显示 fastPath=true，与 §14 第 1 条「不适用快通道」相反"];
-      }
-      return ["pass", `riskLayer=${layer}、fastPath=${JSON.stringify(configSnapshot.fastPath)}，与 §14 第 1 条一致（写后精确回读）`];
-    })()],
-    ["无主控预检落实", (() => {
-      if (configSnapshot === null) return ["not-checkable", CONFIG_NOT_APPLICABLE];
-      if (configSnapshot.precheckSource !== "configured") {
-        return ["fail", `预检来源为 ${JSON.stringify(configSnapshot.precheckSource)}，§14 第 2 条要求由规范与调度侧事先配置，不得由执行体临时裁量`];
-      }
-      if (configSnapshot.semanticGapsDeclared !== true) {
-        return ["fail", "语义判断环节未登记为 gap，§14 第 2 条要求如实披露该未获机器证据的范围"];
-      }
-      return ["pass", "预检来源为事先配置，语义判断环节已登记为 gap（§14 第 2 条）"];
-    })()],
+    // **路径约定落实**（2026-11-03 第二次自查修正）。
+    //
+    // 该行核对「动作是否按 §14 第 1 条的标准路径处置、未降为快通道」。§14 第 1 条
+    // 把层级**直接规定**为本任务的标准路径（不适用快通道），故对本任务而言，
+    // 「层级是第 2 层」是**规范直接给定的结构性事实**，不是某次运行采集到的东西。
+    //
+    // 第一版我把它写成 `riskLayer: 2` 的常量快照再比对——那永远是 pass，
+    // 不可证伪，等于伪造。如实做法：**说明它是结构性事实、不在本行可证伪范围内**，
+    // 记 not-checkable 并写明这一判断依据。真正的核对是「运行时是否真的没有被
+    // 降级」，而本任务的实现里不存在快通道分支（§14 第 4 条：不设自行降级路径），
+    // 故该风险在结构上已被排除——这同样是"规范保证"，不是"本次核对"。
+    ["路径约定落实", ["not-checkable", "§14 第 1 条直接规定本任务的层级为标准路径、且第 4 条规定不设自行降级路径；本实现无快通道分支，故该行是本任务的结构性保证，非某次运行可采集的证据"]],
+
+    // **无主控预检落实**（同上）。
+    //
+    // §14 第 2 条要求「预检由规范与调度侧事先配置」，并**明确本任务没有主控**、
+    // 执行体不作生效/适用/行动允许的临时裁量。这也是一项**结构性安排**：本任务
+    // 的实现里根本没有"临时裁量"这条代码路径。
+    //
+    // 第一版写 `precheckSource:"configured"` + `semanticGapsDeclared:true` 再比对，
+    // 同样是自证。如实做法：记 not-checkable 并写明它是结构性保证。
+    ["无主控预检落实", ["not-checkable", "§14 第 2 条把预检定性为「规范与调度侧事先配置」，并明确本任务无主控、执行体不作临时裁量；本实现无该裁量分支，故该行是结构性保证，非某次运行可采集的证据"]],
+
+    // **七段完整性**（2026-11-03 第三次复核修正依据）。
+    //
+    // 第二轮修了「读 item.body 但真实 formed 无该字段」的形状错误。但第三轮复核
+    // 指出依据仍不成立：`observation-review.js:1000` **先 push formed，:1007 才
+    // readBack**；回读失败时 formed 保留、同时 push unsettled。故「formed 每条都
+    // 通过回读」是假陈述。
+    //
+    // 如实做法：formed 非空只说明「本轮有对象被创建」，**不证明七段齐备**。
+    // 该行的真实证据（body_valid 回读结果）没有随 reviewOutcome 带出来，故记
+    // not-checkable 并写明缺什么——不拿「formed 非空」冒充「七段已核」。
+    // （未成文时同样记 not-checkable：无对象可核 ≠ 核对通过。）
     ["经验对象的七段完整", (() => {
       const formedNow = Array.isArray(reviewOutcome.formed_all)
         ? reviewOutcome.formed_all.length
         : (reviewOutcome.formed === null || reviewOutcome.formed === undefined ? 0 : 1);
-      return formedNow > 0
-        ? ["pass", `${formedNow} 个对象已通过写后回读（含 body_valid，即七段结构）`]
-        : ["pass", "本轮未形成经验对象，该行不适用"];
+      if (formedNow === 0) {
+        return ["not-checkable", "本轮未形成经验对象，无对象可核；「不适用」不等于「核对通过」"];
+      }
+      // formed 元素只有 {entry_id, object_uid, file}，不含 body_valid 回读结果。
+      return ["not-checkable", `本轮形成 ${formedNow} 个对象，但 formed 只带 entry_id/object_uid/file，不含 body_valid 回读结果；七段齐备性无法从本痕迹判定`];
     })()],
   ]);
 

@@ -26,15 +26,10 @@ function realFormed(uid = "pitfall-0000-0000-0000-000000000001") {
 
 /** 运行期配置快照（与 lifecycle.js 的 readConfigSnapshot 同形）。 */
 function configSnapshot(over = {}) {
-  return {
-    riskLayer: 2,
-    fastPath: false,
-    precheckSource: "configured",
-    semanticGapsDeclared: true,
-    silenceMs: 900000,
-    at: "2026-11-03T00:00:00.000Z",
-    ...over,
-  };
+  // 只含真实从设置面读到的字段（idle-settings.js 的 limits 只有 silenceMs）。
+  // 第一版夹具里塞了 riskLayer / fastPath 等四个硬编码常量，与生产者共享同一组
+  // 魔数——删掉生产者代码测试也不红（第三轮复核的假绿发现）。
+  return { silenceMs: 900000, at: "2026-11-03T00:00:00.000Z", ...over };
 }
 
 /** 一次「全部正常、本轮成文」的审核结局。 */
@@ -61,12 +56,15 @@ test("healthy 运行（成文、无未判、无转写失败）→ verification l
   assert.equal(v.stage, "landed", `fail=${JSON.stringify(v.fail)} undeclared=${JSON.stringify(v.undeclared)} missing=${JSON.stringify(v.missing)}`);
 });
 
-test("成文但 formed 元素只有 entry_id/object_uid/file 时不得被判「缺七段」", () => {
-  // 第二轮回核 A 项的直接回归：初版读 item.body，真实形状没有 body，
-  // 于是任何成文运行都被判 fail「缺七段」。
+test("formed 只带 entry_id/object_uid/file 时，七段行落缺口而不是判 pass", () => {
+  // 第二轮修了「读 item.body」的形状错误；第三轮复核指出依据仍不成立——
+  // formed 先 push、readBack 后做，回读失败的对象也在 formed 里。故「formed 非空」
+  // 不证明七段齐备。如实记 not-checkable 并列入缺口。
   const v = verifyReviewRun(healthyOutcome(), null, configSnapshot());
-  assert.deepEqual(v.fail, []);
-  assert.equal(v.misreported.length, 0);
+  const row = v.rows.find((r) => r.id === "经验对象的七段完整");
+  assert.equal(row.verdict, "not-checkable");
+  assert.match(String(row.evidence), /body_valid|回读/);
+  assert.ok(v.deferredRows.includes("经验对象的七段完整"));
 });
 
 test("本轮未成文也不得判失败（不适用 ≠ 失败）", () => {
@@ -105,42 +103,64 @@ test("产出覆盖 §18 全表：每一条 mechanical / 声明 / 缺口行都出
 });
 
 test("已知缺口随结果带出（deferredRows），使「没真核对」在跑绿时也读得见", () => {
-  // 无计时/配置证据时，那些「条件式」行落缺口并被列出；有证据时应缩短。
-  const noEvidence = verifyReviewRun(healthyOutcome(), null, null);
-  assert.ok(noEvidence.deferredRows.length > 0, "无条件证据时必须列出缺口，不能静默");
-  const withEvidence = verifyReviewRun(healthyOutcome(), { stage: "silence-expiry", reason: "dispatching" }, configSnapshot());
-  assert.ok(withEvidence.deferredRows.length < noEvidence.deferredRows.length,
-    "补上采集点后缺口数应减少——这正是「清掉一项删一行」的可观察形态");
+  const v = verifyReviewRun(healthyOutcome(), null, configSnapshot());
+  assert.ok(v.deferredRows.length > 0, "缺口必须列出，不能静默");
+  // 有真证据的行必须能减少缺口数：handleCleared 让「延迟的取消」具备真证据。
+  const withEvidence = verifyReviewRun(
+    healthyOutcome(),
+    { stage: "silence-expiry", reason: "dispatching", handleCleared: true },
+    configSnapshot(),
+  );
+  assert.ok(withEvidence.deferredRows.length < v.deferredRows.length,
+    "采集点真的拿到证据时缺口数应减少——这是「清掉一项删一行」的可观察形态");
+  assert.ok(!withEvidence.deferredRows.includes("延迟的取消"));
 });
 
-test("不得把有采集点的行错报成 not-checkable（否则等于自废核对）", () => {
+test("有采集点的行必须逐一定名列出现真结论（不接受「>=5」这种弱断言）", () => {
+  // 第三轮复核：`>= 5` 恰好放行了配置两行被删的情况。改为**枚举**有采集点的行，
+  // 少一条就红。
+  const EXPECTED_COLLECTED = [
+    "派发条目的判定完备",
+    "转写条目的合法性",
+    "fail-closed 处置",
+    "缓冲条目不可写／不可回读",
+  ];
   const v = verifyReviewRun(healthyOutcome(), null, configSnapshot());
-  const collected = v.rows.filter((r) => r.verdict !== "not-checkable");
-  assert.ok(collected.length >= 5, `至少应有 5 条有采集点的行给出真结论，实际 ${collected.length}`);
+  const byId = new Map(v.rows.map((r) => [r.id, r]));
+  for (const id of EXPECTED_COLLECTED) {
+    assert.ok(byId.has(id), `缺少有采集点的行：${id}`);
+    assert.notEqual(byId.get(id).verdict, "not-checkable", `${id} 有采集点却被记成缺口`);
+  }
 });
 
 // ---------------------------------------------------------------------------
 // 计时器两行的采集点（2026-11-03 Human 选「补齐四行采集点」后落地）
 // ---------------------------------------------------------------------------
 
-test("有计时判定证据时，「延迟的取消」「二次确认空闲」给出真结论而非 not-checkable", () => {
-  const v = verifyReviewRun(healthyOutcome(), { stage: "silence-expiry", reason: "dispatching", turn: 5 });
-  const byId = new Map(v.rows.map((r) => [r.id, r]));
-  for (const id of ["延迟的取消", "二次确认空闲"]) {
-    assert.notEqual(byId.get(id).verdict, "not-checkable", `${id} 有证据时不应落缺口`);
-    assert.equal(byId.get(id).verdict, "pass");
-  }
-  assert.ok(!v.deferredRows.includes("延迟的取消"));
-  assert.ok(!v.deferredRows.includes("二次确认空闲"));
+test("仅凭 dispatching 不足以判「延迟的取消」通过——缺句柄回读证据", () => {
+  // 第三轮复核：§18 对该行的可接受依据是「清理后的本地回读（句柄为空）」，
+  // 而 silence-expiry 诊断里没有这项。故即使看到 dispatching 也不能判 pass。
+  const v = verifyReviewRun(healthyOutcome(), { stage: "silence-expiry", reason: "dispatching", turn: 5 }, configSnapshot());
+  const row = v.rows.find((r) => r.id === "延迟的取消");
+  assert.equal(row.verdict, "not-checkable");
+  assert.match(String(row.evidence), /句柄|回读/);
 });
 
-test("回合进行中拒绝派发是硬约束生效，记 pass 而非 fail", () => {
-  const v = verifyReviewRun(healthyOutcome(), { stage: "silence-expiry", reason: "turn-in-flight", turn: 3 });
+test("带回清理回读结果时「延迟的取消」真正可判（可 pass 也可 fail）", () => {
+  const ok = verifyReviewRun(healthyOutcome(), { stage: "silence-expiry", reason: "dispatching", handleCleared: true }, configSnapshot());
+  assert.equal(ok.rows.find((r) => r.id === "延迟的取消").verdict, "pass");
+  const bad = verifyReviewRun(healthyOutcome(), { stage: "silence-expiry", reason: "dispatching", handleCleared: false }, configSnapshot());
+  assert.equal(bad.rows.find((r) => r.id === "延迟的取消").verdict, "fail");
+  assert.equal(bad.stage, "blocked");
+});
+
+test("回合进行中拒绝派发：二次确认空闲记 pass（硬约束生效的实证）", () => {
+  const v = verifyReviewRun(healthyOutcome(), { stage: "silence-expiry", reason: "turn-in-flight", turn: 3 }, configSnapshot());
   const byId = new Map(v.rows.map((r) => [r.id, r]));
-  assert.equal(byId.get("延迟的取消").verdict, "pass");
   assert.equal(byId.get("二次确认空闲").verdict, "pass");
   assert.deepEqual(v.fail, []);
 });
+
 
 test("无计时证据时记 not-checkable 并说明成因，不得声称核对通过", () => {
   // 「没有计时发生」不等于「清理已验证过」。记 pass 就是第三种「默认通过」。

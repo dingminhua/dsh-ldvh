@@ -65,6 +65,25 @@ export const NOT_CHECKABLE_ROWS = Object.freeze({
 
 /** 计时两行在「本轮无延迟形态计时」时的缺口理由（条件式不适用）。 */
 /** 配置两行在「本轮无快照」时的缺口理由（条件式不适用）。 */
+/**
+ * 严格缺口标记：该行**本轮确实没有采集到证据**，填 `pass` 即为谎报。
+ *
+ * 与「条件式行」区分：条件式行在条件出现时**应当**给出真结论（含 pass），
+ * 不能一并拦下。见 `verifyRun` 里 `isStrictDeferred` 的用法。
+ */
+export const DEFERRED_STRICT = "no-evidence-this-run";
+
+/**
+ * 把「本轮确实没有采集到证据」的缺口理由包装为严格缺口值。
+ *
+ * 严格缺口：填 `pass` 即为谎报，门禁须拦下。
+ * 与之相对的「条件式行」直接给理由字符串——条件出现时应给出真结论（含 pass），
+ * 不得一并拦下。区分见 `verifyRun` 的 `isStrictDeferred`。
+ */
+function strictReason(reason) {
+  return `${DEFERRED_STRICT}::${reason}`;
+}
+
 const CONFIG_ROW_REASON = "条件式行：核对依据是运行开始时落下的配置快照；本轮若无快照则条件未出现，记 not-checkable 而非 pass";
 
 const TIMER_ROW_REASON = "条件式行：核对发生在计时到期那一刻，由 triggers 的诊断记录承载；本轮若未发生静置到期则条件未出现，记 not-checkable 而非 pass";
@@ -94,18 +113,23 @@ export const DEFERRED_ROWS = Object.freeze({
   "二次确认空闲": TIMER_ROW_REASON,
   "路径约定落实": CONFIG_ROW_REASON,
   "无主控预检落实": CONFIG_ROW_REASON,
-  "上下文供给的有界性": "需在运行前记录交付区间与水位取值；痕迹只留结果，未留切分依据",
-  "逐字引证": "需在每次判断执行时核对引文确在交付材料内；运行结束时材料窗口已推进",
-  "自动动作边界": "需在每次动作执行前比对 §9／§10 闭集；痕迹无逐动作的比对记录",
-  "阈值晋升": "需在观察到同源条目时复算 pending 计数与幂等；运行结束时该组可能已被改写",
-  "留观缓冲条目的写入合法": "需在写入后立刻做字段闭集解析与逐字一致性核对；痕迹未保留写入当时的缓冲快照",
-  "摩擦观察条目的写入合法": "同上（§12bis.1 十四字段闭集与写后回读）",
-  "摩擦观察条目到期淘汰的登记": "需在淘汰发生的那一刻核对登记与查重；读时惰性结算不留现场",
-  "摩擦缓冲的准入合法性": "需在任何读写之前回读管辖状态与分区自洽；痕迹未记录该前置读取",
-  "单条目不成文两次": "需在创建前按当下重读 pending 状态并用 wx 原子创建；痕迹无认领文件当前状态的记录",
-  "水位推进": "需在运行结束时回读水位取值并与推进结果比对；该取值未被记录",
-  "交还的接受": "需等被下一个主控或 Human 接受；接受发生在本轮之后，本轮无从判定",
-  "运行完成": "本行是本模块自身的核对结论（自证）；它由调用方按 trace 填入，本模块不给自己判 pass",
+  "上下文供给的有界性": strictReason("需在运行前记录交付区间与水位取值；痕迹只留结果，未留切分依据"),
+  "逐字引证": strictReason("需在每次判断执行时核对引文确在交付材料内；运行结束时材料窗口已推进"),
+  "自动动作边界": strictReason("需在每次动作执行前比对 §9／§10 闭集；痕迹无逐动作的比对记录"),
+  "阈值晋升": strictReason("需在观察到同源条目时复算 pending 计数与幂等；运行结束时该组可能已被改写"),
+  "留观缓冲条目的写入合法": strictReason("需在写入后立刻做字段闭集解析与逐字一致性核对；痕迹未保留写入当时的缓冲快照"),
+  "摩擦观察条目的写入合法": strictReason("同上（§12bis.1 十四字段闭集与写后回读）"),
+  "摩擦观察条目到期淘汰的登记": strictReason("需在淘汰发生的那一刻核对登记与查重；读时惰性结算不留现场"),
+  "摩擦缓冲的准入合法性": strictReason("需在任何读写之前回读管辖状态与分区自洽；痕迹未记录该前置读取"),
+  "单条目不成文两次": strictReason("需在创建前按当下重读 pending 状态并用 wx 原子创建；痕迹无认领文件当前状态的记录"),
+  "水位推进": strictReason("需在运行结束时回读水位取值并与推进结果比对；该取值未被记录"),
+  "交还的接受": strictReason("需等被下一个主控或 Human 接受；接受发生在本轮之后，本轮无从判定"),
+  // 该行本身可机械核对（七段即 pitfall-writer 的 BODY_H2_REQUIRED），但
+  // reviewOutcome.formed 只带 {entry_id, object_uid, file}，不含 body_valid
+  // 回读结果，故运行结束时无证据（第三轮复核发现）。要真核它须让生产者把
+  // 回读结论带出来。
+  "经验对象的七段完整": strictReason("该行可机械核对（七段即 pitfall-writer 的 BODY_H2_REQUIRED），但 formed 只带 entry_id/object_uid/file，不含 body_valid 回读结果；须由生产者把回读结论带出后才能核"),
+  "运行完成": strictReason("本行是本模块自身的核对结论（自证）；它由调用方按 trace 填入，本模块不给自己判 pass"),
 });
 
 /**
@@ -213,6 +237,7 @@ export function verifyRun({
       misreported: [],
       missing: [],
       deferredRows: [],
+      unknown: [],
       error: { code: "verification/invalid_rows", message: "rows must be an array of per-row verdicts" },
     };
   }
@@ -223,12 +248,15 @@ export function verifyRun({
   // 随痕迹带出，后者不阻断。两者都算「已声明」，故不落 undeclared——如实声明
   // 缺口不等于谎报通过。
   const deferredSet = new Set(Object.keys(deferred ?? {}));
+  const mechanicalSet = new Set(expectedMechanicalRows);
   const normalized = [];
   const fail = [];
   const undeclared = [];
   const declared = [];
   /** 已声明「当前不产生判定」的行，却被填了 pass —— 这就是「默认通过」。 */
   const misreported = [];
+  /** 闭集外的行 id —— 规范加了行而模块没同步时必经此处。 */
+  const unknown = [];
 
   for (const row of rows) {
     if (row === null || typeof row !== "object") continue;
@@ -254,7 +282,30 @@ export function verifyRun({
     // 核对过。那正是本模块存在的理由被反过来用了。故：**已声明为不可判的行，
     // 若被填 pass，一律按 fail 处置**。它没有判定可作，填 pass 就是把「没核对」
     // 记成「核对通过」。
-    if (verdict === "pass" && declaredSet.has(id)) {
+    // **「填 pass」的拦截必须同时覆盖 deferred 行**（2026-11-03 第三次复核）。
+    //
+    // 原只查 declaredSet，于是给 DEFERRED 行（同样「本轮没采集到证据」）填 pass
+    // 仍判 landed——与给「派发准入」填 pass 是同一形态，却在门禁里漏掉。
+    // DEFERRED 行按定义也是「声明为无法核对」，故与 NOT_CHECKABLE 同等拦截。
+    // **未知 id 不得静默通过**（2026-11-03 第三次复核）：闭集外的新行若被填 pass
+    // 而无声接受，就破坏了「新增 §18 行必须同步模块」这条约束——缺席检查只能
+    // 发现「少报」，发现不了「多报」。此处把闭集外的 id 记为 fail。
+    if (!declaredSet.has(id) && !deferredSet.has(id) && !mechanicalSet.has(id)) {
+      unknown.push(id);
+      fail.push(id);
+      normalized.push({ id, verdict, evidence: row.evidence ?? null, reason: "this row id is not declared in the module's §18 row set; a new spec row must be synced into the module, not silently reported" });
+      continue;
+    }
+    // **只对 NOT_CHECKABLE 拦「填 pass」**（2026-11-03 第三次复核后又修正）。
+    //
+    // DEFERRED 含两类，必须分开：
+    //   ① 「本轮无采集点」——填 pass 是谎报，须拦；
+    //   ② 「条件式行」——条件**出现**时本来就该给出真结论（含 pass）。
+    // 一刀切会把②的正常结论也拦下（实测「二次确认空闲」在 turn-in-flight 时
+    // 正确判 pass 却被误拦）。故由调用方通过 `deferred` 的取值区分：值为
+    // `DEFERRED_STRICT` 的属①，其余属②。
+    const isStrictDeferred = deferredSet.has(id) && String(deferred?.[id] ?? "").startsWith(DEFERRED_STRICT);
+    if (verdict === "pass" && (declaredSet.has(id) || isStrictDeferred)) {
       misreported.push(id);
       fail.push(id);
     }
@@ -262,8 +313,8 @@ export function verifyRun({
       id,
       verdict,
       evidence: typeof row.evidence === "string" ? row.evidence : (row.evidence ?? null),
-      ...(verdict === "pass" && declaredSet.has(id)
-        ? { reason: "this row is declared not-checkable (no verdict is producible); reporting it as pass would record an unchecked row as verified" }
+      ...(verdict === "pass" && (declaredSet.has(id) || isStrictDeferred)
+        ? { reason: "this row is declared unverifiable for this run (no verdict is producible); reporting it as pass would record an unchecked row as verified" }
         : {}),
     });
   }
@@ -308,6 +359,7 @@ export function verifyRun({
     misreported,
     missing,
     deferredRows,
+    unknown,
   };
 }
 
