@@ -218,6 +218,12 @@ function IdlePanel({ report, t }: { report: IdleReport; t: Translation }) {
           hint={t('diagnostics.idle.total', { count: String(report.queue.total) })}
           tone="warning"
         />
+        <MetricCard
+          label={t('diagnostics.idle.settled')}
+          value={String(report.queue.settled ?? 0)}
+          hint={t('diagnostics.idle.settledHint')}
+          tone={(report.queue.settled ?? 0) === 0 ? 'error' : undefined}
+        />
         <MetricCard label={t('diagnostics.idle.over24h')} value={String(report.queue.over24h)} tone="error" />
         <MetricCard label={t('diagnostics.idle.runs')} value={String(report.runs.total)} />
         <MetricCard
@@ -250,11 +256,24 @@ function IdlePanel({ report, t }: { report: IdleReport; t: Translation }) {
           {report.runs.recent.length === 0 ? (
             <p className="ldvh-body-muted py-2">{t('diagnostics.idle.empty')}</p>
           ) : report.runs.recent.map((run, index) => (
-            <div key={`${run.at ?? 'na'}-${index}`} className="flex items-center gap-2 border-b border-ldvh-border/50 py-1.5 last:border-0">
-              <span className="font-mono w-[5.5rem] shrink-0 text-[11px] text-ldvh-text-secondary">{formatTime(run.at)}</span>
-              <span className={`ldvh-chip-sm shrink-0 ${run.stage === 'stopped' ? LDVH_ERROR_TEXT_CLASS : ''}`}>{run.stage}</span>
-              <span className="ldvh-meta min-w-0 flex-1 truncate text-ldvh-text-secondary">{run.task ?? run.code ?? '—'}</span>
-            </div>
+            <details key={`${run.at ?? 'na'}-${index}`} className="border-b border-ldvh-border/50 py-1.5 last:border-0">
+              <summary className="flex cursor-pointer list-none items-center gap-2">
+                <ChevronRight size={12} className="shrink-0 text-ldvh-text-secondary" />
+                <span className="font-mono w-[5.5rem] shrink-0 text-[11px] text-ldvh-text-secondary">{formatTime(run.at)}</span>
+                <span className={`ldvh-chip-sm shrink-0 ${run.stage === 'stopped' ? LDVH_ERROR_TEXT_CLASS : ''}`}>{run.stage}</span>
+                <span className="ldvh-meta min-w-0 flex-1 truncate text-ldvh-text-secondary">{run.task ?? run.code ?? '—'}</span>
+              </summary>
+              {run.note ? (
+                <pre className="font-mono mt-1.5 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-ldvh-bg p-2 text-[11px] text-ldvh-text-secondary">
+                  {run.note}
+                </pre>
+              ) : null}
+              {run.pending_entry_id ? (
+                <p className="ldvh-meta mt-1 break-all text-ldvh-text-secondary">
+                  {t('diagnostics.idle.runQueueKey', { id: run.pending_entry_id })}
+                </p>
+              ) : null}
+            </details>
           ))}
         </div>
       </section>
@@ -276,6 +295,30 @@ function IdlePanel({ report, t }: { report: IdleReport; t: Translation }) {
                 {entry.reason || '—'}
               </pre>
             </details>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-ldvh-border bg-ldvh-panel p-3">
+        <h2 className="ldvh-card-title">{t('diagnostics.idle.settledRecent')}</h2>
+        <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.idle.settledRecentNote')}</p>
+        <div className="mt-2 flex flex-col">
+          {(report.queue.settledRecent ?? []).length === 0 ? (
+            <p className="ldvh-body-muted py-2">{t('diagnostics.idle.settledEmpty')}</p>
+          ) : (report.queue.settledRecent ?? []).map((entry, index) => (
+            <div key={`${entry.resolved_at ?? 'na'}-${index}`} className="border-b border-ldvh-border/50 py-1.5 last:border-0">
+              <div className="flex items-center gap-2">
+                <span className="font-mono w-[5.5rem] shrink-0 text-[11px] text-ldvh-text-secondary">{formatTime(entry.resolved_at)}</span>
+                <span className="ldvh-meta min-w-0 flex-1 truncate text-ldvh-text-secondary">{entry.task ?? '—'}</span>
+              </div>
+              {entry.note ? (
+                <pre className="font-mono mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-ldvh-bg p-2 text-[11px] text-ldvh-text-secondary">
+                  {entry.note}
+                </pre>
+              ) : (
+                <p className="ldvh-meta mt-1 text-ldvh-text-secondary">{t('diagnostics.idle.settledNoNote')}</p>
+              )}
+            </div>
           ))}
         </div>
       </section>

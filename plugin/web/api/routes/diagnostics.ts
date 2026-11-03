@@ -88,6 +88,14 @@ type RunRecord = {
   watermark?: unknown
   gap?: unknown
   per_task?: unknown
+  /**
+   * 2026-11-03：与待处置队列的**唯一**共同键（见 `plugin/lib/idle-runlog.js`
+   * 字段说明）。`null` = 本次失败按 11 §11 的条件式不入队；缺省 = 本次根本没
+   * 有失败。两者不得混同——那正是此前两本账无任何对应关系的原因。
+   */
+  pending_entry_id?: string | null
+  /** 2026-11-03 起由 lifecycle 在失败分支填入（此前该字段定义多年、无生产者）。 */
+  note?: string
 }
 
 async function readJsonFile<T>(filePath: string, fallback: T): Promise<T> {
@@ -127,6 +135,10 @@ router.get('/idle', async (_req: Request, res: Response) => {
     const runs = Array.isArray(runsFileContent.runs) ? runsFileContent.runs : []
 
     const unresolved = entries.filter((entry) => !entry.resolved_at)
+    // 已核查（结案）条数：11 §12 第 5 条的结案通道**有没有被用过**，只能靠这个数
+    // 看出来。只显示「未处置 292」会让一个从未被使用的结案通道与一个用了但队列仍
+    // 在长的通道长得一模一样。
+    const settled = entries.length - unresolved.length
     const categoryCounts = new Map<string, number>()
     for (const entry of unresolved) {
       const category = classifyQueueEntry(entry.reason ?? '', entry.residual ?? [])
@@ -156,12 +168,14 @@ router.get('/idle', async (_req: Request, res: Response) => {
         limits: [
           '待处置登记与运行记录均在 ~/.dsh/ldvh 下，属本机当前用户的运行账，不随仓库分发。',
           '运行记录是环形缓冲（保留最近 50 条），更早的轮次已被覆盖。',
-          'ActivityLog 只在内存，进程退出即消失——因此「为什么 stopped」的当场原因不可回溯。',
+          'ActivityLog 只在内存，进程退出即消失——但失败轮次的 stop_reason 与 residual 首项自 2026-11-03 起写入运行记录的 note 字段，故「为什么 stopped」在保留窗口内可回看。',
+          '已核查条数（settled）反映 11 §12 第 5 条的结案通道被使用的次数；结案说明是该通道的产物，缺说明的结案不是核查产物。',
         ],
       },
       queue: {
         total: entries.length,
         unresolved: unresolved.length,
+        settled,
         over24h,
         byCategory: Array.from(categoryCounts, ([category, count]) => ({ category, count }))
           .sort((a, b) => b.count - a.count),
@@ -175,6 +189,17 @@ router.get('/idle', async (_req: Request, res: Response) => {
             category: classifyQueueEntry(entry.reason ?? '', entry.residual ?? []),
             reason: (entry.reason ?? '').slice(0, 500),
           })),
+        // 已核查的最近若干条：结案说明（resolution_note）是核查的产物，是「这条
+        // 到底怎么被处理掉的」唯一记录。只列 id 前缀与说明，不列完整 residual。
+        settledRecent: entries
+          .filter((entry) => entry.resolved_at)
+          .sort((a, b) => (b.resolved_at ?? '').localeCompare(a.resolved_at ?? ''))
+          .slice(0, 10)
+          .map((entry) => ({
+            resolved_at: entry.resolved_at ?? null,
+            task: entry.task ?? null,
+            note: (entry.resolution_note ?? '').slice(0, 300) || null,
+          })),
       },
       runs: {
         total: runs.length,
@@ -186,6 +211,11 @@ router.get('/idle', async (_req: Request, res: Response) => {
           code: run.code ?? null,
           action: run.action ?? null,
           task: run.task ?? null,
+          // 2026-11-03：失败分支现在会带这两项。note 是「为什么 stopped」的当场
+          // 说明（此前该字段无生产者，面板上永远看不到原因）；pending_entry_id
+          // 是通往队列细节的键（null = 按分流不入队）。
+          note: (run.note ?? '').slice(0, 300) || null,
+          pending_entry_id: run.pending_entry_id ?? null,
         })),
       },
     })

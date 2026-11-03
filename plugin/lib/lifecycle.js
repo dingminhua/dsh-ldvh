@@ -60,6 +60,27 @@ import { readLastTurn } from "./session-position.js";
 import { ActivityLog, AgentLifecycle } from "./agent-lifecycle.js";
 import { recordJudgementForGuard } from "./host-seams.js";
 
+/**
+ * 把检查点的失败原因压成一行，供运行痕迹的 `note` 承载（2026-11-03，丙方案）。
+ *
+ * **为什么需要它**：待处置队列里的 `residual` 是数组（逐项诊断），而运行痕迹的
+ * `note` 是一个短字符串（`idle-runlog` 已定义多年、上限 300 字符，此前无生产者）。
+ * 两本账的粒度不同，故此处只取**首项 + 项数**：首项通常是错误码，足以回答「这次
+ * 是怎么败的」；要看全部细节仍回队列按 `pending_entry_id` 取——这正是补上那个键
+ * 的目的（痕迹给索引，队列给细节，不必在痕迹里复制一份）。
+ *
+ * **只搬运，不解释**（01 §11.4）：不把 stopReason 翻成白话结论，也不推断根因。
+ */
+function describeStopForRunlog(error) {
+  const residual = Array.isArray(error?.residual) ? error.residual : [];
+  const head = residual.length > 0 ? String(residual[0]) : "";
+  const more = residual.length > 1 ? `（另有 ${residual.length - 1} 项，见待处置队列）` : "";
+  const base = typeof error?.stop_reason === "string" && error.stop_reason.length > 0
+    ? error.stop_reason
+    : String(error?.message ?? "");
+  return head.length > 0 ? `${base} — ${head}${more}` : `${base}${more}`;
+}
+
 export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessionScopes, hostSeams, getIdleSettings, getInjectionBudget }) {
   // Per-agent lifecycle objects (agent-lifecycle.js): single home for all
   // per-agent state + snapshot() diagnostics. The Map is bookkeeping only;
@@ -1384,7 +1405,12 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
               }
             }
           } else if (checkpoint?.ok === false) {
-            // 调度层已自行入队（recordAndFail），此处只记活动，不重复登记。
+            // 调度层已按 11 §12 处置完毕（入队或不入队），此处只记活动，不重复登记。
+            // **2026-11-03 订正**：此前注释写「已自行入队」，那是分流之前的实情。
+            // 现在 `idle_checkpoint/executor_failed`（执行体产出失败，11 §11 条件式
+            // 不满足 §12 的校验不可用条件）**不入队**，仍记在本痕迹里；而
+            // `discovery_provider/unavailable` 等能力/配置类失败照旧入队。故此处
+            // 不能再说「一定入过队」，否则读者会以为队列里有对应条目。
             lifecycle.activity?.record("session/checkpoint/stopped", {
               task: tasksForThisCheckpoint[0],
               code: checkpoint.error?.code ?? "unknown",
@@ -1428,6 +1454,21 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 return "partial";
               })(),
               code: checkpoint?.ok === false ? (checkpoint.error?.code ?? "unknown") : undefined,
+              // ── 失败的可诊断面进运行痕迹（2026-11-03，丙方案「补下班」）──────
+              //
+              // 此前失败只写进**待处置队列**，而队列与运行痕迹**没有任何共同键**
+              // （队列有 entry_id，痕迹没有对应字段）：同一时间窗里 50 条痕迹对
+              // 292 条登记，两本账互不相认，事后想问「昨天那次到底成没成」答不出。
+              //
+              // `pending_entry_id` 就是那个共同键：有它则「这条痕迹 → 那条登记」可
+              // 双向反查；为 null 则说明本次失败**按分流不入队**（不是丢了 id）。
+              // `note` 带 `residual` 的摘要——队列里那几十条「stopReason=error」正是
+              // 因为痕迹侧没有承载位才只能回队列里翻；`idle-runlog` 的 note 上限
+              // 300 字符且已定义多年，此前**没有任何生产者**，这里补上。
+              pending_entry_id: checkpoint?.ok === false
+                ? (checkpoint.error?.pending_entry_id ?? null)
+                : null,
+              note: checkpoint?.ok === false ? describeStopForRunlog(checkpoint.error) : undefined,
               action: landedAction,
               object_uid: landedUid,
               promoted: landedPromoted,

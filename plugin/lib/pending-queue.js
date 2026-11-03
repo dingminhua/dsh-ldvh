@@ -1,8 +1,14 @@
 /**
- * dsh-ldvh — 待处置队列 (specs/04 §8.3 「队列载体」).
+ * dsh-ldvh — 待处置队列 (specs/11 §12 「待处置队列」).
  *
- * 权威：specs/04 §8.3。该节定义本模块实现的六条契约，此处不再复述其规范效力，
- * 只在需要时以章节号回指：
+ * 权威：specs/11 §12。该节定义本模块实现的六条契约，此处不再复述其规范效力，
+ * 只在需要时以章节号回指。
+ *
+ * **引证订正（2026-11-03）**：本文件此前一律回指 `specs/04 §8.3`。该章已于
+ * 2026-10-12 随 04 号规范重构删除，现行权威是 `specs/11 §12`——六条契约逐条
+ * 与 §12 的六条对应（第 2 条另有 §12 第 2 条「登记对象不限于已停止的运行」这
+ * 一层，本模块按 `task`/`reason` 区分性质，不另设字段）。留着失效章节号会让
+ * 读者去翻一个不存在的章，故同批订正。
  *
  *   1. 载体形态 — 宿主的持久化登记（跨会话留存），**不进入事实源**：本模块的
  *      载体位于 DSH home 之下，不写项目仓库的 ldvh-base/，故队列登记不是事实
@@ -12,14 +18,14 @@
  *   4. 读取者 — 接管受影响对象的主控、Human 查阅入口、会话启动时的队列清点。
  *   5. 核查与解除 — 由接管的主控或 Human 核查后写入 resolved_at。
  *   6. 载体不可用时 fail-closed — 队列本身不可写/不可回读时，辅助任务不得继续，
- *      且**不得**降级为「只登记于内存」或「只写日志」；调用方须按 §8.3 停止并把
+ *      且**不得**降级为「只登记于内存」或「只写日志」；调用方须按 §12 停止并把
  *      「队列不可用」作为停止原因交由主控在下次交还时如实声明。
  *
  * 为什么「仅追加」是机械的而非自觉的：本模块只提供 append 与 read，**不提供**
  * 任何修改既有条目的入口；解除核查只写 resolved_at，且按 entry 身份定位——没有
  * 删除、没有重写 reason/residual 的路径。这样第 3 条不靠调用方自觉。
  *
- * 与事实源的关系（§8.3 第 1 条）：队列**不构成事实**，其登记内容不取得事实或
+ * 与事实源的关系（§12 第 1 条）：队列**不构成事实**，其登记内容不取得事实或
  * 授权效力。因此本模块不参与 03 §9 的受控写入，也不需要 change_log 署名。
  */
 
@@ -30,7 +36,7 @@ import { randomUUID } from "node:crypto";
 /** DSH home 下的相对位置（与 governed-projects 的 ["ldvh", ...] 同层）。 */
 const QUEUE_RELATIVE_PATH = ["ldvh", "pending-queue.jsonl"];
 
-/** 登记字段闭集（§8.3 第 2 条：至少含这五项）。 */
+/** 登记字段闭集（§12 第 2 条：至少含这五项）。 */
 const REQUIRED_FIELDS = ["at", "task", "reason", "residual", "resolved_at"];
 
 function queuePath(dshHomePath) {
@@ -66,14 +72,14 @@ function validateEntry(entry) {
 }
 
 /**
- * 追加一条登记（§8.3 第 3 条：仅追加）。
+ * 追加一条登记（§12 第 3 条：仅追加）。
  *
  * `residual` 是残留范围——**必须显式给出**（可以是空数组，表示「已核实无残留」），
- * 因为 §8.3 第 2 条把「保留已发生的副作用并如实登记」列为停止动作之一，留空与
+ * 因为 §12 第 2 条把「保留已发生的副作用并如实登记」列为停止动作之一，留空与
  * 「未登记」在机械上不可区分，故不接受缺省。
  *
  * 返回 `{ ok: true, value: { entry_id } }` 或 `{ ok: false, error }`。**调用方必须
- * 处理失败**：§8.3 第 6 条规定队列不可用时辅助任务不得继续，也不得降级登记。
+ * 处理失败**：§12 第 6 条规定队列不可用时辅助任务不得继续，也不得降级登记。
  */
 export async function appendPendingEntry(dshHomePath, { task, reason, residual, at } = {}) {
   if (!isNonEmptyString(task)) return failure("pending_queue/invalid_task", "task is required (the auxiliary-task identifier)");
@@ -98,14 +104,14 @@ export async function appendPendingEntry(dshHomePath, { task, reason, residual, 
     // 这与「仅追加」的契约天然一致。
     await appendFile(path, `${JSON.stringify(entry)}\n`, "utf8");
   } catch (error) {
-    // §8.3 第 6 条：不得降级为内存或日志登记——原样上报，由调用方 fail-closed。
+    // §12 第 6 条：不得降级为内存或日志登记——原样上报，由调用方 fail-closed。
     return failure("pending_queue/unavailable", `cannot append to the pending queue: ${String(error?.message ?? error)}`);
   }
   return success({ entry_id: entry.entry_id });
 }
 
 /**
- * 读取队列（§8.3 第 4 条）。
+ * 读取队列（§12 第 4 条）。
  *
  * - `includeResolved = false`（默认）：只返回未核查的登记——这正是「下一个主控
  *   接管时必然可见」所要求的集合。
@@ -154,7 +160,7 @@ export async function readPendingQueue(dshHomePath, { includeResolved = false } 
 }
 
 /**
- * 核查后写入 resolved_at（§8.3 第 5 条）。
+ * 核查后写入 resolved_at（§12 第 5 条）。
  *
  * 这是本模块**唯一**的修改既有登记的入口，且只写 resolved_at 一个字段——其余
  * 字段逐字保留，所以第 3 条「不修改既有登记」在语义上仍成立（解除核查不是改写
@@ -211,7 +217,7 @@ export async function resolvePendingEntry(dshHomePath, entryId, { resolvedAt, no
   return success({ entry_id: entryId, resolved_at: stamp });
 }
 
-/** 会话启动时的队列清点（§8.3 第 4 条 / 32 §10.2 第 2 项）：只报数，不改动。 */
+/** 会话启动时的队列清点（§12 第 4 条 / 32 §10.2 第 2 项）：只报数，不改动。 */
 export async function countPendingEntries(dshHomePath) {
   const read = await readPendingQueue(dshHomePath, { includeResolved: false });
   if (!read.ok) return read;

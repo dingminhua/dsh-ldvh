@@ -1244,12 +1244,23 @@ export interface IdleQueueEntry {
   reason?: string;
 }
 
+/** 已核查（结案）的一条登记：`note` 是核查产物，null 表示这条没有留下说明。 */
+export interface IdleSettledEntry {
+  resolved_at?: string | null;
+  task?: string | null;
+  note?: string | null;
+}
+
 export interface IdleRunRow {
   at?: string | null;
   stage?: string;
   code?: string | null;
   action?: string | null;
   task?: string | null;
+  /** 「为什么 stopped」的当场说明（2026-11-03 起有生产者）。 */
+  note?: string | null;
+  /** 与队列的共同键；null = 按分流不入队（不是「没有失败」）。 */
+  pending_entry_id?: string | null;
 }
 
 export interface IdleReport {
@@ -1259,9 +1270,12 @@ export interface IdleReport {
   queue: {
     total: number;
     unresolved: number;
+    /** 已核查条数——结案通道被使用过的次数。 */
+    settled: number;
     over24h: number;
     byCategory: { category: string; count: number }[];
     recent: IdleQueueEntry[];
+    settledRecent: IdleSettledEntry[];
   };
   runs: {
     total: number;

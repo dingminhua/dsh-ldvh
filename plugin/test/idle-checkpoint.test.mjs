@@ -357,10 +357,15 @@ test("§8.4 水位：执行体抛错时不推进（fail-closed 侧，下次重�
   });
 });
 
-test("执行体失败须把可诊断信息写进待处置队列（不得只留 stopReason）", async () => {
+test("执行体产出失败须携带可诊断信息（不得只留 stopReason）", async () => {
   // 2026-10-26 补：此前 `residual` 硬编码为空数组，队列里 135 条失败**全部只有**
   // 一句 `stopReason=error`——知道失败了，但查不出为什么（队列、运行痕迹、活动
   // 日志三处都取不到更多信息）。本用例钉住「失败必须携带可诊断线索」。
+  //
+  // 2026-11-03 改（丙方案分流）：`discovery_provider/incomplete_run` 是**执行体产出
+  // 失败**（子代理跑了但没收束），不是校验不可用，故按 11 §11 的条件式**不入队**。
+  // 可诊断线索的承载随之从队列条目搬到返回值的 `residual`——再经 lifecycle 写进
+  // 运行痕迹的 `note`。本用例的判据不变：线索必须存在且可读。
   await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
     const { readPendingQueue } = await import("../lib/pending-queue.js");
     const r = await runIdleCheckpoint({
@@ -381,12 +386,15 @@ test("执行体失败须把可诊断信息写进待处置队列（不得只留 s
     });
     assert.ok(!r.ok);
 
+    // 分流：产出失败不入队，且明确以 null 标明「没有对应队列条目」。
     const queue = await readPendingQueue(home);
-    const entry = queue.value.items[0];
-    assert.ok(entry, "失败须入队");
+    assert.equal(queue.value.items.length, 0, "执行体产出失败不入队（11 §11 条件式：校验未坏）");
+    assert.equal(r.error.code, "idle_checkpoint/executor_failed");
+    assert.equal(r.error.pending_entry_id, null, "null 明确表示「按分流不入队」，与「没有失败」区分");
 
-    const residual = Array.isArray(entry.residual) ? entry.residual : [];
-    assert.ok(residual.length > 0, `失败条目不得带空 residual；实际=${JSON.stringify(entry.residual)}`);
+    // 线索本身仍须存在——不入队不等于不留痕。
+    const residual = Array.isArray(r.error.residual) ? r.error.residual : [];
+    assert.ok(residual.length > 0, `失败不得带空 residual；实际=${JSON.stringify(r.error.residual)}`);
 
     const joined = residual.join("\n");
     assert.ok(joined.includes("discovery_provider/incomplete_run"), `须带错误码；实际=${joined}`);
@@ -397,10 +405,9 @@ test("执行体失败须把可诊断信息写进待处置队列（不得只留 s
   });
 });
 
-test("执行体失败带 diagnostic 时须原样搬运进队列", async () => {
+test("执行体失败带 diagnostic 时须原样搬运", async () => {
   await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
-    const { readPendingQueue } = await import("../lib/pending-queue.js");
-    await runIdleCheckpoint({
+    const r = await runIdleCheckpoint({
       dshHomePath: home,
       factSourceRoot,
       projectId,
@@ -417,11 +424,39 @@ test("执行体失败带 diagnostic 时须原样搬运进队列", async () => {
         throw error;
       },
     });
-    const queue = await readPendingQueue(home);
-    const joined = (queue.value.items[0]?.residual ?? []).join("\n");
+    const joined = (r.error?.residual ?? []).join("\n");
     assert.ok(joined.includes("context window exceeded"), `宿主诊断须原样搬运；实际=${joined}`);
     // 有 diagnostic 时**不得**再标注「未提供」。
     assert.ok(!joined.includes("宿主未提供 diagnostic"), "有诊断时不得声称未提供");
+  });
+});
+
+test("能力不可用（no provider）仍须入队——分流只放行产出失败", async () => {
+  // 反向半边：分流若放行过宽，「宿主这轮根本派不出执行体」就会从队列里消失，
+  // 而 11 §11 的条件式恰恰点名这种情形**须**登记。本用例钉住那条边界。
+  await withHome(async ({ home, factSourceRoot, projectId, projectRoot }) => {
+    const { readPendingQueue } = await import("../lib/pending-queue.js");
+    const r = await runIdleCheckpoint({
+      dshHomePath: home,
+      factSourceRoot,
+      projectId,
+      projectRoot,
+      task: "friction-discovery",
+      sessionId: RUN_SESSION,
+      currentTurn: 4,
+      discover: async () => {
+        const error = new Error("no subagent provider is registered");
+        error.code = "discovery_provider/unavailable";
+        throw error;
+      },
+    });
+    assert.ok(!r.ok);
+
+    const queue = await readPendingQueue(home);
+    const entry = queue.value.items[0];
+    assert.ok(entry, "能力不可用须入队（11 §12 第 2 条：不得因无运行在途而不登记）");
+    assert.equal(r.error.pending_entry_id, entry.entry_id, "返回值须指向那条登记");
+    assert.ok(Array.isArray(entry.residual) && entry.residual.length > 0, "登记须带 residual");
   });
 });
 

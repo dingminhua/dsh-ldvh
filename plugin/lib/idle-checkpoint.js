@@ -1,7 +1,7 @@
 /**
  * dsh-ldvh — 空闲辅助任务的调度与 fail-closed 编排.
  *
- * 权威：specs/11 §9（摩擦发现的触发、执行体、闭集与上限）与 §8.3（fail-closed
+ * 权威：specs/11 §9（摩擦发现的触发、执行体、闭集与上限）与 §12（fail-closed
  * 与待处置队列）；specs/32 §10.2（三任务共用触发点、**不设轮换**——一次派发做全部
  * 已启用任务）。
  *
@@ -13,7 +13,7 @@
  *   2. **调度摩擦发现**：调用闭集执行体（friction-discovery.js）。本模块**不**
  *      代替子代理做语义查重——那一步是 §8.4 明文登记的 gap，只能由派生出的
  *      LLM 子代理完成。因此本模块在无子代理结果时**不创建账目**（见下）。
- *   3. **fail-closed 与待处置登记**（§8.3）：任何一步失败即停止该次任务，把停止
+ *   3. **fail-closed 与待处置登记**（§12）：任何一步失败即停止该次任务，把停止
  *      原因与残留范围**追加**进待处置队列，**不重试、不部分完成、不静默**。
  *
  * **为什么本模块不自己「发现摩擦」**：§8.4 的执行体是「宿主派生一个受管辖隔离
@@ -41,7 +41,7 @@ import {
 } from "./friction-discovery.js";
 
 /**
- * 辅助任务标识（§8.3 第 2 条 `task` 字段的取值）。
+ * 辅助任务标识（§12 第 2 条 `task` 字段的取值）。
  *
  * **单一来源**是 `aux-task-registry.js` 的 `AUX_TASK_ORDER`——此处只做改名导出，
  * 不另定义一份清单。两份清单会漂移，而「哪些任务在册」是登记表的事实。
@@ -65,10 +65,20 @@ function success(value) {
 }
 
 /**
- * 跑一次空闲检查点（§8.3 fail-closed 的唯一收口处）。
+ * 「执行体产出失败」的错误码集合——**不入待处置队列**（2026-11-03，丙方案）。
+ *
+ * 判据不是「失败了」，而是**校验有没有坏**（11 §11 的条件式，见 catch 分支注释）。
+ * 本集合是**闭集且刻意只有一项**：新增成员须先回答「这个失败是否使本轮的材料
+ * 或判据不可信」；答案是否，才归此处。答案不明（无码、或码不在集合里）时按
+ * §12「登记不得吞掉」入队——**存疑即登记**是这一侧的安全方向。
+ */
+const PRODUCTION_FAILURE_CODES = new Set(["discovery_provider/incomplete_run"]);
+
+/**
+ * 跑一次空闲检查点（§12 fail-closed 的唯一收口处）。
  *
  * 参数：
- *   - `dshHomePath`：待处置队列的宿主位置（§8.3 第 1 条）。
+ *   - `dshHomePath`：待处置队列的宿主位置（§12 第 1 条）。
  *   - `factSourceRoot`：受管辖项目的事实源根（`<project>/ldvh-base`）。
  *   - `tasks`：本次要做的**全部**任务（有序；取自 `pickEnabledAuxTasks`）。
  *     Human 2026-10-11 改定「一次派发做多件事」，故这里是清单而非单个任务。
@@ -79,7 +89,7 @@ function success(value) {
  *     是不可跳过的前置），此时如实报告 skipped 而非假装跑过。
  *
  * 返回 `{ ok, value }` 或 `{ ok: false, error }`。**失败已入队**——调用方据此向
- * 主控/Human 声明，不得自行重试（§8.3 第 3 项）。
+ * 主控/Human 声明，不得自行重试（§12 第 3 条）。
  */
 export async function runIdleCheckpoint({
   dshHomePath,
@@ -186,7 +196,7 @@ export async function runIdleCheckpoint({
     });
   }
   // 读不出的账目会使查重输入不完整（§8.4 第 2 项的反向护栏：误判递增会虚增
-  // count），故按 §8.3 停止而不是在残缺账本上判断。
+  // count），故按 §12 停止而不是在残缺账本上判断。
   if (Array.isArray(candidates.value.invalid) && candidates.value.invalid.length > 0) {
     return recordAndFail(dshHomePath, {
       task: taskId,
@@ -383,10 +393,41 @@ export async function runIdleCheckpoint({
     //
     // 边界：只搬运，不解释。不猜测 error 的根因、不把 stopReason 翻译成白话
     // 结论（那会变成第二规则源），也不因补了诊断就改变「不推进水位」的处置。
+    const reason = `执行体（受管辖隔离子代理）失败：${String(error?.message ?? error)}`;
+    const residual = describeExecutorFailure(error);
+    // ── 产出失败与校验不可用的分流（2026-11-03，丙方案）──────────────────
+    //
+    // 此前本分支一律 `recordAndFail`，于是队列里 51 条「子代理跑了没收束」
+    // （`stopReason=error/refusal/aborted/max-tokens`）被当成「校验不可用」登记。
+    // 它们不是：校验本身没坏，坏的是**这一次执行体的产出**——水位照旧不推进、
+    // 下一轮重观同一区间即可自愈，不需要任何人来核查。
+    //
+    // 规范依据是 11 §11（`specs/11-宿主辅助任务规范.md:522`）的条件式：
+    // 「**若**该情形同时满足 §12 fail-closed 的成立条件（校验不可用），**另**按
+    // §12 停止该次任务并登记入队」——产出失败不满足那个条件，故不入队。11 §18
+    // 的「升格前置」行已有「停但不入队」先例。
+    //
+    // **只放行这一个码**。其余（`discovery_provider/unavailable`＝宿主本轮没有
+    // 可用提供方、`discovery_provider/incomplete_registry`＝登记表缺段，以及一切
+    // 无码的意外抛错）都仍是「校验不可用」或「性质不明」，按 §12「登记不得吞掉」
+    // 一律入队——分流不是给所有失败开后门。
+    //
+    // 不入队**不等于不留痕**：返回值仍带 `residual`（错误码／runId／抛出位置），
+    // 由调用方写进运行痕迹（`lifecycle` 的 `recordRun`），见下面的 `pending_entry_id`。
+    if (PRODUCTION_FAILURE_CODES.has(typeof error?.code === "string" ? error.code : "")) {
+      return failure("idle_checkpoint/executor_failed", reason, {
+        stop_reason: reason,
+        residual,
+        // 没有登记，故没有可指的条目；显式写 null 使「无登记」与「未接上」可区分。
+        pending_entry_id: null,
+        // 派生/判断失败：水位**不推进**（§8.4 水位段），下次重覆盖同一区间。
+        watermarkAdvanced: false,
+      });
+    }
     return recordAndFail(dshHomePath, {
       task: taskId,
-      reason: `执行体（受管辖隔离子代理）失败：${String(error?.message ?? error)}`,
-      residual: describeExecutorFailure(error),
+      reason,
+      residual,
       at,
       // 派生/判断失败：水位**不推进**（§8.4 水位段），下次重覆盖同一区间。
       watermarkAdvanced: false,
@@ -410,7 +451,7 @@ export async function runIdleCheckpoint({
   return success({
     task: taskId,
     // 本次要求做的全部事项，与其中能力本体未实现者——使调用方能把「勾了三件、
-    // 实做一件」如实记进痕迹（04 §8.5：不得主张空闲维护已运行）。
+    // 实做一件」如实记进痕迹（11 §18：不得主张空闲维护已运行）。
     tasks: [...requested],
     unimplemented: [...new Set([...unimplemented, ...(decision?.unimplementedTasks ?? [])])],
     outcome: decision?.outcome ?? "reported",
@@ -436,9 +477,9 @@ export async function runIdleCheckpoint({
 }
 
 /**
- * §8.3 fail-closed 收口：入队 + 停止。
+ * §12 fail-closed 收口：入队 + 停止。
  *
- * **队列本身不可用时**：§8.3 第 6 条要求不得降级登记、也不得继续。此时返回的失败
+ * **队列本身不可用时**：11 §12 第 6 条要求不得降级登记、也不得继续。此时返回的失败
  * 里带上 `queue_unavailable`，使调用方**无法**把这次失败当作已登记（这正是
  * 「不得据『已尝试登记』主张登记已完成」的机械形态）。
  *
@@ -490,7 +531,7 @@ function describeExecutorFailure(error) {
 async function recordAndFail(dshHomePath, { task, reason, residual, at, code }) {
   const queued = await appendPendingEntry(dshHomePath, { task, reason, residual, at });
   if (!queued.ok) {
-    return failure("idle_checkpoint/queue_unavailable", `${reason}（且待处置队列不可写：${queued.error.message}——04 §8.3 第 6 条禁止降级登记，故本次未登记）`, {
+    return failure("idle_checkpoint/queue_unavailable", `${reason}（且待处置队列不可写：${queued.error.message}——11 §12 第 6 条禁止降级登记，故本次未登记）`, {
       stop_reason: reason,
       residual,
       queue_unavailable: true,

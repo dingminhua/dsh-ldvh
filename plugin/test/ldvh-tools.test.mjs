@@ -549,10 +549,12 @@ test("discover-ldvh-capabilities enumerates all operations", async () => {
 	const keys = envelope.result.operations.map((o) => o.operation_key).sort();
 	assert.deepEqual(keys, [
 		"discover-ldvh-capabilities",
-		// 11 §12ter 的两条公开操作，声明在承担语义的来源自己文件里（05 §6.1 明许
+		// 11 §12ter 的三条公开操作，声明在承担语义的来源自己文件里（05 §6.1 明许
 		// 「声明位置由承担语义的来源自定」），故 discovery 仍从 36 解析到它们。
 		"observation-buffer-list",
 		"observation-buffer-review",
+		// 2026-11-03：§12 第 5 条的结案通道，声明同批落在 §12ter 表里。
+		"pending-queue-resolve",
 		"precheck-git-commit",
 		"read-specification-candidates",
 		"read-specification-content",
@@ -579,6 +581,163 @@ test("discover-ldvh-capabilities returns rejected for an unknown operation_key",
 	const { handlers } = makeExec({ dshHomePath: dshHome("/nope"), workspaceRoot: "/nope", sessionPersistence: () => undefined });
 	const envelope = await handlers["discover-ldvh-capabilities"]({ operation_key: "no-such-operation" }, {});
 	assertEnvelopeShape(envelope, "discover-ldvh-capabilities", "rejected");
+});
+
+// ---------------------------------------------------------------------------
+// pending-queue-resolve (11 §12 item 5 — the settlement channel)
+//
+// The queue is the host-side ledger of stopped auxiliary tasks. Before
+// 2026-11-03 nothing in the production path ever wrote `resolved_at`: 292
+// entries, zero settled, growing daily. The capability (`resolvePendingEntry`)
+// and even a script entry point already existed — what was missing was an
+// entry inside a governed session, which is where the master actually runs.
+//
+// The tests below pin the three constraints whose silent loss would restore
+// the old state, because none of them fails loudly on its own:
+//   1. `note` is required — a bare `resolved_at` lowers the count without
+//      telling the next reader whether the entry was actually examined;
+//   2. an unknown or already-settled id is REJECTED, never a silent success
+//      (otherwise "I settled it" and "it was not there" become
+//      indistinguishable);
+//   3. the write is read back — a write that cannot be read back is not
+//      evidence that it happened (09 §5).
+// ---------------------------------------------------------------------------
+
+/** Seed a queue under a temp DSH home with one entry; returns its entry_id. */
+async function seedPendingQueue(home, overrides = {}) {
+	const dir = join(home, "ldvh");
+	await mkdir(dir, { recursive: true });
+	const entry = {
+		entry_id: "11111111-2222-4333-8444-555555555555",
+		at: "2026-11-02T00:00:00.000Z",
+		task: "friction-discovery",
+		reason: "执行体失败（样例）",
+		residual: ["错误码：sample"],
+		resolved_at: null,
+		...overrides
+	};
+	await writeFile(join(dir, "pending-queue.jsonl"), JSON.stringify(entry) + "\n", "utf8");
+	return entry;
+}
+
+async function readQueue(home) {
+	const raw = await readFileSync(join(home, "ldvh", "pending-queue.jsonl"), "utf8");
+	return raw.split("\n").filter((line) => line.trim() !== "").map((line) => JSON.parse(line));
+}
+
+test("pending-queue-resolve settles an entry and confirms it by read-back", async () => {
+	await withTemp("ldvh-tools.", async (base) => {
+		const home = join(base, "home");
+		const root = await initRepo(base);
+		await writeSpecsTree(root);
+		await registerProject(dshHome(home), { id: "demo", path: root });
+		const seeded = await seedPendingQueue(home);
+		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
+		const envelope = await handlers["pending-queue-resolve"](
+			{ entry_id: seeded.entry_id, note: "已核对：残留已清理，下次检查点不再复现" },
+			{ agent: { session: { header: { cwd: root } } } }
+		);
+		assertEnvelopeShape(envelope, "pending-queue-resolve", "completed");
+		assert.equal(envelope.result.entry_id, seeded.entry_id);
+		assert.ok(typeof envelope.result.resolved_at === "string" && envelope.result.resolved_at.length > 0);
+		assert.equal(envelope.result.resolution_note, "已核对：残留已清理，下次检查点不再复现");
+		// read_back is the same value written — not a placeholder.
+		assert.equal(envelope.result.read_back, envelope.result.resolved_at);
+		assert.equal(envelope.result.remaining_unresolved, 0);
+
+		// And the queue on disk agrees: resolved_at written, content fields
+		// byte-identical (settling is a new fact about the entry, not a
+		// rewrite of it — §12 item 3).
+		const [row] = await readQueue(home);
+		assert.ok(typeof row.resolved_at === "string");
+		assert.equal(row.at, seeded.at);
+		assert.equal(row.task, seeded.task);
+		assert.equal(row.reason, seeded.reason);
+		assert.deepEqual(row.residual, seeded.residual);
+	});
+});
+
+test("pending-queue-resolve refuses a bare settled timestamp with no examination note", async () => {
+	await withTemp("ldvh-tools.", async (base) => {
+		const home = join(base, "home");
+		const root = await initRepo(base);
+		await writeSpecsTree(root);
+		await registerProject(dshHome(home), { id: "demo", path: root });
+		const seeded = await seedPendingQueue(home);
+		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
+		const envelope = await handlers["pending-queue-resolve"](
+			{ entry_id: seeded.entry_id },
+			{ agent: { session: { header: { cwd: root } } } }
+		);
+		assertEnvelopeShape(envelope, "pending-queue-resolve", "invalid_request");
+		assert.ok(
+			envelope.gaps.some((g) => String(g).includes("note is required")),
+			`the refusal must name the missing note, got ${JSON.stringify(envelope.gaps)}`
+		);
+		// The refusal must not have touched the queue.
+		const [row] = await readQueue(home);
+		assert.equal(row.resolved_at, null);
+	});
+});
+
+test("pending-queue-resolve rejects an unknown entry_id instead of silently succeeding", async () => {
+	await withTemp("ldvh-tools.", async (base) => {
+		const home = join(base, "home");
+		const root = await initRepo(base);
+		await writeSpecsTree(root);
+		await registerProject(dshHome(home), { id: "demo", path: root });
+		const seeded = await seedPendingQueue(home);
+		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
+		const envelope = await handlers["pending-queue-resolve"](
+			{ entry_id: "99999999-8888-4777-8666-555555555555", note: "核查" },
+			{ agent: { session: { header: { cwd: root } } } }
+		);
+		assertEnvelopeShape(envelope, "pending-queue-resolve", "rejected");
+		assert.ok(envelope.gaps.some((g) => String(g).includes("entry_not_found")), `got ${JSON.stringify(envelope.gaps)}`);
+		const [row] = await readQueue(home);
+		assert.equal(row.resolved_at, null);
+		assert.equal(row.entry_id, seeded.entry_id);
+	});
+});
+
+test("pending-queue-resolve rejects settling an entry twice (no overwriting the first note)", async () => {
+	await withTemp("ldvh-tools.", async (base) => {
+		const home = join(base, "home");
+		const root = await initRepo(base);
+		await writeSpecsTree(root);
+		await registerProject(dshHome(home), { id: "demo", path: root });
+		const stamp = "2026-11-02T10:00:00.000Z";
+		const seeded = await seedPendingQueue(home, { resolved_at: stamp, resolution_note: "首次核查" });
+		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
+		const envelope = await handlers["pending-queue-resolve"](
+			{ entry_id: seeded.entry_id, note: "第二次核查" },
+			{ agent: { session: { header: { cwd: root } } } }
+		);
+		assertEnvelopeShape(envelope, "pending-queue-resolve", "rejected");
+		assert.ok(envelope.gaps.some((g) => String(g).includes("already_resolved")), `got ${JSON.stringify(envelope.gaps)}`);
+		const [row] = await readQueue(home);
+		assert.equal(row.resolved_at, stamp, "the first settlement timestamp must survive");
+		assert.equal(row.resolution_note, "首次核查", "the first examination note must survive");
+	});
+});
+
+test("pending-queue-resolve returns unavailable outside a governed session", async () => {
+	await withTemp("ldvh-tools.", async (base) => {
+		const home = join(base, "home");
+		const root = await initRepo(base);
+		await writeSpecsTree(root);
+		const elsewhere = await initRepo(base, { name: "elsewhere" });
+		await registerProject(dshHome(home), { id: "demo", path: root });
+		const seeded = await seedPendingQueue(home);
+		const { handlers } = makeExec({ dshHomePath: dshHome(home), workspaceRoot: base, sessionPersistence: () => undefined });
+		const envelope = await handlers["pending-queue-resolve"](
+			{ entry_id: seeded.entry_id, note: "核查" },
+			{ agent: { session: { header: { cwd: elsewhere } } } }
+		);
+		assertEnvelopeShape(envelope, "pending-queue-resolve", "unavailable");
+		const [row] = await readQueue(home);
+		assert.equal(row.resolved_at, null, "an ungoverned session must not settle the queue");
+	});
 });
 
 // ---------------------------------------------------------------------------

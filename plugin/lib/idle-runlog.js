@@ -139,7 +139,16 @@ async function readAll(dshHomePath) {
  *   - `object_uid`（可选）：涉及账目；
  *   - `promoted`（可选）：是否发生阈值流转；
  *   - `watermark`（可选）：推进到的轮次（未推进则 absent）；
- *   - `note`（可选）：失败原因等短说明。
+ *   - `pending_entry_id`（可选，2026-11-03 新增）：本次失败在待处置队列里的
+ *     `entry_id`，**或 null**。这是两本账之间**唯一**的共同键：队列有 entry_id、
+ *     痕迹此前没有任何对应字段，于是「同一时间窗 50 条痕迹对 292 条登记」两本
+ *     账互不相认，事后想问「昨天那次到底成没成」答不出来。
+ *     **null 与 absent 语义不同**：null = 本次失败按 11 §11 的条件式**不入队**
+ *     （如执行体产出失败，见 `idle-checkpoint` 的 `PRODUCTION_FAILURE_CODES`），
+ *     absent = 本次根本没有失败（或写入方尚未接上这个键）。读取方不得把两者混同。
+ *   - `note`（可选）：失败原因等短说明。**此前无生产者**（字段定义多年、从未被
+ *     写入）；2026-11-03 起由 `lifecycle` 在失败分支填入 `stop_reason` + `residual`
+ *     首项，使「为什么 stopped」不必再回队列里翻。
  *
  * **只追加、不修改**；超出容量即丢最旧（环形语义）。
  */
