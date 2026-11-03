@@ -15,6 +15,7 @@ import {
   declaredVerificationIds,
   readVerificationRowIds,
   verifyRun,
+  DEFERRED_ROWS,
 } from "../lib/verification-run.js";
 
 const REPO_ROOT = new URL("../..", import.meta.url).pathname;
@@ -226,4 +227,47 @@ test("完整报告仍 landed（完整性检查不误伤）", () => {
   const r = verifyRun({ rows: completeRows() });
   assert.equal(r.stage, "landed");
   assert.deepEqual(r.missing, []);
+});
+
+// ---------------------------------------------------------------------------
+// 已知缺口（DEFERRED_ROWS）与「没有判定可作」（NOT_CHECKABLE_ROWS）必须可分
+// ---------------------------------------------------------------------------
+
+test("DEFERRED_ROWS 与 NOT_CHECKABLE_ROWS 不重叠，且与机械行互补成全集", () => {
+  const mechanical = new Set(MECHANICAL_ROWS);
+  const deferred = new Set(Object.keys(DEFERRED_ROWS));
+  const notCheckable = new Set(Object.keys(NOT_CHECKABLE_ROWS));
+  for (const id of deferred) {
+    assert.equal(notCheckable.has(id), false, `${id} 不能既「无采集点」又「无判定可作」`);
+    assert.equal(mechanical.has(id), true, `${id} 应属机械可核对行（只是本轮无采集点）`);
+  }
+  // 机械行 = 有采集点的 + 已知缺口 + 「无判定可作」的语义行。
+  // 有采集点者不在任何声明表里（它们本来就该报 pass），故用不等式：声明表只能更小。
+  assert.ok(deferred.size + notCheckable.size <= mechanical.size, "声明表不应超出机械行集合");
+  assert.ok(deferred.size > 0, "已知缺口清单不应为空（否则「没采集点」会被误当「没这回事」）");
+});
+
+test("已声明的已知缺口不阻断，但必须随痕迹带出（不许静默消失）", () => {
+  const rows = MECHANICAL_ROWS.map((id) => ({
+    id,
+    verdict: DEFERRED_ROWS[id] ? "not-checkable" : "pass",
+  }));
+  for (const id of Object.keys(NOT_CHECKABLE_ROWS)) rows.push({ id, verdict: "not-checkable" });
+  const r = verifyRun({ rows });
+  assert.equal(r.stage, "landed");
+  assert.deepEqual(r.undeclared, []);
+  assert.ok(r.deferredRows.length > 0, "已知缺口必须列出，否则「没核对」就不出现在痕迹里");
+  assert.equal(r.deferredRows.length, Object.keys(DEFERRED_ROWS).length);
+});
+
+test("未声明的 not-checkable 仍阻断（已知缺口清单不是万能免责）", () => {
+  const rows = MECHANICAL_ROWS.map((id) => ({
+    id,
+    verdict: DEFERRED_ROWS[id] ? "not-checkable" : "pass",
+  }));
+  for (const id of Object.keys(NOT_CHECKABLE_ROWS)) rows.push({ id, verdict: "not-checkable" });
+  rows.push({ id: "趁隙冒充的行", verdict: "not-checkable" });
+  const r = verifyRun({ rows });
+  assert.equal(r.stage, "blocked");
+  assert.deepEqual(r.undeclared, ["趁隙冒充的行"]);
 });

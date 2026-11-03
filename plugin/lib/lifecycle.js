@@ -53,7 +53,7 @@ import { admitIdleDispatch, pickEnabledAuxTasks } from "./idle-settings.js";
 import { recordRun } from "./idle-runlog.js";
 // stage 的唯一派生点：三处调用同一实现，避免「修一处漏两处」（见 run-stage.js 注释）。
 import { deriveStage } from "./run-stage.js";
-import { verifyRun as verifyMechanically, NOT_CHECKABLE_ROWS } from "./verification-run.js";
+import { verifyRun as verifyMechanically, NOT_CHECKABLE_ROWS, MECHANICAL_ROWS, DEFERRED_ROWS } from "./verification-run.js";
 
 /**
  * 把一次审核运行的结局整理成 §18 逐行核对结论（11 §18「运行完成」）。
@@ -66,44 +66,6 @@ import { verifyRun as verifyMechanically, NOT_CHECKABLE_ROWS } from "./verificat
  * 返回 `null` 表示该次运行没有可核对的结局（如 skipped），此时痕迹里不写
  * `verification` 字段——缺席与空结果是两件事。
  */
-function verifyReviewRun(reviewOutcome) {
-  if (reviewOutcome === null || typeof reviewOutcome !== "object") return null;
-  const outcome = reviewOutcome.outcome;
-  if (outcome === "skipped" || outcome === undefined) return null;
-
-  const rows = [];
-  const push = (id, verdict, evidence) => rows.push({ id, verdict, evidence });
-
-  const unsettledN = Array.isArray(reviewOutcome.unsettled) ? reviewOutcome.unsettled.length : 0;
-  push("派发条目的判定完备", unsettledN > 0 ? "fail" : "pass",
-    unsettledN > 0 ? `unsettled=${unsettledN} 条未判完` : "unsettled 为空，本次派发的每条均有去向");
-
-  const transferFailedN = Array.isArray(reviewOutcome.transfer_failed) ? reviewOutcome.transfer_failed.length : 0;
-  push("转写条目的合法性", transferFailedN > 0 ? "fail" : "pass",
-    transferFailedN > 0 ? `transfer_failed=${transferFailedN} 条` : "本轮无转写失败");
-
-  push("fail-closed 处置", outcome === "land-failed" ? "fail" : "pass",
-    outcome === "land-failed" ? `本次运行失败：${reviewOutcome.action ?? "unknown"}` : "本次运行未触发 fail-closed");
-
-  push("缓冲条目不可写／不可回读",
-    outcome === "land-failed" && /buffer|unreadable/i.test(String(reviewOutcome.action ?? "")) ? "fail" : "pass",
-    `outcome=${outcome} action=${reviewOutcome.action ?? "null"}`);
-
-  // 这些行的 §18 时机是动作点采集（「每次判断执行时」「每次写入后」），运行结束时
-  // 的痕迹不足以充当证据。如实落 not-checkable，不填 pass。
-  for (const id of Object.keys(NOT_CHECKABLE_ROWS)) {
-    push(id, "not-checkable", NOT_CHECKABLE_ROWS[id]);
-  }
-
-  const verdict = verifyMechanically({ rows });
-  return {
-    stage: verdict.stage,
-    fail: verdict.fail,
-    undeclared: verdict.undeclared,
-    misreported: verdict.misreported ?? [],
-    rows: verdict.rows,
-  };
-}
 import { appendPendingEntry, countPendingEntries } from "./pending-queue.js";
 import { adoptFinishedChild, createChildInstaller } from "./child.js";
 import { resolveChildFromSessionRecord } from "./child-session-record.js";
@@ -112,6 +74,83 @@ import { resolveChildFromSessionRecord } from "./child-session-record.js";
 import { readLastTurn } from "./session-position.js";
 import { ActivityLog, AgentLifecycle } from "./agent-lifecycle.js";
 import { recordJudgementForGuard } from "./host-seams.js";
+
+/**
+ * 把一次审核运行的结局整理成 §18 逐行核对结论（11 §18「运行完成」）。
+ *
+ * ## 它做什么，不做什么
+ *
+ * 只把该次运行**已经产生**的事实映射到 §18 各行上，不做第二次判断。凡该次运行
+ * 没有采集到证据的行，**一律落 `not-checkable` 并带原因**——不是跳过不报。
+ * 「跳过不报」与「报了 not-checkable」在结论上差别巨大：前者让 `verifyRun` 的
+ * 完整性检查把整轮判为 blocked（缺席不等于通过），后者是**如实声明缺口**。
+ *
+ * ## 2026-11-03 复核修复（第 3 项缺陷）
+ *
+ * 初版只产出 4 条机械行 + 2 条声明行，其余 17 条机械行**从不报出**——而模块
+ * 完整性检查会把缺席判 fail，故运行时恒 blocked。现在改为：**先按 §18 全表
+ * 逐行给出结论**，没有采集点的行显式落 not-checkable 并写明「本行需要动作点
+ * 采集，运行结束时的痕迹不足以充当证据」。
+ *
+ * @returns {object|null} null 表示该次运行无可核对结局（skipped），痕迹不写该字段
+ */
+function verifyReviewRun(reviewOutcome) {
+  if (reviewOutcome === null || typeof reviewOutcome !== "object") return null;
+  const outcome = reviewOutcome.outcome;
+  if (outcome === "skipped" || outcome === undefined) return null;
+
+  const unsettledN = Array.isArray(reviewOutcome.unsettled) ? reviewOutcome.unsettled.length : 0;
+  const transferFailedN = Array.isArray(reviewOutcome.transfer_failed) ? reviewOutcome.transfer_failed.length : 0;
+
+  /** 该次运行**真正采集到**证据的行：id → [verdict, evidence]。 */
+  const collected = new Map([
+    ["派发条目的判定完备", unsettledN > 0
+      ? ["fail", `unsettled=${unsettledN} 条未判完`]
+      : ["pass", "unsettled 为空，本次派发的每条均有去向"]],
+    ["转写条目的合法性", transferFailedN > 0
+      ? ["fail", `transfer_failed=${transferFailedN} 条`]
+      : ["pass", "本轮无转写失败"]],
+    ["fail-closed 处置", outcome === "land-failed"
+      ? ["fail", `本次运行失败：${reviewOutcome.action ?? "unknown"}`]
+      : ["pass", "本次运行未触发 fail-closed"]],
+    ["缓冲条目不可写／不可回读",
+      outcome === "land-failed" && /buffer|unreadable/i.test(String(reviewOutcome.action ?? ""))
+        ? ["fail", `outcome=${outcome} action=${reviewOutcome.action ?? "null"}`]
+        : ["pass", `outcome=${outcome} action=${reviewOutcome.action ?? "null"}`]],
+  ]);
+
+  // **按 §18 全表逐行产出**（机械行 + 已声明不可判行）：没有采集点的行显式落
+  // not-checkable，不跳过。这样「本轮核对过哪些行、哪些没核对」在痕迹里读得出。
+  const rows = [];
+  for (const id of MECHANICAL_ROWS) {
+    const hit = collected.get(id);
+    if (hit) {
+      rows.push({ id, verdict: hit[0], evidence: hit[1] });
+    } else {
+      // 该行有判定可作，但本轮没有采集点 —— 记入已知缺口（`DEFERRED_ROWS`），
+      // 不阻断但随痕迹带出。理由逐行取自缺口清单，不在此处另写一套。
+      rows.push({ id, verdict: "not-checkable", evidence: DEFERRED_ROWS[id] ?? "本行本轮无采集点" });
+    }
+  }
+  for (const [id, reason] of Object.entries(NOT_CHECKABLE_ROWS)) {
+    rows.push({ id, verdict: "not-checkable", evidence: reason });
+  }
+
+  // **注意**：上面「无采集点 → not-checkable」的行并不在 `NOT_CHECKABLE_ROWS` 里，
+  // 故会被 `verifyRun` 判为 `undeclared` 而阻断。这是**刻意的**：它们确实没被核对
+  // 过，不该被静默当成通过。要让它不阻断，唯一正当途径是把该行的采集点真的实现
+  // 出来——而不是放宽声明表。
+  const verdict = verifyMechanically({ rows, deferred: DEFERRED_ROWS });
+  return {
+    stage: verdict.stage,
+    deferredRows: verdict.deferredRows ?? [],
+    fail: verdict.fail,
+    undeclared: verdict.undeclared,
+    misreported: verdict.misreported ?? [],
+    missing: verdict.missing ?? [],
+    rows: verdict.rows,
+  };
+}
 
 /**
  * 把检查点的失败原因压成一行，供运行痕迹的 `note` 承载（2026-11-03，丙方案）。
@@ -745,6 +784,18 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
             });
             try {
               const reviewOutcome = reviewOutcomes["experience-review"];
+              // **落盘 stage 必须由机械审核结论决定**（2026-11-03 复核修复，第 1 项阻断）。
+              //
+              // 初版把 `verification` 与 `stage` 并列写入，两者互不约束：独立复算证实
+              // `transfer_failed` 非空时 `verification.stage` 为 `blocked`，而落盘的
+              // `stage` 仍是 `landed`。那正是本单要消除的形态——审核结论躺在旁边，
+              // 结论行本身不动。故此处改为：verification 说 blocked，stage 就**不得**是
+              // `landed`，降为 `land-failed`（既有闭集内的值，不改闭集）并把阻断项带出。
+              const reviewVerification = verifyReviewRun(reviewOutcome);
+              const baseStage = deriveStage({ taskOutcomes: { "experience-review": reviewOutcome } });
+              const reviewStage = reviewVerification !== null && reviewVerification.stage === "blocked" && baseStage === "landed"
+                ? "land-failed"
+                : baseStage;
               await recordRun(dshHomePath, {
                 at: new Date().toISOString(),
                 task: "experience-review",
@@ -753,16 +804,13 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                 // stage 派生收敛到 deriveStage（run-stage.js）：此前是三处各自的
                 // 三元式，per_task.outcome=partial 会被记成 land-failed（「部分完成」
                 // 记成「失败」）。
-                stage: deriveStage({ taskOutcomes: { "experience-review": reviewOutcome } }),
+                stage: reviewStage,
                 action: reviewOutcome?.action,
                 per_task: reviewOutcomes,
                 // **机械审核结论随痕迹带出**（11 §18）：`stage=landed` 此前只证明
                 // 「落地被调用了」。现在同时带出逐行核对结果，使「那次运行到底
                 // 核对过什么」可从 `idle-checkpoint-runs.json` 回读。
-                ...(() => {
-                  const verification = verifyReviewRun(reviewOutcome);
-                  return verification === null ? {} : { verification };
-                })(),
+                ...(reviewVerification === null ? {} : { verification: reviewVerification }),
               });
             } catch {
               // 诊断旁路不得打断机制（与安静期路径同一纪律）。
@@ -1080,19 +1128,22 @@ export function createLifecycleRegistry(ctx, { dshHomePath, workspaceRoot, sessi
                     outcome: reviewOutcome?.outcome ?? null,
                     action: reviewOutcome?.action ?? null,
                   });
+                  // 与上面那处同一绑定纪律：verification 说 blocked，stage 就不得是 landed。
+                  const cpVerification = verifyReviewRun(reviewOutcome);
+                  const cpBaseStage = deriveStage({ taskOutcomes: { "experience-review": reviewOutcome } });
+                  const cpStage = cpVerification !== null && cpVerification.stage === "blocked" && cpBaseStage === "landed"
+                    ? "land-failed"
+                    : cpBaseStage;
                   try {
                     await recordRun(dshHomePath, {
                       at: new Date().toISOString(),
                       task: "experience-review",
                       tasks: ["experience-review"],
                       unimplemented: [],
-                      stage: deriveStage({ taskOutcomes: { "experience-review": reviewOutcome } }),
+                      stage: cpStage,
                       action: reviewOutcome?.action,
                       per_task: reviewOutcomesForCheckpoint,
-                      ...(() => {
-                        const verification = verifyReviewRun(reviewOutcome);
-                        return verification === null ? {} : { verification };
-                      })(),
+                      ...(cpVerification === null ? {} : { verification: cpVerification }),
                     });
                   } catch {
                     // 诊断旁路不得打断机制（与安静期路径同一纪律）。

@@ -64,6 +64,40 @@ export const NOT_CHECKABLE_ROWS = Object.freeze({
 });
 
 /**
+ * §18 中**机械可核对、但运行结束时的痕迹不足以充当证据**的行：id → 缺口理由。
+ *
+ * 这些行的「验证时机」是**动作点采集**（「每次判断执行时」「每次写入后」
+ * 「每次回合开始时」等）——要在动作发生的那一刻取证据，而不是在运行结束后
+ * 从痕迹倒推。运行结束时它们只能是 `not-checkable`。
+ *
+ * **与 `NOT_CHECKABLE_ROWS` 的分工**（关键区别）：
+ *   - `NOT_CHECKABLE_ROWS`：该行**根本没有判定可作**（条件式空行 / 语义判断）。
+ *   - 本表：该行**有判定可作**，只是本轮没有采集点。这是**已知缺陷**，不是设计。
+ *
+ * 故本表是**待清偿的缺口清单**，不是免责声明：每清掉一项就删一行。把它与
+ * `NOT_CHECKABLE_ROWS` 混在一起，会让「没实现采集」与「本就不该有判定」变得
+ * 无法区分——那正是 §18「不可判须显式声明」要防的。
+ */
+export const DEFERRED_ROWS = Object.freeze({
+  "延迟的取消": "需在回合开始那一刻回读计时器句柄；运行结束时的痕迹没有该回读记录",
+  "二次确认空闲": "需在计时到期、派发之前取三件事实（无进行中回合、距上次结束已足延迟、无其他待触发计时）；运行结束时无从复算",
+  "上下文供给的有界性": "需在运行前记录交付区间与水位取值；痕迹只留结果，未留切分依据",
+  "逐字引证": "需在每次判断执行时核对引文确在交付材料内；运行结束时材料窗口已推进",
+  "自动动作边界": "需在每次动作执行前比对 §9／§10 闭集；痕迹无逐动作的比对记录",
+  "阈值晋升": "需在观察到同源条目时复算 pending 计数与幂等；运行结束时该组可能已被改写",
+  "留观缓冲条目的写入合法": "需在写入后立刻做字段闭集解析与逐字一致性核对；痕迹未保留写入当时的缓冲快照",
+  "摩擦观察条目的写入合法": "同上（§12bis.1 十四字段闭集与写后回读）",
+  "摩擦观察条目到期淘汰的登记": "需在淘汰发生的那一刻核对登记与查重；读时惰性结算不留现场",
+  "摩擦缓冲的准入合法性": "需在任何读写之前回读管辖状态与分区自洽；痕迹未记录该前置读取",
+  "单条目不成文两次": "需在创建前按当下重读 pending 状态并用 wx 原子创建；痕迹无认领文件当前状态的记录",
+  "水位推进": "需在运行结束时回读水位取值并与推进结果比对；该取值未被记录",
+  "路径约定落实": "需在规范建立/修改或路径选择时对照 §14 第 1 条；痕迹无该对照记录",
+  "无主控预检落实": "需在运行前与运行中回读预检配置；痕迹只留结果，未留配置快照",
+  "交还的接受": "需等被下一个主控或 Human 接受；接受发生在本轮之后，本轮无从判定",
+  "运行完成": "本行是本模块自身的核对结论（自证）；它由调用方按 trace 填入，本模块不给自己判 pass",
+});
+
+/**
  * §18 的**可机械核对行**清单（20 行）。
  *
  * 与 `NOT_CHECKABLE_ROWS` 合起来共 22 行 = §18 数据行数。三者构成闭集：
@@ -151,7 +185,12 @@ export function parseVerificationRowIds(specText) {
  * @param {object} [args.notCheckable] - 声明为不可判的行（默认取 `NOT_CHECKABLE_ROWS`）
  * @returns {{ok:boolean, stage:"landed"|"blocked", rows:object[], fail:string[], undeclared:string[], declared:string[], misreported:string[], error?:object}}
  */
-export function verifyRun({ rows, notCheckable = NOT_CHECKABLE_ROWS, expectedMechanicalRows = MECHANICAL_ROWS } = {}) {
+export function verifyRun({
+  rows,
+  notCheckable = NOT_CHECKABLE_ROWS,
+  deferred = DEFERRED_ROWS,
+  expectedMechanicalRows = MECHANICAL_ROWS,
+} = {}) {
   if (!Array.isArray(rows)) {
     return {
       ok: false,
@@ -162,11 +201,17 @@ export function verifyRun({ rows, notCheckable = NOT_CHECKABLE_ROWS, expectedMec
       declared: [],
       misreported: [],
       missing: [],
+      deferredRows: [],
       error: { code: "verification/invalid_rows", message: "rows must be an array of per-row verdicts" },
     };
   }
 
   const declaredSet = new Set(Object.keys(notCheckable ?? {}));
+  // `deferred` 是**已知缺口清单**（有判定可作、但本轮无采集点）。它与
+  // `notCheckable`（根本没有判定可作）在结论上必须区分：前者记入 `deferredRows`
+  // 随痕迹带出，后者不阻断。两者都算「已声明」，故不落 undeclared——如实声明
+  // 缺口不等于谎报通过。
+  const deferredSet = new Set(Object.keys(deferred ?? {}));
   const normalized = [];
   const fail = [];
   const undeclared = [];
@@ -188,6 +233,7 @@ export function verifyRun({ rows, notCheckable = NOT_CHECKABLE_ROWS, expectedMec
     if (verdict === "fail") fail.push(id);
     if (verdict === "not-checkable") {
       if (declaredSet.has(id)) declared.push(id);
+      else if (deferredSet.has(id)) declared.push(id);
       else undeclared.push(id);
     }
     // **「默认通过」的机械堵口**（2026-11-03 自查发现的第一版缺陷）：
@@ -231,6 +277,10 @@ export function verifyRun({ rows, notCheckable = NOT_CHECKABLE_ROWS, expectedMec
     });
   }
 
+  // 已知缺口：本轮判为 not-checkable 且属 `deferred` 的行。随痕迹带出，
+  // 使「本轮还有哪些行没真核对」在跑绿的同时也读得见——不许静默消失。
+  const deferredRows = normalized.filter((r) => r.verdict === "not-checkable" && deferredSet.has(r.id)).map((r) => r.id);
+
   const ok = fail.length === 0 && undeclared.length === 0;
   return {
     ok,
@@ -241,6 +291,7 @@ export function verifyRun({ rows, notCheckable = NOT_CHECKABLE_ROWS, expectedMec
     declared,
     misreported,
     missing,
+    deferredRows,
   };
 }
 
