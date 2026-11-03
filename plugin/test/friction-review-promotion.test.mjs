@@ -372,3 +372,66 @@ test("补充失败登记不上队列时：原因写回失败项，不静默吞�
     }
   });
 });
+
+test("全链路：一次 runFrictionReviewPromotion 同时完成「count 递增 + 缓冲条目被移除」", async () => {
+  // 这是本单计划步骤 4 的「全链路侧」判据。
+  //
+  // 为什么必须用 runFrictionReviewPromotion 而不是直调 supplementOccurrence：
+  // 后者只写账目、**不结算缓冲**，于是条目仍留在 pending，下一轮会再补一次、
+  // count 由 8 变 9 —— 形成新的重复计数。判据要求两条断言由**同一次调用**同时
+  // 成立，正是为了钉住「补充与结算是一体的」。
+  await withTemp("friction-review-promotion.", async (base) => {
+    const h = home(base);
+    const fsRoot = factRoot(base);
+    const created = await createFrictionObject({
+      factSourceRoot: fsRoot,
+      frontmatterDraft: {
+        title: "全链路夹具账目",
+        phenomenon: "全链路夹具账目用于验证补充与结算同在一次调用内完成",
+        occurrence: { count: 7, first_at: "2026-10-20T00:00:00.000Z", last_at: "2026-11-01T00:00:00.000Z" },
+        attribution: "全链路测试",
+        change_summary: "夹具：count 起始为 7",
+      },
+      bodyMarkdown: "## 现象\n全链路夹具账目用于验证补充与结算同在一次调用内完成\n\n## 入账依据\n测试夹具。",
+      sessionSignature: SIG,
+    });
+    assert.ok(created.ok, JSON.stringify(created.error));
+    const uid = created.value.object_uid;
+
+    const appended = await appendFrictionObservation(h, {
+      ...entry({ group: uid, index: 41 }),
+      target_uid: uid,
+      phenomenon: "全链路：又一次观察到同一阻碍",
+      evidence: "全链路夹具逐字引证片段（来源：turn 9 assistant）",
+    });
+    assert.ok(appended.ok, JSON.stringify(appended.error));
+
+    const before = await readFrictionObservations(h, PROJECT, { status: "pending" });
+    const mine = before.value.items.filter((e) => e.target_uid === uid);
+    assert.equal(mine.length, 1, "前置：缓冲里有该待补充条目");
+    const observedAt = mine[0].at;
+
+    const result = await runFrictionReviewPromotion({
+      factSourceRoot: fsRoot,
+      dshHomePath: h,
+      projectId: PROJECT,
+      sessionSignature: SIG,
+    });
+    assert.ok(result.ok, JSON.stringify(result.error));
+
+    // 断言一：账目 count 递增 1
+    const after = await readFrictionObject({ factSourceRoot: fsRoot, objectUid: uid });
+    assert.equal(after.value.frontmatter.occurrence.count, 8, "count 须由 7 增至 8");
+    assert.equal(Date.parse(after.value.frontmatter.occurrence.last_at), Date.parse(observedAt),
+      `last_at 须更新为本次观察时刻（实得 ${after.value.frontmatter.occurrence.last_at} vs ${observedAt}）`);
+
+    // 断言二：缓冲条目被整条移除（同一次调用内完成）
+    const buffered = await readFrictionObservations(h, PROJECT, { status: "pending" });
+    assert.equal(buffered.value.items.filter((e) => e.target_uid === uid).length, 0,
+      "补充成功后该条目须被整条移除——否则下一轮会再补一次、count 虚增到 9");
+
+    // 断言三：逐字引证进了账目正文（02 §6.1 第 3 条）
+    assert.ok(after.value.body.includes("全链路夹具逐字引证片段"),
+      "现象段须含该条 evidence 的逐字引证");
+  });
+});
