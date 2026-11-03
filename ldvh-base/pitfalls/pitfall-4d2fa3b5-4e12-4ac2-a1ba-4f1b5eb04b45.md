@@ -1,6 +1,6 @@
 ---
 title: Spark 草稿改写 summary 被拒
-status: draft
+status: active
 scope: 适用于经受控写入接口更新已有 Spark 事实对象、且更新草稿同时携带 summary 与正文的场合；经验的可靠边界是「frontmatter 字段须在对应正文节中逐字出现」这一不变量，以及「失败信封的 gaps 会给出定位」。
 object_uid: 4d2fa3b5-4e12-4ac2-a1ba-4f1b5eb04b45
 fact_type_key: pitfall
@@ -14,6 +14,10 @@ change_log:
     provider: huoshan
     model: deepseek-v4-1-flash-261017
     summary: 登记独立复现验证结论（23 §16.1 第 3 项）：只改 summary 被拒时 issues 逐字回指「当前理解」节，summary 与正文节同改即通过——据此订正「接口不回指」「summary 不可改」两条判断，并把根因改写为载体内聚不变量
+  - at: 2026-11-03T08:12:59.154Z
+    provider: workbuddy
+    model: deepseek-v4.1-flash
+    summary: 按 23 §16 第 1 项入档（draft→active）：独立复现验证已登记于 c1c63f8，四前提齐；同时清理症状段重复的引证行（勘误级）
 ---
 
 # Spark 草稿改写 summary 被拒
@@ -22,10 +26,9 @@ change_log:
 
 向已有 Spark 事实对象提交更新草稿时，同一份草稿连续两次被受控写入接口以 `spark/coherence_invalid` 拒绝。第一次拒绝后调用方误以为「接口不告诉我是哪一处坏了」，于是凭猜改动自己的编辑面——两次尝试之间唯一变动的内容面，是 summary 是否被一起改写。
 
-逐字引证（来源：主控会话 turn 5，材料 [turn 5] assistant 段「一处自我更正」）：
+逐字引证（来源：主控会话 turn 5，材料 [turn 5] assistant 段「**一处自我更正**」一句）：
 
 `6317a233` 我第一版草稿把 summary 一起改写了，触发 `spark/coherence_invalid` 两次——最后改成「summary 一字不动、新增 H3 节给当前值」才过。
-来源：主控会话 turn 5，材料 [turn 5] assistant 段「**一处自我更正**」一句：`6317a233` 第一版草稿改写 summary 触发 `spark/coherence_invalid` 两次后才通过。
 
 ## 触发条件
 
@@ -40,7 +43,7 @@ change_log:
 两件事叠加：
 
 1. **frontmatter 是唯一权威文本**：`summary` 必须在正文「当前理解」节中**逐字出现**（`plugin/lib/spark-writer.js:564` `validateCarrierCoherence`，三对不变量：`question`↔调查问题、`scope_boundary`↔调查边界、`summary`↔当前理解）。只改 frontmatter 的 summary 而不改正文对应节，等于让两份文本分叉，校验按设计拒绝。
-2. **拒绝信号被调用方误读**：接口**是**回指了哪一处的——失败信封的 `gaps` 里会带上 `carrier coherence: 当前理解 section must contain summary verbatim …`（`plugin/lib/spark-writer.js:1204-1206` 产出 issues，`plugin/lib/spark-tools.js:687` 把它拼进 `gaps`）。误判发生在读的一方：只看 `spark/coherence_invalid` 与「carrier coherence failed on update」这一行整体说明，没有读随后的 issues 行，于是把「有定位但没读」当成了「没有定位」。
+2. **拒绝信号被调用方误读**：接口**是**回指了哪一处的——失败信封的 `gaps` 里会带上 `carrier coherence: 当前理解 section must contain summary verbatim …`（`plugin/lib/spark-writer.js:1204-1206` 产出 issues，`plugin/lib/spark-tools.js:688` 把它拼进 `gaps`）。误判发生在读的一方：只看 `spark/coherence_invalid` 与「carrier coherence failed on update」这一行整体说明，没有读随后的 issues 行，于是把「有定位但没读」当成了「没有定位」。
 
 ## 解决
 
@@ -80,4 +83,4 @@ change_log:
 
 适用于经受控写入接口更新已有 Spark 事实对象、且更新草稿同时携带 summary 与正文的场合；经验的可靠边界是「frontmatter 字段须在对应正文节中逐字出现」这一不变量，以及「失败信封的 gaps 会给出定位」。
 
-展开：凡以受控写入更新已有 Spark 对象者都可能踩到，尤其是把「给当前值换新」理解为「只改摘要」的写法；当对象类型、写入器版本或校验判据改变时，本经验的可信度随之失效，须重新实测后再复用。
+展开——凡以受控写入更新已有 Spark 对象者都可能踩到，尤其是把「给当前值换新」理解为「只改摘要」的写法；当对象类型、写入器版本或校验判据改变时，本经验的可信度随之失效，须重新实测后再复用。何时可信的反面也须记住：本条只覆盖**更新**通道，新建对象时 summary 与正文一并给出、不存在分叉，不适用本条的判断。
