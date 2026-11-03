@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { createHash } from "node:crypto";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { validateMessage, checkKeyChangesAgainstDiff, checkNormDirectionUniqueness, isNormCarrierPath, snapshotIdentity, SOURCE_FINGERPRINT, cleanGitEnvironment, newFinding, checkDocsReferences, isSpecOrFactCarrierPath, extractDiffPaths, checkLoadBearingDeclarations, collectDeclarationReferenceTokens, isSpecCarrierPath, LOAD_BEARING_MARKER, checkRemovalBasisDeclarations, collectRemovalBasisDeclarations, extractSectionText, isFrictionCarrierPath, checkFrictionCommitTargets } from "./commit-validation.js";
@@ -593,7 +593,8 @@ async function mainPreCommit(argv) {
   // LDVH_PREFLIGHT_INDEX overwrites it during the install preflight, whose
   // synthetic repository has no dependencies of its own.
   const lintRoot = process.env.LDVH_WORKSPACE_ROOT || workspaceRoot || root;
-  const lint = await checkLint(lintRoot);
+  const lintFiles = await stagedLintFiles(lintRoot, root, indexFile);
+  const lint = await checkLint(lintRoot, lintFiles);
   if (!lint.ok) issues.push(...lint.issues);
   if (issues.length > 0) return report("pre-commit", issues);
   process.stderr.write("LDVH Git Gate (pre-commit) passed\n");
@@ -620,36 +621,60 @@ async function resolveEslint(workspaceRoot) {
 }
 
 /**
- * Run the workspace's lint over its whole configured surface.
+ * Run the workspace's lint over the files THIS COMMIT touches.
  *
- * Whole-surface, not the staged subset: strictness was the stated priority,
- * and a per-file run misses cross-file rules and lets a pre-existing error sit
- * untouched behind a stream of small commits. The measured cost is 2.3-3.4s
- * cold, against a test suite that already takes 40s.
+ * ── 2026-11-04：面由「全仓」收窄到「本次提交触及的文件」──────────────
  *
- * The exit code is the verdict — 0 pass, anything else refuse. The two
- * failures are then told apart in the MESSAGE, because they need different
- * fixes: real lint findings say which file and line to change, while a broken
- * config or a missing binary means the tool itself must be repaired.
+ * 原注释给全仓写的理由是「逐文件会漏掉**跨文件规则**」。该理由在本仓配置下
+ * **不成立**，实测而非推断：`plugin/eslint.config.js` 没有 `plugins` 字段，
+ * `js.configs.recommended` 的 64 条规则全部是单文件作用域（逐条枚举过），
+ * 不存在任何需要同时看两个文件才能判定的规则。理由不成立，代价却是真的：
+ *
+ *  - 成本：全仓 216 个文件 3.1s，本次提交的 2 个文件 1.0s；
+ *  - 更要紧的是**阻塞归属错位**：多人/多会话共享同一工作树时，他人未提交的
+ *    lint 错误会把任何人的提交一起挡下。实测 2026-11-04：本会话要提交的两个
+ *    文件逐字干净（`eslint <两个文件>` 退出码 0），却被并行会话在
+ *    `source-recall.js`／`recall-injection.js` 里的 7 处 error 挡了 4 分钟。
+ *    那不是「本候选不合规」，是「别人的半成品把路封了」。
+ *
+ * **收窄的是作用域，不是强度**：既存错误仍会被发现——CI 的 `npm run lint`
+ * 是全仓（`.github/workflows/ci.yml`，`git commit --no-verify` 也绕不过它），
+ * 06 §5「提交前必须通过静态分析」因此在提交时仍有承载。差别只在于：本地这道
+ * 门现在只回答「你要提交的这批东西合不合规」，不再替全仓背书。
+ *
+ * ── 空清单与已删除路径（两处实测出来的坑）────────────────────────────
+ *
+ * 1. **零个文件时绝不可调用 eslint**：实测 `eslint` 不带参数会**扫描当前目
+ *    录**——即退化成全仓。若本次提交不含任何 lint 面内文件（纯规范/事实提交），
+ *    正确处理是跳过（返回 ok 且注明原因），而不是传空数组。
+ * 2. **已删除的文件不可传入**：实测 `eslint lib/nope.js` 退出码 2 并报
+ *    `No files matching the pattern`，会被误读成「lint 工具坏了」。故按
+ *    `git diff --cached --name-status` 的 D 状态剔除，且传入前用 `access`
+ *    确认存在。
+ * 3. **被 ignore 的文件**（如 `plugin/web/**`）会产出 warning 行而非错误；
+ *    加 `--no-warn-ignored` 以免 warning 混进报告的判读。
+ *
+ * 退出码是判据——0 通过，其余拒绝。两类失败在**措辞**上区分（真实 lint 发现
+ * 说清哪个文件哪一行；配置坏或二进制缺失则要修工具），因为修法完全不同。
  */
 /**
- * 内容寻址的「lint 已通过」缓存（2026-10-30 加）。
+ * 内容寻址的「lint 已通过」缓存（2026-10-30 加；2026-11-04 改为按本提交的文件）。
  *
- * WHY：`installHook` 的 preflight 会真的跑一遍全仓 eslint 来证明 Hook 能挡住
- * 提交（这是它存在的意义，不能省）。但每次安装都重跑一遍：单次约 3s，而测试
- * 里有 41 处安装，实测占全套 150s 中的约 120s。
+ * WHY：`installHook` 的 preflight 会真的跑一遍 eslint 来证明 Hook 能挡住提交
+ * （这是它存在的意义，不能省）。但每次安装都重跑一遍：单次约 1–3s，而测试里
+ * 有 41 处安装，实测占全套 150s 中的约 120s。
  *
  * SAFETY——这份缓存直接支撑「装上去的 Hook 确实挡住了坏提交」这一断言，所以：
  *  1. **只缓存通过**。失败一律重跑：失败要给出当次真实的行号与原因，缓存它既
  *     无用又会掩盖修复后的结果。
- *  2. **键覆盖整个 lint 面**：每个受检文件的内容、eslint 配置、eslint 版本、
- *     依赖锁。任一处变化即换键。用内容哈希而非 mtime/size——mtime 在 checkout
- *     与并行写入下不可靠，而这个判定一旦出错就等于装了个没验过的 Hook。
+ *  2. **键覆盖本次受检文件的内容**（2026-11-04 改）：键原先覆盖整个 lint 面，
+ *     面收窄后那样算会把无关文件也算进键——他人改一个不参与本次提交的文件
+ *     就会让缓存失效，重新退化成每次重跑。现在键 = eslint 版本 + 依赖锁 +
+ *     eslint 配置 + **本次传入的文件清单及其内容**。
  *  3. **缓存不可用即重跑**（读不到、写不进、JSON 坏了都当未命中），fail-closed
  *     的方向是「多跑一次 lint」，不是「跳过 lint」。
  */
-const LINT_CACHE_SCHEMA = 1;
-const LINT_SURFACE_DIRS = ["lib", "test", "scripts"];
+const LINT_CACHE_SCHEMA = 2;
 const LINT_SURFACE_EXTENSIONS = [".js", ".mjs", ".cjs"];
 
 async function hashFile(path) {
@@ -657,29 +682,85 @@ async function hashFile(path) {
   return createHash("sha256").update(content).digest("hex");
 }
 
-/** 收集 lint 面内的全部文件（相对 workspaceRoot，已排序）。fixtures 不在面内。 */
-async function collectLintSurface(workspaceRoot, dir, acc) {
-  let entries;
+/**
+ * 本次提交触及的、落在 lint 面内的文件（相对 workspaceRoot）。
+ *
+ * 取 `git diff --cached --name-status` 而不是遍历目录：面是「这次要提交什么」，
+ * 不是「工作树上有什么」。**删除的路径不参与**——文件已不存在，传给 eslint 会
+ * 得到 `No files matching the pattern`（实测退出码 2），那会被误读成工具故障。
+ *
+ * ── 路径基准必须换算（2026-11-04 实测出来的缺陷）────────────────────
+ *
+ * git 返回的路径**相对仓库根**（worktree），而 eslint 以 `workspaceRoot` 为
+ * cwd 解析参数。生产形态里两者不是同一个目录：`workspaceRoot` 是本仓
+ * `plugin/`，worktree 是仓库根——直接把 `lib/x.js` 传给以 plugin 为 cwd 的
+ * eslint 会找不到文件，实测表现为 `No files matching the pattern`（exit 2），
+ * 于是每个有 JS 改动的提交都被判成「工具故障」。故先算 workspaceRoot 相对
+ * worktree 的前缀，再据此换算；**不在 workspaceRoot 之下的路径直接丢弃**
+ * （仓库里 plugin/ 之外的 JS 不属这个 lint 面）。
+ *
+ * 只保留配置真正会检查的：扩展名在 `LINT_SURFACE_EXTENSIONS` 内，且**确实存在于
+ * 工作树**（`access` 兜底：重命名的新路径、被并发删掉的路径都不该让 eslint 报
+ * 模式不匹配）。被 `ignores` 排除的目录不必在此过滤——eslint 自己会跳过。
+ */
+async function stagedLintFiles(workspaceRoot, worktree, indexFile) {
+  let raw = "";
   try {
-    entries = await readdir(join(workspaceRoot, dir), { withFileTypes: true });
+    raw = await git(worktree, ["diff", "--cached", "--name-status", "--no-ext-diff", "-z"], indexFile);
   } catch {
-    return acc;
+    // 读不到暂存状态：返回空并在调用方按「无可检查文件」处理。**不可**退化成
+    // 全仓扫描——那正是本函数要收窄的东西，且会把「读不到」变成「扫全部」。
+    return [];
   }
-  for (const entry of entries) {
-    const rel = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === "fixtures") continue;
-      await collectLintSurface(workspaceRoot, rel, acc);
+  const repoPaths = [];
+  const fields = raw.split("\0").filter(Boolean);
+  for (let index = 0; index < fields.length; index += 1) {
+    const status = fields[index];
+    if (!/^[A-Z]/.test(status)) continue;
+    const letter = status[0];
+    if (letter === "R" || letter === "C") {
+      // rename/copy：status、旧路径、新路径——只有新路径还要检查。
+      const newPath = fields[index + 2];
+      if (typeof newPath === "string") repoPaths.push(newPath);
+      index += 2;
       continue;
     }
-    if (!entry.isFile()) continue;
-    if (!LINT_SURFACE_EXTENSIONS.some((ext) => entry.name.endsWith(ext))) continue;
-    acc.push(rel);
+    const path = fields[index + 1];
+    if (typeof path === "string") {
+      // D（删除）不 lint：文件已不在，传给 eslint 会报模式不匹配。
+      if (letter !== "D") repoPaths.push(path);
+      index += 1;
+    } else {
+      index += 1;
+    }
   }
-  return acc;
+  // lint 工作区相对仓库根的前缀：生产形态下是 "plugin"；同根时是 ""。
+  // **不可**把前缀再拼回 repoPath——repoPath 已是仓库相对，两者相加会多套一层
+  // （实测拼成 "plugin/plugin/lib/x.js"，随后 access 失败、整批被滤空，门于是
+  // 静默放行；这正是第一版实现的缺陷）。
+  const prefix = relative(worktree, workspaceRoot).split(sep).join("/");
+  const kept = [];
+  for (const repoPath of repoPaths) {
+    if (!LINT_SURFACE_EXTENSIONS.some((ext) => repoPath.endsWith(ext))) continue;
+    if (prefix.startsWith("..") || isAbsolute(prefix)) continue; // lint 面不在仓库内：无对应路径
+    if (prefix !== "") {
+      if (repoPath === prefix) continue; // 前缀本身是个目录，不是文件
+      if (!repoPath.startsWith(`${prefix}/`)) continue; // 不在工作区之下
+    }
+    // 剥掉共同前缀，得到工作区相对路径（同根时原样）。
+    const rel = prefix === "" ? repoPath : repoPath.slice(prefix.length + 1);
+    try {
+      await access(join(workspaceRoot, rel), constants.R_OK);
+    } catch {
+      continue; // 工作树里不存在（并发删除等）：不传给 eslint
+    }
+    kept.push(rel);
+  }
+  kept.sort();
+  return kept;
 }
 
-async function lintCacheKey(workspaceRoot, eslint) {
+async function lintCacheKey(workspaceRoot, eslint, files) {
   const hash = createHash("sha256");
   hash.update(`schema:${LINT_CACHE_SCHEMA}\0`);
   hash.update(`eslint:${eslint}\0`);
@@ -691,9 +772,8 @@ async function lintCacheKey(workspaceRoot, eslint) {
       hash.update(`${meta}\0missing\0`);
     }
   }
-  const files = [];
-  for (const dir of LINT_SURFACE_DIRS) await collectLintSurface(workspaceRoot, dir, files);
-  files.sort();
+  // 只把**本次受检的文件**算进键：面收窄后若仍按全仓算，他人改一个不参与本次
+  // 提交的文件就会让缓存失效，等于每次都重跑。
   for (const rel of files) {
     try {
       hash.update(`${rel}\0${await hashFile(join(workspaceRoot, rel))}\0`);
@@ -728,18 +808,36 @@ async function writeLintCache(workspaceRoot, key) {
   }
 }
 
-async function checkLint(workspaceRoot) {
+/**
+ * Lint the files this commit touches.
+ *
+ * `files` is the narrowed surface from `stagedLintFiles`. Three cases:
+ *   - **eslint 不在**：拒绝（fail-closed），不因「没装」而跳过检查；
+ *   - **本次提交没有 lint 面内文件**：跳过并注明。**绝不**以空参数调用 eslint
+ *     ——实测不带参数会扫描当前目录，等于悄悄退回全仓；
+ *   - **有文件**：只检查这些文件。
+ *
+ * 退出码是判据——0 通过，其余拒绝。两类失败在**措辞**上区分（真实 lint 发现
+ * 说清哪个文件哪一行；配置坏或二进制缺失则要修工具），因为修法完全不同。
+ */
+async function checkLint(workspaceRoot, files) {
   const eslint = await resolveEslint(workspaceRoot);
   if (eslint === null) {
     return { ok: false, issues: [newFinding("validation/lint_failed", `eslint is not installed in ${workspaceRoot}/node_modules — run npm ci there before committing (the gate refuses rather than skipping lint)`, null)] };
   }
-  const cacheKey = await lintCacheKey(workspaceRoot, eslint);
+  // 空清单：本次提交不触碰任何 lint 面内文件（纯规范/事实/文档提交）。
+  // 这不是「检查通过」，是「本次没有可查的东西」——如实区分，不冒充通过。
+  if (files.length === 0) return { ok: true, issues: [], skipped: "no-lint-files" };
+  const cacheKey = await lintCacheKey(workspaceRoot, eslint, files);
   if (await readLintCache(workspaceRoot, cacheKey)) return { ok: true, issues: [], cached: true };
   let code = 0;
   let stdout = "";
   let stderr = "";
   try {
-    const result = await execFileAsync(process.execPath, [eslint, ".", "--no-cache"], { cwd: workspaceRoot, encoding: "utf8", timeout: 120000, maxBuffer: 16 * 1024 * 1024 });
+    // `--no-warn-ignored`：被 ignores 排除的文件（如 plugin/web/**）本不参与检查，
+    // 却会产出「File ignored because of a matching ignore pattern」warning 行，
+    // 混进报告会模糊「有没有真的错误」的判读。
+    const result = await execFileAsync(process.execPath, [eslint, ...files, "--no-cache", "--no-warn-ignored"], { cwd: workspaceRoot, encoding: "utf8", timeout: 120000, maxBuffer: 16 * 1024 * 1024 });
     ({ stdout, stderr } = result);
   } catch (error) {
     if (typeof error?.code !== "number") {
@@ -757,7 +855,7 @@ async function checkLint(workspaceRoot) {
   // eslint's "tool failed" exit path leads with this banner; a plain lint
   // failure prints per-file findings instead. The distinction only changes the
   // wording of the refusal — both refuse.
-  const toolFault = /Oops! Something went wrong|ESLint couldn't find|SyntaxError:/.test(report);
+  const toolFault = /Oops! Something went wrong|ESLint couldn't find|SyntaxError:|No files matching the pattern/.test(report);
   const detail = report.split("\n").slice(0, 40).join("\n");
   return { ok: false, issues: [newFinding("validation/lint_failed", toolFault ? `eslint could not analyze the workspace (repair the lint configuration or reinstall dependencies):\n${detail}` : `eslint reported findings:\n${detail}`, null)] };
 }

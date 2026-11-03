@@ -514,3 +514,148 @@ test("pre-commit 不再因豁免集为空而误报删声明（09 §5.3 第 6 项
 		assert.doesNotMatch(result.stderr, /validation\/load_bearing_declaration_removed/);
 	});
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pre-commit 的 lint 面（06 §5「提交前必须通过静态分析」的机械承载）
+//
+// 来历：lint 早在 db2dc15 就接进了 pre-commit，但**全仓没有任何用例证明它
+// 真的挡得住**——`validation/lint_failed` 只在 commit-validation.test.mjs 的
+// 规则名闭集断言里出现过一次，从未有一条用例造过 lint 脏文件并断言提交被拒。
+// 一道没被证明拦得住的守门，与没有守门在证据上不可区分。
+//
+// 2026-11-04 同时收窄了面：原实现跑 `eslint .`（全仓 216 个文件），多人共享
+// 工作树时**他人未提交的 lint 错误会把任何人的提交一起挡下**（实测：本会话要
+// 提交的两个文件逐字干净，却被并行会话在 source-recall.js 里的 7 处 error 挡了
+// 4 分钟）。现在只查 `git diff --cached` 里本次提交触及的文件。
+//
+// **夹具的布局必须与生产同构**：生产里 `workspaceRoot` 是仓库根下的 `plugin/`
+// 子目录（git 给的是仓库相对路径，eslint 以 plugin 为 cwd）。若把 lint 面摆成
+// 仓库的兄弟目录，路径换算就永远测不到——本组用例第一版正是这样写的，于是
+// 「脏文件应被拒」在实现有缺陷时照样通过。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 生产同构的仓库 + lint 面：lint 工作区是仓库下的 `plugin/` 子目录。
+ *
+ * 返回 `{ root, lintRoot }`——`root` 是 Git 仓库根，`lintRoot` 是
+ * `<root>/plugin`，即 pre-commit 实际以之为 cwd 的那个目录。
+ */
+async function repoWithLintWorkspace(base, { body = "export const ok = 1;\n", stage = true } = {}) {
+	const root = await initRepo(base, { name: "lintrepo" });
+	const lintRoot = join(root, "plugin");
+	await mkdir(join(lintRoot, "lib"), { recursive: true });
+	await mkdir(join(lintRoot, "node_modules"), { recursive: true });
+	// 必须**真的有规则**：零规则的配置对任何脏文件都放行，「脏文件被拒」便测不出来。
+	await writeFile(
+		join(lintRoot, "eslint.config.js"),
+		'export default [{ files: ["**/*.js"], rules: { "no-unused-vars": "error" } }];\n'
+	);
+	try {
+		await symlink(
+			join(pluginRoot, "node_modules", "eslint"),
+			join(lintRoot, "node_modules", "eslint"),
+			process.platform === "win32" ? "junction" : "dir"
+		);
+	} catch {
+		// 建不了链接则无法运行 eslint：调用方以 testSignature 之外的路径跳过本组不现实，
+		// 故直接退回真实插件根（它必有 eslint），代价是面变成真实插件树。
+		return { root, lintRoot: pluginRoot };
+	}
+	await writeFile(join(lintRoot, "lib", "sample.js"), body);
+	if (stage) await gitOk(root, ["add", "plugin/lib/sample.js"]);
+	return { root, lintRoot };
+}
+
+test("pre-commit 拒绝本次提交里 lint 有错的文件（06 §5 / lint 面）", async () => {
+	await withTemp("ldvh-ggr-lint-dirty.", async (base) => {
+		// 未使用的变量 ⇒ 真正的 lint 发现（不是工具故障）。
+		const { root, lintRoot } = await repoWithLintWorkspace(base, {
+			body: "const unusedVariable = 1;\nexport const ok = 2;\n",
+		});
+
+		const result = await runNode(
+			preCommitArgs({ workspaceRoot: base, worktree: root }),
+			{ env: preCommitEnv(lintRoot) }
+		);
+		assert.equal(result.code, 1, result.stderr);
+		assert.match(result.stderr, /validation\/lint_failed/);
+		assert.match(result.stderr, /no-unused-vars/);
+	});
+});
+
+test("pre-commit 放行 lint 干净的提交（06 §5 / lint 面 / 正控制）", async () => {
+	await withTemp("ldvh-ggr-lint-clean.", async (base) => {
+		const { root, lintRoot } = await repoWithLintWorkspace(base);
+
+		const result = await runNode(
+			preCommitArgs({ workspaceRoot: base, worktree: root }),
+			{ env: preCommitEnv(lintRoot) }
+		);
+		assert.equal(result.code, 0, result.stderr);
+		assert.match(result.stderr, /LDVH Git Gate \(pre-commit\) passed/);
+	});
+});
+
+test("本次提交不含 lint 面内文件时跳过，且不退化为全仓扫描（lint 面 / 空清单）", async () => {
+	await withTemp("ldvh-ggr-lint-empty.", async (base) => {
+		// 只暂存一个 .md：本次提交没有任何 lint 面内文件。
+		const { root, lintRoot } = await repoWithLintWorkspace(base, { stage: false });
+		await writeFile(join(root, "notes.md"), "# 只是文档\n");
+		await gitOk(root, ["add", "notes.md"]);
+		// lint 面里预先放一个**脏**文件：若实现退化成 `eslint .`，它会被扫到并拒绝
+		// 提交。断言通过，即证明空清单没有退化成全仓。
+		await writeFile(join(lintRoot, "lib", "preExistingDirty.js"), "const alsoUnused = 1;\n");
+
+		const result = await runNode(
+			preCommitArgs({ workspaceRoot: base, worktree: root }),
+			{ env: preCommitEnv(lintRoot) }
+		);
+		assert.equal(result.code, 0, result.stderr);
+		assert.match(result.stderr, /LDVH Git Gate \(pre-commit\) passed/);
+		assert.doesNotMatch(result.stderr, /validation\/lint_failed/);
+	});
+});
+
+test("他人未提交的 lint 错误不再阻塞本次提交（lint 面 / 阻塞归属）", async () => {
+	await withTemp("ldvh-ggr-lint-others.", async (base) => {
+		// 本次提交的文件干净；lint 面里另一个**未暂存**的文件是脏的。
+		// 收窄前（`eslint .`）这会挡下提交——2026-11-04 实测到的真实阻塞形态。
+		const { root, lintRoot } = await repoWithLintWorkspace(base);
+		await writeFile(join(lintRoot, "lib", "someoneElse.js"), "const theirUnused = 1;\n");
+
+		const result = await runNode(
+			preCommitArgs({ workspaceRoot: base, worktree: root }),
+			{ env: preCommitEnv(lintRoot) }
+		);
+		assert.equal(result.code, 0, result.stderr);
+		assert.match(result.stderr, /LDVH Git Gate \(pre-commit\) passed/);
+	});
+});
+
+test("删除一个 lint 面内文件不得被读成 lint 工具故障（lint 面 / 已删除路径）", async () => {
+	await withTemp("ldvh-ggr-lint-deleted.", async (base) => {
+		// 先提交该文件，再把它删掉并暂存删除：diff --name-status 里它是 D。
+		const { root, lintRoot } = await repoWithLintWorkspace(base);
+		await gitOk(root, ["commit", "-q", "-m", "seed"]);
+		await gitOk(root, ["rm", "-q", "plugin/lib/sample.js"]);
+
+		const result = await runNode(
+			preCommitArgs({ workspaceRoot: base, worktree: root }),
+			{ env: preCommitEnv(lintRoot) }
+		);
+		// 已删除的路径若被传给 eslint，会得到 `No files matching the pattern`
+		// （exit 2）并被措辞成「工具故障」——那是误判。正确行为是跳过它。
+		assert.equal(result.code, 0, result.stderr);
+		assert.doesNotMatch(result.stderr, /No files matching the pattern/);
+	});
+	// **检测力边界（实测，2026-11-04）**：本条只在**两道防护同时撤除**时转红。
+	// 实现有两条独立的冗余防线——`--name-status` 里的 D 状态过滤，以及传入前
+	// 的 `access` 存在性兜底。变异验证结果：只撤 D 过滤（仍留 access）→ 仍绿；
+	// 只撤 access（仍留 D 过滤）→ 仍绿；两者都撤 → 转红。
+	//
+	// 这与 06 §5「每条断言须能单独转红」不是同一条规则：那是断言级要求，而本
+	// 用例只有一条断言、只有一种被测行为（「已删除路径不得到达 eslint」）。冗余
+	// 是本意（任一道单独失效都不至于误报），故按 06 §5 末段「多条断言在实现上
+	// 耦合、无法各自单独转红时，须在用例内写明该耦合关系并以共同转红证据逐组
+	// 取证」的同一口径，在此写明耦合关系，证据为上面那次「两者都撤」的变异。
+});
