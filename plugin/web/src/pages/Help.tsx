@@ -30,6 +30,20 @@
  * 层级固定 h1（页头）→ h2（分区标题）→ h3（条目标题），分组标签是普通文本行，不占
  * 标题层级；正文值一律走 `ldvh-body`（主色），标签走 `ldvh-caption-strong`。
  *
+ * **可读性纪律（Human 2026-11-03 裁定「按提案全部落地」）**：
+ * 1. **三级标题各自一档**：h1 `ldvh-page-title`（18px）、h2 `ldvh-region-title`
+ *    （20px）、h3 `ldvh-card-title`（16px）。分区标题不再借用
+ *    `ldvh-card-title-prominent`——按 `docs/01` §1.5 第 3 条，那一档只用于「同一卡片
+ *    承载多个 Human 判断区」的对象主标题，不得代替页面或详情标题。
+ * 2. **承载内容的句子走主色**：本页唯一保留的次级正文是系统卡的**边界块**
+ *    （「它不保证什么」）——它是防自欺条款，刻意用虚线框与灰字退半步。其余正文
+ *    （导语、段落、形态卡说明、对照表症状列、阶梯说明、提示条、声明条）一律
+ *    `ldvh-body`。声明条正文由 12px `ldvh-caption` 提到 14px `ldvh-body`：§1.5 第 5 条
+ *    规定 `ldvh-caption` 不承载主要内容，而声明是页面级实质限定。
+ * 3. **正文行长 40rem**：14px 中文约 45 字/行，落在中文排版每行 30–45 字的舒适区；
+ *    此前 46rem 约 52 字/行，长句读起来串行。
+ * 4. **分节留白 mt-8 / pt-6**：分组之间除一条上边框外，再用空间分节。
+ *
  * 纯静态、只读、零数据请求；所有可见文案走 i18n（`docs/01` §1.3）。
  */
 import { useEffect, useRef, useState } from 'react';
@@ -407,8 +421,8 @@ export default function Help() {
       </div>
 
       <div ref={panelRef} className="min-w-0 pb-6">
-        <h2 className="ldvh-card-title-prominent">{t(current.title)}</h2>
-        <p className="ldvh-body-muted mt-1 max-w-[46rem]">{t(current.lead)}</p>
+        <h2 className="ldvh-region-title">{t(current.title)}</h2>
+        <p className="ldvh-body mt-2 max-w-[40rem]">{t(current.lead)}</p>
         {tab === 'start' && <StartBody />}
         {tab === 'overview' && <OverviewBody />}
         {tab === 'objects' && <ObjectsBody />}
@@ -431,7 +445,7 @@ function Notice({ children }: { children: ReactNode }) {
       <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center text-ldvh-accent">
         <HELP_ICONS.info size={15} aria-hidden="true" />
       </span>
-      <p className="ldvh-caption min-w-0">{children}</p>
+      <p className="ldvh-body min-w-0">{children}</p>
     </div>
   );
 }
@@ -463,7 +477,7 @@ function CompareTable({ rows }: { rows: typeof OVERVIEW_COMPARE }) {
               </span>
               <span className="ldvh-card-title min-w-0">{t(row.title)}</span>
             </div>
-            <p className="ldvh-body-muted min-w-[16rem] flex-1">{t(row.symptom)}</p>
+            <p className="ldvh-body min-w-[16rem] flex-1">{t(row.symptom)}</p>
             <p className="ldvh-body min-w-[16rem] flex-1 rounded-md bg-ldvh-accent/5 px-2.5 py-2 -mx-2.5">{t(row.answer)}</p>
           </div>
         );
@@ -493,7 +507,7 @@ function StageCard({ stage }: { stage: StageShape }) {
         </span>
         <h3 className="ldvh-card-title min-w-0">{t(stage.title)}</h3>
       </div>
-      <p className="ldvh-body-muted">{t(stage.body)}</p>
+      <p className="ldvh-body">{t(stage.body)}</p>
       <div className="mt-auto flex min-w-0 flex-wrap gap-x-4 gap-y-1 border-t border-ldvh-border/70 pt-2.5">
         {stage.links.map((link) => (
           <TypeLink key={link.type} to={link.to} type={link.type} showIcon={false} />
@@ -544,8 +558,14 @@ function EntryCard({
           </div>
         ))}
       </dl>
+      {/* 边界块是本页唯一登记过的次级正文块：防自欺条款，刻意退半步。
+          `data-voice="secondary"` 是守卫的判定锚点——新增次级正文必须在这里登记，
+          否则守卫判红（见 tests/api/help-presentation-contract.test.ts 第 13 条）。 */}
       {limit ? (
-        <dl className="rounded-lg border border-dashed border-ldvh-border bg-ldvh-bg p-2.5">
+        <dl
+          data-voice="secondary"
+          className="rounded-lg border border-dashed border-ldvh-border bg-ldvh-bg p-2.5"
+        >
           <dt className="ldvh-caption-strong">{t(limit.label)}</dt>
           <dd className="ldvh-body-muted mt-0.5">{t(limit.value)}</dd>
         </dl>
@@ -629,7 +649,7 @@ function Ladder({ layers }: { layers: typeof TRUST_LAYERS }) {
               <h3 className="ldvh-card-title">{t(layer.title)}</h3>
               <span className={`ldvh-chip ${layer.hintClass}`}>{t(layer.hint)}</span>
             </div>
-            <p className="ldvh-body-muted mt-1 max-w-[52rem]">{t(layer.body)}</p>
+            <p className="ldvh-body mt-1 max-w-[40rem]">{t(layer.body)}</p>
           </div>
         </div>
       ))}
@@ -644,7 +664,7 @@ function Hint({ title, children }: { title?: string; children: ReactNode }) {
       <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center text-ldvh-accent">
         <HELP_ICONS.info size={15} aria-hidden="true" />
       </span>
-      <p className="ldvh-body-muted min-w-0">
+      <p className="ldvh-body min-w-0">
         {title ? <span className="ldvh-body font-medium text-ldvh-text-primary">{title}</span> : null}
         {title ? ' ' : null}
         {children}
@@ -661,7 +681,7 @@ function GroupLabel({ children }: { children: ReactNode }) {
 /** 分区：分组之间用一条上边框分节（`docs/01` §1.10 第 12 条：只保留上边框，不补下边框）。 */
 function Section({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="mt-6 border-t border-ldvh-border pt-5">
+    <div className="mt-8 border-t border-ldvh-border pt-6">
       <GroupLabel>{label}</GroupLabel>
       <div className="mt-3">{children}</div>
     </div>
@@ -702,14 +722,14 @@ function StartBody() {
     <StepList>
       <li className="min-w-0">
         <h3 className="ldvh-card-title">{t('help.start.step1.title')}</h3>
-        <p className="ldvh-body-muted mt-1 max-w-[46rem]">{t('help.start.step1.body')}</p>
-        <div className="mt-3 max-w-[46rem]">
+        <p className="ldvh-body mt-1 max-w-[40rem]">{t('help.start.step1.body')}</p>
+        <div className="mt-3 max-w-[40rem]">
           <Hint title={t('help.start.step1.hintTitle')}>{t('help.start.step1.hint')}</Hint>
         </div>
       </li>
-      <li className="mt-6 min-w-0 border-t border-ldvh-border pt-5">
+      <li className="mt-8 min-w-0 border-t border-ldvh-border pt-6">
         <h3 className="ldvh-card-title">{t('help.start.step2.title')}</h3>
-        <p className="ldvh-body-muted mt-1 max-w-[46rem]">{t('help.start.step2.body')}</p>
+        <p className="ldvh-body mt-1 max-w-[40rem]">{t('help.start.step2.body')}</p>
         <div className="mt-5">
           <GroupLabel>{t('help.start.branchLabel')}</GroupLabel>
         </div>
@@ -718,7 +738,7 @@ function StartBody() {
             <StageCard key={branch.title} stage={branch} />
           ))}
         </div>
-        <div className="mt-4 max-w-[52rem]">
+        <div className="mt-4 max-w-[40rem]">
           <Hint title={t('help.start.nextTitle')}>{t('help.start.next')}</Hint>
         </div>
       </li>
@@ -735,7 +755,7 @@ function OverviewBody() {
       </Section>
 
       <Section label={t('help.spine.title')}>
-        <p className="ldvh-body-muted max-w-[46rem]">{t('help.spine.lead')}</p>
+        <p className="ldvh-body max-w-[40rem]">{t('help.spine.lead')}</p>
         <div className="ldvh-section-grid mt-3">
           {SPINE_STAGES.map((stage) => (
             <StageCard key={stage.title} stage={stage} />
@@ -859,7 +879,7 @@ function EntriesBody() {
               </span>
               <div className="min-w-0 flex-1">
                 <h3 className="ldvh-card-title">{t(entry.title)}</h3>
-                <p className="ldvh-body-muted mt-1">{t(entry.body)}</p>
+                <p className="ldvh-body mt-1">{t(entry.body)}</p>
                 <div className="mt-1.5">
                   <EntryLink to={entry.to} label={t('help.entries.goLabel')} />
                 </div>

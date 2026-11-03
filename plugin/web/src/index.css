@@ -69,6 +69,21 @@
     @apply text-base font-semibold leading-6 text-ldvh-text-primary;
   }
 
+  /*
+   * 分区标题：tab 型页面（帮助页）当前分区名（h2）。
+   *
+   * **为什么单独一档、比页面标题大一号**：页名（「帮助」）在左侧导航里已经出现过，它是
+   * 站点里的一个标签；分区标题是读者此刻真正在读的那句话（「如何开始：先定项目，再立目标」）。
+   * 两级标题同号同重时，扫页分不清「我在哪个分区」——所以给它独立一档 20px，
+   * 与页面标题 18px、卡片标题 16px 拉开三档。
+   *
+   * **它不替代 `ldvh-card-title-prominent`**：后者按 `docs/01` §1.5 第 3 条只用于
+   * 「同一卡片承载多个 Human 判断区」的对象主标题，不得代替页面或详情标题。
+   */
+  .ldvh-region-title {
+    @apply text-xl font-semibold leading-7 text-ldvh-text-primary;
+  }
+
   .ldvh-card-decision-title {
     @apply font-semibold leading-5 text-ldvh-text-primary;
     font-size: 0.8125rem;

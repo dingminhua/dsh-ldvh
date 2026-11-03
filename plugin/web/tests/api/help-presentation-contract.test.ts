@@ -39,6 +39,17 @@
  *     **出现多种类**。
  * 12. **标题层级必须 h1 → h2 → h3**：h1 是页头，h2 是分区标题，h3 是条目标题。分组
  *     标签是普通文本行，不占标题层级；不得出现 h4 及更深，也不得跳级。
+ * 13. **可读性基线必须守住**（Human 2026-11-03 裁定「按提案全部落地」）：
+ *     - **分区标题走 `ldvh-region-title`**：此前 h2 借用 `ldvh-card-title-prominent`
+ *       （16px/600），与 h1（18px）只差 2px、与 h3（16px/500）只差字重，扫页分不出
+ *       「我在哪个分区」。分区标题现在有独立一档 20px/600。
+ *     - **承载内容的句子走主色 `ldvh-body`**：此前页面正文几乎全是 `ldvh-body-muted`
+ *       （次级灰），长文阅读发飘；声明条更用 12px `ldvh-caption` 承载页面级实质限定
+ *       （违反 §1.5 第 5 条）。次级正文只允许出现在**登记过**的块里——本页仅一处：
+ *       系统卡的边界块（「它不保证什么」，防自欺条款，刻意用虚线框与灰字退半步），
+ *       其根元素带 `data-voice="secondary"` 作为判定锚点。
+ *     - **正文行长不超过 40rem**：14px 中文约 45 字/行，落在中文排版每行 30–45 字的
+ *       舒适区；此前 46rem 约 52 字/行，长句读起来串行。
  *
  * **保证边界（如实登记）**：本守卫是**源码级**的——它证明页面的结构与取用方式符合
  * 上述约定，不证明页面上每句话与规范源逐字一致（那句话由人工与规范评审承担）。
@@ -86,6 +97,8 @@ const helpCode = stripComments(help);
 const sidebar = read('src/components/Sidebar.tsx');
 const sidebarCode = stripComments(sidebar);
 const semanticIcon = read('src/components/SemanticIcon.tsx');
+const indexCss = read('src/index.css');
+const designBaseline = read('docs/01-全局设计约束.md');
 
 test('帮助页不得退回营销式英雄区：面板 + 语义排版类，不做渐变与装饰光晕', () => {
   assert.doesNotMatch(
@@ -422,6 +435,99 @@ test('帮助页的标题层级必须是 h1 → h2 → h3，不得跳级或加深
       helpCode,
       new RegExp(`<${tag}\\b`),
       `帮助页不得出现 <${tag}>——标题层级固定为 h1（页头）→ h2（分区）→ h3（条目），分组标签是普通文本行不占层级`,
+    );
+  }
+});
+
+test('帮助页的可读性基线：分区标题用分区令牌、正文走主色、行长不超过 40rem', () => {
+  /**
+   * 三条可读性基线（Human 2026-11-03 裁定「按提案全部落地」）。
+   *
+   * **为什么值得设守卫**：这三条都是「改一次就会悄悄漂掉、且漂掉之后页面仍然能正常
+   * 渲染」的性质——标题改小两号、正文改回次级灰、行长放宽几 rem，功能上毫无异样，
+   * 只有人眼能看出来。所以必须有机器盯着。
+   */
+
+  // ① 分区标题必须走分区令牌，且不得再借用对象主标题那一档。
+  const h2Tags = [...helpCode.matchAll(/<h2\b[^>]*>/g)].map((m) => m[0]);
+  assert.equal(h2Tags.length, 1, `帮助页只允许一个 h2，发现 ${h2Tags.length} 个`);
+  assert.match(
+    h2Tags[0],
+    /ldvh-region-title/,
+    '分区标题必须走 ldvh-region-title（20px/600）——它与页面标题 18px、条目标题 16px 构成三档，扫页才分得出「我在哪个分区」',
+  );
+  assert.doesNotMatch(
+    h2Tags[0],
+    /ldvh-card-title-prominent/,
+    '分区标题不得借用 ldvh-card-title-prominent（docs/01 §1.5 第 3 条：那一档只用于「同一卡片承载多个 Human 判断区」的对象主标题）',
+  );
+
+  // 条目标题是 h3，不得占用分区标题那一档（否则层级又糊回去）。
+  const h3Tags = [...helpCode.matchAll(/<h3\b[^>]*>/g)].map((m) => m[0]);
+  assert.ok(h3Tags.length > 0, '帮助页的条目标题须用 h3');
+  for (const tag of h3Tags) {
+    assert.doesNotMatch(
+      tag,
+      /ldvh-region-title|ldvh-page-title/,
+      'h3 不得占用分区标题或页面标题的排版档——三级标题各自一档',
+    );
+  }
+
+  // ② 令牌本身必须存在且按登记的档位实现。
+  assert.match(
+    indexCss,
+    /\.ldvh-region-title\s*\{[^}]*@apply[^}]*text-xl[^}]*font-semibold[^}]*\}/s,
+    'index.css 须定义 .ldvh-region-title 为 20px（text-xl）/ 600（font-semibold）——分区标题的档位由令牌说了算，不在页面里临时写',
+  );
+  // 登记表必须落在 §1.4 排版系统表**之内**：只断言「文档里出现过这个名字」不够——
+  // §1.5 正文里顺口提一句也能满足，那张表里其实没有这一行，下一个人照样不知道它存在。
+  const typographySection = designBaseline.slice(
+    designBaseline.indexOf('### 1.4 排版系统'),
+    designBaseline.indexOf('### 1.5'),
+  );
+  assert.ok(typographySection.length > 0, '须能从 docs/01 定位到 §1.4 排版系统一节');
+  assert.match(
+    typographySection,
+    /ldvh-region-title/,
+    'docs/01 §1.4 排版系统表须登记 ldvh-region-title——新增排版档必须进登记表，否则下一个人不知道它存在',
+  );
+
+  // ③ 承载内容的正文走主色：次级正文只允许出现在**登记过**的块里。
+  //    本页唯一登记处是系统卡的边界块（「它不保证什么」）——防自欺条款，刻意退半步。
+  const secondaryBlocks = [...helpCode.matchAll(/data-voice="secondary"[\s\S]*?<\/dl>/g)].map((m) => m[0]);
+  assert.equal(
+    secondaryBlocks.length,
+    1,
+    `本页只允许一处登记过的次级正文块（系统卡边界块），发现 ${secondaryBlocks.length} 处——新增次级正文须显式登记，不得悄悄开口子`,
+  );
+  assert.match(
+    secondaryBlocks[0],
+    /ldvh-body-muted/,
+    '登记的次级正文块必须确实使用次级样式——登记锚点不得空转',
+  );
+
+  const outsideSecondary = helpCode.replace(/data-voice="secondary"[\s\S]*?<\/dl>/g, '');
+  assert.doesNotMatch(
+    outsideSecondary,
+    /ldvh-body-muted/,
+    '登记块之外的正文必须走主色 ldvh-body——此前整页正文几乎全是次级灰，长文读起来发飘',
+  );
+
+  // ④ 12px 的 ldvh-caption 不得承载内容（docs/01 §1.5 第 5 条）。标签档
+  //    ldvh-caption-strong 是允许的，故用前后瞻排除连字符变体。
+  assert.doesNotMatch(
+    helpCode,
+    /(?<![\w-])ldvh-caption(?![\w-])/,
+    '帮助页不得用 12px 的 ldvh-caption 承载内容（docs/01 §1.5 第 5 条）——页面级实质限定此前用 caption 承载，是本页最重的一处可读性欠账',
+  );
+
+  // ⑤ 正文行长上限 40rem：14px 中文约 45 字/行，落在中文排版每行 30–45 字的舒适区。
+  const measures = [...helpCode.matchAll(/max-w-\[(\d+)rem\]/g)].map((m) => Number(m[1]));
+  assert.ok(measures.length > 0, '须能从帮助页读出正文行长约束');
+  for (const measure of measures) {
+    assert.ok(
+      measure <= 40,
+      `正文行长 ${measure}rem 超出 40rem 上限——14px 中文每行超过 45 字后读起来串行（此前 46rem 约 52 字/行）`,
     );
   }
 });
