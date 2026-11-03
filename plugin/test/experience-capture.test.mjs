@@ -154,6 +154,45 @@ test("11 §12bis：evidence 必须含逐字引证（转述式的 evidence 被拒
   assert.equal(r.error.code, "capture/evidence_quote_mismatch");
 });
 
+// ---------------------------------------------------------------------------
+// friction-37458a09：evidence 的「逐字」改为**直接对材料核对**
+//
+// 旧口径要求 quote 是 evidence 的子串——一条规范外自加的包含关系。它既比规范严
+// （两者各自逐字在材料内即可），又比规范弱（evidence 本身从未被核对，可整段概括
+// 只要顺带含一句真引文即通过）。下面三条把这层语义两侧都钉住。
+// ---------------------------------------------------------------------------
+
+test("friction-37458a09：evidence 与 quote 取材料的不同跨度，只要各自逐字即通过", () => {
+  // 两者都真在材料里，但不是包含关系——旧口径会以 evidence_quote_mismatch 拒收。
+  const r = validateCaptureVerdict(
+    goodVerdict({ evidence: "清理缓存后恢复。", quote: "升级后解析失败反复出现" }),
+    { windowText: WINDOW },
+  );
+  assert.ok(r.ok, `各自逐字的两个跨度不应互相绑定：${JSON.stringify(r.error)}`);
+});
+
+test("friction-37458a09（反向控制）：evidence 是概括而 quote 逐字时，仍须被拒", () => {
+  // 旧口径下这条会**通过**（概括串里恰好含 quote 那段），正是被修掉的「比规范弱」。
+  const r = validateCaptureVerdict(
+    goodVerdict({
+      evidence: "升级之后会出现反复的解析失败现象，后来清理缓存才恢复",
+      quote: "升级后解析失败反复出现",
+    }),
+    { windowText: WINDOW },
+  );
+  assert.equal(r.ok, false, "概括式 evidence 不得因包含了一句真引文而通过");
+  assert.equal(r.error.code, "capture/evidence_quote_mismatch");
+});
+
+test("friction-37458a09：拒收文案给出可操作出路（把已核对的 quote 原样填入 evidence）", () => {
+  const r = validateCaptureVerdict(
+    goodVerdict({ evidence: "升级之后会出现反复的解析失败现象", quote: "升级后解析失败反复出现" }),
+    { windowText: WINDOW },
+  );
+  assert.equal(r.ok, false);
+  assert.ok(r.error.message.includes("直接"), `拒收文案须给出出路，实际：${r.error.message}`);
+});
+
 test("11 §12bis：字段长度上限（超出即越界）", () => {
   const r = validateCaptureVerdict(goodVerdict({ source: "s".repeat(257) }), { windowText: WINDOW });
   assert.equal(r.ok, false);

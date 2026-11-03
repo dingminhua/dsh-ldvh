@@ -145,11 +145,12 @@ export function buildCapturePromptSection(_ctx = {}) {
     "",
     "**字段的硬要求**：",
     "- `phenomenon`：**一句话**，描述现象而不是下结论（「请求返回 500」而不是「接口有 bug」）。",
-    "- `evidence`：**逐字**从材料摘出的最小跨度——不改写、不概括、不拼接多段；附来源引用写进 `source`。",
+    "- `evidence`：**逐字**从材料摘出的最小跨度——不改写、不概括、不拼接多段（**必须真在材料里**：落地侧会拿它直接与材料比对，不通过即拒收）；附来源引用写进 `source`。",
     "- `source`：会话 id + 位置 / 文件:行 / 命令与输出的引文。它使审核段能回指原始位置。",
     "- `candidate_question`：一句话指向「这是什么机制」，不是候选正文、不是解法建议。",
-    "- `quote`：**逐字**引自本次材料的原文（≥8 个字，连 Markdown 标记一并复制）。"
-    + "材料非空时两态都必须填——否则「恒报无失败」与「确实没失败」无法区分。",
+    "- `quote`：**逐字**引自本次材料的原文（≥8 个字；文字与标点一字不差即可，`**`／反引号等排版装饰可有可无——比对前会归一）。"
+    + "材料非空时两态都必须填——否则「恒报无失败」与「确实没失败」无法区分。"
+    + "**`quote` 与 `evidence` 各自独立核对，不必互相包含**：两者可以摘材料里的不同跨度，只要各自真在材料里。",
     "",
     "**你要输出的字段**：`verdict`、`phenomenon`、`evidence`、`source`、"
     + "`candidate_question`、`quote`、`reason`。逐条说明见输出 schema。",
@@ -234,15 +235,37 @@ export function validateCaptureVerdict(slice, { windowText = null } = {}) {
     return failure("capture/phenomenon_not_one_sentence", "phenomenon must be a single-sentence description (11 §12bis)");
   }
 
-  // evidence 的「逐字」由 quote 机械核对承载：quote 必须是 evidence 的子串，
-  // 否则说明 evidence 是转述而 quote 另摘一段——两者不一致即证据不可回指。
-  const normEvidence = String(evidence).replace(/\s+/g, " ");
-  const normQuote = String(quote).replace(/\s+/g, " ").trim();
-  if (normQuote.length > 0 && !normEvidence.includes(normQuote)) {
-    return failure(
-      "capture/evidence_quote_mismatch",
-      `evidence must contain the verbatim quote ${JSON.stringify(normQuote)} — evidence is the quoted span, not a paraphrase (11 §12bis)`,
-    );
+  // ── evidence 的「逐字」由**它自己**对材料做机械核对（friction-37458a09）──────
+  //
+  // 旧口径要求「quote 必须是 evidence 的子串」。那是一条**规范外自加**的约束，
+  // 在两个方向上都不对：
+  //
+  //   · 比规范**严**：11 §12bis 只要求 evidence 是材料的逐字片段、quote 是材料的
+  //     逐字片段，两者各自成立即可，并未要求一个是另一个的子串；
+  //   · 比规范**弱**：它从头到尾没核对 evidence 本身是否真在材料里——evidence
+  //     可以是一整段概括，只要它顺带包含了一句真引文就通过。
+  //
+  // 于是产出侧的真实失败（待处置队列累计 48 条 `capture/evidence_quote_mismatch`）
+  // 大量来自一个**只为满足自加约束**的形状问题：evidence 摘的跨度与 quote 不同段。
+  // 现在改为**直接核对 evidence 在材料内**——这才是 §12bis 的那条判据，且它对
+  // 「概括」的拦截比旧口径更硬。
+  //
+  // 为什么不再要求两者有包含关系：它们的职责本就不同——`quote` 负责证明「这条
+  // 判断来自本次窗口」，`evidence` 负责「把最小原文跨度连同来源留在缓冲里」。
+  // 把前者做成后者的前置，只会让两者互相绑死而不增加任何证据力。
+  if (String(evidence).trim().length > 0 && windowText !== null) {
+    const checkedEvidence = verifyQuotation(evidence, windowText);
+    if (!checkedEvidence.ok) {
+      const normQuoteForHint = String(quote ?? "").trim();
+      return failure(
+        "capture/evidence_quote_mismatch",
+        `evidence must be a verbatim span of this run's material (11 §12bis：不得转述、不得概括、不得拼接多段) — `
+        + `got ${JSON.stringify(String(evidence).slice(0, 80))}`
+        + (normQuoteForHint.length > 0
+          ? `。已核对通过的 quote 是 ${JSON.stringify(normQuoteForHint.slice(0, 80))}：若无法确定准确的连续跨度，**直接把 quote 的值原样填入 evidence**（它已被核对为材料原文）。`
+          : "。"),
+      );
+    }
   }
 
   return {

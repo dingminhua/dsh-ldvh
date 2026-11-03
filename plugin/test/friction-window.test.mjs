@@ -180,6 +180,53 @@ test("核对：空窗口下任何引证都被拒（没给材料就不能有依�
 });
 
 // ---------------------------------------------------------------------------
+// friction-37458a09：逐字引证校验拒收「形状不同、内容相同」的引文
+//
+// 判据放宽的是**形状**（Markdown 装饰、空白码位），不是内容。这组用例三条正向
+// （剥掉装饰后仍须被认作材料原文）、两条反向控制（真差异仍须被拒，防止「放宽」
+// 被做成「形同不校验」）。
+// ---------------------------------------------------------------------------
+
+test("核对：剥掉 Markdown 装饰的引文仍算材料原文（friction-37458a09）", () => {
+  const material = "根因是**跨进程水位**没有持久化，`verifyQuotation` 拿不到原文。";
+  const r = verifyQuotation("根因是跨进程水位没有持久化，verifyQuotation 拿不到原文。", material);
+  assert.ok(r.ok, `剥标记后内容相同的引文不应被拒：${JSON.stringify(r.error)}`);
+});
+
+test("核对：引文自带装饰而材料没有，同样算同一段（双向放宽）", () => {
+  const material = "根因是跨进程水位没有持久化。";
+  const r = verifyQuotation("根因是**跨进程水位**没有持久化。", material);
+  assert.ok(r.ok, `加上装饰不应使引文失配：${JSON.stringify(r.error)}`);
+});
+
+test("核对：全角空格与零宽字符不构成内容差异", () => {
+  // 材料里用的是全角空格与零宽字符；引文用普通空格、且不含零宽字符。
+  // 归一化后两者都落到「单空格分隔」，故应判为同一段原文。
+  const material = "第一段\u3000第二段\u200b，第三段。";
+  const r = verifyQuotation("第一段 第二段，第三段。", material);
+  assert.ok(r.ok, `空白码位差异不应被当成内容差异：${JSON.stringify(r.error)}`);
+});
+
+test("核对（反向控制）：空白归一不改变「有没有空白」这一信息", () => {
+  // 归一化只折叠连续空白，不删除空白本身——粘连与分隔是内容差异。
+  const r = verifyQuotation("根因是跨进程水位没有持久化", "根因是跨进程 水位没有持久化");
+  assert.equal(r.ok, false, "空白的有无仍是内容差异，不得靠归一化抹平");
+  assert.equal(r.error.code, "discovery/quote_not_in_window");
+});
+
+test("核对（反向控制）：装饰归一不得吞掉真实的内容差异", () => {
+  const r = verifyQuotation("根因是跨进程水位**没有**持久化", "根因是跨进程水位**已经**持久化");
+  assert.equal(r.ok, false, "字面不同的内容仍须被拒——放宽只针对装饰形状");
+  assert.equal(r.error.code, "discovery/quote_not_in_window");
+});
+
+test("核对（反向控制）：装饰归一不得把两段不相邻原文拼成一段", () => {
+  const r = verifyQuotation("前半句。后半句。", "前半句。中间还有很多别的内容。后半句。");
+  assert.equal(r.ok, false, "跨不相邻片段拼接的引文仍须被拒（11 §11）");
+  assert.equal(r.error.code, "discovery/quote_not_in_window");
+});
+
+// ---------------------------------------------------------------------------
 // 缺陷 D6：水位跨进程持久化，而累积器随进程存活 → 重启后区间可能有缺口
 //
 // 形态：宿主重启后累积器从空开始，水位仍是从前那次的值。若放行，该次运行的

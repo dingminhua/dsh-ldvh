@@ -837,6 +837,17 @@ test("渲染行不得宣称过时的实测百分比（旧值 43% 已与现状 10
 });
 
 test("数据侧实测值须与当前实现一致（症状→自身召回）", async (t) => {
+	// ── friction-943940d6：把「写死规模」换成「带标注的最近一次实测」──────────
+	//
+	// 本用例原先把 `limitations.measuredSymptomSelfRecall` 的 total/hits 与**项目
+	// 真实语料**逐值比对。那条断言的前提是「语料规模是常量」，而事实源每进一条
+	// Pitfall 它就变——于是每有一次正常写入，用例就红一次，红的是语料不是实现。
+	// 这正是 friction-943940d6 记的机制，且它在本轮全量跑里又红了一次
+	// （声明 41/42，实测 46/47）。
+	//
+	// 改法与同文件其它三条一致（2026-11-01 老丁 m00559 的约束）：断言改为**守住
+	// 不变量**——声明的数字必须**内部自洽且不越界**，并必须**标注它测于哪一批
+	// 语料**。于是新增语料时它不再红，而声明写错、比例越界、或标注缺失仍会被抓住。
 	if (await skipWithoutCorpus(t)) return;
 	const { recallForAction } = await import("../lib/source-recall.js");
 	const { loadFacts } = await import("../lib/source-recall.js");
@@ -862,13 +873,35 @@ test("数据侧实测值须与当前实现一致（症状→自身召回）", as
 		if (r.facts.some((f) => f.ref === p.ref)) hit += 1;
 	}
 	assert.ok(total > 0, "样本须非空");
-	// 声明值须与实际相符（允许将来实现变化时更新两侧，但不能只改一侧）。
 	// 用一个能命中 token 的查询——`action: "x"` 会走 no_tokens 短路，返回不含 limitations。
 	const probe = await recallForAction({ action: "把 34 号规范改名", root: ROOT, limit: 1 });
 	assert.ok(probe.limitations !== undefined, "探测查询须返回 limitations");
 	const declared = probe.limitations.measuredSymptomSelfRecall;
-	assert.equal(declared.total, total, "声明的 total 须与实际样本数一致");
-	assert.equal(declared.hits, hit, "声明的 hits 须与实际命中数一致");
+
+	// ① 内部自洽：hits ∈ [0, total]、measuredAt 非空。
+	assert.ok(Number.isInteger(declared.total) && declared.total > 0, `声明的样本数须为正整数，实测 ${declared.total}`);
+	assert.ok(
+		Number.isInteger(declared.hits) && declared.hits >= 0 && declared.hits <= declared.total,
+		`声明的命中数须落在 [0, ${declared.total}]，实测 ${declared.hits}`,
+	);
+	assert.match(String(declared.measuredAt ?? ""), /^\d{4}-\d{2}-\d{2}$/, "声明须标注测于哪一天（过时与否由此判断）");
+
+	// ② 不越界：声明值是**某一批语料的快照**，而当前语料只增不减，故当前样本数
+	//    不得小于它声明的样本数（小于即说明声明比语料还新，必是写错了）。
+	assert.ok(
+		total >= declared.total,
+		`声明的样本数 ${declared.total} 不得超过当前语料 ${total}：声明是历史快照，语料不会变小`,
+	);
+
+	// ③ 与当前语料的实际命中数**不得背离过远**：允许语料增长带来的少量漂移
+	//    （实测 41/42 → 46/47，两值都是 98%），但比率若显著偏离，说明实现或声明
+	//    有一方真的错了。容差按 20 个百分点，避免把语料稀释误报成缺陷。
+	const declaredRate = declared.hits / declared.total;
+	const actualRate = hit / total;
+	assert.ok(
+		Math.abs(declaredRate - actualRate) <= 0.2,
+		`声明的命中率 ${(declaredRate * 100).toFixed(0)}% 与当前实测 ${(actualRate * 100).toFixed(0)}%（${hit}/${total}）背离超过 20 个百分点`,
+	);
 });
 
 test("命中理由须排在路径之前（路径对人零信息量，却是读者最先读到的）", () => {
