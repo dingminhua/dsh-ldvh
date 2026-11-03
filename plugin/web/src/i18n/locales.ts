@@ -1903,6 +1903,7 @@ export const UI_LOCALES = {
     'help.tab.objects': '对象地图',
     'help.tab.gates': '何时停下来找你',
     'help.tab.entries': '入口地图',
+    'help.tab.systems': '七个系统怎么用',
     'help.tab.trust': '怎么判断它说完了',
 
     'help.objects.lead': '每个事实对象都有确定的边界和生命周期。下面按「它是什么 / 什么时候产生 / 你去看什么」列出全部对象类型。',
@@ -1979,6 +1980,48 @@ export const UI_LOCALES = {
     'help.entries.federation.body': '跨项目的汇总视图，覆盖登记列表里的所有管辖项目。同时盯着多个项目时看这里。',
 
     'help.trust.lead': '它说「做完了」，这句话本身不构成证据。按下面三件事来核。',
+
+    'help.systems.lead': '七大业务系统各管一段业务过程，结论落在对象上。下面逐个说清四件事：它管什么、你怎么用、结论落到哪里、它不保证什么。',
+    'help.systems.dutyLabel': '它管什么',
+    'help.systems.usageLabel': '你怎么用',
+    'help.systems.landingLabel': '落到哪里',
+    'help.systems.limitLabel': '它不保证什么',
+
+    'help.systems.goalPlanning.title': '目标规划',
+    'help.systems.goalPlanning.duty': '把你的长期意图确立为可回指、可核对的项目目标，再往下拆出带可判定达成条件的子目标。',
+    'help.systems.goalPlanning.usage': '你把要达成什么说清楚，它把它冻结成一个可回指的锚；往下拆的每条子目标都带着「走到哪算成」，之后每轮都能拿回来核对，不必凭印象重解释一遍。',
+    'help.systems.goalPlanning.limit': '目标存在、状态是 active，不证明目标定得对，也不证明子目标拆得够。',
+
+    'help.systems.sparkRecord.title': '火花记录',
+    'help.systems.sparkRecord.duty': '承接对话里值得跨行动推进的想法、议题与未决问题，给它们一个出生地和主线入口。',
+    'help.systems.sparkRecord.usage': '讨论到一半冒出的另一种做法、反复提到却没定论的疑问，当场记下来才有地方放；换个会话再想起来时能按原样找到，而不是重新发现一遍。',
+    'help.systems.sparkRecord.limit': '登记下来了，不等于这个想法值得推进，也不等于对它的理解已经充分。',
+
+    'help.systems.workOrder.title': '工单执行',
+    'help.systems.workOrder.duty': '执行已经批准的工单，并承接完整的工作包生命周期：批准 → 执行 → 复核 → 关闭 → 交还。',
+    'help.systems.workOrder.usage': '你批了它才动。执行前后各有一道关卡——开工前要你批，做完要你验收交还；中途断了能从当前状态接着跑，不必从头再来。',
+    'help.systems.workOrder.limit': '它不会自己扩大授权范围；子任务跑完不等于整件事做完，执行完成也不等于复核通过。',
+
+    'help.systems.researchAbsorb.title': '调研吸收',
+    'help.systems.researchAbsorb.duty': '围绕你还掌握不了的问题搜集证据，直到不再产生新的确认认识，产出已证实、未证实与缺口三态证据。',
+    'help.systems.researchAbsorb.usage': '把「这个我还没搞明白」交给它，它去找证据，每条结论都带来源锚点；搜到不再冒出新认识时它才停，而不是硬凑一个答案。',
+    'help.systems.researchAbsorb.limit': '调研产出的是事实证据，不自动等于行动授权，也不等于任务完成；结论要进事实源，还得再过准入。',
+
+    'help.systems.dualRecall.title': '双源召回',
+    'help.systems.dualRecall.duty': '每次动手之前，从规范源和事实源召回当前相关的候选，弄清该守什么、该依据什么、哪些事必须停下来问你。',
+    'help.systems.dualRecall.usage': '你不用手动调它——它横切其余六个系统，每次行动前都做一遍；召回只交付候选，「哪一条适用」是召回之后才作的判断。',
+    'help.systems.dualRecall.landing': '不留独立对象——它决定的是接下来怎么动。',
+    'help.systems.dualRecall.limit': '召回命中不等于适用；规则读到了、预检做完了，也不等于行动完成。',
+
+    'help.systems.experience.title': '经验积累',
+    'help.systems.experience.duty': '留存和取回项目的经验认识——哪些值得留下、沉到哪里去、什么时候该回头看它是不是还成立。',
+    'help.systems.experience.usage': '踩过的坑、验证过的失败机制写成经验，下次遇到能直接复用、照着避开；只是偶然出现过一次的现象不会被当成经验收下。方向与未决问题仍归火花。',
+    'help.systems.experience.limit': '留存下来不自动变成规则或授权；反思的结论也不自动生效，得落到规范或事实里，并且经你决定。',
+
+    'help.systems.friction.title': '摩擦销账',
+    'help.systems.friction.duty': '把「应当修但还没修」的系统性阻碍入账，按账目状态累积它的证据与度量。',
+    'help.systems.friction.usage': '它自己会发现并记账——同一个阻碍每重复出现一次，就多一笔证据；修好了要留下可回指的解药证据，实在修不了就留下可复审的接受记录。',
+    'help.systems.friction.limit': '入账不等于立项——该不该修、什么时候修由你决定；立项之后的执行归工单执行。',
     'help.trust.layers.title': '它的声明分三层',
     'help.trust.layers.confirmed.title': '已证实',
     'help.trust.layers.confirmed.body': '有可回读的依据：写后回读、机械校验通过、代理审核的执行记录，以及你的批准或关闭依据。',
@@ -2843,6 +2886,7 @@ export const UI_LOCALES = {
     'help.tab.objects': 'Object map',
     'help.tab.gates': 'When it stops for you',
     'help.tab.entries': 'Entry map',
+    'help.tab.systems': 'The seven systems',
     'help.tab.trust': 'Judging “it is done”',
 
     'help.objects.lead': 'Every fact object has a defined boundary and lifecycle. Below: what each one is, when it appears, and what to read there.',
@@ -2920,6 +2964,48 @@ export const UI_LOCALES = {
     'help.entries.federation.body': 'A cross-project aggregate view covering every governed project in the registry. Look here when you are watching several projects at once.',
 
     'help.trust.lead': 'When it says “done”, that sentence is not evidence by itself. Check it against the three things below.',
+
+    'help.systems.lead': 'The seven business systems each carry one stretch of the business process, and their results land on objects. For each one: what it is in charge of, how you use it, where its result lands, and what it does not guarantee.',
+    'help.systems.dutyLabel': 'What it is in charge of',
+    'help.systems.usageLabel': 'How you use it',
+    'help.systems.landingLabel': 'Where it lands',
+    'help.systems.limitLabel': 'What it does not guarantee',
+
+    'help.systems.goalPlanning.title': 'Goal planning',
+    'help.systems.goalPlanning.duty': 'Turns your long-term intent into a project goal you can point back to and check, then breaks it down into sub-goals whose completion can be decided.',
+    'help.systems.goalPlanning.usage': 'You say what you are trying to achieve; it freezes that into an anchor you can point back to. Every sub-goal carries “done means this”, so any later round can check against it instead of re-interpreting the goal from memory.',
+    'help.systems.goalPlanning.limit': 'A goal existing, or being active, does not prove the goal was set well or the sub-goals were broken down enough.',
+
+    'help.systems.sparkRecord.title': 'Spark recording',
+    'help.systems.sparkRecord.duty': 'Takes in the ideas, questions and open issues from a conversation that are worth carrying across actions, and gives them a birthplace and an entry point on the main line.',
+    'help.systems.sparkRecord.usage': 'When another approach surfaces halfway through a discussion, or a question keeps coming back without an answer, get it written down while it is still clear. It then has a place to be found in a later session, instead of being discovered all over again.',
+    'help.systems.sparkRecord.limit': 'Being written down does not mean the idea deserves to be pushed forward, nor that it has been understood well enough.',
+
+    'help.systems.workOrder.title': 'Work order execution',
+    'help.systems.workOrder.duty': 'Executes work orders that have already been approved, and carries the whole work-package lifecycle: approved → executed → reviewed → closed → handed back.',
+    'help.systems.workOrder.usage': 'It only moves once you approve it. There is a gate on each side of the work — one before it starts, one where you accept the result and take it back. If it is interrupted, it resumes from the current state rather than starting over.',
+    'help.systems.workOrder.limit': 'It does not widen its own authorization; a sub-task finishing is not the whole thing finishing, and execution done is not review passed.',
+
+    'help.systems.researchAbsorb.title': 'Research absorption',
+    'help.systems.researchAbsorb.duty': 'Gathers evidence on a question you do not yet know, until it stops producing new confirmations, and returns it as three kinds: confirmed, unconfirmed, and gaps.',
+    'help.systems.researchAbsorb.usage': 'Hand it the part you do not understand; it goes looking for evidence, and every claim carries an anchor back to its source. It stops when the search stops turning up new understanding, instead of forcing an answer.',
+    'help.systems.researchAbsorb.limit': 'Research yields facts, not authorization and not completion; a conclusion still has to pass admission before it enters the fact source.',
+
+    'help.systems.dualRecall.title': 'Dual-source recall',
+    'help.systems.dualRecall.duty': 'Before every action, recalls the currently relevant candidates from the specification source and the fact source, so it knows what to obey, what to rely on, and what has to stop and ask you.',
+    'help.systems.dualRecall.usage': 'You never call it by hand — it cuts across the other six systems and runs before every action. Recall only delivers candidates; whether one of them applies is judged after the recall, not during it.',
+    'help.systems.dualRecall.landing': 'It leaves no object of its own — what it decides is how everything else acts next.',
+    'help.systems.dualRecall.limit': 'A hit is not the same as applicability; having read the rules and completed the pre-check does not mean the action is done.',
+
+    'help.systems.experience.title': 'Experience accumulation',
+    'help.systems.experience.duty': 'Keeps and retrieves what the project has learned — what is worth keeping, where it should settle, and when to look back and ask whether it still holds.',
+    'help.systems.experience.usage': 'A pitfall you fell into, or a failure mechanism you have verified, is written down so the next time can reuse it and steer around it. A one-off coincidence is not taken in as experience. Directions and open questions still go to Sparks.',
+    'help.systems.experience.limit': 'Keeping it does not turn it into a rule or an authorization on its own, and a reflection does not take effect by itself — it has to land in a specification or a fact, and be decided by you.',
+
+    'help.systems.friction.title': 'Friction settlement',
+    'help.systems.friction.duty': 'Books the systemic obstacles that should be fixed but are not yet, accumulating the evidence and the measures against each account.',
+    'help.systems.friction.usage': 'It finds and books them on its own — the same obstacle coming back once more adds another piece of evidence. Once fixed, it has to leave a traceable antidote behind; when it genuinely cannot be fixed, it leaves a reviewable record of acceptance instead.',
+    'help.systems.friction.limit': 'Booking it is not the same as approving the work — whether and when to fix it is your call, and the work itself then goes to work order execution.',
     'help.trust.layers.title': 'Its claims come in three layers',
     'help.trust.layers.confirmed.title': 'Confirmed',
     'help.trust.layers.confirmed.body': 'There is a readable ground: a write-back read, a passed mechanical check, the record of a peer review, and the evidence of your approval or closure.',

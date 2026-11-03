@@ -15,13 +15,17 @@
  *    直接露出 key。
  * 4. **对象地图必须与左侧导航的对象族一一对应**：少一类＝有一个入口没被解释；多一类
  *    ＝在讲不存在的东西。
- * 5. **图标走集中映射**：对象类型图标走 `ObjectTypeIcon`，导航入口图标走 `NAV_ICONS`
- *    （09 §8「图标映射集中在 SemanticIcon.tsx，页面不得自行散落图标选择」）。
+ * 5. **图标走集中映射**：对象类型图标走 `ObjectTypeIcon`，导航入口图标走 `NAV_ICONS`，
+ *    业务系统图标走 `SYSTEM_ICONS`（09 §8「图标映射集中在 SemanticIcon.tsx，页面不得自行
+ *    散落图标选择」）。
  * 6. **不得用视口断点类、不得用任意字号、不得用单侧粗边框**（§1.6.1 第 3 条、
  *    §1.4、§1.10「色彩和状态」第 7 条）。
  * 7. **零数据请求**：本页是静态引导，不读事实源。
  * 8. **英文文案的引号用弯引号**：直双引号在英文态会读成「代码里的引号」，与中文侧的
  *    `「 」` 不对位（本仓 `settings.removeConfirm` 已有先例）。
+ * 9. **系统清单必须与规范源一一对应**：帮助页讲的「七大业务系统」是 `specs/03` §9.1–§9.7
+ *    的七节，多一个是在讲不存在的系统，少一个是有一个系统没被解释。这条**读规范源**，
+ *    不写死名单——规范改了，守卫跟着改，页面必须同步改。
  *
  * **保证边界（如实登记）**：本守卫是**源码级**的——它证明页面的结构与取用方式符合
  * 上述约定，不证明页面上每句话与规范源逐字一致（那句话由人工与规范评审承担）。
@@ -29,10 +33,28 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 function read(relativePath: string) {
   return fs.readFileSync(path.resolve(relativePath), 'utf8');
+}
+
+/**
+ * 规范源目录（仓库根 `specs/`）。从本文件位置反解，不依赖进程 cwd——
+ * 同一份守卫无论从 `plugin/web` 还是仓库根跑，读到的都是同一批规范源。
+ */
+const SPEC_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  '..',
+  '..',
+  'specs',
+);
+
+function readSpec(fileName: string) {
+  return fs.readFileSync(path.join(SPEC_ROOT, fileName), 'utf8');
 }
 
 /**
@@ -122,6 +144,36 @@ test('对象类型图标与导航入口图标必须走集中映射', () => {
       `帮助页不得内联对象类型图标 ${icon}，须经 ObjectTypeIcon 集中映射（09 §8）`,
     );
   }
+
+  // 业务系统图标：七大业务系统没有对象身份可继承对象类型图标，故另立 SYSTEM_ICONS；
+  // 帮助页不得自行 import 那七个 lucide 图形。
+  assert.match(semanticIcon, /export const SYSTEM_ICONS/, 'SemanticIcon 须导出业务系统图标映射 SYSTEM_ICONS');
+  for (const icon of ['Waypoints', 'Sprout', 'Cog', 'Telescope', 'Combine', 'Library', 'Receipt']) {
+    assert.doesNotMatch(
+      helpCode,
+      new RegExp(`\\b${icon}\\b`),
+      `帮助页不得内联业务系统图标 ${icon}，须经 SYSTEM_ICONS 集中映射（09 §8）`,
+    );
+  }
+  assert.match(help, /SYSTEM_ICONS\[/, '帮助页须经 SYSTEM_ICONS 取业务系统图标');
+
+  // SYSTEM_ICONS 必须登记齐帮助页用到的全部系统键——少登记一个，那张卡的图标就是
+  // undefined，页面静默塌成空白而不报错。
+  const systemIconsBlock = semanticIcon.slice(
+    semanticIcon.indexOf('export const SYSTEM_ICONS'),
+    semanticIcon.indexOf('type SemanticIconProps'),
+  );
+  const registeredIcons = [...systemIconsBlock.matchAll(/^\s{2}(\w+):\s*\w+,/gm)].map((m) => m[1]);
+  const systemMapBlock = help.slice(help.indexOf('const SYSTEM_MAP'), help.indexOf('const TRUST_LAYERS'));
+  const usedIcons = [...systemMapBlock.matchAll(/icon: '(\w+)'/g)].map((m) => m[1]);
+
+  assert.ok(usedIcons.length > 0, '须能从帮助页读出用到的业务系统图标键');
+  const unregistered = usedIcons.filter((key) => !registeredIcons.includes(key));
+  assert.deepEqual(
+    unregistered,
+    [],
+    `SYSTEM_ICONS 未登记以下业务系统图标：${JSON.stringify(unregistered)}——图标取不到时页面静默塌成空白，不报错`,
+  );
 });
 
 test('帮助页的对象地图必须与左侧导航的对象族一一对应', () => {
@@ -166,6 +218,7 @@ test('帮助页的中英文案必须一一对应，且旧流程词条不得复�
     'help.tab.objects',
     'help.tab.gates',
     'help.tab.entries',
+    'help.tab.systems',
     'help.tab.trust',
     'help.disclaimer',
   ]) {
@@ -184,6 +237,32 @@ test('帮助页的英文文案不得使用直双引号', async () => {
       `英文 help 词条 ${key} 不得用直双引号，须用弯引号“ ”（与中文侧「 」对位）`,
     );
   }
+});
+
+test('帮助页讲的七大业务系统必须与 specs/03 §9 一一对应', async () => {
+  const { UI_LOCALES } = await import('../../src/i18n/locales.ts');
+
+  // 规范源：03 §9.1–§9.7 的七节标题——这是「七大业务系统」的权威清单。
+  // **读规范源而不是写死名单**：规范改名时守卫跟着变，页面必须同步改；写死名单则
+  // 规范改了页面不改，两边悄悄分叉而无人察觉。
+  const spec = readSpec('03-业务系统基础规范.md');
+  const specSystems = [...spec.matchAll(/^###\s+9\.(\d+)\s+(.+?)\s*$/gm)].map((m) => m[2]);
+  assert.equal(
+    specSystems.length,
+    7,
+    'specs/03 §9 应当是七节（七大业务系统）——若规范改动此处，页面与本守卫须同步',
+  );
+
+  // 页面：help.systems.<key>.title 的中文值。
+  const pageSystems = Object.entries(UI_LOCALES.zh)
+    .filter(([key]) => /^help\.systems\.[^.]+\.title$/.test(key))
+    .map(([, value]) => value);
+
+  assert.deepEqual(
+    [...pageSystems].sort(),
+    [...specSystems].sort(),
+    '帮助页的系统清单必须与 specs/03 §9 的七大业务系统一一对应——多一个是在讲不存在的系统，少一个是有一个系统没被解释',
+  );
 });
 
 test('帮助页不得硬编码中文文案，且不发起任何数据请求', () => {

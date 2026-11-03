@@ -1,6 +1,8 @@
 import type { ComponentType } from 'react';
 import {
   Activity,
+  Cog,
+  Combine,
   FileText,
   ClipboardList,
   GitCommit,
@@ -10,16 +12,21 @@ import {
   FolderTree,
   Globe2,
   LayoutDashboard,
+  Library,
   Lightbulb,
   Link2,
   MapPinned,
   Milestone,
   NotebookPen,
+  Receipt,
   Ruler,
   Shovel,
   Snail,
   Sparkles,
+  Sprout,
   Target,
+  Telescope,
+  Waypoints,
   Workflow,
   type LucideProps,
 } from 'lucide-react';
@@ -122,6 +129,42 @@ export const NAV_ICONS: Record<string, SemanticIconComponent> = {
   diagnostics: Activity,
   // 全部项目=地球（联邦聚合视图入口，由项目切换器进入）。
   federation: Globe2,
+};
+
+/**
+ * 业务系统图标（09 §8「图标映射集中在 SemanticIcon.tsx，页面不得自行散落图标选择」）。
+ *
+ * **为什么单列一份**：七大业务系统（03 §9.1–§9.7）是**规范层的过程**，不是事实对象，
+ * 没有对象身份可继承 `OBJECT_TYPE_ICONS`——它们的结论落在对象上，但系统本身没有对象。
+ * 帮助页要讲这七个系统的职能与用法，就得有一份系统自己的图形映射；散在页面里等于再散一份。
+ *
+ * **选形纪律**：与对象类型图标全部错开形（读者一眼分得清「这是对象」还是「这是系统」），
+ * 且七个彼此不撞：路标排（目标规划）、嫩芽（火花记录）、齿轮（工单执行）、望远镜
+ * （调研吸收）、合并（双源召回）、书架（经验积累）、票据（摩擦销账）。
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- 与 OBJECT_TYPE_ICONS / NAV_ICONS 同理：帮助页消费，拆文件即打断共置断言。
+export const SYSTEM_ICONS: Record<string, SemanticIconComponent> = {
+  // 目标规划=路标排（Waypoints＝一条方向上的多个判定站点，与 subgoal 的单个 Milestone
+  // 路标区分开：系统负责把目标拆成一串站点，对象只是其中一个）。
+  goalPlanning: Waypoints,
+  // 火花记录=嫩芽（Sprout＝刚冒出来、还没定型的念头；与 spark 对象的 Sparkles 星芒
+  // 区分开：那是被登记之后的形态，这里是它出生前的样）。
+  sparkRecord: Sprout,
+  // 工单执行=齿轮（ Cog＝已经批准之后才转起来的机制；与 workcase 对象的 Shovel
+  // 铲子区分开：铲子是那件工作的载体，齿轮是它运转的机制）。
+  workOrder: Cog,
+  // 调研吸收=望远镜（Telescope＝朝还没掌握的方向看；与 research 对象的
+  // FileSearchCornerIcon 检索式图形区分开：那是报告载体，这是找证据这件事）。
+  researchAbsorb: Telescope,
+  // 双源召回=合并（Combine＝规范源与事实源两股并成一股当前约束；它是横切过程，
+  // 不留对象，所以图形不能是任何一件东西的形状）。
+  dualRecall: Combine,
+  // 经验积累=书架（Library＝沉下来能反复取用的存量；与 pitfall 对象的 Lightbulb
+  // 醒悟区分开：那是一次教训，这是教训被收起来之后的样子）。
+  experience: Library,
+  // 摩擦销账=票据（Receipt＝一笔一笔记着的账；与 friction 对象的 Snail 蜗牛
+  // 区分开：蜗牛是阻碍本身的体感，票据是它被记在账上的样子）。
+  friction: Receipt,
 };
 
 type SemanticIconProps = Omit<LucideProps, 'ref'> & {

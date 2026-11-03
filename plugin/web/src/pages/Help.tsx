@@ -35,7 +35,7 @@ import {
   type LucideProps,
 } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
-import { NAV_ICONS, ObjectTypeIcon } from '@/components/SemanticIcon';
+import { NAV_ICONS, ObjectTypeIcon, SYSTEM_ICONS } from '@/components/SemanticIcon';
 import { getTypeLabel, type LocaleKey } from '@/i18n/locales';
 import { getCategoryColor } from '@/utils/categoryColors';
 import { useI18n } from '@/i18n/context';
@@ -157,6 +157,103 @@ const ENTRY_MAP: { icon: string; to: string; title: LocaleKey; body: LocaleKey }
   { icon: 'federation', to: '/federation', title: 'help.entries.federation.title', body: 'help.entries.federation.body' },
 ];
 
+/**
+ * 七大业务系统（03 §9.1–§9.7，00 §3.4）。
+ *
+ * **为什么单独讲**：页面其余部分讲的是**形态**（对象类型）与**入口**（导航），而这七项是
+ * **规范层的过程**——它们各自管一段业务过程，结论落在对象上，但系统本身不是对象。
+ * 「对象是什么」与「这件事由谁管、怎么用」是两件事，缺一件，人就只看得见名词。
+ *
+ * **每个系统给四行**：它管什么 / 你怎么用 / 落到哪里 / 它不保证什么。最后一行不是客套
+ * ——每个系统的边界都是一条防自欺条款（「登记了」不等于「推进了」），与「怎么判断它说
+ * 完了」分区是同一件事的两个落点。
+ *
+ * **落到哪里**：系统结论所依附的事实对象，可直接打开；双源召回不留独立对象（它是横切
+ * 过程），故那一格给文字说明而不是链接。
+ */
+const SYSTEM_MAP: {
+  key: string;
+  icon: string;
+  title: LocaleKey;
+  duty: LocaleKey;
+  usage: LocaleKey;
+  /** 仅横切的双源召回没有承载对象，它那一格给文字说明而不是链接。 */
+  landing?: LocaleKey;
+  limit: LocaleKey;
+  objects: { to: string; type: string }[];
+}[] = [
+  {
+    key: 'goalPlanning',
+    icon: 'goalPlanning',
+    title: 'help.systems.goalPlanning.title',
+    duty: 'help.systems.goalPlanning.duty',
+    usage: 'help.systems.goalPlanning.usage',
+    limit: 'help.systems.goalPlanning.limit',
+    objects: [
+      { to: '/goal', type: 'goal' },
+      { to: '/objects/subgoal', type: 'subgoal' },
+    ],
+  },
+  {
+    key: 'sparkRecord',
+    icon: 'sparkRecord',
+    title: 'help.systems.sparkRecord.title',
+    duty: 'help.systems.sparkRecord.duty',
+    usage: 'help.systems.sparkRecord.usage',
+    limit: 'help.systems.sparkRecord.limit',
+    objects: [{ to: '/objects/spark', type: 'spark' }],
+  },
+  {
+    key: 'workOrder',
+    icon: 'workOrder',
+    title: 'help.systems.workOrder.title',
+    duty: 'help.systems.workOrder.duty',
+    usage: 'help.systems.workOrder.usage',
+    limit: 'help.systems.workOrder.limit',
+    objects: [{ to: '/objects/workcase', type: 'workcase' }],
+  },
+  {
+    key: 'researchAbsorb',
+    icon: 'researchAbsorb',
+    title: 'help.systems.researchAbsorb.title',
+    duty: 'help.systems.researchAbsorb.duty',
+    usage: 'help.systems.researchAbsorb.usage',
+    limit: 'help.systems.researchAbsorb.limit',
+    objects: [{ to: '/objects/research', type: 'research' }],
+  },
+  {
+    key: 'dualRecall',
+    icon: 'dualRecall',
+    title: 'help.systems.dualRecall.title',
+    duty: 'help.systems.dualRecall.duty',
+    usage: 'help.systems.dualRecall.usage',
+    landing: 'help.systems.dualRecall.landing',
+    limit: 'help.systems.dualRecall.limit',
+    objects: [],
+  },
+  {
+    key: 'experience',
+    icon: 'experience',
+    title: 'help.systems.experience.title',
+    duty: 'help.systems.experience.duty',
+    usage: 'help.systems.experience.usage',
+    limit: 'help.systems.experience.limit',
+    objects: [
+      { to: '/objects/pitfall', type: 'pitfall' },
+      { to: '/objects/spark', type: 'spark' },
+    ],
+  },
+  {
+    key: 'friction',
+    icon: 'friction',
+    title: 'help.systems.friction.title',
+    duty: 'help.systems.friction.duty',
+    usage: 'help.systems.friction.usage',
+    limit: 'help.systems.friction.limit',
+    objects: [{ to: '/objects/friction', type: 'friction' }],
+  },
+];
+
 /** 声明的三层（00 §5.6 据实声明）。 */
 const TRUST_LAYERS: { title: LocaleKey; body: LocaleKey }[] = [
   { title: 'help.trust.layers.confirmed.title', body: 'help.trust.layers.confirmed.body' },
@@ -187,6 +284,7 @@ const TABS = [
   { id: 'objects', label: 'help.tab.objects' },
   { id: 'gates', label: 'help.tab.gates' },
   { id: 'entries', label: 'help.tab.entries' },
+  { id: 'systems', label: 'help.tab.systems' },
   { id: 'trust', label: 'help.tab.trust' },
 ] as const;
 
@@ -303,6 +401,7 @@ export default function Help() {
         {tab === 'objects' && <ObjectMapPanel />}
         {tab === 'gates' && <GatesPanel />}
         {tab === 'entries' && <EntriesPanel />}
+        {tab === 'systems' && <SystemsPanel />}
         {tab === 'trust' && <TrustPanel />}
       </div>
 
@@ -433,6 +532,56 @@ function EntriesPanel() {
                   <ArrowRight size={13} className="shrink-0 text-ldvh-text-secondary/70" aria-hidden="true" />
                 </Link>
               </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function SystemsPanel() {
+  const { t } = useI18n();
+  return (
+    <section className="min-w-0">
+      <p className="ldvh-body-muted max-w-[62rem]">{t('help.systems.lead')}</p>
+      <div className="ldvh-section-grid mt-3">
+        {SYSTEM_MAP.map((system) => {
+          const Icon = SYSTEM_ICONS[system.icon];
+          return (
+            <article key={system.key} className="rounded-xl border border-ldvh-border bg-ldvh-panel p-4">
+              <div className="flex min-w-0 items-center gap-2">
+                <Icon size={15} className="shrink-0 text-ldvh-text-secondary" aria-hidden="true" />
+                <h3 className="ldvh-card-title min-w-0">{t(system.title)}</h3>
+              </div>
+              <dl className="mt-3 flex min-w-0 flex-col gap-2">
+                <div>
+                  <dt className="ldvh-caption-strong">{t('help.systems.dutyLabel')}</dt>
+                  <dd className="ldvh-body-muted mt-0.5">{t(system.duty)}</dd>
+                </div>
+                <div>
+                  <dt className="ldvh-caption-strong">{t('help.systems.usageLabel')}</dt>
+                  <dd className="ldvh-body-muted mt-0.5">{t(system.usage)}</dd>
+                </div>
+                <div>
+                  <dt className="ldvh-caption-strong">{t('help.systems.landingLabel')}</dt>
+                  <dd className="mt-0.5">
+                    {system.objects.length > 0 ? (
+                      <span className="flex min-w-0 flex-wrap gap-x-3 gap-y-1">
+                        {system.objects.map((object) => (
+                          <TypeLink key={object.type} to={object.to} type={object.type} />
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="ldvh-body-muted">{system.landing ? t(system.landing) : null}</span>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="ldvh-caption-strong">{t('help.systems.limitLabel')}</dt>
+                  <dd className="ldvh-body-muted mt-0.5">{t(system.limit)}</dd>
+                </div>
+              </dl>
             </article>
           );
         })}
